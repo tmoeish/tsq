@@ -111,15 +111,13 @@ func ParseTableMeta(
 	var queryList IdxList
 	tmp := map[string]bool{}
 	for _, idx := range em.IdxList {
-		if !tmp[idx.Name] {
-			queryName := strings.Join(idx.Fields, "And")
-			if !tmp[queryName] {
-				queryList = append(queryList, IDX{
-					Name:   queryName,
-					Fields: idx.Fields,
-				})
-				tmp[queryName] = true
-			}
+		queryName := strings.Join(idx.Fields, "And")
+		if !tmp[queryName] {
+			queryList = append(queryList, IDX{
+				Name:   queryName,
+				Fields: idx.Fields,
+			})
+			tmp[queryName] = true
 		}
 
 		for j := len(idx.Fields); j > 0; j-- {

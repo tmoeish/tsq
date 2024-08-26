@@ -8,7 +8,7 @@ import (
 //
 //	@TABLE
 //	@UX(UxAppIDEnvCode=AppID,EnvCode)
-//	@IDX(IdxAppID=AppID)
+//	@IDX(IdxAppEnvLevel=AppID,EnvLevel)
 //	@IDX(IdxEnvLevel=EnvLevel)
 //	@KW(EnvName)
 //	@V

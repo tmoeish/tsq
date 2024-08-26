@@ -939,6 +939,86 @@ func PageEnvByAppID(
 	})
 }
 
+// ListEnvByAppIDAndEnvLevelQuery queries Env by index AppIDAndEnvLevel.
+var ListEnvByAppIDAndEnvLevelQuery = tsq.
+	Select(TableEnv.Columns()...).
+	Where(
+		Env_AppID.EQVar(),
+		Env_EnvLevel.EQVar(),
+	).
+	KwSearch(TableEnv.KwList()...).
+	MustBuild()
+
+// CountEnvByAppIDAndEnvLevel counts Env by index AppIDAndEnvLevel.
+func CountEnvByAppIDAndEnvLevel(
+	ctx context.Context,
+	db gorp.SqlExecutor,
+	appID int64,
+	envLevel EnvLevel,
+) (int, error) {
+	query := ListEnvByAppIDAndEnvLevelQuery
+
+	var rs int
+	return rs, tsq.TraceDB(ctx, func(ctx context.Context) error {
+		var err error
+		rs, err = query.Count(
+			ctx,
+			db,
+			appID,
+			envLevel,
+		)
+		return errors.Trace(err)
+	})
+}
+
+// ListEnvByAppIDAndEnvLevel lists Env by index AppIDAndEnvLevel.
+func ListEnvByAppIDAndEnvLevel(
+	ctx context.Context,
+	db gorp.SqlExecutor,
+	appID int64,
+	envLevel EnvLevel,
+) ([]*Env, error) {
+	query := ListEnvByAppIDAndEnvLevelQuery
+
+	var data []*Env
+	return data, tsq.TraceDB(ctx, func(ctx context.Context) error {
+		var err error
+		data, err = tsq.List[Env](
+			ctx,
+			db,
+			query,
+			appID,
+			envLevel,
+		)
+		return errors.Trace(err)
+	})
+}
+
+// PageEnvByAppIDAndEnvLevel page lists Env by index AppIDAndEnvLevel.
+func PageEnvByAppIDAndEnvLevel(
+	ctx context.Context,
+	db gorp.SqlExecutor,
+	page *tsq.PageReq,
+	appID int64,
+	envLevel EnvLevel,
+) (*tsq.PageResp[Env], error) {
+	query := ListEnvByAppIDAndEnvLevelQuery
+
+	var rs *tsq.PageResp[Env]
+	return rs, tsq.TraceDB(ctx, func(ctx context.Context) error {
+		var err error
+		rs, err = tsq.Page[Env](
+			ctx,
+			db,
+			page,
+			query,
+			appID,
+			envLevel,
+		)
+		return errors.Trace(err)
+	})
+}
+
 // ListEnvByEnvLevelQuery queries Env by index EnvLevel.
 var ListEnvByEnvLevelQuery = tsq.
 	Select(TableEnv.Columns()...).
@@ -1088,6 +1168,92 @@ func PageActiveEnvByAppID(
 			page,
 			query,
 			appID,
+		)
+		return errors.Trace(err)
+	})
+}
+
+// listActiveEnvByAppIDAndEnvLevelQuery queries *Active* Env by index AppIDAndEnvLevel.
+// *removed record are not included*.
+var listActiveEnvByAppIDAndEnvLevelQuery = tsq.
+	Select(TableEnv.Columns()...).
+	Where(
+		Env_DT.EQ(0),
+		Env_AppID.EQVar(),
+		Env_EnvLevel.EQVar(),
+	).
+	KwSearch(TableEnv.KwList()...).
+	MustBuild()
+
+// CountActiveEnvByAppIDAndEnvLevel counts *Active* Env by index AppIDAndEnvLevel.
+// *removed record are not included*.
+func CountActiveEnvByAppIDAndEnvLevel(
+	ctx context.Context,
+	db gorp.SqlExecutor,
+	appID int64,
+	envLevel EnvLevel,
+) (int, error) {
+	query := listActiveEnvByAppIDAndEnvLevelQuery
+
+	var rs int
+	return rs, tsq.TraceDB(ctx, func(ctx context.Context) error {
+		var err error
+		rs, err = query.Count(
+			ctx,
+			db,
+			appID,
+			envLevel,
+		)
+		return errors.Trace(err)
+	})
+}
+
+// ListActiveEnvByAppIDAndEnvLevel lists *Active* Env by index AppIDAndEnvLevel.
+// *removed record are not included*.
+func ListActiveEnvByAppIDAndEnvLevel(
+	ctx context.Context,
+	db gorp.SqlExecutor,
+	appID int64,
+	envLevel EnvLevel,
+) ([]*Env, error) {
+	query := listActiveEnvByAppIDAndEnvLevelQuery
+
+	var data []*Env
+	return data, tsq.TraceDB(ctx, func(ctx context.Context) error {
+		var err error
+		data, err = tsq.List[Env](
+			ctx,
+			db,
+			query,
+			appID,
+			envLevel,
+		)
+		return errors.Trace(err)
+	})
+}
+
+// PageActiveEnvByAppIDAndEnvLevel page lists *Active* Env by index AppIDAndEnvLevel.
+// *removed records are not included*.
+func PageActiveEnvByAppIDAndEnvLevel(
+	ctx context.Context,
+	db gorp.SqlExecutor,
+	page *tsq.PageReq,
+	appID int64,
+	envLevel EnvLevel,
+) (*tsq.PageResp[Env], error) {
+	query := listActiveEnvByAppIDAndEnvLevelQuery
+
+	var rs *tsq.PageResp[Env]
+	return rs, tsq.TraceDB(ctx, func(ctx context.Context) error {
+		var err error
+		//rs, err = PageEnvByQuery(
+		rs, err = tsq.Page[Env](
+			ctx,
+			db,
+			page,
+			query,
+			appID,
+			envLevel,
 		)
 		return errors.Trace(err)
 	})
