@@ -9,16 +9,17 @@ import (
 )
 
 type TableMeta struct {
-	Table    string
-	CustomID bool
-	ID       string
-	Version  string
-	CT       string
-	MT       string
-	DT       string
-	KwList   []string
-	UxList   UxList
-	IdxList  IdxList
+	Table     string
+	CustomID  bool
+	ID        string
+	Version   string
+	CT        string
+	MT        string
+	DT        string
+	KwList    []string
+	UxList    UxList
+	IdxList   IdxList
+	QueryList IdxList
 
 	UxMap  map[string][]string // name -> fieldNames
 	IdxMap map[string][]string // name -> fieldNames
@@ -108,12 +109,11 @@ func ParseTableMeta(
 		return nil
 	}
 
-	var queryList IdxList
 	tmp := map[string]bool{}
 	for _, idx := range em.IdxList {
 		queryName := strings.Join(idx.Fields, "And")
 		if !tmp[queryName] {
-			queryList = append(queryList, IDX{
+			em.QueryList = append(em.QueryList, IDX{
 				Name:   queryName,
 				Fields: idx.Fields,
 			})
@@ -123,7 +123,7 @@ func ParseTableMeta(
 		for j := len(idx.Fields); j > 0; j-- {
 			queryName := strings.Join(idx.Fields[:j], "And")
 			if !tmp[queryName] {
-				queryList = append(queryList, IDX{
+				em.QueryList = append(em.QueryList, IDX{
 					Name:   queryName,
 					Fields: idx.Fields[:j],
 				})
@@ -131,13 +131,15 @@ func ParseTableMeta(
 			}
 		}
 	}
-	em.IdxList = queryList
 
 	sort.Slice(em.UxList, func(i, j int) bool {
 		return em.UxList[i].Name < em.UxList[j].Name
 	})
 	sort.Slice(em.IdxList, func(i, j int) bool {
 		return em.IdxList[i].Name < em.IdxList[j].Name
+	})
+	sort.Slice(em.QueryList, func(i, j int) bool {
+		return em.QueryList[i].Name < em.QueryList[j].Name
 	})
 
 	return em

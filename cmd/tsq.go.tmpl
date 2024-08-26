@@ -105,12 +105,12 @@ var (
 // UxMap implements Table interface
 {{$recv}}UxMap() map[string][]string {
 	return map[string][]string{
-{{- range $n, $fs := .UxMap }}
-		"{{$n | CamelToSnake}}": {
+{{- range $fs := .UxList }}
+		"{{$fs.Name | CamelToSnake}}": {
 	{{- if $dot.DT }}
 			"{{(index $dot.FieldMap $dot.DT).Column}}",
 	{{- end	}}
-	{{- range $f := $fs }}
+	{{- range $f := $fs.Fields }}
 			"{{(index $dot.FieldMap $f).Column}}",
 	{{- end }}
 		},
@@ -122,12 +122,12 @@ var (
 // IdxMap implements Table interface
 {{$recv}}IdxMap() map[string][]string {
 	return map[string][]string{
-{{- range $n, $fs := .IdxMap }}
-		"{{$n | CamelToSnake}}": {
+{{- range $fs := .IdxList }}
+		"{{$fs.Name | CamelToSnake}}": {
 	{{- if $dot.DT }}
 			"{{(index $dot.FieldMap $dot.DT).Column}}",
 	{{- end	}}
-	{{- range $f := $fs }}
+	{{- range $f := $fs.Fields }}
 			"{{(index $dot.FieldMap $f).Column}}",
 	{{- end }}
 		},

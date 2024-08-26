@@ -146,12 +146,28 @@ func (r Env) KwList() []tsq.IColumn {
 
 // UxMap implements Table interface
 func (r Env) UxMap() map[string][]string {
-	return map[string][]string{}
+	return map[string][]string{
+		"app_id_and_env_code": {
+			"dt",
+			"app_id",
+			"env_code",
+		},
+	}
 }
 
 // IdxMap implements Table interface
 func (r Env) IdxMap() map[string][]string {
-	return map[string][]string{}
+	return map[string][]string{
+		"app_id_and_env_level": {
+			"dt",
+			"app_id",
+			"env_level",
+		},
+		"env_level": {
+			"dt",
+			"env_level",
+		},
+	}
 }
 
 // Active checks if Env is active
@@ -866,79 +882,6 @@ func ExistsActiveEnvByAppIDAndEnvCode(
 
 ////////////////////////////// Query all by IDX ////////////////////////////////
 
-// ListEnvByAppIDQuery queries Env by index AppID.
-var ListEnvByAppIDQuery = tsq.
-	Select(TableEnv.Columns()...).
-	Where(
-		Env_AppID.EQVar(),
-	).
-	KwSearch(TableEnv.KwList()...).
-	MustBuild()
-
-// CountEnvByAppID counts Env by index AppID.
-func CountEnvByAppID(
-	ctx context.Context,
-	db gorp.SqlExecutor,
-	appID int64,
-) (int, error) {
-	query := ListEnvByAppIDQuery
-
-	var rs int
-	return rs, tsq.TraceDB(ctx, func(ctx context.Context) error {
-		var err error
-		rs, err = query.Count(
-			ctx,
-			db,
-			appID,
-		)
-		return errors.Trace(err)
-	})
-}
-
-// ListEnvByAppID lists Env by index AppID.
-func ListEnvByAppID(
-	ctx context.Context,
-	db gorp.SqlExecutor,
-	appID int64,
-) ([]*Env, error) {
-	query := ListEnvByAppIDQuery
-
-	var data []*Env
-	return data, tsq.TraceDB(ctx, func(ctx context.Context) error {
-		var err error
-		data, err = tsq.List[Env](
-			ctx,
-			db,
-			query,
-			appID,
-		)
-		return errors.Trace(err)
-	})
-}
-
-// PageEnvByAppID page lists Env by index AppID.
-func PageEnvByAppID(
-	ctx context.Context,
-	db gorp.SqlExecutor,
-	page *tsq.PageReq,
-	appID int64,
-) (*tsq.PageResp[Env], error) {
-	query := ListEnvByAppIDQuery
-
-	var rs *tsq.PageResp[Env]
-	return rs, tsq.TraceDB(ctx, func(ctx context.Context) error {
-		var err error
-		rs, err = tsq.Page[Env](
-			ctx,
-			db,
-			page,
-			query,
-			appID,
-		)
-		return errors.Trace(err)
-	})
-}
-
 // ListEnvByAppIDAndEnvLevelQuery queries Env by index AppIDAndEnvLevel.
 var ListEnvByAppIDAndEnvLevelQuery = tsq.
 	Select(TableEnv.Columns()...).
@@ -1093,85 +1036,6 @@ func PageEnvByEnvLevel(
 }
 
 ////////////////////////////// Query actives by IDX ////////////////////////////
-
-// listActiveEnvByAppIDQuery queries *Active* Env by index AppID.
-// *removed record are not included*.
-var listActiveEnvByAppIDQuery = tsq.
-	Select(TableEnv.Columns()...).
-	Where(
-		Env_DT.EQ(0),
-		Env_AppID.EQVar(),
-	).
-	KwSearch(TableEnv.KwList()...).
-	MustBuild()
-
-// CountActiveEnvByAppID counts *Active* Env by index AppID.
-// *removed record are not included*.
-func CountActiveEnvByAppID(
-	ctx context.Context,
-	db gorp.SqlExecutor,
-	appID int64,
-) (int, error) {
-	query := listActiveEnvByAppIDQuery
-
-	var rs int
-	return rs, tsq.TraceDB(ctx, func(ctx context.Context) error {
-		var err error
-		rs, err = query.Count(
-			ctx,
-			db,
-			appID,
-		)
-		return errors.Trace(err)
-	})
-}
-
-// ListActiveEnvByAppID lists *Active* Env by index AppID.
-// *removed record are not included*.
-func ListActiveEnvByAppID(
-	ctx context.Context,
-	db gorp.SqlExecutor,
-	appID int64,
-) ([]*Env, error) {
-	query := listActiveEnvByAppIDQuery
-
-	var data []*Env
-	return data, tsq.TraceDB(ctx, func(ctx context.Context) error {
-		var err error
-		data, err = tsq.List[Env](
-			ctx,
-			db,
-			query,
-			appID,
-		)
-		return errors.Trace(err)
-	})
-}
-
-// PageActiveEnvByAppID page lists *Active* Env by index AppID.
-// *removed records are not included*.
-func PageActiveEnvByAppID(
-	ctx context.Context,
-	db gorp.SqlExecutor,
-	page *tsq.PageReq,
-	appID int64,
-) (*tsq.PageResp[Env], error) {
-	query := listActiveEnvByAppIDQuery
-
-	var rs *tsq.PageResp[Env]
-	return rs, tsq.TraceDB(ctx, func(ctx context.Context) error {
-		var err error
-		//rs, err = PageEnvByQuery(
-		rs, err = tsq.Page[Env](
-			ctx,
-			db,
-			page,
-			query,
-			appID,
-		)
-		return errors.Trace(err)
-	})
-}
 
 // listActiveEnvByAppIDAndEnvLevelQuery queries *Active* Env by index AppIDAndEnvLevel.
 // *removed record are not included*.
