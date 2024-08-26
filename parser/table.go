@@ -9,17 +9,16 @@ import (
 )
 
 type TableMeta struct {
-	Table     string
-	CustomID  bool
-	ID        string
-	Version   string
-	CT        string
-	MT        string
-	DT        string
-	KwList    []string
-	UxList    UxList
-	IdxList   IdxList
-	QueryList IdxList
+	Table    string
+	CustomID bool
+	ID       string
+	Version  string
+	CT       string
+	MT       string
+	DT       string
+	KwList   []string
+	UxList   UxList
+	IdxList  IdxList
 
 	UxMap  map[string][]string // name -> fieldNames
 	IdxMap map[string][]string // name -> fieldNames
@@ -109,12 +108,18 @@ func ParseTableMeta(
 		return nil
 	}
 
+	var queryList IdxList
 	tmp := map[string]bool{}
 	for _, idx := range em.IdxList {
+		if !tmp[idx.Name] {
+			queryList = append(queryList, idx)
+			tmp[idx.Name] = true
+		}
+
 		for j := len(idx.Fields); j > 0; j-- {
 			queryName := strings.Join(idx.Fields[:j], "And")
 			if !tmp[queryName] {
-				em.QueryList = append(em.QueryList, IDX{
+				queryList = append(queryList, IDX{
 					Name:   queryName,
 					Fields: idx.Fields[:j],
 				})
@@ -128,9 +133,6 @@ func ParseTableMeta(
 	})
 	sort.Slice(em.IdxList, func(i, j int) bool {
 		return em.IdxList[i].Name < em.IdxList[j].Name
-	})
-	sort.Slice(em.QueryList, func(i, j int) bool {
-		return em.QueryList[i].Name < em.QueryList[j].Name
 	})
 
 	return em
