@@ -987,7 +987,7 @@ func {{$name}}(
 
 
 ////////////////////////////// Query all by IDX ////////////////////////////////
-{{- range $idx := .IdxList }}
+{{- range $idx := .QueryList }}
 {{- with $query := printf "%s%sQuery" $ListBy $idx.Name }}
 
 // {{$query}} queries {{$type}} by index {{$idx.Name}}.
@@ -1093,7 +1093,7 @@ func {{$name}}(
 
 {{- if .DT }}
 ////////////////////////////// Query actives by IDX ////////////////////////////
-{{- range $idx := .IdxList }}
+{{- range $idx := .QueryList }}
 {{- with $query := printf "%s%sQuery" $listActiveBy $idx.Name }}
 
 // {{$query}} queries *Active* {{$type}} by index {{$idx.Name}}.
