@@ -39,7 +39,7 @@ import (
 )
 
 func init() {
-	tsq.AddTable("{{$dot.Table}}", Table{{$type}})
+	tsq.RegisterTable(Table{{$type}})
 }
 
 ////////////////////////////// Table interface /////////////////////////////////

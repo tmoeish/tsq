@@ -13,7 +13,7 @@ import (
 //	@KW(EnvName)
 //	@V
 //	@CT
-//	@MT
+//	@MT(ModifiedTime)
 //	@DT
 type Env struct {
 	common.MutableTable

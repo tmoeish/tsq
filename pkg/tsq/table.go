@@ -5,37 +5,44 @@ import (
 	"strings"
 
 	"github.com/juju/errors"
-	"github.com/sirupsen/logrus"
 	"gopkg.in/gorp.v2"
 )
 
 var (
-	dbMap  *gorp.DbMap
 	tables = make(map[string]Table)
 )
 
+func RegisterTable(table Table) {
+	tables[table.Table()] = table
+}
+
 func Init(db *gorp.DbMap, autoCreateTable bool) error {
-	dbMap = db
 	for name, table := range tables {
-		db.AddTableWithName(table, name).
-			SetKeys(!table.CustomID(), table.IDField()).
-			SetVersionCol(table.VersionField())
+		if len(table.VersionField()) > 0 {
+			db.AddTableWithName(table, name).
+				SetKeys(!table.CustomID(), table.IDField()).
+				SetVersionCol(table.VersionField())
+		} else {
+			db.AddTableWithName(table, name).
+				SetKeys(!table.CustomID(), table.IDField())
+		}
 	}
 
 	if autoCreateTable {
 		if err := db.CreateTablesIfNotExists(); err != nil {
 			return errors.Trace(err)
 		}
+
 		for name, table := range tables {
 			for ux, fields := range table.UxMap() {
-				if err := EnsureIndexExists(name, true, ux, fields); err != nil {
-					logrus.Fatalln(name, ux, errors.ErrorStack(err))
+				err := ensureIdx(db, name, true, ux, fields)
+				if err != nil {
 					return errors.Trace(err)
 				}
 			}
 			for idx, fields := range table.IdxMap() {
-				if err := EnsureIndexExists(name, false, idx, fields); err != nil {
-					logrus.Fatalln(name, idx, errors.ErrorStack(err))
+				err := ensureIdx(db, name, false, idx, fields)
+				if err != nil {
 					return errors.Trace(err)
 				}
 			}
@@ -45,21 +52,27 @@ func Init(db *gorp.DbMap, autoCreateTable bool) error {
 	return nil
 }
 
-func EnsureIndexExists(table string, unique bool, idx string, fields []string) error {
-	ok, err := ExistsIndex(table, idx)
+func ensureIdx(
+	db *gorp.DbMap,
+	table string,
+	unique bool,
+	idx string,
+	fields []string,
+) error {
+	ok, err := isIdxExist(db, table, idx)
 	if err != nil {
 		return errors.Trace(err)
 	}
 	if ok {
 		return nil
 	}
-	if err := CreateIndex(table, unique, idx, fields); err != nil {
+	if err := createIdx(db, table, unique, idx, fields); err != nil {
 		return errors.Trace(err)
 	}
 	return nil
 }
 
-func ExistsIndex(table string, idx string) (bool, error) {
+func isIdxExist(dbMap *gorp.DbMap, table string, idx string) (bool, error) {
 	n, err := dbMap.SelectInt(`
 SELECT COUNT(1) 
 FROM INFORMATION_SCHEMA.STATISTICS
@@ -76,7 +89,13 @@ WHERE
 	return n > 0, nil
 }
 
-func CreateIndex(table string, unique bool, idx string, fields []string) error {
+func createIdx(
+	dbMap *gorp.DbMap,
+	table string,
+	unique bool,
+	idx string,
+	fields []string,
+) error {
 	qarr := make([]string, len(fields))
 	for k, v := range fields {
 		qarr[k] = fmt.Sprintf("`%s`", v)
@@ -93,14 +112,6 @@ func CreateIndex(table string, unique bool, idx string, fields []string) error {
 		return errors.Trace(err)
 	}
 	return nil
-}
-
-func AddTable(name string, table Table) {
-	tables[name] = table
-}
-
-func GetDB() *gorp.DbMap {
-	return dbMap
 }
 
 type Table interface {
