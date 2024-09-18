@@ -5,6 +5,61 @@ import (
 	"strconv"
 )
 
+// Direction represents the sort direction
+// swagger:strfmt Direction
+// enum:ASC,DESC
+type Direction string
+
+// sort directions
+const (
+	Asc  Direction = "ASC"
+	Desc Direction = "DESC"
+)
+
+const (
+	DefaultPageSize = 20
+)
+
+// NewPageReq creates *PageReq from query parameters(e.g. page=1&page=20&sort_by=id&order=DESC).
+func NewPageReq(params url.Values) *PageReq {
+	page := &PageReq{
+		Page:    1,
+		Size:    DefaultPageSize,
+		Order:   "DESC",
+		OrderBy: "ID",
+		Keyword: "",
+	}
+	if params == nil {
+		return page
+	}
+
+	n, err := strconv.ParseInt(params.Get("page"), 10, 64)
+	if err == nil {
+		page.Page = int(n)
+	}
+	n, err = strconv.ParseInt(params.Get("size"), 10, 64)
+	if err == nil {
+		page.Size = int(n)
+	}
+	if page.Size == 0 {
+		page.Size = DefaultPageSize
+	}
+	page.OrderBy = params.Get("order_by")
+	if len(page.OrderBy) == 0 {
+		page.OrderBy = params.Get("sort")
+	}
+	if len(page.OrderBy) == 0 {
+		page.OrderBy = "ID"
+	}
+	page.Order = params.Get("order")
+	if len(page.Order) == 0 {
+		page.Order = "DESC"
+	}
+	page.Keyword = params.Get("keyword")
+
+	return page
+}
+
 // PageReq is a struct for paging request
 type PageReq struct {
 	Size    int    `query:"size" json:"size"`         // page size
