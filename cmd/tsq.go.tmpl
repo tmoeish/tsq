@@ -29,10 +29,12 @@ package {{.Name.Pkg.Name}}
 
 import (
 	"context"
+	"time"
 	"github.com/tmoeish/tsq/pkg/tsq"
 	"github.com/juju/errors"
 	"gopkg.in/gorp.v2"
 	"database/sql"
+	"gopkg.in/nullbio/null.v6"
 {{- range $p, $a := .Imports }}
 	{{$a}} "{{$p}}"
 {{- end }}
@@ -434,10 +436,10 @@ func {{$name}}(
 		}
 
 {{- if $dot.CT }}
-		r.{{$dot.CT}} = time.Now()
+		r.{{$dot.CT}} = null.TimeFrom(time.Now())
 {{- end }}
 {{- if $dot.MT }}
-		r.{{$dot.MT}} = time.Now()
+		r.{{$dot.MT}} = null.TimeFrom(time.Now())
 {{- end }}
 		err := db.Insert(r)
 		if err != nil {
@@ -475,7 +477,7 @@ func {{$name}}(
 		}
 
 {{- if $dot.MT }}
-		r.{{$dot.MT}} = time.Now()
+		r.{{$dot.MT}} = null.TimeFrom(time.Now())
 {{- end }}
 		_, err := db.Update(r)
 		if err != nil {
@@ -556,7 +558,7 @@ func {{$name}}(
 			r.{{$dot.DT}} = time.Now().UnixNano()
 		}
 	{{- if $dot.MT }}
-		r.{{$dot.MT}} = time.Now()
+		r.{{$dot.MT}} = null.TimeFrom(time.Now())
 	{{- end }}
 		_, err := db.Update(r)
 		if err != nil {
