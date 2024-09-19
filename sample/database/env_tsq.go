@@ -7,7 +7,8 @@ import (
 	"github.com/juju/errors"
 	"github.com/tmoeish/tsq/pkg/tsq"
 	"gopkg.in/gorp.v2"
-	time "time"
+	null "gopkg.in/nullbio/null.v6"
+	"time"
 )
 
 func init() {
@@ -62,7 +63,7 @@ var (
 			return &holder.(*Env).AppName
 		},
 	)
-	Env_CT = tsq.NewColumn[time.Time](
+	Env_CT = tsq.NewColumn[null.Time](
 		TableEnv,
 		"ct",
 		func(holder any) any {
@@ -104,7 +105,7 @@ var (
 			return &holder.(*Env).ID
 		},
 	)
-	Env_ModifiedTime = tsq.NewColumn[time.Time](
+	Env_ModifiedTime = tsq.NewColumn[null.Time](
 		TableEnv,
 		"modified_time",
 		func(holder any) any {
@@ -424,8 +425,8 @@ func (r *Env) Insert(
 				)
 			}
 		}
-		r.CT = time.Now()
-		r.ModifiedTime = time.Now()
+		r.CT = null.TimeFrom(time.Now())
+		r.ModifiedTime = null.TimeFrom(time.Now())
 		err := db.Insert(r)
 		if err != nil {
 			return errors.Annotatef(err, "%+v", r)
@@ -459,7 +460,7 @@ func (r *Env) Update(
 				)
 			}
 		}
-		r.ModifiedTime = time.Now()
+		r.ModifiedTime = null.TimeFrom(time.Now())
 		_, err := db.Update(r)
 		if err != nil {
 			return errors.Annotatef(err, "%+v", r)
@@ -535,7 +536,7 @@ func (r *Env) SoftDelete(
 		} else {
 			r.DT = time.Now().UnixNano()
 		}
-		r.ModifiedTime = time.Now()
+		r.ModifiedTime = null.TimeFrom(time.Now())
 		_, err := db.Update(r)
 		if err != nil {
 			return errors.Annotatef(err, "%+v", r)

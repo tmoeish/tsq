@@ -118,6 +118,8 @@ gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c/go.mod h1:JHkPIbrfpd72SG/EV
 gopkg.in/fsnotify.v1 v1.4.7/go.mod h1:Tz8NjZHkW78fSQdbUxIjBTcgA1z1m8ZHf0WmKUhAMys=
 gopkg.in/gorp.v2 v2.2.0 h1:rTlFZHz1gP1GZplUFomSJgnkDRU4rMxOoHTiV6aDSBk=
 gopkg.in/gorp.v2 v2.2.0/go.mod h1:b+Lg0ZTcCi+VKrQTMxcDUr+yXYz665DxYSYCiJ8BTPE=
+gopkg.in/nullbio/null.v6 v6.0.0-20161116030900-40264a2e6b79 h1:FpCr9V8wuOei4BAen+93HtVJ+XSi+KPbaPKm0Vj5R64=
+gopkg.in/nullbio/null.v6 v6.0.0-20161116030900-40264a2e6b79/go.mod h1:gWkaRU7CoXpezCBWfWjm3999QqS+1pYPXGbqQCTMzo8=
 gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7 h1:uRGJdciOHaEIrze2W8Q3AKkepLTh2hOroT7a+7czfdQ=
 gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7/go.mod h1:dt/ZhP58zS4L8KSrWDmTeBkI65Dw0HsyUHuEVlX15mw=
 gopkg.in/yaml.v2 v2.2.2/go.mod h1:hI93XBmqTisBFMUTm0b8Fm+jr3Dg1NNxqwp+5A1VGuI=

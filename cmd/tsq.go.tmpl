@@ -29,13 +29,15 @@ package {{.Name.Pkg.Name}}
 
 import (
 	"context"
-	"time"
 	"github.com/tmoeish/tsq/pkg/tsq"
 	"github.com/juju/errors"
 	"gopkg.in/gorp.v2"
 	"database/sql"
 {{- range $p, $a := .Imports }}
 	{{$a}} "{{$p}}"
+{{- end }}
+{{- if or .CT .MT .DT }}
+	"time"
 {{- end }}
 )
 
