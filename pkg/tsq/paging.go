@@ -26,7 +26,7 @@ func NewPageReq(params url.Values) *PageReq {
 		Page:    1,
 		Size:    DefaultPageSize,
 		Order:   "DESC",
-		OrderBy: "ID",
+		OrderBy: "id",
 		Keyword: "",
 	}
 	if params == nil {
