@@ -49,7 +49,7 @@ func NewPageReq(params url.Values) *PageReq {
 		page.OrderBy = params.Get("sort")
 	}
 	if len(page.OrderBy) == 0 {
-		page.OrderBy = "ID"
+		page.OrderBy = "id"
 	}
 	page.Order = params.Get("order")
 	if len(page.Order) == 0 {
