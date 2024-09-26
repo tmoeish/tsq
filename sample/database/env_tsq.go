@@ -8,7 +8,7 @@ import (
 	"github.com/tmoeish/tsq/pkg/tsq"
 	"gopkg.in/gorp.v2"
 	null "gopkg.in/nullbio/null.v6"
-	"time"
+	time "time"
 )
 
 func init() {
@@ -63,7 +63,7 @@ var (
 			return &holder.(*Env).AppName
 		},
 	)
-	Env_CT = tsq.NewColumn[null.Time](
+	Env_CT = tsq.NewColumn[time.Time](
 		TableEnv,
 		"ct",
 		func(holder any) any {
@@ -425,7 +425,7 @@ func (r *Env) Insert(
 				)
 			}
 		}
-		r.CT = null.TimeFrom(time.Now())
+		r.CT = time.Now()
 		r.ModifiedTime = null.TimeFrom(time.Now())
 		err := db.Insert(r)
 		if err != nil {

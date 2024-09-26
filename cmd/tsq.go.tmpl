@@ -37,7 +37,9 @@ import (
 	{{$a}} "{{$p}}"
 {{- end }}
 {{- if or .CT .MT .DT }}
+{{- if not .Imports.time }}
 	"time"
+{{- end }}
 {{- end }}
 )
 
@@ -437,10 +439,20 @@ func {{$name}}(
 		}
 
 {{- if $dot.CT }}
+	{{- $pkg := index $dot.FieldMap $dot.CT }}
+	{{- if eq "time" $pkg.Typ.Pkg.Path }}
+		r.{{$dot.CT}} = time.Now()
+	{{- else }}
 		r.{{$dot.CT}} = null.TimeFrom(time.Now())
+	{{- end }}
 {{- end }}
 {{- if $dot.MT }}
+	{{- $pkg := index $dot.FieldMap $dot.MT }}
+	{{- if eq "time" $pkg.Typ.Pkg.Path }}
+		r.{{$dot.MT}} = time.Now()
+	{{- else }}
 		r.{{$dot.MT}} = null.TimeFrom(time.Now())
+	{{- end }}
 {{- end }}
 		err := db.Insert(r)
 		if err != nil {
@@ -478,7 +490,12 @@ func {{$name}}(
 		}
 
 {{- if $dot.MT }}
+	{{- $pkg := index $dot.FieldMap $dot.MT }}
+	{{- if eq "time" $pkg.Typ.Pkg.Path }}
+		r.{{$dot.MT}} = time.Now()
+	{{- else }}
 		r.{{$dot.MT}} = null.TimeFrom(time.Now())
+	{{- end }}
 {{- end }}
 		_, err := db.Update(r)
 		if err != nil {
@@ -558,9 +575,14 @@ func {{$name}}(
 		} else {
 			r.{{$dot.DT}} = time.Now().UnixNano()
 		}
-	{{- if $dot.MT }}
+{{- if $dot.MT }}
+	{{- $pkg := index $dot.FieldMap $dot.MT }}
+	{{- if eq "time" $pkg.Typ.Pkg.Path }}
+		r.{{$dot.MT}} = time.Now()
+	{{- else }}
 		r.{{$dot.MT}} = null.TimeFrom(time.Now())
 	{{- end }}
+{{- end }}
 		_, err := db.Update(r)
 		if err != nil {
 			return errors.Annotatef(err, "%+v", r)

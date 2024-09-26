@@ -1,6 +1,10 @@
 package common
 
-import "gopkg.in/nullbio/null.v6"
+import (
+	"time"
+
+	"gopkg.in/nullbio/null.v6"
+)
 
 // AppBasic is a struct that contains basic app information.
 type AppBasic struct {
@@ -12,7 +16,7 @@ type AppBasic struct {
 // MutableTable is a table which its entities are mutable.
 type MutableTable struct {
 	ID           int64     `db:"id" json:"id"`                       // ID is the primary key.
-	CT           null.Time `db:"ct" json:"ct"`                       // CT is the create time.
+	CT           time.Time `db:"ct" json:"ct"`                       // CT is the create time.
 	ModifiedTime null.Time `db:"modified_time" json:"modified_time"` // ModifiedTime is the modified time.
 	DT           int64     `db:"dt" json:"dt"`                       // DT is the delete time.
 	V            int64     `db:"v" json:"v"`                         // V is the version.
