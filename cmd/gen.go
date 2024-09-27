@@ -76,9 +76,6 @@ func gen(s *parser.Struct, t *template.Template, dir string) {
 	if e.ID == "" {
 		e.ID = "ID"
 	}
-	if e.Version == "" {
-		e.Version = "V"
-	}
 
 	filename := fmt.Sprintf("%s_tsq.go", strings.ToLower(s.Name.Name))
 	filename = path.Join(dir, filename)
