@@ -429,7 +429,7 @@ func (r *Env) Insert(
 		r.ModifiedTime = null.TimeFrom(time.Now())
 		err := db.Insert(r)
 		if err != nil {
-			return errors.Annotatef(err, "%+v", r)
+			return errors.Annotatef(err, tsq.PrettyJSON(r))
 		}
 
 		if len(preAndPostHook) > 1 {
@@ -463,7 +463,7 @@ func (r *Env) Update(
 		r.ModifiedTime = null.TimeFrom(time.Now())
 		_, err := db.Update(r)
 		if err != nil {
-			return errors.Annotatef(err, "%+v", r)
+			return errors.Annotatef(err, tsq.PrettyJSON(r))
 		}
 
 		if len(preAndPostHook) > 1 {
@@ -497,7 +497,7 @@ func (r *Env) Delete(
 
 		_, err := db.Delete(r)
 		if err != nil {
-			return errors.Annotatef(err, "%+v", r)
+			return errors.Annotatef(err, tsq.PrettyJSON(r))
 		}
 
 		if len(preAndPostHook) > 1 {
@@ -539,7 +539,7 @@ func (r *Env) SoftDelete(
 		r.ModifiedTime = null.TimeFrom(time.Now())
 		_, err := db.Update(r)
 		if err != nil {
-			return errors.Annotatef(err, "%+v", r)
+			return errors.Annotatef(err, tsq.PrettyJSON(r))
 		}
 
 		if len(preAndPostHook) > 1 {

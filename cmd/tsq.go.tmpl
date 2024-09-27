@@ -456,7 +456,7 @@ func {{$name}}(
 {{- end }}
 		err := db.Insert(r)
 		if err != nil {
-			return errors.Annotatef(err, "%+v", r)
+			return errors.Annotatef(err, tsq.PrettyJSON(r))
 		}
 
 		if len(preAndPostHook) > 1 {
@@ -499,7 +499,7 @@ func {{$name}}(
 {{- end }}
 		_, err := db.Update(r)
 		if err != nil {
-			return errors.Annotatef(err, "%+v", r)
+			return errors.Annotatef(err, tsq.PrettyJSON(r))
 		}
 
 		if len(preAndPostHook) > 1 {
@@ -534,7 +534,7 @@ func {{$name}}(
 
 		_, err := db.Delete(r)
 		if err != nil {
-			return errors.Annotatef(err, "%+v", r)
+			return errors.Annotatef(err, tsq.PrettyJSON(r))
 		}
 
 		if len(preAndPostHook) > 1 {
@@ -585,7 +585,7 @@ func {{$name}}(
 {{- end }}
 		_, err := db.Update(r)
 		if err != nil {
-			return errors.Annotatef(err, "%+v", r)
+			return errors.Annotatef(err, tsq.PrettyJSON(r))
 		}
 
 		if len(preAndPostHook) > 1 {
