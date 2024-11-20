@@ -9,6 +9,7 @@ import (
 )
 
 type TableMeta struct {
+	Recv      string
 	Table     string
 	CustomID  bool
 	ID        string
@@ -62,6 +63,7 @@ func ParseTableMeta(
 				} else {
 					em.Table = snaker.CamelToSnake(name)
 				}
+				em.Recv = genRecv(name)
 			case "@PK":
 				em.ID = an.Key
 			case "@CustomID":
@@ -143,4 +145,18 @@ func ParseTableMeta(
 	})
 
 	return em
+}
+
+// genRecv generates a receiver name from a type name by join their first letter.
+func genRecv(t string) string {
+	list := strings.Split(strings.ToLower(t), "_")
+	bs := make([]byte, 0, len(t))
+	for _, s := range list {
+		if len(s) == 0 {
+			continue
+		}
+		bs = append(bs, s[0])
+	}
+
+	return string(bs)
 }

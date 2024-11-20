@@ -4,8 +4,8 @@
 {{- $list := printf "[]*%s" $type }}
 {{- $pageResp := printf "tsq.PageResp[%s]" $type }}
 
-{{- $recv := printf "func (r %s) " $type }}
-{{- $precv := printf "func (r *%s) " $type }}
+{{- $recv := printf "func (%s %s) " .Recv $type }}
+{{- $precv := printf "func (%s *%s) " .Recv $type }}
 
 {{- $getBy := printf "get%sBy" $type }}
 {{- $GetBy := printf "Get%sBy" $type }}
@@ -144,7 +144,7 @@ var (
 {{- if .DT }}
 // Active checks if {{$type}} is active
 {{$precv}}Active() bool {
-	return r.{{$dot.DT}} == 0
+	return {{$dot.Recv}}.{{$dot.DT}} == 0
 }
 {{- end }}
 
@@ -441,17 +441,17 @@ func {{$name}}(
 {{- if $dot.CT }}
 	{{- $pkg := index $dot.FieldMap $dot.CT }}
 	{{- if eq "time" $pkg.Typ.Pkg.Path }}
-		r.{{$dot.CT}} = time.Now()
+		{{$dot.Recv}}.{{$dot.CT}} = time.Now()
 	{{- else }}
-		r.{{$dot.CT}} = null.TimeFrom(time.Now())
+		{{$dot.Recv}}.{{$dot.CT}} = null.TimeFrom(time.Now())
 	{{- end }}
 {{- end }}
 {{- if $dot.MT }}
 	{{- $pkg := index $dot.FieldMap $dot.MT }}
 	{{- if eq "time" $pkg.Typ.Pkg.Path }}
-		r.{{$dot.MT}} = time.Now()
+		{{$dot.Recv}}.{{$dot.MT}} = time.Now()
 	{{- else }}
-		r.{{$dot.MT}} = null.TimeFrom(time.Now())
+		{{$dot.Recv}}.{{$dot.MT}} = null.TimeFrom(time.Now())
 	{{- end }}
 {{- end }}
 		err := db.Insert(r)
@@ -492,9 +492,9 @@ func {{$name}}(
 {{- if $dot.MT }}
 	{{- $pkg := index $dot.FieldMap $dot.MT }}
 	{{- if eq "time" $pkg.Typ.Pkg.Path }}
-		r.{{$dot.MT}} = time.Now()
+		{{$dot.Recv}}.{{$dot.MT}} = time.Now()
 	{{- else }}
-		r.{{$dot.MT}} = null.TimeFrom(time.Now())
+		{{$dot.Recv}}.{{$dot.MT}} = null.TimeFrom(time.Now())
 	{{- end }}
 {{- end }}
 		_, err := db.Update(r)
@@ -571,16 +571,16 @@ func {{$name}}(
 		}
 
 		if dt > 0 {
-			r.{{$dot.DT}} = dt
+			{{$dot.Recv}}.{{$dot.DT}} = dt
 		} else {
-			r.{{$dot.DT}} = time.Now().UnixNano()
+			{{$dot.Recv}}.{{$dot.DT}} = time.Now().UnixNano()
 		}
 {{- if $dot.MT }}
 	{{- $pkg := index $dot.FieldMap $dot.MT }}
 	{{- if eq "time" $pkg.Typ.Pkg.Path }}
-		r.{{$dot.MT}} = time.Now()
+		{{$dot.Recv}}.{{$dot.MT}} = time.Now()
 	{{- else }}
-		r.{{$dot.MT}} = null.TimeFrom(time.Now())
+		{{$dot.Recv}}.{{$dot.MT}} = null.TimeFrom(time.Now())
 	{{- end }}
 {{- end }}
 		_, err := db.Update(r)

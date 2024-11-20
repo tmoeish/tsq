@@ -21,22 +21,22 @@ func init() {
 var TableEnv tsq.Table = Env{}
 
 // Table returns table name
-func (r Env) Table() string {
+func (e Env) Table() string {
 	return "env"
 }
 
 // CustomID indicates if Env has custom id
-func (r Env) CustomID() bool {
+func (e Env) CustomID() bool {
 	return false
 }
 
 // IDFiled returns id field name
-func (r Env) IDField() string {
+func (e Env) IDField() string {
 	return "ID"
 }
 
 // VersionField returns version field name
-func (r Env) VersionField() string {
+func (e Env) VersionField() string {
 	return "V"
 }
 
@@ -122,7 +122,7 @@ var (
 )
 
 // Columns returns fileds of table Env
-func (r Env) Columns() []tsq.IColumn {
+func (e Env) Columns() []tsq.IColumn {
 	return []tsq.IColumn{
 		Env_AppCode,
 		Env_AppID,
@@ -139,14 +139,14 @@ func (r Env) Columns() []tsq.IColumn {
 }
 
 // KwList implements Table interface
-func (r Env) KwList() []tsq.IColumn {
+func (e Env) KwList() []tsq.IColumn {
 	return []tsq.IColumn{
 		Env_EnvName,
 	}
 }
 
 // UxMap implements Table interface
-func (r Env) UxMap() map[string][]string {
+func (e Env) UxMap() map[string][]string {
 	return map[string][]string{
 		"app_id_and_env_code": {
 			"dt",
@@ -157,7 +157,7 @@ func (r Env) UxMap() map[string][]string {
 }
 
 // IdxMap implements Table interface
-func (r Env) IdxMap() map[string][]string {
+func (e Env) IdxMap() map[string][]string {
 	return map[string][]string{
 		"app_id_and_env_level": {
 			"dt",
@@ -172,8 +172,8 @@ func (r Env) IdxMap() map[string][]string {
 }
 
 // Active checks if Env is active
-func (r *Env) Active() bool {
-	return r.DT == 0
+func (e *Env) Active() bool {
+	return e.DT == 0
 }
 
 // //////////////////////////// Query by ID /////////////////////////////////////
@@ -411,7 +411,7 @@ func ListActiveEnvByIDSetOrErr(
 ////////////////////////////// CRUD ////////////////////////////////////////////
 
 // Insert Env to db.
-func (r *Env) Insert(
+func (e *Env) Insert(
 	ctx context.Context,
 	db gorp.SqlExecutor,
 	preAndPostHook ...func(r *Env) error,
@@ -425,8 +425,8 @@ func (r *Env) Insert(
 				)
 			}
 		}
-		r.CT = time.Now()
-		r.ModifiedTime = null.TimeFrom(time.Now())
+		e.CT = time.Now()
+		e.ModifiedTime = null.TimeFrom(time.Now())
 		err := db.Insert(r)
 		if err != nil {
 			return errors.Annotatef(err, tsq.PrettyJSON(r))
@@ -446,7 +446,7 @@ func (r *Env) Insert(
 }
 
 // Update updates row.
-func (r *Env) Update(
+func (e *Env) Update(
 	ctx context.Context,
 	db gorp.SqlExecutor,
 	preAndPostHook ...func(r *Env) error,
@@ -460,7 +460,7 @@ func (r *Env) Update(
 				)
 			}
 		}
-		r.ModifiedTime = null.TimeFrom(time.Now())
+		e.ModifiedTime = null.TimeFrom(time.Now())
 		_, err := db.Update(r)
 		if err != nil {
 			return errors.Annotatef(err, tsq.PrettyJSON(r))
@@ -480,7 +480,7 @@ func (r *Env) Update(
 }
 
 // Delete Env from db.
-func (r *Env) Delete(
+func (e *Env) Delete(
 	ctx context.Context,
 	db gorp.SqlExecutor,
 	preAndPostHook ...func(r *Env) error,
@@ -515,7 +515,7 @@ func (r *Env) Delete(
 
 // SoftDelete soft deletes Env.
 // dt(unix nano timestamp) set delete timestamp manually if it was greater than 0.
-func (r *Env) SoftDelete(
+func (e *Env) SoftDelete(
 	ctx context.Context,
 	db gorp.SqlExecutor,
 	dt int64,
@@ -532,11 +532,11 @@ func (r *Env) SoftDelete(
 		}
 
 		if dt > 0 {
-			r.DT = dt
+			e.DT = dt
 		} else {
-			r.DT = time.Now().UnixNano()
+			e.DT = time.Now().UnixNano()
 		}
-		r.ModifiedTime = null.TimeFrom(time.Now())
+		e.ModifiedTime = null.TimeFrom(time.Now())
 		_, err := db.Update(r)
 		if err != nil {
 			return errors.Annotatef(err, tsq.PrettyJSON(r))
