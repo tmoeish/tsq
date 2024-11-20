@@ -426,11 +426,11 @@ func {{$name}}(
 {{$precv}}Insert(
 	ctx context.Context,
 	db gorp.SqlExecutor,
-	preAndPostHook ...func(r {{$ptype}}) error,
+	preAndPostHook ...func({{$dot.Recv}} {{$ptype}}) error,
 ) error {
 	return tsq.TraceDB(ctx, func(ctx context.Context) error {
 		if len(preAndPostHook) > 0 {
-			if err := preAndPostHook[0](r); err != nil {
+			if err := preAndPostHook[0]({{$dot.Recv}}); err != nil {
 				return errors.Annotatef(
 					err,
 					"pre hook error",
@@ -454,13 +454,13 @@ func {{$name}}(
 		{{$dot.Recv}}.{{$dot.MT}} = null.TimeFrom(time.Now())
 	{{- end }}
 {{- end }}
-		err := db.Insert(r)
+		err := db.Insert({{$dot.Recv}})
 		if err != nil {
-			return errors.Annotatef(err, tsq.PrettyJSON(r))
+			return errors.Annotatef(err, tsq.PrettyJSON({{$dot.Recv}}))
 		}
 
 		if len(preAndPostHook) > 1 {
-			if err := preAndPostHook[1](r); err != nil {
+			if err := preAndPostHook[1]({{$dot.Recv}}); err != nil {
 				return errors.Annotatef(
 					err,
 					"post hook error",
@@ -477,11 +477,11 @@ func {{$name}}(
 {{$precv}}Update(
 	ctx context.Context,
 	db gorp.SqlExecutor,
-	preAndPostHook ...func(r {{$ptype}}) error,
+	preAndPostHook ...func({{$dot.Recv}} {{$ptype}}) error,
 ) error {
 	return tsq.TraceDB(ctx, func(ctx context.Context) error {
 		if len(preAndPostHook) > 0 {
-			if err := preAndPostHook[0](r); err != nil {
+			if err := preAndPostHook[0]({{$dot.Recv}}); err != nil {
 				return errors.Annotatef(
 					err,
 					"pre hook error",
@@ -497,13 +497,13 @@ func {{$name}}(
 		{{$dot.Recv}}.{{$dot.MT}} = null.TimeFrom(time.Now())
 	{{- end }}
 {{- end }}
-		_, err := db.Update(r)
+		_, err := db.Update({{$dot.Recv}})
 		if err != nil {
-			return errors.Annotatef(err, tsq.PrettyJSON(r))
+			return errors.Annotatef(err, tsq.PrettyJSON({{$dot.Recv}}))
 		}
 
 		if len(preAndPostHook) > 1 {
-			if err := preAndPostHook[1](r); err != nil {
+			if err := preAndPostHook[1]({{$dot.Recv}}); err != nil {
 				return errors.Annotatef(
 					err,
 					"post hook error",
@@ -520,11 +520,11 @@ func {{$name}}(
 {{$precv}}Delete(
 	ctx context.Context,
 	db gorp.SqlExecutor,
-	preAndPostHook ...func(r {{$ptype}}) error,
+	preAndPostHook ...func({{$dot.Recv}} {{$ptype}}) error,
 ) error {
 	return tsq.TraceDB(ctx, func(ctx context.Context) error {
 		if len(preAndPostHook) > 0 {
-			if err := preAndPostHook[0](r); err != nil {
+			if err := preAndPostHook[0]({{$dot.Recv}}); err != nil {
 				return errors.Annotatef(
 					err,
 					"pre hook error",
@@ -532,13 +532,13 @@ func {{$name}}(
 			}
 		}
 
-		_, err := db.Delete(r)
+		_, err := db.Delete({{$dot.Recv}})
 		if err != nil {
-			return errors.Annotatef(err, tsq.PrettyJSON(r))
+			return errors.Annotatef(err, tsq.PrettyJSON({{$dot.Recv}}))
 		}
 
 		if len(preAndPostHook) > 1 {
-			if err := preAndPostHook[1](r); err != nil {
+			if err := preAndPostHook[1]({{$dot.Recv}}); err != nil {
 				return errors.Annotatef(
 					err,
 					"post hook error",
@@ -558,11 +558,11 @@ func {{$name}}(
 	ctx context.Context,
 	db gorp.SqlExecutor,
 	dt int64,
-	preAndPostHook ...func(r {{$ptype}}) error,
+	preAndPostHook ...func({{$dot.Recv}} {{$ptype}}) error,
 ) error {
 	return tsq.TraceDB(ctx, func(ctx context.Context) error {
 		if len(preAndPostHook) > 0 {
-			if err := preAndPostHook[0](r); err != nil {
+			if err := preAndPostHook[0]({{$dot.Recv}}); err != nil {
 				return errors.Annotatef(
 					err,
 					"pre hook error",
@@ -583,13 +583,13 @@ func {{$name}}(
 		{{$dot.Recv}}.{{$dot.MT}} = null.TimeFrom(time.Now())
 	{{- end }}
 {{- end }}
-		_, err := db.Update(r)
+		_, err := db.Update({{$dot.Recv}})
 		if err != nil {
-			return errors.Annotatef(err, tsq.PrettyJSON(r))
+			return errors.Annotatef(err, tsq.PrettyJSON({{$dot.Recv}}))
 		}
 
 		if len(preAndPostHook) > 1 {
-			if err := preAndPostHook[1](r); err != nil {
+			if err := preAndPostHook[1]({{$dot.Recv}}); err != nil {
 				return errors.Annotatef(
 					err,
 					"post hook error",

@@ -414,11 +414,11 @@ func ListActiveEnvByIDSetOrErr(
 func (e *Env) Insert(
 	ctx context.Context,
 	db gorp.SqlExecutor,
-	preAndPostHook ...func(r *Env) error,
+	preAndPostHook ...func(e *Env) error,
 ) error {
 	return tsq.TraceDB(ctx, func(ctx context.Context) error {
 		if len(preAndPostHook) > 0 {
-			if err := preAndPostHook[0](r); err != nil {
+			if err := preAndPostHook[0](e); err != nil {
 				return errors.Annotatef(
 					err,
 					"pre hook error",
@@ -427,13 +427,13 @@ func (e *Env) Insert(
 		}
 		e.CT = time.Now()
 		e.ModifiedTime = null.TimeFrom(time.Now())
-		err := db.Insert(r)
+		err := db.Insert(e)
 		if err != nil {
-			return errors.Annotatef(err, tsq.PrettyJSON(r))
+			return errors.Annotatef(err, tsq.PrettyJSON(e))
 		}
 
 		if len(preAndPostHook) > 1 {
-			if err := preAndPostHook[1](r); err != nil {
+			if err := preAndPostHook[1](e); err != nil {
 				return errors.Annotatef(
 					err,
 					"post hook error",
@@ -449,11 +449,11 @@ func (e *Env) Insert(
 func (e *Env) Update(
 	ctx context.Context,
 	db gorp.SqlExecutor,
-	preAndPostHook ...func(r *Env) error,
+	preAndPostHook ...func(e *Env) error,
 ) error {
 	return tsq.TraceDB(ctx, func(ctx context.Context) error {
 		if len(preAndPostHook) > 0 {
-			if err := preAndPostHook[0](r); err != nil {
+			if err := preAndPostHook[0](e); err != nil {
 				return errors.Annotatef(
 					err,
 					"pre hook error",
@@ -461,13 +461,13 @@ func (e *Env) Update(
 			}
 		}
 		e.ModifiedTime = null.TimeFrom(time.Now())
-		_, err := db.Update(r)
+		_, err := db.Update(e)
 		if err != nil {
-			return errors.Annotatef(err, tsq.PrettyJSON(r))
+			return errors.Annotatef(err, tsq.PrettyJSON(e))
 		}
 
 		if len(preAndPostHook) > 1 {
-			if err := preAndPostHook[1](r); err != nil {
+			if err := preAndPostHook[1](e); err != nil {
 				return errors.Annotatef(
 					err,
 					"post hook error",
@@ -483,11 +483,11 @@ func (e *Env) Update(
 func (e *Env) Delete(
 	ctx context.Context,
 	db gorp.SqlExecutor,
-	preAndPostHook ...func(r *Env) error,
+	preAndPostHook ...func(e *Env) error,
 ) error {
 	return tsq.TraceDB(ctx, func(ctx context.Context) error {
 		if len(preAndPostHook) > 0 {
-			if err := preAndPostHook[0](r); err != nil {
+			if err := preAndPostHook[0](e); err != nil {
 				return errors.Annotatef(
 					err,
 					"pre hook error",
@@ -495,13 +495,13 @@ func (e *Env) Delete(
 			}
 		}
 
-		_, err := db.Delete(r)
+		_, err := db.Delete(e)
 		if err != nil {
-			return errors.Annotatef(err, tsq.PrettyJSON(r))
+			return errors.Annotatef(err, tsq.PrettyJSON(e))
 		}
 
 		if len(preAndPostHook) > 1 {
-			if err := preAndPostHook[1](r); err != nil {
+			if err := preAndPostHook[1](e); err != nil {
 				return errors.Annotatef(
 					err,
 					"post hook error",
@@ -519,11 +519,11 @@ func (e *Env) SoftDelete(
 	ctx context.Context,
 	db gorp.SqlExecutor,
 	dt int64,
-	preAndPostHook ...func(r *Env) error,
+	preAndPostHook ...func(e *Env) error,
 ) error {
 	return tsq.TraceDB(ctx, func(ctx context.Context) error {
 		if len(preAndPostHook) > 0 {
-			if err := preAndPostHook[0](r); err != nil {
+			if err := preAndPostHook[0](e); err != nil {
 				return errors.Annotatef(
 					err,
 					"pre hook error",
@@ -537,13 +537,13 @@ func (e *Env) SoftDelete(
 			e.DT = time.Now().UnixNano()
 		}
 		e.ModifiedTime = null.TimeFrom(time.Now())
-		_, err := db.Update(r)
+		_, err := db.Update(e)
 		if err != nil {
-			return errors.Annotatef(err, tsq.PrettyJSON(r))
+			return errors.Annotatef(err, tsq.PrettyJSON(e))
 		}
 
 		if len(preAndPostHook) > 1 {
-			if err := preAndPostHook[1](r); err != nil {
+			if err := preAndPostHook[1](e); err != nil {
 				return errors.Annotatef(
 					err,
 					"post hook error",
