@@ -1,6 +1,8 @@
 package database
 
 import (
+	"database/sql/driver"
+
 	"github.com/tmoeish/tsq/sample/common"
 )
 
@@ -24,8 +26,16 @@ type Env struct {
 	EnvLevel EnvLevel `db:"env_level" json:"env_level"`
 }
 
+var _ driver.Valuer = EnvLevel(0)
+
 // EnvLevel represents Env level.
 type EnvLevel uint8
+
+// Value returns a driver Value.
+// Value must not panic.
+func (e EnvLevel) Value() (driver.Value, error) {
+	return uint8(e), nil
+}
 
 const (
 	EnvLevelDev  EnvLevel = iota // Development level

@@ -1,6 +1,7 @@
 package tsq
 
 import (
+	"database/sql/driver"
 	"fmt"
 	"strconv"
 	"strings"
@@ -78,6 +79,10 @@ func (f Column[T]) LETVar() Cond {
 
 func (f Column[T]) LikeVar() Cond {
 	return f.OpVar(" LIKE ")
+}
+
+func (f Column[T]) NotLikeVar() Cond {
+	return f.OpVar(" NOT LIKE ")
 }
 
 func (f Column[T]) NEVar() Cond {
@@ -169,6 +174,15 @@ func (f Column[T]) condWithConst(op string, con T) Cond {
 }
 
 func mysqlVal(arg any) (string, error) {
+	valuer, ok := arg.(driver.Valuer)
+	if ok {
+		val, err := valuer.Value()
+		if err != nil {
+			return "", err
+		}
+		return mysqlVal(val)
+	}
+
 	var buf []byte
 	switch v := arg.(type) {
 	case int64:
