@@ -21,9 +21,9 @@ type Env struct {
 	common.MutableTable
 	common.AppBasic
 
-	EnvCode  string   `db:"env_code" json:"env_code"`
-	EnvName  string   `db:"env_name" json:"env_name"`
-	EnvLevel EnvLevel `db:"env_level" json:"env_level"`
+	EnvCode  string   `db:"env_code"           json:"env_code"`
+	EnvName  string   `db:"env_name,size:4096" json:"env_name"`
+	EnvLevel EnvLevel `db:"env_level"          json:"env_level"`
 }
 
 var _ driver.Valuer = EnvLevel(0)

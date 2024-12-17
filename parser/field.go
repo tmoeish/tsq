@@ -3,6 +3,7 @@ package parser
 import (
 	"fmt"
 	"go/ast"
+	"reflect"
 	"strings"
 
 	"github.com/sirupsen/logrus"
@@ -60,11 +61,11 @@ func parseNamedFields(
 			continue
 		}
 		s := af.Tag.Value
-		if !strings.Contains(s, `db:`) {
+		if !strings.Contains(s, "db:") {
 			continue
 		}
-		tags := NewTags(s)
-		if tags["db"] == "-" {
+		tags := reflect.StructTag(strings.Trim(s, "`"))
+		if tags.Get("db") == "-" {
 			continue
 		}
 		name := af.Names[0].Name
@@ -73,7 +74,7 @@ func parseNamedFields(
 			continue
 		}
 
-		column := strings.Split(tags["db"], ",")[0]
+		column := strings.Split(tags.Get("db"), ",")[0]
 		ptr, arr, pPath, tName := parseFieldType(af.Type)
 		var tPkg Pkg
 		if pPath == "" {

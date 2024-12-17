@@ -30,7 +30,7 @@ func (e Env) CustomID() bool {
 	return false
 }
 
-// IDFiled returns id field name
+// IDField returns id field name
 func (e Env) IDField() string {
 	return "ID"
 }
