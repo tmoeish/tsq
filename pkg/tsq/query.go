@@ -202,6 +202,18 @@ func Page[T Table](
 	return NewResponse(page, count, list), nil
 }
 
+func NewErrUnknownSortField(field string) *ErrUnknownSortField {
+	return &ErrUnknownSortField{field: field}
+}
+
+type ErrUnknownSortField struct {
+	field string
+}
+
+func (e *ErrUnknownSortField) Error() string {
+	return "unknown sort field: " + e.field
+}
+
 func (qb *Query) pageQueryStr(page *PageReq) (string, string, error) {
 	var cntQuery, listQuery string
 	if len(qb.kwFields) > 0 && len(page.Keyword) > 0 {
@@ -226,7 +238,7 @@ func (qb *Query) pageQueryStr(page *PageReq) (string, string, error) {
 				}
 			}
 			if len(sf) == 0 {
-				return "", "", errors.Errorf("unknown sort field: %v", ob)
+				return "", "", NewErrUnknownSortField(ob)
 			}
 			fullNames = append(fullNames, sf)
 		}
