@@ -25,8 +25,8 @@ func NewPageReq(params url.Values) *PageReq {
 	page := &PageReq{
 		Page:    1,
 		Size:    DefaultPageSize,
-		Order:   "DESC",
-		OrderBy: "id",
+		Order:   "",
+		OrderBy: "",
 		Keyword: "",
 	}
 	if params == nil {
@@ -37,24 +37,19 @@ func NewPageReq(params url.Values) *PageReq {
 	if err == nil {
 		page.Page = int(n)
 	}
+
 	n, err = strconv.ParseInt(params.Get("size"), 10, 64)
 	if err == nil {
 		page.Size = int(n)
 	}
-	if page.Size == 0 {
-		page.Size = DefaultPageSize
-	}
+
 	page.OrderBy = params.Get("order_by")
 	if len(page.OrderBy) == 0 {
 		page.OrderBy = params.Get("sort")
 	}
-	if len(page.OrderBy) == 0 {
-		page.OrderBy = "id"
-	}
+
 	page.Order = params.Get("order")
-	if len(page.Order) == 0 {
-		page.Order = "DESC"
-	}
+
 	page.Keyword = params.Get("keyword")
 
 	return page

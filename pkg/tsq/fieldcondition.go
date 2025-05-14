@@ -100,7 +100,7 @@ func (f Column[T]) OpVar(op string) Cond {
 
 func (f Column[T]) In(args ...T) Cond {
 	arr := make([]string, len(args))
-	for i := 0; i < len(args); i++ {
+	for i := range len(args) {
 		s, err := mysqlVal(args[i])
 		if err != nil {
 			panic(err)
@@ -119,7 +119,7 @@ func (f Column[T]) In(args ...T) Cond {
 func (f Column[T]) InSubQuery(sqb *Query) Cond {
 	// TODO indent
 	sqLines := strings.Split(sqb.listQuery, "\n")
-	for i := 0; i < len(sqLines); i++ {
+	for i := range len(sqLines) {
 		sqLines[i] = "\t" + sqLines[i]
 	}
 
@@ -198,7 +198,7 @@ func mysqlVal(arg any) (string, error) {
 		} else {
 			buf = append(buf, '0')
 		}
-	//case time.Time:
+	// case time.Time:
 	//	if v.IsZero() {
 	//		buf = append(buf, "'0000-00-00'"...)
 	//	} else {
@@ -209,7 +209,7 @@ func mysqlVal(arg any) (string, error) {
 	//		}
 	//		buf = append(buf, '\'')
 	//	}
-	//case json.RawMessage:
+	// case json.RawMessage:
 	//	buf = append(buf, '\'')
 	//	if mc.status&statusNoBackslashEscapes == 0 {
 	//		buf = escapeBytesBackslash(buf, v)
@@ -217,7 +217,7 @@ func mysqlVal(arg any) (string, error) {
 	//		buf = escapeBytesQuotes(buf, v)
 	//	}
 	//	buf = append(buf, '\'')
-	//case []byte:
+	// case []byte:
 	//	if v == nil {
 	//		buf = append(buf, "NULL"...)
 	//	} else {
@@ -248,7 +248,7 @@ func escapeStringQuotes(buf []byte, v string) []byte {
 	pos := len(buf)
 	buf = reserveBuffer(buf, len(v)*2)
 
-	for i := 0; i < len(v); i++ {
+	for i := range len(v) {
 		c := v[i]
 		if c == '\'' {
 			buf[pos] = '\''

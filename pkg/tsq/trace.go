@@ -5,15 +5,24 @@ import (
 	"encoding/json"
 )
 
-func TraceDB(
+type fn func(ctx context.Context) error
+
+type Tracer func(fn fn) fn
+
+var tracers []Tracer
+
+func Trace(
 	ctx context.Context,
 	fn func(ctx context.Context) error,
 ) error {
+	for i := len(tracers) - 1; i >= 0; i-- {
+		fn = tracers[i](fn)
+	}
 	return fn(ctx)
 }
 
 // PrettyJSON returns indented json string of obj.
-func PrettyJSON(obj interface{}) string {
+func PrettyJSON(obj any) string {
 	bs, err := json.MarshalIndent(obj, "", "    ")
 	if err != nil {
 		return ""

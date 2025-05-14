@@ -192,7 +192,7 @@ func GetEnvByID(
 	id int64,
 ) (*Env, error) {
 	row := &Env{}
-	return row, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return row, tsq.Trace(ctx, func(ctx context.Context) error {
 		err := getEnvByIDQuery.Load(
 			ctx, db, row, id,
 		)
@@ -216,7 +216,7 @@ func GetEnvByIDOrErr(
 	id int64,
 ) (*Env, error) {
 	row := &Env{}
-	err := tsq.TraceDB(ctx, func(ctx context.Context) error {
+	err := tsq.Trace(ctx, func(ctx context.Context) error {
 		return getEnvByIDQuery.Load(
 			ctx, db, row, id,
 		)
@@ -237,7 +237,7 @@ func ListEnvByIDSet(
 		MustBuild()
 
 	var list []*Env
-	return list, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return list, tsq.Trace(ctx, func(ctx context.Context) error {
 		var err error
 		list, err = tsq.List[Env](
 			ctx, db, query,
@@ -265,7 +265,7 @@ func ListEnvByIDSetOrErr(
 		Where(Env_ID.In(ids...)).
 		MustBuild()
 	var list []*Env
-	return list, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return list, tsq.Trace(ctx, func(ctx context.Context) error {
 		var err error
 		list, err = tsq.List[Env](
 			ctx, db, query,
@@ -306,7 +306,7 @@ func GetActiveEnvByID(
 	id int64,
 ) (*Env, error) {
 	row := &Env{}
-	return row, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return row, tsq.Trace(ctx, func(ctx context.Context) error {
 		err := getActiveEnvByIDQuery.Load(
 			ctx, db, row, id,
 		)
@@ -330,7 +330,7 @@ func GetActiveEnvByIDOrErr(
 	id int64,
 ) (*Env, error) {
 	row := &Env{}
-	err := tsq.TraceDB(ctx, func(ctx context.Context) error {
+	err := tsq.Trace(ctx, func(ctx context.Context) error {
 		return getActiveEnvByIDQuery.Load(
 			ctx, db, row, id,
 		)
@@ -353,7 +353,7 @@ func ListActiveEnvByIDSet(
 		).
 		MustBuild()
 	var list []*Env
-	err := tsq.TraceDB(ctx, func(ctx context.Context) error {
+	err := tsq.Trace(ctx, func(ctx context.Context) error {
 		var err error
 		list, err = tsq.List[Env](
 			ctx, db, query,
@@ -386,7 +386,7 @@ func ListActiveEnvByIDSetOrErr(
 		MustBuild()
 
 	var list []*Env
-	return list, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return list, tsq.Trace(ctx, func(ctx context.Context) error {
 		var err error
 		list, err = tsq.List[Env](
 			ctx, db, query,
@@ -416,7 +416,7 @@ func (e *Env) Insert(
 	db gorp.SqlExecutor,
 	preAndPostHook ...func(e *Env) error,
 ) error {
-	return tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return tsq.Trace(ctx, func(ctx context.Context) error {
 		if len(preAndPostHook) > 0 {
 			if err := preAndPostHook[0](e); err != nil {
 				return errors.Annotatef(
@@ -451,7 +451,7 @@ func (e *Env) Update(
 	db gorp.SqlExecutor,
 	preAndPostHook ...func(e *Env) error,
 ) error {
-	return tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return tsq.Trace(ctx, func(ctx context.Context) error {
 		if len(preAndPostHook) > 0 {
 			if err := preAndPostHook[0](e); err != nil {
 				return errors.Annotatef(
@@ -485,7 +485,7 @@ func (e *Env) Delete(
 	db gorp.SqlExecutor,
 	preAndPostHook ...func(e *Env) error,
 ) error {
-	return tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return tsq.Trace(ctx, func(ctx context.Context) error {
 		if len(preAndPostHook) > 0 {
 			if err := preAndPostHook[0](e); err != nil {
 				return errors.Annotatef(
@@ -521,7 +521,7 @@ func (e *Env) SoftDelete(
 	dt int64,
 	preAndPostHook ...func(e *Env) error,
 ) error {
-	return tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return tsq.Trace(ctx, func(ctx context.Context) error {
 		if len(preAndPostHook) > 0 {
 			if err := preAndPostHook[0](e); err != nil {
 				return errors.Annotatef(
@@ -563,7 +563,7 @@ func ListEnvByQuery(
 	args ...any,
 ) ([]*Env, error) {
 	var data []*Env
-	return data, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return data, tsq.Trace(ctx, func(ctx context.Context) error {
 		var err error
 		data, err = tsq.List[Env](ctx, tx, qb, args...)
 		return errors.Trace(err)
@@ -579,7 +579,7 @@ func PageEnvByQuery(
 	args ...any,
 ) (*tsq.PageResp[Env], error) {
 	var rs *tsq.PageResp[Env]
-	return rs, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
 		var err error
 		rs, err = tsq.Page[Env](
 			ctx, tx, page, qb, args...,
@@ -604,7 +604,7 @@ func CountEnv(
 	query := listEnvQuery
 
 	var rs int
-	return rs, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
 		var err error
 		rs, err = query.Count(ctx, tx)
 		return errors.Trace(err)
@@ -619,7 +619,7 @@ func ListEnv(
 	query := listEnvQuery
 
 	var data []*Env
-	return data, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return data, tsq.Trace(ctx, func(ctx context.Context) error {
 		var err error
 		data, err = tsq.List[Env](ctx, tx, query)
 		return errors.Trace(err)
@@ -635,7 +635,7 @@ func PageEnv(
 	query := listEnvQuery
 
 	var rs *tsq.PageResp[Env]
-	return rs, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
 		var err error
 		rs, err = tsq.Page[Env](
 			ctx, tx, page, query,
@@ -662,7 +662,7 @@ func CountActiveEnv(
 	query := listActiveEnvQuery
 
 	var rs int
-	return rs, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
 		var err error
 		rs, err = query.Count(ctx, tx)
 		return errors.Trace(err)
@@ -678,7 +678,7 @@ func ListActiveEnv(
 	query := listActiveEnvQuery
 
 	var data []*Env
-	return data, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return data, tsq.Trace(ctx, func(ctx context.Context) error {
 		var err error
 		data, err = tsq.List[Env](ctx, tx, query)
 		return errors.Trace(err)
@@ -695,7 +695,7 @@ func PageActiveEnv(
 	query := listActiveEnvQuery
 
 	var rs *tsq.PageResp[Env]
-	return rs, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
 		var err error
 		rs, err = tsq.Page[Env](
 			ctx, tx, page, query,
@@ -726,7 +726,7 @@ func GetEnvByAppIDAndEnvCode(
 	query := getEnvByAppIDAndEnvCodeQuery
 
 	row := &Env{}
-	return row, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return row, tsq.Trace(ctx, func(ctx context.Context) error {
 		err := query.Load(
 			ctx,
 			db,
@@ -757,7 +757,7 @@ func GetEnvByAppIDAndEnvCodeOrErr(
 	query := getEnvByAppIDAndEnvCodeQuery
 
 	row := &Env{}
-	return row, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return row, tsq.Trace(ctx, func(ctx context.Context) error {
 		return query.Load(
 			ctx,
 			db,
@@ -778,7 +778,7 @@ func ExistsEnvByAppIDAndEnvCode(
 	query := getEnvByAppIDAndEnvCodeQuery
 
 	var rs bool
-	return rs, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
 		var err error
 		rs, err = query.Exists(
 			ctx,
@@ -815,7 +815,7 @@ func GetActiveEnvByAppIDAndEnvCode(
 	query := getActiveEnvByAppIDAndEnvCodeQuery
 
 	row := &Env{}
-	return row, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return row, tsq.Trace(ctx, func(ctx context.Context) error {
 		err := query.Load(
 			ctx,
 			db,
@@ -847,7 +847,7 @@ func GetActiveEnvByAppIDAndEnvCodeOrErr(
 	query := getActiveEnvByAppIDAndEnvCodeQuery
 
 	row := &Env{}
-	return row, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return row, tsq.Trace(ctx, func(ctx context.Context) error {
 		return query.Load(
 			ctx,
 			db,
@@ -869,7 +869,7 @@ func ExistsActiveEnvByAppIDAndEnvCode(
 	query := getActiveEnvByAppIDAndEnvCodeQuery
 
 	var rs bool
-	return rs, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
 		var err error
 		rs, err = query.Exists(
 			ctx,
@@ -901,7 +901,7 @@ func CountEnvByAppID(
 	query := ListEnvByAppIDQuery
 
 	var rs int
-	return rs, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
 		var err error
 		rs, err = query.Count(
 			ctx,
@@ -921,7 +921,7 @@ func ListEnvByAppID(
 	query := ListEnvByAppIDQuery
 
 	var data []*Env
-	return data, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return data, tsq.Trace(ctx, func(ctx context.Context) error {
 		var err error
 		data, err = tsq.List[Env](
 			ctx,
@@ -943,7 +943,7 @@ func PageEnvByAppID(
 	query := ListEnvByAppIDQuery
 
 	var rs *tsq.PageResp[Env]
-	return rs, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
 		var err error
 		rs, err = tsq.Page[Env](
 			ctx,
@@ -976,7 +976,7 @@ func CountEnvByAppIDAndEnvLevel(
 	query := ListEnvByAppIDAndEnvLevelQuery
 
 	var rs int
-	return rs, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
 		var err error
 		rs, err = query.Count(
 			ctx,
@@ -998,7 +998,7 @@ func ListEnvByAppIDAndEnvLevel(
 	query := ListEnvByAppIDAndEnvLevelQuery
 
 	var data []*Env
-	return data, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return data, tsq.Trace(ctx, func(ctx context.Context) error {
 		var err error
 		data, err = tsq.List[Env](
 			ctx,
@@ -1022,7 +1022,7 @@ func PageEnvByAppIDAndEnvLevel(
 	query := ListEnvByAppIDAndEnvLevelQuery
 
 	var rs *tsq.PageResp[Env]
-	return rs, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
 		var err error
 		rs, err = tsq.Page[Env](
 			ctx,
@@ -1054,7 +1054,7 @@ func CountEnvByEnvLevel(
 	query := ListEnvByEnvLevelQuery
 
 	var rs int
-	return rs, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
 		var err error
 		rs, err = query.Count(
 			ctx,
@@ -1074,7 +1074,7 @@ func ListEnvByEnvLevel(
 	query := ListEnvByEnvLevelQuery
 
 	var data []*Env
-	return data, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return data, tsq.Trace(ctx, func(ctx context.Context) error {
 		var err error
 		data, err = tsq.List[Env](
 			ctx,
@@ -1096,7 +1096,7 @@ func PageEnvByEnvLevel(
 	query := ListEnvByEnvLevelQuery
 
 	var rs *tsq.PageResp[Env]
-	return rs, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
 		var err error
 		rs, err = tsq.Page[Env](
 			ctx,
@@ -1132,7 +1132,7 @@ func CountActiveEnvByAppID(
 	query := listActiveEnvByAppIDQuery
 
 	var rs int
-	return rs, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
 		var err error
 		rs, err = query.Count(
 			ctx,
@@ -1153,7 +1153,7 @@ func ListActiveEnvByAppID(
 	query := listActiveEnvByAppIDQuery
 
 	var data []*Env
-	return data, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return data, tsq.Trace(ctx, func(ctx context.Context) error {
 		var err error
 		data, err = tsq.List[Env](
 			ctx,
@@ -1176,7 +1176,7 @@ func PageActiveEnvByAppID(
 	query := listActiveEnvByAppIDQuery
 
 	var rs *tsq.PageResp[Env]
-	return rs, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
 		var err error
 		//rs, err = PageEnvByQuery(
 		rs, err = tsq.Page[Env](
@@ -1213,7 +1213,7 @@ func CountActiveEnvByAppIDAndEnvLevel(
 	query := listActiveEnvByAppIDAndEnvLevelQuery
 
 	var rs int
-	return rs, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
 		var err error
 		rs, err = query.Count(
 			ctx,
@@ -1236,7 +1236,7 @@ func ListActiveEnvByAppIDAndEnvLevel(
 	query := listActiveEnvByAppIDAndEnvLevelQuery
 
 	var data []*Env
-	return data, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return data, tsq.Trace(ctx, func(ctx context.Context) error {
 		var err error
 		data, err = tsq.List[Env](
 			ctx,
@@ -1261,7 +1261,7 @@ func PageActiveEnvByAppIDAndEnvLevel(
 	query := listActiveEnvByAppIDAndEnvLevelQuery
 
 	var rs *tsq.PageResp[Env]
-	return rs, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
 		var err error
 		//rs, err = PageEnvByQuery(
 		rs, err = tsq.Page[Env](
@@ -1297,7 +1297,7 @@ func CountActiveEnvByEnvLevel(
 	query := listActiveEnvByEnvLevelQuery
 
 	var rs int
-	return rs, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
 		var err error
 		rs, err = query.Count(
 			ctx,
@@ -1318,7 +1318,7 @@ func ListActiveEnvByEnvLevel(
 	query := listActiveEnvByEnvLevelQuery
 
 	var data []*Env
-	return data, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return data, tsq.Trace(ctx, func(ctx context.Context) error {
 		var err error
 		data, err = tsq.List[Env](
 			ctx,
@@ -1341,7 +1341,7 @@ func PageActiveEnvByEnvLevel(
 	query := listActiveEnvByEnvLevelQuery
 
 	var rs *tsq.PageResp[Env]
-	return rs, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
 		var err error
 		//rs, err = PageEnvByQuery(
 		rs, err = tsq.Page[Env](

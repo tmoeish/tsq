@@ -3,6 +3,8 @@ package tsq
 import (
 	"context"
 	"database/sql"
+	"maps"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -14,7 +16,7 @@ import (
 func (qb *QueryBuilder) MustBuild() *Query {
 	q, err := qb.Build()
 	if err != nil {
-		logrus.WithField("module", "main").Fatalf(errors.ErrorStack(err))
+		logrus.WithField("module", "main").Fatal(errors.ErrorStack(err))
 	}
 	return q
 }
@@ -46,18 +48,12 @@ func (qb *QueryBuilder) Build() (*Query, error) {
 		kwCntQuery:  kwCntQuery,
 		kwListQuery: kwListQuery,
 
-		selectFields:         append([]IColumn{}, qb.selectFields...),
-		selectTables:         make(map[string]Table),
-		selectFieldFullNames: qb.selectFieldFullNames[:],
-		kwFields:             qb.kwFields,
-		kwTables:             qb.kwTables,
-		kwFieldFullNames:     qb.kwFieldFullNames,
-	}
-	for tn, t := range qb.selectTables {
-		n.selectTables[tn] = t
-	}
-	for tn, t := range qb.kwTables {
-		n.kwTables[tn] = t
+		selectFields:         slices.Clone(qb.selectFields),
+		selectTables:         maps.Clone(qb.selectTables),
+		selectFieldFullNames: slices.Clone(qb.selectFieldFullNames),
+		kwFields:             slices.Clone(qb.kwFields),
+		kwTables:             maps.Clone(qb.kwTables),
+		kwFieldFullNames:     slices.Clone(qb.kwFieldFullNames),
 	}
 
 	return n, nil
@@ -78,76 +74,76 @@ type Query struct {
 	kwFieldFullNames []string
 }
 
-func (qb *Query) QueryInt(
+func (q *Query) QueryInt(
 	ctx context.Context,
 	tx gorp.SqlExecutor,
 	args ...any,
 ) (int64, error) {
-	logrus.Tracef("QueryInt:\n%s\n%v", qb.listQuery, args)
+	logrus.Tracef("QueryInt:\n%s\n%v", q.listQuery, args)
 
-	i, err := tx.WithContext(ctx).SelectInt(qb.listQuery, args...)
+	i, err := tx.WithContext(ctx).SelectInt(q.listQuery, args...)
 	if err != nil {
-		return 0, errors.Annotatef(err, "\n%s\n%v", qb.cntQuery, args)
+		return 0, errors.Annotatef(err, "\n%s\n%v", q.cntQuery, args)
 	}
 
 	return i, nil
 }
 
-func (qb *Query) QueryFloat(
+func (q *Query) QueryFloat(
 	ctx context.Context,
 	tx gorp.SqlExecutor,
 	args ...any,
 ) (float64, error) {
-	logrus.Tracef("QueryFloat:\n%s\n%v", qb.listQuery, args)
+	logrus.Tracef("QueryFloat:\n%s\n%v", q.listQuery, args)
 
-	i, err := tx.WithContext(ctx).SelectFloat(qb.listQuery, args...)
+	i, err := tx.WithContext(ctx).SelectFloat(q.listQuery, args...)
 	if err != nil {
-		return 0, errors.Annotatef(err, "\n%s\n%v", qb.cntQuery, args)
+		return 0, errors.Annotatef(err, "\n%s\n%v", q.cntQuery, args)
 	}
 
 	return i, nil
 }
 
-func (qb *Query) QueryStr(
+func (q *Query) QueryStr(
 	ctx context.Context,
 	tx gorp.SqlExecutor,
 	args ...any,
 ) (string, error) {
-	logrus.Tracef("QueryStr:\n%s\n%v", qb.listQuery, args)
+	logrus.Tracef("QueryStr:\n%s\n%v", q.listQuery, args)
 
-	s, err := tx.WithContext(ctx).SelectStr(qb.listQuery, args...)
+	s, err := tx.WithContext(ctx).SelectStr(q.listQuery, args...)
 	if err != nil {
-		return "", errors.Annotatef(err, "\n%s\n%v", qb.cntQuery, args)
+		return "", errors.Annotatef(err, "\n%s\n%v", q.cntQuery, args)
 	}
 
 	return s, nil
 }
 
-func (qb *Query) Count(
+func (q *Query) Count(
 	ctx context.Context,
 	tx gorp.SqlExecutor,
 	args ...any,
 ) (int, error) {
-	logrus.Tracef("Count:\n%s\n%v", qb.cntQuery, args)
+	logrus.Tracef("Count:\n%s\n%v", q.cntQuery, args)
 
-	count, err := tx.WithContext(ctx).SelectInt(qb.cntQuery, args...)
+	count, err := tx.WithContext(ctx).SelectInt(q.cntQuery, args...)
 	if err != nil {
-		return 0, errors.Annotatef(err, "\n%s\n%v", qb.cntQuery, args)
+		return 0, errors.Annotatef(err, "\n%s\n%v", q.cntQuery, args)
 	}
 
 	return int(count), nil
 }
 
-func (qb *Query) Exists(
+func (q *Query) Exists(
 	ctx context.Context,
 	tx gorp.SqlExecutor,
 	args ...any,
 ) (bool, error) {
-	logrus.Tracef("Exists:\n%s\n%v", qb.cntQuery, args)
+	logrus.Tracef("Exists:\n%s\n%v", q.cntQuery, args)
 
-	count, err := tx.WithContext(ctx).SelectInt(qb.cntQuery, args...)
+	count, err := tx.WithContext(ctx).SelectInt(q.cntQuery, args...)
 	if err != nil {
-		return false, errors.Annotatef(err, "\n%s\n%v", qb.cntQuery, args)
+		return false, errors.Annotatef(err, "\n%s\n%v", q.cntQuery, args)
 	}
 
 	return count > 0, nil
@@ -157,34 +153,34 @@ func Page[T Table](
 	ctx context.Context,
 	tx gorp.SqlExecutor,
 	page *PageReq,
-	qb *Query,
+	q *Query,
 	args ...any,
 ) (*PageResp[T], error) {
-	countQuery, dataQuery, err := qb.pageQueryStr(page)
+	cntQuery, listQuery, err := q.pageQueryStr(page)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
 
-	if len(qb.kwFields) > 0 && len(page.Keyword) > 0 {
+	if len(q.kwFields) > 0 && len(page.Keyword) > 0 {
 		like := "%" + page.Keyword + "%"
-		for i := 0; i < len(qb.kwFields); i++ {
+		for range len(q.kwFields) {
 			args = append(args, like)
 		}
 	}
 
-	logrus.Tracef("Count:\n%s\n%v", countQuery, args)
-	count, err := tx.WithContext(ctx).SelectInt(countQuery, args...)
+	logrus.Tracef("Count:\n%s\n%v", cntQuery, args)
+	count, err := tx.WithContext(ctx).SelectInt(cntQuery, args...)
 	if err != nil {
-		return nil, errors.Annotatef(err, "\n%s\n%v", countQuery, args)
+		return nil, errors.Annotatef(err, "\n%s\n%v", cntQuery, args)
 	}
 
-	logrus.Tracef("List:\n%s\n%v", dataQuery, args)
-	rows, err := tx.WithContext(ctx).Query(dataQuery, args...)
+	logrus.Tracef("List:\n%s\n%v", listQuery, args)
+	rows, err := tx.WithContext(ctx).Query(listQuery, args...)
 	if err != nil {
-		return nil, errors.Annotatef(err, "\n%s\n%v", dataQuery, args)
+		return nil, errors.Annotatef(err, "\n%s\n%v", listQuery, args)
 	}
 	if rows.Err() != nil {
-		return nil, errors.Annotatef(err, "\n%s\n%v", dataQuery, args)
+		return nil, errors.Annotatef(err, "\n%s\n%v", listQuery, args)
 	}
 	defer func() {
 		_ = rows.Close()
@@ -193,8 +189,8 @@ func Page[T Table](
 	var list []*T
 	for rows.Next() {
 		r := new(T)
-		dest := make([]any, len(qb.selectFields))
-		for i, f := range qb.selectFields {
+		dest := make([]any, len(q.selectFields))
+		for i, f := range q.selectFields {
 			dest[i] = f.Ptr()(r)
 		}
 		if err := rows.Scan(dest...); err != nil {
@@ -218,19 +214,24 @@ func (qb *Query) pageQueryStr(page *PageReq) (string, string, error) {
 
 	// sort
 	if len(page.OrderBy) != 0 {
-		// find sort full field name
-		var sf string
-		for _, f := range qb.selectFields {
-			// TODO
-			if strings.HasSuffix(f.FullName(), "."+page.OrderBy) {
-				sf = f.FullName()
+		orderbys := strings.Split(page.OrderBy, ",")
+		fullNames := make([]string, len(orderbys))
+		for _, ob := range orderbys {
+			// find sort full field name
+			var sf string
+			for _, f := range qb.selectFields {
+				if f.Name() == ob {
+					sf = f.FullName()
+					break
+				}
 			}
-		}
-		if len(sf) == 0 {
-			return "", "", errors.Errorf("unknown sort field: %v", page.OrderBy)
+			if len(sf) == 0 {
+				return "", "", errors.Errorf("unknown sort field: %v", page.OrderBy)
+			}
+			fullNames = append(fullNames, sf)
 		}
 
-		listQuery += "\nORDER BY " + sf
+		listQuery += "\nORDER BY " + strings.Join(fullNames, ", ")
 		if len(page.Order) != 0 {
 			listQuery += " " + page.Order
 		}

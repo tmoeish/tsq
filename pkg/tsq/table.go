@@ -16,7 +16,10 @@ func RegisterTable(table Table) {
 	tables[table.Table()] = table
 }
 
-func Init(db *gorp.DbMap, autoCreateTable bool) error {
+func Init(db *gorp.DbMap, autoCreateTable bool, tracer ...Tracer) error {
+	tracers = append(tracers, tracer...)
+
+
 	for name, table := range tables {
 		if len(table.VersionField()) > 0 {
 			db.AddTableWithName(table, name).

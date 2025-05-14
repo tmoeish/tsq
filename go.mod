@@ -1,6 +1,6 @@
 module github.com/tmoeish/tsq
 
-go 1.22.4
+go 1.24.2
 
 require (
 	github.com/juju/errors v1.0.0

@@ -171,7 +171,7 @@ func {{$name}}(
 	{{$dot.ID | ToLower}} {{index $dot.FieldMap $dot.ID | FieldType}},
 ) ({{$ptype}}, error) {
 	row := &{{$type}}{}
-	return row, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return row, tsq.Trace(ctx, func(ctx context.Context) error {
 		err := {{$query}}.Load(
 			ctx, db, row, {{$dot.ID | ToLower}},
 		)
@@ -198,7 +198,7 @@ func {{$name}}(
 	{{$dot.ID | ToLower}} {{index $dot.FieldMap $dot.ID | FieldType}},
 ) ({{$ptype}}, error) {
 	row := &{{$type}}{}
-	err := tsq.TraceDB(ctx, func(ctx context.Context) error {
+	err := tsq.Trace(ctx, func(ctx context.Context) error {
 		return {{$query}}.Load(
 			ctx, db, row, {{$dot.ID | ToLower}},
 		)
@@ -223,7 +223,7 @@ func {{$name}}(
 		MustBuild()
 
 	var list {{$list}}
-	return list, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return list, tsq.Trace(ctx, func(ctx context.Context) error {
 		var err error
 		list, err = tsq.List[{{$type}}](
 			ctx, db, query,
@@ -254,7 +254,7 @@ func {{$name}}(
 		Where({{$type}}_{{$dot.ID}}.In({{$dot.ID | ToLower}}s...)).
 		MustBuild()
 	var list {{$list}}
-	return list, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return list, tsq.Trace(ctx, func(ctx context.Context) error {
 		var err error
 		list, err = tsq.List[{{$type}}](
 			ctx, db, query,
@@ -303,7 +303,7 @@ func {{$name}}(
 	{{$dot.ID | ToLower}} {{index $dot.FieldMap $dot.ID | FieldType}},
 ) ({{$ptype}}, error) {
 	row := &{{$type}}{}
-	return row, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return row, tsq.Trace(ctx, func(ctx context.Context) error {
 		err := {{$query}}.Load(
 			ctx, db, row, {{$dot.ID | ToLower}},
 		)
@@ -330,7 +330,7 @@ func {{$name}}(
 	{{$dot.ID | ToLower}} {{index $dot.FieldMap $dot.ID | FieldType}},
 ) ({{$ptype}}, error) {
 	row := &{{$type}}{}
-	err := tsq.TraceDB(ctx, func(ctx context.Context) error {
+	err := tsq.Trace(ctx, func(ctx context.Context) error {
 		return {{$query}}.Load(
 			ctx, db, row, {{$dot.ID | ToLower}},
 		)
@@ -357,7 +357,7 @@ func {{$name}}(
 		).
 		MustBuild()
 	var list {{$list}}
-	err := tsq.TraceDB(ctx, func(ctx context.Context) error {
+	err := tsq.Trace(ctx, func(ctx context.Context) error {
 		var err error
 		list, err = tsq.List[{{$type}}](
 			ctx, db, query,
@@ -393,7 +393,7 @@ func {{$name}}(
 		MustBuild()
 
 	var list {{$list}}
-	return list, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return list, tsq.Trace(ctx, func(ctx context.Context) error {
 		var err error
 		list, err = tsq.List[{{$type}}](
 			ctx, db, query,
@@ -428,7 +428,7 @@ func {{$name}}(
 	db gorp.SqlExecutor,
 	preAndPostHook ...func({{$dot.Recv}} {{$ptype}}) error,
 ) error {
-	return tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return tsq.Trace(ctx, func(ctx context.Context) error {
 		if len(preAndPostHook) > 0 {
 			if err := preAndPostHook[0]({{$dot.Recv}}); err != nil {
 				return errors.Annotatef(
@@ -479,7 +479,7 @@ func {{$name}}(
 	db gorp.SqlExecutor,
 	preAndPostHook ...func({{$dot.Recv}} {{$ptype}}) error,
 ) error {
-	return tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return tsq.Trace(ctx, func(ctx context.Context) error {
 		if len(preAndPostHook) > 0 {
 			if err := preAndPostHook[0]({{$dot.Recv}}); err != nil {
 				return errors.Annotatef(
@@ -522,7 +522,7 @@ func {{$name}}(
 	db gorp.SqlExecutor,
 	preAndPostHook ...func({{$dot.Recv}} {{$ptype}}) error,
 ) error {
-	return tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return tsq.Trace(ctx, func(ctx context.Context) error {
 		if len(preAndPostHook) > 0 {
 			if err := preAndPostHook[0]({{$dot.Recv}}); err != nil {
 				return errors.Annotatef(
@@ -560,7 +560,7 @@ func {{$name}}(
 	dt int64,
 	preAndPostHook ...func({{$dot.Recv}} {{$ptype}}) error,
 ) error {
-	return tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return tsq.Trace(ctx, func(ctx context.Context) error {
 		if len(preAndPostHook) > 0 {
 			if err := preAndPostHook[0]({{$dot.Recv}}); err != nil {
 				return errors.Annotatef(
@@ -613,7 +613,7 @@ func {{$name}}(
 	args ...any,
 ) ({{$list}}, error) {
 	var data {{$list}}
-	return data, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return data, tsq.Trace(ctx, func(ctx context.Context) error {
 		var err error
 		data, err = tsq.List[{{$type}}](ctx, tx, qb, args...)
 		return errors.Trace(err)
@@ -631,7 +631,7 @@ func {{$name}}(
 	args ...any,
 ) (*{{$pageResp}}, error) {
 	var rs *{{$pageResp}}
-	return rs, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
 		var err error
 		rs, err = tsq.Page[{{$type}}](
 			ctx, tx, page, qb, args...
@@ -661,7 +661,7 @@ func {{$name}}(
 	query := {{$query}}
 
 	var rs int
-	return rs, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
 		var err error
 		rs, err = query.Count(ctx, tx)
 		return errors.Trace(err)
@@ -678,7 +678,7 @@ func {{$name}}(
 	query := {{$query}}
 
 	var data {{$list}}
-	return data, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return data, tsq.Trace(ctx, func(ctx context.Context) error {
 		var err error
 		data, err = tsq.List[{{$type}}](ctx, tx, query)
 		return errors.Trace(err)
@@ -696,7 +696,7 @@ func {{$name}}(
 	query := {{$query}}
 
 	var rs *{{$pageResp}}
-	return rs, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
 		var err error
 		rs, err = tsq.Page[{{$type}}](
 			ctx, tx, page, query,
@@ -732,7 +732,7 @@ func {{$name}}(
 	query := {{$query}}
 
 	var rs int
-	return rs, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
 		var err error
 		rs, err = query.Count(ctx, tx)
 		return errors.Trace(err)
@@ -751,7 +751,7 @@ func {{$name}}(
 	query := {{$query}}
 
 	var data {{$list}}
-	return data, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return data, tsq.Trace(ctx, func(ctx context.Context) error {
 		var err error
 		data, err = tsq.List[{{$type}}](ctx, tx, query)
 		return errors.Trace(err)
@@ -771,7 +771,7 @@ func {{$name}}(
 	query := {{$query}}
 
 	var rs *{{$pageResp}}
-	return rs, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
 		var err error
 		rs, err = tsq.Page[{{$type}}](
 			ctx, tx, page, query,
@@ -814,7 +814,7 @@ func {{$name}}(
 	query := {{$query}}
 
 	row := &{{$type}}{}
-	return row, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return row, tsq.Trace(ctx, func(ctx context.Context) error {
 		err := query.Load(
 			ctx,
 			db,
@@ -850,7 +850,7 @@ func {{$name}}(
 	query := {{$query}}
 
 	row := &{{$type}}{}
-	return row, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return row, tsq.Trace(ctx, func(ctx context.Context) error {
 		return query.Load(
 			ctx,
 			db,
@@ -876,7 +876,7 @@ func {{$name}}(
 	query := {{$query}}
 
 	var rs bool
-	return rs, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
 		var err error
 		rs, err = query.Exists(
 			ctx,
@@ -927,7 +927,7 @@ func {{$name}}(
 	query := {{$query}}
 
 	row := &{{$type}}{}
-	return row, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return row, tsq.Trace(ctx, func(ctx context.Context) error {
 		err := query.Load(
 			ctx,
 			db,
@@ -964,7 +964,7 @@ func {{$name}}(
 	query := {{$query}}
 
 	row := &{{$type}}{}
-	return row, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return row, tsq.Trace(ctx, func(ctx context.Context) error {
 		return query.Load(
 			ctx,
 			db,
@@ -991,7 +991,7 @@ func {{$name}}(
 	query := {{$query}}
 
 	var rs bool
-	return rs, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
 		var err error
 		rs, err = query.Exists(
 			ctx,
@@ -1039,7 +1039,7 @@ func {{$name}}(
 	query := {{$query}}
 
 	var rs int
-	return rs, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
 		var err error
 		rs, err = query.Count(
 			ctx,
@@ -1066,7 +1066,7 @@ func {{$name}}(
 	query := {{$query}}
 
 	var data {{$list}}
-	return data, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return data, tsq.Trace(ctx, func(ctx context.Context) error {
 		var err error
 		data, err = tsq.List[{{$type}}](
 			ctx,
@@ -1095,7 +1095,7 @@ func {{$name}}(
 	query := {{$query}}
 
 	var rs *{{$pageResp}}
-	return rs, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
 		var err error
 		rs, err = tsq.Page[{{$type}}](
 			ctx,
@@ -1147,7 +1147,7 @@ func {{$name}}(
 	query := {{$query}}
 
 	var rs int
-	return rs, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
 		var err error
 		rs, err = query.Count(
 			ctx,
@@ -1175,7 +1175,7 @@ func {{$name}}(
 	query := {{$query}}
 
 	var data {{$list}}
-	return data, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return data, tsq.Trace(ctx, func(ctx context.Context) error {
 		var err error
 		data, err = tsq.List[{{$type}}](
 			ctx,
@@ -1205,9 +1205,8 @@ func {{$name}}(
 	query := {{$query}}
 
 	var rs *{{$pageResp}}
-	return rs, tsq.TraceDB(ctx, func(ctx context.Context) error {
+	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
 		var err error
-		//rs, err = {{$PageBy}}Query(
 		rs, err = tsq.Page[{{$type}}](
 			ctx,
 			db,
@@ -1224,4 +1223,3 @@ func {{$name}}(
 {{- end }}
 {{- end }}
 {{- end }}
-
