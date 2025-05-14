@@ -215,7 +215,7 @@ func (qb *Query) pageQueryStr(page *PageReq) (string, string, error) {
 	// sort
 	if len(page.OrderBy) != 0 {
 		orderbys := strings.Split(page.OrderBy, ",")
-		fullNames := make([]string, len(orderbys))
+		var fullNames []string
 		for _, ob := range orderbys {
 			// find sort full field name
 			var sf string
