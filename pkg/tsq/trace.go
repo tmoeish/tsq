@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 )
 
-type fn func(ctx context.Context) error
+type Fn func(ctx context.Context) error
 
-type Tracer func(fn fn) fn
+type Tracer func(next Fn) Fn
 
 var tracers []Tracer
 
