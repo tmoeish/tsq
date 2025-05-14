@@ -226,7 +226,7 @@ func (qb *Query) pageQueryStr(page *PageReq) (string, string, error) {
 				}
 			}
 			if len(sf) == 0 {
-				return "", "", errors.Errorf("unknown sort field: %v", page.OrderBy)
+				return "", "", errors.Errorf("unknown sort field: %v", ob)
 			}
 			fullNames = append(fullNames, sf)
 		}
