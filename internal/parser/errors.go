@@ -241,6 +241,7 @@ func NewDSLFieldNotFoundError(field, structName string) error {
 		fmt.Sprintf(ErrorMessages[ErrorTypeDSLFieldNotFound], field, structName),
 		map[string]any{"field": field, "struct": structName},
 	)
+
 	return errors.Trace(err)
 }
 
@@ -250,6 +251,7 @@ func NewDSLIndexFieldDuplicateError(indexName, field string) error {
 		fmt.Sprintf(ErrorMessages[ErrorTypeDSLIndexFieldDuplicate], field, indexName),
 		map[string]any{"index": indexName, "field": field},
 	)
+
 	return errors.Trace(err)
 }
 
@@ -259,6 +261,7 @@ func NewDSLIndexDuplicateError(indexName, fields string) error {
 		fmt.Sprintf(ErrorMessages[ErrorTypeDSLIndexDuplicate], fields, indexName),
 		map[string]any{"index": indexName, "fields": fields},
 	)
+
 	return errors.Trace(err)
 }
 

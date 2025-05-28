@@ -132,6 +132,7 @@ func gen(data *tsq.StructInfo, t *template.Template, dir string) error {
 	if err != nil {
 		return errors.Annotatef(err, "写文件失败: %s", filename)
 	}
+
 	return nil
 }
 
@@ -155,5 +156,6 @@ func genDTO(data *tsq.StructInfo, t *template.Template, dir string) error {
 	if err != nil {
 		return errors.Annotatef(err, "写文件失败: %s", filename)
 	}
+
 	return nil
 }

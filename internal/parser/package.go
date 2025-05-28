@@ -27,10 +27,12 @@ func Parse(packagePath string) ([]*tsq.StructInfo, string, error) {
 	if err != nil {
 		return nil, "", errors.Annotatef(err, "解析包 %s 失败", packagePath)
 	}
+
 	list := make([]*tsq.StructInfo, len(result.Structs))
 	for i, internal := range result.Structs {
 		list[i] = internal.StructInfo
 	}
+
 	return list, result.Directory, nil
 }
 
@@ -87,6 +89,7 @@ func (ps *ParseState) parsePackagesRecursively(packagePath string) error {
 			return errors.Annotatef(err, "递归解析包 %s 失败", currentPath)
 		}
 	}
+
 	return nil
 }
 
@@ -97,6 +100,7 @@ func (ps *ParseState) resolveAllEmbeddedFields() error {
 			return errors.Annotatef(err, "解析嵌入字段失败: %v", structInfo.TypeInfo)
 		}
 	}
+
 	return nil
 }
 
@@ -138,6 +142,7 @@ func (ps *ParseState) parseTableMetadata(pkg tsq.PackageInfo) error {
 			return errors.Annotatef(err, "处理文件注释失败: %s", fullPath)
 		}
 	}
+
 	return nil
 }
 
@@ -176,6 +181,7 @@ func (ps *ParseState) processFileComments(
 			logrus.Debugln("skip node type", reflect.TypeOf(node))
 		}
 	}
+
 	return nil
 }
 
@@ -199,6 +205,7 @@ func (ps *ParseState) processGenDecl(
 			return err
 		}
 	}
+
 	return nil
 }
 
@@ -223,6 +230,7 @@ func (ps *ParseState) processStructTypeSpec(
 ) error {
 	structName := typeSpec.Name.Name
 	typeInfo := tsq.TypeInfo{Package: pkg, TypeName: structName}
+
 	structInfo, exists := ps.structMap[typeInfo]
 	if !exists {
 		return nil
@@ -232,13 +240,16 @@ func (ps *ParseState) processStructTypeSpec(
 	for name := range structInfo.FieldMap {
 		fields[name] = struct{}{}
 	}
+
 	tableMeta, err := ParseTableInfo(structName, comments, fields)
 	if err != nil {
 		return err
 	}
+
 	if tableMeta != nil {
 		structInfo.TableInfo = tableMeta
 	}
+
 	return nil
 }
 
@@ -261,6 +272,7 @@ func (ps *ParseState) filterAndProcessResults(packagePath string) (*ParseResult,
 		if structInfo.TableInfo == nil {
 			continue
 		}
+
 		structInfo.resolveImportDependencies()
 		structInfo.resolveFieldsInfo()
 		results = append(results, structInfo)
@@ -308,6 +320,7 @@ func (ps *ParseState) parseSinglePackage(packagePath string) error {
 			return errors.Annotatef(err, "解析结构体声明失败: %s", fullPath)
 		}
 	}
+
 	return nil
 }
 
@@ -353,6 +366,7 @@ func parsePackageAliases(file *ast.File) map[string]tsq.PackageInfo {
 
 	for _, importSpec := range file.Imports {
 		importPath := strings.Trim(importSpec.Path.Value, `"`)
+
 		pkg, err := getPackageInfo(importPath)
 		if err != nil {
 			// 这里选择跳过错误包，或可根据需要向上返回错误
@@ -411,6 +425,7 @@ func resolveEmbeddedFields(
 	}
 
 	structInfo.embeddedResolved = true
+
 	return nil
 }
 
@@ -420,7 +435,9 @@ func copyEmbeddedFields(targetStruct *StructInfo, embeddedStruct *StructInfo) er
 		if _, exists := targetStruct.FieldMap[fieldName]; exists {
 			return errors.Errorf("field %s already exists in struct %v", fieldName, targetStruct.TypeInfo)
 		}
+
 		targetStruct.FieldMap[fieldName] = field
 	}
+
 	return nil
 }

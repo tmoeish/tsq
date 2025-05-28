@@ -104,13 +104,16 @@ func TestParseAnnotations_DSL(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.desc, func(t *testing.T) {
 			cg := []*ast.CommentGroup{{List: []*ast.Comment{{Text: tt.comment}}}}
+
 			info, err := parseDSL("User", cg, structFields)
 			if err != nil {
 				t.Fatalf("parseDSL error: %v", err)
 			}
+
 			if info == nil {
 				t.Fatalf("parseDSL returned nil")
 			}
+
 			if !reflect.DeepEqual(info.Table, tt.want.Table) ||
 				!reflect.DeepEqual(info.ID, tt.want.ID) ||
 				!reflect.DeepEqual(info.AI, tt.want.AI) ||

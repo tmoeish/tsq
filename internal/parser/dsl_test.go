@@ -285,6 +285,7 @@ func Test_genTableInfoFromAST(t *testing.T) {
 		},
 	}
 	structFields := map[string]struct{}{"id": {}, "V1": {}, "CT": {}, "mtime": {}, "DT": {}, "f1": {}, "f2": {}, "f3": {}}
+
 	info, err := genTableInfoFromAST("MyTable", ast, true, structFields)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -373,6 +374,7 @@ func Test_validateTableInfoAgainstStruct(t *testing.T) {
 	}
 	// 1. 字段不存在
 	info := &tsq.TableInfo{ID: "not_exist"}
+
 	err := validateTableInfoAgainstStruct(info, structFields, "User")
 	if err == nil || !IsErrorType(err, ErrorTypeDSLFieldNotFound) {
 		t.Errorf("should detect field not found, got: %v", err)
@@ -381,6 +383,7 @@ func Test_validateTableInfoAgainstStruct(t *testing.T) {
 	info = &tsq.TableInfo{
 		UxList: []tsq.IndexInfo{{Name: "ux1", Fields: []string{"name", "name"}}},
 	}
+
 	err = validateTableInfoAgainstStruct(info, structFields, "User")
 	if err == nil || !IsErrorType(err, ErrorTypeDSLIndexFieldDuplicate) {
 		t.Errorf("should detect index field duplicate, got: %v", err)
@@ -389,6 +392,7 @@ func Test_validateTableInfoAgainstStruct(t *testing.T) {
 	info = &tsq.TableInfo{
 		UxList: []tsq.IndexInfo{{Name: "ux1", Fields: []string{"name", "email"}}, {Name: "ux2", Fields: []string{"name", "email"}}},
 	}
+
 	err = validateTableInfoAgainstStruct(info, structFields, "User")
 	if err == nil || !IsErrorType(err, ErrorTypeDSLIndexDuplicate) {
 		t.Errorf("should detect index duplicate, got: %v", err)
@@ -399,6 +403,7 @@ func Test_validateTableInfoAgainstStruct(t *testing.T) {
 		UxList:  []tsq.IndexInfo{{Name: "ux1", Fields: []string{"name", "email"}}},
 		IdxList: []tsq.IndexInfo{{Name: "idx1", Fields: []string{"age"}}},
 	}
+
 	err = validateTableInfoAgainstStruct(info, structFields, "User")
 	if err != nil {
 		t.Errorf("should pass valid case, got: %v", err)

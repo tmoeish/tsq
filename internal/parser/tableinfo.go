@@ -28,6 +28,7 @@ func ParseTableInfo(
 	if err != nil {
 		return nil, err
 	}
+
 	if info == nil {
 		return nil, nil
 	}

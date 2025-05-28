@@ -569,23 +569,29 @@ func validateTableInfoAgainstStruct(info *tsq.TableInfo, structFields map[string
 	}
 	// 2. ux/idx 校验
 	seen := map[string]string{} // key: fields串, value: indexName
+
 	for _, idx := range append(info.UxList, info.IdxList...) {
 		fieldSet := map[string]struct{}{}
+
 		for _, f := range idx.Fields {
 			if structFields != nil {
 				if _, ok := structFields[f]; !ok {
 					return NewDSLFieldNotFoundError(f, structName)
 				}
 			}
+
 			if _, ok := fieldSet[f]; ok {
 				return NewDSLIndexFieldDuplicateError(idx.Name, f)
 			}
+
 			fieldSet[f] = struct{}{}
 		}
+
 		key := strings.Join(idx.Fields, ",")
 		if _, ok := seen[key]; ok {
 			return NewDSLIndexDuplicateError(idx.Name, key)
 		}
+
 		seen[key] = idx.Name
 	}
 
