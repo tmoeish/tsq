@@ -1,0 +1,84 @@
+name: 🐛 Bug 报告
+description: 报告一个问题帮助我们改进
+title: "[Bug]: "
+labels: ["bug", "triage"]
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢您花时间填写这个 bug 报告！
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 发生了什么？
+      description: 请详细描述您遇到的问题
+      placeholder: 描述 bug 的具体表现...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+      description: 您期望发生什么？
+      placeholder: 描述期望的正确行为...
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 重现步骤
+      description: 如何重现这个问题？
+      placeholder: |
+        1. 执行命令 '...'
+        2. 看到错误 '...'
+        3. 滚动到 '...'
+        4. 看到 bug
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: 环境信息
+      description: |
+        请提供环境信息。提示：可以运行 `go version && uname -a` 获取一些信息
+      value: |
+        - OS: [例如 Ubuntu 20.04, macOS 12.6, Windows 11]
+        - Go 版本: [例如 go1.21.0]
+        - TSQ 版本: [例如 v1.0.20]
+      render: markdown
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 相关日志输出
+      description: 请复制并粘贴任何相关的日志输出。这将自动格式化为代码，因此无需反引号。
+      render: shell
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: 附加信息
+      description: |
+        请在此处添加任何其他上下文或您认为可能有用的信息。
+
+        提示: 您可以通过拖拽文件到此区域来附加图片或文件。
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: 检查清单
+      description: 在提交之前，请确认以下事项
+      options:
+        - label: 我已经搜索了现有的 issues，确认这不是重复问题
+          required: true
+        - label: 我使用的是最新版本的 TSQ
+          required: true
+        - label: 我已经阅读了文档和 FAQ
+          required: false

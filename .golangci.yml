@@ -1,0 +1,556 @@
+# Options for analysis running.
+run:
+  # The default concurrency value is the number of available CPU.
+  #concurrency: 4
+
+  # Timeout for analysis, e.g. 30s, 5m.
+  # Default: 1m
+  timeout: 1m
+
+  # Exit code when at least one issue was found.
+  # Default: 1
+  issues-exit-code: 2
+
+  # Include test files or not.
+  # Default: true
+  tests: false
+
+  # List of build tags, all linters use it.
+  # Default: [].
+  #build-tags:
+    #- mytag
+
+  # If set we pass it to "go list -mod={option}". From "go help modules":
+  # If invoked with -mod=readonly, the go command is disallowed from the implicit
+  # automatic updating of go.mod described above. Instead, it fails when any changes
+  # to go.mod are needed. This setting is most useful to check that go.mod does
+  # not need updates, such as in a continuous integration and testing system.
+  # If invoked with -mod=vendor, the go command assumes that the vendor
+  # directory holds the correct copies of dependencies and ignores
+  # the dependency descriptions in go.mod.
+  #
+  # Allowed values: readonly|vendor|mod
+  # By default, it isn't set.
+  modules-download-mode: readonly
+  # Allow multiple parallel golangci-lint instances running.
+  # If false (default) - golangci-lint acquires file lock on start.
+  allow-parallel-runners: false
+
+
+# output configuration options
+output:
+  # Format: colored-line-number|line-number|json|tab|checkstyle|code-climate|junit-xml|github-actions
+  #
+  # Multiple can be specified by separating them by comma, output can be provided
+  # for each of them by separating format name and path by colon symbol.
+  # Output path can be either `stdout`, `stderr` or path to the file to write to.
+  # Example: "checkstyle:report.json,colored-line-number"
+  #
+  # Default: colored-line-number
+  #format: json
+
+  # Print lines of code with issue.
+  # Default: true
+  print-issued-lines: true
+
+  # Print linter name in the end of issue text.
+  # Default: true
+  print-linter-name: true
+
+  # Add a prefix to the output file references.
+  # Default is no prefix.
+  path-prefix: ""
+
+  # Sort results by: filepath, line and column.
+  sort-results: false
+
+
+linters-settings:
+  errcheck:
+    exclude-functions:
+      - io/ioutil.ReadFile
+      - os/file.Close
+      - database/sql/(*DB).Close
+      - io.Copy(*bytes.Buffer)
+      - io.Copy(os.Stdout)
+  dogsled:
+    # Checks assignments with too many blank identifiers.
+    # Default: 2
+    max-blank-identifiers: 1
+  varnamelen:
+    # The longest distance, in source lines, that is being considered a "small scope".
+    # Variables used in at most this many lines will be ignored.
+    # Default: 5
+    max-distance: 6
+    # The minimum length of a variable's name that is considered "long".
+    # Variable names that are at least this long will be ignored.
+    # Default: 3
+    min-name-length: 1
+    # Check method receivers.
+    # Default: false
+    check-receiver: true
+    # Check named return values.
+    # Default: false
+    check-return: true
+    # Check type parameters.
+    # Default: false
+    check-type-param: true
+    # Ignore "ok" variables that hold the bool return value of a type assertion.
+    # Default: false
+    ignore-type-assert-ok: true
+    # Ignore "ok" variables that hold the bool return value of a map index.
+    # Default: false
+    ignore-map-index-ok: true
+    # Ignore "ok" variables that hold the bool return value of a channel receive.
+    # Default: false
+    ignore-chan-recv-ok: true
+    # Optional list of variable names that should be ignored completely.
+    # Default: []
+    ignore-names:
+      - err
+    # Optional list of variable declarations that should be ignored completely.
+    # Entries must be in one of the following forms (see below for examples):
+    # - for variables, parameters, named return values, method receivers, or type parameters:
+    #   <name> <type>  (<type> can also be a pointer/slice/map/chan/...)
+    # - for constants: const <name>
+    #
+    # Default: []
+    ignore-decls:
+      - c echo.Context
+      - t testing.T
+      - T any
+  forbidigo:
+    # Forbid the following identifiers (list of regexp).
+    # Default: ["^(fmt\\.Print(|f|ln)|print|println)$"]
+    forbid:
+      - ^print.*$
+      - 'fmt\.Print.*'
+      # Optionally put comments at the end of the regex, surrounded by `(# )?`
+      # Escape any special characters.
+      - 'fmt\.Print.*(# Do not commit print statements\.)?'
+    # Exclude godoc examples from forbidigo checks.
+    # Default: true
+    # exclude_godoc_examples: false
+  lll:
+    # Max line length, lines longer will be reported.
+    # '\t' is counted as 1 character by default, and can be changed with the tab-width option.
+    # Default: 120.
+    line-length: 80
+    # Tab width in spaces.
+    # Default: 1
+    tab-width: 4
+  wsl:
+    # Do strict checking when assigning from append (x = append(x, y)).
+    # If this is set to true - the append call must append either a variable
+    # assigned, called or used on the line above.
+    # https://github.com/bombsimon/wsl/blob/master/doc/configuration.md#strict-append
+    # Default: true
+    strict-append: true
+    # Allows assignments to be cuddled with variables used in calls on
+    # line above and calls to be cuddled with assignments of variables
+    # used in call on line above.
+    # https://github.com/bombsimon/wsl/blob/master/doc/configuration.md#allow-assign-and-call
+    # Default: true
+    allow-assign-and-call: true
+    # Allows assignments to be cuddled with anything.
+    # https://github.com/bombsimon/wsl/blob/master/doc/configuration.md#allow-assign-and-anything
+    # Default: false
+    allow-assign-and-anything: true
+    # Allows cuddling to assignments even if they span over multiple lines.
+    # https://github.com/bombsimon/wsl/blob/master/doc/configuration.md#allow-multiline-assign
+    # Default: true
+    allow-multiline-assign: true
+    # If the number of lines in a case block is equal to or lager than this number,
+    # the case *must* end white a newline.
+    # https://github.com/bombsimon/wsl/blob/master/doc/configuration.md#force-case-trailing-whitespace
+    # Default: 0
+    force-case-trailing-whitespace: 20
+    # Allow blocks to end with comments.
+    # https://github.com/bombsimon/wsl/blob/master/doc/configuration.md#allow-trailing-comment
+    # Default: false
+    allow-trailing-comment: true
+    # Allow multiple comments in the beginning of a block separated with newline.
+    # https://github.com/bombsimon/wsl/blob/master/doc/configuration.md#allow-separated-leading-comment
+    # Default: false
+    allow-separated-leading-comment: true
+    # Allow multiple var/declaration statements to be cuddled.
+    # https://github.com/bombsimon/wsl/blob/master/doc/configuration.md#allow-cuddle-declarations
+    # Default: false
+    allow-cuddle-declarations: true
+    # A list of call idents that everything can be cuddled with.
+    # Defaults: [ "Lock", "RLock" ]
+#    allow-cuddle-with-calls: [ "Foo", "Bar" ]
+    # AllowCuddleWithRHS is a list of right hand side variables that is allowed
+    # to be cuddled with anything.
+    # Defaults: [ "Unlock", "RUnlock" ]
+#    allow-cuddle-with-rhs: [ "Foo", "Bar" ]
+    # Causes an error when an If statement that checks an error variable doesn't
+    # cuddle with the assignment of that variable.
+    # https://github.com/bombsimon/wsl/blob/master/doc/configuration.md#force-err-cuddling
+    # Default: false
+#    force-err-cuddling: true
+    # When force-err-cuddling is enabled this is a list of names
+    # used for error variables to check for in the conditional.
+    # Default: [ "err" ]
+#    error-variable-names: [ "foo" ]
+    # Causes an error if a short declaration (:=) cuddles with anything other than
+    # another short declaration.
+    # This logic overrides force-err-cuddling among others.
+    # https://github.com/bombsimon/wsl/blob/master/doc/configuration.md#force-short-decl-cuddling
+    # Default: false
+    force-short-decl-cuddling: false
+  nlreturn:
+    # Size of the block (including return statement that is still "OK")
+    # so no return split required.
+    # Default: 1
+    block-size: 6
+  nestif:
+    # Minimal complexity of if statements to report.
+    # Default: 5
+    min-complexity: 8
+  wrapcheck:
+    # An array of strings that specify substrings of signatures to ignore.
+    # If this set, it will override the default set of ignored signatures.
+    # See https://github.com/tomarrell/wrapcheck#configuration for more information.
+    # Default: [".Errorf(", "errors.New(", "errors.Unwrap(", ".Wrap(", ".Wrapf(", ".WithMessage(", ".WithMessagef(", ".WithStack("]
+    ignoreSigs:
+      - .Errorf(
+      - errors.New(
+      - errors.Unwrap(
+      - .Wrap(
+      - .Wrapf(
+      - .WithMessage(
+      - .WithMessagef(
+      - .WithStack(
+      - .Trace(
+    # An array of strings that specify regular expressions of signatures to ignore.
+    # Default: []
+    ignoreSigRegexps:
+      - \.New.*Error\(
+    # An array of strings that specify globs of packages to ignore.
+    # Default: []
+    ignorePackageGlobs:
+      - encoding/*
+      - github.com/pkg/*
+    # An array of strings that specify regular expressions of interfaces to ignore.
+    # Default: []
+    ignoreInterfaceRegexps:
+      - ^(?i)c(?-i)ach(ing|e)
+  funlen:
+    # Checks the number of lines in a function.
+    # If lower than 0, disable the check.
+    # Default: 60
+    lines: 120
+    # Checks the number of statements in a function.
+    # If lower than 0, disable the check.
+    # Default: 40
+    statements: 80
+  tagliatelle:
+    # Check the struct tag name case.
+    case:
+      # Use the struct field name to check the name of the struct tag.
+      # Default: false
+      use-field-name: true
+      # `camel` is used for `json` and `yaml`, and `header` is used for `header` (can be overridden)
+      # Default: {}
+      rules:
+        # Any struct tag type can be used.
+        # Support string case: `camel`, `pascal`, `kebab`, `snake`, `upperSnake`, `goCamel`, `goPascal`, `goKebab`, `goSnake`, `upper`, `lower`, `header`
+        json: snake
+        yaml: snake
+  exhaustive:
+    # Program elements to check for exhaustiveness.
+    # Default: [ switch ]
+    check:
+      - switch
+      - map
+    # Check switch statements in generated files also.
+    # Default: false
+    check-generated: true
+    # Presence of "default" case in switch statements satisfies exhaustiveness,
+    # even if all enum members are not listed.
+    # Default: false
+    default-signifies-exhaustive: false
+    # Consider enums only in package scopes, not in inner scopes.
+    # Default: false
+    package-scope-only: false
+    # Only run exhaustive check on switches with "//exhaustive:enforce" comment.
+    # Default: false
+    explicit-exhaustive-switch: false
+    # Only run exhaustive check on map literals with "//exhaustive:enforce" comment.
+    # Default: false
+    explicit-exhaustive-map: false
+    # Switch statement requires default case even if exhaustive.
+    # Default: false
+    default-case-required: false
+
+
+linters:
+  # Disable all linters.
+  # Default: false
+  disable-all: true
+  # Enable specific linter
+  # https://golangci-lint.run/usage/linters/#enabled-by-default
+  enable:
+    - tagalign
+    - gofumpt
+    - govet
+    - gosimple
+    - dupl
+    - err113
+    - errname
+    - errorlint
+    - gocheckcompilerdirectives
+    - gocyclo
+    - iface
+    - reassign
+    - thelper
+    - unconvert
+    - durationcheck
+    - errchkjson
+    - fatcontext
+    - gochecksumtype
+    - musttag
+    - nakedret
+    - noctx
+    - prealloc
+    - predeclared
+    - asasalint
+    - bidichk
+    - canonicalheader
+    - decorder
+    - dogsled
+    - forbidigo
+    - ginkgolinter
+    - grouper
+    - importas
+    - loggercheck
+    - maintidx
+    - makezero
+    - ineffassign
+    - promlinter
+    - protogetter
+    - rowserrcheck
+    - sloglint
+    - staticcheck
+    - usestdlibvars
+    - varnamelen
+    - zerologlint
+    - errcheck
+    - paralleltest
+    - testifylint
+    - testpackage
+    - tparallel
+    - wastedassign
+    - whitespace
+    - goheader
+    - forcetypeassert
+    - gochecknoinits
+    - gocognit
+    - goconst
+    - inamedparam
+    - interfacebloat
+    - mirror
+    - nilerr
+    - nilnil
+    - nonamedreturns
+    - dupword
+    - testableexamples
+    - nestif
+    - spancheck
+    - goprintffuncname
+    - intrange
+    - nosprintfhostport
+    - perfsprint
+    - wsl
+    - nlreturn
+    - gci
+    - gocritic
+    - stylecheck
+    - tagliatelle
+    - bodyclose
+    - copyloopvar
+
+    # - godox
+    # - cyclop
+    # - exhaustive
+    # - contextcheck
+    # - containedctx
+    # - asciicheck
+    # - sqlclosecheck
+    # - gochecknoglobals
+    # - gosec
+    # - misspell
+    # - mnd
+    # - nolintlint
+    # - unparam
+    # - unused
+    # - ireturn
+
+    # - tenv
+    # - gosmopolitan
+    # - exhaustruct
+    # - wrapcheck
+    # - recvcheck
+    # - revive
+    # - depguard
+    # - funlen
+    # - gomoddirectives
+    # - gomodguard
+    # - lll
+
+  # Enable presets.
+  # https://golangci-lint.run/usage/linters
+  # presets:
+    # - bugs
+    # - comment
+    # - complexity
+    # - error
+    # - format
+    # - import
+    # - metalinter
+    # - module
+    # - performance
+    # - sql
+    # - style
+    # - test
+    # - unused
+
+  # Run only fast linters from enabled linters set (first run won't be fast)
+  # Default: false
+  #fast: true
+
+
+issues:
+  # Enables exclude of directories:
+  # - vendor$, third_party$, testdata$, examples$, Godeps$, builtin$
+  # Default: true
+  exclude-dirs-use-default: false
+  # Which dirs to exclude: issues from them won't be reported.
+  # Can use regexp here: `generated.*`, regexp is applied on full path,
+  # including the path prefix if one is set.
+  # Default dirs are skipped independently of this option's value (see exclude-dirs-use-default).
+  # "/" will be replaced by current OS file path separator to properly work on Windows.
+  # Default: []
+  exclude-dirs:
+    - .trunk
+    - bin
+    - vendor
+    - output*
+  # Which files to exclude: they will be analyzed, but issues from them won't be reported.
+  # There is no need to include all autogenerated files,
+  # we confidently recognize autogenerated files.
+  # If it's not, please let us know.
+  # "/" will be replaced by current OS file path separator to properly work on Windows.
+  # Default: []
+  # exclude-files:
+    # - ".*_tsq\\.go$"
+  # Mode of the generated files analysis.
+  #
+  # - `strict`: sources are excluded by following strictly the Go generated file convention.
+  #    Source files that have lines matching only the following regular expression will be excluded: `^// Code generated .* DO NOT EDIT\.$`
+  #    This line must appear before the first non-comment, non-blank text in the file.
+  #    https://go.dev/s/generatedcode
+  # - `lax`: sources are excluded if they contain lines `autogenerated file`, `code generated`, `do not edit`, etc.
+  # - `disable`: disable the generated files exclusion.
+  #
+  # Default: lax
+  exclude-generated: strict
+  # List of regexps of issue texts to exclude.
+  #
+  # But independently of this option we use default exclude patterns,
+  # it can be disabled by `exclude-use-default: false`.
+  # To list all excluded by default patterns execute `golangci-lint run --help`
+  #
+  # Default: []
+  exclude:
+    - abcdef
+  # Excluding configuration per-path, per-linter, per-text and per-source
+  exclude-rules:
+    # Exclude some linters from running on tests files.
+    - path: _test\.go
+      linters:
+        - gocyclo
+        - errcheck
+        - dupl
+        - gosec
+    # Exclude known linters from partially hard-vendored code,
+    # which is impossible to exclude via `nolint` comments.
+    - path: internal/hmac/
+      text: "weak cryptographic primitive"
+      linters:
+        - gosec
+    # Exclude some `staticcheck` messages.
+    - linters:
+        - staticcheck
+      #text: "SA9003:"
+      text: "SA1019:"
+    # Exclude `lll` issues for long lines with `go:generate`.
+    - linters:
+        - lll
+      source: "^//go:generate "
+    - linters:
+        - godot
+      source: "^//@"
+  # Independently of option `exclude` we use default exclude patterns,
+  # it can be disabled by this option.
+  # To list all excluded by default patterns execute `golangci-lint run --help`.
+  # Default: true.
+  exclude-use-default: false
+  # If set to true exclude and exclude-rules regular expressions become case-sensitive.
+  # Default: false
+  exclude-case-sensitive: false
+  # The list of ids of default excludes to include or disable.
+  # Default: []
+  include:
+    - EXC0002 # disable excluding of issues about comments from golint.
+  # Maximum issues count per one linter.
+  # Set to 0 to disable.
+  # Default: 50
+  max-issues-per-linter: 0
+  # Maximum count of issues with the same text.
+  # Set to 0 to disable.
+  # Default: 3
+  max-same-issues: 0
+  # Show only new issues: if there are unstaged changes or untracked files,
+  # only those changes are analyzed, else only changes in HEAD~ are analyzed.
+  # It's a super-useful option for integration of golangci-lint into existing large codebase.
+  # It's not practical to fix all existing issues at the moment of integration:
+  # much better don't allow issues in new code.
+  #
+  # Default: false.
+  new: false
+  # Show only new issues created after git revision `REV`.
+  new-from-rev: HEAD
+  # new-from-rev: HEAD~1
+  # Show only new issues created in git patch with set file path.
+  #new-from-patch: path/to/patch/file
+  # Fix found issues (if it's supported by the linter).
+  fix: false
+
+
+severity:
+  # Set the default severity for issues.
+  #
+  # If severity rules are defined and the issues do not match or no severity is provided to the rule
+  # this will be the default severity applied.
+  # Severities should match the supported severity names of the selected out format.
+  # - Code climate: https://docs.codeclimate.com/docs/issues#issue-severity
+  # - Checkstyle: https://checkstyle.sourceforge.io/property_types.html#severity
+  # - GitHub: https://help.github.com/en/actions/reference/workflow-commands-for-github-actions#setting-an-error-message
+  #
+  # Default value is an empty string.
+  default-severity: error
+  # If set to true `severity-rules` regular expressions become case-sensitive.
+  # Default: false
+  case-sensitive: true
+  # When a list of severity rules are provided, severity information will be added to lint issues.
+  # Severity rules have the same filtering capability as exclude rules
+  # except you are allowed to specify one matcher per severity rule.
+  # Only affects out formats that support setting severity information.
+  #
+  # Default: []
+  rules:
+    - linters:
+        - dupl
+      severity: info

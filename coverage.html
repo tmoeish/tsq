@@ -1,0 +1,2712 @@
+
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+		<title>tsq: Go Coverage Report</title>
+		<style>
+			body {
+				background: black;
+				color: rgb(80, 80, 80);
+			}
+			body, pre, #legend span {
+				font-family: Menlo, monospace;
+				font-weight: bold;
+			}
+			#topbar {
+				background: black;
+				position: fixed;
+				top: 0; left: 0; right: 0;
+				height: 42px;
+				border-bottom: 1px solid rgb(80, 80, 80);
+			}
+			#content {
+				margin-top: 50px;
+			}
+			#nav, #legend {
+				float: left;
+				margin-left: 10px;
+			}
+			#legend {
+				margin-top: 12px;
+			}
+			#nav {
+				margin-top: 10px;
+			}
+			#legend span {
+				margin: 0 5px;
+			}
+			.cov0 { color: rgb(192, 0, 0) }
+.cov1 { color: rgb(128, 128, 128) }
+.cov2 { color: rgb(116, 140, 131) }
+.cov3 { color: rgb(104, 152, 134) }
+.cov4 { color: rgb(92, 164, 137) }
+.cov5 { color: rgb(80, 176, 140) }
+.cov6 { color: rgb(68, 188, 143) }
+.cov7 { color: rgb(56, 200, 146) }
+.cov8 { color: rgb(44, 212, 149) }
+.cov9 { color: rgb(32, 224, 152) }
+.cov10 { color: rgb(20, 236, 155) }
+
+		</style>
+	</head>
+	<body>
+		<div id="topbar">
+			<div id="nav">
+				<select id="files">
+				
+				<option value="file0">github.com/tmoeish/tsq/pkg/tsq/column.go (100.0%)</option>
+				
+				<option value="file1">github.com/tmoeish/tsq/pkg/tsq/condition.go (31.8%)</option>
+				
+				<option value="file2">github.com/tmoeish/tsq/pkg/tsq/function.go (100.0%)</option>
+				
+				<option value="file3">github.com/tmoeish/tsq/pkg/tsq/order.go (100.0%)</option>
+				
+				<option value="file4">github.com/tmoeish/tsq/pkg/tsq/paging.go (100.0%)</option>
+				
+				<option value="file5">github.com/tmoeish/tsq/pkg/tsq/query.go (8.0%)</option>
+				
+				<option value="file6">github.com/tmoeish/tsq/pkg/tsq/querybuilder.go (64.4%)</option>
+				
+				<option value="file7">github.com/tmoeish/tsq/pkg/tsq/table.go (8.8%)</option>
+				
+				<option value="file8">github.com/tmoeish/tsq/pkg/tsq/trace.go (100.0%)</option>
+				
+				<option value="file9">github.com/tmoeish/tsq/pkg/tsq/version.go (77.8%)</option>
+				
+				</select>
+			</div>
+			<div id="legend">
+				<span>not tracked</span>
+			
+				<span class="cov0">not covered</span>
+				<span class="cov8">covered</span>
+			
+			</div>
+		</div>
+		<div id="content">
+		
+		<pre class="file" id="file0" style="display: none">package tsq
+
+import "fmt"
+
+// ================================================
+// 字段指针类型
+// ================================================
+
+// FieldPointer is a function that returns a pointer to a field in a struct.
+type FieldPointer func(holder any) any
+
+// ================================================
+// 字段接口定义
+// ================================================
+
+// Column represents a column in a database table
+type Column interface {
+        Table() Table               // Returns the table this column belongs to
+        Name() string               // Returns the column name
+        QualifiedName() string      // Returns the fully qualified column name
+        FieldPointer() FieldPointer // Returns the pointer function for scanning
+        JSONFieldName() string      // Returns the JSON tag for serialization
+}
+
+// ================================================
+// 字段实现结构体
+// ================================================
+
+// Col represents a typed column in a database table
+type Col[T any] struct {
+        table         Table        // 所属表
+        name          string       // 列名
+        qualifiedName string       // 完整列名（包含表名）
+        fieldPointer  FieldPointer // 指针函数
+        jsonFieldName string       // JSON 标签
+}
+
+// NewCol creates a new typed column for a table
+func NewCol[T any](table Table, baseName string, fieldPointer FieldPointer, jsonFieldName string) Col[T] <span class="cov8" title="1">{
+        return Col[T]{
+                table:         table,
+                name:          baseName,
+                qualifiedName: fmt.Sprintf("`%s`.`%s`", table.Table(), baseName),
+                fieldPointer:  fieldPointer,
+                jsonFieldName: jsonFieldName,
+        }
+}</span>
+
+// ================================================
+// 字段属性方法
+// ================================================
+
+// Table returns the table this column belongs to
+func (c Col[T]) Table() Table <span class="cov8" title="1">{
+        return c.table
+}</span>
+
+// Name returns the column name
+func (c Col[T]) Name() string <span class="cov8" title="1">{
+        return c.name
+}</span>
+
+// QualifiedName returns the fully qualified column name (e.g., `table`.`column`)
+func (c Col[T]) QualifiedName() string <span class="cov8" title="1">{
+        return c.qualifiedName
+}</span>
+
+// FieldPointer returns the pointer function for scanning database results
+func (c Col[T]) FieldPointer() FieldPointer <span class="cov8" title="1">{
+        return c.fieldPointer
+}</span>
+
+// JSONFieldName returns the JSON tag for this column
+func (c Col[T]) JSONFieldName() string <span class="cov8" title="1">{
+        return c.jsonFieldName
+}</span>
+
+// ================================================
+// 字段转换方法
+// ================================================
+
+// Into creates a new column with different pointer function and JSON tag
+// This is useful for DTOs and custom result mapping
+func (c Col[T]) Into(fieldPointer FieldPointer, jsonFieldName string) *Col[T] <span class="cov8" title="1">{
+        return &amp;Col[T]{
+                table:         c.table,
+                name:          c.name,
+                qualifiedName: c.qualifiedName,
+                fieldPointer:  fieldPointer,
+                jsonFieldName: jsonFieldName,
+        }
+}</span>
+</pre>
+		
+		<pre class="file" id="file1" style="display: none">package tsq
+
+import (
+        "database/sql"
+        "database/sql/driver"
+        "fmt"
+        "math"
+        "reflect"
+        "strconv"
+        "strings"
+        "time"
+)
+
+// ================================================
+// 逻辑组合条件
+// ================================================
+
+// And combines multiple conditions with AND logic
+func And(conds ...Condition) Cond <span class="cov0" title="0">{
+        tables := make(map[string]Table)
+        clauses := make([]string, 0, len(conds))
+
+        for _, c := range conds </span><span class="cov0" title="0">{
+                for tn, t := range c.Tables() </span><span class="cov0" title="0">{
+                        tables[tn] = t
+                }</span>
+                <span class="cov0" title="0">clauses = append(clauses, c.Clause())</span>
+        }
+
+        <span class="cov0" title="0">return Cond{
+                tables: tables,
+                expr:   "(" + strings.Join(clauses, " AND ") + ")",
+        }</span>
+}
+
+// Or combines multiple conditions with OR logic
+func Or(conds ...Condition) Cond <span class="cov0" title="0">{
+        tables := make(map[string]Table)
+        clauses := make([]string, 0, len(conds))
+
+        for _, c := range conds </span><span class="cov0" title="0">{
+                for tn, t := range c.Tables() </span><span class="cov0" title="0">{
+                        tables[tn] = t
+                }</span>
+                <span class="cov0" title="0">clauses = append(clauses, c.Clause())</span>
+        }
+
+        <span class="cov0" title="0">return Cond{
+                tables: tables,
+                expr:   "(" + strings.Join(clauses, " OR ") + ")",
+        }</span>
+}
+
+// ================================================
+// 基础条件接口和结构体
+// ================================================
+
+// Condition interface for SQL conditions
+type Condition interface {
+        Tables() map[string]Table
+        Clause() string
+}
+
+// Cond represents a SQL condition
+type Cond struct {
+        tables map[string]Table
+        expr   string
+}
+
+func (c Cond) Tables() map[string]Table <span class="cov0" title="0">{
+        return c.tables
+}</span>
+
+func (c Cond) Clause() string <span class="cov0" title="0">{
+        return c.expr
+}</span>
+
+// ================================================
+// 变量比较条件 (使用 ? 占位符)
+// ================================================
+
+func (c Col[T]) EQVar() Cond         <span class="cov0" title="0">{ return c.Predicate(`%s = %s`, Var) }</span>
+func (c Col[T]) NEVar() Cond         <span class="cov0" title="0">{ return c.Predicate(`%s &lt;&gt; %s`, Var) }</span>
+func (c Col[T]) GTVar() Cond         <span class="cov0" title="0">{ return c.Predicate(`%s &gt; %s`, Var) }</span>
+func (c Col[T]) GETVar() Cond        <span class="cov0" title="0">{ return c.Predicate(`%s &gt;= %s`, Var) }</span>
+func (c Col[T]) LTVar() Cond         <span class="cov0" title="0">{ return c.Predicate(`%s &lt; %s`, Var) }</span>
+func (c Col[T]) LETVar() Cond        <span class="cov0" title="0">{ return c.Predicate(`%s &lt;= %s`, Var) }</span>
+func (c Col[T]) StartWithVar() Cond  <span class="cov0" title="0">{ return c.Predicate(`%s LIKE %%%s`, Var) }</span>
+func (c Col[T]) NStartWithVar() Cond <span class="cov0" title="0">{ return c.Predicate(`%s NOT LIKE %%%s`, Var) }</span>
+func (c Col[T]) EndWithVar() Cond    <span class="cov0" title="0">{ return c.Predicate(`%s LIKE %s%%`, Var) }</span>
+func (c Col[T]) NEndWithVar() Cond   <span class="cov0" title="0">{ return c.Predicate(`%s NOT LIKE %s%%`, Var) }</span>
+func (c Col[T]) ContainsVar() Cond   <span class="cov0" title="0">{ return c.Predicate(`%s LIKE %%%s%%`, Var) }</span>
+func (c Col[T]) NContainsVar() Cond  <span class="cov0" title="0">{ return c.Predicate(`%s NOT LIKE %%%s%%`, Var) }</span>
+func (c Col[T]) BetweenVar() Cond    <span class="cov0" title="0">{ return c.Predicate(`%s BETWEEN %s AND %s`, Var, Var) }</span>
+func (c Col[T]) NBetweenVar() Cond   <span class="cov0" title="0">{ return c.Predicate(`%s NOT BETWEEN %s AND %s`, Var, Var) }</span>
+
+// ================================================
+// 常量比较条件
+// ================================================
+
+func (c Col[T]) EQ(arg T) Cond              <span class="cov0" title="0">{ return c.Predicate(`%s = %s`, arg) }</span>
+func (c Col[T]) NE(arg T) Cond              <span class="cov0" title="0">{ return c.Predicate(`%s &lt;&gt; %s`, arg) }</span>
+func (c Col[T]) GT(arg T) Cond              <span class="cov0" title="0">{ return c.Predicate(`%s &gt; %s`, arg) }</span>
+func (c Col[T]) GTE(arg T) Cond             <span class="cov0" title="0">{ return c.Predicate(`%s &gt;= %s`, arg) }</span>
+func (c Col[T]) LT(arg T) Cond              <span class="cov0" title="0">{ return c.Predicate(`%s &lt; %s`, arg) }</span>
+func (c Col[T]) LTE(arg T) Cond             <span class="cov0" title="0">{ return c.Predicate(`%s &lt;= %s`, arg) }</span>
+func (c Col[T]) StartWith(str string) Cond  <span class="cov0" title="0">{ return c.Predicate(`%s LIKE %%%s`, str) }</span>
+func (c Col[T]) NStartWith(str string) Cond <span class="cov0" title="0">{ return c.Predicate(`%s NOT LIKE %%%s`, str) }</span>
+func (c Col[T]) EndWith(str string) Cond    <span class="cov0" title="0">{ return c.Predicate(`%s LIKE %s%%`, str) }</span>
+func (c Col[T]) NEndWith(str string) Cond   <span class="cov0" title="0">{ return c.Predicate(`%s NOT LIKE %s%%`, str) }</span>
+func (c Col[T]) Contains(str string) Cond   <span class="cov0" title="0">{ return c.Predicate(`%s LIKE %%%s%%`, str) }</span>
+func (c Col[T]) NContains(str string) Cond  <span class="cov0" title="0">{ return c.Predicate(`%s NOT LIKE %%%s%%`, str) }</span>
+func (c Col[T]) Between(start, end T) Cond  <span class="cov0" title="0">{ return c.Predicate(`%s BETWEEN %s AND %s`, start, end) }</span>
+func (c Col[T]) NBetween(start, end T) Cond <span class="cov0" title="0">{
+        return c.Predicate(`%s NOT BETWEEN %s AND %s`, start, end)
+}</span>
+func (c Col[T]) In(args ...T) Cond  <span class="cov0" title="0">{ return c.Predicate(`%s IN (%s)`, newValuesExpression(args)) }</span>
+func (c Col[T]) NIn(args ...T) Cond <span class="cov0" title="0">{ return c.Predicate(`%s NOT IN (%s)`, newValuesExpression(args)) }</span>
+func (c Col[T]) IsNull() Cond       <span class="cov0" title="0">{ return c.Predicate(`%s IS NULL`) }</span>
+func (c Col[T]) IsNotNull() Cond    <span class="cov0" title="0">{ return c.Predicate(`%s IS NOT NULL`) }</span>
+
+// ================================================
+// 字段比较条件
+// ================================================
+
+func (c Col[T]) EQCol(other Col[T]) Cond  <span class="cov0" title="0">{ return c.Predicate(`%s = %s`, other) }</span>
+func (c Col[T]) NECol(other Col[T]) Cond  <span class="cov0" title="0">{ return c.Predicate(`%s &lt;&gt; %s`, other) }</span>
+func (c Col[T]) GTCol(other Col[T]) Cond  <span class="cov0" title="0">{ return c.Predicate(`%s &gt; %s`, other) }</span>
+func (c Col[T]) GTECol(other Col[T]) Cond <span class="cov0" title="0">{ return c.Predicate(`%s &gt;= %s`, other) }</span>
+func (c Col[T]) LTCol(other Col[T]) Cond  <span class="cov0" title="0">{ return c.Predicate(`%s &lt; %s`, other) }</span>
+func (c Col[T]) LTECol(other Col[T]) Cond <span class="cov0" title="0">{ return c.Predicate(`%s &lt;= %s`, other) }</span>
+func (c Col[T]) StartWithCol(other Col[T]) Cond <span class="cov0" title="0">{
+        return c.Predicate(`%s LIKE CONCAT('%%', %s)`, other)
+}</span>
+
+func (c Col[T]) NStartWithCol(other Col[T]) Cond <span class="cov0" title="0">{
+        return c.Predicate(`%s NOT LIKE CONCAT(%s, '%%')`, other)
+}</span>
+func (c Col[T]) EndWithCol(other Col[T]) Cond <span class="cov0" title="0">{ return c.Predicate(`%s LIKE CONCAT('%%', %s)`, other) }</span>
+func (c Col[T]) NEndWithCol(other Col[T]) Cond <span class="cov0" title="0">{
+        return c.Predicate(`%s NOT LIKE CONCAT(%s, '%%')`, other)
+}</span>
+
+func (c Col[T]) ContainsCol(other Col[T]) Cond <span class="cov0" title="0">{
+        return c.Predicate(`%s LIKE CONCAT('%%', %s, '%%')`, other)
+}</span>
+
+func (c Col[T]) NContainsCol(other Col[T]) Cond <span class="cov0" title="0">{
+        return c.Predicate(`%s NOT LIKE CONCAT('%%', %s, '%%')`, other)
+}</span>
+
+// ================================================
+// 子查询条件
+// ================================================
+
+func (c Col[T]) EQSub(sqb *Query) Cond      <span class="cov0" title="0">{ return c.Predicate(`%s = %s`, sqb) }</span>
+func (c Col[T]) NESub(sqb *Query) Cond      <span class="cov0" title="0">{ return c.Predicate(`%s &lt;&gt; %s`, sqb) }</span>
+func (c Col[T]) GTSub(sqb *Query) Cond      <span class="cov0" title="0">{ return c.Predicate(`%s &gt; %s`, sqb) }</span>
+func (c Col[T]) GESub(sqb *Query) Cond      <span class="cov0" title="0">{ return c.Predicate(`%s &gt;= %s`, sqb) }</span>
+func (c Col[T]) LTSub(sqb *Query) Cond      <span class="cov0" title="0">{ return c.Predicate(`%s &lt; %s`, sqb) }</span>
+func (c Col[T]) LESub(sqb *Query) Cond      <span class="cov0" title="0">{ return c.Predicate(`%s &lt;= %s`, sqb) }</span>
+func (c Col[T]) LikeSub(sqb *Query) Cond    <span class="cov0" title="0">{ return c.Predicate(`%s LIKE %s`, sqb) }</span>
+func (c Col[T]) NLikeSub(sqb *Query) Cond   <span class="cov0" title="0">{ return c.Predicate(`%s NOT LIKE %s`, sqb) }</span>
+func (c Col[T]) InSub(sqb *Query) Cond      <span class="cov0" title="0">{ return c.Predicate(`%s IN %s`, sqb) }</span>
+func (c Col[T]) NInSub(sqb *Query) Cond     <span class="cov0" title="0">{ return c.Predicate(`%s NOT IN %s`, sqb) }</span>
+func (c Col[T]) ExistsSub(sqb *Query) Cond  <span class="cov0" title="0">{ return c.Predicate(`%s EXISTS %s`, sqb) }</span>
+func (c Col[T]) NExistsSub(sqb *Query) Cond <span class="cov0" title="0">{ return c.Predicate(`%s NOT EXISTS %s`, sqb) }</span>
+func (c Col[T]) Unique(sqb *Query) Cond     <span class="cov0" title="0">{ return c.Predicate(`%s UNIQUE %s`, sqb) }</span>
+func (c Col[T]) NUnique(sqb *Query) Cond    <span class="cov0" title="0">{ return c.Predicate(`%s NOT UNIQUE %s`, sqb) }</span>
+
+// ================================================
+// 条件构建核心方法
+// ================================================
+
+// Predicate builds a condition with the given operator and arguments
+func (c Col[T]) Predicate(op string, args ...any) Cond <span class="cov0" title="0">{
+        tables := map[string]Table{c.table.Table(): c.table}
+
+        // Collect tables from arguments that are also columns
+        for _, arg := range args </span><span class="cov0" title="0">{
+                if col, ok := arg.(Column); ok </span><span class="cov0" title="0">{
+                        tables[col.Table().Table()] = col.Table()
+                }</span>
+        }
+
+        // Build arguments for string formatting
+        <span class="cov0" title="0">formatArgs := make([]any, 0, len(args)+1)
+        formatArgs = append(formatArgs, c.QualifiedName())
+
+        for _, arg := range args </span><span class="cov0" title="0">{
+                formatArgs = append(formatArgs, argumentToString(arg))
+        }</span>
+
+        <span class="cov0" title="0">return Cond{
+                tables: tables,
+                expr:   fmt.Sprintf(op, formatArgs...),
+        }</span>
+}
+
+// ================================================
+// 表达式类型和辅助函数
+// ================================================
+
+// Expression interface for SQL expressions
+type Expression interface {
+        Expr() string
+}
+
+// variableExpression represents a variable placeholder (?)
+type variableExpression struct{}
+
+func (v variableExpression) Expr() string <span class="cov0" title="0">{ return "?" }</span>
+
+var Var variableExpression
+
+// valuesExpression represents a list of values in SQL
+type valuesExpression struct {
+        expr string
+}
+
+func (a valuesExpression) Expr() string <span class="cov0" title="0">{
+        return a.expr
+}</span>
+
+func newValuesExpression(args any) valuesExpression <span class="cov0" title="0">{
+        v := reflect.ValueOf(args)
+        if v.Kind() != reflect.Slice </span><span class="cov0" title="0">{
+                panic(fmt.Sprintf("expected slice, got %T", args))</span>
+        }
+
+        <span class="cov0" title="0">values := make([]string, v.Len())
+        for i := 0; i &lt; v.Len(); i++ </span><span class="cov0" title="0">{
+                values[i] = valueOrPanic(v.Index(i).Interface())
+        }</span>
+
+        <span class="cov0" title="0">return valuesExpression{
+                expr: strings.Join(values, ", "),
+        }</span>
+}
+
+// argumentToString converts various argument types to their SQL string representation
+func argumentToString(arg any) string <span class="cov0" title="0">{
+        switch v := arg.(type) </span>{
+        case Expression:<span class="cov0" title="0">
+                return v.Expr()</span>
+        case Column:<span class="cov0" title="0">
+                return v.QualifiedName()</span>
+        case *Query:<span class="cov0" title="0">
+                return formatSubquery(v)</span>
+        case string:<span class="cov0" title="0">
+                return fmt.Sprintf("'%s'", strings.ReplaceAll(v, "'", "''"))</span>
+        default:<span class="cov0" title="0">
+                return valueOrPanic(arg)</span>
+        }
+}
+
+// formatSubquery formats a subquery for use in SQL
+func formatSubquery(q *Query) string <span class="cov0" title="0">{
+        if q == nil </span><span class="cov0" title="0">{
+                panic("subquery cannot be nil")</span>
+        }
+        <span class="cov0" title="0">return fmt.Sprintf("(%s)", q.ListSQL())</span>
+}
+
+// valueOrPanic converts a value to its SQL representation or panics
+func valueOrPanic(arg any) string <span class="cov0" title="0">{
+        val, err := sqlValue(arg)
+        if err != nil </span><span class="cov0" title="0">{
+                panic(fmt.Sprintf("failed to convert value %v (%T): %v", arg, arg, err))</span>
+        }
+        <span class="cov0" title="0">return val</span>
+}
+
+// sqlValue converts a Go value to its SQL string representation
+// This function supports all standard SQL types and their Go equivalents
+func sqlValue(arg any) (string, error) <span class="cov8" title="1">{
+        if arg == nil </span><span class="cov8" title="1">{
+                return "NULL", nil
+        }</span>
+
+        // Handle driver.Valuer interface (e.g., time.Time, sql.Null* types, custom types)
+        <span class="cov8" title="1">if valuer, ok := arg.(driver.Valuer); ok </span><span class="cov8" title="1">{
+                val, err := valuer.Value()
+                if err != nil </span><span class="cov0" title="0">{
+                        return "", err
+                }</span>
+                <span class="cov8" title="1">if val == nil </span><span class="cov8" title="1">{
+                        return "NULL", nil
+                }</span>
+                // Recursively handle the converted value
+                <span class="cov8" title="1">return sqlValue(val)</span>
+        }
+
+        // Use reflection to handle pointers and get the underlying type
+        <span class="cov8" title="1">v := reflect.ValueOf(arg)
+        for v.Kind() == reflect.Ptr </span><span class="cov8" title="1">{
+                if v.IsNil() </span><span class="cov8" title="1">{
+                        return "NULL", nil
+                }</span>
+                <span class="cov8" title="1">v = v.Elem()
+                arg = v.Interface()</span>
+        }
+
+        <span class="cov8" title="1">switch val := arg.(type) </span>{
+        case string:<span class="cov8" title="1">
+                return sqlEscapeString(val), nil</span>
+        case []byte:<span class="cov8" title="1">
+                return sqlEscapeString(string(val)), nil</span>
+        case sql.RawBytes:<span class="cov8" title="1">
+                return sqlEscapeString(string(val)), nil</span>
+
+        // Integer types
+        case int:<span class="cov8" title="1">
+                return strconv.FormatInt(int64(val), 10), nil</span>
+        case int8:<span class="cov8" title="1">
+                return strconv.FormatInt(int64(val), 10), nil</span>
+        case int16:<span class="cov8" title="1">
+                return strconv.FormatInt(int64(val), 10), nil</span>
+        case int32:<span class="cov8" title="1">
+                return strconv.FormatInt(int64(val), 10), nil</span>
+        case int64:<span class="cov8" title="1">
+                return strconv.FormatInt(val, 10), nil</span>
+
+        // Unsigned integer types
+        case uint:<span class="cov8" title="1">
+                return strconv.FormatUint(uint64(val), 10), nil</span>
+        case uint8:<span class="cov8" title="1">
+                return strconv.FormatUint(uint64(val), 10), nil</span>
+        case uint16:<span class="cov8" title="1">
+                return strconv.FormatUint(uint64(val), 10), nil</span>
+        case uint32:<span class="cov8" title="1">
+                return strconv.FormatUint(uint64(val), 10), nil</span>
+        case uint64:<span class="cov8" title="1">
+                return strconv.FormatUint(val, 10), nil</span>
+
+        // Floating point types
+        case float32:<span class="cov8" title="1">
+                if math.IsNaN(float64(val)) </span><span class="cov8" title="1">{
+                        return "NULL", nil // NaN is treated as NULL in SQL
+                }</span>
+                <span class="cov8" title="1">if math.IsInf(float64(val), 0) </span><span class="cov8" title="1">{
+                        return "NULL", nil // Infinity is treated as NULL in SQL
+                }</span>
+                <span class="cov8" title="1">return strconv.FormatFloat(float64(val), 'g', -1, 32), nil</span>
+        case float64:<span class="cov8" title="1">
+                if math.IsNaN(val) </span><span class="cov8" title="1">{
+                        return "NULL", nil // NaN is treated as NULL in SQL
+                }</span>
+                <span class="cov8" title="1">if math.IsInf(val, 0) </span><span class="cov8" title="1">{
+                        return "NULL", nil // Infinity is treated as NULL in SQL
+                }</span>
+                <span class="cov8" title="1">return strconv.FormatFloat(val, 'g', -1, 64), nil</span>
+
+        // Boolean type
+        case bool:<span class="cov8" title="1">
+                if val </span><span class="cov8" title="1">{
+                        return "TRUE", nil
+                }</span>
+                <span class="cov8" title="1">return "FALSE", nil</span>
+
+        // Time type
+        case time.Time:<span class="cov8" title="1">
+                if val.IsZero() </span><span class="cov8" title="1">{
+                        return "NULL", nil
+                }</span>
+                // Format as SQL standard datetime: 'YYYY-MM-DD HH:MM:SS'
+                <span class="cov8" title="1">return fmt.Sprintf("'%s'", val.Format("2006-01-02 15:04:05")), nil</span>
+
+        default:<span class="cov8" title="1">
+                // Use reflection for other types
+                return sqlValueReflect(v)</span>
+        }
+}
+
+// sqlEscapeString escapes a string for safe use in SQL
+func sqlEscapeString(s string) string <span class="cov8" title="1">{
+        // Replace single quotes with double single quotes (SQL standard)
+        escaped := strings.ReplaceAll(s, "'", "''")
+        // Escape backslashes for databases that require it
+        escaped = strings.ReplaceAll(escaped, "\\", "\\\\")
+        return fmt.Sprintf("'%s'", escaped)
+}</span>
+
+// sqlValueReflect handles types using reflection
+func sqlValueReflect(v reflect.Value) (string, error) <span class="cov8" title="1">{
+        switch v.Kind() </span>{
+        case reflect.Slice:<span class="cov8" title="1">
+                if v.Type().Elem().Kind() == reflect.Uint8 </span><span class="cov0" title="0">{
+                        // Handle []uint8 (same as []byte)
+                        bytes := v.Bytes()
+                        return sqlEscapeString(string(bytes)), nil
+                }</span>
+                <span class="cov8" title="1">return "", fmt.Errorf("unsupported slice type: %v", v.Type())</span>
+
+        case reflect.Array:<span class="cov8" title="1">
+                if v.Type().Elem().Kind() == reflect.Uint8 </span><span class="cov8" title="1">{
+                        // Handle [N]uint8 (byte arrays)
+                        bytes := make([]byte, v.Len())
+                        for i := 0; i &lt; v.Len(); i++ </span><span class="cov8" title="1">{
+                                bytes[i] = byte(v.Index(i).Uint())
+                        }</span>
+                        <span class="cov8" title="1">return sqlEscapeString(string(bytes)), nil</span>
+                }
+                <span class="cov0" title="0">return "", fmt.Errorf("unsupported array type: %v", v.Type())</span>
+
+        case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:<span class="cov0" title="0">
+                return strconv.FormatInt(v.Int(), 10), nil</span>
+
+        case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:<span class="cov0" title="0">
+                return strconv.FormatUint(v.Uint(), 10), nil</span>
+
+        case reflect.Float32, reflect.Float64:<span class="cov0" title="0">
+                f := v.Float()
+                if math.IsNaN(f) || math.IsInf(f, 0) </span><span class="cov0" title="0">{
+                        return "NULL", nil
+                }</span>
+                <span class="cov0" title="0">return strconv.FormatFloat(f, 'g', -1, 64), nil</span>
+
+        case reflect.Bool:<span class="cov0" title="0">
+                if v.Bool() </span><span class="cov0" title="0">{
+                        return "TRUE", nil
+                }</span>
+                <span class="cov0" title="0">return "FALSE", nil</span>
+
+        case reflect.String:<span class="cov0" title="0">
+                return sqlEscapeString(v.String()), nil</span>
+
+        default:<span class="cov0" title="0">
+                // For other types, try to convert to string as fallback
+                return sqlEscapeString(fmt.Sprintf("%v", v.Interface())), nil</span>
+        }
+}
+</pre>
+		
+		<pre class="file" id="file2" style="display: none">package tsq
+
+import (
+        "fmt"
+)
+
+// ================================================
+// 基础函数构建方法
+// ================================================
+
+// Fn creates a custom SQL function by applying the format string to the column
+func (c Col[T]) Fn(format string) Col[T] <span class="cov8" title="1">{
+        return Col[T]{
+                table:         c.table,
+                qualifiedName: fmt.Sprintf(format, c.QualifiedName()),
+                name:          c.name,          // 保持原始名称
+                fieldPointer:  c.fieldPointer,  // 保持原始指针函数
+                jsonFieldName: c.jsonFieldName, // 保持原始JSON标签
+        }
+}</span>
+
+// ================================================
+// 聚合函数 (Aggregate Functions)
+// ================================================
+
+// Count returns COUNT(column) - counts non-null values
+func (c Col[T]) Count() Col[T] <span class="cov8" title="1">{
+        return c.Fn("COUNT(%s)")
+}</span>
+
+// Sum returns SUM(column) - calculates sum of numeric values
+func (c Col[T]) Sum() Col[T] <span class="cov8" title="1">{
+        return c.Fn("SUM(%s)")
+}</span>
+
+// Avg returns AVG(column) - calculates average of numeric values
+func (c Col[T]) Avg() Col[T] <span class="cov8" title="1">{
+        return c.Fn("AVG(%s)")
+}</span>
+
+// Max returns MAX(column) - finds maximum value
+func (c Col[T]) Max() Col[T] <span class="cov8" title="1">{
+        return c.Fn("MAX(%s)")
+}</span>
+
+// Min returns MIN(column) - finds minimum value
+func (c Col[T]) Min() Col[T] <span class="cov8" title="1">{
+        return c.Fn("MIN(%s)")
+}</span>
+
+// Distinct returns DISTINCT(column) - returns unique values
+func (c Col[T]) Distinct() Col[T] <span class="cov8" title="1">{
+        return c.Fn("DISTINCT(%s)")
+}</span>
+
+// ================================================
+// 字符串函数 (String Functions)
+// ================================================
+
+// Upper returns UPPER(column) - converts to uppercase
+func (c Col[T]) Upper() Col[T] <span class="cov8" title="1">{
+        return c.Fn("UPPER(%s)")
+}</span>
+
+// Lower returns LOWER(column) - converts to lowercase
+func (c Col[T]) Lower() Col[T] <span class="cov8" title="1">{
+        return c.Fn("LOWER(%s)")
+}</span>
+
+// Substring returns SUBSTRING(column, start, length) - extracts substring
+func (c Col[T]) Substring(start, length int) Col[T] <span class="cov8" title="1">{
+        return c.Fn(fmt.Sprintf("SUBSTRING(%%s, %d, %d)", start, length))
+}</span>
+
+// Length returns LENGTH(column) - returns string length
+func (c Col[T]) Length() Col[T] <span class="cov8" title="1">{
+        return c.Fn("LENGTH(%s)")
+}</span>
+
+// Trim returns TRIM(column) - removes leading and trailing spaces
+func (c Col[T]) Trim() Col[T] <span class="cov8" title="1">{
+        return c.Fn("TRIM(%s)")
+}</span>
+
+// Concat returns CONCAT(column, 'other') - concatenates strings
+func (c Col[T]) Concat(other string) Col[T] <span class="cov8" title="1">{
+        return c.Fn(fmt.Sprintf("CONCAT(%%s, '%s')", other))
+}</span>
+
+// ================================================
+// 日期和时间函数 (Date/Time Functions)
+// ================================================
+
+// Now returns NOW() - current timestamp (usually used as static function)
+func (c Col[T]) Now() Col[T] <span class="cov8" title="1">{
+        return c.Fn("NOW()")
+}</span>
+
+// Date returns DATE(column) - extracts date part from datetime
+func (c Col[T]) Date() Col[T] <span class="cov8" title="1">{
+        return c.Fn("DATE(%s)")
+}</span>
+
+// Year returns YEAR(column) - extracts year from date
+func (c Col[T]) Year() Col[T] <span class="cov8" title="1">{
+        return c.Fn("YEAR(%s)")
+}</span>
+
+// Month returns MONTH(column) - extracts month from date
+func (c Col[T]) Month() Col[T] <span class="cov8" title="1">{
+        return c.Fn("MONTH(%s)")
+}</span>
+
+// Day returns DAY(column) - extracts day from date
+func (c Col[T]) Day() Col[T] <span class="cov8" title="1">{
+        return c.Fn("DAY(%s)")
+}</span>
+
+// ================================================
+// 数学函数 (Math Functions)
+// ================================================
+
+// Round returns ROUND(column, precision) - rounds to specified decimal places
+func (c Col[T]) Round(precision int) Col[T] <span class="cov8" title="1">{
+        return c.Fn(fmt.Sprintf("ROUND(%%s, %d)", precision))
+}</span>
+
+// Ceil returns CEIL(column) - rounds up to nearest integer
+func (c Col[T]) Ceil() Col[T] <span class="cov8" title="1">{
+        return c.Fn("CEIL(%s)")
+}</span>
+
+// Floor returns FLOOR(column) - rounds down to nearest integer
+func (c Col[T]) Floor() Col[T] <span class="cov8" title="1">{
+        return c.Fn("FLOOR(%s)")
+}</span>
+
+// Abs returns ABS(column) - returns absolute value
+func (c Col[T]) Abs() Col[T] <span class="cov8" title="1">{
+        return c.Fn("ABS(%s)")
+}</span>
+
+// ================================================
+// 条件函数 (Conditional Functions)
+// ================================================
+
+// Coalesce returns COALESCE(column, 'value') - returns first non-null value
+func (c Col[T]) Coalesce(value string) Col[T] <span class="cov8" title="1">{
+        return c.Fn(fmt.Sprintf("COALESCE(%%s, '%s')", value))
+}</span>
+
+// NullIf returns NULLIF(column, 'value') - returns NULL if values are equal
+func (c Col[T]) NullIf(value string) Col[T] <span class="cov8" title="1">{
+        return c.Fn(fmt.Sprintf("NULLIF(%%s, '%s')", value))
+}</span>
+</pre>
+		
+		<pre class="file" id="file3" style="display: none">package tsq
+
+// ================================================
+// 排序方向枚举
+// ================================================
+
+// Order represents SQL ORDER BY direction
+type Order string
+
+const (
+        ASC  Order = "ASC"  // Ascending order
+        DESC Order = "DESC" // Descending order
+)
+
+// ================================================
+// 排序结构体
+// ================================================
+
+// OrderBy represents an ORDER BY clause with field and direction
+type OrderBy struct {
+        field Column // The column to order by
+        order Order  // The sort direction (ASC/DESC)
+}
+
+// Expr returns the SQL expression for this ORDER BY clause
+func (ob OrderBy) Expr() string <span class="cov8" title="1">{
+        return ob.field.QualifiedName() + " " + string(ob.order)
+}</span>
+
+// Field returns the column being ordered
+func (ob OrderBy) Field() Column <span class="cov8" title="1">{
+        return ob.field
+}</span>
+
+// Order returns the sort direction
+func (ob OrderBy) Order() Order <span class="cov8" title="1">{
+        return ob.order
+}</span>
+
+// ================================================
+// 列排序方法
+// ================================================
+
+// Asc creates an ascending ORDER BY clause for this column
+func (c Col[T]) Asc() OrderBy <span class="cov8" title="1">{
+        return OrderBy{
+                field: c,
+                order: ASC,
+        }
+}</span>
+
+// Desc creates a descending ORDER BY clause for this column
+func (c Col[T]) Desc() OrderBy <span class="cov8" title="1">{
+        return OrderBy{
+                field: c,
+                order: DESC,
+        }
+}</span>
+
+// ================================================
+// 排序工具函数
+// ================================================
+
+// OrderByMultiple creates multiple ORDER BY clauses
+func OrderByMultiple(orderBys ...OrderBy) []string <span class="cov8" title="1">{
+        expressions := make([]string, 0, len(orderBys))
+        for _, ob := range orderBys </span><span class="cov8" title="1">{
+                expressions = append(expressions, ob.Expr())
+        }</span>
+        <span class="cov8" title="1">return expressions</span>
+}
+
+// ReverseOrder returns the opposite order direction
+func ReverseOrder(order Order) Order <span class="cov8" title="1">{
+        if order == ASC </span><span class="cov8" title="1">{
+                return DESC
+        }</span>
+        <span class="cov8" title="1">return ASC</span>
+}
+</pre>
+		
+		<pre class="file" id="file4" style="display: none">package tsq
+
+import (
+        "net/url"
+        "strconv"
+)
+
+// ================================================
+// 分页常量和类型
+// ================================================
+
+// Direction represents the sort direction
+// swagger:strfmt Direction
+// enum:ASC,DESC
+type Direction string
+
+// Sort directions
+const (
+        Asc  Direction = "ASC"
+        Desc Direction = "DESC"
+)
+
+const (
+        DefaultPageSize = 20
+        MaxPageSize     = 1000 // 防止过大的页面大小
+)
+
+// ================================================
+// 分页请求结构体
+// ================================================
+
+// PageReq represents a pagination request with search and sorting capabilities
+type PageReq struct {
+        Size    int    `json:"size"     query:"size"`     // 页面大小，默认 20
+        Page    int    `json:"page"     query:"page"`     // 页码，从 1 开始，默认 1
+        OrderBy string `json:"order_by" query:"order_by"` // 排序字段，逗号分隔
+        Order   string `json:"order"    query:"order"`    // 排序方向 [asc|desc]，逗号分隔
+        Keyword string `json:"keyword"  query:"keyword"`  // 搜索关键词（可选）
+}
+
+// NewPageReq creates *PageReq from query parameters(e.g. page=1&amp;size=20&amp;order_by=id&amp;order=DESC).
+func NewPageReq(params url.Values) *PageReq <span class="cov8" title="1">{
+        page := &amp;PageReq{
+                Page:    1,
+                Size:    DefaultPageSize,
+                Order:   "",
+                OrderBy: "",
+                Keyword: "",
+        }
+
+        if params == nil </span><span class="cov8" title="1">{
+                return page
+        }</span>
+
+        // Parse page number
+        <span class="cov8" title="1">if pageStr := params.Get("page"); pageStr != "" </span><span class="cov8" title="1">{
+                if n, err := strconv.ParseInt(pageStr, 10, 64); err == nil &amp;&amp; n &gt; 0 </span><span class="cov8" title="1">{
+                        page.Page = int(n)
+                }</span>
+        }
+
+        // Parse page size with limits
+        <span class="cov8" title="1">if sizeStr := params.Get("size"); sizeStr != "" </span><span class="cov8" title="1">{
+                if n, err := strconv.ParseInt(sizeStr, 10, 64); err == nil &amp;&amp; n &gt; 0 </span><span class="cov8" title="1">{
+                        size := int(n)
+                        if size &gt; MaxPageSize </span><span class="cov8" title="1">{
+                                size = MaxPageSize
+                        }</span>
+                        <span class="cov8" title="1">page.Size = size</span>
+                }
+        }
+
+        // Parse order by field
+        <span class="cov8" title="1">page.OrderBy = params.Get("order_by")
+        if page.OrderBy == "" </span><span class="cov8" title="1">{
+                page.OrderBy = params.Get("sort") // Alternative parameter name
+        }</span>
+
+        // Parse order direction
+        <span class="cov8" title="1">page.Order = params.Get("order")
+
+        // Parse search keyword
+        page.Keyword = params.Get("keyword")
+
+        return page</span>
+}
+
+// ToQuery converts PageReq to url.Values for URL generation
+func (r *PageReq) ToQuery() url.Values <span class="cov8" title="1">{
+        v := url.Values{}
+        v.Set("size", strconv.Itoa(r.Size))
+        v.Set("page", strconv.Itoa(r.Page))
+        if r.OrderBy != "" </span><span class="cov8" title="1">{
+                v.Set("order_by", r.OrderBy)
+        }</span>
+        <span class="cov8" title="1">if r.Order != "" </span><span class="cov8" title="1">{
+                v.Set("order", r.Order)
+        }</span>
+        <span class="cov8" title="1">if r.Keyword != "" </span><span class="cov8" title="1">{
+                v.Set("keyword", r.Keyword)
+        }</span>
+
+        <span class="cov8" title="1">return v</span>
+}
+
+// Offset calculates the offset value for SQL LIMIT clause
+func (r *PageReq) Offset() int <span class="cov8" title="1">{
+        return r.Size * (r.Page - 1)
+}</span>
+
+// Validate validates the pagination request parameters
+func (r *PageReq) Validate() error <span class="cov8" title="1">{
+        if r.Page &lt;= 0 </span><span class="cov8" title="1">{
+                r.Page = 1
+        }</span>
+        <span class="cov8" title="1">if r.Size &lt;= 0 </span><span class="cov8" title="1">{
+                r.Size = DefaultPageSize
+        }</span>
+        <span class="cov8" title="1">if r.Size &gt; MaxPageSize </span><span class="cov8" title="1">{
+                r.Size = MaxPageSize
+        }</span>
+        <span class="cov8" title="1">return nil</span>
+}
+
+// ================================================
+// 分页响应结构体
+// ================================================
+
+// PageResp represents a paginated response with metadata
+type PageResp[T any] struct {
+        PageReq
+
+        Total     int64 `json:"total"`      // 总记录数
+        TotalPage int64 `json:"total_page"` // 总页数
+        Data      []*T  `json:"data"`       // 当前页数据
+}
+
+// NewResponse creates a new PageResp from request, total count, and data
+func NewResponse[T any](r *PageReq, total int64, data []*T) *PageResp[T] <span class="cov8" title="1">{
+        resp := &amp;PageResp[T]{
+                PageReq: *r,
+                Total:   total,
+                Data:    data,
+        }
+
+        // Calculate total pages
+        if r.Size &gt; 0 </span><span class="cov8" title="1">{
+                resp.TotalPage = total / int64(r.Size)
+                if total%int64(r.Size) != 0 </span><span class="cov8" title="1">{
+                        resp.TotalPage++
+                }</span>
+        }
+
+        <span class="cov8" title="1">return resp</span>
+}
+
+// HasNext returns true if there are more pages available
+func (r *PageResp[T]) HasNext() bool <span class="cov8" title="1">{
+        return r.Page &lt; int(r.TotalPage)
+}</span>
+
+// HasPrev returns true if there are previous pages available
+func (r *PageResp[T]) HasPrev() bool <span class="cov8" title="1">{
+        return r.Page &gt; 1
+}</span>
+
+// IsEmpty returns true if the result set is empty
+func (r *PageResp[T]) IsEmpty() bool <span class="cov8" title="1">{
+        return len(r.Data) == 0
+}</span>
+</pre>
+		
+		<pre class="file" id="file5" style="display: none">package tsq
+
+import (
+        "context"
+        "database/sql"
+        "fmt"
+        "maps"
+        "slices"
+        "strings"
+
+        "github.com/juju/errors"
+        "github.com/sirupsen/logrus"
+        "gopkg.in/gorp.v2"
+)
+
+// ================================================
+// 错误类型定义
+// ================================================
+
+// ErrUnknownSortField represents an error when an unknown sort field is encountered
+type ErrUnknownSortField struct {
+        field string
+}
+
+func NewErrUnknownSortField(field string) *ErrUnknownSortField <span class="cov8" title="1">{
+        return &amp;ErrUnknownSortField{field: field}
+}</span>
+
+func (e *ErrUnknownSortField) Error() string <span class="cov8" title="1">{
+        return fmt.Sprintf("unknown sort field: %s", e.field)
+}</span>
+
+// ErrOrderCountMismatch represents an error when order by and order count mismatch
+type ErrOrderCountMismatch struct {
+        orderBys int
+        orders   int
+}
+
+func NewErrOrderCountMismatch(orderbys, orders int) *ErrOrderCountMismatch <span class="cov8" title="1">{
+        return &amp;ErrOrderCountMismatch{orderBys: orderbys, orders: orders}
+}</span>
+
+func (e *ErrOrderCountMismatch) Error() string <span class="cov8" title="1">{
+        return fmt.Sprintf(
+                "ORDER BY fields count(%d) and ORDER directions count(%d) mismatch",
+                e.orderBys, e.orders,
+        )
+}</span>
+
+// ================================================
+// 查询结构体定义
+// ================================================
+
+// Query represents a compiled SQL query with all its variations
+type Query struct {
+        // SQL statements
+        cntSQL    string // COUNT query
+        listSQL   string // Main SELECT query
+        kwCntSQL  string // Keyword search COUNT query
+        kwListSQL string // Keyword search SELECT query
+
+        // Metadata
+        selectCols   []Column
+        selectTables map[string]Table
+        kwCols       []Column
+        kwTables     map[string]Table
+}
+
+// ================================================
+// SQL 访问方法
+// ================================================
+
+// CntSQL returns the COUNT query SQL statement
+func (q *Query) CntSQL() string <span class="cov8" title="1">{
+        return q.cntSQL
+}</span>
+
+// ListSQL returns the main SELECT query SQL statement
+func (q *Query) ListSQL() string <span class="cov8" title="1">{
+        return q.listSQL
+}</span>
+
+// KwCntSQL returns the keyword search COUNT query SQL statement
+func (q *Query) KwCntSQL() string <span class="cov8" title="1">{
+        return q.kwCntSQL
+}</span>
+
+// KwListSQL returns the keyword search SELECT query SQL statement
+func (q *Query) KwListSQL() string <span class="cov8" title="1">{
+        return q.kwListSQL
+}</span>
+
+// ================================================
+// 查询构建器方法
+// ================================================
+
+// MustBuild builds the query and panics on error
+func (qb *QueryBuilder) MustBuild() *Query <span class="cov8" title="1">{
+        q, err := qb.Build()
+        if err != nil </span><span class="cov0" title="0">{
+                logrus.WithField("module", "main").Fatal(errors.ErrorStack(err))
+        }</span>
+        <span class="cov8" title="1">return q</span>
+}
+
+// Build builds and validates the query
+func (qb *QueryBuilder) Build() (*Query, error) <span class="cov8" title="1">{
+        if len(qb.selectTables) == 0 </span><span class="cov8" title="1">{
+                return nil, errors.Errorf("empty select fields: %+v", qb)
+        }</span>
+
+        // Validate that all selected fields are available in condition tables
+        <span class="cov8" title="1">if len(qb.conditionTables) &gt; 0 </span><span class="cov0" title="0">{
+                for _, col := range qb.selectCols </span><span class="cov0" title="0">{
+                        if _, ok := qb.conditionTables[col.Table().Table()]; !ok </span><span class="cov0" title="0">{
+                                // TODO: add alias support
+                                return nil, errors.Errorf("cannot select field: %s", col.QualifiedName())
+                        }</span>
+                }
+        }
+
+        // Build all SQL variations
+        <span class="cov8" title="1">cntSQL := qb.buildCntSQL()
+        listSQL := qb.buildListSQL()
+        kwCntSQL := qb.buildKwCntSQL()
+        kwListSQL := qb.buildKwListSQL()
+
+        return &amp;Query{
+                cntSQL:    cntSQL,
+                listSQL:   listSQL,
+                kwCntSQL:  kwCntSQL,
+                kwListSQL: kwListSQL,
+
+                selectCols:   slices.Clone(qb.selectCols),
+                selectTables: maps.Clone(qb.selectTables),
+                kwCols:       slices.Clone(qb.kwCols),
+                kwTables:     maps.Clone(qb.kwTables),
+        }, nil</span>
+}
+
+// ================================================
+// 基础查询执行方法
+// ================================================
+
+// QueryInt executes the query and returns a single integer result
+func (q *Query) QueryInt(
+        ctx context.Context,
+        tx gorp.SqlExecutor,
+        args ...any,
+) (int64, error) <span class="cov0" title="0">{
+        logrus.Tracef("QueryInt:\n%s\n%v", q.listSQL, args)
+
+        result, err := tx.WithContext(ctx).SelectInt(q.listSQL, args...)
+        if err != nil </span><span class="cov0" title="0">{
+                return 0, errors.Annotatef(err, "\n%s\n%v", q.listSQL, args)
+        }</span>
+
+        <span class="cov0" title="0">return result, nil</span>
+}
+
+// QueryFloat executes the query and returns a single float result
+func (q *Query) QueryFloat(
+        ctx context.Context,
+        tx gorp.SqlExecutor,
+        args ...any,
+) (float64, error) <span class="cov0" title="0">{
+        logrus.Tracef("QueryFloat:\n%s\n%v", q.listSQL, args)
+
+        result, err := tx.WithContext(ctx).SelectFloat(q.listSQL, args...)
+        if err != nil </span><span class="cov0" title="0">{
+                return 0, errors.Annotatef(err, "\n%s\n%v", q.listSQL, args)
+        }</span>
+
+        <span class="cov0" title="0">return result, nil</span>
+}
+
+// QueryStr executes the query and returns a single string result
+func (q *Query) QueryStr(
+        ctx context.Context,
+        tx gorp.SqlExecutor,
+        args ...any,
+) (string, error) <span class="cov0" title="0">{
+        logrus.Tracef("QueryStr:\n%s\n%v", q.listSQL, args)
+
+        result, err := tx.WithContext(ctx).SelectStr(q.listSQL, args...)
+        if err != nil </span><span class="cov0" title="0">{
+                return "", errors.Annotatef(err, "\n%s\n%v", q.listSQL, args)
+        }</span>
+
+        <span class="cov0" title="0">return result, nil</span>
+}
+
+// Count executes the count query and returns the number of matching records
+func (q *Query) Count(
+        ctx context.Context,
+        tx gorp.SqlExecutor,
+        args ...any,
+) (int, error) <span class="cov0" title="0">{
+        logrus.Tracef("Count:\n%s\n%v", q.cntSQL, args)
+
+        count, err := tx.WithContext(ctx).SelectInt(q.cntSQL, args...)
+        if err != nil </span><span class="cov0" title="0">{
+                return 0, errors.Annotatef(err, "\n%s\n%v", q.cntSQL, args)
+        }</span>
+
+        <span class="cov0" title="0">return int(count), nil</span>
+}
+
+// Exists checks if any records match the query conditions
+func (q *Query) Exists(
+        ctx context.Context,
+        tx gorp.SqlExecutor,
+        args ...any,
+) (bool, error) <span class="cov0" title="0">{
+        logrus.Tracef("Exists:\n%s\n%v", q.cntSQL, args)
+
+        count, err := tx.WithContext(ctx).SelectInt(q.cntSQL, args...)
+        if err != nil </span><span class="cov0" title="0">{
+                return false, errors.Annotatef(err, "\n%s\n%v", q.cntSQL, args)
+        }</span>
+
+        <span class="cov0" title="0">return count &gt; 0, nil</span>
+}
+
+// ================================================
+// 分页查询方法
+// ================================================
+
+// Page executes a paginated query with the given page parameters
+func Page[T any](
+        ctx context.Context,
+        tx gorp.SqlExecutor,
+        page *PageReq,
+        q *Query,
+        args ...any,
+) (*PageResp[T], error) <span class="cov0" title="0">{
+        cntSQL, listSQL, err := q.buildPageSQLs(page)
+        if err != nil </span><span class="cov0" title="0">{
+                return nil, errors.Trace(err)
+        }</span>
+
+        // Add keyword search parameters if needed
+        <span class="cov0" title="0">finalArgs := args
+        if len(q.kwCols) &gt; 0 &amp;&amp; len(page.Keyword) &gt; 0 </span><span class="cov0" title="0">{
+                like := "%" + page.Keyword + "%"
+                for range len(q.kwCols) </span><span class="cov0" title="0">{
+                        finalArgs = append(finalArgs, like)
+                }</span>
+        }
+
+        // Add LIMIT parameters
+        <span class="cov0" title="0">argsWithLimit := append(finalArgs, page.Size, page.Offset())
+
+        // Execute count query
+        logrus.Tracef("Count SQL: %s, args: %v", cntSQL, finalArgs)
+        count, err := tx.WithContext(ctx).SelectInt(cntSQL, finalArgs...)
+        if err != nil </span><span class="cov0" title="0">{
+                return nil, errors.Annotatef(err, "\n%s\n%v", cntSQL, finalArgs)
+        }</span>
+
+        // Execute list query
+        <span class="cov0" title="0">logrus.Tracef("List SQL: %s, args: %v", listSQL, argsWithLimit)
+        rows, err := tx.WithContext(ctx).Query(listSQL, argsWithLimit...)
+        if err != nil </span><span class="cov0" title="0">{
+                return nil, errors.Annotatef(err, "\n%s\n%v", listSQL, argsWithLimit)
+        }</span>
+        <span class="cov0" title="0">defer func() </span><span class="cov0" title="0">{
+                if closeErr := rows.Close(); closeErr != nil </span><span class="cov0" title="0">{
+                        logrus.WithError(closeErr).Warn("Failed to close rows")
+                }</span>
+        }()
+
+        <span class="cov0" title="0">if err := rows.Err(); err != nil </span><span class="cov0" title="0">{
+                return nil, errors.Annotatef(err, "\n%s\n%v", listSQL, argsWithLimit)
+        }</span>
+
+        // Scan results
+        <span class="cov0" title="0">list := make([]*T, 0, page.Size) // Pre-allocate with expected size
+        for rows.Next() </span><span class="cov0" title="0">{
+                r := new(T)
+                dest := make([]any, len(q.selectCols))
+                for i, col := range q.selectCols </span><span class="cov0" title="0">{
+                        dest[i] = col.FieldPointer()(r)
+                }</span>
+                <span class="cov0" title="0">if err := rows.Scan(dest...); err != nil </span><span class="cov0" title="0">{
+                        return nil, errors.Annotate(err, "rows.Scan")
+                }</span>
+                <span class="cov0" title="0">list = append(list, r)</span>
+        }
+
+        <span class="cov0" title="0">return NewResponse(page, count, list), nil</span>
+}
+
+func List[T any](
+        ctx context.Context,
+        tx gorp.SqlExecutor,
+        qb *Query,
+        args ...any,
+) ([]*T, error) <span class="cov0" title="0">{
+        logrus.Tracef("List:\n%s\n%v", qb.listSQL, args)
+
+        rows, err := tx.WithContext(ctx).Query(qb.listSQL, args...)
+        if err != nil </span><span class="cov0" title="0">{
+                return nil, errors.Annotatef(err, "\n%s\n%v", qb.listSQL, args)
+        }</span>
+        <span class="cov0" title="0">if rows.Err() != nil </span><span class="cov0" title="0">{
+                return nil, errors.Annotatef(err, "\n%s\n%v", qb.listSQL, args)
+        }</span>
+        <span class="cov0" title="0">defer func() </span><span class="cov0" title="0">{
+                _ = rows.Close()
+        }</span>()
+
+        <span class="cov0" title="0">var list []*T
+        for rows.Next() </span><span class="cov0" title="0">{
+                r := new(T)
+                dest := make([]any, len(qb.selectCols))
+                for i, f := range qb.selectCols </span><span class="cov0" title="0">{
+                        dest[i] = f.FieldPointer()(r)
+                }</span>
+                <span class="cov0" title="0">if err := rows.Scan(dest...); err != nil </span><span class="cov0" title="0">{
+                        return nil, errors.Annotate(err, "rows.Scan")
+                }</span>
+                <span class="cov0" title="0">list = append(list, r)</span>
+        }
+
+        <span class="cov0" title="0">return list, nil</span>
+}
+
+func GetOrErr[T any](
+        ctx context.Context,
+        tx gorp.SqlExecutor,
+        qb *Query,
+        args ...any,
+) (*T, error) <span class="cov0" title="0">{
+        logrus.Tracef("GetOrErr:\n%s\n%v", qb.listSQL, args)
+
+        row := tx.WithContext(ctx).QueryRow(qb.listSQL, args...)
+        if err := row.Err(); err != nil </span><span class="cov0" title="0">{
+                if errors.Cause(err) == sql.ErrNoRows </span><span class="cov0" title="0">{
+                        return nil, sql.ErrNoRows
+                }</span>
+                <span class="cov0" title="0">return nil, errors.Annotatef(err, "\n%s\n%v", qb.listSQL, args)</span>
+        }
+
+        <span class="cov0" title="0">r := new(T)
+        dest := make([]any, len(qb.selectCols))
+        for i, f := range qb.selectCols </span><span class="cov0" title="0">{
+                dest[i] = f.FieldPointer()(r)
+        }</span>
+        <span class="cov0" title="0">if err := row.Scan(dest...); err != nil </span><span class="cov0" title="0">{
+                return nil, errors.Annotate(err, "row.Scan")
+        }</span>
+
+        <span class="cov0" title="0">return r, nil</span>
+}
+
+func (qb *Query) Load(
+        ctx context.Context,
+        tx gorp.SqlExecutor,
+        holder any,
+        args ...any,
+) error <span class="cov0" title="0">{
+        logrus.Tracef("Load:\n%s\n%v", qb.listSQL, args)
+
+        row := tx.WithContext(ctx).QueryRow(qb.listSQL, args...)
+        if err := row.Err(); err != nil </span><span class="cov0" title="0">{
+                if errors.Cause(err) == sql.ErrNoRows </span><span class="cov0" title="0">{
+                        return sql.ErrNoRows
+                }</span>
+                <span class="cov0" title="0">return errors.Annotatef(err, "\n%s\n%v", qb.listSQL, args)</span>
+        }
+
+        <span class="cov0" title="0">dest := make([]any, len(qb.selectCols))
+        for i, f := range qb.selectCols </span><span class="cov0" title="0">{
+                dest[i] = f.FieldPointer()(holder)
+        }</span>
+        <span class="cov0" title="0">if err := row.Scan(dest...); err != nil </span><span class="cov0" title="0">{
+                if errors.Cause(err) == sql.ErrNoRows </span><span class="cov0" title="0">{
+                        return sql.ErrNoRows
+                }</span>
+                <span class="cov0" title="0">return errors.Annotate(err, "row.Scan")</span>
+        }
+
+        <span class="cov0" title="0">return nil</span>
+}
+
+func (qb *Query) buildPageSQLs(page *PageReq) (string, string, error) <span class="cov0" title="0">{
+        var cntQuery, listQuery string
+        if len(qb.kwCols) &gt; 0 &amp;&amp; len(page.Keyword) &gt; 0 </span><span class="cov0" title="0">{
+                cntQuery = qb.kwCntSQL
+                listQuery = qb.kwListSQL
+        }</span> else<span class="cov0" title="0"> {
+                cntQuery = qb.cntSQL
+                listQuery = qb.listSQL
+        }</span>
+
+        // 排序字段白名单校验
+        <span class="cov0" title="0">allowedFields := make(map[string]string)
+        for _, f := range qb.selectCols </span><span class="cov0" title="0">{
+                allowedFields[f.Name()] = f.QualifiedName()
+                if f.JSONFieldName() != "" </span><span class="cov0" title="0">{
+                        allowedFields[f.JSONFieldName()] = f.QualifiedName()
+                }</span>
+        }
+
+        <span class="cov0" title="0">if len(page.OrderBy) != 0 </span><span class="cov0" title="0">{
+                orderbys := strings.Split(page.OrderBy, ",")
+                orders := strings.Split(page.Order, ",")
+
+                if len(orders) != len(orderbys) </span><span class="cov0" title="0">{
+                        return "", "", NewErrOrderCountMismatch(len(orderbys), len(orders))
+                }</span>
+
+                <span class="cov0" title="0">var fullNames []string
+                for i, ob := range orderbys </span><span class="cov0" title="0">{
+                        ob = strings.TrimSpace(ob)
+                        fullName, ok := allowedFields[ob]
+                        if !ok </span><span class="cov0" title="0">{
+                                return "", "", NewErrUnknownSortField(ob)
+                        }</span>
+
+                        <span class="cov0" title="0">order := strings.ToUpper(strings.TrimSpace(orders[i]))
+                        if order != "ASC" &amp;&amp; order != "DESC" </span><span class="cov0" title="0">{
+                                return "", "", errors.Errorf("invalid order: %s", orders[i])
+                        }</span>
+
+                        <span class="cov0" title="0">fullNames = append(fullNames, fullName+" "+order)</span>
+                }
+
+                <span class="cov0" title="0">listQuery += "\nORDER BY " + strings.Join(fullNames, ", ")</span>
+        }
+
+        // LIMIT 参数化
+        <span class="cov0" title="0">listQuery += "\nLIMIT ? OFFSET ?"
+
+        return cntQuery, listQuery, nil</span>
+}
+
+// ================================================
+// 批量操作支持
+// ================================================
+
+// BatchInsertOptions 批量插入配置选项
+type BatchInsertOptions struct {
+        BatchSize      int  // 每批插入的数量，默认 1000
+        IgnoreErrors   bool // 是否忽略重复键错误，使用 INSERT IGNORE
+        OnDuplicateKey bool // 是否使用 ON DUPLICATE KEY UPDATE
+}
+
+// DefaultBatchInsertOptions 返回默认的批量插入配置
+func DefaultBatchInsertOptions() *BatchInsertOptions <span class="cov8" title="1">{
+        return &amp;BatchInsertOptions{
+                BatchSize:      1000,
+                IgnoreErrors:   false,
+                OnDuplicateKey: false,
+        }
+}</span>
+
+// BatchInsert 批量插入数据
+// T 必须是结构体类型，且应该有相应的数据库字段映射
+func BatchInsert[T any](
+        ctx context.Context,
+        tx gorp.SqlExecutor,
+        tableName string,
+        items []*T,
+        options ...*BatchInsertOptions,
+) error <span class="cov0" title="0">{
+        if len(items) == 0 </span><span class="cov0" title="0">{
+                return nil
+        }</span>
+
+        <span class="cov0" title="0">opts := DefaultBatchInsertOptions()
+        if len(options) &gt; 0 &amp;&amp; options[0] != nil </span><span class="cov0" title="0">{
+                opts = options[0]
+        }</span>
+
+        // 批量处理
+        <span class="cov0" title="0">for i := 0; i &lt; len(items); i += opts.BatchSize </span><span class="cov0" title="0">{
+                end := i + opts.BatchSize
+                if end &gt; len(items) </span><span class="cov0" title="0">{
+                        end = len(items)
+                }</span>
+
+                <span class="cov0" title="0">batch := items[i:end]
+                if err := batchInsertChunk(ctx, tx, tableName, batch, opts); err != nil </span><span class="cov0" title="0">{
+                        return errors.Annotatef(err, "batch insert chunk failed at index %d", i)
+                }</span>
+        }
+
+        <span class="cov0" title="0">return nil</span>
+}
+
+// batchInsertChunk 插入一个批次的数据
+func batchInsertChunk[T any](
+        ctx context.Context,
+        tx gorp.SqlExecutor,
+        tableName string,
+        items []*T,
+        opts *BatchInsertOptions,
+) error <span class="cov0" title="0">{
+        if len(items) == 0 </span><span class="cov0" title="0">{
+                return nil
+        }</span>
+
+        // 使用反射获取字段信息（这里简化实现，实际应该使用 gorp 的映射信息）
+        // 为了简化，我们直接使用 gorp 的 Insert 方法进行批量操作
+        <span class="cov0" title="0">for _, item := range items </span><span class="cov0" title="0">{
+                if opts.IgnoreErrors </span><span class="cov0" title="0">{
+                        // 对于 INSERT IGNORE，我们需要手动处理
+                        if err := tx.WithContext(ctx).Insert(item); err != nil </span><span class="cov0" title="0">{
+                                // 检查是否是重复键错误，如果是则忽略
+                                if !isDuplicateKeyError(err) </span><span class="cov0" title="0">{
+                                        return errors.Annotate(err, "batch insert item failed")
+                                }</span>
+                                <span class="cov0" title="0">logrus.Tracef("Ignored duplicate key error: %v", err)</span>
+                        }
+                } else<span class="cov0" title="0"> {
+                        if err := tx.WithContext(ctx).Insert(item); err != nil </span><span class="cov0" title="0">{
+                                return errors.Annotate(err, "batch insert item failed")
+                        }</span>
+                }
+        }
+
+        <span class="cov0" title="0">return nil</span>
+}
+
+// BatchUpdate 批量更新数据
+// 注意：这是一个简化版本，每个条目单独更新
+// 更高效的实现可能需要使用 CASE WHEN 语句或临时表
+func BatchUpdate[T any](
+        ctx context.Context,
+        tx gorp.SqlExecutor,
+        items []*T,
+        options ...*BatchInsertOptions,
+) error <span class="cov0" title="0">{
+        if len(items) == 0 </span><span class="cov0" title="0">{
+                return nil
+        }</span>
+
+        <span class="cov0" title="0">opts := DefaultBatchInsertOptions()
+        if len(options) &gt; 0 &amp;&amp; options[0] != nil </span><span class="cov0" title="0">{
+                opts = options[0]
+        }</span>
+
+        // 批量处理
+        <span class="cov0" title="0">for i := 0; i &lt; len(items); i += opts.BatchSize </span><span class="cov0" title="0">{
+                end := i + opts.BatchSize
+                if end &gt; len(items) </span><span class="cov0" title="0">{
+                        end = len(items)
+                }</span>
+
+                <span class="cov0" title="0">batch := items[i:end]
+                if err := batchUpdateChunk(ctx, tx, batch); err != nil </span><span class="cov0" title="0">{
+                        return errors.Annotatef(err, "batch update chunk failed at index %d", i)
+                }</span>
+        }
+
+        <span class="cov0" title="0">return nil</span>
+}
+
+// batchUpdateChunk 更新一个批次的数据
+func batchUpdateChunk[T any](
+        ctx context.Context,
+        tx gorp.SqlExecutor,
+        items []*T,
+) error <span class="cov0" title="0">{
+        for _, item := range items </span><span class="cov0" title="0">{
+                if _, err := tx.WithContext(ctx).Update(item); err != nil </span><span class="cov0" title="0">{
+                        return errors.Annotate(err, "batch update item failed")
+                }</span>
+        }
+        <span class="cov0" title="0">return nil</span>
+}
+
+// BatchDelete 批量删除数据
+func BatchDelete[T any](
+        ctx context.Context,
+        tx gorp.SqlExecutor,
+        items []*T,
+        options ...*BatchInsertOptions,
+) error <span class="cov0" title="0">{
+        if len(items) == 0 </span><span class="cov0" title="0">{
+                return nil
+        }</span>
+
+        <span class="cov0" title="0">opts := DefaultBatchInsertOptions()
+        if len(options) &gt; 0 &amp;&amp; options[0] != nil </span><span class="cov0" title="0">{
+                opts = options[0]
+        }</span>
+
+        // 批量处理
+        <span class="cov0" title="0">for i := 0; i &lt; len(items); i += opts.BatchSize </span><span class="cov0" title="0">{
+                end := i + opts.BatchSize
+                if end &gt; len(items) </span><span class="cov0" title="0">{
+                        end = len(items)
+                }</span>
+
+                <span class="cov0" title="0">batch := items[i:end]
+                if err := batchDeleteChunk(ctx, tx, batch); err != nil </span><span class="cov0" title="0">{
+                        return errors.Annotatef(err, "batch delete chunk failed at index %d", i)
+                }</span>
+        }
+
+        <span class="cov0" title="0">return nil</span>
+}
+
+// batchDeleteChunk 删除一个批次的数据
+func batchDeleteChunk[T any](
+        ctx context.Context,
+        tx gorp.SqlExecutor,
+        items []*T,
+) error <span class="cov0" title="0">{
+        for _, item := range items </span><span class="cov0" title="0">{
+                if _, err := tx.WithContext(ctx).Delete(item); err != nil </span><span class="cov0" title="0">{
+                        return errors.Annotate(err, "batch delete item failed")
+                }</span>
+        }
+        <span class="cov0" title="0">return nil</span>
+}
+
+// BatchDeleteByIDs 根据 ID 列表批量删除数据
+func BatchDeleteByIDs[T any](
+        ctx context.Context,
+        tx gorp.SqlExecutor,
+        tableName string,
+        idColumn string,
+        ids []any,
+        options ...*BatchInsertOptions,
+) error <span class="cov0" title="0">{
+        if len(ids) == 0 </span><span class="cov0" title="0">{
+                return nil
+        }</span>
+
+        <span class="cov0" title="0">opts := DefaultBatchInsertOptions()
+        if len(options) &gt; 0 &amp;&amp; options[0] != nil </span><span class="cov0" title="0">{
+                opts = options[0]
+        }</span>
+
+        // 批量处理
+        <span class="cov0" title="0">for i := 0; i &lt; len(ids); i += opts.BatchSize </span><span class="cov0" title="0">{
+                end := i + opts.BatchSize
+                if end &gt; len(ids) </span><span class="cov0" title="0">{
+                        end = len(ids)
+                }</span>
+
+                <span class="cov0" title="0">batch := ids[i:end]
+                if err := batchDeleteByIDsChunk(ctx, tx, tableName, idColumn, batch); err != nil </span><span class="cov0" title="0">{
+                        return errors.Annotatef(err, "batch delete by IDs chunk failed at index %d", i)
+                }</span>
+        }
+
+        <span class="cov0" title="0">return nil</span>
+}
+
+// batchDeleteByIDsChunk 根据 ID 列表删除一个批次的数据
+func batchDeleteByIDsChunk(
+        ctx context.Context,
+        tx gorp.SqlExecutor,
+        tableName string,
+        idColumn string,
+        ids []any,
+) error <span class="cov0" title="0">{
+        if len(ids) == 0 </span><span class="cov0" title="0">{
+                return nil
+        }</span>
+
+        // 构建 IN 查询
+        <span class="cov0" title="0">placeholders := make([]string, len(ids))
+        for i := range placeholders </span><span class="cov0" title="0">{
+                placeholders[i] = "?"
+        }</span>
+
+        <span class="cov0" title="0">sql := fmt.Sprintf(
+                "DELETE FROM `%s` WHERE `%s` IN (%s)",
+                tableName, idColumn, strings.Join(placeholders, ","),
+        )
+
+        logrus.Tracef("BatchDeleteByIDs SQL: %s, args: %v", sql, ids)
+
+        _, err := tx.WithContext(ctx).Exec(sql, ids...)
+        if err != nil </span><span class="cov0" title="0">{
+                return errors.Annotatef(err, "batch delete by IDs failed: %s", sql)
+        }</span>
+
+        <span class="cov0" title="0">return nil</span>
+}
+
+// ================================================
+// 批量操作辅助函数
+// ================================================
+
+// isDuplicateKeyError 检查是否是重复键错误
+// 这里提供一个简化的实现，实际项目中应该根据具体数据库类型进行判断
+func isDuplicateKeyError(err error) bool <span class="cov0" title="0">{
+        if err == nil </span><span class="cov0" title="0">{
+                return false
+        }</span>
+
+        <span class="cov0" title="0">errStr := strings.ToLower(err.Error())
+
+        // MySQL 重复键错误关键词
+        mysqlKeywords := []string{
+                "duplicate entry",
+                "duplicate key",
+                "unique constraint",
+                "primary key",
+        }
+
+        // PostgreSQL 重复键错误关键词
+        pgKeywords := []string{
+                "duplicate key value",
+                "unique_violation",
+                "unique constraint",
+        }
+
+        // SQLite 重复键错误关键词
+        sqliteKeywords := []string{
+                "unique constraint failed",
+                "primary key constraint failed",
+        }
+
+        allKeywords := append(mysqlKeywords, pgKeywords...)
+        allKeywords = append(allKeywords, sqliteKeywords...)
+
+        for _, keyword := range allKeywords </span><span class="cov0" title="0">{
+                if strings.Contains(errStr, keyword) </span><span class="cov0" title="0">{
+                        return true
+                }</span>
+        }
+
+        <span class="cov0" title="0">return false</span>
+}
+</pre>
+		
+		<pre class="file" id="file6" style="display: none">package tsq
+
+import (
+        "strings"
+)
+
+// ================================================
+// 查询构建器结构体和工厂方法
+// ================================================
+
+// JoinType represents different types of SQL joins
+type JoinType string
+
+const (
+        LeftJoinType  JoinType = "LEFT JOIN"
+        InnerJoinType JoinType = "INNER JOIN"
+        RightJoinType JoinType = "RIGHT JOIN"
+        FullJoinType  JoinType = "FULL JOIN"
+        CrossJoinType JoinType = "CROSS JOIN"
+)
+
+// QueryBuilder builds SQL queries with type safety
+type QueryBuilder struct {
+        // Select 相关字段
+        selectCols         []Column
+        selectTables       map[string]Table
+        selectColFullnames []string
+
+        // 条件相关字段
+        conditions       []Condition
+        conditionTables  map[string]Table
+        conditionClauses []string
+
+        // 关键词搜索相关字段
+        kwCols   []Column
+        kwTables map[string]Table
+
+        // JOIN 相关字段
+        joins []join
+
+        // GROUP BY 和 HAVING 相关字段
+        groupByCols      []Column
+        havingConditions []Condition
+}
+
+// join represents any type of JOIN operation
+type join struct {
+        joinType JoinType
+        left     Column
+        right    Column
+        table    Table // for CROSS JOIN, only table is needed
+}
+
+// Select creates a new QueryBuilder with the specified columns
+func Select(cols ...Column) *QueryBuilder <span class="cov8" title="1">{
+        tables := make(map[string]Table, len(cols))
+        colFullnames := make([]string, 0, len(cols))
+
+        for _, col := range cols </span><span class="cov8" title="1">{
+                colFullnames = append(colFullnames, col.QualifiedName())
+                tables[col.Table().Table()] = col.Table()
+        }</span>
+
+        <span class="cov8" title="1">return &amp;QueryBuilder{
+                selectCols:         cols,
+                selectColFullnames: colFullnames,
+                selectTables:       tables,
+                conditionTables:    make(map[string]Table),
+                kwTables:           make(map[string]Table),
+                joins:              make([]join, 0),
+                groupByCols:        make([]Column, 0),
+                havingConditions:   make([]Condition, 0),
+        }</span>
+}
+
+// ================================================
+// JOIN 方法 - 增强版
+// ================================================
+
+// LeftJoin adds a LEFT JOIN clause. Equivalent to `FROM left.Table LEFT JOIN right.Table ON left=right`.
+func (qb *QueryBuilder) LeftJoin(left Column, right Column) *QueryBuilder <span class="cov8" title="1">{
+        qb.joins = append(qb.joins, join{
+                joinType: LeftJoinType,
+                left:     left,
+                right:    right,
+        })
+        qb.selectTables[left.Table().Table()] = left.Table()
+        qb.selectTables[right.Table().Table()] = right.Table()
+        return qb
+}</span>
+
+// InnerJoin adds an INNER JOIN clause
+func (qb *QueryBuilder) InnerJoin(left Column, right Column) *QueryBuilder <span class="cov8" title="1">{
+        qb.joins = append(qb.joins, join{
+                joinType: InnerJoinType,
+                left:     left,
+                right:    right,
+        })
+        qb.selectTables[left.Table().Table()] = left.Table()
+        qb.selectTables[right.Table().Table()] = right.Table()
+        return qb
+}</span>
+
+// RightJoin adds a RIGHT JOIN clause
+func (qb *QueryBuilder) RightJoin(left Column, right Column) *QueryBuilder <span class="cov8" title="1">{
+        qb.joins = append(qb.joins, join{
+                joinType: RightJoinType,
+                left:     left,
+                right:    right,
+        })
+        qb.selectTables[left.Table().Table()] = left.Table()
+        qb.selectTables[right.Table().Table()] = right.Table()
+        return qb
+}</span>
+
+// FullJoin adds a FULL JOIN clause
+func (qb *QueryBuilder) FullJoin(left Column, right Column) *QueryBuilder <span class="cov8" title="1">{
+        qb.joins = append(qb.joins, join{
+                joinType: FullJoinType,
+                left:     left,
+                right:    right,
+        })
+        qb.selectTables[left.Table().Table()] = left.Table()
+        qb.selectTables[right.Table().Table()] = right.Table()
+        return qb
+}</span>
+
+// CrossJoin adds a CROSS JOIN clause
+func (qb *QueryBuilder) CrossJoin(table Table) *QueryBuilder <span class="cov8" title="1">{
+        qb.joins = append(qb.joins, join{
+                joinType: CrossJoinType,
+                table:    table,
+        })
+        qb.selectTables[table.Table()] = table
+        return qb
+}</span>
+
+// ================================================
+// GROUP BY 和 HAVING 方法
+// ================================================
+
+// GroupBy adds GROUP BY clause with the specified columns
+func (qb *QueryBuilder) GroupBy(cols ...Column) *QueryBuilder <span class="cov8" title="1">{
+        qb.groupByCols = append(qb.groupByCols, cols...)
+
+        // 添加表到 selectTables
+        for _, col := range cols </span><span class="cov8" title="1">{
+                qb.selectTables[col.Table().Table()] = col.Table()
+        }</span>
+
+        <span class="cov8" title="1">return qb</span>
+}
+
+// Having adds HAVING clause with the specified conditions
+func (qb *QueryBuilder) Having(conds ...Condition) *QueryBuilder <span class="cov8" title="1">{
+        qb.havingConditions = append(qb.havingConditions, conds...)
+
+        // 添加条件中涉及的表
+        for _, cond := range conds </span><span class="cov8" title="1">{
+                for tn, t := range cond.Tables() </span><span class="cov8" title="1">{
+                        qb.selectTables[tn] = t
+                }</span>
+        }
+
+        <span class="cov8" title="1">return qb</span>
+}
+
+// ================================================
+// 条件方法
+// ================================================
+
+// Where sets the WHERE conditions for the query
+func (qb *QueryBuilder) Where(conds ...Condition) *QueryBuilder <span class="cov8" title="1">{
+        clauses := make([]string, 0, len(conds))
+        for _, c := range conds </span><span class="cov8" title="1">{
+                for tn, t := range c.Tables() </span><span class="cov8" title="1">{
+                        qb.selectTables[tn] = t
+                }</span>
+                <span class="cov8" title="1">clauses = append(clauses, c.Clause())</span>
+        }
+
+        <span class="cov8" title="1">qb.conditions = conds
+        qb.conditionClauses = clauses
+
+        return qb</span>
+}
+
+// And adds additional conditions with AND logic
+func (qb *QueryBuilder) And(conds ...Condition) *QueryBuilder <span class="cov8" title="1">{
+        qb.conditions = append(qb.conditions, conds...)
+        for _, c := range conds </span><span class="cov8" title="1">{
+                for tn, t := range c.Tables() </span><span class="cov8" title="1">{
+                        qb.conditionTables[tn] = t
+                }</span>
+                <span class="cov8" title="1">qb.conditionClauses = append(qb.conditionClauses, c.Clause())</span>
+        }
+
+        <span class="cov8" title="1">return qb</span>
+}
+
+// AndIf conditionally adds conditions with AND logic
+func (qb *QueryBuilder) AndIf(ok bool, conds ...Condition) *QueryBuilder <span class="cov8" title="1">{
+        if ok </span><span class="cov8" title="1">{
+                return qb.And(conds...)
+        }</span>
+        <span class="cov8" title="1">return qb</span>
+}
+
+// ================================================
+// 关键词搜索方法
+// ================================================
+
+// KwSearch sets the keyword search columns
+func (qb *QueryBuilder) KwSearch(cols ...Column) *QueryBuilder <span class="cov8" title="1">{
+        qb.kwCols = cols
+        qb.kwTables = make(map[string]Table, len(cols))
+
+        for _, col := range cols </span><span class="cov8" title="1">{
+                qb.kwTables[col.Table().Table()] = col.Table()
+        }</span>
+
+        <span class="cov8" title="1">return qb</span>
+}
+
+// ================================================
+// SQL 构建方法
+// ================================================
+
+// buildCntSQL builds the COUNT query SQL
+func (qb *QueryBuilder) buildCntSQL() string <span class="cov8" title="1">{
+        return "SELECT COUNT(1) " + qb.buildListFrom() + qb.buildListWhere()
+}</span>
+
+// buildListSQL builds the main SELECT query SQL
+func (qb *QueryBuilder) buildListSQL() string <span class="cov8" title="1">{
+        return qb.buildSelect() + qb.buildListFrom() + qb.buildListWhere() + qb.buildGroupBy() + qb.buildHaving()
+}</span>
+
+// buildKwCntSQL builds the keyword search COUNT query SQL
+func (qb *QueryBuilder) buildKwCntSQL() string <span class="cov8" title="1">{
+        return "SELECT COUNT(1) " + qb.buildPageFrom() + qb.buildPageWhere()
+}</span>
+
+// buildKwListSQL builds the keyword search SELECT query SQL
+func (qb *QueryBuilder) buildKwListSQL() string <span class="cov8" title="1">{
+        return qb.buildSelect() + qb.buildPageFrom() + qb.buildPageWhere() + qb.buildGroupBy() + qb.buildHaving()
+}</span>
+
+// buildSelect builds the SELECT clause
+func (qb *QueryBuilder) buildSelect() string <span class="cov8" title="1">{
+        return "SELECT " + strings.Join(qb.selectColFullnames, ", ")
+}</span>
+
+// buildGroupBy builds the GROUP BY clause
+func (qb *QueryBuilder) buildGroupBy() string <span class="cov8" title="1">{
+        if len(qb.groupByCols) == 0 </span><span class="cov8" title="1">{
+                return ""
+        }</span>
+
+        <span class="cov0" title="0">groupByExprs := make([]string, 0, len(qb.groupByCols))
+        for _, col := range qb.groupByCols </span><span class="cov0" title="0">{
+                groupByExprs = append(groupByExprs, col.QualifiedName())
+        }</span>
+
+        <span class="cov0" title="0">return " GROUP BY " + strings.Join(groupByExprs, ", ")</span>
+}
+
+// buildHaving builds the HAVING clause
+func (qb *QueryBuilder) buildHaving() string <span class="cov8" title="1">{
+        if len(qb.havingConditions) == 0 </span><span class="cov8" title="1">{
+                return ""
+        }</span>
+
+        <span class="cov0" title="0">havingClauses := make([]string, 0, len(qb.havingConditions))
+        for _, cond := range qb.havingConditions </span><span class="cov0" title="0">{
+                havingClauses = append(havingClauses, cond.Clause())
+        }</span>
+
+        <span class="cov0" title="0">if len(havingClauses) == 1 </span><span class="cov0" title="0">{
+                return " HAVING " + havingClauses[0]
+        }</span>
+
+        <span class="cov0" title="0">return " HAVING (" + strings.Join(havingClauses, " AND ") + ")"</span>
+}
+
+// buildListWhere builds the WHERE clause for list queries
+func (qb *QueryBuilder) buildListWhere() string <span class="cov8" title="1">{
+        if len(qb.conditionClauses) == 0 </span><span class="cov8" title="1">{
+                return ""
+        }</span>
+
+        <span class="cov0" title="0">if len(qb.conditionClauses) == 1 </span><span class="cov0" title="0">{
+                return " WHERE " + qb.conditionClauses[0]
+        }</span>
+
+        <span class="cov0" title="0">return " WHERE (" + strings.Join(qb.conditionClauses, " AND ") + ")"</span>
+}
+
+// buildPageWhere builds the WHERE clause for page queries (with keyword search)
+func (qb *QueryBuilder) buildPageWhere() string <span class="cov8" title="1">{
+        clauses := make([]string, 0, len(qb.conditionClauses)+1)
+
+        // Add existing conditions
+        clauses = append(clauses, qb.conditionClauses...)
+
+        // Add keyword search condition if keyword columns are defined
+        if len(qb.kwCols) &gt; 0 </span><span class="cov0" title="0">{
+                kwClauses := make([]string, 0, len(qb.kwCols))
+                for _, col := range qb.kwCols </span><span class="cov0" title="0">{
+                        kwClauses = append(kwClauses, col.QualifiedName()+" LIKE ?")
+                }</span>
+                <span class="cov0" title="0">if len(kwClauses) &gt; 0 </span><span class="cov0" title="0">{
+                        clauses = append(clauses, "("+strings.Join(kwClauses, " OR ")+")")
+                }</span>
+        }
+
+        <span class="cov8" title="1">if len(clauses) == 0 </span><span class="cov8" title="1">{
+                return ""
+        }</span>
+
+        <span class="cov0" title="0">if len(clauses) == 1 </span><span class="cov0" title="0">{
+                return " WHERE " + clauses[0]
+        }</span>
+
+        <span class="cov0" title="0">return " WHERE (" + strings.Join(clauses, " AND ") + ")"</span>
+}
+
+// buildJoinFrom builds the FROM clause with JOINs
+func (qb *QueryBuilder) buildJoinFrom() string <span class="cov0" title="0">{
+        if len(qb.joins) == 0 </span><span class="cov0" title="0">{
+                return ""
+        }</span>
+
+        <span class="cov0" title="0">var fromBuilder strings.Builder
+
+        // Start with the first table
+        firstJoin := qb.joins[0]
+        if firstJoin.joinType == CrossJoinType </span><span class="cov0" title="0">{
+                fromBuilder.WriteString(" FROM `")
+                fromBuilder.WriteString(firstJoin.table.Table())
+                fromBuilder.WriteString("`")
+        }</span> else<span class="cov0" title="0"> {
+                fromBuilder.WriteString(" FROM `")
+                fromBuilder.WriteString(firstJoin.left.Table().Table())
+                fromBuilder.WriteString("`")
+        }</span>
+
+        // Add all joins
+        <span class="cov0" title="0">for _, j := range qb.joins </span><span class="cov0" title="0">{
+                fromBuilder.WriteString(" ")
+                fromBuilder.WriteString(string(j.joinType))
+
+                if j.joinType == CrossJoinType </span><span class="cov0" title="0">{
+                        fromBuilder.WriteString(" `")
+                        fromBuilder.WriteString(j.table.Table())
+                        fromBuilder.WriteString("`")
+                }</span> else<span class="cov0" title="0"> {
+                        fromBuilder.WriteString(" `")
+                        fromBuilder.WriteString(j.right.Table().Table())
+                        fromBuilder.WriteString("` ON ")
+                        fromBuilder.WriteString(j.left.QualifiedName())
+                        fromBuilder.WriteString(" = ")
+                        fromBuilder.WriteString(j.right.QualifiedName())
+                }</span>
+        }
+
+        <span class="cov0" title="0">return fromBuilder.String()</span>
+}
+
+// buildListFrom builds the FROM clause for list queries
+func (qb *QueryBuilder) buildListFrom() string <span class="cov8" title="1">{
+        if len(qb.joins) &gt; 0 </span><span class="cov0" title="0">{
+                return qb.buildJoinFrom()
+        }</span>
+
+        <span class="cov8" title="1">tables := qb.listQueryTables()
+        if len(tables) == 0 </span><span class="cov0" title="0">{
+                return ""
+        }</span>
+
+        <span class="cov8" title="1">tableNames := make([]string, 0, len(tables))
+        for name := range tables </span><span class="cov8" title="1">{
+                tableNames = append(tableNames, "`"+name+"`")
+        }</span>
+
+        <span class="cov8" title="1">return " FROM " + strings.Join(tableNames, ", ")</span>
+}
+
+// buildPageFrom builds the FROM clause for page queries (with keyword search)
+func (qb *QueryBuilder) buildPageFrom() string <span class="cov8" title="1">{
+        if len(qb.joins) &gt; 0 </span><span class="cov0" title="0">{
+                return qb.buildJoinFrom()
+        }</span>
+
+        <span class="cov8" title="1">tables := qb.pageQueryTables()
+        if len(tables) == 0 </span><span class="cov0" title="0">{
+                return ""
+        }</span>
+
+        <span class="cov8" title="1">tableNames := make([]string, 0, len(tables))
+        for name := range tables </span><span class="cov8" title="1">{
+                tableNames = append(tableNames, "`"+name+"`")
+        }</span>
+
+        <span class="cov8" title="1">return " FROM " + strings.Join(tableNames, ", ")</span>
+}
+
+// listQueryTables returns all tables involved in list queries
+func (qb *QueryBuilder) listQueryTables() map[string]Table <span class="cov8" title="1">{
+        tables := make(map[string]Table)
+
+        // Add select tables
+        for name, table := range qb.selectTables </span><span class="cov8" title="1">{
+                tables[name] = table
+        }</span>
+
+        // Add condition tables
+        <span class="cov8" title="1">for name, table := range qb.conditionTables </span><span class="cov0" title="0">{
+                tables[name] = table
+        }</span>
+
+        <span class="cov8" title="1">return tables</span>
+}
+
+// pageQueryTables returns all tables involved in page queries (including keyword search)
+func (qb *QueryBuilder) pageQueryTables() map[string]Table <span class="cov8" title="1">{
+        tables := qb.listQueryTables()
+
+        // Add keyword search tables
+        for name, table := range qb.kwTables </span><span class="cov0" title="0">{
+                tables[name] = table
+        }</span>
+
+        <span class="cov8" title="1">return tables</span>
+}
+</pre>
+		
+		<pre class="file" id="file7" style="display: none">package tsq
+
+import (
+        "fmt"
+        "strings"
+
+        "github.com/juju/errors"
+        "gopkg.in/gorp.v2"
+)
+
+// ================================================
+// 表注册和管理
+// ================================================
+
+// Global table registry
+var tables = make(map[string]Table)
+
+// RegisterTable registers a table in the global registry
+func RegisterTable(table Table) <span class="cov8" title="1">{
+        tables[table.Table()] = table
+}</span>
+
+// GetRegisteredTable returns a registered table by name
+func GetRegisteredTable(name string) (Table, bool) <span class="cov8" title="1">{
+        table, exists := tables[name]
+        return table, exists
+}</span>
+
+// GetAllRegisteredTables returns all registered tables
+func GetAllRegisteredTables() map[string]Table <span class="cov8" title="1">{
+        result := make(map[string]Table, len(tables))
+        for name, table := range tables </span><span class="cov8" title="1">{
+                result[name] = table
+        }</span>
+        <span class="cov8" title="1">return result</span>
+}
+
+// ================================================
+// 表接口定义
+// ================================================
+
+// Table interface defines a database table
+type Table interface {
+        Table() string               // Table name
+        CustomID() bool              // Whether uses custom ID generation
+        IDField() string             // Primary key field name
+        VersionField() string        // Version field name for optimistic locking
+        Cols() []Column              // All columns in this table
+        KwList() []Column            // Keyword search columns
+        UxMap() map[string][]string  // Unique constraints mapping
+        IdxMap() map[string][]string // Index mapping
+}
+
+// ================================================
+// 数据库初始化
+// ================================================
+
+// Init initializes the database with registered tables and creates tables/indexes if needed
+func Init(db *gorp.DbMap, autoCreateTable bool, tracer ...Tracer) error <span class="cov0" title="0">{
+        // Add tracers
+        tracers = append(tracers, tracer...)
+
+        // Configure tables in gorp
+        for name, table := range tables </span><span class="cov0" title="0">{
+                if versionField := table.VersionField(); versionField != "" </span><span class="cov0" title="0">{
+                        db.AddTableWithName(table, name).
+                                SetKeys(!table.CustomID(), table.IDField()).
+                                SetVersionCol(versionField)
+                }</span> else<span class="cov0" title="0"> {
+                        db.AddTableWithName(table, name).
+                                SetKeys(!table.CustomID(), table.IDField())
+                }</span>
+        }
+
+        // Create tables and indexes if requested
+        <span class="cov0" title="0">if autoCreateTable </span><span class="cov0" title="0">{
+                if err := db.CreateTablesIfNotExists(); err != nil </span><span class="cov0" title="0">{
+                        return errors.Annotate(err, "failed to create tables")
+                }</span>
+
+                // Create unique constraints
+                <span class="cov0" title="0">for name, table := range tables </span><span class="cov0" title="0">{
+                        for ux, fields := range table.UxMap() </span><span class="cov0" title="0">{
+                                if err := ensureIndex(db, name, true, ux, fields); err != nil </span><span class="cov0" title="0">{
+                                        return errors.Annotatef(err, "failed to create unique index %s on table %s", ux, name)
+                                }</span>
+                        }
+                }
+
+                // Create regular indexes
+                <span class="cov0" title="0">for name, table := range tables </span><span class="cov0" title="0">{
+                        for idx, fields := range table.IdxMap() </span><span class="cov0" title="0">{
+                                if err := ensureIndex(db, name, false, idx, fields); err != nil </span><span class="cov0" title="0">{
+                                        return errors.Annotatef(err, "failed to create index %s on table %s", idx, name)
+                                }</span>
+                        }
+                }
+        }
+
+        <span class="cov0" title="0">return nil</span>
+}
+
+// ================================================
+// 索引管理 - 数据库方言检测
+// ================================================
+
+// ensureIndex ensures an index exists, with database dialect-specific implementation
+func ensureIndex(db *gorp.DbMap, table string, unique bool, idx string, fields []string) error <span class="cov0" title="0">{
+        switch db.Dialect.(type) </span>{
+        case gorp.MySQLDialect:<span class="cov0" title="0">
+                return ensureMySQLIndex(db, table, unique, idx, fields)</span>
+        case gorp.SqliteDialect:<span class="cov0" title="0">
+                return ensureSQLiteIndex(db, table, unique, idx, fields)</span>
+        case gorp.PostgresDialect:<span class="cov0" title="0">
+                return ensurePostgresIndex(db, table, unique, idx, fields)</span>
+        default:<span class="cov0" title="0">
+                return errors.Errorf("unsupported database dialect: %T", db.Dialect)</span>
+        }
+}
+
+// ================================================
+// MySQL 索引管理
+// ================================================
+
+// ensureMySQLIndex ensures an index exists in MySQL
+func ensureMySQLIndex(db *gorp.DbMap, table string, unique bool, idx string, fields []string) error <span class="cov0" title="0">{
+        exists, err := isIndexExist(db, table, idx)
+        if err != nil </span><span class="cov0" title="0">{
+                return errors.Trace(err)
+        }</span>
+        <span class="cov0" title="0">if exists </span><span class="cov0" title="0">{
+                return nil
+        }</span>
+
+        <span class="cov0" title="0">return createMySQLIndex(db, table, unique, idx, fields)</span>
+}
+
+// isIndexExist checks if an index exists in MySQL
+func isIndexExist(dbMap *gorp.DbMap, table string, idx string) (bool, error) <span class="cov0" title="0">{
+        count, err := dbMap.SelectInt(`
+                SELECT COUNT(1) 
+                FROM INFORMATION_SCHEMA.STATISTICS
+                WHERE 
+                        table_schema = DATABASE() 
+                        AND table_name = ? 
+                        AND index_name = ?`,
+                table, idx,
+        )
+        if err != nil </span><span class="cov0" title="0">{
+                return false, errors.Trace(err)
+        }</span>
+        <span class="cov0" title="0">return count &gt; 0, nil</span>
+}
+
+// createMySQLIndex creates an index in MySQL
+func createMySQLIndex(dbMap *gorp.DbMap, table string, unique bool, idx string, fields []string) error <span class="cov0" title="0">{
+        quotedFields := make([]string, len(fields))
+        for i, field := range fields </span><span class="cov0" title="0">{
+                quotedFields[i] = fmt.Sprintf("`%s`", field)
+        }</span>
+
+        <span class="cov0" title="0">uniqueClause := ""
+        if unique </span><span class="cov0" title="0">{
+                uniqueClause = "UNIQUE "
+        }</span>
+
+        <span class="cov0" title="0">query := fmt.Sprintf(
+                "ALTER TABLE `%s` ADD %sINDEX `%s`(%s)",
+                table, uniqueClause, idx, strings.Join(quotedFields, ", "),
+        )
+
+        _, err := dbMap.Exec(query)
+        return errors.Trace(err)</span>
+}
+
+// ================================================
+// SQLite 索引管理
+// ================================================
+
+// ensureSQLiteIndex ensures an index exists in SQLite
+func ensureSQLiteIndex(db *gorp.DbMap, table string, unique bool, idx string, fields []string) error <span class="cov0" title="0">{
+        var exists int
+        err := db.SelectOne(&amp;exists,
+                "SELECT COUNT(1) FROM sqlite_master WHERE type='index' AND name=?", idx)
+        if err != nil </span><span class="cov0" title="0">{
+                return errors.Trace(err)
+        }</span>
+        <span class="cov0" title="0">if exists &gt; 0 </span><span class="cov0" title="0">{
+                return nil
+        }</span>
+
+        <span class="cov0" title="0">return createSQLiteIndex(db, table, unique, idx, fields)</span>
+}
+
+// createSQLiteIndex creates an index in SQLite
+func createSQLiteIndex(db *gorp.DbMap, table string, unique bool, idx string, fields []string) error <span class="cov0" title="0">{
+        quotedFields := make([]string, len(fields))
+        for i, field := range fields </span><span class="cov0" title="0">{
+                quotedFields[i] = fmt.Sprintf("`%s`", field)
+        }</span>
+
+        <span class="cov0" title="0">uniqueClause := ""
+        if unique </span><span class="cov0" title="0">{
+                uniqueClause = "UNIQUE "
+        }</span>
+
+        <span class="cov0" title="0">query := fmt.Sprintf(
+                "CREATE %sINDEX `%s` ON `%s`(%s)",
+                uniqueClause, idx, table, strings.Join(quotedFields, ", "),
+        )
+
+        _, err := db.Exec(query)
+        return errors.Trace(err)</span>
+}
+
+// ================================================
+// PostgreSQL 索引管理
+// ================================================
+
+// ensurePostgresIndex ensures an index exists in PostgreSQL
+func ensurePostgresIndex(db *gorp.DbMap, table string, unique bool, idx string, fields []string) error <span class="cov0" title="0">{
+        var exists int
+        err := db.SelectOne(&amp;exists,
+                "SELECT COUNT(1) FROM pg_indexes WHERE tablename=$1 AND indexname=$2", table, idx)
+        if err != nil </span><span class="cov0" title="0">{
+                return errors.Trace(err)
+        }</span>
+        <span class="cov0" title="0">if exists &gt; 0 </span><span class="cov0" title="0">{
+                return nil
+        }</span>
+
+        <span class="cov0" title="0">return createPostgresIndex(db, table, unique, idx, fields)</span>
+}
+
+// createPostgresIndex creates an index in PostgreSQL
+func createPostgresIndex(db *gorp.DbMap, table string, unique bool, idx string, fields []string) error <span class="cov0" title="0">{
+        quotedFields := make([]string, len(fields))
+        for i, field := range fields </span><span class="cov0" title="0">{
+                quotedFields[i] = fmt.Sprintf(`"%s"`, field)
+        }</span>
+
+        <span class="cov0" title="0">uniqueClause := ""
+        if unique </span><span class="cov0" title="0">{
+                uniqueClause = "UNIQUE "
+        }</span>
+
+        <span class="cov0" title="0">query := fmt.Sprintf(
+                `CREATE %sINDEX "%s" ON "%s"(%s)`,
+                uniqueClause, idx, table, strings.Join(quotedFields, ", "),
+        )
+
+        _, err := db.Exec(query)
+        return errors.Trace(err)</span>
+}
+</pre>
+		
+		<pre class="file" id="file8" style="display: none">package tsq
+
+import (
+        "context"
+        "encoding/json"
+        "time"
+)
+
+// ================================================
+// 追踪类型定义
+// ================================================
+
+// Fn represents a function that can be traced
+type Fn func(ctx context.Context) error
+
+// Tracer is a middleware function that wraps another function for tracing/monitoring
+type Tracer func(next Fn) Fn
+
+// ================================================
+// 追踪管理
+// ================================================
+
+// Global tracer registry
+var tracers []Tracer
+
+// AddTracer adds a tracer to the global registry
+func AddTracer(tracer Tracer) <span class="cov8" title="1">{
+        tracers = append(tracers, tracer)
+}</span>
+
+// ClearTracers clears all registered tracers
+func ClearTracers() <span class="cov8" title="1">{
+        tracers = nil
+}</span>
+
+// GetTracers returns all registered tracers
+func GetTracers() []Tracer <span class="cov8" title="1">{
+        result := make([]Tracer, len(tracers))
+        copy(result, tracers)
+        return result
+}</span>
+
+// ================================================
+// 追踪执行
+// ================================================
+
+// Trace executes a function with all registered tracers applied
+// Tracers are applied in reverse order (LIFO) so the last added tracer wraps all others
+func Trace(ctx context.Context, fn func(ctx context.Context) error) error <span class="cov8" title="1">{
+        // Apply tracers in reverse order to create proper middleware chain
+        wrappedFn := fn
+        for i := len(tracers) - 1; i &gt;= 0; i-- </span><span class="cov8" title="1">{
+                wrappedFn = tracers[i](wrappedFn)
+        }</span>
+        <span class="cov8" title="1">return wrappedFn(ctx)</span>
+}
+
+// ================================================
+// 内置追踪器
+// ================================================
+
+// TimingTracer creates a tracer that logs execution time
+func TimingTracer(name string) Tracer <span class="cov8" title="1">{
+        return func(next Fn) Fn </span><span class="cov8" title="1">{
+                return func(ctx context.Context) error </span><span class="cov8" title="1">{
+                        start := time.Now()
+                        err := next(ctx)
+                        duration := time.Since(start)
+
+                        // You can customize this to use your preferred logging library
+                        if err != nil </span><span class="cov8" title="1">{
+                                // Log error with timing
+                                _ = duration // TODO: Add actual logging
+                        }</span> else<span class="cov8" title="1"> {
+                                // Log success with timing
+                                _ = duration // TODO: Add actual logging
+                        }</span>
+
+                        <span class="cov8" title="1">return err</span>
+                }
+        }
+}
+
+// ErrorTracer creates a tracer that handles errors
+func ErrorTracer() Tracer <span class="cov8" title="1">{
+        return func(next Fn) Fn </span><span class="cov8" title="1">{
+                return func(ctx context.Context) error </span><span class="cov8" title="1">{
+                        err := next(ctx)
+                        if err != nil </span><span class="cov8" title="1">{
+                                // You can customize error handling here
+                                // For example: send to error tracking service, log, etc.
+                                _ = err // TODO: Add actual error handling
+                        }</span>
+                        <span class="cov8" title="1">return err</span>
+                }
+        }
+}
+
+// ================================================
+// 工具函数
+// ================================================
+
+// PrettyJSON returns indented JSON string of obj.
+// Returns empty string if marshaling fails.
+func PrettyJSON(obj any) string <span class="cov8" title="1">{
+        bs, err := json.MarshalIndent(obj, "", "    ")
+        if err != nil </span><span class="cov8" title="1">{
+                return ""
+        }</span>
+        <span class="cov8" title="1">return string(bs)</span>
+}
+
+// CompactJSON returns compact JSON string of obj.
+// Returns empty string if marshaling fails.
+func CompactJSON(obj any) string <span class="cov8" title="1">{
+        bs, err := json.Marshal(obj)
+        if err != nil </span><span class="cov8" title="1">{
+                return ""
+        }</span>
+        <span class="cov8" title="1">return string(bs)</span>
+}
+</pre>
+		
+		<pre class="file" id="file9" style="display: none">package tsq
+
+import (
+        "fmt"
+        "runtime"
+)
+
+// ================================================
+// 版本信息变量
+// ================================================
+
+// Version 是构建时通过 ldflags 注入的版本信息
+// 使用方式: go build -ldflags "-X github.com/tmoeish/tsq/pkg/tsq.Version=v1.0.0"
+var Version = "dev"
+
+// BuildTime 是构建时通过 ldflags 注入的构建时间
+// 使用方式: go build -ldflags "-X github.com/tmoeish/tsq/pkg/tsq.BuildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+var BuildTime = "unknown"
+
+// GitCommit 是构建时通过 ldflags 注入的 Git 提交哈希
+// 使用方式: go build -ldflags "-X github.com/tmoeish/tsq/pkg/tsq.GitCommit=$(git rev-parse HEAD)"
+var GitCommit = "unknown"
+
+// GitBranch 是构建时通过 ldflags 注入的 Git 分支名
+// 使用方式: go build -ldflags "-X github.com/tmoeish/tsq/pkg/tsq.GitBranch=$(git rev-parse --abbrev-ref HEAD)"
+var GitBranch = "unknown"
+
+// ================================================
+// 版本信息结构体
+// ================================================
+
+// VersionInfo contains comprehensive version information
+type VersionInfo struct {
+        Version   string `json:"version"`    // 应用版本
+        BuildTime string `json:"build_time"` // 构建时间
+        GitCommit string `json:"git_commit"` // Git 提交哈希
+        GitBranch string `json:"git_branch"` // Git 分支
+        GoVersion string `json:"go_version"` // Go 版本
+        Platform  string `json:"platform"`   // 平台信息
+        Arch      string `json:"arch"`       // 架构信息
+}
+
+// ================================================
+// 版本信息函数
+// ================================================
+
+// GetVersion returns the current version string
+func GetVersion() string <span class="cov8" title="1">{
+        return Version
+}</span>
+
+// GetBuildTime returns the build time string
+func GetBuildTime() string <span class="cov8" title="1">{
+        return BuildTime
+}</span>
+
+// GetGitCommit returns the git commit hash
+func GetGitCommit() string <span class="cov8" title="1">{
+        return GitCommit
+}</span>
+
+// GetGitBranch returns the git branch name
+func GetGitBranch() string <span class="cov8" title="1">{
+        return GitBranch
+}</span>
+
+// GetVersionInfo returns comprehensive version information
+func GetVersionInfo() *VersionInfo <span class="cov8" title="1">{
+        return &amp;VersionInfo{
+                Version:   Version,
+                BuildTime: BuildTime,
+                GitCommit: GitCommit,
+                GitBranch: GitBranch,
+                GoVersion: runtime.Version(),
+                Platform:  runtime.GOOS,
+                Arch:      runtime.GOARCH,
+        }
+}</span>
+
+// String returns a formatted version string
+func (v *VersionInfo) String() string <span class="cov8" title="1">{
+        return fmt.Sprintf("TSQ %s (built %s from %s@%s with %s on %s/%s)",
+                v.Version, v.BuildTime, v.GitBranch, v.GitCommit[:8], v.GoVersion, v.Platform, v.Arch)
+}</span>
+
+// ShortString returns a short version string
+func (v *VersionInfo) ShortString() string <span class="cov8" title="1">{
+        return fmt.Sprintf("TSQ %s", v.Version)
+}</span>
+
+// ================================================
+// 便捷函数
+// ================================================
+
+// PrintVersion prints version information to stdout
+func PrintVersion() <span class="cov0" title="0">{
+        fmt.Println(GetVersionInfo().String())
+}</span>
+
+// PrintVersionJSON prints version information as JSON to stdout
+func PrintVersionJSON() <span class="cov0" title="0">{
+        fmt.Println(PrettyJSON(GetVersionInfo()))
+}</span>
+</pre>
+		
+		</div>
+	</body>
+	<script>
+	(function() {
+		var files = document.getElementById('files');
+		var visible;
+		files.addEventListener('change', onChange, false);
+		function select(part) {
+			if (visible)
+				visible.style.display = 'none';
+			visible = document.getElementById(part);
+			if (!visible)
+				return;
+			files.value = part;
+			visible.style.display = 'block';
+			location.hash = part;
+		}
+		function onChange() {
+			select(files.value);
+			window.scrollTo(0, 0);
+		}
+		if (location.hash != "") {
+			select(location.hash.substr(1));
+		}
+		if (!visible) {
+			select("file0");
+		}
+	})();
+	</script>
+</html>
