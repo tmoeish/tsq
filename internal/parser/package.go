@@ -25,7 +25,7 @@ type ParseResult struct {
 func Parse(packagePath string) ([]*tsq.StructInfo, string, error) {
 	result, err := parsePackage(packagePath)
 	if err != nil {
-		return nil, "", errors.Annotatef(err, "解析包 %s 失败", packagePath)
+		return nil, "", errors.Annotatef(err, "failed to parse package %s", packagePath)
 	}
 
 	list := make([]*tsq.StructInfo, len(result.Structs))
@@ -45,25 +45,25 @@ func parsePackage(packagePath string) (*ParseResult, error) {
 	}
 
 	if err := parseState.parsePackagesRecursively(packagePath); err != nil {
-		return nil, errors.Annotate(err, "递归解析包失败")
+		return nil, errors.Annotate(err, "failed to recursively parse package")
 	}
 
 	if err := parseState.resolveAllEmbeddedFields(); err != nil {
-		return nil, errors.Annotate(err, "解析嵌入字段失败")
+		return nil, errors.Annotate(err, "failed to parse embedded fields")
 	}
 
 	packageInfo, err := parseState.getPackageInfo(packagePath)
 	if err != nil {
-		return nil, errors.Annotate(err, "获取包信息失败")
+		return nil, errors.Annotate(err, "failed to get package info")
 	}
 
 	if err := parseState.parseTableMetadata(packageInfo); err != nil {
-		return nil, errors.Annotate(err, "解析表元数据失败")
+		return nil, errors.Annotate(err, "failed to parse table metadata")
 	}
 
 	result, err := parseState.filterAndProcessResults(packagePath)
 	if err != nil {
-		return nil, errors.Annotate(err, "过滤和处理解析结果失败")
+		return nil, errors.Annotate(err, "failed to filter and process parse results")
 	}
 
 	return result, nil
@@ -86,7 +86,7 @@ func (ps *ParseState) parsePackagesRecursively(packagePath string) error {
 		currentPath := element.Value.(string)
 
 		if err := ps.parseSinglePackage(currentPath); err != nil {
-			return errors.Annotatef(err, "递归解析包 %s 失败", currentPath)
+			return errors.Annotatef(err, "failed to recursively parse package %s", currentPath)
 		}
 	}
 
@@ -97,7 +97,7 @@ func (ps *ParseState) parsePackagesRecursively(packagePath string) error {
 func (ps *ParseState) resolveAllEmbeddedFields() error {
 	for _, structInfo := range ps.structMap {
 		if err := resolveEmbeddedFields(structInfo, ps.structMap); err != nil {
-			return errors.Annotatef(err, "解析嵌入字段失败: %v", structInfo.TypeInfo)
+			return errors.Annotatef(err, "failed to parse embedded fields: %v", structInfo.TypeInfo)
 		}
 	}
 
@@ -108,7 +108,7 @@ func (ps *ParseState) resolveAllEmbeddedFields() error {
 func (ps *ParseState) getPackageInfo(packagePath string) (tsq.PackageInfo, error) {
 	buildPkg, err := build.Default.Import(packagePath, "", 0)
 	if err != nil {
-		return tsq.PackageInfo{}, errors.Annotatef(err, "process directory failed: %s", packagePath)
+		return tsq.PackageInfo{}, errors.Annotatef(err, "failed to process directory: %s", packagePath)
 	}
 
 	return tsq.PackageInfo{
@@ -121,7 +121,7 @@ func (ps *ParseState) getPackageInfo(packagePath string) (tsq.PackageInfo, error
 func (ps *ParseState) parseTableMetadata(pkg tsq.PackageInfo) error {
 	buildPkg, err := build.Default.Import(pkg.Path, "", 0)
 	if err != nil {
-		return errors.Annotatef(err, "process directory failed: %s", pkg.Path)
+		return errors.Annotatef(err, "failed to process directory: %s", pkg.Path)
 	}
 
 	fileSet := token.NewFileSet()
@@ -135,11 +135,11 @@ func (ps *ParseState) parseTableMetadata(pkg tsq.PackageInfo) error {
 
 		file, err := parser.ParseFile(fileSet, fullPath, nil, parser.ParseComments)
 		if err != nil {
-			return errors.Annotatef(err, "解析文件失败: %s", fullPath)
+			return errors.Annotatef(err, "failed to parse file: %s", fullPath)
 		}
 
 		if err := ps.processFileComments(file, fileSet, pkg); err != nil {
-			return errors.Annotatef(err, "处理文件注释失败: %s", fullPath)
+			return errors.Annotatef(err, "failed to process file comments: %s", fullPath)
 		}
 	}
 
@@ -263,7 +263,7 @@ func isStructType(typeExpr ast.Expr) bool {
 func (ps *ParseState) filterAndProcessResults(packagePath string) (*ParseResult, error) {
 	buildPkg, err := build.Default.Import(packagePath, "", 0)
 	if err != nil {
-		return nil, errors.Annotatef(err, "process directory failed: %s", packagePath)
+		return nil, errors.Annotatef(err, "failed to process directory: %s", packagePath)
 	}
 
 	var results []*StructInfo
@@ -288,7 +288,7 @@ func (ps *ParseState) filterAndProcessResults(packagePath string) (*ParseResult,
 func (ps *ParseState) parseSinglePackage(packagePath string) error {
 	buildPkg, err := build.Default.Import(packagePath, "", 0)
 	if err != nil {
-		return errors.Annotatef(err, "process pkg failed: %s", packagePath)
+		return errors.Annotatef(err, "failed to process pkg: %s", packagePath)
 	}
 
 	pkg := tsq.PackageInfo{
@@ -310,14 +310,14 @@ func (ps *ParseState) parseSinglePackage(packagePath string) error {
 
 		file, err := parser.ParseFile(fileSet, fullPath, nil, parser.ParseComments)
 		if err != nil {
-			return errors.Annotatef(err, "解析文件失败: %s", fullPath)
+			return errors.Annotatef(err, "failed to parse file: %s", fullPath)
 		}
 
 		packageAliases := parsePackageAliases(file)
 
 		err = ps.parseStructDeclarations(file, packageAliases, pkg)
 		if err != nil {
-			return errors.Annotatef(err, "解析结构体声明失败: %s", fullPath)
+			return errors.Annotatef(err, "failed to parse struct declarations: %s", fullPath)
 		}
 	}
 
@@ -389,7 +389,7 @@ func parsePackageAliases(file *ast.File) map[string]tsq.PackageInfo {
 func getPackageInfo(importPath string) (tsq.PackageInfo, error) {
 	buildPkg, err := build.Default.Import(importPath, "", 0)
 	if err != nil {
-		return tsq.PackageInfo{}, errors.Annotatef(err, "get pkg failed: %s", importPath)
+		return tsq.PackageInfo{}, errors.Annotatef(err, "failed to get package: %s", importPath)
 	}
 
 	return tsq.PackageInfo{
@@ -415,12 +415,12 @@ func resolveEmbeddedFields(
 
 		if !embeddedStruct.embeddedResolved {
 			if err := resolveEmbeddedFields(embeddedStruct, allStructs); err != nil {
-				return errors.Annotatef(err, "递归解析嵌入结构体 %s 失败", embeddedType)
+				return errors.Annotatef(err, "failed to recursively parse embedded struct %s", embeddedType)
 			}
 		}
 
 		if err := copyEmbeddedFields(structInfo, embeddedStruct); err != nil {
-			return errors.Annotatef(err, "复制嵌入字段失败: %s", embeddedType)
+			return errors.Annotatef(err, "failed to copy embedded fields: %s", embeddedType)
 		}
 	}
 

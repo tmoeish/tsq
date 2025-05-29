@@ -51,8 +51,7 @@ var GenCmd = &cobra.Command{
 		if len(tplFlag) > 0 {
 			tplBytes, err := os.ReadFile(tplFlag)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "os.ReadFile 失败: %v\n详细堆栈:\n%+v\n", err, errors.ErrorStack(err))
-				os.Exit(1)
+				logrus.Fatal(errors.ErrorStack(err))
 			}
 			tplTxt = string(tplBytes)
 		}
@@ -60,8 +59,7 @@ var GenCmd = &cobra.Command{
 		if len(dtoTplFlag) > 0 {
 			tplBytes, err := os.ReadFile(dtoTplFlag)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "os.ReadFile 失败: %v\n详细堆栈:\n%+v\n", err, errors.ErrorStack(err))
-				os.Exit(1)
+				logrus.Fatal(errors.ErrorStack(err))
 			}
 			dtoTplTxt = string(tplBytes)
 		}
@@ -69,8 +67,7 @@ var GenCmd = &cobra.Command{
 		pPath := args[0]
 		list, dir, err := parser.Parse(pPath)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "parser.Parse 失败: %v\n详细堆栈:\n%+v\n", err, errors.ErrorStack(err))
-			os.Exit(1)
+			logrus.Fatal(errors.ErrorStack(err))
 		}
 
 		for i := range list {
@@ -79,19 +76,16 @@ var GenCmd = &cobra.Command{
 
 		tpl, err := template.New("tsq.go.tmpl").Funcs(TemplateFuncs()).Parse(tplTxt)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "template.Parse 失败: %v\n详细堆栈:\n%+v\n", err, errors.ErrorStack(err))
-			os.Exit(1)
+			logrus.Fatal(errors.ErrorStack(err))
 		}
 
 		dtoTpl, err := template.New("tsq_dto.go.tmpl").Funcs(TemplateFuncs()).Parse(dtoTplTxt)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "template.Parse 失败: %v\n详细堆栈:\n%+v\n", err, errors.ErrorStack(err))
-			os.Exit(1)
+			logrus.Fatal(errors.ErrorStack(err))
 		}
 
 		for _, s := range list {
 			if s.TableInfo == nil || len(s.Fields) == 0 {
-				logrus.Errorf("结构体 %s 解析失败，表名: %s，字段数: %d，详细: 结构体未能正确生成 TableInfo 或无有效字段。请检查 DSL 注解与结构体定义是否一致。", s.TypeInfo.TypeName, s.Table, len(s.Fields))
 				continue
 			}
 			if len(s.Table) == 0 {
@@ -99,11 +93,11 @@ var GenCmd = &cobra.Command{
 					s.Fields[i].Column = strings.Replace(f.Column, ".", "_", 1)
 				}
 				if err := genDTO(s, dtoTpl, dir); err != nil {
-					logrus.Errorf("生成 DTO 文件失败: 结构体: %s, 错误: %v", s.TypeInfo.TypeName, err)
+					logrus.Fatal(errors.ErrorStack(err))
 				}
 			} else {
 				if err := gen(s, tpl, dir); err != nil {
-					logrus.Errorf("生成表文件失败: 结构体: %s, 表名: %s, 错误: %v", s.TypeInfo.TypeName, s.Table, err)
+					logrus.Fatal(errors.ErrorStack(err))
 				}
 			}
 		}
@@ -119,18 +113,18 @@ func gen(data *tsq.StructInfo, t *template.Template, dir string) error {
 
 	if err := t.Execute(buf, data); err != nil {
 		bs := tsq.PrettyJSON(data)
-		return errors.Annotatef(err, "模板渲染失败: %s, 数据: %s", filename, string(bs))
+		return errors.Annotatef(err, "template rendering failed: %s, data: %s", filename, string(bs))
 	}
 
 	src, err := format.Source(buf.Bytes(), format.Options{})
 	if err != nil {
 		_ = os.WriteFile(filename, buf.Bytes(), 0o644)
-		return errors.Annotatef(err, "Go 代码格式化失败: %s", filename)
+		return errors.Annotatef(err, "Go code formatting failed: %s", filename)
 	}
 
 	err = os.WriteFile(filename, src, 0o644)
 	if err != nil {
-		return errors.Annotatef(err, "写文件失败: %s", filename)
+		return errors.Annotatef(err, "failed to write file: %s", filename)
 	}
 
 	return nil
@@ -143,18 +137,18 @@ func genDTO(data *tsq.StructInfo, t *template.Template, dir string) error {
 
 	if err := t.Execute(buf, data); err != nil {
 		bs := tsq.PrettyJSON(data)
-		return errors.Annotatef(err, "DTO模板渲染失败: %s, 数据: %s", filename, string(bs))
+		return errors.Annotatef(err, "DTO template rendering failed: %s, data: %s", filename, string(bs))
 	}
 
 	src, err := format.Source(buf.Bytes(), format.Options{})
 	if err != nil {
 		_ = os.WriteFile(filename, buf.Bytes(), 0o644)
-		return errors.Annotatef(err, "Go 代码格式化失败: %s", filename)
+		return errors.Annotatef(err, "Go code formatting failed: %s", filename)
 	}
 
 	err = os.WriteFile(filename, src, 0o644)
 	if err != nil {
-		return errors.Annotatef(err, "写文件失败: %s", filename)
+		return errors.Annotatef(err, "failed to write file: %s", filename)
 	}
 
 	return nil

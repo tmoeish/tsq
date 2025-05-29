@@ -7,13 +7,13 @@ import (
 )
 
 // Category 分类表
-// @TABLE(
-//   name="category",
-//   pk="ID",
-//   ux=[{fields=["Name"]}],
-//   kw=["Name","Description"]
-// )
-
+//
+//	@TABLE(
+//		name="category",
+//		pk="ID",
+//		ux=[{fields=["Name"]}],
+//		kw=["Name","Description"],
+//	)
 type Category struct {
 	common.ImmutableTable
 	CategoryContent

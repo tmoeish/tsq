@@ -4,15 +4,15 @@ import (
 	"github.com/tmoeish/tsq/examples/common"
 )
 
-// Item 商品表
-// @TABLE(
-//
-//	ux=[{fields=["Name"]}],
-//	idx=[{name="IdxCategory", fields=["CategoryID"]}],
-//
-//	kw=["Name"]
-//
-// )
+/*
+Item 商品表
+
+	@TABLE(
+		ux=[{fields=["Name"]}],
+		idx=[{name="IdxCategory", fields=["CategoryID"]}],
+		kw=["Name"]
+	)
+*/
 type Item struct {
 	common.ImmutableTable
 

@@ -6,6 +6,11 @@ import (
 	"github.com/juju/errors"
 )
 
+const (
+	colorRed   = "\033[31m"
+	colorReset = "\033[0m"
+)
+
 // ErrorType 表示错误类型
 type ErrorType int
 
@@ -105,7 +110,8 @@ var ErrorMessages = map[ErrorType]string{
 
 // NewPackageImportError 创建包导入错误
 func NewPackageImportError(packagePath string, cause error) error {
-	err := newParserError(ErrorTypePackageImport, ErrorMessages[ErrorTypePackageImport], map[string]any{
+	msg := fmt.Sprintf("failed to import package: %s", packagePath)
+	err := newParserError(ErrorTypePackageImport, msg, map[string]any{
 		"package": packagePath,
 	})
 
@@ -114,7 +120,8 @@ func NewPackageImportError(packagePath string, cause error) error {
 
 // NewFileParseError 创建文件解析错误
 func NewFileParseError(filename string, cause error) error {
-	err := newParserError(ErrorTypeFileParseError, ErrorMessages[ErrorTypeFileParseError], map[string]any{
+	msg := fmt.Sprintf("failed to parse file: %s", filename)
+	err := newParserError(ErrorTypeFileParseError, msg, map[string]any{
 		"filename": filename,
 	})
 
@@ -123,7 +130,8 @@ func NewFileParseError(filename string, cause error) error {
 
 // NewDuplicateFieldError 创建重复字段错误
 func NewDuplicateFieldError(fieldName, structName string) error {
-	err := newParserError(ErrorTypeDuplicateField, ErrorMessages[ErrorTypeDuplicateField], map[string]any{
+	msg := fmt.Sprintf("duplicate field '%s' in struct '%s'", fieldName, structName)
+	err := newParserError(ErrorTypeDuplicateField, msg, map[string]any{
 		"field":  fieldName,
 		"struct": structName,
 	})
@@ -133,7 +141,8 @@ func NewDuplicateFieldError(fieldName, structName string) error {
 
 // NewDuplicateEmbeddedError 创建重复嵌入类型错误
 func NewDuplicateEmbeddedError(typeName, structName string) error {
-	err := newParserError(ErrorTypeDuplicateEmbedded, ErrorMessages[ErrorTypeDuplicateEmbedded], map[string]any{
+	msg := fmt.Sprintf("duplicate embedded type '%s' in struct '%s'", typeName, structName)
+	err := newParserError(ErrorTypeDuplicateEmbedded, msg, map[string]any{
 		"type":   typeName,
 		"struct": structName,
 	})
@@ -143,7 +152,8 @@ func NewDuplicateEmbeddedError(typeName, structName string) error {
 
 // NewEmbeddedNotFoundError 创建嵌入结构体未找到错误
 func NewEmbeddedNotFoundError(structName string) error {
-	err := newParserError(ErrorTypeEmbeddedNotFound, ErrorMessages[ErrorTypeEmbeddedNotFound], map[string]any{
+	msg := fmt.Sprintf("embedded struct not found: '%s'", structName)
+	err := newParserError(ErrorTypeEmbeddedNotFound, msg, map[string]any{
 		"struct": structName,
 	})
 
@@ -152,8 +162,10 @@ func NewEmbeddedNotFoundError(structName string) error {
 
 // NewUnsupportedTypeError 创建不支持类型错误
 func NewUnsupportedTypeError(typeExpr any) error {
-	err := newParserError(ErrorTypeUnsupportedType, ErrorMessages[ErrorTypeUnsupportedType], map[string]any{
-		"type": fmt.Sprintf("%T", typeExpr),
+	typeStr := fmt.Sprintf("%T", typeExpr)
+	msg := fmt.Sprintf("unsupported type expression: %s", typeStr)
+	err := newParserError(ErrorTypeUnsupportedType, msg, map[string]any{
+		"type": typeStr,
 	})
 
 	return errors.Trace(err)
@@ -163,10 +175,32 @@ func NewUnsupportedTypeError(typeExpr any) error {
 
 // NewDSLTokenizeError 创建 DSL 词法分析错误
 func NewDSLTokenizeError(input string, position int, char byte) error {
-	err := newParserError(ErrorTypeDSLTokenize, ErrorMessages[ErrorTypeDSLTokenize], map[string]any{
+	contextLen := 20
+	start := position - contextLen
+	if start < 0 {
+		start = 0
+	}
+	end := position + contextLen
+	if end > len(input) {
+		end = len(input)
+	}
+	snippet := input[start:end]
+	highlightIdx := position - start
+	var highlightedSnippet string
+	if highlightIdx >= 0 && highlightIdx < len(snippet) {
+		highlightedSnippet = snippet[:highlightIdx] + colorRed + string(snippet[highlightIdx]) + colorReset + snippet[highlightIdx+1:]
+	} else {
+		highlightedSnippet = snippet
+	}
+	msg := fmt.Sprintf(
+		"failed to tokenize DSL at position %d, char: '%s', context: ...%s...",
+		position, string(char), highlightedSnippet,
+	)
+	err := newParserError(ErrorTypeDSLTokenize, msg, map[string]any{
 		"input":    input,
 		"position": position,
 		"char":     string(char),
+		"snippet":  highlightedSnippet,
 	})
 
 	return errors.Trace(err)
@@ -174,7 +208,11 @@ func NewDSLTokenizeError(input string, position int, char byte) error {
 
 // NewDSLUnexpectedTokenError 创建 DSL 意外 token 错误
 func NewDSLUnexpectedTokenError(expected, actual string, position int) error {
-	err := newParserError(ErrorTypeDSLUnexpectedToken, ErrorMessages[ErrorTypeDSLUnexpectedToken], map[string]any{
+	msg := fmt.Sprintf(
+		"unexpected token in DSL at %sposition %d: expected '%s', got '%s'%s",
+		colorRed, position, expected, actual, colorReset,
+	)
+	err := newParserError(ErrorTypeDSLUnexpectedToken, msg, map[string]any{
 		"expected": expected,
 		"actual":   actual,
 		"position": position,
@@ -185,7 +223,11 @@ func NewDSLUnexpectedTokenError(expected, actual string, position int) error {
 
 // NewDSLUnexpectedValueError 创建 DSL 意外值错误
 func NewDSLUnexpectedValueError(tokenValue string, position int) error {
-	err := newParserError(ErrorTypeDSLUnexpectedValue, ErrorMessages[ErrorTypeDSLUnexpectedValue], map[string]any{
+	msg := fmt.Sprintf(
+		"unexpected value token in DSL at %sposition %d: '%s'%s",
+		colorRed, position, tokenValue, colorReset,
+	)
+	err := newParserError(ErrorTypeDSLUnexpectedValue, msg, map[string]any{
 		"token":    tokenValue,
 		"position": position,
 	})
@@ -195,9 +237,31 @@ func NewDSLUnexpectedValueError(tokenValue string, position int) error {
 
 // NewDSLUnclosedStringError 创建 DSL 未闭合字符串错误
 func NewDSLUnclosedStringError(input string, position int) error {
-	err := newParserError(ErrorTypeDSLUnclosedString, ErrorMessages[ErrorTypeDSLUnclosedString], map[string]any{
+	contextLen := 20
+	start := position - contextLen
+	if start < 0 {
+		start = 0
+	}
+	end := position + contextLen
+	if end > len(input) {
+		end = len(input)
+	}
+	snippet := input[start:end]
+	highlightIdx := position - start
+	var highlightedSnippet string
+	if highlightIdx >= 0 && highlightIdx < len(snippet) {
+		highlightedSnippet = snippet[:highlightIdx] + colorRed + string(snippet[highlightIdx]) + colorReset + snippet[highlightIdx+1:]
+	} else {
+		highlightedSnippet = snippet
+	}
+	msg := fmt.Sprintf(
+		"unclosed string literal in DSL at position %d, context: ...%s...",
+		position, highlightedSnippet,
+	)
+	err := newParserError(ErrorTypeDSLUnclosedString, msg, map[string]any{
 		"input":    input,
 		"position": position,
+		"snippet":  highlightedSnippet,
 	})
 
 	return errors.Trace(err)
@@ -205,7 +269,11 @@ func NewDSLUnclosedStringError(input string, position int) error {
 
 // NewDSLInvalidNumberError 创建 DSL 无效数字错误
 func NewDSLInvalidNumberError(numberStr string, position int) error {
-	err := newParserError(ErrorTypeDSLInvalidNumber, ErrorMessages[ErrorTypeDSLInvalidNumber], map[string]any{
+	msg := fmt.Sprintf(
+		"invalid number format in DSL at %sposition %d: '%s'%s",
+		colorRed, position, numberStr, colorReset,
+	)
+	err := newParserError(ErrorTypeDSLInvalidNumber, msg, map[string]any{
 		"number":   numberStr,
 		"position": position,
 	})
@@ -217,8 +285,10 @@ func NewDSLInvalidNumberError(numberStr string, position int) error {
 
 // NewFieldUnsupportedTypeError 创建字段不支持类型错误
 func NewFieldUnsupportedTypeError(typeExpr any) error {
-	err := newParserError(ErrorTypeFieldUnsupportedType, ErrorMessages[ErrorTypeFieldUnsupportedType], map[string]any{
-		"type": fmt.Sprintf("%T", typeExpr),
+	typeStr := fmt.Sprintf("%T", typeExpr)
+	msg := fmt.Sprintf("unsupported field type: %s", typeStr)
+	err := newParserError(ErrorTypeFieldUnsupportedType, msg, map[string]any{
+		"type": typeStr,
 	})
 
 	return errors.Trace(err)
@@ -226,8 +296,10 @@ func NewFieldUnsupportedTypeError(typeExpr any) error {
 
 // NewFieldInvalidSelectorError 创建字段无效选择器错误
 func NewFieldInvalidSelectorError(selectorExpr any) error {
-	err := newParserError(ErrorTypeFieldInvalidSelector, ErrorMessages[ErrorTypeFieldInvalidSelector], map[string]any{
-		"selector": fmt.Sprintf("%T", selectorExpr),
+	selStr := fmt.Sprintf("%T", selectorExpr)
+	msg := fmt.Sprintf("invalid selector expression: %s", selStr)
+	err := newParserError(ErrorTypeFieldInvalidSelector, msg, map[string]any{
+		"selector": selStr,
 	})
 
 	return errors.Trace(err)
@@ -237,8 +309,9 @@ func NewFieldInvalidSelectorError(selectorExpr any) error {
 
 // NewDSLFieldNotFoundError 创建 DSL 字段不存在错误
 func NewDSLFieldNotFoundError(field, structName string) error {
+	msg := fmt.Sprintf("field '%s' not found in struct '%s'", field, structName)
 	err := newParserError(ErrorTypeDSLFieldNotFound,
-		fmt.Sprintf(ErrorMessages[ErrorTypeDSLFieldNotFound], field, structName),
+		msg,
 		map[string]any{"field": field, "struct": structName},
 	)
 
@@ -247,8 +320,9 @@ func NewDSLFieldNotFoundError(field, structName string) error {
 
 // NewDSLIndexFieldDuplicateError 创建索引字段重复错误
 func NewDSLIndexFieldDuplicateError(indexName, field string) error {
+	msg := fmt.Sprintf("duplicate field '%s' in index '%s'", field, indexName)
 	err := newParserError(ErrorTypeDSLIndexFieldDuplicate,
-		fmt.Sprintf(ErrorMessages[ErrorTypeDSLIndexFieldDuplicate], field, indexName),
+		msg,
 		map[string]any{"index": indexName, "field": field},
 	)
 
@@ -257,8 +331,9 @@ func NewDSLIndexFieldDuplicateError(indexName, field string) error {
 
 // NewDSLIndexDuplicateError 创建索引定义重复错误
 func NewDSLIndexDuplicateError(indexName, fields string) error {
+	msg := fmt.Sprintf("duplicate index definition: fields '%s' in index '%s'", fields, indexName)
 	err := newParserError(ErrorTypeDSLIndexDuplicate,
-		fmt.Sprintf(ErrorMessages[ErrorTypeDSLIndexDuplicate], fields, indexName),
+		msg,
 		map[string]any{"index": indexName, "fields": fields},
 	)
 
