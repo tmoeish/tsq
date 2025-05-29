@@ -11,6 +11,7 @@ Item 商品表
 		ux=[{fields=["Name"]}],
 		idx=[{name="IdxCategory", fields=["CategoryID"]}],
 		kw=["Name"]
+		ct
 	)
 */
 type Item struct {

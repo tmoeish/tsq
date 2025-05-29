@@ -74,11 +74,12 @@ var (
 
 // Init initializes the Order table in the database.
 func (o Order) Init(db *gorp.DbMap, upsertIndexies bool) error {
-	db.AddTableWithName(o, "order").SetKeys(true, "ID")
+	db.AddTableWithName(o, "order").SetKeys(true, "ID").SetVersionCol("V")
 
 	if !upsertIndexies {
 		return nil
 	}
+
 	// Upsert Idx list
 	if err := tsq.UpsertIndex(db, "order", false, "IdxItem", []string{`item_id`}); err != nil {
 		return errors.Annotatef(err, "upsert idx %s for %s", "IdxItem", o.Table())
@@ -96,6 +97,11 @@ func (o Order) Table() string { return "order" }
 // KwList returns columns that support keyword search for Order.
 func (o Order) KwList() []tsq.Column {
 	return []tsq.Column{}
+}
+
+// Active returns true if the Order record is not soft-deleted.
+func (o *Order) Active() bool {
+	return o.DT == 0
 }
 
 // =============================================================================
@@ -211,6 +217,119 @@ func ListOrderByIDInOrErr(
 }
 
 // =============================================================================
+// Query Active Records by Primary Key
+// =============================================================================
+var getActiveOrderByIDQuery = tsq.
+	Select(TableOrderCols...).
+	Where(
+		Order_DT.EQ(0),
+		Order_ID.EQVar(),
+	).
+	MustBuild()
+
+// GetActiveOrderByID retrieves an active (non-deleted) Order record by its ID.
+// Returns (nil, nil) if the record is not found or has been soft-deleted.
+func GetActiveOrderByID(
+	ctx context.Context,
+	db gorp.SqlExecutor,
+	id int64,
+) (*Order, error) {
+	row := &Order{}
+	return row, tsq.Trace(ctx, func(ctx context.Context) error {
+		err := getActiveOrderByIDQuery.Load(ctx, db, row, id)
+		switch errors.Cause(err) {
+		case nil:
+			return nil
+		case sql.ErrNoRows:
+			row = nil
+			return nil
+		default:
+			return errors.Trace(err)
+		}
+	})
+}
+
+// GetActiveOrderByIDOrErr retrieves an active (non-deleted) Order record by its ID.
+// Returns (nil, sql.ErrNoRows) if the record is not found or has been soft-deleted.
+func GetActiveOrderByIDOrErr(
+	ctx context.Context,
+	db gorp.SqlExecutor,
+	id int64,
+) (*Order, error) {
+	row := &Order{}
+	err := tsq.Trace(ctx, func(ctx context.Context) error {
+		return getActiveOrderByIDQuery.Load(ctx, db, row, id)
+	})
+	return row, errors.Trace(err)
+}
+
+// ListActiveOrderByIDIn retrieves multiple active (non-deleted) Order records by a set of ID values.
+// Records not found or soft-deleted are silently ignored.
+func ListActiveOrderByIDIn(
+	ctx context.Context,
+	db gorp.SqlExecutor,
+	ids ...int64,
+) ([]*Order, error) {
+	query := tsq.
+		Select(TableOrderCols...).
+		Where(
+			Order_DT.EQ(0),
+			Order_ID.In(ids...),
+		).
+		MustBuild()
+	var list []*Order
+	err := tsq.Trace(ctx, func(ctx context.Context) error {
+		var err error
+		list, err = tsq.List[Order](ctx, db, query)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		return nil
+	})
+	return list, errors.Trace(err)
+}
+
+// ListActiveOrderByIDInOrErr retrieves multiple active (non-deleted) Order records by a set of ID values.
+// Returns an error if any of the specified active records are not found.
+func ListActiveOrderByIDInOrErr(
+	ctx context.Context,
+	db gorp.SqlExecutor,
+	ids ...int64,
+) ([]*Order, error) {
+	idSet := map[int64]bool{}
+	for _, i := range ids {
+		idSet[i] = true
+	}
+	query := tsq.
+		Select(TableOrderCols...).
+		Where(
+			Order_DT.EQ(0),
+			Order_ID.In(ids...),
+		).
+		MustBuild()
+
+	var list []*Order
+	return list, tsq.Trace(ctx, func(ctx context.Context) error {
+		var err error
+		list, err = tsq.List[Order](ctx, db, query)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		for _, i := range list {
+			delete(idSet, i.ID)
+		}
+		if len(idSet) > 0 {
+			var missings []int64
+			for i := range idSet {
+				missings = append(missings, i)
+			}
+			return errors.Errorf("Order(s) not found: %v", missings)
+		}
+		return nil
+	})
+}
+
+// =============================================================================
 // CRUD Operations
 // =============================================================================
 
@@ -222,6 +341,7 @@ func (o *Order) Insert(
 ) error {
 	return tsq.Trace(ctx, func(ctx context.Context) error {
 		o.CT = time.Now()
+		o.ModifiedTime = null.TimeFrom(time.Now())
 		err := db.Insert(o)
 		if err != nil {
 			return errors.Annotate(err, tsq.PrettyJSON(o))
@@ -238,6 +358,7 @@ func (o *Order) Update(
 	db gorp.SqlExecutor,
 ) error {
 	return tsq.Trace(ctx, func(ctx context.Context) error {
+		o.ModifiedTime = null.TimeFrom(time.Now())
 		_, err := db.Update(o)
 		if err != nil {
 			return errors.Annotate(err, tsq.PrettyJSON(o))
@@ -254,6 +375,29 @@ func (o *Order) Delete(
 ) error {
 	return tsq.Trace(ctx, func(ctx context.Context) error {
 		_, err := db.Delete(o)
+		if err != nil {
+			return errors.Annotate(err, tsq.PrettyJSON(o))
+		}
+
+		return nil
+	})
+}
+
+// SoftDelete marks a Order record as deleted without removing it from the database.
+// If dt > 0, uses the provided timestamp; otherwise uses the current time.
+func (o *Order) SoftDelete(
+	ctx context.Context,
+	db gorp.SqlExecutor,
+	dt int64,
+) error {
+	return tsq.Trace(ctx, func(ctx context.Context) error {
+		if dt > 0 {
+			o.DT = dt
+		} else {
+			o.DT = time.Now().UnixNano()
+		}
+		o.ModifiedTime = null.TimeFrom(time.Now())
+		_, err := db.Update(o)
 		if err != nil {
 			return errors.Annotate(err, tsq.PrettyJSON(o))
 		}
@@ -353,7 +497,68 @@ func PageOrder(
 }
 
 // =============================================================================
+// List Active Records
+// =============================================================================
+// listActiveOrderQuery is the base query for retrieving active (non-deleted) Order records.
+var listActiveOrderQuery = tsq.
+	Select(TableOrderCols...).
+	Where(Order_DT.EQ(0)).
+	KwSearch(TableOrder.KwList()...).
+	MustBuild()
+
+// CountActiveOrder returns the count of active (non-deleted) Order records.
+func CountActiveOrder(
+	ctx context.Context,
+	tx gorp.SqlExecutor,
+) (int, error) {
+	query := listActiveOrderQuery
+
+	var rs int
+	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
+		var err error
+		rs, err = query.Count(ctx, tx)
+		return errors.Trace(err)
+	})
+}
+
+// ListActiveOrder retrieves all active (non-deleted) Order records.
+func ListActiveOrder(
+	ctx context.Context,
+	tx gorp.SqlExecutor,
+) ([]*Order, error) {
+	query := listActiveOrderQuery
+
+	var data []*Order
+	return data, tsq.Trace(ctx, func(ctx context.Context) error {
+		var err error
+		data, err = tsq.List[Order](ctx, tx, query)
+		return errors.Trace(err)
+	})
+}
+
+// PageActiveOrder retrieves active (non-deleted) Order records with pagination support.
+func PageActiveOrder(
+	ctx context.Context,
+	tx gorp.SqlExecutor,
+	page *tsq.PageReq,
+) (*tsq.PageResp[Order], error) {
+	query := listActiveOrderQuery
+
+	var rs *tsq.PageResp[Order]
+	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
+		var err error
+		rs, err = tsq.Page[Order](
+			ctx, tx, page, query,
+		)
+		return errors.Trace(err)
+	})
+}
+
+// =============================================================================
 // Query by Unique Indexes
+// =============================================================================
+// =============================================================================
+// Query Active Records by Unique Indexes
 // =============================================================================
 // =============================================================================
 // Query by Indexes
@@ -610,6 +815,279 @@ func ListOrderByUserIDIn(
 	query := tsq.
 		Select(TableOrderCols...).
 		Where(
+			Order_UserID.In(userIDs...),
+		).
+		MustBuild()
+	var list []*Order
+	err := tsq.Trace(ctx, func(ctx context.Context) error {
+		var err error
+		list, err = tsq.List[Order](ctx, db, query)
+		return errors.Trace(err)
+	})
+	return list, errors.Trace(err)
+}
+
+// =============================================================================
+// Query Active Records by Indexes
+// =============================================================================
+// listActiveOrderByItemIDQuery queries active (non-deleted) Order records by index ItemID.
+var listActiveOrderByItemIDQuery = tsq.
+	Select(TableOrderCols...).
+	Where(
+		Order_DT.EQ(0),
+		Order_ItemID.EQVar(),
+	).
+	KwSearch(TableOrder.KwList()...).
+	MustBuild()
+
+// CountActiveOrderByItemID returns the count of active (non-deleted) Order records matching index ItemID.
+func CountActiveOrderByItemID(
+	ctx context.Context,
+	db gorp.SqlExecutor,
+	itemID int64,
+) (int, error) {
+	query := listActiveOrderByItemIDQuery
+
+	var rs int
+	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
+		var err error
+		rs, err = query.Count(ctx, db,
+			itemID,
+		)
+		return errors.Trace(err)
+	})
+}
+
+// ListActiveOrderByItemID retrieves active (non-deleted) Order records by index ItemID.
+func ListActiveOrderByItemID(
+	ctx context.Context,
+	db gorp.SqlExecutor,
+	itemID int64,
+) ([]*Order, error) {
+	query := listActiveOrderByItemIDQuery
+
+	var data []*Order
+	return data, tsq.Trace(ctx, func(ctx context.Context) error {
+		var err error
+		data, err = tsq.List[Order](ctx, db, query,
+			itemID,
+		)
+		return errors.Trace(err)
+	})
+}
+
+// PageActiveOrderByItemID retrieves active (non-deleted) Order records by index ItemID with pagination support.
+func PageActiveOrderByItemID(
+	ctx context.Context,
+	db gorp.SqlExecutor,
+	page *tsq.PageReq,
+	itemID int64,
+) (*tsq.PageResp[Order], error) {
+	query := listActiveOrderByItemIDQuery
+
+	var rs *tsq.PageResp[Order]
+	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
+		var err error
+		rs, err = tsq.Page[Order](ctx, db, page, query,
+			itemID,
+		)
+		return errors.Trace(err)
+	})
+}
+
+// ListActiveOrderByItemIDIn retrieves active (non-deleted) Order records by index ItemIDIn using IN clause for batch querying.
+func ListActiveOrderByItemIDIn(
+	ctx context.Context,
+	db gorp.SqlExecutor,
+	itemIDs ...int64,
+) ([]*Order, error) {
+	query := tsq.
+		Select(TableOrderCols...).
+		Where(
+			Order_DT.EQ(0),
+			Order_ItemID.In(itemIDs...),
+		).
+		MustBuild()
+	var list []*Order
+	err := tsq.Trace(ctx, func(ctx context.Context) error {
+		var err error
+		list, err = tsq.List[Order](ctx, db, query)
+		return errors.Trace(err)
+	})
+	return list, errors.Trace(err)
+}
+
+// listActiveOrderByUserIDQuery queries active (non-deleted) Order records by index UserID.
+var listActiveOrderByUserIDQuery = tsq.
+	Select(TableOrderCols...).
+	Where(
+		Order_DT.EQ(0),
+		Order_UserID.EQVar(),
+	).
+	KwSearch(TableOrder.KwList()...).
+	MustBuild()
+
+// CountActiveOrderByUserID returns the count of active (non-deleted) Order records matching index UserID.
+func CountActiveOrderByUserID(
+	ctx context.Context,
+	db gorp.SqlExecutor,
+	userID int64,
+) (int, error) {
+	query := listActiveOrderByUserIDQuery
+
+	var rs int
+	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
+		var err error
+		rs, err = query.Count(ctx, db,
+			userID,
+		)
+		return errors.Trace(err)
+	})
+}
+
+// ListActiveOrderByUserID retrieves active (non-deleted) Order records by index UserID.
+func ListActiveOrderByUserID(
+	ctx context.Context,
+	db gorp.SqlExecutor,
+	userID int64,
+) ([]*Order, error) {
+	query := listActiveOrderByUserIDQuery
+
+	var data []*Order
+	return data, tsq.Trace(ctx, func(ctx context.Context) error {
+		var err error
+		data, err = tsq.List[Order](ctx, db, query,
+			userID,
+		)
+		return errors.Trace(err)
+	})
+}
+
+// PageActiveOrderByUserID retrieves active (non-deleted) Order records by index UserID with pagination support.
+func PageActiveOrderByUserID(
+	ctx context.Context,
+	db gorp.SqlExecutor,
+	page *tsq.PageReq,
+	userID int64,
+) (*tsq.PageResp[Order], error) {
+	query := listActiveOrderByUserIDQuery
+
+	var rs *tsq.PageResp[Order]
+	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
+		var err error
+		rs, err = tsq.Page[Order](ctx, db, page, query,
+			userID,
+		)
+		return errors.Trace(err)
+	})
+}
+
+// listActiveOrderByUserIDAndItemIDQuery queries active (non-deleted) Order records by index UserIDAndItemID.
+var listActiveOrderByUserIDAndItemIDQuery = tsq.
+	Select(TableOrderCols...).
+	Where(
+		Order_DT.EQ(0),
+		Order_UserID.EQVar(),
+		Order_ItemID.EQVar(),
+	).
+	KwSearch(TableOrder.KwList()...).
+	MustBuild()
+
+// CountActiveOrderByUserIDAndItemID returns the count of active (non-deleted) Order records matching index UserIDAndItemID.
+func CountActiveOrderByUserIDAndItemID(
+	ctx context.Context,
+	db gorp.SqlExecutor,
+	userID int64,
+	itemID int64,
+) (int, error) {
+	query := listActiveOrderByUserIDAndItemIDQuery
+
+	var rs int
+	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
+		var err error
+		rs, err = query.Count(ctx, db,
+			userID,
+			itemID,
+		)
+		return errors.Trace(err)
+	})
+}
+
+// ListActiveOrderByUserIDAndItemID retrieves active (non-deleted) Order records by index UserIDAndItemID.
+func ListActiveOrderByUserIDAndItemID(
+	ctx context.Context,
+	db gorp.SqlExecutor,
+	userID int64,
+	itemID int64,
+) ([]*Order, error) {
+	query := listActiveOrderByUserIDAndItemIDQuery
+
+	var data []*Order
+	return data, tsq.Trace(ctx, func(ctx context.Context) error {
+		var err error
+		data, err = tsq.List[Order](ctx, db, query,
+			userID,
+			itemID,
+		)
+		return errors.Trace(err)
+	})
+}
+
+// PageActiveOrderByUserIDAndItemID retrieves active (non-deleted) Order records by index UserIDAndItemID with pagination support.
+func PageActiveOrderByUserIDAndItemID(
+	ctx context.Context,
+	db gorp.SqlExecutor,
+	page *tsq.PageReq,
+	userID int64,
+	itemID int64,
+) (*tsq.PageResp[Order], error) {
+	query := listActiveOrderByUserIDAndItemIDQuery
+
+	var rs *tsq.PageResp[Order]
+	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
+		var err error
+		rs, err = tsq.Page[Order](ctx, db, page, query,
+			userID,
+			itemID,
+		)
+		return errors.Trace(err)
+	})
+}
+
+// ListActiveOrderByUserIDAndItemIDIn retrieves active (non-deleted) Order records by index UserIDAndItemIDIn using IN clause for batch querying.
+func ListActiveOrderByUserIDAndItemIDIn(
+	ctx context.Context,
+	db gorp.SqlExecutor,
+	userID int64,
+	itemIDs ...int64,
+) ([]*Order, error) {
+	query := tsq.
+		Select(TableOrderCols...).
+		Where(
+			Order_DT.EQ(0),
+			Order_UserID.EQ(userID),
+			Order_ItemID.In(itemIDs...),
+		).
+		MustBuild()
+	var list []*Order
+	err := tsq.Trace(ctx, func(ctx context.Context) error {
+		var err error
+		list, err = tsq.List[Order](ctx, db, query)
+		return errors.Trace(err)
+	})
+	return list, errors.Trace(err)
+}
+
+// ListActiveOrderByUserIDIn retrieves active (non-deleted) Order records by index UserIDIn using IN clause for batch querying.
+func ListActiveOrderByUserIDIn(
+	ctx context.Context,
+	db gorp.SqlExecutor,
+	userIDs ...int64,
+) ([]*Order, error) {
+	query := tsq.
+		Select(TableOrderCols...).
+		Where(
+			Order_DT.EQ(0),
 			Order_UserID.In(userIDs...),
 		).
 		MustBuild()

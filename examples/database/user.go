@@ -7,6 +7,7 @@ import "github.com/tmoeish/tsq/examples/common"
 //
 //	ux=[{name="ux_name", fields=["Name"]}],
 //	kw=["Name","Email"]
+//	ct
 //
 // )
 type User struct {

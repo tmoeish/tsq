@@ -4,6 +4,7 @@ package database
 import (
 	"context"
 	"database/sql"
+	"time"
 
 	"github.com/juju/errors"
 	"github.com/tmoeish/tsq"
@@ -50,6 +51,7 @@ func (o Org) Init(db *gorp.DbMap, upsertIndexies bool) error {
 	if !upsertIndexies {
 		return nil
 	}
+
 	// Upsert Ux list
 	if err := tsq.UpsertIndex(db, "org", true, "UxName", []string{`name`}); err != nil {
 		return errors.Annotatef(err, "upsert ux %s for %s", "UxName", o.Table())
@@ -189,6 +191,7 @@ func (o *Org) Insert(
 	db gorp.SqlExecutor,
 ) error {
 	return tsq.Trace(ctx, func(ctx context.Context) error {
+		o.CT = null.TimeFrom(time.Now())
 		err := db.Insert(o)
 		if err != nil {
 			return errors.Annotate(err, tsq.PrettyJSON(o))

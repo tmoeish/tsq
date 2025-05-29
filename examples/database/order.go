@@ -9,7 +9,7 @@ import (
 // 订单表
 // @TABLE(
 //   idx=[{name="IdxUserItem", fields=["UserID","ItemID"]}, {name="IdxItem", fields=["ItemID"]}],
-//   ct
+//   ct,mt="ModifiedTime",dt,v
 // )
 
 type Order struct {

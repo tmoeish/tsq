@@ -74,13 +74,13 @@ var (
 
 // Init initializes the {{$type}} table in the database.
 func ({{$dot.Recv}} {{$type}}) Init(db *gorp.DbMap, upsertIndexies bool) error {
-	db.AddTableWithName({{$dot.Recv}}, "{{ $dot.Table }}").SetKeys({{ if $dot.AI }}true{{ else }}false{{ end }}, "{{ $dot.ID }}") {{ if $dot.V }} tm.SetVersionCol("{{ $dot.V }}") {{ end }}
+	db.AddTableWithName({{$dot.Recv}}, "{{ $dot.Table }}").SetKeys({{ if $dot.AI }}true{{ else }}false{{ end }}, "{{ $dot.ID }}"){{ if $dot.V }}.SetVersionCol("{{ $dot.V }}") {{ end }}
 
 	if !upsertIndexies {
 		return nil
 	}
 
-{{- if $dot.UxList }}
+{{if $dot.UxList }}
 	// Upsert Ux list
 	{{- range $name, $idx := $dot.UxList }}
 	if err := tsq.UpsertIndex(db, "{{ $dot.Table }}", true, "{{$idx.Name}}", {{ (FiledsToColsGoSlice $dot $idx.Fields) }}); err != nil {
