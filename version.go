@@ -10,19 +10,19 @@ import (
 // ================================================
 
 // Version 是构建时通过 ldflags 注入的版本信息
-// 使用方式: go build -ldflags "-X github.com/tmoeish/tsq/pkg/tsq.Version=v1.0.0"
+// 使用方式: go build -ldflags "-X github.com/tmoeish/tsq.Version=v1.0.0"
 var Version = "dev"
 
 // BuildTime 是构建时通过 ldflags 注入的构建时间
-// 使用方式: go build -ldflags "-X github.com/tmoeish/tsq/pkg/tsq.BuildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+// 使用方式: go build -ldflags "-X github.com/tmoeish/tsq.BuildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 var BuildTime = "unknown"
 
 // GitCommit 是构建时通过 ldflags 注入的 Git 提交哈希
-// 使用方式: go build -ldflags "-X github.com/tmoeish/tsq/pkg/tsq.GitCommit=$(git rev-parse HEAD)"
+// 使用方式: go build -ldflags "-X github.com/tmoeish/tsq.GitCommit=$(git rev-parse HEAD)"
 var GitCommit = "unknown"
 
 // GitBranch 是构建时通过 ldflags 注入的 Git 分支名
-// 使用方式: go build -ldflags "-X github.com/tmoeish/tsq/pkg/tsq.GitBranch=$(git rev-parse --abbrev-ref HEAD)"
+// 使用方式: go build -ldflags "-X github.com/tmoeish/tsq.GitBranch=$(git rev-parse --abbrev-ref HEAD)"
 var GitBranch = "unknown"
 
 // ================================================
