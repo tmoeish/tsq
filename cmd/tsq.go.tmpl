@@ -83,7 +83,7 @@ func ({{$dot.Recv}} {{$type}}) Init(db *gorp.DbMap, upsertIndexies bool) error {
 {{if $dot.UxList }}
 	// Upsert Ux list
 	{{- range $name, $idx := $dot.UxList }}
-	if err := tsq.UpsertIndex(db, "{{ $dot.Table }}", true, "{{$idx.Name}}", {{ (FiledsToColsGoSlice $dot $idx.Fields) }}); err != nil {
+	if err := tsq.UpsertIndex(db, "{{ $dot.Table }}", true, "{{$idx.Name}}", []string{{"{"}}{{if $dot.DT}}`{{$dot.DT}}`,{{end}}{{ (FiledsToCols $dot $idx.Fields) }}{{"}"}}); err != nil {
 		return errors.Annotatef(err, "upsert ux %s for %s", "{{$idx.Name}}", {{ $.Recv }}.Table())
 	}
 	{{- end }}
@@ -92,7 +92,7 @@ func ({{$dot.Recv}} {{$type}}) Init(db *gorp.DbMap, upsertIndexies bool) error {
 {{- if $dot.IdxList }}
 	// Upsert Idx list
 	{{- range $name, $idx := $dot.IdxList }}
-	if err := tsq.UpsertIndex(db, "{{ $dot.Table }}", false, "{{$idx.Name}}", {{ (FiledsToColsGoSlice $dot $idx.Fields) }}); err != nil {
+	if err := tsq.UpsertIndex(db, "{{ $dot.Table }}", false, "{{$idx.Name}}", []string{{"{"}}{{if $dot.DT}}`{{$dot.DT}}`,{{end}}{{ (FiledsToCols $dot $idx.Fields) }}{{"}"}}); err != nil {
 		return errors.Annotatef(err, "upsert idx %s for %s", "{{$idx.Name}}", {{ $.Recv }}.Table())
 	}
 	{{- end }}

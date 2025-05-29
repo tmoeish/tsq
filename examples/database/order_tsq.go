@@ -81,10 +81,10 @@ func (o Order) Init(db *gorp.DbMap, upsertIndexies bool) error {
 	}
 
 	// Upsert Idx list
-	if err := tsq.UpsertIndex(db, "order", false, "IdxItem", []string{`item_id`}); err != nil {
+	if err := tsq.UpsertIndex(db, "order", false, "IdxItem", []string{`DT`, `item_id`}); err != nil {
 		return errors.Annotatef(err, "upsert idx %s for %s", "IdxItem", o.Table())
 	}
-	if err := tsq.UpsertIndex(db, "order", false, "IdxUserItem", []string{`user_id`, `item_id`}); err != nil {
+	if err := tsq.UpsertIndex(db, "order", false, "IdxUserItem", []string{`DT`, `user_id`, `item_id`}); err != nil {
 		return errors.Annotatef(err, "upsert idx %s for %s", "IdxUserItem", o.Table())
 	}
 

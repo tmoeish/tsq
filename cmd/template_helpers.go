@@ -12,18 +12,18 @@ import (
 // TemplateFuncs 返回模板中可用的函数映射
 func TemplateFuncs() template.FuncMap {
 	return template.FuncMap{
-		"ToUpper":             strings.ToUpper,
-		"ToLower":             strings.ToLower,
-		"UpperInitial":        upperInitial,
-		"LowerInitial":        lowerInitial,
-		"CamelToSnake":        snaker.CamelToSnake,
-		"FieldType":           fieldType,
-		"PointerType":         pointerType,
-		"ListType":            listType,
-		"PageRespType":        pageRespType,
-		"JoinAnd":             joinAnd,
-		"Sub1":                sub1,
-		"FiledsToColsGoSlice": FiledsToColsGoSlice,
+		"ToUpper":      strings.ToUpper,
+		"ToLower":      strings.ToLower,
+		"UpperInitial": upperInitial,
+		"LowerInitial": lowerInitial,
+		"CamelToSnake": snaker.CamelToSnake,
+		"FieldType":    fieldType,
+		"PointerType":  pointerType,
+		"ListType":     listType,
+		"PageRespType": pageRespType,
+		"JoinAnd":      joinAnd,
+		"Sub1":         sub1,
+		"FiledsToCols": FiledsToCols,
 	}
 }
 
@@ -96,11 +96,11 @@ func sub1(n int) int {
 	return n - 1
 }
 
-func FiledsToColsGoSlice(data *tsq.StructInfo, fields []string) string {
+func FiledsToCols(data *tsq.StructInfo, fields []string) string {
 	cols := make([]string, len(fields))
 	for i, field := range fields {
 		cols[i] = fmt.Sprintf("`%s`", data.FieldMap[field].Column)
 	}
 
-	return fmt.Sprintf("[]string{%s}", strings.Join(cols, ", "))
+	return fmt.Sprintf("%s", strings.Join(cols, ", "))
 }
