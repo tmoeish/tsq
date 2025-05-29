@@ -8,7 +8,7 @@ import (
 	"gopkg.in/gorp.v2"
 )
 
-// UserOrder 用于用户和订单联合查询
+// UserOrder 用于用户和订单联合查询(aaa)
 // @DTO
 type UserOrder struct {
 	UserID    int64  `json:"user_id"    tsq:"User.ID"`    // 用户ID

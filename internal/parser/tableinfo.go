@@ -72,6 +72,33 @@ func CleanBlockComment(text string) string {
 	return text
 }
 
+// extractDSLContent 提取 @TABLE/@DTO 后第一个括号内的内容，支持前置括号
+func extractDSLContent(text, keyword string) (string, error) {
+	idx := strings.Index(text, keyword)
+	if idx == -1 {
+		return "", nil
+	}
+	// 从 keyword 后找第一个 '('
+	start := strings.Index(text[idx:], "(")
+	if start == -1 {
+		return "", nil
+	}
+	start += idx // 绝对位置
+
+	count := 0
+	for i := start; i < len(text); i++ {
+		if text[i] == '(' {
+			count++
+		} else if text[i] == ')' {
+			count--
+			if count == 0 {
+				return text[start+1 : i], nil
+			}
+		}
+	}
+	return "", nil
+}
+
 // parseDSL 解析所有注释中的注解（@TABLE/@DTO），直接填充 info
 func parseDSL(
 	structName string,
@@ -106,15 +133,10 @@ func parseTableDSL(
 ) (*tsq.TableInfo, error) {
 	// 去除注释前缀
 	text = CleanBlockComment(text)
-	// 提取括号内内容
-	start := strings.Index(text, "(")
-	end := strings.LastIndex(text, ")")
-
-	if start == -1 || end == -1 || end <= start {
+	content, err := extractDSLContent(text, "@TABLE")
+	if err != nil || content == "" {
 		return nil, nil
 	}
-
-	content := text[start+1 : end]
 	content = strings.ReplaceAll(content, "\n", " ")
 	content = strings.ReplaceAll(content, "\r", " ")
 	content = strings.TrimSpace(content)
@@ -140,15 +162,10 @@ func parseDTODSL(
 ) (*tsq.TableInfo, error) {
 	// 去除注释前缀
 	text = CleanBlockComment(text)
-	// 提取括号内内容
-	start := strings.Index(text, "(")
-	end := strings.LastIndex(text, ")")
-
-	if start == -1 || end == -1 || end <= start {
+	content, err := extractDSLContent(text, "@DTO")
+	if err != nil || content == "" {
 		return &tsq.TableInfo{}, nil
 	}
-
-	content := text[start+1 : end]
 	content = strings.ReplaceAll(content, "\n", " ")
 	content = strings.ReplaceAll(content, "\r", " ")
 	content = strings.TrimSpace(content)
