@@ -8,8 +8,9 @@ import (
 	"slices"
 	"strings"
 
+	"log/slog"
+
 	"github.com/juju/errors"
-	"github.com/sirupsen/logrus"
 	"gopkg.in/gorp.v2"
 )
 
@@ -98,7 +99,7 @@ func (q *Query) KwListSQL() string {
 func (qb *QueryBuilder) MustBuild() *Query {
 	q, err := qb.Build()
 	if err != nil {
-		logrus.WithField("module", "main").Fatal(errors.ErrorStack(err))
+		panic(errors.ErrorStack(err))
 	}
 
 	return q
@@ -159,7 +160,7 @@ func (q *Query) queryIntFn(
 	tx gorp.SqlExecutor,
 	args ...any,
 ) (int64, error) {
-	logrus.Tracef("QueryInt:\n%s\n%v", q.listSQL, args)
+	slog.Debug("QueryInt", "sql", q.listSQL, "args", args)
 
 	result, err := tx.WithContext(ctx).SelectInt(q.listSQL, args...)
 	if err != nil {
@@ -185,7 +186,7 @@ func (q *Query) queryFloatFn(
 	tx gorp.SqlExecutor,
 	args ...any,
 ) (float64, error) {
-	logrus.Tracef("QueryFloat:\n%s\n%v", q.listSQL, args)
+	slog.Debug("QueryFloat", "sql", q.listSQL, "args", args)
 
 	result, err := tx.WithContext(ctx).SelectFloat(q.listSQL, args...)
 	if err != nil {
@@ -211,7 +212,7 @@ func (q *Query) queryStrFn(
 	tx gorp.SqlExecutor,
 	args ...any,
 ) (string, error) {
-	logrus.Tracef("QueryStr:\n%s\n%v", q.listSQL, args)
+	slog.Debug("QueryStr", "sql", q.listSQL, "args", args)
 
 	result, err := tx.WithContext(ctx).SelectStr(q.listSQL, args...)
 	if err != nil {
@@ -237,7 +238,7 @@ func (q *Query) countFn(
 	tx gorp.SqlExecutor,
 	args ...any,
 ) (int, error) {
-	logrus.Tracef("Count:\n%s\n%v", q.cntSQL, args)
+	slog.Debug("Count", "sql", q.cntSQL, "args", args)
 
 	count, err := tx.WithContext(ctx).SelectInt(q.cntSQL, args...)
 	if err != nil {
@@ -263,7 +264,7 @@ func (q *Query) existsFn(
 	tx gorp.SqlExecutor,
 	args ...any,
 ) (bool, error) {
-	logrus.Tracef("Exists:\n%s\n%v", q.cntSQL, args)
+	slog.Debug("Exists", "sql", q.cntSQL, "args", args)
 
 	count, err := tx.WithContext(ctx).SelectInt(q.cntSQL, args...)
 	if err != nil {
@@ -316,7 +317,7 @@ func pageFn[T any](
 	argsWithLimit := append(finalArgs, page.Size, page.Offset())
 
 	// Execute count query
-	logrus.Tracef("Count SQL: %s, args: %v", cntSQL, finalArgs)
+	slog.Debug("Count SQL", "sql", cntSQL, "args", finalArgs)
 
 	count, err := tx.WithContext(ctx).SelectInt(cntSQL, finalArgs...)
 	if err != nil {
@@ -324,7 +325,7 @@ func pageFn[T any](
 	}
 
 	// Execute list query
-	logrus.Tracef("List SQL: %s, args: %v", listSQL, argsWithLimit)
+	slog.Debug("List SQL", "sql", listSQL, "args", argsWithLimit)
 
 	rows, err := tx.WithContext(ctx).Query(listSQL, argsWithLimit...)
 	if err != nil {
@@ -333,7 +334,7 @@ func pageFn[T any](
 
 	defer func() {
 		if closeErr := rows.Close(); closeErr != nil {
-			logrus.WithError(closeErr).Warn("Failed to close rows")
+			slog.Warn("Failed to close rows", "error", closeErr)
 		}
 	}()
 
@@ -379,7 +380,7 @@ func listFn[T any](
 	qb *Query,
 	args ...any,
 ) ([]*T, error) {
-	logrus.Tracef("List:\n%s\n%v", qb.listSQL, args)
+	slog.Debug("List", "sql", qb.listSQL, "args", args)
 
 	rows, err := tx.WithContext(ctx).Query(qb.listSQL, args...)
 	if err != nil {
@@ -431,7 +432,7 @@ func getOrErrFn[T any](
 	qb *Query,
 	args ...any,
 ) (*T, error) {
-	logrus.Tracef("GetOrErr:\n%s\n%v", qb.listSQL, args)
+	slog.Debug("GetOrErr", "sql", qb.listSQL, "args", args)
 
 	row := tx.WithContext(ctx).QueryRow(qb.listSQL, args...)
 	if err := row.Err(); err != nil {
@@ -473,7 +474,7 @@ func (qb *Query) loadFn(
 	holder any,
 	args ...any,
 ) error {
-	logrus.Tracef("Load:\n%s\n%v", qb.listSQL, args)
+	slog.Debug("Load", "sql", qb.listSQL, "args", args)
 
 	row := tx.WithContext(ctx).QueryRow(qb.listSQL, args...)
 	if err := row.Err(); err != nil {
@@ -641,7 +642,7 @@ func batchInsertChunk[T Table](
 			// 忽略错误模式：尝试插入，如果失败则跳过
 			if err = tx.WithContext(ctx).Insert(item); err != nil {
 				if isDuplicateKeyError(err) {
-					logrus.Tracef("Ignored duplicate key error in batch insert: %v", err)
+					slog.Debug("Ignored duplicate key error in batch insert", "error", err)
 					continue
 				}
 
@@ -846,7 +847,7 @@ func batchDeleteByIDsChunk(
 		tableName, idColumn, strings.Join(placeholders, ","),
 	)
 
-	logrus.Tracef("BatchDeleteByIDs SQL: %s, args: %v", sql, ids)
+	slog.Debug("BatchDeleteByIDs SQL", "sql", sql, "args", ids)
 
 	_, err := tx.WithContext(ctx).Exec(sql, ids...)
 	if err != nil {

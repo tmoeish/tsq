@@ -7,9 +7,10 @@ import (
 	"sort"
 	"strings"
 
+	"log/slog"
+
 	"github.com/juju/errors"
 	"github.com/serenize/snaker"
-	"github.com/sirupsen/logrus"
 	"github.com/tmoeish/tsq"
 )
 
@@ -36,7 +37,7 @@ func parseStructDeclaration(
 		TypeName: structName,
 	}
 
-	logrus.Debugf("parsing struct: %s", typeInfo)
+	slog.Debug("parsing struct", "typeInfo", typeInfo)
 
 	// 解析嵌入字段
 	embeddedTypes, err := parseEmbeddedFields(packageAliases, currentPkg, structType)

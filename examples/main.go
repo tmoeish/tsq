@@ -9,17 +9,16 @@ import (
 	"strings"
 	"time"
 
+	"log/slog"
+
 	"github.com/juju/errors"
 	_ "github.com/mattn/go-sqlite3"
-	"github.com/sirupsen/logrus"
 	"github.com/tmoeish/tsq"
 	"github.com/tmoeish/tsq/examples/database"
 	"gopkg.in/gorp.v2"
 )
 
 func main() {
-	logrus.SetLevel(logrus.TraceLevel)
-
 	// 1. 连接 SQLite 内存数据库
 	db, err := sql.Open("sqlite3", ":memory:")
 	if err != nil {
@@ -82,11 +81,11 @@ func main() {
 
 func TraceDB(next tsq.Fn) tsq.Fn {
 	return func(ctx context.Context) error {
-		logrus.Info("TraceDB start")
+		slog.Info("TraceDB start")
 		start := time.Now()
 		err := next(ctx)
 		elapsed := time.Since(start)
-		logrus.Infof("TraceDB end, err: %v, elapsed: %s", err, elapsed)
+		slog.Info("TraceDB end", "err", err, "elapsed", elapsed)
 
 		return err
 	}
@@ -94,11 +93,11 @@ func TraceDB(next tsq.Fn) tsq.Fn {
 
 func TraceDB1(next tsq.Fn) tsq.Fn {
 	return func(ctx context.Context) error {
-		logrus.Info("TraceDB1 start")
+		slog.Info("TraceDB1 start")
 		start := time.Now()
 		err := next(ctx)
 		elapsed := time.Since(start)
-		logrus.Infof("TraceDB1 end, err: %v, elapsed: %s", err, elapsed)
+		slog.Info("TraceDB1 end", "err", err, "elapsed", elapsed)
 
 		return err
 	}
@@ -106,29 +105,29 @@ func TraceDB1(next tsq.Fn) tsq.Fn {
 
 // runBatchInsertDemo 运行批量插入演示
 func runBatchInsertDemo(ctx context.Context, dbmap *gorp.DbMap) {
-	logrus.Info("=== 批量插入功能演示 ===")
+	slog.Info("=== 批量插入功能演示 ===")
 
 	// 演示1：基本批量插入
-	logrus.Info("1. 基本批量插入用户数据")
+	slog.Info("1. 基本批量插入用户数据")
 	users := createTestUsers(100)
 
 	err := tsq.BatchInsert(ctx, dbmap, users)
 	if err != nil {
-		logrus.Error("批量插入用户失败:", err)
+		slog.Error("批量插入用户失败", "err", err)
 		return
 	}
-	logrus.Infof("成功插入 %d 个用户", len(users))
+	slog.Info("成功插入用户", "count", len(users))
 
 	// 验证插入结果
 	count, err := dbmap.SelectInt("SELECT COUNT(*) FROM user")
 	if err != nil {
-		logrus.Error("查询用户数量失败:", err)
+		slog.Error("查询用户数量失败", "err", err)
 		return
 	}
-	logrus.Infof("数据库中用户总数: %d", count)
+	slog.Info("数据库中用户总数", "count", count)
 
 	// 演示2：带选项的批量插入（忽略重复）
-	logrus.Info("2. 带选项的批量插入（忽略重复）")
+	slog.Info("2. 带选项的批量插入（忽略重复）")
 	duplicateUsers := createTestUsers(50) // 创建一些重复的用户
 
 	options := &tsq.BatchInsertOptions{
@@ -138,20 +137,20 @@ func runBatchInsertDemo(ctx context.Context, dbmap *gorp.DbMap) {
 
 	err = tsq.BatchInsert(ctx, dbmap, duplicateUsers, options)
 	if err != nil {
-		logrus.Error("批量插入重复用户失败:", err)
+		slog.Error("批量插入重复用户失败", "err", err)
 		return
 	}
-	logrus.Infof("尝试插入 %d 个用户（包含重复）", len(duplicateUsers))
+	slog.Info("尝试插入用户", "count", len(duplicateUsers))
 
 	// 验证插入结果
 	count, err = dbmap.SelectInt("SELECT COUNT(*) FROM user")
 	if err != nil {
-		logrus.Error("查询用户数量失败:", err)
+		slog.Error("查询用户数量失败", "err", err)
 		return
 	}
-	logrus.Infof("数据库中用户总数: %d（重复的被忽略）", count)
+	slog.Info("数据库中用户总数", "count", count)
 
-	logrus.Info("=== 批量插入演示完成 ===")
+	slog.Info("=== 批量插入演示完成 ===")
 }
 
 // createTestUsers 创建测试用户数据

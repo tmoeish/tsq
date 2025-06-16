@@ -10,8 +10,9 @@ import (
 	"reflect"
 	"strings"
 
+	"log/slog"
+
 	"github.com/juju/errors"
-	"github.com/sirupsen/logrus"
 	"github.com/tmoeish/tsq"
 )
 
@@ -178,7 +179,7 @@ func (ps *ParseState) processFileComments(
 				return err
 			}
 		default:
-			logrus.Debugln("skip node type", reflect.TypeOf(node))
+			slog.Debug("skip node type", "type", reflect.TypeOf(node))
 		}
 	}
 
@@ -296,7 +297,7 @@ func (ps *ParseState) parseSinglePackage(packagePath string) error {
 		Name: buildPkg.Name,
 	}
 
-	logrus.Debugf("parsing package: %s", packagePath)
+	slog.Debug("parsing package", "packagePath", packagePath)
 
 	fileSet := token.NewFileSet()
 
@@ -306,7 +307,7 @@ func (ps *ParseState) parseSinglePackage(packagePath string) error {
 		}
 
 		fullPath := path.Join(buildPkg.Dir, filename)
-		logrus.Debugf("parsing file: %s", fullPath)
+		slog.Debug("parsing file", "fullPath", fullPath)
 
 		file, err := parser.ParseFile(fileSet, fullPath, nil, parser.ParseComments)
 		if err != nil {

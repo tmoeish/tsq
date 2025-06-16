@@ -9,8 +9,9 @@ import (
 	"strings"
 	"text/template"
 
+	"log/slog"
+
 	"github.com/juju/errors"
-	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/tmoeish/tsq"
 	"github.com/tmoeish/tsq/internal/parser"
@@ -39,10 +40,6 @@ var GenCmd = &cobra.Command{
 	Use:   "gen [package]",
 	Short: "`gen` generates tsq.go file for each table in package",
 	Run: func(cmd *cobra.Command, args []string) {
-		if v {
-			logrus.SetLevel(logrus.DebugLevel)
-		}
-
 		if len(args) < 1 {
 			_ = cmd.Usage()
 			return
@@ -51,7 +48,8 @@ var GenCmd = &cobra.Command{
 		if len(tplFlag) > 0 {
 			tplBytes, err := os.ReadFile(tplFlag)
 			if err != nil {
-				logrus.Fatal(errors.ErrorStack(err))
+				slog.Error(errors.ErrorStack(err))
+				return
 			}
 			tplTxt = string(tplBytes)
 		}
@@ -59,7 +57,8 @@ var GenCmd = &cobra.Command{
 		if len(dtoTplFlag) > 0 {
 			tplBytes, err := os.ReadFile(dtoTplFlag)
 			if err != nil {
-				logrus.Fatal(errors.ErrorStack(err))
+				slog.Error(errors.ErrorStack(err))
+				return
 			}
 			dtoTplTxt = string(tplBytes)
 		}
@@ -67,7 +66,8 @@ var GenCmd = &cobra.Command{
 		pPath := args[0]
 		list, dir, err := parser.Parse(pPath)
 		if err != nil {
-			logrus.Fatal(errors.ErrorStack(err))
+			slog.Error(errors.ErrorStack(err))
+			return
 		}
 
 		for i := range list {
@@ -76,12 +76,14 @@ var GenCmd = &cobra.Command{
 
 		tpl, err := template.New("tsq.go.tmpl").Funcs(TemplateFuncs()).Parse(tplTxt)
 		if err != nil {
-			logrus.Fatal(errors.ErrorStack(err))
+			slog.Error(errors.ErrorStack(err))
+			return
 		}
 
 		dtoTpl, err := template.New("tsq_dto.go.tmpl").Funcs(TemplateFuncs()).Parse(dtoTplTxt)
 		if err != nil {
-			logrus.Fatal(errors.ErrorStack(err))
+			slog.Error(errors.ErrorStack(err))
+			return
 		}
 
 		for _, s := range list {
@@ -93,11 +95,13 @@ var GenCmd = &cobra.Command{
 					s.Fields[i].Column = strings.Replace(f.Column, ".", "_", 1)
 				}
 				if err := genDTO(s, dtoTpl, dir); err != nil {
-					logrus.Fatal(errors.ErrorStack(err))
+					slog.Error(errors.ErrorStack(err))
+					return
 				}
 			} else {
 				if err := gen(s, tpl, dir); err != nil {
-					logrus.Fatal(errors.ErrorStack(err))
+					slog.Error(errors.ErrorStack(err))
+					return
 				}
 			}
 		}
@@ -107,7 +111,7 @@ var GenCmd = &cobra.Command{
 func gen(data *tsq.StructInfo, t *template.Template, dir string) error {
 	filename := fmt.Sprintf("%s_tsq.go", strings.ToLower(data.TypeInfo.TypeName))
 	filename = path.Join(dir, filename)
-	logrus.Debugf("gen %s with data %s", filename, tsq.PrettyJSON(data))
+	slog.Info(fmt.Sprintf("gen %s with data %s", filename, tsq.PrettyJSON(data)))
 
 	buf := new(bytes.Buffer)
 

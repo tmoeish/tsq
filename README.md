@@ -139,7 +139,7 @@ import (
     "os"
     "github.com/juju/errors"
     _ "github.com/mattn/go-sqlite3"
-    "github.com/sirupsen/logrus"
+    logrus "log/slog"
     "github.com/tmoeish/tsq"
     "github.com/tmoeish/tsq/examples/database"
     "gopkg.in/gorp.v2"
