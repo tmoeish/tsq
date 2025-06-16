@@ -83,9 +83,11 @@ func extractDSLContent(text, keyword string) (string, error) {
 	if start == -1 {
 		return "", nil
 	}
+
 	start += idx // 绝对位置
 
 	count := 0
+
 	for i := start; i < len(text); i++ {
 		if text[i] == '(' {
 			count++
@@ -96,6 +98,7 @@ func extractDSLContent(text, keyword string) (string, error) {
 			}
 		}
 	}
+
 	return "", nil
 }
 
@@ -133,10 +136,12 @@ func parseTableDSL(
 ) (*tsq.TableInfo, error) {
 	// 去除注释前缀
 	text = CleanBlockComment(text)
+
 	content, err := extractDSLContent(text, "@TABLE")
 	if err != nil || content == "" {
 		return nil, nil
 	}
+
 	content = strings.ReplaceAll(content, "\n", " ")
 	content = strings.ReplaceAll(content, "\r", " ")
 	content = strings.TrimSpace(content)
@@ -146,12 +151,12 @@ func parseTableDSL(
 		return nil, err
 	}
 
-	ast, err := ParseDSL(tokens)
+	dsl, err := ParseDSL(tokens)
 	if err != nil {
 		return nil, err
 	}
 
-	return genTableInfoFromAST(structName, ast, true, structFields)
+	return genTableInfoFromAST(structName, dsl, true, structFields)
 }
 
 // parseDTODSL 解析 @DTO DSL 并填充 meta
@@ -162,10 +167,12 @@ func parseDTODSL(
 ) (*tsq.TableInfo, error) {
 	// 去除注释前缀
 	text = CleanBlockComment(text)
+
 	content, err := extractDSLContent(text, "@DTO")
 	if err != nil || content == "" {
 		return &tsq.TableInfo{}, nil
 	}
+
 	content = strings.ReplaceAll(content, "\n", " ")
 	content = strings.ReplaceAll(content, "\r", " ")
 	content = strings.TrimSpace(content)
@@ -175,12 +182,12 @@ func parseDTODSL(
 		return nil, err
 	}
 
-	ast, err := ParseDSL(tokens)
+	dsl, err := ParseDSL(tokens)
 	if err != nil {
 		return nil, err
 	}
 
-	return genTableInfoFromAST(structName, ast, false, structFields)
+	return genTableInfoFromAST(structName, dsl, false, structFields)
 }
 
 // generateQueryList 生成查询索引列表，支持普通、集合、前缀等多种组合

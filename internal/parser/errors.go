@@ -176,22 +176,28 @@ func NewUnsupportedTypeError(typeExpr any) error {
 // NewDSLTokenizeError 创建 DSL 词法分析错误
 func NewDSLTokenizeError(input string, position int, char byte) error {
 	contextLen := 20
+
 	start := position - contextLen
 	if start < 0 {
 		start = 0
 	}
+
 	end := position + contextLen
 	if end > len(input) {
 		end = len(input)
 	}
+
 	snippet := input[start:end]
 	highlightIdx := position - start
+
 	var highlightedSnippet string
+
 	if highlightIdx >= 0 && highlightIdx < len(snippet) {
 		highlightedSnippet = snippet[:highlightIdx] + colorRed + string(snippet[highlightIdx]) + colorReset + snippet[highlightIdx+1:]
 	} else {
 		highlightedSnippet = snippet
 	}
+
 	msg := fmt.Sprintf(
 		"failed to tokenize DSL at position %d, char: '%s', context: ...%s...",
 		position, string(char), highlightedSnippet,
@@ -238,22 +244,28 @@ func NewDSLUnexpectedValueError(tokenValue string, position int) error {
 // NewDSLUnclosedStringError 创建 DSL 未闭合字符串错误
 func NewDSLUnclosedStringError(input string, position int) error {
 	contextLen := 20
+
 	start := position - contextLen
 	if start < 0 {
 		start = 0
 	}
+
 	end := position + contextLen
 	if end > len(input) {
 		end = len(input)
 	}
+
 	snippet := input[start:end]
 	highlightIdx := position - start
+
 	var highlightedSnippet string
+
 	if highlightIdx >= 0 && highlightIdx < len(snippet) {
 		highlightedSnippet = snippet[:highlightIdx] + colorRed + string(snippet[highlightIdx]) + colorReset + snippet[highlightIdx+1:]
 	} else {
 		highlightedSnippet = snippet
 	}
+
 	msg := fmt.Sprintf(
 		"unclosed string literal in DSL at position %d, context: ...%s...",
 		position, highlightedSnippet,
@@ -344,13 +356,15 @@ func NewDSLIndexDuplicateError(indexName, fields string) error {
 
 // IsParserError 检查是否为解析器错误
 func IsParserError(err error) bool {
-	_, ok := errors.Cause(err).(*ParserError)
+	var parserError *ParserError
+	ok := errors.As(errors.Cause(err), &parserError)
 	return ok
 }
 
 // GetParserError 获取解析器错误
 func GetParserError(err error) *ParserError {
-	if parserErr, ok := errors.Cause(err).(*ParserError); ok {
+	var parserErr *ParserError
+	if errors.As(errors.Cause(err), &parserErr) {
 		return parserErr
 	}
 

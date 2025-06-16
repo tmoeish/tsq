@@ -4,11 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"maps"
 	"slices"
 	"strings"
-
-	"log/slog"
 
 	"github.com/juju/errors"
 	"gopkg.in/gorp.v2"
@@ -436,7 +435,7 @@ func getOrErrFn[T any](
 
 	row := tx.WithContext(ctx).QueryRow(qb.listSQL, args...)
 	if err := row.Err(); err != nil {
-		if errors.Cause(err) == sql.ErrNoRows {
+		if errors.Is(errors.Cause(err), sql.ErrNoRows) {
 			return nil, sql.ErrNoRows
 		}
 
@@ -457,41 +456,41 @@ func getOrErrFn[T any](
 	return r, nil
 }
 
-func (qb *Query) Load(
+func (q *Query) Load(
 	ctx context.Context,
 	tx gorp.SqlExecutor,
 	holder any,
 	args ...any,
 ) error {
 	return Trace(ctx, func(ctx context.Context) error {
-		return qb.loadFn(ctx, tx, holder, args...)
+		return q.loadFn(ctx, tx, holder, args...)
 	})
 }
 
-func (qb *Query) loadFn(
+func (q *Query) loadFn(
 	ctx context.Context,
 	tx gorp.SqlExecutor,
 	holder any,
 	args ...any,
 ) error {
-	slog.Debug("Load", "sql", qb.listSQL, "args", args)
+	slog.Debug("Load", "sql", q.listSQL, "args", args)
 
-	row := tx.WithContext(ctx).QueryRow(qb.listSQL, args...)
+	row := tx.WithContext(ctx).QueryRow(q.listSQL, args...)
 	if err := row.Err(); err != nil {
-		if errors.Cause(err) == sql.ErrNoRows {
+		if errors.Is(errors.Cause(err), sql.ErrNoRows) {
 			return sql.ErrNoRows
 		}
 
-		return errors.Annotatef(err, "\n%s\n%v", qb.listSQL, args)
+		return errors.Annotatef(err, "\n%s\n%v", q.listSQL, args)
 	}
 
-	dest := make([]any, len(qb.selectCols))
-	for i, f := range qb.selectCols {
+	dest := make([]any, len(q.selectCols))
+	for i, f := range q.selectCols {
 		dest[i] = f.FieldPointer()(holder)
 	}
 
 	if err := row.Scan(dest...); err != nil {
-		if errors.Cause(err) == sql.ErrNoRows {
+		if errors.Is(errors.Cause(err), sql.ErrNoRows) {
 			return sql.ErrNoRows
 		}
 
@@ -501,19 +500,19 @@ func (qb *Query) loadFn(
 	return nil
 }
 
-func (qb *Query) buildPageSQLs(page *PageReq) (string, string, error) {
+func (q *Query) buildPageSQLs(page *PageReq) (string, string, error) {
 	var cntQuery, listQuery string
-	if len(qb.kwCols) > 0 && len(page.Keyword) > 0 {
-		cntQuery = qb.kwCntSQL
-		listQuery = qb.kwListSQL
+	if len(q.kwCols) > 0 && len(page.Keyword) > 0 {
+		cntQuery = q.kwCntSQL
+		listQuery = q.kwListSQL
 	} else {
-		cntQuery = qb.cntSQL
-		listQuery = qb.listSQL
+		cntQuery = q.cntSQL
+		listQuery = q.listSQL
 	}
 
 	// 排序字段白名单校验
 	allowedFields := make(map[string]string)
-	for _, f := range qb.selectCols {
+	for _, f := range q.selectCols {
 		allowedFields[f.Name()] = f.QualifiedName()
 		if f.JSONFieldName() != "" {
 			allowedFields[f.JSONFieldName()] = f.QualifiedName()
@@ -842,16 +841,16 @@ func batchDeleteByIDsChunk(
 		placeholders[i] = "?"
 	}
 
-	sql := fmt.Sprintf(
+	sqlStr := fmt.Sprintf(
 		"DELETE FROM `%s` WHERE `%s` IN (%s)",
 		tableName, idColumn, strings.Join(placeholders, ","),
 	)
 
-	slog.Debug("BatchDeleteByIDs SQL", "sql", sql, "args", ids)
+	slog.Debug("BatchDeleteByIDs SQL", "sqlStr", sqlStr, "args", ids)
 
-	_, err := tx.WithContext(ctx).Exec(sql, ids...)
+	_, err := tx.WithContext(ctx).Exec(sqlStr, ids...)
 	if err != nil {
-		return errors.Annotatef(err, "batch delete by IDs failed: %s", sql)
+		return errors.Annotatef(err, "batch delete by IDs failed: %s", sqlStr)
 	}
 
 	return nil

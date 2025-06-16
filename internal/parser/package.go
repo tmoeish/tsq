@@ -6,11 +6,10 @@ import (
 	"go/build"
 	"go/parser"
 	"go/token"
+	"log/slog"
 	"path"
 	"reflect"
 	"strings"
-
-	"log/slog"
 
 	"github.com/juju/errors"
 	"github.com/tmoeish/tsq"
@@ -29,12 +28,12 @@ func Parse(packagePath string) ([]*tsq.StructInfo, string, error) {
 		return nil, "", errors.Annotatef(err, "failed to parse package %s", packagePath)
 	}
 
-	list := make([]*tsq.StructInfo, len(result.Structs))
+	infos := make([]*tsq.StructInfo, len(result.Structs))
 	for i, internal := range result.Structs {
-		list[i] = internal.StructInfo
+		infos[i] = internal.StructInfo
 	}
 
-	return list, result.Directory, nil
+	return infos, result.Directory, nil
 }
 
 // parsePackage 解析包的完整流程

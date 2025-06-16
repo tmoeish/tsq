@@ -62,14 +62,16 @@ func Trace1[T any](
 	fn func(ctx context.Context) (T, error),
 ) (T, error) {
 	// Apply tracers in reverse order to create proper middleware chain
-
 	var result T
+
 	wrappedFn := func(ctx context.Context) error {
 		var err error
+
 		result, err = fn(ctx)
 		if err != nil {
 			return err
 		}
+
 		return nil
 	}
 

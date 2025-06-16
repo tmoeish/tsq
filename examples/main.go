@@ -22,7 +22,7 @@ func main() {
 	// 1. 连接 SQLite 内存数据库
 	db, err := sql.Open("sqlite3", ":memory:")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "数据库连接失败: %v\n详细堆栈:\n%+v\n", err, errors.ErrorStack(err))
+		slog.Info("数据库连接失败", "err", err, "stack", errors.ErrorStack(err))
 		os.Exit(1)
 	}
 	defer func() {
@@ -34,19 +34,19 @@ func main() {
 
 	err = tsq.Init(dbmap, true, true, TraceDB, TraceDB1)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "tsq.Init 失败: %v\n详细堆栈:\n%+v\n", err, errors.ErrorStack(err))
+		slog.Info("tsq.Init 失败", "err", err, "stack", errors.ErrorStack(err))
 		os.Exit(1)
 	}
 
 	// 初始化数据库，执行 mock.sql 文件
 	mockSQL, err := os.ReadFile("examples/database/mock.sql")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "读取 mock.sql 失败: %v\n详细堆栈:\n%+v\n", err, errors.ErrorStack(err))
+		slog.Info("读取 mock.sql 失败", "err", err, "stack", errors.ErrorStack(err))
 		os.Exit(1)
 	}
 	_, err = db.Exec(string(mockSQL))
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "执行 mock.sql 失败: %v\n详细堆栈:\n%+v\n", err, errors.ErrorStack(err))
+		slog.Info("执行 mock.sql 失败", "err", err, "stack", errors.ErrorStack(err))
 		os.Exit(1)
 	}
 
@@ -62,7 +62,7 @@ func main() {
 	ctx := context.Background()
 	resp, err := database.PageUserOrder(ctx, dbmap, pageReq, 1, "图书", "视频", `杂fds""了''志`)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "PageUserOrder 失败: %v\n详细堆栈:\n%+v\n", err, errors.ErrorStack(err))
+		slog.Info("PageUserOrder 失败", "err", err, "stack", errors.ErrorStack(err))
 		os.Exit(1)
 	}
 

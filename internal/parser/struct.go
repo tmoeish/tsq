@@ -4,10 +4,9 @@ import (
 	"container/list"
 	"fmt"
 	"go/ast"
+	"log/slog"
 	"sort"
 	"strings"
-
-	"log/slog"
 
 	"github.com/juju/errors"
 	"github.com/serenize/snaker"

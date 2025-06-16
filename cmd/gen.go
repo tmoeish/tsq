@@ -4,12 +4,11 @@ import (
 	"bytes"
 	_ "embed"
 	"fmt"
+	"log/slog"
 	"os"
 	"path"
 	"strings"
 	"text/template"
-
-	"log/slog"
 
 	"github.com/juju/errors"
 	"github.com/spf13/cobra"
@@ -117,7 +116,7 @@ func gen(data *tsq.StructInfo, t *template.Template, dir string) error {
 
 	if err := t.Execute(buf, data); err != nil {
 		bs := tsq.PrettyJSON(data)
-		return errors.Annotatef(err, "template rendering failed: %s, data: %s", filename, string(bs))
+		return errors.Annotatef(err, "template rendering failed: %s, data: %s", filename, bs)
 	}
 
 	src, err := format.Source(buf.Bytes(), format.Options{})
@@ -141,7 +140,7 @@ func genDTO(data *tsq.StructInfo, t *template.Template, dir string) error {
 
 	if err := t.Execute(buf, data); err != nil {
 		bs := tsq.PrettyJSON(data)
-		return errors.Annotatef(err, "DTO template rendering failed: %s, data: %s", filename, string(bs))
+		return errors.Annotatef(err, "DTO template rendering failed: %s, data: %s", filename, bs)
 	}
 
 	src, err := format.Source(buf.Bytes(), format.Options{})
