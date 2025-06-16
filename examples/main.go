@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/juju/errors"
 	_ "github.com/mattn/go-sqlite3"
@@ -32,7 +33,7 @@ func main() {
 	// 2. 初始化 gorp
 	dbmap := &gorp.DbMap{Db: db, Dialect: gorp.SqliteDialect{}}
 
-	err = tsq.Init(dbmap, true, true, TraceDB)
+	err = tsq.Init(dbmap, true, true, TraceDB, TraceDB1)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "tsq.Init 失败: %v\n详细堆栈:\n%+v\n", err, errors.ErrorStack(err))
 		os.Exit(1)
@@ -68,7 +69,7 @@ func main() {
 
 	// 5. 打印结果
 	rs, _ := json.MarshalIndent(resp, "", "  ")
-	fmt.Println(string(rs))
+	fmt.Println("-------------", string(rs))
 
 	// 6. 运行批量插入演示
 	fmt.Println("\n" + strings.Repeat("=", 50))
@@ -81,12 +82,23 @@ func main() {
 
 func TraceDB(next tsq.Fn) tsq.Fn {
 	return func(ctx context.Context) error {
-		// l := pkg.Logger(ctx)
-		// name := pkg.CallerNth(2)
-
-		// start := time.Now()
+		logrus.Info("TraceDB start")
+		start := time.Now()
 		err := next(ctx)
-		// elapsed := time.Since(start)
+		elapsed := time.Since(start)
+		logrus.Infof("TraceDB end, err: %v, elapsed: %s", err, elapsed)
+
+		return err
+	}
+}
+
+func TraceDB1(next tsq.Fn) tsq.Fn {
+	return func(ctx context.Context) error {
+		logrus.Info("TraceDB1 start")
+		start := time.Now()
+		err := next(ctx)
+		elapsed := time.Since(start)
+		logrus.Infof("TraceDB1 end, err: %v, elapsed: %s", err, elapsed)
 
 		return err
 	}

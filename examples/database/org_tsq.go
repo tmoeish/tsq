@@ -73,9 +73,7 @@ func (o Org) KwList() []tsq.Column {
 // =============================================================================
 var getOrgByIDQuery = tsq.
 	Select(TableOrgCols...).
-	Where(
-		Org_ID.EQVar(),
-	).
+	Where(Org_ID.EQVar()).
 	MustBuild()
 
 // GetOrgByID retrieves a Org record by its ID.
@@ -86,18 +84,15 @@ func GetOrgByID(
 	id int64,
 ) (*Org, error) {
 	row := &Org{}
-	return row, tsq.Trace(ctx, func(ctx context.Context) error {
-		err := getOrgByIDQuery.Load(ctx, db, row, id)
-		switch errors.Cause(err) {
-		case nil:
-			return nil
-		case sql.ErrNoRows:
-			row = nil
-			return nil
-		default:
-			return errors.Trace(err)
-		}
-	})
+	err := getOrgByIDQuery.Load(ctx, db, row, id)
+	switch errors.Cause(err) {
+	case nil:
+		return row, nil
+	case sql.ErrNoRows:
+		return nil, nil
+	default:
+		return nil, errors.Trace(err)
+	}
 }
 
 // GetOrgByIDOrErr retrieves a Org record by its ID.
@@ -108,12 +103,7 @@ func GetOrgByIDOrErr(
 	id int64,
 ) (*Org, error) {
 	row := &Org{}
-	err := tsq.Trace(ctx, func(ctx context.Context) error {
-		return getOrgByIDQuery.Load(
-			ctx, db, row, id,
-		)
-	})
-	return row, errors.Trace(err)
+	return row, getOrgByIDQuery.Load(ctx, db, row, id)
 }
 
 // ListOrgByIDIn retrieves multiple Org records by a set of ID values.
@@ -128,17 +118,7 @@ func ListOrgByIDIn(
 		Where(Org_ID.In(ids...)).
 		MustBuild()
 
-	var list []*Org
-	return list, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		list, err = tsq.List[Org](
-			ctx, db, query,
-		)
-		if err != nil {
-			return errors.Trace(err)
-		}
-		return nil
-	})
+	return tsq.List[Org](ctx, db, query)
 }
 
 // ListOrgByIDInOrErr retrieves multiple Org records by a set of ID values.
@@ -156,28 +136,23 @@ func ListOrgByIDInOrErr(
 		Select(TableOrgCols...).
 		Where(Org_ID.In(ids...)).
 		MustBuild()
-	var list []*Org
-	return list, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		list, err = tsq.List[Org](
-			ctx, db, query,
-		)
-		if err != nil {
-			return errors.Trace(err)
-		}
 
-		for _, i := range list {
-			delete(idSet, i.ID)
+	list, err := tsq.List[Org](ctx, db, query)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	for _, i := range list {
+		delete(idSet, i.ID)
+	}
+	if len(idSet) > 0 {
+		var missings []int64
+		for i := range idSet {
+			missings = append(missings, i)
 		}
-		if len(idSet) > 0 {
-			var missings []int64
-			for i := range idSet {
-				missings = append(missings, i)
-			}
-			return errors.Errorf("Org(s) not found: %v", missings)
-		}
-		return nil
-	})
+		return nil, errors.Errorf("Org(s) not found: %v", missings)
+	}
+	return list, nil
 }
 
 // =============================================================================
@@ -190,15 +165,13 @@ func (o *Org) Insert(
 	ctx context.Context,
 	db gorp.SqlExecutor,
 ) error {
-	return tsq.Trace(ctx, func(ctx context.Context) error {
-		o.CT = null.TimeFrom(time.Now())
-		err := db.Insert(o)
-		if err != nil {
-			return errors.Annotate(err, tsq.PrettyJSON(o))
-		}
+	o.CT = null.TimeFrom(time.Now())
+	err := tsq.Insert(ctx, db, o)
+	if err != nil {
+		return errors.Annotate(err, tsq.PrettyJSON(o))
+	}
 
-		return nil
-	})
+	return nil
 }
 
 // Update updates an existing Org record in the database.
@@ -207,14 +180,12 @@ func (o *Org) Update(
 	ctx context.Context,
 	db gorp.SqlExecutor,
 ) error {
-	return tsq.Trace(ctx, func(ctx context.Context) error {
-		_, err := db.Update(o)
-		if err != nil {
-			return errors.Annotate(err, tsq.PrettyJSON(o))
-		}
+	err := tsq.Update(ctx, db, o)
+	if err != nil {
+		return errors.Annotate(err, tsq.PrettyJSON(o))
+	}
 
-		return nil
-	})
+	return nil
 }
 
 // Delete permanently removes a Org record from the database.
@@ -222,14 +193,12 @@ func (o *Org) Delete(
 	ctx context.Context,
 	db gorp.SqlExecutor,
 ) error {
-	return tsq.Trace(ctx, func(ctx context.Context) error {
-		_, err := db.Delete(o)
-		if err != nil {
-			return errors.Annotate(err, tsq.PrettyJSON(o))
-		}
+	err := tsq.Delete(ctx, db, o)
+	if err != nil {
+		return errors.Annotate(err, tsq.PrettyJSON(o))
+	}
 
-		return nil
-	})
+	return nil
 }
 
 // ListOrgByQuery executes a custom query to retrieve Org records.
@@ -239,12 +208,7 @@ func ListOrgByQuery(
 	qb *tsq.Query,
 	args ...any,
 ) ([]*Org, error) {
-	var data []*Org
-	return data, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		data, err = tsq.List[Org](ctx, tx, qb, args...)
-		return errors.Trace(err)
-	})
+	return tsq.List[Org](ctx, tx, qb, args...)
 }
 
 // PageOrgByQuery executes a custom query with pagination to retrieve Org records.
@@ -255,14 +219,7 @@ func PageOrgByQuery(
 	qb *tsq.Query,
 	args ...any,
 ) (*tsq.PageResp[Org], error) {
-	var rs *tsq.PageResp[Org]
-	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		rs, err = tsq.Page[Org](
-			ctx, tx, page, qb, args...,
-		)
-		return errors.Trace(err)
-	})
+	return tsq.Page[Org](ctx, tx, page, qb, args...)
 }
 
 // =============================================================================
@@ -279,14 +236,7 @@ func CountOrg(
 	ctx context.Context,
 	tx gorp.SqlExecutor,
 ) (int, error) {
-	query := listOrgQuery
-
-	var rs int
-	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		rs, err = query.Count(ctx, tx)
-		return errors.Trace(err)
-	})
+	return listOrgQuery.Count(ctx, tx)
 }
 
 // ListOrg retrieves all Org records from the database.
@@ -294,14 +244,7 @@ func ListOrg(
 	ctx context.Context,
 	tx gorp.SqlExecutor,
 ) ([]*Org, error) {
-	query := listOrgQuery
-
-	var data []*Org
-	return data, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		data, err = tsq.List[Org](ctx, tx, query)
-		return errors.Trace(err)
-	})
+	return tsq.List[Org](ctx, tx, listOrgQuery)
 }
 
 // PageOrg retrieves Org records with pagination support.
@@ -310,16 +253,7 @@ func PageOrg(
 	tx gorp.SqlExecutor,
 	page *tsq.PageReq,
 ) (*tsq.PageResp[Org], error) {
-	query := listOrgQuery
-
-	var rs *tsq.PageResp[Org]
-	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		rs, err = tsq.Page[Org](
-			ctx, tx, page, query,
-		)
-		return errors.Trace(err)
-	})
+	return tsq.Page[Org](ctx, tx, page, listOrgQuery)
 }
 
 // =============================================================================
@@ -343,20 +277,17 @@ func GetOrgByName(
 	query := getOrgByNameQuery
 
 	row := &Org{}
-	return row, tsq.Trace(ctx, func(ctx context.Context) error {
-		err := query.Load(ctx, db, row,
-			name,
-		)
-		switch errors.Cause(err) {
-		case nil:
-			return nil
-		case sql.ErrNoRows:
-			row = nil
-			return nil
-		default:
-			return errors.Trace(err)
-		}
-	})
+	err := query.Load(ctx, db, row,
+		name,
+	)
+	switch errors.Cause(err) {
+	case nil:
+		return row, nil
+	case sql.ErrNoRows:
+		return nil, nil
+	default:
+		return nil, errors.Trace(err)
+	}
 }
 
 // GetOrgByNameOrErr retrieves a Org record by unique index UxName.
@@ -369,11 +300,10 @@ func GetOrgByNameOrErr(
 	query := getOrgByNameQuery
 
 	row := &Org{}
-	return row, tsq.Trace(ctx, func(ctx context.Context) error {
-		return query.Load(ctx, db, row,
-			name,
-		)
-	})
+	err := query.Load(ctx, db, row,
+		name,
+	)
+	return row, errors.Trace(err)
 }
 
 // ExistsOrgByName checks whether a Org record exists by unique index UxName.
@@ -384,12 +314,8 @@ func ExistsOrgByName(
 ) (bool, error) {
 	query := getOrgByNameQuery
 
-	var rs bool
-	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		rs, err = query.Exists(ctx, db,
-			name,
-		)
-		return errors.Trace(err)
-	})
+	rs, err := query.Exists(ctx, db,
+		name,
+	)
+	return rs, errors.Trace(err)
 }

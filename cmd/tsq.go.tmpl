@@ -129,9 +129,7 @@ func ({{$dot.Recv}} {{$type}}) KwList() []tsq.Column {
 {{- with $query := printf "%s%sQuery" $getBy $dot.ID }}
 var {{$query}} = tsq.
 	Select({{$varTblCols}}...).
-	Where(
-		{{$type}}_{{$dot.ID}}.EQVar(),
-	).
+	Where({{$type}}_{{$dot.ID}}.EQVar()).
 	MustBuild()
 
 	{{- with $name := printf "%s%s" $GetBy $dot.ID }}
@@ -143,18 +141,15 @@ func {{$name}}(
 	{{$dot.ID | ToLower}} {{index $dot.FieldMap $dot.ID | FieldType}},
 ) ({{$ptype}}, error) {
 	row := &{{$type}}{}
-	return row, tsq.Trace(ctx, func(ctx context.Context) error {
-		err := {{$query}}.Load(ctx, db, row, {{$dot.ID | ToLower}})
-		switch errors.Cause(err) {
-		case nil:
-			return nil
-		case sql.ErrNoRows:
-			row = nil
-			return nil
-		default:
-			return errors.Trace(err)
-		}
-	})
+	err := {{$query}}.Load(ctx, db, row, {{$dot.ID | ToLower}})
+	switch errors.Cause(err) {
+	case nil:
+		return row, nil
+	case sql.ErrNoRows:
+		return nil, nil
+	default:
+		return nil, errors.Trace(err)
+	}
 }
 	{{- end }}
 
@@ -167,12 +162,7 @@ func {{$name}}(
 	{{$dot.ID | ToLower}} {{index $dot.FieldMap $dot.ID | FieldType}},
 ) ({{$ptype}}, error) {
 	row := &{{$type}}{}
-	err := tsq.Trace(ctx, func(ctx context.Context) error {
-		return {{$query}}.Load(
-			ctx, db, row, {{$dot.ID | ToLower}},
-		)
-	})
-	return row, errors.Trace(err)
+	return row, {{$query}}.Load(ctx, db, row, {{$dot.ID | ToLower}})
 }
 	{{- end }}
 {{- end }}
@@ -190,17 +180,7 @@ func {{$name}}(
 		Where({{$type}}_{{$dot.ID}}.In({{$dot.ID | ToLower}}s...)).
 		MustBuild()
 
-	var list {{$list}}
-	return list, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		list, err = tsq.List[{{$type}}](
-			ctx, db, query,
-		)
-		if err != nil {
-			return errors.Trace(err)
-		}
-		return nil
-	})
+	return tsq.List[{{$type}}](ctx, db, query)
 }
 {{- end }}
 
@@ -220,28 +200,23 @@ func {{$name}}(
 		Select({{$varTblCols}}...).
 		Where({{$type}}_{{$dot.ID}}.In({{$dot.ID | ToLower}}s...)).
 		MustBuild()
-	var list {{$list}}
-	return list, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		list, err = tsq.List[{{$type}}](
-			ctx, db, query,
-		)
-		if err != nil {
-			return errors.Trace(err)
-		}
+		
+	list, err := tsq.List[{{$type}}](ctx, db, query)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
 
-		for _, i := range list {
-			delete({{$dot.ID | ToLower}}Set, i.{{$dot.ID}})
+	for _, i := range list {
+		delete({{$dot.ID | ToLower}}Set, i.{{$dot.ID}})
+	}
+	if len({{$dot.ID | ToLower}}Set) > 0 {
+		var missings []{{index $dot.FieldMap $dot.ID | FieldType}}
+		for i := range {{$dot.ID | ToLower}}Set {
+			missings = append(missings, i)
 		}
-		if len({{$dot.ID | ToLower}}Set) > 0 {
-			var missings []{{index $dot.FieldMap $dot.ID | FieldType}}
-			for i := range {{$dot.ID | ToLower}}Set {
-				missings = append(missings, i)
-			}
-			return errors.Errorf("{{$type}}(s) not found: %v", missings)
-		}
-		return nil
-	})
+		return nil, errors.Errorf("{{$type}}(s) not found: %v", missings)
+	}
+	return list, nil
 }
 {{- end }}
 
@@ -268,18 +243,15 @@ func {{$name}}(
 	{{$dot.ID | ToLower}} {{index $dot.FieldMap $dot.ID | FieldType}},
 ) ({{$ptype}}, error) {
 	row := &{{$type}}{}
-	return row, tsq.Trace(ctx, func(ctx context.Context) error {
-		err := {{$query}}.Load(ctx, db, row, {{$dot.ID | ToLower}})
-		switch errors.Cause(err) {
-		case nil:
-			return nil
-		case sql.ErrNoRows:
-			row = nil
-			return nil
-		default:
-			return errors.Trace(err)
-		}
-	})
+	err := {{$query}}.Load(ctx, db, row, {{$dot.ID | ToLower}})
+	switch errors.Cause(err) {
+	case nil:
+		return row, nil
+	case sql.ErrNoRows:
+		return nil, nil
+	default:
+		return nil, errors.Trace(err)
+	}
 }
 		{{- end }}
 
@@ -292,9 +264,7 @@ func {{$name}}(
 	{{$dot.ID | ToLower}} {{index $dot.FieldMap $dot.ID | FieldType}},
 ) ({{$ptype}}, error) {
 	row := &{{$type}}{}
-	err := tsq.Trace(ctx, func(ctx context.Context) error {
-		return {{$query}}.Load(ctx, db, row, {{$dot.ID | ToLower}})
-	})
+	err := {{$query}}.Load(ctx, db, row, {{$dot.ID | ToLower}})
 	return row, errors.Trace(err)
 }
 		{{- end }}
@@ -315,16 +285,11 @@ func {{$name}}(
 			{{$type}}_{{$dot.ID}}.In({{$dot.ID | ToLower}}s...),
 		).
 		MustBuild()
-	var list {{$list}}
-	err := tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		list, err = tsq.List[{{$type}}](ctx, db, query)
-		if err != nil {
-			return errors.Trace(err)
-		}
-		return nil
-	})
-	return list, errors.Trace(err)
+	list, err := tsq.List[{{$type}}](ctx, db, query)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	return list, nil
 }
 	{{- end }}
 
@@ -349,24 +314,21 @@ func {{$name}}(
 		MustBuild()
 
 	var list {{$list}}
-	return list, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		list, err = tsq.List[{{$type}}](ctx, db, query)
-		if err != nil {
-			return errors.Trace(err)
+	list, err := tsq.List[{{$type}}](ctx, db, query)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	for _, i := range list {
+		delete({{$dot.ID | ToLower}}Set, i.{{$dot.ID}})
+	}
+	if len({{$dot.ID | ToLower}}Set) > 0 {
+		var missings []{{index $dot.FieldMap $dot.ID | FieldType}}
+		for i := range {{$dot.ID | ToLower}}Set {
+			missings = append(missings, i)
 		}
-		for _, i := range list {
-			delete({{$dot.ID | ToLower}}Set, i.{{$dot.ID}})
-		}
-		if len({{$dot.ID | ToLower}}Set) > 0 {
-			var missings []{{index $dot.FieldMap $dot.ID | FieldType}}
-			for i := range {{$dot.ID | ToLower}}Set {
-				missings = append(missings, i)
-			}
-			return errors.Errorf("{{$type}}(s) not found: %v", missings)
-		}
-		return nil
-	})
+		return nil, errors.Errorf("{{$type}}(s) not found: %v", missings)
+	}
+	return list, nil
 }
 	{{- end }}
 {{- end }}
@@ -381,30 +343,28 @@ func {{$name}}(
 	ctx context.Context,
 	db gorp.SqlExecutor,
 ) error {
-	return tsq.Trace(ctx, func(ctx context.Context) error {
 {{- if $dot.CT }}
 	{{- $pkg := index $dot.FieldMap $dot.CT }}
 	{{- if eq "time" $pkg.Type.Package.Path }}
-		{{$dot.Recv}}.{{$dot.CT}} = time.Now()
+	{{$dot.Recv}}.{{$dot.CT}} = time.Now()
 	{{- else }}
-		{{$dot.Recv}}.{{$dot.CT}} = null.TimeFrom(time.Now())
+	{{$dot.Recv}}.{{$dot.CT}} = null.TimeFrom(time.Now())
 	{{- end }}
 {{- end }}
 {{- if $dot.MT }}
 	{{- $pkg := index $dot.FieldMap $dot.MT }}
 	{{- if eq "time" $pkg.Type.Package.Path }}
-		{{$dot.Recv}}.{{$dot.MT}} = time.Now()
+	{{$dot.Recv}}.{{$dot.MT}} = time.Now()
 	{{- else }}
-		{{$dot.Recv}}.{{$dot.MT}} = null.TimeFrom(time.Now())
+	{{$dot.Recv}}.{{$dot.MT}} = null.TimeFrom(time.Now())
 	{{- end }}
 {{- end }}
-		err := db.Insert({{$dot.Recv}})
-		if err != nil {
-			return errors.Annotate(err, tsq.PrettyJSON({{$dot.Recv}}))
-		}
+	err := tsq.Insert(ctx, db, {{$dot.Recv}})
+	if err != nil {
+		return errors.Annotate(err, tsq.PrettyJSON({{$dot.Recv}}))
+	}
 
-		return nil
-	})
+	return nil
 }
 
 // Update updates an existing {{$type}} record in the database.
@@ -413,22 +373,20 @@ func {{$name}}(
 	ctx context.Context,
 	db gorp.SqlExecutor,
 ) error {
-	return tsq.Trace(ctx, func(ctx context.Context) error {
 {{- if $dot.MT }}
 	{{- $pkg := index $dot.FieldMap $dot.MT }}
 	{{- if eq "time" $pkg.Type.Package.Path }}
-		{{$dot.Recv}}.{{$dot.MT}} = time.Now()
+	{{$dot.Recv}}.{{$dot.MT}} = time.Now()
 	{{- else }}
-		{{$dot.Recv}}.{{$dot.MT}} = null.TimeFrom(time.Now())
+	{{$dot.Recv}}.{{$dot.MT}} = null.TimeFrom(time.Now())
 	{{- end }}
 {{- end }}
-		_, err := db.Update({{$dot.Recv}})
-		if err != nil {
-			return errors.Annotate(err, tsq.PrettyJSON({{$dot.Recv}}))
-		}
+	err := tsq.Update(ctx, db, {{$dot.Recv}})
+	if err != nil {
+		return errors.Annotate(err, tsq.PrettyJSON({{$dot.Recv}}))
+	}
 
-		return nil
-	})
+	return nil
 }
 
 // Delete permanently removes a {{$type}} record from the database.
@@ -436,14 +394,12 @@ func {{$name}}(
 	ctx context.Context,
 	db gorp.SqlExecutor,
 ) error {
-	return tsq.Trace(ctx, func(ctx context.Context) error {
-		_, err := db.Delete({{$dot.Recv}})
-		if err != nil {
-			return errors.Annotate(err, tsq.PrettyJSON({{$dot.Recv}}))
-		}
+	err := tsq.Delete(ctx, db, {{$dot.Recv}})
+	if err != nil {
+		return errors.Annotate(err, tsq.PrettyJSON({{$dot.Recv}}))
+	}
 
-		return nil
-	})
+	return nil
 }
 
 {{- if .DT }}
@@ -454,27 +410,25 @@ func {{$name}}(
 	db gorp.SqlExecutor,
 	dt int64,
 ) error {
-	return tsq.Trace(ctx, func(ctx context.Context) error {
-		if dt > 0 {
-			{{$dot.Recv}}.{{$dot.DT}} = dt
-		} else {
-			{{$dot.Recv}}.{{$dot.DT}} = time.Now().UnixNano()
-		}
-	{{- if $dot.MT }}
-		{{- $pkg := index $dot.FieldMap $dot.MT }}
-		{{- if eq "time" $pkg.Type.Package.Path }}
-		{{$dot.Recv}}.{{$dot.MT}} = time.Now()
-		{{- else }}
-		{{$dot.Recv}}.{{$dot.MT}} = null.TimeFrom(time.Now())
-		{{- end }}
+	if dt > 0 {
+		{{$dot.Recv}}.{{$dot.DT}} = dt
+	} else {
+		{{$dot.Recv}}.{{$dot.DT}} = time.Now().UnixNano()
+	}
+{{- if $dot.MT }}
+	{{- $pkg := index $dot.FieldMap $dot.MT }}
+	{{- if eq "time" $pkg.Type.Package.Path }}
+	{{$dot.Recv}}.{{$dot.MT}} = time.Now()
+	{{- else }}
+	{{$dot.Recv}}.{{$dot.MT}} = null.TimeFrom(time.Now())
 	{{- end }}
-		_, err := db.Update({{$dot.Recv}})
-		if err != nil {
-			return errors.Annotate(err, tsq.PrettyJSON({{$dot.Recv}}))
-		}
+{{- end }}
+	err := tsq.Update(ctx, db, {{$dot.Recv}})
+	if err != nil {
+		return errors.Annotate(err, tsq.PrettyJSON({{$dot.Recv}}))
+	}
 
-		return nil
-	})
+	return nil
 }
 {{- end }}
 
@@ -486,12 +440,7 @@ func {{$name}}(
 	qb *tsq.Query,
 	args ...any,
 ) ({{$list}}, error) {
-	var data {{$list}}
-	return data, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		data, err = tsq.List[{{$type}}](ctx, tx, qb, args...)
-		return errors.Trace(err)
-	})
+	return tsq.List[{{$type}}](ctx, tx, qb, args...)
 }
 {{- end }}
 
@@ -504,14 +453,7 @@ func {{$name}}(
 	qb *tsq.Query,
 	args ...any,
 ) (*{{$pageResp}}, error) {
-	var rs *{{$pageResp}}
-	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		rs, err = tsq.Page[{{$type}}](
-			ctx, tx, page, qb, args...
-		)
-		return errors.Trace(err)
-	})
+	return tsq.Page[{{$type}}](ctx, tx, page, qb, args...)
 }
 {{- end }}
 
@@ -532,14 +474,7 @@ func {{$name}}(
 	ctx context.Context,
 	tx gorp.SqlExecutor,
 ) (int, error) {
-	query := {{$query}}
-
-	var rs int
-	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		rs, err = query.Count(ctx, tx)
-		return errors.Trace(err)
-	})
+	return {{$query}}.Count(ctx, tx)
 }
 	{{- end }}
 
@@ -549,14 +484,7 @@ func {{$name}}(
 	ctx context.Context,
 	tx gorp.SqlExecutor,
 ) ({{$list}}, error) {
-	query := {{$query}}
-
-	var data {{$list}}
-	return data, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		data, err = tsq.List[{{$type}}](ctx, tx, query)
-		return errors.Trace(err)
-	})
+	return tsq.List[{{$type}}](ctx, tx, {{$query}})
 }
 	{{- end }}
 
@@ -567,16 +495,7 @@ func {{$name}}(
 	tx gorp.SqlExecutor,
 	page *tsq.PageReq,
 ) (*{{$pageResp}}, error) {
-	query := {{$query}}
-
-	var rs *{{$pageResp}}
-	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		rs, err = tsq.Page[{{$type}}](
-			ctx, tx, page, query,
-		)
-		return errors.Trace(err)
-	})
+	return tsq.Page[{{$type}}](ctx, tx, page, {{$query}})
 }
 	{{- end }}
 {{- end }}
@@ -600,14 +519,7 @@ func {{$name}}(
 	ctx context.Context,
 	tx gorp.SqlExecutor,
 ) (int, error) {
-	query := {{$query}}
-
-	var rs int
-	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		rs, err = query.Count(ctx, tx)
-		return errors.Trace(err)
-	})
+	return {{$query}}.Count(ctx, tx)
 }
 		{{- end }}
 
@@ -617,14 +529,7 @@ func {{$name}}(
 	ctx context.Context,
 	tx gorp.SqlExecutor,
 ) ({{$list}}, error) {
-	query := {{$query}}
-
-	var data {{$list}}
-	return data, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		data, err = tsq.List[{{$type}}](ctx, tx, query)
-		return errors.Trace(err)
-	})
+	return tsq.List[{{$type}}](ctx, tx, {{$query}})
 }
 		{{- end }}
 
@@ -635,16 +540,7 @@ func {{$name}}(
 	tx gorp.SqlExecutor,
 	page *tsq.PageReq,
 ) (*{{$pageResp}}, error) {
-	query := {{$query}}
-
-	var rs *{{$pageResp}}
-	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		rs, err = tsq.Page[{{$type}}](
-			ctx, tx, page, query,
-		)
-		return errors.Trace(err)
-	})
+	return tsq.Page[{{$type}}](ctx, tx, page, {{$query}})
 }
 		{{- end }}
 	{{- end }}
@@ -679,22 +575,19 @@ func {{$name}}(
 	query := {{$query}}
 
 	row := &{{$type}}{}
-	return row, tsq.Trace(ctx, func(ctx context.Context) error {
-		err := query.Load(ctx, db, row,
-			{{- range $f := $ux.Fields }}
-			{{$f | LowerInitial}},
-			{{- end }}
-		)
-		switch errors.Cause(err) {
-		case nil:
-			return nil
-		case sql.ErrNoRows:
-			row = nil
-			return nil
-		default:
-			return errors.Trace(err)
-		}
-	})
+	err := query.Load(ctx, db, row,
+		{{- range $f := $ux.Fields }}
+		{{$f | LowerInitial}},
+		{{- end }}
+	)
+	switch errors.Cause(err) {
+	case nil:
+		return row, nil
+	case sql.ErrNoRows:
+		return nil, nil
+	default:
+		return nil, errors.Trace(err)
+	}
 }
 		{{- end }}
 
@@ -711,13 +604,12 @@ func {{$name}}(
 	query := {{$query}}
 
 	row := &{{$type}}{}
-	return row, tsq.Trace(ctx, func(ctx context.Context) error {
-		return query.Load(ctx, db, row,
-			{{- range $f := $ux.Fields }}
-			{{$f | LowerInitial}},
-			{{- end }}
-		)
-	})
+	err := query.Load(ctx, db, row,
+		{{- range $f := $ux.Fields }}
+		{{$f | LowerInitial}},
+		{{- end }}
+	)
+	return row, errors.Trace(err)
 }
 		{{- end }}
 
@@ -732,16 +624,12 @@ func {{$name}}(
 ) (bool, error) {
 	query := {{$query}}
 
-	var rs bool
-	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		rs, err = query.Exists(ctx, db,
-			{{- range $f := $ux.Fields }}
-			{{$f | LowerInitial}},
-			{{- end }}
-		)
-		return errors.Trace(err)
-	})
+	rs, err := query.Exists(ctx, db,
+		{{- range $f := $ux.Fields }}
+		{{$f | LowerInitial}},
+		{{- end }}
+	)
+	return rs, errors.Trace(err)
 }
 		{{- end }}
 	{{- end }}
@@ -778,23 +666,20 @@ func {{$name}}(
 ) ({{$ptype}}, error) {
 	query := {{$query}}
 
-	row := &{{$type}}{}
-	return row, tsq.Trace(ctx, func(ctx context.Context) error {
-		err := query.Load(ctx, db, row,
-				{{- range $f := $ux.Fields }}
-			{{$f | LowerInitial}},
-				{{- end }}
-		)
-		switch errors.Cause(err) {
-		case nil:
-			return nil
-		case sql.ErrNoRows:
-			row = nil
-			return nil
-		default:
-			return errors.Trace(err)
-		}
-	})
+		row := &{{$type}}{}
+	err := query.Load(ctx, db, row,
+		{{- range $f := $ux.Fields }}
+		{{$f | LowerInitial}},
+		{{- end }}
+	)
+	switch errors.Cause(err) {
+	case nil:
+		return row, nil
+	case sql.ErrNoRows:
+		return nil, nil
+	default:
+		return nil, errors.Trace(err)
+	}
 }
 			{{- end }}
 
@@ -810,14 +695,13 @@ func {{$name}}(
 ) ({{$ptype}}, error) {
 	query := {{$query}}
 
-	row := &{{$type}}{}
-	return row, tsq.Trace(ctx, func(ctx context.Context) error {
-		return query.Load(ctx, db, row,
-				{{- range $f := $ux.Fields }}
-			{{$f | LowerInitial}},
-				{{- end }}
-		)
-	})
+		row := &{{$type}}{}
+	err := query.Load(ctx, db, row,
+		{{- range $f := $ux.Fields }}
+		{{$f | LowerInitial}},
+		{{- end }}
+	)
+	return row, errors.Trace(err)
 }
 			{{- end }}
 
@@ -832,16 +716,12 @@ func {{$name}}(
 ) (bool, error) {
 	query := {{$query}}
 
-	var rs bool
-	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		rs, err = query.Exists(ctx, db,
-				{{- range $f := $ux.Fields }}
-			{{$f | LowerInitial}},
-				{{- end }}
-		)
-		return errors.Trace(err)
-	})
+		rs, err := query.Exists(ctx, db,
+		{{- range $f := $ux.Fields }}
+		{{$f | LowerInitial}},
+		{{- end }}
+	)
+	return rs, errors.Trace(err)
 }
 			{{- end }}
 		{{- end }}
@@ -880,12 +760,7 @@ func List{{$type}}By{{$idx.Name}}(
 		{{- end }}
 		).
 		MustBuild()
-	var list {{$list}}
-	err := tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		list, err = tsq.List[{{$type}}](ctx, db, query)
-		return errors.Trace(err)
-	})
+	list, err := tsq.List[{{$type}}](ctx, db, query)
 	return list, errors.Trace(err)
 }
 	{{- else }}
@@ -912,16 +787,12 @@ func {{$name}}(
 ) (int, error) {
 	query := {{$query}}
 
-	var rs int
-	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		rs, err = query.Count(ctx, db,
-				{{- range $f := $idx.Fields }}
-			{{$f | LowerInitial}},
-				{{- end }}
-		)
-		return errors.Trace(err)
-	})
+	rs, err := query.Count(ctx, db,
+		{{- range $f := $idx.Fields }}
+		{{$f | LowerInitial}},
+		{{- end }}
+	)
+	return rs, errors.Trace(err)
 }
 			{{- end }}
 
@@ -936,16 +807,12 @@ func {{$name}}(
 ) ({{$list}}, error) {
 	query := {{$query}}
 
-	var data {{$list}}
-	return data, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		data, err = tsq.List[{{$type}}](ctx, db, query,
-				{{- range $f := $idx.Fields }}
-			{{$f | LowerInitial}},
-				{{- end }}
-		)
-		return errors.Trace(err)
-	})
+	data, err := tsq.List[{{$type}}](ctx, db, query,
+		{{- range $f := $idx.Fields }}
+		{{$f | LowerInitial}},
+		{{- end }}
+	)
+	return data, errors.Trace(err)
 }
 			{{- end }}
 
@@ -961,16 +828,12 @@ func {{$name}}(
 ) (*{{$pageResp}}, error) {
 	query := {{$query}}
 
-	var rs *{{$pageResp}}
-	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		rs, err = tsq.Page[{{$type}}](ctx, db, page, query,
-				{{- range $f := $idx.Fields }}
-			{{$f | LowerInitial}},
-				{{- end }}
-		)
-		return errors.Trace(err)
-	})
+	rs, err := tsq.Page[{{$type}}](ctx, db, page, query,
+		{{- range $f := $idx.Fields }}
+		{{$f | LowerInitial}},
+		{{- end }}
+	)
+	return rs, errors.Trace(err)
 }
 			{{- end }}
 		{{- end }}
@@ -1010,12 +873,7 @@ func {{$name}}(
 				{{- end }}
 		).
 		MustBuild()
-	var list {{$list}}
-	err := tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		list, err = tsq.List[{{$type}}](ctx, db, query)
-		return errors.Trace(err)
-	})
+	list, err := tsq.List[{{$type}}](ctx, db, query)
 	return list, errors.Trace(err)
 }
 			{{- end }}
@@ -1044,16 +902,12 @@ func {{$name}}(
 ) (int, error) {
 	query := {{$query}}
 
-	var rs int
-	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		rs, err = query.Count(ctx, db,
-					{{- range $f := $idx.Fields }}
-			{{$f | LowerInitial}},
-					{{- end }}
-		)
-		return errors.Trace(err)
-	})
+	rs, err := query.Count(ctx, db,
+		{{- range $f := $idx.Fields }}
+		{{$f | LowerInitial}},
+		{{- end }}
+	)
+	return rs, errors.Trace(err)
 }
 				{{- end }}
 
@@ -1068,16 +922,12 @@ func {{$name}}(
 ) ({{$list}}, error) {
 	query := {{$query}}
 
-	var data {{$list}}
-	return data, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		data, err = tsq.List[{{$type}}](ctx, db, query,
-					{{- range $f := $idx.Fields }}
-			{{$f | LowerInitial}},
-					{{- end }}
-		)
-		return errors.Trace(err)
-	})
+	data, err := tsq.List[{{$type}}](ctx, db, query,
+		{{- range $f := $idx.Fields }}
+		{{$f | LowerInitial}},
+		{{- end }}
+	)
+	return data, errors.Trace(err)
 }
 				{{- end }}
 
@@ -1093,16 +943,12 @@ func {{$name}}(
 ) (*{{$pageResp}}, error) {
 	query := {{$query}}
 
-	var rs *{{$pageResp}}
-	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		rs, err = tsq.Page[{{$type}}](ctx, db, page, query,
-					{{- range $f := $idx.Fields }}
-			{{$f | LowerInitial}},
-					{{- end }}
-		)
-		return errors.Trace(err)
-	})
+	rs, err := tsq.Page[{{$type}}](ctx, db, page, query,
+		{{- range $f := $idx.Fields }}
+		{{$f | LowerInitial}},
+		{{- end }}
+	)
+	return rs, errors.Trace(err)
 }
 				{{- end }}
 			{{- end }}

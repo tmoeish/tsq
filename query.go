@@ -149,6 +149,16 @@ func (q *Query) QueryInt(
 	tx gorp.SqlExecutor,
 	args ...any,
 ) (int64, error) {
+	return Trace1(ctx, func(ctx context.Context) (int64, error) {
+		return q.queryIntFn(ctx, tx, args...)
+	})
+}
+
+func (q *Query) queryIntFn(
+	ctx context.Context,
+	tx gorp.SqlExecutor,
+	args ...any,
+) (int64, error) {
 	logrus.Tracef("QueryInt:\n%s\n%v", q.listSQL, args)
 
 	result, err := tx.WithContext(ctx).SelectInt(q.listSQL, args...)
@@ -161,6 +171,16 @@ func (q *Query) QueryInt(
 
 // QueryFloat executes the query and returns a single float result
 func (q *Query) QueryFloat(
+	ctx context.Context,
+	tx gorp.SqlExecutor,
+	args ...any,
+) (float64, error) {
+	return Trace1(ctx, func(ctx context.Context) (float64, error) {
+		return q.queryFloatFn(ctx, tx, args...)
+	})
+}
+
+func (q *Query) queryFloatFn(
 	ctx context.Context,
 	tx gorp.SqlExecutor,
 	args ...any,
@@ -181,6 +201,16 @@ func (q *Query) QueryStr(
 	tx gorp.SqlExecutor,
 	args ...any,
 ) (string, error) {
+	return Trace1(ctx, func(ctx context.Context) (string, error) {
+		return q.queryStrFn(ctx, tx, args...)
+	})
+}
+
+func (q *Query) queryStrFn(
+	ctx context.Context,
+	tx gorp.SqlExecutor,
+	args ...any,
+) (string, error) {
 	logrus.Tracef("QueryStr:\n%s\n%v", q.listSQL, args)
 
 	result, err := tx.WithContext(ctx).SelectStr(q.listSQL, args...)
@@ -193,6 +223,16 @@ func (q *Query) QueryStr(
 
 // Count executes the count query and returns the number of matching records
 func (q *Query) Count(
+	ctx context.Context,
+	tx gorp.SqlExecutor,
+	args ...any,
+) (int, error) {
+	return Trace1(ctx, func(ctx context.Context) (int, error) {
+		return q.countFn(ctx, tx, args...)
+	})
+}
+
+func (q *Query) countFn(
 	ctx context.Context,
 	tx gorp.SqlExecutor,
 	args ...any,
@@ -213,6 +253,16 @@ func (q *Query) Exists(
 	tx gorp.SqlExecutor,
 	args ...any,
 ) (bool, error) {
+	return Trace1(ctx, func(ctx context.Context) (bool, error) {
+		return q.existsFn(ctx, tx, args...)
+	})
+}
+
+func (q *Query) existsFn(
+	ctx context.Context,
+	tx gorp.SqlExecutor,
+	args ...any,
+) (bool, error) {
 	logrus.Tracef("Exists:\n%s\n%v", q.cntSQL, args)
 
 	count, err := tx.WithContext(ctx).SelectInt(q.cntSQL, args...)
@@ -229,6 +279,18 @@ func (q *Query) Exists(
 
 // Page executes a paginated query with the given page parameters
 func Page[T any](
+	ctx context.Context,
+	tx gorp.SqlExecutor,
+	page *PageReq,
+	q *Query,
+	args ...any,
+) (*PageResp[T], error) {
+	return Trace1(ctx, func(ctx context.Context) (*PageResp[T], error) {
+		return pageFn[T](ctx, tx, page, q, args...)
+	})
+}
+
+func pageFn[T any](
 	ctx context.Context,
 	tx gorp.SqlExecutor,
 	page *PageReq,
@@ -306,6 +368,17 @@ func List[T any](
 	qb *Query,
 	args ...any,
 ) ([]*T, error) {
+	return Trace1(ctx, func(ctx context.Context) ([]*T, error) {
+		return listFn[T](ctx, tx, qb, args...)
+	})
+}
+
+func listFn[T any](
+	ctx context.Context,
+	tx gorp.SqlExecutor,
+	qb *Query,
+	args ...any,
+) ([]*T, error) {
 	logrus.Tracef("List:\n%s\n%v", qb.listSQL, args)
 
 	rows, err := tx.WithContext(ctx).Query(qb.listSQL, args...)
@@ -347,6 +420,17 @@ func GetOrErr[T any](
 	qb *Query,
 	args ...any,
 ) (*T, error) {
+	return Trace1(ctx, func(ctx context.Context) (*T, error) {
+		return getOrErrFn[T](ctx, tx, qb, args...)
+	})
+}
+
+func getOrErrFn[T any](
+	ctx context.Context,
+	tx gorp.SqlExecutor,
+	qb *Query,
+	args ...any,
+) (*T, error) {
 	logrus.Tracef("GetOrErr:\n%s\n%v", qb.listSQL, args)
 
 	row := tx.WithContext(ctx).QueryRow(qb.listSQL, args...)
@@ -373,6 +457,17 @@ func GetOrErr[T any](
 }
 
 func (qb *Query) Load(
+	ctx context.Context,
+	tx gorp.SqlExecutor,
+	holder any,
+	args ...any,
+) error {
+	return Trace(ctx, func(ctx context.Context) error {
+		return qb.loadFn(ctx, tx, holder, args...)
+	})
+}
+
+func (qb *Query) loadFn(
 	ctx context.Context,
 	tx gorp.SqlExecutor,
 	holder any,
@@ -487,6 +582,17 @@ func BatchInsert[T Table](
 	items []*T,
 	options ...*BatchInsertOptions,
 ) error {
+	return Trace(ctx, func(ctx context.Context) error {
+		return batchInsertFn[T](ctx, tx, items, options...)
+	})
+}
+
+func batchInsertFn[T Table](
+	ctx context.Context,
+	tx gorp.SqlExecutor,
+	items []*T,
+	options ...*BatchInsertOptions,
+) error {
 	if len(items) == 0 {
 		return nil
 	}
@@ -561,6 +667,17 @@ func BatchUpdate[T any](
 	items []*T,
 	options ...*BatchInsertOptions,
 ) error {
+	return Trace(ctx, func(ctx context.Context) error {
+		return batchUpdateFn[T](ctx, tx, items, options...)
+	})
+}
+
+func batchUpdateFn[T any](
+	ctx context.Context,
+	tx gorp.SqlExecutor,
+	items []*T,
+	options ...*BatchInsertOptions,
+) error {
 	if len(items) == 0 {
 		return nil
 	}
@@ -608,6 +725,17 @@ func BatchDelete[T any](
 	items []*T,
 	options ...*BatchInsertOptions,
 ) error {
+	return Trace(ctx, func(ctx context.Context) error {
+		return batchDeleteFn[T](ctx, tx, items, options...)
+	})
+}
+
+func batchDeleteFn[T any](
+	ctx context.Context,
+	tx gorp.SqlExecutor,
+	items []*T,
+	options ...*BatchInsertOptions,
+) error {
 	if len(items) == 0 {
 		return nil
 	}
@@ -650,6 +778,19 @@ func batchDeleteChunk[T any](
 
 // BatchDeleteByIDs 根据 ID 列表批量删除数据
 func BatchDeleteByIDs[T any](
+	ctx context.Context,
+	tx gorp.SqlExecutor,
+	tableName string,
+	idColumn string,
+	ids []any,
+	options ...*BatchInsertOptions,
+) error {
+	return Trace(ctx, func(ctx context.Context) error {
+		return batchDeleteByIDsFn[T](ctx, tx, tableName, idColumn, ids, options...)
+	})
+}
+
+func batchDeleteByIDsFn[T any](
 	ctx context.Context,
 	tx gorp.SqlExecutor,
 	tableName string,
@@ -759,4 +900,60 @@ func isDuplicateKeyError(err error) bool {
 	}
 
 	return false
+}
+
+func Insert[T any](
+	ctx context.Context,
+	tx gorp.SqlExecutor,
+	item *T,
+) error {
+	return Trace(ctx, func(ctx context.Context) error {
+		return insertFn(ctx, tx, item)
+	})
+}
+
+func insertFn[T any](
+	ctx context.Context,
+	tx gorp.SqlExecutor,
+	item *T,
+) error {
+	return tx.WithContext(ctx).Insert(item)
+}
+
+func Update[T any](
+	ctx context.Context,
+	tx gorp.SqlExecutor,
+	item *T,
+) error {
+	return Trace(ctx, func(ctx context.Context) error {
+		return updateFn(ctx, tx, item)
+	})
+}
+
+func updateFn[T any](
+	ctx context.Context,
+	tx gorp.SqlExecutor,
+	item *T,
+) error {
+	_, err := tx.WithContext(ctx).Update(item)
+	return errors.Trace(err)
+}
+
+func Delete[T any](
+	ctx context.Context,
+	tx gorp.SqlExecutor,
+	item *T,
+) error {
+	return Trace(ctx, func(ctx context.Context) error {
+		return deleteFn(ctx, tx, item)
+	})
+}
+
+func deleteFn[T any](
+	ctx context.Context,
+	tx gorp.SqlExecutor,
+	item *T,
+) error {
+	_, err := tx.WithContext(ctx).Delete(item)
+	return errors.Trace(err)
 }

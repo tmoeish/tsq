@@ -109,9 +109,7 @@ func (o *Order) Active() bool {
 // =============================================================================
 var getOrderByIDQuery = tsq.
 	Select(TableOrderCols...).
-	Where(
-		Order_ID.EQVar(),
-	).
+	Where(Order_ID.EQVar()).
 	MustBuild()
 
 // GetOrderByID retrieves a Order record by its ID.
@@ -122,18 +120,15 @@ func GetOrderByID(
 	id int64,
 ) (*Order, error) {
 	row := &Order{}
-	return row, tsq.Trace(ctx, func(ctx context.Context) error {
-		err := getOrderByIDQuery.Load(ctx, db, row, id)
-		switch errors.Cause(err) {
-		case nil:
-			return nil
-		case sql.ErrNoRows:
-			row = nil
-			return nil
-		default:
-			return errors.Trace(err)
-		}
-	})
+	err := getOrderByIDQuery.Load(ctx, db, row, id)
+	switch errors.Cause(err) {
+	case nil:
+		return row, nil
+	case sql.ErrNoRows:
+		return nil, nil
+	default:
+		return nil, errors.Trace(err)
+	}
 }
 
 // GetOrderByIDOrErr retrieves a Order record by its ID.
@@ -144,12 +139,7 @@ func GetOrderByIDOrErr(
 	id int64,
 ) (*Order, error) {
 	row := &Order{}
-	err := tsq.Trace(ctx, func(ctx context.Context) error {
-		return getOrderByIDQuery.Load(
-			ctx, db, row, id,
-		)
-	})
-	return row, errors.Trace(err)
+	return row, getOrderByIDQuery.Load(ctx, db, row, id)
 }
 
 // ListOrderByIDIn retrieves multiple Order records by a set of ID values.
@@ -164,17 +154,7 @@ func ListOrderByIDIn(
 		Where(Order_ID.In(ids...)).
 		MustBuild()
 
-	var list []*Order
-	return list, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		list, err = tsq.List[Order](
-			ctx, db, query,
-		)
-		if err != nil {
-			return errors.Trace(err)
-		}
-		return nil
-	})
+	return tsq.List[Order](ctx, db, query)
 }
 
 // ListOrderByIDInOrErr retrieves multiple Order records by a set of ID values.
@@ -192,28 +172,23 @@ func ListOrderByIDInOrErr(
 		Select(TableOrderCols...).
 		Where(Order_ID.In(ids...)).
 		MustBuild()
-	var list []*Order
-	return list, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		list, err = tsq.List[Order](
-			ctx, db, query,
-		)
-		if err != nil {
-			return errors.Trace(err)
-		}
 
-		for _, i := range list {
-			delete(idSet, i.ID)
+	list, err := tsq.List[Order](ctx, db, query)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	for _, i := range list {
+		delete(idSet, i.ID)
+	}
+	if len(idSet) > 0 {
+		var missings []int64
+		for i := range idSet {
+			missings = append(missings, i)
 		}
-		if len(idSet) > 0 {
-			var missings []int64
-			for i := range idSet {
-				missings = append(missings, i)
-			}
-			return errors.Errorf("Order(s) not found: %v", missings)
-		}
-		return nil
-	})
+		return nil, errors.Errorf("Order(s) not found: %v", missings)
+	}
+	return list, nil
 }
 
 // =============================================================================
@@ -235,18 +210,15 @@ func GetActiveOrderByID(
 	id int64,
 ) (*Order, error) {
 	row := &Order{}
-	return row, tsq.Trace(ctx, func(ctx context.Context) error {
-		err := getActiveOrderByIDQuery.Load(ctx, db, row, id)
-		switch errors.Cause(err) {
-		case nil:
-			return nil
-		case sql.ErrNoRows:
-			row = nil
-			return nil
-		default:
-			return errors.Trace(err)
-		}
-	})
+	err := getActiveOrderByIDQuery.Load(ctx, db, row, id)
+	switch errors.Cause(err) {
+	case nil:
+		return row, nil
+	case sql.ErrNoRows:
+		return nil, nil
+	default:
+		return nil, errors.Trace(err)
+	}
 }
 
 // GetActiveOrderByIDOrErr retrieves an active (non-deleted) Order record by its ID.
@@ -257,9 +229,7 @@ func GetActiveOrderByIDOrErr(
 	id int64,
 ) (*Order, error) {
 	row := &Order{}
-	err := tsq.Trace(ctx, func(ctx context.Context) error {
-		return getActiveOrderByIDQuery.Load(ctx, db, row, id)
-	})
+	err := getActiveOrderByIDQuery.Load(ctx, db, row, id)
 	return row, errors.Trace(err)
 }
 
@@ -277,16 +247,11 @@ func ListActiveOrderByIDIn(
 			Order_ID.In(ids...),
 		).
 		MustBuild()
-	var list []*Order
-	err := tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		list, err = tsq.List[Order](ctx, db, query)
-		if err != nil {
-			return errors.Trace(err)
-		}
-		return nil
-	})
-	return list, errors.Trace(err)
+	list, err := tsq.List[Order](ctx, db, query)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	return list, nil
 }
 
 // ListActiveOrderByIDInOrErr retrieves multiple active (non-deleted) Order records by a set of ID values.
@@ -309,24 +274,21 @@ func ListActiveOrderByIDInOrErr(
 		MustBuild()
 
 	var list []*Order
-	return list, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		list, err = tsq.List[Order](ctx, db, query)
-		if err != nil {
-			return errors.Trace(err)
+	list, err := tsq.List[Order](ctx, db, query)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+	for _, i := range list {
+		delete(idSet, i.ID)
+	}
+	if len(idSet) > 0 {
+		var missings []int64
+		for i := range idSet {
+			missings = append(missings, i)
 		}
-		for _, i := range list {
-			delete(idSet, i.ID)
-		}
-		if len(idSet) > 0 {
-			var missings []int64
-			for i := range idSet {
-				missings = append(missings, i)
-			}
-			return errors.Errorf("Order(s) not found: %v", missings)
-		}
-		return nil
-	})
+		return nil, errors.Errorf("Order(s) not found: %v", missings)
+	}
+	return list, nil
 }
 
 // =============================================================================
@@ -339,16 +301,14 @@ func (o *Order) Insert(
 	ctx context.Context,
 	db gorp.SqlExecutor,
 ) error {
-	return tsq.Trace(ctx, func(ctx context.Context) error {
-		o.CT = time.Now()
-		o.ModifiedTime = null.TimeFrom(time.Now())
-		err := db.Insert(o)
-		if err != nil {
-			return errors.Annotate(err, tsq.PrettyJSON(o))
-		}
+	o.CT = time.Now()
+	o.ModifiedTime = null.TimeFrom(time.Now())
+	err := tsq.Insert(ctx, db, o)
+	if err != nil {
+		return errors.Annotate(err, tsq.PrettyJSON(o))
+	}
 
-		return nil
-	})
+	return nil
 }
 
 // Update updates an existing Order record in the database.
@@ -357,15 +317,13 @@ func (o *Order) Update(
 	ctx context.Context,
 	db gorp.SqlExecutor,
 ) error {
-	return tsq.Trace(ctx, func(ctx context.Context) error {
-		o.ModifiedTime = null.TimeFrom(time.Now())
-		_, err := db.Update(o)
-		if err != nil {
-			return errors.Annotate(err, tsq.PrettyJSON(o))
-		}
+	o.ModifiedTime = null.TimeFrom(time.Now())
+	err := tsq.Update(ctx, db, o)
+	if err != nil {
+		return errors.Annotate(err, tsq.PrettyJSON(o))
+	}
 
-		return nil
-	})
+	return nil
 }
 
 // Delete permanently removes a Order record from the database.
@@ -373,14 +331,12 @@ func (o *Order) Delete(
 	ctx context.Context,
 	db gorp.SqlExecutor,
 ) error {
-	return tsq.Trace(ctx, func(ctx context.Context) error {
-		_, err := db.Delete(o)
-		if err != nil {
-			return errors.Annotate(err, tsq.PrettyJSON(o))
-		}
+	err := tsq.Delete(ctx, db, o)
+	if err != nil {
+		return errors.Annotate(err, tsq.PrettyJSON(o))
+	}
 
-		return nil
-	})
+	return nil
 }
 
 // SoftDelete marks a Order record as deleted without removing it from the database.
@@ -390,20 +346,18 @@ func (o *Order) SoftDelete(
 	db gorp.SqlExecutor,
 	dt int64,
 ) error {
-	return tsq.Trace(ctx, func(ctx context.Context) error {
-		if dt > 0 {
-			o.DT = dt
-		} else {
-			o.DT = time.Now().UnixNano()
-		}
-		o.ModifiedTime = null.TimeFrom(time.Now())
-		_, err := db.Update(o)
-		if err != nil {
-			return errors.Annotate(err, tsq.PrettyJSON(o))
-		}
+	if dt > 0 {
+		o.DT = dt
+	} else {
+		o.DT = time.Now().UnixNano()
+	}
+	o.ModifiedTime = null.TimeFrom(time.Now())
+	err := tsq.Update(ctx, db, o)
+	if err != nil {
+		return errors.Annotate(err, tsq.PrettyJSON(o))
+	}
 
-		return nil
-	})
+	return nil
 }
 
 // ListOrderByQuery executes a custom query to retrieve Order records.
@@ -413,12 +367,7 @@ func ListOrderByQuery(
 	qb *tsq.Query,
 	args ...any,
 ) ([]*Order, error) {
-	var data []*Order
-	return data, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		data, err = tsq.List[Order](ctx, tx, qb, args...)
-		return errors.Trace(err)
-	})
+	return tsq.List[Order](ctx, tx, qb, args...)
 }
 
 // PageOrderByQuery executes a custom query with pagination to retrieve Order records.
@@ -429,14 +378,7 @@ func PageOrderByQuery(
 	qb *tsq.Query,
 	args ...any,
 ) (*tsq.PageResp[Order], error) {
-	var rs *tsq.PageResp[Order]
-	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		rs, err = tsq.Page[Order](
-			ctx, tx, page, qb, args...,
-		)
-		return errors.Trace(err)
-	})
+	return tsq.Page[Order](ctx, tx, page, qb, args...)
 }
 
 // =============================================================================
@@ -453,14 +395,7 @@ func CountOrder(
 	ctx context.Context,
 	tx gorp.SqlExecutor,
 ) (int, error) {
-	query := listOrderQuery
-
-	var rs int
-	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		rs, err = query.Count(ctx, tx)
-		return errors.Trace(err)
-	})
+	return listOrderQuery.Count(ctx, tx)
 }
 
 // ListOrder retrieves all Order records from the database.
@@ -468,14 +403,7 @@ func ListOrder(
 	ctx context.Context,
 	tx gorp.SqlExecutor,
 ) ([]*Order, error) {
-	query := listOrderQuery
-
-	var data []*Order
-	return data, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		data, err = tsq.List[Order](ctx, tx, query)
-		return errors.Trace(err)
-	})
+	return tsq.List[Order](ctx, tx, listOrderQuery)
 }
 
 // PageOrder retrieves Order records with pagination support.
@@ -484,16 +412,7 @@ func PageOrder(
 	tx gorp.SqlExecutor,
 	page *tsq.PageReq,
 ) (*tsq.PageResp[Order], error) {
-	query := listOrderQuery
-
-	var rs *tsq.PageResp[Order]
-	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		rs, err = tsq.Page[Order](
-			ctx, tx, page, query,
-		)
-		return errors.Trace(err)
-	})
+	return tsq.Page[Order](ctx, tx, page, listOrderQuery)
 }
 
 // =============================================================================
@@ -511,14 +430,7 @@ func CountActiveOrder(
 	ctx context.Context,
 	tx gorp.SqlExecutor,
 ) (int, error) {
-	query := listActiveOrderQuery
-
-	var rs int
-	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		rs, err = query.Count(ctx, tx)
-		return errors.Trace(err)
-	})
+	return listActiveOrderQuery.Count(ctx, tx)
 }
 
 // ListActiveOrder retrieves all active (non-deleted) Order records.
@@ -526,14 +438,7 @@ func ListActiveOrder(
 	ctx context.Context,
 	tx gorp.SqlExecutor,
 ) ([]*Order, error) {
-	query := listActiveOrderQuery
-
-	var data []*Order
-	return data, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		data, err = tsq.List[Order](ctx, tx, query)
-		return errors.Trace(err)
-	})
+	return tsq.List[Order](ctx, tx, listActiveOrderQuery)
 }
 
 // PageActiveOrder retrieves active (non-deleted) Order records with pagination support.
@@ -542,16 +447,7 @@ func PageActiveOrder(
 	tx gorp.SqlExecutor,
 	page *tsq.PageReq,
 ) (*tsq.PageResp[Order], error) {
-	query := listActiveOrderQuery
-
-	var rs *tsq.PageResp[Order]
-	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		rs, err = tsq.Page[Order](
-			ctx, tx, page, query,
-		)
-		return errors.Trace(err)
-	})
+	return tsq.Page[Order](ctx, tx, page, listActiveOrderQuery)
 }
 
 // =============================================================================
@@ -580,14 +476,10 @@ func CountOrderByItemID(
 ) (int, error) {
 	query := ListOrderByItemIDQuery
 
-	var rs int
-	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		rs, err = query.Count(ctx, db,
-			itemID,
-		)
-		return errors.Trace(err)
-	})
+	rs, err := query.Count(ctx, db,
+		itemID,
+	)
+	return rs, errors.Trace(err)
 }
 
 // ListOrderByItemID retrieves Order records by index ItemID.
@@ -598,14 +490,10 @@ func ListOrderByItemID(
 ) ([]*Order, error) {
 	query := ListOrderByItemIDQuery
 
-	var data []*Order
-	return data, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		data, err = tsq.List[Order](ctx, db, query,
-			itemID,
-		)
-		return errors.Trace(err)
-	})
+	data, err := tsq.List[Order](ctx, db, query,
+		itemID,
+	)
+	return data, errors.Trace(err)
 }
 
 // PageOrderByItemID retrieves Order records by index ItemID with pagination support.
@@ -617,14 +505,10 @@ func PageOrderByItemID(
 ) (*tsq.PageResp[Order], error) {
 	query := ListOrderByItemIDQuery
 
-	var rs *tsq.PageResp[Order]
-	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		rs, err = tsq.Page[Order](ctx, db, page, query,
-			itemID,
-		)
-		return errors.Trace(err)
-	})
+	rs, err := tsq.Page[Order](ctx, db, page, query,
+		itemID,
+	)
+	return rs, errors.Trace(err)
 }
 
 // ListOrderByItemIDIn retrieves Order records by index ItemIDIn using IN clause for batch querying.
@@ -639,12 +523,7 @@ func ListOrderByItemIDIn(
 			Order_ItemID.In(itemIDs...),
 		).
 		MustBuild()
-	var list []*Order
-	err := tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		list, err = tsq.List[Order](ctx, db, query)
-		return errors.Trace(err)
-	})
+	list, err := tsq.List[Order](ctx, db, query)
 	return list, errors.Trace(err)
 }
 
@@ -665,14 +544,10 @@ func CountOrderByUserID(
 ) (int, error) {
 	query := ListOrderByUserIDQuery
 
-	var rs int
-	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		rs, err = query.Count(ctx, db,
-			userID,
-		)
-		return errors.Trace(err)
-	})
+	rs, err := query.Count(ctx, db,
+		userID,
+	)
+	return rs, errors.Trace(err)
 }
 
 // ListOrderByUserID retrieves Order records by index UserID.
@@ -683,14 +558,10 @@ func ListOrderByUserID(
 ) ([]*Order, error) {
 	query := ListOrderByUserIDQuery
 
-	var data []*Order
-	return data, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		data, err = tsq.List[Order](ctx, db, query,
-			userID,
-		)
-		return errors.Trace(err)
-	})
+	data, err := tsq.List[Order](ctx, db, query,
+		userID,
+	)
+	return data, errors.Trace(err)
 }
 
 // PageOrderByUserID retrieves Order records by index UserID with pagination support.
@@ -702,14 +573,10 @@ func PageOrderByUserID(
 ) (*tsq.PageResp[Order], error) {
 	query := ListOrderByUserIDQuery
 
-	var rs *tsq.PageResp[Order]
-	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		rs, err = tsq.Page[Order](ctx, db, page, query,
-			userID,
-		)
-		return errors.Trace(err)
-	})
+	rs, err := tsq.Page[Order](ctx, db, page, query,
+		userID,
+	)
+	return rs, errors.Trace(err)
 }
 
 // ListOrderByUserIDAndItemIDQuery queries Order records by index UserIDAndItemID.
@@ -731,15 +598,11 @@ func CountOrderByUserIDAndItemID(
 ) (int, error) {
 	query := ListOrderByUserIDAndItemIDQuery
 
-	var rs int
-	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		rs, err = query.Count(ctx, db,
-			userID,
-			itemID,
-		)
-		return errors.Trace(err)
-	})
+	rs, err := query.Count(ctx, db,
+		userID,
+		itemID,
+	)
+	return rs, errors.Trace(err)
 }
 
 // ListOrderByUserIDAndItemID retrieves Order records by index UserIDAndItemID.
@@ -751,15 +614,11 @@ func ListOrderByUserIDAndItemID(
 ) ([]*Order, error) {
 	query := ListOrderByUserIDAndItemIDQuery
 
-	var data []*Order
-	return data, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		data, err = tsq.List[Order](ctx, db, query,
-			userID,
-			itemID,
-		)
-		return errors.Trace(err)
-	})
+	data, err := tsq.List[Order](ctx, db, query,
+		userID,
+		itemID,
+	)
+	return data, errors.Trace(err)
 }
 
 // PageOrderByUserIDAndItemID retrieves Order records by index UserIDAndItemID with pagination support.
@@ -772,15 +631,11 @@ func PageOrderByUserIDAndItemID(
 ) (*tsq.PageResp[Order], error) {
 	query := ListOrderByUserIDAndItemIDQuery
 
-	var rs *tsq.PageResp[Order]
-	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		rs, err = tsq.Page[Order](ctx, db, page, query,
-			userID,
-			itemID,
-		)
-		return errors.Trace(err)
-	})
+	rs, err := tsq.Page[Order](ctx, db, page, query,
+		userID,
+		itemID,
+	)
+	return rs, errors.Trace(err)
 }
 
 // ListOrderByUserIDAndItemIDIn retrieves Order records by index UserIDAndItemIDIn using IN clause for batch querying.
@@ -797,12 +652,7 @@ func ListOrderByUserIDAndItemIDIn(
 			Order_ItemID.In(itemIDs...),
 		).
 		MustBuild()
-	var list []*Order
-	err := tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		list, err = tsq.List[Order](ctx, db, query)
-		return errors.Trace(err)
-	})
+	list, err := tsq.List[Order](ctx, db, query)
 	return list, errors.Trace(err)
 }
 
@@ -818,12 +668,7 @@ func ListOrderByUserIDIn(
 			Order_UserID.In(userIDs...),
 		).
 		MustBuild()
-	var list []*Order
-	err := tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		list, err = tsq.List[Order](ctx, db, query)
-		return errors.Trace(err)
-	})
+	list, err := tsq.List[Order](ctx, db, query)
 	return list, errors.Trace(err)
 }
 
@@ -848,14 +693,10 @@ func CountActiveOrderByItemID(
 ) (int, error) {
 	query := listActiveOrderByItemIDQuery
 
-	var rs int
-	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		rs, err = query.Count(ctx, db,
-			itemID,
-		)
-		return errors.Trace(err)
-	})
+	rs, err := query.Count(ctx, db,
+		itemID,
+	)
+	return rs, errors.Trace(err)
 }
 
 // ListActiveOrderByItemID retrieves active (non-deleted) Order records by index ItemID.
@@ -866,14 +707,10 @@ func ListActiveOrderByItemID(
 ) ([]*Order, error) {
 	query := listActiveOrderByItemIDQuery
 
-	var data []*Order
-	return data, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		data, err = tsq.List[Order](ctx, db, query,
-			itemID,
-		)
-		return errors.Trace(err)
-	})
+	data, err := tsq.List[Order](ctx, db, query,
+		itemID,
+	)
+	return data, errors.Trace(err)
 }
 
 // PageActiveOrderByItemID retrieves active (non-deleted) Order records by index ItemID with pagination support.
@@ -885,14 +722,10 @@ func PageActiveOrderByItemID(
 ) (*tsq.PageResp[Order], error) {
 	query := listActiveOrderByItemIDQuery
 
-	var rs *tsq.PageResp[Order]
-	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		rs, err = tsq.Page[Order](ctx, db, page, query,
-			itemID,
-		)
-		return errors.Trace(err)
-	})
+	rs, err := tsq.Page[Order](ctx, db, page, query,
+		itemID,
+	)
+	return rs, errors.Trace(err)
 }
 
 // ListActiveOrderByItemIDIn retrieves active (non-deleted) Order records by index ItemIDIn using IN clause for batch querying.
@@ -908,12 +741,7 @@ func ListActiveOrderByItemIDIn(
 			Order_ItemID.In(itemIDs...),
 		).
 		MustBuild()
-	var list []*Order
-	err := tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		list, err = tsq.List[Order](ctx, db, query)
-		return errors.Trace(err)
-	})
+	list, err := tsq.List[Order](ctx, db, query)
 	return list, errors.Trace(err)
 }
 
@@ -935,14 +763,10 @@ func CountActiveOrderByUserID(
 ) (int, error) {
 	query := listActiveOrderByUserIDQuery
 
-	var rs int
-	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		rs, err = query.Count(ctx, db,
-			userID,
-		)
-		return errors.Trace(err)
-	})
+	rs, err := query.Count(ctx, db,
+		userID,
+	)
+	return rs, errors.Trace(err)
 }
 
 // ListActiveOrderByUserID retrieves active (non-deleted) Order records by index UserID.
@@ -953,14 +777,10 @@ func ListActiveOrderByUserID(
 ) ([]*Order, error) {
 	query := listActiveOrderByUserIDQuery
 
-	var data []*Order
-	return data, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		data, err = tsq.List[Order](ctx, db, query,
-			userID,
-		)
-		return errors.Trace(err)
-	})
+	data, err := tsq.List[Order](ctx, db, query,
+		userID,
+	)
+	return data, errors.Trace(err)
 }
 
 // PageActiveOrderByUserID retrieves active (non-deleted) Order records by index UserID with pagination support.
@@ -972,14 +792,10 @@ func PageActiveOrderByUserID(
 ) (*tsq.PageResp[Order], error) {
 	query := listActiveOrderByUserIDQuery
 
-	var rs *tsq.PageResp[Order]
-	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		rs, err = tsq.Page[Order](ctx, db, page, query,
-			userID,
-		)
-		return errors.Trace(err)
-	})
+	rs, err := tsq.Page[Order](ctx, db, page, query,
+		userID,
+	)
+	return rs, errors.Trace(err)
 }
 
 // listActiveOrderByUserIDAndItemIDQuery queries active (non-deleted) Order records by index UserIDAndItemID.
@@ -1002,15 +818,11 @@ func CountActiveOrderByUserIDAndItemID(
 ) (int, error) {
 	query := listActiveOrderByUserIDAndItemIDQuery
 
-	var rs int
-	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		rs, err = query.Count(ctx, db,
-			userID,
-			itemID,
-		)
-		return errors.Trace(err)
-	})
+	rs, err := query.Count(ctx, db,
+		userID,
+		itemID,
+	)
+	return rs, errors.Trace(err)
 }
 
 // ListActiveOrderByUserIDAndItemID retrieves active (non-deleted) Order records by index UserIDAndItemID.
@@ -1022,15 +834,11 @@ func ListActiveOrderByUserIDAndItemID(
 ) ([]*Order, error) {
 	query := listActiveOrderByUserIDAndItemIDQuery
 
-	var data []*Order
-	return data, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		data, err = tsq.List[Order](ctx, db, query,
-			userID,
-			itemID,
-		)
-		return errors.Trace(err)
-	})
+	data, err := tsq.List[Order](ctx, db, query,
+		userID,
+		itemID,
+	)
+	return data, errors.Trace(err)
 }
 
 // PageActiveOrderByUserIDAndItemID retrieves active (non-deleted) Order records by index UserIDAndItemID with pagination support.
@@ -1043,15 +851,11 @@ func PageActiveOrderByUserIDAndItemID(
 ) (*tsq.PageResp[Order], error) {
 	query := listActiveOrderByUserIDAndItemIDQuery
 
-	var rs *tsq.PageResp[Order]
-	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		rs, err = tsq.Page[Order](ctx, db, page, query,
-			userID,
-			itemID,
-		)
-		return errors.Trace(err)
-	})
+	rs, err := tsq.Page[Order](ctx, db, page, query,
+		userID,
+		itemID,
+	)
+	return rs, errors.Trace(err)
 }
 
 // ListActiveOrderByUserIDAndItemIDIn retrieves active (non-deleted) Order records by index UserIDAndItemIDIn using IN clause for batch querying.
@@ -1069,12 +873,7 @@ func ListActiveOrderByUserIDAndItemIDIn(
 			Order_ItemID.In(itemIDs...),
 		).
 		MustBuild()
-	var list []*Order
-	err := tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		list, err = tsq.List[Order](ctx, db, query)
-		return errors.Trace(err)
-	})
+	list, err := tsq.List[Order](ctx, db, query)
 	return list, errors.Trace(err)
 }
 
@@ -1091,11 +890,6 @@ func ListActiveOrderByUserIDIn(
 			Order_UserID.In(userIDs...),
 		).
 		MustBuild()
-	var list []*Order
-	err := tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		list, err = tsq.List[Order](ctx, db, query)
-		return errors.Trace(err)
-	})
+	list, err := tsq.List[Order](ctx, db, query)
 	return list, errors.Trace(err)
 }

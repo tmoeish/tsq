@@ -57,6 +57,29 @@ func Trace(ctx context.Context, fn func(ctx context.Context) error) error {
 	return wrappedFn(ctx)
 }
 
+func Trace1[T any](
+	ctx context.Context,
+	fn func(ctx context.Context) (T, error),
+) (T, error) {
+	// Apply tracers in reverse order to create proper middleware chain
+
+	var result T
+	wrappedFn := func(ctx context.Context) error {
+		var err error
+		result, err = fn(ctx)
+		if err != nil {
+			return err
+		}
+		return nil
+	}
+
+	for i := len(tracers) - 1; i >= 0; i-- {
+		wrappedFn = tracers[i](wrappedFn)
+	}
+
+	return result, wrappedFn(ctx)
+}
+
 // ================================================
 // 内置追踪器
 // ================================================

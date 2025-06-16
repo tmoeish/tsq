@@ -84,9 +84,7 @@ func (c Category) KwList() []tsq.Column {
 // =============================================================================
 var getCategoryByIDQuery = tsq.
 	Select(TableCategoryCols...).
-	Where(
-		Category_ID.EQVar(),
-	).
+	Where(Category_ID.EQVar()).
 	MustBuild()
 
 // GetCategoryByID retrieves a Category record by its ID.
@@ -97,18 +95,15 @@ func GetCategoryByID(
 	id int64,
 ) (*Category, error) {
 	row := &Category{}
-	return row, tsq.Trace(ctx, func(ctx context.Context) error {
-		err := getCategoryByIDQuery.Load(ctx, db, row, id)
-		switch errors.Cause(err) {
-		case nil:
-			return nil
-		case sql.ErrNoRows:
-			row = nil
-			return nil
-		default:
-			return errors.Trace(err)
-		}
-	})
+	err := getCategoryByIDQuery.Load(ctx, db, row, id)
+	switch errors.Cause(err) {
+	case nil:
+		return row, nil
+	case sql.ErrNoRows:
+		return nil, nil
+	default:
+		return nil, errors.Trace(err)
+	}
 }
 
 // GetCategoryByIDOrErr retrieves a Category record by its ID.
@@ -119,12 +114,7 @@ func GetCategoryByIDOrErr(
 	id int64,
 ) (*Category, error) {
 	row := &Category{}
-	err := tsq.Trace(ctx, func(ctx context.Context) error {
-		return getCategoryByIDQuery.Load(
-			ctx, db, row, id,
-		)
-	})
-	return row, errors.Trace(err)
+	return row, getCategoryByIDQuery.Load(ctx, db, row, id)
 }
 
 // ListCategoryByIDIn retrieves multiple Category records by a set of ID values.
@@ -139,17 +129,7 @@ func ListCategoryByIDIn(
 		Where(Category_ID.In(ids...)).
 		MustBuild()
 
-	var list []*Category
-	return list, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		list, err = tsq.List[Category](
-			ctx, db, query,
-		)
-		if err != nil {
-			return errors.Trace(err)
-		}
-		return nil
-	})
+	return tsq.List[Category](ctx, db, query)
 }
 
 // ListCategoryByIDInOrErr retrieves multiple Category records by a set of ID values.
@@ -167,28 +147,23 @@ func ListCategoryByIDInOrErr(
 		Select(TableCategoryCols...).
 		Where(Category_ID.In(ids...)).
 		MustBuild()
-	var list []*Category
-	return list, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		list, err = tsq.List[Category](
-			ctx, db, query,
-		)
-		if err != nil {
-			return errors.Trace(err)
-		}
 
-		for _, i := range list {
-			delete(idSet, i.ID)
+	list, err := tsq.List[Category](ctx, db, query)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	for _, i := range list {
+		delete(idSet, i.ID)
+	}
+	if len(idSet) > 0 {
+		var missings []int64
+		for i := range idSet {
+			missings = append(missings, i)
 		}
-		if len(idSet) > 0 {
-			var missings []int64
-			for i := range idSet {
-				missings = append(missings, i)
-			}
-			return errors.Errorf("Category(s) not found: %v", missings)
-		}
-		return nil
-	})
+		return nil, errors.Errorf("Category(s) not found: %v", missings)
+	}
+	return list, nil
 }
 
 // =============================================================================
@@ -201,15 +176,13 @@ func (c *Category) Insert(
 	ctx context.Context,
 	db gorp.SqlExecutor,
 ) error {
-	return tsq.Trace(ctx, func(ctx context.Context) error {
-		c.CT = null.TimeFrom(time.Now())
-		err := db.Insert(c)
-		if err != nil {
-			return errors.Annotate(err, tsq.PrettyJSON(c))
-		}
+	c.CT = null.TimeFrom(time.Now())
+	err := tsq.Insert(ctx, db, c)
+	if err != nil {
+		return errors.Annotate(err, tsq.PrettyJSON(c))
+	}
 
-		return nil
-	})
+	return nil
 }
 
 // Update updates an existing Category record in the database.
@@ -218,14 +191,12 @@ func (c *Category) Update(
 	ctx context.Context,
 	db gorp.SqlExecutor,
 ) error {
-	return tsq.Trace(ctx, func(ctx context.Context) error {
-		_, err := db.Update(c)
-		if err != nil {
-			return errors.Annotate(err, tsq.PrettyJSON(c))
-		}
+	err := tsq.Update(ctx, db, c)
+	if err != nil {
+		return errors.Annotate(err, tsq.PrettyJSON(c))
+	}
 
-		return nil
-	})
+	return nil
 }
 
 // Delete permanently removes a Category record from the database.
@@ -233,14 +204,12 @@ func (c *Category) Delete(
 	ctx context.Context,
 	db gorp.SqlExecutor,
 ) error {
-	return tsq.Trace(ctx, func(ctx context.Context) error {
-		_, err := db.Delete(c)
-		if err != nil {
-			return errors.Annotate(err, tsq.PrettyJSON(c))
-		}
+	err := tsq.Delete(ctx, db, c)
+	if err != nil {
+		return errors.Annotate(err, tsq.PrettyJSON(c))
+	}
 
-		return nil
-	})
+	return nil
 }
 
 // ListCategoryByQuery executes a custom query to retrieve Category records.
@@ -250,12 +219,7 @@ func ListCategoryByQuery(
 	qb *tsq.Query,
 	args ...any,
 ) ([]*Category, error) {
-	var data []*Category
-	return data, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		data, err = tsq.List[Category](ctx, tx, qb, args...)
-		return errors.Trace(err)
-	})
+	return tsq.List[Category](ctx, tx, qb, args...)
 }
 
 // PageCategoryByQuery executes a custom query with pagination to retrieve Category records.
@@ -266,14 +230,7 @@ func PageCategoryByQuery(
 	qb *tsq.Query,
 	args ...any,
 ) (*tsq.PageResp[Category], error) {
-	var rs *tsq.PageResp[Category]
-	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		rs, err = tsq.Page[Category](
-			ctx, tx, page, qb, args...,
-		)
-		return errors.Trace(err)
-	})
+	return tsq.Page[Category](ctx, tx, page, qb, args...)
 }
 
 // =============================================================================
@@ -290,14 +247,7 @@ func CountCategory(
 	ctx context.Context,
 	tx gorp.SqlExecutor,
 ) (int, error) {
-	query := listCategoryQuery
-
-	var rs int
-	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		rs, err = query.Count(ctx, tx)
-		return errors.Trace(err)
-	})
+	return listCategoryQuery.Count(ctx, tx)
 }
 
 // ListCategory retrieves all Category records from the database.
@@ -305,14 +255,7 @@ func ListCategory(
 	ctx context.Context,
 	tx gorp.SqlExecutor,
 ) ([]*Category, error) {
-	query := listCategoryQuery
-
-	var data []*Category
-	return data, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		data, err = tsq.List[Category](ctx, tx, query)
-		return errors.Trace(err)
-	})
+	return tsq.List[Category](ctx, tx, listCategoryQuery)
 }
 
 // PageCategory retrieves Category records with pagination support.
@@ -321,16 +264,7 @@ func PageCategory(
 	tx gorp.SqlExecutor,
 	page *tsq.PageReq,
 ) (*tsq.PageResp[Category], error) {
-	query := listCategoryQuery
-
-	var rs *tsq.PageResp[Category]
-	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		rs, err = tsq.Page[Category](
-			ctx, tx, page, query,
-		)
-		return errors.Trace(err)
-	})
+	return tsq.Page[Category](ctx, tx, page, listCategoryQuery)
 }
 
 // =============================================================================
@@ -354,20 +288,17 @@ func GetCategoryByName(
 	query := getCategoryByNameQuery
 
 	row := &Category{}
-	return row, tsq.Trace(ctx, func(ctx context.Context) error {
-		err := query.Load(ctx, db, row,
-			name,
-		)
-		switch errors.Cause(err) {
-		case nil:
-			return nil
-		case sql.ErrNoRows:
-			row = nil
-			return nil
-		default:
-			return errors.Trace(err)
-		}
-	})
+	err := query.Load(ctx, db, row,
+		name,
+	)
+	switch errors.Cause(err) {
+	case nil:
+		return row, nil
+	case sql.ErrNoRows:
+		return nil, nil
+	default:
+		return nil, errors.Trace(err)
+	}
 }
 
 // GetCategoryByNameOrErr retrieves a Category record by unique index ux_name.
@@ -380,11 +311,10 @@ func GetCategoryByNameOrErr(
 	query := getCategoryByNameQuery
 
 	row := &Category{}
-	return row, tsq.Trace(ctx, func(ctx context.Context) error {
-		return query.Load(ctx, db, row,
-			name,
-		)
-	})
+	err := query.Load(ctx, db, row,
+		name,
+	)
+	return row, errors.Trace(err)
 }
 
 // ExistsCategoryByName checks whether a Category record exists by unique index ux_name.
@@ -395,12 +325,8 @@ func ExistsCategoryByName(
 ) (bool, error) {
 	query := getCategoryByNameQuery
 
-	var rs bool
-	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		rs, err = query.Exists(ctx, db,
-			name,
-		)
-		return errors.Trace(err)
-	})
+	rs, err := query.Exists(ctx, db,
+		name,
+	)
+	return rs, errors.Trace(err)
 }

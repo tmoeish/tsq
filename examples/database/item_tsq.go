@@ -87,9 +87,7 @@ func (i Item) KwList() []tsq.Column {
 // =============================================================================
 var getItemByIDQuery = tsq.
 	Select(TableItemCols...).
-	Where(
-		Item_ID.EQVar(),
-	).
+	Where(Item_ID.EQVar()).
 	MustBuild()
 
 // GetItemByID retrieves a Item record by its ID.
@@ -100,18 +98,15 @@ func GetItemByID(
 	id int64,
 ) (*Item, error) {
 	row := &Item{}
-	return row, tsq.Trace(ctx, func(ctx context.Context) error {
-		err := getItemByIDQuery.Load(ctx, db, row, id)
-		switch errors.Cause(err) {
-		case nil:
-			return nil
-		case sql.ErrNoRows:
-			row = nil
-			return nil
-		default:
-			return errors.Trace(err)
-		}
-	})
+	err := getItemByIDQuery.Load(ctx, db, row, id)
+	switch errors.Cause(err) {
+	case nil:
+		return row, nil
+	case sql.ErrNoRows:
+		return nil, nil
+	default:
+		return nil, errors.Trace(err)
+	}
 }
 
 // GetItemByIDOrErr retrieves a Item record by its ID.
@@ -122,12 +117,7 @@ func GetItemByIDOrErr(
 	id int64,
 ) (*Item, error) {
 	row := &Item{}
-	err := tsq.Trace(ctx, func(ctx context.Context) error {
-		return getItemByIDQuery.Load(
-			ctx, db, row, id,
-		)
-	})
-	return row, errors.Trace(err)
+	return row, getItemByIDQuery.Load(ctx, db, row, id)
 }
 
 // ListItemByIDIn retrieves multiple Item records by a set of ID values.
@@ -142,17 +132,7 @@ func ListItemByIDIn(
 		Where(Item_ID.In(ids...)).
 		MustBuild()
 
-	var list []*Item
-	return list, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		list, err = tsq.List[Item](
-			ctx, db, query,
-		)
-		if err != nil {
-			return errors.Trace(err)
-		}
-		return nil
-	})
+	return tsq.List[Item](ctx, db, query)
 }
 
 // ListItemByIDInOrErr retrieves multiple Item records by a set of ID values.
@@ -170,28 +150,23 @@ func ListItemByIDInOrErr(
 		Select(TableItemCols...).
 		Where(Item_ID.In(ids...)).
 		MustBuild()
-	var list []*Item
-	return list, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		list, err = tsq.List[Item](
-			ctx, db, query,
-		)
-		if err != nil {
-			return errors.Trace(err)
-		}
 
-		for _, i := range list {
-			delete(idSet, i.ID)
+	list, err := tsq.List[Item](ctx, db, query)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	for _, i := range list {
+		delete(idSet, i.ID)
+	}
+	if len(idSet) > 0 {
+		var missings []int64
+		for i := range idSet {
+			missings = append(missings, i)
 		}
-		if len(idSet) > 0 {
-			var missings []int64
-			for i := range idSet {
-				missings = append(missings, i)
-			}
-			return errors.Errorf("Item(s) not found: %v", missings)
-		}
-		return nil
-	})
+		return nil, errors.Errorf("Item(s) not found: %v", missings)
+	}
+	return list, nil
 }
 
 // =============================================================================
@@ -204,15 +179,13 @@ func (i *Item) Insert(
 	ctx context.Context,
 	db gorp.SqlExecutor,
 ) error {
-	return tsq.Trace(ctx, func(ctx context.Context) error {
-		i.CT = null.TimeFrom(time.Now())
-		err := db.Insert(i)
-		if err != nil {
-			return errors.Annotate(err, tsq.PrettyJSON(i))
-		}
+	i.CT = null.TimeFrom(time.Now())
+	err := tsq.Insert(ctx, db, i)
+	if err != nil {
+		return errors.Annotate(err, tsq.PrettyJSON(i))
+	}
 
-		return nil
-	})
+	return nil
 }
 
 // Update updates an existing Item record in the database.
@@ -221,14 +194,12 @@ func (i *Item) Update(
 	ctx context.Context,
 	db gorp.SqlExecutor,
 ) error {
-	return tsq.Trace(ctx, func(ctx context.Context) error {
-		_, err := db.Update(i)
-		if err != nil {
-			return errors.Annotate(err, tsq.PrettyJSON(i))
-		}
+	err := tsq.Update(ctx, db, i)
+	if err != nil {
+		return errors.Annotate(err, tsq.PrettyJSON(i))
+	}
 
-		return nil
-	})
+	return nil
 }
 
 // Delete permanently removes a Item record from the database.
@@ -236,14 +207,12 @@ func (i *Item) Delete(
 	ctx context.Context,
 	db gorp.SqlExecutor,
 ) error {
-	return tsq.Trace(ctx, func(ctx context.Context) error {
-		_, err := db.Delete(i)
-		if err != nil {
-			return errors.Annotate(err, tsq.PrettyJSON(i))
-		}
+	err := tsq.Delete(ctx, db, i)
+	if err != nil {
+		return errors.Annotate(err, tsq.PrettyJSON(i))
+	}
 
-		return nil
-	})
+	return nil
 }
 
 // ListItemByQuery executes a custom query to retrieve Item records.
@@ -253,12 +222,7 @@ func ListItemByQuery(
 	qb *tsq.Query,
 	args ...any,
 ) ([]*Item, error) {
-	var data []*Item
-	return data, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		data, err = tsq.List[Item](ctx, tx, qb, args...)
-		return errors.Trace(err)
-	})
+	return tsq.List[Item](ctx, tx, qb, args...)
 }
 
 // PageItemByQuery executes a custom query with pagination to retrieve Item records.
@@ -269,14 +233,7 @@ func PageItemByQuery(
 	qb *tsq.Query,
 	args ...any,
 ) (*tsq.PageResp[Item], error) {
-	var rs *tsq.PageResp[Item]
-	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		rs, err = tsq.Page[Item](
-			ctx, tx, page, qb, args...,
-		)
-		return errors.Trace(err)
-	})
+	return tsq.Page[Item](ctx, tx, page, qb, args...)
 }
 
 // =============================================================================
@@ -293,14 +250,7 @@ func CountItem(
 	ctx context.Context,
 	tx gorp.SqlExecutor,
 ) (int, error) {
-	query := listItemQuery
-
-	var rs int
-	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		rs, err = query.Count(ctx, tx)
-		return errors.Trace(err)
-	})
+	return listItemQuery.Count(ctx, tx)
 }
 
 // ListItem retrieves all Item records from the database.
@@ -308,14 +258,7 @@ func ListItem(
 	ctx context.Context,
 	tx gorp.SqlExecutor,
 ) ([]*Item, error) {
-	query := listItemQuery
-
-	var data []*Item
-	return data, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		data, err = tsq.List[Item](ctx, tx, query)
-		return errors.Trace(err)
-	})
+	return tsq.List[Item](ctx, tx, listItemQuery)
 }
 
 // PageItem retrieves Item records with pagination support.
@@ -324,16 +267,7 @@ func PageItem(
 	tx gorp.SqlExecutor,
 	page *tsq.PageReq,
 ) (*tsq.PageResp[Item], error) {
-	query := listItemQuery
-
-	var rs *tsq.PageResp[Item]
-	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		rs, err = tsq.Page[Item](
-			ctx, tx, page, query,
-		)
-		return errors.Trace(err)
-	})
+	return tsq.Page[Item](ctx, tx, page, listItemQuery)
 }
 
 // =============================================================================
@@ -357,20 +291,17 @@ func GetItemByName(
 	query := getItemByNameQuery
 
 	row := &Item{}
-	return row, tsq.Trace(ctx, func(ctx context.Context) error {
-		err := query.Load(ctx, db, row,
-			name,
-		)
-		switch errors.Cause(err) {
-		case nil:
-			return nil
-		case sql.ErrNoRows:
-			row = nil
-			return nil
-		default:
-			return errors.Trace(err)
-		}
-	})
+	err := query.Load(ctx, db, row,
+		name,
+	)
+	switch errors.Cause(err) {
+	case nil:
+		return row, nil
+	case sql.ErrNoRows:
+		return nil, nil
+	default:
+		return nil, errors.Trace(err)
+	}
 }
 
 // GetItemByNameOrErr retrieves a Item record by unique index ux_name.
@@ -383,11 +314,10 @@ func GetItemByNameOrErr(
 	query := getItemByNameQuery
 
 	row := &Item{}
-	return row, tsq.Trace(ctx, func(ctx context.Context) error {
-		return query.Load(ctx, db, row,
-			name,
-		)
-	})
+	err := query.Load(ctx, db, row,
+		name,
+	)
+	return row, errors.Trace(err)
 }
 
 // ExistsItemByName checks whether a Item record exists by unique index ux_name.
@@ -398,14 +328,10 @@ func ExistsItemByName(
 ) (bool, error) {
 	query := getItemByNameQuery
 
-	var rs bool
-	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		rs, err = query.Exists(ctx, db,
-			name,
-		)
-		return errors.Trace(err)
-	})
+	rs, err := query.Exists(ctx, db,
+		name,
+	)
+	return rs, errors.Trace(err)
 }
 
 // =============================================================================
@@ -428,14 +354,10 @@ func CountItemByCategoryID(
 ) (int, error) {
 	query := ListItemByCategoryIDQuery
 
-	var rs int
-	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		rs, err = query.Count(ctx, db,
-			categoryID,
-		)
-		return errors.Trace(err)
-	})
+	rs, err := query.Count(ctx, db,
+		categoryID,
+	)
+	return rs, errors.Trace(err)
 }
 
 // ListItemByCategoryID retrieves Item records by index CategoryID.
@@ -446,14 +368,10 @@ func ListItemByCategoryID(
 ) ([]*Item, error) {
 	query := ListItemByCategoryIDQuery
 
-	var data []*Item
-	return data, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		data, err = tsq.List[Item](ctx, db, query,
-			categoryID,
-		)
-		return errors.Trace(err)
-	})
+	data, err := tsq.List[Item](ctx, db, query,
+		categoryID,
+	)
+	return data, errors.Trace(err)
 }
 
 // PageItemByCategoryID retrieves Item records by index CategoryID with pagination support.
@@ -465,14 +383,10 @@ func PageItemByCategoryID(
 ) (*tsq.PageResp[Item], error) {
 	query := ListItemByCategoryIDQuery
 
-	var rs *tsq.PageResp[Item]
-	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		rs, err = tsq.Page[Item](ctx, db, page, query,
-			categoryID,
-		)
-		return errors.Trace(err)
-	})
+	rs, err := tsq.Page[Item](ctx, db, page, query,
+		categoryID,
+	)
+	return rs, errors.Trace(err)
 }
 
 // ListItemByCategoryIDIn retrieves Item records by index CategoryIDIn using IN clause for batch querying.
@@ -487,11 +401,6 @@ func ListItemByCategoryIDIn(
 			Item_CategoryID.In(categoryIDs...),
 		).
 		MustBuild()
-	var list []*Item
-	err := tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		list, err = tsq.List[Item](ctx, db, query)
-		return errors.Trace(err)
-	})
+	list, err := tsq.List[Item](ctx, db, query)
 	return list, errors.Trace(err)
 }

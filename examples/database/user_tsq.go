@@ -84,9 +84,7 @@ func (u User) KwList() []tsq.Column {
 // =============================================================================
 var getUserByIDQuery = tsq.
 	Select(TableUserCols...).
-	Where(
-		User_ID.EQVar(),
-	).
+	Where(User_ID.EQVar()).
 	MustBuild()
 
 // GetUserByID retrieves a User record by its ID.
@@ -97,18 +95,15 @@ func GetUserByID(
 	id int64,
 ) (*User, error) {
 	row := &User{}
-	return row, tsq.Trace(ctx, func(ctx context.Context) error {
-		err := getUserByIDQuery.Load(ctx, db, row, id)
-		switch errors.Cause(err) {
-		case nil:
-			return nil
-		case sql.ErrNoRows:
-			row = nil
-			return nil
-		default:
-			return errors.Trace(err)
-		}
-	})
+	err := getUserByIDQuery.Load(ctx, db, row, id)
+	switch errors.Cause(err) {
+	case nil:
+		return row, nil
+	case sql.ErrNoRows:
+		return nil, nil
+	default:
+		return nil, errors.Trace(err)
+	}
 }
 
 // GetUserByIDOrErr retrieves a User record by its ID.
@@ -119,12 +114,7 @@ func GetUserByIDOrErr(
 	id int64,
 ) (*User, error) {
 	row := &User{}
-	err := tsq.Trace(ctx, func(ctx context.Context) error {
-		return getUserByIDQuery.Load(
-			ctx, db, row, id,
-		)
-	})
-	return row, errors.Trace(err)
+	return row, getUserByIDQuery.Load(ctx, db, row, id)
 }
 
 // ListUserByIDIn retrieves multiple User records by a set of ID values.
@@ -139,17 +129,7 @@ func ListUserByIDIn(
 		Where(User_ID.In(ids...)).
 		MustBuild()
 
-	var list []*User
-	return list, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		list, err = tsq.List[User](
-			ctx, db, query,
-		)
-		if err != nil {
-			return errors.Trace(err)
-		}
-		return nil
-	})
+	return tsq.List[User](ctx, db, query)
 }
 
 // ListUserByIDInOrErr retrieves multiple User records by a set of ID values.
@@ -167,28 +147,23 @@ func ListUserByIDInOrErr(
 		Select(TableUserCols...).
 		Where(User_ID.In(ids...)).
 		MustBuild()
-	var list []*User
-	return list, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		list, err = tsq.List[User](
-			ctx, db, query,
-		)
-		if err != nil {
-			return errors.Trace(err)
-		}
 
-		for _, i := range list {
-			delete(idSet, i.ID)
+	list, err := tsq.List[User](ctx, db, query)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	for _, i := range list {
+		delete(idSet, i.ID)
+	}
+	if len(idSet) > 0 {
+		var missings []int64
+		for i := range idSet {
+			missings = append(missings, i)
 		}
-		if len(idSet) > 0 {
-			var missings []int64
-			for i := range idSet {
-				missings = append(missings, i)
-			}
-			return errors.Errorf("User(s) not found: %v", missings)
-		}
-		return nil
-	})
+		return nil, errors.Errorf("User(s) not found: %v", missings)
+	}
+	return list, nil
 }
 
 // =============================================================================
@@ -201,15 +176,13 @@ func (u *User) Insert(
 	ctx context.Context,
 	db gorp.SqlExecutor,
 ) error {
-	return tsq.Trace(ctx, func(ctx context.Context) error {
-		u.CT = null.TimeFrom(time.Now())
-		err := db.Insert(u)
-		if err != nil {
-			return errors.Annotate(err, tsq.PrettyJSON(u))
-		}
+	u.CT = null.TimeFrom(time.Now())
+	err := tsq.Insert(ctx, db, u)
+	if err != nil {
+		return errors.Annotate(err, tsq.PrettyJSON(u))
+	}
 
-		return nil
-	})
+	return nil
 }
 
 // Update updates an existing User record in the database.
@@ -218,14 +191,12 @@ func (u *User) Update(
 	ctx context.Context,
 	db gorp.SqlExecutor,
 ) error {
-	return tsq.Trace(ctx, func(ctx context.Context) error {
-		_, err := db.Update(u)
-		if err != nil {
-			return errors.Annotate(err, tsq.PrettyJSON(u))
-		}
+	err := tsq.Update(ctx, db, u)
+	if err != nil {
+		return errors.Annotate(err, tsq.PrettyJSON(u))
+	}
 
-		return nil
-	})
+	return nil
 }
 
 // Delete permanently removes a User record from the database.
@@ -233,14 +204,12 @@ func (u *User) Delete(
 	ctx context.Context,
 	db gorp.SqlExecutor,
 ) error {
-	return tsq.Trace(ctx, func(ctx context.Context) error {
-		_, err := db.Delete(u)
-		if err != nil {
-			return errors.Annotate(err, tsq.PrettyJSON(u))
-		}
+	err := tsq.Delete(ctx, db, u)
+	if err != nil {
+		return errors.Annotate(err, tsq.PrettyJSON(u))
+	}
 
-		return nil
-	})
+	return nil
 }
 
 // ListUserByQuery executes a custom query to retrieve User records.
@@ -250,12 +219,7 @@ func ListUserByQuery(
 	qb *tsq.Query,
 	args ...any,
 ) ([]*User, error) {
-	var data []*User
-	return data, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		data, err = tsq.List[User](ctx, tx, qb, args...)
-		return errors.Trace(err)
-	})
+	return tsq.List[User](ctx, tx, qb, args...)
 }
 
 // PageUserByQuery executes a custom query with pagination to retrieve User records.
@@ -266,14 +230,7 @@ func PageUserByQuery(
 	qb *tsq.Query,
 	args ...any,
 ) (*tsq.PageResp[User], error) {
-	var rs *tsq.PageResp[User]
-	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		rs, err = tsq.Page[User](
-			ctx, tx, page, qb, args...,
-		)
-		return errors.Trace(err)
-	})
+	return tsq.Page[User](ctx, tx, page, qb, args...)
 }
 
 // =============================================================================
@@ -290,14 +247,7 @@ func CountUser(
 	ctx context.Context,
 	tx gorp.SqlExecutor,
 ) (int, error) {
-	query := listUserQuery
-
-	var rs int
-	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		rs, err = query.Count(ctx, tx)
-		return errors.Trace(err)
-	})
+	return listUserQuery.Count(ctx, tx)
 }
 
 // ListUser retrieves all User records from the database.
@@ -305,14 +255,7 @@ func ListUser(
 	ctx context.Context,
 	tx gorp.SqlExecutor,
 ) ([]*User, error) {
-	query := listUserQuery
-
-	var data []*User
-	return data, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		data, err = tsq.List[User](ctx, tx, query)
-		return errors.Trace(err)
-	})
+	return tsq.List[User](ctx, tx, listUserQuery)
 }
 
 // PageUser retrieves User records with pagination support.
@@ -321,16 +264,7 @@ func PageUser(
 	tx gorp.SqlExecutor,
 	page *tsq.PageReq,
 ) (*tsq.PageResp[User], error) {
-	query := listUserQuery
-
-	var rs *tsq.PageResp[User]
-	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		rs, err = tsq.Page[User](
-			ctx, tx, page, query,
-		)
-		return errors.Trace(err)
-	})
+	return tsq.Page[User](ctx, tx, page, listUserQuery)
 }
 
 // =============================================================================
@@ -354,20 +288,17 @@ func GetUserByName(
 	query := getUserByNameQuery
 
 	row := &User{}
-	return row, tsq.Trace(ctx, func(ctx context.Context) error {
-		err := query.Load(ctx, db, row,
-			name,
-		)
-		switch errors.Cause(err) {
-		case nil:
-			return nil
-		case sql.ErrNoRows:
-			row = nil
-			return nil
-		default:
-			return errors.Trace(err)
-		}
-	})
+	err := query.Load(ctx, db, row,
+		name,
+	)
+	switch errors.Cause(err) {
+	case nil:
+		return row, nil
+	case sql.ErrNoRows:
+		return nil, nil
+	default:
+		return nil, errors.Trace(err)
+	}
 }
 
 // GetUserByNameOrErr retrieves a User record by unique index ux_name.
@@ -380,11 +311,10 @@ func GetUserByNameOrErr(
 	query := getUserByNameQuery
 
 	row := &User{}
-	return row, tsq.Trace(ctx, func(ctx context.Context) error {
-		return query.Load(ctx, db, row,
-			name,
-		)
-	})
+	err := query.Load(ctx, db, row,
+		name,
+	)
+	return row, errors.Trace(err)
 }
 
 // ExistsUserByName checks whether a User record exists by unique index ux_name.
@@ -395,12 +325,8 @@ func ExistsUserByName(
 ) (bool, error) {
 	query := getUserByNameQuery
 
-	var rs bool
-	return rs, tsq.Trace(ctx, func(ctx context.Context) error {
-		var err error
-		rs, err = query.Exists(ctx, db,
-			name,
-		)
-		return errors.Trace(err)
-	})
+	rs, err := query.Exists(ctx, db,
+		name,
+	)
+	return rs, errors.Trace(err)
 }
