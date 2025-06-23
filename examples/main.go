@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"time"
 
 	"log/slog"
 
@@ -32,7 +31,8 @@ func main() {
 	// 2. 初始化 gorp
 	dbmap := &gorp.DbMap{Db: db, Dialect: gorp.SqliteDialect{}}
 
-	err = tsq.Init(dbmap, true, true, TraceDB, TraceDB1)
+	// err = tsq.Init(dbmap, true, true, tsq.PrintCost, tsq.PrintError, tsq.PrintSQL)
+	err = tsq.Init(dbmap, true, true, tsq.PrintError, tsq.PrintSQL)
 	if err != nil {
 		slog.Info("tsq.Init 失败", "err", err, "stack", errors.ErrorStack(err))
 		os.Exit(1)
@@ -77,30 +77,6 @@ func main() {
 	runBatchInsertDemo(ctx, dbmap)
 
 	// RunAllExamples(ctx, dbmap)
-}
-
-func TraceDB(next tsq.Fn) tsq.Fn {
-	return func(ctx context.Context) error {
-		slog.Info("TraceDB start")
-		start := time.Now()
-		err := next(ctx)
-		elapsed := time.Since(start)
-		slog.Info("TraceDB end", "err", err, "elapsed", elapsed)
-
-		return err
-	}
-}
-
-func TraceDB1(next tsq.Fn) tsq.Fn {
-	return func(ctx context.Context) error {
-		slog.Info("TraceDB1 start")
-		start := time.Now()
-		err := next(ctx)
-		elapsed := time.Since(start)
-		slog.Info("TraceDB1 end", "err", err, "elapsed", elapsed)
-
-		return err
-	}
 }
 
 // runBatchInsertDemo 运行批量插入演示

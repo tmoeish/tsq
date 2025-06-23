@@ -3,7 +3,10 @@ package tsq
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"time"
+
+	"github.com/juju/errors"
 )
 
 // ================================================
@@ -86,41 +89,46 @@ func Trace1[T any](
 // 内置追踪器
 // ================================================
 
-// TimingTracer creates a tracer that logs execution time
-func TimingTracer(name string) Tracer {
-	return func(next Fn) Fn {
-		return func(ctx context.Context) error {
-			start := time.Now()
-			err := next(ctx)
-			duration := time.Since(start)
+func PrintCost(next Fn) Fn {
+	return func(ctx context.Context) error {
+		start := time.Now()
+		err := next(ctx)
 
-			// You can customize this to use your preferred logging library
-			if err != nil {
-				// Log error with timing
-				_ = duration // TODO: Add actual logging
-			} else {
-				// Log success with timing
-				_ = duration // TODO: Add actual logging
-			}
+		duration := time.Since(start)
 
-			return err
+		// You can customize this to use your preferred logging library
+		if err != nil {
+			// Log error with timing
+			slog.Info("cost", "duration", duration, "error", errors.ErrorStack(err))
+		} else {
+			// Log success with timing
+			slog.Info("cost", "duration", duration)
 		}
+
+		return err
 	}
 }
 
-// ErrorTracer creates a tracer that handles errors
-func ErrorTracer() Tracer {
-	return func(next Fn) Fn {
-		return func(ctx context.Context) error {
-			err := next(ctx)
-			if err != nil {
-				// You can customize error handling here
-				// For example: send to error tracking service, log, etc.
-				_ = err // TODO: Add actual error handling
-			}
-
-			return err
+func PrintError(next Fn) Fn {
+	return func(ctx context.Context) error {
+		err := next(ctx)
+		if err != nil {
+			slog.Error("error", "error", errors.ErrorStack(err))
 		}
+
+		return err
+	}
+}
+
+type contextKey string
+
+const (
+	printSQL contextKey = "printSQL"
+)
+
+func PrintSQL(next Fn) Fn {
+	return func(ctx context.Context) error {
+		return next(context.WithValue(ctx, printSQL, true))
 	}
 }
 

@@ -150,20 +150,22 @@ func (q *Query) QueryInt(
 	args ...any,
 ) (int64, error) {
 	return Trace1(ctx, func(ctx context.Context) (int64, error) {
-		return q.queryIntFn(ctx, tx, args...)
+		return q.queryInt(ctx, tx, args...)
 	})
 }
 
-func (q *Query) queryIntFn(
+func (q *Query) queryInt(
 	ctx context.Context,
 	tx gorp.SqlExecutor,
 	args ...any,
 ) (int64, error) {
-	slog.Debug("QueryInt", "sql", q.listSQL, "args", args)
+	if ctx.Value(printSQL) != nil {
+		slog.Info("queryInt", "sql", q.listSQL, "args", CompactJSON(args))
+	}
 
 	result, err := tx.WithContext(ctx).SelectInt(q.listSQL, args...)
 	if err != nil {
-		return 0, errors.Annotatef(err, "\n%s\n%v", q.listSQL, args)
+		return 0, errors.Annotatef(err, "\n%s\n%v", q.listSQL, CompactJSON(args))
 	}
 
 	return result, nil
@@ -176,20 +178,22 @@ func (q *Query) QueryFloat(
 	args ...any,
 ) (float64, error) {
 	return Trace1(ctx, func(ctx context.Context) (float64, error) {
-		return q.queryFloatFn(ctx, tx, args...)
+		return q.queryFloat(ctx, tx, args...)
 	})
 }
 
-func (q *Query) queryFloatFn(
+func (q *Query) queryFloat(
 	ctx context.Context,
 	tx gorp.SqlExecutor,
 	args ...any,
 ) (float64, error) {
-	slog.Debug("QueryFloat", "sql", q.listSQL, "args", args)
+	if ctx.Value(printSQL) != nil {
+		slog.Info("queryFloat", "sql", q.listSQL, "args", CompactJSON(args))
+	}
 
 	result, err := tx.WithContext(ctx).SelectFloat(q.listSQL, args...)
 	if err != nil {
-		return 0, errors.Annotatef(err, "\n%s\n%v", q.listSQL, args)
+		return 0, errors.Annotatef(err, "\n%s\n%v", q.listSQL, CompactJSON(args))
 	}
 
 	return result, nil
@@ -202,20 +206,22 @@ func (q *Query) QueryStr(
 	args ...any,
 ) (string, error) {
 	return Trace1(ctx, func(ctx context.Context) (string, error) {
-		return q.queryStrFn(ctx, tx, args...)
+		return q.queryStr(ctx, tx, args...)
 	})
 }
 
-func (q *Query) queryStrFn(
+func (q *Query) queryStr(
 	ctx context.Context,
 	tx gorp.SqlExecutor,
 	args ...any,
 ) (string, error) {
-	slog.Debug("QueryStr", "sql", q.listSQL, "args", args)
+	if ctx.Value(printSQL) != nil {
+		slog.Info("queryStr", "sql", q.listSQL, "args", CompactJSON(args))
+	}
 
 	result, err := tx.WithContext(ctx).SelectStr(q.listSQL, args...)
 	if err != nil {
-		return "", errors.Annotatef(err, "\n%s\n%v", q.listSQL, args)
+		return "", errors.Annotatef(err, "\n%s\n%v", q.listSQL, CompactJSON(args))
 	}
 
 	return result, nil
@@ -228,16 +234,18 @@ func (q *Query) Count(
 	args ...any,
 ) (int, error) {
 	return Trace1(ctx, func(ctx context.Context) (int, error) {
-		return q.countFn(ctx, tx, args...)
+		return q.count(ctx, tx, args...)
 	})
 }
 
-func (q *Query) countFn(
+func (q *Query) count(
 	ctx context.Context,
 	tx gorp.SqlExecutor,
 	args ...any,
 ) (int, error) {
-	slog.Debug("Count", "sql", q.cntSQL, "args", args)
+	if ctx.Value(printSQL) != nil {
+		slog.Info("count", "sql", q.cntSQL, "args", CompactJSON(args))
+	}
 
 	count, err := tx.WithContext(ctx).SelectInt(q.cntSQL, args...)
 	if err != nil {
@@ -254,16 +262,18 @@ func (q *Query) Exists(
 	args ...any,
 ) (bool, error) {
 	return Trace1(ctx, func(ctx context.Context) (bool, error) {
-		return q.existsFn(ctx, tx, args...)
+		return q.exist(ctx, tx, args...)
 	})
 }
 
-func (q *Query) existsFn(
+func (q *Query) exist(
 	ctx context.Context,
 	tx gorp.SqlExecutor,
 	args ...any,
 ) (bool, error) {
-	slog.Debug("Exists", "sql", q.cntSQL, "args", args)
+	if ctx.Value(printSQL) != nil {
+		slog.Info("exist", "sql", q.cntSQL, "args", CompactJSON(args))
+	}
 
 	count, err := tx.WithContext(ctx).SelectInt(q.cntSQL, args...)
 	if err != nil {
@@ -315,20 +325,21 @@ func pageFn[T any](
 	// Add LIMIT parameters
 	argsWithLimit := append(finalArgs, page.Size, page.Offset())
 
-	// Execute count query
-	slog.Debug("Count SQL", "sql", cntSQL, "args", finalArgs)
+	if ctx.Value(printSQL) != nil {
+		slog.Info("count", "sql", cntSQL, "args", CompactJSON(finalArgs))
+		slog.Info("list", "sql", listSQL, "args", CompactJSON(argsWithLimit))
+	}
 
+	// Execute count query
 	count, err := tx.WithContext(ctx).SelectInt(cntSQL, finalArgs...)
 	if err != nil {
-		return nil, errors.Annotatef(err, "\n%s\n%v", cntSQL, finalArgs)
+		return nil, errors.Annotatef(err, "\n%s\n%v", cntSQL, CompactJSON(finalArgs))
 	}
 
 	// Execute list query
-	slog.Debug("List SQL", "sql", listSQL, "args", argsWithLimit)
-
 	rows, err := tx.WithContext(ctx).Query(listSQL, argsWithLimit...)
 	if err != nil {
-		return nil, errors.Annotatef(err, "\n%s\n%v", listSQL, argsWithLimit)
+		return nil, errors.Annotatef(err, "\n%s\n%v", listSQL, CompactJSON(argsWithLimit))
 	}
 
 	defer func() {
@@ -338,7 +349,7 @@ func pageFn[T any](
 	}()
 
 	if err := rows.Err(); err != nil {
-		return nil, errors.Annotatef(err, "\n%s\n%v", listSQL, argsWithLimit)
+		return nil, errors.Annotatef(err, "\n%s\n%v", listSQL, CompactJSON(argsWithLimit))
 	}
 
 	// Scan results
@@ -353,7 +364,10 @@ func pageFn[T any](
 		}
 
 		if err := rows.Scan(dest...); err != nil {
-			return nil, errors.Annotate(err, "rows.Scan")
+			return nil, errors.Annotatef(err,
+				"rows.Scan\n%s\n%v",
+				listSQL, CompactJSON(argsWithLimit),
+			)
 		}
 
 		list = append(list, r)
@@ -376,18 +390,20 @@ func List[T any](
 func listFn[T any](
 	ctx context.Context,
 	tx gorp.SqlExecutor,
-	qb *Query,
+	q *Query,
 	args ...any,
 ) ([]*T, error) {
-	slog.Debug("List", "sql", qb.listSQL, "args", args)
+	if ctx.Value(printSQL) != nil {
+		slog.Info("list", "sql", q.listSQL, "args", CompactJSON(args))
+	}
 
-	rows, err := tx.WithContext(ctx).Query(qb.listSQL, args...)
+	rows, err := tx.WithContext(ctx).Query(q.listSQL, args...)
 	if err != nil {
-		return nil, errors.Annotatef(err, "\n%s\n%v", qb.listSQL, args)
+		return nil, errors.Annotatef(err, "\n%s\n%v", q.listSQL, args)
 	}
 
 	if rows.Err() != nil {
-		return nil, errors.Annotatef(err, "\n%s\n%v", qb.listSQL, args)
+		return nil, errors.Annotatef(err, "\n%s\n%v", q.listSQL, args)
 	}
 
 	defer func() {
@@ -398,14 +414,17 @@ func listFn[T any](
 
 	for rows.Next() {
 		r := new(T)
-		dest := make([]any, len(qb.selectCols))
+		dest := make([]any, len(q.selectCols))
 
-		for i, f := range qb.selectCols {
+		for i, f := range q.selectCols {
 			dest[i] = f.FieldPointer()(r)
 		}
 
 		if err := rows.Scan(dest...); err != nil {
-			return nil, errors.Annotate(err, "rows.Scan")
+			return nil, errors.Annotatef(err,
+				"rows.Scan\n%s\n%v",
+				q.listSQL, CompactJSON(args),
+			)
 		}
 
 		list = append(list, r)
@@ -431,7 +450,9 @@ func getOrErrFn[T any](
 	qb *Query,
 	args ...any,
 ) (*T, error) {
-	slog.Debug("GetOrErr", "sql", qb.listSQL, "args", args)
+	if ctx.Value(printSQL) != nil {
+		slog.Info("getOrErr", "sql", qb.listSQL, "args", CompactJSON(args))
+	}
 
 	row := tx.WithContext(ctx).QueryRow(qb.listSQL, args...)
 	if err := row.Err(); err != nil {
@@ -450,7 +471,10 @@ func getOrErrFn[T any](
 	}
 
 	if err := row.Scan(dest...); err != nil {
-		return nil, errors.Annotate(err, "row.Scan")
+		return nil, errors.Annotatef(err,
+			"row.Scan\n%s\n%v",
+			qb.listSQL, CompactJSON(args),
+		)
 	}
 
 	return r, nil
@@ -463,17 +487,19 @@ func (q *Query) Load(
 	args ...any,
 ) error {
 	return Trace(ctx, func(ctx context.Context) error {
-		return q.loadFn(ctx, tx, holder, args...)
+		return q.load(ctx, tx, holder, args...)
 	})
 }
 
-func (q *Query) loadFn(
+func (q *Query) load(
 	ctx context.Context,
 	tx gorp.SqlExecutor,
 	holder any,
 	args ...any,
 ) error {
-	slog.Debug("Load", "sql", q.listSQL, "args", args)
+	if ctx.Value(printSQL) != nil {
+		slog.Info("load", "sql", q.listSQL, "args", CompactJSON(args))
+	}
 
 	row := tx.WithContext(ctx).QueryRow(q.listSQL, args...)
 	if err := row.Err(); err != nil {
@@ -481,7 +507,7 @@ func (q *Query) loadFn(
 			return sql.ErrNoRows
 		}
 
-		return errors.Annotatef(err, "\n%s\n%v", q.listSQL, args)
+		return errors.Annotatef(err, "\n%s\n%v", q.listSQL, CompactJSON(args))
 	}
 
 	dest := make([]any, len(q.selectCols))
@@ -494,7 +520,10 @@ func (q *Query) loadFn(
 			return sql.ErrNoRows
 		}
 
-		return errors.Annotate(err, "row.Scan")
+		return errors.Annotatef(err,
+			"row.Scan\n%s\n%v",
+			q.listSQL, CompactJSON(args),
+		)
 	}
 
 	return nil
@@ -845,8 +874,6 @@ func batchDeleteByIDsChunk(
 		"DELETE FROM `%s` WHERE `%s` IN (%s)",
 		tableName, idColumn, strings.Join(placeholders, ","),
 	)
-
-	slog.Debug("BatchDeleteByIDs SQL", "sqlStr", sqlStr, "args", ids)
 
 	_, err := tx.WithContext(ctx).Exec(sqlStr, ids...)
 	if err != nil {

@@ -48,6 +48,7 @@ type (
 // Tokenize 将 DSL 字符串分割为 Token 列表
 func Tokenize(input string) ([]Token, error) {
 	var tokens []Token
+
 	i := 0
 	skipSpace := func() {
 		for i < len(input) && (input[i] == ' ' || input[i] == '\t' || input[i] == '\n' || input[i] == '\r') {

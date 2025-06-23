@@ -358,6 +358,7 @@ func NewDSLIndexDuplicateError(indexName, fields string) error {
 func IsParserError(err error) bool {
 	var parserError *ParserError
 	ok := errors.As(errors.Cause(err), &parserError)
+
 	return ok
 }
 

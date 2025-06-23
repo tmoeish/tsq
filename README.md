@@ -317,37 +317,3 @@ make clean         # 清理构建产物
 make install       # 安装到 GOPATH/bin
 make update-sample # 更新示例代码
 ```
-
-### 开发工作流
-
-1. Fork 项目到你的 GitHub 账号
-2. 创建功能分支：`git checkout -b feature/amazing-feature`
-3. 提交代码：`git commit -m 'Add amazing feature'`
-4. 推送分支：`git push origin feature/amazing-feature`
-5. 创建 Pull Request
-
-## 🤝 贡献指南
-
-我们欢迎社区贡献！请查看 [CONTRIBUTING.md](CONTRIBUTING.md) 了解详细信息。
-
-### 开发贡献
-
-1. 确保代码通过所有测试：`make test`
-2. 遵循 Go 代码规范：`make fmt vet lint`
-3. 添加必要的测试用例
-4. 更新相关文档
-
-## 📋 开发计划
-
-查看 [TODO.md](TODO.md) 文件了解当前的开发计划和待办事项。
-
-## 📄 许可证
-
-本项目采用 MIT 许可证 - 查看 [LICENSE](LICENSE) 文件了解详情。
-
-## 🔗 相关链接
-
-- [项目主页](https://github.com/tmoeish/tsq)
-- [问题反馈](https://github.com/tmoeish/tsq/issues)
-- [变更日志](CHANGELOG.md)
-- [贡献指南](CONTRIBUTING.md)

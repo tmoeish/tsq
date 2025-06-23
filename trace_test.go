@@ -278,8 +278,7 @@ func TestTimingTracer(t *testing.T) {
 	// Clear tracers before test
 	ClearTracers()
 
-	tracer := TimingTracer("test")
-	AddTracer(tracer)
+	AddTracer(PrintCost)
 
 	executed := false
 	fn := func(ctx context.Context) error {
@@ -301,8 +300,7 @@ func TestTimingTracer_WithError(t *testing.T) {
 	// Clear tracers before test
 	ClearTracers()
 
-	tracer := TimingTracer("test")
-	AddTracer(tracer)
+	AddTracer(PrintCost)
 
 	expectedError := errors.New("test error")
 	fn := func(ctx context.Context) error {
@@ -320,8 +318,7 @@ func TestErrorTracer(t *testing.T) {
 	// Clear tracers before test
 	ClearTracers()
 
-	tracer := ErrorTracer()
-	AddTracer(tracer)
+	AddTracer(PrintError)
 
 	executed := false
 	fn := func(ctx context.Context) error {
@@ -343,8 +340,7 @@ func TestErrorTracer_WithError(t *testing.T) {
 	// Clear tracers before test
 	ClearTracers()
 
-	tracer := ErrorTracer()
-	AddTracer(tracer)
+	AddTracer(PrintError)
 
 	expectedError := errors.New("test error")
 	fn := func(ctx context.Context) error {
