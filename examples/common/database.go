@@ -8,7 +8,7 @@ import (
 
 // MutableTable is a table which its entities are mutable.
 type MutableTable struct {
-	ID           int64     `db:"id"            json:"id"`            // ID is the primary key.
+	UID           int64     `db:"uid"           json:"uid"`           // UID is the unique id.
 	CT           time.Time `db:"ct"            json:"ct"`            // CT is the create time.
 	ModifiedTime null.Time `db:"modified_time" json:"modified_time"` // ModifiedTime is the modified time.
 	DT           int64     `db:"dt"            json:"dt"`            // DT is the delete time.

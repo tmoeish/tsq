@@ -110,7 +110,7 @@ var GenCmd = &cobra.Command{
 func gen(data *tsq.StructInfo, t *template.Template, dir string) error {
 	filename := fmt.Sprintf("%s_tsq.go", strings.ToLower(data.TypeInfo.TypeName))
 	filename = path.Join(dir, filename)
-	slog.Info(fmt.Sprintf("gen %s with data %s", filename, tsq.PrettyJSON(data)))
+	slog.Info(fmt.Sprintf("gen %s", filename))
 
 	buf := new(bytes.Buffer)
 

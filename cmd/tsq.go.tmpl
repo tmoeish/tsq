@@ -50,7 +50,33 @@ import (
 // =============================================================================
 
 func init() {
-	tsq.RegisterTable(Table{{$type}})
+	tsq.RegisterTable(
+		Table{{$type}},
+		func(db *gorp.DbMap) {
+			db.AddTableWithName(Table{{$type}}, "{{ $dot.Table }}").SetKeys({{ if $dot.AI }}true{{ else }}false{{ end }}, "{{ $dot.ID }}"){{ if $dot.V }}.SetVersionCol("{{ $dot.V }}") {{ end }}
+		},
+		func(db *gorp.DbMap) error {
+{{- if $dot.UxList }}
+			// Upsert Ux list
+	{{- range $name, $idx := $dot.UxList }}
+			if err := tsq.UpsertIndex(db, "{{ $dot.Table }}", true, "{{$idx.Name}}", []string{{"{"}}{{if $dot.DT}}{{ (FieldToCol $dot $dot.DT) }},{{end}}{{ (FieldsToCols $dot $idx.Fields) }}{{"}"}}); err != nil {
+				return errors.Annotate(err, "upsert {{$idx.Name}}@{{ $dot.Table }}")
+			}
+	{{- end }}
+{{- end }}
+
+{{- if $dot.IdxList }}
+			// Upsert Idx list
+	{{- range $name, $idx := $dot.IdxList }}
+			if err := tsq.UpsertIndex(db, "{{ $dot.Table }}", false, "{{$idx.Name}}", []string{{"{"}}{{if $dot.DT}}{{ (FieldToCol $dot $dot.DT) }},{{end}}{{ (FieldsToCols $dot $idx.Fields) }}{{"}"}}); err != nil {
+				return errors.Annotate(err, "upsert {{$idx.Name}}@{{ $dot.Table }}")
+			}
+	{{- end }}
+{{- end }}
+
+			return nil
+		},
+	)
 }
 
 // {{$varTbl}} implements the tsq.Table interface for {{$type}}.
@@ -66,53 +92,17 @@ var {{$varTblCols}} = []tsq.Column{
 // Column definitions for {{$type}} table.
 var (
 {{- range $f := .Fields }}
-	{{$type}}_{{$f.Name}} = tsq.NewCol[{{$f | FieldType}}]({{$varTbl}}, "{{$f.Column}}", "{{$f.JsonTag}}", func(t any) any {
-			return &t.({{$ptype}}).{{$f.Name}}
-	})
+	{{$type}}_{{$f.Name}} = tsq.NewCol[{{$f | FieldType}}]({{$varTbl}}, "{{$f.Column}}", "{{$f.JsonTag}}", func(t any) any { return &t.({{$ptype}}).{{$f.Name}} })
 {{- end }}
 )
-
-// Init initializes the {{$type}} table in the database.
-func ({{$dot.Recv}} {{$type}}) Init(db *gorp.DbMap, upsertIndexies bool) error {
-	db.AddTableWithName({{$dot.Recv}}, "{{ $dot.Table }}").SetKeys({{ if $dot.AI }}true{{ else }}false{{ end }}, "{{ $dot.ID }}"){{ if $dot.V }}.SetVersionCol("{{ $dot.V }}") {{ end }}
-
-	if !upsertIndexies {
-		return nil
-	}
-
-{{if $dot.UxList }}
-	// Upsert Ux list
-	{{- range $name, $idx := $dot.UxList }}
-	if err := tsq.UpsertIndex(db, "{{ $dot.Table }}", true, "{{$idx.Name}}", []string{{"{"}}{{if $dot.DT}}`{{$dot.DT}}`,{{end}}{{ (FiledsToCols $dot $idx.Fields) }}{{"}"}}); err != nil {
-		return errors.Annotatef(err, "upsert ux %s for %s", "{{$idx.Name}}", {{ $.Recv }}.Table())
-	}
-	{{- end }}
-{{- end }}
-
-{{- if $dot.IdxList }}
-	// Upsert Idx list
-	{{- range $name, $idx := $dot.IdxList }}
-	if err := tsq.UpsertIndex(db, "{{ $dot.Table }}", false, "{{$idx.Name}}", []string{{"{"}}{{if $dot.DT}}`{{$dot.DT}}`,{{end}}{{ (FiledsToCols $dot $idx.Fields) }}{{"}"}}); err != nil {
-		return errors.Annotatef(err, "upsert idx %s for %s", "{{$idx.Name}}", {{ $.Recv }}.Table())
-	}
-	{{- end }}
-{{- end }}
-
-	return nil
-}
 
 // Table returns the database table name for {{$type}}.
 func ({{$dot.Recv}} {{$type}}) Table() string               { return "{{$dot.Table}}" }
 
 // KwList returns columns that support keyword search for {{$type}}.
 func ({{$dot.Recv}} {{$type}}) KwList() []tsq.Column {
-	return []tsq.Column{
-	{{- range $f := .KwList }}
-		{{$type}}_{{$f}},
-	{{- end }}
-	}
+	return []tsq.Column{ {{- range $f := .KwList }} {{$type}}_{{$f}}, {{- end }} }
 }
-
 
 
 {{- if .DT }}
@@ -200,7 +190,7 @@ func {{$name}}(
 		Select({{$varTblCols}}...).
 		Where({{$type}}_{{$dot.ID}}.In({{$dot.ID | ToLower}}s...)).
 		MustBuild()
-		
+
 	list, err := tsq.List[{{$type}}](ctx, db, query)
 	if err != nil {
 		return nil, errors.Trace(err)

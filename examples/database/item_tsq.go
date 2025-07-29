@@ -18,7 +18,24 @@ import (
 // =============================================================================
 
 func init() {
-	tsq.RegisterTable(TableItem)
+	tsq.RegisterTable(
+		TableItem,
+		func(db *gorp.DbMap) {
+			db.AddTableWithName(TableItem, "item").SetKeys(true, "ID")
+		},
+		func(db *gorp.DbMap) error {
+			// Upsert Ux list
+			if err := tsq.UpsertIndex(db, "item", true, "ux_name", []string{`name`}); err != nil {
+				return errors.Annotate(err, "upsert ux_name@item")
+			}
+			// Upsert Idx list
+			if err := tsq.UpsertIndex(db, "item", false, "idx_category", []string{`category_id`}); err != nil {
+				return errors.Annotate(err, "upsert idx_category@item")
+			}
+
+			return nil
+		},
+	)
 }
 
 // TableItem implements the tsq.Table interface for Item.
@@ -35,51 +52,19 @@ var TableItemCols = []tsq.Column{
 
 // Column definitions for Item table.
 var (
-	Item_CT = tsq.NewCol[null.Time](TableItem, "ct", "ct", func(t any) any {
-		return &t.(*Item).CT
-	})
-	Item_CategoryID = tsq.NewCol[int64](TableItem, "category_id", "CategoryID", func(t any) any {
-		return &t.(*Item).CategoryID
-	})
-	Item_ID = tsq.NewCol[int64](TableItem, "id", "id", func(t any) any {
-		return &t.(*Item).ID
-	})
-	Item_Name = tsq.NewCol[string](TableItem, "name", "Name", func(t any) any {
-		return &t.(*Item).Name
-	})
-	Item_Price = tsq.NewCol[int64](TableItem, "price", "Price", func(t any) any {
-		return &t.(*Item).Price
-	})
+	Item_CT         = tsq.NewCol[null.Time](TableItem, "ct", "ct", func(t any) any { return &t.(*Item).CT })
+	Item_CategoryID = tsq.NewCol[int64](TableItem, "category_id", "CategoryID", func(t any) any { return &t.(*Item).CategoryID })
+	Item_ID         = tsq.NewCol[int64](TableItem, "id", "id", func(t any) any { return &t.(*Item).ID })
+	Item_Name       = tsq.NewCol[string](TableItem, "name", "Name", func(t any) any { return &t.(*Item).Name })
+	Item_Price      = tsq.NewCol[int64](TableItem, "price", "Price", func(t any) any { return &t.(*Item).Price })
 )
-
-// Init initializes the Item table in the database.
-func (i Item) Init(db *gorp.DbMap, upsertIndexies bool) error {
-	db.AddTableWithName(i, "item").SetKeys(true, "ID")
-
-	if !upsertIndexies {
-		return nil
-	}
-
-	// Upsert Ux list
-	if err := tsq.UpsertIndex(db, "item", true, "ux_name", []string{`name`}); err != nil {
-		return errors.Annotatef(err, "upsert ux %s for %s", "ux_name", i.Table())
-	}
-	// Upsert Idx list
-	if err := tsq.UpsertIndex(db, "item", false, "IdxCategory", []string{`category_id`}); err != nil {
-		return errors.Annotatef(err, "upsert idx %s for %s", "IdxCategory", i.Table())
-	}
-
-	return nil
-}
 
 // Table returns the database table name for Item.
 func (i Item) Table() string { return "item" }
 
 // KwList returns columns that support keyword search for Item.
 func (i Item) KwList() []tsq.Column {
-	return []tsq.Column{
-		Item_Name,
-	}
+	return []tsq.Column{Item_Name}
 }
 
 // =============================================================================

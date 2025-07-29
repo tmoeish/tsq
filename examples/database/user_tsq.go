@@ -18,7 +18,20 @@ import (
 // =============================================================================
 
 func init() {
-	tsq.RegisterTable(TableUser)
+	tsq.RegisterTable(
+		TableUser,
+		func(db *gorp.DbMap) {
+			db.AddTableWithName(TableUser, "user").SetKeys(true, "ID")
+		},
+		func(db *gorp.DbMap) error {
+			// Upsert Ux list
+			if err := tsq.UpsertIndex(db, "user", true, "ux_name", []string{`name`}); err != nil {
+				return errors.Annotate(err, "upsert ux_name@user")
+			}
+
+			return nil
+		},
+	)
 }
 
 // TableUser implements the tsq.Table interface for User.
@@ -35,48 +48,19 @@ var TableUserCols = []tsq.Column{
 
 // Column definitions for User table.
 var (
-	User_CT = tsq.NewCol[null.Time](TableUser, "ct", "ct", func(t any) any {
-		return &t.(*User).CT
-	})
-	User_Email = tsq.NewCol[string](TableUser, "email", "email", func(t any) any {
-		return &t.(*User).Email
-	})
-	User_ID = tsq.NewCol[int64](TableUser, "id", "id", func(t any) any {
-		return &t.(*User).ID
-	})
-	User_Name = tsq.NewCol[string](TableUser, "name", "name", func(t any) any {
-		return &t.(*User).Name
-	})
-	User_OrgID = tsq.NewCol[int64](TableUser, "org_id", "org_id", func(t any) any {
-		return &t.(*User).OrgID
-	})
+	User_CT    = tsq.NewCol[null.Time](TableUser, "ct", "ct", func(t any) any { return &t.(*User).CT })
+	User_Email = tsq.NewCol[string](TableUser, "email", "email", func(t any) any { return &t.(*User).Email })
+	User_ID    = tsq.NewCol[int64](TableUser, "id", "id", func(t any) any { return &t.(*User).ID })
+	User_Name  = tsq.NewCol[string](TableUser, "name", "name", func(t any) any { return &t.(*User).Name })
+	User_OrgID = tsq.NewCol[int64](TableUser, "org_id", "org_id", func(t any) any { return &t.(*User).OrgID })
 )
-
-// Init initializes the User table in the database.
-func (u User) Init(db *gorp.DbMap, upsertIndexies bool) error {
-	db.AddTableWithName(u, "user").SetKeys(true, "ID")
-
-	if !upsertIndexies {
-		return nil
-	}
-
-	// Upsert Ux list
-	if err := tsq.UpsertIndex(db, "user", true, "ux_name", []string{`name`}); err != nil {
-		return errors.Annotatef(err, "upsert ux %s for %s", "ux_name", u.Table())
-	}
-
-	return nil
-}
 
 // Table returns the database table name for User.
 func (u User) Table() string { return "user" }
 
 // KwList returns columns that support keyword search for User.
 func (u User) KwList() []tsq.Column {
-	return []tsq.Column{
-		User_Name,
-		User_Email,
-	}
+	return []tsq.Column{User_Name, User_Email}
 }
 
 // =============================================================================

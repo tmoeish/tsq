@@ -17,7 +17,7 @@ type UserOrder struct {
 
 	OrgName string `json:"org_name" tsq:"Org.Name"` // 组织名称
 
-	OrderID     int         `json:"order_id"     tsq:"Order.ID"`     // 订单ID
+	OrderID     int64         `json:"order_id"     tsq:"Order.UID"`     // 订单ID
 	OrderAmount float64     `json:"order_amount" tsq:"Order.Amount"` // 订单数量
 	OrderPrice  float64     `json:"order_price"  tsq:"Order.Price"`  // 订单金额
 	OrderStatus OrderStatus `json:"order_status" tsq:"Order.Status"` // 订单状态

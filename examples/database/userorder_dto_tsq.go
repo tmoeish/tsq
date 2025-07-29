@@ -25,7 +25,7 @@ var (
 	UserOrder_OrderAmount = Order_Amount.Into(func(holder any) any {
 		return &holder.(*UserOrder).OrderAmount
 	}, "order_amount")
-	UserOrder_OrderID = Order_ID.Into(func(holder any) any {
+	UserOrder_OrderID = Order_UID.Into(func(holder any) any {
 		return &holder.(*UserOrder).OrderID
 	}, "order_id")
 	UserOrder_OrderPrice = Order_Price.Into(func(holder any) any {

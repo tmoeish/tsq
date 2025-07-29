@@ -23,7 +23,8 @@ func TemplateFuncs() template.FuncMap {
 		"PageRespType": pageRespType,
 		"JoinAnd":      joinAnd,
 		"Sub1":         sub1,
-		"FiledsToCols": FiledsToCols,
+		"FieldToCol":   FieldToCol,
+		"FieldsToCols": FieldsToCols,
 	}
 }
 
@@ -96,11 +97,15 @@ func sub1(n int) int {
 	return n - 1
 }
 
-func FiledsToCols(data *tsq.StructInfo, fields []string) string {
+func FieldToCol(data *tsq.StructInfo, field string) string {
+	return fmt.Sprintf("`%s`", data.FieldMap[field].Column)
+}
+
+func FieldsToCols(data *tsq.StructInfo, fields []string) string {
 	cols := make([]string, len(fields))
 	for i, field := range fields {
-		cols[i] = fmt.Sprintf("`%s`", data.FieldMap[field].Column)
+		cols[i] = FieldToCol(data, field)
 	}
 
-	return fmt.Sprintf("%s", strings.Join(cols, ", "))
+	return strings.Join(cols, ", ")
 }

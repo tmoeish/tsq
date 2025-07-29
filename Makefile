@@ -71,6 +71,7 @@ install: build ## Install to GOPATH/bin
 
 .PHONY: update-examples
 update-examples: build ## Update examples code
+	@rm -f $(MODULE)/examples/database/*_tsq.go
 	@./bin/$(BINARY_NAME) gen -v $(MODULE)/examples/database
 	@go build -o bin/examples ./examples/
 

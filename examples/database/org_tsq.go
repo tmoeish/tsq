@@ -18,7 +18,20 @@ import (
 // =============================================================================
 
 func init() {
-	tsq.RegisterTable(TableOrg)
+	tsq.RegisterTable(
+		TableOrg,
+		func(db *gorp.DbMap) {
+			db.AddTableWithName(TableOrg, "org").SetKeys(true, "ID")
+		},
+		func(db *gorp.DbMap) error {
+			// Upsert Ux list
+			if err := tsq.UpsertIndex(db, "org", true, "ux_name", []string{`name`}); err != nil {
+				return errors.Annotate(err, "upsert ux_name@org")
+			}
+
+			return nil
+		},
+	)
 }
 
 // TableOrg implements the tsq.Table interface for Org.
@@ -33,32 +46,10 @@ var TableOrgCols = []tsq.Column{
 
 // Column definitions for Org table.
 var (
-	Org_CT = tsq.NewCol[null.Time](TableOrg, "ct", "ct", func(t any) any {
-		return &t.(*Org).CT
-	})
-	Org_ID = tsq.NewCol[int64](TableOrg, "id", "id", func(t any) any {
-		return &t.(*Org).ID
-	})
-	Org_Name = tsq.NewCol[string](TableOrg, "name", "Name", func(t any) any {
-		return &t.(*Org).Name
-	})
+	Org_CT   = tsq.NewCol[null.Time](TableOrg, "ct", "ct", func(t any) any { return &t.(*Org).CT })
+	Org_ID   = tsq.NewCol[int64](TableOrg, "id", "id", func(t any) any { return &t.(*Org).ID })
+	Org_Name = tsq.NewCol[string](TableOrg, "name", "Name", func(t any) any { return &t.(*Org).Name })
 )
-
-// Init initializes the Org table in the database.
-func (o Org) Init(db *gorp.DbMap, upsertIndexies bool) error {
-	db.AddTableWithName(o, "org").SetKeys(true, "ID")
-
-	if !upsertIndexies {
-		return nil
-	}
-
-	// Upsert Ux list
-	if err := tsq.UpsertIndex(db, "org", true, "UxName", []string{`name`}); err != nil {
-		return errors.Annotatef(err, "upsert ux %s for %s", "UxName", o.Table())
-	}
-
-	return nil
-}
 
 // Table returns the database table name for Org.
 func (o Org) Table() string { return "org" }
@@ -267,7 +258,7 @@ var getOrgByNameQuery = tsq.
 	KwSearch(TableOrg.KwList()...).
 	MustBuild()
 
-// GetOrgByName retrieves a Org record by unique index UxName.
+// GetOrgByName retrieves a Org record by unique index ux_name.
 // Returns (nil, nil) if the record is not found.
 func GetOrgByName(
 	ctx context.Context,
@@ -290,7 +281,7 @@ func GetOrgByName(
 	}
 }
 
-// GetOrgByNameOrErr retrieves a Org record by unique index UxName.
+// GetOrgByNameOrErr retrieves a Org record by unique index ux_name.
 // Returns (nil, sql.ErrNoRows) if the record is not found.
 func GetOrgByNameOrErr(
 	ctx context.Context,
@@ -306,7 +297,7 @@ func GetOrgByNameOrErr(
 	return row, errors.Trace(err)
 }
 
-// ExistsOrgByName checks whether a Org record exists by unique index UxName.
+// ExistsOrgByName checks whether a Org record exists by unique index ux_name.
 func ExistsOrgByName(
 	ctx context.Context,
 	db gorp.SqlExecutor,

@@ -8,10 +8,13 @@ import (
 
 // 订单表
 // @TABLE(
-//   idx=[{name="IdxUserItem", fields=["UserID","ItemID"]}, {name="IdxItem", fields=["ItemID"]}],
+//   pk="UID,true",
+//   idx=[
+//     {fields=["UserID","ItemID"]},
+//     {name="IdxItem", fields=["ItemID"]}
+//   ],
 //   ct,mt="ModifiedTime",dt,v
 // )
-
 type Order struct {
 	common.MutableTable
 

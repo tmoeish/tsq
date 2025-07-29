@@ -18,7 +18,20 @@ import (
 // =============================================================================
 
 func init() {
-	tsq.RegisterTable(TableCategory)
+	tsq.RegisterTable(
+		TableCategory,
+		func(db *gorp.DbMap) {
+			db.AddTableWithName(TableCategory, "category").SetKeys(true, "ID")
+		},
+		func(db *gorp.DbMap) error {
+			// Upsert Ux list
+			if err := tsq.UpsertIndex(db, "category", true, "ux_name", []string{`name`}); err != nil {
+				return errors.Annotate(err, "upsert ux_name@category")
+			}
+
+			return nil
+		},
+	)
 }
 
 // TableCategory implements the tsq.Table interface for Category.
@@ -35,48 +48,19 @@ var TableCategoryCols = []tsq.Column{
 
 // Column definitions for Category table.
 var (
-	Category_CT = tsq.NewCol[null.Time](TableCategory, "ct", "ct", func(t any) any {
-		return &t.(*Category).CT
-	})
-	Category_Description = tsq.NewCol[string](TableCategory, "description", "description", func(t any) any {
-		return &t.(*Category).Description
-	})
-	Category_ID = tsq.NewCol[int64](TableCategory, "id", "id", func(t any) any {
-		return &t.(*Category).ID
-	})
-	Category_Name = tsq.NewCol[string](TableCategory, "name", "name", func(t any) any {
-		return &t.(*Category).Name
-	})
-	Category_Type = tsq.NewCol[CategoryType](TableCategory, "type", "type", func(t any) any {
-		return &t.(*Category).Type
-	})
+	Category_CT          = tsq.NewCol[null.Time](TableCategory, "ct", "ct", func(t any) any { return &t.(*Category).CT })
+	Category_Description = tsq.NewCol[string](TableCategory, "description", "description", func(t any) any { return &t.(*Category).Description })
+	Category_ID          = tsq.NewCol[int64](TableCategory, "id", "id", func(t any) any { return &t.(*Category).ID })
+	Category_Name        = tsq.NewCol[string](TableCategory, "name", "name", func(t any) any { return &t.(*Category).Name })
+	Category_Type        = tsq.NewCol[CategoryType](TableCategory, "type", "type", func(t any) any { return &t.(*Category).Type })
 )
-
-// Init initializes the Category table in the database.
-func (c Category) Init(db *gorp.DbMap, upsertIndexies bool) error {
-	db.AddTableWithName(c, "category").SetKeys(true, "ID")
-
-	if !upsertIndexies {
-		return nil
-	}
-
-	// Upsert Ux list
-	if err := tsq.UpsertIndex(db, "category", true, "ux_name", []string{`name`}); err != nil {
-		return errors.Annotatef(err, "upsert ux %s for %s", "ux_name", c.Table())
-	}
-
-	return nil
-}
 
 // Table returns the database table name for Category.
 func (c Category) Table() string { return "category" }
 
 // KwList returns columns that support keyword search for Category.
 func (c Category) KwList() []tsq.Column {
-	return []tsq.Column{
-		Category_Name,
-		Category_Description,
-	}
+	return []tsq.Column{Category_Name, Category_Description}
 }
 
 // =============================================================================

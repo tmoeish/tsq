@@ -501,6 +501,8 @@ func genTableInfoFromAST(
 
 						if idx.Name == "" {
 							idx.Name = snaker.CamelToSnake("Ux" + strings.Join(idx.Fields, ""))
+						} else if strings.HasPrefix(idx.Name, "Ux") && !strings.Contains(idx.Name, "_") {
+							idx.Name = snaker.CamelToSnake(idx.Name)
 						}
 
 						info.UxList = append(info.UxList, idx)
@@ -532,6 +534,8 @@ func genTableInfoFromAST(
 
 						if idx.Name == "" {
 							idx.Name = snaker.CamelToSnake("Idx" + strings.Join(idx.Fields, ""))
+						} else if strings.HasPrefix(idx.Name, "Idx") && !strings.Contains(idx.Name, "_") {
+							idx.Name = snaker.CamelToSnake(idx.Name)
 						}
 
 						info.IdxList = append(info.IdxList, idx)

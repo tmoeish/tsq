@@ -18,7 +18,23 @@ import (
 // =============================================================================
 
 func init() {
-	tsq.RegisterTable(TableOrder)
+	tsq.RegisterTable(
+		TableOrder,
+		func(db *gorp.DbMap) {
+			db.AddTableWithName(TableOrder, "order").SetKeys(true, "UID").SetVersionCol("V")
+		},
+		func(db *gorp.DbMap) error {
+			// Upsert Idx list
+			if err := tsq.UpsertIndex(db, "order", false, "idx_item", []string{`dt`, `item_id`}); err != nil {
+				return errors.Annotate(err, "upsert idx_item@order")
+			}
+			if err := tsq.UpsertIndex(db, "order", false, "idx_user_id_item_id", []string{`dt`, `user_id`, `item_id`}); err != nil {
+				return errors.Annotate(err, "upsert idx_user_id_item_id@order")
+			}
+
+			return nil
+		},
+	)
 }
 
 // TableOrder implements the tsq.Table interface for Order.
@@ -29,67 +45,28 @@ var TableOrderCols = []tsq.Column{
 	Order_Amount,
 	Order_CT,
 	Order_DT,
-	Order_ID,
 	Order_ItemID,
 	Order_ModifiedTime,
 	Order_Price,
 	Order_Status,
+	Order_UID,
 	Order_UserID,
 	Order_V,
 }
 
 // Column definitions for Order table.
 var (
-	Order_Amount = tsq.NewCol[int64](TableOrder, "amount", "Amount", func(t any) any {
-		return &t.(*Order).Amount
-	})
-	Order_CT = tsq.NewCol[time.Time](TableOrder, "ct", "ct", func(t any) any {
-		return &t.(*Order).CT
-	})
-	Order_DT = tsq.NewCol[int64](TableOrder, "dt", "dt", func(t any) any {
-		return &t.(*Order).DT
-	})
-	Order_ID = tsq.NewCol[int64](TableOrder, "id", "id", func(t any) any {
-		return &t.(*Order).ID
-	})
-	Order_ItemID = tsq.NewCol[int64](TableOrder, "item_id", "ItemID", func(t any) any {
-		return &t.(*Order).ItemID
-	})
-	Order_ModifiedTime = tsq.NewCol[null.Time](TableOrder, "modified_time", "modified_time", func(t any) any {
-		return &t.(*Order).ModifiedTime
-	})
-	Order_Price = tsq.NewCol[int64](TableOrder, "price", "Price", func(t any) any {
-		return &t.(*Order).Price
-	})
-	Order_Status = tsq.NewCol[OrderStatus](TableOrder, "status", "Status", func(t any) any {
-		return &t.(*Order).Status
-	})
-	Order_UserID = tsq.NewCol[int64](TableOrder, "user_id", "UserID", func(t any) any {
-		return &t.(*Order).UserID
-	})
-	Order_V = tsq.NewCol[int64](TableOrder, "v", "v", func(t any) any {
-		return &t.(*Order).V
-	})
+	Order_Amount       = tsq.NewCol[int64](TableOrder, "amount", "Amount", func(t any) any { return &t.(*Order).Amount })
+	Order_CT           = tsq.NewCol[time.Time](TableOrder, "ct", "ct", func(t any) any { return &t.(*Order).CT })
+	Order_DT           = tsq.NewCol[int64](TableOrder, "dt", "dt", func(t any) any { return &t.(*Order).DT })
+	Order_ItemID       = tsq.NewCol[int64](TableOrder, "item_id", "ItemID", func(t any) any { return &t.(*Order).ItemID })
+	Order_ModifiedTime = tsq.NewCol[null.Time](TableOrder, "modified_time", "modified_time", func(t any) any { return &t.(*Order).ModifiedTime })
+	Order_Price        = tsq.NewCol[int64](TableOrder, "price", "Price", func(t any) any { return &t.(*Order).Price })
+	Order_Status       = tsq.NewCol[OrderStatus](TableOrder, "status", "Status", func(t any) any { return &t.(*Order).Status })
+	Order_UID          = tsq.NewCol[int64](TableOrder, "uid", "uid", func(t any) any { return &t.(*Order).UID })
+	Order_UserID       = tsq.NewCol[int64](TableOrder, "user_id", "UserID", func(t any) any { return &t.(*Order).UserID })
+	Order_V            = tsq.NewCol[int64](TableOrder, "v", "v", func(t any) any { return &t.(*Order).V })
 )
-
-// Init initializes the Order table in the database.
-func (o Order) Init(db *gorp.DbMap, upsertIndexies bool) error {
-	db.AddTableWithName(o, "order").SetKeys(true, "ID").SetVersionCol("V")
-
-	if !upsertIndexies {
-		return nil
-	}
-
-	// Upsert Idx list
-	if err := tsq.UpsertIndex(db, "order", false, "IdxItem", []string{`DT`, `item_id`}); err != nil {
-		return errors.Annotatef(err, "upsert idx %s for %s", "IdxItem", o.Table())
-	}
-	if err := tsq.UpsertIndex(db, "order", false, "IdxUserItem", []string{`DT`, `user_id`, `item_id`}); err != nil {
-		return errors.Annotatef(err, "upsert idx %s for %s", "IdxUserItem", o.Table())
-	}
-
-	return nil
-}
 
 // Table returns the database table name for Order.
 func (o Order) Table() string { return "order" }
@@ -107,20 +84,20 @@ func (o *Order) Active() bool {
 // =============================================================================
 // Query by Primary Key
 // =============================================================================
-var getOrderByIDQuery = tsq.
+var getOrderByUIDQuery = tsq.
 	Select(TableOrderCols...).
-	Where(Order_ID.EQVar()).
+	Where(Order_UID.EQVar()).
 	MustBuild()
 
-// GetOrderByID retrieves a Order record by its ID.
+// GetOrderByUID retrieves a Order record by its UID.
 // Returns (nil, nil) if the record is not found.
-func GetOrderByID(
+func GetOrderByUID(
 	ctx context.Context,
 	db gorp.SqlExecutor,
-	id int64,
+	uid int64,
 ) (*Order, error) {
 	row := &Order{}
-	err := getOrderByIDQuery.Load(ctx, db, row, id)
+	err := getOrderByUIDQuery.Load(ctx, db, row, uid)
 	switch errors.Cause(err) {
 	case nil:
 		return row, nil
@@ -131,46 +108,46 @@ func GetOrderByID(
 	}
 }
 
-// GetOrderByIDOrErr retrieves a Order record by its ID.
+// GetOrderByUIDOrErr retrieves a Order record by its UID.
 // Returns (nil, sql.ErrNoRows) if the record is not found.
-func GetOrderByIDOrErr(
+func GetOrderByUIDOrErr(
 	ctx context.Context,
 	db gorp.SqlExecutor,
-	id int64,
+	uid int64,
 ) (*Order, error) {
 	row := &Order{}
-	return row, getOrderByIDQuery.Load(ctx, db, row, id)
+	return row, getOrderByUIDQuery.Load(ctx, db, row, uid)
 }
 
-// ListOrderByIDIn retrieves multiple Order records by a set of ID values.
+// ListOrderByUIDIn retrieves multiple Order records by a set of UID values.
 // Records not found are silently ignored.
-func ListOrderByIDIn(
+func ListOrderByUIDIn(
 	ctx context.Context,
 	db gorp.SqlExecutor,
-	ids ...int64,
+	uids ...int64,
 ) ([]*Order, error) {
 	query := tsq.
 		Select(TableOrderCols...).
-		Where(Order_ID.In(ids...)).
+		Where(Order_UID.In(uids...)).
 		MustBuild()
 
 	return tsq.List[Order](ctx, db, query)
 }
 
-// ListOrderByIDInOrErr retrieves multiple Order records by a set of ID values.
+// ListOrderByUIDInOrErr retrieves multiple Order records by a set of UID values.
 // Returns an error if any of the specified records are not found.
-func ListOrderByIDInOrErr(
+func ListOrderByUIDInOrErr(
 	ctx context.Context,
 	db gorp.SqlExecutor,
-	ids ...int64,
+	uids ...int64,
 ) ([]*Order, error) {
-	idSet := map[int64]bool{}
-	for _, i := range ids {
-		idSet[i] = true
+	uidSet := map[int64]bool{}
+	for _, i := range uids {
+		uidSet[i] = true
 	}
 	query := tsq.
 		Select(TableOrderCols...).
-		Where(Order_ID.In(ids...)).
+		Where(Order_UID.In(uids...)).
 		MustBuild()
 
 	list, err := tsq.List[Order](ctx, db, query)
@@ -179,11 +156,11 @@ func ListOrderByIDInOrErr(
 	}
 
 	for _, i := range list {
-		delete(idSet, i.ID)
+		delete(uidSet, i.UID)
 	}
-	if len(idSet) > 0 {
+	if len(uidSet) > 0 {
 		var missings []int64
-		for i := range idSet {
+		for i := range uidSet {
 			missings = append(missings, i)
 		}
 		return nil, errors.Errorf("Order(s) not found: %v", missings)
@@ -194,23 +171,23 @@ func ListOrderByIDInOrErr(
 // =============================================================================
 // Query Active Records by Primary Key
 // =============================================================================
-var getActiveOrderByIDQuery = tsq.
+var getActiveOrderByUIDQuery = tsq.
 	Select(TableOrderCols...).
 	Where(
 		Order_DT.EQ(0),
-		Order_ID.EQVar(),
+		Order_UID.EQVar(),
 	).
 	MustBuild()
 
-// GetActiveOrderByID retrieves an active (non-deleted) Order record by its ID.
+// GetActiveOrderByUID retrieves an active (non-deleted) Order record by its UID.
 // Returns (nil, nil) if the record is not found or has been soft-deleted.
-func GetActiveOrderByID(
+func GetActiveOrderByUID(
 	ctx context.Context,
 	db gorp.SqlExecutor,
-	id int64,
+	uid int64,
 ) (*Order, error) {
 	row := &Order{}
-	err := getActiveOrderByIDQuery.Load(ctx, db, row, id)
+	err := getActiveOrderByUIDQuery.Load(ctx, db, row, uid)
 	switch errors.Cause(err) {
 	case nil:
 		return row, nil
@@ -221,30 +198,30 @@ func GetActiveOrderByID(
 	}
 }
 
-// GetActiveOrderByIDOrErr retrieves an active (non-deleted) Order record by its ID.
+// GetActiveOrderByUIDOrErr retrieves an active (non-deleted) Order record by its UID.
 // Returns (nil, sql.ErrNoRows) if the record is not found or has been soft-deleted.
-func GetActiveOrderByIDOrErr(
+func GetActiveOrderByUIDOrErr(
 	ctx context.Context,
 	db gorp.SqlExecutor,
-	id int64,
+	uid int64,
 ) (*Order, error) {
 	row := &Order{}
-	err := getActiveOrderByIDQuery.Load(ctx, db, row, id)
+	err := getActiveOrderByUIDQuery.Load(ctx, db, row, uid)
 	return row, errors.Trace(err)
 }
 
-// ListActiveOrderByIDIn retrieves multiple active (non-deleted) Order records by a set of ID values.
+// ListActiveOrderByUIDIn retrieves multiple active (non-deleted) Order records by a set of UID values.
 // Records not found or soft-deleted are silently ignored.
-func ListActiveOrderByIDIn(
+func ListActiveOrderByUIDIn(
 	ctx context.Context,
 	db gorp.SqlExecutor,
-	ids ...int64,
+	uids ...int64,
 ) ([]*Order, error) {
 	query := tsq.
 		Select(TableOrderCols...).
 		Where(
 			Order_DT.EQ(0),
-			Order_ID.In(ids...),
+			Order_UID.In(uids...),
 		).
 		MustBuild()
 	list, err := tsq.List[Order](ctx, db, query)
@@ -254,22 +231,22 @@ func ListActiveOrderByIDIn(
 	return list, nil
 }
 
-// ListActiveOrderByIDInOrErr retrieves multiple active (non-deleted) Order records by a set of ID values.
+// ListActiveOrderByUIDInOrErr retrieves multiple active (non-deleted) Order records by a set of UID values.
 // Returns an error if any of the specified active records are not found.
-func ListActiveOrderByIDInOrErr(
+func ListActiveOrderByUIDInOrErr(
 	ctx context.Context,
 	db gorp.SqlExecutor,
-	ids ...int64,
+	uids ...int64,
 ) ([]*Order, error) {
-	idSet := map[int64]bool{}
-	for _, i := range ids {
-		idSet[i] = true
+	uidSet := map[int64]bool{}
+	for _, i := range uids {
+		uidSet[i] = true
 	}
 	query := tsq.
 		Select(TableOrderCols...).
 		Where(
 			Order_DT.EQ(0),
-			Order_ID.In(ids...),
+			Order_UID.In(uids...),
 		).
 		MustBuild()
 
@@ -279,11 +256,11 @@ func ListActiveOrderByIDInOrErr(
 		return nil, errors.Trace(err)
 	}
 	for _, i := range list {
-		delete(idSet, i.ID)
+		delete(uidSet, i.UID)
 	}
-	if len(idSet) > 0 {
+	if len(uidSet) > 0 {
 		var missings []int64
-		for i := range idSet {
+		for i := range uidSet {
 			missings = append(missings, i)
 		}
 		return nil, errors.Errorf("Order(s) not found: %v", missings)

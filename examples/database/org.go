@@ -7,7 +7,6 @@ import "github.com/tmoeish/tsq/examples/common"
 //   ux=[{name="UxName", fields=["Name"]}]
 //   ct
 // )
-
 type Org struct {
 	common.ImmutableTable
 

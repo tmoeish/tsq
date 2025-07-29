@@ -2,7 +2,6 @@ package tsq
 
 import (
 	"fmt"
-	"maps"
 	"strings"
 
 	"github.com/juju/errors"
@@ -13,25 +12,25 @@ import (
 // 表注册和管理
 // ================================================
 
-var tables = make(map[string]Table)
+var tables = make(map[string]*RegisteredTable)
 
 // RegisterTable registers a table in the global registry
-func RegisterTable(table Table) {
-	tables[table.Table()] = table
+func RegisterTable(
+	table Table,
+	addTableFunc func(db *gorp.DbMap),
+	initFunc func(db *gorp.DbMap) error,
+) {
+	tables[table.Table()] = &RegisteredTable{
+		Table:        table,
+		AddTableFunc: addTableFunc,
+		InitFunc:     initFunc,
+	}
 }
 
-// GetRegisteredTable returns a registered table by name
-func GetRegisteredTable(name string) (Table, bool) {
-	table, exists := tables[name]
-	return table, exists
-}
-
-// GetAllRegisteredTables returns all registered tables
-func GetAllRegisteredTables() map[string]Table {
-	result := make(map[string]Table, len(tables))
-	maps.Copy(result, tables)
-
-	return result
+type RegisteredTable struct {
+	Table
+	AddTableFunc func(db *gorp.DbMap)
+	InitFunc     func(db *gorp.DbMap) error
 }
 
 // ================================================
@@ -40,9 +39,8 @@ func GetAllRegisteredTables() map[string]Table {
 
 // Table interface defines a database table (minimized for gorp compatibility)
 type Table interface {
-	Table() string                                  // Table name
-	KwList() []Column                               // Keyword search columns
-	Init(db *gorp.DbMap, upsertIndexies bool) error // Initialize table in the database
+	Table() string    // Table name
+	KwList() []Column // Keyword search columns
 }
 
 // ================================================
@@ -61,7 +59,7 @@ func Init(
 
 	// Configure tables in gorp
 	for _, table := range tables {
-		db.AddTableWithName(table, table.Table())
+		table.AddTableFunc(db)
 	}
 
 	if autoCreateTable {
@@ -72,9 +70,9 @@ func Init(
 
 	if upsertIndexies {
 		for _, table := range tables {
-			if err := table.Init(db, upsertIndexies); err != nil {
+			if err := table.InitFunc(db); err != nil {
 				return errors.Annotatef(err,
-					"failed to initialize table %s", table.Table(),
+					"failed to initialize table %s", table.Table.Table(),
 				)
 			}
 		}
