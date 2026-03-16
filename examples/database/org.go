@@ -4,8 +4,10 @@ import "github.com/tmoeish/tsq/examples/common"
 
 // 组织表
 // @TABLE(
-//   ux=[{name="UxName", fields=["Name"]}]
-//   ct
+//
+//	ux=[{name="UxName", fields=["Name"]}]
+//	ct
+//
 // )
 type Org struct {
 	common.ImmutableTable

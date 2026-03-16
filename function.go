@@ -2,6 +2,7 @@ package tsq
 
 import (
 	"fmt"
+	"strings"
 )
 
 // ================================================
@@ -95,7 +96,8 @@ func (c Col[T]) Trim() Col[T] {
 
 // Concat returns CONCAT(column, 'other') - concatenates strings
 func (c Col[T]) Concat(other string) Col[T] {
-	return c.Fn(fmt.Sprintf("CONCAT(%%s, '%s')", other))
+	escaped := strings.ReplaceAll(other, "'", "''")
+	return c.Fn(fmt.Sprintf("CONCAT(%%s, '%s')", escaped))
 }
 
 // ================================================
@@ -133,6 +135,10 @@ func (c Col[T]) Day() Col[T] {
 
 // Round returns ROUND(column, precision) - rounds to specified decimal places
 func (c Col[T]) Round(precision int) Col[T] {
+	// 验证精度参数范围
+	if precision < 0 || precision > 30 {
+		precision = 0
+	}
 	return c.Fn(fmt.Sprintf("ROUND(%%s, %d)", precision))
 }
 
@@ -157,10 +163,12 @@ func (c Col[T]) Abs() Col[T] {
 
 // Coalesce returns COALESCE(column, 'value') - returns first non-null value
 func (c Col[T]) Coalesce(value string) Col[T] {
-	return c.Fn(fmt.Sprintf("COALESCE(%%s, '%s')", value))
+	escaped := strings.ReplaceAll(value, "'", "''")
+	return c.Fn(fmt.Sprintf("COALESCE(%%s, '%s')", escaped))
 }
 
 // NullIf returns NULLIF(column, 'value') - returns NULL if values are equal
 func (c Col[T]) NullIf(value string) Col[T] {
-	return c.Fn(fmt.Sprintf("NULLIF(%%s, '%s')", value))
+	escaped := strings.ReplaceAll(value, "'", "''")
+	return c.Fn(fmt.Sprintf("NULLIF(%%s, '%s')", escaped))
 }

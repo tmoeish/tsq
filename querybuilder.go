@@ -198,7 +198,7 @@ func (qb *QueryBuilder) And(conds ...Condition) *QueryBuilder {
 
 	for _, c := range conds {
 		for tn, t := range c.Tables() {
-			qb.conditionTables[tn] = t
+			qb.selectTables[tn] = t // 统一添加到 selectTables 而不是 conditionTables
 		}
 
 		qb.conditionClauses = append(qb.conditionClauses, c.Clause())
@@ -344,7 +344,7 @@ func (qb *QueryBuilder) buildJoinFrom() string {
 
 	var fromBuilder strings.Builder
 
-	// Start with the first table
+	// 处理第一个 JOIN 以确定 FROM 表
 	firstJoin := qb.joins[0]
 	if firstJoin.joinType == CrossJoinType {
 		fromBuilder.WriteString(" FROM `")
@@ -356,7 +356,7 @@ func (qb *QueryBuilder) buildJoinFrom() string {
 		fromBuilder.WriteString("`")
 	}
 
-	// Add all joins
+	// 添加所有 JOINs (第一个 JOIN 已经在 FROM 子句中处理了左表，所以从第一个 JOIN 开始添加)
 	for _, j := range qb.joins {
 		fromBuilder.WriteString(" ")
 		fromBuilder.WriteString(string(j.joinType))

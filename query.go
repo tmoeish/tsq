@@ -249,7 +249,7 @@ func (q *Query) count(
 
 	count, err := tx.WithContext(ctx).SelectInt(q.cntSQL, args...)
 	if err != nil {
-		return 0, errors.Annotatef(err, "\n%s\n%v", q.cntSQL, args)
+		return 0, errors.Annotatef(err, "\n%s\n%v", q.cntSQL, CompactJSON(args))
 	}
 
 	return int(count), nil
@@ -277,7 +277,7 @@ func (q *Query) exist(
 
 	count, err := tx.WithContext(ctx).SelectInt(q.cntSQL, args...)
 	if err != nil {
-		return false, errors.Annotatef(err, "\n%s\n%v", q.cntSQL, args)
+		return false, errors.Annotatef(err, "\n%s\n%v", q.cntSQL, CompactJSON(args))
 	}
 
 	return count > 0, nil
@@ -455,13 +455,6 @@ func getOrErrFn[T any](
 	}
 
 	row := tx.WithContext(ctx).QueryRow(qb.listSQL, args...)
-	if err := row.Err(); err != nil {
-		if errors.Is(errors.Cause(err), sql.ErrNoRows) {
-			return nil, sql.ErrNoRows
-		}
-
-		return nil, errors.Annotatef(err, "\n%s\n%v", qb.listSQL, args)
-	}
 
 	r := new(T)
 	dest := make([]any, len(qb.selectCols))
@@ -471,6 +464,10 @@ func getOrErrFn[T any](
 	}
 
 	if err := row.Scan(dest...); err != nil {
+		if errors.Is(errors.Cause(err), sql.ErrNoRows) {
+			return nil, sql.ErrNoRows
+		}
+
 		return nil, errors.Annotatef(err,
 			"row.Scan\n%s\n%v",
 			qb.listSQL, CompactJSON(args),
