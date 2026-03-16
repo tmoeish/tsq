@@ -129,7 +129,12 @@ func Tokenize(input string) ([]Token, error) {
 				return nil, NewDSLUnclosedStringError(input, i)
 			}
 
-			tokens = append(tokens, Token{Type: TokenString, Value: input[i+1 : j]})
+			unquoted, err := strconv.Unquote(input[i : j+1])
+			if err != nil {
+				unquoted = input[i+1 : j]
+			}
+
+			tokens = append(tokens, Token{Type: TokenString, Value: unquoted})
 			i = j + 1
 
 			skipSpace()
@@ -358,6 +363,8 @@ func (p *Parser) parseObject() (DSLObject, error) {
 
 		if key != "" {
 			obj[key] = val
+		} else {
+			p.next()
 		}
 	}
 

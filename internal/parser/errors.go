@@ -6,11 +6,6 @@ import (
 	"github.com/juju/errors"
 )
 
-const (
-	colorRed   = "\033[31m"
-	colorReset = "\033[0m"
-)
-
 // ErrorType 表示错误类型
 type ErrorType int
 
@@ -193,7 +188,7 @@ func NewDSLTokenizeError(input string, position int, char byte) error {
 	var highlightedSnippet string
 
 	if highlightIdx >= 0 && highlightIdx < len(snippet) {
-		highlightedSnippet = snippet[:highlightIdx] + colorRed + string(snippet[highlightIdx]) + colorReset + snippet[highlightIdx+1:]
+		highlightedSnippet = snippet[:highlightIdx] + ">" + string(snippet[highlightIdx]) + "<" + snippet[highlightIdx+1:]
 	} else {
 		highlightedSnippet = snippet
 	}
@@ -215,8 +210,8 @@ func NewDSLTokenizeError(input string, position int, char byte) error {
 // NewDSLUnexpectedTokenError 创建 DSL 意外 token 错误
 func NewDSLUnexpectedTokenError(expected, actual string, position int) error {
 	msg := fmt.Sprintf(
-		"unexpected token in DSL at %sposition %d: expected '%s', got '%s'%s",
-		colorRed, position, expected, actual, colorReset,
+		"unexpected token in DSL at position %d: expected '%s', got '%s'",
+		position, expected, actual,
 	)
 	err := newParserError(ErrorTypeDSLUnexpectedToken, msg, map[string]any{
 		"expected": expected,
@@ -230,8 +225,8 @@ func NewDSLUnexpectedTokenError(expected, actual string, position int) error {
 // NewDSLUnexpectedValueError 创建 DSL 意外值错误
 func NewDSLUnexpectedValueError(tokenValue string, position int) error {
 	msg := fmt.Sprintf(
-		"unexpected value token in DSL at %sposition %d: '%s'%s",
-		colorRed, position, tokenValue, colorReset,
+		"unexpected value token in DSL at position %d: '%s'",
+		position, tokenValue,
 	)
 	err := newParserError(ErrorTypeDSLUnexpectedValue, msg, map[string]any{
 		"token":    tokenValue,
@@ -261,7 +256,7 @@ func NewDSLUnclosedStringError(input string, position int) error {
 	var highlightedSnippet string
 
 	if highlightIdx >= 0 && highlightIdx < len(snippet) {
-		highlightedSnippet = snippet[:highlightIdx] + colorRed + string(snippet[highlightIdx]) + colorReset + snippet[highlightIdx+1:]
+		highlightedSnippet = snippet[:highlightIdx] + ">" + string(snippet[highlightIdx]) + "<" + snippet[highlightIdx+1:]
 	} else {
 		highlightedSnippet = snippet
 	}
@@ -282,8 +277,8 @@ func NewDSLUnclosedStringError(input string, position int) error {
 // NewDSLInvalidNumberError 创建 DSL 无效数字错误
 func NewDSLInvalidNumberError(numberStr string, position int) error {
 	msg := fmt.Sprintf(
-		"invalid number format in DSL at %sposition %d: '%s'%s",
-		colorRed, position, numberStr, colorReset,
+		"invalid number format in DSL at position %d: '%s'",
+		position, numberStr,
 	)
 	err := newParserError(ErrorTypeDSLInvalidNumber, msg, map[string]any{
 		"number":   numberStr,

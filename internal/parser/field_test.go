@@ -312,10 +312,11 @@ type Test struct {
 }
 
 func Test_parseFieldTypeErrors(t *testing.T) {
-	// 测试错误情况，比如不支持的类型表达式
+	// 测试复杂类型的降级处理，不应当返回错误
 	tests := []struct {
-		name   string
-		source string
+		name     string
+		source   string
+		typeName string
 	}{
 		{
 			name: "函数类型",
@@ -324,6 +325,16 @@ package test
 type Test struct {
 	Field func() int
 }`,
+			typeName: "func() int",
+		},
+		{
+			name: "Map类型",
+			source: `
+package test
+type Test struct {
+	Field map[string]interface{}
+}`,
+			typeName: "map[string]interface{}",
 		},
 	}
 
@@ -365,9 +376,13 @@ type Test struct {
 				t.Fatal("Field not found")
 			}
 
-			_, _, _, _, err = parseFieldType(field.Type)
-			if err == nil {
-				t.Errorf("Expected error for unsupported type")
+			_, _, _, typeName, err := parseFieldType(field.Type)
+			if err != nil {
+				t.Errorf("Unexpected error for type: %v", err)
+			}
+
+			if typeName != tt.typeName {
+				t.Errorf("expected typeName %q, got %q", tt.typeName, typeName)
 			}
 		})
 	}

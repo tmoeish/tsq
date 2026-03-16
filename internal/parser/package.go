@@ -152,6 +152,10 @@ func shouldSkipFile(filename string) bool {
 		return true
 	}
 
+	if strings.HasSuffix(filename, "_test.go") {
+		return true
+	}
+
 	if !strings.HasSuffix(filename, GoFileSuffix) {
 		return true
 	}
@@ -389,7 +393,10 @@ func parsePackageAliases(file *ast.File) map[string]tsq.PackageInfo {
 func getPackageInfo(importPath string) (tsq.PackageInfo, error) {
 	buildPkg, err := build.Default.Import(importPath, "", 0)
 	if err != nil {
-		return tsq.PackageInfo{}, errors.Annotatef(err, "failed to get package: %s", importPath)
+		return tsq.PackageInfo{
+			Path: importPath,
+			Name: path.Base(importPath),
+		}, nil
 	}
 
 	return tsq.PackageInfo{

@@ -113,6 +113,7 @@ func (s *StructInfo) resolvePackageNameConflicts(
 	// 生成最终的导入映射
 	imports := make(map[string]string)
 	for packageName, paths := range nameGroups {
+		sort.Strings(paths)
 		// 第一个包使用原名
 		imports[paths[0]] = packageName
 
