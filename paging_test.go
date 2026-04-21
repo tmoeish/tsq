@@ -249,6 +249,26 @@ func TestPageReq_NilHelpers(t *testing.T) {
 	}
 }
 
+func TestPageReq_HelpersNormalizeInvalidValues(t *testing.T) {
+	page := &PageReq{
+		Page: -2,
+		Size: 0,
+	}
+
+	query := page.ToQuery()
+	if query.Get("page") != "1" {
+		t.Fatalf("expected normalized page 1, got %q", query.Get("page"))
+	}
+
+	if query.Get("size") != strconv.Itoa(DefaultPageSize) {
+		t.Fatalf("expected normalized size %d, got %q", DefaultPageSize, query.Get("size"))
+	}
+
+	if offset := page.Offset(); offset != 0 {
+		t.Fatalf("expected normalized offset 0, got %d", offset)
+	}
+}
+
 func TestPageReq_Offset(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -408,8 +428,12 @@ func TestNewResponse_ZeroSize(t *testing.T) {
 
 	resp := NewResponse(req, 20, []*string{})
 
-	if resp.TotalPage != 0 {
-		t.Errorf("Expected total page 0 when size is 0, got %d", resp.TotalPage)
+	if resp.Size != DefaultPageSize {
+		t.Fatalf("expected normalized size %d, got %d", DefaultPageSize, resp.Size)
+	}
+
+	if resp.TotalPage != 1 {
+		t.Errorf("Expected total page 1 when size is normalized, got %d", resp.TotalPage)
 	}
 }
 

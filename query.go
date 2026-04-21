@@ -776,6 +776,18 @@ func splitCommaValues(value string) []string {
 // 批量操作支持
 // ================================================
 
+// BatchOptions 批量操作通用配置选项
+type BatchOptions struct {
+	BatchSize int // 每批处理的数量，默认 1000
+}
+
+// DefaultBatchOptions 返回默认的批量操作配置
+func DefaultBatchOptions() *BatchOptions {
+	return &BatchOptions{
+		BatchSize: 1000,
+	}
+}
+
 // BatchInsertOptions 批量插入配置选项
 type BatchInsertOptions struct {
 	BatchSize    int  // 每批处理的数量，默认 1000
@@ -785,7 +797,7 @@ type BatchInsertOptions struct {
 // DefaultBatchInsertOptions 返回默认的批量插入配置
 func DefaultBatchInsertOptions() *BatchInsertOptions {
 	return &BatchInsertOptions{
-		BatchSize:    1000,
+		BatchSize:    DefaultBatchOptions().BatchSize,
 		IgnoreErrors: false,
 	}
 }
@@ -884,7 +896,7 @@ func BatchUpdate[T any](
 	ctx context.Context,
 	tx gorp.SqlExecutor,
 	items []*T,
-	options ...*BatchInsertOptions,
+	options ...*BatchOptions,
 ) error {
 	return Trace(ctx, func(ctx context.Context) error {
 		return batchUpdateFn[T](ctx, tx, items, options...)
@@ -895,7 +907,7 @@ func batchUpdateFn[T any](
 	ctx context.Context,
 	tx gorp.SqlExecutor,
 	items []*T,
-	options ...*BatchInsertOptions,
+	options ...*BatchOptions,
 ) error {
 	if len(items) == 0 {
 		return nil
@@ -904,7 +916,7 @@ func batchUpdateFn[T any](
 		return errors.Trace(err)
 	}
 
-	opts, err := normalizeBatchInsertOptions(options...)
+	opts, err := normalizeBatchOptions(options...)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -949,7 +961,7 @@ func BatchDelete[T any](
 	ctx context.Context,
 	tx gorp.SqlExecutor,
 	items []*T,
-	options ...*BatchInsertOptions,
+	options ...*BatchOptions,
 ) error {
 	return Trace(ctx, func(ctx context.Context) error {
 		return batchDeleteFn[T](ctx, tx, items, options...)
@@ -960,7 +972,7 @@ func batchDeleteFn[T any](
 	ctx context.Context,
 	tx gorp.SqlExecutor,
 	items []*T,
-	options ...*BatchInsertOptions,
+	options ...*BatchOptions,
 ) error {
 	if len(items) == 0 {
 		return nil
@@ -969,7 +981,7 @@ func batchDeleteFn[T any](
 		return errors.Trace(err)
 	}
 
-	opts, err := normalizeBatchInsertOptions(options...)
+	opts, err := normalizeBatchOptions(options...)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -1010,26 +1022,26 @@ func batchDeleteChunk[T any](
 }
 
 // BatchDeleteByIDs 根据 ID 列表批量删除数据
-func BatchDeleteByIDs[T any](
+func BatchDeleteByIDs(
 	ctx context.Context,
 	tx gorp.SqlExecutor,
 	tableName string,
 	idColumn string,
 	ids []any,
-	options ...*BatchInsertOptions,
+	options ...*BatchOptions,
 ) error {
 	return Trace(ctx, func(ctx context.Context) error {
-		return batchDeleteByIDsFn[T](ctx, tx, tableName, idColumn, ids, options...)
+		return batchDeleteByIDsFn(ctx, tx, tableName, idColumn, ids, options...)
 	})
 }
 
-func batchDeleteByIDsFn[T any](
+func batchDeleteByIDsFn(
 	ctx context.Context,
 	tx gorp.SqlExecutor,
 	tableName string,
 	idColumn string,
 	ids []any,
-	options ...*BatchInsertOptions,
+	options ...*BatchOptions,
 ) error {
 	if len(ids) == 0 {
 		return nil
@@ -1038,7 +1050,7 @@ func batchDeleteByIDsFn[T any](
 		return errors.Trace(err)
 	}
 
-	opts, err := normalizeBatchInsertOptions(options...)
+	opts, err := normalizeBatchOptions(options...)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -1083,6 +1095,10 @@ func batchDeleteByIDsChunk(
 	}
 
 	sqlText := renderSQLForExecutor(tx, sqlStr)
+
+	if err := validateExecutorForSQL(tx, sqlStr); err != nil {
+		return errors.Trace(err)
+	}
 
 	_, err = tx.WithContext(ctx).Exec(sqlText, ids...)
 	if err != nil {
@@ -1192,11 +1208,33 @@ func normalizeBatchInsertOptions(options ...*BatchInsertOptions) (*BatchInsertOp
 		opts = &copied
 	}
 
-	if opts.BatchSize <= 0 {
-		return nil, errors.Errorf("invalid batch size: %d", opts.BatchSize)
+	if err := validateBatchSize(opts.BatchSize); err != nil {
+		return nil, errors.Trace(err)
 	}
 
 	return opts, nil
+}
+
+func normalizeBatchOptions(options ...*BatchOptions) (*BatchOptions, error) {
+	opts := DefaultBatchOptions()
+	if len(options) > 0 && options[0] != nil {
+		copied := *options[0]
+		opts = &copied
+	}
+
+	if err := validateBatchSize(opts.BatchSize); err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	return opts, nil
+}
+
+func validateBatchSize(batchSize int) error {
+	if batchSize <= 0 {
+		return errors.Errorf("invalid batch size: %d", batchSize)
+	}
+
+	return nil
 }
 
 func validateQuery(q *Query) error {
@@ -1248,7 +1286,31 @@ func validateExecutorForSQL(tx gorp.SqlExecutor, rawSQLs ...string) error {
 	return nil
 }
 
+func validateMutationItem(item any) error {
+	if isNilValue(item) {
+		return errors.New("mutation item cannot be nil")
+	}
+
+	return nil
+}
+
+func validateScanHolder(holder any) error {
+	if isNilValue(holder) {
+		return errors.New("scan holder cannot be nil")
+	}
+
+	if reflect.ValueOf(holder).Kind() != reflect.Ptr {
+		return errors.New("scan holder must be a pointer")
+	}
+
+	return nil
+}
+
 func buildScanDest(cols []Column, holder any) ([]any, error) {
+	if err := validateScanHolder(holder); err != nil {
+		return nil, errors.Trace(err)
+	}
+
 	dest := make([]any, len(cols))
 
 	for i, col := range cols {
@@ -1299,6 +1361,9 @@ func insertFn[T any](
 	if err := validateExecutor(tx); err != nil {
 		return errors.Trace(err)
 	}
+	if err := validateMutationItem(item); err != nil {
+		return errors.Trace(err)
+	}
 
 	return tx.WithContext(ctx).Insert(item)
 }
@@ -1319,6 +1384,9 @@ func updateFn[T any](
 	item *T,
 ) error {
 	if err := validateExecutor(tx); err != nil {
+		return errors.Trace(err)
+	}
+	if err := validateMutationItem(item); err != nil {
 		return errors.Trace(err)
 	}
 
@@ -1342,6 +1410,9 @@ func deleteFn[T any](
 	item *T,
 ) error {
 	if err := validateExecutor(tx); err != nil {
+		return errors.Trace(err)
+	}
+	if err := validateMutationItem(item); err != nil {
 		return errors.Trace(err)
 	}
 

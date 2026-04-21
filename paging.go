@@ -83,9 +83,7 @@ func NewPageReq(params url.Values) *PageReq {
 
 // ToQuery converts PageReq to url.Values for URL generation
 func (r *PageReq) ToQuery() url.Values {
-	if r == nil {
-		r = normalizePageReq(nil)
-	}
+	r = normalizePageReq(r)
 
 	v := url.Values{}
 	v.Set("size", strconv.Itoa(r.Size))
@@ -108,9 +106,7 @@ func (r *PageReq) ToQuery() url.Values {
 
 // Offset calculates the offset value for SQL LIMIT clause
 func (r *PageReq) Offset() int {
-	if r == nil {
-		return 0
-	}
+	r = normalizePageReq(r)
 
 	return r.Size * (r.Page - 1)
 }
@@ -151,9 +147,7 @@ type PageResp[T any] struct {
 
 // NewResponse creates a new PageResp from request, total count, and data
 func NewResponse[T any](r *PageReq, total int64, data []*T) *PageResp[T] {
-	if r == nil {
-		r = normalizePageReq(nil)
-	}
+	r = normalizePageReq(r)
 
 	resp := &PageResp[T]{
 		PageReq: *r,

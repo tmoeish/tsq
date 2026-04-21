@@ -197,6 +197,18 @@ func TestDefaultBatchInsertOptions(t *testing.T) {
 	}
 }
 
+func TestDefaultBatchOptions(t *testing.T) {
+	opts := DefaultBatchOptions()
+
+	if opts == nil {
+		t.Fatal("expected non-nil options")
+	}
+
+	if opts.BatchSize != 1000 {
+		t.Fatalf("expected batch size 1000, got %d", opts.BatchSize)
+	}
+}
+
 func TestBatchInsertOptions_Modification(t *testing.T) {
 	opts := DefaultBatchInsertOptions()
 
@@ -445,6 +457,12 @@ func TestNormalizeBatchInsertOptionsValidatesInputs(t *testing.T) {
 	}
 }
 
+func TestNormalizeBatchOptionsValidatesInputs(t *testing.T) {
+	if _, err := normalizeBatchOptions(&BatchOptions{BatchSize: 0}); err == nil {
+		t.Fatal("expected zero batch size to return an error")
+	}
+}
+
 func TestQueryCountRejectsUnbuiltQuery(t *testing.T) {
 	_, err := (&Query{}).Count(context.Background(), nil)
 	if err == nil {
@@ -545,6 +563,48 @@ func TestInsertRejectsTypedNilExecutor(t *testing.T) {
 	}
 }
 
+func TestInsertRejectsNilItem(t *testing.T) {
+	db := &gorp.DbMap{}
+	var value *int
+
+	err := Insert(context.Background(), db, value)
+	if err == nil {
+		t.Fatal("expected nil item to return an error")
+	}
+
+	if !strings.Contains(err.Error(), "mutation item cannot be nil") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestUpdateRejectsNilItem(t *testing.T) {
+	db := &gorp.DbMap{}
+	var value *int
+
+	err := Update(context.Background(), db, value)
+	if err == nil {
+		t.Fatal("expected nil item to return an error")
+	}
+
+	if !strings.Contains(err.Error(), "mutation item cannot be nil") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestDeleteRejectsNilItem(t *testing.T) {
+	db := &gorp.DbMap{}
+	var value *int
+
+	err := Delete(context.Background(), db, value)
+	if err == nil {
+		t.Fatal("expected nil item to return an error")
+	}
+
+	if !strings.Contains(err.Error(), "mutation item cannot be nil") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestBatchInsertRejectsTypedNilExecutor(t *testing.T) {
 	var db *gorp.DbMap
 	row := mockTable{tableName: "users"}
@@ -566,6 +626,19 @@ func TestQueryCountRejectsExecutorWithoutDialectForRenderedSQL(t *testing.T) {
 	query := Select(userID).MustBuild()
 
 	_, err := query.Count(context.Background(), db)
+	if err == nil {
+		t.Fatal("expected executor without dialect to return an error")
+	}
+
+	if !strings.Contains(err.Error(), "dialect cannot be determined") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestBatchDeleteByIDsRejectsExecutorWithoutDialectForRenderedSQL(t *testing.T) {
+	db := &gorp.DbMap{}
+
+	err := BatchDeleteByIDs(context.Background(), db, "users", "id", []any{1})
 	if err == nil {
 		t.Fatal("expected executor without dialect to return an error")
 	}
@@ -624,6 +697,42 @@ func TestBuildScanDestRejectsNilScanTarget(t *testing.T) {
 	}
 
 	if !strings.Contains(err.Error(), "returned nil") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestBuildScanDestRejectsNilHolder(t *testing.T) {
+	col := NewCol[string](
+		newMockTable("users"),
+		"name",
+		"name",
+		func(holder any) any { return &holder.(*scanDestUser).Name },
+	)
+
+	_, err := buildScanDest([]Column{col}, nil)
+	if err == nil {
+		t.Fatal("expected nil holder to return an error")
+	}
+
+	if !strings.Contains(err.Error(), "scan holder cannot be nil") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestBuildScanDestRejectsNonPointerHolder(t *testing.T) {
+	col := NewCol[string](
+		newMockTable("users"),
+		"name",
+		"name",
+		func(holder any) any { return &holder.(*scanDestUser).Name },
+	)
+
+	_, err := buildScanDest([]Column{col}, scanDestUser{})
+	if err == nil {
+		t.Fatal("expected non-pointer holder to return an error")
+	}
+
+	if !strings.Contains(err.Error(), "scan holder must be a pointer") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

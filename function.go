@@ -93,7 +93,8 @@ func (c Col[T]) Trim() Col[T] {
 	return c.Fn("TRIM(%s)")
 }
 
-// Concat returns CONCAT(column, 'other') - concatenates strings
+// Concat is intentionally unsupported because portable string concatenation
+// differs across TSQ's built-in dialects.
 func (c Col[T]) Concat(_ string) Col[T] {
 	panic("Concat is not portable across TSQ's built-in dialects; use Fn with a dialect-specific expression instead")
 }
@@ -102,7 +103,7 @@ func (c Col[T]) Concat(_ string) Col[T] {
 // 日期和时间函数 (Date/Time Functions)
 // ================================================
 
-// Now returns NOW() - current timestamp (usually used as static function)
+// Now returns CURRENT_TIMESTAMP - current timestamp (usually used as static function)
 func (c Col[T]) Now() Col[T] {
 	return c.Fn0("CURRENT_TIMESTAMP")
 }
@@ -112,17 +113,17 @@ func (c Col[T]) Date() Col[T] {
 	return c.Fn("DATE(%s)")
 }
 
-// Year returns YEAR(column) - extracts year from date
+// Year returns a portable year extraction expression for the column
 func (c Col[T]) Year() Col[T] {
 	return c.Fn("SUBSTR(DATE(%s), 1, 4)")
 }
 
-// Month returns MONTH(column) - extracts month from date
+// Month returns a portable month extraction expression for the column
 func (c Col[T]) Month() Col[T] {
 	return c.Fn("SUBSTR(DATE(%s), 6, 2)")
 }
 
-// Day returns DAY(column) - extracts day from date
+// Day returns a portable day extraction expression for the column
 func (c Col[T]) Day() Col[T] {
 	return c.Fn("SUBSTR(DATE(%s), 9, 2)")
 }
@@ -133,10 +134,6 @@ func (c Col[T]) Day() Col[T] {
 
 // Round returns ROUND(column, precision) - rounds to specified decimal places
 func (c Col[T]) Round(precision int) Col[T] {
-	// 验证精度参数范围
-	if precision < 0 || precision > 30 {
-		precision = 0
-	}
 	return c.Fn(fmt.Sprintf("ROUND(%%s, %d)", precision))
 }
 
