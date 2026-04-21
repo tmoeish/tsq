@@ -83,6 +83,10 @@ func NewPageReq(params url.Values) *PageReq {
 
 // ToQuery converts PageReq to url.Values for URL generation
 func (r *PageReq) ToQuery() url.Values {
+	if r == nil {
+		r = normalizePageReq(nil)
+	}
+
 	v := url.Values{}
 	v.Set("size", strconv.Itoa(r.Size))
 	v.Set("page", strconv.Itoa(r.Page))
@@ -104,11 +108,19 @@ func (r *PageReq) ToQuery() url.Values {
 
 // Offset calculates the offset value for SQL LIMIT clause
 func (r *PageReq) Offset() int {
+	if r == nil {
+		return 0
+	}
+
 	return r.Size * (r.Page - 1)
 }
 
 // Validate validates the pagination request parameters
 func (r *PageReq) Validate() error {
+	if r == nil {
+		return nil
+	}
+
 	if r.Page <= 0 {
 		r.Page = 1
 	}
@@ -139,6 +151,10 @@ type PageResp[T any] struct {
 
 // NewResponse creates a new PageResp from request, total count, and data
 func NewResponse[T any](r *PageReq, total int64, data []*T) *PageResp[T] {
+	if r == nil {
+		r = normalizePageReq(nil)
+	}
+
 	resp := &PageResp[T]{
 		PageReq: *r,
 		Total:   total,
@@ -158,15 +174,27 @@ func NewResponse[T any](r *PageReq, total int64, data []*T) *PageResp[T] {
 
 // HasNext returns true if there are more pages available
 func (r *PageResp[T]) HasNext() bool {
+	if r == nil {
+		return false
+	}
+
 	return r.Page < int(r.TotalPage)
 }
 
 // HasPrev returns true if there are previous pages available
 func (r *PageResp[T]) HasPrev() bool {
+	if r == nil {
+		return false
+	}
+
 	return r.Page > 1
 }
 
 // IsEmpty returns true if the result set is empty
 func (r *PageResp[T]) IsEmpty() bool {
+	if r == nil {
+		return true
+	}
+
 	return len(r.Data) == 0
 }

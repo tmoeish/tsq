@@ -34,14 +34,14 @@ import (
 	"github.com/tmoeish/tsq"
 	"github.com/juju/errors"
 	"gopkg.in/gorp.v2"
-	"database/sql"
+	tsqsql "database/sql"
 {{- range $p, $a := .ImportMap }}
+{{- if and (ne $p "database/sql") (ne $p "time") }}
 	{{$a}} "{{$p}}"
 {{- end }}
-{{- if or .CT .MT .DT }}
-{{- if not .ImportMap.time }}
-	"time"
 {{- end }}
+{{- if NeedsGeneratedTimeImport . }}
+	tsqtime "time"
 {{- end }}
 )
 
@@ -108,7 +108,7 @@ func ({{$dot.Recv}} {{$type}}) KwList() []tsq.Column {
 {{- if .DT }}
 // Active returns true if the {{$type}} record is not soft-deleted.
 {{$precv}}Active() bool {
-	return {{$dot.Recv}}.{{$dot.DT}} == 0
+	return {{ SoftDeleteActiveExpr $dot.Recv $dot.DT (index $dot.FieldMap $dot.DT) }}
 }
 {{- end }}
 
@@ -135,7 +135,7 @@ func {{$name}}(
 	switch errors.Cause(err) {
 	case nil:
 		return row, nil
-	case sql.ErrNoRows:
+	case {{ GeneratedSQLRef "ErrNoRows" }}:
 		return nil, nil
 	default:
 		return nil, errors.Trace(err)
@@ -145,14 +145,23 @@ func {{$name}}(
 
 	{{- with $name := printf "%s%sOrErr" $GetBy $dot.ID }}
 // {{$name}} retrieves a {{$type}} record by its {{$dot.ID}}.
-// Returns (nil, sql.ErrNoRows) if the record is not found.
+// Returns (nil, database/sql.ErrNoRows) if the record is not found.
 func {{$name}}(
 	ctx context.Context,
 	db gorp.SqlExecutor,
 	{{$dot.ID | ToLower}} {{index $dot.FieldMap $dot.ID | FieldType}},
 ) ({{$ptype}}, error) {
 	row := &{{$type}}{}
-	return row, {{$query}}.Load(ctx, db, row, {{$dot.ID | ToLower}})
+	err := {{$query}}.Load(ctx, db, row, {{$dot.ID | ToLower}})
+	if err != nil {
+		if err == {{ GeneratedSQLRef "ErrNoRows" }} {
+			return nil, err
+		}
+
+		return nil, errors.Trace(err)
+	}
+
+	return row, nil
 }
 	{{- end }}
 {{- end }}
@@ -219,7 +228,7 @@ func {{$name}}(
 var {{$query}} = tsq.
 	Select({{$varTblCols}}...).
 	Where(
-		{{$type}}_{{$dot.DT}}.EQ(0),
+		{{ SoftDeleteActiveCond $type $dot.DT (index $dot.FieldMap $dot.DT) }},
 		{{$type}}_{{$dot.ID}}.EQVar(),
 	).
 	MustBuild()
@@ -237,7 +246,7 @@ func {{$name}}(
 	switch errors.Cause(err) {
 	case nil:
 		return row, nil
-	case sql.ErrNoRows:
+	case {{ GeneratedSQLRef "ErrNoRows" }}:
 		return nil, nil
 	default:
 		return nil, errors.Trace(err)
@@ -247,7 +256,7 @@ func {{$name}}(
 
 		{{- with $name := printf "%s%sOrErr" $GetActiveBy $dot.ID }}
 // {{$name}} retrieves an active (non-deleted) {{$type}} record by its {{$dot.ID}}.
-// Returns (nil, sql.ErrNoRows) if the record is not found or has been soft-deleted.
+// Returns (nil, database/sql.ErrNoRows) if the record is not found or has been soft-deleted.
 func {{$name}}(
 	ctx context.Context,
 	db gorp.SqlExecutor,
@@ -255,7 +264,15 @@ func {{$name}}(
 ) ({{$ptype}}, error) {
 	row := &{{$type}}{}
 	err := {{$query}}.Load(ctx, db, row, {{$dot.ID | ToLower}})
-	return row, errors.Trace(err)
+	if err != nil {
+		if err == {{ GeneratedSQLRef "ErrNoRows" }} {
+			return nil, err
+		}
+
+		return nil, errors.Trace(err)
+	}
+
+	return row, nil
 }
 		{{- end }}
 	{{- end }}
@@ -271,7 +288,7 @@ func {{$name}}(
 	query := tsq.
 		Select({{$varTblCols}}...).
 		Where(
-			{{$type}}_{{$dot.DT}}.EQ(0),
+			{{ SoftDeleteActiveCond $type $dot.DT (index $dot.FieldMap $dot.DT) }},
 			{{$type}}_{{$dot.ID}}.In({{$dot.ID | ToLower}}s...),
 		).
 		MustBuild()
@@ -298,7 +315,7 @@ func {{$name}}(
 	query := tsq.
 		Select({{$varTblCols}}...).
 		Where(
-			{{$type}}_{{$dot.DT}}.EQ(0),
+			{{ SoftDeleteActiveCond $type $dot.DT (index $dot.FieldMap $dot.DT) }},
 			{{$type}}_{{$dot.ID}}.In({{$dot.ID | ToLower}}s...),
 		).
 		MustBuild()
@@ -334,20 +351,10 @@ func {{$name}}(
 	db gorp.SqlExecutor,
 ) error {
 {{- if $dot.CT }}
-	{{- $pkg := index $dot.FieldMap $dot.CT }}
-	{{- if eq "time" $pkg.Type.Package.Path }}
-	{{$dot.Recv}}.{{$dot.CT}} = time.Now()
-	{{- else }}
-	{{$dot.Recv}}.{{$dot.CT}} = null.TimeFrom(time.Now())
-	{{- end }}
+	{{$dot.Recv}}.{{$dot.CT}} = {{ TimestampNowValue (index $dot.FieldMap $dot.CT) }}
 {{- end }}
 {{- if $dot.MT }}
-	{{- $pkg := index $dot.FieldMap $dot.MT }}
-	{{- if eq "time" $pkg.Type.Package.Path }}
-	{{$dot.Recv}}.{{$dot.MT}} = time.Now()
-	{{- else }}
-	{{$dot.Recv}}.{{$dot.MT}} = null.TimeFrom(time.Now())
-	{{- end }}
+	{{$dot.Recv}}.{{$dot.MT}} = {{ TimestampNowValue (index $dot.FieldMap $dot.MT) }}
 {{- end }}
 	err := tsq.Insert(ctx, db, {{$dot.Recv}})
 	if err != nil {
@@ -364,12 +371,7 @@ func {{$name}}(
 	db gorp.SqlExecutor,
 ) error {
 {{- if $dot.MT }}
-	{{- $pkg := index $dot.FieldMap $dot.MT }}
-	{{- if eq "time" $pkg.Type.Package.Path }}
-	{{$dot.Recv}}.{{$dot.MT}} = time.Now()
-	{{- else }}
-	{{$dot.Recv}}.{{$dot.MT}} = null.TimeFrom(time.Now())
-	{{- end }}
+	{{$dot.Recv}}.{{$dot.MT}} = {{ TimestampNowValue (index $dot.FieldMap $dot.MT) }}
 {{- end }}
 	err := tsq.Update(ctx, db, {{$dot.Recv}})
 	if err != nil {
@@ -394,24 +396,19 @@ func {{$name}}(
 
 {{- if .DT }}
 // SoftDelete marks a {{$type}} record as deleted without removing it from the database.
-// If dt > 0, uses the provided timestamp; otherwise uses the current time.
+// If dt is set, uses the provided tombstone value; otherwise uses the current time.
 {{$precv}}SoftDelete(
 	ctx context.Context,
 	db gorp.SqlExecutor,
-	dt int64,
+	dt {{ SoftDeleteParamType (index $dot.FieldMap $dot.DT) }},
 ) error {
-	if dt > 0 {
+	if {{ SoftDeleteParamSetExpr "dt" (index $dot.FieldMap $dot.DT) }} {
 		{{$dot.Recv}}.{{$dot.DT}} = dt
 	} else {
-		{{$dot.Recv}}.{{$dot.DT}} = time.Now().UnixNano()
+		{{$dot.Recv}}.{{$dot.DT}} = {{ SoftDeleteNowValue (index $dot.FieldMap $dot.DT) }}
 	}
 {{- if $dot.MT }}
-	{{- $pkg := index $dot.FieldMap $dot.MT }}
-	{{- if eq "time" $pkg.Type.Package.Path }}
-	{{$dot.Recv}}.{{$dot.MT}} = time.Now()
-	{{- else }}
-	{{$dot.Recv}}.{{$dot.MT}} = null.TimeFrom(time.Now())
-	{{- end }}
+	{{$dot.Recv}}.{{$dot.MT}} = {{ TimestampNowValue (index $dot.FieldMap $dot.MT) }}
 {{- end }}
 	err := tsq.Update(ctx, db, {{$dot.Recv}})
 	if err != nil {
@@ -499,7 +496,7 @@ func {{$name}}(
 // {{$query}} is the base query for retrieving active (non-deleted) {{$type}} records.
 var {{$query}} = tsq.
 	Select({{$varTblCols}}...).
-	Where({{$type}}_{{$dot.DT}}.EQ(0)).
+	Where({{ SoftDeleteActiveCond $type $dot.DT (index $dot.FieldMap $dot.DT) }}).
 	KwSearch(Table{{$type}}.KwList()...).
 	MustBuild()
 
@@ -573,7 +570,7 @@ func {{$name}}(
 	switch errors.Cause(err) {
 	case nil:
 		return row, nil
-	case sql.ErrNoRows:
+	case {{ GeneratedSQLRef "ErrNoRows" }}:
 		return nil, nil
 	default:
 		return nil, errors.Trace(err)
@@ -583,7 +580,7 @@ func {{$name}}(
 
 		{{- with $name := printf "%s%sOrErr" $GetBy (JoinAnd $ux.Fields) }}
 // {{$name}} retrieves a {{$type}} record by unique index {{$ux.Name}}.
-// Returns (nil, sql.ErrNoRows) if the record is not found.
+// Returns (nil, database/sql.ErrNoRows) if the record is not found.
 func {{$name}}(
 	ctx context.Context,
 	db gorp.SqlExecutor,
@@ -599,7 +596,15 @@ func {{$name}}(
 		{{$f | LowerInitial}},
 		{{- end }}
 	)
-	return row, errors.Trace(err)
+	if err != nil {
+		if err == {{ GeneratedSQLRef "ErrNoRows" }} {
+			return nil, err
+		}
+
+		return nil, errors.Trace(err)
+	}
+
+	return row, nil
 }
 		{{- end }}
 
@@ -636,7 +641,7 @@ func {{$name}}(
 var {{$query}} = tsq.
 	Select({{$varTblCols}}...).
 	Where(
-		{{$type}}_{{$dot.DT}}.EQ(0),
+		{{ SoftDeleteActiveCond $type $dot.DT (index $dot.FieldMap $dot.DT) }},
 			{{- range $f := $ux.Fields }}
 		{{$type}}_{{$f}}.EQVar(),
 			{{- end }}
@@ -656,7 +661,7 @@ func {{$name}}(
 ) ({{$ptype}}, error) {
 	query := {{$query}}
 
-		row := &{{$type}}{}
+	row := &{{$type}}{}
 	err := query.Load(ctx, db, row,
 		{{- range $f := $ux.Fields }}
 		{{$f | LowerInitial}},
@@ -665,7 +670,7 @@ func {{$name}}(
 	switch errors.Cause(err) {
 	case nil:
 		return row, nil
-	case sql.ErrNoRows:
+	case {{ GeneratedSQLRef "ErrNoRows" }}:
 		return nil, nil
 	default:
 		return nil, errors.Trace(err)
@@ -675,7 +680,7 @@ func {{$name}}(
 
 			{{- with $name := printf "%s%sOrErr" $GetActiveBy (JoinAnd $ux.Fields) }}
 // {{$name}} retrieves an active (non-deleted) {{$type}} record by unique index {{$ux.Name}}.
-// Returns (nil, sql.ErrNoRows) if the record is not found or has been soft-deleted.
+// Returns (nil, database/sql.ErrNoRows) if the record is not found or has been soft-deleted.
 func {{$name}}(
 	ctx context.Context,
 	db gorp.SqlExecutor,
@@ -691,7 +696,15 @@ func {{$name}}(
 		{{$f | LowerInitial}},
 		{{- end }}
 	)
-	return row, errors.Trace(err)
+	if err != nil {
+		if err == {{ GeneratedSQLRef "ErrNoRows" }} {
+			return nil, err
+		}
+
+		return nil, errors.Trace(err)
+	}
+
+	return row, nil
 }
 			{{- end }}
 
@@ -853,7 +866,7 @@ func {{$name}}(
 	query := tsq.
 		Select({{$varTblCols}}...).
 		Where(
-			{{$type}}_{{$dot.DT}}.EQ(0),
+			{{ SoftDeleteActiveCond $type $dot.DT (index $dot.FieldMap $dot.DT) }},
 				{{- range $i, $f := $idx.Fields }}
 					{{- if eq $i (Sub1 (len $idx.Fields)) }}
 			{{$type}}_{{$f}}.In({{ $f | LowerInitial }}s...),
@@ -873,7 +886,7 @@ func {{$name}}(
 var {{$query}} = tsq.
 	Select({{$varTblCols}}...).
 	Where(
-		{{$type}}_{{$dot.DT}}.EQ(0),
+		{{ SoftDeleteActiveCond $type $dot.DT (index $dot.FieldMap $dot.DT) }},
 				{{- range $f := $idx.Fields }}
 		{{$type}}_{{$f}}.EQVar(),
 				{{- end }}

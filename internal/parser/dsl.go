@@ -430,7 +430,9 @@ func genTableInfoFromAST(
 	isTable bool,
 	structFields map[string]struct{},
 ) (*tsq.TableInfo, error) {
-	info := &tsq.TableInfo{}
+	info := &tsq.TableInfo{
+		IsDTO: !isTable,
+	}
 
 	if isTable {
 		info.Table = snaker.CamelToSnake(name)

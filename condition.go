@@ -17,15 +17,24 @@ import (
 
 // And combines multiple conditions with AND logic
 func And(conds ...Condition) Cond {
+	if len(conds) == 0 {
+		return rawCondition("1 = 1")
+	}
+
 	tables := make(map[string]Table)
 	clauses := make([]string, 0, len(conds))
 
 	for _, c := range conds {
-		for tn, t := range c.Tables() {
+		clause, condTables, err := validateConditionInput(c)
+		if err != nil {
+			panic(err.Error())
+		}
+
+		for tn, t := range condTables {
 			tables[tn] = t
 		}
 
-		clauses = append(clauses, c.Clause())
+		clauses = append(clauses, clause)
 	}
 
 	return Cond{
@@ -36,15 +45,24 @@ func And(conds ...Condition) Cond {
 
 // Or combines multiple conditions with OR logic
 func Or(conds ...Condition) Cond {
+	if len(conds) == 0 {
+		return rawCondition("1 = 0")
+	}
+
 	tables := make(map[string]Table)
 	clauses := make([]string, 0, len(conds))
 
 	for _, c := range conds {
-		for tn, t := range c.Tables() {
+		clause, condTables, err := validateConditionInput(c)
+		if err != nil {
+			panic(err.Error())
+		}
+
+		for tn, t := range condTables {
 			tables[tn] = t
 		}
 
-		clauses = append(clauses, c.Clause())
+		clauses = append(clauses, clause)
 	}
 
 	return Cond{
@@ -87,12 +105,12 @@ func (c Col[T]) GTVar() Cond         { return c.Predicate(`%s > %s`, Var) }
 func (c Col[T]) GETVar() Cond        { return c.Predicate(`%s >= %s`, Var) }
 func (c Col[T]) LTVar() Cond         { return c.Predicate(`%s < %s`, Var) }
 func (c Col[T]) LETVar() Cond        { return c.Predicate(`%s <= %s`, Var) }
-func (c Col[T]) StartWithVar() Cond  { return c.Predicate(`%s LIKE %%%s`, Var) }
-func (c Col[T]) NStartWithVar() Cond { return c.Predicate(`%s NOT LIKE %%%s`, Var) }
-func (c Col[T]) EndWithVar() Cond    { return c.Predicate(`%s LIKE %s%%`, Var) }
-func (c Col[T]) NEndWithVar() Cond   { return c.Predicate(`%s NOT LIKE %s%%`, Var) }
-func (c Col[T]) ContainsVar() Cond   { return c.Predicate(`%s LIKE %%%s%%`, Var) }
-func (c Col[T]) NContainsVar() Cond  { return c.Predicate(`%s NOT LIKE %%%s%%`, Var) }
+func (c Col[T]) StartWithVar() Cond  { return panicUnsupportedPatternPredicate("StartWithVar") }
+func (c Col[T]) NStartWithVar() Cond { return panicUnsupportedPatternPredicate("NStartWithVar") }
+func (c Col[T]) EndWithVar() Cond    { return panicUnsupportedPatternPredicate("EndWithVar") }
+func (c Col[T]) NEndWithVar() Cond   { return panicUnsupportedPatternPredicate("NEndWithVar") }
+func (c Col[T]) ContainsVar() Cond   { return panicUnsupportedPatternPredicate("ContainsVar") }
+func (c Col[T]) NContainsVar() Cond  { return panicUnsupportedPatternPredicate("NContainsVar") }
 func (c Col[T]) BetweenVar() Cond    { return c.Predicate(`%s BETWEEN %s AND %s`, Var, Var) }
 func (c Col[T]) NBetweenVar() Cond   { return c.Predicate(`%s NOT BETWEEN %s AND %s`, Var, Var) }
 
@@ -106,50 +124,52 @@ func (c Col[T]) GT(arg T) Cond              { return c.Predicate(`%s > %s`, arg)
 func (c Col[T]) GTE(arg T) Cond             { return c.Predicate(`%s >= %s`, arg) }
 func (c Col[T]) LT(arg T) Cond              { return c.Predicate(`%s < %s`, arg) }
 func (c Col[T]) LTE(arg T) Cond             { return c.Predicate(`%s <= %s`, arg) }
-func (c Col[T]) StartWith(str string) Cond  { return c.Predicate(`%s LIKE %%%s`, str) }
-func (c Col[T]) NStartWith(str string) Cond { return c.Predicate(`%s NOT LIKE %%%s`, str) }
-func (c Col[T]) EndWith(str string) Cond    { return c.Predicate(`%s LIKE %s%%`, str) }
-func (c Col[T]) NEndWith(str string) Cond   { return c.Predicate(`%s NOT LIKE %s%%`, str) }
-func (c Col[T]) Contains(str string) Cond   { return c.Predicate(`%s LIKE %%%s%%`, str) }
-func (c Col[T]) NContains(str string) Cond  { return c.Predicate(`%s NOT LIKE %%%s%%`, str) }
+func (c Col[T]) StartWith(str string) Cond  { return c.Predicate(`%s LIKE %s`, str+"%") }
+func (c Col[T]) NStartWith(str string) Cond { return c.Predicate(`%s NOT LIKE %s`, str+"%") }
+func (c Col[T]) EndWith(str string) Cond    { return c.Predicate(`%s LIKE %s`, "%"+str) }
+func (c Col[T]) NEndWith(str string) Cond   { return c.Predicate(`%s NOT LIKE %s`, "%"+str) }
+func (c Col[T]) Contains(str string) Cond   { return c.Predicate(`%s LIKE %s`, "%"+str+"%") }
+func (c Col[T]) NContains(str string) Cond  { return c.Predicate(`%s NOT LIKE %s`, "%"+str+"%") }
 func (c Col[T]) Between(start, end T) Cond  { return c.Predicate(`%s BETWEEN %s AND %s`, start, end) }
 func (c Col[T]) NBetween(start, end T) Cond {
 	return c.Predicate(`%s NOT BETWEEN %s AND %s`, start, end)
 }
-func (c Col[T]) In(args ...T) Cond  { return c.Predicate(`%s IN (%s)`, newValuesExpression(args)) }
-func (c Col[T]) NIn(args ...T) Cond { return c.Predicate(`%s NOT IN (%s)`, newValuesExpression(args)) }
-func (c Col[T]) IsNull() Cond       { return c.Predicate(`%s IS NULL`) }
-func (c Col[T]) IsNotNull() Cond    { return c.Predicate(`%s IS NOT NULL`) }
+func (c Col[T]) In(args ...T) Cond {
+	if len(args) == 0 {
+		return rawCondition("1 = 0")
+	}
+
+	return c.Predicate(`%s IN (%s)`, newValuesExpression(args))
+}
+
+func (c Col[T]) NIn(args ...T) Cond {
+	if len(args) == 0 {
+		return rawCondition("1 = 1")
+	}
+
+	return c.Predicate(`%s NOT IN (%s)`, newValuesExpression(args))
+}
+func (c Col[T]) IsNull() Cond    { return c.Predicate(`%s IS NULL`) }
+func (c Col[T]) IsNotNull() Cond { return c.Predicate(`%s IS NOT NULL`) }
 
 // ================================================
 // 字段比较条件
 // ================================================
 
-func (c Col[T]) EQCol(other Col[T]) Cond  { return c.Predicate(`%s = %s`, other) }
-func (c Col[T]) NECol(other Col[T]) Cond  { return c.Predicate(`%s <> %s`, other) }
-func (c Col[T]) GTCol(other Col[T]) Cond  { return c.Predicate(`%s > %s`, other) }
-func (c Col[T]) GTECol(other Col[T]) Cond { return c.Predicate(`%s >= %s`, other) }
-func (c Col[T]) LTCol(other Col[T]) Cond  { return c.Predicate(`%s < %s`, other) }
-func (c Col[T]) LTECol(other Col[T]) Cond { return c.Predicate(`%s <= %s`, other) }
-func (c Col[T]) StartWithCol(other Col[T]) Cond {
-	return c.Predicate(`%s LIKE CONCAT('%%', %s)`, other)
+func (c Col[T]) EQCol(other Col[T]) Cond    { return c.Predicate(`%s = %s`, other) }
+func (c Col[T]) NECol(other Col[T]) Cond    { return c.Predicate(`%s <> %s`, other) }
+func (c Col[T]) GTCol(other Col[T]) Cond    { return c.Predicate(`%s > %s`, other) }
+func (c Col[T]) GTECol(other Col[T]) Cond   { return c.Predicate(`%s >= %s`, other) }
+func (c Col[T]) LTCol(other Col[T]) Cond    { return c.Predicate(`%s < %s`, other) }
+func (c Col[T]) LTECol(other Col[T]) Cond   { return c.Predicate(`%s <= %s`, other) }
+func (c Col[T]) StartWithCol(_ Col[T]) Cond { return panicUnsupportedPatternPredicate("StartWithCol") }
+func (c Col[T]) NStartWithCol(_ Col[T]) Cond {
+	return panicUnsupportedPatternPredicate("NStartWithCol")
 }
-
-func (c Col[T]) NStartWithCol(other Col[T]) Cond {
-	return c.Predicate(`%s NOT LIKE CONCAT(%s, '%%')`, other)
-}
-func (c Col[T]) EndWithCol(other Col[T]) Cond { return c.Predicate(`%s LIKE CONCAT('%%', %s)`, other) }
-func (c Col[T]) NEndWithCol(other Col[T]) Cond {
-	return c.Predicate(`%s NOT LIKE CONCAT(%s, '%%')`, other)
-}
-
-func (c Col[T]) ContainsCol(other Col[T]) Cond {
-	return c.Predicate(`%s LIKE CONCAT('%%', %s, '%%')`, other)
-}
-
-func (c Col[T]) NContainsCol(other Col[T]) Cond {
-	return c.Predicate(`%s NOT LIKE CONCAT('%%', %s, '%%')`, other)
-}
+func (c Col[T]) EndWithCol(_ Col[T]) Cond   { return panicUnsupportedPatternPredicate("EndWithCol") }
+func (c Col[T]) NEndWithCol(_ Col[T]) Cond  { return panicUnsupportedPatternPredicate("NEndWithCol") }
+func (c Col[T]) ContainsCol(_ Col[T]) Cond  { return panicUnsupportedPatternPredicate("ContainsCol") }
+func (c Col[T]) NContainsCol(_ Col[T]) Cond { return panicUnsupportedPatternPredicate("NContainsCol") }
 
 // ================================================
 // 子查询条件
@@ -165,10 +185,10 @@ func (c Col[T]) LikeSub(sqb *Query) Cond    { return c.Predicate(`%s LIKE %s`, s
 func (c Col[T]) NLikeSub(sqb *Query) Cond   { return c.Predicate(`%s NOT LIKE %s`, sqb) }
 func (c Col[T]) InSub(sqb *Query) Cond      { return c.Predicate(`%s IN %s`, sqb) }
 func (c Col[T]) NInSub(sqb *Query) Cond     { return c.Predicate(`%s NOT IN %s`, sqb) }
-func (c Col[T]) ExistsSub(sqb *Query) Cond  { return c.Predicate(`%s EXISTS %s`, sqb) }
-func (c Col[T]) NExistsSub(sqb *Query) Cond { return c.Predicate(`%s NOT EXISTS %s`, sqb) }
-func (c Col[T]) Unique(sqb *Query) Cond     { return c.Predicate(`%s UNIQUE %s`, sqb) }
-func (c Col[T]) NUnique(sqb *Query) Cond    { return c.Predicate(`%s NOT UNIQUE %s`, sqb) }
+func (c Col[T]) ExistsSub(sqb *Query) Cond  { return rawCondition("EXISTS " + formatSubquery(sqb)) }
+func (c Col[T]) NExistsSub(sqb *Query) Cond { return rawCondition("NOT EXISTS " + formatSubquery(sqb)) }
+func (c Col[T]) Unique(sqb *Query) Cond     { return panicUnsupportedSubqueryPredicate("UNIQUE") }
+func (c Col[T]) NUnique(sqb *Query) Cond    { return panicUnsupportedSubqueryPredicate("NOT UNIQUE") }
 
 // ================================================
 // 条件构建核心方法
@@ -176,18 +196,28 @@ func (c Col[T]) NUnique(sqb *Query) Cond    { return c.Predicate(`%s NOT UNIQUE 
 
 // Predicate builds a condition with the given operator and arguments
 func (c Col[T]) Predicate(op string, args ...any) Cond {
-	tables := map[string]Table{c.table.Table(): c.table}
+	baseTable, err := validateColumnInput(c)
+	if err != nil {
+		panic(err.Error())
+	}
+
+	tables := map[string]Table{baseTable.Table(): baseTable}
 
 	// Collect tables from arguments that are also columns
 	for _, arg := range args {
 		if col, ok := arg.(Column); ok {
-			tables[col.Table().Table()] = col.Table()
+			table, err := validateColumnInput(col)
+			if err != nil {
+				panic(err.Error())
+			}
+
+			tables[table.Table()] = table
 		}
 	}
 
 	// Build arguments for string formatting
 	formatArgs := make([]any, 0, len(args)+1)
-	formatArgs = append(formatArgs, c.QualifiedName())
+	formatArgs = append(formatArgs, c.rawQualifiedName())
 
 	for _, arg := range args {
 		formatArgs = append(formatArgs, argumentToString(arg))
@@ -197,6 +227,33 @@ func (c Col[T]) Predicate(op string, args ...any) Cond {
 		tables: tables,
 		expr:   fmt.Sprintf(op, formatArgs...),
 	}
+}
+
+func (c Col[T]) rawCondition(expr string) Cond {
+	table, err := validateColumnInput(c)
+	if err != nil {
+		panic(err.Error())
+	}
+
+	return Cond{
+		tables: map[string]Table{table.Table(): table},
+		expr:   expr,
+	}
+}
+
+func rawCondition(expr string) Cond {
+	return Cond{
+		tables: map[string]Table{},
+		expr:   expr,
+	}
+}
+
+func panicUnsupportedSubqueryPredicate(name string) Cond {
+	panic(fmt.Sprintf("%s subquery predicate is not supported by TSQ's built-in dialects", name))
+}
+
+func panicUnsupportedPatternPredicate(name string) Cond {
+	panic(fmt.Sprintf("%s is not portable across TSQ's built-in dialects; use LIKE with an explicit pattern instead", name))
 }
 
 // ================================================
@@ -246,11 +303,11 @@ func argumentToString(arg any) string {
 	case Expression:
 		return v.Expr()
 	case Column:
-		return v.QualifiedName()
+		return rawColumnQualifiedName(v)
 	case *Query:
 		return formatSubquery(v)
 	case string:
-		return fmt.Sprintf("'%s'", strings.ReplaceAll(v, "'", "''"))
+		return sqlEscapeString(v)
 	default:
 		return valueOrPanic(arg)
 	}
@@ -258,11 +315,11 @@ func argumentToString(arg any) string {
 
 // formatSubquery formats a subquery for use in SQL
 func formatSubquery(q *Query) string {
-	if q == nil {
-		panic("subquery cannot be nil")
+	if err := validateQuery(q); err != nil {
+		panic(err.Error())
 	}
 
-	return fmt.Sprintf("(%s)", q.ListSQL())
+	return fmt.Sprintf("(%s)", q.listSQL)
 }
 
 // valueOrPanic converts a value to its SQL representation or panics
@@ -387,8 +444,6 @@ func sqlValue(arg any) (string, error) {
 func sqlEscapeString(s string) string {
 	// Replace single quotes with double single quotes (SQL standard)
 	escaped := strings.ReplaceAll(s, "'", "''")
-	// Escape backslashes for databases that require it
-	escaped = strings.ReplaceAll(escaped, "\\", "\\\\")
 
 	return fmt.Sprintf("'%s'", escaped)
 }

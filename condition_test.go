@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"math"
+	"strings"
 	"testing"
 	"time"
 )
@@ -21,7 +22,7 @@ func TestSqlValue(t *testing.T) {
 		// String types
 		{"string", "hello", "'hello'", false},
 		{"string with quotes", "it's a test", "'it''s a test'", false},
-		{"string with backslash", "path\\to\\file", "'path\\\\to\\\\file'", false},
+		{"string with backslash", "path\\to\\file", "'path\\to\\file'", false},
 		{"empty string", "", "''", false},
 
 		// Byte types
@@ -154,8 +155,8 @@ func TestSqlEscapeString(t *testing.T) {
 		{"simple string", "hello", "'hello'"},
 		{"string with single quote", "it's", "'it''s'"},
 		{"string with multiple quotes", "it's a 'test'", "'it''s a ''test'''"},
-		{"string with backslash", "path\\file", "'path\\\\file'"},
-		{"string with both", "it's a \\test\\", "'it''s a \\\\test\\\\'"},
+		{"string with backslash", "path\\file", "'path\\file'"},
+		{"string with both", "it's a \\test\\", "'it''s a \\test\\'"},
 		{"empty string", "", "''"},
 	}
 
@@ -215,4 +216,134 @@ func stringPtr(s string) *string {
 
 func intPtr(i int) *int {
 	return &i
+}
+
+func TestCondition_EmptyInShortCircuits(t *testing.T) {
+	col := NewCol[int](newMockTable("users"), "id", "id", nil)
+
+	if got := col.In().Clause(); got != "1 = 0" {
+		t.Fatalf("expected empty IN to short-circuit to false predicate, got %q", got)
+	}
+	if len(col.In().Tables()) != 0 {
+		t.Fatalf("expected empty IN short-circuit to avoid leaking source tables")
+	}
+
+	if got := col.NIn().Clause(); got != "1 = 1" {
+		t.Fatalf("expected empty NOT IN to short-circuit to true predicate, got %q", got)
+	}
+	if len(col.NIn().Tables()) != 0 {
+		t.Fatalf("expected empty NOT IN short-circuit to avoid leaking source tables")
+	}
+}
+
+func TestCondition_EmptyAndOrShortCircuit(t *testing.T) {
+	if got := And().Clause(); got != "1 = 1" {
+		t.Fatalf("expected empty And to short-circuit to true predicate, got %q", got)
+	}
+
+	if got := Or().Clause(); got != "1 = 0" {
+		t.Fatalf("expected empty Or to short-circuit to false predicate, got %q", got)
+	}
+}
+
+func TestCondition_NilCompositeInputsFailFast(t *testing.T) {
+	var nilCond Condition
+
+	for _, fn := range []func(){
+		func() { _ = And(nilCond) },
+		func() { _ = Or(nilCond) },
+	} {
+		func() {
+			defer func() {
+				if r := recover(); r == nil {
+					t.Fatal("expected nil condition to panic")
+				}
+			}()
+
+			fn()
+		}()
+	}
+}
+
+func TestCondition_PortabilitySensitiveLikePredicatesFailFast(t *testing.T) {
+	users := newMockTable("users")
+	nameCol := NewCol[string](users, "name", "name", nil)
+	patternCol := NewCol[string](users, "pattern", "pattern", nil)
+
+	for _, fn := range []func(){
+		func() { _ = nameCol.StartWithVar() },
+		func() { _ = nameCol.StartWithCol(patternCol) },
+	} {
+		func() {
+			defer func() {
+				if r := recover(); r == nil {
+					t.Fatal("expected predicate helper to panic for non-portable SQL")
+				}
+			}()
+
+			fn()
+		}()
+	}
+}
+
+func TestCondition_StringEscapingIsConsistentAcrossPredicates(t *testing.T) {
+	col := NewCol[string](newMockTable("users"), "name", "name", nil)
+
+	eqClause := col.EQ("path\\file").Clause()
+	inClause := col.In("path\\file").Clause()
+
+	if !strings.Contains(eqClause, "'path\\file'") {
+		t.Fatalf("expected EQ clause to preserve literal backslashes, got %q", eqClause)
+	}
+
+	if !strings.Contains(inClause, "'path\\file'") {
+		t.Fatalf("expected IN clause to preserve literal backslashes, got %q", inClause)
+	}
+}
+
+func TestCondition_ExistsSubIsStandalonePredicate(t *testing.T) {
+	col := NewCol[int](newMockTable("users"), "id", "id", nil)
+	orderID := NewCol[int](newMockTable("orders"), "id", "id", nil)
+	subquery := Select(orderID).MustBuild()
+
+	got := renderCanonicalSQL(col.ExistsSub(subquery).Clause())
+	want := `EXISTS (SELECT "orders"."id" FROM "orders")`
+	if got != want {
+		t.Fatalf("expected exists clause %q, got %q", want, got)
+	}
+}
+
+func TestCondition_UnbuiltSubqueryFailsFast(t *testing.T) {
+	col := NewCol[int](newMockTable("users"), "id", "id", nil)
+
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected unbuilt subquery to panic")
+		}
+	}()
+
+	_ = col.InSub(&Query{})
+}
+
+func TestCondition_EmptyClauseFailsFast(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected empty condition clause to panic")
+		}
+	}()
+
+	_ = And(Cond{})
+}
+
+func TestCondition_UniqueSubqueryPredicatesFailFast(t *testing.T) {
+	col := NewCol[int](newMockTable("users"), "id", "id", nil)
+	subquery := &Query{listSQL: "SELECT 1"}
+
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected Unique to panic for unsupported predicate")
+		}
+	}()
+
+	_ = col.Unique(subquery)
 }

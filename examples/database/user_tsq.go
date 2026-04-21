@@ -3,8 +3,8 @@ package database
 
 import (
 	"context"
-	"database/sql"
-	"time"
+	tsqsql "database/sql"
+	tsqtime "time"
 
 	"github.com/juju/errors"
 	"github.com/tmoeish/tsq"
@@ -25,7 +25,7 @@ func init() {
 		},
 		func(db *gorp.DbMap) error {
 			// Upsert Ux list
-			if err := tsq.UpsertIndex(db, "user", true, "ux_name", []string{`name`}); err != nil {
+			if err := tsq.UpsertIndex(db, "user", true, "ux_name", []string{"name"}); err != nil {
 				return errors.Annotate(err, "upsert ux_name@user")
 			}
 
@@ -83,7 +83,7 @@ func GetUserByID(
 	switch errors.Cause(err) {
 	case nil:
 		return row, nil
-	case sql.ErrNoRows:
+	case tsqsql.ErrNoRows:
 		return nil, nil
 	default:
 		return nil, errors.Trace(err)
@@ -91,14 +91,23 @@ func GetUserByID(
 }
 
 // GetUserByIDOrErr retrieves a User record by its ID.
-// Returns (nil, sql.ErrNoRows) if the record is not found.
+// Returns (nil, database/sql.ErrNoRows) if the record is not found.
 func GetUserByIDOrErr(
 	ctx context.Context,
 	db gorp.SqlExecutor,
 	id int64,
 ) (*User, error) {
 	row := &User{}
-	return row, getUserByIDQuery.Load(ctx, db, row, id)
+	err := getUserByIDQuery.Load(ctx, db, row, id)
+	if err != nil {
+		if err == tsqsql.ErrNoRows {
+			return nil, err
+		}
+
+		return nil, errors.Trace(err)
+	}
+
+	return row, nil
 }
 
 // ListUserByIDIn retrieves multiple User records by a set of ID values.
@@ -160,7 +169,7 @@ func (u *User) Insert(
 	ctx context.Context,
 	db gorp.SqlExecutor,
 ) error {
-	u.CT = null.TimeFrom(time.Now())
+	u.CT = null.TimeFrom(tsqtime.Now())
 	err := tsq.Insert(ctx, db, u)
 	if err != nil {
 		return errors.Annotate(err, tsq.PrettyJSON(u))
@@ -278,7 +287,7 @@ func GetUserByName(
 	switch errors.Cause(err) {
 	case nil:
 		return row, nil
-	case sql.ErrNoRows:
+	case tsqsql.ErrNoRows:
 		return nil, nil
 	default:
 		return nil, errors.Trace(err)
@@ -286,7 +295,7 @@ func GetUserByName(
 }
 
 // GetUserByNameOrErr retrieves a User record by unique index ux_name.
-// Returns (nil, sql.ErrNoRows) if the record is not found.
+// Returns (nil, database/sql.ErrNoRows) if the record is not found.
 func GetUserByNameOrErr(
 	ctx context.Context,
 	db gorp.SqlExecutor,
@@ -298,7 +307,15 @@ func GetUserByNameOrErr(
 	err := query.Load(ctx, db, row,
 		name,
 	)
-	return row, errors.Trace(err)
+	if err != nil {
+		if err == tsqsql.ErrNoRows {
+			return nil, err
+		}
+
+		return nil, errors.Trace(err)
+	}
+
+	return row, nil
 }
 
 // ExistsUserByName checks whether a User record exists by unique index ux_name.

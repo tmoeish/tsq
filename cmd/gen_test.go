@@ -1,0 +1,92 @@
+package cmd
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/tmoeish/tsq"
+)
+
+func TestValidateDTOFieldsRejectsUnknownTargetField(t *testing.T) {
+	dto := &tsq.StructInfo{
+		TableInfo: &tsq.TableInfo{IsDTO: true},
+		TypeInfo:  tsq.TypeInfo{TypeName: "UserDTO"},
+		Fields: []tsq.FieldInfo{
+			{Name: "UserName", Column: "User.Missing"},
+		},
+	}
+
+	structsByName := map[string]*tsq.StructInfo{
+		"User": {
+			TableInfo: &tsq.TableInfo{Table: "user"},
+			FieldMap: map[string]tsq.FieldInfo{
+				"ID": {Name: "ID", Column: "id"},
+			},
+		},
+	}
+
+	if err := validateDTOFields(dto, structsByName); err == nil {
+		t.Fatal("expected invalid DTO reference to return an error")
+	}
+}
+
+func TestNormalizeDTOColumnsUpdatesFieldMap(t *testing.T) {
+	dto := &tsq.StructInfo{
+		TableInfo: &tsq.TableInfo{IsDTO: true},
+		Fields: []tsq.FieldInfo{
+			{Name: "UserID", Column: "User.ID"},
+		},
+		FieldMap: map[string]tsq.FieldInfo{
+			"UserID": {Name: "UserID", Column: "User.ID"},
+		},
+	}
+
+	normalizeDTOColumns(dto)
+
+	if got := dto.Fields[0].Column; got != "User_ID" {
+		t.Fatalf("expected DTO field column to be normalized, got %q", got)
+	}
+
+	if got := dto.FieldMap["UserID"].Column; got != "User_ID" {
+		t.Fatalf("expected DTO field map column to be normalized, got %q", got)
+	}
+}
+
+func TestTableTemplateOrErrPreservesErrNoRows(t *testing.T) {
+	want := `if err == {{ GeneratedSQLRef "ErrNoRows" }} {`
+	if count := strings.Count(defaultTableTpl, want); count < 4 {
+		t.Fatalf("expected table template to preserve sql.ErrNoRows in every OrErr helper, count=%d", count)
+	}
+}
+
+func TestResolveTemplateTextUsesFallbackWithoutLeakingPreviousOverride(t *testing.T) {
+	dir := t.TempDir()
+	overridePath := filepath.Join(dir, "custom.tmpl")
+	if err := os.WriteFile(overridePath, []byte("custom-template"), 0o644); err != nil {
+		t.Fatalf("failed to write override template: %v", err)
+	}
+
+	override, err := resolveTemplateText(overridePath, defaultTableTpl, "template")
+	if err != nil {
+		t.Fatalf("expected override template to load, got %v", err)
+	}
+
+	if override != "custom-template" {
+		t.Fatalf("unexpected override template: %q", override)
+	}
+
+	fallback, err := resolveTemplateText("", defaultTableTpl, "template")
+	if err != nil {
+		t.Fatalf("expected fallback template to load, got %v", err)
+	}
+
+	if fallback != defaultTableTpl {
+		t.Fatal("expected empty override path to return embedded template")
+	}
+
+	if fallback == override {
+		t.Fatal("expected fallback template to ignore previous override content")
+	}
+}

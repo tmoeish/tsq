@@ -1,6 +1,7 @@
 package tsq
 
 import (
+	"strings"
 	"testing"
 
 	"gopkg.in/gorp.v2"
@@ -45,6 +46,32 @@ func TestSelect(t *testing.T) {
 
 	if _, exists := qb.selectTables["users"]; !exists {
 		t.Error("Expected 'users' table to be in selectTables")
+	}
+}
+
+func TestSelect_NilColumnDefersToBuildError(t *testing.T) {
+	var col Column
+
+	_, err := Select(col).Build()
+	if err == nil {
+		t.Fatal("expected nil select column to return an error")
+	}
+
+	if !strings.Contains(err.Error(), "column cannot be nil") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestSelect_ZeroValueColumnDefersToBuildError(t *testing.T) {
+	var col Col[int]
+
+	_, err := Select(col).Build()
+	if err == nil {
+		t.Fatal("expected zero-value select column to return an error")
+	}
+
+	if !strings.Contains(err.Error(), "table cannot be nil") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -188,6 +215,20 @@ func TestQueryBuilder_Having(t *testing.T) {
 	}
 }
 
+func TestQueryBuilder_HavingRejectsEmptyConditionClause(t *testing.T) {
+	table := newMockTable("users")
+	col := newMockColumn(table, "count")
+
+	_, err := Select(col).Having(Cond{}).Build()
+	if err == nil {
+		t.Fatal("expected empty HAVING condition clause to return an error")
+	}
+
+	if !strings.Contains(err.Error(), "condition clause cannot be empty") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestQueryBuilder_Where(t *testing.T) {
 	table1 := newMockTable("users")
 	col1 := newMockColumn(table1, "id")
@@ -210,6 +251,21 @@ func TestQueryBuilder_Where(t *testing.T) {
 
 	if qb.conditionClauses[0] != "`users`.`id` = 1" {
 		t.Errorf("Expected condition clause '`users`.`id` = 1', got '%s'", qb.conditionClauses[0])
+	}
+}
+
+func TestQueryBuilder_WhereRejectsNilCondition(t *testing.T) {
+	table := newMockTable("users")
+	col := newMockColumn(table, "id")
+	var cond Condition
+
+	_, err := Select(col).Where(cond).Build()
+	if err == nil {
+		t.Fatal("expected nil WHERE condition to return an error")
+	}
+
+	if !strings.Contains(err.Error(), "condition cannot be nil") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -353,6 +409,186 @@ func TestQueryBuilder_ChainedOperations(t *testing.T) {
 	// Verify tables are properly tracked
 	if len(qb.selectTables) != 2 {
 		t.Errorf("Expected 2 tables in selectTables, got %d", len(qb.selectTables))
+	}
+}
+
+func TestQueryBuilder_GroupedCountUsesWrappedSubquery(t *testing.T) {
+	table := newMockTable("users")
+	department := newMockColumn(table, "department")
+	having := &mockCondition{
+		clause: "COUNT(*) > 1",
+		tables: map[string]Table{"users": table},
+	}
+
+	query := Select(department).
+		GroupBy(department).
+		Having(having).
+		MustBuild()
+
+	wantList := `SELECT "users"."department" FROM "users" GROUP BY "users"."department" HAVING COUNT(*) > 1`
+	if query.ListSQL() != wantList {
+		t.Fatalf("expected list SQL %q, got %q", wantList, query.ListSQL())
+	}
+
+	wantCount := "SELECT COUNT(1) FROM (" + wantList + ") AS _tsq_cnt"
+	if query.CntSQL() != wantCount {
+		t.Fatalf("expected count SQL %q, got %q", wantCount, query.CntSQL())
+	}
+}
+
+func TestQueryBuilder_CrossJoinKeepsSelectedBaseTable(t *testing.T) {
+	users := newMockTable("users")
+	orders := newMockTable("orders")
+	userID := newMockColumn(users, "id")
+
+	query := Select(userID).CrossJoin(orders).MustBuild()
+	want := `SELECT "users"."id" FROM "users" CROSS JOIN "orders"`
+	if query.ListSQL() != want {
+		t.Fatalf("expected cross join SQL %q, got %q", want, query.ListSQL())
+	}
+}
+
+func TestQueryBuilder_Build_RejectsTablesReferencedOutsideJoinGraph(t *testing.T) {
+	users := newMockTable("users")
+	orgs := newMockTable("orgs")
+	items := newMockTable("items")
+	userID := NewCol[int](users, "id", "id", nil)
+	userOrgID := NewCol[int](users, "org_id", "org_id", nil)
+	orgID := NewCol[int](orgs, "id", "id", nil)
+	itemID := NewCol[int](items, "id", "id", nil)
+
+	_, err := Select(userID).
+		LeftJoin(userOrgID, orgID).
+		Where(itemID.EQVar()).
+		Build()
+	if err == nil {
+		t.Fatal("expected unjoined table reference to return an error")
+	}
+
+	if !strings.Contains(err.Error(), "use CrossJoin") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestQueryBuilder_WhereReplacesConditionTables(t *testing.T) {
+	users := newMockTable("users")
+	orders := newMockTable("orders")
+	userID := NewCol[int](users, "id", "id", nil)
+	orderID := NewCol[int](orders, "id", "id", nil)
+
+	query := Select(userID).
+		Where(orderID.EQVar()).
+		Where(userID.EQVar()).
+		MustBuild()
+
+	want := `SELECT "users"."id" FROM "users" WHERE "users"."id" = ?`
+	if query.ListSQL() != want {
+		t.Fatalf("expected repeated Where to replace condition tables, got %q", query.ListSQL())
+	}
+}
+
+func TestQueryBuilder_Build_RejectsDisconnectedJoinGraph(t *testing.T) {
+	users := newMockTable("users")
+	orgs := newMockTable("orgs")
+	orders := newMockTable("orders")
+	items := newMockTable("items")
+
+	userID := NewCol[int](users, "id", "id", nil)
+	userOrgID := NewCol[int](users, "org_id", "org_id", nil)
+	orgID := NewCol[int](orgs, "id", "id", nil)
+	orderItemID := NewCol[int](orders, "item_id", "item_id", nil)
+	itemID := NewCol[int](items, "id", "id", nil)
+
+	_, err := Select(userID).
+		LeftJoin(userOrgID, orgID).
+		LeftJoin(orderItemID, itemID).
+		Build()
+	if err == nil {
+		t.Fatal("expected disconnected join graph to return an error")
+	}
+
+	if !strings.Contains(err.Error(), "not connected") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestQueryBuilder_Build_RejectsRepeatedJoinTableWithoutAliases(t *testing.T) {
+	users := newMockTable("users")
+	orgs := newMockTable("orgs")
+
+	userID := NewCol[int](users, "id", "id", nil)
+	userOrgID := NewCol[int](users, "org_id", "org_id", nil)
+	orgID := NewCol[int](orgs, "id", "id", nil)
+	orgParentID := NewCol[int](orgs, "parent_id", "parent_id", nil)
+
+	_, err := Select(userID).
+		LeftJoin(userOrgID, orgID).
+		LeftJoin(orgParentID, orgID).
+		Build()
+	if err == nil {
+		t.Fatal("expected repeated join table to return an error")
+	}
+
+	if !strings.Contains(err.Error(), "aliases are required") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestQueryBuilder_Build_RejectsNilReceiver(t *testing.T) {
+	var qb *QueryBuilder
+
+	_, err := qb.Build()
+	if err == nil {
+		t.Fatal("expected nil query builder to return an error")
+	}
+
+	if !strings.Contains(err.Error(), "query builder cannot be nil") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestQueryBuilder_MethodsHandleNilReceiverWithoutPanicking(t *testing.T) {
+	users := newMockTable("users")
+	userID := NewCol[int](users, "id", "id", nil)
+	var qb *QueryBuilder
+
+	_, err := qb.
+		Where(userID.EQVar()).
+		GroupBy(userID).
+		KwSearch(userID).
+		Build()
+	if err == nil {
+		t.Fatal("expected nil receiver chain to return an error")
+	}
+
+	if !strings.Contains(err.Error(), "query builder cannot be nil") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestQueryBuilder_MethodsInitializeZeroValueBuilder(t *testing.T) {
+	users := newMockTable("users")
+	userID := NewCol[int](users, "id", "id", nil)
+	qb := &QueryBuilder{}
+
+	got := qb.
+		GroupBy(userID).
+		Where(userID.EQVar()).
+		KwSearch(userID)
+	if got != qb {
+		t.Fatal("expected zero-value builder methods to reuse the same builder")
+	}
+
+	if len(qb.groupByCols) != 1 {
+		t.Fatalf("expected group by column to be recorded, got %d", len(qb.groupByCols))
+	}
+
+	if len(qb.conditionClauses) != 1 {
+		t.Fatalf("expected where clause to be recorded, got %d", len(qb.conditionClauses))
+	}
+
+	if len(qb.kwCols) != 1 {
+		t.Fatalf("expected keyword search column to be recorded, got %d", len(qb.kwCols))
 	}
 }
 

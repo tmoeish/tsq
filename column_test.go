@@ -21,7 +21,7 @@ func TestNewCol(t *testing.T) {
 		t.Errorf("Expected table 'users', got '%s'", col.Table().Table())
 	}
 
-	expectedQualified := "`users`.`name`"
+	expectedQualified := `"users"."name"`
 	if col.QualifiedName() != expectedQualified {
 		t.Errorf("Expected qualified name '%s', got '%s'", expectedQualified, col.QualifiedName())
 	}
@@ -33,6 +33,16 @@ func TestNewCol(t *testing.T) {
 	if col.FieldPointer() == nil {
 		t.Error("Expected field pointer to be set")
 	}
+}
+
+func TestNewCol_RejectsNilTable(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected nil table to panic")
+		}
+	}()
+
+	_ = NewCol[string](nil, "name", "name", nil)
 }
 
 func TestCol_Table(t *testing.T) {
@@ -60,10 +70,10 @@ func TestCol_QualifiedName(t *testing.T) {
 		columnName   string
 		expectedName string
 	}{
-		{"users", "id", "`users`.`id`"},
-		{"orders", "user_id", "`orders`.`user_id`"},
-		{"products", "name", "`products`.`name`"},
-		{"user_profiles", "avatar_url", "`user_profiles`.`avatar_url`"},
+		{"users", "id", `"users"."id"`},
+		{"orders", "user_id", `"orders"."user_id"`},
+		{"products", "name", `"products"."name"`},
+		{"user_profiles", "avatar_url", `"user_profiles"."avatar_url"`},
 	}
 
 	for _, tt := range tests {
@@ -157,7 +167,7 @@ func TestCol_Into(t *testing.T) {
 		t.Errorf("Expected table 'users', got '%s'", newCol.Table().Table())
 	}
 
-	expectedQualified := "`users`.`name`"
+	expectedQualified := `"users"."name"`
 	if newCol.QualifiedName() != expectedQualified {
 		t.Errorf("Expected qualified name '%s', got '%s'", expectedQualified, newCol.QualifiedName())
 	}
@@ -211,11 +221,11 @@ func TestCol_TypeSafety(t *testing.T) {
 }
 
 func TestCol_QualifiedNameFormatting(t *testing.T) {
-	// Test that qualified names are properly formatted with backticks
+	// Test that qualified names are properly formatted in canonical SQL form
 	table := newMockTable("user_profiles")
 	col := NewCol[string](table, "profile_image_url", "profile_image_url", nil)
 
-	expected := "`user_profiles`.`profile_image_url`"
+	expected := `"user_profiles"."profile_image_url"`
 	if col.QualifiedName() != expected {
 		t.Errorf("Expected qualified name '%s', got '%s'", expected, col.QualifiedName())
 	}

@@ -37,7 +37,7 @@ func TestOrderBy_Expr(t *testing.T) {
 				field: col,
 				order: ASC,
 			},
-			expected: "`users`.`name` ASC",
+			expected: `"users"."name" ASC`,
 		},
 		{
 			name: "DESC order",
@@ -45,7 +45,7 @@ func TestOrderBy_Expr(t *testing.T) {
 				field: col,
 				order: DESC,
 			},
-			expected: "`users`.`name` DESC",
+			expected: `"users"."name" DESC`,
 		},
 	}
 
@@ -55,6 +55,39 @@ func TestOrderBy_Expr(t *testing.T) {
 			if result != tt.expected {
 				t.Errorf("Expected %s, got %s", tt.expected, result)
 			}
+		})
+	}
+}
+
+func TestOrderBy_ExprRejectsInvalidInputs(t *testing.T) {
+	tests := []struct {
+		name    string
+		orderBy OrderBy
+	}{
+		{
+			name: "nil field",
+			orderBy: OrderBy{
+				order: ASC,
+			},
+		},
+		{
+			name: "invalid order",
+			orderBy: OrderBy{
+				field: newMockColumn(newMockTable("users"), "name"),
+				order: Order("SIDEWAYS"),
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			defer func() {
+				if r := recover(); r == nil {
+					t.Fatal("expected invalid OrderBy to panic")
+				}
+			}()
+
+			_ = tt.orderBy.Expr()
 		})
 	}
 }
@@ -120,7 +153,7 @@ func TestCol_Asc(t *testing.T) {
 		t.Errorf("Expected ASC order, got %s", orderBy.Order())
 	}
 
-	expectedExpr := "`users`.`name` ASC"
+	expectedExpr := `"users"."name" ASC`
 	if orderBy.Expr() != expectedExpr {
 		t.Errorf("Expected expression '%s', got '%s'", expectedExpr, orderBy.Expr())
 	}
@@ -140,7 +173,7 @@ func TestCol_Desc(t *testing.T) {
 		t.Errorf("Expected DESC order, got %s", orderBy.Order())
 	}
 
-	expectedExpr := "`users`.`name` DESC"
+	expectedExpr := `"users"."name" DESC`
 	if orderBy.Expr() != expectedExpr {
 		t.Errorf("Expected expression '%s', got '%s'", expectedExpr, orderBy.Expr())
 	}
@@ -160,12 +193,12 @@ func TestOrderByMultiple(t *testing.T) {
 		t.Errorf("Expected 2 expressions, got %d", len(expressions))
 	}
 
-	expected1 := "`users`.`name` ASC"
+	expected1 := `"users"."name" ASC`
 	if expressions[0] != expected1 {
 		t.Errorf("Expected first expression '%s', got '%s'", expected1, expressions[0])
 	}
 
-	expected2 := "`users`.`age` DESC"
+	expected2 := `"users"."age" DESC`
 	if expressions[1] != expected2 {
 		t.Errorf("Expected second expression '%s', got '%s'", expected2, expressions[1])
 	}
@@ -199,6 +232,16 @@ func TestReverseOrder(t *testing.T) {
 	}
 }
 
+func TestReverseOrderRejectsInvalidOrder(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected invalid order to panic")
+		}
+	}()
+
+	_ = ReverseOrder(Order("SIDEWAYS"))
+}
+
 func TestOrderBy_ComplexScenario(t *testing.T) {
 	// Test a complex scenario with multiple tables and columns
 	usersTable := newMockTable("users")
@@ -217,9 +260,9 @@ func TestOrderBy_ComplexScenario(t *testing.T) {
 	expressions := OrderByMultiple(orderBys...)
 
 	expectedExpressions := []string{
-		"`users`.`name` ASC",
-		"`users`.`age` DESC",
-		"`orders`.`created_at` ASC",
+		`"users"."name" ASC`,
+		`"users"."age" DESC`,
+		`"orders"."created_at" ASC`,
 	}
 
 	if len(expressions) != len(expectedExpressions) {

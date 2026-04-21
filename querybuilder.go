@@ -1,7 +1,10 @@
 package tsq
 
 import (
+	"sort"
 	"strings"
+
+	"github.com/juju/errors"
 )
 
 // ================================================
@@ -41,6 +44,63 @@ type QueryBuilder struct {
 	// GROUP BY 和 HAVING 相关字段
 	groupByCols      []Column
 	havingConditions []Condition
+
+	buildErr error
+}
+
+func newQueryBuilder() *QueryBuilder {
+	return &QueryBuilder{
+		selectCols:         make([]Column, 0),
+		selectColFullnames: make([]string, 0),
+		selectTables:       make(map[string]Table),
+		conditionTables:    make(map[string]Table),
+		kwTables:           make(map[string]Table),
+		joins:              make([]join, 0),
+		groupByCols:        make([]Column, 0),
+		havingConditions:   make([]Condition, 0),
+	}
+}
+
+func (qb *QueryBuilder) ensureInitialized() *QueryBuilder {
+	if qb == nil {
+		qb = newQueryBuilder()
+		qb.buildErr = errors.New("query builder cannot be nil")
+		return qb
+	}
+
+	if qb.selectTables == nil {
+		qb.selectTables = make(map[string]Table)
+	}
+
+	if qb.conditionTables == nil {
+		qb.conditionTables = make(map[string]Table)
+	}
+
+	if qb.kwTables == nil {
+		qb.kwTables = make(map[string]Table)
+	}
+
+	if qb.selectCols == nil {
+		qb.selectCols = make([]Column, 0)
+	}
+
+	if qb.selectColFullnames == nil {
+		qb.selectColFullnames = make([]string, 0)
+	}
+
+	if qb.joins == nil {
+		qb.joins = make([]join, 0)
+	}
+
+	if qb.groupByCols == nil {
+		qb.groupByCols = make([]Column, 0)
+	}
+
+	if qb.havingConditions == nil {
+		qb.havingConditions = make([]Condition, 0)
+	}
+
+	return qb
 }
 
 // join represents any type of JOIN operation
@@ -53,23 +113,62 @@ type join struct {
 
 // Select creates a new QueryBuilder with the specified columns
 func Select(cols ...Column) *QueryBuilder {
-	tables := make(map[string]Table, len(cols))
-	colFullnames := make([]string, 0, len(cols))
+	qb := newQueryBuilder()
+	qb.selectCols = make([]Column, 0, len(cols))
+	qb.selectColFullnames = make([]string, 0, len(cols))
+	qb.selectTables = make(map[string]Table, len(cols))
 
-	for _, col := range cols {
-		colFullnames = append(colFullnames, col.QualifiedName())
-		tables[col.Table().Table()] = col.Table()
+	qb.addSelectColumns(cols...)
+
+	return qb
+}
+
+func (qb *QueryBuilder) setBuildError(err error) {
+	if qb == nil || err == nil || qb.buildErr != nil {
+		return
 	}
 
-	return &QueryBuilder{
-		selectCols:         cols,
-		selectColFullnames: colFullnames,
-		selectTables:       tables,
-		conditionTables:    make(map[string]Table),
-		kwTables:           make(map[string]Table),
-		joins:              make([]join, 0),
-		groupByCols:        make([]Column, 0),
-		havingConditions:   make([]Condition, 0),
+	qb.buildErr = err
+}
+
+func (qb *QueryBuilder) addSelectColumns(cols ...Column) {
+	for _, col := range cols {
+		table, err := validateColumnInput(col)
+		if err != nil {
+			qb.setBuildError(err)
+			continue
+		}
+
+		qb.selectCols = append(qb.selectCols, col)
+		qb.selectColFullnames = append(qb.selectColFullnames, rawColumnQualifiedName(col))
+		qb.selectTables[table.Table()] = table
+	}
+}
+
+func (qb *QueryBuilder) addQueryColumn(cols *[]Column, tables map[string]Table, col Column) {
+	table, err := validateColumnInput(col)
+	if err != nil {
+		qb.setBuildError(err)
+		return
+	}
+
+	*cols = append(*cols, col)
+	tables[table.Table()] = table
+}
+
+func (qb *QueryBuilder) addCondition(target *[]Condition, clauses *[]string, tables map[string]Table, cond Condition) {
+	clause, condTables, err := validateConditionInput(cond)
+	if err != nil {
+		qb.setBuildError(err)
+		return
+	}
+
+	*target = append(*target, cond)
+	if clauses != nil {
+		*clauses = append(*clauses, clause)
+	}
+	for tn, t := range condTables {
+		tables[tn] = t
 	}
 }
 
@@ -79,58 +178,121 @@ func Select(cols ...Column) *QueryBuilder {
 
 // LeftJoin adds a LEFT JOIN clause. Equivalent to `FROM left.Table LEFT JOIN right.Table ON left=right`.
 func (qb *QueryBuilder) LeftJoin(left Column, right Column) *QueryBuilder {
+	qb = qb.ensureInitialized()
+
+	leftTable, err := validateColumnInput(left)
+	if err != nil {
+		qb.setBuildError(err)
+		return qb
+	}
+
+	rightTable, err := validateColumnInput(right)
+	if err != nil {
+		qb.setBuildError(err)
+		return qb
+	}
+
 	qb.joins = append(qb.joins, join{
 		joinType: LeftJoinType,
 		left:     left,
 		right:    right,
 	})
-	qb.selectTables[left.Table().Table()] = left.Table()
-	qb.selectTables[right.Table().Table()] = right.Table()
+	qb.selectTables[leftTable.Table()] = leftTable
+	qb.selectTables[rightTable.Table()] = rightTable
 
 	return qb
 }
 
 // InnerJoin adds an INNER JOIN clause
 func (qb *QueryBuilder) InnerJoin(left Column, right Column) *QueryBuilder {
+	qb = qb.ensureInitialized()
+
+	leftTable, err := validateColumnInput(left)
+	if err != nil {
+		qb.setBuildError(err)
+		return qb
+	}
+
+	rightTable, err := validateColumnInput(right)
+	if err != nil {
+		qb.setBuildError(err)
+		return qb
+	}
+
 	qb.joins = append(qb.joins, join{
 		joinType: InnerJoinType,
 		left:     left,
 		right:    right,
 	})
-	qb.selectTables[left.Table().Table()] = left.Table()
-	qb.selectTables[right.Table().Table()] = right.Table()
+	qb.selectTables[leftTable.Table()] = leftTable
+	qb.selectTables[rightTable.Table()] = rightTable
 
 	return qb
 }
 
 // RightJoin adds a RIGHT JOIN clause
 func (qb *QueryBuilder) RightJoin(left Column, right Column) *QueryBuilder {
+	qb = qb.ensureInitialized()
+
+	leftTable, err := validateColumnInput(left)
+	if err != nil {
+		qb.setBuildError(err)
+		return qb
+	}
+
+	rightTable, err := validateColumnInput(right)
+	if err != nil {
+		qb.setBuildError(err)
+		return qb
+	}
+
 	qb.joins = append(qb.joins, join{
 		joinType: RightJoinType,
 		left:     left,
 		right:    right,
 	})
-	qb.selectTables[left.Table().Table()] = left.Table()
-	qb.selectTables[right.Table().Table()] = right.Table()
+	qb.selectTables[leftTable.Table()] = leftTable
+	qb.selectTables[rightTable.Table()] = rightTable
 
 	return qb
 }
 
 // FullJoin adds a FULL JOIN clause
 func (qb *QueryBuilder) FullJoin(left Column, right Column) *QueryBuilder {
+	qb = qb.ensureInitialized()
+
+	leftTable, err := validateColumnInput(left)
+	if err != nil {
+		qb.setBuildError(err)
+		return qb
+	}
+
+	rightTable, err := validateColumnInput(right)
+	if err != nil {
+		qb.setBuildError(err)
+		return qb
+	}
+
 	qb.joins = append(qb.joins, join{
 		joinType: FullJoinType,
 		left:     left,
 		right:    right,
 	})
-	qb.selectTables[left.Table().Table()] = left.Table()
-	qb.selectTables[right.Table().Table()] = right.Table()
+	qb.selectTables[leftTable.Table()] = leftTable
+	qb.selectTables[rightTable.Table()] = rightTable
 
 	return qb
 }
 
 // CrossJoin adds a CROSS JOIN clause
 func (qb *QueryBuilder) CrossJoin(table Table) *QueryBuilder {
+	qb = qb.ensureInitialized()
+
+	if isNilValue(table) {
+		qb.setBuildError(errors.New("cross join table cannot be nil"))
+		return qb
+	}
+
 	qb.joins = append(qb.joins, join{
 		joinType: CrossJoinType,
 		table:    table,
@@ -146,11 +308,10 @@ func (qb *QueryBuilder) CrossJoin(table Table) *QueryBuilder {
 
 // GroupBy adds GROUP BY clause with the specified columns
 func (qb *QueryBuilder) GroupBy(cols ...Column) *QueryBuilder {
-	qb.groupByCols = append(qb.groupByCols, cols...)
+	qb = qb.ensureInitialized()
 
-	// 添加表到 selectTables
 	for _, col := range cols {
-		qb.selectTables[col.Table().Table()] = col.Table()
+		qb.addQueryColumn(&qb.groupByCols, qb.selectTables, col)
 	}
 
 	return qb
@@ -158,13 +319,10 @@ func (qb *QueryBuilder) GroupBy(cols ...Column) *QueryBuilder {
 
 // Having adds HAVING clause with the specified conditions
 func (qb *QueryBuilder) Having(conds ...Condition) *QueryBuilder {
-	qb.havingConditions = append(qb.havingConditions, conds...)
+	qb = qb.ensureInitialized()
 
-	// 添加条件中涉及的表
 	for _, cond := range conds {
-		for tn, t := range cond.Tables() {
-			qb.selectTables[tn] = t
-		}
+		qb.addCondition(&qb.havingConditions, nil, qb.selectTables, cond)
 	}
 
 	return qb
@@ -176,32 +334,33 @@ func (qb *QueryBuilder) Having(conds ...Condition) *QueryBuilder {
 
 // Where sets the WHERE conditions for the query
 func (qb *QueryBuilder) Where(conds ...Condition) *QueryBuilder {
+	qb = qb.ensureInitialized()
+
 	clauses := make([]string, 0, len(conds))
+	conditionTables := make(map[string]Table, len(conds))
+	conditions := make([]Condition, 0, len(conds))
 
 	for _, c := range conds {
-		for tn, t := range c.Tables() {
-			qb.selectTables[tn] = t
-		}
-
-		clauses = append(clauses, c.Clause())
+		qb.addCondition(&conditions, &clauses, conditionTables, c)
 	}
 
-	qb.conditions = conds
+	qb.conditions = conditions
 	qb.conditionClauses = clauses
+	qb.conditionTables = conditionTables
 
 	return qb
 }
 
 // And adds additional conditions with AND logic
 func (qb *QueryBuilder) And(conds ...Condition) *QueryBuilder {
-	qb.conditions = append(qb.conditions, conds...)
+	qb = qb.ensureInitialized()
+
+	if qb.conditionTables == nil {
+		qb.conditionTables = make(map[string]Table)
+	}
 
 	for _, c := range conds {
-		for tn, t := range c.Tables() {
-			qb.selectTables[tn] = t // 统一添加到 selectTables 而不是 conditionTables
-		}
-
-		qb.conditionClauses = append(qb.conditionClauses, c.Clause())
+		qb.addCondition(&qb.conditions, &qb.conditionClauses, qb.conditionTables, c)
 	}
 
 	return qb
@@ -209,6 +368,8 @@ func (qb *QueryBuilder) And(conds ...Condition) *QueryBuilder {
 
 // AndIf conditionally adds conditions with AND logic
 func (qb *QueryBuilder) AndIf(ok bool, conds ...Condition) *QueryBuilder {
+	qb = qb.ensureInitialized()
+
 	if ok {
 		return qb.And(conds...)
 	}
@@ -222,11 +383,13 @@ func (qb *QueryBuilder) AndIf(ok bool, conds ...Condition) *QueryBuilder {
 
 // KwSearch sets the keyword search columns
 func (qb *QueryBuilder) KwSearch(cols ...Column) *QueryBuilder {
-	qb.kwCols = cols
+	qb = qb.ensureInitialized()
+
+	qb.kwCols = make([]Column, 0, len(cols))
 	qb.kwTables = make(map[string]Table, len(cols))
 
 	for _, col := range cols {
-		qb.kwTables[col.Table().Table()] = col.Table()
+		qb.addQueryColumn(&qb.kwCols, qb.kwTables, col)
 	}
 
 	return qb
@@ -238,6 +401,10 @@ func (qb *QueryBuilder) KwSearch(cols ...Column) *QueryBuilder {
 
 // buildCntSQL builds the COUNT query SQL
 func (qb *QueryBuilder) buildCntSQL() string {
+	if qb.requiresWrappedCount() {
+		return qb.wrapCountSQL(qb.buildListSQL())
+	}
+
 	return "SELECT COUNT(1) " + qb.buildListFrom() + qb.buildListWhere()
 }
 
@@ -248,6 +415,10 @@ func (qb *QueryBuilder) buildListSQL() string {
 
 // buildKwCntSQL builds the keyword search COUNT query SQL
 func (qb *QueryBuilder) buildKwCntSQL() string {
+	if qb.requiresWrappedCount() {
+		return qb.wrapCountSQL(qb.buildKwListSQL())
+	}
+
 	return "SELECT COUNT(1) " + qb.buildPageFrom() + qb.buildPageWhere()
 }
 
@@ -269,7 +440,7 @@ func (qb *QueryBuilder) buildGroupBy() string {
 
 	groupByExprs := make([]string, 0, len(qb.groupByCols))
 	for _, col := range qb.groupByCols {
-		groupByExprs = append(groupByExprs, col.QualifiedName())
+		groupByExprs = append(groupByExprs, rawColumnQualifiedName(col))
 	}
 
 	return " GROUP BY " + strings.Join(groupByExprs, ", ")
@@ -317,7 +488,7 @@ func (qb *QueryBuilder) buildPageWhere() string {
 	if len(qb.kwCols) > 0 {
 		kwClauses := make([]string, 0, len(qb.kwCols))
 		for _, col := range qb.kwCols {
-			kwClauses = append(kwClauses, col.QualifiedName()+" LIKE ?")
+			kwClauses = append(kwClauses, rawColumnQualifiedName(col)+" LIKE ?")
 		}
 
 		if len(kwClauses) > 0 {
@@ -337,41 +508,51 @@ func (qb *QueryBuilder) buildPageWhere() string {
 }
 
 // buildJoinFrom builds the FROM clause with JOINs
-func (qb *QueryBuilder) buildJoinFrom() string {
+func (qb *QueryBuilder) buildJoinFrom(allTables map[string]Table) string {
 	if len(qb.joins) == 0 {
 		return ""
 	}
 
 	var fromBuilder strings.Builder
+	includedTables := make(map[string]bool)
 
-	// 处理第一个 JOIN 以确定 FROM 表
 	firstJoin := qb.joins[0]
+	baseTable := ""
+
 	if firstJoin.joinType == CrossJoinType {
-		fromBuilder.WriteString(" FROM `")
-		fromBuilder.WriteString(firstJoin.table.Table())
-		fromBuilder.WriteString("`")
+		baseTable = qb.crossJoinBaseTable(firstJoin.table.Table(), allTables)
 	} else {
-		fromBuilder.WriteString(" FROM `")
-		fromBuilder.WriteString(firstJoin.left.Table().Table())
-		fromBuilder.WriteString("`")
+		baseTable = firstJoin.left.Table().Table()
 	}
 
-	// 添加所有 JOINs (第一个 JOIN 已经在 FROM 子句中处理了左表，所以从第一个 JOIN 开始添加)
-	for _, j := range qb.joins {
-		fromBuilder.WriteString(" ")
-		fromBuilder.WriteString(string(j.joinType))
+	fromBuilder.WriteString(" FROM ")
+	fromBuilder.WriteString(rawIdentifier(baseTable))
+	includedTables[baseTable] = true
 
+	for _, j := range qb.joins {
 		if j.joinType == CrossJoinType {
-			fromBuilder.WriteString(" `")
-			fromBuilder.WriteString(j.table.Table())
-			fromBuilder.WriteString("`")
+			if includedTables[j.table.Table()] {
+				continue
+			}
+			fromBuilder.WriteString(" ")
+			fromBuilder.WriteString(string(j.joinType))
+			fromBuilder.WriteString(" ")
+			fromBuilder.WriteString(rawIdentifier(j.table.Table()))
+			includedTables[j.table.Table()] = true
 		} else {
-			fromBuilder.WriteString(" `")
-			fromBuilder.WriteString(j.right.Table().Table())
-			fromBuilder.WriteString("` ON ")
-			fromBuilder.WriteString(j.left.QualifiedName())
+			if includedTables[j.right.Table().Table()] {
+				continue
+			}
+			fromBuilder.WriteString(" ")
+			fromBuilder.WriteString(string(j.joinType))
+			fromBuilder.WriteString(" ")
+			fromBuilder.WriteString(rawIdentifier(j.right.Table().Table()))
+			fromBuilder.WriteString(" ON ")
+			fromBuilder.WriteString(rawColumnQualifiedName(j.left))
 			fromBuilder.WriteString(" = ")
-			fromBuilder.WriteString(j.right.QualifiedName())
+			fromBuilder.WriteString(rawColumnQualifiedName(j.right))
+			includedTables[j.left.Table().Table()] = true
+			includedTables[j.right.Table().Table()] = true
 		}
 	}
 
@@ -380,38 +561,40 @@ func (qb *QueryBuilder) buildJoinFrom() string {
 
 // buildListFrom builds the FROM clause for list queries
 func (qb *QueryBuilder) buildListFrom() string {
+	tables := qb.listQueryTables()
 	if len(qb.joins) > 0 {
-		return qb.buildJoinFrom()
+		return qb.buildJoinFrom(tables)
 	}
 
-	tables := qb.listQueryTables()
 	if len(tables) == 0 {
 		return ""
 	}
 
 	tableNames := make([]string, 0, len(tables))
 	for name := range tables {
-		tableNames = append(tableNames, "`"+name+"`")
+		tableNames = append(tableNames, rawIdentifier(name))
 	}
+	sort.Strings(tableNames)
 
 	return " FROM " + strings.Join(tableNames, ", ")
 }
 
 // buildPageFrom builds the FROM clause for page queries (with keyword search)
 func (qb *QueryBuilder) buildPageFrom() string {
+	tables := qb.pageQueryTables()
 	if len(qb.joins) > 0 {
-		return qb.buildJoinFrom()
+		return qb.buildJoinFrom(tables)
 	}
 
-	tables := qb.pageQueryTables()
 	if len(tables) == 0 {
 		return ""
 	}
 
 	tableNames := make([]string, 0, len(tables))
 	for name := range tables {
-		tableNames = append(tableNames, "`"+name+"`")
+		tableNames = append(tableNames, rawIdentifier(name))
 	}
+	sort.Strings(tableNames)
 
 	return " FROM " + strings.Join(tableNames, ", ")
 }
@@ -443,4 +626,92 @@ func (qb *QueryBuilder) pageQueryTables() map[string]Table {
 	}
 
 	return tables
+}
+
+func (qb *QueryBuilder) requiresWrappedCount() bool {
+	return len(qb.groupByCols) > 0 || len(qb.havingConditions) > 0
+}
+
+func (qb *QueryBuilder) wrapCountSQL(inner string) string {
+	return "SELECT COUNT(1) FROM (" + inner + ") AS _tsq_cnt"
+}
+
+func (qb *QueryBuilder) crossJoinBaseTable(joinTable string, allTables map[string]Table) string {
+	for _, col := range qb.selectCols {
+		tableName := col.Table().Table()
+		if tableName != joinTable {
+			return tableName
+		}
+	}
+
+	tableNames := make([]string, 0, len(allTables))
+	for name := range allTables {
+		if name == joinTable {
+			continue
+		}
+
+		tableNames = append(tableNames, name)
+	}
+
+	sort.Strings(tableNames)
+	if len(tableNames) > 0 {
+		return tableNames[0]
+	}
+
+	return joinTable
+}
+
+func (qb *QueryBuilder) validateJoinGraph() error {
+	if len(qb.joins) == 0 {
+		return nil
+	}
+
+	allTables := qb.pageQueryTables()
+	introduced := make(map[string]struct{}, len(qb.joins)+1)
+
+	firstJoin := qb.joins[0]
+	if firstJoin.joinType == CrossJoinType {
+		baseTable := qb.crossJoinBaseTable(firstJoin.table.Table(), allTables)
+		introduced[baseTable] = struct{}{}
+	} else {
+		introduced[firstJoin.left.Table().Table()] = struct{}{}
+	}
+
+	for _, j := range qb.joins {
+		switch j.joinType {
+		case CrossJoinType:
+			tableName := j.table.Table()
+			if _, exists := introduced[tableName]; exists {
+				return errors.Errorf("table %s is already present in join graph", tableName)
+			}
+
+			introduced[tableName] = struct{}{}
+		default:
+			leftTable := j.left.Table().Table()
+			rightTable := j.right.Table().Table()
+
+			if _, exists := introduced[leftTable]; !exists {
+				return errors.Errorf("join left table %s is not connected to the current FROM/JOIN graph", leftTable)
+			}
+
+			if _, exists := introduced[rightTable]; exists {
+				return errors.Errorf("join right table %s is already present; aliases are required for repeated joins", rightTable)
+			}
+
+			introduced[rightTable] = struct{}{}
+		}
+	}
+
+	for tableName := range allTables {
+		if _, exists := introduced[tableName]; exists {
+			continue
+		}
+
+		return errors.Errorf(
+			"table %s is referenced outside the join graph; use CrossJoin to include it explicitly",
+			tableName,
+		)
+	}
+
+	return nil
 }

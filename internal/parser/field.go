@@ -1,10 +1,7 @@
 package parser
 
 import (
-	"bytes"
 	"go/ast"
-	"go/printer"
-	"go/token"
 	"reflect"
 	"strings"
 
@@ -234,11 +231,6 @@ func parseFieldType(
 		return true, isArray, packagePath, typeName, err
 
 	default:
-		var buf bytes.Buffer
-		if err := printer.Fprint(&buf, token.NewFileSet(), t); err == nil {
-			return false, false, "", buf.String(), nil
-		}
-
 		return false, false, "", "", NewFieldUnsupportedTypeError(t)
 	}
 }

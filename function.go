@@ -2,7 +2,6 @@ package tsq
 
 import (
 	"fmt"
-	"strings"
 )
 
 // ================================================
@@ -13,7 +12,7 @@ import (
 func (c Col[T]) Fn(format string) Col[T] {
 	return Col[T]{
 		table:         c.table,
-		qualifiedName: fmt.Sprintf(format, c.QualifiedName()),
+		qualifiedName: fmt.Sprintf(format, c.rawQualifiedName()),
 		name:          c.name,          // 保持原始名称
 		fieldPointer:  c.fieldPointer,  // 保持原始指针函数
 		jsonFieldName: c.jsonFieldName, // 保持原始JSON标签
@@ -95,9 +94,8 @@ func (c Col[T]) Trim() Col[T] {
 }
 
 // Concat returns CONCAT(column, 'other') - concatenates strings
-func (c Col[T]) Concat(other string) Col[T] {
-	escaped := strings.ReplaceAll(other, "'", "''")
-	return c.Fn(fmt.Sprintf("CONCAT(%%s, '%s')", escaped))
+func (c Col[T]) Concat(_ string) Col[T] {
+	panic("Concat is not portable across TSQ's built-in dialects; use Fn with a dialect-specific expression instead")
 }
 
 // ================================================
@@ -106,7 +104,7 @@ func (c Col[T]) Concat(other string) Col[T] {
 
 // Now returns NOW() - current timestamp (usually used as static function)
 func (c Col[T]) Now() Col[T] {
-	return c.Fn0("NOW()")
+	return c.Fn0("CURRENT_TIMESTAMP")
 }
 
 // Date returns DATE(column) - extracts date part from datetime
@@ -116,17 +114,17 @@ func (c Col[T]) Date() Col[T] {
 
 // Year returns YEAR(column) - extracts year from date
 func (c Col[T]) Year() Col[T] {
-	return c.Fn("YEAR(%s)")
+	return c.Fn("SUBSTR(DATE(%s), 1, 4)")
 }
 
 // Month returns MONTH(column) - extracts month from date
 func (c Col[T]) Month() Col[T] {
-	return c.Fn("MONTH(%s)")
+	return c.Fn("SUBSTR(DATE(%s), 6, 2)")
 }
 
 // Day returns DAY(column) - extracts day from date
 func (c Col[T]) Day() Col[T] {
-	return c.Fn("DAY(%s)")
+	return c.Fn("SUBSTR(DATE(%s), 9, 2)")
 }
 
 // ================================================
@@ -163,12 +161,10 @@ func (c Col[T]) Abs() Col[T] {
 
 // Coalesce returns COALESCE(column, 'value') - returns first non-null value
 func (c Col[T]) Coalesce(value string) Col[T] {
-	escaped := strings.ReplaceAll(value, "'", "''")
-	return c.Fn(fmt.Sprintf("COALESCE(%%s, '%s')", escaped))
+	return c.Fn(fmt.Sprintf("COALESCE(%%s, %s)", sqlEscapeString(value)))
 }
 
 // NullIf returns NULLIF(column, 'value') - returns NULL if values are equal
 func (c Col[T]) NullIf(value string) Col[T] {
-	escaped := strings.ReplaceAll(value, "'", "''")
-	return c.Fn(fmt.Sprintf("NULLIF(%%s, '%s')", escaped))
+	return c.Fn(fmt.Sprintf("NULLIF(%%s, %s)", sqlEscapeString(value)))
 }

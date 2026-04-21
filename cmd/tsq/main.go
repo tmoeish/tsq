@@ -26,6 +26,7 @@ func init() {
 
 func main() {
 	if err := rootCmd.Execute(); err != nil {
-		_, _ = fmt.Fprint(os.Stderr, err.Error())
+		_, _ = fmt.Fprintln(os.Stderr, err.Error())
+		os.Exit(1)
 	}
 }

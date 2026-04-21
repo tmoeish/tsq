@@ -228,6 +228,27 @@ func TestPageReq_ToQuery_EmptyValues(t *testing.T) {
 	}
 }
 
+func TestPageReq_NilHelpers(t *testing.T) {
+	var page *PageReq
+
+	query := page.ToQuery()
+	if query.Get("page") != "1" {
+		t.Fatalf("expected default page for nil request, got %q", query.Get("page"))
+	}
+
+	if query.Get("size") != strconv.Itoa(DefaultPageSize) {
+		t.Fatalf("expected default size for nil request, got %q", query.Get("size"))
+	}
+
+	if offset := page.Offset(); offset != 0 {
+		t.Fatalf("expected nil request offset 0, got %d", offset)
+	}
+
+	if err := page.Validate(); err != nil {
+		t.Fatalf("expected nil request validation to be a no-op, got %v", err)
+	}
+}
+
 func TestPageReq_Offset(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -446,6 +467,22 @@ func TestPageResp_HasPrev(t *testing.T) {
 	}
 }
 
+func TestPageResp_NilHelpers(t *testing.T) {
+	var resp *PageResp[int]
+
+	if resp.HasNext() {
+		t.Fatal("expected nil response to report no next page")
+	}
+
+	if resp.HasPrev() {
+		t.Fatal("expected nil response to report no previous page")
+	}
+
+	if !resp.IsEmpty() {
+		t.Fatal("expected nil response to be empty")
+	}
+}
+
 func TestPageResp_IsEmpty(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -501,6 +538,21 @@ func TestPageReq_RoundTrip(t *testing.T) {
 
 	if reconstructed.Keyword != original.Keyword {
 		t.Errorf("Keyword mismatch: expected '%s', got '%s'", original.Keyword, reconstructed.Keyword)
+	}
+}
+
+func TestNewResponseNormalizesNilRequest(t *testing.T) {
+	resp := NewResponse[int](nil, 0, nil)
+	if resp == nil {
+		t.Fatal("expected response to be non-nil")
+	}
+
+	if resp.Page != 1 {
+		t.Fatalf("expected default page 1, got %d", resp.Page)
+	}
+
+	if resp.Size != DefaultPageSize {
+		t.Fatalf("expected default size %d, got %d", DefaultPageSize, resp.Size)
 	}
 }
 

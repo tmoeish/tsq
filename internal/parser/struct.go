@@ -17,8 +17,9 @@ import (
 type StructInfo struct {
 	*tsq.StructInfo
 
-	embeddedTypes    map[tsq.TypeInfo]bool // 嵌入的结构体类型
-	embeddedResolved bool                  // 嵌入字段是否已解析
+	embeddedTypes     map[tsq.TypeInfo]bool // 嵌入的结构体类型
+	embeddedResolving bool                  // 嵌入字段是否正在解析
+	embeddedResolved  bool                  // 嵌入字段是否已解析
 }
 
 // parseStructDeclaration 解析单个结构体定义
@@ -46,6 +47,10 @@ func parseStructDeclaration(
 
 	// 将嵌入字段的包添加到待解析列表
 	for embeddedType := range embeddedTypes {
+		if embeddedType.Package == currentPkg {
+			continue
+		}
+
 		if _, alreadyParsed := parsedPackages[embeddedType.Package]; !alreadyParsed {
 			pendingPackages.PushBack(embeddedType.Package.Path)
 

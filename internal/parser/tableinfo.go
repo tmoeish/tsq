@@ -78,20 +78,42 @@ func extractDSLContent(text, keyword string) (string, error) {
 	if idx == -1 {
 		return "", nil
 	}
-	// 从 keyword 后找第一个 '('
-	start := strings.Index(text[idx:], "(")
+
+	searchStart := idx + len(keyword)
+	start := strings.Index(text[searchStart:], "(")
 	if start == -1 {
 		return "", nil
 	}
 
-	start += idx // 绝对位置
+	start += searchStart
 
 	count := 0
+	inString := false
+	escaped := false
 
 	for i := start; i < len(text); i++ {
-		if text[i] == '(' {
+		if inString {
+			if escaped {
+				escaped = false
+				continue
+			}
+
+			switch text[i] {
+			case '\\':
+				escaped = true
+			case '"':
+				inString = false
+			}
+
+			continue
+		}
+
+		switch text[i] {
+		case '"':
+			inString = true
+		case '(':
 			count++
-		} else if text[i] == ')' {
+		case ')':
 			count--
 			if count == 0 {
 				return text[start+1 : i], nil
@@ -99,7 +121,11 @@ func extractDSLContent(text, keyword string) (string, error) {
 		}
 	}
 
-	return "", nil
+	if inString {
+		return "", NewDSLUnclosedStringError(text, len(text)-1)
+	}
+
+	return "", NewDSLMissingBracketError(text, start)
 }
 
 // parseDSL 解析所有注释中的注解（@TABLE/@DTO），直接填充 info
@@ -138,8 +164,12 @@ func parseTableDSL(
 	text = CleanBlockComment(text)
 
 	content, err := extractDSLContent(text, "@TABLE")
-	if err != nil || content == "" {
-		return nil, nil
+	if err != nil {
+		return nil, err
+	}
+
+	if content == "" {
+		return genTableInfoFromAST(structName, DSLObject{}, true, structFields)
 	}
 
 	content = strings.ReplaceAll(content, "\n", " ")
@@ -169,8 +199,12 @@ func parseDTODSL(
 	text = CleanBlockComment(text)
 
 	content, err := extractDSLContent(text, "@DTO")
-	if err != nil || content == "" {
-		return &tsq.TableInfo{}, nil
+	if err != nil {
+		return nil, err
+	}
+
+	if content == "" {
+		return &tsq.TableInfo{IsDTO: true}, nil
 	}
 
 	content = strings.ReplaceAll(content, "\n", " ")

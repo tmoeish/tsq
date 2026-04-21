@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"reflect"
+	"sync"
 	"time"
 
 	"github.com/juju/errors"
@@ -23,25 +25,87 @@ type Tracer func(next Fn) Fn
 // 追踪管理
 // ================================================
 
-// Global tracer registry
-var tracers []Tracer
+var (
+	tracersMu sync.RWMutex
+	tracers   []Tracer
+)
 
 // AddTracer adds a tracer to the global registry
 func AddTracer(tracer Tracer) {
+	if tracer == nil {
+		return
+	}
+
+	tracersMu.Lock()
+	defer tracersMu.Unlock()
+
 	tracers = append(tracers, tracer)
 }
 
 // ClearTracers clears all registered tracers
 func ClearTracers() {
+	tracersMu.Lock()
+	defer tracersMu.Unlock()
+
 	tracers = nil
 }
 
 // GetTracers returns all registered tracers
 func GetTracers() []Tracer {
+	return snapshotTracers()
+}
+
+func snapshotTracers() []Tracer {
+	tracersMu.RLock()
+	defer tracersMu.RUnlock()
+
 	result := make([]Tracer, len(tracers))
 	copy(result, tracers)
 
 	return result
+}
+
+func appendUniqueGlobalTracers(newTracers ...Tracer) {
+	tracersMu.Lock()
+	defer tracersMu.Unlock()
+
+	tracers = appendUniqueTracers(tracers, newTracers...)
+}
+
+func appendUniqueTracers(existing []Tracer, newTracers ...Tracer) []Tracer {
+	result := existing
+
+	for _, tracer := range newTracers {
+		if tracer == nil {
+			continue
+		}
+
+		duplicated := false
+		for _, current := range result {
+			if sameTracer(current, tracer) {
+				duplicated = true
+				break
+			}
+		}
+
+		if !duplicated {
+			result = append(result, tracer)
+		}
+	}
+
+	return result
+}
+
+func sameTracer(left, right Tracer) bool {
+	if left == nil {
+		return right == nil
+	}
+
+	if right == nil {
+		return false
+	}
+
+	return reflect.ValueOf(left).Pointer() == reflect.ValueOf(right).Pointer()
 }
 
 // ================================================
@@ -51,6 +115,8 @@ func GetTracers() []Tracer {
 // Trace executes a function with all registered tracers applied
 // Tracers are applied in reverse order (LIFO) so the last added tracer wraps all others
 func Trace(ctx context.Context, fn func(ctx context.Context) error) error {
+	tracers := snapshotTracers()
+
 	// Apply tracers in reverse order to create proper middleware chain
 	wrappedFn := fn
 	for i := len(tracers) - 1; i >= 0; i-- {
@@ -64,6 +130,8 @@ func Trace1[T any](
 	ctx context.Context,
 	fn func(ctx context.Context) (T, error),
 ) (T, error) {
+	tracers := snapshotTracers()
+
 	// Apply tracers in reverse order to create proper middleware chain
 	var result T
 

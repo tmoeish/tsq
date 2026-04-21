@@ -132,6 +132,54 @@ func TestParseAnnotations_DSL(t *testing.T) {
 	}
 }
 
+func TestExtractDSLContent_IgnoresParenthesesInsideStrings(t *testing.T) {
+	content, err := extractDSLContent(`// @TABLE(name="user(test)", kw=["name"])`, "@TABLE")
+	if err != nil {
+		t.Fatalf("extractDSLContent returned error: %v", err)
+	}
+
+	if !strings.Contains(content, `name="user(test)"`) {
+		t.Fatalf("expected content to preserve parentheses inside strings, got %q", content)
+	}
+}
+
+func TestExtractDSLContent_ReturnsErrorForMissingBracket(t *testing.T) {
+	_, err := extractDSLContent(`// @TABLE(name="user"`, "@TABLE")
+	if err == nil {
+		t.Fatal("expected malformed TABLE annotation to return an error")
+	}
+
+	if !IsErrorType(err, ErrorTypeDSLMissingBracket) {
+		t.Fatalf("expected missing bracket error, got %v", err)
+	}
+}
+
+func TestParseTableDSL_ReturnsErrorForMalformedAnnotation(t *testing.T) {
+	_, err := parseTableDSL("User", `// @TABLE(name="user"`, map[string]struct{}{
+		"ID": {},
+	})
+	if err == nil {
+		t.Fatal("expected malformed TABLE annotation to return an error")
+	}
+
+	if !IsErrorType(err, ErrorTypeDSLMissingBracket) {
+		t.Fatalf("expected missing bracket error, got %v", err)
+	}
+}
+
+func TestParseDTODSL_ReturnsErrorForMalformedAnnotation(t *testing.T) {
+	_, err := parseDTODSL("UserDTO", `// @DTO(name="user"`, map[string]struct{}{
+		"ID": {},
+	})
+	if err == nil {
+		t.Fatal("expected malformed DTO annotation to return an error")
+	}
+
+	if !IsErrorType(err, ErrorTypeDSLMissingBracket) {
+		t.Fatalf("expected missing bracket error, got %v", err)
+	}
+}
+
 // TableInfoMock 用于字段比对
 // TableInfoReal 用于真实填充
 // parseAnnotationsForTest 用于测试 parseAnnotations

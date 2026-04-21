@@ -1,7 +1,5 @@
 package tsq
 
-import "fmt"
-
 // ================================================
 // 字段指针类型
 // ================================================
@@ -37,10 +35,14 @@ type Col[T any] struct {
 
 // NewCol creates a new typed column for a table
 func NewCol[T any](table Table, baseName string, jsonFieldName string, fieldPointer FieldPointer) Col[T] {
+	if isNilValue(table) {
+		panic("column table cannot be nil")
+	}
+
 	return Col[T]{
 		table:         table,
 		name:          baseName,
-		qualifiedName: fmt.Sprintf("`%s`.`%s`", table.Table(), baseName),
+		qualifiedName: rawQualifiedIdentifier(table.Table(), baseName),
 		jsonFieldName: jsonFieldName,
 		fieldPointer:  fieldPointer,
 	}
@@ -60,9 +62,9 @@ func (c Col[T]) Name() string {
 	return c.name
 }
 
-// QualifiedName returns the fully qualified column name (e.g., `table`.`column`)
+// QualifiedName returns the fully qualified column name in TSQ's canonical SQL form.
 func (c Col[T]) QualifiedName() string {
-	return c.qualifiedName
+	return renderCanonicalSQL(c.qualifiedName)
 }
 
 // JSONFieldName returns the JSON tag for this column
@@ -73,6 +75,10 @@ func (c Col[T]) JSONFieldName() string {
 // FieldPointer returns the pointer function for scanning database results
 func (c Col[T]) FieldPointer() FieldPointer {
 	return c.fieldPointer
+}
+
+func (c Col[T]) rawQualifiedName() string {
+	return c.qualifiedName
 }
 
 // ================================================

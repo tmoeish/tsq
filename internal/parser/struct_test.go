@@ -193,3 +193,98 @@ func Test_genRecv(t *testing.T) {
 		})
 	}
 }
+
+func TestResolveEmbeddedFields_DetectsCycles(t *testing.T) {
+	pkg := tsq.PackageInfo{Path: "test", Name: "test"}
+	typeA := tsq.TypeInfo{Package: pkg, TypeName: "A"}
+	typeB := tsq.TypeInfo{Package: pkg, TypeName: "B"}
+
+	structA := &StructInfo{
+		StructInfo: &tsq.StructInfo{
+			TypeInfo: typeA,
+			FieldMap: map[string]tsq.FieldInfo{},
+		},
+		embeddedTypes: map[tsq.TypeInfo]bool{typeB: true},
+	}
+	structB := &StructInfo{
+		StructInfo: &tsq.StructInfo{
+			TypeInfo: typeB,
+			FieldMap: map[string]tsq.FieldInfo{},
+		},
+		embeddedTypes: map[tsq.TypeInfo]bool{typeA: true},
+	}
+
+	err := resolveEmbeddedFields(structA, map[tsq.TypeInfo]*StructInfo{
+		typeA: structA,
+		typeB: structB,
+	})
+	if err == nil {
+		t.Fatal("expected cyclic embedded structs to return an error")
+	}
+
+	if !IsErrorType(err, ErrorTypeEmbeddedCycle) {
+		t.Fatalf("expected embedded cycle error, got %v", err)
+	}
+}
+
+func TestParseStructDeclaration_DoesNotQueueCurrentPackageForLocalEmbeds(t *testing.T) {
+	source := `
+package test
+
+type BaseModel struct {
+	ID int64 ` + "`" + `db:"id"` + "`" + `
+}
+
+type User struct {
+	BaseModel
+	Name string ` + "`" + `db:"name"` + "`" + `
+}
+`
+
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "test.go", source, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	currentPkg := tsq.PackageInfo{Path: "test", Name: "test"}
+	packageAliases := make(map[string]tsq.PackageInfo)
+	structMap := make(map[tsq.TypeInfo]*StructInfo)
+	parsedPackages := make(map[tsq.PackageInfo]bool)
+	pendingPackages := list.New()
+
+	for _, decl := range file.Decls {
+		genDecl, ok := decl.(*ast.GenDecl)
+		if !ok {
+			continue
+		}
+
+		for _, spec := range genDecl.Specs {
+			typeSpec, ok := spec.(*ast.TypeSpec)
+			if !ok {
+				continue
+			}
+
+			structType, ok := typeSpec.Type.(*ast.StructType)
+			if !ok {
+				continue
+			}
+
+			if err := parseStructDeclaration(
+				packageAliases,
+				currentPkg,
+				typeSpec.Name.Name,
+				structType,
+				structMap,
+				parsedPackages,
+				pendingPackages,
+			); err != nil {
+				t.Fatalf("parseStructDeclaration error: %v", err)
+			}
+		}
+	}
+
+	if pendingPackages.Len() != 0 {
+		t.Fatalf("expected local embeds to avoid re-queueing current package, got %d queued packages", pendingPackages.Len())
+	}
+}

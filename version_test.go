@@ -174,6 +174,23 @@ func TestVersionInfo_String(t *testing.T) {
 	}
 }
 
+func TestVersionInfo_StringHandlesShortCommit(t *testing.T) {
+	info := &VersionInfo{
+		Version:   "dev",
+		BuildTime: "unknown",
+		GitCommit: "short",
+		GitBranch: "main",
+		GoVersion: runtime.Version(),
+		Platform:  runtime.GOOS,
+		Arch:      runtime.GOARCH,
+	}
+
+	result := info.String()
+	if !strings.Contains(result, "main@short") {
+		t.Fatalf("expected formatted string to include full short commit, got %q", result)
+	}
+}
+
 func TestVersionInfo_ShortString(t *testing.T) {
 	// Save original values
 	originalVersion := Version
@@ -187,6 +204,18 @@ func TestVersionInfo_ShortString(t *testing.T) {
 	expected := "TSQ v1.0.0"
 	if result != expected {
 		t.Errorf("Expected short string '%s', got '%s'", expected, result)
+	}
+}
+
+func TestVersionInfo_NilReceiverHelpers(t *testing.T) {
+	var info *VersionInfo
+
+	if got := info.String(); got != "TSQ unknown" {
+		t.Fatalf("expected nil String fallback, got %q", got)
+	}
+
+	if got := info.ShortString(); got != "TSQ unknown" {
+		t.Fatalf("expected nil ShortString fallback, got %q", got)
 	}
 }
 

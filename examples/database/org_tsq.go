@@ -3,8 +3,8 @@ package database
 
 import (
 	"context"
-	"database/sql"
-	"time"
+	tsqsql "database/sql"
+	tsqtime "time"
 
 	"github.com/juju/errors"
 	"github.com/tmoeish/tsq"
@@ -25,7 +25,7 @@ func init() {
 		},
 		func(db *gorp.DbMap) error {
 			// Upsert Ux list
-			if err := tsq.UpsertIndex(db, "org", true, "ux_name", []string{`name`}); err != nil {
+			if err := tsq.UpsertIndex(db, "org", true, "ux_name", []string{"name"}); err != nil {
 				return errors.Annotate(err, "upsert ux_name@org")
 			}
 
@@ -79,7 +79,7 @@ func GetOrgByID(
 	switch errors.Cause(err) {
 	case nil:
 		return row, nil
-	case sql.ErrNoRows:
+	case tsqsql.ErrNoRows:
 		return nil, nil
 	default:
 		return nil, errors.Trace(err)
@@ -87,14 +87,23 @@ func GetOrgByID(
 }
 
 // GetOrgByIDOrErr retrieves a Org record by its ID.
-// Returns (nil, sql.ErrNoRows) if the record is not found.
+// Returns (nil, database/sql.ErrNoRows) if the record is not found.
 func GetOrgByIDOrErr(
 	ctx context.Context,
 	db gorp.SqlExecutor,
 	id int64,
 ) (*Org, error) {
 	row := &Org{}
-	return row, getOrgByIDQuery.Load(ctx, db, row, id)
+	err := getOrgByIDQuery.Load(ctx, db, row, id)
+	if err != nil {
+		if err == tsqsql.ErrNoRows {
+			return nil, err
+		}
+
+		return nil, errors.Trace(err)
+	}
+
+	return row, nil
 }
 
 // ListOrgByIDIn retrieves multiple Org records by a set of ID values.
@@ -156,7 +165,7 @@ func (o *Org) Insert(
 	ctx context.Context,
 	db gorp.SqlExecutor,
 ) error {
-	o.CT = null.TimeFrom(time.Now())
+	o.CT = null.TimeFrom(tsqtime.Now())
 	err := tsq.Insert(ctx, db, o)
 	if err != nil {
 		return errors.Annotate(err, tsq.PrettyJSON(o))
@@ -274,7 +283,7 @@ func GetOrgByName(
 	switch errors.Cause(err) {
 	case nil:
 		return row, nil
-	case sql.ErrNoRows:
+	case tsqsql.ErrNoRows:
 		return nil, nil
 	default:
 		return nil, errors.Trace(err)
@@ -282,7 +291,7 @@ func GetOrgByName(
 }
 
 // GetOrgByNameOrErr retrieves a Org record by unique index ux_name.
-// Returns (nil, sql.ErrNoRows) if the record is not found.
+// Returns (nil, database/sql.ErrNoRows) if the record is not found.
 func GetOrgByNameOrErr(
 	ctx context.Context,
 	db gorp.SqlExecutor,
@@ -294,7 +303,15 @@ func GetOrgByNameOrErr(
 	err := query.Load(ctx, db, row,
 		name,
 	)
-	return row, errors.Trace(err)
+	if err != nil {
+		if err == tsqsql.ErrNoRows {
+			return nil, err
+		}
+
+		return nil, errors.Trace(err)
+	}
+
+	return row, nil
 }
 
 // ExistsOrgByName checks whether a Org record exists by unique index ux_name.

@@ -7,7 +7,9 @@ import (
 	"go/parser"
 	"go/token"
 	"log/slog"
+	"os"
 	"path"
+	"path/filepath"
 	"reflect"
 	"strings"
 
@@ -106,7 +108,7 @@ func (ps *ParseState) resolveAllEmbeddedFields() error {
 
 // getPackageInfo 获取包信息
 func (ps *ParseState) getPackageInfo(packagePath string) (tsq.PackageInfo, error) {
-	buildPkg, err := build.Default.Import(packagePath, "", 0)
+	buildPkg, err := importBuildPackage(packagePath)
 	if err != nil {
 		return tsq.PackageInfo{}, errors.Annotatef(err, "failed to process directory: %s", packagePath)
 	}
@@ -119,7 +121,7 @@ func (ps *ParseState) getPackageInfo(packagePath string) (tsq.PackageInfo, error
 
 // parseTableMetadata 解析表元数据
 func (ps *ParseState) parseTableMetadata(pkg tsq.PackageInfo) error {
-	buildPkg, err := build.Default.Import(pkg.Path, "", 0)
+	buildPkg, err := importBuildPackage(pkg.Path)
 	if err != nil {
 		return errors.Annotatef(err, "failed to process directory: %s", pkg.Path)
 	}
@@ -265,15 +267,24 @@ func isStructType(typeExpr ast.Expr) bool {
 
 // filterAndProcessResults 过滤并处理解析结果
 func (ps *ParseState) filterAndProcessResults(packagePath string) (*ParseResult, error) {
-	buildPkg, err := build.Default.Import(packagePath, "", 0)
+	buildPkg, err := importBuildPackage(packagePath)
 	if err != nil {
 		return nil, errors.Annotatef(err, "failed to process directory: %s", packagePath)
+	}
+
+	targetPkg := tsq.PackageInfo{
+		Path: buildPkg.ImportPath,
+		Name: buildPkg.Name,
 	}
 
 	var results []*StructInfo
 
 	for _, structInfo := range ps.structMap {
 		if structInfo.TableInfo == nil {
+			continue
+		}
+
+		if structInfo.TypeInfo.Package != targetPkg {
 			continue
 		}
 
@@ -290,7 +301,7 @@ func (ps *ParseState) filterAndProcessResults(packagePath string) (*ParseResult,
 
 // parseSinglePackage 解析单个包
 func (ps *ParseState) parseSinglePackage(packagePath string) error {
-	buildPkg, err := build.Default.Import(packagePath, "", 0)
+	buildPkg, err := importBuildPackage(packagePath)
 	if err != nil {
 		return errors.Annotatef(err, "failed to process pkg: %s", packagePath)
 	}
@@ -317,7 +328,10 @@ func (ps *ParseState) parseSinglePackage(packagePath string) error {
 			return errors.Annotatef(err, "failed to parse file: %s", fullPath)
 		}
 
-		packageAliases := parsePackageAliases(file)
+		packageAliases, err := parsePackageAliases(file)
+		if err != nil {
+			return errors.Annotatef(err, "failed to resolve package aliases: %s", fullPath)
+		}
 
 		err = ps.parseStructDeclarations(file, packageAliases, pkg)
 		if err != nil {
@@ -365,7 +379,7 @@ func (ps *ParseState) parseStructDeclarations(
 }
 
 // parsePackageAliases 解析文件中的包别名
-func parsePackageAliases(file *ast.File) map[string]tsq.PackageInfo {
+func parsePackageAliases(file *ast.File) (map[string]tsq.PackageInfo, error) {
 	packageAliases := make(map[string]tsq.PackageInfo)
 
 	for _, importSpec := range file.Imports {
@@ -373,8 +387,7 @@ func parsePackageAliases(file *ast.File) map[string]tsq.PackageInfo {
 
 		pkg, err := getPackageInfo(importPath)
 		if err != nil {
-			// 这里选择跳过错误包，或可根据需要向上返回错误
-			continue
+			return nil, errors.Trace(err)
 		}
 
 		if importSpec.Name != nil {
@@ -386,17 +399,14 @@ func parsePackageAliases(file *ast.File) map[string]tsq.PackageInfo {
 		}
 	}
 
-	return packageAliases
+	return packageAliases, nil
 }
 
 // getPackageInfo 根据导入路径获取包信息
 func getPackageInfo(importPath string) (tsq.PackageInfo, error) {
 	buildPkg, err := build.Default.Import(importPath, "", 0)
 	if err != nil {
-		return tsq.PackageInfo{
-			Path: importPath,
-			Name: path.Base(importPath),
-		}, nil
+		return tsq.PackageInfo{}, NewPackageImportError(importPath, err)
 	}
 
 	return tsq.PackageInfo{
@@ -413,6 +423,15 @@ func resolveEmbeddedFields(
 	if structInfo.embeddedResolved {
 		return nil
 	}
+
+	if structInfo.embeddedResolving {
+		return NewEmbeddedCycleError(structInfo.TypeInfo.String())
+	}
+
+	structInfo.embeddedResolving = true
+	defer func() {
+		structInfo.embeddedResolving = false
+	}()
 
 	for embeddedType := range structInfo.embeddedTypes {
 		embeddedStruct, found := allStructs[embeddedType]
@@ -434,6 +453,37 @@ func resolveEmbeddedFields(
 	structInfo.embeddedResolved = true
 
 	return nil
+}
+
+func importBuildPackage(packagePath string) (*build.Package, error) {
+	if filepath.IsAbs(packagePath) {
+		buildPkg, err := build.Default.ImportDir(packagePath, 0)
+		if err != nil {
+			return nil, err
+		}
+
+		if buildPkg.ImportPath == "." {
+			buildPkg.ImportPath = packagePath
+		}
+
+		return buildPkg, nil
+	}
+
+	srcDir := ""
+	if strings.HasPrefix(packagePath, ".") {
+		wd, err := os.Getwd()
+		if err != nil {
+			return nil, err
+		}
+		srcDir = wd
+	}
+
+	buildPkg, err := build.Default.Import(packagePath, srcDir, 0)
+	if err != nil {
+		return nil, err
+	}
+
+	return buildPkg, nil
 }
 
 // copyEmbeddedFields 复制嵌入结构的字段

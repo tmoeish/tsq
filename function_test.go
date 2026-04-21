@@ -19,7 +19,7 @@ func TestCol_Fn(t *testing.T) {
 		t.Errorf("Expected table 'users', got '%s'", result.Table().Table())
 	}
 
-	expectedQualified := "UPPER(`users`.`name`)"
+	expectedQualified := `UPPER("users"."name")`
 	if result.QualifiedName() != expectedQualified {
 		t.Errorf("Expected qualified name '%s', got '%s'", expectedQualified, result.QualifiedName())
 	}
@@ -35,7 +35,7 @@ func TestCol_Count(t *testing.T) {
 
 	result := col.Count()
 
-	expectedQualified := "COUNT(`users`.`id`)"
+	expectedQualified := `COUNT("users"."id")`
 	if result.QualifiedName() != expectedQualified {
 		t.Errorf("Expected qualified name '%s', got '%s'", expectedQualified, result.QualifiedName())
 	}
@@ -47,7 +47,7 @@ func TestCol_Sum(t *testing.T) {
 
 	result := col.Sum()
 
-	expectedQualified := "SUM(`orders`.`amount`)"
+	expectedQualified := `SUM("orders"."amount")`
 	if result.QualifiedName() != expectedQualified {
 		t.Errorf("Expected qualified name '%s', got '%s'", expectedQualified, result.QualifiedName())
 	}
@@ -59,7 +59,7 @@ func TestCol_Avg(t *testing.T) {
 
 	result := col.Avg()
 
-	expectedQualified := "AVG(`products`.`price`)"
+	expectedQualified := `AVG("products"."price")`
 	if result.QualifiedName() != expectedQualified {
 		t.Errorf("Expected qualified name '%s', got '%s'", expectedQualified, result.QualifiedName())
 	}
@@ -71,7 +71,7 @@ func TestCol_Max(t *testing.T) {
 
 	result := col.Max()
 
-	expectedQualified := "MAX(`users`.`age`)"
+	expectedQualified := `MAX("users"."age")`
 	if result.QualifiedName() != expectedQualified {
 		t.Errorf("Expected qualified name '%s', got '%s'", expectedQualified, result.QualifiedName())
 	}
@@ -83,7 +83,7 @@ func TestCol_Min(t *testing.T) {
 
 	result := col.Min()
 
-	expectedQualified := "MIN(`users`.`age`)"
+	expectedQualified := `MIN("users"."age")`
 	if result.QualifiedName() != expectedQualified {
 		t.Errorf("Expected qualified name '%s', got '%s'", expectedQualified, result.QualifiedName())
 	}
@@ -95,7 +95,7 @@ func TestCol_Distinct(t *testing.T) {
 
 	result := col.Distinct()
 
-	expectedQualified := "DISTINCT(`users`.`department`)"
+	expectedQualified := `DISTINCT("users"."department")`
 	if result.QualifiedName() != expectedQualified {
 		t.Errorf("Expected qualified name '%s', got '%s'", expectedQualified, result.QualifiedName())
 	}
@@ -107,7 +107,7 @@ func TestCol_Upper(t *testing.T) {
 
 	result := col.Upper()
 
-	expectedQualified := "UPPER(`users`.`name`)"
+	expectedQualified := `UPPER("users"."name")`
 	if result.QualifiedName() != expectedQualified {
 		t.Errorf("Expected qualified name '%s', got '%s'", expectedQualified, result.QualifiedName())
 	}
@@ -119,7 +119,7 @@ func TestCol_Lower(t *testing.T) {
 
 	result := col.Lower()
 
-	expectedQualified := "LOWER(`users`.`name`)"
+	expectedQualified := `LOWER("users"."name")`
 	if result.QualifiedName() != expectedQualified {
 		t.Errorf("Expected qualified name '%s', got '%s'", expectedQualified, result.QualifiedName())
 	}
@@ -131,7 +131,7 @@ func TestCol_Substring(t *testing.T) {
 
 	result := col.Substring(1, 10)
 
-	expectedQualified := "SUBSTRING(`users`.`description`, 1, 10)"
+	expectedQualified := `SUBSTRING("users"."description", 1, 10)`
 	if result.QualifiedName() != expectedQualified {
 		t.Errorf("Expected qualified name '%s', got '%s'", expectedQualified, result.QualifiedName())
 	}
@@ -143,7 +143,7 @@ func TestCol_Length(t *testing.T) {
 
 	result := col.Length()
 
-	expectedQualified := "LENGTH(`users`.`name`)"
+	expectedQualified := `LENGTH("users"."name")`
 	if result.QualifiedName() != expectedQualified {
 		t.Errorf("Expected qualified name '%s', got '%s'", expectedQualified, result.QualifiedName())
 	}
@@ -155,7 +155,7 @@ func TestCol_Trim(t *testing.T) {
 
 	result := col.Trim()
 
-	expectedQualified := "TRIM(`users`.`name`)"
+	expectedQualified := `TRIM("users"."name")`
 	if result.QualifiedName() != expectedQualified {
 		t.Errorf("Expected qualified name '%s', got '%s'", expectedQualified, result.QualifiedName())
 	}
@@ -165,12 +165,13 @@ func TestCol_Concat(t *testing.T) {
 	table := newMockTable("users")
 	col := NewCol[string](table, "first_name", "first_name", nil)
 
-	result := col.Concat(" Smith")
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected Concat to panic for non-portable SQL")
+		}
+	}()
 
-	expectedQualified := "CONCAT(`users`.`first_name`, ' Smith')"
-	if result.QualifiedName() != expectedQualified {
-		t.Errorf("Expected qualified name '%s', got '%s'", expectedQualified, result.QualifiedName())
-	}
+	_ = col.Concat(" Smith")
 }
 
 func TestCol_Now(t *testing.T) {
@@ -180,8 +181,8 @@ func TestCol_Now(t *testing.T) {
 	result := col.Now()
 
 	actual := result.QualifiedName()
-	if actual != "NOW()" {
-		t.Errorf("Expected qualified name to be 'NOW()', got '%s'", actual)
+	if actual != "CURRENT_TIMESTAMP" {
+		t.Errorf("Expected qualified name to be 'CURRENT_TIMESTAMP', got '%s'", actual)
 	}
 }
 
@@ -191,7 +192,7 @@ func TestCol_Date(t *testing.T) {
 
 	result := col.Date()
 
-	expectedQualified := "DATE(`orders`.`created_at`)"
+	expectedQualified := `DATE("orders"."created_at")`
 	if result.QualifiedName() != expectedQualified {
 		t.Errorf("Expected qualified name '%s', got '%s'", expectedQualified, result.QualifiedName())
 	}
@@ -203,7 +204,7 @@ func TestCol_Year(t *testing.T) {
 
 	result := col.Year()
 
-	expectedQualified := "YEAR(`orders`.`created_at`)"
+	expectedQualified := `SUBSTR(DATE("orders"."created_at"), 1, 4)`
 	if result.QualifiedName() != expectedQualified {
 		t.Errorf("Expected qualified name '%s', got '%s'", expectedQualified, result.QualifiedName())
 	}
@@ -215,7 +216,7 @@ func TestCol_Month(t *testing.T) {
 
 	result := col.Month()
 
-	expectedQualified := "MONTH(`orders`.`created_at`)"
+	expectedQualified := `SUBSTR(DATE("orders"."created_at"), 6, 2)`
 	if result.QualifiedName() != expectedQualified {
 		t.Errorf("Expected qualified name '%s', got '%s'", expectedQualified, result.QualifiedName())
 	}
@@ -227,7 +228,7 @@ func TestCol_Day(t *testing.T) {
 
 	result := col.Day()
 
-	expectedQualified := "DAY(`orders`.`created_at`)"
+	expectedQualified := `SUBSTR(DATE("orders"."created_at"), 9, 2)`
 	if result.QualifiedName() != expectedQualified {
 		t.Errorf("Expected qualified name '%s', got '%s'", expectedQualified, result.QualifiedName())
 	}
@@ -239,7 +240,7 @@ func TestCol_Round(t *testing.T) {
 
 	result := col.Round(2)
 
-	expectedQualified := "ROUND(`products`.`price`, 2)"
+	expectedQualified := `ROUND("products"."price", 2)`
 	if result.QualifiedName() != expectedQualified {
 		t.Errorf("Expected qualified name '%s', got '%s'", expectedQualified, result.QualifiedName())
 	}
@@ -251,7 +252,7 @@ func TestCol_Ceil(t *testing.T) {
 
 	result := col.Ceil()
 
-	expectedQualified := "CEIL(`products`.`price`)"
+	expectedQualified := `CEIL("products"."price")`
 	if result.QualifiedName() != expectedQualified {
 		t.Errorf("Expected qualified name '%s', got '%s'", expectedQualified, result.QualifiedName())
 	}
@@ -263,7 +264,7 @@ func TestCol_Floor(t *testing.T) {
 
 	result := col.Floor()
 
-	expectedQualified := "FLOOR(`products`.`price`)"
+	expectedQualified := `FLOOR("products"."price")`
 	if result.QualifiedName() != expectedQualified {
 		t.Errorf("Expected qualified name '%s', got '%s'", expectedQualified, result.QualifiedName())
 	}
@@ -275,7 +276,7 @@ func TestCol_Abs(t *testing.T) {
 
 	result := col.Abs()
 
-	expectedQualified := "ABS(`transactions`.`amount`)"
+	expectedQualified := `ABS("transactions"."amount")`
 	if result.QualifiedName() != expectedQualified {
 		t.Errorf("Expected qualified name '%s', got '%s'", expectedQualified, result.QualifiedName())
 	}
@@ -287,7 +288,7 @@ func TestCol_Coalesce(t *testing.T) {
 
 	result := col.Coalesce("Anonymous")
 
-	expectedQualified := "COALESCE(`users`.`nickname`, 'Anonymous')"
+	expectedQualified := `COALESCE("users"."nickname", 'Anonymous')`
 	if result.QualifiedName() != expectedQualified {
 		t.Errorf("Expected qualified name '%s', got '%s'", expectedQualified, result.QualifiedName())
 	}
@@ -299,9 +300,24 @@ func TestCol_NullIf(t *testing.T) {
 
 	result := col.NullIf("inactive")
 
-	expectedQualified := "NULLIF(`users`.`status`, 'inactive')"
+	expectedQualified := `NULLIF("users"."status", 'inactive')`
 	if result.QualifiedName() != expectedQualified {
 		t.Errorf("Expected qualified name '%s', got '%s'", expectedQualified, result.QualifiedName())
+	}
+}
+
+func TestCol_StringFunctionHelpersUseSharedEscaping(t *testing.T) {
+	table := newMockTable("users")
+	col := NewCol[string](table, "nickname", "nickname", nil)
+
+	coalesce := col.Coalesce("path\\file")
+	if got := coalesce.QualifiedName(); got != `COALESCE("users"."nickname", 'path\file')` {
+		t.Fatalf("unexpected COALESCE clause: %q", got)
+	}
+
+	nullIf := col.NullIf("path\\file")
+	if got := nullIf.QualifiedName(); got != `NULLIF("users"."nickname", 'path\file')` {
+		t.Fatalf("unexpected NULLIF clause: %q", got)
 	}
 }
 
@@ -312,7 +328,7 @@ func TestCol_ChainedFunctions(t *testing.T) {
 	// Test chaining multiple functions
 	result := col.Upper().Trim()
 
-	expectedQualified := "TRIM(UPPER(`users`.`name`))"
+	expectedQualified := `TRIM(UPPER("users"."name"))`
 	if result.QualifiedName() != expectedQualified {
 		t.Errorf("Expected qualified name '%s', got '%s'", expectedQualified, result.QualifiedName())
 	}
@@ -334,7 +350,7 @@ func TestCol_ComplexFunctionChain(t *testing.T) {
 	// Test complex function chaining
 	result := col.Round(2).Coalesce("0.00")
 
-	expectedQualified := "COALESCE(ROUND(`products`.`price`, 2), '0.00')"
+	expectedQualified := `COALESCE(ROUND("products"."price", 2), '0.00')`
 	if result.QualifiedName() != expectedQualified {
 		t.Errorf("Expected qualified name '%s', got '%s'", expectedQualified, result.QualifiedName())
 	}

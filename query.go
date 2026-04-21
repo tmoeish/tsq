@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"reflect"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -28,6 +30,19 @@ func NewErrUnknownSortField(field string) *ErrUnknownSortField {
 
 func (e *ErrUnknownSortField) Error() string {
 	return fmt.Sprintf("unknown sort field: %s", e.field)
+}
+
+// ErrAmbiguousSortField represents an error when a sort field matches multiple selected columns
+type ErrAmbiguousSortField struct {
+	field string
+}
+
+func NewErrAmbiguousSortField(field string) *ErrAmbiguousSortField {
+	return &ErrAmbiguousSortField{field: field}
+}
+
+func (e *ErrAmbiguousSortField) Error() string {
+	return fmt.Sprintf("ambiguous sort field: %s", e.field)
 }
 
 // ErrOrderCountMismatch represents an error when order by and order count mismatch
@@ -66,28 +81,46 @@ type Query struct {
 	kwTables     map[string]Table
 }
 
+var builtInIdentifierPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
 // ================================================
 // SQL 访问方法
 // ================================================
 
 // CntSQL returns the COUNT query SQL statement
 func (q *Query) CntSQL() string {
-	return q.cntSQL
+	if q == nil {
+		return ""
+	}
+
+	return renderCanonicalSQL(q.cntSQL)
 }
 
 // ListSQL returns the main SELECT query SQL statement
 func (q *Query) ListSQL() string {
-	return q.listSQL
+	if q == nil {
+		return ""
+	}
+
+	return renderCanonicalSQL(q.listSQL)
 }
 
 // KwCntSQL returns the keyword search COUNT query SQL statement
 func (q *Query) KwCntSQL() string {
-	return q.kwCntSQL
+	if q == nil {
+		return ""
+	}
+
+	return renderCanonicalSQL(q.kwCntSQL)
 }
 
 // KwListSQL returns the keyword search SELECT query SQL statement
 func (q *Query) KwListSQL() string {
-	return q.kwListSQL
+	if q == nil {
+		return ""
+	}
+
+	return renderCanonicalSQL(q.kwListSQL)
 }
 
 // ================================================
@@ -106,18 +139,26 @@ func (qb *QueryBuilder) MustBuild() *Query {
 
 // Build builds and validates the query
 func (qb *QueryBuilder) Build() (*Query, error) {
-	if len(qb.selectTables) == 0 {
+	if qb == nil {
+		return nil, errors.New("query builder cannot be nil")
+	}
+
+	if qb.buildErr != nil {
+		return nil, errors.Trace(qb.buildErr)
+	}
+
+	if len(qb.selectCols) == 0 {
 		return nil, errors.Errorf("empty select fields: %+v", qb)
 	}
 
-	// Validate that all selected fields are available in condition tables
-	if len(qb.conditionTables) > 0 {
-		for _, col := range qb.selectCols {
-			if _, ok := qb.conditionTables[col.Table().Table()]; !ok {
-				// TODO: add alias support
-				return nil, errors.Errorf("cannot select field: %s", col.QualifiedName())
-			}
+	for _, join := range qb.joins {
+		if join.joinType == FullJoinType {
+			return nil, errors.New("FULL JOIN is not supported by TSQ's built-in dialects")
 		}
+	}
+
+	if err := qb.validateJoinGraph(); err != nil {
+		return nil, errors.Trace(err)
 	}
 
 	// Build all SQL variations
@@ -159,13 +200,22 @@ func (q *Query) queryInt(
 	tx gorp.SqlExecutor,
 	args ...any,
 ) (int64, error) {
-	if ctx.Value(printSQL) != nil {
-		slog.Info("queryInt", "sql", q.listSQL, "args", CompactJSON(args))
+	if err := validateQuery(q); err != nil {
+		return 0, errors.Trace(err)
+	}
+	if err := validateExecutorForSQL(tx, q.listSQL); err != nil {
+		return 0, errors.Trace(err)
 	}
 
-	result, err := tx.WithContext(ctx).SelectInt(q.listSQL, args...)
+	sqlText := renderSQLForExecutor(tx, q.listSQL)
+
+	if ctx.Value(printSQL) != nil {
+		slog.Info("queryInt", "sql", sqlText, "args", CompactJSON(args))
+	}
+
+	result, err := tx.WithContext(ctx).SelectInt(sqlText, args...)
 	if err != nil {
-		return 0, errors.Annotatef(err, "\n%s\n%v", q.listSQL, CompactJSON(args))
+		return 0, errors.Annotatef(err, "\n%s\n%v", sqlText, CompactJSON(args))
 	}
 
 	return result, nil
@@ -187,13 +237,22 @@ func (q *Query) queryFloat(
 	tx gorp.SqlExecutor,
 	args ...any,
 ) (float64, error) {
-	if ctx.Value(printSQL) != nil {
-		slog.Info("queryFloat", "sql", q.listSQL, "args", CompactJSON(args))
+	if err := validateQuery(q); err != nil {
+		return 0, errors.Trace(err)
+	}
+	if err := validateExecutorForSQL(tx, q.listSQL); err != nil {
+		return 0, errors.Trace(err)
 	}
 
-	result, err := tx.WithContext(ctx).SelectFloat(q.listSQL, args...)
+	sqlText := renderSQLForExecutor(tx, q.listSQL)
+
+	if ctx.Value(printSQL) != nil {
+		slog.Info("queryFloat", "sql", sqlText, "args", CompactJSON(args))
+	}
+
+	result, err := tx.WithContext(ctx).SelectFloat(sqlText, args...)
 	if err != nil {
-		return 0, errors.Annotatef(err, "\n%s\n%v", q.listSQL, CompactJSON(args))
+		return 0, errors.Annotatef(err, "\n%s\n%v", sqlText, CompactJSON(args))
 	}
 
 	return result, nil
@@ -215,13 +274,22 @@ func (q *Query) queryStr(
 	tx gorp.SqlExecutor,
 	args ...any,
 ) (string, error) {
-	if ctx.Value(printSQL) != nil {
-		slog.Info("queryStr", "sql", q.listSQL, "args", CompactJSON(args))
+	if err := validateQuery(q); err != nil {
+		return "", errors.Trace(err)
+	}
+	if err := validateExecutorForSQL(tx, q.listSQL); err != nil {
+		return "", errors.Trace(err)
 	}
 
-	result, err := tx.WithContext(ctx).SelectStr(q.listSQL, args...)
+	sqlText := renderSQLForExecutor(tx, q.listSQL)
+
+	if ctx.Value(printSQL) != nil {
+		slog.Info("queryStr", "sql", sqlText, "args", CompactJSON(args))
+	}
+
+	result, err := tx.WithContext(ctx).SelectStr(sqlText, args...)
 	if err != nil {
-		return "", errors.Annotatef(err, "\n%s\n%v", q.listSQL, CompactJSON(args))
+		return "", errors.Annotatef(err, "\n%s\n%v", sqlText, CompactJSON(args))
 	}
 
 	return result, nil
@@ -243,13 +311,22 @@ func (q *Query) count(
 	tx gorp.SqlExecutor,
 	args ...any,
 ) (int, error) {
-	if ctx.Value(printSQL) != nil {
-		slog.Info("count", "sql", q.cntSQL, "args", CompactJSON(args))
+	if err := validateQuery(q); err != nil {
+		return 0, errors.Trace(err)
+	}
+	if err := validateExecutorForSQL(tx, q.cntSQL); err != nil {
+		return 0, errors.Trace(err)
 	}
 
-	count, err := tx.WithContext(ctx).SelectInt(q.cntSQL, args...)
+	sqlText := renderSQLForExecutor(tx, q.cntSQL)
+
+	if ctx.Value(printSQL) != nil {
+		slog.Info("count", "sql", sqlText, "args", CompactJSON(args))
+	}
+
+	count, err := tx.WithContext(ctx).SelectInt(sqlText, args...)
 	if err != nil {
-		return 0, errors.Annotatef(err, "\n%s\n%v", q.cntSQL, CompactJSON(args))
+		return 0, errors.Annotatef(err, "\n%s\n%v", sqlText, CompactJSON(args))
 	}
 
 	return int(count), nil
@@ -271,13 +348,22 @@ func (q *Query) exist(
 	tx gorp.SqlExecutor,
 	args ...any,
 ) (bool, error) {
-	if ctx.Value(printSQL) != nil {
-		slog.Info("exist", "sql", q.cntSQL, "args", CompactJSON(args))
+	if err := validateQuery(q); err != nil {
+		return false, errors.Trace(err)
+	}
+	if err := validateExecutorForSQL(tx, q.cntSQL); err != nil {
+		return false, errors.Trace(err)
 	}
 
-	count, err := tx.WithContext(ctx).SelectInt(q.cntSQL, args...)
+	sqlText := renderSQLForExecutor(tx, q.cntSQL)
+
+	if ctx.Value(printSQL) != nil {
+		slog.Info("exist", "sql", sqlText, "args", CompactJSON(args))
+	}
+
+	count, err := tx.WithContext(ctx).SelectInt(sqlText, args...)
 	if err != nil {
-		return false, errors.Annotatef(err, "\n%s\n%v", q.cntSQL, CompactJSON(args))
+		return false, errors.Annotatef(err, "\n%s\n%v", sqlText, CompactJSON(args))
 	}
 
 	return count > 0, nil
@@ -307,10 +393,23 @@ func pageFn[T any](
 	q *Query,
 	args ...any,
 ) (*PageResp[T], error) {
+	if err := validateQuery(q); err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	page = normalizePageReq(page)
+
 	cntSQL, listSQL, err := q.buildPageSQLs(page)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
+
+	if err := validateExecutorForSQL(tx, cntSQL, listSQL); err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	renderedCntSQL := renderSQLForExecutor(tx, cntSQL)
+	renderedListSQL := renderSQLForExecutor(tx, listSQL)
 
 	// Add keyword search parameters if needed
 	finalArgs := args
@@ -326,20 +425,20 @@ func pageFn[T any](
 	argsWithLimit := append(finalArgs, page.Size, page.Offset())
 
 	if ctx.Value(printSQL) != nil {
-		slog.Info("count", "sql", cntSQL, "args", CompactJSON(finalArgs))
-		slog.Info("list", "sql", listSQL, "args", CompactJSON(argsWithLimit))
+		slog.Info("count", "sql", renderedCntSQL, "args", CompactJSON(finalArgs))
+		slog.Info("list", "sql", renderedListSQL, "args", CompactJSON(argsWithLimit))
 	}
 
 	// Execute count query
-	count, err := tx.WithContext(ctx).SelectInt(cntSQL, finalArgs...)
+	count, err := tx.WithContext(ctx).SelectInt(renderedCntSQL, finalArgs...)
 	if err != nil {
-		return nil, errors.Annotatef(err, "\n%s\n%v", cntSQL, CompactJSON(finalArgs))
+		return nil, errors.Annotatef(err, "\n%s\n%v", renderedCntSQL, CompactJSON(finalArgs))
 	}
 
 	// Execute list query
-	rows, err := tx.WithContext(ctx).Query(listSQL, argsWithLimit...)
+	rows, err := tx.WithContext(ctx).Query(renderedListSQL, argsWithLimit...)
 	if err != nil {
-		return nil, errors.Annotatef(err, "\n%s\n%v", listSQL, CompactJSON(argsWithLimit))
+		return nil, errors.Annotatef(err, "\n%s\n%v", renderedListSQL, CompactJSON(argsWithLimit))
 	}
 
 	defer func() {
@@ -348,29 +447,31 @@ func pageFn[T any](
 		}
 	}()
 
-	if err := rows.Err(); err != nil {
-		return nil, errors.Annotatef(err, "\n%s\n%v", listSQL, CompactJSON(argsWithLimit))
-	}
-
 	// Scan results
 	list := make([]*T, 0, page.Size) // Pre-allocate with expected size
 
 	for rows.Next() {
 		r := new(T)
-		dest := make([]any, len(q.selectCols))
-
-		for i, col := range q.selectCols {
-			dest[i] = col.FieldPointer()(r)
+		dest, err := buildScanDest(q.selectCols, r)
+		if err != nil {
+			return nil, errors.Annotatef(err,
+				"build scan dest\n%s\n%v",
+				renderedListSQL, CompactJSON(argsWithLimit),
+			)
 		}
 
 		if err := rows.Scan(dest...); err != nil {
 			return nil, errors.Annotatef(err,
 				"rows.Scan\n%s\n%v",
-				listSQL, CompactJSON(argsWithLimit),
+				renderedListSQL, CompactJSON(argsWithLimit),
 			)
 		}
 
 		list = append(list, r)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, errors.Annotatef(err, "\n%s\n%v", renderedListSQL, CompactJSON(argsWithLimit))
 	}
 
 	return NewResponse(page, count, list), nil
@@ -393,17 +494,22 @@ func listFn[T any](
 	q *Query,
 	args ...any,
 ) ([]*T, error) {
+	if err := validateQuery(q); err != nil {
+		return nil, errors.Trace(err)
+	}
+	if err := validateExecutorForSQL(tx, q.listSQL); err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	sqlText := renderSQLForExecutor(tx, q.listSQL)
+
 	if ctx.Value(printSQL) != nil {
-		slog.Info("list", "sql", q.listSQL, "args", CompactJSON(args))
+		slog.Info("list", "sql", sqlText, "args", CompactJSON(args))
 	}
 
-	rows, err := tx.WithContext(ctx).Query(q.listSQL, args...)
+	rows, err := tx.WithContext(ctx).Query(sqlText, args...)
 	if err != nil {
-		return nil, errors.Annotatef(err, "\n%s\n%v", q.listSQL, args)
-	}
-
-	if rows.Err() != nil {
-		return nil, errors.Annotatef(err, "\n%s\n%v", q.listSQL, args)
+		return nil, errors.Annotatef(err, "\n%s\n%v", sqlText, args)
 	}
 
 	defer func() {
@@ -414,20 +520,26 @@ func listFn[T any](
 
 	for rows.Next() {
 		r := new(T)
-		dest := make([]any, len(q.selectCols))
-
-		for i, f := range q.selectCols {
-			dest[i] = f.FieldPointer()(r)
+		dest, err := buildScanDest(q.selectCols, r)
+		if err != nil {
+			return nil, errors.Annotatef(err,
+				"build scan dest\n%s\n%v",
+				sqlText, CompactJSON(args),
+			)
 		}
 
 		if err := rows.Scan(dest...); err != nil {
 			return nil, errors.Annotatef(err,
 				"rows.Scan\n%s\n%v",
-				q.listSQL, CompactJSON(args),
+				sqlText, CompactJSON(args),
 			)
 		}
 
 		list = append(list, r)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, errors.Annotatef(err, "\n%s\n%v", sqlText, args)
 	}
 
 	return list, nil
@@ -450,17 +562,28 @@ func getOrErrFn[T any](
 	qb *Query,
 	args ...any,
 ) (*T, error) {
-	if ctx.Value(printSQL) != nil {
-		slog.Info("getOrErr", "sql", qb.listSQL, "args", CompactJSON(args))
+	if err := validateQuery(qb); err != nil {
+		return nil, errors.Trace(err)
+	}
+	if err := validateExecutorForSQL(tx, qb.listSQL); err != nil {
+		return nil, errors.Trace(err)
 	}
 
-	row := tx.WithContext(ctx).QueryRow(qb.listSQL, args...)
+	sqlText := renderSQLForExecutor(tx, qb.listSQL)
+
+	if ctx.Value(printSQL) != nil {
+		slog.Info("getOrErr", "sql", sqlText, "args", CompactJSON(args))
+	}
+
+	row := tx.WithContext(ctx).QueryRow(sqlText, args...)
 
 	r := new(T)
-	dest := make([]any, len(qb.selectCols))
-
-	for i, f := range qb.selectCols {
-		dest[i] = f.FieldPointer()(r)
+	dest, err := buildScanDest(qb.selectCols, r)
+	if err != nil {
+		return nil, errors.Annotatef(err,
+			"build scan dest\n%s\n%v",
+			sqlText, CompactJSON(args),
+		)
 	}
 
 	if err := row.Scan(dest...); err != nil {
@@ -470,7 +593,7 @@ func getOrErrFn[T any](
 
 		return nil, errors.Annotatef(err,
 			"row.Scan\n%s\n%v",
-			qb.listSQL, CompactJSON(args),
+			sqlText, CompactJSON(args),
 		)
 	}
 
@@ -494,22 +617,34 @@ func (q *Query) load(
 	holder any,
 	args ...any,
 ) error {
-	if ctx.Value(printSQL) != nil {
-		slog.Info("load", "sql", q.listSQL, "args", CompactJSON(args))
+	if err := validateQuery(q); err != nil {
+		return errors.Trace(err)
+	}
+	if err := validateExecutorForSQL(tx, q.listSQL); err != nil {
+		return errors.Trace(err)
 	}
 
-	row := tx.WithContext(ctx).QueryRow(q.listSQL, args...)
+	sqlText := renderSQLForExecutor(tx, q.listSQL)
+
+	if ctx.Value(printSQL) != nil {
+		slog.Info("load", "sql", sqlText, "args", CompactJSON(args))
+	}
+
+	row := tx.WithContext(ctx).QueryRow(sqlText, args...)
 	if err := row.Err(); err != nil {
 		if errors.Is(errors.Cause(err), sql.ErrNoRows) {
 			return sql.ErrNoRows
 		}
 
-		return errors.Annotatef(err, "\n%s\n%v", q.listSQL, CompactJSON(args))
+		return errors.Annotatef(err, "\n%s\n%v", sqlText, CompactJSON(args))
 	}
 
-	dest := make([]any, len(q.selectCols))
-	for i, f := range q.selectCols {
-		dest[i] = f.FieldPointer()(holder)
+	dest, err := buildScanDest(q.selectCols, holder)
+	if err != nil {
+		return errors.Annotatef(err,
+			"build scan dest\n%s\n%v",
+			sqlText, CompactJSON(args),
+		)
 	}
 
 	if err := row.Scan(dest...); err != nil {
@@ -519,7 +654,7 @@ func (q *Query) load(
 
 		return errors.Annotatef(err,
 			"row.Scan\n%s\n%v",
-			q.listSQL, CompactJSON(args),
+			sqlText, CompactJSON(args),
 		)
 	}
 
@@ -527,6 +662,12 @@ func (q *Query) load(
 }
 
 func (q *Query) buildPageSQLs(page *PageReq) (string, string, error) {
+	if err := validateQuery(q); err != nil {
+		return "", "", errors.Trace(err)
+	}
+
+	page = normalizePageReq(page)
+
 	var cntQuery, listQuery string
 	if len(q.kwCols) > 0 && len(page.Keyword) > 0 {
 		cntQuery = q.kwCntSQL
@@ -538,16 +679,48 @@ func (q *Query) buildPageSQLs(page *PageReq) (string, string, error) {
 
 	// 排序字段白名单校验
 	allowedFields := make(map[string]string)
+	ambiguousFields := make(map[string]struct{})
+	registerSortableField := func(key string, qualifiedName string) {
+		if key == "" {
+			return
+		}
+
+		if _, ok := ambiguousFields[key]; ok {
+			return
+		}
+
+		if existing, ok := allowedFields[key]; ok {
+			if existing != qualifiedName {
+				delete(allowedFields, key)
+				ambiguousFields[key] = struct{}{}
+			}
+			return
+		}
+
+		allowedFields[key] = qualifiedName
+	}
+
 	for _, f := range q.selectCols {
-		allowedFields[f.Name()] = f.QualifiedName()
+		registerSortableField(f.Name(), rawColumnQualifiedName(f))
 		if f.JSONFieldName() != "" {
-			allowedFields[f.JSONFieldName()] = f.QualifiedName()
+			registerSortableField(f.JSONFieldName(), rawColumnQualifiedName(f))
 		}
 	}
 
 	if len(page.OrderBy) != 0 {
-		orderbys := strings.Split(page.OrderBy, ",")
-		orders := strings.Split(page.Order, ",")
+		orderbys := splitCommaValues(page.OrderBy)
+		orders := splitCommaValues(page.Order)
+
+		if len(orderbys) == 0 {
+			return "", "", errors.New("order by fields cannot be empty")
+		}
+
+		if len(orders) == 0 {
+			orders = make([]string, len(orderbys))
+			for i := range orders {
+				orders[i] = "ASC"
+			}
+		}
 
 		if len(orders) != len(orderbys) {
 			return "", "", NewErrOrderCountMismatch(len(orderbys), len(orders))
@@ -557,6 +730,9 @@ func (q *Query) buildPageSQLs(page *PageReq) (string, string, error) {
 
 		for i, ob := range orderbys {
 			ob = strings.TrimSpace(ob)
+			if _, ok := ambiguousFields[ob]; ok {
+				return "", "", NewErrAmbiguousSortField(ob)
+			}
 			fullName, ok := allowedFields[ob]
 
 			if !ok {
@@ -580,23 +756,37 @@ func (q *Query) buildPageSQLs(page *PageReq) (string, string, error) {
 	return cntQuery, listQuery, nil
 }
 
+func splitCommaValues(value string) []string {
+	parts := strings.Split(value, ",")
+	result := make([]string, 0, len(parts))
+
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+
+		result = append(result, part)
+	}
+
+	return result
+}
+
 // ================================================
 // 批量操作支持
 // ================================================
 
 // BatchInsertOptions 批量插入配置选项
 type BatchInsertOptions struct {
-	BatchSize      int  // 每批插入的数量，默认 1000
-	IgnoreErrors   bool // 是否忽略重复键错误，使用 INSERT IGNORE
-	OnDuplicateKey bool // 是否使用 ON DUPLICATE KEY UPDATE
+	BatchSize    int  // 每批处理的数量，默认 1000
+	IgnoreErrors bool // 是否忽略重复键插入错误并继续处理后续数据
 }
 
 // DefaultBatchInsertOptions 返回默认的批量插入配置
 func DefaultBatchInsertOptions() *BatchInsertOptions {
 	return &BatchInsertOptions{
-		BatchSize:      1000,
-		IgnoreErrors:   false,
-		OnDuplicateKey: false,
+		BatchSize:    1000,
+		IgnoreErrors: false,
 	}
 }
 
@@ -622,10 +812,13 @@ func batchInsertFn[T Table](
 	if len(items) == 0 {
 		return nil
 	}
+	if err := validateExecutor(tx); err != nil {
+		return errors.Trace(err)
+	}
 
-	opts := DefaultBatchInsertOptions()
-	if len(options) > 0 && options[0] != nil {
-		opts = options[0]
+	opts, err := normalizeBatchInsertOptions(options...)
+	if err != nil {
+		return errors.Trace(err)
 	}
 
 	// 批量处理
@@ -707,10 +900,13 @@ func batchUpdateFn[T any](
 	if len(items) == 0 {
 		return nil
 	}
+	if err := validateExecutor(tx); err != nil {
+		return errors.Trace(err)
+	}
 
-	opts := DefaultBatchInsertOptions()
-	if len(options) > 0 && options[0] != nil {
-		opts = options[0]
+	opts, err := normalizeBatchInsertOptions(options...)
+	if err != nil {
+		return errors.Trace(err)
 	}
 
 	// 批量处理
@@ -735,7 +931,11 @@ func batchUpdateChunk[T any](
 	tx gorp.SqlExecutor,
 	items []*T,
 ) error {
-	for _, item := range items {
+	for itemIdx, item := range items {
+		if item == nil {
+			return errors.Errorf("item at index %d is nil", itemIdx)
+		}
+
 		if _, err := tx.WithContext(ctx).Update(item); err != nil {
 			return errors.Annotate(err, "batch update item failed")
 		}
@@ -765,10 +965,13 @@ func batchDeleteFn[T any](
 	if len(items) == 0 {
 		return nil
 	}
+	if err := validateExecutor(tx); err != nil {
+		return errors.Trace(err)
+	}
 
-	opts := DefaultBatchInsertOptions()
-	if len(options) > 0 && options[0] != nil {
-		opts = options[0]
+	opts, err := normalizeBatchInsertOptions(options...)
+	if err != nil {
+		return errors.Trace(err)
 	}
 
 	// 批量处理
@@ -793,7 +996,11 @@ func batchDeleteChunk[T any](
 	tx gorp.SqlExecutor,
 	items []*T,
 ) error {
-	for _, item := range items {
+	for itemIdx, item := range items {
+		if item == nil {
+			return errors.Errorf("item at index %d is nil", itemIdx)
+		}
+
 		if _, err := tx.WithContext(ctx).Delete(item); err != nil {
 			return errors.Annotate(err, "batch delete item failed")
 		}
@@ -827,10 +1034,13 @@ func batchDeleteByIDsFn[T any](
 	if len(ids) == 0 {
 		return nil
 	}
+	if err := validateExecutor(tx); err != nil {
+		return errors.Trace(err)
+	}
 
-	opts := DefaultBatchInsertOptions()
-	if len(options) > 0 && options[0] != nil {
-		opts = options[0]
+	opts, err := normalizeBatchInsertOptions(options...)
+	if err != nil {
+		return errors.Trace(err)
 	}
 
 	// 批量处理
@@ -867,17 +1077,55 @@ func batchDeleteByIDsChunk(
 		placeholders[i] = "?"
 	}
 
-	sqlStr := fmt.Sprintf(
-		"DELETE FROM `%s` WHERE `%s` IN (%s)",
-		tableName, idColumn, strings.Join(placeholders, ","),
-	)
-
-	_, err := tx.WithContext(ctx).Exec(sqlStr, ids...)
+	sqlStr, err := buildDeleteByIDsSQL(tableName, idColumn, len(placeholders))
 	if err != nil {
-		return errors.Annotatef(err, "batch delete by IDs failed: %s", sqlStr)
+		return errors.Trace(err)
+	}
+
+	sqlText := renderSQLForExecutor(tx, sqlStr)
+
+	_, err = tx.WithContext(ctx).Exec(sqlText, ids...)
+	if err != nil {
+		return errors.Annotatef(err, "batch delete by IDs failed: %s", sqlText)
 	}
 
 	return nil
+}
+
+func buildDeleteByIDsSQL(tableName string, idColumn string, placeholderCount int) (string, error) {
+	if placeholderCount <= 0 {
+		return "", errors.New("placeholder count must be greater than 0")
+	}
+
+	quotedTable, err := quoteBuiltInIdentifier(tableName)
+	if err != nil {
+		return "", errors.Trace(err)
+	}
+
+	quotedColumn, err := quoteBuiltInIdentifier(idColumn)
+	if err != nil {
+		return "", errors.Trace(err)
+	}
+
+	placeholders := make([]string, placeholderCount)
+	for i := range placeholders {
+		placeholders[i] = "?"
+	}
+
+	return fmt.Sprintf(
+		"DELETE FROM %s WHERE %s IN (%s)",
+		quotedTable,
+		quotedColumn,
+		strings.Join(placeholders, ","),
+	), nil
+}
+
+func quoteBuiltInIdentifier(name string) (string, error) {
+	if !builtInIdentifierPattern.MatchString(name) {
+		return "", errors.Errorf("invalid SQL identifier: %s", name)
+	}
+
+	return rawIdentifier(name), nil
 }
 
 // ================================================
@@ -926,6 +1174,113 @@ func isDuplicateKeyError(err error) bool {
 	return false
 }
 
+func normalizePageReq(page *PageReq) *PageReq {
+	if page == nil {
+		page = &PageReq{}
+	}
+
+	normalized := *page
+	_ = normalized.Validate()
+
+	return &normalized
+}
+
+func normalizeBatchInsertOptions(options ...*BatchInsertOptions) (*BatchInsertOptions, error) {
+	opts := DefaultBatchInsertOptions()
+	if len(options) > 0 && options[0] != nil {
+		copied := *options[0]
+		opts = &copied
+	}
+
+	if opts.BatchSize <= 0 {
+		return nil, errors.Errorf("invalid batch size: %d", opts.BatchSize)
+	}
+
+	return opts, nil
+}
+
+func validateQuery(q *Query) error {
+	if q == nil {
+		return errors.New("query cannot be nil")
+	}
+
+	if strings.TrimSpace(q.listSQL) == "" || strings.TrimSpace(q.cntSQL) == "" {
+		return errors.New("query is not built")
+	}
+
+	if len(q.kwCols) > 0 &&
+		(strings.TrimSpace(q.kwListSQL) == "" || strings.TrimSpace(q.kwCntSQL) == "") {
+		return errors.New("keyword query is not built")
+	}
+
+	return nil
+}
+
+func validateExecutor(tx gorp.SqlExecutor) error {
+	if tx == nil {
+		return errors.New("sql executor cannot be nil")
+	}
+
+	value := reflect.ValueOf(tx)
+	if value.IsValid() && value.Kind() == reflect.Ptr && value.IsNil() {
+		return errors.New("sql executor cannot be nil")
+	}
+
+	return nil
+}
+
+func validateExecutorForSQL(tx gorp.SqlExecutor, rawSQLs ...string) error {
+	if err := validateExecutor(tx); err != nil {
+		return errors.Trace(err)
+	}
+
+	dialect := dialectForExecutor(tx)
+	if dialect != nil {
+		return nil
+	}
+
+	for _, rawSQL := range rawSQLs {
+		if strings.Contains(rawSQL, identifierMarkerPrefix) {
+			return errors.New("sql executor dialect cannot be determined")
+		}
+	}
+
+	return nil
+}
+
+func buildScanDest(cols []Column, holder any) ([]any, error) {
+	dest := make([]any, len(cols))
+
+	for i, col := range cols {
+		pointerFunc := col.FieldPointer()
+		if pointerFunc == nil {
+			return nil, errors.Errorf("select column %s cannot be scanned: field pointer is nil", col.QualifiedName())
+		}
+
+		ptr, err := invokeFieldPointer(pointerFunc, holder)
+		if err != nil {
+			return nil, errors.Annotatef(err, "select column %s cannot be scanned", col.QualifiedName())
+		}
+		if ptr == nil {
+			return nil, errors.Errorf("select column %s cannot be scanned: field pointer returned nil", col.QualifiedName())
+		}
+
+		dest[i] = ptr
+	}
+
+	return dest, nil
+}
+
+func invokeFieldPointer(pointerFunc FieldPointer, holder any) (ptr any, err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = errors.Errorf("field pointer panicked: %v", recovered)
+		}
+	}()
+
+	return pointerFunc(holder), nil
+}
+
 func Insert[T any](
 	ctx context.Context,
 	tx gorp.SqlExecutor,
@@ -941,6 +1296,10 @@ func insertFn[T any](
 	tx gorp.SqlExecutor,
 	item *T,
 ) error {
+	if err := validateExecutor(tx); err != nil {
+		return errors.Trace(err)
+	}
+
 	return tx.WithContext(ctx).Insert(item)
 }
 
@@ -959,6 +1318,10 @@ func updateFn[T any](
 	tx gorp.SqlExecutor,
 	item *T,
 ) error {
+	if err := validateExecutor(tx); err != nil {
+		return errors.Trace(err)
+	}
+
 	_, err := tx.WithContext(ctx).Update(item)
 	return errors.Trace(err)
 }
@@ -978,6 +1341,10 @@ func deleteFn[T any](
 	tx gorp.SqlExecutor,
 	item *T,
 ) error {
+	if err := validateExecutor(tx); err != nil {
+		return errors.Trace(err)
+	}
+
 	_, err := tx.WithContext(ctx).Delete(item)
 	return errors.Trace(err)
 }

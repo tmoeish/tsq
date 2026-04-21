@@ -3,8 +3,8 @@ package database
 
 import (
 	"context"
-	"database/sql"
-	"time"
+	tsqsql "database/sql"
+	tsqtime "time"
 
 	"github.com/juju/errors"
 	"github.com/tmoeish/tsq"
@@ -25,7 +25,7 @@ func init() {
 		},
 		func(db *gorp.DbMap) error {
 			// Upsert Ux list
-			if err := tsq.UpsertIndex(db, "category", true, "ux_name", []string{`name`}); err != nil {
+			if err := tsq.UpsertIndex(db, "category", true, "ux_name", []string{"name"}); err != nil {
 				return errors.Annotate(err, "upsert ux_name@category")
 			}
 
@@ -83,7 +83,7 @@ func GetCategoryByID(
 	switch errors.Cause(err) {
 	case nil:
 		return row, nil
-	case sql.ErrNoRows:
+	case tsqsql.ErrNoRows:
 		return nil, nil
 	default:
 		return nil, errors.Trace(err)
@@ -91,14 +91,23 @@ func GetCategoryByID(
 }
 
 // GetCategoryByIDOrErr retrieves a Category record by its ID.
-// Returns (nil, sql.ErrNoRows) if the record is not found.
+// Returns (nil, database/sql.ErrNoRows) if the record is not found.
 func GetCategoryByIDOrErr(
 	ctx context.Context,
 	db gorp.SqlExecutor,
 	id int64,
 ) (*Category, error) {
 	row := &Category{}
-	return row, getCategoryByIDQuery.Load(ctx, db, row, id)
+	err := getCategoryByIDQuery.Load(ctx, db, row, id)
+	if err != nil {
+		if err == tsqsql.ErrNoRows {
+			return nil, err
+		}
+
+		return nil, errors.Trace(err)
+	}
+
+	return row, nil
 }
 
 // ListCategoryByIDIn retrieves multiple Category records by a set of ID values.
@@ -160,7 +169,7 @@ func (c *Category) Insert(
 	ctx context.Context,
 	db gorp.SqlExecutor,
 ) error {
-	c.CT = null.TimeFrom(time.Now())
+	c.CT = null.TimeFrom(tsqtime.Now())
 	err := tsq.Insert(ctx, db, c)
 	if err != nil {
 		return errors.Annotate(err, tsq.PrettyJSON(c))
@@ -278,7 +287,7 @@ func GetCategoryByName(
 	switch errors.Cause(err) {
 	case nil:
 		return row, nil
-	case sql.ErrNoRows:
+	case tsqsql.ErrNoRows:
 		return nil, nil
 	default:
 		return nil, errors.Trace(err)
@@ -286,7 +295,7 @@ func GetCategoryByName(
 }
 
 // GetCategoryByNameOrErr retrieves a Category record by unique index ux_name.
-// Returns (nil, sql.ErrNoRows) if the record is not found.
+// Returns (nil, database/sql.ErrNoRows) if the record is not found.
 func GetCategoryByNameOrErr(
 	ctx context.Context,
 	db gorp.SqlExecutor,
@@ -298,7 +307,15 @@ func GetCategoryByNameOrErr(
 	err := query.Load(ctx, db, row,
 		name,
 	)
-	return row, errors.Trace(err)
+	if err != nil {
+		if err == tsqsql.ErrNoRows {
+			return nil, err
+		}
+
+		return nil, errors.Trace(err)
+	}
+
+	return row, nil
 }
 
 // ExistsCategoryByName checks whether a Category record exists by unique index ux_name.

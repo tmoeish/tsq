@@ -24,6 +24,16 @@ type OrderBy struct {
 
 // Expr returns the SQL expression for this ORDER BY clause
 func (ob OrderBy) Expr() string {
+	if _, err := validateColumnInput(ob.field); err != nil {
+		panic(err.Error())
+	}
+
+	switch ob.order {
+	case ASC, DESC:
+	default:
+		panic("order must be ASC or DESC")
+	}
+
 	return ob.field.QualifiedName() + " " + string(ob.order)
 }
 
@@ -73,9 +83,12 @@ func OrderByMultiple(orderBys ...OrderBy) []string {
 
 // ReverseOrder returns the opposite order direction
 func ReverseOrder(order Order) Order {
-	if order == ASC {
+	switch order {
+	case ASC:
 		return DESC
+	case DESC:
+		return ASC
+	default:
+		panic("order must be ASC or DESC")
 	}
-
-	return ASC
 }

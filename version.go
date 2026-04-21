@@ -79,12 +79,25 @@ func GetVersionInfo() *VersionInfo {
 
 // String returns a formatted version string
 func (v *VersionInfo) String() string {
+	if v == nil {
+		return "TSQ unknown"
+	}
+
+	commit := v.GitCommit
+	if len(commit) > 8 {
+		commit = commit[:8]
+	}
+
 	return fmt.Sprintf("TSQ %s (built %s from %s@%s with %s on %s/%s)",
-		v.Version, v.BuildTime, v.GitBranch, v.GitCommit[:8], v.GoVersion, v.Platform, v.Arch)
+		v.Version, v.BuildTime, v.GitBranch, commit, v.GoVersion, v.Platform, v.Arch)
 }
 
 // ShortString returns a short version string
 func (v *VersionInfo) ShortString() string {
+	if v == nil {
+		return "TSQ unknown"
+	}
+
 	return fmt.Sprintf("TSQ %s", v.Version)
 }
 

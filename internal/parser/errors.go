@@ -17,6 +17,7 @@ const (
 	// Struct 相关错误
 	ErrorTypeDuplicateField
 	ErrorTypeDuplicateEmbedded
+	ErrorTypeEmbeddedCycle
 	ErrorTypeEmbeddedNotFound
 	ErrorTypeUnsupportedType
 
@@ -79,6 +80,7 @@ var ErrorMessages = map[ErrorType]string{
 	// Struct 相关错误
 	ErrorTypeDuplicateField:    "duplicate field in struct",
 	ErrorTypeDuplicateEmbedded: "duplicate embedded type in struct",
+	ErrorTypeEmbeddedCycle:     "cyclic embedded type in struct",
 	ErrorTypeEmbeddedNotFound:  "embedded struct not found",
 	ErrorTypeUnsupportedType:   "unsupported type expression",
 
@@ -110,7 +112,7 @@ func NewPackageImportError(packagePath string, cause error) error {
 		"package": packagePath,
 	})
 
-	return errors.Trace(errors.Wrap(err, cause))
+	return errors.Trace(errors.Annotatef(err, "%v", cause))
 }
 
 // NewFileParseError 创建文件解析错误
@@ -120,7 +122,7 @@ func NewFileParseError(filename string, cause error) error {
 		"filename": filename,
 	})
 
-	return errors.Trace(errors.Wrap(err, cause))
+	return errors.Trace(errors.Annotatef(err, "%v", cause))
 }
 
 // NewDuplicateFieldError 创建重复字段错误
@@ -149,6 +151,16 @@ func NewDuplicateEmbeddedError(typeName, structName string) error {
 func NewEmbeddedNotFoundError(structName string) error {
 	msg := fmt.Sprintf("embedded struct not found: '%s'", structName)
 	err := newParserError(ErrorTypeEmbeddedNotFound, msg, map[string]any{
+		"struct": structName,
+	})
+
+	return errors.Trace(err)
+}
+
+// NewEmbeddedCycleError 创建嵌入结构体循环引用错误
+func NewEmbeddedCycleError(structName string) error {
+	msg := fmt.Sprintf("cyclic embedded struct reference: '%s'", structName)
+	err := newParserError(ErrorTypeEmbeddedCycle, msg, map[string]any{
 		"struct": structName,
 	})
 
@@ -288,6 +300,17 @@ func NewDSLInvalidNumberError(numberStr string, position int) error {
 	return errors.Trace(err)
 }
 
+// NewDSLMissingBracketError 创建 DSL 缺失括号错误
+func NewDSLMissingBracketError(input string, position int) error {
+	msg := fmt.Sprintf("missing bracket in DSL at position %d", position)
+	err := newParserError(ErrorTypeDSLMissingBracket, msg, map[string]any{
+		"input":    input,
+		"position": position,
+	})
+
+	return errors.Trace(err)
+}
+
 // ===== Field 相关错误 =====
 
 // NewFieldUnsupportedTypeError 创建字段不支持类型错误
@@ -352,7 +375,7 @@ func NewDSLIndexDuplicateError(indexName, fields string) error {
 // IsParserError 检查是否为解析器错误
 func IsParserError(err error) bool {
 	var parserError *ParserError
-	ok := errors.As(errors.Cause(err), &parserError)
+	ok := errors.As(err, &parserError)
 
 	return ok
 }
@@ -360,7 +383,7 @@ func IsParserError(err error) bool {
 // GetParserError 获取解析器错误
 func GetParserError(err error) *ParserError {
 	var parserErr *ParserError
-	if errors.As(errors.Cause(err), &parserErr) {
+	if errors.As(err, &parserErr) {
 		return parserErr
 	}
 

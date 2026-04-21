@@ -4,7 +4,6 @@ import (
 	"bytes"
 	_ "embed"
 	"fmt"
-	"log/slog"
 	"os"
 	"path"
 	"strings"
@@ -19,10 +18,10 @@ import (
 
 var (
 	//go:embed tsq.go.tmpl
-	tplTxt string
+	defaultTableTpl string
 
 	//go:embed tsq_dto.go.tmpl
-	dtoTplTxt string
+	defaultDTOTpl string
 
 	tplFlag    string
 	dtoTplFlag string
@@ -38,79 +37,89 @@ func init() {
 var GenCmd = &cobra.Command{
 	Use:   "gen [package]",
 	Short: "`gen` generates tsq.go file for each table in package",
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		if len(args) < 1 {
 			_ = cmd.Usage()
-			return
+			return errors.New("package path is required")
 		}
 
-		if len(tplFlag) > 0 {
-			tplBytes, err := os.ReadFile(tplFlag)
-			if err != nil {
-				slog.Error(errors.ErrorStack(err))
-				return
-			}
-			tplTxt = string(tplBytes)
+		tableTpl, err := resolveTemplateText(tplFlag, defaultTableTpl, "template")
+		if err != nil {
+			return errors.Trace(err)
 		}
 
-		if len(dtoTplFlag) > 0 {
-			tplBytes, err := os.ReadFile(dtoTplFlag)
-			if err != nil {
-				slog.Error(errors.ErrorStack(err))
-				return
-			}
-			dtoTplTxt = string(tplBytes)
+		dtoTpl, err := resolveTemplateText(dtoTplFlag, defaultDTOTpl, "DTO template")
+		if err != nil {
+			return errors.Trace(err)
 		}
 
 		pPath := args[0]
 		list, dir, err := parser.Parse(pPath)
 		if err != nil {
-			slog.Error(errors.ErrorStack(err))
-			return
+			return errors.Trace(err)
 		}
 
 		for i := range list {
 			list[i].SetTSQVersion(tsq.Version)
 		}
 
-		tpl, err := template.New("tsq.go.tmpl").Funcs(TemplateFuncs()).Parse(tplTxt)
-		if err != nil {
-			slog.Error(errors.ErrorStack(err))
-			return
+		structsByName := make(map[string]*tsq.StructInfo, len(list))
+		for _, s := range list {
+			structsByName[s.TypeInfo.TypeName] = s
 		}
 
-		dtoTpl, err := template.New("tsq_dto.go.tmpl").Funcs(TemplateFuncs()).Parse(dtoTplTxt)
+		tpl, err := template.New("tsq.go.tmpl").Funcs(TemplateFuncs()).Parse(tableTpl)
 		if err != nil {
-			slog.Error(errors.ErrorStack(err))
-			return
+			return errors.Annotate(err, "failed to parse table template")
+		}
+
+		dtoTplParsed, err := template.New("tsq_dto.go.tmpl").Funcs(TemplateFuncs()).Parse(dtoTpl)
+		if err != nil {
+			return errors.Annotate(err, "failed to parse DTO template")
 		}
 
 		for _, s := range list {
 			if s.TableInfo == nil || len(s.Fields) == 0 {
 				continue
 			}
-			if len(s.Table) == 0 {
-				for i, f := range s.Fields {
-					s.Fields[i].Column = strings.Replace(f.Column, ".", "_", 1)
-				}
-				if err := genDTO(s, dtoTpl, dir); err != nil {
-					slog.Error(errors.ErrorStack(err))
-					return
+			if err := validateStructForGeneration(s, structsByName); err != nil {
+				return errors.Annotatef(err, "failed to validate %s", s.TypeInfo.TypeName)
+			}
+			if s.IsDTO {
+				normalizeDTOColumns(s)
+				if err := genDTO(s, dtoTplParsed, dir); err != nil {
+					return errors.Trace(err)
 				}
 			} else {
 				if err := gen(s, tpl, dir); err != nil {
-					slog.Error(errors.ErrorStack(err))
-					return
+					return errors.Trace(err)
 				}
 			}
 		}
+
+		return nil
 	},
+}
+
+func resolveTemplateText(overridePath string, fallback string, label string) (string, error) {
+	if len(overridePath) == 0 {
+		return fallback, nil
+	}
+
+	tplBytes, err := os.ReadFile(overridePath)
+	if err != nil {
+		return "", errors.Annotatef(err, "failed to read %s file: %s", label, overridePath)
+	}
+
+	return string(tplBytes), nil
 }
 
 func gen(data *tsq.StructInfo, t *template.Template, dir string) error {
 	filename := fmt.Sprintf("%s_tsq.go", strings.ToLower(data.TypeInfo.TypeName))
 	filename = path.Join(dir, filename)
-	slog.Info(fmt.Sprintf("gen %s", filename))
+	if v {
+		_, _ = fmt.Fprintf(os.Stderr, "gen %s\n", filename)
+	}
 
 	buf := new(bytes.Buffer)
 
@@ -136,6 +145,9 @@ func gen(data *tsq.StructInfo, t *template.Template, dir string) error {
 func genDTO(data *tsq.StructInfo, t *template.Template, dir string) error {
 	filename := fmt.Sprintf("%s_dto_tsq.go", strings.ToLower(data.TypeInfo.TypeName))
 	filename = path.Join(dir, filename)
+	if v {
+		_, _ = fmt.Fprintf(os.Stderr, "gen %s\n", filename)
+	}
 	buf := new(bytes.Buffer)
 
 	if err := t.Execute(buf, data); err != nil {
@@ -155,4 +167,66 @@ func genDTO(data *tsq.StructInfo, t *template.Template, dir string) error {
 	}
 
 	return nil
+}
+
+func validateStructForGeneration(
+	data *tsq.StructInfo,
+	structsByName map[string]*tsq.StructInfo,
+) error {
+	if data == nil || data.TableInfo == nil {
+		return nil
+	}
+
+	if data.IsDTO {
+		return errors.Trace(validateDTOFields(data, structsByName))
+	}
+
+	return errors.Trace(ValidateManagedFields(data))
+}
+
+func validateDTOFields(
+	dto *tsq.StructInfo,
+	structsByName map[string]*tsq.StructInfo,
+) error {
+	for _, field := range dto.Fields {
+		parts := strings.Split(field.Column, ".")
+		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+			return errors.Errorf(
+				"DTO field %s must reference a generated column as Struct.Field, got %q",
+				field.Name,
+				field.Column,
+			)
+		}
+
+		targetStruct, ok := structsByName[parts[0]]
+		if !ok || targetStruct.TableInfo == nil {
+			return errors.Errorf(
+				"DTO field %s references unknown struct %s",
+				field.Name,
+				parts[0],
+			)
+		}
+
+		if _, ok := targetStruct.FieldMap[parts[1]]; !ok {
+			return errors.Errorf(
+				"DTO field %s references unknown field %s.%s",
+				field.Name,
+				parts[0],
+				parts[1],
+			)
+		}
+	}
+
+	return nil
+}
+
+func normalizeDTOColumns(data *tsq.StructInfo) {
+	for i, field := range data.Fields {
+		field.Column = strings.ReplaceAll(field.Column, ".", "_")
+		data.Fields[i] = field
+
+		mapped := data.FieldMap[field.Name]
+		mapped.Column = field.Column
+		data.FieldMap[field.Name] = mapped
+	}
 }

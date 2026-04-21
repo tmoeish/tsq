@@ -3,8 +3,8 @@ package database
 
 import (
 	"context"
-	"database/sql"
-	"time"
+	tsqsql "database/sql"
+	tsqtime "time"
 
 	"github.com/juju/errors"
 	"github.com/tmoeish/tsq"
@@ -25,11 +25,11 @@ func init() {
 		},
 		func(db *gorp.DbMap) error {
 			// Upsert Ux list
-			if err := tsq.UpsertIndex(db, "item", true, "ux_name", []string{`name`}); err != nil {
+			if err := tsq.UpsertIndex(db, "item", true, "ux_name", []string{"name"}); err != nil {
 				return errors.Annotate(err, "upsert ux_name@item")
 			}
 			// Upsert Idx list
-			if err := tsq.UpsertIndex(db, "item", false, "idx_category", []string{`category_id`}); err != nil {
+			if err := tsq.UpsertIndex(db, "item", false, "idx_category", []string{"category_id"}); err != nil {
 				return errors.Annotate(err, "upsert idx_category@item")
 			}
 
@@ -87,7 +87,7 @@ func GetItemByID(
 	switch errors.Cause(err) {
 	case nil:
 		return row, nil
-	case sql.ErrNoRows:
+	case tsqsql.ErrNoRows:
 		return nil, nil
 	default:
 		return nil, errors.Trace(err)
@@ -95,14 +95,23 @@ func GetItemByID(
 }
 
 // GetItemByIDOrErr retrieves a Item record by its ID.
-// Returns (nil, sql.ErrNoRows) if the record is not found.
+// Returns (nil, database/sql.ErrNoRows) if the record is not found.
 func GetItemByIDOrErr(
 	ctx context.Context,
 	db gorp.SqlExecutor,
 	id int64,
 ) (*Item, error) {
 	row := &Item{}
-	return row, getItemByIDQuery.Load(ctx, db, row, id)
+	err := getItemByIDQuery.Load(ctx, db, row, id)
+	if err != nil {
+		if err == tsqsql.ErrNoRows {
+			return nil, err
+		}
+
+		return nil, errors.Trace(err)
+	}
+
+	return row, nil
 }
 
 // ListItemByIDIn retrieves multiple Item records by a set of ID values.
@@ -164,7 +173,7 @@ func (i *Item) Insert(
 	ctx context.Context,
 	db gorp.SqlExecutor,
 ) error {
-	i.CT = null.TimeFrom(time.Now())
+	i.CT = null.TimeFrom(tsqtime.Now())
 	err := tsq.Insert(ctx, db, i)
 	if err != nil {
 		return errors.Annotate(err, tsq.PrettyJSON(i))
@@ -282,7 +291,7 @@ func GetItemByName(
 	switch errors.Cause(err) {
 	case nil:
 		return row, nil
-	case sql.ErrNoRows:
+	case tsqsql.ErrNoRows:
 		return nil, nil
 	default:
 		return nil, errors.Trace(err)
@@ -290,7 +299,7 @@ func GetItemByName(
 }
 
 // GetItemByNameOrErr retrieves a Item record by unique index ux_name.
-// Returns (nil, sql.ErrNoRows) if the record is not found.
+// Returns (nil, database/sql.ErrNoRows) if the record is not found.
 func GetItemByNameOrErr(
 	ctx context.Context,
 	db gorp.SqlExecutor,
@@ -302,7 +311,15 @@ func GetItemByNameOrErr(
 	err := query.Load(ctx, db, row,
 		name,
 	)
-	return row, errors.Trace(err)
+	if err != nil {
+		if err == tsqsql.ErrNoRows {
+			return nil, err
+		}
+
+		return nil, errors.Trace(err)
+	}
+
+	return row, nil
 }
 
 // ExistsItemByName checks whether a Item record exists by unique index ux_name.

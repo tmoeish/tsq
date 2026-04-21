@@ -3,8 +3,8 @@ package database
 
 import (
 	"context"
-	"database/sql"
-	time "time"
+	tsqsql "database/sql"
+	tsqtime "time"
 
 	"github.com/juju/errors"
 	"github.com/tmoeish/tsq"
@@ -25,10 +25,10 @@ func init() {
 		},
 		func(db *gorp.DbMap) error {
 			// Upsert Idx list
-			if err := tsq.UpsertIndex(db, "order", false, "idx_item", []string{`dt`, `item_id`}); err != nil {
+			if err := tsq.UpsertIndex(db, "order", false, "idx_item", []string{"dt", "item_id"}); err != nil {
 				return errors.Annotate(err, "upsert idx_item@order")
 			}
-			if err := tsq.UpsertIndex(db, "order", false, "idx_user_id_item_id", []string{`dt`, `user_id`, `item_id`}); err != nil {
+			if err := tsq.UpsertIndex(db, "order", false, "idx_user_id_item_id", []string{"dt", "user_id", "item_id"}); err != nil {
 				return errors.Annotate(err, "upsert idx_user_id_item_id@order")
 			}
 
@@ -57,7 +57,7 @@ var TableOrderCols = []tsq.Column{
 // Column definitions for Order table.
 var (
 	Order_Amount       = tsq.NewCol[int64](TableOrder, "amount", "Amount", func(t any) any { return &t.(*Order).Amount })
-	Order_CT           = tsq.NewCol[time.Time](TableOrder, "ct", "ct", func(t any) any { return &t.(*Order).CT })
+	Order_CT           = tsq.NewCol[tsqtime.Time](TableOrder, "ct", "ct", func(t any) any { return &t.(*Order).CT })
 	Order_DT           = tsq.NewCol[int64](TableOrder, "dt", "dt", func(t any) any { return &t.(*Order).DT })
 	Order_ItemID       = tsq.NewCol[int64](TableOrder, "item_id", "ItemID", func(t any) any { return &t.(*Order).ItemID })
 	Order_ModifiedTime = tsq.NewCol[null.Time](TableOrder, "modified_time", "modified_time", func(t any) any { return &t.(*Order).ModifiedTime })
@@ -101,7 +101,7 @@ func GetOrderByUID(
 	switch errors.Cause(err) {
 	case nil:
 		return row, nil
-	case sql.ErrNoRows:
+	case tsqsql.ErrNoRows:
 		return nil, nil
 	default:
 		return nil, errors.Trace(err)
@@ -109,14 +109,23 @@ func GetOrderByUID(
 }
 
 // GetOrderByUIDOrErr retrieves a Order record by its UID.
-// Returns (nil, sql.ErrNoRows) if the record is not found.
+// Returns (nil, database/sql.ErrNoRows) if the record is not found.
 func GetOrderByUIDOrErr(
 	ctx context.Context,
 	db gorp.SqlExecutor,
 	uid int64,
 ) (*Order, error) {
 	row := &Order{}
-	return row, getOrderByUIDQuery.Load(ctx, db, row, uid)
+	err := getOrderByUIDQuery.Load(ctx, db, row, uid)
+	if err != nil {
+		if err == tsqsql.ErrNoRows {
+			return nil, err
+		}
+
+		return nil, errors.Trace(err)
+	}
+
+	return row, nil
 }
 
 // ListOrderByUIDIn retrieves multiple Order records by a set of UID values.
@@ -191,7 +200,7 @@ func GetActiveOrderByUID(
 	switch errors.Cause(err) {
 	case nil:
 		return row, nil
-	case sql.ErrNoRows:
+	case tsqsql.ErrNoRows:
 		return nil, nil
 	default:
 		return nil, errors.Trace(err)
@@ -199,7 +208,7 @@ func GetActiveOrderByUID(
 }
 
 // GetActiveOrderByUIDOrErr retrieves an active (non-deleted) Order record by its UID.
-// Returns (nil, sql.ErrNoRows) if the record is not found or has been soft-deleted.
+// Returns (nil, database/sql.ErrNoRows) if the record is not found or has been soft-deleted.
 func GetActiveOrderByUIDOrErr(
 	ctx context.Context,
 	db gorp.SqlExecutor,
@@ -207,7 +216,15 @@ func GetActiveOrderByUIDOrErr(
 ) (*Order, error) {
 	row := &Order{}
 	err := getActiveOrderByUIDQuery.Load(ctx, db, row, uid)
-	return row, errors.Trace(err)
+	if err != nil {
+		if err == tsqsql.ErrNoRows {
+			return nil, err
+		}
+
+		return nil, errors.Trace(err)
+	}
+
+	return row, nil
 }
 
 // ListActiveOrderByUIDIn retrieves multiple active (non-deleted) Order records by a set of UID values.
@@ -278,8 +295,8 @@ func (o *Order) Insert(
 	ctx context.Context,
 	db gorp.SqlExecutor,
 ) error {
-	o.CT = time.Now()
-	o.ModifiedTime = null.TimeFrom(time.Now())
+	o.CT = tsqtime.Now()
+	o.ModifiedTime = null.TimeFrom(tsqtime.Now())
 	err := tsq.Insert(ctx, db, o)
 	if err != nil {
 		return errors.Annotate(err, tsq.PrettyJSON(o))
@@ -294,7 +311,7 @@ func (o *Order) Update(
 	ctx context.Context,
 	db gorp.SqlExecutor,
 ) error {
-	o.ModifiedTime = null.TimeFrom(time.Now())
+	o.ModifiedTime = null.TimeFrom(tsqtime.Now())
 	err := tsq.Update(ctx, db, o)
 	if err != nil {
 		return errors.Annotate(err, tsq.PrettyJSON(o))
@@ -317,18 +334,18 @@ func (o *Order) Delete(
 }
 
 // SoftDelete marks a Order record as deleted without removing it from the database.
-// If dt > 0, uses the provided timestamp; otherwise uses the current time.
+// If dt is set, uses the provided tombstone value; otherwise uses the current time.
 func (o *Order) SoftDelete(
 	ctx context.Context,
 	db gorp.SqlExecutor,
 	dt int64,
 ) error {
-	if dt > 0 {
+	if dt != 0 {
 		o.DT = dt
 	} else {
-		o.DT = time.Now().UnixNano()
+		o.DT = tsqtime.Now().UnixNano()
 	}
-	o.ModifiedTime = null.TimeFrom(time.Now())
+	o.ModifiedTime = null.TimeFrom(tsqtime.Now())
 	err := tsq.Update(ctx, db, o)
 	if err != nil {
 		return errors.Annotate(err, tsq.PrettyJSON(o))

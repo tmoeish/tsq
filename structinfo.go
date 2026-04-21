@@ -97,11 +97,16 @@ type IndexFuncNames struct {
 
 // SetTSQVersion 设置 TSQ 版本
 func (s *StructInfo) SetTSQVersion(version string) {
+	if s == nil {
+		return
+	}
+
 	s.TSQVersion = version
 }
 
 // TableInfo 表示表的元数据信息
 type TableInfo struct {
+	IsDTO     bool     // 是否为 DTO 定义
 	Table     string   // 表名
 	AI        bool     // ID auto-increment
 	ID        string   // 主键字段名
