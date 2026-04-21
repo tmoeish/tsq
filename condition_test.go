@@ -335,6 +335,32 @@ func TestCondition_EmptyClauseFailsFast(t *testing.T) {
 	_ = And(Cond{})
 }
 
+func TestCondition_PredicateRejectsInvalidFormat(t *testing.T) {
+	col := NewCol[int](newMockTable("users"), "id", "id", nil)
+
+	tests := []struct {
+		name string
+		op   string
+		args []any
+	}{
+		{name: "empty format", op: "", args: nil},
+		{name: "missing placeholders", op: "id = 1", args: nil},
+		{name: "placeholder count mismatch", op: "%s = %s", args: []any{1, 2}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			defer func() {
+				if r := recover(); r == nil {
+					t.Fatal("expected Predicate to panic for invalid format")
+				}
+			}()
+
+			_ = col.Predicate(tt.op, tt.args...)
+		})
+	}
+}
+
 func TestCondition_UniqueSubqueryPredicatesFailFast(t *testing.T) {
 	col := NewCol[int](newMockTable("users"), "id", "id", nil)
 	subquery := &Query{listSQL: "SELECT 1"}

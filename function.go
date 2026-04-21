@@ -2,6 +2,7 @@ package tsq
 
 import (
 	"fmt"
+	"strings"
 )
 
 // ================================================
@@ -10,6 +11,14 @@ import (
 
 // Fn creates a custom SQL function by applying the format string to the column
 func (c Col[T]) Fn(format string) Col[T] {
+	if strings.TrimSpace(format) == "" {
+		panic("function format cannot be empty")
+	}
+
+	if !strings.Contains(format, "%s") {
+		panic("function format must contain %s for the column expression")
+	}
+
 	return Col[T]{
 		table:         c.table,
 		qualifiedName: fmt.Sprintf(format, c.rawQualifiedName()),
@@ -21,6 +30,10 @@ func (c Col[T]) Fn(format string) Col[T] {
 
 // Fn0 fn 不带参数
 func (c Col[T]) Fn0(fn string) Col[T] {
+	if strings.TrimSpace(fn) == "" {
+		panic("function expression cannot be empty")
+	}
+
 	return Col[T]{
 		table:         c.table,
 		qualifiedName: fn,

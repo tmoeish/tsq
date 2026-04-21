@@ -196,6 +196,10 @@ func (c Col[T]) NUnique(sqb *Query) Cond    { return panicUnsupportedSubqueryPre
 
 // Predicate builds a condition with the given operator and arguments
 func (c Col[T]) Predicate(op string, args ...any) Cond {
+	if err := validatePredicateFormat(op, len(args)+1); err != nil {
+		panic(err.Error())
+	}
+
 	baseTable, err := validateColumnInput(c)
 	if err != nil {
 		panic(err.Error())
@@ -254,6 +258,22 @@ func panicUnsupportedSubqueryPredicate(name string) Cond {
 
 func panicUnsupportedPatternPredicate(name string) Cond {
 	panic(fmt.Sprintf("%s is not portable across TSQ's built-in dialects; use LIKE with an explicit pattern instead", name))
+}
+
+func validatePredicateFormat(op string, placeholderCount int) error {
+	if strings.TrimSpace(op) == "" {
+		return fmt.Errorf("predicate format cannot be empty")
+	}
+
+	if actual := strings.Count(op, "%s"); actual != placeholderCount {
+		return fmt.Errorf(
+			"predicate format placeholder count mismatch: expected %d, got %d",
+			placeholderCount,
+			actual,
+		)
+	}
+
+	return nil
 }
 
 // ================================================

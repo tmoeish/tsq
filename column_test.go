@@ -1,6 +1,7 @@
 package tsq
 
 import (
+	"reflect"
 	"testing"
 )
 
@@ -182,15 +183,13 @@ func TestCol_Into_NilPointer(t *testing.T) {
 	table := newMockTable("users")
 	col := NewCol[string](table, "name", "name", nil)
 
-	newCol := col.Into(nil, "new_name")
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected nil field pointer to panic")
+		}
+	}()
 
-	if newCol.FieldPointer() != nil {
-		t.Error("Expected nil field pointer")
-	}
-
-	if newCol.JSONFieldName() != "new_name" {
-		t.Errorf("Expected JSON field name 'new_name', got '%s'", newCol.JSONFieldName())
-	}
+	_ = col.Into(nil, "new_name")
 }
 
 func TestCol_TypeSafety(t *testing.T) {
@@ -259,10 +258,19 @@ func TestCol_InterfaceCompliance(t *testing.T) {
 
 func TestCol_ImmutabilityOfInto(t *testing.T) {
 	table := newMockTable("users")
-	originalCol := NewCol[string](table, "name", "original_name", nil)
+	originalFieldPointer := func(holder any) any {
+		s := struct{ Name string }{}
+		return &s.Name
+	}
+	originalCol := NewCol[string](table, "name", "original_name", originalFieldPointer)
+
+	newFieldPointer := func(holder any) any {
+		s := struct{ DisplayName string }{}
+		return &s.DisplayName
+	}
 
 	// Create a new column using Into
-	newCol := originalCol.Into(nil, "new_name")
+	newCol := originalCol.Into(newFieldPointer, "new_name")
 
 	// Verify that the original column is unchanged
 	if originalCol.JSONFieldName() != "original_name" {
@@ -285,5 +293,9 @@ func TestCol_ImmutabilityOfInto(t *testing.T) {
 
 	if originalCol.QualifiedName() != newCol.QualifiedName() {
 		t.Error("Both columns should have the same qualified name")
+	}
+
+	if reflect.ValueOf(originalCol.FieldPointer()).Pointer() == reflect.ValueOf(newCol.FieldPointer()).Pointer() {
+		t.Error("Into should not mutate the original field pointer")
 	}
 }

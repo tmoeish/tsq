@@ -29,6 +29,44 @@ func TestCol_Fn(t *testing.T) {
 	}
 }
 
+func TestCol_FnRejectsInvalidFormat(t *testing.T) {
+	table := newMockTable("users")
+	col := NewCol[string](table, "name", "name", nil)
+
+	tests := []struct {
+		name   string
+		format string
+	}{
+		{name: "empty", format: ""},
+		{name: "missing placeholder", format: "UPPER(name)"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			defer func() {
+				if r := recover(); r == nil {
+					t.Fatal("expected Fn to panic for invalid format")
+				}
+			}()
+
+			_ = col.Fn(tt.format)
+		})
+	}
+}
+
+func TestCol_Fn0RejectsEmptyExpression(t *testing.T) {
+	table := newMockTable("users")
+	col := NewCol[string](table, "name", "name", nil)
+
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected Fn0 to panic for empty expression")
+		}
+	}()
+
+	_ = col.Fn0("   ")
+}
+
 func TestCol_Count(t *testing.T) {
 	table := newMockTable("users")
 	col := NewCol[int](table, "id", "id", nil)

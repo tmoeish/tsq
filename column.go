@@ -88,6 +88,10 @@ func (c Col[T]) rawQualifiedName() string {
 // Into creates a new column with different pointer function and JSON tag
 // This is useful for DTOs and custom result mapping
 func (c Col[T]) Into(fieldPointer FieldPointer, jsonFieldName string) *Col[T] {
+	if fieldPointer == nil {
+		panic("field pointer cannot be nil")
+	}
+
 	return &Col[T]{
 		table:         c.table,
 		name:          c.name,

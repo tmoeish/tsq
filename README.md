@@ -157,7 +157,7 @@ func main() {
 
     // 2. 初始化 gorp
     dbmap := &gorp.DbMap{Db: db, Dialect: gorp.SqliteDialect{}}
-    err = tsq.Init(dbmap, true, TraceDB)
+    err = tsq.Init(dbmap, true, true, TraceDB)
     if err != nil {
         logrus.Fatal(errors.ErrorStack(err))
     }
@@ -231,11 +231,10 @@ resp, err := database.PageUserOrder(ctx, dbmap, pageReq, 1, "图书", "视频", 
 ```go
 // 条件查询
 query := tsq.
-    Select(database.TableUser.Cols()...).
-    Where(database.User_Name.Like("%admin%")).
-    OrderBy(database.User_ID.Desc()).
+    Select(database.User_ID, database.User_Name, database.User_Email).
+    Where(database.User_Name.Contains("admin")).
     MustBuild()
-users, err := database.ListUserByQuery(ctx, dbmap, query)
+users, err := tsq.List[database.User](ctx, dbmap, query)
 
 // 分页查询
 pageReq := &tsq.PageReq{
