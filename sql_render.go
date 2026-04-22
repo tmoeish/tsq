@@ -140,6 +140,89 @@ func containsIdentifierMarkersNeedingRender(raw string) bool {
 	return false
 }
 
+func containsBindVarsNeedingDialect(raw string) bool {
+	if !strings.Contains(raw, "?") {
+		return false
+	}
+
+	var (
+		inSingleStr    bool
+		inDoubleStr    bool
+		inLineComment  bool
+		inBlockComment bool
+		dollarQuoteTag string
+	)
+
+	for i := 0; i < len(raw); {
+		ch := raw[i]
+
+		switch {
+		case inLineComment:
+			i++
+			if ch == '\n' {
+				inLineComment = false
+			}
+		case inBlockComment:
+			i++
+			if ch == '*' && i < len(raw) && raw[i] == '/' {
+				i++
+				inBlockComment = false
+			}
+		case inSingleStr:
+			i++
+			if ch == '\'' {
+				if i < len(raw) && raw[i] == '\'' {
+					i++
+				} else {
+					inSingleStr = false
+				}
+			}
+		case inDoubleStr:
+			i++
+			if ch == '"' {
+				if i < len(raw) && raw[i] == '"' {
+					i++
+				} else {
+					inDoubleStr = false
+				}
+			}
+		case dollarQuoteTag != "":
+			if strings.HasPrefix(raw[i:], dollarQuoteTag) {
+				i += len(dollarQuoteTag)
+				dollarQuoteTag = ""
+				continue
+			}
+			i++
+		case ch == '?':
+			return true
+		default:
+			if tag, ok := matchDollarQuote(raw, i); ok {
+				dollarQuoteTag = tag
+				i += len(tag)
+				continue
+			}
+
+			switch ch {
+			case '\'':
+				inSingleStr = true
+			case '"':
+				inDoubleStr = true
+			case '-':
+				if i+1 < len(raw) && raw[i+1] == '-' {
+					inLineComment = true
+				}
+			case '/':
+				if i+1 < len(raw) && raw[i+1] == '*' {
+					inBlockComment = true
+				}
+			}
+			i++
+		}
+	}
+
+	return false
+}
+
 func renderSQLWithIdentifierQuoter(raw string, quoter func(string) string) string {
 	if !strings.Contains(raw, identifierMarkerPrefix) {
 		return raw

@@ -106,3 +106,23 @@ func TestContainsIdentifierMarkersNeedingRenderDetectsRealIdentifiers(t *testing
 		t.Fatal("expected real identifier markers to be detected")
 	}
 }
+
+func TestContainsBindVarsNeedingDialectIgnoresStringsCommentsAndDollarQuotes(t *testing.T) {
+	raw := "SELECT 1" +
+		" /* ? ignored_comment */" +
+		" WHERE note = '?'" +
+		" AND body = $$?$$" +
+		" -- ? ignored_tail\n"
+
+	if containsBindVarsNeedingDialect(raw) {
+		t.Fatal("expected bind vars inside strings/comments to be ignored")
+	}
+}
+
+func TestContainsBindVarsNeedingDialectDetectsRealPlaceholders(t *testing.T) {
+	raw := `SELECT "users"."id" FROM "users" WHERE "users"."id" = ?`
+
+	if !containsBindVarsNeedingDialect(raw) {
+		t.Fatal("expected real bind vars to be detected")
+	}
+}

@@ -1299,7 +1299,7 @@ func validateExecutorForSQL(tx gorp.SqlExecutor, rawSQLs ...string) error {
 	}
 
 	for _, rawSQL := range rawSQLs {
-		if containsIdentifierMarkersNeedingRender(rawSQL) {
+		if containsIdentifierMarkersNeedingRender(rawSQL) || containsBindVarsNeedingDialect(rawSQL) {
 			return errors.New("sql executor dialect cannot be determined")
 		}
 	}

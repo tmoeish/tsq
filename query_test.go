@@ -690,6 +690,26 @@ func TestValidateExecutorForSQLIgnoresMarkersInsideDollarQuotedStrings(t *testin
 	}
 }
 
+func TestValidateExecutorForSQLRejectsBindVarsWithoutDialect(t *testing.T) {
+	db := &gorp.DbMap{}
+
+	if err := validateExecutorForSQL(db, "SELECT ?"); err == nil {
+		t.Fatal("expected bind vars without a known dialect to return an error")
+	}
+}
+
+func TestValidateExecutorForSQLIgnoresBindVarsInsideStringsCommentsAndDollarQuotes(t *testing.T) {
+	db := &gorp.DbMap{}
+	rawSQL := "SELECT '?'" +
+		" /* ? */" +
+		" WHERE note = $$?$$" +
+		" -- ?\n"
+
+	if err := validateExecutorForSQL(db, rawSQL); err != nil {
+		t.Fatalf("expected bind vars inside strings/comments to be ignored, got %v", err)
+	}
+}
+
 func TestBatchDeleteByIDsRejectsNilIDs(t *testing.T) {
 	db := &gorp.DbMap{Dialect: gorp.SqliteDialect{}}
 
