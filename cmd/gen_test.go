@@ -104,6 +104,48 @@ func TestValidateGeneratedFilenameCollisionsRejectsCaseConflicts(t *testing.T) {
 	}
 }
 
+func TestValidateStructForGenerationRejectsPointerPrimaryKeys(t *testing.T) {
+	data := &tsq.StructInfo{
+		TableInfo: &tsq.TableInfo{
+			Table: "user",
+			ID:    "ID",
+		},
+		TypeInfo: tsq.TypeInfo{TypeName: "User"},
+		FieldMap: map[string]tsq.FieldInfo{
+			"ID": {
+				Name:      "ID",
+				IsPointer: true,
+				Type:      tsq.TypeInfo{TypeName: "string"},
+			},
+		},
+	}
+
+	if err := validateStructForGeneration(data, nil); err == nil {
+		t.Fatal("expected pointer primary key to be rejected")
+	}
+}
+
+func TestValidateStructForGenerationRejectsSlicePrimaryKeys(t *testing.T) {
+	data := &tsq.StructInfo{
+		TableInfo: &tsq.TableInfo{
+			Table: "blob_user",
+			ID:    "ID",
+		},
+		TypeInfo: tsq.TypeInfo{TypeName: "BlobUser"},
+		FieldMap: map[string]tsq.FieldInfo{
+			"ID": {
+				Name:    "ID",
+				IsArray: true,
+				Type:    tsq.TypeInfo{TypeName: "byte"},
+			},
+		},
+	}
+
+	if err := validateStructForGeneration(data, nil); err == nil {
+		t.Fatal("expected slice primary key to be rejected")
+	}
+}
+
 func TestTableTemplateOrErrPreservesErrNoRows(t *testing.T) {
 	want := `if err == {{ GeneratedSQLRef "ErrNoRows" }} {`
 	if count := strings.Count(defaultTableTpl, want); count < 4 {
@@ -202,5 +244,26 @@ func TestGenDTODoesNotWriteBrokenGoOnFormatError(t *testing.T) {
 
 	if string(contents) != "// existing dto\n" {
 		t.Fatalf("expected DTO format failure to leave existing file untouched, got %q", string(contents))
+	}
+}
+
+func TestWriteGeneratedFileReplacesContentsAtomically(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "user_tsq.go")
+	if err := os.WriteFile(target, []byte("old"), 0o644); err != nil {
+		t.Fatalf("failed to seed target file: %v", err)
+	}
+
+	if err := writeGeneratedFile(target, []byte("new")); err != nil {
+		t.Fatalf("expected atomic write helper to succeed, got %v", err)
+	}
+
+	contents, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("failed to read target file: %v", err)
+	}
+
+	if string(contents) != "new" {
+		t.Fatalf("expected target file to be replaced, got %q", string(contents))
 	}
 }

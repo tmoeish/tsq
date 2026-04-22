@@ -46,7 +46,10 @@ func parseNamedFields(
 			}
 
 			// 解析字段包信息
-			typePackage := resolveFieldPackage(packagePath, typeName, packageAliases, currentPkg)
+			typePackage, err := resolveFieldPackage(packagePath, typeName, packageAliases, currentPkg)
+			if err != nil {
+				return nil, errors.Trace(err)
+			}
 
 			// 创建字段对象
 			field := tsq.FieldInfo{
@@ -141,19 +144,28 @@ func resolveFieldPackage(
 	typeName string,
 	packageAliases map[string]tsq.PackageInfo,
 	currentPkg tsq.PackageInfo,
-) tsq.PackageInfo {
+) (tsq.PackageInfo, error) {
 	if packagePath == "" {
 		// 检查是否为原始类型
 		if _, isPrimitive := PrimitiveTypes[typeName]; !isPrimitive {
 			// 如果不是原始类型，则必须是当前包下的类型
-			return currentPkg
+			return currentPkg, nil
 		}
 		// 原始类型返回空包
-		return tsq.PackageInfo{}
+		return tsq.PackageInfo{}, nil
 	}
 
 	// 使用包别名解析
-	return packageAliases[packagePath]
+	pkg, ok := packageAliases[packagePath]
+	if !ok {
+		return tsq.PackageInfo{}, errors.Errorf(
+			"unknown package alias %q for field type %s",
+			packagePath,
+			typeName,
+		)
+	}
+
+	return pkg, nil
 }
 
 // parseEmbeddedFields 解析嵌入字段

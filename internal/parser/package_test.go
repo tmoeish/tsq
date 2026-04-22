@@ -64,6 +64,85 @@ import "example.invalid/missingpkg/v2"
 	}
 }
 
+func Test_parsePackageAliases_RejectsDotImport(t *testing.T) {
+	src := `
+package p
+
+import . "strings"
+`
+	fset := token.NewFileSet()
+
+	f, err := parser.ParseFile(fset, "", src, parser.AllErrors)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	_, err = parsePackageAliases(f)
+	if err == nil {
+		t.Fatal("expected dot import to return an error")
+	}
+
+	if !strings.Contains(err.Error(), "dot imports are not supported") {
+		t.Fatalf("expected dot import error, got %v", err)
+	}
+}
+
+func Test_parsePackageAliases_RejectsDuplicateAlias(t *testing.T) {
+	src := `
+package p
+
+import (
+	io1 "io"
+	io1 "io/fs"
+)
+`
+	fset := token.NewFileSet()
+
+	f, err := parser.ParseFile(fset, "", src, parser.AllErrors)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	_, err = parsePackageAliases(f)
+	if err == nil {
+		t.Fatal("expected duplicate import alias to return an error")
+	}
+
+	if !strings.Contains(err.Error(), `duplicate import alias "io1"`) {
+		t.Fatalf("expected duplicate alias error, got %v", err)
+	}
+}
+
+func Test_parsePackageAliases_SkipsBlankImports(t *testing.T) {
+	src := `
+package p
+
+import (
+	_ "net/http/pprof"
+	"strings"
+)
+`
+	fset := token.NewFileSet()
+
+	f, err := parser.ParseFile(fset, "", src, parser.AllErrors)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	pkgs, err := parsePackageAliases(f)
+	if err != nil {
+		t.Fatalf("parsePackageAliases returned error: %v", err)
+	}
+
+	if len(pkgs) != 1 {
+		t.Fatalf("expected blank import to be skipped, got %+v", pkgs)
+	}
+
+	if _, ok := pkgs["_"]; ok {
+		t.Fatal("expected blank import alias to be omitted")
+	}
+}
+
 func Test_importBuildPackage_RelativePath(t *testing.T) {
 	buildPkg, err := importBuildPackage("../../examples/database")
 	if err != nil {

@@ -137,7 +137,7 @@ func gen(data *tsq.StructInfo, t *template.Template, dir string) error {
 		return errors.Annotatef(err, "Go code formatting failed: %s", filename)
 	}
 
-	err = os.WriteFile(filename, src, 0o644)
+	err = writeGeneratedFile(filename, src)
 	if err != nil {
 		return errors.Annotatef(err, "failed to write file: %s", filename)
 	}
@@ -163,7 +163,7 @@ func genDTO(data *tsq.StructInfo, t *template.Template, dir string) error {
 		return errors.Annotatef(err, "Go code formatting failed: %s", filename)
 	}
 
-	err = os.WriteFile(filename, src, 0o644)
+	err = writeGeneratedFile(filename, src)
 	if err != nil {
 		return errors.Annotatef(err, "failed to write file: %s", filename)
 	}
@@ -181,6 +181,10 @@ func validateStructForGeneration(
 
 	if data.IsDTO {
 		return errors.Trace(validateDTOFields(data, structsByName))
+	}
+
+	if err := validatePrimaryKeyField(data); err != nil {
+		return errors.Trace(err)
 	}
 
 	return errors.Trace(ValidateManagedFields(data))
@@ -277,4 +281,56 @@ func generatedFilename(data *tsq.StructInfo) string {
 	}
 
 	return fmt.Sprintf("%s_tsq.go", base)
+}
+
+func validatePrimaryKeyField(data *tsq.StructInfo) error {
+	if data == nil || data.TableInfo == nil || data.ID == "" {
+		return nil
+	}
+
+	field, ok := data.FieldMap[data.ID]
+	if !ok {
+		return errors.Errorf("id field %s not found in %s", data.ID, data.TypeInfo.TypeName)
+	}
+
+	if field.IsPointer || field.IsArray {
+		return errors.Errorf(
+			"id field %s in %s cannot be a pointer or slice/array type",
+			data.ID,
+			data.TypeInfo.TypeName,
+		)
+	}
+
+	return nil
+}
+
+func writeGeneratedFile(filename string, src []byte) error {
+	dir := filepath.Dir(filename)
+	pattern := "." + filepath.Base(filename) + ".tmp-*"
+
+	tmpFile, err := os.CreateTemp(dir, pattern)
+	if err != nil {
+		return err
+	}
+
+	tmpName := tmpFile.Name()
+	cleanup := func() {
+		_ = os.Remove(tmpName)
+	}
+	defer cleanup()
+
+	if _, err := tmpFile.Write(src); err != nil {
+		_ = tmpFile.Close()
+		return err
+	}
+
+	if err := tmpFile.Close(); err != nil {
+		return err
+	}
+
+	if err := os.Rename(tmpName, filename); err != nil {
+		return err
+	}
+
+	return nil
 }

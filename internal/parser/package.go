@@ -390,12 +390,38 @@ func parsePackageAliases(file *ast.File) (map[string]tsq.PackageInfo, error) {
 		}
 
 		if importSpec.Name != nil {
+			switch importSpec.Name.Name {
+			case "_":
+				continue
+			case ".":
+				return nil, errors.Errorf("dot imports are not supported: %s", importPath)
+			}
+
+			if existing, ok := packageAliases[importSpec.Name.Name]; ok {
+				return nil, errors.Errorf(
+					"duplicate import alias %q for %s and %s",
+					importSpec.Name.Name,
+					existing.Path,
+					importPath,
+				)
+			}
+
 			// 显式别名
 			packageAliases[importSpec.Name.Name] = pkg
-		} else {
-			// 使用包名作为别名
-			packageAliases[pkg.Name] = pkg
+			continue
 		}
+
+		if existing, ok := packageAliases[pkg.Name]; ok {
+			return nil, errors.Errorf(
+				"duplicate import alias %q for %s and %s",
+				pkg.Name,
+				existing.Path,
+				importPath,
+			)
+		}
+
+		// 使用包名作为别名
+		packageAliases[pkg.Name] = pkg
 	}
 
 	return packageAliases, nil

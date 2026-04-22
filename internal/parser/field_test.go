@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"strings"
 	"testing"
 
 	"github.com/tmoeish/tsq"
@@ -406,5 +407,49 @@ type Test struct {
 				t.Fatalf("expected unsupported field type error, got %v", err)
 			}
 		})
+	}
+}
+
+func Test_parseNamedFieldsRejectsUnknownPackageAlias(t *testing.T) {
+	src := `
+package test
+type Test struct {
+	Field missing.Type ` + "`db:\"field\"`" + `
+}`
+	fset := token.NewFileSet()
+
+	file, err := parser.ParseFile(fset, "test.go", src, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var structType *ast.StructType
+	for _, decl := range file.Decls {
+		genDecl, ok := decl.(*ast.GenDecl)
+		if !ok {
+			continue
+		}
+
+		for _, spec := range genDecl.Specs {
+			typeSpec, ok := spec.(*ast.TypeSpec)
+			if !ok || typeSpec.Name.Name != "Test" {
+				continue
+			}
+
+			structType, _ = typeSpec.Type.(*ast.StructType)
+		}
+	}
+
+	if structType == nil {
+		t.Fatal("expected to find Test struct")
+	}
+
+	_, err = parseNamedFields(map[string]tsq.PackageInfo{}, tsq.PackageInfo{Name: "test"}, structType)
+	if err == nil {
+		t.Fatal("expected unknown package alias to return an error")
+	}
+
+	if !strings.Contains(err.Error(), `unknown package alias "missing"`) {
+		t.Fatalf("expected unknown package alias error, got %v", err)
 	}
 }
