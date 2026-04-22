@@ -63,6 +63,10 @@ var GenCmd = &cobra.Command{
 			list[i].SetTSQVersion(tsq.Version)
 		}
 
+		if err := validateGeneratedFilenameCollisions(list); err != nil {
+			return errors.Trace(err)
+		}
+
 		structsByName := make(map[string]*tsq.StructInfo, len(list))
 		for _, s := range list {
 			structsByName[s.TypeInfo.TypeName] = s
@@ -115,7 +119,7 @@ func resolveTemplateText(overridePath string, fallback string, label string) (st
 }
 
 func gen(data *tsq.StructInfo, t *template.Template, dir string) error {
-	filename := fmt.Sprintf("%s_tsq.go", strings.ToLower(data.TypeInfo.TypeName))
+	filename := generatedFilename(data)
 	filename = path.Join(dir, filename)
 	if v {
 		_, _ = fmt.Fprintf(os.Stderr, "gen %s\n", filename)
@@ -143,7 +147,7 @@ func gen(data *tsq.StructInfo, t *template.Template, dir string) error {
 }
 
 func genDTO(data *tsq.StructInfo, t *template.Template, dir string) error {
-	filename := fmt.Sprintf("%s_dto_tsq.go", strings.ToLower(data.TypeInfo.TypeName))
+	filename := generatedFilename(data)
 	filename = path.Join(dir, filename)
 	if v {
 		_, _ = fmt.Fprintf(os.Stderr, "gen %s\n", filename)
@@ -188,6 +192,8 @@ func validateDTOFields(
 	dto *tsq.StructInfo,
 	structsByName map[string]*tsq.StructInfo,
 ) error {
+	normalizedRefs := make(map[string]string, len(dto.Fields))
+
 	for _, field := range dto.Fields {
 		parts := strings.Split(field.Column, ".")
 		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
@@ -197,6 +203,17 @@ func validateDTOFields(
 				field.Column,
 			)
 		}
+
+		normalizedRef := strings.ReplaceAll(field.Column, ".", "_")
+		if existing, ok := normalizedRefs[normalizedRef]; ok && existing != field.Column {
+			return errors.Errorf(
+				"DTO field %s reference %s collides with %s after normalization",
+				field.Name,
+				field.Column,
+				existing,
+			)
+		}
+		normalizedRefs[normalizedRef] = field.Column
 
 		targetStruct, ok := structsByName[parts[0]]
 		if !ok || targetStruct.TableInfo == nil {
@@ -229,4 +246,37 @@ func normalizeDTOColumns(data *tsq.StructInfo) {
 		mapped.Column = field.Column
 		data.FieldMap[field.Name] = mapped
 	}
+}
+
+func validateGeneratedFilenameCollisions(list []*tsq.StructInfo) error {
+	seen := make(map[string]string, len(list))
+
+	for _, data := range list {
+		if data == nil || data.TableInfo == nil || len(data.Fields) == 0 {
+			continue
+		}
+
+		filename := generatedFilename(data)
+		if existing, ok := seen[filename]; ok && existing != data.TypeInfo.TypeName {
+			return errors.Errorf(
+				"generated filename %s collides between %s and %s",
+				filename,
+				existing,
+				data.TypeInfo.TypeName,
+			)
+		}
+
+		seen[filename] = data.TypeInfo.TypeName
+	}
+
+	return nil
+}
+
+func generatedFilename(data *tsq.StructInfo) string {
+	base := strings.ToLower(data.TypeInfo.TypeName)
+	if data.IsDTO {
+		return fmt.Sprintf("%s_dto_tsq.go", base)
+	}
+
+	return fmt.Sprintf("%s_tsq.go", base)
 }

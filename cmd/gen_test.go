@@ -32,6 +32,36 @@ func TestValidateDTOFieldsRejectsUnknownTargetField(t *testing.T) {
 	}
 }
 
+func TestValidateDTOFieldsRejectsNormalizedReferenceCollisions(t *testing.T) {
+	dto := &tsq.StructInfo{
+		TableInfo: &tsq.TableInfo{IsDTO: true},
+		TypeInfo:  tsq.TypeInfo{TypeName: "UserDTO"},
+		Fields: []tsq.FieldInfo{
+			{Name: "A", Column: "User.Profile_ID"},
+			{Name: "B", Column: "User_Profile.ID"},
+		},
+	}
+
+	structsByName := map[string]*tsq.StructInfo{
+		"User": {
+			TableInfo: &tsq.TableInfo{Table: "user"},
+			FieldMap: map[string]tsq.FieldInfo{
+				"Profile_ID": {Name: "Profile_ID", Column: "profile_id"},
+			},
+		},
+		"User_Profile": {
+			TableInfo: &tsq.TableInfo{Table: "user_profile"},
+			FieldMap: map[string]tsq.FieldInfo{
+				"ID": {Name: "ID", Column: "id"},
+			},
+		},
+	}
+
+	if err := validateDTOFields(dto, structsByName); err == nil {
+		t.Fatal("expected normalized DTO reference collision to return an error")
+	}
+}
+
 func TestNormalizeDTOColumnsUpdatesFieldMap(t *testing.T) {
 	dto := &tsq.StructInfo{
 		TableInfo: &tsq.TableInfo{IsDTO: true},
@@ -51,6 +81,25 @@ func TestNormalizeDTOColumnsUpdatesFieldMap(t *testing.T) {
 
 	if got := dto.FieldMap["UserID"].Column; got != "User_ID" {
 		t.Fatalf("expected DTO field map column to be normalized, got %q", got)
+	}
+}
+
+func TestValidateGeneratedFilenameCollisionsRejectsCaseConflicts(t *testing.T) {
+	list := []*tsq.StructInfo{
+		{
+			TableInfo: &tsq.TableInfo{Table: "user"},
+			TypeInfo:  tsq.TypeInfo{TypeName: "User"},
+			Fields:    []tsq.FieldInfo{{Name: "ID"}},
+		},
+		{
+			TableInfo: &tsq.TableInfo{Table: "user_lower"},
+			TypeInfo:  tsq.TypeInfo{TypeName: "user"},
+			Fields:    []tsq.FieldInfo{{Name: "ID"}},
+		},
+	}
+
+	if err := validateGeneratedFilenameCollisions(list); err == nil {
+		t.Fatal("expected case-insensitive filename collision to return an error")
 	}
 }
 
