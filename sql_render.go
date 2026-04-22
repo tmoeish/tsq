@@ -64,8 +64,10 @@ func renderSQLWithIdentifierQuoter(raw string, quoter func(string) string) strin
 
 	var builder strings.Builder
 	var (
-		inSingleStr bool
-		inDoubleStr bool
+		inSingleStr    bool
+		inDoubleStr    bool
+		inLineComment  bool
+		inBlockComment bool
 	)
 
 	builder.Grow(len(raw))
@@ -74,6 +76,20 @@ func renderSQLWithIdentifierQuoter(raw string, quoter func(string) string) strin
 		ch := raw[i]
 
 		switch {
+		case inLineComment:
+			builder.WriteByte(ch)
+			i++
+			if ch == '\n' {
+				inLineComment = false
+			}
+		case inBlockComment:
+			builder.WriteByte(ch)
+			i++
+			if ch == '*' && i < len(raw) && raw[i] == '/' {
+				builder.WriteByte(raw[i])
+				i++
+				inBlockComment = false
+			}
 		case inSingleStr:
 			builder.WriteByte(ch)
 			i++
@@ -113,6 +129,14 @@ func renderSQLWithIdentifierQuoter(raw string, quoter func(string) string) strin
 				inSingleStr = true
 			case '"':
 				inDoubleStr = true
+			case '-':
+				if i+1 < len(raw) && raw[i+1] == '-' {
+					inLineComment = true
+				}
+			case '/':
+				if i+1 < len(raw) && raw[i+1] == '*' {
+					inBlockComment = true
+				}
 			}
 			builder.WriteByte(ch)
 			i++
@@ -136,10 +160,12 @@ func rewriteBindVars(sql string, dialect gorp.Dialect) string {
 	}
 
 	var (
-		builder     strings.Builder
-		bindIndex   int
-		inSingleStr bool
-		inDoubleStr bool
+		builder        strings.Builder
+		bindIndex      int
+		inSingleStr    bool
+		inDoubleStr    bool
+		inLineComment  bool
+		inBlockComment bool
 	)
 
 	builder.Grow(len(sql) + 8)
@@ -148,6 +174,18 @@ func rewriteBindVars(sql string, dialect gorp.Dialect) string {
 		ch := sql[i]
 
 		switch {
+		case inLineComment:
+			builder.WriteByte(ch)
+			if ch == '\n' {
+				inLineComment = false
+			}
+		case inBlockComment:
+			builder.WriteByte(ch)
+			if ch == '*' && i+1 < len(sql) && sql[i+1] == '/' {
+				builder.WriteByte(sql[i+1])
+				i++
+				inBlockComment = false
+			}
 		case inSingleStr:
 			builder.WriteByte(ch)
 			if ch == '\'' {
@@ -175,6 +213,16 @@ func rewriteBindVars(sql string, dialect gorp.Dialect) string {
 				builder.WriteByte(ch)
 			case '"':
 				inDoubleStr = true
+				builder.WriteByte(ch)
+			case '-':
+				if i+1 < len(sql) && sql[i+1] == '-' {
+					inLineComment = true
+				}
+				builder.WriteByte(ch)
+			case '/':
+				if i+1 < len(sql) && sql[i+1] == '*' {
+					inBlockComment = true
+				}
 				builder.WriteByte(ch)
 			case '?':
 				builder.WriteString(dialect.BindVar(bindIndex))

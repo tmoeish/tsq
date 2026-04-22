@@ -7,6 +7,10 @@ import (
 	"testing"
 )
 
+func passthroughTracer(next Fn) Fn {
+	return next
+}
+
 func TestAddTracer(t *testing.T) {
 	// Clear tracers before test
 	ClearTracers()
@@ -97,6 +101,34 @@ func TestGetTracers(t *testing.T) {
 	originalTracers := GetTracers()
 	if len(originalTracers) != 2 {
 		t.Error("GetTracers() should return a copy, not the original slice")
+	}
+}
+
+func TestAppendUniqueTracersPreservesDistinctClosures(t *testing.T) {
+	makeTracer := func(label string) Tracer {
+		return func(next Fn) Fn {
+			return func(ctx context.Context) error {
+				_ = label
+				return next(ctx)
+			}
+		}
+	}
+
+	left := makeTracer("left")
+	right := makeTracer("right")
+
+	tracers := appendUniqueTracers(nil, left, right)
+	if len(tracers) != 2 {
+		t.Fatalf("expected distinct closures to remain distinct, got %d tracers", len(tracers))
+	}
+}
+
+func TestAppendUniqueTracersDeduplicatesSameTracerValue(t *testing.T) {
+	tracer := Tracer(passthroughTracer)
+
+	tracers := appendUniqueTracers(nil, tracer, tracer)
+	if len(tracers) != 1 {
+		t.Fatalf("expected identical tracer value to be deduplicated, got %d tracers", len(tracers))
 	}
 }
 

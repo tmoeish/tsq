@@ -4,9 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
-	"reflect"
 	"sync"
 	"time"
+	"unsafe"
 
 	"github.com/juju/errors"
 )
@@ -105,7 +105,11 @@ func sameTracer(left, right Tracer) bool {
 		return false
 	}
 
-	return reflect.ValueOf(left).Pointer() == reflect.ValueOf(right).Pointer()
+	return tracerIdentity(left) == tracerIdentity(right)
+}
+
+func tracerIdentity(tracer Tracer) uintptr {
+	return *(*uintptr)(unsafe.Pointer(&tracer))
 }
 
 // ================================================

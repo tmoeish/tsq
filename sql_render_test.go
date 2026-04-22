@@ -29,3 +29,29 @@ func TestRenderSQLForDialectPreservesIdentifierMarkersInsideEscapedStringLiteral
 		t.Fatalf("expected postgres SQL %q, got %q", want, got)
 	}
 }
+
+func TestRenderCanonicalSQLPreservesIdentifierMarkersInsideComments(t *testing.T) {
+	raw := "SELECT " + rawQualifiedIdentifier("users", "name") +
+		" /* keep __tsq_ident__(ignored_name) */" +
+		" WHERE " + rawQualifiedIdentifier("users", "id") + " = ?" +
+		" -- keep __tsq_ident__(ignored_tail)\n"
+
+	got := renderCanonicalSQL(raw)
+	want := `SELECT "users"."name" /* keep __tsq_ident__(ignored_name) */ WHERE "users"."id" = ? -- keep __tsq_ident__(ignored_tail)` + "\n"
+	if got != want {
+		t.Fatalf("expected canonical SQL %q, got %q", want, got)
+	}
+}
+
+func TestRenderSQLForDialectPreservesQuestionMarksInsideComments(t *testing.T) {
+	raw := "SELECT " + rawQualifiedIdentifier("users", "name") +
+		" /* comment ? __tsq_ident__(ignored_name) */" +
+		" WHERE " + rawQualifiedIdentifier("users", "id") + " = ?" +
+		" -- trailing ? __tsq_ident__(ignored_tail)\n"
+
+	got := renderSQLForDialect(raw, gorp.PostgresDialect{})
+	want := `SELECT "users"."name" /* comment ? __tsq_ident__(ignored_name) */ WHERE "users"."id" = $1 -- trailing ? __tsq_ident__(ignored_tail)` + "\n"
+	if got != want {
+		t.Fatalf("expected postgres SQL %q, got %q", want, got)
+	}
+}
