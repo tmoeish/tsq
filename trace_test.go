@@ -120,6 +120,36 @@ func TestTrace_NoTracers(t *testing.T) {
 	}
 }
 
+func TestTrace_RejectsNilFunction(t *testing.T) {
+	ClearTracers()
+
+	err := Trace(context.Background(), nil)
+	if err == nil {
+		t.Fatal("expected nil trace function to return an error")
+	}
+
+	if err.Error() != "trace function cannot be nil" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestTrace1_RejectsNilFunction(t *testing.T) {
+	ClearTracers()
+
+	result, err := Trace1[int](context.Background(), nil)
+	if err == nil {
+		t.Fatal("expected nil trace function to return an error")
+	}
+
+	if err.Error() != "trace function cannot be nil" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if result != 0 {
+		t.Fatalf("expected zero result, got %d", result)
+	}
+}
+
 func TestTrace_SingleTracer(t *testing.T) {
 	// Clear tracers before test
 	ClearTracers()

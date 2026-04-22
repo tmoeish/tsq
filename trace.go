@@ -115,6 +115,10 @@ func sameTracer(left, right Tracer) bool {
 // Trace executes a function with all registered tracers applied
 // Tracers are applied in reverse order (LIFO) so the last added tracer wraps all others
 func Trace(ctx context.Context, fn func(ctx context.Context) error) error {
+	if fn == nil {
+		return errors.New("trace function cannot be nil")
+	}
+
 	tracers := snapshotTracers()
 
 	// Apply tracers in reverse order to create proper middleware chain
@@ -130,6 +134,11 @@ func Trace1[T any](
 	ctx context.Context,
 	fn func(ctx context.Context) (T, error),
 ) (T, error) {
+	if fn == nil {
+		var zero T
+		return zero, errors.New("trace function cannot be nil")
+	}
+
 	tracers := snapshotTracers()
 
 	// Apply tracers in reverse order to create proper middleware chain

@@ -1049,6 +1049,9 @@ func batchDeleteByIDsFn(
 	if err := validateExecutor(tx); err != nil {
 		return errors.Trace(err)
 	}
+	if err := validateIDValues(ids); err != nil {
+		return errors.Trace(err)
+	}
 
 	opts, err := normalizeBatchOptions(options...)
 	if err != nil {
@@ -1202,6 +1205,10 @@ func normalizePageReq(page *PageReq) *PageReq {
 }
 
 func normalizeBatchInsertOptions(options ...*BatchInsertOptions) (*BatchInsertOptions, error) {
+	if len(options) > 1 {
+		return nil, errors.New("expected at most one batch insert options value")
+	}
+
 	opts := DefaultBatchInsertOptions()
 	if len(options) > 0 && options[0] != nil {
 		copied := *options[0]
@@ -1216,6 +1223,10 @@ func normalizeBatchInsertOptions(options ...*BatchInsertOptions) (*BatchInsertOp
 }
 
 func normalizeBatchOptions(options ...*BatchOptions) (*BatchOptions, error) {
+	if len(options) > 1 {
+		return nil, errors.New("expected at most one batch options value")
+	}
+
 	opts := DefaultBatchOptions()
 	if len(options) > 0 && options[0] != nil {
 		copied := *options[0]
@@ -1232,6 +1243,16 @@ func normalizeBatchOptions(options ...*BatchOptions) (*BatchOptions, error) {
 func validateBatchSize(batchSize int) error {
 	if batchSize <= 0 {
 		return errors.Errorf("invalid batch size: %d", batchSize)
+	}
+
+	return nil
+}
+
+func validateIDValues(ids []any) error {
+	for i, id := range ids {
+		if isNilValue(id) {
+			return errors.Errorf("id at index %d cannot be nil", i)
+		}
 	}
 
 	return nil

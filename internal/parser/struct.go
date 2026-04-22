@@ -13,6 +13,15 @@ import (
 	"github.com/tmoeish/tsq"
 )
 
+var reservedImportAliases = map[string]struct{}{
+	"context": {},
+	"tsq":     {},
+	"errors":  {},
+	"gorp":    {},
+	"tsqsql":  {},
+	"tsqtime": {},
+}
+
 // StructInfo 表示一个解析后的结构体信息
 type StructInfo struct {
 	*tsq.StructInfo
@@ -117,18 +126,53 @@ func (s *StructInfo) resolvePackageNameConflicts(
 
 	// 生成最终的导入映射
 	imports := make(map[string]string)
-	for packageName, paths := range nameGroups {
-		sort.Strings(paths)
-		// 第一个包使用原名
-		imports[paths[0]] = packageName
+	usedAliases := cloneAliasSet(reservedImportAliases)
+	packageNames := make([]string, 0, len(nameGroups))
+	for packageName := range nameGroups {
+		packageNames = append(packageNames, packageName)
+	}
+	sort.Strings(packageNames)
 
-		// 后续包添加数字后缀
-		for i := 1; i < len(paths); i++ {
-			imports[paths[i]] = fmt.Sprintf("%s%d", packageName, i)
+	for _, packageName := range packageNames {
+		paths := nameGroups[packageName]
+		sort.Strings(paths)
+		for _, importPath := range paths {
+			alias := nextAvailableImportAlias(packageName, usedAliases)
+			imports[importPath] = alias
 		}
 	}
 
 	return imports
+}
+
+func cloneAliasSet(source map[string]struct{}) map[string]struct{} {
+	cloned := make(map[string]struct{}, len(source))
+	for alias := range source {
+		cloned[alias] = struct{}{}
+	}
+
+	return cloned
+}
+
+func nextAvailableImportAlias(base string, usedAliases map[string]struct{}) string {
+	if base == "" {
+		base = "pkg"
+	}
+
+	if _, exists := usedAliases[base]; !exists {
+		usedAliases[base] = struct{}{}
+		return base
+	}
+
+	for i := 1; ; i++ {
+		candidate := fmt.Sprintf("%s%d", base, i)
+		if _, exists := usedAliases[candidate]; exists {
+			continue
+		}
+
+		usedAliases[candidate] = struct{}{}
+		return candidate
+	}
 }
 
 // resolveFieldsInfo 解析字段信息，设置正确的包名并排序

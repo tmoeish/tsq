@@ -194,6 +194,40 @@ func Test_genRecv(t *testing.T) {
 	}
 }
 
+func TestResolvePackageNameConflictsAvoidsReservedAliases(t *testing.T) {
+	structInfo := &StructInfo{
+		StructInfo: &tsq.StructInfo{},
+	}
+
+	imports := structInfo.resolvePackageNameConflicts(map[tsq.PackageInfo]bool{
+		{Path: "example.com/context", Name: "context"}: true,
+		{Path: "example.com/errors", Name: "errors"}:   true,
+		{Path: "example.com/tsqsql", Name: "tsqsql"}:   true,
+		{Path: "example.com/other", Name: "other"}:     true,
+		{Path: "example.com/other/v2", Name: "other"}:  true,
+	})
+
+	if got := imports["example.com/context"]; got != "context1" {
+		t.Fatalf("expected reserved context alias to be suffixed, got %q", got)
+	}
+
+	if got := imports["example.com/errors"]; got != "errors1" {
+		t.Fatalf("expected reserved errors alias to be suffixed, got %q", got)
+	}
+
+	if got := imports["example.com/tsqsql"]; got != "tsqsql1" {
+		t.Fatalf("expected reserved tsqsql alias to be suffixed, got %q", got)
+	}
+
+	if got := imports["example.com/other"]; got != "other" {
+		t.Fatalf("expected first non-reserved alias to keep base name, got %q", got)
+	}
+
+	if got := imports["example.com/other/v2"]; got != "other1" {
+		t.Fatalf("expected second same-name package to be suffixed, got %q", got)
+	}
+}
+
 func TestResolveEmbeddedFields_DetectsCycles(t *testing.T) {
 	pkg := tsq.PackageInfo{Path: "test", Name: "test"}
 	typeA := tsq.TypeInfo{Package: pkg, TypeName: "A"}

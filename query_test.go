@@ -457,9 +457,31 @@ func TestNormalizeBatchInsertOptionsValidatesInputs(t *testing.T) {
 	}
 }
 
+func TestNormalizeBatchInsertOptionsRejectsMultipleValues(t *testing.T) {
+	_, err := normalizeBatchInsertOptions(&BatchInsertOptions{}, &BatchInsertOptions{})
+	if err == nil {
+		t.Fatal("expected multiple option values to return an error")
+	}
+
+	if !strings.Contains(err.Error(), "at most one") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestNormalizeBatchOptionsValidatesInputs(t *testing.T) {
 	if _, err := normalizeBatchOptions(&BatchOptions{BatchSize: 0}); err == nil {
 		t.Fatal("expected zero batch size to return an error")
+	}
+}
+
+func TestNormalizeBatchOptionsRejectsMultipleValues(t *testing.T) {
+	_, err := normalizeBatchOptions(&BatchOptions{}, &BatchOptions{})
+	if err == nil {
+		t.Fatal("expected multiple option values to return an error")
+	}
+
+	if !strings.Contains(err.Error(), "at most one") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -644,6 +666,19 @@ func TestBatchDeleteByIDsRejectsExecutorWithoutDialectForRenderedSQL(t *testing.
 	}
 
 	if !strings.Contains(err.Error(), "dialect cannot be determined") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestBatchDeleteByIDsRejectsNilIDs(t *testing.T) {
+	db := &gorp.DbMap{Dialect: gorp.SqliteDialect{}}
+
+	err := BatchDeleteByIDs(context.Background(), db, "users", "id", []any{1, nil})
+	if err == nil {
+		t.Fatal("expected nil ids to return an error")
+	}
+
+	if !strings.Contains(err.Error(), "cannot be nil") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
