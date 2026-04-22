@@ -39,6 +39,8 @@ func TestCol_FnRejectsInvalidFormat(t *testing.T) {
 	}{
 		{name: "empty", format: ""},
 		{name: "missing placeholder", format: "UPPER(name)"},
+		{name: "multiple placeholders", format: "CONCAT(%s, %s)"},
+		{name: "unsupported verb", format: "FORMAT(%d)"},
 	}
 
 	for _, tt := range tests {
@@ -54,6 +56,16 @@ func TestCol_FnRejectsInvalidFormat(t *testing.T) {
 	}
 }
 
+func TestCol_FnAllowsEscapedPercentLiterals(t *testing.T) {
+	table := newMockTable("users")
+	col := NewCol[string](table, "name", "name", nil)
+
+	result := col.Fn("CONCAT(%s, '%%s')")
+	if got := result.QualifiedName(); got != `CONCAT("users"."name", '%s')` {
+		t.Fatalf("expected escaped percent literal to be preserved, got %s", got)
+	}
+}
+
 func TestCol_Fn0RejectsEmptyExpression(t *testing.T) {
 	table := newMockTable("users")
 	col := NewCol[string](table, "name", "name", nil)
@@ -65,6 +77,19 @@ func TestCol_Fn0RejectsEmptyExpression(t *testing.T) {
 	}()
 
 	_ = col.Fn0("   ")
+}
+
+func TestCol_Fn0RejectsPlaceholders(t *testing.T) {
+	table := newMockTable("users")
+	col := NewCol[string](table, "name", "name", nil)
+
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected Fn0 to panic when placeholders are present")
+		}
+	}()
+
+	_ = col.Fn0("COALESCE(%s, 1)")
 }
 
 func TestCol_Count(t *testing.T) {

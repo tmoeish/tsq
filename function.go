@@ -15,7 +15,12 @@ func (c Col[T]) Fn(format string) Col[T] {
 		panic("function format cannot be empty")
 	}
 
-	if !strings.Contains(format, "%s") {
+	placeholderCount, err := countStringFormatPlaceholders(format)
+	if err != nil {
+		panic(err.Error())
+	}
+
+	if placeholderCount != 1 {
 		panic("function format must contain %s for the column expression")
 	}
 
@@ -32,6 +37,15 @@ func (c Col[T]) Fn(format string) Col[T] {
 func (c Col[T]) Fn0(fn string) Col[T] {
 	if strings.TrimSpace(fn) == "" {
 		panic("function expression cannot be empty")
+	}
+
+	placeholderCount, err := countStringFormatPlaceholders(fn)
+	if err != nil {
+		panic(err.Error())
+	}
+
+	if placeholderCount != 0 {
+		panic("function expression cannot contain format placeholders")
 	}
 
 	return Col[T]{

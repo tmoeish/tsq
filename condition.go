@@ -265,7 +265,12 @@ func validatePredicateFormat(op string, placeholderCount int) error {
 		return fmt.Errorf("predicate format cannot be empty")
 	}
 
-	if actual := strings.Count(op, "%s"); actual != placeholderCount {
+	actual, err := countStringFormatPlaceholders(op)
+	if err != nil {
+		return err
+	}
+
+	if actual != placeholderCount {
 		return fmt.Errorf(
 			"predicate format placeholder count mismatch: expected %d, got %d",
 			placeholderCount,
@@ -518,7 +523,6 @@ func sqlValueReflect(v reflect.Value) (string, error) {
 		return sqlEscapeString(v.String()), nil
 
 	default:
-		// For other types, try to convert to string as fallback
-		return sqlEscapeString(fmt.Sprintf("%v", v.Interface())), nil
+		return "", fmt.Errorf("unsupported value type: %v", v.Type())
 	}
 }

@@ -670,6 +670,26 @@ func TestBatchDeleteByIDsRejectsExecutorWithoutDialectForRenderedSQL(t *testing.
 	}
 }
 
+func TestValidateExecutorForSQLIgnoresMarkersInsideStringsAndComments(t *testing.T) {
+	db := &gorp.DbMap{}
+	rawSQL := "SELECT 1 /* " + identifierMarkerPrefix + "ignored_comment" + identifierMarkerSuffix + " */" +
+		" WHERE note = '" + identifierMarkerPrefix + "ignored_string" + identifierMarkerSuffix + "'" +
+		" -- " + identifierMarkerPrefix + "ignored_tail" + identifierMarkerSuffix + "\n"
+
+	if err := validateExecutorForSQL(db, rawSQL); err != nil {
+		t.Fatalf("expected markers inside strings/comments to be ignored, got %v", err)
+	}
+}
+
+func TestValidateExecutorForSQLIgnoresMarkersInsideDollarQuotedStrings(t *testing.T) {
+	db := &gorp.DbMap{}
+	rawSQL := "SELECT $$" + identifierMarkerPrefix + "ignored_marker" + identifierMarkerSuffix + "$$"
+
+	if err := validateExecutorForSQL(db, rawSQL); err != nil {
+		t.Fatalf("expected markers inside dollar-quoted strings to be ignored, got %v", err)
+	}
+}
+
 func TestBatchDeleteByIDsRejectsNilIDs(t *testing.T) {
 	db := &gorp.DbMap{Dialect: gorp.SqliteDialect{}}
 

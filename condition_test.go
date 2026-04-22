@@ -146,6 +146,24 @@ func TestSqlValueReflect(t *testing.T) {
 	}
 }
 
+func TestSqlValueRejectsUnsupportedCompositeTypes(t *testing.T) {
+	tests := []struct {
+		name  string
+		input any
+	}{
+		{name: "struct", input: struct{ ID int }{ID: 1}},
+		{name: "map", input: map[string]int{"id": 1}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := sqlValue(tt.input); err == nil {
+				t.Fatal("expected unsupported value type to return an error")
+			}
+		})
+	}
+}
+
 func TestSqlEscapeString(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -346,6 +364,7 @@ func TestCondition_PredicateRejectsInvalidFormat(t *testing.T) {
 		{name: "empty format", op: "", args: nil},
 		{name: "missing placeholders", op: "id = 1", args: nil},
 		{name: "placeholder count mismatch", op: "%s = %s", args: []any{1, 2}},
+		{name: "unsupported verb", op: "%s = %d", args: []any{1}},
 	}
 
 	for _, tt := range tests {
@@ -358,6 +377,15 @@ func TestCondition_PredicateRejectsInvalidFormat(t *testing.T) {
 
 			_ = col.Predicate(tt.op, tt.args...)
 		})
+	}
+}
+
+func TestCondition_PredicateAllowsEscapedPercentLiterals(t *testing.T) {
+	col := NewCol[string](newMockTable("users"), "name", "name", nil)
+
+	clause := renderCanonicalSQL(col.Predicate("%s LIKE '%%s'").Clause())
+	if clause != `"users"."name" LIKE '%s'` {
+		t.Fatalf("expected escaped percent literal to be preserved, got %q", clause)
 	}
 }
 
