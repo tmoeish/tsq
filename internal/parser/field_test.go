@@ -314,7 +314,7 @@ type Test struct {
 func Test_parseFieldTypeErrors(t *testing.T) {
 	// 复杂类型应该被明确拒绝，而不是继续进入代码生成
 	tests := []struct {
-		name string
+		name   string
 		source string
 	}{
 		{
@@ -331,6 +331,30 @@ type Test struct {
 package test
 type Test struct {
 	Field map[string]interface{}
+}`,
+		},
+		{
+			name: "指向切片的指针",
+			source: `
+package test
+type Test struct {
+	Field *[]string
+}`,
+		},
+		{
+			name: "多维切片",
+			source: `
+package test
+type Test struct {
+	Field [][]string
+}`,
+		},
+		{
+			name: "多级指针",
+			source: `
+package test
+type Test struct {
+	Field **string
 }`,
 		},
 	}

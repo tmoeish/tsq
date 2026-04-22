@@ -119,6 +119,48 @@ func TestFieldTypeUsesGeneratedAliasesForStdlibPackages(t *testing.T) {
 	}
 }
 
+func TestFieldTypePreservesPointerAndSliceModifiers(t *testing.T) {
+	ptrField := tsq.FieldInfo{
+		IsPointer: true,
+		Type: tsq.TypeInfo{
+			Package:  tsq.PackageInfo{Path: "time", Name: "time"},
+			TypeName: "Time",
+		},
+	}
+	sliceField := tsq.FieldInfo{
+		IsArray: true,
+		Type: tsq.TypeInfo{
+			TypeName: "int64",
+		},
+	}
+	slicePtrField := tsq.FieldInfo{
+		IsArray:   true,
+		IsPointer: true,
+		Type: tsq.TypeInfo{
+			Package:  tsq.PackageInfo{Path: "example.com/pkg", Name: "pkg"},
+			TypeName: "Thing",
+		},
+	}
+
+	if got := fieldType(ptrField); got != "*tsqtime.Time" {
+		t.Fatalf("expected pointer type to be preserved, got %q", got)
+	}
+
+	if got := fieldType(sliceField); got != "[]int64" {
+		t.Fatalf("expected slice type to be preserved, got %q", got)
+	}
+
+	if got := fieldType(slicePtrField); got != "[]*pkg.Thing" {
+		t.Fatalf("expected combined slice/pointer modifiers to be preserved, got %q", got)
+	}
+}
+
+func TestListTypeProducesValueSlices(t *testing.T) {
+	if got := listType("pkg.Thing"); got != "[]pkg.Thing" {
+		t.Fatalf("expected listType to build a value slice, got %q", got)
+	}
+}
+
 func TestInitialHelpersSupportUnicode(t *testing.T) {
 	if got := upperInitial("用户"); got != "用户" {
 		t.Fatalf("expected upperInitial to preserve valid unicode, got %q", got)

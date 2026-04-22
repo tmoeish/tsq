@@ -76,26 +76,30 @@ func lowerInitial(s string) string {
 func fieldType(field tsq.FieldInfo) string {
 	pkg := field.Type.Package
 	typeName := field.Type.TypeName
+	fullTypeName := typeName
 
-	if pkg.Path == "" {
-		// 原始类型
-		return typeName
+	if pkg.Path != "" {
+		switch pkg.Path {
+		case importPathDatabaseSQL:
+			fullTypeName = fmt.Sprintf("%s.%s", generatedSQLAlias, typeName)
+		case importPathTime:
+			fullTypeName = fmt.Sprintf("%s.%s", generatedTimeAlias, typeName)
+		default:
+			if pkg.Name != "" {
+				fullTypeName = fmt.Sprintf("%s.%s", pkg.Name, typeName)
+			}
+		}
 	}
 
-	switch pkg.Path {
-	case importPathDatabaseSQL:
-		return fmt.Sprintf("%s.%s", generatedSQLAlias, typeName)
-	case importPathTime:
-		return fmt.Sprintf("%s.%s", generatedTimeAlias, typeName)
+	if field.IsPointer {
+		fullTypeName = pointerType(fullTypeName)
 	}
 
-	if pkg.Name == "" {
-		// 当前包的类型
-		return typeName
+	if field.IsArray {
+		fullTypeName = listType(fullTypeName)
 	}
 
-	// 外部包的类型
-	return fmt.Sprintf("%s.%s", pkg.Name, typeName)
+	return fullTypeName
 }
 
 // pointerType 返回指针类型字符串
@@ -105,7 +109,7 @@ func pointerType(typeName string) string {
 
 // listType 返回列表类型字符串
 func listType(typeName string) string {
-	return fmt.Sprintf("[]*%s", typeName)
+	return fmt.Sprintf("[]%s", typeName)
 }
 
 // pageRespType 返回分页响应类型字符串

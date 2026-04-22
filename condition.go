@@ -353,6 +353,9 @@ func valueOrPanic(arg any) string {
 	if err != nil {
 		panic(fmt.Sprintf("failed to convert value %v (%T): %v", arg, arg, err))
 	}
+	if val == "NULL" {
+		panic("null literal values are not supported in predicates; use IsNull/IsNotNull explicitly")
+	}
 
 	return val
 }

@@ -222,13 +222,36 @@ func parseFieldType(
 
 	case *ast.ArrayType:
 		// 数组类型：[]Type
+		if _, nestedArray := t.Elt.(*ast.ArrayType); nestedArray {
+			return false, false, "", "", NewFieldUnsupportedCompositionError("nested slices/arrays are not supported")
+		}
+
 		isPointer, _, packagePath, typeName, err := parseFieldType(t.Elt)
-		return isPointer, true, packagePath, typeName, err
+		if err != nil {
+			return false, false, "", "", err
+		}
+
+		return isPointer, true, packagePath, typeName, nil
 
 	case *ast.StarExpr:
 		// 指针类型：*Type
+		switch t.X.(type) {
+		case *ast.ArrayType:
+			return false, false, "", "", NewFieldUnsupportedCompositionError("pointer-to-slice fields are not supported")
+		case *ast.StarExpr:
+			return false, false, "", "", NewFieldUnsupportedCompositionError("multi-level pointers are not supported")
+		}
+
 		_, isArray, packagePath, typeName, err := parseFieldType(t.X)
-		return true, isArray, packagePath, typeName, err
+		if err != nil {
+			return false, false, "", "", err
+		}
+
+		if isArray {
+			return false, false, "", "", NewFieldUnsupportedCompositionError("pointer-to-slice fields are not supported")
+		}
+
+		return true, false, packagePath, typeName, nil
 
 	default:
 		return false, false, "", "", NewFieldUnsupportedTypeError(t)

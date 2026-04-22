@@ -134,7 +134,6 @@ func gen(data *tsq.StructInfo, t *template.Template, dir string) error {
 
 	src, err := format.Source(buf.Bytes(), format.Options{})
 	if err != nil {
-		_ = os.WriteFile(filename, buf.Bytes(), 0o644)
 		return errors.Annotatef(err, "Go code formatting failed: %s", filename)
 	}
 
@@ -161,7 +160,6 @@ func genDTO(data *tsq.StructInfo, t *template.Template, dir string) error {
 
 	src, err := format.Source(buf.Bytes(), format.Options{})
 	if err != nil {
-		_ = os.WriteFile(filename, buf.Bytes(), 0o644)
 		return errors.Annotatef(err, "Go code formatting failed: %s", filename)
 	}
 

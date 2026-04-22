@@ -324,6 +324,15 @@ func NewFieldUnsupportedTypeError(typeExpr any) error {
 	return errors.Trace(err)
 }
 
+func NewFieldUnsupportedCompositionError(description string) error {
+	msg := fmt.Sprintf("unsupported field type: %s", description)
+	err := newParserError(ErrorTypeFieldUnsupportedType, msg, map[string]any{
+		"type": description,
+	})
+
+	return errors.Trace(err)
+}
+
 // NewFieldInvalidSelectorError 创建字段无效选择器错误
 func NewFieldInvalidSelectorError(selectorExpr any) error {
 	selStr := fmt.Sprintf("%T", selectorExpr)

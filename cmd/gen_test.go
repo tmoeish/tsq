@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"text/template"
 
 	"github.com/tmoeish/tsq"
 )
@@ -137,5 +138,69 @@ func TestResolveTemplateTextUsesFallbackWithoutLeakingPreviousOverride(t *testin
 
 	if fallback == override {
 		t.Fatal("expected fallback template to ignore previous override content")
+	}
+}
+
+func TestGenDoesNotWriteBrokenGoOnFormatError(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "user_tsq.go")
+	if err := os.WriteFile(target, []byte("// existing\n"), 0o644); err != nil {
+		t.Fatalf("failed to seed generated file: %v", err)
+	}
+
+	tpl, err := template.New("broken").Parse("package {{.TypeInfo.Package.Name}}\nfunc {")
+	if err != nil {
+		t.Fatalf("failed to parse broken template: %v", err)
+	}
+
+	data := &tsq.StructInfo{
+		TableInfo: &tsq.TableInfo{Table: "user"},
+		TypeInfo:  tsq.TypeInfo{Package: tsq.PackageInfo{Name: "example"}, TypeName: "User"},
+		Fields:    []tsq.FieldInfo{{Name: "ID"}},
+	}
+
+	if err := gen(data, tpl, dir); err == nil {
+		t.Fatal("expected generation to fail for invalid Go output")
+	}
+
+	contents, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("failed to read generated file: %v", err)
+	}
+
+	if string(contents) != "// existing\n" {
+		t.Fatalf("expected format failure to leave existing file untouched, got %q", string(contents))
+	}
+}
+
+func TestGenDTODoesNotWriteBrokenGoOnFormatError(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "userdto_dto_tsq.go")
+	if err := os.WriteFile(target, []byte("// existing dto\n"), 0o644); err != nil {
+		t.Fatalf("failed to seed DTO generated file: %v", err)
+	}
+
+	tpl, err := template.New("broken").Parse("package {{.TypeInfo.Package.Name}}\nfunc {")
+	if err != nil {
+		t.Fatalf("failed to parse broken template: %v", err)
+	}
+
+	data := &tsq.StructInfo{
+		TableInfo: &tsq.TableInfo{IsDTO: true},
+		TypeInfo:  tsq.TypeInfo{Package: tsq.PackageInfo{Name: "example"}, TypeName: "UserDTO"},
+		Fields:    []tsq.FieldInfo{{Name: "ID"}},
+	}
+
+	if err := genDTO(data, tpl, dir); err == nil {
+		t.Fatal("expected DTO generation to fail for invalid Go output")
+	}
+
+	contents, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("failed to read DTO generated file: %v", err)
+	}
+
+	if string(contents) != "// existing dto\n" {
+		t.Fatalf("expected DTO format failure to leave existing file untouched, got %q", string(contents))
 	}
 }

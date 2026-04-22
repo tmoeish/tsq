@@ -289,6 +289,27 @@ func TestCondition_EmptyAndOrShortCircuit(t *testing.T) {
 	}
 }
 
+func TestCondition_NullLiteralPredicatesFailFast(t *testing.T) {
+	ptrCol := NewCol[*string](newMockTable("users"), "name", "name", nil)
+	nullableCol := NewCol[sql.NullString](newMockTable("users"), "nickname", "nickname", nil)
+
+	for _, fn := range []func(){
+		func() { _ = ptrCol.EQ(nil) },
+		func() { _ = ptrCol.In(nil) },
+		func() { _ = nullableCol.EQ(sql.NullString{}) },
+	} {
+		func() {
+			defer func() {
+				if r := recover(); r == nil {
+					t.Fatal("expected null literal predicate to panic")
+				}
+			}()
+
+			fn()
+		}()
+	}
+}
+
 func TestCondition_NilCompositeInputsFailFast(t *testing.T) {
 	var nilCond Condition
 
