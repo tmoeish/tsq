@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"text/template"
+	"unicode"
 
 	"github.com/juju/errors"
 	"github.com/serenize/snaker"
@@ -21,29 +22,29 @@ const (
 // TemplateFuncs 返回模板中可用的函数映射
 func TemplateFuncs() template.FuncMap {
 	return template.FuncMap{
-		"ToUpper":      strings.ToUpper,
-		"ToLower":      strings.ToLower,
-		"UpperInitial": upperInitial,
-		"LowerInitial": lowerInitial,
-		"CamelToSnake": snaker.CamelToSnake,
-		"FieldType":    fieldType,
-		"PointerType":  pointerType,
-		"ListType":     listType,
-		"PageRespType": pageRespType,
-		"JoinAnd":      joinAnd,
-		"Sub1":         sub1,
-		"FieldToCol":   FieldToCol,
-		"FieldsToCols": FieldsToCols,
-		"HasImport":    HasImport,
+		"ToUpper":                  strings.ToUpper,
+		"ToLower":                  strings.ToLower,
+		"UpperInitial":             upperInitial,
+		"LowerInitial":             lowerInitial,
+		"CamelToSnake":             snaker.CamelToSnake,
+		"FieldType":                fieldType,
+		"PointerType":              pointerType,
+		"ListType":                 listType,
+		"PageRespType":             pageRespType,
+		"JoinAnd":                  joinAnd,
+		"Sub1":                     sub1,
+		"FieldToCol":               FieldToCol,
+		"FieldsToCols":             FieldsToCols,
+		"HasImport":                HasImport,
 		"NeedsGeneratedTimeImport": NeedsGeneratedTimeImport,
 		"GeneratedSQLRef":          GeneratedSQLRef,
 		"GeneratedTimeRef":         GeneratedTimeRef,
 		"TimestampNowValue":        TimestampNowValue,
 		"SoftDeleteParamType":      SoftDeleteParamType,
-		"SoftDeleteParamSetExpr": SoftDeleteParamSetExpr,
-		"SoftDeleteNowValue":     SoftDeleteNowValue,
-		"SoftDeleteActiveExpr":   SoftDeleteActiveExpr,
-		"SoftDeleteActiveCond":   SoftDeleteActiveCond,
+		"SoftDeleteParamSetExpr":   SoftDeleteParamSetExpr,
+		"SoftDeleteNowValue":       SoftDeleteNowValue,
+		"SoftDeleteActiveExpr":     SoftDeleteActiveExpr,
+		"SoftDeleteActiveCond":     SoftDeleteActiveCond,
 	}
 }
 
@@ -53,7 +54,10 @@ func upperInitial(s string) string {
 		return s
 	}
 
-	return strings.ToUpper(s[:1]) + s[1:]
+	runes := []rune(s)
+	runes[0] = unicode.ToUpper(runes[0])
+
+	return string(runes)
 }
 
 // lowerInitial 将字符串首字母小写
@@ -62,7 +66,10 @@ func lowerInitial(s string) string {
 		return s
 	}
 
-	return strings.ToLower(s[:1]) + s[1:]
+	runes := []rune(s)
+	runes[0] = unicode.ToLower(runes[0])
+
+	return string(runes)
 }
 
 // fieldType 返回字段的Go类型字符串

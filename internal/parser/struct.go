@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"sort"
 	"strings"
+	"unicode"
 
 	"github.com/juju/errors"
 	"github.com/serenize/snaker"
@@ -224,14 +225,15 @@ func (s *StructInfo) sortFieldList() {
 // genRecv 从类型名生成接收器名称，通过连接各部分的首字母
 func genRecv(typeName string) string {
 	parts := strings.Split(snaker.CamelToSnake(typeName), "_")
-	result := make([]byte, 0, len(typeName))
+	result := make([]rune, 0, len(parts))
 
 	for _, part := range parts {
 		if len(part) == 0 {
 			continue
 		}
 
-		result = append(result, part[0])
+		runes := []rune(part)
+		result = append(result, unicode.ToLower(runes[0]))
 	}
 
 	return string(result)

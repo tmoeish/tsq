@@ -202,6 +202,18 @@ func (c customValuer) Value() (driver.Value, error) {
 	return c.value, nil
 }
 
+type pointerValuer struct {
+	value string
+}
+
+func (p *pointerValuer) Value() (driver.Value, error) {
+	if p == nil {
+		return "unexpected", nil
+	}
+
+	return p.value, nil
+}
+
 func TestSqlValueCustomValuer(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -224,6 +236,19 @@ func TestSqlValueCustomValuer(t *testing.T) {
 				t.Errorf("Expected %q, got %q", tt.expected, result)
 			}
 		})
+	}
+}
+
+func TestSqlValueTreatsTypedNilPointerValuerAsNull(t *testing.T) {
+	var value *pointerValuer
+
+	result, err := sqlValue(value)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if result != "NULL" {
+		t.Fatalf("expected typed nil pointer valuer to map to NULL, got %q", result)
 	}
 }
 

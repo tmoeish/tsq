@@ -360,7 +360,7 @@ func valueOrPanic(arg any) string {
 // sqlValue converts a Go value to its SQL string representation
 // This function supports all standard SQL types and their Go equivalents
 func sqlValue(arg any) (string, error) {
-	if arg == nil {
+	if isNilValue(arg) {
 		return "NULL", nil
 	}
 

@@ -180,6 +180,8 @@ func Test_genRecv(t *testing.T) {
 		{"user_profile", "up"},
 		{"User_Profile_Data", "upd"},
 		{"ABC", "abc"},
+		{"用户_资料", "用资"},
+		{"Äpfel_Banane", "äb"},
 		{"", ""},
 		{"A", "a"},
 	}

@@ -119,6 +119,20 @@ func TestFieldTypeUsesGeneratedAliasesForStdlibPackages(t *testing.T) {
 	}
 }
 
+func TestInitialHelpersSupportUnicode(t *testing.T) {
+	if got := upperInitial("用户"); got != "用户" {
+		t.Fatalf("expected upperInitial to preserve valid unicode, got %q", got)
+	}
+
+	if got := lowerInitial("用户ID"); got != "用户ID" {
+		t.Fatalf("expected lowerInitial to preserve valid unicode, got %q", got)
+	}
+
+	if got := lowerInitial("Äpfel"); got != "äpfel" {
+		t.Fatalf("expected lowerInitial to lowercase first rune, got %q", got)
+	}
+}
+
 func TestTimestampNowValueUsesGeneratedAliases(t *testing.T) {
 	sqlField := tsq.FieldInfo{
 		Name: "MT",
