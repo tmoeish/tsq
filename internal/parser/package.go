@@ -8,7 +8,6 @@ import (
 	"go/token"
 	"log/slog"
 	"os"
-	"path"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -133,7 +132,7 @@ func (ps *ParseState) parseTableMetadata(pkg tsq.PackageInfo) error {
 			continue
 		}
 
-		fullPath := path.Join(buildPkg.Dir, filename)
+		fullPath := filepath.Join(buildPkg.Dir, filename)
 
 		file, err := parser.ParseFile(fileSet, fullPath, nil, parser.ParseComments)
 		if err != nil {
@@ -320,7 +319,7 @@ func (ps *ParseState) parseSinglePackage(packagePath string) error {
 			continue
 		}
 
-		fullPath := path.Join(buildPkg.Dir, filename)
+		fullPath := filepath.Join(buildPkg.Dir, filename)
 		slog.Debug("parsing file", "fullPath", fullPath)
 
 		file, err := parser.ParseFile(fileSet, fullPath, nil, parser.ParseComments)

@@ -5,7 +5,7 @@ import (
 	_ "embed"
 	"fmt"
 	"os"
-	"path"
+	"path/filepath"
 	"strings"
 	"text/template"
 
@@ -120,7 +120,7 @@ func resolveTemplateText(overridePath string, fallback string, label string) (st
 
 func gen(data *tsq.StructInfo, t *template.Template, dir string) error {
 	filename := generatedFilename(data)
-	filename = path.Join(dir, filename)
+	filename = filepath.Join(dir, filename)
 	if v {
 		_, _ = fmt.Fprintf(os.Stderr, "gen %s\n", filename)
 	}
@@ -147,7 +147,7 @@ func gen(data *tsq.StructInfo, t *template.Template, dir string) error {
 
 func genDTO(data *tsq.StructInfo, t *template.Template, dir string) error {
 	filename := generatedFilename(data)
-	filename = path.Join(dir, filename)
+	filename = filepath.Join(dir, filename)
 	if v {
 		_, _ = fmt.Fprintf(os.Stderr, "gen %s\n", filename)
 	}
