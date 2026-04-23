@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"math"
-	"strings"
 	"testing"
 	"time"
 )
@@ -22,7 +21,7 @@ func TestSqlValue(t *testing.T) {
 		// String types
 		{"string", "hello", "'hello'", false},
 		{"string with quotes", "it's a test", "'it''s a test'", false},
-		{"string with backslash", "path\\to\\file", "'path\\to\\file'", false},
+		{"string with backslash", "path\\to\\file", "", true},
 		{"empty string", "", "''", false},
 
 		// Byte types
@@ -173,18 +172,25 @@ func TestSqlEscapeString(t *testing.T) {
 		{"simple string", "hello", "'hello'"},
 		{"string with single quote", "it's", "'it''s'"},
 		{"string with multiple quotes", "it's a 'test'", "'it''s a ''test'''"},
-		{"string with backslash", "path\\file", "'path\\file'"},
-		{"string with both", "it's a \\test\\", "'it''s a \\test\\'"},
 		{"empty string", "", "''"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := sqlEscapeString(tt.input)
+			result, err := sqlEscapeString(tt.input)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
 			if result != tt.expected {
 				t.Errorf("Expected %q, got %q", tt.expected, result)
 			}
 		})
+	}
+}
+
+func TestSqlEscapeStringRejectsBackslashes(t *testing.T) {
+	if _, err := sqlEscapeString(`path\file`); err == nil {
+		t.Fatal("expected backslash-containing string literal to return an error")
 	}
 }
 
@@ -350,18 +356,22 @@ func TestCondition_PortabilitySensitiveLikePredicatesFailFast(t *testing.T) {
 	}
 }
 
-func TestCondition_StringEscapingIsConsistentAcrossPredicates(t *testing.T) {
+func TestCondition_StringLiteralsRejectBackslashes(t *testing.T) {
 	col := NewCol[string](newMockTable("users"), "name", "name", nil)
 
-	eqClause := col.EQ("path\\file").Clause()
-	inClause := col.In("path\\file").Clause()
+	for name, fn := range map[string]func(){
+		"EQ": func() { _ = col.EQ(`path\file`) },
+		"IN": func() { _ = col.In(`path\file`) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			defer func() {
+				if r := recover(); r == nil {
+					t.Fatal("expected backslash-containing string literal to panic")
+				}
+			}()
 
-	if !strings.Contains(eqClause, "'path\\file'") {
-		t.Fatalf("expected EQ clause to preserve literal backslashes, got %q", eqClause)
-	}
-
-	if !strings.Contains(inClause, "'path\\file'") {
-		t.Fatalf("expected IN clause to preserve literal backslashes, got %q", inClause)
+			fn()
+		})
 	}
 }
 

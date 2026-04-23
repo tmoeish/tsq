@@ -392,18 +392,23 @@ func TestCol_NullIf(t *testing.T) {
 	}
 }
 
-func TestCol_StringFunctionHelpersUseSharedEscaping(t *testing.T) {
+func TestCol_StringFunctionHelpersRejectBackslashLiterals(t *testing.T) {
 	table := newMockTable("users")
 	col := NewCol[string](table, "nickname", "nickname", nil)
 
-	coalesce := col.Coalesce("path\\file")
-	if got := coalesce.QualifiedName(); got != `COALESCE("users"."nickname", 'path\file')` {
-		t.Fatalf("unexpected COALESCE clause: %q", got)
-	}
+	for name, fn := range map[string]func(){
+		"Coalesce": func() { _ = col.Coalesce(`path\file`) },
+		"NullIf":   func() { _ = col.NullIf(`path\file`) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			defer func() {
+				if r := recover(); r == nil {
+					t.Fatal("expected helper to panic for backslash-containing string literal")
+				}
+			}()
 
-	nullIf := col.NullIf("path\\file")
-	if got := nullIf.QualifiedName(); got != `NULLIF("users"."nickname", 'path\file')` {
-		t.Fatalf("unexpected NULLIF clause: %q", got)
+			fn()
+		})
 	}
 }
 

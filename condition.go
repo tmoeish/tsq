@@ -332,7 +332,7 @@ func argumentToString(arg any) string {
 	case *Query:
 		return formatSubquery(v)
 	case string:
-		return sqlEscapeString(v)
+		return valueOrPanic(v)
 	default:
 		return valueOrPanic(arg)
 	}
@@ -394,11 +394,11 @@ func sqlValue(arg any) (string, error) {
 
 	switch val := arg.(type) {
 	case string:
-		return sqlEscapeString(val), nil
+		return sqlEscapeString(val)
 	case []byte:
-		return sqlEscapeString(string(val)), nil
+		return sqlEscapeString(string(val))
 	case sql.RawBytes:
-		return sqlEscapeString(string(val)), nil
+		return sqlEscapeString(string(val))
 
 	// Integer types
 	case int:
@@ -469,11 +469,15 @@ func sqlValue(arg any) (string, error) {
 }
 
 // sqlEscapeString escapes a string for safe use in SQL
-func sqlEscapeString(s string) string {
+func sqlEscapeString(s string) (string, error) {
+	if strings.Contains(s, `\`) {
+		return "", fmt.Errorf("string literals containing backslashes are not portable; use bind variables instead")
+	}
+
 	// Replace single quotes with double single quotes (SQL standard)
 	escaped := strings.ReplaceAll(s, "'", "''")
 
-	return fmt.Sprintf("'%s'", escaped)
+	return fmt.Sprintf("'%s'", escaped), nil
 }
 
 // sqlValueReflect handles types using reflection
@@ -483,7 +487,7 @@ func sqlValueReflect(v reflect.Value) (string, error) {
 		if v.Type().Elem().Kind() == reflect.Uint8 {
 			// Handle []uint8 (same as []byte)
 			bytes := v.Bytes()
-			return sqlEscapeString(string(bytes)), nil
+			return sqlEscapeString(string(bytes))
 		}
 
 		return "", fmt.Errorf("unsupported slice type: %v", v.Type())
@@ -496,7 +500,7 @@ func sqlValueReflect(v reflect.Value) (string, error) {
 				bytes[i] = byte(v.Index(i).Uint())
 			}
 
-			return sqlEscapeString(string(bytes)), nil
+			return sqlEscapeString(string(bytes))
 		}
 
 		return "", fmt.Errorf("unsupported array type: %v", v.Type())
@@ -523,7 +527,7 @@ func sqlValueReflect(v reflect.Value) (string, error) {
 		return "FALSE", nil
 
 	case reflect.String:
-		return sqlEscapeString(v.String()), nil
+		return sqlEscapeString(v.String())
 
 	default:
 		return "", fmt.Errorf("unsupported value type: %v", v.Type())

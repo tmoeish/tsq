@@ -189,10 +189,10 @@ func (c Col[T]) Abs() Col[T] {
 
 // Coalesce returns COALESCE(column, 'value') - returns first non-null value
 func (c Col[T]) Coalesce(value string) Col[T] {
-	return c.Fn(fmt.Sprintf("COALESCE(%%s, %s)", sqlEscapeString(value)))
+	return c.Fn(fmt.Sprintf("COALESCE(%%s, %s)", valueOrPanic(value)))
 }
 
 // NullIf returns NULLIF(column, 'value') - returns NULL if values are equal
 func (c Col[T]) NullIf(value string) Col[T] {
-	return c.Fn(fmt.Sprintf("NULLIF(%%s, %s)", sqlEscapeString(value)))
+	return c.Fn(fmt.Sprintf("NULLIF(%%s, %s)", valueOrPanic(value)))
 }
