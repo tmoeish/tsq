@@ -2,10 +2,12 @@ package tsq
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"strings"
 	"testing"
 
+	_ "github.com/mattn/go-sqlite3"
 	"gopkg.in/gorp.v2"
 )
 
@@ -744,6 +746,62 @@ func TestBatchDeleteByIDsRejectsNilIDs(t *testing.T) {
 
 type scanDestUser struct {
 	Name string
+}
+
+func newScanValidationDBMap(t *testing.T) *gorp.DbMap {
+	t.Helper()
+
+	db, err := sql.Open("sqlite3", ":memory:")
+	if err != nil {
+		t.Fatalf("failed to open sqlite database: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = db.Close()
+	})
+
+	if _, err := db.Exec("CREATE TABLE users (name TEXT)"); err != nil {
+		t.Fatalf("failed to create users table: %v", err)
+	}
+
+	return &gorp.DbMap{Db: db, Dialect: gorp.SqliteDialect{}}
+}
+
+func TestListValidatesScanDestEvenWhenResultIsEmpty(t *testing.T) {
+	db := newScanValidationDBMap(t)
+	col := NewCol[string](newMockTable("users"), "name", "name", nil)
+	query := &Query{
+		cntSQL:     "SELECT COUNT(1) FROM users",
+		listSQL:    "SELECT name FROM users WHERE 1 = 0",
+		selectCols: []Column{col},
+	}
+
+	_, err := List[scanDestUser](context.Background(), db, query)
+	if err == nil {
+		t.Fatal("expected invalid scan destination to fail before returning an empty list")
+	}
+
+	if !strings.Contains(err.Error(), "field pointer is nil") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestPageValidatesScanDestEvenWhenResultIsEmpty(t *testing.T) {
+	db := newScanValidationDBMap(t)
+	col := NewCol[string](newMockTable("users"), "name", "name", nil)
+	query := &Query{
+		cntSQL:     "SELECT COUNT(1) FROM users",
+		listSQL:    "SELECT name FROM users WHERE 1 = 0",
+		selectCols: []Column{col},
+	}
+
+	_, err := Page[scanDestUser](context.Background(), db, nil, query)
+	if err == nil {
+		t.Fatal("expected invalid scan destination to fail before returning an empty page")
+	}
+
+	if !strings.Contains(err.Error(), "field pointer is nil") {
+		t.Fatalf("unexpected error: %v", err)
+	}
 }
 
 func TestBuildScanDestRejectsNilFieldPointer(t *testing.T) {

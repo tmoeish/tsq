@@ -436,6 +436,40 @@ func TestQueryBuilder_GroupedCountUsesWrappedSubquery(t *testing.T) {
 	}
 }
 
+func TestQueryBuilder_DistinctCountUsesWrappedSubquery(t *testing.T) {
+	table := newMockTable("users")
+	name := NewCol[string](table, "name", "name", nil)
+
+	query := Select(name.Distinct()).MustBuild()
+
+	wantList := `SELECT DISTINCT("users"."name") FROM "users"`
+	if query.ListSQL() != wantList {
+		t.Fatalf("expected list SQL %q, got %q", wantList, query.ListSQL())
+	}
+
+	wantCount := "SELECT COUNT(1) FROM (" + wantList + ") AS _tsq_cnt"
+	if query.CntSQL() != wantCount {
+		t.Fatalf("expected count SQL %q, got %q", wantCount, query.CntSQL())
+	}
+}
+
+func TestQueryBuilder_AggregateCountUsesWrappedSubquery(t *testing.T) {
+	table := newMockTable("users")
+	id := NewCol[int](table, "id", "id", nil)
+
+	query := Select(id.Count()).MustBuild()
+
+	wantList := `SELECT COUNT("users"."id") FROM "users"`
+	if query.ListSQL() != wantList {
+		t.Fatalf("expected list SQL %q, got %q", wantList, query.ListSQL())
+	}
+
+	wantCount := "SELECT COUNT(1) FROM (" + wantList + ") AS _tsq_cnt"
+	if query.CntSQL() != wantCount {
+		t.Fatalf("expected count SQL %q, got %q", wantCount, query.CntSQL())
+	}
+}
+
 func TestQueryBuilder_HavingKeepsRawClauseForDialectRendering(t *testing.T) {
 	users := newMockTable("users")
 	id := NewCol[int](users, "id", "id", nil)

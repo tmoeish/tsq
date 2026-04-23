@@ -629,11 +629,38 @@ func (qb *QueryBuilder) pageQueryTables() map[string]Table {
 }
 
 func (qb *QueryBuilder) requiresWrappedCount() bool {
-	return len(qb.groupByCols) > 0 || len(qb.havingConditions) > 0
+	return len(qb.groupByCols) > 0 ||
+		len(qb.havingConditions) > 0 ||
+		qb.hasDistinctSelect() ||
+		qb.hasAggregateSelect()
 }
 
 func (qb *QueryBuilder) wrapCountSQL(inner string) string {
 	return "SELECT COUNT(1) FROM (" + inner + ") AS _tsq_cnt"
+}
+
+func (qb *QueryBuilder) hasDistinctSelect() bool {
+	for _, expr := range qb.selectColFullnames {
+		normalized := strings.ToUpper(strings.TrimSpace(expr))
+		if strings.HasPrefix(normalized, "DISTINCT(") || strings.HasPrefix(normalized, "DISTINCT ") {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (qb *QueryBuilder) hasAggregateSelect() bool {
+	for _, expr := range qb.selectColFullnames {
+		normalized := strings.ToUpper(strings.TrimSpace(expr))
+		for _, prefix := range []string{"COUNT(", "SUM(", "AVG(", "MIN(", "MAX("} {
+			if strings.HasPrefix(normalized, prefix) {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 func (qb *QueryBuilder) crossJoinBaseTable(joinTable string, allTables map[string]Table) string {

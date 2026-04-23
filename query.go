@@ -411,8 +411,12 @@ func pageFn[T any](
 	renderedCntSQL := renderSQLForExecutor(tx, cntSQL)
 	renderedListSQL := renderSQLForExecutor(tx, listSQL)
 
+	if err := validateScanDestForType[T](q.selectCols, renderedListSQL, args); err != nil {
+		return nil, errors.Trace(err)
+	}
+
 	// Add keyword search parameters if needed
-	finalArgs := args
+	finalArgs := slices.Clone(args)
 
 	if len(q.kwCols) > 0 && len(page.Keyword) > 0 {
 		like := "%" + page.Keyword + "%"
@@ -503,6 +507,10 @@ func listFn[T any](
 
 	sqlText := renderSQLForExecutor(tx, q.listSQL)
 
+	if err := validateScanDestForType[T](q.selectCols, sqlText, args); err != nil {
+		return nil, errors.Trace(err)
+	}
+
 	if ctx.Value(printSQL) != nil {
 		slog.Info("list", "sql", sqlText, "args", CompactJSON(args))
 	}
@@ -575,8 +583,6 @@ func getOrErrFn[T any](
 		slog.Info("getOrErr", "sql", sqlText, "args", CompactJSON(args))
 	}
 
-	row := tx.WithContext(ctx).QueryRow(sqlText, args...)
-
 	r := new(T)
 	dest, err := buildScanDest(qb.selectCols, r)
 	if err != nil {
@@ -585,6 +591,8 @@ func getOrErrFn[T any](
 			sqlText, CompactJSON(args),
 		)
 	}
+
+	row := tx.WithContext(ctx).QueryRow(sqlText, args...)
 
 	if err := row.Scan(dest...); err != nil {
 		if errors.Is(errors.Cause(err), sql.ErrNoRows) {
@@ -630,6 +638,14 @@ func (q *Query) load(
 		slog.Info("load", "sql", sqlText, "args", CompactJSON(args))
 	}
 
+	dest, err := buildScanDest(q.selectCols, holder)
+	if err != nil {
+		return errors.Annotatef(err,
+			"build scan dest\n%s\n%v",
+			sqlText, CompactJSON(args),
+		)
+	}
+
 	row := tx.WithContext(ctx).QueryRow(sqlText, args...)
 	if err := row.Err(); err != nil {
 		if errors.Is(errors.Cause(err), sql.ErrNoRows) {
@@ -637,14 +653,6 @@ func (q *Query) load(
 		}
 
 		return errors.Annotatef(err, "\n%s\n%v", sqlText, CompactJSON(args))
-	}
-
-	dest, err := buildScanDest(q.selectCols, holder)
-	if err != nil {
-		return errors.Annotatef(err,
-			"build scan dest\n%s\n%v",
-			sqlText, CompactJSON(args),
-		)
 	}
 
 	if err := row.Scan(dest...); err != nil {
@@ -1352,6 +1360,18 @@ func buildScanDest(cols []Column, holder any) ([]any, error) {
 	}
 
 	return dest, nil
+}
+
+func validateScanDestForType[T any](cols []Column, sqlText string, args []any) error {
+	holder := new(T)
+	if _, err := buildScanDest(cols, holder); err != nil {
+		return errors.Annotatef(err,
+			"build scan dest\n%s\n%v",
+			sqlText, CompactJSON(args),
+		)
+	}
+
+	return nil
 }
 
 func invokeFieldPointer(pointerFunc FieldPointer, holder any) (ptr any, err error) {

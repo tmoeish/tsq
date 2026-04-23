@@ -5,10 +5,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
-
-	"log/slog"
 
 	"github.com/juju/errors"
 	_ "github.com/mattn/go-sqlite3"
@@ -133,7 +132,7 @@ func runBatchInsertDemo(ctx context.Context, dbmap *gorp.DbMap) {
 func createTestUsers(count int) []*database.User {
 	users := make([]*database.User, count)
 
-	for i := 0; i < count; i++ {
+	for i := range count {
 		users[i] = &database.User{
 			// ID 字段不设置，让数据库自动生成
 			Name:  fmt.Sprintf("demo_user_%d", i+1),
