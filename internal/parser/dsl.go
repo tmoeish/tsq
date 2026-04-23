@@ -460,122 +460,166 @@ func genTableInfoFromAST(
 	for k, v := range ast {
 		switch k {
 		case "name":
-			if s, ok := v.(DSLString); ok && string(s) != "" {
+			s, ok := v.(DSLString)
+			if !ok {
+				return nil, NewDSLUnexpectedValueError(k, 0)
+			}
+			if string(s) != "" {
 				info.Table = string(s)
 			}
 		case "pk":
-			if s, ok := v.(DSLString); ok {
-				parts := strings.Split(string(s), ",")
-				info.ID = strings.TrimSpace(parts[0])
-
-				auto := true
-				if len(parts) > 1 {
-					auto = strings.TrimSpace(parts[1]) == "true"
-				}
-
-				info.AI = auto
+			s, ok := v.(DSLString)
+			if !ok {
+				return nil, NewDSLUnexpectedValueError(k, 0)
 			}
+			parts := strings.Split(string(s), ",")
+			info.ID = strings.TrimSpace(parts[0])
+
+			auto := true
+			if len(parts) > 1 {
+				auto = strings.TrimSpace(parts[1]) == "true"
+			}
+
+			info.AI = auto
 		case "v":
 			if s, ok := v.(DSLString); ok {
 				info.V = string(s)
 			} else if b, ok := v.(DSLBool); ok && bool(b) {
 				info.V = DefaultVField
+			} else if _, ok := v.(DSLBool); !ok {
+				return nil, NewDSLUnexpectedValueError(k, 0)
 			}
 		case "ct":
 			if s, ok := v.(DSLString); ok {
 				info.CT = string(s)
 			} else if b, ok := v.(DSLBool); ok && bool(b) {
 				info.CT = DefaultCTField
+			} else if _, ok := v.(DSLBool); !ok {
+				return nil, NewDSLUnexpectedValueError(k, 0)
 			}
 		case "mt":
 			if s, ok := v.(DSLString); ok {
 				info.MT = string(s)
 			} else if b, ok := v.(DSLBool); ok && bool(b) {
 				info.MT = DefaultMTField
+			} else if _, ok := v.(DSLBool); !ok {
+				return nil, NewDSLUnexpectedValueError(k, 0)
 			}
 		case "dt":
 			if s, ok := v.(DSLString); ok {
 				info.DT = string(s)
 			} else if b, ok := v.(DSLBool); ok && bool(b) {
 				info.DT = DefaultDTField
+			} else if _, ok := v.(DSLBool); !ok {
+				return nil, NewDSLUnexpectedValueError(k, 0)
 			}
 		case "ux":
-			if arr, ok := v.(DSLArray); ok {
-				for _, node := range arr {
-					if obj, ok := node.(DSLObject); ok {
-						idx := tsq.IndexInfo{}
+			arr, ok := v.(DSLArray)
+			if !ok {
+				return nil, NewDSLUnexpectedValueError(k, 0)
+			}
+			for _, node := range arr {
+				obj, ok := node.(DSLObject)
+				if !ok {
+					return nil, NewDSLUnexpectedValueError(k, 0)
+				}
+				idx := tsq.IndexInfo{}
 
-						for k2, v2 := range obj {
-							switch k2 {
-							case "name":
-								if s, ok := v2.(DSLString); ok {
-									idx.Name = string(s)
-								}
-							case "fields":
-								if arr2, ok := v2.(DSLArray); ok {
-									for _, f := range arr2 {
-										if fs, ok := f.(DSLString); ok {
-											idx.Fields = append(idx.Fields, string(fs))
-										}
-									}
-								}
-							default:
-								return nil, NewDSLUnexpectedTokenError("known index key", k2, 0)
+				for k2, v2 := range obj {
+					switch k2 {
+					case "name":
+						s, ok := v2.(DSLString)
+						if !ok {
+							return nil, NewDSLUnexpectedValueError(k2, 0)
+						}
+						idx.Name = string(s)
+					case "fields":
+						arr2, ok := v2.(DSLArray)
+						if !ok {
+							return nil, NewDSLUnexpectedValueError(k2, 0)
+						}
+						for _, f := range arr2 {
+							fs, ok := f.(DSLString)
+							if !ok {
+								return nil, NewDSLUnexpectedValueError(k2, 0)
 							}
+							idx.Fields = append(idx.Fields, string(fs))
 						}
-
-						if idx.Name == "" {
-							idx.Name = snaker.CamelToSnake("Ux" + strings.Join(idx.Fields, ""))
-						} else if strings.HasPrefix(idx.Name, "Ux") && !strings.Contains(idx.Name, "_") {
-							idx.Name = snaker.CamelToSnake(idx.Name)
-						}
-
-						info.UxList = append(info.UxList, idx)
+					default:
+						return nil, NewDSLUnexpectedTokenError("known index key", k2, 0)
 					}
 				}
+
+				if len(idx.Fields) == 0 {
+					return nil, NewDSLUnexpectedValueError("fields", 0)
+				}
+				if idx.Name == "" {
+					idx.Name = snaker.CamelToSnake("Ux" + strings.Join(idx.Fields, ""))
+				} else if strings.HasPrefix(idx.Name, "Ux") && !strings.Contains(idx.Name, "_") {
+					idx.Name = snaker.CamelToSnake(idx.Name)
+				}
+
+				info.UxList = append(info.UxList, idx)
 			}
 		case "idx":
-			if arr, ok := v.(DSLArray); ok {
-				for _, node := range arr {
-					if obj, ok := node.(DSLObject); ok {
-						idx := tsq.IndexInfo{}
+			arr, ok := v.(DSLArray)
+			if !ok {
+				return nil, NewDSLUnexpectedValueError(k, 0)
+			}
+			for _, node := range arr {
+				obj, ok := node.(DSLObject)
+				if !ok {
+					return nil, NewDSLUnexpectedValueError(k, 0)
+				}
+				idx := tsq.IndexInfo{}
 
-						for k2, v2 := range obj {
-							switch k2 {
-							case "name":
-								if s, ok := v2.(DSLString); ok {
-									idx.Name = string(s)
-								}
-							case "fields":
-								if arr2, ok := v2.(DSLArray); ok {
-									for _, f := range arr2 {
-										if fs, ok := f.(DSLString); ok {
-											idx.Fields = append(idx.Fields, string(fs))
-										}
-									}
-								}
-							default:
-								return nil, NewDSLUnexpectedTokenError("known index key", k2, 0)
+				for k2, v2 := range obj {
+					switch k2 {
+					case "name":
+						s, ok := v2.(DSLString)
+						if !ok {
+							return nil, NewDSLUnexpectedValueError(k2, 0)
+						}
+						idx.Name = string(s)
+					case "fields":
+						arr2, ok := v2.(DSLArray)
+						if !ok {
+							return nil, NewDSLUnexpectedValueError(k2, 0)
+						}
+						for _, f := range arr2 {
+							fs, ok := f.(DSLString)
+							if !ok {
+								return nil, NewDSLUnexpectedValueError(k2, 0)
 							}
+							idx.Fields = append(idx.Fields, string(fs))
 						}
-
-						if idx.Name == "" {
-							idx.Name = snaker.CamelToSnake("Idx" + strings.Join(idx.Fields, ""))
-						} else if strings.HasPrefix(idx.Name, "Idx") && !strings.Contains(idx.Name, "_") {
-							idx.Name = snaker.CamelToSnake(idx.Name)
-						}
-
-						info.IdxList = append(info.IdxList, idx)
+					default:
+						return nil, NewDSLUnexpectedTokenError("known index key", k2, 0)
 					}
 				}
+
+				if len(idx.Fields) == 0 {
+					return nil, NewDSLUnexpectedValueError("fields", 0)
+				}
+				if idx.Name == "" {
+					idx.Name = snaker.CamelToSnake("Idx" + strings.Join(idx.Fields, ""))
+				} else if strings.HasPrefix(idx.Name, "Idx") && !strings.Contains(idx.Name, "_") {
+					idx.Name = snaker.CamelToSnake(idx.Name)
+				}
+
+				info.IdxList = append(info.IdxList, idx)
 			}
 		case "kw":
-			if arr, ok := v.(DSLArray); ok {
-				for _, node := range arr {
-					if s, ok := node.(DSLString); ok {
-						info.KwList = append(info.KwList, string(s))
-					}
+			arr, ok := v.(DSLArray)
+			if !ok {
+				return nil, NewDSLUnexpectedValueError(k, 0)
+			}
+			for _, node := range arr {
+				s, ok := node.(DSLString)
+				if !ok {
+					return nil, NewDSLUnexpectedValueError(k, 0)
 				}
+				info.KwList = append(info.KwList, string(s))
 			}
 		default:
 			return nil, NewDSLUnexpectedTokenError("known table DSL key", k, 0)

@@ -461,6 +461,93 @@ func Test_genTableInfoFromASTRejectsUnknownIndexKeys(t *testing.T) {
 	}
 }
 
+func Test_genTableInfoFromASTRejectsWrongValueTypes(t *testing.T) {
+	tests := []struct {
+		name string
+		ast  DSLObject
+	}{
+		{
+			name: "name must be string",
+			ast:  DSLObject{"name": DSLNumber(1)},
+		},
+		{
+			name: "pk must be string",
+			ast:  DSLObject{"pk": DSLBool(true)},
+		},
+		{
+			name: "managed fields must be string or bool",
+			ast:  DSLObject{"ct": DSLNumber(1)},
+		},
+		{
+			name: "idx must be array",
+			ast:  DSLObject{"idx": DSLObject{}},
+		},
+		{
+			name: "idx entry must be object",
+			ast:  DSLObject{"idx": DSLArray{DSLString("ID")}},
+		},
+		{
+			name: "idx name must be string",
+			ast: DSLObject{
+				"idx": DSLArray{DSLObject{
+					"name":   DSLBool(true),
+					"fields": DSLArray{DSLString("ID")},
+				}},
+			},
+		},
+		{
+			name: "idx fields must be array",
+			ast: DSLObject{
+				"idx": DSLArray{DSLObject{
+					"fields": DSLString("ID"),
+				}},
+			},
+		},
+		{
+			name: "idx field entries must be strings",
+			ast: DSLObject{
+				"idx": DSLArray{DSLObject{
+					"fields": DSLArray{DSLNumber(1)},
+				}},
+			},
+		},
+		{
+			name: "idx fields cannot be empty",
+			ast: DSLObject{
+				"idx": DSLArray{DSLObject{
+					"fields": DSLArray{},
+				}},
+			},
+		},
+		{
+			name: "ux must be array",
+			ast:  DSLObject{"ux": DSLObject{}},
+		},
+		{
+			name: "kw must be array",
+			ast:  DSLObject{"kw": DSLString("Name")},
+		},
+		{
+			name: "kw entries must be strings",
+			ast:  DSLObject{"kw": DSLArray{DSLNumber(1)}},
+		},
+	}
+
+	structFields := map[string]struct{}{"ID": {}, "Name": {}}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := genTableInfoFromAST("MyTable", tt.ast, true, structFields)
+			if err == nil {
+				t.Fatal("expected wrong DSL value type to return an error")
+			}
+
+			if !IsErrorType(err, ErrorTypeDSLUnexpectedValue) {
+				t.Fatalf("expected unexpected value error, got %v", err)
+			}
+		})
+	}
+}
+
 func Test_isAlphaNum_isAlpha_isDigit(t *testing.T) {
 	if !isAlpha('a') || !isAlpha('Z') || isAlpha('1') {
 		t.Errorf("isAlpha error")
