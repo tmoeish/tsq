@@ -26,6 +26,8 @@ func TemplateFuncs() template.FuncMap {
 		"ToLower":                  strings.ToLower,
 		"UpperInitial":             upperInitial,
 		"LowerInitial":             lowerInitial,
+		"FieldVarName":             fieldVarName,
+		"FieldSliceVarName":        fieldSliceVarName,
 		"CamelToSnake":             snaker.CamelToSnake,
 		"FieldType":                fieldType,
 		"PointerType":              pointerType,
@@ -70,6 +72,51 @@ func lowerInitial(s string) string {
 	runes[0] = unicode.ToLower(runes[0])
 
 	return string(runes)
+}
+
+var goKeywords = map[string]struct{}{
+	"break":       {},
+	"default":     {},
+	"func":        {},
+	"interface":   {},
+	"select":      {},
+	"case":        {},
+	"defer":       {},
+	"go":          {},
+	"map":         {},
+	"struct":      {},
+	"chan":        {},
+	"else":        {},
+	"goto":        {},
+	"package":     {},
+	"switch":      {},
+	"const":       {},
+	"fallthrough": {},
+	"if":          {},
+	"range":       {},
+	"type":        {},
+	"continue":    {},
+	"for":         {},
+	"import":      {},
+	"return":      {},
+	"var":         {},
+}
+
+func fieldVarName(fieldName string) string {
+	name := lowerInitial(fieldName)
+	if name == "" {
+		name = "v"
+	}
+
+	if _, ok := goKeywords[name]; ok {
+		return name + "_"
+	}
+
+	return name
+}
+
+func fieldSliceVarName(fieldName string) string {
+	return fieldVarName(fieldName) + "s"
 }
 
 // fieldType 返回字段的Go类型字符串
@@ -272,7 +319,19 @@ func ValidateManagedFields(data *tsq.StructInfo) error {
 		return errors.Errorf("dt field %s not found in %s", data.DT, data.TypeInfo.TypeName)
 	}
 
-	return errors.Trace(validateSoftDeleteField(field))
+	if err := validateSoftDeleteField(field); err != nil {
+		return errors.Trace(err)
+	}
+
+	if len(data.UxList) > 0 && softDeleteKind(field) != "integer" {
+		return errors.Errorf(
+			"dt field %s in %s cannot use nullable time semantics with unique indexes; use int64 or uint64 tombstones for portable uniqueness",
+			data.DT,
+			data.TypeInfo.TypeName,
+		)
+	}
+
+	return nil
 }
 
 func TimestampNowValue(field tsq.FieldInfo) string {

@@ -454,7 +454,7 @@ func (qb *QueryBuilder) buildHaving() string {
 
 	havingClauses := make([]string, 0, len(qb.havingConditions))
 	for _, cond := range qb.havingConditions {
-		havingClauses = append(havingClauses, cond.Clause())
+		havingClauses = append(havingClauses, conditionClause(cond))
 	}
 
 	if len(havingClauses) == 1 {

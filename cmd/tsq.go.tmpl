@@ -128,10 +128,10 @@ var {{$query}} = tsq.
 func {{$name}}(
 	ctx context.Context,
 	db gorp.SqlExecutor,
-	{{$dot.ID | ToLower}} {{index $dot.FieldMap $dot.ID | FieldType}},
-) ({{$ptype}}, error) {
-	row := &{{$type}}{}
-	err := {{$query}}.Load(ctx, db, row, {{$dot.ID | ToLower}})
+		{{ FieldVarName $dot.ID }} {{index $dot.FieldMap $dot.ID | FieldType}},
+	) ({{$ptype}}, error) {
+		row := &{{$type}}{}
+		err := {{$query}}.Load(ctx, db, row, {{ FieldVarName $dot.ID }})
 	switch errors.Cause(err) {
 	case nil:
 		return row, nil
@@ -149,10 +149,10 @@ func {{$name}}(
 func {{$name}}(
 	ctx context.Context,
 	db gorp.SqlExecutor,
-	{{$dot.ID | ToLower}} {{index $dot.FieldMap $dot.ID | FieldType}},
-) ({{$ptype}}, error) {
-	row := &{{$type}}{}
-	err := {{$query}}.Load(ctx, db, row, {{$dot.ID | ToLower}})
+		{{ FieldVarName $dot.ID }} {{index $dot.FieldMap $dot.ID | FieldType}},
+	) ({{$ptype}}, error) {
+		row := &{{$type}}{}
+		err := {{$query}}.Load(ctx, db, row, {{ FieldVarName $dot.ID }})
 	if err != nil {
 		if err == {{ GeneratedSQLRef "ErrNoRows" }} {
 			return nil, err
@@ -172,11 +172,11 @@ func {{$name}}(
 func {{$name}}(
 	ctx context.Context,
 	db gorp.SqlExecutor,
-	{{$dot.ID | ToLower}}s ...{{index $dot.FieldMap $dot.ID | FieldType}},
-) ({{$list}}, error) {
-	query := tsq.
-		Select({{$varTblCols}}...).
-		Where({{$type}}_{{$dot.ID}}.In({{$dot.ID | ToLower}}s...)).
+		{{ FieldSliceVarName $dot.ID }} ...{{index $dot.FieldMap $dot.ID | FieldType}},
+	) ({{$list}}, error) {
+		query := tsq.
+			Select({{$varTblCols}}...).
+			Where({{$type}}_{{$dot.ID}}.In({{ FieldSliceVarName $dot.ID }}...)).
 		MustBuild()
 
 	return tsq.List[{{$type}}](ctx, db, query)
@@ -189,15 +189,15 @@ func {{$name}}(
 func {{$name}}(
 	ctx context.Context,
 	db gorp.SqlExecutor,
-	{{$dot.ID | ToLower}}s ...{{index $dot.FieldMap $dot.ID | FieldType}},
-) ({{$list}}, error) {
-	{{$dot.ID | ToLower}}Set := map[{{index $dot.FieldMap $dot.ID | FieldType}}]bool{}
-	for _, i := range {{$dot.ID | ToLower}}s {
-		{{$dot.ID | ToLower}}Set[i] = true
-	}
-	query := tsq.
-		Select({{$varTblCols}}...).
-		Where({{$type}}_{{$dot.ID}}.In({{$dot.ID | ToLower}}s...)).
+		{{ FieldSliceVarName $dot.ID }} ...{{index $dot.FieldMap $dot.ID | FieldType}},
+	) ({{$list}}, error) {
+		{{ FieldVarName $dot.ID }}Set := map[{{index $dot.FieldMap $dot.ID | FieldType}}]bool{}
+		for _, i := range {{ FieldSliceVarName $dot.ID }} {
+			{{ FieldVarName $dot.ID }}Set[i] = true
+		}
+		query := tsq.
+			Select({{$varTblCols}}...).
+			Where({{$type}}_{{$dot.ID}}.In({{ FieldSliceVarName $dot.ID }}...)).
 		MustBuild()
 
 	list, err := tsq.List[{{$type}}](ctx, db, query)
@@ -206,13 +206,13 @@ func {{$name}}(
 	}
 
 	for _, i := range list {
-		delete({{$dot.ID | ToLower}}Set, i.{{$dot.ID}})
-	}
-	if len({{$dot.ID | ToLower}}Set) > 0 {
-		var missings []{{index $dot.FieldMap $dot.ID | FieldType}}
-		for i := range {{$dot.ID | ToLower}}Set {
-			missings = append(missings, i)
+			delete({{ FieldVarName $dot.ID }}Set, i.{{$dot.ID}})
 		}
+		if len({{ FieldVarName $dot.ID }}Set) > 0 {
+			var missings []{{index $dot.FieldMap $dot.ID | FieldType}}
+			for i := range {{ FieldVarName $dot.ID }}Set {
+				missings = append(missings, i)
+			}
 		return nil, errors.Errorf("{{$type}}(s) not found: %v", missings)
 	}
 	return list, nil
@@ -239,10 +239,10 @@ var {{$query}} = tsq.
 func {{$name}}(
 	ctx context.Context,
 	db gorp.SqlExecutor,
-	{{$dot.ID | ToLower}} {{index $dot.FieldMap $dot.ID | FieldType}},
-) ({{$ptype}}, error) {
-	row := &{{$type}}{}
-	err := {{$query}}.Load(ctx, db, row, {{$dot.ID | ToLower}})
+		{{ FieldVarName $dot.ID }} {{index $dot.FieldMap $dot.ID | FieldType}},
+	) ({{$ptype}}, error) {
+		row := &{{$type}}{}
+		err := {{$query}}.Load(ctx, db, row, {{ FieldVarName $dot.ID }})
 	switch errors.Cause(err) {
 	case nil:
 		return row, nil
@@ -260,10 +260,10 @@ func {{$name}}(
 func {{$name}}(
 	ctx context.Context,
 	db gorp.SqlExecutor,
-	{{$dot.ID | ToLower}} {{index $dot.FieldMap $dot.ID | FieldType}},
-) ({{$ptype}}, error) {
-	row := &{{$type}}{}
-	err := {{$query}}.Load(ctx, db, row, {{$dot.ID | ToLower}})
+		{{ FieldVarName $dot.ID }} {{index $dot.FieldMap $dot.ID | FieldType}},
+	) ({{$ptype}}, error) {
+		row := &{{$type}}{}
+		err := {{$query}}.Load(ctx, db, row, {{ FieldVarName $dot.ID }})
 	if err != nil {
 		if err == {{ GeneratedSQLRef "ErrNoRows" }} {
 			return nil, err
@@ -283,13 +283,13 @@ func {{$name}}(
 func {{$name}}(
 	ctx context.Context,
 	db gorp.SqlExecutor,
-	{{$dot.ID | ToLower}}s ...{{index $dot.FieldMap $dot.ID | FieldType}},
+		{{ FieldSliceVarName $dot.ID }} ...{{index $dot.FieldMap $dot.ID | FieldType}},
 ) ({{$list}}, error) {
 	query := tsq.
 		Select({{$varTblCols}}...).
 		Where(
 			{{ SoftDeleteActiveCond $type $dot.DT (index $dot.FieldMap $dot.DT) }},
-			{{$type}}_{{$dot.ID}}.In({{$dot.ID | ToLower}}s...),
+			{{$type}}_{{$dot.ID}}.In({{ FieldSliceVarName $dot.ID }}...),
 		).
 		MustBuild()
 	list, err := tsq.List[{{$type}}](ctx, db, query)
@@ -306,17 +306,17 @@ func {{$name}}(
 func {{$name}}(
 	ctx context.Context,
 	db gorp.SqlExecutor,
-	{{$dot.ID | ToLower}}s ...{{index $dot.FieldMap $dot.ID | FieldType}},
-) ({{$list}}, error) {
-	{{$dot.ID | ToLower}}Set := map[{{index $dot.FieldMap $dot.ID | FieldType}}]bool{}
-	for _, i := range {{$dot.ID | ToLower}}s {
-		{{$dot.ID | ToLower}}Set[i] = true
-	}
+		{{ FieldSliceVarName $dot.ID }} ...{{index $dot.FieldMap $dot.ID | FieldType}},
+	) ({{$list}}, error) {
+		{{ FieldVarName $dot.ID }}Set := map[{{index $dot.FieldMap $dot.ID | FieldType}}]bool{}
+		for _, i := range {{ FieldSliceVarName $dot.ID }} {
+			{{ FieldVarName $dot.ID }}Set[i] = true
+		}
 	query := tsq.
 		Select({{$varTblCols}}...).
 		Where(
 			{{ SoftDeleteActiveCond $type $dot.DT (index $dot.FieldMap $dot.DT) }},
-			{{$type}}_{{$dot.ID}}.In({{$dot.ID | ToLower}}s...),
+			{{$type}}_{{$dot.ID}}.In({{ FieldSliceVarName $dot.ID }}...),
 		).
 		MustBuild()
 
@@ -326,13 +326,13 @@ func {{$name}}(
 		return nil, errors.Trace(err)
 	}
 	for _, i := range list {
-		delete({{$dot.ID | ToLower}}Set, i.{{$dot.ID}})
-	}
-	if len({{$dot.ID | ToLower}}Set) > 0 {
-		var missings []{{index $dot.FieldMap $dot.ID | FieldType}}
-		for i := range {{$dot.ID | ToLower}}Set {
-			missings = append(missings, i)
+			delete({{ FieldVarName $dot.ID }}Set, i.{{$dot.ID}})
 		}
+		if len({{ FieldVarName $dot.ID }}Set) > 0 {
+			var missings []{{index $dot.FieldMap $dot.ID | FieldType}}
+			for i := range {{ FieldVarName $dot.ID }}Set {
+				missings = append(missings, i)
+			}
 		return nil, errors.Errorf("{{$type}}(s) not found: %v", missings)
 	}
 	return list, nil
@@ -556,7 +556,7 @@ func {{$name}}(
 	ctx context.Context,
 	db gorp.SqlExecutor,
 			{{- range $f := $ux.Fields }}
-	{{$f | LowerInitial}} {{ index $dot.FieldMap $f | FieldType }},
+		{{ FieldVarName $f }} {{ index $dot.FieldMap $f | FieldType }},
 			{{- end }}
 ) ({{$ptype}}, error) {
 	query := {{$query}}
@@ -564,7 +564,7 @@ func {{$name}}(
 	row := &{{$type}}{}
 	err := query.Load(ctx, db, row,
 		{{- range $f := $ux.Fields }}
-		{{$f | LowerInitial}},
+			{{ FieldVarName $f }},
 		{{- end }}
 	)
 	switch errors.Cause(err) {
@@ -585,7 +585,7 @@ func {{$name}}(
 	ctx context.Context,
 	db gorp.SqlExecutor,
 			{{- range $f := $ux.Fields }}
-	{{$f | LowerInitial}} {{ index $dot.FieldMap $f | FieldType }},
+		{{ FieldVarName $f }} {{ index $dot.FieldMap $f | FieldType }},
 			{{- end }}
 ) ({{$ptype}}, error) {
 	query := {{$query}}
@@ -593,7 +593,7 @@ func {{$name}}(
 	row := &{{$type}}{}
 	err := query.Load(ctx, db, row,
 		{{- range $f := $ux.Fields }}
-		{{$f | LowerInitial}},
+			{{ FieldVarName $f }},
 		{{- end }}
 	)
 	if err != nil {
@@ -614,14 +614,14 @@ func {{$name}}(
 	ctx context.Context,
 	db gorp.SqlExecutor,
 			{{- range $f := $ux.Fields }}
-	{{$f | LowerInitial}} {{ index $dot.FieldMap $f | FieldType }},
+		{{ FieldVarName $f }} {{ index $dot.FieldMap $f | FieldType }},
 			{{- end }}
 ) (bool, error) {
 	query := {{$query}}
 
 	rs, err := query.Exists(ctx, db,
 		{{- range $f := $ux.Fields }}
-		{{$f | LowerInitial}},
+			{{ FieldVarName $f }},
 		{{- end }}
 	)
 	return rs, errors.Trace(err)
@@ -656,7 +656,7 @@ func {{$name}}(
 	ctx context.Context,
 	db gorp.SqlExecutor,
 				{{- range $f := $ux.Fields }}
-	{{$f | LowerInitial}} {{ index $dot.FieldMap $f | FieldType }},
+		{{ FieldVarName $f }} {{ index $dot.FieldMap $f | FieldType }},
 				{{- end }}
 ) ({{$ptype}}, error) {
 	query := {{$query}}
@@ -664,7 +664,7 @@ func {{$name}}(
 	row := &{{$type}}{}
 	err := query.Load(ctx, db, row,
 		{{- range $f := $ux.Fields }}
-		{{$f | LowerInitial}},
+			{{ FieldVarName $f }},
 		{{- end }}
 	)
 	switch errors.Cause(err) {
@@ -685,7 +685,7 @@ func {{$name}}(
 	ctx context.Context,
 	db gorp.SqlExecutor,
 				{{- range $f := $ux.Fields }}
-	{{$f | LowerInitial}} {{ index $dot.FieldMap $f | FieldType }},
+		{{ FieldVarName $f }} {{ index $dot.FieldMap $f | FieldType }},
 				{{- end }}
 ) ({{$ptype}}, error) {
 	query := {{$query}}
@@ -693,7 +693,7 @@ func {{$name}}(
 		row := &{{$type}}{}
 	err := query.Load(ctx, db, row,
 		{{- range $f := $ux.Fields }}
-		{{$f | LowerInitial}},
+			{{ FieldVarName $f }},
 		{{- end }}
 	)
 	if err != nil {
@@ -714,14 +714,14 @@ func {{$name}}(
 	ctx context.Context,
 	db gorp.SqlExecutor,
 				{{- range $f := $ux.Fields }}
-	{{$f | LowerInitial}} {{ index $dot.FieldMap $f | FieldType }},
+		{{ FieldVarName $f }} {{ index $dot.FieldMap $f | FieldType }},
 				{{- end }}
 ) (bool, error) {
 	query := {{$query}}
 
 		rs, err := query.Exists(ctx, db,
 		{{- range $f := $ux.Fields }}
-		{{$f | LowerInitial}},
+			{{ FieldVarName $f }},
 		{{- end }}
 	)
 	return rs, errors.Trace(err)
@@ -745,9 +745,9 @@ func List{{$type}}By{{$idx.Name}}(
 	db gorp.SqlExecutor,
 		{{- range $i, $f := $idx.Fields }}
 			{{- if eq $i (Sub1 (len $idx.Fields)) }}
-	{{ $f | LowerInitial }}s ...{{ (index $.FieldMap $f) | FieldType }},
+		{{ FieldSliceVarName $f }} ...{{ (index $.FieldMap $f) | FieldType }},
 			{{- else }}
-	{{ $f | LowerInitial }} {{ (index $.FieldMap $f) | FieldType }},
+		{{ FieldVarName $f }} {{ (index $.FieldMap $f) | FieldType }},
 			{{- end }}
 		{{- end }}
 ) ({{$list}}, error) {
@@ -756,9 +756,9 @@ func List{{$type}}By{{$idx.Name}}(
 		Where(
 		{{- range $i, $f := $idx.Fields }}
 			{{- if eq $i (Sub1 (len $idx.Fields)) }}
-			{{$type}}_{{$f}}.In({{ $f | LowerInitial }}s...),
+				{{$type}}_{{$f}}.In({{ FieldSliceVarName $f }}...),
 			{{- else }}
-			{{$type}}_{{$f}}.EQ({{ $f | LowerInitial }}),
+				{{$type}}_{{$f}}.EQ({{ FieldVarName $f }}),
 			{{- end }}
 		{{- end }}
 		).
@@ -785,14 +785,14 @@ func {{$name}}(
 	ctx context.Context,
 	db gorp.SqlExecutor,
 				{{- range $f := $idx.Fields }}
-	{{$f | LowerInitial}} {{ index $dot.FieldMap $f | FieldType }},
+		{{ FieldVarName $f }} {{ index $dot.FieldMap $f | FieldType }},
 				{{- end }}
 ) (int, error) {
 	query := {{$query}}
 
 	rs, err := query.Count(ctx, db,
 		{{- range $f := $idx.Fields }}
-		{{$f | LowerInitial}},
+			{{ FieldVarName $f }},
 		{{- end }}
 	)
 	return rs, errors.Trace(err)
@@ -805,14 +805,14 @@ func {{$name}}(
 	ctx context.Context,
 	db gorp.SqlExecutor,
 				{{- range $f := $idx.Fields }}
-	{{$f | LowerInitial}} {{ index $dot.FieldMap $f | FieldType }},
+		{{ FieldVarName $f }} {{ index $dot.FieldMap $f | FieldType }},
 				{{- end }}
 ) ({{$list}}, error) {
 	query := {{$query}}
 
 	data, err := tsq.List[{{$type}}](ctx, db, query,
 		{{- range $f := $idx.Fields }}
-		{{$f | LowerInitial}},
+			{{ FieldVarName $f }},
 		{{- end }}
 	)
 	return data, errors.Trace(err)
@@ -826,14 +826,14 @@ func {{$name}}(
 	db gorp.SqlExecutor,
 	page *tsq.PageReq,
 				{{- range $f := $idx.Fields }}
-	{{$f | LowerInitial}} {{ index $dot.FieldMap $f | FieldType }},
+		{{ FieldVarName $f }} {{ index $dot.FieldMap $f | FieldType }},
 				{{- end }}
 ) (*{{$pageResp}}, error) {
 	query := {{$query}}
 
 	rs, err := tsq.Page[{{$type}}](ctx, db, page, query,
 		{{- range $f := $idx.Fields }}
-		{{$f | LowerInitial}},
+			{{ FieldVarName $f }},
 		{{- end }}
 	)
 	return rs, errors.Trace(err)
@@ -857,9 +857,9 @@ func {{$name}}(
 	db gorp.SqlExecutor,
 				{{- range $i, $f := $idx.Fields }}
 					{{- if eq $i (Sub1 (len $idx.Fields)) }}
-	{{ $f | LowerInitial }}s ...{{ (index $.FieldMap $f) | FieldType }},
+		{{ FieldSliceVarName $f }} ...{{ (index $.FieldMap $f) | FieldType }},
 					{{- else }}
-	{{ $f | LowerInitial }} {{ (index $.FieldMap $f) | FieldType }},
+		{{ FieldVarName $f }} {{ (index $.FieldMap $f) | FieldType }},
 					{{- end }}
 				{{- end }}
 ) ({{$list}}, error) {
@@ -869,9 +869,9 @@ func {{$name}}(
 			{{ SoftDeleteActiveCond $type $dot.DT (index $dot.FieldMap $dot.DT) }},
 				{{- range $i, $f := $idx.Fields }}
 					{{- if eq $i (Sub1 (len $idx.Fields)) }}
-			{{$type}}_{{$f}}.In({{ $f | LowerInitial }}s...),
+				{{$type}}_{{$f}}.In({{ FieldSliceVarName $f }}...),
 					{{- else }}
-			{{$type}}_{{$f}}.EQ({{ $f | LowerInitial }}),
+				{{$type}}_{{$f}}.EQ({{ FieldVarName $f }}),
 					{{- end }}
 				{{- end }}
 		).
@@ -900,14 +900,14 @@ func {{$name}}(
 	ctx context.Context,
 	db gorp.SqlExecutor,
 					{{- range $f := $idx.Fields }}
-	{{$f | LowerInitial}} {{ index $dot.FieldMap $f | FieldType }},
+		{{ FieldVarName $f }} {{ index $dot.FieldMap $f | FieldType }},
 					{{- end }}
 ) (int, error) {
 	query := {{$query}}
 
 	rs, err := query.Count(ctx, db,
 		{{- range $f := $idx.Fields }}
-		{{$f | LowerInitial}},
+			{{ FieldVarName $f }},
 		{{- end }}
 	)
 	return rs, errors.Trace(err)
@@ -920,14 +920,14 @@ func {{$name}}(
 	ctx context.Context,
 	db gorp.SqlExecutor,
 					{{- range $f := $idx.Fields }}
-	{{$f | LowerInitial}} {{ index $dot.FieldMap $f | FieldType }},
+		{{ FieldVarName $f }} {{ index $dot.FieldMap $f | FieldType }},
 					{{- end }}
 ) ({{$list}}, error) {
 	query := {{$query}}
 
 	data, err := tsq.List[{{$type}}](ctx, db, query,
 		{{- range $f := $idx.Fields }}
-		{{$f | LowerInitial}},
+			{{ FieldVarName $f }},
 		{{- end }}
 	)
 	return data, errors.Trace(err)
@@ -941,14 +941,14 @@ func {{$name}}(
 	db gorp.SqlExecutor,
 	page *tsq.PageReq,
 					{{- range $f := $idx.Fields }}
-	{{$f | LowerInitial}} {{ index $dot.FieldMap $f | FieldType }},
+		{{ FieldVarName $f }} {{ index $dot.FieldMap $f | FieldType }},
 					{{- end }}
 ) (*{{$pageResp}}, error) {
 	query := {{$query}}
 
 	rs, err := tsq.Page[{{$type}}](ctx, db, page, query,
 		{{- range $f := $idx.Fields }}
-		{{$f | LowerInitial}},
+			{{ FieldVarName $f }},
 		{{- end }}
 	)
 	return rs, errors.Trace(err)

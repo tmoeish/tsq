@@ -154,6 +154,29 @@ func TestExtractDSLContent_ReturnsErrorForMissingBracket(t *testing.T) {
 	}
 }
 
+func TestExtractDSLContent_ReturnsErrorForArgumentsWithoutBrackets(t *testing.T) {
+	_, err := extractDSLContent(`// @TABLE name="user"`, "@TABLE")
+	if err == nil {
+		t.Fatal("expected TABLE annotation with unbracketed arguments to return an error")
+	}
+
+	if !IsErrorType(err, ErrorTypeDSLMissingBracket) {
+		t.Fatalf("expected missing bracket error, got %v", err)
+	}
+}
+
+func TestParseDSL_IgnoresAnnotationPrefixes(t *testing.T) {
+	cg := []*ast.CommentGroup{{List: []*ast.Comment{{Text: `// @TABLEX(name="user")`}}}}
+	info, err := parseDSL("User", cg, map[string]struct{}{"ID": {}})
+	if err != nil {
+		t.Fatalf("parseDSL returned error for non-annotation prefix: %v", err)
+	}
+
+	if info != nil {
+		t.Fatalf("expected non-annotation prefix to be ignored, got %#v", info)
+	}
+}
+
 func TestParseTableDSL_ReturnsErrorForMalformedAnnotation(t *testing.T) {
 	_, err := parseTableDSL("User", `// @TABLE(name="user"`, map[string]struct{}{
 		"ID": {},

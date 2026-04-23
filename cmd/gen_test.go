@@ -153,6 +153,48 @@ func TestTableTemplateOrErrPreservesErrNoRows(t *testing.T) {
 	}
 }
 
+func TestTableTemplateAvoidsKeywordParameterNames(t *testing.T) {
+	dir := t.TempDir()
+	tpl, err := template.New("tsq.go.tmpl").Funcs(TemplateFuncs()).Parse(defaultTableTpl)
+	if err != nil {
+		t.Fatalf("failed to parse table template: %v", err)
+	}
+
+	field := tsq.FieldInfo{Name: "Type", Column: "type", JsonTag: "type", Type: tsq.TypeInfo{TypeName: "int64"}}
+	data := &tsq.StructInfo{
+		TableInfo: &tsq.TableInfo{
+			Table: "keyworded",
+			ID:    "Type",
+			AI:    true,
+		},
+		TypeInfo: tsq.TypeInfo{Package: tsq.PackageInfo{Name: "example"}, TypeName: "Keyworded"},
+		Fields:   []tsq.FieldInfo{field},
+		FieldMap: map[string]tsq.FieldInfo{
+			"Type": field,
+		},
+		Recv:       "k",
+		TSQVersion: "test",
+	}
+
+	if err := gen(data, tpl, dir); err != nil {
+		t.Fatalf("expected template with keyword field to render valid Go, got %v", err)
+	}
+
+	contents, err := os.ReadFile(filepath.Join(dir, "keyworded_tsq.go"))
+	if err != nil {
+		t.Fatalf("failed to read generated file: %v", err)
+	}
+
+	rendered := string(contents)
+	if !strings.Contains(rendered, "type_ int64") {
+		t.Fatalf("expected generated parameter to avoid Go keyword, got:\n%s", rendered)
+	}
+
+	if strings.Contains(rendered, "\ttype int64") {
+		t.Fatalf("generated code still contains keyword parameter:\n%s", rendered)
+	}
+}
+
 func TestResolveTemplateTextUsesFallbackWithoutLeakingPreviousOverride(t *testing.T) {
 	dir := t.TempDir()
 	overridePath := filepath.Join(dir, "custom.tmpl")

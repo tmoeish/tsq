@@ -43,7 +43,7 @@ func validateConditionInput(cond Condition) (string, map[string]Table, error) {
 		return "", nil, errors.New("condition cannot be nil")
 	}
 
-	clause := strings.TrimSpace(cond.Clause())
+	clause := strings.TrimSpace(conditionClause(cond))
 	if clause == "" {
 		return "", nil, errors.New("condition clause cannot be empty")
 	}
@@ -64,4 +64,12 @@ func validateConditionInput(cond Condition) (string, map[string]Table, error) {
 	}
 
 	return clause, tables, nil
+}
+
+func conditionClause(cond Condition) string {
+	if raw, ok := cond.(rawConditionClauser); ok {
+		return raw.rawClause()
+	}
+
+	return cond.Clause()
 }

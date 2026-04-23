@@ -81,6 +81,10 @@ type Condition interface {
 	Clause() string
 }
 
+type rawConditionClauser interface {
+	rawClause() string
+}
+
 // Cond represents a SQL condition
 type Cond struct {
 	tables map[string]Table
@@ -92,6 +96,10 @@ func (c Cond) Tables() map[string]Table {
 }
 
 func (c Cond) Clause() string {
+	return renderCanonicalSQL(c.expr)
+}
+
+func (c Cond) rawClause() string {
 	return c.expr
 }
 

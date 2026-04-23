@@ -285,6 +285,14 @@ func TestCondition_EmptyInShortCircuits(t *testing.T) {
 	}
 }
 
+func TestConditionClauseRendersCanonicalSQL(t *testing.T) {
+	col := NewCol[int](newMockTable("users"), "id", "id", nil)
+
+	if got := col.EQ(1).Clause(); got != `"users"."id" = 1` {
+		t.Fatalf("expected public condition clause to render canonical SQL, got %q", got)
+	}
+}
+
 func TestCondition_EmptyAndOrShortCircuit(t *testing.T) {
 	if got := And().Clause(); got != "1 = 1" {
 		t.Fatalf("expected empty And to short-circuit to true predicate, got %q", got)

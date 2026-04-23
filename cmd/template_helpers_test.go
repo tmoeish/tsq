@@ -96,6 +96,58 @@ func TestValidateManagedFieldsRejectsNarrowIntegerSoftDeleteType(t *testing.T) {
 	}
 }
 
+func TestValidateManagedFieldsRejectsNullableSoftDeleteUniqueIndexes(t *testing.T) {
+	info := &tsq.StructInfo{
+		TableInfo: &tsq.TableInfo{
+			DT:     "DT",
+			UxList: []tsq.IndexInfo{{Name: "ux_name", Fields: []string{"Name"}}},
+		},
+		TypeInfo: tsq.TypeInfo{TypeName: "User"},
+		FieldMap: map[string]tsq.FieldInfo{
+			"DT": {
+				Name:      "DT",
+				IsPointer: true,
+				Type: tsq.TypeInfo{
+					Package:  tsq.PackageInfo{Path: "time", Name: "time"},
+					TypeName: "Time",
+				},
+			},
+			"Name": {
+				Name: "Name",
+				Type: tsq.TypeInfo{TypeName: "string"},
+			},
+		},
+	}
+
+	if err := ValidateManagedFields(info); err == nil {
+		t.Fatal("expected nullable soft-delete field with unique indexes to be rejected")
+	}
+}
+
+func TestValidateManagedFieldsAllowsIntegerSoftDeleteUniqueIndexes(t *testing.T) {
+	info := &tsq.StructInfo{
+		TableInfo: &tsq.TableInfo{
+			DT:     "DT",
+			UxList: []tsq.IndexInfo{{Name: "ux_name", Fields: []string{"Name"}}},
+		},
+		TypeInfo: tsq.TypeInfo{TypeName: "User"},
+		FieldMap: map[string]tsq.FieldInfo{
+			"DT": {
+				Name: "DT",
+				Type: tsq.TypeInfo{TypeName: "int64"},
+			},
+			"Name": {
+				Name: "Name",
+				Type: tsq.TypeInfo{TypeName: "string"},
+			},
+		},
+	}
+
+	if err := ValidateManagedFields(info); err != nil {
+		t.Fatalf("expected integer soft-delete field with unique indexes to pass, got %v", err)
+	}
+}
+
 func TestFieldTypeUsesGeneratedAliasesForStdlibPackages(t *testing.T) {
 	sqlField := tsq.FieldInfo{
 		Type: tsq.TypeInfo{
@@ -172,6 +224,20 @@ func TestInitialHelpersSupportUnicode(t *testing.T) {
 
 	if got := lowerInitial("Äpfel"); got != "äpfel" {
 		t.Fatalf("expected lowerInitial to lowercase first rune, got %q", got)
+	}
+}
+
+func TestFieldVarNameAvoidsGoKeywords(t *testing.T) {
+	if got := fieldVarName("Type"); got != "type_" {
+		t.Fatalf("expected keyword field name to be suffixed, got %q", got)
+	}
+
+	if got := fieldSliceVarName("Type"); got != "type_s" {
+		t.Fatalf("expected keyword slice field name to be suffixed before pluralization, got %q", got)
+	}
+
+	if got := fieldVarName("UserID"); got != "userID" {
+		t.Fatalf("expected non-keyword field name to keep lower initial form, got %q", got)
 	}
 }
 

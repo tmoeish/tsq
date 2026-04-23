@@ -74,18 +74,23 @@ func CleanBlockComment(text string) string {
 
 // extractDSLContent 提取 @TABLE/@DTO 后第一个括号内的内容，支持前置括号
 func extractDSLContent(text, keyword string) (string, error) {
-	idx := strings.Index(text, keyword)
-	if idx == -1 {
+	idx, ok := findAnnotationKeyword(text, keyword)
+	if !ok {
 		return "", nil
 	}
 
 	searchStart := idx + len(keyword)
-	start := strings.Index(text[searchStart:], "(")
-	if start == -1 {
+	afterKeyword := text[searchStart:]
+	trimmedAfterKeyword := strings.TrimLeft(afterKeyword, " \t\r\n")
+	if trimmedAfterKeyword == "" {
 		return "", nil
 	}
 
-	start += searchStart
+	if trimmedAfterKeyword[0] != '(' {
+		return "", NewDSLMissingBracketError(text, searchStart+len(afterKeyword)-len(trimmedAfterKeyword))
+	}
+
+	start := searchStart + len(afterKeyword) - len(trimmedAfterKeyword)
 
 	count := 0
 	inString := false
@@ -128,6 +133,33 @@ func extractDSLContent(text, keyword string) (string, error) {
 	return "", NewDSLMissingBracketError(text, start)
 }
 
+func findAnnotationKeyword(text, keyword string) (int, bool) {
+	offset := 0
+	for {
+		idx := strings.Index(text[offset:], keyword)
+		if idx == -1 {
+			return -1, false
+		}
+
+		idx += offset
+		end := idx + len(keyword)
+		if end == len(text) || isAnnotationBoundary(text[end]) {
+			return idx, true
+		}
+
+		offset = end
+	}
+}
+
+func isAnnotationBoundary(ch byte) bool {
+	switch ch {
+	case ' ', '\t', '\n', '\r', '(':
+		return true
+	default:
+		return false
+	}
+}
+
 // parseDSL 解析所有注释中的注解（@TABLE/@DTO），直接填充 info
 func parseDSL(
 	structName string,
@@ -144,9 +176,9 @@ func parseDSL(
 		text := strings.Join(lines, "\n")
 		text = strings.TrimSpace(text)
 
-		if strings.Contains(text, "@TABLE") {
+		if _, ok := findAnnotationKeyword(text, "@TABLE"); ok {
 			return parseTableDSL(structName, text, structFields)
-		} else if strings.Contains(text, "@DTO") {
+		} else if _, ok := findAnnotationKeyword(text, "@DTO"); ok {
 			return parseDTODSL(structName, text, structFields)
 		}
 	}

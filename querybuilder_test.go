@@ -436,6 +436,25 @@ func TestQueryBuilder_GroupedCountUsesWrappedSubquery(t *testing.T) {
 	}
 }
 
+func TestQueryBuilder_HavingKeepsRawClauseForDialectRendering(t *testing.T) {
+	users := newMockTable("users")
+	id := NewCol[int](users, "id", "id", nil)
+
+	q, err := Select(id).GroupBy(id).Having(id.GT(1)).Build()
+	if err != nil {
+		t.Fatalf("Build returned error: %v", err)
+	}
+
+	rendered := renderSQLForDialect(q.listSQL, gorp.MySQLDialect{})
+	if !strings.Contains(rendered, "HAVING `users`.`id` > 1") {
+		t.Fatalf("expected HAVING clause to use dialect identifiers, got %s", rendered)
+	}
+
+	if strings.Contains(rendered, `"users"."id"`) {
+		t.Fatalf("expected HAVING clause not to leak canonical identifiers into dialect SQL, got %s", rendered)
+	}
+}
+
 func TestQueryBuilder_CrossJoinKeepsSelectedBaseTable(t *testing.T) {
 	users := newMockTable("users")
 	orders := newMockTable("orders")
