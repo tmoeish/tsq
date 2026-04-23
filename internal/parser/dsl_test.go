@@ -146,6 +146,22 @@ func TestParseDSLRejectsDuplicateTopLevelKeys(t *testing.T) {
 	}
 }
 
+func TestParseDSLRejectsUnexpectedTopLevelTokens(t *testing.T) {
+	tokens, err := Tokenize(`name "users"`)
+	if err != nil {
+		t.Fatalf("Tokenize error: %v", err)
+	}
+
+	_, err = ParseDSL(tokens)
+	if err == nil {
+		t.Fatal("expected unexpected top-level token to return an error")
+	}
+
+	if !IsErrorType(err, ErrorTypeDSLUnexpectedToken) {
+		t.Fatalf("expected unexpected token error, got %v", err)
+	}
+}
+
 func TestParser_parseValue(t *testing.T) {
 	tokens, _ := Tokenize(`"abc" true 123 [1,2] {a=1}`)
 
@@ -244,6 +260,24 @@ func TestParser_parseObjectRejectsDuplicateKeys(t *testing.T) {
 
 	if !IsErrorType(err, ErrorTypeDSLDuplicateKey) {
 		t.Fatalf("expected duplicate key error, got %v", err)
+	}
+}
+
+func TestParser_parseObjectRejectsUnexpectedTokens(t *testing.T) {
+	tokens, err := Tokenize(`{fields ["ID"]}`)
+	if err != nil {
+		t.Fatalf("Tokenize error: %v", err)
+	}
+
+	p := NewParser(tokens)
+
+	_, err = p.parseObject()
+	if err == nil {
+		t.Fatal("expected unexpected object token to return an error")
+	}
+
+	if !IsErrorType(err, ErrorTypeDSLUnexpectedToken) {
+		t.Fatalf("expected unexpected token error, got %v", err)
 	}
 }
 
@@ -385,6 +419,45 @@ func Test_genTableInfoFromAST(t *testing.T) {
 		if info.KwList[0] != "f2" || info.KwList[1] != "f3" {
 			t.Errorf("Keywords error: got %v, want [f2, f3]", info.KwList)
 		}
+	}
+}
+
+func Test_genTableInfoFromASTRejectsUnknownTopLevelKeys(t *testing.T) {
+	_, err := genTableInfoFromAST(
+		"MyTable",
+		DSLObject{"unknown": DSLBool(true)},
+		true,
+		map[string]struct{}{"ID": {}},
+	)
+	if err == nil {
+		t.Fatal("expected unknown DSL key to return an error")
+	}
+
+	if !IsErrorType(err, ErrorTypeDSLUnexpectedToken) {
+		t.Fatalf("expected unexpected token error, got %v", err)
+	}
+}
+
+func Test_genTableInfoFromASTRejectsUnknownIndexKeys(t *testing.T) {
+	_, err := genTableInfoFromAST(
+		"MyTable",
+		DSLObject{
+			"idx": DSLArray{
+				DSLObject{
+					"fields": DSLArray{DSLString("ID")},
+					"extra":  DSLBool(true),
+				},
+			},
+		},
+		true,
+		map[string]struct{}{"ID": {}},
+	)
+	if err == nil {
+		t.Fatal("expected unknown index DSL key to return an error")
+	}
+
+	if !IsErrorType(err, ErrorTypeDSLUnexpectedToken) {
+		t.Fatalf("expected unexpected token error, got %v", err)
 	}
 }
 

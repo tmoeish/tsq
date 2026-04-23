@@ -255,8 +255,7 @@ func ParseDSL(tokens []Token) (DSLObject, error) {
 			}
 			obj[key] = val
 		} else {
-			// 跳过无法识别的 token，防止死循环
-			p.next()
+			return nil, unexpectedDSLTokenError(p.peek(), p.pos)
 		}
 	}
 
@@ -284,6 +283,15 @@ func (p *Parser) parseKeyValueOrIdent() (string, DSLNode, error) {
 	}
 
 	return "", nil, nil
+}
+
+func unexpectedDSLTokenError(tok Token, position int) error {
+	actual := tok.Value
+	if actual == "" {
+		actual = getTokenTypeName(tok.Type)
+	}
+
+	return NewDSLUnexpectedTokenError("identifier", actual, position)
 }
 
 // parseValue 解析 value
@@ -370,7 +378,7 @@ func (p *Parser) parseObject() (DSLObject, error) {
 			}
 			obj[key] = val
 		} else {
-			p.next()
+			return nil, unexpectedDSLTokenError(p.peek(), p.pos)
 		}
 	}
 
@@ -511,6 +519,8 @@ func genTableInfoFromAST(
 										}
 									}
 								}
+							default:
+								return nil, NewDSLUnexpectedTokenError("known index key", k2, 0)
 							}
 						}
 
@@ -544,6 +554,8 @@ func genTableInfoFromAST(
 										}
 									}
 								}
+							default:
+								return nil, NewDSLUnexpectedTokenError("known index key", k2, 0)
 							}
 						}
 
@@ -565,6 +577,8 @@ func genTableInfoFromAST(
 					}
 				}
 			}
+		default:
+			return nil, NewDSLUnexpectedTokenError("known table DSL key", k, 0)
 		}
 	}
 
