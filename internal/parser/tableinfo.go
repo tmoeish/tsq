@@ -74,6 +74,8 @@ func CleanBlockComment(text string) string {
 
 // extractDSLContent 提取 @TABLE/@DTO 后第一个括号内的内容，支持前置括号
 func extractDSLContent(text, keyword string) (string, error) {
+	text = CleanBlockComment(text)
+
 	idx, ok := findAnnotationKeyword(text, keyword)
 	if !ok {
 		return "", nil
@@ -143,12 +145,60 @@ func findAnnotationKeyword(text, keyword string) (int, bool) {
 
 		idx += offset
 		end := idx + len(keyword)
-		if end == len(text) || isAnnotationBoundary(text[end]) {
+		if isAnnotationLineStart(text, idx) && (end == len(text) || isAnnotationBoundary(text[end])) {
 			return idx, true
 		}
 
 		offset = end
 	}
+}
+
+func isAnnotationLineStart(text string, idx int) bool {
+	i := idx - 1
+	for i >= 0 {
+		switch text[i] {
+		case ' ', '\t':
+			i--
+			continue
+		case '\n', '\r':
+			return true
+		}
+
+		break
+	}
+
+	if i < 0 {
+		return true
+	}
+
+	if text[i] == '/' && i > 0 && text[i-1] == '/' {
+		return isOnlyWhitespaceSinceLineStart(text, i-2)
+	}
+
+	if text[i] == '*' {
+		if i > 0 && text[i-1] == '/' {
+			return isOnlyWhitespaceSinceLineStart(text, i-2)
+		}
+
+		return isOnlyWhitespaceSinceLineStart(text, i-1)
+	}
+
+	return false
+}
+
+func isOnlyWhitespaceSinceLineStart(text string, idx int) bool {
+	for i := idx; i >= 0; i-- {
+		switch text[i] {
+		case ' ', '\t':
+			continue
+		case '\n', '\r':
+			return true
+		default:
+			return false
+		}
+	}
+
+	return true
 }
 
 func isAnnotationBoundary(ch byte) bool {

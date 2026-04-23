@@ -177,6 +177,18 @@ func TestParseDSL_IgnoresAnnotationPrefixes(t *testing.T) {
 	}
 }
 
+func TestParseDSL_IgnoresAnnotationMentionsInProse(t *testing.T) {
+	cg := []*ast.CommentGroup{{List: []*ast.Comment{{Text: `// This struct can be generated with @TABLE(name="user") later.`}}}}
+	info, err := parseDSL("User", cg, map[string]struct{}{"ID": {}})
+	if err != nil {
+		t.Fatalf("parseDSL returned error for prose annotation mention: %v", err)
+	}
+
+	if info != nil {
+		t.Fatalf("expected prose annotation mention to be ignored, got %#v", info)
+	}
+}
+
 func TestParseTableDSL_ReturnsErrorForMalformedAnnotation(t *testing.T) {
 	_, err := parseTableDSL("User", `// @TABLE(name="user"`, map[string]struct{}{
 		"ID": {},
