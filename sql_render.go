@@ -1,6 +1,7 @@
 package tsq
 
 import (
+	"encoding/base64"
 	"reflect"
 	"strings"
 	"unsafe"
@@ -9,8 +10,9 @@ import (
 )
 
 const (
-	identifierMarkerPrefix = "__tsq_ident__("
-	identifierMarkerSuffix = ")"
+	identifierMarkerPrefix         = "__tsq_ident__("
+	identifierMarkerSuffix         = ")"
+	identifierMarkerEncodingPrefix = "b64:"
 )
 
 type rawQualifiedNamer interface {
@@ -18,7 +20,10 @@ type rawQualifiedNamer interface {
 }
 
 func rawIdentifier(name string) string {
-	return identifierMarkerPrefix + name + identifierMarkerSuffix
+	return identifierMarkerPrefix +
+		identifierMarkerEncodingPrefix +
+		base64.RawURLEncoding.EncodeToString([]byte(name)) +
+		identifierMarkerSuffix
 }
 
 func rawQualifiedIdentifier(table, column string) string {
@@ -297,7 +302,7 @@ func renderSQLWithIdentifierQuoter(raw string, quoter func(string) string) strin
 				continue
 			}
 
-			builder.WriteString(quoter(raw[start : start+end]))
+			builder.WriteString(quoter(decodeIdentifierMarker(raw[start : start+end])))
 			i = start + end + len(identifierMarkerSuffix)
 		default:
 			if tag, ok := matchDollarQuote(raw, i); ok {
@@ -327,6 +332,20 @@ func renderSQLWithIdentifierQuoter(raw string, quoter func(string) string) strin
 	}
 
 	return builder.String()
+}
+
+func decodeIdentifierMarker(payload string) string {
+	encoded, ok := strings.CutPrefix(payload, identifierMarkerEncodingPrefix)
+	if !ok {
+		return payload
+	}
+
+	decoded, err := base64.RawURLEncoding.DecodeString(encoded)
+	if err != nil {
+		return payload
+	}
+
+	return string(decoded)
 }
 
 func canonicalQuoteIdentifier(name string) string {

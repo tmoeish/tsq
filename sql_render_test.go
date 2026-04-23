@@ -80,6 +80,29 @@ func TestRenderSQLForDialectPreservesQuestionMarksInsideDollarQuotedStrings(t *t
 	}
 }
 
+func TestRenderCanonicalSQLHandlesIdentifiersContainingMarkerSuffix(t *testing.T) {
+	raw := "SELECT " + rawQualifiedIdentifier("team)", "name)") +
+		" FROM " + rawIdentifier("team)")
+
+	got := renderCanonicalSQL(raw)
+	want := `SELECT "team)"."name)" FROM "team)"`
+	if got != want {
+		t.Fatalf("expected canonical SQL %q, got %q", want, got)
+	}
+}
+
+func TestRenderSQLForDialectHandlesIdentifiersContainingMarkerSuffix(t *testing.T) {
+	raw := "SELECT " + rawQualifiedIdentifier("team)", "id)") +
+		" FROM " + rawIdentifier("team)") +
+		" WHERE " + rawQualifiedIdentifier("team)", "id)") + " = ?"
+
+	got := renderSQLForDialect(raw, gorp.PostgresDialect{})
+	want := `SELECT "team)"."id)" FROM "team)" WHERE "team)"."id)" = $1`
+	if got != want {
+		t.Fatalf("expected postgres SQL %q, got %q", want, got)
+	}
+}
+
 func TestContainsIdentifierMarkersNeedingRenderIgnoresStringsAndComments(t *testing.T) {
 	raw := "SELECT 1" +
 		" /* __tsq_ident__(ignored_comment) */" +
