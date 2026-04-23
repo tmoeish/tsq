@@ -317,11 +317,19 @@ func TestCol_RoundPreservesRequestedPrecision(t *testing.T) {
 	if got := largePrecision.QualifiedName(); got != `ROUND("products"."price", 42)` {
 		t.Fatalf("expected large precision to be preserved, got %s", got)
 	}
+}
 
-	negativePrecision := col.Round(-2)
-	if got := negativePrecision.QualifiedName(); got != `ROUND("products"."price", -2)` {
-		t.Fatalf("expected negative precision to be preserved, got %s", got)
-	}
+func TestCol_RoundRejectsNegativePrecision(t *testing.T) {
+	table := newMockTable("products")
+	col := NewCol[float64](table, "price", "price", nil)
+
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected Round to panic for negative precision")
+		}
+	}()
+
+	_ = col.Round(-2)
 }
 
 func TestCol_Ceil(t *testing.T) {

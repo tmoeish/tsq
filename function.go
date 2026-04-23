@@ -161,6 +161,10 @@ func (c Col[T]) Day() Col[T] {
 
 // Round returns ROUND(column, precision) - rounds to specified decimal places
 func (c Col[T]) Round(precision int) Col[T] {
+	if precision < 0 {
+		panic("round precision cannot be negative")
+	}
+
 	return c.Fn(fmt.Sprintf("ROUND(%%s, %d)", precision))
 }
 
