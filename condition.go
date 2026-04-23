@@ -11,6 +11,10 @@ import (
 	"time"
 )
 
+const sqlNullLiteral = "NULL"
+
+var externalArgMarker = &struct{}{}
+
 // ================================================
 // 逻辑组合条件
 // ================================================
@@ -25,7 +29,7 @@ func And(conds ...Condition) Cond {
 	clauses := make([]string, 0, len(conds))
 
 	for _, c := range conds {
-		clause, condTables, err := validateConditionInput(c)
+		clause, condTables, _, err := validateConditionInput(c)
 		if err != nil {
 			panic(err.Error())
 		}
@@ -40,6 +44,7 @@ func And(conds ...Condition) Cond {
 	return Cond{
 		tables: tables,
 		expr:   "(" + strings.Join(clauses, " AND ") + ")",
+		args:   collectConditionArgs(conds...),
 	}
 }
 
@@ -53,7 +58,7 @@ func Or(conds ...Condition) Cond {
 	clauses := make([]string, 0, len(conds))
 
 	for _, c := range conds {
-		clause, condTables, err := validateConditionInput(c)
+		clause, condTables, _, err := validateConditionInput(c)
 		if err != nil {
 			panic(err.Error())
 		}
@@ -68,6 +73,7 @@ func Or(conds ...Condition) Cond {
 	return Cond{
 		tables: tables,
 		expr:   "(" + strings.Join(clauses, " OR ") + ")",
+		args:   collectConditionArgs(conds...),
 	}
 }
 
@@ -79,6 +85,7 @@ func Or(conds ...Condition) Cond {
 type Condition interface {
 	Tables() map[string]Table
 	Clause() string
+	Args() []any
 }
 
 type rawConditionClauser interface {
@@ -89,6 +96,7 @@ type rawConditionClauser interface {
 type Cond struct {
 	tables map[string]Table
 	expr   string
+	args   []any
 }
 
 func (c Cond) Tables() map[string]Table {
@@ -101,6 +109,10 @@ func (c Cond) Clause() string {
 
 func (c Cond) rawClause() string {
 	return c.expr
+}
+
+func (c Cond) Args() []any {
+	return append([]any(nil), c.args...)
 }
 
 // ================================================
@@ -126,28 +138,63 @@ func (c Col[T]) NBetweenVar() Cond   { return c.Predicate(`%s NOT BETWEEN %s AND
 // 常量比较条件
 // ================================================
 
-func (c Col[T]) EQ(arg T) Cond              { return c.Predicate(`%s = %s`, arg) }
-func (c Col[T]) NE(arg T) Cond              { return c.Predicate(`%s <> %s`, arg) }
-func (c Col[T]) GT(arg T) Cond              { return c.Predicate(`%s > %s`, arg) }
-func (c Col[T]) GTE(arg T) Cond             { return c.Predicate(`%s >= %s`, arg) }
-func (c Col[T]) LT(arg T) Cond              { return c.Predicate(`%s < %s`, arg) }
-func (c Col[T]) LTE(arg T) Cond             { return c.Predicate(`%s <= %s`, arg) }
-func (c Col[T]) StartWith(str string) Cond  { return c.Predicate(`%s LIKE %s`, str+"%") }
-func (c Col[T]) NStartWith(str string) Cond { return c.Predicate(`%s NOT LIKE %s`, str+"%") }
-func (c Col[T]) EndWith(str string) Cond    { return c.Predicate(`%s LIKE %s`, "%"+str) }
-func (c Col[T]) NEndWith(str string) Cond   { return c.Predicate(`%s NOT LIKE %s`, "%"+str) }
-func (c Col[T]) Contains(str string) Cond   { return c.Predicate(`%s LIKE %s`, "%"+str+"%") }
-func (c Col[T]) NContains(str string) Cond  { return c.Predicate(`%s NOT LIKE %s`, "%"+str+"%") }
-func (c Col[T]) Between(start, end T) Cond  { return c.Predicate(`%s BETWEEN %s AND %s`, start, end) }
-func (c Col[T]) NBetween(start, end T) Cond {
-	return c.Predicate(`%s NOT BETWEEN %s AND %s`, start, end)
+func (c Col[T]) EQ(arg T) Cond              { return c.Predicate(`%s = %s`, Bind(arg)) }
+func (c Col[T]) NE(arg T) Cond              { return c.Predicate(`%s <> %s`, Bind(arg)) }
+func (c Col[T]) GT(arg T) Cond              { return c.Predicate(`%s > %s`, Bind(arg)) }
+func (c Col[T]) GTE(arg T) Cond             { return c.Predicate(`%s >= %s`, Bind(arg)) }
+func (c Col[T]) LT(arg T) Cond              { return c.Predicate(`%s < %s`, Bind(arg)) }
+func (c Col[T]) LTE(arg T) Cond             { return c.Predicate(`%s <= %s`, Bind(arg)) }
+func (c Col[T]) StartWith(str string) Cond  { return c.Predicate(`%s LIKE %s`, Bind(str+"%")) }
+func (c Col[T]) NStartWith(str string) Cond { return c.Predicate(`%s NOT LIKE %s`, Bind(str+"%")) }
+func (c Col[T]) EndWith(str string) Cond    { return c.Predicate(`%s LIKE %s`, Bind("%"+str)) }
+func (c Col[T]) NEndWith(str string) Cond   { return c.Predicate(`%s NOT LIKE %s`, Bind("%"+str)) }
+func (c Col[T]) Contains(str string) Cond   { return c.Predicate(`%s LIKE %s`, Bind("%"+str+"%")) }
+func (c Col[T]) NContains(str string) Cond  { return c.Predicate(`%s NOT LIKE %s`, Bind("%"+str+"%")) }
+func (c Col[T]) Between(start, end T) Cond {
+	return c.Predicate(`%s BETWEEN %s AND %s`, Bind(start), Bind(end))
 }
+
+func (c Col[T]) NBetween(start, end T) Cond {
+	return c.Predicate(`%s NOT BETWEEN %s AND %s`, Bind(start), Bind(end))
+}
+
+func (c Col[T]) EQLiteral(arg T) Cond             { return c.Predicate(`%s = %s`, Literal(arg)) }
+func (c Col[T]) NELiteral(arg T) Cond             { return c.Predicate(`%s <> %s`, Literal(arg)) }
+func (c Col[T]) GTLiteral(arg T) Cond             { return c.Predicate(`%s > %s`, Literal(arg)) }
+func (c Col[T]) GTELiteral(arg T) Cond            { return c.Predicate(`%s >= %s`, Literal(arg)) }
+func (c Col[T]) LTLiteral(arg T) Cond             { return c.Predicate(`%s < %s`, Literal(arg)) }
+func (c Col[T]) LTELiteral(arg T) Cond            { return c.Predicate(`%s <= %s`, Literal(arg)) }
+func (c Col[T]) StartWithLiteral(str string) Cond { return c.Predicate(`%s LIKE %s`, Literal(str+"%")) }
+func (c Col[T]) NStartWithLiteral(str string) Cond {
+	return c.Predicate(`%s NOT LIKE %s`, Literal(str+"%"))
+}
+func (c Col[T]) EndWithLiteral(str string) Cond { return c.Predicate(`%s LIKE %s`, Literal("%"+str)) }
+func (c Col[T]) NEndWithLiteral(str string) Cond {
+	return c.Predicate(`%s NOT LIKE %s`, Literal("%"+str))
+}
+
+func (c Col[T]) ContainsLiteral(str string) Cond {
+	return c.Predicate(`%s LIKE %s`, Literal("%"+str+"%"))
+}
+
+func (c Col[T]) NContainsLiteral(str string) Cond {
+	return c.Predicate(`%s NOT LIKE %s`, Literal("%"+str+"%"))
+}
+
+func (c Col[T]) BetweenLiteral(start, end T) Cond {
+	return c.Predicate(`%s BETWEEN %s AND %s`, Literal(start), Literal(end))
+}
+
+func (c Col[T]) NBetweenLiteral(start, end T) Cond {
+	return c.Predicate(`%s NOT BETWEEN %s AND %s`, Literal(start), Literal(end))
+}
+
 func (c Col[T]) In(args ...T) Cond {
 	if len(args) == 0 {
 		return rawCondition("1 = 0")
 	}
 
-	return c.Predicate(`%s IN (%s)`, newValuesExpression(args))
+	return c.Predicate(`%s IN (%s)`, BindSlice(args))
 }
 
 func (c Col[T]) NIn(args ...T) Cond {
@@ -155,7 +202,23 @@ func (c Col[T]) NIn(args ...T) Cond {
 		return rawCondition("1 = 1")
 	}
 
-	return c.Predicate(`%s NOT IN (%s)`, newValuesExpression(args))
+	return c.Predicate(`%s NOT IN (%s)`, BindSlice(args))
+}
+
+func (c Col[T]) InLiteral(args ...T) Cond {
+	if len(args) == 0 {
+		return rawCondition("1 = 0")
+	}
+
+	return c.Predicate(`%s IN (%s)`, literalValues(args))
+}
+
+func (c Col[T]) NInLiteral(args ...T) Cond {
+	if len(args) == 0 {
+		return rawCondition("1 = 1")
+	}
+
+	return c.Predicate(`%s NOT IN (%s)`, literalValues(args))
 }
 func (c Col[T]) IsNull() Cond    { return c.Predicate(`%s IS NULL`) }
 func (c Col[T]) IsNotNull() Cond { return c.Predicate(`%s IS NOT NULL`) }
@@ -232,12 +295,13 @@ func (c Col[T]) Predicate(op string, args ...any) Cond {
 	formatArgs = append(formatArgs, c.rawQualifiedName())
 
 	for _, arg := range args {
-		formatArgs = append(formatArgs, argumentToString(arg))
+		formatArgs = append(formatArgs, argumentToExpression(arg).Expr())
 	}
 
 	return Cond{
 		tables: tables,
 		expr:   fmt.Sprintf(op, formatArgs...),
+		args:   collectExpressionArgs(args...),
 	}
 }
 
@@ -296,22 +360,29 @@ func validatePredicateFormat(op string, placeholderCount int) error {
 // Expression interface for SQL expressions
 type Expression interface {
 	Expr() string
+	Args() []any
 }
 
 // variableExpression represents a variable placeholder (?)
 type variableExpression struct{}
 
 func (v variableExpression) Expr() string { return "?" }
+func (v variableExpression) Args() []any  { return []any{externalArgMarker} }
 
 var Var variableExpression
 
 // valuesExpression represents a list of values in SQL
 type valuesExpression struct {
 	expr string
+	args []any
 }
 
 func (a valuesExpression) Expr() string {
 	return a.expr
+}
+
+func (a valuesExpression) Args() []any {
+	return append([]any(nil), a.args...)
 }
 
 func newValuesExpression(args any) valuesExpression {
@@ -321,28 +392,69 @@ func newValuesExpression(args any) valuesExpression {
 	}
 
 	values := make([]string, v.Len())
+	bindArgs := make([]any, v.Len())
+
 	for i := range v.Len() {
-		values[i] = valueOrPanic(v.Index(i).Interface())
+		value := v.Index(i).Interface()
+		validatePredicateValue(value)
+
+		values[i] = "?"
+		bindArgs[i] = value
 	}
 
 	return valuesExpression{
 		expr: strings.Join(values, ", "),
+		args: bindArgs,
 	}
 }
 
-// argumentToString converts various argument types to their SQL string representation
-func argumentToString(arg any) string {
+type rawExpression struct {
+	expr string
+	args []any
+}
+
+func (r rawExpression) Expr() string { return r.expr }
+func (r rawExpression) Args() []any  { return append([]any(nil), r.args...) }
+
+func Bind(value any) Expression {
+	validatePredicateValue(value)
+
+	return rawExpression{expr: "?", args: []any{value}}
+}
+
+func BindSlice(values any) Expression {
+	return newValuesExpression(values)
+}
+
+func Literal(value any) Expression {
+	return rawExpression{expr: valueOrPanic(value)}
+}
+
+func literalValues(values any) Expression {
+	v := reflect.ValueOf(values)
+	if v.Kind() != reflect.Slice {
+		panic(fmt.Sprintf("expected slice, got %T", values))
+	}
+
+	parts := make([]string, v.Len())
+	for i := range v.Len() {
+		parts[i] = valueOrPanic(v.Index(i).Interface())
+	}
+
+	return rawExpression{expr: strings.Join(parts, ", ")}
+}
+
+// argumentToExpression converts various argument types to their SQL expression representation.
+func argumentToExpression(arg any) Expression {
 	switch v := arg.(type) {
 	case Expression:
-		return v.Expr()
+		return v
 	case Column:
-		return rawColumnQualifiedName(v)
+		return rawExpression{expr: rawColumnQualifiedName(v), args: expressionArgs(v)}
 	case *Query:
-		return formatSubquery(v)
-	case string:
-		return valueOrPanic(v)
+		return rawExpression{expr: formatSubquery(v), args: queryArgs(v)}
 	default:
-		return valueOrPanic(arg)
+		return Literal(v)
 	}
 }
 
@@ -355,12 +467,60 @@ func formatSubquery(q *Query) string {
 	return fmt.Sprintf("(%s)", q.listSQL)
 }
 
+func collectExpressionArgs(args ...any) []any {
+	var result []any
+
+	for _, arg := range args {
+		result = append(result, argumentToExpression(arg).Args()...)
+	}
+
+	return result
+}
+
+func collectConditionArgs(conds ...Condition) []any {
+	var result []any
+
+	for _, cond := range conds {
+		if cond == nil {
+			continue
+		}
+
+		result = append(result, cond.Args()...)
+	}
+
+	return result
+}
+
+func expressionArgs(col Column) []any {
+	type expressionArgser interface {
+		expressionArgs() []any
+	}
+
+	if withArgs, ok := col.(expressionArgser); ok {
+		return withArgs.expressionArgs()
+	}
+
+	return nil
+}
+
+func validatePredicateValue(arg any) {
+	val, err := sqlValue(arg)
+	if err != nil {
+		panic(fmt.Sprintf("failed to convert value %v (%T): %v", arg, arg, err))
+	}
+
+	if val == sqlNullLiteral {
+		panic("null literal values are not supported in predicates; use IsNull/IsNotNull explicitly")
+	}
+}
+
 // valueOrPanic converts a value to its SQL representation or panics
 func valueOrPanic(arg any) string {
 	val, err := sqlValue(arg)
 	if err != nil {
 		panic(fmt.Sprintf("failed to convert value %v (%T): %v", arg, arg, err))
 	}
+
 	if val == "NULL" {
 		panic("null literal values are not supported in predicates; use IsNull/IsNotNull explicitly")
 	}
@@ -372,7 +532,7 @@ func valueOrPanic(arg any) string {
 // This function supports all standard SQL types and their Go equivalents
 func sqlValue(arg any) (string, error) {
 	if isNilValue(arg) {
-		return "NULL", nil
+		return sqlNullLiteral, nil
 	}
 
 	// Handle driver.Valuer interface (e.g., time.Time, sql.Null* types, custom types)
@@ -383,7 +543,7 @@ func sqlValue(arg any) (string, error) {
 		}
 
 		if val == nil {
-			return "NULL", nil
+			return sqlNullLiteral, nil
 		}
 		// Recursively handle the converted value
 		return sqlValue(val)
@@ -393,7 +553,7 @@ func sqlValue(arg any) (string, error) {
 	v := reflect.ValueOf(arg)
 	for v.Kind() == reflect.Ptr {
 		if v.IsNil() {
-			return "NULL", nil
+			return sqlNullLiteral, nil
 		}
 
 		v = v.Elem()

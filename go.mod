@@ -7,13 +7,15 @@ require (
 	github.com/serenize/snaker v0.0.0-20201027110005-a7ad2135616e
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
+	golang.org/x/tools v0.38.0
 	gopkg.in/gorp.v2 v2.2.0
 	gopkg.in/nullbio/null.v6 v6.0.0-20161116030900-40264a2e6b79
 )
 
 require (
 	github.com/google/go-cmp v0.7.0 // indirect
-	golang.org/x/tools v0.38.0 // indirect
+	golang.org/x/mod v0.29.0 // indirect
+	golang.org/x/sync v0.17.0 // indirect
 )
 
 require (

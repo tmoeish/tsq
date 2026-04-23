@@ -257,6 +257,7 @@ func TestQueryBuilder_Where(t *testing.T) {
 func TestQueryBuilder_WhereRejectsNilCondition(t *testing.T) {
 	table := newMockTable("users")
 	col := newMockColumn(table, "id")
+
 	var cond Condition
 
 	_, err := Select(col).Where(cond).Build()
@@ -480,7 +481,7 @@ func TestQueryBuilder_HavingKeepsRawClauseForDialectRendering(t *testing.T) {
 	}
 
 	rendered := renderSQLForDialect(q.listSQL, gorp.MySQLDialect{})
-	if !strings.Contains(rendered, "HAVING `users`.`id` > 1") {
+	if !strings.Contains(rendered, "HAVING `users`.`id` > ?") {
 		t.Fatalf("expected HAVING clause to use dialect identifiers, got %s", rendered)
 	}
 
@@ -496,6 +497,7 @@ func TestQueryBuilder_CrossJoinKeepsSelectedBaseTable(t *testing.T) {
 
 	query := Select(userID).CrossJoin(orders).MustBuild()
 	want := `SELECT "users"."id" FROM "users" CROSS JOIN "orders"`
+
 	if query.ListSQL() != want {
 		t.Fatalf("expected cross join SQL %q, got %q", want, query.ListSQL())
 	}
@@ -603,6 +605,7 @@ func TestQueryBuilder_Build_RejectsNilReceiver(t *testing.T) {
 func TestQueryBuilder_MethodsHandleNilReceiverWithoutPanicking(t *testing.T) {
 	users := newMockTable("users")
 	userID := NewCol[int](users, "id", "id", nil)
+
 	var qb *QueryBuilder
 
 	_, err := qb.
@@ -657,4 +660,8 @@ func (m *mockCondition) Clause() string {
 
 func (m *mockCondition) Tables() map[string]Table {
 	return m.tables
+}
+
+func (m *mockCondition) Args() []any {
+	return nil
 }

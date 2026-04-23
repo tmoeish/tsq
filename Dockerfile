@@ -20,11 +20,17 @@ RUN go mod verify
 # Copy source code
 COPY . .
 
+# Build metadata
+ARG VERSION=dev
+ARG BUILD_TIME=unknown
+ARG GIT_COMMIT=unknown
+ARG GIT_BRANCH=unknown
+
 # Build the application
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
-    -ldflags='-w -s -extldflags "-static"' \
+    -ldflags='-w -s -extldflags "-static" -X github.com/tmoeish/tsq.Version=${VERSION} -X github.com/tmoeish/tsq.BuildTime=${BUILD_TIME} -X github.com/tmoeish/tsq.GitCommit=${GIT_COMMIT} -X github.com/tmoeish/tsq.GitBranch=${GIT_BRANCH}' \
     -a -installsuffix cgo \
-    -o tsq .
+    -o tsq ./cmd/tsq
 
 # Final stage
 FROM scratch

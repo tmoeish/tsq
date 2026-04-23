@@ -215,7 +215,7 @@ type UserOrder struct {
     OrderAmount float64     `json:"order_amount" tsq:"Order.Amount"`
     OrderPrice  float64     `json:"order_price"  tsq:"Order.Price"`
     OrderStatus OrderStatus `json:"order_status" tsq:"Order.Status"`
-    OrderTime   string      `json:"order_time"   tsq:"Order.CT"`
+    OrderTime   time.Time   `json:"order_time"   tsq:"Order.CT"`
     ItemID    int64  `json:"item_id"    tsq:"Item.ID"`
     ItemName  string `json:"item_name"  tsq:"Item.Name"`
     ItemPrice int64  `json:"item_price" tsq:"Item.Price"`
@@ -235,6 +235,12 @@ query := tsq.
     Where(database.User_Name.Contains("admin")).
     MustBuild()
 users, err := tsq.List[database.User](ctx, dbmap, query)
+
+// 需要保留旧式 SQL literal 行为时，可使用显式 literal helper
+literalQuery := tsq.
+    Select(database.User_ID).
+    Where(database.User_Name.EQLiteral("admin")).
+    MustBuild()
 
 // 分页查询
 pageReq := &tsq.PageReq{
@@ -314,5 +320,5 @@ make vet           # 代码检查
 make lint          # 静态分析
 make clean         # 清理构建产物
 make install       # 安装到 GOPATH/bin
-make update-sample # 更新示例代码
+make update-examples # 更新示例代码
 ```

@@ -181,6 +181,7 @@ func TestSqlEscapeString(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
+
 			if result != tt.expected {
 				t.Errorf("Expected %q, got %q", tt.expected, result)
 			}
@@ -273,6 +274,7 @@ func TestCondition_EmptyInShortCircuits(t *testing.T) {
 	if got := col.In().Clause(); got != "1 = 0" {
 		t.Fatalf("expected empty IN to short-circuit to false predicate, got %q", got)
 	}
+
 	if len(col.In().Tables()) != 0 {
 		t.Fatalf("expected empty IN short-circuit to avoid leaking source tables")
 	}
@@ -280,6 +282,7 @@ func TestCondition_EmptyInShortCircuits(t *testing.T) {
 	if got := col.NIn().Clause(); got != "1 = 1" {
 		t.Fatalf("expected empty NOT IN to short-circuit to true predicate, got %q", got)
 	}
+
 	if len(col.NIn().Tables()) != 0 {
 		t.Fatalf("expected empty NOT IN short-circuit to avoid leaking source tables")
 	}
@@ -288,8 +291,13 @@ func TestCondition_EmptyInShortCircuits(t *testing.T) {
 func TestConditionClauseRendersCanonicalSQL(t *testing.T) {
 	col := NewCol[int](newMockTable("users"), "id", "id", nil)
 
-	if got := col.EQ(1).Clause(); got != `"users"."id" = 1` {
+	cond := col.EQ(1)
+	if got := cond.Clause(); got != `"users"."id" = ?` {
 		t.Fatalf("expected public condition clause to render canonical SQL, got %q", got)
+	}
+
+	if got := cond.Args(); len(got) != 1 || got[0] != 1 {
+		t.Fatalf("expected parameterized predicate args [1], got %#v", got)
 	}
 }
 
@@ -390,6 +398,7 @@ func TestCondition_ExistsSubIsStandalonePredicate(t *testing.T) {
 
 	got := renderCanonicalSQL(col.ExistsSub(subquery).Clause())
 	want := `EXISTS (SELECT "orders"."id" FROM "orders")`
+
 	if got != want {
 		t.Fatalf("expected exists clause %q, got %q", want, got)
 	}

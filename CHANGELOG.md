@@ -5,18 +5,31 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 项目遵循 [语义化版本控制](https://semver.org/lang/zh-CN/)。
 
-## [Unreleased]
+## [0.1.0] - 2026-04-23
 
 ### 新增
+- 增加索引自动校验和创建功能，支持 MySQL, SQLite, PostgreSQL
+- 增加 `WrapExecutor` 用于跨 DB/TX 的方言透传
+- 增加 `MatchByInputOrder` 辅助函数用于结果重排序
+- 支持 `InitWithOptions` 进行更灵活的初始化配置
+- 增加了 Docker 构建支持
+- 增加了 GoReleaser 自动化发布配置
 - 完善项目文档结构
 - 添加贡献指南和许可证
 - 增加项目标准化配置
 
 ### 改进
+- 增强 SQL 渲染器，支持更复杂的标识符引号和注释保留
+- 优化 Tracing 机制，支持全局 Tracer 的快照和恢复
+- 改进 CI 工作流，增加冒烟测试和示例自动更新校验
+- 优化了 Makefile 的跨平台兼容性
+- 增强了 DTO 生成器的类型安全
 - 优化 README 文档
 - 更新项目介绍和使用指南
 
 ### 修复
+- 修复了某些方言下索引重复创建的问题
+- 修复了 tracing 中 reflect 使用的一些潜在问题
 - 修复文档链接和格式问题
 
 ## [1.0.20] - 2024-XX-XX

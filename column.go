@@ -31,6 +31,9 @@ type Col[T any] struct {
 	qualifiedName string       // 完整列名（包含表名）
 	jsonFieldName string       // JSON 标签
 	fieldPointer  FieldPointer // 指针函数
+	args          []any
+	aggregate     bool
+	distinct      bool
 }
 
 // NewCol creates a new typed column for a table
@@ -42,7 +45,7 @@ func NewCol[T any](table Table, baseName string, jsonFieldName string, fieldPoin
 	return Col[T]{
 		table:         table,
 		name:          baseName,
-		qualifiedName: rawQualifiedIdentifier(table.Table(), baseName),
+		qualifiedName: rawQualifiedIdentifierForTable(table, baseName),
 		jsonFieldName: jsonFieldName,
 		fieldPointer:  fieldPointer,
 	}
@@ -98,5 +101,20 @@ func (c Col[T]) Into(fieldPointer FieldPointer, jsonFieldName string) *Col[T] {
 		qualifiedName: c.qualifiedName,
 		fieldPointer:  fieldPointer,
 		jsonFieldName: jsonFieldName,
+		args:          append([]any(nil), c.args...),
+		aggregate:     c.aggregate,
+		distinct:      c.distinct,
 	}
+}
+
+func (c Col[T]) expressionArgs() []any {
+	return append([]any(nil), c.args...)
+}
+
+func (c Col[T]) isAggregateExpression() bool {
+	return c.aggregate
+}
+
+func (c Col[T]) isDistinctExpression() bool {
+	return c.distinct
 }

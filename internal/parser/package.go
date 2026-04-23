@@ -3,17 +3,18 @@ package parser
 import (
 	"container/list"
 	"go/ast"
-	"go/build"
 	"go/parser"
 	"go/token"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 
 	"github.com/juju/errors"
 	"github.com/tmoeish/tsq"
+	"golang.org/x/tools/go/packages"
 )
 
 // ParseResult 解析结果
@@ -75,6 +76,14 @@ type ParseState struct {
 	structMap       map[tsq.TypeInfo]*StructInfo // 已解析的结构体映射
 	parsedPackages  map[tsq.PackageInfo]bool     // 已解析的包集合
 	pendingPackages *list.List                   // 待解析的包队列
+}
+
+type loadedPackage struct {
+	Dir        string
+	ImportPath string
+	Name       string
+	GoFiles    []string
+	Imports    map[string]tsq.PackageInfo
 }
 
 // parsePackagesRecursively 递归解析包
@@ -408,6 +417,7 @@ func parsePackageAliases(file *ast.File) (map[string]tsq.PackageInfo, error) {
 
 			// 显式别名
 			packageAliases[importSpec.Name.Name] = pkg
+
 			continue
 		}
 
@@ -429,14 +439,14 @@ func parsePackageAliases(file *ast.File) (map[string]tsq.PackageInfo, error) {
 
 // getPackageInfo 根据导入路径获取包信息
 func getPackageInfo(importPath string) (tsq.PackageInfo, error) {
-	buildPkg, err := build.Default.Import(importPath, "", 0)
+	pkg, err := loadSinglePackage(importPath)
 	if err != nil {
 		return tsq.PackageInfo{}, NewPackageImportError(importPath, err)
 	}
 
 	return tsq.PackageInfo{
-		Path: buildPkg.ImportPath,
-		Name: buildPkg.Name,
+		Path: pkg.ImportPath,
+		Name: pkg.Name,
 	}, nil
 }
 
@@ -480,35 +490,88 @@ func resolveEmbeddedFields(
 	return nil
 }
 
-func importBuildPackage(packagePath string) (*build.Package, error) {
+func importBuildPackage(packagePath string) (*loadedPackage, error) {
+	return loadSinglePackage(packagePath)
+}
+
+func loadSinglePackage(packagePath string) (*loadedPackage, error) {
+	cfg := &packages.Config{
+		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles | packages.NeedImports | packages.NeedModule,
+	}
+
+	pattern := packagePath
+
 	if filepath.IsAbs(packagePath) {
-		buildPkg, err := build.Default.ImportDir(packagePath, 0)
+		cfg.Dir = packagePath
+		pattern = "."
+	} else if strings.HasPrefix(packagePath, ".") {
+		absPath, err := filepath.Abs(packagePath)
 		if err != nil {
 			return nil, err
 		}
 
-		if buildPkg.ImportPath == "." {
-			buildPkg.ImportPath = packagePath
+		if _, statErr := os.Stat(absPath); statErr != nil {
+			if _, currentFile, _, ok := runtime.Caller(0); ok {
+				candidate := filepath.Clean(filepath.Join(filepath.Dir(currentFile), packagePath))
+				if _, candidateErr := os.Stat(candidate); candidateErr == nil {
+					absPath = candidate
+				}
+			}
 		}
 
-		return buildPkg, nil
+		cfg.Dir = absPath
+		pattern = "."
 	}
 
-	srcDir := ""
-	if strings.HasPrefix(packagePath, ".") {
-		wd, err := os.Getwd()
-		if err != nil {
-			return nil, err
-		}
-		srcDir = wd
-	}
-
-	buildPkg, err := build.Default.Import(packagePath, srcDir, 0)
+	pkgs, err := packages.Load(cfg, pattern)
 	if err != nil {
 		return nil, err
 	}
 
-	return buildPkg, nil
+	for _, pkg := range pkgs {
+		if len(pkg.Errors) > 0 {
+			return nil, errors.Errorf("failed to load package %s", packagePath)
+		}
+	}
+
+	if len(pkgs) == 0 {
+		return nil, errors.Errorf("package %s not found", packagePath)
+	}
+
+	pkg := pkgs[0]
+	goFiles := pkg.GoFiles
+
+	if len(goFiles) == 0 {
+		goFiles = pkg.CompiledGoFiles
+	}
+
+	result := &loadedPackage{
+		Name:       pkg.Name,
+		ImportPath: pkg.PkgPath,
+		GoFiles:    make([]string, 0, len(goFiles)),
+		Imports:    make(map[string]tsq.PackageInfo, len(pkg.Imports)),
+	}
+
+	for _, file := range goFiles {
+		if result.Dir == "" {
+			result.Dir = filepath.Dir(file)
+		}
+
+		result.GoFiles = append(result.GoFiles, filepath.Base(file))
+	}
+
+	if result.ImportPath == "" && result.Dir != "" {
+		result.ImportPath = result.Dir
+	}
+
+	for importPath, imported := range pkg.Imports {
+		result.Imports[importPath] = tsq.PackageInfo{
+			Path: imported.PkgPath,
+			Name: imported.Name,
+		}
+	}
+
+	return result, nil
 }
 
 // copyEmbeddedFields 复制嵌入结构的字段

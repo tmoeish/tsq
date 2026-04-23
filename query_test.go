@@ -394,7 +394,7 @@ func TestQuery_buildPageSQLsRejectsAmbiguousSortField(t *testing.T) {
 	userID := newMockColumn(users, "id")
 	orderID := newMockColumn(orders, "id")
 
-	query := Select(userID, orderID).MustBuild()
+	query := Select(userID, orderID).AllowCartesianProduct().MustBuild()
 
 	_, _, err := query.buildPageSQLs(&PageReq{
 		OrderBy: "id",
@@ -415,6 +415,7 @@ func TestQuery_buildPageSQLsIgnoresHiddenJSONSortAlias(t *testing.T) {
 	hidden := NewCol[string](users, "secret", "-", nil)
 
 	query := Select(hidden).MustBuild()
+
 	_, _, err := query.buildPageSQLs(&PageReq{
 		OrderBy: "-",
 		Order:   "ASC",
@@ -525,6 +526,7 @@ func TestRenderSQLForDialectPostgres(t *testing.T) {
 
 	got := renderSQLForDialect(query.listSQL, gorp.PostgresDialect{})
 	want := `SELECT "users"."id" FROM "users" WHERE "users"."id" = $1`
+
 	if got != want {
 		t.Fatalf("expected postgres SQL %q, got %q", want, got)
 	}
@@ -538,6 +540,7 @@ func TestRenderDeleteByIDsSQLForPostgres(t *testing.T) {
 
 	got := renderSQLForDialect(sqlStr, gorp.PostgresDialect{})
 	want := `DELETE FROM "users" WHERE "id" IN ($1,$2)`
+
 	if got != want {
 		t.Fatalf("expected postgres delete SQL %q, got %q", want, got)
 	}
@@ -578,6 +581,7 @@ func TestPageFnRejectsNilQuery(t *testing.T) {
 
 func TestQueryCountRejectsTypedNilExecutor(t *testing.T) {
 	var db *gorp.DbMap
+
 	users := newMockTable("users")
 	userID := newMockColumn(users, "id")
 	query := Select(userID).MustBuild()
@@ -594,6 +598,7 @@ func TestQueryCountRejectsTypedNilExecutor(t *testing.T) {
 
 func TestInsertRejectsTypedNilExecutor(t *testing.T) {
 	var db *gorp.DbMap
+
 	value := 1
 
 	err := Insert(context.Background(), db, &value)
@@ -608,6 +613,7 @@ func TestInsertRejectsTypedNilExecutor(t *testing.T) {
 
 func TestInsertRejectsNilItem(t *testing.T) {
 	db := &gorp.DbMap{}
+
 	var value *int
 
 	err := Insert(context.Background(), db, value)
@@ -622,6 +628,7 @@ func TestInsertRejectsNilItem(t *testing.T) {
 
 func TestUpdateRejectsNilItem(t *testing.T) {
 	db := &gorp.DbMap{}
+
 	var value *int
 
 	err := Update(context.Background(), db, value)
@@ -636,6 +643,7 @@ func TestUpdateRejectsNilItem(t *testing.T) {
 
 func TestDeleteRejectsNilItem(t *testing.T) {
 	db := &gorp.DbMap{}
+
 	var value *int
 
 	err := Delete(context.Background(), db, value)
@@ -650,6 +658,7 @@ func TestDeleteRejectsNilItem(t *testing.T) {
 
 func TestBatchInsertRejectsTypedNilExecutor(t *testing.T) {
 	var db *gorp.DbMap
+
 	row := mockTable{tableName: "users"}
 
 	err := BatchInsert(context.Background(), db, []*mockTable{&row})
@@ -663,7 +672,7 @@ func TestBatchInsertRejectsTypedNilExecutor(t *testing.T) {
 }
 
 func TestQueryCountRejectsExecutorWithoutDialectForRenderedSQL(t *testing.T) {
-	db := &gorp.DbMap{}
+	db := newDBMapWithoutDialect(t)
 	users := newMockTable("users")
 	userID := NewCol[int](users, "id", "id", nil)
 	query := Select(userID).MustBuild()
@@ -679,7 +688,7 @@ func TestQueryCountRejectsExecutorWithoutDialectForRenderedSQL(t *testing.T) {
 }
 
 func TestBatchDeleteByIDsRejectsExecutorWithoutDialectForRenderedSQL(t *testing.T) {
-	db := &gorp.DbMap{}
+	db := newDBMapWithoutDialect(t)
 
 	err := BatchDeleteByIDs(context.Background(), db, "users", "id", []any{1})
 	if err == nil {
@@ -755,6 +764,7 @@ func newScanValidationDBMap(t *testing.T) *gorp.DbMap {
 	if err != nil {
 		t.Fatalf("failed to open sqlite database: %v", err)
 	}
+
 	t.Cleanup(func() {
 		_ = db.Close()
 	})
@@ -764,6 +774,21 @@ func newScanValidationDBMap(t *testing.T) *gorp.DbMap {
 	}
 
 	return &gorp.DbMap{Db: db, Dialect: gorp.SqliteDialect{}}
+}
+
+func newDBMapWithoutDialect(t *testing.T) *gorp.DbMap {
+	t.Helper()
+
+	db, err := sql.Open("sqlite3", ":memory:")
+	if err != nil {
+		t.Fatalf("failed to open sqlite database: %v", err)
+	}
+
+	t.Cleanup(func() {
+		_ = db.Close()
+	})
+
+	return &gorp.DbMap{Db: db}
 }
 
 func TestListValidatesScanDestEvenWhenResultIsEmpty(t *testing.T) {

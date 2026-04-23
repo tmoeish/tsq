@@ -125,7 +125,7 @@ make test
 make test-coverage
 
 # 运行特定包的测试
-go test -v ./parser/...
+go test -v ./internal/parser/...
 ```
 
 ### 编写测试
@@ -191,7 +191,7 @@ make build
 make install
 
 # 更新示例代码
-make update-sample
+make update-examples
 ```
 
 ### 发布流程

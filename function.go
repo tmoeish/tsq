@@ -30,6 +30,9 @@ func (c Col[T]) Fn(format string) Col[T] {
 		name:          c.name,          // 保持原始名称
 		fieldPointer:  c.fieldPointer,  // 保持原始指针函数
 		jsonFieldName: c.jsonFieldName, // 保持原始JSON标签
+		args:          append([]any(nil), c.args...),
+		aggregate:     c.aggregate,
+		distinct:      c.distinct,
 	}
 }
 
@@ -54,6 +57,46 @@ func (c Col[T]) Fn0(fn string) Col[T] {
 		name:          c.name,          // 保持原始名称
 		fieldPointer:  c.fieldPointer,  // 保持原始指针函数
 		jsonFieldName: c.jsonFieldName, // 保持原始JSON标签
+		args:          append([]any(nil), c.args...),
+		aggregate:     c.aggregate,
+		distinct:      c.distinct,
+	}
+}
+
+func (c Col[T]) FnExpr(format string, args ...any) Col[T] {
+	if strings.TrimSpace(format) == "" {
+		panic("function format cannot be empty")
+	}
+
+	placeholderCount, err := countStringFormatPlaceholders(format)
+	if err != nil {
+		panic(err.Error())
+	}
+
+	if placeholderCount != len(args)+1 {
+		panic("function format placeholder count mismatch")
+	}
+
+	formatArgs := make([]any, 0, len(args)+1)
+	formatArgs = append(formatArgs, c.rawQualifiedName())
+
+	resultArgs := append([]any(nil), c.args...)
+
+	for _, arg := range args {
+		expr := argumentToExpression(arg)
+		formatArgs = append(formatArgs, expr.Expr())
+		resultArgs = append(resultArgs, expr.Args()...)
+	}
+
+	return Col[T]{
+		table:         c.table,
+		qualifiedName: fmt.Sprintf(format, formatArgs...),
+		name:          c.name,
+		fieldPointer:  c.fieldPointer,
+		jsonFieldName: c.jsonFieldName,
+		args:          resultArgs,
+		aggregate:     c.aggregate,
+		distinct:      c.distinct,
 	}
 }
 
@@ -62,33 +105,51 @@ func (c Col[T]) Fn0(fn string) Col[T] {
 // ================================================
 
 // Count returns COUNT(column) - counts non-null values
-func (c Col[T]) Count() Col[T] {
-	return c.Fn("COUNT(%s)")
+func (c Col[T]) Count() Col[int64] {
+	result := Col[int64](c.Fn("COUNT(%s)"))
+	result.aggregate = true
+
+	return result
 }
 
 // Sum returns SUM(column) - calculates sum of numeric values
 func (c Col[T]) Sum() Col[T] {
-	return c.Fn("SUM(%s)")
+	result := c.Fn("SUM(%s)")
+	result.aggregate = true
+
+	return result
 }
 
 // Avg returns AVG(column) - calculates average of numeric values
-func (c Col[T]) Avg() Col[T] {
-	return c.Fn("AVG(%s)")
+func (c Col[T]) Avg() Col[float64] {
+	result := Col[float64](c.Fn("AVG(%s)"))
+	result.aggregate = true
+
+	return result
 }
 
 // Max returns MAX(column) - finds maximum value
 func (c Col[T]) Max() Col[T] {
-	return c.Fn("MAX(%s)")
+	result := c.Fn("MAX(%s)")
+	result.aggregate = true
+
+	return result
 }
 
 // Min returns MIN(column) - finds minimum value
 func (c Col[T]) Min() Col[T] {
-	return c.Fn("MIN(%s)")
+	result := c.Fn("MIN(%s)")
+	result.aggregate = true
+
+	return result
 }
 
 // Distinct returns DISTINCT(column) - returns unique values
 func (c Col[T]) Distinct() Col[T] {
-	return c.Fn("DISTINCT(%s)")
+	result := c.Fn("DISTINCT(%s)")
+	result.distinct = true
+
+	return result
 }
 
 // ================================================
@@ -187,12 +248,12 @@ func (c Col[T]) Abs() Col[T] {
 // 条件函数 (Conditional Functions)
 // ================================================
 
-// Coalesce returns COALESCE(column, 'value') - returns first non-null value
-func (c Col[T]) Coalesce(value string) Col[T] {
-	return c.Fn(fmt.Sprintf("COALESCE(%%s, %s)", valueOrPanic(value)))
+// Coalesce returns COALESCE(column, value) - returns first non-null value
+func (c Col[T]) Coalesce(value any) Col[T] {
+	return c.FnExpr("COALESCE(%s, %s)", value)
 }
 
-// NullIf returns NULLIF(column, 'value') - returns NULL if values are equal
-func (c Col[T]) NullIf(value string) Col[T] {
-	return c.Fn(fmt.Sprintf("NULLIF(%%s, %s)", valueOrPanic(value)))
+// NullIf returns NULLIF(column, value) - returns NULL if values are equal
+func (c Col[T]) NullIf(value any) Col[T] {
+	return c.FnExpr("NULLIF(%s, %s)", value)
 }

@@ -2,9 +2,7 @@ package tsq
 
 import (
 	"encoding/base64"
-	"reflect"
 	"strings"
-	"unsafe"
 
 	"gopkg.in/gorp.v2"
 )
@@ -19,6 +17,14 @@ type rawQualifiedNamer interface {
 	rawQualifiedName() string
 }
 
+type dialectProvider interface {
+	TSQDialect() gorp.Dialect
+}
+
+type schemaTabler interface {
+	Schema() string
+}
+
 func rawIdentifier(name string) string {
 	return identifierMarkerPrefix +
 		identifierMarkerEncodingPrefix +
@@ -28,6 +34,22 @@ func rawIdentifier(name string) string {
 
 func rawQualifiedIdentifier(table, column string) string {
 	return rawIdentifier(table) + "." + rawIdentifier(column)
+}
+
+func rawTableIdentifier(table Table) string {
+	if table == nil {
+		return ""
+	}
+
+	if schemaTable, ok := table.(schemaTabler); ok && strings.TrimSpace(schemaTable.Schema()) != "" {
+		return rawIdentifier(schemaTable.Schema()) + "." + rawIdentifier(table.Table())
+	}
+
+	return rawIdentifier(table.Table())
+}
+
+func rawQualifiedIdentifierForTable(table Table, column string) string {
+	return rawTableIdentifier(table) + "." + rawIdentifier(column)
 }
 
 func rawColumnQualifiedName(col Column) string {
@@ -81,6 +103,7 @@ func containsIdentifierMarkersNeedingRender(raw string) bool {
 		switch {
 		case inLineComment:
 			i++
+
 			if ch == '\n' {
 				inLineComment = false
 			}
@@ -112,8 +135,10 @@ func containsIdentifierMarkersNeedingRender(raw string) bool {
 			if strings.HasPrefix(raw[i:], dollarQuoteTag) {
 				i += len(dollarQuoteTag)
 				dollarQuoteTag = ""
+
 				continue
 			}
+
 			i++
 		case strings.HasPrefix(raw[i:], identifierMarkerPrefix):
 			return true
@@ -121,6 +146,7 @@ func containsIdentifierMarkersNeedingRender(raw string) bool {
 			if tag, ok := matchDollarQuote(raw, i); ok {
 				dollarQuoteTag = tag
 				i += len(tag)
+
 				continue
 			}
 
@@ -138,6 +164,7 @@ func containsIdentifierMarkersNeedingRender(raw string) bool {
 					inBlockComment = true
 				}
 			}
+
 			i++
 		}
 	}
@@ -164,6 +191,7 @@ func containsBindVarsNeedingDialect(raw string) bool {
 		switch {
 		case inLineComment:
 			i++
+
 			if ch == '\n' {
 				inLineComment = false
 			}
@@ -195,8 +223,10 @@ func containsBindVarsNeedingDialect(raw string) bool {
 			if strings.HasPrefix(raw[i:], dollarQuoteTag) {
 				i += len(dollarQuoteTag)
 				dollarQuoteTag = ""
+
 				continue
 			}
+
 			i++
 		case ch == '?':
 			return true
@@ -204,6 +234,7 @@ func containsBindVarsNeedingDialect(raw string) bool {
 			if tag, ok := matchDollarQuote(raw, i); ok {
 				dollarQuoteTag = tag
 				i += len(tag)
+
 				continue
 			}
 
@@ -221,6 +252,7 @@ func containsBindVarsNeedingDialect(raw string) bool {
 					inBlockComment = true
 				}
 			}
+
 			i++
 		}
 	}
@@ -234,6 +266,7 @@ func renderSQLWithIdentifierQuoter(raw string, quoter func(string) string) strin
 	}
 
 	var builder strings.Builder
+
 	var (
 		inSingleStr    bool
 		inDoubleStr    bool
@@ -250,24 +283,30 @@ func renderSQLWithIdentifierQuoter(raw string, quoter func(string) string) strin
 		switch {
 		case inLineComment:
 			builder.WriteByte(ch)
+
 			i++
+
 			if ch == '\n' {
 				inLineComment = false
 			}
 		case inBlockComment:
 			builder.WriteByte(ch)
+
 			i++
 			if ch == '*' && i < len(raw) && raw[i] == '/' {
 				builder.WriteByte(raw[i])
+
 				i++
 				inBlockComment = false
 			}
 		case inSingleStr:
 			builder.WriteByte(ch)
+
 			i++
 			if ch == '\'' {
 				if i < len(raw) && raw[i] == '\'' {
 					builder.WriteByte(raw[i])
+
 					i++
 				} else {
 					inSingleStr = false
@@ -275,10 +314,12 @@ func renderSQLWithIdentifierQuoter(raw string, quoter func(string) string) strin
 			}
 		case inDoubleStr:
 			builder.WriteByte(ch)
+
 			i++
 			if ch == '"' {
 				if i < len(raw) && raw[i] == '"' {
 					builder.WriteByte(raw[i])
+
 					i++
 				} else {
 					inDoubleStr = false
@@ -289,16 +330,21 @@ func renderSQLWithIdentifierQuoter(raw string, quoter func(string) string) strin
 				builder.WriteString(dollarQuoteTag)
 				i += len(dollarQuoteTag)
 				dollarQuoteTag = ""
+
 				continue
 			}
+
 			builder.WriteByte(ch)
+
 			i++
 		case strings.HasPrefix(raw[i:], identifierMarkerPrefix):
 			start := i + len(identifierMarkerPrefix)
+
 			end := strings.Index(raw[start:], identifierMarkerSuffix)
 			if end < 0 {
 				builder.WriteString(raw[i:])
 				i = len(raw)
+
 				continue
 			}
 
@@ -309,6 +355,7 @@ func renderSQLWithIdentifierQuoter(raw string, quoter func(string) string) strin
 				builder.WriteString(tag)
 				dollarQuoteTag = tag
 				i += len(tag)
+
 				continue
 			}
 
@@ -326,7 +373,9 @@ func renderSQLWithIdentifierQuoter(raw string, quoter func(string) string) strin
 					inBlockComment = true
 				}
 			}
+
 			builder.WriteByte(ch)
+
 			i++
 		}
 	}
@@ -379,21 +428,26 @@ func rewriteBindVars(sql string, dialect gorp.Dialect) string {
 		switch {
 		case inLineComment:
 			builder.WriteByte(ch)
+
 			if ch == '\n' {
 				inLineComment = false
 			}
 		case inBlockComment:
 			builder.WriteByte(ch)
+
 			if ch == '*' && i+1 < len(sql) && sql[i+1] == '/' {
 				builder.WriteByte(sql[i+1])
+
 				i++
 				inBlockComment = false
 			}
 		case inSingleStr:
 			builder.WriteByte(ch)
+
 			if ch == '\'' {
 				if i+1 < len(sql) && sql[i+1] == '\'' {
 					builder.WriteByte(sql[i+1])
+
 					i++
 				} else {
 					inSingleStr = false
@@ -401,9 +455,11 @@ func rewriteBindVars(sql string, dialect gorp.Dialect) string {
 			}
 		case inDoubleStr:
 			builder.WriteByte(ch)
+
 			if ch == '"' {
 				if i+1 < len(sql) && sql[i+1] == '"' {
 					builder.WriteByte(sql[i+1])
+
 					i++
 				} else {
 					inDoubleStr = false
@@ -414,36 +470,44 @@ func rewriteBindVars(sql string, dialect gorp.Dialect) string {
 				builder.WriteString(dollarQuoteTag)
 				i += len(dollarQuoteTag) - 1
 				dollarQuoteTag = ""
+
 				continue
 			}
+
 			builder.WriteByte(ch)
 		default:
 			if tag, ok := matchDollarQuote(sql, i); ok {
 				builder.WriteString(tag)
 				dollarQuoteTag = tag
 				i += len(tag) - 1
+
 				continue
 			}
 
 			switch ch {
 			case '\'':
 				inSingleStr = true
+
 				builder.WriteByte(ch)
 			case '"':
 				inDoubleStr = true
+
 				builder.WriteByte(ch)
 			case '-':
 				if i+1 < len(sql) && sql[i+1] == '-' {
 					inLineComment = true
 				}
+
 				builder.WriteByte(ch)
 			case '/':
 				if i+1 < len(sql) && sql[i+1] == '*' {
 					inBlockComment = true
 				}
+
 				builder.WriteByte(ch)
 			case '?':
 				builder.WriteString(dialect.BindVar(bindIndex))
+
 				bindIndex++
 			default:
 				builder.WriteByte(ch)
@@ -494,31 +558,9 @@ func dialectForExecutor(exec gorp.SqlExecutor) gorp.Dialect {
 	switch tx := exec.(type) {
 	case *gorp.DbMap:
 		return tx.Dialect
+	case dialectProvider:
+		return tx.TSQDialect()
 	}
 
-	value := reflect.ValueOf(exec)
-	if !value.IsValid() || value.Kind() != reflect.Ptr || value.IsNil() {
-		return nil
-	}
-
-	elem := value.Elem()
-	if !elem.IsValid() {
-		return nil
-	}
-
-	field := elem.FieldByName("dbmap")
-	if !field.IsValid() || field.Kind() != reflect.Ptr || field.IsNil() {
-		return nil
-	}
-
-	if field.Type() != reflect.TypeOf((*gorp.DbMap)(nil)) {
-		return nil
-	}
-
-	dbMap := (*gorp.DbMap)(unsafe.Pointer(field.Pointer()))
-	if dbMap == nil {
-		return nil
-	}
-
-	return dbMap.Dialect
+	return nil
 }

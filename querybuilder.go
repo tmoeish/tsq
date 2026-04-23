@@ -1,6 +1,7 @@
 package tsq
 
 import (
+	"slices"
 	"sort"
 	"strings"
 
@@ -45,7 +46,8 @@ type QueryBuilder struct {
 	groupByCols      []Column
 	havingConditions []Condition
 
-	buildErr error
+	buildErr              error
+	allowCartesianProduct bool
 }
 
 func newQueryBuilder() *QueryBuilder {
@@ -65,6 +67,7 @@ func (qb *QueryBuilder) ensureInitialized() *QueryBuilder {
 	if qb == nil {
 		qb = newQueryBuilder()
 		qb.buildErr = errors.New("query builder cannot be nil")
+
 		return qb
 	}
 
@@ -99,6 +102,14 @@ func (qb *QueryBuilder) ensureInitialized() *QueryBuilder {
 	if qb.havingConditions == nil {
 		qb.havingConditions = make([]Condition, 0)
 	}
+
+	return qb
+}
+
+// AllowCartesianProduct keeps the legacy comma-separated FROM behavior.
+func (qb *QueryBuilder) AllowCartesianProduct() *QueryBuilder {
+	qb = qb.ensureInitialized()
+	qb.allowCartesianProduct = true
 
 	return qb
 }
@@ -157,16 +168,18 @@ func (qb *QueryBuilder) addQueryColumn(cols *[]Column, tables map[string]Table, 
 }
 
 func (qb *QueryBuilder) addCondition(target *[]Condition, clauses *[]string, tables map[string]Table, cond Condition) {
-	clause, condTables, err := validateConditionInput(cond)
+	clause, condTables, _, err := validateConditionInput(cond)
 	if err != nil {
 		qb.setBuildError(err)
 		return
 	}
 
 	*target = append(*target, cond)
+
 	if clauses != nil {
 		*clauses = append(*clauses, clause)
 	}
+
 	for tn, t := range condTables {
 		tables[tn] = t
 	}
@@ -399,92 +412,130 @@ func (qb *QueryBuilder) KwSearch(cols ...Column) *QueryBuilder {
 // SQL 构建方法
 // ================================================
 
-// buildCntSQL builds the COUNT query SQL
-func (qb *QueryBuilder) buildCntSQL() string {
+// buildCntSQL builds the COUNT query SQL.
+func (qb *QueryBuilder) buildCntSQL() (string, []any) {
 	if qb.requiresWrappedCount() {
-		return qb.wrapCountSQL(qb.buildListSQL())
+		listSQL, listArgs := qb.buildListSQL()
+		return qb.wrapCountSQL(listSQL), listArgs
 	}
 
-	return "SELECT COUNT(1) " + qb.buildListFrom() + qb.buildListWhere()
+	whereSQL, whereArgs := qb.buildListWhere()
+
+	return "SELECT COUNT(1) " + qb.buildListFrom() + whereSQL, whereArgs
 }
 
-// buildListSQL builds the main SELECT query SQL
-func (qb *QueryBuilder) buildListSQL() string {
-	return qb.buildSelect() + qb.buildListFrom() + qb.buildListWhere() + qb.buildGroupBy() + qb.buildHaving()
+// buildListSQL builds the main SELECT query SQL.
+func (qb *QueryBuilder) buildListSQL() (string, []any) {
+	selectSQL, selectArgs := qb.buildSelect()
+	whereSQL, whereArgs := qb.buildListWhere()
+	groupBySQL, groupByArgs := qb.buildGroupBy()
+	havingSQL, havingArgs := qb.buildHaving()
+
+	args := slices.Clone(selectArgs)
+	args = append(args, whereArgs...)
+	args = append(args, groupByArgs...)
+	args = append(args, havingArgs...)
+
+	return selectSQL + qb.buildListFrom() + whereSQL + groupBySQL + havingSQL, args
 }
 
-// buildKwCntSQL builds the keyword search COUNT query SQL
-func (qb *QueryBuilder) buildKwCntSQL() string {
+// buildKwCntSQL builds the keyword search COUNT query SQL.
+func (qb *QueryBuilder) buildKwCntSQL() (string, []any) {
 	if qb.requiresWrappedCount() {
-		return qb.wrapCountSQL(qb.buildKwListSQL())
+		listSQL, listArgs := qb.buildKwListSQL()
+		return qb.wrapCountSQL(listSQL), listArgs
 	}
 
-	return "SELECT COUNT(1) " + qb.buildPageFrom() + qb.buildPageWhere()
+	whereSQL, whereArgs := qb.buildPageWhere()
+
+	return "SELECT COUNT(1) " + qb.buildPageFrom() + whereSQL, whereArgs
 }
 
-// buildKwListSQL builds the keyword search SELECT query SQL
-func (qb *QueryBuilder) buildKwListSQL() string {
-	return qb.buildSelect() + qb.buildPageFrom() + qb.buildPageWhere() + qb.buildGroupBy() + qb.buildHaving()
+// buildKwListSQL builds the keyword search SELECT query SQL.
+func (qb *QueryBuilder) buildKwListSQL() (string, []any) {
+	selectSQL, selectArgs := qb.buildSelect()
+	whereSQL, whereArgs := qb.buildPageWhere()
+	groupBySQL, groupByArgs := qb.buildGroupBy()
+	havingSQL, havingArgs := qb.buildHaving()
+
+	args := slices.Clone(selectArgs)
+	args = append(args, whereArgs...)
+	args = append(args, groupByArgs...)
+	args = append(args, havingArgs...)
+
+	return selectSQL + qb.buildPageFrom() + whereSQL + groupBySQL + havingSQL, args
 }
 
-// buildSelect builds the SELECT clause
-func (qb *QueryBuilder) buildSelect() string {
-	return "SELECT " + strings.Join(qb.selectColFullnames, ", ")
+// buildSelect builds the SELECT clause.
+func (qb *QueryBuilder) buildSelect() (string, []any) {
+	args := make([]any, 0, len(qb.selectCols))
+	for _, col := range qb.selectCols {
+		args = append(args, expressionArgs(col)...)
+	}
+
+	return "SELECT " + strings.Join(qb.selectColFullnames, ", "), args
 }
 
-// buildGroupBy builds the GROUP BY clause
-func (qb *QueryBuilder) buildGroupBy() string {
+// buildGroupBy builds the GROUP BY clause.
+func (qb *QueryBuilder) buildGroupBy() (string, []any) {
 	if len(qb.groupByCols) == 0 {
-		return ""
+		return "", nil
 	}
 
 	groupByExprs := make([]string, 0, len(qb.groupByCols))
+
+	var args []any
+
 	for _, col := range qb.groupByCols {
 		groupByExprs = append(groupByExprs, rawColumnQualifiedName(col))
+		args = append(args, expressionArgs(col)...)
 	}
 
-	return " GROUP BY " + strings.Join(groupByExprs, ", ")
+	return " GROUP BY " + strings.Join(groupByExprs, ", "), args
 }
 
-// buildHaving builds the HAVING clause
-func (qb *QueryBuilder) buildHaving() string {
+// buildHaving builds the HAVING clause.
+func (qb *QueryBuilder) buildHaving() (string, []any) {
 	if len(qb.havingConditions) == 0 {
-		return ""
+		return "", nil
 	}
 
 	havingClauses := make([]string, 0, len(qb.havingConditions))
+
+	var args []any
+
 	for _, cond := range qb.havingConditions {
 		havingClauses = append(havingClauses, conditionClause(cond))
+		args = append(args, cond.Args()...)
 	}
 
 	if len(havingClauses) == 1 {
-		return " HAVING " + havingClauses[0]
+		return " HAVING " + havingClauses[0], args
 	}
 
-	return " HAVING (" + strings.Join(havingClauses, " AND ") + ")"
+	return " HAVING (" + strings.Join(havingClauses, " AND ") + ")", args
 }
 
-// buildListWhere builds the WHERE clause for list queries
-func (qb *QueryBuilder) buildListWhere() string {
+// buildListWhere builds the WHERE clause for list queries.
+func (qb *QueryBuilder) buildListWhere() (string, []any) {
 	if len(qb.conditionClauses) == 0 {
-		return ""
+		return "", nil
 	}
 
+	args := collectConditionArgs(qb.conditions...)
 	if len(qb.conditionClauses) == 1 {
-		return " WHERE " + qb.conditionClauses[0]
+		return " WHERE " + qb.conditionClauses[0], args
 	}
 
-	return " WHERE (" + strings.Join(qb.conditionClauses, " AND ") + ")"
+	return " WHERE (" + strings.Join(qb.conditionClauses, " AND ") + ")", args
 }
 
-// buildPageWhere builds the WHERE clause for page queries (with keyword search)
-func (qb *QueryBuilder) buildPageWhere() string {
+// buildPageWhere builds the WHERE clause for page queries (with keyword search).
+func (qb *QueryBuilder) buildPageWhere() (string, []any) {
 	clauses := make([]string, 0, len(qb.conditionClauses)+1)
-
-	// Add existing conditions
 	clauses = append(clauses, qb.conditionClauses...)
+	args := collectConditionArgs(qb.conditions...)
 
-	// Add keyword search condition if keyword columns are defined
 	if len(qb.kwCols) > 0 {
 		kwClauses := make([]string, 0, len(qb.kwCols))
 		for _, col := range qb.kwCols {
@@ -497,14 +548,14 @@ func (qb *QueryBuilder) buildPageWhere() string {
 	}
 
 	if len(clauses) == 0 {
-		return ""
+		return "", args
 	}
 
 	if len(clauses) == 1 {
-		return " WHERE " + clauses[0]
+		return " WHERE " + clauses[0], args
 	}
 
-	return " WHERE (" + strings.Join(clauses, " AND ") + ")"
+	return " WHERE (" + strings.Join(clauses, " AND ") + ")", args
 }
 
 // buildJoinFrom builds the FROM clause with JOINs
@@ -514,43 +565,50 @@ func (qb *QueryBuilder) buildJoinFrom(allTables map[string]Table) string {
 	}
 
 	var fromBuilder strings.Builder
+
 	includedTables := make(map[string]bool)
 
 	firstJoin := qb.joins[0]
-	baseTable := ""
+
+	var baseTable Table
 
 	if firstJoin.joinType == CrossJoinType {
 		baseTable = qb.crossJoinBaseTable(firstJoin.table.Table(), allTables)
 	} else {
-		baseTable = firstJoin.left.Table().Table()
+		baseTable = firstJoin.left.Table()
 	}
 
 	fromBuilder.WriteString(" FROM ")
-	fromBuilder.WriteString(rawIdentifier(baseTable))
-	includedTables[baseTable] = true
+	fromBuilder.WriteString(rawTableIdentifier(baseTable))
+
+	includedTables[baseTable.Table()] = true
 
 	for _, j := range qb.joins {
 		if j.joinType == CrossJoinType {
 			if includedTables[j.table.Table()] {
 				continue
 			}
+
 			fromBuilder.WriteString(" ")
 			fromBuilder.WriteString(string(j.joinType))
 			fromBuilder.WriteString(" ")
-			fromBuilder.WriteString(rawIdentifier(j.table.Table()))
+			fromBuilder.WriteString(rawTableIdentifier(j.table))
+
 			includedTables[j.table.Table()] = true
 		} else {
 			if includedTables[j.right.Table().Table()] {
 				continue
 			}
+
 			fromBuilder.WriteString(" ")
 			fromBuilder.WriteString(string(j.joinType))
 			fromBuilder.WriteString(" ")
-			fromBuilder.WriteString(rawIdentifier(j.right.Table().Table()))
+			fromBuilder.WriteString(rawTableIdentifier(j.right.Table()))
 			fromBuilder.WriteString(" ON ")
 			fromBuilder.WriteString(rawColumnQualifiedName(j.left))
 			fromBuilder.WriteString(" = ")
 			fromBuilder.WriteString(rawColumnQualifiedName(j.right))
+
 			includedTables[j.left.Table().Table()] = true
 			includedTables[j.right.Table().Table()] = true
 		}
@@ -571,9 +629,10 @@ func (qb *QueryBuilder) buildListFrom() string {
 	}
 
 	tableNames := make([]string, 0, len(tables))
-	for name := range tables {
-		tableNames = append(tableNames, rawIdentifier(name))
+	for _, table := range tables {
+		tableNames = append(tableNames, rawTableIdentifier(table))
 	}
+
 	sort.Strings(tableNames)
 
 	return " FROM " + strings.Join(tableNames, ", ")
@@ -591,9 +650,10 @@ func (qb *QueryBuilder) buildPageFrom() string {
 	}
 
 	tableNames := make([]string, 0, len(tables))
-	for name := range tables {
-		tableNames = append(tableNames, rawIdentifier(name))
+	for _, table := range tables {
+		tableNames = append(tableNames, rawTableIdentifier(table))
 	}
+
 	sort.Strings(tableNames)
 
 	return " FROM " + strings.Join(tableNames, ", ")
@@ -640,9 +700,12 @@ func (qb *QueryBuilder) wrapCountSQL(inner string) string {
 }
 
 func (qb *QueryBuilder) hasDistinctSelect() bool {
-	for _, expr := range qb.selectColFullnames {
-		normalized := strings.ToUpper(strings.TrimSpace(expr))
-		if strings.HasPrefix(normalized, "DISTINCT(") || strings.HasPrefix(normalized, "DISTINCT ") {
+	type distinctExpr interface {
+		isDistinctExpression() bool
+	}
+
+	for _, col := range qb.selectCols {
+		if expr, ok := col.(distinctExpr); ok && expr.isDistinctExpression() {
 			return true
 		}
 	}
@@ -651,45 +714,49 @@ func (qb *QueryBuilder) hasDistinctSelect() bool {
 }
 
 func (qb *QueryBuilder) hasAggregateSelect() bool {
-	for _, expr := range qb.selectColFullnames {
-		normalized := strings.ToUpper(strings.TrimSpace(expr))
-		for _, prefix := range []string{"COUNT(", "SUM(", "AVG(", "MIN(", "MAX("} {
-			if strings.HasPrefix(normalized, prefix) {
-				return true
-			}
+	type aggregateExpr interface {
+		isAggregateExpression() bool
+	}
+
+	for _, col := range qb.selectCols {
+		if expr, ok := col.(aggregateExpr); ok && expr.isAggregateExpression() {
+			return true
 		}
 	}
 
 	return false
 }
 
-func (qb *QueryBuilder) crossJoinBaseTable(joinTable string, allTables map[string]Table) string {
+func (qb *QueryBuilder) crossJoinBaseTable(joinTable string, allTables map[string]Table) Table {
 	for _, col := range qb.selectCols {
-		tableName := col.Table().Table()
-		if tableName != joinTable {
-			return tableName
+		if table := col.Table(); table.Table() != joinTable {
+			return table
 		}
 	}
 
 	tableNames := make([]string, 0, len(allTables))
-	for name := range allTables {
-		if name == joinTable {
-			continue
-		}
 
-		tableNames = append(tableNames, name)
+	for name := range allTables {
+		if name != joinTable {
+			tableNames = append(tableNames, name)
+		}
 	}
 
 	sort.Strings(tableNames)
+
 	if len(tableNames) > 0 {
-		return tableNames[0]
+		return allTables[tableNames[0]]
 	}
 
-	return joinTable
+	return allTables[joinTable]
 }
 
 func (qb *QueryBuilder) validateJoinGraph() error {
 	if len(qb.joins) == 0 {
+		if !qb.allowCartesianProduct && len(qb.pageQueryTables()) > 1 {
+			return errors.New("multiple tables require explicit Join/CrossJoin or AllowCartesianProduct")
+		}
+
 		return nil
 	}
 
@@ -699,7 +766,9 @@ func (qb *QueryBuilder) validateJoinGraph() error {
 	firstJoin := qb.joins[0]
 	if firstJoin.joinType == CrossJoinType {
 		baseTable := qb.crossJoinBaseTable(firstJoin.table.Table(), allTables)
-		introduced[baseTable] = struct{}{}
+		if baseTable != nil {
+			introduced[baseTable.Table()] = struct{}{}
+		}
 	} else {
 		introduced[firstJoin.left.Table().Table()] = struct{}{}
 	}

@@ -13,6 +13,7 @@ func TestRenderCanonicalSQLPreservesIdentifierMarkersInsideStringLiterals(t *tes
 
 	got := renderCanonicalSQL(raw)
 	want := `SELECT "users"."name" WHERE "users"."name" = '__tsq_ident__(literal_name)'`
+
 	if got != want {
 		t.Fatalf("expected canonical SQL %q, got %q", want, got)
 	}
@@ -25,6 +26,7 @@ func TestRenderSQLForDialectPreservesIdentifierMarkersInsideEscapedStringLiteral
 
 	got := renderSQLForDialect(raw, gorp.PostgresDialect{})
 	want := `SELECT "users"."name" WHERE note = 'it''s __tsq_ident__(literal_name)?' AND "users"."id" = $1`
+
 	if got != want {
 		t.Fatalf("expected postgres SQL %q, got %q", want, got)
 	}
@@ -38,6 +40,7 @@ func TestRenderCanonicalSQLPreservesIdentifierMarkersInsideComments(t *testing.T
 
 	got := renderCanonicalSQL(raw)
 	want := `SELECT "users"."name" /* keep __tsq_ident__(ignored_name) */ WHERE "users"."id" = ? -- keep __tsq_ident__(ignored_tail)` + "\n"
+
 	if got != want {
 		t.Fatalf("expected canonical SQL %q, got %q", want, got)
 	}
@@ -51,6 +54,7 @@ func TestRenderSQLForDialectPreservesQuestionMarksInsideComments(t *testing.T) {
 
 	got := renderSQLForDialect(raw, gorp.PostgresDialect{})
 	want := `SELECT "users"."name" /* comment ? __tsq_ident__(ignored_name) */ WHERE "users"."id" = $1 -- trailing ? __tsq_ident__(ignored_tail)` + "\n"
+
 	if got != want {
 		t.Fatalf("expected postgres SQL %q, got %q", want, got)
 	}
@@ -63,6 +67,7 @@ func TestRenderCanonicalSQLPreservesIdentifierMarkersInsideDollarQuotedStrings(t
 
 	got := renderCanonicalSQL(raw)
 	want := `SELECT $$__tsq_ident__(ignored_name)$$ AS note, "users"."name" FROM "users"`
+
 	if got != want {
 		t.Fatalf("expected canonical SQL %q, got %q", want, got)
 	}
@@ -75,6 +80,7 @@ func TestRenderSQLForDialectPreservesQuestionMarksInsideDollarQuotedStrings(t *t
 
 	got := renderSQLForDialect(raw, gorp.PostgresDialect{})
 	want := `SELECT $body$? __tsq_ident__(ignored_name)$body$ AS note, "users"."id" FROM "users" WHERE "users"."id" = $1`
+
 	if got != want {
 		t.Fatalf("expected postgres SQL %q, got %q", want, got)
 	}
@@ -86,6 +92,7 @@ func TestRenderCanonicalSQLHandlesIdentifiersContainingMarkerSuffix(t *testing.T
 
 	got := renderCanonicalSQL(raw)
 	want := `SELECT "team)"."name)" FROM "team)"`
+
 	if got != want {
 		t.Fatalf("expected canonical SQL %q, got %q", want, got)
 	}
@@ -98,6 +105,7 @@ func TestRenderSQLForDialectHandlesIdentifiersContainingMarkerSuffix(t *testing.
 
 	got := renderSQLForDialect(raw, gorp.PostgresDialect{})
 	want := `SELECT "team)"."id)" FROM "team)" WHERE "team)"."id)" = $1`
+
 	if got != want {
 		t.Fatalf("expected postgres SQL %q, got %q", want, got)
 	}

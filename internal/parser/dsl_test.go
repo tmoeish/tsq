@@ -403,8 +403,8 @@ func Test_genTableInfoFromAST(t *testing.T) {
 		t.Errorf("Index count error: got %d, want 1", len(info.IdxList))
 	} else {
 		idx := info.IdxList[0]
-		if idx.Name != "idxf3" {
-			t.Errorf("Index name error: got %s, want idxf3", idx.Name)
+		if idx.Name != "idx_t1_f3" {
+			t.Errorf("Index name error: got %s, want idx_t1_f3", idx.Name)
 		}
 
 		if len(idx.Fields) != 1 || idx.Fields[0] != "f3" {
@@ -534,6 +534,7 @@ func Test_genTableInfoFromASTRejectsWrongValueTypes(t *testing.T) {
 	}
 
 	structFields := map[string]struct{}{"ID": {}, "Name": {}}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := genTableInfoFromAST("MyTable", tt.ast, true, structFields)

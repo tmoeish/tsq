@@ -1,8 +1,10 @@
 package tsq
 
 import (
+	"database/sql"
 	"testing"
 
+	_ "github.com/mattn/go-sqlite3"
 	"gopkg.in/gorp.v2"
 )
 
@@ -139,11 +141,11 @@ func TestInitDeduplicatesProvidedTracers(t *testing.T) {
 
 	tracer := func(next Fn) Fn { return next }
 
-	if err := Init(&gorp.DbMap{}, false, false, tracer); err != nil {
+	if err := Init(newSQLiteIndexTestDBMap(t), false, false, tracer); err != nil {
 		t.Fatalf("unexpected init error: %v", err)
 	}
 
-	if err := Init(&gorp.DbMap{}, false, false, tracer); err != nil {
+	if err := Init(newSQLiteIndexTestDBMap(t), false, false, tracer); err != nil {
 		t.Fatalf("unexpected init error: %v", err)
 	}
 
@@ -190,5 +192,77 @@ func TestUpsertIndexRejectsNilDbMap(t *testing.T) {
 func TestInitRejectsNilDbMap(t *testing.T) {
 	if err := Init(nil, false, false); err == nil {
 		t.Fatal("expected nil db map to return an error")
+	}
+}
+
+func newSQLiteIndexTestDBMap(t *testing.T) *gorp.DbMap {
+	t.Helper()
+
+	db, err := sql.Open("sqlite3", ":memory:")
+	if err != nil {
+		t.Fatalf("failed to open sqlite database: %v", err)
+	}
+
+	t.Cleanup(func() {
+		_ = db.Close()
+	})
+
+	return &gorp.DbMap{Db: db, Dialect: gorp.SqliteDialect{}}
+}
+
+func TestUpsertIndexSQLiteRejectsConflictingTableReuse(t *testing.T) {
+	db := newSQLiteIndexTestDBMap(t)
+
+	statements := []string{
+		"CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)",
+		"CREATE TABLE orgs (id INTEGER PRIMARY KEY, name TEXT)",
+		"CREATE UNIQUE INDEX ux_name ON users(name)",
+	}
+	for _, statement := range statements {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatalf("failed to execute setup statement %q: %v", statement, err)
+		}
+	}
+
+	err := UpsertIndex(db, "orgs", true, "ux_name", []string{"name"})
+	if err == nil {
+		t.Fatal("expected conflicting sqlite index name to return an error")
+	}
+}
+
+func TestUpsertIndexSQLiteRejectsDefinitionMismatch(t *testing.T) {
+	db := newSQLiteIndexTestDBMap(t)
+
+	statements := []string{
+		"CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, email TEXT)",
+		"CREATE UNIQUE INDEX ux_users_name ON users(email)",
+	}
+	for _, statement := range statements {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatalf("failed to execute setup statement %q: %v", statement, err)
+		}
+	}
+
+	err := UpsertIndex(db, "users", true, "ux_users_name", []string{"name"})
+	if err == nil {
+		t.Fatal("expected mismatched sqlite index definition to return an error")
+	}
+}
+
+func TestUpsertIndexSQLiteAcceptsMatchingDefinition(t *testing.T) {
+	db := newSQLiteIndexTestDBMap(t)
+
+	statements := []string{
+		"CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)",
+		"CREATE UNIQUE INDEX ux_users_name ON users(name)",
+	}
+	for _, statement := range statements {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatalf("failed to execute setup statement %q: %v", statement, err)
+		}
+	}
+
+	if err := UpsertIndex(db, "users", true, "ux_users_name", []string{"name"}); err != nil {
+		t.Fatalf("expected matching sqlite index definition to pass, got %v", err)
 	}
 }

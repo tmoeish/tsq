@@ -154,7 +154,7 @@ func {{$name}}(
 		row := &{{$type}}{}
 		err := {{$query}}.Load(ctx, db, row, {{ FieldVarName $dot.ID }})
 	if err != nil {
-		if err == {{ GeneratedSQLRef "ErrNoRows" }} {
+		if errors.Is(err, {{ GeneratedSQLRef "ErrNoRows" }}) {
 			return nil, err
 		}
 
@@ -191,10 +191,6 @@ func {{$name}}(
 	db gorp.SqlExecutor,
 		{{ FieldSliceVarName $dot.ID }} ...{{index $dot.FieldMap $dot.ID | FieldType}},
 	) ({{$list}}, error) {
-		{{ FieldVarName $dot.ID }}Set := map[{{index $dot.FieldMap $dot.ID | FieldType}}]bool{}
-		for _, i := range {{ FieldSliceVarName $dot.ID }} {
-			{{ FieldVarName $dot.ID }}Set[i] = true
-		}
 		query := tsq.
 			Select({{$varTblCols}}...).
 			Where({{$type}}_{{$dot.ID}}.In({{ FieldSliceVarName $dot.ID }}...)).
@@ -205,17 +201,13 @@ func {{$name}}(
 		return nil, errors.Trace(err)
 	}
 
-	for _, i := range list {
-			delete({{ FieldVarName $dot.ID }}Set, i.{{$dot.ID}})
-		}
-		if len({{ FieldVarName $dot.ID }}Set) > 0 {
-			var missings []{{index $dot.FieldMap $dot.ID | FieldType}}
-			for i := range {{ FieldVarName $dot.ID }}Set {
-				missings = append(missings, i)
-			}
-		return nil, errors.Errorf("{{$type}}(s) not found: %v", missings)
+	match := tsq.MatchByInputOrder({{ FieldSliceVarName $dot.ID }}, list, func(row *{{$type}}) {{index $dot.FieldMap $dot.ID | FieldType}} {
+		return row.{{$dot.ID}}
+	})
+	if len(match.Missing) > 0 {
+		return nil, errors.Errorf("{{$type}}(s) not found: %v", match.Missing)
 	}
-	return list, nil
+	return match.Ordered, nil
 }
 {{- end }}
 
@@ -265,7 +257,7 @@ func {{$name}}(
 		row := &{{$type}}{}
 		err := {{$query}}.Load(ctx, db, row, {{ FieldVarName $dot.ID }})
 	if err != nil {
-		if err == {{ GeneratedSQLRef "ErrNoRows" }} {
+		if errors.Is(err, {{ GeneratedSQLRef "ErrNoRows" }}) {
 			return nil, err
 		}
 
@@ -308,10 +300,6 @@ func {{$name}}(
 	db gorp.SqlExecutor,
 		{{ FieldSliceVarName $dot.ID }} ...{{index $dot.FieldMap $dot.ID | FieldType}},
 	) ({{$list}}, error) {
-		{{ FieldVarName $dot.ID }}Set := map[{{index $dot.FieldMap $dot.ID | FieldType}}]bool{}
-		for _, i := range {{ FieldSliceVarName $dot.ID }} {
-			{{ FieldVarName $dot.ID }}Set[i] = true
-		}
 	query := tsq.
 		Select({{$varTblCols}}...).
 		Where(
@@ -325,17 +313,13 @@ func {{$name}}(
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
-	for _, i := range list {
-			delete({{ FieldVarName $dot.ID }}Set, i.{{$dot.ID}})
-		}
-		if len({{ FieldVarName $dot.ID }}Set) > 0 {
-			var missings []{{index $dot.FieldMap $dot.ID | FieldType}}
-			for i := range {{ FieldVarName $dot.ID }}Set {
-				missings = append(missings, i)
-			}
-		return nil, errors.Errorf("{{$type}}(s) not found: %v", missings)
+	match := tsq.MatchByInputOrder({{ FieldSliceVarName $dot.ID }}, list, func(row *{{$type}}) {{index $dot.FieldMap $dot.ID | FieldType}} {
+		return row.{{$dot.ID}}
+	})
+	if len(match.Missing) > 0 {
+		return nil, errors.Errorf("{{$type}}(s) not found: %v", match.Missing)
 	}
-	return list, nil
+	return match.Ordered, nil
 }
 	{{- end }}
 {{- end }}
@@ -597,7 +581,7 @@ func {{$name}}(
 		{{- end }}
 	)
 	if err != nil {
-		if err == {{ GeneratedSQLRef "ErrNoRows" }} {
+		if errors.Is(err, {{ GeneratedSQLRef "ErrNoRows" }}) {
 			return nil, err
 		}
 
@@ -697,7 +681,7 @@ func {{$name}}(
 		{{- end }}
 	)
 	if err != nil {
-		if err == {{ GeneratedSQLRef "ErrNoRows" }} {
+		if errors.Is(err, {{ GeneratedSQLRef "ErrNoRows" }}) {
 			return nil, err
 		}
 

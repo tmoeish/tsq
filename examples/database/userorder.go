@@ -18,10 +18,10 @@ type UserOrder struct {
 	OrgName string `json:"org_name" tsq:"Org.Name"` // 组织名称
 
 	OrderID     int64       `json:"order_id"     tsq:"Order.UID"`    // 订单ID
-	OrderAmount float64     `json:"order_amount" tsq:"Order.Amount"` // 订单数量
-	OrderPrice  float64     `json:"order_price"  tsq:"Order.Price"`  // 订单金额
+	OrderAmount int64       `json:"order_amount" tsq:"Order.Amount"` // 订单数量
+	OrderPrice  int64       `json:"order_price"  tsq:"Order.Price"`  // 订单金额
 	OrderStatus OrderStatus `json:"order_status" tsq:"Order.Status"` // 订单状态
-	OrderTime   string      `json:"order_time"   tsq:"Order.CT"`     // 订单时间
+	OrderTime   time.Time   `json:"order_time"   tsq:"Order.CT"`     // 订单时间
 
 	ItemID    int64  `json:"item_id"    tsq:"Item.ID"`    // 商品ID
 	ItemName  string `json:"item_name"  tsq:"Item.Name"`  // 商品名称

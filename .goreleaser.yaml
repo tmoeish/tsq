@@ -20,6 +20,8 @@ builds:
     main: ./cmd/tsq
     env:
       - CGO_ENABLED=0
+    ldflags:
+      - -s -w -X github.com/tmoeish/tsq.Version={{ .Version }} -X github.com/tmoeish/tsq.BuildTime={{ .Date }} -X github.com/tmoeish/tsq.GitCommit={{ .Commit }} -X github.com/tmoeish/tsq.GitBranch={{ .Branch }}
     goos:
       - linux
       - windows
@@ -27,7 +29,7 @@ builds:
 
 archives:
   - id: default
-    format: tar.gz
+    formats: [tar.gz]
     name_template: >-
       {{ .ProjectName }}_
       {{- title .Os }}_
@@ -37,7 +39,7 @@ archives:
       {{- if .Arm }}v{{ .Arm }}{{ end }}
     format_overrides:
       - goos: windows
-        format: zip
+        formats: [zip]
 
 changelog:
   sort: asc

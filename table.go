@@ -1,6 +1,7 @@
 package tsq
 
 import (
+	"database/sql"
 	"fmt"
 	"sort"
 	"strings"
@@ -18,6 +19,12 @@ var (
 	tablesMu sync.RWMutex
 	tables   = make(map[string]*RegisteredTable)
 )
+
+type InitOptions struct {
+	AutoCreateTables bool
+	UpsertIndexes    bool
+	Tracers          []Tracer
+}
 
 // RegisterTable registers a table in the global registry
 func RegisterTable(
@@ -40,11 +47,12 @@ func RegisterTable(
 	tablesMu.Lock()
 	defer tablesMu.Unlock()
 
-	if _, exists := tables[table.Table()]; exists {
-		panic(fmt.Sprintf("table %s is already registered", table.Table()))
+	key := registeredTableKey(table)
+	if _, exists := tables[key]; exists {
+		panic(fmt.Sprintf("table %s is already registered", key))
 	}
 
-	tables[table.Table()] = &RegisteredTable{
+	tables[key] = &RegisteredTable{
 		Table:        table,
 		AddTableFunc: addTableFunc,
 		InitFunc:     initFunc,
@@ -78,12 +86,33 @@ func Init(
 	upsertIndexies bool,
 	tracer ...Tracer,
 ) error {
+	return InitWithOptions(db, &InitOptions{
+		AutoCreateTables: autoCreateTable,
+		UpsertIndexes:    upsertIndexies,
+		Tracers:          tracer,
+	})
+}
+
+func InitWithOptions(db *gorp.DbMap, options *InitOptions) error {
 	if db == nil {
 		return errors.New("db map cannot be nil")
 	}
 
-	// Add tracers
-	appendUniqueGlobalTracers(tracer...)
+	if db.Db == nil {
+		return errors.New("db map database cannot be nil")
+	}
+
+	if db.Dialect == nil {
+		return errors.New("db map dialect cannot be nil")
+	}
+
+	if options == nil {
+		options = &InitOptions{}
+	}
+
+	rollbackTracers := snapshotTracers()
+
+	appendUniqueGlobalTracers(options.Tracers...)
 
 	registeredTables := snapshotRegisteredTables()
 
@@ -92,15 +121,18 @@ func Init(
 		table.AddTableFunc(db)
 	}
 
-	if autoCreateTable {
+	if options.AutoCreateTables {
 		if err := db.CreateTablesIfNotExists(); err != nil {
+			restoreTracers(rollbackTracers)
 			return errors.Annotate(err, "failed to create tables")
 		}
 	}
 
-	if upsertIndexies {
+	if options.UpsertIndexes {
 		for _, table := range registeredTables {
 			if err := table.InitFunc(db); err != nil {
+				restoreTracers(rollbackTracers)
+
 				return errors.Annotatef(err,
 					"failed to initialize table %s", table.Table.Table(),
 				)
@@ -109,6 +141,18 @@ func Init(
 	}
 
 	return nil
+}
+
+func registeredTableKey(table Table) string {
+	if table == nil {
+		return ""
+	}
+
+	if schemaTable, ok := table.(schemaTabler); ok && strings.TrimSpace(schemaTable.Schema()) != "" {
+		return schemaTable.Schema() + "." + table.Table()
+	}
+
+	return table.Table()
 }
 
 func snapshotRegisteredTables() []*RegisteredTable {
@@ -148,6 +192,19 @@ func UpsertIndex(db *gorp.DbMap, table string, unique bool, idx string, fields [
 		return errors.Trace(err)
 	}
 
+	definition, found, err := inspectIndexDefinition(db, table, idx)
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	if found {
+		if err := validateIndexDefinition(table, unique, idx, fields, definition); err != nil {
+			return errors.Trace(err)
+		}
+
+		return nil
+	}
+
 	switch db.Dialect.(type) {
 	case gorp.MySQLDialect:
 		return ensureMySQLIndex(db, table, unique, idx, fields)
@@ -158,6 +215,106 @@ func UpsertIndex(db *gorp.DbMap, table string, unique bool, idx string, fields [
 	default:
 		return errors.Errorf("unsupported database dialect: %T", db.Dialect)
 	}
+}
+
+type indexDefinition struct {
+	Table  string
+	Unique bool
+	Fields []string
+}
+
+func inspectIndexDefinition(
+	db *gorp.DbMap,
+	table string,
+	idx string,
+) (indexDefinition, bool, error) {
+	switch db.Dialect.(type) {
+	case gorp.MySQLDialect:
+		return inspectMySQLIndexDefinition(db, table, idx)
+	case gorp.SqliteDialect:
+		return inspectSQLiteIndexDefinition(db, idx)
+	case gorp.PostgresDialect:
+		return inspectPostgresIndexDefinition(db, idx)
+	default:
+		return indexDefinition{}, false, errors.Errorf("unsupported database dialect: %T", db.Dialect)
+	}
+}
+
+func validateIndexDefinition(
+	table string,
+	unique bool,
+	idx string,
+	fields []string,
+	existing indexDefinition,
+) error {
+	if existing.Table != table {
+		return errors.Errorf(
+			"index %s already exists on table %s, expected table %s",
+			idx,
+			existing.Table,
+			table,
+		)
+	}
+
+	if existing.Unique != unique || !sameOrderedFields(existing.Fields, fields) {
+		return errors.Errorf(
+			"index %s on table %s has definition unique=%t fields=%v, expected unique=%t fields=%v",
+			idx,
+			table,
+			existing.Unique,
+			existing.Fields,
+			unique,
+			fields,
+		)
+	}
+
+	return nil
+}
+
+func sameOrderedFields(left []string, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+
+	return true
+}
+
+func columnsCSV(fields []string) string {
+	return strings.Join(fields, ",")
+}
+
+func parseColumnsCSV(csv string) []string {
+	if csv == "" {
+		return nil
+	}
+
+	return strings.Split(csv, ",")
+}
+
+func finishCreateIndex(
+	db *gorp.DbMap,
+	table string,
+	unique bool,
+	idx string,
+	fields []string,
+	createErr error,
+) error {
+	if createErr == nil {
+		return nil
+	}
+
+	definition, found, err := inspectIndexDefinition(db, table, idx)
+	if err == nil && found && validateIndexDefinition(table, unique, idx, fields, definition) == nil {
+		return nil
+	}
+
+	return errors.Trace(createErr)
 }
 
 func validateIndexIdentifiers(table string, idx string, fields []string) error {
@@ -204,6 +361,7 @@ func quoteDialectIdentifier(dialect gorp.Dialect, name string) (string, error) {
 
 func quoteDialectIdentifiers(dialect gorp.Dialect, names []string) ([]string, error) {
 	quoted := make([]string, len(names))
+
 	for i, name := range names {
 		value, err := quoteDialectIdentifier(dialect, name)
 		if err != nil {
@@ -222,34 +380,48 @@ func quoteDialectIdentifiers(dialect gorp.Dialect, names []string) ([]string, er
 
 // ensureMySQLIndex ensures an index exists in MySQL
 func ensureMySQLIndex(db *gorp.DbMap, table string, unique bool, idx string, fields []string) error {
-	exists, err := isIndexExist(db, table, idx)
-	if err != nil {
-		return errors.Trace(err)
-	}
-
-	if exists {
-		return nil
-	}
-
 	return createMySQLIndex(db, table, unique, idx, fields)
 }
 
-// isIndexExist checks if an index exists in MySQL
-func isIndexExist(dbMap *gorp.DbMap, table string, idx string) (bool, error) {
-	count, err := dbMap.SelectInt(`
-		SELECT COUNT(1)
+func inspectMySQLIndexDefinition(
+	dbMap *gorp.DbMap,
+	table string,
+	idx string,
+) (indexDefinition, bool, error) {
+	type row struct {
+		Table   string         `db:"table_name"`
+		Unique  int            `db:"is_unique"`
+		Columns sql.NullString `db:"columns_csv"`
+	}
+
+	var existing row
+
+	err := dbMap.SelectOne(&existing, `
+		SELECT
+			table_name,
+			CASE WHEN MIN(non_unique) = 0 THEN 1 ELSE 0 END AS is_unique,
+			GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',') AS columns_csv
 		FROM INFORMATION_SCHEMA.STATISTICS
 		WHERE
 			table_schema = DATABASE()
 			AND table_name = ?
-			AND index_name = ?`,
+			AND index_name = ?
+		GROUP BY table_name`,
 		table, idx,
 	)
 	if err != nil {
-		return false, errors.Trace(err)
+		if errors.Is(errors.Cause(err), sql.ErrNoRows) {
+			return indexDefinition{}, false, nil
+		}
+
+		return indexDefinition{}, false, errors.Trace(err)
 	}
 
-	return count > 0, nil
+	return indexDefinition{
+		Table:  existing.Table,
+		Unique: existing.Unique == 1,
+		Fields: parseColumnsCSV(existing.Columns.String),
+	}, true, nil
 }
 
 // createMySQLIndex creates an index in MySQL
@@ -281,7 +453,7 @@ func createMySQLIndex(dbMap *gorp.DbMap, table string, unique bool, idx string, 
 
 	_, err = dbMap.Exec(query)
 
-	return errors.Trace(err)
+	return finishCreateIndex(dbMap, table, unique, idx, fields, err)
 }
 
 // ================================================
@@ -290,19 +462,89 @@ func createMySQLIndex(dbMap *gorp.DbMap, table string, unique bool, idx string, 
 
 // ensureSQLiteIndex ensures an index exists in SQLite
 func ensureSQLiteIndex(db *gorp.DbMap, table string, unique bool, idx string, fields []string) error {
-	var exists int
-
-	err := db.SelectOne(&exists,
-		"SELECT COUNT(1) FROM sqlite_master WHERE type='index' AND name=?", idx)
-	if err != nil {
-		return errors.Trace(err)
-	}
-
-	if exists > 0 {
-		return nil
-	}
-
 	return createSQLiteIndex(db, table, unique, idx, fields)
+}
+
+func inspectSQLiteIndexDefinition(db *gorp.DbMap, idx string) (indexDefinition, bool, error) {
+	type sqliteMasterRow struct {
+		Table string `db:"tbl_name"`
+	}
+
+	type sqliteIndexListRow struct {
+		Seq     int    `db:"seq"`
+		Name    string `db:"name"`
+		Unique  int    `db:"unique"`
+		Origin  string `db:"origin"`
+		Partial int    `db:"partial"`
+	}
+
+	var master sqliteMasterRow
+
+	err := db.SelectOne(
+		&master,
+		"SELECT tbl_name FROM sqlite_master WHERE type='index' AND name=?",
+		idx,
+	)
+	if err != nil {
+		if errors.Is(errors.Cause(err), sql.ErrNoRows) {
+			return indexDefinition{}, false, nil
+		}
+
+		return indexDefinition{}, false, errors.Trace(err)
+	}
+
+	quotedTable, err := quoteDialectIdentifier(db.Dialect, master.Table)
+	if err != nil {
+		return indexDefinition{}, false, errors.Trace(err)
+	}
+
+	var rows []sqliteIndexListRow
+	if _, err := db.Select(&rows, fmt.Sprintf("PRAGMA index_list(%s)", quotedTable)); err != nil {
+		return indexDefinition{}, false, errors.Trace(err)
+	}
+
+	definition := indexDefinition{Table: master.Table}
+
+	for _, row := range rows {
+		if row.Name == idx {
+			definition.Unique = row.Unique == 1
+			break
+		}
+	}
+
+	fields, err := inspectSQLiteIndexFields(db, idx)
+	if err != nil {
+		return indexDefinition{}, false, errors.Trace(err)
+	}
+
+	definition.Fields = fields
+
+	return definition, true, nil
+}
+
+func inspectSQLiteIndexFields(db *gorp.DbMap, idx string) ([]string, error) {
+	type sqliteIndexInfoRow struct {
+		SeqNo int    `db:"seqno"`
+		CID   int    `db:"cid"`
+		Name  string `db:"name"`
+	}
+
+	quotedIndex, err := quoteDialectIdentifier(db.Dialect, idx)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	var rows []sqliteIndexInfoRow
+	if _, err := db.Select(&rows, fmt.Sprintf("PRAGMA index_info(%s)", quotedIndex)); err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	fields := make([]string, 0, len(rows))
+	for _, row := range rows {
+		fields = append(fields, row.Name)
+	}
+
+	return fields, nil
 }
 
 // createSQLiteIndex creates an index in SQLite
@@ -334,7 +576,7 @@ func createSQLiteIndex(db *gorp.DbMap, table string, unique bool, idx string, fi
 
 	_, err = db.Exec(query)
 
-	return errors.Trace(err)
+	return finishCreateIndex(db, table, unique, idx, fields, err)
 }
 
 // ================================================
@@ -343,19 +585,47 @@ func createSQLiteIndex(db *gorp.DbMap, table string, unique bool, idx string, fi
 
 // ensurePostgresIndex ensures an index exists in PostgreSQL
 func ensurePostgresIndex(db *gorp.DbMap, table string, unique bool, idx string, fields []string) error {
-	var exists int
-
-	err := db.SelectOne(&exists,
-		"SELECT COUNT(1) FROM pg_indexes WHERE tablename=$1 AND indexname=$2", table, idx)
-	if err != nil {
-		return errors.Trace(err)
-	}
-
-	if exists > 0 {
-		return nil
-	}
-
 	return createPostgresIndex(db, table, unique, idx, fields)
+}
+
+func inspectPostgresIndexDefinition(db *gorp.DbMap, idx string) (indexDefinition, bool, error) {
+	type row struct {
+		Table   string         `db:"table_name"`
+		Unique  bool           `db:"is_unique"`
+		Columns sql.NullString `db:"columns_csv"`
+	}
+
+	var existing row
+
+	err := db.SelectOne(&existing, `
+		SELECT
+			t.relname AS table_name,
+			i.indisunique AS is_unique,
+			STRING_AGG(a.attname, ',' ORDER BY ord.ord) AS columns_csv
+		FROM pg_class idx
+		JOIN pg_namespace ns ON ns.oid = idx.relnamespace
+		JOIN pg_index i ON i.indexrelid = idx.oid
+		JOIN pg_class t ON t.oid = i.indrelid
+		JOIN UNNEST(i.indkey) WITH ORDINALITY AS ord(attnum, ord) ON TRUE
+		JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ord.attnum
+		WHERE ns.nspname = current_schema()
+			AND idx.relname = $1
+		GROUP BY t.relname, i.indisunique`,
+		idx,
+	)
+	if err != nil {
+		if errors.Is(errors.Cause(err), sql.ErrNoRows) {
+			return indexDefinition{}, false, nil
+		}
+
+		return indexDefinition{}, false, errors.Trace(err)
+	}
+
+	return indexDefinition{
+		Table:  existing.Table,
+		Unique: existing.Unique,
+		Fields: parseColumnsCSV(existing.Columns.String),
+	}, true, nil
 }
 
 // createPostgresIndex creates an index in PostgreSQL
@@ -387,5 +657,5 @@ func createPostgresIndex(db *gorp.DbMap, table string, unique bool, idx string, 
 
 	_, err = db.Exec(query)
 
-	return errors.Trace(err)
+	return finishCreateIndex(db, table, unique, idx, fields, err)
 }

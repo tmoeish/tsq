@@ -4,9 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"reflect"
 	"sync"
 	"time"
-	"unsafe"
 
 	"github.com/juju/errors"
 )
@@ -81,6 +81,7 @@ func appendUniqueTracers(existing []Tracer, newTracers ...Tracer) []Tracer {
 		}
 
 		duplicated := false
+
 		for _, current := range result {
 			if sameTracer(current, tracer) {
 				duplicated = true
@@ -109,7 +110,7 @@ func sameTracer(left, right Tracer) bool {
 }
 
 func tracerIdentity(tracer Tracer) uintptr {
-	return *(*uintptr)(unsafe.Pointer(&tracer))
+	return reflect.ValueOf(tracer).Pointer()
 }
 
 // ================================================
@@ -121,6 +122,10 @@ func tracerIdentity(tracer Tracer) uintptr {
 func Trace(ctx context.Context, fn func(ctx context.Context) error) error {
 	if fn == nil {
 		return errors.New("trace function cannot be nil")
+	}
+
+	if ctx == nil {
+		return errors.New("context cannot be nil")
 	}
 
 	tracers := snapshotTracers()
@@ -141,6 +146,11 @@ func Trace1[T any](
 	if fn == nil {
 		var zero T
 		return zero, errors.New("trace function cannot be nil")
+	}
+
+	if ctx == nil {
+		var zero T
+		return zero, errors.New("context cannot be nil")
 	}
 
 	tracers := snapshotTracers()
@@ -237,4 +247,11 @@ func CompactJSON(obj any) string {
 	}
 
 	return string(bs)
+}
+
+func restoreTracers(snapshot []Tracer) {
+	tracersMu.Lock()
+	defer tracersMu.Unlock()
+
+	tracers = append([]Tracer(nil), snapshot...)
 }

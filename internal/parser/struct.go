@@ -128,15 +128,18 @@ func (s *StructInfo) resolvePackageNameConflicts(
 	// 生成最终的导入映射
 	imports := make(map[string]string)
 	usedAliases := cloneAliasSet(reservedImportAliases)
+
 	packageNames := make([]string, 0, len(nameGroups))
 	for packageName := range nameGroups {
 		packageNames = append(packageNames, packageName)
 	}
+
 	sort.Strings(packageNames)
 
 	for _, packageName := range packageNames {
 		paths := nameGroups[packageName]
 		sort.Strings(paths)
+
 		for _, importPath := range paths {
 			alias := nextAvailableImportAlias(packageName, usedAliases)
 			imports[importPath] = alias
@@ -172,6 +175,7 @@ func nextAvailableImportAlias(base string, usedAliases map[string]struct{}) stri
 		}
 
 		usedAliases[candidate] = struct{}{}
+
 		return candidate
 	}
 }

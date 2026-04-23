@@ -1,11 +1,14 @@
-MODULE=$(shell go list -m)
+GO ?= $(shell command -v go 2>/dev/null || echo /usr/local/go/bin/go)
+MODULE=$(shell $(GO) list -m)
 BINARY_NAME=$(shell basename $(MODULE))
-OS ?= $(shell go env GOOS)
-ARCH ?= $(shell go env GOARCH)
+OS ?= $(shell $(GO) env GOOS)
+ARCH ?= $(shell $(GO) env GOARCH)
 VERSION=$(shell git describe --tags --always --dirty 2>/dev/null || echo "unknown")
 BUILD_TIME=$(shell date -u '+%Y-%m-%d %H:%M:%S')
+GIT_COMMIT=$(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+GIT_BRANCH=$(shell git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
 
-LDFLAGS=-ldflags "-X '$(MODULE)/pkg/tsq.Version=$(VERSION)' -X '$(MODULE)/pkg/tsq.BuildTime=$(BUILD_TIME)'"
+LDFLAGS=-ldflags "-X '$(MODULE).Version=$(VERSION)' -X '$(MODULE).BuildTime=$(BUILD_TIME)' -X '$(MODULE).GitCommit=$(GIT_COMMIT)' -X '$(MODULE).GitBranch=$(GIT_BRANCH)'"
 
 # Allow turning off function inlining and variable registerization
 ifeq ($(DISABLE_OPTIMIZATION),true)
@@ -19,7 +22,7 @@ GO_TAGS=$(if $(BUILDTAGS),-tags "$(BUILDTAGS)",)
 
 ##@ General
 
-all: clean fmt vet lint test build update-sample ## Build and run all
+all: clean fmt vet lint test build update-examples ## Build and run all
 
 PROJECT_DIR = $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
 LOCALBIN = ${PROJECT_DIR}/bin
@@ -34,31 +37,35 @@ $(LINT_BIN): $(LOCALBIN)
 lint: $(LINT_BIN) ## Run golangci-lint
 	@$(LINT_BIN) run
 
+.PHONY: mod-download
+mod-download: ## Download dependencies
+	@$(GO) mod download
+
 .PHONY: mod-tidy
 mod-tidy: ## Tidy dependencies
-	@go mod tidy
+	@$(GO) mod tidy
 
 .PHONY: fmt
 fmt: mod-tidy $(LINT_BIN) ## Format code
-	@go fmt ./...
+	@$(GO) fmt ./...
 	@$(LINT_BIN) run --disable-all -E gofumpt,gci,tagalign,wsl --fix --no-config
 
 .PHONY: vet
 vet: ## Run go vet
-	@go vet ./...
+	@$(GO) vet ./...
 
 .PHONY: build
 build: ## Run go build
-	@GOOS=$(OS) GOARCH=$(ARCH) go build -v -trimpath $(GO_GCFLAGS) $(GO_LDFLAGS) $(GO_TAGS) -o ./bin/$(BINARY_NAME) ./cmd/tsq
+	@GOOS=$(OS) GOARCH=$(ARCH) $(GO) build -v -trimpath $(GO_GCFLAGS) $(LDFLAGS) $(GO_TAGS) -o ./bin/$(BINARY_NAME) ./cmd/tsq
 
 .PHONY: run
 test: ## Run tests
-	@go test -v ./...
+	@$(GO) test -v ./...
 
 .PHONY: test-coverage
 test-coverage: ## Run tests with coverage
-	@go test -v -coverprofile=coverage.out ./...
-	@go tool cover -html=coverage.out
+	@$(GO) test -v -coverprofile=coverage.out ./...
+	@$(GO) tool cover -func=coverage.out
 
 .PHONY: clean
 clean: ## Clean build artifacts
@@ -67,26 +74,29 @@ clean: ## Clean build artifacts
 
 .PHONY: install
 install: build ## Install to GOPATH/bin
-	@cp bin/$(BINARY_NAME) $$(go env GOPATH)/bin/
+	@cp bin/$(BINARY_NAME) $$($(GO) env GOPATH)/bin/
 
 .PHONY: update-examples
 update-examples: build ## Update examples code
-	@rm -f $(MODULE)/examples/database/*_tsq.go
+	@rm -f ./examples/database/*_tsq.go
 	@./bin/$(BINARY_NAME) gen -v $(MODULE)/examples/database
-	@go build -o bin/examples ./examples/
+	@$(GO) build -o bin/examples ./examples/
+
+.PHONY: update-sample
+update-sample: update-examples ## Backward-compatible alias for update-examples
 
 
 help: ## Display this help.
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target.env>\033[0m\n"} /^[a-zA-Z_0-9\-\\.% ]+:.*?##/ { printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
 
 define go-get-tool
-@[ -f $(1) ] || { \
-set -e ;\
-TMP_DIR=$$(mktemp -d) ;\
-cd $$TMP_DIR ;\
-go mod init tmp ;\
-echo "Downloading $(2)" ;\
-GOBIN=$(LOCALBIN) go install $(2) ;\
-rm -rf $$TMP_DIR ;\
-}
+	@[ -f $(1) ] || { \
+	set -e ;\
+	TMP_DIR=$$(mktemp -d) ;\
+	cd $$TMP_DIR ;\
+	$(GO) mod init tmp ;\
+	echo "Downloading $(2)" ;\
+	GOBIN=$(LOCALBIN) $(GO) install $(2) ;\
+	rm -rf $$TMP_DIR ;\
+	}
 endef

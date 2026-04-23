@@ -31,11 +31,11 @@ func TestParseAnnotations_DSL(t *testing.T) {
 				DT:    "DT",
 				UxList: []tsq.IndexInfo{
 					{Name: "U1", Fields: []string{"F1", "F2"}},
-					{Name: "ux_f3", Fields: []string{"F3"}},
+					{Name: "ux_account_f3", Fields: []string{"F3"}},
 				},
 				IdxList: []tsq.IndexInfo{
 					{Name: "I1", Fields: []string{"F4"}},
-					{Name: "idx_f5_f6", Fields: []string{"F5", "F6"}},
+					{Name: "idx_account_f5_f6", Fields: []string{"F5", "F6"}},
 				},
 				KwList: []string{"foo", "bar"},
 			},
@@ -68,8 +68,8 @@ func TestParseAnnotations_DSL(t *testing.T) {
 				Table:   "user",
 				ID:      "ID",
 				AI:      true,
-				UxList:  []tsq.IndexInfo{{Name: "ux_f1", Fields: []string{"F1"}}},
-				IdxList: []tsq.IndexInfo{{Name: "idx_f2_f3", Fields: []string{"F2", "F3"}}},
+				UxList:  []tsq.IndexInfo{{Name: "ux_user_f1", Fields: []string{"F1"}}},
+				IdxList: []tsq.IndexInfo{{Name: "idx_user_f2_f3", Fields: []string{"F2", "F3"}}},
 			},
 		},
 		{
@@ -167,6 +167,7 @@ func TestExtractDSLContent_ReturnsErrorForArgumentsWithoutBrackets(t *testing.T)
 
 func TestParseDSL_IgnoresAnnotationPrefixes(t *testing.T) {
 	cg := []*ast.CommentGroup{{List: []*ast.Comment{{Text: `// @TABLEX(name="user")`}}}}
+
 	info, err := parseDSL("User", cg, map[string]struct{}{"ID": {}})
 	if err != nil {
 		t.Fatalf("parseDSL returned error for non-annotation prefix: %v", err)
@@ -179,6 +180,7 @@ func TestParseDSL_IgnoresAnnotationPrefixes(t *testing.T) {
 
 func TestParseDSL_IgnoresAnnotationMentionsInProse(t *testing.T) {
 	cg := []*ast.CommentGroup{{List: []*ast.Comment{{Text: `// This struct can be generated with @TABLE(name="user") later.`}}}}
+
 	info, err := parseDSL("User", cg, map[string]struct{}{"ID": {}})
 	if err != nil {
 		t.Fatalf("parseDSL returned error for prose annotation mention: %v", err)

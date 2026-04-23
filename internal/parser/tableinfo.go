@@ -83,6 +83,7 @@ func extractDSLContent(text, keyword string) (string, error) {
 
 	searchStart := idx + len(keyword)
 	afterKeyword := text[searchStart:]
+
 	trimmedAfterKeyword := strings.TrimLeft(afterKeyword, " \t\r\n")
 	if trimmedAfterKeyword == "" {
 		return "", nil
@@ -137,6 +138,7 @@ func extractDSLContent(text, keyword string) (string, error) {
 
 func findAnnotationKeyword(text, keyword string) (int, bool) {
 	offset := 0
+
 	for {
 		idx := strings.Index(text[offset:], keyword)
 		if idx == -1 {
@@ -145,6 +147,7 @@ func findAnnotationKeyword(text, keyword string) (int, bool) {
 
 		idx += offset
 		end := idx + len(keyword)
+
 		if isAnnotationLineStart(text, idx) && (end == len(text) || isAnnotationBoundary(text[end])) {
 			return idx, true
 		}

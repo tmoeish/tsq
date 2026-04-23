@@ -5,7 +5,7 @@ import "github.com/tmoeish/tsq/examples/common"
 // 用户表
 // @TABLE(
 //
-//	ux=[{name="ux_name", fields=["Name"]}],
+//	ux=[{fields=["Name"]}],
 //	kw=["Name","Email"]
 //	ct
 //

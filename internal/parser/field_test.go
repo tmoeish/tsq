@@ -424,6 +424,7 @@ type Test struct {
 	}
 
 	var structType *ast.StructType
+
 	for _, decl := range file.Decls {
 		genDecl, ok := decl.(*ast.GenDecl)
 		if !ok {

@@ -174,7 +174,7 @@ func TestFilterAndProcessResultsOnlyReturnsTargetPackageStructs(t *testing.T) {
 
 	ps := &ParseState{
 		structMap: map[tsq.TypeInfo]*StructInfo{
-			targetType: &StructInfo{
+			targetType: {
 				StructInfo: &tsq.StructInfo{
 					TableInfo: &tsq.TableInfo{Table: "targets"},
 					TypeInfo:  targetType,
@@ -184,7 +184,7 @@ func TestFilterAndProcessResultsOnlyReturnsTargetPackageStructs(t *testing.T) {
 					Recv: "t",
 				},
 			},
-			dependencyType: &StructInfo{
+			dependencyType: {
 				StructInfo: &tsq.StructInfo{
 					TableInfo: &tsq.TableInfo{Table: "dependencies"},
 					TypeInfo:  dependencyType,

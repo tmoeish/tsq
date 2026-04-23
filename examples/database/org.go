@@ -5,7 +5,7 @@ import "github.com/tmoeish/tsq/examples/common"
 // 组织表
 // @TABLE(
 //
-//	ux=[{name="UxName", fields=["Name"]}]
+//	ux=[{fields=["Name"]}]
 //	ct
 //
 // )

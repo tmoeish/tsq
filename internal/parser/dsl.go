@@ -253,6 +253,7 @@ func ParseDSL(tokens []Token) (DSLObject, error) {
 			if _, exists := obj[key]; exists {
 				return nil, NewDSLDuplicateKeyError(key, p.pos-1)
 			}
+
 			obj[key] = val
 		} else {
 			return nil, unexpectedDSLTokenError(p.peek(), p.pos)
@@ -376,6 +377,7 @@ func (p *Parser) parseObject() (DSLObject, error) {
 			if _, exists := obj[key]; exists {
 				return nil, NewDSLDuplicateKeyError(key, p.pos-1)
 			}
+
 			obj[key] = val
 		} else {
 			return nil, unexpectedDSLTokenError(p.peek(), p.pos)
@@ -464,6 +466,7 @@ func genTableInfoFromAST(
 			if !ok {
 				return nil, NewDSLUnexpectedValueError(k, 0)
 			}
+
 			if string(s) != "" {
 				info.Table = string(s)
 			}
@@ -472,14 +475,13 @@ func genTableInfoFromAST(
 			if !ok {
 				return nil, NewDSLUnexpectedValueError(k, 0)
 			}
-			parts := strings.Split(string(s), ",")
-			info.ID = strings.TrimSpace(parts[0])
 
-			auto := true
-			if len(parts) > 1 {
-				auto = strings.TrimSpace(parts[1]) == "true"
+			id, auto, err := parsePrimaryKeyDSL(string(s))
+			if err != nil {
+				return nil, err
 			}
 
+			info.ID = id
 			info.AI = auto
 		case "v":
 			if s, ok := v.(DSLString); ok {
@@ -518,11 +520,13 @@ func genTableInfoFromAST(
 			if !ok {
 				return nil, NewDSLUnexpectedValueError(k, 0)
 			}
+
 			for _, node := range arr {
 				obj, ok := node.(DSLObject)
 				if !ok {
 					return nil, NewDSLUnexpectedValueError(k, 0)
 				}
+
 				idx := tsq.IndexInfo{}
 
 				for k2, v2 := range obj {
@@ -532,17 +536,20 @@ func genTableInfoFromAST(
 						if !ok {
 							return nil, NewDSLUnexpectedValueError(k2, 0)
 						}
+
 						idx.Name = string(s)
 					case "fields":
 						arr2, ok := v2.(DSLArray)
 						if !ok {
 							return nil, NewDSLUnexpectedValueError(k2, 0)
 						}
+
 						for _, f := range arr2 {
 							fs, ok := f.(DSLString)
 							if !ok {
 								return nil, NewDSLUnexpectedValueError(k2, 0)
 							}
+
 							idx.Fields = append(idx.Fields, string(fs))
 						}
 					default:
@@ -552,11 +559,6 @@ func genTableInfoFromAST(
 
 				if len(idx.Fields) == 0 {
 					return nil, NewDSLUnexpectedValueError("fields", 0)
-				}
-				if idx.Name == "" {
-					idx.Name = snaker.CamelToSnake("Ux" + strings.Join(idx.Fields, ""))
-				} else if strings.HasPrefix(idx.Name, "Ux") && !strings.Contains(idx.Name, "_") {
-					idx.Name = snaker.CamelToSnake(idx.Name)
 				}
 
 				info.UxList = append(info.UxList, idx)
@@ -566,11 +568,13 @@ func genTableInfoFromAST(
 			if !ok {
 				return nil, NewDSLUnexpectedValueError(k, 0)
 			}
+
 			for _, node := range arr {
 				obj, ok := node.(DSLObject)
 				if !ok {
 					return nil, NewDSLUnexpectedValueError(k, 0)
 				}
+
 				idx := tsq.IndexInfo{}
 
 				for k2, v2 := range obj {
@@ -580,17 +584,20 @@ func genTableInfoFromAST(
 						if !ok {
 							return nil, NewDSLUnexpectedValueError(k2, 0)
 						}
+
 						idx.Name = string(s)
 					case "fields":
 						arr2, ok := v2.(DSLArray)
 						if !ok {
 							return nil, NewDSLUnexpectedValueError(k2, 0)
 						}
+
 						for _, f := range arr2 {
 							fs, ok := f.(DSLString)
 							if !ok {
 								return nil, NewDSLUnexpectedValueError(k2, 0)
 							}
+
 							idx.Fields = append(idx.Fields, string(fs))
 						}
 					default:
@@ -601,11 +608,6 @@ func genTableInfoFromAST(
 				if len(idx.Fields) == 0 {
 					return nil, NewDSLUnexpectedValueError("fields", 0)
 				}
-				if idx.Name == "" {
-					idx.Name = snaker.CamelToSnake("Idx" + strings.Join(idx.Fields, ""))
-				} else if strings.HasPrefix(idx.Name, "Idx") && !strings.Contains(idx.Name, "_") {
-					idx.Name = snaker.CamelToSnake(idx.Name)
-				}
 
 				info.IdxList = append(info.IdxList, idx)
 			}
@@ -614,17 +616,22 @@ func genTableInfoFromAST(
 			if !ok {
 				return nil, NewDSLUnexpectedValueError(k, 0)
 			}
+
 			for _, node := range arr {
 				s, ok := node.(DSLString)
 				if !ok {
 					return nil, NewDSLUnexpectedValueError(k, 0)
 				}
+
 				info.KwList = append(info.KwList, string(s))
 			}
 		default:
 			return nil, NewDSLUnexpectedTokenError("known table DSL key", k, 0)
 		}
 	}
+
+	normalizeIndexNames(info.UxList, "ux", info.Table)
+	normalizeIndexNames(info.IdxList, "idx", info.Table)
 
 	// 新增：校验 DSL 字段和索引
 	err := validateTableInfoAgainstStruct(info, structFields, name)
@@ -633,6 +640,30 @@ func genTableInfoFromAST(
 	}
 
 	return info, nil
+}
+
+func defaultIndexName(prefix string, table string, fields []string) string {
+	parts := make([]string, 0, len(fields)+2)
+	parts = append(parts, prefix, snaker.CamelToSnake(table))
+
+	for _, field := range fields {
+		parts = append(parts, snaker.CamelToSnake(field))
+	}
+
+	return strings.Join(parts, "_")
+}
+
+func normalizeIndexNames(indexes []tsq.IndexInfo, prefix string, table string) {
+	for i := range indexes {
+		switch {
+		case indexes[i].Name == "":
+			indexes[i].Name = defaultIndexName(prefix, table, indexes[i].Fields)
+		case strings.HasPrefix(indexes[i].Name, "Ux") && !strings.Contains(indexes[i].Name, "_"):
+			indexes[i].Name = snaker.CamelToSnake(indexes[i].Name)
+		case strings.HasPrefix(indexes[i].Name, "Idx") && !strings.Contains(indexes[i].Name, "_"):
+			indexes[i].Name = snaker.CamelToSnake(indexes[i].Name)
+		}
+	}
 }
 
 // validateTableInfoAgainstStruct 校验 DSL 字段和索引
@@ -681,4 +712,48 @@ func validateTableInfoAgainstStruct(info *tsq.TableInfo, structFields map[string
 	}
 
 	return nil
+}
+
+func parsePrimaryKeyDSL(value string) (string, bool, error) {
+	parts := strings.Split(value, ",")
+	if len(parts) == 0 {
+		return "", false, NewDSLUnexpectedValueError("pk", 0)
+	}
+
+	id := strings.TrimSpace(parts[0])
+	if id == "" {
+		return "", false, NewDSLUnexpectedValueError("pk", 0)
+	}
+
+	if strings.Contains(id, " ") || strings.Contains(id, "\t") || strings.Contains(id, "\n") {
+		return "", false, NewDSLUnexpectedValueError("pk", 0)
+	}
+
+	if strings.Contains(id, ";") || strings.Contains(id, "=") || strings.Contains(id, ":") {
+		return "", false, NewDSLUnexpectedValueError("pk", 0)
+	}
+
+	if strings.Contains(id, ",") {
+		return "", false, errors.New("composite primary keys are not supported")
+	}
+
+	auto := true
+
+	switch len(parts) {
+	case 1:
+		return id, auto, nil
+	case 2:
+		switch strings.TrimSpace(parts[1]) {
+		case "true":
+			auto = true
+		case "false":
+			auto = false
+		default:
+			return "", false, NewDSLUnexpectedValueError("pk", 0)
+		}
+	default:
+		return "", false, NewDSLUnexpectedValueError("pk", 0)
+	}
+
+	return id, auto, nil
 }
