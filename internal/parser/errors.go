@@ -29,6 +29,7 @@ const (
 	ErrorTypeDSLInvalidNumber
 	ErrorTypeDSLMissingBracket
 	ErrorTypeDSLMissingBrace
+	ErrorTypeDSLDuplicateKey
 
 	// Field 相关错误
 	ErrorTypeFieldUnsupportedType
@@ -92,6 +93,7 @@ var ErrorMessages = map[ErrorType]string{
 	ErrorTypeDSLInvalidNumber:   "invalid number format in DSL",
 	ErrorTypeDSLMissingBracket:  "missing bracket in DSL",
 	ErrorTypeDSLMissingBrace:    "missing brace in DSL",
+	ErrorTypeDSLDuplicateKey:    "duplicate key in DSL",
 
 	// Field 相关错误
 	ErrorTypeFieldUnsupportedType: "unsupported field type",
@@ -294,6 +296,17 @@ func NewDSLInvalidNumberError(numberStr string, position int) error {
 	)
 	err := newParserError(ErrorTypeDSLInvalidNumber, msg, map[string]any{
 		"number":   numberStr,
+		"position": position,
+	})
+
+	return errors.Trace(err)
+}
+
+// NewDSLDuplicateKeyError 创建 DSL 重复 key 错误
+func NewDSLDuplicateKeyError(key string, position int) error {
+	msg := fmt.Sprintf("duplicate key '%s' in DSL at position %d", key, position)
+	err := newParserError(ErrorTypeDSLDuplicateKey, msg, map[string]any{
+		"key":      key,
 		"position": position,
 	})
 

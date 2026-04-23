@@ -250,6 +250,9 @@ func ParseDSL(tokens []Token) (DSLObject, error) {
 		}
 
 		if key != "" {
+			if _, exists := obj[key]; exists {
+				return nil, NewDSLDuplicateKeyError(key, p.pos-1)
+			}
 			obj[key] = val
 		} else {
 			// 跳过无法识别的 token，防止死循环
@@ -362,6 +365,9 @@ func (p *Parser) parseObject() (DSLObject, error) {
 		}
 
 		if key != "" {
+			if _, exists := obj[key]; exists {
+				return nil, NewDSLDuplicateKeyError(key, p.pos-1)
+			}
 			obj[key] = val
 		} else {
 			p.next()

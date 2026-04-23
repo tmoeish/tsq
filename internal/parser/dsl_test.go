@@ -130,6 +130,22 @@ func TestParseDSL(t *testing.T) {
 	}
 }
 
+func TestParseDSLRejectsDuplicateTopLevelKeys(t *testing.T) {
+	tokens, err := Tokenize(`name = "users", name = "accounts"`)
+	if err != nil {
+		t.Fatalf("Tokenize error: %v", err)
+	}
+
+	_, err = ParseDSL(tokens)
+	if err == nil {
+		t.Fatal("expected duplicate top-level key to return an error")
+	}
+
+	if !IsErrorType(err, ErrorTypeDSLDuplicateKey) {
+		t.Fatalf("expected duplicate key error, got %v", err)
+	}
+}
+
 func TestParser_parseValue(t *testing.T) {
 	tokens, _ := Tokenize(`"abc" true 123 [1,2] {a=1}`)
 
@@ -210,6 +226,24 @@ func TestParser_parseObject(t *testing.T) {
 
 	if obj["a"] != DSLNumber(1) || obj["b"] != DSLString("x") {
 		t.Errorf("parseObject value error")
+	}
+}
+
+func TestParser_parseObjectRejectsDuplicateKeys(t *testing.T) {
+	tokens, err := Tokenize(`{fields=["ID"], fields=["Name"]}`)
+	if err != nil {
+		t.Fatalf("Tokenize error: %v", err)
+	}
+
+	p := NewParser(tokens)
+
+	_, err = p.parseObject()
+	if err == nil {
+		t.Fatal("expected duplicate object key to return an error")
+	}
+
+	if !IsErrorType(err, ErrorTypeDSLDuplicateKey) {
+		t.Fatalf("expected duplicate key error, got %v", err)
 	}
 }
 
