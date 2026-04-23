@@ -702,7 +702,7 @@ func (q *Query) buildPageSQLs(page *PageReq) (string, string, error) {
 
 	for _, f := range q.selectCols {
 		registerSortableField(f.Name(), rawColumnQualifiedName(f))
-		if f.JSONFieldName() != "" {
+		if f.JSONFieldName() != "" && f.JSONFieldName() != "-" {
 			registerSortableField(f.JSONFieldName(), rawColumnQualifiedName(f))
 		}
 	}

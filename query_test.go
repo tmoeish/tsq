@@ -408,6 +408,25 @@ func TestQuery_buildPageSQLsRejectsAmbiguousSortField(t *testing.T) {
 	}
 }
 
+func TestQuery_buildPageSQLsIgnoresHiddenJSONSortAlias(t *testing.T) {
+	users := newMockTable("users")
+	hidden := NewCol[string](users, "secret", "-", nil)
+
+	query := Select(hidden).MustBuild()
+	_, _, err := query.buildPageSQLs(&PageReq{
+		OrderBy: "-",
+		Order:   "ASC",
+	})
+	if err == nil {
+		t.Fatal("expected json:- sort alias to be rejected")
+	}
+
+	var unknownErr *ErrUnknownSortField
+	if !errors.As(err, &unknownErr) {
+		t.Fatalf("expected ErrUnknownSortField, got %v", err)
+	}
+}
+
 func TestQuery_buildPageSQLsDefaultsMissingOrderToASC(t *testing.T) {
 	users := newMockTable("users")
 	userID := newMockColumn(users, "id")
