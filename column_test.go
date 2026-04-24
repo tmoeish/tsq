@@ -293,3 +293,28 @@ func TestCol_ImmutabilityOfInto(t *testing.T) {
 		t.Error("Into should not mutate the original field pointer")
 	}
 }
+
+func TestCol_AsRebindsQualifiedName(t *testing.T) {
+	table := newMockTable("users")
+	col := NewCol[string](table, "name", "name", nil)
+
+	aliased := col.As("manager")
+
+	if got := aliased.Table().Table(); got != "manager" {
+		t.Fatalf("expected aliased table name manager, got %q", got)
+	}
+
+	if got := aliased.QualifiedName(); got != `"manager"."name"` {
+		t.Fatalf("expected aliased qualified name, got %q", got)
+	}
+}
+
+func TestCol_AsRejectsTransformedColumn(t *testing.T) {
+	table := newMockTable("users")
+	col := NewCol[string](table, "name", "name", nil).Upper()
+
+	aliased := col.As("manager")
+	if _, err := validateColumnInput(aliased); err == nil {
+		t.Fatal("expected transformed column rebinding to return a build error")
+	}
+}

@@ -27,21 +27,19 @@ func NewTraceManager() *TraceManager {
 	return &TraceManager{}
 }
 
-var defaultTraceManager = NewTraceManager()
-
 // AddTracer adds a tracer to the default trace manager.
 func AddTracer(tracer Tracer) {
-	defaultTraceManager.Add(tracer)
+	defaultRuntime.AddTracer(tracer)
 }
 
 // ClearTracers clears the default trace manager.
 func ClearTracers() {
-	defaultTraceManager.Clear()
+	defaultRuntime.ClearTracers()
 }
 
 // GetTracers returns all tracers from the default trace manager.
 func GetTracers() []Tracer {
-	return defaultTraceManager.Get()
+	return defaultRuntime.GetTracers()
 }
 
 func (m *TraceManager) Add(tracer Tracer) {
@@ -144,11 +142,11 @@ func traceManagerTrace1[T any](m *TraceManager, ctx context.Context, fn func(ctx
 
 // Trace executes a function with all registered tracers applied.
 func Trace(ctx context.Context, fn func(ctx context.Context) error) error {
-	return defaultTraceManager.Trace(ctx, fn)
+	return defaultRuntime.Trace(ctx, fn)
 }
 
 func Trace1[T any](ctx context.Context, fn func(ctx context.Context) (T, error)) (T, error) {
-	return traceManagerTrace1(defaultTraceManager, ctx, fn)
+	return Trace1WithRuntime(defaultRuntime, ctx, fn)
 }
 
 func appendUniqueTracers(existing []Tracer, newTracers ...Tracer) []Tracer {

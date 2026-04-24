@@ -3,21 +3,20 @@ package tsq
 import (
 	"net/url"
 	"strconv"
+
+	"github.com/juju/errors"
 )
 
 // ================================================
 // 分页常量和类型
 // ================================================
 
-// Direction represents the sort direction
-// swagger:strfmt Direction
-// enum:ASC,DESC
-type Direction string
+// Direction is the paging-layer alias of Order.
+type Direction = Order
 
-// Sort directions
 const (
-	Asc  Direction = "ASC"
-	Desc Direction = "DESC"
+	Asc  Direction = ASC
+	Desc Direction = DESC
 )
 
 const (
@@ -127,6 +126,37 @@ func (r *PageReq) Validate() error {
 
 	if r.Size > MaxPageSize {
 		r.Size = MaxPageSize
+	}
+
+	return nil
+}
+
+// ValidateStrict reports invalid paging or sorting input without mutating r.
+func (r *PageReq) ValidateStrict() error {
+	if r == nil {
+		return nil
+	}
+
+	if r.Page <= 0 {
+		return errors.Errorf("page must be greater than 0, got %d", r.Page)
+	}
+
+	if r.Size <= 0 {
+		return errors.Errorf("size must be greater than 0, got %d", r.Size)
+	}
+
+	if r.Size > MaxPageSize {
+		return errors.Errorf("size must be less than or equal to %d, got %d", MaxPageSize, r.Size)
+	}
+
+	if len(splitCommaValues(r.OrderBy)) == 0 && len(splitCommaValues(r.Order)) > 0 {
+		return errors.New("order requires order_by")
+	}
+
+	for _, rawOrder := range splitCommaValues(r.Order) {
+		if _, err := parseOrder(rawOrder); err != nil {
+			return errors.Trace(err)
+		}
 	}
 
 	return nil

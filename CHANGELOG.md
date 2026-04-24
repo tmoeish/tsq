@@ -7,6 +7,32 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 项目遵循 [语义化版本控制](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+### 新增
+- 增加 `Runtime` 类型用于实现隔离的表册和跟踪管理器
+- 增加 `AliasTable()` 和 `RebindColumn()` 支持表别名和自联接
+- 增加 `Col[T].As()` 和 `Col[T].WithTable()` 方法用于列重绑定
+- 增加 `PageReq.ValidateStrict()` 用于严格分页/排序验证
+- 增加 `Order` 作为 `Direction` 的别名以统一排序合约
+
+### 改进
+- 运行时状态隔离：包级别的表册和跟踪管理器现已移至 `Runtime` 实例中，保留全局包装器以维持向后兼容性
+- 条件错误模型：将 `Predicate()` 和相关表达式构造函数从基于 panic 改为基于错误的模型，无效输入返回错误而非崩溃
+- 关键词搜索硬化：使用显式标记而非后期追加来处理关键词参数，确保占位符和参数计数对齐
+- SQL 渲染器整合：提取共享的 SQL 扫描器逻辑，消除状态机重复
+- 分页和排序合约：统一 `Direction`/`Order` 使用，区分 `Validate()`（正常化）和 `ValidateStrict()`（严格检查）
+- README 示例同步：文档和代码示例现已与当前 API 对齐
+
+### 修复
+- 修复 `PageReq.Validate()` 恢复向后兼容的正常化语义（之前过于严格）
+- 修复 `Col[T]` 变换检测通过显式 `transformed` 标志而非名称比较
+
+### 向后兼容性
+- `PageReq.Validate()` 继续正常化无效值（原有行为）；使用 `ValidateStrict()` 进行严格检查
+- 所有公共 API 保持兼容；条件错误现通过 `Build()` 返回而非 panic
+- 旧的全局初始化模式继续有效；新代码应使用 `Runtime` 实例
+
 ## [1.1.0] - 2026-04-23
 
 ### 新增

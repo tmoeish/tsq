@@ -506,22 +506,14 @@ func pageFn[T any](
 	}
 
 	// Add keyword search parameters if needed
-	finalArgs, err := mergeQueryArgs(queryBaseArgs, args)
+	finalArgs, err := resolveQueryArgs(queryBaseArgs, args, page.Keyword)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
 
-	countArgs, err := mergeQueryArgs(countBaseArgs, args)
+	countArgs, err := resolveQueryArgs(countBaseArgs, args, page.Keyword)
 	if err != nil {
 		return nil, errors.Trace(err)
-	}
-
-	if len(q.kwCols) > 0 && len(page.Keyword) > 0 {
-		like := "%" + page.Keyword + "%"
-		for range len(q.kwCols) {
-			finalArgs = append(finalArgs, like)
-			countArgs = append(countArgs, like)
-		}
 	}
 
 	// Add LIMIT parameters
@@ -840,21 +832,13 @@ func (q *Query) buildPageSQLs(page *PageReq) (string, string, error) {
 
 	if len(page.OrderBy) != 0 {
 		orderbys := splitCommaValues(page.OrderBy)
-		orders := splitCommaValues(page.Order)
-
 		if len(orderbys) == 0 {
 			return "", "", errors.New("order by fields cannot be empty")
 		}
 
-		if len(orders) == 0 {
-			orders = make([]string, len(orderbys))
-			for i := range orders {
-				orders[i] = "ASC"
-			}
-		}
-
-		if len(orders) != len(orderbys) {
-			return "", "", NewErrOrderCountMismatch(len(orderbys), len(orders))
+		orders, err := normalizeSortOrders(splitCommaValues(page.Order), len(orderbys))
+		if err != nil {
+			return "", "", errors.Trace(err)
 		}
 
 		var fullNames []string
@@ -871,12 +855,7 @@ func (q *Query) buildPageSQLs(page *PageReq) (string, string, error) {
 				return "", "", NewErrUnknownSortField(ob)
 			}
 
-			order := strings.ToUpper(strings.TrimSpace(orders[i]))
-			if order != "ASC" && order != "DESC" {
-				return "", "", errors.Errorf("invalid order: %s", orders[i])
-			}
-
-			fullNames = append(fullNames, fullName+" "+order)
+			fullNames = append(fullNames, fullName+" "+string(orders[i]))
 		}
 
 		listQuery += "\nORDER BY " + strings.Join(fullNames, ", ")
@@ -1325,7 +1304,17 @@ func normalizePageReq(page *PageReq) *PageReq {
 	}
 
 	normalized := *page
-	_ = normalized.Validate()
+	if normalized.Page <= 0 {
+		normalized.Page = 1
+	}
+
+	if normalized.Size <= 0 {
+		normalized.Size = DefaultPageSize
+	}
+
+	if normalized.Size > MaxPageSize {
+		normalized.Size = MaxPageSize
+	}
 
 	return &normalized
 }
@@ -1387,22 +1376,36 @@ func validateIDValues(ids []any) error {
 }
 
 func mergeQueryArgs(base []any, extra []any) ([]any, error) {
+	return resolveQueryArgs(base, extra, "")
+}
+
+func resolveQueryArgs(base []any, extra []any, keyword string) ([]any, error) {
 	result := make([]any, 0, len(base)+len(extra))
 	extraIndex := 0
+	like := ""
 
 	for _, arg := range base {
-		if arg == externalArgMarker {
+		switch arg {
+		case externalArgMarker:
 			if extraIndex >= len(extra) {
 				return nil, errors.New("missing external query argument")
 			}
 
 			result = append(result, extra[extraIndex])
 			extraIndex++
+		case keywordArgMarker:
+			if keyword == "" {
+				return nil, errors.New("missing keyword query argument")
+			}
 
-			continue
+			if like == "" {
+				like = "%" + keyword + "%"
+			}
+
+			result = append(result, like)
+		default:
+			result = append(result, arg)
 		}
-
-		result = append(result, arg)
 	}
 
 	result = append(result, extra[extraIndex:]...)
@@ -1467,6 +1470,14 @@ func validateExecutorForSQL(tx gorp.SqlExecutor, rawSQLs ...string) error {
 
 	dialect := dialectForExecutor(tx)
 	if dialect != nil {
+		if !dialectSupportsFullJoin(dialect) {
+			for _, rawSQL := range rawSQLs {
+				if strings.Contains(strings.ToUpper(rawSQL), " FULL JOIN ") {
+					return errors.New("FULL JOIN is not supported by this SQL dialect")
+				}
+			}
+		}
+
 		return nil
 	}
 
@@ -1477,6 +1488,15 @@ func validateExecutorForSQL(tx gorp.SqlExecutor, rawSQLs ...string) error {
 	}
 
 	return nil
+}
+
+func dialectSupportsFullJoin(dialect gorp.Dialect) bool {
+	switch dialect.(type) {
+	case gorp.MySQLDialect, *gorp.MySQLDialect, gorp.SqliteDialect, *gorp.SqliteDialect:
+		return false
+	default:
+		return true
+	}
 }
 
 func validateOperationalExecutorForSQL(tx gorp.SqlExecutor, rawSQLs ...string) error {

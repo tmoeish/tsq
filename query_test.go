@@ -151,19 +151,25 @@ func TestQueryBuilder_Build_Success(t *testing.T) {
 	}
 }
 
-func TestQueryBuilder_Build_FullJoinReturnsError(t *testing.T) {
+func TestQueryBuilder_Build_FullJoinDefersDialectValidationToExecution(t *testing.T) {
 	users := newMockTable("users")
 	orders := newMockTable("orders")
 	userID := newMockColumn(users, "id")
 	orderUserID := newMockColumn(orders, "user_id")
 
-	_, err := Select(userID).FullJoin(userID, orderUserID).Build()
+	query, err := Select(userID).FullJoin(userID, orderUserID).Build()
+	if err != nil {
+		t.Fatalf("expected FULL JOIN build to succeed, got %v", err)
+	}
+
+	db := newSQLiteIndexTestDBMap(t)
+	err = validateOperationalExecutorForSQL(db, query.listSQL)
 	if err == nil {
-		t.Fatal("expected FULL JOIN build to fail")
+		t.Fatal("expected sqlite dialect validation to reject FULL JOIN")
 	}
 
 	if !strings.Contains(err.Error(), "FULL JOIN") {
-		t.Fatalf("expected FULL JOIN error, got %v", err)
+		t.Fatalf("expected FULL JOIN dialect error, got %v", err)
 	}
 }
 
@@ -472,6 +478,33 @@ func TestQuery_buildPageSQLsRejectsExplicitOrderCountMismatch(t *testing.T) {
 	var mismatchErr *ErrOrderCountMismatch
 	if !errors.As(err, &mismatchErr) {
 		t.Fatalf("expected ErrOrderCountMismatch, got %v", err)
+	}
+}
+
+func TestQuery_BuildKeywordQueriesTrackDedicatedMarkers(t *testing.T) {
+	users := newMockTable("users")
+	userID := newMockColumn(users, "id")
+	userName := newMockColumn(users, "name")
+
+	query := Select(userID, userName).
+		KwSearch(userID, userName).
+		MustBuild()
+
+	if got := len(query.kwListArgs); got != 2 {
+		t.Fatalf("expected 2 keyword list args, got %d", got)
+	}
+
+	if got := len(query.kwCntArgs); got != 2 {
+		t.Fatalf("expected 2 keyword count args, got %d", got)
+	}
+
+	args, err := resolveQueryArgs(query.kwListArgs, nil, "demo")
+	if err != nil {
+		t.Fatalf("expected keyword markers to resolve, got %v", err)
+	}
+
+	if len(args) != 2 || args[0] != "%demo%" || args[1] != "%demo%" {
+		t.Fatalf("unexpected resolved keyword args: %#v", args)
 	}
 }
 

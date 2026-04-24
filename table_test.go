@@ -9,11 +9,11 @@ import (
 )
 
 func TestRegisterTablePanicsOnDuplicateName(t *testing.T) {
-	oldRegistry := defaultRegistry
-	defaultRegistry = NewRegistry()
+	oldRuntime := defaultRuntime
+	defaultRuntime = NewRuntime()
 
 	t.Cleanup(func() {
-		defaultRegistry = oldRegistry
+		defaultRuntime = oldRuntime
 	})
 
 	table := newMockTable("users")
@@ -29,11 +29,11 @@ func TestRegisterTablePanicsOnDuplicateName(t *testing.T) {
 }
 
 func TestRegisterTableRejectsNilInputs(t *testing.T) {
-	oldRegistry := defaultRegistry
-	defaultRegistry = NewRegistry()
+	oldRuntime := defaultRuntime
+	defaultRuntime = NewRuntime()
 
 	t.Cleanup(func() {
-		defaultRegistry = oldRegistry
+		defaultRuntime = oldRuntime
 	})
 
 	tests := []struct {
@@ -74,8 +74,9 @@ func TestRegisterTableRejectsNilInputs(t *testing.T) {
 }
 
 func TestSnapshotRegisteredTablesReturnsDeterministicOrder(t *testing.T) {
-	oldRegistry := defaultRegistry
-	defaultRegistry = &Registry{tables: map[string]*RegisteredTable{
+	oldRuntime := defaultRuntime
+	defaultRuntime = NewRuntime()
+	defaultRuntime.registry = &Registry{tables: map[string]*RegisteredTable{
 		"users": {
 			Table:        newMockTable("users"),
 			AddTableFunc: func(db *gorp.DbMap) {},
@@ -89,7 +90,7 @@ func TestSnapshotRegisteredTablesReturnsDeterministicOrder(t *testing.T) {
 	}}
 
 	t.Cleanup(func() {
-		defaultRegistry = oldRegistry
+		defaultRuntime = oldRuntime
 	})
 
 	snapshot := snapshotRegisteredTables()
@@ -107,14 +108,11 @@ func TestSnapshotRegisteredTablesReturnsDeterministicOrder(t *testing.T) {
 }
 
 func TestInitDeduplicatesProvidedTracers(t *testing.T) {
-	oldRegistry := defaultRegistry
-	defaultRegistry = NewRegistry()
-	oldTraceManager := defaultTraceManager
-	defaultTraceManager = NewTraceManager()
+	oldRuntime := defaultRuntime
+	defaultRuntime = NewRuntime()
 
 	t.Cleanup(func() {
-		defaultRegistry = oldRegistry
-		defaultTraceManager = oldTraceManager
+		defaultRuntime = oldRuntime
 	})
 
 	tracer := func(next Fn) Fn { return next }
@@ -129,6 +127,32 @@ func TestInitDeduplicatesProvidedTracers(t *testing.T) {
 
 	if got := len(GetTracers()); got != 1 {
 		t.Fatalf("expected Init to deduplicate tracers, got %d", got)
+	}
+}
+
+func TestRuntimeKeepsRegistrationsAndTracersIsolated(t *testing.T) {
+	left := NewRuntime()
+	right := NewRuntime()
+
+	left.RegisterTable(newMockTable("users"), func(db *gorp.DbMap) {}, func(db *gorp.DbMap) error { return nil })
+	right.RegisterTable(newMockTable("users"), func(db *gorp.DbMap) {}, func(db *gorp.DbMap) error { return nil })
+
+	left.AddTracer(func(next Fn) Fn { return next })
+
+	if got := len(left.snapshotRegisteredTables()); got != 1 {
+		t.Fatalf("expected left runtime registration count 1, got %d", got)
+	}
+
+	if got := len(right.snapshotRegisteredTables()); got != 1 {
+		t.Fatalf("expected right runtime registration count 1, got %d", got)
+	}
+
+	if got := len(left.GetTracers()); got != 1 {
+		t.Fatalf("expected left runtime tracer count 1, got %d", got)
+	}
+
+	if got := len(right.GetTracers()); got != 0 {
+		t.Fatalf("expected right runtime tracer count 0, got %d", got)
 	}
 }
 

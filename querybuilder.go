@@ -189,7 +189,8 @@ func (qb *QueryBuilder) RightJoin(left Column, right Column) *QueryBuilder {
 	return qb
 }
 
-// FullJoin adds a FULL JOIN clause.
+// FullJoin adds a FULL JOIN clause. SQL generation is supported, but execution
+// still depends on the target dialect supporting FULL JOIN.
 func (qb *QueryBuilder) FullJoin(left Column, right Column) *QueryBuilder {
 	qb = qb.ensureInitialized()
 
@@ -251,7 +252,7 @@ func (qb *QueryBuilder) Having(conds ...Condition) *QueryBuilder {
 	return qb
 }
 
-// Where sets the WHERE conditions for the query.
+// Where replaces any existing WHERE conditions for the query.
 func (qb *QueryBuilder) Where(conds ...Condition) *QueryBuilder {
 	qb = qb.ensureInitialized()
 
@@ -287,7 +288,7 @@ func (qb *QueryBuilder) AndIf(ok bool, conds ...Condition) *QueryBuilder {
 	return qb
 }
 
-// KwSearch sets the keyword search columns.
+// KwSearch replaces any existing keyword-search columns.
 func (qb *QueryBuilder) KwSearch(cols ...Column) *QueryBuilder {
 	qb = qb.ensureInitialized()
 	qb.spec.KeywordSearch = make([]Column, 0, len(cols))

@@ -38,6 +38,7 @@ func (c Col[T]) Fn(format string) Col[T] {
 		args:          append([]any(nil), c.args...),
 		aggregate:     c.aggregate,
 		distinct:      c.distinct,
+		transformed:   true,
 		buildErr:      c.buildErr,
 	}
 }
@@ -69,6 +70,7 @@ func (c Col[T]) Fn0(fn string) Col[T] {
 		args:          append([]any(nil), c.args...),
 		aggregate:     c.aggregate,
 		distinct:      c.distinct,
+		transformed:   true,
 		buildErr:      c.buildErr,
 	}
 }
@@ -97,6 +99,11 @@ func (c Col[T]) FnExpr(format string, args ...any) Col[T] {
 
 	for _, arg := range args {
 		expr := argumentToExpression(arg)
+		if err := expressionBuildError(expr); err != nil {
+			c.buildErr = errors.Trace(err)
+			return c
+		}
+
 		formatArgs = append(formatArgs, expr.Expr())
 		resultArgs = append(resultArgs, expr.Args()...)
 	}
@@ -110,6 +117,7 @@ func (c Col[T]) FnExpr(format string, args ...any) Col[T] {
 		args:          resultArgs,
 		aggregate:     c.aggregate,
 		distinct:      c.distinct,
+		transformed:   true,
 		buildErr:      c.buildErr,
 	}
 }

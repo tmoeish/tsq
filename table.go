@@ -26,12 +26,6 @@ func NewRegistry() *Registry {
 	}
 }
 
-var defaultRegistry = NewRegistry()
-
-// initMu serialises concurrent calls to InitWithOptions so that the
-// snapshot/rollback of the global trace manager is atomic.
-var initMu sync.Mutex
-
 type InitOptions struct {
 	AutoCreateTables bool
 	UpsertIndexes    bool
@@ -44,7 +38,7 @@ func RegisterTable(
 	addTableFunc func(db *gorp.DbMap),
 	initFunc func(db *gorp.DbMap) error,
 ) {
-	defaultRegistry.Register(table, addTableFunc, initFunc)
+	defaultRuntime.RegisterTable(table, addTableFunc, initFunc)
 }
 
 func (r *Registry) Register(
@@ -106,66 +100,11 @@ func Init(
 	upsertIndexies bool,
 	tracer ...Tracer,
 ) error {
-	return InitWithOptions(db, &InitOptions{
-		AutoCreateTables: autoCreateTable,
-		UpsertIndexes:    upsertIndexies,
-		Tracers:          tracer,
-	})
+	return defaultRuntime.Init(db, autoCreateTable, upsertIndexies, tracer...)
 }
 
 func InitWithOptions(db *gorp.DbMap, options *InitOptions) error {
-	if db == nil {
-		return errors.New("db map cannot be nil")
-	}
-
-	if db.Db == nil {
-		return errors.New("db map database cannot be nil")
-	}
-
-	if db.Dialect == nil {
-		return errors.New("db map dialect cannot be nil")
-	}
-
-	if options == nil {
-		options = &InitOptions{}
-	}
-
-	// Serialise concurrent calls so that the snapshot/rollback of the global
-	// trace manager is atomic.
-	initMu.Lock()
-	defer initMu.Unlock()
-
-	rollbackTracers := defaultTraceManager.snapshot()
-
-	defaultTraceManager.AddUnique(options.Tracers...)
-
-	registeredTables := defaultRegistry.Snapshot()
-
-	// Configure tables in gorp
-	for _, table := range registeredTables {
-		table.AddTableFunc(db)
-	}
-
-	if options.AutoCreateTables {
-		if err := db.CreateTablesIfNotExists(); err != nil {
-			defaultTraceManager.restore(rollbackTracers)
-			return errors.Annotate(err, "failed to create tables")
-		}
-	}
-
-	if options.UpsertIndexes {
-		for _, table := range registeredTables {
-			if err := table.InitFunc(db); err != nil {
-				defaultTraceManager.restore(rollbackTracers)
-
-				return errors.Annotatef(err,
-					"failed to initialize table %s", table.Table.Table(),
-				)
-			}
-		}
-	}
-
-	return nil
+	return defaultRuntime.InitWithOptions(db, options)
 }
 
 func registeredTableKey(table Table) string {
@@ -181,7 +120,7 @@ func registeredTableKey(table Table) string {
 }
 
 func snapshotRegisteredTables() []*RegisteredTable {
-	return defaultRegistry.Snapshot()
+	return defaultRuntime.snapshotRegisteredTables()
 }
 
 func (r *Registry) Snapshot() []*RegisteredTable {

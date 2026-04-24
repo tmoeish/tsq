@@ -136,40 +136,42 @@ import (
     "database/sql"
     "encoding/json"
     "fmt"
+    "log/slog"
     "os"
     "github.com/juju/errors"
     _ "github.com/mattn/go-sqlite3"
-    logrus "log/slog"
     "github.com/tmoeish/tsq"
     "github.com/tmoeish/tsq/examples/database"
     "gopkg.in/gorp.v2"
 )
 
 func main() {
-    logrus.SetLevel(logrus.TraceLevel)
-
     // 1. 连接 SQLite 内存数据库
     db, err := sql.Open("sqlite3", ":memory:")
     if err != nil {
-        logrus.Fatal(errors.ErrorStack(err))
+        slog.Error("open sqlite", "error", errors.ErrorStack(err))
+        os.Exit(1)
     }
     defer func() { _ = db.Close() }()
 
     // 2. 初始化 gorp
     dbmap := &gorp.DbMap{Db: db, Dialect: gorp.SqliteDialect{}}
-    err = tsq.Init(dbmap, true, true, TraceDB)
+    err = tsq.Init(dbmap, true, true, tsq.PrintError, tsq.PrintSQL)
     if err != nil {
-        logrus.Fatal(errors.ErrorStack(err))
+        slog.Error("tsq init", "error", errors.ErrorStack(err))
+        os.Exit(1)
     }
 
     // 初始化数据库，执行 mock.sql 文件
     mockSQL, err := os.ReadFile("examples/database/mock.sql")
     if err != nil {
-        logrus.Fatal(errors.ErrorStack(err))
+        slog.Error("read mock sql", "error", errors.ErrorStack(err))
+        os.Exit(1)
     }
     _, err = db.Exec(string(mockSQL))
     if err != nil {
-        logrus.Fatal(errors.ErrorStack(err))
+        slog.Error("exec mock sql", "error", errors.ErrorStack(err))
+        os.Exit(1)
     }
 
     // 3. 构造分页参数
@@ -179,24 +181,22 @@ func main() {
         Order:   "asc,desc",
         OrderBy: "user_id,order_id",
     }
+    if err := pageReq.ValidateStrict(); err != nil {
+        slog.Error("invalid page request", "error", err)
+        os.Exit(1)
+    }
 
     // 4. 调用 PageUserOrder，假设 user_id = 1
     ctx := context.Background()
     resp, err := database.PageUserOrder(ctx, dbmap, pageReq, 1, "图书", "视频", "杂志")
     if err != nil {
-        logrus.Fatal(errors.ErrorStack(err))
+        slog.Error("page user order", "error", errors.ErrorStack(err))
+        os.Exit(1)
     }
 
     // 5. 打印结果
     rs, _ := json.MarshalIndent(resp, "", "  ")
     fmt.Println(string(rs))
-}
-
-func TraceDB(next tsq.Fn) tsq.Fn {
-    return func(ctx context.Context) error {
-        err := next(ctx)
-        return err
-    }
 }
 ```
 
@@ -242,6 +242,9 @@ literalQuery := tsq.
     Where(database.User_Name.EQLiteral("admin")).
     MustBuild()
 
+// 注意：Where(...) 和 KwSearch(...) 都是“覆盖式”设置；
+// 如果需要继续追加过滤条件，请使用 And(...)
+
 // 分页查询
 pageReq := &tsq.PageReq{
     Page:    1,
@@ -249,10 +252,34 @@ pageReq := &tsq.PageReq{
     Order:   "asc,desc",
     OrderBy: "user_id,order_id",
 }
+if err := pageReq.ValidateStrict(); err != nil {
+    return err
+}
 resp, err := database.PageUserOrder(ctx, dbmap, pageReq, 1, "图书", "视频", "杂志")
 ```
 
-### 6. 分块写入
+### 6. 表别名与自连接
+
+```go
+managerID := employeeID.As("manager")
+managerName := employeeName.As("manager")
+
+query := tsq.
+    Select(employeeID, employeeName, managerName).
+    LeftJoin(employeeManagerID, managerID).
+    MustBuild()
+```
+
+`As("manager")` 会把列重新绑定到别名表；要给函数表达式、聚合表达式或 DTO 映射列起别名，请先对基础列做 `As(...)`，再继续链式调用。
+
+### 7. 运行时隔离与高级用法
+
+- 默认情况下，生成代码会通过包级 `RegisterTable` / `Init` 使用全局运行时。
+- 如果你在测试、多数据库场景或插件式宿主中需要隔离注册表和 tracer，可创建独立运行时：`rt := tsq.NewRuntime()`，然后使用 `rt.RegisterTable(...)`、`rt.Init(...)`、`tsq.Trace1WithRuntime(...)`。
+- `PageReq.Validate()` 保持兼容语义：会把非法页码/页大小归一化为安全默认值；如果你想显式拒绝非法分页/排序输入，请使用 `PageReq.ValidateStrict()`。
+- `FULL JOIN` 现在可以构建 SQL，但执行时仍受方言限制：SQLite / MySQL 会被显式拒绝，PostgreSQL 和自定义支持该能力的方言可继续执行。
+
+### 8. 分块写入
 
 ```go
 users := []*database.User{
@@ -262,7 +289,7 @@ users := []*database.User{
 err := tsq.ChunkedInsert(ctx, dbmap, users)
 ```
 
-### 7. mock 数据初始化
+### 9. mock 数据初始化
 
 ```go
 mockSQL, err := os.ReadFile("examples/database/mock.sql")

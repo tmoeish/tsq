@@ -315,20 +315,14 @@ func TestCondition_NullLiteralPredicatesFailFast(t *testing.T) {
 	ptrCol := NewCol[*string](newMockTable("users"), "name", "name", nil)
 	nullableCol := NewCol[sql.NullString](newMockTable("users"), "nickname", "nickname", nil)
 
-	for _, fn := range []func(){
-		func() { _ = ptrCol.EQ(nil) },
-		func() { _ = ptrCol.In(nil) },
-		func() { _ = nullableCol.EQ(sql.NullString{}) },
+	for _, cond := range []Cond{
+		ptrCol.EQ(nil),
+		ptrCol.In(nil),
+		nullableCol.EQ(sql.NullString{}),
 	} {
-		func() {
-			defer func() {
-				if r := recover(); r == nil {
-					t.Fatal("expected null literal predicate to panic")
-				}
-			}()
-
-			fn()
-		}()
+		if _, _, _, err := validateConditionInput(cond); err == nil {
+			t.Fatal("expected null literal predicate to return a build error")
+		}
 	}
 }
 
@@ -360,18 +354,14 @@ func TestCondition_PortabilitySensitiveLikePredicatesFailFast(t *testing.T) {
 func TestCondition_StringLiteralsRejectBackslashes(t *testing.T) {
 	col := NewCol[string](newMockTable("users"), "name", "name", nil)
 
-	for name, fn := range map[string]func(){
-		"EQ": func() { _ = col.EQ(`path\file`) },
-		"IN": func() { _ = col.In(`path\file`) },
+	for name, cond := range map[string]Cond{
+		"EQ": col.EQ(`path\file`),
+		"IN": col.In(`path\file`),
 	} {
 		t.Run(name, func(t *testing.T) {
-			defer func() {
-				if r := recover(); r == nil {
-					t.Fatal("expected backslash-containing string literal to panic")
-				}
-			}()
-
-			fn()
+			if _, _, _, err := validateConditionInput(cond); err == nil {
+				t.Fatal("expected backslash-containing string literal to return a build error")
+			}
 		})
 	}
 }

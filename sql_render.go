@@ -36,20 +36,46 @@ func rawQualifiedIdentifier(table, column string) string {
 	return rawIdentifier(table) + "." + rawIdentifier(column)
 }
 
+func rawTableSourceIdentifier(table Table) string {
+	if table == nil {
+		return ""
+	}
+
+	tableName := physicalTableName(table)
+	if schemaTable, ok := table.(schemaTabler); ok && strings.TrimSpace(schemaTable.Schema()) != "" {
+		return rawIdentifier(schemaTable.Schema()) + "." + rawIdentifier(tableName)
+	}
+
+	return rawIdentifier(tableName)
+}
+
+func rawTableQualifierIdentifier(table Table) string {
+	if table == nil {
+		return ""
+	}
+
+	if alias := tableAliasName(table); alias != "" {
+		return rawIdentifier(alias)
+	}
+
+	return rawTableSourceIdentifier(table)
+}
+
 func rawTableIdentifier(table Table) string {
 	if table == nil {
 		return ""
 	}
 
-	if schemaTable, ok := table.(schemaTabler); ok && strings.TrimSpace(schemaTable.Schema()) != "" {
-		return rawIdentifier(schemaTable.Schema()) + "." + rawIdentifier(table.Table())
+	source := rawTableSourceIdentifier(table)
+	if alias := tableAliasName(table); alias != "" {
+		return source + " AS " + rawIdentifier(alias)
 	}
 
-	return rawIdentifier(table.Table())
+	return source
 }
 
 func rawQualifiedIdentifierForTable(table Table, column string) string {
-	return rawTableIdentifier(table) + "." + rawIdentifier(column)
+	return rawTableQualifierIdentifier(table) + "." + rawIdentifier(column)
 }
 
 func rawColumnQualifiedName(col Column) string {
@@ -89,87 +115,9 @@ func containsIdentifierMarkersNeedingRender(raw string) bool {
 		return false
 	}
 
-	var (
-		inSingleStr    bool
-		inDoubleStr    bool
-		inLineComment  bool
-		inBlockComment bool
-		dollarQuoteTag string
-	)
-
-	for i := 0; i < len(raw); {
-		ch := raw[i]
-
-		switch {
-		case inLineComment:
-			i++
-
-			if ch == '\n' {
-				inLineComment = false
-			}
-		case inBlockComment:
-			i++
-			if ch == '*' && i < len(raw) && raw[i] == '/' {
-				i++
-				inBlockComment = false
-			}
-		case inSingleStr:
-			i++
-			if ch == '\'' {
-				if i < len(raw) && raw[i] == '\'' {
-					i++
-				} else {
-					inSingleStr = false
-				}
-			}
-		case inDoubleStr:
-			i++
-			if ch == '"' {
-				if i < len(raw) && raw[i] == '"' {
-					i++
-				} else {
-					inDoubleStr = false
-				}
-			}
-		case dollarQuoteTag != "":
-			if strings.HasPrefix(raw[i:], dollarQuoteTag) {
-				i += len(dollarQuoteTag)
-				dollarQuoteTag = ""
-
-				continue
-			}
-
-			i++
-		case strings.HasPrefix(raw[i:], identifierMarkerPrefix):
-			return true
-		default:
-			if tag, ok := matchDollarQuote(raw, i); ok {
-				dollarQuoteTag = tag
-				i += len(tag)
-
-				continue
-			}
-
-			switch ch {
-			case '\'':
-				inSingleStr = true
-			case '"':
-				inDoubleStr = true
-			case '-':
-				if i+1 < len(raw) && raw[i+1] == '-' {
-					inLineComment = true
-				}
-			case '/':
-				if i+1 < len(raw) && raw[i+1] == '*' {
-					inBlockComment = true
-				}
-			}
-
-			i++
-		}
-	}
-
-	return false
+	return walkSQL(raw, nil, func(source string, i int, _ *strings.Builder) (int, bool, bool) {
+		return len(identifierMarkerPrefix), strings.HasPrefix(source[i:], identifierMarkerPrefix), strings.HasPrefix(source[i:], identifierMarkerPrefix)
+	})
 }
 
 func containsBindVarsNeedingDialect(raw string) bool {
@@ -177,87 +125,9 @@ func containsBindVarsNeedingDialect(raw string) bool {
 		return false
 	}
 
-	var (
-		inSingleStr    bool
-		inDoubleStr    bool
-		inLineComment  bool
-		inBlockComment bool
-		dollarQuoteTag string
-	)
-
-	for i := 0; i < len(raw); {
-		ch := raw[i]
-
-		switch {
-		case inLineComment:
-			i++
-
-			if ch == '\n' {
-				inLineComment = false
-			}
-		case inBlockComment:
-			i++
-			if ch == '*' && i < len(raw) && raw[i] == '/' {
-				i++
-				inBlockComment = false
-			}
-		case inSingleStr:
-			i++
-			if ch == '\'' {
-				if i < len(raw) && raw[i] == '\'' {
-					i++
-				} else {
-					inSingleStr = false
-				}
-			}
-		case inDoubleStr:
-			i++
-			if ch == '"' {
-				if i < len(raw) && raw[i] == '"' {
-					i++
-				} else {
-					inDoubleStr = false
-				}
-			}
-		case dollarQuoteTag != "":
-			if strings.HasPrefix(raw[i:], dollarQuoteTag) {
-				i += len(dollarQuoteTag)
-				dollarQuoteTag = ""
-
-				continue
-			}
-
-			i++
-		case ch == '?':
-			return true
-		default:
-			if tag, ok := matchDollarQuote(raw, i); ok {
-				dollarQuoteTag = tag
-				i += len(tag)
-
-				continue
-			}
-
-			switch ch {
-			case '\'':
-				inSingleStr = true
-			case '"':
-				inDoubleStr = true
-			case '-':
-				if i+1 < len(raw) && raw[i+1] == '-' {
-					inLineComment = true
-				}
-			case '/':
-				if i+1 < len(raw) && raw[i+1] == '*' {
-					inBlockComment = true
-				}
-			}
-
-			i++
-		}
-	}
-
-	return false
+	return walkSQL(raw, nil, func(source string, i int, _ *strings.Builder) (int, bool, bool) {
+		return 1, source[i] == '?', source[i] == '?'
+	})
 }
 
 func renderSQLWithIdentifierQuoter(raw string, quoter func(string) string) string {
@@ -266,7 +136,31 @@ func renderSQLWithIdentifierQuoter(raw string, quoter func(string) string) strin
 	}
 
 	var builder strings.Builder
+	builder.Grow(len(raw))
+	walkSQL(raw, &builder, func(source string, i int, out *strings.Builder) (int, bool, bool) {
+		if !strings.HasPrefix(source[i:], identifierMarkerPrefix) {
+			return 0, false, false
+		}
 
+		start := i + len(identifierMarkerPrefix)
+		end := strings.Index(source[start:], identifierMarkerSuffix)
+		if end < 0 {
+			out.WriteString(source[i:])
+			return len(source) - i, true, true
+		}
+
+		out.WriteString(quoter(decodeIdentifierMarker(source[start : start+end])))
+		return len(identifierMarkerPrefix) + end + len(identifierMarkerSuffix), true, false
+	})
+
+	return builder.String()
+}
+
+func walkSQL(
+	raw string,
+	builder *strings.Builder,
+	handlePlain func(raw string, i int, builder *strings.Builder) (advance int, handled bool, stop bool),
+) bool {
 	var (
 		inSingleStr    bool
 		inDoubleStr    bool
@@ -275,51 +169,53 @@ func renderSQLWithIdentifierQuoter(raw string, quoter func(string) string) strin
 		dollarQuoteTag string
 	)
 
-	builder.Grow(len(raw))
+	writeByte := func(ch byte) {
+		if builder != nil {
+			builder.WriteByte(ch)
+		}
+	}
+
+	writeString := func(value string) {
+		if builder != nil {
+			builder.WriteString(value)
+		}
+	}
 
 	for i := 0; i < len(raw); {
 		ch := raw[i]
 
 		switch {
 		case inLineComment:
-			builder.WriteByte(ch)
-
+			writeByte(ch)
 			i++
-
 			if ch == '\n' {
 				inLineComment = false
 			}
 		case inBlockComment:
-			builder.WriteByte(ch)
-
+			writeByte(ch)
 			i++
 			if ch == '*' && i < len(raw) && raw[i] == '/' {
-				builder.WriteByte(raw[i])
-
+				writeByte(raw[i])
 				i++
 				inBlockComment = false
 			}
 		case inSingleStr:
-			builder.WriteByte(ch)
-
+			writeByte(ch)
 			i++
 			if ch == '\'' {
 				if i < len(raw) && raw[i] == '\'' {
-					builder.WriteByte(raw[i])
-
+					writeByte(raw[i])
 					i++
 				} else {
 					inSingleStr = false
 				}
 			}
 		case inDoubleStr:
-			builder.WriteByte(ch)
-
+			writeByte(ch)
 			i++
 			if ch == '"' {
 				if i < len(raw) && raw[i] == '"' {
-					builder.WriteByte(raw[i])
-
+					writeByte(raw[i])
 					i++
 				} else {
 					inDoubleStr = false
@@ -327,36 +223,34 @@ func renderSQLWithIdentifierQuoter(raw string, quoter func(string) string) strin
 			}
 		case dollarQuoteTag != "":
 			if strings.HasPrefix(raw[i:], dollarQuoteTag) {
-				builder.WriteString(dollarQuoteTag)
+				writeString(dollarQuoteTag)
 				i += len(dollarQuoteTag)
 				dollarQuoteTag = ""
-
 				continue
 			}
 
-			builder.WriteByte(ch)
-
+			writeByte(ch)
 			i++
-		case strings.HasPrefix(raw[i:], identifierMarkerPrefix):
-			start := i + len(identifierMarkerPrefix)
-
-			end := strings.Index(raw[start:], identifierMarkerSuffix)
-			if end < 0 {
-				builder.WriteString(raw[i:])
-				i = len(raw)
-
-				continue
-			}
-
-			builder.WriteString(quoter(decodeIdentifierMarker(raw[start : start+end])))
-			i = start + end + len(identifierMarkerSuffix)
 		default:
 			if tag, ok := matchDollarQuote(raw, i); ok {
-				builder.WriteString(tag)
+				writeString(tag)
 				dollarQuoteTag = tag
 				i += len(tag)
-
 				continue
+			}
+
+			if handlePlain != nil {
+				advance, handled, stop := handlePlain(raw, i, builder)
+				if handled {
+					if stop {
+						return true
+					}
+					if advance <= 0 {
+						advance = 1
+					}
+					i += advance
+					continue
+				}
 			}
 
 			switch ch {
@@ -374,13 +268,12 @@ func renderSQLWithIdentifierQuoter(raw string, quoter func(string) string) strin
 				}
 			}
 
-			builder.WriteByte(ch)
-
+			writeByte(ch)
 			i++
 		}
 	}
 
-	return builder.String()
+	return false
 }
 
 func decodeIdentifierMarker(payload string) string {

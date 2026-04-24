@@ -356,7 +356,7 @@ func TestPageReq_Validate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			err := tt.input.Validate()
 			if err != nil {
-				t.Errorf("Validate() should not return error, got %v", err)
+				t.Fatalf("Validate() should not return error, got %v", err)
 			}
 
 			if tt.input.Page != tt.expectedPage {
@@ -365,6 +365,53 @@ func TestPageReq_Validate(t *testing.T) {
 
 			if tt.input.Size != tt.expectedSize {
 				t.Errorf("Expected size %d, got %d", tt.expectedSize, tt.input.Size)
+			}
+		})
+	}
+}
+
+func TestPageReq_ValidateStrict(t *testing.T) {
+	tests := []struct {
+		name      string
+		input     *PageReq
+		wantError bool
+	}{
+		{
+			name: "valid values",
+			input: &PageReq{
+				Page: 2,
+				Size: 50,
+			},
+		},
+		{
+			name: "invalid order token",
+			input: &PageReq{
+				Page:    1,
+				Size:    20,
+				OrderBy: "name",
+				Order:   "sideways",
+			},
+			wantError: true,
+		},
+		{
+			name: "order without field",
+			input: &PageReq{
+				Page:  1,
+				Size:  20,
+				Order: "ASC",
+			},
+			wantError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.input.ValidateStrict()
+			if tt.wantError && err == nil {
+				t.Fatal("expected validation error")
+			}
+			if !tt.wantError && err != nil {
+				t.Fatalf("expected no validation error, got %v", err)
 			}
 		})
 	}

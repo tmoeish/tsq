@@ -1,6 +1,7 @@
 package tsq
 
 import (
+	"maps"
 	"slices"
 	"sort"
 	"strings"
@@ -32,12 +33,6 @@ type queryPlan struct {
 func buildQueryPlan(spec QuerySpec, allowCartesianProduct bool) (*queryPlan, error) {
 	if len(spec.Selects) == 0 {
 		return nil, errors.Errorf("empty select fields: %+v", spec)
-	}
-
-	for _, item := range spec.Joins {
-		if item.joinType == FullJoinType {
-			return nil, errors.New("FULL JOIN is not supported by TSQ's built-in dialects")
-		}
 	}
 
 	if err := spec.validateJoinGraph(allowCartesianProduct); err != nil {
@@ -99,30 +94,20 @@ func (spec QuerySpec) keywordTables() map[string]Table {
 
 func (spec QuerySpec) listQueryTables() map[string]Table {
 	tables := spec.selectTables()
-	for name, table := range spec.conditionTables() {
-		tables[name] = table
-	}
+	maps.Copy(tables, spec.conditionTables())
 
-	for name, table := range spec.joinTables() {
-		tables[name] = table
-	}
+	maps.Copy(tables, spec.joinTables())
 
-	for name, table := range spec.tablesForColumns(spec.GroupBy) {
-		tables[name] = table
-	}
+	maps.Copy(tables, spec.tablesForColumns(spec.GroupBy))
 
-	for name, table := range spec.tablesForConditions(spec.Having) {
-		tables[name] = table
-	}
+	maps.Copy(tables, spec.tablesForConditions(spec.Having))
 
 	return tables
 }
 
 func (spec QuerySpec) pageQueryTables() map[string]Table {
 	tables := spec.listQueryTables()
-	for name, table := range spec.keywordTables() {
-		tables[name] = table
-	}
+	maps.Copy(tables, spec.keywordTables())
 
 	return tables
 }
@@ -151,9 +136,7 @@ func (spec QuerySpec) tablesForConditions(conds []Condition) map[string]Table {
 			continue
 		}
 
-		for name, table := range condTables {
-			tables[name] = table
-		}
+		maps.Copy(tables, condTables)
 	}
 
 	return tables
@@ -289,6 +272,7 @@ func (spec QuerySpec) buildPageWhere() (string, []any) {
 		kwClauses := make([]string, 0, len(spec.KeywordSearch))
 		for _, col := range spec.KeywordSearch {
 			kwClauses = append(kwClauses, rawColumnQualifiedName(col)+" LIKE ?")
+			args = append(args, keywordArgMarker)
 		}
 
 		if len(kwClauses) > 0 {

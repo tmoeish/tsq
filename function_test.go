@@ -376,18 +376,14 @@ func TestCol_StringFunctionHelpersRejectBackslashLiterals(t *testing.T) {
 	table := newMockTable("users")
 	col := NewCol[string](table, "nickname", "nickname", nil)
 
-	for name, fn := range map[string]func(){
-		"Coalesce": func() { _ = col.Coalesce(`path\file`) },
-		"NullIf":   func() { _ = col.NullIf(`path\file`) },
+	for name, column := range map[string]Column{
+		"Coalesce": col.Coalesce(`path\file`),
+		"NullIf":   col.NullIf(`path\file`),
 	} {
 		t.Run(name, func(t *testing.T) {
-			defer func() {
-				if r := recover(); r == nil {
-					t.Fatal("expected helper to panic for backslash-containing string literal")
-				}
-			}()
-
-			fn()
+			if _, err := validateColumnInput(column); err == nil {
+				t.Fatal("expected helper to capture backslash-containing string literal as a build error")
+			}
 		})
 	}
 }

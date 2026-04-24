@@ -1,5 +1,11 @@
 package tsq
 
+import (
+	"strings"
+
+	"github.com/juju/errors"
+)
+
 // ================================================
 // 排序方向枚举
 // ================================================
@@ -92,4 +98,41 @@ func ReverseOrder(order Order) Order {
 	default:
 		return ""
 	}
+}
+
+func parseOrder(value string) (Order, error) {
+	order := Order(strings.ToUpper(strings.TrimSpace(value)))
+	switch order {
+	case ASC, DESC:
+		return order, nil
+	default:
+		return "", errors.Errorf("invalid order: %s", value)
+	}
+}
+
+func normalizeSortOrders(values []string, expected int) ([]Order, error) {
+	if len(values) == 0 {
+		orders := make([]Order, expected)
+		for i := range orders {
+			orders[i] = ASC
+		}
+
+		return orders, nil
+	}
+
+	if len(values) != expected {
+		return nil, NewErrOrderCountMismatch(expected, len(values))
+	}
+
+	orders := make([]Order, 0, len(values))
+	for _, value := range values {
+		order, err := parseOrder(value)
+		if err != nil {
+			return nil, errors.Trace(err)
+		}
+
+		orders = append(orders, order)
+	}
+
+	return orders, nil
 }

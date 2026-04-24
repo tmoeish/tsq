@@ -36,6 +36,7 @@ type Col[T any] struct {
 	args          []any
 	aggregate     bool
 	distinct      bool
+	transformed   bool
 	buildErr      error
 }
 
@@ -96,6 +97,39 @@ func (c Col[T]) rawQualifiedName() string {
 // 字段转换方法
 // ================================================
 
+// WithTable returns a copy of the column rebound to a different table source.
+// Rebinding transformed expressions is intentionally unsupported; alias or
+// rebind the base column before applying functions such as Fn/Count/Distinct.
+func (c Col[T]) WithTable(table Table) Col[T] {
+	if isNilValue(table) {
+		c.buildErr = errors.New("column table cannot be nil")
+		return c
+	}
+
+	if c.transformed {
+		c.buildErr = errors.New("cannot rebind transformed column; alias the base column before applying expressions")
+		return c
+	}
+
+	return Col[T]{
+		table:         table,
+		name:          c.name,
+		qualifiedName: rawQualifiedIdentifierForTable(table, c.name),
+		jsonFieldName: c.jsonFieldName,
+		fieldPointer:  c.fieldPointer,
+		args:          append([]any(nil), c.args...),
+		aggregate:     c.aggregate,
+		distinct:      c.distinct,
+		transformed:   c.transformed,
+		buildErr:      c.buildErr,
+	}
+}
+
+// As returns a copy of the column that targets an aliased table reference.
+func (c Col[T]) As(alias string) Col[T] {
+	return c.WithTable(AliasTable(c.table, alias))
+}
+
 // Into creates a new column with different pointer function and JSON tag
 // This is useful for DTOs and custom result mapping
 func (c Col[T]) Into(fieldPointer FieldPointer, jsonFieldName string) *Col[T] {
@@ -109,6 +143,7 @@ func (c Col[T]) Into(fieldPointer FieldPointer, jsonFieldName string) *Col[T] {
 			args:          append([]any(nil), c.args...),
 			aggregate:     c.aggregate,
 			distinct:      c.distinct,
+			transformed:   c.transformed,
 			buildErr:      errors.New("field pointer cannot be nil"),
 		}
 	}
@@ -122,6 +157,7 @@ func (c Col[T]) Into(fieldPointer FieldPointer, jsonFieldName string) *Col[T] {
 		args:          append([]any(nil), c.args...),
 		aggregate:     c.aggregate,
 		distinct:      c.distinct,
+		transformed:   c.transformed,
 		buildErr:      c.buildErr,
 	}
 }
@@ -132,6 +168,11 @@ func (c Col[T]) expressionArgs() []any {
 
 func (c Col[T]) buildError() error {
 	return c.buildErr
+}
+
+func (c Col[T]) withTable(table Table) Column {
+	rebound := c.WithTable(table)
+	return rebound
 }
 
 func (c Col[T]) isAggregateExpression() bool {

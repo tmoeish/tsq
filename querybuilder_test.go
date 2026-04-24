@@ -590,6 +590,29 @@ func TestQueryBuilder_Build_RejectsRepeatedJoinTableWithoutAliases(t *testing.T)
 	}
 }
 
+func TestQueryBuilder_Build_AllowsRepeatedJoinTableWithAliases(t *testing.T) {
+	users := newMockTable("users")
+	orgs := newMockTable("orgs")
+
+	userID := NewCol[int](users, "id", "id", nil)
+	userOrgID := NewCol[int](users, "org_id", "org_id", nil)
+	orgID := NewCol[int](orgs, "id", "id", nil)
+	parentOrgID := orgID.As("parent_orgs")
+
+	query, err := Select(userID, parentOrgID).
+		LeftJoin(userOrgID, orgID).
+		LeftJoin(NewCol[int](orgs, "parent_id", "parent_id", nil), parentOrgID).
+		Build()
+	if err != nil {
+		t.Fatalf("expected aliased repeated join to build, got %v", err)
+	}
+
+	want := `SELECT "users"."id", "parent_orgs"."id" FROM "users" LEFT JOIN "orgs" ON "users"."org_id" = "orgs"."id" LEFT JOIN "orgs" AS "parent_orgs" ON "orgs"."parent_id" = "parent_orgs"."id"`
+	if got := query.ListSQL(); got != want {
+		t.Fatalf("expected aliased join SQL %q, got %q", want, got)
+	}
+}
+
 func TestQueryBuilder_Build_RejectsNilReceiver(t *testing.T) {
 	var qb *QueryBuilder
 

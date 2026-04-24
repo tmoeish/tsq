@@ -15,7 +15,12 @@ import (
 
 const sqlNullLiteral = "NULL"
 
-var externalArgMarker = &struct{}{}
+type queryArgMarker string
+
+const (
+	externalArgMarker queryArgMarker = "external"
+	keywordArgMarker  queryArgMarker = "keyword"
+)
 
 // ================================================
 // 逻辑组合条件
@@ -288,13 +293,7 @@ func (c Col[T]) NUnique(sqb *Query) Cond { return panicUnsupportedSubqueryPredic
 // ================================================
 
 // Predicate builds a condition with the given operator and arguments
-func (c Col[T]) Predicate(op string, args ...any) (result Cond) {
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			result = Cond{buildErr: errors.Errorf("%v", recovered)}
-		}
-	}()
-
+func (c Col[T]) Predicate(op string, args ...any) Cond {
 	if err := validatePredicateFormat(op, len(args)+1); err != nil {
 		return Cond{buildErr: errors.Trace(err)}
 	}
@@ -323,7 +322,12 @@ func (c Col[T]) Predicate(op string, args ...any) (result Cond) {
 	formatArgs = append(formatArgs, c.rawQualifiedName())
 
 	for _, arg := range args {
-		formatArgs = append(formatArgs, argumentToExpression(arg).Expr())
+		expr := argumentToExpression(arg)
+		if err := expressionBuildError(expr); err != nil {
+			return Cond{buildErr: errors.Trace(err)}
+		}
+
+		formatArgs = append(formatArgs, expr.Expr())
 	}
 
 	return Cond{
@@ -394,6 +398,16 @@ type Expression interface {
 	Args() []any
 }
 
+type expressionError struct {
+	err error
+}
+
+func (e expressionError) Expr() string { return "" }
+func (e expressionError) Args() []any  { return nil }
+func (e expressionError) buildError() error {
+	return e.err
+}
+
 // variableExpression represents a variable placeholder (?)
 type variableExpression struct{}
 
@@ -416,10 +430,10 @@ func (a valuesExpression) Args() []any {
 	return append([]any(nil), a.args...)
 }
 
-func newValuesExpression(args any) valuesExpression {
+func newValuesExpression(args any) Expression {
 	v := reflect.ValueOf(args)
 	if v.Kind() != reflect.Slice {
-		panic(fmt.Sprintf("expected slice, got %T", args))
+		return expressionError{err: errors.Errorf("expected slice, got %T", args)}
 	}
 
 	values := make([]string, v.Len())
@@ -427,7 +441,9 @@ func newValuesExpression(args any) valuesExpression {
 
 	for i := range v.Len() {
 		value := v.Index(i).Interface()
-		validatePredicateValue(value)
+		if err := validatePredicateValue(value); err != nil {
+			return expressionError{err: errors.Trace(err)}
+		}
 
 		values[i] = "?"
 		bindArgs[i] = value
@@ -448,7 +464,9 @@ func (r rawExpression) Expr() string { return r.expr }
 func (r rawExpression) Args() []any  { return append([]any(nil), r.args...) }
 
 func Bind(value any) Expression {
-	validatePredicateValue(value)
+	if err := validatePredicateValue(value); err != nil {
+		return expressionError{err: errors.Trace(err)}
+	}
 
 	return rawExpression{expr: "?", args: []any{value}}
 }
@@ -458,18 +476,28 @@ func BindSlice(values any) Expression {
 }
 
 func Literal(value any) Expression {
-	return rawExpression{expr: valueOrPanic(value)}
+	expr, err := literalValue(value)
+	if err != nil {
+		return expressionError{err: errors.Trace(err)}
+	}
+
+	return rawExpression{expr: expr}
 }
 
 func literalValues(values any) Expression {
 	v := reflect.ValueOf(values)
 	if v.Kind() != reflect.Slice {
-		panic(fmt.Sprintf("expected slice, got %T", values))
+		return expressionError{err: errors.Errorf("expected slice, got %T", values)}
 	}
 
 	parts := make([]string, v.Len())
 	for i := range v.Len() {
-		parts[i] = valueOrPanic(v.Index(i).Interface())
+		part, err := literalValue(v.Index(i).Interface())
+		if err != nil {
+			return expressionError{err: errors.Trace(err)}
+		}
+
+		parts[i] = part
 	}
 
 	return rawExpression{expr: strings.Join(parts, ", ")}
@@ -485,7 +513,7 @@ func argumentToExpression(arg any) Expression {
 	case *Query:
 		expr, err := formatSubquery(v)
 		if err != nil {
-			panic(err.Error())
+			return expressionError{err: errors.Trace(err)}
 		}
 
 		return rawExpression{expr: expr, args: queryArgs(v)}
@@ -539,29 +567,42 @@ func expressionArgs(col Column) []any {
 	return nil
 }
 
-func validatePredicateValue(arg any) {
+func expressionBuildError(expr Expression) error {
+	if expr == nil {
+		return errors.New("expression cannot be nil")
+	}
+
+	if carrier, ok := expr.(buildErrorCarrier); ok && carrier.buildError() != nil {
+		return errors.Trace(carrier.buildError())
+	}
+
+	return nil
+}
+
+func validatePredicateValue(arg any) error {
 	val, err := sqlValue(arg)
 	if err != nil {
-		panic(fmt.Sprintf("failed to convert value %v (%T): %v", arg, arg, err))
+		return errors.Errorf("failed to convert value %v (%T): %v", arg, arg, err)
 	}
 
 	if val == sqlNullLiteral {
-		panic("null literal values are not supported in predicates; use IsNull/IsNotNull explicitly")
+		return errors.New("null literal values are not supported in predicates; use IsNull/IsNotNull explicitly")
 	}
+
+	return nil
 }
 
-// valueOrPanic converts a value to its SQL representation or panics
-func valueOrPanic(arg any) string {
+func literalValue(arg any) (string, error) {
 	val, err := sqlValue(arg)
 	if err != nil {
-		panic(fmt.Sprintf("failed to convert value %v (%T): %v", arg, arg, err))
+		return "", errors.Errorf("failed to convert value %v (%T): %v", arg, arg, err)
 	}
 
-	if val == "NULL" {
-		panic("null literal values are not supported in predicates; use IsNull/IsNotNull explicitly")
+	if val == sqlNullLiteral {
+		return "", errors.New("null literal values are not supported in predicates; use IsNull/IsNotNull explicitly")
 	}
 
-	return val
+	return val, nil
 }
 
 // sqlValue converts a Go value to its SQL string representation
