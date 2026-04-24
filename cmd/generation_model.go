@@ -28,9 +28,11 @@ func buildGenerationModels(
 	if err := validateGeneratedFilenameCollisions(list); err != nil {
 		return nil, errors.Trace(err)
 	}
+
 	if err := validateIndexNameCollisions(list); err != nil {
 		return nil, errors.Trace(err)
 	}
+
 	if err := validateGeneratedSymbolCollisions(list); err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -41,6 +43,7 @@ func buildGenerationModels(
 	}
 
 	models := make([]generationModel, 0, len(list))
+
 	for _, s := range list {
 		if s.TableInfo == nil || len(s.Fields) == 0 {
 			continue
@@ -57,6 +60,7 @@ func buildGenerationModels(
 
 		if s.IsDTO {
 			normalizeDTOColumns(s)
+
 			model.Template = dtoTpl
 			model.ErrorLabel = "DTO template rendering failed"
 		} else {

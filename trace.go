@@ -101,6 +101,7 @@ func (m *TraceManager) Trace(ctx context.Context, fn func(ctx context.Context) e
 
 	tracers := m.snapshot()
 	wrappedFn := fn
+
 	for i := len(tracers) - 1; i >= 0; i-- {
 		wrappedFn = tracers[i](wrappedFn)
 	}
@@ -122,6 +123,7 @@ func traceManagerTrace1[T any](m *TraceManager, ctx context.Context, fn func(ctx
 	tracers := m.snapshot()
 
 	var result T
+
 	wrappedFn := func(ctx context.Context) error {
 		var err error
 
@@ -158,6 +160,7 @@ func appendUniqueTracers(existing []Tracer, newTracers ...Tracer) []Tracer {
 		}
 
 		duplicated := false
+
 		for _, current := range result {
 			if sameTracer(current, tracer) {
 				duplicated = true

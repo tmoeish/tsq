@@ -31,10 +31,15 @@ func (e *ErrUnknownSortField) Error() string {
 	return fmt.Sprintf("unknown sort field: %s", e.field)
 }
 
-// Is reports whether target is an *ErrUnknownSortField, enabling errors.Is matching.
+// Is reports whether target is an *ErrUnknownSortField for the same field.
+// An *ErrUnknownSortField with an empty field matches any ErrUnknownSortField,
+// enabling both type-level and value-level errors.Is checks.
 func (e *ErrUnknownSortField) Is(target error) bool {
-	_, ok := target.(*ErrUnknownSortField)
-	return ok
+	other, ok := target.(*ErrUnknownSortField)
+	if !ok {
+		return false
+	}
+	return other.field == "" || e.field == other.field
 }
 
 // ErrAmbiguousSortField represents an error when a sort field matches multiple selected columns
@@ -50,10 +55,15 @@ func (e *ErrAmbiguousSortField) Error() string {
 	return fmt.Sprintf("ambiguous sort field: %s", e.field)
 }
 
-// Is reports whether target is an *ErrAmbiguousSortField, enabling errors.Is matching.
+// Is reports whether target is an *ErrAmbiguousSortField for the same field.
+// An *ErrAmbiguousSortField with an empty field matches any ErrAmbiguousSortField,
+// enabling both type-level and value-level errors.Is checks.
 func (e *ErrAmbiguousSortField) Is(target error) bool {
-	_, ok := target.(*ErrAmbiguousSortField)
-	return ok
+	other, ok := target.(*ErrAmbiguousSortField)
+	if !ok {
+		return false
+	}
+	return other.field == "" || e.field == other.field
 }
 
 // ErrOrderCountMismatch represents an error when order by and order count mismatch
@@ -73,10 +83,16 @@ func (e *ErrOrderCountMismatch) Error() string {
 	)
 }
 
-// Is reports whether target is an *ErrOrderCountMismatch, enabling errors.Is matching.
+// Is reports whether target is an *ErrOrderCountMismatch with the same counts.
+// An *ErrOrderCountMismatch with zero orderBys and zero orders matches any
+// ErrOrderCountMismatch, enabling type-level errors.Is checks.
 func (e *ErrOrderCountMismatch) Is(target error) bool {
-	_, ok := target.(*ErrOrderCountMismatch)
-	return ok
+	other, ok := target.(*ErrOrderCountMismatch)
+	if !ok {
+		return false
+	}
+	return (other.orderBys == 0 && other.orders == 0) ||
+		(e.orderBys == other.orderBys && e.orders == other.orders)
 }
 
 // ================================================
@@ -229,6 +245,7 @@ func (q *Query) queryInt(
 	if err != nil {
 		return 0, errors.Trace(err)
 	}
+
 	result, err := tx.WithContext(ctx).SelectInt(sqlText, finalArgs...)
 	if err != nil {
 		return 0, errors.Annotatef(err, "\n%s\n%v", sqlText, CompactJSON(finalArgs))
@@ -271,6 +288,7 @@ func (q *Query) queryFloat(
 	if err != nil {
 		return 0, errors.Trace(err)
 	}
+
 	result, err := tx.WithContext(ctx).SelectFloat(sqlText, finalArgs...)
 	if err != nil {
 		return 0, errors.Annotatef(err, "\n%s\n%v", sqlText, CompactJSON(finalArgs))
@@ -313,6 +331,7 @@ func (q *Query) queryStr(
 	if err != nil {
 		return "", errors.Trace(err)
 	}
+
 	result, err := tx.WithContext(ctx).SelectStr(sqlText, finalArgs...)
 	if err != nil {
 		return "", errors.Annotatef(err, "\n%s\n%v", sqlText, CompactJSON(finalArgs))
@@ -377,6 +396,7 @@ func (q *Query) count64(
 	if err != nil {
 		return 0, errors.Trace(err)
 	}
+
 	count, err := tx.WithContext(ctx).SelectInt(sqlText, finalArgs...)
 	if err != nil {
 		return 0, errors.Annotatef(err, "\n%s\n%v", sqlText, CompactJSON(finalArgs))
@@ -419,6 +439,7 @@ func (q *Query) exist(
 	if err != nil {
 		return false, errors.Trace(err)
 	}
+
 	count, err := tx.WithContext(ctx).SelectInt(sqlText, finalArgs...)
 	if err != nil {
 		return false, errors.Annotatef(err, "\n%s\n%v", sqlText, CompactJSON(finalArgs))
@@ -588,6 +609,7 @@ func listFn[T any](
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
+
 	if err := validateScanDestForType[T](q.selectCols, sqlText, finalArgs); err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -680,6 +702,7 @@ func getOrErrFn[T any](
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
+
 	row := tx.WithContext(ctx).QueryRow(sqlText, finalArgs...)
 
 	if err := row.Scan(dest...); err != nil {

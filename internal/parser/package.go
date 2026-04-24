@@ -561,6 +561,7 @@ func (l *packageLoader) load(packagePath string) (*loadedPackage, error) {
 	l.mu.Lock()
 	cached, ok := l.cache[key]
 	l.mu.Unlock()
+
 	if ok {
 		return cloneLoadedPackage(cached), nil
 	}
@@ -577,6 +578,7 @@ func (l *packageLoader) load(packagePath string) (*loadedPackage, error) {
 		l.mu.Unlock()
 		return cloneLoadedPackage(existing), nil
 	}
+
 	l.cache[key] = cloneLoadedPackage(pkg)
 	l.mu.Unlock()
 
