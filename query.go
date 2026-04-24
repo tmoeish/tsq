@@ -39,6 +39,7 @@ func (e *ErrUnknownSortField) Is(target error) bool {
 	if !ok {
 		return false
 	}
+
 	return other.field == "" || e.field == other.field
 }
 
@@ -63,6 +64,7 @@ func (e *ErrAmbiguousSortField) Is(target error) bool {
 	if !ok {
 		return false
 	}
+
 	return other.field == "" || e.field == other.field
 }
 
@@ -91,6 +93,7 @@ func (e *ErrOrderCountMismatch) Is(target error) bool {
 	if !ok {
 		return false
 	}
+
 	return (other.orderBys == 0 && other.orders == 0) ||
 		(e.orderBys == other.orderBys && e.orders == other.orders)
 }

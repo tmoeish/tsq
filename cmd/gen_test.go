@@ -451,3 +451,24 @@ func genDTO(data *tsq.StructInfo, t *template.Template, dir string) error {
 		ErrorLabel: "DTO template rendering failed",
 	})
 }
+
+func TestStableVersion(t *testing.T) {
+	cases := []struct {
+		input string
+		want  string
+	}{
+		{"v1.2.0-10-ga3683ff-dirty", "v1.2.0"},
+		{"v1.2.0-dirty", "v1.2.0"},
+		{"v1.2.0-10-ga3683ff", "v1.2.0"},
+		{"v1.2.0", "v1.2.0"},
+		{"v1.2.0-beta.1", "v1.2.0-beta.1"},
+		{"dev", "dev"},
+		{"unknown", "unknown"},
+	}
+
+	for _, tc := range cases {
+		if got := stableVersion(tc.input); got != tc.want {
+			t.Errorf("stableVersion(%q) = %q; want %q", tc.input, got, tc.want)
+		}
+	}
+}
