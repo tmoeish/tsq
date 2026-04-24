@@ -335,19 +335,10 @@ func TestCondition_NullLiteralPredicatesFailFast(t *testing.T) {
 func TestCondition_NilCompositeInputsFailFast(t *testing.T) {
 	var nilCond Condition
 
-	for _, fn := range []func(){
-		func() { _ = And(nilCond) },
-		func() { _ = Or(nilCond) },
-	} {
-		func() {
-			defer func() {
-				if r := recover(); r == nil {
-					t.Fatal("expected nil condition to panic")
-				}
-			}()
-
-			fn()
-		}()
+	for _, cond := range []Cond{And(nilCond), Or(nilCond)} {
+		if _, _, _, err := validateConditionInput(cond); err == nil {
+			t.Fatal("expected nil condition to be captured as a build error")
+		}
 	}
 }
 
@@ -356,19 +347,13 @@ func TestCondition_PortabilitySensitiveLikePredicatesFailFast(t *testing.T) {
 	nameCol := NewCol[string](users, "name", "name", nil)
 	patternCol := NewCol[string](users, "pattern", "pattern", nil)
 
-	for _, fn := range []func(){
-		func() { _ = nameCol.StartWithVar() },
-		func() { _ = nameCol.StartWithCol(patternCol) },
+	for _, cond := range []Cond{
+		nameCol.StartWithVar(),
+		nameCol.StartWithCol(patternCol),
 	} {
-		func() {
-			defer func() {
-				if r := recover(); r == nil {
-					t.Fatal("expected predicate helper to panic for non-portable SQL")
-				}
-			}()
-
-			fn()
-		}()
+		if _, _, _, err := validateConditionInput(cond); err == nil {
+			t.Fatal("expected predicate helper to return a build error for non-portable SQL")
+		}
 	}
 }
 
@@ -407,23 +392,15 @@ func TestCondition_ExistsSubIsStandalonePredicate(t *testing.T) {
 func TestCondition_UnbuiltSubqueryFailsFast(t *testing.T) {
 	col := NewCol[int](newMockTable("users"), "id", "id", nil)
 
-	defer func() {
-		if r := recover(); r == nil {
-			t.Fatal("expected unbuilt subquery to panic")
-		}
-	}()
-
-	_ = col.InSub(&Query{})
+	if _, _, _, err := validateConditionInput(col.InSub(&Query{})); err == nil {
+		t.Fatal("expected unbuilt subquery to be captured as a build error")
+	}
 }
 
 func TestCondition_EmptyClauseFailsFast(t *testing.T) {
-	defer func() {
-		if r := recover(); r == nil {
-			t.Fatal("expected empty condition clause to panic")
-		}
-	}()
-
-	_ = And(Cond{})
+	if _, _, _, err := validateConditionInput(And(Cond{})); err == nil {
+		t.Fatal("expected empty condition clause to be captured as a build error")
+	}
 }
 
 func TestCondition_PredicateRejectsInvalidFormat(t *testing.T) {
@@ -442,13 +419,9 @@ func TestCondition_PredicateRejectsInvalidFormat(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			defer func() {
-				if r := recover(); r == nil {
-					t.Fatal("expected Predicate to panic for invalid format")
-				}
-			}()
-
-			_ = col.Predicate(tt.op, tt.args...)
+			if _, _, _, err := validateConditionInput(col.Predicate(tt.op, tt.args...)); err == nil {
+				t.Fatal("expected Predicate to return a build error for invalid format")
+			}
 		})
 	}
 }
@@ -466,11 +439,7 @@ func TestCondition_UniqueSubqueryPredicatesFailFast(t *testing.T) {
 	col := NewCol[int](newMockTable("users"), "id", "id", nil)
 	subquery := &Query{listSQL: "SELECT 1"}
 
-	defer func() {
-		if r := recover(); r == nil {
-			t.Fatal("expected Unique to panic for unsupported predicate")
-		}
-	}()
-
-	_ = col.Unique(subquery)
+	if _, _, _, err := validateConditionInput(col.Unique(subquery)); err == nil {
+		t.Fatal("expected Unique to return a build error for unsupported predicate")
+	}
 }

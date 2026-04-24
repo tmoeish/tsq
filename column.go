@@ -1,5 +1,7 @@
 package tsq
 
+import "github.com/juju/errors"
+
 // ================================================
 // 字段指针类型
 // ================================================
@@ -34,12 +36,18 @@ type Col[T any] struct {
 	args          []any
 	aggregate     bool
 	distinct      bool
+	buildErr      error
 }
 
 // NewCol creates a new typed column for a table
 func NewCol[T any](table Table, baseName string, jsonFieldName string, fieldPointer FieldPointer) Col[T] {
 	if isNilValue(table) {
-		panic("column table cannot be nil")
+		return Col[T]{
+			name:          baseName,
+			jsonFieldName: jsonFieldName,
+			fieldPointer:  fieldPointer,
+			buildErr:      errors.New("column table cannot be nil"),
+		}
 	}
 
 	return Col[T]{
@@ -92,7 +100,17 @@ func (c Col[T]) rawQualifiedName() string {
 // This is useful for DTOs and custom result mapping
 func (c Col[T]) Into(fieldPointer FieldPointer, jsonFieldName string) *Col[T] {
 	if fieldPointer == nil {
-		panic("field pointer cannot be nil")
+		return &Col[T]{
+			table:         c.table,
+			name:          c.name,
+			qualifiedName: c.qualifiedName,
+			fieldPointer:  fieldPointer,
+			jsonFieldName: jsonFieldName,
+			args:          append([]any(nil), c.args...),
+			aggregate:     c.aggregate,
+			distinct:      c.distinct,
+			buildErr:      errors.New("field pointer cannot be nil"),
+		}
 	}
 
 	return &Col[T]{
@@ -104,11 +122,16 @@ func (c Col[T]) Into(fieldPointer FieldPointer, jsonFieldName string) *Col[T] {
 		args:          append([]any(nil), c.args...),
 		aggregate:     c.aggregate,
 		distinct:      c.distinct,
+		buildErr:      c.buildErr,
 	}
 }
 
 func (c Col[T]) expressionArgs() []any {
 	return append([]any(nil), c.args...)
+}
+
+func (c Col[T]) buildError() error {
+	return c.buildErr
 }
 
 func (c Col[T]) isAggregateExpression() bool {

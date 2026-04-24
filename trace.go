@@ -11,65 +11,142 @@ import (
 	"github.com/juju/errors"
 )
 
-// ================================================
-// 追踪类型定义
-// ================================================
-
-// Fn represents a function that can be traced
+// Fn represents a function that can be traced.
 type Fn func(ctx context.Context) error
 
-// Tracer is a middleware function that wraps another function for tracing/monitoring
+// Tracer is a middleware function that wraps another function for tracing/monitoring.
 type Tracer func(next Fn) Fn
 
-// ================================================
-// 追踪管理
-// ================================================
+// TraceManager stores and executes tracers.
+type TraceManager struct {
+	mu      sync.RWMutex
+	tracers []Tracer
+}
 
-var (
-	tracersMu sync.RWMutex
-	tracers   []Tracer
-)
+func NewTraceManager() *TraceManager {
+	return &TraceManager{}
+}
 
-// AddTracer adds a tracer to the global registry
+var defaultTraceManager = NewTraceManager()
+
+// AddTracer adds a tracer to the default trace manager.
 func AddTracer(tracer Tracer) {
+	defaultTraceManager.Add(tracer)
+}
+
+// ClearTracers clears the default trace manager.
+func ClearTracers() {
+	defaultTraceManager.Clear()
+}
+
+// GetTracers returns all tracers from the default trace manager.
+func GetTracers() []Tracer {
+	return defaultTraceManager.Get()
+}
+
+func (m *TraceManager) Add(tracer Tracer) {
 	if tracer == nil {
 		return
 	}
 
-	tracersMu.Lock()
-	defer tracersMu.Unlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	tracers = append(tracers, tracer)
+	m.tracers = append(m.tracers, tracer)
 }
 
-// ClearTracers clears all registered tracers
-func ClearTracers() {
-	tracersMu.Lock()
-	defer tracersMu.Unlock()
+func (m *TraceManager) AddUnique(tracers ...Tracer) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	tracers = nil
+	m.tracers = appendUniqueTracers(m.tracers, tracers...)
 }
 
-// GetTracers returns all registered tracers
-func GetTracers() []Tracer {
-	return snapshotTracers()
+func (m *TraceManager) Clear() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.tracers = nil
 }
 
-func snapshotTracers() []Tracer {
-	tracersMu.RLock()
-	defer tracersMu.RUnlock()
+func (m *TraceManager) Get() []Tracer {
+	return m.snapshot()
+}
 
-	result := make([]Tracer, len(tracers))
-	copy(result, tracers)
+func (m *TraceManager) snapshot() []Tracer {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	result := make([]Tracer, len(m.tracers))
+	copy(result, m.tracers)
 
 	return result
 }
 
-func appendUniqueGlobalTracers(newTracers ...Tracer) {
-	tracersMu.Lock()
-	defer tracersMu.Unlock()
+func (m *TraceManager) restore(snapshot []Tracer) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	tracers = appendUniqueTracers(tracers, newTracers...)
+	m.tracers = append([]Tracer(nil), snapshot...)
+}
+
+func (m *TraceManager) Trace(ctx context.Context, fn func(ctx context.Context) error) error {
+	if fn == nil {
+		return errors.New("trace function cannot be nil")
+	}
+
+	if ctx == nil {
+		return errors.New("context cannot be nil")
+	}
+
+	tracers := m.snapshot()
+	wrappedFn := fn
+	for i := len(tracers) - 1; i >= 0; i-- {
+		wrappedFn = tracers[i](wrappedFn)
+	}
+
+	return wrappedFn(ctx)
+}
+
+func traceManagerTrace1[T any](m *TraceManager, ctx context.Context, fn func(ctx context.Context) (T, error)) (T, error) {
+	if fn == nil {
+		var zero T
+		return zero, errors.New("trace function cannot be nil")
+	}
+
+	if ctx == nil {
+		var zero T
+		return zero, errors.New("context cannot be nil")
+	}
+
+	tracers := m.snapshot()
+
+	var result T
+	wrappedFn := func(ctx context.Context) error {
+		var err error
+
+		result, err = fn(ctx)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	}
+
+	for i := len(tracers) - 1; i >= 0; i-- {
+		wrappedFn = tracers[i](wrappedFn)
+	}
+
+	return result, wrappedFn(ctx)
+}
+
+// Trace executes a function with all registered tracers applied.
+func Trace(ctx context.Context, fn func(ctx context.Context) error) error {
+	return defaultTraceManager.Trace(ctx, fn)
+}
+
+func Trace1[T any](ctx context.Context, fn func(ctx context.Context) (T, error)) (T, error) {
+	return traceManagerTrace1(defaultTraceManager, ctx, fn)
 }
 
 func appendUniqueTracers(existing []Tracer, newTracers ...Tracer) []Tracer {
@@ -81,7 +158,6 @@ func appendUniqueTracers(existing []Tracer, newTracers ...Tracer) []Tracer {
 		}
 
 		duplicated := false
-
 		for _, current := range result {
 			if sameTracer(current, tracer) {
 				duplicated = true
@@ -113,86 +189,15 @@ func tracerIdentity(tracer Tracer) uintptr {
 	return reflect.ValueOf(tracer).Pointer()
 }
 
-// ================================================
-// 追踪执行
-// ================================================
-
-// Trace executes a function with all registered tracers applied
-// Tracers are applied in reverse order (LIFO) so the last added tracer wraps all others
-func Trace(ctx context.Context, fn func(ctx context.Context) error) error {
-	if fn == nil {
-		return errors.New("trace function cannot be nil")
-	}
-
-	if ctx == nil {
-		return errors.New("context cannot be nil")
-	}
-
-	tracers := snapshotTracers()
-
-	// Apply tracers in reverse order to create proper middleware chain
-	wrappedFn := fn
-	for i := len(tracers) - 1; i >= 0; i-- {
-		wrappedFn = tracers[i](wrappedFn)
-	}
-
-	return wrappedFn(ctx)
-}
-
-func Trace1[T any](
-	ctx context.Context,
-	fn func(ctx context.Context) (T, error),
-) (T, error) {
-	if fn == nil {
-		var zero T
-		return zero, errors.New("trace function cannot be nil")
-	}
-
-	if ctx == nil {
-		var zero T
-		return zero, errors.New("context cannot be nil")
-	}
-
-	tracers := snapshotTracers()
-
-	// Apply tracers in reverse order to create proper middleware chain
-	var result T
-
-	wrappedFn := func(ctx context.Context) error {
-		var err error
-
-		result, err = fn(ctx)
-		if err != nil {
-			return err
-		}
-
-		return nil
-	}
-
-	for i := len(tracers) - 1; i >= 0; i-- {
-		wrappedFn = tracers[i](wrappedFn)
-	}
-
-	return result, wrappedFn(ctx)
-}
-
-// ================================================
-// 内置追踪器
-// ================================================
-
 func PrintCost(next Fn) Fn {
 	return func(ctx context.Context) error {
 		start := time.Now()
 		err := next(ctx)
 
 		duration := time.Since(start)
-
-		// You can customize this to use your preferred logging library
 		if err != nil {
-			// Log error with timing
 			slog.Info("cost", "duration", duration, "error", errors.ErrorStack(err))
 		} else {
-			// Log success with timing
 			slog.Info("cost", "duration", duration)
 		}
 
@@ -223,12 +228,7 @@ func PrintSQL(next Fn) Fn {
 	}
 }
 
-// ================================================
-// 工具函数
-// ================================================
-
 // PrettyJSON returns indented JSON string of obj.
-// Returns empty string if marshaling fails.
 func PrettyJSON(obj any) string {
 	bs, err := json.MarshalIndent(obj, "", "    ")
 	if err != nil {
@@ -239,7 +239,6 @@ func PrettyJSON(obj any) string {
 }
 
 // CompactJSON returns compact JSON string of obj.
-// Returns empty string if marshaling fails.
 func CompactJSON(obj any) string {
 	bs, err := json.Marshal(obj)
 	if err != nil {
@@ -247,11 +246,4 @@ func CompactJSON(obj any) string {
 	}
 
 	return string(bs)
-}
-
-func restoreTracers(snapshot []Tracer) {
-	tracersMu.Lock()
-	defer tracersMu.Unlock()
-
-	tracers = append([]Tracer(nil), snapshot...)
 }

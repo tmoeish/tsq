@@ -3,6 +3,8 @@ package tsq
 import (
 	"fmt"
 	"strings"
+
+	"github.com/juju/errors"
 )
 
 // ================================================
@@ -12,16 +14,19 @@ import (
 // Fn creates a custom SQL function by applying the format string to the column
 func (c Col[T]) Fn(format string) Col[T] {
 	if strings.TrimSpace(format) == "" {
-		panic("function format cannot be empty")
+		c.buildErr = errors.New("function format cannot be empty")
+		return c
 	}
 
 	placeholderCount, err := countStringFormatPlaceholders(format)
 	if err != nil {
-		panic(err.Error())
+		c.buildErr = errors.Trace(err)
+		return c
 	}
 
 	if placeholderCount != 1 {
-		panic("function format must contain %s for the column expression")
+		c.buildErr = errors.New("function format must contain %s for the column expression")
+		return c
 	}
 
 	return Col[T]{
@@ -33,22 +38,26 @@ func (c Col[T]) Fn(format string) Col[T] {
 		args:          append([]any(nil), c.args...),
 		aggregate:     c.aggregate,
 		distinct:      c.distinct,
+		buildErr:      c.buildErr,
 	}
 }
 
 // Fn0 fn 不带参数
 func (c Col[T]) Fn0(fn string) Col[T] {
 	if strings.TrimSpace(fn) == "" {
-		panic("function expression cannot be empty")
+		c.buildErr = errors.New("function expression cannot be empty")
+		return c
 	}
 
 	placeholderCount, err := countStringFormatPlaceholders(fn)
 	if err != nil {
-		panic(err.Error())
+		c.buildErr = errors.Trace(err)
+		return c
 	}
 
 	if placeholderCount != 0 {
-		panic("function expression cannot contain format placeholders")
+		c.buildErr = errors.New("function expression cannot contain format placeholders")
+		return c
 	}
 
 	return Col[T]{
@@ -60,21 +69,25 @@ func (c Col[T]) Fn0(fn string) Col[T] {
 		args:          append([]any(nil), c.args...),
 		aggregate:     c.aggregate,
 		distinct:      c.distinct,
+		buildErr:      c.buildErr,
 	}
 }
 
 func (c Col[T]) FnExpr(format string, args ...any) Col[T] {
 	if strings.TrimSpace(format) == "" {
-		panic("function format cannot be empty")
+		c.buildErr = errors.New("function format cannot be empty")
+		return c
 	}
 
 	placeholderCount, err := countStringFormatPlaceholders(format)
 	if err != nil {
-		panic(err.Error())
+		c.buildErr = errors.Trace(err)
+		return c
 	}
 
 	if placeholderCount != len(args)+1 {
-		panic("function format placeholder count mismatch")
+		c.buildErr = errors.New("function format placeholder count mismatch")
+		return c
 	}
 
 	formatArgs := make([]any, 0, len(args)+1)
@@ -97,6 +110,7 @@ func (c Col[T]) FnExpr(format string, args ...any) Col[T] {
 		args:          resultArgs,
 		aggregate:     c.aggregate,
 		distinct:      c.distinct,
+		buildErr:      c.buildErr,
 	}
 }
 
@@ -184,7 +198,8 @@ func (c Col[T]) Trim() Col[T] {
 // Concat is intentionally unsupported because portable string concatenation
 // differs across TSQ's built-in dialects.
 func (c Col[T]) Concat(_ string) Col[T] {
-	panic("Concat is not portable across TSQ's built-in dialects; use Fn with a dialect-specific expression instead")
+	c.buildErr = errors.New("Concat is not portable across TSQ's built-in dialects; use Fn with a dialect-specific expression instead")
+	return c
 }
 
 // ================================================
@@ -223,7 +238,8 @@ func (c Col[T]) Day() Col[T] {
 // Round returns ROUND(column, precision) - rounds to specified decimal places
 func (c Col[T]) Round(precision int) Col[T] {
 	if precision < 0 {
-		panic("round precision cannot be negative")
+		c.buildErr = errors.New("round precision cannot be negative")
+		return c
 	}
 
 	return c.Fn(fmt.Sprintf("ROUND(%%s, %d)", precision))

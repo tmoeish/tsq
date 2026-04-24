@@ -9,15 +9,11 @@ import (
 )
 
 func TestRegisterTablePanicsOnDuplicateName(t *testing.T) {
-	tablesMu.Lock()
-	oldTables := tables
-	tables = make(map[string]*RegisteredTable)
-	tablesMu.Unlock()
+	oldRegistry := defaultRegistry
+	defaultRegistry = NewRegistry()
 
 	t.Cleanup(func() {
-		tablesMu.Lock()
-		tables = oldTables
-		tablesMu.Unlock()
+		defaultRegistry = oldRegistry
 	})
 
 	table := newMockTable("users")
@@ -33,15 +29,11 @@ func TestRegisterTablePanicsOnDuplicateName(t *testing.T) {
 }
 
 func TestRegisterTableRejectsNilInputs(t *testing.T) {
-	tablesMu.Lock()
-	oldTables := tables
-	tables = make(map[string]*RegisteredTable)
-	tablesMu.Unlock()
+	oldRegistry := defaultRegistry
+	defaultRegistry = NewRegistry()
 
 	t.Cleanup(func() {
-		tablesMu.Lock()
-		tables = oldTables
-		tablesMu.Unlock()
+		defaultRegistry = oldRegistry
 	})
 
 	tests := []struct {
@@ -82,9 +74,8 @@ func TestRegisterTableRejectsNilInputs(t *testing.T) {
 }
 
 func TestSnapshotRegisteredTablesReturnsDeterministicOrder(t *testing.T) {
-	tablesMu.Lock()
-	oldTables := tables
-	tables = map[string]*RegisteredTable{
+	oldRegistry := defaultRegistry
+	defaultRegistry = &Registry{tables: map[string]*RegisteredTable{
 		"users": {
 			Table:        newMockTable("users"),
 			AddTableFunc: func(db *gorp.DbMap) {},
@@ -95,13 +86,10 @@ func TestSnapshotRegisteredTablesReturnsDeterministicOrder(t *testing.T) {
 			AddTableFunc: func(db *gorp.DbMap) {},
 			InitFunc:     func(db *gorp.DbMap) error { return nil },
 		},
-	}
-	tablesMu.Unlock()
+	}}
 
 	t.Cleanup(func() {
-		tablesMu.Lock()
-		tables = oldTables
-		tablesMu.Unlock()
+		defaultRegistry = oldRegistry
 	})
 
 	snapshot := snapshotRegisteredTables()
@@ -119,24 +107,14 @@ func TestSnapshotRegisteredTablesReturnsDeterministicOrder(t *testing.T) {
 }
 
 func TestInitDeduplicatesProvidedTracers(t *testing.T) {
-	tablesMu.Lock()
-	oldTables := tables
-	tables = make(map[string]*RegisteredTable)
-	tablesMu.Unlock()
-
-	tracersMu.Lock()
-	oldTracers := tracers
-	tracers = nil
-	tracersMu.Unlock()
+	oldRegistry := defaultRegistry
+	defaultRegistry = NewRegistry()
+	oldTraceManager := defaultTraceManager
+	defaultTraceManager = NewTraceManager()
 
 	t.Cleanup(func() {
-		tablesMu.Lock()
-		tables = oldTables
-		tablesMu.Unlock()
-
-		tracersMu.Lock()
-		tracers = oldTracers
-		tracersMu.Unlock()
+		defaultRegistry = oldRegistry
+		defaultTraceManager = oldTraceManager
 	})
 
 	tracer := func(next Fn) Fn { return next }

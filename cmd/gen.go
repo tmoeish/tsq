@@ -13,7 +13,6 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/tmoeish/tsq"
 	"github.com/tmoeish/tsq/internal/parser"
-	"mvdan.cc/gofumpt/format"
 )
 
 var (
@@ -70,21 +69,6 @@ var GenCmd = &cobra.Command{
 			list[i].SetTSQVersion(tsq.Version)
 		}
 
-		if err := validateGeneratedFilenameCollisions(list); err != nil {
-			return errors.Trace(err)
-		}
-		if err := validateIndexNameCollisions(list); err != nil {
-			return errors.Trace(err)
-		}
-		if err := validateGeneratedSymbolCollisions(list); err != nil {
-			return errors.Trace(err)
-		}
-
-		structsByName := make(map[string]*tsq.StructInfo, len(list))
-		for _, s := range list {
-			structsByName[s.TypeInfo.TypeName] = s
-		}
-
 		tpl, err := template.New("tsq.go.tmpl").Funcs(TemplateFuncs()).Parse(tableTpl)
 		if err != nil {
 			return errors.Annotate(err, "failed to parse table template")
@@ -95,22 +79,14 @@ var GenCmd = &cobra.Command{
 			return errors.Annotate(err, "failed to parse DTO template")
 		}
 
-		for _, s := range list {
-			if s.TableInfo == nil || len(s.Fields) == 0 {
-				continue
-			}
-			if err := validateStructForGeneration(s, structsByName); err != nil {
-				return errors.Annotatef(err, "failed to validate %s", s.TypeInfo.TypeName)
-			}
-			if s.IsDTO {
-				normalizeDTOColumns(s)
-				if err := genDTO(s, dtoTplParsed, dir); err != nil {
-					return errors.Trace(err)
-				}
-			} else {
-				if err := gen(s, tpl, dir); err != nil {
-					return errors.Trace(err)
-				}
+		models, err := buildGenerationModels(list, dir, tpl, dtoTplParsed)
+		if err != nil {
+			return errors.Trace(err)
+		}
+
+		for _, model := range models {
+			if err := renderGenerationModel(model); err != nil {
+				return errors.Trace(err)
 			}
 		}
 
@@ -132,59 +108,21 @@ func resolveTemplateText(overridePath string, fallback string, label string) (st
 }
 
 func gen(data *tsq.StructInfo, t *template.Template, dir string) error {
-	filename := generatedFilename(data)
-	filename = filepath.Join(dir, filename)
-
-	if v {
-		_, _ = fmt.Fprintf(os.Stderr, "gen %s\n", filename)
-	}
-
-	buf := new(bytes.Buffer)
-
-	if err := t.Execute(buf, data); err != nil {
-		bs := tsq.PrettyJSON(data)
-		return errors.Annotatef(err, "template rendering failed: %s, data: %s", filename, bs)
-	}
-
-	src, err := format.Source(buf.Bytes(), format.Options{})
-	if err != nil {
-		return errors.Annotatef(err, "Go code formatting failed: %s", filename)
-	}
-
-	err = writeGeneratedFile(filename, src)
-	if err != nil {
-		return errors.Annotatef(err, "failed to write file: %s", filename)
-	}
-
-	return nil
+	return renderGenerationModel(generationModel{
+		Data:       data,
+		Template:   t,
+		Filename:   filepath.Join(dir, generatedFilename(data)),
+		ErrorLabel: "template rendering failed",
+	})
 }
 
 func genDTO(data *tsq.StructInfo, t *template.Template, dir string) error {
-	filename := generatedFilename(data)
-	filename = filepath.Join(dir, filename)
-
-	if v {
-		_, _ = fmt.Fprintf(os.Stderr, "gen %s\n", filename)
-	}
-
-	buf := new(bytes.Buffer)
-
-	if err := t.Execute(buf, data); err != nil {
-		bs := tsq.PrettyJSON(data)
-		return errors.Annotatef(err, "DTO template rendering failed: %s, data: %s", filename, bs)
-	}
-
-	src, err := format.Source(buf.Bytes(), format.Options{})
-	if err != nil {
-		return errors.Annotatef(err, "Go code formatting failed: %s", filename)
-	}
-
-	err = writeGeneratedFile(filename, src)
-	if err != nil {
-		return errors.Annotatef(err, "failed to write file: %s", filename)
-	}
-
-	return nil
+	return renderGenerationModel(generationModel{
+		Data:       data,
+		Template:   t,
+		Filename:   filepath.Join(dir, generatedFilename(data)),
+		ErrorLabel: "DTO template rendering failed",
+	})
 }
 
 func validateStructForGeneration(

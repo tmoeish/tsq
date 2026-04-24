@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"runtime"
 	"strings"
+	"sync"
 
 	"github.com/juju/errors"
 	"github.com/tmoeish/tsq"
@@ -44,26 +45,32 @@ func parsePackage(packagePath string) (*ParseResult, error) {
 		structMap:       make(map[tsq.TypeInfo]*StructInfo),
 		parsedPackages:  make(map[tsq.PackageInfo]bool),
 		pendingPackages: list.New(),
+		loader:          newPackageLoader(),
 	}
 
-	if err := parseState.parsePackagesRecursively(packagePath); err != nil {
+	pipeline := parsePipeline{
+		targetPath: packagePath,
+		state:      parseState,
+	}
+
+	if err := pipeline.collectStructs(); err != nil {
 		return nil, errors.Annotate(err, "failed to recursively parse package")
 	}
 
-	if err := parseState.resolveAllEmbeddedFields(); err != nil {
+	if err := pipeline.resolveEmbeds(); err != nil {
 		return nil, errors.Annotate(err, "failed to parse embedded fields")
 	}
 
-	packageInfo, err := parseState.getPackageInfo(packagePath)
+	packageInfo, err := pipeline.targetPackageInfo()
 	if err != nil {
 		return nil, errors.Annotate(err, "failed to get package info")
 	}
 
-	if err := parseState.parseTableMetadata(packageInfo); err != nil {
+	if err := pipeline.annotateTables(packageInfo); err != nil {
 		return nil, errors.Annotate(err, "failed to parse table metadata")
 	}
 
-	result, err := parseState.filterAndProcessResults(packagePath)
+	result, err := pipeline.finalize()
 	if err != nil {
 		return nil, errors.Annotate(err, "failed to filter and process parse results")
 	}
@@ -76,6 +83,32 @@ type ParseState struct {
 	structMap       map[tsq.TypeInfo]*StructInfo // 已解析的结构体映射
 	parsedPackages  map[tsq.PackageInfo]bool     // 已解析的包集合
 	pendingPackages *list.List                   // 待解析的包队列
+	loader          *packageLoader
+}
+
+type parsePipeline struct {
+	targetPath string
+	state      *ParseState
+}
+
+func (p parsePipeline) collectStructs() error {
+	return p.state.parsePackagesRecursively(p.targetPath)
+}
+
+func (p parsePipeline) resolveEmbeds() error {
+	return p.state.resolveAllEmbeddedFields()
+}
+
+func (p parsePipeline) targetPackageInfo() (tsq.PackageInfo, error) {
+	return p.state.getPackageInfo(p.targetPath)
+}
+
+func (p parsePipeline) annotateTables(pkg tsq.PackageInfo) error {
+	return p.state.parseTableMetadata(pkg)
+}
+
+func (p parsePipeline) finalize() (*ParseResult, error) {
+	return p.state.filterAndProcessResults(p.targetPath)
 }
 
 type loadedPackage struct {
@@ -116,7 +149,7 @@ func (ps *ParseState) resolveAllEmbeddedFields() error {
 
 // getPackageInfo 获取包信息
 func (ps *ParseState) getPackageInfo(packagePath string) (tsq.PackageInfo, error) {
-	buildPkg, err := importBuildPackage(packagePath)
+	buildPkg, err := ps.importBuildPackage(packagePath)
 	if err != nil {
 		return tsq.PackageInfo{}, errors.Annotatef(err, "failed to process directory: %s", packagePath)
 	}
@@ -129,7 +162,7 @@ func (ps *ParseState) getPackageInfo(packagePath string) (tsq.PackageInfo, error
 
 // parseTableMetadata 解析表元数据
 func (ps *ParseState) parseTableMetadata(pkg tsq.PackageInfo) error {
-	buildPkg, err := importBuildPackage(pkg.Path)
+	buildPkg, err := ps.importBuildPackage(pkg.Path)
 	if err != nil {
 		return errors.Annotatef(err, "failed to process directory: %s", pkg.Path)
 	}
@@ -275,7 +308,7 @@ func isStructType(typeExpr ast.Expr) bool {
 
 // filterAndProcessResults 过滤并处理解析结果
 func (ps *ParseState) filterAndProcessResults(packagePath string) (*ParseResult, error) {
-	buildPkg, err := importBuildPackage(packagePath)
+	buildPkg, err := ps.importBuildPackage(packagePath)
 	if err != nil {
 		return nil, errors.Annotatef(err, "failed to process directory: %s", packagePath)
 	}
@@ -309,7 +342,7 @@ func (ps *ParseState) filterAndProcessResults(packagePath string) (*ParseResult,
 
 // parseSinglePackage 解析单个包
 func (ps *ParseState) parseSinglePackage(packagePath string) error {
-	buildPkg, err := importBuildPackage(packagePath)
+	buildPkg, err := ps.importBuildPackage(packagePath)
 	if err != nil {
 		return errors.Annotatef(err, "failed to process pkg: %s", packagePath)
 	}
@@ -491,10 +524,69 @@ func resolveEmbeddedFields(
 }
 
 func importBuildPackage(packagePath string) (*loadedPackage, error) {
-	return loadSinglePackage(packagePath)
+	return defaultPackageLoader.load(packagePath)
 }
 
 func loadSinglePackage(packagePath string) (*loadedPackage, error) {
+	return defaultPackageLoader.loadUncached(packagePath)
+}
+
+func (ps *ParseState) importBuildPackage(packagePath string) (*loadedPackage, error) {
+	if ps != nil && ps.loader != nil {
+		return ps.loader.load(packagePath)
+	}
+
+	return importBuildPackage(packagePath)
+}
+
+type packageLoader struct {
+	mu    sync.Mutex
+	cache map[string]*loadedPackage
+}
+
+func newPackageLoader() *packageLoader {
+	return &packageLoader{
+		cache: make(map[string]*loadedPackage),
+	}
+}
+
+var defaultPackageLoader = newPackageLoader()
+
+func (l *packageLoader) load(packagePath string) (*loadedPackage, error) {
+	key, cfg, pattern, err := resolveLoadRequest(packagePath)
+	if err != nil {
+		return nil, err
+	}
+
+	l.mu.Lock()
+	cached, ok := l.cache[key]
+	l.mu.Unlock()
+	if ok {
+		return cloneLoadedPackage(cached), nil
+	}
+
+	pkg, err := l.loadWithConfig(cfg, pattern, packagePath)
+	if err != nil {
+		return nil, err
+	}
+
+	l.mu.Lock()
+	l.cache[key] = cloneLoadedPackage(pkg)
+	l.mu.Unlock()
+
+	return pkg, nil
+}
+
+func (l *packageLoader) loadUncached(packagePath string) (*loadedPackage, error) {
+	_, cfg, pattern, err := resolveLoadRequest(packagePath)
+	if err != nil {
+		return nil, err
+	}
+
+	return l.loadWithConfig(cfg, pattern, packagePath)
+}
+
+func resolveLoadRequest(packagePath string) (string, *packages.Config, string, error) {
 	cfg := &packages.Config{
 		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles | packages.NeedImports | packages.NeedModule,
 	}
@@ -507,7 +599,7 @@ func loadSinglePackage(packagePath string) (*loadedPackage, error) {
 	} else if strings.HasPrefix(packagePath, ".") {
 		absPath, err := filepath.Abs(packagePath)
 		if err != nil {
-			return nil, err
+			return "", nil, "", err
 		}
 
 		if _, statErr := os.Stat(absPath); statErr != nil {
@@ -523,6 +615,19 @@ func loadSinglePackage(packagePath string) (*loadedPackage, error) {
 		pattern = "."
 	}
 
+	key := packagePath
+	if cfg.Dir != "" {
+		key = cfg.Dir + "::" + pattern
+	}
+
+	return key, cfg, pattern, nil
+}
+
+func (l *packageLoader) loadWithConfig(
+	cfg *packages.Config,
+	pattern string,
+	packagePath string,
+) (*loadedPackage, error) {
 	pkgs, err := packages.Load(cfg, pattern)
 	if err != nil {
 		return nil, err
@@ -572,6 +677,26 @@ func loadSinglePackage(packagePath string) (*loadedPackage, error) {
 	}
 
 	return result, nil
+}
+
+func cloneLoadedPackage(pkg *loadedPackage) *loadedPackage {
+	if pkg == nil {
+		return nil
+	}
+
+	cloned := &loadedPackage{
+		Dir:        pkg.Dir,
+		ImportPath: pkg.ImportPath,
+		Name:       pkg.Name,
+		GoFiles:    append([]string(nil), pkg.GoFiles...),
+		Imports:    make(map[string]tsq.PackageInfo, len(pkg.Imports)),
+	}
+
+	for importPath, imported := range pkg.Imports {
+		cloned.Imports[importPath] = imported
+	}
+
+	return cloned
 }
 
 // copyEmbeddedFields 复制嵌入结构的字段

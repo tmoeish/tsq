@@ -69,26 +69,26 @@ func main() {
 	rs, _ := json.MarshalIndent(resp, "", "  ")
 	fmt.Println("-------------", string(rs))
 
-	// 6. 运行批量插入演示
+	// 6. 运行分块插入演示
 	fmt.Println("\n" + strings.Repeat("=", 50))
 	fmt.Println("运行批量插入功能演示...")
 	fmt.Println(strings.Repeat("=", 50))
-	runBatchInsertDemo(ctx, dbmap)
+	runChunkedInsertDemo(ctx, dbmap)
 
 	// RunAllExamples(ctx, dbmap)
 }
 
-// runBatchInsertDemo 运行批量插入演示
-func runBatchInsertDemo(ctx context.Context, dbmap *gorp.DbMap) {
-	slog.Info("=== 批量插入功能演示 ===")
+// runChunkedInsertDemo 运行分块插入演示
+func runChunkedInsertDemo(ctx context.Context, dbmap *gorp.DbMap) {
+	slog.Info("=== 分块插入功能演示 ===")
 
-	// 演示1：基本批量插入
-	slog.Info("1. 基本批量插入用户数据")
+	// 演示1：基本分块插入
+	slog.Info("1. 基本分块插入用户数据")
 	users := createTestUsers(100)
 
-	err := tsq.BatchInsert(ctx, dbmap, users)
+	err := tsq.ChunkedInsert(ctx, dbmap, users)
 	if err != nil {
-		slog.Error("批量插入用户失败", "err", err)
+		slog.Error("分块插入用户失败", "err", err)
 		return
 	}
 	slog.Info("成功插入用户", "count", len(users))
@@ -101,18 +101,18 @@ func runBatchInsertDemo(ctx context.Context, dbmap *gorp.DbMap) {
 	}
 	slog.Info("数据库中用户总数", "count", count)
 
-	// 演示2：带选项的批量插入（忽略重复）
-	slog.Info("2. 带选项的批量插入（忽略重复）")
+	// 演示2：带选项的分块插入（忽略重复）
+	slog.Info("2. 带选项的分块插入（忽略重复）")
 	duplicateUsers := createTestUsers(50) // 创建一些重复的用户
 
-	options := &tsq.BatchInsertOptions{
-		BatchSize:    10,
+	options := &tsq.ChunkedInsertOptions{
+		ChunkSize:    10,
 		IgnoreErrors: true, // 忽略重复键错误
 	}
 
-	err = tsq.BatchInsert(ctx, dbmap, duplicateUsers, options)
+	err = tsq.ChunkedInsert(ctx, dbmap, duplicateUsers, options)
 	if err != nil {
-		slog.Error("批量插入重复用户失败", "err", err)
+		slog.Error("分块插入重复用户失败", "err", err)
 		return
 	}
 	slog.Info("尝试插入用户", "count", len(duplicateUsers))
@@ -125,7 +125,7 @@ func runBatchInsertDemo(ctx context.Context, dbmap *gorp.DbMap) {
 	}
 	slog.Info("数据库中用户总数", "count", count)
 
-	slog.Info("=== 批量插入演示完成 ===")
+	slog.Info("=== 分块插入演示完成 ===")
 }
 
 // createTestUsers 创建测试用户数据

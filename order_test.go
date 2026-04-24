@@ -81,13 +81,9 @@ func TestOrderBy_ExprRejectsInvalidInputs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			defer func() {
-				if r := recover(); r == nil {
-					t.Fatal("expected invalid OrderBy to panic")
-				}
-			}()
-
-			_ = tt.orderBy.Expr()
+			if got := tt.orderBy.Expr(); got != "" {
+				t.Fatalf("expected invalid OrderBy to render empty expression, got %q", got)
+			}
 		})
 	}
 }
@@ -233,13 +229,9 @@ func TestReverseOrder(t *testing.T) {
 }
 
 func TestReverseOrderRejectsInvalidOrder(t *testing.T) {
-	defer func() {
-		if r := recover(); r == nil {
-			t.Fatal("expected invalid order to panic")
-		}
-	}()
-
-	_ = ReverseOrder(Order("SIDEWAYS"))
+	if got := ReverseOrder(Order("SIDEWAYS")); got != "" {
+		t.Fatalf("expected invalid order to return empty order, got %q", got)
+	}
 }
 
 func TestOrderBy_ComplexScenario(t *testing.T) {

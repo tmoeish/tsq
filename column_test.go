@@ -37,13 +37,10 @@ func TestNewCol(t *testing.T) {
 }
 
 func TestNewCol_RejectsNilTable(t *testing.T) {
-	defer func() {
-		if r := recover(); r == nil {
-			t.Fatal("expected nil table to panic")
-		}
-	}()
-
-	_ = NewCol[string](nil, "name", "name", nil)
+	col := NewCol[string](nil, "name", "name", nil)
+	if _, err := validateColumnInput(col); err == nil {
+		t.Fatal("expected nil table to be captured as a build error")
+	}
 }
 
 func TestCol_Table(t *testing.T) {
@@ -183,13 +180,10 @@ func TestCol_Into_NilPointer(t *testing.T) {
 	table := newMockTable("users")
 	col := NewCol[string](table, "name", "name", nil)
 
-	defer func() {
-		if r := recover(); r == nil {
-			t.Fatal("expected nil field pointer to panic")
-		}
-	}()
-
-	_ = col.Into(nil, "new_name")
+	next := col.Into(nil, "new_name")
+	if _, err := validateColumnInput(*next); err == nil {
+		t.Fatal("expected nil field pointer to be captured as a build error")
+	}
 }
 
 func TestCol_TypeSafety(t *testing.T) {

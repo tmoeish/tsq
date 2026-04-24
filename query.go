@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
-	"maps"
 	"reflect"
 	"regexp"
 	"slices"
@@ -152,40 +151,25 @@ func (qb *QueryBuilder) Build() (*Query, error) {
 		return nil, errors.Trace(qb.buildErr)
 	}
 
-	if len(qb.selectCols) == 0 {
-		return nil, errors.Errorf("empty select fields: %+v", qb)
-	}
-
-	for _, join := range qb.joins {
-		if join.joinType == FullJoinType {
-			return nil, errors.New("FULL JOIN is not supported by TSQ's built-in dialects")
-		}
-	}
-
-	if err := qb.validateJoinGraph(); err != nil {
+	plan, err := buildQueryPlan(qb.spec, qb.allowCartesianProduct)
+	if err != nil {
 		return nil, errors.Trace(err)
 	}
 
-	// Build all SQL variations
-	cntSQL, cntArgs := qb.buildCntSQL()
-	listSQL, listArgs := qb.buildListSQL()
-	kwCntSQL, kwCntArgs := qb.buildKwCntSQL()
-	kwListSQL, kwListArgs := qb.buildKwListSQL()
-
 	return &Query{
-		cntSQL:     cntSQL,
-		listSQL:    listSQL,
-		kwCntSQL:   kwCntSQL,
-		kwListSQL:  kwListSQL,
-		cntArgs:    slices.Clone(cntArgs),
-		listArgs:   slices.Clone(listArgs),
-		kwCntArgs:  slices.Clone(kwCntArgs),
-		kwListArgs: slices.Clone(kwListArgs),
+		cntSQL:     plan.cntSQL,
+		listSQL:    plan.listSQL,
+		kwCntSQL:   plan.kwCntSQL,
+		kwListSQL:  plan.kwListSQL,
+		cntArgs:    plan.cntArgs,
+		listArgs:   plan.listArgs,
+		kwCntArgs:  plan.kwCntArgs,
+		kwListArgs: plan.kwListArgs,
 
-		selectCols:   slices.Clone(qb.selectCols),
-		selectTables: maps.Clone(qb.selectTables),
-		kwCols:       slices.Clone(qb.kwCols),
-		kwTables:     maps.Clone(qb.kwTables),
+		selectCols:   slices.Clone(qb.spec.Selects),
+		selectTables: qb.spec.selectTables(),
+		kwCols:       slices.Clone(qb.spec.KeywordSearch),
+		kwTables:     qb.spec.keywordTables(),
 	}, nil
 }
 
@@ -223,7 +207,10 @@ func (q *Query) queryInt(
 		slog.Info("queryInt", "sql", sqlText, "args", CompactJSON(args))
 	}
 
-	finalArgs := mergeQueryArgs(q.listArgs, args)
+	finalArgs, err := mergeQueryArgs(q.listArgs, args)
+	if err != nil {
+		return 0, errors.Trace(err)
+	}
 	result, err := tx.WithContext(ctx).SelectInt(sqlText, finalArgs...)
 	if err != nil {
 		return 0, errors.Annotatef(err, "\n%s\n%v", sqlText, CompactJSON(finalArgs))
@@ -262,7 +249,10 @@ func (q *Query) queryFloat(
 		slog.Info("queryFloat", "sql", sqlText, "args", CompactJSON(args))
 	}
 
-	finalArgs := mergeQueryArgs(q.listArgs, args)
+	finalArgs, err := mergeQueryArgs(q.listArgs, args)
+	if err != nil {
+		return 0, errors.Trace(err)
+	}
 	result, err := tx.WithContext(ctx).SelectFloat(sqlText, finalArgs...)
 	if err != nil {
 		return 0, errors.Annotatef(err, "\n%s\n%v", sqlText, CompactJSON(finalArgs))
@@ -301,7 +291,10 @@ func (q *Query) queryStr(
 		slog.Info("queryStr", "sql", sqlText, "args", CompactJSON(args))
 	}
 
-	finalArgs := mergeQueryArgs(q.listArgs, args)
+	finalArgs, err := mergeQueryArgs(q.listArgs, args)
+	if err != nil {
+		return "", errors.Trace(err)
+	}
 	result, err := tx.WithContext(ctx).SelectStr(sqlText, finalArgs...)
 	if err != nil {
 		return "", errors.Annotatef(err, "\n%s\n%v", sqlText, CompactJSON(finalArgs))
@@ -340,7 +333,10 @@ func (q *Query) count(
 		slog.Info("count", "sql", sqlText, "args", CompactJSON(args))
 	}
 
-	finalArgs := mergeQueryArgs(q.cntArgs, args)
+	finalArgs, err := mergeQueryArgs(q.cntArgs, args)
+	if err != nil {
+		return 0, errors.Trace(err)
+	}
 	count, err := tx.WithContext(ctx).SelectInt(sqlText, finalArgs...)
 	if err != nil {
 		return 0, errors.Annotatef(err, "\n%s\n%v", sqlText, CompactJSON(finalArgs))
@@ -379,7 +375,10 @@ func (q *Query) exist(
 		slog.Info("exist", "sql", sqlText, "args", CompactJSON(args))
 	}
 
-	finalArgs := mergeQueryArgs(q.cntArgs, args)
+	finalArgs, err := mergeQueryArgs(q.cntArgs, args)
+	if err != nil {
+		return false, errors.Trace(err)
+	}
 	count, err := tx.WithContext(ctx).SelectInt(sqlText, finalArgs...)
 	if err != nil {
 		return false, errors.Annotatef(err, "\n%s\n%v", sqlText, CompactJSON(finalArgs))
@@ -443,8 +442,15 @@ func pageFn[T any](
 	}
 
 	// Add keyword search parameters if needed
-	finalArgs := mergeQueryArgs(queryBaseArgs, args)
-	countArgs := mergeQueryArgs(countBaseArgs, args)
+	finalArgs, err := mergeQueryArgs(queryBaseArgs, args)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	countArgs, err := mergeQueryArgs(countBaseArgs, args)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
 
 	if len(q.kwCols) > 0 && len(page.Keyword) > 0 {
 		like := "%" + page.Keyword + "%"
@@ -538,7 +544,10 @@ func listFn[T any](
 
 	sqlText := renderSQLForExecutor(tx, q.listSQL)
 
-	finalArgs := mergeQueryArgs(q.listArgs, args)
+	finalArgs, err := mergeQueryArgs(q.listArgs, args)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
 	if err := validateScanDestForType[T](q.selectCols, sqlText, finalArgs); err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -627,7 +636,10 @@ func getOrErrFn[T any](
 		)
 	}
 
-	finalArgs := mergeQueryArgs(qb.listArgs, args)
+	finalArgs, err := mergeQueryArgs(qb.listArgs, args)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
 	row := tx.WithContext(ctx).QueryRow(sqlText, finalArgs...)
 
 	if err := row.Scan(dest...); err != nil {
@@ -683,7 +695,10 @@ func (q *Query) load(
 		)
 	}
 
-	finalArgs := mergeQueryArgs(q.listArgs, args)
+	finalArgs, err := mergeQueryArgs(q.listArgs, args)
+	if err != nil {
+		return errors.Trace(err)
+	}
 
 	row := tx.WithContext(ctx).QueryRow(sqlText, finalArgs...)
 	if err := row.Err(); err != nil {
@@ -827,50 +842,49 @@ func splitCommaValues(value string) []string {
 // 批量操作支持
 // ================================================
 
-// BatchOptions 批量操作通用配置选项
-type BatchOptions struct {
-	BatchSize int // 每批处理的数量，默认 1000
+// ChunkedOptions 分块执行通用配置选项。
+type ChunkedOptions struct {
+	ChunkSize int // 每块处理的数量，默认 1000
 }
 
-// DefaultBatchOptions 返回默认的批量操作配置
-func DefaultBatchOptions() *BatchOptions {
-	return &BatchOptions{
-		BatchSize: 1000,
+// DefaultChunkedOptions 返回默认的分块执行配置。
+func DefaultChunkedOptions() *ChunkedOptions {
+	return &ChunkedOptions{
+		ChunkSize: 1000,
 	}
 }
 
-// BatchInsertOptions 批量插入配置选项
-type BatchInsertOptions struct {
-	BatchSize    int  // 每批处理的数量，默认 1000
+// ChunkedInsertOptions 分块插入配置选项。
+type ChunkedInsertOptions struct {
+	ChunkSize    int  // 每块处理的数量，默认 1000
 	IgnoreErrors bool // 是否忽略重复键插入错误并继续处理后续数据
 }
 
-// DefaultBatchInsertOptions 返回默认的批量插入配置
-func DefaultBatchInsertOptions() *BatchInsertOptions {
-	return &BatchInsertOptions{
-		BatchSize:    DefaultBatchOptions().BatchSize,
+// DefaultChunkedInsertOptions 返回默认的分块插入配置。
+func DefaultChunkedInsertOptions() *ChunkedInsertOptions {
+	return &ChunkedInsertOptions{
+		ChunkSize:    DefaultChunkedOptions().ChunkSize,
 		IgnoreErrors: false,
 	}
 }
 
-// BatchInsert 批量插入数据
-// T 必须是结构体类型，且应该有相应的数据库字段映射
-func BatchInsert[T Table](
+// ChunkedInsert 按块逐条插入数据。
+func ChunkedInsert[T Table](
 	ctx context.Context,
 	tx gorp.SqlExecutor,
 	items []*T,
-	options ...*BatchInsertOptions,
+	options ...*ChunkedInsertOptions,
 ) error {
 	return Trace(ctx, func(ctx context.Context) error {
-		return batchInsertFn[T](ctx, tx, items, options...)
+		return chunkedInsertFn[T](ctx, tx, items, options...)
 	})
 }
 
-func batchInsertFn[T Table](
+func chunkedInsertFn[T Table](
 	ctx context.Context,
 	tx gorp.SqlExecutor,
 	items []*T,
-	options ...*BatchInsertOptions,
+	options ...*ChunkedInsertOptions,
 ) error {
 	if len(items) == 0 {
 		return nil
@@ -880,40 +894,36 @@ func batchInsertFn[T Table](
 		return errors.Trace(err)
 	}
 
-	opts, err := normalizeBatchInsertOptions(options...)
+	opts, err := normalizeChunkedInsertOptions(options...)
 	if err != nil {
 		return errors.Trace(err)
 	}
 
 	// 批量处理
-	for i := 0; i < len(items); i += opts.BatchSize {
-		end := i + opts.BatchSize
-		if end > len(items) {
-			end = len(items)
-		}
+	for i := 0; i < len(items); i += opts.ChunkSize {
+		end := min(i+opts.ChunkSize, len(items))
 
 		batch := items[i:end]
-		if err := batchInsertChunk(ctx, tx, batch, opts); err != nil {
-			return errors.Annotatef(err, "batch insert chunk failed at index %d", i)
+		if err := chunkedInsertChunk(ctx, tx, batch, opts); err != nil {
+			return errors.Annotatef(err, "chunked insert failed at index %d", i)
 		}
 	}
 
 	return nil
 }
 
-// batchInsertChunk 插入一个批次的数据，使用 gorp 的标准插入
-func batchInsertChunk[T Table](
+func chunkedInsertChunk[T Table](
 	ctx context.Context,
 	tx gorp.SqlExecutor,
 	items []*T,
-	opts *BatchInsertOptions,
+	opts *ChunkedInsertOptions,
 ) error {
 	if len(items) == 0 {
 		return nil
 	}
 
 	// 简化版本：使用 gorp 的标准插入，逐个插入
-	// 在实际生产环境中，可以根据需要实现更高效的批量插入
+	// TODO: 在实际生产环境中，可以根据需要实现更高效的批量插入
 	for itemIdx, item := range items {
 		if item == nil {
 			return errors.Errorf("item at index %d is nil", itemIdx)
@@ -928,12 +938,11 @@ func batchInsertChunk[T Table](
 					continue
 				}
 
-				return errors.Annotatef(err, "batch insert failed at item %d", itemIdx)
+				return errors.Annotatef(err, "chunked insert failed at item %d", itemIdx)
 			}
 		} else {
-			// 标准插入模式
 			if err = tx.WithContext(ctx).Insert(item); err != nil {
-				return errors.Annotatef(err, "batch insert failed at item %d", itemIdx)
+				return errors.Annotatef(err, "chunked insert failed at item %d", itemIdx)
 			}
 		}
 	}
@@ -941,25 +950,23 @@ func batchInsertChunk[T Table](
 	return nil
 }
 
-// BatchUpdate 批量更新数据
-// 注意：这是一个简化版本，每个条目单独更新
-// 更高效的实现可能需要使用 CASE WHEN 语句或临时表
-func BatchUpdate[T any](
+// ChunkedUpdate 按块逐条更新数据。
+func ChunkedUpdate[T any](
 	ctx context.Context,
 	tx gorp.SqlExecutor,
 	items []*T,
-	options ...*BatchOptions,
+	options ...*ChunkedOptions,
 ) error {
 	return Trace(ctx, func(ctx context.Context) error {
-		return batchUpdateFn[T](ctx, tx, items, options...)
+		return chunkedUpdateFn[T](ctx, tx, items, options...)
 	})
 }
 
-func batchUpdateFn[T any](
+func chunkedUpdateFn[T any](
 	ctx context.Context,
 	tx gorp.SqlExecutor,
 	items []*T,
-	options ...*BatchOptions,
+	options ...*ChunkedOptions,
 ) error {
 	if len(items) == 0 {
 		return nil
@@ -969,29 +976,28 @@ func batchUpdateFn[T any](
 		return errors.Trace(err)
 	}
 
-	opts, err := normalizeBatchOptions(options...)
+	opts, err := normalizeChunkedOptions(options...)
 	if err != nil {
 		return errors.Trace(err)
 	}
 
 	// 批量处理
-	for i := 0; i < len(items); i += opts.BatchSize {
-		end := i + opts.BatchSize
+	for i := 0; i < len(items); i += opts.ChunkSize {
+		end := i + opts.ChunkSize
 		if end > len(items) {
 			end = len(items)
 		}
 
 		batch := items[i:end]
-		if err := batchUpdateChunk(ctx, tx, batch); err != nil {
-			return errors.Annotatef(err, "batch update chunk failed at index %d", i)
+		if err := chunkedUpdateChunk(ctx, tx, batch); err != nil {
+			return errors.Annotatef(err, "chunked update failed at index %d", i)
 		}
 	}
 
 	return nil
 }
 
-// batchUpdateChunk 更新一个批次的数据
-func batchUpdateChunk[T any](
+func chunkedUpdateChunk[T any](
 	ctx context.Context,
 	tx gorp.SqlExecutor,
 	items []*T,
@@ -1002,30 +1008,30 @@ func batchUpdateChunk[T any](
 		}
 
 		if _, err := tx.WithContext(ctx).Update(item); err != nil {
-			return errors.Annotate(err, "batch update item failed")
+			return errors.Annotate(err, "chunked update item failed")
 		}
 	}
 
 	return nil
 }
 
-// BatchDelete 批量删除数据
-func BatchDelete[T any](
+// ChunkedDelete 按块逐条删除数据。
+func ChunkedDelete[T any](
 	ctx context.Context,
 	tx gorp.SqlExecutor,
 	items []*T,
-	options ...*BatchOptions,
+	options ...*ChunkedOptions,
 ) error {
 	return Trace(ctx, func(ctx context.Context) error {
-		return batchDeleteFn[T](ctx, tx, items, options...)
+		return chunkedDeleteFn[T](ctx, tx, items, options...)
 	})
 }
 
-func batchDeleteFn[T any](
+func chunkedDeleteFn[T any](
 	ctx context.Context,
 	tx gorp.SqlExecutor,
 	items []*T,
-	options ...*BatchOptions,
+	options ...*ChunkedOptions,
 ) error {
 	if len(items) == 0 {
 		return nil
@@ -1035,29 +1041,28 @@ func batchDeleteFn[T any](
 		return errors.Trace(err)
 	}
 
-	opts, err := normalizeBatchOptions(options...)
+	opts, err := normalizeChunkedOptions(options...)
 	if err != nil {
 		return errors.Trace(err)
 	}
 
 	// 批量处理
-	for i := 0; i < len(items); i += opts.BatchSize {
-		end := i + opts.BatchSize
+	for i := 0; i < len(items); i += opts.ChunkSize {
+		end := i + opts.ChunkSize
 		if end > len(items) {
 			end = len(items)
 		}
 
 		batch := items[i:end]
-		if err := batchDeleteChunk(ctx, tx, batch); err != nil {
-			return errors.Annotatef(err, "batch delete chunk failed at index %d", i)
+		if err := chunkedDeleteChunk(ctx, tx, batch); err != nil {
+			return errors.Annotatef(err, "chunked delete failed at index %d", i)
 		}
 	}
 
 	return nil
 }
 
-// batchDeleteChunk 删除一个批次的数据
-func batchDeleteChunk[T any](
+func chunkedDeleteChunk[T any](
 	ctx context.Context,
 	tx gorp.SqlExecutor,
 	items []*T,
@@ -1068,34 +1073,34 @@ func batchDeleteChunk[T any](
 		}
 
 		if _, err := tx.WithContext(ctx).Delete(item); err != nil {
-			return errors.Annotate(err, "batch delete item failed")
+			return errors.Annotate(err, "chunked delete item failed")
 		}
 	}
 
 	return nil
 }
 
-// BatchDeleteByIDs 根据 ID 列表批量删除数据
-func BatchDeleteByIDs(
+// ChunkedDeleteByIDs 按块根据 ID 列表删除数据。
+func ChunkedDeleteByIDs(
 	ctx context.Context,
 	tx gorp.SqlExecutor,
 	tableName string,
 	idColumn string,
 	ids []any,
-	options ...*BatchOptions,
+	options ...*ChunkedOptions,
 ) error {
 	return Trace(ctx, func(ctx context.Context) error {
-		return batchDeleteByIDsFn(ctx, tx, tableName, idColumn, ids, options...)
+		return chunkedDeleteByIDsFn(ctx, tx, tableName, idColumn, ids, options...)
 	})
 }
 
-func batchDeleteByIDsFn(
+func chunkedDeleteByIDsFn(
 	ctx context.Context,
 	tx gorp.SqlExecutor,
 	tableName string,
 	idColumn string,
 	ids []any,
-	options ...*BatchOptions,
+	options ...*ChunkedOptions,
 ) error {
 	if len(ids) == 0 {
 		return nil
@@ -1109,29 +1114,28 @@ func batchDeleteByIDsFn(
 		return errors.Trace(err)
 	}
 
-	opts, err := normalizeBatchOptions(options...)
+	opts, err := normalizeChunkedOptions(options...)
 	if err != nil {
 		return errors.Trace(err)
 	}
 
 	// 批量处理
-	for i := 0; i < len(ids); i += opts.BatchSize {
-		end := i + opts.BatchSize
+	for i := 0; i < len(ids); i += opts.ChunkSize {
+		end := i + opts.ChunkSize
 		if end > len(ids) {
 			end = len(ids)
 		}
 
 		batch := ids[i:end]
-		if err := batchDeleteByIDsChunk(ctx, tx, tableName, idColumn, batch); err != nil {
-			return errors.Annotatef(err, "batch delete by IDs chunk failed at index %d", i)
+		if err := chunkedDeleteByIDsChunk(ctx, tx, tableName, idColumn, batch); err != nil {
+			return errors.Annotatef(err, "chunked delete by IDs failed at index %d", i)
 		}
 	}
 
 	return nil
 }
 
-// batchDeleteByIDsChunk 根据 ID 列表删除一个批次的数据
-func batchDeleteByIDsChunk(
+func chunkedDeleteByIDsChunk(
 	ctx context.Context,
 	tx gorp.SqlExecutor,
 	tableName string,
@@ -1161,7 +1165,7 @@ func batchDeleteByIDsChunk(
 
 	_, err = tx.WithContext(ctx).Exec(sqlText, ids...)
 	if err != nil {
-		return errors.Annotatef(err, "batch delete by IDs failed: %s", sqlText)
+		return errors.Annotatef(err, "chunked delete by IDs failed: %s", sqlText)
 	}
 
 	return nil
@@ -1260,47 +1264,47 @@ func normalizePageReq(page *PageReq) *PageReq {
 	return &normalized
 }
 
-func normalizeBatchInsertOptions(options ...*BatchInsertOptions) (*BatchInsertOptions, error) {
+func normalizeChunkedInsertOptions(options ...*ChunkedInsertOptions) (*ChunkedInsertOptions, error) {
 	if len(options) > 1 {
-		return nil, errors.New("expected at most one batch insert options value")
+		return nil, errors.New("expected at most one chunked insert options value")
 	}
 
-	opts := DefaultBatchInsertOptions()
+	opts := DefaultChunkedInsertOptions()
 
 	if len(options) > 0 && options[0] != nil {
 		copied := *options[0]
 		opts = &copied
 	}
 
-	if err := validateBatchSize(opts.BatchSize); err != nil {
+	if err := validateChunkSize(opts.ChunkSize); err != nil {
 		return nil, errors.Trace(err)
 	}
 
 	return opts, nil
 }
 
-func normalizeBatchOptions(options ...*BatchOptions) (*BatchOptions, error) {
+func normalizeChunkedOptions(options ...*ChunkedOptions) (*ChunkedOptions, error) {
 	if len(options) > 1 {
-		return nil, errors.New("expected at most one batch options value")
+		return nil, errors.New("expected at most one chunked options value")
 	}
 
-	opts := DefaultBatchOptions()
+	opts := DefaultChunkedOptions()
 
 	if len(options) > 0 && options[0] != nil {
 		copied := *options[0]
 		opts = &copied
 	}
 
-	if err := validateBatchSize(opts.BatchSize); err != nil {
+	if err := validateChunkSize(opts.ChunkSize); err != nil {
 		return nil, errors.Trace(err)
 	}
 
 	return opts, nil
 }
 
-func validateBatchSize(batchSize int) error {
-	if batchSize <= 0 {
-		return errors.Errorf("invalid batch size: %d", batchSize)
+func validateChunkSize(chunkSize int) error {
+	if chunkSize <= 0 {
+		return errors.Errorf("invalid chunk size: %d", chunkSize)
 	}
 
 	return nil
@@ -1316,14 +1320,14 @@ func validateIDValues(ids []any) error {
 	return nil
 }
 
-func mergeQueryArgs(base []any, extra []any) []any {
+func mergeQueryArgs(base []any, extra []any) ([]any, error) {
 	result := make([]any, 0, len(base)+len(extra))
 	extraIndex := 0
 
 	for _, arg := range base {
 		if arg == externalArgMarker {
 			if extraIndex >= len(extra) {
-				panic("missing external query argument")
+				return nil, errors.New("missing external query argument")
 			}
 
 			result = append(result, extra[extraIndex])
@@ -1337,7 +1341,7 @@ func mergeQueryArgs(base []any, extra []any) []any {
 
 	result = append(result, extra[extraIndex:]...)
 
-	return result
+	return result, nil
 }
 
 func queryArgs(q *Query) []any {

@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/juju/errors"
 )
 
 const sqlNullLiteral = "NULL"
@@ -31,7 +33,7 @@ func And(conds ...Condition) Cond {
 	for _, c := range conds {
 		clause, condTables, _, err := validateConditionInput(c)
 		if err != nil {
-			panic(err.Error())
+			return Cond{buildErr: errors.Trace(err)}
 		}
 
 		for tn, t := range condTables {
@@ -60,7 +62,7 @@ func Or(conds ...Condition) Cond {
 	for _, c := range conds {
 		clause, condTables, _, err := validateConditionInput(c)
 		if err != nil {
-			panic(err.Error())
+			return Cond{buildErr: errors.Trace(err)}
 		}
 
 		for tn, t := range condTables {
@@ -94,9 +96,10 @@ type rawConditionClauser interface {
 
 // Cond represents a SQL condition
 type Cond struct {
-	tables map[string]Table
-	expr   string
-	args   []any
+	tables   map[string]Table
+	expr     string
+	args     []any
+	buildErr error
 }
 
 func (c Cond) Tables() map[string]Table {
@@ -113,6 +116,10 @@ func (c Cond) rawClause() string {
 
 func (c Cond) Args() []any {
 	return append([]any(nil), c.args...)
+}
+
+func (c Cond) buildError() error {
+	return c.buildErr
 }
 
 // ================================================
@@ -246,34 +253,55 @@ func (c Col[T]) NContainsCol(_ Col[T]) Cond { return panicUnsupportedPatternPred
 // 子查询条件
 // ================================================
 
-func (c Col[T]) EQSub(sqb *Query) Cond      { return c.Predicate(`%s = %s`, sqb) }
-func (c Col[T]) NESub(sqb *Query) Cond      { return c.Predicate(`%s <> %s`, sqb) }
-func (c Col[T]) GTSub(sqb *Query) Cond      { return c.Predicate(`%s > %s`, sqb) }
-func (c Col[T]) GESub(sqb *Query) Cond      { return c.Predicate(`%s >= %s`, sqb) }
-func (c Col[T]) LTSub(sqb *Query) Cond      { return c.Predicate(`%s < %s`, sqb) }
-func (c Col[T]) LESub(sqb *Query) Cond      { return c.Predicate(`%s <= %s`, sqb) }
-func (c Col[T]) LikeSub(sqb *Query) Cond    { return c.Predicate(`%s LIKE %s`, sqb) }
-func (c Col[T]) NLikeSub(sqb *Query) Cond   { return c.Predicate(`%s NOT LIKE %s`, sqb) }
-func (c Col[T]) InSub(sqb *Query) Cond      { return c.Predicate(`%s IN %s`, sqb) }
-func (c Col[T]) NInSub(sqb *Query) Cond     { return c.Predicate(`%s NOT IN %s`, sqb) }
-func (c Col[T]) ExistsSub(sqb *Query) Cond  { return rawCondition("EXISTS " + formatSubquery(sqb)) }
-func (c Col[T]) NExistsSub(sqb *Query) Cond { return rawCondition("NOT EXISTS " + formatSubquery(sqb)) }
-func (c Col[T]) Unique(sqb *Query) Cond     { return panicUnsupportedSubqueryPredicate("UNIQUE") }
-func (c Col[T]) NUnique(sqb *Query) Cond    { return panicUnsupportedSubqueryPredicate("NOT UNIQUE") }
+func (c Col[T]) EQSub(sqb *Query) Cond    { return c.Predicate(`%s = %s`, sqb) }
+func (c Col[T]) NESub(sqb *Query) Cond    { return c.Predicate(`%s <> %s`, sqb) }
+func (c Col[T]) GTSub(sqb *Query) Cond    { return c.Predicate(`%s > %s`, sqb) }
+func (c Col[T]) GESub(sqb *Query) Cond    { return c.Predicate(`%s >= %s`, sqb) }
+func (c Col[T]) LTSub(sqb *Query) Cond    { return c.Predicate(`%s < %s`, sqb) }
+func (c Col[T]) LESub(sqb *Query) Cond    { return c.Predicate(`%s <= %s`, sqb) }
+func (c Col[T]) LikeSub(sqb *Query) Cond  { return c.Predicate(`%s LIKE %s`, sqb) }
+func (c Col[T]) NLikeSub(sqb *Query) Cond { return c.Predicate(`%s NOT LIKE %s`, sqb) }
+func (c Col[T]) InSub(sqb *Query) Cond    { return c.Predicate(`%s IN %s`, sqb) }
+func (c Col[T]) NInSub(sqb *Query) Cond   { return c.Predicate(`%s NOT IN %s`, sqb) }
+func (c Col[T]) ExistsSub(sqb *Query) Cond {
+	subquery, err := formatSubquery(sqb)
+	if err != nil {
+		return Cond{buildErr: errors.Trace(err)}
+	}
+
+	return rawCondition("EXISTS " + subquery)
+}
+
+func (c Col[T]) NExistsSub(sqb *Query) Cond {
+	subquery, err := formatSubquery(sqb)
+	if err != nil {
+		return Cond{buildErr: errors.Trace(err)}
+	}
+
+	return rawCondition("NOT EXISTS " + subquery)
+}
+func (c Col[T]) Unique(sqb *Query) Cond  { return panicUnsupportedSubqueryPredicate("UNIQUE") }
+func (c Col[T]) NUnique(sqb *Query) Cond { return panicUnsupportedSubqueryPredicate("NOT UNIQUE") }
 
 // ================================================
 // 条件构建核心方法
 // ================================================
 
 // Predicate builds a condition with the given operator and arguments
-func (c Col[T]) Predicate(op string, args ...any) Cond {
+func (c Col[T]) Predicate(op string, args ...any) (result Cond) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			result = Cond{buildErr: errors.Errorf("%v", recovered)}
+		}
+	}()
+
 	if err := validatePredicateFormat(op, len(args)+1); err != nil {
-		panic(err.Error())
+		return Cond{buildErr: errors.Trace(err)}
 	}
 
 	baseTable, err := validateColumnInput(c)
 	if err != nil {
-		panic(err.Error())
+		return Cond{buildErr: errors.Trace(err)}
 	}
 
 	tables := map[string]Table{baseTable.Table(): baseTable}
@@ -283,7 +311,7 @@ func (c Col[T]) Predicate(op string, args ...any) Cond {
 		if col, ok := arg.(Column); ok {
 			table, err := validateColumnInput(col)
 			if err != nil {
-				panic(err.Error())
+				return Cond{buildErr: errors.Trace(err)}
 			}
 
 			tables[table.Table()] = table
@@ -308,7 +336,7 @@ func (c Col[T]) Predicate(op string, args ...any) Cond {
 func (c Col[T]) rawCondition(expr string) Cond {
 	table, err := validateColumnInput(c)
 	if err != nil {
-		panic(err.Error())
+		return Cond{buildErr: errors.Trace(err)}
 	}
 
 	return Cond{
@@ -325,11 +353,14 @@ func rawCondition(expr string) Cond {
 }
 
 func panicUnsupportedSubqueryPredicate(name string) Cond {
-	panic(fmt.Sprintf("%s subquery predicate is not supported by TSQ's built-in dialects", name))
+	return Cond{buildErr: errors.Errorf("%s subquery predicate is not supported by TSQ's built-in dialects", name)}
 }
 
 func panicUnsupportedPatternPredicate(name string) Cond {
-	panic(fmt.Sprintf("%s is not portable across TSQ's built-in dialects; use LIKE with an explicit pattern instead", name))
+	return Cond{buildErr: errors.Errorf(
+		"%s is not portable across TSQ's built-in dialects; use LIKE with an explicit pattern instead",
+		name,
+	)}
 }
 
 func validatePredicateFormat(op string, placeholderCount int) error {
@@ -452,19 +483,24 @@ func argumentToExpression(arg any) Expression {
 	case Column:
 		return rawExpression{expr: rawColumnQualifiedName(v), args: expressionArgs(v)}
 	case *Query:
-		return rawExpression{expr: formatSubquery(v), args: queryArgs(v)}
+		expr, err := formatSubquery(v)
+		if err != nil {
+			panic(err.Error())
+		}
+
+		return rawExpression{expr: expr, args: queryArgs(v)}
 	default:
 		return Literal(v)
 	}
 }
 
 // formatSubquery formats a subquery for use in SQL
-func formatSubquery(q *Query) string {
+func formatSubquery(q *Query) (string, error) {
 	if err := validateQuery(q); err != nil {
-		panic(err.Error())
+		return "", errors.Trace(err)
 	}
 
-	return fmt.Sprintf("(%s)", q.listSQL)
+	return fmt.Sprintf("(%s)", q.listSQL), nil
 }
 
 func collectExpressionArgs(args ...any) []any {

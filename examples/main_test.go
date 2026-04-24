@@ -67,21 +67,21 @@ func TestPageUserOrderSmoke(t *testing.T) {
 	}
 }
 
-func TestBatchInsertDuplicateSmoke(t *testing.T) {
+func TestChunkedInsertDuplicateSmoke(t *testing.T) {
 	dbmap := newExampleDBMap(t)
 	ctx := context.Background()
 
 	users := createTestUsers(3)
-	if err := tsq.BatchInsert(ctx, dbmap, users); err != nil {
-		t.Fatalf("BatchInsert returned error: %v", err)
+	if err := tsq.ChunkedInsert(ctx, dbmap, users); err != nil {
+		t.Fatalf("ChunkedInsert returned error: %v", err)
 	}
 
 	duplicateUsers := createTestUsers(3)
-	if err := tsq.BatchInsert(ctx, dbmap, duplicateUsers, &tsq.BatchInsertOptions{
-		BatchSize:    2,
+	if err := tsq.ChunkedInsert(ctx, dbmap, duplicateUsers, &tsq.ChunkedInsertOptions{
+		ChunkSize:    2,
 		IgnoreErrors: true,
 	}); err != nil {
-		t.Fatalf("BatchInsert ignore duplicates returned error: %v", err)
+		t.Fatalf("ChunkedInsert ignore duplicates returned error: %v", err)
 	}
 
 	count, err := dbmap.SelectInt("SELECT COUNT(*) FROM user WHERE name LIKE 'demo_user_%'")

@@ -85,7 +85,7 @@ func TestQuery_SQLAccessors(t *testing.T) {
 
 func TestQueryBuilder_Build_EmptySelectFields(t *testing.T) {
 	qb := &QueryBuilder{
-		selectTables: make(map[string]Table),
+		spec: QuerySpec{},
 	}
 
 	_, err := qb.Build()
@@ -119,8 +119,9 @@ func TestQueryBuilder_Build_Success(t *testing.T) {
 	col := newMockColumn(table, "id")
 
 	qb := &QueryBuilder{
-		selectCols:   []Column{col},
-		selectTables: map[string]Table{"users": table},
+		spec: QuerySpec{
+			Selects: []Column{col},
+		},
 	}
 
 	query, err := qb.Build()
@@ -171,8 +172,9 @@ func TestQueryBuilder_MustBuild_Success(t *testing.T) {
 	col := newMockColumn(table, "id")
 
 	qb := &QueryBuilder{
-		selectCols:   []Column{col},
-		selectTables: map[string]Table{"users": table},
+		spec: QuerySpec{
+			Selects: []Column{col},
+		},
 	}
 
 	// Should not panic
@@ -183,15 +185,15 @@ func TestQueryBuilder_MustBuild_Success(t *testing.T) {
 	}
 }
 
-func TestDefaultBatchInsertOptions(t *testing.T) {
-	opts := DefaultBatchInsertOptions()
+func TestDefaultChunkedInsertOptions(t *testing.T) {
+	opts := DefaultChunkedInsertOptions()
 
 	if opts == nil {
 		t.Fatal("Expected non-nil options")
 	}
 
-	if opts.BatchSize != 1000 {
-		t.Errorf("Expected BatchSize 1000, got %d", opts.BatchSize)
+	if opts.ChunkSize != 1000 {
+		t.Errorf("Expected ChunkSize 1000, got %d", opts.ChunkSize)
 	}
 
 	if opts.IgnoreErrors != false {
@@ -199,27 +201,27 @@ func TestDefaultBatchInsertOptions(t *testing.T) {
 	}
 }
 
-func TestDefaultBatchOptions(t *testing.T) {
-	opts := DefaultBatchOptions()
+func TestDefaultChunkedOptions(t *testing.T) {
+	opts := DefaultChunkedOptions()
 
 	if opts == nil {
 		t.Fatal("expected non-nil options")
 	}
 
-	if opts.BatchSize != 1000 {
-		t.Fatalf("expected batch size 1000, got %d", opts.BatchSize)
+	if opts.ChunkSize != 1000 {
+		t.Fatalf("expected chunk size 1000, got %d", opts.ChunkSize)
 	}
 }
 
-func TestBatchInsertOptions_Modification(t *testing.T) {
-	opts := DefaultBatchInsertOptions()
+func TestChunkedInsertOptions_Modification(t *testing.T) {
+	opts := DefaultChunkedInsertOptions()
 
 	// Modify options
-	opts.BatchSize = 500
+	opts.ChunkSize = 500
 	opts.IgnoreErrors = true
 
-	if opts.BatchSize != 500 {
-		t.Errorf("Expected BatchSize 500, got %d", opts.BatchSize)
+	if opts.ChunkSize != 500 {
+		t.Errorf("Expected ChunkSize 500, got %d", opts.ChunkSize)
 	}
 
 	if opts.IgnoreErrors != true {
@@ -473,14 +475,14 @@ func TestQuery_buildPageSQLsRejectsExplicitOrderCountMismatch(t *testing.T) {
 	}
 }
 
-func TestNormalizeBatchInsertOptionsValidatesInputs(t *testing.T) {
-	if _, err := normalizeBatchInsertOptions(&BatchInsertOptions{BatchSize: 0}); err == nil {
-		t.Fatal("expected zero batch size to return an error")
+func TestNormalizeChunkedInsertOptionsValidatesInputs(t *testing.T) {
+	if _, err := normalizeChunkedInsertOptions(&ChunkedInsertOptions{ChunkSize: 0}); err == nil {
+		t.Fatal("expected zero chunk size to return an error")
 	}
 }
 
-func TestNormalizeBatchInsertOptionsRejectsMultipleValues(t *testing.T) {
-	_, err := normalizeBatchInsertOptions(&BatchInsertOptions{}, &BatchInsertOptions{})
+func TestNormalizeChunkedInsertOptionsRejectsMultipleValues(t *testing.T) {
+	_, err := normalizeChunkedInsertOptions(&ChunkedInsertOptions{}, &ChunkedInsertOptions{})
 	if err == nil {
 		t.Fatal("expected multiple option values to return an error")
 	}
@@ -490,14 +492,14 @@ func TestNormalizeBatchInsertOptionsRejectsMultipleValues(t *testing.T) {
 	}
 }
 
-func TestNormalizeBatchOptionsValidatesInputs(t *testing.T) {
-	if _, err := normalizeBatchOptions(&BatchOptions{BatchSize: 0}); err == nil {
-		t.Fatal("expected zero batch size to return an error")
+func TestNormalizeChunkedOptionsValidatesInputs(t *testing.T) {
+	if _, err := normalizeChunkedOptions(&ChunkedOptions{ChunkSize: 0}); err == nil {
+		t.Fatal("expected zero chunk size to return an error")
 	}
 }
 
-func TestNormalizeBatchOptionsRejectsMultipleValues(t *testing.T) {
-	_, err := normalizeBatchOptions(&BatchOptions{}, &BatchOptions{})
+func TestNormalizeChunkedOptionsRejectsMultipleValues(t *testing.T) {
+	_, err := normalizeChunkedOptions(&ChunkedOptions{}, &ChunkedOptions{})
 	if err == nil {
 		t.Fatal("expected multiple option values to return an error")
 	}
@@ -546,8 +548,8 @@ func TestRenderDeleteByIDsSQLForPostgres(t *testing.T) {
 	}
 }
 
-func TestBatchUpdateChunkRejectsNilItems(t *testing.T) {
-	err := batchUpdateChunk[int](nil, nil, []*int{nil})
+func TestChunkedUpdateChunkRejectsNilItems(t *testing.T) {
+	err := chunkedUpdateChunk[int](nil, nil, []*int{nil})
 	if err == nil {
 		t.Fatal("expected nil batch update item to return an error")
 	}
@@ -557,8 +559,8 @@ func TestBatchUpdateChunkRejectsNilItems(t *testing.T) {
 	}
 }
 
-func TestBatchDeleteChunkRejectsNilItems(t *testing.T) {
-	err := batchDeleteChunk[int](nil, nil, []*int{nil})
+func TestChunkedDeleteChunkRejectsNilItems(t *testing.T) {
+	err := chunkedDeleteChunk[int](nil, nil, []*int{nil})
 	if err == nil {
 		t.Fatal("expected nil batch delete item to return an error")
 	}
@@ -656,12 +658,12 @@ func TestDeleteRejectsNilItem(t *testing.T) {
 	}
 }
 
-func TestBatchInsertRejectsTypedNilExecutor(t *testing.T) {
+func TestChunkedInsertRejectsTypedNilExecutor(t *testing.T) {
 	var db *gorp.DbMap
 
 	row := mockTable{tableName: "users"}
 
-	err := BatchInsert(context.Background(), db, []*mockTable{&row})
+	err := ChunkedInsert(context.Background(), db, []*mockTable{&row})
 	if err == nil {
 		t.Fatal("expected typed-nil executor to return an error")
 	}
@@ -687,10 +689,10 @@ func TestQueryCountRejectsExecutorWithoutDialectForRenderedSQL(t *testing.T) {
 	}
 }
 
-func TestBatchDeleteByIDsRejectsExecutorWithoutDialectForRenderedSQL(t *testing.T) {
+func TestChunkedDeleteByIDsRejectsExecutorWithoutDialectForRenderedSQL(t *testing.T) {
 	db := newDBMapWithoutDialect(t)
 
-	err := BatchDeleteByIDs(context.Background(), db, "users", "id", []any{1})
+	err := ChunkedDeleteByIDs(context.Background(), db, "users", "id", []any{1})
 	if err == nil {
 		t.Fatal("expected executor without dialect to return an error")
 	}
@@ -740,10 +742,10 @@ func TestValidateExecutorForSQLIgnoresBindVarsInsideStringsCommentsAndDollarQuot
 	}
 }
 
-func TestBatchDeleteByIDsRejectsNilIDs(t *testing.T) {
+func TestChunkedDeleteByIDsRejectsNilIDs(t *testing.T) {
 	db := &gorp.DbMap{Dialect: gorp.SqliteDialect{}}
 
-	err := BatchDeleteByIDs(context.Background(), db, "users", "id", []any{1, nil})
+	err := ChunkedDeleteByIDs(context.Background(), db, "users", "id", []any{1, nil})
 	if err == nil {
 		t.Fatal("expected nil ids to return an error")
 	}

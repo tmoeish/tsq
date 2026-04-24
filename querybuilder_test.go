@@ -36,15 +36,16 @@ func TestSelect(t *testing.T) {
 		t.Fatal("Select() returned nil")
 	}
 
-	if len(qb.selectCols) != 2 {
-		t.Errorf("Expected 2 select columns, got %d", len(qb.selectCols))
+	if len(qb.spec.Selects) != 2 {
+		t.Errorf("Expected 2 select columns, got %d", len(qb.spec.Selects))
 	}
 
-	if len(qb.selectTables) != 1 {
-		t.Errorf("Expected 1 select table, got %d", len(qb.selectTables))
+	selectTables := qb.spec.selectTables()
+	if len(selectTables) != 1 {
+		t.Errorf("Expected 1 select table, got %d", len(selectTables))
 	}
 
-	if _, exists := qb.selectTables["users"]; !exists {
+	if _, exists := selectTables["users"]; !exists {
 		t.Error("Expected 'users' table to be in selectTables")
 	}
 }
@@ -83,11 +84,11 @@ func TestQueryBuilder_LeftJoin(t *testing.T) {
 
 	qb := Select(col1).LeftJoin(col1, col2)
 
-	if len(qb.joins) != 1 {
-		t.Errorf("Expected 1 join, got %d", len(qb.joins))
+	if len(qb.spec.Joins) != 1 {
+		t.Errorf("Expected 1 join, got %d", len(qb.spec.Joins))
 	}
 
-	join := qb.joins[0]
+	join := qb.spec.Joins[0]
 	if join.joinType != LeftJoinType {
 		t.Errorf("Expected LEFT JOIN, got %s", join.joinType)
 	}
@@ -101,8 +102,8 @@ func TestQueryBuilder_LeftJoin(t *testing.T) {
 	}
 
 	// Check that both tables are added to selectTables
-	if len(qb.selectTables) != 2 {
-		t.Errorf("Expected 2 tables in selectTables, got %d", len(qb.selectTables))
+	if len(qb.spec.pageQueryTables()) != 2 {
+		t.Errorf("Expected 2 tables in join graph, got %d", len(qb.spec.pageQueryTables()))
 	}
 }
 
@@ -114,12 +115,12 @@ func TestQueryBuilder_InnerJoin(t *testing.T) {
 
 	qb := Select(col1).InnerJoin(col1, col2)
 
-	if len(qb.joins) != 1 {
-		t.Errorf("Expected 1 join, got %d", len(qb.joins))
+	if len(qb.spec.Joins) != 1 {
+		t.Errorf("Expected 1 join, got %d", len(qb.spec.Joins))
 	}
 
-	if qb.joins[0].joinType != InnerJoinType {
-		t.Errorf("Expected INNER JOIN, got %s", qb.joins[0].joinType)
+	if qb.spec.Joins[0].joinType != InnerJoinType {
+		t.Errorf("Expected INNER JOIN, got %s", qb.spec.Joins[0].joinType)
 	}
 }
 
@@ -131,12 +132,12 @@ func TestQueryBuilder_RightJoin(t *testing.T) {
 
 	qb := Select(col1).RightJoin(col1, col2)
 
-	if len(qb.joins) != 1 {
-		t.Errorf("Expected 1 join, got %d", len(qb.joins))
+	if len(qb.spec.Joins) != 1 {
+		t.Errorf("Expected 1 join, got %d", len(qb.spec.Joins))
 	}
 
-	if qb.joins[0].joinType != RightJoinType {
-		t.Errorf("Expected RIGHT JOIN, got %s", qb.joins[0].joinType)
+	if qb.spec.Joins[0].joinType != RightJoinType {
+		t.Errorf("Expected RIGHT JOIN, got %s", qb.spec.Joins[0].joinType)
 	}
 }
 
@@ -148,12 +149,12 @@ func TestQueryBuilder_FullJoin(t *testing.T) {
 
 	qb := Select(col1).FullJoin(col1, col2)
 
-	if len(qb.joins) != 1 {
-		t.Errorf("Expected 1 join, got %d", len(qb.joins))
+	if len(qb.spec.Joins) != 1 {
+		t.Errorf("Expected 1 join, got %d", len(qb.spec.Joins))
 	}
 
-	if qb.joins[0].joinType != FullJoinType {
-		t.Errorf("Expected FULL JOIN, got %s", qb.joins[0].joinType)
+	if qb.spec.Joins[0].joinType != FullJoinType {
+		t.Errorf("Expected FULL JOIN, got %s", qb.spec.Joins[0].joinType)
 	}
 }
 
@@ -164,11 +165,11 @@ func TestQueryBuilder_CrossJoin(t *testing.T) {
 
 	qb := Select(col1).CrossJoin(table2)
 
-	if len(qb.joins) != 1 {
-		t.Errorf("Expected 1 join, got %d", len(qb.joins))
+	if len(qb.spec.Joins) != 1 {
+		t.Errorf("Expected 1 join, got %d", len(qb.spec.Joins))
 	}
 
-	join := qb.joins[0]
+	join := qb.spec.Joins[0]
 	if join.joinType != CrossJoinType {
 		t.Errorf("Expected CROSS JOIN, got %s", join.joinType)
 	}
@@ -185,16 +186,16 @@ func TestQueryBuilder_GroupBy(t *testing.T) {
 
 	qb := Select(col1).GroupBy(col1, col2)
 
-	if len(qb.groupByCols) != 2 {
-		t.Errorf("Expected 2 GROUP BY columns, got %d", len(qb.groupByCols))
+	if len(qb.spec.GroupBy) != 2 {
+		t.Errorf("Expected 2 GROUP BY columns, got %d", len(qb.spec.GroupBy))
 	}
 
-	if qb.groupByCols[0].Name() != "department" {
-		t.Errorf("Expected first GROUP BY column 'department', got '%s'", qb.groupByCols[0].Name())
+	if qb.spec.GroupBy[0].Name() != "department" {
+		t.Errorf("Expected first GROUP BY column 'department', got '%s'", qb.spec.GroupBy[0].Name())
 	}
 
-	if qb.groupByCols[1].Name() != "status" {
-		t.Errorf("Expected second GROUP BY column 'status', got '%s'", qb.groupByCols[1].Name())
+	if qb.spec.GroupBy[1].Name() != "status" {
+		t.Errorf("Expected second GROUP BY column 'status', got '%s'", qb.spec.GroupBy[1].Name())
 	}
 }
 
@@ -210,8 +211,8 @@ func TestQueryBuilder_Having(t *testing.T) {
 
 	qb := Select(col1).Having(mockCond)
 
-	if len(qb.havingConditions) != 1 {
-		t.Errorf("Expected 1 HAVING condition, got %d", len(qb.havingConditions))
+	if len(qb.spec.Having) != 1 {
+		t.Errorf("Expected 1 HAVING condition, got %d", len(qb.spec.Having))
 	}
 }
 
@@ -241,16 +242,16 @@ func TestQueryBuilder_Where(t *testing.T) {
 
 	qb := Select(col1).Where(mockCond)
 
-	if len(qb.conditions) != 1 {
-		t.Errorf("Expected 1 WHERE condition, got %d", len(qb.conditions))
+	if len(qb.spec.Filters) != 1 {
+		t.Errorf("Expected 1 WHERE condition, got %d", len(qb.spec.Filters))
 	}
 
-	if len(qb.conditionClauses) != 1 {
-		t.Errorf("Expected 1 condition clause, got %d", len(qb.conditionClauses))
+	if len(qb.spec.Filters) != 1 {
+		t.Errorf("Expected 1 condition clause, got %d", len(qb.spec.Filters))
 	}
 
-	if qb.conditionClauses[0] != "`users`.`id` = 1" {
-		t.Errorf("Expected condition clause '`users`.`id` = 1', got '%s'", qb.conditionClauses[0])
+	if conditionClause(qb.spec.Filters[0]) != "`users`.`id` = 1" {
+		t.Errorf("Expected condition clause '`users`.`id` = 1', got '%s'", conditionClause(qb.spec.Filters[0]))
 	}
 }
 
@@ -286,12 +287,12 @@ func TestQueryBuilder_And(t *testing.T) {
 
 	qb := Select(col1).Where(mockCond1).And(mockCond2)
 
-	if len(qb.conditions) != 2 {
-		t.Errorf("Expected 2 conditions, got %d", len(qb.conditions))
+	if len(qb.spec.Filters) != 2 {
+		t.Errorf("Expected 2 conditions, got %d", len(qb.spec.Filters))
 	}
 
-	if len(qb.conditionClauses) != 2 {
-		t.Errorf("Expected 2 condition clauses, got %d", len(qb.conditionClauses))
+	if len(qb.spec.Filters) != 2 {
+		t.Errorf("Expected 2 condition clauses, got %d", len(qb.spec.Filters))
 	}
 }
 
@@ -311,14 +312,14 @@ func TestQueryBuilder_AndIf(t *testing.T) {
 
 	// Test with true condition
 	qb1 := Select(col1).Where(mockCond1).AndIf(true, mockCond2)
-	if len(qb1.conditions) != 2 {
-		t.Errorf("Expected 2 conditions when condition is true, got %d", len(qb1.conditions))
+	if len(qb1.spec.Filters) != 2 {
+		t.Errorf("Expected 2 conditions when condition is true, got %d", len(qb1.spec.Filters))
 	}
 
 	// Test with false condition
 	qb2 := Select(col1).Where(mockCond1).AndIf(false, mockCond2)
-	if len(qb2.conditions) != 1 {
-		t.Errorf("Expected 1 condition when condition is false, got %d", len(qb2.conditions))
+	if len(qb2.spec.Filters) != 1 {
+		t.Errorf("Expected 1 condition when condition is false, got %d", len(qb2.spec.Filters))
 	}
 }
 
@@ -329,15 +330,16 @@ func TestQueryBuilder_KwSearch(t *testing.T) {
 
 	qb := Select(col1).KwSearch(col1, col2)
 
-	if len(qb.kwCols) != 2 {
-		t.Errorf("Expected 2 keyword search columns, got %d", len(qb.kwCols))
+	if len(qb.spec.KeywordSearch) != 2 {
+		t.Errorf("Expected 2 keyword search columns, got %d", len(qb.spec.KeywordSearch))
 	}
 
-	if len(qb.kwTables) != 1 {
-		t.Errorf("Expected 1 keyword search table, got %d", len(qb.kwTables))
+	kwTables := qb.spec.keywordTables()
+	if len(kwTables) != 1 {
+		t.Errorf("Expected 1 keyword search table, got %d", len(kwTables))
 	}
 
-	if _, exists := qb.kwTables["users"]; !exists {
+	if _, exists := kwTables["users"]; !exists {
 		t.Error("Expected 'users' table to be in kwTables")
 	}
 }
@@ -383,33 +385,32 @@ func TestQueryBuilder_ChainedOperations(t *testing.T) {
 		KwSearch(col2)
 
 	// Verify all operations were applied
-	if len(qb.selectCols) != 2 {
-		t.Errorf("Expected 2 select columns, got %d", len(qb.selectCols))
+	if len(qb.spec.Selects) != 2 {
+		t.Errorf("Expected 2 select columns, got %d", len(qb.spec.Selects))
 	}
 
-	if len(qb.joins) != 1 {
-		t.Errorf("Expected 1 join, got %d", len(qb.joins))
+	if len(qb.spec.Joins) != 1 {
+		t.Errorf("Expected 1 join, got %d", len(qb.spec.Joins))
 	}
 
-	if len(qb.conditions) != 1 {
-		t.Errorf("Expected 1 WHERE condition, got %d", len(qb.conditions))
+	if len(qb.spec.Filters) != 1 {
+		t.Errorf("Expected 1 WHERE condition, got %d", len(qb.spec.Filters))
 	}
 
-	if len(qb.groupByCols) != 1 {
-		t.Errorf("Expected 1 GROUP BY column, got %d", len(qb.groupByCols))
+	if len(qb.spec.GroupBy) != 1 {
+		t.Errorf("Expected 1 GROUP BY column, got %d", len(qb.spec.GroupBy))
 	}
 
-	if len(qb.havingConditions) != 1 {
-		t.Errorf("Expected 1 HAVING condition, got %d", len(qb.havingConditions))
+	if len(qb.spec.Having) != 1 {
+		t.Errorf("Expected 1 HAVING condition, got %d", len(qb.spec.Having))
 	}
 
-	if len(qb.kwCols) != 1 {
-		t.Errorf("Expected 1 keyword search column, got %d", len(qb.kwCols))
+	if len(qb.spec.KeywordSearch) != 1 {
+		t.Errorf("Expected 1 keyword search column, got %d", len(qb.spec.KeywordSearch))
 	}
 
-	// Verify tables are properly tracked
-	if len(qb.selectTables) != 2 {
-		t.Errorf("Expected 2 tables in selectTables, got %d", len(qb.selectTables))
+	if len(qb.spec.pageQueryTables()) != 2 {
+		t.Errorf("Expected 2 tables in planned query, got %d", len(qb.spec.pageQueryTables()))
 	}
 }
 
@@ -635,16 +636,16 @@ func TestQueryBuilder_MethodsInitializeZeroValueBuilder(t *testing.T) {
 		t.Fatal("expected zero-value builder methods to reuse the same builder")
 	}
 
-	if len(qb.groupByCols) != 1 {
-		t.Fatalf("expected group by column to be recorded, got %d", len(qb.groupByCols))
+	if len(qb.spec.GroupBy) != 1 {
+		t.Fatalf("expected group by column to be recorded, got %d", len(qb.spec.GroupBy))
 	}
 
-	if len(qb.conditionClauses) != 1 {
-		t.Fatalf("expected where clause to be recorded, got %d", len(qb.conditionClauses))
+	if len(qb.spec.Filters) != 1 {
+		t.Fatalf("expected where clause to be recorded, got %d", len(qb.spec.Filters))
 	}
 
-	if len(qb.kwCols) != 1 {
-		t.Fatalf("expected keyword search column to be recorded, got %d", len(qb.kwCols))
+	if len(qb.spec.KeywordSearch) != 1 {
+		t.Fatalf("expected keyword search column to be recorded, got %d", len(qb.spec.KeywordSearch))
 	}
 }
 

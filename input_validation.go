@@ -7,6 +7,10 @@ import (
 	"github.com/juju/errors"
 )
 
+type buildErrorCarrier interface {
+	buildError() error
+}
+
 func isNilValue(v any) bool {
 	if v == nil {
 		return true
@@ -26,6 +30,10 @@ func validateColumnInput(col Column) (Table, error) {
 		return nil, errors.New("column cannot be nil")
 	}
 
+	if carrier, ok := col.(buildErrorCarrier); ok && carrier.buildError() != nil {
+		return nil, errors.Trace(carrier.buildError())
+	}
+
 	table := col.Table()
 	if isNilValue(table) {
 		if name := strings.TrimSpace(col.Name()); name != "" {
@@ -41,6 +49,10 @@ func validateColumnInput(col Column) (Table, error) {
 func validateConditionInput(cond Condition) (string, map[string]Table, []any, error) {
 	if isNilValue(cond) {
 		return "", nil, nil, errors.New("condition cannot be nil")
+	}
+
+	if carrier, ok := cond.(buildErrorCarrier); ok && carrier.buildError() != nil {
+		return "", nil, nil, errors.Trace(carrier.buildError())
 	}
 
 	clause := strings.TrimSpace(conditionClause(cond))

@@ -15,10 +15,18 @@ import (
 // 表注册和管理
 // ================================================
 
-var (
-	tablesMu sync.RWMutex
-	tables   = make(map[string]*RegisteredTable)
-)
+type Registry struct {
+	mu     sync.RWMutex
+	tables map[string]*RegisteredTable
+}
+
+func NewRegistry() *Registry {
+	return &Registry{
+		tables: make(map[string]*RegisteredTable),
+	}
+}
+
+var defaultRegistry = NewRegistry()
 
 type InitOptions struct {
 	AutoCreateTables bool
@@ -28,6 +36,14 @@ type InitOptions struct {
 
 // RegisterTable registers a table in the global registry
 func RegisterTable(
+	table Table,
+	addTableFunc func(db *gorp.DbMap),
+	initFunc func(db *gorp.DbMap) error,
+) {
+	defaultRegistry.Register(table, addTableFunc, initFunc)
+}
+
+func (r *Registry) Register(
 	table Table,
 	addTableFunc func(db *gorp.DbMap),
 	initFunc func(db *gorp.DbMap) error,
@@ -44,15 +60,15 @@ func RegisterTable(
 		panic("init function cannot be nil")
 	}
 
-	tablesMu.Lock()
-	defer tablesMu.Unlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
 	key := registeredTableKey(table)
-	if _, exists := tables[key]; exists {
+	if _, exists := r.tables[key]; exists {
 		panic(fmt.Sprintf("table %s is already registered", key))
 	}
 
-	tables[key] = &RegisteredTable{
+	r.tables[key] = &RegisteredTable{
 		Table:        table,
 		AddTableFunc: addTableFunc,
 		InitFunc:     initFunc,
@@ -110,11 +126,11 @@ func InitWithOptions(db *gorp.DbMap, options *InitOptions) error {
 		options = &InitOptions{}
 	}
 
-	rollbackTracers := snapshotTracers()
+	rollbackTracers := defaultTraceManager.snapshot()
 
-	appendUniqueGlobalTracers(options.Tracers...)
+	defaultTraceManager.AddUnique(options.Tracers...)
 
-	registeredTables := snapshotRegisteredTables()
+	registeredTables := defaultRegistry.Snapshot()
 
 	// Configure tables in gorp
 	for _, table := range registeredTables {
@@ -123,7 +139,7 @@ func InitWithOptions(db *gorp.DbMap, options *InitOptions) error {
 
 	if options.AutoCreateTables {
 		if err := db.CreateTablesIfNotExists(); err != nil {
-			restoreTracers(rollbackTracers)
+			defaultTraceManager.restore(rollbackTracers)
 			return errors.Annotate(err, "failed to create tables")
 		}
 	}
@@ -131,7 +147,7 @@ func InitWithOptions(db *gorp.DbMap, options *InitOptions) error {
 	if options.UpsertIndexes {
 		for _, table := range registeredTables {
 			if err := table.InitFunc(db); err != nil {
-				restoreTracers(rollbackTracers)
+				defaultTraceManager.restore(rollbackTracers)
 
 				return errors.Annotatef(err,
 					"failed to initialize table %s", table.Table.Table(),
@@ -156,11 +172,15 @@ func registeredTableKey(table Table) string {
 }
 
 func snapshotRegisteredTables() []*RegisteredTable {
-	tablesMu.RLock()
-	defer tablesMu.RUnlock()
+	return defaultRegistry.Snapshot()
+}
 
-	names := make([]string, 0, len(tables))
-	for name := range tables {
+func (r *Registry) Snapshot() []*RegisteredTable {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	names := make([]string, 0, len(r.tables))
+	for name := range r.tables {
 		names = append(names, name)
 	}
 
@@ -168,7 +188,7 @@ func snapshotRegisteredTables() []*RegisteredTable {
 
 	result := make([]*RegisteredTable, 0, len(names))
 	for _, name := range names {
-		result = append(result, tables[name])
+		result = append(result, r.tables[name])
 	}
 
 	return result

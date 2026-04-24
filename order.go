@@ -20,18 +20,19 @@ const (
 type OrderBy struct {
 	field Column // The column to order by
 	order Order  // The sort direction (ASC/DESC)
+	err   error
 }
 
 // Expr returns the SQL expression for this ORDER BY clause
 func (ob OrderBy) Expr() string {
 	if _, err := validateColumnInput(ob.field); err != nil {
-		panic(err.Error())
+		return ""
 	}
 
 	switch ob.order {
 	case ASC, DESC:
 	default:
-		panic("order must be ASC or DESC")
+		return ""
 	}
 
 	return ob.field.QualifiedName() + " " + string(ob.order)
@@ -89,6 +90,6 @@ func ReverseOrder(order Order) Order {
 	case DESC:
 		return ASC
 	default:
-		panic("order must be ASC or DESC")
+		return ""
 	}
 }

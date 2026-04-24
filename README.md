@@ -252,14 +252,14 @@ pageReq := &tsq.PageReq{
 resp, err := database.PageUserOrder(ctx, dbmap, pageReq, 1, "图书", "视频", "杂志")
 ```
 
-### 6. 批量操作
+### 6. 分块写入
 
 ```go
 users := []*database.User{
     {OrgID: 1, Name: "张三", Email: "zhangsan@example.com"},
     {OrgID: 1, Name: "李四", Email: "lisi@example.com"},
 }
-err := tsq.BatchInsert(ctx, dbmap, users)
+err := tsq.ChunkedInsert(ctx, dbmap, users)
 ```
 
 ### 7. mock 数据初始化

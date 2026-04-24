@@ -45,13 +45,9 @@ func TestCol_FnRejectsInvalidFormat(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			defer func() {
-				if r := recover(); r == nil {
-					t.Fatal("expected Fn to panic for invalid format")
-				}
-			}()
-
-			_ = col.Fn(tt.format)
+			if _, err := validateColumnInput(col.Fn(tt.format)); err == nil {
+				t.Fatal("expected Fn to return a build error for invalid format")
+			}
 		})
 	}
 }
@@ -70,26 +66,18 @@ func TestCol_Fn0RejectsEmptyExpression(t *testing.T) {
 	table := newMockTable("users")
 	col := NewCol[string](table, "name", "name", nil)
 
-	defer func() {
-		if r := recover(); r == nil {
-			t.Fatal("expected Fn0 to panic for empty expression")
-		}
-	}()
-
-	_ = col.Fn0("   ")
+	if _, err := validateColumnInput(col.Fn0("   ")); err == nil {
+		t.Fatal("expected Fn0 to return a build error for empty expression")
+	}
 }
 
 func TestCol_Fn0RejectsPlaceholders(t *testing.T) {
 	table := newMockTable("users")
 	col := NewCol[string](table, "name", "name", nil)
 
-	defer func() {
-		if r := recover(); r == nil {
-			t.Fatal("expected Fn0 to panic when placeholders are present")
-		}
-	}()
-
-	_ = col.Fn0("COALESCE(%s, 1)")
+	if _, err := validateColumnInput(col.Fn0("COALESCE(%s, 1)")); err == nil {
+		t.Fatal("expected Fn0 to return a build error when placeholders are present")
+	}
 }
 
 func TestCol_Count(t *testing.T) {
@@ -228,13 +216,9 @@ func TestCol_Concat(t *testing.T) {
 	table := newMockTable("users")
 	col := NewCol[string](table, "first_name", "first_name", nil)
 
-	defer func() {
-		if r := recover(); r == nil {
-			t.Fatal("expected Concat to panic for non-portable SQL")
-		}
-	}()
-
-	_ = col.Concat(" Smith")
+	if _, err := validateColumnInput(col.Concat(" Smith")); err == nil {
+		t.Fatal("expected Concat to return a build error for non-portable SQL")
+	}
 }
 
 func TestCol_Now(t *testing.T) {
@@ -323,13 +307,9 @@ func TestCol_RoundRejectsNegativePrecision(t *testing.T) {
 	table := newMockTable("products")
 	col := NewCol[float64](table, "price", "price", nil)
 
-	defer func() {
-		if r := recover(); r == nil {
-			t.Fatal("expected Round to panic for negative precision")
-		}
-	}()
-
-	_ = col.Round(-2)
+	if _, err := validateColumnInput(col.Round(-2)); err == nil {
+		t.Fatal("expected Round to return a build error for negative precision")
+	}
 }
 
 func TestCol_Ceil(t *testing.T) {
