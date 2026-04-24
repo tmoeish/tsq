@@ -13,7 +13,7 @@ func TestFieldToColReturnsUnquotedIdentifier(t *testing.T) {
 		},
 	}
 
-	if got := FieldToCol(info, "Name"); got != `"name"` {
+	if got := fieldToCol(info, "Name"); got != `"name"` {
 		t.Fatalf("expected raw quoted Go string literal, got %q", got)
 	}
 }
@@ -26,7 +26,7 @@ func TestFieldsToColsReturnsCommaSeparatedIdentifiers(t *testing.T) {
 		},
 	}
 
-	if got := FieldsToCols(info, []string{"DT", "Name"}); got != `"dt", "name"` {
+	if got := fieldsToCols(info, []string{"DT", "Name"}); got != `"dt", "name"` {
 		t.Fatalf("unexpected columns string: %q", got)
 	}
 }
@@ -55,7 +55,7 @@ func TestValidateManagedFieldsSupportsPointerAndNullTypes(t *testing.T) {
 		},
 	}
 
-	if err := ValidateManagedFields(info); err != nil {
+	if err := validateManagedFields(info); err != nil {
 		t.Fatalf("expected managed field validation to pass, got %v", err)
 	}
 }
@@ -73,7 +73,7 @@ func TestValidateManagedFieldsRejectsUnsupportedSoftDeleteType(t *testing.T) {
 		},
 	}
 
-	if err := ValidateManagedFields(info); err == nil {
+	if err := validateManagedFields(info); err == nil {
 		t.Fatal("expected plain time.Time soft delete field to be rejected")
 	}
 }
@@ -91,7 +91,7 @@ func TestValidateManagedFieldsRejectsNarrowIntegerSoftDeleteType(t *testing.T) {
 		},
 	}
 
-	if err := ValidateManagedFields(info); err == nil {
+	if err := validateManagedFields(info); err == nil {
 		t.Fatal("expected narrow integer soft delete field to be rejected")
 	}
 }
@@ -119,7 +119,7 @@ func TestValidateManagedFieldsRejectsNullableSoftDeleteUniqueIndexes(t *testing.
 		},
 	}
 
-	if err := ValidateManagedFields(info); err == nil {
+	if err := validateManagedFields(info); err == nil {
 		t.Fatal("expected nullable soft-delete field with unique indexes to be rejected")
 	}
 }
@@ -143,7 +143,7 @@ func TestValidateManagedFieldsAllowsIntegerSoftDeleteUniqueIndexes(t *testing.T)
 		},
 	}
 
-	if err := ValidateManagedFields(info); err != nil {
+	if err := validateManagedFields(info); err != nil {
 		t.Fatalf("expected integer soft-delete field with unique indexes to pass, got %v", err)
 	}
 }
@@ -258,11 +258,11 @@ func TestTimestampNowValueUsesGeneratedAliases(t *testing.T) {
 		},
 	}
 
-	if got := TimestampNowValue(sqlField); got != "tsqsql.NullTime{Time: tsqtime.Now(), Valid: true}" {
+	if got := timestampNowValue(sqlField); got != "tsqsql.NullTime{Time: tsqtime.Now(), Valid: true}" {
 		t.Fatalf("unexpected sql null time expression: %q", got)
 	}
 
-	if got := TimestampNowValue(timePtrField); got != "tsq.TimePtr(tsqtime.Now())" {
+	if got := timestampNowValue(timePtrField); got != "tsq.TimePtr(tsqtime.Now())" {
 		t.Fatalf("unexpected time pointer expression: %q", got)
 	}
 }

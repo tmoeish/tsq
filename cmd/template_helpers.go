@@ -35,18 +35,18 @@ func TemplateFuncs() template.FuncMap {
 		"PageRespType":             pageRespType,
 		"JoinAnd":                  joinAnd,
 		"Sub1":                     sub1,
-		"FieldToCol":               FieldToCol,
-		"FieldsToCols":             FieldsToCols,
-		"HasImport":                HasImport,
-		"NeedsGeneratedTimeImport": NeedsGeneratedTimeImport,
-		"GeneratedSQLRef":          GeneratedSQLRef,
-		"GeneratedTimeRef":         GeneratedTimeRef,
-		"TimestampNowValue":        TimestampNowValue,
-		"SoftDeleteParamType":      SoftDeleteParamType,
-		"SoftDeleteParamSetExpr":   SoftDeleteParamSetExpr,
-		"SoftDeleteNowValue":       SoftDeleteNowValue,
-		"SoftDeleteActiveExpr":     SoftDeleteActiveExpr,
-		"SoftDeleteActiveCond":     SoftDeleteActiveCond,
+		"FieldToCol":               fieldToCol,
+		"FieldsToCols":             fieldsToCols,
+		"HasImport":                hasImport,
+		"NeedsGeneratedTimeImport": needsGeneratedTimeImport,
+		"GeneratedSQLRef":          generatedSQLRef,
+		"GeneratedTimeRef":         generatedTimeRef,
+		"TimestampNowValue":        timestampNowValue,
+		"SoftDeleteParamType":      softDeleteParamType,
+		"SoftDeleteParamSetExpr":   softDeleteParamSetExpr,
+		"SoftDeleteNowValue":       softDeleteNowValue,
+		"SoftDeleteActiveExpr":     softDeleteActiveExpr,
+		"SoftDeleteActiveCond":     softDeleteActiveCond,
 	}
 }
 
@@ -181,20 +181,20 @@ func sub1(n int) int {
 	return n - 1
 }
 
-func FieldToCol(data *tsq.StructInfo, field string) string {
+func fieldToCol(data *tsq.StructInfo, field string) string {
 	return fmt.Sprintf("%q", data.FieldMap[field].Column)
 }
 
-func FieldsToCols(data *tsq.StructInfo, fields []string) string {
+func fieldsToCols(data *tsq.StructInfo, fields []string) string {
 	cols := make([]string, len(fields))
 	for i, field := range fields {
-		cols[i] = FieldToCol(data, field)
+		cols[i] = fieldToCol(data, field)
 	}
 
 	return strings.Join(cols, ", ")
 }
 
-func HasImport(data *tsq.StructInfo, importPath string) bool {
+func hasImport(data *tsq.StructInfo, importPath string) bool {
 	if data == nil {
 		return false
 	}
@@ -204,19 +204,19 @@ func HasImport(data *tsq.StructInfo, importPath string) bool {
 	return ok
 }
 
-func NeedsGeneratedTimeImport(data *tsq.StructInfo) bool {
+func needsGeneratedTimeImport(data *tsq.StructInfo) bool {
 	if data == nil {
 		return false
 	}
 
-	return HasImport(data, importPathTime) || data.CT != "" || data.MT != "" || data.DT != ""
+	return hasImport(data, importPathTime) || data.CT != "" || data.MT != "" || data.DT != ""
 }
 
-func GeneratedSQLRef(name string) string {
+func generatedSQLRef(name string) string {
 	return generatedSQLAlias + "." + name
 }
 
-func GeneratedTimeRef(name string) string {
+func generatedTimeRef(name string) string {
 	return generatedTimeAlias + "." + name
 }
 
@@ -284,7 +284,7 @@ func validateSoftDeleteField(field tsq.FieldInfo) error {
 	)
 }
 
-func ValidateManagedFields(data *tsq.StructInfo) error {
+func validateManagedFields(data *tsq.StructInfo) error {
 	if data == nil || data.TableInfo == nil || data.IsDTO {
 		return nil
 	}
@@ -334,26 +334,26 @@ func ValidateManagedFields(data *tsq.StructInfo) error {
 	return nil
 }
 
-func TimestampNowValue(field tsq.FieldInfo) string {
+func timestampNowValue(field tsq.FieldInfo) string {
 	switch managedTimestampKind(field) {
 	case "time":
-		return GeneratedTimeRef("Now()")
+		return generatedTimeRef("Now()")
 	case "time_ptr":
-		return fmt.Sprintf("tsq.TimePtr(%s)", GeneratedTimeRef("Now()"))
+		return fmt.Sprintf("tsq.TimePtr(%s)", generatedTimeRef("Now()"))
 	case "sql_null_time":
-		return fmt.Sprintf("%s.NullTime{Time: %s, Valid: true}", generatedSQLAlias, GeneratedTimeRef("Now()"))
+		return fmt.Sprintf("%s.NullTime{Time: %s, Valid: true}", generatedSQLAlias, generatedTimeRef("Now()"))
 	case "null_time":
-		return fmt.Sprintf("%s.TimeFrom(%s)", field.Type.Package.Name, GeneratedTimeRef("Now()"))
+		return fmt.Sprintf("%s.TimeFrom(%s)", field.Type.Package.Name, generatedTimeRef("Now()"))
 	default:
 		panic(fmt.Sprintf("unsupported timestamp field type: %s", fieldType(field)))
 	}
 }
 
-func SoftDeleteParamType(field tsq.FieldInfo) string {
+func softDeleteParamType(field tsq.FieldInfo) string {
 	return fieldType(field)
 }
 
-func SoftDeleteParamSetExpr(param string, field tsq.FieldInfo) string {
+func softDeleteParamSetExpr(param string, field tsq.FieldInfo) string {
 	switch softDeleteKind(field) {
 	case "integer":
 		return param + " != 0"
@@ -366,26 +366,26 @@ func SoftDeleteParamSetExpr(param string, field tsq.FieldInfo) string {
 	}
 }
 
-func SoftDeleteNowValue(field tsq.FieldInfo) string {
+func softDeleteNowValue(field tsq.FieldInfo) string {
 	switch softDeleteKind(field) {
 	case "integer":
 		if field.Type.TypeName == "uint64" {
-			return fmt.Sprintf("uint64(%s)", GeneratedTimeRef("Now().UnixNano()"))
+			return fmt.Sprintf("uint64(%s)", generatedTimeRef("Now().UnixNano()"))
 		}
 
-		return GeneratedTimeRef("Now().UnixNano()")
+		return generatedTimeRef("Now().UnixNano()")
 	case "time_ptr":
-		return fmt.Sprintf("tsq.TimePtr(%s)", GeneratedTimeRef("Now()"))
+		return fmt.Sprintf("tsq.TimePtr(%s)", generatedTimeRef("Now()"))
 	case "sql_null_time":
-		return fmt.Sprintf("%s.NullTime{Time: %s, Valid: true}", generatedSQLAlias, GeneratedTimeRef("Now()"))
+		return fmt.Sprintf("%s.NullTime{Time: %s, Valid: true}", generatedSQLAlias, generatedTimeRef("Now()"))
 	case "null_time":
-		return fmt.Sprintf("%s.TimeFrom(%s)", field.Type.Package.Name, GeneratedTimeRef("Now()"))
+		return fmt.Sprintf("%s.TimeFrom(%s)", field.Type.Package.Name, generatedTimeRef("Now()"))
 	default:
 		panic(fmt.Sprintf("unsupported dt field type: %s", fieldType(field)))
 	}
 }
 
-func SoftDeleteActiveExpr(recv, fieldName string, field tsq.FieldInfo) string {
+func softDeleteActiveExpr(recv, fieldName string, field tsq.FieldInfo) string {
 	target := fmt.Sprintf("%s.%s", recv, fieldName)
 
 	switch softDeleteKind(field) {
@@ -400,7 +400,7 @@ func SoftDeleteActiveExpr(recv, fieldName string, field tsq.FieldInfo) string {
 	}
 }
 
-func SoftDeleteActiveCond(typeName, fieldName string, field tsq.FieldInfo) string {
+func softDeleteActiveCond(typeName, fieldName string, field tsq.FieldInfo) string {
 	col := fmt.Sprintf("%s_%s", typeName, fieldName)
 
 	switch softDeleteKind(field) {

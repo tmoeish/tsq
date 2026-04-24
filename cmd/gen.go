@@ -66,7 +66,7 @@ var GenCmd = &cobra.Command{
 		}
 
 		for i := range list {
-			list[i].SetTSQVersion(tsq.Version)
+			list[i].SetTSQVersion(stableVersion(tsq.Version))
 		}
 
 		tpl, err := template.New("tsq.go.tmpl").Funcs(TemplateFuncs()).Parse(tableTpl)
@@ -107,24 +107,6 @@ func resolveTemplateText(overridePath string, fallback string, label string) (st
 	return string(tplBytes), nil
 }
 
-func gen(data *tsq.StructInfo, t *template.Template, dir string) error {
-	return renderGenerationModel(generationModel{
-		Data:       data,
-		Template:   t,
-		Filename:   filepath.Join(dir, generatedFilename(data)),
-		ErrorLabel: "template rendering failed",
-	})
-}
-
-func genDTO(data *tsq.StructInfo, t *template.Template, dir string) error {
-	return renderGenerationModel(generationModel{
-		Data:       data,
-		Template:   t,
-		Filename:   filepath.Join(dir, generatedFilename(data)),
-		ErrorLabel: "DTO template rendering failed",
-	})
-}
-
 func validateStructForGeneration(
 	data *tsq.StructInfo,
 	structsByName map[string]*tsq.StructInfo,
@@ -149,7 +131,7 @@ func validateStructForGeneration(
 		return errors.Trace(err)
 	}
 
-	return errors.Trace(ValidateManagedFields(data))
+	return errors.Trace(validateManagedFields(data))
 }
 
 func validateDTOFields(
@@ -560,4 +542,70 @@ func ensureWritableGeneratedFile(filename string) error {
 	}
 
 	return errors.Errorf("refusing to overwrite non-generated file: %s", filename)
+}
+
+// stableVersion returns a version string suitable for embedding in generated
+// file headers.  It strips the git-describe suffixes (-N-gHASH and -dirty)
+// so that regenerating the same source at different commits always produces an
+// identical header, allowing the CI "ensure generated examples are committed"
+// check to pass.
+//
+// Examples:
+//
+//	"v1.2.0-10-ga3683ff-dirty" → "v1.2.0"
+//	"v1.2.0-dirty"             → "v1.2.0"
+//	"v1.2.0-10-ga3683ff"       → "v1.2.0"
+//	"v1.2.0"                   → "v1.2.0"
+//	"v1.2.0-beta.1"            → "v1.2.0-beta.1"  (pre-release: no git suffix)
+//	"dev"                      → "dev"
+func stableVersion(v string) string {
+	// Strip -dirty suffix.
+	v = strings.TrimSuffix(v, "-dirty")
+
+	// Strip -N-gHASH suffix produced by `git describe --long`.
+	// The pattern is: dash, one-or-more digits, dash, 'g', hex digits, end.
+	for {
+		dashIdx := strings.LastIndex(v, "-")
+		if dashIdx < 0 {
+			break
+		}
+
+		suffix := v[dashIdx+1:]
+
+		// Matches "g<hexchars>" (git abbreviated hash)
+		if len(suffix) > 1 && suffix[0] == 'g' {
+			allHex := true
+
+			for _, c := range suffix[1:] {
+				if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+					allHex = false
+					break
+				}
+			}
+
+			if allHex {
+				v = v[:dashIdx]
+				continue
+			}
+		}
+
+		// Matches all-digit segment (commit count between tag and hash)
+		allDigit := true
+
+		for _, c := range suffix {
+			if c < '0' || c > '9' {
+				allDigit = false
+				break
+			}
+		}
+
+		if allDigit {
+			v = v[:dashIdx]
+			continue
+		}
+
+		break
+	}
+
+	return v
 }

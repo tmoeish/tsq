@@ -71,6 +71,7 @@ func (spec QuerySpec) conditionTables() map[string]Table {
 
 func (spec QuerySpec) joinTables() map[string]Table {
 	tables := make(map[string]Table, len(spec.Joins)*2)
+
 	for _, item := range spec.Joins {
 		if item.joinType == CrossJoinType {
 			if !isNilValue(item.table) {
@@ -101,12 +102,15 @@ func (spec QuerySpec) listQueryTables() map[string]Table {
 	for name, table := range spec.conditionTables() {
 		tables[name] = table
 	}
+
 	for name, table := range spec.joinTables() {
 		tables[name] = table
 	}
+
 	for name, table := range spec.tablesForColumns(spec.GroupBy) {
 		tables[name] = table
 	}
+
 	for name, table := range spec.tablesForConditions(spec.Having) {
 		tables[name] = table
 	}
@@ -125,6 +129,7 @@ func (spec QuerySpec) pageQueryTables() map[string]Table {
 
 func (spec QuerySpec) tablesForColumns(cols []Column) map[string]Table {
 	tables := make(map[string]Table, len(cols))
+
 	for _, col := range cols {
 		table, err := validateColumnInput(col)
 		if err != nil {
@@ -139,6 +144,7 @@ func (spec QuerySpec) tablesForColumns(cols []Column) map[string]Table {
 
 func (spec QuerySpec) tablesForConditions(conds []Condition) map[string]Table {
 	tables := make(map[string]Table)
+
 	for _, cond := range conds {
 		_, condTables, _, err := validateConditionInput(cond)
 		if err != nil {
@@ -223,6 +229,7 @@ func (spec QuerySpec) buildGroupBy() (string, []any) {
 	groupByExprs := make([]string, 0, len(spec.GroupBy))
 
 	var args []any
+
 	for _, col := range spec.GroupBy {
 		groupByExprs = append(groupByExprs, rawColumnQualifiedName(col))
 		args = append(args, expressionArgs(col)...)
@@ -239,6 +246,7 @@ func (spec QuerySpec) buildHaving() (string, []any) {
 	clauses := make([]string, 0, len(spec.Having))
 
 	var args []any
+
 	for _, cond := range spec.Having {
 		clauses = append(clauses, conditionClause(cond))
 		args = append(args, cond.Args()...)
@@ -305,6 +313,7 @@ func (spec QuerySpec) buildJoinFrom(allTables map[string]Table) string {
 	}
 
 	var fromBuilder strings.Builder
+
 	includedTables := make(map[string]bool)
 
 	firstJoin := spec.Joins[0]
@@ -318,6 +327,7 @@ func (spec QuerySpec) buildJoinFrom(allTables map[string]Table) string {
 
 	fromBuilder.WriteString(" FROM ")
 	fromBuilder.WriteString(rawTableIdentifier(baseTable))
+
 	includedTables[baseTable.Table()] = true
 
 	for _, item := range spec.Joins {
@@ -330,6 +340,7 @@ func (spec QuerySpec) buildJoinFrom(allTables map[string]Table) string {
 			fromBuilder.WriteString(string(item.joinType))
 			fromBuilder.WriteString(" ")
 			fromBuilder.WriteString(rawTableIdentifier(item.table))
+
 			includedTables[item.table.Table()] = true
 
 			continue
@@ -443,6 +454,7 @@ func (spec QuerySpec) crossJoinBaseTable(joinTable string, allTables map[string]
 	}
 
 	tableNames := make([]string, 0, len(allTables))
+
 	for name := range allTables {
 		if name != joinTable {
 			tableNames = append(tableNames, name)
@@ -450,6 +462,7 @@ func (spec QuerySpec) crossJoinBaseTable(joinTable string, allTables map[string]
 	}
 
 	sort.Strings(tableNames)
+
 	if len(tableNames) > 0 {
 		return allTables[tableNames[0]]
 	}
