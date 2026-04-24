@@ -31,6 +31,12 @@ func (e *ErrUnknownSortField) Error() string {
 	return fmt.Sprintf("unknown sort field: %s", e.field)
 }
 
+// Is reports whether target is an *ErrUnknownSortField, enabling errors.Is matching.
+func (e *ErrUnknownSortField) Is(target error) bool {
+	_, ok := target.(*ErrUnknownSortField)
+	return ok
+}
+
 // ErrAmbiguousSortField represents an error when a sort field matches multiple selected columns
 type ErrAmbiguousSortField struct {
 	field string
@@ -42,6 +48,12 @@ func NewErrAmbiguousSortField(field string) *ErrAmbiguousSortField {
 
 func (e *ErrAmbiguousSortField) Error() string {
 	return fmt.Sprintf("ambiguous sort field: %s", e.field)
+}
+
+// Is reports whether target is an *ErrAmbiguousSortField, enabling errors.Is matching.
+func (e *ErrAmbiguousSortField) Is(target error) bool {
+	_, ok := target.(*ErrAmbiguousSortField)
+	return ok
 }
 
 // ErrOrderCountMismatch represents an error when order by and order count mismatch
@@ -59,6 +71,12 @@ func (e *ErrOrderCountMismatch) Error() string {
 		"ORDER BY fields count(%d) and ORDER directions count(%d) mismatch",
 		e.orderBys, e.orders,
 	)
+}
+
+// Is reports whether target is an *ErrOrderCountMismatch, enabling errors.Is matching.
+func (e *ErrOrderCountMismatch) Is(target error) bool {
+	_, ok := target.(*ErrOrderCountMismatch)
+	return ok
 }
 
 // ================================================
@@ -303,7 +321,8 @@ func (q *Query) queryStr(
 	return result, nil
 }
 
-// Count executes the count query and returns the number of matching records
+// Count executes the count query and returns the number of matching records.
+// The result is truncated to int; use Count64 when an int64 is required.
 func (q *Query) Count(
 	ctx context.Context,
 	tx gorp.SqlExecutor,
@@ -314,11 +333,32 @@ func (q *Query) Count(
 	})
 }
 
+// Count64 executes the count query and returns the number of matching records
+// as int64, avoiding truncation on large result sets or 32-bit platforms.
+func (q *Query) Count64(
+	ctx context.Context,
+	tx gorp.SqlExecutor,
+	args ...any,
+) (int64, error) {
+	return Trace1(ctx, func(ctx context.Context) (int64, error) {
+		return q.count64(ctx, tx, args...)
+	})
+}
+
 func (q *Query) count(
 	ctx context.Context,
 	tx gorp.SqlExecutor,
 	args ...any,
 ) (int, error) {
+	n, err := q.count64(ctx, tx, args...)
+	return int(n), err
+}
+
+func (q *Query) count64(
+	ctx context.Context,
+	tx gorp.SqlExecutor,
+	args ...any,
+) (int64, error) {
 	if err := validateQuery(q); err != nil {
 		return 0, errors.Trace(err)
 	}
@@ -342,7 +382,7 @@ func (q *Query) count(
 		return 0, errors.Annotatef(err, "\n%s\n%v", sqlText, CompactJSON(finalArgs))
 	}
 
-	return int(count), nil
+	return count, nil
 }
 
 // Exists checks if any records match the query conditions
@@ -644,7 +684,7 @@ func getOrErrFn[T any](
 
 	if err := row.Scan(dest...); err != nil {
 		if errors.Is(errors.Cause(err), sql.ErrNoRows) {
-			return nil, sql.ErrNoRows
+			return nil, errors.Trace(sql.ErrNoRows)
 		}
 
 		return nil, errors.Annotatef(err,
@@ -703,7 +743,7 @@ func (q *Query) load(
 	row := tx.WithContext(ctx).QueryRow(sqlText, finalArgs...)
 	if err := row.Err(); err != nil {
 		if errors.Is(errors.Cause(err), sql.ErrNoRows) {
-			return sql.ErrNoRows
+			return errors.Trace(sql.ErrNoRows)
 		}
 
 		return errors.Annotatef(err, "\n%s\n%v", sqlText, CompactJSON(finalArgs))
@@ -711,7 +751,7 @@ func (q *Query) load(
 
 	if err := row.Scan(dest...); err != nil {
 		if errors.Is(errors.Cause(err), sql.ErrNoRows) {
-			return sql.ErrNoRows
+			return errors.Trace(sql.ErrNoRows)
 		}
 
 		return errors.Annotatef(err,

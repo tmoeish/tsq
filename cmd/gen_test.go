@@ -428,3 +428,26 @@ func TestWriteGeneratedFilePreservesPermissions(t *testing.T) {
 		t.Fatalf("expected permissions to be preserved, got %o", got)
 	}
 }
+
+// gen and genDTO are thin helpers used by tests to render a template for a
+// single struct and write the output to dir.  They are test-only wrappers
+// around renderGenerationModel and intentionally not part of the production
+// code path.
+
+func gen(data *tsq.StructInfo, t *template.Template, dir string) error {
+	return renderGenerationModel(generationModel{
+		Data:       data,
+		Template:   t,
+		Filename:   filepath.Join(dir, generatedFilename(data)),
+		ErrorLabel: "template rendering failed",
+	})
+}
+
+func genDTO(data *tsq.StructInfo, t *template.Template, dir string) error {
+	return renderGenerationModel(generationModel{
+		Data:       data,
+		Template:   t,
+		Filename:   filepath.Join(dir, generatedFilename(data)),
+		ErrorLabel: "DTO template rendering failed",
+	})
+}

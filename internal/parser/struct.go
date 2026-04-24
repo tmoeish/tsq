@@ -210,13 +210,15 @@ func (s *StructInfo) updateFieldPackageNames() {
 	}
 }
 
-// buildFieldList 从 FieldMap 构建 Fields
+// buildFieldList rebuilds Fields from FieldMap using a fresh slice.
 func (s *StructInfo) buildFieldList() {
-	s.Fields = s.Fields[:0] // 清空现有列表
+	fields := make([]tsq.FieldInfo, 0, len(s.FieldMap))
 
 	for _, field := range s.FieldMap {
-		s.Fields = append(s.Fields, field)
+		fields = append(fields, field)
 	}
+
+	s.Fields = fields
 }
 
 // sortFieldList 对字段列表进行排序

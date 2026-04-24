@@ -132,14 +132,15 @@ func {{$name}}(
 	) ({{$ptype}}, error) {
 		row := &{{$type}}{}
 		err := {{$query}}.Load(ctx, db, row, {{ FieldVarName $dot.ID }})
-	switch errors.Cause(err) {
-	case nil:
-		return row, nil
-	case {{ GeneratedSQLRef "ErrNoRows" }}:
-		return nil, nil
-	default:
+	if err != nil {
+		if errors.Is(err, {{ GeneratedSQLRef "ErrNoRows" }}) {
+			return nil, nil
+		}
+
 		return nil, errors.Trace(err)
 	}
+
+	return row, nil
 }
 	{{- end }}
 
@@ -235,14 +236,15 @@ func {{$name}}(
 	) ({{$ptype}}, error) {
 		row := &{{$type}}{}
 		err := {{$query}}.Load(ctx, db, row, {{ FieldVarName $dot.ID }})
-	switch errors.Cause(err) {
-	case nil:
-		return row, nil
-	case {{ GeneratedSQLRef "ErrNoRows" }}:
-		return nil, nil
-	default:
+	if err != nil {
+		if errors.Is(err, {{ GeneratedSQLRef "ErrNoRows" }}) {
+			return nil, nil
+		}
+
 		return nil, errors.Trace(err)
 	}
+
+	return row, nil
 }
 		{{- end }}
 
@@ -444,8 +446,8 @@ var {{$query}} = tsq.
 func {{$name}}(
 	ctx context.Context,
 	tx gorp.SqlExecutor,
-) (int, error) {
-	return {{$query}}.Count(ctx, tx)
+) (int64, error) {
+	return {{$query}}.Count64(ctx, tx)
 }
 	{{- end }}
 
@@ -489,8 +491,8 @@ var {{$query}} = tsq.
 func {{$name}}(
 	ctx context.Context,
 	tx gorp.SqlExecutor,
-) (int, error) {
-	return {{$query}}.Count(ctx, tx)
+) (int64, error) {
+	return {{$query}}.Count64(ctx, tx)
 }
 		{{- end }}
 
@@ -551,14 +553,15 @@ func {{$name}}(
 			{{ FieldVarName $f }},
 		{{- end }}
 	)
-	switch errors.Cause(err) {
-	case nil:
-		return row, nil
-	case {{ GeneratedSQLRef "ErrNoRows" }}:
-		return nil, nil
-	default:
+	if err != nil {
+		if errors.Is(err, {{ GeneratedSQLRef "ErrNoRows" }}) {
+			return nil, nil
+		}
+
 		return nil, errors.Trace(err)
 	}
+
+	return row, nil
 }
 		{{- end }}
 
@@ -651,14 +654,15 @@ func {{$name}}(
 			{{ FieldVarName $f }},
 		{{- end }}
 	)
-	switch errors.Cause(err) {
-	case nil:
-		return row, nil
-	case {{ GeneratedSQLRef "ErrNoRows" }}:
-		return nil, nil
-	default:
+	if err != nil {
+		if errors.Is(err, {{ GeneratedSQLRef "ErrNoRows" }}) {
+			return nil, nil
+		}
+
 		return nil, errors.Trace(err)
 	}
+
+	return row, nil
 }
 			{{- end }}
 
@@ -771,10 +775,10 @@ func {{$name}}(
 				{{- range $f := $idx.Fields }}
 		{{ FieldVarName $f }} {{ index $dot.FieldMap $f | FieldType }},
 				{{- end }}
-) (int, error) {
+) (int64, error) {
 	query := {{$query}}
 
-	rs, err := query.Count(ctx, db,
+	rs, err := query.Count64(ctx, db,
 		{{- range $f := $idx.Fields }}
 			{{ FieldVarName $f }},
 		{{- end }}
@@ -886,10 +890,10 @@ func {{$name}}(
 					{{- range $f := $idx.Fields }}
 		{{ FieldVarName $f }} {{ index $dot.FieldMap $f | FieldType }},
 					{{- end }}
-) (int, error) {
+) (int64, error) {
 	query := {{$query}}
 
-	rs, err := query.Count(ctx, db,
+	rs, err := query.Count64(ctx, db,
 		{{- range $f := $idx.Fields }}
 			{{ FieldVarName $f }},
 		{{- end }}

@@ -107,24 +107,6 @@ func resolveTemplateText(overridePath string, fallback string, label string) (st
 	return string(tplBytes), nil
 }
 
-func gen(data *tsq.StructInfo, t *template.Template, dir string) error {
-	return renderGenerationModel(generationModel{
-		Data:       data,
-		Template:   t,
-		Filename:   filepath.Join(dir, generatedFilename(data)),
-		ErrorLabel: "template rendering failed",
-	})
-}
-
-func genDTO(data *tsq.StructInfo, t *template.Template, dir string) error {
-	return renderGenerationModel(generationModel{
-		Data:       data,
-		Template:   t,
-		Filename:   filepath.Join(dir, generatedFilename(data)),
-		ErrorLabel: "DTO template rendering failed",
-	})
-}
-
 func validateStructForGeneration(
 	data *tsq.StructInfo,
 	structsByName map[string]*tsq.StructInfo,
@@ -149,7 +131,7 @@ func validateStructForGeneration(
 		return errors.Trace(err)
 	}
 
-	return errors.Trace(ValidateManagedFields(data))
+	return errors.Trace(validateManagedFields(data))
 }
 
 func validateDTOFields(

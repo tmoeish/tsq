@@ -571,6 +571,12 @@ func (l *packageLoader) load(packagePath string) (*loadedPackage, error) {
 	}
 
 	l.mu.Lock()
+	// Double-check: another goroutine may have populated the cache while we
+	// were loading outside the lock (TOCTOU). Prefer the cached copy if present.
+	if existing, ok := l.cache[key]; ok {
+		l.mu.Unlock()
+		return cloneLoadedPackage(existing), nil
+	}
 	l.cache[key] = cloneLoadedPackage(pkg)
 	l.mu.Unlock()
 

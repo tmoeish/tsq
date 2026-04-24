@@ -80,14 +80,15 @@ func GetUserByID(
 ) (*User, error) {
 	row := &User{}
 	err := getUserByIDQuery.Load(ctx, db, row, iD)
-	switch errors.Cause(err) {
-	case nil:
-		return row, nil
-	case tsqsql.ErrNoRows:
-		return nil, nil
-	default:
+	if err != nil {
+		if errors.Is(err, tsqsql.ErrNoRows) {
+			return nil, nil
+		}
+
 		return nil, errors.Trace(err)
 	}
+
+	return row, nil
 }
 
 // GetUserByIDOrErr retrieves a User record by its ID.
@@ -231,8 +232,8 @@ var listUserQuery = tsq.
 func CountUser(
 	ctx context.Context,
 	tx gorp.SqlExecutor,
-) (int, error) {
-	return listUserQuery.Count(ctx, tx)
+) (int64, error) {
+	return listUserQuery.Count64(ctx, tx)
 }
 
 // ListUser retrieves all User records from the database.
@@ -276,14 +277,15 @@ func GetUserByName(
 	err := query.Load(ctx, db, row,
 		name,
 	)
-	switch errors.Cause(err) {
-	case nil:
-		return row, nil
-	case tsqsql.ErrNoRows:
-		return nil, nil
-	default:
+	if err != nil {
+		if errors.Is(err, tsqsql.ErrNoRows) {
+			return nil, nil
+		}
+
 		return nil, errors.Trace(err)
 	}
+
+	return row, nil
 }
 
 // GetUserByNameOrErr retrieves a User record by unique index ux_user_name.

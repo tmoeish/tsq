@@ -80,14 +80,15 @@ func GetCategoryByID(
 ) (*Category, error) {
 	row := &Category{}
 	err := getCategoryByIDQuery.Load(ctx, db, row, iD)
-	switch errors.Cause(err) {
-	case nil:
-		return row, nil
-	case tsqsql.ErrNoRows:
-		return nil, nil
-	default:
+	if err != nil {
+		if errors.Is(err, tsqsql.ErrNoRows) {
+			return nil, nil
+		}
+
 		return nil, errors.Trace(err)
 	}
+
+	return row, nil
 }
 
 // GetCategoryByIDOrErr retrieves a Category record by its ID.
@@ -231,8 +232,8 @@ var listCategoryQuery = tsq.
 func CountCategory(
 	ctx context.Context,
 	tx gorp.SqlExecutor,
-) (int, error) {
-	return listCategoryQuery.Count(ctx, tx)
+) (int64, error) {
+	return listCategoryQuery.Count64(ctx, tx)
 }
 
 // ListCategory retrieves all Category records from the database.
@@ -276,14 +277,15 @@ func GetCategoryByName(
 	err := query.Load(ctx, db, row,
 		name,
 	)
-	switch errors.Cause(err) {
-	case nil:
-		return row, nil
-	case tsqsql.ErrNoRows:
-		return nil, nil
-	default:
+	if err != nil {
+		if errors.Is(err, tsqsql.ErrNoRows) {
+			return nil, nil
+		}
+
 		return nil, errors.Trace(err)
 	}
+
+	return row, nil
 }
 
 // GetCategoryByNameOrErr retrieves a Category record by unique index ux_category_name.

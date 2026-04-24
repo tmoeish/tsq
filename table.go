@@ -28,6 +28,10 @@ func NewRegistry() *Registry {
 
 var defaultRegistry = NewRegistry()
 
+// initMu serialises concurrent calls to InitWithOptions so that the
+// snapshot/rollback of the global trace manager is atomic.
+var initMu sync.Mutex
+
 type InitOptions struct {
 	AutoCreateTables bool
 	UpsertIndexes    bool
@@ -125,6 +129,11 @@ func InitWithOptions(db *gorp.DbMap, options *InitOptions) error {
 	if options == nil {
 		options = &InitOptions{}
 	}
+
+	// Serialise concurrent calls so that the snapshot/rollback of the global
+	// trace manager is atomic.
+	initMu.Lock()
+	defer initMu.Unlock()
 
 	rollbackTracers := defaultTraceManager.snapshot()
 

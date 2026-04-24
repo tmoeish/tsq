@@ -84,14 +84,15 @@ func GetItemByID(
 ) (*Item, error) {
 	row := &Item{}
 	err := getItemByIDQuery.Load(ctx, db, row, iD)
-	switch errors.Cause(err) {
-	case nil:
-		return row, nil
-	case tsqsql.ErrNoRows:
-		return nil, nil
-	default:
+	if err != nil {
+		if errors.Is(err, tsqsql.ErrNoRows) {
+			return nil, nil
+		}
+
 		return nil, errors.Trace(err)
 	}
+
+	return row, nil
 }
 
 // GetItemByIDOrErr retrieves a Item record by its ID.
@@ -235,8 +236,8 @@ var listItemQuery = tsq.
 func CountItem(
 	ctx context.Context,
 	tx gorp.SqlExecutor,
-) (int, error) {
-	return listItemQuery.Count(ctx, tx)
+) (int64, error) {
+	return listItemQuery.Count64(ctx, tx)
 }
 
 // ListItem retrieves all Item records from the database.
@@ -280,14 +281,15 @@ func GetItemByName(
 	err := query.Load(ctx, db, row,
 		name,
 	)
-	switch errors.Cause(err) {
-	case nil:
-		return row, nil
-	case tsqsql.ErrNoRows:
-		return nil, nil
-	default:
+	if err != nil {
+		if errors.Is(err, tsqsql.ErrNoRows) {
+			return nil, nil
+		}
+
 		return nil, errors.Trace(err)
 	}
+
+	return row, nil
 }
 
 // GetItemByNameOrErr retrieves a Item record by unique index ux_item_name.
@@ -345,10 +347,10 @@ func CountItemByCategoryID(
 	ctx context.Context,
 	db gorp.SqlExecutor,
 	categoryID int64,
-) (int, error) {
+) (int64, error) {
 	query := ListItemByCategoryIDQuery
 
-	rs, err := query.Count(ctx, db,
+	rs, err := query.Count64(ctx, db,
 		categoryID,
 	)
 	return rs, errors.Trace(err)
