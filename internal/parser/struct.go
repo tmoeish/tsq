@@ -18,7 +18,6 @@ var reservedImportAliases = map[string]struct{}{
 	"context": {},
 	"tsq":     {},
 	"errors":  {},
-	"gorp":    {},
 	"tsqsql":  {},
 	"tsqtime": {},
 }

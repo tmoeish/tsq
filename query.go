@@ -1053,8 +1053,8 @@ func chunkedInsertChunk[T Table](
 		return nil
 	}
 
-	// 简化版本：使用 gorp 的标准插入，逐个插入
-	// TODO: 在实际生产环境中，可以根据需要实现更高效的批量插入
+	// Insert items in chunks. For future optimization opportunities,
+	// consider batching multiple inserts in a single transaction or using bulk insert features.
 	for itemIdx, item := range items {
 		if item == nil {
 			return errors.Errorf("item at index %d is nil", itemIdx)

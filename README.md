@@ -142,7 +142,6 @@ import (
     _ "github.com/mattn/go-sqlite3"
     "github.com/tmoeish/tsq"
     "github.com/tmoeish/tsq/examples/database"
-    "gopkg.in/gorp.v2"
 )
 
 func main() {
@@ -154,8 +153,8 @@ func main() {
     }
     defer func() { _ = db.Close() }()
 
-    // 2. 初始化 gorp
-    dbmap := &gorp.DbMap{Db: db, Dialect: gorp.SqliteDialect{}}
+    // 2. 初始化 tsq
+    dbmap := &tsq.DbMap{Db: db, Dialect: tsq.SqliteDialect{}}
     err = tsq.Init(dbmap, true, true, tsq.PrintError, tsq.PrintSQL)
     if err != nil {
         slog.Error("tsq init", "error", errors.ErrorStack(err))
