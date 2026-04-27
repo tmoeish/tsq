@@ -304,7 +304,203 @@ if err != nil {
 
 ---
 
-其它如聚合、子查询、关键词搜索等高级用法，请参考 `examples/main.go` 和 `examples/database/userorder.go` 的最新写法。
+### 🔍 关键词搜索
+
+TSQ 支持多字段模糊关键词搜索，可以在查询中添加关键词过滤。
+
+**基本用法：**
+
+```go
+// 在 users 表中搜索 name 或 email 字段包含 "john" 的用户
+qb := users.NewQueryBuilder().
+    Where(users.Active.EQ(true)).
+    KwSearch("john", users.Name, users.Email)
+
+q, err := qb.Build()
+if err != nil {
+    return err  // 处理错误而非panic
+}
+
+list, err := q.List(ctx, db)
+```
+
+**安全性注意事项：**
+
+由于关键词搜索使用 SQL LIKE 操作符，需要对用户输入进行转义以防止 SQL 注入：
+
+```go
+import "github.com/tmoeish/tsq"
+
+// 用户输入
+keyword := request.Keyword  // 可能包含 "%" 或 "_" 等特殊字符
+
+// 转义关键词中的 LIKE 通配符
+escaped := tsq.EscapeKeywordSearch(keyword)
+
+qb := users.NewQueryBuilder().KwSearch(escaped, users.Name, users.Email)
+```
+
+**限制和注意事项：**
+
+- 关键词搜索使用 LIKE 操作符，可能对大表性能有影响
+- 目前不支持 SQL 方言特定的全文搜索优化（如 MySQL FULLTEXT）
+- 关键词只在指定的列中搜索
+- LIKE 转义字符固定为 `\`（反斜杠）
+
+**示例中的完整查询：**
+
+更多关键词搜索和其他高级用法（聚合、子查询等），请参考 `examples/main.go` 和 `examples/database/userorder.go` 的最新写法。
+
+---
+
+### 🔗 联接（Join）和圆形联接限制
+
+TSQ 支持多种联接类型（INNER JOIN, LEFT JOIN, RIGHT JOIN 等），但存在一个重要限制：**不支持圆形联接依赖**。
+
+**什么是圆形联接？**
+
+圆形联接是指在联接图中存在循环路径的情况。例如：
+- 用户表 → 订单表 → 发票表 → 用户表（循环回到用户）
+
+**当前限制：**
+
+以下代码**会失败**（圆形依赖）：
+```go
+query := users.NewQueryBuilder().
+    InnerJoin(orders, users.ID.EQ(orders.UserID)).
+    InnerJoin(invoices, orders.ID.EQ(invoices.OrderID)).
+    InnerJoin(users, invoices.UserID.EQ(users.ID))  // ❌ 错误：用户表已参与
+```
+
+**解决方案 - 使用表别名实现自联接：**
+
+如果需要表示涉及同一表的复杂关系，可以使用 `AliasTable()` 创建表别名：
+
+```go
+// 创建 users 表的别名
+usersAlias := tsq.AliasTable(users, "manager_users")
+
+// 现在可以与相同表进行联接
+query := users.NewQueryBuilder().
+    InnerJoin(usersAlias, users.ManagerID.EQ(usersAlias.Col(users.ID)))
+```
+
+**其他替代方案：**
+
+1. **执行多个查询** - 将圆形查询分解为多个独立查询
+2. **使用子查询** - 根据目标数据库的支持使用子查询或 CTE（WITH 子句）
+3. **应用逻辑处理** - 在应用层处理复杂的关系逻辑
+
+更多联接示例，请参考 `examples/database/userorder.go`。
+
+---
+
+### ⚠️ 已知限制和最佳实践
+
+**已知限制：**
+
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| 圆形联接 | ❌ 不支持 | 使用表别名（AliasTable）作为替代方案 |
+| FULL JOIN | ⚠️ 有限 | 仅 PostgreSQL 支持；其他方言在执行时会报错 |
+| 全文搜索 | ❌ 不支持 | 关键词搜索使用 LIKE；可用专门库处理全文搜索 |
+| 子查询 | ⚠️ 有限 | 基本支持，但不支持所有复杂场景 |
+| 事务控制 | ⚠️ 基础 | 支持基本的事务操作，不支持高级特性 |
+
+**最佳实践：**
+
+1. **错误处理**：总是检查 `Build()` 返回的错误，避免使用 `MustBuild()` 在生产环境
+
+```go
+// ✅ 推荐
+q, err := qb.Build()
+if err != nil {
+    return fmt.Errorf("failed to build query: %w", err)
+}
+
+// ❌ 不推荐（仅用于初始化时）
+q := qb.MustBuild()  // 会 panic
+```
+
+2. **关键词搜索安全**：始终转义用户输入
+
+```go
+keyword := tsq.EscapeKeywordSearch(userInput)
+qb := qb.KwSearch(keyword, col1, col2)
+```
+
+3. **运行时隔离**：多数据库应用应使用独立的 Runtime 实例
+
+```go
+// ✅ 多DB 应用的推荐方式
+runtimeMySQL := tsq.NewRuntime()
+runtimePostgres := tsq.NewRuntime()
+
+// 为每个 runtime 注册表
+users.RegisterTable(...)  // 注册到 DefaultRuntime
+runtimeMySQL.RegisterTable(...)  // 注册到特定 runtime
+```
+
+4. **验证分页和排序**：使用 `ValidateStrict()` 验证用户输入的排序参数
+
+```go
+// 对来自 HTTP 请求的分页参数进行严格验证
+page := &PageReq{Page: userInput.Page, Size: userInput.Size}
+if err := page.ValidateStrict(); err != nil {
+    return errors.New("invalid pagination: " + err.Error())
+}
+```
+
+5. **标识符长度检查**：对于跨数据库应用，验证标识符长度
+
+```go
+if err := ValidateIdentifierLength(tableName, "postgres"); err != nil {
+    return fmt.Errorf("table name too long for postgres: %w", err)
+}
+```
+
+6. **性能优化**：
+
+   - 使用查询构建器的方法链来构建复杂查询
+   - 避免在循环中重复构建相同的查询（考虑缓存或参数化）
+   - 对大表使用分页而非一次性加载所有数据
+   - 为常用的联接组合创建辅助方法
+   - **查询缓存**：如果频繁执行相同的查询，使用应用层缓存
+
+```go
+// ✅ 为常用查询创建辅助方法
+func (ub *userBuilder) WithOrders() *QueryBuilder {
+    return ub.InnerJoin(orders, user.ID.EQ(orders.UserID))
+}
+
+// 使用
+results, err := users.NewQueryBuilder().
+    WithOrders().
+    Where(users.Active.EQ(true)).
+    List(ctx, db)
+
+// ✅ 缓存频繁执行的查询
+var activeUsersQuery *tsq.Query
+func getActiveUsers() *tsq.Query {
+    if activeUsersQuery == nil {
+        activeUsersQuery = users.NewQueryBuilder().
+            Where(users.Active.EQ(true)).
+            MustBuild()
+    }
+    return activeUsersQuery
+}
+
+// 使用缓存的查询
+results, err := getActiveUsers().List(ctx, db)
+```
+
+**支持的数据库方言：**
+
+- ✅ **SQLite** - 完整支持
+- ✅ **MySQL** - 完整支持（5.7+）
+- ✅ **PostgreSQL** - 完整支持（9.6+）
+- ⚠️ **Oracle** - 基础支持（某些高级特性可能不可用）
+- ❓ **其他方言** - 需要验证兼容性
 
 
 ## 🏗️ 构建和开发

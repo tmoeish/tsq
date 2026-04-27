@@ -11,6 +11,8 @@ import (
 	"github.com/juju/errors"
 )
 
+const MaxTracers = 100
+
 // Fn represents a function that can be traced.
 type Fn func(ctx context.Context) error
 
@@ -19,8 +21,9 @@ type Tracer func(next Fn) Fn
 
 // TraceManager stores and executes tracers.
 type TraceManager struct {
-	mu      sync.RWMutex
-	tracers []Tracer
+	mu       sync.RWMutex
+	restoreMu sync.Mutex
+	tracers  []Tracer
 }
 
 func NewTraceManager() *TraceManager {
@@ -47,17 +50,49 @@ func (m *TraceManager) Add(tracer Tracer) {
 		return
 	}
 
+	m.restoreMu.Lock()
+	defer m.restoreMu.Unlock()
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	if len(m.tracers) >= MaxTracers {
+		slog.Warn("maximum tracer limit reached", "limit", MaxTracers)
+		return
+	}
 
 	m.tracers = append(m.tracers, tracer)
 }
 
 func (m *TraceManager) AddUnique(tracers ...Tracer) {
+	m.restoreMu.Lock()
+	defer m.restoreMu.Unlock()
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.tracers = appendUniqueTracers(m.tracers, tracers...)
+	for _, tracer := range tracers {
+		if tracer == nil {
+			continue
+		}
+
+		if len(m.tracers) >= MaxTracers {
+			slog.Warn("maximum tracer limit reached", "limit", MaxTracers)
+			return
+		}
+
+		duplicated := false
+		for _, current := range m.tracers {
+			if sameTracer(current, tracer) {
+				duplicated = true
+				break
+			}
+		}
+
+		if !duplicated {
+			m.tracers = append(m.tracers, tracer)
+		}
+	}
 }
 
 func (m *TraceManager) Clear() {
@@ -82,6 +117,9 @@ func (m *TraceManager) snapshot() []Tracer {
 }
 
 func (m *TraceManager) restore(snapshot []Tracer) {
+	m.restoreMu.Lock()
+	defer m.restoreMu.Unlock()
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 

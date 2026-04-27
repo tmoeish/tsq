@@ -15,6 +15,28 @@ import (
 )
 
 // ================================================
+// 资源清理模式
+// ================================================
+//
+// 本包中所有 defer 块遵循统一的错误处理模式：
+//   - 总是检查 Close() 返回的错误
+//   - 在 slog.Warn 中记录任何错误
+//   - 不会由于关闭错误而返回不同的错误
+//
+// 示例：
+//
+//	defer func() {
+//	    if closeErr := rows.Close(); closeErr != nil {
+//	        slog.Warn("Failed to close rows", "error", closeErr)
+//	    }
+//	}()
+//
+// 这种方法确保：
+//   1. 资源总是被清理，即使出现错误
+//   2. 关闭错误被记录以便调试
+//   3. 主要的操作错误不会被掩盖
+
+// ================================================
 // 错误类型定义
 // ================================================
 
@@ -124,9 +146,48 @@ type Query struct {
 
 var builtInIdentifierPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
+// Identifier length limits by SQL dialect
+const (
+	// MaxIdentifierLengthMySQL = 64  // Actual is 64, but we allow 63 for compatibility
+	MaxIdentifierLengthMySQL       = 64
+	MaxIdentifierLengthPostgreSQL  = 63
+	MaxIdentifierLengthOracleSQL   = 30
+	MaxIdentifierLengthSQLite      = 0 // SQLite has no practical limit, 0 means unlimited
+)
+
 // ================================================
 // SQL 访问方法
 // ================================================
+
+// 查询计划缓存考虑
+//
+// TSQ 本身不提供内置的查询计划缓存，但支持多种缓存策略：
+//
+// 1. 应用层缓存（推荐）
+//    对于频繁重复的查询，在应用层缓存生成的 SQL：
+//
+//    type CachedQuery struct {
+//        key  string
+//        sql  string
+//        args []any
+//    }
+//
+//    // 或使用 sync.Map 进行无锁缓存
+//    var queryCache sync.Map
+//    q := queryCache.LoadOrStore(key, buildQuery()).(Query)
+//
+// 2. 数据库驱动缓存
+//    许多驱动程序（如 github.com/jmoiron/sqlx）支持准备语句缓存。
+//    只需确保对相同的 SQL 使用相同的参数类型。
+//
+// 3. 连接池准备缓存
+//    使用支持准备语句缓存的连接池（如 pgx 连接池）。
+//
+// 性能建议：
+// - 对于一次性查询，不需要缓存
+// - 对于循环中的查询，在循环外构建一次
+// - 对于参数不同的动态查询，使用数据库参数化
+// - 避免在热路径中调用 Build() 多次
 
 // CntSQL returns the COUNT query SQL statement
 func (q *Query) CntSQL() string {
@@ -168,7 +229,22 @@ func (q *Query) KwListSQL() string {
 // 查询构建器方法
 // ================================================
 
-// MustBuild builds the query and panics on error
+// MustBuild builds the query and panics on any error.
+//
+// WARNING: This method is intended for initialization-time only (e.g., in init() or at startup).
+// For production code, use Build() and handle errors explicitly. Panicking in production code
+// paths is dangerous and should be avoided.
+//
+// Example (NOT RECOMMENDED for production):
+//
+//	q := qb.MustBuild()  // panics if build fails
+//
+// Example (RECOMMENDED for production):
+//
+//	q, err := qb.Build()
+//	if err != nil {
+//	    return fmt.Errorf("failed to build query: %w", err)
+//	}
 func (qb *QueryBuilder) MustBuild() *Query {
 	q, err := qb.Build()
 	if err != nil {
@@ -214,6 +290,37 @@ func (qb *QueryBuilder) Build() (*Query, error) {
 // 基础查询执行方法
 // ================================================
 
+// prepareQueryExecution handles common steps for all scalar query methods:
+// validation, SQL rendering, debug printing, and argument merging.
+// Returns (sqlText, finalArgs, error).
+func (q *Query) prepareQueryExecution(
+	ctx context.Context,
+	tx gorp.SqlExecutor,
+	methodName string,
+	args ...any,
+) (string, []any, error) {
+	if err := validateQuery(q); err != nil {
+		return "", nil, errors.Trace(err)
+	}
+
+	if err := validateOperationalExecutorForSQL(tx, q.listSQL); err != nil {
+		return "", nil, errors.Trace(err)
+	}
+
+	sqlText := renderSQLForExecutor(tx, q.listSQL)
+
+	if ctx.Value(printSQL) != nil {
+		slog.Info(methodName, "sql", sqlText, "args", CompactJSON(args))
+	}
+
+	finalArgs, err := mergeQueryArgs(q.listArgs, args)
+	if err != nil {
+		return "", nil, errors.Trace(err)
+	}
+
+	return sqlText, finalArgs, nil
+}
+
 // QueryInt executes the query and returns a single integer result
 func (q *Query) QueryInt(
 	ctx context.Context,
@@ -230,23 +337,9 @@ func (q *Query) queryInt(
 	tx gorp.SqlExecutor,
 	args ...any,
 ) (int64, error) {
-	if err := validateQuery(q); err != nil {
-		return 0, errors.Trace(err)
-	}
-
-	if err := validateOperationalExecutorForSQL(tx, q.listSQL); err != nil {
-		return 0, errors.Trace(err)
-	}
-
-	sqlText := renderSQLForExecutor(tx, q.listSQL)
-
-	if ctx.Value(printSQL) != nil {
-		slog.Info("queryInt", "sql", sqlText, "args", CompactJSON(args))
-	}
-
-	finalArgs, err := mergeQueryArgs(q.listArgs, args)
+	sqlText, finalArgs, err := q.prepareQueryExecution(ctx, tx, "queryInt", args...)
 	if err != nil {
-		return 0, errors.Trace(err)
+		return 0, err
 	}
 
 	result, err := tx.WithContext(ctx).SelectInt(sqlText, finalArgs...)
@@ -273,23 +366,9 @@ func (q *Query) queryFloat(
 	tx gorp.SqlExecutor,
 	args ...any,
 ) (float64, error) {
-	if err := validateQuery(q); err != nil {
-		return 0, errors.Trace(err)
-	}
-
-	if err := validateOperationalExecutorForSQL(tx, q.listSQL); err != nil {
-		return 0, errors.Trace(err)
-	}
-
-	sqlText := renderSQLForExecutor(tx, q.listSQL)
-
-	if ctx.Value(printSQL) != nil {
-		slog.Info("queryFloat", "sql", sqlText, "args", CompactJSON(args))
-	}
-
-	finalArgs, err := mergeQueryArgs(q.listArgs, args)
+	sqlText, finalArgs, err := q.prepareQueryExecution(ctx, tx, "queryFloat", args...)
 	if err != nil {
-		return 0, errors.Trace(err)
+		return 0, err
 	}
 
 	result, err := tx.WithContext(ctx).SelectFloat(sqlText, finalArgs...)
@@ -316,23 +395,9 @@ func (q *Query) queryStr(
 	tx gorp.SqlExecutor,
 	args ...any,
 ) (string, error) {
-	if err := validateQuery(q); err != nil {
-		return "", errors.Trace(err)
-	}
-
-	if err := validateOperationalExecutorForSQL(tx, q.listSQL); err != nil {
-		return "", errors.Trace(err)
-	}
-
-	sqlText := renderSQLForExecutor(tx, q.listSQL)
-
-	if ctx.Value(printSQL) != nil {
-		slog.Info("queryStr", "sql", sqlText, "args", CompactJSON(args))
-	}
-
-	finalArgs, err := mergeQueryArgs(q.listArgs, args)
+	sqlText, finalArgs, err := q.prepareQueryExecution(ctx, tx, "queryStr", args...)
 	if err != nil {
-		return "", errors.Trace(err)
+		return "", err
 	}
 
 	result, err := tx.WithContext(ctx).SelectStr(sqlText, finalArgs...)
@@ -619,7 +684,9 @@ func listFn[T any](
 	}
 
 	defer func() {
-		_ = rows.Close()
+		if closeErr := rows.Close(); closeErr != nil {
+			slog.Warn("Failed to close rows", "error", closeErr)
+		}
 	}()
 
 	var list []*T
@@ -1249,7 +1316,42 @@ func quoteBuiltInIdentifier(name string) (string, error) {
 		return "", errors.Errorf("invalid SQL identifier: %s", name)
 	}
 
+	// Warn if identifier is very long (>50 chars) as it may exceed limits in some databases
+	if len(name) > 50 {
+		slog.Warn("identifier is unusually long", "identifier", name, "length", len(name))
+	}
+
 	return rawIdentifier(name), nil
+}
+
+// ValidateIdentifierLength checks if an identifier conforms to length limits for a specific dialect.
+// dialect should be one of: "mysql", "postgres", "oracle", "sqlite", or empty to skip validation.
+func ValidateIdentifierLength(identifier string, dialect string) error {
+	if identifier == "" {
+		return errors.New("identifier cannot be empty")
+	}
+
+	var maxLen int
+	switch strings.ToLower(dialect) {
+	case "mysql":
+		maxLen = MaxIdentifierLengthMySQL
+	case "postgres", "postgresql":
+		maxLen = MaxIdentifierLengthPostgreSQL
+	case "oracle":
+		maxLen = MaxIdentifierLengthOracleSQL
+	case "sqlite", "":
+		// SQLite has no practical limit
+		return nil
+	default:
+		// Unknown dialect, skip validation
+		return nil
+	}
+
+	if maxLen > 0 && len(identifier) > maxLen {
+		return errors.Errorf("identifier %q exceeds %s maximum length of %d characters (got %d)", identifier, dialect, maxLen, len(identifier))
+	}
+
+	return nil
 }
 
 // ================================================
@@ -1373,6 +1475,30 @@ func validateIDValues(ids []any) error {
 	}
 
 	return nil
+}
+
+// EscapeKeywordSearch escapes special characters in keyword search strings for use with LIKE clauses.
+// This prevents SQL injection via LIKE wildcard characters (% and _).
+//
+// Example:
+//
+//	keyword := "100% cotton"
+//	escaped := EscapeKeywordSearch(keyword)  // "100\% cotton"
+//
+// Note: When using this function, your SQL dialect may require you to specify the escape character
+// in the LIKE clause. For example:
+//
+//	SELECT * FROM table WHERE column LIKE ? ESCAPE '\'
+//
+// Currently, TSQ keyword search does not apply escaping automatically. Users MUST call this function
+// if their keywords contain % or _ characters to prevent unintended pattern matching or SQL injection.
+func EscapeKeywordSearch(keyword string) string {
+	// Escape backslash first to avoid double-escaping
+	s := strings.ReplaceAll(keyword, "\\", "\\\\")
+	// Escape LIKE wildcards
+	s = strings.ReplaceAll(s, "%", "\\%")
+	s = strings.ReplaceAll(s, "_", "\\_")
+	return s
 }
 
 func mergeQueryArgs(base []any, extra []any) ([]any, error) {

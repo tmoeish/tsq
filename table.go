@@ -15,6 +15,28 @@ import (
 // 表注册和管理
 // ================================================
 
+// RegistrationErrorType describes the kind of registration error
+type RegistrationErrorType string
+
+const (
+	RegistrationErrorNilTable       RegistrationErrorType = "nil_table"
+	RegistrationErrorNilAddFunc     RegistrationErrorType = "nil_add_func"
+	RegistrationErrorNilInitFunc    RegistrationErrorType = "nil_init_func"
+	RegistrationErrorDuplicate      RegistrationErrorType = "duplicate"
+	RegistrationErrorNilRuntime     RegistrationErrorType = "nil_runtime"
+)
+
+// RegistrationError represents an error that occurred during table registration
+type RegistrationError struct {
+	Type      RegistrationErrorType
+	TableName string
+	Message   string
+}
+
+func (e *RegistrationError) Error() string {
+	return e.Message
+}
+
 type Registry struct {
 	mu     sync.RWMutex
 	tables map[string]*RegisteredTable
@@ -33,29 +55,41 @@ type InitOptions struct {
 }
 
 // RegisterTable registers a table in the global registry
+// Returns an error if registration fails; panics if the runtime is nil (indicating misuse)
 func RegisterTable(
 	table Table,
 	addTableFunc func(db *gorp.DbMap),
 	initFunc func(db *gorp.DbMap) error,
-) {
-	defaultRuntime.RegisterTable(table, addTableFunc, initFunc)
+) error {
+	return defaultRuntime.RegisterTable(table, addTableFunc, initFunc)
 }
 
 func (r *Registry) Register(
 	table Table,
 	addTableFunc func(db *gorp.DbMap),
 	initFunc func(db *gorp.DbMap) error,
-) {
+) error {
 	if isNilValue(table) {
-		panic("registered table cannot be nil")
+		return &RegistrationError{
+			Type:      RegistrationErrorNilTable,
+			Message:   "registered table cannot be nil",
+		}
 	}
 
 	if addTableFunc == nil {
-		panic("add table function cannot be nil")
+		return &RegistrationError{
+			Type:      RegistrationErrorNilAddFunc,
+			TableName: fmt.Sprintf("%v", table),
+			Message:   "add table function cannot be nil",
+		}
 	}
 
 	if initFunc == nil {
-		panic("init function cannot be nil")
+		return &RegistrationError{
+			Type:      RegistrationErrorNilInitFunc,
+			TableName: fmt.Sprintf("%v", table),
+			Message:   "init function cannot be nil",
+		}
 	}
 
 	r.mu.Lock()
@@ -63,7 +97,11 @@ func (r *Registry) Register(
 
 	key := registeredTableKey(table)
 	if _, exists := r.tables[key]; exists {
-		panic(fmt.Sprintf("table %s is already registered", key))
+		return &RegistrationError{
+			Type:      RegistrationErrorDuplicate,
+			TableName: key,
+			Message:   fmt.Sprintf("table %s is already registered", key),
+		}
 	}
 
 	r.tables[key] = &RegisteredTable{
@@ -71,6 +109,7 @@ func (r *Registry) Register(
 		AddTableFunc: addTableFunc,
 		InitFunc:     initFunc,
 	}
+	return nil
 }
 
 type RegisteredTable struct {

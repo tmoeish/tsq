@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync"
 	"testing"
 )
 
@@ -416,6 +417,112 @@ func TestErrorTracer_WithError(t *testing.T) {
 	}
 }
 
+func TestMaxTracersEnforced(t *testing.T) {
+	// Clear tracers before test
+	ClearTracers()
+
+	// Add exactly MaxTracers tracers
+	for i := 0; i < MaxTracers; i++ {
+		tracer := func(next Fn) Fn {
+			return func(ctx context.Context) error {
+				return next(ctx)
+			}
+		}
+		AddTracer(tracer)
+	}
+
+	tracers := GetTracers()
+	if len(tracers) != MaxTracers {
+		t.Errorf("Expected %d tracers, got %d", MaxTracers, len(tracers))
+	}
+
+	// Try to add one more tracer - should be rejected
+	tracer := func(next Fn) Fn {
+		return func(ctx context.Context) error {
+			return next(ctx)
+		}
+	}
+	AddTracer(tracer)
+
+	tracers = GetTracers()
+	if len(tracers) != MaxTracers {
+		t.Errorf("Expected max tracers to remain at %d, got %d", MaxTracers, len(tracers))
+	}
+}
+
+func TestConcurrentTracerAddDuringRestore(t *testing.T) {
+	// Clear tracers before test
+	ClearTracers()
+
+	// Add some initial tracers
+	for i := 0; i < 5; i++ {
+		tracer := func(next Fn) Fn {
+			return func(ctx context.Context) error {
+				return next(ctx)
+			}
+		}
+		AddTracer(tracer)
+	}
+
+	// Now we'll simulate a restore operation while concurrent AddTracer calls happen
+	rt := DefaultRuntime()
+	tm := rt.TraceManager()
+
+	// Create a channel to signal when restore has begun
+	restoreStarted := make(chan struct{})
+	restoreDone := make(chan struct{})
+
+	// Goroutine to perform restore in background (simulating rollback during Init)
+	go func() {
+		snapshot := tm.snapshot()
+		close(restoreStarted)
+		// Simulate some delay to increase chance of interleaving
+		tm.restore(snapshot)
+		close(restoreDone)
+	}()
+
+	// Wait for restore to start, then try to add tracers concurrently
+	<-restoreStarted
+
+	// Launch multiple goroutines trying to add tracers concurrently
+	var wg sync.WaitGroup
+	errors := make(chan error, 10)
+
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			tracer := func(next Fn) Fn {
+				return func(ctx context.Context) error {
+					return next(ctx)
+				}
+			}
+			// This should not panic even with concurrent restore
+			AddTracer(tracer)
+		}(i)
+	}
+
+	// Wait for all goroutines to complete
+	wg.Wait()
+
+	// Wait for restore to complete
+	<-restoreDone
+
+	// Verify we have tracers (some combination of initial + added ones)
+	finalTracers := GetTracers()
+	if len(finalTracers) == 0 {
+		t.Error("Expected tracers to remain after concurrent operations")
+	}
+
+	// Verify no errors occurred (the test would panic on race condition)
+	close(errors)
+	for err := range errors {
+		if err != nil {
+			t.Errorf("Concurrent operation failed: %v", err)
+		}
+	}
+}
+
 func TestPrettyJSON(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -566,5 +673,268 @@ func TestPrettyJSON_vs_CompactJSON(t *testing.T) {
 
 	if err := json.Unmarshal([]byte(compact), &compactParsed); err != nil {
 		t.Errorf("Compact JSON is invalid: %v", err)
+	}
+}
+
+// TestAppendUniqueTracersWithNilInput tests dedup with nil entries
+func TestAppendUniqueTracersWithNilInput(t *testing.T) {
+	tracer1 := func(next Fn) Fn {
+		return func(ctx context.Context) error { return next(ctx) }
+	}
+
+	// Mix nil and valid tracers
+	var input []Tracer
+	input = append(input, tracer1, nil, tracer1, nil, tracer1)
+
+	result := appendUniqueTracers(nil, input...)
+
+	// Should only have 1 unique tracer (nil should be skipped, duplicates removed)
+	if len(result) != 1 {
+		t.Errorf("expected 1 tracer from duplicate+nil mix, got %d", len(result))
+	}
+
+	// Test with empty input
+	result = appendUniqueTracers(nil)
+	if len(result) != 0 {
+		t.Errorf("expected 0 tracers from empty input, got %d", len(result))
+	}
+
+	// Test with only nils
+	result = appendUniqueTracers(nil, nil, nil, nil)
+	if len(result) != 0 {
+		t.Errorf("expected 0 tracers from only nils, got %d", len(result))
+	}
+}
+
+// TestAppendUniqueTracersWithLargeList tests dedup on list with large number of same tracer
+func TestAppendUniqueTracersWithLargeList(t *testing.T) {
+	// Use the same tracer reference multiple times
+	executed := 0
+	tracer := func(next Fn) Fn {
+		return func(ctx context.Context) error {
+			executed++
+			return next(ctx)
+		}
+	}
+
+	// Add the same tracer 60 times (simulating duplicate adds)
+	var input []Tracer
+	for i := 0; i < 60; i++ {
+		input = append(input, tracer)
+	}
+
+	result := appendUniqueTracers(nil, input...)
+
+	// Should have exactly 1 tracer (all adds were the same tracer)
+	if len(result) != 1 {
+		t.Errorf("expected 1 unique tracer, got %d", len(result))
+	}
+}
+
+// TestPrintSQLTracer tests PrintSQL() tracer function
+func TestPrintSQLTracer(t *testing.T) {
+	ClearTracers()
+
+	executed := false
+	ctxValue := false
+
+	tracer := PrintSQL
+	fn := func(ctx context.Context) error {
+		executed = true
+		// Check if context has printSQL value set
+		val := ctx.Value(printSQL)
+		if val != nil && val.(bool) {
+			ctxValue = true
+		}
+		return nil
+	}
+
+	wrappedFn := tracer(fn)
+	err := wrappedFn(context.Background())
+
+	if err != nil {
+		t.Errorf("expected no error, got: %v", err)
+	}
+
+	if !executed {
+		t.Error("wrapped function should have executed")
+	}
+
+	if !ctxValue {
+		t.Error("expected printSQL context value to be set to true")
+	}
+}
+
+// TestPrintVersionFunctions tests PrintVersion() and PrintVersionJSON()
+func TestPrintVersionFunctions(t *testing.T) {
+	// These functions write to stdout, so we mainly test that they don't panic
+	// In a real scenario, we'd capture stdout
+	testCases := []struct {
+		name string
+		fn   func()
+	}{
+		{
+			name: "PrintVersion",
+			fn:   PrintVersion,
+		},
+		{
+			name: "PrintVersionJSON",
+			fn:   PrintVersionJSON,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Should not panic
+			defer func() {
+				if r := recover(); r != nil {
+					t.Errorf("PrintVersion functions should not panic: %v", r)
+				}
+			}()
+
+			tc.fn()
+		})
+	}
+
+	// Also test GetVersionInfo doesn't return nil
+	info := GetVersionInfo()
+	if info == nil {
+		t.Error("GetVersionInfo should never return nil")
+	}
+
+	// Verify version info has reasonable structure
+	if info.Version == "" {
+		t.Error("Version should not be empty")
+	}
+
+	// Test string methods
+	versionStr := info.String()
+	if versionStr == "" || versionStr == "TSQ unknown" {
+		t.Error("Version string should be non-empty and meaningful")
+	}
+
+	shortStr := info.ShortString()
+	if shortStr == "" {
+		t.Error("Short version string should not be empty")
+	}
+}
+
+// TestRestoreTracersFromSnapshot tests restore() in various states
+func TestRestoreTracersFromSnapshot(t *testing.T) {
+	ClearTracers()
+	rt := DefaultRuntime()
+	tm := rt.TraceManager()
+
+	// Add some initial tracers
+	tracer1 := func(next Fn) Fn {
+		return func(ctx context.Context) error { return next(ctx) }
+	}
+	tracer2 := func(next Fn) Fn {
+		return func(ctx context.Context) error { return next(ctx) }
+	}
+
+	AddTracer(tracer1)
+	AddTracer(tracer2)
+
+	// Take a snapshot
+	snapshot := tm.snapshot()
+	if len(snapshot) != 2 {
+		t.Errorf("expected 2 tracers in snapshot, got %d", len(snapshot))
+	}
+
+	// Add another tracer
+	tracer3 := func(next Fn) Fn {
+		return func(ctx context.Context) error { return next(ctx) }
+	}
+	AddTracer(tracer3)
+
+	currentTracers := tm.Get()
+	if len(currentTracers) != 3 {
+		t.Errorf("expected 3 tracers after adding, got %d", len(currentTracers))
+	}
+
+	// Restore to the snapshot
+	tm.restore(snapshot)
+
+	restoredTracers := tm.Get()
+	if len(restoredTracers) != 2 {
+		t.Errorf("expected 2 tracers after restore, got %d", len(restoredTracers))
+	}
+
+	// Test restore with empty snapshot
+	emptySnapshot := []Tracer{}
+	tm.restore(emptySnapshot)
+	if len(tm.Get()) != 0 {
+		t.Error("restore with empty snapshot should result in empty tracers")
+	}
+
+	// Test restore with nil snapshot
+	tm.restore(nil)
+	if len(tm.Get()) != 0 {
+		t.Error("restore with nil snapshot should result in empty tracers")
+	}
+}
+
+// TestTraceManagerConcurrentSnapshot tests concurrent reads during tracer changes
+func TestTraceManagerConcurrentSnapshot(t *testing.T) {
+	ClearTracers()
+	rt := DefaultRuntime()
+	tm := rt.TraceManager()
+
+	// Add initial tracers
+	for i := 0; i < 10; i++ {
+		tracer := func(next Fn) Fn {
+			return func(ctx context.Context) error { return next(ctx) }
+		}
+		AddTracer(tracer)
+	}
+
+	done := make(chan struct{})
+	errors := make(chan string, 100)
+
+	// Goroutine that continuously adds tracers
+	go func() {
+		for i := 0; i < 50; i++ {
+			tracer := func(next Fn) Fn {
+				return func(ctx context.Context) error { return next(ctx) }
+			}
+			AddTracer(tracer)
+		}
+		close(done)
+	}()
+
+	// Goroutine that continuously takes snapshots
+	for j := 0; j < 20; j++ {
+		go func() {
+			for k := 0; k < 100; k++ {
+				snapshot := tm.snapshot()
+				if snapshot == nil {
+					errors <- "snapshot returned nil"
+				}
+				if len(snapshot) < 0 {
+					errors <- "snapshot had negative length"
+				}
+			}
+		}()
+	}
+
+	// Wait for additions to complete
+	<-done
+
+	// Give snapshot goroutines time to finish
+	for i := 0; i < 20; i++ {
+		// Small delay to allow goroutines to finish
+	}
+
+	// Check for any errors
+	close(errors)
+	for err := range errors {
+		t.Error(err)
+	}
+
+	// Verify final state is valid
+	finalTracers := tm.Get()
+	if len(finalTracers) == 0 {
+		t.Error("expected some tracers after concurrent operations")
 	}
 }

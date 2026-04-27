@@ -8,26 +8,6 @@ import (
 	"gopkg.in/gorp.v2"
 )
 
-func TestRegisterTablePanicsOnDuplicateName(t *testing.T) {
-	oldRuntime := defaultRuntime
-	defaultRuntime = NewRuntime()
-
-	t.Cleanup(func() {
-		defaultRuntime = oldRuntime
-	})
-
-	table := newMockTable("users")
-	RegisterTable(table, func(db *gorp.DbMap) {}, func(db *gorp.DbMap) error { return nil })
-
-	defer func() {
-		if r := recover(); r == nil {
-			t.Fatal("expected duplicate table registration to panic")
-		}
-	}()
-
-	RegisterTable(table, func(db *gorp.DbMap) {}, func(db *gorp.DbMap) error { return nil })
-}
-
 func TestRegisterTableRejectsNilInputs(t *testing.T) {
 	oldRuntime := defaultRuntime
 	defaultRuntime = NewRuntime()
@@ -37,39 +17,97 @@ func TestRegisterTableRejectsNilInputs(t *testing.T) {
 	})
 
 	tests := []struct {
-		name string
-		fn   func()
+		name          string
+		fn            func() error
+		expectedError RegistrationErrorType
 	}{
 		{
 			name: "nil table",
-			fn: func() {
-				RegisterTable(nil, func(db *gorp.DbMap) {}, func(db *gorp.DbMap) error { return nil })
+			fn: func() error {
+				return RegisterTable(nil, func(db *gorp.DbMap) {}, func(db *gorp.DbMap) error { return nil })
 			},
+			expectedError: RegistrationErrorNilTable,
 		},
 		{
 			name: "nil add table func",
-			fn: func() {
-				RegisterTable(newMockTable("users"), nil, func(db *gorp.DbMap) error { return nil })
+			fn: func() error {
+				return RegisterTable(newMockTable("users"), nil, func(db *gorp.DbMap) error { return nil })
 			},
+			expectedError: RegistrationErrorNilAddFunc,
 		},
 		{
 			name: "nil init func",
-			fn: func() {
-				RegisterTable(newMockTable("users"), func(db *gorp.DbMap) {}, nil)
+			fn: func() error {
+				return RegisterTable(newMockTable("users"), func(db *gorp.DbMap) {}, nil)
 			},
+			expectedError: RegistrationErrorNilInitFunc,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			defer func() {
-				if r := recover(); r == nil {
-					t.Fatal("expected invalid registration input to panic")
-				}
-			}()
+			err := tt.fn()
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
 
-			tt.fn()
+			regErr, ok := err.(*RegistrationError)
+			if !ok {
+				t.Fatalf("expected RegistrationError, got %T", err)
+			}
+
+			if regErr.Type != tt.expectedError {
+				t.Errorf("expected error type %v, got %v", tt.expectedError, regErr.Type)
+			}
 		})
+	}
+}
+
+func TestRegisterTableRejectsDuplicate(t *testing.T) {
+	oldRuntime := defaultRuntime
+	defaultRuntime = NewRuntime()
+
+	t.Cleanup(func() {
+		defaultRuntime = oldRuntime
+	})
+
+	table := newMockTable("users")
+	err1 := RegisterTable(table, func(db *gorp.DbMap) {}, func(db *gorp.DbMap) error { return nil })
+	if err1 != nil {
+		t.Fatalf("first registration should succeed, got error: %v", err1)
+	}
+
+	err2 := RegisterTable(table, func(db *gorp.DbMap) {}, func(db *gorp.DbMap) error { return nil })
+	if err2 == nil {
+		t.Fatal("expected duplicate table registration to fail")
+	}
+
+	regErr, ok := err2.(*RegistrationError)
+	if !ok {
+		t.Fatalf("expected RegistrationError, got %T", err2)
+	}
+
+	if regErr.Type != RegistrationErrorDuplicate {
+		t.Errorf("expected error type %v, got %v", RegistrationErrorDuplicate, regErr.Type)
+	}
+}
+
+func TestRuntimeRegisterTableRejectsNilRuntime(t *testing.T) {
+	var r *Runtime // nil runtime
+	table := newMockTable("users")
+
+	err := r.RegisterTable(table, func(db *gorp.DbMap) {}, func(db *gorp.DbMap) error { return nil })
+	if err == nil {
+		t.Fatal("expected nil runtime to return error")
+	}
+
+	regErr, ok := err.(*RegistrationError)
+	if !ok {
+		t.Fatalf("expected RegistrationError, got %T", err)
+	}
+
+	if regErr.Type != RegistrationErrorNilRuntime {
+		t.Errorf("expected error type %v, got %v", RegistrationErrorNilRuntime, regErr.Type)
 	}
 }
 

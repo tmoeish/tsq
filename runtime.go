@@ -50,12 +50,15 @@ func (r *Runtime) RegisterTable(
 	table Table,
 	addTableFunc func(db *gorp.DbMap),
 	initFunc func(db *gorp.DbMap) error,
-) {
+) error {
 	if r == nil {
-		panic("runtime cannot be nil")
+		return &RegistrationError{
+			Type:    RegistrationErrorNilRuntime,
+			Message: "runtime cannot be nil",
+		}
 	}
 
-	r.registry.Register(table, addTableFunc, initFunc)
+	return r.registry.Register(table, addTableFunc, initFunc)
 }
 
 func (r *Runtime) snapshotRegisteredTables() []*RegisteredTable {
