@@ -1800,3 +1800,14 @@ func deleteFn[T any](
 
 	return errors.Trace(err)
 }
+
+// MustBuild is a helper method that builds the query and panics on error.
+// INTERNAL USE ONLY - Used by generated code for convenient initialization.
+// Applications should use Build() and handle errors explicitly.
+func (qb *QueryBuilder) MustBuild() *Query {
+q, err := qb.Build()
+if err != nil {
+panic(errors.ErrorStack(err))
+}
+return q
+}

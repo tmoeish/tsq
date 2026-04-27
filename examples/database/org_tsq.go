@@ -8,7 +8,6 @@ import (
 
 	"github.com/juju/errors"
 	"github.com/tmoeish/tsq"
-	"gopkg.in/gorp.v2"
 
 	null "gopkg.in/nullbio/null.v6"
 )
@@ -20,10 +19,10 @@ import (
 func init() {
 	tsq.RegisterTable(
 		TableOrg,
-		func(db *gorp.DbMap) {
+		func(db *tsq.DbMap) {
 			db.AddTableWithName(TableOrg, "org").SetKeys(true, "ID")
 		},
-		func(db *gorp.DbMap) error {
+		func(db *tsq.DbMap) error {
 			// Upsert Ux list
 			if err := tsq.UpsertIndex(db, "org", true, "ux_org_name", []string{"name"}); err != nil {
 				return errors.Annotate(err, "upsert ux_org_name@org")
@@ -71,7 +70,7 @@ var getOrgByIDQuery = tsq.
 // Returns (nil, nil) if the record is not found.
 func GetOrgByID(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 	iD int64,
 ) (*Org, error) {
 	row := &Org{}
@@ -91,7 +90,7 @@ func GetOrgByID(
 // Returns (nil, database/sql.ErrNoRows) if the record is not found.
 func GetOrgByIDOrErr(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 	iD int64,
 ) (*Org, error) {
 	row := &Org{}
@@ -111,7 +110,7 @@ func GetOrgByIDOrErr(
 // Records not found are silently ignored.
 func ListOrgByIDIn(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 	iDs ...int64,
 ) ([]*Org, error) {
 	query := tsq.
@@ -126,7 +125,7 @@ func ListOrgByIDIn(
 // Returns an error if any of the specified records are not found.
 func ListOrgByIDInOrErr(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 	iDs ...int64,
 ) ([]*Org, error) {
 	query := tsq.
@@ -156,7 +155,7 @@ func ListOrgByIDInOrErr(
 // Automatically sets creation and modification timestamps if configured.
 func (o *Org) Insert(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 ) error {
 	o.CT = null.TimeFrom(tsqtime.Now())
 	err := tsq.Insert(ctx, db, o)
@@ -171,7 +170,7 @@ func (o *Org) Insert(
 // Automatically updates the modification timestamp if configured.
 func (o *Org) Update(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 ) error {
 	err := tsq.Update(ctx, db, o)
 	if err != nil {
@@ -184,7 +183,7 @@ func (o *Org) Update(
 // Delete permanently removes a Org record from the database.
 func (o *Org) Delete(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 ) error {
 	err := tsq.Delete(ctx, db, o)
 	if err != nil {
@@ -197,7 +196,7 @@ func (o *Org) Delete(
 // ListOrgByQuery executes a custom query to retrieve Org records.
 func ListOrgByQuery(
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx tsq.SqlExecutor,
 	qb *tsq.Query,
 	args ...any,
 ) ([]*Org, error) {
@@ -207,7 +206,7 @@ func ListOrgByQuery(
 // PageOrgByQuery executes a custom query with pagination to retrieve Org records.
 func PageOrgByQuery(
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx tsq.SqlExecutor,
 	page *tsq.PageReq,
 	qb *tsq.Query,
 	args ...any,
@@ -227,7 +226,7 @@ var listOrgQuery = tsq.
 // CountOrg returns the total count of Org records.
 func CountOrg(
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx tsq.SqlExecutor,
 ) (int64, error) {
 	return listOrgQuery.Count64(ctx, tx)
 }
@@ -235,7 +234,7 @@ func CountOrg(
 // ListOrg retrieves all Org records from the database.
 func ListOrg(
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx tsq.SqlExecutor,
 ) ([]*Org, error) {
 	return tsq.List[Org](ctx, tx, listOrgQuery)
 }
@@ -243,7 +242,7 @@ func ListOrg(
 // PageOrg retrieves Org records with pagination support.
 func PageOrg(
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx tsq.SqlExecutor,
 	page *tsq.PageReq,
 ) (*tsq.PageResp[Org], error) {
 	return tsq.Page[Org](ctx, tx, page, listOrgQuery)
@@ -264,7 +263,7 @@ var getOrgByNameQuery = tsq.
 // Returns (nil, nil) if the record is not found.
 func GetOrgByName(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 	name string,
 ) (*Org, error) {
 	query := getOrgByNameQuery
@@ -288,7 +287,7 @@ func GetOrgByName(
 // Returns (nil, database/sql.ErrNoRows) if the record is not found.
 func GetOrgByNameOrErr(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 	name string,
 ) (*Org, error) {
 	query := getOrgByNameQuery
@@ -311,7 +310,7 @@ func GetOrgByNameOrErr(
 // ExistsOrgByName checks whether a Org record exists by unique index ux_org_name.
 func ExistsOrgByName(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 	name string,
 ) (bool, error) {
 	query := getOrgByNameQuery

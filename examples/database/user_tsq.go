@@ -8,7 +8,6 @@ import (
 
 	"github.com/juju/errors"
 	"github.com/tmoeish/tsq"
-	"gopkg.in/gorp.v2"
 
 	null "gopkg.in/nullbio/null.v6"
 )
@@ -20,10 +19,10 @@ import (
 func init() {
 	tsq.RegisterTable(
 		TableUser,
-		func(db *gorp.DbMap) {
+		func(db *tsq.DbMap) {
 			db.AddTableWithName(TableUser, "user").SetKeys(true, "ID")
 		},
-		func(db *gorp.DbMap) error {
+		func(db *tsq.DbMap) error {
 			// Upsert Ux list
 			if err := tsq.UpsertIndex(db, "user", true, "ux_user_name", []string{"name"}); err != nil {
 				return errors.Annotate(err, "upsert ux_user_name@user")
@@ -75,7 +74,7 @@ var getUserByIDQuery = tsq.
 // Returns (nil, nil) if the record is not found.
 func GetUserByID(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 	iD int64,
 ) (*User, error) {
 	row := &User{}
@@ -95,7 +94,7 @@ func GetUserByID(
 // Returns (nil, database/sql.ErrNoRows) if the record is not found.
 func GetUserByIDOrErr(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 	iD int64,
 ) (*User, error) {
 	row := &User{}
@@ -115,7 +114,7 @@ func GetUserByIDOrErr(
 // Records not found are silently ignored.
 func ListUserByIDIn(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 	iDs ...int64,
 ) ([]*User, error) {
 	query := tsq.
@@ -130,7 +129,7 @@ func ListUserByIDIn(
 // Returns an error if any of the specified records are not found.
 func ListUserByIDInOrErr(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 	iDs ...int64,
 ) ([]*User, error) {
 	query := tsq.
@@ -160,7 +159,7 @@ func ListUserByIDInOrErr(
 // Automatically sets creation and modification timestamps if configured.
 func (u *User) Insert(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 ) error {
 	u.CT = null.TimeFrom(tsqtime.Now())
 	err := tsq.Insert(ctx, db, u)
@@ -175,7 +174,7 @@ func (u *User) Insert(
 // Automatically updates the modification timestamp if configured.
 func (u *User) Update(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 ) error {
 	err := tsq.Update(ctx, db, u)
 	if err != nil {
@@ -188,7 +187,7 @@ func (u *User) Update(
 // Delete permanently removes a User record from the database.
 func (u *User) Delete(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 ) error {
 	err := tsq.Delete(ctx, db, u)
 	if err != nil {
@@ -201,7 +200,7 @@ func (u *User) Delete(
 // ListUserByQuery executes a custom query to retrieve User records.
 func ListUserByQuery(
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx tsq.SqlExecutor,
 	qb *tsq.Query,
 	args ...any,
 ) ([]*User, error) {
@@ -211,7 +210,7 @@ func ListUserByQuery(
 // PageUserByQuery executes a custom query with pagination to retrieve User records.
 func PageUserByQuery(
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx tsq.SqlExecutor,
 	page *tsq.PageReq,
 	qb *tsq.Query,
 	args ...any,
@@ -231,7 +230,7 @@ var listUserQuery = tsq.
 // CountUser returns the total count of User records.
 func CountUser(
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx tsq.SqlExecutor,
 ) (int64, error) {
 	return listUserQuery.Count64(ctx, tx)
 }
@@ -239,7 +238,7 @@ func CountUser(
 // ListUser retrieves all User records from the database.
 func ListUser(
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx tsq.SqlExecutor,
 ) ([]*User, error) {
 	return tsq.List[User](ctx, tx, listUserQuery)
 }
@@ -247,7 +246,7 @@ func ListUser(
 // PageUser retrieves User records with pagination support.
 func PageUser(
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx tsq.SqlExecutor,
 	page *tsq.PageReq,
 ) (*tsq.PageResp[User], error) {
 	return tsq.Page[User](ctx, tx, page, listUserQuery)
@@ -268,7 +267,7 @@ var getUserByNameQuery = tsq.
 // Returns (nil, nil) if the record is not found.
 func GetUserByName(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 	name string,
 ) (*User, error) {
 	query := getUserByNameQuery
@@ -292,7 +291,7 @@ func GetUserByName(
 // Returns (nil, database/sql.ErrNoRows) if the record is not found.
 func GetUserByNameOrErr(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 	name string,
 ) (*User, error) {
 	query := getUserByNameQuery
@@ -315,7 +314,7 @@ func GetUserByNameOrErr(
 // ExistsUserByName checks whether a User record exists by unique index ux_user_name.
 func ExistsUserByName(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 	name string,
 ) (bool, error) {
 	query := getUserByNameQuery

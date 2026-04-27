@@ -33,7 +33,6 @@ import (
 	"context"
 	"github.com/tmoeish/tsq"
 	"github.com/juju/errors"
-	"gopkg.in/gorp.v2"
 	tsqsql "database/sql"
 {{- range $p, $a := .ImportMap }}
 {{- if and (ne $p "database/sql") (ne $p "time") }}
@@ -52,10 +51,10 @@ import (
 func init() {
 	tsq.RegisterTable(
 		Table{{$type}},
-		func(db *gorp.DbMap) {
+		func(db *tsq.DbMap) {
 			db.AddTableWithName(Table{{$type}}, "{{ $dot.Table }}").SetKeys({{ if $dot.AI }}true{{ else }}false{{ end }}, "{{ $dot.ID }}"){{ if $dot.V }}.SetVersionCol("{{ $dot.V }}") {{ end }}
 		},
-		func(db *gorp.DbMap) error {
+		func(db *tsq.DbMap) error {
 {{- if $dot.UxList }}
 			// Upsert Ux list
 	{{- range $name, $idx := $dot.UxList }}
@@ -127,7 +126,7 @@ var {{$query}} = tsq.
 // Returns (nil, nil) if the record is not found.
 func {{$name}}(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 		{{ FieldVarName $dot.ID }} {{index $dot.FieldMap $dot.ID | FieldType}},
 	) ({{$ptype}}, error) {
 		row := &{{$type}}{}
@@ -149,7 +148,7 @@ func {{$name}}(
 // Returns (nil, database/sql.ErrNoRows) if the record is not found.
 func {{$name}}(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 		{{ FieldVarName $dot.ID }} {{index $dot.FieldMap $dot.ID | FieldType}},
 	) ({{$ptype}}, error) {
 		row := &{{$type}}{}
@@ -172,7 +171,7 @@ func {{$name}}(
 // Records not found are silently ignored.
 func {{$name}}(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 		{{ FieldSliceVarName $dot.ID }} ...{{index $dot.FieldMap $dot.ID | FieldType}},
 	) ({{$list}}, error) {
 		query := tsq.
@@ -189,7 +188,7 @@ func {{$name}}(
 // Returns an error if any of the specified records are not found.
 func {{$name}}(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 		{{ FieldSliceVarName $dot.ID }} ...{{index $dot.FieldMap $dot.ID | FieldType}},
 	) ({{$list}}, error) {
 		query := tsq.
@@ -231,7 +230,7 @@ var {{$query}} = tsq.
 // Returns (nil, nil) if the record is not found or has been soft-deleted.
 func {{$name}}(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 		{{ FieldVarName $dot.ID }} {{index $dot.FieldMap $dot.ID | FieldType}},
 	) ({{$ptype}}, error) {
 		row := &{{$type}}{}
@@ -253,7 +252,7 @@ func {{$name}}(
 // Returns (nil, database/sql.ErrNoRows) if the record is not found or has been soft-deleted.
 func {{$name}}(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 		{{ FieldVarName $dot.ID }} {{index $dot.FieldMap $dot.ID | FieldType}},
 	) ({{$ptype}}, error) {
 		row := &{{$type}}{}
@@ -276,7 +275,7 @@ func {{$name}}(
 // Records not found or soft-deleted are silently ignored.
 func {{$name}}(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 		{{ FieldSliceVarName $dot.ID }} ...{{index $dot.FieldMap $dot.ID | FieldType}},
 ) ({{$list}}, error) {
 	query := tsq.
@@ -299,7 +298,7 @@ func {{$name}}(
 // Returns an error if any of the specified active records are not found.
 func {{$name}}(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 		{{ FieldSliceVarName $dot.ID }} ...{{index $dot.FieldMap $dot.ID | FieldType}},
 	) ({{$list}}, error) {
 	query := tsq.
@@ -334,7 +333,7 @@ func {{$name}}(
 // Automatically sets creation and modification timestamps if configured.
 {{$precv}}Insert(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 ) error {
 {{- if $dot.CT }}
 	{{$dot.Recv}}.{{$dot.CT}} = {{ TimestampNowValue (index $dot.FieldMap $dot.CT) }}
@@ -354,7 +353,7 @@ func {{$name}}(
 // Automatically updates the modification timestamp if configured.
 {{$precv}}Update(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 ) error {
 {{- if $dot.MT }}
 	{{$dot.Recv}}.{{$dot.MT}} = {{ TimestampNowValue (index $dot.FieldMap $dot.MT) }}
@@ -370,7 +369,7 @@ func {{$name}}(
 // Delete permanently removes a {{$type}} record from the database.
 {{$precv}}Delete(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 ) error {
 	err := tsq.Delete(ctx, db, {{$dot.Recv}})
 	if err != nil {
@@ -385,7 +384,7 @@ func {{$name}}(
 // If dt is set, uses the provided tombstone value; otherwise uses the current time.
 {{$precv}}SoftDelete(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 	dt {{ SoftDeleteParamType (index $dot.FieldMap $dot.DT) }},
 ) error {
 	if {{ SoftDeleteParamSetExpr "dt" (index $dot.FieldMap $dot.DT) }} {
@@ -409,7 +408,7 @@ func {{$name}}(
 // {{$name}} executes a custom query to retrieve {{$type}} records.
 func {{$name}}(
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx tsq.SqlExecutor,
 	qb *tsq.Query,
 	args ...any,
 ) ({{$list}}, error) {
@@ -421,7 +420,7 @@ func {{$name}}(
 // {{$name}} executes a custom query with pagination to retrieve {{$type}} records.
 func {{$name}}(
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx tsq.SqlExecutor,
 	page *tsq.PageReq,
 	qb *tsq.Query,
 	args ...any,
@@ -445,7 +444,7 @@ var {{$query}} = tsq.
 // {{$name}} returns the total count of {{$type}} records.
 func {{$name}}(
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx tsq.SqlExecutor,
 ) (int64, error) {
 	return {{$query}}.Count64(ctx, tx)
 }
@@ -455,7 +454,7 @@ func {{$name}}(
 // {{$name}} retrieves all {{$type}} records from the database.
 func {{$name}}(
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx tsq.SqlExecutor,
 ) ({{$list}}, error) {
 	return tsq.List[{{$type}}](ctx, tx, {{$query}})
 }
@@ -465,7 +464,7 @@ func {{$name}}(
 // {{$name}} retrieves {{$type}} records with pagination support.
 func {{$name}}(
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx tsq.SqlExecutor,
 	page *tsq.PageReq,
 ) (*{{$pageResp}}, error) {
 	return tsq.Page[{{$type}}](ctx, tx, page, {{$query}})
@@ -490,7 +489,7 @@ var {{$query}} = tsq.
 // {{$name}} returns the count of active (non-deleted) {{$type}} records.
 func {{$name}}(
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx tsq.SqlExecutor,
 ) (int64, error) {
 	return {{$query}}.Count64(ctx, tx)
 }
@@ -500,7 +499,7 @@ func {{$name}}(
 // {{$name}} retrieves all active (non-deleted) {{$type}} records.
 func {{$name}}(
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx tsq.SqlExecutor,
 ) ({{$list}}, error) {
 	return tsq.List[{{$type}}](ctx, tx, {{$query}})
 }
@@ -510,7 +509,7 @@ func {{$name}}(
 // {{$name}} retrieves active (non-deleted) {{$type}} records with pagination support.
 func {{$name}}(
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx tsq.SqlExecutor,
 	page *tsq.PageReq,
 ) (*{{$pageResp}}, error) {
 	return tsq.Page[{{$type}}](ctx, tx, page, {{$query}})
@@ -540,7 +539,7 @@ var {{$query}} = tsq.
 // Returns (nil, nil) if the record is not found.
 func {{$name}}(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 			{{- range $f := $ux.Fields }}
 		{{ FieldVarName $f }} {{ index $dot.FieldMap $f | FieldType }},
 			{{- end }}
@@ -570,7 +569,7 @@ func {{$name}}(
 // Returns (nil, database/sql.ErrNoRows) if the record is not found.
 func {{$name}}(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 			{{- range $f := $ux.Fields }}
 		{{ FieldVarName $f }} {{ index $dot.FieldMap $f | FieldType }},
 			{{- end }}
@@ -599,7 +598,7 @@ func {{$name}}(
 // {{$name}} checks whether a {{$type}} record exists by unique index {{$ux.Name}}.
 func {{$name}}(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 			{{- range $f := $ux.Fields }}
 		{{ FieldVarName $f }} {{ index $dot.FieldMap $f | FieldType }},
 			{{- end }}
@@ -641,7 +640,7 @@ var {{$query}} = tsq.
 // Returns (nil, nil) if the record is not found or has been soft-deleted.
 func {{$name}}(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 				{{- range $f := $ux.Fields }}
 		{{ FieldVarName $f }} {{ index $dot.FieldMap $f | FieldType }},
 				{{- end }}
@@ -671,7 +670,7 @@ func {{$name}}(
 // Returns (nil, database/sql.ErrNoRows) if the record is not found or has been soft-deleted.
 func {{$name}}(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 				{{- range $f := $ux.Fields }}
 		{{ FieldVarName $f }} {{ index $dot.FieldMap $f | FieldType }},
 				{{- end }}
@@ -700,7 +699,7 @@ func {{$name}}(
 // {{$name}} checks whether an active (non-deleted) {{$type}} record exists by unique index {{$ux.Name}}.
 func {{$name}}(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 				{{- range $f := $ux.Fields }}
 		{{ FieldVarName $f }} {{ index $dot.FieldMap $f | FieldType }},
 				{{- end }}
@@ -730,7 +729,7 @@ func {{$name}}(
 	// List{{$type}}By{{$idx.Name}} retrieves {{$type}} records by index {{$idx.Name}} using IN clause for batch querying.
 func List{{$type}}By{{$idx.Name}}(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 		{{- range $i, $f := $idx.Fields }}
 			{{- if eq $i (Sub1 (len $idx.Fields)) }}
 		{{ FieldSliceVarName $f }} ...{{ (index $.FieldMap $f) | FieldType }},
@@ -771,7 +770,7 @@ var {{$query}} = tsq.
 // {{$name}} returns the count of {{$type}} records matching index {{$idx.Name}}.
 func {{$name}}(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 				{{- range $f := $idx.Fields }}
 		{{ FieldVarName $f }} {{ index $dot.FieldMap $f | FieldType }},
 				{{- end }}
@@ -791,7 +790,7 @@ func {{$name}}(
 // {{$name}} retrieves {{$type}} records by index {{$idx.Name}}.
 func {{$name}}(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 				{{- range $f := $idx.Fields }}
 		{{ FieldVarName $f }} {{ index $dot.FieldMap $f | FieldType }},
 				{{- end }}
@@ -811,7 +810,7 @@ func {{$name}}(
 // {{$name}} retrieves {{$type}} records by index {{$idx.Name}} with pagination support.
 func {{$name}}(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 	page *tsq.PageReq,
 				{{- range $f := $idx.Fields }}
 		{{ FieldVarName $f }} {{ index $dot.FieldMap $f | FieldType }},
@@ -842,7 +841,7 @@ func {{$name}}(
 // {{$name}} retrieves active (non-deleted) {{$type}} records by index {{$idx.Name}} using IN clause for batch querying.
 func {{$name}}(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 				{{- range $i, $f := $idx.Fields }}
 					{{- if eq $i (Sub1 (len $idx.Fields)) }}
 		{{ FieldSliceVarName $f }} ...{{ (index $.FieldMap $f) | FieldType }},
@@ -886,7 +885,7 @@ var {{$query}} = tsq.
 // {{$name}} returns the count of active (non-deleted) {{$type}} records matching index {{$idx.Name}}.
 func {{$name}}(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 					{{- range $f := $idx.Fields }}
 		{{ FieldVarName $f }} {{ index $dot.FieldMap $f | FieldType }},
 					{{- end }}
@@ -906,7 +905,7 @@ func {{$name}}(
 // {{$name}} retrieves active (non-deleted) {{$type}} records by index {{$idx.Name}}.
 func {{$name}}(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 					{{- range $f := $idx.Fields }}
 		{{ FieldVarName $f }} {{ index $dot.FieldMap $f | FieldType }},
 					{{- end }}
@@ -926,7 +925,7 @@ func {{$name}}(
 // {{$name}} retrieves active (non-deleted) {{$type}} records by index {{$idx.Name}} with pagination support.
 func {{$name}}(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 	page *tsq.PageReq,
 					{{- range $f := $idx.Fields }}
 		{{ FieldVarName $f }} {{ index $dot.FieldMap $f | FieldType }},

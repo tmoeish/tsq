@@ -8,7 +8,6 @@ import (
 
 	"github.com/juju/errors"
 	"github.com/tmoeish/tsq"
-	"gopkg.in/gorp.v2"
 
 	null "gopkg.in/nullbio/null.v6"
 )
@@ -20,10 +19,10 @@ import (
 func init() {
 	tsq.RegisterTable(
 		TableOrder,
-		func(db *gorp.DbMap) {
+		func(db *tsq.DbMap) {
 			db.AddTableWithName(TableOrder, "order").SetKeys(true, "UID").SetVersionCol("V")
 		},
-		func(db *gorp.DbMap) error {
+		func(db *tsq.DbMap) error {
 			// Upsert Idx list
 			if err := tsq.UpsertIndex(db, "order", false, "idx_item", []string{"dt", "item_id"}); err != nil {
 				return errors.Annotate(err, "upsert idx_item@order")
@@ -93,7 +92,7 @@ var getOrderByUIDQuery = tsq.
 // Returns (nil, nil) if the record is not found.
 func GetOrderByUID(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 	uID int64,
 ) (*Order, error) {
 	row := &Order{}
@@ -113,7 +112,7 @@ func GetOrderByUID(
 // Returns (nil, database/sql.ErrNoRows) if the record is not found.
 func GetOrderByUIDOrErr(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 	uID int64,
 ) (*Order, error) {
 	row := &Order{}
@@ -133,7 +132,7 @@ func GetOrderByUIDOrErr(
 // Records not found are silently ignored.
 func ListOrderByUIDIn(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 	uIDs ...int64,
 ) ([]*Order, error) {
 	query := tsq.
@@ -148,7 +147,7 @@ func ListOrderByUIDIn(
 // Returns an error if any of the specified records are not found.
 func ListOrderByUIDInOrErr(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 	uIDs ...int64,
 ) ([]*Order, error) {
 	query := tsq.
@@ -185,7 +184,7 @@ var getActiveOrderByUIDQuery = tsq.
 // Returns (nil, nil) if the record is not found or has been soft-deleted.
 func GetActiveOrderByUID(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 	uID int64,
 ) (*Order, error) {
 	row := &Order{}
@@ -205,7 +204,7 @@ func GetActiveOrderByUID(
 // Returns (nil, database/sql.ErrNoRows) if the record is not found or has been soft-deleted.
 func GetActiveOrderByUIDOrErr(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 	uID int64,
 ) (*Order, error) {
 	row := &Order{}
@@ -225,7 +224,7 @@ func GetActiveOrderByUIDOrErr(
 // Records not found or soft-deleted are silently ignored.
 func ListActiveOrderByUIDIn(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 	uIDs ...int64,
 ) ([]*Order, error) {
 	query := tsq.
@@ -246,7 +245,7 @@ func ListActiveOrderByUIDIn(
 // Returns an error if any of the specified active records are not found.
 func ListActiveOrderByUIDInOrErr(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 	uIDs ...int64,
 ) ([]*Order, error) {
 	query := tsq.
@@ -279,7 +278,7 @@ func ListActiveOrderByUIDInOrErr(
 // Automatically sets creation and modification timestamps if configured.
 func (o *Order) Insert(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 ) error {
 	o.CT = tsqtime.Now()
 	o.ModifiedTime = null.TimeFrom(tsqtime.Now())
@@ -295,7 +294,7 @@ func (o *Order) Insert(
 // Automatically updates the modification timestamp if configured.
 func (o *Order) Update(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 ) error {
 	o.ModifiedTime = null.TimeFrom(tsqtime.Now())
 	err := tsq.Update(ctx, db, o)
@@ -309,7 +308,7 @@ func (o *Order) Update(
 // Delete permanently removes a Order record from the database.
 func (o *Order) Delete(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 ) error {
 	err := tsq.Delete(ctx, db, o)
 	if err != nil {
@@ -323,7 +322,7 @@ func (o *Order) Delete(
 // If dt is set, uses the provided tombstone value; otherwise uses the current time.
 func (o *Order) SoftDelete(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 	dt int64,
 ) error {
 	if dt != 0 {
@@ -343,7 +342,7 @@ func (o *Order) SoftDelete(
 // ListOrderByQuery executes a custom query to retrieve Order records.
 func ListOrderByQuery(
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx tsq.SqlExecutor,
 	qb *tsq.Query,
 	args ...any,
 ) ([]*Order, error) {
@@ -353,7 +352,7 @@ func ListOrderByQuery(
 // PageOrderByQuery executes a custom query with pagination to retrieve Order records.
 func PageOrderByQuery(
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx tsq.SqlExecutor,
 	page *tsq.PageReq,
 	qb *tsq.Query,
 	args ...any,
@@ -373,7 +372,7 @@ var listOrderQuery = tsq.
 // CountOrder returns the total count of Order records.
 func CountOrder(
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx tsq.SqlExecutor,
 ) (int64, error) {
 	return listOrderQuery.Count64(ctx, tx)
 }
@@ -381,7 +380,7 @@ func CountOrder(
 // ListOrder retrieves all Order records from the database.
 func ListOrder(
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx tsq.SqlExecutor,
 ) ([]*Order, error) {
 	return tsq.List[Order](ctx, tx, listOrderQuery)
 }
@@ -389,7 +388,7 @@ func ListOrder(
 // PageOrder retrieves Order records with pagination support.
 func PageOrder(
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx tsq.SqlExecutor,
 	page *tsq.PageReq,
 ) (*tsq.PageResp[Order], error) {
 	return tsq.Page[Order](ctx, tx, page, listOrderQuery)
@@ -408,7 +407,7 @@ var listActiveOrderQuery = tsq.
 // CountActiveOrder returns the count of active (non-deleted) Order records.
 func CountActiveOrder(
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx tsq.SqlExecutor,
 ) (int64, error) {
 	return listActiveOrderQuery.Count64(ctx, tx)
 }
@@ -416,7 +415,7 @@ func CountActiveOrder(
 // ListActiveOrder retrieves all active (non-deleted) Order records.
 func ListActiveOrder(
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx tsq.SqlExecutor,
 ) ([]*Order, error) {
 	return tsq.List[Order](ctx, tx, listActiveOrderQuery)
 }
@@ -424,7 +423,7 @@ func ListActiveOrder(
 // PageActiveOrder retrieves active (non-deleted) Order records with pagination support.
 func PageActiveOrder(
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx tsq.SqlExecutor,
 	page *tsq.PageReq,
 ) (*tsq.PageResp[Order], error) {
 	return tsq.Page[Order](ctx, tx, page, listActiveOrderQuery)
@@ -451,7 +450,7 @@ var ListOrderByItemIDQuery = tsq.
 // CountOrderByItemID returns the count of Order records matching index ItemID.
 func CountOrderByItemID(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 	itemID int64,
 ) (int64, error) {
 	query := ListOrderByItemIDQuery
@@ -465,7 +464,7 @@ func CountOrderByItemID(
 // ListOrderByItemID retrieves Order records by index ItemID.
 func ListOrderByItemID(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 	itemID int64,
 ) ([]*Order, error) {
 	query := ListOrderByItemIDQuery
@@ -479,7 +478,7 @@ func ListOrderByItemID(
 // PageOrderByItemID retrieves Order records by index ItemID with pagination support.
 func PageOrderByItemID(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 	page *tsq.PageReq,
 	itemID int64,
 ) (*tsq.PageResp[Order], error) {
@@ -494,7 +493,7 @@ func PageOrderByItemID(
 // ListOrderByItemIDIn retrieves Order records by index ItemIDIn using IN clause for batch querying.
 func ListOrderByItemIDIn(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 	itemIDs ...int64,
 ) ([]*Order, error) {
 	query := tsq.
@@ -519,7 +518,7 @@ var ListOrderByUserIDQuery = tsq.
 // CountOrderByUserID returns the count of Order records matching index UserID.
 func CountOrderByUserID(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 	userID int64,
 ) (int64, error) {
 	query := ListOrderByUserIDQuery
@@ -533,7 +532,7 @@ func CountOrderByUserID(
 // ListOrderByUserID retrieves Order records by index UserID.
 func ListOrderByUserID(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 	userID int64,
 ) ([]*Order, error) {
 	query := ListOrderByUserIDQuery
@@ -547,7 +546,7 @@ func ListOrderByUserID(
 // PageOrderByUserID retrieves Order records by index UserID with pagination support.
 func PageOrderByUserID(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 	page *tsq.PageReq,
 	userID int64,
 ) (*tsq.PageResp[Order], error) {
@@ -572,7 +571,7 @@ var ListOrderByUserIDAndItemIDQuery = tsq.
 // CountOrderByUserIDAndItemID returns the count of Order records matching index UserIDAndItemID.
 func CountOrderByUserIDAndItemID(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 	userID int64,
 	itemID int64,
 ) (int64, error) {
@@ -588,7 +587,7 @@ func CountOrderByUserIDAndItemID(
 // ListOrderByUserIDAndItemID retrieves Order records by index UserIDAndItemID.
 func ListOrderByUserIDAndItemID(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 	userID int64,
 	itemID int64,
 ) ([]*Order, error) {
@@ -604,7 +603,7 @@ func ListOrderByUserIDAndItemID(
 // PageOrderByUserIDAndItemID retrieves Order records by index UserIDAndItemID with pagination support.
 func PageOrderByUserIDAndItemID(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 	page *tsq.PageReq,
 	userID int64,
 	itemID int64,
@@ -621,7 +620,7 @@ func PageOrderByUserIDAndItemID(
 // ListOrderByUserIDAndItemIDIn retrieves Order records by index UserIDAndItemIDIn using IN clause for batch querying.
 func ListOrderByUserIDAndItemIDIn(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 	userID int64,
 	itemIDs ...int64,
 ) ([]*Order, error) {
@@ -639,7 +638,7 @@ func ListOrderByUserIDAndItemIDIn(
 // ListOrderByUserIDIn retrieves Order records by index UserIDIn using IN clause for batch querying.
 func ListOrderByUserIDIn(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 	userIDs ...int64,
 ) ([]*Order, error) {
 	query := tsq.
@@ -668,7 +667,7 @@ var listActiveOrderByItemIDQuery = tsq.
 // CountActiveOrderByItemID returns the count of active (non-deleted) Order records matching index ItemID.
 func CountActiveOrderByItemID(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 	itemID int64,
 ) (int64, error) {
 	query := listActiveOrderByItemIDQuery
@@ -682,7 +681,7 @@ func CountActiveOrderByItemID(
 // ListActiveOrderByItemID retrieves active (non-deleted) Order records by index ItemID.
 func ListActiveOrderByItemID(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 	itemID int64,
 ) ([]*Order, error) {
 	query := listActiveOrderByItemIDQuery
@@ -696,7 +695,7 @@ func ListActiveOrderByItemID(
 // PageActiveOrderByItemID retrieves active (non-deleted) Order records by index ItemID with pagination support.
 func PageActiveOrderByItemID(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 	page *tsq.PageReq,
 	itemID int64,
 ) (*tsq.PageResp[Order], error) {
@@ -711,7 +710,7 @@ func PageActiveOrderByItemID(
 // ListActiveOrderByItemIDIn retrieves active (non-deleted) Order records by index ItemIDIn using IN clause for batch querying.
 func ListActiveOrderByItemIDIn(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 	itemIDs ...int64,
 ) ([]*Order, error) {
 	query := tsq.
@@ -738,7 +737,7 @@ var listActiveOrderByUserIDQuery = tsq.
 // CountActiveOrderByUserID returns the count of active (non-deleted) Order records matching index UserID.
 func CountActiveOrderByUserID(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 	userID int64,
 ) (int64, error) {
 	query := listActiveOrderByUserIDQuery
@@ -752,7 +751,7 @@ func CountActiveOrderByUserID(
 // ListActiveOrderByUserID retrieves active (non-deleted) Order records by index UserID.
 func ListActiveOrderByUserID(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 	userID int64,
 ) ([]*Order, error) {
 	query := listActiveOrderByUserIDQuery
@@ -766,7 +765,7 @@ func ListActiveOrderByUserID(
 // PageActiveOrderByUserID retrieves active (non-deleted) Order records by index UserID with pagination support.
 func PageActiveOrderByUserID(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 	page *tsq.PageReq,
 	userID int64,
 ) (*tsq.PageResp[Order], error) {
@@ -792,7 +791,7 @@ var listActiveOrderByUserIDAndItemIDQuery = tsq.
 // CountActiveOrderByUserIDAndItemID returns the count of active (non-deleted) Order records matching index UserIDAndItemID.
 func CountActiveOrderByUserIDAndItemID(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 	userID int64,
 	itemID int64,
 ) (int64, error) {
@@ -808,7 +807,7 @@ func CountActiveOrderByUserIDAndItemID(
 // ListActiveOrderByUserIDAndItemID retrieves active (non-deleted) Order records by index UserIDAndItemID.
 func ListActiveOrderByUserIDAndItemID(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 	userID int64,
 	itemID int64,
 ) ([]*Order, error) {
@@ -824,7 +823,7 @@ func ListActiveOrderByUserIDAndItemID(
 // PageActiveOrderByUserIDAndItemID retrieves active (non-deleted) Order records by index UserIDAndItemID with pagination support.
 func PageActiveOrderByUserIDAndItemID(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 	page *tsq.PageReq,
 	userID int64,
 	itemID int64,
@@ -841,7 +840,7 @@ func PageActiveOrderByUserIDAndItemID(
 // ListActiveOrderByUserIDAndItemIDIn retrieves active (non-deleted) Order records by index UserIDAndItemIDIn using IN clause for batch querying.
 func ListActiveOrderByUserIDAndItemIDIn(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 	userID int64,
 	itemIDs ...int64,
 ) ([]*Order, error) {
@@ -860,7 +859,7 @@ func ListActiveOrderByUserIDAndItemIDIn(
 // ListActiveOrderByUserIDIn retrieves active (non-deleted) Order records by index UserIDIn using IN clause for batch querying.
 func ListActiveOrderByUserIDIn(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 	userIDs ...int64,
 ) ([]*Order, error) {
 	query := tsq.

@@ -8,7 +8,6 @@ import (
 
 	"github.com/juju/errors"
 	"github.com/tmoeish/tsq"
-	"gopkg.in/gorp.v2"
 
 	null "gopkg.in/nullbio/null.v6"
 )
@@ -20,10 +19,10 @@ import (
 func init() {
 	tsq.RegisterTable(
 		TableCategory,
-		func(db *gorp.DbMap) {
+		func(db *tsq.DbMap) {
 			db.AddTableWithName(TableCategory, "category").SetKeys(true, "ID")
 		},
-		func(db *gorp.DbMap) error {
+		func(db *tsq.DbMap) error {
 			// Upsert Ux list
 			if err := tsq.UpsertIndex(db, "category", true, "ux_category_name", []string{"name"}); err != nil {
 				return errors.Annotate(err, "upsert ux_category_name@category")
@@ -75,7 +74,7 @@ var getCategoryByIDQuery = tsq.
 // Returns (nil, nil) if the record is not found.
 func GetCategoryByID(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 	iD int64,
 ) (*Category, error) {
 	row := &Category{}
@@ -95,7 +94,7 @@ func GetCategoryByID(
 // Returns (nil, database/sql.ErrNoRows) if the record is not found.
 func GetCategoryByIDOrErr(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 	iD int64,
 ) (*Category, error) {
 	row := &Category{}
@@ -115,7 +114,7 @@ func GetCategoryByIDOrErr(
 // Records not found are silently ignored.
 func ListCategoryByIDIn(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 	iDs ...int64,
 ) ([]*Category, error) {
 	query := tsq.
@@ -130,7 +129,7 @@ func ListCategoryByIDIn(
 // Returns an error if any of the specified records are not found.
 func ListCategoryByIDInOrErr(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 	iDs ...int64,
 ) ([]*Category, error) {
 	query := tsq.
@@ -160,7 +159,7 @@ func ListCategoryByIDInOrErr(
 // Automatically sets creation and modification timestamps if configured.
 func (c *Category) Insert(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 ) error {
 	c.CT = null.TimeFrom(tsqtime.Now())
 	err := tsq.Insert(ctx, db, c)
@@ -175,7 +174,7 @@ func (c *Category) Insert(
 // Automatically updates the modification timestamp if configured.
 func (c *Category) Update(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 ) error {
 	err := tsq.Update(ctx, db, c)
 	if err != nil {
@@ -188,7 +187,7 @@ func (c *Category) Update(
 // Delete permanently removes a Category record from the database.
 func (c *Category) Delete(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 ) error {
 	err := tsq.Delete(ctx, db, c)
 	if err != nil {
@@ -201,7 +200,7 @@ func (c *Category) Delete(
 // ListCategoryByQuery executes a custom query to retrieve Category records.
 func ListCategoryByQuery(
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx tsq.SqlExecutor,
 	qb *tsq.Query,
 	args ...any,
 ) ([]*Category, error) {
@@ -211,7 +210,7 @@ func ListCategoryByQuery(
 // PageCategoryByQuery executes a custom query with pagination to retrieve Category records.
 func PageCategoryByQuery(
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx tsq.SqlExecutor,
 	page *tsq.PageReq,
 	qb *tsq.Query,
 	args ...any,
@@ -231,7 +230,7 @@ var listCategoryQuery = tsq.
 // CountCategory returns the total count of Category records.
 func CountCategory(
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx tsq.SqlExecutor,
 ) (int64, error) {
 	return listCategoryQuery.Count64(ctx, tx)
 }
@@ -239,7 +238,7 @@ func CountCategory(
 // ListCategory retrieves all Category records from the database.
 func ListCategory(
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx tsq.SqlExecutor,
 ) ([]*Category, error) {
 	return tsq.List[Category](ctx, tx, listCategoryQuery)
 }
@@ -247,7 +246,7 @@ func ListCategory(
 // PageCategory retrieves Category records with pagination support.
 func PageCategory(
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx tsq.SqlExecutor,
 	page *tsq.PageReq,
 ) (*tsq.PageResp[Category], error) {
 	return tsq.Page[Category](ctx, tx, page, listCategoryQuery)
@@ -268,7 +267,7 @@ var getCategoryByNameQuery = tsq.
 // Returns (nil, nil) if the record is not found.
 func GetCategoryByName(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 	name string,
 ) (*Category, error) {
 	query := getCategoryByNameQuery
@@ -292,7 +291,7 @@ func GetCategoryByName(
 // Returns (nil, database/sql.ErrNoRows) if the record is not found.
 func GetCategoryByNameOrErr(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 	name string,
 ) (*Category, error) {
 	query := getCategoryByNameQuery
@@ -315,7 +314,7 @@ func GetCategoryByNameOrErr(
 // ExistsCategoryByName checks whether a Category record exists by unique index ux_category_name.
 func ExistsCategoryByName(
 	ctx context.Context,
-	db gorp.SqlExecutor,
+	db tsq.SqlExecutor,
 	name string,
 ) (bool, error) {
 	query := getCategoryByNameQuery
