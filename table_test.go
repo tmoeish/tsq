@@ -306,3 +306,70 @@ func TestUpsertIndexSQLiteAcceptsMatchingDefinition(t *testing.T) {
 		t.Fatalf("expected matching sqlite index definition to pass, got %v", err)
 	}
 }
+
+func TestCurrentDialectDetection(t *testing.T) {
+r := NewRuntime()
+
+// Before Init, should return empty string
+if r.CurrentDialect() != "" {
+t.Errorf("expected empty dialect before Init, got %q", r.CurrentDialect())
+}
+
+// After Init with SQLite, should detect dialect
+db := newSQLiteIndexTestDBMap(t)
+if err := r.InitWithOptions(db, &InitOptions{}); err != nil {
+t.Fatalf("failed to init runtime: %v", err)
+}
+
+dialect := r.CurrentDialect()
+if dialect == "" {
+t.Errorf("expected non-empty dialect after Init with SQLite")
+}
+if dialect != "sqlite" {
+t.Logf("detected dialect: %s", dialect)
+}
+}
+
+func TestCurrentDBAccess(t *testing.T) {
+r := NewRuntime()
+
+// Before Init, should return nil
+if r.CurrentDB() != nil {
+t.Errorf("expected nil CurrentDB before Init, got non-nil")
+}
+
+// After Init, should return the DB
+db := newSQLiteIndexTestDBMap(t)
+if err := r.InitWithOptions(db, &InitOptions{}); err != nil {
+t.Fatalf("failed to init runtime: %v", err)
+}
+
+currentDB := r.CurrentDB()
+if currentDB == nil {
+t.Errorf("expected non-nil CurrentDB after Init, got nil")
+}
+if currentDB != db {
+t.Errorf("expected CurrentDB to return same DB instance")
+}
+}
+
+func TestValidateIdentifiersForDialect(t *testing.T) {
+r := NewRuntime()
+
+// Before Init, should return error
+err := r.ValidateIdentifiersForDialect()
+if err == nil {
+t.Errorf("expected error before Init, got nil")
+}
+
+// After Init, should succeed (no invalid identifiers registered)
+db := newSQLiteIndexTestDBMap(t)
+if err := r.InitWithOptions(db, &InitOptions{}); err != nil {
+t.Fatalf("failed to init runtime: %v", err)
+}
+
+err = r.ValidateIdentifiersForDialect()
+if err != nil {
+t.Errorf("ValidateIdentifiersForDialect after Init should succeed, got error: %v", err)
+}
+}

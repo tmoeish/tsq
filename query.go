@@ -1324,6 +1324,28 @@ func quoteBuiltInIdentifier(name string) (string, error) {
 	return rawIdentifier(name), nil
 }
 
+// ValidateIdentifierForDialect is a utility function to validate an identifier's form and length
+// for a specific database dialect. This combines pattern validation (via quoteBuiltInIdentifier)
+// with dialect-specific length validation (via ValidateIdentifierLength).
+//
+// Returns an error if:
+// - The identifier is empty
+// - The identifier doesn't match SQL identifier pattern [A-Za-z_][A-Za-z0-9_]*
+// - The identifier exceeds the dialect's maximum length
+//
+// dialect should be one of: "mysql", "postgres", "oracle", "sqlite", or empty to skip length validation.
+func ValidateIdentifierForDialect(identifier, dialect string) error {
+	if identifier == "" {
+		return errors.New("identifier cannot be empty")
+	}
+
+	if !builtInIdentifierPattern.MatchString(identifier) {
+		return errors.Errorf("invalid SQL identifier: %s (must match pattern [A-Za-z_][A-Za-z0-9_]*)", identifier)
+	}
+
+	return ValidateIdentifierLength(identifier, dialect)
+}
+
 // ValidateIdentifierLength checks if an identifier conforms to length limits for a specific dialect.
 // dialect should be one of: "mysql", "postgres", "oracle", "sqlite", or empty to skip validation.
 func ValidateIdentifierLength(identifier string, dialect string) error {

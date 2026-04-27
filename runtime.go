@@ -2,6 +2,9 @@ package tsq
 
 import (
 	"context"
+	"fmt"
+	"log/slog"
+	"strings"
 	"sync"
 
 	"github.com/juju/errors"
@@ -15,6 +18,7 @@ type Runtime struct {
 	registry     *Registry
 	traceManager *TraceManager
 	initMu       sync.Mutex
+	db           *gorp.DbMap // Stored after InitWithOptions for dialect access
 }
 
 func NewRuntime() *Runtime {
@@ -44,6 +48,46 @@ func (r *Runtime) TraceManager() *TraceManager {
 	}
 
 	return r.traceManager
+}
+
+// CurrentDB returns the current database map if Init has been called.
+// Returns nil if Init has not been called or if runtime is nil.
+func (r *Runtime) CurrentDB() *gorp.DbMap {
+	if r == nil {
+		return nil
+	}
+
+	return r.db
+}
+
+// CurrentDialect returns the SQL dialect of the current database if Init has been called.
+// Returns empty string if Init has not been called, runtime is nil, or dialect cannot be determined.
+func (r *Runtime) CurrentDialect() string {
+	if r == nil || r.db == nil || r.db.Dialect == nil {
+		return ""
+	}
+
+	// Get the type name of the dialect to determine which database is being used
+	dialectType := fmt.Sprintf("%T", r.db.Dialect)
+
+	// Map gorp dialect types to our standard names
+	switch {
+	case strings.Contains(strings.ToLower(dialectType), "mysql"):
+		return "mysql"
+	case strings.Contains(strings.ToLower(dialectType), "postgre"):
+		return "postgres"
+	case strings.Contains(strings.ToLower(dialectType), "oracle"):
+		return "oracle"
+	case strings.Contains(strings.ToLower(dialectType), "sqlite"):
+		return "sqlite"
+	default:
+		return ""
+	}
+}
+
+func contains(s, substr string) bool {
+	return len(s) > 0 && len(substr) > 0 && (s == substr || len(s) > len(substr) &&
+		(s[:len(substr)] == substr || s[len(s)-len(substr):] == substr))
 }
 
 func (r *Runtime) RegisterTable(
@@ -106,10 +150,25 @@ func (r *Runtime) InitWithOptions(db *gorp.DbMap, options *InitOptions) error {
 	r.initMu.Lock()
 	defer r.initMu.Unlock()
 
+	// Store the database map for later dialect access
+	r.db = db
+
 	rollbackTracers := r.traceManager.snapshot()
 	r.traceManager.AddUnique(options.Tracers...)
 
 	registeredTables := r.registry.Snapshot()
+
+	// Validate identifiers if configured (after db is stored so we can get current dialect)
+	if options.IdentifierValidationMode != "skip" {
+		if err := r.validateRegisteredTableIdentifiers(options.IdentifierValidationMode); err != nil {
+			if options.IdentifierValidationMode == "strict" {
+				r.traceManager.restore(rollbackTracers)
+				return err
+			}
+			// For "warn" mode, just log the error but continue
+			slog.Warn("identifier validation warning during init", "error", err)
+		}
+	}
 
 	for _, table := range registeredTables {
 		table.AddTableFunc(db)
@@ -173,4 +232,79 @@ func Trace1WithRuntime[T any](r *Runtime, ctx context.Context, fn func(ctx conte
 	}
 
 	return traceManagerTrace1(r.traceManager, ctx, fn)
+}
+
+// validateRegisteredTableIdentifiers checks if all registered table names conform to dialect-specific length limits.
+// mode should be "strict" (fail on violation), "warn" (log warning), or "skip" (no validation).
+func (r *Runtime) validateRegisteredTableIdentifiers(mode string) error {
+	if r == nil {
+		return errors.New("runtime cannot be nil")
+	}
+
+	dialect := r.CurrentDialect()
+	if dialect == "" {
+		// Unknown dialect, skip validation
+		return nil
+	}
+
+	registeredTables := r.registry.Snapshot()
+	var validationErrors []string
+
+	for _, table := range registeredTables {
+		if table.Table == nil {
+			continue
+		}
+
+		tableName := table.Table.Table()
+		if err := ValidateIdentifierLength(tableName, dialect); err != nil {
+			if mode == "strict" {
+				return errors.Annotatef(err, "table %s identifier validation failed", tableName)
+			}
+			validationErrors = append(validationErrors, err.Error())
+		}
+
+		// Also validate keyword search columns if present
+		if kwCols := table.Table.KwList(); kwCols != nil {
+			for _, col := range kwCols {
+				if col == nil {
+					continue
+				}
+				colName := col.Name()
+				if err := ValidateIdentifierLength(colName, dialect); err != nil {
+					if mode == "strict" {
+						return errors.Annotatef(err, "column %s.%s identifier validation failed", tableName, colName)
+					}
+					validationErrors = append(validationErrors, err.Error())
+				}
+			}
+		}
+	}
+
+	if len(validationErrors) > 0 && mode == "warn" {
+		return errors.New("identifier validation warnings: " + strings.Join(validationErrors, "; "))
+	}
+
+	return nil
+}
+
+// ValidateIdentifiersForDialect validates all registered table and column identifiers
+// against the current database dialect. This is useful for pre-deployment validation.
+// Returns nil if all identifiers are valid for the current dialect, otherwise returns an error.
+// If no database has been initialized (Init not called), returns an error.
+func (r *Runtime) ValidateIdentifiersForDialect() error {
+	if r == nil {
+		return errors.New("runtime cannot be nil")
+	}
+
+	if r.db == nil {
+		return errors.New("database not initialized; call Init or InitWithOptions first")
+	}
+
+	dialect := r.CurrentDialect()
+	if dialect == "" {
+		return errors.New("unable to determine current database dialect")
+	}
+
+	// Use strict mode for explicit validation call
+	return r.validateRegisteredTableIdentifiers("strict")
 }

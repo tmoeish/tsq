@@ -1085,3 +1085,79 @@ t.Errorf("ValidateIdentifierLength(%q, %q) error = %v, wantErr %v", tt.identifie
 })
 }
 }
+
+func TestValidateIdentifierForDialect(t *testing.T) {
+tests := []struct {
+name       string
+identifier string
+dialect    string
+wantErr    bool
+errContent string
+}{
+{
+name:       "valid identifier - mysql",
+identifier: "users",
+dialect:    "mysql",
+wantErr:    false,
+},
+{
+name:       "valid identifier - postgres",
+identifier: "users_table",
+dialect:    "postgres",
+wantErr:    false,
+},
+{
+name:       "starts with underscore",
+identifier: "_internal",
+dialect:    "mysql",
+wantErr:    false,
+},
+{
+name:       "invalid - starts with number",
+identifier: "123users",
+dialect:    "mysql",
+wantErr:    true,
+errContent: "invalid SQL identifier",
+},
+{
+name:       "invalid - contains hyphen",
+identifier: "user-table",
+dialect:    "mysql",
+wantErr:    true,
+errContent: "invalid SQL identifier",
+},
+{
+name:       "exceeds postgres limit",
+identifier: strings.Repeat("a", 64),
+dialect:    "postgres",
+wantErr:    true,
+errContent: "exceeds",
+},
+{
+name:       "at mysql limit (64)",
+identifier: strings.Repeat("x", 64),
+dialect:    "mysql",
+wantErr:    false,
+},
+{
+name:       "empty identifier",
+identifier: "",
+dialect:    "mysql",
+wantErr:    true,
+errContent: "cannot be empty",
+},
+}
+
+for _, tt := range tests {
+t.Run(tt.name, func(t *testing.T) {
+err := ValidateIdentifierForDialect(tt.identifier, tt.dialect)
+if (err != nil) != tt.wantErr {
+t.Errorf("ValidateIdentifierForDialect(%q, %q) error = %v, wantErr %v", tt.identifier, tt.dialect, err, tt.wantErr)
+return
+}
+if tt.wantErr && tt.errContent != "" && !strings.Contains(err.Error(), tt.errContent) {
+t.Errorf("ValidateIdentifierForDialect(%q, %q) error message %q should contain %q", tt.identifier, tt.dialect, err.Error(), tt.errContent)
+}
+})
+}
+}

@@ -52,6 +52,11 @@ type InitOptions struct {
 	AutoCreateTables bool
 	UpsertIndexes    bool
 	Tracers          []Tracer
+	// IdentifierValidationMode controls how to handle identifier length violations:
+	// "strict" = fail if any identifier exceeds dialect limits (default for most dialects)
+	// "warn"   = log warnings but allow (for permissive databases)
+	// "skip"   = no validation (useful for dynamic schemas)
+	IdentifierValidationMode string
 }
 
 // RegisterTable registers a table in the global registry
