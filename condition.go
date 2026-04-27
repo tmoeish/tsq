@@ -128,6 +128,36 @@ func (c Cond) buildError() error {
 }
 
 // ================================================
+// 条件方法参数顺序约定
+// ================================================
+//
+// 所有 Condition 方法遵循一致的参数顺序模式：
+//
+// Pattern: column.OPERATOR(values...)
+//   - Column: 接收者 (implicit)
+//   - Operator: 方法名（EQ, GT, StartWith 等）
+//   - Values: 参数（value1, value2, ...)
+//
+// 约定示例：
+//   col.EQ(value)              // column = value
+//   col.Between(start, end)    // column BETWEEN start AND end
+//   col.In(v1, v2, v3)        // column IN (v1, v2, v3)
+//   col.StartWith(prefix)      // column LIKE 'prefix%'
+//
+// 方法分类：
+//   - 基础比较: EQ, NE, GT, GTE, LT, LTE
+//   - 模式匹配: StartWith, EndWith, Contains
+//   - 集合: In, NIn
+//   - 范围: Between, NBetween
+//   - 空值检查: IsNull, IsNotNull
+//
+// 绑定方式后缀（无后缀为参数绑定）：
+//   - Var: 使用 ? 占位符，值由执行时提供
+//   - Literal: 直接嵌入字面量
+//   - Col: 与另一列比较
+//   - Sub: 与子查询结果比较
+
+// ================================================
 // 变量比较条件 (使用 ? 占位符)
 // ================================================
 

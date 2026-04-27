@@ -121,15 +121,11 @@ func (qb *QueryBuilder) appendCondition(target *[]Condition, cond Condition) {
 }
 
 // LeftJoin adds a LEFT JOIN clause. Equivalent to `FROM left.Table LEFT JOIN right.Table ON left=right`.
+// The columns must belong to different tables; to join a table to itself, use aliases.
 func (qb *QueryBuilder) LeftJoin(left Column, right Column) *QueryBuilder {
 	qb = qb.ensureInitialized()
 
-	if _, err := validateColumnInput(left); err != nil {
-		qb.setBuildError(err)
-		return qb
-	}
-
-	if _, err := validateColumnInput(right); err != nil {
+	if err := validateJoinColumns(left, right); err != nil {
 		qb.setBuildError(err)
 		return qb
 	}
@@ -144,15 +140,11 @@ func (qb *QueryBuilder) LeftJoin(left Column, right Column) *QueryBuilder {
 }
 
 // InnerJoin adds an INNER JOIN clause.
+// The columns must belong to different tables; to join a table to itself, use aliases.
 func (qb *QueryBuilder) InnerJoin(left Column, right Column) *QueryBuilder {
 	qb = qb.ensureInitialized()
 
-	if _, err := validateColumnInput(left); err != nil {
-		qb.setBuildError(err)
-		return qb
-	}
-
-	if _, err := validateColumnInput(right); err != nil {
+	if err := validateJoinColumns(left, right); err != nil {
 		qb.setBuildError(err)
 		return qb
 	}
@@ -167,15 +159,11 @@ func (qb *QueryBuilder) InnerJoin(left Column, right Column) *QueryBuilder {
 }
 
 // RightJoin adds a RIGHT JOIN clause.
+// The columns must belong to different tables; to join a table to itself, use aliases.
 func (qb *QueryBuilder) RightJoin(left Column, right Column) *QueryBuilder {
 	qb = qb.ensureInitialized()
 
-	if _, err := validateColumnInput(left); err != nil {
-		qb.setBuildError(err)
-		return qb
-	}
-
-	if _, err := validateColumnInput(right); err != nil {
+	if err := validateJoinColumns(left, right); err != nil {
 		qb.setBuildError(err)
 		return qb
 	}
@@ -191,15 +179,11 @@ func (qb *QueryBuilder) RightJoin(left Column, right Column) *QueryBuilder {
 
 // FullJoin adds a FULL JOIN clause. SQL generation is supported, but execution
 // still depends on the target dialect supporting FULL JOIN.
+// The columns must belong to different tables; to join a table to itself, use aliases.
 func (qb *QueryBuilder) FullJoin(left Column, right Column) *QueryBuilder {
 	qb = qb.ensureInitialized()
 
-	if _, err := validateColumnInput(left); err != nil {
-		qb.setBuildError(err)
-		return qb
-	}
-
-	if _, err := validateColumnInput(right); err != nil {
+	if err := validateJoinColumns(left, right); err != nil {
 		qb.setBuildError(err)
 		return qb
 	}

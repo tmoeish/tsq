@@ -585,7 +585,10 @@ func TestQueryBuilder_Build_RejectsRepeatedJoinTableWithoutAliases(t *testing.T)
 		t.Fatal("expected repeated join table to return an error")
 	}
 
-	if !strings.Contains(err.Error(), "aliases are required") {
+	// The error can now be caught earlier by join validation (different tables check)
+	// or later by build validation (repeated table without aliases check)
+	errMsg := err.Error()
+	if !strings.Contains(errMsg, "aliases are required") && !strings.Contains(errMsg, "different tables") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
