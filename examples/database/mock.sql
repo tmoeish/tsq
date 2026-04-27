@@ -1,3 +1,53 @@
+-- Org table
+CREATE TABLE IF NOT EXISTS `org` (
+    `id` INTEGER PRIMARY KEY,
+    `ct` TIMESTAMP,
+    `name` TEXT NOT NULL
+);
+
+-- User table
+CREATE TABLE IF NOT EXISTS `user` (
+    `id` INTEGER PRIMARY KEY,
+    `ct` TIMESTAMP,
+    `org_id` INTEGER NOT NULL,
+    `name` TEXT NOT NULL,
+    `email` TEXT NOT NULL,
+    UNIQUE (`name`)
+);
+
+-- Category table
+CREATE TABLE IF NOT EXISTS `category` (
+    `id` INTEGER PRIMARY KEY,
+    `ct` TIMESTAMP,
+    `type` INTEGER NOT NULL,
+    `name` TEXT NOT NULL,
+    `description` TEXT,
+    UNIQUE (`name`)
+);
+
+-- Item table
+CREATE TABLE IF NOT EXISTS `item` (
+    `id` INTEGER PRIMARY KEY,
+    `ct` TIMESTAMP,
+    `category_id` INTEGER NOT NULL,
+    `name` TEXT NOT NULL,
+    `price` INTEGER NOT NULL
+);
+
+-- Order table
+CREATE TABLE IF NOT EXISTS `order` (
+    `uid` INTEGER PRIMARY KEY,
+    `ct` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `modified_time` TIMESTAMP,
+    `dt` INTEGER DEFAULT 0,
+    `v` INTEGER DEFAULT 1,
+    `user_id` INTEGER NOT NULL,
+    `item_id` INTEGER NOT NULL,
+    `amount` INTEGER NOT NULL,
+    `price` INTEGER NOT NULL,
+    `status` INTEGER NOT NULL DEFAULT 0
+);
+
 -- Org
 INSERT INTO `org` (id, name) VALUES (1, '组织A');
 INSERT INTO `org` (id, name) VALUES (2, '组织B');

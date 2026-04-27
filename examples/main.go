@@ -25,17 +25,7 @@ func main() {
 		_ = db.Close()
 	}()
 
-	// 2. 初始化 tsq
-	dbmap := &tsq.DbMap{Db: db, Dialect: tsq.SqliteDialect{}}
-
-	// err = tsq.Init(dbmap, true, true, tsq.PrintCost, tsq.PrintError, tsq.PrintSQL)
-	err = tsq.Init(dbmap, true, true, tsq.PrintError, tsq.PrintSQL)
-	if err != nil {
-		slog.Info("tsq.Init 失败", "err", err, "stack", errors.ErrorStack(err))
-		os.Exit(1)
-	}
-
-	// 初始化数据库，执行 mock.sql 文件
+	// 2. 初始化数据库，执行 mock.sql 文件（包含表创建和数据）
 	mockSQL, err := os.ReadFile("examples/database/mock.sql")
 	if err != nil {
 		slog.Info("读取 mock.sql 失败", "err", err, "stack", errors.ErrorStack(err))
@@ -44,6 +34,16 @@ func main() {
 	_, err = db.Exec(string(mockSQL))
 	if err != nil {
 		slog.Info("执行 mock.sql 失败", "err", err, "stack", errors.ErrorStack(err))
+		os.Exit(1)
+	}
+
+	// 3. 初始化 tsq（表已存在，不需要自动创建）
+	dbmap := &tsq.DbMap{Db: db, Dialect: tsq.SqliteDialect{}}
+
+	// err = tsq.Init(dbmap, false, true, tsq.PrintCost, tsq.PrintError, tsq.PrintSQL)
+	err = tsq.Init(dbmap, false, true, tsq.PrintError, tsq.PrintSQL)
+	if err != nil {
+		slog.Info("tsq.Init 失败", "err", err, "stack", errors.ErrorStack(err))
 		os.Exit(1)
 	}
 
