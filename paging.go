@@ -103,9 +103,17 @@ func (r *PageReq) ToQuery() url.Values {
 	return v
 }
 
-// Offset calculates the offset value for SQL LIMIT clause
+// Offset calculates the offset value for SQL LIMIT clause.
+// Returns 0 if calculation would overflow; guaranteed safe for use in SQL.
 func (r *PageReq) Offset() int {
 	r = normalizePageReq(r)
+
+	// Prevent integer overflow: if (page-1) * size would exceed maxInt
+	// Conservative check: if either operand is large enough to risk overflow
+	const maxSafe = 1000000 // 1M rows should be more than enough for any pagination
+	if r.Page > maxSafe || r.Size > maxSafe {
+		return 0
+	}
 
 	return r.Size * (r.Page - 1)
 }
