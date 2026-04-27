@@ -67,6 +67,17 @@ func (u User) KwList() []tsq.Column {
 // =============================================================================
 var getUserByIDQuery *tsq.Query
 
+func init() {
+	var err error
+	getUserByIDQuery, err = tsq.
+		Select(TableUserCols...).
+		Where(User_ID.EQVar()).
+		Build()
+	if err != nil {
+		panic(errors.Annotate(err, "initialize getUserByIDQuery"))
+	}
+}
+
 // GetUserByID retrieves a User record by its ID.
 // Returns (nil, nil) if the record is not found.
 func GetUserByID(
@@ -227,6 +238,17 @@ func PageUserByQuery(
 // listUserQuery is the base query for retrieving all User records.
 var listUserQuery *tsq.Query
 
+func init() {
+	var err error
+	listUserQuery, err = tsq.
+		Select(TableUserCols...).
+		KwSearch(TableUser.KwList()...).
+		Build()
+	if err != nil {
+		panic(errors.Annotate(err, "initialize listUserQuery"))
+	}
+}
+
 // CountUser returns the total count of User records.
 func CountUser(
 	ctx context.Context,
@@ -256,6 +278,20 @@ func PageUser(
 // Query by Unique Indexes
 // =============================================================================
 var getUserByNameQuery *tsq.Query
+
+func init() {
+	var err error
+	getUserByNameQuery, err = tsq.
+		Select(TableUserCols...).
+		Where(
+			User_Name.EQVar(),
+		).
+		KwSearch(TableUser.KwList()...).
+		Build()
+	if err != nil {
+		panic(errors.Annotate(err, "initialize getUserByNameQuery"))
+	}
+}
 
 // GetUserByName retrieves a User record by unique index ux_user_name.
 // Returns (nil, nil) if the record is not found.

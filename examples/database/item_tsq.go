@@ -71,6 +71,17 @@ func (i Item) KwList() []tsq.Column {
 // =============================================================================
 var getItemByIDQuery *tsq.Query
 
+func init() {
+	var err error
+	getItemByIDQuery, err = tsq.
+		Select(TableItemCols...).
+		Where(Item_ID.EQVar()).
+		Build()
+	if err != nil {
+		panic(errors.Annotate(err, "initialize getItemByIDQuery"))
+	}
+}
+
 // GetItemByID retrieves a Item record by its ID.
 // Returns (nil, nil) if the record is not found.
 func GetItemByID(
@@ -231,6 +242,17 @@ func PageItemByQuery(
 // listItemQuery is the base query for retrieving all Item records.
 var listItemQuery *tsq.Query
 
+func init() {
+	var err error
+	listItemQuery, err = tsq.
+		Select(TableItemCols...).
+		KwSearch(TableItem.KwList()...).
+		Build()
+	if err != nil {
+		panic(errors.Annotate(err, "initialize listItemQuery"))
+	}
+}
+
 // CountItem returns the total count of Item records.
 func CountItem(
 	ctx context.Context,
@@ -260,6 +282,20 @@ func PageItem(
 // Query by Unique Indexes
 // =============================================================================
 var getItemByNameQuery *tsq.Query
+
+func init() {
+	var err error
+	getItemByNameQuery, err = tsq.
+		Select(TableItemCols...).
+		Where(
+			Item_Name.EQVar(),
+		).
+		KwSearch(TableItem.KwList()...).
+		Build()
+	if err != nil {
+		panic(errors.Annotate(err, "initialize getItemByNameQuery"))
+	}
+}
 
 // GetItemByName retrieves a Item record by unique index ux_item_name.
 // Returns (nil, nil) if the record is not found.
@@ -329,6 +365,20 @@ func ExistsItemByName(
 // ListItemByCategoryIDQuery queries Item records by index CategoryID.
 var ListItemByCategoryIDQuery *tsq.Query
 
+func init() {
+	var err error
+	ListItemByCategoryIDQuery, err = tsq.
+		Select(TableItemCols...).
+		Where(
+			Item_CategoryID.EQVar(),
+		).
+		KwSearch(TableItem.KwList()...).
+		Build()
+	if err != nil {
+		panic(errors.Annotate(err, "initialize ListItemByCategoryIDQuery"))
+	}
+}
+
 // CountItemByCategoryID returns the count of Item records matching index CategoryID.
 func CountItemByCategoryID(
 	ctx context.Context,
@@ -384,9 +434,6 @@ func ListItemByCategoryIDIn(
 			Item_CategoryID.In(categoryIDs...),
 		).
 		Build()
-	if err != nil {
-		return nil, errors.Annotate(err, "build query")
-	}
 	list, err := tsq.List[Item](ctx, db, query)
 	return list, errors.Trace(err)
 }

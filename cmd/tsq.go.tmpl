@@ -118,6 +118,17 @@ func ({{$dot.Recv}} {{$type}}) KwList() []tsq.Column {
 {{- with $query := printf "%s%sQuery" $getBy $dot.ID }}
 var {{$query}} *tsq.Query
 
+func init() {
+	var err error
+	{{$query}}, err = tsq.
+		Select({{$varTblCols}}...).
+		Where({{$type}}_{{$dot.ID}}.EQVar()).
+		Build()
+	if err != nil {
+		panic(errors.Annotate(err, "initialize {{$query}}"))
+	}
+}
+
 	{{- with $name := printf "%s%s" $GetBy $dot.ID }}
 // {{$name}} retrieves a {{$type}} record by its {{$dot.ID}}.
 // Returns (nil, nil) if the record is not found.
@@ -175,9 +186,9 @@ func {{$name}}(
 			Select({{$varTblCols}}...).
 			Where({{$type}}_{{$dot.ID}}.In({{ FieldSliceVarName $dot.ID }}...)).
 		Build()
-  if err != nil {
-   return nil, errors.Annotate(err, "build query")
-  }
+	if err != nil {
+		return nil, errors.Annotate(err, "build query")
+	}
 
 	return tsq.List[{{$type}}](ctx, db, query)
 }
@@ -195,9 +206,9 @@ func {{$name}}(
 			Select({{$varTblCols}}...).
 			Where({{$type}}_{{$dot.ID}}.In({{ FieldSliceVarName $dot.ID }}...)).
 		Build()
-  if err != nil {
-   return nil, errors.Annotate(err, "build query")
-  }
+	if err != nil {
+		return nil, errors.Annotate(err, "build query")
+	}
 
 	list, err := tsq.List[{{$type}}](ctx, db, query)
 	if err != nil {
@@ -221,6 +232,20 @@ func {{$name}}(
 
 	{{- with $query := printf "%s%sQuery" $getActiveBy $dot.ID }}
 var {{$query}} *tsq.Query
+
+func init() {
+	var err error
+	{{$query}}, err = tsq.
+		Select({{$varTblCols}}...).
+		Where(
+			{{ SoftDeleteActiveCond $type $dot.DT (index $dot.FieldMap $dot.DT) }},
+			{{$type}}_{{$dot.ID}}.EQVar(),
+		).
+		Build()
+	if err != nil {
+		panic(errors.Annotate(err, "initialize {{$query}}"))
+	}
+}
 
 		{{- with $name := printf "%s%s" $GetActiveBy $dot.ID }}
 // {{$name}} retrieves an active (non-deleted) {{$type}} record by its {{$dot.ID}}.
@@ -282,9 +307,9 @@ func {{$name}}(
 			{{$type}}_{{$dot.ID}}.In({{ FieldSliceVarName $dot.ID }}...),
 		).
 		Build()
- if err != nil {
-  return nil, errors.Annotate(err, "build query")
- }
+	if err != nil {
+		return nil, errors.Annotate(err, "build query")
+	}
 	list, err := tsq.List[{{$type}}](ctx, db, query)
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -308,9 +333,9 @@ func {{$name}}(
 			{{$type}}_{{$dot.ID}}.In({{ FieldSliceVarName $dot.ID }}...),
 		).
 		Build()
- if err != nil {
-  return nil, errors.Annotate(err, "build query")
- }
+	if err != nil {
+		return nil, errors.Annotate(err, "build query")
+	}
 
 	var list {{$list}}
 	list, err = tsq.List[{{$type}}](ctx, db, query)
@@ -440,6 +465,17 @@ func {{$name}}(
 // {{$query}} is the base query for retrieving all {{$type}} records.
 var {{$query}} *tsq.Query
 
+func init() {
+	var err error
+	{{$query}}, err = tsq.
+		Select({{$varTblCols}}...).
+		KwSearch(Table{{$type}}.KwList()...).
+		Build()
+	if err != nil {
+		panic(errors.Annotate(err, "initialize {{$query}}"))
+	}
+}
+
 	{{- with $name := printf "Count%s" $type }}
 // {{$name}} returns the total count of {{$type}} records.
 func {{$name}}(
@@ -481,6 +517,18 @@ func {{$name}}(
 // {{$query}} is the base query for retrieving active (non-deleted) {{$type}} records.
 var {{$query}} *tsq.Query
 
+func init() {
+	var err error
+	{{$query}}, err = tsq.
+		Select({{$varTblCols}}...).
+		Where({{ SoftDeleteActiveCond $type $dot.DT (index $dot.FieldMap $dot.DT) }}).
+		KwSearch(Table{{$type}}.KwList()...).
+		Build()
+	if err != nil {
+		panic(errors.Annotate(err, "initialize {{$query}}"))
+	}
+}
+
 		{{- with $name := printf "CountActive%s" $type }}
 // {{$name}} returns the count of active (non-deleted) {{$type}} records.
 func {{$name}}(
@@ -521,6 +569,22 @@ func {{$name}}(
 {{- range $ux := .UxList }}
 	{{- with $query := printf "%s%sQuery" $getBy (JoinAnd $ux.Fields) }}
 var {{$query}} *tsq.Query
+
+func init() {
+	var err error
+	{{$query}}, err = tsq.
+		Select({{$varTblCols}}...).
+		Where(
+			{{- range $f := $ux.Fields }}
+			{{$type}}_{{$f}}.EQVar(),
+			{{- end }}
+		).
+		KwSearch(Table{{$type}}.KwList()...).
+		Build()
+	if err != nil {
+		panic(errors.Annotate(err, "initialize {{$query}}"))
+	}
+}
 
 		{{- with $name := printf "%s%s" $GetBy (JoinAnd $ux.Fields) }}
 // {{$name}} retrieves a {{$type}} record by unique index {{$ux.Name}}.
@@ -613,6 +677,23 @@ func {{$name}}(
 		{{- with $query := printf "%s%sQuery" $getActiveBy (JoinAnd $ux.Fields) }}
 // {{$query}} queries active (non-deleted) {{$type}} records by unique index {{$ux.Name}}.
 var {{$query}} *tsq.Query
+
+func init() {
+	var err error
+	{{$query}}, err = tsq.
+		Select({{$varTblCols}}...).
+		Where(
+			{{ SoftDeleteActiveCond $type $dot.DT (index $dot.FieldMap $dot.DT) }},
+				{{- range $f := $ux.Fields }}
+			{{$type}}_{{$f}}.EQVar(),
+				{{- end }}
+		).
+		KwSearch(Table{{$type}}.KwList()...).
+		Build()
+	if err != nil {
+		panic(errors.Annotate(err, "initialize {{$query}}"))
+	}
+}
 
 			{{- with $name := printf "%s%s" $GetActiveBy (JoinAnd $ux.Fields) }}
 // {{$name}} retrieves an active (non-deleted) {{$type}} record by unique index {{$ux.Name}}.
@@ -729,9 +810,6 @@ func List{{$type}}By{{$idx.Name}}(
 		{{- end }}
 		).
 		Build()
- if err != nil {
-  return nil, errors.Annotate(err, "build query")
- }
 	list, err := tsq.List[{{$type}}](ctx, db, query)
 	return list, errors.Trace(err)
 }
@@ -739,6 +817,22 @@ func List{{$type}}By{{$idx.Name}}(
 		{{- with $query := printf "%s%sQuery" $ListBy $idx.Name }}
 // {{$query}} queries {{$type}} records by index {{$idx.Name}}.
 var {{$query}} *tsq.Query
+
+func init() {
+	var err error
+	{{$query}}, err = tsq.
+		Select({{$varTblCols}}...).
+		Where(
+				{{- range $f := $idx.Fields }}
+			{{$type}}_{{$f}}.EQVar(),
+				{{- end }}
+		).
+		KwSearch(Table{{$type}}.KwList()...).
+		Build()
+	if err != nil {
+		panic(errors.Annotate(err, "initialize {{$query}}"))
+	}
+}
 
 			{{- with $name := printf "%s%s" $CountBy $idx.Name }}
 // {{$name}} returns the count of {{$type}} records matching index {{$idx.Name}}.
@@ -837,9 +931,6 @@ func {{$name}}(
 				{{- end }}
 		).
 		Build()
- if err != nil {
-  return nil, errors.Annotate(err, "build query")
- }
 	list, err := tsq.List[{{$type}}](ctx, db, query)
 	return list, errors.Trace(err)
 }
@@ -848,6 +939,23 @@ func {{$name}}(
 			{{- with $query := printf "%s%sQuery" $listActiveBy $idx.Name }}
 // {{$query}} queries active (non-deleted) {{$type}} records by index {{$idx.Name}}.
 var {{$query}} *tsq.Query
+
+func init() {
+	var err error
+	{{$query}}, err = tsq.
+		Select({{$varTblCols}}...).
+		Where(
+			{{ SoftDeleteActiveCond $type $dot.DT (index $dot.FieldMap $dot.DT) }},
+					{{- range $f := $idx.Fields }}
+			{{$type}}_{{$f}}.EQVar(),
+					{{- end }}
+		).
+		KwSearch(Table{{$type}}.KwList()...).
+		Build()
+	if err != nil {
+		panic(errors.Annotate(err, "initialize {{$query}}"))
+	}
+}
 
 				{{- with $name := printf "%s%s" $CountActiveBy $idx.Name }}
 // {{$name}} returns the count of active (non-deleted) {{$type}} records matching index {{$idx.Name}}.

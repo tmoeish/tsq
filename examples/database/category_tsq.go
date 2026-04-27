@@ -67,6 +67,17 @@ func (c Category) KwList() []tsq.Column {
 // =============================================================================
 var getCategoryByIDQuery *tsq.Query
 
+func init() {
+	var err error
+	getCategoryByIDQuery, err = tsq.
+		Select(TableCategoryCols...).
+		Where(Category_ID.EQVar()).
+		Build()
+	if err != nil {
+		panic(errors.Annotate(err, "initialize getCategoryByIDQuery"))
+	}
+}
+
 // GetCategoryByID retrieves a Category record by its ID.
 // Returns (nil, nil) if the record is not found.
 func GetCategoryByID(
@@ -227,6 +238,17 @@ func PageCategoryByQuery(
 // listCategoryQuery is the base query for retrieving all Category records.
 var listCategoryQuery *tsq.Query
 
+func init() {
+	var err error
+	listCategoryQuery, err = tsq.
+		Select(TableCategoryCols...).
+		KwSearch(TableCategory.KwList()...).
+		Build()
+	if err != nil {
+		panic(errors.Annotate(err, "initialize listCategoryQuery"))
+	}
+}
+
 // CountCategory returns the total count of Category records.
 func CountCategory(
 	ctx context.Context,
@@ -256,6 +278,20 @@ func PageCategory(
 // Query by Unique Indexes
 // =============================================================================
 var getCategoryByNameQuery *tsq.Query
+
+func init() {
+	var err error
+	getCategoryByNameQuery, err = tsq.
+		Select(TableCategoryCols...).
+		Where(
+			Category_Name.EQVar(),
+		).
+		KwSearch(TableCategory.KwList()...).
+		Build()
+	if err != nil {
+		panic(errors.Annotate(err, "initialize getCategoryByNameQuery"))
+	}
+}
 
 // GetCategoryByName retrieves a Category record by unique index ux_category_name.
 // Returns (nil, nil) if the record is not found.

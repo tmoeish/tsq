@@ -63,6 +63,17 @@ func (o Org) KwList() []tsq.Column {
 // =============================================================================
 var getOrgByIDQuery *tsq.Query
 
+func init() {
+	var err error
+	getOrgByIDQuery, err = tsq.
+		Select(TableOrgCols...).
+		Where(Org_ID.EQVar()).
+		Build()
+	if err != nil {
+		panic(errors.Annotate(err, "initialize getOrgByIDQuery"))
+	}
+}
+
 // GetOrgByID retrieves a Org record by its ID.
 // Returns (nil, nil) if the record is not found.
 func GetOrgByID(
@@ -223,6 +234,17 @@ func PageOrgByQuery(
 // listOrgQuery is the base query for retrieving all Org records.
 var listOrgQuery *tsq.Query
 
+func init() {
+	var err error
+	listOrgQuery, err = tsq.
+		Select(TableOrgCols...).
+		KwSearch(TableOrg.KwList()...).
+		Build()
+	if err != nil {
+		panic(errors.Annotate(err, "initialize listOrgQuery"))
+	}
+}
+
 // CountOrg returns the total count of Org records.
 func CountOrg(
 	ctx context.Context,
@@ -252,6 +274,20 @@ func PageOrg(
 // Query by Unique Indexes
 // =============================================================================
 var getOrgByNameQuery *tsq.Query
+
+func init() {
+	var err error
+	getOrgByNameQuery, err = tsq.
+		Select(TableOrgCols...).
+		Where(
+			Org_Name.EQVar(),
+		).
+		KwSearch(TableOrg.KwList()...).
+		Build()
+	if err != nil {
+		panic(errors.Annotate(err, "initialize getOrgByNameQuery"))
+	}
+}
 
 // GetOrgByName retrieves a Org record by unique index ux_org_name.
 // Returns (nil, nil) if the record is not found.
