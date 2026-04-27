@@ -65,10 +65,7 @@ func (c Category) KwList() []tsq.Column {
 // =============================================================================
 // Query by Primary Key
 // =============================================================================
-var getCategoryByIDQuery = tsq.
-	Select(TableCategoryCols...).
-	Where(Category_ID.EQVar()).
-	MustBuild()
+var getCategoryByIDQuery *tsq.Query
 
 // GetCategoryByID retrieves a Category record by its ID.
 // Returns (nil, nil) if the record is not found.
@@ -117,10 +114,13 @@ func ListCategoryByIDIn(
 	db tsq.SqlExecutor,
 	iDs ...int64,
 ) ([]*Category, error) {
-	query := tsq.
+	query, err := tsq.
 		Select(TableCategoryCols...).
 		Where(Category_ID.In(iDs...)).
-		MustBuild()
+		Build()
+	if err != nil {
+		return nil, errors.Annotate(err, "build query")
+	}
 
 	return tsq.List[Category](ctx, db, query)
 }
@@ -132,10 +132,13 @@ func ListCategoryByIDInOrErr(
 	db tsq.SqlExecutor,
 	iDs ...int64,
 ) ([]*Category, error) {
-	query := tsq.
+	query, err := tsq.
 		Select(TableCategoryCols...).
 		Where(Category_ID.In(iDs...)).
-		MustBuild()
+		Build()
+	if err != nil {
+		return nil, errors.Annotate(err, "build query")
+	}
 
 	list, err := tsq.List[Category](ctx, db, query)
 	if err != nil {
@@ -222,10 +225,7 @@ func PageCategoryByQuery(
 // List All Records
 // =============================================================================
 // listCategoryQuery is the base query for retrieving all Category records.
-var listCategoryQuery = tsq.
-	Select(TableCategoryCols...).
-	KwSearch(TableCategory.KwList()...).
-	MustBuild()
+var listCategoryQuery *tsq.Query
 
 // CountCategory returns the total count of Category records.
 func CountCategory(
@@ -255,13 +255,7 @@ func PageCategory(
 // =============================================================================
 // Query by Unique Indexes
 // =============================================================================
-var getCategoryByNameQuery = tsq.
-	Select(TableCategoryCols...).
-	Where(
-		Category_Name.EQVar(),
-	).
-	KwSearch(TableCategory.KwList()...).
-	MustBuild()
+var getCategoryByNameQuery *tsq.Query
 
 // GetCategoryByName retrieves a Category record by unique index ux_category_name.
 // Returns (nil, nil) if the record is not found.

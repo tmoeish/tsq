@@ -83,10 +83,7 @@ func (o *Order) Active() bool {
 // =============================================================================
 // Query by Primary Key
 // =============================================================================
-var getOrderByUIDQuery = tsq.
-	Select(TableOrderCols...).
-	Where(Order_UID.EQVar()).
-	MustBuild()
+var getOrderByUIDQuery *tsq.Query
 
 // GetOrderByUID retrieves a Order record by its UID.
 // Returns (nil, nil) if the record is not found.
@@ -135,10 +132,13 @@ func ListOrderByUIDIn(
 	db tsq.SqlExecutor,
 	uIDs ...int64,
 ) ([]*Order, error) {
-	query := tsq.
+	query, err := tsq.
 		Select(TableOrderCols...).
 		Where(Order_UID.In(uIDs...)).
-		MustBuild()
+		Build()
+	if err != nil {
+		return nil, errors.Annotate(err, "build query")
+	}
 
 	return tsq.List[Order](ctx, db, query)
 }
@@ -150,10 +150,13 @@ func ListOrderByUIDInOrErr(
 	db tsq.SqlExecutor,
 	uIDs ...int64,
 ) ([]*Order, error) {
-	query := tsq.
+	query, err := tsq.
 		Select(TableOrderCols...).
 		Where(Order_UID.In(uIDs...)).
-		MustBuild()
+		Build()
+	if err != nil {
+		return nil, errors.Annotate(err, "build query")
+	}
 
 	list, err := tsq.List[Order](ctx, db, query)
 	if err != nil {
@@ -172,13 +175,7 @@ func ListOrderByUIDInOrErr(
 // =============================================================================
 // Query Active Records by Primary Key
 // =============================================================================
-var getActiveOrderByUIDQuery = tsq.
-	Select(TableOrderCols...).
-	Where(
-		Order_DT.EQ(0),
-		Order_UID.EQVar(),
-	).
-	MustBuild()
+var getActiveOrderByUIDQuery *tsq.Query
 
 // GetActiveOrderByUID retrieves an active (non-deleted) Order record by its UID.
 // Returns (nil, nil) if the record is not found or has been soft-deleted.
@@ -227,13 +224,16 @@ func ListActiveOrderByUIDIn(
 	db tsq.SqlExecutor,
 	uIDs ...int64,
 ) ([]*Order, error) {
-	query := tsq.
+	query, err := tsq.
 		Select(TableOrderCols...).
 		Where(
 			Order_DT.EQ(0),
 			Order_UID.In(uIDs...),
 		).
-		MustBuild()
+		Build()
+	if err != nil {
+		return nil, errors.Annotate(err, "build query")
+	}
 	list, err := tsq.List[Order](ctx, db, query)
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -248,16 +248,19 @@ func ListActiveOrderByUIDInOrErr(
 	db tsq.SqlExecutor,
 	uIDs ...int64,
 ) ([]*Order, error) {
-	query := tsq.
+	query, err := tsq.
 		Select(TableOrderCols...).
 		Where(
 			Order_DT.EQ(0),
 			Order_UID.In(uIDs...),
 		).
-		MustBuild()
+		Build()
+	if err != nil {
+		return nil, errors.Annotate(err, "build query")
+	}
 
 	var list []*Order
-	list, err := tsq.List[Order](ctx, db, query)
+	list, err = tsq.List[Order](ctx, db, query)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -364,10 +367,7 @@ func PageOrderByQuery(
 // List All Records
 // =============================================================================
 // listOrderQuery is the base query for retrieving all Order records.
-var listOrderQuery = tsq.
-	Select(TableOrderCols...).
-	KwSearch(TableOrder.KwList()...).
-	MustBuild()
+var listOrderQuery *tsq.Query
 
 // CountOrder returns the total count of Order records.
 func CountOrder(
@@ -398,11 +398,7 @@ func PageOrder(
 // List Active Records
 // =============================================================================
 // listActiveOrderQuery is the base query for retrieving active (non-deleted) Order records.
-var listActiveOrderQuery = tsq.
-	Select(TableOrderCols...).
-	Where(Order_DT.EQ(0)).
-	KwSearch(TableOrder.KwList()...).
-	MustBuild()
+var listActiveOrderQuery *tsq.Query
 
 // CountActiveOrder returns the count of active (non-deleted) Order records.
 func CountActiveOrder(
@@ -439,13 +435,7 @@ func PageActiveOrder(
 // Query by Indexes
 // =============================================================================
 // ListOrderByItemIDQuery queries Order records by index ItemID.
-var ListOrderByItemIDQuery = tsq.
-	Select(TableOrderCols...).
-	Where(
-		Order_ItemID.EQVar(),
-	).
-	KwSearch(TableOrder.KwList()...).
-	MustBuild()
+var ListOrderByItemIDQuery *tsq.Query
 
 // CountOrderByItemID returns the count of Order records matching index ItemID.
 func CountOrderByItemID(
@@ -496,24 +486,21 @@ func ListOrderByItemIDIn(
 	db tsq.SqlExecutor,
 	itemIDs ...int64,
 ) ([]*Order, error) {
-	query := tsq.
+	query, err := tsq.
 		Select(TableOrderCols...).
 		Where(
 			Order_ItemID.In(itemIDs...),
 		).
-		MustBuild()
+		Build()
+	if err != nil {
+		return nil, errors.Annotate(err, "build query")
+	}
 	list, err := tsq.List[Order](ctx, db, query)
 	return list, errors.Trace(err)
 }
 
 // ListOrderByUserIDQuery queries Order records by index UserID.
-var ListOrderByUserIDQuery = tsq.
-	Select(TableOrderCols...).
-	Where(
-		Order_UserID.EQVar(),
-	).
-	KwSearch(TableOrder.KwList()...).
-	MustBuild()
+var ListOrderByUserIDQuery *tsq.Query
 
 // CountOrderByUserID returns the count of Order records matching index UserID.
 func CountOrderByUserID(
@@ -559,14 +546,7 @@ func PageOrderByUserID(
 }
 
 // ListOrderByUserIDAndItemIDQuery queries Order records by index UserIDAndItemID.
-var ListOrderByUserIDAndItemIDQuery = tsq.
-	Select(TableOrderCols...).
-	Where(
-		Order_UserID.EQVar(),
-		Order_ItemID.EQVar(),
-	).
-	KwSearch(TableOrder.KwList()...).
-	MustBuild()
+var ListOrderByUserIDAndItemIDQuery *tsq.Query
 
 // CountOrderByUserIDAndItemID returns the count of Order records matching index UserIDAndItemID.
 func CountOrderByUserIDAndItemID(
@@ -624,13 +604,16 @@ func ListOrderByUserIDAndItemIDIn(
 	userID int64,
 	itemIDs ...int64,
 ) ([]*Order, error) {
-	query := tsq.
+	query, err := tsq.
 		Select(TableOrderCols...).
 		Where(
 			Order_UserID.EQ(userID),
 			Order_ItemID.In(itemIDs...),
 		).
-		MustBuild()
+		Build()
+	if err != nil {
+		return nil, errors.Annotate(err, "build query")
+	}
 	list, err := tsq.List[Order](ctx, db, query)
 	return list, errors.Trace(err)
 }
@@ -641,12 +624,15 @@ func ListOrderByUserIDIn(
 	db tsq.SqlExecutor,
 	userIDs ...int64,
 ) ([]*Order, error) {
-	query := tsq.
+	query, err := tsq.
 		Select(TableOrderCols...).
 		Where(
 			Order_UserID.In(userIDs...),
 		).
-		MustBuild()
+		Build()
+	if err != nil {
+		return nil, errors.Annotate(err, "build query")
+	}
 	list, err := tsq.List[Order](ctx, db, query)
 	return list, errors.Trace(err)
 }
@@ -655,14 +641,7 @@ func ListOrderByUserIDIn(
 // Query Active Records by Indexes
 // =============================================================================
 // listActiveOrderByItemIDQuery queries active (non-deleted) Order records by index ItemID.
-var listActiveOrderByItemIDQuery = tsq.
-	Select(TableOrderCols...).
-	Where(
-		Order_DT.EQ(0),
-		Order_ItemID.EQVar(),
-	).
-	KwSearch(TableOrder.KwList()...).
-	MustBuild()
+var listActiveOrderByItemIDQuery *tsq.Query
 
 // CountActiveOrderByItemID returns the count of active (non-deleted) Order records matching index ItemID.
 func CountActiveOrderByItemID(
@@ -713,26 +692,22 @@ func ListActiveOrderByItemIDIn(
 	db tsq.SqlExecutor,
 	itemIDs ...int64,
 ) ([]*Order, error) {
-	query := tsq.
+	query, err := tsq.
 		Select(TableOrderCols...).
 		Where(
 			Order_DT.EQ(0),
 			Order_ItemID.In(itemIDs...),
 		).
-		MustBuild()
+		Build()
+	if err != nil {
+		return nil, errors.Annotate(err, "build query")
+	}
 	list, err := tsq.List[Order](ctx, db, query)
 	return list, errors.Trace(err)
 }
 
 // listActiveOrderByUserIDQuery queries active (non-deleted) Order records by index UserID.
-var listActiveOrderByUserIDQuery = tsq.
-	Select(TableOrderCols...).
-	Where(
-		Order_DT.EQ(0),
-		Order_UserID.EQVar(),
-	).
-	KwSearch(TableOrder.KwList()...).
-	MustBuild()
+var listActiveOrderByUserIDQuery *tsq.Query
 
 // CountActiveOrderByUserID returns the count of active (non-deleted) Order records matching index UserID.
 func CountActiveOrderByUserID(
@@ -778,15 +753,7 @@ func PageActiveOrderByUserID(
 }
 
 // listActiveOrderByUserIDAndItemIDQuery queries active (non-deleted) Order records by index UserIDAndItemID.
-var listActiveOrderByUserIDAndItemIDQuery = tsq.
-	Select(TableOrderCols...).
-	Where(
-		Order_DT.EQ(0),
-		Order_UserID.EQVar(),
-		Order_ItemID.EQVar(),
-	).
-	KwSearch(TableOrder.KwList()...).
-	MustBuild()
+var listActiveOrderByUserIDAndItemIDQuery *tsq.Query
 
 // CountActiveOrderByUserIDAndItemID returns the count of active (non-deleted) Order records matching index UserIDAndItemID.
 func CountActiveOrderByUserIDAndItemID(
@@ -844,14 +811,17 @@ func ListActiveOrderByUserIDAndItemIDIn(
 	userID int64,
 	itemIDs ...int64,
 ) ([]*Order, error) {
-	query := tsq.
+	query, err := tsq.
 		Select(TableOrderCols...).
 		Where(
 			Order_DT.EQ(0),
 			Order_UserID.EQ(userID),
 			Order_ItemID.In(itemIDs...),
 		).
-		MustBuild()
+		Build()
+	if err != nil {
+		return nil, errors.Annotate(err, "build query")
+	}
 	list, err := tsq.List[Order](ctx, db, query)
 	return list, errors.Trace(err)
 }
@@ -862,13 +832,16 @@ func ListActiveOrderByUserIDIn(
 	db tsq.SqlExecutor,
 	userIDs ...int64,
 ) ([]*Order, error) {
-	query := tsq.
+	query, err := tsq.
 		Select(TableOrderCols...).
 		Where(
 			Order_DT.EQ(0),
 			Order_UserID.In(userIDs...),
 		).
-		MustBuild()
+		Build()
+	if err != nil {
+		return nil, errors.Annotate(err, "build query")
+	}
 	list, err := tsq.List[Order](ctx, db, query)
 	return list, errors.Trace(err)
 }

@@ -69,10 +69,7 @@ func (i Item) KwList() []tsq.Column {
 // =============================================================================
 // Query by Primary Key
 // =============================================================================
-var getItemByIDQuery = tsq.
-	Select(TableItemCols...).
-	Where(Item_ID.EQVar()).
-	MustBuild()
+var getItemByIDQuery *tsq.Query
 
 // GetItemByID retrieves a Item record by its ID.
 // Returns (nil, nil) if the record is not found.
@@ -121,10 +118,13 @@ func ListItemByIDIn(
 	db tsq.SqlExecutor,
 	iDs ...int64,
 ) ([]*Item, error) {
-	query := tsq.
+	query, err := tsq.
 		Select(TableItemCols...).
 		Where(Item_ID.In(iDs...)).
-		MustBuild()
+		Build()
+	if err != nil {
+		return nil, errors.Annotate(err, "build query")
+	}
 
 	return tsq.List[Item](ctx, db, query)
 }
@@ -136,10 +136,13 @@ func ListItemByIDInOrErr(
 	db tsq.SqlExecutor,
 	iDs ...int64,
 ) ([]*Item, error) {
-	query := tsq.
+	query, err := tsq.
 		Select(TableItemCols...).
 		Where(Item_ID.In(iDs...)).
-		MustBuild()
+		Build()
+	if err != nil {
+		return nil, errors.Annotate(err, "build query")
+	}
 
 	list, err := tsq.List[Item](ctx, db, query)
 	if err != nil {
@@ -226,10 +229,7 @@ func PageItemByQuery(
 // List All Records
 // =============================================================================
 // listItemQuery is the base query for retrieving all Item records.
-var listItemQuery = tsq.
-	Select(TableItemCols...).
-	KwSearch(TableItem.KwList()...).
-	MustBuild()
+var listItemQuery *tsq.Query
 
 // CountItem returns the total count of Item records.
 func CountItem(
@@ -259,13 +259,7 @@ func PageItem(
 // =============================================================================
 // Query by Unique Indexes
 // =============================================================================
-var getItemByNameQuery = tsq.
-	Select(TableItemCols...).
-	Where(
-		Item_Name.EQVar(),
-	).
-	KwSearch(TableItem.KwList()...).
-	MustBuild()
+var getItemByNameQuery *tsq.Query
 
 // GetItemByName retrieves a Item record by unique index ux_item_name.
 // Returns (nil, nil) if the record is not found.
@@ -333,13 +327,7 @@ func ExistsItemByName(
 // Query by Indexes
 // =============================================================================
 // ListItemByCategoryIDQuery queries Item records by index CategoryID.
-var ListItemByCategoryIDQuery = tsq.
-	Select(TableItemCols...).
-	Where(
-		Item_CategoryID.EQVar(),
-	).
-	KwSearch(TableItem.KwList()...).
-	MustBuild()
+var ListItemByCategoryIDQuery *tsq.Query
 
 // CountItemByCategoryID returns the count of Item records matching index CategoryID.
 func CountItemByCategoryID(
@@ -390,12 +378,15 @@ func ListItemByCategoryIDIn(
 	db tsq.SqlExecutor,
 	categoryIDs ...int64,
 ) ([]*Item, error) {
-	query := tsq.
+	query, err := tsq.
 		Select(TableItemCols...).
 		Where(
 			Item_CategoryID.In(categoryIDs...),
 		).
-		MustBuild()
+		Build()
+	if err != nil {
+		return nil, errors.Annotate(err, "build query")
+	}
 	list, err := tsq.List[Item](ctx, db, query)
 	return list, errors.Trace(err)
 }

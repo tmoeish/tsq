@@ -65,10 +65,7 @@ func (u User) KwList() []tsq.Column {
 // =============================================================================
 // Query by Primary Key
 // =============================================================================
-var getUserByIDQuery = tsq.
-	Select(TableUserCols...).
-	Where(User_ID.EQVar()).
-	MustBuild()
+var getUserByIDQuery *tsq.Query
 
 // GetUserByID retrieves a User record by its ID.
 // Returns (nil, nil) if the record is not found.
@@ -117,10 +114,13 @@ func ListUserByIDIn(
 	db tsq.SqlExecutor,
 	iDs ...int64,
 ) ([]*User, error) {
-	query := tsq.
+	query, err := tsq.
 		Select(TableUserCols...).
 		Where(User_ID.In(iDs...)).
-		MustBuild()
+		Build()
+	if err != nil {
+		return nil, errors.Annotate(err, "build query")
+	}
 
 	return tsq.List[User](ctx, db, query)
 }
@@ -132,10 +132,13 @@ func ListUserByIDInOrErr(
 	db tsq.SqlExecutor,
 	iDs ...int64,
 ) ([]*User, error) {
-	query := tsq.
+	query, err := tsq.
 		Select(TableUserCols...).
 		Where(User_ID.In(iDs...)).
-		MustBuild()
+		Build()
+	if err != nil {
+		return nil, errors.Annotate(err, "build query")
+	}
 
 	list, err := tsq.List[User](ctx, db, query)
 	if err != nil {
@@ -222,10 +225,7 @@ func PageUserByQuery(
 // List All Records
 // =============================================================================
 // listUserQuery is the base query for retrieving all User records.
-var listUserQuery = tsq.
-	Select(TableUserCols...).
-	KwSearch(TableUser.KwList()...).
-	MustBuild()
+var listUserQuery *tsq.Query
 
 // CountUser returns the total count of User records.
 func CountUser(
@@ -255,13 +255,7 @@ func PageUser(
 // =============================================================================
 // Query by Unique Indexes
 // =============================================================================
-var getUserByNameQuery = tsq.
-	Select(TableUserCols...).
-	Where(
-		User_Name.EQVar(),
-	).
-	KwSearch(TableUser.KwList()...).
-	MustBuild()
+var getUserByNameQuery *tsq.Query
 
 // GetUserByName retrieves a User record by unique index ux_user_name.
 // Returns (nil, nil) if the record is not found.

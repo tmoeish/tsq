@@ -61,10 +61,7 @@ func (o Org) KwList() []tsq.Column {
 // =============================================================================
 // Query by Primary Key
 // =============================================================================
-var getOrgByIDQuery = tsq.
-	Select(TableOrgCols...).
-	Where(Org_ID.EQVar()).
-	MustBuild()
+var getOrgByIDQuery *tsq.Query
 
 // GetOrgByID retrieves a Org record by its ID.
 // Returns (nil, nil) if the record is not found.
@@ -113,10 +110,13 @@ func ListOrgByIDIn(
 	db tsq.SqlExecutor,
 	iDs ...int64,
 ) ([]*Org, error) {
-	query := tsq.
+	query, err := tsq.
 		Select(TableOrgCols...).
 		Where(Org_ID.In(iDs...)).
-		MustBuild()
+		Build()
+	if err != nil {
+		return nil, errors.Annotate(err, "build query")
+	}
 
 	return tsq.List[Org](ctx, db, query)
 }
@@ -128,10 +128,13 @@ func ListOrgByIDInOrErr(
 	db tsq.SqlExecutor,
 	iDs ...int64,
 ) ([]*Org, error) {
-	query := tsq.
+	query, err := tsq.
 		Select(TableOrgCols...).
 		Where(Org_ID.In(iDs...)).
-		MustBuild()
+		Build()
+	if err != nil {
+		return nil, errors.Annotate(err, "build query")
+	}
 
 	list, err := tsq.List[Org](ctx, db, query)
 	if err != nil {
@@ -218,10 +221,7 @@ func PageOrgByQuery(
 // List All Records
 // =============================================================================
 // listOrgQuery is the base query for retrieving all Org records.
-var listOrgQuery = tsq.
-	Select(TableOrgCols...).
-	KwSearch(TableOrg.KwList()...).
-	MustBuild()
+var listOrgQuery *tsq.Query
 
 // CountOrg returns the total count of Org records.
 func CountOrg(
@@ -251,13 +251,7 @@ func PageOrg(
 // =============================================================================
 // Query by Unique Indexes
 // =============================================================================
-var getOrgByNameQuery = tsq.
-	Select(TableOrgCols...).
-	Where(
-		Org_Name.EQVar(),
-	).
-	KwSearch(TableOrg.KwList()...).
-	MustBuild()
+var getOrgByNameQuery *tsq.Query
 
 // GetOrgByName retrieves a Org record by unique index ux_org_name.
 // Returns (nil, nil) if the record is not found.
