@@ -9,10 +9,9 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/tmoeish/tsq"
 	"github.com/tmoeish/tsq/examples/database"
-	"gopkg.in/gorp.v2"
 )
 
-func newExampleDBMap(t *testing.T) *gorp.DbMap {
+func newExampleDBMap(t *testing.T) *tsq.DbMap {
 	t.Helper()
 
 	db, err := sql.Open("sqlite3", ":memory:")
@@ -24,7 +23,7 @@ func newExampleDBMap(t *testing.T) *gorp.DbMap {
 		_ = db.Close()
 	})
 
-	dbmap := &gorp.DbMap{Db: db, Dialect: gorp.SqliteDialect{}}
+	dbmap := &tsq.DbMap{Db: db, Dialect: tsq.SqliteDialect{}}
 	if err := tsq.Init(dbmap, true, true); err != nil {
 		t.Fatalf("init tsq: %v", err)
 	}

@@ -3,8 +3,6 @@ package tsq
 import (
 	"strings"
 	"testing"
-
-	"gopkg.in/gorp.v2"
 )
 
 // Mock table and column for testing
@@ -12,7 +10,7 @@ type mockTable struct {
 	tableName string
 }
 
-func (m mockTable) Init(db *gorp.DbMap, upsertIndexies bool) error { return nil }
+func (m mockTable) Init(db *DbMap, upsertIndexies bool) error { return nil }
 func (m mockTable) Table() string                                  { return m.tableName }
 func (m mockTable) Cols() []Column                                 { return nil }
 func (m mockTable) KwList() []Column                               { return nil }
@@ -481,7 +479,7 @@ func TestQueryBuilder_HavingKeepsRawClauseForDialectRendering(t *testing.T) {
 		t.Fatalf("Build returned error: %v", err)
 	}
 
-	rendered := renderSQLForDialect(q.listSQL, gorp.MySQLDialect{})
+	rendered := renderSQLForDialect(q.listSQL, MySQLDialect{})
 	if !strings.Contains(rendered, "HAVING `users`.`id` > ?") {
 		t.Fatalf("expected HAVING clause to use dialect identifiers, got %s", rendered)
 	}

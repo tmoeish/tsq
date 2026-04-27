@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	_ "github.com/mattn/go-sqlite3"
-	"gopkg.in/gorp.v2"
 )
 
 func TestErrUnknownSortField(t *testing.T) {
@@ -559,7 +558,7 @@ func TestRenderSQLForDialectPostgres(t *testing.T) {
 
 	query := Select(userID).Where(userID.EQVar()).MustBuild()
 
-	got := renderSQLForDialect(query.listSQL, gorp.PostgresDialect{})
+	got := renderSQLForDialect(query.listSQL, PostgresDialect{})
 	want := `SELECT "users"."id" FROM "users" WHERE "users"."id" = $1`
 
 	if got != want {
@@ -573,7 +572,7 @@ func TestRenderDeleteByIDsSQLForPostgres(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	got := renderSQLForDialect(sqlStr, gorp.PostgresDialect{})
+	got := renderSQLForDialect(sqlStr, PostgresDialect{})
 	want := `DELETE FROM "users" WHERE "id" IN ($1,$2)`
 
 	if got != want {
@@ -615,7 +614,7 @@ func TestPageFnRejectsNilQuery(t *testing.T) {
 }
 
 func TestQueryCountRejectsTypedNilExecutor(t *testing.T) {
-	var db *gorp.DbMap
+	var db *DbMap
 
 	users := newMockTable("users")
 	userID := newMockColumn(users, "id")
@@ -632,7 +631,7 @@ func TestQueryCountRejectsTypedNilExecutor(t *testing.T) {
 }
 
 func TestInsertRejectsTypedNilExecutor(t *testing.T) {
-	var db *gorp.DbMap
+	var db *DbMap
 
 	value := 1
 
@@ -647,7 +646,7 @@ func TestInsertRejectsTypedNilExecutor(t *testing.T) {
 }
 
 func TestInsertRejectsNilItem(t *testing.T) {
-	db := &gorp.DbMap{}
+	db := &DbMap{}
 
 	var value *int
 
@@ -662,7 +661,7 @@ func TestInsertRejectsNilItem(t *testing.T) {
 }
 
 func TestUpdateRejectsNilItem(t *testing.T) {
-	db := &gorp.DbMap{}
+	db := &DbMap{}
 
 	var value *int
 
@@ -677,7 +676,7 @@ func TestUpdateRejectsNilItem(t *testing.T) {
 }
 
 func TestDeleteRejectsNilItem(t *testing.T) {
-	db := &gorp.DbMap{}
+	db := &DbMap{}
 
 	var value *int
 
@@ -692,7 +691,7 @@ func TestDeleteRejectsNilItem(t *testing.T) {
 }
 
 func TestChunkedInsertRejectsTypedNilExecutor(t *testing.T) {
-	var db *gorp.DbMap
+	var db *DbMap
 
 	row := mockTable{tableName: "users"}
 
@@ -736,7 +735,7 @@ func TestChunkedDeleteByIDsRejectsExecutorWithoutDialectForRenderedSQL(t *testin
 }
 
 func TestValidateExecutorForSQLIgnoresMarkersInsideStringsAndComments(t *testing.T) {
-	db := &gorp.DbMap{}
+	db := &DbMap{}
 	rawSQL := "SELECT 1 /* " + identifierMarkerPrefix + "ignored_comment" + identifierMarkerSuffix + " */" +
 		" WHERE note = '" + identifierMarkerPrefix + "ignored_string" + identifierMarkerSuffix + "'" +
 		" -- " + identifierMarkerPrefix + "ignored_tail" + identifierMarkerSuffix + "\n"
@@ -747,7 +746,7 @@ func TestValidateExecutorForSQLIgnoresMarkersInsideStringsAndComments(t *testing
 }
 
 func TestValidateExecutorForSQLIgnoresMarkersInsideDollarQuotedStrings(t *testing.T) {
-	db := &gorp.DbMap{}
+	db := &DbMap{}
 	rawSQL := "SELECT $$" + identifierMarkerPrefix + "ignored_marker" + identifierMarkerSuffix + "$$"
 
 	if err := validateExecutorForSQL(db, rawSQL); err != nil {
@@ -756,7 +755,7 @@ func TestValidateExecutorForSQLIgnoresMarkersInsideDollarQuotedStrings(t *testin
 }
 
 func TestValidateExecutorForSQLRejectsBindVarsWithoutDialect(t *testing.T) {
-	db := &gorp.DbMap{}
+	db := &DbMap{}
 
 	if err := validateExecutorForSQL(db, "SELECT ?"); err == nil {
 		t.Fatal("expected bind vars without a known dialect to return an error")
@@ -764,7 +763,7 @@ func TestValidateExecutorForSQLRejectsBindVarsWithoutDialect(t *testing.T) {
 }
 
 func TestValidateExecutorForSQLIgnoresBindVarsInsideStringsCommentsAndDollarQuotes(t *testing.T) {
-	db := &gorp.DbMap{}
+	db := &DbMap{}
 	rawSQL := "SELECT '?'" +
 		" /* ? */" +
 		" WHERE note = $$?$$" +
@@ -776,7 +775,7 @@ func TestValidateExecutorForSQLIgnoresBindVarsInsideStringsCommentsAndDollarQuot
 }
 
 func TestChunkedDeleteByIDsRejectsNilIDs(t *testing.T) {
-	db := &gorp.DbMap{Dialect: gorp.SqliteDialect{}}
+	db := &DbMap{Dialect: SqliteDialect{}}
 
 	err := ChunkedDeleteByIDs(context.Background(), db, "users", "id", []any{1, nil})
 	if err == nil {
@@ -792,7 +791,7 @@ type scanDestUser struct {
 	Name string
 }
 
-func newScanValidationDBMap(t *testing.T) *gorp.DbMap {
+func newScanValidationDBMap(t *testing.T) *DbMap {
 	t.Helper()
 
 	db, err := sql.Open("sqlite3", ":memory:")
@@ -808,10 +807,10 @@ func newScanValidationDBMap(t *testing.T) *gorp.DbMap {
 		t.Fatalf("failed to create users table: %v", err)
 	}
 
-	return &gorp.DbMap{Db: db, Dialect: gorp.SqliteDialect{}}
+	return &DbMap{Db: db, Dialect: SqliteDialect{}}
 }
 
-func newDBMapWithoutDialect(t *testing.T) *gorp.DbMap {
+func newDBMapWithoutDialect(t *testing.T) *DbMap {
 	t.Helper()
 
 	db, err := sql.Open("sqlite3", ":memory:")
@@ -823,7 +822,7 @@ func newDBMapWithoutDialect(t *testing.T) *gorp.DbMap {
 		_ = db.Close()
 	})
 
-	return &gorp.DbMap{Db: db}
+	return &DbMap{Db: db}
 }
 
 func TestListValidatesScanDestEvenWhenResultIsEmpty(t *testing.T) {

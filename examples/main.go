@@ -13,7 +13,6 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/tmoeish/tsq"
 	"github.com/tmoeish/tsq/examples/database"
-	"gopkg.in/gorp.v2"
 )
 
 func main() {
@@ -27,8 +26,8 @@ func main() {
 		_ = db.Close()
 	}()
 
-	// 2. 初始化 gorp
-	dbmap := &gorp.DbMap{Db: db, Dialect: gorp.SqliteDialect{}}
+	// 2. 初始化 tsq
+	dbmap := &tsq.DbMap{Db: db, Dialect: tsq.SqliteDialect{}}
 
 	// err = tsq.Init(dbmap, true, true, tsq.PrintCost, tsq.PrintError, tsq.PrintSQL)
 	err = tsq.Init(dbmap, true, true, tsq.PrintError, tsq.PrintSQL)
@@ -79,7 +78,7 @@ func main() {
 }
 
 // runChunkedInsertDemo 运行分块插入演示
-func runChunkedInsertDemo(ctx context.Context, dbmap *gorp.DbMap) {
+func runChunkedInsertDemo(ctx context.Context, dbmap *tsq.DbMap) {
 	slog.Info("=== 分块插入功能演示 ===")
 
 	// 演示1：基本分块插入

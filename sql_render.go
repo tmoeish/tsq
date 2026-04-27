@@ -3,8 +3,6 @@ package tsq
 import (
 	"encoding/base64"
 	"strings"
-
-	"gopkg.in/gorp.v2"
 )
 
 const (
@@ -18,7 +16,7 @@ type rawQualifiedNamer interface {
 }
 
 type dialectProvider interface {
-	TSQDialect() gorp.Dialect
+	TSQDialect() Dialect
 }
 
 type schemaTabler interface {
@@ -90,11 +88,11 @@ func renderCanonicalSQL(raw string) string {
 	return renderSQLWithIdentifierQuoter(raw, canonicalQuoteIdentifier)
 }
 
-func renderSQLForExecutor(exec gorp.SqlExecutor, raw string) string {
+func renderSQLForExecutor(exec SqlExecutor, raw string) string {
 	return renderSQLForDialect(raw, dialectForExecutor(exec))
 }
 
-func renderSQLForDialect(raw string, dialect gorp.Dialect) string {
+func renderSQLForDialect(raw string, dialect Dialect) string {
 	rendered := renderSQLWithIdentifierQuoter(raw, func(name string) string {
 		if dialect == nil {
 			return canonicalQuoteIdentifier(name)
@@ -294,7 +292,7 @@ func canonicalQuoteIdentifier(name string) string {
 	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
 }
 
-func rewriteBindVars(sql string, dialect gorp.Dialect) string {
+func rewriteBindVars(sql string, dialect Dialect) string {
 	if dialect == nil || !strings.Contains(sql, "?") {
 		return sql
 	}
@@ -447,9 +445,9 @@ func isDollarQuoteTagChar(ch byte) bool {
 	return isDollarQuoteTagStart(ch) || ('0' <= ch && ch <= '9')
 }
 
-func dialectForExecutor(exec gorp.SqlExecutor) gorp.Dialect {
+func dialectForExecutor(exec SqlExecutor) Dialect {
 	switch tx := exec.(type) {
-	case *gorp.DbMap:
+	case *DbMap:
 		return tx.Dialect
 	case dialectProvider:
 		return tx.TSQDialect()

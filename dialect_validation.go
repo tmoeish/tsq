@@ -3,8 +3,6 @@ package tsq
 import (
 	"fmt"
 	"strings"
-
-	"gopkg.in/gorp.v2"
 )
 
 // DialectName represents a SQL dialect type
@@ -20,7 +18,7 @@ const (
 )
 
 // detectDialectName attempts to identify the dialect from its string representation
-func detectDialectName(d gorp.Dialect) DialectName {
+func detectDialectName(d Dialect) DialectName {
 	if d == nil {
 		return DialectUnknown
 	}
@@ -45,7 +43,7 @@ func detectDialectName(d gorp.Dialect) DialectName {
 }
 
 // SupportsFullOuterJoin returns whether the dialect supports FULL OUTER JOIN
-func SupportsFullOuterJoin(d gorp.Dialect) bool {
+func SupportsFullOuterJoin(d Dialect) bool {
 	dialect := detectDialectName(d)
 	switch dialect {
 	case DialectPostgres, DialectOracle:
@@ -80,7 +78,7 @@ func (e *ErrUnsupportedOperation) Error() string {
 }
 
 // ValidateOperationForDialect checks if an operation is supported by the dialect
-func ValidateOperationForDialect(operation string, d gorp.Dialect) error {
+func ValidateOperationForDialect(operation string, d Dialect) error {
 	if d == nil {
 		// No dialect validation when dialect is unknown
 		return nil

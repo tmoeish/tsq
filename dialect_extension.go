@@ -2,8 +2,6 @@ package tsq
 
 import (
 	"sync"
-
-	"gopkg.in/gorp.v2"
 )
 
 // KeywordRegistry is a registry for dialect-specific SQL keywords
@@ -180,12 +178,12 @@ func (r *KeywordRegistry) GetCapabilities(dialect DialectName) map[string]bool {
 
 // DialectValidator validates operations for a specific dialect
 type DialectValidator struct {
-	dialect gorp.Dialect
+	dialect Dialect
 	registry *KeywordRegistry
 }
 
 // NewDialectValidator creates a validator for a dialect
-func NewDialectValidator(dialect gorp.Dialect) *DialectValidator {
+func NewDialectValidator(dialect Dialect) *DialectValidator {
 	return &DialectValidator{
 		dialect: dialect,
 		registry: GetKeywordRegistry(),

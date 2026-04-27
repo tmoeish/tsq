@@ -8,7 +8,6 @@ import (
 	"sync"
 
 	"github.com/juju/errors"
-	"gopkg.in/gorp.v2"
 )
 
 // Runtime owns the mutable TSQ process state used for table registration,
@@ -18,7 +17,7 @@ type Runtime struct {
 	registry     *Registry
 	traceManager *TraceManager
 	initMu       sync.Mutex
-	db           *gorp.DbMap // Stored after InitWithOptions for dialect access
+	db           *DbMap // Stored after InitWithOptions for dialect access
 }
 
 func NewRuntime() *Runtime {
@@ -52,7 +51,7 @@ func (r *Runtime) TraceManager() *TraceManager {
 
 // CurrentDB returns the current database map if Init has been called.
 // Returns nil if Init has not been called or if runtime is nil.
-func (r *Runtime) CurrentDB() *gorp.DbMap {
+func (r *Runtime) CurrentDB() *DbMap {
 	if r == nil {
 		return nil
 	}
@@ -92,8 +91,8 @@ func contains(s, substr string) bool {
 
 func (r *Runtime) RegisterTable(
 	table Table,
-	addTableFunc func(db *gorp.DbMap),
-	initFunc func(db *gorp.DbMap) error,
+	addTableFunc func(db *DbMap),
+	initFunc func(db *DbMap) error,
 ) error {
 	if r == nil {
 		return &RegistrationError{
@@ -114,7 +113,7 @@ func (r *Runtime) snapshotRegisteredTables() []*RegisteredTable {
 }
 
 func (r *Runtime) Init(
-	db *gorp.DbMap,
+	db *DbMap,
 	autoCreateTable bool,
 	upsertIndexies bool,
 	tracer ...Tracer,
@@ -126,7 +125,7 @@ func (r *Runtime) Init(
 	})
 }
 
-func (r *Runtime) InitWithOptions(db *gorp.DbMap, options *InitOptions) error {
+func (r *Runtime) InitWithOptions(db *DbMap, options *InitOptions) error {
 	if r == nil {
 		return errors.New("runtime cannot be nil")
 	}

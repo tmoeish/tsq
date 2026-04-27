@@ -19,8 +19,8 @@ package p
 import "strings"
 
 import (
-	xxpkgv2 "gopkg.in/gorp.v2"
-	"gopkg.in/gorp.v2"
+	jsontestify "github.com/stretchr/testify/assert"
+	"database/sql"
 )
 `
 	fset := token.NewFileSet()
@@ -37,8 +37,8 @@ import (
 
 	assert.Equal(t, 3, len(pkgs))
 	assert.Equal(t, "strings", pkgs["strings"].Path)
-	assert.Equal(t, "gopkg.in/gorp.v2", pkgs["xxpkgv2"].Path)
-	assert.Equal(t, "gopkg.in/gorp.v2", pkgs["gorp"].Path)
+	assert.Equal(t, "github.com/stretchr/testify/assert", pkgs["jsontestify"].Path)
+	assert.Equal(t, "database/sql", pkgs["sql"].Path)
 }
 
 func Test_parsePackageAliases_UnresolvedImport(t *testing.T) {

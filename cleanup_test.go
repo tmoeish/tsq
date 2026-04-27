@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	_ "github.com/mattn/go-sqlite3"
-	"gopkg.in/gorp.v2"
 )
 
 // MockCloser is a helper for testing Close() error handling
@@ -203,7 +202,7 @@ func TestResourceCleanup_GorpDbMapClosure(t *testing.T) {
 		t.Fatalf("failed to open db: %v", err)
 	}
 
-	dbMap := &gorp.DbMap{Db: db, Dialect: gorp.SqliteDialect{}}
+	dbMap := &DbMap{Db: db, Dialect: SqliteDialect{}}
 
 	defer func() {
 		if closeErr := dbMap.Db.Close(); closeErr != nil {

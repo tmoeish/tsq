@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/tmoeish/tsq"
-	"gopkg.in/gorp.v2"
 )
 
 // UserOrder 用于用户和订单联合查询(aaa)
@@ -32,7 +31,7 @@ type UserOrder struct {
 
 func PageUserOrder(
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx tsq.SqlExecutor,
 	page *tsq.PageReq,
 	userID int64,
 	cats ...string,

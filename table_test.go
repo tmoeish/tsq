@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	_ "github.com/mattn/go-sqlite3"
-	"gopkg.in/gorp.v2"
 )
 
 func TestRegisterTableRejectsNilInputs(t *testing.T) {
@@ -24,21 +23,21 @@ func TestRegisterTableRejectsNilInputs(t *testing.T) {
 		{
 			name: "nil table",
 			fn: func() error {
-				return RegisterTable(nil, func(db *gorp.DbMap) {}, func(db *gorp.DbMap) error { return nil })
+				return RegisterTable(nil, func(db *DbMap) {}, func(db *DbMap) error { return nil })
 			},
 			expectedError: RegistrationErrorNilTable,
 		},
 		{
 			name: "nil add table func",
 			fn: func() error {
-				return RegisterTable(newMockTable("users"), nil, func(db *gorp.DbMap) error { return nil })
+				return RegisterTable(newMockTable("users"), nil, func(db *DbMap) error { return nil })
 			},
 			expectedError: RegistrationErrorNilAddFunc,
 		},
 		{
 			name: "nil init func",
 			fn: func() error {
-				return RegisterTable(newMockTable("users"), func(db *gorp.DbMap) {}, nil)
+				return RegisterTable(newMockTable("users"), func(db *DbMap) {}, nil)
 			},
 			expectedError: RegistrationErrorNilInitFunc,
 		},
@@ -72,12 +71,12 @@ func TestRegisterTableRejectsDuplicate(t *testing.T) {
 	})
 
 	table := newMockTable("users")
-	err1 := RegisterTable(table, func(db *gorp.DbMap) {}, func(db *gorp.DbMap) error { return nil })
+	err1 := RegisterTable(table, func(db *DbMap) {}, func(db *DbMap) error { return nil })
 	if err1 != nil {
 		t.Fatalf("first registration should succeed, got error: %v", err1)
 	}
 
-	err2 := RegisterTable(table, func(db *gorp.DbMap) {}, func(db *gorp.DbMap) error { return nil })
+	err2 := RegisterTable(table, func(db *DbMap) {}, func(db *DbMap) error { return nil })
 	if err2 == nil {
 		t.Fatal("expected duplicate table registration to fail")
 	}
@@ -96,7 +95,7 @@ func TestRuntimeRegisterTableRejectsNilRuntime(t *testing.T) {
 	var r *Runtime // nil runtime
 	table := newMockTable("users")
 
-	err := r.RegisterTable(table, func(db *gorp.DbMap) {}, func(db *gorp.DbMap) error { return nil })
+	err := r.RegisterTable(table, func(db *DbMap) {}, func(db *DbMap) error { return nil })
 	if err == nil {
 		t.Fatal("expected nil runtime to return error")
 	}
@@ -117,13 +116,13 @@ func TestSnapshotRegisteredTablesReturnsDeterministicOrder(t *testing.T) {
 	defaultRuntime.registry = &Registry{tables: map[string]*RegisteredTable{
 		"users": {
 			Table:        newMockTable("users"),
-			AddTableFunc: func(db *gorp.DbMap) {},
-			InitFunc:     func(db *gorp.DbMap) error { return nil },
+			AddTableFunc: func(db *DbMap) {},
+			InitFunc:     func(db *DbMap) error { return nil },
 		},
 		"accounts": {
 			Table:        newMockTable("accounts"),
-			AddTableFunc: func(db *gorp.DbMap) {},
-			InitFunc:     func(db *gorp.DbMap) error { return nil },
+			AddTableFunc: func(db *DbMap) {},
+			InitFunc:     func(db *DbMap) error { return nil },
 		},
 	}}
 
@@ -172,8 +171,8 @@ func TestRuntimeKeepsRegistrationsAndTracersIsolated(t *testing.T) {
 	left := NewRuntime()
 	right := NewRuntime()
 
-	left.RegisterTable(newMockTable("users"), func(db *gorp.DbMap) {}, func(db *gorp.DbMap) error { return nil })
-	right.RegisterTable(newMockTable("users"), func(db *gorp.DbMap) {}, func(db *gorp.DbMap) error { return nil })
+	left.RegisterTable(newMockTable("users"), func(db *DbMap) {}, func(db *DbMap) error { return nil })
+	right.RegisterTable(newMockTable("users"), func(db *DbMap) {}, func(db *DbMap) error { return nil })
 
 	left.AddTracer(func(next Fn) Fn { return next })
 
@@ -195,7 +194,7 @@ func TestRuntimeKeepsRegistrationsAndTracersIsolated(t *testing.T) {
 }
 
 func TestUpsertIndexRejectsInvalidIdentifiers(t *testing.T) {
-	db := &gorp.DbMap{Dialect: gorp.MySQLDialect{}}
+	db := &DbMap{Dialect: MySQLDialect{}}
 
 	err := UpsertIndex(db, "users;drop", false, "idx_users_id", []string{"id"})
 	if err == nil {
@@ -214,7 +213,7 @@ func TestUpsertIndexRejectsInvalidIdentifiers(t *testing.T) {
 }
 
 func TestUpsertIndexRejectsEmptyFields(t *testing.T) {
-	db := &gorp.DbMap{Dialect: gorp.MySQLDialect{}}
+	db := &DbMap{Dialect: MySQLDialect{}}
 
 	err := UpsertIndex(db, "users", false, "idx_users_id", nil)
 	if err == nil {
@@ -235,7 +234,7 @@ func TestInitRejectsNilDbMap(t *testing.T) {
 	}
 }
 
-func newSQLiteIndexTestDBMap(t *testing.T) *gorp.DbMap {
+func newSQLiteIndexTestDBMap(t *testing.T) *DbMap {
 	t.Helper()
 
 	db, err := sql.Open("sqlite3", ":memory:")
@@ -247,7 +246,7 @@ func newSQLiteIndexTestDBMap(t *testing.T) *gorp.DbMap {
 		_ = db.Close()
 	})
 
-	return &gorp.DbMap{Db: db, Dialect: gorp.SqliteDialect{}}
+	return &DbMap{Db: db, Dialect: SqliteDialect{}}
 }
 
 func TestUpsertIndexSQLiteRejectsConflictingTableReuse(t *testing.T) {

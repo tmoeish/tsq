@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/juju/errors"
-	"gopkg.in/gorp.v2"
 )
 
 // ================================================
@@ -315,7 +314,7 @@ func (qb *QueryBuilder) Build() (*Query, error) {
 // Returns (sqlText, finalArgs, error).
 func (q *Query) prepareQueryExecution(
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx SqlExecutor,
 	methodName string,
 	args ...any,
 ) (string, []any, error) {
@@ -344,7 +343,7 @@ func (q *Query) prepareQueryExecution(
 // QueryInt executes the query and returns a single integer result
 func (q *Query) QueryInt(
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx SqlExecutor,
 	args ...any,
 ) (int64, error) {
 	return Trace1(ctx, func(ctx context.Context) (int64, error) {
@@ -354,7 +353,7 @@ func (q *Query) QueryInt(
 
 func (q *Query) queryInt(
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx SqlExecutor,
 	args ...any,
 ) (int64, error) {
 	sqlText, finalArgs, err := q.prepareQueryExecution(ctx, tx, "queryInt", args...)
@@ -373,7 +372,7 @@ func (q *Query) queryInt(
 // QueryFloat executes the query and returns a single float result
 func (q *Query) QueryFloat(
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx SqlExecutor,
 	args ...any,
 ) (float64, error) {
 	return Trace1(ctx, func(ctx context.Context) (float64, error) {
@@ -383,7 +382,7 @@ func (q *Query) QueryFloat(
 
 func (q *Query) queryFloat(
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx SqlExecutor,
 	args ...any,
 ) (float64, error) {
 	sqlText, finalArgs, err := q.prepareQueryExecution(ctx, tx, "queryFloat", args...)
@@ -402,7 +401,7 @@ func (q *Query) queryFloat(
 // QueryStr executes the query and returns a single string result
 func (q *Query) QueryStr(
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx SqlExecutor,
 	args ...any,
 ) (string, error) {
 	return Trace1(ctx, func(ctx context.Context) (string, error) {
@@ -412,7 +411,7 @@ func (q *Query) QueryStr(
 
 func (q *Query) queryStr(
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx SqlExecutor,
 	args ...any,
 ) (string, error) {
 	sqlText, finalArgs, err := q.prepareQueryExecution(ctx, tx, "queryStr", args...)
@@ -432,7 +431,7 @@ func (q *Query) queryStr(
 // The result is truncated to int; use Count64 when an int64 is required.
 func (q *Query) Count(
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx SqlExecutor,
 	args ...any,
 ) (int, error) {
 	return Trace1(ctx, func(ctx context.Context) (int, error) {
@@ -444,7 +443,7 @@ func (q *Query) Count(
 // as int64, avoiding truncation on large result sets or 32-bit platforms.
 func (q *Query) Count64(
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx SqlExecutor,
 	args ...any,
 ) (int64, error) {
 	return Trace1(ctx, func(ctx context.Context) (int64, error) {
@@ -454,7 +453,7 @@ func (q *Query) Count64(
 
 func (q *Query) count(
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx SqlExecutor,
 	args ...any,
 ) (int, error) {
 	n, err := q.count64(ctx, tx, args...)
@@ -463,7 +462,7 @@ func (q *Query) count(
 
 func (q *Query) count64(
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx SqlExecutor,
 	args ...any,
 ) (int64, error) {
 	if err := validateQuery(q); err != nil {
@@ -496,7 +495,7 @@ func (q *Query) count64(
 // Exists checks if any records match the query conditions
 func (q *Query) Exists(
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx SqlExecutor,
 	args ...any,
 ) (bool, error) {
 	return Trace1(ctx, func(ctx context.Context) (bool, error) {
@@ -506,7 +505,7 @@ func (q *Query) Exists(
 
 func (q *Query) exist(
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx SqlExecutor,
 	args ...any,
 ) (bool, error) {
 	if err := validateQuery(q); err != nil {
@@ -543,7 +542,7 @@ func (q *Query) exist(
 // Page executes a paginated query with the given page parameters
 func Page[T any](
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx SqlExecutor,
 	page *PageReq,
 	q *Query,
 	args ...any,
@@ -555,7 +554,7 @@ func Page[T any](
 
 func pageFn[T any](
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx SqlExecutor,
 	page *PageReq,
 	q *Query,
 	args ...any,
@@ -660,7 +659,7 @@ func pageFn[T any](
 
 func List[T any](
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx SqlExecutor,
 	qb *Query,
 	args ...any,
 ) ([]*T, error) {
@@ -671,7 +670,7 @@ func List[T any](
 
 func listFn[T any](
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx SqlExecutor,
 	q *Query,
 	args ...any,
 ) ([]*T, error) {
@@ -741,7 +740,7 @@ func listFn[T any](
 
 func GetOrErr[T any](
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx SqlExecutor,
 	qb *Query,
 	args ...any,
 ) (*T, error) {
@@ -752,7 +751,7 @@ func GetOrErr[T any](
 
 func getOrErrFn[T any](
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx SqlExecutor,
 	qb *Query,
 	args ...any,
 ) (*T, error) {
@@ -803,7 +802,7 @@ func getOrErrFn[T any](
 
 func (q *Query) Load(
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx SqlExecutor,
 	holder any,
 	args ...any,
 ) error {
@@ -814,7 +813,7 @@ func (q *Query) Load(
 
 func (q *Query) load(
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx SqlExecutor,
 	holder any,
 	args ...any,
 ) error {
@@ -1003,7 +1002,7 @@ func DefaultChunkedInsertOptions() *ChunkedInsertOptions {
 // ChunkedInsert 按块逐条插入数据。
 func ChunkedInsert[T Table](
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx SqlExecutor,
 	items []*T,
 	options ...*ChunkedInsertOptions,
 ) error {
@@ -1014,7 +1013,7 @@ func ChunkedInsert[T Table](
 
 func chunkedInsertFn[T Table](
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx SqlExecutor,
 	items []*T,
 	options ...*ChunkedInsertOptions,
 ) error {
@@ -1046,7 +1045,7 @@ func chunkedInsertFn[T Table](
 
 func chunkedInsertChunk[T Table](
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx SqlExecutor,
 	items []*T,
 	opts *ChunkedInsertOptions,
 ) error {
@@ -1085,7 +1084,7 @@ func chunkedInsertChunk[T Table](
 // ChunkedUpdate 按块逐条更新数据。
 func ChunkedUpdate[T any](
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx SqlExecutor,
 	items []*T,
 	options ...*ChunkedOptions,
 ) error {
@@ -1096,7 +1095,7 @@ func ChunkedUpdate[T any](
 
 func chunkedUpdateFn[T any](
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx SqlExecutor,
 	items []*T,
 	options ...*ChunkedOptions,
 ) error {
@@ -1131,7 +1130,7 @@ func chunkedUpdateFn[T any](
 
 func chunkedUpdateChunk[T any](
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx SqlExecutor,
 	items []*T,
 ) error {
 	for itemIdx, item := range items {
@@ -1150,7 +1149,7 @@ func chunkedUpdateChunk[T any](
 // ChunkedDelete 按块逐条删除数据。
 func ChunkedDelete[T any](
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx SqlExecutor,
 	items []*T,
 	options ...*ChunkedOptions,
 ) error {
@@ -1161,7 +1160,7 @@ func ChunkedDelete[T any](
 
 func chunkedDeleteFn[T any](
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx SqlExecutor,
 	items []*T,
 	options ...*ChunkedOptions,
 ) error {
@@ -1196,7 +1195,7 @@ func chunkedDeleteFn[T any](
 
 func chunkedDeleteChunk[T any](
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx SqlExecutor,
 	items []*T,
 ) error {
 	for itemIdx, item := range items {
@@ -1215,7 +1214,7 @@ func chunkedDeleteChunk[T any](
 // ChunkedDeleteByIDs 按块根据 ID 列表删除数据。
 func ChunkedDeleteByIDs(
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx SqlExecutor,
 	tableName string,
 	idColumn string,
 	ids []any,
@@ -1228,7 +1227,7 @@ func ChunkedDeleteByIDs(
 
 func chunkedDeleteByIDsFn(
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx SqlExecutor,
 	tableName string,
 	idColumn string,
 	ids []any,
@@ -1269,7 +1268,7 @@ func chunkedDeleteByIDsFn(
 
 func chunkedDeleteByIDsChunk(
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx SqlExecutor,
 	tableName string,
 	idColumn string,
 	ids []any,
@@ -1606,7 +1605,7 @@ func validateQuery(q *Query) error {
 	return nil
 }
 
-func validateExecutor(tx gorp.SqlExecutor) error {
+func validateExecutor(tx SqlExecutor) error {
 	if tx == nil {
 		return errors.New("sql executor cannot be nil")
 	}
@@ -1619,19 +1618,19 @@ func validateExecutor(tx gorp.SqlExecutor) error {
 	return nil
 }
 
-func validateOperationalExecutor(tx gorp.SqlExecutor) error {
+func validateOperationalExecutor(tx SqlExecutor) error {
 	if err := validateExecutor(tx); err != nil {
 		return errors.Trace(err)
 	}
 
-	if dbMap, ok := tx.(*gorp.DbMap); ok && dbMap.Db == nil {
+	if dbMap, ok := tx.(*DbMap); ok && dbMap.Db == nil {
 		return errors.New("db map database cannot be nil")
 	}
 
 	return nil
 }
 
-func validateExecutorForSQL(tx gorp.SqlExecutor, rawSQLs ...string) error {
+func validateExecutorForSQL(tx SqlExecutor, rawSQLs ...string) error {
 	if err := validateExecutor(tx); err != nil {
 		return errors.Trace(err)
 	}
@@ -1658,16 +1657,16 @@ func validateExecutorForSQL(tx gorp.SqlExecutor, rawSQLs ...string) error {
 	return nil
 }
 
-func dialectSupportsFullJoin(dialect gorp.Dialect) bool {
+func dialectSupportsFullJoin(dialect Dialect) bool {
 	switch dialect.(type) {
-	case gorp.MySQLDialect, *gorp.MySQLDialect, gorp.SqliteDialect, *gorp.SqliteDialect:
+	case MySQLDialect, *MySQLDialect, SqliteDialect, *SqliteDialect:
 		return false
 	default:
 		return true
 	}
 }
 
-func validateOperationalExecutorForSQL(tx gorp.SqlExecutor, rawSQLs ...string) error {
+func validateOperationalExecutorForSQL(tx SqlExecutor, rawSQLs ...string) error {
 	if err := validateOperationalExecutor(tx); err != nil {
 		return errors.Trace(err)
 	}
@@ -1747,7 +1746,7 @@ func invokeFieldPointer(pointerFunc FieldPointer, holder any) (ptr any, err erro
 
 func Insert[T any](
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx SqlExecutor,
 	item *T,
 ) error {
 	return Trace(ctx, func(ctx context.Context) error {
@@ -1757,7 +1756,7 @@ func Insert[T any](
 
 func insertFn[T any](
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx SqlExecutor,
 	item *T,
 ) error {
 	if err := validateMutationItem(item); err != nil {
@@ -1773,7 +1772,7 @@ func insertFn[T any](
 
 func Update[T any](
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx SqlExecutor,
 	item *T,
 ) error {
 	return Trace(ctx, func(ctx context.Context) error {
@@ -1783,7 +1782,7 @@ func Update[T any](
 
 func updateFn[T any](
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx SqlExecutor,
 	item *T,
 ) error {
 	if err := validateMutationItem(item); err != nil {
@@ -1801,7 +1800,7 @@ func updateFn[T any](
 
 func Delete[T any](
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx SqlExecutor,
 	item *T,
 ) error {
 	return Trace(ctx, func(ctx context.Context) error {
@@ -1811,7 +1810,7 @@ func Delete[T any](
 
 func deleteFn[T any](
 	ctx context.Context,
-	tx gorp.SqlExecutor,
+	tx SqlExecutor,
 	item *T,
 ) error {
 	if err := validateMutationItem(item); err != nil {

@@ -2,8 +2,6 @@ package tsq
 
 import (
 	"testing"
-
-	"gopkg.in/gorp.v2"
 )
 
 // BenchmarkRenderCanonicalSQL measures the performance of converting raw SQL with markers to canonical form
@@ -32,7 +30,7 @@ func BenchmarkRenderSQLForDialect_Postgres(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = renderSQLForDialect(raw, gorp.PostgresDialect{})
+		_ = renderSQLForDialect(raw, PostgresDialect{})
 	}
 }
 
@@ -48,7 +46,7 @@ func BenchmarkRenderSQLForDialect_MySQL(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = renderSQLForDialect(raw, gorp.MySQLDialect{})
+		_ = renderSQLForDialect(raw, MySQLDialect{})
 	}
 }
 
@@ -78,6 +76,6 @@ func BenchmarkComplexSQLRender(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = renderSQLForDialect(raw, gorp.PostgresDialect{})
+		_ = renderSQLForDialect(raw, PostgresDialect{})
 	}
 }
