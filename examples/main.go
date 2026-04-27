@@ -107,7 +107,6 @@ func runChunkedInsertDemo(ctx context.Context, dbmap *tsq.DbMap) {
 	slog.Info("=== 分块插入演示完成 ===")
 }
 
-// createTestUsers 创建测试用户数据
 func createTestUsers(count int) []*database.User {
 	users := make([]*database.User, count)
 
@@ -116,7 +115,7 @@ func createTestUsers(count int) []*database.User {
 			// ID 字段不设置，让数据库自动生成
 			Name:  fmt.Sprintf("demo_user_%d", i+1),
 			Email: fmt.Sprintf("demo_user_%d@example.com", i+1),
-			OrgID: int64(i%10 + 1), // 分配到不同的组织
+			OrgID: int64(i%2 + 1), // 分配到组织 1 或 2
 			// CT 字段也不设置，让数据库自动生成
 		}
 	}
