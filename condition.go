@@ -137,12 +137,12 @@ func (c Col[T]) GTVar() Cond         { return c.Predicate(`%s > %s`, Var) }
 func (c Col[T]) GETVar() Cond        { return c.Predicate(`%s >= %s`, Var) }
 func (c Col[T]) LTVar() Cond         { return c.Predicate(`%s < %s`, Var) }
 func (c Col[T]) LETVar() Cond        { return c.Predicate(`%s <= %s`, Var) }
-func (c Col[T]) StartWithVar() Cond  { return panicUnsupportedPatternPredicate("StartWithVar") }
-func (c Col[T]) NStartWithVar() Cond { return panicUnsupportedPatternPredicate("NStartWithVar") }
-func (c Col[T]) EndWithVar() Cond    { return panicUnsupportedPatternPredicate("EndWithVar") }
-func (c Col[T]) NEndWithVar() Cond   { return panicUnsupportedPatternPredicate("NEndWithVar") }
-func (c Col[T]) ContainsVar() Cond   { return panicUnsupportedPatternPredicate("ContainsVar") }
-func (c Col[T]) NContainsVar() Cond  { return panicUnsupportedPatternPredicate("NContainsVar") }
+func (c Col[T]) StartWithVar() Cond  { return unsupportedPatternPredicate("StartWithVar") }
+func (c Col[T]) NStartWithVar() Cond { return unsupportedPatternPredicate("NStartWithVar") }
+func (c Col[T]) EndWithVar() Cond    { return unsupportedPatternPredicate("EndWithVar") }
+func (c Col[T]) NEndWithVar() Cond   { return unsupportedPatternPredicate("NEndWithVar") }
+func (c Col[T]) ContainsVar() Cond   { return unsupportedPatternPredicate("ContainsVar") }
+func (c Col[T]) NContainsVar() Cond  { return unsupportedPatternPredicate("NContainsVar") }
 func (c Col[T]) BetweenVar() Cond    { return c.Predicate(`%s BETWEEN %s AND %s`, Var, Var) }
 func (c Col[T]) NBetweenVar() Cond   { return c.Predicate(`%s NOT BETWEEN %s AND %s`, Var, Var) }
 
@@ -245,14 +245,14 @@ func (c Col[T]) GTCol(other Col[T]) Cond    { return c.Predicate(`%s > %s`, othe
 func (c Col[T]) GTECol(other Col[T]) Cond   { return c.Predicate(`%s >= %s`, other) }
 func (c Col[T]) LTCol(other Col[T]) Cond    { return c.Predicate(`%s < %s`, other) }
 func (c Col[T]) LTECol(other Col[T]) Cond   { return c.Predicate(`%s <= %s`, other) }
-func (c Col[T]) StartWithCol(_ Col[T]) Cond { return panicUnsupportedPatternPredicate("StartWithCol") }
+func (c Col[T]) StartWithCol(_ Col[T]) Cond { return unsupportedPatternPredicate("StartWithCol") }
 func (c Col[T]) NStartWithCol(_ Col[T]) Cond {
-	return panicUnsupportedPatternPredicate("NStartWithCol")
+	return unsupportedPatternPredicate("NStartWithCol")
 }
-func (c Col[T]) EndWithCol(_ Col[T]) Cond   { return panicUnsupportedPatternPredicate("EndWithCol") }
-func (c Col[T]) NEndWithCol(_ Col[T]) Cond  { return panicUnsupportedPatternPredicate("NEndWithCol") }
-func (c Col[T]) ContainsCol(_ Col[T]) Cond  { return panicUnsupportedPatternPredicate("ContainsCol") }
-func (c Col[T]) NContainsCol(_ Col[T]) Cond { return panicUnsupportedPatternPredicate("NContainsCol") }
+func (c Col[T]) EndWithCol(_ Col[T]) Cond   { return unsupportedPatternPredicate("EndWithCol") }
+func (c Col[T]) NEndWithCol(_ Col[T]) Cond  { return unsupportedPatternPredicate("NEndWithCol") }
+func (c Col[T]) ContainsCol(_ Col[T]) Cond  { return unsupportedPatternPredicate("ContainsCol") }
+func (c Col[T]) NContainsCol(_ Col[T]) Cond { return unsupportedPatternPredicate("NContainsCol") }
 
 // ================================================
 // 子查询条件
@@ -285,8 +285,8 @@ func (c Col[T]) NExistsSub(sqb *Query) Cond {
 
 	return rawCondition("NOT EXISTS " + subquery)
 }
-func (c Col[T]) Unique(sqb *Query) Cond  { return panicUnsupportedSubqueryPredicate("UNIQUE") }
-func (c Col[T]) NUnique(sqb *Query) Cond { return panicUnsupportedSubqueryPredicate("NOT UNIQUE") }
+func (c Col[T]) Unique(sqb *Query) Cond  { return unsupportedSubqueryPredicate("UNIQUE") }
+func (c Col[T]) NUnique(sqb *Query) Cond { return unsupportedSubqueryPredicate("NOT UNIQUE") }
 
 // ================================================
 // 条件构建核心方法
@@ -356,11 +356,18 @@ func rawCondition(expr string) Cond {
 	}
 }
 
-func panicUnsupportedSubqueryPredicate(name string) Cond {
+// unsupportedSubqueryPredicate returns a condition with a deferred error indicating
+// that this predicate uses subqueries, which are not supported by TSQ's built-in dialects.
+// The error will be returned when Build() is called, not immediately.
+func unsupportedSubqueryPredicate(name string) Cond {
 	return Cond{buildErr: errors.Errorf("%s subquery predicate is not supported by TSQ's built-in dialects", name)}
 }
 
-func panicUnsupportedPatternPredicate(name string) Cond {
+// unsupportedPatternPredicate returns a condition with a deferred error indicating
+// that this pattern predicate is not portable across TSQ's built-in dialects.
+// The error will be returned when Build() is called, not immediately.
+// Users should use LIKE with an explicit pattern instead.
+func unsupportedPatternPredicate(name string) Cond {
 	return Cond{buildErr: errors.Errorf(
 		"%s is not portable across TSQ's built-in dialects; use LIKE with an explicit pattern instead",
 		name,

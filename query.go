@@ -231,15 +231,15 @@ func (q *Query) KwListSQL() string {
 
 // MustBuild builds the query and panics on any error.
 //
-// WARNING: This method is intended for initialization-time only (e.g., in init() or at startup).
-// For production code, use Build() and handle errors explicitly. Panicking in production code
-// paths is dangerous and should be avoided.
+// Deprecated: Use Build() instead. MustBuild() will panic in production if any error occurs,
+// which can crash your service. It is only safe for initialization-time code (e.g., in init()
+// functions or startup validation). For all other uses, call Build() and handle errors explicitly.
 //
-// Example (NOT RECOMMENDED for production):
+// Example (UNSAFE in production):
 //
-//	q := qb.MustBuild()  // panics if build fails
+//	q := qb.MustBuild()  // DO NOT USE in production - will panic!
 //
-// Example (RECOMMENDED for production):
+// Example (SAFE - recommended):
 //
 //	q, err := qb.Build()
 //	if err != nil {

@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"math"
+	"strings"
 	"testing"
 	"time"
 )
@@ -431,5 +432,71 @@ func TestCondition_UniqueSubqueryPredicatesFailFast(t *testing.T) {
 
 	if _, _, _, err := validateConditionInput(col.Unique(subquery)); err == nil {
 		t.Fatal("expected Unique to return a build error for unsupported predicate")
+	}
+}
+
+// TestUnsupportedPatternPredicatesDefer Error tests that unsupported pattern predicates
+// return deferred errors (not immediate panics) that are reported at Build() time.
+func TestUnsupportedPatternPredicatesDeferred(t *testing.T) {
+	col := NewCol[string](newMockTable("users"), "name", "name", nil)
+
+	tests := []struct {
+		name string
+		cond Cond
+	}{
+		{"StartWithVar", col.StartWithVar()},
+		{"EndWithVar", col.EndWithVar()},
+		{"ContainsVar", col.ContainsVar()},
+		{"NStartWithVar", col.NStartWithVar()},
+		{"NEndWithVar", col.NEndWithVar()},
+		{"NContainsVar", col.NContainsVar()},
+		{"StartWithCol", col.StartWithCol(col)},
+		{"EndWithCol", col.EndWithCol(col)},
+		{"ContainsCol", col.ContainsCol(col)},
+		{"NStartWithCol", col.NStartWithCol(col)},
+		{"NEndWithCol", col.NEndWithCol(col)},
+		{"NContainsCol", col.NContainsCol(col)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Error should be deferred, not immediate
+			// Calling the method shouldn't panic
+			_, _, _, err := validateConditionInput(tt.cond)
+			if err == nil {
+				t.Fatalf("expected %s to have deferred error", tt.name)
+			}
+			if !strings.Contains(err.Error(), "not portable") {
+				t.Fatalf("expected error to mention portability, got: %v", err)
+			}
+		})
+	}
+}
+
+// TestUnsupportedSubqueryPredicatesDeferred tests that unsupported subquery predicates
+// return deferred errors at Build() time, not immediate panics.
+func TestUnsupportedSubqueryPredicatesDeferred(t *testing.T) {
+	col := NewCol[int](newMockTable("users"), "id", "id", nil)
+	query := &Query{listSQL: "SELECT 1"}
+
+	tests := []struct {
+		name string
+		cond Cond
+	}{
+		{"Unique", col.Unique(query)},
+		{"NUnique", col.NUnique(query)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Error should be deferred, not immediate
+			_, _, _, err := validateConditionInput(tt.cond)
+			if err == nil {
+				t.Fatalf("expected %s to have deferred error", tt.name)
+			}
+			if !strings.Contains(err.Error(), "subquery") {
+				t.Fatalf("expected error to mention subquery, got: %v", err)
+			}
+		})
 	}
 }

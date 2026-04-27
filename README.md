@@ -230,17 +230,23 @@ resp, err := database.PageUserOrder(ctx, dbmap, pageReq, 1, "图书", "视频", 
 
 ```go
 // 条件查询
-query := tsq.
+q, err := tsq.
     Select(database.User_ID, database.User_Name, database.User_Email).
     Where(database.User_Name.Contains("admin")).
-    MustBuild()
-users, err := tsq.List[database.User](ctx, dbmap, query)
+    Build()
+if err != nil {
+    return nil, fmt.Errorf("build query: %w", err)
+}
+users, err := tsq.List[database.User](ctx, dbmap, q)
 
 // 需要保留旧式 SQL literal 行为时，可使用显式 literal helper
-literalQuery := tsq.
+literalQ, err := tsq.
     Select(database.User_ID).
     Where(database.User_Name.EQLiteral("admin")).
-    MustBuild()
+    Build()
+if err != nil {
+    return nil, fmt.Errorf("build query: %w", err)
+}
 
 // 注意：Where(...) 和 KwSearch(...) 都是“覆盖式”设置；
 // 如果需要继续追加过滤条件，请使用 And(...)
@@ -264,10 +270,13 @@ resp, err := database.PageUserOrder(ctx, dbmap, pageReq, 1, "图书", "视频", 
 managerID := employeeID.As("manager")
 managerName := employeeName.As("manager")
 
-query := tsq.
+q, err := tsq.
     Select(employeeID, employeeName, managerName).
     LeftJoin(employeeManagerID, managerID).
-    MustBuild()
+    Build()
+if err != nil {
+    return nil, fmt.Errorf("build query: %w", err)
+}
 ```
 
 `As("manager")` 会把列重新绑定到别名表；要给函数表达式、聚合表达式或 DTO 映射列起别名，请先对基础列做 `As(...)`，再继续链式调用。
@@ -480,18 +489,30 @@ results, err := users.NewQueryBuilder().
     List(ctx, db)
 
 // ✅ 缓存频繁执行的查询
-var activeUsersQuery *tsq.Query
-func getActiveUsers() *tsq.Query {
-    if activeUsersQuery == nil {
-        activeUsersQuery = users.NewQueryBuilder().
-            Where(users.Active.EQ(true)).
-            MustBuild()
-    }
-    return activeUsersQuery
+var (
+    activeUsersQuery *tsq.Query
+    activeUsersErr   error
+)
+func init() {
+    activeUsersQuery, activeUsersErr = users.NewQueryBuilder().
+        Where(users.Active.EQ(true)).
+        Build()
 }
 
 // 使用缓存的查询
-results, err := getActiveUsers().List(ctx, db)
+func getActiveUsers() (*tsq.Query, error) {
+    if activeUsersErr != nil {
+        return nil, activeUsersErr
+    }
+    return activeUsersQuery, nil
+}
+
+// 在应用中使用
+results, err := getActiveUsers()
+if err != nil {
+    return nil, err
+}
+items, err := results.List(ctx, db)
 ```
 
 **支持的数据库方言：**
