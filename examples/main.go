@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -48,27 +47,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	// 3. 构造分页参数
-	pageReq := &tsq.PageReq{
-		Page:    1,
-		Size:    10,
-		Order:   "asc,desc",
-		OrderBy: "user_id,order_id",
-	}
-
-	// 4. 调用 PageUserOrder，假设 user_id = 1
+	// 3. 运行分块插入演示
 	ctx := context.Background()
-	resp, err := database.PageUserOrder(ctx, dbmap, pageReq, 1, "图书", "视频", `杂fds""了''志`)
-	if err != nil {
-		slog.Info("PageUserOrder 失败", "err", err, "stack", errors.ErrorStack(err))
-		os.Exit(1)
-	}
-
-	// 5. 打印结果
-	rs, _ := json.MarshalIndent(resp, "", "  ")
-	fmt.Println("-------------", string(rs))
-
-	// 6. 运行分块插入演示
 	fmt.Println("\n" + strings.Repeat("=", 50))
 	fmt.Println("运行批量插入功能演示...")
 	fmt.Println(strings.Repeat("=", 50))

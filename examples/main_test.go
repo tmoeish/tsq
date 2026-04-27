@@ -8,7 +8,6 @@ import (
 
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/tmoeish/tsq"
-	"github.com/tmoeish/tsq/examples/database"
 )
 
 func newExampleDBMap(t *testing.T) *tsq.DbMap {
@@ -38,32 +37,6 @@ func newExampleDBMap(t *testing.T) *tsq.DbMap {
 	}
 
 	return dbmap
-}
-
-func TestPageUserOrderSmoke(t *testing.T) {
-	dbmap := newExampleDBMap(t)
-
-	resp, err := database.PageUserOrder(
-		context.Background(),
-		dbmap,
-		&tsq.PageReq{
-			Page:    1,
-			Size:    10,
-			Order:   "asc,desc",
-			OrderBy: "user_id,order_id",
-		},
-		1,
-		"图书",
-		"视频",
-		`杂fds""了''志`,
-	)
-	if err != nil {
-		t.Fatalf("PageUserOrder returned error: %v", err)
-	}
-
-	if resp.Total != 2 || len(resp.Data) != 2 {
-		t.Fatalf("expected 2 paged rows, got total=%d len=%d", resp.Total, len(resp.Data))
-	}
 }
 
 func TestChunkedInsertDuplicateSmoke(t *testing.T) {
