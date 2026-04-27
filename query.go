@@ -1805,9 +1805,9 @@ func deleteFn[T any](
 // INTERNAL USE ONLY - Used by generated code for convenient initialization.
 // Applications should use Build() and handle errors explicitly.
 func (qb *QueryBuilder) MustBuild() *Query {
-q, err := qb.Build()
-if err != nil {
-panic(errors.ErrorStack(err))
-}
-return q
+	q, err := qb.Build()
+	if err != nil {
+		panic(errors.ErrorStack(err))
+	}
+	return q
 }
