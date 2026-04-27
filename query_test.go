@@ -10,6 +10,15 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
+// mustBuild is a test helper that builds a query and panics on error.
+func mustBuild(qb *QueryBuilder) *Query {
+	q, err := qb.Build()
+	if err != nil {
+		panic(err)
+	}
+	return q
+}
+
 func TestErrUnknownSortField(t *testing.T) {
 	field := "unknown_field"
 	err := NewErrUnknownSortField(field)
@@ -183,7 +192,7 @@ func TestQueryBuilder_MustBuild_Success(t *testing.T) {
 	}
 
 	// Should not panic
-	query := qb.MustBuild()
+	query := mustBuild(qb)
 
 	if query == nil {
 		t.Error("Expected non-nil query")
@@ -401,7 +410,7 @@ func TestQuery_buildPageSQLsRejectsAmbiguousSortField(t *testing.T) {
 	userID := newMockColumn(users, "id")
 	orderID := newMockColumn(orders, "id")
 
-	query := Select(userID, orderID).AllowCartesianProduct().MustBuild()
+	query := mustBuild(Select(userID, orderID).AllowCartesianProduct())
 
 	_, _, err := query.buildPageSQLs(&PageReq{
 		OrderBy: "id",
@@ -421,7 +430,7 @@ func TestQuery_buildPageSQLsIgnoresHiddenJSONSortAlias(t *testing.T) {
 	users := newMockTable("users")
 	hidden := NewCol[string](users, "secret", "-", nil)
 
-	query := Select(hidden).MustBuild()
+	query := mustBuild(Select(hidden))
 
 	_, _, err := query.buildPageSQLs(&PageReq{
 		OrderBy: "-",
@@ -442,7 +451,7 @@ func TestQuery_buildPageSQLsDefaultsMissingOrderToASC(t *testing.T) {
 	userID := newMockColumn(users, "id")
 	userName := newMockColumn(users, "name")
 
-	query := Select(userID, userName).MustBuild()
+	query := mustBuild(Select(userID, userName))
 
 	_, listSQL, err := query.buildPageSQLs(&PageReq{
 		OrderBy: "name,id",
@@ -464,7 +473,7 @@ func TestQuery_buildPageSQLsRejectsExplicitOrderCountMismatch(t *testing.T) {
 	userID := newMockColumn(users, "id")
 	userName := newMockColumn(users, "name")
 
-	query := Select(userID, userName).MustBuild()
+	query := mustBuild(Select(userID, userName))
 
 	_, _, err := query.buildPageSQLs(&PageReq{
 		OrderBy: "name,id",
@@ -485,9 +494,8 @@ func TestQuery_BuildKeywordQueriesTrackDedicatedMarkers(t *testing.T) {
 	userID := newMockColumn(users, "id")
 	userName := newMockColumn(users, "name")
 
-	query := Select(userID, userName).
-		KwSearch(userID, userName).
-		MustBuild()
+	query := mustBuild(Select(userID, userName).
+		KwSearch(userID, userName))
 
 	if got := len(query.kwListArgs); got != 2 {
 		t.Fatalf("expected 2 keyword list args, got %d", got)
@@ -556,7 +564,7 @@ func TestRenderSQLForDialectPostgres(t *testing.T) {
 	users := newMockTable("users")
 	userID := NewCol[int](users, "id", "id", nil)
 
-	query := Select(userID).Where(userID.EQVar()).MustBuild()
+	query := mustBuild(Select(userID).Where(userID.EQVar()))
 
 	got := renderSQLForDialect(query.listSQL, PostgresDialect{})
 	want := `SELECT "users"."id" FROM "users" WHERE "users"."id" = $1`
@@ -618,7 +626,7 @@ func TestQueryCountRejectsTypedNilExecutor(t *testing.T) {
 
 	users := newMockTable("users")
 	userID := newMockColumn(users, "id")
-	query := Select(userID).MustBuild()
+	query := mustBuild(Select(userID))
 
 	_, err := query.Count(context.Background(), db)
 	if err == nil {
@@ -709,7 +717,7 @@ func TestQueryCountRejectsExecutorWithoutDialectForRenderedSQL(t *testing.T) {
 	db := newDBMapWithoutDialect(t)
 	users := newMockTable("users")
 	userID := NewCol[int](users, "id", "id", nil)
-	query := Select(userID).MustBuild()
+	query := mustBuild(Select(userID))
 
 	_, err := query.Count(context.Background(), db)
 	if err == nil {

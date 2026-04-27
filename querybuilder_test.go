@@ -420,10 +420,9 @@ func TestQueryBuilder_GroupedCountUsesWrappedSubquery(t *testing.T) {
 		tables: map[string]Table{"users": table},
 	}
 
-	query := Select(department).
+	query := mustBuild(Select(department).
 		GroupBy(department).
-		Having(having).
-		MustBuild()
+		Having(having))
 
 	wantList := `SELECT "users"."department" FROM "users" GROUP BY "users"."department" HAVING COUNT(*) > 1`
 	if query.ListSQL() != wantList {
@@ -440,7 +439,7 @@ func TestQueryBuilder_DistinctCountUsesWrappedSubquery(t *testing.T) {
 	table := newMockTable("users")
 	name := NewCol[string](table, "name", "name", nil)
 
-	query := Select(name.Distinct()).MustBuild()
+	query := mustBuild(Select(name.Distinct()))
 
 	wantList := `SELECT DISTINCT("users"."name") FROM "users"`
 	if query.ListSQL() != wantList {
@@ -457,7 +456,7 @@ func TestQueryBuilder_AggregateCountUsesWrappedSubquery(t *testing.T) {
 	table := newMockTable("users")
 	id := NewCol[int](table, "id", "id", nil)
 
-	query := Select(id.Count()).MustBuild()
+	query := mustBuild(Select(id.Count()))
 
 	wantList := `SELECT COUNT("users"."id") FROM "users"`
 	if query.ListSQL() != wantList {
@@ -494,7 +493,7 @@ func TestQueryBuilder_CrossJoinKeepsSelectedBaseTable(t *testing.T) {
 	orders := newMockTable("orders")
 	userID := newMockColumn(users, "id")
 
-	query := Select(userID).CrossJoin(orders).MustBuild()
+	query := mustBuild(Select(userID).CrossJoin(orders))
 	want := `SELECT "users"."id" FROM "users" CROSS JOIN "orders"`
 
 	if query.ListSQL() != want {
@@ -530,10 +529,9 @@ func TestQueryBuilder_WhereReplacesConditionTables(t *testing.T) {
 	userID := NewCol[int](users, "id", "id", nil)
 	orderID := NewCol[int](orders, "id", "id", nil)
 
-	query := Select(userID).
+	query := mustBuild(Select(userID).
 		Where(orderID.EQVar()).
-		Where(userID.EQVar()).
-		MustBuild()
+		Where(userID.EQVar()))
 
 	want := `SELECT "users"."id" FROM "users" WHERE "users"."id" = ?`
 	if query.ListSQL() != want {

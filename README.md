@@ -417,7 +417,7 @@ query := users.NewQueryBuilder().
 
 **最佳实践：**
 
-1. **错误处理**：总是检查 `Build()` 返回的错误，避免使用 `MustBuild()` 在生产环境
+1. **错误处理**：总是检查 `Build()` 返回的错误，使用显式错误处理
 
 ```go
 // ✅ 推荐
@@ -425,9 +425,6 @@ q, err := qb.Build()
 if err != nil {
     return fmt.Errorf("failed to build query: %w", err)
 }
-
-// ❌ 不推荐（仅用于初始化时）
-q := qb.MustBuild()  // 会 panic
 ```
 
 2. **关键词搜索安全**：始终转义用户输入

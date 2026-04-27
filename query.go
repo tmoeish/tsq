@@ -248,31 +248,6 @@ func (q *Query) KwListSQL() string {
 // 查询构建器方法
 // ================================================
 
-// MustBuild builds the query and panics on any error.
-//
-// Deprecated: Use Build() instead. MustBuild() will panic in production if any error occurs,
-// which can crash your service. It is only safe for initialization-time code (e.g., in init()
-// functions or startup validation). For all other uses, call Build() and handle errors explicitly.
-//
-// Example (UNSAFE in production):
-//
-//	q := qb.MustBuild()  // DO NOT USE in production - will panic!
-//
-// Example (SAFE - recommended):
-//
-//	q, err := qb.Build()
-//	if err != nil {
-//	    return fmt.Errorf("failed to build query: %w", err)
-//	}
-func (qb *QueryBuilder) MustBuild() *Query {
-	q, err := qb.Build()
-	if err != nil {
-		panic(errors.ErrorStack(err))
-	}
-
-	return q
-}
-
 // Build builds and validates the query
 func (qb *QueryBuilder) Build() (*Query, error) {
 	if qb == nil {
