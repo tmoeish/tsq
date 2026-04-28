@@ -13,7 +13,7 @@ import (
 //		pk="ID",
 //		ux=[{fields=["Name"]}],
 //		kw=["Name","Description"],
-//		ct
+//		created_at
 //	)
 type Category struct {
 	common.ImmutableTable

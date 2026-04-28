@@ -24,7 +24,7 @@ func buildGenerationModels(
 	list []*tsq.StructInfo,
 	dir string,
 	tableTpl *template.Template,
-	dtoTpl *template.Template,
+	resultTpl *template.Template,
 ) ([]generationModel, error) {
 	if err := validateGeneratedFilenameCollisions(list); err != nil {
 		return nil, errors.Trace(err)
@@ -59,11 +59,11 @@ func buildGenerationModels(
 			Filename: filepath.Join(dir, generatedFilename(s)),
 		}
 
-		if s.IsDTO {
-			normalizeDTOColumns(s)
+		if s.IsResult {
+			normalizeResultColumns(s)
 
-			model.Template = dtoTpl
-			model.ErrorLabel = "DTO template rendering failed"
+			model.Template = resultTpl
+			model.ErrorLabel = "Result template rendering failed"
 		} else {
 			model.Template = tableTpl
 			model.ErrorLabel = "template rendering failed"

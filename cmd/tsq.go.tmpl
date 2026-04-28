@@ -52,13 +52,13 @@ func init() {
 	tsq.RegisterTable(
 		Table{{$type}},
 		func(db *tsq.DbMap) {
-			db.AddTableWithName(Table{{$type}}, "{{ $dot.Table }}").SetKeys({{ if $dot.AI }}true{{ else }}false{{ end }}, "{{ $dot.ID }}"){{ if $dot.V }}.SetVersionCol("{{ $dot.V }}") {{ end }}
+			db.AddTableWithName(Table{{$type}}, "{{ $dot.Table }}").SetKeys({{ if $dot.AI }}true{{ else }}false{{ end }}, "{{ $dot.ID }}"){{ if $dot.VersionField }}.SetVersionCol("{{ $dot.VersionField }}") {{ end }}
 		},
 		func(db *tsq.DbMap) error {
 {{- if $dot.UxList }}
 			// Upsert Ux list
 	{{- range $name, $idx := $dot.UxList }}
-			if err := tsq.UpsertIndex(db, "{{ $dot.Table }}", true, "{{$idx.Name}}", []string{{"{"}}{{if $dot.DT}}{{ (FieldToCol $dot $dot.DT) }},{{end}}{{ (FieldsToCols $dot $idx.Fields) }}{{"}"}}); err != nil {
+			if err := tsq.UpsertIndex(db, "{{ $dot.Table }}", true, "{{$idx.Name}}", []string{{"{"}}{{if $dot.DeletedAtField}}{{ (FieldToCol $dot $dot.DeletedAtField) }},{{end}}{{ (FieldsToCols $dot $idx.Fields) }}{{"}"}}); err != nil {
 				return errors.Annotate(err, "upsert {{$idx.Name}}@{{ $dot.Table }}")
 			}
 	{{- end }}
@@ -67,7 +67,7 @@ func init() {
 {{- if $dot.IdxList }}
 			// Upsert Idx list
 	{{- range $name, $idx := $dot.IdxList }}
-			if err := tsq.UpsertIndex(db, "{{ $dot.Table }}", false, "{{$idx.Name}}", []string{{"{"}}{{if $dot.DT}}{{ (FieldToCol $dot $dot.DT) }},{{end}}{{ (FieldsToCols $dot $idx.Fields) }}{{"}"}}); err != nil {
+			if err := tsq.UpsertIndex(db, "{{ $dot.Table }}", false, "{{$idx.Name}}", []string{{"{"}}{{if $dot.DeletedAtField}}{{ (FieldToCol $dot $dot.DeletedAtField) }},{{end}}{{ (FieldsToCols $dot $idx.Fields) }}{{"}"}}); err != nil {
 				return errors.Annotate(err, "upsert {{$idx.Name}}@{{ $dot.Table }}")
 			}
 	{{- end }}
@@ -104,10 +104,10 @@ func ({{$dot.Recv}} {{$type}}) KwList() []tsq.Column {
 }
 
 
-{{- if .DT }}
+{{- if .DeletedAtField }}
 // Active returns true if the {{$type}} record is not soft-deleted.
 {{$precv}}Active() bool {
-	return {{ SoftDeleteActiveExpr $dot.Recv $dot.DT (index $dot.FieldMap $dot.DT) }}
+	return {{ SoftDeleteActiveExpr $dot.Recv $dot.DeletedAtField (index $dot.FieldMap $dot.DeletedAtField) }}
 }
 {{- end }}
 
@@ -225,7 +225,7 @@ func {{$name}}(
 }
 {{- end }}
 
-{{- if .DT }}
+{{- if .DeletedAtField }}
 // =============================================================================
 // Query Active Records by Primary Key
 // =============================================================================
@@ -238,7 +238,7 @@ func init() {
 	{{$query}}, err = tsq.
 		Select({{$varTblCols}}...).
 		Where(
-			{{ SoftDeleteActiveCond $type $dot.DT (index $dot.FieldMap $dot.DT) }},
+			{{ SoftDeleteActiveCond $type $dot.DeletedAtField (index $dot.FieldMap $dot.DeletedAtField) }},
 			{{$type}}_{{$dot.ID}}.EQVar(),
 		).
 		Build()
@@ -303,7 +303,7 @@ func {{$name}}(
 	query, err := tsq.
 		Select({{$varTblCols}}...).
 		Where(
-			{{ SoftDeleteActiveCond $type $dot.DT (index $dot.FieldMap $dot.DT) }},
+			{{ SoftDeleteActiveCond $type $dot.DeletedAtField (index $dot.FieldMap $dot.DeletedAtField) }},
 			{{$type}}_{{$dot.ID}}.In({{ FieldSliceVarName $dot.ID }}...),
 		).
 		Build()
@@ -329,7 +329,7 @@ func {{$name}}(
 	query, err := tsq.
 		Select({{$varTblCols}}...).
 		Where(
-			{{ SoftDeleteActiveCond $type $dot.DT (index $dot.FieldMap $dot.DT) }},
+			{{ SoftDeleteActiveCond $type $dot.DeletedAtField (index $dot.FieldMap $dot.DeletedAtField) }},
 			{{$type}}_{{$dot.ID}}.In({{ FieldSliceVarName $dot.ID }}...),
 		).
 		Build()
@@ -363,11 +363,11 @@ func {{$name}}(
 	ctx context.Context,
 	db tsq.SqlExecutor,
 ) error {
-{{- if $dot.CT }}
-	{{$dot.Recv}}.{{$dot.CT}} = {{ TimestampNowValue (index $dot.FieldMap $dot.CT) }}
+{{- if $dot.CreatedAtField }}
+	{{$dot.Recv}}.{{$dot.CreatedAtField}} = {{ TimestampNowValue (index $dot.FieldMap $dot.CreatedAtField) }}
 {{- end }}
-{{- if $dot.MT }}
-	{{$dot.Recv}}.{{$dot.MT}} = {{ TimestampNowValue (index $dot.FieldMap $dot.MT) }}
+{{- if $dot.UpdatedAtField }}
+	{{$dot.Recv}}.{{$dot.UpdatedAtField}} = {{ TimestampNowValue (index $dot.FieldMap $dot.UpdatedAtField) }}
 {{- end }}
 	err := tsq.Insert(ctx, db, {{$dot.Recv}})
 	if err != nil {
@@ -383,8 +383,8 @@ func {{$name}}(
 	ctx context.Context,
 	db tsq.SqlExecutor,
 ) error {
-{{- if $dot.MT }}
-	{{$dot.Recv}}.{{$dot.MT}} = {{ TimestampNowValue (index $dot.FieldMap $dot.MT) }}
+{{- if $dot.UpdatedAtField }}
+	{{$dot.Recv}}.{{$dot.UpdatedAtField}} = {{ TimestampNowValue (index $dot.FieldMap $dot.UpdatedAtField) }}
 {{- end }}
 	err := tsq.Update(ctx, db, {{$dot.Recv}})
 	if err != nil {
@@ -407,21 +407,21 @@ func {{$name}}(
 	return nil
 }
 
-{{- if .DT }}
+{{- if .DeletedAtField }}
 // SoftDelete marks a {{$type}} record as deleted without removing it from the database.
 // If dt is set, uses the provided tombstone value; otherwise uses the current time.
 {{$precv}}SoftDelete(
 	ctx context.Context,
 	db tsq.SqlExecutor,
-	dt {{ SoftDeleteParamType (index $dot.FieldMap $dot.DT) }},
+	dt {{ SoftDeleteParamType (index $dot.FieldMap $dot.DeletedAtField) }},
 ) error {
-	if {{ SoftDeleteParamSetExpr "dt" (index $dot.FieldMap $dot.DT) }} {
-		{{$dot.Recv}}.{{$dot.DT}} = dt
+	if {{ SoftDeleteParamSetExpr "dt" (index $dot.FieldMap $dot.DeletedAtField) }} {
+		{{$dot.Recv}}.{{$dot.DeletedAtField}} = dt
 	} else {
-		{{$dot.Recv}}.{{$dot.DT}} = {{ SoftDeleteNowValue (index $dot.FieldMap $dot.DT) }}
+		{{$dot.Recv}}.{{$dot.DeletedAtField}} = {{ SoftDeleteNowValue (index $dot.FieldMap $dot.DeletedAtField) }}
 	}
-{{- if $dot.MT }}
-	{{$dot.Recv}}.{{$dot.MT}} = {{ TimestampNowValue (index $dot.FieldMap $dot.MT) }}
+{{- if $dot.UpdatedAtField }}
+	{{$dot.Recv}}.{{$dot.UpdatedAtField}} = {{ TimestampNowValue (index $dot.FieldMap $dot.UpdatedAtField) }}
 {{- end }}
 	err := tsq.Update(ctx, db, {{$dot.Recv}})
 	if err != nil {
@@ -508,7 +508,7 @@ func {{$name}}(
 	{{- end }}
 {{- end }}
 
-{{- if .DT }}
+{{- if .DeletedAtField }}
 // =============================================================================
 // List Active Records
 // =============================================================================
@@ -521,7 +521,7 @@ func init() {
 	var err error
 	{{$query}}, err = tsq.
 		Select({{$varTblCols}}...).
-		Where({{ SoftDeleteActiveCond $type $dot.DT (index $dot.FieldMap $dot.DT) }}).
+		Where({{ SoftDeleteActiveCond $type $dot.DeletedAtField (index $dot.FieldMap $dot.DeletedAtField) }}).
 		KwSearch(Table{{$type}}.KwList()...).
 		Build()
 	if err != nil {
@@ -668,7 +668,7 @@ func {{$name}}(
 	{{- end }}
 {{- end }}
 
-{{- if .DT }}
+{{- if .DeletedAtField }}
 // =============================================================================
 // Query Active Records by Unique Indexes
 // =============================================================================
@@ -683,7 +683,7 @@ func init() {
 	{{$query}}, err = tsq.
 		Select({{$varTblCols}}...).
 		Where(
-			{{ SoftDeleteActiveCond $type $dot.DT (index $dot.FieldMap $dot.DT) }},
+			{{ SoftDeleteActiveCond $type $dot.DeletedAtField (index $dot.FieldMap $dot.DeletedAtField) }},
 				{{- range $f := $ux.Fields }}
 			{{$type}}_{{$f}}.EQVar(),
 				{{- end }}
@@ -898,7 +898,7 @@ func {{$name}}(
 	{{- end }}
 {{- end }}
 
-{{- if .DT }}
+{{- if .DeletedAtField }}
 // =============================================================================
 // Query Active Records by Indexes
 // =============================================================================
@@ -921,7 +921,7 @@ func {{$name}}(
 	query, err := tsq.
 		Select({{$varTblCols}}...).
 		Where(
-			{{ SoftDeleteActiveCond $type $dot.DT (index $dot.FieldMap $dot.DT) }},
+			{{ SoftDeleteActiveCond $type $dot.DeletedAtField (index $dot.FieldMap $dot.DeletedAtField) }},
 				{{- range $i, $f := $idx.Fields }}
 					{{- if eq $i (Sub1 (len $idx.Fields)) }}
 				{{$type}}_{{$f}}.In({{ FieldSliceVarName $f }}...),
@@ -945,7 +945,7 @@ func init() {
 	{{$query}}, err = tsq.
 		Select({{$varTblCols}}...).
 		Where(
-			{{ SoftDeleteActiveCond $type $dot.DT (index $dot.FieldMap $dot.DT) }},
+			{{ SoftDeleteActiveCond $type $dot.DeletedAtField (index $dot.FieldMap $dot.DeletedAtField) }},
 					{{- range $f := $idx.Fields }}
 			{{$type}}_{{$f}}.EQVar(),
 					{{- end }}

@@ -14,7 +14,10 @@ import (
 //	  {fields=["UserID","ItemID"]},
 //	  {name="IdxItem", fields=["ItemID"]}
 //	],
-//	ct,mt="ModifiedTime",dt,v
+//	created_at,
+//	updated_at,
+//	deleted_at,
+//	version
 //
 // )
 type Order struct {

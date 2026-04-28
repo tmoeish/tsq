@@ -62,21 +62,21 @@ func TestCol_FnAllowsEscapedPercentLiterals(t *testing.T) {
 	}
 }
 
-func TestCol_Fn0RejectsEmptyExpression(t *testing.T) {
+func TestCol_FnRawRejectsEmptyExpression(t *testing.T) {
 	table := newMockTable("users")
 	col := NewCol[string](table, "name", "name", nil)
 
-	if _, err := validateColumnInput(col.Fn0("   ")); err == nil {
-		t.Fatal("expected Fn0 to return a build error for empty expression")
+	if _, err := validateColumnInput(col.FnRaw("   ")); err == nil {
+		t.Fatal("expected FnRaw to return a build error for empty expression")
 	}
 }
 
-func TestCol_Fn0RejectsPlaceholders(t *testing.T) {
+func TestCol_FnRawRejectsPlaceholders(t *testing.T) {
 	table := newMockTable("users")
 	col := NewCol[string](table, "name", "name", nil)
 
-	if _, err := validateColumnInput(col.Fn0("COALESCE(%s, 1)")); err == nil {
-		t.Fatal("expected Fn0 to return a build error when placeholders are present")
+	if _, err := validateColumnInput(col.FnRaw("COALESCE(%s, 1)")); err == nil {
+		t.Fatal("expected FnRaw to return a build error when placeholders are present")
 	}
 }
 

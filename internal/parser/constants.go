@@ -20,11 +20,11 @@ const (
 
 // 默认字段名常量
 const (
-	DefaultPKField = "ID"
-	DefaultVField  = "V"
-	DefaultCTField = "CT"
-	DefaultMTField = "MT"
-	DefaultDTField = "DT"
+	DefaultPKField        = "ID"
+	DefaultVersionField   = "Version"
+	DefaultCreatedAtField = "CreatedAt"
+	DefaultUpdatedAtField = "UpdatedAt"
+	DefaultDeletedAtField = "DeletedAt"
 )
 
 // Go 原始类型集合

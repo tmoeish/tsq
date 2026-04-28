@@ -448,7 +448,7 @@ func genTableInfoFromAST(
 	structFields map[string]struct{},
 ) (*tsq.TableInfo, error) {
 	info := &tsq.TableInfo{
-		IsDTO: !isTable,
+		IsResult: !isTable,
 	}
 
 	if isTable {
@@ -484,35 +484,35 @@ func genTableInfoFromAST(
 
 			info.ID = id
 			info.AI = auto
-		case "v":
+		case "version":
 			if s, ok := v.(DSLString); ok {
-				info.V = string(s)
+				info.VersionField = string(s)
 			} else if b, ok := v.(DSLBool); ok && bool(b) {
-				info.V = DefaultVField
+				info.VersionField = DefaultVersionField
 			} else if _, ok := v.(DSLBool); !ok {
 				return nil, NewDSLUnexpectedValueError(k, 0)
 			}
-		case "ct":
+		case "created_at":
 			if s, ok := v.(DSLString); ok {
-				info.CT = string(s)
+				info.CreatedAtField = string(s)
 			} else if b, ok := v.(DSLBool); ok && bool(b) {
-				info.CT = DefaultCTField
+				info.CreatedAtField = DefaultCreatedAtField
 			} else if _, ok := v.(DSLBool); !ok {
 				return nil, NewDSLUnexpectedValueError(k, 0)
 			}
-		case "mt":
+		case "updated_at":
 			if s, ok := v.(DSLString); ok {
-				info.MT = string(s)
+				info.UpdatedAtField = string(s)
 			} else if b, ok := v.(DSLBool); ok && bool(b) {
-				info.MT = DefaultMTField
+				info.UpdatedAtField = DefaultUpdatedAtField
 			} else if _, ok := v.(DSLBool); !ok {
 				return nil, NewDSLUnexpectedValueError(k, 0)
 			}
-		case "dt":
+		case "deleted_at":
 			if s, ok := v.(DSLString); ok {
-				info.DT = string(s)
+				info.DeletedAtField = string(s)
 			} else if b, ok := v.(DSLBool); ok && bool(b) {
-				info.DT = DefaultDTField
+				info.DeletedAtField = DefaultDeletedAtField
 			} else if _, ok := v.(DSLBool); !ok {
 				return nil, NewDSLUnexpectedValueError(k, 0)
 			}
@@ -672,7 +672,7 @@ func normalizeIndexNames(indexes []tsq.IndexInfo, prefix, table string) {
 // validateTableInfoAgainstStruct 校验 DSL 字段和索引
 func validateTableInfoAgainstStruct(info *tsq.TableInfo, structFields map[string]struct{}, structName string) error {
 	// 1. 字段存在性校验
-	for _, field := range []string{info.ID, info.V, info.CT, info.MT, info.DT} {
+	for _, field := range []string{info.ID, info.VersionField, info.CreatedAtField, info.UpdatedAtField, info.DeletedAtField} {
 		if field != "" && structFields != nil {
 			if _, ok := structFields[field]; !ok {
 				return NewDSLFieldNotFoundError(field, structName)

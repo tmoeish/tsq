@@ -7,7 +7,7 @@ This directory contains the runnable TSQ example suite.
 ### Generated Files
 The following files are **auto-generated** by the `tsq gen` command:
 - `database/*_tsq.go` - Generated query builder code for each table
-- `database/userorder_dto_tsq.go` - Generated DTO query builder
+- `database/userorder_result_tsq.go` - Generated Result query builder
 
 To regenerate these files after modifying table structs:
 ```bash
@@ -16,7 +16,7 @@ go run ./cmd/tsq gen ./examples/database
 
 ### Manual Files
 - `database/*.go` - Table struct definitions (manual)
-- `database/userorder.go` - DTO definition and DTO pagination query
+- `database/userorder.go` - Result definition and Result pagination query
 - `database/mock.sql` - Test database schema
 - `main.go` - End-to-end example runner covering the main TSQ capabilities
 - `main_test.go` - Smoke tests for the runnable examples
@@ -41,7 +41,7 @@ See `main.go` for:
 - Alias/rebinding queries
 - Aggregation and GROUP BY
 - Keyword search and pagination
-- DTO join queries
+- Result join queries
 - `InVar`-based dynamic `IN (...)` filters
 - Chunked insert / update / delete / delete-by-ids
 

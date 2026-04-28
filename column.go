@@ -131,7 +131,7 @@ func (c Col[T]) As(alias string) Col[T] {
 }
 
 // Into creates a new column with different pointer function and JSON tag
-// This is useful for DTOs and custom result mapping
+// This is useful for results and custom result mapping
 func (c Col[T]) Into(fieldPointer FieldPointer, jsonFieldName string) *Col[T] {
 	if fieldPointer == nil {
 		return &Col[T]{

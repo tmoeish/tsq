@@ -1,6 +1,6 @@
 // internal/parser/table.go
 //
-// 负责从 Go AST 注释中解析表（@TABLE）和 DTO（@DTO）元数据，生成 tsq.TableInfo 结构体。
+// 负责从 Go AST 注释中解析表（@TABLE）和结果结构（@RESULT）元数据，生成 tsq.TableInfo 结构体。
 // 支持自定义 DSL 解析、索引与查询生成、元数据排序等。
 
 package parser
@@ -72,7 +72,7 @@ func CleanBlockComment(text string) string {
 	return text
 }
 
-// extractDSLContent 提取 @TABLE/@DTO 后第一个括号内的内容，支持前置括号
+// extractDSLContent 提取 @TABLE/@RESULT 后第一个括号内的内容，支持前置括号
 func extractDSLContent(text, keyword string) (string, error) {
 	text = CleanBlockComment(text)
 
@@ -213,7 +213,7 @@ func isAnnotationBoundary(ch byte) bool {
 	}
 }
 
-// parseDSL 解析所有注释中的注解（@TABLE/@DTO），直接填充 info
+// parseDSL 解析所有注释中的注解（@TABLE/@RESULT），直接填充 info
 func parseDSL(
 	structName string,
 	commentGroup []*ast.CommentGroup,
@@ -231,8 +231,8 @@ func parseDSL(
 
 		if _, ok := findAnnotationKeyword(text, "@TABLE"); ok {
 			return parseTableDSL(structName, text, structFields)
-		} else if _, ok := findAnnotationKeyword(text, "@DTO"); ok {
-			return parseDTODSL(structName, text, structFields)
+		} else if _, ok := findAnnotationKeyword(text, "@RESULT"); ok {
+			return parseResultDSL(structName, text, structFields)
 		}
 	}
 
@@ -274,8 +274,8 @@ func parseTableDSL(
 	return genTableInfoFromAST(structName, dsl, true, structFields)
 }
 
-// parseDTODSL 解析 @DTO DSL 并填充 meta
-func parseDTODSL(
+// parseResultDSL 解析 @RESULT DSL 并填充 meta
+func parseResultDSL(
 	structName string,
 	text string,
 	structFields map[string]struct{},
@@ -283,13 +283,13 @@ func parseDTODSL(
 	// 去除注释前缀
 	text = CleanBlockComment(text)
 
-	content, err := extractDSLContent(text, "@DTO")
+	content, err := extractDSLContent(text, "@RESULT")
 	if err != nil {
 		return nil, err
 	}
 
 	if content == "" {
-		return &tsq.TableInfo{IsDTO: true}, nil
+		return &tsq.TableInfo{IsResult: true}, nil
 	}
 
 	content = strings.ReplaceAll(content, "\n", " ")

@@ -210,7 +210,7 @@ func needsGeneratedTimeImport(data *tsq.StructInfo) bool {
 		return false
 	}
 
-	return hasImport(data, importPathTime) || data.CT != "" || data.MT != "" || data.DT != ""
+	return hasImport(data, importPathTime) || data.CreatedAtField != "" || data.UpdatedAtField != "" || data.DeletedAtField != ""
 }
 
 func generatedSQLRef(name string) string {
@@ -279,14 +279,14 @@ func validateSoftDeleteField(field tsq.FieldInfo) error {
 	}
 
 	return errors.Errorf(
-		"dt field %s has unsupported type %s; supported types are int64, uint64, *time.Time, sql.NullTime, null.Time",
+		"deleted_at field %s has unsupported type %s; supported types are int64, uint64, *time.Time, sql.NullTime, null.Time",
 		field.Name,
 		fieldType(field),
 	)
 }
 
 func validateManagedFields(data *tsq.StructInfo) error {
-	if data == nil || data.TableInfo == nil || data.IsDTO {
+	if data == nil || data.TableInfo == nil || data.IsResult {
 		return nil
 	}
 
@@ -294,8 +294,8 @@ func validateManagedFields(data *tsq.StructInfo) error {
 		name string
 		role string
 	}{
-		{name: data.CT, role: "ct"},
-		{name: data.MT, role: "mt"},
+		{name: data.CreatedAtField, role: "created_at"},
+		{name: data.UpdatedAtField, role: "updated_at"},
 	} {
 		if item.name == "" {
 			continue
@@ -311,13 +311,13 @@ func validateManagedFields(data *tsq.StructInfo) error {
 		}
 	}
 
-	if data.DT == "" {
+	if data.DeletedAtField == "" {
 		return nil
 	}
 
-	field, ok := data.FieldMap[data.DT]
+	field, ok := data.FieldMap[data.DeletedAtField]
 	if !ok {
-		return errors.Errorf("dt field %s not found in %s", data.DT, data.TypeInfo.TypeName)
+		return errors.Errorf("deleted_at field %s not found in %s", data.DeletedAtField, data.TypeInfo.TypeName)
 	}
 
 	if err := validateSoftDeleteField(field); err != nil {
@@ -326,8 +326,8 @@ func validateManagedFields(data *tsq.StructInfo) error {
 
 	if len(data.UxList) > 0 && softDeleteKind(field) != "integer" {
 		return errors.Errorf(
-			"dt field %s in %s cannot use nullable time semantics with unique indexes; use int64 or uint64 tombstones for portable uniqueness",
-			data.DT,
+			"deleted_at field %s in %s cannot use nullable time semantics with unique indexes; use int64 or uint64 tombstones for portable uniqueness",
+			data.DeletedAtField,
 			data.TypeInfo.TypeName,
 		)
 	}
@@ -363,7 +363,7 @@ func softDeleteParamSetExpr(param string, field tsq.FieldInfo) string {
 	case "sql_null_time", "null_time":
 		return param + ".Valid"
 	default:
-		panic(fmt.Sprintf("unsupported dt field type: %s", fieldType(field)))
+		panic(fmt.Sprintf("unsupported deleted_at field type: %s", fieldType(field)))
 	}
 }
 
@@ -382,7 +382,7 @@ func softDeleteNowValue(field tsq.FieldInfo) string {
 	case "null_time":
 		return fmt.Sprintf("%s.TimeFrom(%s)", field.Type.Package.Name, generatedTimeRef("Now()"))
 	default:
-		panic(fmt.Sprintf("unsupported dt field type: %s", fieldType(field)))
+		panic(fmt.Sprintf("unsupported deleted_at field type: %s", fieldType(field)))
 	}
 }
 
@@ -397,7 +397,7 @@ func softDeleteActiveExpr(recv, fieldName string, field tsq.FieldInfo) string {
 	case "sql_null_time", "null_time":
 		return "!" + target + ".Valid"
 	default:
-		panic(fmt.Sprintf("unsupported dt field type: %s", fieldType(field)))
+		panic(fmt.Sprintf("unsupported deleted_at field type: %s", fieldType(field)))
 	}
 }
 
@@ -410,6 +410,6 @@ func softDeleteActiveCond(typeName, fieldName string, field tsq.FieldInfo) strin
 	case "time_ptr", "sql_null_time", "null_time":
 		return col + ".IsNull()"
 	default:
-		panic(fmt.Sprintf("unsupported dt field type: %s", fieldType(field)))
+		panic(fmt.Sprintf("unsupported deleted_at field type: %s", fieldType(field)))
 	}
 }

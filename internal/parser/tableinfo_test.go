@@ -20,15 +20,15 @@ func TestParseAnnotations_DSL(t *testing.T) {
 		{
 			desc: "典型 TABLE 全写",
 			comment: `
-			//   @TABLE(   	name="account",   	pk="C1,true",   	v, ct, mt="MTime", dt,   	ux=[   		{name="U1", fields=["F1","F2"]},   		{fields=["F3"]}   	],   	idx=[   		{name="I1", fields=["F4"]},   		{fields=["F5","F6"]}   	],   	kw=["foo","bar"]   )`,
+			//   @TABLE(   	name="account",   	pk="C1,true",   	version, created_at, updated_at="MTime", deleted_at,   	ux=[   		{name="U1", fields=["F1","F2"]},   		{fields=["F3"]}   	],   	idx=[   		{name="I1", fields=["F4"]},   		{fields=["F5","F6"]}   	],   	kw=["foo","bar"]   )`,
 			want: tsq.TableInfo{
-				Table: "account",
-				ID:    "C1",
-				AI:    true,
-				V:     "V",
-				CT:    "CT",
-				MT:    "MTime",
-				DT:    "DT",
+				Table:          "account",
+				ID:             "C1",
+				AI:             true,
+				VersionField:   "Version",
+				CreatedAtField: "CreatedAt",
+				UpdatedAtField: "MTime",
+				DeletedAtField: "DeletedAt",
 				UxList: []tsq.IndexInfo{
 					{Name: "U1", Fields: []string{"F1", "F2"}},
 					{Name: "ux_account_f3", Fields: []string{"F3"}},
@@ -42,22 +42,22 @@ func TestParseAnnotations_DSL(t *testing.T) {
 		},
 		{
 			desc:    "TABLE 省略主键和简写",
-			comment: `// @TABLE( 	name="user", 	v, ct, mt="MTime", dt  )`,
+			comment: `// @TABLE( 	name="user", 	version, created_at, updated_at="MTime", deleted_at  )`,
 			want: tsq.TableInfo{
-				Table: "user",
-				ID:    "ID",
-				AI:    true,
-				V:     "V",
-				CT:    "CT",
-				MT:    "MTime",
-				DT:    "DT",
+				Table:          "user",
+				ID:             "ID",
+				AI:             true,
+				VersionField:   "Version",
+				CreatedAtField: "CreatedAt",
+				UpdatedAtField: "MTime",
+				DeletedAtField: "DeletedAt",
 			},
 		},
 		{
-			desc:    "DTO 注解",
-			comment: `// @DTO( name="UserDTO",  kw=["foo","bar"]  )`,
+			desc:    "Result 注解",
+			comment: `// @RESULT(name="UserResult",  kw=["foo","bar"]  )`,
 			want: tsq.TableInfo{
-				Table:  "UserDTO",
+				Table:  "UserResult",
 				KwList: []string{"foo", "bar"},
 			},
 		},
@@ -74,31 +74,31 @@ func TestParseAnnotations_DSL(t *testing.T) {
 		},
 		{
 			desc:    "TABLE 省略 name",
-			comment: `// @TABLE(pk="ID,true", v, ct)`,
+			comment: `// @TABLE(pk="ID,true", version, created_at)`,
 			want: tsq.TableInfo{
-				Table: "user",
-				ID:    "ID",
-				AI:    true,
-				V:     "V",
-				CT:    "CT",
+				Table:          "user",
+				ID:             "ID",
+				AI:             true,
+				VersionField:   "Version",
+				CreatedAtField: "CreatedAt",
 			},
 		},
 		{
-			desc:    "DTO 省略 name",
-			comment: `// @DTO(kw=["foo","bar"])`,
+			desc:    "Result 省略 name",
+			comment: `// @RESULT(kw=["foo","bar"])`,
 			want: tsq.TableInfo{
 				KwList: []string{"foo", "bar"},
 			},
 		},
 		{
-			desc:    "DTO最简",
-			comment: `// @DTO`,
+			desc:    "Result最简",
+			comment: `// @RESULT`,
 			want:    tsq.TableInfo{},
 		},
 	}
 
 	structFields := map[string]struct{}{
-		"ID": {}, "C1": {}, "V": {}, "CT": {}, "MTime": {}, "DT": {}, "F1": {}, "F2": {}, "F3": {}, "F4": {}, "F5": {}, "F6": {}, "account": {}, "user": {}, "UserDTO": {}, "foo": {}, "bar": {},
+		"ID": {}, "C1": {}, "Version": {}, "CreatedAt": {}, "MTime": {}, "DeletedAt": {}, "F1": {}, "F2": {}, "F3": {}, "F4": {}, "F5": {}, "F6": {}, "account": {}, "user": {}, "UserResult": {}, "foo": {}, "bar": {},
 	}
 
 	for _, tt := range tests {
@@ -117,10 +117,10 @@ func TestParseAnnotations_DSL(t *testing.T) {
 			if !reflect.DeepEqual(info.Table, tt.want.Table) ||
 				!reflect.DeepEqual(info.ID, tt.want.ID) ||
 				!reflect.DeepEqual(info.AI, tt.want.AI) ||
-				!reflect.DeepEqual(info.V, tt.want.V) ||
-				!reflect.DeepEqual(info.CT, tt.want.CT) ||
-				!reflect.DeepEqual(info.MT, tt.want.MT) ||
-				!reflect.DeepEqual(info.DT, tt.want.DT) ||
+				!reflect.DeepEqual(info.VersionField, tt.want.VersionField) ||
+				!reflect.DeepEqual(info.CreatedAtField, tt.want.CreatedAtField) ||
+				!reflect.DeepEqual(info.UpdatedAtField, tt.want.UpdatedAtField) ||
+				!reflect.DeepEqual(info.DeletedAtField, tt.want.DeletedAtField) ||
 				!reflect.DeepEqual(info.UxList, tt.want.UxList) ||
 				!reflect.DeepEqual(info.IdxList, tt.want.IdxList) ||
 				!reflect.DeepEqual(info.KwList, tt.want.KwList) {
@@ -204,12 +204,12 @@ func TestParseTableDSL_ReturnsErrorForMalformedAnnotation(t *testing.T) {
 	}
 }
 
-func TestParseDTODSL_ReturnsErrorForMalformedAnnotation(t *testing.T) {
-	_, err := parseDTODSL("UserDTO", `// @DTO(name="user"`, map[string]struct{}{
+func TestParseResultDSL_ReturnsErrorForMalformedAnnotation(t *testing.T) {
+	_, err := parseResultDSL("UserResult", `// @RESULT(name="user"`, map[string]struct{}{
 		"ID": {},
 	})
 	if err == nil {
-		t.Fatal("expected malformed DTO annotation to return an error")
+		t.Fatal("expected malformed Result annotation to return an error")
 	}
 
 	if !IsErrorType(err, ErrorTypeDSLMissingBracket) {
@@ -222,41 +222,41 @@ func TestParseDTODSL_ReturnsErrorForMalformedAnnotation(t *testing.T) {
 // parseAnnotationsForTest 用于测试 parseAnnotations
 
 type TableInfoMock struct {
-	Table    string
-	ID       string
-	CustomID bool
-	Version  string
-	CT       string
-	MT       string
-	DT       string
-	UxList   []string
-	IdxList  []string
-	KwList   []string
+	Table          string
+	ID             string
+	CustomID       bool
+	VersionField   string
+	CreatedAtField string
+	UpdatedAtField string
+	DeletedAtField string
+	UxList         []string
+	IdxList        []string
+	KwList         []string
 }
 
 type TableInfoReal struct {
-	Table    string
-	ID       string
-	CustomID bool
-	Version  string
-	CT       string
-	MT       string
-	DT       string
-	UxList   []tsq.IndexInfo
-	IdxList  []tsq.IndexInfo
-	KwList   []string
+	Table          string
+	ID             string
+	CustomID       bool
+	VersionField   string
+	CreatedAtField string
+	UpdatedAtField string
+	DeletedAtField string
+	UxList         []tsq.IndexInfo
+	IdxList        []tsq.IndexInfo
+	KwList         []string
 }
 
 func (r *TableInfoReal) ToMock() TableInfoMock {
 	mock := TableInfoMock{
-		Table:    r.Table,
-		ID:       r.ID,
-		CustomID: r.CustomID,
-		Version:  r.Version,
-		CT:       r.CT,
-		MT:       r.MT,
-		DT:       r.DT,
-		KwList:   r.KwList,
+		Table:          r.Table,
+		ID:             r.ID,
+		CustomID:       r.CustomID,
+		VersionField:   r.VersionField,
+		CreatedAtField: r.CreatedAtField,
+		UpdatedAtField: r.UpdatedAtField,
+		DeletedAtField: r.DeletedAtField,
+		KwList:         r.KwList,
 	}
 	for _, ux := range r.UxList {
 		mock.UxList = append(mock.UxList, ux.Name+":"+joinFields(ux.Fields))
@@ -287,13 +287,13 @@ func (m TableInfoMock) Get(key string) any {
 	case "CustomID":
 		return m.CustomID
 	case "Version":
-		return m.Version
-	case "CT":
-		return m.CT
-	case "MT":
-		return m.MT
-	case "DT":
-		return m.DT
+		return m.VersionField
+	case "CreatedAt":
+		return m.CreatedAtField
+	case "UpdatedAt":
+		return m.UpdatedAtField
+	case "DeletedAt":
+		return m.DeletedAtField
 	case "UxList":
 		return m.UxList
 	case "IdxList":

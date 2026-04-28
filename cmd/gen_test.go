@@ -10,10 +10,10 @@ import (
 	"github.com/tmoeish/tsq"
 )
 
-func TestValidateDTOFieldsRejectsUnknownTargetField(t *testing.T) {
+func TestValidateResultFieldsRejectsUnknownTargetField(t *testing.T) {
 	dto := &tsq.StructInfo{
-		TableInfo: &tsq.TableInfo{IsDTO: true},
-		TypeInfo:  tsq.TypeInfo{TypeName: "UserDTO"},
+		TableInfo: &tsq.TableInfo{IsResult: true},
+		TypeInfo:  tsq.TypeInfo{TypeName: "UserResult"},
 		Fields: []tsq.FieldInfo{
 			{Name: "UserName", Column: "User.Missing"},
 		},
@@ -28,15 +28,15 @@ func TestValidateDTOFieldsRejectsUnknownTargetField(t *testing.T) {
 		},
 	}
 
-	if err := validateDTOFields(dto, structsByName); err == nil {
-		t.Fatal("expected invalid DTO reference to return an error")
+	if err := validateResultFields(dto, structsByName); err == nil {
+		t.Fatal("expected invalid Result reference to return an error")
 	}
 }
 
-func TestValidateDTOFieldsRejectsNormalizedReferenceCollisions(t *testing.T) {
+func TestValidateResultFieldsRejectsNormalizedReferenceCollisions(t *testing.T) {
 	dto := &tsq.StructInfo{
-		TableInfo: &tsq.TableInfo{IsDTO: true},
-		TypeInfo:  tsq.TypeInfo{TypeName: "UserDTO"},
+		TableInfo: &tsq.TableInfo{IsResult: true},
+		TypeInfo:  tsq.TypeInfo{TypeName: "UserResult"},
 		Fields: []tsq.FieldInfo{
 			{Name: "A", Column: "User.Profile_ID"},
 			{Name: "B", Column: "User_Profile.ID"},
@@ -58,17 +58,17 @@ func TestValidateDTOFieldsRejectsNormalizedReferenceCollisions(t *testing.T) {
 		},
 	}
 
-	if err := validateDTOFields(dto, structsByName); err == nil {
-		t.Fatal("expected normalized DTO reference collision to return an error")
+	if err := validateResultFields(dto, structsByName); err == nil {
+		t.Fatal("expected normalized Result reference collision to return an error")
 	}
 }
 
-func TestValidateDTOFieldsRejectsIncompatibleTypes(t *testing.T) {
+func TestValidateResultFieldsRejectsIncompatibleTypes(t *testing.T) {
 	dto := &tsq.StructInfo{
-		TableInfo: &tsq.TableInfo{IsDTO: true},
-		TypeInfo:  tsq.TypeInfo{TypeName: "UserDTO"},
+		TableInfo: &tsq.TableInfo{IsResult: true},
+		TypeInfo:  tsq.TypeInfo{TypeName: "UserResult"},
 		Fields: []tsq.FieldInfo{
-			{Name: "OrderTime", Column: "Order.CT", Type: tsq.TypeInfo{TypeName: "string"}},
+			{Name: "OrderTime", Column: "Order.CreatedAt", Type: tsq.TypeInfo{TypeName: "string"}},
 		},
 	}
 
@@ -76,9 +76,9 @@ func TestValidateDTOFieldsRejectsIncompatibleTypes(t *testing.T) {
 		"Order": {
 			TableInfo: &tsq.TableInfo{Table: "order"},
 			FieldMap: map[string]tsq.FieldInfo{
-				"CT": {
-					Name:   "CT",
-					Column: "ct",
+				"CreatedAt": {
+					Name:   "CreatedAt",
+					Column: "created_at",
 					Type: tsq.TypeInfo{
 						Package:  tsq.PackageInfo{Path: "time", Name: "time"},
 						TypeName: "Time",
@@ -88,21 +88,21 @@ func TestValidateDTOFieldsRejectsIncompatibleTypes(t *testing.T) {
 		},
 	}
 
-	if err := validateDTOFields(dto, structsByName); err == nil {
-		t.Fatal("expected incompatible DTO field type to return an error")
+	if err := validateResultFields(dto, structsByName); err == nil {
+		t.Fatal("expected incompatible Result field type to return an error")
 	}
 }
 
-func TestValidateDTOFieldsAcceptsMatchingTypes(t *testing.T) {
+func TestValidateResultFieldsAcceptsMatchingTypes(t *testing.T) {
 	timeType := tsq.TypeInfo{
 		Package:  tsq.PackageInfo{Path: "time", Name: "time"},
 		TypeName: "Time",
 	}
 	dto := &tsq.StructInfo{
-		TableInfo: &tsq.TableInfo{IsDTO: true},
-		TypeInfo:  tsq.TypeInfo{TypeName: "UserDTO"},
+		TableInfo: &tsq.TableInfo{IsResult: true},
+		TypeInfo:  tsq.TypeInfo{TypeName: "UserResult"},
 		Fields: []tsq.FieldInfo{
-			{Name: "OrderTime", Column: "Order.CT", Type: timeType},
+			{Name: "OrderTime", Column: "Order.CreatedAt", Type: timeType},
 		},
 	}
 
@@ -110,19 +110,19 @@ func TestValidateDTOFieldsAcceptsMatchingTypes(t *testing.T) {
 		"Order": {
 			TableInfo: &tsq.TableInfo{Table: "order"},
 			FieldMap: map[string]tsq.FieldInfo{
-				"CT": {Name: "CT", Column: "ct", Type: timeType},
+				"CreatedAt": {Name: "CreatedAt", Column: "created_at", Type: timeType},
 			},
 		},
 	}
 
-	if err := validateDTOFields(dto, structsByName); err != nil {
-		t.Fatalf("expected matching DTO field type to pass, got %v", err)
+	if err := validateResultFields(dto, structsByName); err != nil {
+		t.Fatalf("expected matching Result field type to pass, got %v", err)
 	}
 }
 
-func TestNormalizeDTOColumnsUpdatesFieldMap(t *testing.T) {
+func TestNormalizeResultColumnsUpdatesFieldMap(t *testing.T) {
 	dto := &tsq.StructInfo{
-		TableInfo: &tsq.TableInfo{IsDTO: true},
+		TableInfo: &tsq.TableInfo{IsResult: true},
 		Fields: []tsq.FieldInfo{
 			{Name: "UserID", Column: "User.ID"},
 		},
@@ -131,14 +131,14 @@ func TestNormalizeDTOColumnsUpdatesFieldMap(t *testing.T) {
 		},
 	}
 
-	normalizeDTOColumns(dto)
+	normalizeResultColumns(dto)
 
 	if got := dto.Fields[0].Column; got != "User_ID" {
-		t.Fatalf("expected DTO field column to be normalized, got %q", got)
+		t.Fatalf("expected Result field column to be normalized, got %q", got)
 	}
 
 	if got := dto.FieldMap["UserID"].Column; got != "User_ID" {
-		t.Fatalf("expected DTO field map column to be normalized, got %q", got)
+		t.Fatalf("expected Result field map column to be normalized, got %q", got)
 	}
 }
 
@@ -338,12 +338,12 @@ func TestGenDoesNotWriteBrokenGoOnFormatError(t *testing.T) {
 	}
 }
 
-func TestGenDTODoesNotWriteBrokenGoOnFormatError(t *testing.T) {
+func TestGenResultDoesNotWriteBrokenGoOnFormatError(t *testing.T) {
 	dir := t.TempDir()
 
-	target := filepath.Join(dir, "userdto_dto_tsq.go")
-	if err := os.WriteFile(target, []byte("// existing dto\n"), 0o644); err != nil {
-		t.Fatalf("failed to seed DTO generated file: %v", err)
+	target := filepath.Join(dir, "userresult_result_tsq.go")
+	if err := os.WriteFile(target, []byte("// existing result\n"), 0o644); err != nil {
+		t.Fatalf("failed to seed Result generated file: %v", err)
 	}
 
 	tpl, err := template.New("broken").Parse("package {{.TypeInfo.Package.Name}}\nfunc {")
@@ -352,22 +352,22 @@ func TestGenDTODoesNotWriteBrokenGoOnFormatError(t *testing.T) {
 	}
 
 	data := &tsq.StructInfo{
-		TableInfo: &tsq.TableInfo{IsDTO: true},
-		TypeInfo:  tsq.TypeInfo{Package: tsq.PackageInfo{Name: "example"}, TypeName: "UserDTO"},
+		TableInfo: &tsq.TableInfo{IsResult: true},
+		TypeInfo:  tsq.TypeInfo{Package: tsq.PackageInfo{Name: "example"}, TypeName: "UserResult"},
 		Fields:    []tsq.FieldInfo{{Name: "ID"}},
 	}
 
-	if err := genDTO(data, tpl, dir); err == nil {
-		t.Fatal("expected DTO generation to fail for invalid Go output")
+	if err := genResult(data, tpl, dir); err == nil {
+		t.Fatal("expected Result generation to fail for invalid Go output")
 	}
 
 	contents, err := os.ReadFile(target)
 	if err != nil {
-		t.Fatalf("failed to read DTO generated file: %v", err)
+		t.Fatalf("failed to read Result generated file: %v", err)
 	}
 
-	if string(contents) != "// existing dto\n" {
-		t.Fatalf("expected DTO format failure to leave existing file untouched, got %q", string(contents))
+	if string(contents) != "// existing result\n" {
+		t.Fatalf("expected Result format failure to leave existing file untouched, got %q", string(contents))
 	}
 }
 
@@ -429,7 +429,7 @@ func TestWriteGeneratedFilePreservesPermissions(t *testing.T) {
 	}
 }
 
-// gen and genDTO are thin helpers used by tests to render a template for a
+// gen and genResult are thin helpers used by tests to render a template for a
 // single struct and write the output to dir.  They are test-only wrappers
 // around renderGenerationModel and intentionally not part of the production
 // code path.
@@ -443,12 +443,12 @@ func gen(data *tsq.StructInfo, t *template.Template, dir string) error {
 	})
 }
 
-func genDTO(data *tsq.StructInfo, t *template.Template, dir string) error {
+func genResult(data *tsq.StructInfo, t *template.Template, dir string) error {
 	return renderGenerationModel(generationModel{
 		Data:       data,
 		Template:   t,
 		Filename:   filepath.Join(dir, generatedFilename(data)),
-		ErrorLabel: "DTO template rendering failed",
+		ErrorLabel: "Result template rendering failed",
 	})
 }
 

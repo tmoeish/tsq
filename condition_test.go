@@ -361,8 +361,8 @@ func TestCondition_PortabilitySensitiveLikePredicatesFailFast(t *testing.T) {
 	patternCol := NewCol[string](users, "pattern", "pattern", nil)
 
 	for _, cond := range []Cond{
-		nameCol.StartWithVar(),
-		nameCol.StartWithCol(patternCol),
+		nameCol.StartsWithVar(),
+		nameCol.StartsWithCol(patternCol),
 	} {
 		if _, _, _, err := validateConditionInput(cond); err == nil {
 			t.Fatal("expected predicate helper to return a build error for non-portable SQL")
@@ -462,17 +462,17 @@ func TestUnsupportedPatternPredicatesDeferred(t *testing.T) {
 		name string
 		cond Cond
 	}{
-		{"StartWithVar", col.StartWithVar()},
-		{"EndWithVar", col.EndWithVar()},
+		{"StartsWithVar", col.StartsWithVar()},
+		{"EndsWithVar", col.EndsWithVar()},
 		{"ContainsVar", col.ContainsVar()},
-		{"NStartWithVar", col.NStartWithVar()},
-		{"NEndWithVar", col.NEndWithVar()},
+		{"NStartsWithVar", col.NStartsWithVar()},
+		{"NEndsWithVar", col.NEndsWithVar()},
 		{"NContainsVar", col.NContainsVar()},
-		{"StartWithCol", col.StartWithCol(col)},
-		{"EndWithCol", col.EndWithCol(col)},
+		{"StartsWithCol", col.StartsWithCol(col)},
+		{"EndsWithCol", col.EndsWithCol(col)},
 		{"ContainsCol", col.ContainsCol(col)},
-		{"NStartWithCol", col.NStartWithCol(col)},
-		{"NEndWithCol", col.NEndWithCol(col)},
+		{"NStartsWithCol", col.NStartsWithCol(col)},
+		{"NEndsWithCol", col.NEndsWithCol(col)},
 		{"NContainsCol", col.NContainsCol(col)},
 	}
 

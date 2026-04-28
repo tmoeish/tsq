@@ -9,8 +9,8 @@ import (
 	"github.com/tmoeish/tsq"
 )
 
-// UserOrder 演示 DTO 联表结果映射。
-// @DTO(name="UserOrder")
+// UserOrder 演示查询结果联表映射。
+// @RESULT(name="UserOrder")
 type UserOrder struct {
 	UserID    int64  `json:"user_id"    tsq:"User.ID"`
 	UserName  string `json:"user_name"  tsq:"User.Name"`
@@ -22,7 +22,7 @@ type UserOrder struct {
 	OrderAmount int64       `json:"order_amount" tsq:"Order.Amount"`
 	OrderPrice  int64       `json:"order_price"  tsq:"Order.Price"`
 	OrderStatus OrderStatus `json:"order_status" tsq:"Order.Status"`
-	OrderTime   time.Time   `json:"order_time"   tsq:"Order.CT"`
+	OrderTime   time.Time   `json:"order_time"   tsq:"Order.CreatedAt"`
 
 	ItemID       int64  `json:"item_id"       tsq:"Item.ID"`
 	ItemName     string `json:"item_name"     tsq:"Item.Name"`
@@ -36,7 +36,7 @@ func init() {
 	var err error
 
 	pageUserOrderQuery, err = tsq.
-		Select(DtoUserOrder.Cols()...).
+		Select(ResultUserOrder.Cols()...).
 		LeftJoin(User_OrgID, Org_ID).
 		LeftJoin(User_ID, Order_UserID).
 		LeftJoin(Order_ItemID, Item_ID).
@@ -51,7 +51,7 @@ func init() {
 	}
 }
 
-// PageUserOrder 按用户和分类分页查询 DTO 结果。
+// PageUserOrder 按用户和分类分页查询 Result 结果。
 func PageUserOrder(
 	ctx context.Context,
 	tx tsq.SqlExecutor,

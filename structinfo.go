@@ -106,18 +106,18 @@ func (s *StructInfo) SetTSQVersion(version string) {
 
 // TableInfo 表示表的元数据信息
 type TableInfo struct {
-	IsDTO     bool     // 是否为 DTO 定义
-	Table     string   // 表名
-	AI        bool     // ID auto-increment
-	ID        string   // 主键字段名
-	V         string   // 版本字段名
-	CT        string   // 创建时间字段名
-	MT        string   // 修改时间字段名
-	DT        string   // 删除时间字段名
-	KwList    []string // 关键词搜索字段列表
-	UxList    UxList   // 唯一约束列表
-	IdxList   IdxList  // 索引列表
-	QueryList IdxList  // 查询索引列表
+	IsResult       bool     // 是否为 Result 定义
+	Table          string   // 表名
+	AI             bool     // ID auto-increment
+	ID             string   // 主键字段名
+	VersionField   string   // 版本字段名
+	CreatedAtField string   // 创建时间字段名
+	UpdatedAtField string   // 修改时间字段名
+	DeletedAtField string   // 删除时间字段名
+	KwList         []string // 关键词搜索字段列表
+	UxList         UxList   // 唯一约束列表
+	IdxList        IdxList  // 索引列表
+	QueryList      IdxList  // 查询索引列表
 }
 
 // UxList 唯一约束列表

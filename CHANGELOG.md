@@ -9,6 +9,20 @@
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-04-28
+
+### 变更（Breaking Changes）
+- 全面清理误导性命名：查询结果结构统一从 DTO 语义迁移为 Result，生成符号同步改为 `Result<Type>`
+- DSL 托管字段统一改为显式命名：`version`、`created_at`、`updated_at`、`deleted_at`
+- 条件 API 统一命名：`GETVar/LETVar/GESub/LESub` 更名为 `GTEVar/LTEVar/GTESub/LTESub`
+- 字符串匹配 API 统一为行业常用复数形式：`StartsWith*` / `EndsWith*`
+- 原始列表达式 API `Fn0` 更名为 `FnRaw`
+
+### 改进
+- 示例数据库 schema、示例结构体和生成代码统一切换到新托管字段命名
+- `examples/main.go` 输出摘要中的 `dto` 节点更名为 `result`，与公开 API 保持一致
+- 生成模板、解析器、测试和文档统一到 `@RESULT` 注解与新字段命名
+
 ## [2.2.0] - 2026-04-28
 
 ### 新增
@@ -64,12 +78,12 @@
 
 ### 新增
 - 增加 `Col[T].InVar()`，支持在执行阶段把切片/数组参数展开为动态 `IN (...)` 占位符
-- 恢复 `examples/database/userorder.go` DTO 示例，并重新生成 DTO 查询构建器
+- 恢复 `examples/database/userorder.go` Result 示例，并重新生成 Result 查询构建器
 - 增加 `make examples` 目标，用于统一刷新生成代码并构建示例程序
 
 ### 改进
-- 重写 `examples/main.go`，示例程序现在一次覆盖 CRUD、别名/重绑定、聚合、关键词搜索、分页、DTO、`InVar` 与分块写操作
-- 更新 `examples/main_test.go`，为示例程序和 DTO 分页查询补充冒烟测试
+- 重写 `examples/main.go`，示例程序现在一次覆盖 CRUD、别名/重绑定、聚合、关键词搜索、分页、Result、`InVar` 与分块写操作
+- 更新 `examples/main_test.go`，为示例程序和 Result 分页查询补充冒烟测试
 - 更新 README 与 `examples/README.md`，使文档示例与当前 Build-based API 和可运行示例保持一致
 
 ### 移除
@@ -140,7 +154,7 @@
 - 优化 Tracing 机制，支持全局 Tracer 的快照和恢复
 - 改进 CI 工作流，增加冒烟测试和示例自动更新校验
 - 优化了 Makefile 的跨平台兼容性
-- 增强了 DTO 生成器的类型安全
+- 增强了 Result 生成器的类型安全
 - 优化 README 文档
 - 更新项目介绍和使用指南
 
@@ -153,7 +167,7 @@
 
 ### 新增
 - 基础的 TSQ 代码生成功能
-- 支持 @TABLE、@DTO、@UX、@KW、@IDX 注解
+- 支持 @TABLE、@RESULT、@UX、@KW、@IDX 注解
 - 自动生成类型安全的 CRUD 操作
 - 分页查询功能
 - 复杂查询和子查询支持

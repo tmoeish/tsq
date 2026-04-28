@@ -132,18 +132,18 @@ func (c Cond) buildError() error {
 //
 // Pattern: column.OPERATOR(values...)
 //   - Column: 接收者 (implicit)
-//   - Operator: 方法名（EQ, GT, StartWith 等）
+//   - Operator: 方法名（EQ, GT, StartsWith 等）
 //   - Values: 参数（value1, value2, ...)
 //
 // 约定示例：
 //   col.EQ(value)              // column = value
 //   col.Between(start, end)    // column BETWEEN start AND end
 //   col.In(v1, v2, v3)        // column IN (v1, v2, v3)
-//   col.StartWith(prefix)      // column LIKE 'prefix%'
+//   col.StartsWith(prefix)      // column LIKE 'prefix%'
 //
 // 方法分类：
 //   - 基础比较: EQ, NE, GT, GTE, LT, LTE
-//   - 模式匹配: StartWith, EndWith, Contains
+//   - 模式匹配: StartsWith, EndsWith, Contains
 //   - 集合: In, InVar, NIn
 //   - 范围: Between, NBetween
 //   - 空值检查: IsNull, IsNotNull
@@ -158,38 +158,38 @@ func (c Cond) buildError() error {
 // 变量比较条件 (使用 ? 占位符)
 // ================================================
 
-func (c Col[T]) EQVar() Cond         { return c.Predicate(`%s = %s`, Var) }
-func (c Col[T]) NEVar() Cond         { return c.Predicate(`%s <> %s`, Var) }
-func (c Col[T]) GTVar() Cond         { return c.Predicate(`%s > %s`, Var) }
-func (c Col[T]) GETVar() Cond        { return c.Predicate(`%s >= %s`, Var) }
-func (c Col[T]) LTVar() Cond         { return c.Predicate(`%s < %s`, Var) }
-func (c Col[T]) LETVar() Cond        { return c.Predicate(`%s <= %s`, Var) }
-func (c Col[T]) InVar() Cond         { return c.Predicate(`%s IN (%s)`, VarSlice) }
-func (c Col[T]) StartWithVar() Cond  { return unsupportedPatternPredicate("StartWithVar") }
-func (c Col[T]) NStartWithVar() Cond { return unsupportedPatternPredicate("NStartWithVar") }
-func (c Col[T]) EndWithVar() Cond    { return unsupportedPatternPredicate("EndWithVar") }
-func (c Col[T]) NEndWithVar() Cond   { return unsupportedPatternPredicate("NEndWithVar") }
-func (c Col[T]) ContainsVar() Cond   { return unsupportedPatternPredicate("ContainsVar") }
-func (c Col[T]) NContainsVar() Cond  { return unsupportedPatternPredicate("NContainsVar") }
-func (c Col[T]) BetweenVar() Cond    { return c.Predicate(`%s BETWEEN %s AND %s`, Var, Var) }
-func (c Col[T]) NBetweenVar() Cond   { return c.Predicate(`%s NOT BETWEEN %s AND %s`, Var, Var) }
+func (c Col[T]) EQVar() Cond          { return c.Predicate(`%s = %s`, Var) }
+func (c Col[T]) NEVar() Cond          { return c.Predicate(`%s <> %s`, Var) }
+func (c Col[T]) GTVar() Cond          { return c.Predicate(`%s > %s`, Var) }
+func (c Col[T]) GTEVar() Cond         { return c.Predicate(`%s >= %s`, Var) }
+func (c Col[T]) LTVar() Cond          { return c.Predicate(`%s < %s`, Var) }
+func (c Col[T]) LTEVar() Cond         { return c.Predicate(`%s <= %s`, Var) }
+func (c Col[T]) InVar() Cond          { return c.Predicate(`%s IN (%s)`, VarSlice) }
+func (c Col[T]) StartsWithVar() Cond  { return unsupportedPatternPredicate("StartsWithVar") }
+func (c Col[T]) NStartsWithVar() Cond { return unsupportedPatternPredicate("NStartsWithVar") }
+func (c Col[T]) EndsWithVar() Cond    { return unsupportedPatternPredicate("EndsWithVar") }
+func (c Col[T]) NEndsWithVar() Cond   { return unsupportedPatternPredicate("NEndsWithVar") }
+func (c Col[T]) ContainsVar() Cond    { return unsupportedPatternPredicate("ContainsVar") }
+func (c Col[T]) NContainsVar() Cond   { return unsupportedPatternPredicate("NContainsVar") }
+func (c Col[T]) BetweenVar() Cond     { return c.Predicate(`%s BETWEEN %s AND %s`, Var, Var) }
+func (c Col[T]) NBetweenVar() Cond    { return c.Predicate(`%s NOT BETWEEN %s AND %s`, Var, Var) }
 
 // ================================================
 // 常量比较条件
 // ================================================
 
-func (c Col[T]) EQ(arg T) Cond              { return c.Predicate(`%s = %s`, Bind(arg)) }
-func (c Col[T]) NE(arg T) Cond              { return c.Predicate(`%s <> %s`, Bind(arg)) }
-func (c Col[T]) GT(arg T) Cond              { return c.Predicate(`%s > %s`, Bind(arg)) }
-func (c Col[T]) GTE(arg T) Cond             { return c.Predicate(`%s >= %s`, Bind(arg)) }
-func (c Col[T]) LT(arg T) Cond              { return c.Predicate(`%s < %s`, Bind(arg)) }
-func (c Col[T]) LTE(arg T) Cond             { return c.Predicate(`%s <= %s`, Bind(arg)) }
-func (c Col[T]) StartWith(str string) Cond  { return c.Predicate(`%s LIKE %s`, Bind(str+"%")) }
-func (c Col[T]) NStartWith(str string) Cond { return c.Predicate(`%s NOT LIKE %s`, Bind(str+"%")) }
-func (c Col[T]) EndWith(str string) Cond    { return c.Predicate(`%s LIKE %s`, Bind("%"+str)) }
-func (c Col[T]) NEndWith(str string) Cond   { return c.Predicate(`%s NOT LIKE %s`, Bind("%"+str)) }
-func (c Col[T]) Contains(str string) Cond   { return c.Predicate(`%s LIKE %s`, Bind("%"+str+"%")) }
-func (c Col[T]) NContains(str string) Cond  { return c.Predicate(`%s NOT LIKE %s`, Bind("%"+str+"%")) }
+func (c Col[T]) EQ(arg T) Cond               { return c.Predicate(`%s = %s`, Bind(arg)) }
+func (c Col[T]) NE(arg T) Cond               { return c.Predicate(`%s <> %s`, Bind(arg)) }
+func (c Col[T]) GT(arg T) Cond               { return c.Predicate(`%s > %s`, Bind(arg)) }
+func (c Col[T]) GTE(arg T) Cond              { return c.Predicate(`%s >= %s`, Bind(arg)) }
+func (c Col[T]) LT(arg T) Cond               { return c.Predicate(`%s < %s`, Bind(arg)) }
+func (c Col[T]) LTE(arg T) Cond              { return c.Predicate(`%s <= %s`, Bind(arg)) }
+func (c Col[T]) StartsWith(str string) Cond  { return c.Predicate(`%s LIKE %s`, Bind(str+"%")) }
+func (c Col[T]) NStartsWith(str string) Cond { return c.Predicate(`%s NOT LIKE %s`, Bind(str+"%")) }
+func (c Col[T]) EndsWith(str string) Cond    { return c.Predicate(`%s LIKE %s`, Bind("%"+str)) }
+func (c Col[T]) NEndsWith(str string) Cond   { return c.Predicate(`%s NOT LIKE %s`, Bind("%"+str)) }
+func (c Col[T]) Contains(str string) Cond    { return c.Predicate(`%s LIKE %s`, Bind("%"+str+"%")) }
+func (c Col[T]) NContains(str string) Cond   { return c.Predicate(`%s NOT LIKE %s`, Bind("%"+str+"%")) }
 func (c Col[T]) Between(start, end T) Cond {
 	return c.Predicate(`%s BETWEEN %s AND %s`, Bind(start), Bind(end))
 }
@@ -198,18 +198,21 @@ func (c Col[T]) NBetween(start, end T) Cond {
 	return c.Predicate(`%s NOT BETWEEN %s AND %s`, Bind(start), Bind(end))
 }
 
-func (c Col[T]) EQLiteral(arg T) Cond             { return c.Predicate(`%s = %s`, Literal(arg)) }
-func (c Col[T]) NELiteral(arg T) Cond             { return c.Predicate(`%s <> %s`, Literal(arg)) }
-func (c Col[T]) GTLiteral(arg T) Cond             { return c.Predicate(`%s > %s`, Literal(arg)) }
-func (c Col[T]) GTELiteral(arg T) Cond            { return c.Predicate(`%s >= %s`, Literal(arg)) }
-func (c Col[T]) LTLiteral(arg T) Cond             { return c.Predicate(`%s < %s`, Literal(arg)) }
-func (c Col[T]) LTELiteral(arg T) Cond            { return c.Predicate(`%s <= %s`, Literal(arg)) }
-func (c Col[T]) StartWithLiteral(str string) Cond { return c.Predicate(`%s LIKE %s`, Literal(str+"%")) }
-func (c Col[T]) NStartWithLiteral(str string) Cond {
+func (c Col[T]) EQLiteral(arg T) Cond  { return c.Predicate(`%s = %s`, Literal(arg)) }
+func (c Col[T]) NELiteral(arg T) Cond  { return c.Predicate(`%s <> %s`, Literal(arg)) }
+func (c Col[T]) GTLiteral(arg T) Cond  { return c.Predicate(`%s > %s`, Literal(arg)) }
+func (c Col[T]) GTELiteral(arg T) Cond { return c.Predicate(`%s >= %s`, Literal(arg)) }
+func (c Col[T]) LTLiteral(arg T) Cond  { return c.Predicate(`%s < %s`, Literal(arg)) }
+func (c Col[T]) LTELiteral(arg T) Cond { return c.Predicate(`%s <= %s`, Literal(arg)) }
+func (c Col[T]) StartsWithLiteral(str string) Cond {
+	return c.Predicate(`%s LIKE %s`, Literal(str+"%"))
+}
+
+func (c Col[T]) NStartsWithLiteral(str string) Cond {
 	return c.Predicate(`%s NOT LIKE %s`, Literal(str+"%"))
 }
-func (c Col[T]) EndWithLiteral(str string) Cond { return c.Predicate(`%s LIKE %s`, Literal("%"+str)) }
-func (c Col[T]) NEndWithLiteral(str string) Cond {
+func (c Col[T]) EndsWithLiteral(str string) Cond { return c.Predicate(`%s LIKE %s`, Literal("%"+str)) }
+func (c Col[T]) NEndsWithLiteral(str string) Cond {
 	return c.Predicate(`%s NOT LIKE %s`, Literal("%"+str))
 }
 
@@ -267,18 +270,18 @@ func (c Col[T]) IsNotNull() Cond { return c.Predicate(`%s IS NOT NULL`) }
 // 字段比较条件
 // ================================================
 
-func (c Col[T]) EQCol(other Col[T]) Cond    { return c.Predicate(`%s = %s`, other) }
-func (c Col[T]) NECol(other Col[T]) Cond    { return c.Predicate(`%s <> %s`, other) }
-func (c Col[T]) GTCol(other Col[T]) Cond    { return c.Predicate(`%s > %s`, other) }
-func (c Col[T]) GTECol(other Col[T]) Cond   { return c.Predicate(`%s >= %s`, other) }
-func (c Col[T]) LTCol(other Col[T]) Cond    { return c.Predicate(`%s < %s`, other) }
-func (c Col[T]) LTECol(other Col[T]) Cond   { return c.Predicate(`%s <= %s`, other) }
-func (c Col[T]) StartWithCol(_ Col[T]) Cond { return unsupportedPatternPredicate("StartWithCol") }
-func (c Col[T]) NStartWithCol(_ Col[T]) Cond {
-	return unsupportedPatternPredicate("NStartWithCol")
+func (c Col[T]) EQCol(other Col[T]) Cond     { return c.Predicate(`%s = %s`, other) }
+func (c Col[T]) NECol(other Col[T]) Cond     { return c.Predicate(`%s <> %s`, other) }
+func (c Col[T]) GTCol(other Col[T]) Cond     { return c.Predicate(`%s > %s`, other) }
+func (c Col[T]) GTECol(other Col[T]) Cond    { return c.Predicate(`%s >= %s`, other) }
+func (c Col[T]) LTCol(other Col[T]) Cond     { return c.Predicate(`%s < %s`, other) }
+func (c Col[T]) LTECol(other Col[T]) Cond    { return c.Predicate(`%s <= %s`, other) }
+func (c Col[T]) StartsWithCol(_ Col[T]) Cond { return unsupportedPatternPredicate("StartsWithCol") }
+func (c Col[T]) NStartsWithCol(_ Col[T]) Cond {
+	return unsupportedPatternPredicate("NStartsWithCol")
 }
-func (c Col[T]) EndWithCol(_ Col[T]) Cond   { return unsupportedPatternPredicate("EndWithCol") }
-func (c Col[T]) NEndWithCol(_ Col[T]) Cond  { return unsupportedPatternPredicate("NEndWithCol") }
+func (c Col[T]) EndsWithCol(_ Col[T]) Cond  { return unsupportedPatternPredicate("EndsWithCol") }
+func (c Col[T]) NEndsWithCol(_ Col[T]) Cond { return unsupportedPatternPredicate("NEndsWithCol") }
 func (c Col[T]) ContainsCol(_ Col[T]) Cond  { return unsupportedPatternPredicate("ContainsCol") }
 func (c Col[T]) NContainsCol(_ Col[T]) Cond { return unsupportedPatternPredicate("NContainsCol") }
 
@@ -289,9 +292,9 @@ func (c Col[T]) NContainsCol(_ Col[T]) Cond { return unsupportedPatternPredicate
 func (c Col[T]) EQSub(sqb *Query) Cond    { return c.Predicate(`%s = %s`, sqb) }
 func (c Col[T]) NESub(sqb *Query) Cond    { return c.Predicate(`%s <> %s`, sqb) }
 func (c Col[T]) GTSub(sqb *Query) Cond    { return c.Predicate(`%s > %s`, sqb) }
-func (c Col[T]) GESub(sqb *Query) Cond    { return c.Predicate(`%s >= %s`, sqb) }
+func (c Col[T]) GTESub(sqb *Query) Cond   { return c.Predicate(`%s >= %s`, sqb) }
 func (c Col[T]) LTSub(sqb *Query) Cond    { return c.Predicate(`%s < %s`, sqb) }
-func (c Col[T]) LESub(sqb *Query) Cond    { return c.Predicate(`%s <= %s`, sqb) }
+func (c Col[T]) LTESub(sqb *Query) Cond   { return c.Predicate(`%s <= %s`, sqb) }
 func (c Col[T]) LikeSub(sqb *Query) Cond  { return c.Predicate(`%s LIKE %s`, sqb) }
 func (c Col[T]) NLikeSub(sqb *Query) Cond { return c.Predicate(`%s NOT LIKE %s`, sqb) }
 func (c Col[T]) InSub(sqb *Query) Cond    { return c.Predicate(`%s IN %s`, sqb) }

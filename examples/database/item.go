@@ -10,8 +10,8 @@ Item 商品表
 	@TABLE(
 		ux=[{fields=["Name"]}],
 		idx=[{name="IdxCategory", fields=["CategoryID"]}],
-		kw=["Name"]
-		ct
+		kw=["Name"],
+		created_at
 	)
 */
 type Item struct {

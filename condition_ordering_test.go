@@ -37,16 +37,16 @@ func TestConditionParameterOrdering_StringPatterns(t *testing.T) {
 	nameCol := NewCol[string](table, "name", "name", nil)
 
 	// Pattern matching - parameter is the pattern string
-	_ = nameCol.StartWith("John")
-	_ = nameCol.NStartWith("John")
-	_ = nameCol.EndWith("Smith")
-	_ = nameCol.NEndWith("Smith")
+	_ = nameCol.StartsWith("John")
+	_ = nameCol.NStartsWith("John")
+	_ = nameCol.EndsWith("Smith")
+	_ = nameCol.NEndsWith("Smith")
 	_ = nameCol.Contains("test")
 	_ = nameCol.NContains("test")
 
 	// LIKE with explicit pattern - parameter is the full pattern
-	_ = nameCol.StartWith("A%")
-	_ = nameCol.EndWith("%Z")
+	_ = nameCol.StartsWith("A%")
+	_ = nameCol.EndsWith("%Z")
 	_ = nameCol.Contains("%middle%")
 }
 

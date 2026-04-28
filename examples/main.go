@@ -21,7 +21,7 @@ type exampleSummary struct {
 	Alias     aliasSummary       `json:"alias"`
 	Aggregate []aggregateSummary `json:"aggregate"`
 	Keyword   keywordSummary     `json:"keyword"`
-	DTO       dtoSummary         `json:"dto"`
+	Result    resultSummary      `json:"result"`
 	InVar     inVarSummary       `json:"in_var"`
 	Chunked   chunkedSummary     `json:"chunked"`
 }
@@ -49,7 +49,7 @@ type keywordSummary struct {
 	Names   []string `json:"names"`
 }
 
-type dtoSummary struct {
+type resultSummary struct {
 	Total int64               `json:"total"`
 	First *database.UserOrder `json:"first,omitempty"`
 }
@@ -174,9 +174,9 @@ func runAllExamples(ctx context.Context, dbmap *tsq.DbMap) (*exampleSummary, err
 		return nil, errors.Annotate(err, "keyword demo")
 	}
 
-	dto, err := runDTODemo(ctx, dbmap)
+	result, err := runResultDemo(ctx, dbmap)
 	if err != nil {
-		return nil, errors.Annotate(err, "dto demo")
+		return nil, errors.Annotate(err, "result demo")
 	}
 
 	inVar, err := runInVarDemo(ctx, dbmap)
@@ -194,7 +194,7 @@ func runAllExamples(ctx context.Context, dbmap *tsq.DbMap) (*exampleSummary, err
 		Alias:     *alias,
 		Aggregate: aggregate,
 		Keyword:   *keyword,
-		DTO:       *dto,
+		Result:    *result,
 		InVar:     *inVar,
 		Chunked:   *chunked,
 	}, nil
@@ -205,7 +205,7 @@ func runCRUDDemo(ctx context.Context, dbmap *tsq.DbMap) (*crudSummary, error) {
 		CategoryContent: database.CategoryContent{
 			Type:        database.CategoryTypeArticle,
 			Name:        "TSQ 示例分类",
-			Description: "DTO、分页和聚合演示使用的分类",
+			Description: "Result、分页和聚合演示使用的分类",
 		},
 	}
 
@@ -213,7 +213,7 @@ func runCRUDDemo(ctx context.Context, dbmap *tsq.DbMap) (*crudSummary, error) {
 		return nil, errors.Trace(err)
 	}
 
-	category.Description = "DTO、分页和聚合演示使用的分类（已更新）"
+	category.Description = "Result、分页和聚合演示使用的分类（已更新）"
 	if err := category.Update(ctx, dbmap); err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -341,7 +341,7 @@ func runKeywordDemo(ctx context.Context, dbmap *tsq.DbMap) (*keywordSummary, err
 	}, nil
 }
 
-func runDTODemo(ctx context.Context, dbmap *tsq.DbMap) (*dtoSummary, error) {
+func runResultDemo(ctx context.Context, dbmap *tsq.DbMap) (*resultSummary, error) {
 	pageReq := &tsq.PageReq{
 		Page:    1,
 		Size:    3,
@@ -362,7 +362,7 @@ func runDTODemo(ctx context.Context, dbmap *tsq.DbMap) (*dtoSummary, error) {
 		first = resp.Data[0]
 	}
 
-	return &dtoSummary{
+	return &resultSummary{
 		Total: resp.Total,
 		First: first,
 	}, nil

@@ -6,8 +6,8 @@ import "github.com/tmoeish/tsq/examples/common"
 // @TABLE(
 //
 //	ux=[{fields=["Name"]}],
-//	kw=["Name","Email"]
-//	ct
+//	kw=["Name","Email"],
+//	created_at
 //
 // )
 type User struct {

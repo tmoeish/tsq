@@ -336,12 +336,12 @@ func TestDSLErrors(t *testing.T) {
 
 func Test_genTableInfoFromAST(t *testing.T) {
 	ast := DSLObject{
-		"name": DSLString("t1"),
-		"pk":   DSLString("id,false"),
-		"v":    DSLString("V1"),
-		"ct":   DSLBool(true),
-		"mt":   DSLString("mtime"),
-		"dt":   DSLBool(true),
+		"name":       DSLString("t1"),
+		"pk":         DSLString("id,false"),
+		"version":    DSLString("Version1"),
+		"created_at": DSLBool(true),
+		"updated_at": DSLString("mtime"),
+		"deleted_at": DSLBool(true),
 		"ux": DSLArray{
 			DSLObject{"name": DSLString("ux1"), "fields": DSLArray{DSLString("f1"), DSLString("f2")}},
 		},
@@ -352,7 +352,7 @@ func Test_genTableInfoFromAST(t *testing.T) {
 			DSLString("f2"), DSLString("f3"),
 		},
 	}
-	structFields := map[string]struct{}{"id": {}, "V1": {}, "CT": {}, "mtime": {}, "DT": {}, "f1": {}, "f2": {}, "f3": {}}
+	structFields := map[string]struct{}{"id": {}, "Version1": {}, "CreatedAt": {}, "mtime": {}, "DeletedAt": {}, "f1": {}, "f2": {}, "f3": {}}
 
 	info, err := genTableInfoFromAST("MyTable", ast, true, structFields)
 	if err != nil {
@@ -368,20 +368,20 @@ func Test_genTableInfoFromAST(t *testing.T) {
 		t.Errorf("Primary key error: ID=%s, AI=%v", info.ID, info.AI)
 	}
 
-	if info.V != "V1" {
-		t.Errorf("Version field error: got %s, want V1", info.V)
+	if info.VersionField != "Version1" {
+		t.Errorf("Version field error: got %s, want V1", info.VersionField)
 	}
 
-	if info.CT != DefaultCTField {
-		t.Errorf("Create time field error: got %s, want %s", info.CT, DefaultCTField)
+	if info.CreatedAtField != DefaultCreatedAtField {
+		t.Errorf("Create time field error: got %s, want %s", info.CreatedAtField, DefaultCreatedAtField)
 	}
 
-	if info.MT != "mtime" {
-		t.Errorf("Modify time field error: got %s, want mtime", info.MT)
+	if info.UpdatedAtField != "mtime" {
+		t.Errorf("Modify time field error: got %s, want mtime", info.UpdatedAtField)
 	}
 
-	if info.DT != DefaultDTField {
-		t.Errorf("Delete time field error: got %s, want %s", info.DT, DefaultDTField)
+	if info.DeletedAtField != DefaultDeletedAtField {
+		t.Errorf("Delete time field error: got %s, want %s", info.DeletedAtField, DefaultDeletedAtField)
 	}
 
 	// 验证唯一索引
@@ -476,7 +476,7 @@ func Test_genTableInfoFromASTRejectsWrongValueTypes(t *testing.T) {
 		},
 		{
 			name: "managed fields must be string or bool",
-			ast:  DSLObject{"ct": DSLNumber(1)},
+			ast:  DSLObject{"created_at": DSLNumber(1)},
 		},
 		{
 			name: "idx must be array",

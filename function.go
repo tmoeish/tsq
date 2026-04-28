@@ -43,8 +43,8 @@ func (c Col[T]) Fn(format string) Col[T] {
 	}
 }
 
-// Fn0 fn 不带参数
-func (c Col[T]) Fn0(fn string) Col[T] {
+// FnRaw fn 不带参数
+func (c Col[T]) FnRaw(fn string) Col[T] {
 	if strings.TrimSpace(fn) == "" {
 		c.buildErr = errors.New("function expression cannot be empty")
 		return c
@@ -216,7 +216,7 @@ func (c Col[T]) Concat(_ string) Col[T] {
 
 // Now returns CURRENT_TIMESTAMP - current timestamp (usually used as static function)
 func (c Col[T]) Now() Col[T] {
-	return c.Fn0("CURRENT_TIMESTAMP")
+	return c.FnRaw("CURRENT_TIMESTAMP")
 }
 
 // Date returns DATE(column) - extracts date part from datetime

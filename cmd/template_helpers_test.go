@@ -21,12 +21,12 @@ func TestFieldToColReturnsUnquotedIdentifier(t *testing.T) {
 func TestFieldsToColsReturnsCommaSeparatedIdentifiers(t *testing.T) {
 	info := &tsq.StructInfo{
 		FieldMap: map[string]tsq.FieldInfo{
-			"Name": {Column: "name"},
-			"DT":   {Column: "dt"},
+			"Name":      {Column: "name"},
+			"DeletedAt": {Column: "deleted_at"},
 		},
 	}
 
-	if got := fieldsToCols(info, []string{"DT", "Name"}); got != `"dt", "name"` {
+	if got := fieldsToCols(info, []string{"DeletedAt", "Name"}); got != `"deleted_at", "name"` {
 		t.Fatalf("unexpected columns string: %q", got)
 	}
 }
@@ -34,22 +34,22 @@ func TestFieldsToColsReturnsCommaSeparatedIdentifiers(t *testing.T) {
 func TestValidateManagedFieldsSupportsPointerAndNullTypes(t *testing.T) {
 	info := &tsq.StructInfo{
 		TableInfo: &tsq.TableInfo{
-			CT: "CT",
-			MT: "MT",
-			DT: "DT",
+			CreatedAtField: "CreatedAt",
+			UpdatedAtField: "UpdatedAt",
+			DeletedAtField: "DeletedAt",
 		},
 		FieldMap: map[string]tsq.FieldInfo{
-			"CT": {
-				Name:      "CT",
+			"CreatedAt": {
+				Name:      "CreatedAt",
 				Type:      tsq.TypeInfo{Package: tsq.PackageInfo{Path: "time", Name: "time"}, TypeName: "Time"},
 				IsPointer: true,
 			},
-			"MT": {
-				Name: "MT",
+			"UpdatedAt": {
+				Name: "UpdatedAt",
 				Type: tsq.TypeInfo{Package: tsq.PackageInfo{Path: "database/sql", Name: "sql"}, TypeName: "NullTime"},
 			},
-			"DT": {
-				Name: "DT",
+			"DeletedAt": {
+				Name: "DeletedAt",
 				Type: tsq.TypeInfo{Package: tsq.PackageInfo{Path: "gopkg.in/nullbio/null.v6", Name: "null"}, TypeName: "Time"},
 			},
 		},
@@ -63,11 +63,11 @@ func TestValidateManagedFieldsSupportsPointerAndNullTypes(t *testing.T) {
 func TestValidateManagedFieldsRejectsUnsupportedSoftDeleteType(t *testing.T) {
 	info := &tsq.StructInfo{
 		TableInfo: &tsq.TableInfo{
-			DT: "DT",
+			DeletedAtField: "DeletedAt",
 		},
 		FieldMap: map[string]tsq.FieldInfo{
-			"DT": {
-				Name: "DT",
+			"DeletedAt": {
+				Name: "DeletedAt",
 				Type: tsq.TypeInfo{Package: tsq.PackageInfo{Path: "time", Name: "time"}, TypeName: "Time"},
 			},
 		},
@@ -81,11 +81,11 @@ func TestValidateManagedFieldsRejectsUnsupportedSoftDeleteType(t *testing.T) {
 func TestValidateManagedFieldsRejectsNarrowIntegerSoftDeleteType(t *testing.T) {
 	info := &tsq.StructInfo{
 		TableInfo: &tsq.TableInfo{
-			DT: "DT",
+			DeletedAtField: "DeletedAt",
 		},
 		FieldMap: map[string]tsq.FieldInfo{
-			"DT": {
-				Name: "DT",
+			"DeletedAt": {
+				Name: "DeletedAt",
 				Type: tsq.TypeInfo{TypeName: "int8"},
 			},
 		},
@@ -99,13 +99,13 @@ func TestValidateManagedFieldsRejectsNarrowIntegerSoftDeleteType(t *testing.T) {
 func TestValidateManagedFieldsRejectsNullableSoftDeleteUniqueIndexes(t *testing.T) {
 	info := &tsq.StructInfo{
 		TableInfo: &tsq.TableInfo{
-			DT:     "DT",
-			UxList: []tsq.IndexInfo{{Name: "ux_name", Fields: []string{"Name"}}},
+			DeletedAtField: "DeletedAt",
+			UxList:         []tsq.IndexInfo{{Name: "ux_name", Fields: []string{"Name"}}},
 		},
 		TypeInfo: tsq.TypeInfo{TypeName: "User"},
 		FieldMap: map[string]tsq.FieldInfo{
-			"DT": {
-				Name:      "DT",
+			"DeletedAt": {
+				Name:      "DeletedAt",
 				IsPointer: true,
 				Type: tsq.TypeInfo{
 					Package:  tsq.PackageInfo{Path: "time", Name: "time"},
@@ -127,13 +127,13 @@ func TestValidateManagedFieldsRejectsNullableSoftDeleteUniqueIndexes(t *testing.
 func TestValidateManagedFieldsAllowsIntegerSoftDeleteUniqueIndexes(t *testing.T) {
 	info := &tsq.StructInfo{
 		TableInfo: &tsq.TableInfo{
-			DT:     "DT",
-			UxList: []tsq.IndexInfo{{Name: "ux_name", Fields: []string{"Name"}}},
+			DeletedAtField: "DeletedAt",
+			UxList:         []tsq.IndexInfo{{Name: "ux_name", Fields: []string{"Name"}}},
 		},
 		TypeInfo: tsq.TypeInfo{TypeName: "User"},
 		FieldMap: map[string]tsq.FieldInfo{
-			"DT": {
-				Name: "DT",
+			"DeletedAt": {
+				Name: "DeletedAt",
 				Type: tsq.TypeInfo{TypeName: "int64"},
 			},
 			"Name": {
@@ -243,14 +243,14 @@ func TestFieldVarNameAvoidsGoKeywords(t *testing.T) {
 
 func TestTimestampNowValueUsesGeneratedAliases(t *testing.T) {
 	sqlField := tsq.FieldInfo{
-		Name: "MT",
+		Name: "UpdatedAt",
 		Type: tsq.TypeInfo{
 			Package:  tsq.PackageInfo{Path: "database/sql", Name: "sql"},
 			TypeName: "NullTime",
 		},
 	}
 	timePtrField := tsq.FieldInfo{
-		Name:      "CT",
+		Name:      "CreatedAt",
 		IsPointer: true,
 		Type: tsq.TypeInfo{
 			Package:  tsq.PackageInfo{Path: "time", Name: "time"},

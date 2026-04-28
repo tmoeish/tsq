@@ -209,12 +209,12 @@ package examples
 
 // Best Practice 4.2: Use Into() for different result types
 // - Map database columns to different struct fields
-// - Useful for DTOs and result mapping
+// - Useful for results and result mapping
 // - Avoids code duplication
 //
 // Good:
-//   // Database col -> DTO field mapping
-//   userID.Into(func(h any) any { return &h.(*UserDTO).UserID }, "user_id")
+//   // Database col -> Result field mapping
+//   userID.Into(func(h any) any { return &h.(*UserResult).UserID }, "user_id")
 //
 // Bad:
 //   // Creating separate columns for each mapping

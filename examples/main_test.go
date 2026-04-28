@@ -33,8 +33,8 @@ func TestRunAllExamples(t *testing.T) {
 		t.Fatal("expected CRUD demo to delete the inserted category")
 	}
 
-	if summary.DTO.Total == 0 || summary.DTO.First == nil {
-		t.Fatal("expected DTO demo to return rows")
+	if summary.Result.Total == 0 || summary.Result.First == nil {
+		t.Fatal("expected Result demo to return rows")
 	}
 
 	if len(summary.InVar.ItemNames) == 0 {
@@ -65,10 +65,10 @@ func TestPageUserOrderSmoke(t *testing.T) {
 	}
 
 	if resp.Total == 0 || len(resp.Data) == 0 {
-		t.Fatal("expected DTO page query to return rows")
+		t.Fatal("expected Result page query to return rows")
 	}
 
 	if resp.Data[0].UserID != 1 {
-		t.Fatalf("expected DTO page to be filtered by user_id=1, got %#v", resp.Data[0])
+		t.Fatalf("expected Result page to be filtered by user_id=1, got %#v", resp.Data[0])
 	}
 }
