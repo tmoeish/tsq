@@ -515,6 +515,48 @@ func TestQuery_BuildKeywordQueriesTrackDedicatedMarkers(t *testing.T) {
 	}
 }
 
+func TestResolveQueryExpandsExternalSliceArgs(t *testing.T) {
+	sqlText, args, err := resolveQuery(
+		`SELECT * FROM "users" WHERE "users"."id" IN (?) AND "users"."name" = ?`,
+		[]any{externalSliceArgMarker{}, externalArgMarker},
+		[]any{[]int64{1, 3, 5}, "alice"},
+		"",
+	)
+	if err != nil {
+		t.Fatalf("expected resolveQuery to expand slice args, got %v", err)
+	}
+
+	wantSQL := `SELECT * FROM "users" WHERE "users"."id" IN (?, ?, ?) AND "users"."name" = ?`
+	if sqlText != wantSQL {
+		t.Fatalf("expected SQL %q, got %q", wantSQL, sqlText)
+	}
+
+	if want := []any{int64(1), int64(3), int64(5), "alice"}; len(args) != len(want) ||
+		args[0] != want[0] || args[1] != want[1] || args[2] != want[2] || args[3] != want[3] {
+		t.Fatalf("unexpected resolved args: %#v", args)
+	}
+}
+
+func TestResolveQueryExpandsEmptyExternalSliceArgsToNull(t *testing.T) {
+	sqlText, args, err := resolveQuery(
+		`SELECT * FROM "users" WHERE "users"."id" IN (?)`,
+		[]any{externalSliceArgMarker{}},
+		[]any{[]int64{}},
+		"",
+	)
+	if err != nil {
+		t.Fatalf("expected empty slice to resolve, got %v", err)
+	}
+
+	if sqlText != `SELECT * FROM "users" WHERE "users"."id" IN (NULL)` {
+		t.Fatalf("unexpected SQL for empty slice: %q", sqlText)
+	}
+
+	if len(args) != 0 {
+		t.Fatalf("expected empty slice to contribute no args, got %#v", args)
+	}
+}
+
 func TestNormalizeChunkedInsertOptionsValidatesInputs(t *testing.T) {
 	if _, err := normalizeChunkedInsertOptions(&ChunkedInsertOptions{ChunkSize: 0}); err == nil {
 		t.Fatal("expected zero chunk size to return an error")
@@ -799,6 +841,11 @@ type scanDestUser struct {
 	Name string
 }
 
+type inVarUser struct {
+	ID   int64
+	Name string
+}
+
 func newScanValidationDBMap(t *testing.T) *DbMap {
 	t.Helper()
 
@@ -813,6 +860,28 @@ func newScanValidationDBMap(t *testing.T) *DbMap {
 
 	if _, err := db.Exec("CREATE TABLE users (name TEXT)"); err != nil {
 		t.Fatalf("failed to create users table: %v", err)
+	}
+
+	return &DbMap{Db: db, Dialect: SqliteDialect{}}
+}
+
+func newInVarDBMap(t *testing.T) *DbMap {
+	t.Helper()
+
+	db, err := sql.Open("sqlite3", ":memory:")
+	if err != nil {
+		t.Fatalf("failed to open sqlite database: %v", err)
+	}
+
+	t.Cleanup(func() {
+		_ = db.Close()
+	})
+
+	if _, err := db.Exec(`
+		CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT);
+		INSERT INTO users (id, name) VALUES (1, 'alice'), (2, 'bob'), (3, 'carol');
+	`); err != nil {
+		t.Fatalf("failed to seed users table: %v", err)
 	}
 
 	return &DbMap{Db: db, Dialect: SqliteDialect{}}
@@ -849,6 +918,37 @@ func TestListValidatesScanDestEvenWhenResultIsEmpty(t *testing.T) {
 
 	if !strings.Contains(err.Error(), "field pointer is nil") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestListSupportsInVarSlices(t *testing.T) {
+	db := newInVarDBMap(t)
+	users := newMockTable("users")
+	idCol := NewCol[int64](users, "id", "id", func(holder any) any { return &holder.(*inVarUser).ID })
+	nameCol := NewCol[string](users, "name", "name", func(holder any) any { return &holder.(*inVarUser).Name })
+
+	query := mustBuild(Select(idCol, nameCol).Where(idCol.InVar()))
+
+	rows, err := List[inVarUser](context.Background(), db, query, []int64{1, 3})
+	if err != nil {
+		t.Fatalf("expected InVar query to execute, got %v", err)
+	}
+
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 rows, got %d", len(rows))
+	}
+
+	if rows[0].ID != 1 || rows[1].ID != 3 {
+		t.Fatalf("unexpected rows returned: %#v", rows)
+	}
+
+	count, err := query.Count64(context.Background(), db, []int64{1, 3})
+	if err != nil {
+		t.Fatalf("expected InVar count query to execute, got %v", err)
+	}
+
+	if count != 2 {
+		t.Fatalf("expected InVar count query to return 2, got %d", count)
 	}
 }
 

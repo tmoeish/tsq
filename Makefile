@@ -22,7 +22,7 @@ GO_TAGS=$(if $(BUILDTAGS),-tags "$(BUILDTAGS)",)
 
 ##@ General
 
-all: clean fmt vet lint test build update-examples ## Build and run all
+all: clean fmt vet lint test build examples ## Build and run all
 
 PROJECT_DIR = $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
 LOCALBIN = ${PROJECT_DIR}/bin
@@ -76,11 +76,14 @@ clean: ## Clean build artifacts
 install: build ## Install to GOPATH/bin
 	@cp bin/$(BINARY_NAME) $$($(GO) env GOPATH)/bin/
 
-.PHONY: update-examples
-update-examples: build ## Update examples code
+.PHONY: examples
+examples: build ## Regenerate and build examples program
 	@rm -f ./examples/database/*_tsq.go
 	@./bin/$(BINARY_NAME) gen -v $(MODULE)/examples/database
 	@$(GO) build -o bin/examples ./examples/
+
+.PHONY: update-examples
+update-examples: examples ## Update examples code
 
 .PHONY: update-sample
 update-sample: update-examples ## Backward-compatible alias for update-examples

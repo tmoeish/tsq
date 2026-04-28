@@ -147,7 +147,7 @@ func (c Cond) buildError() error {
 // 方法分类：
 //   - 基础比较: EQ, NE, GT, GTE, LT, LTE
 //   - 模式匹配: StartWith, EndWith, Contains
-//   - 集合: In, NIn
+//   - 集合: In, InVar, NIn
 //   - 范围: Between, NBetween
 //   - 空值检查: IsNull, IsNotNull
 //
@@ -167,6 +167,7 @@ func (c Col[T]) GTVar() Cond         { return c.Predicate(`%s > %s`, Var) }
 func (c Col[T]) GETVar() Cond        { return c.Predicate(`%s >= %s`, Var) }
 func (c Col[T]) LTVar() Cond         { return c.Predicate(`%s < %s`, Var) }
 func (c Col[T]) LETVar() Cond        { return c.Predicate(`%s <= %s`, Var) }
+func (c Col[T]) InVar() Cond         { return c.Predicate(`%s IN (%s)`, VarSlice) }
 func (c Col[T]) StartWithVar() Cond  { return unsupportedPatternPredicate("StartWithVar") }
 func (c Col[T]) NStartWithVar() Cond { return unsupportedPatternPredicate("NStartWithVar") }
 func (c Col[T]) EndWithVar() Cond    { return unsupportedPatternPredicate("EndWithVar") }
@@ -452,6 +453,13 @@ func (v variableExpression) Expr() string { return "?" }
 func (v variableExpression) Args() []any  { return []any{externalArgMarker} }
 
 var Var variableExpression
+
+type variableSliceExpression struct{}
+
+func (v variableSliceExpression) Expr() string { return "?" }
+func (v variableSliceExpression) Args() []any  { return []any{externalSliceArgMarker{}} }
+
+var VarSlice variableSliceExpression
 
 // valuesExpression represents a list of values in SQL
 type valuesExpression struct {

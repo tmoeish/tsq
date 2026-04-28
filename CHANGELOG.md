@@ -46,8 +46,23 @@
   - README 新增"已知限制和最佳实践"章节，列表展示不支持的功能和解决方案
   - 新增查询缓存指南，推荐应用层缓存、驱动程序缓存、连接池缓存等策略
   - 详细文档说明圆形联接限制和 `AliasTable()` 自联接解决方案
-  - 在 `query.go` 添加资源清理模式文档，说明统一的 defer 块错误处理约定
-  - 改进 `validateJoinGraph()` 代码注释，解释为何不支持圆形依赖及推荐的多查询解决方案
+- 在 `query.go` 添加资源清理模式文档，说明统一的 defer 块错误处理约定
+- 改进 `validateJoinGraph()` 代码注释，解释为何不支持圆形依赖及推荐的多查询解决方案
+
+## [2.1.0] - 2026-04-28
+
+### 新增
+- 增加 `Col[T].InVar()`，支持在执行阶段把切片/数组参数展开为动态 `IN (...)` 占位符
+- 恢复 `examples/database/userorder.go` DTO 示例，并重新生成 DTO 查询构建器
+- 增加 `make examples` 目标，用于统一刷新生成代码并构建示例程序
+
+### 改进
+- 重写 `examples/main.go`，示例程序现在一次覆盖 CRUD、别名/重绑定、聚合、关键词搜索、分页、DTO、`InVar` 与分块写操作
+- 更新 `examples/main_test.go`，为示例程序和 DTO 分页查询补充冒烟测试
+- 更新 README 与 `examples/README.md`，使文档示例与当前 Build-based API 和可运行示例保持一致
+
+### 移除
+- 删除 `examples/database/helpers.go` 中已无必要的 `mustBuild()` 兼容包装
 
 ## [2.0.1] - 2026-04-27
 

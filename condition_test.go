@@ -289,6 +289,24 @@ func TestCondition_EmptyInShortCircuits(t *testing.T) {
 	}
 }
 
+func TestCondition_InVarDefersSliceBindingToExecution(t *testing.T) {
+	col := NewCol[int](newMockTable("users"), "id", "id", nil)
+	cond := col.InVar()
+
+	if got := cond.Clause(); got != `"users"."id" IN (?)` {
+		t.Fatalf("expected IN var clause template to keep a single placeholder, got %q", got)
+	}
+
+	args := cond.Args()
+	if len(args) != 1 {
+		t.Fatalf("expected exactly one deferred arg marker, got %#v", args)
+	}
+
+	if _, ok := args[0].(externalSliceArgMarker); !ok {
+		t.Fatalf("expected deferred arg marker to be externalSliceArgMarker, got %T", args[0])
+	}
+}
+
 func TestConditionClauseRendersCanonicalSQL(t *testing.T) {
 	col := NewCol[int](newMockTable("users"), "id", "id", nil)
 

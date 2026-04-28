@@ -163,15 +163,17 @@ type Query struct {
 	kwTables     map[string]Table
 }
 
+type externalSliceArgMarker struct{}
+
 var builtInIdentifierPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 // Identifier length limits by SQL dialect
 const (
 	// MaxIdentifierLengthMySQL = 64  // Actual is 64, but we allow 63 for compatibility
-	MaxIdentifierLengthMySQL       = 64
-	MaxIdentifierLengthPostgreSQL  = 63
-	MaxIdentifierLengthOracleSQL   = 30
-	MaxIdentifierLengthSQLite      = 0 // SQLite has no practical limit, 0 means unlimited
+	MaxIdentifierLengthMySQL      = 64
+	MaxIdentifierLengthPostgreSQL = 63
+	MaxIdentifierLengthOracleSQL  = 30
+	MaxIdentifierLengthSQLite     = 0 // SQLite has no practical limit, 0 means unlimited
 )
 
 // ================================================
@@ -297,19 +299,19 @@ func (q *Query) prepareQueryExecution(
 		return "", nil, errors.Trace(err)
 	}
 
-	if err := validateOperationalExecutorForSQL(tx, q.listSQL); err != nil {
-		return "", nil, errors.Trace(err)
-	}
-
-	sqlText := renderSQLForExecutor(tx, q.listSQL)
-
-	if ctx.Value(printSQL) != nil {
-		slog.Info(methodName, "sql", sqlText, "args", CompactJSON(args))
-	}
-
-	finalArgs, err := mergeQueryArgs(q.listArgs, args)
+	resolvedSQL, finalArgs, err := resolveQuery(q.listSQL, q.listArgs, args, "")
 	if err != nil {
 		return "", nil, errors.Trace(err)
+	}
+
+	if err := validateOperationalExecutorForSQL(tx, resolvedSQL); err != nil {
+		return "", nil, errors.Trace(err)
+	}
+
+	sqlText := renderSQLForExecutor(tx, resolvedSQL)
+
+	if ctx.Value(printSQL) != nil {
+		slog.Info(methodName, "sql", sqlText, "args", CompactJSON(finalArgs))
 	}
 
 	return sqlText, finalArgs, nil
@@ -444,19 +446,19 @@ func (q *Query) count64(
 		return 0, errors.Trace(err)
 	}
 
-	if err := validateOperationalExecutorForSQL(tx, q.cntSQL); err != nil {
-		return 0, errors.Trace(err)
-	}
-
-	sqlText := renderSQLForExecutor(tx, q.cntSQL)
-
-	if ctx.Value(printSQL) != nil {
-		slog.Info("count", "sql", sqlText, "args", CompactJSON(args))
-	}
-
-	finalArgs, err := mergeQueryArgs(q.cntArgs, args)
+	resolvedSQL, finalArgs, err := resolveQuery(q.cntSQL, q.cntArgs, args, "")
 	if err != nil {
 		return 0, errors.Trace(err)
+	}
+
+	if err := validateOperationalExecutorForSQL(tx, resolvedSQL); err != nil {
+		return 0, errors.Trace(err)
+	}
+
+	sqlText := renderSQLForExecutor(tx, resolvedSQL)
+
+	if ctx.Value(printSQL) != nil {
+		slog.Info("count", "sql", sqlText, "args", CompactJSON(finalArgs))
 	}
 
 	count, err := tx.WithContext(ctx).SelectInt(sqlText, finalArgs...)
@@ -487,19 +489,19 @@ func (q *Query) exist(
 		return false, errors.Trace(err)
 	}
 
-	if err := validateOperationalExecutorForSQL(tx, q.cntSQL); err != nil {
-		return false, errors.Trace(err)
-	}
-
-	sqlText := renderSQLForExecutor(tx, q.cntSQL)
-
-	if ctx.Value(printSQL) != nil {
-		slog.Info("exist", "sql", sqlText, "args", CompactJSON(args))
-	}
-
-	finalArgs, err := mergeQueryArgs(q.cntArgs, args)
+	resolvedSQL, finalArgs, err := resolveQuery(q.cntSQL, q.cntArgs, args, "")
 	if err != nil {
 		return false, errors.Trace(err)
+	}
+
+	if err := validateOperationalExecutorForSQL(tx, resolvedSQL); err != nil {
+		return false, errors.Trace(err)
+	}
+
+	sqlText := renderSQLForExecutor(tx, resolvedSQL)
+
+	if ctx.Value(printSQL) != nil {
+		slog.Info("exist", "sql", sqlText, "args", CompactJSON(finalArgs))
 	}
 
 	count, err := tx.WithContext(ctx).SelectInt(sqlText, finalArgs...)
@@ -545,17 +547,6 @@ func pageFn[T any](
 		return nil, errors.Trace(err)
 	}
 
-	if err := validateOperationalExecutorForSQL(tx, cntSQL, listSQL); err != nil {
-		return nil, errors.Trace(err)
-	}
-
-	renderedCntSQL := renderSQLForExecutor(tx, cntSQL)
-	renderedListSQL := renderSQLForExecutor(tx, listSQL)
-
-	if err := validateScanDestForType[T](q.selectCols, renderedListSQL, args); err != nil {
-		return nil, errors.Trace(err)
-	}
-
 	queryBaseArgs := q.listArgs
 	countBaseArgs := q.cntArgs
 
@@ -564,14 +555,24 @@ func pageFn[T any](
 		countBaseArgs = q.kwCntArgs
 	}
 
-	// Add keyword search parameters if needed
-	finalArgs, err := resolveQueryArgs(queryBaseArgs, args, page.Keyword)
+	resolvedListSQL, finalArgs, err := resolveQuery(listSQL, queryBaseArgs, args, page.Keyword)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
 
-	countArgs, err := resolveQueryArgs(countBaseArgs, args, page.Keyword)
+	resolvedCntSQL, countArgs, err := resolveQuery(cntSQL, countBaseArgs, args, page.Keyword)
 	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	if err := validateOperationalExecutorForSQL(tx, resolvedCntSQL, resolvedListSQL); err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	renderedCntSQL := renderSQLForExecutor(tx, resolvedCntSQL)
+	renderedListSQL := renderSQLForExecutor(tx, resolvedListSQL)
+
+	if err := validateScanDestForType[T](q.selectCols, renderedListSQL, finalArgs); err != nil {
 		return nil, errors.Trace(err)
 	}
 
@@ -653,23 +654,23 @@ func listFn[T any](
 		return nil, errors.Trace(err)
 	}
 
-	if err := validateOperationalExecutorForSQL(tx, q.listSQL); err != nil {
-		return nil, errors.Trace(err)
-	}
-
-	sqlText := renderSQLForExecutor(tx, q.listSQL)
-
-	finalArgs, err := mergeQueryArgs(q.listArgs, args)
+	resolvedSQL, finalArgs, err := resolveQuery(q.listSQL, q.listArgs, args, "")
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
+
+	if err := validateOperationalExecutorForSQL(tx, resolvedSQL); err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	sqlText := renderSQLForExecutor(tx, resolvedSQL)
 
 	if err := validateScanDestForType[T](q.selectCols, sqlText, finalArgs); err != nil {
 		return nil, errors.Trace(err)
 	}
 
 	if ctx.Value(printSQL) != nil {
-		slog.Info("list", "sql", sqlText, "args", CompactJSON(args))
+		slog.Info("list", "sql", sqlText, "args", CompactJSON(finalArgs))
 	}
 
 	rows, err := tx.WithContext(ctx).Query(sqlText, finalArgs...)
@@ -734,14 +735,19 @@ func getOrErrFn[T any](
 		return nil, errors.Trace(err)
 	}
 
-	if err := validateOperationalExecutorForSQL(tx, qb.listSQL); err != nil {
+	resolvedSQL, finalArgs, err := resolveQuery(qb.listSQL, qb.listArgs, args, "")
+	if err != nil {
 		return nil, errors.Trace(err)
 	}
 
-	sqlText := renderSQLForExecutor(tx, qb.listSQL)
+	if err := validateOperationalExecutorForSQL(tx, resolvedSQL); err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	sqlText := renderSQLForExecutor(tx, resolvedSQL)
 
 	if ctx.Value(printSQL) != nil {
-		slog.Info("getOrErr", "sql", sqlText, "args", CompactJSON(args))
+		slog.Info("getOrErr", "sql", sqlText, "args", CompactJSON(finalArgs))
 	}
 
 	r := new(T)
@@ -752,11 +758,6 @@ func getOrErrFn[T any](
 			"build scan dest\n%s\n%v",
 			sqlText, CompactJSON(args),
 		)
-	}
-
-	finalArgs, err := mergeQueryArgs(qb.listArgs, args)
-	if err != nil {
-		return nil, errors.Trace(err)
 	}
 
 	row := tx.WithContext(ctx).QueryRow(sqlText, finalArgs...)
@@ -796,14 +797,19 @@ func (q *Query) load(
 		return errors.Trace(err)
 	}
 
-	if err := validateOperationalExecutorForSQL(tx, q.listSQL); err != nil {
+	resolvedSQL, finalArgs, err := resolveQuery(q.listSQL, q.listArgs, args, "")
+	if err != nil {
 		return errors.Trace(err)
 	}
 
-	sqlText := renderSQLForExecutor(tx, q.listSQL)
+	if err := validateOperationalExecutorForSQL(tx, resolvedSQL); err != nil {
+		return errors.Trace(err)
+	}
+
+	sqlText := renderSQLForExecutor(tx, resolvedSQL)
 
 	if ctx.Value(printSQL) != nil {
-		slog.Info("load", "sql", sqlText, "args", CompactJSON(args))
+		slog.Info("load", "sql", sqlText, "args", CompactJSON(finalArgs))
 	}
 
 	dest, err := buildScanDest(q.selectCols, holder)
@@ -812,11 +818,6 @@ func (q *Query) load(
 			"build scan dest\n%s\n%v",
 			sqlText, CompactJSON(args),
 		)
-	}
-
-	finalArgs, err := mergeQueryArgs(q.listArgs, args)
-	if err != nil {
-		return errors.Trace(err)
 	}
 
 	row := tx.WithContext(ctx).QueryRow(sqlText, finalArgs...)
@@ -982,7 +983,7 @@ func ChunkedInsert[T Table](
 	options ...*ChunkedInsertOptions,
 ) error {
 	return Trace(ctx, func(ctx context.Context) error {
-		return chunkedInsertFn[T](ctx, tx, items, options...)
+		return chunkedInsertFn(ctx, tx, items, options...)
 	})
 }
 
@@ -1064,7 +1065,7 @@ func ChunkedUpdate[T any](
 	options ...*ChunkedOptions,
 ) error {
 	return Trace(ctx, func(ctx context.Context) error {
-		return chunkedUpdateFn[T](ctx, tx, items, options...)
+		return chunkedUpdateFn(ctx, tx, items, options...)
 	})
 }
 
@@ -1089,10 +1090,7 @@ func chunkedUpdateFn[T any](
 
 	// 批量处理
 	for i := 0; i < len(items); i += opts.ChunkSize {
-		end := i + opts.ChunkSize
-		if end > len(items) {
-			end = len(items)
-		}
+		end := min(i+opts.ChunkSize, len(items))
 
 		batch := items[i:end]
 		if err := chunkedUpdateChunk(ctx, tx, batch); err != nil {
@@ -1129,7 +1127,7 @@ func ChunkedDelete[T any](
 	options ...*ChunkedOptions,
 ) error {
 	return Trace(ctx, func(ctx context.Context) error {
-		return chunkedDeleteFn[T](ctx, tx, items, options...)
+		return chunkedDeleteFn(ctx, tx, items, options...)
 	})
 }
 
@@ -1154,10 +1152,7 @@ func chunkedDeleteFn[T any](
 
 	// 批量处理
 	for i := 0; i < len(items); i += opts.ChunkSize {
-		end := i + opts.ChunkSize
-		if end > len(items) {
-			end = len(items)
-		}
+		end := min(i+opts.ChunkSize, len(items))
 
 		batch := items[i:end]
 		if err := chunkedDeleteChunk(ctx, tx, batch); err != nil {
@@ -1227,10 +1222,7 @@ func chunkedDeleteByIDsFn(
 
 	// 批量处理
 	for i := 0; i < len(ids); i += opts.ChunkSize {
-		end := i + opts.ChunkSize
-		if end > len(ids) {
-			end = len(ids)
-		}
+		end := min(i+opts.ChunkSize, len(ids))
 
 		batch := ids[i:end]
 		if err := chunkedDeleteByIDsChunk(ctx, tx, tableName, idColumn, batch); err != nil {
@@ -1518,41 +1510,135 @@ func EscapeKeywordSearch(keyword string) string {
 }
 
 func mergeQueryArgs(base []any, extra []any) ([]any, error) {
-	return resolveQueryArgs(base, extra, "")
+	_, args, err := resolveQuery("", base, extra, "")
+	return args, err
 }
 
 func resolveQueryArgs(base []any, extra []any, keyword string) ([]any, error) {
+	_, args, err := resolveQuery("", base, extra, keyword)
+	return args, err
+}
+
+func resolveQuery(baseSQL string, base []any, extra []any, keyword string) (string, []any, error) {
 	result := make([]any, 0, len(base)+len(extra))
 	extraIndex := 0
 	like := ""
+	cursor := 0
+
+	var sqlBuilder strings.Builder
+	hasSQL := baseSQL != ""
 
 	for _, arg := range base {
+		if hasSQL {
+			next := strings.Index(baseSQL[cursor:], "?")
+			if next < 0 {
+				sqlBuilder.WriteString(baseSQL[cursor:])
+				hasSQL = false
+			} else {
+				sqlBuilder.WriteString(baseSQL[cursor : cursor+next])
+				cursor += next + 1
+			}
+		}
+
 		switch arg {
 		case externalArgMarker:
 			if extraIndex >= len(extra) {
-				return nil, errors.New("missing external query argument")
+				return "", nil, errors.New("missing external query argument")
 			}
 
+			if hasSQL {
+				sqlBuilder.WriteString("?")
+			}
 			result = append(result, extra[extraIndex])
+			extraIndex++
+		case externalSliceArgMarker{}:
+			if extraIndex >= len(extra) {
+				return "", nil, errors.New("missing external query argument")
+			}
+
+			values, err := flattenExternalSliceArg(extra[extraIndex])
+			if err != nil {
+				return "", nil, errors.Trace(err)
+			}
+
+			if hasSQL {
+				sqlBuilder.WriteString(expandSlicePlaceholders(len(values)))
+			}
+
+			result = append(result, values...)
 			extraIndex++
 		case keywordArgMarker:
 			if keyword == "" {
-				return nil, errors.New("missing keyword query argument")
+				return "", nil, errors.New("missing keyword query argument")
 			}
 
 			if like == "" {
 				like = "%" + keyword + "%"
 			}
 
+			if hasSQL {
+				sqlBuilder.WriteString("?")
+			}
 			result = append(result, like)
 		default:
+			if hasSQL {
+				sqlBuilder.WriteString("?")
+			}
 			result = append(result, arg)
 		}
 	}
 
 	result = append(result, extra[extraIndex:]...)
 
-	return result, nil
+	if hasSQL {
+		sqlBuilder.WriteString(baseSQL[cursor:])
+		return sqlBuilder.String(), result, nil
+	}
+
+	return baseSQL, result, nil
+}
+
+func flattenExternalSliceArg(arg any) ([]any, error) {
+	if isNilValue(arg) {
+		return nil, nil
+	}
+
+	v := reflect.ValueOf(arg)
+	for v.Kind() == reflect.Pointer {
+		if v.IsNil() {
+			return nil, nil
+		}
+
+		v = v.Elem()
+	}
+
+	if v.Kind() != reflect.Slice && v.Kind() != reflect.Array {
+		return nil, errors.Errorf("external IN query argument must be a slice or array, got %T", arg)
+	}
+
+	values := make([]any, 0, v.Len())
+	for i := range v.Len() {
+		value := v.Index(i).Interface()
+		if err := validatePredicateValue(value); err != nil {
+			return nil, errors.Trace(err)
+		}
+
+		values = append(values, value)
+	}
+
+	return values, nil
+}
+
+func expandSlicePlaceholders(size int) string {
+	if size == 0 {
+		return "NULL"
+	}
+
+	if size == 1 {
+		return "?"
+	}
+
+	return strings.TrimSuffix(strings.Repeat("?, ", size), ", ")
 }
 
 func queryArgs(q *Query) []any {
@@ -1586,7 +1672,7 @@ func validateExecutor(tx SqlExecutor) error {
 	}
 
 	value := reflect.ValueOf(tx)
-	if value.IsValid() && value.Kind() == reflect.Ptr && value.IsNil() {
+	if value.IsValid() && value.Kind() == reflect.Pointer && value.IsNil() {
 		return errors.New("sql executor cannot be nil")
 	}
 
@@ -1662,7 +1748,7 @@ func validateScanHolder(holder any) error {
 		return errors.New("scan holder cannot be nil")
 	}
 
-	if reflect.ValueOf(holder).Kind() != reflect.Ptr {
+	if reflect.ValueOf(holder).Kind() != reflect.Pointer {
 		return errors.New("scan holder must be a pointer")
 	}
 
@@ -1800,4 +1886,3 @@ func deleteFn[T any](
 
 	return errors.Trace(err)
 }
-

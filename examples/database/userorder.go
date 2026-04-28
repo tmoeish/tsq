@@ -1,0 +1,61 @@
+package database
+
+import (
+	"context"
+	"time"
+
+	"github.com/juju/errors"
+	"github.com/tmoeish/tsq"
+)
+
+// UserOrder 演示 DTO 联表结果映射。
+// @DTO(name="UserOrder")
+type UserOrder struct {
+	UserID    int64  `json:"user_id" tsq:"User.ID"`
+	UserName  string `json:"user_name" tsq:"User.Name"`
+	UserEmail string `json:"user_email" tsq:"User.Email"`
+
+	OrgName string `json:"org_name" tsq:"Org.Name"`
+
+	OrderID     int64       `json:"order_id" tsq:"Order.UID"`
+	OrderAmount int64       `json:"order_amount" tsq:"Order.Amount"`
+	OrderPrice  int64       `json:"order_price" tsq:"Order.Price"`
+	OrderStatus OrderStatus `json:"order_status" tsq:"Order.Status"`
+	OrderTime   time.Time   `json:"order_time" tsq:"Order.CT"`
+
+	ItemID       int64  `json:"item_id" tsq:"Item.ID"`
+	ItemName     string `json:"item_name" tsq:"Item.Name"`
+	ItemPrice    int64  `json:"item_price" tsq:"Item.Price"`
+	ItemCategory string `json:"item_category" tsq:"Category.Name"`
+}
+
+var pageUserOrderQuery *tsq.Query
+
+func init() {
+	var err error
+	pageUserOrderQuery, err = tsq.
+		Select(DtoUserOrder.Cols()...).
+		LeftJoin(User_OrgID, Org_ID).
+		LeftJoin(User_ID, Order_UserID).
+		LeftJoin(Order_ItemID, Item_ID).
+		LeftJoin(Item_CategoryID, Category_ID).
+		Where(
+			UserOrder_UserID.EQVar(),
+			UserOrder_ItemCategory.InVar(),
+		).
+		Build()
+	if err != nil {
+		panic(errors.Annotate(err, "initialize pageUserOrderQuery"))
+	}
+}
+
+// PageUserOrder 按用户和分类分页查询 DTO 结果。
+func PageUserOrder(
+	ctx context.Context,
+	tx tsq.SqlExecutor,
+	page *tsq.PageReq,
+	userID int64,
+	categories ...string,
+) (*tsq.PageResp[UserOrder], error) {
+	return tsq.Page[UserOrder](ctx, tx, page, pageUserOrderQuery, userID, categories)
+}

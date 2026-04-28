@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"reflect"
 	"strconv"
 	"strings"
@@ -133,6 +134,10 @@ func (db *DbMap) SelectOne(dst interface{}, query string, args ...interface{}) e
 
 // scanRow handles scanning with struct tag support
 func scanRow(rows *sql.Rows, dst interface{}) error {
+	if scanner, ok := dst.(sql.Scanner); ok {
+		return rows.Scan(scanner)
+	}
+
 	cols, err := rows.Columns()
 	if err != nil {
 		return err
@@ -363,25 +368,322 @@ func (db *DbMap) CreateTablesIfNotExists() error {
 	return nil
 }
 
-// Insert inserts objects into the database (stub implementation - not used by tsq)
+type mutationField struct {
+	indexPath []int
+	name      string
+	column    string
+	value     reflect.Value
+}
+
+// Insert inserts objects into the database.
 func (db *DbMap) Insert(dst ...interface{}) error {
-	// This is a stub implementation kept for gorp compatibility
-	// TSQ does not use ORM-style inserts
+	for _, item := range dst {
+		if err := db.insertOne(item); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
-// Update updates objects in the database (stub implementation - not used by tsq)
+// Update updates objects in the database.
 func (db *DbMap) Update(dst ...interface{}) (int64, error) {
-	// This is a stub implementation kept for gorp compatibility
-	// TSQ does not use ORM-style updates
-	return 0, nil
+	var total int64
+	for _, item := range dst {
+		affected, err := db.updateOne(item)
+		if err != nil {
+			return total, err
+		}
+
+		total += affected
+	}
+
+	return total, nil
 }
 
-// Delete deletes objects from the database (stub implementation - not used by tsq)
+// Delete deletes objects from the database.
 func (db *DbMap) Delete(dst ...interface{}) (int64, error) {
-	// This is a stub implementation kept for gorp compatibility
-	// TSQ does not use ORM-style deletes
-	return 0, nil
+	var total int64
+	for _, item := range dst {
+		affected, err := db.deleteOne(item)
+		if err != nil {
+			return total, err
+		}
+
+		total += affected
+	}
+
+	return total, nil
+}
+
+func (db *DbMap) insertOne(dst interface{}) error {
+	tableName, value, fields, pkField, err := mutationMetadata(dst)
+	if err != nil {
+		return err
+	}
+
+	insertFields := make([]mutationField, 0, len(fields))
+	for _, field := range fields {
+		if field.column == pkField.column && isZeroMutationValue(field.value) {
+			continue
+		}
+
+		insertFields = append(insertFields, field)
+	}
+
+	if len(insertFields) == 0 {
+		return errors.New("insert requires at least one column")
+	}
+
+	cols := make([]string, 0, len(insertFields))
+	args := make([]interface{}, 0, len(insertFields))
+	placeholders := make([]string, 0, len(insertFields))
+	for i, field := range insertFields {
+		col, err := db.quoteMutationIdentifier(field.column)
+		if err != nil {
+			return err
+		}
+
+		cols = append(cols, col)
+		args = append(args, field.value.Interface())
+		placeholders = append(placeholders, db.bindVar(i+1))
+	}
+
+	tableSQL, err := db.quoteMutationIdentifier(tableName)
+	if err != nil {
+		return err
+	}
+
+	query := fmt.Sprintf(
+		"INSERT INTO %s (%s) VALUES (%s)",
+		tableSQL,
+		strings.Join(cols, ", "),
+		strings.Join(placeholders, ", "),
+	)
+	result, err := db.Exec(query, args...)
+	if err != nil {
+		return err
+	}
+
+	if pkField.value.CanSet() && isZeroMutationValue(pkField.value) {
+		if lastID, err := result.LastInsertId(); err == nil {
+			assignMutationID(pkField.value, lastID)
+		}
+	}
+
+	_ = value
+
+	return nil
+}
+
+func (db *DbMap) updateOne(dst interface{}) (int64, error) {
+	tableName, _, fields, pkField, err := mutationMetadata(dst)
+	if err != nil {
+		return 0, err
+	}
+
+	if isZeroMutationValue(pkField.value) {
+		return 0, errors.New("update requires a non-zero primary key")
+	}
+
+	setClauses := make([]string, 0, len(fields)-1)
+	args := make([]interface{}, 0, len(fields))
+	for _, field := range fields {
+		if field.column == pkField.column {
+			continue
+		}
+
+		col, err := db.quoteMutationIdentifier(field.column)
+		if err != nil {
+			return 0, err
+		}
+
+		setClauses = append(setClauses, col+" = "+db.bindVar(len(args)+1))
+		args = append(args, field.value.Interface())
+	}
+
+	if len(setClauses) == 0 {
+		return 0, errors.New("update requires at least one mutable column")
+	}
+
+	tableSQL, err := db.quoteMutationIdentifier(tableName)
+	if err != nil {
+		return 0, err
+	}
+
+	pkSQL, err := db.quoteMutationIdentifier(pkField.column)
+	if err != nil {
+		return 0, err
+	}
+
+	args = append(args, pkField.value.Interface())
+
+	query := fmt.Sprintf(
+		"UPDATE %s SET %s WHERE %s = %s",
+		tableSQL,
+		strings.Join(setClauses, ", "),
+		pkSQL,
+		db.bindVar(len(args)),
+	)
+	result, err := db.Exec(query, args...)
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
+func (db *DbMap) deleteOne(dst interface{}) (int64, error) {
+	tableName, _, _, pkField, err := mutationMetadata(dst)
+	if err != nil {
+		return 0, err
+	}
+
+	if isZeroMutationValue(pkField.value) {
+		return 0, errors.New("delete requires a non-zero primary key")
+	}
+
+	tableSQL, err := db.quoteMutationIdentifier(tableName)
+	if err != nil {
+		return 0, err
+	}
+
+	pkSQL, err := db.quoteMutationIdentifier(pkField.column)
+	if err != nil {
+		return 0, err
+	}
+
+	query := fmt.Sprintf("DELETE FROM %s WHERE %s = %s", tableSQL, pkSQL, db.bindVar(1))
+	result, err := db.Exec(query, pkField.value.Interface())
+	if err != nil {
+		return 0, err
+	}
+
+	return result.RowsAffected()
+}
+
+func mutationMetadata(dst interface{}) (string, reflect.Value, []mutationField, mutationField, error) {
+	if dst == nil {
+		return "", reflect.Value{}, nil, mutationField{}, errors.New("mutation item cannot be nil")
+	}
+
+	tabler, ok := dst.(interface{ Table() string })
+	if !ok {
+		return "", reflect.Value{}, nil, mutationField{}, errors.New("mutation item must implement Table() string")
+	}
+
+	value := reflect.ValueOf(dst)
+	if value.Kind() != reflect.Ptr || value.IsNil() {
+		return "", reflect.Value{}, nil, mutationField{}, errors.New("mutation item must be a non-nil pointer")
+	}
+
+	value = value.Elem()
+	if value.Kind() != reflect.Struct {
+		return "", reflect.Value{}, nil, mutationField{}, errors.New("mutation item must point to a struct")
+	}
+
+	fields := collectMutationFields(value, nil)
+	if len(fields) == 0 {
+		return "", reflect.Value{}, nil, mutationField{}, errors.New("mutation item has no db-tagged fields")
+	}
+
+	pkField, err := primaryMutationField(fields)
+	if err != nil {
+		return "", reflect.Value{}, nil, mutationField{}, err
+	}
+
+	return tabler.Table(), value, fields, pkField, nil
+}
+
+func collectMutationFields(value reflect.Value, prefix []int) []mutationField {
+	fields := make([]mutationField, 0, value.NumField())
+	valueType := value.Type()
+
+	for i := 0; i < value.NumField(); i++ {
+		fieldValue := value.Field(i)
+		fieldType := valueType.Field(i)
+
+		indexPath := append(append([]int(nil), prefix...), i)
+		if fieldType.Anonymous && fieldValue.Kind() == reflect.Struct {
+			fields = append(fields, collectMutationFields(fieldValue, indexPath)...)
+			continue
+		}
+
+		if !fieldValue.CanSet() {
+			continue
+		}
+
+		column := parseDBColumn(fieldType.Tag.Get("db"))
+		if column == "" {
+			continue
+		}
+
+		fields = append(fields, mutationField{
+			indexPath: indexPath,
+			name:      fieldType.Name,
+			column:    column,
+			value:     fieldValue,
+		})
+	}
+
+	return fields
+}
+
+func primaryMutationField(fields []mutationField) (mutationField, error) {
+	for _, field := range fields {
+		if field.column == "id" || field.column == "uid" || field.name == "ID" || field.name == "UID" {
+			return field, nil
+		}
+	}
+
+	return mutationField{}, errors.New("mutation item must contain an ID or UID field")
+}
+
+func parseDBColumn(tag string) string {
+	if tag == "" || tag == "-" {
+		return ""
+	}
+
+	parts := strings.Split(tag, ",")
+	return strings.TrimSpace(parts[0])
+}
+
+func (db *DbMap) quoteMutationIdentifier(name string) (string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "", errors.New("identifier cannot be empty")
+	}
+
+	if !builtInIdentifierPattern.MatchString(name) {
+		return "", fmt.Errorf("invalid identifier: %s", name)
+	}
+
+	if db != nil && db.Dialect != nil {
+		return db.Dialect.QuoteField(name), nil
+	}
+
+	return name, nil
+}
+
+func (db *DbMap) bindVar(index int) string {
+	if db != nil && db.Dialect != nil {
+		return db.Dialect.BindVar(index)
+	}
+
+	return "?"
+}
+
+func isZeroMutationValue(value reflect.Value) bool {
+	return value.IsZero()
+}
+
+func assignMutationID(field reflect.Value, id int64) {
+	switch field.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		field.SetInt(id)
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		field.SetUint(uint64(id))
+	}
 }
 
 // AddTableWithName registers a table mapping (stub implementation for gorp compatibility)

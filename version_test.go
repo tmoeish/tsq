@@ -12,10 +12,10 @@ func TestGetVersion(t *testing.T) {
 	originalVersion := Version
 	defer func() { Version = originalVersion }()
 
-	// Test with current value (v2.0.0 for release builds, may vary)
+	// Test with current value (release builds may vary)
 	currentVersion := GetVersion()
-	if currentVersion != "v2.0.0" && currentVersion != "dev" {
-		t.Errorf("Expected version to be 'v2.0.0' or 'dev', got '%s'", GetVersion())
+	if currentVersion != "v2.1.0" && currentVersion != "dev" {
+		t.Errorf("Expected version to be 'v2.1.0' or 'dev', got '%s'", GetVersion())
 	}
 
 	// Test with custom value
