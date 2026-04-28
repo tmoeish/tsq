@@ -260,6 +260,37 @@ func TestQueryBuilder_Build_CTEDefersDialectValidationToExecution(t *testing.T) 
 	}
 }
 
+type caseUser struct {
+	ID    int64
+	Label string
+}
+
+func TestQueryBuilder_Build_CaseExecutionOnSQLite(t *testing.T) {
+	db := newInVarDBMap(t)
+	users := newMockTable("users")
+	idCol := NewCol[int64](users, "id", "id", func(holder any) any { return &holder.(*caseUser).ID })
+	nameLabel := Case[string]().
+		When(idCol.GT(1), "member").
+		Else("owner").
+		End().
+		Into(func(holder any) any { return &holder.(*caseUser).Label }, "label")
+
+	query := mustBuild(Select(idCol, nameLabel).Where(idCol.InVar()))
+
+	rows, err := List[caseUser](context.Background(), db, query, []int64{1, 2})
+	if err != nil {
+		t.Fatalf("expected CASE query to execute, got %v", err)
+	}
+
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 CASE rows, got %d", len(rows))
+	}
+
+	if rows[0].Label != "owner" || rows[1].Label != "member" {
+		t.Fatalf("unexpected CASE labels: %#v", rows)
+	}
+}
+
 func TestQueryBuilder_MustBuild_Success(t *testing.T) {
 	table := newMockTable("users")
 	col := newMockColumn(table, "id")

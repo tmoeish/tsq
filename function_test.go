@@ -221,6 +221,40 @@ func TestCol_Concat(t *testing.T) {
 	}
 }
 
+func TestCaseBuilder_End(t *testing.T) {
+	users := newMockTable("users")
+	orgID := NewCol[int](users, "org_id", "org_id", nil)
+
+	result := Case[string]().
+		When(orgID.EQ(1), "internal").
+		Else("external").
+		End()
+
+	expectedQualified := `CASE WHEN "users"."org_id" = ? THEN 'internal' ELSE 'external' END`
+	if result.QualifiedName() != expectedQualified {
+		t.Fatalf("expected qualified name %q, got %q", expectedQualified, result.QualifiedName())
+	}
+}
+
+func TestCaseBuilder_RequiresWhenBranch(t *testing.T) {
+	if _, err := validateColumnInput(Case[string]().End()); err == nil {
+		t.Fatal("expected empty CASE builder to fail")
+	}
+}
+
+func TestCol_FnExprTracksReferencedTables(t *testing.T) {
+	users := newMockTable("users")
+	orgs := newMockTable("orgs")
+	userName := NewCol[string](users, "name", "name", nil)
+	orgName := NewCol[string](orgs, "name", "name", nil)
+
+	result := userName.FnExpr("COALESCE(%s, %s)", orgName)
+
+	if refs := result.referencedTables(); len(refs) != 1 || refs["orgs"] == nil {
+		t.Fatalf("expected FnExpr to track referenced tables, got %#v", refs)
+	}
+}
+
 func TestCol_Now(t *testing.T) {
 	table := newMockTable("users")
 	col := NewCol[string](table, "created_at", "created_at", nil)

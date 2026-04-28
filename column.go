@@ -34,6 +34,7 @@ type Col[T any] struct {
 	jsonFieldName string       // JSON 标签
 	fieldPointer  FieldPointer // 指针函数
 	args          []any
+	tables        map[string]Table
 	aggregate     bool
 	distinct      bool
 	transformed   bool
@@ -118,6 +119,7 @@ func (c Col[T]) WithTable(table Table) Col[T] {
 		jsonFieldName: c.jsonFieldName,
 		fieldPointer:  c.fieldPointer,
 		args:          append([]any(nil), c.args...),
+		tables:        cloneTableMap(c.tables),
 		aggregate:     c.aggregate,
 		distinct:      c.distinct,
 		transformed:   c.transformed,
@@ -141,6 +143,7 @@ func (c Col[T]) Into(fieldPointer FieldPointer, jsonFieldName string) *Col[T] {
 			fieldPointer:  fieldPointer,
 			jsonFieldName: jsonFieldName,
 			args:          append([]any(nil), c.args...),
+			tables:        cloneTableMap(c.tables),
 			aggregate:     c.aggregate,
 			distinct:      c.distinct,
 			transformed:   c.transformed,
@@ -155,6 +158,7 @@ func (c Col[T]) Into(fieldPointer FieldPointer, jsonFieldName string) *Col[T] {
 		fieldPointer:  fieldPointer,
 		jsonFieldName: jsonFieldName,
 		args:          append([]any(nil), c.args...),
+		tables:        cloneTableMap(c.tables),
 		aggregate:     c.aggregate,
 		distinct:      c.distinct,
 		transformed:   c.transformed,
@@ -168,6 +172,10 @@ func (c Col[T]) expressionArgs() []any {
 
 func (c Col[T]) buildError() error {
 	return c.buildErr
+}
+
+func (c Col[T]) referencedTables() map[string]Table {
+	return cloneTableMap(c.tables)
 }
 
 func (c Col[T]) withTable(table Table) Column {

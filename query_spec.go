@@ -142,6 +142,9 @@ func (spec QuerySpec) tablesForColumns(cols []Column) map[string]Table {
 		}
 
 		tables[table.Table()] = table
+		if refs, ok := col.(interface{ referencedTables() map[string]Table }); ok {
+			maps.Copy(tables, refs.referencedTables())
+		}
 	}
 
 	return tables

@@ -23,6 +23,7 @@ type exampleSummary struct {
 	Keyword   keywordSummary     `json:"keyword"`
 	Result    resultSummary      `json:"result"`
 	InVar     inVarSummary       `json:"in_var"`
+	Case      caseSummary        `json:"case"`
 	CTE       cteSummary         `json:"cte"`
 	SetOps    setOpsSummary      `json:"set_ops"`
 	Chunked   chunkedSummary     `json:"chunked"`
@@ -59,6 +60,10 @@ type resultSummary struct {
 type inVarSummary struct {
 	CategoryIDs []int64  `json:"category_ids"`
 	ItemNames   []string `json:"item_names"`
+}
+
+type caseSummary struct {
+	Labels []string `json:"labels"`
 }
 
 type cteSummary struct {
@@ -200,6 +205,11 @@ func runAllExamples(ctx context.Context, dbmap *tsq.DbMap) (*exampleSummary, err
 		return nil, errors.Annotate(err, "invar demo")
 	}
 
+	caseExpr, err := runCaseDemo(ctx, dbmap)
+	if err != nil {
+		return nil, errors.Annotate(err, "case demo")
+	}
+
 	cte, err := runCTEDemo(ctx, dbmap)
 	if err != nil {
 		return nil, errors.Annotate(err, "cte demo")
@@ -222,6 +232,7 @@ func runAllExamples(ctx context.Context, dbmap *tsq.DbMap) (*exampleSummary, err
 		Keyword:   *keyword,
 		Result:    *result,
 		InVar:     *inVar,
+		Case:      *caseExpr,
 		CTE:       *cte,
 		SetOps:    *setOps,
 		Chunked:   *chunked,
@@ -423,6 +434,39 @@ func runInVarDemo(ctx context.Context, dbmap *tsq.DbMap) (*inVarSummary, error) 
 		CategoryIDs: categoryIDs,
 		ItemNames:   names,
 	}, nil
+}
+
+func runCaseDemo(ctx context.Context, dbmap *tsq.DbMap) (*caseSummary, error) {
+	userLabel := tsq.
+		Case[string]().
+		When(database.User_OrgID.EQ(1), "first_org").
+		Else("other_org").
+		End().
+		Into(func(holder any) any {
+			return &holder.(*namedRow).Name
+		}, "label")
+
+	query, err := tsq.
+		Select(userLabel).
+		Where(database.User_ID.InVar()).
+		Build()
+	if err != nil {
+		return nil, errors.Annotate(err, "build case query")
+	}
+
+	rows, err := tsq.List[namedRow](ctx, dbmap, query, []int64{1, 2})
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	labels := make([]string, 0, len(rows))
+	for _, row := range rows {
+		labels = append(labels, row.Name)
+	}
+
+	sort.Strings(labels)
+
+	return &caseSummary{Labels: labels}, nil
 }
 
 func runCTEDemo(ctx context.Context, dbmap *tsq.DbMap) (*cteSummary, error) {

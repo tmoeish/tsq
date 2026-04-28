@@ -319,6 +319,28 @@ func TestQueryBuilder_CTERejectsKeywordSearchInDefinition(t *testing.T) {
 	}
 }
 
+func TestQueryBuilder_CaseExpressionTracksConditionTables(t *testing.T) {
+	users := newMockTable("users")
+	orgs := newMockTable("orgs")
+	userID := NewCol[int](users, "id", "id", nil)
+	orgID := NewCol[int](orgs, "id", "id", nil)
+	orgName := NewCol[string](orgs, "name", "name", nil)
+
+	label := Case[string]().
+		When(orgID.EQ(1), orgName).
+		Else("unknown").
+		End()
+
+	_, err := Select(userID, label).Build()
+	if err == nil {
+		t.Fatal("expected CASE expression to surface orgs table into join validation")
+	}
+
+	if !strings.Contains(err.Error(), "explicit Join/CrossJoin") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestQueryBuilder_Having(t *testing.T) {
 	table1 := newMockTable("users")
 	col1 := newMockColumn(table1, "count")

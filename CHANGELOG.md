@@ -9,6 +9,15 @@
 
 ## [Unreleased]
 
+## [3.3.0] - 2026-04-28
+
+### 新增
+- 增加公开 searched `CASE` API：`Case[T]().When(...).Else(...).End()`
+
+### 改进
+- expression columns 现在会跟踪额外引用表，使 `CASE` 与 `FnExpr(...)` 这类多表表达式可以正确参与 query planning
+- 更新 README、`examples/main.go` 与 `examples/README.md`，补充可运行 CASE 示例
+
 ## [3.2.0] - 2026-04-28
 
 ### 新增

@@ -2,6 +2,7 @@ package tsq
 
 import (
 	"fmt"
+	"maps"
 	"strings"
 
 	"github.com/juju/errors"
@@ -36,6 +37,7 @@ func (c Col[T]) Fn(format string) Col[T] {
 		fieldPointer:  c.fieldPointer,  // 保持原始指针函数
 		jsonFieldName: c.jsonFieldName, // 保持原始JSON标签
 		args:          append([]any(nil), c.args...),
+		tables:        cloneTableMap(c.tables),
 		aggregate:     c.aggregate,
 		distinct:      c.distinct,
 		transformed:   true,
@@ -68,6 +70,7 @@ func (c Col[T]) FnRaw(fn string) Col[T] {
 		fieldPointer:  c.fieldPointer,  // 保持原始指针函数
 		jsonFieldName: c.jsonFieldName, // 保持原始JSON标签
 		args:          append([]any(nil), c.args...),
+		tables:        cloneTableMap(c.tables),
 		aggregate:     c.aggregate,
 		distinct:      c.distinct,
 		transformed:   true,
@@ -115,11 +118,37 @@ func (c Col[T]) FnExpr(format string, args ...any) Col[T] {
 		fieldPointer:  c.fieldPointer,
 		jsonFieldName: c.jsonFieldName,
 		args:          resultArgs,
+		tables:        mergeTableMaps(c.tables, collectExpressionArgTables(args...)),
 		aggregate:     c.aggregate,
 		distinct:      c.distinct,
 		transformed:   true,
 		buildErr:      c.buildErr,
 	}
+}
+
+func collectExpressionArgTables(args ...any) map[string]Table {
+	result := make(map[string]Table)
+	for _, arg := range args {
+		maps.Copy(result, expressionTables(arg))
+	}
+
+	if len(result) == 0 {
+		return nil
+	}
+
+	return result
+}
+
+func mergeTableMaps(base, extras map[string]Table) map[string]Table {
+	if len(base) == 0 && len(extras) == 0 {
+		return nil
+	}
+
+	merged := make(map[string]Table, len(base)+len(extras))
+	maps.Copy(merged, base)
+	maps.Copy(merged, extras)
+
+	return merged
 }
 
 // ================================================
