@@ -56,8 +56,11 @@ Canonical instructions for coding agents and IDE assistants working in this repo
 ## Coding conventions
 
 - Follow repository Go style and keep edits surgical.
+- Follow mainstream Go guidance from Effective Go, Go Code Review Comments, the Google Go style guide, and Rob Pike's Go proverbs when they do not conflict with repository-specific rules.
 - Use the Build-based query flow; avoid reintroducing removed compatibility wrappers.
 - Prefer explicit, typed APIs over stringly shortcuts.
+- Prefer clarity over cleverness: keep functions focused, keep control flow flat with early returns, and avoid over-abstracting small pieces of logic.
+- Keep names short, specific, and context-aware; avoid stutter and vague abbreviations.
 - Keep public naming consistent with current repo vocabulary:
   - use `Result`, not `DTO`
   - use `GTE` / `LTE`
@@ -68,6 +71,11 @@ Canonical instructions for coding agents and IDE assistants working in this repo
   - `created_at`
   - `updated_at`
   - `deleted_at`
+- Handle errors immediately after the failing operation, prefer early returns, and use `errors.Is` / `errors.As` when behavior depends on wrapped error types.
+- Prefer small consumer-defined interfaces; do not introduce broad interfaces where a concrete type or a tiny interface is clearer.
+- Design zero values to be useful when adding new types, and prefer slices over arrays in public APIs.
+- Keep comments high-signal: document exported behavior and non-obvious constraints, not line-by-line mechanics.
+- Prefer table-driven tests and focused assertions over noisy ad-hoc test code.
 - Generated examples are part of the repository contract; keep source structs, schema, generated code, and docs aligned.
 
 ## Repository-specific cautions
