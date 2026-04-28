@@ -41,6 +41,10 @@ func TestRunAllExamples(t *testing.T) {
 		t.Fatal("expected InVar demo to return items")
 	}
 
+	if summary.CTE.Total == 0 || len(summary.CTE.Names) == 0 {
+		t.Fatal("expected CTE demo to return rows")
+	}
+
 	if len(summary.SetOps.UnionNames) == 0 || len(summary.SetOps.ExceptNames) == 0 {
 		t.Fatal("expected set operation demo to return rows")
 	}

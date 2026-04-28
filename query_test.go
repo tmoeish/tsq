@@ -205,6 +205,61 @@ func TestQueryBuilder_Build_SetOperationPaginationUsesOutputColumnNames(t *testi
 	}
 }
 
+func TestQueryBuilder_Build_CTEExecutionOnSQLite(t *testing.T) {
+	db := newInVarDBMap(t)
+	users := newMockTable("users")
+	idCol := NewCol[int64](users, "id", "id", func(holder any) any { return &holder.(*inVarUser).ID })
+	nameCol := NewCol[string](users, "name", "name", func(holder any) any { return &holder.(*inVarUser).Name })
+
+	selectedUsers := CTE("selected_users", Select(idCol, nameCol).Where(idCol.InVar()))
+	selectedUserID := idCol.WithTable(selectedUsers)
+	selectedUserName := nameCol.WithTable(selectedUsers)
+
+	query := mustBuild(Select(selectedUserID, selectedUserName).Where(selectedUserID.GT(1)))
+
+	rows, err := List[inVarUser](context.Background(), db, query, []int64{1, 2, 3})
+	if err != nil {
+		t.Fatalf("expected CTE query to execute, got %v", err)
+	}
+
+	if len(rows) != 2 {
+		t.Fatalf("expected 2 CTE rows, got %d", len(rows))
+	}
+
+	if rows[0].ID != 2 || rows[1].ID != 3 {
+		t.Fatalf("unexpected CTE rows returned: %#v", rows)
+	}
+
+	count, err := query.Count64(context.Background(), db, []int64{1, 2, 3})
+	if err != nil {
+		t.Fatalf("expected CTE count query to execute, got %v", err)
+	}
+
+	if count != 2 {
+		t.Fatalf("expected CTE count query to return 2, got %d", count)
+	}
+}
+
+func TestQueryBuilder_Build_CTEDefersDialectValidationToExecution(t *testing.T) {
+	db := newInVarDBMap(t)
+	db.Dialect = MySQLDialect{}
+
+	users := newMockTable("users")
+	id := NewCol[int](users, "id", "id", nil)
+	filteredUsers := CTE("filtered_users", Select(id).Where(id.GT(1)))
+	filteredUserID := id.WithTable(filteredUsers)
+
+	query := mustBuild(Select(filteredUserID))
+	err := validateOperationalExecutorForSQL(db, query.listSQL)
+	if err == nil {
+		t.Fatal("expected mysql dialect validation to reject CTE")
+	}
+
+	if !strings.Contains(err.Error(), "CTE") {
+		t.Fatalf("expected CTE dialect error, got %v", err)
+	}
+}
+
 func TestQueryBuilder_MustBuild_Success(t *testing.T) {
 	table := newMockTable("users")
 	col := newMockColumn(table, "id")

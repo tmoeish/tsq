@@ -44,10 +44,25 @@ func buildQueryPlan(spec QuerySpec, allowCartesianProduct bool) (*queryPlan, err
 		return nil, errors.Trace(err)
 	}
 
-	cntSQL, cntArgs := spec.buildCntSQL()
-	listSQL, listArgs := spec.buildListSQL()
-	kwCntSQL, kwCntArgs := spec.buildKwCntSQL()
-	kwListSQL, kwListArgs := spec.buildKwListSQL()
+	cntSQL, cntArgs, err := spec.buildCntSQL()
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	listSQL, listArgs, err := spec.buildListSQL()
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	kwCntSQL, kwCntArgs, err := spec.buildKwCntSQL()
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	kwListSQL, kwListArgs, err := spec.buildKwListSQL()
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
 
 	return &queryPlan{
 		cntSQL:     cntSQL,
@@ -147,28 +162,35 @@ func (spec QuerySpec) tablesForConditions(conds []Condition) map[string]Table {
 	return tables
 }
 
-func (spec QuerySpec) buildCntSQL() (string, []any) {
-	if len(spec.SetOps) > 0 {
-		listSQL, listArgs := spec.buildListSQL()
-		return spec.wrapCountSQL(listSQL), listArgs
+func (spec QuerySpec) buildCntSQL() (string, []any, error) {
+	cteSQL, cteArgs, err := spec.buildCTEPrefix(false)
+	if err != nil {
+		return "", nil, errors.Trace(err)
 	}
 
-	if spec.requiresWrappedCount() {
-		listSQL, listArgs := spec.buildListSQL()
-		return spec.wrapCountSQL(listSQL), listArgs
+	if len(spec.SetOps) > 0 || spec.requiresWrappedCount() {
+		listSQL, listArgs := spec.buildListBodySQL(false)
+		args := append(slices.Clone(cteArgs), listArgs...)
+
+		return cteSQL + spec.wrapCountSQL(listSQL), args, nil
 	}
 
 	whereSQL, whereArgs := spec.buildListWhere()
+	args := append(slices.Clone(cteArgs), whereArgs...)
 
-	return "SELECT COUNT(1) " + spec.buildListFrom() + whereSQL, append([]any(nil), whereArgs...)
+	return cteSQL + "SELECT COUNT(1)" + spec.buildListFrom() + whereSQL, args, nil
 }
 
-func (spec QuerySpec) buildListSQL() (string, []any) {
-	if len(spec.SetOps) > 0 {
-		return spec.buildCompoundListSQL(false)
+func (spec QuerySpec) buildListSQL() (string, []any, error) {
+	cteSQL, cteArgs, err := spec.buildCTEPrefix(false)
+	if err != nil {
+		return "", nil, errors.Trace(err)
 	}
 
-	return spec.buildSimpleListSQL()
+	bodySQL, bodyArgs := spec.buildListBodySQL(false)
+	args := append(slices.Clone(cteArgs), bodyArgs...)
+
+	return cteSQL + bodySQL, args, nil
 }
 
 func (spec QuerySpec) buildSimpleListSQL() (string, []any) {
@@ -185,28 +207,35 @@ func (spec QuerySpec) buildSimpleListSQL() (string, []any) {
 	return selectSQL + spec.buildListFrom() + whereSQL + groupBySQL + havingSQL, args
 }
 
-func (spec QuerySpec) buildKwCntSQL() (string, []any) {
-	if len(spec.SetOps) > 0 {
-		listSQL, listArgs := spec.buildKwListSQL()
-		return spec.wrapCountSQL(listSQL), listArgs
+func (spec QuerySpec) buildKwCntSQL() (string, []any, error) {
+	cteSQL, cteArgs, err := spec.buildCTEPrefix(true)
+	if err != nil {
+		return "", nil, errors.Trace(err)
 	}
 
-	if spec.requiresWrappedCount() {
-		listSQL, listArgs := spec.buildKwListSQL()
-		return spec.wrapCountSQL(listSQL), listArgs
+	if len(spec.SetOps) > 0 || spec.requiresWrappedCount() {
+		listSQL, listArgs := spec.buildListBodySQL(true)
+		args := append(slices.Clone(cteArgs), listArgs...)
+
+		return cteSQL + spec.wrapCountSQL(listSQL), args, nil
 	}
 
 	whereSQL, whereArgs := spec.buildPageWhere()
+	args := append(slices.Clone(cteArgs), whereArgs...)
 
-	return "SELECT COUNT(1) " + spec.buildPageFrom() + whereSQL, whereArgs
+	return cteSQL + "SELECT COUNT(1)" + spec.buildPageFrom() + whereSQL, args, nil
 }
 
-func (spec QuerySpec) buildKwListSQL() (string, []any) {
-	if len(spec.SetOps) > 0 {
-		return spec.buildCompoundListSQL(true)
+func (spec QuerySpec) buildKwListSQL() (string, []any, error) {
+	cteSQL, cteArgs, err := spec.buildCTEPrefix(true)
+	if err != nil {
+		return "", nil, errors.Trace(err)
 	}
 
-	return spec.buildSimpleKwListSQL()
+	bodySQL, bodyArgs := spec.buildListBodySQL(true)
+	args := append(slices.Clone(cteArgs), bodyArgs...)
+
+	return cteSQL + bodySQL, args, nil
 }
 
 func (spec QuerySpec) buildSimpleKwListSQL() (string, []any) {
@@ -221,6 +250,14 @@ func (spec QuerySpec) buildSimpleKwListSQL() (string, []any) {
 	args = append(args, havingArgs...)
 
 	return selectSQL + spec.buildPageFrom() + whereSQL + groupBySQL + havingSQL, args
+}
+
+func (spec QuerySpec) buildListBodySQL(useKeyword bool) (string, []any) {
+	if len(spec.SetOps) > 0 {
+		return spec.buildCompoundListSQL(useKeyword)
+	}
+
+	return spec.buildSimpleCompoundOperandSQL(useKeyword)
 }
 
 func (spec QuerySpec) buildCompoundListSQL(useKeyword bool) (string, []any) {
@@ -246,7 +283,7 @@ func (spec QuerySpec) buildCompoundListSQL(useKeyword bool) (string, []any) {
 
 func (spec QuerySpec) buildOperandSQL(useKeyword bool) (string, []any) {
 	if len(spec.SetOps) > 0 {
-		sql, args := spec.buildCompoundListSQL(useKeyword)
+		sql, args := spec.buildListBodySQL(useKeyword)
 		return "(" + sql + ")", args
 	}
 
@@ -500,6 +537,41 @@ func (spec QuerySpec) hasAggregateSelect() bool {
 	return false
 }
 
+func (spec QuerySpec) buildCTEPrefix(useKeyword bool) (string, []any, error) {
+	defs, err := spec.collectCTEDefinitions(useKeyword)
+	if err != nil {
+		return "", nil, errors.Trace(err)
+	}
+
+	if len(defs) == 0 {
+		return "", nil, nil
+	}
+
+	parts := make([]string, 0, len(defs))
+	args := make([]any, 0)
+
+	for _, def := range defs {
+		bodySQL, bodyArgs := def.spec.buildListBodySQL(false)
+		parts = append(parts, rawIdentifier(def.name)+" AS ("+bodySQL+")")
+		args = append(args, bodyArgs...)
+	}
+
+	return "WITH " + strings.Join(parts, ", ") + " ", args, nil
+}
+
+func (spec QuerySpec) collectCTEDefinitions(useKeyword bool) ([]cteDefinition, error) {
+	collector := &cteCollector{
+		seen:     make(map[string]struct{}),
+		visiting: make(map[string]struct{}),
+	}
+
+	if err := collector.collectFromSpec(spec, useKeyword); err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	return collector.ordered, nil
+}
+
 func (spec QuerySpec) validateSetOperations() error {
 	if len(spec.SetOps) == 0 {
 		return nil
@@ -556,6 +628,90 @@ func cloneQuerySpec(spec QuerySpec) QuerySpec {
 	}
 
 	return cloned
+}
+
+type cteCollector struct {
+	ordered  []cteDefinition
+	seen     map[string]struct{}
+	visiting map[string]struct{}
+}
+
+func (c *cteCollector) collectFromSpec(spec QuerySpec, useKeyword bool) error {
+	var tables map[string]Table
+	if useKeyword {
+		tables = spec.pageQueryTables()
+	} else {
+		tables = spec.listQueryTables()
+	}
+
+	tableNames := make([]string, 0, len(tables))
+	for name := range tables {
+		tableNames = append(tableNames, name)
+	}
+
+	sort.Strings(tableNames)
+
+	for _, name := range tableNames {
+		provider, ok := tables[name].(cteProvider)
+		if !ok {
+			continue
+		}
+
+		if err := c.collectDefinition(provider.cteDefinition()); err != nil {
+			return errors.Trace(err)
+		}
+	}
+
+	for _, op := range spec.SetOps {
+		if err := c.collectFromSpec(op.spec, useKeyword); err != nil {
+			return errors.Trace(err)
+		}
+	}
+
+	return nil
+}
+
+func (c *cteCollector) collectDefinition(def cteDefinition) error {
+	if strings.TrimSpace(def.name) == "" {
+		return errors.New("cte name cannot be empty")
+	}
+
+	if _, exists := c.seen[def.name]; exists {
+		return nil
+	}
+
+	if _, visiting := c.visiting[def.name]; visiting {
+		return errors.Errorf("cyclic CTE dependency detected for %s", def.name)
+	}
+
+	if len(def.spec.Selects) == 0 {
+		return errors.Errorf("cte %s requires at least one selected column", def.name)
+	}
+
+	if len(def.spec.KeywordSearch) > 0 {
+		return errors.Errorf("cte %s does not support keyword search", def.name)
+	}
+
+	if err := def.spec.validateJoinGraph(def.allowCartesianProduct); err != nil {
+		return errors.Trace(err)
+	}
+
+	if err := def.spec.validateSetOperations(); err != nil {
+		return errors.Trace(err)
+	}
+
+	c.visiting[def.name] = struct{}{}
+	if err := c.collectFromSpec(def.spec, false); err != nil {
+		delete(c.visiting, def.name)
+		return errors.Trace(err)
+	}
+
+	delete(c.visiting, def.name)
+
+	c.seen[def.name] = struct{}{}
+	c.ordered = append(c.ordered, def)
+
+	return nil
 }
 
 func (spec QuerySpec) crossJoinBaseTable(joinTable string, allTables map[string]Table) Table {

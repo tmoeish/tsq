@@ -9,6 +9,16 @@
 
 ## [Unreleased]
 
+## [3.2.0] - 2026-04-28
+
+### 新增
+- 增加非递归 `WITH` / CTE 支持：可用 `CTE(name, query)` 创建 CTE table handle，并通过现有 `WithTable` / `RebindColumn` 复用列定义
+
+### 改进
+- query planning 现在会递归收集 CTE 依赖，并在列表、计数、关键词分页与 compound query 下统一生成 `WITH ... AS (...)`
+- 对不支持 CTE 的方言增加执行前能力校验，当前能力表下会显式拒绝 MySQL 上的 CTE 查询
+- 更新 README、`examples/main.go` 与 `examples/README.md`，补充可运行 CTE 示例
+
 ## [3.1.0] - 2026-04-28
 
 ### 新增

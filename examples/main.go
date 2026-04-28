@@ -23,6 +23,7 @@ type exampleSummary struct {
 	Keyword   keywordSummary     `json:"keyword"`
 	Result    resultSummary      `json:"result"`
 	InVar     inVarSummary       `json:"in_var"`
+	CTE       cteSummary         `json:"cte"`
 	SetOps    setOpsSummary      `json:"set_ops"`
 	Chunked   chunkedSummary     `json:"chunked"`
 }
@@ -58,6 +59,11 @@ type resultSummary struct {
 type inVarSummary struct {
 	CategoryIDs []int64  `json:"category_ids"`
 	ItemNames   []string `json:"item_names"`
+}
+
+type cteSummary struct {
+	Total int64    `json:"total"`
+	Names []string `json:"names"`
 }
 
 type setOpsSummary struct {
@@ -194,6 +200,11 @@ func runAllExamples(ctx context.Context, dbmap *tsq.DbMap) (*exampleSummary, err
 		return nil, errors.Annotate(err, "invar demo")
 	}
 
+	cte, err := runCTEDemo(ctx, dbmap)
+	if err != nil {
+		return nil, errors.Annotate(err, "cte demo")
+	}
+
 	setOps, err := runSetOpsDemo(ctx, dbmap)
 	if err != nil {
 		return nil, errors.Annotate(err, "set operations demo")
@@ -211,6 +222,7 @@ func runAllExamples(ctx context.Context, dbmap *tsq.DbMap) (*exampleSummary, err
 		Keyword:   *keyword,
 		Result:    *result,
 		InVar:     *inVar,
+		CTE:       *cte,
 		SetOps:    *setOps,
 		Chunked:   *chunked,
 	}, nil
@@ -410,6 +422,48 @@ func runInVarDemo(ctx context.Context, dbmap *tsq.DbMap) (*inVarSummary, error) 
 	return &inVarSummary{
 		CategoryIDs: categoryIDs,
 		ItemNames:   names,
+	}, nil
+}
+
+func runCTEDemo(ctx context.Context, dbmap *tsq.DbMap) (*cteSummary, error) {
+	scopedUsers := tsq.CTE(
+		"scoped_users",
+		tsq.Select(database.User_ID, database.User_Name).Where(database.User_OrgID.EQ(1)),
+	)
+
+	scopedUserID := database.User_ID.WithTable(scopedUsers)
+	scopedUserName := database.User_Name.WithTable(scopedUsers).Into(func(holder any) any {
+		return &holder.(*namedRow).Name
+	}, "name")
+
+	query, err := tsq.
+		Select(scopedUserName).
+		Where(scopedUserID.GT(0)).
+		Build()
+	if err != nil {
+		return nil, errors.Annotate(err, "build cte query")
+	}
+
+	rows, err := tsq.List[namedRow](ctx, dbmap, query)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	names := make([]string, 0, len(rows))
+	for _, row := range rows {
+		names = append(names, row.Name)
+	}
+
+	sort.Strings(names)
+
+	total, err := query.Count64(ctx, dbmap)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	return &cteSummary{
+		Total: total,
+		Names: names,
 	}, nil
 }
 

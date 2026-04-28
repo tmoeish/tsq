@@ -1733,10 +1733,20 @@ func validateExecutorForSQL(tx SqlExecutor, rawSQLs ...string) error {
 
 	dialect := dialectForExecutor(tx)
 	if dialect != nil {
+		validator := NewDialectValidator(dialect)
+
 		if !dialectSupportsFullJoin(dialect) {
 			for _, rawSQL := range rawSQLs {
 				if strings.Contains(strings.ToUpper(rawSQL), " FULL JOIN ") {
 					return errors.New("FULL JOIN is not supported by this SQL dialect")
+				}
+			}
+		}
+
+		for _, rawSQL := range rawSQLs {
+			if strings.HasPrefix(strings.ToUpper(strings.TrimSpace(rawSQL)), "WITH ") {
+				if err := validator.ValidateCapability("CTE"); err != nil {
+					return errors.Trace(err)
 				}
 			}
 		}

@@ -43,6 +43,10 @@ func validateColumnInput(col Column) (Table, error) {
 		return nil, errors.New("column table cannot be nil")
 	}
 
+	if carrier, ok := table.(buildErrorCarrier); ok && carrier.buildError() != nil {
+		return nil, errors.Trace(carrier.buildError())
+	}
+
 	return table, nil
 }
 
