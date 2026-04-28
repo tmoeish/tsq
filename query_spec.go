@@ -462,22 +462,25 @@ func (spec QuerySpec) crossJoinBaseTable(joinTable string, allTables map[string]
 //
 // LIMITATION: Circular join dependencies are NOT supported.
 // For example, the following circular dependency cannot be expressed:
-//   A -> B -> C -> A
+//
+//	A -> B -> C -> A
 //
 // This is a fundamental limitation of the current query builder design.
 // Users who need circular relationships should:
-//   1. Use self-joins with table aliases (via AliasTable) to simulate the pattern
-//   2. Execute multiple queries instead of a single circular join
-//   3. Use subqueries or CTEs (if supported by the target database)
+//  1. Use self-joins with table aliases (via AliasTable) to simulate the pattern
+//  2. Execute multiple queries instead of a single circular join
+//  3. Use subqueries or CTEs (if supported by the target database)
 //
 // Example of circular dependency that WON'T work:
-//   users.InnerJoin(orders, users.ID.EQ(orders.UserID)).
-//   InnerJoin(invoices, orders.ID.EQ(invoices.OrderID)).
-//   InnerJoin(users, invoices.UserID.EQ(users.ID))  // CIRCULAR: users already involved
+//
+//	users.InnerJoin(orders, users.ID.EQ(orders.UserID)).
+//	InnerJoin(invoices, orders.ID.EQ(invoices.OrderID)).
+//	InnerJoin(users, invoices.UserID.EQ(users.ID))  // CIRCULAR: users already involved
 //
 // Example of self-join workaround (WILL work):
-//   usersAlias := AliasTable(users, "u2")
-//   users.InnerJoin(usersAlias, users.ID.EQ(usersAlias.ParentID))
+//
+//	usersAlias := AliasTable(users, "u2")
+//	users.InnerJoin(usersAlias, users.ID.EQ(usersAlias.ParentID))
 func (spec QuerySpec) validateJoinGraph(allowCartesianProduct bool) error {
 	if len(spec.Joins) == 0 {
 		if !allowCartesianProduct && len(spec.pageQueryTables()) > 1 {

@@ -259,20 +259,23 @@ func (r *Runtime) validateRegisteredTableIdentifiers(mode string) error {
 			if mode == "strict" {
 				return errors.Annotatef(err, "table %s identifier validation failed", tableName)
 			}
+
 			validationErrors = append(validationErrors, err.Error())
 		}
 
 		// Also validate keyword search columns if present
-		if kwCols := table.Table.KwList(); kwCols != nil {
+		if kwCols := table.KwList(); kwCols != nil {
 			for _, col := range kwCols {
 				if col == nil {
 					continue
 				}
+
 				colName := col.Name()
 				if err := ValidateIdentifierLength(colName, dialect); err != nil {
 					if mode == "strict" {
 						return errors.Annotatef(err, "column %s.%s identifier validation failed", tableName, colName)
 					}
+
 					validationErrors = append(validationErrors, err.Error())
 				}
 			}

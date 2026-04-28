@@ -9,12 +9,12 @@ import (
 type DialectName string
 
 const (
-	DialectMySQL      DialectName = "mysql"
-	DialectPostgres   DialectName = "postgres"
-	DialectSQLite     DialectName = "sqlite3"
-	DialectSQLServer  DialectName = "sqlserver"
-	DialectOracle     DialectName = "oracle"
-	DialectUnknown    DialectName = "unknown"
+	DialectMySQL     DialectName = "mysql"
+	DialectPostgres  DialectName = "postgres"
+	DialectSQLite    DialectName = "sqlite3"
+	DialectSQLServer DialectName = "sqlserver"
+	DialectOracle    DialectName = "oracle"
+	DialectUnknown   DialectName = "unknown"
 )
 
 // detectDialectName attempts to identify the dialect from its string representation
@@ -74,6 +74,7 @@ func (e *ErrUnsupportedOperation) Error() string {
 	if e.reason != "" {
 		return fmt.Sprintf("operation %q not supported by %q: %s", e.operation, e.dialect, e.reason)
 	}
+
 	return fmt.Sprintf("operation %q not supported by %q", e.operation, e.dialect)
 }
 

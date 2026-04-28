@@ -11,6 +11,7 @@ import (
 
 	"github.com/juju/errors"
 	"github.com/spf13/cobra"
+
 	"github.com/tmoeish/tsq"
 	"github.com/tmoeish/tsq/internal/parser"
 )
@@ -60,6 +61,7 @@ var GenCmd = &cobra.Command{
 		}
 
 		pPath := args[0]
+
 		list, dir, err := parser.Parse(pPath)
 		if err != nil {
 			return errors.Trace(err)
@@ -94,7 +96,7 @@ var GenCmd = &cobra.Command{
 	},
 }
 
-func resolveTemplateText(overridePath string, fallback string, label string) (string, error) {
+func resolveTemplateText(overridePath, fallback, label string) (string, error) {
 	if len(overridePath) == 0 {
 		return fallback, nil
 	}
@@ -196,7 +198,7 @@ func validateDTOFields(
 	return nil
 }
 
-func isScanCompatible(dst tsq.FieldInfo, src tsq.FieldInfo) bool {
+func isScanCompatible(dst, src tsq.FieldInfo) bool {
 	return dst.Type == src.Type &&
 		dst.IsPointer == src.IsPointer &&
 		dst.IsArray == src.IsArray
@@ -297,7 +299,7 @@ func validateIndexNameCollisions(list []*tsq.StructInfo) error {
 func validateGeneratedSymbolCollisions(list []*tsq.StructInfo) error {
 	seen := make(map[string]string)
 
-	register := func(symbol string, owner string) error {
+	register := func(symbol, owner string) error {
 		if symbol == "" {
 			return nil
 		}
@@ -577,7 +579,7 @@ func stableVersion(v string) string {
 			allHex := true
 
 			for _, c := range suffix[1:] {
-				if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+				if c < '0' || c > '9' && (c < 'a' || c > 'f') {
 					allHex = false
 					break
 				}

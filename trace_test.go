@@ -751,7 +751,6 @@ func TestPrintSQLTracer(t *testing.T) {
 
 	wrappedFn := tracer(fn)
 	err := wrappedFn(context.Background())
-
 	if err != nil {
 		t.Errorf("expected no error, got: %v", err)
 	}

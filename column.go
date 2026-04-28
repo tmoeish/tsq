@@ -41,7 +41,7 @@ type Col[T any] struct {
 }
 
 // NewCol creates a new typed column for a table
-func NewCol[T any](table Table, baseName string, jsonFieldName string, fieldPointer FieldPointer) Col[T] {
+func NewCol[T any](table Table, baseName, jsonFieldName string, fieldPointer FieldPointer) Col[T] {
 	if isNilValue(table) {
 		return Col[T]{
 			name:          baseName,

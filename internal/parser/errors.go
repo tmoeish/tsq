@@ -186,15 +186,9 @@ func NewUnsupportedTypeError(typeExpr any) error {
 func NewDSLTokenizeError(input string, position int, char byte) error {
 	contextLen := 20
 
-	start := position - contextLen
-	if start < 0 {
-		start = 0
-	}
+	start := max(position-contextLen, 0)
 
-	end := position + contextLen
-	if end > len(input) {
-		end = len(input)
-	}
+	end := min(position+contextLen, len(input))
 
 	snippet := input[start:end]
 	highlightIdx := position - start
@@ -254,15 +248,9 @@ func NewDSLUnexpectedValueError(tokenValue string, position int) error {
 func NewDSLUnclosedStringError(input string, position int) error {
 	contextLen := 20
 
-	start := position - contextLen
-	if start < 0 {
-		start = 0
-	}
+	start := max(position-contextLen, 0)
 
-	end := position + contextLen
-	if end > len(input) {
-		end = len(input)
-	}
+	end := min(position+contextLen, len(input))
 
 	snippet := input[start:end]
 	highlightIdx := position - start

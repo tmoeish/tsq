@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"fmt"
+	"maps"
 	"math"
 	"reflect"
 	"strconv"
@@ -41,9 +42,7 @@ func And(conds ...Condition) Cond {
 			return Cond{buildErr: errors.Trace(err)}
 		}
 
-		for tn, t := range condTables {
-			tables[tn] = t
-		}
+		maps.Copy(tables, condTables)
 
 		clauses = append(clauses, clause)
 	}
@@ -70,9 +69,7 @@ func Or(conds ...Condition) Cond {
 			return Cond{buildErr: errors.Trace(err)}
 		}
 
-		for tn, t := range condTables {
-			tables[tn] = t
-		}
+		maps.Copy(tables, condTables)
 
 		clauses = append(clauses, clause)
 	}

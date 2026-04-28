@@ -8,6 +8,7 @@ import (
 
 	"github.com/juju/errors"
 	"github.com/serenize/snaker"
+
 	"github.com/tmoeish/tsq"
 )
 

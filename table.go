@@ -18,11 +18,11 @@ import (
 type RegistrationErrorType string
 
 const (
-	RegistrationErrorNilTable       RegistrationErrorType = "nil_table"
-	RegistrationErrorNilAddFunc     RegistrationErrorType = "nil_add_func"
-	RegistrationErrorNilInitFunc    RegistrationErrorType = "nil_init_func"
-	RegistrationErrorDuplicate      RegistrationErrorType = "duplicate"
-	RegistrationErrorNilRuntime     RegistrationErrorType = "nil_runtime"
+	RegistrationErrorNilTable    RegistrationErrorType = "nil_table"
+	RegistrationErrorNilAddFunc  RegistrationErrorType = "nil_add_func"
+	RegistrationErrorNilInitFunc RegistrationErrorType = "nil_init_func"
+	RegistrationErrorDuplicate   RegistrationErrorType = "duplicate"
+	RegistrationErrorNilRuntime  RegistrationErrorType = "nil_runtime"
 )
 
 // RegistrationError represents an error that occurred during table registration
@@ -75,8 +75,8 @@ func (r *Registry) Register(
 ) error {
 	if isNilValue(table) {
 		return &RegistrationError{
-			Type:      RegistrationErrorNilTable,
-			Message:   "registered table cannot be nil",
+			Type:    RegistrationErrorNilTable,
+			Message: "registered table cannot be nil",
 		}
 	}
 
@@ -113,6 +113,7 @@ func (r *Registry) Register(
 		AddTableFunc: addTableFunc,
 		InitFunc:     initFunc,
 	}
+
 	return nil
 }
 
@@ -282,7 +283,7 @@ func validateIndexDefinition(
 	return nil
 }
 
-func sameOrderedFields(left []string, right []string) bool {
+func sameOrderedFields(left, right []string) bool {
 	if len(left) != len(right) {
 		return false
 	}
@@ -328,7 +329,7 @@ func finishCreateIndex(
 	return errors.Trace(createErr)
 }
 
-func validateIndexIdentifiers(table string, idx string, fields []string) error {
+func validateIndexIdentifiers(table, idx string, fields []string) error {
 	if err := validateBuiltInIdentifier(table); err != nil {
 		return errors.Annotate(err, "invalid table name")
 	}

@@ -15,6 +15,6 @@ type User struct {
 
 	OrgID int64 `db:"org_id" json:"org_id"`
 
-	Name  string `db:"name" json:"name"`
+	Name  string `db:"name"  json:"name"`
 	Email string `db:"email" json:"email"`
 }

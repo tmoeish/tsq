@@ -136,6 +136,7 @@ func (e *ErrIncompatibleTableRebind) Error() string {
 	if e.table1 == e.table2 {
 		return "join columns must belong to different tables; both reference table " + e.table1
 	}
+
 	return "join column tables must not be identical; got " + e.table1 + " and " + e.table2
 }
 
@@ -862,7 +863,7 @@ func (q *Query) buildPageSQLs(page *PageReq) (string, string, error) {
 	// 排序字段白名单校验
 	allowedFields := make(map[string]string)
 	ambiguousFields := make(map[string]struct{})
-	registerSortableField := func(key string, qualifiedName string) {
+	registerSortableField := func(key, qualifiedName string) {
 		if key == "" {
 			return
 		}
@@ -1029,17 +1030,18 @@ func chunkedInsertChunk[T Table](
 		return nil
 	}
 
-	// Insert items in chunks. For future optimization opportunities,
-	// consider batching multiple inserts in a single transaction or using bulk insert features.
+	batch := make([]any, 0, len(items))
 	for itemIdx, item := range items {
 		if item == nil {
 			return errors.Errorf("item at index %d is nil", itemIdx)
 		}
 
-		var err error
-		if opts.IgnoreErrors {
-			// 忽略错误模式：尝试插入，如果失败则跳过
-			if err = tx.WithContext(ctx).Insert(item); err != nil {
+		batch = append(batch, item)
+	}
+
+	if opts.IgnoreErrors {
+		for itemIdx, item := range batch {
+			if err := tx.WithContext(ctx).Insert(item); err != nil {
 				if isDuplicateKeyError(err) {
 					slog.Debug("Ignored duplicate key error in batch insert", "error", err)
 					continue
@@ -1047,11 +1049,13 @@ func chunkedInsertChunk[T Table](
 
 				return errors.Annotatef(err, "chunked insert failed at item %d", itemIdx)
 			}
-		} else {
-			if err = tx.WithContext(ctx).Insert(item); err != nil {
-				return errors.Annotatef(err, "chunked insert failed at item %d", itemIdx)
-			}
 		}
+
+		return nil
+	}
+
+	if err := tx.WithContext(ctx).Insert(batch...); err != nil {
+		return errors.Annotate(err, "chunked insert batch failed")
 	}
 
 	return nil
@@ -1106,14 +1110,21 @@ func chunkedUpdateChunk[T any](
 	tx SqlExecutor,
 	items []*T,
 ) error {
+	batch := make([]any, 0, len(items))
 	for itemIdx, item := range items {
 		if item == nil {
 			return errors.Errorf("item at index %d is nil", itemIdx)
 		}
 
-		if _, err := tx.WithContext(ctx).Update(item); err != nil {
-			return errors.Annotate(err, "chunked update item failed")
-		}
+		batch = append(batch, item)
+	}
+
+	if len(batch) == 0 {
+		return nil
+	}
+
+	if _, err := tx.WithContext(ctx).Update(batch...); err != nil {
+		return errors.Annotate(err, "chunked update batch failed")
 	}
 
 	return nil
@@ -1168,14 +1179,21 @@ func chunkedDeleteChunk[T any](
 	tx SqlExecutor,
 	items []*T,
 ) error {
+	batch := make([]any, 0, len(items))
 	for itemIdx, item := range items {
 		if item == nil {
 			return errors.Errorf("item at index %d is nil", itemIdx)
 		}
 
-		if _, err := tx.WithContext(ctx).Delete(item); err != nil {
-			return errors.Annotate(err, "chunked delete item failed")
-		}
+		batch = append(batch, item)
+	}
+
+	if len(batch) == 0 {
+		return nil
+	}
+
+	if _, err := tx.WithContext(ctx).Delete(batch...); err != nil {
+		return errors.Annotate(err, "chunked delete batch failed")
 	}
 
 	return nil
@@ -1269,7 +1287,7 @@ func chunkedDeleteByIDsChunk(
 	return nil
 }
 
-func buildDeleteByIDsSQL(tableName string, idColumn string, placeholderCount int) (string, error) {
+func buildDeleteByIDsSQL(tableName, idColumn string, placeholderCount int) (string, error) {
 	if placeholderCount <= 0 {
 		return "", errors.New("placeholder count must be greater than 0")
 	}
@@ -1334,12 +1352,13 @@ func ValidateIdentifierForDialect(identifier, dialect string) error {
 
 // ValidateIdentifierLength checks if an identifier conforms to length limits for a specific dialect.
 // dialect should be one of: "mysql", "postgres", "oracle", "sqlite", or empty to skip validation.
-func ValidateIdentifierLength(identifier string, dialect string) error {
+func ValidateIdentifierLength(identifier, dialect string) error {
 	if identifier == "" {
 		return errors.New("identifier cannot be empty")
 	}
 
 	var maxLen int
+
 	switch strings.ToLower(dialect) {
 	case "mysql":
 		maxLen = MaxIdentifierLengthMySQL
@@ -1506,20 +1525,21 @@ func EscapeKeywordSearch(keyword string) string {
 	// Escape LIKE wildcards
 	s = strings.ReplaceAll(s, "%", "\\%")
 	s = strings.ReplaceAll(s, "_", "\\_")
+
 	return s
 }
 
-func mergeQueryArgs(base []any, extra []any) ([]any, error) {
+func mergeQueryArgs(base, extra []any) ([]any, error) {
 	_, args, err := resolveQuery("", base, extra, "")
 	return args, err
 }
 
-func resolveQueryArgs(base []any, extra []any, keyword string) ([]any, error) {
+func resolveQueryArgs(base, extra []any, keyword string) ([]any, error) {
 	_, args, err := resolveQuery("", base, extra, keyword)
 	return args, err
 }
 
-func resolveQuery(baseSQL string, base []any, extra []any, keyword string) (string, []any, error) {
+func resolveQuery(baseSQL string, base, extra []any, keyword string) (string, []any, error) {
 	result := make([]any, 0, len(base)+len(extra))
 	extraIndex := 0
 	like := ""
@@ -1549,6 +1569,7 @@ func resolveQuery(baseSQL string, base []any, extra []any, keyword string) (stri
 			if hasSQL {
 				sqlBuilder.WriteString("?")
 			}
+
 			result = append(result, extra[extraIndex])
 			extraIndex++
 		case externalSliceArgMarker{}:
@@ -1579,11 +1600,13 @@ func resolveQuery(baseSQL string, base []any, extra []any, keyword string) (stri
 			if hasSQL {
 				sqlBuilder.WriteString("?")
 			}
+
 			result = append(result, like)
 		default:
 			if hasSQL {
 				sqlBuilder.WriteString("?")
 			}
+
 			result = append(result, arg)
 		}
 	}

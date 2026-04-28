@@ -111,8 +111,8 @@ func TestDialectLimitations(t *testing.T) {
 		DialectMySQL:     {"FULL OUTER JOIN"},
 		DialectSQLite:    {"FULL OUTER JOIN"},
 		DialectSQLServer: {"FULL OUTER JOIN"}, // Has workarounds but not native support
-		DialectPostgres:  {}, // Supports most standard SQL
-		DialectOracle:    {}, // Supports most standard SQL
+		DialectPostgres:  {},                  // Supports most standard SQL
+		DialectOracle:    {},                  // Supports most standard SQL
 	}
 
 	t.Run("dialect limitations documented", func(t *testing.T) {

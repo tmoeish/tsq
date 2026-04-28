@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/juju/errors"
+
 	"github.com/tmoeish/tsq"
 )
 

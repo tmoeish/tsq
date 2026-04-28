@@ -9,6 +9,8 @@
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-04-28
+
 ### 新增
 - 增加 `EscapeKeywordSearch()` 函数用于安全的关键字搜索参数化，防止 LIKE 注入
 - 增加 `ValidateIdentifierLength()` 函数进行跨方言标识符长度验证（MySQL 64, PostgreSQL 63, Oracle 30, SQLite 无限制）
@@ -19,6 +21,8 @@
 - 增加 `Col[T].As()` 和 `Col[T].WithTable()` 方法用于列重绑定
 - 增加 `PageReq.ValidateStrict()` 用于严格分页/排序验证
 - 增加 `Order` 作为 `Direction` 的别名以统一排序合约
+- 增加 `DbMap.Insert/Update/Delete` 的真实批量写入能力，支持多行 `VALUES`、批量 `CASE ... WHEN` 更新和 `IN (...)` 删除
+- 增加 `make fmt` 的 golangci-lint v2 格式化与自动修复流程，统一执行 `gofumpt`、`gci`、`modernize`、`tagalign` 和 `wsl_v5`
 
 ### 改进
 - **错误处理统一化**：
@@ -48,6 +52,13 @@
   - 详细文档说明圆形联接限制和 `AliasTable()` 自联接解决方案
 - 在 `query.go` 添加资源清理模式文档，说明统一的 defer 块错误处理约定
 - 改进 `validateJoinGraph()` 代码注释，解释为何不支持圆形依赖及推荐的多查询解决方案
+- `ChunkedInsert/Update/Delete` 现按 chunk 走批量调用，避免在批处理入口退化为逐条执行
+- `.golangci.yml` 调整为更贴近仓库实际的高信号配置：补充官方 v2 formatter 设置，移除高噪声或不匹配项目的规则
+- SQL 渲染缓存键生成改为基于 `strings.Builder` 和 `md5.Sum` 的无异常路径实现，移除不可达的 panic 分支
+
+### 修复
+- 修复 `SafeOperation()` 和 `SafeOperationWithContext()` 之前 recover 后未返回 `PanicRecoveryError` 的问题
+- 修复 `SafeFieldPointerCall()` 之前 recover 后仍返回空错误的问题，现在会稳定返回 `ErrFieldPointerPanic`
 
 ## [2.1.0] - 2026-04-28
 

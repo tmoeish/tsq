@@ -11,9 +11,9 @@ type mockTable struct {
 }
 
 func (m mockTable) Init(db *DbMap, upsertIndexies bool) error { return nil }
-func (m mockTable) Table() string                                  { return m.tableName }
-func (m mockTable) Cols() []Column                                 { return nil }
-func (m mockTable) KwList() []Column                               { return nil }
+func (m mockTable) Table() string                             { return m.tableName }
+func (m mockTable) Cols() []Column                            { return nil }
+func (m mockTable) KwList() []Column                          { return nil }
 
 func newMockTable(name string) Table {
 	return mockTable{tableName: name}

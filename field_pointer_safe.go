@@ -13,6 +13,7 @@ func (e *ErrFieldPointerNil) Error() string {
 	if e.jsonFieldName != "" {
 		return "field pointer cannot be nil for field: " + e.jsonFieldName
 	}
+
 	return "field pointer cannot be nil"
 }
 
@@ -20,10 +21,10 @@ func (e *ErrFieldPointerNil) Error() string {
 type ErrFieldPointerPanic struct {
 	fieldName string
 	holder    any
-	recovered interface{}
+	recovered any
 }
 
-func NewErrFieldPointerPanic(fieldName string, holder any, recovered interface{}) *ErrFieldPointerPanic {
+func NewErrFieldPointerPanic(fieldName string, holder, recovered any) *ErrFieldPointerPanic {
 	return &ErrFieldPointerPanic{
 		fieldName: fieldName,
 		holder:    holder,
@@ -34,21 +35,23 @@ func NewErrFieldPointerPanic(fieldName string, holder any, recovered interface{}
 func (e *ErrFieldPointerPanic) Error() string {
 	msg := "field pointer panic for field: " + e.fieldName
 	if e.recovered != nil {
-		msg += " (recovered: " + string(toBytes(e.recovered)) + ")"
+		msg += " (recovered: " + toBytes(e.recovered) + ")"
 	}
+
 	return msg
 }
 
 // SafeFieldPointerCall executes a field pointer function with panic recovery
 // Returns (value, error). If the function panics, returns (nil, ErrFieldPointerPanic)
-func SafeFieldPointerCall(fieldName string, holder any, fp FieldPointer) (any, error) {
+func SafeFieldPointerCall(fieldName string, holder any, fp FieldPointer) (value any, err error) {
 	if fp == nil {
 		return nil, NewErrFieldPointerNil(fieldName)
 	}
 
 	defer func() {
 		if r := recover(); r != nil {
-			// Panic recovery is handled in the error case
+			value = nil
+			err = NewErrFieldPointerPanic(fieldName, holder, r)
 		}
 	}()
 
@@ -66,7 +69,7 @@ func FieldPointerValidator(fieldName string, fp FieldPointer) error {
 }
 
 // toBytes converts value to string representation (for panic messages)
-func toBytes(v interface{}) string {
+func toBytes(v any) string {
 	switch val := v.(type) {
 	case string:
 		return val

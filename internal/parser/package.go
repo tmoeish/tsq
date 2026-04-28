@@ -6,6 +6,7 @@ import (
 	"go/parser"
 	"go/token"
 	"log/slog"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -14,8 +15,9 @@ import (
 	"sync"
 
 	"github.com/juju/errors"
-	"github.com/tmoeish/tsq"
 	"golang.org/x/tools/go/packages"
+
+	"github.com/tmoeish/tsq"
 )
 
 // ParseResult 解析结果
@@ -497,6 +499,7 @@ func resolveEmbeddedFields(
 	}
 
 	structInfo.embeddedResolving = true
+
 	defer func() {
 		structInfo.embeddedResolving = false
 	}()
@@ -700,15 +703,13 @@ func cloneLoadedPackage(pkg *loadedPackage) *loadedPackage {
 		Imports:    make(map[string]tsq.PackageInfo, len(pkg.Imports)),
 	}
 
-	for importPath, imported := range pkg.Imports {
-		cloned.Imports[importPath] = imported
-	}
+	maps.Copy(cloned.Imports, pkg.Imports)
 
 	return cloned
 }
 
 // copyEmbeddedFields 复制嵌入结构的字段
-func copyEmbeddedFields(targetStruct *StructInfo, embeddedStruct *StructInfo) error {
+func copyEmbeddedFields(targetStruct, embeddedStruct *StructInfo) error {
 	for fieldName, field := range embeddedStruct.FieldMap {
 		if _, exists := targetStruct.FieldMap[fieldName]; exists {
 			return errors.Errorf("field %s already exists in struct %v", fieldName, targetStruct.TypeInfo)

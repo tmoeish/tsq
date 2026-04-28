@@ -141,6 +141,7 @@ func renderSQLWithIdentifierQuoter(raw string, quoter func(string) string) strin
 		}
 
 		start := i + len(identifierMarkerPrefix)
+
 		end := strings.Index(source[start:], identifierMarkerSuffix)
 		if end < 0 {
 			out.WriteString(source[i:])
@@ -148,6 +149,7 @@ func renderSQLWithIdentifierQuoter(raw string, quoter func(string) string) strin
 		}
 
 		out.WriteString(quoter(decodeIdentifierMarker(source[start : start+end])))
+
 		return len(identifierMarkerPrefix) + end + len(identifierMarkerSuffix), true, false
 	})
 
@@ -157,7 +159,7 @@ func renderSQLWithIdentifierQuoter(raw string, quoter func(string) string) strin
 func walkSQL(
 	raw string,
 	builder *strings.Builder,
-	handlePlain func(raw string, i int, builder *strings.Builder) (advance int, handled bool, stop bool),
+	handlePlain func(raw string, i int, builder *strings.Builder) (advance int, handled, stop bool),
 ) bool {
 	var (
 		inSingleStr    bool
@@ -185,12 +187,15 @@ func walkSQL(
 		switch {
 		case inLineComment:
 			writeByte(ch)
+
 			i++
+
 			if ch == '\n' {
 				inLineComment = false
 			}
 		case inBlockComment:
 			writeByte(ch)
+
 			i++
 			if ch == '*' && i < len(raw) && raw[i] == '/' {
 				writeByte(raw[i])
@@ -199,6 +204,7 @@ func walkSQL(
 			}
 		case inSingleStr:
 			writeByte(ch)
+
 			i++
 			if ch == '\'' {
 				if i < len(raw) && raw[i] == '\'' {
@@ -210,6 +216,7 @@ func walkSQL(
 			}
 		case inDoubleStr:
 			writeByte(ch)
+
 			i++
 			if ch == '"' {
 				if i < len(raw) && raw[i] == '"' {
@@ -224,16 +231,19 @@ func walkSQL(
 				writeString(dollarQuoteTag)
 				i += len(dollarQuoteTag)
 				dollarQuoteTag = ""
+
 				continue
 			}
 
 			writeByte(ch)
+
 			i++
 		default:
 			if tag, ok := matchDollarQuote(raw, i); ok {
 				writeString(tag)
 				dollarQuoteTag = tag
 				i += len(tag)
+
 				continue
 			}
 
@@ -243,10 +253,12 @@ func walkSQL(
 					if stop {
 						return true
 					}
+
 					if advance <= 0 {
 						advance = 1
 					}
 					i += advance
+
 					continue
 				}
 			}
@@ -267,6 +279,7 @@ func walkSQL(
 			}
 
 			writeByte(ch)
+
 			i++
 		}
 	}

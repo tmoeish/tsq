@@ -3,7 +3,8 @@ package tsq
 import (
 	"crypto/md5"
 	"encoding/hex"
-	"fmt"
+	"strconv"
+	"strings"
 	"sync"
 )
 
@@ -18,11 +19,11 @@ type SQLCacheConfig struct {
 // SQLRenderCache is an optional LRU cache for compiled SQL queries
 // It caches rendered SQL strings keyed by a hash of the query specification
 type SQLRenderCache struct {
-	mu    sync.RWMutex
-	cache map[string]cachedSQL
-	order []string // Simple LRU tracking
+	mu     sync.RWMutex
+	cache  map[string]cachedSQL
+	order  []string // Simple LRU tracking
 	config SQLCacheConfig
-	
+
 	hitCount  int64
 	missCount int64
 }
@@ -51,18 +52,25 @@ func NewSQLRenderCache(config SQLCacheConfig) *SQLRenderCache {
 
 // cacheKeyForSpec generates a cache key from query spec
 func (c *SQLRenderCache) cacheKeyForSpec(spec QuerySpec) string {
-	// Create a hash of the spec for cache key
-	h := md5.New()
-	
-	// Include all relevant parts of the spec
-	fmt.Fprintf(h, "selects:%d;", len(spec.Selects))
-	fmt.Fprintf(h, "filters:%d;", len(spec.Filters))
-	fmt.Fprintf(h, "joins:%d;", len(spec.Joins))
-	fmt.Fprintf(h, "groupby:%d;", len(spec.GroupBy))
-	fmt.Fprintf(h, "having:%d;", len(spec.Having))
-	fmt.Fprintf(h, "keyword_search:%d;", len(spec.KeywordSearch))
-	
-	return hex.EncodeToString(h.Sum(nil))
+	var key strings.Builder
+
+	appendCacheKeyPart(&key, "selects", len(spec.Selects))
+	appendCacheKeyPart(&key, "filters", len(spec.Filters))
+	appendCacheKeyPart(&key, "joins", len(spec.Joins))
+	appendCacheKeyPart(&key, "groupby", len(spec.GroupBy))
+	appendCacheKeyPart(&key, "having", len(spec.Having))
+	appendCacheKeyPart(&key, "keyword_search", len(spec.KeywordSearch))
+
+	sum := md5.Sum([]byte(key.String()))
+
+	return hex.EncodeToString(sum[:])
+}
+
+func appendCacheKeyPart(dst *strings.Builder, label string, count int) {
+	dst.WriteString(label)
+	dst.WriteByte(':')
+	dst.WriteString(strconv.Itoa(count))
+	dst.WriteByte(';')
 }
 
 // Get retrieves a cached SQL string, returns (sql, found, hitCount, missCount)
@@ -81,6 +89,7 @@ func (c *SQLRenderCache) Get(spec QuerySpec) (string, bool) {
 	}
 
 	c.missCount++
+
 	return "", false
 }
 
@@ -94,7 +103,7 @@ func (c *SQLRenderCache) Put(spec QuerySpec, canonicalSQL string) {
 	defer c.mu.Unlock()
 
 	key := c.cacheKeyForSpec(spec)
-	
+
 	// Check if already cached
 	if _, exists := c.cache[key]; exists {
 		return
@@ -118,9 +127,9 @@ func (c *SQLRenderCache) Put(spec QuerySpec, canonicalSQL string) {
 }
 
 // Stats returns cache statistics
-func (c *SQLRenderCache) Stats() map[string]interface{} {
+func (c *SQLRenderCache) Stats() map[string]any {
 	if c == nil {
-		return map[string]interface{}{
+		return map[string]any{
 			"enabled": false,
 		}
 	}
@@ -129,18 +138,19 @@ func (c *SQLRenderCache) Stats() map[string]interface{} {
 	defer c.mu.RUnlock()
 
 	total := c.hitCount + c.missCount
+
 	hitRate := 0.0
 	if total > 0 {
 		hitRate = float64(c.hitCount) / float64(total) * 100
 	}
 
-	return map[string]interface{}{
-		"enabled":   c.config.Enabled,
-		"max_size":  c.config.MaxSize,
-		"size":      len(c.cache),
-		"hits":      c.hitCount,
-		"misses":    c.missCount,
-		"hit_rate":  hitRate,
+	return map[string]any{
+		"enabled":  c.config.Enabled,
+		"max_size": c.config.MaxSize,
+		"size":     len(c.cache),
+		"hits":     c.hitCount,
+		"misses":   c.missCount,
+		"hit_rate": hitRate,
 	}
 }
 

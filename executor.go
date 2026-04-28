@@ -11,24 +11,38 @@ import (
 	"strings"
 )
 
+var (
+	errInsertRequiresColumn        = errors.New("insert requires at least one column")
+	errInsertLayoutMismatch        = errors.New("batch insert requires matching column layouts")
+	errUpdateRequiresMutableColumn = errors.New("update requires at least one mutable column")
+	errUpdateRequiresPrimaryKey    = errors.New("update requires a non-zero primary key")
+	errUpdateLayoutMismatch        = errors.New("batch update requires matching column layouts")
+	errDeleteRequiresPrimaryKey    = errors.New("delete requires a non-zero primary key")
+	errMutationItemNil             = errors.New("mutation item cannot be nil")
+	errMutationItemTableMethod     = errors.New("mutation item must implement Table() string")
+	errMutationItemPointer         = errors.New("mutation item must be a non-nil pointer")
+	errMutationItemStructPointer   = errors.New("mutation item must point to a struct")
+	errMutationItemNoTaggedFields  = errors.New("mutation item has no db-tagged fields")
+)
+
 // SqlExecutor defines the interface for executing SQL queries.
 // It mirrors the gorp.SqlExecutor interface but is owned by tsq.
 type SqlExecutor interface {
-	Query(query string, args ...interface{}) (*sql.Rows, error)
-	QueryRow(query string, args ...interface{}) *sql.Row
-	Exec(query string, args ...interface{}) (sql.Result, error)
+	Query(query string, args ...any) (*sql.Rows, error)
+	QueryRow(query string, args ...any) *sql.Row
+	Exec(query string, args ...any) (sql.Result, error)
 	WithContext(ctx context.Context) SqlExecutor
-	SelectOne(dst interface{}, query string, args ...interface{}) error
-	SelectInt(query string, args ...interface{}) (int64, error)
-	SelectNullInt(query string, args ...interface{}) (sql.NullInt64, error)
-	SelectFloat(query string, args ...interface{}) (float64, error)
-	SelectNullFloat(query string, args ...interface{}) (sql.NullFloat64, error)
-	SelectStr(query string, args ...interface{}) (string, error)
-	SelectNullStr(query string, args ...interface{}) (sql.NullString, error)
-	Select(dst interface{}, query string, args ...interface{}) (int, error)
-	Insert(dst ...interface{}) error
-	Update(dst ...interface{}) (int64, error)
-	Delete(dst ...interface{}) (int64, error)
+	SelectOne(dst any, query string, args ...any) error
+	SelectInt(query string, args ...any) (int64, error)
+	SelectNullInt(query string, args ...any) (sql.NullInt64, error)
+	SelectFloat(query string, args ...any) (float64, error)
+	SelectNullFloat(query string, args ...any) (sql.NullFloat64, error)
+	SelectStr(query string, args ...any) (string, error)
+	SelectNullStr(query string, args ...any) (sql.NullString, error)
+	Select(dst any, query string, args ...any) (int, error)
+	Insert(dst ...any) error
+	Update(dst ...any) (int64, error)
+	Delete(dst ...any) (int64, error)
 }
 
 // Dialect defines the interface for database dialect-specific operations.
@@ -69,35 +83,41 @@ type DbMap struct {
 }
 
 // Query executes a query and returns rows.
-func (db *DbMap) Query(query string, args ...interface{}) (*sql.Rows, error) {
+func (db *DbMap) Query(query string, args ...any) (*sql.Rows, error) {
 	if db == nil || db.Db == nil {
 		return nil, nil
 	}
+
 	if db.ctx != nil {
 		return db.Db.QueryContext(db.ctx, query, args...)
 	}
+
 	return db.Db.Query(query, args...)
 }
 
 // QueryRow executes a query that returns a single row.
-func (db *DbMap) QueryRow(query string, args ...interface{}) *sql.Row {
+func (db *DbMap) QueryRow(query string, args ...any) *sql.Row {
 	if db == nil || db.Db == nil {
 		return nil
 	}
+
 	if db.ctx != nil {
 		return db.Db.QueryRowContext(db.ctx, query, args...)
 	}
+
 	return db.Db.QueryRow(query, args...)
 }
 
 // Exec executes a query without returning rows.
-func (db *DbMap) Exec(query string, args ...interface{}) (sql.Result, error) {
+func (db *DbMap) Exec(query string, args ...any) (sql.Result, error) {
 	if db == nil || db.Db == nil {
 		return nil, nil
 	}
+
 	if db.ctx != nil {
 		return db.Db.ExecContext(db.ctx, query, args...)
 	}
+
 	return db.Db.Exec(query, args...)
 }
 
@@ -106,6 +126,7 @@ func (db *DbMap) WithContext(ctx context.Context) SqlExecutor {
 	if db == nil {
 		return nil
 	}
+
 	return &DbMap{
 		Db:      db.Db,
 		Dialect: db.Dialect,
@@ -114,17 +135,21 @@ func (db *DbMap) WithContext(ctx context.Context) SqlExecutor {
 }
 
 // SelectOne executes a query and scans a single row into dst.
-func (db *DbMap) SelectOne(dst interface{}, query string, args ...interface{}) error {
+func (db *DbMap) SelectOne(dst any, query string, args ...any) error {
 	rows, err := db.Query(query, args...)
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	if !rows.Next() {
 		if err := rows.Err(); err != nil {
 			return err
 		}
+
 		return sql.ErrNoRows
 	}
 
@@ -133,7 +158,7 @@ func (db *DbMap) SelectOne(dst interface{}, query string, args ...interface{}) e
 }
 
 // scanRow handles scanning with struct tag support
-func scanRow(rows *sql.Rows, dst interface{}) error {
+func scanRow(rows *sql.Rows, dst any) error {
 	if scanner, ok := dst.(sql.Scanner); ok {
 		return rows.Scan(scanner)
 	}
@@ -161,10 +186,10 @@ func scanRow(rows *sql.Rows, dst interface{}) error {
 }
 
 // scanStruct handles scanning into structs with db tag support
-func scanStruct(rows *sql.Rows, cols []string, dst interface{}) error {
-	values := make([]interface{}, len(cols))
+func scanStruct(rows *sql.Rows, cols []string, dst any) error {
+	values := make([]any, len(cols))
 	for i := range cols {
-		values[i] = new(interface{})
+		values[i] = new(any)
 	}
 
 	if err := rows.Scan(values...); err != nil {
@@ -175,11 +200,13 @@ func scanStruct(rows *sql.Rows, cols []string, dst interface{}) error {
 	elem := reflect.ValueOf(dst).Elem()
 	for i, col := range cols {
 		val := reflect.ValueOf(values[i]).Elem().Elem()
-		
+
 		// Find field with matching db tag
 		found := false
+
 		for j := 0; j < elem.NumField(); j++ {
 			field := elem.Type().Field(j)
+
 			tag := field.Tag.Get("db")
 			if tag == col || (tag == "" && strings.EqualFold(field.Name, col)) {
 				if elem.Field(j).CanSet() && val.IsValid() {
@@ -187,6 +214,7 @@ func scanStruct(rows *sql.Rows, cols []string, dst interface{}) error {
 					setField(elem.Field(j), val)
 				}
 				found = true
+
 				break
 			}
 		}
@@ -199,6 +227,7 @@ func scanStruct(rows *sql.Rows, cols []string, dst interface{}) error {
 					if elem.Field(j).CanSet() && val.IsValid() {
 						setField(elem.Field(j), val)
 					}
+
 					break
 				}
 			}
@@ -209,7 +238,7 @@ func scanStruct(rows *sql.Rows, cols []string, dst interface{}) error {
 }
 
 // setField sets a field value with type conversion
-func setField(field reflect.Value, val reflect.Value) {
+func setField(field, val reflect.Value) {
 	if field.Type() == val.Type() {
 		field.Set(val)
 		return
@@ -254,70 +283,84 @@ func isNilInterface(v reflect.Value) bool {
 	if !v.IsValid() {
 		return true
 	}
+
 	if v.Kind() == reflect.Interface && v.IsNil() {
 		return true
 	}
+
 	return false
 }
 
 // SelectInt executes a query and returns a single integer result.
-func (db *DbMap) SelectInt(query string, args ...interface{}) (int64, error) {
+func (db *DbMap) SelectInt(query string, args ...any) (int64, error) {
 	var result sql.NullInt64
+
 	err := db.SelectOne(&result, query, args...)
 	if err != nil {
 		return 0, err
 	}
+
 	return result.Int64, nil
 }
 
 // SelectNullInt executes a query and returns a nullable integer result.
-func (db *DbMap) SelectNullInt(query string, args ...interface{}) (sql.NullInt64, error) {
+func (db *DbMap) SelectNullInt(query string, args ...any) (sql.NullInt64, error) {
 	var result sql.NullInt64
 	err := db.SelectOne(&result, query, args...)
+
 	return result, err
 }
 
 // SelectFloat executes a query and returns a single float result.
-func (db *DbMap) SelectFloat(query string, args ...interface{}) (float64, error) {
+func (db *DbMap) SelectFloat(query string, args ...any) (float64, error) {
 	var result sql.NullFloat64
+
 	err := db.SelectOne(&result, query, args...)
 	if err != nil {
 		return 0, err
 	}
+
 	return result.Float64, nil
 }
 
 // SelectNullFloat executes a query and returns a nullable float result.
-func (db *DbMap) SelectNullFloat(query string, args ...interface{}) (sql.NullFloat64, error) {
+func (db *DbMap) SelectNullFloat(query string, args ...any) (sql.NullFloat64, error) {
 	var result sql.NullFloat64
 	err := db.SelectOne(&result, query, args...)
+
 	return result, err
 }
 
 // SelectStr executes a query and returns a single string result.
-func (db *DbMap) SelectStr(query string, args ...interface{}) (string, error) {
+func (db *DbMap) SelectStr(query string, args ...any) (string, error) {
 	var result sql.NullString
+
 	err := db.SelectOne(&result, query, args...)
 	if err != nil {
 		return "", err
 	}
+
 	return result.String, nil
 }
 
 // SelectNullStr executes a query and returns a nullable string result.
-func (db *DbMap) SelectNullStr(query string, args ...interface{}) (sql.NullString, error) {
+func (db *DbMap) SelectNullStr(query string, args ...any) (sql.NullString, error) {
 	var result sql.NullString
 	err := db.SelectOne(&result, query, args...)
+
 	return result, err
 }
 
 // Select executes a query and scans multiple rows into dst.
-func (db *DbMap) Select(dst interface{}, query string, args ...interface{}) (int, error) {
+func (db *DbMap) Select(dst any, query string, args ...any) (int, error) {
 	rows, err := db.Query(query, args...)
 	if err != nil {
 		return 0, err
 	}
-	defer rows.Close()
+
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	cols, err := rows.Columns()
 	if err != nil {
@@ -355,6 +398,7 @@ func (db *DbMap) Select(dst interface{}, query string, args ...interface{}) (int
 
 		// Append to the slice
 		sliceVal.Set(reflect.Append(sliceVal, elem.Elem()))
+
 		count++
 	}
 
@@ -369,16 +413,26 @@ func (db *DbMap) CreateTablesIfNotExists() error {
 }
 
 type mutationField struct {
-	indexPath []int
-	name      string
-	column    string
-	value     reflect.Value
+	name   string
+	column string
+	value  reflect.Value
+}
+
+type mutationRecord struct {
+	tableName string
+	fields    []mutationField
+	pkField   mutationField
 }
 
 // Insert inserts objects into the database.
-func (db *DbMap) Insert(dst ...interface{}) error {
-	for _, item := range dst {
-		if err := db.insertOne(item); err != nil {
+func (db *DbMap) Insert(dst ...any) error {
+	records, err := collectMutationRecords(dst)
+	if err != nil {
+		return err
+	}
+
+	for _, group := range groupInsertRecords(records) {
+		if err := db.insertBatch(group); err != nil {
 			return err
 		}
 	}
@@ -387,10 +441,16 @@ func (db *DbMap) Insert(dst ...interface{}) error {
 }
 
 // Update updates objects in the database.
-func (db *DbMap) Update(dst ...interface{}) (int64, error) {
+func (db *DbMap) Update(dst ...any) (int64, error) {
+	records, err := collectMutationRecords(dst)
+	if err != nil {
+		return 0, err
+	}
+
 	var total int64
-	for _, item := range dst {
-		affected, err := db.updateOne(item)
+
+	for _, group := range groupUpdateRecords(records) {
+		affected, err := db.updateBatch(group)
 		if err != nil {
 			return total, err
 		}
@@ -402,10 +462,16 @@ func (db *DbMap) Update(dst ...interface{}) (int64, error) {
 }
 
 // Delete deletes objects from the database.
-func (db *DbMap) Delete(dst ...interface{}) (int64, error) {
+func (db *DbMap) Delete(dst ...any) (int64, error) {
+	records, err := collectMutationRecords(dst)
+	if err != nil {
+		return 0, err
+	}
+
 	var total int64
-	for _, item := range dst {
-		affected, err := db.deleteOne(item)
+
+	for _, group := range groupDeleteRecords(records) {
+		affected, err := db.deleteBatch(group)
 		if err != nil {
 			return total, err
 		}
@@ -416,115 +482,208 @@ func (db *DbMap) Delete(dst ...interface{}) (int64, error) {
 	return total, nil
 }
 
-func (db *DbMap) insertOne(dst interface{}) error {
-	tableName, value, fields, pkField, err := mutationMetadata(dst)
+func collectMutationRecords(dst []any) ([]mutationRecord, error) {
+	records := make([]mutationRecord, 0, len(dst))
+
+	for _, item := range dst {
+		record, err := mutationMetadata(item)
+		if err != nil {
+			return nil, err
+		}
+
+		records = append(records, record)
+	}
+
+	return records, nil
+}
+
+func groupInsertRecords(records []mutationRecord) [][]mutationRecord {
+	return groupMutationRecords(records, func(record mutationRecord) string {
+		fields := insertFieldsForRecord(record)
+		return record.tableName + "|" + record.pkField.column + "|" + strings.Join(mutationFieldColumns(fields), ",")
+	})
+}
+
+func groupUpdateRecords(records []mutationRecord) [][]mutationRecord {
+	return groupMutationRecords(records, func(record mutationRecord) string {
+		return record.tableName + "|" + record.pkField.column + "|" +
+			strings.Join(mutationFieldColumns(updateFieldsForRecord(record)), ",")
+	})
+}
+
+func groupDeleteRecords(records []mutationRecord) [][]mutationRecord {
+	return groupMutationRecords(records, func(record mutationRecord) string {
+		return record.tableName + "|" + record.pkField.column
+	})
+}
+
+func groupMutationRecords(records []mutationRecord, keyFn func(mutationRecord) string) [][]mutationRecord {
+	if len(records) == 0 {
+		return nil
+	}
+
+	groups := make([][]mutationRecord, 0)
+	indexByKey := make(map[string]int)
+
+	for _, record := range records {
+		key := keyFn(record)
+		if idx, ok := indexByKey[key]; ok {
+			groups[idx] = append(groups[idx], record)
+			continue
+		}
+
+		indexByKey[key] = len(groups)
+		groups = append(groups, []mutationRecord{record})
+	}
+
+	return groups
+}
+
+func (db *DbMap) insertBatch(records []mutationRecord) error {
+	if len(records) == 0 {
+		return nil
+	}
+
+	insertFields := insertFieldsForRecord(records[0])
+	if len(insertFields) == 0 {
+		return errInsertRequiresColumn
+	}
+
+	for _, record := range records[1:] {
+		if !mutationFieldColumnsEqual(insertFields, insertFieldsForRecord(record)) {
+			return errInsertLayoutMismatch
+		}
+	}
+
+	tableSQL, err := db.quoteMutationIdentifier(records[0].tableName)
 	if err != nil {
 		return err
 	}
 
-	insertFields := make([]mutationField, 0, len(fields))
-	for _, field := range fields {
-		if field.column == pkField.column && isZeroMutationValue(field.value) {
-			continue
-		}
+	quotedCols := make([]string, 0, len(insertFields))
 
-		insertFields = append(insertFields, field)
-	}
-
-	if len(insertFields) == 0 {
-		return errors.New("insert requires at least one column")
-	}
-
-	cols := make([]string, 0, len(insertFields))
-	args := make([]interface{}, 0, len(insertFields))
-	placeholders := make([]string, 0, len(insertFields))
-	for i, field := range insertFields {
+	for _, field := range insertFields {
 		col, err := db.quoteMutationIdentifier(field.column)
 		if err != nil {
 			return err
 		}
 
-		cols = append(cols, col)
-		args = append(args, field.value.Interface())
-		placeholders = append(placeholders, db.bindVar(i+1))
+		quotedCols = append(quotedCols, col)
 	}
 
-	tableSQL, err := db.quoteMutationIdentifier(tableName)
-	if err != nil {
-		return err
+	var (
+		argIndex     int
+		args         = make([]any, 0, len(insertFields)*len(records))
+		valueClauses = make([]string, 0, len(records))
+	)
+
+	for _, record := range records {
+		recordFields := insertFieldsForRecord(record)
+		placeholders := make([]string, 0, len(recordFields))
+
+		for _, field := range recordFields {
+			placeholders = append(placeholders, db.nextBindVar(&argIndex))
+			args = append(args, field.value.Interface())
+		}
+
+		valueClauses = append(valueClauses, "("+strings.Join(placeholders, ", ")+")")
 	}
 
 	query := fmt.Sprintf(
-		"INSERT INTO %s (%s) VALUES (%s)",
+		"INSERT INTO %s (%s) VALUES %s",
 		tableSQL,
-		strings.Join(cols, ", "),
-		strings.Join(placeholders, ", "),
+		strings.Join(quotedCols, ", "),
+		strings.Join(valueClauses, ", "),
 	)
+
 	result, err := db.Exec(query, args...)
 	if err != nil {
 		return err
 	}
 
-	if pkField.value.CanSet() && isZeroMutationValue(pkField.value) {
-		if lastID, err := result.LastInsertId(); err == nil {
-			assignMutationID(pkField.value, lastID)
-		}
-	}
-
-	_ = value
+	assignBatchInsertIDs(db, records, result, len(insertFields) != len(records[0].fields))
 
 	return nil
 }
 
-func (db *DbMap) updateOne(dst interface{}) (int64, error) {
-	tableName, _, fields, pkField, err := mutationMetadata(dst)
+func (db *DbMap) updateBatch(records []mutationRecord) (int64, error) {
+	if len(records) == 0 {
+		return 0, nil
+	}
+
+	updateFields := updateFieldsForRecord(records[0])
+	if len(updateFields) == 0 {
+		return 0, errUpdateRequiresMutableColumn
+	}
+
+	for _, record := range records {
+		if isZeroMutationValue(record.pkField.value) {
+			return 0, errUpdateRequiresPrimaryKey
+		}
+
+		if !mutationFieldColumnsEqual(updateFields, updateFieldsForRecord(record)) {
+			return 0, errUpdateLayoutMismatch
+		}
+	}
+
+	tableSQL, err := db.quoteMutationIdentifier(records[0].tableName)
 	if err != nil {
 		return 0, err
 	}
 
-	if isZeroMutationValue(pkField.value) {
-		return 0, errors.New("update requires a non-zero primary key")
+	pkSQL, err := db.quoteMutationIdentifier(records[0].pkField.column)
+	if err != nil {
+		return 0, err
 	}
 
-	setClauses := make([]string, 0, len(fields)-1)
-	args := make([]interface{}, 0, len(fields))
-	for _, field := range fields {
-		if field.column == pkField.column {
-			continue
-		}
+	var (
+		argIndex   int
+		args       []any
+		setClauses = make([]string, 0, len(updateFields))
+	)
 
-		col, err := db.quoteMutationIdentifier(field.column)
+	for _, field := range updateFields {
+		colSQL, err := db.quoteMutationIdentifier(field.column)
 		if err != nil {
 			return 0, err
 		}
 
-		setClauses = append(setClauses, col+" = "+db.bindVar(len(args)+1))
-		args = append(args, field.value.Interface())
+		var clause strings.Builder
+		clause.WriteString(colSQL)
+		clause.WriteString(" = CASE ")
+		clause.WriteString(pkSQL)
+
+		for _, record := range records {
+			recordField := mutationFieldByColumn(record.fields, field.column)
+
+			clause.WriteString(" WHEN ")
+			clause.WriteString(db.nextBindVar(&argIndex))
+			clause.WriteString(" THEN ")
+			clause.WriteString(db.nextBindVar(&argIndex))
+
+			args = append(args, record.pkField.value.Interface(), recordField.value.Interface())
+		}
+
+		clause.WriteString(" ELSE ")
+		clause.WriteString(colSQL)
+		clause.WriteString(" END")
+		setClauses = append(setClauses, clause.String())
 	}
 
-	if len(setClauses) == 0 {
-		return 0, errors.New("update requires at least one mutable column")
+	wherePlaceholders := make([]string, 0, len(records))
+	for _, record := range records {
+		wherePlaceholders = append(wherePlaceholders, db.nextBindVar(&argIndex))
+		args = append(args, record.pkField.value.Interface())
 	}
-
-	tableSQL, err := db.quoteMutationIdentifier(tableName)
-	if err != nil {
-		return 0, err
-	}
-
-	pkSQL, err := db.quoteMutationIdentifier(pkField.column)
-	if err != nil {
-		return 0, err
-	}
-
-	args = append(args, pkField.value.Interface())
 
 	query := fmt.Sprintf(
-		"UPDATE %s SET %s WHERE %s = %s",
+		"UPDATE %s SET %s WHERE %s IN (%s)",
 		tableSQL,
 		strings.Join(setClauses, ", "),
 		pkSQL,
-		db.bindVar(len(args)),
+		strings.Join(wherePlaceholders, ", "),
 	)
+
 	result, err := db.Exec(query, args...)
 	if err != nil {
 		return 0, err
@@ -533,28 +692,46 @@ func (db *DbMap) updateOne(dst interface{}) (int64, error) {
 	return result.RowsAffected()
 }
 
-func (db *DbMap) deleteOne(dst interface{}) (int64, error) {
-	tableName, _, _, pkField, err := mutationMetadata(dst)
+func (db *DbMap) deleteBatch(records []mutationRecord) (int64, error) {
+	if len(records) == 0 {
+		return 0, nil
+	}
+
+	for _, record := range records {
+		if isZeroMutationValue(record.pkField.value) {
+			return 0, errDeleteRequiresPrimaryKey
+		}
+	}
+
+	tableSQL, err := db.quoteMutationIdentifier(records[0].tableName)
 	if err != nil {
 		return 0, err
 	}
 
-	if isZeroMutationValue(pkField.value) {
-		return 0, errors.New("delete requires a non-zero primary key")
-	}
-
-	tableSQL, err := db.quoteMutationIdentifier(tableName)
+	pkSQL, err := db.quoteMutationIdentifier(records[0].pkField.column)
 	if err != nil {
 		return 0, err
 	}
 
-	pkSQL, err := db.quoteMutationIdentifier(pkField.column)
-	if err != nil {
-		return 0, err
+	var (
+		argIndex     int
+		args         = make([]any, 0, len(records))
+		placeholders = make([]string, 0, len(records))
+	)
+
+	for _, record := range records {
+		placeholders = append(placeholders, db.nextBindVar(&argIndex))
+		args = append(args, record.pkField.value.Interface())
 	}
 
-	query := fmt.Sprintf("DELETE FROM %s WHERE %s = %s", tableSQL, pkSQL, db.bindVar(1))
-	result, err := db.Exec(query, pkField.value.Interface())
+	query := fmt.Sprintf(
+		"DELETE FROM %s WHERE %s IN (%s)",
+		tableSQL,
+		pkSQL,
+		strings.Join(placeholders, ", "),
+	)
+
+	result, err := db.Exec(query, args...)
 	if err != nil {
 		return 0, err
 	}
@@ -562,50 +739,53 @@ func (db *DbMap) deleteOne(dst interface{}) (int64, error) {
 	return result.RowsAffected()
 }
 
-func mutationMetadata(dst interface{}) (string, reflect.Value, []mutationField, mutationField, error) {
+func mutationMetadata(dst any) (mutationRecord, error) {
 	if dst == nil {
-		return "", reflect.Value{}, nil, mutationField{}, errors.New("mutation item cannot be nil")
+		return mutationRecord{}, errMutationItemNil
 	}
 
 	tabler, ok := dst.(interface{ Table() string })
 	if !ok {
-		return "", reflect.Value{}, nil, mutationField{}, errors.New("mutation item must implement Table() string")
+		return mutationRecord{}, errMutationItemTableMethod
 	}
 
 	value := reflect.ValueOf(dst)
 	if value.Kind() != reflect.Ptr || value.IsNil() {
-		return "", reflect.Value{}, nil, mutationField{}, errors.New("mutation item must be a non-nil pointer")
+		return mutationRecord{}, errMutationItemPointer
 	}
 
 	value = value.Elem()
 	if value.Kind() != reflect.Struct {
-		return "", reflect.Value{}, nil, mutationField{}, errors.New("mutation item must point to a struct")
+		return mutationRecord{}, errMutationItemStructPointer
 	}
 
-	fields := collectMutationFields(value, nil)
+	fields := collectMutationFields(value)
 	if len(fields) == 0 {
-		return "", reflect.Value{}, nil, mutationField{}, errors.New("mutation item has no db-tagged fields")
+		return mutationRecord{}, errMutationItemNoTaggedFields
 	}
 
 	pkField, err := primaryMutationField(fields)
 	if err != nil {
-		return "", reflect.Value{}, nil, mutationField{}, err
+		return mutationRecord{}, err
 	}
 
-	return tabler.Table(), value, fields, pkField, nil
+	return mutationRecord{
+		tableName: tabler.Table(),
+		fields:    fields,
+		pkField:   pkField,
+	}, nil
 }
 
-func collectMutationFields(value reflect.Value, prefix []int) []mutationField {
+func collectMutationFields(value reflect.Value) []mutationField {
 	fields := make([]mutationField, 0, value.NumField())
 	valueType := value.Type()
 
 	for i := 0; i < value.NumField(); i++ {
 		fieldValue := value.Field(i)
-		fieldType := valueType.Field(i)
 
-		indexPath := append(append([]int(nil), prefix...), i)
+		fieldType := valueType.Field(i)
 		if fieldType.Anonymous && fieldValue.Kind() == reflect.Struct {
-			fields = append(fields, collectMutationFields(fieldValue, indexPath)...)
+			fields = append(fields, collectMutationFields(fieldValue)...)
 			continue
 		}
 
@@ -619,14 +799,72 @@ func collectMutationFields(value reflect.Value, prefix []int) []mutationField {
 		}
 
 		fields = append(fields, mutationField{
-			indexPath: indexPath,
-			name:      fieldType.Name,
-			column:    column,
-			value:     fieldValue,
+			name:   fieldType.Name,
+			column: column,
+			value:  fieldValue,
 		})
 	}
 
 	return fields
+}
+
+func insertFieldsForRecord(record mutationRecord) []mutationField {
+	fields := make([]mutationField, 0, len(record.fields))
+	for _, field := range record.fields {
+		if field.column == record.pkField.column && isZeroMutationValue(field.value) {
+			continue
+		}
+
+		fields = append(fields, field)
+	}
+
+	return fields
+}
+
+func updateFieldsForRecord(record mutationRecord) []mutationField {
+	fields := make([]mutationField, 0, len(record.fields)-1)
+	for _, field := range record.fields {
+		if field.column == record.pkField.column {
+			continue
+		}
+
+		fields = append(fields, field)
+	}
+
+	return fields
+}
+
+func mutationFieldColumns(fields []mutationField) []string {
+	cols := make([]string, 0, len(fields))
+	for _, field := range fields {
+		cols = append(cols, field.column)
+	}
+
+	return cols
+}
+
+func mutationFieldColumnsEqual(expected, actual []mutationField) bool {
+	if len(expected) != len(actual) {
+		return false
+	}
+
+	for i := range expected {
+		if expected[i].column != actual[i].column {
+			return false
+		}
+	}
+
+	return true
+}
+
+func mutationFieldByColumn(fields []mutationField, column string) mutationField {
+	for _, field := range fields {
+		if field.column == column {
+			return field
+		}
+	}
+
+	return mutationField{}
 }
 
 func primaryMutationField(fields []mutationField) (mutationField, error) {
@@ -645,6 +883,7 @@ func parseDBColumn(tag string) string {
 	}
 
 	parts := strings.Split(tag, ",")
+
 	return strings.TrimSpace(parts[0])
 }
 
@@ -677,6 +916,13 @@ func isZeroMutationValue(value reflect.Value) bool {
 	return value.IsZero()
 }
 
+func (db *DbMap) nextBindVar(index *int) string {
+	placeholder := db.bindVar(*index)
+	(*index)++
+
+	return placeholder
+}
+
 func assignMutationID(field reflect.Value, id int64) {
 	switch field.Kind() {
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
@@ -686,8 +932,44 @@ func assignMutationID(field reflect.Value, id int64) {
 	}
 }
 
+func assignBatchInsertIDs(db *DbMap, records []mutationRecord, result sql.Result, omittedPrimaryKey bool) {
+	if !omittedPrimaryKey || len(records) == 0 {
+		return
+	}
+
+	lastID, err := result.LastInsertId()
+	if err != nil {
+		return
+	}
+
+	if len(records) == 1 {
+		assignMutationID(records[0].pkField.value, lastID)
+		return
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil || rowsAffected != int64(len(records)) {
+		return
+	}
+
+	var startID int64
+
+	switch db.Dialect.(type) {
+	case SqliteDialect, *SqliteDialect:
+		startID = lastID - rowsAffected + 1
+	case MySQLDialect, *MySQLDialect:
+		startID = lastID
+	default:
+		return
+	}
+
+	for i, record := range records {
+		assignMutationID(record.pkField.value, startID+int64(i))
+	}
+}
+
 // AddTableWithName registers a table mapping (stub implementation for gorp compatibility)
-func (db *DbMap) AddTableWithName(dst interface{}, name string) *DbMapTable {
+func (db *DbMap) AddTableWithName(dst any, name string) *DbMapTable {
 	// This is a stub implementation kept for gorp compatibility
 	return &DbMapTable{}
 }

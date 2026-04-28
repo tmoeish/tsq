@@ -30,8 +30,9 @@ $(LOCALBIN):
 	mkdir -p $(LOCALBIN)
 
 LINT_BIN = $(LOCALBIN)/golangci-lint
+FMT_FIX_LINTERS = modernize,tagalign,wsl_v5
 $(LINT_BIN): $(LOCALBIN)
-	$(call go-get-tool,$(LINT_BIN),github.com/golangci/golangci-lint/cmd/golangci-lint@master)
+	$(call go-get-tool,$(LINT_BIN),github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.11.4)
 
 .PHONY: lint
 lint: $(LINT_BIN) ## Run golangci-lint
@@ -47,8 +48,8 @@ mod-tidy: ## Tidy dependencies
 
 .PHONY: fmt
 fmt: mod-tidy $(LINT_BIN) ## Format code
-	@$(GO) fmt ./...
-	@$(LINT_BIN) run --disable-all -E gofumpt,gci,tagalign,wsl --fix --no-config
+	@$(LINT_BIN) fmt -c .golangci.yml
+	@$(LINT_BIN) run --fix --issues-exit-code=0 --enable-only $(FMT_FIX_LINTERS)
 
 .PHONY: vet
 vet: ## Run go vet

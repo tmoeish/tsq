@@ -8,8 +8,9 @@ import (
 	"text/template"
 
 	"github.com/juju/errors"
-	"github.com/tmoeish/tsq"
 	"mvdan.cc/gofumpt/format"
+
+	"github.com/tmoeish/tsq"
 )
 
 type generationModel struct {

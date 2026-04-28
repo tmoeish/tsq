@@ -18,6 +18,7 @@ func ParseIntValue(s string, minVal, maxVal int) int {
 	}
 
 	var result int64
+
 	_, err := readInt(s, &result)
 	if err != nil {
 		return 0
@@ -26,6 +27,7 @@ func ParseIntValue(s string, minVal, maxVal int) int {
 	if result < int64(minVal) {
 		return minVal
 	}
+
 	if result > int64(maxVal) {
 		return maxVal
 	}
@@ -46,6 +48,7 @@ func readInt(s string, result *int64) (string, error) {
 	}
 
 	x := int64(0)
+
 	for i := 0; i < len(s); i++ {
 		d := s[i]
 		if d < '0' || d > '9' {
@@ -53,6 +56,7 @@ func readInt(s string, result *int64) (string, error) {
 				return "", errors.Errorf("invalid digit: %c", d)
 			}
 			s = s[i:]
+
 			break
 		}
 		x = x*10 + int64(d-'0')
@@ -63,12 +67,13 @@ func readInt(s string, result *int64) (string, error) {
 	}
 
 	*result = x
+
 	return s, nil
 }
 
 // SplitAndTrim splits a string by separator and trims whitespace from each part
 // Filters out empty strings after trimming
-func SplitAndTrim(s string, sep string) []string {
+func SplitAndTrim(s, sep string) []string {
 	if s == "" {
 		return []string{}
 	}
@@ -119,13 +124,14 @@ func IsValidIdentifier(s string) bool {
 // Returns (key, value, error)
 func ParseKeyValue(s string) (string, string, error) {
 	s = strings.TrimSpace(s)
-	idx := strings.IndexByte(s, '=')
-	if idx < 0 {
+
+	before, after, ok := strings.Cut(s, "=")
+	if !ok {
 		return "", "", errors.Errorf("no '=' found in %q", s)
 	}
 
-	key := strings.TrimSpace(s[:idx])
-	value := strings.TrimSpace(s[idx+1:])
+	key := strings.TrimSpace(before)
+	value := strings.TrimSpace(after)
 
 	if key == "" {
 		return "", "", errors.New("empty key")
@@ -137,11 +143,13 @@ func ParseKeyValue(s string) (string, string, error) {
 // ContainsSQL checks if a string might contain SQL-like constructs
 func ContainsSQL(s string) bool {
 	keywords := []string{"SELECT", "INSERT", "UPDATE", "DELETE", "DROP", "CREATE"}
+
 	upper := strings.ToUpper(s)
 	for _, kw := range keywords {
 		if strings.Contains(upper, kw) {
 			return true
 		}
 	}
+
 	return false
 }

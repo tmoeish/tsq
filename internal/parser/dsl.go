@@ -6,6 +6,7 @@ import (
 
 	"github.com/juju/errors"
 	"github.com/serenize/snaker"
+
 	"github.com/tmoeish/tsq"
 )
 
@@ -563,6 +564,7 @@ func genTableInfoFromAST(
 
 				info.UxList = append(info.UxList, idx)
 			}
+
 		case "idx":
 			arr, ok := v.(DSLArray)
 			if !ok {
@@ -611,6 +613,7 @@ func genTableInfoFromAST(
 
 				info.IdxList = append(info.IdxList, idx)
 			}
+
 		case "kw":
 			arr, ok := v.(DSLArray)
 			if !ok {
@@ -642,7 +645,7 @@ func genTableInfoFromAST(
 	return info, nil
 }
 
-func defaultIndexName(prefix string, table string, fields []string) string {
+func defaultIndexName(prefix, table string, fields []string) string {
 	parts := make([]string, 0, len(fields)+2)
 	parts = append(parts, prefix, snaker.CamelToSnake(table))
 
@@ -653,7 +656,7 @@ func defaultIndexName(prefix string, table string, fields []string) string {
 	return strings.Join(parts, "_")
 }
 
-func normalizeIndexNames(indexes []tsq.IndexInfo, prefix string, table string) {
+func normalizeIndexNames(indexes []tsq.IndexInfo, prefix, table string) {
 	for i := range indexes {
 		switch {
 		case indexes[i].Name == "":

@@ -1,14 +1,15 @@
 package tsq
 
 import (
+	"maps"
 	"sync"
 )
 
 // KeywordRegistry is a registry for dialect-specific SQL keywords
 type KeywordRegistry struct {
-	mu            sync.RWMutex
-	keywords      map[DialectName]map[string]bool
-	capabilities  map[DialectName]map[string]bool
+	mu           sync.RWMutex
+	keywords     map[DialectName]map[string]bool
+	capabilities map[DialectName]map[string]bool
 }
 
 var (
@@ -23,6 +24,7 @@ func GetKeywordRegistry() *KeywordRegistry {
 		globalRegistry = NewKeywordRegistry()
 		globalRegistry.initializeDefaults()
 	})
+
 	return globalRegistry
 }
 
@@ -112,6 +114,7 @@ func (r *KeywordRegistry) RegisterDialect(dialect DialectName) {
 	if _, ok := r.keywords[dialect]; !ok {
 		r.keywords[dialect] = make(map[string]bool)
 	}
+
 	if _, ok := r.capabilities[dialect]; !ok {
 		r.capabilities[dialect] = make(map[string]bool)
 	}
@@ -136,6 +139,7 @@ func (r *KeywordRegistry) IsKeyword(dialect DialectName, keyword string) bool {
 	if kw, ok := r.keywords[dialect]; ok {
 		return kw[keyword]
 	}
+
 	return false
 }
 
@@ -158,6 +162,7 @@ func (r *KeywordRegistry) HasCapability(dialect DialectName, capability string) 
 	if cap, ok := r.capabilities[dialect]; ok {
 		return cap[capability]
 	}
+
 	return false
 }
 
@@ -168,24 +173,24 @@ func (r *KeywordRegistry) GetCapabilities(dialect DialectName) map[string]bool {
 
 	if cap, ok := r.capabilities[dialect]; ok {
 		result := make(map[string]bool)
-		for k, v := range cap {
-			result[k] = v
-		}
+		maps.Copy(result, cap)
+
 		return result
 	}
+
 	return make(map[string]bool)
 }
 
 // DialectValidator validates operations for a specific dialect
 type DialectValidator struct {
-	dialect Dialect
+	dialect  Dialect
 	registry *KeywordRegistry
 }
 
 // NewDialectValidator creates a validator for a dialect
 func NewDialectValidator(dialect Dialect) *DialectValidator {
 	return &DialectValidator{
-		dialect: dialect,
+		dialect:  dialect,
 		registry: GetKeywordRegistry(),
 	}
 }
@@ -210,21 +215,21 @@ func (v *DialectValidator) ValidateCapability(operation string) error {
 
 // DialectExtension allows extending dialect support
 type DialectExtension struct {
-	Name        DialectName
-	Keywords    []string
+	Name         DialectName
+	Keywords     []string
 	Capabilities map[string]bool
 }
 
 // ExtendDialect adds or updates dialect support
 func ExtendDialect(ext DialectExtension) error {
 	registry := GetKeywordRegistry()
-	
+
 	// Register dialect
 	registry.RegisterDialect(ext.Name)
-	
+
 	// Add keywords
 	registry.registerKeywords(ext.Name, ext.Keywords)
-	
+
 	// Add capabilities
 	for cap, supported := range ext.Capabilities {
 		registry.SetCapability(ext.Name, cap, supported)

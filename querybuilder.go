@@ -123,7 +123,7 @@ func (qb *QueryBuilder) appendCondition(target *[]Condition, cond Condition) {
 // LeftJoin adds a LEFT JOIN clause. Equivalent to `FROM left.Table LEFT JOIN right.Table ON left=right`.
 // The columns must belong to different tables; to join a table to itself, use aliases.
 // If the builder is in an error state, this method returns immediately without modifying the query.
-func (qb *QueryBuilder) LeftJoin(left Column, right Column) *QueryBuilder {
+func (qb *QueryBuilder) LeftJoin(left, right Column) *QueryBuilder {
 	qb = qb.ensureInitialized()
 
 	if qb.buildErr != nil {
@@ -147,7 +147,7 @@ func (qb *QueryBuilder) LeftJoin(left Column, right Column) *QueryBuilder {
 // InnerJoin adds an INNER JOIN clause.
 // The columns must belong to different tables; to join a table to itself, use aliases.
 // If the builder is in an error state, this method returns immediately without modifying the query.
-func (qb *QueryBuilder) InnerJoin(left Column, right Column) *QueryBuilder {
+func (qb *QueryBuilder) InnerJoin(left, right Column) *QueryBuilder {
 	qb = qb.ensureInitialized()
 
 	if qb.buildErr != nil {
@@ -171,7 +171,7 @@ func (qb *QueryBuilder) InnerJoin(left Column, right Column) *QueryBuilder {
 // RightJoin adds a RIGHT JOIN clause.
 // The columns must belong to different tables; to join a table to itself, use aliases.
 // If the builder is in an error state, this method returns immediately without modifying the query.
-func (qb *QueryBuilder) RightJoin(left Column, right Column) *QueryBuilder {
+func (qb *QueryBuilder) RightJoin(left, right Column) *QueryBuilder {
 	qb = qb.ensureInitialized()
 
 	if qb.buildErr != nil {
@@ -196,7 +196,7 @@ func (qb *QueryBuilder) RightJoin(left Column, right Column) *QueryBuilder {
 // still depends on the target dialect supporting FULL JOIN.
 // The columns must belong to different tables; to join a table to itself, use aliases.
 // If the builder is in an error state, this method returns immediately without modifying the query.
-func (qb *QueryBuilder) FullJoin(left Column, right Column) *QueryBuilder {
+func (qb *QueryBuilder) FullJoin(left, right Column) *QueryBuilder {
 	qb = qb.ensureInitialized()
 
 	if qb.buildErr != nil {

@@ -7,10 +7,10 @@ import (
 
 // PanicContext captures context information when a panic occurs
 type PanicContext struct {
-	Operation   string      // The operation that panicked (e.g., "Query.Build", "Query.Scan")
-	Details     string      // Additional context details
-	Recovered   interface{} // The panic value
-	StackTrace  string      // Stack trace at panic point
+	Operation  string // The operation that panicked (e.g., "Query.Build", "Query.Scan")
+	Details    string // Additional context details
+	Recovered  any    // The panic value
+	StackTrace string // Stack trace at panic point
 }
 
 // PanicRecoveryError wraps a panic with context
@@ -19,9 +19,9 @@ type PanicRecoveryError struct {
 	Message string
 }
 
-func NewPanicRecoveryError(operation, details string, recovered interface{}) *PanicRecoveryError {
+func NewPanicRecoveryError(operation, details string, recovered any) *PanicRecoveryError {
 	stackTrace := string(debug.Stack())
-	
+
 	return &PanicRecoveryError{
 		Context: PanicContext{
 			Operation:  operation,
@@ -42,6 +42,7 @@ func (e *PanicRecoveryError) Unwrap() error {
 	if err, ok := e.Context.Recovered.(error); ok {
 		return err
 	}
+
 	return nil
 }
 
@@ -52,10 +53,10 @@ func (e *PanicRecoveryError) GetContext() PanicContext {
 
 // SafeOperation wraps an operation with panic recovery and context
 // If the operation panics, returns PanicRecoveryError with context
-func SafeOperation(operation string, fn func() error) error {
+func SafeOperation(operation string, fn func() error) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			// Panic handling is done in the calling code through return value
+			err = NewPanicRecoveryError(operation, "", r)
 		}
 	}()
 
@@ -63,10 +64,10 @@ func SafeOperation(operation string, fn func() error) error {
 }
 
 // SafeOperationWithContext wraps an operation and returns context on panic
-func SafeOperationWithContext(operation, details string, fn func() error) error {
+func SafeOperationWithContext(operation, details string, fn func() error) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			// Panic would be converted to PanicRecoveryError by the wrapper
+			err = NewPanicRecoveryError(operation, details, r)
 		}
 	}()
 

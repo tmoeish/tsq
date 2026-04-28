@@ -46,8 +46,8 @@ func ParseTableInfo(
 func CleanCommentPrefix(line string) string {
 	line = strings.TrimLeft(line, " \t")
 	for _, prefix := range []string{"//", "/*", "*", "*/"} {
-		if strings.HasPrefix(line, prefix) {
-			line = strings.TrimPrefix(line, prefix)
+		if after, ok := strings.CutPrefix(line, prefix); ok {
+			line = after
 			line = strings.TrimLeft(line, " \t")
 		}
 	}
@@ -58,13 +58,13 @@ func CleanCommentPrefix(line string) string {
 // CleanBlockComment 去除块注释前缀和后缀
 func CleanBlockComment(text string) string {
 	text = strings.TrimSpace(text)
-	if strings.HasPrefix(text, "//") {
-		text = strings.TrimPrefix(text, "//")
+	if after, ok := strings.CutPrefix(text, "//"); ok {
+		text = after
 		text = strings.TrimSpace(text)
 	}
 
-	if strings.HasPrefix(text, "/*") {
-		text = strings.TrimPrefix(text, "/*")
+	if after, ok := strings.CutPrefix(text, "/*"); ok {
+		text = after
 		text = strings.TrimSuffix(text, "*/")
 		text = strings.TrimSpace(text)
 	}

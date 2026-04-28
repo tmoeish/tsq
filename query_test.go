@@ -1057,214 +1057,214 @@ func TestBuildScanDestRejectsNonPointerHolder(t *testing.T) {
 }
 
 func TestEscapeKeywordSearch(t *testing.T) {
-tests := []struct {
-name     string
-input    string
-expected string
-}{
-{
-name:     "empty string",
-input:    "",
-expected: "",
-},
-{
-name:     "no special chars",
-input:    "hello world",
-expected: "hello world",
-},
-{
-name:     "percent wildcard",
-input:    "100%",
-expected: "100\\%",
-},
-{
-name:     "underscore wildcard",
-input:    "user_name",
-expected: "user\\_name",
-},
-{
-name:     "both wildcards",
-input:    "%value_",
-expected: "\\%value\\_",
-},
-{
-name:     "backslash",
-input:    "path\\file",
-expected: "path\\\\file",
-},
-{
-name:     "backslash before percent",
-input:    "100\\% cotton",
-expected: "100\\\\\\% cotton",
-},
-{
-name:     "real world example",
-input:    "50% off_sale",
-expected: "50\\% off\\_sale",
-},
-}
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "empty string",
+			input:    "",
+			expected: "",
+		},
+		{
+			name:     "no special chars",
+			input:    "hello world",
+			expected: "hello world",
+		},
+		{
+			name:     "percent wildcard",
+			input:    "100%",
+			expected: "100\\%",
+		},
+		{
+			name:     "underscore wildcard",
+			input:    "user_name",
+			expected: "user\\_name",
+		},
+		{
+			name:     "both wildcards",
+			input:    "%value_",
+			expected: "\\%value\\_",
+		},
+		{
+			name:     "backslash",
+			input:    "path\\file",
+			expected: "path\\\\file",
+		},
+		{
+			name:     "backslash before percent",
+			input:    "100\\% cotton",
+			expected: "100\\\\\\% cotton",
+		},
+		{
+			name:     "real world example",
+			input:    "50% off_sale",
+			expected: "50\\% off\\_sale",
+		},
+	}
 
-for _, tt := range tests {
-t.Run(tt.name, func(t *testing.T) {
-result := EscapeKeywordSearch(tt.input)
-if result != tt.expected {
-t.Errorf("EscapeKeywordSearch(%q) = %q, want %q", tt.input, result, tt.expected)
-}
-})
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := EscapeKeywordSearch(tt.input)
+			if result != tt.expected {
+				t.Errorf("EscapeKeywordSearch(%q) = %q, want %q", tt.input, result, tt.expected)
+			}
+		})
+	}
 }
 
 func TestValidateIdentifierLength(t *testing.T) {
-tests := []struct {
-name       string
-identifier string
-dialect    string
-wantErr    bool
-}{
-{
-name:       "valid identifier - mysql",
-identifier: "users",
-dialect:    "mysql",
-wantErr:    false,
-},
-{
-name:       "valid identifier - postgres",
-identifier: "users",
-dialect:    "postgres",
-wantErr:    false,
-},
-{
-name:       "max length postgres (63)",
-identifier: "a" + strings.Repeat("b", 62),
-dialect:    "postgres",
-wantErr:    false,
-},
-{
-name:       "exceeds max postgres (64 > 63)",
-identifier: strings.Repeat("a", 64),
-dialect:    "postgres",
-wantErr:    true,
-},
-{
-name:       "max length mysql (64)",
-identifier: strings.Repeat("a", 64),
-dialect:    "mysql",
-wantErr:    false,
-},
-{
-name:       "exceeds max mysql (65 > 64)",
-identifier: strings.Repeat("a", 65),
-dialect:    "mysql",
-wantErr:    true,
-},
-{
-name:       "exceeds oracle limit (31 > 30)",
-identifier: strings.Repeat("a", 31),
-dialect:    "oracle",
-wantErr:    true,
-},
-{
-name:       "sqlite has no limit",
-identifier: strings.Repeat("a", 200),
-dialect:    "sqlite",
-wantErr:    false,
-},
-{
-name:       "empty identifier",
-identifier: "",
-dialect:    "mysql",
-wantErr:    true,
-},
-{
-name:       "unknown dialect skips validation",
-identifier: strings.Repeat("a", 100),
-dialect:    "unknown",
-wantErr:    false,
-},
-}
+	tests := []struct {
+		name       string
+		identifier string
+		dialect    string
+		wantErr    bool
+	}{
+		{
+			name:       "valid identifier - mysql",
+			identifier: "users",
+			dialect:    "mysql",
+			wantErr:    false,
+		},
+		{
+			name:       "valid identifier - postgres",
+			identifier: "users",
+			dialect:    "postgres",
+			wantErr:    false,
+		},
+		{
+			name:       "max length postgres (63)",
+			identifier: "a" + strings.Repeat("b", 62),
+			dialect:    "postgres",
+			wantErr:    false,
+		},
+		{
+			name:       "exceeds max postgres (64 > 63)",
+			identifier: strings.Repeat("a", 64),
+			dialect:    "postgres",
+			wantErr:    true,
+		},
+		{
+			name:       "max length mysql (64)",
+			identifier: strings.Repeat("a", 64),
+			dialect:    "mysql",
+			wantErr:    false,
+		},
+		{
+			name:       "exceeds max mysql (65 > 64)",
+			identifier: strings.Repeat("a", 65),
+			dialect:    "mysql",
+			wantErr:    true,
+		},
+		{
+			name:       "exceeds oracle limit (31 > 30)",
+			identifier: strings.Repeat("a", 31),
+			dialect:    "oracle",
+			wantErr:    true,
+		},
+		{
+			name:       "sqlite has no limit",
+			identifier: strings.Repeat("a", 200),
+			dialect:    "sqlite",
+			wantErr:    false,
+		},
+		{
+			name:       "empty identifier",
+			identifier: "",
+			dialect:    "mysql",
+			wantErr:    true,
+		},
+		{
+			name:       "unknown dialect skips validation",
+			identifier: strings.Repeat("a", 100),
+			dialect:    "unknown",
+			wantErr:    false,
+		},
+	}
 
-for _, tt := range tests {
-t.Run(tt.name, func(t *testing.T) {
-err := ValidateIdentifierLength(tt.identifier, tt.dialect)
-if (err != nil) != tt.wantErr {
-t.Errorf("ValidateIdentifierLength(%q, %q) error = %v, wantErr %v", tt.identifier, tt.dialect, err, tt.wantErr)
-}
-})
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateIdentifierLength(tt.identifier, tt.dialect)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateIdentifierLength(%q, %q) error = %v, wantErr %v", tt.identifier, tt.dialect, err, tt.wantErr)
+			}
+		})
+	}
 }
 
 func TestValidateIdentifierForDialect(t *testing.T) {
-tests := []struct {
-name       string
-identifier string
-dialect    string
-wantErr    bool
-errContent string
-}{
-{
-name:       "valid identifier - mysql",
-identifier: "users",
-dialect:    "mysql",
-wantErr:    false,
-},
-{
-name:       "valid identifier - postgres",
-identifier: "users_table",
-dialect:    "postgres",
-wantErr:    false,
-},
-{
-name:       "starts with underscore",
-identifier: "_internal",
-dialect:    "mysql",
-wantErr:    false,
-},
-{
-name:       "invalid - starts with number",
-identifier: "123users",
-dialect:    "mysql",
-wantErr:    true,
-errContent: "invalid SQL identifier",
-},
-{
-name:       "invalid - contains hyphen",
-identifier: "user-table",
-dialect:    "mysql",
-wantErr:    true,
-errContent: "invalid SQL identifier",
-},
-{
-name:       "exceeds postgres limit",
-identifier: strings.Repeat("a", 64),
-dialect:    "postgres",
-wantErr:    true,
-errContent: "exceeds",
-},
-{
-name:       "at mysql limit (64)",
-identifier: strings.Repeat("x", 64),
-dialect:    "mysql",
-wantErr:    false,
-},
-{
-name:       "empty identifier",
-identifier: "",
-dialect:    "mysql",
-wantErr:    true,
-errContent: "cannot be empty",
-},
-}
+	tests := []struct {
+		name       string
+		identifier string
+		dialect    string
+		wantErr    bool
+		errContent string
+	}{
+		{
+			name:       "valid identifier - mysql",
+			identifier: "users",
+			dialect:    "mysql",
+			wantErr:    false,
+		},
+		{
+			name:       "valid identifier - postgres",
+			identifier: "users_table",
+			dialect:    "postgres",
+			wantErr:    false,
+		},
+		{
+			name:       "starts with underscore",
+			identifier: "_internal",
+			dialect:    "mysql",
+			wantErr:    false,
+		},
+		{
+			name:       "invalid - starts with number",
+			identifier: "123users",
+			dialect:    "mysql",
+			wantErr:    true,
+			errContent: "invalid SQL identifier",
+		},
+		{
+			name:       "invalid - contains hyphen",
+			identifier: "user-table",
+			dialect:    "mysql",
+			wantErr:    true,
+			errContent: "invalid SQL identifier",
+		},
+		{
+			name:       "exceeds postgres limit",
+			identifier: strings.Repeat("a", 64),
+			dialect:    "postgres",
+			wantErr:    true,
+			errContent: "exceeds",
+		},
+		{
+			name:       "at mysql limit (64)",
+			identifier: strings.Repeat("x", 64),
+			dialect:    "mysql",
+			wantErr:    false,
+		},
+		{
+			name:       "empty identifier",
+			identifier: "",
+			dialect:    "mysql",
+			wantErr:    true,
+			errContent: "cannot be empty",
+		},
+	}
 
-for _, tt := range tests {
-t.Run(tt.name, func(t *testing.T) {
-err := ValidateIdentifierForDialect(tt.identifier, tt.dialect)
-if (err != nil) != tt.wantErr {
-t.Errorf("ValidateIdentifierForDialect(%q, %q) error = %v, wantErr %v", tt.identifier, tt.dialect, err, tt.wantErr)
-return
-}
-if tt.wantErr && tt.errContent != "" && !strings.Contains(err.Error(), tt.errContent) {
-t.Errorf("ValidateIdentifierForDialect(%q, %q) error message %q should contain %q", tt.identifier, tt.dialect, err.Error(), tt.errContent)
-}
-})
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateIdentifierForDialect(tt.identifier, tt.dialect)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ValidateIdentifierForDialect(%q, %q) error = %v, wantErr %v", tt.identifier, tt.dialect, err, tt.wantErr)
+				return
+			}
+			if tt.wantErr && tt.errContent != "" && !strings.Contains(err.Error(), tt.errContent) {
+				t.Errorf("ValidateIdentifierForDialect(%q, %q) error message %q should contain %q", tt.identifier, tt.dialect, err.Error(), tt.errContent)
+			}
+		})
+	}
 }

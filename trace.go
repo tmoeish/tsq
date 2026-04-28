@@ -21,9 +21,9 @@ type Tracer func(next Fn) Fn
 
 // TraceManager stores and executes tracers.
 type TraceManager struct {
-	mu       sync.RWMutex
+	mu        sync.RWMutex
 	restoreMu sync.Mutex
-	tracers  []Tracer
+	tracers   []Tracer
 }
 
 func NewTraceManager() *TraceManager {
@@ -82,6 +82,7 @@ func (m *TraceManager) AddUnique(tracers ...Tracer) {
 		}
 
 		duplicated := false
+
 		for _, current := range m.tracers {
 			if sameTracer(current, tracer) {
 				duplicated = true

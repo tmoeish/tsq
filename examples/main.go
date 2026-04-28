@@ -11,6 +11,7 @@ import (
 
 	"github.com/juju/errors"
 	_ "github.com/mattn/go-sqlite3"
+
 	"github.com/tmoeish/tsq"
 	"github.com/tmoeish/tsq/examples/database"
 )
@@ -79,6 +80,7 @@ type categoryAggregateRow struct {
 
 func main() {
 	ctx := context.Background()
+
 	dbmap, cleanup, err := openExampleDB()
 	if err != nil {
 		slog.Error("open example db", "error", errors.ErrorStack(err))
@@ -138,6 +140,7 @@ func readMockSQL() ([]byte, error) {
 	}
 
 	var lastErr error
+
 	for _, path := range candidates {
 		data, err := os.ReadFile(path)
 		if err == nil {
@@ -375,6 +378,7 @@ func runInVarDemo(ctx context.Context, dbmap *tsq.DbMap) (*inVarSummary, error) 
 	}
 
 	categoryIDs := []int64{1}
+
 	items, err := tsq.List[database.Item](ctx, dbmap, query, categoryIDs)
 	if err != nil {
 		return nil, errors.Trace(err)
@@ -384,6 +388,7 @@ func runInVarDemo(ctx context.Context, dbmap *tsq.DbMap) (*inVarSummary, error) 
 	for _, item := range items {
 		names = append(names, item.Name)
 	}
+
 	sort.Strings(names)
 
 	return &inVarSummary{
@@ -417,6 +422,7 @@ func runChunkedDemo(ctx context.Context, dbmap *tsq.DbMap) (*chunkedSummary, err
 	}
 
 	names := []string{"chunk_user_alpha", "chunk_user_beta", "chunk_user_gamma"}
+
 	insertedUsers, err := tsq.List[database.User](ctx, dbmap, nameQuery, names)
 	if err != nil {
 		return nil, errors.Trace(err)

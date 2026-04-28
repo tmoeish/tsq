@@ -81,7 +81,7 @@ func validateConditionInput(cond Condition) (string, map[string]Table, []any, er
 // validateJoinColumns ensures that join columns belong to different tables
 // to prevent accidental misuse like JoinTable(col.WithTable(differentTable), col2)
 // where both columns reference the same actual table.
-func validateJoinColumns(left Column, right Column) error {
+func validateJoinColumns(left, right Column) error {
 	leftTable, err := validateColumnInput(left)
 	if err != nil {
 		return err
