@@ -1,3 +1,4 @@
 bin
 # Added by goreleaser init:
 dist/
+/tsq
