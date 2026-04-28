@@ -23,6 +23,7 @@ type exampleSummary struct {
 	Keyword   keywordSummary     `json:"keyword"`
 	Result    resultSummary      `json:"result"`
 	InVar     inVarSummary       `json:"in_var"`
+	SetOps    setOpsSummary      `json:"set_ops"`
 	Chunked   chunkedSummary     `json:"chunked"`
 }
 
@@ -59,6 +60,11 @@ type inVarSummary struct {
 	ItemNames   []string `json:"item_names"`
 }
 
+type setOpsSummary struct {
+	UnionNames  []string `json:"union_names"`
+	ExceptNames []string `json:"except_names"`
+}
+
 type chunkedSummary struct {
 	Inserted int64 `json:"inserted"`
 	Updated  int64 `json:"updated"`
@@ -76,6 +82,10 @@ type categoryAggregateRow struct {
 	Category      string
 	OrderCount    int64
 	AverageAmount float64
+}
+
+type namedRow struct {
+	Name string
 }
 
 func main() {
@@ -184,6 +194,11 @@ func runAllExamples(ctx context.Context, dbmap *tsq.DbMap) (*exampleSummary, err
 		return nil, errors.Annotate(err, "invar demo")
 	}
 
+	setOps, err := runSetOpsDemo(ctx, dbmap)
+	if err != nil {
+		return nil, errors.Annotate(err, "set operations demo")
+	}
+
 	chunked, err := runChunkedDemo(ctx, dbmap)
 	if err != nil {
 		return nil, errors.Annotate(err, "chunked demo")
@@ -196,6 +211,7 @@ func runAllExamples(ctx context.Context, dbmap *tsq.DbMap) (*exampleSummary, err
 		Keyword:   *keyword,
 		Result:    *result,
 		InVar:     *inVar,
+		SetOps:    *setOps,
 		Chunked:   *chunked,
 	}, nil
 }
@@ -394,6 +410,60 @@ func runInVarDemo(ctx context.Context, dbmap *tsq.DbMap) (*inVarSummary, error) 
 	return &inVarSummary{
 		CategoryIDs: categoryIDs,
 		ItemNames:   names,
+	}, nil
+}
+
+func runSetOpsDemo(ctx context.Context, dbmap *tsq.DbMap) (*setOpsSummary, error) {
+	categoryName := database.Category_Name.Into(func(holder any) any {
+		return &holder.(*namedRow).Name
+	}, "name")
+	itemName := database.Item_Name.Into(func(holder any) any {
+		return &holder.(*namedRow).Name
+	}, "name")
+
+	unionQuery, err := tsq.
+		Select(categoryName).
+		Where(database.Category_ID.InVar()).
+		Union(tsq.Select(itemName).Where(database.Item_CategoryID.InVar())).
+		Build()
+	if err != nil {
+		return nil, errors.Annotate(err, "build union query")
+	}
+
+	unionRows, err := tsq.List[namedRow](ctx, dbmap, unionQuery, []int64{1, 2}, []int64{1})
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	exceptQuery, err := tsq.
+		Select(itemName).
+		Except(tsq.Select(categoryName).Where(database.Category_ID.InVar())).
+		Build()
+	if err != nil {
+		return nil, errors.Annotate(err, "build except query")
+	}
+
+	exceptRows, err := tsq.List[namedRow](ctx, dbmap, exceptQuery, []int64{1, 2})
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	unionNames := make([]string, 0, len(unionRows))
+	for _, row := range unionRows {
+		unionNames = append(unionNames, row.Name)
+	}
+
+	exceptNames := make([]string, 0, len(exceptRows))
+	for _, row := range exceptRows {
+		exceptNames = append(exceptNames, row.Name)
+	}
+
+	sort.Strings(unionNames)
+	sort.Strings(exceptNames)
+
+	return &setOpsSummary{
+		UnionNames:  unionNames,
+		ExceptNames: exceptNames,
 	}, nil
 }
 

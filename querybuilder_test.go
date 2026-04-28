@@ -197,6 +197,71 @@ func TestQueryBuilder_GroupBy(t *testing.T) {
 	}
 }
 
+func TestQueryBuilder_Union(t *testing.T) {
+	users := newMockTable("users")
+	orders := newMockTable("orders")
+	userID := newMockColumn(users, "id")
+	orderUserID := newMockColumn(orders, "user_id")
+
+	qb := Select(userID).Union(Select(orderUserID))
+
+	if len(qb.spec.SetOps) != 1 {
+		t.Fatalf("expected 1 set operation, got %d", len(qb.spec.SetOps))
+	}
+
+	if qb.spec.SetOps[0].op != UnionType {
+		t.Fatalf("expected UNION operation, got %s", qb.spec.SetOps[0].op)
+	}
+}
+
+func TestQueryBuilder_SetOperationRejectsMismatchedSelectCounts(t *testing.T) {
+	users := newMockTable("users")
+	id := newMockColumn(users, "id")
+	name := newMockColumn(users, "name")
+
+	_, err := Select(id).Union(Select(id, name)).Build()
+	if err == nil {
+		t.Fatal("expected mismatched select counts to fail")
+	}
+
+	if !strings.Contains(err.Error(), "matching select column counts") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestQueryBuilder_SetOperationRejectsKeywordSearch(t *testing.T) {
+	users := newMockTable("users")
+	id := newMockColumn(users, "id")
+
+	_, err := Select(id).KwSearch(id).Union(Select(id)).Build()
+	if err == nil {
+		t.Fatal("expected keyword search with set operations to fail")
+	}
+
+	if !strings.Contains(err.Error(), "do not support keyword search") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestQueryBuilder_SetOperationBuildsWrappedCountSQL(t *testing.T) {
+	users := newMockTable("users")
+	orders := newMockTable("orders")
+	userID := newMockColumn(users, "id")
+	orderUserID := newMockColumn(orders, "user_id")
+
+	query := mustBuild(Select(userID).UnionAll(Select(orderUserID)))
+
+	wantList := `SELECT "users"."id" FROM "users" UNION ALL SELECT "orders"."user_id" FROM "orders"`
+	if query.ListSQL() != wantList {
+		t.Fatalf("expected list SQL %q, got %q", wantList, query.ListSQL())
+	}
+
+	wantCount := `SELECT COUNT(1) FROM (` + wantList + `) AS _tsq_cnt`
+	if query.CntSQL() != wantCount {
+		t.Fatalf("expected count SQL %q, got %q", wantCount, query.CntSQL())
+	}
+}
+
 func TestQueryBuilder_Having(t *testing.T) {
 	table1 := newMockTable("users")
 	col1 := newMockColumn(table1, "count")

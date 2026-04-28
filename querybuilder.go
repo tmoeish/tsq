@@ -13,6 +13,24 @@ const (
 	CrossJoinType JoinType = "CROSS JOIN"
 )
 
+// SetOperationType represents SQL compound query operators.
+type SetOperationType string
+
+const (
+	// UnionType combines distinct rows from both queries.
+	UnionType SetOperationType = "UNION"
+	// UnionAllType combines all rows from both queries, preserving duplicates.
+	UnionAllType SetOperationType = "UNION ALL"
+	// IntersectType keeps only rows present in both queries.
+	IntersectType SetOperationType = "INTERSECT"
+	// IntersectAllType keeps rows present in both queries, preserving duplicate counts.
+	IntersectAllType SetOperationType = "INTERSECT ALL"
+	// ExceptType removes rows present in the right query from the left query.
+	ExceptType SetOperationType = "EXCEPT"
+	// ExceptAllType removes rows present in the right query from the left query while preserving duplicate counts.
+	ExceptAllType SetOperationType = "EXCEPT ALL"
+)
+
 // QueryBuilder builds a structured query specification.
 type QueryBuilder struct {
 	spec                  QuerySpec
@@ -28,6 +46,12 @@ type join struct {
 	table    Table
 }
 
+type setOperation struct {
+	op                    SetOperationType
+	spec                  QuerySpec
+	allowCartesianProduct bool
+}
+
 func newQueryBuilder() *QueryBuilder {
 	return &QueryBuilder{
 		spec: QuerySpec{
@@ -35,6 +59,7 @@ func newQueryBuilder() *QueryBuilder {
 			Joins:   make([]join, 0),
 			GroupBy: make([]Column, 0),
 			Having:  make([]Condition, 0),
+			SetOps:  make([]setOperation, 0),
 		},
 	}
 }
@@ -63,6 +88,10 @@ func (qb *QueryBuilder) ensureInitialized() *QueryBuilder {
 		qb.spec.Having = make([]Condition, 0)
 	}
 
+	if qb.spec.SetOps == nil {
+		qb.spec.SetOps = make([]setOperation, 0)
+	}
+
 	return qb
 }
 
@@ -81,6 +110,84 @@ func Select(cols ...Column) *QueryBuilder {
 	qb.addSelectColumns(cols...)
 
 	return qb
+}
+
+func (qb *QueryBuilder) appendSetOperation(op SetOperationType, other *QueryBuilder) *QueryBuilder {
+	qb = qb.ensureInitialized()
+
+	if qb.buildErr != nil {
+		return qb
+	}
+
+	if other == nil {
+		qb.setBuildError(errors.New("set operation query builder cannot be nil"))
+		return qb
+	}
+
+	other = other.ensureInitialized()
+	if other.buildErr != nil {
+		qb.setBuildError(errors.Trace(other.buildErr))
+		return qb
+	}
+
+	if len(qb.spec.Selects) == 0 || len(other.spec.Selects) == 0 {
+		qb.setBuildError(errors.New("set operations require both queries to select at least one column"))
+		return qb
+	}
+
+	if len(qb.spec.Selects) != len(other.spec.Selects) {
+		qb.setBuildError(errors.Errorf(
+			"set operation %s requires matching select column counts: left=%d right=%d",
+			op,
+			len(qb.spec.Selects),
+			len(other.spec.Selects),
+		))
+
+		return qb
+	}
+
+	if len(qb.spec.KeywordSearch) > 0 || len(other.spec.KeywordSearch) > 0 {
+		qb.setBuildError(errors.New("set operations do not support keyword search"))
+		return qb
+	}
+
+	qb.spec.SetOps = append(qb.spec.SetOps, setOperation{
+		op:                    op,
+		spec:                  cloneQuerySpec(other.spec),
+		allowCartesianProduct: other.allowCartesianProduct,
+	})
+
+	return qb
+}
+
+// Union appends a UNION clause to the current query.
+func (qb *QueryBuilder) Union(other *QueryBuilder) *QueryBuilder {
+	return qb.appendSetOperation(UnionType, other)
+}
+
+// UnionAll appends a UNION ALL clause to the current query.
+func (qb *QueryBuilder) UnionAll(other *QueryBuilder) *QueryBuilder {
+	return qb.appendSetOperation(UnionAllType, other)
+}
+
+// Intersect appends an INTERSECT clause to the current query.
+func (qb *QueryBuilder) Intersect(other *QueryBuilder) *QueryBuilder {
+	return qb.appendSetOperation(IntersectType, other)
+}
+
+// IntersectAll appends an INTERSECT ALL clause to the current query.
+func (qb *QueryBuilder) IntersectAll(other *QueryBuilder) *QueryBuilder {
+	return qb.appendSetOperation(IntersectAllType, other)
+}
+
+// Except appends an EXCEPT clause to the current query.
+func (qb *QueryBuilder) Except(other *QueryBuilder) *QueryBuilder {
+	return qb.appendSetOperation(ExceptType, other)
+}
+
+// ExceptAll appends an EXCEPT ALL clause to the current query.
+func (qb *QueryBuilder) ExceptAll(other *QueryBuilder) *QueryBuilder {
+	return qb.appendSetOperation(ExceptAllType, other)
 }
 
 func (qb *QueryBuilder) setBuildError(err error) {

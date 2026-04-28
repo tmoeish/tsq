@@ -17,6 +17,7 @@ type QuerySpec struct {
 	Joins         []join
 	GroupBy       []Column
 	Having        []Condition
+	SetOps        []setOperation
 }
 
 type queryPlan struct {
@@ -36,6 +37,10 @@ func buildQueryPlan(spec QuerySpec, allowCartesianProduct bool) (*queryPlan, err
 	}
 
 	if err := spec.validateJoinGraph(allowCartesianProduct); err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	if err := spec.validateSetOperations(); err != nil {
 		return nil, errors.Trace(err)
 	}
 
@@ -143,6 +148,11 @@ func (spec QuerySpec) tablesForConditions(conds []Condition) map[string]Table {
 }
 
 func (spec QuerySpec) buildCntSQL() (string, []any) {
+	if len(spec.SetOps) > 0 {
+		listSQL, listArgs := spec.buildListSQL()
+		return spec.wrapCountSQL(listSQL), listArgs
+	}
+
 	if spec.requiresWrappedCount() {
 		listSQL, listArgs := spec.buildListSQL()
 		return spec.wrapCountSQL(listSQL), listArgs
@@ -154,6 +164,14 @@ func (spec QuerySpec) buildCntSQL() (string, []any) {
 }
 
 func (spec QuerySpec) buildListSQL() (string, []any) {
+	if len(spec.SetOps) > 0 {
+		return spec.buildCompoundListSQL(false)
+	}
+
+	return spec.buildSimpleListSQL()
+}
+
+func (spec QuerySpec) buildSimpleListSQL() (string, []any) {
 	selectSQL, selectArgs := spec.buildSelect()
 	whereSQL, whereArgs := spec.buildListWhere()
 	groupBySQL, groupByArgs := spec.buildGroupBy()
@@ -168,6 +186,11 @@ func (spec QuerySpec) buildListSQL() (string, []any) {
 }
 
 func (spec QuerySpec) buildKwCntSQL() (string, []any) {
+	if len(spec.SetOps) > 0 {
+		listSQL, listArgs := spec.buildKwListSQL()
+		return spec.wrapCountSQL(listSQL), listArgs
+	}
+
 	if spec.requiresWrappedCount() {
 		listSQL, listArgs := spec.buildKwListSQL()
 		return spec.wrapCountSQL(listSQL), listArgs
@@ -179,6 +202,14 @@ func (spec QuerySpec) buildKwCntSQL() (string, []any) {
 }
 
 func (spec QuerySpec) buildKwListSQL() (string, []any) {
+	if len(spec.SetOps) > 0 {
+		return spec.buildCompoundListSQL(true)
+	}
+
+	return spec.buildSimpleKwListSQL()
+}
+
+func (spec QuerySpec) buildSimpleKwListSQL() (string, []any) {
 	selectSQL, selectArgs := spec.buildSelect()
 	whereSQL, whereArgs := spec.buildPageWhere()
 	groupBySQL, groupByArgs := spec.buildGroupBy()
@@ -190,6 +221,44 @@ func (spec QuerySpec) buildKwListSQL() (string, []any) {
 	args = append(args, havingArgs...)
 
 	return selectSQL + spec.buildPageFrom() + whereSQL + groupBySQL + havingSQL, args
+}
+
+func (spec QuerySpec) buildCompoundListSQL(useKeyword bool) (string, []any) {
+	baseSQL, baseArgs := spec.buildSimpleCompoundOperandSQL(useKeyword)
+	args := slices.Clone(baseArgs)
+
+	var builder strings.Builder
+	builder.WriteString(baseSQL)
+
+	for _, op := range spec.SetOps {
+		rightSQL, rightArgs := op.spec.buildOperandSQL(useKeyword)
+
+		builder.WriteByte(' ')
+		builder.WriteString(string(op.op))
+		builder.WriteByte(' ')
+		builder.WriteString(rightSQL)
+
+		args = append(args, rightArgs...)
+	}
+
+	return builder.String(), args
+}
+
+func (spec QuerySpec) buildOperandSQL(useKeyword bool) (string, []any) {
+	if len(spec.SetOps) > 0 {
+		sql, args := spec.buildCompoundListSQL(useKeyword)
+		return "(" + sql + ")", args
+	}
+
+	return spec.buildSimpleCompoundOperandSQL(useKeyword)
+}
+
+func (spec QuerySpec) buildSimpleCompoundOperandSQL(useKeyword bool) (string, []any) {
+	if useKeyword {
+		return spec.buildSimpleKwListSQL()
+	}
+
+	return spec.buildSimpleListSQL()
 }
 
 func (spec QuerySpec) buildSelect() (string, []any) {
@@ -392,7 +461,8 @@ func (spec QuerySpec) buildPageFrom() string {
 }
 
 func (spec QuerySpec) requiresWrappedCount() bool {
-	return len(spec.GroupBy) > 0 ||
+	return len(spec.SetOps) > 0 ||
+		len(spec.GroupBy) > 0 ||
 		len(spec.Having) > 0 ||
 		spec.hasDistinctSelect() ||
 		spec.hasAggregateSelect()
@@ -428,6 +498,64 @@ func (spec QuerySpec) hasAggregateSelect() bool {
 	}
 
 	return false
+}
+
+func (spec QuerySpec) validateSetOperations() error {
+	if len(spec.SetOps) == 0 {
+		return nil
+	}
+
+	if len(spec.KeywordSearch) > 0 {
+		return errors.New("set operations do not support keyword search")
+	}
+
+	leftCount := len(spec.Selects)
+	for _, op := range spec.SetOps {
+		if len(op.spec.Selects) != leftCount {
+			return errors.Errorf(
+				"set operation %s requires matching select column counts: left=%d right=%d",
+				op.op,
+				leftCount,
+				len(op.spec.Selects),
+			)
+		}
+
+		if len(op.spec.KeywordSearch) > 0 {
+			return errors.New("set operations do not support keyword search")
+		}
+
+		if err := op.spec.validateJoinGraph(op.allowCartesianProduct); err != nil {
+			return errors.Trace(err)
+		}
+
+		if err := op.spec.validateSetOperations(); err != nil {
+			return errors.Trace(err)
+		}
+	}
+
+	return nil
+}
+
+func cloneQuerySpec(spec QuerySpec) QuerySpec {
+	cloned := QuerySpec{
+		Selects:       slices.Clone(spec.Selects),
+		Filters:       slices.Clone(spec.Filters),
+		KeywordSearch: slices.Clone(spec.KeywordSearch),
+		Joins:         slices.Clone(spec.Joins),
+		GroupBy:       slices.Clone(spec.GroupBy),
+		Having:        slices.Clone(spec.Having),
+		SetOps:        make([]setOperation, 0, len(spec.SetOps)),
+	}
+
+	for _, op := range spec.SetOps {
+		cloned.SetOps = append(cloned.SetOps, setOperation{
+			op:                    op.op,
+			spec:                  cloneQuerySpec(op.spec),
+			allowCartesianProduct: op.allowCartesianProduct,
+		})
+	}
+
+	return cloned
 }
 
 func (spec QuerySpec) crossJoinBaseTable(joinTable string, allTables map[string]Table) Table {

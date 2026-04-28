@@ -41,6 +41,10 @@ func TestRunAllExamples(t *testing.T) {
 		t.Fatal("expected InVar demo to return items")
 	}
 
+	if len(summary.SetOps.UnionNames) == 0 || len(summary.SetOps.ExceptNames) == 0 {
+		t.Fatal("expected set operation demo to return rows")
+	}
+
 	if summary.Chunked.Before != summary.Chunked.After {
 		t.Fatalf("expected chunked demo to leave user count unchanged, got before=%d after=%d", summary.Chunked.Before, summary.Chunked.After)
 	}

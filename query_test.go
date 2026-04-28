@@ -181,6 +181,30 @@ func TestQueryBuilder_Build_FullJoinDefersDialectValidationToExecution(t *testin
 	}
 }
 
+func TestQueryBuilder_Build_SetOperationPaginationUsesOutputColumnNames(t *testing.T) {
+	users := newMockTable("users")
+	orders := newMockTable("orders")
+	userID := newMockColumn(users, "id")
+	orderUserID := newMockColumn(orders, "user_id")
+
+	query := mustBuild(Select(userID).Union(Select(orderUserID)))
+	page := &PageReq{Page: 1, Size: 10, OrderBy: "id", Order: "asc"}
+
+	_, listSQL, err := query.buildPageSQLs(page)
+	if err != nil {
+		t.Fatalf("expected page SQL build to succeed, got %v", err)
+	}
+
+	if !strings.Contains(listSQL, "ORDER BY "+rawIdentifier("id")+" ASC") {
+		t.Fatalf("expected compound query to order by output column name, got %q", listSQL)
+	}
+
+	orderClause := listSQL[strings.Index(listSQL, "ORDER BY "):]
+	if strings.Contains(orderClause, rawIdentifier("users")+"."+rawIdentifier("id")) {
+		t.Fatalf("expected compound query ordering to avoid table-qualified columns, got %q", listSQL)
+	}
+}
+
 func TestQueryBuilder_MustBuild_Success(t *testing.T) {
 	table := newMockTable("users")
 	col := newMockColumn(table, "id")

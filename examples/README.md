@@ -43,6 +43,7 @@ See `main.go` for:
 - Keyword search and pagination
 - Result join queries
 - `InVar`-based dynamic `IN (...)` filters
+- Set operations (`UNION`, `INTERSECT`, `EXCEPT`)
 - Chunked insert / update / delete / delete-by-ids
 
 ## Notes

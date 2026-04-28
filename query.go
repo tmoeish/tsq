@@ -162,6 +162,7 @@ type Query struct {
 	selectTables map[string]Table
 	kwCols       []Column
 	kwTables     map[string]Table
+	hasSetOps    bool
 }
 
 type externalSliceArgMarker struct{}
@@ -280,6 +281,7 @@ func (qb *QueryBuilder) Build() (*Query, error) {
 		selectTables: qb.spec.selectTables(),
 		kwCols:       slices.Clone(qb.spec.KeywordSearch),
 		kwTables:     qb.spec.keywordTables(),
+		hasSetOps:    len(qb.spec.SetOps) > 0,
 	}, nil
 }
 
@@ -886,10 +888,20 @@ func (q *Query) buildPageSQLs(page *PageReq) (string, string, error) {
 	}
 
 	for _, f := range q.selectCols {
-		registerSortableField(f.Name(), rawColumnQualifiedName(f))
+		sortExpr := rawColumnQualifiedName(f)
+		if q.hasSetOps {
+			sortExpr = rawIdentifier(f.Name())
+		}
+
+		registerSortableField(f.Name(), sortExpr)
 
 		if f.JSONFieldName() != "" && f.JSONFieldName() != "-" {
-			registerSortableField(f.JSONFieldName(), rawColumnQualifiedName(f))
+			jsonSortExpr := rawColumnQualifiedName(f)
+			if q.hasSetOps {
+				jsonSortExpr = rawIdentifier(f.JSONFieldName())
+			}
+
+			registerSortableField(f.JSONFieldName(), jsonSortExpr)
 		}
 	}
 

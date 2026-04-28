@@ -9,6 +9,16 @@
 
 ## [Unreleased]
 
+## [3.1.0] - 2026-04-28
+
+### 新增
+- 增加标准 SQL 集合查询 API：`Union`、`UnionAll`、`Intersect`、`IntersectAll`、`Except`、`ExceptAll`
+
+### 改进
+- 复合查询的 `COUNT` 现在会自动包裹子查询，保证分页统计与聚合统计语义正确
+- 复合查询分页排序改为基于结果列名生成 `ORDER BY`，避免在 compound query 上错误引用原表限定名
+- 更新 README、`examples/main.go` 与 `examples/README.md`，补充集合查询的可运行示例
+
 ## [3.0.2] - 2026-04-28
 
 ### 改进
