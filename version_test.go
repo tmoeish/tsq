@@ -14,8 +14,8 @@ func TestGetVersion(t *testing.T) {
 
 	// Test with current value (release builds may vary)
 	currentVersion := GetVersion()
-	if currentVersion != "v3.0.0" && currentVersion != "dev" {
-		t.Errorf("Expected version to be 'v3.0.0' or 'dev', got '%s'", GetVersion())
+	if currentVersion != "v3.0.1" && currentVersion != "dev" {
+		t.Errorf("Expected version to be 'v3.0.1' or 'dev', got '%s'", GetVersion())
 	}
 
 	// Test with custom value

@@ -9,6 +9,18 @@
 
 ## [Unreleased]
 
+## [3.0.1] - 2026-04-28
+
+### 新增
+- 新增仓库级 `AGENT.md`，统一 coding agent / IDE assistant 的项目规则、验证顺序和 Go 开发约束
+
+### 改进
+- 用软链统一常见 agent / IDE 入口文件，避免多份规则副本长期漂移
+
+### 修复
+- 停止跟踪本地构建与本地工具产物：移除根目录 `tsq`、`coverage.out` 与 `.claude/settings.local.json`
+- 更新 `.gitignore`，避免上述本地文件再次被误提交
+
 ## [3.0.0] - 2026-04-28
 
 ### 变更（Breaking Changes）
