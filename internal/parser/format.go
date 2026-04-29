@@ -188,11 +188,16 @@ func formatLineCommentGroup(group *ast.CommentGroup) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	formattedLines = padLineCommentPreformattedBlock(formattedLines)
 
-	replacement := make([]string, 0, len(rawLines)-((loc.endLine-loc.startLine)+1)+len(formattedLines))
-	replacement = append(replacement, rawLines[:loc.startLine]...)
+	prefix := trimTrailingBlankCommentLines(rawLines[:loc.startLine])
+	suffix := trimLeadingBlankCommentLines(rawLines[loc.endLine+1:])
+	suffix = trimTrailingBlankCommentLines(suffix)
+
+	replacement := make([]string, 0, len(prefix)+len(formattedLines)+len(suffix))
+	replacement = append(replacement, prefix...)
 	replacement = append(replacement, renderLineCommentLines(formattedLines)...)
-	replacement = append(replacement, rawLines[loc.endLine+1:]...)
+	replacement = append(replacement, suffix...)
 
 	return strings.Join(replacement, "\n"), nil
 }
@@ -224,12 +229,63 @@ func formatBlockCommentGroup(group *ast.CommentGroup) (string, error) {
 		return "", err
 	}
 
-	replacement := make([]string, 0, len(bodyLines)-((loc.endLine-loc.startLine)+1)+len(formattedLines))
-	replacement = append(replacement, bodyLines[:loc.startLine]...)
-	replacement = append(replacement, formattedLines...)
-	replacement = append(replacement, bodyLines[loc.endLine+1:]...)
+	prefix := trimTrailingBlankCommentLines(bodyLines[:loc.startLine])
+	suffix := trimLeadingBlankCommentLines(bodyLines[loc.endLine+1:])
+	suffix = trimTrailingBlankCommentLines(suffix)
 
-	return "/*" + strings.Join(replacement, "\n") + "*/", nil
+	if len(prefix) > 0 && len(formattedLines) > 0 && isIndentedCommentLine(formattedLines[0]) {
+		prefix = append(prefix, "")
+	}
+
+	if len(suffix) > 0 && len(formattedLines) > 0 && isIndentedCommentLine(formattedLines[len(formattedLines)-1]) {
+		suffix = append([]string{""}, suffix...)
+	}
+
+	replacement := make([]string, 0, len(prefix)+len(formattedLines)+len(suffix))
+	replacement = append(replacement, prefix...)
+	replacement = append(replacement, formattedLines...)
+	replacement = append(replacement, suffix...)
+
+	if len(replacement) == 0 {
+		return "/**/", nil
+	}
+
+	return "/*" + strings.Join(replacement, "\n") + "\n*/", nil
+}
+
+func trimLeadingBlankCommentLines(lines []string) []string {
+	start := 0
+	for start < len(lines) && CleanCommentPrefix(lines[start]) == "" {
+		start++
+	}
+
+	return lines[start:]
+}
+
+func trimTrailingBlankCommentLines(lines []string) []string {
+	end := len(lines)
+	for end > 0 && CleanCommentPrefix(lines[end-1]) == "" {
+		end--
+	}
+
+	return lines[:end]
+}
+
+func padLineCommentPreformattedBlock(lines []string) []string {
+	if len(lines) < 3 || !isIndentedCommentLine(lines[1]) {
+		return lines
+	}
+
+	padded := make([]string, 0, len(lines)+2)
+	padded = append(padded, lines[0], "")
+	padded = append(padded, lines[1:len(lines)-1]...)
+	padded = append(padded, "", lines[len(lines)-1])
+
+	return padded
+}
+
+func isIndentedCommentLine(line string) bool {
+	return strings.TrimLeft(line, " \t") != line
 }
 
 func locateAnnotation(lines []string) (annotationLocation, bool, error) {

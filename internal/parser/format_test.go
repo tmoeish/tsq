@@ -38,6 +38,7 @@ type Order struct{}
 	want := strings.Join([]string{
 		"// 订单表",
 		"// @TABLE(",
+		"//",
 		"//\tpk=\"UID,true\",",
 		"//\tversion,",
 		"//\tcreated_at,",
@@ -47,6 +48,7 @@ type Order struct{}
 		"//\t\t{fields=[\"UserID\", \"ItemID\"]},",
 		"//\t\t{name=\"IdxItem\", fields=[\"ItemID\"]},",
 		"//\t],",
+		"//",
 		"// )",
 	}, "\n")
 
@@ -148,9 +150,9 @@ type UserOrder struct{}
 	got := string(gotBytes)
 	for _, want := range []string{
 		`// this prose mention should stay untouched: @TABLE(name="noop")`,
-		"// @TABLE(",
-		"//\tcreated_at,",
+		"// 用户表\n// @TABLE(\n//\n//\tcreated_at,",
 		"//\tkw=[\"Name\", \"Email\"],",
+		"Item 商品表\n\n\t@TABLE(",
 		"\t\t{fields=[\"Name\"]},",
 		"// @RESULT(name=\"UserOrder\")",
 	} {

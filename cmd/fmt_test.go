@@ -23,7 +23,7 @@ func TestFmtCmdHelpDocumentsInputsAndBehavior(t *testing.T) {
 		"relative directory",
 		"absolute directory",
 		"@TABLE / @RESULT",
-		"keeps other comment text untouched",
+		"keeps surrounding prose text while tightening spacing around annotations",
 	} {
 		if !strings.Contains(help, want) {
 			t.Fatalf("expected fmt help to mention %q, got:\n%s", want, help)
@@ -69,8 +69,8 @@ type User struct {
 	}
 
 	for _, want := range []string{
-		"// @TABLE(",
-		"//\tcreated_at,",
+		"// 用户表\n// @TABLE(",
+		"// @TABLE(\n//\n//\tcreated_at,",
 		"//\tkw=[\"Name\", \"Email\"],",
 	} {
 		if !strings.Contains(string(formatted), want) {

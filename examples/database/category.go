@@ -7,7 +7,6 @@ import (
 )
 
 // Category 分类表
-//
 // @TABLE(
 //
 //	name="category",

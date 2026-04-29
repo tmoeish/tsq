@@ -21,8 +21,8 @@ Accepted inputs:
 
 Formatting behavior:
   - rewrites only @TABLE / @RESULT annotations attached to struct declarations
-  - keeps other comment text untouched
-  - normalizes key order, indentation, commas, and string quoting`,
+  - keeps surrounding prose text while tightening spacing around annotations
+  - normalizes key order, indentation, blank lines, commas, and string quoting`,
 	Example: "  tsq fmt ./examples/database\n  tsq fmt github.com/tmoeish/tsq/examples/database",
 	Args:    exactOnePackageArgFor("fmt"),
 	RunE: func(cmd *cobra.Command, args []string) error {
