@@ -9,6 +9,18 @@
 
 ## [Unreleased]
 
+## [3.6.0] - 2026-04-29
+
+### 新增
+- `tsq gen` 现在会同时生成并维护 `sqlite.sql` / `mysql.sql` / `postgres.sql`、按需生成的 `*.incremental.sql`，以及与生成代码同目录跟踪的 `ddl.json`
+
+### 改进
+- DDL 增量基于 `ddl.json` 中的 schema snapshot 和按表分组的变更记录计算，记录使用 `time.DateTime` 时间戳并以格式化 JSON 输出
+- `tsq gen -v` 现在会输出按表分组的 DDL 变更摘要；终端输出时会按 table / create / add / alter / drop 使用不同高亮，非终端输出保持纯文本
+- SQLite 遇到列类型变更时，现在会生成可执行的重建表增量 DDL，而不是仅给出手工处理提示
+- CLI 错误输出改为运行时错误默认静默 usage，终端中以彩色 `Error:` 前缀呈现；DSL 字段不存在时的提示也更明确，会说明应使用 Go struct 字段名而不是 db 列名
+- `examples/database` 同步纳入生成的 DDL SQL/JSON 工件，并修正 `Item` DSL 中 `IdxSPU` 对 `SPUID` 字段的引用
+
 ## [3.5.1] - 2026-04-29
 
 ### 改进

@@ -79,6 +79,9 @@ tsq gen ./database
 
 - `database/user_tsq.go`：`User` 表的列、CRUD、分页和查询助手
 - `database/*_result_tsq.go`：只在你声明 `@RESULT` 时生成
+- `database/sqlite.sql` / `database/mysql.sql` / `database/postgres.sql`：每种内置方言的最新全量 DDL
+- `database/<dialect>.incremental.sql`：有 schema 增量时，基于 `ddl.json` 的最新增量 DDL
+- `database/ddl.json`：最新 schema snapshot 与增量历史记录，用于后续 `tsq gen` 对账
 
 如果目标文件已经存在，TSQ 只会覆盖**已有的生成文件**；遇到手写文件会拒绝覆盖并直接报错。
 

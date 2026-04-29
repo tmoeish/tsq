@@ -2,11 +2,14 @@ package cmd
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"text/template"
+	"time"
 
 	"github.com/tmoeish/tsq"
 )
@@ -52,6 +55,8 @@ func TestGenCmdHelpDocumentsInputsAndOverwriteBehavior(t *testing.T) {
 		"relative directory",
 		"<struct>_tsq.go",
 		"<result>_result_tsq.go",
+		"sqlite.sql / mysql.sql / postgres.sql",
+		"ddl.json",
 		`refuses to overwrite non-generated files`,
 		"--dry-run",
 		"--check",
@@ -59,6 +64,405 @@ func TestGenCmdHelpDocumentsInputsAndOverwriteBehavior(t *testing.T) {
 	} {
 		if !strings.Contains(help, want) {
 			t.Fatalf("expected gen help to mention %q, got:\n%s", want, help)
+		}
+	}
+}
+
+func TestGenCmdGeneratesDDLArtifactsAndGuidance(t *testing.T) {
+	t.Cleanup(func() {
+		dryRunFlag = false
+		checkFlag = false
+		v = false
+		GenCmd.SetArgs(nil)
+	})
+
+	dir := t.TempDir()
+	writeTestFile(t, filepath.Join(dir, "go.mod"), genTestModuleFile(t))
+	writeTestFile(t, filepath.Join(dir, "model.go"), `package gentest
+
+import "time"
+
+// @TABLE(name="users", pk="ID,true", created_at)
+type User struct {
+	ID        int64     `+"`db:\"id\"`"+`
+	CreatedAt time.Time `+"`db:\"created_at\"`"+`
+	Name      string    `+"`db:\"name,size:128\"`"+`
+}
+`)
+	chdirForGenTest(t, dir)
+	tidyGenTestModule(t)
+
+	stdout := new(bytes.Buffer)
+	stderr := new(bytes.Buffer)
+	GenCmd.SetOut(stdout)
+	GenCmd.SetErr(stderr)
+	GenCmd.SetArgs([]string{"."})
+
+	if err := GenCmd.Execute(); err != nil {
+		t.Fatalf("GenCmd.Execute() error = %v", err)
+	}
+
+	for _, name := range []string{
+		"user_tsq.go",
+		"sqlite.sql",
+		"mysql.sql",
+		"postgres.sql",
+		ddlStateFilename,
+	} {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			t.Fatalf("expected generated artifact %s to exist: %v", name, err)
+		}
+	}
+
+	for _, name := range []string{
+		"sqlite.incremental.sql",
+		"mysql.incremental.sql",
+		"postgres.incremental.sql",
+	} {
+		if _, err := os.Stat(filepath.Join(dir, name)); !os.IsNotExist(err) {
+			t.Fatalf("expected first run to skip %s, got err=%v", name, err)
+		}
+	}
+
+	if got := stderr.String(); !strings.Contains(got, "sqlite=sqlite.sql mysql=mysql.sql postgres=postgres.sql") {
+		t.Fatalf("expected stderr guidance to mention full ddl files, got:\n%s", got)
+	}
+
+	stateBytes, err := os.ReadFile(filepath.Join(dir, ddlStateFilename))
+	if err != nil {
+		t.Fatalf("failed to read ddl state file: %v", err)
+	}
+	if !strings.Contains(string(stateBytes), "\n  \"generated_by\": ") {
+		t.Fatalf("expected ddl state file to be pretty-printed, got:\n%s", string(stateBytes))
+	}
+
+	var state ddlStateFile
+	if err := json.Unmarshal(stateBytes, &state); err != nil {
+		t.Fatalf("failed to parse ddl state file: %v", err)
+	}
+	if len(state.Records) != 0 {
+		t.Fatalf("expected first run to skip incremental records, got %d", len(state.Records))
+	}
+}
+
+func TestGenCmdGeneratesIncrementalDDLOnSubsequentRuns(t *testing.T) {
+	t.Cleanup(func() {
+		dryRunFlag = false
+		checkFlag = false
+		v = false
+		GenCmd.SetArgs(nil)
+	})
+
+	dir := t.TempDir()
+	modelPath := filepath.Join(dir, "model.go")
+	writeTestFile(t, filepath.Join(dir, "go.mod"), genTestModuleFile(t))
+	writeTestFile(t, modelPath, `package gentest
+
+// @TABLE(name="users")
+type User struct {
+	ID int64 `+"`db:\"id\"`"+`
+}
+`)
+	chdirForGenTest(t, dir)
+	tidyGenTestModule(t)
+
+	GenCmd.SetOut(new(bytes.Buffer))
+	GenCmd.SetErr(new(bytes.Buffer))
+	GenCmd.SetArgs([]string{"."})
+	if err := GenCmd.Execute(); err != nil {
+		t.Fatalf("initial GenCmd.Execute() error = %v", err)
+	}
+
+	writeTestFile(t, modelPath, `package gentest
+
+// @TABLE(name="users")
+type User struct {
+	ID   int64  `+"`db:\"id\"`"+`
+	Name string `+"`db:\"name,size:128\"`"+`
+}
+`)
+
+	stderr := new(bytes.Buffer)
+	v = true
+	GenCmd.SetOut(new(bytes.Buffer))
+	GenCmd.SetErr(stderr)
+	GenCmd.SetArgs([]string{"."})
+	if err := GenCmd.Execute(); err != nil {
+		t.Fatalf("second GenCmd.Execute() error = %v", err)
+	}
+
+	incremental, err := os.ReadFile(filepath.Join(dir, "postgres.incremental.sql"))
+	if err != nil {
+		t.Fatalf("failed to read postgres incremental ddl: %v", err)
+	}
+	if !strings.Contains(string(incremental), `ALTER TABLE "users" ADD COLUMN "name" VARCHAR(128) NOT NULL;`) {
+		t.Fatalf("expected postgres incremental ddl to add name column, got:\n%s", string(incremental))
+	}
+
+	if got := stderr.String(); !strings.Contains(got, "sqlite=sqlite.incremental.sql mysql=mysql.incremental.sql postgres=postgres.incremental.sql") {
+		t.Fatalf("expected stderr guidance to mention incremental ddl files, got:\n%s", got)
+	}
+	if got := stderr.String(); !strings.Contains(got, "ddl:\n  <users>:\n    columns:\n      add column name\n") {
+		t.Fatalf("expected stderr summary to mention actual ddl diff, got:\n%s", got)
+	}
+
+	stateBytes, err := os.ReadFile(filepath.Join(dir, ddlStateFilename))
+	if err != nil {
+		t.Fatalf("failed to read ddl state file: %v", err)
+	}
+
+	var state ddlStateFile
+	if err := json.Unmarshal(stateBytes, &state); err != nil {
+		t.Fatalf("failed to parse ddl state file: %v", err)
+	}
+	if len(state.Records) != 1 {
+		t.Fatalf("expected one incremental record after schema change, got %d", len(state.Records))
+	}
+	if len(state.Records[0].Tables) != 1 || state.Records[0].Tables[0].Table != "users" {
+		t.Fatalf("expected record tables to be grouped by table, got %#v", state.Records[0].Tables)
+	}
+	if len(state.Records[0].Tables[0].Columns) != 1 || state.Records[0].Tables[0].Columns[0] != "add column name" {
+		t.Fatalf("expected grouped column diff in record, got %#v", state.Records[0].Tables[0])
+	}
+	if state.Records[0].Sequence == "" {
+		t.Fatal("expected record sequence to use time.DateTime format")
+	}
+	if _, err := time.Parse(time.DateTime, state.Records[0].Sequence); err != nil {
+		t.Fatalf("expected record sequence to match time.DateTime, got %q: %v", state.Records[0].Sequence, err)
+	}
+
+	stderr.Reset()
+	GenCmd.SetOut(new(bytes.Buffer))
+	GenCmd.SetErr(stderr)
+	GenCmd.SetArgs([]string{"."})
+	if err := GenCmd.Execute(); err != nil {
+		t.Fatalf("third GenCmd.Execute() error = %v", err)
+	}
+
+	for _, name := range []string{
+		"sqlite.incremental.sql",
+		"mysql.incremental.sql",
+		"postgres.incremental.sql",
+	} {
+		if _, err := os.Stat(filepath.Join(dir, name)); !os.IsNotExist(err) {
+			t.Fatalf("expected no-change run to remove %s, got err=%v", name, err)
+		}
+	}
+
+	if got := stderr.String(); strings.Contains(got, "incremental.sql") {
+		t.Fatalf("expected no-change run to skip ddl guidance, got:\n%s", got)
+	}
+	if got := stderr.String(); !strings.Contains(got, "ddl: no schema changes") {
+		t.Fatalf("expected no-change run to report no ddl changes, got:\n%s", got)
+	}
+
+	stateBytes, err = os.ReadFile(filepath.Join(dir, ddlStateFilename))
+	if err != nil {
+		t.Fatalf("failed to read ddl state file after no-change run: %v", err)
+	}
+	if err := json.Unmarshal(stateBytes, &state); err != nil {
+		t.Fatalf("failed to parse ddl state file after no-change run: %v", err)
+	}
+	if len(state.Records) != 1 {
+		t.Fatalf("expected no-change run to skip empty incremental record, got %d", len(state.Records))
+	}
+}
+
+func TestNewDDLTypeResolverAllowsExamplePackageWithoutGeneratedFiles(t *testing.T) {
+	resolver, err := newDDLTypeResolver(
+		"github.com/tmoeish/tsq/examples/database",
+		filepath.Join("..", "examples", "database"),
+	)
+	if err != nil {
+		t.Fatalf("newDDLTypeResolver() error = %v", err)
+	}
+	if resolver == nil {
+		t.Fatal("expected resolver to be created")
+	}
+}
+
+func TestPrintDDLChangeSummary(t *testing.T) {
+	t.Run("changed", func(t *testing.T) {
+		buf := new(bytes.Buffer)
+		printDDLChangeSummary(buf, ddlArtifacts{
+			hasChange: true,
+			recordTables: []ddlStateRecordTable{
+				{
+					Table:   "category",
+					Columns: []string{"add column name", "drop column abc"},
+					Indexes: []string{"add unique index ux_name", "drop index idx_type"},
+				},
+			},
+		})
+		if got := buf.String(); got != "ddl:\n  <category>:\n    columns:\n      add column name\n      drop column abc\n    indexes:\n      add unique index ux_name\n      drop index idx_type\n" {
+			t.Fatalf("unexpected ddl summary %q", got)
+		}
+	})
+
+	t.Run("table grouped order", func(t *testing.T) {
+		buf := new(bytes.Buffer)
+		recordTables := buildDDLRecordTables(ddlChangeSet{
+			Tables: []string{"category", "item"},
+			ByTable: map[string][]ddlChange{
+				"category": {
+					{
+						kind:      ddlChangeAlterColumn,
+						table:     "category",
+						oldColumn: &ddlSnapshotColumn{Name: "abc", Kind: ddlColumnBool},
+						newColumn: &ddlSnapshotColumn{Name: "abc", Kind: ddlColumnString},
+					},
+				},
+				"item": {
+					{
+						kind:      ddlChangeAddColumn,
+						table:     "item",
+						newColumn: &ddlSnapshotColumn{Name: "sku"},
+					},
+					{
+						kind:      ddlChangeDropColumn,
+						table:     "item",
+						oldColumn: &ddlSnapshotColumn{Name: "spu_name"},
+					},
+				},
+			},
+		})
+		printDDLChangeSummary(buf, ddlArtifacts{
+			hasChange:    true,
+			recordTables: recordTables,
+		})
+		if got := buf.String(); got != "ddl:\n  <category>:\n    columns:\n      alter column abc (type)\n  <item>:\n    columns:\n      add column sku\n      drop column spu_name\n" {
+			t.Fatalf("unexpected grouped ddl order %q", got)
+		}
+		if len(recordTables) != 2 || recordTables[0].Table != "category" || recordTables[1].Table != "item" {
+			t.Fatalf("unexpected record table grouping: %#v", recordTables)
+		}
+	})
+
+	t.Run("new table expands columns and indexes", func(t *testing.T) {
+		recordTables := buildDDLRecordTables(ddlChangeSet{
+			Tables: []string{"new_table"},
+			ByTable: map[string][]ddlChange{
+				"new_table": {
+					{
+						kind:  ddlChangeCreateTable,
+						table: "new_table",
+						newTable: &ddlSnapshotTable{
+							Name: "new_table",
+							Columns: []ddlSnapshotColumn{
+								{Name: "id"},
+								{Name: "name"},
+							},
+							Indexes: []ddlSnapshotIndex{
+								{Name: "ux_name", Unique: true},
+								{Name: "idx_name"},
+							},
+						},
+					},
+				},
+			},
+		})
+		if len(recordTables) != 1 {
+			t.Fatalf("expected one record table, got %#v", recordTables)
+		}
+		if got := recordTables[0].Columns; strings.Join(got, ",") != "create table" {
+			t.Fatalf("unexpected create table columns %#v", got)
+		}
+		if got := recordTables[0].Indexes; len(got) != 0 {
+			t.Fatalf("unexpected create table indexes %#v", got)
+		}
+
+		buf := new(bytes.Buffer)
+		printDDLChangeSummary(buf, ddlArtifacts{
+			hasChange:    true,
+			recordTables: recordTables,
+		})
+		if got := buf.String(); got != "ddl:\n  <new_table>:\n    create table\n" {
+			t.Fatalf("unexpected create table summary %q", got)
+		}
+	})
+
+	t.Run("drop table is single line", func(t *testing.T) {
+		buf := new(bytes.Buffer)
+		printDDLChangeSummary(buf, ddlArtifacts{
+			hasChange: true,
+			recordTables: []ddlStateRecordTable{
+				{Table: "new_table", Columns: []string{"drop table"}},
+			},
+		})
+		if got := buf.String(); got != "ddl:\n  <new_table>:\n    drop table\n" {
+			t.Fatalf("unexpected drop table summary %q", got)
+		}
+	})
+
+	t.Run("unchanged", func(t *testing.T) {
+		buf := new(bytes.Buffer)
+		printDDLChangeSummary(buf, ddlArtifacts{})
+		if got := buf.String(); got != "ddl: no schema changes\n" {
+			t.Fatalf("unexpected ddl summary %q", got)
+		}
+	})
+}
+
+func TestGenCmdGeneratesSQLiteRebuildDDLForTypeChange(t *testing.T) {
+	t.Cleanup(func() {
+		dryRunFlag = false
+		checkFlag = false
+		v = false
+		GenCmd.SetArgs(nil)
+	})
+
+	dir := t.TempDir()
+	modelPath := filepath.Join(dir, "model.go")
+	writeTestFile(t, filepath.Join(dir, "go.mod"), genTestModuleFile(t))
+	writeTestFile(t, modelPath, `package gentest
+
+// @TABLE(name="users")
+type User struct {
+	ID   int64 `+"`db:\"id\"`"+`
+	Name int64 `+"`db:\"name\"`"+`
+}
+`)
+	chdirForGenTest(t, dir)
+	tidyGenTestModule(t)
+
+	GenCmd.SetOut(new(bytes.Buffer))
+	GenCmd.SetErr(new(bytes.Buffer))
+	GenCmd.SetArgs([]string{"."})
+	if err := GenCmd.Execute(); err != nil {
+		t.Fatalf("initial GenCmd.Execute() error = %v", err)
+	}
+
+	writeTestFile(t, modelPath, `package gentest
+
+// @TABLE(name="users")
+type User struct {
+	ID   int64  `+"`db:\"id\"`"+`
+	Name string `+"`db:\"name,size:128\"`"+`
+}
+`)
+
+	GenCmd.SetOut(new(bytes.Buffer))
+	GenCmd.SetErr(new(bytes.Buffer))
+	GenCmd.SetArgs([]string{"."})
+	if err := GenCmd.Execute(); err != nil {
+		t.Fatalf("second GenCmd.Execute() error = %v", err)
+	}
+
+	incremental, err := os.ReadFile(filepath.Join(dir, "sqlite.incremental.sql"))
+	if err != nil {
+		t.Fatalf("failed to read sqlite incremental ddl: %v", err)
+	}
+
+	got := string(incremental)
+	for _, want := range []string{
+		`ALTER TABLE "users" RENAME TO "__tsq_rebuild_users";`,
+		`CREATE TABLE IF NOT EXISTS "users" (`,
+		`INSERT INTO "users" ("id", "name") SELECT "id", "name" FROM "__tsq_rebuild_users";`,
+		`DROP TABLE "__tsq_rebuild_users";`,
+		`COMMIT;`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("expected sqlite incremental ddl to contain %q, got:\n%s", want, got)
 		}
 	}
 }
@@ -729,5 +1133,48 @@ func TestStableVersion(t *testing.T) {
 		if got := stableVersion(tc.input); got != tc.want {
 			t.Errorf("stableVersion(%q) = %q; want %q", tc.input, got, tc.want)
 		}
+	}
+}
+
+func chdirForGenTest(t *testing.T, dir string) {
+	t.Helper()
+
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("failed to get working directory: %v", err)
+	}
+
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("failed to chdir to temp module: %v", err)
+	}
+
+	t.Cleanup(func() {
+		if err := os.Chdir(wd); err != nil {
+			t.Fatalf("failed to restore working directory: %v", err)
+		}
+	})
+}
+
+func genTestModuleFile(t *testing.T) string {
+	t.Helper()
+
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("failed to get repo root for test module: %v", err)
+	}
+
+	return "module example.com/gentest\n\n" +
+		"go 1.24.2\n\n" +
+		"require github.com/tmoeish/tsq v0.0.0\n\n" +
+		"replace github.com/tmoeish/tsq => " + wd + "\n"
+}
+
+func tidyGenTestModule(t *testing.T) {
+	t.Helper()
+
+	cmd := exec.Command("go", "mod", "tidy")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("go mod tidy failed: %v\n%s", err, string(output))
 	}
 }

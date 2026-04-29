@@ -349,7 +349,11 @@ func NewFieldInvalidSelectorError(selectorExpr any) error {
 
 // NewDSLFieldNotFoundError 创建 DSL 字段不存在错误
 func NewDSLFieldNotFoundError(field, structName string) error {
-	msg := fmt.Sprintf("field '%s' not found in struct '%s'", field, structName)
+	msg := fmt.Sprintf(
+		"DSL references unknown Go field '%s' in struct '%s' (use struct field names, not db column names)",
+		field,
+		structName,
+	)
 	err := newParserError(ErrorTypeDSLFieldNotFound,
 		msg,
 		map[string]any{"field": field, "struct": structName},

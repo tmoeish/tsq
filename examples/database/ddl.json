@@ -1,0 +1,481 @@
+{
+  "generated_by": "tsq-v3.6.0",
+  "version": "v3.6.0",
+  "snapshot": {
+    "tables": [
+      {
+        "name": "category",
+        "columns": [
+          {
+            "name": "id",
+            "kind": "int",
+            "bits": 64,
+            "primary_key": true,
+            "auto_increment": true
+          },
+          {
+            "name": "created_at",
+            "kind": "time",
+            "nullable": true
+          },
+          {
+            "name": "description",
+            "kind": "string",
+            "size": 4096
+          },
+          {
+            "name": "name",
+            "kind": "string",
+            "size": 200
+          },
+          {
+            "name": "type",
+            "kind": "int",
+            "bits": 64
+          }
+        ],
+        "indexes": [
+          {
+            "name": "ux_category_name",
+            "fields": [
+              "name"
+            ],
+            "unique": true
+          }
+        ]
+      },
+      {
+        "name": "item",
+        "columns": [
+          {
+            "name": "id",
+            "kind": "int",
+            "bits": 64,
+            "primary_key": true,
+            "auto_increment": true
+          },
+          {
+            "name": "created_at",
+            "kind": "time",
+            "nullable": true
+          },
+          {
+            "name": "category_id",
+            "kind": "int",
+            "bits": 64
+          },
+          {
+            "name": "name",
+            "kind": "string",
+            "size": 200
+          },
+          {
+            "name": "price",
+            "kind": "int",
+            "bits": 64
+          }
+        ],
+        "indexes": [
+          {
+            "name": "idx_category",
+            "fields": [
+              "category_id"
+            ],
+            "unique": false
+          },
+          {
+            "name": "ux_item_name",
+            "fields": [
+              "name"
+            ],
+            "unique": true
+          }
+        ]
+      },
+      {
+        "name": "order",
+        "columns": [
+          {
+            "name": "uid",
+            "kind": "int",
+            "bits": 64,
+            "primary_key": true,
+            "auto_increment": true
+          },
+          {
+            "name": "created_at",
+            "kind": "time",
+            "default": "CURRENT_TIMESTAMP"
+          },
+          {
+            "name": "updated_at",
+            "kind": "time",
+            "nullable": true
+          },
+          {
+            "name": "deleted_at",
+            "kind": "int",
+            "bits": 64,
+            "default": "0"
+          },
+          {
+            "name": "version",
+            "kind": "int",
+            "bits": 64,
+            "default": "1"
+          },
+          {
+            "name": "amount",
+            "kind": "int",
+            "bits": 64
+          },
+          {
+            "name": "item_id",
+            "kind": "int",
+            "bits": 64
+          },
+          {
+            "name": "price",
+            "kind": "int",
+            "bits": 64
+          },
+          {
+            "name": "status",
+            "kind": "int",
+            "bits": 64
+          },
+          {
+            "name": "user_id",
+            "kind": "int",
+            "bits": 64
+          }
+        ],
+        "indexes": [
+          {
+            "name": "idx_item",
+            "fields": [
+              "item_id"
+            ],
+            "unique": false
+          },
+          {
+            "name": "idx_order_user_id_item_id",
+            "fields": [
+              "user_id",
+              "item_id"
+            ],
+            "unique": false
+          }
+        ]
+      },
+      {
+        "name": "org",
+        "columns": [
+          {
+            "name": "id",
+            "kind": "int",
+            "bits": 64,
+            "primary_key": true,
+            "auto_increment": true
+          },
+          {
+            "name": "created_at",
+            "kind": "time",
+            "nullable": true
+          },
+          {
+            "name": "name",
+            "kind": "string"
+          }
+        ],
+        "indexes": [
+          {
+            "name": "ux_org_name",
+            "fields": [
+              "name"
+            ],
+            "unique": true
+          }
+        ]
+      },
+      {
+        "name": "user",
+        "columns": [
+          {
+            "name": "id",
+            "kind": "int",
+            "bits": 64,
+            "primary_key": true,
+            "auto_increment": true
+          },
+          {
+            "name": "created_at",
+            "kind": "time",
+            "nullable": true
+          },
+          {
+            "name": "email",
+            "kind": "string"
+          },
+          {
+            "name": "name",
+            "kind": "string"
+          },
+          {
+            "name": "org_id",
+            "kind": "int",
+            "bits": 64
+          }
+        ],
+        "indexes": [
+          {
+            "name": "ux_user_name",
+            "fields": [
+              "name"
+            ],
+            "unique": true
+          }
+        ]
+      }
+    ]
+  },
+  "records": [
+    {
+      "sequence": "2026-04-29 17:41:47",
+      "tables": [
+        {
+          "table": "item",
+          "columns": [
+            "add column sku",
+            "alter column spu_name (type)"
+          ],
+          "indexes": [
+            "add index idx_s_p_u"
+          ]
+        },
+        {
+          "table": "new_table",
+          "columns": [
+            "create table"
+          ]
+        }
+      ],
+      "dialects": {
+        "mysql": {
+          "aggregate_sql": "-- Table: item\n\nALTER TABLE `item` ADD COLUMN `sku` BIGINT NOT NULL;\n\nALTER TABLE `item` MODIFY COLUMN `spu_name` BIGINT NOT NULL;\n\nALTER TABLE `item` ADD INDEX `idx_s_p_u`(`spu_id`);\n\n-- Table: new_table\n\nCREATE TABLE IF NOT EXISTS `new_table` (\n    `id` BIGINT PRIMARY KEY AUTO_INCREMENT,\n    `category_id` BIGINT NOT NULL,\n    `created_at` DATETIME\n);"
+        },
+        "postgres": {
+          "aggregate_sql": "-- Table: item\n\nALTER TABLE \"item\" ADD COLUMN \"sku\" BIGINT NOT NULL;\n\nALTER TABLE \"item\" ALTER COLUMN \"spu_name\" TYPE BIGINT;\n\nCREATE INDEX \"idx_s_p_u\" ON \"item\"(\"spu_id\");\n\n-- Table: new_table\n\nCREATE TABLE IF NOT EXISTS \"new_table\" (\n    \"id\" BIGSERIAL PRIMARY KEY,\n    \"category_id\" BIGINT NOT NULL,\n    \"created_at\" TIMESTAMP\n);"
+        },
+        "sqlite": {
+          "aggregate_sql": "-- Table: item\n\nBEGIN TRANSACTION;\n\nALTER TABLE \"item\" RENAME TO \"__tsq_rebuild_item\";\n\nCREATE TABLE IF NOT EXISTS \"item\" (\n    \"id\" INTEGER PRIMARY KEY AUTOINCREMENT,\n    \"created_at\" TIMESTAMP,\n    \"category_id\" INTEGER NOT NULL,\n    \"name\" TEXT NOT NULL,\n    \"price\" INTEGER NOT NULL,\n    \"sku\" INTEGER NOT NULL,\n    \"spu_id\" INTEGER NOT NULL,\n    \"spu_name\" INTEGER NOT NULL\n);;\n\nINSERT INTO \"item\" (\"id\", \"created_at\", \"category_id\", \"name\", \"price\", \"spu_id\", \"spu_name\") SELECT \"id\", \"created_at\", \"category_id\", \"name\", \"price\", \"spu_id\", \"spu_name\" FROM \"__tsq_rebuild_item\";\n\nDROP TABLE \"__tsq_rebuild_item\";\n\nCREATE INDEX \"idx_category\" ON \"item\"(\"category_id\");\n\nCREATE INDEX \"idx_s_p_u\" ON \"item\"(\"spu_id\");\n\nCREATE UNIQUE INDEX \"ux_item_name\" ON \"item\"(\"name\");\n\nCOMMIT;\n\n-- Table: new_table\n\nCREATE TABLE IF NOT EXISTS \"new_table\" (\n    \"id\" INTEGER PRIMARY KEY AUTOINCREMENT,\n    \"category_id\" INTEGER NOT NULL,\n    \"created_at\" TIMESTAMP\n);"
+        }
+      }
+    },
+    {
+      "sequence": "2026-04-29 17:44:36",
+      "tables": [
+        {
+          "table": "item",
+          "columns": [
+            "alter column spu_name (type)"
+          ]
+        }
+      ],
+      "dialects": {
+        "mysql": {
+          "aggregate_sql": "-- Table: item\n\nALTER TABLE `item` MODIFY COLUMN `spu_name` VARCHAR(200) NOT NULL;"
+        },
+        "postgres": {
+          "aggregate_sql": "-- Table: item\n\nALTER TABLE \"item\" ALTER COLUMN \"spu_name\" TYPE VARCHAR(200);"
+        },
+        "sqlite": {
+          "aggregate_sql": "-- Table: item\n\nBEGIN TRANSACTION;\n\nALTER TABLE \"item\" RENAME TO \"__tsq_rebuild_item\";\n\nCREATE TABLE IF NOT EXISTS \"item\" (\n    \"id\" INTEGER PRIMARY KEY AUTOINCREMENT,\n    \"created_at\" TIMESTAMP,\n    \"category_id\" INTEGER NOT NULL,\n    \"name\" TEXT NOT NULL,\n    \"price\" INTEGER NOT NULL,\n    \"sku\" INTEGER NOT NULL,\n    \"spu_id\" INTEGER NOT NULL,\n    \"spu_name\" TEXT NOT NULL\n);;\n\nINSERT INTO \"item\" (\"id\", \"created_at\", \"category_id\", \"name\", \"price\", \"sku\", \"spu_id\", \"spu_name\") SELECT \"id\", \"created_at\", \"category_id\", \"name\", \"price\", \"sku\", \"spu_id\", \"spu_name\" FROM \"__tsq_rebuild_item\";\n\nDROP TABLE \"__tsq_rebuild_item\";\n\nCREATE INDEX \"idx_category\" ON \"item\"(\"category_id\");\n\nCREATE INDEX \"idx_s_p_u\" ON \"item\"(\"spu_id\");\n\nCREATE UNIQUE INDEX \"ux_item_name\" ON \"item\"(\"name\");\n\nCOMMIT;"
+        }
+      }
+    },
+    {
+      "sequence": "2026-04-29 17:44:55",
+      "tables": [
+        {
+          "table": "new_table",
+          "columns": [
+            "drop table"
+          ]
+        }
+      ],
+      "dialects": {
+        "mysql": {
+          "aggregate_sql": "-- Table: new_table\n\nDROP TABLE `new_table`;"
+        },
+        "postgres": {
+          "aggregate_sql": "-- Table: new_table\n\nDROP TABLE \"new_table\";"
+        },
+        "sqlite": {
+          "aggregate_sql": "-- Table: new_table\n\nDROP TABLE \"new_table\";"
+        }
+      }
+    },
+    {
+      "sequence": "2026-04-29 17:45:13",
+      "tables": [
+        {
+          "table": "new_table",
+          "columns": [
+            "create table"
+          ]
+        }
+      ],
+      "dialects": {
+        "mysql": {
+          "aggregate_sql": "-- Table: new_table\n\nCREATE TABLE IF NOT EXISTS `new_table` (\n    `id` BIGINT PRIMARY KEY AUTO_INCREMENT,\n    `category_id` BIGINT NOT NULL,\n    `created_at` DATETIME\n);"
+        },
+        "postgres": {
+          "aggregate_sql": "-- Table: new_table\n\nCREATE TABLE IF NOT EXISTS \"new_table\" (\n    \"id\" BIGSERIAL PRIMARY KEY,\n    \"category_id\" BIGINT NOT NULL,\n    \"created_at\" TIMESTAMP\n);"
+        },
+        "sqlite": {
+          "aggregate_sql": "-- Table: new_table\n\nCREATE TABLE IF NOT EXISTS \"new_table\" (\n    \"id\" INTEGER PRIMARY KEY AUTOINCREMENT,\n    \"category_id\" INTEGER NOT NULL,\n    \"created_at\" TIMESTAMP\n);"
+        }
+      }
+    },
+    {
+      "sequence": "2026-04-29 17:52:32",
+      "tables": [
+        {
+          "table": "item",
+          "columns": [
+            "drop column spu_name"
+          ],
+          "indexes": [
+            "drop index idx_s_p_u"
+          ]
+        },
+        {
+          "table": "new_table",
+          "columns": [
+            "drop table"
+          ]
+        }
+      ],
+      "dialects": {
+        "mysql": {
+          "aggregate_sql": "-- Table: item\n\nALTER TABLE `item` DROP COLUMN `spu_name`;\n\nDROP INDEX `idx_s_p_u` ON `item`;\n\n-- Table: new_table\n\nDROP TABLE `new_table`;"
+        },
+        "postgres": {
+          "aggregate_sql": "-- Table: item\n\nALTER TABLE \"item\" DROP COLUMN \"spu_name\";\n\nDROP INDEX \"idx_s_p_u\";\n\n-- Table: new_table\n\nDROP TABLE \"new_table\";"
+        },
+        "sqlite": {
+          "aggregate_sql": "-- Table: item\n\nALTER TABLE \"item\" DROP COLUMN \"spu_name\";\n\nDROP INDEX \"idx_s_p_u\";\n\n-- Table: new_table\n\nDROP TABLE \"new_table\";"
+        }
+      }
+    },
+    {
+      "sequence": "2026-04-29 17:55:00",
+      "tables": [
+        {
+          "table": "item",
+          "columns": [
+            "add column spu_name"
+          ],
+          "indexes": [
+            "add index idx_s_p_u"
+          ]
+        },
+        {
+          "table": "new_table",
+          "columns": [
+            "create table"
+          ]
+        }
+      ],
+      "dialects": {
+        "mysql": {
+          "aggregate_sql": "-- Table: item\n\nALTER TABLE `item` ADD COLUMN `spu_name` VARCHAR(200) NOT NULL;\n\nALTER TABLE `item` ADD INDEX `idx_s_p_u`(`spu_id`);\n\n-- Table: new_table\n\nCREATE TABLE IF NOT EXISTS `new_table` (\n    `id` BIGINT PRIMARY KEY AUTO_INCREMENT,\n    `category_id` BIGINT NOT NULL,\n    `created_at` DATETIME\n);"
+        },
+        "postgres": {
+          "aggregate_sql": "-- Table: item\n\nALTER TABLE \"item\" ADD COLUMN \"spu_name\" VARCHAR(200) NOT NULL;\n\nCREATE INDEX \"idx_s_p_u\" ON \"item\"(\"spu_id\");\n\n-- Table: new_table\n\nCREATE TABLE IF NOT EXISTS \"new_table\" (\n    \"id\" BIGSERIAL PRIMARY KEY,\n    \"category_id\" BIGINT NOT NULL,\n    \"created_at\" TIMESTAMP\n);"
+        },
+        "sqlite": {
+          "aggregate_sql": "-- Table: item\n\nALTER TABLE \"item\" ADD COLUMN \"spu_name\" TEXT NOT NULL;\n\nCREATE INDEX \"idx_s_p_u\" ON \"item\"(\"spu_id\");\n\n-- Table: new_table\n\nCREATE TABLE IF NOT EXISTS \"new_table\" (\n    \"id\" INTEGER PRIMARY KEY AUTOINCREMENT,\n    \"category_id\" INTEGER NOT NULL,\n    \"created_at\" TIMESTAMP\n);"
+        }
+      }
+    },
+    {
+      "sequence": "2026-04-29 17:55:23",
+      "tables": [
+        {
+          "table": "item",
+          "columns": [
+            "alter column sku (type)",
+            "drop column spu_name"
+          ],
+          "indexes": [
+            "drop index idx_s_p_u"
+          ]
+        },
+        {
+          "table": "new_table",
+          "columns": [
+            "drop table"
+          ]
+        }
+      ],
+      "dialects": {
+        "mysql": {
+          "aggregate_sql": "-- Table: item\n\nALTER TABLE `item` DROP COLUMN `spu_name`;\n\nALTER TABLE `item` MODIFY COLUMN `sku` TEXT NOT NULL;\n\nDROP INDEX `idx_s_p_u` ON `item`;\n\n-- Table: new_table\n\nDROP TABLE `new_table`;"
+        },
+        "postgres": {
+          "aggregate_sql": "-- Table: item\n\nALTER TABLE \"item\" DROP COLUMN \"spu_name\";\n\nALTER TABLE \"item\" ALTER COLUMN \"sku\" TYPE TEXT;\n\nDROP INDEX \"idx_s_p_u\";\n\n-- Table: new_table\n\nDROP TABLE \"new_table\";"
+        },
+        "sqlite": {
+          "aggregate_sql": "-- Table: item\n\nBEGIN TRANSACTION;\n\nALTER TABLE \"item\" RENAME TO \"__tsq_rebuild_item\";\n\nCREATE TABLE IF NOT EXISTS \"item\" (\n    \"id\" INTEGER PRIMARY KEY AUTOINCREMENT,\n    \"created_at\" TIMESTAMP,\n    \"category_id\" INTEGER NOT NULL,\n    \"name\" TEXT NOT NULL,\n    \"price\" INTEGER NOT NULL,\n    \"sku\" TEXT NOT NULL,\n    \"spu_id\" INTEGER NOT NULL\n);;\n\nINSERT INTO \"item\" (\"id\", \"created_at\", \"category_id\", \"name\", \"price\", \"sku\", \"spu_id\") SELECT \"id\", \"created_at\", \"category_id\", \"name\", \"price\", \"sku\", \"spu_id\" FROM \"__tsq_rebuild_item\";\n\nDROP TABLE \"__tsq_rebuild_item\";\n\nCREATE INDEX \"idx_category\" ON \"item\"(\"category_id\");\n\nCREATE UNIQUE INDEX \"ux_item_name\" ON \"item\"(\"name\");\n\nCOMMIT;\n\n-- Table: new_table\n\nDROP TABLE \"new_table\";"
+        }
+      }
+    },
+    {
+      "sequence": "2026-04-29 17:56:19",
+      "tables": [
+        {
+          "table": "item",
+          "columns": [
+            "drop column sku",
+            "drop column spu_id"
+          ]
+        }
+      ],
+      "dialects": {
+        "mysql": {
+          "aggregate_sql": "-- Table: item\n\nALTER TABLE `item` DROP COLUMN `sku`;\n\nALTER TABLE `item` DROP COLUMN `spu_id`;"
+        },
+        "postgres": {
+          "aggregate_sql": "-- Table: item\n\nALTER TABLE \"item\" DROP COLUMN \"sku\";\n\nALTER TABLE \"item\" DROP COLUMN \"spu_id\";"
+        },
+        "sqlite": {
+          "aggregate_sql": "-- Table: item\n\nALTER TABLE \"item\" DROP COLUMN \"sku\";\n\nALTER TABLE \"item\" DROP COLUMN \"spu_id\";"
+        }
+      }
+    },
+    {
+      "sequence": "2026-04-29 17:57:36",
+      "tables": [
+        {
+          "table": "category",
+          "columns": [
+            "drop column abc"
+          ]
+        }
+      ],
+      "dialects": {
+        "mysql": {
+          "aggregate_sql": "-- Table: category\n\nALTER TABLE `category` DROP COLUMN `abc`;"
+        },
+        "postgres": {
+          "aggregate_sql": "-- Table: category\n\nALTER TABLE \"category\" DROP COLUMN \"abc\";"
+        },
+        "sqlite": {
+          "aggregate_sql": "-- Table: category\n\nALTER TABLE \"category\" DROP COLUMN \"abc\";"
+        }
+      }
+    }
+  ]
+}

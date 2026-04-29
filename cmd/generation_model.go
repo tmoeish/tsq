@@ -299,7 +299,7 @@ func printGenerationSummary(w io.Writer, plan []generationPlanEntry) {
 
 	if _, err := fmt.Fprintf(
 		w,
-		"summary: %d create, %d update, %d unchanged, %d stale\n",
+		"files: %d create, %d update, %d unchanged, %d stale\n",
 		createCount,
 		updateCount,
 		unchangedCount,
