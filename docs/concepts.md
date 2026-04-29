@@ -8,6 +8,9 @@ TSQ 同时包含“注解 DSL”“代码生成”“查询构建”“运行时
 Go struct + @TABLE / @RESULT
             |
             v
+        tsq fmt
+            |
+            v
         tsq gen
             |
             v
@@ -29,6 +32,8 @@ Go struct + @TABLE / @RESULT
 ## 1. `@TABLE`：告诉生成器“这是一个表”
 
 `@TABLE` 注解挂在 Go struct 上，描述这个 struct 应该被视为数据库表。
+
+写复杂注解时，可以先直接编辑注释，再用 `tsq fmt ./database` 统一整理键顺序、缩进和列表布局。
 
 ```go
 // @TABLE(

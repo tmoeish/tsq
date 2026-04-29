@@ -54,6 +54,7 @@ type User struct {
 ## 3. 生成 TSQ 代码
 
 ```bash
+tsq fmt ./database
 tsq gen ./database
 ```
 
@@ -65,7 +66,7 @@ database/
   user_tsq.go
 ```
 
-其中 `user_tsq.go` 是生成文件，不要手改。
+其中 `user_tsq.go` 是生成文件，不要手改。`tsq fmt` 会复用同样的包定位规则，只整理 struct 注释里的 `@TABLE` / `@RESULT` DSL，不会改写其他注释内容。
 
 ## 4. 准备一个最小 SQLite 数据库
 

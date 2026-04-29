@@ -10,14 +10,14 @@ import (
 // @TABLE(
 //
 //	pk="UID,true",
-//	idx=[
-//	  {fields=["UserID","ItemID"]},
-//	  {name="IdxItem", fields=["ItemID"]}
-//	],
+//	version,
 //	created_at,
 //	updated_at,
 //	deleted_at,
-//	version
+//	idx=[
+//		{fields=["UserID", "ItemID"]},
+//		{name="IdxItem", fields=["ItemID"]},
+//	],
 //
 // )
 type Order struct {

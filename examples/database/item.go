@@ -8,10 +8,14 @@ import (
 Item 商品表
 
 	@TABLE(
-		ux=[{fields=["Name"]}],
-		idx=[{name="IdxCategory", fields=["CategoryID"]}],
+		created_at,
+		ux=[
+			{fields=["Name"]},
+		],
+		idx=[
+			{name="IdxCategory", fields=["CategoryID"]},
+		],
 		kw=["Name"],
-		created_at
 	)
 */
 type Item struct {

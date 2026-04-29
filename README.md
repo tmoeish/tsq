@@ -65,6 +65,7 @@ type User struct {
 ### 2. 生成代码
 
 ```bash
+tsq fmt ./database
 tsq gen ./database
 ```
 

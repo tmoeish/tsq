@@ -5,8 +5,10 @@ import "github.com/tmoeish/tsq/examples/common"
 // 组织表
 // @TABLE(
 //
-//	ux=[{fields=["Name"]}],
-//	created_at
+//	created_at,
+//	ux=[
+//		{fields=["Name"]},
+//	],
 //
 // )
 type Org struct {

@@ -166,11 +166,17 @@ Troubleshooting:
 }
 
 func exactOnePackageArg(_ *cobra.Command, args []string) error {
-	if len(args) == 1 {
-		return nil
-	}
+	return exactOnePackageArgFor("gen")(nil, args)
+}
 
-	return errors.Errorf("tsq gen expects exactly one package path, got %d", len(args))
+func exactOnePackageArgFor(command string) cobra.PositionalArgs {
+	return func(_ *cobra.Command, args []string) error {
+		if len(args) == 1 {
+			return nil
+		}
+
+		return errors.Errorf("tsq %s expects exactly one package path, got %d", command, len(args))
+	}
 }
 
 func resolveTemplateText(overridePath, fallback, label string) (string, error) {

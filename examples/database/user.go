@@ -5,9 +5,11 @@ import "github.com/tmoeish/tsq/examples/common"
 // 用户表
 // @TABLE(
 //
-//	ux=[{fields=["Name"]}],
-//	kw=["Name","Email"],
-//	created_at
+//	created_at,
+//	ux=[
+//		{fields=["Name"]},
+//	],
+//	kw=["Name", "Email"],
 //
 // )
 type User struct {
