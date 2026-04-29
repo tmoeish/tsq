@@ -72,10 +72,19 @@ func NewErrUnsupportedOperation(operation string, dialect DialectName, reason st
 
 func (e *ErrUnsupportedOperation) Error() string {
 	if e.reason != "" {
-		return fmt.Sprintf("operation %q not supported by %q: %s", e.operation, e.dialect, e.reason)
+		return fmt.Sprintf(
+			"operation %s is not supported by %s dialect; %s",
+			displayCapabilityName(e.operation),
+			displayDialectName(e.dialect),
+			e.reason,
+		)
 	}
 
-	return fmt.Sprintf("operation %q not supported by %q", e.operation, e.dialect)
+	return fmt.Sprintf(
+		"operation %s is not supported by %s dialect",
+		displayCapabilityName(e.operation),
+		displayDialectName(e.dialect),
+	)
 }
 
 // ValidateOperationForDialect checks if an operation is supported by the dialect
@@ -91,12 +100,58 @@ func ValidateOperationForDialect(operation string, d Dialect) error {
 	case "FULL OUTER JOIN":
 		if !SupportsFullOuterJoin(d) {
 			return NewErrUnsupportedOperation(
-				"FULL OUTER JOIN",
+				"FULL_OUTER_JOIN",
 				dialect,
-				"Use LEFT/RIGHT JOIN with UNION instead",
+				unsupportedCapabilityHint("FULL_OUTER_JOIN", dialect),
 			)
 		}
 	}
 
 	return nil
+}
+
+func canonicalCapabilityName(operation string) string {
+	value := strings.ToUpper(strings.TrimSpace(operation))
+
+	switch value {
+	case "FULL JOIN", "FULL OUTER JOIN":
+		return "FULL_OUTER_JOIN"
+	default:
+		return value
+	}
+}
+
+func displayCapabilityName(operation string) string {
+	switch canonicalCapabilityName(operation) {
+	case "FULL_OUTER_JOIN":
+		return "FULL JOIN"
+	default:
+		return canonicalCapabilityName(operation)
+	}
+}
+
+func displayDialectName(dialect DialectName) string {
+	switch dialect {
+	case DialectSQLite:
+		return "sqlite"
+	case DialectUnknown:
+		return "unknown"
+	default:
+		return string(dialect)
+	}
+}
+
+func unsupportedCapabilityHint(operation string, dialect DialectName) string {
+	switch canonicalCapabilityName(operation) {
+	case "CTE":
+		return "use a subquery, split the query, or execute on sqlite/postgres"
+	case "FULL_OUTER_JOIN":
+		return "use LEFT/RIGHT JOIN with UNION, or execute on postgres"
+	case "INTERSECT":
+		return "use IN/EXISTS filtering, or execute on sqlite/postgres"
+	case "EXCEPT":
+		return "use NOT EXISTS filtering, or execute on sqlite/postgres"
+	default:
+		return "use a simpler query shape or a dialect that supports this capability"
+	}
 }

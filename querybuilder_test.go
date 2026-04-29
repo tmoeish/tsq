@@ -397,6 +397,28 @@ func TestQueryBuilder_Where(t *testing.T) {
 	}
 }
 
+func TestQueryBuilder_SetWhereMatchesWhereOverwriteBehavior(t *testing.T) {
+	table1 := newMockTable("users")
+	col1 := newMockColumn(table1, "id")
+
+	mockCond1 := &mockCondition{
+		clause: "`users`.`id` = 1",
+		tables: map[string]Table{"users": table1},
+	}
+	mockCond2 := &mockCondition{
+		clause: "`users`.`id` = 2",
+		tables: map[string]Table{"users": table1},
+	}
+
+	qb := Select(col1).Where(mockCond1).SetWhere(mockCond2)
+	if len(qb.spec.Filters) != 1 {
+		t.Fatalf("expected SetWhere to overwrite filters, got %d", len(qb.spec.Filters))
+	}
+	if conditionClause(qb.spec.Filters[0]) != "`users`.`id` = 2" {
+		t.Fatalf("expected SetWhere to keep latest condition, got %q", conditionClause(qb.spec.Filters[0]))
+	}
+}
+
 func TestQueryBuilder_WhereRejectsNilCondition(t *testing.T) {
 	table := newMockTable("users")
 	col := newMockColumn(table, "id")
@@ -483,6 +505,20 @@ func TestQueryBuilder_KwSearch(t *testing.T) {
 
 	if _, exists := kwTables["users"]; !exists {
 		t.Error("Expected 'users' table to be in kwTables")
+	}
+}
+
+func TestQueryBuilder_SetKwSearchMatchesKwSearchOverwriteBehavior(t *testing.T) {
+	table1 := newMockTable("users")
+	col1 := newMockColumn(table1, "name")
+	col2 := newMockColumn(table1, "email")
+
+	qb := Select(col1).KwSearch(col1).SetKwSearch(col2)
+	if len(qb.spec.KeywordSearch) != 1 {
+		t.Fatalf("expected SetKwSearch to overwrite keyword search columns, got %d", len(qb.spec.KeywordSearch))
+	}
+	if qb.spec.KeywordSearch[0].Name() != "email" {
+		t.Fatalf("expected SetKwSearch to keep latest keyword search column, got %q", qb.spec.KeywordSearch[0].Name())
 	}
 }
 

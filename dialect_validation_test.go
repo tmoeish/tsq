@@ -59,9 +59,9 @@ func TestDialectCapabilities(t *testing.T) {
 // TestErrUnsupportedOperation verifies error message formatting
 func TestErrUnsupportedOperation(t *testing.T) {
 	t.Run("error message with reason", func(t *testing.T) {
-		err := NewErrUnsupportedOperation("FULL OUTER JOIN", DialectMySQL, "MySQL does not support FULL OUTER JOIN")
+		err := NewErrUnsupportedOperation("FULL_OUTER_JOIN", DialectMySQL, "use LEFT/RIGHT JOIN with UNION")
 		msg := err.Error()
-		if !strings.Contains(msg, "FULL OUTER JOIN") {
+		if !strings.Contains(msg, "FULL JOIN") {
 			t.Errorf("Error should mention operation: %s", msg)
 		}
 		if !strings.Contains(msg, "mysql") {
@@ -75,7 +75,7 @@ func TestErrUnsupportedOperation(t *testing.T) {
 		if !strings.Contains(msg, "CROSS APPLY") {
 			t.Errorf("Error should mention operation: %s", msg)
 		}
-		if !strings.Contains(msg, "sqlite3") {
+		if !strings.Contains(msg, "sqlite") {
 			t.Errorf("Error should mention dialect: %s", msg)
 		}
 	})
@@ -103,12 +103,19 @@ func TestValidateOperationForDialect(t *testing.T) {
 		// Real dialect validation would test against actual dialect instances
 		_ = ValidateOperationForDialect("FULL OUTER JOIN", nil)
 	})
+
+	t.Run("capability hints are actionable", func(t *testing.T) {
+		err := NewErrUnsupportedOperation("CTE", DialectMySQL, unsupportedCapabilityHint("CTE", DialectMySQL))
+		if !strings.Contains(err.Error(), "subquery") {
+			t.Fatalf("expected actionable hint, got %q", err.Error())
+		}
+	})
 }
 
 // TestDialectLimitations documents dialect limitations
 func TestDialectLimitations(t *testing.T) {
 	limitations := map[DialectName][]string{
-		DialectMySQL:     {"FULL OUTER JOIN"},
+		DialectMySQL:     {"FULL OUTER JOIN", "CTE", "INTERSECT", "EXCEPT"},
 		DialectSQLite:    {"FULL OUTER JOIN"},
 		DialectSQLServer: {"FULL OUTER JOIN"}, // Has workarounds but not native support
 		DialectPostgres:  {},                  // Supports most standard SQL

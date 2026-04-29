@@ -260,6 +260,56 @@ func TestQueryBuilder_Build_CTEDefersDialectValidationToExecution(t *testing.T) 
 	}
 }
 
+func TestQueryBuilder_Build_IntersectDefersDialectValidationToExecution(t *testing.T) {
+	db := newInVarDBMap(t)
+	db.Dialect = MySQLDialect{}
+
+	users := newMockTable("users")
+	id := NewCol[int](users, "id", "id", nil)
+
+	query := mustBuild(Select(id).Intersect(Select(id)))
+	err := validateOperationalExecutorForSQL(db, query.listSQL)
+	if err == nil {
+		t.Fatal("expected mysql dialect validation to reject INTERSECT")
+	}
+
+	if !strings.Contains(err.Error(), "INTERSECT") {
+		t.Fatalf("expected INTERSECT dialect error, got %v", err)
+	}
+}
+
+func TestQueryBuilder_Build_ExceptDefersDialectValidationToExecution(t *testing.T) {
+	db := newInVarDBMap(t)
+	db.Dialect = MySQLDialect{}
+
+	users := newMockTable("users")
+	id := NewCol[int](users, "id", "id", nil)
+
+	query := mustBuild(Select(id).Except(Select(id)))
+	err := validateOperationalExecutorForSQL(db, query.listSQL)
+	if err == nil {
+		t.Fatal("expected mysql dialect validation to reject EXCEPT")
+	}
+
+	if !strings.Contains(err.Error(), "EXCEPT") {
+		t.Fatalf("expected EXCEPT dialect error, got %v", err)
+	}
+}
+
+func TestQueryBuilder_Build_MinusDefersDialectValidationToExecution(t *testing.T) {
+	db := newInVarDBMap(t)
+	db.Dialect = MySQLDialect{}
+
+	err := validateOperationalExecutorForSQL(db, "SELECT 1 MINUS SELECT 1")
+	if err == nil {
+		t.Fatal("expected mysql dialect validation to reject MINUS")
+	}
+
+	if !strings.Contains(err.Error(), "EXCEPT") {
+		t.Fatalf("expected EXCEPT dialect error for MINUS, got %v", err)
+	}
+}
+
 type caseUser struct {
 	ID    int64
 	Label string

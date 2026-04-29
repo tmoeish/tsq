@@ -21,578 +21,213 @@
 [6]: https://img.shields.io/badge/License-MIT-yellow.svg
 [7]: https://opensource.org/licenses/MIT
 
+TSQ（Type-Safe Query）会把带注解的 Go 结构体生成为**表元数据、CRUD/分页助手和类型安全查询列**，让你用 Go API 组合 SQL，而不是在业务代码里手写大量字符串。
 
-TSQ（Type-Safe Query）是一个强大的 Go 语言代码生成工具，专为构建类型安全的 SQL 查询而设计。通过解析 Go 结构体和注解，TSQ 能够自动生成高效、类型安全的数据库访问代码，大幅提升开发效率和代码质量。
+## 先回答三个上手问题
 
-## ✨ 核心特性
+| 问题 | 最短答案 |
+| --- | --- |
+| **最小要写什么？** | 一个带 `@TABLE` 注解的 Go struct。 |
+| **生成后得到什么？** | 每个表生成一个 `*_tsq.go`；每个 `@RESULT` 生成一个 `*_result_tsq.go`。 |
+| **怎么跑第一条查询？** | `tsq gen ./db` → 创建 `tsq.DbMap` → `tsq.Select(...).Where(...).Build()` → `tsq.List(...)`。 |
 
-- **🔒 类型安全**：编译时检查字段类型和 SQL 语法，避免运行时错误
-- **🚀 代码生成**：自动生成 CRUD 操作、复杂查询和分页功能
-- **📝 注解驱动**：通过简单注解定义表结构、索引、唯一约束等
-- **🔍 灵活查询**：支持联表查询、子查询、聚合函数等复杂 SQL 操作
-- **🪜 CTE 支持**：支持非递归 `WITH` / CTE 查询，并保持现有类型安全列重绑定模型
-- **🔀 CASE 表达式**：支持公开 searched `CASE WHEN ... THEN ... ELSE ... END` API
-- **🧩 集合操作**：支持 `UNION` / `UNION ALL` / `INTERSECT` / `INTERSECT ALL` / `EXCEPT` / `EXCEPT ALL`
-- **📄 分页支持**：内置高效的分页查询机制
-- **🗃️ 多数据库**：当前内置方言覆盖 SQLite、MySQL、PostgreSQL；不兼容的方言特性会显式报错
-- **🛠️ Result 支持**：支持复杂查询结果的数据传输对象
-- **⚡ 高性能**：生成的代码经过优化，性能接近手写 SQL
-- **🔍 关键词搜索**：内置关键词搜索功能，支持多字段模糊查询
-- **📊 聚合查询**：支持 COUNT、SUM、AVG、MIN、MAX 等聚合函数
-
-## 📦 安装
-
-### 从源码构建
-
-```bash
-git clone https://github.com/tmoeish/tsq.git
-cd tsq
-make build
-```
-
-### 使用 go install
+## 安装
 
 ```bash
 go install github.com/tmoeish/tsq/cmd/tsq@latest
 ```
 
-## 🚀 快速开始
+也可以从源码构建：
 
-### 1. 定义数据结构（最新 DSL 注解示例）
+```bash
+git clone https://github.com/tmoeish/tsq.git
+cd tsq
+make build
+```
+
+## 5 分钟最小路径
+
+### 1. 定义一个表结构
 
 ```go
+package database
+
 // @TABLE(
-//   name="User",
-//   ux=[{name="UxName", fields=["Name"]}],
 //   kw=["Name","Email"]
 // )
 type User struct {
-    common.ImmutableTable
-    OrgID int64  `db:"org_id" json:"org_id"`
-    Name  string `db:"name" json:"name"`
-    Email string `db:"email" json:"email"`
-}
-
-// @TABLE(
-//   name="Order",
-//   idx=[{name="IdxUserItem", fields=["UserID","ItemID"]}, {name="IdxItem", fields=["ItemID"]}],
-//   ct
-// )
-type Order struct {
-    common.MutableTable
-    UserID int64 `db:"user_id"`
-    ItemID int64 `db:"item_id"`
-    Amount int64 `db:"amount"`
-    Price  int64 `db:"price"`
-    Status OrderStatus `db:"status"`
-}
-
-// @TABLE(
-//   ux=[{fields=["Name"]}],
-//   idx=[{name="IdxCategory", fields=["CategoryID"]}],
-//   kw=["Name"]
-// )
-type Item struct {
-    common.ImmutableTable
-    CategoryID int64 `db:"category_id"`
-    Name       string `db:"name,size:200"`
-    Price      int64  `db:"price"`
-}
-
-// @TABLE(
-//   ux=[{fields=["Name"]}],
-//   kw=["Name","Description"]
-// )
-type Category struct {
-    common.ImmutableTable
-    CategoryContent
-}
-type CategoryContent struct {
-    Type        CategoryType `db:"type" json:"type"`
-    Name        string       `db:"name,size:200" json:"name"`
-    Description string       `db:"description,size:4096" json:"description"`
-}
-
-// @TABLE(
-//   name="Org",
-//   ux=[{name="UxName", fields=["Name"]}]
-// )
-type Org struct {
-    common.ImmutableTable
-    Name string `db:"name"`
+	ID    int64  `db:"id" json:"id"`
+	Name  string `db:"name" json:"name"`
+	Email string `db:"email" json:"email"`
 }
 ```
 
-### 2. 生成 TSQ 代码
+### 2. 生成代码
 
 ```bash
-tsq gen ./examples/database
+tsq gen ./database
 ```
 
-### 3. 使用生成的代码（主流程示例）
+`gen` 接受三种输入：
+
+- 模块导入路径：`github.com/acme/app/internal/database`
+- 相对目录：`./internal/database`
+- 绝对目录：`/path/to/app/internal/database`
+
+生成后通常会看到：
+
+- `database/user_tsq.go`：`User` 表的列、CRUD、分页和查询助手
+- `database/*_result_tsq.go`：只在你声明 `@RESULT` 时生成
+
+如果目标文件已经存在，TSQ 只会覆盖**已有的生成文件**；遇到手写文件会拒绝覆盖并直接报错。
+
+### 3. 跑第一条查询
+
+```go
+package main
+
+import (
+	"context"
+	"database/sql"
+	"log"
+
+	_ "github.com/mattn/go-sqlite3"
+
+	"github.com/tmoeish/tsq"
+	"github.com/your/module/database"
+)
+
+func main() {
+	ctx := context.Background()
+
+	db, err := sql.Open("sqlite3", "file:app.db?cache=shared")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	dbmap := &tsq.DbMap{Db: db, Dialect: tsq.SqliteDialect{}}
+	if err := tsq.Init(dbmap, false, true); err != nil {
+		log.Fatal(err)
+	}
+
+	query, err := tsq.
+		Select(database.TableUserCols...).
+		Where(database.User_Name.Contains("alice")).
+		Build()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	users, err := tsq.List[database.User](ctx, dbmap, query)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	log.Printf("loaded %d users", len(users))
+}
+```
+
+更完整的从零到 SQLite 示例见 [`docs/quickstart.md`](docs/quickstart.md)。
+
+## 文档导航
+
+| 文档 | 适合什么时候看 |
+| --- | --- |
+| [`docs/quickstart.md`](docs/quickstart.md) | 从空目录开始，5 分钟跑通 SQLite 示例 |
+| [`docs/concepts.md`](docs/concepts.md) | 想建立 Table 注解、生成文件、QueryBuilder、Result、Runtime 的心智模型 |
+| [`examples/README.md`](examples/README.md) | 想按 quickstart / cookbook / full-suite 找示例 |
+| [`BEST_PRACTICES.md`](BEST_PRACTICES.md) | 想看输入校验、分页、事务、排序和生产环境建议 |
+| [`MIGRATION_GUIDE.md`](MIGRATION_GUIDE.md) | 从旧 API 迁移到当前 Build-based API |
+
+## 能力矩阵（内置 Dialect）
+
+TSQ 当前内置的 `Dialect` 实现只有 **SQLite / MySQL / PostgreSQL**。下面的矩阵描述的是这三者在仓库当前实现下的行为，不再用“完整支持”这种泛化说法。
+
+| 能力 | SQLite | MySQL | PostgreSQL | 说明 |
+| --- | --- | --- | --- | --- |
+| 生成 CRUD / 分页助手 | ✅ | ✅ | ✅ | 生成层支持一致 |
+| 类型安全列与链式查询 | ✅ | ✅ | ✅ | `tsq.Select(...).Where(...).Build()` |
+| `@RESULT` 结果映射 | ✅ | ✅ | ✅ | 生成 `*_result_tsq.go` |
+| `InVar()` 动态 `IN (...)` | ✅ | ✅ | ✅ | 执行时展开参数 |
+| `CASE` 表达式 | ✅ | ✅ | ✅ | 构建与执行都支持 |
+| 非递归 CTE / `WITH` | ✅ | ❌ | ✅ | MySQL 会在执行前显式拒绝 |
+| `FULL JOIN` 执行 | ❌ | ❌ | ✅ | SQL 可构建，执行能力受方言限制 |
+
+补充说明：
+
+- TSQ 的**方言能力校验**还能识别 `oracle`、`sqlserver` 等名称，用于标识符长度和能力判断。
+- 但仓库当前**没有内置 Oracle Dialect 实现**；如果你接入 Oracle，需要自定义 `Dialect` 并自行验证 SQL 兼容性。
+
+## 常见边界和注意事项
+
+### `Where(...)` / `KwSearch(...)` 是覆盖式 setter
+
+这两个方法都会覆盖前一次设置；如果你想继续追加条件，请使用 `And(...)`。
+
+```go
+query, err := tsq.
+	Select(database.TableUserCols...).
+	Where(database.User_OrgID.EQ(1)).
+	And(database.User_Name.Contains("alice")).
+	Build()
+```
+
+### 关键词搜索的“转义”不是 SQL 注入防护
+
+TSQ 的参数绑定本身负责避免把用户输入直接拼进 SQL。  
+`EscapeKeywordSearch` 的作用是**转义 LIKE 通配符**（如 `%`、`_`、`\`），避免用户输入改变搜索语义。
+
+```go
+pageReq := &tsq.PageReq{
+	Page:    1,
+	Size:    10,
+	OrderBy: "id",
+	Order:   "asc",
+	Keyword: tsq.EscapeKeywordSearch(request.Keyword),
+}
+```
+
+### 推荐使用当前的 Build-based API
+
+仓库当前主路径是：
+
+```go
+query, err := tsq.
+	Select(database.TableUserCols...).
+	Where(database.User_ID.EQ(1)).
+	Build()
+```
+
+如果你在旧示例里看到 `NewQueryBuilder()`，请优先参考 `docs/quickstart.md`、`docs/concepts.md` 和 `examples/main.go` 的写法。
+
+## 示例入口
+
+- **Quickstart**：[`examples/quickstart/README.md`](examples/quickstart/README.md)
+- **Cookbook**：[`examples/cookbook/README.md`](examples/cookbook/README.md)
+- **Full suite**：[`examples/full-suite/README.md`](examples/full-suite/README.md)
+
+## 开发
 
 ```bash
+make fmt
+make lint
+make test
+make build
 make examples
 ./bin/examples
 ```
 
-### 4. Result 复杂查询示例
-
-```go
-// @RESULT(name="UserOrder")
-type UserOrder struct {
-    UserID       int64       `json:"user_id" tsq:"User.ID"`
-    UserName     string      `json:"user_name" tsq:"User.Name"`
-    UserEmail    string      `json:"user_email" tsq:"User.Email"`
-    OrgName      string      `json:"org_name" tsq:"Org.Name"`
-    OrderID      int64       `json:"order_id" tsq:"Order.UID"`
-    OrderAmount  int64       `json:"order_amount" tsq:"Order.Amount"`
-    OrderPrice   int64       `json:"order_price" tsq:"Order.Price"`
-    OrderStatus  OrderStatus `json:"order_status" tsq:"Order.Status"`
-    OrderTime    time.Time   `json:"order_time" tsq:"Order.CreatedAt"`
-    ItemID       int64       `json:"item_id" tsq:"Item.ID"`
-    ItemName     string      `json:"item_name" tsq:"Item.Name"`
-    ItemPrice    int64       `json:"item_price" tsq:"Item.Price"`
-    ItemCategory string      `json:"item_category" tsq:"Category.Name"`
-}
-
-pageReq := &tsq.PageReq{
-    Page:    1,
-    Size:    5,
-    OrderBy: "user_id,order_id",
-    Order:   "asc,asc",
-}
-if err := pageReq.ValidateStrict(); err != nil {
-    return err
-}
-
-resp, err := database.PageUserOrder(ctx, dbmap, pageReq, 1, "图书", "视频")
-```
-
-### 5. 查询与分页用法
-
-```go
-// 条件查询
-q, err := tsq.
-    Select(database.User_ID, database.User_Name, database.User_Email).
-    Where(database.User_Name.Contains("admin")).
-    Build()
-if err != nil {
-    return nil, fmt.Errorf("build query: %w", err)
-}
-users, err := tsq.List[database.User](ctx, dbmap, q)
-
-// 需要保留旧式 SQL literal 行为时，可使用显式 literal helper
-literalQ, err := tsq.
-    Select(database.User_ID).
-    Where(database.User_Name.EQLiteral("admin")).
-    Build()
-if err != nil {
-    return nil, fmt.Errorf("build query: %w", err)
-}
-
-// 注意：Where(...) 和 KwSearch(...) 都是“覆盖式”设置；
-// 如果需要继续追加过滤条件，请使用 And(...)
-
-// 分页查询
-pageReq := &tsq.PageReq{
-    Page:    1,
-    Size:    10,
-    Order:   "asc,desc",
-    OrderBy: "user_id,order_id",
-}
-if err := pageReq.ValidateStrict(); err != nil {
-    return err
-}
-resp, err := database.PageUserOrder(ctx, dbmap, pageReq, 1, "图书", "视频")
-
-// 执行时动态展开 IN (...) 参数
-inVarQ, err := tsq.
-    Select(database.TableItemCols...).
-    Where(database.Item_CategoryID.InVar()).
-    Build()
-if err != nil {
-    return err
-}
-items, err := tsq.List[database.Item](ctx, dbmap, inVarQ, []int64{1, 2})
-```
-
-### 6. CASE 表达式
-
-```go
-labelCol := tsq.
-    Case[string]().
-    When(database.User_OrgID.EQ(1), "first_org").
-    Else("other_org").
-    End().
-    Into(func(holder any) any {
-        return &holder.(*namedRow).Name
-    }, "label")
-
-q, err := tsq.Select(labelCol).Where(database.User_ID.InVar()).Build()
-if err != nil {
-    return err
-}
-
-rows, err := tsq.List[namedRow](ctx, dbmap, q, []int64{1, 2})
-```
-
-### 7. CTE（WITH）查询
-
-```go
-scopedUsers := tsq.CTE(
-    "scoped_users",
-    tsq.Select(database.User_ID, database.User_Name).
-        Where(database.User_OrgID.EQ(1)),
-)
-
-scopedUserID := database.User_ID.WithTable(scopedUsers)
-scopedUserName := database.User_Name.WithTable(scopedUsers).Into(func(holder any) any {
-    return &holder.(*namedRow).Name
-}, "name")
-
-q, err := tsq.Select(scopedUserName).Where(scopedUserID.GT(0)).Build()
-if err != nil {
-    return err
-}
-
-rows, err := tsq.List[namedRow](ctx, dbmap, q)
-```
-
-当前 CTE 为**非递归**实现；SQLite / PostgreSQL 可直接执行，当前能力表下 MySQL 会在执行前显式拒绝。
-
-### 8. 集合查询（UNION / INTERSECT / EXCEPT）
-
-```go
-nameCol := database.Category_Name.Into(func(holder any) any {
-    return &holder.(*namedRow).Name
-}, "name")
-itemNameCol := database.Item_Name.Into(func(holder any) any {
-    return &holder.(*namedRow).Name
-}, "name")
-
-q, err := tsq.
-    Select(nameCol).
-    Where(database.Category_ID.InVar()).
-    Union(Select(itemNameCol).Where(database.Item_CategoryID.InVar())).
-    Build()
-if err != nil {
-    return err
-}
-
-rows, err := tsq.List[namedRow](ctx, dbmap, q, []int64{1, 2}, []int64{1})
-```
-
-集合查询要求左右两侧选择的列数一致；分页排序会基于结果列名排序，而不是原表限定名。
-
-### 9. 表别名与自连接
-
-```go
-managerID := employeeID.As("manager")
-managerName := employeeName.As("manager")
-
-q, err := tsq.
-    Select(employeeID, employeeName, managerName).
-    LeftJoin(employeeManagerID, managerID).
-    Build()
-if err != nil {
-    return nil, fmt.Errorf("build query: %w", err)
-}
-```
-
-`As("manager")` 会把列重新绑定到别名表；要给函数表达式、聚合表达式或 Result 映射列起别名，请先对基础列做 `As(...)`，再继续链式调用。
-
-### 10. 运行时隔离与高级用法
-
-- 默认情况下，生成代码会通过包级 `RegisterTable` / `Init` 使用全局运行时。
-- 如果你在测试、多数据库场景或插件式宿主中需要隔离注册表和 tracer，可创建独立运行时：`rt := tsq.NewRuntime()`，然后使用 `rt.RegisterTable(...)`、`rt.Init(...)`、`tsq.Trace1WithRuntime(...)`。
-- `PageReq.Validate()` 保持兼容语义：会把非法页码/页大小归一化为安全默认值；如果你想显式拒绝非法分页/排序输入，请使用 `PageReq.ValidateStrict()`。
-- `FULL JOIN` 现在可以构建 SQL，但执行时仍受方言限制：SQLite / MySQL 会被显式拒绝，PostgreSQL 和自定义支持该能力的方言可继续执行。
-
-### 11. 分块写入
-
-```go
-users := []*database.User{
-    {OrgID: 1, Name: "chunk_user_alpha", Email: "alpha@example.com"},
-    {OrgID: 1, Name: "chunk_user_beta", Email: "beta@example.com"},
-}
-if err := tsq.ChunkedInsert(ctx, dbmap, users); err != nil {
-    return err
-}
-if err := tsq.ChunkedUpdate(ctx, dbmap, users); err != nil {
-    return err
-}
-if err := tsq.ChunkedDelete(ctx, dbmap, users); err != nil {
-    return err
-}
-```
-
-### 12. mock 数据初始化
-
-```go
-mockSQL, err := os.ReadFile("examples/database/mock.sql")
-if err != nil {
-    logrus.Fatal(errors.ErrorStack(err))
-}
-_, err = db.Exec(string(mockSQL))
-if err != nil {
-    logrus.Fatal(errors.ErrorStack(err))
-}
-```
-
----
-
-### 🔍 关键词搜索
-
-TSQ 支持多字段模糊关键词搜索，可以在查询中添加关键词过滤。
-
-**基本用法：**
-
-```go
-pageReq := &tsq.PageReq{
-    Page:    1,
-    Size:    10,
-    OrderBy: "id",
-    Order:   "asc",
-    Keyword: tsq.EscapeKeywordSearch("john"),
-}
-if err := pageReq.ValidateStrict(); err != nil {
-    return err
-}
-
-resp, err := database.PageUser(ctx, dbmap, pageReq)
-if err != nil {
-    return err
-}
-```
-
-**安全性注意事项：**
-
-由于关键词搜索使用 SQL LIKE 操作符，需要对用户输入进行转义以防止 SQL 注入：
-
-```go
-import "github.com/tmoeish/tsq"
-
-keyword := request.Keyword
-
-// 转义关键词中的 LIKE 通配符
-escaped := tsq.EscapeKeywordSearch(keyword)
-
-pageReq := &tsq.PageReq{Keyword: escaped}
-resp, err := database.PageUser(ctx, dbmap, pageReq)
-```
-
-**限制和注意事项：**
-
-- 关键词搜索使用 LIKE 操作符，可能对大表性能有影响
-- 目前不支持 SQL 方言特定的全文搜索优化（如 MySQL FULLTEXT）
-- 关键词只在指定的列中搜索
-- LIKE 转义字符固定为 `\`（反斜杠）
-
-**示例中的完整查询：**
-
-更多关键词搜索和其他高级用法（聚合、子查询等），请参考 `examples/main.go` 和 `examples/database/userorder.go` 的最新写法。
-
----
-
-### 🔗 联接（Join）和圆形联接限制
-
-TSQ 支持多种联接类型（INNER JOIN, LEFT JOIN, RIGHT JOIN 等），但存在一个重要限制：**不支持圆形联接依赖**。
-
-**什么是圆形联接？**
-
-圆形联接是指在联接图中存在循环路径的情况。例如：
-- 用户表 → 订单表 → 发票表 → 用户表（循环回到用户）
-
-**当前限制：**
-
-以下代码**会失败**（圆形依赖）：
-```go
-query := users.NewQueryBuilder().
-    InnerJoin(orders, users.ID.EQ(orders.UserID)).
-    InnerJoin(invoices, orders.ID.EQ(invoices.OrderID)).
-    InnerJoin(users, invoices.UserID.EQ(users.ID))  // ❌ 错误：用户表已参与
-```
-
-**解决方案 - 使用表别名实现自联接：**
-
-如果需要表示涉及同一表的复杂关系，可以使用 `AliasTable()` 创建表别名：
-
-```go
-// 创建 users 表的别名
-usersAlias := tsq.AliasTable(users, "manager_users")
-
-// 现在可以与相同表进行联接
-query := users.NewQueryBuilder().
-    InnerJoin(usersAlias, users.ManagerID.EQ(usersAlias.Col(users.ID)))
-```
-
-**其他替代方案：**
-
-1. **执行多个查询** - 将圆形查询分解为多个独立查询
-2. **使用子查询** - 根据目标数据库的支持使用子查询或 CTE（WITH 子句）
-3. **应用逻辑处理** - 在应用层处理复杂的关系逻辑
-
-更多联接示例，请参考 `examples/database/userorder.go`。
-
----
-
-### ⚠️ 已知限制和最佳实践
-
-**已知限制：**
-
-| 功能 | 状态 | 说明 |
-|------|------|------|
-| 圆形联接 | ❌ 不支持 | 使用表别名（AliasTable）作为替代方案 |
-| FULL JOIN | ⚠️ 有限 | 仅 PostgreSQL 支持；其他方言在执行时会报错 |
-| 全文搜索 | ❌ 不支持 | 关键词搜索使用 LIKE；可用专门库处理全文搜索 |
-| 子查询 | ⚠️ 有限 | 基本支持，但不支持所有复杂场景 |
-| 事务控制 | ⚠️ 基础 | 支持基本的事务操作，不支持高级特性 |
-
-**最佳实践：**
-
-1. **错误处理**：总是检查 `Build()` 返回的错误，使用显式错误处理
-
-```go
-// ✅ 推荐
-q, err := qb.Build()
-if err != nil {
-    return fmt.Errorf("failed to build query: %w", err)
-}
-```
-
-2. **关键词搜索安全**：始终转义用户输入
-
-```go
-keyword := tsq.EscapeKeywordSearch(userInput)
-qb := qb.KwSearch(keyword, col1, col2)
-```
-
-3. **运行时隔离**：多数据库应用应使用独立的 Runtime 实例
-
-```go
-// ✅ 多DB 应用的推荐方式
-runtimeMySQL := tsq.NewRuntime()
-runtimePostgres := tsq.NewRuntime()
-
-// 为每个 runtime 注册表
-users.RegisterTable(...)  // 注册到 DefaultRuntime
-runtimeMySQL.RegisterTable(...)  // 注册到特定 runtime
-```
-
-4. **验证分页和排序**：使用 `ValidateStrict()` 验证用户输入的排序参数
-
-```go
-// 对来自 HTTP 请求的分页参数进行严格验证
-page := &PageReq{Page: userInput.Page, Size: userInput.Size}
-if err := page.ValidateStrict(); err != nil {
-    return errors.New("invalid pagination: " + err.Error())
-}
-```
-
-5. **标识符长度检查**：对于跨数据库应用，验证标识符长度
-
-```go
-if err := ValidateIdentifierLength(tableName, "postgres"); err != nil {
-    return fmt.Errorf("table name too long for postgres: %w", err)
-}
-```
-
-6. **性能优化**：
-
-   - 使用查询构建器的方法链来构建复杂查询
-   - 避免在循环中重复构建相同的查询（考虑缓存或参数化）
-   - 对大表使用分页而非一次性加载所有数据
-   - 为常用的联接组合创建辅助方法
-   - **查询缓存**：如果频繁执行相同的查询，使用应用层缓存
-
-```go
-// ✅ 为常用查询创建辅助方法
-func (ub *userBuilder) WithOrders() *QueryBuilder {
-    return ub.InnerJoin(orders, user.ID.EQ(orders.UserID))
-}
-
-// 使用
-results, err := users.NewQueryBuilder().
-    WithOrders().
-    Where(users.Active.EQ(true)).
-    List(ctx, db)
-
-// ✅ 缓存频繁执行的查询
-var (
-    activeUsersQuery *tsq.Query
-    activeUsersErr   error
-)
-func init() {
-    activeUsersQuery, activeUsersErr = users.NewQueryBuilder().
-        Where(users.Active.EQ(true)).
-        Build()
-}
-
-// 使用缓存的查询
-func getActiveUsers() (*tsq.Query, error) {
-    if activeUsersErr != nil {
-        return nil, activeUsersErr
-    }
-    return activeUsersQuery, nil
-}
-
-// 在应用中使用
-results, err := getActiveUsers()
-if err != nil {
-    return nil, err
-}
-items, err := results.List(ctx, db)
-```
-
-**支持的数据库方言：**
-
-- ✅ **SQLite** - 完整支持
-- ✅ **MySQL** - 完整支持（5.7+）
-- ✅ **PostgreSQL** - 完整支持（9.6+）
-- ⚠️ **Oracle** - 基础支持（某些高级特性可能不可用）
-- ❓ **其他方言** - 需要验证兼容性
-
-
-## 🏗️ 构建和开发
-
-### 开发环境要求
-
-- Go 1.24.2+
-- Make
-- Git
-
-### 构建项目
+常用目标：
 
 ```bash
-# 克隆项目
-git clone https://github.com/tmoeish/tsq.git
-cd tsq
-
-# 安装依赖
-make mod-tidy
-
-# 运行测试
-make test
-
-# 构建项目
+make help
 make build
-
-# 运行所有检查和构建
-make all
-```
-
-### Make 命令
-
-```bash
-make help          # 显示所有可用命令
-make build         # 构建应用
-make test          # 运行测试
-make test-coverage # 运行覆盖率测试
-make fmt           # 格式化代码
-make vet           # 代码检查
-make lint          # 静态分析
-make clean         # 清理构建产物
-make install       # 安装到 GOPATH/bin
-make update-examples # 更新示例代码
+make test
+make test-coverage
+make fmt
+make vet
+make lint
+make clean
+make install
+make update-examples
 ```

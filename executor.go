@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 var (
@@ -82,6 +83,46 @@ type DbMap struct {
 	ctx     context.Context
 }
 
+type dbSchemaConfig struct {
+	indexInitMode      IndexInitMode
+	schemaEventHandler func(SchemaEvent)
+}
+
+var dbSchemaConfigs sync.Map
+
+func defaultDBSchemaConfig() dbSchemaConfig {
+	return dbSchemaConfig{indexInitMode: IndexInitUpsert}
+}
+
+func loadDBSchemaConfig(db *DbMap) dbSchemaConfig {
+	if db == nil {
+		return defaultDBSchemaConfig()
+	}
+
+	if cfg, ok := dbSchemaConfigs.Load(db); ok {
+		return cfg.(dbSchemaConfig)
+	}
+
+	return defaultDBSchemaConfig()
+}
+
+func storeDBSchemaConfig(db *DbMap, cfg dbSchemaConfig) {
+	if db == nil {
+		return
+	}
+
+	if cfg.indexInitMode == "" {
+		cfg.indexInitMode = IndexInitUpsert
+	}
+
+	if cfg.indexInitMode == IndexInitUpsert && cfg.schemaEventHandler == nil {
+		dbSchemaConfigs.Delete(db)
+		return
+	}
+
+	dbSchemaConfigs.Store(db, cfg)
+}
+
 // Query executes a query and returns rows.
 func (db *DbMap) Query(query string, args ...any) (*sql.Rows, error) {
 	if db == nil || db.Db == nil {
@@ -127,11 +168,14 @@ func (db *DbMap) WithContext(ctx context.Context) SqlExecutor {
 		return nil
 	}
 
-	return &DbMap{
+	next := &DbMap{
 		Db:      db.Db,
 		Dialect: db.Dialect,
 		ctx:     ctx,
 	}
+	storeDBSchemaConfig(next, loadDBSchemaConfig(db))
+
+	return next
 }
 
 // SelectOne executes a query and scans a single row into dst.

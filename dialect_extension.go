@@ -45,6 +45,8 @@ func (r *KeywordRegistry) initializeDefaults() {
 	})
 	r.registerCapability(DialectMySQL, "FULL_OUTER_JOIN", false)
 	r.registerCapability(DialectMySQL, "CTE", false)
+	r.registerCapability(DialectMySQL, "INTERSECT", false)
+	r.registerCapability(DialectMySQL, "EXCEPT", false)
 
 	// PostgreSQL keywords
 	r.registerKeywords(DialectPostgres, []string{
@@ -54,6 +56,8 @@ func (r *KeywordRegistry) initializeDefaults() {
 	})
 	r.registerCapability(DialectPostgres, "FULL_OUTER_JOIN", true)
 	r.registerCapability(DialectPostgres, "CTE", true)
+	r.registerCapability(DialectPostgres, "INTERSECT", true)
+	r.registerCapability(DialectPostgres, "EXCEPT", true)
 
 	// SQLite keywords
 	r.registerKeywords(DialectSQLite, []string{
@@ -62,6 +66,8 @@ func (r *KeywordRegistry) initializeDefaults() {
 	})
 	r.registerCapability(DialectSQLite, "FULL_OUTER_JOIN", false)
 	r.registerCapability(DialectSQLite, "CTE", true)
+	r.registerCapability(DialectSQLite, "INTERSECT", true)
+	r.registerCapability(DialectSQLite, "EXCEPT", true)
 
 	// Oracle keywords
 	r.registerKeywords(DialectOracle, []string{
@@ -70,6 +76,8 @@ func (r *KeywordRegistry) initializeDefaults() {
 	})
 	r.registerCapability(DialectOracle, "FULL_OUTER_JOIN", true)
 	r.registerCapability(DialectOracle, "CTE", true)
+	r.registerCapability(DialectOracle, "INTERSECT", true)
+	r.registerCapability(DialectOracle, "EXCEPT", true)
 
 	// SQL Server keywords
 	r.registerKeywords(DialectSQLServer, []string{
@@ -78,6 +86,8 @@ func (r *KeywordRegistry) initializeDefaults() {
 	})
 	r.registerCapability(DialectSQLServer, "FULL_OUTER_JOIN", false)
 	r.registerCapability(DialectSQLServer, "CTE", true)
+	r.registerCapability(DialectSQLServer, "INTERSECT", true)
+	r.registerCapability(DialectSQLServer, "EXCEPT", true)
 }
 
 // registerKeywords registers keywords for a dialect
@@ -202,11 +212,13 @@ func (v *DialectValidator) ValidateCapability(operation string) error {
 	}
 
 	dialName := detectDialectName(v.dialect)
-	if !v.registry.HasCapability(dialName, operation) {
+
+	capability := canonicalCapabilityName(operation)
+	if !v.registry.HasCapability(dialName, capability) {
 		return NewErrUnsupportedOperation(
-			operation,
+			capability,
 			dialName,
-			"This operation is not supported by "+string(dialName),
+			unsupportedCapabilityHint(capability, dialName),
 		)
 	}
 

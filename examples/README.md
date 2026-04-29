@@ -1,55 +1,40 @@
 # TSQ Examples
 
-This directory contains the runnable TSQ example suite.
+这个目录现在按**上手顺序**来看，而不是按“能力展厅”来看。
 
-## Files Structure
+| 入口 | 适合谁 | 内容 |
+| --- | --- | --- |
+| [`quickstart/README.md`](quickstart/README.md) | 第一次接触 TSQ | 最短路径、最少概念、先跑通第一条查询 |
+| [`cookbook/README.md`](cookbook/README.md) | 已经跑通基础示例 | 更像真实业务代码的分页 API、事务写入场景 |
+| [`full-suite/README.md`](full-suite/README.md) | 想系统浏览能力边界 | 对应当前 `examples/main.go` 的完整能力展示 |
 
-### Generated Files
-The following files are **auto-generated** by the `tsq gen` command:
-- `database/*_tsq.go` - Generated query builder code for each table
-- `database/userorder_result_tsq.go` - Generated Result query builder
+## 当前 runnable 示例在哪里
 
-To regenerate these files after modifying table structs:
-```bash
-go run ./cmd/tsq gen ./examples/database
-```
+仓库当前可直接运行的示例套件仍然是：
 
-### Manual Files
-- `database/*.go` - Table struct definitions (manual)
-- `database/userorder.go` - Result definition and Result pagination query
-- `database/mock.sql` - Test database schema
-- `main.go` - End-to-end example runner covering the main TSQ capabilities
-- `main_test.go` - Smoke tests for the runnable examples
+- `main.go`：端到端 runnable full-suite
+- `main_test.go`：full-suite smoke tests
+- `database/*.go`：手写表结构和 `@RESULT`
+- `database/*_tsq.go`：生成代码
+- `database/mock.sql`：SQLite 示例 schema
 
-## Running Examples
+## 运行方式
 
 ```bash
-# Regenerate generated code and build the example binary
 make examples
-
-# Run the compiled example suite from the repository root
 ./bin/examples
-
-# Run tests
 go test ./examples -v
 ```
 
-## Example Patterns
+## 生成文件说明
 
-See `main.go` for:
-- CRUD generated methods
-- Alias/rebinding queries
-- Aggregation and GROUP BY
-- Keyword search and pagination
-- Result join queries
-- `InVar`-based dynamic `IN (...)` filters
-- Public searched `CASE` expressions
-- Non-recursive `WITH` / CTE queries
-- Set operations (`UNION`, `INTERSECT`, `EXCEPT`)
-- Chunked insert / update / delete / delete-by-ids
+以下文件由 `tsq gen` 生成，不要手改：
 
-## Notes
+- `database/*_tsq.go`
+- `database/*_result_tsq.go`
 
-- Generated code should not be manually edited
-- When table definitions change, regenerate with `make examples` or `tsq gen ./examples/database`
-- The auto-generated code respects the current Build-based API (`tsq.DbMap`, `tsq.Dialect`, `QueryBuilder.Build`)
+修改 `database/*.go` 后，使用下面的命令重新生成：
+
+```bash
+tsq gen ./examples/database
+```

@@ -381,6 +381,12 @@ func (qb *QueryBuilder) Having(conds ...Condition) *QueryBuilder {
 // Where replaces any existing WHERE conditions for the query.
 // If the builder is in an error state, this method returns immediately without modifying the query.
 func (qb *QueryBuilder) Where(conds ...Condition) *QueryBuilder {
+	return qb.SetWhere(conds...)
+}
+
+// SetWhere replaces any existing WHERE conditions for the query.
+// If the builder is in an error state, this method returns immediately without modifying the query.
+func (qb *QueryBuilder) SetWhere(conds ...Condition) *QueryBuilder {
 	qb = qb.ensureInitialized()
 
 	if qb.buildErr != nil {
@@ -432,6 +438,12 @@ func (qb *QueryBuilder) AndIf(ok bool, conds ...Condition) *QueryBuilder {
 // KwSearch replaces any existing keyword-search columns.
 // If the builder is in an error state, this method returns immediately without modifying the query.
 func (qb *QueryBuilder) KwSearch(cols ...Column) *QueryBuilder {
+	return qb.SetKwSearch(cols...)
+}
+
+// SetKwSearch replaces any existing keyword-search columns.
+// If the builder is in an error state, this method returns immediately without modifying the query.
+func (qb *QueryBuilder) SetKwSearch(cols ...Column) *QueryBuilder {
 	qb = qb.ensureInitialized()
 
 	if qb.buildErr != nil {

@@ -1,361 +1,221 @@
-package examples
+# TSQ Best Practices
 
-// TSQ Best Practices Guide
-//
-// This guide documents recommended patterns for using the TSQ query builder
-// in production applications.
+这份文档汇总了在生产代码中使用 TSQ 时最值得优先遵守的实践。
 
-// ============================================================
-// 1. ERROR HANDLING
-// ============================================================
+## 1. 错误处理
 
-// Best Practice 1.1: Validate inputs early
-// - Check table and column existence before building queries
-// - Use ValidateStrict() for strict input validation
-// - Handle errors from Build() before executing queries
-//
-// Good:
-//   if err := pageReq.ValidateStrict(); err != nil {
-//     return fmt.Errorf("invalid pagination: %w", err)
-//   }
-//   sql, err := query.Build()
-//   if err != nil {
-//     return fmt.Errorf("build failed: %w", err)
-//   }
-//
-// Bad:
-//   sql, _ := query.Build()  // Ignoring errors is dangerous
+### 1.1 尽早校验输入
 
-// Best Practice 1.2: Use context for timeouts
-// - Always provide context with timeouts for database operations
-// - Prevents queries from hanging indefinitely
-// - Allows graceful cancellation
-//
-// Good:
-//   ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-//   defer cancel()
-//   rows, err := db.QueryContext(ctx, sql, args...)
-//
-// Bad:
-//   rows, err := db.Query(sql, args...)  // No timeout
+- 在构建查询前校验分页、排序和用户输入
+- 对外部输入优先使用 `ValidateStrict()`
+- `Build()` 返回错误时立即处理
 
-// Best Practice 1.3: Use error wrapping with %w
-// - Preserve error context through call stack
-// - Enables errors.Is() and errors.As() checks
-// - Makes debugging easier
-//
-// Good:
-//   if err != nil {
-//     return fmt.Errorf("failed to scan user: %w", err)
-//   }
-//
-// Bad:
-//   if err != nil {
-//     return errors.New("failed to scan")  // Lost error info
-//   }
+```go
+if err := pageReq.ValidateStrict(); err != nil {
+	return fmt.Errorf("invalid pagination: %w", err)
+}
 
-// Best Practice 1.4: Check specific error types
-// - Use errors.As() to check for specific error types
-// - Different errors need different handling strategies
-// - Provide meaningful messages to users
-//
-// Good:
-//   var unknownField *tsq.ErrUnknownSortField
-//   if errors.As(err, &unknownField) {
-//     return fmt.Errorf("field not found, use one of: id, name, email")
-//   }
-//
-// Bad:
-//   if err != nil {
-//     return fmt.Errorf("query failed: %w", err)  // Too generic
+query, err := qb.Build()
+if err != nil {
+	return fmt.Errorf("build query: %w", err)
+}
+```
 
-// ============================================================
-// 2. PAGINATION
-// ============================================================
+避免：
 
-// Best Practice 2.1: Use ValidateStrict() for API input
-// - Rejects invalid pagination without mutation
-// - Returns clear error messages
-// - Fails fast
-//
-// Good:
-//   if err := pageReq.ValidateStrict(); err != nil {
-//     log.Printf("invalid pagination: %v", err)
-//     return nil, err
-//   }
-//
-// Bad:
-//   pageReq.Validate()  // Silently corrects values, might hide bugs
+```go
+query, _ := qb.Build()
+```
 
-// Best Practice 2.2: Handle pagination overflow safely
-// - Use large page numbers carefully
-// - Offset may return 0 to prevent overflow
-// - Consider MAX_PAGE limits
-//
-// Good:
-//   pageReq := &PageReq{Page: largeNum, Size: normalSize}
-//   offset := pageReq.Offset()  // Safe, handles overflow
-//
-// Bad:
-//   offset := largeNum * normalSize  // Can overflow
+### 1.2 数据库操作带上 context
 
-// Best Practice 2.3: Always check HasNext/HasPrev
-// - Enables proper pagination UI
-// - Prevents requesting non-existent pages
-// - Improves user experience
-//
-// Good:
-//   if resp.HasNext() {
-//     nextBtn.Show()
-//   } else {
-//     nextBtn.Hide()
-//   }
-//
-// Bad:
-//   if resp.Page < resp.TotalPage {  // Less clear than HasNext()
+- 给查询和写操作设置 timeout / cancellation
+- 避免数据库调用无限挂起
 
-// ============================================================
-// 3. TRANSACTIONS
-// ============================================================
+```go
+ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+defer cancel()
 
-// Best Practice 3.1: Always defer rollback
-// - Rollback is safe even if committed
-// - Ensures cleanup in all paths
-// - Prevents connection leaks
-//
-// Good:
-//   tx, err := db.Begin()
-//   if err != nil {
-//     return err
-//   }
-//   defer func() {
-//     if rollErr := tx.Rollback(); rollErr != nil && rollErr != sql.ErrTxDone {
-//       log.Printf("rollback error: %v", rollErr)
-//     }
-//   }()
-//
-// Bad:
-//   tx, _ := db.Begin()
-//   // No defer, might leak transaction
+rows, err := db.QueryContext(ctx, sqlStr, args...)
+```
 
-// Best Practice 3.2: Commit at the end, not in middle
-// - All operations should succeed before commit
-// - Failing operations should prevent commit
-// - Makes transaction logic easier to follow
-//
-// Good:
-//   // Do all operations
-//   if err := doOp1(); err != nil {
-//     return err
-//   }
-//   if err := doOp2(); err != nil {
-//     return err
-//   }
-//   return tx.Commit().Error
-//
-// Bad:
-//   if err := doOp1(); err != nil {
-//     tx.Rollback()
-//     return err
-//   }
-//   if err := doOp2(); err != nil {
-//     tx.Rollback()
-//     return err
-//   }
+### 1.3 用 `%w` 保留错误上下文
 
-// Best Practice 3.3: Use transactions for related operations
-// - Group related updates together
-// - Ensures consistency
-// - Prevents partial updates
-//
-// Good:
-//   tx, _ := db.Begin()
-//   defer tx.Rollback()
-//   // Update user and their profile in one transaction
-//   updateUser(tx, user)
-//   updateProfile(tx, profile)
-//   return tx.Commit()
-//
-// Bad:
-//   updateUser(db, user)
-//   updateProfile(db, profile)  // Could partially succeed
+```go
+if err != nil {
+	return fmt.Errorf("scan user: %w", err)
+}
+```
 
-// ============================================================
-// 4. FIELD POINTERS
-// ============================================================
+### 1.4 需要分支处理时用 `errors.Is` / `errors.As`
 
-// Best Practice 4.1: Validate field pointers during initialization
-// - Check field pointer exists and works
-// - Fail fast with clear error
-// - Don't wait for runtime scanning
-//
-// Good:
-//   fp := func(h any) any {
-//     if h == nil {
-//       return nil
-//     }
-//     u, ok := h.(*User)
-//     if !ok {
-//       return nil
-//     }
-//     return &u.ID
-//   }
-//   col := NewCol[int](table, "id", "id", fp)
-//
-// Bad:
-//   col := NewCol[int](table, "id", "id", func(h any) any {
-//     return &h.(*User).ID  // Panics if h is nil
-//   })
+```go
+var unknownField *tsq.ErrUnknownSortField
+if errors.As(err, &unknownField) {
+	return fmt.Errorf("sort field %q not found", unknownField.Field)
+}
+```
 
-// Best Practice 4.2: Use Into() for different result types
-// - Map database columns to different struct fields
-// - Useful for results and result mapping
-// - Avoids code duplication
-//
-// Good:
-//   // Database col -> Result field mapping
-//   userID.Into(func(h any) any { return &h.(*UserResult).UserID }, "user_id")
-//
-// Bad:
-//   // Creating separate columns for each mapping
+## 2. 分页
 
-// Best Practice 4.3: Handle type mismatches gracefully
-// - Field pointer can be called with different holder types
-// - Always check type before dereferencing
-// - Return nil for type mismatches
-//
-// Good:
-//   fp := func(h any) any {
-//     if u, ok := h.(*User); ok {
-//       return &u.ID
-//     }
-//     return nil
-//   }
-//
-// Bad:
-//   fp := func(h any) any {
-//     return &h.(*User).ID  // Panics on type mismatch
-//   }
+### 2.1 对 API 输入优先使用 `ValidateStrict()`
 
-// ============================================================
-// 5. SORTING
-// ============================================================
+`Validate()` 会把非法值归一化为安全默认值，适合兼容场景；  
+`ValidateStrict()` 会直接返回错误，更适合 HTTP API 和管理端输入。
 
-// Best Practice 5.1: Validate sort fields
-// - Check field exists before using
-// - Provide user-friendly error messages
-// - Prevent ambiguous sorts
-//
-// Good:
-//   var unknownField *ErrUnknownSortField
-//   if errors.As(err, &unknownField) {
-//     return fmt.Errorf("sort field %q not found", unknownField.Field)
-//   }
-//
-// Bad:
-//   if err != nil {
-//     log.Println("sort error")
-//   }
+```go
+if err := pageReq.ValidateStrict(); err != nil {
+	return nil, err
+}
+```
 
-// Best Practice 5.2: Use qualified names for joins
-// - Avoid ambiguity in joined queries
-// - Use table.column format
-// - Makes queries self-documenting
-//
-// Good:
-//   orderBy := "orders.id"  // Clear which table
-//
-// Bad:
-//   orderBy := "id"  // Ambiguous when joining users and orders
+### 2.2 不要自己手算 offset
 
-// Best Practice 5.3: Document available sort fields
-// - Keep list of sortable fields in documentation
-// - Update when schema changes
-// - Help users understand what they can sort by
-//
-// Good:
-//   // SortableFields: id, name, email, created_at
-//   var allowedFields = []string{"id", "name", "email", "created_at"}
-//
-// Bad:
-//   // No documentation of available fields
+`PageReq.Offset()` 已经处理了溢出保护。
 
-// ============================================================
-// 6. CACHING
-// ============================================================
+```go
+offset := pageReq.Offset()
+```
 
-// Best Practice 6.1: Use SQL cache in high-volume scenarios
-// - Cache frequently built queries
-// - Reduces CPU usage for query compilation
-// - Only enable if proven beneficial
-//
-// Good:
-//   cache := NewSQLRenderCache(SQLCacheConfig{
-//     Enabled: true,
-//     MaxSize: 1000,
-//   })
-//   // Monitor cache stats
-//   stats := cache.Stats()
-//
-// Bad:
-//   cache := NewSQLRenderCache(SQLCacheConfig{})  // Default off
+避免：
 
-// Best Practice 6.2: Monitor cache effectiveness
-// - Track hit rate and size
-// - Adjust MaxSize based on usage
-// - Disable if hit rate is too low
-//
-// Good:
-//   stats := cache.Stats()
-//   if hitRate < 0.5 {
-//     log.Warn("cache hit rate too low, disabling cache")
-//     cache.Clear()
-//   }
-//
-// Bad:
-//   // Fire and forget, no monitoring
+```go
+offset := page * size
+```
 
-// ============================================================
-// 7. PRODUCTION CONSIDERATIONS
-// ============================================================
+### 2.3 UI 逻辑优先用 `HasNext()` / `HasPrev()`
 
-// Best Practice 7.1: Log errors at appropriate levels
-// - ERROR: Query build failures, constraint violations
-// - WARN: Retryable errors, timeouts
-// - INFO: Query counts, cache stats
-//
-// Good:
-//   if err != nil {
-//     log.Error("query build failed", "err", err)
-//     return err
-//   }
-//
-// Bad:
-//   fmt.Println("Error: " + err.Error())  // Not structured logging
+```go
+if resp.HasNext() {
+	nextButton.Show()
+}
+```
 
-// Best Practice 7.2: Avoid exposing query structure to users
-// - Build errors should be caught before user sees them
-// - Provide user-friendly error messages
-// - Log full errors for debugging
-//
-// Good:
-//   if err != nil {
-//     log.Error("query failed", "err", err)  // Log full error
-//     return fmt.Errorf("database error")  // Generic message to user
-//   }
-//
-// Bad:
-//   return fmt.Errorf("query failed: %w", err)  // Exposes internals
+## 3. 事务
 
-// Best Practice 7.3: Set reasonable limits
-// - Max page size (1000)
-// - Max query timeout (30s)
-// - Max result rows (10000)
-//
-// Good:
-//   const MaxPageSize = 1000
-//   const QueryTimeout = 30 * time.Second
-//   const MaxResults = 10000
-//
-// Bad:
-//   // No limits, unbounded queries can exhaust resources
+### 3.1 总是 defer rollback
+
+```go
+tx, err := db.BeginTx(ctx, nil)
+if err != nil {
+	return err
+}
+defer func() {
+	if rollErr := tx.Rollback(); rollErr != nil && rollErr != sql.ErrTxDone {
+		log.Printf("rollback transaction: %v", rollErr)
+	}
+}()
+```
+
+### 3.2 把提交放在最后
+
+```go
+if err := op1(); err != nil {
+	return err
+}
+if err := op2(); err != nil {
+	return err
+}
+
+return tx.Commit()
+```
+
+### 3.3 事务里复用 TSQ 时，重新包装 `DbMap`
+
+```go
+txMap := &tsq.DbMap{Db: tx, Dialect: dbmap.Dialect}
+if err := order.Insert(ctx, txMap); err != nil {
+	return err
+}
+```
+
+## 4. Field pointer 和 `Into(...)`
+
+### 4.1 field pointer 要能安全处理 nil / 错误类型
+
+```go
+fp := func(holder any) any {
+	if holder == nil {
+		return nil
+	}
+
+	user, ok := holder.(*User)
+	if !ok {
+		return nil
+	}
+
+	return &user.ID
+}
+```
+
+### 4.2 用 `Into(...)` 做结果映射，而不是重复造列
+
+```go
+userID := database.User_ID.Into(func(holder any) any {
+	return &holder.(*UserResult).UserID
+}, "user_id")
+```
+
+## 5. 排序
+
+### 5.1 排序字段必须可验证
+
+```go
+var unknownField *tsq.ErrUnknownSortField
+if errors.As(err, &unknownField) {
+	return fmt.Errorf("unsupported sort field %q", unknownField.Field)
+}
+```
+
+### 5.2 联表排序时优先用明确列名
+
+当多个表都有 `id` 之类的字段时，尽量让排序字段与返回列保持一致，避免歧义。
+
+### 5.3 把可排序字段写进接口文档
+
+不要把可排序字段留给调用方猜。
+
+## 6. SQL cache
+
+### 6.1 只有在高频构建场景再打开缓存
+
+```go
+cache := tsq.NewSQLRenderCache(tsq.SQLCacheConfig{
+	Enabled: true,
+	MaxSize: 1000,
+})
+```
+
+### 6.2 监控命中率
+
+如果命中率很低，缓存可能只是增加复杂度。
+
+## 7. 生产环境建议
+
+### 7.1 日志分级
+
+- **ERROR**：构建失败、约束错误、不可恢复的数据库错误
+- **WARN**：超时、重试、降级
+- **INFO**：计数、缓存状态、慢查询摘要
+
+### 7.2 不要把内部查询细节直接暴露给终端用户
+
+对用户返回友好的错误，对日志保留完整上下文。
+
+### 7.3 给分页和查询设置上限
+
+推荐至少限制：
+
+- 最大页大小
+- 单次查询超时
+- 批量写入的 chunk size
+
+## 8. TSQ 特有的两个提醒
+
+### 8.1 `Where(...)` 和 `KwSearch(...)` 会覆盖之前的设置
+
+如果你想继续加条件，请使用 `And(...)`。
+
+### 8.2 `EscapeKeywordSearch(...)` 只转义 LIKE 通配符
+
+SQL 注入边界来自参数绑定，不来自这个转义函数。

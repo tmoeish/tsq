@@ -9,6 +9,20 @@
 
 ## [Unreleased]
 
+## [3.4.0] - 2026-04-29
+
+### 新增
+- `tsq gen` 增加生成计划校验能力：`--dry-run` 会显示 `CREATE / UPDATE / UNCHANGED / STALE`，`--check` 会把陈旧生成文件也纳入失败条件
+- 增加 `docs/quickstart.md` 与 `docs/concepts.md`，补齐从空目录上手到理解生成模型的文档链路
+
+### 改进
+- 重写 README 首屏与 examples 导航，拆分 quickstart / cookbook / full-suite，明确最小使用路径、能力边界和方言矩阵
+- `tsq gen --help` 现在明确说明 package 参数格式、生成文件命名、覆盖规则和常见排查方式
+- `InitWithOptions` 现在会把索引初始化模式和 schema 事件处理器持久绑定到 `DbMap`，并由 `WithContext` 继承，避免初始化后语义漂移
+- SQL 能力校验现在会把 Oracle `MINUS` 视为 `EXCEPT` 能力的一种写法，执行前即可给出一致的方言提示
+- `QueryBuilder` 增加显式覆盖式 setter：`SetWhere` 与 `SetKwSearch`
+- 生成的索引查询 helper 现在会保留源 DSL 索引名并复用缓存查询，减少排查和重复构建成本
+
 ## [3.3.0] - 2026-04-28
 
 ### 新增

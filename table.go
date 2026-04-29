@@ -25,6 +25,50 @@ const (
 	RegistrationErrorNilRuntime  RegistrationErrorType = "nil_runtime"
 )
 
+type IndexInitMode string
+
+const (
+	IndexInitSkip     IndexInitMode = "skip"
+	IndexInitUpsert   IndexInitMode = "upsert"
+	IndexInitValidate IndexInitMode = "validate"
+)
+
+type SchemaEventKind string
+
+const (
+	SchemaEventCreateTable   SchemaEventKind = "create_table"
+	SchemaEventCreateIndex   SchemaEventKind = "create_index"
+	SchemaEventValidateIndex SchemaEventKind = "validate_index"
+	SchemaEventSkipIndex     SchemaEventKind = "skip_index"
+)
+
+type SchemaEvent struct {
+	Kind  SchemaEventKind
+	Table string
+	Name  string
+	SQL   string
+}
+
+type ErrIndexMissing struct {
+	Table  string
+	Name   string
+	Fields []string
+	Unique bool
+}
+
+func (e *ErrIndexMissing) Error() string {
+	if e == nil {
+		return ""
+	}
+
+	return fmt.Sprintf(
+		"index %s on table %s is missing; expected fields %v; enable IndexInitUpsert or create the index in your migration",
+		e.Name,
+		e.Table,
+		e.Fields,
+	)
+}
+
 // RegistrationError represents an error that occurred during table registration
 type RegistrationError struct {
 	Type      RegistrationErrorType
@@ -48,9 +92,11 @@ func NewRegistry() *Registry {
 }
 
 type InitOptions struct {
-	AutoCreateTables bool
-	UpsertIndexes    bool
-	Tracers          []Tracer
+	AutoCreateTables   bool
+	UpsertIndexes      bool
+	IndexMode          IndexInitMode
+	Tracers            []Tracer
+	SchemaEventHandler func(SchemaEvent)
 	// IdentifierValidationMode controls how to handle identifier length violations:
 	// "strict" = fail if any identifier exceeds dialect limits (default for most dialects)
 	// "warn"   = log warnings but allow (for permissive databases)
@@ -204,6 +250,15 @@ func UpsertIndex(db *DbMap, table string, unique bool, idx string, fields []stri
 		return errors.Trace(err)
 	}
 
+	mode := db.effectiveIndexInitMode()
+	if mode == IndexInitSkip {
+		return errors.Trace(db.emitSchemaEvent(SchemaEvent{
+			Kind:  SchemaEventSkipIndex,
+			Table: table,
+			Name:  idx,
+		}))
+	}
+
 	definition, found, err := inspectIndexDefinition(db, table, idx)
 	if err != nil {
 		return errors.Trace(err)
@@ -214,7 +269,24 @@ func UpsertIndex(db *DbMap, table string, unique bool, idx string, fields []stri
 			return errors.Trace(err)
 		}
 
+		if err := db.emitSchemaEvent(SchemaEvent{
+			Kind:  SchemaEventValidateIndex,
+			Table: table,
+			Name:  idx,
+		}); err != nil {
+			return errors.Trace(err)
+		}
+
 		return nil
+	}
+
+	if mode == IndexInitValidate {
+		return &ErrIndexMissing{
+			Table:  table,
+			Name:   idx,
+			Fields: append([]string(nil), fields...),
+			Unique: unique,
+		}
 	}
 
 	switch db.Dialect.(type) {
@@ -226,6 +298,57 @@ func UpsertIndex(db *DbMap, table string, unique bool, idx string, fields []stri
 		return ensurePostgresIndex(db, table, unique, idx, fields)
 	default:
 		return errors.Errorf("unsupported database dialect: %T", db.Dialect)
+	}
+}
+
+func (db *DbMap) effectiveIndexInitMode() IndexInitMode {
+	return loadDBSchemaConfig(db).indexInitMode
+}
+
+func (db *DbMap) emitSchemaEvent(event SchemaEvent) (err error) {
+	handler := loadDBSchemaConfig(db).schemaEventHandler
+	if db == nil || handler == nil {
+		return nil
+	}
+
+	defer func() {
+		if r := recover(); r != nil {
+			err = errors.Errorf(
+				"schema event handler panicked for %s on %s: %v",
+				event.Kind,
+				event.Table,
+				r,
+			)
+		}
+	}()
+
+	handler(event)
+
+	return nil
+}
+
+func resolveIndexInitMode(options *InitOptions) IndexInitMode {
+	if options == nil {
+		return IndexInitSkip
+	}
+
+	if options.IndexMode != "" {
+		return options.IndexMode
+	}
+
+	if options.UpsertIndexes {
+		return IndexInitUpsert
+	}
+
+	return IndexInitSkip
+}
+
+func validateIndexInitMode(mode IndexInitMode) error {
+	switch mode {
+	case IndexInitSkip, IndexInitUpsert, IndexInitValidate:
+		return nil
+	default:
+		return errors.Errorf("invalid index init mode %q", mode)
 	}
 }
 
@@ -464,8 +587,16 @@ func createMySQLIndex(dbMap *DbMap, table string, unique bool, idx string, field
 	)
 
 	_, err = dbMap.Exec(query)
+	if err := finishCreateIndex(dbMap, table, unique, idx, fields, err); err != nil {
+		return err
+	}
 
-	return finishCreateIndex(dbMap, table, unique, idx, fields, err)
+	return errors.Trace(dbMap.emitSchemaEvent(SchemaEvent{
+		Kind:  SchemaEventCreateIndex,
+		Table: table,
+		Name:  idx,
+		SQL:   query,
+	}))
 }
 
 // ================================================
@@ -587,8 +718,16 @@ func createSQLiteIndex(db *DbMap, table string, unique bool, idx string, fields 
 	)
 
 	_, err = db.Exec(query)
+	if err := finishCreateIndex(db, table, unique, idx, fields, err); err != nil {
+		return err
+	}
 
-	return finishCreateIndex(db, table, unique, idx, fields, err)
+	return errors.Trace(db.emitSchemaEvent(SchemaEvent{
+		Kind:  SchemaEventCreateIndex,
+		Table: table,
+		Name:  idx,
+		SQL:   query,
+	}))
 }
 
 // ================================================
@@ -668,6 +807,14 @@ func createPostgresIndex(db *DbMap, table string, unique bool, idx string, field
 	)
 
 	_, err = db.Exec(query)
+	if err := finishCreateIndex(db, table, unique, idx, fields, err); err != nil {
+		return err
+	}
 
-	return finishCreateIndex(db, table, unique, idx, fields, err)
+	return errors.Trace(db.emitSchemaEvent(SchemaEvent{
+		Kind:  SchemaEventCreateIndex,
+		Table: table,
+		Name:  idx,
+		SQL:   query,
+	}))
 }

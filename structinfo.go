@@ -74,9 +74,10 @@ func (f FieldInfo) String() string {
 
 // IndexInfo 表示索引信息
 type IndexInfo struct {
-	Name   string   // 索引名称
-	Fields []string // 字段列表
-	IsSet  bool     // 是否为 set 查询
+	Name       string   // 生成查询名
+	SourceName string   // 源 DSL 索引名/唯一索引名
+	Fields     []string // 字段列表
+	IsSet      bool     // 是否为 set 查询
 }
 
 // IndexFuncNames 用于模板渲染的批量索引函数名

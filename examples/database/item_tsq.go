@@ -366,7 +366,7 @@ func ExistsItemByName(
 // =============================================================================
 // Query by Indexes
 // =============================================================================
-// ListItemByCategoryIDQuery queries Item records by index CategoryID.
+// ListItemByCategoryIDQuery queries Item records by index idx_category.
 var ListItemByCategoryIDQuery *tsq.Query
 
 func init() {
@@ -383,7 +383,7 @@ func init() {
 	}
 }
 
-// CountItemByCategoryID returns the count of Item records matching index CategoryID.
+// CountItemByCategoryID returns the count of Item records matching index idx_category.
 func CountItemByCategoryID(
 	ctx context.Context,
 	db tsq.SqlExecutor,
@@ -394,10 +394,13 @@ func CountItemByCategoryID(
 	rs, err := query.Count64(ctx, db,
 		categoryID,
 	)
-	return rs, errors.Trace(err)
+	if err != nil {
+		return 0, errors.Annotate(err, "query by index idx_category")
+	}
+	return rs, nil
 }
 
-// ListItemByCategoryID retrieves Item records by index CategoryID.
+// ListItemByCategoryID retrieves Item records by index idx_category.
 func ListItemByCategoryID(
 	ctx context.Context,
 	db tsq.SqlExecutor,
@@ -408,10 +411,13 @@ func ListItemByCategoryID(
 	data, err := tsq.List[Item](ctx, db, query,
 		categoryID,
 	)
-	return data, errors.Trace(err)
+	if err != nil {
+		return nil, errors.Annotate(err, "query by index idx_category")
+	}
+	return data, nil
 }
 
-// PageItemByCategoryID retrieves Item records by index CategoryID with pagination support.
+// PageItemByCategoryID retrieves Item records by index idx_category with pagination support.
 func PageItemByCategoryID(
 	ctx context.Context,
 	db tsq.SqlExecutor,
@@ -423,7 +429,26 @@ func PageItemByCategoryID(
 	rs, err := tsq.Page[Item](ctx, db, page, query,
 		categoryID,
 	)
-	return rs, errors.Trace(err)
+	if err != nil {
+		return nil, errors.Annotate(err, "query by index idx_category")
+	}
+	return rs, nil
+}
+
+// ListItemByCategoryIDInQuery queries Item records by index idx_category using a cached IN-clause query.
+var ListItemByCategoryIDInQuery *tsq.Query
+
+func init() {
+	var err error
+	ListItemByCategoryIDInQuery, err = tsq.
+		Select(TableItemCols...).
+		Where(
+			Item_CategoryID.InVar(),
+		).
+		Build()
+	if err != nil {
+		panic(errors.Annotate(err, "initialize ListItemByCategoryIDInQuery"))
+	}
 }
 
 // ListItemByCategoryIDIn retrieves Item records by index CategoryIDIn using IN clause for batch querying.
@@ -432,12 +457,13 @@ func ListItemByCategoryIDIn(
 	db tsq.SqlExecutor,
 	categoryIDs ...int64,
 ) ([]*Item, error) {
-	query, err := tsq.
-		Select(TableItemCols...).
-		Where(
-			Item_CategoryID.In(categoryIDs...),
-		).
-		Build()
-	list, err := tsq.List[Item](ctx, db, query)
-	return list, errors.Trace(err)
+	query := ListItemByCategoryIDInQuery
+
+	list, err := tsq.List[Item](ctx, db, query,
+		categoryIDs,
+	)
+	if err != nil {
+		return nil, errors.Annotate(err, "query by index idx_category")
+	}
+	return list, nil
 }

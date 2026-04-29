@@ -790,7 +790,32 @@ func {{$name}}(
 {{- end }}
 
 {{- range $idx := .QueryList }}
+	{{- $indexLabel := or $idx.SourceName $idx.Name }}
 	{{- if $idx.IsSet }}
+		{{- with $query := printf "%s%sQuery" $ListBy $idx.Name }}
+// {{$query}} queries {{$type}} records by index {{$indexLabel}} using a cached IN-clause query.
+var {{$query}} *tsq.Query
+
+func init() {
+	var err error
+	{{$query}}, err = tsq.
+		Select({{$varTblCols}}...).
+		Where(
+		{{- range $i, $f := $idx.Fields }}
+			{{- if eq $i (Sub1 (len $idx.Fields)) }}
+			{{$type}}_{{$f}}.InVar(),
+			{{- else }}
+			{{$type}}_{{$f}}.EQVar(),
+			{{- end }}
+		{{- end }}
+		).
+		Build()
+	if err != nil {
+		panic(errors.Annotate(err, "initialize {{$query}}"))
+	}
+}
+		{{- end }}
+
 	// List{{$type}}By{{$idx.Name}} retrieves {{$type}} records by index {{$idx.Name}} using IN clause for batch querying.
 func List{{$type}}By{{$idx.Name}}(
 	ctx context.Context,
@@ -803,24 +828,25 @@ func List{{$type}}By{{$idx.Name}}(
 			{{- end }}
 		{{- end }}
 ) ({{$list}}, error) {
-	query, err := tsq.
-		Select({{$varTblCols}}...).
-		Where(
+	query := List{{$type}}By{{$idx.Name}}Query
+
+	list, err := tsq.List[{{$type}}](ctx, db, query,
 		{{- range $i, $f := $idx.Fields }}
 			{{- if eq $i (Sub1 (len $idx.Fields)) }}
-				{{$type}}_{{$f}}.In({{ FieldSliceVarName $f }}...),
+			{{ FieldSliceVarName $f }},
 			{{- else }}
-				{{$type}}_{{$f}}.EQ({{ FieldVarName $f }}),
+			{{ FieldVarName $f }},
 			{{- end }}
 		{{- end }}
-		).
-		Build()
-	list, err := tsq.List[{{$type}}](ctx, db, query)
-	return list, errors.Trace(err)
+	)
+	if err != nil {
+		return nil, errors.Annotate(err, "query by index {{$indexLabel}}")
+	}
+	return list, nil
 }
 	{{- else }}
 		{{- with $query := printf "%s%sQuery" $ListBy $idx.Name }}
-// {{$query}} queries {{$type}} records by index {{$idx.Name}}.
+// {{$query}} queries {{$type}} records by index {{$indexLabel}}.
 var {{$query}} *tsq.Query
 
 func init() {
@@ -840,7 +866,7 @@ func init() {
 }
 
 			{{- with $name := printf "%s%s" $CountBy $idx.Name }}
-// {{$name}} returns the count of {{$type}} records matching index {{$idx.Name}}.
+// {{$name}} returns the count of {{$type}} records matching index {{$indexLabel}}.
 func {{$name}}(
 	ctx context.Context,
 	db tsq.SqlExecutor,
@@ -855,12 +881,15 @@ func {{$name}}(
 			{{ FieldVarName $f }},
 		{{- end }}
 	)
-	return rs, errors.Trace(err)
+	if err != nil {
+		return 0, errors.Annotate(err, "query by index {{$indexLabel}}")
+	}
+	return rs, nil
 }
 			{{- end }}
 
 			{{- with $name := printf "%s%s" $ListBy $idx.Name }}
-// {{$name}} retrieves {{$type}} records by index {{$idx.Name}}.
+// {{$name}} retrieves {{$type}} records by index {{$indexLabel}}.
 func {{$name}}(
 	ctx context.Context,
 	db tsq.SqlExecutor,
@@ -875,12 +904,15 @@ func {{$name}}(
 			{{ FieldVarName $f }},
 		{{- end }}
 	)
-	return data, errors.Trace(err)
+	if err != nil {
+		return nil, errors.Annotate(err, "query by index {{$indexLabel}}")
+	}
+	return data, nil
 }
 			{{- end }}
 
 			{{- with $name := printf "%s%s" $PageBy $idx.Name }}
-// {{$name}} retrieves {{$type}} records by index {{$idx.Name}} with pagination support.
+// {{$name}} retrieves {{$type}} records by index {{$indexLabel}} with pagination support.
 func {{$name}}(
 	ctx context.Context,
 	db tsq.SqlExecutor,
@@ -896,7 +928,10 @@ func {{$name}}(
 			{{ FieldVarName $f }},
 		{{- end }}
 	)
-	return rs, errors.Trace(err)
+	if err != nil {
+		return nil, errors.Annotate(err, "query by index {{$indexLabel}}")
+	}
+	return rs, nil
 }
 			{{- end }}
 		{{- end }}
@@ -909,9 +944,35 @@ func {{$name}}(
 // =============================================================================
 
 	{{- range $idx := .QueryList }}
+		{{- $indexLabel := or $idx.SourceName $idx.Name }}
 		{{- if $idx.IsSet }}
+			{{- with $query := printf "%s%sQuery" $ListActiveBy $idx.Name }}
+// {{$query}} queries active (non-deleted) {{$type}} records by index {{$indexLabel}} using a cached IN-clause query.
+var {{$query}} *tsq.Query
+
+func init() {
+	var err error
+	{{$query}}, err = tsq.
+		Select({{$varTblCols}}...).
+		Where(
+			{{ SoftDeleteActiveCond $type $dot.DeletedAtField (index $dot.FieldMap $dot.DeletedAtField) }},
+				{{- range $i, $f := $idx.Fields }}
+					{{- if eq $i (Sub1 (len $idx.Fields)) }}
+			{{$type}}_{{$f}}.InVar(),
+					{{- else }}
+			{{$type}}_{{$f}}.EQVar(),
+					{{- end }}
+				{{- end }}
+		).
+		Build()
+	if err != nil {
+		panic(errors.Annotate(err, "initialize {{$query}}"))
+	}
+}
+			{{- end }}
+
 			{{- with $name := printf "%s%s" $ListActiveBy $idx.Name }}
-// {{$name}} retrieves active (non-deleted) {{$type}} records by index {{$idx.Name}} using IN clause for batch querying.
+// {{$name}} retrieves active (non-deleted) {{$type}} records by index {{$indexLabel}} using IN clause for batch querying.
 func {{$name}}(
 	ctx context.Context,
 	db tsq.SqlExecutor,
@@ -923,26 +984,25 @@ func {{$name}}(
 					{{- end }}
 				{{- end }}
 ) ({{$list}}, error) {
-	query, err := tsq.
-		Select({{$varTblCols}}...).
-		Where(
-			{{ SoftDeleteActiveCond $type $dot.DeletedAtField (index $dot.FieldMap $dot.DeletedAtField) }},
-				{{- range $i, $f := $idx.Fields }}
-					{{- if eq $i (Sub1 (len $idx.Fields)) }}
-				{{$type}}_{{$f}}.In({{ FieldSliceVarName $f }}...),
-					{{- else }}
-				{{$type}}_{{$f}}.EQ({{ FieldVarName $f }}),
-					{{- end }}
-				{{- end }}
-		).
-		Build()
-	list, err := tsq.List[{{$type}}](ctx, db, query)
-	return list, errors.Trace(err)
+	query := {{ printf "%s%sQuery" $ListActiveBy $idx.Name }}
+	list, err := tsq.List[{{$type}}](ctx, db, query,
+		{{- range $i, $f := $idx.Fields }}
+			{{- if eq $i (Sub1 (len $idx.Fields)) }}
+			{{ FieldSliceVarName $f }},
+			{{- else }}
+			{{ FieldVarName $f }},
+			{{- end }}
+		{{- end }}
+	)
+	if err != nil {
+		return nil, errors.Annotate(err, "query by index {{$indexLabel}}")
+	}
+	return list, nil
 }
 			{{- end }}
 		{{- else }}
 			{{- with $query := printf "%s%sQuery" $listActiveBy $idx.Name }}
-// {{$query}} queries active (non-deleted) {{$type}} records by index {{$idx.Name}}.
+// {{$query}} queries active (non-deleted) {{$type}} records by index {{$indexLabel}}.
 var {{$query}} *tsq.Query
 
 func init() {
@@ -963,7 +1023,7 @@ func init() {
 }
 
 				{{- with $name := printf "%s%s" $CountActiveBy $idx.Name }}
-// {{$name}} returns the count of active (non-deleted) {{$type}} records matching index {{$idx.Name}}.
+// {{$name}} returns the count of active (non-deleted) {{$type}} records matching index {{$indexLabel}}.
 func {{$name}}(
 	ctx context.Context,
 	db tsq.SqlExecutor,
@@ -978,12 +1038,15 @@ func {{$name}}(
 			{{ FieldVarName $f }},
 		{{- end }}
 	)
-	return rs, errors.Trace(err)
+	if err != nil {
+		return 0, errors.Annotate(err, "query by index {{$indexLabel}}")
+	}
+	return rs, nil
 }
 				{{- end }}
 
 				{{- with $name := printf "%s%s" $ListActiveBy $idx.Name }}
-// {{$name}} retrieves active (non-deleted) {{$type}} records by index {{$idx.Name}}.
+// {{$name}} retrieves active (non-deleted) {{$type}} records by index {{$indexLabel}}.
 func {{$name}}(
 	ctx context.Context,
 	db tsq.SqlExecutor,
@@ -998,12 +1061,15 @@ func {{$name}}(
 			{{ FieldVarName $f }},
 		{{- end }}
 	)
-	return data, errors.Trace(err)
+	if err != nil {
+		return nil, errors.Annotate(err, "query by index {{$indexLabel}}")
+	}
+	return data, nil
 }
 				{{- end }}
 
 				{{- with $name := printf "%s%s" $PageActiveBy $idx.Name }}
-// {{$name}} retrieves active (non-deleted) {{$type}} records by index {{$idx.Name}} with pagination support.
+// {{$name}} retrieves active (non-deleted) {{$type}} records by index {{$indexLabel}} with pagination support.
 func {{$name}}(
 	ctx context.Context,
 	db tsq.SqlExecutor,
@@ -1019,7 +1085,10 @@ func {{$name}}(
 			{{ FieldVarName $f }},
 		{{- end }}
 	)
-	return rs, errors.Trace(err)
+	if err != nil {
+		return nil, errors.Annotate(err, "query by index {{$indexLabel}}")
+	}
+	return rs, nil
 }
 				{{- end }}
 			{{- end }}

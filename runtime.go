@@ -146,11 +146,20 @@ func (r *Runtime) InitWithOptions(db *DbMap, options *InitOptions) error {
 		options = &InitOptions{}
 	}
 
+	indexMode := resolveIndexInitMode(options)
+	if err := validateIndexInitMode(indexMode); err != nil {
+		return errors.Trace(err)
+	}
+
 	r.initMu.Lock()
 	defer r.initMu.Unlock()
 
 	// Store the database map for later dialect access
 	r.db = db
+	storeDBSchemaConfig(db, dbSchemaConfig{
+		indexInitMode:      indexMode,
+		schemaEventHandler: options.SchemaEventHandler,
+	})
 
 	rollbackTracers := r.traceManager.snapshot()
 	r.traceManager.AddUnique(options.Tracers...)
@@ -180,7 +189,7 @@ func (r *Runtime) InitWithOptions(db *DbMap, options *InitOptions) error {
 		}
 	}
 
-	if options.UpsertIndexes {
+	if indexMode != IndexInitSkip {
 		for _, table := range registeredTables {
 			if err := table.InitFunc(db); err != nil {
 				r.traceManager.restore(rollbackTracers)

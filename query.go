@@ -1735,17 +1735,9 @@ func validateExecutorForSQL(tx SqlExecutor, rawSQLs ...string) error {
 	if dialect != nil {
 		validator := NewDialectValidator(dialect)
 
-		if !dialectSupportsFullJoin(dialect) {
-			for _, rawSQL := range rawSQLs {
-				if strings.Contains(strings.ToUpper(rawSQL), " FULL JOIN ") {
-					return errors.New("FULL JOIN is not supported by this SQL dialect")
-				}
-			}
-		}
-
 		for _, rawSQL := range rawSQLs {
-			if strings.HasPrefix(strings.ToUpper(strings.TrimSpace(rawSQL)), "WITH ") {
-				if err := validator.ValidateCapability("CTE"); err != nil {
+			for _, capability := range detectSQLCapabilities(rawSQL) {
+				if err := validator.ValidateCapability(capability); err != nil {
 					return errors.Trace(err)
 				}
 			}
@@ -1763,13 +1755,27 @@ func validateExecutorForSQL(tx SqlExecutor, rawSQLs ...string) error {
 	return nil
 }
 
-func dialectSupportsFullJoin(dialect Dialect) bool {
-	switch dialect.(type) {
-	case MySQLDialect, *MySQLDialect, SqliteDialect, *SqliteDialect:
-		return false
-	default:
-		return true
+func detectSQLCapabilities(rawSQL string) []string {
+	upperSQL := strings.ToUpper(strings.TrimSpace(rawSQL))
+	capabilities := make([]string, 0, 4)
+
+	if strings.HasPrefix(upperSQL, "WITH ") {
+		capabilities = append(capabilities, "CTE")
 	}
+
+	if strings.Contains(upperSQL, " FULL JOIN ") {
+		capabilities = append(capabilities, "FULL_OUTER_JOIN")
+	}
+
+	if strings.Contains(upperSQL, " INTERSECT ") {
+		capabilities = append(capabilities, "INTERSECT")
+	}
+
+	if strings.Contains(upperSQL, " EXCEPT ") || strings.Contains(upperSQL, " MINUS ") {
+		capabilities = append(capabilities, "EXCEPT")
+	}
+
+	return capabilities
 }
 
 func validateOperationalExecutorForSQL(tx SqlExecutor, rawSQLs ...string) error {

@@ -318,9 +318,10 @@ func generateQueryList(meta *tsq.TableInfo) {
 		queryName := strings.Join(idx.Fields, "And")
 		if !queryMap[queryName] {
 			meta.QueryList = append(meta.QueryList, tsq.IndexInfo{
-				Name:   queryName,
-				Fields: idx.Fields,
-				IsSet:  false,
+				Name:       queryName,
+				SourceName: idx.Name,
+				Fields:     idx.Fields,
+				IsSet:      false,
 			})
 			queryMap[queryName] = true
 		}
@@ -329,9 +330,10 @@ func generateQueryList(meta *tsq.TableInfo) {
 		setName := queryName + "In"
 		if !queryMap[setName] {
 			meta.QueryList = append(meta.QueryList, tsq.IndexInfo{
-				Name:   setName,
-				Fields: idx.Fields,
-				IsSet:  true,
+				Name:       setName,
+				SourceName: idx.Name,
+				Fields:     idx.Fields,
+				IsSet:      true,
 			})
 			queryMap[setName] = true
 		}
@@ -341,9 +343,10 @@ func generateQueryList(meta *tsq.TableInfo) {
 			prefixQueryName := strings.Join(idx.Fields[:j], "And")
 			if !queryMap[prefixQueryName] {
 				meta.QueryList = append(meta.QueryList, tsq.IndexInfo{
-					Name:   prefixQueryName,
-					Fields: idx.Fields[:j],
-					IsSet:  false,
+					Name:       prefixQueryName,
+					SourceName: idx.Name,
+					Fields:     idx.Fields[:j],
+					IsSet:      false,
 				})
 				queryMap[prefixQueryName] = true
 			}
@@ -351,9 +354,10 @@ func generateQueryList(meta *tsq.TableInfo) {
 			setName := prefixQueryName + "In"
 			if !queryMap[setName] {
 				meta.QueryList = append(meta.QueryList, tsq.IndexInfo{
-					Name:   setName,
-					Fields: idx.Fields[:j],
-					IsSet:  true,
+					Name:       setName,
+					SourceName: idx.Name,
+					Fields:     idx.Fields[:j],
+					IsSet:      true,
 				})
 				queryMap[setName] = true
 			}
@@ -365,9 +369,10 @@ func generateQueryList(meta *tsq.TableInfo) {
 			prefixQueryName := strings.Join(ux.Fields[:j], "And")
 			if !queryMap[prefixQueryName] {
 				meta.QueryList = append(meta.QueryList, tsq.IndexInfo{
-					Name:   prefixQueryName,
-					Fields: ux.Fields[:j],
-					IsSet:  false,
+					Name:       prefixQueryName,
+					SourceName: ux.Name,
+					Fields:     ux.Fields[:j],
+					IsSet:      false,
 				})
 				queryMap[prefixQueryName] = true
 			}
@@ -375,9 +380,10 @@ func generateQueryList(meta *tsq.TableInfo) {
 			setName := prefixQueryName + "In"
 			if !queryMap[setName] {
 				meta.QueryList = append(meta.QueryList, tsq.IndexInfo{
-					Name:   setName,
-					Fields: ux.Fields[:j],
-					IsSet:  true,
+					Name:       setName,
+					SourceName: ux.Name,
+					Fields:     ux.Fields[:j],
+					IsSet:      true,
 				})
 				queryMap[setName] = true
 			}
