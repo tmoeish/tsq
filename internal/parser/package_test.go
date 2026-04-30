@@ -65,6 +65,67 @@ import "example.invalid/missingpkg/v2"
 	}
 }
 
+func TestParseTableInfoAttachesCommentLineToDSLFieldErrors(t *testing.T) {
+	src := `package p
+
+// @TABLE(
+//   ux=[
+//     {fields=["Name"]},
+//   ],
+// )
+type User struct {
+// ignored
+	ID int64
+}
+`
+
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "test.go", src, parser.ParseComments)
+	if err != nil {
+		t.Fatalf("ParseFile() error = %v", err)
+	}
+
+	_, err = ParseTableInfo("User", file.Comments, map[string]struct{}{"ID": {}}, fset)
+	if err == nil {
+		t.Fatal("expected ParseTableInfo to fail for unknown DSL field")
+	}
+
+	if got := err.Error(); !strings.Contains(got, "test.go:5") {
+		t.Fatalf("expected DSL error to include source line, got %q", got)
+	}
+}
+
+func TestParseTableInfoAttachesSyntaxErrorToLaterDSLLine(t *testing.T) {
+	src := `package p
+
+// @TABLE(
+//   name="users",
+//   ux=[
+//     {fields=["Name"]},
+//   ],
+//   kw={"Name", "Description"},
+// )
+type User struct {
+	ID int64
+}
+`
+
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "test.go", src, parser.ParseComments)
+	if err != nil {
+		t.Fatalf("ParseFile() error = %v", err)
+	}
+
+	_, err = ParseTableInfo("User", file.Comments, map[string]struct{}{"ID": {}, "Name": {}, "Description": {}}, fset)
+	if err == nil {
+		t.Fatal("expected ParseTableInfo to fail for malformed kw object")
+	}
+
+	if got := err.Error(); !strings.Contains(got, "test.go:8") {
+		t.Fatalf("expected syntax error to include later DSL source line, got %q", got)
+	}
+}
+
 func Test_parsePackageAliases_RejectsDotImport(t *testing.T) {
 	src := `
 package p

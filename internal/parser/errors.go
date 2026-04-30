@@ -2,6 +2,7 @@ package parser
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/juju/errors"
 )
@@ -50,6 +51,10 @@ type ParserError struct {
 
 // Error 实现 error 接口
 func (e *ParserError) Error() string {
+	if prefix := parserErrorLocationPrefix(e.Context); prefix != "" && !strings.HasPrefix(e.Message, prefix+": ") {
+		return prefix + ": " + e.Message
+	}
+
 	return e.Message
 }
 
@@ -70,6 +75,24 @@ func newParserError(errorType ErrorType, message string, context map[string]any)
 		Message: message,
 		Context: context,
 	}
+}
+
+func parserErrorLocationPrefix(context map[string]any) string {
+	if context == nil {
+		return ""
+	}
+
+	filename, ok := context["filename"].(string)
+	if !ok || filename == "" {
+		return ""
+	}
+
+	line, _ := context["line"].(int)
+	if line > 0 {
+		return fmt.Sprintf("%s:%d", filename, line)
+	}
+
+	return filename
 }
 
 // ErrorMessages 错误消息模板
@@ -184,26 +207,10 @@ func NewUnsupportedTypeError(typeExpr any) error {
 
 // NewDSLTokenizeError 创建 DSL 词法分析错误
 func NewDSLTokenizeError(input string, position int, char byte) error {
-	contextLen := 20
-
-	start := max(position-contextLen, 0)
-
-	end := min(position+contextLen, len(input))
-
-	snippet := input[start:end]
-	highlightIdx := position - start
-
-	var highlightedSnippet string
-
-	if highlightIdx >= 0 && highlightIdx < len(snippet) {
-		highlightedSnippet = snippet[:highlightIdx] + ">" + string(snippet[highlightIdx]) + "<" + snippet[highlightIdx+1:]
-	} else {
-		highlightedSnippet = snippet
-	}
-
+	highlightedSnippet := highlightDSLPosition(input, position)
 	msg := fmt.Sprintf(
-		"failed to tokenize DSL at position %d, char: '%s', context: ...%s...",
-		position, string(char), highlightedSnippet,
+		"invalid character %q in DSL at position %d; expected a key, string, number, ',', '=', '[', ']', '{', or '}' near ...%s...",
+		string(char), position, highlightedSnippet,
 	)
 	err := newParserError(ErrorTypeDSLTokenize, msg, map[string]any{
 		"input":    input,
@@ -218,7 +225,7 @@ func NewDSLTokenizeError(input string, position int, char byte) error {
 // NewDSLUnexpectedTokenError 创建 DSL 意外 token 错误
 func NewDSLUnexpectedTokenError(expected, actual string, position int) error {
 	msg := fmt.Sprintf(
-		"unexpected token in DSL at position %d: expected '%s', got '%s'",
+		"malformed DSL at position %d: expected %s, got %q",
 		position, expected, actual,
 	)
 	err := newParserError(ErrorTypeDSLUnexpectedToken, msg, map[string]any{
@@ -230,11 +237,152 @@ func NewDSLUnexpectedTokenError(expected, actual string, position int) error {
 	return errors.Trace(err)
 }
 
+func NewDSLUnexpectedTopLevelTokenError(actual string, position int) error {
+	msg := fmt.Sprintf(
+		"unexpected token in @TABLE/@RESULT body at position %d: got %q; expected a DSL key like name=..., pk=..., created_at, ux=[...], idx=[...], or kw=[...]",
+		position,
+		actual,
+	)
+	err := newParserError(ErrorTypeDSLUnexpectedToken, msg, map[string]any{
+		"expected": "top-level DSL key",
+		"actual":   actual,
+		"position": position,
+	})
+
+	return errors.Trace(err)
+}
+
+func NewDSLUnexpectedObjectTokenError(actual string, position int) error {
+	msg := fmt.Sprintf(
+		"unexpected token in DSL object at position %d: got %q; expected object field like name=... or fields=[...], or closing '}'",
+		position,
+		actual,
+	)
+	if actual == "]" {
+		msg += " (did you forget a closing '}' before ']'?)"
+	}
+
+	err := newParserError(ErrorTypeDSLUnexpectedToken, msg, map[string]any{
+		"expected": "object field or closing brace",
+		"actual":   actual,
+		"position": position,
+	})
+
+	return errors.Trace(err)
+}
+
+func NewDSLUnexpectedValueTokenError(actual string, position int) error {
+	msg := fmt.Sprintf(
+		"invalid DSL value at position %d: got %q; expected a string, boolean, number, array [...], or object {...}",
+		position,
+		actual,
+	)
+	err := newParserError(ErrorTypeDSLUnexpectedValue, msg, map[string]any{
+		"token":    actual,
+		"position": position,
+	})
+
+	return errors.Trace(err)
+}
+
+func NewDSLUnknownTableKeyError(actual string) error {
+	return newDSLUnknownKeyError("table DSL", actual, []string{
+		"name", "pk", "version", "created_at", "updated_at", "deleted_at", "ux", "idx", "kw",
+	})
+}
+
+func NewDSLUnknownIndexKeyError(actual string) error {
+	return newDSLUnknownKeyError("index DSL", actual, []string{
+		"name", "fields",
+	})
+}
+
+func newDSLUnknownKeyError(scope, actual string, validKeys []string) error {
+	msg := fmt.Sprintf(
+		"unknown %s key %q; valid keys: %s",
+		scope,
+		actual,
+		strings.Join(validKeys, ", "),
+	)
+	if suggestion := closestDSLKey(actual, validKeys); suggestion != "" && suggestion != actual {
+		msg += fmt.Sprintf(" (did you mean %q?)", suggestion)
+	}
+
+	err := newParserError(ErrorTypeDSLUnexpectedToken, msg, map[string]any{
+		"expected":  strings.Join(validKeys, ", "),
+		"actual":    actual,
+		"validKeys": append([]string(nil), validKeys...),
+	})
+
+	return errors.Trace(err)
+}
+
+func closestDSLKey(actual string, validKeys []string) string {
+	bestKey := ""
+	bestDistance := -1
+
+	for _, key := range validKeys {
+		distance := levenshteinDistance(actual, key)
+		if bestDistance == -1 || distance < bestDistance {
+			bestDistance = distance
+			bestKey = key
+		}
+	}
+
+	if bestDistance == -1 || bestDistance > 3 {
+		return ""
+	}
+
+	return bestKey
+}
+
+func levenshteinDistance(a, b string) int {
+	if a == b {
+		return 0
+	}
+
+	if len(a) == 0 {
+		return len(b)
+	}
+
+	if len(b) == 0 {
+		return len(a)
+	}
+
+	prev := make([]int, len(b)+1)
+	curr := make([]int, len(b)+1)
+
+	for j := range len(b) + 1 {
+		prev[j] = j
+	}
+
+	for i := 1; i <= len(a); i++ {
+		curr[0] = i
+
+		for j := 1; j <= len(b); j++ {
+			cost := 0
+			if a[i-1] != b[j-1] {
+				cost = 1
+			}
+
+			curr[j] = min(
+				prev[j]+1,
+				curr[j-1]+1,
+				prev[j-1]+cost,
+			)
+		}
+
+		prev, curr = curr, prev
+	}
+
+	return prev[len(b)]
+}
+
 // NewDSLUnexpectedValueError 创建 DSL 意外值错误
 func NewDSLUnexpectedValueError(tokenValue string, position int) error {
 	msg := fmt.Sprintf(
-		"unexpected value token in DSL at position %d: '%s'",
-		position, tokenValue,
+		"invalid DSL value for %q at position %d",
+		tokenValue, position,
 	)
 	err := newParserError(ErrorTypeDSLUnexpectedValue, msg, map[string]any{
 		"token":    tokenValue,
@@ -244,27 +392,52 @@ func NewDSLUnexpectedValueError(tokenValue string, position int) error {
 	return errors.Trace(err)
 }
 
+func NewDSLValueTypeError(key, expected string, actual any) error {
+	msg := fmt.Sprintf(
+		"invalid value for DSL key %q: expected %s, got %s",
+		key,
+		expected,
+		describeDSLValue(actual),
+	)
+	err := newParserError(ErrorTypeDSLUnexpectedValue, msg, map[string]any{
+		"key":      key,
+		"expected": expected,
+		"actual":   describeDSLValue(actual),
+	})
+
+	return errors.Trace(err)
+}
+
+func NewDSLArrayEntryTypeError(key, expected string, actual any) error {
+	msg := fmt.Sprintf(
+		"invalid entry in DSL array %q: expected %s, got %s",
+		key,
+		expected,
+		describeDSLValue(actual),
+	)
+	err := newParserError(ErrorTypeDSLUnexpectedValue, msg, map[string]any{
+		"key":      key,
+		"expected": expected,
+		"actual":   describeDSLValue(actual),
+	})
+
+	return errors.Trace(err)
+}
+
+func NewDSLEmptyArrayError(key string) error {
+	msg := fmt.Sprintf("DSL key %q must not be an empty array", key)
+	err := newParserError(ErrorTypeDSLUnexpectedValue, msg, map[string]any{
+		"key": key,
+	})
+
+	return errors.Trace(err)
+}
+
 // NewDSLUnclosedStringError 创建 DSL 未闭合字符串错误
 func NewDSLUnclosedStringError(input string, position int) error {
-	contextLen := 20
-
-	start := max(position-contextLen, 0)
-
-	end := min(position+contextLen, len(input))
-
-	snippet := input[start:end]
-	highlightIdx := position - start
-
-	var highlightedSnippet string
-
-	if highlightIdx >= 0 && highlightIdx < len(snippet) {
-		highlightedSnippet = snippet[:highlightIdx] + ">" + string(snippet[highlightIdx]) + "<" + snippet[highlightIdx+1:]
-	} else {
-		highlightedSnippet = snippet
-	}
-
+	highlightedSnippet := highlightDSLPosition(input, position)
 	msg := fmt.Sprintf(
-		"unclosed string literal in DSL at position %d, context: ...%s...",
+		"unclosed string literal in DSL at position %d; add the missing closing quote near ...%s...",
 		position, highlightedSnippet,
 	)
 	err := newParserError(ErrorTypeDSLUnclosedString, msg, map[string]any{
@@ -279,8 +452,8 @@ func NewDSLUnclosedStringError(input string, position int) error {
 // NewDSLInvalidNumberError 创建 DSL 无效数字错误
 func NewDSLInvalidNumberError(numberStr string, position int) error {
 	msg := fmt.Sprintf(
-		"invalid number format in DSL at position %d: '%s'",
-		position, numberStr,
+		"invalid number %q in DSL at position %d; only digits are supported here",
+		numberStr, position,
 	)
 	err := newParserError(ErrorTypeDSLInvalidNumber, msg, map[string]any{
 		"number":   numberStr,
@@ -292,7 +465,7 @@ func NewDSLInvalidNumberError(numberStr string, position int) error {
 
 // NewDSLDuplicateKeyError 创建 DSL 重复 key 错误
 func NewDSLDuplicateKeyError(key string, position int) error {
-	msg := fmt.Sprintf("duplicate key '%s' in DSL at position %d", key, position)
+	msg := fmt.Sprintf("duplicate DSL key %q at position %d; each key can only appear once in the same object", key, position)
 	err := newParserError(ErrorTypeDSLDuplicateKey, msg, map[string]any{
 		"key":      key,
 		"position": position,
@@ -303,10 +476,76 @@ func NewDSLDuplicateKeyError(key string, position int) error {
 
 // NewDSLMissingBracketError 创建 DSL 缺失括号错误
 func NewDSLMissingBracketError(input string, position int) error {
-	msg := fmt.Sprintf("missing bracket in DSL at position %d", position)
+	msg := fmt.Sprintf("missing bracket in DSL at position %d near ...%s...", position, highlightDSLPosition(input, position))
 	err := newParserError(ErrorTypeDSLMissingBracket, msg, map[string]any{
 		"input":    input,
 		"position": position,
+	})
+
+	return errors.Trace(err)
+}
+
+func NewDSLAnnotationMissingOpeningParenError(keyword, input string, position int) error {
+	msg := fmt.Sprintf(
+		"%s must be followed by '('; use %s(...) near ...%s...",
+		keyword,
+		keyword,
+		highlightDSLPosition(input, position),
+	)
+	err := newParserError(ErrorTypeDSLMissingBracket, msg, map[string]any{
+		"input":    input,
+		"keyword":  keyword,
+		"position": position,
+	})
+
+	return errors.Trace(err)
+}
+
+func NewDSLAnnotationMissingClosingParenError(keyword, input string, position int) error {
+	msg := fmt.Sprintf(
+		"%s is missing a closing ')' near ...%s...",
+		keyword,
+		highlightDSLPosition(input, position),
+	)
+	err := newParserError(ErrorTypeDSLMissingBracket, msg, map[string]any{
+		"input":    input,
+		"keyword":  keyword,
+		"position": position,
+	})
+
+	return errors.Trace(err)
+}
+
+func NewDSLMissingBraceError(position int) error {
+	msg := fmt.Sprintf("DSL object is missing a closing '}' at position %d", position)
+	err := newParserError(ErrorTypeDSLMissingBrace, msg, map[string]any{
+		"position": position,
+	})
+
+	return errors.Trace(err)
+}
+
+func NewDSLArrayMissingClosingBracketError(position int) error {
+	msg := fmt.Sprintf("DSL array is missing a closing ']' at position %d", position)
+	err := newParserError(ErrorTypeDSLMissingBracket, msg, map[string]any{
+		"position": position,
+	})
+
+	return errors.Trace(err)
+}
+
+func NewDSLInvalidPrimaryKeyError(value, reason string) error {
+	msg := fmt.Sprintf(
+		"invalid pk value %q: %s; expected %q or %q",
+		value,
+		reason,
+		"ID",
+		"ID,true",
+	)
+	err := newParserError(ErrorTypeDSLUnexpectedValue, msg, map[string]any{
+		"key":    "pk",
+		"value":  value,
+		"reason": reason,
 	})
 
 	return errors.Trace(err)
@@ -364,7 +603,7 @@ func NewDSLFieldNotFoundError(field, structName string) error {
 
 // NewDSLIndexFieldDuplicateError 创建索引字段重复错误
 func NewDSLIndexFieldDuplicateError(indexName, field string) error {
-	msg := fmt.Sprintf("duplicate field '%s' in index '%s'", field, indexName)
+	msg := fmt.Sprintf("index %q lists Go field %q more than once", indexName, field)
 	err := newParserError(ErrorTypeDSLIndexFieldDuplicate,
 		msg,
 		map[string]any{"index": indexName, "field": field},
@@ -375,7 +614,7 @@ func NewDSLIndexFieldDuplicateError(indexName, field string) error {
 
 // NewDSLIndexDuplicateError 创建索引定义重复错误
 func NewDSLIndexDuplicateError(indexName, fields string) error {
-	msg := fmt.Sprintf("duplicate index definition: fields '%s' in index '%s'", fields, indexName)
+	msg := fmt.Sprintf("index %q duplicates another index definition with the same fields [%s]", indexName, fields)
 	err := newParserError(ErrorTypeDSLIndexDuplicate,
 		msg,
 		map[string]any{"index": indexName, "fields": fields},
@@ -411,4 +650,63 @@ func IsErrorType(err error, errorType ErrorType) bool {
 	}
 
 	return false
+}
+
+func attachParserErrorLocation(err error, filename string, line int) error {
+	if err == nil || filename == "" || line <= 0 {
+		return err
+	}
+
+	parserErr := GetParserError(err)
+	if parserErr == nil {
+		return err
+	}
+
+	if parserErr.Context == nil {
+		parserErr.Context = make(map[string]any)
+	}
+
+	if _, exists := parserErr.Context["filename"]; exists {
+		return err
+	}
+
+	parserErr.Context["filename"] = filename
+	parserErr.Context["line"] = line
+
+	return err
+}
+
+func highlightDSLPosition(input string, position int) string {
+	contextLen := 20
+	start := max(position-contextLen, 0)
+	end := min(position+contextLen, len(input))
+	snippet := input[start:end]
+
+	highlightIdx := position - start
+	if highlightIdx >= 0 && highlightIdx < len(snippet) {
+		return snippet[:highlightIdx] + ">" + string(snippet[highlightIdx]) + "<" + snippet[highlightIdx+1:]
+	}
+
+	return snippet
+}
+
+func describeDSLValue(value any) string {
+	switch v := value.(type) {
+	case DSLString:
+		return "string"
+	case DSLBool:
+		return "boolean"
+	case DSLNumber:
+		return "number"
+	case DSLArray:
+		return "array"
+	case DSLObject:
+		return "object"
+	case nil:
+		return "empty value"
+	case string:
+		return fmt.Sprintf("token %q", v)
+	default:
+		return fmt.Sprintf("%T", value)
+	}
 }

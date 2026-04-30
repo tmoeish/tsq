@@ -184,7 +184,7 @@ func (ps *ParseState) parseTableMetadata(pkg tsq.PackageInfo) error {
 		}
 
 		if err := ps.processFileComments(file, fileSet, pkg); err != nil {
-			return errors.Annotatef(err, "failed to process file comments: %s", fullPath)
+			return errors.Annotate(err, "failed to parse @TABLE/@RESULT annotations")
 		}
 	}
 
@@ -219,11 +219,11 @@ func (ps *ParseState) processFileComments(
 	for node, comments := range commentMap {
 		switch n := node.(type) {
 		case *ast.GenDecl:
-			if err := ps.processGenDecl(n, comments, pkg); err != nil {
+			if err := ps.processGenDecl(n, comments, fileSet, pkg); err != nil {
 				return errors.Trace(err)
 			}
 		case *ast.TypeSpec:
-			if err := ps.processTypeSpec(n, comments, pkg); err != nil {
+			if err := ps.processTypeSpec(n, comments, fileSet, pkg); err != nil {
 				return errors.Trace(err)
 			}
 		default:
@@ -238,6 +238,7 @@ func (ps *ParseState) processFileComments(
 func (ps *ParseState) processGenDecl(
 	genDecl *ast.GenDecl,
 	comments []*ast.CommentGroup,
+	fileSet *token.FileSet,
 	pkg tsq.PackageInfo,
 ) error {
 	for _, spec := range genDecl.Specs {
@@ -250,7 +251,7 @@ func (ps *ParseState) processGenDecl(
 			continue
 		}
 
-		if err := ps.processStructTypeSpec(typeSpec, comments, pkg); err != nil {
+		if err := ps.processStructTypeSpec(typeSpec, comments, fileSet, pkg); err != nil {
 			return errors.Trace(err)
 		}
 	}
@@ -262,19 +263,21 @@ func (ps *ParseState) processGenDecl(
 func (ps *ParseState) processTypeSpec(
 	typeSpec *ast.TypeSpec,
 	comments []*ast.CommentGroup,
+	fileSet *token.FileSet,
 	pkg tsq.PackageInfo,
 ) error {
 	if !isStructType(typeSpec.Type) {
 		return nil
 	}
 
-	return errors.Trace(ps.processStructTypeSpec(typeSpec, comments, pkg))
+	return errors.Trace(ps.processStructTypeSpec(typeSpec, comments, fileSet, pkg))
 }
 
 // processStructTypeSpec 处理结构体类型声明
 func (ps *ParseState) processStructTypeSpec(
 	typeSpec *ast.TypeSpec,
 	comments []*ast.CommentGroup,
+	fileSet *token.FileSet,
 	pkg tsq.PackageInfo,
 ) error {
 	structName := typeSpec.Name.Name
@@ -290,7 +293,7 @@ func (ps *ParseState) processStructTypeSpec(
 		fields[name] = struct{}{}
 	}
 
-	tableMeta, err := ParseTableInfo(structName, comments, fields)
+	tableMeta, err := ParseTableInfo(structName, comments, fields, fileSet)
 	if err != nil {
 		return errors.Trace(err)
 	}

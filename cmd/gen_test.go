@@ -467,6 +467,49 @@ type User struct {
 	}
 }
 
+func TestGenCmdReportsDSLSourceLocation(t *testing.T) {
+	t.Cleanup(func() {
+		dryRunFlag = false
+		checkFlag = false
+		v = false
+		GenCmd.SetArgs(nil)
+	})
+
+	dir := t.TempDir()
+	writeTestFile(t, filepath.Join(dir, "go.mod"), genTestModuleFile(t))
+	writeTestFile(t, filepath.Join(dir, "model.go"), `package gentest
+
+// @TABLE(
+//   name="users",
+//   ux=[
+//     {fields=["name"]},
+//   ],
+// )
+type User struct {
+	ID int64 `+"`db:\"id\"`"+`
+}
+`)
+	chdirForGenTest(t, dir)
+	tidyGenTestModule(t)
+
+	GenCmd.SetOut(new(bytes.Buffer))
+	GenCmd.SetErr(new(bytes.Buffer))
+	GenCmd.SetArgs([]string{"."})
+
+	err := GenCmd.Execute()
+	if err == nil {
+		t.Fatal("expected invalid DSL field to fail generation")
+	}
+
+	got := err.Error()
+	if !strings.Contains(got, "model.go:6") {
+		t.Fatalf("expected gen error to include file and line, got %q", got)
+	}
+	if !strings.Contains(got, "use struct field names, not db column names") {
+		t.Fatalf("expected gen error to keep field guidance, got %q", got)
+	}
+}
+
 func TestGenerationPlanStatusFor(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "user_tsq.go")

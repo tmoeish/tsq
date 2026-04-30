@@ -34,6 +34,7 @@ const (
 type Token struct {
 	Type  TokenType
 	Value string
+	Pos   int
 }
 
 // ========== DSL AST 结构定义 ========== //
@@ -62,7 +63,7 @@ func Tokenize(input string) ([]Token, error) {
 	for i < len(input) {
 		c := input[i]
 		if c == '=' {
-			tokens = append(tokens, Token{Type: TokenEqual, Value: "="})
+			tokens = append(tokens, Token{Type: TokenEqual, Value: "=", Pos: i})
 			i++
 
 			skipSpace()
@@ -71,7 +72,7 @@ func Tokenize(input string) ([]Token, error) {
 		}
 
 		if c == ',' {
-			tokens = append(tokens, Token{Type: TokenComma, Value: ","})
+			tokens = append(tokens, Token{Type: TokenComma, Value: ",", Pos: i})
 			i++
 
 			skipSpace()
@@ -80,7 +81,7 @@ func Tokenize(input string) ([]Token, error) {
 		}
 
 		if c == '[' {
-			tokens = append(tokens, Token{Type: TokenLBracket, Value: "["})
+			tokens = append(tokens, Token{Type: TokenLBracket, Value: "[", Pos: i})
 			i++
 
 			skipSpace()
@@ -89,7 +90,7 @@ func Tokenize(input string) ([]Token, error) {
 		}
 
 		if c == ']' {
-			tokens = append(tokens, Token{Type: TokenRBracket, Value: "]"})
+			tokens = append(tokens, Token{Type: TokenRBracket, Value: "]", Pos: i})
 			i++
 
 			skipSpace()
@@ -98,7 +99,7 @@ func Tokenize(input string) ([]Token, error) {
 		}
 
 		if c == '{' {
-			tokens = append(tokens, Token{Type: TokenLBrace, Value: "{"})
+			tokens = append(tokens, Token{Type: TokenLBrace, Value: "{", Pos: i})
 			i++
 
 			skipSpace()
@@ -107,7 +108,7 @@ func Tokenize(input string) ([]Token, error) {
 		}
 
 		if c == '}' {
-			tokens = append(tokens, Token{Type: TokenRBrace, Value: "}"})
+			tokens = append(tokens, Token{Type: TokenRBrace, Value: "}", Pos: i})
 			i++
 
 			skipSpace()
@@ -135,7 +136,7 @@ func Tokenize(input string) ([]Token, error) {
 				unquoted = input[i+1 : j]
 			}
 
-			tokens = append(tokens, Token{Type: TokenString, Value: unquoted})
+			tokens = append(tokens, Token{Type: TokenString, Value: unquoted, Pos: i})
 			i = j + 1
 
 			skipSpace()
@@ -152,9 +153,9 @@ func Tokenize(input string) ([]Token, error) {
 
 			val := input[i:j]
 			if val == "true" || val == "false" {
-				tokens = append(tokens, Token{Type: TokenBool, Value: val})
+				tokens = append(tokens, Token{Type: TokenBool, Value: val, Pos: i})
 			} else {
-				tokens = append(tokens, Token{Type: TokenIdent, Value: val})
+				tokens = append(tokens, Token{Type: TokenIdent, Value: val, Pos: i})
 			}
 
 			i = j
@@ -171,7 +172,7 @@ func Tokenize(input string) ([]Token, error) {
 				j++
 			}
 
-			tokens = append(tokens, Token{Type: TokenNumber, Value: input[i:j]})
+			tokens = append(tokens, Token{Type: TokenNumber, Value: input[i:j], Pos: i})
 			i = j
 
 			skipSpace()
@@ -183,7 +184,7 @@ func Tokenize(input string) ([]Token, error) {
 		return nil, NewDSLTokenizeError(input, i, c)
 	}
 
-	tokens = append(tokens, Token{Type: TokenEOF, Value: ""})
+	tokens = append(tokens, Token{Type: TokenEOF, Value: "", Pos: len(input)})
 
 	return tokens, nil
 }
@@ -228,7 +229,15 @@ func (p *Parser) next() Token {
 func (p *Parser) expect(tt TokenType) (Token, error) {
 	tok := p.next()
 	if tok.Type != tt {
-		return tok, NewDSLUnexpectedTokenError(getTokenTypeName(tt), tok.Value, p.pos-1)
+		if tt == TokenRBracket && tok.Type == TokenEOF {
+			return tok, NewDSLArrayMissingClosingBracketError(tok.Pos)
+		}
+
+		if tt == TokenRBrace && tok.Type == TokenEOF {
+			return tok, NewDSLMissingBraceError(tok.Pos)
+		}
+
+		return tok, NewDSLUnexpectedTokenError(getTokenTypeName(tt), tok.Value, tok.Pos)
 	}
 
 	return tok, nil
@@ -252,12 +261,12 @@ func ParseDSL(tokens []Token) (DSLObject, error) {
 
 		if key != "" {
 			if _, exists := obj[key]; exists {
-				return nil, errors.Trace(NewDSLDuplicateKeyError(key, p.pos-1))
+				return nil, errors.Trace(NewDSLDuplicateKeyError(key, p.tokens[p.pos-1].Pos))
 			}
 
 			obj[key] = val
 		} else {
-			return nil, errors.Trace(unexpectedDSLTokenError(p.peek(), p.pos))
+			return nil, errors.Trace(unexpectedDSLTopLevelTokenError(p.peek()))
 		}
 	}
 
@@ -287,13 +296,31 @@ func (p *Parser) parseKeyValueOrIdent() (string, DSLNode, error) {
 	return "", nil, nil
 }
 
-func unexpectedDSLTokenError(tok Token, position int) error {
+func unexpectedDSLTokenError(tok Token) error {
 	actual := tok.Value
 	if actual == "" {
 		actual = getTokenTypeName(tok.Type)
 	}
 
-	return NewDSLUnexpectedTokenError("identifier", actual, position)
+	return NewDSLUnexpectedTokenError("identifier", actual, tok.Pos)
+}
+
+func unexpectedDSLTopLevelTokenError(tok Token) error {
+	actual := tok.Value
+	if actual == "" {
+		actual = getTokenTypeName(tok.Type)
+	}
+
+	return NewDSLUnexpectedTopLevelTokenError(actual, tok.Pos)
+}
+
+func unexpectedDSLObjectTokenError(tok Token) error {
+	actual := tok.Value
+	if actual == "" {
+		actual = getTokenTypeName(tok.Type)
+	}
+
+	return NewDSLUnexpectedObjectTokenError(actual, tok.Pos)
 }
 
 // parseValue 解析 value
@@ -310,7 +337,7 @@ func (p *Parser) parseValue() (DSLNode, error) {
 
 		num, err := parseNumber(tok.Value)
 		if err != nil {
-			return nil, NewDSLInvalidNumberError(tok.Value, p.pos-1)
+			return nil, NewDSLInvalidNumberError(tok.Value, tok.Pos)
 		}
 
 		return DSLNumber(num), nil
@@ -321,7 +348,12 @@ func (p *Parser) parseValue() (DSLNode, error) {
 	case TokenIdent:
 		return DSLString(p.next().Value), nil
 	default:
-		return nil, NewDSLUnexpectedValueError(tok.Value, p.pos)
+		actual := tok.Value
+		if actual == "" {
+			actual = getTokenTypeName(tok.Type)
+		}
+
+		return nil, NewDSLUnexpectedValueTokenError(actual, tok.Pos)
 	}
 }
 
@@ -376,12 +408,12 @@ func (p *Parser) parseObject() (DSLObject, error) {
 
 		if key != "" {
 			if _, exists := obj[key]; exists {
-				return nil, NewDSLDuplicateKeyError(key, p.pos-1)
+				return nil, NewDSLDuplicateKeyError(key, p.tokens[p.pos-1].Pos)
 			}
 
 			obj[key] = val
 		} else {
-			return nil, unexpectedDSLTokenError(p.peek(), p.pos)
+			return nil, unexpectedDSLObjectTokenError(p.peek())
 		}
 	}
 
@@ -465,7 +497,7 @@ func genTableInfoFromAST(
 		case "name":
 			s, ok := v.(DSLString)
 			if !ok {
-				return nil, errors.Trace(NewDSLUnexpectedValueError(k, 0))
+				return nil, errors.Trace(NewDSLValueTypeError(k, "string", v))
 			}
 
 			if string(s) != "" {
@@ -474,7 +506,7 @@ func genTableInfoFromAST(
 		case "pk":
 			s, ok := v.(DSLString)
 			if !ok {
-				return nil, errors.Trace(NewDSLUnexpectedValueError(k, 0))
+				return nil, errors.Trace(NewDSLValueTypeError(k, "string like \"ID\" or \"ID,true\"", v))
 			}
 
 			id, auto, err := parsePrimaryKeyDSL(string(s))
@@ -490,7 +522,7 @@ func genTableInfoFromAST(
 			} else if b, ok := v.(DSLBool); ok && bool(b) {
 				info.VersionField = DefaultVersionField
 			} else if _, ok := v.(DSLBool); !ok {
-				return nil, NewDSLUnexpectedValueError(k, 0)
+				return nil, NewDSLValueTypeError(k, "string or boolean", v)
 			}
 		case "created_at":
 			if s, ok := v.(DSLString); ok {
@@ -498,7 +530,7 @@ func genTableInfoFromAST(
 			} else if b, ok := v.(DSLBool); ok && bool(b) {
 				info.CreatedAtField = DefaultCreatedAtField
 			} else if _, ok := v.(DSLBool); !ok {
-				return nil, NewDSLUnexpectedValueError(k, 0)
+				return nil, NewDSLValueTypeError(k, "string or boolean", v)
 			}
 		case "updated_at":
 			if s, ok := v.(DSLString); ok {
@@ -506,7 +538,7 @@ func genTableInfoFromAST(
 			} else if b, ok := v.(DSLBool); ok && bool(b) {
 				info.UpdatedAtField = DefaultUpdatedAtField
 			} else if _, ok := v.(DSLBool); !ok {
-				return nil, NewDSLUnexpectedValueError(k, 0)
+				return nil, NewDSLValueTypeError(k, "string or boolean", v)
 			}
 		case "deleted_at":
 			if s, ok := v.(DSLString); ok {
@@ -514,18 +546,18 @@ func genTableInfoFromAST(
 			} else if b, ok := v.(DSLBool); ok && bool(b) {
 				info.DeletedAtField = DefaultDeletedAtField
 			} else if _, ok := v.(DSLBool); !ok {
-				return nil, NewDSLUnexpectedValueError(k, 0)
+				return nil, NewDSLValueTypeError(k, "string or boolean", v)
 			}
 		case "ux":
 			arr, ok := v.(DSLArray)
 			if !ok {
-				return nil, NewDSLUnexpectedValueError(k, 0)
+				return nil, NewDSLValueTypeError(k, "array of index objects", v)
 			}
 
 			for _, node := range arr {
 				obj, ok := node.(DSLObject)
 				if !ok {
-					return nil, NewDSLUnexpectedValueError(k, 0)
+					return nil, NewDSLArrayEntryTypeError(k, "object with fields=[...]", node)
 				}
 
 				idx := tsq.IndexInfo{}
@@ -535,31 +567,31 @@ func genTableInfoFromAST(
 					case "name":
 						s, ok := v2.(DSLString)
 						if !ok {
-							return nil, NewDSLUnexpectedValueError(k2, 0)
+							return nil, NewDSLValueTypeError(k2, "string", v2)
 						}
 
 						idx.Name = string(s)
 					case "fields":
 						arr2, ok := v2.(DSLArray)
 						if !ok {
-							return nil, NewDSLUnexpectedValueError(k2, 0)
+							return nil, NewDSLValueTypeError(k2, "array of Go field names", v2)
 						}
 
 						for _, f := range arr2 {
 							fs, ok := f.(DSLString)
 							if !ok {
-								return nil, NewDSLUnexpectedValueError(k2, 0)
+								return nil, NewDSLArrayEntryTypeError(k2, "string Go field name", f)
 							}
 
 							idx.Fields = append(idx.Fields, string(fs))
 						}
 					default:
-						return nil, NewDSLUnexpectedTokenError("known index key", k2, 0)
+						return nil, NewDSLUnknownIndexKeyError(k2)
 					}
 				}
 
 				if len(idx.Fields) == 0 {
-					return nil, NewDSLUnexpectedValueError("fields", 0)
+					return nil, NewDSLEmptyArrayError("fields")
 				}
 
 				info.UxList = append(info.UxList, idx)
@@ -568,13 +600,13 @@ func genTableInfoFromAST(
 		case "idx":
 			arr, ok := v.(DSLArray)
 			if !ok {
-				return nil, NewDSLUnexpectedValueError(k, 0)
+				return nil, NewDSLValueTypeError(k, "array of index objects", v)
 			}
 
 			for _, node := range arr {
 				obj, ok := node.(DSLObject)
 				if !ok {
-					return nil, NewDSLUnexpectedValueError(k, 0)
+					return nil, NewDSLArrayEntryTypeError(k, "object with fields=[...]", node)
 				}
 
 				idx := tsq.IndexInfo{}
@@ -584,31 +616,31 @@ func genTableInfoFromAST(
 					case "name":
 						s, ok := v2.(DSLString)
 						if !ok {
-							return nil, NewDSLUnexpectedValueError(k2, 0)
+							return nil, NewDSLValueTypeError(k2, "string", v2)
 						}
 
 						idx.Name = string(s)
 					case "fields":
 						arr2, ok := v2.(DSLArray)
 						if !ok {
-							return nil, NewDSLUnexpectedValueError(k2, 0)
+							return nil, NewDSLValueTypeError(k2, "array of Go field names", v2)
 						}
 
 						for _, f := range arr2 {
 							fs, ok := f.(DSLString)
 							if !ok {
-								return nil, NewDSLUnexpectedValueError(k2, 0)
+								return nil, NewDSLArrayEntryTypeError(k2, "string Go field name", f)
 							}
 
 							idx.Fields = append(idx.Fields, string(fs))
 						}
 					default:
-						return nil, NewDSLUnexpectedTokenError("known index key", k2, 0)
+						return nil, NewDSLUnknownIndexKeyError(k2)
 					}
 				}
 
 				if len(idx.Fields) == 0 {
-					return nil, NewDSLUnexpectedValueError("fields", 0)
+					return nil, NewDSLEmptyArrayError("fields")
 				}
 
 				info.IdxList = append(info.IdxList, idx)
@@ -617,19 +649,19 @@ func genTableInfoFromAST(
 		case "kw":
 			arr, ok := v.(DSLArray)
 			if !ok {
-				return nil, NewDSLUnexpectedValueError(k, 0)
+				return nil, NewDSLValueTypeError(k, "array of Go field names", v)
 			}
 
 			for _, node := range arr {
 				s, ok := node.(DSLString)
 				if !ok {
-					return nil, NewDSLUnexpectedValueError(k, 0)
+					return nil, NewDSLArrayEntryTypeError(k, "string Go field name", node)
 				}
 
 				info.KwList = append(info.KwList, string(s))
 			}
 		default:
-			return nil, NewDSLUnexpectedTokenError("known table DSL key", k, 0)
+			return nil, NewDSLUnknownTableKeyError(k)
 		}
 	}
 
@@ -720,20 +752,20 @@ func validateTableInfoAgainstStruct(info *tsq.TableInfo, structFields map[string
 func parsePrimaryKeyDSL(value string) (string, bool, error) {
 	parts := strings.Split(value, ",")
 	if len(parts) == 0 {
-		return "", false, NewDSLUnexpectedValueError("pk", 0)
+		return "", false, NewDSLInvalidPrimaryKeyError(value, "primary key field name is empty")
 	}
 
 	id := strings.TrimSpace(parts[0])
 	if id == "" {
-		return "", false, NewDSLUnexpectedValueError("pk", 0)
+		return "", false, NewDSLInvalidPrimaryKeyError(value, "primary key field name is empty")
 	}
 
 	if strings.Contains(id, " ") || strings.Contains(id, "\t") || strings.Contains(id, "\n") {
-		return "", false, NewDSLUnexpectedValueError("pk", 0)
+		return "", false, NewDSLInvalidPrimaryKeyError(value, "field name must not contain whitespace")
 	}
 
 	if strings.Contains(id, ";") || strings.Contains(id, "=") || strings.Contains(id, ":") {
-		return "", false, NewDSLUnexpectedValueError("pk", 0)
+		return "", false, NewDSLInvalidPrimaryKeyError(value, "field name contains invalid characters")
 	}
 
 	if strings.Contains(id, ",") {
@@ -752,10 +784,10 @@ func parsePrimaryKeyDSL(value string) (string, bool, error) {
 		case "false":
 			auto = false
 		default:
-			return "", false, NewDSLUnexpectedValueError("pk", 0)
+			return "", false, NewDSLInvalidPrimaryKeyError(value, "auto-increment flag must be true or false")
 		}
 	default:
-		return "", false, NewDSLUnexpectedValueError("pk", 0)
+		return "", false, NewDSLInvalidPrimaryKeyError(value, "too many comma-separated parts")
 	}
 
 	return id, auto, nil

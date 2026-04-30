@@ -324,7 +324,7 @@ func locateAnnotationKeyword(
 
 	if trimmedAfterKeyword != "" {
 		if trimmedAfterKeyword[0] != '(' {
-			return annotationLocation{}, false, NewDSLMissingBracketError(text, searchStart+len(afterKeyword)-len(trimmedAfterKeyword))
+			return annotationLocation{}, false, NewDSLAnnotationMissingOpeningParenError(keyword, text, searchStart+len(afterKeyword)-len(trimmedAfterKeyword))
 		}
 
 		start := searchStart + len(afterKeyword) - len(trimmedAfterKeyword)
@@ -369,7 +369,7 @@ func locateAnnotationKeyword(
 			return annotationLocation{}, false, NewDSLUnclosedStringError(text, len(text)-1)
 		}
 
-		return annotationLocation{}, false, NewDSLMissingBracketError(text, start)
+		return annotationLocation{}, false, NewDSLAnnotationMissingClosingParenError(keyword, text, start)
 	}
 
 done:

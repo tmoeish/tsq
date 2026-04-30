@@ -13,7 +13,7 @@ import (
 //	pk="ID",
 //	created_at,
 //	ux=[
-//		{fields=["Name"]},
+//		{fields=["Name"]}
 //	],
 //	kw=["Name", "Description"],
 //

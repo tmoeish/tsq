@@ -152,6 +152,10 @@ func TestExtractDSLContent_ReturnsErrorForMissingBracket(t *testing.T) {
 	if !IsErrorType(err, ErrorTypeDSLMissingBracket) {
 		t.Fatalf("expected missing bracket error, got %v", err)
 	}
+
+	if got := err.Error(); !strings.Contains(got, "@TABLE is missing a closing ')'") {
+		t.Fatalf("expected clearer missing closing parenthesis error, got %q", got)
+	}
 }
 
 func TestExtractDSLContent_ReturnsErrorForArgumentsWithoutBrackets(t *testing.T) {
@@ -162,6 +166,10 @@ func TestExtractDSLContent_ReturnsErrorForArgumentsWithoutBrackets(t *testing.T)
 
 	if !IsErrorType(err, ErrorTypeDSLMissingBracket) {
 		t.Fatalf("expected missing bracket error, got %v", err)
+	}
+
+	if got := err.Error(); !strings.Contains(got, "@TABLE must be followed by '('") {
+		t.Fatalf("expected clearer missing opening parenthesis error, got %q", got)
 	}
 }
 

@@ -2,6 +2,7 @@ package parser
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/tmoeish/tsq"
@@ -95,6 +96,10 @@ func TestTokenize(t *testing.T) {
 			continue
 		}
 
+		for i := range tokens {
+			tokens[i].Pos = 0
+		}
+
 		if !reflect.DeepEqual(tokens, tt.expect) {
 			t.Errorf("Tokenize(%q) = %#v, want %#v", tt.input, tokens, tt.expect)
 		}
@@ -159,6 +164,10 @@ func TestParseDSLRejectsUnexpectedTopLevelTokens(t *testing.T) {
 
 	if !IsErrorType(err, ErrorTypeDSLUnexpectedToken) {
 		t.Fatalf("expected unexpected token error, got %v", err)
+	}
+
+	if got := err.Error(); !strings.Contains(got, "@TABLE/@RESULT body") {
+		t.Fatalf("expected top-level DSL guidance, got %q", got)
 	}
 }
 
@@ -278,6 +287,76 @@ func TestParser_parseObjectRejectsUnexpectedTokens(t *testing.T) {
 
 	if !IsErrorType(err, ErrorTypeDSLUnexpectedToken) {
 		t.Fatalf("expected unexpected token error, got %v", err)
+	}
+}
+
+func TestParser_parseObjectSuggestsMissingClosingBrace(t *testing.T) {
+	tokens, err := Tokenize(`{fields=["ID"], ]}`)
+	if err != nil {
+		t.Fatalf("Tokenize error: %v", err)
+	}
+
+	p := NewParser(tokens)
+
+	_, err = p.parseObject()
+	if err == nil {
+		t.Fatal("expected malformed object to return an error")
+	}
+
+	if !IsErrorType(err, ErrorTypeDSLUnexpectedToken) {
+		t.Fatalf("expected unexpected token error, got %v", err)
+	}
+
+	got := err.Error()
+	if !strings.Contains(got, "unexpected token in DSL object") {
+		t.Fatalf("expected object-specific syntax error, got %q", got)
+	}
+	if !strings.Contains(got, "did you forget a closing '}' before ']'?") {
+		t.Fatalf("expected missing closing brace hint, got %q", got)
+	}
+}
+
+func TestParser_parseArrayReportsMissingClosingBracket(t *testing.T) {
+	tokens, err := Tokenize(`[1, 2`)
+	if err != nil {
+		t.Fatalf("Tokenize error: %v", err)
+	}
+
+	p := NewParser(tokens)
+
+	_, err = p.parseArray()
+	if err == nil {
+		t.Fatal("expected unterminated array to return an error")
+	}
+
+	if !IsErrorType(err, ErrorTypeDSLMissingBracket) {
+		t.Fatalf("expected missing bracket error, got %v", err)
+	}
+
+	if got := err.Error(); !strings.Contains(got, "missing a closing ']'") {
+		t.Fatalf("expected closing bracket hint, got %q", got)
+	}
+}
+
+func TestParser_parseObjectReportsMissingClosingBraceAtEOF(t *testing.T) {
+	tokens, err := Tokenize(`{fields=["ID"]`)
+	if err != nil {
+		t.Fatalf("Tokenize error: %v", err)
+	}
+
+	p := NewParser(tokens)
+
+	_, err = p.parseObject()
+	if err == nil {
+		t.Fatal("expected unterminated object to return an error")
+	}
+
+	if !IsErrorType(err, ErrorTypeDSLMissingBrace) {
+		t.Fatalf("expected missing brace error, got %v", err)
+	}
+
+	if got := err.Error(); !strings.Contains(got, "missing a closing '}'") {
+		t.Fatalf("expected closing brace hint, got %q", got)
 	}
 }
 
@@ -436,6 +515,14 @@ func Test_genTableInfoFromASTRejectsUnknownTopLevelKeys(t *testing.T) {
 	if !IsErrorType(err, ErrorTypeDSLUnexpectedToken) {
 		t.Fatalf("expected unexpected token error, got %v", err)
 	}
+
+	got := err.Error()
+	if !strings.Contains(got, `unknown table DSL key "unknown"`) {
+		t.Fatalf("expected clearer table DSL key error, got %q", got)
+	}
+	if !strings.Contains(got, "valid keys: name, pk, version, created_at, updated_at, deleted_at, ux, idx, kw") {
+		t.Fatalf("expected valid table DSL keys in error, got %q", got)
+	}
 }
 
 func Test_genTableInfoFromASTRejectsUnknownIndexKeys(t *testing.T) {
@@ -458,6 +545,30 @@ func Test_genTableInfoFromASTRejectsUnknownIndexKeys(t *testing.T) {
 
 	if !IsErrorType(err, ErrorTypeDSLUnexpectedToken) {
 		t.Fatalf("expected unexpected token error, got %v", err)
+	}
+
+	got := err.Error()
+	if !strings.Contains(got, `unknown index DSL key "extra"`) {
+		t.Fatalf("expected clearer index DSL key error, got %q", got)
+	}
+	if !strings.Contains(got, "valid keys: name, fields") {
+		t.Fatalf("expected valid index DSL keys in error, got %q", got)
+	}
+}
+
+func Test_genTableInfoFromASTSuggestsClosestTopLevelKey(t *testing.T) {
+	_, err := genTableInfoFromAST(
+		"MyTable",
+		DSLObject{"created_a": DSLBool(true)},
+		true,
+		map[string]struct{}{"ID": {}, "CreatedAt": {}},
+	)
+	if err == nil {
+		t.Fatal("expected mistyped DSL key to return an error")
+	}
+
+	if got := err.Error(); !strings.Contains(got, `did you mean "created_at"?`) {
+		t.Fatalf("expected closest key suggestion, got %q", got)
 	}
 }
 
@@ -546,6 +657,41 @@ func Test_genTableInfoFromASTRejectsWrongValueTypes(t *testing.T) {
 				t.Fatalf("expected unexpected value error, got %v", err)
 			}
 		})
+	}
+}
+
+func Test_genTableInfoFromASTReportsExpectedValueTypes(t *testing.T) {
+	_, err := genTableInfoFromAST(
+		"MyTable",
+		DSLObject{"created_at": DSLNumber(1)},
+		true,
+		map[string]struct{}{"ID": {}, "CreatedAt": {}},
+	)
+	if err == nil {
+		t.Fatal("expected invalid managed field type to return an error")
+	}
+
+	got := err.Error()
+	if !strings.Contains(got, `invalid value for DSL key "created_at"`) {
+		t.Fatalf("expected key-specific value error, got %q", got)
+	}
+	if !strings.Contains(got, "expected string or boolean, got number") {
+		t.Fatalf("expected type guidance, got %q", got)
+	}
+}
+
+func Test_parsePrimaryKeyDSLReportsExpectedFormat(t *testing.T) {
+	_, _, err := parsePrimaryKeyDSL("ID,maybe")
+	if err == nil {
+		t.Fatal("expected invalid pk format to return an error")
+	}
+
+	got := err.Error()
+	if !strings.Contains(got, `invalid pk value "ID,maybe"`) {
+		t.Fatalf("expected pk-specific error, got %q", got)
+	}
+	if !strings.Contains(got, `expected "ID" or "ID,true"`) {
+		t.Fatalf("expected pk format examples, got %q", got)
 	}
 }
 

@@ -7,6 +7,7 @@ package parser
 
 import (
 	"go/ast"
+	"go/token"
 	"sort"
 	"strings"
 
@@ -20,15 +21,18 @@ func ParseTableInfo(
 	structName string,
 	commentGroup []*ast.CommentGroup,
 	structFields map[string]struct{},
+	fileSet *token.FileSet,
 ) (*tsq.TableInfo, error) {
 	if commentGroup == nil {
 		return nil, nil
 	}
 
+	locator := newCommentLocator(commentGroup, fileSet)
+
 	// 解析注解，填充 meta
 	info, err := parseDSL(structName, commentGroup, structFields)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, errors.Trace(locator.attach(err))
 	}
 
 	if info == nil {
@@ -42,6 +46,292 @@ func ParseTableInfo(
 	sortTableInfoLists(info)
 
 	return info, nil
+}
+
+type commentLocator struct {
+	lines        []commentSourceLine
+	contentLines []commentSourceLine
+}
+
+type commentSourceLine struct {
+	filename string
+	line     int
+	text     string
+}
+
+func newCommentLocator(commentGroups []*ast.CommentGroup, fileSet *token.FileSet) commentLocator {
+	if fileSet == nil {
+		return commentLocator{}
+	}
+
+	lines := make([]commentSourceLine, 0)
+
+	for _, group := range commentGroups {
+		for _, comment := range group.List {
+			pos := fileSet.Position(comment.Pos())
+
+			rawLines := strings.Split(comment.Text, "\n")
+			for i, rawLine := range rawLines {
+				lines = append(lines, commentSourceLine{
+					filename: pos.Filename,
+					line:     pos.Line + i,
+					text:     CleanCommentPrefix(rawLine),
+				})
+			}
+		}
+	}
+
+	return commentLocator{
+		lines:        lines,
+		contentLines: extractAnnotationContentLines(lines),
+	}
+}
+
+func (l commentLocator) attach(err error) error {
+	parserErr := GetParserError(err)
+	if parserErr == nil || len(l.lines) == 0 {
+		return err
+	}
+
+	line, ok := l.findLine(parserErr)
+	if !ok {
+		return err
+	}
+
+	return attachParserErrorLocation(err, line.filename, line.line)
+}
+
+func (l commentLocator) findLine(parserErr *ParserError) (commentSourceLine, bool) {
+	if pos, ok := parserErr.Context["position"].(int); ok && pos >= 0 {
+		if line, found := l.findLineByOffset(pos); found {
+			return line, true
+		}
+	}
+
+	for _, key := range []string{"field", "key", "token", "actual"} {
+		value, ok := parserErr.Context[key].(string)
+		if !ok || value == "" {
+			continue
+		}
+
+		if line, found := l.findLineByValue(value); found {
+			return line, true
+		}
+	}
+
+	if line, found := l.findLineContaining("@TABLE"); found {
+		return line, true
+	}
+
+	if line, found := l.findLineContaining("@RESULT"); found {
+		return line, true
+	}
+
+	return l.lines[0], true
+}
+
+func (l commentLocator) findLineByOffset(offset int) (commentSourceLine, bool) {
+	if len(l.contentLines) > 0 {
+		if line, found := findLineByOffsetInLines(l.contentLines, offset); found {
+			return line, true
+		}
+	}
+
+	return findLineByOffsetInLines(l.lines, offset)
+}
+
+func findLineByOffsetInLines(lines []commentSourceLine, offset int) (commentSourceLine, bool) {
+	remaining := offset
+	for _, line := range lines {
+		if remaining <= len(line.text) {
+			return line, true
+		}
+
+		remaining -= len(line.text) + 1
+	}
+
+	if len(lines) == 0 {
+		return commentSourceLine{}, false
+	}
+
+	return lines[len(lines)-1], true
+}
+
+func (l commentLocator) findLineByValue(value string) (commentSourceLine, bool) {
+	if value == "" {
+		return commentSourceLine{}, false
+	}
+
+	quoted := `"` + value + `"`
+	for _, line := range l.lines {
+		if strings.Contains(line.text, quoted) {
+			return line, true
+		}
+	}
+
+	for _, line := range l.lines {
+		if containsIdentifier(line.text, value) {
+			return line, true
+		}
+	}
+
+	return commentSourceLine{}, false
+}
+
+func (l commentLocator) findLineContaining(substr string) (commentSourceLine, bool) {
+	for _, line := range l.lines {
+		if strings.Contains(line.text, substr) {
+			return line, true
+		}
+	}
+
+	return commentSourceLine{}, false
+}
+
+func containsIdentifier(text, identifier string) bool {
+	if identifier == "" {
+		return false
+	}
+
+	idx := strings.Index(text, identifier)
+	for idx >= 0 {
+		beforeOK := idx == 0 || !isIdentifierChar(text[idx-1])
+		afterIdx := idx + len(identifier)
+
+		afterOK := afterIdx == len(text) || !isIdentifierChar(text[afterIdx])
+		if beforeOK && afterOK {
+			return true
+		}
+
+		next := strings.Index(text[idx+1:], identifier)
+		if next == -1 {
+			return false
+		}
+
+		idx += next + 1
+	}
+
+	return false
+}
+
+func isIdentifierChar(ch byte) bool {
+	return ch == '_' ||
+		(ch >= 'a' && ch <= 'z') ||
+		(ch >= 'A' && ch <= 'Z') ||
+		(ch >= '0' && ch <= '9')
+}
+
+func extractAnnotationContentLines(lines []commentSourceLine) []commentSourceLine {
+	if len(lines) == 0 {
+		return nil
+	}
+
+	texts := make([]string, 0, len(lines))
+	for _, line := range lines {
+		texts = append(texts, line.text)
+	}
+
+	text := strings.Join(texts, "\n")
+	for _, keyword := range []string{"@TABLE", "@RESULT"} {
+		start, end, ok := findAnnotationContentRange(text, keyword)
+		if !ok {
+			continue
+		}
+
+		return sliceCommentLinesByOffsets(lines, start, end)
+	}
+
+	return nil
+}
+
+func findAnnotationContentRange(text, keyword string) (int, int, bool) {
+	idx, ok := findAnnotationKeyword(text, keyword)
+	if !ok {
+		return 0, 0, false
+	}
+
+	searchStart := idx + len(keyword)
+	afterKeyword := text[searchStart:]
+
+	trimmedAfterKeyword := strings.TrimLeft(afterKeyword, " \t\r\n")
+	if trimmedAfterKeyword == "" || trimmedAfterKeyword[0] != '(' {
+		return 0, 0, false
+	}
+
+	start := searchStart + len(afterKeyword) - len(trimmedAfterKeyword)
+	count := 0
+	inString := false
+	escaped := false
+
+	for i := start; i < len(text); i++ {
+		if inString {
+			if escaped {
+				escaped = false
+				continue
+			}
+
+			switch text[i] {
+			case '\\':
+				escaped = true
+			case '"':
+				inString = false
+			}
+
+			continue
+		}
+
+		switch text[i] {
+		case '"':
+			inString = true
+		case '(':
+			count++
+		case ')':
+			count--
+			if count == 0 {
+				return start + 1, i, true
+			}
+		}
+	}
+
+	return start + 1, len(text), true
+}
+
+func sliceCommentLinesByOffsets(lines []commentSourceLine, start, end int) []commentSourceLine {
+	if start < 0 {
+		start = 0
+	}
+
+	if end < start {
+		end = start
+	}
+
+	result := make([]commentSourceLine, 0)
+	offset := 0
+
+	for _, line := range lines {
+		lineStart := offset
+		lineEnd := lineStart + len(line.text)
+
+		if start <= lineEnd && end >= lineStart {
+			fragmentStart := max(start, lineStart)
+			fragmentEnd := min(end, lineEnd)
+
+			text := ""
+			if fragmentEnd > fragmentStart {
+				text = line.text[fragmentStart-lineStart : fragmentEnd-lineStart]
+			}
+
+			result = append(result, commentSourceLine{
+				filename: line.filename,
+				line:     line.line,
+				text:     text,
+			})
+		}
+
+		offset = lineEnd + 1
+	}
+
+	return result
 }
 
 // CleanCommentPrefix 去除一行注释的前缀和多余空白
@@ -92,7 +382,7 @@ func extractDSLContent(text, keyword string) (string, error) {
 	}
 
 	if trimmedAfterKeyword[0] != '(' {
-		return "", NewDSLMissingBracketError(text, searchStart+len(afterKeyword)-len(trimmedAfterKeyword))
+		return "", NewDSLAnnotationMissingOpeningParenError(keyword, text, searchStart+len(afterKeyword)-len(trimmedAfterKeyword))
 	}
 
 	start := searchStart + len(afterKeyword) - len(trimmedAfterKeyword)
@@ -135,7 +425,7 @@ func extractDSLContent(text, keyword string) (string, error) {
 		return "", NewDSLUnclosedStringError(text, len(text)-1)
 	}
 
-	return "", NewDSLMissingBracketError(text, start)
+	return "", NewDSLAnnotationMissingClosingParenError(keyword, text, start)
 }
 
 func findAnnotationKeyword(text, keyword string) (int, bool) {
