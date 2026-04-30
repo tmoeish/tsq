@@ -252,12 +252,12 @@ func ParseDSL(tokens []Token) (DSLObject, error) {
 
 		if key != "" {
 			if _, exists := obj[key]; exists {
-				return nil, NewDSLDuplicateKeyError(key, p.pos-1)
+				return nil, errors.Trace(NewDSLDuplicateKeyError(key, p.pos-1))
 			}
 
 			obj[key] = val
 		} else {
-			return nil, unexpectedDSLTokenError(p.peek(), p.pos)
+			return nil, errors.Trace(unexpectedDSLTokenError(p.peek(), p.pos))
 		}
 	}
 
@@ -465,7 +465,7 @@ func genTableInfoFromAST(
 		case "name":
 			s, ok := v.(DSLString)
 			if !ok {
-				return nil, NewDSLUnexpectedValueError(k, 0)
+				return nil, errors.Trace(NewDSLUnexpectedValueError(k, 0))
 			}
 
 			if string(s) != "" {
@@ -474,12 +474,12 @@ func genTableInfoFromAST(
 		case "pk":
 			s, ok := v.(DSLString)
 			if !ok {
-				return nil, NewDSLUnexpectedValueError(k, 0)
+				return nil, errors.Trace(NewDSLUnexpectedValueError(k, 0))
 			}
 
 			id, auto, err := parsePrimaryKeyDSL(string(s))
 			if err != nil {
-				return nil, err
+				return nil, errors.Trace(err)
 			}
 
 			info.ID = id
@@ -639,7 +639,7 @@ func genTableInfoFromAST(
 	// 新增：校验 DSL 字段和索引
 	err := validateTableInfoAgainstStruct(info, structFields, name)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 
 	return info, nil
@@ -737,7 +737,7 @@ func parsePrimaryKeyDSL(value string) (string, bool, error) {
 	}
 
 	if strings.Contains(id, ",") {
-		return "", false, errors.New("composite primary keys are not supported")
+		return "", false, errors.Trace(errors.New("composite primary keys are not supported"))
 	}
 
 	auto := true

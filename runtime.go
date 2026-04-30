@@ -95,13 +95,13 @@ func (r *Runtime) RegisterTable(
 	initFunc func(db *DbMap) error,
 ) error {
 	if r == nil {
-		return &RegistrationError{
+		return errors.Trace(&RegistrationError{
 			Type:    RegistrationErrorNilRuntime,
 			Message: "runtime cannot be nil",
-		}
+		})
 	}
 
-	return r.registry.Register(table, addTableFunc, initFunc)
+	return errors.Trace(r.registry.Register(table, addTableFunc, initFunc))
 }
 
 func (r *Runtime) snapshotRegisteredTables() []*RegisteredTable {
@@ -118,11 +118,11 @@ func (r *Runtime) Init(
 	upsertIndexies bool,
 	tracer ...Tracer,
 ) error {
-	return r.InitWithOptions(db, &InitOptions{
+	return errors.Trace(r.InitWithOptions(db, &InitOptions{
 		AutoCreateTables: autoCreateTable,
 		UpsertIndexes:    upsertIndexies,
 		Tracers:          tracer,
-	})
+	}))
 }
 
 func (r *Runtime) InitWithOptions(db *DbMap, options *InitOptions) error {
@@ -171,7 +171,7 @@ func (r *Runtime) InitWithOptions(db *DbMap, options *InitOptions) error {
 		if err := r.validateRegisteredTableIdentifiers(options.IdentifierValidationMode); err != nil {
 			if options.IdentifierValidationMode == "strict" {
 				r.traceManager.restore(rollbackTracers)
-				return err
+				return errors.Trace(err)
 			}
 			// For "warn" mode, just log the error but continue
 			slog.Warn("identifier validation warning during init", "error", err)

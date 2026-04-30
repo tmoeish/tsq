@@ -171,7 +171,7 @@ func (c Col[T]) expressionArgs() []any {
 }
 
 func (c Col[T]) buildError() error {
-	return c.buildErr
+	return errors.Trace(c.buildErr)
 }
 
 func (c Col[T]) referencedTables() map[string]Table {

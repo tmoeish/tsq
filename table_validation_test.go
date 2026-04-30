@@ -1,6 +1,7 @@
 package tsq
 
 import (
+	"errors"
 	"testing"
 )
 
@@ -30,7 +31,8 @@ func TestJoinValidation_SameTablesRejectsJoin(t *testing.T) {
 		t.Fatal("expected error for same table columns, got nil")
 	}
 
-	if _, ok := err.(*ErrIncompatibleTableRebind); !ok {
+	var rebindErr *ErrIncompatibleTableRebind
+	if !errors.As(err, &rebindErr) {
 		t.Errorf("expected ErrIncompatibleTableRebind, got %T: %v", err, err)
 	}
 }

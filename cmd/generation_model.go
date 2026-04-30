@@ -190,7 +190,7 @@ func buildGenerationPlan(models []generationModel, dir string) ([]generationPlan
 func findStaleGeneratedFiles(dir string, plannedFiles map[string]struct{}) ([]string, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 
 	stale := make([]string, 0)
@@ -212,7 +212,7 @@ func findStaleGeneratedFiles(dir string, plannedFiles map[string]struct{}) ([]st
 
 		content, err := os.ReadFile(filename)
 		if err != nil {
-			return nil, err
+			return nil, errors.Trace(err)
 		}
 
 		if !bytes.HasPrefix(content, []byte(generatedFileHeaderPrefix)) {
@@ -238,7 +238,7 @@ func generationPlanStatusFor(filename string, src []byte) (generationPlanStatus,
 	}
 
 	if err != nil {
-		return "", err
+		return "", errors.Trace(err)
 	}
 
 	if bytes.Equal(existing, src) {
@@ -246,7 +246,7 @@ func generationPlanStatusFor(filename string, src []byte) (generationPlanStatus,
 	}
 
 	if err := ensureWritableGeneratedFile(filename); err != nil {
-		return "", err
+		return "", errors.Trace(err)
 	}
 
 	return generationPlanUpdate, nil

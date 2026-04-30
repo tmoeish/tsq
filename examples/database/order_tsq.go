@@ -128,7 +128,7 @@ func GetOrderByUIDOrErr(
 	err := getOrderByUIDQuery.Load(ctx, db, row, uID)
 	if err != nil {
 		if errors.Is(err, tsqsql.ErrNoRows) {
-			return nil, err
+			return nil, errors.Trace(err)
 		}
 
 		return nil, errors.Trace(err)
@@ -234,7 +234,7 @@ func GetActiveOrderByUIDOrErr(
 	err := getActiveOrderByUIDQuery.Load(ctx, db, row, uID)
 	if err != nil {
 		if errors.Is(err, tsqsql.ErrNoRows) {
-			return nil, err
+			return nil, errors.Trace(err)
 		}
 
 		return nil, errors.Trace(err)
@@ -313,7 +313,7 @@ func (o *Order) Insert(
 	o.UpdatedAt = null.TimeFrom(tsqtime.Now())
 	err := tsq.Insert(ctx, db, o)
 	if err != nil {
-		return errors.Annotate(err, tsq.PrettyJSON(o))
+		return errors.Annotatef(err, "insert Order: %s", tsq.CompactJSON(o))
 	}
 
 	return nil
@@ -328,7 +328,7 @@ func (o *Order) Update(
 	o.UpdatedAt = null.TimeFrom(tsqtime.Now())
 	err := tsq.Update(ctx, db, o)
 	if err != nil {
-		return errors.Annotate(err, tsq.PrettyJSON(o))
+		return errors.Annotatef(err, "update Order: %s", tsq.CompactJSON(o))
 	}
 
 	return nil
@@ -341,7 +341,7 @@ func (o *Order) Delete(
 ) error {
 	err := tsq.Delete(ctx, db, o)
 	if err != nil {
-		return errors.Annotate(err, tsq.PrettyJSON(o))
+		return errors.Annotatef(err, "delete Order: %s", tsq.CompactJSON(o))
 	}
 
 	return nil
@@ -362,7 +362,7 @@ func (o *Order) SoftDelete(
 	o.UpdatedAt = null.TimeFrom(tsqtime.Now())
 	err := tsq.Update(ctx, db, o)
 	if err != nil {
-		return errors.Annotate(err, tsq.PrettyJSON(o))
+		return errors.Annotatef(err, "soft-delete Order: %s", tsq.CompactJSON(o))
 	}
 
 	return nil

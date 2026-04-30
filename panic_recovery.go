@@ -1,8 +1,9 @@
 package tsq
 
 import (
-	"fmt"
 	"runtime/debug"
+
+	"github.com/juju/errors"
 )
 
 // PanicContext captures context information when a panic occurs
@@ -29,7 +30,7 @@ func NewPanicRecoveryError(operation, details string, recovered any) *PanicRecov
 			Recovered:  recovered,
 			StackTrace: stackTrace,
 		},
-		Message: fmt.Sprintf("panic in %s: %v", operation, recovered),
+		Message: errors.Errorf("panic in %s: %v", operation, recovered).Error(),
 	}
 }
 
@@ -60,7 +61,7 @@ func SafeOperation(operation string, fn func() error) (err error) {
 		}
 	}()
 
-	return fn()
+	return errors.Trace(fn())
 }
 
 // SafeOperationWithContext wraps an operation and returns context on panic
@@ -71,7 +72,7 @@ func SafeOperationWithContext(operation, details string, fn func() error) (err e
 		}
 	}()
 
-	return fn()
+	return errors.Trace(fn())
 }
 
 // PanicDocumentation documents which operations can panic in TSQ

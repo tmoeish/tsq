@@ -521,12 +521,12 @@ func ddlManagedDefaultClause(table *tsq.StructInfo, field tsq.FieldInfo, desc dd
 func newDDLTypeResolver(packagePath, dir string) (*ddlTypeResolver, error) {
 	cfg, pattern, err := resolveDDLLoadRequest(packagePath, dir)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 
 	pkgs, err := packages.Load(cfg, pattern)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 
 	all := flattenLoadedPackages(pkgs)
@@ -565,7 +565,7 @@ func resolveDDLLoadRequest(packagePath, dir string) (*packages.Config, string, e
 	case dir != "":
 		absDir, err := filepath.Abs(dir)
 		if err != nil {
-			return nil, "", err
+			return nil, "", errors.Trace(err)
 		}
 
 		cfg.Dir = absDir
@@ -576,7 +576,7 @@ func resolveDDLLoadRequest(packagePath, dir string) (*packages.Config, string, e
 	case strings.HasPrefix(packagePath, "."):
 		absPath, err := filepath.Abs(packagePath)
 		if err != nil {
-			return nil, "", err
+			return nil, "", errors.Trace(err)
 		}
 
 		cfg.Dir = absPath
@@ -586,7 +586,7 @@ func resolveDDLLoadRequest(packagePath, dir string) (*packages.Config, string, e
 	if cfg.Dir != "" {
 		overlay, err := buildDDLGeneratedFileOverlay(cfg.Dir)
 		if err != nil {
-			return nil, "", err
+			return nil, "", errors.Trace(err)
 		}
 
 		if len(overlay) > 0 {
@@ -604,12 +604,12 @@ func buildDDLGeneratedFileOverlay(dir string) (map[string][]byte, error) {
 	}
 
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 
 	packageName, err := detectDDLPackageName(dir, entries)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 
 	if packageName == "" {
@@ -644,7 +644,7 @@ func detectDDLPackageName(dir string, entries []os.DirEntry) (string, error) {
 
 		file, err := goparser.ParseFile(fileSet, filepath.Join(dir, name), nil, goparser.PackageClauseOnly)
 		if err != nil {
-			return "", err
+			return "", errors.Trace(err)
 		}
 
 		return file.Name.Name, nil
@@ -793,7 +793,7 @@ func classifyDDLColumnType(t types.Type, rawTag string) (ddlColumnDescriptor, er
 
 	desc, err := classifyDDLColumnTypeRecursive(t, opts.size, false)
 	if err != nil {
-		return ddlColumnDescriptor{}, err
+		return ddlColumnDescriptor{}, errors.Trace(err)
 	}
 
 	if desc.kind == ddlColumnString {
@@ -986,7 +986,7 @@ func ddlPlanStatusFor(filename string, src []byte) (generationPlanStatus, error)
 	}
 
 	if err != nil {
-		return "", err
+		return "", errors.Trace(err)
 	}
 
 	if bytes.Equal(existing, src) {
@@ -994,7 +994,7 @@ func ddlPlanStatusFor(filename string, src []byte) (generationPlanStatus, error)
 	}
 
 	if err := ensureWritableDDLFile(filename); err != nil {
-		return "", err
+		return "", errors.Trace(err)
 	}
 
 	return generationPlanUpdate, nil
@@ -1007,7 +1007,7 @@ func findStaleDDLFiles(dir string, plannedFiles map[string]struct{}) ([]string, 
 	}
 
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 
 	stale := make([]string, 0)
@@ -1029,7 +1029,7 @@ func findStaleDDLFiles(dir string, plannedFiles map[string]struct{}) ([]string, 
 
 		content, err := os.ReadFile(filename)
 		if err != nil {
-			return nil, err
+			return nil, errors.Trace(err)
 		}
 
 		if !isGeneratedDDLArtifact(content) {
@@ -1046,18 +1046,18 @@ func findStaleDDLFiles(dir string, plannedFiles map[string]struct{}) ([]string, 
 
 func writeDDLFile(filename string, src []byte) error {
 	if err := ensureWritableDDLFile(filename); err != nil {
-		return err
+		return errors.Trace(err)
 	}
 
 	if err := os.MkdirAll(filepath.Dir(filename), 0o755); err != nil {
-		return err
+		return errors.Trace(err)
 	}
 
 	perm := os.FileMode(0o644)
 	if info, err := os.Stat(filename); err == nil {
 		perm = info.Mode().Perm()
 	} else if !os.IsNotExist(err) {
-		return err
+		return errors.Trace(err)
 	}
 
 	dir := filepath.Dir(filename)
@@ -1065,7 +1065,7 @@ func writeDDLFile(filename string, src []byte) error {
 
 	tmpFile, err := os.CreateTemp(dir, pattern)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 
 	tmpName := tmpFile.Name()
@@ -1076,19 +1076,19 @@ func writeDDLFile(filename string, src []byte) error {
 
 	if err := tmpFile.Chmod(perm); err != nil {
 		_ = tmpFile.Close()
-		return err
+		return errors.Trace(err)
 	}
 
 	if _, err := tmpFile.Write(src); err != nil {
 		_ = tmpFile.Close()
-		return err
+		return errors.Trace(err)
 	}
 
 	if err := tmpFile.Close(); err != nil {
-		return err
+		return errors.Trace(err)
 	}
 
-	return os.Rename(tmpName, filename)
+	return errors.Trace(os.Rename(tmpName, filename))
 }
 
 func ensureWritableDDLFile(filename string) error {
@@ -1098,7 +1098,7 @@ func ensureWritableDDLFile(filename string) error {
 	}
 
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 
 	if len(existing) == 0 || isGeneratedDDLArtifact(existing) {

@@ -201,7 +201,7 @@ func (qb *QueryBuilder) setBuildError(err error) {
 func (qb *QueryBuilder) addSelectColumns(cols ...Column) {
 	for _, col := range cols {
 		if _, err := validateColumnInput(col); err != nil {
-			qb.setBuildError(err)
+			qb.setBuildError(errors.Trace(err))
 			continue
 		}
 
@@ -211,7 +211,7 @@ func (qb *QueryBuilder) addSelectColumns(cols ...Column) {
 
 func (qb *QueryBuilder) appendColumn(target *[]Column, col Column) {
 	if _, err := validateColumnInput(col); err != nil {
-		qb.setBuildError(err)
+		qb.setBuildError(errors.Trace(err))
 		return
 	}
 
@@ -220,7 +220,7 @@ func (qb *QueryBuilder) appendColumn(target *[]Column, col Column) {
 
 func (qb *QueryBuilder) appendCondition(target *[]Condition, cond Condition) {
 	if _, _, _, err := validateConditionInput(cond); err != nil {
-		qb.setBuildError(err)
+		qb.setBuildError(errors.Trace(err))
 		return
 	}
 
@@ -238,7 +238,7 @@ func (qb *QueryBuilder) LeftJoin(left, right Column) *QueryBuilder {
 	}
 
 	if err := validateJoinColumns(left, right); err != nil {
-		qb.setBuildError(err)
+		qb.setBuildError(errors.Trace(err))
 		return qb
 	}
 
@@ -262,7 +262,7 @@ func (qb *QueryBuilder) InnerJoin(left, right Column) *QueryBuilder {
 	}
 
 	if err := validateJoinColumns(left, right); err != nil {
-		qb.setBuildError(err)
+		qb.setBuildError(errors.Trace(err))
 		return qb
 	}
 
@@ -286,7 +286,7 @@ func (qb *QueryBuilder) RightJoin(left, right Column) *QueryBuilder {
 	}
 
 	if err := validateJoinColumns(left, right); err != nil {
-		qb.setBuildError(err)
+		qb.setBuildError(errors.Trace(err))
 		return qb
 	}
 
@@ -311,7 +311,7 @@ func (qb *QueryBuilder) FullJoin(left, right Column) *QueryBuilder {
 	}
 
 	if err := validateJoinColumns(left, right); err != nil {
-		qb.setBuildError(err)
+		qb.setBuildError(errors.Trace(err))
 		return qb
 	}
 

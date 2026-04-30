@@ -301,7 +301,7 @@ func TestTrace_ErrorPropagation(t *testing.T) {
 
 	err := Trace(context.Background(), fn)
 
-	if err != expectedError {
+	if !errors.Is(err, expectedError) {
 		t.Errorf("Expected error %v, got %v", expectedError, err)
 	}
 }
@@ -328,7 +328,7 @@ func TestTrace_TracerError(t *testing.T) {
 
 	err := Trace(context.Background(), fn)
 
-	if err != expectedError {
+	if !errors.Is(err, expectedError) {
 		t.Errorf("Expected error %v, got %v", expectedError, err)
 	}
 
@@ -372,7 +372,7 @@ func TestTimingTracer_WithError(t *testing.T) {
 
 	err := Trace(context.Background(), fn)
 
-	if err != expectedError {
+	if !errors.Is(err, expectedError) {
 		t.Errorf("Expected error %v, got %v", expectedError, err)
 	}
 }
@@ -412,7 +412,7 @@ func TestErrorTracer_WithError(t *testing.T) {
 
 	err := Trace(context.Background(), fn)
 
-	if err != expectedError {
+	if !errors.Is(err, expectedError) {
 		t.Errorf("Expected error %v, got %v", expectedError, err)
 	}
 }

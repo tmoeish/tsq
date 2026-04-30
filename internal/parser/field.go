@@ -231,17 +231,17 @@ func parseFieldType(
 	case *ast.SelectorExpr:
 		// 选择器表达式：pkg.Type
 		isPointer, isArray, packagePath, typeName, err := parseSelectorExpr(t)
-		return isPointer, isArray, packagePath, typeName, err
+		return isPointer, isArray, packagePath, typeName, errors.Trace(err)
 
 	case *ast.ArrayType:
 		// 数组类型：[]Type
 		if _, nestedArray := t.Elt.(*ast.ArrayType); nestedArray {
-			return false, false, "", "", NewFieldUnsupportedCompositionError("nested slices/arrays are not supported")
+			return false, false, "", "", errors.Trace(NewFieldUnsupportedCompositionError("nested slices/arrays are not supported"))
 		}
 
 		isPointer, _, packagePath, typeName, err := parseFieldType(t.Elt)
 		if err != nil {
-			return false, false, "", "", err
+			return false, false, "", "", errors.Trace(err)
 		}
 
 		return isPointer, true, packagePath, typeName, nil
@@ -250,24 +250,24 @@ func parseFieldType(
 		// 指针类型：*Type
 		switch t.X.(type) {
 		case *ast.ArrayType:
-			return false, false, "", "", NewFieldUnsupportedCompositionError("pointer-to-slice fields are not supported")
+			return false, false, "", "", errors.Trace(NewFieldUnsupportedCompositionError("pointer-to-slice fields are not supported"))
 		case *ast.StarExpr:
-			return false, false, "", "", NewFieldUnsupportedCompositionError("multi-level pointers are not supported")
+			return false, false, "", "", errors.Trace(NewFieldUnsupportedCompositionError("multi-level pointers are not supported"))
 		}
 
 		_, isArray, packagePath, typeName, err := parseFieldType(t.X)
 		if err != nil {
-			return false, false, "", "", err
+			return false, false, "", "", errors.Trace(err)
 		}
 
 		if isArray {
-			return false, false, "", "", NewFieldUnsupportedCompositionError("pointer-to-slice fields are not supported")
+			return false, false, "", "", errors.Trace(NewFieldUnsupportedCompositionError("pointer-to-slice fields are not supported"))
 		}
 
 		return true, false, packagePath, typeName, nil
 
 	default:
-		return false, false, "", "", NewFieldUnsupportedTypeError(t)
+		return false, false, "", "", errors.Trace(NewFieldUnsupportedTypeError(t))
 	}
 }
 
@@ -287,5 +287,5 @@ func parseSelectorExpr(
 
 	// 如果不是简单的标识符，可能是嵌套的选择器表达式
 	// 目前不支持这种情况
-	return false, false, "", "", NewFieldInvalidSelectorError(selExpr.X)
+	return false, false, "", "", errors.Trace(NewFieldInvalidSelectorError(selExpr.X))
 }

@@ -407,16 +407,16 @@ func unsupportedPatternPredicate(name string) Cond {
 
 func validatePredicateFormat(op string, placeholderCount int) error {
 	if strings.TrimSpace(op) == "" {
-		return fmt.Errorf("predicate format cannot be empty")
+		return errors.Errorf("predicate format cannot be empty")
 	}
 
 	actual, err := countStringFormatPlaceholders(op)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 
 	if actual != placeholderCount {
-		return fmt.Errorf(
+		return errors.Errorf(
 			"predicate format placeholder count mismatch: expected %d, got %d",
 			placeholderCount,
 			actual,
@@ -443,7 +443,7 @@ type expressionError struct {
 func (e expressionError) Expr() string { return "" }
 func (e expressionError) Args() []any  { return nil }
 func (e expressionError) buildError() error {
-	return e.err
+	return errors.Trace(e.err)
 }
 
 // variableExpression represents a variable placeholder (?)
@@ -661,14 +661,16 @@ func sqlValue(arg any) (string, error) {
 	if valuer, ok := arg.(driver.Valuer); ok {
 		val, err := valuer.Value()
 		if err != nil {
-			return "", err
+			return "", errors.Trace(err)
 		}
 
 		if val == nil {
 			return sqlNullLiteral, nil
 		}
 		// Recursively handle the converted value
-		return sqlValue(val)
+		res, err := sqlValue(val)
+
+		return res, errors.Trace(err)
 	}
 
 	// Use reflection to handle pointers and get the underlying type
@@ -761,7 +763,7 @@ func sqlValue(arg any) (string, error) {
 // sqlEscapeString escapes a string for safe use in SQL
 func sqlEscapeString(s string) (string, error) {
 	if strings.Contains(s, `\`) {
-		return "", fmt.Errorf("string literals containing backslashes are not portable; use bind variables instead")
+		return "", errors.Errorf("string literals containing backslashes are not portable; use bind variables instead")
 	}
 
 	// Replace single quotes with double single quotes (SQL standard)
@@ -780,7 +782,7 @@ func sqlValueReflect(v reflect.Value) (string, error) {
 			return sqlEscapeString(string(bytes))
 		}
 
-		return "", fmt.Errorf("unsupported slice type: %v", v.Type())
+		return "", errors.Errorf("unsupported slice type: %v", v.Type())
 
 	case reflect.Array:
 		if v.Type().Elem().Kind() == reflect.Uint8 {
@@ -793,7 +795,7 @@ func sqlValueReflect(v reflect.Value) (string, error) {
 			return sqlEscapeString(string(bytes))
 		}
 
-		return "", fmt.Errorf("unsupported array type: %v", v.Type())
+		return "", errors.Errorf("unsupported array type: %v", v.Type())
 
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		return strconv.FormatInt(v.Int(), 10), nil
@@ -820,6 +822,6 @@ func sqlValueReflect(v reflect.Value) (string, error) {
 		return sqlEscapeString(v.String())
 
 	default:
-		return "", fmt.Errorf("unsupported value type: %v", v.Type())
+		return "", errors.Errorf("unsupported value type: %v", v.Type())
 	}
 }

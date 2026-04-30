@@ -113,7 +113,7 @@ func GetCategoryByIDOrErr(
 	err := getCategoryByIDQuery.Load(ctx, db, row, iD)
 	if err != nil {
 		if errors.Is(err, tsqsql.ErrNoRows) {
-			return nil, err
+			return nil, errors.Trace(err)
 		}
 
 		return nil, errors.Trace(err)
@@ -182,7 +182,7 @@ func (c *Category) Insert(
 	c.CreatedAt = null.TimeFrom(tsqtime.Now())
 	err := tsq.Insert(ctx, db, c)
 	if err != nil {
-		return errors.Annotate(err, tsq.PrettyJSON(c))
+		return errors.Annotatef(err, "insert Category: %s", tsq.CompactJSON(c))
 	}
 
 	return nil
@@ -196,7 +196,7 @@ func (c *Category) Update(
 ) error {
 	err := tsq.Update(ctx, db, c)
 	if err != nil {
-		return errors.Annotate(err, tsq.PrettyJSON(c))
+		return errors.Annotatef(err, "update Category: %s", tsq.CompactJSON(c))
 	}
 
 	return nil
@@ -209,7 +209,7 @@ func (c *Category) Delete(
 ) error {
 	err := tsq.Delete(ctx, db, c)
 	if err != nil {
-		return errors.Annotate(err, tsq.PrettyJSON(c))
+		return errors.Annotatef(err, "delete Category: %s", tsq.CompactJSON(c))
 	}
 
 	return nil
@@ -336,7 +336,7 @@ func GetCategoryByNameOrErr(
 	)
 	if err != nil {
 		if errors.Is(err, tsqsql.ErrNoRows) {
-			return nil, err
+			return nil, errors.Trace(err)
 		}
 
 		return nil, errors.Trace(err)

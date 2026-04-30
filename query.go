@@ -338,12 +338,12 @@ func (q *Query) queryInt(
 ) (int64, error) {
 	sqlText, finalArgs, err := q.prepareQueryExecution(ctx, tx, "queryInt", args...)
 	if err != nil {
-		return 0, err
+		return 0, errors.Trace(err)
 	}
 
 	result, err := tx.WithContext(ctx).SelectInt(sqlText, finalArgs...)
 	if err != nil {
-		return 0, errors.Annotatef(err, "\n%s\n%v", sqlText, CompactJSON(finalArgs))
+		return 0, errors.Annotate(err, "failed to execute select query")
 	}
 
 	return result, nil
@@ -367,12 +367,12 @@ func (q *Query) queryFloat(
 ) (float64, error) {
 	sqlText, finalArgs, err := q.prepareQueryExecution(ctx, tx, "queryFloat", args...)
 	if err != nil {
-		return 0, err
+		return 0, errors.Trace(err)
 	}
 
 	result, err := tx.WithContext(ctx).SelectFloat(sqlText, finalArgs...)
 	if err != nil {
-		return 0, errors.Annotatef(err, "\n%s\n%v", sqlText, CompactJSON(finalArgs))
+		return 0, errors.Annotate(err, "failed to execute select query")
 	}
 
 	return result, nil
@@ -396,12 +396,12 @@ func (q *Query) queryStr(
 ) (string, error) {
 	sqlText, finalArgs, err := q.prepareQueryExecution(ctx, tx, "queryStr", args...)
 	if err != nil {
-		return "", err
+		return "", errors.Trace(err)
 	}
 
 	result, err := tx.WithContext(ctx).SelectStr(sqlText, finalArgs...)
 	if err != nil {
-		return "", errors.Annotatef(err, "\n%s\n%v", sqlText, CompactJSON(finalArgs))
+		return "", errors.Annotate(err, "failed to execute select query")
 	}
 
 	return result, nil
@@ -437,7 +437,7 @@ func (q *Query) count(
 	args ...any,
 ) (int, error) {
 	n, err := q.count64(ctx, tx, args...)
-	return int(n), err
+	return int(n), errors.Trace(err)
 }
 
 func (q *Query) count64(
@@ -466,7 +466,7 @@ func (q *Query) count64(
 
 	count, err := tx.WithContext(ctx).SelectInt(sqlText, finalArgs...)
 	if err != nil {
-		return 0, errors.Annotatef(err, "\n%s\n%v", sqlText, CompactJSON(finalArgs))
+		return 0, errors.Annotate(err, "failed to execute count query")
 	}
 
 	return count, nil
@@ -509,7 +509,7 @@ func (q *Query) exist(
 
 	count, err := tx.WithContext(ctx).SelectInt(sqlText, finalArgs...)
 	if err != nil {
-		return false, errors.Annotatef(err, "\n%s\n%v", sqlText, CompactJSON(finalArgs))
+		return false, errors.Annotate(err, "failed to check record existence")
 	}
 
 	return count > 0, nil
@@ -590,13 +590,13 @@ func pageFn[T any](
 	// Execute count query
 	count, err := tx.WithContext(ctx).SelectInt(renderedCntSQL, countArgs...)
 	if err != nil {
-		return nil, errors.Annotatef(err, "\n%s\n%v", renderedCntSQL, CompactJSON(countArgs))
+		return nil, errors.Annotate(err, "failed to execute count query")
 	}
 
 	// Execute list query
 	rows, err := tx.WithContext(ctx).Query(renderedListSQL, argsWithLimit...)
 	if err != nil {
-		return nil, errors.Annotatef(err, "\n%s\n%v", renderedListSQL, CompactJSON(argsWithLimit))
+		return nil, errors.Annotate(err, "failed to execute paginated query")
 	}
 
 	defer func() {
@@ -613,24 +613,18 @@ func pageFn[T any](
 
 		dest, err := buildScanDest(q.selectCols, r)
 		if err != nil {
-			return nil, errors.Annotatef(err,
-				"build scan dest\n%s\n%v",
-				renderedListSQL, CompactJSON(argsWithLimit),
-			)
+			return nil, errors.Annotate(err, "failed to execute paginated query")
 		}
 
 		if err := rows.Scan(dest...); err != nil {
-			return nil, errors.Annotatef(err,
-				"rows.Scan\n%s\n%v",
-				renderedListSQL, CompactJSON(argsWithLimit),
-			)
+			return nil, errors.Annotate(err, "failed to execute paginated query")
 		}
 
 		list = append(list, r)
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, errors.Annotatef(err, "\n%s\n%v", renderedListSQL, CompactJSON(argsWithLimit))
+		return nil, errors.Annotate(err, "failed to execute paginated query")
 	}
 
 	return NewResponse(page, count, list), nil
@@ -678,7 +672,7 @@ func listFn[T any](
 
 	rows, err := tx.WithContext(ctx).Query(sqlText, finalArgs...)
 	if err != nil {
-		return nil, errors.Annotatef(err, "\n%s\n%v", sqlText, finalArgs)
+		return nil, errors.Annotate(err, "failed to execute list query")
 	}
 
 	defer func() {
@@ -694,24 +688,18 @@ func listFn[T any](
 
 		dest, err := buildScanDest(q.selectCols, r)
 		if err != nil {
-			return nil, errors.Annotatef(err,
-				"build scan dest\n%s\n%v",
-				sqlText, CompactJSON(args),
-			)
+			return nil, errors.Annotate(err, "failed to execute list query")
 		}
 
 		if err := rows.Scan(dest...); err != nil {
-			return nil, errors.Annotatef(err,
-				"rows.Scan\n%s\n%v",
-				sqlText, CompactJSON(finalArgs),
-			)
+			return nil, errors.Annotate(err, "failed to execute list query")
 		}
 
 		list = append(list, r)
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, errors.Annotatef(err, "\n%s\n%v", sqlText, finalArgs)
+		return nil, errors.Annotate(err, "failed to execute list query")
 	}
 
 	return list, nil
@@ -757,10 +745,7 @@ func getOrErrFn[T any](
 
 	dest, err := buildScanDest(qb.selectCols, r)
 	if err != nil {
-		return nil, errors.Annotatef(err,
-			"build scan dest\n%s\n%v",
-			sqlText, CompactJSON(args),
-		)
+		return nil, errors.Annotate(err, "failed to execute select query")
 	}
 
 	row := tx.WithContext(ctx).QueryRow(sqlText, finalArgs...)
@@ -770,10 +755,7 @@ func getOrErrFn[T any](
 			return nil, errors.Trace(sql.ErrNoRows)
 		}
 
-		return nil, errors.Annotatef(err,
-			"row.Scan\n%s\n%v",
-			sqlText, CompactJSON(finalArgs),
-		)
+		return nil, errors.Annotate(err, "failed to execute select query")
 	}
 
 	return r, nil
@@ -817,10 +799,7 @@ func (q *Query) load(
 
 	dest, err := buildScanDest(q.selectCols, holder)
 	if err != nil {
-		return errors.Annotatef(err,
-			"build scan dest\n%s\n%v",
-			sqlText, CompactJSON(args),
-		)
+		return errors.Annotate(err, "failed to execute select query")
 	}
 
 	row := tx.WithContext(ctx).QueryRow(sqlText, finalArgs...)
@@ -829,7 +808,7 @@ func (q *Query) load(
 			return errors.Trace(sql.ErrNoRows)
 		}
 
-		return errors.Annotatef(err, "\n%s\n%v", sqlText, CompactJSON(finalArgs))
+		return errors.Annotate(err, "failed to execute select query")
 	}
 
 	if err := row.Scan(dest...); err != nil {
@@ -837,10 +816,7 @@ func (q *Query) load(
 			return errors.Trace(sql.ErrNoRows)
 		}
 
-		return errors.Annotatef(err,
-			"row.Scan\n%s\n%v",
-			sqlText, CompactJSON(finalArgs),
-		)
+		return errors.Annotate(err, "failed to execute select query")
 	}
 
 	return nil
@@ -1543,12 +1519,12 @@ func EscapeKeywordSearch(keyword string) string {
 
 func mergeQueryArgs(base, extra []any) ([]any, error) {
 	_, args, err := resolveQuery("", base, extra, "")
-	return args, err
+	return args, errors.Trace(err)
 }
 
 func resolveQueryArgs(base, extra []any, keyword string) ([]any, error) {
 	_, args, err := resolveQuery("", base, extra, keyword)
-	return args, err
+	return args, errors.Trace(err)
 }
 
 func resolveQuery(baseSQL string, base, extra []any, keyword string) (string, []any, error) {
@@ -1879,7 +1855,7 @@ func insertFn[T any](
 		return errors.Trace(err)
 	}
 
-	return tx.WithContext(ctx).Insert(item)
+	return errors.Trace(tx.WithContext(ctx).Insert(item))
 }
 
 func Update[T any](

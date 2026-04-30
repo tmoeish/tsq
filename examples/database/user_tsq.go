@@ -113,7 +113,7 @@ func GetUserByIDOrErr(
 	err := getUserByIDQuery.Load(ctx, db, row, iD)
 	if err != nil {
 		if errors.Is(err, tsqsql.ErrNoRows) {
-			return nil, err
+			return nil, errors.Trace(err)
 		}
 
 		return nil, errors.Trace(err)
@@ -182,7 +182,7 @@ func (u *User) Insert(
 	u.CreatedAt = null.TimeFrom(tsqtime.Now())
 	err := tsq.Insert(ctx, db, u)
 	if err != nil {
-		return errors.Annotate(err, tsq.PrettyJSON(u))
+		return errors.Annotatef(err, "insert User: %s", tsq.CompactJSON(u))
 	}
 
 	return nil
@@ -196,7 +196,7 @@ func (u *User) Update(
 ) error {
 	err := tsq.Update(ctx, db, u)
 	if err != nil {
-		return errors.Annotate(err, tsq.PrettyJSON(u))
+		return errors.Annotatef(err, "update User: %s", tsq.CompactJSON(u))
 	}
 
 	return nil
@@ -209,7 +209,7 @@ func (u *User) Delete(
 ) error {
 	err := tsq.Delete(ctx, db, u)
 	if err != nil {
-		return errors.Annotate(err, tsq.PrettyJSON(u))
+		return errors.Annotatef(err, "delete User: %s", tsq.CompactJSON(u))
 	}
 
 	return nil
@@ -336,7 +336,7 @@ func GetUserByNameOrErr(
 	)
 	if err != nil {
 		if errors.Is(err, tsqsql.ErrNoRows) {
-			return nil, err
+			return nil, errors.Trace(err)
 		}
 
 		return nil, errors.Trace(err)

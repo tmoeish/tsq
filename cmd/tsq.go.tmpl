@@ -144,13 +144,13 @@ func {{$name}}(
 	) ({{$ptype}}, error) {
 		row := &{{$type}}{}
 		err := {{$query}}.Load(ctx, db, row, {{ FieldVarName $dot.ID }})
-	if err != nil {
+		if err != nil {
 		if errors.Is(err, {{ GeneratedSQLRef "ErrNoRows" }}) {
 			return nil, nil
 		}
 
 		return nil, errors.Trace(err)
-	}
+		}
 
 	return row, nil
 }
@@ -168,7 +168,7 @@ func {{$name}}(
 		err := {{$query}}.Load(ctx, db, row, {{ FieldVarName $dot.ID }})
 	if err != nil {
 		if errors.Is(err, {{ GeneratedSQLRef "ErrNoRows" }}) {
-			return nil, err
+			return nil, errors.Trace(err)
 		}
 
 		return nil, errors.Trace(err)
@@ -262,13 +262,13 @@ func {{$name}}(
 	) ({{$ptype}}, error) {
 		row := &{{$type}}{}
 		err := {{$query}}.Load(ctx, db, row, {{ FieldVarName $dot.ID }})
-	if err != nil {
+		if err != nil {
 		if errors.Is(err, {{ GeneratedSQLRef "ErrNoRows" }}) {
 			return nil, nil
 		}
 
 		return nil, errors.Trace(err)
-	}
+		}
 
 	return row, nil
 }
@@ -286,7 +286,7 @@ func {{$name}}(
 		err := {{$query}}.Load(ctx, db, row, {{ FieldVarName $dot.ID }})
 	if err != nil {
 		if errors.Is(err, {{ GeneratedSQLRef "ErrNoRows" }}) {
-			return nil, err
+			return nil, errors.Trace(err)
 		}
 
 		return nil, errors.Trace(err)
@@ -376,7 +376,7 @@ func {{$name}}(
 {{- end }}
 	err := tsq.Insert(ctx, db, {{$dot.Recv}})
 	if err != nil {
-		return errors.Annotate(err, tsq.PrettyJSON({{$dot.Recv}}))
+		return errors.Annotatef(err, "insert {{$type}}: %s", tsq.CompactJSON({{$dot.Recv}}))
 	}
 
 	return nil
@@ -393,7 +393,7 @@ func {{$name}}(
 {{- end }}
 	err := tsq.Update(ctx, db, {{$dot.Recv}})
 	if err != nil {
-		return errors.Annotate(err, tsq.PrettyJSON({{$dot.Recv}}))
+		return errors.Annotatef(err, "update {{$type}}: %s", tsq.CompactJSON({{$dot.Recv}}))
 	}
 
 	return nil
@@ -406,7 +406,7 @@ func {{$name}}(
 ) error {
 	err := tsq.Delete(ctx, db, {{$dot.Recv}})
 	if err != nil {
-		return errors.Annotate(err, tsq.PrettyJSON({{$dot.Recv}}))
+		return errors.Annotatef(err, "delete {{$type}}: %s", tsq.CompactJSON({{$dot.Recv}}))
 	}
 
 	return nil
@@ -430,7 +430,7 @@ func {{$name}}(
 {{- end }}
 	err := tsq.Update(ctx, db, {{$dot.Recv}})
 	if err != nil {
-		return errors.Annotate(err, tsq.PrettyJSON({{$dot.Recv}}))
+		return errors.Annotatef(err, "soft-delete {{$type}}: %s", tsq.CompactJSON({{$dot.Recv}}))
 	}
 
 	return nil
@@ -641,7 +641,7 @@ func {{$name}}(
 	)
 	if err != nil {
 		if errors.Is(err, {{ GeneratedSQLRef "ErrNoRows" }}) {
-			return nil, err
+			return nil, errors.Trace(err)
 		}
 
 		return nil, errors.Trace(err)
@@ -750,7 +750,7 @@ func {{$name}}(
 	)
 	if err != nil {
 		if errors.Is(err, {{ GeneratedSQLRef "ErrNoRows" }}) {
-			return nil, err
+			return nil, errors.Trace(err)
 		}
 
 		return nil, errors.Trace(err)

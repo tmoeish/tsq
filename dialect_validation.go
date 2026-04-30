@@ -3,6 +3,8 @@ package tsq
 import (
 	"fmt"
 	"strings"
+
+	"github.com/juju/errors"
 )
 
 // DialectName represents a SQL dialect type
@@ -99,11 +101,11 @@ func ValidateOperationForDialect(operation string, d Dialect) error {
 	switch operation {
 	case "FULL OUTER JOIN":
 		if !SupportsFullOuterJoin(d) {
-			return NewErrUnsupportedOperation(
+			return errors.Trace(NewErrUnsupportedOperation(
 				"FULL_OUTER_JOIN",
 				dialect,
 				unsupportedCapabilityHint("FULL_OUTER_JOIN", dialect),
-			)
+			))
 		}
 	}
 

@@ -3,6 +3,8 @@ package tsq
 import (
 	"maps"
 	"sync"
+
+	"github.com/juju/errors"
 )
 
 // KeywordRegistry is a registry for dialect-specific SQL keywords
@@ -215,11 +217,11 @@ func (v *DialectValidator) ValidateCapability(operation string) error {
 
 	capability := canonicalCapabilityName(operation)
 	if !v.registry.HasCapability(dialName, capability) {
-		return NewErrUnsupportedOperation(
+		return errors.Trace(NewErrUnsupportedOperation(
 			capability,
 			dialName,
 			unsupportedCapabilityHint(capability, dialName),
-		)
+		))
 	}
 
 	return nil

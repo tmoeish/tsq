@@ -106,7 +106,7 @@ func GetOrgByIDOrErr(
 	err := getOrgByIDQuery.Load(ctx, db, row, iD)
 	if err != nil {
 		if errors.Is(err, tsqsql.ErrNoRows) {
-			return nil, err
+			return nil, errors.Trace(err)
 		}
 
 		return nil, errors.Trace(err)
@@ -175,7 +175,7 @@ func (o *Org) Insert(
 	o.CreatedAt = null.TimeFrom(tsqtime.Now())
 	err := tsq.Insert(ctx, db, o)
 	if err != nil {
-		return errors.Annotate(err, tsq.PrettyJSON(o))
+		return errors.Annotatef(err, "insert Org: %s", tsq.CompactJSON(o))
 	}
 
 	return nil
@@ -189,7 +189,7 @@ func (o *Org) Update(
 ) error {
 	err := tsq.Update(ctx, db, o)
 	if err != nil {
-		return errors.Annotate(err, tsq.PrettyJSON(o))
+		return errors.Annotatef(err, "update Org: %s", tsq.CompactJSON(o))
 	}
 
 	return nil
@@ -202,7 +202,7 @@ func (o *Org) Delete(
 ) error {
 	err := tsq.Delete(ctx, db, o)
 	if err != nil {
-		return errors.Annotate(err, tsq.PrettyJSON(o))
+		return errors.Annotatef(err, "delete Org: %s", tsq.CompactJSON(o))
 	}
 
 	return nil
@@ -329,7 +329,7 @@ func GetOrgByNameOrErr(
 	)
 	if err != nil {
 		if errors.Is(err, tsqsql.ErrNoRows) {
-			return nil, err
+			return nil, errors.Trace(err)
 		}
 
 		return nil, errors.Trace(err)

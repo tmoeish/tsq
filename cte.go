@@ -67,7 +67,7 @@ func (t cteTable) PhysicalTable() string {
 }
 
 func (t cteTable) buildError() error {
-	return t.buildErr
+	return errors.Trace(t.buildErr)
 }
 
 func (t cteTable) cteDefinition() cteDefinition {

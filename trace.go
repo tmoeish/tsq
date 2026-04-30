@@ -166,7 +166,7 @@ func traceManagerTrace1[T any](m *TraceManager, ctx context.Context, fn func(ctx
 
 		result, err = fn(ctx)
 		if err != nil {
-			return err
+			return errors.Trace(err)
 		}
 
 		return nil
@@ -176,16 +176,17 @@ func traceManagerTrace1[T any](m *TraceManager, ctx context.Context, fn func(ctx
 		wrappedFn = tracers[i](wrappedFn)
 	}
 
-	return result, wrappedFn(ctx)
+	return result, errors.Trace(wrappedFn(ctx))
 }
 
 // Trace executes a function with all registered tracers applied.
 func Trace(ctx context.Context, fn func(ctx context.Context) error) error {
-	return defaultRuntime.Trace(ctx, fn)
+	return errors.Trace(defaultRuntime.Trace(ctx, fn))
 }
 
 func Trace1[T any](ctx context.Context, fn func(ctx context.Context) (T, error)) (T, error) {
-	return Trace1WithRuntime(defaultRuntime, ctx, fn)
+	result, err := Trace1WithRuntime(defaultRuntime, ctx, fn)
+	return result, errors.Trace(err)
 }
 
 func appendUniqueTracers(existing []Tracer, newTracers ...Tracer) []Tracer {
@@ -241,7 +242,7 @@ func PrintCost(next Fn) Fn {
 			slog.Info("cost", "duration", duration)
 		}
 
-		return err
+		return errors.Trace(err)
 	}
 }
 
@@ -252,7 +253,7 @@ func PrintError(next Fn) Fn {
 			slog.Error("error", "error", errors.ErrorStack(err))
 		}
 
-		return err
+		return errors.Trace(err)
 	}
 }
 
@@ -264,7 +265,7 @@ const (
 
 func PrintSQL(next Fn) Fn {
 	return func(ctx context.Context) error {
-		return next(context.WithValue(ctx, printSQL, true))
+		return errors.Trace(next(context.WithValue(ctx, printSQL, true)))
 	}
 }
 

@@ -167,11 +167,11 @@ func buildCurrentDDLTableSnapshot(
 	}
 
 	if err := appendIndexes(table.UxList, true); err != nil {
-		return ddlSnapshotTable{}, err
+		return ddlSnapshotTable{}, errors.Trace(err)
 	}
 
 	if err := appendIndexes(table.IdxList, false); err != nil {
-		return ddlSnapshotTable{}, err
+		return ddlSnapshotTable{}, errors.Trace(err)
 	}
 
 	sort.Slice(result.Indexes, func(i, j int) bool {
@@ -190,7 +190,7 @@ func loadDDLStateFile(outDir string) (*ddlStateFile, error) {
 	}
 
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 
 	if !isGeneratedDDLArtifact(content) {
@@ -234,7 +234,7 @@ func marshalDDLStateFile(
 
 	content, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 
 	return append(content, '\n'), nil

@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/juju/errors"
 )
 
 const formatterIndent = "\t"
@@ -31,7 +33,7 @@ type textEdit struct {
 func FormatPackage(packagePath string) ([]string, error) {
 	buildPkg, err := loadSinglePackage(packagePath)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 
 	changed := make([]string, 0, len(buildPkg.GoFiles))
@@ -45,7 +47,7 @@ func FormatPackage(packagePath string) ([]string, error) {
 
 		fileChanged, err := formatSourceFile(fullPath)
 		if err != nil {
-			return nil, err
+			return nil, errors.Trace(err)
 		}
 
 		if fileChanged {
@@ -61,14 +63,14 @@ func FormatPackage(packagePath string) ([]string, error) {
 func formatSourceFile(filename string) (bool, error) {
 	src, err := os.ReadFile(filename)
 	if err != nil {
-		return false, err
+		return false, errors.Trace(err)
 	}
 
 	fileSet := token.NewFileSet()
 
 	file, err := goparser.ParseFile(fileSet, filename, src, goparser.ParseComments)
 	if err != nil {
-		return false, err
+		return false, errors.Trace(err)
 	}
 
 	groups := collectStructAnnotationGroups(file, fileSet)
@@ -77,7 +79,7 @@ func formatSourceFile(filename string) (bool, error) {
 	for _, group := range groups {
 		replacement, err := formatCommentGroup(group)
 		if err != nil {
-			return false, err
+			return false, errors.Trace(err)
 		}
 
 		start := fileSet.Position(group.Pos()).Offset
@@ -108,7 +110,7 @@ func formatSourceFile(filename string) (bool, error) {
 	}
 
 	if err := writeFileAtomically(filename, updated); err != nil {
-		return false, err
+		return false, errors.Trace(err)
 	}
 
 	return true, nil
@@ -181,12 +183,12 @@ func formatLineCommentGroup(group *ast.CommentGroup) (string, error) {
 
 	loc, ok, err := locateAnnotation(cleanedLines)
 	if err != nil || !ok {
-		return strings.Join(rawLines, "\n"), err
+		return strings.Join(rawLines, "\n"), errors.Trace(err)
 	}
 
 	formattedLines, err := formatAnnotationLines(loc.keyword, loc.content, "")
 	if err != nil {
-		return "", err
+		return "", errors.Trace(err)
 	}
 	formattedLines = padLineCommentPreformattedBlock(formattedLines)
 
@@ -216,7 +218,7 @@ func formatBlockCommentGroup(group *ast.CommentGroup) (string, error) {
 
 	loc, ok, err := locateAnnotation(cleanedLines)
 	if err != nil || !ok {
-		return raw, err
+		return raw, errors.Trace(err)
 	}
 
 	baseIndent := ""
@@ -226,7 +228,7 @@ func formatBlockCommentGroup(group *ast.CommentGroup) (string, error) {
 
 	formattedLines, err := formatAnnotationLines(loc.keyword, loc.content, baseIndent)
 	if err != nil {
-		return "", err
+		return "", errors.Trace(err)
 	}
 
 	prefix := trimTrailingBlankCommentLines(bodyLines[:loc.startLine])
@@ -433,12 +435,12 @@ func formatAnnotationLines(keyword, content, baseIndent string) ([]string, error
 
 	tokens, err := Tokenize(content)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 
 	obj, err := ParseDSL(tokens)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 
 	if inline, ok := renderRootInline(obj); ok {
@@ -635,7 +637,7 @@ func writeFileAtomically(filename string, src []byte) error {
 	if info, err := os.Stat(filename); err == nil {
 		perm = info.Mode().Perm()
 	} else if !os.IsNotExist(err) {
-		return err
+		return errors.Trace(err)
 	}
 
 	dir := filepath.Dir(filename)
@@ -643,7 +645,7 @@ func writeFileAtomically(filename string, src []byte) error {
 
 	tmpFile, err := os.CreateTemp(dir, pattern)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 
 	tmpName := tmpFile.Name()
@@ -654,17 +656,17 @@ func writeFileAtomically(filename string, src []byte) error {
 
 	if err := tmpFile.Chmod(perm); err != nil {
 		_ = tmpFile.Close()
-		return err
+		return errors.Trace(err)
 	}
 
 	if _, err := tmpFile.Write(src); err != nil {
 		_ = tmpFile.Close()
-		return err
+		return errors.Trace(err)
 	}
 
 	if err := tmpFile.Close(); err != nil {
-		return err
+		return errors.Trace(err)
 	}
 
-	return os.Rename(tmpName, filename)
+	return errors.Trace(os.Rename(tmpName, filename))
 }

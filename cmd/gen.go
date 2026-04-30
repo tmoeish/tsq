@@ -264,7 +264,7 @@ func printDDLGuidance(w io.Writer, artifacts ddlArtifacts) error {
 		strings.Replace(filename, "<dialect>", ddlDialectMySQL, 1),
 		strings.Replace(filename, "<dialect>", ddlDialectPostgres, 1),
 	); err != nil {
-		return err
+		return errors.Trace(err)
 	}
 
 	return nil
@@ -627,13 +627,13 @@ func validateGeneratedSymbolCollisions(list []*tsq.StructInfo) error {
 
 		for _, symbol := range baseSymbols {
 			if err := register(symbol, typeName); err != nil {
-				return err
+				return errors.Trace(err)
 			}
 		}
 
 		for _, field := range data.Fields {
 			if err := register(typeName+"_"+field.Name, typeName); err != nil {
-				return err
+				return errors.Trace(err)
 			}
 		}
 
@@ -645,7 +645,7 @@ func validateGeneratedSymbolCollisions(list []*tsq.StructInfo) error {
 				"Page" + typeName + "By" + queryName,
 			} {
 				if err := register(symbol, typeName); err != nil {
-					return err
+					return errors.Trace(err)
 				}
 			}
 		}
@@ -770,14 +770,14 @@ func isIntegerFieldType(field tsq.FieldInfo) bool {
 
 func writeGeneratedFile(filename string, src []byte) error {
 	if err := ensureWritableGeneratedFile(filename); err != nil {
-		return err
+		return errors.Trace(err)
 	}
 
 	perm := os.FileMode(0o644)
 	if info, err := os.Stat(filename); err == nil {
 		perm = info.Mode().Perm()
 	} else if !os.IsNotExist(err) {
-		return err
+		return errors.Trace(err)
 	}
 
 	dir := filepath.Dir(filename)
@@ -785,7 +785,7 @@ func writeGeneratedFile(filename string, src []byte) error {
 
 	tmpFile, err := os.CreateTemp(dir, pattern)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 
 	tmpName := tmpFile.Name()
@@ -797,20 +797,20 @@ func writeGeneratedFile(filename string, src []byte) error {
 
 	if err := tmpFile.Chmod(perm); err != nil {
 		_ = tmpFile.Close()
-		return err
+		return errors.Trace(err)
 	}
 
 	if _, err := tmpFile.Write(src); err != nil {
 		_ = tmpFile.Close()
-		return err
+		return errors.Trace(err)
 	}
 
 	if err := tmpFile.Close(); err != nil {
-		return err
+		return errors.Trace(err)
 	}
 
 	if err := os.Rename(tmpName, filename); err != nil {
-		return err
+		return errors.Trace(err)
 	}
 
 	return nil
@@ -823,7 +823,7 @@ func ensureWritableGeneratedFile(filename string) error {
 	}
 
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 
 	if len(existing) == 0 || bytes.HasPrefix(existing, []byte(generatedFileHeaderPrefix)) {

@@ -220,11 +220,11 @@ func (ps *ParseState) processFileComments(
 		switch n := node.(type) {
 		case *ast.GenDecl:
 			if err := ps.processGenDecl(n, comments, pkg); err != nil {
-				return err
+				return errors.Trace(err)
 			}
 		case *ast.TypeSpec:
 			if err := ps.processTypeSpec(n, comments, pkg); err != nil {
-				return err
+				return errors.Trace(err)
 			}
 		default:
 			slog.Debug("skip node type", "type", reflect.TypeOf(node))
@@ -251,7 +251,7 @@ func (ps *ParseState) processGenDecl(
 		}
 
 		if err := ps.processStructTypeSpec(typeSpec, comments, pkg); err != nil {
-			return err
+			return errors.Trace(err)
 		}
 	}
 
@@ -268,7 +268,7 @@ func (ps *ParseState) processTypeSpec(
 		return nil
 	}
 
-	return ps.processStructTypeSpec(typeSpec, comments, pkg)
+	return errors.Trace(ps.processStructTypeSpec(typeSpec, comments, pkg))
 }
 
 // processStructTypeSpec 处理结构体类型声明
@@ -292,7 +292,7 @@ func (ps *ParseState) processStructTypeSpec(
 
 	tableMeta, err := ParseTableInfo(structName, comments, fields)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 
 	if tableMeta != nil {
@@ -558,7 +558,7 @@ var defaultPackageLoader = newPackageLoader()
 func (l *packageLoader) load(packagePath string) (*loadedPackage, error) {
 	key, cfg, pattern, err := resolveLoadRequest(packagePath)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 
 	l.mu.Lock()
@@ -571,7 +571,7 @@ func (l *packageLoader) load(packagePath string) (*loadedPackage, error) {
 
 	pkg, err := l.loadWithConfig(cfg, pattern, packagePath)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 
 	l.mu.Lock()
@@ -591,7 +591,7 @@ func (l *packageLoader) load(packagePath string) (*loadedPackage, error) {
 func (l *packageLoader) loadUncached(packagePath string) (*loadedPackage, error) {
 	_, cfg, pattern, err := resolveLoadRequest(packagePath)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 
 	return l.loadWithConfig(cfg, pattern, packagePath)
@@ -610,7 +610,7 @@ func resolveLoadRequest(packagePath string) (string, *packages.Config, string, e
 	} else if strings.HasPrefix(packagePath, ".") {
 		absPath, err := filepath.Abs(packagePath)
 		if err != nil {
-			return "", nil, "", err
+			return "", nil, "", errors.Trace(err)
 		}
 
 		if _, statErr := os.Stat(absPath); statErr != nil {
@@ -641,7 +641,7 @@ func (l *packageLoader) loadWithConfig(
 ) (*loadedPackage, error) {
 	pkgs, err := packages.Load(cfg, pattern)
 	if err != nil {
-		return nil, err
+		return nil, errors.Trace(err)
 	}
 
 	for _, pkg := range pkgs {

@@ -9,6 +9,18 @@
 
 ## [Unreleased]
 
+## [3.7.0] - 2026-04-30
+
+### 新增
+- **深度集成 juju/errors**: 全项目（除 examples 源码外）切到 `github.com/juju/errors` 进行错误处理，实现全链路 Error Trace 堆栈追踪
+- **结构化错误审计**: 核心查询与执行逻辑增加语义化的 `Annotate` 上下文描述，告别原始错误透传
+
+### 改进
+- **高信号错误信息**: 优化生成模板，在报错时通过 `tsq.CompactJSON` 输出紧凑的对象快照，防止 `ErrorStack` 刷屏，同时让调试现场数据一目了然
+- **SQL 执行报错降噪**: 移除直接在 Error 消息中注入完整长 SQL 的暴力做法，改为更简洁的语义描述（如 "failed to execute count query"），提升日志整洁度
+- **代码生成模板升级**: `tsq gen` 模板同步更新，使生成的代码默认具备 `errors.Trace` 和带语义上下文的 `Annotate`
+- **测试兼容性提升**: 更新测试套件中的错误断言，全面兼容 Go 1.13+ 的 `errors.Is` 和 `errors.As` 模式
+
 ## [3.6.0] - 2026-04-29
 
 ### 新增

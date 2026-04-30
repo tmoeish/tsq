@@ -88,12 +88,12 @@ func validateConditionInput(cond Condition) (string, map[string]Table, []any, er
 func validateJoinColumns(left, right Column) error {
 	leftTable, err := validateColumnInput(left)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 
 	rightTable, err := validateColumnInput(right)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 
 	// Ensure columns belong to different tables

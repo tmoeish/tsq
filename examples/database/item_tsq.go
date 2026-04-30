@@ -117,7 +117,7 @@ func GetItemByIDOrErr(
 	err := getItemByIDQuery.Load(ctx, db, row, iD)
 	if err != nil {
 		if errors.Is(err, tsqsql.ErrNoRows) {
-			return nil, err
+			return nil, errors.Trace(err)
 		}
 
 		return nil, errors.Trace(err)
@@ -186,7 +186,7 @@ func (i *Item) Insert(
 	i.CreatedAt = null.TimeFrom(tsqtime.Now())
 	err := tsq.Insert(ctx, db, i)
 	if err != nil {
-		return errors.Annotate(err, tsq.PrettyJSON(i))
+		return errors.Annotatef(err, "insert Item: %s", tsq.CompactJSON(i))
 	}
 
 	return nil
@@ -200,7 +200,7 @@ func (i *Item) Update(
 ) error {
 	err := tsq.Update(ctx, db, i)
 	if err != nil {
-		return errors.Annotate(err, tsq.PrettyJSON(i))
+		return errors.Annotatef(err, "update Item: %s", tsq.CompactJSON(i))
 	}
 
 	return nil
@@ -213,7 +213,7 @@ func (i *Item) Delete(
 ) error {
 	err := tsq.Delete(ctx, db, i)
 	if err != nil {
-		return errors.Annotate(err, tsq.PrettyJSON(i))
+		return errors.Annotatef(err, "delete Item: %s", tsq.CompactJSON(i))
 	}
 
 	return nil
@@ -340,7 +340,7 @@ func GetItemByNameOrErr(
 	)
 	if err != nil {
 		if errors.Is(err, tsqsql.ErrNoRows) {
-			return nil, err
+			return nil, errors.Trace(err)
 		}
 
 		return nil, errors.Trace(err)

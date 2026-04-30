@@ -281,21 +281,21 @@ func UpsertIndex(db *DbMap, table string, unique bool, idx string, fields []stri
 	}
 
 	if mode == IndexInitValidate {
-		return &ErrIndexMissing{
+		return errors.Trace(&ErrIndexMissing{
 			Table:  table,
 			Name:   idx,
 			Fields: append([]string(nil), fields...),
 			Unique: unique,
-		}
+		})
 	}
 
 	switch db.Dialect.(type) {
 	case MySQLDialect:
-		return ensureMySQLIndex(db, table, unique, idx, fields)
+		return errors.Trace(ensureMySQLIndex(db, table, unique, idx, fields))
 	case SqliteDialect:
-		return ensureSQLiteIndex(db, table, unique, idx, fields)
+		return errors.Trace(ensureSQLiteIndex(db, table, unique, idx, fields))
 	case PostgresDialect:
-		return ensurePostgresIndex(db, table, unique, idx, fields)
+		return errors.Trace(ensurePostgresIndex(db, table, unique, idx, fields))
 	default:
 		return errors.Errorf("unsupported database dialect: %T", db.Dialect)
 	}
@@ -515,7 +515,7 @@ func quoteDialectIdentifiers(dialect Dialect, names []string) ([]string, error) 
 
 // ensureMySQLIndex ensures an index exists in MySQL
 func ensureMySQLIndex(db *DbMap, table string, unique bool, idx string, fields []string) error {
-	return createMySQLIndex(db, table, unique, idx, fields)
+	return errors.Trace(createMySQLIndex(db, table, unique, idx, fields))
 }
 
 func inspectMySQLIndexDefinition(
@@ -588,7 +588,7 @@ func createMySQLIndex(dbMap *DbMap, table string, unique bool, idx string, field
 
 	_, err = dbMap.Exec(query)
 	if err := finishCreateIndex(dbMap, table, unique, idx, fields, err); err != nil {
-		return err
+		return errors.Trace(err)
 	}
 
 	return errors.Trace(dbMap.emitSchemaEvent(SchemaEvent{
@@ -605,7 +605,7 @@ func createMySQLIndex(dbMap *DbMap, table string, unique bool, idx string, field
 
 // ensureSQLiteIndex ensures an index exists in SQLite
 func ensureSQLiteIndex(db *DbMap, table string, unique bool, idx string, fields []string) error {
-	return createSQLiteIndex(db, table, unique, idx, fields)
+	return errors.Trace(createSQLiteIndex(db, table, unique, idx, fields))
 }
 
 func inspectSQLiteIndexDefinition(db *DbMap, idx string) (indexDefinition, bool, error) {
@@ -719,7 +719,7 @@ func createSQLiteIndex(db *DbMap, table string, unique bool, idx string, fields 
 
 	_, err = db.Exec(query)
 	if err := finishCreateIndex(db, table, unique, idx, fields, err); err != nil {
-		return err
+		return errors.Trace(err)
 	}
 
 	return errors.Trace(db.emitSchemaEvent(SchemaEvent{
@@ -736,7 +736,7 @@ func createSQLiteIndex(db *DbMap, table string, unique bool, idx string, fields 
 
 // ensurePostgresIndex ensures an index exists in PostgreSQL
 func ensurePostgresIndex(db *DbMap, table string, unique bool, idx string, fields []string) error {
-	return createPostgresIndex(db, table, unique, idx, fields)
+	return errors.Trace(createPostgresIndex(db, table, unique, idx, fields))
 }
 
 func inspectPostgresIndexDefinition(db *DbMap, idx string) (indexDefinition, bool, error) {
@@ -808,7 +808,7 @@ func createPostgresIndex(db *DbMap, table string, unique bool, idx string, field
 
 	_, err = db.Exec(query)
 	if err := finishCreateIndex(db, table, unique, idx, fields, err); err != nil {
-		return err
+		return errors.Trace(err)
 	}
 
 	return errors.Trace(db.emitSchemaEvent(SchemaEvent{

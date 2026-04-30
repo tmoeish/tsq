@@ -4,12 +4,13 @@ package tsq
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"reflect"
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/juju/errors"
 )
 
 var (
@@ -130,10 +131,14 @@ func (db *DbMap) Query(query string, args ...any) (*sql.Rows, error) {
 	}
 
 	if db.ctx != nil {
-		return db.Db.QueryContext(db.ctx, query, args...)
+		rows, err := db.Db.QueryContext(db.ctx, query, args...)
+
+		return rows, errors.Trace(err)
 	}
 
-	return db.Db.Query(query, args...)
+	rows, err := db.Db.Query(query, args...)
+
+	return rows, errors.Trace(err)
 }
 
 // QueryRow executes a query that returns a single row.
@@ -156,10 +161,14 @@ func (db *DbMap) Exec(query string, args ...any) (sql.Result, error) {
 	}
 
 	if db.ctx != nil {
-		return db.Db.ExecContext(db.ctx, query, args...)
+		res, err := db.Db.ExecContext(db.ctx, query, args...)
+
+		return res, errors.Trace(err)
 	}
 
-	return db.Db.Exec(query, args...)
+	res, err := db.Db.Exec(query, args...)
+
+	return res, errors.Trace(err)
 }
 
 // WithContext returns a new DbMap with the specified context.
@@ -182,7 +191,7 @@ func (db *DbMap) WithContext(ctx context.Context) SqlExecutor {
 func (db *DbMap) SelectOne(dst any, query string, args ...any) error {
 	rows, err := db.Query(query, args...)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 
 	defer func() {
@@ -191,25 +200,25 @@ func (db *DbMap) SelectOne(dst any, query string, args ...any) error {
 
 	if !rows.Next() {
 		if err := rows.Err(); err != nil {
-			return err
+			return errors.Trace(err)
 		}
 
-		return sql.ErrNoRows
+		return errors.Trace(sql.ErrNoRows)
 	}
 
 	// Use scanRow for proper struct tag handling
-	return scanRow(rows, dst)
+	return errors.Trace(scanRow(rows, dst))
 }
 
 // scanRow handles scanning with struct tag support
 func scanRow(rows *sql.Rows, dst any) error {
 	if scanner, ok := dst.(sql.Scanner); ok {
-		return rows.Scan(scanner)
+		return errors.Trace(rows.Scan(scanner))
 	}
 
 	cols, err := rows.Columns()
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 
 	// Try direct Scan first (works for simple types)
@@ -219,14 +228,14 @@ func scanRow(rows *sql.Rows, dst any) error {
 		switch elem.Kind() {
 		case reflect.Struct:
 			// Use scanStruct for struct types with tag support
-			return scanStruct(rows, cols, dst)
+			return errors.Trace(scanStruct(rows, cols, dst))
 		default:
 			// Simple types like *int, *string - use direct Scan
-			return rows.Scan(dst)
+			return errors.Trace(rows.Scan(dst))
 		}
 	}
 
-	return rows.Scan(dst)
+	return errors.Trace(rows.Scan(dst))
 }
 
 // scanStruct handles scanning into structs with db tag support
@@ -237,7 +246,7 @@ func scanStruct(rows *sql.Rows, cols []string, dst any) error {
 	}
 
 	if err := rows.Scan(values...); err != nil {
-		return err
+		return errors.Trace(err)
 	}
 
 	// Map columns to struct fields
@@ -341,7 +350,7 @@ func (db *DbMap) SelectInt(query string, args ...any) (int64, error) {
 
 	err := db.SelectOne(&result, query, args...)
 	if err != nil {
-		return 0, err
+		return 0, errors.Trace(err)
 	}
 
 	return result.Int64, nil
@@ -352,7 +361,7 @@ func (db *DbMap) SelectNullInt(query string, args ...any) (sql.NullInt64, error)
 	var result sql.NullInt64
 	err := db.SelectOne(&result, query, args...)
 
-	return result, err
+	return result, errors.Trace(err)
 }
 
 // SelectFloat executes a query and returns a single float result.
@@ -361,7 +370,7 @@ func (db *DbMap) SelectFloat(query string, args ...any) (float64, error) {
 
 	err := db.SelectOne(&result, query, args...)
 	if err != nil {
-		return 0, err
+		return 0, errors.Trace(err)
 	}
 
 	return result.Float64, nil
@@ -372,7 +381,7 @@ func (db *DbMap) SelectNullFloat(query string, args ...any) (sql.NullFloat64, er
 	var result sql.NullFloat64
 	err := db.SelectOne(&result, query, args...)
 
-	return result, err
+	return result, errors.Trace(err)
 }
 
 // SelectStr executes a query and returns a single string result.
@@ -381,7 +390,7 @@ func (db *DbMap) SelectStr(query string, args ...any) (string, error) {
 
 	err := db.SelectOne(&result, query, args...)
 	if err != nil {
-		return "", err
+		return "", errors.Trace(err)
 	}
 
 	return result.String, nil
@@ -392,14 +401,14 @@ func (db *DbMap) SelectNullStr(query string, args ...any) (sql.NullString, error
 	var result sql.NullString
 	err := db.SelectOne(&result, query, args...)
 
-	return result, err
+	return result, errors.Trace(err)
 }
 
 // Select executes a query and scans multiple rows into dst.
 func (db *DbMap) Select(dst any, query string, args ...any) (int, error) {
 	rows, err := db.Query(query, args...)
 	if err != nil {
-		return 0, err
+		return 0, errors.Trace(err)
 	}
 
 	defer func() {
@@ -408,7 +417,7 @@ func (db *DbMap) Select(dst any, query string, args ...any) (int, error) {
 
 	cols, err := rows.Columns()
 	if err != nil {
-		return 0, err
+		return 0, errors.Trace(err)
 	}
 
 	dstVal := reflect.ValueOf(dst)
@@ -431,12 +440,12 @@ func (db *DbMap) Select(dst any, query string, args ...any) (int, error) {
 		// Scan the row into the element
 		if elemType.Kind() == reflect.Struct {
 			if err := scanStruct(rows, cols, elem.Interface()); err != nil {
-				return 0, err
+				return 0, errors.Trace(err)
 			}
 		} else {
 			// Simple type
 			if err := rows.Scan(elem.Interface()); err != nil {
-				return 0, err
+				return 0, errors.Trace(err)
 			}
 		}
 
@@ -446,7 +455,7 @@ func (db *DbMap) Select(dst any, query string, args ...any) (int, error) {
 		count++
 	}
 
-	return count, rows.Err()
+	return count, errors.Trace(rows.Err())
 }
 
 // CreateTablesIfNotExists creates all tables if they don't exist.
@@ -472,12 +481,12 @@ type mutationRecord struct {
 func (db *DbMap) Insert(dst ...any) error {
 	records, err := collectMutationRecords(dst)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 
 	for _, group := range groupInsertRecords(records) {
 		if err := db.insertBatch(group); err != nil {
-			return err
+			return errors.Trace(err)
 		}
 	}
 
@@ -488,7 +497,7 @@ func (db *DbMap) Insert(dst ...any) error {
 func (db *DbMap) Update(dst ...any) (int64, error) {
 	records, err := collectMutationRecords(dst)
 	if err != nil {
-		return 0, err
+		return 0, errors.Trace(err)
 	}
 
 	var total int64
@@ -496,7 +505,7 @@ func (db *DbMap) Update(dst ...any) (int64, error) {
 	for _, group := range groupUpdateRecords(records) {
 		affected, err := db.updateBatch(group)
 		if err != nil {
-			return total, err
+			return total, errors.Trace(err)
 		}
 
 		total += affected
@@ -509,7 +518,7 @@ func (db *DbMap) Update(dst ...any) (int64, error) {
 func (db *DbMap) Delete(dst ...any) (int64, error) {
 	records, err := collectMutationRecords(dst)
 	if err != nil {
-		return 0, err
+		return 0, errors.Trace(err)
 	}
 
 	var total int64
@@ -517,7 +526,7 @@ func (db *DbMap) Delete(dst ...any) (int64, error) {
 	for _, group := range groupDeleteRecords(records) {
 		affected, err := db.deleteBatch(group)
 		if err != nil {
-			return total, err
+			return total, errors.Trace(err)
 		}
 
 		total += affected
@@ -532,7 +541,7 @@ func collectMutationRecords(dst []any) ([]mutationRecord, error) {
 	for _, item := range dst {
 		record, err := mutationMetadata(item)
 		if err != nil {
-			return nil, err
+			return nil, errors.Trace(err)
 		}
 
 		records = append(records, record)
@@ -590,18 +599,18 @@ func (db *DbMap) insertBatch(records []mutationRecord) error {
 
 	insertFields := insertFieldsForRecord(records[0])
 	if len(insertFields) == 0 {
-		return errInsertRequiresColumn
+		return errors.Trace(errInsertRequiresColumn)
 	}
 
 	for _, record := range records[1:] {
 		if !mutationFieldColumnsEqual(insertFields, insertFieldsForRecord(record)) {
-			return errInsertLayoutMismatch
+			return errors.Trace(errInsertLayoutMismatch)
 		}
 	}
 
 	tableSQL, err := db.quoteMutationIdentifier(records[0].tableName)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 
 	quotedCols := make([]string, 0, len(insertFields))
@@ -609,7 +618,7 @@ func (db *DbMap) insertBatch(records []mutationRecord) error {
 	for _, field := range insertFields {
 		col, err := db.quoteMutationIdentifier(field.column)
 		if err != nil {
-			return err
+			return errors.Trace(err)
 		}
 
 		quotedCols = append(quotedCols, col)
@@ -642,7 +651,7 @@ func (db *DbMap) insertBatch(records []mutationRecord) error {
 
 	result, err := db.Exec(query, args...)
 	if err != nil {
-		return err
+		return errors.Trace(err)
 	}
 
 	assignBatchInsertIDs(db, records, result, len(insertFields) != len(records[0].fields))
@@ -657,27 +666,27 @@ func (db *DbMap) updateBatch(records []mutationRecord) (int64, error) {
 
 	updateFields := updateFieldsForRecord(records[0])
 	if len(updateFields) == 0 {
-		return 0, errUpdateRequiresMutableColumn
+		return 0, errors.Trace(errUpdateRequiresMutableColumn)
 	}
 
 	for _, record := range records {
 		if isZeroMutationValue(record.pkField.value) {
-			return 0, errUpdateRequiresPrimaryKey
+			return 0, errors.Trace(errUpdateRequiresPrimaryKey)
 		}
 
 		if !mutationFieldColumnsEqual(updateFields, updateFieldsForRecord(record)) {
-			return 0, errUpdateLayoutMismatch
+			return 0, errors.Trace(errUpdateLayoutMismatch)
 		}
 	}
 
 	tableSQL, err := db.quoteMutationIdentifier(records[0].tableName)
 	if err != nil {
-		return 0, err
+		return 0, errors.Trace(err)
 	}
 
 	pkSQL, err := db.quoteMutationIdentifier(records[0].pkField.column)
 	if err != nil {
-		return 0, err
+		return 0, errors.Trace(err)
 	}
 
 	var (
@@ -689,7 +698,7 @@ func (db *DbMap) updateBatch(records []mutationRecord) (int64, error) {
 	for _, field := range updateFields {
 		colSQL, err := db.quoteMutationIdentifier(field.column)
 		if err != nil {
-			return 0, err
+			return 0, errors.Trace(err)
 		}
 
 		var clause strings.Builder
@@ -730,10 +739,12 @@ func (db *DbMap) updateBatch(records []mutationRecord) (int64, error) {
 
 	result, err := db.Exec(query, args...)
 	if err != nil {
-		return 0, err
+		return 0, errors.Trace(err)
 	}
 
-	return result.RowsAffected()
+	rowsAffected, err := result.RowsAffected()
+
+	return rowsAffected, errors.Trace(err)
 }
 
 func (db *DbMap) deleteBatch(records []mutationRecord) (int64, error) {
@@ -743,18 +754,18 @@ func (db *DbMap) deleteBatch(records []mutationRecord) (int64, error) {
 
 	for _, record := range records {
 		if isZeroMutationValue(record.pkField.value) {
-			return 0, errDeleteRequiresPrimaryKey
+			return 0, errors.Trace(errDeleteRequiresPrimaryKey)
 		}
 	}
 
 	tableSQL, err := db.quoteMutationIdentifier(records[0].tableName)
 	if err != nil {
-		return 0, err
+		return 0, errors.Trace(err)
 	}
 
 	pkSQL, err := db.quoteMutationIdentifier(records[0].pkField.column)
 	if err != nil {
-		return 0, err
+		return 0, errors.Trace(err)
 	}
 
 	var (
@@ -777,40 +788,42 @@ func (db *DbMap) deleteBatch(records []mutationRecord) (int64, error) {
 
 	result, err := db.Exec(query, args...)
 	if err != nil {
-		return 0, err
+		return 0, errors.Trace(err)
 	}
 
-	return result.RowsAffected()
+	rowsAffected, err := result.RowsAffected()
+
+	return rowsAffected, errors.Trace(err)
 }
 
 func mutationMetadata(dst any) (mutationRecord, error) {
 	if dst == nil {
-		return mutationRecord{}, errMutationItemNil
+		return mutationRecord{}, errors.Trace(errMutationItemNil)
 	}
 
 	tabler, ok := dst.(interface{ Table() string })
 	if !ok {
-		return mutationRecord{}, errMutationItemTableMethod
+		return mutationRecord{}, errors.Trace(errMutationItemTableMethod)
 	}
 
 	value := reflect.ValueOf(dst)
 	if value.Kind() != reflect.Ptr || value.IsNil() {
-		return mutationRecord{}, errMutationItemPointer
+		return mutationRecord{}, errors.Trace(errMutationItemPointer)
 	}
 
 	value = value.Elem()
 	if value.Kind() != reflect.Struct {
-		return mutationRecord{}, errMutationItemStructPointer
+		return mutationRecord{}, errors.Trace(errMutationItemStructPointer)
 	}
 
 	fields := collectMutationFields(value)
 	if len(fields) == 0 {
-		return mutationRecord{}, errMutationItemNoTaggedFields
+		return mutationRecord{}, errors.Trace(errMutationItemNoTaggedFields)
 	}
 
 	pkField, err := primaryMutationField(fields)
 	if err != nil {
-		return mutationRecord{}, err
+		return mutationRecord{}, errors.Trace(err)
 	}
 
 	return mutationRecord{
@@ -938,7 +951,7 @@ func (db *DbMap) quoteMutationIdentifier(name string) (string, error) {
 	}
 
 	if !builtInIdentifierPattern.MatchString(name) {
-		return "", fmt.Errorf("invalid identifier: %s", name)
+		return "", errors.Errorf("invalid identifier: %s", name)
 	}
 
 	if db != nil && db.Dialect != nil {

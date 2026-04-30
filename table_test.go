@@ -3,10 +3,10 @@ package tsq
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"strings"
 	"testing"
 
-	jujuerrors "github.com/juju/errors"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -53,8 +53,8 @@ func TestRegisterTableRejectsNilInputs(t *testing.T) {
 				t.Fatal("expected error, got nil")
 			}
 
-			regErr, ok := err.(*RegistrationError)
-			if !ok {
+			var regErr *RegistrationError
+			if !errors.As(err, &regErr) {
 				t.Fatalf("expected RegistrationError, got %T", err)
 			}
 
@@ -84,8 +84,8 @@ func TestRegisterTableRejectsDuplicate(t *testing.T) {
 		t.Fatal("expected duplicate table registration to fail")
 	}
 
-	regErr, ok := err2.(*RegistrationError)
-	if !ok {
+	var regErr *RegistrationError
+	if !errors.As(err2, &regErr) {
 		t.Fatalf("expected RegistrationError, got %T", err2)
 	}
 
@@ -103,8 +103,8 @@ func TestRuntimeRegisterTableRejectsNilRuntime(t *testing.T) {
 		t.Fatal("expected nil runtime to return error")
 	}
 
-	regErr, ok := err.(*RegistrationError)
-	if !ok {
+	var regErr *RegistrationError
+	if !errors.As(err, &regErr) {
 		t.Fatalf("expected RegistrationError, got %T", err)
 	}
 
@@ -322,9 +322,9 @@ func TestInitWithOptionsIndexModeValidateReturnsMissingIndexError(t *testing.T) 
 		t.Fatal("expected validate mode to fail when index is missing")
 	}
 
-	missing, ok := jujuerrors.Cause(err).(*ErrIndexMissing)
-	if !ok {
-		t.Fatalf("expected ErrIndexMissing, got %T (%v)", jujuerrors.Cause(err), err)
+	var missing *ErrIndexMissing
+	if !errors.As(err, &missing) {
+		t.Fatalf("expected ErrIndexMissing, got %T (%v)", err, err)
 	}
 
 	if missing.Name != "ux_users_name" || missing.Table != "users" {
