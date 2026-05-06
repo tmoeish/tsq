@@ -9,6 +9,16 @@
 
 ## [Unreleased]
 
+### 变更（Breaking Changes）
+- 查询现在必须显式调用 `From(table)`，不再从 `Select(...)` 或 Join 链隐式推导主表
+- `Join` / `LeftJoin` / `RightJoin` / `FullJoin` 改为直接接收可变 `Condition`，移除旧的 `.Join(...).On(left, right)` 两步 API
+- 非 `CROSS JOIN` 必须提供 ON 条件；Join 条件必须同时引用已引入表和当前连接表，提前拒绝缺失连接关系或引用未来表的查询
+
+### 改进
+- 生成的表 DSL 增加 `Cols()`，让 Build 阶段可以校验列确实属于 `From` / Join 图中的表
+- `Alias(...)` 表会同步重绑定生成列集合，别名查询也能参与列归属校验
+- 示例、文档和生成模板统一迁移到显式 `From` 与新 Join API
+
 ## [3.7.1] - 2026-04-30
 
 ### 改进

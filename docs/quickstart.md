@@ -115,6 +115,7 @@ INSERT INTO user (name, email) VALUES
 
 	query, err := tsq.
 		Select(database.TableUserCols...).
+		From(database.TableUser).
 		Where(database.User_Name.Contains("A")).
 		Build()
 	if err != nil {

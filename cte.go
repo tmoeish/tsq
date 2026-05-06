@@ -11,16 +11,14 @@ type cteProvider interface {
 }
 
 type cteDefinition struct {
-	name                  string
-	spec                  QuerySpec
-	allowCartesianProduct bool
+	name string
+	spec QuerySpec
 }
 
 type cteTable struct {
-	name                  string
-	spec                  QuerySpec
-	allowCartesianProduct bool
-	buildErr              error
+	name     string
+	spec     QuerySpec
+	buildErr error
 }
 
 // CTE creates a reusable non-recursive WITH/CTE table handle from a query.
@@ -48,9 +46,8 @@ func CTE(name string, query *QueryBuilder) Table {
 	}
 
 	return cteTable{
-		name:                  name,
-		spec:                  cloneQuerySpec(query.spec),
-		allowCartesianProduct: query.allowCartesianProduct,
+		name: name,
+		spec: cloneQuerySpec(query.spec),
 	}
 }
 
@@ -72,8 +69,7 @@ func (t cteTable) buildError() error {
 
 func (t cteTable) cteDefinition() cteDefinition {
 	return cteDefinition{
-		name:                  t.name,
-		spec:                  cloneQuerySpec(t.spec),
-		allowCartesianProduct: t.allowCartesianProduct,
+		name: t.name,
+		spec: cloneQuerySpec(t.spec),
 	}
 }

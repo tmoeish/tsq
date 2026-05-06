@@ -10,7 +10,7 @@
 
 - `@TABLE` 注解
 - `tsq gen ./database`
-- `tsq.Select(...).Where(...).Build()`
+- `tsq.Select(...).From(table).Where(...).Build()`
 - `tsq.List(...)` / 生成的 CRUD 助手
 
 先不要同时学习 `Result`、CTE、集合查询和运行时隔离。

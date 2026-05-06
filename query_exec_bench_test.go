@@ -13,6 +13,7 @@ func BenchmarkQueryBuilder_SimpleWhere(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_, _ = Select(idCol, nameCol).
+			From(idCol.Table()).
 			Where(idCol.GT(100)).
 			Build()
 	}
@@ -28,6 +29,7 @@ func BenchmarkQueryBuilder_MultipleConditions(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_, _ = Select(idCol, statusCol, nameCol).
+			From(idCol.Table()).
 			Where(
 				idCol.GT(10),
 				idCol.LT(1000),
@@ -50,7 +52,8 @@ func BenchmarkQueryBuilder_WithJoins(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_, _ = Select(uid, oid, oTotal).
-			InnerJoin(uid, oUserID).
+			From(uid.Table()).
+			InnerJoin(ordersTable, uid.EQCol(oUserID)).
 			Where(oTotal.GT(50.0)).
 			Build()
 	}
@@ -65,6 +68,7 @@ func BenchmarkQueryBuilder_GroupBy(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_, _ = Select(categoryCol, totalCol).
+			From(categoryCol.Table()).
 			GroupBy(categoryCol).
 			Build()
 	}

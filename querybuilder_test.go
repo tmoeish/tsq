@@ -49,9 +49,11 @@ func TestSelect(t *testing.T) {
 }
 
 func TestSelect_NilColumnDefersToBuildError(t *testing.T) {
+	table := newMockTable("users")
 	var col Column
 
-	_, err := Select(col).Build()
+	_, err := Select(col).
+		From(table).Build()
 	if err == nil {
 		t.Fatal("expected nil select column to return an error")
 	}
@@ -62,9 +64,11 @@ func TestSelect_NilColumnDefersToBuildError(t *testing.T) {
 }
 
 func TestSelect_ZeroValueColumnDefersToBuildError(t *testing.T) {
+	table := newMockTable("users")
 	var col Col[int]
 
-	_, err := Select(col).Build()
+	_, err := Select(col).
+		From(table).Build()
 	if err == nil {
 		t.Fatal("expected zero-value select column to return an error")
 	}
@@ -77,10 +81,11 @@ func TestSelect_ZeroValueColumnDefersToBuildError(t *testing.T) {
 func TestQueryBuilder_LeftJoin(t *testing.T) {
 	table1 := newMockTable("users")
 	table2 := newMockTable("orders")
-	col1 := newMockColumn(table1, "id")
-	col2 := newMockColumn(table2, "user_id")
+	col1 := NewCol[string](table1, "id", "id", nil)
+	col2 := NewCol[string](table2, "user_id", "user_id", nil)
 
-	qb := Select(col1).LeftJoin(col1, col2)
+	qb := Select(col1).
+		From(col1.Table()).LeftJoin(table2, col1.EQCol(col2))
 
 	if len(qb.spec.Joins) != 1 {
 		t.Errorf("Expected 1 join, got %d", len(qb.spec.Joins))
@@ -91,12 +96,12 @@ func TestQueryBuilder_LeftJoin(t *testing.T) {
 		t.Errorf("Expected LEFT JOIN, got %s", join.joinType)
 	}
 
-	if join.left.Name() != "id" {
-		t.Errorf("Expected left column 'id', got '%s'", join.left.Name())
+	if join.table.Table() != "orders" {
+		t.Errorf("Expected join table 'orders', got '%s'", join.table.Table())
 	}
 
-	if join.right.Name() != "user_id" {
-		t.Errorf("Expected right column 'user_id', got '%s'", join.right.Name())
+	if len(join.on) != 1 {
+		t.Errorf("Expected 1 join condition, got %d", len(join.on))
 	}
 
 	// Check that both tables are added to selectTables
@@ -108,10 +113,11 @@ func TestQueryBuilder_LeftJoin(t *testing.T) {
 func TestQueryBuilder_InnerJoin(t *testing.T) {
 	table1 := newMockTable("users")
 	table2 := newMockTable("orders")
-	col1 := newMockColumn(table1, "id")
-	col2 := newMockColumn(table2, "user_id")
+	col1 := NewCol[string](table1, "id", "id", nil)
+	col2 := NewCol[string](table2, "user_id", "user_id", nil)
 
-	qb := Select(col1).InnerJoin(col1, col2)
+	qb := Select(col1).
+		From(col1.Table()).InnerJoin(table2, col1.EQCol(col2))
 
 	if len(qb.spec.Joins) != 1 {
 		t.Errorf("Expected 1 join, got %d", len(qb.spec.Joins))
@@ -125,10 +131,11 @@ func TestQueryBuilder_InnerJoin(t *testing.T) {
 func TestQueryBuilder_RightJoin(t *testing.T) {
 	table1 := newMockTable("users")
 	table2 := newMockTable("orders")
-	col1 := newMockColumn(table1, "id")
-	col2 := newMockColumn(table2, "user_id")
+	col1 := NewCol[string](table1, "id", "id", nil)
+	col2 := NewCol[string](table2, "user_id", "user_id", nil)
 
-	qb := Select(col1).RightJoin(col1, col2)
+	qb := Select(col1).
+		From(col1.Table()).RightJoin(table2, col1.EQCol(col2))
 
 	if len(qb.spec.Joins) != 1 {
 		t.Errorf("Expected 1 join, got %d", len(qb.spec.Joins))
@@ -142,10 +149,11 @@ func TestQueryBuilder_RightJoin(t *testing.T) {
 func TestQueryBuilder_FullJoin(t *testing.T) {
 	table1 := newMockTable("users")
 	table2 := newMockTable("orders")
-	col1 := newMockColumn(table1, "id")
-	col2 := newMockColumn(table2, "user_id")
+	col1 := NewCol[string](table1, "id", "id", nil)
+	col2 := NewCol[string](table2, "user_id", "user_id", nil)
 
-	qb := Select(col1).FullJoin(col1, col2)
+	qb := Select(col1).
+		From(col1.Table()).FullJoin(table2, col1.EQCol(col2))
 
 	if len(qb.spec.Joins) != 1 {
 		t.Errorf("Expected 1 join, got %d", len(qb.spec.Joins))
@@ -161,7 +169,8 @@ func TestQueryBuilder_CrossJoin(t *testing.T) {
 	table2 := newMockTable("orders")
 	col1 := newMockColumn(table1, "id")
 
-	qb := Select(col1).CrossJoin(table2)
+	qb := Select(col1).
+		From(col1.Table()).CrossJoin(table2)
 
 	if len(qb.spec.Joins) != 1 {
 		t.Errorf("Expected 1 join, got %d", len(qb.spec.Joins))
@@ -182,7 +191,8 @@ func TestQueryBuilder_GroupBy(t *testing.T) {
 	col1 := newMockColumn(table1, "department")
 	col2 := newMockColumn(table1, "status")
 
-	qb := Select(col1).GroupBy(col1, col2)
+	qb := Select(col1).
+		From(col1.Table()).GroupBy(col1, col2)
 
 	if len(qb.spec.GroupBy) != 2 {
 		t.Errorf("Expected 2 GROUP BY columns, got %d", len(qb.spec.GroupBy))
@@ -203,7 +213,9 @@ func TestQueryBuilder_Union(t *testing.T) {
 	userID := newMockColumn(users, "id")
 	orderUserID := newMockColumn(orders, "user_id")
 
-	qb := Select(userID).Union(Select(orderUserID))
+	qb := Select(userID).
+		From(userID.Table()).
+		Union(Select(orderUserID).From(orderUserID.Table()))
 
 	if len(qb.spec.SetOps) != 1 {
 		t.Fatalf("expected 1 set operation, got %d", len(qb.spec.SetOps))
@@ -219,7 +231,10 @@ func TestQueryBuilder_SetOperationRejectsMismatchedSelectCounts(t *testing.T) {
 	id := newMockColumn(users, "id")
 	name := newMockColumn(users, "name")
 
-	_, err := Select(id).Union(Select(id, name)).Build()
+	_, err := Select(id).
+		From(id.Table()).
+		Union(Select(id, name).From(id.Table())).
+		Build()
 	if err == nil {
 		t.Fatal("expected mismatched select counts to fail")
 	}
@@ -233,7 +248,11 @@ func TestQueryBuilder_SetOperationRejectsKeywordSearch(t *testing.T) {
 	users := newMockTable("users")
 	id := newMockColumn(users, "id")
 
-	_, err := Select(id).KwSearch(id).Union(Select(id)).Build()
+	_, err := Select(id).
+		From(id.Table()).
+		KwSearch(id).
+		Union(Select(id).From(id.Table())).
+		Build()
 	if err == nil {
 		t.Fatal("expected keyword search with set operations to fail")
 	}
@@ -249,7 +268,9 @@ func TestQueryBuilder_SetOperationBuildsWrappedCountSQL(t *testing.T) {
 	userID := newMockColumn(users, "id")
 	orderUserID := newMockColumn(orders, "user_id")
 
-	query := mustBuild(Select(userID).UnionAll(Select(orderUserID)))
+	query := mustBuild(Select(userID).
+		From(userID.Table()).
+		UnionAll(Select(orderUserID).From(orderUserID.Table())))
 
 	wantList := `SELECT "users"."id" FROM "users" UNION ALL SELECT "orders"."user_id" FROM "orders"`
 	if query.ListSQL() != wantList {
@@ -267,11 +288,12 @@ func TestQueryBuilder_CTEBuildsWithClause(t *testing.T) {
 	id := NewCol[int](users, "id", "id", nil)
 	name := NewCol[string](users, "name", "name", nil)
 
-	activeUsers := CTE("active_users", Select(id, name).Where(id.GT(10)))
+	activeUsers := CTE("active_users", Select(id, name).
+		From(id.Table()).Where(id.GT(10)))
 	activeUserID := RebindColumn(id, activeUsers)
 	activeUserName := RebindColumn(name, activeUsers)
 
-	query := mustBuild(Select(activeUserID, activeUserName))
+	query := mustBuild(Select(activeUserID, activeUserName).From(activeUsers))
 
 	wantList := `WITH "active_users" AS (SELECT "users"."id", "users"."name" FROM "users" WHERE "users"."id" > ?) SELECT "active_users"."id", "active_users"."name" FROM "active_users"`
 	if query.ListSQL() != wantList {
@@ -288,12 +310,13 @@ func TestQueryBuilder_CTECollectsNestedDependencies(t *testing.T) {
 	users := newMockTable("users")
 	id := NewCol[int](users, "id", "id", nil)
 
-	baseUsers := CTE("base_users", Select(id).Where(id.GT(1)))
+	baseUsers := CTE("base_users", Select(id).
+		From(id.Table()).Where(id.GT(1)))
 	baseUserID := RebindColumn(id, baseUsers)
-	filteredUsers := CTE("filtered_users", Select(baseUserID))
+	filteredUsers := CTE("filtered_users", Select(baseUserID).From(baseUserID.Table()))
 	filteredUserID := RebindColumn(id, filteredUsers)
 
-	query := mustBuild(Select(filteredUserID))
+	query := mustBuild(Select(filteredUserID).From(filteredUsers))
 
 	want := `WITH "base_users" AS (SELECT "users"."id" FROM "users" WHERE "users"."id" > ?), "filtered_users" AS (SELECT "base_users"."id" FROM "base_users") SELECT "filtered_users"."id" FROM "filtered_users"`
 	if query.ListSQL() != want {
@@ -306,10 +329,12 @@ func TestQueryBuilder_CTERejectsKeywordSearchInDefinition(t *testing.T) {
 	id := NewCol[int](users, "id", "id", nil)
 	name := NewCol[string](users, "name", "name", nil)
 
-	searchUsers := CTE("search_users", Select(id, name).KwSearch(name))
+	searchUsers := CTE("search_users", Select(id, name).
+		From(id.Table()).KwSearch(name))
 	searchUserID := RebindColumn(id, searchUsers)
 
-	_, err := Select(searchUserID).Build()
+	_, err := Select(searchUserID).
+		From(searchUserID.Table()).Build()
 	if err == nil {
 		t.Fatal("expected CTE keyword search definition to fail")
 	}
@@ -331,12 +356,13 @@ func TestQueryBuilder_CaseExpressionTracksConditionTables(t *testing.T) {
 		Else("unknown").
 		End()
 
-	_, err := Select(userID, label).Build()
+	_, err := Select(userID, label).
+		From(userID.Table()).Build()
 	if err == nil {
 		t.Fatal("expected CASE expression to surface orgs table into join validation")
 	}
 
-	if !strings.Contains(err.Error(), "explicit Join/CrossJoin") {
+	if !strings.Contains(err.Error(), "use CrossJoin") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -351,7 +377,8 @@ func TestQueryBuilder_Having(t *testing.T) {
 		tables: map[string]Table{"users": table1},
 	}
 
-	qb := Select(col1).Having(mockCond)
+	qb := Select(col1).
+		From(col1.Table()).Having(mockCond)
 
 	if len(qb.spec.Having) != 1 {
 		t.Errorf("Expected 1 HAVING condition, got %d", len(qb.spec.Having))
@@ -362,7 +389,8 @@ func TestQueryBuilder_HavingRejectsEmptyConditionClause(t *testing.T) {
 	table := newMockTable("users")
 	col := newMockColumn(table, "count")
 
-	_, err := Select(col).Having(Cond{}).Build()
+	_, err := Select(col).
+		From(col.Table()).Having(Cond{}).Build()
 	if err == nil {
 		t.Fatal("expected empty HAVING condition clause to return an error")
 	}
@@ -382,7 +410,8 @@ func TestQueryBuilder_Where(t *testing.T) {
 		tables: map[string]Table{"users": table1},
 	}
 
-	qb := Select(col1).Where(mockCond)
+	qb := Select(col1).
+		From(col1.Table()).Where(mockCond)
 
 	if len(qb.spec.Filters) != 1 {
 		t.Errorf("Expected 1 WHERE condition, got %d", len(qb.spec.Filters))
@@ -410,7 +439,8 @@ func TestQueryBuilder_SetWhereMatchesWhereOverwriteBehavior(t *testing.T) {
 		tables: map[string]Table{"users": table1},
 	}
 
-	qb := Select(col1).Where(mockCond1).SetWhere(mockCond2)
+	qb := Select(col1).
+		From(col1.Table()).Where(mockCond1).SetWhere(mockCond2)
 	if len(qb.spec.Filters) != 1 {
 		t.Fatalf("expected SetWhere to overwrite filters, got %d", len(qb.spec.Filters))
 	}
@@ -425,7 +455,8 @@ func TestQueryBuilder_WhereRejectsNilCondition(t *testing.T) {
 
 	var cond Condition
 
-	_, err := Select(col).Where(cond).Build()
+	_, err := Select(col).
+		From(col.Table()).Where(cond).Build()
 	if err == nil {
 		t.Fatal("expected nil WHERE condition to return an error")
 	}
@@ -449,7 +480,8 @@ func TestQueryBuilder_And(t *testing.T) {
 		tables: map[string]Table{"users": table1},
 	}
 
-	qb := Select(col1).Where(mockCond1).And(mockCond2)
+	qb := Select(col1).
+		From(col1.Table()).Where(mockCond1).And(mockCond2)
 
 	if len(qb.spec.Filters) != 2 {
 		t.Errorf("Expected 2 conditions, got %d", len(qb.spec.Filters))
@@ -475,13 +507,15 @@ func TestQueryBuilder_AndIf(t *testing.T) {
 	}
 
 	// Test with true condition
-	qb1 := Select(col1).Where(mockCond1).AndIf(true, mockCond2)
+	qb1 := Select(col1).
+		From(col1.Table()).Where(mockCond1).AndIf(true, mockCond2)
 	if len(qb1.spec.Filters) != 2 {
 		t.Errorf("Expected 2 conditions when condition is true, got %d", len(qb1.spec.Filters))
 	}
 
 	// Test with false condition
-	qb2 := Select(col1).Where(mockCond1).AndIf(false, mockCond2)
+	qb2 := Select(col1).
+		From(col1.Table()).Where(mockCond1).AndIf(false, mockCond2)
 	if len(qb2.spec.Filters) != 1 {
 		t.Errorf("Expected 1 condition when condition is false, got %d", len(qb2.spec.Filters))
 	}
@@ -492,7 +526,8 @@ func TestQueryBuilder_KwSearch(t *testing.T) {
 	col1 := newMockColumn(table1, "name")
 	col2 := newMockColumn(table1, "email")
 
-	qb := Select(col1).KwSearch(col1, col2)
+	qb := Select(col1).
+		From(col1.Table()).KwSearch(col1, col2)
 
 	if len(qb.spec.KeywordSearch) != 2 {
 		t.Errorf("Expected 2 keyword search columns, got %d", len(qb.spec.KeywordSearch))
@@ -513,7 +548,8 @@ func TestQueryBuilder_SetKwSearchMatchesKwSearchOverwriteBehavior(t *testing.T) 
 	col1 := newMockColumn(table1, "name")
 	col2 := newMockColumn(table1, "email")
 
-	qb := Select(col1).KwSearch(col1).SetKwSearch(col2)
+	qb := Select(col1).
+		From(col1.Table()).KwSearch(col1).SetKwSearch(col2)
 	if len(qb.spec.KeywordSearch) != 1 {
 		t.Fatalf("expected SetKwSearch to overwrite keyword search columns, got %d", len(qb.spec.KeywordSearch))
 	}
@@ -546,9 +582,9 @@ func TestJoinType_Constants(t *testing.T) {
 func TestQueryBuilder_ChainedOperations(t *testing.T) {
 	table1 := newMockTable("users")
 	table2 := newMockTable("orders")
-	col1 := newMockColumn(table1, "id")
-	col2 := newMockColumn(table1, "name")
-	col3 := newMockColumn(table2, "user_id")
+	col1 := NewCol[string](table1, "id", "id", nil)
+	col2 := NewCol[string](table1, "name", "name", nil)
+	col3 := NewCol[string](table2, "user_id", "user_id", nil)
 
 	mockCond := &mockCondition{
 		clause: "`users`.`id` > 0",
@@ -556,7 +592,8 @@ func TestQueryBuilder_ChainedOperations(t *testing.T) {
 	}
 
 	qb := Select(col1, col2).
-		LeftJoin(col1, col3).
+		From(col1.Table()).
+		LeftJoin(table2, col1.EQCol(col3)).
 		Where(mockCond).
 		GroupBy(col2).
 		Having(mockCond).
@@ -601,6 +638,7 @@ func TestQueryBuilder_GroupedCountUsesWrappedSubquery(t *testing.T) {
 	}
 
 	query := mustBuild(Select(department).
+		From(department.Table()).
 		GroupBy(department).
 		Having(having))
 
@@ -619,7 +657,7 @@ func TestQueryBuilder_DistinctCountUsesWrappedSubquery(t *testing.T) {
 	table := newMockTable("users")
 	name := NewCol[string](table, "name", "name", nil)
 
-	query := mustBuild(Select(name.Distinct()))
+	query := mustBuild(Select(name.Distinct()).From(name.Table()))
 
 	wantList := `SELECT DISTINCT("users"."name") FROM "users"`
 	if query.ListSQL() != wantList {
@@ -636,7 +674,7 @@ func TestQueryBuilder_AggregateCountUsesWrappedSubquery(t *testing.T) {
 	table := newMockTable("users")
 	id := NewCol[int](table, "id", "id", nil)
 
-	query := mustBuild(Select(id.Count()))
+	query := mustBuild(Select(id.Count()).From(id.Table()))
 
 	wantList := `SELECT COUNT("users"."id") FROM "users"`
 	if query.ListSQL() != wantList {
@@ -653,7 +691,8 @@ func TestQueryBuilder_HavingKeepsRawClauseForDialectRendering(t *testing.T) {
 	users := newMockTable("users")
 	id := NewCol[int](users, "id", "id", nil)
 
-	q, err := Select(id).GroupBy(id).Having(id.GT(1)).Build()
+	q, err := Select(id).
+		From(id.Table()).GroupBy(id).Having(id.GT(1)).Build()
 	if err != nil {
 		t.Fatalf("Build returned error: %v", err)
 	}
@@ -673,7 +712,8 @@ func TestQueryBuilder_CrossJoinKeepsSelectedBaseTable(t *testing.T) {
 	orders := newMockTable("orders")
 	userID := newMockColumn(users, "id")
 
-	query := mustBuild(Select(userID).CrossJoin(orders))
+	query := mustBuild(Select(userID).
+		From(userID.Table()).CrossJoin(orders))
 	want := `SELECT "users"."id" FROM "users" CROSS JOIN "orders"`
 
 	if query.ListSQL() != want {
@@ -691,7 +731,8 @@ func TestQueryBuilder_Build_RejectsTablesReferencedOutsideJoinGraph(t *testing.T
 	itemID := NewCol[int](items, "id", "id", nil)
 
 	_, err := Select(userID).
-		LeftJoin(userOrgID, orgID).
+		From(userID.Table()).
+		LeftJoin(orgs, userOrgID.EQCol(orgID)).
 		Where(itemID.EQVar()).
 		Build()
 	if err == nil {
@@ -710,6 +751,7 @@ func TestQueryBuilder_WhereReplacesConditionTables(t *testing.T) {
 	orderID := NewCol[int](orders, "id", "id", nil)
 
 	query := mustBuild(Select(userID).
+		From(userID.Table()).
 		Where(orderID.EQVar()).
 		Where(userID.EQVar()))
 
@@ -732,8 +774,9 @@ func TestQueryBuilder_Build_RejectsDisconnectedJoinGraph(t *testing.T) {
 	itemID := NewCol[int](items, "id", "id", nil)
 
 	_, err := Select(userID).
-		LeftJoin(userOrgID, orgID).
-		LeftJoin(orderItemID, itemID).
+		From(userID.Table()).
+		LeftJoin(orgs, userOrgID.EQCol(orgID)).
+		LeftJoin(items, orderItemID.EQCol(itemID)).
 		Build()
 	if err == nil {
 		t.Fatal("expected disconnected join graph to return an error")
@@ -754,17 +797,16 @@ func TestQueryBuilder_Build_RejectsRepeatedJoinTableWithoutAliases(t *testing.T)
 	orgParentID := NewCol[int](orgs, "parent_id", "parent_id", nil)
 
 	_, err := Select(userID).
-		LeftJoin(userOrgID, orgID).
-		LeftJoin(orgParentID, orgID).
+		From(userID.Table()).
+		LeftJoin(orgs, userOrgID.EQCol(orgID)).
+		LeftJoin(orgs, orgParentID.EQCol(orgID)).
 		Build()
 	if err == nil {
 		t.Fatal("expected repeated join table to return an error")
 	}
 
-	// The error can now be caught earlier by join validation (different tables check)
-	// or later by build validation (repeated table without aliases check)
 	errMsg := err.Error()
-	if !strings.Contains(errMsg, "aliases are required") && !strings.Contains(errMsg, "different tables") {
+	if !strings.Contains(errMsg, "aliases are required") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -779,8 +821,9 @@ func TestQueryBuilder_Build_AllowsRepeatedJoinTableWithAliases(t *testing.T) {
 	parentOrgID := orgID.As("parent_orgs")
 
 	query, err := Select(userID, parentOrgID).
-		LeftJoin(userOrgID, orgID).
-		LeftJoin(NewCol[int](orgs, "parent_id", "parent_id", nil), parentOrgID).
+		From(userID.Table()).
+		LeftJoin(orgs, userOrgID.EQCol(orgID)).
+		LeftJoin(parentOrgID.Table(), NewCol[int](orgs, "parent_id", "parent_id", nil).EQCol(parentOrgID)).
 		Build()
 	if err != nil {
 		t.Fatalf("expected aliased repeated join to build, got %v", err)

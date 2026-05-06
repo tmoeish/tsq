@@ -33,23 +33,20 @@ const (
 
 // QueryBuilder builds a structured query specification.
 type QueryBuilder struct {
-	spec                  QuerySpec
-	buildErr              error
-	allowCartesianProduct bool
+	spec     QuerySpec
+	buildErr error
 }
 
 // join represents any type of JOIN operation.
 type join struct {
 	joinType JoinType
-	left     Column
-	right    Column
 	table    Table
+	on       []Condition
 }
 
 type setOperation struct {
-	op                    SetOperationType
-	spec                  QuerySpec
-	allowCartesianProduct bool
+	op   SetOperationType
+	spec QuerySpec
 }
 
 func newQueryBuilder() *QueryBuilder {
@@ -91,14 +88,6 @@ func (qb *QueryBuilder) ensureInitialized() *QueryBuilder {
 	if qb.spec.SetOps == nil {
 		qb.spec.SetOps = make([]setOperation, 0)
 	}
-
-	return qb
-}
-
-// AllowCartesianProduct keeps the legacy comma-separated FROM behavior.
-func (qb *QueryBuilder) AllowCartesianProduct() *QueryBuilder {
-	qb = qb.ensureInitialized()
-	qb.allowCartesianProduct = true
 
 	return qb
 }
@@ -152,9 +141,8 @@ func (qb *QueryBuilder) appendSetOperation(op SetOperationType, other *QueryBuil
 	}
 
 	qb.spec.SetOps = append(qb.spec.SetOps, setOperation{
-		op:                    op,
-		spec:                  cloneQuerySpec(other.spec),
-		allowCartesianProduct: other.allowCartesianProduct,
+		op:   op,
+		spec: cloneQuerySpec(other.spec),
 	})
 
 	return qb
@@ -227,98 +215,86 @@ func (qb *QueryBuilder) appendCondition(target *[]Condition, cond Condition) {
 	*target = append(*target, cond)
 }
 
-// LeftJoin adds a LEFT JOIN clause. Equivalent to `FROM left.Table LEFT JOIN right.Table ON left=right`.
-// The columns must belong to different tables; to join a table to itself, use aliases.
+// From sets the base table for the query.
 // If the builder is in an error state, this method returns immediately without modifying the query.
-func (qb *QueryBuilder) LeftJoin(left, right Column) *QueryBuilder {
+func (qb *QueryBuilder) From(table Table) *QueryBuilder {
 	qb = qb.ensureInitialized()
 
 	if qb.buildErr != nil {
 		return qb
 	}
 
-	if err := validateJoinColumns(left, right); err != nil {
+	if err := validateTableInput(table, "from table"); err != nil {
 		qb.setBuildError(errors.Trace(err))
 		return qb
 	}
 
-	qb.spec.Joins = append(qb.spec.Joins, join{
-		joinType: LeftJoinType,
-		left:     left,
-		right:    right,
-	})
+	qb.spec.From = table
 
 	return qb
 }
 
-// InnerJoin adds an INNER JOIN clause.
-// The columns must belong to different tables; to join a table to itself, use aliases.
+// Join adds an INNER JOIN clause.
 // If the builder is in an error state, this method returns immediately without modifying the query.
-func (qb *QueryBuilder) InnerJoin(left, right Column) *QueryBuilder {
-	qb = qb.ensureInitialized()
-
-	if qb.buildErr != nil {
-		return qb
-	}
-
-	if err := validateJoinColumns(left, right); err != nil {
-		qb.setBuildError(errors.Trace(err))
-		return qb
-	}
-
-	qb.spec.Joins = append(qb.spec.Joins, join{
-		joinType: InnerJoinType,
-		left:     left,
-		right:    right,
-	})
-
-	return qb
+func (qb *QueryBuilder) Join(table Table, conds ...Condition) *QueryBuilder {
+	return qb.addJoin(InnerJoinType, table, conds...)
 }
 
-// RightJoin adds a RIGHT JOIN clause.
-// The columns must belong to different tables; to join a table to itself, use aliases.
+// LeftJoin adds a LEFT JOIN clause with ON conditions joined by AND.
+// To join a table to itself, pass an aliased table and rebound columns.
 // If the builder is in an error state, this method returns immediately without modifying the query.
-func (qb *QueryBuilder) RightJoin(left, right Column) *QueryBuilder {
-	qb = qb.ensureInitialized()
-
-	if qb.buildErr != nil {
-		return qb
-	}
-
-	if err := validateJoinColumns(left, right); err != nil {
-		qb.setBuildError(errors.Trace(err))
-		return qb
-	}
-
-	qb.spec.Joins = append(qb.spec.Joins, join{
-		joinType: RightJoinType,
-		left:     left,
-		right:    right,
-	})
-
-	return qb
+func (qb *QueryBuilder) LeftJoin(table Table, conds ...Condition) *QueryBuilder {
+	return qb.addJoin(LeftJoinType, table, conds...)
 }
 
-// FullJoin adds a FULL JOIN clause. SQL generation is supported, but execution
-// still depends on the target dialect supporting FULL JOIN.
-// The columns must belong to different tables; to join a table to itself, use aliases.
+// InnerJoin adds an INNER JOIN clause with ON conditions joined by AND.
+// To join a table to itself, pass an aliased table and rebound columns.
 // If the builder is in an error state, this method returns immediately without modifying the query.
-func (qb *QueryBuilder) FullJoin(left, right Column) *QueryBuilder {
+func (qb *QueryBuilder) InnerJoin(table Table, conds ...Condition) *QueryBuilder {
+	return qb.addJoin(InnerJoinType, table, conds...)
+}
+
+// RightJoin adds a RIGHT JOIN clause with ON conditions joined by AND.
+// To join a table to itself, pass an aliased table and rebound columns.
+// If the builder is in an error state, this method returns immediately without modifying the query.
+func (qb *QueryBuilder) RightJoin(table Table, conds ...Condition) *QueryBuilder {
+	return qb.addJoin(RightJoinType, table, conds...)
+}
+
+// FullJoin adds a FULL JOIN clause with ON conditions joined by AND. SQL generation is supported,
+// but execution still depends on the target dialect supporting FULL JOIN.
+// To join a table to itself, pass an aliased table and rebound columns.
+// If the builder is in an error state, this method returns immediately without modifying the query.
+func (qb *QueryBuilder) FullJoin(table Table, conds ...Condition) *QueryBuilder {
+	return qb.addJoin(FullJoinType, table, conds...)
+}
+
+func (qb *QueryBuilder) addJoin(joinType JoinType, table Table, conds ...Condition) *QueryBuilder {
 	qb = qb.ensureInitialized()
 
 	if qb.buildErr != nil {
 		return qb
 	}
 
-	if err := validateJoinColumns(left, right); err != nil {
+	if err := validateTableInput(table, "join table"); err != nil {
 		qb.setBuildError(errors.Trace(err))
 		return qb
 	}
 
+	on := make([]Condition, 0, len(conds))
+	for _, cond := range conds {
+		if _, _, _, err := validateConditionInput(cond); err != nil {
+			qb.setBuildError(errors.Trace(err))
+			return qb
+		}
+
+		on = append(on, cond)
+	}
+
 	qb.spec.Joins = append(qb.spec.Joins, join{
-		joinType: FullJoinType,
-		left:     left,
-		right:    right,
+		joinType: joinType,
+		table:    table,
+		on:       on,
 	})
 
 	return qb
@@ -333,8 +309,8 @@ func (qb *QueryBuilder) CrossJoin(table Table) *QueryBuilder {
 		return qb
 	}
 
-	if isNilValue(table) {
-		qb.setBuildError(errors.New("cross join table cannot be nil"))
+	if err := validateTableInput(table, "cross join table"); err != nil {
+		qb.setBuildError(errors.Trace(err))
 		return qb
 	}
 

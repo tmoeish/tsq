@@ -78,6 +78,11 @@ func ({{$dot.Recv}} {{$type}}) KwList() []tsq.Column {
 	}
 }
 
+// Cols returns all generated columns for {{$type}}.
+func ({{$dot.Recv}} {{$type}}) Cols() []tsq.Column {
+	return {{$varTblCols}}
+}
+
 func init() {
 	tsq.RegisterTable(
 		Table{{$type}},
@@ -127,6 +132,7 @@ func init() {
 	var err error
 	{{$query}}, err = tsq.
 		Select({{$varTblCols}}...).
+		From({{$varTbl}}).
 		Where({{$type}}_{{$dot.ID}}.EQVar()).
 		Build()
 	if err != nil {
@@ -189,6 +195,7 @@ func {{$name}}(
 	) ({{$list}}, error) {
 		query, err := tsq.
 			Select({{$varTblCols}}...).
+		From({{$varTbl}}).
 			Where({{$type}}_{{$dot.ID}}.In({{ FieldSliceVarName $dot.ID }}...)).
 		Build()
 	if err != nil {
@@ -209,6 +216,7 @@ func {{$name}}(
 	) ({{$list}}, error) {
 		query, err := tsq.
 			Select({{$varTblCols}}...).
+		From({{$varTbl}}).
 			Where({{$type}}_{{$dot.ID}}.In({{ FieldSliceVarName $dot.ID }}...)).
 		Build()
 	if err != nil {
@@ -242,6 +250,7 @@ func init() {
 	var err error
 	{{$query}}, err = tsq.
 		Select({{$varTblCols}}...).
+		From({{$varTbl}}).
 		Where(
 			{{ SoftDeleteActiveCond $type $dot.DeletedAtField (index $dot.FieldMap $dot.DeletedAtField) }},
 			{{$type}}_{{$dot.ID}}.EQVar(),
@@ -307,6 +316,7 @@ func {{$name}}(
 ) ({{$list}}, error) {
 	query, err := tsq.
 		Select({{$varTblCols}}...).
+		From({{$varTbl}}).
 		Where(
 			{{ SoftDeleteActiveCond $type $dot.DeletedAtField (index $dot.FieldMap $dot.DeletedAtField) }},
 			{{$type}}_{{$dot.ID}}.In({{ FieldSliceVarName $dot.ID }}...),
@@ -333,6 +343,7 @@ func {{$name}}(
 	) ({{$list}}, error) {
 	query, err := tsq.
 		Select({{$varTblCols}}...).
+		From({{$varTbl}}).
 		Where(
 			{{ SoftDeleteActiveCond $type $dot.DeletedAtField (index $dot.FieldMap $dot.DeletedAtField) }},
 			{{$type}}_{{$dot.ID}}.In({{ FieldSliceVarName $dot.ID }}...),
@@ -474,6 +485,7 @@ func init() {
 	var err error
 	{{$query}}, err = tsq.
 		Select({{$varTblCols}}...).
+		From({{$varTbl}}).
 		KwSearch(Table{{$type}}.KwList()...).
 		Build()
 	if err != nil {
@@ -526,6 +538,7 @@ func init() {
 	var err error
 	{{$query}}, err = tsq.
 		Select({{$varTblCols}}...).
+		From({{$varTbl}}).
 		Where({{ SoftDeleteActiveCond $type $dot.DeletedAtField (index $dot.FieldMap $dot.DeletedAtField) }}).
 		KwSearch(Table{{$type}}.KwList()...).
 		Build()
@@ -579,6 +592,7 @@ func init() {
 	var err error
 	{{$query}}, err = tsq.
 		Select({{$varTblCols}}...).
+		From({{$varTbl}}).
 		Where(
 			{{- range $f := $ux.Fields }}
 			{{$type}}_{{$f}}.EQVar(),
@@ -687,6 +701,7 @@ func init() {
 	var err error
 	{{$query}}, err = tsq.
 		Select({{$varTblCols}}...).
+		From({{$varTbl}}).
 		Where(
 			{{ SoftDeleteActiveCond $type $dot.DeletedAtField (index $dot.FieldMap $dot.DeletedAtField) }},
 				{{- range $f := $ux.Fields }}
@@ -800,6 +815,7 @@ func init() {
 	var err error
 	{{$query}}, err = tsq.
 		Select({{$varTblCols}}...).
+		From({{$varTbl}}).
 		Where(
 		{{- range $i, $f := $idx.Fields }}
 			{{- if eq $i (Sub1 (len $idx.Fields)) }}
@@ -853,6 +869,7 @@ func init() {
 	var err error
 	{{$query}}, err = tsq.
 		Select({{$varTblCols}}...).
+		From({{$varTbl}}).
 		Where(
 				{{- range $f := $idx.Fields }}
 			{{$type}}_{{$f}}.EQVar(),
@@ -954,6 +971,7 @@ func init() {
 	var err error
 	{{$query}}, err = tsq.
 		Select({{$varTblCols}}...).
+		From({{$varTbl}}).
 		Where(
 			{{ SoftDeleteActiveCond $type $dot.DeletedAtField (index $dot.FieldMap $dot.DeletedAtField) }},
 				{{- range $i, $f := $idx.Fields }}
@@ -1009,6 +1027,7 @@ func init() {
 	var err error
 	{{$query}}, err = tsq.
 		Select({{$varTblCols}}...).
+		From({{$varTbl}}).
 		Where(
 			{{ SoftDeleteActiveCond $type $dot.DeletedAtField (index $dot.FieldMap $dot.DeletedAtField) }},
 					{{- range $f := $idx.Fields }}

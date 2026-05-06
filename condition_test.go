@@ -388,7 +388,7 @@ func TestCondition_StringLiteralsRejectBackslashes(t *testing.T) {
 func TestCondition_ExistsSubIsStandalonePredicate(t *testing.T) {
 	col := NewCol[int](newMockTable("users"), "id", "id", nil)
 	orderID := NewCol[int](newMockTable("orders"), "id", "id", nil)
-	subquery := mustBuild(Select(orderID))
+	subquery := mustBuild(Select(orderID).From(orderID.Table()))
 
 	got := renderCanonicalSQL(col.ExistsSub(subquery).Clause())
 	want := `EXISTS (SELECT "orders"."id" FROM "orders")`

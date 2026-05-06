@@ -1,138 +1,306 @@
 package tsq
 
 import (
-	"errors"
+	"strings"
 	"testing"
 )
 
-// TestJoinValidation_DifferentTablesSucceeds ensures joins work with different tables
+type strictMockTable struct {
+	name string
+	cols []Column
+}
+
+func (t *strictMockTable) Table() string    { return t.name }
+func (t *strictMockTable) KwList() []Column { return nil }
+func (t *strictMockTable) Cols() []Column   { return t.cols }
+
+func newStrictMockTable(name string, colNames ...string) (*strictMockTable, []Col[int]) {
+	table := &strictMockTable{name: name}
+	cols := make([]Column, 0, len(colNames))
+	typed := make([]Col[int], 0, len(colNames))
+
+	for _, name := range colNames {
+		col := NewCol[int](table, name, name, nil)
+		cols = append(cols, col)
+		typed = append(typed, col)
+	}
+
+	table.cols = cols
+
+	return table, typed
+}
+
+func TestColumnValidation_RejectsColumnOutsideKnownTableSchema(t *testing.T) {
+	users, cols := newStrictMockTable("users", "id")
+	id := cols[0]
+	missing := NewCol[int](users, "missing", "missing", nil)
+
+	_, err := Select(id, missing).
+		From(users).
+		Build()
+	if err == nil {
+		t.Fatal("expected unknown column to fail schema validation")
+	}
+
+	if !strings.Contains(err.Error(), "column missing does not belong to table users") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestColumnValidation_AllowsDerivedColumnsFromKnownTableColumns(t *testing.T) {
+	users, cols := newStrictMockTable("users", "id")
+	id := cols[0]
+	resultID := id.Into(func(holder any) any { return holder }, "result_id")
+
+	_, err := Select(id.Count(), resultID).
+		From(users).
+		Where(resultID.EQVar()).
+		Build()
+	if err != nil {
+		t.Fatalf("expected aggregate and result-bound source column to build, got: %v", err)
+	}
+}
+
+func TestColumnValidation_RejectsAggregateFromUnknownTableColumn(t *testing.T) {
+	users, _ := newStrictMockTable("users", "id")
+	missing := NewCol[int](users, "missing", "missing", nil)
+
+	_, err := Select(missing.Count()).
+		From(users).
+		Build()
+	if err == nil {
+		t.Fatal("expected aggregate over unknown column to fail schema validation")
+	}
+
+	if !strings.Contains(err.Error(), "column missing does not belong to table users") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestColumnValidation_AllowsAliasedKnownTableColumns(t *testing.T) {
+	users, cols := newStrictMockTable("users", "id")
+	id := cols[0]
+	parentUsers := AliasTable(users, "parent_users")
+	parentID := id.As("parent_users")
+
+	_, err := Select(id, parentID).
+		From(users).
+		LeftJoin(parentUsers, id.EQCol(parentID)).
+		Build()
+	if err != nil {
+		t.Fatalf("expected aliased known column to build, got: %v", err)
+	}
+}
+
 func TestJoinValidation_DifferentTablesSucceeds(t *testing.T) {
-	table1 := newMockTable("users")
-	table2 := newMockTable("orders")
+	users := newMockTable("users")
+	orders := newMockTable("orders")
 
-	col1 := NewCol[int](table1, "id", "id", nil)
-	col2 := NewCol[int](table2, "user_id", "user_id", nil)
+	userID := NewCol[int](users, "id", "id", nil)
+	orderUserID := NewCol[int](orders, "user_id", "user_id", nil)
 
-	err := validateJoinColumns(col1, col2)
+	_, err := Select(userID).
+		From(userID.Table()).
+		LeftJoin(orders, userID.EQCol(orderUserID)).
+		Build()
 	if err != nil {
-		t.Errorf("expected no error for different tables, got: %v", err)
+		t.Fatalf("expected no error for different tables, got: %v", err)
 	}
 }
 
-// TestJoinValidation_SameTablesRejectsJoin ensures joins reject columns from same table
-func TestJoinValidation_SameTablesRejectsJoin(t *testing.T) {
-	table := newMockTable("users")
+func TestJoinValidation_SameTableWithoutAliasRejectsJoin(t *testing.T) {
+	users := newMockTable("users")
 
-	col1 := NewCol[int](table, "id", "id", nil)
-	col2 := NewCol[int](table, "parent_id", "parent_id", nil)
+	userID := NewCol[int](users, "id", "id", nil)
+	parentID := NewCol[int](users, "parent_id", "parent_id", nil)
 
-	err := validateJoinColumns(col1, col2)
+	_, err := Select(userID).
+		From(userID.Table()).
+		LeftJoin(users, userID.EQCol(parentID)).
+		Build()
 	if err == nil {
-		t.Fatal("expected error for same table columns, got nil")
+		t.Fatal("expected error for repeated table without alias, got nil")
 	}
 
-	var rebindErr *ErrIncompatibleTableRebind
-	if !errors.As(err, &rebindErr) {
-		t.Errorf("expected ErrIncompatibleTableRebind, got %T: %v", err, err)
+	if !strings.Contains(err.Error(), "aliases are required") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
-// TestJoinValidation_ReboundColumnsDifferentTablesSucceed tests rebounding col1 to a different table
-func TestJoinValidation_ReboundColumnsDifferentTablesSucceed(t *testing.T) {
-	usersTable := newMockTable("users")
-	ordersTable := newMockTable("orders")
+func TestJoinValidation_NilTableRejectsJoin(t *testing.T) {
+	users := newMockTable("users")
+	userID := NewCol[int](users, "id", "id", nil)
 
-	// Create column from users table
-	col1 := NewCol[int](usersTable, "id", "id", nil)
-
-	// Rebind to orders table
-	col1Rebound := col1.WithTable(ordersTable)
-
-	// Create separate column from orders table for joining
-	col2 := NewCol[int](ordersTable, "user_id", "user_id", nil)
-
-	// Join should succeed because col1Rebound and col2 now refer to same table
-	// (which is allowed for self-joins), but without aliasing it will be caught
-	err := validateJoinColumns(col1Rebound, col2)
+	_, err := Select(userID).
+		From(userID.Table()).
+		LeftJoin(nil, userID.EQ(1)).
+		Build()
 	if err == nil {
-		// Both columns now refer to "orders" table, so this should fail
-		t.Fatal("expected error because both columns now refer to same table")
+		t.Fatal("expected error for nil join table, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "join table cannot be nil") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
-// TestJoinValidation_NilColumnsRejectJoin ensures nil columns are caught
-func TestJoinValidation_NilColumnsRejectJoin(t *testing.T) {
-	table := newMockTable("users")
-	col := NewCol[int](table, "id", "id", nil)
+func TestJoinValidation_NilConditionRejectsJoin(t *testing.T) {
+	users := newMockTable("users")
+	orders := newMockTable("orders")
+	userID := NewCol[int](users, "id", "id", nil)
 
-	var nilCol Column
-
-	err := validateJoinColumns(nilCol, col)
+	var cond Condition
+	_, err := Select(userID).
+		From(userID.Table()).
+		LeftJoin(orders, cond).
+		Build()
 	if err == nil {
-		t.Fatal("expected error for nil column, got nil")
+		t.Fatal("expected error for nil join condition, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "condition cannot be nil") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
-// TestJoinValidation_AliasedTablesSucceed ensures aliases don't prevent joins
-func TestJoinValidation_AliasedTablesSucceed(t *testing.T) {
-	usersTable := newMockTable("users")
-	ordersTable := newMockTable("orders")
+func TestJoinValidation_RejectsJoinWithoutCondition(t *testing.T) {
+	users := newMockTable("users")
+	orders := newMockTable("orders")
+	userID := NewCol[int](users, "id", "id", nil)
 
-	col1 := NewCol[int](usersTable, "id", "id", nil)
-	col2 := NewCol[int](ordersTable, "user_id", "user_id", nil)
+	_, err := Select(userID).
+		From(users).
+		LeftJoin(orders).
+		Build()
+	if err == nil {
+		t.Fatal("expected error for join without ON condition, got nil")
+	}
 
-	// Alias both columns
-	col1Alias := col1.As("u")
-	col2Alias := col2.As("o")
-
-	err := validateJoinColumns(col1Alias, col2Alias)
-	if err != nil {
-		t.Errorf("expected no error for aliased tables, got: %v", err)
+	if !strings.Contains(err.Error(), "requires at least one ON condition") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
-// TestJoinValidation_SelfJoinWithAliasSucceeds ensures self-joins work with aliases
+func TestJoinValidation_RejectsJoinConditionWithoutJoinedTable(t *testing.T) {
+	users := newMockTable("users")
+	orders := newMockTable("orders")
+	userID := NewCol[int](users, "id", "id", nil)
+
+	_, err := Select(userID).
+		From(users).
+		LeftJoin(orders, userID.EQ(1)).
+		Build()
+	if err == nil {
+		t.Fatal("expected error when ON condition omits joined table, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "must reference joined table orders") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestJoinValidation_RejectsJoinConditionWithoutIntroducedTable(t *testing.T) {
+	users := newMockTable("users")
+	orders := newMockTable("orders")
+	userID := NewCol[int](users, "id", "id", nil)
+	orderStatus := NewCol[int](orders, "status", "status", nil)
+
+	_, err := Select(userID).
+		From(users).
+		LeftJoin(orders, orderStatus.EQ(1)).
+		Build()
+	if err == nil {
+		t.Fatal("expected error when ON condition omits introduced table, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "must reference at least one table already in the FROM/JOIN graph") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestJoinValidation_RejectsJoinConditionReferencingFutureTable(t *testing.T) {
+	users := newMockTable("users")
+	orders := newMockTable("orders")
+	items := newMockTable("items")
+
+	userID := NewCol[int](users, "id", "id", nil)
+	orderUserID := NewCol[int](orders, "user_id", "user_id", nil)
+	itemOrderID := NewCol[int](items, "order_id", "order_id", nil)
+
+	_, err := Select(userID).
+		From(users).
+		LeftJoin(orders, userID.EQCol(orderUserID), itemOrderID.EQ(1)).
+		Build()
+	if err == nil {
+		t.Fatal("expected error for ON condition referencing future table, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "join condition table items is not connected") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestJoinValidation_SelfJoinWithAliasSucceeds(t *testing.T) {
-	table := newMockTable("users")
+	users := newMockTable("users")
+	parentUsers := AliasTable(users, "parent_users")
 
-	col := NewCol[int](table, "id", "id", nil)
+	userID := NewCol[int](users, "id", "id", nil)
+	userParentID := NewCol[int](users, "parent_id", "parent_id", nil)
+	parentID := NewCol[int](parentUsers, "id", "id", nil)
 
-	// Create a self-join with different aliases
-	col1 := col.As("u1")
-	col2 := col.As("u2")
-
-	err := validateJoinColumns(col1, col2)
+	query, err := Select(userID, parentID).
+		From(userID.Table()).
+		LeftJoin(parentUsers, userParentID.EQCol(parentID)).
+		Build()
 	if err != nil {
-		t.Errorf("expected no error for self-join with aliases, got: %v", err)
+		t.Fatalf("expected no error for self-join with alias, got: %v", err)
+	}
+
+	want := `SELECT "users"."id", "parent_users"."id" FROM "users" LEFT JOIN "users" AS "parent_users" ON "users"."parent_id" = "parent_users"."id"`
+	if got := query.ListSQL(); got != want {
+		t.Fatalf("expected aliased self-join SQL %q, got %q", want, got)
 	}
 }
 
-// TestJoinValidation_ErrorMessageClarity ensures error messages are clear
-func TestJoinValidation_ErrorMessageClarity(t *testing.T) {
-	table := newMockTable("users")
+func TestJoinValidation_AllowsAdditionalJoinedTablePredicates(t *testing.T) {
+	users := newMockTable("users")
+	orders := newMockTable("orders")
 
-	col1 := NewCol[int](table, "id", "id", nil)
-	col2 := NewCol[int](table, "parent_id", "parent_id", nil)
+	userID := NewCol[int](users, "id", "id", nil)
+	orderUserID := NewCol[int](orders, "user_id", "user_id", nil)
+	orderStatus := NewCol[int](orders, "status", "status", nil)
 
-	err := validateJoinColumns(col1, col2)
-	if err == nil {
-		t.Fatal("expected error, got nil")
+	query, err := Select(userID).
+		From(users).
+		LeftJoin(orders, userID.EQCol(orderUserID), orderStatus.EQ(1)).
+		Build()
+	if err != nil {
+		t.Fatalf("expected joined-table predicate to build, got: %v", err)
 	}
 
-	msg := err.Error()
-	if msg == "" {
-		t.Fatal("error message is empty")
+	want := `SELECT "users"."id" FROM "users" LEFT JOIN "orders" ON ("users"."id" = "orders"."user_id" AND "orders"."status" = ?)`
+	if got := query.ListSQL(); got != want {
+		t.Fatalf("expected join SQL %q, got %q", want, got)
+	}
+}
+
+func TestJoinValidation_NonEqualityConditionSucceeds(t *testing.T) {
+	users := newMockTable("users")
+	orders := newMockTable("orders")
+
+	userScore := NewCol[int](users, "score", "score", nil)
+	orderMinimum := NewCol[int](orders, "minimum_score", "minimum_score", nil)
+
+	query, err := Select(userScore).
+		From(userScore.Table()).
+		InnerJoin(orders, userScore.GTECol(orderMinimum)).
+		Build()
+	if err != nil {
+		t.Fatalf("expected no error for non-equality join condition, got: %v", err)
 	}
 
-	// Message should mention both table names
-	found := false
-	for i := 0; i <= len(msg)-len("users"); i++ {
-		if msg[i:i+len("users")] == "users" {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Errorf("error message should mention table name, got: %s", msg)
+	want := `SELECT "users"."score" FROM "users" INNER JOIN "orders" ON "users"."score" >= "orders"."minimum_score"`
+	if got := query.ListSQL(); got != want {
+		t.Fatalf("expected non-equality join SQL %q, got %q", want, got)
 	}
 }

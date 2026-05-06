@@ -11,6 +11,7 @@ import (
 
 // QuerySpec is the single source of truth for a query definition before planning.
 type QuerySpec struct {
+	From          Table
 	Selects       []Column
 	Filters       []Condition
 	KeywordSearch []Column
@@ -31,12 +32,12 @@ type queryPlan struct {
 	kwListArgs []any
 }
 
-func buildQueryPlan(spec QuerySpec, allowCartesianProduct bool) (*queryPlan, error) {
+func buildQueryPlan(spec QuerySpec) (*queryPlan, error) {
 	if len(spec.Selects) == 0 {
 		return nil, errors.Errorf("empty select fields: %+v", spec)
 	}
 
-	if err := spec.validateJoinGraph(allowCartesianProduct); err != nil {
+	if err := spec.validateJoinGraph(); err != nil {
 		return nil, errors.Trace(err)
 	}
 
@@ -80,6 +81,14 @@ func (spec QuerySpec) selectTables() map[string]Table {
 	return spec.tablesForColumns(spec.Selects)
 }
 
+func (spec QuerySpec) fromTables() map[string]Table {
+	if isNilValue(spec.From) {
+		return map[string]Table{}
+	}
+
+	return map[string]Table{spec.From.Table(): spec.From}
+}
+
 func (spec QuerySpec) conditionTables() map[string]Table {
 	return spec.tablesForConditions(spec.Filters)
 }
@@ -88,21 +97,11 @@ func (spec QuerySpec) joinTables() map[string]Table {
 	tables := make(map[string]Table, len(spec.Joins)*2)
 
 	for _, item := range spec.Joins {
-		if item.joinType == CrossJoinType {
-			if !isNilValue(item.table) {
-				tables[item.table.Table()] = item.table
-			}
-
-			continue
+		if !isNilValue(item.table) {
+			tables[item.table.Table()] = item.table
 		}
 
-		if table, err := validateColumnInput(item.left); err == nil {
-			tables[table.Table()] = table
-		}
-
-		if table, err := validateColumnInput(item.right); err == nil {
-			tables[table.Table()] = table
-		}
+		maps.Copy(tables, spec.tablesForConditions(item.on))
 	}
 
 	return tables
@@ -113,7 +112,9 @@ func (spec QuerySpec) keywordTables() map[string]Table {
 }
 
 func (spec QuerySpec) listQueryTables() map[string]Table {
-	tables := spec.selectTables()
+	tables := spec.fromTables()
+	maps.Copy(tables, spec.selectTables())
+
 	maps.Copy(tables, spec.conditionTables())
 
 	maps.Copy(tables, spec.joinTables())
@@ -178,10 +179,13 @@ func (spec QuerySpec) buildCntSQL() (string, []any, error) {
 		return cteSQL + spec.wrapCountSQL(listSQL), args, nil
 	}
 
+	fromSQL, fromArgs := spec.buildListFrom()
 	whereSQL, whereArgs := spec.buildListWhere()
-	args := append(slices.Clone(cteArgs), whereArgs...)
 
-	return cteSQL + "SELECT COUNT(1)" + spec.buildListFrom() + whereSQL, args, nil
+	args := append(slices.Clone(cteArgs), fromArgs...)
+	args = append(args, whereArgs...)
+
+	return cteSQL + "SELECT COUNT(1)" + fromSQL + whereSQL, args, nil
 }
 
 func (spec QuerySpec) buildListSQL() (string, []any, error) {
@@ -198,16 +202,18 @@ func (spec QuerySpec) buildListSQL() (string, []any, error) {
 
 func (spec QuerySpec) buildSimpleListSQL() (string, []any) {
 	selectSQL, selectArgs := spec.buildSelect()
+	fromSQL, fromArgs := spec.buildListFrom()
 	whereSQL, whereArgs := spec.buildListWhere()
 	groupBySQL, groupByArgs := spec.buildGroupBy()
 	havingSQL, havingArgs := spec.buildHaving()
 
 	args := slices.Clone(selectArgs)
+	args = append(args, fromArgs...)
 	args = append(args, whereArgs...)
 	args = append(args, groupByArgs...)
 	args = append(args, havingArgs...)
 
-	return selectSQL + spec.buildListFrom() + whereSQL + groupBySQL + havingSQL, args
+	return selectSQL + fromSQL + whereSQL + groupBySQL + havingSQL, args
 }
 
 func (spec QuerySpec) buildKwCntSQL() (string, []any, error) {
@@ -223,10 +229,13 @@ func (spec QuerySpec) buildKwCntSQL() (string, []any, error) {
 		return cteSQL + spec.wrapCountSQL(listSQL), args, nil
 	}
 
+	fromSQL, fromArgs := spec.buildPageFrom()
 	whereSQL, whereArgs := spec.buildPageWhere()
-	args := append(slices.Clone(cteArgs), whereArgs...)
 
-	return cteSQL + "SELECT COUNT(1)" + spec.buildPageFrom() + whereSQL, args, nil
+	args := append(slices.Clone(cteArgs), fromArgs...)
+	args = append(args, whereArgs...)
+
+	return cteSQL + "SELECT COUNT(1)" + fromSQL + whereSQL, args, nil
 }
 
 func (spec QuerySpec) buildKwListSQL() (string, []any, error) {
@@ -243,16 +252,18 @@ func (spec QuerySpec) buildKwListSQL() (string, []any, error) {
 
 func (spec QuerySpec) buildSimpleKwListSQL() (string, []any) {
 	selectSQL, selectArgs := spec.buildSelect()
+	fromSQL, fromArgs := spec.buildPageFrom()
 	whereSQL, whereArgs := spec.buildPageWhere()
 	groupBySQL, groupByArgs := spec.buildGroupBy()
 	havingSQL, havingArgs := spec.buildHaving()
 
 	args := slices.Clone(selectArgs)
+	args = append(args, fromArgs...)
 	args = append(args, whereArgs...)
 	args = append(args, groupByArgs...)
 	args = append(args, havingArgs...)
 
-	return selectSQL + spec.buildPageFrom() + whereSQL + groupBySQL + havingSQL, args
+	return selectSQL + fromSQL + whereSQL + groupBySQL + havingSQL, args
 }
 
 func (spec QuerySpec) buildListBodySQL(useKeyword bool) (string, []any) {
@@ -351,22 +362,26 @@ func (spec QuerySpec) buildHaving() (string, []any) {
 	return " HAVING (" + strings.Join(clauses, " AND ") + ")", args
 }
 
+func buildConditionSQL(prefix string, conds []Condition) (string, []any) {
+	clauses := make([]string, 0, len(conds))
+	for _, cond := range conds {
+		clauses = append(clauses, conditionClause(cond))
+	}
+
+	args := collectConditionArgs(conds...)
+	if len(clauses) == 1 {
+		return prefix + clauses[0], args
+	}
+
+	return prefix + "(" + strings.Join(clauses, " AND ") + ")", args
+}
+
 func (spec QuerySpec) buildListWhere() (string, []any) {
 	if len(spec.Filters) == 0 {
 		return "", nil
 	}
 
-	clauses := make([]string, 0, len(spec.Filters))
-	for _, cond := range spec.Filters {
-		clauses = append(clauses, conditionClause(cond))
-	}
-
-	args := collectConditionArgs(spec.Filters...)
-	if len(clauses) == 1 {
-		return " WHERE " + clauses[0], args
-	}
-
-	return " WHERE (" + strings.Join(clauses, " AND ") + ")", args
+	return buildConditionSQL(" WHERE ", spec.Filters)
 }
 
 func (spec QuerySpec) buildPageWhere() (string, []any) {
@@ -400,28 +415,16 @@ func (spec QuerySpec) buildPageWhere() (string, []any) {
 	return " WHERE (" + strings.Join(clauses, " AND ") + ")", args
 }
 
-func (spec QuerySpec) buildJoinFrom(allTables map[string]Table) string {
-	if len(spec.Joins) == 0 {
-		return ""
-	}
-
+func (spec QuerySpec) buildFrom() (string, []any) {
 	var fromBuilder strings.Builder
+	args := make([]any, 0)
 
 	includedTables := make(map[string]bool)
 
-	firstJoin := spec.Joins[0]
-
-	var baseTable Table
-	if firstJoin.joinType == CrossJoinType {
-		baseTable = spec.crossJoinBaseTable(firstJoin.table.Table(), allTables)
-	} else {
-		baseTable = firstJoin.left.Table()
-	}
-
 	fromBuilder.WriteString(" FROM ")
-	fromBuilder.WriteString(rawTableIdentifier(baseTable))
+	fromBuilder.WriteString(rawTableIdentifier(spec.From))
 
-	includedTables[baseTable.Table()] = true
+	includedTables[spec.From.Table()] = true
 
 	for _, item := range spec.Joins {
 		if item.joinType == CrossJoinType {
@@ -439,65 +442,35 @@ func (spec QuerySpec) buildJoinFrom(allTables map[string]Table) string {
 			continue
 		}
 
-		rightTable := item.right.Table().Table()
-		if includedTables[rightTable] {
+		tableName := item.table.Table()
+		if includedTables[tableName] {
 			continue
 		}
 
 		fromBuilder.WriteString(" ")
 		fromBuilder.WriteString(string(item.joinType))
 		fromBuilder.WriteString(" ")
-		fromBuilder.WriteString(rawTableIdentifier(item.right.Table()))
-		fromBuilder.WriteString(" ON ")
-		fromBuilder.WriteString(rawColumnQualifiedName(item.left))
-		fromBuilder.WriteString(" = ")
-		fromBuilder.WriteString(rawColumnQualifiedName(item.right))
+		fromBuilder.WriteString(rawTableIdentifier(item.table))
 
-		includedTables[item.left.Table().Table()] = true
-		includedTables[rightTable] = true
+		if len(item.on) > 0 {
+			onSQL, onArgs := buildConditionSQL(" ON ", item.on)
+			fromBuilder.WriteString(onSQL)
+
+			args = append(args, onArgs...)
+		}
+
+		includedTables[tableName] = true
 	}
 
-	return fromBuilder.String()
+	return fromBuilder.String(), args
 }
 
-func (spec QuerySpec) buildListFrom() string {
-	tables := spec.listQueryTables()
-	if len(spec.Joins) > 0 {
-		return spec.buildJoinFrom(tables)
-	}
-
-	if len(tables) == 0 {
-		return ""
-	}
-
-	tableNames := make([]string, 0, len(tables))
-	for _, table := range tables {
-		tableNames = append(tableNames, rawTableIdentifier(table))
-	}
-
-	sort.Strings(tableNames)
-
-	return " FROM " + strings.Join(tableNames, ", ")
+func (spec QuerySpec) buildListFrom() (string, []any) {
+	return spec.buildFrom()
 }
 
-func (spec QuerySpec) buildPageFrom() string {
-	tables := spec.pageQueryTables()
-	if len(spec.Joins) > 0 {
-		return spec.buildJoinFrom(tables)
-	}
-
-	if len(tables) == 0 {
-		return ""
-	}
-
-	tableNames := make([]string, 0, len(tables))
-	for _, table := range tables {
-		tableNames = append(tableNames, rawTableIdentifier(table))
-	}
-
-	sort.Strings(tableNames)
-
-	return " FROM " + strings.Join(tableNames, ", ")
+func (spec QuerySpec) buildPageFrom() (string, []any) {
+	return spec.buildFrom()
 }
 
 func (spec QuerySpec) requiresWrappedCount() bool {
@@ -599,7 +572,7 @@ func (spec QuerySpec) validateSetOperations() error {
 			return errors.New("set operations do not support keyword search")
 		}
 
-		if err := op.spec.validateJoinGraph(op.allowCartesianProduct); err != nil {
+		if err := op.spec.validateJoinGraph(); err != nil {
 			return errors.Trace(err)
 		}
 
@@ -613,6 +586,7 @@ func (spec QuerySpec) validateSetOperations() error {
 
 func cloneQuerySpec(spec QuerySpec) QuerySpec {
 	cloned := QuerySpec{
+		From:          spec.From,
 		Selects:       slices.Clone(spec.Selects),
 		Filters:       slices.Clone(spec.Filters),
 		KeywordSearch: slices.Clone(spec.KeywordSearch),
@@ -624,9 +598,8 @@ func cloneQuerySpec(spec QuerySpec) QuerySpec {
 
 	for _, op := range spec.SetOps {
 		cloned.SetOps = append(cloned.SetOps, setOperation{
-			op:                    op.op,
-			spec:                  cloneQuerySpec(op.spec),
-			allowCartesianProduct: op.allowCartesianProduct,
+			op:   op.op,
+			spec: cloneQuerySpec(op.spec),
 		})
 	}
 
@@ -695,7 +668,7 @@ func (c *cteCollector) collectDefinition(def cteDefinition) error {
 		return errors.Errorf("cte %s does not support keyword search", def.name)
 	}
 
-	if err := def.spec.validateJoinGraph(def.allowCartesianProduct); err != nil {
+	if err := def.spec.validateJoinGraph(); err != nil {
 		return errors.Trace(err)
 	}
 
@@ -717,35 +690,11 @@ func (c *cteCollector) collectDefinition(def cteDefinition) error {
 	return nil
 }
 
-func (spec QuerySpec) crossJoinBaseTable(joinTable string, allTables map[string]Table) Table {
-	for _, col := range spec.Selects {
-		if table := col.Table(); table.Table() != joinTable {
-			return table
-		}
-	}
-
-	tableNames := make([]string, 0, len(allTables))
-
-	for name := range allTables {
-		if name != joinTable {
-			tableNames = append(tableNames, name)
-		}
-	}
-
-	sort.Strings(tableNames)
-
-	if len(tableNames) > 0 {
-		return allTables[tableNames[0]]
-	}
-
-	return allTables[joinTable]
-}
-
 // validateJoinGraph validates that joins form a valid directed acyclic graph (DAG).
 //
 // This function checks:
 // 1. No table appears twice in the join graph (except as aliases via AliasTable)
-// 2. All left and right tables in each join have been previously introduced
+// 2. All non-target tables referenced by each ON condition have been previously introduced
 //
 // LIMITATION: Circular join dependencies are NOT supported.
 // For example, the following circular dependency cannot be expressed:
@@ -760,37 +709,29 @@ func (spec QuerySpec) crossJoinBaseTable(joinTable string, allTables map[string]
 //
 // Example of circular dependency that WON'T work:
 //
-//	users.InnerJoin(orders, users.ID.EQ(orders.UserID)).
-//	InnerJoin(invoices, orders.ID.EQ(invoices.OrderID)).
-//	InnerJoin(users, invoices.UserID.EQ(users.ID))  // CIRCULAR: users already involved
+//	users.InnerJoin(orders, users.ID.EQCol(orders.UserID)).
+//	InnerJoin(invoices, orders.ID.EQCol(invoices.OrderID)).
+//	InnerJoin(users, invoices.UserID.EQCol(users.ID))  // CIRCULAR: users already involved
 //
 // Example of self-join workaround (WILL work):
 //
 //	usersAlias := AliasTable(users, "u2")
-//	users.InnerJoin(usersAlias, users.ID.EQ(usersAlias.ParentID))
-func (spec QuerySpec) validateJoinGraph(allowCartesianProduct bool) error {
-	if len(spec.Joins) == 0 {
-		if !allowCartesianProduct && len(spec.pageQueryTables()) > 1 {
-			return errors.New("multiple tables require explicit Join/CrossJoin or AllowCartesianProduct")
-		}
-
-		return nil
+//	users.InnerJoin(usersAlias, users.ID.EQCol(usersAlias.ParentID))
+func (spec QuerySpec) validateJoinGraph() error {
+	if err := validateTableInput(spec.From, "from table"); err != nil {
+		return errors.Trace(err)
 	}
 
 	allTables := spec.pageQueryTables()
 	introduced := make(map[string]struct{}, len(spec.Joins)+1)
 
-	firstJoin := spec.Joins[0]
-	if firstJoin.joinType == CrossJoinType {
-		baseTable := spec.crossJoinBaseTable(firstJoin.table.Table(), allTables)
-		if baseTable != nil {
-			introduced[baseTable.Table()] = struct{}{}
-		}
-	} else {
-		introduced[firstJoin.left.Table().Table()] = struct{}{}
-	}
+	introduced[spec.From.Table()] = struct{}{}
 
 	for _, item := range spec.Joins {
+		if isNilValue(item.table) {
+			return errors.New("join table cannot be nil")
+		}
+
 		switch item.joinType {
 		case CrossJoinType:
 			tableName := item.table.Table()
@@ -800,18 +741,39 @@ func (spec QuerySpec) validateJoinGraph(allowCartesianProduct bool) error {
 
 			introduced[tableName] = struct{}{}
 		default:
-			leftTable := item.left.Table().Table()
-			rightTable := item.right.Table().Table()
-
-			if _, exists := introduced[leftTable]; !exists {
-				return errors.Errorf("join left table %s is not connected to the current FROM/JOIN graph", leftTable)
+			tableName := item.table.Table()
+			if _, exists := introduced[tableName]; exists {
+				return errors.Errorf("join table %s is already present; aliases are required for repeated joins", tableName)
 			}
 
-			if _, exists := introduced[rightTable]; exists {
-				return errors.Errorf("join right table %s is already present; aliases are required for repeated joins", rightTable)
+			if len(item.on) == 0 {
+				return errors.Errorf("%s %s requires at least one ON condition", item.joinType, tableName)
 			}
 
-			introduced[rightTable] = struct{}{}
+			condTables := spec.tablesForConditions(item.on)
+			if _, exists := condTables[tableName]; !exists {
+				return errors.Errorf("%s %s ON conditions must reference joined table %s", item.joinType, tableName, tableName)
+			}
+
+			connectedToIntroduced := false
+
+			for condTable := range condTables {
+				if condTable == tableName {
+					continue
+				}
+
+				if _, exists := introduced[condTable]; !exists {
+					return errors.Errorf("join condition table %s is not connected to the current FROM/JOIN graph", condTable)
+				}
+
+				connectedToIntroduced = true
+			}
+
+			if !connectedToIntroduced {
+				return errors.Errorf("%s %s ON conditions must reference at least one table already in the FROM/JOIN graph", item.joinType, tableName)
+			}
+
+			introduced[tableName] = struct{}{}
 		}
 	}
 

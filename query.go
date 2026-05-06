@@ -119,27 +119,6 @@ func (e *ErrOrderCountMismatch) Is(target error) bool {
 		(e.orderBys == other.orderBys && e.orders == other.orders)
 }
 
-// ErrIncompatibleTableRebind indicates an attempt to join columns from the same table
-type ErrIncompatibleTableRebind struct {
-	table1 string
-	table2 string
-}
-
-func NewErrIncompatibleTableRebind(table1, table2 string) *ErrIncompatibleTableRebind {
-	return &ErrIncompatibleTableRebind{
-		table1: table1,
-		table2: table2,
-	}
-}
-
-func (e *ErrIncompatibleTableRebind) Error() string {
-	if e.table1 == e.table2 {
-		return "join columns must belong to different tables; both reference table " + e.table1
-	}
-
-	return "join column tables must not be identical; got " + e.table1 + " and " + e.table2
-}
-
 // ================================================
 // 查询结构体定义
 // ================================================
@@ -262,7 +241,7 @@ func (qb *QueryBuilder) Build() (*Query, error) {
 		return nil, errors.Trace(qb.buildErr)
 	}
 
-	plan, err := buildQueryPlan(qb.spec, qb.allowCartesianProduct)
+	plan, err := buildQueryPlan(qb.spec)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}

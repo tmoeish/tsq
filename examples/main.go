@@ -290,7 +290,8 @@ func runAliasDemo(ctx context.Context, dbmap *tsq.DbMap) (*aliasSummary, error) 
 
 	query, err := tsq.
 		Select(userName, orgName).
-		LeftJoin(database.User_OrgID, orgID).
+		From(database.TableUser).
+		LeftJoin(orgID.Table(), database.User_OrgID.EQCol(orgID)).
 		Where(database.User_ID.EQ(1)).
 		Build()
 	if err != nil {
@@ -321,8 +322,9 @@ func runAggregateDemo(ctx context.Context, dbmap *tsq.DbMap) ([]aggregateSummary
 
 	query, err := tsq.
 		Select(categoryName, orderCount, averageAmount).
-		LeftJoin(database.Category_ID, database.Item_CategoryID).
-		LeftJoin(database.Item_ID, database.Order_ItemID).
+		From(database.TableCategory).
+		LeftJoin(database.TableItem, database.Category_ID.EQCol(database.Item_CategoryID)).
+		LeftJoin(database.TableOrder, database.Item_ID.EQCol(database.Order_ItemID)).
 		GroupBy(database.Category_Name).
 		Having(database.Order_UID.Count().GT(0)).
 		Build()
@@ -410,6 +412,7 @@ func runResultDemo(ctx context.Context, dbmap *tsq.DbMap) (*resultSummary, error
 func runInVarDemo(ctx context.Context, dbmap *tsq.DbMap) (*inVarSummary, error) {
 	query, err := tsq.
 		Select(database.TableItemCols...).
+		From(database.TableItem).
 		Where(database.Item_CategoryID.InVar()).
 		Build()
 	if err != nil {
@@ -448,6 +451,7 @@ func runCaseDemo(ctx context.Context, dbmap *tsq.DbMap) (*caseSummary, error) {
 
 	query, err := tsq.
 		Select(userLabel).
+		From(database.TableUser).
 		Where(database.User_ID.InVar()).
 		Build()
 	if err != nil {
@@ -472,7 +476,9 @@ func runCaseDemo(ctx context.Context, dbmap *tsq.DbMap) (*caseSummary, error) {
 func runCTEDemo(ctx context.Context, dbmap *tsq.DbMap) (*cteSummary, error) {
 	scopedUsers := tsq.CTE(
 		"scoped_users",
-		tsq.Select(database.User_ID, database.User_Name).Where(database.User_OrgID.EQ(1)),
+		tsq.Select(database.User_ID, database.User_Name).
+			From(database.TableUser).
+			Where(database.User_OrgID.EQ(1)),
 	)
 
 	scopedUserID := database.User_ID.WithTable(scopedUsers)
@@ -482,6 +488,7 @@ func runCTEDemo(ctx context.Context, dbmap *tsq.DbMap) (*cteSummary, error) {
 
 	query, err := tsq.
 		Select(scopedUserName).
+		From(scopedUsers).
 		Where(scopedUserID.GT(0)).
 		Build()
 	if err != nil {
@@ -521,8 +528,11 @@ func runSetOpsDemo(ctx context.Context, dbmap *tsq.DbMap) (*setOpsSummary, error
 
 	unionQuery, err := tsq.
 		Select(categoryName).
+		From(database.TableCategory).
 		Where(database.Category_ID.InVar()).
-		Union(tsq.Select(itemName).Where(database.Item_CategoryID.InVar())).
+		Union(tsq.Select(itemName).
+			From(database.TableItem).
+			Where(database.Item_CategoryID.InVar())).
 		Build()
 	if err != nil {
 		return nil, errors.Annotate(err, "build union query")
@@ -535,7 +545,10 @@ func runSetOpsDemo(ctx context.Context, dbmap *tsq.DbMap) (*setOpsSummary, error
 
 	exceptQuery, err := tsq.
 		Select(itemName).
-		Except(tsq.Select(categoryName).Where(database.Category_ID.InVar())).
+		From(database.TableItem).
+		Except(tsq.Select(categoryName).
+			From(database.TableCategory).
+			Where(database.Category_ID.InVar())).
 		Build()
 	if err != nil {
 		return nil, errors.Annotate(err, "build except query")
@@ -583,6 +596,7 @@ func runChunkedDemo(ctx context.Context, dbmap *tsq.DbMap) (*chunkedSummary, err
 
 	nameQuery, err := tsq.
 		Select(database.TableUserCols...).
+		From(database.TableUser).
 		Where(database.User_Name.InVar()).
 		Build()
 	if err != nil {

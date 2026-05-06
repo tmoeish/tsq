@@ -74,7 +74,8 @@ func TestConditionParameterOrdering_BindingStyles(t *testing.T) {
 	_ = col.GTCol(otherCol)
 
 	// Subquery comparison
-	subquery, _ := Select(col).Where(col.GT(0)).Build()
+	subquery, _ := Select(col).
+		From(col.Table()).Where(col.GT(0)).Build()
 	_ = col.EQSub(subquery)
 	_ = col.GTSub(subquery)
 }

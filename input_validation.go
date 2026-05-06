@@ -11,6 +11,14 @@ type buildErrorCarrier interface {
 	buildError() error
 }
 
+type tableColumnLister interface {
+	Cols() []Column
+}
+
+type transformedColumn interface {
+	isTransformedExpression() bool
+}
+
 func isNilValue(v any) bool {
 	if v == nil {
 		return true
@@ -47,7 +55,55 @@ func validateColumnInput(col Column) (Table, error) {
 		return nil, errors.Trace(carrier.buildError())
 	}
 
+	if err := validateColumnBelongsToTable(col, table); err != nil {
+		return nil, errors.Trace(err)
+	}
+
 	return table, nil
+}
+
+func validateColumnBelongsToTable(col Column, table Table) error {
+	lister, ok := table.(tableColumnLister)
+	if !ok {
+		return nil
+	}
+
+	cols := lister.Cols()
+	if len(cols) == 0 {
+		return nil
+	}
+
+	for _, candidate := range cols {
+		if isNilValue(candidate) {
+			continue
+		}
+
+		if candidate.Name() == col.Name() {
+			return nil
+		}
+	}
+
+	if transformed, ok := col.(transformedColumn); ok && transformed.isTransformedExpression() && col.Name() == "case" {
+		return nil
+	}
+
+	return errors.Errorf("column %s does not belong to table %s", col.Name(), table.Table())
+}
+
+func validateTableInput(table Table, label string) error {
+	if isNilValue(table) {
+		return errors.Errorf("%s cannot be nil", label)
+	}
+
+	if carrier, ok := table.(buildErrorCarrier); ok && carrier.buildError() != nil {
+		return errors.Trace(carrier.buildError())
+	}
+
+	if strings.TrimSpace(table.Table()) == "" {
+		return errors.Errorf("%s name cannot be empty", label)
+	}
+
+	return nil
 }
 
 func validateConditionInput(cond Condition) (string, map[string]Table, []any, error) {
@@ -80,31 +136,6 @@ func validateConditionInput(cond Condition) (string, map[string]Table, []any, er
 	}
 
 	return clause, tables, cond.Args(), nil
-}
-
-// validateJoinColumns ensures that join columns belong to different tables
-// to prevent accidental misuse like JoinTable(col.WithTable(differentTable), col2)
-// where both columns reference the same actual table.
-func validateJoinColumns(left, right Column) error {
-	leftTable, err := validateColumnInput(left)
-	if err != nil {
-		return errors.Trace(err)
-	}
-
-	rightTable, err := validateColumnInput(right)
-	if err != nil {
-		return errors.Trace(err)
-	}
-
-	// Ensure columns belong to different tables
-	// We compare table names, not table references, to handle aliased tables
-	if leftTable.Table() == rightTable.Table() {
-		// Both columns reference the same table
-		// This is likely a programmer error
-		return NewErrIncompatibleTableRebind(leftTable.Table(), rightTable.Table())
-	}
-
-	return nil
 }
 
 func conditionClause(cond Condition) string {

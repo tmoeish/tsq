@@ -33,6 +33,7 @@ func TestAPIDocumentation_PublicMethods(t *testing.T) {
 				nameCol := NewCol[string](table, "name", "name", nil)
 
 				qb := Select(idCol, nameCol).
+					From(idCol.Table()).
 					Where(idCol.GT(0)).
 					Where(nameCol.NE(""))
 
@@ -52,7 +53,8 @@ func TestAPIDocumentation_PublicMethods(t *testing.T) {
 				oUserID := NewCol[int](ordersTable, "user_id", "user_id", nil)
 
 				qb := Select(uid, oid).
-					InnerJoin(uid, oUserID)
+					From(uid.Table()).
+					InnerJoin(ordersTable, uid.EQCol(oUserID))
 
 				if qb == nil {
 					t.Fatal("QueryBuilder returned nil")
@@ -65,7 +67,8 @@ func TestAPIDocumentation_PublicMethods(t *testing.T) {
 				table := newMockTable("users")
 				col := NewCol[int](table, "id", "id", nil)
 
-				query, err := Select(col).Build()
+				query, err := Select(col).
+					From(col.Table()).Build()
 				if err != nil {
 					t.Fatalf("Build failed: %v", err)
 				}

@@ -128,6 +128,7 @@ func TestQueryBuilder_Build_Success(t *testing.T) {
 
 	qb := &QueryBuilder{
 		spec: QuerySpec{
+			From:    table,
 			Selects: []Column{col},
 		},
 	}
@@ -162,10 +163,11 @@ func TestQueryBuilder_Build_Success(t *testing.T) {
 func TestQueryBuilder_Build_FullJoinDefersDialectValidationToExecution(t *testing.T) {
 	users := newMockTable("users")
 	orders := newMockTable("orders")
-	userID := newMockColumn(users, "id")
-	orderUserID := newMockColumn(orders, "user_id")
+	userID := NewCol[string](users, "id", "id", nil)
+	orderUserID := NewCol[string](orders, "user_id", "user_id", nil)
 
-	query, err := Select(userID).FullJoin(userID, orderUserID).Build()
+	query, err := Select(userID).
+		From(userID.Table()).FullJoin(orders, userID.EQCol(orderUserID)).Build()
 	if err != nil {
 		t.Fatalf("expected FULL JOIN build to succeed, got %v", err)
 	}
@@ -187,7 +189,9 @@ func TestQueryBuilder_Build_SetOperationPaginationUsesOutputColumnNames(t *testi
 	userID := newMockColumn(users, "id")
 	orderUserID := newMockColumn(orders, "user_id")
 
-	query := mustBuild(Select(userID).Union(Select(orderUserID)))
+	query := mustBuild(Select(userID).
+		From(userID.Table()).
+		Union(Select(orderUserID).From(orderUserID.Table())))
 	page := &PageReq{Page: 1, Size: 10, OrderBy: "id", Order: "asc"}
 
 	_, listSQL, err := query.buildPageSQLs(page)
@@ -211,11 +215,13 @@ func TestQueryBuilder_Build_CTEExecutionOnSQLite(t *testing.T) {
 	idCol := NewCol[int64](users, "id", "id", func(holder any) any { return &holder.(*inVarUser).ID })
 	nameCol := NewCol[string](users, "name", "name", func(holder any) any { return &holder.(*inVarUser).Name })
 
-	selectedUsers := CTE("selected_users", Select(idCol, nameCol).Where(idCol.InVar()))
+	selectedUsers := CTE("selected_users", Select(idCol, nameCol).
+		From(idCol.Table()).Where(idCol.InVar()))
 	selectedUserID := idCol.WithTable(selectedUsers)
 	selectedUserName := nameCol.WithTable(selectedUsers)
 
-	query := mustBuild(Select(selectedUserID, selectedUserName).Where(selectedUserID.GT(1)))
+	query := mustBuild(Select(selectedUserID, selectedUserName).
+		From(selectedUserID.Table()).Where(selectedUserID.GT(1)))
 
 	rows, err := List[inVarUser](context.Background(), db, query, []int64{1, 2, 3})
 	if err != nil {
@@ -246,10 +252,11 @@ func TestQueryBuilder_Build_CTEDefersDialectValidationToExecution(t *testing.T) 
 
 	users := newMockTable("users")
 	id := NewCol[int](users, "id", "id", nil)
-	filteredUsers := CTE("filtered_users", Select(id).Where(id.GT(1)))
+	filteredUsers := CTE("filtered_users", Select(id).
+		From(id.Table()).Where(id.GT(1)))
 	filteredUserID := id.WithTable(filteredUsers)
 
-	query := mustBuild(Select(filteredUserID))
+	query := mustBuild(Select(filteredUserID).From(filteredUsers))
 	err := validateOperationalExecutorForSQL(db, query.listSQL)
 	if err == nil {
 		t.Fatal("expected mysql dialect validation to reject CTE")
@@ -267,7 +274,9 @@ func TestQueryBuilder_Build_IntersectDefersDialectValidationToExecution(t *testi
 	users := newMockTable("users")
 	id := NewCol[int](users, "id", "id", nil)
 
-	query := mustBuild(Select(id).Intersect(Select(id)))
+	query := mustBuild(Select(id).
+		From(id.Table()).
+		Intersect(Select(id).From(id.Table())))
 	err := validateOperationalExecutorForSQL(db, query.listSQL)
 	if err == nil {
 		t.Fatal("expected mysql dialect validation to reject INTERSECT")
@@ -285,7 +294,9 @@ func TestQueryBuilder_Build_ExceptDefersDialectValidationToExecution(t *testing.
 	users := newMockTable("users")
 	id := NewCol[int](users, "id", "id", nil)
 
-	query := mustBuild(Select(id).Except(Select(id)))
+	query := mustBuild(Select(id).
+		From(id.Table()).
+		Except(Select(id).From(id.Table())))
 	err := validateOperationalExecutorForSQL(db, query.listSQL)
 	if err == nil {
 		t.Fatal("expected mysql dialect validation to reject EXCEPT")
@@ -325,7 +336,8 @@ func TestQueryBuilder_Build_CaseExecutionOnSQLite(t *testing.T) {
 		End().
 		Into(func(holder any) any { return &holder.(*caseUser).Label }, "label")
 
-	query := mustBuild(Select(idCol, nameLabel).Where(idCol.InVar()))
+	query := mustBuild(Select(idCol, nameLabel).
+		From(idCol.Table()).Where(idCol.InVar()))
 
 	rows, err := List[caseUser](context.Background(), db, query, []int64{1, 2})
 	if err != nil {
@@ -347,6 +359,7 @@ func TestQueryBuilder_MustBuild_Success(t *testing.T) {
 
 	qb := &QueryBuilder{
 		spec: QuerySpec{
+			From:    table,
 			Selects: []Column{col},
 		},
 	}
@@ -570,7 +583,9 @@ func TestQuery_buildPageSQLsRejectsAmbiguousSortField(t *testing.T) {
 	userID := newMockColumn(users, "id")
 	orderID := newMockColumn(orders, "id")
 
-	query := mustBuild(Select(userID, orderID).AllowCartesianProduct())
+	query := mustBuild(Select(userID, orderID).
+		From(userID.Table()).
+		CrossJoin(orderID.Table()))
 
 	_, _, err := query.buildPageSQLs(&PageReq{
 		OrderBy: "id",
@@ -590,7 +605,7 @@ func TestQuery_buildPageSQLsIgnoresHiddenJSONSortAlias(t *testing.T) {
 	users := newMockTable("users")
 	hidden := NewCol[string](users, "secret", "-", nil)
 
-	query := mustBuild(Select(hidden))
+	query := mustBuild(Select(hidden).From(hidden.Table()))
 
 	_, _, err := query.buildPageSQLs(&PageReq{
 		OrderBy: "-",
@@ -611,7 +626,7 @@ func TestQuery_buildPageSQLsDefaultsMissingOrderToASC(t *testing.T) {
 	userID := newMockColumn(users, "id")
 	userName := newMockColumn(users, "name")
 
-	query := mustBuild(Select(userID, userName))
+	query := mustBuild(Select(userID, userName).From(userID.Table()))
 
 	_, listSQL, err := query.buildPageSQLs(&PageReq{
 		OrderBy: "name,id",
@@ -633,7 +648,7 @@ func TestQuery_buildPageSQLsRejectsExplicitOrderCountMismatch(t *testing.T) {
 	userID := newMockColumn(users, "id")
 	userName := newMockColumn(users, "name")
 
-	query := mustBuild(Select(userID, userName))
+	query := mustBuild(Select(userID, userName).From(userID.Table()))
 
 	_, _, err := query.buildPageSQLs(&PageReq{
 		OrderBy: "name,id",
@@ -655,6 +670,7 @@ func TestQuery_BuildKeywordQueriesTrackDedicatedMarkers(t *testing.T) {
 	userName := newMockColumn(users, "name")
 
 	query := mustBuild(Select(userID, userName).
+		From(userID.Table()).
 		KwSearch(userID, userName))
 
 	if got := len(query.kwListArgs); got != 2 {
@@ -766,7 +782,8 @@ func TestRenderSQLForDialectPostgres(t *testing.T) {
 	users := newMockTable("users")
 	userID := NewCol[int](users, "id", "id", nil)
 
-	query := mustBuild(Select(userID).Where(userID.EQVar()))
+	query := mustBuild(Select(userID).
+		From(userID.Table()).Where(userID.EQVar()))
 
 	got := renderSQLForDialect(query.listSQL, PostgresDialect{})
 	want := `SELECT "users"."id" FROM "users" WHERE "users"."id" = $1`
@@ -828,7 +845,7 @@ func TestQueryCountRejectsTypedNilExecutor(t *testing.T) {
 
 	users := newMockTable("users")
 	userID := newMockColumn(users, "id")
-	query := mustBuild(Select(userID))
+	query := mustBuild(Select(userID).From(userID.Table()))
 
 	_, err := query.Count(context.Background(), db)
 	if err == nil {
@@ -919,7 +936,7 @@ func TestQueryCountRejectsExecutorWithoutDialectForRenderedSQL(t *testing.T) {
 	db := newDBMapWithoutDialect(t)
 	users := newMockTable("users")
 	userID := NewCol[int](users, "id", "id", nil)
-	query := mustBuild(Select(userID))
+	query := mustBuild(Select(userID).From(userID.Table()))
 
 	_, err := query.Count(context.Background(), db)
 	if err == nil {
@@ -1087,7 +1104,8 @@ func TestListSupportsInVarSlices(t *testing.T) {
 	idCol := NewCol[int64](users, "id", "id", func(holder any) any { return &holder.(*inVarUser).ID })
 	nameCol := NewCol[string](users, "name", "name", func(holder any) any { return &holder.(*inVarUser).Name })
 
-	query := mustBuild(Select(idCol, nameCol).Where(idCol.InVar()))
+	query := mustBuild(Select(idCol, nameCol).
+		From(idCol.Table()).Where(idCol.InVar()))
 
 	rows, err := List[inVarUser](context.Background(), db, query, []int64{1, 3})
 	if err != nil {

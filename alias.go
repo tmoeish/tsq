@@ -64,6 +64,15 @@ func (t aliasedTable) KwList() []Column {
 	return AliasColumns(t.base.KwList(), t)
 }
 
+func (t aliasedTable) Cols() []Column {
+	lister, ok := t.base.(tableColumnLister)
+	if !ok {
+		return nil
+	}
+
+	return AliasColumns(lister.Cols(), t)
+}
+
 func (t aliasedTable) Alias() string {
 	return t.alias
 }

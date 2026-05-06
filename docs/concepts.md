@@ -20,7 +20,7 @@ Go struct + @TABLE / @RESULT
  generated columns + CRUD helpers + Page/List helpers
             |
             v
- tsq.Select(...).Where(...).Build()
+ tsq.Select(...).From(table).Where(...).Build()
             |
             v
       *tsq.Query + args
@@ -70,6 +70,7 @@ type User struct {
 ```go
 query, err := tsq.
 	Select(database.TableUserCols...).
+	From(database.TableUser).
 	Where(database.User_Name.Contains("alice")).
 	OrderBy(database.User_ID.Desc()).
 	Build()

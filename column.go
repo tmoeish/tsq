@@ -190,3 +190,7 @@ func (c Col[T]) isAggregateExpression() bool {
 func (c Col[T]) isDistinctExpression() bool {
 	return c.distinct
 }
+
+func (c Col[T]) isTransformedExpression() bool {
+	return c.transformed
+}

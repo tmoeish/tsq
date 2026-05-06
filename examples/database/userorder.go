@@ -37,10 +37,11 @@ func init() {
 
 	pageUserOrderQuery, err = tsq.
 		Select(ResultUserOrder.Cols()...).
-		LeftJoin(User_OrgID, Org_ID).
-		LeftJoin(User_ID, Order_UserID).
-		LeftJoin(Order_ItemID, Item_ID).
-		LeftJoin(Item_CategoryID, Category_ID).
+		From(TableUser).
+		LeftJoin(TableOrg, User_OrgID.EQCol(Org_ID)).
+		LeftJoin(TableOrder, User_ID.EQCol(Order_UserID)).
+		LeftJoin(TableItem, Order_ItemID.EQCol(Item_ID)).
+		LeftJoin(TableCategory, Item_CategoryID.EQCol(Category_ID)).
 		Where(
 			UserOrder_UserID.EQVar(),
 			UserOrder_ItemCategory.InVar(),

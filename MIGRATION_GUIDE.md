@@ -26,7 +26,8 @@ package tsq
 #### Old Pattern
 ```go
 qb := Select(invalidCol).
-    Join(col1, col2).
+	From(table1).
+    Join(table2, col1.EQCol(col2)).
     GroupBy(col3)
 // All methods execute even though invalidCol is bad
 ```
@@ -34,7 +35,8 @@ qb := Select(invalidCol).
 #### New Pattern
 ```go
 qb := Select(invalidCol).
-    Join(col1, col2).   // Short-circuits, doesn't execute
+	From(table1).
+    Join(table2, col1.EQCol(col2)). // Short-circuits, doesn't execute
     GroupBy(col3)       // Short-circuits, doesn't execute
 
 // Check error after building
@@ -73,8 +75,8 @@ consider using PageReq.Offset() instead.
 
 #### Old Pattern
 ```go
-// No validation; would generate invalid SQL for MySQL
-qb := Select(col1).FullJoin(col1, col2)
+// SQL generation succeeds, but execution still depends on dialect support.
+qb := Select(col1).From(table1).FullJoin(table2, col1.EQCol(col2))
 ```
 
 #### New Pattern
