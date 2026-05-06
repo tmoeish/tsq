@@ -96,6 +96,11 @@ func (q {{$selectedType}}) GroupBy{{$from}}(cols ...tsq.OwnedColumn[{{$from}}]) 
 	return q
 }
 
+func (q {{$selectedType}}) KwSearch{{$from}}(cols ...tsq.OwnedColumn[{{$from}}]) {{$selectedType}} {
+	q.qb.KwSearch(tsq.OwnedColumns(cols...)...)
+	return q
+}
+
 func (q {{$selectedType}}) Having{{$from}}(conds ...tsq.Pred[{{$from}}]) {{$selectedType}} {
 	q.qb.Having(tsq.PredConditions(conds...)...)
 	return q
@@ -110,6 +115,11 @@ func (q {{$selectedType}}) Where{{$right}}(conds ...tsq.Pred[{{$right}}]) {{$sel
 
 func (q {{$selectedType}}) GroupBy{{$right}}(cols ...tsq.OwnedColumn[{{$right}}]) {{$selectedType}} {
 	q.qb.GroupBy(tsq.OwnedColumns(cols...)...)
+	return q
+}
+
+func (q {{$selectedType}}) KwSearch{{$right}}(cols ...tsq.OwnedColumn[{{$right}}]) {{$selectedType}} {
+	q.qb.KwSearch(tsq.OwnedColumns(cols...)...)
 	return q
 }
 

@@ -20,7 +20,7 @@
 ### 新增
 - 增加 `tsq.On` / `OnNE` / `OnGT` / `OnGTE` / `OnLT` / `OnLTE`，生成 `JoinOn[Left, Right]` 类型化连接边，为 v4 静态 Join DSL 打基础
 - 增加 `JoinCond[Left, Right]` 以及 `OnExtra` / `OnLeft` / `OnRight`，用于表达 typed Join ON 中的额外连接边和左右表谓词
-- 增加 `OwnedColumn[Owner]` / `OwnedColumns`，生成的 Result typed builder 可用 `GroupByX` 约束分组字段必须来自对应表
+- 增加 `OwnedColumn[Owner]` / `OwnedColumns`，生成的 Result typed builder 可用 `GroupByX` / `KwSearchX` 约束字段必须来自对应表
 - `@RESULT` 支持 `join=[{left="Struct.Field", right="Struct.Field"}]`，生成器会据此产出 Result 专属 typed query builder
 
 ### 改进

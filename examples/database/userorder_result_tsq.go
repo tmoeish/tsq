@@ -152,6 +152,11 @@ func (q userOrderSelectedQuery) GroupByUser(cols ...tsq.OwnedColumn[User]) userO
 	return q
 }
 
+func (q userOrderSelectedQuery) KwSearchUser(cols ...tsq.OwnedColumn[User]) userOrderSelectedQuery {
+	q.qb.KwSearch(tsq.OwnedColumns(cols...)...)
+	return q
+}
+
 func (q userOrderSelectedQuery) HavingUser(conds ...tsq.Pred[User]) userOrderSelectedQuery {
 	q.qb.Having(tsq.PredConditions(conds...)...)
 	return q
@@ -164,6 +169,11 @@ func (q userOrderSelectedQuery) WhereOrg(conds ...tsq.Pred[Org]) userOrderSelect
 
 func (q userOrderSelectedQuery) GroupByOrg(cols ...tsq.OwnedColumn[Org]) userOrderSelectedQuery {
 	q.qb.GroupBy(tsq.OwnedColumns(cols...)...)
+	return q
+}
+
+func (q userOrderSelectedQuery) KwSearchOrg(cols ...tsq.OwnedColumn[Org]) userOrderSelectedQuery {
+	q.qb.KwSearch(tsq.OwnedColumns(cols...)...)
 	return q
 }
 
@@ -182,6 +192,11 @@ func (q userOrderSelectedQuery) GroupByOrder(cols ...tsq.OwnedColumn[Order]) use
 	return q
 }
 
+func (q userOrderSelectedQuery) KwSearchOrder(cols ...tsq.OwnedColumn[Order]) userOrderSelectedQuery {
+	q.qb.KwSearch(tsq.OwnedColumns(cols...)...)
+	return q
+}
+
 func (q userOrderSelectedQuery) HavingOrder(conds ...tsq.Pred[Order]) userOrderSelectedQuery {
 	q.qb.Having(tsq.PredConditions(conds...)...)
 	return q
@@ -197,6 +212,11 @@ func (q userOrderSelectedQuery) GroupByItem(cols ...tsq.OwnedColumn[Item]) userO
 	return q
 }
 
+func (q userOrderSelectedQuery) KwSearchItem(cols ...tsq.OwnedColumn[Item]) userOrderSelectedQuery {
+	q.qb.KwSearch(tsq.OwnedColumns(cols...)...)
+	return q
+}
+
 func (q userOrderSelectedQuery) HavingItem(conds ...tsq.Pred[Item]) userOrderSelectedQuery {
 	q.qb.Having(tsq.PredConditions(conds...)...)
 	return q
@@ -209,6 +229,11 @@ func (q userOrderSelectedQuery) WhereCategory(conds ...tsq.Pred[Category]) userO
 
 func (q userOrderSelectedQuery) GroupByCategory(cols ...tsq.OwnedColumn[Category]) userOrderSelectedQuery {
 	q.qb.GroupBy(tsq.OwnedColumns(cols...)...)
+	return q
+}
+
+func (q userOrderSelectedQuery) KwSearchCategory(cols ...tsq.OwnedColumn[Category]) userOrderSelectedQuery {
+	q.qb.KwSearch(tsq.OwnedColumns(cols...)...)
 	return q
 }
 

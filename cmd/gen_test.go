@@ -860,6 +860,8 @@ func TestResultTemplateGeneratesTypedJoinEdges(t *testing.T) {
 		"UserOrderJoinConditions[Left, Right any](on tsq.JoinOn[Left, Right], conds ...tsq.JoinCond[Left, Right])",
 		"GroupByUser(cols ...tsq.OwnedColumn[User])",
 		"GroupByOrder(cols ...tsq.OwnedColumn[Order])",
+		"KwSearchUser(cols ...tsq.OwnedColumn[User])",
+		"KwSearchOrder(cols ...tsq.OwnedColumn[Order])",
 		"HavingUser(conds ...tsq.Pred[User])",
 		"HavingOrder(conds ...tsq.Pred[Order])",
 	} {
