@@ -22,16 +22,16 @@ var TableOrder tsq.Table = Order{}
 
 // Column definitions for Order table.
 var (
-	Order_Amount    = tsq.NewCol[int64](TableOrder, "amount", "Amount", func(t any) any { return &t.(*Order).Amount })
-	Order_CreatedAt = tsq.NewCol[tsqtime.Time](TableOrder, "created_at", "created_at", func(t any) any { return &t.(*Order).CreatedAt })
-	Order_DeletedAt = tsq.NewCol[int64](TableOrder, "deleted_at", "deleted_at", func(t any) any { return &t.(*Order).DeletedAt })
-	Order_ItemID    = tsq.NewCol[int64](TableOrder, "item_id", "ItemID", func(t any) any { return &t.(*Order).ItemID })
-	Order_Price     = tsq.NewCol[int64](TableOrder, "price", "Price", func(t any) any { return &t.(*Order).Price })
-	Order_Status    = tsq.NewCol[OrderStatus](TableOrder, "status", "Status", func(t any) any { return &t.(*Order).Status })
-	Order_UID       = tsq.NewCol[int64](TableOrder, "uid", "uid", func(t any) any { return &t.(*Order).UID })
-	Order_UpdatedAt = tsq.NewCol[null.Time](TableOrder, "updated_at", "updated_at", func(t any) any { return &t.(*Order).UpdatedAt })
-	Order_UserID    = tsq.NewCol[int64](TableOrder, "user_id", "UserID", func(t any) any { return &t.(*Order).UserID })
-	Order_Version   = tsq.NewCol[int64](TableOrder, "version", "version", func(t any) any { return &t.(*Order).Version })
+	Order_Amount    = tsq.NewCol[Order, int64](TableOrder, "amount", "Amount", func(t any) any { return &t.(*Order).Amount })
+	Order_CreatedAt = tsq.NewCol[Order, tsqtime.Time](TableOrder, "created_at", "created_at", func(t any) any { return &t.(*Order).CreatedAt })
+	Order_DeletedAt = tsq.NewCol[Order, int64](TableOrder, "deleted_at", "deleted_at", func(t any) any { return &t.(*Order).DeletedAt })
+	Order_ItemID    = tsq.NewCol[Order, int64](TableOrder, "item_id", "ItemID", func(t any) any { return &t.(*Order).ItemID })
+	Order_Price     = tsq.NewCol[Order, int64](TableOrder, "price", "Price", func(t any) any { return &t.(*Order).Price })
+	Order_Status    = tsq.NewCol[Order, OrderStatus](TableOrder, "status", "Status", func(t any) any { return &t.(*Order).Status })
+	Order_UID       = tsq.NewCol[Order, int64](TableOrder, "uid", "uid", func(t any) any { return &t.(*Order).UID })
+	Order_UpdatedAt = tsq.NewCol[Order, null.Time](TableOrder, "updated_at", "updated_at", func(t any) any { return &t.(*Order).UpdatedAt })
+	Order_UserID    = tsq.NewCol[Order, int64](TableOrder, "user_id", "UserID", func(t any) any { return &t.(*Order).UserID })
+	Order_Version   = tsq.NewCol[Order, int64](TableOrder, "version", "version", func(t any) any { return &t.(*Order).Version })
 )
 
 // TableOrderCols is the list of columns for Order table.

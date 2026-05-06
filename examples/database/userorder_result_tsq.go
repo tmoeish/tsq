@@ -72,3 +72,109 @@ func (uo UserOrder) Cols() []tsq.Column {
 		UserOrder_UserName,
 	}
 }
+
+// =============================================================================
+// Typed Query Builder
+// =============================================================================
+
+type userOrderFromUserQuery struct {
+	qb *tsq.QueryBuilder
+}
+type userOrderWithOrgQuery struct {
+	qb *tsq.QueryBuilder
+}
+type userOrderWithOrderQuery struct {
+	qb *tsq.QueryBuilder
+}
+type userOrderWithItemQuery struct {
+	qb *tsq.QueryBuilder
+}
+type userOrderWithCategoryQuery struct {
+	qb *tsq.QueryBuilder
+}
+type userOrderSelectedQuery struct {
+	qb *tsq.QueryBuilder
+}
+
+// UserOrderFromUser starts a typed UserOrder query from User.
+func UserOrderFromUser() userOrderFromUserQuery {
+	return userOrderFromUserQuery{qb: tsq.From(TableUser)}
+}
+
+func (q userOrderFromUserQuery) LeftJoinOrg(on tsq.JoinOn[User, Org], conds ...tsq.Condition) userOrderWithOrgQuery {
+	q.qb.LeftJoin(TableOrg, UserOrderJoinConditions(on, conds...)...)
+	return userOrderWithOrgQuery(q)
+}
+
+func UserOrderJoinUserOrgIDToOrgID() tsq.JoinOn[User, Org] {
+	return tsq.On(User_OrgID, Org_ID)
+}
+
+func (q userOrderWithOrgQuery) LeftJoinOrder(on tsq.JoinOn[User, Order], conds ...tsq.Condition) userOrderWithOrderQuery {
+	q.qb.LeftJoin(TableOrder, UserOrderJoinConditions(on, conds...)...)
+	return userOrderWithOrderQuery(q)
+}
+
+func UserOrderJoinUserIDToOrderUserID() tsq.JoinOn[User, Order] {
+	return tsq.On(User_ID, Order_UserID)
+}
+
+func (q userOrderWithOrderQuery) LeftJoinItem(on tsq.JoinOn[Order, Item], conds ...tsq.Condition) userOrderWithItemQuery {
+	q.qb.LeftJoin(TableItem, UserOrderJoinConditions(on, conds...)...)
+	return userOrderWithItemQuery(q)
+}
+
+func UserOrderJoinOrderItemIDToItemID() tsq.JoinOn[Order, Item] {
+	return tsq.On(Order_ItemID, Item_ID)
+}
+
+func (q userOrderWithItemQuery) LeftJoinCategory(on tsq.JoinOn[Item, Category], conds ...tsq.Condition) userOrderWithCategoryQuery {
+	q.qb.LeftJoin(TableCategory, UserOrderJoinConditions(on, conds...)...)
+	return userOrderWithCategoryQuery(q)
+}
+
+func UserOrderJoinItemCategoryIDToCategoryID() tsq.JoinOn[Item, Category] {
+	return tsq.On(Item_CategoryID, Category_ID)
+}
+
+func (q userOrderWithCategoryQuery) SelectUserOrder() userOrderSelectedQuery {
+	q.qb.Select(ResultUserOrder.Cols()...)
+	return userOrderSelectedQuery(q)
+}
+
+func (q userOrderSelectedQuery) WhereUser(conds ...tsq.Pred[User]) userOrderSelectedQuery {
+	q.qb.And(tsq.PredConditions(conds...)...)
+	return q
+}
+
+func (q userOrderSelectedQuery) WhereOrg(conds ...tsq.Pred[Org]) userOrderSelectedQuery {
+	q.qb.And(tsq.PredConditions(conds...)...)
+	return q
+}
+
+func (q userOrderSelectedQuery) WhereOrder(conds ...tsq.Pred[Order]) userOrderSelectedQuery {
+	q.qb.And(tsq.PredConditions(conds...)...)
+	return q
+}
+
+func (q userOrderSelectedQuery) WhereItem(conds ...tsq.Pred[Item]) userOrderSelectedQuery {
+	q.qb.And(tsq.PredConditions(conds...)...)
+	return q
+}
+
+func (q userOrderSelectedQuery) WhereCategory(conds ...tsq.Pred[Category]) userOrderSelectedQuery {
+	q.qb.And(tsq.PredConditions(conds...)...)
+	return q
+}
+
+func (q userOrderSelectedQuery) Build() (*tsq.Query, error) {
+	return q.qb.Build()
+}
+
+func UserOrderJoinConditions[Left, Right any](on tsq.JoinOn[Left, Right], conds ...tsq.Condition) []tsq.Condition {
+	result := make([]tsq.Condition, 0, len(conds)+1)
+	result = append(result, on)
+	result = append(result, conds...)
+
+	return result
+}

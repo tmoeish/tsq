@@ -137,7 +137,7 @@ func TestOrderBy_Order(t *testing.T) {
 
 func TestCol_Asc(t *testing.T) {
 	table := newMockTable("users")
-	col := NewCol[string](table, "name", "name", nil)
+	col := NewCol[any, string](table, "name", "name", nil)
 
 	orderBy := col.Asc()
 
@@ -157,7 +157,7 @@ func TestCol_Asc(t *testing.T) {
 
 func TestCol_Desc(t *testing.T) {
 	table := newMockTable("users")
-	col := NewCol[string](table, "name", "name", nil)
+	col := NewCol[any, string](table, "name", "name", nil)
 
 	orderBy := col.Desc()
 
@@ -177,8 +177,8 @@ func TestCol_Desc(t *testing.T) {
 
 func TestOrderByMultiple(t *testing.T) {
 	table := newMockTable("users")
-	col1 := NewCol[string](table, "name", "name", nil)
-	col2 := NewCol[int](table, "age", "age", nil)
+	col1 := NewCol[any, string](table, "name", "name", nil)
+	col2 := NewCol[any, int](table, "age", "age", nil)
 
 	orderBy1 := col1.Asc()
 	orderBy2 := col2.Desc()
@@ -239,9 +239,9 @@ func TestOrderBy_ComplexScenario(t *testing.T) {
 	usersTable := newMockTable("users")
 	ordersTable := newMockTable("orders")
 
-	userNameCol := NewCol[string](usersTable, "name", "name", nil)
-	userAgeCol := NewCol[int](usersTable, "age", "age", nil)
-	orderDateCol := NewCol[string](ordersTable, "created_at", "created_at", nil)
+	userNameCol := NewCol[any, string](usersTable, "name", "name", nil)
+	userAgeCol := NewCol[any, int](usersTable, "age", "age", nil)
+	orderDateCol := NewCol[any, string](ordersTable, "created_at", "created_at", nil)
 
 	orderBys := []OrderBy{
 		userNameCol.Asc(),
@@ -270,7 +270,7 @@ func TestOrderBy_ComplexScenario(t *testing.T) {
 
 func TestOrderBy_FieldAndOrderConsistency(t *testing.T) {
 	table := newMockTable("products")
-	col := NewCol[float64](table, "price", "price", nil)
+	col := NewCol[any, float64](table, "price", "price", nil)
 
 	// Test that Asc() creates consistent OrderBy
 	ascOrderBy := col.Asc()

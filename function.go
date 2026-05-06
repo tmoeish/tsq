@@ -13,7 +13,7 @@ import (
 // ================================================
 
 // Fn creates a custom SQL function by applying the format string to the column
-func (c Col[T]) Fn(format string) Col[T] {
+func (c Col[Owner, T]) Fn(format string) Col[Owner, T] {
 	if strings.TrimSpace(format) == "" {
 		c.buildErr = errors.New("function format cannot be empty")
 		return c
@@ -30,7 +30,7 @@ func (c Col[T]) Fn(format string) Col[T] {
 		return c
 	}
 
-	return Col[T]{
+	return Col[Owner, T]{
 		table:         c.table,
 		qualifiedName: fmt.Sprintf(format, c.rawQualifiedName()),
 		name:          c.name,          // 保持原始名称
@@ -46,7 +46,7 @@ func (c Col[T]) Fn(format string) Col[T] {
 }
 
 // FnRaw fn 不带参数
-func (c Col[T]) FnRaw(fn string) Col[T] {
+func (c Col[Owner, T]) FnRaw(fn string) Col[Owner, T] {
 	if strings.TrimSpace(fn) == "" {
 		c.buildErr = errors.New("function expression cannot be empty")
 		return c
@@ -63,7 +63,7 @@ func (c Col[T]) FnRaw(fn string) Col[T] {
 		return c
 	}
 
-	return Col[T]{
+	return Col[Owner, T]{
 		table:         c.table,
 		qualifiedName: fn,
 		name:          c.name,          // 保持原始名称
@@ -78,7 +78,7 @@ func (c Col[T]) FnRaw(fn string) Col[T] {
 	}
 }
 
-func (c Col[T]) FnExpr(format string, args ...any) Col[T] {
+func (c Col[Owner, T]) FnExpr(format string, args ...any) Col[Owner, T] {
 	if strings.TrimSpace(format) == "" {
 		c.buildErr = errors.New("function format cannot be empty")
 		return c
@@ -111,7 +111,7 @@ func (c Col[T]) FnExpr(format string, args ...any) Col[T] {
 		resultArgs = append(resultArgs, expr.Args()...)
 	}
 
-	return Col[T]{
+	return Col[Owner, T]{
 		table:         c.table,
 		qualifiedName: fmt.Sprintf(format, formatArgs...),
 		name:          c.name,
@@ -156,15 +156,15 @@ func mergeTableMaps(base, extras map[string]Table) map[string]Table {
 // ================================================
 
 // Count returns COUNT(column) - counts non-null values
-func (c Col[T]) Count() Col[int64] {
-	result := Col[int64](c.Fn("COUNT(%s)"))
+func (c Col[Owner, T]) Count() Col[Owner, int64] {
+	result := Col[Owner, int64](c.Fn("COUNT(%s)"))
 	result.aggregate = true
 
 	return result
 }
 
 // Sum returns SUM(column) - calculates sum of numeric values
-func (c Col[T]) Sum() Col[T] {
+func (c Col[Owner, T]) Sum() Col[Owner, T] {
 	result := c.Fn("SUM(%s)")
 	result.aggregate = true
 
@@ -172,15 +172,15 @@ func (c Col[T]) Sum() Col[T] {
 }
 
 // Avg returns AVG(column) - calculates average of numeric values
-func (c Col[T]) Avg() Col[float64] {
-	result := Col[float64](c.Fn("AVG(%s)"))
+func (c Col[Owner, T]) Avg() Col[Owner, float64] {
+	result := Col[Owner, float64](c.Fn("AVG(%s)"))
 	result.aggregate = true
 
 	return result
 }
 
 // Max returns MAX(column) - finds maximum value
-func (c Col[T]) Max() Col[T] {
+func (c Col[Owner, T]) Max() Col[Owner, T] {
 	result := c.Fn("MAX(%s)")
 	result.aggregate = true
 
@@ -188,7 +188,7 @@ func (c Col[T]) Max() Col[T] {
 }
 
 // Min returns MIN(column) - finds minimum value
-func (c Col[T]) Min() Col[T] {
+func (c Col[Owner, T]) Min() Col[Owner, T] {
 	result := c.Fn("MIN(%s)")
 	result.aggregate = true
 
@@ -196,7 +196,7 @@ func (c Col[T]) Min() Col[T] {
 }
 
 // Distinct returns DISTINCT(column) - returns unique values
-func (c Col[T]) Distinct() Col[T] {
+func (c Col[Owner, T]) Distinct() Col[Owner, T] {
 	result := c.Fn("DISTINCT(%s)")
 	result.distinct = true
 
@@ -208,33 +208,33 @@ func (c Col[T]) Distinct() Col[T] {
 // ================================================
 
 // Upper returns UPPER(column) - converts to uppercase
-func (c Col[T]) Upper() Col[T] {
+func (c Col[Owner, T]) Upper() Col[Owner, T] {
 	return c.Fn("UPPER(%s)")
 }
 
 // Lower returns LOWER(column) - converts to lowercase
-func (c Col[T]) Lower() Col[T] {
+func (c Col[Owner, T]) Lower() Col[Owner, T] {
 	return c.Fn("LOWER(%s)")
 }
 
 // Substring returns SUBSTRING(column, start, length) - extracts substring
-func (c Col[T]) Substring(start, length int) Col[T] {
+func (c Col[Owner, T]) Substring(start, length int) Col[Owner, T] {
 	return c.Fn(fmt.Sprintf("SUBSTRING(%%s, %d, %d)", start, length))
 }
 
 // Length returns LENGTH(column) - returns string length
-func (c Col[T]) Length() Col[T] {
+func (c Col[Owner, T]) Length() Col[Owner, T] {
 	return c.Fn("LENGTH(%s)")
 }
 
 // Trim returns TRIM(column) - removes leading and trailing spaces
-func (c Col[T]) Trim() Col[T] {
+func (c Col[Owner, T]) Trim() Col[Owner, T] {
 	return c.Fn("TRIM(%s)")
 }
 
 // Concat is intentionally unsupported because portable string concatenation
 // differs across TSQ's built-in dialects.
-func (c Col[T]) Concat(_ string) Col[T] {
+func (c Col[Owner, T]) Concat(_ string) Col[Owner, T] {
 	c.buildErr = errors.New("Concat is not portable across TSQ's built-in dialects; use Fn with a dialect-specific expression instead")
 	return c
 }
@@ -244,27 +244,27 @@ func (c Col[T]) Concat(_ string) Col[T] {
 // ================================================
 
 // Now returns CURRENT_TIMESTAMP - current timestamp (usually used as static function)
-func (c Col[T]) Now() Col[T] {
+func (c Col[Owner, T]) Now() Col[Owner, T] {
 	return c.FnRaw("CURRENT_TIMESTAMP")
 }
 
 // Date returns DATE(column) - extracts date part from datetime
-func (c Col[T]) Date() Col[T] {
+func (c Col[Owner, T]) Date() Col[Owner, T] {
 	return c.Fn("DATE(%s)")
 }
 
 // Year returns a portable year extraction expression for the column
-func (c Col[T]) Year() Col[T] {
+func (c Col[Owner, T]) Year() Col[Owner, T] {
 	return c.Fn("SUBSTR(DATE(%s), 1, 4)")
 }
 
 // Month returns a portable month extraction expression for the column
-func (c Col[T]) Month() Col[T] {
+func (c Col[Owner, T]) Month() Col[Owner, T] {
 	return c.Fn("SUBSTR(DATE(%s), 6, 2)")
 }
 
 // Day returns a portable day extraction expression for the column
-func (c Col[T]) Day() Col[T] {
+func (c Col[Owner, T]) Day() Col[Owner, T] {
 	return c.Fn("SUBSTR(DATE(%s), 9, 2)")
 }
 
@@ -273,7 +273,7 @@ func (c Col[T]) Day() Col[T] {
 // ================================================
 
 // Round returns ROUND(column, precision) - rounds to specified decimal places
-func (c Col[T]) Round(precision int) Col[T] {
+func (c Col[Owner, T]) Round(precision int) Col[Owner, T] {
 	if precision < 0 {
 		c.buildErr = errors.New("round precision cannot be negative")
 		return c
@@ -283,17 +283,17 @@ func (c Col[T]) Round(precision int) Col[T] {
 }
 
 // Ceil returns CEIL(column) - rounds up to nearest integer
-func (c Col[T]) Ceil() Col[T] {
+func (c Col[Owner, T]) Ceil() Col[Owner, T] {
 	return c.Fn("CEIL(%s)")
 }
 
 // Floor returns FLOOR(column) - rounds down to nearest integer
-func (c Col[T]) Floor() Col[T] {
+func (c Col[Owner, T]) Floor() Col[Owner, T] {
 	return c.Fn("FLOOR(%s)")
 }
 
 // Abs returns ABS(column) - returns absolute value
-func (c Col[T]) Abs() Col[T] {
+func (c Col[Owner, T]) Abs() Col[Owner, T] {
 	return c.Fn("ABS(%s)")
 }
 
@@ -302,11 +302,11 @@ func (c Col[T]) Abs() Col[T] {
 // ================================================
 
 // Coalesce returns COALESCE(column, value) - returns first non-null value
-func (c Col[T]) Coalesce(value any) Col[T] {
+func (c Col[Owner, T]) Coalesce(value any) Col[Owner, T] {
 	return c.FnExpr("COALESCE(%s, %s)", value)
 }
 
 // NullIf returns NULLIF(column, value) - returns NULL if values are equal
-func (c Col[T]) NullIf(value any) Col[T] {
+func (c Col[Owner, T]) NullIf(value any) Col[Owner, T] {
 	return c.FnExpr("NULLIF(%s, %s)", value)
 }

@@ -48,6 +48,13 @@ func TemplateFuncs() template.FuncMap {
 		"SoftDeleteNowValue":       softDeleteNowValue,
 		"SoftDeleteActiveExpr":     softDeleteActiveExpr,
 		"SoftDeleteActiveCond":     softDeleteActiveCond,
+		"RefStruct":                refStruct,
+		"RefField":                 refField,
+		"ResultFromTable":          resultFromTable,
+		"ResultFromQueryType":      resultFromQueryType,
+		"ResultJoinReceiverType":   resultJoinReceiverType,
+		"ResultJoinQueryType":      resultJoinQueryType,
+		"ResultSelectedQueryType":  resultSelectedQueryType,
 	}
 }
 
@@ -175,6 +182,62 @@ func joinAnd(v any) string {
 	default:
 		return ""
 	}
+}
+
+func refStruct(ref string) string {
+	parts := strings.Split(ref, ".")
+	if len(parts) != 2 {
+		return ""
+	}
+
+	return parts[0]
+}
+
+func refField(ref string) string {
+	parts := strings.Split(ref, ".")
+	if len(parts) != 2 {
+		return ""
+	}
+
+	return parts[1]
+}
+
+func resultFromTable(data *tsq.StructInfo) string {
+	if data == nil || data.TableInfo == nil {
+		return ""
+	}
+
+	if len(data.JoinList) > 0 {
+		return refStruct(data.JoinList[0].Left)
+	}
+
+	for _, field := range data.Fields {
+		if s := refStruct(field.Column); s != "" {
+			return s
+		}
+	}
+
+	return ""
+}
+
+func resultFromQueryType(resultType, from string) string {
+	return lowerInitial(resultType) + "From" + from + "Query"
+}
+
+func resultJoinReceiverType(resultType string, joins []tsq.JoinInfo, idx int) string {
+	if idx <= 0 {
+		return resultFromQueryType(resultType, refStruct(joins[0].Left))
+	}
+
+	return resultJoinQueryType(resultType, joins[idx-1])
+}
+
+func resultJoinQueryType(resultType string, join tsq.JoinInfo) string {
+	return lowerInitial(resultType) + "With" + refStruct(join.Right) + "Query"
+}
+
+func resultSelectedQueryType(resultType string) string {
+	return lowerInitial(resultType) + "SelectedQuery"
 }
 
 // sub1 返回 n-1

@@ -95,6 +95,25 @@ func (qb *QueryBuilder) ensureInitialized() *QueryBuilder {
 // Select creates a new QueryBuilder with the specified columns.
 func Select(cols ...Column) *QueryBuilder {
 	qb := newQueryBuilder()
+	qb.Select(cols...)
+
+	return qb
+}
+
+// From creates a new QueryBuilder with the specified base table.
+func From(table Table) *QueryBuilder {
+	return newQueryBuilder().From(table)
+}
+
+// Select sets the projected columns for the query.
+// Existing selected columns are replaced.
+func (qb *QueryBuilder) Select(cols ...Column) *QueryBuilder {
+	qb = qb.ensureInitialized()
+
+	if qb.buildErr != nil {
+		return qb
+	}
+
 	qb.spec.Selects = make([]Column, 0, len(cols))
 	qb.addSelectColumns(cols...)
 

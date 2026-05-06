@@ -13,6 +13,8 @@ type caseBranch struct {
 	result Expression
 }
 
+type expressionOwner struct{}
+
 // CaseBuilder builds a searched CASE expression.
 type CaseBuilder[T any] struct {
 	whens     []caseBranch
@@ -98,21 +100,21 @@ func (b *CaseBuilder[T]) Else(result any) *CaseBuilder[T] {
 }
 
 // End finalizes the CASE expression into a selectable column.
-func (b *CaseBuilder[T]) End() Col[T] {
+func (b *CaseBuilder[T]) End() Col[expressionOwner, T] {
 	if b == nil {
-		return Col[T]{buildErr: errors.New("case builder cannot be nil")}
+		return Col[expressionOwner, T]{buildErr: errors.New("case builder cannot be nil")}
 	}
 
 	if b.buildErr != nil {
-		return Col[T]{buildErr: errors.Trace(b.buildErr)}
+		return Col[expressionOwner, T]{buildErr: errors.Trace(b.buildErr)}
 	}
 
 	if len(b.whens) == 0 {
-		return Col[T]{buildErr: errors.New("case expression requires at least one WHEN branch")}
+		return Col[expressionOwner, T]{buildErr: errors.New("case expression requires at least one WHEN branch")}
 	}
 
 	if len(b.tables) == 0 {
-		return Col[T]{buildErr: errors.New("case expression must reference at least one table")}
+		return Col[expressionOwner, T]{buildErr: errors.New("case expression must reference at least one table")}
 	}
 
 	tableNames := make([]string, 0, len(b.tables))
@@ -150,7 +152,7 @@ func (b *CaseBuilder[T]) End() Col[T] {
 
 	sqlBuilder.WriteString(" END")
 
-	return Col[T]{
+	return Col[expressionOwner, T]{
 		table:         baseTable,
 		name:          "case",
 		qualifiedName: sqlBuilder.String(),

@@ -7,8 +7,8 @@ import (
 // BenchmarkQueryBuilder_SimpleBuild measures basic query builder Build() performance
 func BenchmarkQueryBuilder_SimpleWhere(b *testing.B) {
 	table := newMockTable("users")
-	idCol := NewCol[int](table, "id", "id", nil)
-	nameCol := NewCol[string](table, "name", "name", nil)
+	idCol := NewCol[any, int](table, "id", "id", nil)
+	nameCol := NewCol[any, string](table, "name", "name", nil)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -22,9 +22,9 @@ func BenchmarkQueryBuilder_SimpleWhere(b *testing.B) {
 // BenchmarkQueryBuilder_MultipleConditions measures WHERE with multiple conditions
 func BenchmarkQueryBuilder_MultipleConditions(b *testing.B) {
 	table := newMockTable("users")
-	idCol := NewCol[int](table, "id", "id", nil)
-	statusCol := NewCol[int](table, "status", "status", nil)
-	nameCol := NewCol[string](table, "name", "name", nil)
+	idCol := NewCol[any, int](table, "id", "id", nil)
+	statusCol := NewCol[any, int](table, "status", "status", nil)
+	nameCol := NewCol[any, string](table, "name", "name", nil)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -44,10 +44,10 @@ func BenchmarkQueryBuilder_WithJoins(b *testing.B) {
 	usersTable := newMockTable("users")
 	ordersTable := newMockTable("orders")
 
-	uid := NewCol[int](usersTable, "id", "id", nil)
-	oid := NewCol[int](ordersTable, "id", "id", nil)
-	oUserID := NewCol[int](ordersTable, "user_id", "user_id", nil)
-	oTotal := NewCol[float64](ordersTable, "total", "total", nil)
+	uid := NewCol[any, int](usersTable, "id", "id", nil)
+	oid := NewCol[any, int](ordersTable, "id", "id", nil)
+	oUserID := NewCol[any, int](ordersTable, "user_id", "user_id", nil)
+	oTotal := NewCol[any, float64](ordersTable, "total", "total", nil)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -62,8 +62,8 @@ func BenchmarkQueryBuilder_WithJoins(b *testing.B) {
 // BenchmarkQueryBuilder_GroupBy measures Build() with GROUP BY
 func BenchmarkQueryBuilder_GroupBy(b *testing.B) {
 	table := newMockTable("sales")
-	categoryCol := NewCol[string](table, "category", "category", nil)
-	totalCol := NewCol[float64](table, "total", "total", nil)
+	categoryCol := NewCol[any, string](table, "category", "category", nil)
+	totalCol := NewCol[any, float64](table, "total", "total", nil)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -77,9 +77,9 @@ func BenchmarkQueryBuilder_GroupBy(b *testing.B) {
 // BenchmarkQueryBuilder_WithAliases measures Build() with column aliases
 func BenchmarkQueryBuilder_WithAliases(b *testing.B) {
 	table := newMockTable("orders")
-	idCol := NewCol[int](table, "id", "id", nil)
-	userIDCol := NewCol[int](table, "user_id", "user_id", nil)
-	totalCol := NewCol[float64](table, "total", "total", nil)
+	idCol := NewCol[any, int](table, "id", "id", nil)
+	userIDCol := NewCol[any, int](table, "user_id", "user_id", nil)
+	totalCol := NewCol[any, float64](table, "total", "total", nil)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

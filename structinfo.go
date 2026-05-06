@@ -80,6 +80,12 @@ type IndexInfo struct {
 	IsSet      bool     // 是否为 set 查询
 }
 
+// JoinInfo describes a generated Result join edge.
+type JoinInfo struct {
+	Left  string
+	Right string
+}
+
 // IndexFuncNames 用于模板渲染的批量索引函数名
 // 只做命名拼接，不做业务逻辑
 // 如 ListByUserIdAndItemIdSet
@@ -119,6 +125,7 @@ type TableInfo struct {
 	UxList         UxList   // 唯一约束列表
 	IdxList        IdxList  // 索引列表
 	QueryList      IdxList  // 查询索引列表
+	JoinList       []JoinInfo
 }
 
 // UxList 唯一约束列表

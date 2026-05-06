@@ -27,8 +27,8 @@ package tsq
 ```go
 qb := Select(invalidCol).
 	From(table1).
-    Join(table2, col1.EQCol(col2)).
-    GroupBy(col3)
+	Join(table2, On(col1, col2)).
+	GroupBy(col3)
 // All methods execute even though invalidCol is bad
 ```
 
@@ -36,8 +36,8 @@ qb := Select(invalidCol).
 ```go
 qb := Select(invalidCol).
 	From(table1).
-    Join(table2, col1.EQCol(col2)). // Short-circuits, doesn't execute
-    GroupBy(col3)       // Short-circuits, doesn't execute
+	Join(table2, On(col1, col2)). // Short-circuits, doesn't execute
+	GroupBy(col3)                 // Short-circuits, doesn't execute
 
 // Check error after building
 if qb.buildErr != nil {
@@ -76,7 +76,7 @@ consider using PageReq.Offset() instead.
 #### Old Pattern
 ```go
 // SQL generation succeeds, but execution still depends on dialect support.
-qb := Select(col1).From(table1).FullJoin(table2, col1.EQCol(col2))
+qb := Select(col1).From(table1).FullJoin(table2, On(col1, col2))
 ```
 
 #### New Pattern
@@ -121,14 +121,14 @@ high-volume query building that profiles show as a bottleneck.
 
 #### Old Pattern
 ```go
-col := NewCol[int](table, "id", "id", func(h any) any {
+col := NewCol[User, int](table, "id", "id", func(h any) any {
     return &h.(*User).ID  // Panics if h is nil
 })
 ```
 
 #### New Pattern
 ```go
-col := NewCol[int](table, "id", "id", func(h any) any {
+col := NewCol[User, int](table, "id", "id", func(h any) any {
     if h == nil {
         return nil  // Handle nil safely
     }

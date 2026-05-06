@@ -14,13 +14,13 @@ func (t *strictMockTable) Table() string    { return t.name }
 func (t *strictMockTable) KwList() []Column { return nil }
 func (t *strictMockTable) Cols() []Column   { return t.cols }
 
-func newStrictMockTable(name string, colNames ...string) (*strictMockTable, []Col[int]) {
+func newStrictMockTable(name string, colNames ...string) (*strictMockTable, []Col[any, int]) {
 	table := &strictMockTable{name: name}
 	cols := make([]Column, 0, len(colNames))
-	typed := make([]Col[int], 0, len(colNames))
+	typed := make([]Col[any, int], 0, len(colNames))
 
 	for _, name := range colNames {
-		col := NewCol[int](table, name, name, nil)
+		col := NewCol[any, int](table, name, name, nil)
 		cols = append(cols, col)
 		typed = append(typed, col)
 	}
@@ -33,7 +33,7 @@ func newStrictMockTable(name string, colNames ...string) (*strictMockTable, []Co
 func TestColumnValidation_RejectsColumnOutsideKnownTableSchema(t *testing.T) {
 	users, cols := newStrictMockTable("users", "id")
 	id := cols[0]
-	missing := NewCol[int](users, "missing", "missing", nil)
+	missing := NewCol[any, int](users, "missing", "missing", nil)
 
 	_, err := Select(id, missing).
 		From(users).
@@ -54,7 +54,7 @@ func TestColumnValidation_AllowsDerivedColumnsFromKnownTableColumns(t *testing.T
 
 	_, err := Select(id.Count(), resultID).
 		From(users).
-		Where(resultID.EQVar()).
+		Where(id.EQVar()).
 		Build()
 	if err != nil {
 		t.Fatalf("expected aggregate and result-bound source column to build, got: %v", err)
@@ -63,7 +63,7 @@ func TestColumnValidation_AllowsDerivedColumnsFromKnownTableColumns(t *testing.T
 
 func TestColumnValidation_RejectsAggregateFromUnknownTableColumn(t *testing.T) {
 	users, _ := newStrictMockTable("users", "id")
-	missing := NewCol[int](users, "missing", "missing", nil)
+	missing := NewCol[any, int](users, "missing", "missing", nil)
 
 	_, err := Select(missing.Count()).
 		From(users).
@@ -96,8 +96,8 @@ func TestJoinValidation_DifferentTablesSucceeds(t *testing.T) {
 	users := newMockTable("users")
 	orders := newMockTable("orders")
 
-	userID := NewCol[int](users, "id", "id", nil)
-	orderUserID := NewCol[int](orders, "user_id", "user_id", nil)
+	userID := NewCol[any, int](users, "id", "id", nil)
+	orderUserID := NewCol[any, int](orders, "user_id", "user_id", nil)
 
 	_, err := Select(userID).
 		From(userID.Table()).
@@ -111,8 +111,8 @@ func TestJoinValidation_DifferentTablesSucceeds(t *testing.T) {
 func TestJoinValidation_SameTableWithoutAliasRejectsJoin(t *testing.T) {
 	users := newMockTable("users")
 
-	userID := NewCol[int](users, "id", "id", nil)
-	parentID := NewCol[int](users, "parent_id", "parent_id", nil)
+	userID := NewCol[any, int](users, "id", "id", nil)
+	parentID := NewCol[any, int](users, "parent_id", "parent_id", nil)
 
 	_, err := Select(userID).
 		From(userID.Table()).
@@ -129,7 +129,7 @@ func TestJoinValidation_SameTableWithoutAliasRejectsJoin(t *testing.T) {
 
 func TestJoinValidation_NilTableRejectsJoin(t *testing.T) {
 	users := newMockTable("users")
-	userID := NewCol[int](users, "id", "id", nil)
+	userID := NewCol[any, int](users, "id", "id", nil)
 
 	_, err := Select(userID).
 		From(userID.Table()).
@@ -147,7 +147,7 @@ func TestJoinValidation_NilTableRejectsJoin(t *testing.T) {
 func TestJoinValidation_NilConditionRejectsJoin(t *testing.T) {
 	users := newMockTable("users")
 	orders := newMockTable("orders")
-	userID := NewCol[int](users, "id", "id", nil)
+	userID := NewCol[any, int](users, "id", "id", nil)
 
 	var cond Condition
 	_, err := Select(userID).
@@ -166,7 +166,7 @@ func TestJoinValidation_NilConditionRejectsJoin(t *testing.T) {
 func TestJoinValidation_RejectsJoinWithoutCondition(t *testing.T) {
 	users := newMockTable("users")
 	orders := newMockTable("orders")
-	userID := NewCol[int](users, "id", "id", nil)
+	userID := NewCol[any, int](users, "id", "id", nil)
 
 	_, err := Select(userID).
 		From(users).
@@ -184,7 +184,7 @@ func TestJoinValidation_RejectsJoinWithoutCondition(t *testing.T) {
 func TestJoinValidation_RejectsJoinConditionWithoutJoinedTable(t *testing.T) {
 	users := newMockTable("users")
 	orders := newMockTable("orders")
-	userID := NewCol[int](users, "id", "id", nil)
+	userID := NewCol[any, int](users, "id", "id", nil)
 
 	_, err := Select(userID).
 		From(users).
@@ -202,8 +202,8 @@ func TestJoinValidation_RejectsJoinConditionWithoutJoinedTable(t *testing.T) {
 func TestJoinValidation_RejectsJoinConditionWithoutIntroducedTable(t *testing.T) {
 	users := newMockTable("users")
 	orders := newMockTable("orders")
-	userID := NewCol[int](users, "id", "id", nil)
-	orderStatus := NewCol[int](orders, "status", "status", nil)
+	userID := NewCol[any, int](users, "id", "id", nil)
+	orderStatus := NewCol[any, int](orders, "status", "status", nil)
 
 	_, err := Select(userID).
 		From(users).
@@ -223,9 +223,9 @@ func TestJoinValidation_RejectsJoinConditionReferencingFutureTable(t *testing.T)
 	orders := newMockTable("orders")
 	items := newMockTable("items")
 
-	userID := NewCol[int](users, "id", "id", nil)
-	orderUserID := NewCol[int](orders, "user_id", "user_id", nil)
-	itemOrderID := NewCol[int](items, "order_id", "order_id", nil)
+	userID := NewCol[any, int](users, "id", "id", nil)
+	orderUserID := NewCol[any, int](orders, "user_id", "user_id", nil)
+	itemOrderID := NewCol[any, int](items, "order_id", "order_id", nil)
 
 	_, err := Select(userID).
 		From(users).
@@ -244,9 +244,9 @@ func TestJoinValidation_SelfJoinWithAliasSucceeds(t *testing.T) {
 	users := newMockTable("users")
 	parentUsers := AliasTable(users, "parent_users")
 
-	userID := NewCol[int](users, "id", "id", nil)
-	userParentID := NewCol[int](users, "parent_id", "parent_id", nil)
-	parentID := NewCol[int](parentUsers, "id", "id", nil)
+	userID := NewCol[any, int](users, "id", "id", nil)
+	userParentID := NewCol[any, int](users, "parent_id", "parent_id", nil)
+	parentID := NewCol[any, int](parentUsers, "id", "id", nil)
 
 	query, err := Select(userID, parentID).
 		From(userID.Table()).
@@ -266,9 +266,9 @@ func TestJoinValidation_AllowsAdditionalJoinedTablePredicates(t *testing.T) {
 	users := newMockTable("users")
 	orders := newMockTable("orders")
 
-	userID := NewCol[int](users, "id", "id", nil)
-	orderUserID := NewCol[int](orders, "user_id", "user_id", nil)
-	orderStatus := NewCol[int](orders, "status", "status", nil)
+	userID := NewCol[any, int](users, "id", "id", nil)
+	orderUserID := NewCol[any, int](orders, "user_id", "user_id", nil)
+	orderStatus := NewCol[any, int](orders, "status", "status", nil)
 
 	query, err := Select(userID).
 		From(users).
@@ -288,8 +288,8 @@ func TestJoinValidation_NonEqualityConditionSucceeds(t *testing.T) {
 	users := newMockTable("users")
 	orders := newMockTable("orders")
 
-	userScore := NewCol[int](users, "score", "score", nil)
-	orderMinimum := NewCol[int](orders, "minimum_score", "minimum_score", nil)
+	userScore := NewCol[any, int](users, "score", "score", nil)
+	orderMinimum := NewCol[any, int](orders, "minimum_score", "minimum_score", nil)
 
 	query, err := Select(userScore).
 		From(userScore.Table()).

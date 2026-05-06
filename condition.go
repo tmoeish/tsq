@@ -104,6 +104,10 @@ type Cond struct {
 	buildErr error
 }
 
+func pred[Owner any](cond Cond) Pred[Owner] {
+	return Pred[Owner]{Cond: cond}
+}
+
 func (c Cond) Tables() map[string]Table {
 	return c.tables
 }
@@ -158,180 +162,247 @@ func (c Cond) buildError() error {
 // 变量比较条件 (使用 ? 占位符)
 // ================================================
 
-func (c Col[T]) EQVar() Cond          { return c.Predicate(`%s = %s`, Var) }
-func (c Col[T]) NEVar() Cond          { return c.Predicate(`%s <> %s`, Var) }
-func (c Col[T]) GTVar() Cond          { return c.Predicate(`%s > %s`, Var) }
-func (c Col[T]) GTEVar() Cond         { return c.Predicate(`%s >= %s`, Var) }
-func (c Col[T]) LTVar() Cond          { return c.Predicate(`%s < %s`, Var) }
-func (c Col[T]) LTEVar() Cond         { return c.Predicate(`%s <= %s`, Var) }
-func (c Col[T]) InVar() Cond          { return c.Predicate(`%s IN (%s)`, VarSlice) }
-func (c Col[T]) StartsWithVar() Cond  { return unsupportedPatternPredicate("StartsWithVar") }
-func (c Col[T]) NStartsWithVar() Cond { return unsupportedPatternPredicate("NStartsWithVar") }
-func (c Col[T]) EndsWithVar() Cond    { return unsupportedPatternPredicate("EndsWithVar") }
-func (c Col[T]) NEndsWithVar() Cond   { return unsupportedPatternPredicate("NEndsWithVar") }
-func (c Col[T]) ContainsVar() Cond    { return unsupportedPatternPredicate("ContainsVar") }
-func (c Col[T]) NContainsVar() Cond   { return unsupportedPatternPredicate("NContainsVar") }
-func (c Col[T]) BetweenVar() Cond     { return c.Predicate(`%s BETWEEN %s AND %s`, Var, Var) }
-func (c Col[T]) NBetweenVar() Cond    { return c.Predicate(`%s NOT BETWEEN %s AND %s`, Var, Var) }
+func (c Col[Owner, T]) EQVar() Pred[Owner]  { return c.Predicate(`%s = %s`, Var) }
+func (c Col[Owner, T]) NEVar() Pred[Owner]  { return c.Predicate(`%s <> %s`, Var) }
+func (c Col[Owner, T]) GTVar() Pred[Owner]  { return c.Predicate(`%s > %s`, Var) }
+func (c Col[Owner, T]) GTEVar() Pred[Owner] { return c.Predicate(`%s >= %s`, Var) }
+func (c Col[Owner, T]) LTVar() Pred[Owner]  { return c.Predicate(`%s < %s`, Var) }
+func (c Col[Owner, T]) LTEVar() Pred[Owner] { return c.Predicate(`%s <= %s`, Var) }
+func (c Col[Owner, T]) InVar() Pred[Owner]  { return c.Predicate(`%s IN (%s)`, VarSlice) }
+func (c Col[Owner, T]) StartsWithVar() Pred[Owner] {
+	return pred[Owner](unsupportedPatternPredicate("StartsWithVar"))
+}
+
+func (c Col[Owner, T]) NStartsWithVar() Pred[Owner] {
+	return pred[Owner](unsupportedPatternPredicate("NStartsWithVar"))
+}
+
+func (c Col[Owner, T]) EndsWithVar() Pred[Owner] {
+	return pred[Owner](unsupportedPatternPredicate("EndsWithVar"))
+}
+
+func (c Col[Owner, T]) NEndsWithVar() Pred[Owner] {
+	return pred[Owner](unsupportedPatternPredicate("NEndsWithVar"))
+}
+
+func (c Col[Owner, T]) ContainsVar() Pred[Owner] {
+	return pred[Owner](unsupportedPatternPredicate("ContainsVar"))
+}
+
+func (c Col[Owner, T]) NContainsVar() Pred[Owner] {
+	return pred[Owner](unsupportedPatternPredicate("NContainsVar"))
+}
+func (c Col[Owner, T]) BetweenVar() Pred[Owner] { return c.Predicate(`%s BETWEEN %s AND %s`, Var, Var) }
+func (c Col[Owner, T]) NBetweenVar() Pred[Owner] {
+	return c.Predicate(`%s NOT BETWEEN %s AND %s`, Var, Var)
+}
 
 // ================================================
 // 常量比较条件
 // ================================================
 
-func (c Col[T]) EQ(arg T) Cond               { return c.Predicate(`%s = %s`, Bind(arg)) }
-func (c Col[T]) NE(arg T) Cond               { return c.Predicate(`%s <> %s`, Bind(arg)) }
-func (c Col[T]) GT(arg T) Cond               { return c.Predicate(`%s > %s`, Bind(arg)) }
-func (c Col[T]) GTE(arg T) Cond              { return c.Predicate(`%s >= %s`, Bind(arg)) }
-func (c Col[T]) LT(arg T) Cond               { return c.Predicate(`%s < %s`, Bind(arg)) }
-func (c Col[T]) LTE(arg T) Cond              { return c.Predicate(`%s <= %s`, Bind(arg)) }
-func (c Col[T]) StartsWith(str string) Cond  { return c.Predicate(`%s LIKE %s`, Bind(str+"%")) }
-func (c Col[T]) NStartsWith(str string) Cond { return c.Predicate(`%s NOT LIKE %s`, Bind(str+"%")) }
-func (c Col[T]) EndsWith(str string) Cond    { return c.Predicate(`%s LIKE %s`, Bind("%"+str)) }
-func (c Col[T]) NEndsWith(str string) Cond   { return c.Predicate(`%s NOT LIKE %s`, Bind("%"+str)) }
-func (c Col[T]) Contains(str string) Cond    { return c.Predicate(`%s LIKE %s`, Bind("%"+str+"%")) }
-func (c Col[T]) NContains(str string) Cond   { return c.Predicate(`%s NOT LIKE %s`, Bind("%"+str+"%")) }
-func (c Col[T]) Between(start, end T) Cond {
+func (c Col[Owner, T]) EQ(arg T) Pred[Owner]  { return c.Predicate(`%s = %s`, Bind(arg)) }
+func (c Col[Owner, T]) NE(arg T) Pred[Owner]  { return c.Predicate(`%s <> %s`, Bind(arg)) }
+func (c Col[Owner, T]) GT(arg T) Pred[Owner]  { return c.Predicate(`%s > %s`, Bind(arg)) }
+func (c Col[Owner, T]) GTE(arg T) Pred[Owner] { return c.Predicate(`%s >= %s`, Bind(arg)) }
+func (c Col[Owner, T]) LT(arg T) Pred[Owner]  { return c.Predicate(`%s < %s`, Bind(arg)) }
+func (c Col[Owner, T]) LTE(arg T) Pred[Owner] { return c.Predicate(`%s <= %s`, Bind(arg)) }
+func (c Col[Owner, T]) StartsWith(str string) Pred[Owner] {
+	return c.Predicate(`%s LIKE %s`, Bind(str+"%"))
+}
+
+func (c Col[Owner, T]) NStartsWith(str string) Pred[Owner] {
+	return c.Predicate(`%s NOT LIKE %s`, Bind(str+"%"))
+}
+
+func (c Col[Owner, T]) EndsWith(str string) Pred[Owner] {
+	return c.Predicate(`%s LIKE %s`, Bind("%"+str))
+}
+
+func (c Col[Owner, T]) NEndsWith(str string) Pred[Owner] {
+	return c.Predicate(`%s NOT LIKE %s`, Bind("%"+str))
+}
+
+func (c Col[Owner, T]) Contains(str string) Pred[Owner] {
+	return c.Predicate(`%s LIKE %s`, Bind("%"+str+"%"))
+}
+
+func (c Col[Owner, T]) NContains(str string) Pred[Owner] {
+	return c.Predicate(`%s NOT LIKE %s`, Bind("%"+str+"%"))
+}
+
+func (c Col[Owner, T]) Between(start, end T) Pred[Owner] {
 	return c.Predicate(`%s BETWEEN %s AND %s`, Bind(start), Bind(end))
 }
 
-func (c Col[T]) NBetween(start, end T) Cond {
+func (c Col[Owner, T]) NBetween(start, end T) Pred[Owner] {
 	return c.Predicate(`%s NOT BETWEEN %s AND %s`, Bind(start), Bind(end))
 }
 
-func (c Col[T]) EQLiteral(arg T) Cond  { return c.Predicate(`%s = %s`, Literal(arg)) }
-func (c Col[T]) NELiteral(arg T) Cond  { return c.Predicate(`%s <> %s`, Literal(arg)) }
-func (c Col[T]) GTLiteral(arg T) Cond  { return c.Predicate(`%s > %s`, Literal(arg)) }
-func (c Col[T]) GTELiteral(arg T) Cond { return c.Predicate(`%s >= %s`, Literal(arg)) }
-func (c Col[T]) LTLiteral(arg T) Cond  { return c.Predicate(`%s < %s`, Literal(arg)) }
-func (c Col[T]) LTELiteral(arg T) Cond { return c.Predicate(`%s <= %s`, Literal(arg)) }
-func (c Col[T]) StartsWithLiteral(str string) Cond {
+func (c Col[Owner, T]) EQLiteral(arg T) Pred[Owner]  { return c.Predicate(`%s = %s`, Literal(arg)) }
+func (c Col[Owner, T]) NELiteral(arg T) Pred[Owner]  { return c.Predicate(`%s <> %s`, Literal(arg)) }
+func (c Col[Owner, T]) GTLiteral(arg T) Pred[Owner]  { return c.Predicate(`%s > %s`, Literal(arg)) }
+func (c Col[Owner, T]) GTELiteral(arg T) Pred[Owner] { return c.Predicate(`%s >= %s`, Literal(arg)) }
+func (c Col[Owner, T]) LTLiteral(arg T) Pred[Owner]  { return c.Predicate(`%s < %s`, Literal(arg)) }
+func (c Col[Owner, T]) LTELiteral(arg T) Pred[Owner] { return c.Predicate(`%s <= %s`, Literal(arg)) }
+func (c Col[Owner, T]) StartsWithLiteral(str string) Pred[Owner] {
 	return c.Predicate(`%s LIKE %s`, Literal(str+"%"))
 }
 
-func (c Col[T]) NStartsWithLiteral(str string) Cond {
+func (c Col[Owner, T]) NStartsWithLiteral(str string) Pred[Owner] {
 	return c.Predicate(`%s NOT LIKE %s`, Literal(str+"%"))
 }
-func (c Col[T]) EndsWithLiteral(str string) Cond { return c.Predicate(`%s LIKE %s`, Literal("%"+str)) }
-func (c Col[T]) NEndsWithLiteral(str string) Cond {
+
+func (c Col[Owner, T]) EndsWithLiteral(str string) Pred[Owner] {
+	return c.Predicate(`%s LIKE %s`, Literal("%"+str))
+}
+
+func (c Col[Owner, T]) NEndsWithLiteral(str string) Pred[Owner] {
 	return c.Predicate(`%s NOT LIKE %s`, Literal("%"+str))
 }
 
-func (c Col[T]) ContainsLiteral(str string) Cond {
+func (c Col[Owner, T]) ContainsLiteral(str string) Pred[Owner] {
 	return c.Predicate(`%s LIKE %s`, Literal("%"+str+"%"))
 }
 
-func (c Col[T]) NContainsLiteral(str string) Cond {
+func (c Col[Owner, T]) NContainsLiteral(str string) Pred[Owner] {
 	return c.Predicate(`%s NOT LIKE %s`, Literal("%"+str+"%"))
 }
 
-func (c Col[T]) BetweenLiteral(start, end T) Cond {
+func (c Col[Owner, T]) BetweenLiteral(start, end T) Pred[Owner] {
 	return c.Predicate(`%s BETWEEN %s AND %s`, Literal(start), Literal(end))
 }
 
-func (c Col[T]) NBetweenLiteral(start, end T) Cond {
+func (c Col[Owner, T]) NBetweenLiteral(start, end T) Pred[Owner] {
 	return c.Predicate(`%s NOT BETWEEN %s AND %s`, Literal(start), Literal(end))
 }
 
-func (c Col[T]) In(args ...T) Cond {
+func (c Col[Owner, T]) In(args ...T) Pred[Owner] {
 	if len(args) == 0 {
-		return rawCondition("1 = 0")
+		return pred[Owner](rawCondition("1 = 0"))
 	}
 
 	return c.Predicate(`%s IN (%s)`, BindSlice(args))
 }
 
-func (c Col[T]) NIn(args ...T) Cond {
+func (c Col[Owner, T]) NIn(args ...T) Pred[Owner] {
 	if len(args) == 0 {
-		return rawCondition("1 = 1")
+		return pred[Owner](rawCondition("1 = 1"))
 	}
 
 	return c.Predicate(`%s NOT IN (%s)`, BindSlice(args))
 }
 
-func (c Col[T]) InLiteral(args ...T) Cond {
+func (c Col[Owner, T]) InLiteral(args ...T) Pred[Owner] {
 	if len(args) == 0 {
-		return rawCondition("1 = 0")
+		return pred[Owner](rawCondition("1 = 0"))
 	}
 
 	return c.Predicate(`%s IN (%s)`, literalValues(args))
 }
 
-func (c Col[T]) NInLiteral(args ...T) Cond {
+func (c Col[Owner, T]) NInLiteral(args ...T) Pred[Owner] {
 	if len(args) == 0 {
-		return rawCondition("1 = 1")
+		return pred[Owner](rawCondition("1 = 1"))
 	}
 
 	return c.Predicate(`%s NOT IN (%s)`, literalValues(args))
 }
-func (c Col[T]) IsNull() Cond    { return c.Predicate(`%s IS NULL`) }
-func (c Col[T]) IsNotNull() Cond { return c.Predicate(`%s IS NOT NULL`) }
+func (c Col[Owner, T]) IsNull() Pred[Owner]    { return c.Predicate(`%s IS NULL`) }
+func (c Col[Owner, T]) IsNotNull() Pred[Owner] { return c.Predicate(`%s IS NOT NULL`) }
 
 // ================================================
 // 字段比较条件
 // ================================================
 
-func (c Col[T]) EQCol(other Col[T]) Cond     { return c.Predicate(`%s = %s`, other) }
-func (c Col[T]) NECol(other Col[T]) Cond     { return c.Predicate(`%s <> %s`, other) }
-func (c Col[T]) GTCol(other Col[T]) Cond     { return c.Predicate(`%s > %s`, other) }
-func (c Col[T]) GTECol(other Col[T]) Cond    { return c.Predicate(`%s >= %s`, other) }
-func (c Col[T]) LTCol(other Col[T]) Cond     { return c.Predicate(`%s < %s`, other) }
-func (c Col[T]) LTECol(other Col[T]) Cond    { return c.Predicate(`%s <= %s`, other) }
-func (c Col[T]) StartsWithCol(_ Col[T]) Cond { return unsupportedPatternPredicate("StartsWithCol") }
-func (c Col[T]) NStartsWithCol(_ Col[T]) Cond {
-	return unsupportedPatternPredicate("NStartsWithCol")
+func (c Col[Owner, T]) EQCol(other typedColumn[T]) Pred[Owner] { return c.Predicate(`%s = %s`, other) }
+func (c Col[Owner, T]) NECol(other typedColumn[T]) Pred[Owner] { return c.Predicate(`%s <> %s`, other) }
+func (c Col[Owner, T]) GTCol(other typedColumn[T]) Pred[Owner] { return c.Predicate(`%s > %s`, other) }
+func (c Col[Owner, T]) GTECol(other typedColumn[T]) Pred[Owner] {
+	return c.Predicate(`%s >= %s`, other)
 }
-func (c Col[T]) EndsWithCol(_ Col[T]) Cond  { return unsupportedPatternPredicate("EndsWithCol") }
-func (c Col[T]) NEndsWithCol(_ Col[T]) Cond { return unsupportedPatternPredicate("NEndsWithCol") }
-func (c Col[T]) ContainsCol(_ Col[T]) Cond  { return unsupportedPatternPredicate("ContainsCol") }
-func (c Col[T]) NContainsCol(_ Col[T]) Cond { return unsupportedPatternPredicate("NContainsCol") }
+func (c Col[Owner, T]) LTCol(other typedColumn[T]) Pred[Owner] { return c.Predicate(`%s < %s`, other) }
+func (c Col[Owner, T]) LTECol(other typedColumn[T]) Pred[Owner] {
+	return c.Predicate(`%s <= %s`, other)
+}
+
+func (c Col[Owner, T]) StartsWithCol(_ typedColumn[T]) Pred[Owner] {
+	return pred[Owner](unsupportedPatternPredicate("StartsWithCol"))
+}
+
+func (c Col[Owner, T]) NStartsWithCol(_ typedColumn[T]) Pred[Owner] {
+	return pred[Owner](unsupportedPatternPredicate("NStartsWithCol"))
+}
+
+func (c Col[Owner, T]) EndsWithCol(_ typedColumn[T]) Pred[Owner] {
+	return pred[Owner](unsupportedPatternPredicate("EndsWithCol"))
+}
+
+func (c Col[Owner, T]) NEndsWithCol(_ typedColumn[T]) Pred[Owner] {
+	return pred[Owner](unsupportedPatternPredicate("NEndsWithCol"))
+}
+
+func (c Col[Owner, T]) ContainsCol(_ typedColumn[T]) Pred[Owner] {
+	return pred[Owner](unsupportedPatternPredicate("ContainsCol"))
+}
+
+func (c Col[Owner, T]) NContainsCol(_ typedColumn[T]) Pred[Owner] {
+	return pred[Owner](unsupportedPatternPredicate("NContainsCol"))
+}
 
 // ================================================
 // 子查询条件
 // ================================================
 
-func (c Col[T]) EQSub(sqb *Query) Cond    { return c.Predicate(`%s = %s`, sqb) }
-func (c Col[T]) NESub(sqb *Query) Cond    { return c.Predicate(`%s <> %s`, sqb) }
-func (c Col[T]) GTSub(sqb *Query) Cond    { return c.Predicate(`%s > %s`, sqb) }
-func (c Col[T]) GTESub(sqb *Query) Cond   { return c.Predicate(`%s >= %s`, sqb) }
-func (c Col[T]) LTSub(sqb *Query) Cond    { return c.Predicate(`%s < %s`, sqb) }
-func (c Col[T]) LTESub(sqb *Query) Cond   { return c.Predicate(`%s <= %s`, sqb) }
-func (c Col[T]) LikeSub(sqb *Query) Cond  { return c.Predicate(`%s LIKE %s`, sqb) }
-func (c Col[T]) NLikeSub(sqb *Query) Cond { return c.Predicate(`%s NOT LIKE %s`, sqb) }
-func (c Col[T]) InSub(sqb *Query) Cond    { return c.Predicate(`%s IN %s`, sqb) }
-func (c Col[T]) NInSub(sqb *Query) Cond   { return c.Predicate(`%s NOT IN %s`, sqb) }
-func (c Col[T]) ExistsSub(sqb *Query) Cond {
+func (c Col[Owner, T]) EQSub(sqb *Query) Pred[Owner]    { return c.Predicate(`%s = %s`, sqb) }
+func (c Col[Owner, T]) NESub(sqb *Query) Pred[Owner]    { return c.Predicate(`%s <> %s`, sqb) }
+func (c Col[Owner, T]) GTSub(sqb *Query) Pred[Owner]    { return c.Predicate(`%s > %s`, sqb) }
+func (c Col[Owner, T]) GTESub(sqb *Query) Pred[Owner]   { return c.Predicate(`%s >= %s`, sqb) }
+func (c Col[Owner, T]) LTSub(sqb *Query) Pred[Owner]    { return c.Predicate(`%s < %s`, sqb) }
+func (c Col[Owner, T]) LTESub(sqb *Query) Pred[Owner]   { return c.Predicate(`%s <= %s`, sqb) }
+func (c Col[Owner, T]) LikeSub(sqb *Query) Pred[Owner]  { return c.Predicate(`%s LIKE %s`, sqb) }
+func (c Col[Owner, T]) NLikeSub(sqb *Query) Pred[Owner] { return c.Predicate(`%s NOT LIKE %s`, sqb) }
+func (c Col[Owner, T]) InSub(sqb *Query) Pred[Owner]    { return c.Predicate(`%s IN %s`, sqb) }
+func (c Col[Owner, T]) NInSub(sqb *Query) Pred[Owner]   { return c.Predicate(`%s NOT IN %s`, sqb) }
+func (c Col[Owner, T]) ExistsSub(sqb *Query) Pred[Owner] {
 	subquery, err := formatSubquery(sqb)
 	if err != nil {
-		return Cond{buildErr: errors.Trace(err)}
+		return pred[Owner](Cond{buildErr: errors.Trace(err)})
 	}
 
-	return rawCondition("EXISTS " + subquery)
+	return pred[Owner](rawCondition("EXISTS " + subquery))
 }
 
-func (c Col[T]) NExistsSub(sqb *Query) Cond {
+func (c Col[Owner, T]) NExistsSub(sqb *Query) Pred[Owner] {
 	subquery, err := formatSubquery(sqb)
 	if err != nil {
-		return Cond{buildErr: errors.Trace(err)}
+		return pred[Owner](Cond{buildErr: errors.Trace(err)})
 	}
 
-	return rawCondition("NOT EXISTS " + subquery)
+	return pred[Owner](rawCondition("NOT EXISTS " + subquery))
 }
-func (c Col[T]) Unique(sqb *Query) Cond  { return unsupportedSubqueryPredicate("UNIQUE") }
-func (c Col[T]) NUnique(sqb *Query) Cond { return unsupportedSubqueryPredicate("NOT UNIQUE") }
+
+func (c Col[Owner, T]) Unique(sqb *Query) Pred[Owner] {
+	return pred[Owner](unsupportedSubqueryPredicate("UNIQUE"))
+}
+
+func (c Col[Owner, T]) NUnique(sqb *Query) Pred[Owner] {
+	return pred[Owner](unsupportedSubqueryPredicate("NOT UNIQUE"))
+}
 
 // ================================================
 // 条件构建核心方法
 // ================================================
 
 // Predicate builds a condition with the given operator and arguments
-func (c Col[T]) Predicate(op string, args ...any) Cond {
+func (c Col[Owner, T]) Predicate(op string, args ...any) Pred[Owner] {
 	if err := validatePredicateFormat(op, len(args)+1); err != nil {
-		return Cond{buildErr: errors.Trace(err)}
+		return pred[Owner](Cond{buildErr: errors.Trace(err)})
 	}
 
 	baseTable, err := validateColumnInput(c)
 	if err != nil {
-		return Cond{buildErr: errors.Trace(err)}
+		return pred[Owner](Cond{buildErr: errors.Trace(err)})
 	}
 
 	tables := map[string]Table{baseTable.Table(): baseTable}
@@ -341,7 +412,7 @@ func (c Col[T]) Predicate(op string, args ...any) Cond {
 		if col, ok := arg.(Column); ok {
 			table, err := validateColumnInput(col)
 			if err != nil {
-				return Cond{buildErr: errors.Trace(err)}
+				return pred[Owner](Cond{buildErr: errors.Trace(err)})
 			}
 
 			tables[table.Table()] = table
@@ -355,29 +426,29 @@ func (c Col[T]) Predicate(op string, args ...any) Cond {
 	for _, arg := range args {
 		expr := argumentToExpression(arg)
 		if err := expressionBuildError(expr); err != nil {
-			return Cond{buildErr: errors.Trace(err)}
+			return pred[Owner](Cond{buildErr: errors.Trace(err)})
 		}
 
 		formatArgs = append(formatArgs, expr.Expr())
 	}
 
-	return Cond{
+	return pred[Owner](Cond{
 		tables: tables,
 		expr:   fmt.Sprintf(op, formatArgs...),
 		args:   collectExpressionArgs(args...),
-	}
+	})
 }
 
-func (c Col[T]) rawCondition(expr string) Cond {
+func (c Col[Owner, T]) rawCondition(expr string) Pred[Owner] {
 	table, err := validateColumnInput(c)
 	if err != nil {
-		return Cond{buildErr: errors.Trace(err)}
+		return pred[Owner](Cond{buildErr: errors.Trace(err)})
 	}
 
-	return Cond{
+	return pred[Owner](Cond{
 		tables: map[string]Table{table.Table(): table},
 		expr:   expr,
-	}
+	})
 }
 
 func rawCondition(expr string) Cond {

@@ -18,7 +18,7 @@ func TestAPIDocumentation_PublicMethods(t *testing.T) {
 			name: "Select_CreatesNewQueryBuilder",
 			test: func(t *testing.T) {
 				table := newMockTable("users")
-				col := NewCol[string](table, "name", "name", nil)
+				col := NewCol[any, string](table, "name", "name", nil)
 				qb := Select(col)
 				if qb == nil {
 					t.Fatal("Select returned nil")
@@ -29,8 +29,8 @@ func TestAPIDocumentation_PublicMethods(t *testing.T) {
 			name: "QueryBuilder_Where_AddConditions",
 			test: func(t *testing.T) {
 				table := newMockTable("users")
-				idCol := NewCol[int](table, "id", "id", nil)
-				nameCol := NewCol[string](table, "name", "name", nil)
+				idCol := NewCol[any, int](table, "id", "id", nil)
+				nameCol := NewCol[any, string](table, "name", "name", nil)
 
 				qb := Select(idCol, nameCol).
 					From(idCol.Table()).
@@ -48,9 +48,9 @@ func TestAPIDocumentation_PublicMethods(t *testing.T) {
 				usersTable := newMockTable("users")
 				ordersTable := newMockTable("orders")
 
-				uid := NewCol[int](usersTable, "id", "id", nil)
-				oid := NewCol[int](ordersTable, "id", "id", nil)
-				oUserID := NewCol[int](ordersTable, "user_id", "user_id", nil)
+				uid := NewCol[any, int](usersTable, "id", "id", nil)
+				oid := NewCol[any, int](ordersTable, "id", "id", nil)
+				oUserID := NewCol[any, int](ordersTable, "user_id", "user_id", nil)
 
 				qb := Select(uid, oid).
 					From(uid.Table()).
@@ -65,7 +65,7 @@ func TestAPIDocumentation_PublicMethods(t *testing.T) {
 			name: "QueryBuilder_Build_GeneratesQuery",
 			test: func(t *testing.T) {
 				table := newMockTable("users")
-				col := NewCol[int](table, "id", "id", nil)
+				col := NewCol[any, int](table, "id", "id", nil)
 
 				query, err := Select(col).
 					From(col.Table()).Build()
@@ -87,7 +87,7 @@ func TestAPIDocumentation_PublicMethods(t *testing.T) {
 // TestAPIDocumentation_ColumnConditions verifies condition methods have consistent documentation
 func TestAPIDocumentation_ColumnConditions(t *testing.T) {
 	table := newMockTable("users")
-	col := NewCol[int](table, "id", "id", nil)
+	col := NewCol[any, int](table, "id", "id", nil)
 
 	// All comparison methods exist and return Condition
 	conditions := []struct {
@@ -129,7 +129,7 @@ func TestAPIDocumentation_TableAndColumn(t *testing.T) {
 	}
 
 	// Column creation
-	col := NewCol[int](table, "id", "id", nil)
+	col := NewCol[any, int](table, "id", "id", nil)
 	if col.Name() != "id" {
 		t.Errorf("column name mismatch: got %s, want id", col.Name())
 	}

@@ -270,7 +270,7 @@ func intPtr(i int) *int {
 }
 
 func TestCondition_EmptyInShortCircuits(t *testing.T) {
-	col := NewCol[int](newMockTable("users"), "id", "id", nil)
+	col := NewCol[any, int](newMockTable("users"), "id", "id", nil)
 
 	if got := col.In().Clause(); got != "1 = 0" {
 		t.Fatalf("expected empty IN to short-circuit to false predicate, got %q", got)
@@ -290,7 +290,7 @@ func TestCondition_EmptyInShortCircuits(t *testing.T) {
 }
 
 func TestCondition_InVarDefersSliceBindingToExecution(t *testing.T) {
-	col := NewCol[int](newMockTable("users"), "id", "id", nil)
+	col := NewCol[any, int](newMockTable("users"), "id", "id", nil)
 	cond := col.InVar()
 
 	if got := cond.Clause(); got != `"users"."id" IN (?)` {
@@ -308,7 +308,7 @@ func TestCondition_InVarDefersSliceBindingToExecution(t *testing.T) {
 }
 
 func TestConditionClauseRendersCanonicalSQL(t *testing.T) {
-	col := NewCol[int](newMockTable("users"), "id", "id", nil)
+	col := NewCol[any, int](newMockTable("users"), "id", "id", nil)
 
 	cond := col.EQ(1)
 	if got := cond.Clause(); got != `"users"."id" = ?` {
@@ -331,10 +331,10 @@ func TestCondition_EmptyAndOrShortCircuit(t *testing.T) {
 }
 
 func TestCondition_NullLiteralPredicatesFailFast(t *testing.T) {
-	ptrCol := NewCol[*string](newMockTable("users"), "name", "name", nil)
-	nullableCol := NewCol[sql.NullString](newMockTable("users"), "nickname", "nickname", nil)
+	ptrCol := NewCol[any, *string](newMockTable("users"), "name", "name", nil)
+	nullableCol := NewCol[any, sql.NullString](newMockTable("users"), "nickname", "nickname", nil)
 
-	for _, cond := range []Cond{
+	for _, cond := range []Condition{
 		ptrCol.EQ(nil),
 		ptrCol.In(nil),
 		nullableCol.EQ(sql.NullString{}),
@@ -357,10 +357,10 @@ func TestCondition_NilCompositeInputsFailFast(t *testing.T) {
 
 func TestCondition_PortabilitySensitiveLikePredicatesFailFast(t *testing.T) {
 	users := newMockTable("users")
-	nameCol := NewCol[string](users, "name", "name", nil)
-	patternCol := NewCol[string](users, "pattern", "pattern", nil)
+	nameCol := NewCol[any, string](users, "name", "name", nil)
+	patternCol := NewCol[any, string](users, "pattern", "pattern", nil)
 
-	for _, cond := range []Cond{
+	for _, cond := range []Condition{
 		nameCol.StartsWithVar(),
 		nameCol.StartsWithCol(patternCol),
 	} {
@@ -371,9 +371,9 @@ func TestCondition_PortabilitySensitiveLikePredicatesFailFast(t *testing.T) {
 }
 
 func TestCondition_StringLiteralsRejectBackslashes(t *testing.T) {
-	col := NewCol[string](newMockTable("users"), "name", "name", nil)
+	col := NewCol[any, string](newMockTable("users"), "name", "name", nil)
 
-	for name, cond := range map[string]Cond{
+	for name, cond := range map[string]Condition{
 		"EQ": col.EQ(`path\file`),
 		"IN": col.In(`path\file`),
 	} {
@@ -386,8 +386,8 @@ func TestCondition_StringLiteralsRejectBackslashes(t *testing.T) {
 }
 
 func TestCondition_ExistsSubIsStandalonePredicate(t *testing.T) {
-	col := NewCol[int](newMockTable("users"), "id", "id", nil)
-	orderID := NewCol[int](newMockTable("orders"), "id", "id", nil)
+	col := NewCol[any, int](newMockTable("users"), "id", "id", nil)
+	orderID := NewCol[any, int](newMockTable("orders"), "id", "id", nil)
 	subquery := mustBuild(Select(orderID).From(orderID.Table()))
 
 	got := renderCanonicalSQL(col.ExistsSub(subquery).Clause())
@@ -399,7 +399,7 @@ func TestCondition_ExistsSubIsStandalonePredicate(t *testing.T) {
 }
 
 func TestCondition_UnbuiltSubqueryFailsFast(t *testing.T) {
-	col := NewCol[int](newMockTable("users"), "id", "id", nil)
+	col := NewCol[any, int](newMockTable("users"), "id", "id", nil)
 
 	if _, _, _, err := validateConditionInput(col.InSub(&Query{})); err == nil {
 		t.Fatal("expected unbuilt subquery to be captured as a build error")
@@ -413,7 +413,7 @@ func TestCondition_EmptyClauseFailsFast(t *testing.T) {
 }
 
 func TestCondition_PredicateRejectsInvalidFormat(t *testing.T) {
-	col := NewCol[int](newMockTable("users"), "id", "id", nil)
+	col := NewCol[any, int](newMockTable("users"), "id", "id", nil)
 
 	tests := []struct {
 		name string
@@ -436,7 +436,7 @@ func TestCondition_PredicateRejectsInvalidFormat(t *testing.T) {
 }
 
 func TestCondition_PredicateAllowsEscapedPercentLiterals(t *testing.T) {
-	col := NewCol[string](newMockTable("users"), "name", "name", nil)
+	col := NewCol[any, string](newMockTable("users"), "name", "name", nil)
 
 	clause := renderCanonicalSQL(col.Predicate("%s LIKE '%%s'").Clause())
 	if clause != `"users"."name" LIKE '%s'` {
@@ -445,7 +445,7 @@ func TestCondition_PredicateAllowsEscapedPercentLiterals(t *testing.T) {
 }
 
 func TestCondition_UniqueSubqueryPredicatesFailFast(t *testing.T) {
-	col := NewCol[int](newMockTable("users"), "id", "id", nil)
+	col := NewCol[any, int](newMockTable("users"), "id", "id", nil)
 	subquery := &Query{listSQL: "SELECT 1"}
 
 	if _, _, _, err := validateConditionInput(col.Unique(subquery)); err == nil {
@@ -456,11 +456,11 @@ func TestCondition_UniqueSubqueryPredicatesFailFast(t *testing.T) {
 // TestUnsupportedPatternPredicatesDefer Error tests that unsupported pattern predicates
 // return deferred errors (not immediate panics) that are reported at Build() time.
 func TestUnsupportedPatternPredicatesDeferred(t *testing.T) {
-	col := NewCol[string](newMockTable("users"), "name", "name", nil)
+	col := NewCol[any, string](newMockTable("users"), "name", "name", nil)
 
 	tests := []struct {
 		name string
-		cond Cond
+		cond Condition
 	}{
 		{"StartsWithVar", col.StartsWithVar()},
 		{"EndsWithVar", col.EndsWithVar()},
@@ -494,12 +494,12 @@ func TestUnsupportedPatternPredicatesDeferred(t *testing.T) {
 // TestUnsupportedSubqueryPredicatesDeferred tests that unsupported subquery predicates
 // return deferred errors at Build() time, not immediate panics.
 func TestUnsupportedSubqueryPredicatesDeferred(t *testing.T) {
-	col := NewCol[int](newMockTable("users"), "id", "id", nil)
+	col := NewCol[any, int](newMockTable("users"), "id", "id", nil)
 	query := &Query{listSQL: "SELECT 1"}
 
 	tests := []struct {
 		name string
-		cond Cond
+		cond Condition
 	}{
 		{"Unique", col.Unique(query)},
 		{"NUnique", col.NUnique(query)},

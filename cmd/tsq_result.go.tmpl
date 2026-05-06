@@ -33,3 +33,81 @@ var (
 {{- end }}
 	}
 }
+
+{{- if .JoinList }}
+
+// =============================================================================
+// Typed Query Builder
+// =============================================================================
+
+{{- $from := ResultFromTable . }}
+{{- $fromType := ResultFromQueryType $type $from }}
+{{- $selectedType := ResultSelectedQueryType $type }}
+
+type {{$fromType}} struct {
+	qb *tsq.QueryBuilder
+}
+
+{{- range $idx, $join := .JoinList }}
+type {{ ResultJoinQueryType $type $join }} struct {
+	qb *tsq.QueryBuilder
+}
+
+{{- end }}
+type {{$selectedType}} struct {
+	qb *tsq.QueryBuilder
+}
+
+// {{$type}}From{{$from}} starts a typed {{$type}} query from {{$from}}.
+func {{$type}}From{{$from}}() {{$fromType}} {
+	return {{$fromType}}{qb: tsq.From(Table{{$from}})}
+}
+
+{{- range $idx, $join := .JoinList }}
+{{- $left := RefStruct $join.Left }}
+{{- $leftField := RefField $join.Left }}
+{{- $right := RefStruct $join.Right }}
+{{- $rightField := RefField $join.Right }}
+{{- $recvType := ResultJoinReceiverType $type $.JoinList $idx }}
+{{- $nextType := ResultJoinQueryType $type $join }}
+
+func (q {{$recvType}}) LeftJoin{{$right}}(on tsq.JoinOn[{{$left}}, {{$right}}], conds ...tsq.Condition) {{$nextType}} {
+	q.qb.LeftJoin(Table{{$right}}, {{$type}}JoinConditions(on, conds...)...)
+	return {{$nextType}}(q)
+}
+
+func {{$type}}Join{{$left}}{{$leftField}}To{{$right}}{{$rightField}}() tsq.JoinOn[{{$left}}, {{$right}}] {
+	return tsq.On({{$left}}_{{$leftField}}, {{$right}}_{{$rightField}})
+}
+{{- end }}
+
+func (q {{ ResultJoinQueryType $type (index .JoinList (Sub1 (len .JoinList))) }}) Select{{$type}}() {{$selectedType}} {
+	q.qb.Select(Result{{$type}}.Cols()...)
+	return {{$selectedType}}(q)
+}
+
+func (q {{$selectedType}}) Where{{$from}}(conds ...tsq.Pred[{{$from}}]) {{$selectedType}} {
+	q.qb.And(tsq.PredConditions(conds...)...)
+	return q
+}
+
+{{- range $idx, $join := .JoinList }}
+{{- $right := RefStruct $join.Right }}
+func (q {{$selectedType}}) Where{{$right}}(conds ...tsq.Pred[{{$right}}]) {{$selectedType}} {
+	q.qb.And(tsq.PredConditions(conds...)...)
+	return q
+}
+
+{{- end }}
+func (q {{$selectedType}}) Build() (*tsq.Query, error) {
+	return q.qb.Build()
+}
+
+func {{$type}}JoinConditions[Left, Right any](on tsq.JoinOn[Left, Right], conds ...tsq.Condition) []tsq.Condition {
+	result := make([]tsq.Condition, 0, len(conds)+1)
+	result = append(result, on)
+	result = append(result, conds...)
+
+	return result
+}
+{{- end }}

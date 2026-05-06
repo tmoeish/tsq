@@ -764,6 +764,40 @@ func TestValidateResultFieldsAcceptsMatchingTypes(t *testing.T) {
 	}
 }
 
+func TestValidateResultFieldsValidatesJoinTypes(t *testing.T) {
+	dto := &tsq.StructInfo{
+		TableInfo: &tsq.TableInfo{
+			IsResult: true,
+			JoinList: []tsq.JoinInfo{
+				{Left: "User.ID", Right: "Order.UserID"},
+			},
+		},
+		TypeInfo: tsq.TypeInfo{TypeName: "UserResult"},
+		Fields: []tsq.FieldInfo{
+			{Name: "UserID", Column: "User.ID", Type: tsq.TypeInfo{TypeName: "int64"}},
+		},
+	}
+
+	structsByName := map[string]*tsq.StructInfo{
+		"User": {
+			TableInfo: &tsq.TableInfo{Table: "user"},
+			FieldMap: map[string]tsq.FieldInfo{
+				"ID": {Name: "ID", Column: "id", Type: tsq.TypeInfo{TypeName: "int64"}},
+			},
+		},
+		"Order": {
+			TableInfo: &tsq.TableInfo{Table: "order"},
+			FieldMap: map[string]tsq.FieldInfo{
+				"UserID": {Name: "UserID", Column: "user_id", Type: tsq.TypeInfo{TypeName: "int64"}},
+			},
+		},
+	}
+
+	if err := validateResultFields(dto, structsByName); err != nil {
+		t.Fatalf("expected compatible Result join to pass, got %v", err)
+	}
+}
+
 func TestNormalizeResultColumnsUpdatesFieldMap(t *testing.T) {
 	dto := &tsq.StructInfo{
 		TableInfo: &tsq.TableInfo{IsResult: true},

@@ -660,6 +660,47 @@ func genTableInfoFromAST(
 
 				info.KwList = append(info.KwList, string(s))
 			}
+		case "join":
+			if isTable {
+				return nil, NewDSLUnknownTableKeyError(k)
+			}
+
+			arr, ok := v.(DSLArray)
+			if !ok {
+				return nil, NewDSLValueTypeError(k, "array of join objects", v)
+			}
+
+			for _, node := range arr {
+				obj, ok := node.(DSLObject)
+				if !ok {
+					return nil, NewDSLArrayEntryTypeError(k, "object with left and right", node)
+				}
+
+				join := tsq.JoinInfo{}
+
+				for k2, v2 := range obj {
+					s, ok := v2.(DSLString)
+					if !ok {
+						return nil, NewDSLValueTypeError(k2, "Struct.Field string", v2)
+					}
+
+					switch k2 {
+					case "left":
+						join.Left = string(s)
+					case "right":
+						join.Right = string(s)
+					default:
+						return nil, NewDSLUnknownIndexKeyError(k2)
+					}
+				}
+
+				if join.Left == "" || join.Right == "" {
+					return nil, NewDSLEmptyArrayError("join")
+				}
+
+				info.JoinList = append(info.JoinList, join)
+			}
+
 		default:
 			return nil, NewDSLUnknownTableKeyError(k)
 		}

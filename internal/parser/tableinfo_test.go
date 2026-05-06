@@ -55,10 +55,11 @@ func TestParseAnnotations_DSL(t *testing.T) {
 		},
 		{
 			desc:    "Result 注解",
-			comment: `// @RESULT(name="UserResult",  kw=["foo","bar"]  )`,
+			comment: `// @RESULT(name="UserResult",  kw=["foo","bar"], join=[{left="User.ID", right="Order.UserID"}]  )`,
 			want: tsq.TableInfo{
-				Table:  "UserResult",
-				KwList: []string{"foo", "bar"},
+				Table:    "UserResult",
+				KwList:   []string{"foo", "bar"},
+				JoinList: []tsq.JoinInfo{{Left: "User.ID", Right: "Order.UserID"}},
 			},
 		},
 		{
@@ -98,7 +99,7 @@ func TestParseAnnotations_DSL(t *testing.T) {
 	}
 
 	structFields := map[string]struct{}{
-		"ID": {}, "C1": {}, "Version": {}, "CreatedAt": {}, "MTime": {}, "DeletedAt": {}, "F1": {}, "F2": {}, "F3": {}, "F4": {}, "F5": {}, "F6": {}, "account": {}, "user": {}, "UserResult": {}, "foo": {}, "bar": {},
+		"ID": {}, "C1": {}, "Version": {}, "CreatedAt": {}, "MTime": {}, "DeletedAt": {}, "F1": {}, "F2": {}, "F3": {}, "F4": {}, "F5": {}, "F6": {}, "account": {}, "user": {}, "UserResult": {}, "foo": {}, "bar": {}, "Order": {}, "UserID": {},
 	}
 
 	for _, tt := range tests {
@@ -123,7 +124,8 @@ func TestParseAnnotations_DSL(t *testing.T) {
 				!reflect.DeepEqual(info.DeletedAtField, tt.want.DeletedAtField) ||
 				!reflect.DeepEqual(info.UxList, tt.want.UxList) ||
 				!reflect.DeepEqual(info.IdxList, tt.want.IdxList) ||
-				!reflect.DeepEqual(info.KwList, tt.want.KwList) {
+				!reflect.DeepEqual(info.KwList, tt.want.KwList) ||
+				!reflect.DeepEqual(info.JoinList, tt.want.JoinList) {
 				infoStr := tsq.PrettyJSON(info)
 				wantStr := tsq.PrettyJSON(tt.want)
 				t.Errorf("got = %s, want %s", infoStr, wantStr)

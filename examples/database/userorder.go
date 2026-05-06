@@ -10,7 +10,17 @@ import (
 )
 
 // UserOrder 演示查询结果联表映射。
-// @RESULT(name="UserOrder")
+// @RESULT(
+//
+//	name="UserOrder",
+//	join=[
+//	  {left="User.OrgID", right="Org.ID"},
+//	  {left="User.ID", right="Order.UserID"},
+//	  {left="Order.ItemID", right="Item.ID"},
+//	  {left="Item.CategoryID", right="Category.ID"}
+//	]
+//
+// )
 type UserOrder struct {
 	UserID    int64  `json:"user_id"    tsq:"User.ID"`
 	UserName  string `json:"user_name"  tsq:"User.Name"`
@@ -35,17 +45,14 @@ var pageUserOrderQuery *tsq.Query
 func init() {
 	var err error
 
-	pageUserOrderQuery, err = tsq.
-		Select(ResultUserOrder.Cols()...).
-		From(TableUser).
-		LeftJoin(TableOrg, User_OrgID.EQCol(Org_ID)).
-		LeftJoin(TableOrder, User_ID.EQCol(Order_UserID)).
-		LeftJoin(TableItem, Order_ItemID.EQCol(Item_ID)).
-		LeftJoin(TableCategory, Item_CategoryID.EQCol(Category_ID)).
-		Where(
-			UserOrder_UserID.EQVar(),
-			UserOrder_ItemCategory.InVar(),
-		).
+	pageUserOrderQuery, err = UserOrderFromUser().
+		LeftJoinOrg(UserOrderJoinUserOrgIDToOrgID()).
+		LeftJoinOrder(UserOrderJoinUserIDToOrderUserID()).
+		LeftJoinItem(UserOrderJoinOrderItemIDToItemID()).
+		LeftJoinCategory(UserOrderJoinItemCategoryIDToCategoryID()).
+		SelectUserOrder().
+		WhereUser(User_ID.EQVar()).
+		WhereCategory(Category_Name.InVar()).
 		Build()
 	if err != nil {
 		panic(errors.Annotate(err, "initialize pageUserOrderQuery"))

@@ -482,7 +482,58 @@ func validateResultFields(
 		}
 	}
 
+	for _, join := range dto.JoinList {
+		left, err := resolveResultRef(join.Left, structsByName)
+		if err != nil {
+			return errors.Annotatef(err, "Result join left reference %s", join.Left)
+		}
+
+		right, err := resolveResultRef(join.Right, structsByName)
+		if err != nil {
+			return errors.Annotatef(err, "Result join right reference %s", join.Right)
+		}
+
+		if !isScanCompatible(left.field, right.field) {
+			return errors.Errorf(
+				"Result join %s = %s uses incompatible types: %s vs %s",
+				join.Left,
+				join.Right,
+				left.field.String(),
+				right.field.String(),
+			)
+		}
+	}
+
 	return nil
+}
+
+type resultRef struct {
+	structName string
+	fieldName  string
+	field      tsq.FieldInfo
+}
+
+func resolveResultRef(ref string, structsByName map[string]*tsq.StructInfo) (resultRef, error) {
+	parts := strings.Split(ref, ".")
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return resultRef{}, errors.Errorf("must reference a generated column as Struct.Field")
+	}
+
+	targetStruct, ok := structsByName[parts[0]]
+	if !ok || targetStruct.TableInfo == nil {
+		return resultRef{}, errors.Errorf("references unknown struct %s", parts[0])
+	}
+
+	sourceField, ok := targetStruct.FieldMap[parts[1]]
+	if !ok {
+		return resultRef{}, errors.Errorf("references unknown field %s.%s", parts[0], parts[1])
+	}
+
+	return resultRef{
+		structName: parts[0],
+		fieldName:  parts[1],
+		field:      sourceField,
+	}, nil
 }
 
 func isScanCompatible(dst, src tsq.FieldInfo) bool {
