@@ -38,3 +38,29 @@ func TestOnSupportsNonEqualityJoinEdges(t *testing.T) {
 		t.Fatalf("unexpected ON clause: %s", cond.Clause())
 	}
 }
+
+func TestJoinCondWrapsLeftRightPredicatesAndExtraEdges(t *testing.T) {
+	users := newMockTable("users")
+	orders := newMockTable("orders")
+	userID := NewCol[typedUserOwner, int](users, "id", "id", nil)
+	userStatus := NewCol[typedUserOwner, int](users, "status", "status", nil)
+	orderUserID := NewCol[typedOrderOwner, int](orders, "user_id", "user_id", nil)
+	orderStatus := NewCol[typedOrderOwner, int](orders, "status", "status", nil)
+
+	conds := []Condition{
+		OnExtra(On(userID, orderUserID)),
+		OnLeft[typedUserOwner, typedOrderOwner](userStatus.EQ(1)),
+		OnRight[typedUserOwner, typedOrderOwner](orderStatus.EQ(2)),
+	}
+
+	want := []string{
+		`"users"."id" = "orders"."user_id"`,
+		`"users"."status" = ?`,
+		`"orders"."status" = ?`,
+	}
+	for i, cond := range conds {
+		if cond.Clause() != want[i] {
+			t.Fatalf("condition %d clause = %q, want %q", i, cond.Clause(), want[i])
+		}
+	}
+}

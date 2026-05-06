@@ -7,6 +7,12 @@ type JoinOn[Left, Right any] struct {
 	Cond
 }
 
+// JoinCond is an additional ON condition constrained to a join's left/right
+// table owner types.
+type JoinCond[Left, Right any] struct {
+	Cond
+}
+
 // Pred is a type-level predicate owned by a table owner type.
 type Pred[Owner any] struct {
 	Cond
@@ -20,6 +26,21 @@ func PredConditions[Owner any](preds ...Pred[Owner]) []Condition {
 	}
 
 	return result
+}
+
+// OnExtra converts an additional typed join edge into a typed ON condition.
+func OnExtra[Left, Right any](on JoinOn[Left, Right]) JoinCond[Left, Right] {
+	return JoinCond[Left, Right](on)
+}
+
+// OnLeft converts a left-table predicate into a typed ON condition.
+func OnLeft[Left, Right any](pred Pred[Left]) JoinCond[Left, Right] {
+	return JoinCond[Left, Right](pred)
+}
+
+// OnRight converts a right-table predicate into a typed ON condition.
+func OnRight[Left, Right any](pred Pred[Right]) JoinCond[Left, Right] {
+	return JoinCond[Left, Right](pred)
 }
 
 // On creates an equality join edge between two typed columns.

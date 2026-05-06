@@ -71,8 +71,8 @@ func {{$type}}From{{$from}}() {{$fromType}} {
 {{- $recvType := ResultJoinReceiverType $type $.JoinList $idx }}
 {{- $nextType := ResultJoinQueryType $type $join }}
 
-func (q {{$recvType}}) LeftJoin{{$right}}(on tsq.JoinOn[{{$left}}, {{$right}}], ons ...tsq.JoinOn[{{$left}}, {{$right}}]) {{$nextType}} {
-	q.qb.LeftJoin(Table{{$right}}, {{$type}}JoinConditions(on, ons...)...)
+func (q {{$recvType}}) LeftJoin{{$right}}(on tsq.JoinOn[{{$left}}, {{$right}}], conds ...tsq.JoinCond[{{$left}}, {{$right}}]) {{$nextType}} {
+	q.qb.LeftJoin(Table{{$right}}, {{$type}}JoinConditions(on, conds...)...)
 	return {{$nextType}}(q)
 }
 
@@ -103,10 +103,10 @@ func (q {{$selectedType}}) Build() (*tsq.Query, error) {
 	return q.qb.Build()
 }
 
-func {{$type}}JoinConditions[Left, Right any](on tsq.JoinOn[Left, Right], ons ...tsq.JoinOn[Left, Right]) []tsq.Condition {
-	result := make([]tsq.Condition, 0, len(ons)+1)
+func {{$type}}JoinConditions[Left, Right any](on tsq.JoinOn[Left, Right], conds ...tsq.JoinCond[Left, Right]) []tsq.Condition {
+	result := make([]tsq.Condition, 0, len(conds)+1)
 	result = append(result, on)
-	for _, extra := range ons {
+	for _, extra := range conds {
 		result = append(result, extra)
 	}
 

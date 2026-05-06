@@ -856,16 +856,21 @@ func TestResultTemplateGeneratesTypedJoinEdges(t *testing.T) {
 
 	rendered := string(contents)
 	for _, want := range []string{
-		"LeftJoinOrder(on tsq.JoinOn[User, Order], ons ...tsq.JoinOn[User, Order])",
-		"UserOrderJoinConditions[Left, Right any](on tsq.JoinOn[Left, Right], ons ...tsq.JoinOn[Left, Right])",
+		"LeftJoinOrder(on tsq.JoinOn[User, Order], conds ...tsq.JoinCond[User, Order])",
+		"UserOrderJoinConditions[Left, Right any](on tsq.JoinOn[Left, Right], conds ...tsq.JoinCond[Left, Right])",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("expected generated Result query builder to contain %q, got:\n%s", want, rendered)
 		}
 	}
 
-	if strings.Contains(rendered, "conds ...tsq.Condition") {
-		t.Fatalf("generated Result Join still accepts untyped conditions:\n%s", rendered)
+	for _, blocked := range []string{
+		"conds ...tsq.Condition",
+		"ons ...tsq.JoinOn",
+	} {
+		if strings.Contains(rendered, blocked) {
+			t.Fatalf("generated Result Join contains blocked API %q:\n%s", blocked, rendered)
+		}
 	}
 }
 

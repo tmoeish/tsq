@@ -15,10 +15,11 @@
 - 查询现在必须显式调用 `From(table)`，不再从 `Select(...)` 或 Join 链隐式推导主表
 - `Join` / `LeftJoin` / `RightJoin` / `FullJoin` 改为直接接收可变 `Condition`，移除旧的 `.Join(...).On(left, right)` 两步 API
 - 非 `CROSS JOIN` 必须提供 ON 条件；Join 条件必须同时引用已引入表和当前连接表，提前拒绝缺失连接关系或引用未来表的查询
-- 生成的 Result typed Join 不再接受裸 `Condition` 附加条件；额外 ON 条件必须是同一左右表的 `JoinOn[Left, Right]`
+- 生成的 Result typed Join 不再接受裸 `Condition` 附加条件；额外 ON 条件必须是同一左右表的 `JoinCond[Left, Right]`
 
 ### 新增
 - 增加 `tsq.On` / `OnNE` / `OnGT` / `OnGTE` / `OnLT` / `OnLTE`，生成 `JoinOn[Left, Right]` 类型化连接边，为 v4 静态 Join DSL 打基础
+- 增加 `JoinCond[Left, Right]` 以及 `OnExtra` / `OnLeft` / `OnRight`，用于表达 typed Join ON 中的额外连接边和左右表谓词
 - `@RESULT` 支持 `join=[{left="Struct.Field", right="Struct.Field"}]`，生成器会据此产出 Result 专属 typed query builder
 
 ### 改进
