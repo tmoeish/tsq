@@ -32,6 +32,14 @@ type typedColumn[T any] interface {
 	columnValue(T)
 }
 
+// OwnedColumn is a table-owned column accepted by typed query builders.
+// Projection-only ResultCol values intentionally do not implement this
+// interface, so Result fields cannot be fed back into query clauses.
+type OwnedColumn[Owner any] interface {
+	Column
+	columnOwner(Owner)
+}
+
 // Col represents a typed column in a database table.
 // Owner is the Go type that owns the generated column, normally the table
 // struct type. T is the Go value type stored in the column.
@@ -110,6 +118,19 @@ func (c Col[Owner, T]) rawQualifiedName() string {
 }
 
 func (c Col[Owner, T]) columnValue(T) {}
+
+func (c Col[Owner, T]) columnOwner(Owner) {}
+
+// OwnedColumns converts typed owner-constrained columns to generic columns for
+// the runtime query builder.
+func OwnedColumns[Owner any](cols ...OwnedColumn[Owner]) []Column {
+	result := make([]Column, 0, len(cols))
+	for _, col := range cols {
+		result = append(result, col)
+	}
+
+	return result
+}
 
 // ================================================
 // 字段转换方法

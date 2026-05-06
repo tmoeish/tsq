@@ -64,3 +64,20 @@ func TestJoinCondWrapsLeftRightPredicatesAndExtraEdges(t *testing.T) {
 		}
 	}
 }
+
+func TestOwnedColumnsConvertsTypedColumns(t *testing.T) {
+	users := newMockTable("users")
+	userID := NewCol[typedUserOwner, int](users, "id", "id", nil)
+	userName := NewCol[typedUserOwner, string](users, "name", "name", nil)
+
+	cols := OwnedColumns[typedUserOwner](userID, userName)
+	if len(cols) != 2 {
+		t.Fatalf("expected 2 owned columns, got %d", len(cols))
+	}
+	if cols[0].QualifiedName() != `"users"."id"` {
+		t.Fatalf("unexpected first column: %s", cols[0].QualifiedName())
+	}
+	if cols[1].QualifiedName() != `"users"."name"` {
+		t.Fatalf("unexpected second column: %s", cols[1].QualifiedName())
+	}
+}

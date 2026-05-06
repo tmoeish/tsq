@@ -147,8 +147,28 @@ func (q userOrderSelectedQuery) WhereUser(conds ...tsq.Pred[User]) userOrderSele
 	return q
 }
 
+func (q userOrderSelectedQuery) GroupByUser(cols ...tsq.OwnedColumn[User]) userOrderSelectedQuery {
+	q.qb.GroupBy(tsq.OwnedColumns(cols...)...)
+	return q
+}
+
+func (q userOrderSelectedQuery) HavingUser(conds ...tsq.Pred[User]) userOrderSelectedQuery {
+	q.qb.Having(tsq.PredConditions(conds...)...)
+	return q
+}
+
 func (q userOrderSelectedQuery) WhereOrg(conds ...tsq.Pred[Org]) userOrderSelectedQuery {
 	q.qb.And(tsq.PredConditions(conds...)...)
+	return q
+}
+
+func (q userOrderSelectedQuery) GroupByOrg(cols ...tsq.OwnedColumn[Org]) userOrderSelectedQuery {
+	q.qb.GroupBy(tsq.OwnedColumns(cols...)...)
+	return q
+}
+
+func (q userOrderSelectedQuery) HavingOrg(conds ...tsq.Pred[Org]) userOrderSelectedQuery {
+	q.qb.Having(tsq.PredConditions(conds...)...)
 	return q
 }
 
@@ -157,13 +177,43 @@ func (q userOrderSelectedQuery) WhereOrder(conds ...tsq.Pred[Order]) userOrderSe
 	return q
 }
 
+func (q userOrderSelectedQuery) GroupByOrder(cols ...tsq.OwnedColumn[Order]) userOrderSelectedQuery {
+	q.qb.GroupBy(tsq.OwnedColumns(cols...)...)
+	return q
+}
+
+func (q userOrderSelectedQuery) HavingOrder(conds ...tsq.Pred[Order]) userOrderSelectedQuery {
+	q.qb.Having(tsq.PredConditions(conds...)...)
+	return q
+}
+
 func (q userOrderSelectedQuery) WhereItem(conds ...tsq.Pred[Item]) userOrderSelectedQuery {
 	q.qb.And(tsq.PredConditions(conds...)...)
 	return q
 }
 
+func (q userOrderSelectedQuery) GroupByItem(cols ...tsq.OwnedColumn[Item]) userOrderSelectedQuery {
+	q.qb.GroupBy(tsq.OwnedColumns(cols...)...)
+	return q
+}
+
+func (q userOrderSelectedQuery) HavingItem(conds ...tsq.Pred[Item]) userOrderSelectedQuery {
+	q.qb.Having(tsq.PredConditions(conds...)...)
+	return q
+}
+
 func (q userOrderSelectedQuery) WhereCategory(conds ...tsq.Pred[Category]) userOrderSelectedQuery {
 	q.qb.And(tsq.PredConditions(conds...)...)
+	return q
+}
+
+func (q userOrderSelectedQuery) GroupByCategory(cols ...tsq.OwnedColumn[Category]) userOrderSelectedQuery {
+	q.qb.GroupBy(tsq.OwnedColumns(cols...)...)
+	return q
+}
+
+func (q userOrderSelectedQuery) HavingCategory(conds ...tsq.Pred[Category]) userOrderSelectedQuery {
+	q.qb.Having(tsq.PredConditions(conds...)...)
 	return q
 }
 

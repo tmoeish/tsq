@@ -91,10 +91,30 @@ func (q {{$selectedType}}) Where{{$from}}(conds ...tsq.Pred[{{$from}}]) {{$selec
 	return q
 }
 
+func (q {{$selectedType}}) GroupBy{{$from}}(cols ...tsq.OwnedColumn[{{$from}}]) {{$selectedType}} {
+	q.qb.GroupBy(tsq.OwnedColumns(cols...)...)
+	return q
+}
+
+func (q {{$selectedType}}) Having{{$from}}(conds ...tsq.Pred[{{$from}}]) {{$selectedType}} {
+	q.qb.Having(tsq.PredConditions(conds...)...)
+	return q
+}
+
 {{- range $idx, $join := .JoinList }}
 {{- $right := RefStruct $join.Right }}
 func (q {{$selectedType}}) Where{{$right}}(conds ...tsq.Pred[{{$right}}]) {{$selectedType}} {
 	q.qb.And(tsq.PredConditions(conds...)...)
+	return q
+}
+
+func (q {{$selectedType}}) GroupBy{{$right}}(cols ...tsq.OwnedColumn[{{$right}}]) {{$selectedType}} {
+	q.qb.GroupBy(tsq.OwnedColumns(cols...)...)
+	return q
+}
+
+func (q {{$selectedType}}) Having{{$right}}(conds ...tsq.Pred[{{$right}}]) {{$selectedType}} {
+	q.qb.Having(tsq.PredConditions(conds...)...)
 	return q
 }
 
