@@ -820,6 +820,55 @@ func TestNormalizeResultColumnsUpdatesFieldMap(t *testing.T) {
 	}
 }
 
+func TestResultTemplateGeneratesTypedJoinEdges(t *testing.T) {
+	dir := t.TempDir()
+	data := &tsq.StructInfo{
+		TableInfo: &tsq.TableInfo{
+			IsResult: true,
+			JoinList: []tsq.JoinInfo{
+				{Left: "User.ID", Right: "Order.UserID"},
+			},
+		},
+		TypeInfo: tsq.TypeInfo{
+			Package:  tsq.PackageInfo{Name: "gentest"},
+			TypeName: "UserOrder",
+		},
+		Recv:       "uo",
+		TSQVersion: "test",
+		Fields: []tsq.FieldInfo{
+			{Name: "UserID", Column: "User_ID", JsonTag: "user_id"},
+		},
+	}
+
+	tpl, err := template.New("tsq_result.go.tmpl").Funcs(TemplateFuncs()).Parse(defaultResultTpl)
+	if err != nil {
+		t.Fatalf("parse Result template: %v", err)
+	}
+
+	if err := genResult(data, tpl, dir); err != nil {
+		t.Fatalf("render Result template: %v", err)
+	}
+
+	contents, err := os.ReadFile(filepath.Join(dir, "userorder_result_tsq.go"))
+	if err != nil {
+		t.Fatalf("read generated Result file: %v", err)
+	}
+
+	rendered := string(contents)
+	for _, want := range []string{
+		"LeftJoinOrder(on tsq.JoinOn[User, Order], ons ...tsq.JoinOn[User, Order])",
+		"UserOrderJoinConditions[Left, Right any](on tsq.JoinOn[Left, Right], ons ...tsq.JoinOn[Left, Right])",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("expected generated Result query builder to contain %q, got:\n%s", want, rendered)
+		}
+	}
+
+	if strings.Contains(rendered, "conds ...tsq.Condition") {
+		t.Fatalf("generated Result Join still accepts untyped conditions:\n%s", rendered)
+	}
+}
+
 func TestValidateGeneratedFilenameCollisionsRejectsCaseConflicts(t *testing.T) {
 	list := []*tsq.StructInfo{
 		{

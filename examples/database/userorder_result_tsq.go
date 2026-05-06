@@ -101,8 +101,8 @@ func UserOrderFromUser() userOrderFromUserQuery {
 	return userOrderFromUserQuery{qb: tsq.From(TableUser)}
 }
 
-func (q userOrderFromUserQuery) LeftJoinOrg(on tsq.JoinOn[User, Org], conds ...tsq.Condition) userOrderWithOrgQuery {
-	q.qb.LeftJoin(TableOrg, UserOrderJoinConditions(on, conds...)...)
+func (q userOrderFromUserQuery) LeftJoinOrg(on tsq.JoinOn[User, Org], ons ...tsq.JoinOn[User, Org]) userOrderWithOrgQuery {
+	q.qb.LeftJoin(TableOrg, UserOrderJoinConditions(on, ons...)...)
 	return userOrderWithOrgQuery(q)
 }
 
@@ -110,8 +110,8 @@ func UserOrderJoinUserOrgIDToOrgID() tsq.JoinOn[User, Org] {
 	return tsq.On(User_OrgID, Org_ID)
 }
 
-func (q userOrderWithOrgQuery) LeftJoinOrder(on tsq.JoinOn[User, Order], conds ...tsq.Condition) userOrderWithOrderQuery {
-	q.qb.LeftJoin(TableOrder, UserOrderJoinConditions(on, conds...)...)
+func (q userOrderWithOrgQuery) LeftJoinOrder(on tsq.JoinOn[User, Order], ons ...tsq.JoinOn[User, Order]) userOrderWithOrderQuery {
+	q.qb.LeftJoin(TableOrder, UserOrderJoinConditions(on, ons...)...)
 	return userOrderWithOrderQuery(q)
 }
 
@@ -119,8 +119,8 @@ func UserOrderJoinUserIDToOrderUserID() tsq.JoinOn[User, Order] {
 	return tsq.On(User_ID, Order_UserID)
 }
 
-func (q userOrderWithOrderQuery) LeftJoinItem(on tsq.JoinOn[Order, Item], conds ...tsq.Condition) userOrderWithItemQuery {
-	q.qb.LeftJoin(TableItem, UserOrderJoinConditions(on, conds...)...)
+func (q userOrderWithOrderQuery) LeftJoinItem(on tsq.JoinOn[Order, Item], ons ...tsq.JoinOn[Order, Item]) userOrderWithItemQuery {
+	q.qb.LeftJoin(TableItem, UserOrderJoinConditions(on, ons...)...)
 	return userOrderWithItemQuery(q)
 }
 
@@ -128,8 +128,8 @@ func UserOrderJoinOrderItemIDToItemID() tsq.JoinOn[Order, Item] {
 	return tsq.On(Order_ItemID, Item_ID)
 }
 
-func (q userOrderWithItemQuery) LeftJoinCategory(on tsq.JoinOn[Item, Category], conds ...tsq.Condition) userOrderWithCategoryQuery {
-	q.qb.LeftJoin(TableCategory, UserOrderJoinConditions(on, conds...)...)
+func (q userOrderWithItemQuery) LeftJoinCategory(on tsq.JoinOn[Item, Category], ons ...tsq.JoinOn[Item, Category]) userOrderWithCategoryQuery {
+	q.qb.LeftJoin(TableCategory, UserOrderJoinConditions(on, ons...)...)
 	return userOrderWithCategoryQuery(q)
 }
 
@@ -171,10 +171,12 @@ func (q userOrderSelectedQuery) Build() (*tsq.Query, error) {
 	return q.qb.Build()
 }
 
-func UserOrderJoinConditions[Left, Right any](on tsq.JoinOn[Left, Right], conds ...tsq.Condition) []tsq.Condition {
-	result := make([]tsq.Condition, 0, len(conds)+1)
+func UserOrderJoinConditions[Left, Right any](on tsq.JoinOn[Left, Right], ons ...tsq.JoinOn[Left, Right]) []tsq.Condition {
+	result := make([]tsq.Condition, 0, len(ons)+1)
 	result = append(result, on)
-	result = append(result, conds...)
+	for _, extra := range ons {
+		result = append(result, extra)
+	}
 
 	return result
 }
