@@ -575,6 +575,24 @@ func TestQueryBuilder_SetKwSearchMatchesKwSearchOverwriteBehavior(t *testing.T) 
 	}
 }
 
+func TestQueryBuilder_AppendKwSearch(t *testing.T) {
+	table1 := newMockTable("users")
+	col1 := newMockColumn(table1, "name")
+	col2 := newMockColumn(table1, "email")
+
+	qb := Select(col1).
+		From(col1.Table()).KwSearch(col1).AppendKwSearch(col2)
+	if len(qb.spec.KeywordSearch) != 2 {
+		t.Fatalf("expected AppendKwSearch to append keyword search columns, got %d", len(qb.spec.KeywordSearch))
+	}
+	if qb.spec.KeywordSearch[0].Name() != "name" {
+		t.Fatalf("expected first keyword search column to remain name, got %q", qb.spec.KeywordSearch[0].Name())
+	}
+	if qb.spec.KeywordSearch[1].Name() != "email" {
+		t.Fatalf("expected second keyword search column to be email, got %q", qb.spec.KeywordSearch[1].Name())
+	}
+}
+
 func TestJoinType_Constants(t *testing.T) {
 	tests := []struct {
 		joinType JoinType

@@ -97,7 +97,7 @@ func (q {{$selectedType}}) GroupBy{{$from}}(cols ...tsq.OwnedColumn[{{$from}}]) 
 }
 
 func (q {{$selectedType}}) KwSearch{{$from}}(cols ...tsq.OwnedColumn[{{$from}}]) {{$selectedType}} {
-	q.qb.KwSearch(tsq.OwnedColumns(cols...)...)
+	q.qb.AppendKwSearch(tsq.OwnedColumns(cols...)...)
 	return q
 }
 
@@ -119,7 +119,7 @@ func (q {{$selectedType}}) GroupBy{{$right}}(cols ...tsq.OwnedColumn[{{$right}}]
 }
 
 func (q {{$selectedType}}) KwSearch{{$right}}(cols ...tsq.OwnedColumn[{{$right}}]) {{$selectedType}} {
-	q.qb.KwSearch(tsq.OwnedColumns(cols...)...)
+	q.qb.AppendKwSearch(tsq.OwnedColumns(cols...)...)
 	return q
 }
 

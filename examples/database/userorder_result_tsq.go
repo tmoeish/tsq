@@ -153,7 +153,7 @@ func (q userOrderSelectedQuery) GroupByUser(cols ...tsq.OwnedColumn[User]) userO
 }
 
 func (q userOrderSelectedQuery) KwSearchUser(cols ...tsq.OwnedColumn[User]) userOrderSelectedQuery {
-	q.qb.KwSearch(tsq.OwnedColumns(cols...)...)
+	q.qb.AppendKwSearch(tsq.OwnedColumns(cols...)...)
 	return q
 }
 
@@ -173,7 +173,7 @@ func (q userOrderSelectedQuery) GroupByOrg(cols ...tsq.OwnedColumn[Org]) userOrd
 }
 
 func (q userOrderSelectedQuery) KwSearchOrg(cols ...tsq.OwnedColumn[Org]) userOrderSelectedQuery {
-	q.qb.KwSearch(tsq.OwnedColumns(cols...)...)
+	q.qb.AppendKwSearch(tsq.OwnedColumns(cols...)...)
 	return q
 }
 
@@ -193,7 +193,7 @@ func (q userOrderSelectedQuery) GroupByOrder(cols ...tsq.OwnedColumn[Order]) use
 }
 
 func (q userOrderSelectedQuery) KwSearchOrder(cols ...tsq.OwnedColumn[Order]) userOrderSelectedQuery {
-	q.qb.KwSearch(tsq.OwnedColumns(cols...)...)
+	q.qb.AppendKwSearch(tsq.OwnedColumns(cols...)...)
 	return q
 }
 
@@ -213,7 +213,7 @@ func (q userOrderSelectedQuery) GroupByItem(cols ...tsq.OwnedColumn[Item]) userO
 }
 
 func (q userOrderSelectedQuery) KwSearchItem(cols ...tsq.OwnedColumn[Item]) userOrderSelectedQuery {
-	q.qb.KwSearch(tsq.OwnedColumns(cols...)...)
+	q.qb.AppendKwSearch(tsq.OwnedColumns(cols...)...)
 	return q
 }
 
@@ -233,7 +233,7 @@ func (q userOrderSelectedQuery) GroupByCategory(cols ...tsq.OwnedColumn[Category
 }
 
 func (q userOrderSelectedQuery) KwSearchCategory(cols ...tsq.OwnedColumn[Category]) userOrderSelectedQuery {
-	q.qb.KwSearch(tsq.OwnedColumns(cols...)...)
+	q.qb.AppendKwSearch(tsq.OwnedColumns(cols...)...)
 	return q
 }
 

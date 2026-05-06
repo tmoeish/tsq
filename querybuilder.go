@@ -453,3 +453,19 @@ func (qb *QueryBuilder) SetKwSearch(cols ...Column) *QueryBuilder {
 
 	return qb
 }
+
+// AppendKwSearch adds keyword-search columns without replacing existing ones.
+// If the builder is in an error state, this method returns immediately without modifying the query.
+func (qb *QueryBuilder) AppendKwSearch(cols ...Column) *QueryBuilder {
+	qb = qb.ensureInitialized()
+
+	if qb.buildErr != nil {
+		return qb
+	}
+
+	for _, col := range cols {
+		qb.appendColumn(&qb.spec.KeywordSearch, col)
+	}
+
+	return qb
+}
