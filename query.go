@@ -1766,7 +1766,9 @@ func buildScanDest[T any](cols []Column, holder *T) ([]any, error) {
 		return nil, errors.New("scan holder cannot be nil")
 	}
 
-	return buildScanDestAny(cols, holder)
+	return buildScanDestWith(cols, func(pointerFunc FieldPointer) (any, error) {
+		return invokeFieldPointer(pointerFunc, holder)
+	})
 }
 
 func buildScanDestAny(cols []Column, holder any) ([]any, error) {
@@ -1774,6 +1776,12 @@ func buildScanDestAny(cols []Column, holder any) ([]any, error) {
 		return nil, errors.Trace(err)
 	}
 
+	return buildScanDestWith(cols, func(pointerFunc FieldPointer) (any, error) {
+		return invokeFieldPointerAny(pointerFunc, holder)
+	})
+}
+
+func buildScanDestWith(cols []Column, invoke func(FieldPointer) (any, error)) ([]any, error) {
 	dest := make([]any, len(cols))
 
 	for i, col := range cols {
@@ -1782,7 +1790,7 @@ func buildScanDestAny(cols []Column, holder any) ([]any, error) {
 			return nil, errors.Errorf("select column %s cannot be scanned: field pointer is nil", col.QualifiedName())
 		}
 
-		ptr, err := invokeFieldPointer(pointerFunc, holder)
+		ptr, err := invoke(pointerFunc)
 		if err != nil {
 			return nil, errors.Annotatef(err, "select column %s cannot be scanned", col.QualifiedName())
 		}
@@ -1809,7 +1817,17 @@ func validateScanDestForType[T any](cols []Column, sqlText string, args []any) e
 	return nil
 }
 
-func invokeFieldPointer(pointerFunc FieldPointer, holder any) (ptr any, err error) {
+func invokeFieldPointer[T any](pointerFunc FieldPointer, holder *T) (ptr any, err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = errors.Errorf("field pointer panicked: %v", recovered)
+		}
+	}()
+
+	return pointerFunc(holder), nil
+}
+
+func invokeFieldPointerAny(pointerFunc FieldPointer, holder any) (ptr any, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			err = errors.Errorf("field pointer panicked: %v", recovered)

@@ -29,6 +29,7 @@
 ### 改进
 - 生成的表 DSL 增加 `Cols()`，让 Build 阶段可以校验列确实属于 `From` / Join 图中的表
 - 生成列现在使用 `NewCol[TableStruct, FieldType]`，列 owner 信息可被后续 typed query API 使用
+- `List` / `GetOrErr` / `Page` 的扫描目标构建链路改为泛型路径，动态 `Load(holder any)` 与强类型查询扫描分离
 - `Alias(...)` 表会同步重绑定生成列集合，别名查询也能参与列归属校验
 - 示例、文档和生成模板统一迁移到显式 `From` 与新 Join API
 
