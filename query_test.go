@@ -11,7 +11,7 @@ import (
 )
 
 // mustBuild is a test helper that builds a query and panics on error.
-func mustBuild(qb *QueryBuilder) *Query {
+func mustBuild[Owner Table](qb *QueryBuilder[Owner]) *Query {
 	q, err := qb.Build()
 	if err != nil {
 		panic(err)
@@ -92,7 +92,7 @@ func TestQuery_SQLAccessors(t *testing.T) {
 }
 
 func TestQueryBuilder_Build_EmptySelectFields(t *testing.T) {
-	qb := &QueryBuilder{
+	qb := &QueryBuilder[Table]{
 		spec: QuerySpec{},
 	}
 
@@ -112,7 +112,7 @@ func TestQueryBuilder_Build_EmptySelectFieldsWithWhereStillFails(t *testing.T) {
 	table := newMockTable("users")
 	col := newColForTable[Table, string](table, "id", "id", nil)
 
-	_, err := Select().Where(col.EQVar()).Build()
+	_, err := Select[Table]().Where(col.EQVar()).Build()
 	if err == nil {
 		t.Fatal("expected empty select fields to fail even when conditions add tables")
 	}
@@ -126,7 +126,7 @@ func TestQueryBuilder_Build_Success(t *testing.T) {
 	table := newMockTable("users")
 	col := newMockColumn(table, "id")
 
-	qb := &QueryBuilder{
+	qb := &QueryBuilder[Table]{
 		spec: QuerySpec{
 			From:    table,
 			Selects: []AnyColumn{col},
@@ -330,11 +330,10 @@ func TestQueryBuilder_Build_CaseExecutionOnSQLite(t *testing.T) {
 	db := newInVarDBMap(t)
 	users := newMockTable("users")
 	idCol := newColForTable[Table, int64](users, "id", "id", func(holder any) any { return &holder.(*caseUser).ID })
-	nameLabel := Case[string]().
+	nameLabel := Into[Table](Case[string]().
 		When(idCol.GT(1), "member").
 		Else("owner").
-		End().
-		Into(func(holder any) any { return &holder.(*caseUser).Label }, "label")
+		End(), func(holder any) any { return &holder.(*caseUser).Label }, "label")
 
 	query := mustBuild(Select(idCol, nameLabel).
 		From(idCol.Table()).Where(idCol.InVar()))
@@ -357,7 +356,7 @@ func TestQueryBuilder_MustBuild_Success(t *testing.T) {
 	table := newMockTable("users")
 	col := newMockColumn(table, "id")
 
-	qb := &QueryBuilder{
+	qb := &QueryBuilder[Table]{
 		spec: QuerySpec{
 			From:    table,
 			Selects: []AnyColumn{col},

@@ -82,3 +82,13 @@ func TestOwnedColumnsConvertsTypedColumns(t *testing.T) {
 		t.Fatalf("unexpected second column: %s", cols[1].QualifiedName())
 	}
 }
+
+func TestSelectReturnsTypedQueryBuilder(t *testing.T) {
+	userID := NewCol[typedUserOwner, int]("id", "id", nil)
+	userName := NewCol[typedUserOwner, string]("name", "name", nil)
+
+	var qb *QueryBuilder[typedUserOwner] = Select[typedUserOwner](userID, userName)
+	if qb == nil {
+		t.Fatal("expected typed query builder")
+	}
+}

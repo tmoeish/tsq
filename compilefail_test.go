@@ -57,6 +57,20 @@ var _ tsq.Column[userOwner, string] = userID
 			want: "cannot use userID",
 		},
 		{
+			name: "select_rejects_wrong_owner",
+			body: `
+var _ = tsq.Select[userOwner](orderID)
+`,
+			want: "cannot use orderID",
+		},
+		{
+			name: "select_rejects_mixed_owners",
+			body: `
+var _ = tsq.Select[userOwner](userID, orderID)
+`,
+			want: "cannot use orderID",
+		},
+		{
 			name: "join_cond_reject_wrong_right_owner",
 			body: `
 var _ = tsq.OnRight[userOwner, orderOwner](productStatus.EQ(1))

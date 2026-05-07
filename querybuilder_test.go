@@ -19,7 +19,7 @@ func newMockTable(name string) Table {
 	return mockTable{tableName: name}
 }
 
-func newMockColumn(table Table, name string) AnyColumn {
+func newMockColumn(table Table, name string) Col[Table, string] {
 	return newColForTable[Table, string](table, name, name, nil)
 }
 
@@ -53,7 +53,7 @@ func TestFromCreatesBuilderAndSelectSetsColumns(t *testing.T) {
 	id := newMockColumn(table, "id")
 	name := newMockColumn(table, "name")
 
-	qb := From(table).Select(id, name)
+	qb := From[Table](table).Select(id, name)
 	if qb == nil {
 		t.Fatal("From().Select() returned nil")
 	}
@@ -67,7 +67,7 @@ func TestFromCreatesBuilderAndSelectSetsColumns(t *testing.T) {
 
 func TestSelect_NilColumnDefersToBuildError(t *testing.T) {
 	table := newMockTable("users")
-	var col AnyColumn
+	var col SelectableColumn[Table]
 
 	_, err := Select(col).
 		From(table).Build()
@@ -307,8 +307,8 @@ func TestQueryBuilder_CTEBuildsWithClause(t *testing.T) {
 
 	activeUsers := CTE("active_users", Select(id, name).
 		From(id.Table()).Where(id.GT(10)))
-	activeUserID := RebindColumn(id, activeUsers)
-	activeUserName := RebindColumn(name, activeUsers)
+	activeUserID := id.WithTable(activeUsers)
+	activeUserName := name.WithTable(activeUsers)
 
 	query := mustBuild(Select(activeUserID, activeUserName).From(activeUsers))
 
@@ -329,9 +329,9 @@ func TestQueryBuilder_CTECollectsNestedDependencies(t *testing.T) {
 
 	baseUsers := CTE("base_users", Select(id).
 		From(id.Table()).Where(id.GT(1)))
-	baseUserID := RebindColumn(id, baseUsers)
+	baseUserID := id.WithTable(baseUsers)
 	filteredUsers := CTE("filtered_users", Select(baseUserID).From(baseUserID.Table()))
-	filteredUserID := RebindColumn(id, filteredUsers)
+	filteredUserID := id.WithTable(filteredUsers)
 
 	query := mustBuild(Select(filteredUserID).From(filteredUsers))
 
@@ -348,7 +348,7 @@ func TestQueryBuilder_CTERejectsKeywordSearchInDefinition(t *testing.T) {
 
 	searchUsers := CTE("search_users", Select(id, name).
 		From(id.Table()).KwSearch(name))
-	searchUserID := RebindColumn(id, searchUsers)
+	searchUserID := id.WithTable(searchUsers)
 
 	_, err := Select(searchUserID).
 		From(searchUserID.Table()).Build()
@@ -368,10 +368,10 @@ func TestQueryBuilder_CaseExpressionTracksConditionTables(t *testing.T) {
 	orgID := newColForTable[Table, int](orgs, "id", "id", nil)
 	orgName := newColForTable[Table, string](orgs, "name", "name", nil)
 
-	label := Case[string]().
+	label := Into[Table](Case[string]().
 		When(orgID.EQ(1), orgName).
 		Else("unknown").
-		End()
+		End(), func(holder any) any { return &holder.(*struct{ Label string }).Label }, "label")
 
 	_, err := Select(userID, label).
 		From(userID.Table()).Build()
@@ -871,7 +871,7 @@ func TestQueryBuilder_Build_AllowsRepeatedJoinTableWithAliases(t *testing.T) {
 }
 
 func TestQueryBuilder_Build_RejectsNilReceiver(t *testing.T) {
-	var qb *QueryBuilder
+	var qb *QueryBuilder[Table]
 
 	_, err := qb.Build()
 	if err == nil {
@@ -887,7 +887,7 @@ func TestQueryBuilder_MethodsHandleNilReceiverWithoutPanicking(t *testing.T) {
 	users := newMockTable("users")
 	userID := newColForTable[Table, int](users, "id", "id", nil)
 
-	var qb *QueryBuilder
+	var qb *QueryBuilder[Table]
 
 	_, err := qb.
 		Where(userID.EQVar()).
@@ -906,7 +906,7 @@ func TestQueryBuilder_MethodsHandleNilReceiverWithoutPanicking(t *testing.T) {
 func TestQueryBuilder_MethodsInitializeZeroValueBuilder(t *testing.T) {
 	users := newMockTable("users")
 	userID := newColForTable[Table, int](users, "id", "id", nil)
-	qb := &QueryBuilder{}
+	qb := &QueryBuilder[Table]{}
 
 	got := qb.
 		GroupBy(userID).

@@ -30,7 +30,7 @@ var (
 )
 
 // TableCategoryCols is the list of columns for Category table.
-var TableCategoryCols = []tsq.AnyColumn{
+var TableCategoryCols = []tsq.SelectableColumn[Category]{
 	Category_CreatedAt,
 	Category_Description,
 	Category_ID,
@@ -43,15 +43,15 @@ func (c Category) Table() string { return "category" }
 
 // KwList returns columns that support keyword search for Category.
 func (c Category) KwList() []tsq.AnyColumn {
-	return []tsq.AnyColumn{
+	return tsq.SelectColumns[Category](
 		Category_Name,
 		Category_Description,
-	}
+	)
 }
 
 // Cols returns all generated columns for Category.
 func (c Category) Cols() []tsq.AnyColumn {
-	return TableCategoryCols
+	return tsq.SelectColumns[Category](TableCategoryCols...)
 }
 
 func init() {
@@ -79,7 +79,7 @@ var getCategoryByIDQuery *tsq.Query
 func init() {
 	var err error
 	getCategoryByIDQuery, err = tsq.
-		Select(TableCategoryCols...).
+		Select[Category](TableCategoryCols...).
 		From(TableCategory).
 		Where(Category_ID.EQVar()).
 		Build()
@@ -136,7 +136,7 @@ func ListCategoryByIDIn(
 	iDs ...int64,
 ) ([]*Category, error) {
 	query, err := tsq.
-		Select(TableCategoryCols...).
+		Select[Category](TableCategoryCols...).
 		From(TableCategory).
 		Where(Category_ID.In(iDs...)).
 		Build()
@@ -155,7 +155,7 @@ func ListCategoryByIDInOrErr(
 	iDs ...int64,
 ) ([]*Category, error) {
 	query, err := tsq.
-		Select(TableCategoryCols...).
+		Select[Category](TableCategoryCols...).
 		From(TableCategory).
 		Where(Category_ID.In(iDs...)).
 		Build()
@@ -253,7 +253,7 @@ var listCategoryQuery *tsq.Query
 func init() {
 	var err error
 	listCategoryQuery, err = tsq.
-		Select(TableCategoryCols...).
+		Select[Category](TableCategoryCols...).
 		From(TableCategory).
 		KwSearch(TableCategory.KwList()...).
 		Build()
@@ -295,7 +295,7 @@ var getCategoryByNameQuery *tsq.Query
 func init() {
 	var err error
 	getCategoryByNameQuery, err = tsq.
-		Select(TableCategoryCols...).
+		Select[Category](TableCategoryCols...).
 		From(TableCategory).
 		Where(
 			Category_Name.EQVar(),

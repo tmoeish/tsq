@@ -28,7 +28,7 @@ var (
 )
 
 // TableOrgCols is the list of columns for Org table.
-var TableOrgCols = []tsq.AnyColumn{
+var TableOrgCols = []tsq.SelectableColumn[Org]{
 	Org_CreatedAt,
 	Org_ID,
 	Org_Name,
@@ -39,12 +39,12 @@ func (o Org) Table() string { return "org" }
 
 // KwList returns columns that support keyword search for Org.
 func (o Org) KwList() []tsq.AnyColumn {
-	return []tsq.AnyColumn{}
+	return tsq.SelectColumns[Org]()
 }
 
 // Cols returns all generated columns for Org.
 func (o Org) Cols() []tsq.AnyColumn {
-	return TableOrgCols
+	return tsq.SelectColumns[Org](TableOrgCols...)
 }
 
 func init() {
@@ -72,7 +72,7 @@ var getOrgByIDQuery *tsq.Query
 func init() {
 	var err error
 	getOrgByIDQuery, err = tsq.
-		Select(TableOrgCols...).
+		Select[Org](TableOrgCols...).
 		From(TableOrg).
 		Where(Org_ID.EQVar()).
 		Build()
@@ -129,7 +129,7 @@ func ListOrgByIDIn(
 	iDs ...int64,
 ) ([]*Org, error) {
 	query, err := tsq.
-		Select(TableOrgCols...).
+		Select[Org](TableOrgCols...).
 		From(TableOrg).
 		Where(Org_ID.In(iDs...)).
 		Build()
@@ -148,7 +148,7 @@ func ListOrgByIDInOrErr(
 	iDs ...int64,
 ) ([]*Org, error) {
 	query, err := tsq.
-		Select(TableOrgCols...).
+		Select[Org](TableOrgCols...).
 		From(TableOrg).
 		Where(Org_ID.In(iDs...)).
 		Build()
@@ -246,7 +246,7 @@ var listOrgQuery *tsq.Query
 func init() {
 	var err error
 	listOrgQuery, err = tsq.
-		Select(TableOrgCols...).
+		Select[Org](TableOrgCols...).
 		From(TableOrg).
 		KwSearch(TableOrg.KwList()...).
 		Build()
@@ -288,7 +288,7 @@ var getOrgByNameQuery *tsq.Query
 func init() {
 	var err error
 	getOrgByNameQuery, err = tsq.
-		Select(TableOrgCols...).
+		Select[Org](TableOrgCols...).
 		From(TableOrg).
 		Where(
 			Org_Name.EQVar(),

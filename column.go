@@ -22,10 +22,15 @@ type AnyColumn interface {
 	FieldPointer() FieldPointer // Returns the pointer function for scanning
 }
 
-// Column represents a typed column in a database table.
-type Column[Owner Table, T any] interface {
+// SelectableColumn is a column that can be projected for a query result owner.
+type SelectableColumn[Owner Table] interface {
 	AnyColumn
-	columnOwner(Owner)
+	selectOwner(Owner)
+}
+
+// Column represents a typed selectable column.
+type Column[Owner Table, T any] interface {
+	SelectableColumn[Owner]
 	columnValue(T)
 }
 
@@ -43,7 +48,7 @@ type typedColumn[T any] interface {
 // Projection-only ResultCol values intentionally do not implement this
 // interface, so Result fields cannot be fed back into query clauses.
 type OwnedColumn[Owner Table] interface {
-	AnyColumn
+	SelectableColumn[Owner]
 	columnOwner(Owner)
 }
 
@@ -139,7 +144,20 @@ func (c Col[Owner, T]) rawQualifiedName() string {
 
 func (c Col[Owner, T]) columnValue(T) {}
 
+func (c Col[Owner, T]) selectOwner(Owner) {}
+
 func (c Col[Owner, T]) columnOwner(Owner) {}
+
+// SelectColumns converts owner-constrained selectable columns to erased
+// columns for runtime query planning.
+func SelectColumns[Owner Table](cols ...SelectableColumn[Owner]) []AnyColumn {
+	result := make([]AnyColumn, 0, len(cols))
+	for _, col := range cols {
+		result = append(result, col)
+	}
+
+	return result
+}
 
 // OwnedColumns converts typed owner-constrained columns to generic columns for
 // the runtime query builder.
@@ -190,37 +208,68 @@ func (c Col[Owner, T]) As(alias string) Col[Owner, T] {
 	return c.WithTable(AliasTable(c.table, alias))
 }
 
-// Into creates a new column with different pointer function and JSON tag
-// This is useful for results and custom result mapping
+// Into creates a projection column with the same owner and a different pointer
+// function and JSON tag. Use the package-level Into[Result](...) helper when a
+// projection belongs to a separate Result owner.
 func (c Col[Owner, T]) Into(fieldPointer FieldPointer, jsonFieldName string) ResultCol[Owner, T] {
-	if fieldPointer == nil {
-		return ResultCol[Owner, T]{col: Col[Owner, T]{
-			table:         c.table,
-			name:          c.name,
-			qualifiedName: c.qualifiedName,
+	return Into[Owner](c, fieldPointer, jsonFieldName)
+}
+
+// Into creates a Result-owned projection column from another typed column.
+func Into[Result, Source Table, T any](
+	source Column[Source, T],
+	fieldPointer FieldPointer,
+	jsonFieldName string,
+) ResultCol[Result, T] {
+	if isNilValue(source) {
+		return ResultCol[Result, T]{col: Col[Result, T]{
 			fieldPointer:  fieldPointer,
 			jsonFieldName: jsonFieldName,
-			args:          append([]any(nil), c.args...),
-			tables:        cloneTableMap(c.tables),
-			aggregate:     c.aggregate,
-			distinct:      c.distinct,
-			transformed:   c.transformed,
-			buildErr:      errors.New("field pointer cannot be nil"),
+			buildErr:      errors.New("source column cannot be nil"),
 		}}
 	}
 
-	return ResultCol[Owner, T]{col: Col[Owner, T]{
-		table:         c.table,
-		name:          c.name,
-		qualifiedName: c.qualifiedName,
+	tables := map[string]Table(nil)
+	if refs, ok := source.(interface{ referencedTables() map[string]Table }); ok {
+		tables = refs.referencedTables()
+	}
+
+	aggregate := false
+	if agg, ok := source.(interface{ isAggregateExpression() bool }); ok {
+		aggregate = agg.isAggregateExpression()
+	}
+
+	distinct := false
+	if d, ok := source.(interface{ isDistinctExpression() bool }); ok {
+		distinct = d.isDistinctExpression()
+	}
+
+	transformed := false
+	if t, ok := source.(interface{ isTransformedExpression() bool }); ok {
+		transformed = t.isTransformedExpression()
+	}
+
+	buildErr := error(nil)
+	if carrier, ok := source.(buildErrorCarrier); ok {
+		buildErr = errors.Trace(carrier.buildError())
+	}
+
+	if fieldPointer == nil {
+		buildErr = errors.New("field pointer cannot be nil")
+	}
+
+	return ResultCol[Result, T]{col: Col[Result, T]{
+		table:         source.Table(),
+		name:          source.Name(),
+		qualifiedName: rawColumnQualifiedName(source),
 		fieldPointer:  fieldPointer,
 		jsonFieldName: jsonFieldName,
-		args:          append([]any(nil), c.args...),
-		tables:        cloneTableMap(c.tables),
-		aggregate:     c.aggregate,
-		distinct:      c.distinct,
-		transformed:   c.transformed,
-		buildErr:      c.buildErr,
+		args:          expressionArgs(source),
+		tables:        tables,
+		aggregate:     aggregate,
+		distinct:      distinct,
+		transformed:   transformed,
+		buildErr:      buildErr,
 	}}
 }
 
@@ -233,6 +282,10 @@ func (c ResultCol[Owner, T]) QualifiedName() string { return c.col.QualifiedName
 func (c ResultCol[Owner, T]) JSONFieldName() string { return c.col.JSONFieldName() }
 
 func (c ResultCol[Owner, T]) FieldPointer() FieldPointer { return c.col.FieldPointer() }
+
+func (c ResultCol[Owner, T]) columnValue(T) {}
+
+func (c ResultCol[Owner, T]) selectOwner(Owner) {}
 
 func (c ResultCol[Owner, T]) rawQualifiedName() string { return c.col.rawQualifiedName() }
 

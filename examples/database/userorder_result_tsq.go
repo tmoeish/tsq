@@ -13,50 +13,54 @@ var ResultUserOrder = UserOrder{}
 
 // Column definitions for UserOrder result fields.
 var (
-	UserOrder_ItemCategory = Category_Name.Into(func(holder any) any {
+	UserOrder_ItemCategory = tsq.Into[UserOrder](Category_Name, func(holder any) any {
 		return &holder.(*UserOrder).ItemCategory
 	}, "item_category")
-	UserOrder_ItemID = Item_ID.Into(func(holder any) any {
+	UserOrder_ItemID = tsq.Into[UserOrder](Item_ID, func(holder any) any {
 		return &holder.(*UserOrder).ItemID
 	}, "item_id")
-	UserOrder_ItemName = Item_Name.Into(func(holder any) any {
+	UserOrder_ItemName = tsq.Into[UserOrder](Item_Name, func(holder any) any {
 		return &holder.(*UserOrder).ItemName
 	}, "item_name")
-	UserOrder_ItemPrice = Item_Price.Into(func(holder any) any {
+	UserOrder_ItemPrice = tsq.Into[UserOrder](Item_Price, func(holder any) any {
 		return &holder.(*UserOrder).ItemPrice
 	}, "item_price")
-	UserOrder_OrderAmount = Order_Amount.Into(func(holder any) any {
+	UserOrder_OrderAmount = tsq.Into[UserOrder](Order_Amount, func(holder any) any {
 		return &holder.(*UserOrder).OrderAmount
 	}, "order_amount")
-	UserOrder_OrderID = Order_UID.Into(func(holder any) any {
+	UserOrder_OrderID = tsq.Into[UserOrder](Order_UID, func(holder any) any {
 		return &holder.(*UserOrder).OrderID
 	}, "order_id")
-	UserOrder_OrderPrice = Order_Price.Into(func(holder any) any {
+	UserOrder_OrderPrice = tsq.Into[UserOrder](Order_Price, func(holder any) any {
 		return &holder.(*UserOrder).OrderPrice
 	}, "order_price")
-	UserOrder_OrderStatus = Order_Status.Into(func(holder any) any {
+	UserOrder_OrderStatus = tsq.Into[UserOrder](Order_Status, func(holder any) any {
 		return &holder.(*UserOrder).OrderStatus
 	}, "order_status")
-	UserOrder_OrderTime = Order_CreatedAt.Into(func(holder any) any {
+	UserOrder_OrderTime = tsq.Into[UserOrder](Order_CreatedAt, func(holder any) any {
 		return &holder.(*UserOrder).OrderTime
 	}, "order_time")
-	UserOrder_OrgName = Org_Name.Into(func(holder any) any {
+	UserOrder_OrgName = tsq.Into[UserOrder](Org_Name, func(holder any) any {
 		return &holder.(*UserOrder).OrgName
 	}, "org_name")
-	UserOrder_UserEmail = User_Email.Into(func(holder any) any {
+	UserOrder_UserEmail = tsq.Into[UserOrder](User_Email, func(holder any) any {
 		return &holder.(*UserOrder).UserEmail
 	}, "user_email")
-	UserOrder_UserID = User_ID.Into(func(holder any) any {
+	UserOrder_UserID = tsq.Into[UserOrder](User_ID, func(holder any) any {
 		return &holder.(*UserOrder).UserID
 	}, "user_id")
-	UserOrder_UserName = User_Name.Into(func(holder any) any {
+	UserOrder_UserName = tsq.Into[UserOrder](User_Name, func(holder any) any {
 		return &holder.(*UserOrder).UserName
 	}, "user_name")
 )
 
+func (uo UserOrder) Table() string { return "" }
+
+func (uo UserOrder) KwList() []tsq.AnyColumn { return nil }
+
 // Cols returns the generated result columns for UserOrder.
-func (uo UserOrder) Cols() []tsq.AnyColumn {
-	return []tsq.AnyColumn{
+func (uo UserOrder) Cols() []tsq.SelectableColumn[UserOrder] {
+	return []tsq.SelectableColumn[UserOrder]{
 		UserOrder_ItemCategory,
 		UserOrder_ItemID,
 		UserOrder_ItemName,
@@ -78,27 +82,27 @@ func (uo UserOrder) Cols() []tsq.AnyColumn {
 // =============================================================================
 
 type userOrderFromUserQuery struct {
-	qb *tsq.QueryBuilder
+	qb *tsq.QueryBuilder[UserOrder]
 }
 type userOrderWithOrgQuery struct {
-	qb *tsq.QueryBuilder
+	qb *tsq.QueryBuilder[UserOrder]
 }
 type userOrderWithOrderQuery struct {
-	qb *tsq.QueryBuilder
+	qb *tsq.QueryBuilder[UserOrder]
 }
 type userOrderWithItemQuery struct {
-	qb *tsq.QueryBuilder
+	qb *tsq.QueryBuilder[UserOrder]
 }
 type userOrderWithCategoryQuery struct {
-	qb *tsq.QueryBuilder
+	qb *tsq.QueryBuilder[UserOrder]
 }
 type userOrderSelectedQuery struct {
-	qb *tsq.QueryBuilder
+	qb *tsq.QueryBuilder[UserOrder]
 }
 
 // UserOrderFromUser starts a typed UserOrder query from User.
 func UserOrderFromUser() userOrderFromUserQuery {
-	return userOrderFromUserQuery{qb: tsq.From(TableUser)}
+	return userOrderFromUserQuery{qb: tsq.From[UserOrder](TableUser)}
 }
 
 func (q userOrderFromUserQuery) LeftJoinOrg(on tsq.JoinOn[User, Org], conds ...tsq.JoinCond[User, Org]) userOrderWithOrgQuery {

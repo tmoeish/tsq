@@ -19,15 +19,19 @@ var Result{{$type}} = {{$type}}{}
 // Column definitions for {{$type}} result fields.
 var (
 {{- range $f := .Fields }}
-	{{$type}}_{{$f.Name}} = {{$f.Column}}.Into(func(holder any) any {
+	{{$type}}_{{$f.Name}} = tsq.Into[{{$type}}]({{$f.Column}}, func(holder any) any {
 		return &holder.({{$ptype}}).{{$f.Name}}
 	}, "{{$f.JsonTag}}")
 {{- end }}
 )
 
+func ({{$dot.Recv}} {{$type}}) Table() string { return "" }
+
+func ({{$dot.Recv}} {{$type}}) KwList() []tsq.AnyColumn { return nil }
+
 // Cols returns the generated result columns for {{$type}}.
-{{$recv}}Cols() []tsq.AnyColumn {
-	return []tsq.AnyColumn{
+{{$recv}}Cols() []tsq.SelectableColumn[{{$type}}] {
+	return []tsq.SelectableColumn[{{$type}}]{
 {{- range $f := .Fields }}
 		{{$type}}_{{$f.Name}},
 {{- end }}
@@ -45,22 +49,22 @@ var (
 {{- $selectedType := ResultSelectedQueryType $type }}
 
 type {{$fromType}} struct {
-	qb *tsq.QueryBuilder
+	qb *tsq.QueryBuilder[{{$type}}]
 }
 
 {{- range $idx, $join := .JoinList }}
 type {{ ResultJoinQueryType $type $join }} struct {
-	qb *tsq.QueryBuilder
+	qb *tsq.QueryBuilder[{{$type}}]
 }
 
 {{- end }}
 type {{$selectedType}} struct {
-	qb *tsq.QueryBuilder
+	qb *tsq.QueryBuilder[{{$type}}]
 }
 
 // {{$type}}From{{$from}} starts a typed {{$type}} query from {{$from}}.
 func {{$type}}From{{$from}}() {{$fromType}} {
-	return {{$fromType}}{qb: tsq.From(Table{{$from}})}
+	return {{$fromType}}{qb: tsq.From[{{$type}}](Table{{$from}})}
 }
 
 {{- range $idx, $join := .JoinList }}

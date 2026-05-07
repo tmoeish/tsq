@@ -24,7 +24,7 @@ type cteTable struct {
 // CTE creates a reusable non-recursive WITH/CTE table handle from a query.
 // Rebind existing columns to the returned table via RebindColumn or Col.WithTable
 // to reference the CTE output columns in outer queries.
-func CTE(name string, query *QueryBuilder) Table {
+func CTE[Owner Table](name string, query *QueryBuilder[Owner]) Table {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return cteTable{buildErr: errors.New("cte name cannot be empty")}

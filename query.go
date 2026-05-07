@@ -232,7 +232,7 @@ func (q *Query) KwListSQL() string {
 // ================================================
 
 // Build builds and validates the query
-func (qb *QueryBuilder) Build() (*Query, error) {
+func (qb *QueryBuilder[Owner]) Build() (*Query, error) {
 	if qb == nil {
 		return nil, errors.New("query builder cannot be nil")
 	}

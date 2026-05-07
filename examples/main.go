@@ -89,15 +89,27 @@ type aliasedUserOrgRow struct {
 	OrgName  string
 }
 
+func (aliasedUserOrgRow) Table() string { return "" }
+
+func (aliasedUserOrgRow) KwList() []tsq.AnyColumn { return nil }
+
 type categoryAggregateRow struct {
 	Category      string
 	OrderCount    int64
 	AverageAmount float64
 }
 
+func (categoryAggregateRow) Table() string { return "" }
+
+func (categoryAggregateRow) KwList() []tsq.AnyColumn { return nil }
+
 type namedRow struct {
 	Name string
 }
+
+func (namedRow) Table() string { return "" }
+
+func (namedRow) KwList() []tsq.AnyColumn { return nil }
 
 func main() {
 	ctx := context.Background()
@@ -281,15 +293,15 @@ func runCRUDDemo(ctx context.Context, dbmap *tsq.DbMap) (*crudSummary, error) {
 func runAliasDemo(ctx context.Context, dbmap *tsq.DbMap) (*aliasSummary, error) {
 	orgAlias := "user_org"
 	orgID := database.Org_ID.As(orgAlias)
-	orgName := database.Org_Name.As(orgAlias).Into(func(holder any) any {
+	orgName := tsq.Into[aliasedUserOrgRow](database.Org_Name.As(orgAlias), func(holder any) any {
 		return &holder.(*aliasedUserOrgRow).OrgName
 	}, "org_name")
-	userName := database.User_Name.Into(func(holder any) any {
+	userName := tsq.Into[aliasedUserOrgRow](database.User_Name, func(holder any) any {
 		return &holder.(*aliasedUserOrgRow).UserName
 	}, "user_name")
 
 	query, err := tsq.
-		Select(userName, orgName).
+		Select[aliasedUserOrgRow](userName, orgName).
 		From(database.TableUser).
 		LeftJoin(orgID.Table(), database.User_OrgID.EQCol(orgID)).
 		Where(database.User_ID.EQ(1)).
@@ -310,18 +322,18 @@ func runAliasDemo(ctx context.Context, dbmap *tsq.DbMap) (*aliasSummary, error) 
 }
 
 func runAggregateDemo(ctx context.Context, dbmap *tsq.DbMap) ([]aggregateSummary, error) {
-	categoryName := database.Category_Name.Into(func(holder any) any {
+	categoryName := tsq.Into[categoryAggregateRow](database.Category_Name, func(holder any) any {
 		return &holder.(*categoryAggregateRow).Category
 	}, "category")
-	orderCount := database.Order_UID.Count().Into(func(holder any) any {
+	orderCount := tsq.Into[categoryAggregateRow](database.Order_UID.Count(), func(holder any) any {
 		return &holder.(*categoryAggregateRow).OrderCount
 	}, "order_count")
-	averageAmount := database.Order_Amount.Avg().Into(func(holder any) any {
+	averageAmount := tsq.Into[categoryAggregateRow](database.Order_Amount.Avg(), func(holder any) any {
 		return &holder.(*categoryAggregateRow).AverageAmount
 	}, "average_amount")
 
 	query, err := tsq.
-		Select(categoryName, orderCount, averageAmount).
+		Select[categoryAggregateRow](categoryName, orderCount, averageAmount).
 		From(database.TableCategory).
 		LeftJoin(database.TableItem, database.Category_ID.EQCol(database.Item_CategoryID)).
 		LeftJoin(database.TableOrder, database.Item_ID.EQCol(database.Order_ItemID)).
@@ -411,7 +423,7 @@ func runResultDemo(ctx context.Context, dbmap *tsq.DbMap) (*resultSummary, error
 
 func runInVarDemo(ctx context.Context, dbmap *tsq.DbMap) (*inVarSummary, error) {
 	query, err := tsq.
-		Select(database.TableItemCols...).
+		Select[database.Item](database.TableItemCols...).
 		From(database.TableItem).
 		Where(database.Item_CategoryID.InVar()).
 		Build()
@@ -440,17 +452,17 @@ func runInVarDemo(ctx context.Context, dbmap *tsq.DbMap) (*inVarSummary, error) 
 }
 
 func runCaseDemo(ctx context.Context, dbmap *tsq.DbMap) (*caseSummary, error) {
-	userLabel := tsq.
+	userLabelExpr := tsq.
 		Case[string]().
 		When(database.User_OrgID.EQ(1), "first_org").
 		Else("other_org").
-		End().
-		Into(func(holder any) any {
-			return &holder.(*namedRow).Name
-		}, "label")
+		End()
+	userLabel := tsq.Into[namedRow](userLabelExpr, func(holder any) any {
+		return &holder.(*namedRow).Name
+	}, "label")
 
 	query, err := tsq.
-		Select(userLabel).
+		Select[namedRow](userLabel).
 		From(database.TableUser).
 		Where(database.User_ID.InVar()).
 		Build()
@@ -476,18 +488,18 @@ func runCaseDemo(ctx context.Context, dbmap *tsq.DbMap) (*caseSummary, error) {
 func runCTEDemo(ctx context.Context, dbmap *tsq.DbMap) (*cteSummary, error) {
 	scopedUsers := tsq.CTE(
 		"scoped_users",
-		tsq.Select(database.User_ID, database.User_Name).
+		tsq.Select[database.User](database.User_ID, database.User_Name).
 			From(database.TableUser).
 			Where(database.User_OrgID.EQ(1)),
 	)
 
 	scopedUserID := database.User_ID.WithTable(scopedUsers)
-	scopedUserName := database.User_Name.WithTable(scopedUsers).Into(func(holder any) any {
+	scopedUserName := tsq.Into[namedRow](database.User_Name.WithTable(scopedUsers), func(holder any) any {
 		return &holder.(*namedRow).Name
 	}, "name")
 
 	query, err := tsq.
-		Select(scopedUserName).
+		Select[namedRow](scopedUserName).
 		From(scopedUsers).
 		Where(scopedUserID.GT(0)).
 		Build()
@@ -519,18 +531,18 @@ func runCTEDemo(ctx context.Context, dbmap *tsq.DbMap) (*cteSummary, error) {
 }
 
 func runSetOpsDemo(ctx context.Context, dbmap *tsq.DbMap) (*setOpsSummary, error) {
-	categoryName := database.Category_Name.Into(func(holder any) any {
+	categoryName := tsq.Into[namedRow](database.Category_Name, func(holder any) any {
 		return &holder.(*namedRow).Name
 	}, "name")
-	itemName := database.Item_Name.Into(func(holder any) any {
+	itemName := tsq.Into[namedRow](database.Item_Name, func(holder any) any {
 		return &holder.(*namedRow).Name
 	}, "name")
 
 	unionQuery, err := tsq.
-		Select(categoryName).
+		Select[namedRow](categoryName).
 		From(database.TableCategory).
 		Where(database.Category_ID.InVar()).
-		Union(tsq.Select(itemName).
+		Union(tsq.Select[namedRow](itemName).
 			From(database.TableItem).
 			Where(database.Item_CategoryID.InVar())).
 		Build()
@@ -544,9 +556,9 @@ func runSetOpsDemo(ctx context.Context, dbmap *tsq.DbMap) (*setOpsSummary, error
 	}
 
 	exceptQuery, err := tsq.
-		Select(itemName).
+		Select[namedRow](itemName).
 		From(database.TableItem).
-		Except(tsq.Select(categoryName).
+		Except(tsq.Select[namedRow](categoryName).
 			From(database.TableCategory).
 			Where(database.Category_ID.InVar())).
 		Build()
@@ -595,7 +607,7 @@ func runChunkedDemo(ctx context.Context, dbmap *tsq.DbMap) (*chunkedSummary, err
 	}
 
 	nameQuery, err := tsq.
-		Select(database.TableUserCols...).
+		Select[database.User](database.TableUserCols...).
 		From(database.TableUser).
 		Where(database.User_Name.InVar()).
 		Build()
