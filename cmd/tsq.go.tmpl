@@ -55,7 +55,7 @@ var {{$varTbl}} tsq.Table = {{$type}}{}
 // Column definitions for {{$type}} table.
 var (
 {{- range $f := .Fields }}
-	{{$type}}_{{$f.Name}} = tsq.NewCol[{{$type}}, {{$f | FieldType}}]({{$varTbl}}, "{{$f.Column}}", "{{$f.JsonTag}}", func(t any) any { return &t.({{$ptype}}).{{$f.Name}} })
+	{{$type}}_{{$f.Name}} = tsq.NewCol[{{$type}}, {{$f | FieldType}}]("{{$f.Column}}", "{{$f.JsonTag}}", func(t {{$ptype}}) *{{$f | FieldType}} { return &t.{{$f.Name}} })
 {{- end }}
 )
 

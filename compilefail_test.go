@@ -49,6 +49,29 @@ var _ = tsq.OnRight[userOwner, orderOwner](productStatus.EQ(1))
 `,
 			want: "cannot use productStatus.EQ(1)",
 		},
+		{
+			name: "new_col_rejects_non_table_owner",
+			body: `
+type nonTableOwner struct{}
+
+var _ = tsq.NewCol[nonTableOwner, int]("id", "id", nil)
+`,
+			want: "nonTableOwner does not satisfy tsq.Table",
+		},
+		{
+			name: "new_col_rejects_wrong_field_pointer_owner",
+			body: `
+var _ = tsq.NewCol[userOwner, int]("id", "id", func(o *orderOwner) *int { return nil })
+`,
+			want: "cannot use func(o *orderOwner) *int",
+		},
+		{
+			name: "new_col_rejects_wrong_field_pointer_value",
+			body: `
+var _ = tsq.NewCol[userOwner, int]("id", "id", func(o *userOwner) *string { return nil })
+`,
+			want: "cannot use func(o *userOwner) *string",
+		},
 	}
 
 	for _, tc := range cases {
@@ -200,19 +223,21 @@ type userOwner struct{}
 type orderOwner struct{}
 type productOwner struct{}
 
-type testTable string
+func (userOwner) Table() string { return "users" }
 
-func (t testTable) Table() string { return string(t) }
+func (userOwner) KwList() []tsq.Column { return nil }
 
-func (t testTable) KwList() []tsq.Column { return nil }
+func (orderOwner) Table() string { return "orders" }
 
-var userTable = testTable("users")
-var orderTable = testTable("orders")
-var productTable = testTable("products")
+func (orderOwner) KwList() []tsq.Column { return nil }
 
-var userID = tsq.NewCol[userOwner, int](userTable, "id", "id", nil)
-var orderID = tsq.NewCol[orderOwner, int](orderTable, "id", "id", nil)
-var productStatus = tsq.NewCol[productOwner, int](productTable, "status", "status", nil)
+func (productOwner) Table() string { return "products" }
+
+func (productOwner) KwList() []tsq.Column { return nil }
+
+var userID = tsq.NewCol[userOwner, int]("id", "id", nil)
+var orderID = tsq.NewCol[orderOwner, int]("id", "id", nil)
+var productStatus = tsq.NewCol[productOwner, int]("status", "status", nil)
 ` + body
 }
 

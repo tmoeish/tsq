@@ -22,11 +22,11 @@ var TableItem tsq.Table = Item{}
 
 // Column definitions for Item table.
 var (
-	Item_CategoryID = tsq.NewCol[Item, int64](TableItem, "category_id", "CategoryID", func(t any) any { return &t.(*Item).CategoryID })
-	Item_CreatedAt  = tsq.NewCol[Item, null.Time](TableItem, "created_at", "created_at", func(t any) any { return &t.(*Item).CreatedAt })
-	Item_ID         = tsq.NewCol[Item, int64](TableItem, "id", "id", func(t any) any { return &t.(*Item).ID })
-	Item_Name       = tsq.NewCol[Item, string](TableItem, "name", "Name", func(t any) any { return &t.(*Item).Name })
-	Item_Price      = tsq.NewCol[Item, int64](TableItem, "price", "Price", func(t any) any { return &t.(*Item).Price })
+	Item_CategoryID = tsq.NewCol[Item, int64]("category_id", "CategoryID", func(t *Item) *int64 { return &t.CategoryID })
+	Item_CreatedAt  = tsq.NewCol[Item, null.Time]("created_at", "created_at", func(t *Item) *null.Time { return &t.CreatedAt })
+	Item_ID         = tsq.NewCol[Item, int64]("id", "id", func(t *Item) *int64 { return &t.ID })
+	Item_Name       = tsq.NewCol[Item, string]("name", "Name", func(t *Item) *string { return &t.Name })
+	Item_Price      = tsq.NewCol[Item, int64]("price", "Price", func(t *Item) *int64 { return &t.Price })
 )
 
 // TableItemCols is the list of columns for Item table.

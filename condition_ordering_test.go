@@ -8,7 +8,7 @@ import (
 // All condition methods follow the pattern: column.OPERATOR(values...)
 func TestConditionParameterOrdering_ConsistentPattern(t *testing.T) {
 	table := newMockTable("users")
-	col := NewCol[any, int](table, "id", "id", nil)
+	col := newColForTable[Table, int](table, "id", "id", nil)
 
 	// Test basic comparisons - parameter is the value to compare
 	_ = col.EQ(5)
@@ -34,7 +34,7 @@ func TestConditionParameterOrdering_ConsistentPattern(t *testing.T) {
 // TestConditionParameterOrdering_StringPatterns documents string pattern methods
 func TestConditionParameterOrdering_StringPatterns(t *testing.T) {
 	table := newMockTable("users")
-	nameCol := NewCol[any, string](table, "name", "name", nil)
+	nameCol := newColForTable[Table, string](table, "name", "name", nil)
 
 	// Pattern matching - parameter is the pattern string
 	_ = nameCol.StartsWith("John")
@@ -53,7 +53,7 @@ func TestConditionParameterOrdering_StringPatterns(t *testing.T) {
 // TestConditionParameterOrdering_BindingStyles documents different binding style suffixes
 func TestConditionParameterOrdering_BindingStyles(t *testing.T) {
 	table := newMockTable("users")
-	col := NewCol[any, int](table, "id", "id", nil)
+	col := newColForTable[Table, int](table, "id", "id", nil)
 
 	// Default binding (parameter binding with ?)
 	_ = col.EQ(5)
@@ -69,7 +69,7 @@ func TestConditionParameterOrdering_BindingStyles(t *testing.T) {
 
 	// Column comparison
 	otherTable := newMockTable("orders")
-	otherCol := NewCol[any, int](otherTable, "user_id", "user_id", nil)
+	otherCol := newColForTable[Table, int](otherTable, "user_id", "user_id", nil)
 	_ = col.EQCol(otherCol)
 	_ = col.GTCol(otherCol)
 
@@ -110,7 +110,7 @@ func TestConditionParameterOrdering_Documentation(t *testing.T) {
 // TestConditionParameterOrdering_ConsistencyAcrossOperators verifies that all operators use same pattern
 func TestConditionParameterOrdering_ConsistencyAcrossOperators(t *testing.T) {
 	table := newMockTable("users")
-	col := NewCol[any, int](table, "id", "id", nil)
+	col := newColForTable[Table, int](table, "id", "id", nil)
 
 	tests := []struct {
 		name string

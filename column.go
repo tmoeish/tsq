@@ -35,7 +35,7 @@ type typedColumn[T any] interface {
 // OwnedColumn is a table-owned column accepted by typed query builders.
 // Projection-only ResultCol values intentionally do not implement this
 // interface, so Result fields cannot be fed back into query clauses.
-type OwnedColumn[Owner any] interface {
+type OwnedColumn[Owner Table] interface {
 	Column
 	columnOwner(Owner)
 }
@@ -43,7 +43,7 @@ type OwnedColumn[Owner any] interface {
 // Col represents a typed column in a database table.
 // Owner is the Go type that owns the generated column, normally the table
 // struct type. T is the Go value type stored in the column.
-type Col[Owner, T any] struct {
+type Col[Owner Table, T any] struct {
 	table         Table        // 所属表
 	name          string       // 列名
 	qualifiedName string       // 完整列名（包含表名）
@@ -60,12 +60,25 @@ type Col[Owner, T any] struct {
 // ResultCol is a projection-only column produced by Col.Into.
 // It can be selected and scanned, but intentionally does not expose predicate
 // methods such as EQVar so Result fields cannot be used as query inputs.
-type ResultCol[Owner, T any] struct {
+type ResultCol[Owner Table, T any] struct {
 	col Col[Owner, T]
 }
 
-// NewCol creates a new typed column for a table
-func NewCol[Owner, T any](table Table, baseName, jsonFieldName string, fieldPointer FieldPointer) Col[Owner, T] {
+// NewCol creates a new typed column for the table represented by Owner.
+func NewCol[Owner Table, T any](baseName, jsonFieldName string, fieldPointer func(t *Owner) *T) Col[Owner, T] {
+	var table Owner
+
+	var fp FieldPointer
+	if fieldPointer != nil {
+		fp = func(holder any) any {
+			return fieldPointer(holder.(*Owner))
+		}
+	}
+
+	return newColForTable[Owner, T](table, baseName, jsonFieldName, fp)
+}
+
+func newColForTable[Owner Table, T any](table Table, baseName, jsonFieldName string, fieldPointer FieldPointer) Col[Owner, T] {
 	if isNilValue(table) {
 		return Col[Owner, T]{
 			name:          baseName,
@@ -123,7 +136,7 @@ func (c Col[Owner, T]) columnOwner(Owner) {}
 
 // OwnedColumns converts typed owner-constrained columns to generic columns for
 // the runtime query builder.
-func OwnedColumns[Owner any](cols ...OwnedColumn[Owner]) []Column {
+func OwnedColumns[Owner Table](cols ...OwnedColumn[Owner]) []Column {
 	result := make([]Column, 0, len(cols))
 	for _, col := range cols {
 		result = append(result, col)

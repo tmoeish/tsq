@@ -22,11 +22,11 @@ var TableUser tsq.Table = User{}
 
 // Column definitions for User table.
 var (
-	User_CreatedAt = tsq.NewCol[User, null.Time](TableUser, "created_at", "created_at", func(t any) any { return &t.(*User).CreatedAt })
-	User_Email     = tsq.NewCol[User, string](TableUser, "email", "email", func(t any) any { return &t.(*User).Email })
-	User_ID        = tsq.NewCol[User, int64](TableUser, "id", "id", func(t any) any { return &t.(*User).ID })
-	User_Name      = tsq.NewCol[User, string](TableUser, "name", "name", func(t any) any { return &t.(*User).Name })
-	User_OrgID     = tsq.NewCol[User, int64](TableUser, "org_id", "org_id", func(t any) any { return &t.(*User).OrgID })
+	User_CreatedAt = tsq.NewCol[User, null.Time]("created_at", "created_at", func(t *User) *null.Time { return &t.CreatedAt })
+	User_Email     = tsq.NewCol[User, string]("email", "email", func(t *User) *string { return &t.Email })
+	User_ID        = tsq.NewCol[User, int64]("id", "id", func(t *User) *int64 { return &t.ID })
+	User_Name      = tsq.NewCol[User, string]("name", "name", func(t *User) *string { return &t.Name })
+	User_OrgID     = tsq.NewCol[User, int64]("org_id", "org_id", func(t *User) *int64 { return &t.OrgID })
 )
 
 // TableUserCols is the list of columns for User table.

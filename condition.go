@@ -104,7 +104,7 @@ type Cond struct {
 	buildErr error
 }
 
-func pred[Owner any](cond Cond) Pred[Owner] {
+func pred[Owner Table](cond Cond) Pred[Owner] {
 	return Pred[Owner]{Cond: cond}
 }
 

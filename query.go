@@ -590,7 +590,7 @@ func pageFn[T any](
 	for rows.Next() {
 		r := new(T)
 
-		dest, err := buildScanDest(q.selectCols, r)
+		dest, err := buildScanDest[T](q.selectCols, r)
 		if err != nil {
 			return nil, errors.Annotate(err, "failed to execute paginated query")
 		}
@@ -665,7 +665,7 @@ func listFn[T any](
 	for rows.Next() {
 		r := new(T)
 
-		dest, err := buildScanDest(q.selectCols, r)
+		dest, err := buildScanDest[T](q.selectCols, r)
 		if err != nil {
 			return nil, errors.Annotate(err, "failed to execute list query")
 		}
@@ -722,7 +722,7 @@ func getOrErrFn[T any](
 
 	r := new(T)
 
-	dest, err := buildScanDest(qb.selectCols, r)
+	dest, err := buildScanDest[T](qb.selectCols, r)
 	if err != nil {
 		return nil, errors.Annotate(err, "failed to execute select query")
 	}
@@ -776,7 +776,7 @@ func (q *Query) load(
 		slog.Info("load", "sql", sqlText, "args", CompactJSON(finalArgs))
 	}
 
-	dest, err := buildScanDest(q.selectCols, holder)
+	dest, err := buildScanDestAny(q.selectCols, holder)
 	if err != nil {
 		return errors.Annotate(err, "failed to execute select query")
 	}
@@ -1761,7 +1761,15 @@ func validateScanHolder(holder any) error {
 	return nil
 }
 
-func buildScanDest(cols []Column, holder any) ([]any, error) {
+func buildScanDest[T any](cols []Column, holder *T) ([]any, error) {
+	if isNilValue(holder) {
+		return nil, errors.New("scan holder cannot be nil")
+	}
+
+	return buildScanDestAny(cols, holder)
+}
+
+func buildScanDestAny(cols []Column, holder any) ([]any, error) {
 	if err := validateScanHolder(holder); err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -1791,7 +1799,7 @@ func buildScanDest(cols []Column, holder any) ([]any, error) {
 
 func validateScanDestForType[T any](cols []Column, sqlText string, args []any) error {
 	holder := new(T)
-	if _, err := buildScanDest(cols, holder); err != nil {
+	if _, err := buildScanDest[T](cols, holder); err != nil {
 		return errors.Annotatef(err,
 			"build scan dest\n%s\n%v",
 			sqlText, CompactJSON(args),

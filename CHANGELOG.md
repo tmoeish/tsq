@@ -11,6 +11,9 @@
 
 ### 变更（Breaking Changes）
 - `Col[T]` 升级为 `Col[Owner, T]`，生成列会把所属表 Struct 类型写入类型参数
+- `NewCol[Owner, T]` 不再接收显式 table 参数，列所属表由满足 `tsq.Table` 的 `Owner` 类型推导
+- `NewCol[Owner, T]` 的 field pointer 收紧为 `func(*Owner) *T`，生成列的扫描目标类型在编译期校验
+- `Col` / `Pred` / `JoinOn` / `JoinCond` / `OwnedColumn` 等 owner 类型参数从 `any` 收紧为 `tsq.Table`
 - `Into(...)` 现在返回只用于投影的 `ResultCol[Owner, T]`，Result 字段不再暴露 `EQVar` / `EQCol` 等条件方法
 - 查询现在必须显式调用 `From(table)`，不再从 `Select(...)` 或 Join 链隐式推导主表
 - `Join` / `LeftJoin` / `RightJoin` / `FullJoin` 改为直接接收可变 `Condition`，移除旧的 `.Join(...).On(left, right)` 两步 API

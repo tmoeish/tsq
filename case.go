@@ -15,6 +15,10 @@ type caseBranch struct {
 
 type expressionOwner struct{}
 
+func (expressionOwner) Table() string { return "" }
+
+func (expressionOwner) KwList() []Column { return nil }
+
 // CaseBuilder builds a searched CASE expression.
 type CaseBuilder[T any] struct {
 	whens     []caseBranch

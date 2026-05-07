@@ -7,11 +7,17 @@ type (
 	typedOrderOwner struct{}
 )
 
+func (typedUserOwner) Table() string { return "users" }
+
+func (typedUserOwner) KwList() []Column { return nil }
+
+func (typedOrderOwner) Table() string { return "orders" }
+
+func (typedOrderOwner) KwList() []Column { return nil }
+
 func TestOnCreatesTypedJoinCondition(t *testing.T) {
-	users := newMockTable("users")
-	orders := newMockTable("orders")
-	userID := NewCol[typedUserOwner, int](users, "id", "id", nil)
-	orderUserID := NewCol[typedOrderOwner, int](orders, "user_id", "user_id", nil)
+	userID := NewCol[typedUserOwner, int]("id", "id", nil)
+	orderUserID := NewCol[typedOrderOwner, int]("user_id", "user_id", nil)
 
 	var cond Condition = On(userID, orderUserID)
 	if cond.Clause() != `"users"."id" = "orders"."user_id"` {
@@ -28,10 +34,8 @@ func TestOnCreatesTypedJoinCondition(t *testing.T) {
 }
 
 func TestOnSupportsNonEqualityJoinEdges(t *testing.T) {
-	users := newMockTable("users")
-	orders := newMockTable("orders")
-	userScore := NewCol[typedUserOwner, int](users, "score", "score", nil)
-	orderMinimum := NewCol[typedOrderOwner, int](orders, "minimum_score", "minimum_score", nil)
+	userScore := NewCol[typedUserOwner, int]("score", "score", nil)
+	orderMinimum := NewCol[typedOrderOwner, int]("minimum_score", "minimum_score", nil)
 
 	var cond Condition = OnGTE(userScore, orderMinimum)
 	if cond.Clause() != `"users"."score" >= "orders"."minimum_score"` {
@@ -40,12 +44,10 @@ func TestOnSupportsNonEqualityJoinEdges(t *testing.T) {
 }
 
 func TestJoinCondWrapsLeftRightPredicatesAndExtraEdges(t *testing.T) {
-	users := newMockTable("users")
-	orders := newMockTable("orders")
-	userID := NewCol[typedUserOwner, int](users, "id", "id", nil)
-	userStatus := NewCol[typedUserOwner, int](users, "status", "status", nil)
-	orderUserID := NewCol[typedOrderOwner, int](orders, "user_id", "user_id", nil)
-	orderStatus := NewCol[typedOrderOwner, int](orders, "status", "status", nil)
+	userID := NewCol[typedUserOwner, int]("id", "id", nil)
+	userStatus := NewCol[typedUserOwner, int]("status", "status", nil)
+	orderUserID := NewCol[typedOrderOwner, int]("user_id", "user_id", nil)
+	orderStatus := NewCol[typedOrderOwner, int]("status", "status", nil)
 
 	conds := []Condition{
 		OnExtra(On(userID, orderUserID)),
@@ -66,9 +68,8 @@ func TestJoinCondWrapsLeftRightPredicatesAndExtraEdges(t *testing.T) {
 }
 
 func TestOwnedColumnsConvertsTypedColumns(t *testing.T) {
-	users := newMockTable("users")
-	userID := NewCol[typedUserOwner, int](users, "id", "id", nil)
-	userName := NewCol[typedUserOwner, string](users, "name", "name", nil)
+	userID := NewCol[typedUserOwner, int]("id", "id", nil)
+	userName := NewCol[typedUserOwner, string]("name", "name", nil)
 
 	cols := OwnedColumns[typedUserOwner](userID, userName)
 	if len(cols) != 2 {

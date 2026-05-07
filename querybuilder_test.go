@@ -20,7 +20,7 @@ func newMockTable(name string) Table {
 }
 
 func newMockColumn(table Table, name string) Column {
-	return NewCol[any, string](table, name, name, nil)
+	return newColForTable[Table, string](table, name, name, nil)
 }
 
 func TestSelect(t *testing.T) {
@@ -82,7 +82,7 @@ func TestSelect_NilColumnDefersToBuildError(t *testing.T) {
 
 func TestSelect_ZeroValueColumnDefersToBuildError(t *testing.T) {
 	table := newMockTable("users")
-	var col Col[any, int]
+	var col Col[Table, int]
 
 	_, err := Select(col).
 		From(table).Build()
@@ -98,8 +98,8 @@ func TestSelect_ZeroValueColumnDefersToBuildError(t *testing.T) {
 func TestQueryBuilder_LeftJoin(t *testing.T) {
 	table1 := newMockTable("users")
 	table2 := newMockTable("orders")
-	col1 := NewCol[any, string](table1, "id", "id", nil)
-	col2 := NewCol[any, string](table2, "user_id", "user_id", nil)
+	col1 := newColForTable[Table, string](table1, "id", "id", nil)
+	col2 := newColForTable[Table, string](table2, "user_id", "user_id", nil)
 
 	qb := Select(col1).
 		From(col1.Table()).LeftJoin(table2, col1.EQCol(col2))
@@ -130,8 +130,8 @@ func TestQueryBuilder_LeftJoin(t *testing.T) {
 func TestQueryBuilder_InnerJoin(t *testing.T) {
 	table1 := newMockTable("users")
 	table2 := newMockTable("orders")
-	col1 := NewCol[any, string](table1, "id", "id", nil)
-	col2 := NewCol[any, string](table2, "user_id", "user_id", nil)
+	col1 := newColForTable[Table, string](table1, "id", "id", nil)
+	col2 := newColForTable[Table, string](table2, "user_id", "user_id", nil)
 
 	qb := Select(col1).
 		From(col1.Table()).InnerJoin(table2, col1.EQCol(col2))
@@ -148,8 +148,8 @@ func TestQueryBuilder_InnerJoin(t *testing.T) {
 func TestQueryBuilder_RightJoin(t *testing.T) {
 	table1 := newMockTable("users")
 	table2 := newMockTable("orders")
-	col1 := NewCol[any, string](table1, "id", "id", nil)
-	col2 := NewCol[any, string](table2, "user_id", "user_id", nil)
+	col1 := newColForTable[Table, string](table1, "id", "id", nil)
+	col2 := newColForTable[Table, string](table2, "user_id", "user_id", nil)
 
 	qb := Select(col1).
 		From(col1.Table()).RightJoin(table2, col1.EQCol(col2))
@@ -166,8 +166,8 @@ func TestQueryBuilder_RightJoin(t *testing.T) {
 func TestQueryBuilder_FullJoin(t *testing.T) {
 	table1 := newMockTable("users")
 	table2 := newMockTable("orders")
-	col1 := NewCol[any, string](table1, "id", "id", nil)
-	col2 := NewCol[any, string](table2, "user_id", "user_id", nil)
+	col1 := newColForTable[Table, string](table1, "id", "id", nil)
+	col2 := newColForTable[Table, string](table2, "user_id", "user_id", nil)
 
 	qb := Select(col1).
 		From(col1.Table()).FullJoin(table2, col1.EQCol(col2))
@@ -302,8 +302,8 @@ func TestQueryBuilder_SetOperationBuildsWrappedCountSQL(t *testing.T) {
 
 func TestQueryBuilder_CTEBuildsWithClause(t *testing.T) {
 	users := newMockTable("users")
-	id := NewCol[any, int](users, "id", "id", nil)
-	name := NewCol[any, string](users, "name", "name", nil)
+	id := newColForTable[Table, int](users, "id", "id", nil)
+	name := newColForTable[Table, string](users, "name", "name", nil)
 
 	activeUsers := CTE("active_users", Select(id, name).
 		From(id.Table()).Where(id.GT(10)))
@@ -325,7 +325,7 @@ func TestQueryBuilder_CTEBuildsWithClause(t *testing.T) {
 
 func TestQueryBuilder_CTECollectsNestedDependencies(t *testing.T) {
 	users := newMockTable("users")
-	id := NewCol[any, int](users, "id", "id", nil)
+	id := newColForTable[Table, int](users, "id", "id", nil)
 
 	baseUsers := CTE("base_users", Select(id).
 		From(id.Table()).Where(id.GT(1)))
@@ -343,8 +343,8 @@ func TestQueryBuilder_CTECollectsNestedDependencies(t *testing.T) {
 
 func TestQueryBuilder_CTERejectsKeywordSearchInDefinition(t *testing.T) {
 	users := newMockTable("users")
-	id := NewCol[any, int](users, "id", "id", nil)
-	name := NewCol[any, string](users, "name", "name", nil)
+	id := newColForTable[Table, int](users, "id", "id", nil)
+	name := newColForTable[Table, string](users, "name", "name", nil)
 
 	searchUsers := CTE("search_users", Select(id, name).
 		From(id.Table()).KwSearch(name))
@@ -364,9 +364,9 @@ func TestQueryBuilder_CTERejectsKeywordSearchInDefinition(t *testing.T) {
 func TestQueryBuilder_CaseExpressionTracksConditionTables(t *testing.T) {
 	users := newMockTable("users")
 	orgs := newMockTable("orgs")
-	userID := NewCol[any, int](users, "id", "id", nil)
-	orgID := NewCol[any, int](orgs, "id", "id", nil)
-	orgName := NewCol[any, string](orgs, "name", "name", nil)
+	userID := newColForTable[Table, int](users, "id", "id", nil)
+	orgID := newColForTable[Table, int](orgs, "id", "id", nil)
+	orgName := newColForTable[Table, string](orgs, "name", "name", nil)
 
 	label := Case[string]().
 		When(orgID.EQ(1), orgName).
@@ -617,9 +617,9 @@ func TestJoinType_Constants(t *testing.T) {
 func TestQueryBuilder_ChainedOperations(t *testing.T) {
 	table1 := newMockTable("users")
 	table2 := newMockTable("orders")
-	col1 := NewCol[any, string](table1, "id", "id", nil)
-	col2 := NewCol[any, string](table1, "name", "name", nil)
-	col3 := NewCol[any, string](table2, "user_id", "user_id", nil)
+	col1 := newColForTable[Table, string](table1, "id", "id", nil)
+	col2 := newColForTable[Table, string](table1, "name", "name", nil)
+	col3 := newColForTable[Table, string](table2, "user_id", "user_id", nil)
 
 	mockCond := &mockCondition{
 		clause: "`users`.`id` > 0",
@@ -690,7 +690,7 @@ func TestQueryBuilder_GroupedCountUsesWrappedSubquery(t *testing.T) {
 
 func TestQueryBuilder_DistinctCountUsesWrappedSubquery(t *testing.T) {
 	table := newMockTable("users")
-	name := NewCol[any, string](table, "name", "name", nil)
+	name := newColForTable[Table, string](table, "name", "name", nil)
 
 	query := mustBuild(Select(name.Distinct()).From(name.Table()))
 
@@ -707,7 +707,7 @@ func TestQueryBuilder_DistinctCountUsesWrappedSubquery(t *testing.T) {
 
 func TestQueryBuilder_AggregateCountUsesWrappedSubquery(t *testing.T) {
 	table := newMockTable("users")
-	id := NewCol[any, int](table, "id", "id", nil)
+	id := newColForTable[Table, int](table, "id", "id", nil)
 
 	query := mustBuild(Select(id.Count()).From(id.Table()))
 
@@ -724,7 +724,7 @@ func TestQueryBuilder_AggregateCountUsesWrappedSubquery(t *testing.T) {
 
 func TestQueryBuilder_HavingKeepsRawClauseForDialectRendering(t *testing.T) {
 	users := newMockTable("users")
-	id := NewCol[any, int](users, "id", "id", nil)
+	id := newColForTable[Table, int](users, "id", "id", nil)
 
 	q, err := Select(id).
 		From(id.Table()).GroupBy(id).Having(id.GT(1)).Build()
@@ -760,10 +760,10 @@ func TestQueryBuilder_Build_RejectsTablesReferencedOutsideJoinGraph(t *testing.T
 	users := newMockTable("users")
 	orgs := newMockTable("orgs")
 	items := newMockTable("items")
-	userID := NewCol[any, int](users, "id", "id", nil)
-	userOrgID := NewCol[any, int](users, "org_id", "org_id", nil)
-	orgID := NewCol[any, int](orgs, "id", "id", nil)
-	itemID := NewCol[any, int](items, "id", "id", nil)
+	userID := newColForTable[Table, int](users, "id", "id", nil)
+	userOrgID := newColForTable[Table, int](users, "org_id", "org_id", nil)
+	orgID := newColForTable[Table, int](orgs, "id", "id", nil)
+	itemID := newColForTable[Table, int](items, "id", "id", nil)
 
 	_, err := Select(userID).
 		From(userID.Table()).
@@ -782,8 +782,8 @@ func TestQueryBuilder_Build_RejectsTablesReferencedOutsideJoinGraph(t *testing.T
 func TestQueryBuilder_WhereReplacesConditionTables(t *testing.T) {
 	users := newMockTable("users")
 	orders := newMockTable("orders")
-	userID := NewCol[any, int](users, "id", "id", nil)
-	orderID := NewCol[any, int](orders, "id", "id", nil)
+	userID := newColForTable[Table, int](users, "id", "id", nil)
+	orderID := newColForTable[Table, int](orders, "id", "id", nil)
 
 	query := mustBuild(Select(userID).
 		From(userID.Table()).
@@ -802,11 +802,11 @@ func TestQueryBuilder_Build_RejectsDisconnectedJoinGraph(t *testing.T) {
 	orders := newMockTable("orders")
 	items := newMockTable("items")
 
-	userID := NewCol[any, int](users, "id", "id", nil)
-	userOrgID := NewCol[any, int](users, "org_id", "org_id", nil)
-	orgID := NewCol[any, int](orgs, "id", "id", nil)
-	orderItemID := NewCol[any, int](orders, "item_id", "item_id", nil)
-	itemID := NewCol[any, int](items, "id", "id", nil)
+	userID := newColForTable[Table, int](users, "id", "id", nil)
+	userOrgID := newColForTable[Table, int](users, "org_id", "org_id", nil)
+	orgID := newColForTable[Table, int](orgs, "id", "id", nil)
+	orderItemID := newColForTable[Table, int](orders, "item_id", "item_id", nil)
+	itemID := newColForTable[Table, int](items, "id", "id", nil)
 
 	_, err := Select(userID).
 		From(userID.Table()).
@@ -826,10 +826,10 @@ func TestQueryBuilder_Build_RejectsRepeatedJoinTableWithoutAliases(t *testing.T)
 	users := newMockTable("users")
 	orgs := newMockTable("orgs")
 
-	userID := NewCol[any, int](users, "id", "id", nil)
-	userOrgID := NewCol[any, int](users, "org_id", "org_id", nil)
-	orgID := NewCol[any, int](orgs, "id", "id", nil)
-	orgParentID := NewCol[any, int](orgs, "parent_id", "parent_id", nil)
+	userID := newColForTable[Table, int](users, "id", "id", nil)
+	userOrgID := newColForTable[Table, int](users, "org_id", "org_id", nil)
+	orgID := newColForTable[Table, int](orgs, "id", "id", nil)
+	orgParentID := newColForTable[Table, int](orgs, "parent_id", "parent_id", nil)
 
 	_, err := Select(userID).
 		From(userID.Table()).
@@ -850,15 +850,15 @@ func TestQueryBuilder_Build_AllowsRepeatedJoinTableWithAliases(t *testing.T) {
 	users := newMockTable("users")
 	orgs := newMockTable("orgs")
 
-	userID := NewCol[any, int](users, "id", "id", nil)
-	userOrgID := NewCol[any, int](users, "org_id", "org_id", nil)
-	orgID := NewCol[any, int](orgs, "id", "id", nil)
+	userID := newColForTable[Table, int](users, "id", "id", nil)
+	userOrgID := newColForTable[Table, int](users, "org_id", "org_id", nil)
+	orgID := newColForTable[Table, int](orgs, "id", "id", nil)
 	parentOrgID := orgID.As("parent_orgs")
 
 	query, err := Select(userID, parentOrgID).
 		From(userID.Table()).
 		LeftJoin(orgs, userOrgID.EQCol(orgID)).
-		LeftJoin(parentOrgID.Table(), NewCol[any, int](orgs, "parent_id", "parent_id", nil).EQCol(parentOrgID)).
+		LeftJoin(parentOrgID.Table(), newColForTable[Table, int](orgs, "parent_id", "parent_id", nil).EQCol(parentOrgID)).
 		Build()
 	if err != nil {
 		t.Fatalf("expected aliased repeated join to build, got %v", err)
@@ -885,7 +885,7 @@ func TestQueryBuilder_Build_RejectsNilReceiver(t *testing.T) {
 
 func TestQueryBuilder_MethodsHandleNilReceiverWithoutPanicking(t *testing.T) {
 	users := newMockTable("users")
-	userID := NewCol[any, int](users, "id", "id", nil)
+	userID := newColForTable[Table, int](users, "id", "id", nil)
 
 	var qb *QueryBuilder
 
@@ -905,7 +905,7 @@ func TestQueryBuilder_MethodsHandleNilReceiverWithoutPanicking(t *testing.T) {
 
 func TestQueryBuilder_MethodsInitializeZeroValueBuilder(t *testing.T) {
 	users := newMockTable("users")
-	userID := NewCol[any, int](users, "id", "id", nil)
+	userID := newColForTable[Table, int](users, "id", "id", nil)
 	qb := &QueryBuilder{}
 
 	got := qb.

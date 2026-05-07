@@ -246,7 +246,7 @@ func (q userOrderSelectedQuery) Build() (*tsq.Query, error) {
 	return q.qb.Build()
 }
 
-func UserOrderJoinConditions[Left, Right any](on tsq.JoinOn[Left, Right], conds ...tsq.JoinCond[Left, Right]) []tsq.Condition {
+func UserOrderJoinConditions[Left, Right tsq.Table](on tsq.JoinOn[Left, Right], conds ...tsq.JoinCond[Left, Right]) []tsq.Condition {
 	result := make([]tsq.Condition, 0, len(conds)+1)
 	result = append(result, on)
 	for _, extra := range conds {

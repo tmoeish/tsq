@@ -22,11 +22,11 @@ var TableCategory tsq.Table = Category{}
 
 // Column definitions for Category table.
 var (
-	Category_CreatedAt   = tsq.NewCol[Category, null.Time](TableCategory, "created_at", "created_at", func(t any) any { return &t.(*Category).CreatedAt })
-	Category_Description = tsq.NewCol[Category, string](TableCategory, "description", "description", func(t any) any { return &t.(*Category).Description })
-	Category_ID          = tsq.NewCol[Category, int64](TableCategory, "id", "id", func(t any) any { return &t.(*Category).ID })
-	Category_Name        = tsq.NewCol[Category, string](TableCategory, "name", "name", func(t any) any { return &t.(*Category).Name })
-	Category_Type        = tsq.NewCol[Category, CategoryType](TableCategory, "type", "type", func(t any) any { return &t.(*Category).Type })
+	Category_CreatedAt   = tsq.NewCol[Category, null.Time]("created_at", "created_at", func(t *Category) *null.Time { return &t.CreatedAt })
+	Category_Description = tsq.NewCol[Category, string]("description", "description", func(t *Category) *string { return &t.Description })
+	Category_ID          = tsq.NewCol[Category, int64]("id", "id", func(t *Category) *int64 { return &t.ID })
+	Category_Name        = tsq.NewCol[Category, string]("name", "name", func(t *Category) *string { return &t.Name })
+	Category_Type        = tsq.NewCol[Category, CategoryType]("type", "type", func(t *Category) *CategoryType { return &t.Type })
 )
 
 // TableCategoryCols is the list of columns for Category table.

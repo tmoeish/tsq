@@ -22,9 +22,9 @@ var TableOrg tsq.Table = Org{}
 
 // Column definitions for Org table.
 var (
-	Org_CreatedAt = tsq.NewCol[Org, null.Time](TableOrg, "created_at", "created_at", func(t any) any { return &t.(*Org).CreatedAt })
-	Org_ID        = tsq.NewCol[Org, int64](TableOrg, "id", "id", func(t any) any { return &t.(*Org).ID })
-	Org_Name      = tsq.NewCol[Org, string](TableOrg, "name", "Name", func(t any) any { return &t.(*Org).Name })
+	Org_CreatedAt = tsq.NewCol[Org, null.Time]("created_at", "created_at", func(t *Org) *null.Time { return &t.CreatedAt })
+	Org_ID        = tsq.NewCol[Org, int64]("id", "id", func(t *Org) *int64 { return &t.ID })
+	Org_Name      = tsq.NewCol[Org, string]("name", "Name", func(t *Org) *string { return &t.Name })
 )
 
 // TableOrgCols is the list of columns for Org table.

@@ -110,7 +110,7 @@ func TestQueryBuilder_Build_EmptySelectFields(t *testing.T) {
 
 func TestQueryBuilder_Build_EmptySelectFieldsWithWhereStillFails(t *testing.T) {
 	table := newMockTable("users")
-	col := NewCol[any, string](table, "id", "id", nil)
+	col := newColForTable[Table, string](table, "id", "id", nil)
 
 	_, err := Select().Where(col.EQVar()).Build()
 	if err == nil {
@@ -163,8 +163,8 @@ func TestQueryBuilder_Build_Success(t *testing.T) {
 func TestQueryBuilder_Build_FullJoinDefersDialectValidationToExecution(t *testing.T) {
 	users := newMockTable("users")
 	orders := newMockTable("orders")
-	userID := NewCol[any, string](users, "id", "id", nil)
-	orderUserID := NewCol[any, string](orders, "user_id", "user_id", nil)
+	userID := newColForTable[Table, string](users, "id", "id", nil)
+	orderUserID := newColForTable[Table, string](orders, "user_id", "user_id", nil)
 
 	query, err := Select(userID).
 		From(userID.Table()).FullJoin(orders, userID.EQCol(orderUserID)).Build()
@@ -212,8 +212,8 @@ func TestQueryBuilder_Build_SetOperationPaginationUsesOutputColumnNames(t *testi
 func TestQueryBuilder_Build_CTEExecutionOnSQLite(t *testing.T) {
 	db := newInVarDBMap(t)
 	users := newMockTable("users")
-	idCol := NewCol[any, int64](users, "id", "id", func(holder any) any { return &holder.(*inVarUser).ID })
-	nameCol := NewCol[any, string](users, "name", "name", func(holder any) any { return &holder.(*inVarUser).Name })
+	idCol := newColForTable[Table, int64](users, "id", "id", func(holder any) any { return &holder.(*inVarUser).ID })
+	nameCol := newColForTable[Table, string](users, "name", "name", func(holder any) any { return &holder.(*inVarUser).Name })
 
 	selectedUsers := CTE("selected_users", Select(idCol, nameCol).
 		From(idCol.Table()).Where(idCol.InVar()))
@@ -251,7 +251,7 @@ func TestQueryBuilder_Build_CTEDefersDialectValidationToExecution(t *testing.T) 
 	db.Dialect = MySQLDialect{}
 
 	users := newMockTable("users")
-	id := NewCol[any, int](users, "id", "id", nil)
+	id := newColForTable[Table, int](users, "id", "id", nil)
 	filteredUsers := CTE("filtered_users", Select(id).
 		From(id.Table()).Where(id.GT(1)))
 	filteredUserID := id.WithTable(filteredUsers)
@@ -272,7 +272,7 @@ func TestQueryBuilder_Build_IntersectDefersDialectValidationToExecution(t *testi
 	db.Dialect = MySQLDialect{}
 
 	users := newMockTable("users")
-	id := NewCol[any, int](users, "id", "id", nil)
+	id := newColForTable[Table, int](users, "id", "id", nil)
 
 	query := mustBuild(Select(id).
 		From(id.Table()).
@@ -292,7 +292,7 @@ func TestQueryBuilder_Build_ExceptDefersDialectValidationToExecution(t *testing.
 	db.Dialect = MySQLDialect{}
 
 	users := newMockTable("users")
-	id := NewCol[any, int](users, "id", "id", nil)
+	id := newColForTable[Table, int](users, "id", "id", nil)
 
 	query := mustBuild(Select(id).
 		From(id.Table()).
@@ -329,7 +329,7 @@ type caseUser struct {
 func TestQueryBuilder_Build_CaseExecutionOnSQLite(t *testing.T) {
 	db := newInVarDBMap(t)
 	users := newMockTable("users")
-	idCol := NewCol[any, int64](users, "id", "id", func(holder any) any { return &holder.(*caseUser).ID })
+	idCol := newColForTable[Table, int64](users, "id", "id", func(holder any) any { return &holder.(*caseUser).ID })
 	nameLabel := Case[string]().
 		When(idCol.GT(1), "member").
 		Else("owner").
@@ -603,7 +603,7 @@ func TestQuery_buildPageSQLsRejectsAmbiguousSortField(t *testing.T) {
 
 func TestQuery_buildPageSQLsIgnoresHiddenJSONSortAlias(t *testing.T) {
 	users := newMockTable("users")
-	hidden := NewCol[any, string](users, "secret", "-", nil)
+	hidden := newColForTable[Table, string](users, "secret", "-", nil)
 
 	query := mustBuild(Select(hidden).From(hidden.Table()))
 
@@ -780,7 +780,7 @@ func TestQueryCountRejectsUnbuiltQuery(t *testing.T) {
 
 func TestRenderSQLForDialectPostgres(t *testing.T) {
 	users := newMockTable("users")
-	userID := NewCol[any, int](users, "id", "id", nil)
+	userID := newColForTable[Table, int](users, "id", "id", nil)
 
 	query := mustBuild(Select(userID).
 		From(userID.Table()).Where(userID.EQVar()))
@@ -935,7 +935,7 @@ func TestChunkedInsertRejectsTypedNilExecutor(t *testing.T) {
 func TestQueryCountRejectsExecutorWithoutDialectForRenderedSQL(t *testing.T) {
 	db := newDBMapWithoutDialect(t)
 	users := newMockTable("users")
-	userID := NewCol[any, int](users, "id", "id", nil)
+	userID := newColForTable[Table, int](users, "id", "id", nil)
 	query := mustBuild(Select(userID).From(userID.Table()))
 
 	_, err := query.Count(context.Background(), db)
@@ -1081,7 +1081,7 @@ func newDBMapWithoutDialect(t *testing.T) *DbMap {
 
 func TestListValidatesScanDestEvenWhenResultIsEmpty(t *testing.T) {
 	db := newScanValidationDBMap(t)
-	col := NewCol[any, string](newMockTable("users"), "name", "name", nil)
+	col := newColForTable[Table, string](newMockTable("users"), "name", "name", nil)
 	query := &Query{
 		cntSQL:     "SELECT COUNT(1) FROM users",
 		listSQL:    "SELECT name FROM users WHERE 1 = 0",
@@ -1101,8 +1101,8 @@ func TestListValidatesScanDestEvenWhenResultIsEmpty(t *testing.T) {
 func TestListSupportsInVarSlices(t *testing.T) {
 	db := newInVarDBMap(t)
 	users := newMockTable("users")
-	idCol := NewCol[any, int64](users, "id", "id", func(holder any) any { return &holder.(*inVarUser).ID })
-	nameCol := NewCol[any, string](users, "name", "name", func(holder any) any { return &holder.(*inVarUser).Name })
+	idCol := newColForTable[Table, int64](users, "id", "id", func(holder any) any { return &holder.(*inVarUser).ID })
+	nameCol := newColForTable[Table, string](users, "name", "name", func(holder any) any { return &holder.(*inVarUser).Name })
 
 	query := mustBuild(Select(idCol, nameCol).
 		From(idCol.Table()).Where(idCol.InVar()))
@@ -1132,7 +1132,7 @@ func TestListSupportsInVarSlices(t *testing.T) {
 
 func TestPageValidatesScanDestEvenWhenResultIsEmpty(t *testing.T) {
 	db := newScanValidationDBMap(t)
-	col := NewCol[any, string](newMockTable("users"), "name", "name", nil)
+	col := newColForTable[Table, string](newMockTable("users"), "name", "name", nil)
 	query := &Query{
 		cntSQL:     "SELECT COUNT(1) FROM users",
 		listSQL:    "SELECT name FROM users WHERE 1 = 0",
@@ -1150,9 +1150,9 @@ func TestPageValidatesScanDestEvenWhenResultIsEmpty(t *testing.T) {
 }
 
 func TestBuildScanDestRejectsNilFieldPointer(t *testing.T) {
-	col := NewCol[any, string](newMockTable("users"), "name", "name", nil)
+	col := newColForTable[Table, string](newMockTable("users"), "name", "name", nil)
 
-	_, err := buildScanDest([]Column{col}, &scanDestUser{})
+	_, err := buildScanDest[scanDestUser]([]Column{col}, &scanDestUser{})
 	if err == nil {
 		t.Fatal("expected nil field pointer to return an error")
 	}
@@ -1163,14 +1163,14 @@ func TestBuildScanDestRejectsNilFieldPointer(t *testing.T) {
 }
 
 func TestBuildScanDestRecoversFieldPointerPanics(t *testing.T) {
-	col := NewCol[any, string](
+	col := newColForTable[Table, string](
 		newMockTable("users"),
 		"name",
 		"name",
 		func(holder any) any { return &holder.(*scanDestUser).Name },
 	)
 
-	_, err := buildScanDest([]Column{col}, &struct{}{})
+	_, err := buildScanDest[struct{}]([]Column{col}, &struct{}{})
 	if err == nil {
 		t.Fatal("expected field pointer panic to return an error")
 	}
@@ -1181,14 +1181,14 @@ func TestBuildScanDestRecoversFieldPointerPanics(t *testing.T) {
 }
 
 func TestBuildScanDestRejectsNilScanTarget(t *testing.T) {
-	col := NewCol[any, string](
+	col := newColForTable[Table, string](
 		newMockTable("users"),
 		"name",
 		"name",
 		func(holder any) any { return nil },
 	)
 
-	_, err := buildScanDest([]Column{col}, &scanDestUser{})
+	_, err := buildScanDest[scanDestUser]([]Column{col}, &scanDestUser{})
 	if err == nil {
 		t.Fatal("expected nil scan target to return an error")
 	}
@@ -1199,14 +1199,14 @@ func TestBuildScanDestRejectsNilScanTarget(t *testing.T) {
 }
 
 func TestBuildScanDestRejectsNilHolder(t *testing.T) {
-	col := NewCol[any, string](
+	col := newColForTable[Table, string](
 		newMockTable("users"),
 		"name",
 		"name",
 		func(holder any) any { return &holder.(*scanDestUser).Name },
 	)
 
-	_, err := buildScanDest([]Column{col}, nil)
+	_, err := buildScanDest[scanDestUser]([]Column{col}, nil)
 	if err == nil {
 		t.Fatal("expected nil holder to return an error")
 	}
@@ -1217,14 +1217,14 @@ func TestBuildScanDestRejectsNilHolder(t *testing.T) {
 }
 
 func TestBuildScanDestRejectsNonPointerHolder(t *testing.T) {
-	col := NewCol[any, string](
+	col := newColForTable[Table, string](
 		newMockTable("users"),
 		"name",
 		"name",
 		func(holder any) any { return &holder.(*scanDestUser).Name },
 	)
 
-	_, err := buildScanDest([]Column{col}, scanDestUser{})
+	_, err := buildScanDestAny([]Column{col}, scanDestUser{})
 	if err == nil {
 		t.Fatal("expected non-pointer holder to return an error")
 	}

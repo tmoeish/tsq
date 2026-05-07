@@ -857,7 +857,7 @@ func TestResultTemplateGeneratesTypedJoinEdges(t *testing.T) {
 	rendered := string(contents)
 	for _, want := range []string{
 		"LeftJoinOrder(on tsq.JoinOn[User, Order], conds ...tsq.JoinCond[User, Order])",
-		"UserOrderJoinConditions[Left, Right any](on tsq.JoinOn[Left, Right], conds ...tsq.JoinCond[Left, Right])",
+		"UserOrderJoinConditions[Left, Right tsq.Table](on tsq.JoinOn[Left, Right], conds ...tsq.JoinCond[Left, Right])",
 		"GroupByUser(cols ...tsq.OwnedColumn[User])",
 		"GroupByOrder(cols ...tsq.OwnedColumn[Order])",
 		"KwSearchUser(cols ...tsq.OwnedColumn[User])",

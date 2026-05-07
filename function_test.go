@@ -6,7 +6,7 @@ import (
 
 func TestCol_Fn(t *testing.T) {
 	table := newMockTable("users")
-	col := NewCol[any, string](table, "name", "name", nil)
+	col := newColForTable[Table, string](table, "name", "name", nil)
 
 	// Test custom function format
 	result := col.Fn("UPPER(%s)")
@@ -31,7 +31,7 @@ func TestCol_Fn(t *testing.T) {
 
 func TestCol_FnRejectsInvalidFormat(t *testing.T) {
 	table := newMockTable("users")
-	col := NewCol[any, string](table, "name", "name", nil)
+	col := newColForTable[Table, string](table, "name", "name", nil)
 
 	tests := []struct {
 		name   string
@@ -54,7 +54,7 @@ func TestCol_FnRejectsInvalidFormat(t *testing.T) {
 
 func TestCol_FnAllowsEscapedPercentLiterals(t *testing.T) {
 	table := newMockTable("users")
-	col := NewCol[any, string](table, "name", "name", nil)
+	col := newColForTable[Table, string](table, "name", "name", nil)
 
 	result := col.Fn("CONCAT(%s, '%%s')")
 	if got := result.QualifiedName(); got != `CONCAT("users"."name", '%s')` {
@@ -64,7 +64,7 @@ func TestCol_FnAllowsEscapedPercentLiterals(t *testing.T) {
 
 func TestCol_FnRawRejectsEmptyExpression(t *testing.T) {
 	table := newMockTable("users")
-	col := NewCol[any, string](table, "name", "name", nil)
+	col := newColForTable[Table, string](table, "name", "name", nil)
 
 	if _, err := validateColumnInput(col.FnRaw("   ")); err == nil {
 		t.Fatal("expected FnRaw to return a build error for empty expression")
@@ -73,7 +73,7 @@ func TestCol_FnRawRejectsEmptyExpression(t *testing.T) {
 
 func TestCol_FnRawRejectsPlaceholders(t *testing.T) {
 	table := newMockTable("users")
-	col := NewCol[any, string](table, "name", "name", nil)
+	col := newColForTable[Table, string](table, "name", "name", nil)
 
 	if _, err := validateColumnInput(col.FnRaw("COALESCE(%s, 1)")); err == nil {
 		t.Fatal("expected FnRaw to return a build error when placeholders are present")
@@ -82,7 +82,7 @@ func TestCol_FnRawRejectsPlaceholders(t *testing.T) {
 
 func TestCol_Count(t *testing.T) {
 	table := newMockTable("users")
-	col := NewCol[any, int](table, "id", "id", nil)
+	col := newColForTable[Table, int](table, "id", "id", nil)
 
 	result := col.Count()
 
@@ -94,7 +94,7 @@ func TestCol_Count(t *testing.T) {
 
 func TestCol_Sum(t *testing.T) {
 	table := newMockTable("orders")
-	col := NewCol[any, float64](table, "amount", "amount", nil)
+	col := newColForTable[Table, float64](table, "amount", "amount", nil)
 
 	result := col.Sum()
 
@@ -106,7 +106,7 @@ func TestCol_Sum(t *testing.T) {
 
 func TestCol_Avg(t *testing.T) {
 	table := newMockTable("products")
-	col := NewCol[any, float64](table, "price", "price", nil)
+	col := newColForTable[Table, float64](table, "price", "price", nil)
 
 	result := col.Avg()
 
@@ -118,7 +118,7 @@ func TestCol_Avg(t *testing.T) {
 
 func TestCol_Max(t *testing.T) {
 	table := newMockTable("users")
-	col := NewCol[any, int](table, "age", "age", nil)
+	col := newColForTable[Table, int](table, "age", "age", nil)
 
 	result := col.Max()
 
@@ -130,7 +130,7 @@ func TestCol_Max(t *testing.T) {
 
 func TestCol_Min(t *testing.T) {
 	table := newMockTable("users")
-	col := NewCol[any, int](table, "age", "age", nil)
+	col := newColForTable[Table, int](table, "age", "age", nil)
 
 	result := col.Min()
 
@@ -142,7 +142,7 @@ func TestCol_Min(t *testing.T) {
 
 func TestCol_Distinct(t *testing.T) {
 	table := newMockTable("users")
-	col := NewCol[any, string](table, "department", "department", nil)
+	col := newColForTable[Table, string](table, "department", "department", nil)
 
 	result := col.Distinct()
 
@@ -154,7 +154,7 @@ func TestCol_Distinct(t *testing.T) {
 
 func TestCol_Upper(t *testing.T) {
 	table := newMockTable("users")
-	col := NewCol[any, string](table, "name", "name", nil)
+	col := newColForTable[Table, string](table, "name", "name", nil)
 
 	result := col.Upper()
 
@@ -166,7 +166,7 @@ func TestCol_Upper(t *testing.T) {
 
 func TestCol_Lower(t *testing.T) {
 	table := newMockTable("users")
-	col := NewCol[any, string](table, "name", "name", nil)
+	col := newColForTable[Table, string](table, "name", "name", nil)
 
 	result := col.Lower()
 
@@ -178,7 +178,7 @@ func TestCol_Lower(t *testing.T) {
 
 func TestCol_Substring(t *testing.T) {
 	table := newMockTable("users")
-	col := NewCol[any, string](table, "description", "description", nil)
+	col := newColForTable[Table, string](table, "description", "description", nil)
 
 	result := col.Substring(1, 10)
 
@@ -190,7 +190,7 @@ func TestCol_Substring(t *testing.T) {
 
 func TestCol_Length(t *testing.T) {
 	table := newMockTable("users")
-	col := NewCol[any, string](table, "name", "name", nil)
+	col := newColForTable[Table, string](table, "name", "name", nil)
 
 	result := col.Length()
 
@@ -202,7 +202,7 @@ func TestCol_Length(t *testing.T) {
 
 func TestCol_Trim(t *testing.T) {
 	table := newMockTable("users")
-	col := NewCol[any, string](table, "name", "name", nil)
+	col := newColForTable[Table, string](table, "name", "name", nil)
 
 	result := col.Trim()
 
@@ -214,7 +214,7 @@ func TestCol_Trim(t *testing.T) {
 
 func TestCol_Concat(t *testing.T) {
 	table := newMockTable("users")
-	col := NewCol[any, string](table, "first_name", "first_name", nil)
+	col := newColForTable[Table, string](table, "first_name", "first_name", nil)
 
 	if _, err := validateColumnInput(col.Concat(" Smith")); err == nil {
 		t.Fatal("expected Concat to return a build error for non-portable SQL")
@@ -223,7 +223,7 @@ func TestCol_Concat(t *testing.T) {
 
 func TestCaseBuilder_End(t *testing.T) {
 	users := newMockTable("users")
-	orgID := NewCol[any, int](users, "org_id", "org_id", nil)
+	orgID := newColForTable[Table, int](users, "org_id", "org_id", nil)
 
 	result := Case[string]().
 		When(orgID.EQ(1), "internal").
@@ -245,8 +245,8 @@ func TestCaseBuilder_RequiresWhenBranch(t *testing.T) {
 func TestCol_FnExprTracksReferencedTables(t *testing.T) {
 	users := newMockTable("users")
 	orgs := newMockTable("orgs")
-	userName := NewCol[any, string](users, "name", "name", nil)
-	orgName := NewCol[any, string](orgs, "name", "name", nil)
+	userName := newColForTable[Table, string](users, "name", "name", nil)
+	orgName := newColForTable[Table, string](orgs, "name", "name", nil)
 
 	result := userName.FnExpr("COALESCE(%s, %s)", orgName)
 
@@ -257,7 +257,7 @@ func TestCol_FnExprTracksReferencedTables(t *testing.T) {
 
 func TestCol_Now(t *testing.T) {
 	table := newMockTable("users")
-	col := NewCol[any, string](table, "created_at", "created_at", nil)
+	col := newColForTable[Table, string](table, "created_at", "created_at", nil)
 
 	result := col.Now()
 
@@ -269,7 +269,7 @@ func TestCol_Now(t *testing.T) {
 
 func TestCol_Date(t *testing.T) {
 	table := newMockTable("orders")
-	col := NewCol[any, string](table, "created_at", "created_at", nil)
+	col := newColForTable[Table, string](table, "created_at", "created_at", nil)
 
 	result := col.Date()
 
@@ -281,7 +281,7 @@ func TestCol_Date(t *testing.T) {
 
 func TestCol_Year(t *testing.T) {
 	table := newMockTable("orders")
-	col := NewCol[any, string](table, "created_at", "created_at", nil)
+	col := newColForTable[Table, string](table, "created_at", "created_at", nil)
 
 	result := col.Year()
 
@@ -293,7 +293,7 @@ func TestCol_Year(t *testing.T) {
 
 func TestCol_Month(t *testing.T) {
 	table := newMockTable("orders")
-	col := NewCol[any, string](table, "created_at", "created_at", nil)
+	col := newColForTable[Table, string](table, "created_at", "created_at", nil)
 
 	result := col.Month()
 
@@ -305,7 +305,7 @@ func TestCol_Month(t *testing.T) {
 
 func TestCol_Day(t *testing.T) {
 	table := newMockTable("orders")
-	col := NewCol[any, string](table, "created_at", "created_at", nil)
+	col := newColForTable[Table, string](table, "created_at", "created_at", nil)
 
 	result := col.Day()
 
@@ -317,7 +317,7 @@ func TestCol_Day(t *testing.T) {
 
 func TestCol_Round(t *testing.T) {
 	table := newMockTable("products")
-	col := NewCol[any, float64](table, "price", "price", nil)
+	col := newColForTable[Table, float64](table, "price", "price", nil)
 
 	result := col.Round(2)
 
@@ -329,7 +329,7 @@ func TestCol_Round(t *testing.T) {
 
 func TestCol_RoundPreservesRequestedPrecision(t *testing.T) {
 	table := newMockTable("products")
-	col := NewCol[any, float64](table, "price", "price", nil)
+	col := newColForTable[Table, float64](table, "price", "price", nil)
 
 	largePrecision := col.Round(42)
 	if got := largePrecision.QualifiedName(); got != `ROUND("products"."price", 42)` {
@@ -339,7 +339,7 @@ func TestCol_RoundPreservesRequestedPrecision(t *testing.T) {
 
 func TestCol_RoundRejectsNegativePrecision(t *testing.T) {
 	table := newMockTable("products")
-	col := NewCol[any, float64](table, "price", "price", nil)
+	col := newColForTable[Table, float64](table, "price", "price", nil)
 
 	if _, err := validateColumnInput(col.Round(-2)); err == nil {
 		t.Fatal("expected Round to return a build error for negative precision")
@@ -348,7 +348,7 @@ func TestCol_RoundRejectsNegativePrecision(t *testing.T) {
 
 func TestCol_Ceil(t *testing.T) {
 	table := newMockTable("products")
-	col := NewCol[any, float64](table, "price", "price", nil)
+	col := newColForTable[Table, float64](table, "price", "price", nil)
 
 	result := col.Ceil()
 
@@ -360,7 +360,7 @@ func TestCol_Ceil(t *testing.T) {
 
 func TestCol_Floor(t *testing.T) {
 	table := newMockTable("products")
-	col := NewCol[any, float64](table, "price", "price", nil)
+	col := newColForTable[Table, float64](table, "price", "price", nil)
 
 	result := col.Floor()
 
@@ -372,7 +372,7 @@ func TestCol_Floor(t *testing.T) {
 
 func TestCol_Abs(t *testing.T) {
 	table := newMockTable("transactions")
-	col := NewCol[any, float64](table, "amount", "amount", nil)
+	col := newColForTable[Table, float64](table, "amount", "amount", nil)
 
 	result := col.Abs()
 
@@ -384,7 +384,7 @@ func TestCol_Abs(t *testing.T) {
 
 func TestCol_Coalesce(t *testing.T) {
 	table := newMockTable("users")
-	col := NewCol[any, string](table, "nickname", "nickname", nil)
+	col := newColForTable[Table, string](table, "nickname", "nickname", nil)
 
 	result := col.Coalesce("Anonymous")
 
@@ -396,7 +396,7 @@ func TestCol_Coalesce(t *testing.T) {
 
 func TestCol_NullIf(t *testing.T) {
 	table := newMockTable("users")
-	col := NewCol[any, string](table, "status", "status", nil)
+	col := newColForTable[Table, string](table, "status", "status", nil)
 
 	result := col.NullIf("inactive")
 
@@ -408,7 +408,7 @@ func TestCol_NullIf(t *testing.T) {
 
 func TestCol_StringFunctionHelpersRejectBackslashLiterals(t *testing.T) {
 	table := newMockTable("users")
-	col := NewCol[any, string](table, "nickname", "nickname", nil)
+	col := newColForTable[Table, string](table, "nickname", "nickname", nil)
 
 	for name, column := range map[string]Column{
 		"Coalesce": col.Coalesce(`path\file`),
@@ -424,7 +424,7 @@ func TestCol_StringFunctionHelpersRejectBackslashLiterals(t *testing.T) {
 
 func TestCol_ChainedFunctions(t *testing.T) {
 	table := newMockTable("users")
-	col := NewCol[any, string](table, "name", "name", nil)
+	col := newColForTable[Table, string](table, "name", "name", nil)
 
 	// Test chaining multiple functions
 	result := col.Upper().Trim()
@@ -446,7 +446,7 @@ func TestCol_ChainedFunctions(t *testing.T) {
 
 func TestCol_ComplexFunctionChain(t *testing.T) {
 	table := newMockTable("products")
-	col := NewCol[any, float64](table, "price", "price", nil)
+	col := newColForTable[Table, float64](table, "price", "price", nil)
 
 	// Test complex function chaining
 	result := col.Round(2).Coalesce("0.00")
@@ -459,7 +459,7 @@ func TestCol_ComplexFunctionChain(t *testing.T) {
 
 func TestCol_FunctionPreservesMetadata(t *testing.T) {
 	table := newMockTable("users")
-	col := NewCol[any, string](table, "email", "user_email", func(holder any) any { return nil })
+	col := newColForTable[Table, string](table, "email", "user_email", func(holder any) any { return nil })
 
 	result := col.Upper()
 

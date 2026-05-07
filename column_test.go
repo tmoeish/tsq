@@ -5,14 +5,37 @@ import (
 	"testing"
 )
 
+type newColOwner struct{}
+
+func (newColOwner) Table() string { return "users" }
+
+func (newColOwner) KwList() []Column { return nil }
+
 func TestNewCol(t *testing.T) {
+	col := NewCol[newColOwner, string]("name", "user_name", nil)
+
+	if col.Table().Table() != "users" {
+		t.Errorf("Expected table 'users', got '%s'", col.Table().Table())
+	}
+
+	expectedQualified := `"users"."name"`
+	if col.QualifiedName() != expectedQualified {
+		t.Errorf("Expected qualified name '%s', got '%s'", expectedQualified, col.QualifiedName())
+	}
+
+	if col.FieldPointer() != nil {
+		t.Error("Expected nil field pointer")
+	}
+}
+
+func TestNewColWithExplicitTableInternal(t *testing.T) {
 	table := newMockTable("users")
 	fieldPointer := func(holder any) any {
 		s := struct{ Name string }{}
 		return &s.Name
 	}
 
-	col := NewCol[any, string](table, "name", "user_name", fieldPointer)
+	col := newColForTable[Table, string](table, "name", "user_name", fieldPointer)
 
 	if col.Name() != "name" {
 		t.Errorf("Expected name 'name', got '%s'", col.Name())
@@ -37,7 +60,7 @@ func TestNewCol(t *testing.T) {
 }
 
 func TestNewCol_RejectsNilTable(t *testing.T) {
-	col := NewCol[any, string](nil, "name", "name", nil)
+	col := newColForTable[Table, string](nil, "name", "name", nil)
 	if _, err := validateColumnInput(col); err == nil {
 		t.Fatal("expected nil table to be captured as a build error")
 	}
@@ -45,7 +68,7 @@ func TestNewCol_RejectsNilTable(t *testing.T) {
 
 func TestCol_Table(t *testing.T) {
 	table := newMockTable("products")
-	col := NewCol[any, float64](table, "price", "price", nil)
+	col := newColForTable[Table, float64](table, "price", "price", nil)
 
 	resultTable := col.Table()
 	if resultTable.Table() != "products" {
@@ -55,7 +78,7 @@ func TestCol_Table(t *testing.T) {
 
 func TestCol_Name(t *testing.T) {
 	table := newMockTable("orders")
-	col := NewCol[any, int](table, "id", "id", nil)
+	col := newColForTable[Table, int](table, "id", "id", nil)
 
 	if col.Name() != "id" {
 		t.Errorf("Expected name 'id', got '%s'", col.Name())
@@ -77,7 +100,7 @@ func TestCol_QualifiedName(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.tableName+"_"+tt.columnName, func(t *testing.T) {
 			table := newMockTable(tt.tableName)
-			col := NewCol[any, string](table, tt.columnName, tt.columnName, nil)
+			col := newColForTable[Table, string](table, tt.columnName, tt.columnName, nil)
 
 			if col.QualifiedName() != tt.expectedName {
 				t.Errorf("Expected qualified name '%s', got '%s'", tt.expectedName, col.QualifiedName())
@@ -90,7 +113,7 @@ func TestCol_FieldPointer(t *testing.T) {
 	table := newMockTable("users")
 
 	// Test with nil field pointer
-	col1 := NewCol[any, string](table, "name", "name", nil)
+	col1 := newColForTable[Table, string](table, "name", "name", nil)
 	if col1.FieldPointer() != nil {
 		t.Error("Expected nil field pointer")
 	}
@@ -101,7 +124,7 @@ func TestCol_FieldPointer(t *testing.T) {
 		return &s.Name
 	}
 
-	col2 := NewCol[any, string](table, "name", "name", fieldPointer)
+	col2 := newColForTable[Table, string](table, "name", "name", fieldPointer)
 	if col2.FieldPointer() == nil {
 		t.Error("Expected non-nil field pointer")
 	}
@@ -122,7 +145,7 @@ func TestCol_JSONFieldName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			col := NewCol[any, string](table, "name", tt.jsonFieldName, nil)
+			col := newColForTable[Table, string](table, "name", tt.jsonFieldName, nil)
 			if col.JSONFieldName() != tt.jsonFieldName {
 				t.Errorf("Expected JSON field name '%s', got '%s'", tt.jsonFieldName, col.JSONFieldName())
 			}
@@ -136,7 +159,7 @@ func TestCol_Into(t *testing.T) {
 		s := struct{ Name string }{}
 		return &s.Name
 	}
-	col := NewCol[any, string](table, "name", "original_name", originalFieldPointer)
+	col := newColForTable[Table, string](table, "name", "original_name", originalFieldPointer)
 
 	// Create new field pointer and JSON field name
 	newFieldPointer := func(holder any) any {
@@ -178,7 +201,7 @@ func TestCol_Into(t *testing.T) {
 
 func TestCol_Into_NilPointer(t *testing.T) {
 	table := newMockTable("users")
-	col := NewCol[any, string](table, "name", "name", nil)
+	col := newColForTable[Table, string](table, "name", "name", nil)
 
 	next := col.Into(nil, "new_name")
 	if _, err := validateColumnInput(next); err == nil {
@@ -190,10 +213,10 @@ func TestCol_TypeSafety(t *testing.T) {
 	table := newMockTable("users")
 
 	// Test different types
-	stringCol := NewCol[any, string](table, "name", "name", nil)
-	intCol := NewCol[any, int](table, "age", "age", nil)
-	floatCol := NewCol[any, float64](table, "score", "score", nil)
-	boolCol := NewCol[any, bool](table, "active", "active", nil)
+	stringCol := newColForTable[Table, string](table, "name", "name", nil)
+	intCol := newColForTable[Table, int](table, "age", "age", nil)
+	floatCol := newColForTable[Table, float64](table, "score", "score", nil)
+	boolCol := newColForTable[Table, bool](table, "active", "active", nil)
 
 	// All should have the same basic interface behavior
 	columns := []Column{stringCol, intCol, floatCol, boolCol}
@@ -216,7 +239,7 @@ func TestCol_TypeSafety(t *testing.T) {
 func TestCol_QualifiedNameFormatting(t *testing.T) {
 	// Test that qualified names are properly formatted in canonical SQL form
 	table := newMockTable("user_profiles")
-	col := NewCol[any, string](table, "profile_image_url", "profile_image_url", nil)
+	col := newColForTable[Table, string](table, "profile_image_url", "profile_image_url", nil)
 
 	expected := `"user_profiles"."profile_image_url"`
 	if col.QualifiedName() != expected {
@@ -226,7 +249,7 @@ func TestCol_QualifiedNameFormatting(t *testing.T) {
 
 func TestCol_InterfaceCompliance(t *testing.T) {
 	table := newMockTable("test_table")
-	col := NewCol[any, string](table, "test_column", "test_column", nil)
+	col := newColForTable[Table, string](table, "test_column", "test_column", nil)
 
 	// Verify that Col implements Column interface
 	var _ Column = col
@@ -256,7 +279,7 @@ func TestCol_ImmutabilityOfInto(t *testing.T) {
 		s := struct{ Name string }{}
 		return &s.Name
 	}
-	originalCol := NewCol[any, string](table, "name", "original_name", originalFieldPointer)
+	originalCol := newColForTable[Table, string](table, "name", "original_name", originalFieldPointer)
 
 	newFieldPointer := func(holder any) any {
 		s := struct{ DisplayName string }{}
@@ -296,7 +319,7 @@ func TestCol_ImmutabilityOfInto(t *testing.T) {
 
 func TestCol_AsRebindsQualifiedName(t *testing.T) {
 	table := newMockTable("users")
-	col := NewCol[any, string](table, "name", "name", nil)
+	col := newColForTable[Table, string](table, "name", "name", nil)
 
 	aliased := col.As("manager")
 
@@ -311,7 +334,7 @@ func TestCol_AsRebindsQualifiedName(t *testing.T) {
 
 func TestCol_AsRejectsTransformedColumn(t *testing.T) {
 	table := newMockTable("users")
-	col := NewCol[any, string](table, "name", "name", nil).Upper()
+	col := newColForTable[Table, string](table, "name", "name", nil).Upper()
 
 	aliased := col.As("manager")
 	if _, err := validateColumnInput(aliased); err == nil {
