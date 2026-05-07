@@ -20,27 +20,35 @@ func TestTypedAPIDoesNotCompileForInvalidResultInputs(t *testing.T) {
 		want string
 	}{
 		{
-			name: "result_col_predicate",
+			name: "into_rejects_untyped_pointer",
 			body: `
 var resultCol = userID.Into(func(any) any { return nil }, "user_id")
+var _ = resultCol
+`,
+			want: "cannot use func(any) any",
+		},
+		{
+			name: "result_col_predicate",
+			body: `
+var resultCol = tsq.Into[userOwner](userID, func(holder *userOwner) *int { return nil }, "user_id")
 var _ = resultCol.EQVar()
 `,
 			want: "resultCol.EQVar undefined",
 		},
 		{
-			name: "owned_columns_reject_result_col",
+			name: "table_column_rejects_result_col",
 			body: `
-var resultCol = userID.Into(func(any) any { return nil }, "user_id")
-var _ = tsq.OwnedColumns[userOwner](resultCol)
+var resultCol = tsq.Into[userOwner](userID, func(holder *userOwner) *int { return nil }, "user_id")
+var _ tsq.TableColumn[userOwner] = resultCol
 `,
-			want: "does not implement tsq.OwnedColumn",
+			want: "does not implement tsq.TableColumn",
 		},
 		{
-			name: "owned_columns_reject_wrong_owner",
+			name: "table_column_rejects_wrong_owner",
 			body: `
-var _ = tsq.OwnedColumns[userOwner](orderID)
+var _ tsq.TableColumn[userOwner] = orderID
 `,
-			want: "does not implement tsq.OwnedColumn",
+			want: "cannot use orderID",
 		},
 		{
 			name: "column_rejects_wrong_owner",
@@ -172,7 +180,7 @@ var _ = database.UserOrderFromUser().
 	SelectUserOrder().
 	GroupByUser(database.UserOrder_UserID)
 `,
-			want: "does not implement tsq.OwnedColumn",
+			want: "does not implement tsq.TableColumn",
 		},
 		{
 			name: "kw_search_rejects_wrong_table",
@@ -185,7 +193,7 @@ var _ = database.UserOrderFromUser().
 	SelectUserOrder().
 	KwSearchUser(database.Category_Name)
 `,
-			want: "does not implement tsq.OwnedColumn",
+			want: "does not implement tsq.TableColumn",
 		},
 		{
 			name: "kw_search_rejects_result_column",
@@ -198,7 +206,7 @@ var _ = database.UserOrderFromUser().
 	SelectUserOrder().
 	KwSearchUser(database.UserOrder_UserName)
 `,
-			want: "does not implement tsq.OwnedColumn",
+			want: "does not implement tsq.TableColumn",
 		},
 	}
 
@@ -251,17 +259,20 @@ type userOwner struct{}
 type orderOwner struct{}
 type productOwner struct{}
 
+func (userOwner) TSQOwner() {}
 func (userOwner) Table() string { return "users" }
 
-func (userOwner) KwList() []tsq.AnyColumn { return nil }
+func (userOwner) KwList() []tsq.SearchColumn { return nil }
 
+func (orderOwner) TSQOwner() {}
 func (orderOwner) Table() string { return "orders" }
 
-func (orderOwner) KwList() []tsq.AnyColumn { return nil }
+func (orderOwner) KwList() []tsq.SearchColumn { return nil }
 
+func (productOwner) TSQOwner() {}
 func (productOwner) Table() string { return "products" }
 
-func (productOwner) KwList() []tsq.AnyColumn { return nil }
+func (productOwner) KwList() []tsq.SearchColumn { return nil }
 
 var userID = tsq.NewCol[userOwner, int]("id", "id", nil)
 var orderID = tsq.NewCol[orderOwner, int]("id", "id", nil)
@@ -276,6 +287,8 @@ import (
 	"github.com/tmoeish/tsq"
 	"github.com/tmoeish/tsq/examples/database"
 )
+
+var _ = tsq.ASC
 ` + body
 }
 

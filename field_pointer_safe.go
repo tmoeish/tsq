@@ -41,9 +41,9 @@ func (e *ErrFieldPointerPanic) Error() string {
 	return msg
 }
 
-// SafeFieldPointerCall executes a field pointer function with panic recovery
-// Returns (value, error). If the function panics, returns (nil, ErrFieldPointerPanic)
-func SafeFieldPointerCall(fieldName string, holder any, fp FieldPointer) (value any, err error) {
+// SafeFieldPointerCall executes a field pointer function with panic recovery.
+// Returns (value, error). If the function panics, returns (nil, ErrFieldPointerPanic).
+func SafeFieldPointerCall[O Owner, T any](fieldName string, holder *O, fp FieldPointer[O, T]) (value any, err error) {
 	if fp == nil {
 		return nil, NewErrFieldPointerNil(fieldName)
 	}
@@ -58,9 +58,8 @@ func SafeFieldPointerCall(fieldName string, holder any, fp FieldPointer) (value 
 	return fp(holder), nil
 }
 
-// FieldPointerValidator validates that a field pointer is usable
-// This should be called during initialization rather than at runtime
-func FieldPointerValidator(fieldName string, fp FieldPointer) error {
+// FieldPointerValidator validates that a field pointer is usable.
+func FieldPointerValidator[O Owner, T any](fieldName string, fp FieldPointer[O, T]) error {
 	if fp == nil {
 		return NewErrFieldPointerNil(fieldName)
 	}

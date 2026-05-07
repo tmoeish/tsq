@@ -52,6 +52,9 @@ import (
 // {{$varTbl}} implements the tsq.Table interface for {{$type}}.
 var {{$varTbl}} tsq.Table = {{$type}}{}
 
+// TSQOwner marks {{$type}} as a TSQ owner.
+func ({{$dot.Recv}} {{$type}}) TSQOwner() {}
+
 // Column definitions for {{$type}} table.
 var (
 {{- range $f := .Fields }}
@@ -70,17 +73,17 @@ var {{$varTblCols}} = []tsq.SelectableColumn[{{$type}}]{
 func ({{$dot.Recv}} {{$type}}) Table() string { return "{{$dot.Table}}" }
 
 // KwList returns columns that support keyword search for {{$type}}.
-func ({{$dot.Recv}} {{$type}}) KwList() []tsq.AnyColumn {
-	return tsq.SelectColumns[{{$type}}](
+func ({{$dot.Recv}} {{$type}}) KwList() []tsq.SearchColumn {
+	return []tsq.SearchColumn{
 		{{- range $f := .KwList }}
 		{{$type}}_{{$f}},
 		{{- end }}
-	)
+	}
 }
 
 // Cols returns all generated columns for {{$type}}.
-func ({{$dot.Recv}} {{$type}}) Cols() []tsq.AnyColumn {
-	return tsq.SelectColumns[{{$type}}]({{$varTblCols}}...)
+ func ({{$dot.Recv}} {{$type}}) Cols() []tsq.SelectableColumn[{{$type}}] {
+	return {{$varTblCols}}
 }
 
 func init() {
@@ -126,7 +129,7 @@ func init() {
 // =============================================================================
 
 {{- with $query := printf "%s%sQuery" $getBy $dot.ID }}
-var {{$query}} *tsq.Query
+var {{$query}} *tsq.Query[{{$type}}]
 
 func init() {
 	var err error
@@ -244,7 +247,7 @@ func {{$name}}(
 // =============================================================================
 
 	{{- with $query := printf "%s%sQuery" $getActiveBy $dot.ID }}
-var {{$query}} *tsq.Query
+var {{$query}} *tsq.Query[{{$type}}]
 
 func init() {
 	var err error
@@ -453,7 +456,7 @@ func {{$name}}(
 func {{$name}}(
 	ctx context.Context,
 	tx tsq.SqlExecutor,
-	qb *tsq.Query,
+	qb *tsq.Query[{{$type}}],
 	args ...any,
 ) ({{$list}}, error) {
 	return tsq.List[{{$type}}](ctx, tx, qb, args...)
@@ -466,7 +469,7 @@ func {{$name}}(
 	ctx context.Context,
 	tx tsq.SqlExecutor,
 	page *tsq.PageReq,
-	qb *tsq.Query,
+	qb *tsq.Query[{{$type}}],
 	args ...any,
 ) (*{{$pageResp}}, error) {
 	return tsq.Page[{{$type}}](ctx, tx, page, qb, args...)
@@ -479,7 +482,7 @@ func {{$name}}(
 
 {{- with $query := printf "list%sQuery" $type }}
 // {{$query}} is the base query for retrieving all {{$type}} records.
-var {{$query}} *tsq.Query
+var {{$query}} *tsq.Query[{{$type}}]
 
 func init() {
 	var err error
@@ -532,7 +535,7 @@ func {{$name}}(
 
 	{{- with $query := printf "listActive%sQuery" $type }}
 // {{$query}} is the base query for retrieving active (non-deleted) {{$type}} records.
-var {{$query}} *tsq.Query
+var {{$query}} *tsq.Query[{{$type}}]
 
 func init() {
 	var err error
@@ -586,7 +589,7 @@ func {{$name}}(
 
 {{- range $ux := .UxList }}
 	{{- with $query := printf "%s%sQuery" $getBy (JoinAnd $ux.Fields) }}
-var {{$query}} *tsq.Query
+var {{$query}} *tsq.Query[{{$type}}]
 
 func init() {
 	var err error
@@ -695,7 +698,7 @@ func {{$name}}(
 	{{- range $ux := .UxList }}
 		{{- with $query := printf "%s%sQuery" $getActiveBy (JoinAnd $ux.Fields) }}
 // {{$query}} queries active (non-deleted) {{$type}} records by unique index {{$ux.Name}}.
-var {{$query}} *tsq.Query
+var {{$query}} *tsq.Query[{{$type}}]
 
 func init() {
 	var err error
@@ -809,7 +812,7 @@ func {{$name}}(
 	{{- if $idx.IsSet }}
 		{{- with $query := printf "%s%sQuery" $ListBy $idx.Name }}
 // {{$query}} queries {{$type}} records by index {{$indexLabel}} using a cached IN-clause query.
-var {{$query}} *tsq.Query
+var {{$query}} *tsq.Query[{{$type}}]
 
 func init() {
 	var err error
@@ -863,7 +866,7 @@ func List{{$type}}By{{$idx.Name}}(
 	{{- else }}
 		{{- with $query := printf "%s%sQuery" $ListBy $idx.Name }}
 // {{$query}} queries {{$type}} records by index {{$indexLabel}}.
-var {{$query}} *tsq.Query
+var {{$query}} *tsq.Query[{{$type}}]
 
 func init() {
 	var err error
@@ -965,7 +968,7 @@ func {{$name}}(
 		{{- if $idx.IsSet }}
 			{{- with $query := printf "%s%sQuery" $ListActiveBy $idx.Name }}
 // {{$query}} queries active (non-deleted) {{$type}} records by index {{$indexLabel}} using a cached IN-clause query.
-var {{$query}} *tsq.Query
+var {{$query}} *tsq.Query[{{$type}}]
 
 func init() {
 	var err error
@@ -1021,7 +1024,7 @@ func {{$name}}(
 		{{- else }}
 			{{- with $query := printf "%s%sQuery" $listActiveBy $idx.Name }}
 // {{$query}} queries active (non-deleted) {{$type}} records by index {{$indexLabel}}.
-var {{$query}} *tsq.Query
+var {{$query}} *tsq.Query[{{$type}}]
 
 func init() {
 	var err error

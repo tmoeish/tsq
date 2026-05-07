@@ -23,6 +23,8 @@
 
 TSQ（Type-Safe Query）会把带注解的 Go 结构体生成为**表元数据、CRUD/分页助手和类型安全查询列**，让你用 Go API 组合 SQL，而不是在业务代码里手写大量字符串。
 
+当前主线版本是 **v4 typed DSL**：`Query` / `QueryBuilder` / `Into` 都带 owner 类型，表 owner、结果 owner 和物理表语义已经拆开，联表结果与本地结果扫描会更早在编译期暴露错误。
+
 ## 先回答三个上手问题
 
 | 问题 | 最短答案 |

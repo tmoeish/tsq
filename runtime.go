@@ -279,7 +279,7 @@ func (r *Runtime) validateRegisteredTableIdentifiers(mode string) error {
 					continue
 				}
 
-				colName := col.Name()
+				colName := col.OutputName()
 				if err := ValidateIdentifierLength(colName, dialect); err != nil {
 					if mode == "strict" {
 						return errors.Annotatef(err, "column %s.%s identifier validation failed", tableName, colName)

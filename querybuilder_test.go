@@ -10,10 +10,17 @@ type mockTable struct {
 	tableName string
 }
 
+type queryBuilderCaseRow struct {
+	Label string
+}
+
+func (queryBuilderCaseRow) TSQOwner() {}
+
 func (m mockTable) Init(db *DbMap, upsertIndexies bool) error { return nil }
+func (m mockTable) TSQOwner()                                 {}
 func (m mockTable) Table() string                             { return m.tableName }
 func (m mockTable) Cols() []AnyColumn                         { return nil }
-func (m mockTable) KwList() []AnyColumn                       { return nil }
+func (m mockTable) KwList() []SearchColumn                    { return nil }
 
 func newMockTable(name string) Table {
 	return mockTable{tableName: name}
@@ -90,7 +97,7 @@ func TestSelect_ZeroValueColumnDefersToBuildError(t *testing.T) {
 		t.Fatal("expected zero-value select column to return an error")
 	}
 
-	if !strings.Contains(err.Error(), "table cannot be nil") {
+	if !strings.Contains(err.Error(), "must reference at least one table") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -368,12 +375,12 @@ func TestQueryBuilder_CaseExpressionTracksConditionTables(t *testing.T) {
 	orgID := newColForTable[Table, int](orgs, "id", "id", nil)
 	orgName := newColForTable[Table, string](orgs, "name", "name", nil)
 
-	label := Into[Table](Case[string]().
+	label := Into[queryBuilderCaseRow](Case[string]().
 		When(orgID.EQ(1), orgName).
 		Else("unknown").
-		End(), func(holder any) any { return &holder.(*struct{ Label string }).Label }, "label")
+		End(), func(holder *queryBuilderCaseRow) *string { return &holder.Label }, "label")
 
-	_, err := Select(userID, label).
+	_, err := Select[queryBuilderCaseRow](label).
 		From(userID.Table()).Build()
 	if err == nil {
 		t.Fatal("expected CASE expression to surface orgs table into join validation")

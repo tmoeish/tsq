@@ -836,7 +836,7 @@ func TestResultTemplateGeneratesTypedJoinEdges(t *testing.T) {
 		Recv:       "uo",
 		TSQVersion: "test",
 		Fields: []tsq.FieldInfo{
-			{Name: "UserID", Column: "User_ID", JsonTag: "user_id"},
+			{Name: "UserID", Type: tsq.TypeInfo{TypeName: "int64"}, Column: "User_ID", JsonTag: "user_id"},
 		},
 	}
 
@@ -858,10 +858,10 @@ func TestResultTemplateGeneratesTypedJoinEdges(t *testing.T) {
 	for _, want := range []string{
 		"LeftJoinOrder(on tsq.JoinOn[User, Order], conds ...tsq.JoinCond[User, Order])",
 		"UserOrderJoinConditions[Left, Right tsq.Table](on tsq.JoinOn[Left, Right], conds ...tsq.JoinCond[Left, Right])",
-		"GroupByUser(cols ...tsq.OwnedColumn[User])",
-		"GroupByOrder(cols ...tsq.OwnedColumn[Order])",
-		"KwSearchUser(cols ...tsq.OwnedColumn[User])",
-		"KwSearchOrder(cols ...tsq.OwnedColumn[Order])",
+		"GroupByUser(cols ...tsq.TableColumn[User])",
+		"GroupByOrder(cols ...tsq.TableColumn[Order])",
+		"KwSearchUser(cols ...tsq.TableColumn[User])",
+		"KwSearchOrder(cols ...tsq.TableColumn[Order])",
 		"HavingUser(conds ...tsq.Pred[User])",
 		"HavingOrder(conds ...tsq.Pred[Order])",
 	} {

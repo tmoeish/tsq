@@ -14,6 +14,10 @@ type tableRebinder interface {
 	withTable(Table) AnyColumn
 }
 
+type anyColumnLister interface {
+	Cols() []AnyColumn
+}
+
 type aliasedTable struct {
 	base  Table
 	alias string
@@ -60,12 +64,22 @@ func (t aliasedTable) Table() string {
 	return t.alias
 }
 
-func (t aliasedTable) KwList() []AnyColumn {
-	return AliasColumns(t.base.KwList(), t)
+func (t aliasedTable) TSQOwner() {}
+
+func (t aliasedTable) KwList() []SearchColumn {
+	result := make([]SearchColumn, 0, len(t.base.KwList()))
+	for _, col := range t.base.KwList() {
+		rebound, ok := RebindColumn(col, t).(SearchColumn)
+		if ok {
+			result = append(result, rebound)
+		}
+	}
+
+	return result
 }
 
 func (t aliasedTable) Cols() []AnyColumn {
-	lister, ok := t.base.(tableColumnLister)
+	lister, ok := t.base.(anyColumnLister)
 	if !ok {
 		return nil
 	}

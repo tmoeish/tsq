@@ -5,11 +5,21 @@ import (
 	"testing"
 )
 
-type newColOwner struct{}
+type newColOwner struct {
+	Name string
+}
+
+type colProjection struct {
+	DisplayName string
+}
+
+func (colProjection) TSQOwner() {}
+
+func (newColOwner) TSQOwner() {}
 
 func (newColOwner) Table() string { return "users" }
 
-func (newColOwner) KwList() []AnyColumn { return nil }
+func (newColOwner) KwList() []SearchColumn { return nil }
 
 func TestNewCol(t *testing.T) {
 	col := NewCol[newColOwner, string]("name", "user_name", nil)
@@ -32,12 +42,9 @@ func TestNewCol(t *testing.T) {
 
 func TestNewColWithExplicitTableInternal(t *testing.T) {
 	table := newMockTable("users")
-	fieldPointer := func(holder any) any {
-		s := struct{ Name string }{}
-		return &s.Name
-	}
-
-	col := newColForTable[Table, string](table, "name", "user_name", fieldPointer)
+	col := newColForTable[newColOwner, string](table, "name", "user_name", toScanPointer(func(holder *newColOwner) *string {
+		return &holder.Name
+	}))
 
 	if col.Name() != "name" {
 		t.Errorf("Expected name 'name', got '%s'", col.Name())
@@ -121,12 +128,9 @@ func TestCol_FieldPointer(t *testing.T) {
 	}
 
 	// Test with actual field pointer
-	fieldPointer := func(holder any) any {
-		s := struct{ Name string }{}
-		return &s.Name
-	}
-
-	col2 := newColForTable[Table, string](table, "name", "name", fieldPointer)
+	col2 := newColForTable[newColOwner, string](table, "name", "name", toScanPointer(func(holder *newColOwner) *string {
+		return &holder.Name
+	}))
 	if col2.FieldPointer() == nil {
 		t.Error("Expected non-nil field pointer")
 	}
@@ -157,20 +161,16 @@ func TestCol_JSONFieldName(t *testing.T) {
 
 func TestCol_Into(t *testing.T) {
 	table := newMockTable("users")
-	originalFieldPointer := func(holder any) any {
-		s := struct{ Name string }{}
-		return &s.Name
-	}
-	col := newColForTable[Table, string](table, "name", "original_name", originalFieldPointer)
+	col := newColForTable[newColOwner, string](table, "name", "original_name", toScanPointer(func(holder *newColOwner) *string {
+		return &holder.Name
+	}))
 
 	// Create new field pointer and JSON field name
-	newFieldPointer := func(holder any) any {
-		s := struct{ DisplayName string }{}
-		return &s.DisplayName
-	}
 	newJSONFieldName := "display_name"
 
-	newCol := col.Into(newFieldPointer, newJSONFieldName)
+	newCol := Into[colProjection](col, func(holder *colProjection) *string {
+		return &holder.DisplayName
+	}, newJSONFieldName)
 
 	// Check that the new column has updated properties
 	if newCol.JSONFieldName() != newJSONFieldName {
@@ -203,9 +203,9 @@ func TestCol_Into(t *testing.T) {
 
 func TestCol_Into_NilPointer(t *testing.T) {
 	table := newMockTable("users")
-	col := newColForTable[Table, string](table, "name", "name", nil)
+	col := newColForTable[newColOwner, string](table, "name", "name", nil)
 
-	next := col.Into(nil, "new_name")
+	next := Into[newColOwner](col, nil, "new_name")
 	if _, err := validateColumnInput(next); err == nil {
 		t.Fatal("expected nil field pointer to be captured as a build error")
 	}
@@ -277,19 +277,14 @@ func TestCol_InterfaceCompliance(t *testing.T) {
 
 func TestCol_ImmutabilityOfInto(t *testing.T) {
 	table := newMockTable("users")
-	originalFieldPointer := func(holder any) any {
-		s := struct{ Name string }{}
-		return &s.Name
-	}
-	originalCol := newColForTable[Table, string](table, "name", "original_name", originalFieldPointer)
-
-	newFieldPointer := func(holder any) any {
-		s := struct{ DisplayName string }{}
-		return &s.DisplayName
-	}
+	originalCol := newColForTable[newColOwner, string](table, "name", "original_name", toScanPointer(func(holder *newColOwner) *string {
+		return &holder.Name
+	}))
 
 	// Create a new column using Into
-	newCol := originalCol.Into(newFieldPointer, "new_name")
+	newCol := Into[colProjection](originalCol, func(holder *colProjection) *string {
+		return &holder.DisplayName
+	}, "new_name")
 
 	// Verify that the original column is unchanged
 	if originalCol.JSONFieldName() != "original_name" {

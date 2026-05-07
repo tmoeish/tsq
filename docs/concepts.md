@@ -23,7 +23,7 @@ Go struct + @TABLE / @RESULT
  tsq.Select(...).From(table).Where(...).Build()
             |
             v
-      *tsq.Query + args
+ *tsq.Query[Owner] + args
             |
             v
  tsq.List/Get/Page + tsq.DbMap / Runtime
@@ -82,7 +82,7 @@ query, err := tsq.
 - 收集过滤、排序、分组、联接等信息
 - 在 `Build()` 时生成最终 SQL 和参数
 
-你可以把 `*tsq.Query` 理解为“已经准备好执行的 SQL + args”。
+你可以把 `*tsq.Query[Owner]` 理解为“已经准备好执行的 SQL + args”，其中 `Owner` 是扫描目标。
 
 ## 4. `Result`：把多表结果映射成一个单独 struct
 

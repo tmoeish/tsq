@@ -11,20 +11,26 @@ type cteProvider interface {
 }
 
 type cteDefinition struct {
-	name string
-	spec QuerySpec
+	name          string
+	selectCount   int
+	keywordCount  int
+	validate      func() error
+	buildBody     func(bool) (string, []any)
+	listTables    func() map[string]Table
+	pageTables    func() map[string]Table
+	collectNested func(*cteCollector, bool) error
 }
 
 type cteTable struct {
 	name     string
-	spec     QuerySpec
+	def      cteDefinition
 	buildErr error
 }
 
 // CTE creates a reusable non-recursive WITH/CTE table handle from a query.
 // Rebind existing columns to the returned table via RebindColumn or Col.WithTable
 // to reference the CTE output columns in outer queries.
-func CTE[Owner Table](name string, query *QueryBuilder[Owner]) Table {
+func CTE[O Owner](name string, query *QueryBuilder[O]) Table {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return cteTable{buildErr: errors.New("cte name cannot be empty")}
@@ -47,15 +53,17 @@ func CTE[Owner Table](name string, query *QueryBuilder[Owner]) Table {
 
 	return cteTable{
 		name: name,
-		spec: cloneQuerySpec(query.spec),
+		def:  newCTEDefinition(name, cloneQuerySpec(query.spec)),
 	}
 }
+
+func (cteTable) TSQOwner() {}
 
 func (t cteTable) Table() string {
 	return t.name
 }
 
-func (t cteTable) KwList() []AnyColumn {
+func (t cteTable) KwList() []SearchColumn {
 	return nil
 }
 
@@ -68,8 +76,38 @@ func (t cteTable) buildError() error {
 }
 
 func (t cteTable) cteDefinition() cteDefinition {
+	return t.def
+}
+
+func newCTEDefinition[O Owner](name string, spec QuerySpec[O]) cteDefinition {
+	cloned := cloneQuerySpec(spec)
+
 	return cteDefinition{
-		name: t.name,
-		spec: cloneQuerySpec(t.spec),
+		name:         name,
+		selectCount:  len(cloned.Selects),
+		keywordCount: len(cloned.KeywordSearch),
+		validate: func() error {
+			if err := cloned.validateJoinGraph(); err != nil {
+				return errors.Trace(err)
+			}
+
+			if err := cloned.validateSetOperations(); err != nil {
+				return errors.Trace(err)
+			}
+
+			return nil
+		},
+		buildBody: func(useKeyword bool) (string, []any) {
+			return cloned.buildListBodySQL(useKeyword)
+		},
+		listTables: func() map[string]Table {
+			return cloned.listQueryTables()
+		},
+		pageTables: func() map[string]Table {
+			return cloned.pageQueryTables()
+		},
+		collectNested: func(c *cteCollector, useKeyword bool) error {
+			return collectCTEFromSpec(c, cloned, useKeyword)
+		},
 	}
 }

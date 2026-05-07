@@ -401,7 +401,7 @@ func TestCondition_ExistsSubIsStandalonePredicate(t *testing.T) {
 func TestCondition_UnbuiltSubqueryFailsFast(t *testing.T) {
 	col := newColForTable[Table, int](newMockTable("users"), "id", "id", nil)
 
-	if _, _, _, err := validateConditionInput(col.InSub(&Query{})); err == nil {
+	if _, _, _, err := validateConditionInput(col.InSub(&Query[queryOwner]{})); err == nil {
 		t.Fatal("expected unbuilt subquery to be captured as a build error")
 	}
 }
@@ -446,7 +446,7 @@ func TestCondition_PredicateAllowsEscapedPercentLiterals(t *testing.T) {
 
 func TestCondition_UniqueSubqueryPredicatesFailFast(t *testing.T) {
 	col := newColForTable[Table, int](newMockTable("users"), "id", "id", nil)
-	subquery := &Query{listSQL: "SELECT 1"}
+	subquery := &Query[queryOwner]{listSQL: "SELECT 1"}
 
 	if _, _, _, err := validateConditionInput(col.Unique(subquery)); err == nil {
 		t.Fatal("expected Unique to return a build error for unsupported predicate")
@@ -495,7 +495,7 @@ func TestUnsupportedPatternPredicatesDeferred(t *testing.T) {
 // return deferred errors at Build() time, not immediate panics.
 func TestUnsupportedSubqueryPredicatesDeferred(t *testing.T) {
 	col := newColForTable[Table, int](newMockTable("users"), "id", "id", nil)
-	query := &Query{listSQL: "SELECT 1"}
+	query := &Query[queryOwner]{listSQL: "SELECT 1"}
 
 	tests := []struct {
 		name string

@@ -10,9 +10,14 @@ type strictMockTable struct {
 	cols []AnyColumn
 }
 
-func (t *strictMockTable) Table() string       { return t.name }
-func (t *strictMockTable) KwList() []AnyColumn { return nil }
-func (t *strictMockTable) Cols() []AnyColumn   { return t.cols }
+type strictResultRow struct{}
+
+func (strictResultRow) TSQOwner() {}
+
+func (t *strictMockTable) TSQOwner()              {}
+func (t *strictMockTable) Table() string          { return t.name }
+func (t *strictMockTable) KwList() []SearchColumn { return nil }
+func (t *strictMockTable) Cols() []AnyColumn      { return t.cols }
 
 func newStrictMockTable(name string, colNames ...string) (*strictMockTable, []Col[Table, int]) {
 	table := &strictMockTable{name: name}
@@ -50,9 +55,9 @@ func TestColumnValidation_RejectsColumnOutsideKnownTableSchema(t *testing.T) {
 func TestColumnValidation_AllowsDerivedColumnsFromKnownTableColumns(t *testing.T) {
 	users, cols := newStrictMockTable("users", "id")
 	id := cols[0]
-	resultID := id.Into(func(holder any) any { return holder }, "result_id")
+	resultID := Into[strictResultRow](id, func(holder *strictResultRow) *int { return nil }, "result_id")
 
-	_, err := Select(id.Count(), resultID).
+	_, err := Select[strictResultRow](resultID).
 		From(users).
 		Where(id.EQVar()).
 		Build()

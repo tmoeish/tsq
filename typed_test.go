@@ -7,13 +7,13 @@ type (
 	typedOrderOwner struct{}
 )
 
-func (typedUserOwner) Table() string { return "users" }
+func (typedUserOwner) TSQOwner()              {}
+func (typedUserOwner) Table() string          { return "users" }
+func (typedUserOwner) KwList() []SearchColumn { return nil }
 
-func (typedUserOwner) KwList() []AnyColumn { return nil }
-
-func (typedOrderOwner) Table() string { return "orders" }
-
-func (typedOrderOwner) KwList() []AnyColumn { return nil }
+func (typedOrderOwner) TSQOwner()              {}
+func (typedOrderOwner) Table() string          { return "orders" }
+func (typedOrderOwner) KwList() []SearchColumn { return nil }
 
 func TestOnCreatesTypedJoinCondition(t *testing.T) {
 	userID := NewCol[typedUserOwner, int]("id", "id", nil)
@@ -67,13 +67,13 @@ func TestJoinCondWrapsLeftRightPredicatesAndExtraEdges(t *testing.T) {
 	}
 }
 
-func TestOwnedColumnsConvertsTypedColumns(t *testing.T) {
+func TestTableColumnsConvertToErasedColumns(t *testing.T) {
 	userID := NewCol[typedUserOwner, int]("id", "id", nil)
 	userName := NewCol[typedUserOwner, string]("name", "name", nil)
 
-	cols := OwnedColumns[typedUserOwner](userID, userName)
+	cols := []AnyColumn{userID, userName}
 	if len(cols) != 2 {
-		t.Fatalf("expected 2 owned columns, got %d", len(cols))
+		t.Fatalf("expected 2 table columns, got %d", len(cols))
 	}
 	if cols[0].QualifiedName() != `"users"."id"` {
 		t.Fatalf("unexpected first column: %s", cols[0].QualifiedName())

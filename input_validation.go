@@ -2,6 +2,7 @@ package tsq
 
 import (
 	"reflect"
+	"sort"
 	"strings"
 
 	"github.com/juju/errors"
@@ -42,9 +43,19 @@ func validateColumnInput(col AnyColumn) (Table, error) {
 		return nil, errors.Trace(carrier.buildError())
 	}
 
-	table := col.Table()
+	table := columnPrimaryTable(col)
+
+	refs := col.referencedTables()
+	if len(refs) == 0 && isNilValue(table) {
+		if name := strings.TrimSpace(col.OutputName()); name != "" {
+			return nil, errors.Errorf("column %s must reference at least one table", name)
+		}
+
+		return nil, errors.New("column must reference at least one table")
+	}
+
 	if isNilValue(table) {
-		if name := strings.TrimSpace(col.Name()); name != "" {
+		if name := strings.TrimSpace(col.OutputName()); name != "" {
 			return nil, errors.Errorf("column %s table cannot be nil", name)
 		}
 
@@ -63,31 +74,94 @@ func validateColumnInput(col AnyColumn) (Table, error) {
 }
 
 func validateColumnBelongsToTable(col AnyColumn, table Table) error {
-	lister, ok := table.(tableColumnLister)
+	source, ok := col.(interface {
+		tableSource() Table
+		columnName() string
+	})
 	if !ok {
 		return nil
 	}
 
-	cols := lister.Cols()
-	if len(cols) == 0 {
+	if cols, ok := tableColumns(table); ok {
+		if len(cols) == 0 {
+			goto transformed
+		}
+
+		for _, candidate := range cols {
+			if isNilValue(candidate) {
+				continue
+			}
+
+			if candidate.Name() == source.columnName() {
+				return nil
+			}
+		}
+
+		return errors.Errorf("column %s does not belong to table %s", source.columnName(), table.Table())
+	}
+
+transformed:
+	if transformed, ok := col.(transformedColumn); ok && transformed.isTransformedExpression() && source.columnName() == "case" {
 		return nil
 	}
 
-	for _, candidate := range cols {
-		if isNilValue(candidate) {
-			continue
-		}
-
-		if candidate.Name() == col.Name() {
-			return nil
-		}
-	}
-
-	if transformed, ok := col.(transformedColumn); ok && transformed.isTransformedExpression() && col.Name() == "case" {
+	if isNilValue(source.tableSource()) {
 		return nil
 	}
 
-	return errors.Errorf("column %s does not belong to table %s", col.Name(), table.Table())
+	if source.tableSource().Table() == table.Table() {
+		return nil
+	}
+
+	return errors.Errorf("column %s does not belong to table %s", source.columnName(), table.Table())
+}
+
+func tableColumns(table Table) ([]AnyColumn, bool) {
+	if lister, ok := table.(tableColumnLister); ok {
+		return lister.Cols(), true
+	}
+
+	rv := reflect.ValueOf(table)
+	if !rv.IsValid() {
+		return nil, false
+	}
+
+	method := rv.MethodByName("Cols")
+	if !method.IsValid() {
+		return nil, false
+	}
+
+	mt := method.Type()
+	if mt.NumIn() != 0 || mt.NumOut() != 1 {
+		return nil, false
+	}
+
+	result := method.Call(nil)[0]
+	if !result.IsValid() || result.Kind() != reflect.Slice {
+		return nil, false
+	}
+
+	cols := make([]AnyColumn, 0, result.Len())
+	for i := 0; i < result.Len(); i++ {
+		col, ok := result.Index(i).Interface().(AnyColumn)
+		if !ok {
+			return nil, false
+		}
+
+		cols = append(cols, col)
+	}
+
+	return cols, true
+}
+
+func validateSelectableColumn[O Owner](col SelectableColumn[O]) error {
+	_, err := validateColumnInput(col)
+	return errors.Trace(err)
+}
+
+func validateSearchColumn(col SearchColumn) error {
+	_, err := validateColumnInput(col)
+	return errors.Trace(err)
 }
 
 func validateTableInput(table Table, label string) error {
@@ -144,4 +218,28 @@ func conditionClause(cond Condition) string {
 	}
 
 	return cond.Clause()
+}
+
+func columnPrimaryTable(col AnyColumn) Table {
+	if isNilValue(col) {
+		return nil
+	}
+
+	if source, ok := col.(interface{ tableSource() Table }); ok && !isNilValue(source.tableSource()) {
+		return source.tableSource()
+	}
+
+	refs := col.referencedTables()
+	if len(refs) == 0 {
+		return nil
+	}
+
+	names := make([]string, 0, len(refs))
+	for name := range refs {
+		names = append(names, name)
+	}
+
+	sort.Strings(names)
+
+	return refs[names[0]]
 }

@@ -10,16 +10,23 @@ import (
 )
 
 // QuerySpec is the single source of truth for a query definition before planning.
-type QuerySpec struct {
+type QuerySpec[O Owner] struct {
 	From          Table
-	Selects       []AnyColumn
+	Selects       []SelectableColumn[O]
 	Filters       []Condition
-	KeywordSearch []AnyColumn
+	KeywordSearch []SearchColumn
 	Joins         []join
 	GroupBy       []AnyColumn
 	Having        []Condition
-	SetOps        []setOperation
+	SetOps        []setOperation[O]
 }
+
+func (spec QuerySpec[O]) selectCount() int        { return len(spec.Selects) }
+func (spec QuerySpec[O]) filterCount() int        { return len(spec.Filters) }
+func (spec QuerySpec[O]) joinCount() int          { return len(spec.Joins) }
+func (spec QuerySpec[O]) groupCount() int         { return len(spec.GroupBy) }
+func (spec QuerySpec[O]) havingCount() int        { return len(spec.Having) }
+func (spec QuerySpec[O]) keywordSearchCount() int { return len(spec.KeywordSearch) }
 
 type queryPlan struct {
 	cntSQL     string
@@ -32,7 +39,7 @@ type queryPlan struct {
 	kwListArgs []any
 }
 
-func buildQueryPlan(spec QuerySpec) (*queryPlan, error) {
+func buildQueryPlan[O Owner](spec QuerySpec[O]) (*queryPlan, error) {
 	if len(spec.Selects) == 0 {
 		return nil, errors.Errorf("empty select fields: %+v", spec)
 	}
@@ -77,11 +84,16 @@ func buildQueryPlan(spec QuerySpec) (*queryPlan, error) {
 	}, nil
 }
 
-func (spec QuerySpec) selectTables() map[string]Table {
-	return spec.tablesForColumns(spec.Selects)
+func (spec QuerySpec[O]) selectTables() map[string]Table {
+	cols := make([]AnyColumn, 0, len(spec.Selects))
+	for _, col := range spec.Selects {
+		cols = append(cols, col)
+	}
+
+	return spec.tablesForColumns(cols)
 }
 
-func (spec QuerySpec) fromTables() map[string]Table {
+func (spec QuerySpec[O]) fromTables() map[string]Table {
 	if isNilValue(spec.From) {
 		return map[string]Table{}
 	}
@@ -89,11 +101,11 @@ func (spec QuerySpec) fromTables() map[string]Table {
 	return map[string]Table{spec.From.Table(): spec.From}
 }
 
-func (spec QuerySpec) conditionTables() map[string]Table {
+func (spec QuerySpec[O]) conditionTables() map[string]Table {
 	return spec.tablesForConditions(spec.Filters)
 }
 
-func (spec QuerySpec) joinTables() map[string]Table {
+func (spec QuerySpec[O]) joinTables() map[string]Table {
 	tables := make(map[string]Table, len(spec.Joins)*2)
 
 	for _, item := range spec.Joins {
@@ -107,11 +119,16 @@ func (spec QuerySpec) joinTables() map[string]Table {
 	return tables
 }
 
-func (spec QuerySpec) keywordTables() map[string]Table {
-	return spec.tablesForColumns(spec.KeywordSearch)
+func (spec QuerySpec[O]) keywordTables() map[string]Table {
+	cols := make([]AnyColumn, 0, len(spec.KeywordSearch))
+	for _, col := range spec.KeywordSearch {
+		cols = append(cols, col)
+	}
+
+	return spec.tablesForColumns(cols)
 }
 
-func (spec QuerySpec) listQueryTables() map[string]Table {
+func (spec QuerySpec[O]) listQueryTables() map[string]Table {
 	tables := spec.fromTables()
 	maps.Copy(tables, spec.selectTables())
 
@@ -126,14 +143,14 @@ func (spec QuerySpec) listQueryTables() map[string]Table {
 	return tables
 }
 
-func (spec QuerySpec) pageQueryTables() map[string]Table {
+func (spec QuerySpec[O]) pageQueryTables() map[string]Table {
 	tables := spec.listQueryTables()
 	maps.Copy(tables, spec.keywordTables())
 
 	return tables
 }
 
-func (spec QuerySpec) tablesForColumns(cols []AnyColumn) map[string]Table {
+func (spec QuerySpec[O]) tablesForColumns(cols []AnyColumn) map[string]Table {
 	tables := make(map[string]Table, len(cols))
 
 	for _, col := range cols {
@@ -151,7 +168,7 @@ func (spec QuerySpec) tablesForColumns(cols []AnyColumn) map[string]Table {
 	return tables
 }
 
-func (spec QuerySpec) tablesForConditions(conds []Condition) map[string]Table {
+func (spec QuerySpec[O]) tablesForConditions(conds []Condition) map[string]Table {
 	tables := make(map[string]Table)
 
 	for _, cond := range conds {
@@ -166,7 +183,7 @@ func (spec QuerySpec) tablesForConditions(conds []Condition) map[string]Table {
 	return tables
 }
 
-func (spec QuerySpec) buildCntSQL() (string, []any, error) {
+func (spec QuerySpec[O]) buildCntSQL() (string, []any, error) {
 	cteSQL, cteArgs, err := spec.buildCTEPrefix(false)
 	if err != nil {
 		return "", nil, errors.Trace(err)
@@ -188,7 +205,7 @@ func (spec QuerySpec) buildCntSQL() (string, []any, error) {
 	return cteSQL + "SELECT COUNT(1)" + fromSQL + whereSQL, args, nil
 }
 
-func (spec QuerySpec) buildListSQL() (string, []any, error) {
+func (spec QuerySpec[O]) buildListSQL() (string, []any, error) {
 	cteSQL, cteArgs, err := spec.buildCTEPrefix(false)
 	if err != nil {
 		return "", nil, errors.Trace(err)
@@ -200,7 +217,7 @@ func (spec QuerySpec) buildListSQL() (string, []any, error) {
 	return cteSQL + bodySQL, args, nil
 }
 
-func (spec QuerySpec) buildSimpleListSQL() (string, []any) {
+func (spec QuerySpec[O]) buildSimpleListSQL() (string, []any) {
 	selectSQL, selectArgs := spec.buildSelect()
 	fromSQL, fromArgs := spec.buildListFrom()
 	whereSQL, whereArgs := spec.buildListWhere()
@@ -216,7 +233,7 @@ func (spec QuerySpec) buildSimpleListSQL() (string, []any) {
 	return selectSQL + fromSQL + whereSQL + groupBySQL + havingSQL, args
 }
 
-func (spec QuerySpec) buildKwCntSQL() (string, []any, error) {
+func (spec QuerySpec[O]) buildKwCntSQL() (string, []any, error) {
 	cteSQL, cteArgs, err := spec.buildCTEPrefix(true)
 	if err != nil {
 		return "", nil, errors.Trace(err)
@@ -238,7 +255,7 @@ func (spec QuerySpec) buildKwCntSQL() (string, []any, error) {
 	return cteSQL + "SELECT COUNT(1)" + fromSQL + whereSQL, args, nil
 }
 
-func (spec QuerySpec) buildKwListSQL() (string, []any, error) {
+func (spec QuerySpec[O]) buildKwListSQL() (string, []any, error) {
 	cteSQL, cteArgs, err := spec.buildCTEPrefix(true)
 	if err != nil {
 		return "", nil, errors.Trace(err)
@@ -250,7 +267,7 @@ func (spec QuerySpec) buildKwListSQL() (string, []any, error) {
 	return cteSQL + bodySQL, args, nil
 }
 
-func (spec QuerySpec) buildSimpleKwListSQL() (string, []any) {
+func (spec QuerySpec[O]) buildSimpleKwListSQL() (string, []any) {
 	selectSQL, selectArgs := spec.buildSelect()
 	fromSQL, fromArgs := spec.buildPageFrom()
 	whereSQL, whereArgs := spec.buildPageWhere()
@@ -266,7 +283,7 @@ func (spec QuerySpec) buildSimpleKwListSQL() (string, []any) {
 	return selectSQL + fromSQL + whereSQL + groupBySQL + havingSQL, args
 }
 
-func (spec QuerySpec) buildListBodySQL(useKeyword bool) (string, []any) {
+func (spec QuerySpec[O]) buildListBodySQL(useKeyword bool) (string, []any) {
 	if len(spec.SetOps) > 0 {
 		return spec.buildCompoundListSQL(useKeyword)
 	}
@@ -274,7 +291,7 @@ func (spec QuerySpec) buildListBodySQL(useKeyword bool) (string, []any) {
 	return spec.buildSimpleCompoundOperandSQL(useKeyword)
 }
 
-func (spec QuerySpec) buildCompoundListSQL(useKeyword bool) (string, []any) {
+func (spec QuerySpec[O]) buildCompoundListSQL(useKeyword bool) (string, []any) {
 	baseSQL, baseArgs := spec.buildSimpleCompoundOperandSQL(useKeyword)
 	args := slices.Clone(baseArgs)
 
@@ -295,7 +312,7 @@ func (spec QuerySpec) buildCompoundListSQL(useKeyword bool) (string, []any) {
 	return builder.String(), args
 }
 
-func (spec QuerySpec) buildOperandSQL(useKeyword bool) (string, []any) {
+func (spec QuerySpec[O]) buildOperandSQL(useKeyword bool) (string, []any) {
 	if len(spec.SetOps) > 0 {
 		sql, args := spec.buildListBodySQL(useKeyword)
 		return "(" + sql + ")", args
@@ -304,7 +321,7 @@ func (spec QuerySpec) buildOperandSQL(useKeyword bool) (string, []any) {
 	return spec.buildSimpleCompoundOperandSQL(useKeyword)
 }
 
-func (spec QuerySpec) buildSimpleCompoundOperandSQL(useKeyword bool) (string, []any) {
+func (spec QuerySpec[O]) buildSimpleCompoundOperandSQL(useKeyword bool) (string, []any) {
 	if useKeyword {
 		return spec.buildSimpleKwListSQL()
 	}
@@ -312,7 +329,7 @@ func (spec QuerySpec) buildSimpleCompoundOperandSQL(useKeyword bool) (string, []
 	return spec.buildSimpleListSQL()
 }
 
-func (spec QuerySpec) buildSelect() (string, []any) {
+func (spec QuerySpec[O]) buildSelect() (string, []any) {
 	args := make([]any, 0, len(spec.Selects))
 	fullNames := make([]string, 0, len(spec.Selects))
 
@@ -324,7 +341,7 @@ func (spec QuerySpec) buildSelect() (string, []any) {
 	return "SELECT " + strings.Join(fullNames, ", "), args
 }
 
-func (spec QuerySpec) buildGroupBy() (string, []any) {
+func (spec QuerySpec[O]) buildGroupBy() (string, []any) {
 	if len(spec.GroupBy) == 0 {
 		return "", nil
 	}
@@ -341,7 +358,7 @@ func (spec QuerySpec) buildGroupBy() (string, []any) {
 	return " GROUP BY " + strings.Join(groupByExprs, ", "), args
 }
 
-func (spec QuerySpec) buildHaving() (string, []any) {
+func (spec QuerySpec[O]) buildHaving() (string, []any) {
 	if len(spec.Having) == 0 {
 		return "", nil
 	}
@@ -376,7 +393,7 @@ func buildConditionSQL(prefix string, conds []Condition) (string, []any) {
 	return prefix + "(" + strings.Join(clauses, " AND ") + ")", args
 }
 
-func (spec QuerySpec) buildListWhere() (string, []any) {
+func (spec QuerySpec[O]) buildListWhere() (string, []any) {
 	if len(spec.Filters) == 0 {
 		return "", nil
 	}
@@ -384,7 +401,7 @@ func (spec QuerySpec) buildListWhere() (string, []any) {
 	return buildConditionSQL(" WHERE ", spec.Filters)
 }
 
-func (spec QuerySpec) buildPageWhere() (string, []any) {
+func (spec QuerySpec[O]) buildPageWhere() (string, []any) {
 	clauses := make([]string, 0, len(spec.Filters)+1)
 	for _, cond := range spec.Filters {
 		clauses = append(clauses, conditionClause(cond))
@@ -415,7 +432,7 @@ func (spec QuerySpec) buildPageWhere() (string, []any) {
 	return " WHERE (" + strings.Join(clauses, " AND ") + ")", args
 }
 
-func (spec QuerySpec) buildFrom() (string, []any) {
+func (spec QuerySpec[O]) buildFrom() (string, []any) {
 	var fromBuilder strings.Builder
 	args := make([]any, 0)
 
@@ -465,15 +482,15 @@ func (spec QuerySpec) buildFrom() (string, []any) {
 	return fromBuilder.String(), args
 }
 
-func (spec QuerySpec) buildListFrom() (string, []any) {
+func (spec QuerySpec[O]) buildListFrom() (string, []any) {
 	return spec.buildFrom()
 }
 
-func (spec QuerySpec) buildPageFrom() (string, []any) {
+func (spec QuerySpec[O]) buildPageFrom() (string, []any) {
 	return spec.buildFrom()
 }
 
-func (spec QuerySpec) requiresWrappedCount() bool {
+func (spec QuerySpec[O]) requiresWrappedCount() bool {
 	return len(spec.SetOps) > 0 ||
 		len(spec.GroupBy) > 0 ||
 		len(spec.Having) > 0 ||
@@ -481,11 +498,11 @@ func (spec QuerySpec) requiresWrappedCount() bool {
 		spec.hasAggregateSelect()
 }
 
-func (spec QuerySpec) wrapCountSQL(inner string) string {
+func (spec QuerySpec[O]) wrapCountSQL(inner string) string {
 	return "SELECT COUNT(1) FROM (" + inner + ") AS _tsq_cnt"
 }
 
-func (spec QuerySpec) hasDistinctSelect() bool {
+func (spec QuerySpec[O]) hasDistinctSelect() bool {
 	type distinctExpr interface {
 		isDistinctExpression() bool
 	}
@@ -499,7 +516,7 @@ func (spec QuerySpec) hasDistinctSelect() bool {
 	return false
 }
 
-func (spec QuerySpec) hasAggregateSelect() bool {
+func (spec QuerySpec[O]) hasAggregateSelect() bool {
 	type aggregateExpr interface {
 		isAggregateExpression() bool
 	}
@@ -513,7 +530,7 @@ func (spec QuerySpec) hasAggregateSelect() bool {
 	return false
 }
 
-func (spec QuerySpec) buildCTEPrefix(useKeyword bool) (string, []any, error) {
+func (spec QuerySpec[O]) buildCTEPrefix(useKeyword bool) (string, []any, error) {
 	defs, err := spec.collectCTEDefinitions(useKeyword)
 	if err != nil {
 		return "", nil, errors.Trace(err)
@@ -527,7 +544,7 @@ func (spec QuerySpec) buildCTEPrefix(useKeyword bool) (string, []any, error) {
 	args := make([]any, 0)
 
 	for _, def := range defs {
-		bodySQL, bodyArgs := def.spec.buildListBodySQL(false)
+		bodySQL, bodyArgs := def.buildBody(false)
 		parts = append(parts, rawIdentifier(def.name)+" AS ("+bodySQL+")")
 		args = append(args, bodyArgs...)
 	}
@@ -535,20 +552,20 @@ func (spec QuerySpec) buildCTEPrefix(useKeyword bool) (string, []any, error) {
 	return "WITH " + strings.Join(parts, ", ") + " ", args, nil
 }
 
-func (spec QuerySpec) collectCTEDefinitions(useKeyword bool) ([]cteDefinition, error) {
+func (spec QuerySpec[O]) collectCTEDefinitions(useKeyword bool) ([]cteDefinition, error) {
 	collector := &cteCollector{
 		seen:     make(map[string]struct{}),
 		visiting: make(map[string]struct{}),
 	}
 
-	if err := collector.collectFromSpec(spec, useKeyword); err != nil {
+	if err := collectCTEFromSpec(collector, spec, useKeyword); err != nil {
 		return nil, errors.Trace(err)
 	}
 
 	return collector.ordered, nil
 }
 
-func (spec QuerySpec) validateSetOperations() error {
+func (spec QuerySpec[O]) validateSetOperations() error {
 	if len(spec.SetOps) == 0 {
 		return nil
 	}
@@ -584,8 +601,8 @@ func (spec QuerySpec) validateSetOperations() error {
 	return nil
 }
 
-func cloneQuerySpec(spec QuerySpec) QuerySpec {
-	cloned := QuerySpec{
+func cloneQuerySpec[O Owner](spec QuerySpec[O]) QuerySpec[O] {
+	cloned := QuerySpec[O]{
 		From:          spec.From,
 		Selects:       slices.Clone(spec.Selects),
 		Filters:       slices.Clone(spec.Filters),
@@ -593,11 +610,11 @@ func cloneQuerySpec(spec QuerySpec) QuerySpec {
 		Joins:         slices.Clone(spec.Joins),
 		GroupBy:       slices.Clone(spec.GroupBy),
 		Having:        slices.Clone(spec.Having),
-		SetOps:        make([]setOperation, 0, len(spec.SetOps)),
+		SetOps:        make([]setOperation[O], 0, len(spec.SetOps)),
 	}
 
 	for _, op := range spec.SetOps {
-		cloned.SetOps = append(cloned.SetOps, setOperation{
+		cloned.SetOps = append(cloned.SetOps, setOperation[O]{
 			op:   op.op,
 			spec: cloneQuerySpec(op.spec),
 		})
@@ -612,7 +629,7 @@ type cteCollector struct {
 	visiting map[string]struct{}
 }
 
-func (c *cteCollector) collectFromSpec(spec QuerySpec, useKeyword bool) error {
+func collectCTEFromSpec[O Owner](c *cteCollector, spec QuerySpec[O], useKeyword bool) error {
 	var tables map[string]Table
 	if useKeyword {
 		tables = spec.pageQueryTables()
@@ -639,7 +656,7 @@ func (c *cteCollector) collectFromSpec(spec QuerySpec, useKeyword bool) error {
 	}
 
 	for _, op := range spec.SetOps {
-		if err := c.collectFromSpec(op.spec, useKeyword); err != nil {
+		if err := collectCTEFromSpec(c, op.spec, useKeyword); err != nil {
 			return errors.Trace(err)
 		}
 	}
@@ -660,24 +677,20 @@ func (c *cteCollector) collectDefinition(def cteDefinition) error {
 		return errors.Errorf("cyclic CTE dependency detected for %s", def.name)
 	}
 
-	if len(def.spec.Selects) == 0 {
+	if def.selectCount == 0 {
 		return errors.Errorf("cte %s requires at least one selected column", def.name)
 	}
 
-	if len(def.spec.KeywordSearch) > 0 {
+	if def.keywordCount > 0 {
 		return errors.Errorf("cte %s does not support keyword search", def.name)
 	}
 
-	if err := def.spec.validateJoinGraph(); err != nil {
-		return errors.Trace(err)
-	}
-
-	if err := def.spec.validateSetOperations(); err != nil {
+	if err := def.validate(); err != nil {
 		return errors.Trace(err)
 	}
 
 	c.visiting[def.name] = struct{}{}
-	if err := c.collectFromSpec(def.spec, false); err != nil {
+	if err := def.collectNested(c, false); err != nil {
 		delete(c.visiting, def.name)
 		return errors.Trace(err)
 	}
@@ -717,7 +730,7 @@ func (c *cteCollector) collectDefinition(def cteDefinition) error {
 //
 //	usersAlias := AliasTable(users, "u2")
 //	users.InnerJoin(usersAlias, users.ID.EQCol(usersAlias.ParentID))
-func (spec QuerySpec) validateJoinGraph() error {
+func (spec QuerySpec[O]) validateJoinGraph() error {
 	if err := validateTableInput(spec.From, "from table"); err != nil {
 		return errors.Trace(err)
 	}

@@ -33,6 +33,15 @@ type cachedSQL struct {
 	timestamp    int64
 }
 
+type cachedQuerySpec interface {
+	selectCount() int
+	filterCount() int
+	joinCount() int
+	groupCount() int
+	havingCount() int
+	keywordSearchCount() int
+}
+
 // NewSQLRenderCache creates a new SQL rendering cache with configuration
 func NewSQLRenderCache(config SQLCacheConfig) *SQLRenderCache {
 	if !config.Enabled {
@@ -51,15 +60,15 @@ func NewSQLRenderCache(config SQLCacheConfig) *SQLRenderCache {
 }
 
 // cacheKeyForSpec generates a cache key from query spec
-func (c *SQLRenderCache) cacheKeyForSpec(spec QuerySpec) string {
+func (c *SQLRenderCache) cacheKeyForSpec(spec cachedQuerySpec) string {
 	var key strings.Builder
 
-	appendCacheKeyPart(&key, "selects", len(spec.Selects))
-	appendCacheKeyPart(&key, "filters", len(spec.Filters))
-	appendCacheKeyPart(&key, "joins", len(spec.Joins))
-	appendCacheKeyPart(&key, "groupby", len(spec.GroupBy))
-	appendCacheKeyPart(&key, "having", len(spec.Having))
-	appendCacheKeyPart(&key, "keyword_search", len(spec.KeywordSearch))
+	appendCacheKeyPart(&key, "selects", spec.selectCount())
+	appendCacheKeyPart(&key, "filters", spec.filterCount())
+	appendCacheKeyPart(&key, "joins", spec.joinCount())
+	appendCacheKeyPart(&key, "groupby", spec.groupCount())
+	appendCacheKeyPart(&key, "having", spec.havingCount())
+	appendCacheKeyPart(&key, "keyword_search", spec.keywordSearchCount())
 
 	sum := md5.Sum([]byte(key.String()))
 
@@ -74,7 +83,7 @@ func appendCacheKeyPart(dst *strings.Builder, label string, count int) {
 }
 
 // Get retrieves a cached SQL string, returns (sql, found, hitCount, missCount)
-func (c *SQLRenderCache) Get(spec QuerySpec) (string, bool) {
+func (c *SQLRenderCache) Get(spec cachedQuerySpec) (string, bool) {
 	if c == nil {
 		return "", false
 	}
@@ -94,7 +103,7 @@ func (c *SQLRenderCache) Get(spec QuerySpec) (string, bool) {
 }
 
 // Put stores a rendered SQL string in the cache
-func (c *SQLRenderCache) Put(spec QuerySpec, canonicalSQL string) {
+func (c *SQLRenderCache) Put(spec cachedQuerySpec, canonicalSQL string) {
 	if c == nil {
 		return
 	}

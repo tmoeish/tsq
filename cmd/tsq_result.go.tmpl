@@ -7,6 +7,9 @@
 package {{ .TypeInfo.Package.Name }}
 
 import (
+{{- if NeedsGeneratedTimeImport . }}
+	tsqtime "time"
+{{- end }}
 	"github.com/tmoeish/tsq"
 )
 
@@ -19,15 +22,15 @@ var Result{{$type}} = {{$type}}{}
 // Column definitions for {{$type}} result fields.
 var (
 {{- range $f := .Fields }}
-	{{$type}}_{{$f.Name}} = tsq.Into[{{$type}}]({{$f.Column}}, func(holder any) any {
-		return &holder.({{$ptype}}).{{$f.Name}}
+	{{$type}}_{{$f.Name}} = tsq.Into[{{$type}}]({{$f.Column}}, func(holder {{$ptype}}) *{{$f | FieldType}} {
+		return &holder.{{$f.Name}}
 	}, "{{$f.JsonTag}}")
 {{- end }}
 )
 
-func ({{$dot.Recv}} {{$type}}) Table() string { return "" }
+func ({{$dot.Recv}} {{$type}}) TSQOwner() {}
 
-func ({{$dot.Recv}} {{$type}}) KwList() []tsq.AnyColumn { return nil }
+func ({{$dot.Recv}} {{$type}}) TSQResult() {}
 
 // Cols returns the generated result columns for {{$type}}.
 {{$recv}}Cols() []tsq.SelectableColumn[{{$type}}] {
@@ -95,13 +98,13 @@ func (q {{$selectedType}}) Where{{$from}}(conds ...tsq.Pred[{{$from}}]) {{$selec
 	return q
 }
 
-func (q {{$selectedType}}) GroupBy{{$from}}(cols ...tsq.OwnedColumn[{{$from}}]) {{$selectedType}} {
-	q.qb.GroupBy(tsq.OwnedColumns(cols...)...)
+func (q {{$selectedType}}) GroupBy{{$from}}(cols ...tsq.TableColumn[{{$from}}]) {{$selectedType}} {
+	q.qb.GroupBy({{$type}}GroupByColumns(cols...)...)
 	return q
 }
 
-func (q {{$selectedType}}) KwSearch{{$from}}(cols ...tsq.OwnedColumn[{{$from}}]) {{$selectedType}} {
-	q.qb.AppendKwSearch(tsq.OwnedColumns(cols...)...)
+func (q {{$selectedType}}) KwSearch{{$from}}(cols ...tsq.TableColumn[{{$from}}]) {{$selectedType}} {
+	q.qb.AppendKwSearch({{$type}}SearchColumns(cols...)...)
 	return q
 }
 
@@ -117,13 +120,13 @@ func (q {{$selectedType}}) Where{{$right}}(conds ...tsq.Pred[{{$right}}]) {{$sel
 	return q
 }
 
-func (q {{$selectedType}}) GroupBy{{$right}}(cols ...tsq.OwnedColumn[{{$right}}]) {{$selectedType}} {
-	q.qb.GroupBy(tsq.OwnedColumns(cols...)...)
+func (q {{$selectedType}}) GroupBy{{$right}}(cols ...tsq.TableColumn[{{$right}}]) {{$selectedType}} {
+	q.qb.GroupBy({{$type}}GroupByColumns(cols...)...)
 	return q
 }
 
-func (q {{$selectedType}}) KwSearch{{$right}}(cols ...tsq.OwnedColumn[{{$right}}]) {{$selectedType}} {
-	q.qb.AppendKwSearch(tsq.OwnedColumns(cols...)...)
+func (q {{$selectedType}}) KwSearch{{$right}}(cols ...tsq.TableColumn[{{$right}}]) {{$selectedType}} {
+	q.qb.AppendKwSearch({{$type}}SearchColumns(cols...)...)
 	return q
 }
 
@@ -133,7 +136,7 @@ func (q {{$selectedType}}) Having{{$right}}(conds ...tsq.Pred[{{$right}}]) {{$se
 }
 
 {{- end }}
-func (q {{$selectedType}}) Build() (*tsq.Query, error) {
+func (q {{$selectedType}}) Build() (*tsq.Query[{{$type}}], error) {
 	return q.qb.Build()
 }
 
@@ -142,6 +145,24 @@ func {{$type}}JoinConditions[Left, Right tsq.Table](on tsq.JoinOn[Left, Right], 
 	result = append(result, on)
 	for _, extra := range conds {
 		result = append(result, extra)
+	}
+
+	return result
+}
+
+func {{$type}}GroupByColumns[O tsq.Table](cols ...tsq.TableColumn[O]) []tsq.AnyColumn {
+	result := make([]tsq.AnyColumn, 0, len(cols))
+	for _, col := range cols {
+		result = append(result, col)
+	}
+
+	return result
+}
+
+func {{$type}}SearchColumns[O tsq.Table](cols ...tsq.TableColumn[O]) []tsq.SearchColumn {
+	result := make([]tsq.SearchColumn, 0, len(cols))
+	for _, col := range cols {
+		result = append(result, col)
 	}
 
 	return result

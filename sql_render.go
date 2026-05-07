@@ -81,7 +81,7 @@ func rawColumnQualifiedName(col AnyColumn) string {
 		return raw.rawQualifiedName()
 	}
 
-	return col.QualifiedName()
+	return col.SQLExpr()
 }
 
 func renderCanonicalSQL(raw string) string {

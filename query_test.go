@@ -10,8 +10,12 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
+type queryOwner struct{}
+
+func (queryOwner) TSQOwner() {}
+
 // mustBuild is a test helper that builds a query and panics on error.
-func mustBuild[Owner Table](qb *QueryBuilder[Owner]) *Query {
+func mustBuild[O Owner](qb *QueryBuilder[O]) *Query[O] {
 	q, err := qb.Build()
 	if err != nil {
 		panic(err)
@@ -67,7 +71,7 @@ func TestErrOrderCountMismatch(t *testing.T) {
 }
 
 func TestQuery_SQLAccessors(t *testing.T) {
-	query := &Query{
+	query := &Query[queryOwner]{
 		cntSQL:    "SELECT COUNT(*) FROM users",
 		listSQL:   "SELECT * FROM users",
 		kwCntSQL:  "SELECT COUNT(*) FROM users WHERE name LIKE ?",
@@ -93,7 +97,7 @@ func TestQuery_SQLAccessors(t *testing.T) {
 
 func TestQueryBuilder_Build_EmptySelectFields(t *testing.T) {
 	qb := &QueryBuilder[Table]{
-		spec: QuerySpec{},
+		spec: QuerySpec[Table]{},
 	}
 
 	_, err := qb.Build()
@@ -127,9 +131,9 @@ func TestQueryBuilder_Build_Success(t *testing.T) {
 	col := newMockColumn(table, "id")
 
 	qb := &QueryBuilder[Table]{
-		spec: QuerySpec{
+		spec: QuerySpec[Table]{
 			From:    table,
-			Selects: []AnyColumn{col},
+			Selects: []SelectableColumn[Table]{col},
 		},
 	}
 
@@ -212,8 +216,8 @@ func TestQueryBuilder_Build_SetOperationPaginationUsesOutputColumnNames(t *testi
 func TestQueryBuilder_Build_CTEExecutionOnSQLite(t *testing.T) {
 	db := newInVarDBMap(t)
 	users := newMockTable("users")
-	idCol := newColForTable[Table, int64](users, "id", "id", func(holder any) any { return &holder.(*inVarUser).ID })
-	nameCol := newColForTable[Table, string](users, "name", "name", func(holder any) any { return &holder.(*inVarUser).Name })
+	idCol := newColForTable[inVarUser, int64](users, "id", "id", toScanPointer(func(holder *inVarUser) *int64 { return &holder.ID }))
+	nameCol := newColForTable[inVarUser, string](users, "name", "name", toScanPointer(func(holder *inVarUser) *string { return &holder.Name }))
 
 	selectedUsers := CTE("selected_users", Select(idCol, nameCol).
 		From(idCol.Table()).Where(idCol.InVar()))
@@ -326,14 +330,16 @@ type caseUser struct {
 	Label string
 }
 
+func (caseUser) TSQOwner() {}
+
 func TestQueryBuilder_Build_CaseExecutionOnSQLite(t *testing.T) {
 	db := newInVarDBMap(t)
 	users := newMockTable("users")
-	idCol := newColForTable[Table, int64](users, "id", "id", func(holder any) any { return &holder.(*caseUser).ID })
-	nameLabel := Into[Table](Case[string]().
+	idCol := newColForTable[caseUser, int64](users, "id", "id", toScanPointer(func(holder *caseUser) *int64 { return &holder.ID }))
+	nameLabel := Into[caseUser](Case[string]().
 		When(idCol.GT(1), "member").
 		Else("owner").
-		End(), func(holder any) any { return &holder.(*caseUser).Label }, "label")
+		End(), func(holder *caseUser) *string { return &holder.Label }, "label")
 
 	query := mustBuild(Select(idCol, nameLabel).
 		From(idCol.Table()).Where(idCol.InVar()))
@@ -357,9 +363,9 @@ func TestQueryBuilder_MustBuild_Success(t *testing.T) {
 	col := newMockColumn(table, "id")
 
 	qb := &QueryBuilder[Table]{
-		spec: QuerySpec{
+		spec: QuerySpec[Table]{
 			From:    table,
-			Selects: []AnyColumn{col},
+			Selects: []SelectableColumn[Table]{col},
 		},
 	}
 
@@ -419,10 +425,10 @@ func TestQuery_MetadataAccess(t *testing.T) {
 	table := newMockTable("users")
 	col := newMockColumn(table, "id")
 
-	query := &Query{
-		selectCols:   []AnyColumn{col},
+	query := &Query[Table]{
+		selectCols:   []SelectableColumn[Table]{newColForTable[Table, string](table, "id", "id", nil)},
 		selectTables: map[string]Table{"users": table},
-		kwCols:       []AnyColumn{col},
+		kwCols:       []SearchColumn{col},
 		kwTables:     map[string]Table{"users": table},
 	}
 
@@ -464,7 +470,7 @@ func TestErrorTypes_Interfaces(t *testing.T) {
 }
 
 func TestQuery_EmptySQL(t *testing.T) {
-	query := &Query{}
+	query := &Query[queryOwner]{}
 
 	// Test that empty SQL strings are returned correctly
 	if query.CntSQL() != "" {
@@ -485,7 +491,7 @@ func TestQuery_EmptySQL(t *testing.T) {
 }
 
 func TestNilQuery_SQLAccessorsReturnEmptyStrings(t *testing.T) {
-	var query *Query
+	var query *Query[queryOwner]
 
 	if query.CntSQL() != "" {
 		t.Errorf("Expected empty CntSQL for nil query, got %q", query.CntSQL())
@@ -529,7 +535,7 @@ func TestBuildDeleteByIDsSQLRejectsInvalidIdentifiers(t *testing.T) {
 }
 
 func TestQuery_buildPageSQLsNormalizesNilRequest(t *testing.T) {
-	query := &Query{
+	query := &Query[queryOwner]{
 		cntSQL:    "SELECT COUNT(*) FROM users",
 		listSQL:   "SELECT * FROM users",
 		kwCntSQL:  "SELECT COUNT(*) FROM users WHERE name LIKE ?",
@@ -551,7 +557,7 @@ func TestQuery_buildPageSQLsNormalizesNilRequest(t *testing.T) {
 }
 
 func TestQuery_buildPageSQLsRejectsNilQuery(t *testing.T) {
-	var query *Query
+	var query *Query[queryOwner]
 
 	_, _, err := query.buildPageSQLs(nil)
 	if err == nil {
@@ -564,7 +570,7 @@ func TestQuery_buildPageSQLsRejectsNilQuery(t *testing.T) {
 }
 
 func TestQuery_buildPageSQLsRejectsUnbuiltQuery(t *testing.T) {
-	query := &Query{}
+	query := &Query[queryOwner]{}
 
 	_, _, err := query.buildPageSQLs(nil)
 	if err == nil {
@@ -767,7 +773,7 @@ func TestNormalizeChunkedOptionsRejectsMultipleValues(t *testing.T) {
 }
 
 func TestQueryCountRejectsUnbuiltQuery(t *testing.T) {
-	_, err := (&Query{}).Count(context.Background(), nil)
+	_, err := (&Query[queryOwner]{}).Count(context.Background(), nil)
 	if err == nil {
 		t.Fatal("expected unbuilt query to return an error")
 	}
@@ -829,7 +835,7 @@ func TestChunkedDeleteChunkRejectsNilItems(t *testing.T) {
 }
 
 func TestPageFnRejectsNilQuery(t *testing.T) {
-	_, err := pageFn[int](context.Background(), nil, nil, nil)
+	_, err := pageFn[queryOwner](context.Background(), nil, nil, nil)
 	if err == nil {
 		t.Fatal("expected nil query to return an error")
 	}
@@ -1017,10 +1023,14 @@ type scanDestUser struct {
 	Name string
 }
 
+func (scanDestUser) TSQOwner() {}
+
 type inVarUser struct {
 	ID   int64
 	Name string
 }
+
+func (inVarUser) TSQOwner() {}
 
 func newScanValidationDBMap(t *testing.T) *DbMap {
 	t.Helper()
@@ -1080,11 +1090,11 @@ func newDBMapWithoutDialect(t *testing.T) *DbMap {
 
 func TestListValidatesScanDestEvenWhenResultIsEmpty(t *testing.T) {
 	db := newScanValidationDBMap(t)
-	col := newColForTable[Table, string](newMockTable("users"), "name", "name", nil)
-	query := &Query{
+	col := newColForTable[scanDestUser, string](newMockTable("users"), "name", "name", nil)
+	query := &Query[scanDestUser]{
 		cntSQL:     "SELECT COUNT(1) FROM users",
 		listSQL:    "SELECT name FROM users WHERE 1 = 0",
-		selectCols: []AnyColumn{col},
+		selectCols: []SelectableColumn[scanDestUser]{col},
 	}
 
 	_, err := List[scanDestUser](context.Background(), db, query)
@@ -1100,8 +1110,8 @@ func TestListValidatesScanDestEvenWhenResultIsEmpty(t *testing.T) {
 func TestListSupportsInVarSlices(t *testing.T) {
 	db := newInVarDBMap(t)
 	users := newMockTable("users")
-	idCol := newColForTable[Table, int64](users, "id", "id", func(holder any) any { return &holder.(*inVarUser).ID })
-	nameCol := newColForTable[Table, string](users, "name", "name", func(holder any) any { return &holder.(*inVarUser).Name })
+	idCol := newColForTable[inVarUser, int64](users, "id", "id", toScanPointer(func(holder *inVarUser) *int64 { return &holder.ID }))
+	nameCol := newColForTable[inVarUser, string](users, "name", "name", toScanPointer(func(holder *inVarUser) *string { return &holder.Name }))
 
 	query := mustBuild(Select(idCol, nameCol).
 		From(idCol.Table()).Where(idCol.InVar()))
@@ -1131,11 +1141,11 @@ func TestListSupportsInVarSlices(t *testing.T) {
 
 func TestPageValidatesScanDestEvenWhenResultIsEmpty(t *testing.T) {
 	db := newScanValidationDBMap(t)
-	col := newColForTable[Table, string](newMockTable("users"), "name", "name", nil)
-	query := &Query{
+	col := newColForTable[scanDestUser, string](newMockTable("users"), "name", "name", nil)
+	query := &Query[scanDestUser]{
 		cntSQL:     "SELECT COUNT(1) FROM users",
 		listSQL:    "SELECT name FROM users WHERE 1 = 0",
-		selectCols: []AnyColumn{col},
+		selectCols: []SelectableColumn[scanDestUser]{col},
 	}
 
 	_, err := Page[scanDestUser](context.Background(), db, nil, query)
@@ -1149,9 +1159,9 @@ func TestPageValidatesScanDestEvenWhenResultIsEmpty(t *testing.T) {
 }
 
 func TestBuildScanDestRejectsNilFieldPointer(t *testing.T) {
-	col := newColForTable[Table, string](newMockTable("users"), "name", "name", nil)
+	col := newColForTable[scanDestUser, string](newMockTable("users"), "name", "name", nil)
 
-	_, err := buildScanDest[scanDestUser]([]AnyColumn{col}, &scanDestUser{})
+	_, err := buildScanDest([]SelectableColumn[scanDestUser]{col}, &scanDestUser{})
 	if err == nil {
 		t.Fatal("expected nil field pointer to return an error")
 	}
@@ -1162,14 +1172,14 @@ func TestBuildScanDestRejectsNilFieldPointer(t *testing.T) {
 }
 
 func TestBuildScanDestRecoversFieldPointerPanics(t *testing.T) {
-	col := newColForTable[Table, string](
+	col := newColForTable[scanDestUser, string](
 		newMockTable("users"),
 		"name",
 		"name",
-		func(holder any) any { return &holder.(*scanDestUser).Name },
+		toScanPointer(func(holder *scanDestUser) *string { return &holder.Name }),
 	)
 
-	_, err := buildScanDest[struct{}]([]AnyColumn{col}, &struct{}{})
+	_, err := invokeFieldPointer(col.FieldPointer(), &queryOwner{})
 	if err == nil {
 		t.Fatal("expected field pointer panic to return an error")
 	}
@@ -1180,14 +1190,14 @@ func TestBuildScanDestRecoversFieldPointerPanics(t *testing.T) {
 }
 
 func TestBuildScanDestRejectsNilScanTarget(t *testing.T) {
-	col := newColForTable[Table, string](
+	col := newColForTable[scanDestUser, string](
 		newMockTable("users"),
 		"name",
 		"name",
-		func(holder any) any { return nil },
+		toScanPointer(func(holder *scanDestUser) *string { return nil }),
 	)
 
-	_, err := buildScanDest[scanDestUser]([]AnyColumn{col}, &scanDestUser{})
+	_, err := buildScanDest([]SelectableColumn[scanDestUser]{col}, &scanDestUser{})
 	if err == nil {
 		t.Fatal("expected nil scan target to return an error")
 	}
@@ -1198,14 +1208,14 @@ func TestBuildScanDestRejectsNilScanTarget(t *testing.T) {
 }
 
 func TestBuildScanDestRejectsNilHolder(t *testing.T) {
-	col := newColForTable[Table, string](
+	col := newColForTable[scanDestUser, string](
 		newMockTable("users"),
 		"name",
 		"name",
-		func(holder any) any { return &holder.(*scanDestUser).Name },
+		toScanPointer(func(holder *scanDestUser) *string { return &holder.Name }),
 	)
 
-	_, err := buildScanDest[scanDestUser]([]AnyColumn{col}, nil)
+	_, err := buildScanDest([]SelectableColumn[scanDestUser]{col}, nil)
 	if err == nil {
 		t.Fatal("expected nil holder to return an error")
 	}
@@ -1216,14 +1226,7 @@ func TestBuildScanDestRejectsNilHolder(t *testing.T) {
 }
 
 func TestBuildScanDestRejectsNonPointerHolder(t *testing.T) {
-	col := newColForTable[Table, string](
-		newMockTable("users"),
-		"name",
-		"name",
-		func(holder any) any { return &holder.(*scanDestUser).Name },
-	)
-
-	_, err := buildScanDestAny([]AnyColumn{col}, scanDestUser{})
+	err := validateScanHolder(scanDestUser{})
 	if err == nil {
 		t.Fatal("expected non-pointer holder to return an error")
 	}

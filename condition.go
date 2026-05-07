@@ -104,8 +104,8 @@ type Cond struct {
 	buildErr error
 }
 
-func pred[Owner Table](cond Cond) Pred[Owner] {
-	return Pred[Owner]{Cond: cond}
+func pred[O Owner](cond Cond) Pred[O] {
+	return Pred[O]{Cond: cond}
 }
 
 func (c Cond) Tables() map[string]Table {
@@ -354,17 +354,24 @@ func (c Col[Owner, T]) NContainsCol(_ typedColumn[T]) Pred[Owner] {
 // 子查询条件
 // ================================================
 
-func (c Col[Owner, T]) EQSub(sqb *Query) Pred[Owner]    { return c.Predicate(`%s = %s`, sqb) }
-func (c Col[Owner, T]) NESub(sqb *Query) Pred[Owner]    { return c.Predicate(`%s <> %s`, sqb) }
-func (c Col[Owner, T]) GTSub(sqb *Query) Pred[Owner]    { return c.Predicate(`%s > %s`, sqb) }
-func (c Col[Owner, T]) GTESub(sqb *Query) Pred[Owner]   { return c.Predicate(`%s >= %s`, sqb) }
-func (c Col[Owner, T]) LTSub(sqb *Query) Pred[Owner]    { return c.Predicate(`%s < %s`, sqb) }
-func (c Col[Owner, T]) LTESub(sqb *Query) Pred[Owner]   { return c.Predicate(`%s <= %s`, sqb) }
-func (c Col[Owner, T]) LikeSub(sqb *Query) Pred[Owner]  { return c.Predicate(`%s LIKE %s`, sqb) }
-func (c Col[Owner, T]) NLikeSub(sqb *Query) Pred[Owner] { return c.Predicate(`%s NOT LIKE %s`, sqb) }
-func (c Col[Owner, T]) InSub(sqb *Query) Pred[Owner]    { return c.Predicate(`%s IN %s`, sqb) }
-func (c Col[Owner, T]) NInSub(sqb *Query) Pred[Owner]   { return c.Predicate(`%s NOT IN %s`, sqb) }
-func (c Col[Owner, T]) ExistsSub(sqb *Query) Pred[Owner] {
+type subqueryExpr interface {
+	ListSQL() string
+	queryArgs() []any
+}
+
+func (c Col[Owner, T]) EQSub(sqb subqueryExpr) Pred[Owner]   { return c.Predicate(`%s = %s`, sqb) }
+func (c Col[Owner, T]) NESub(sqb subqueryExpr) Pred[Owner]   { return c.Predicate(`%s <> %s`, sqb) }
+func (c Col[Owner, T]) GTSub(sqb subqueryExpr) Pred[Owner]   { return c.Predicate(`%s > %s`, sqb) }
+func (c Col[Owner, T]) GTESub(sqb subqueryExpr) Pred[Owner]  { return c.Predicate(`%s >= %s`, sqb) }
+func (c Col[Owner, T]) LTSub(sqb subqueryExpr) Pred[Owner]   { return c.Predicate(`%s < %s`, sqb) }
+func (c Col[Owner, T]) LTESub(sqb subqueryExpr) Pred[Owner]  { return c.Predicate(`%s <= %s`, sqb) }
+func (c Col[Owner, T]) LikeSub(sqb subqueryExpr) Pred[Owner] { return c.Predicate(`%s LIKE %s`, sqb) }
+func (c Col[Owner, T]) NLikeSub(sqb subqueryExpr) Pred[Owner] {
+	return c.Predicate(`%s NOT LIKE %s`, sqb)
+}
+func (c Col[Owner, T]) InSub(sqb subqueryExpr) Pred[Owner]  { return c.Predicate(`%s IN %s`, sqb) }
+func (c Col[Owner, T]) NInSub(sqb subqueryExpr) Pred[Owner] { return c.Predicate(`%s NOT IN %s`, sqb) }
+func (c Col[Owner, T]) ExistsSub(sqb subqueryExpr) Pred[Owner] {
 	subquery, err := formatSubquery(sqb)
 	if err != nil {
 		return pred[Owner](Cond{buildErr: errors.Trace(err)})
@@ -373,7 +380,7 @@ func (c Col[Owner, T]) ExistsSub(sqb *Query) Pred[Owner] {
 	return pred[Owner](rawCondition("EXISTS " + subquery))
 }
 
-func (c Col[Owner, T]) NExistsSub(sqb *Query) Pred[Owner] {
+func (c Col[Owner, T]) NExistsSub(sqb subqueryExpr) Pred[Owner] {
 	subquery, err := formatSubquery(sqb)
 	if err != nil {
 		return pred[Owner](Cond{buildErr: errors.Trace(err)})
@@ -382,11 +389,11 @@ func (c Col[Owner, T]) NExistsSub(sqb *Query) Pred[Owner] {
 	return pred[Owner](rawCondition("NOT EXISTS " + subquery))
 }
 
-func (c Col[Owner, T]) Unique(sqb *Query) Pred[Owner] {
+func (c Col[Owner, T]) Unique(sqb subqueryExpr) Pred[Owner] {
 	return pred[Owner](unsupportedSubqueryPredicate("UNIQUE"))
 }
 
-func (c Col[Owner, T]) NUnique(sqb *Query) Pred[Owner] {
+func (c Col[Owner, T]) NUnique(sqb subqueryExpr) Pred[Owner] {
 	return pred[Owner](unsupportedSubqueryPredicate("NOT UNIQUE"))
 }
 
@@ -626,25 +633,30 @@ func argumentToExpression(arg any) Expression {
 		return v
 	case AnyColumn:
 		return rawExpression{expr: rawColumnQualifiedName(v), args: expressionArgs(v)}
-	case *Query:
+	case subqueryExpr:
 		expr, err := formatSubquery(v)
 		if err != nil {
 			return expressionError{err: errors.Trace(err)}
 		}
 
-		return rawExpression{expr: expr, args: queryArgs(v)}
+		return rawExpression{expr: expr, args: v.queryArgs()}
 	default:
 		return Literal(v)
 	}
 }
 
 // formatSubquery formats a subquery for use in SQL
-func formatSubquery(q *Query) (string, error) {
-	if err := validateQuery(q); err != nil {
-		return "", errors.Trace(err)
+func formatSubquery(q subqueryExpr) (string, error) {
+	if q == nil {
+		return "", errors.New("query cannot be nil")
 	}
 
-	return fmt.Sprintf("(%s)", q.listSQL), nil
+	sqlText := strings.TrimSpace(q.ListSQL())
+	if sqlText == "" {
+		return "", errors.New("query is not built")
+	}
+
+	return fmt.Sprintf("(%s)", sqlText), nil
 }
 
 func collectExpressionArgs(args ...any) []any {

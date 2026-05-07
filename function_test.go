@@ -250,7 +250,7 @@ func TestCol_FnExprTracksReferencedTables(t *testing.T) {
 
 	result := userName.FnExpr("COALESCE(%s, %s)", orgName)
 
-	if refs := result.referencedTables(); len(refs) != 1 || refs["orgs"] == nil {
+	if refs := result.referencedTables(); len(refs) != 2 || refs["orgs"] == nil || refs["users"] == nil {
 		t.Fatalf("expected FnExpr to track referenced tables, got %#v", refs)
 	}
 }

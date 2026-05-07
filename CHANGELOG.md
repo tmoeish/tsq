@@ -7,31 +7,31 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 项目遵循 [语义化版本控制](https://semver.org/lang/zh-CN/)。
 
-## [Unreleased]
+## [4.0.0] - 2026-05-07
 
 ### 变更（Breaking Changes）
-- `Col[T]` 升级为 `Col[Owner, T]`，生成列会把所属表 Struct 类型写入类型参数
+- `Col[T]` 升级为 `Col[Owner, T]`，生成列会把所属 owner Struct 类型写入类型参数
+- 新增 `Owner` / `Result` 语义，查询结果 owner 不再被迫实现 `tsq.Table`
 - `NewCol[Owner, T]` 不再接收显式 table 参数，列所属表由满足 `tsq.Table` 的 `Owner` 类型推导
 - `NewCol[Owner, T]` 的 field pointer 收紧为 `func(*Owner) *T`，生成列的扫描目标类型在编译期校验
 - `Column` 升级为 `Column[Owner, T]` 泛型接口，异构运行期列集合改用显式的 `AnyColumn`
-- `Select` / `QueryBuilder` 升级为 owner 泛型 API：`Select[Owner](...)` 只能投影同一 Table 或 Result owner 的字段
-- `Col` / `Pred` / `JoinOn` / `JoinCond` / `OwnedColumn` 等 owner 类型参数从 `any` 收紧为 `tsq.Table`
+- `Select` / `QueryBuilder` / `QuerySpec` / `Query` 升级为 owner 泛型 API：`Select[Owner](...)` 只能投影同一 Table 或 Result owner 的字段
+- Result projection 现在通过包级 `Into(source, func(*Owner) *T, "json")` 建立，扫描目标 owner 在编译期校验
 - `Into(...)` 现在返回只用于投影的 `ResultCol[Owner, T]`，Result 字段不再暴露 `EQVar` / `EQCol` 等条件方法
 - 查询现在必须显式调用 `From(table)`，不再从 `Select(...)` 或 Join 链隐式推导主表
 - `Join` / `LeftJoin` / `RightJoin` / `FullJoin` 改为直接接收可变 `Condition`，移除旧的 `.Join(...).On(left, right)` 两步 API
 - 非 `CROSS JOIN` 必须提供 ON 条件；Join 条件必须同时引用已引入表和当前连接表，提前拒绝缺失连接关系或引用未来表的查询
-- 生成的 Result typed Join 不再接受裸 `Condition` 附加条件；额外 ON 条件必须是同一左右表的 `JoinCond[Left, Right]`
 
 ### 新增
 - 增加 `tsq.On` / `OnNE` / `OnGT` / `OnGTE` / `OnLT` / `OnLTE`，生成 `JoinOn[Left, Right]` 类型化连接边，为 v4 静态 Join DSL 打基础
 - 增加 `JoinCond[Left, Right]` 以及 `OnExtra` / `OnLeft` / `OnRight`，用于表达 typed Join ON 中的额外连接边和左右表谓词
-- 增加 `OwnedColumn[Owner]` / `OwnedColumns`，生成的 Result typed builder 可用 `GroupByX` / `KwSearchX` 约束字段必须来自对应表
+- 增加 `TableColumn[Owner]` / `SearchColumn`，分别约束物理表列与可参与关键词搜索的列
 - `@RESULT` 支持 `join=[{left="Struct.Field", right="Struct.Field"}]`，生成器会据此产出 Result 专属 typed query builder
 
 ### 改进
 - 生成的表 DSL 增加 `Cols()`，让 Build 阶段可以校验列确实属于 `From` / Join 图中的表
 - 生成列现在使用 `NewCol[TableStruct, FieldType]`，列 owner 信息可被后续 typed query API 使用
-- `List` / `GetOrErr` / `Page` 的扫描目标构建链路改为泛型路径，动态 `Load(holder any)` 与强类型查询扫描分离
+- `List` / `Get` / `GetOrErr` / `Page` / `Load` 的扫描目标构建链路改为泛型路径，查询返回类型直接从 `*Query[Owner]` 推导
 - `Alias(...)` 表会同步重绑定生成列集合，别名查询也能参与列归属校验
 - 示例、文档和生成模板统一迁移到显式 `From` 与新 Join API
 

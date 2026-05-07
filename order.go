@@ -41,7 +41,7 @@ func (ob OrderBy) Expr() string {
 		return ""
 	}
 
-	return ob.field.QualifiedName() + " " + string(ob.order)
+	return ob.field.SQLExpr() + " " + string(ob.order)
 }
 
 // Field returns the column being ordered

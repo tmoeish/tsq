@@ -32,8 +32,8 @@ const (
 )
 
 // QueryBuilder builds a structured query specification for a result owner.
-type QueryBuilder[Owner Table] struct {
-	spec     QuerySpec
+type QueryBuilder[O Owner] struct {
+	spec     QuerySpec[O]
 	buildErr error
 }
 
@@ -44,33 +44,33 @@ type join struct {
 	on       []Condition
 }
 
-type setOperation struct {
+type setOperation[O Owner] struct {
 	op   SetOperationType
-	spec QuerySpec
+	spec QuerySpec[O]
 }
 
-func newQueryBuilder[Owner Table]() *QueryBuilder[Owner] {
-	return &QueryBuilder[Owner]{
-		spec: QuerySpec{
-			Selects: make([]AnyColumn, 0),
+func newQueryBuilder[O Owner]() *QueryBuilder[O] {
+	return &QueryBuilder[O]{
+		spec: QuerySpec[O]{
+			Selects: make([]SelectableColumn[O], 0),
 			Joins:   make([]join, 0),
 			GroupBy: make([]AnyColumn, 0),
 			Having:  make([]Condition, 0),
-			SetOps:  make([]setOperation, 0),
+			SetOps:  make([]setOperation[O], 0),
 		},
 	}
 }
 
-func (qb *QueryBuilder[Owner]) ensureInitialized() *QueryBuilder[Owner] {
+func (qb *QueryBuilder[O]) ensureInitialized() *QueryBuilder[O] {
 	if qb == nil {
-		qb = newQueryBuilder[Owner]()
+		qb = newQueryBuilder[O]()
 		qb.buildErr = errors.New("query builder cannot be nil")
 
 		return qb
 	}
 
 	if qb.spec.Selects == nil {
-		qb.spec.Selects = make([]AnyColumn, 0)
+		qb.spec.Selects = make([]SelectableColumn[O], 0)
 	}
 
 	if qb.spec.Joins == nil {
@@ -86,41 +86,41 @@ func (qb *QueryBuilder[Owner]) ensureInitialized() *QueryBuilder[Owner] {
 	}
 
 	if qb.spec.SetOps == nil {
-		qb.spec.SetOps = make([]setOperation, 0)
+		qb.spec.SetOps = make([]setOperation[O], 0)
 	}
 
 	return qb
 }
 
 // Select creates a new QueryBuilder with the specified owner-constrained columns.
-func Select[Owner Table](cols ...SelectableColumn[Owner]) *QueryBuilder[Owner] {
-	qb := newQueryBuilder[Owner]()
+func Select[O Owner](cols ...SelectableColumn[O]) *QueryBuilder[O] {
+	qb := newQueryBuilder[O]()
 	qb.Select(cols...)
 
 	return qb
 }
 
 // From creates a new QueryBuilder with the specified base table.
-func From[Owner Table](table Table) *QueryBuilder[Owner] {
-	return newQueryBuilder[Owner]().From(table)
+func From[O Owner](table Table) *QueryBuilder[O] {
+	return newQueryBuilder[O]().From(table)
 }
 
 // Select sets the projected columns for the query.
 // Existing selected columns are replaced.
-func (qb *QueryBuilder[Owner]) Select(cols ...SelectableColumn[Owner]) *QueryBuilder[Owner] {
+func (qb *QueryBuilder[O]) Select(cols ...SelectableColumn[O]) *QueryBuilder[O] {
 	qb = qb.ensureInitialized()
 
 	if qb.buildErr != nil {
 		return qb
 	}
 
-	qb.spec.Selects = make([]AnyColumn, 0, len(cols))
+	qb.spec.Selects = make([]SelectableColumn[O], 0, len(cols))
 	qb.addSelectColumns(cols...)
 
 	return qb
 }
 
-func (qb *QueryBuilder[Owner]) appendSetOperation(op SetOperationType, other *QueryBuilder[Owner]) *QueryBuilder[Owner] {
+func (qb *QueryBuilder[O]) appendSetOperation(op SetOperationType, other *QueryBuilder[O]) *QueryBuilder[O] {
 	qb = qb.ensureInitialized()
 
 	if qb.buildErr != nil {
@@ -159,7 +159,7 @@ func (qb *QueryBuilder[Owner]) appendSetOperation(op SetOperationType, other *Qu
 		return qb
 	}
 
-	qb.spec.SetOps = append(qb.spec.SetOps, setOperation{
+	qb.spec.SetOps = append(qb.spec.SetOps, setOperation[O]{
 		op:   op,
 		spec: cloneQuerySpec(other.spec),
 	})
@@ -168,36 +168,36 @@ func (qb *QueryBuilder[Owner]) appendSetOperation(op SetOperationType, other *Qu
 }
 
 // Union appends a UNION clause to the current query.
-func (qb *QueryBuilder[Owner]) Union(other *QueryBuilder[Owner]) *QueryBuilder[Owner] {
+func (qb *QueryBuilder[O]) Union(other *QueryBuilder[O]) *QueryBuilder[O] {
 	return qb.appendSetOperation(UnionType, other)
 }
 
 // UnionAll appends a UNION ALL clause to the current query.
-func (qb *QueryBuilder[Owner]) UnionAll(other *QueryBuilder[Owner]) *QueryBuilder[Owner] {
+func (qb *QueryBuilder[O]) UnionAll(other *QueryBuilder[O]) *QueryBuilder[O] {
 	return qb.appendSetOperation(UnionAllType, other)
 }
 
 // Intersect appends an INTERSECT clause to the current query.
-func (qb *QueryBuilder[Owner]) Intersect(other *QueryBuilder[Owner]) *QueryBuilder[Owner] {
+func (qb *QueryBuilder[O]) Intersect(other *QueryBuilder[O]) *QueryBuilder[O] {
 	return qb.appendSetOperation(IntersectType, other)
 }
 
 // IntersectAll appends an INTERSECT ALL clause to the current query.
-func (qb *QueryBuilder[Owner]) IntersectAll(other *QueryBuilder[Owner]) *QueryBuilder[Owner] {
+func (qb *QueryBuilder[O]) IntersectAll(other *QueryBuilder[O]) *QueryBuilder[O] {
 	return qb.appendSetOperation(IntersectAllType, other)
 }
 
 // Except appends an EXCEPT clause to the current query.
-func (qb *QueryBuilder[Owner]) Except(other *QueryBuilder[Owner]) *QueryBuilder[Owner] {
+func (qb *QueryBuilder[O]) Except(other *QueryBuilder[O]) *QueryBuilder[O] {
 	return qb.appendSetOperation(ExceptType, other)
 }
 
 // ExceptAll appends an EXCEPT ALL clause to the current query.
-func (qb *QueryBuilder[Owner]) ExceptAll(other *QueryBuilder[Owner]) *QueryBuilder[Owner] {
+func (qb *QueryBuilder[O]) ExceptAll(other *QueryBuilder[O]) *QueryBuilder[O] {
 	return qb.appendSetOperation(ExceptAllType, other)
 }
 
-func (qb *QueryBuilder[Owner]) setBuildError(err error) {
+func (qb *QueryBuilder[O]) setBuildError(err error) {
 	if qb == nil || err == nil || qb.buildErr != nil {
 		return
 	}
@@ -205,9 +205,9 @@ func (qb *QueryBuilder[Owner]) setBuildError(err error) {
 	qb.buildErr = err
 }
 
-func (qb *QueryBuilder[Owner]) addSelectColumns(cols ...SelectableColumn[Owner]) {
+func (qb *QueryBuilder[O]) addSelectColumns(cols ...SelectableColumn[O]) {
 	for _, col := range cols {
-		if _, err := validateColumnInput(col); err != nil {
+		if err := validateSelectableColumn(col); err != nil {
 			qb.setBuildError(errors.Trace(err))
 			continue
 		}
@@ -216,7 +216,7 @@ func (qb *QueryBuilder[Owner]) addSelectColumns(cols ...SelectableColumn[Owner])
 	}
 }
 
-func (qb *QueryBuilder[Owner]) appendColumn(target *[]AnyColumn, col AnyColumn) {
+func (qb *QueryBuilder[O]) appendColumn(target *[]AnyColumn, col AnyColumn) {
 	if _, err := validateColumnInput(col); err != nil {
 		qb.setBuildError(errors.Trace(err))
 		return
@@ -225,7 +225,16 @@ func (qb *QueryBuilder[Owner]) appendColumn(target *[]AnyColumn, col AnyColumn) 
 	*target = append(*target, col)
 }
 
-func (qb *QueryBuilder[Owner]) appendCondition(target *[]Condition, cond Condition) {
+func (qb *QueryBuilder[O]) appendSearchColumn(target *[]SearchColumn, col SearchColumn) {
+	if err := validateSearchColumn(col); err != nil {
+		qb.setBuildError(errors.Trace(err))
+		return
+	}
+
+	*target = append(*target, col)
+}
+
+func (qb *QueryBuilder[O]) appendCondition(target *[]Condition, cond Condition) {
 	if _, _, _, err := validateConditionInput(cond); err != nil {
 		qb.setBuildError(errors.Trace(err))
 		return
@@ -236,7 +245,7 @@ func (qb *QueryBuilder[Owner]) appendCondition(target *[]Condition, cond Conditi
 
 // From sets the base table for the query.
 // If the builder is in an error state, this method returns immediately without modifying the query.
-func (qb *QueryBuilder[Owner]) From(table Table) *QueryBuilder[Owner] {
+func (qb *QueryBuilder[O]) From(table Table) *QueryBuilder[O] {
 	qb = qb.ensureInitialized()
 
 	if qb.buildErr != nil {
@@ -255,28 +264,28 @@ func (qb *QueryBuilder[Owner]) From(table Table) *QueryBuilder[Owner] {
 
 // Join adds an INNER JOIN clause.
 // If the builder is in an error state, this method returns immediately without modifying the query.
-func (qb *QueryBuilder[Owner]) Join(table Table, conds ...Condition) *QueryBuilder[Owner] {
+func (qb *QueryBuilder[O]) Join(table Table, conds ...Condition) *QueryBuilder[O] {
 	return qb.addJoin(InnerJoinType, table, conds...)
 }
 
 // LeftJoin adds a LEFT JOIN clause with ON conditions joined by AND.
 // To join a table to itself, pass an aliased table and rebound columns.
 // If the builder is in an error state, this method returns immediately without modifying the query.
-func (qb *QueryBuilder[Owner]) LeftJoin(table Table, conds ...Condition) *QueryBuilder[Owner] {
+func (qb *QueryBuilder[O]) LeftJoin(table Table, conds ...Condition) *QueryBuilder[O] {
 	return qb.addJoin(LeftJoinType, table, conds...)
 }
 
 // InnerJoin adds an INNER JOIN clause with ON conditions joined by AND.
 // To join a table to itself, pass an aliased table and rebound columns.
 // If the builder is in an error state, this method returns immediately without modifying the query.
-func (qb *QueryBuilder[Owner]) InnerJoin(table Table, conds ...Condition) *QueryBuilder[Owner] {
+func (qb *QueryBuilder[O]) InnerJoin(table Table, conds ...Condition) *QueryBuilder[O] {
 	return qb.addJoin(InnerJoinType, table, conds...)
 }
 
 // RightJoin adds a RIGHT JOIN clause with ON conditions joined by AND.
 // To join a table to itself, pass an aliased table and rebound columns.
 // If the builder is in an error state, this method returns immediately without modifying the query.
-func (qb *QueryBuilder[Owner]) RightJoin(table Table, conds ...Condition) *QueryBuilder[Owner] {
+func (qb *QueryBuilder[O]) RightJoin(table Table, conds ...Condition) *QueryBuilder[O] {
 	return qb.addJoin(RightJoinType, table, conds...)
 }
 
@@ -284,11 +293,11 @@ func (qb *QueryBuilder[Owner]) RightJoin(table Table, conds ...Condition) *Query
 // but execution still depends on the target dialect supporting FULL JOIN.
 // To join a table to itself, pass an aliased table and rebound columns.
 // If the builder is in an error state, this method returns immediately without modifying the query.
-func (qb *QueryBuilder[Owner]) FullJoin(table Table, conds ...Condition) *QueryBuilder[Owner] {
+func (qb *QueryBuilder[O]) FullJoin(table Table, conds ...Condition) *QueryBuilder[O] {
 	return qb.addJoin(FullJoinType, table, conds...)
 }
 
-func (qb *QueryBuilder[Owner]) addJoin(joinType JoinType, table Table, conds ...Condition) *QueryBuilder[Owner] {
+func (qb *QueryBuilder[O]) addJoin(joinType JoinType, table Table, conds ...Condition) *QueryBuilder[O] {
 	qb = qb.ensureInitialized()
 
 	if qb.buildErr != nil {
@@ -321,7 +330,7 @@ func (qb *QueryBuilder[Owner]) addJoin(joinType JoinType, table Table, conds ...
 
 // CrossJoin adds a CROSS JOIN clause.
 // If the builder is in an error state, this method returns immediately without modifying the query.
-func (qb *QueryBuilder[Owner]) CrossJoin(table Table) *QueryBuilder[Owner] {
+func (qb *QueryBuilder[O]) CrossJoin(table Table) *QueryBuilder[O] {
 	qb = qb.ensureInitialized()
 
 	if qb.buildErr != nil {
@@ -343,7 +352,7 @@ func (qb *QueryBuilder[Owner]) CrossJoin(table Table) *QueryBuilder[Owner] {
 
 // GroupBy adds GROUP BY clause with the specified columns.
 // If the builder is in an error state, this method returns immediately without modifying the query.
-func (qb *QueryBuilder[Owner]) GroupBy(cols ...AnyColumn) *QueryBuilder[Owner] {
+func (qb *QueryBuilder[O]) GroupBy(cols ...AnyColumn) *QueryBuilder[O] {
 	qb = qb.ensureInitialized()
 
 	if qb.buildErr != nil {
@@ -359,7 +368,7 @@ func (qb *QueryBuilder[Owner]) GroupBy(cols ...AnyColumn) *QueryBuilder[Owner] {
 
 // Having adds HAVING clause with the specified conditions.
 // If the builder is in an error state, this method returns immediately without modifying the query.
-func (qb *QueryBuilder[Owner]) Having(conds ...Condition) *QueryBuilder[Owner] {
+func (qb *QueryBuilder[O]) Having(conds ...Condition) *QueryBuilder[O] {
 	qb = qb.ensureInitialized()
 
 	if qb.buildErr != nil {
@@ -375,13 +384,13 @@ func (qb *QueryBuilder[Owner]) Having(conds ...Condition) *QueryBuilder[Owner] {
 
 // Where replaces any existing WHERE conditions for the query.
 // If the builder is in an error state, this method returns immediately without modifying the query.
-func (qb *QueryBuilder[Owner]) Where(conds ...Condition) *QueryBuilder[Owner] {
+func (qb *QueryBuilder[O]) Where(conds ...Condition) *QueryBuilder[O] {
 	return qb.SetWhere(conds...)
 }
 
 // SetWhere replaces any existing WHERE conditions for the query.
 // If the builder is in an error state, this method returns immediately without modifying the query.
-func (qb *QueryBuilder[Owner]) SetWhere(conds ...Condition) *QueryBuilder[Owner] {
+func (qb *QueryBuilder[O]) SetWhere(conds ...Condition) *QueryBuilder[O] {
 	qb = qb.ensureInitialized()
 
 	if qb.buildErr != nil {
@@ -400,7 +409,7 @@ func (qb *QueryBuilder[Owner]) SetWhere(conds ...Condition) *QueryBuilder[Owner]
 
 // And adds additional conditions with AND logic.
 // If the builder is in an error state, this method returns immediately without modifying the query.
-func (qb *QueryBuilder[Owner]) And(conds ...Condition) *QueryBuilder[Owner] {
+func (qb *QueryBuilder[O]) And(conds ...Condition) *QueryBuilder[O] {
 	qb = qb.ensureInitialized()
 
 	if qb.buildErr != nil {
@@ -416,7 +425,7 @@ func (qb *QueryBuilder[Owner]) And(conds ...Condition) *QueryBuilder[Owner] {
 
 // AndIf conditionally adds conditions with AND logic.
 // If the builder is in an error state, this method returns immediately without modifying the query.
-func (qb *QueryBuilder[Owner]) AndIf(ok bool, conds ...Condition) *QueryBuilder[Owner] {
+func (qb *QueryBuilder[O]) AndIf(ok bool, conds ...Condition) *QueryBuilder[O] {
 	qb = qb.ensureInitialized()
 
 	if qb.buildErr != nil {
@@ -432,23 +441,23 @@ func (qb *QueryBuilder[Owner]) AndIf(ok bool, conds ...Condition) *QueryBuilder[
 
 // KwSearch replaces any existing keyword-search columns.
 // If the builder is in an error state, this method returns immediately without modifying the query.
-func (qb *QueryBuilder[Owner]) KwSearch(cols ...AnyColumn) *QueryBuilder[Owner] {
+func (qb *QueryBuilder[O]) KwSearch(cols ...SearchColumn) *QueryBuilder[O] {
 	return qb.SetKwSearch(cols...)
 }
 
 // SetKwSearch replaces any existing keyword-search columns.
 // If the builder is in an error state, this method returns immediately without modifying the query.
-func (qb *QueryBuilder[Owner]) SetKwSearch(cols ...AnyColumn) *QueryBuilder[Owner] {
+func (qb *QueryBuilder[O]) SetKwSearch(cols ...SearchColumn) *QueryBuilder[O] {
 	qb = qb.ensureInitialized()
 
 	if qb.buildErr != nil {
 		return qb
 	}
 
-	qb.spec.KeywordSearch = make([]AnyColumn, 0, len(cols))
+	qb.spec.KeywordSearch = make([]SearchColumn, 0, len(cols))
 
 	for _, col := range cols {
-		qb.appendColumn(&qb.spec.KeywordSearch, col)
+		qb.appendSearchColumn(&qb.spec.KeywordSearch, col)
 	}
 
 	return qb
@@ -456,7 +465,7 @@ func (qb *QueryBuilder[Owner]) SetKwSearch(cols ...AnyColumn) *QueryBuilder[Owne
 
 // AppendKwSearch adds keyword-search columns without replacing existing ones.
 // If the builder is in an error state, this method returns immediately without modifying the query.
-func (qb *QueryBuilder[Owner]) AppendKwSearch(cols ...AnyColumn) *QueryBuilder[Owner] {
+func (qb *QueryBuilder[O]) AppendKwSearch(cols ...SearchColumn) *QueryBuilder[O] {
 	qb = qb.ensureInitialized()
 
 	if qb.buildErr != nil {
@@ -464,7 +473,7 @@ func (qb *QueryBuilder[Owner]) AppendKwSearch(cols ...AnyColumn) *QueryBuilder[O
 	}
 
 	for _, col := range cols {
-		qb.appendColumn(&qb.spec.KeywordSearch, col)
+		qb.appendSearchColumn(&qb.spec.KeywordSearch, col)
 	}
 
 	return qb

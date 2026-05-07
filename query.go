@@ -123,8 +123,8 @@ func (e *ErrOrderCountMismatch) Is(target error) bool {
 // 查询结构体定义
 // ================================================
 
-// Query represents a compiled SQL query with all its variations
-type Query struct {
+// Query represents a compiled SQL query with all its variations.
+type Query[O Owner] struct {
 	// SQL statements
 	cntSQL    string // COUNT query
 	listSQL   string // Main SELECT query
@@ -137,9 +137,9 @@ type Query struct {
 	kwListArgs []any
 
 	// Metadata
-	selectCols   []AnyColumn
+	selectCols   []SelectableColumn[O]
 	selectTables map[string]Table
-	kwCols       []AnyColumn
+	kwCols       []SearchColumn
 	kwTables     map[string]Table
 	hasSetOps    bool
 }
@@ -192,7 +192,7 @@ const (
 // - 避免在热路径中调用 Build() 多次
 
 // CntSQL returns the COUNT query SQL statement
-func (q *Query) CntSQL() string {
+func (q *Query[O]) CntSQL() string {
 	if q == nil {
 		return ""
 	}
@@ -201,7 +201,7 @@ func (q *Query) CntSQL() string {
 }
 
 // ListSQL returns the main SELECT query SQL statement
-func (q *Query) ListSQL() string {
+func (q *Query[O]) ListSQL() string {
 	if q == nil {
 		return ""
 	}
@@ -210,7 +210,7 @@ func (q *Query) ListSQL() string {
 }
 
 // KwCntSQL returns the keyword search COUNT query SQL statement
-func (q *Query) KwCntSQL() string {
+func (q *Query[O]) KwCntSQL() string {
 	if q == nil {
 		return ""
 	}
@@ -219,7 +219,7 @@ func (q *Query) KwCntSQL() string {
 }
 
 // KwListSQL returns the keyword search SELECT query SQL statement
-func (q *Query) KwListSQL() string {
+func (q *Query[O]) KwListSQL() string {
 	if q == nil {
 		return ""
 	}
@@ -232,7 +232,7 @@ func (q *Query) KwListSQL() string {
 // ================================================
 
 // Build builds and validates the query
-func (qb *QueryBuilder[Owner]) Build() (*Query, error) {
+func (qb *QueryBuilder[Owner]) Build() (*Query[Owner], error) {
 	if qb == nil {
 		return nil, errors.New("query builder cannot be nil")
 	}
@@ -246,7 +246,7 @@ func (qb *QueryBuilder[Owner]) Build() (*Query, error) {
 		return nil, errors.Trace(err)
 	}
 
-	return &Query{
+	return &Query[Owner]{
 		cntSQL:     plan.cntSQL,
 		listSQL:    plan.listSQL,
 		kwCntSQL:   plan.kwCntSQL,
@@ -271,7 +271,7 @@ func (qb *QueryBuilder[Owner]) Build() (*Query, error) {
 // prepareQueryExecution handles common steps for all scalar query methods:
 // validation, SQL rendering, debug printing, and argument merging.
 // Returns (sqlText, finalArgs, error).
-func (q *Query) prepareQueryExecution(
+func (q *Query[O]) prepareQueryExecution(
 	ctx context.Context,
 	tx SqlExecutor,
 	methodName string,
@@ -300,7 +300,7 @@ func (q *Query) prepareQueryExecution(
 }
 
 // QueryInt executes the query and returns a single integer result
-func (q *Query) QueryInt(
+func (q *Query[O]) QueryInt(
 	ctx context.Context,
 	tx SqlExecutor,
 	args ...any,
@@ -310,7 +310,7 @@ func (q *Query) QueryInt(
 	})
 }
 
-func (q *Query) queryInt(
+func (q *Query[O]) queryInt(
 	ctx context.Context,
 	tx SqlExecutor,
 	args ...any,
@@ -329,7 +329,7 @@ func (q *Query) queryInt(
 }
 
 // QueryFloat executes the query and returns a single float result
-func (q *Query) QueryFloat(
+func (q *Query[O]) QueryFloat(
 	ctx context.Context,
 	tx SqlExecutor,
 	args ...any,
@@ -339,7 +339,7 @@ func (q *Query) QueryFloat(
 	})
 }
 
-func (q *Query) queryFloat(
+func (q *Query[O]) queryFloat(
 	ctx context.Context,
 	tx SqlExecutor,
 	args ...any,
@@ -358,7 +358,7 @@ func (q *Query) queryFloat(
 }
 
 // QueryStr executes the query and returns a single string result
-func (q *Query) QueryStr(
+func (q *Query[O]) QueryStr(
 	ctx context.Context,
 	tx SqlExecutor,
 	args ...any,
@@ -368,7 +368,7 @@ func (q *Query) QueryStr(
 	})
 }
 
-func (q *Query) queryStr(
+func (q *Query[O]) queryStr(
 	ctx context.Context,
 	tx SqlExecutor,
 	args ...any,
@@ -388,7 +388,7 @@ func (q *Query) queryStr(
 
 // Count executes the count query and returns the number of matching records.
 // The result is truncated to int; use Count64 when an int64 is required.
-func (q *Query) Count(
+func (q *Query[O]) Count(
 	ctx context.Context,
 	tx SqlExecutor,
 	args ...any,
@@ -400,7 +400,7 @@ func (q *Query) Count(
 
 // Count64 executes the count query and returns the number of matching records
 // as int64, avoiding truncation on large result sets or 32-bit platforms.
-func (q *Query) Count64(
+func (q *Query[O]) Count64(
 	ctx context.Context,
 	tx SqlExecutor,
 	args ...any,
@@ -410,7 +410,7 @@ func (q *Query) Count64(
 	})
 }
 
-func (q *Query) count(
+func (q *Query[O]) count(
 	ctx context.Context,
 	tx SqlExecutor,
 	args ...any,
@@ -419,7 +419,7 @@ func (q *Query) count(
 	return int(n), errors.Trace(err)
 }
 
-func (q *Query) count64(
+func (q *Query[O]) count64(
 	ctx context.Context,
 	tx SqlExecutor,
 	args ...any,
@@ -452,7 +452,7 @@ func (q *Query) count64(
 }
 
 // Exists checks if any records match the query conditions
-func (q *Query) Exists(
+func (q *Query[O]) Exists(
 	ctx context.Context,
 	tx SqlExecutor,
 	args ...any,
@@ -462,7 +462,7 @@ func (q *Query) Exists(
 	})
 }
 
-func (q *Query) exist(
+func (q *Query[O]) exist(
 	ctx context.Context,
 	tx SqlExecutor,
 	args ...any,
@@ -499,25 +499,25 @@ func (q *Query) exist(
 // ================================================
 
 // Page executes a paginated query with the given page parameters
-func Page[T any](
+func Page[O Owner](
 	ctx context.Context,
 	tx SqlExecutor,
 	page *PageReq,
-	q *Query,
+	q *Query[O],
 	args ...any,
-) (*PageResp[T], error) {
-	return Trace1(ctx, func(ctx context.Context) (*PageResp[T], error) {
-		return pageFn[T](ctx, tx, page, q, args...)
+) (*PageResp[O], error) {
+	return Trace1(ctx, func(ctx context.Context) (*PageResp[O], error) {
+		return pageFn(ctx, tx, page, q, args...)
 	})
 }
 
-func pageFn[T any](
+func pageFn[O Owner](
 	ctx context.Context,
 	tx SqlExecutor,
 	page *PageReq,
-	q *Query,
+	q *Query[O],
 	args ...any,
-) (*PageResp[T], error) {
+) (*PageResp[O], error) {
 	if err := validateQuery(q); err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -554,7 +554,7 @@ func pageFn[T any](
 	renderedCntSQL := renderSQLForExecutor(tx, resolvedCntSQL)
 	renderedListSQL := renderSQLForExecutor(tx, resolvedListSQL)
 
-	if err := validateScanDestForType[T](q.selectCols, renderedListSQL, finalArgs); err != nil {
+	if err := validateScanDestForType(q.selectCols, renderedListSQL, finalArgs); err != nil {
 		return nil, errors.Trace(err)
 	}
 
@@ -585,12 +585,12 @@ func pageFn[T any](
 	}()
 
 	// Scan results
-	list := make([]*T, 0, page.Size) // Pre-allocate with expected size
+	list := make([]*O, 0, page.Size)
 
 	for rows.Next() {
-		r := new(T)
+		r := new(O)
 
-		dest, err := buildScanDest[T](q.selectCols, r)
+		dest, err := buildScanDest(q.selectCols, r)
 		if err != nil {
 			return nil, errors.Annotate(err, "failed to execute paginated query")
 		}
@@ -609,23 +609,23 @@ func pageFn[T any](
 	return NewResponse(page, count, list), nil
 }
 
-func List[T any](
+func List[O Owner](
 	ctx context.Context,
 	tx SqlExecutor,
-	qb *Query,
+	qb *Query[O],
 	args ...any,
-) ([]*T, error) {
-	return Trace1(ctx, func(ctx context.Context) ([]*T, error) {
-		return listFn[T](ctx, tx, qb, args...)
+) ([]*O, error) {
+	return Trace1(ctx, func(ctx context.Context) ([]*O, error) {
+		return listFn(ctx, tx, qb, args...)
 	})
 }
 
-func listFn[T any](
+func listFn[O Owner](
 	ctx context.Context,
 	tx SqlExecutor,
-	q *Query,
+	q *Query[O],
 	args ...any,
-) ([]*T, error) {
+) ([]*O, error) {
 	if err := validateQuery(q); err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -641,7 +641,7 @@ func listFn[T any](
 
 	sqlText := renderSQLForExecutor(tx, resolvedSQL)
 
-	if err := validateScanDestForType[T](q.selectCols, sqlText, finalArgs); err != nil {
+	if err := validateScanDestForType(q.selectCols, sqlText, finalArgs); err != nil {
 		return nil, errors.Trace(err)
 	}
 
@@ -660,12 +660,12 @@ func listFn[T any](
 		}
 	}()
 
-	var list []*T
+	var list []*O
 
 	for rows.Next() {
-		r := new(T)
+		r := new(O)
 
-		dest, err := buildScanDest[T](q.selectCols, r)
+		dest, err := buildScanDest(q.selectCols, r)
 		if err != nil {
 			return nil, errors.Annotate(err, "failed to execute list query")
 		}
@@ -684,23 +684,23 @@ func listFn[T any](
 	return list, nil
 }
 
-func GetOrErr[T any](
+func GetOrErr[O Owner](
 	ctx context.Context,
 	tx SqlExecutor,
-	qb *Query,
+	qb *Query[O],
 	args ...any,
-) (*T, error) {
-	return Trace1(ctx, func(ctx context.Context) (*T, error) {
-		return getOrErrFn[T](ctx, tx, qb, args...)
+) (*O, error) {
+	return Trace1(ctx, func(ctx context.Context) (*O, error) {
+		return getOrErrFn(ctx, tx, qb, args...)
 	})
 }
 
-func getOrErrFn[T any](
+func getOrErrFn[O Owner](
 	ctx context.Context,
 	tx SqlExecutor,
-	qb *Query,
+	qb *Query[O],
 	args ...any,
-) (*T, error) {
+) (*O, error) {
 	if err := validateQuery(qb); err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -720,9 +720,9 @@ func getOrErrFn[T any](
 		slog.Info("getOrErr", "sql", sqlText, "args", CompactJSON(finalArgs))
 	}
 
-	r := new(T)
+	r := new(O)
 
-	dest, err := buildScanDest[T](qb.selectCols, r)
+	dest, err := buildScanDest(qb.selectCols, r)
 	if err != nil {
 		return nil, errors.Annotate(err, "failed to execute select query")
 	}
@@ -740,68 +740,69 @@ func getOrErrFn[T any](
 	return r, nil
 }
 
-func (q *Query) Load(
+func Get[O Owner](
 	ctx context.Context,
 	tx SqlExecutor,
-	holder any,
+	qb *Query[O],
+	args ...any,
+) (*O, error) {
+	row, err := GetOrErr(ctx, tx, qb, args...)
+	if err != nil {
+		if errors.Is(errors.Cause(err), sql.ErrNoRows) {
+			return nil, nil
+		}
+
+		return nil, errors.Trace(err)
+	}
+
+	return row, nil
+}
+
+func (q *Query[O]) Load(
+	ctx context.Context,
+	tx SqlExecutor,
+	holder *O,
 	args ...any,
 ) error {
 	return Trace(ctx, func(ctx context.Context) error {
-		return q.load(ctx, tx, holder, args...)
+		if err := validateQuery(q); err != nil {
+			return errors.Trace(err)
+		}
+
+		resolvedSQL, finalArgs, err := resolveQuery(q.listSQL, q.listArgs, args, "")
+		if err != nil {
+			return errors.Trace(err)
+		}
+
+		if err := validateOperationalExecutorForSQL(tx, resolvedSQL); err != nil {
+			return errors.Trace(err)
+		}
+
+		sqlText := renderSQLForExecutor(tx, resolvedSQL)
+
+		if ctx.Value(printSQL) != nil {
+			slog.Info("load", "sql", sqlText, "args", CompactJSON(finalArgs))
+		}
+
+		dest, err := buildScanDest(q.selectCols, holder)
+		if err != nil {
+			return errors.Annotate(err, "failed to execute select query")
+		}
+
+		row := tx.WithContext(ctx).QueryRow(sqlText, finalArgs...)
+		if err := row.Scan(dest...); err != nil {
+			if errors.Is(errors.Cause(err), sql.ErrNoRows) {
+				return errors.Trace(sql.ErrNoRows)
+			}
+
+			return errors.Annotate(err, "failed to execute select query")
+		}
+
+		return nil
 	})
 }
 
-func (q *Query) load(
-	ctx context.Context,
-	tx SqlExecutor,
-	holder any,
-	args ...any,
-) error {
-	if err := validateQuery(q); err != nil {
-		return errors.Trace(err)
-	}
-
-	resolvedSQL, finalArgs, err := resolveQuery(q.listSQL, q.listArgs, args, "")
-	if err != nil {
-		return errors.Trace(err)
-	}
-
-	if err := validateOperationalExecutorForSQL(tx, resolvedSQL); err != nil {
-		return errors.Trace(err)
-	}
-
-	sqlText := renderSQLForExecutor(tx, resolvedSQL)
-
-	if ctx.Value(printSQL) != nil {
-		slog.Info("load", "sql", sqlText, "args", CompactJSON(finalArgs))
-	}
-
-	dest, err := buildScanDestAny(q.selectCols, holder)
-	if err != nil {
-		return errors.Annotate(err, "failed to execute select query")
-	}
-
-	row := tx.WithContext(ctx).QueryRow(sqlText, finalArgs...)
-	if err := row.Err(); err != nil {
-		if errors.Is(errors.Cause(err), sql.ErrNoRows) {
-			return errors.Trace(sql.ErrNoRows)
-		}
-
-		return errors.Annotate(err, "failed to execute select query")
-	}
-
-	if err := row.Scan(dest...); err != nil {
-		if errors.Is(errors.Cause(err), sql.ErrNoRows) {
-			return errors.Trace(sql.ErrNoRows)
-		}
-
-		return errors.Annotate(err, "failed to execute select query")
-	}
-
-	return nil
-}
-
-func (q *Query) buildPageSQLs(page *PageReq) (string, string, error) {
+func (q *Query[O]) buildPageSQLs(page *PageReq) (string, string, error) {
 	if err := validateQuery(q); err != nil {
 		return "", "", errors.Trace(err)
 	}
@@ -845,10 +846,10 @@ func (q *Query) buildPageSQLs(page *PageReq) (string, string, error) {
 	for _, f := range q.selectCols {
 		sortExpr := rawColumnQualifiedName(f)
 		if q.hasSetOps {
-			sortExpr = rawIdentifier(f.Name())
+			sortExpr = rawIdentifier(f.OutputName())
 		}
 
-		registerSortableField(f.Name(), sortExpr)
+		registerSortableField(f.OutputName(), sortExpr)
 
 		if f.JSONFieldName() != "" && f.JSONFieldName() != "-" {
 			jsonSortExpr := rawColumnQualifiedName(f)
@@ -1631,7 +1632,7 @@ func expandSlicePlaceholders(size int) string {
 	return strings.TrimSuffix(strings.Repeat("?, ", size), ", ")
 }
 
-func queryArgs(q *Query) []any {
+func queryArgs[O Owner](q *Query[O]) []any {
 	if q == nil {
 		return nil
 	}
@@ -1639,7 +1640,11 @@ func queryArgs(q *Query) []any {
 	return slices.Clone(q.listArgs)
 }
 
-func validateQuery(q *Query) error {
+func (q *Query[O]) queryArgs() []any {
+	return queryArgs(q)
+}
+
+func validateQuery[O Owner](q *Query[O]) error {
 	if q == nil {
 		return errors.New("query cannot be nil")
 	}
@@ -1761,42 +1766,42 @@ func validateScanHolder(holder any) error {
 	return nil
 }
 
-func buildScanDest[T any](cols []AnyColumn, holder *T) ([]any, error) {
+func buildScanDest[O Owner](cols []SelectableColumn[O], holder *O) ([]any, error) {
 	if isNilValue(holder) {
 		return nil, errors.New("scan holder cannot be nil")
 	}
 
-	return buildScanDestWith(cols, func(pointerFunc FieldPointer) (any, error) {
+	erased := make([]AnyColumn, 0, len(cols))
+	for _, col := range cols {
+		erased = append(erased, col)
+	}
+
+	return buildScanDestWith(erased, func(pointerFunc scanPointer) (any, error) {
 		return invokeFieldPointer(pointerFunc, holder)
 	})
 }
 
-func buildScanDestAny(cols []AnyColumn, holder any) ([]any, error) {
-	if err := validateScanHolder(holder); err != nil {
-		return nil, errors.Trace(err)
-	}
-
-	return buildScanDestWith(cols, func(pointerFunc FieldPointer) (any, error) {
-		return invokeFieldPointerAny(pointerFunc, holder)
-	})
-}
-
-func buildScanDestWith(cols []AnyColumn, invoke func(FieldPointer) (any, error)) ([]any, error) {
+func buildScanDestWith(cols []AnyColumn, invoke func(scanPointer) (any, error)) ([]any, error) {
 	dest := make([]any, len(cols))
 
 	for i, col := range cols {
-		pointerFunc := col.FieldPointer()
+		pointerFunc := col.scanPointer()
 		if pointerFunc == nil {
-			return nil, errors.Errorf("select column %s cannot be scanned: field pointer is nil", col.QualifiedName())
+			return nil, errors.Errorf("select column %s cannot be scanned: field pointer is nil", col.SQLExpr())
 		}
 
 		ptr, err := invoke(pointerFunc)
 		if err != nil {
-			return nil, errors.Annotatef(err, "select column %s cannot be scanned", col.QualifiedName())
+			return nil, errors.Annotatef(err, "select column %s cannot be scanned", col.SQLExpr())
 		}
 
 		if ptr == nil {
-			return nil, errors.Errorf("select column %s cannot be scanned: field pointer returned nil", col.QualifiedName())
+			return nil, errors.Errorf("select column %s cannot be scanned: field pointer returned nil", col.SQLExpr())
+		}
+
+		value := reflect.ValueOf(ptr)
+		if value.IsValid() && value.Kind() == reflect.Pointer && value.IsNil() {
+			return nil, errors.Errorf("select column %s cannot be scanned: field pointer returned nil", col.SQLExpr())
 		}
 
 		dest[i] = ptr
@@ -1805,9 +1810,9 @@ func buildScanDestWith(cols []AnyColumn, invoke func(FieldPointer) (any, error))
 	return dest, nil
 }
 
-func validateScanDestForType[T any](cols []AnyColumn, sqlText string, args []any) error {
-	holder := new(T)
-	if _, err := buildScanDest[T](cols, holder); err != nil {
+func validateScanDestForType[O Owner](cols []SelectableColumn[O], sqlText string, args []any) error {
+	holder := new(O)
+	if _, err := buildScanDest(cols, holder); err != nil {
 		return errors.Annotatef(err,
 			"build scan dest\n%s\n%v",
 			sqlText, CompactJSON(args),
@@ -1817,17 +1822,7 @@ func validateScanDestForType[T any](cols []AnyColumn, sqlText string, args []any
 	return nil
 }
 
-func invokeFieldPointer[T any](pointerFunc FieldPointer, holder *T) (ptr any, err error) {
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			err = errors.Errorf("field pointer panicked: %v", recovered)
-		}
-	}()
-
-	return pointerFunc(holder), nil
-}
-
-func invokeFieldPointerAny(pointerFunc FieldPointer, holder any) (ptr any, err error) {
+func invokeFieldPointer[O Owner](pointerFunc scanPointer, holder *O) (ptr any, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			err = errors.Errorf("field pointer panicked: %v", recovered)

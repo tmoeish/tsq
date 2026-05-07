@@ -89,9 +89,7 @@ type aliasedUserOrgRow struct {
 	OrgName  string
 }
 
-func (aliasedUserOrgRow) Table() string { return "" }
-
-func (aliasedUserOrgRow) KwList() []tsq.AnyColumn { return nil }
+func (aliasedUserOrgRow) TSQOwner() {}
 
 type categoryAggregateRow struct {
 	Category      string
@@ -99,17 +97,13 @@ type categoryAggregateRow struct {
 	AverageAmount float64
 }
 
-func (categoryAggregateRow) Table() string { return "" }
-
-func (categoryAggregateRow) KwList() []tsq.AnyColumn { return nil }
+func (categoryAggregateRow) TSQOwner() {}
 
 type namedRow struct {
 	Name string
 }
 
-func (namedRow) Table() string { return "" }
-
-func (namedRow) KwList() []tsq.AnyColumn { return nil }
+func (namedRow) TSQOwner() {}
 
 func main() {
 	ctx := context.Background()
@@ -293,11 +287,11 @@ func runCRUDDemo(ctx context.Context, dbmap *tsq.DbMap) (*crudSummary, error) {
 func runAliasDemo(ctx context.Context, dbmap *tsq.DbMap) (*aliasSummary, error) {
 	orgAlias := "user_org"
 	orgID := database.Org_ID.As(orgAlias)
-	orgName := tsq.Into[aliasedUserOrgRow](database.Org_Name.As(orgAlias), func(holder any) any {
-		return &holder.(*aliasedUserOrgRow).OrgName
+	orgName := tsq.Into[aliasedUserOrgRow](database.Org_Name.As(orgAlias), func(holder *aliasedUserOrgRow) *string {
+		return &holder.OrgName
 	}, "org_name")
-	userName := tsq.Into[aliasedUserOrgRow](database.User_Name, func(holder any) any {
-		return &holder.(*aliasedUserOrgRow).UserName
+	userName := tsq.Into[aliasedUserOrgRow](database.User_Name, func(holder *aliasedUserOrgRow) *string {
+		return &holder.UserName
 	}, "user_name")
 
 	query, err := tsq.
@@ -322,14 +316,14 @@ func runAliasDemo(ctx context.Context, dbmap *tsq.DbMap) (*aliasSummary, error) 
 }
 
 func runAggregateDemo(ctx context.Context, dbmap *tsq.DbMap) ([]aggregateSummary, error) {
-	categoryName := tsq.Into[categoryAggregateRow](database.Category_Name, func(holder any) any {
-		return &holder.(*categoryAggregateRow).Category
+	categoryName := tsq.Into[categoryAggregateRow](database.Category_Name, func(holder *categoryAggregateRow) *string {
+		return &holder.Category
 	}, "category")
-	orderCount := tsq.Into[categoryAggregateRow](database.Order_UID.Count(), func(holder any) any {
-		return &holder.(*categoryAggregateRow).OrderCount
+	orderCount := tsq.Into[categoryAggregateRow](database.Order_UID.Count(), func(holder *categoryAggregateRow) *int64 {
+		return &holder.OrderCount
 	}, "order_count")
-	averageAmount := tsq.Into[categoryAggregateRow](database.Order_Amount.Avg(), func(holder any) any {
-		return &holder.(*categoryAggregateRow).AverageAmount
+	averageAmount := tsq.Into[categoryAggregateRow](database.Order_Amount.Avg(), func(holder *categoryAggregateRow) *float64 {
+		return &holder.AverageAmount
 	}, "average_amount")
 
 	query, err := tsq.
@@ -457,8 +451,8 @@ func runCaseDemo(ctx context.Context, dbmap *tsq.DbMap) (*caseSummary, error) {
 		When(database.User_OrgID.EQ(1), "first_org").
 		Else("other_org").
 		End()
-	userLabel := tsq.Into[namedRow](userLabelExpr, func(holder any) any {
-		return &holder.(*namedRow).Name
+	userLabel := tsq.Into[namedRow](userLabelExpr, func(holder *namedRow) *string {
+		return &holder.Name
 	}, "label")
 
 	query, err := tsq.
@@ -494,8 +488,8 @@ func runCTEDemo(ctx context.Context, dbmap *tsq.DbMap) (*cteSummary, error) {
 	)
 
 	scopedUserID := database.User_ID.WithTable(scopedUsers)
-	scopedUserName := tsq.Into[namedRow](database.User_Name.WithTable(scopedUsers), func(holder any) any {
-		return &holder.(*namedRow).Name
+	scopedUserName := tsq.Into[namedRow](database.User_Name.WithTable(scopedUsers), func(holder *namedRow) *string {
+		return &holder.Name
 	}, "name")
 
 	query, err := tsq.
@@ -531,11 +525,11 @@ func runCTEDemo(ctx context.Context, dbmap *tsq.DbMap) (*cteSummary, error) {
 }
 
 func runSetOpsDemo(ctx context.Context, dbmap *tsq.DbMap) (*setOpsSummary, error) {
-	categoryName := tsq.Into[namedRow](database.Category_Name, func(holder any) any {
-		return &holder.(*namedRow).Name
+	categoryName := tsq.Into[namedRow](database.Category_Name, func(holder *namedRow) *string {
+		return &holder.Name
 	}, "name")
-	itemName := tsq.Into[namedRow](database.Item_Name, func(holder any) any {
-		return &holder.(*namedRow).Name
+	itemName := tsq.Into[namedRow](database.Item_Name, func(holder *namedRow) *string {
+		return &holder.Name
 	}, "name")
 
 	unionQuery, err := tsq.

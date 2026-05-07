@@ -173,10 +173,11 @@ type RegisteredTable struct {
 // 表接口定义
 // ================================================
 
-// Table interface defines a database table (minimized for gorp compatibility)
+// Table defines a physical SQL table source.
 type Table interface {
-	Table() string       // Table name
-	KwList() []AnyColumn // Keyword search columns
+	Owner
+	Table() string
+	KwList() []SearchColumn
 }
 
 // ================================================

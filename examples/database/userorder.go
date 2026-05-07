@@ -40,7 +40,7 @@ type UserOrder struct {
 	ItemCategory string `json:"item_category" tsq:"Category.Name"`
 }
 
-var pageUserOrderQuery *tsq.Query
+var pageUserOrderQuery *tsq.Query[UserOrder]
 
 func init() {
 	var err error
