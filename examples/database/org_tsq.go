@@ -28,7 +28,7 @@ var (
 )
 
 // TableOrgCols is the list of columns for Org table.
-var TableOrgCols = []tsq.Column{
+var TableOrgCols = []tsq.AnyColumn{
 	Org_CreatedAt,
 	Org_ID,
 	Org_Name,
@@ -38,12 +38,12 @@ var TableOrgCols = []tsq.Column{
 func (o Org) Table() string { return "org" }
 
 // KwList returns columns that support keyword search for Org.
-func (o Org) KwList() []tsq.Column {
-	return []tsq.Column{}
+func (o Org) KwList() []tsq.AnyColumn {
+	return []tsq.AnyColumn{}
 }
 
 // Cols returns all generated columns for Org.
-func (o Org) Cols() []tsq.Column {
+func (o Org) Cols() []tsq.AnyColumn {
 	return TableOrgCols
 }
 

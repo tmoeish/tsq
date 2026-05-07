@@ -55,8 +55,8 @@ var (
 )
 
 // Cols returns the generated result columns for UserOrder.
-func (uo UserOrder) Cols() []tsq.Column {
-	return []tsq.Column{
+func (uo UserOrder) Cols() []tsq.AnyColumn {
+	return []tsq.AnyColumn{
 		UserOrder_ItemCategory,
 		UserOrder_ItemID,
 		UserOrder_ItemName,

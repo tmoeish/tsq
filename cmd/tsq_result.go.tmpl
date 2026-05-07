@@ -26,8 +26,8 @@ var (
 )
 
 // Cols returns the generated result columns for {{$type}}.
-{{$recv}}Cols() []tsq.Column {
-	return []tsq.Column{
+{{$recv}}Cols() []tsq.AnyColumn {
+	return []tsq.AnyColumn{
 {{- range $f := .Fields }}
 		{{$type}}_{{$f.Name}},
 {{- end }}

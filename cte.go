@@ -55,7 +55,7 @@ func (t cteTable) Table() string {
 	return t.name
 }
 
-func (t cteTable) KwList() []Column {
+func (t cteTable) KwList() []AnyColumn {
 	return nil
 }
 

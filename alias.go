@@ -11,7 +11,7 @@ type tableAliaser interface {
 }
 
 type tableRebinder interface {
-	withTable(Table) Column
+	withTable(Table) AnyColumn
 }
 
 type aliasedTable struct {
@@ -35,8 +35,8 @@ func AliasTable(table Table, alias string) Table {
 	}
 }
 
-func AliasColumns(cols []Column, table Table) []Column {
-	result := make([]Column, 0, len(cols))
+func AliasColumns(cols []AnyColumn, table Table) []AnyColumn {
+	result := make([]AnyColumn, 0, len(cols))
 	for _, col := range cols {
 		result = append(result, RebindColumn(col, table))
 	}
@@ -44,7 +44,7 @@ func AliasColumns(cols []Column, table Table) []Column {
 	return result
 }
 
-func RebindColumn(col Column, table Table) Column {
+func RebindColumn(col AnyColumn, table Table) AnyColumn {
 	if isNilValue(col) || isNilValue(table) {
 		return col
 	}
@@ -60,11 +60,11 @@ func (t aliasedTable) Table() string {
 	return t.alias
 }
 
-func (t aliasedTable) KwList() []Column {
+func (t aliasedTable) KwList() []AnyColumn {
 	return AliasColumns(t.base.KwList(), t)
 }
 
-func (t aliasedTable) Cols() []Column {
+func (t aliasedTable) Cols() []AnyColumn {
 	lister, ok := t.base.(tableColumnLister)
 	if !ok {
 		return nil

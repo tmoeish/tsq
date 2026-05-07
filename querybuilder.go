@@ -52,9 +52,9 @@ type setOperation struct {
 func newQueryBuilder() *QueryBuilder {
 	return &QueryBuilder{
 		spec: QuerySpec{
-			Selects: make([]Column, 0),
+			Selects: make([]AnyColumn, 0),
 			Joins:   make([]join, 0),
-			GroupBy: make([]Column, 0),
+			GroupBy: make([]AnyColumn, 0),
 			Having:  make([]Condition, 0),
 			SetOps:  make([]setOperation, 0),
 		},
@@ -70,7 +70,7 @@ func (qb *QueryBuilder) ensureInitialized() *QueryBuilder {
 	}
 
 	if qb.spec.Selects == nil {
-		qb.spec.Selects = make([]Column, 0)
+		qb.spec.Selects = make([]AnyColumn, 0)
 	}
 
 	if qb.spec.Joins == nil {
@@ -78,7 +78,7 @@ func (qb *QueryBuilder) ensureInitialized() *QueryBuilder {
 	}
 
 	if qb.spec.GroupBy == nil {
-		qb.spec.GroupBy = make([]Column, 0)
+		qb.spec.GroupBy = make([]AnyColumn, 0)
 	}
 
 	if qb.spec.Having == nil {
@@ -93,7 +93,7 @@ func (qb *QueryBuilder) ensureInitialized() *QueryBuilder {
 }
 
 // Select creates a new QueryBuilder with the specified columns.
-func Select(cols ...Column) *QueryBuilder {
+func Select(cols ...AnyColumn) *QueryBuilder {
 	qb := newQueryBuilder()
 	qb.Select(cols...)
 
@@ -107,14 +107,14 @@ func From(table Table) *QueryBuilder {
 
 // Select sets the projected columns for the query.
 // Existing selected columns are replaced.
-func (qb *QueryBuilder) Select(cols ...Column) *QueryBuilder {
+func (qb *QueryBuilder) Select(cols ...AnyColumn) *QueryBuilder {
 	qb = qb.ensureInitialized()
 
 	if qb.buildErr != nil {
 		return qb
 	}
 
-	qb.spec.Selects = make([]Column, 0, len(cols))
+	qb.spec.Selects = make([]AnyColumn, 0, len(cols))
 	qb.addSelectColumns(cols...)
 
 	return qb
@@ -205,7 +205,7 @@ func (qb *QueryBuilder) setBuildError(err error) {
 	qb.buildErr = err
 }
 
-func (qb *QueryBuilder) addSelectColumns(cols ...Column) {
+func (qb *QueryBuilder) addSelectColumns(cols ...AnyColumn) {
 	for _, col := range cols {
 		if _, err := validateColumnInput(col); err != nil {
 			qb.setBuildError(errors.Trace(err))
@@ -216,7 +216,7 @@ func (qb *QueryBuilder) addSelectColumns(cols ...Column) {
 	}
 }
 
-func (qb *QueryBuilder) appendColumn(target *[]Column, col Column) {
+func (qb *QueryBuilder) appendColumn(target *[]AnyColumn, col AnyColumn) {
 	if _, err := validateColumnInput(col); err != nil {
 		qb.setBuildError(errors.Trace(err))
 		return
@@ -343,7 +343,7 @@ func (qb *QueryBuilder) CrossJoin(table Table) *QueryBuilder {
 
 // GroupBy adds GROUP BY clause with the specified columns.
 // If the builder is in an error state, this method returns immediately without modifying the query.
-func (qb *QueryBuilder) GroupBy(cols ...Column) *QueryBuilder {
+func (qb *QueryBuilder) GroupBy(cols ...AnyColumn) *QueryBuilder {
 	qb = qb.ensureInitialized()
 
 	if qb.buildErr != nil {
@@ -432,20 +432,20 @@ func (qb *QueryBuilder) AndIf(ok bool, conds ...Condition) *QueryBuilder {
 
 // KwSearch replaces any existing keyword-search columns.
 // If the builder is in an error state, this method returns immediately without modifying the query.
-func (qb *QueryBuilder) KwSearch(cols ...Column) *QueryBuilder {
+func (qb *QueryBuilder) KwSearch(cols ...AnyColumn) *QueryBuilder {
 	return qb.SetKwSearch(cols...)
 }
 
 // SetKwSearch replaces any existing keyword-search columns.
 // If the builder is in an error state, this method returns immediately without modifying the query.
-func (qb *QueryBuilder) SetKwSearch(cols ...Column) *QueryBuilder {
+func (qb *QueryBuilder) SetKwSearch(cols ...AnyColumn) *QueryBuilder {
 	qb = qb.ensureInitialized()
 
 	if qb.buildErr != nil {
 		return qb
 	}
 
-	qb.spec.KeywordSearch = make([]Column, 0, len(cols))
+	qb.spec.KeywordSearch = make([]AnyColumn, 0, len(cols))
 
 	for _, col := range cols {
 		qb.appendColumn(&qb.spec.KeywordSearch, col)
@@ -456,7 +456,7 @@ func (qb *QueryBuilder) SetKwSearch(cols ...Column) *QueryBuilder {
 
 // AppendKwSearch adds keyword-search columns without replacing existing ones.
 // If the builder is in an error state, this method returns immediately without modifying the query.
-func (qb *QueryBuilder) AppendKwSearch(cols ...Column) *QueryBuilder {
+func (qb *QueryBuilder) AppendKwSearch(cols ...AnyColumn) *QueryBuilder {
 	qb = qb.ensureInitialized()
 
 	if qb.buildErr != nil {

@@ -14,8 +14,8 @@ type batchMutationUser struct {
 	Email string `db:"email"`
 }
 
-func (batchMutationUser) Table() string    { return "users" }
-func (batchMutationUser) KwList() []Column { return nil }
+func (batchMutationUser) Table() string       { return "users" }
+func (batchMutationUser) KwList() []AnyColumn { return nil }
 
 func newBatchMutationDBMap(t *testing.T) *DbMap {
 	t.Helper()

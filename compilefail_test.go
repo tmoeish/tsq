@@ -43,6 +43,20 @@ var _ = tsq.OwnedColumns[userOwner](orderID)
 			want: "does not implement tsq.OwnedColumn",
 		},
 		{
+			name: "column_rejects_wrong_owner",
+			body: `
+var _ tsq.Column[userOwner, int] = orderID
+`,
+			want: "cannot use orderID",
+		},
+		{
+			name: "column_rejects_wrong_value",
+			body: `
+var _ tsq.Column[userOwner, string] = userID
+`,
+			want: "cannot use userID",
+		},
+		{
 			name: "join_cond_reject_wrong_right_owner",
 			body: `
 var _ = tsq.OnRight[userOwner, orderOwner](productStatus.EQ(1))
@@ -225,15 +239,15 @@ type productOwner struct{}
 
 func (userOwner) Table() string { return "users" }
 
-func (userOwner) KwList() []tsq.Column { return nil }
+func (userOwner) KwList() []tsq.AnyColumn { return nil }
 
 func (orderOwner) Table() string { return "orders" }
 
-func (orderOwner) KwList() []tsq.Column { return nil }
+func (orderOwner) KwList() []tsq.AnyColumn { return nil }
 
 func (productOwner) Table() string { return "products" }
 
-func (productOwner) KwList() []tsq.Column { return nil }
+func (productOwner) KwList() []tsq.AnyColumn { return nil }
 
 var userID = tsq.NewCol[userOwner, int]("id", "id", nil)
 var orderID = tsq.NewCol[orderOwner, int]("id", "id", nil)

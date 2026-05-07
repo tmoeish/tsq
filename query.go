@@ -137,9 +137,9 @@ type Query struct {
 	kwListArgs []any
 
 	// Metadata
-	selectCols   []Column
+	selectCols   []AnyColumn
 	selectTables map[string]Table
-	kwCols       []Column
+	kwCols       []AnyColumn
 	kwTables     map[string]Table
 	hasSetOps    bool
 }
@@ -1761,7 +1761,7 @@ func validateScanHolder(holder any) error {
 	return nil
 }
 
-func buildScanDest[T any](cols []Column, holder *T) ([]any, error) {
+func buildScanDest[T any](cols []AnyColumn, holder *T) ([]any, error) {
 	if isNilValue(holder) {
 		return nil, errors.New("scan holder cannot be nil")
 	}
@@ -1771,7 +1771,7 @@ func buildScanDest[T any](cols []Column, holder *T) ([]any, error) {
 	})
 }
 
-func buildScanDestAny(cols []Column, holder any) ([]any, error) {
+func buildScanDestAny(cols []AnyColumn, holder any) ([]any, error) {
 	if err := validateScanHolder(holder); err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -1781,7 +1781,7 @@ func buildScanDestAny(cols []Column, holder any) ([]any, error) {
 	})
 }
 
-func buildScanDestWith(cols []Column, invoke func(FieldPointer) (any, error)) ([]any, error) {
+func buildScanDestWith(cols []AnyColumn, invoke func(FieldPointer) (any, error)) ([]any, error) {
 	dest := make([]any, len(cols))
 
 	for i, col := range cols {
@@ -1805,7 +1805,7 @@ func buildScanDestWith(cols []Column, invoke func(FieldPointer) (any, error)) ([
 	return dest, nil
 }
 
-func validateScanDestForType[T any](cols []Column, sqlText string, args []any) error {
+func validateScanDestForType[T any](cols []AnyColumn, sqlText string, args []any) error {
 	holder := new(T)
 	if _, err := buildScanDest[T](cols, holder); err != nil {
 		return errors.Annotatef(err,

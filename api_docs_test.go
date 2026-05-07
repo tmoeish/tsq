@@ -128,7 +128,7 @@ func TestAPIDocumentation_TableAndColumn(t *testing.T) {
 		t.Errorf("table name mismatch: got %s, want users", table.Table())
 	}
 
-	// Column creation
+	// AnyColumn creation
 	col := newColForTable[Table, int](table, "id", "id", nil)
 	if col.Name() != "id" {
 		t.Errorf("column name mismatch: got %s, want id", col.Name())
@@ -137,13 +137,13 @@ func TestAPIDocumentation_TableAndColumn(t *testing.T) {
 		t.Fatal("column table is nil")
 	}
 
-	// Column alias
+	// AnyColumn alias
 	aliasedCol := col.As("u")
 	if aliasedCol.Name() != "id" {
 		t.Errorf("aliased column name changed: got %s, want id", aliasedCol.Name())
 	}
 
-	// Column WithTable (rebinding)
+	// AnyColumn WithTable (rebinding)
 	otherTable := newMockTable("orders")
 	reboundCol := col.WithTable(otherTable)
 	if reboundCol.Table().Table() != "orders" {

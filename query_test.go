@@ -129,7 +129,7 @@ func TestQueryBuilder_Build_Success(t *testing.T) {
 	qb := &QueryBuilder{
 		spec: QuerySpec{
 			From:    table,
-			Selects: []Column{col},
+			Selects: []AnyColumn{col},
 		},
 	}
 
@@ -360,7 +360,7 @@ func TestQueryBuilder_MustBuild_Success(t *testing.T) {
 	qb := &QueryBuilder{
 		spec: QuerySpec{
 			From:    table,
-			Selects: []Column{col},
+			Selects: []AnyColumn{col},
 		},
 	}
 
@@ -421,9 +421,9 @@ func TestQuery_MetadataAccess(t *testing.T) {
 	col := newMockColumn(table, "id")
 
 	query := &Query{
-		selectCols:   []Column{col},
+		selectCols:   []AnyColumn{col},
 		selectTables: map[string]Table{"users": table},
-		kwCols:       []Column{col},
+		kwCols:       []AnyColumn{col},
 		kwTables:     map[string]Table{"users": table},
 	}
 
@@ -1085,7 +1085,7 @@ func TestListValidatesScanDestEvenWhenResultIsEmpty(t *testing.T) {
 	query := &Query{
 		cntSQL:     "SELECT COUNT(1) FROM users",
 		listSQL:    "SELECT name FROM users WHERE 1 = 0",
-		selectCols: []Column{col},
+		selectCols: []AnyColumn{col},
 	}
 
 	_, err := List[scanDestUser](context.Background(), db, query)
@@ -1136,7 +1136,7 @@ func TestPageValidatesScanDestEvenWhenResultIsEmpty(t *testing.T) {
 	query := &Query{
 		cntSQL:     "SELECT COUNT(1) FROM users",
 		listSQL:    "SELECT name FROM users WHERE 1 = 0",
-		selectCols: []Column{col},
+		selectCols: []AnyColumn{col},
 	}
 
 	_, err := Page[scanDestUser](context.Background(), db, nil, query)
@@ -1152,7 +1152,7 @@ func TestPageValidatesScanDestEvenWhenResultIsEmpty(t *testing.T) {
 func TestBuildScanDestRejectsNilFieldPointer(t *testing.T) {
 	col := newColForTable[Table, string](newMockTable("users"), "name", "name", nil)
 
-	_, err := buildScanDest[scanDestUser]([]Column{col}, &scanDestUser{})
+	_, err := buildScanDest[scanDestUser]([]AnyColumn{col}, &scanDestUser{})
 	if err == nil {
 		t.Fatal("expected nil field pointer to return an error")
 	}
@@ -1170,7 +1170,7 @@ func TestBuildScanDestRecoversFieldPointerPanics(t *testing.T) {
 		func(holder any) any { return &holder.(*scanDestUser).Name },
 	)
 
-	_, err := buildScanDest[struct{}]([]Column{col}, &struct{}{})
+	_, err := buildScanDest[struct{}]([]AnyColumn{col}, &struct{}{})
 	if err == nil {
 		t.Fatal("expected field pointer panic to return an error")
 	}
@@ -1188,7 +1188,7 @@ func TestBuildScanDestRejectsNilScanTarget(t *testing.T) {
 		func(holder any) any { return nil },
 	)
 
-	_, err := buildScanDest[scanDestUser]([]Column{col}, &scanDestUser{})
+	_, err := buildScanDest[scanDestUser]([]AnyColumn{col}, &scanDestUser{})
 	if err == nil {
 		t.Fatal("expected nil scan target to return an error")
 	}
@@ -1206,7 +1206,7 @@ func TestBuildScanDestRejectsNilHolder(t *testing.T) {
 		func(holder any) any { return &holder.(*scanDestUser).Name },
 	)
 
-	_, err := buildScanDest[scanDestUser]([]Column{col}, nil)
+	_, err := buildScanDest[scanDestUser]([]AnyColumn{col}, nil)
 	if err == nil {
 		t.Fatal("expected nil holder to return an error")
 	}
@@ -1224,7 +1224,7 @@ func TestBuildScanDestRejectsNonPointerHolder(t *testing.T) {
 		func(holder any) any { return &holder.(*scanDestUser).Name },
 	)
 
-	_, err := buildScanDestAny([]Column{col}, scanDestUser{})
+	_, err := buildScanDestAny([]AnyColumn{col}, scanDestUser{})
 	if err == nil {
 		t.Fatal("expected non-pointer holder to return an error")
 	}

@@ -30,7 +30,7 @@ var (
 )
 
 // TableCategoryCols is the list of columns for Category table.
-var TableCategoryCols = []tsq.Column{
+var TableCategoryCols = []tsq.AnyColumn{
 	Category_CreatedAt,
 	Category_Description,
 	Category_ID,
@@ -42,15 +42,15 @@ var TableCategoryCols = []tsq.Column{
 func (c Category) Table() string { return "category" }
 
 // KwList returns columns that support keyword search for Category.
-func (c Category) KwList() []tsq.Column {
-	return []tsq.Column{
+func (c Category) KwList() []tsq.AnyColumn {
+	return []tsq.AnyColumn{
 		Category_Name,
 		Category_Description,
 	}
 }
 
 // Cols returns all generated columns for Category.
-func (c Category) Cols() []tsq.Column {
+func (c Category) Cols() []tsq.AnyColumn {
 	return TableCategoryCols
 }
 

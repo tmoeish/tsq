@@ -9,10 +9,12 @@ type newColOwner struct{}
 
 func (newColOwner) Table() string { return "users" }
 
-func (newColOwner) KwList() []Column { return nil }
+func (newColOwner) KwList() []AnyColumn { return nil }
 
 func TestNewCol(t *testing.T) {
 	col := NewCol[newColOwner, string]("name", "user_name", nil)
+	var _ Column[newColOwner, string] = col
+	var _ AnyColumn = col
 
 	if col.Table().Table() != "users" {
 		t.Errorf("Expected table 'users', got '%s'", col.Table().Table())
@@ -219,11 +221,11 @@ func TestCol_TypeSafety(t *testing.T) {
 	boolCol := newColForTable[Table, bool](table, "active", "active", nil)
 
 	// All should have the same basic interface behavior
-	columns := []Column{stringCol, intCol, floatCol, boolCol}
+	columns := []AnyColumn{stringCol, intCol, floatCol, boolCol}
 
 	for i, col := range columns {
 		if col.Table().Table() != "users" {
-			t.Errorf("Column %d: Expected table 'users', got '%s'", i, col.Table().Table())
+			t.Errorf("AnyColumn %d: Expected table 'users', got '%s'", i, col.Table().Table())
 		}
 	}
 
@@ -231,7 +233,7 @@ func TestCol_TypeSafety(t *testing.T) {
 	expectedNames := []string{"name", "age", "score", "active"}
 	for i, col := range columns {
 		if col.Name() != expectedNames[i] {
-			t.Errorf("Column %d: Expected name '%s', got '%s'", i, expectedNames[i], col.Name())
+			t.Errorf("AnyColumn %d: Expected name '%s', got '%s'", i, expectedNames[i], col.Name())
 		}
 	}
 }
@@ -251,8 +253,8 @@ func TestCol_InterfaceCompliance(t *testing.T) {
 	table := newMockTable("test_table")
 	col := newColForTable[Table, string](table, "test_column", "test_column", nil)
 
-	// Verify that Col implements Column interface
-	var _ Column = col
+	// Verify that Col implements AnyColumn interface
+	var _ AnyColumn = col
 
 	// Test all interface methods
 	if col.Table() == nil {

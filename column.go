@@ -13,13 +13,20 @@ type FieldPointer func(holder any) any
 // 字段接口定义
 // ================================================
 
-// Column represents a column in a database table
-type Column interface {
+// AnyColumn is the erased runtime view of any selectable column.
+type AnyColumn interface {
 	Table() Table               // Returns the table this column belongs to
 	Name() string               // Returns the column name
 	QualifiedName() string      // Returns the fully qualified column name
 	JSONFieldName() string      // Returns the JSON tag for serialization
 	FieldPointer() FieldPointer // Returns the pointer function for scanning
+}
+
+// Column represents a typed column in a database table.
+type Column[Owner Table, T any] interface {
+	AnyColumn
+	columnOwner(Owner)
+	columnValue(T)
 }
 
 // ================================================
@@ -28,7 +35,7 @@ type Column interface {
 
 // TypedColumn is implemented by TSQ columns that carry a Go value type.
 type typedColumn[T any] interface {
-	Column
+	AnyColumn
 	columnValue(T)
 }
 
@@ -36,7 +43,7 @@ type typedColumn[T any] interface {
 // Projection-only ResultCol values intentionally do not implement this
 // interface, so Result fields cannot be fed back into query clauses.
 type OwnedColumn[Owner Table] interface {
-	Column
+	AnyColumn
 	columnOwner(Owner)
 }
 
@@ -136,8 +143,8 @@ func (c Col[Owner, T]) columnOwner(Owner) {}
 
 // OwnedColumns converts typed owner-constrained columns to generic columns for
 // the runtime query builder.
-func OwnedColumns[Owner Table](cols ...OwnedColumn[Owner]) []Column {
-	result := make([]Column, 0, len(cols))
+func OwnedColumns[Owner Table](cols ...OwnedColumn[Owner]) []AnyColumn {
+	result := make([]AnyColumn, 0, len(cols))
 	for _, col := range cols {
 		result = append(result, col)
 	}
@@ -261,7 +268,7 @@ func (c Col[Owner, T]) referencedTables() map[string]Table {
 	return cloneTableMap(c.tables)
 }
 
-func (c Col[Owner, T]) withTable(table Table) Column {
+func (c Col[Owner, T]) withTable(table Table) AnyColumn {
 	rebound := c.WithTable(table)
 	return rebound
 }

@@ -12,11 +12,11 @@ import (
 // QuerySpec is the single source of truth for a query definition before planning.
 type QuerySpec struct {
 	From          Table
-	Selects       []Column
+	Selects       []AnyColumn
 	Filters       []Condition
-	KeywordSearch []Column
+	KeywordSearch []AnyColumn
 	Joins         []join
-	GroupBy       []Column
+	GroupBy       []AnyColumn
 	Having        []Condition
 	SetOps        []setOperation
 }
@@ -133,7 +133,7 @@ func (spec QuerySpec) pageQueryTables() map[string]Table {
 	return tables
 }
 
-func (spec QuerySpec) tablesForColumns(cols []Column) map[string]Table {
+func (spec QuerySpec) tablesForColumns(cols []AnyColumn) map[string]Table {
 	tables := make(map[string]Table, len(cols))
 
 	for _, col := range cols {

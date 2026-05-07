@@ -17,7 +17,7 @@ type expressionOwner struct{}
 
 func (expressionOwner) Table() string { return "" }
 
-func (expressionOwner) KwList() []Column { return nil }
+func (expressionOwner) KwList() []AnyColumn { return nil }
 
 // CaseBuilder builds a searched CASE expression.
 type CaseBuilder[T any] struct {
@@ -182,7 +182,7 @@ func cloneTableMap(src map[string]Table) map[string]Table {
 
 func expressionTables(arg any) map[string]Table {
 	switch v := arg.(type) {
-	case Column:
+	case AnyColumn:
 		return columnTables(v)
 	default:
 		return nil
@@ -193,7 +193,7 @@ func expressionFlags(arg any) (aggregate, distinct bool) {
 	switch v := arg.(type) {
 	case interface{ isAggregateExpression() bool }:
 		aggregate = v.isAggregateExpression()
-	case Column:
+	case AnyColumn:
 		if agg, ok := v.(interface{ isAggregateExpression() bool }); ok {
 			aggregate = agg.isAggregateExpression()
 		}
@@ -202,7 +202,7 @@ func expressionFlags(arg any) (aggregate, distinct bool) {
 	switch v := arg.(type) {
 	case interface{ isDistinctExpression() bool }:
 		distinct = v.isDistinctExpression()
-	case Column:
+	case AnyColumn:
 		if d, ok := v.(interface{ isDistinctExpression() bool }); ok {
 			distinct = d.isDistinctExpression()
 		}
@@ -211,7 +211,7 @@ func expressionFlags(arg any) (aggregate, distinct bool) {
 	return aggregate, distinct
 }
 
-func columnTables(col Column) map[string]Table {
+func columnTables(col AnyColumn) map[string]Table {
 	table, err := validateColumnInput(col)
 	if err != nil {
 		return nil

@@ -9,11 +9,11 @@ type (
 
 func (typedUserOwner) Table() string { return "users" }
 
-func (typedUserOwner) KwList() []Column { return nil }
+func (typedUserOwner) KwList() []AnyColumn { return nil }
 
 func (typedOrderOwner) Table() string { return "orders" }
 
-func (typedOrderOwner) KwList() []Column { return nil }
+func (typedOrderOwner) KwList() []AnyColumn { return nil }
 
 func TestOnCreatesTypedJoinCondition(t *testing.T) {
 	userID := NewCol[typedUserOwner, int]("id", "id", nil)

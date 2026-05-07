@@ -35,7 +35,7 @@ var (
 )
 
 // TableOrderCols is the list of columns for Order table.
-var TableOrderCols = []tsq.Column{
+var TableOrderCols = []tsq.AnyColumn{
 	Order_Amount,
 	Order_CreatedAt,
 	Order_DeletedAt,
@@ -52,12 +52,12 @@ var TableOrderCols = []tsq.Column{
 func (o Order) Table() string { return "order" }
 
 // KwList returns columns that support keyword search for Order.
-func (o Order) KwList() []tsq.Column {
-	return []tsq.Column{}
+func (o Order) KwList() []tsq.AnyColumn {
+	return []tsq.AnyColumn{}
 }
 
 // Cols returns all generated columns for Order.
-func (o Order) Cols() []tsq.Column {
+func (o Order) Cols() []tsq.AnyColumn {
 	return TableOrderCols
 }
 

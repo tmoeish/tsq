@@ -30,7 +30,7 @@ var (
 )
 
 // TableUserCols is the list of columns for User table.
-var TableUserCols = []tsq.Column{
+var TableUserCols = []tsq.AnyColumn{
 	User_CreatedAt,
 	User_Email,
 	User_ID,
@@ -42,15 +42,15 @@ var TableUserCols = []tsq.Column{
 func (u User) Table() string { return "user" }
 
 // KwList returns columns that support keyword search for User.
-func (u User) KwList() []tsq.Column {
-	return []tsq.Column{
+func (u User) KwList() []tsq.AnyColumn {
+	return []tsq.AnyColumn{
 		User_Name,
 		User_Email,
 	}
 }
 
 // Cols returns all generated columns for User.
-func (u User) Cols() []tsq.Column {
+func (u User) Cols() []tsq.AnyColumn {
 	return TableUserCols
 }
 

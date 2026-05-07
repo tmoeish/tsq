@@ -12,7 +12,7 @@ type buildErrorCarrier interface {
 }
 
 type tableColumnLister interface {
-	Cols() []Column
+	Cols() []AnyColumn
 }
 
 type transformedColumn interface {
@@ -33,7 +33,7 @@ func isNilValue(v any) bool {
 	}
 }
 
-func validateColumnInput(col Column) (Table, error) {
+func validateColumnInput(col AnyColumn) (Table, error) {
 	if isNilValue(col) {
 		return nil, errors.New("column cannot be nil")
 	}
@@ -62,7 +62,7 @@ func validateColumnInput(col Column) (Table, error) {
 	return table, nil
 }
 
-func validateColumnBelongsToTable(col Column, table Table) error {
+func validateColumnBelongsToTable(col AnyColumn, table Table) error {
 	lister, ok := table.(tableColumnLister)
 	if !ok {
 		return nil

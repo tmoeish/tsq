@@ -30,7 +30,7 @@ var (
 )
 
 // TableItemCols is the list of columns for Item table.
-var TableItemCols = []tsq.Column{
+var TableItemCols = []tsq.AnyColumn{
 	Item_CategoryID,
 	Item_CreatedAt,
 	Item_ID,
@@ -42,14 +42,14 @@ var TableItemCols = []tsq.Column{
 func (i Item) Table() string { return "item" }
 
 // KwList returns columns that support keyword search for Item.
-func (i Item) KwList() []tsq.Column {
-	return []tsq.Column{
+func (i Item) KwList() []tsq.AnyColumn {
+	return []tsq.AnyColumn{
 		Item_Name,
 	}
 }
 
 // Cols returns all generated columns for Item.
-func (i Item) Cols() []tsq.Column {
+func (i Item) Cols() []tsq.AnyColumn {
 	return TableItemCols
 }
 

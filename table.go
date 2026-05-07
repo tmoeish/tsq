@@ -175,8 +175,8 @@ type RegisteredTable struct {
 
 // Table interface defines a database table (minimized for gorp compatibility)
 type Table interface {
-	Table() string    // Table name
-	KwList() []Column // Keyword search columns
+	Table() string       // Table name
+	KwList() []AnyColumn // Keyword search columns
 }
 
 // ================================================

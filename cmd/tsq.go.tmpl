@@ -60,7 +60,7 @@ var (
 )
 
 // {{$varTblCols}} is the list of columns for {{$type}} table.
-var {{$varTblCols}} = []tsq.Column{
+var {{$varTblCols}} = []tsq.AnyColumn{
 {{- range $f := .Fields }}
 	{{$type}}_{{$f.Name}},
 {{- end }}
@@ -70,8 +70,8 @@ var {{$varTblCols}} = []tsq.Column{
 func ({{$dot.Recv}} {{$type}}) Table() string { return "{{$dot.Table}}" }
 
 // KwList returns columns that support keyword search for {{$type}}.
-func ({{$dot.Recv}} {{$type}}) KwList() []tsq.Column {
-	return []tsq.Column{
+func ({{$dot.Recv}} {{$type}}) KwList() []tsq.AnyColumn {
+	return []tsq.AnyColumn{
 		{{- range $f := .KwList }}
 		{{$type}}_{{$f}},
 		{{- end }}
@@ -79,7 +79,7 @@ func ({{$dot.Recv}} {{$type}}) KwList() []tsq.Column {
 }
 
 // Cols returns all generated columns for {{$type}}.
-func ({{$dot.Recv}} {{$type}}) Cols() []tsq.Column {
+func ({{$dot.Recv}} {{$type}}) Cols() []tsq.AnyColumn {
 	return {{$varTblCols}}
 }
 

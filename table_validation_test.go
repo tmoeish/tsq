@@ -7,16 +7,16 @@ import (
 
 type strictMockTable struct {
 	name string
-	cols []Column
+	cols []AnyColumn
 }
 
-func (t *strictMockTable) Table() string    { return t.name }
-func (t *strictMockTable) KwList() []Column { return nil }
-func (t *strictMockTable) Cols() []Column   { return t.cols }
+func (t *strictMockTable) Table() string       { return t.name }
+func (t *strictMockTable) KwList() []AnyColumn { return nil }
+func (t *strictMockTable) Cols() []AnyColumn   { return t.cols }
 
 func newStrictMockTable(name string, colNames ...string) (*strictMockTable, []Col[Table, int]) {
 	table := &strictMockTable{name: name}
-	cols := make([]Column, 0, len(colNames))
+	cols := make([]AnyColumn, 0, len(colNames))
 	typed := make([]Col[Table, int], 0, len(colNames))
 
 	for _, name := range colNames {

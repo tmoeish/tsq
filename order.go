@@ -24,8 +24,8 @@ const (
 
 // OrderBy represents an ORDER BY clause with field and direction
 type OrderBy struct {
-	field Column // The column to order by
-	order Order  // The sort direction (ASC/DESC)
+	field AnyColumn // The column to order by
+	order Order     // The sort direction (ASC/DESC)
 	err   error
 }
 
@@ -45,7 +45,7 @@ func (ob OrderBy) Expr() string {
 }
 
 // Field returns the column being ordered
-func (ob OrderBy) Field() Column {
+func (ob OrderBy) Field() AnyColumn {
 	return ob.field
 }
 

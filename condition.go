@@ -135,7 +135,7 @@ func (c Cond) buildError() error {
 // 所有 Condition 方法遵循一致的参数顺序模式：
 //
 // Pattern: column.OPERATOR(values...)
-//   - Column: 接收者 (implicit)
+//   - AnyColumn: 接收者 (implicit)
 //   - Operator: 方法名（EQ, GT, StartsWith 等）
 //   - Values: 参数（value1, value2, ...)
 //
@@ -409,7 +409,7 @@ func (c Col[Owner, T]) Predicate(op string, args ...any) Pred[Owner] {
 
 	// Collect tables from arguments that are also columns
 	for _, arg := range args {
-		if col, ok := arg.(Column); ok {
+		if col, ok := arg.(AnyColumn); ok {
 			table, err := validateColumnInput(col)
 			if err != nil {
 				return pred[Owner](Cond{buildErr: errors.Trace(err)})
@@ -624,7 +624,7 @@ func argumentToExpression(arg any) Expression {
 	switch v := arg.(type) {
 	case Expression:
 		return v
-	case Column:
+	case AnyColumn:
 		return rawExpression{expr: rawColumnQualifiedName(v), args: expressionArgs(v)}
 	case *Query:
 		expr, err := formatSubquery(v)
@@ -671,7 +671,7 @@ func collectConditionArgs(conds ...Condition) []any {
 	return result
 }
 
-func expressionArgs(col Column) []any {
+func expressionArgs(col AnyColumn) []any {
 	type expressionArgser interface {
 		expressionArgs() []any
 	}

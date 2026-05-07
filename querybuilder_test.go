@@ -12,14 +12,14 @@ type mockTable struct {
 
 func (m mockTable) Init(db *DbMap, upsertIndexies bool) error { return nil }
 func (m mockTable) Table() string                             { return m.tableName }
-func (m mockTable) Cols() []Column                            { return nil }
-func (m mockTable) KwList() []Column                          { return nil }
+func (m mockTable) Cols() []AnyColumn                         { return nil }
+func (m mockTable) KwList() []AnyColumn                       { return nil }
 
 func newMockTable(name string) Table {
 	return mockTable{tableName: name}
 }
 
-func newMockColumn(table Table, name string) Column {
+func newMockColumn(table Table, name string) AnyColumn {
 	return newColForTable[Table, string](table, name, name, nil)
 }
 
@@ -67,7 +67,7 @@ func TestFromCreatesBuilderAndSelectSetsColumns(t *testing.T) {
 
 func TestSelect_NilColumnDefersToBuildError(t *testing.T) {
 	table := newMockTable("users")
-	var col Column
+	var col AnyColumn
 
 	_, err := Select(col).
 		From(table).Build()
