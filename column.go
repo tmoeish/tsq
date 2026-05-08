@@ -7,9 +7,9 @@ type FieldPointer[O Owner, T any] func(*O) *T
 
 type scanPointer func(holder any) any
 
-// AnyColumn is the erased runtime view of a SQL expression that can be rendered
+// SQLColumn is the erased runtime view of a SQL expression that can be rendered
 // and, when selected, scanned into an owner field.
-type AnyColumn interface {
+type SQLColumn interface {
 	SQLExpr() string
 	OutputName() string
 	JSONFieldName() string
@@ -20,21 +20,31 @@ type AnyColumn interface {
 	referencedTables() map[string]Table
 }
 
-// SelectableColumn is a SQL expression selectable into an owner.
-type SelectableColumn[O Owner] interface {
-	AnyColumn
+// SQLColumns erases a typed column slice to runtime columns.
+func SQLColumns[O Owner](cols ...BoundColumn[O]) []SQLColumn {
+	result := make([]SQLColumn, 0, len(cols))
+	for _, col := range cols {
+		result = append(result, col)
+	}
+
+	return result
+}
+
+// BoundColumn is a SQL expression selectable into an owner.
+type BoundColumn[O Owner] interface {
+	SQLColumn
 	selectOwner(O)
 }
 
-// Column is a value-typed selectable column.
-type Column[O Owner, T any] interface {
-	SelectableColumn[O]
+// TypedColumn is a value-typed selectable column.
+type TypedColumn[O Owner, T any] interface {
+	BoundColumn[O]
 	columnValue(T)
 }
 
 // TableColumn is an owner-typed physical/source column.
 type TableColumn[O Table] interface {
-	SelectableColumn[O]
+	BoundColumn[O]
 	SearchColumn
 	tableColumnOwner(O)
 	tableSource() Table
@@ -43,17 +53,17 @@ type TableColumn[O Table] interface {
 
 // SearchColumn is a SQL expression allowed in keyword search.
 type SearchColumn interface {
-	AnyColumn
+	SQLColumn
 	searchColumn()
 }
 
-type typedColumn[T any] interface {
-	AnyColumn
+type typedColumnInternal[T any] interface {
+	SQLColumn
 	columnValue(T)
 }
 
-// Col represents a typed source expression.
-type Col[O Owner, T any] struct {
+// ColumnImpl represents a typed source expression.
+type ColumnImpl[O Owner, T any] struct {
 	table         Table
 	name          string
 	qualifiedName string
@@ -67,13 +77,13 @@ type Col[O Owner, T any] struct {
 	buildErr      error
 }
 
-// ResultCol is a projection-only column selected into a result owner.
-type ResultCol[O Owner, T any] struct {
-	col Col[O, T]
+// ProjectedColumn is a projection-only column selected into a result owner.
+type ProjectedColumn[O Owner, T any] struct {
+	col ColumnImpl[O, T]
 }
 
 // NewCol creates a new typed column for the table represented by O.
-func NewCol[O Table, T any](baseName, jsonFieldName string, fieldPointer FieldPointer[O, T]) Col[O, T] {
+func NewCol[O Table, T any](baseName, jsonFieldName string, fieldPointer FieldPointer[O, T]) ColumnImpl[O, T] {
 	var table O
 
 	return newColForTable[O, T](table, baseName, jsonFieldName, toScanPointer(fieldPointer))
@@ -89,9 +99,9 @@ func toScanPointer[O Owner, T any](fieldPointer FieldPointer[O, T]) scanPointer 
 	}
 }
 
-func newColForTable[O Owner, T any](table Table, baseName, jsonFieldName string, fieldPointer scanPointer) Col[O, T] {
+func newColForTable[O Owner, T any](table Table, baseName, jsonFieldName string, fieldPointer scanPointer) ColumnImpl[O, T] {
 	if isNilValue(table) {
-		return Col[O, T]{
+		return ColumnImpl[O, T]{
 			name:          baseName,
 			jsonFieldName: jsonFieldName,
 			fieldPointer:  fieldPointer,
@@ -99,7 +109,7 @@ func newColForTable[O Owner, T any](table Table, baseName, jsonFieldName string,
 		}
 	}
 
-	return Col[O, T]{
+	return ColumnImpl[O, T]{
 		table:         table,
 		name:          baseName,
 		qualifiedName: rawQualifiedIdentifierForTable(table, baseName),
@@ -109,60 +119,60 @@ func newColForTable[O Owner, T any](table Table, baseName, jsonFieldName string,
 	}
 }
 
-func (c Col[O, T]) SQLExpr() string {
+func (c ColumnImpl[O, T]) SQLExpr() string {
 	return renderCanonicalSQL(c.qualifiedName)
 }
 
-func (c Col[O, T]) Table() Table {
+func (c ColumnImpl[O, T]) Table() Table {
 	return c.table
 }
 
-func (c Col[O, T]) Name() string {
+func (c ColumnImpl[O, T]) Name() string {
 	return c.name
 }
 
-func (c Col[O, T]) QualifiedName() string {
+func (c ColumnImpl[O, T]) QualifiedName() string {
 	return c.SQLExpr()
 }
 
-func (c Col[O, T]) FieldPointer() scanPointer {
+func (c ColumnImpl[O, T]) FieldPointer() scanPointer {
 	return c.scanPointer()
 }
 
-func (c Col[O, T]) OutputName() string {
+func (c ColumnImpl[O, T]) OutputName() string {
 	return c.name
 }
 
-func (c Col[O, T]) JSONFieldName() string {
+func (c ColumnImpl[O, T]) JSONFieldName() string {
 	return c.jsonFieldName
 }
 
-func (c Col[O, T]) scanPointer() scanPointer {
+func (c ColumnImpl[O, T]) scanPointer() scanPointer {
 	return c.fieldPointer
 }
 
-func (c Col[O, T]) rawQualifiedName() string {
+func (c ColumnImpl[O, T]) rawQualifiedName() string {
 	return c.qualifiedName
 }
 
-func (c Col[O, T]) columnValue(T) {}
+func (c ColumnImpl[O, T]) columnValue(T) {}
 
-func (c Col[O, T]) selectOwner(O) {}
+func (c ColumnImpl[O, T]) selectOwner(O) {}
 
-func (c Col[O, T]) tableColumnOwner(O) {}
+func (c ColumnImpl[O, T]) tableColumnOwner(O) {}
 
-func (c Col[O, T]) searchColumn() {}
+func (c ColumnImpl[O, T]) searchColumn() {}
 
-func (c Col[O, T]) tableSource() Table {
+func (c ColumnImpl[O, T]) tableSource() Table {
 	return c.table
 }
 
-func (c Col[O, T]) columnName() string {
+func (c ColumnImpl[O, T]) columnName() string {
 	return c.name
 }
 
 // WithTable returns a copy of the column rebound to a different table source.
-func (c Col[O, T]) WithTable(table Table) Col[O, T] {
+func (c ColumnImpl[O, T]) WithTable(table Table) ColumnImpl[O, T] {
 	if isNilValue(table) {
 		c.buildErr = errors.New("column table cannot be nil")
 		return c
@@ -183,7 +193,7 @@ func (c Col[O, T]) WithTable(table Table) Col[O, T] {
 	}
 	tables[table.Table()] = table
 
-	return Col[O, T]{
+	return ColumnImpl[O, T]{
 		table:         table,
 		name:          c.name,
 		qualifiedName: rawQualifiedIdentifierForTable(table, c.name),
@@ -199,23 +209,19 @@ func (c Col[O, T]) WithTable(table Table) Col[O, T] {
 }
 
 // As returns a copy of the column that targets an aliased table reference.
-func (c Col[O, T]) As(alias string) Col[O, T] {
+func (c ColumnImpl[O, T]) As(alias string) ColumnImpl[O, T] {
 	return c.WithTable(AliasTable(c.table, alias))
-}
-
-func (c Col[O, T]) Into(fieldPointer FieldPointer[O, T], jsonFieldName string) ResultCol[O, T] {
-	return Into[O](c, fieldPointer, jsonFieldName)
 }
 
 // Into creates a result-owned projection column from another typed column.
 func Into[Target, Source Owner, T any](
-	source Column[Source, T],
+	source TypedColumn[Source, T],
 	fieldPointer FieldPointer[Target, T],
 	jsonFieldName string,
-) ResultCol[Target, T] {
+) ProjectedColumn[Target, T] {
 	pointer := toScanPointer(fieldPointer)
 	if isNilValue(source) {
-		return ResultCol[Target, T]{col: Col[Target, T]{
+		return ProjectedColumn[Target, T]{col: ColumnImpl[Target, T]{
 			fieldPointer:  pointer,
 			jsonFieldName: jsonFieldName,
 			buildErr:      errors.New("source column cannot be nil"),
@@ -248,7 +254,7 @@ func Into[Target, Source Owner, T any](
 		buildErr = errors.New("field pointer cannot be nil")
 	}
 
-	return ResultCol[Target, T]{col: Col[Target, T]{
+	return ProjectedColumn[Target, T]{col: ColumnImpl[Target, T]{
 		table:         columnPrimaryTable(source),
 		name:          source.OutputName(),
 		qualifiedName: rawColumnQualifiedName(source),
@@ -263,74 +269,74 @@ func Into[Target, Source Owner, T any](
 	}}
 }
 
-func (c ResultCol[O, T]) SQLExpr() string { return c.col.SQLExpr() }
+func (c ProjectedColumn[O, T]) SQLExpr() string { return c.col.SQLExpr() }
 
-func (c ResultCol[O, T]) Table() Table { return c.col.Table() }
+func (c ProjectedColumn[O, T]) Table() Table { return c.col.Table() }
 
-func (c ResultCol[O, T]) Name() string { return c.col.Name() }
+func (c ProjectedColumn[O, T]) Name() string { return c.col.Name() }
 
-func (c ResultCol[O, T]) QualifiedName() string { return c.col.QualifiedName() }
+func (c ProjectedColumn[O, T]) QualifiedName() string { return c.col.QualifiedName() }
 
-func (c ResultCol[O, T]) FieldPointer() scanPointer { return c.col.FieldPointer() }
+func (c ProjectedColumn[O, T]) FieldPointer() scanPointer { return c.col.FieldPointer() }
 
-func (c ResultCol[O, T]) OutputName() string { return c.col.OutputName() }
+func (c ProjectedColumn[O, T]) OutputName() string { return c.col.OutputName() }
 
-func (c ResultCol[O, T]) JSONFieldName() string { return c.col.JSONFieldName() }
+func (c ProjectedColumn[O, T]) JSONFieldName() string { return c.col.JSONFieldName() }
 
-func (c ResultCol[O, T]) scanPointer() scanPointer { return c.col.scanPointer() }
+func (c ProjectedColumn[O, T]) scanPointer() scanPointer { return c.col.scanPointer() }
 
-func (c ResultCol[O, T]) columnValue(T) {}
+func (c ProjectedColumn[O, T]) columnValue(T) {}
 
-func (c ResultCol[O, T]) selectOwner(O) {}
+func (c ProjectedColumn[O, T]) selectOwner(O) {}
 
-func (c ResultCol[O, T]) rawQualifiedName() string { return c.col.rawQualifiedName() }
+func (c ProjectedColumn[O, T]) rawQualifiedName() string { return c.col.rawQualifiedName() }
 
-func (c ResultCol[O, T]) expressionArgs() []any { return c.col.expressionArgs() }
+func (c ProjectedColumn[O, T]) expressionArgs() []any { return c.col.expressionArgs() }
 
-func (c ResultCol[O, T]) buildError() error { return c.col.buildError() }
+func (c ProjectedColumn[O, T]) buildError() error { return c.col.buildError() }
 
-func (c ResultCol[O, T]) tableSource() Table { return c.col.tableSource() }
+func (c ProjectedColumn[O, T]) tableSource() Table { return c.col.tableSource() }
 
-func (c ResultCol[O, T]) referencedTables() map[string]Table {
+func (c ProjectedColumn[O, T]) referencedTables() map[string]Table {
 	return c.col.referencedTables()
 }
 
-func (c ResultCol[O, T]) isAggregateExpression() bool {
+func (c ProjectedColumn[O, T]) isAggregateExpression() bool {
 	return c.col.isAggregateExpression()
 }
 
-func (c ResultCol[O, T]) isDistinctExpression() bool {
+func (c ProjectedColumn[O, T]) isDistinctExpression() bool {
 	return c.col.isDistinctExpression()
 }
 
-func (c ResultCol[O, T]) isTransformedExpression() bool {
+func (c ProjectedColumn[O, T]) isTransformedExpression() bool {
 	return c.col.isTransformedExpression()
 }
 
-func (c Col[O, T]) expressionArgs() []any {
+func (c ColumnImpl[O, T]) expressionArgs() []any {
 	return append([]any(nil), c.args...)
 }
 
-func (c Col[O, T]) buildError() error {
+func (c ColumnImpl[O, T]) buildError() error {
 	return errors.Trace(c.buildErr)
 }
 
-func (c Col[O, T]) referencedTables() map[string]Table {
+func (c ColumnImpl[O, T]) referencedTables() map[string]Table {
 	return cloneTableMap(c.tables)
 }
 
-func (c Col[O, T]) withTable(table Table) AnyColumn {
+func (c ColumnImpl[O, T]) withTable(table Table) SQLColumn {
 	return c.WithTable(table)
 }
 
-func (c Col[O, T]) isAggregateExpression() bool {
+func (c ColumnImpl[O, T]) isAggregateExpression() bool {
 	return c.aggregate
 }
 
-func (c Col[O, T]) isDistinctExpression() bool {
+func (c ColumnImpl[O, T]) isDistinctExpression() bool {
 	return c.distinct
 }
 
-func (c Col[O, T]) isTransformedExpression() bool {
+func (c ColumnImpl[O, T]) isTransformedExpression() bool {
 	return c.transformed
 }

@@ -14,6 +14,7 @@ type cteDefinition struct {
 	name          string
 	selectCount   int
 	keywordCount  int
+	cols          []SQLColumn
 	validate      func() error
 	buildBody     func(bool) (string, []any)
 	listTables    func() map[string]Table
@@ -67,6 +68,26 @@ func (t cteTable) KwList() []SearchColumn {
 	return nil
 }
 
+func (t cteTable) Cols() []SQLColumn {
+	if len(t.def.cols) == 0 {
+		return nil
+	}
+
+	return AliasColumns(t.def.cols, t)
+}
+
+func (cteTable) PrimaryKeys() []string {
+	return nil
+}
+
+func (cteTable) AutoIncrement() bool {
+	return false
+}
+
+func (cteTable) VersionColumn() string {
+	return ""
+}
+
 func (t cteTable) PhysicalTable() string {
 	return t.name
 }
@@ -86,6 +107,7 @@ func newCTEDefinition[O Owner](name string, spec QuerySpec[O]) cteDefinition {
 		name:         name,
 		selectCount:  len(cloned.Selects),
 		keywordCount: len(cloned.KeywordSearch),
+		cols:         SQLColumns(cloned.Selects...),
 		validate: func() error {
 			if err := cloned.validateJoinGraph(); err != nil {
 				return errors.Trace(err)

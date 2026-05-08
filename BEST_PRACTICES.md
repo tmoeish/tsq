@@ -15,7 +15,11 @@ if err := pageReq.ValidateStrict(); err != nil {
 	return fmt.Errorf("invalid pagination: %w", err)
 }
 
-query, err := qb.Build()
+query, err := tsq.
+	Select(database.TableUserCols...).
+	From(database.TableUser).
+	Where(database.User_ID.EQ(1)).
+	Build()
 if err != nil {
 	return fmt.Errorf("build query: %w", err)
 }
@@ -29,14 +33,14 @@ query, _ := qb.Build()
 
 ### 1.2 数据库操作带上 context
 
-- 给查询和写操作设置 timeout / cancellation
-- 避免数据库调用无限挂起
+- 给查询和写操作显式传递 `context.Context` 首参
+- 设置 timeout / cancellation，避免数据库调用无限挂起
 
 ```go
 ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 defer cancel()
 
-rows, err := db.QueryContext(ctx, sqlStr, args...)
+users, err := tsq.List[database.User](ctx, dbmap, query)
 ```
 
 ### 1.3 用 `%w` 保留错误上下文
@@ -120,7 +124,7 @@ if err := op2(); err != nil {
 return tx.Commit()
 ```
 
-### 3.3 事务里复用 TSQ 时，重新包装 `DbMap`
+### 3.3 事务里复用 TSQ 时，重新包装 `DbMap`，ctx 继续显式下传
 
 ```go
 txMap := &tsq.DbMap{Db: tx, Dialect: dbmap.Dialect}
@@ -134,26 +138,22 @@ if err := order.Insert(ctx, txMap); err != nil {
 ### 4.1 field pointer 要能安全处理 nil / 错误类型
 
 ```go
-fp := func(holder any) any {
-	if holder == nil {
+fp := func(u *User) *int64 {
+	if u == nil {
 		return nil
 	}
-
-	user, ok := holder.(*User)
-	if !ok {
-		return nil
-	}
-
-	return &user.ID
+	return &u.ID
 }
 ```
 
-### 4.2 用 `Into(...)` 做结果映射，而不是重复造列
+### 4.2 用 `tsq.Into(...)` 做结果映射，而不是重复造列
+
+使用泛型 `tsq.Into[Target]` 确保扫描目标在编译期校验。
 
 ```go
-userID := database.User_ID.Into(func(holder any) any {
-	return &holder.(*UserResult).UserID
-}, "user_id")
+userName := tsq.Into[UserResult](database.User_Name, func(r *UserResult) *string {
+	return &r.UserName
+}, "user_name")
 ```
 
 ## 5. 排序

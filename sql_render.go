@@ -76,7 +76,7 @@ func rawQualifiedIdentifierForTable(table Table, column string) string {
 	return rawTableQualifierIdentifier(table) + "." + rawIdentifier(column)
 }
 
-func rawColumnQualifiedName(col AnyColumn) string {
+func rawColumnQualifiedName(col SQLColumn) string {
 	if raw, ok := col.(rawQualifiedNamer); ok {
 		return raw.rawQualifiedName()
 	}

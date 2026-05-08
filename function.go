@@ -13,7 +13,7 @@ import (
 // ================================================
 
 // Fn creates a custom SQL function by applying the format string to the column
-func (c Col[Owner, T]) Fn(format string) Col[Owner, T] {
+func (c ColumnImpl[Owner, T]) Fn(format string) ColumnImpl[Owner, T] {
 	if strings.TrimSpace(format) == "" {
 		c.buildErr = errors.New("function format cannot be empty")
 		return c
@@ -30,7 +30,7 @@ func (c Col[Owner, T]) Fn(format string) Col[Owner, T] {
 		return c
 	}
 
-	return Col[Owner, T]{
+	return ColumnImpl[Owner, T]{
 		table:         c.table,
 		qualifiedName: fmt.Sprintf(format, c.rawQualifiedName()),
 		name:          c.name,          // 保持原始名称
@@ -46,7 +46,7 @@ func (c Col[Owner, T]) Fn(format string) Col[Owner, T] {
 }
 
 // FnRaw fn 不带参数
-func (c Col[Owner, T]) FnRaw(fn string) Col[Owner, T] {
+func (c ColumnImpl[Owner, T]) FnRaw(fn string) ColumnImpl[Owner, T] {
 	if strings.TrimSpace(fn) == "" {
 		c.buildErr = errors.New("function expression cannot be empty")
 		return c
@@ -63,7 +63,7 @@ func (c Col[Owner, T]) FnRaw(fn string) Col[Owner, T] {
 		return c
 	}
 
-	return Col[Owner, T]{
+	return ColumnImpl[Owner, T]{
 		table:         c.table,
 		qualifiedName: fn,
 		name:          c.name,          // 保持原始名称
@@ -78,7 +78,7 @@ func (c Col[Owner, T]) FnRaw(fn string) Col[Owner, T] {
 	}
 }
 
-func (c Col[Owner, T]) FnExpr(format string, args ...any) Col[Owner, T] {
+func (c ColumnImpl[Owner, T]) FnExpr(format string, args ...any) ColumnImpl[Owner, T] {
 	if strings.TrimSpace(format) == "" {
 		c.buildErr = errors.New("function format cannot be empty")
 		return c
@@ -111,7 +111,7 @@ func (c Col[Owner, T]) FnExpr(format string, args ...any) Col[Owner, T] {
 		resultArgs = append(resultArgs, expr.Args()...)
 	}
 
-	return Col[Owner, T]{
+	return ColumnImpl[Owner, T]{
 		table:         c.table,
 		qualifiedName: fmt.Sprintf(format, formatArgs...),
 		name:          c.name,
@@ -156,15 +156,15 @@ func mergeTableMaps(base, extras map[string]Table) map[string]Table {
 // ================================================
 
 // Count returns COUNT(column) - counts non-null values
-func (c Col[Owner, T]) Count() Col[Owner, int64] {
-	result := Col[Owner, int64](c.Fn("COUNT(%s)"))
+func (c ColumnImpl[Owner, T]) Count() ColumnImpl[Owner, int64] {
+	result := ColumnImpl[Owner, int64](c.Fn("COUNT(%s)"))
 	result.aggregate = true
 
 	return result
 }
 
 // Sum returns SUM(column) - calculates sum of numeric values
-func (c Col[Owner, T]) Sum() Col[Owner, T] {
+func (c ColumnImpl[Owner, T]) Sum() ColumnImpl[Owner, T] {
 	result := c.Fn("SUM(%s)")
 	result.aggregate = true
 
@@ -172,15 +172,15 @@ func (c Col[Owner, T]) Sum() Col[Owner, T] {
 }
 
 // Avg returns AVG(column) - calculates average of numeric values
-func (c Col[Owner, T]) Avg() Col[Owner, float64] {
-	result := Col[Owner, float64](c.Fn("AVG(%s)"))
+func (c ColumnImpl[Owner, T]) Avg() ColumnImpl[Owner, float64] {
+	result := ColumnImpl[Owner, float64](c.Fn("AVG(%s)"))
 	result.aggregate = true
 
 	return result
 }
 
 // Max returns MAX(column) - finds maximum value
-func (c Col[Owner, T]) Max() Col[Owner, T] {
+func (c ColumnImpl[Owner, T]) Max() ColumnImpl[Owner, T] {
 	result := c.Fn("MAX(%s)")
 	result.aggregate = true
 
@@ -188,7 +188,7 @@ func (c Col[Owner, T]) Max() Col[Owner, T] {
 }
 
 // Min returns MIN(column) - finds minimum value
-func (c Col[Owner, T]) Min() Col[Owner, T] {
+func (c ColumnImpl[Owner, T]) Min() ColumnImpl[Owner, T] {
 	result := c.Fn("MIN(%s)")
 	result.aggregate = true
 
@@ -196,7 +196,7 @@ func (c Col[Owner, T]) Min() Col[Owner, T] {
 }
 
 // Distinct returns DISTINCT(column) - returns unique values
-func (c Col[Owner, T]) Distinct() Col[Owner, T] {
+func (c ColumnImpl[Owner, T]) Distinct() ColumnImpl[Owner, T] {
 	result := c.Fn("DISTINCT(%s)")
 	result.distinct = true
 
@@ -208,33 +208,33 @@ func (c Col[Owner, T]) Distinct() Col[Owner, T] {
 // ================================================
 
 // Upper returns UPPER(column) - converts to uppercase
-func (c Col[Owner, T]) Upper() Col[Owner, T] {
+func (c ColumnImpl[Owner, T]) Upper() ColumnImpl[Owner, T] {
 	return c.Fn("UPPER(%s)")
 }
 
 // Lower returns LOWER(column) - converts to lowercase
-func (c Col[Owner, T]) Lower() Col[Owner, T] {
+func (c ColumnImpl[Owner, T]) Lower() ColumnImpl[Owner, T] {
 	return c.Fn("LOWER(%s)")
 }
 
 // Substring returns SUBSTRING(column, start, length) - extracts substring
-func (c Col[Owner, T]) Substring(start, length int) Col[Owner, T] {
+func (c ColumnImpl[Owner, T]) Substring(start, length int) ColumnImpl[Owner, T] {
 	return c.Fn(fmt.Sprintf("SUBSTRING(%%s, %d, %d)", start, length))
 }
 
 // Length returns LENGTH(column) - returns string length
-func (c Col[Owner, T]) Length() Col[Owner, T] {
+func (c ColumnImpl[Owner, T]) Length() ColumnImpl[Owner, T] {
 	return c.Fn("LENGTH(%s)")
 }
 
 // Trim returns TRIM(column) - removes leading and trailing spaces
-func (c Col[Owner, T]) Trim() Col[Owner, T] {
+func (c ColumnImpl[Owner, T]) Trim() ColumnImpl[Owner, T] {
 	return c.Fn("TRIM(%s)")
 }
 
 // Concat is intentionally unsupported because portable string concatenation
 // differs across TSQ's built-in dialects.
-func (c Col[Owner, T]) Concat(_ string) Col[Owner, T] {
+func (c ColumnImpl[Owner, T]) Concat(_ string) ColumnImpl[Owner, T] {
 	c.buildErr = errors.New("Concat is not portable across TSQ's built-in dialects; use Fn with a dialect-specific expression instead")
 	return c
 }
@@ -244,27 +244,27 @@ func (c Col[Owner, T]) Concat(_ string) Col[Owner, T] {
 // ================================================
 
 // Now returns CURRENT_TIMESTAMP - current timestamp (usually used as static function)
-func (c Col[Owner, T]) Now() Col[Owner, T] {
+func (c ColumnImpl[Owner, T]) Now() ColumnImpl[Owner, T] {
 	return c.FnRaw("CURRENT_TIMESTAMP")
 }
 
 // Date returns DATE(column) - extracts date part from datetime
-func (c Col[Owner, T]) Date() Col[Owner, T] {
+func (c ColumnImpl[Owner, T]) Date() ColumnImpl[Owner, T] {
 	return c.Fn("DATE(%s)")
 }
 
 // Year returns a portable year extraction expression for the column
-func (c Col[Owner, T]) Year() Col[Owner, T] {
+func (c ColumnImpl[Owner, T]) Year() ColumnImpl[Owner, T] {
 	return c.Fn("SUBSTR(DATE(%s), 1, 4)")
 }
 
 // Month returns a portable month extraction expression for the column
-func (c Col[Owner, T]) Month() Col[Owner, T] {
+func (c ColumnImpl[Owner, T]) Month() ColumnImpl[Owner, T] {
 	return c.Fn("SUBSTR(DATE(%s), 6, 2)")
 }
 
 // Day returns a portable day extraction expression for the column
-func (c Col[Owner, T]) Day() Col[Owner, T] {
+func (c ColumnImpl[Owner, T]) Day() ColumnImpl[Owner, T] {
 	return c.Fn("SUBSTR(DATE(%s), 9, 2)")
 }
 
@@ -273,7 +273,7 @@ func (c Col[Owner, T]) Day() Col[Owner, T] {
 // ================================================
 
 // Round returns ROUND(column, precision) - rounds to specified decimal places
-func (c Col[Owner, T]) Round(precision int) Col[Owner, T] {
+func (c ColumnImpl[Owner, T]) Round(precision int) ColumnImpl[Owner, T] {
 	if precision < 0 {
 		c.buildErr = errors.New("round precision cannot be negative")
 		return c
@@ -283,17 +283,17 @@ func (c Col[Owner, T]) Round(precision int) Col[Owner, T] {
 }
 
 // Ceil returns CEIL(column) - rounds up to nearest integer
-func (c Col[Owner, T]) Ceil() Col[Owner, T] {
+func (c ColumnImpl[Owner, T]) Ceil() ColumnImpl[Owner, T] {
 	return c.Fn("CEIL(%s)")
 }
 
 // Floor returns FLOOR(column) - rounds down to nearest integer
-func (c Col[Owner, T]) Floor() Col[Owner, T] {
+func (c ColumnImpl[Owner, T]) Floor() ColumnImpl[Owner, T] {
 	return c.Fn("FLOOR(%s)")
 }
 
 // Abs returns ABS(column) - returns absolute value
-func (c Col[Owner, T]) Abs() Col[Owner, T] {
+func (c ColumnImpl[Owner, T]) Abs() ColumnImpl[Owner, T] {
 	return c.Fn("ABS(%s)")
 }
 
@@ -302,11 +302,11 @@ func (c Col[Owner, T]) Abs() Col[Owner, T] {
 // ================================================
 
 // Coalesce returns COALESCE(column, value) - returns first non-null value
-func (c Col[Owner, T]) Coalesce(value any) Col[Owner, T] {
+func (c ColumnImpl[Owner, T]) Coalesce(value any) ColumnImpl[Owner, T] {
 	return c.FnExpr("COALESCE(%s, %s)", value)
 }
 
 // NullIf returns NULLIF(column, value) - returns NULL if values are equal
-func (c Col[Owner, T]) NullIf(value any) Col[Owner, T] {
+func (c ColumnImpl[Owner, T]) NullIf(value any) ColumnImpl[Owner, T] {
 	return c.FnExpr("NULLIF(%s, %s)", value)
 }

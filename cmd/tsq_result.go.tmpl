@@ -17,7 +17,23 @@ import (
 // Result Definition
 // =============================================================================
 
+// Result{{$type}} is the result descriptor for {{$type}}.
 var Result{{$type}} = {{$type}}{}
+
+// TSQOwner marks {{$type}} as a TSQ owner.
+func ({{$dot.Recv}} {{$type}}) TSQOwner() {}
+
+// TSQResult marks {{$type}} as a TSQ result.
+func ({{$dot.Recv}} {{$type}}) TSQResult() {}
+
+// Cols returns the generated result columns for {{$type}}.
+{{$recv}}Cols() []tsq.BoundColumn[{{$type}}] {
+	return []tsq.BoundColumn[{{$type}}]{
+{{- range $f := .Fields }}
+		{{$type}}_{{$f.Name}},
+{{- end }}
+	}
+}
 
 // Column definitions for {{$type}} result fields.
 var (
@@ -27,19 +43,6 @@ var (
 	}, "{{$f.JsonTag}}")
 {{- end }}
 )
-
-func ({{$dot.Recv}} {{$type}}) TSQOwner() {}
-
-func ({{$dot.Recv}} {{$type}}) TSQResult() {}
-
-// Cols returns the generated result columns for {{$type}}.
-{{$recv}}Cols() []tsq.SelectableColumn[{{$type}}] {
-	return []tsq.SelectableColumn[{{$type}}]{
-{{- range $f := .Fields }}
-		{{$type}}_{{$f.Name}},
-{{- end }}
-	}
-}
 
 {{- if .JoinList }}
 
@@ -59,8 +62,8 @@ type {{$fromType}} struct {
 type {{ ResultJoinQueryType $type $join }} struct {
 	qb *tsq.QueryBuilder[{{$type}}]
 }
-
 {{- end }}
+
 type {{$selectedType}} struct {
 	qb *tsq.QueryBuilder[{{$type}}]
 }
@@ -134,11 +137,15 @@ func (q {{$selectedType}}) Having{{$right}}(conds ...tsq.Pred[{{$right}}]) {{$se
 	q.qb.Having(tsq.PredConditions(conds...)...)
 	return q
 }
-
 {{- end }}
+
 func (q {{$selectedType}}) Build() (*tsq.Query[{{$type}}], error) {
 	return q.qb.Build()
 }
+
+// =============================================================================
+// Internal Helpers
+// =============================================================================
 
 func {{$type}}JoinConditions[Left, Right tsq.Table](on tsq.JoinOn[Left, Right], conds ...tsq.JoinCond[Left, Right]) []tsq.Condition {
 	result := make([]tsq.Condition, 0, len(conds)+1)
@@ -146,16 +153,14 @@ func {{$type}}JoinConditions[Left, Right tsq.Table](on tsq.JoinOn[Left, Right], 
 	for _, extra := range conds {
 		result = append(result, extra)
 	}
-
 	return result
 }
 
-func {{$type}}GroupByColumns[O tsq.Table](cols ...tsq.TableColumn[O]) []tsq.AnyColumn {
-	result := make([]tsq.AnyColumn, 0, len(cols))
+func {{$type}}GroupByColumns[O tsq.Table](cols ...tsq.TableColumn[O]) []tsq.SQLColumn {
+	result := make([]tsq.SQLColumn, 0, len(cols))
 	for _, col := range cols {
 		result = append(result, col)
 	}
-
 	return result
 }
 
@@ -164,7 +169,6 @@ func {{$type}}SearchColumns[O tsq.Table](cols ...tsq.TableColumn[O]) []tsq.Searc
 	for _, col := range cols {
 		result = append(result, col)
 	}
-
 	return result
 }
 {{- end }}

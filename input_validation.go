@@ -13,7 +13,7 @@ type buildErrorCarrier interface {
 }
 
 type tableColumnLister interface {
-	Cols() []AnyColumn
+	Cols() []SQLColumn
 }
 
 type transformedColumn interface {
@@ -34,7 +34,7 @@ func isNilValue(v any) bool {
 	}
 }
 
-func validateColumnInput(col AnyColumn) (Table, error) {
+func validateColumnInput(col SQLColumn) (Table, error) {
 	if isNilValue(col) {
 		return nil, errors.New("column cannot be nil")
 	}
@@ -73,7 +73,7 @@ func validateColumnInput(col AnyColumn) (Table, error) {
 	return table, nil
 }
 
-func validateColumnBelongsToTable(col AnyColumn, table Table) error {
+func validateColumnBelongsToTable(col SQLColumn, table Table) error {
 	source, ok := col.(interface {
 		tableSource() Table
 		columnName() string
@@ -116,7 +116,7 @@ transformed:
 	return errors.Errorf("column %s does not belong to table %s", source.columnName(), table.Table())
 }
 
-func tableColumns(table Table) ([]AnyColumn, bool) {
+func tableColumns(table Table) ([]SQLColumn, bool) {
 	if lister, ok := table.(tableColumnLister); ok {
 		return lister.Cols(), true
 	}
@@ -141,9 +141,9 @@ func tableColumns(table Table) ([]AnyColumn, bool) {
 		return nil, false
 	}
 
-	cols := make([]AnyColumn, 0, result.Len())
+	cols := make([]SQLColumn, 0, result.Len())
 	for i := 0; i < result.Len(); i++ {
-		col, ok := result.Index(i).Interface().(AnyColumn)
+		col, ok := result.Index(i).Interface().(SQLColumn)
 		if !ok {
 			return nil, false
 		}
@@ -154,7 +154,7 @@ func tableColumns(table Table) ([]AnyColumn, bool) {
 	return cols, true
 }
 
-func validateSelectableColumn[O Owner](col SelectableColumn[O]) error {
+func validateBoundColumn[O Owner](col BoundColumn[O]) error {
 	_, err := validateColumnInput(col)
 	return errors.Trace(err)
 }
@@ -220,7 +220,7 @@ func conditionClause(cond Condition) string {
 	return cond.Clause()
 }
 
-func columnPrimaryTable(col AnyColumn) Table {
+func columnPrimaryTable(col SQLColumn) Table {
 	if isNilValue(col) {
 		return nil
 	}

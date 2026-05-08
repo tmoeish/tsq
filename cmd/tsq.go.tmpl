@@ -55,22 +55,13 @@ var {{$varTbl}} tsq.Table = {{$type}}{}
 // TSQOwner marks {{$type}} as a TSQ owner.
 func ({{$dot.Recv}} {{$type}}) TSQOwner() {}
 
-// Column definitions for {{$type}} table.
-var (
-{{- range $f := .Fields }}
-	{{$type}}_{{$f.Name}} = tsq.NewCol[{{$type}}, {{$f | FieldType}}]("{{$f.Column}}", "{{$f.JsonTag}}", func(t {{$ptype}}) *{{$f | FieldType}} { return &t.{{$f.Name}} })
-{{- end }}
-)
-
-// {{$varTblCols}} is the list of columns for {{$type}} table.
-var {{$varTblCols}} = []tsq.SelectableColumn[{{$type}}]{
-{{- range $f := .Fields }}
-	{{$type}}_{{$f.Name}},
-{{- end }}
-}
-
 // Table returns the database table name for {{$type}}.
 func ({{$dot.Recv}} {{$type}}) Table() string { return "{{$dot.Table}}" }
+
+// Cols returns all generated columns for {{$type}}.
+func ({{$dot.Recv}} {{$type}}) Cols() []tsq.SQLColumn {
+	return tsq.SQLColumns({{$varTblCols}}...)
+}
 
 // KwList returns columns that support keyword search for {{$type}}.
 func ({{$dot.Recv}} {{$type}}) KwList() []tsq.SearchColumn {
@@ -81,10 +72,47 @@ func ({{$dot.Recv}} {{$type}}) KwList() []tsq.SearchColumn {
 	}
 }
 
-// Cols returns all generated columns for {{$type}}.
- func ({{$dot.Recv}} {{$type}}) Cols() []tsq.SelectableColumn[{{$type}}] {
-	return {{$varTblCols}}
+// PrimaryKeys returns the primary key columns for {{$type}}.
+func ({{$dot.Recv}} {{$type}}) PrimaryKeys() []string {
+	return []string{{"{"}}{{ FieldToCol $dot $dot.ID }}{{"}"}}
 }
+
+// AutoIncrement reports whether {{$type}} uses an auto-increment primary key.
+func ({{$dot.Recv}} {{$type}}) AutoIncrement() bool { return {{ if $dot.AI }}true{{ else }}false{{ end }} }
+
+// VersionColumn returns the optimistic-lock version column for {{$type}}, if any.
+func ({{$dot.Recv}} {{$type}}) VersionColumn() string {
+	{{- if $dot.VersionField }}
+	return {{ FieldToCol $dot $dot.VersionField }}
+	{{- else }}
+	return ""
+	{{- end }}
+}
+
+{{- if .DeletedAtField }}
+// Active returns true if the {{$type}} record is not soft-deleted.
+{{$precv}}Active() bool {
+	return {{ SoftDeleteActiveExpr $dot.Recv $dot.DeletedAtField (index $dot.FieldMap $dot.DeletedAtField) }}
+}
+{{- end }}
+
+// Column definitions for {{$type}} table.
+var (
+{{- range $f := .Fields }}
+	{{$type}}_{{$f.Name}} = tsq.NewCol("{{$f.Column}}", "{{$f.JsonTag}}", func(t {{$ptype}}) *{{$f | FieldType}} { return &t.{{$f.Name}} })
+{{- end }}
+)
+
+// {{$varTblCols}} is the list of all selectable columns for {{$type}} table.
+var {{$varTblCols}} = []tsq.BoundColumn[{{$type}}]{
+{{- range $f := .Fields }}
+	{{$type}}_{{$f.Name}},
+{{- end }}
+}
+
+// =============================================================================
+// Table Registration and Index Initialization
+// =============================================================================
 
 func init() {
 	tsq.RegisterTable(
@@ -102,7 +130,6 @@ func init() {
 	{{- end }}
 {{- end }}
 {{- if $dot.IdxList }}
-
 			// Upsert non-unique indexes.
 	{{- range $name, $idx := $dot.IdxList }}
 			if err := tsq.UpsertIndex(db, "{{ $dot.Table }}", false, "{{$idx.Name}}", []string{{"{"}}{{if $dot.DeletedAtField}}{{ FieldToCol $dot $dot.DeletedAtField }}, {{end}}{{ FieldsToCols $dot $idx.Fields }}{{"}"}}); err != nil {
@@ -110,19 +137,10 @@ func init() {
 			}
 	{{- end }}
 {{- end }}
-
 			return nil
 		},
 	)
 }
-
-
-{{- if .DeletedAtField }}
-// Active returns true if the {{$type}} record is not soft-deleted.
-{{$precv}}Active() bool {
-	return {{ SoftDeleteActiveExpr $dot.Recv $dot.DeletedAtField (index $dot.FieldMap $dot.DeletedAtField) }}
-}
-{{- end }}
 
 // =============================================================================
 // Query by Primary Key
@@ -134,7 +152,7 @@ var {{$query}} *tsq.Query[{{$type}}]
 func init() {
 	var err error
 	{{$query}}, err = tsq.
-		Select[{{$type}}]({{$varTblCols}}...).
+		Select({{$varTblCols}}...).
 		From({{$varTbl}}).
 		Where({{$type}}_{{$dot.ID}}.EQVar()).
 		Build()
@@ -144,89 +162,81 @@ func init() {
 }
 
 	{{- with $name := printf "%s%s" $GetBy $dot.ID }}
-// {{$name}} retrieves a {{$type}} record by its {{$dot.ID}}.
+// {{$name}} retrieves a {{$type}} record by its primary key.
 // Returns (nil, nil) if the record is not found.
 func {{$name}}(
 	ctx context.Context,
 	db tsq.SqlExecutor,
-		{{ FieldVarName $dot.ID }} {{index $dot.FieldMap $dot.ID | FieldType}},
-	) ({{$ptype}}, error) {
-		row := &{{$type}}{}
-		err := {{$query}}.Load(ctx, db, row, {{ FieldVarName $dot.ID }})
-		if err != nil {
+	{{ FieldVarName $dot.ID }} {{index $dot.FieldMap $dot.ID | FieldType}},
+) ({{$ptype}}, error) {
+	row := &{{$type}}{}
+	err := {{$query}}.Load(ctx, db, row, {{ FieldVarName $dot.ID }})
+	if err != nil {
 		if errors.Is(err, {{ GeneratedSQLRef "ErrNoRows" }}) {
 			return nil, nil
 		}
-
 		return nil, errors.Trace(err)
-		}
-
+	}
 	return row, nil
 }
 	{{- end }}
 
 	{{- with $name := printf "%s%sOrErr" $GetBy $dot.ID }}
-// {{$name}} retrieves a {{$type}} record by its {{$dot.ID}}.
+// {{$name}} retrieves a {{$type}} record by its primary key.
 // Returns (nil, database/sql.ErrNoRows) if the record is not found.
 func {{$name}}(
 	ctx context.Context,
 	db tsq.SqlExecutor,
-		{{ FieldVarName $dot.ID }} {{index $dot.FieldMap $dot.ID | FieldType}},
-	) ({{$ptype}}, error) {
-		row := &{{$type}}{}
-		err := {{$query}}.Load(ctx, db, row, {{ FieldVarName $dot.ID }})
+	{{ FieldVarName $dot.ID }} {{index $dot.FieldMap $dot.ID | FieldType}},
+) ({{$ptype}}, error) {
+	row := &{{$type}}{}
+	err := {{$query}}.Load(ctx, db, row, {{ FieldVarName $dot.ID }})
 	if err != nil {
-		if errors.Is(err, {{ GeneratedSQLRef "ErrNoRows" }}) {
-			return nil, errors.Trace(err)
-		}
-
 		return nil, errors.Trace(err)
 	}
-
 	return row, nil
 }
 	{{- end }}
 {{- end }}
 
 {{- with $name := printf "%s%sIn" $ListBy $dot.ID }}
-// {{$name}} retrieves multiple {{$type}} records by a set of {{$dot.ID}} values.
+// {{$name}} retrieves multiple {{$type}} records by a set of primary key values.
 // Records not found are silently ignored.
 func {{$name}}(
 	ctx context.Context,
 	db tsq.SqlExecutor,
-		{{ FieldSliceVarName $dot.ID }} ...{{index $dot.FieldMap $dot.ID | FieldType}},
-	) ({{$list}}, error) {
-		query, err := tsq.
-			Select[{{$type}}]({{$varTblCols}}...).
+	{{ FieldSliceVarName $dot.ID }} ...{{index $dot.FieldMap $dot.ID | FieldType}},
+) ({{$list}}, error) {
+	query, err := tsq.
+		Select({{$varTblCols}}...).
 		From({{$varTbl}}).
-			Where({{$type}}_{{$dot.ID}}.In({{ FieldSliceVarName $dot.ID }}...)).
+		Where({{$type}}_{{$dot.ID}}.In({{ FieldSliceVarName $dot.ID }}...)).
 		Build()
 	if err != nil {
 		return nil, errors.Annotate(err, "build query")
 	}
-
-	return tsq.List[{{$type}}](ctx, db, query)
+	return tsq.List(ctx, db, query)
 }
 {{- end }}
 
 {{- with $name := printf "%s%sInOrErr" $ListBy $dot.ID }}
-// {{$name}} retrieves multiple {{$type}} records by a set of {{$dot.ID}} values.
+// {{$name}} retrieves multiple {{$type}} records by a set of primary key values.
 // Returns an error if any of the specified records are not found.
 func {{$name}}(
 	ctx context.Context,
 	db tsq.SqlExecutor,
-		{{ FieldSliceVarName $dot.ID }} ...{{index $dot.FieldMap $dot.ID | FieldType}},
-	) ({{$list}}, error) {
-		query, err := tsq.
-			Select[{{$type}}]({{$varTblCols}}...).
+	{{ FieldSliceVarName $dot.ID }} ...{{index $dot.FieldMap $dot.ID | FieldType}},
+) ({{$list}}, error) {
+	query, err := tsq.
+		Select({{$varTblCols}}...).
 		From({{$varTbl}}).
-			Where({{$type}}_{{$dot.ID}}.In({{ FieldSliceVarName $dot.ID }}...)).
+		Where({{$type}}_{{$dot.ID}}.In({{ FieldSliceVarName $dot.ID }}...)).
 		Build()
 	if err != nil {
 		return nil, errors.Annotate(err, "build query")
 	}
 
-	list, err := tsq.List[{{$type}}](ctx, db, query)
+	list, err := tsq.List(ctx, db, query)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -252,7 +262,7 @@ var {{$query}} *tsq.Query[{{$type}}]
 func init() {
 	var err error
 	{{$query}}, err = tsq.
-		Select[{{$type}}]({{$varTblCols}}...).
+		Select({{$varTblCols}}...).
 		From({{$varTbl}}).
 		Where(
 			{{ SoftDeleteActiveCond $type $dot.DeletedAtField (index $dot.FieldMap $dot.DeletedAtField) }},
@@ -265,60 +275,53 @@ func init() {
 }
 
 		{{- with $name := printf "%s%s" $GetActiveBy $dot.ID }}
-// {{$name}} retrieves an active (non-deleted) {{$type}} record by its {{$dot.ID}}.
+// {{$name}} retrieves an active {{$type}} record by its primary key.
 // Returns (nil, nil) if the record is not found or has been soft-deleted.
 func {{$name}}(
 	ctx context.Context,
 	db tsq.SqlExecutor,
-		{{ FieldVarName $dot.ID }} {{index $dot.FieldMap $dot.ID | FieldType}},
-	) ({{$ptype}}, error) {
-		row := &{{$type}}{}
-		err := {{$query}}.Load(ctx, db, row, {{ FieldVarName $dot.ID }})
-		if err != nil {
+	{{ FieldVarName $dot.ID }} {{index $dot.FieldMap $dot.ID | FieldType}},
+) ({{$ptype}}, error) {
+	row := &{{$type}}{}
+	err := {{$query}}.Load(ctx, db, row, {{ FieldVarName $dot.ID }})
+	if err != nil {
 		if errors.Is(err, {{ GeneratedSQLRef "ErrNoRows" }}) {
 			return nil, nil
 		}
-
 		return nil, errors.Trace(err)
-		}
-
+	}
 	return row, nil
 }
 		{{- end }}
 
 		{{- with $name := printf "%s%sOrErr" $GetActiveBy $dot.ID }}
-// {{$name}} retrieves an active (non-deleted) {{$type}} record by its {{$dot.ID}}.
+// {{$name}} retrieves an active {{$type}} record by its primary key.
 // Returns (nil, database/sql.ErrNoRows) if the record is not found or has been soft-deleted.
 func {{$name}}(
 	ctx context.Context,
 	db tsq.SqlExecutor,
-		{{ FieldVarName $dot.ID }} {{index $dot.FieldMap $dot.ID | FieldType}},
-	) ({{$ptype}}, error) {
-		row := &{{$type}}{}
-		err := {{$query}}.Load(ctx, db, row, {{ FieldVarName $dot.ID }})
+	{{ FieldVarName $dot.ID }} {{index $dot.FieldMap $dot.ID | FieldType}},
+) ({{$ptype}}, error) {
+	row := &{{$type}}{}
+	err := {{$query}}.Load(ctx, db, row, {{ FieldVarName $dot.ID }})
 	if err != nil {
-		if errors.Is(err, {{ GeneratedSQLRef "ErrNoRows" }}) {
-			return nil, errors.Trace(err)
-		}
-
 		return nil, errors.Trace(err)
 	}
-
 	return row, nil
 }
 		{{- end }}
 	{{- end }}
 
 	{{- with $name := printf "%s%sIn" $ListActiveBy $dot.ID }}
-// {{$name}} retrieves multiple active (non-deleted) {{$type}} records by a set of {{$dot.ID}} values.
+// {{$name}} retrieves multiple active {{$type}} records by a set of primary key values.
 // Records not found or soft-deleted are silently ignored.
 func {{$name}}(
 	ctx context.Context,
 	db tsq.SqlExecutor,
-		{{ FieldSliceVarName $dot.ID }} ...{{index $dot.FieldMap $dot.ID | FieldType}},
+	{{ FieldSliceVarName $dot.ID }} ...{{index $dot.FieldMap $dot.ID | FieldType}},
 ) ({{$list}}, error) {
 	query, err := tsq.
-		Select[{{$type}}]({{$varTblCols}}...).
+		Select({{$varTblCols}}...).
 		From({{$varTbl}}).
 		Where(
 			{{ SoftDeleteActiveCond $type $dot.DeletedAtField (index $dot.FieldMap $dot.DeletedAtField) }},
@@ -328,24 +331,20 @@ func {{$name}}(
 	if err != nil {
 		return nil, errors.Annotate(err, "build query")
 	}
-	list, err := tsq.List[{{$type}}](ctx, db, query)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-	return list, nil
+	return tsq.List(ctx, db, query)
 }
 	{{- end }}
 
 	{{- with $name := printf "%s%sInOrErr" $ListActiveBy $dot.ID }}
-// {{$name}} retrieves multiple active (non-deleted) {{$type}} records by a set of {{$dot.ID}} values.
+// {{$name}} retrieves multiple active {{$type}} records by a set of primary key values.
 // Returns an error if any of the specified active records are not found.
 func {{$name}}(
 	ctx context.Context,
 	db tsq.SqlExecutor,
-		{{ FieldSliceVarName $dot.ID }} ...{{index $dot.FieldMap $dot.ID | FieldType}},
-	) ({{$list}}, error) {
+	{{ FieldSliceVarName $dot.ID }} ...{{index $dot.FieldMap $dot.ID | FieldType}},
+) ({{$list}}, error) {
 	query, err := tsq.
-		Select[{{$type}}]({{$varTblCols}}...).
+		Select({{$varTblCols}}...).
 		From({{$varTbl}}).
 		Where(
 			{{ SoftDeleteActiveCond $type $dot.DeletedAtField (index $dot.FieldMap $dot.DeletedAtField) }},
@@ -356,8 +355,7 @@ func {{$name}}(
 		return nil, errors.Annotate(err, "build query")
 	}
 
-	var list {{$list}}
-	list, err = tsq.List[{{$type}}](ctx, db, query)
+	list, err := tsq.List(ctx, db, query)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -373,217 +371,6 @@ func {{$name}}(
 {{- end }}
 
 // =============================================================================
-// CRUD Operations
-// =============================================================================
-
-// Insert inserts a new {{$type}} record into the database.
-// Automatically sets creation and modification timestamps if configured.
-{{$precv}}Insert(
-	ctx context.Context,
-	db tsq.SqlExecutor,
-) error {
-{{- if $dot.CreatedAtField }}
-	{{$dot.Recv}}.{{$dot.CreatedAtField}} = {{ TimestampNowValue (index $dot.FieldMap $dot.CreatedAtField) }}
-{{- end }}
-{{- if $dot.UpdatedAtField }}
-	{{$dot.Recv}}.{{$dot.UpdatedAtField}} = {{ TimestampNowValue (index $dot.FieldMap $dot.UpdatedAtField) }}
-{{- end }}
-	err := tsq.Insert(ctx, db, {{$dot.Recv}})
-	if err != nil {
-		return errors.Annotatef(err, "insert {{$type}}: %s", tsq.CompactJSON({{$dot.Recv}}))
-	}
-
-	return nil
-}
-
-// Update updates an existing {{$type}} record in the database.
-// Automatically updates the modification timestamp if configured.
-{{$precv}}Update(
-	ctx context.Context,
-	db tsq.SqlExecutor,
-) error {
-{{- if $dot.UpdatedAtField }}
-	{{$dot.Recv}}.{{$dot.UpdatedAtField}} = {{ TimestampNowValue (index $dot.FieldMap $dot.UpdatedAtField) }}
-{{- end }}
-	err := tsq.Update(ctx, db, {{$dot.Recv}})
-	if err != nil {
-		return errors.Annotatef(err, "update {{$type}}: %s", tsq.CompactJSON({{$dot.Recv}}))
-	}
-
-	return nil
-}
-
-// Delete permanently removes a {{$type}} record from the database.
-{{$precv}}Delete(
-	ctx context.Context,
-	db tsq.SqlExecutor,
-) error {
-	err := tsq.Delete(ctx, db, {{$dot.Recv}})
-	if err != nil {
-		return errors.Annotatef(err, "delete {{$type}}: %s", tsq.CompactJSON({{$dot.Recv}}))
-	}
-
-	return nil
-}
-
-{{- if .DeletedAtField }}
-// SoftDelete marks a {{$type}} record as deleted without removing it from the database.
-// If dt is set, uses the provided tombstone value; otherwise uses the current time.
-{{$precv}}SoftDelete(
-	ctx context.Context,
-	db tsq.SqlExecutor,
-	dt {{ SoftDeleteParamType (index $dot.FieldMap $dot.DeletedAtField) }},
-) error {
-	if {{ SoftDeleteParamSetExpr "dt" (index $dot.FieldMap $dot.DeletedAtField) }} {
-		{{$dot.Recv}}.{{$dot.DeletedAtField}} = dt
-	} else {
-		{{$dot.Recv}}.{{$dot.DeletedAtField}} = {{ SoftDeleteNowValue (index $dot.FieldMap $dot.DeletedAtField) }}
-	}
-{{- if $dot.UpdatedAtField }}
-	{{$dot.Recv}}.{{$dot.UpdatedAtField}} = {{ TimestampNowValue (index $dot.FieldMap $dot.UpdatedAtField) }}
-{{- end }}
-	err := tsq.Update(ctx, db, {{$dot.Recv}})
-	if err != nil {
-		return errors.Annotatef(err, "soft-delete {{$type}}: %s", tsq.CompactJSON({{$dot.Recv}}))
-	}
-
-	return nil
-}
-{{- end }}
-
-{{- with $name := printf "%sQuery" $ListBy }}
-// {{$name}} executes a custom query to retrieve {{$type}} records.
-func {{$name}}(
-	ctx context.Context,
-	tx tsq.SqlExecutor,
-	qb *tsq.Query[{{$type}}],
-	args ...any,
-) ({{$list}}, error) {
-	return tsq.List[{{$type}}](ctx, tx, qb, args...)
-}
-{{- end }}
-
-{{- with $name := printf "%sQuery" $PageBy }}
-// {{$name}} executes a custom query with pagination to retrieve {{$type}} records.
-func {{$name}}(
-	ctx context.Context,
-	tx tsq.SqlExecutor,
-	page *tsq.PageReq,
-	qb *tsq.Query[{{$type}}],
-	args ...any,
-) (*{{$pageResp}}, error) {
-	return tsq.Page[{{$type}}](ctx, tx, page, qb, args...)
-}
-{{- end }}
-
-// =============================================================================
-// List All Records
-// =============================================================================
-
-{{- with $query := printf "list%sQuery" $type }}
-// {{$query}} is the base query for retrieving all {{$type}} records.
-var {{$query}} *tsq.Query[{{$type}}]
-
-func init() {
-	var err error
-	{{$query}}, err = tsq.
-		Select[{{$type}}]({{$varTblCols}}...).
-		From({{$varTbl}}).
-		KwSearch(Table{{$type}}.KwList()...).
-		Build()
-	if err != nil {
-		panic(errors.Annotate(err, "initialize {{$query}}"))
-	}
-}
-
-	{{- with $name := printf "Count%s" $type }}
-// {{$name}} returns the total count of {{$type}} records.
-func {{$name}}(
-	ctx context.Context,
-	tx tsq.SqlExecutor,
-) (int64, error) {
-	return {{$query}}.Count64(ctx, tx)
-}
-	{{- end }}
-
-	{{- with $name := printf "List%s" $type }}
-// {{$name}} retrieves all {{$type}} records from the database.
-func {{$name}}(
-	ctx context.Context,
-	tx tsq.SqlExecutor,
-) ({{$list}}, error) {
-	return tsq.List[{{$type}}](ctx, tx, {{$query}})
-}
-	{{- end }}
-
-	{{- with $name := printf "Page%s" $type }}
-// {{$name}} retrieves {{$type}} records with pagination support.
-func {{$name}}(
-	ctx context.Context,
-	tx tsq.SqlExecutor,
-	page *tsq.PageReq,
-) (*{{$pageResp}}, error) {
-	return tsq.Page[{{$type}}](ctx, tx, page, {{$query}})
-}
-	{{- end }}
-{{- end }}
-
-{{- if .DeletedAtField }}
-// =============================================================================
-// List Active Records
-// =============================================================================
-
-	{{- with $query := printf "listActive%sQuery" $type }}
-// {{$query}} is the base query for retrieving active (non-deleted) {{$type}} records.
-var {{$query}} *tsq.Query[{{$type}}]
-
-func init() {
-	var err error
-	{{$query}}, err = tsq.
-		Select[{{$type}}]({{$varTblCols}}...).
-		From({{$varTbl}}).
-		Where({{ SoftDeleteActiveCond $type $dot.DeletedAtField (index $dot.FieldMap $dot.DeletedAtField) }}).
-		KwSearch(Table{{$type}}.KwList()...).
-		Build()
-	if err != nil {
-		panic(errors.Annotate(err, "initialize {{$query}}"))
-	}
-}
-
-		{{- with $name := printf "CountActive%s" $type }}
-// {{$name}} returns the count of active (non-deleted) {{$type}} records.
-func {{$name}}(
-	ctx context.Context,
-	tx tsq.SqlExecutor,
-) (int64, error) {
-	return {{$query}}.Count64(ctx, tx)
-}
-		{{- end }}
-
-		{{- with $name := printf "ListActive%s" $type }}
-// {{$name}} retrieves all active (non-deleted) {{$type}} records.
-func {{$name}}(
-	ctx context.Context,
-	tx tsq.SqlExecutor,
-) ({{$list}}, error) {
-	return tsq.List[{{$type}}](ctx, tx, {{$query}})
-}
-		{{- end }}
-
-		{{- with $name := printf "PageActive%s" $type }}
-// {{$name}} retrieves active (non-deleted) {{$type}} records with pagination support.
-func {{$name}}(
-	ctx context.Context,
-	tx tsq.SqlExecutor,
-	page *tsq.PageReq,
-) (*{{$pageResp}}, error) {
-	return tsq.Page[{{$type}}](ctx, tx, page, {{$query}})
-}
-		{{- end }}
-	{{- end }}
-{{- end }}
-
-// =============================================================================
 // Query by Unique Indexes
 // =============================================================================
 
@@ -594,7 +381,7 @@ var {{$query}} *tsq.Query[{{$type}}]
 func init() {
 	var err error
 	{{$query}}, err = tsq.
-		Select[{{$type}}]({{$varTblCols}}...).
+		Select({{$varTblCols}}...).
 		From({{$varTbl}}).
 		Where(
 			{{- range $f := $ux.Fields }}
@@ -614,26 +401,22 @@ func init() {
 func {{$name}}(
 	ctx context.Context,
 	db tsq.SqlExecutor,
-			{{- range $f := $ux.Fields }}
-		{{ FieldVarName $f }} {{ index $dot.FieldMap $f | FieldType }},
-			{{- end }}
+	{{- range $f := $ux.Fields }}
+	{{ FieldVarName $f }} {{ index $dot.FieldMap $f | FieldType }},
+	{{- end }}
 ) ({{$ptype}}, error) {
-	query := {{$query}}
-
 	row := &{{$type}}{}
-	err := query.Load(ctx, db, row,
+	err := {{$query}}.Load(ctx, db, row,
 		{{- range $f := $ux.Fields }}
-			{{ FieldVarName $f }},
+		{{ FieldVarName $f }},
 		{{- end }}
 	)
 	if err != nil {
 		if errors.Is(err, {{ GeneratedSQLRef "ErrNoRows" }}) {
 			return nil, nil
 		}
-
 		return nil, errors.Trace(err)
 	}
-
 	return row, nil
 }
 		{{- end }}
@@ -644,44 +427,35 @@ func {{$name}}(
 func {{$name}}(
 	ctx context.Context,
 	db tsq.SqlExecutor,
-			{{- range $f := $ux.Fields }}
-		{{ FieldVarName $f }} {{ index $dot.FieldMap $f | FieldType }},
-			{{- end }}
+	{{- range $f := $ux.Fields }}
+	{{ FieldVarName $f }} {{ index $dot.FieldMap $f | FieldType }},
+	{{- end }}
 ) ({{$ptype}}, error) {
-	query := {{$query}}
-
 	row := &{{$type}}{}
-	err := query.Load(ctx, db, row,
+	err := {{$query}}.Load(ctx, db, row,
 		{{- range $f := $ux.Fields }}
-			{{ FieldVarName $f }},
+		{{ FieldVarName $f }},
 		{{- end }}
 	)
 	if err != nil {
-		if errors.Is(err, {{ GeneratedSQLRef "ErrNoRows" }}) {
-			return nil, errors.Trace(err)
-		}
-
 		return nil, errors.Trace(err)
 	}
-
 	return row, nil
 }
 		{{- end }}
 
 		{{- with $name := printf "%s%s" $ExistsBy (JoinAnd $ux.Fields) }}
-// {{$name}} checks whether a {{$type}} record exists by unique index {{$ux.Name}}.
+// {{$name}} checks if a {{$type}} record exists by unique index {{$ux.Name}}.
 func {{$name}}(
 	ctx context.Context,
 	db tsq.SqlExecutor,
-			{{- range $f := $ux.Fields }}
-		{{ FieldVarName $f }} {{ index $dot.FieldMap $f | FieldType }},
-			{{- end }}
+	{{- range $f := $ux.Fields }}
+	{{ FieldVarName $f }} {{ index $dot.FieldMap $f | FieldType }},
+	{{- end }}
 ) (bool, error) {
-	query := {{$query}}
-
-	rs, err := query.Exists(ctx, db,
+	rs, err := {{$query}}.Exists(ctx, db,
 		{{- range $f := $ux.Fields }}
-			{{ FieldVarName $f }},
+		{{ FieldVarName $f }},
 		{{- end }}
 	)
 	return rs, errors.Trace(err)
@@ -697,19 +471,18 @@ func {{$name}}(
 
 	{{- range $ux := .UxList }}
 		{{- with $query := printf "%s%sQuery" $getActiveBy (JoinAnd $ux.Fields) }}
-// {{$query}} queries active (non-deleted) {{$type}} records by unique index {{$ux.Name}}.
 var {{$query}} *tsq.Query[{{$type}}]
 
 func init() {
 	var err error
 	{{$query}}, err = tsq.
-		Select[{{$type}}]({{$varTblCols}}...).
+		Select({{$varTblCols}}...).
 		From({{$varTbl}}).
 		Where(
 			{{ SoftDeleteActiveCond $type $dot.DeletedAtField (index $dot.FieldMap $dot.DeletedAtField) }},
-				{{- range $f := $ux.Fields }}
+			{{- range $f := $ux.Fields }}
 			{{$type}}_{{$f}}.EQVar(),
-				{{- end }}
+			{{- end }}
 		).
 		KwSearch(Table{{$type}}.KwList()...).
 		Build()
@@ -719,79 +492,66 @@ func init() {
 }
 
 			{{- with $name := printf "%s%s" $GetActiveBy (JoinAnd $ux.Fields) }}
-// {{$name}} retrieves an active (non-deleted) {{$type}} record by unique index {{$ux.Name}}.
+// {{$name}} retrieves an active {{$type}} record by unique index {{$ux.Name}}.
 // Returns (nil, nil) if the record is not found or has been soft-deleted.
 func {{$name}}(
 	ctx context.Context,
 	db tsq.SqlExecutor,
-				{{- range $f := $ux.Fields }}
-		{{ FieldVarName $f }} {{ index $dot.FieldMap $f | FieldType }},
-				{{- end }}
+	{{- range $f := $ux.Fields }}
+	{{ FieldVarName $f }} {{ index $dot.FieldMap $f | FieldType }},
+	{{- end }}
 ) ({{$ptype}}, error) {
-	query := {{$query}}
-
 	row := &{{$type}}{}
-	err := query.Load(ctx, db, row,
+	err := {{$query}}.Load(ctx, db, row,
 		{{- range $f := $ux.Fields }}
-			{{ FieldVarName $f }},
+		{{ FieldVarName $f }},
 		{{- end }}
 	)
 	if err != nil {
 		if errors.Is(err, {{ GeneratedSQLRef "ErrNoRows" }}) {
 			return nil, nil
 		}
-
 		return nil, errors.Trace(err)
 	}
-
 	return row, nil
 }
 			{{- end }}
 
 			{{- with $name := printf "%s%sOrErr" $GetActiveBy (JoinAnd $ux.Fields) }}
-// {{$name}} retrieves an active (non-deleted) {{$type}} record by unique index {{$ux.Name}}.
+// {{$name}} retrieves an active {{$type}} record by unique index {{$ux.Name}}.
 // Returns (nil, database/sql.ErrNoRows) if the record is not found or has been soft-deleted.
 func {{$name}}(
 	ctx context.Context,
 	db tsq.SqlExecutor,
-				{{- range $f := $ux.Fields }}
-		{{ FieldVarName $f }} {{ index $dot.FieldMap $f | FieldType }},
-				{{- end }}
+	{{- range $f := $ux.Fields }}
+	{{ FieldVarName $f }} {{ index $dot.FieldMap $f | FieldType }},
+	{{- end }}
 ) ({{$ptype}}, error) {
-	query := {{$query}}
-
-		row := &{{$type}}{}
-	err := query.Load(ctx, db, row,
+	row := &{{$type}}{}
+	err := {{$query}}.Load(ctx, db, row,
 		{{- range $f := $ux.Fields }}
-			{{ FieldVarName $f }},
+		{{ FieldVarName $f }},
 		{{- end }}
 	)
 	if err != nil {
-		if errors.Is(err, {{ GeneratedSQLRef "ErrNoRows" }}) {
-			return nil, errors.Trace(err)
-		}
-
 		return nil, errors.Trace(err)
 	}
-
 	return row, nil
 }
 			{{- end }}
 
 			{{- with $name := printf "%s%s" $ExistsActiveBy (JoinAnd $ux.Fields) }}
-// {{$name}} checks whether an active (non-deleted) {{$type}} record exists by unique index {{$ux.Name}}.
+// {{$name}} checks if an active {{$type}} record exists by unique index {{$ux.Name}}.
 func {{$name}}(
 	ctx context.Context,
 	db tsq.SqlExecutor,
-				{{- range $f := $ux.Fields }}
-		{{ FieldVarName $f }} {{ index $dot.FieldMap $f | FieldType }},
-				{{- end }}
+	{{- range $f := $ux.Fields }}
+	{{ FieldVarName $f }} {{ index $dot.FieldMap $f | FieldType }},
+	{{- end }}
 ) (bool, error) {
-	query := {{$query}}
-
-		rs, err := query.Exists(ctx, db,
+	rs, err := {{$query}}.Exists(ctx, db,
 		{{- range $f := $ux.Fields }}
-			{{ FieldVarName $f }},
+		{{ FieldVarName $f }},
 		{{- end }}
 	)
 	return rs, errors.Trace(err)
@@ -801,23 +561,20 @@ func {{$name}}(
 	{{- end }}
 {{- end }}
 
-{{- if .QueryList }}
 // =============================================================================
 // Query by Indexes
 // =============================================================================
-{{- end }}
 
 {{- range $idx := .QueryList }}
 	{{- $indexLabel := or $idx.SourceName $idx.Name }}
 	{{- if $idx.IsSet }}
 		{{- with $query := printf "%s%sQuery" $ListBy $idx.Name }}
-// {{$query}} queries {{$type}} records by index {{$indexLabel}} using a cached IN-clause query.
 var {{$query}} *tsq.Query[{{$type}}]
 
 func init() {
 	var err error
 	{{$query}}, err = tsq.
-		Select[{{$type}}]({{$varTblCols}}...).
+		Select({{$varTblCols}}...).
 		From({{$varTbl}}).
 		Where(
 		{{- range $i, $f := $idx.Fields }}
@@ -835,27 +592,25 @@ func init() {
 }
 		{{- end }}
 
-	// List{{$type}}By{{$idx.Name}} retrieves {{$type}} records by index {{$idx.Name}} using IN clause for batch querying.
+// List{{$type}}By{{$idx.Name}} retrieves multiple {{$type}} records by index {{$indexLabel}} using an IN clause.
 func List{{$type}}By{{$idx.Name}}(
 	ctx context.Context,
 	db tsq.SqlExecutor,
-		{{- range $i, $f := $idx.Fields }}
-			{{- if eq $i (Sub1 (len $idx.Fields)) }}
-		{{ FieldSliceVarName $f }} ...{{ (index $.FieldMap $f) | FieldType }},
-			{{- else }}
-		{{ FieldVarName $f }} {{ (index $.FieldMap $f) | FieldType }},
-			{{- end }}
-		{{- end }}
+	{{- range $i, $f := $idx.Fields }}
+	{{- if eq $i (Sub1 (len $idx.Fields)) }}
+	{{ FieldSliceVarName $f }} ...{{ (index $.FieldMap $f) | FieldType }},
+	{{- else }}
+	{{ FieldVarName $f }} {{ (index $.FieldMap $f) | FieldType }},
+	{{- end }}
+	{{- end }}
 ) ({{$list}}, error) {
-	query := List{{$type}}By{{$idx.Name}}Query
-
-	list, err := tsq.List[{{$type}}](ctx, db, query,
+	list, err := tsq.List(ctx, db, List{{$type}}By{{$idx.Name}}Query,
 		{{- range $i, $f := $idx.Fields }}
-			{{- if eq $i (Sub1 (len $idx.Fields)) }}
-			{{ FieldSliceVarName $f }},
-			{{- else }}
-			{{ FieldVarName $f }},
-			{{- end }}
+		{{- if eq $i (Sub1 (len $idx.Fields)) }}
+		{{ FieldSliceVarName $f }},
+		{{- else }}
+		{{ FieldVarName $f }},
+		{{- end }}
 		{{- end }}
 	)
 	if err != nil {
@@ -865,18 +620,17 @@ func List{{$type}}By{{$idx.Name}}(
 }
 	{{- else }}
 		{{- with $query := printf "%s%sQuery" $ListBy $idx.Name }}
-// {{$query}} queries {{$type}} records by index {{$indexLabel}}.
 var {{$query}} *tsq.Query[{{$type}}]
 
 func init() {
 	var err error
 	{{$query}}, err = tsq.
-		Select[{{$type}}]({{$varTblCols}}...).
+		Select({{$varTblCols}}...).
 		From({{$varTbl}}).
 		Where(
-				{{- range $f := $idx.Fields }}
+			{{- range $f := $idx.Fields }}
 			{{$type}}_{{$f}}.EQVar(),
-				{{- end }}
+			{{- end }}
 		).
 		KwSearch(Table{{$type}}.KwList()...).
 		Build()
@@ -890,15 +644,13 @@ func init() {
 func {{$name}}(
 	ctx context.Context,
 	db tsq.SqlExecutor,
-				{{- range $f := $idx.Fields }}
-		{{ FieldVarName $f }} {{ index $dot.FieldMap $f | FieldType }},
-				{{- end }}
+	{{- range $f := $idx.Fields }}
+	{{ FieldVarName $f }} {{ index $dot.FieldMap $f | FieldType }},
+	{{- end }}
 ) (int64, error) {
-	query := {{$query}}
-
-	rs, err := query.Count64(ctx, db,
+	rs, err := {{$query}}.Count64(ctx, db,
 		{{- range $f := $idx.Fields }}
-			{{ FieldVarName $f }},
+		{{ FieldVarName $f }},
 		{{- end }}
 	)
 	if err != nil {
@@ -913,15 +665,13 @@ func {{$name}}(
 func {{$name}}(
 	ctx context.Context,
 	db tsq.SqlExecutor,
-				{{- range $f := $idx.Fields }}
-		{{ FieldVarName $f }} {{ index $dot.FieldMap $f | FieldType }},
-				{{- end }}
+	{{- range $f := $idx.Fields }}
+	{{ FieldVarName $f }} {{ index $dot.FieldMap $f | FieldType }},
+	{{- end }}
 ) ({{$list}}, error) {
-	query := {{$query}}
-
-	data, err := tsq.List[{{$type}}](ctx, db, query,
+	data, err := tsq.List(ctx, db, {{$query}},
 		{{- range $f := $idx.Fields }}
-			{{ FieldVarName $f }},
+		{{ FieldVarName $f }},
 		{{- end }}
 	)
 	if err != nil {
@@ -932,20 +682,18 @@ func {{$name}}(
 			{{- end }}
 
 			{{- with $name := printf "%s%s" $PageBy $idx.Name }}
-// {{$name}} retrieves {{$type}} records by index {{$indexLabel}} with pagination support.
+// {{$name}} retrieves {{$type}} records by index {{$indexLabel}} with pagination.
 func {{$name}}(
 	ctx context.Context,
 	db tsq.SqlExecutor,
 	page *tsq.PageReq,
-				{{- range $f := $idx.Fields }}
-		{{ FieldVarName $f }} {{ index $dot.FieldMap $f | FieldType }},
-				{{- end }}
+	{{- range $f := $idx.Fields }}
+	{{ FieldVarName $f }} {{ index $dot.FieldMap $f | FieldType }},
+	{{- end }}
 ) (*{{$pageResp}}, error) {
-	query := {{$query}}
-
-	rs, err := tsq.Page[{{$type}}](ctx, db, page, query,
+	rs, err := tsq.Page(ctx, db, page, {{$query}},
 		{{- range $f := $idx.Fields }}
-			{{ FieldVarName $f }},
+		{{ FieldVarName $f }},
 		{{- end }}
 	)
 	if err != nil {
@@ -967,23 +715,22 @@ func {{$name}}(
 		{{- $indexLabel := or $idx.SourceName $idx.Name }}
 		{{- if $idx.IsSet }}
 			{{- with $query := printf "%s%sQuery" $ListActiveBy $idx.Name }}
-// {{$query}} queries active (non-deleted) {{$type}} records by index {{$indexLabel}} using a cached IN-clause query.
 var {{$query}} *tsq.Query[{{$type}}]
 
 func init() {
 	var err error
 	{{$query}}, err = tsq.
-		Select[{{$type}}]({{$varTblCols}}...).
+		Select({{$varTblCols}}...).
 		From({{$varTbl}}).
 		Where(
 			{{ SoftDeleteActiveCond $type $dot.DeletedAtField (index $dot.FieldMap $dot.DeletedAtField) }},
-				{{- range $i, $f := $idx.Fields }}
-					{{- if eq $i (Sub1 (len $idx.Fields)) }}
+			{{- range $i, $f := $idx.Fields }}
+			{{- if eq $i (Sub1 (len $idx.Fields)) }}
 			{{$type}}_{{$f}}.InVar(),
-					{{- else }}
+			{{- else }}
 			{{$type}}_{{$f}}.EQVar(),
-					{{- end }}
-				{{- end }}
+			{{- end }}
+			{{- end }}
 		).
 		Build()
 	if err != nil {
@@ -993,26 +740,26 @@ func init() {
 			{{- end }}
 
 			{{- with $name := printf "%s%s" $ListActiveBy $idx.Name }}
-// {{$name}} retrieves active (non-deleted) {{$type}} records by index {{$indexLabel}} using IN clause for batch querying.
+// {{$name}} retrieves active {{$type}} records by index {{$indexLabel}} using an IN clause.
 func {{$name}}(
 	ctx context.Context,
 	db tsq.SqlExecutor,
-				{{- range $i, $f := $idx.Fields }}
-					{{- if eq $i (Sub1 (len $idx.Fields)) }}
-		{{ FieldSliceVarName $f }} ...{{ (index $.FieldMap $f) | FieldType }},
-					{{- else }}
-		{{ FieldVarName $f }} {{ (index $.FieldMap $f) | FieldType }},
-					{{- end }}
-				{{- end }}
+	{{- range $i, $f := $idx.Fields }}
+	{{- if eq $i (Sub1 (len $idx.Fields)) }}
+	{{ FieldSliceVarName $f }} ...{{ (index $.FieldMap $f) | FieldType }},
+	{{- else }}
+	{{ FieldVarName $f }} {{ (index $.FieldMap $f) | FieldType }},
+	{{- end }}
+	{{- end }}
 ) ({{$list}}, error) {
 	query := {{ printf "%s%sQuery" $ListActiveBy $idx.Name }}
-	list, err := tsq.List[{{$type}}](ctx, db, query,
+	list, err := tsq.List(ctx, db, query,
 		{{- range $i, $f := $idx.Fields }}
-			{{- if eq $i (Sub1 (len $idx.Fields)) }}
-			{{ FieldSliceVarName $f }},
-			{{- else }}
-			{{ FieldVarName $f }},
-			{{- end }}
+		{{- if eq $i (Sub1 (len $idx.Fields)) }}
+		{{ FieldSliceVarName $f }},
+		{{- else }}
+		{{ FieldVarName $f }},
+		{{- end }}
 		{{- end }}
 	)
 	if err != nil {
@@ -1023,19 +770,18 @@ func {{$name}}(
 			{{- end }}
 		{{- else }}
 			{{- with $query := printf "%s%sQuery" $listActiveBy $idx.Name }}
-// {{$query}} queries active (non-deleted) {{$type}} records by index {{$indexLabel}}.
 var {{$query}} *tsq.Query[{{$type}}]
 
 func init() {
 	var err error
 	{{$query}}, err = tsq.
-		Select[{{$type}}]({{$varTblCols}}...).
+		Select({{$varTblCols}}...).
 		From({{$varTbl}}).
 		Where(
 			{{ SoftDeleteActiveCond $type $dot.DeletedAtField (index $dot.FieldMap $dot.DeletedAtField) }},
-					{{- range $f := $idx.Fields }}
+			{{- range $f := $idx.Fields }}
 			{{$type}}_{{$f}}.EQVar(),
-					{{- end }}
+			{{- end }}
 		).
 		KwSearch(Table{{$type}}.KwList()...).
 		Build()
@@ -1045,19 +791,17 @@ func init() {
 }
 
 				{{- with $name := printf "%s%s" $CountActiveBy $idx.Name }}
-// {{$name}} returns the count of active (non-deleted) {{$type}} records matching index {{$indexLabel}}.
+// {{$name}} returns the count of active {{$type}} records matching index {{$indexLabel}}.
 func {{$name}}(
 	ctx context.Context,
 	db tsq.SqlExecutor,
-					{{- range $f := $idx.Fields }}
-		{{ FieldVarName $f }} {{ index $dot.FieldMap $f | FieldType }},
-					{{- end }}
+	{{- range $f := $idx.Fields }}
+	{{ FieldVarName $f }} {{ index $dot.FieldMap $f | FieldType }},
+	{{- end }}
 ) (int64, error) {
-	query := {{$query}}
-
-	rs, err := query.Count64(ctx, db,
+	rs, err := {{$query}}.Count64(ctx, db,
 		{{- range $f := $idx.Fields }}
-			{{ FieldVarName $f }},
+		{{ FieldVarName $f }},
 		{{- end }}
 	)
 	if err != nil {
@@ -1068,19 +812,17 @@ func {{$name}}(
 				{{- end }}
 
 				{{- with $name := printf "%s%s" $ListActiveBy $idx.Name }}
-// {{$name}} retrieves active (non-deleted) {{$type}} records by index {{$indexLabel}}.
+// {{$name}} retrieves active {{$type}} records by index {{$indexLabel}}.
 func {{$name}}(
 	ctx context.Context,
 	db tsq.SqlExecutor,
-					{{- range $f := $idx.Fields }}
-		{{ FieldVarName $f }} {{ index $dot.FieldMap $f | FieldType }},
-					{{- end }}
+	{{- range $f := $idx.Fields }}
+	{{ FieldVarName $f }} {{ index $dot.FieldMap $f | FieldType }},
+	{{- end }}
 ) ({{$list}}, error) {
-	query := {{$query}}
-
-	data, err := tsq.List[{{$type}}](ctx, db, query,
+	data, err := tsq.List(ctx, db, {{$query}},
 		{{- range $f := $idx.Fields }}
-			{{ FieldVarName $f }},
+		{{ FieldVarName $f }},
 		{{- end }}
 	)
 	if err != nil {
@@ -1091,20 +833,18 @@ func {{$name}}(
 				{{- end }}
 
 				{{- with $name := printf "%s%s" $PageActiveBy $idx.Name }}
-// {{$name}} retrieves active (non-deleted) {{$type}} records by index {{$indexLabel}} with pagination support.
+// {{$name}} retrieves active {{$type}} records by index {{$indexLabel}} with pagination.
 func {{$name}}(
 	ctx context.Context,
 	db tsq.SqlExecutor,
 	page *tsq.PageReq,
-					{{- range $f := $idx.Fields }}
-		{{ FieldVarName $f }} {{ index $dot.FieldMap $f | FieldType }},
-					{{- end }}
+	{{- range $f := $idx.Fields }}
+	{{ FieldVarName $f }} {{ index $dot.FieldMap $f | FieldType }},
+	{{- end }}
 ) (*{{$pageResp}}, error) {
-	query := {{$query}}
-
-	rs, err := tsq.Page[{{$type}}](ctx, db, page, query,
+	rs, err := tsq.Page(ctx, db, page, {{$query}},
 		{{- range $f := $idx.Fields }}
-			{{ FieldVarName $f }},
+		{{ FieldVarName $f }},
 		{{- end }}
 	)
 	if err != nil {
@@ -1114,7 +854,212 @@ func {{$name}}(
 }
 				{{- end }}
 			{{- end }}
-
 		{{- end }}
 	{{- end }}
+{{- end }}
+
+// =============================================================================
+// List All Records
+// =============================================================================
+
+{{- with $query := printf "list%sQuery" $type }}
+var {{$query}} *tsq.Query[{{$type}}]
+
+func init() {
+	var err error
+	{{$query}}, err = tsq.
+		Select({{$varTblCols}}...).
+		From({{$varTbl}}).
+		KwSearch(Table{{$type}}.KwList()...).
+		Build()
+	if err != nil {
+		panic(errors.Annotate(err, "initialize {{$query}}"))
+	}
+}
+
+	{{- with $name := printf "Count%s" $type }}
+// {{$name}} returns the total count of {{$type}} records.
+func {{$name}}(
+	ctx context.Context,
+	tx tsq.SqlExecutor,
+) (int64, error) {
+	return {{$query}}.Count64(ctx, tx)
+}
+	{{- end }}
+
+	{{- with $name := printf "List%s" $type }}
+// {{$name}} retrieves all {{$type}} records.
+func {{$name}}(
+	ctx context.Context,
+	tx tsq.SqlExecutor,
+) ({{$list}}, error) {
+	return tsq.List(ctx, tx, {{$query}})
+}
+	{{- end }}
+
+	{{- with $name := printf "Page%s" $type }}
+// {{$name}} retrieves {{$type}} records with pagination.
+func {{$name}}(
+	ctx context.Context,
+	tx tsq.SqlExecutor,
+	page *tsq.PageReq,
+) (*{{$pageResp}}, error) {
+	return tsq.Page(ctx, tx, page, {{$query}})
+}
+	{{- end }}
+{{- end }}
+
+{{- if .DeletedAtField }}
+// =============================================================================
+// List Active Records
+// =============================================================================
+
+	{{- with $query := printf "listActive%sQuery" $type }}
+var {{$query}} *tsq.Query[{{$type}}]
+
+func init() {
+	var err error
+	{{$query}}, err = tsq.
+		Select({{$varTblCols}}...).
+		From({{$varTbl}}).
+		Where({{ SoftDeleteActiveCond $type $dot.DeletedAtField (index $dot.FieldMap $dot.DeletedAtField) }}).
+		KwSearch(Table{{$type}}.KwList()...).
+		Build()
+	if err != nil {
+		panic(errors.Annotate(err, "initialize {{$query}}"))
+	}
+}
+
+		{{- with $name := printf "CountActive%s" $type }}
+// {{$name}} returns the count of active {{$type}} records.
+func {{$name}}(
+	ctx context.Context,
+	tx tsq.SqlExecutor,
+) (int64, error) {
+	return {{$query}}.Count64(ctx, tx)
+}
+		{{- end }}
+
+		{{- with $name := printf "ListActive%s" $type }}
+// {{$name}} retrieves all active {{$type}} records.
+func {{$name}}(
+	ctx context.Context,
+	tx tsq.SqlExecutor,
+) ({{$list}}, error) {
+	return tsq.List(ctx, tx, {{$query}})
+}
+		{{- end }}
+
+		{{- with $name := printf "PageActive%s" $type }}
+// {{$name}} retrieves active {{$type}} records with pagination.
+func {{$name}}(
+	ctx context.Context,
+	tx tsq.SqlExecutor,
+	page *tsq.PageReq,
+) (*{{$pageResp}}, error) {
+	return tsq.Page(ctx, tx, page, {{$query}})
+}
+		{{- end }}
+	{{- end }}
+{{- end }}
+
+// =============================================================================
+// CRUD Operations
+// =============================================================================
+
+// Insert inserts a new {{$type}} record.
+{{$precv}}Insert(
+	ctx context.Context,
+	db tsq.SqlExecutor,
+) error {
+{{- if $dot.CreatedAtField }}
+	{{$dot.Recv}}.{{$dot.CreatedAtField}} = {{ TimestampNowValue (index $dot.FieldMap $dot.CreatedAtField) }}
+{{- end }}
+{{- if $dot.UpdatedAtField }}
+	{{$dot.Recv}}.{{$dot.UpdatedAtField}} = {{ TimestampNowValue (index $dot.FieldMap $dot.UpdatedAtField) }}
+{{- end }}
+	err := tsq.Insert(ctx, db, {{$dot.Recv}})
+	if err != nil {
+		return errors.Annotatef(err, "insert {{$type}}: %s", tsq.CompactJSON({{$dot.Recv}}))
+	}
+	return nil
+}
+
+// Update updates an existing {{$type}} record.
+{{$precv}}Update(
+	ctx context.Context,
+	db tsq.SqlExecutor,
+) error {
+{{- if $dot.UpdatedAtField }}
+	{{$dot.Recv}}.{{$dot.UpdatedAtField}} = {{ TimestampNowValue (index $dot.FieldMap $dot.UpdatedAtField) }}
+{{- end }}
+	err := tsq.Update(ctx, db, {{$dot.Recv}})
+	if err != nil {
+		return errors.Annotatef(err, "update {{$type}}: %s", tsq.CompactJSON({{$dot.Recv}}))
+	}
+	return nil
+}
+
+// Delete permanently removes a {{$type}} record.
+{{$precv}}Delete(
+	ctx context.Context,
+	db tsq.SqlExecutor,
+) error {
+	err := tsq.Delete(ctx, db, {{$dot.Recv}})
+	if err != nil {
+		return errors.Annotatef(err, "delete {{$type}}: %s", tsq.CompactJSON({{$dot.Recv}}))
+	}
+	return nil
+}
+
+{{- if .DeletedAtField }}
+// SoftDelete marks a {{$type}} record as deleted.
+{{$precv}}SoftDelete(
+	ctx context.Context,
+	db tsq.SqlExecutor,
+	dt {{ SoftDeleteParamType (index $dot.FieldMap $dot.DeletedAtField) }},
+) error {
+	if {{ SoftDeleteParamSetExpr "dt" (index $dot.FieldMap $dot.DeletedAtField) }} {
+		{{$dot.Recv}}.{{$dot.DeletedAtField}} = dt
+	} else {
+		{{$dot.Recv}}.{{$dot.DeletedAtField}} = {{ SoftDeleteNowValue (index $dot.FieldMap $dot.DeletedAtField) }}
+	}
+{{- if $dot.UpdatedAtField }}
+	{{$dot.Recv}}.{{$dot.UpdatedAtField}} = {{ TimestampNowValue (index $dot.FieldMap $dot.UpdatedAtField) }}
+{{- end }}
+	err := tsq.Update(ctx, db, {{$dot.Recv}})
+	if err != nil {
+		return errors.Annotatef(err, "soft-delete {{$type}}: %s", tsq.CompactJSON({{$dot.Recv}}))
+	}
+	return nil
+}
+{{- end }}
+
+// =============================================================================
+// Custom Query Helpers
+// =============================================================================
+
+{{- with $name := printf "%sQuery" $ListBy }}
+// {{$name}} executes a custom query to retrieve a list of {{$type}} records.
+func {{$name}}(
+	ctx context.Context,
+	tx tsq.SqlExecutor,
+	qb *tsq.Query[{{$type}}],
+	args ...any,
+) ({{$list}}, error) {
+	return tsq.List(ctx, tx, qb, args...)
+}
+{{- end }}
+
+{{- with $name := printf "%sQuery" $PageBy }}
+// {{$name}} executes a custom query to retrieve a page of {{$type}} records.
+func {{$name}}(
+	ctx context.Context,
+	tx tsq.SqlExecutor,
+	page *tsq.PageReq,
+	qb *tsq.Query[{{$type}}],
+	args ...any,
+) (*{{$pageResp}}, error) {
+	return tsq.Page(ctx, tx, page, qb, args...)
+}
 {{- end }}

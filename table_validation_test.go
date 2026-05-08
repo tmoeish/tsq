@@ -7,7 +7,7 @@ import (
 
 type strictMockTable struct {
 	name string
-	cols []AnyColumn
+	cols []SQLColumn
 }
 
 type strictResultRow struct{}
@@ -17,12 +17,15 @@ func (strictResultRow) TSQOwner() {}
 func (t *strictMockTable) TSQOwner()              {}
 func (t *strictMockTable) Table() string          { return t.name }
 func (t *strictMockTable) KwList() []SearchColumn { return nil }
-func (t *strictMockTable) Cols() []AnyColumn      { return t.cols }
+func (t *strictMockTable) Cols() []SQLColumn      { return t.cols }
+func (t *strictMockTable) PrimaryKeys() []string  { return nil }
+func (t *strictMockTable) AutoIncrement() bool    { return false }
+func (t *strictMockTable) VersionColumn() string  { return "" }
 
-func newStrictMockTable(name string, colNames ...string) (*strictMockTable, []Col[Table, int]) {
+func newStrictMockTable(name string, colNames ...string) (*strictMockTable, []ColumnImpl[Table, int]) {
 	table := &strictMockTable{name: name}
-	cols := make([]AnyColumn, 0, len(colNames))
-	typed := make([]Col[Table, int], 0, len(colNames))
+	cols := make([]SQLColumn, 0, len(colNames))
+	typed := make([]ColumnImpl[Table, int], 0, len(colNames))
 
 	for _, name := range colNames {
 		col := newColForTable[Table, int](table, name, name, nil)

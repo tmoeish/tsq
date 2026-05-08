@@ -137,7 +137,7 @@ type Query[O Owner] struct {
 	kwListArgs []any
 
 	// Metadata
-	selectCols   []SelectableColumn[O]
+	selectCols   []BoundColumn[O]
 	selectTables map[string]Table
 	kwCols       []SearchColumn
 	kwTables     map[string]Table
@@ -231,8 +231,8 @@ func (q *Query[O]) KwListSQL() string {
 // 查询构建器方法
 // ================================================
 
-// Build builds and validates the query
-func (qb *QueryBuilder[Owner]) Build() (*Query[Owner], error) {
+// Build builds and validates the query.
+func (qb *QueryBuilder[O]) Build() (*Query[O], error) {
 	if qb == nil {
 		return nil, errors.New("query builder cannot be nil")
 	}
@@ -246,7 +246,7 @@ func (qb *QueryBuilder[Owner]) Build() (*Query[Owner], error) {
 		return nil, errors.Trace(err)
 	}
 
-	return &Query[Owner]{
+	return &Query[O]{
 		cntSQL:     plan.cntSQL,
 		listSQL:    plan.listSQL,
 		kwCntSQL:   plan.kwCntSQL,
@@ -320,7 +320,7 @@ func (q *Query[O]) queryInt(
 		return 0, errors.Trace(err)
 	}
 
-	result, err := tx.WithContext(ctx).SelectInt(sqlText, finalArgs...)
+	result, err := tx.SelectInt(ctx, sqlText, finalArgs...)
 	if err != nil {
 		return 0, errors.Annotate(err, "failed to execute select query")
 	}
@@ -349,7 +349,7 @@ func (q *Query[O]) queryFloat(
 		return 0, errors.Trace(err)
 	}
 
-	result, err := tx.WithContext(ctx).SelectFloat(sqlText, finalArgs...)
+	result, err := tx.SelectFloat(ctx, sqlText, finalArgs...)
 	if err != nil {
 		return 0, errors.Annotate(err, "failed to execute select query")
 	}
@@ -378,7 +378,7 @@ func (q *Query[O]) queryStr(
 		return "", errors.Trace(err)
 	}
 
-	result, err := tx.WithContext(ctx).SelectStr(sqlText, finalArgs...)
+	result, err := tx.SelectStr(ctx, sqlText, finalArgs...)
 	if err != nil {
 		return "", errors.Annotate(err, "failed to execute select query")
 	}
@@ -443,7 +443,7 @@ func (q *Query[O]) count64(
 		slog.Info("count", "sql", sqlText, "args", CompactJSON(finalArgs))
 	}
 
-	count, err := tx.WithContext(ctx).SelectInt(sqlText, finalArgs...)
+	count, err := tx.SelectInt(ctx, sqlText, finalArgs...)
 	if err != nil {
 		return 0, errors.Annotate(err, "failed to execute count query")
 	}
@@ -486,7 +486,7 @@ func (q *Query[O]) exist(
 		slog.Info("exist", "sql", sqlText, "args", CompactJSON(finalArgs))
 	}
 
-	count, err := tx.WithContext(ctx).SelectInt(sqlText, finalArgs...)
+	count, err := tx.SelectInt(ctx, sqlText, finalArgs...)
 	if err != nil {
 		return false, errors.Annotate(err, "failed to check record existence")
 	}
@@ -567,13 +567,13 @@ func pageFn[O Owner](
 	}
 
 	// Execute count query
-	count, err := tx.WithContext(ctx).SelectInt(renderedCntSQL, countArgs...)
+	count, err := tx.SelectInt(ctx, renderedCntSQL, countArgs...)
 	if err != nil {
 		return nil, errors.Annotate(err, "failed to execute count query")
 	}
 
 	// Execute list query
-	rows, err := tx.WithContext(ctx).Query(renderedListSQL, argsWithLimit...)
+	rows, err := tx.Query(ctx, renderedListSQL, argsWithLimit...)
 	if err != nil {
 		return nil, errors.Annotate(err, "failed to execute paginated query")
 	}
@@ -649,7 +649,7 @@ func listFn[O Owner](
 		slog.Info("list", "sql", sqlText, "args", CompactJSON(finalArgs))
 	}
 
-	rows, err := tx.WithContext(ctx).Query(sqlText, finalArgs...)
+	rows, err := tx.Query(ctx, sqlText, finalArgs...)
 	if err != nil {
 		return nil, errors.Annotate(err, "failed to execute list query")
 	}
@@ -727,7 +727,7 @@ func getOrErrFn[O Owner](
 		return nil, errors.Annotate(err, "failed to execute select query")
 	}
 
-	row := tx.WithContext(ctx).QueryRow(sqlText, finalArgs...)
+	row := tx.QueryRow(ctx, sqlText, finalArgs...)
 
 	if err := row.Scan(dest...); err != nil {
 		if errors.Is(errors.Cause(err), sql.ErrNoRows) {
@@ -789,7 +789,7 @@ func (q *Query[O]) Load(
 			return errors.Annotate(err, "failed to execute select query")
 		}
 
-		row := tx.WithContext(ctx).QueryRow(sqlText, finalArgs...)
+		row := tx.QueryRow(ctx, sqlText, finalArgs...)
 		if err := row.Scan(dest...); err != nil {
 			if errors.Is(errors.Cause(err), sql.ErrNoRows) {
 				return errors.Trace(sql.ErrNoRows)
@@ -948,7 +948,7 @@ func DefaultChunkedInsertOptions() *ChunkedInsertOptions {
 func ChunkedInsert[T Table](
 	ctx context.Context,
 	tx SqlExecutor,
-	items []*T,
+	items []T,
 	options ...*ChunkedInsertOptions,
 ) error {
 	return Trace(ctx, func(ctx context.Context) error {
@@ -959,7 +959,7 @@ func ChunkedInsert[T Table](
 func chunkedInsertFn[T Table](
 	ctx context.Context,
 	tx SqlExecutor,
-	items []*T,
+	items []T,
 	options ...*ChunkedInsertOptions,
 ) error {
 	if len(items) == 0 {
@@ -991,16 +991,16 @@ func chunkedInsertFn[T Table](
 func chunkedInsertChunk[T Table](
 	ctx context.Context,
 	tx SqlExecutor,
-	items []*T,
+	items []T,
 	opts *ChunkedInsertOptions,
 ) error {
 	if len(items) == 0 {
 		return nil
 	}
 
-	batch := make([]any, 0, len(items))
+	batch := make([]Table, 0, len(items))
 	for itemIdx, item := range items {
-		if item == nil {
+		if isNilValue(item) {
 			return errors.Errorf("item at index %d is nil", itemIdx)
 		}
 
@@ -1009,7 +1009,7 @@ func chunkedInsertChunk[T Table](
 
 	if opts.IgnoreErrors {
 		for itemIdx, item := range batch {
-			if err := tx.WithContext(ctx).Insert(item); err != nil {
+			if err := tx.Insert(ctx, item); err != nil {
 				if isDuplicateKeyError(err) {
 					slog.Debug("Ignored duplicate key error in batch insert", "error", err)
 					continue
@@ -1022,7 +1022,7 @@ func chunkedInsertChunk[T Table](
 		return nil
 	}
 
-	if err := tx.WithContext(ctx).Insert(batch...); err != nil {
+	if err := tx.Insert(ctx, batch...); err != nil {
 		return errors.Annotate(err, "chunked insert batch failed")
 	}
 
@@ -1030,10 +1030,10 @@ func chunkedInsertChunk[T Table](
 }
 
 // ChunkedUpdate 按块逐条更新数据。
-func ChunkedUpdate[T any](
+func ChunkedUpdate[T Table](
 	ctx context.Context,
 	tx SqlExecutor,
-	items []*T,
+	items []T,
 	options ...*ChunkedOptions,
 ) error {
 	return Trace(ctx, func(ctx context.Context) error {
@@ -1041,10 +1041,10 @@ func ChunkedUpdate[T any](
 	})
 }
 
-func chunkedUpdateFn[T any](
+func chunkedUpdateFn[T Table](
 	ctx context.Context,
 	tx SqlExecutor,
-	items []*T,
+	items []T,
 	options ...*ChunkedOptions,
 ) error {
 	if len(items) == 0 {
@@ -1073,14 +1073,14 @@ func chunkedUpdateFn[T any](
 	return nil
 }
 
-func chunkedUpdateChunk[T any](
+func chunkedUpdateChunk[T Table](
 	ctx context.Context,
 	tx SqlExecutor,
-	items []*T,
+	items []T,
 ) error {
-	batch := make([]any, 0, len(items))
+	batch := make([]Table, 0, len(items))
 	for itemIdx, item := range items {
-		if item == nil {
+		if isNilValue(item) {
 			return errors.Errorf("item at index %d is nil", itemIdx)
 		}
 
@@ -1091,7 +1091,7 @@ func chunkedUpdateChunk[T any](
 		return nil
 	}
 
-	if _, err := tx.WithContext(ctx).Update(batch...); err != nil {
+	if _, err := tx.Update(ctx, batch...); err != nil {
 		return errors.Annotate(err, "chunked update batch failed")
 	}
 
@@ -1099,10 +1099,10 @@ func chunkedUpdateChunk[T any](
 }
 
 // ChunkedDelete 按块逐条删除数据。
-func ChunkedDelete[T any](
+func ChunkedDelete[T Table](
 	ctx context.Context,
 	tx SqlExecutor,
-	items []*T,
+	items []T,
 	options ...*ChunkedOptions,
 ) error {
 	return Trace(ctx, func(ctx context.Context) error {
@@ -1110,10 +1110,10 @@ func ChunkedDelete[T any](
 	})
 }
 
-func chunkedDeleteFn[T any](
+func chunkedDeleteFn[T Table](
 	ctx context.Context,
 	tx SqlExecutor,
-	items []*T,
+	items []T,
 	options ...*ChunkedOptions,
 ) error {
 	if len(items) == 0 {
@@ -1142,14 +1142,14 @@ func chunkedDeleteFn[T any](
 	return nil
 }
 
-func chunkedDeleteChunk[T any](
+func chunkedDeleteChunk[T Table](
 	ctx context.Context,
 	tx SqlExecutor,
-	items []*T,
+	items []T,
 ) error {
-	batch := make([]any, 0, len(items))
+	batch := make([]Table, 0, len(items))
 	for itemIdx, item := range items {
-		if item == nil {
+		if isNilValue(item) {
 			return errors.Errorf("item at index %d is nil", itemIdx)
 		}
 
@@ -1160,7 +1160,7 @@ func chunkedDeleteChunk[T any](
 		return nil
 	}
 
-	if _, err := tx.WithContext(ctx).Delete(batch...); err != nil {
+	if _, err := tx.Delete(ctx, batch...); err != nil {
 		return errors.Annotate(err, "chunked delete batch failed")
 	}
 
@@ -1247,7 +1247,7 @@ func chunkedDeleteByIDsChunk(
 		return errors.Trace(err)
 	}
 
-	_, err = tx.WithContext(ctx).Exec(sqlText, ids...)
+	_, err = tx.Exec(ctx, sqlText, ids...)
 	if err != nil {
 		return errors.Annotatef(err, "chunked delete by IDs failed: %s", sqlText)
 	}
@@ -1632,7 +1632,15 @@ func expandSlicePlaceholders(size int) string {
 	return strings.TrimSuffix(strings.Repeat("?, ", size), ", ")
 }
 
-func queryArgs[O Owner](q *Query[O]) []any {
+func (q *Query[O]) subquerySQL() string {
+	if q == nil {
+		return ""
+	}
+
+	return q.listSQL
+}
+
+func (q *Query[O]) subqueryArgs() []any {
 	if q == nil {
 		return nil
 	}
@@ -1640,8 +1648,12 @@ func queryArgs[O Owner](q *Query[O]) []any {
 	return slices.Clone(q.listArgs)
 }
 
-func (q *Query[O]) queryArgs() []any {
-	return queryArgs(q)
+func (q *Query[O]) subquerySelectCount() int {
+	if q == nil {
+		return 0
+	}
+
+	return len(q.selectCols)
 }
 
 func validateQuery[O Owner](q *Query[O]) error {
@@ -1746,7 +1758,7 @@ func validateOperationalExecutorForSQL(tx SqlExecutor, rawSQLs ...string) error 
 	return validateExecutorForSQL(tx, rawSQLs...)
 }
 
-func validateMutationItem(item any) error {
+func validateMutationItem(item Table) error {
 	if isNilValue(item) {
 		return errors.New("mutation item cannot be nil")
 	}
@@ -1766,12 +1778,12 @@ func validateScanHolder(holder any) error {
 	return nil
 }
 
-func buildScanDest[O Owner](cols []SelectableColumn[O], holder *O) ([]any, error) {
+func buildScanDest[O Owner](cols []BoundColumn[O], holder *O) ([]any, error) {
 	if isNilValue(holder) {
 		return nil, errors.New("scan holder cannot be nil")
 	}
 
-	erased := make([]AnyColumn, 0, len(cols))
+	erased := make([]SQLColumn, 0, len(cols))
 	for _, col := range cols {
 		erased = append(erased, col)
 	}
@@ -1781,7 +1793,7 @@ func buildScanDest[O Owner](cols []SelectableColumn[O], holder *O) ([]any, error
 	})
 }
 
-func buildScanDestWith(cols []AnyColumn, invoke func(scanPointer) (any, error)) ([]any, error) {
+func buildScanDestWith(cols []SQLColumn, invoke func(scanPointer) (any, error)) ([]any, error) {
 	dest := make([]any, len(cols))
 
 	for i, col := range cols {
@@ -1810,7 +1822,7 @@ func buildScanDestWith(cols []AnyColumn, invoke func(scanPointer) (any, error)) 
 	return dest, nil
 }
 
-func validateScanDestForType[O Owner](cols []SelectableColumn[O], sqlText string, args []any) error {
+func validateScanDestForType[O Owner](cols []BoundColumn[O], sqlText string, args []any) error {
 	holder := new(O)
 	if _, err := buildScanDest(cols, holder); err != nil {
 		return errors.Annotatef(err,
@@ -1832,20 +1844,20 @@ func invokeFieldPointer[O Owner](pointerFunc scanPointer, holder *O) (ptr any, e
 	return pointerFunc(holder), nil
 }
 
-func Insert[T any](
+func Insert[T Table](
 	ctx context.Context,
 	tx SqlExecutor,
-	item *T,
+	item T,
 ) error {
 	return Trace(ctx, func(ctx context.Context) error {
 		return insertFn(ctx, tx, item)
 	})
 }
 
-func insertFn[T any](
+func insertFn[T Table](
 	ctx context.Context,
 	tx SqlExecutor,
-	item *T,
+	item T,
 ) error {
 	if err := validateMutationItem(item); err != nil {
 		return errors.Trace(err)
@@ -1855,23 +1867,23 @@ func insertFn[T any](
 		return errors.Trace(err)
 	}
 
-	return errors.Trace(tx.WithContext(ctx).Insert(item))
+	return errors.Trace(tx.Insert(ctx, item))
 }
 
-func Update[T any](
+func Update[T Table](
 	ctx context.Context,
 	tx SqlExecutor,
-	item *T,
+	item T,
 ) error {
 	return Trace(ctx, func(ctx context.Context) error {
 		return updateFn(ctx, tx, item)
 	})
 }
 
-func updateFn[T any](
+func updateFn[T Table](
 	ctx context.Context,
 	tx SqlExecutor,
-	item *T,
+	item T,
 ) error {
 	if err := validateMutationItem(item); err != nil {
 		return errors.Trace(err)
@@ -1881,25 +1893,25 @@ func updateFn[T any](
 		return errors.Trace(err)
 	}
 
-	_, err := tx.WithContext(ctx).Update(item)
+	_, err := tx.Update(ctx, item)
 
 	return errors.Trace(err)
 }
 
-func Delete[T any](
+func Delete[T Table](
 	ctx context.Context,
 	tx SqlExecutor,
-	item *T,
+	item T,
 ) error {
 	return Trace(ctx, func(ctx context.Context) error {
 		return deleteFn(ctx, tx, item)
 	})
 }
 
-func deleteFn[T any](
+func deleteFn[T Table](
 	ctx context.Context,
 	tx SqlExecutor,
-	item *T,
+	item T,
 ) error {
 	if err := validateMutationItem(item); err != nil {
 		return errors.Trace(err)
@@ -1909,7 +1921,7 @@ func deleteFn[T any](
 		return errors.Trace(err)
 	}
 
-	_, err := tx.WithContext(ctx).Delete(item)
+	_, err := tx.Delete(ctx, item)
 
 	return errors.Trace(err)
 }

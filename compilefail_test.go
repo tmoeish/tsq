@@ -20,12 +20,12 @@ func TestTypedAPIDoesNotCompileForInvalidResultInputs(t *testing.T) {
 		want string
 	}{
 		{
-			name: "into_rejects_untyped_pointer",
+			name: "col_into_removed",
 			body: `
 var resultCol = userID.Into(func(any) any { return nil }, "user_id")
 var _ = resultCol
 `,
-			want: "cannot use func(any) any",
+			want: "userID.Into undefined",
 		},
 		{
 			name: "result_col_predicate",
@@ -53,14 +53,14 @@ var _ tsq.TableColumn[userOwner] = orderID
 		{
 			name: "column_rejects_wrong_owner",
 			body: `
-var _ tsq.Column[userOwner, int] = orderID
+var _ tsq.TypedColumn[userOwner, int] = orderID
 `,
 			want: "cannot use orderID",
 		},
 		{
 			name: "column_rejects_wrong_value",
 			body: `
-var _ tsq.Column[userOwner, string] = userID
+var _ tsq.TypedColumn[userOwner, string] = userID
 `,
 			want: "cannot use userID",
 		},
@@ -107,6 +107,28 @@ var _ = tsq.NewCol[userOwner, int]("id", "id", func(o *orderOwner) *int { return
 var _ = tsq.NewCol[userOwner, int]("id", "id", func(o *userOwner) *string { return nil })
 `,
 			want: "cannot use func(o *userOwner) *string",
+		},
+		{
+			name: "insert_rejects_non_table_owner",
+			body: `
+type nonTableOwner struct{}
+
+func (nonTableOwner) TSQOwner() {}
+
+var _ = tsq.Insert[nonTableOwner]
+`,
+			want: "nonTableOwner does not satisfy tsq.Table",
+		},
+		{
+			name: "chunked_update_rejects_non_table_owner",
+			body: `
+type nonTableOwner struct{}
+
+func (nonTableOwner) TSQOwner() {}
+
+var _ = tsq.ChunkedUpdate[nonTableOwner]
+`,
+			want: "nonTableOwner does not satisfy tsq.Table",
 		},
 	}
 
@@ -261,18 +283,30 @@ type productOwner struct{}
 
 func (userOwner) TSQOwner() {}
 func (userOwner) Table() string { return "users" }
+func (userOwner) Cols() []tsq.SQLColumn { return nil }
 
 func (userOwner) KwList() []tsq.SearchColumn { return nil }
+func (userOwner) PrimaryKeys() []string { return nil }
+func (userOwner) AutoIncrement() bool { return false }
+func (userOwner) VersionColumn() string { return "" }
 
 func (orderOwner) TSQOwner() {}
 func (orderOwner) Table() string { return "orders" }
+func (orderOwner) Cols() []tsq.SQLColumn { return nil }
 
 func (orderOwner) KwList() []tsq.SearchColumn { return nil }
+func (orderOwner) PrimaryKeys() []string { return nil }
+func (orderOwner) AutoIncrement() bool { return false }
+func (orderOwner) VersionColumn() string { return "" }
 
 func (productOwner) TSQOwner() {}
 func (productOwner) Table() string { return "products" }
+func (productOwner) Cols() []tsq.SQLColumn { return nil }
 
 func (productOwner) KwList() []tsq.SearchColumn { return nil }
+func (productOwner) PrimaryKeys() []string { return nil }
+func (productOwner) AutoIncrement() bool { return false }
+func (productOwner) VersionColumn() string { return "" }
 
 var userID = tsq.NewCol[userOwner, int]("id", "id", nil)
 var orderID = tsq.NewCol[orderOwner, int]("id", "id", nil)

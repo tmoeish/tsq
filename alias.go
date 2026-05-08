@@ -11,11 +11,11 @@ type tableAliaser interface {
 }
 
 type tableRebinder interface {
-	withTable(Table) AnyColumn
+	withTable(Table) SQLColumn
 }
 
 type anyColumnLister interface {
-	Cols() []AnyColumn
+	Cols() []SQLColumn
 }
 
 type aliasedTable struct {
@@ -39,8 +39,8 @@ func AliasTable(table Table, alias string) Table {
 	}
 }
 
-func AliasColumns(cols []AnyColumn, table Table) []AnyColumn {
-	result := make([]AnyColumn, 0, len(cols))
+func AliasColumns(cols []SQLColumn, table Table) []SQLColumn {
+	result := make([]SQLColumn, 0, len(cols))
 	for _, col := range cols {
 		result = append(result, RebindColumn(col, table))
 	}
@@ -48,7 +48,7 @@ func AliasColumns(cols []AnyColumn, table Table) []AnyColumn {
 	return result
 }
 
-func RebindColumn(col AnyColumn, table Table) AnyColumn {
+func RebindColumn(col SQLColumn, table Table) SQLColumn {
 	if isNilValue(col) || isNilValue(table) {
 		return col
 	}
@@ -78,13 +78,20 @@ func (t aliasedTable) KwList() []SearchColumn {
 	return result
 }
 
-func (t aliasedTable) Cols() []AnyColumn {
-	lister, ok := t.base.(anyColumnLister)
-	if !ok {
-		return nil
-	}
+func (t aliasedTable) Cols() []SQLColumn {
+	return AliasColumns(t.base.Cols(), t)
+}
 
-	return AliasColumns(lister.Cols(), t)
+func (t aliasedTable) PrimaryKeys() []string {
+	return append([]string(nil), t.base.PrimaryKeys()...)
+}
+
+func (t aliasedTable) AutoIncrement() bool {
+	return t.base.AutoIncrement()
+}
+
+func (t aliasedTable) VersionColumn() string {
+	return t.base.VersionColumn()
 }
 
 func (t aliasedTable) Alias() string {

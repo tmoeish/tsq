@@ -261,7 +261,7 @@ func TestUpsertIndexSQLiteRejectsConflictingTableReuse(t *testing.T) {
 		"CREATE UNIQUE INDEX ux_name ON users(name)",
 	}
 	for _, statement := range statements {
-		if _, err := db.Exec(statement); err != nil {
+		if _, err := db.Exec(context.Background(), statement); err != nil {
 			t.Fatalf("failed to execute setup statement %q: %v", statement, err)
 		}
 	}
@@ -280,7 +280,7 @@ func TestUpsertIndexSQLiteRejectsDefinitionMismatch(t *testing.T) {
 		"CREATE UNIQUE INDEX ux_users_name ON users(email)",
 	}
 	for _, statement := range statements {
-		if _, err := db.Exec(statement); err != nil {
+		if _, err := db.Exec(context.Background(), statement); err != nil {
 			t.Fatalf("failed to execute setup statement %q: %v", statement, err)
 		}
 	}
@@ -299,7 +299,7 @@ func TestUpsertIndexSQLiteAcceptsMatchingDefinition(t *testing.T) {
 		"CREATE UNIQUE INDEX ux_users_name ON users(name)",
 	}
 	for _, statement := range statements {
-		if _, err := db.Exec(statement); err != nil {
+		if _, err := db.Exec(context.Background(), statement); err != nil {
 			t.Fatalf("failed to execute setup statement %q: %v", statement, err)
 		}
 	}
@@ -311,7 +311,7 @@ func TestUpsertIndexSQLiteAcceptsMatchingDefinition(t *testing.T) {
 
 func TestInitWithOptionsIndexModeValidateReturnsMissingIndexError(t *testing.T) {
 	db := newSQLiteIndexTestDBMap(t)
-	if _, err := db.Exec("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)"); err != nil {
+	if _, err := db.Exec(context.Background(), "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)"); err != nil {
 		t.Fatalf("failed to create users table: %v", err)
 	}
 
@@ -342,7 +342,7 @@ func TestInitWithOptionsIndexModeValidateReturnsMissingIndexError(t *testing.T) 
 
 func TestInitWithOptionsIndexModeUpsertCreatesMissingIndex(t *testing.T) {
 	db := newSQLiteIndexTestDBMap(t)
-	if _, err := db.Exec("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)"); err != nil {
+	if _, err := db.Exec(context.Background(), "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)"); err != nil {
 		t.Fatalf("failed to create users table: %v", err)
 	}
 
@@ -365,7 +365,7 @@ func TestInitWithOptionsIndexModeUpsertCreatesMissingIndex(t *testing.T) {
 
 func TestInitCompatibilityUpsertIndexesTrueStillCreatesIndex(t *testing.T) {
 	db := newSQLiteIndexTestDBMap(t)
-	if _, err := db.Exec("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)"); err != nil {
+	if _, err := db.Exec(context.Background(), "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)"); err != nil {
 		t.Fatalf("failed to create users table: %v", err)
 	}
 
@@ -385,7 +385,7 @@ func TestInitCompatibilityUpsertIndexesTrueStillCreatesIndex(t *testing.T) {
 
 func TestInitCompatibilityUpsertIndexesFalseStillSkipsIndexInit(t *testing.T) {
 	db := newSQLiteIndexTestDBMap(t)
-	if _, err := db.Exec("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)"); err != nil {
+	if _, err := db.Exec(context.Background(), "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)"); err != nil {
 		t.Fatalf("failed to create users table: %v", err)
 	}
 
@@ -405,7 +405,7 @@ func TestInitCompatibilityUpsertIndexesFalseStillSkipsIndexInit(t *testing.T) {
 
 func TestInitWithOptionsSchemaEventCreateIndex(t *testing.T) {
 	db := newSQLiteIndexTestDBMap(t)
-	if _, err := db.Exec("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)"); err != nil {
+	if _, err := db.Exec(context.Background(), "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)"); err != nil {
 		t.Fatalf("failed to create users table: %v", err)
 	}
 
@@ -438,7 +438,7 @@ func TestInitWithOptionsSchemaEventValidateIndex(t *testing.T) {
 		"CREATE UNIQUE INDEX ux_users_name ON users(name)",
 	}
 	for _, statement := range statements {
-		if _, err := db.Exec(statement); err != nil {
+		if _, err := db.Exec(context.Background(), statement); err != nil {
 			t.Fatalf("failed to execute setup statement %q: %v", statement, err)
 		}
 	}
@@ -464,7 +464,7 @@ func TestInitWithOptionsSchemaEventValidateIndex(t *testing.T) {
 
 func TestInitWithOptionsSchemaEventHandlerPanicReturnsError(t *testing.T) {
 	db := newSQLiteIndexTestDBMap(t)
-	if _, err := db.Exec("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)"); err != nil {
+	if _, err := db.Exec(context.Background(), "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)"); err != nil {
 		t.Fatalf("failed to create users table: %v", err)
 	}
 
@@ -483,14 +483,14 @@ func TestInitWithOptionsSchemaEventHandlerPanicReturnsError(t *testing.T) {
 	}
 }
 
-func TestInitWithOptionsPersistsIndexModeOnDbMapAndContextCopies(t *testing.T) {
+func TestInitWithOptionsPersistsIndexModeOnDbMap(t *testing.T) {
 	db := newSQLiteIndexTestDBMap(t)
 	statements := []string{
 		"CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)",
 		"CREATE UNIQUE INDEX ux_users_name ON users(name)",
 	}
 	for _, statement := range statements {
-		if _, err := db.Exec(statement); err != nil {
+		if _, err := db.Exec(context.Background(), statement); err != nil {
 			t.Fatalf("failed to execute setup statement %q: %v", statement, err)
 		}
 	}
@@ -504,23 +504,19 @@ func TestInitWithOptionsPersistsIndexModeOnDbMapAndContextCopies(t *testing.T) {
 		t.Fatalf("expected db index mode %q after init, got %q", IndexInitValidate, got)
 	}
 
-	ctxDB, ok := db.WithContext(context.Background()).(*DbMap)
-	if !ok {
-		t.Fatal("expected WithContext to return *DbMap")
-	}
-	if got := ctxDB.effectiveIndexInitMode(); got != IndexInitValidate {
-		t.Fatalf("expected context db index mode %q after init, got %q", IndexInitValidate, got)
+	if got := loadDBSchemaConfig(db).indexInitMode; got != IndexInitValidate {
+		t.Fatalf("expected stored db index mode %q after init, got %q", IndexInitValidate, got)
 	}
 }
 
-func TestInitWithOptionsPersistsSchemaEventHandlerOnDbMapAndContextCopies(t *testing.T) {
+func TestInitWithOptionsPersistsSchemaEventHandlerOnDbMap(t *testing.T) {
 	db := newSQLiteIndexTestDBMap(t)
 	statements := []string{
 		"CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)",
 		"CREATE UNIQUE INDEX ux_users_name ON users(name)",
 	}
 	for _, statement := range statements {
-		if _, err := db.Exec(statement); err != nil {
+		if _, err := db.Exec(context.Background(), statement); err != nil {
 			t.Fatalf("failed to execute setup statement %q: %v", statement, err)
 		}
 	}
@@ -541,12 +537,8 @@ func TestInitWithOptionsPersistsSchemaEventHandlerOnDbMapAndContextCopies(t *tes
 		t.Fatalf("expected db emitSchemaEvent to use persisted handler, got %v", err)
 	}
 
-	ctxDB, ok := db.WithContext(context.Background()).(*DbMap)
-	if !ok {
-		t.Fatal("expected WithContext to return *DbMap")
-	}
-	if err := ctxDB.emitSchemaEvent(SchemaEvent{Kind: SchemaEventValidateIndex, Table: "users", Name: "ux_users_name"}); err != nil {
-		t.Fatalf("expected context db emitSchemaEvent to use copied handler, got %v", err)
+	if err := db.emitSchemaEvent(SchemaEvent{Kind: SchemaEventValidateIndex, Table: "users", Name: "ux_users_name"}); err != nil {
+		t.Fatalf("expected repeated db emitSchemaEvent to use persisted handler, got %v", err)
 	}
 
 	if len(events) != 3 {

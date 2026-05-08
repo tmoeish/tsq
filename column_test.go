@@ -19,12 +19,20 @@ func (newColOwner) TSQOwner() {}
 
 func (newColOwner) Table() string { return "users" }
 
+func (newColOwner) Cols() []SQLColumn { return nil }
+
 func (newColOwner) KwList() []SearchColumn { return nil }
+
+func (newColOwner) PrimaryKeys() []string { return nil }
+
+func (newColOwner) AutoIncrement() bool { return false }
+
+func (newColOwner) VersionColumn() string { return "" }
 
 func TestNewCol(t *testing.T) {
 	col := NewCol[newColOwner, string]("name", "user_name", nil)
-	var _ Column[newColOwner, string] = col
-	var _ AnyColumn = col
+	var _ TypedColumn[newColOwner, string] = col
+	var _ SQLColumn = col
 
 	if col.Table().Table() != "users" {
 		t.Errorf("Expected table 'users', got '%s'", col.Table().Table())
@@ -221,7 +229,7 @@ func TestCol_TypeSafety(t *testing.T) {
 	boolCol := newColForTable[Table, bool](table, "active", "active", nil)
 
 	// All should have the same basic interface behavior
-	columns := []AnyColumn{stringCol, intCol, floatCol, boolCol}
+	columns := []SQLColumn{stringCol, intCol, floatCol, boolCol}
 
 	for i, col := range columns {
 		if col.Table().Table() != "users" {
@@ -254,7 +262,7 @@ func TestCol_InterfaceCompliance(t *testing.T) {
 	col := newColForTable[Table, string](table, "test_column", "test_column", nil)
 
 	// Verify that Col implements AnyColumn interface
-	var _ AnyColumn = col
+	var _ SQLColumn = col
 
 	// Test all interface methods
 	if col.Table() == nil {

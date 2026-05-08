@@ -23,6 +23,7 @@ type exampleSummary struct {
 	Keyword   keywordSummary     `json:"keyword"`
 	Result    resultSummary      `json:"result"`
 	InVar     inVarSummary       `json:"in_var"`
+	Subquery  subquerySummary    `json:"subquery"`
 	Case      caseSummary        `json:"case"`
 	CTE       cteSummary         `json:"cte"`
 	SetOps    setOpsSummary      `json:"set_ops"`
@@ -60,6 +61,11 @@ type resultSummary struct {
 type inVarSummary struct {
 	CategoryIDs []int64  `json:"category_ids"`
 	ItemNames   []string `json:"item_names"`
+}
+
+type subquerySummary struct {
+	UserNamesInOrgA   []string `json:"user_names_in_org_a"`
+	ItemsBelowMaxCost []string `json:"items_below_max_cost"`
 }
 
 type caseSummary struct {
@@ -104,6 +110,12 @@ type namedRow struct {
 }
 
 func (namedRow) TSQOwner() {}
+
+type priceValueRow struct {
+	Value int64
+}
+
+func (priceValueRow) TSQOwner() {}
 
 func main() {
 	ctx := context.Background()
@@ -211,6 +223,11 @@ func runAllExamples(ctx context.Context, dbmap *tsq.DbMap) (*exampleSummary, err
 		return nil, errors.Annotate(err, "invar demo")
 	}
 
+	subquery, err := runSubqueryDemo(ctx, dbmap)
+	if err != nil {
+		return nil, errors.Annotate(err, "subquery demo")
+	}
+
 	caseExpr, err := runCaseDemo(ctx, dbmap)
 	if err != nil {
 		return nil, errors.Annotate(err, "case demo")
@@ -238,6 +255,7 @@ func runAllExamples(ctx context.Context, dbmap *tsq.DbMap) (*exampleSummary, err
 		Keyword:   *keyword,
 		Result:    *result,
 		InVar:     *inVar,
+		Subquery:  *subquery,
 		Case:      *caseExpr,
 		CTE:       *cte,
 		SetOps:    *setOps,
@@ -442,6 +460,76 @@ func runInVarDemo(ctx context.Context, dbmap *tsq.DbMap) (*inVarSummary, error) 
 	return &inVarSummary{
 		CategoryIDs: categoryIDs,
 		ItemNames:   names,
+	}, nil
+}
+
+func runSubqueryDemo(ctx context.Context, dbmap *tsq.DbMap) (*subquerySummary, error) {
+	orgIDSubquery, err := tsq.
+		Select[database.Org](database.Org_ID).
+		From(database.TableOrg).
+		Where(database.Org_Name.EQ("组织A")).
+		Build()
+	if err != nil {
+		return nil, errors.Annotate(err, "build org id subquery")
+	}
+
+	usersInOrgAQuery, err := tsq.
+		Select[database.User](database.TableUserCols...).
+		From(database.TableUser).
+		Where(database.User_OrgID.InSub(orgIDSubquery)).
+		Build()
+	if err != nil {
+		return nil, errors.Annotate(err, "build users in org query")
+	}
+
+	usersInOrgA, err := tsq.List[database.User](ctx, dbmap, usersInOrgAQuery)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	maxPriceCol := tsq.Into[priceValueRow](database.Item_Price.Max(), func(holder *priceValueRow) *int64 {
+		return &holder.Value
+	}, "value")
+
+	maxPriceSubquery, err := tsq.
+		Select[priceValueRow](maxPriceCol).
+		From(database.TableItem).
+		Build()
+	if err != nil {
+		return nil, errors.Annotate(err, "build max price subquery")
+	}
+
+	itemsBelowMaxQuery, err := tsq.
+		Select[database.Item](database.TableItemCols...).
+		From(database.TableItem).
+		Where(database.Item_Price.LTSub(maxPriceSubquery)).
+		Build()
+	if err != nil {
+		return nil, errors.Annotate(err, "build items below max query")
+	}
+
+	itemsBelowMax, err := tsq.List[database.Item](ctx, dbmap, itemsBelowMaxQuery)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	userNames := make([]string, 0, len(usersInOrgA))
+	for _, user := range usersInOrgA {
+		userNames = append(userNames, user.Name)
+	}
+
+	sort.Strings(userNames)
+
+	itemNames := make([]string, 0, len(itemsBelowMax))
+	for _, item := range itemsBelowMax {
+		itemNames = append(itemNames, item.Name)
+	}
+
+	sort.Strings(itemNames)
+
+	return &subquerySummary{
+		UserNamesInOrgA:   userNames,
+		ItemsBelowMaxCost: itemNames,
 	}, nil
 }
 

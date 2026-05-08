@@ -19,14 +19,17 @@ func (queryBuilderCaseRow) TSQOwner() {}
 func (m mockTable) Init(db *DbMap, upsertIndexies bool) error { return nil }
 func (m mockTable) TSQOwner()                                 {}
 func (m mockTable) Table() string                             { return m.tableName }
-func (m mockTable) Cols() []AnyColumn                         { return nil }
+func (m mockTable) Cols() []SQLColumn                         { return nil }
 func (m mockTable) KwList() []SearchColumn                    { return nil }
+func (m mockTable) PrimaryKeys() []string                     { return nil }
+func (m mockTable) AutoIncrement() bool                       { return false }
+func (m mockTable) VersionColumn() string                     { return "" }
 
 func newMockTable(name string) Table {
 	return mockTable{tableName: name}
 }
 
-func newMockColumn(table Table, name string) Col[Table, string] {
+func newMockColumn(table Table, name string) ColumnImpl[Table, string] {
 	return newColForTable[Table, string](table, name, name, nil)
 }
 
@@ -74,7 +77,7 @@ func TestFromCreatesBuilderAndSelectSetsColumns(t *testing.T) {
 
 func TestSelect_NilColumnDefersToBuildError(t *testing.T) {
 	table := newMockTable("users")
-	var col SelectableColumn[Table]
+	var col BoundColumn[Table]
 
 	_, err := Select(col).
 		From(table).Build()
@@ -89,7 +92,7 @@ func TestSelect_NilColumnDefersToBuildError(t *testing.T) {
 
 func TestSelect_ZeroValueColumnDefersToBuildError(t *testing.T) {
 	table := newMockTable("users")
-	var col Col[Table, int]
+	var col ColumnImpl[Table, int]
 
 	_, err := Select(col).
 		From(table).Build()
@@ -465,11 +468,14 @@ func TestQueryBuilder_SetWhereMatchesWhereOverwriteBehavior(t *testing.T) {
 
 	qb := Select(col1).
 		From(col1.Table()).Where(mockCond1).SetWhere(mockCond2)
-	if len(qb.spec.Filters) != 1 {
-		t.Fatalf("expected SetWhere to overwrite filters, got %d", len(qb.spec.Filters))
+
+	_, err := qb.Build()
+	if err == nil {
+		t.Fatal("expected error when calling Where() and then SetWhere()")
 	}
-	if conditionClause(qb.spec.Filters[0]) != "`users`.`id` = 2" {
-		t.Fatalf("expected SetWhere to keep latest condition, got %q", conditionClause(qb.spec.Filters[0]))
+
+	if !strings.Contains(err.Error(), "Where() or SetWhere() can only be called once") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -574,11 +580,13 @@ func TestQueryBuilder_SetKwSearchMatchesKwSearchOverwriteBehavior(t *testing.T) 
 
 	qb := Select(col1).
 		From(col1.Table()).KwSearch(col1).SetKwSearch(col2)
-	if len(qb.spec.KeywordSearch) != 1 {
-		t.Fatalf("expected SetKwSearch to overwrite keyword search columns, got %d", len(qb.spec.KeywordSearch))
+	_, err := qb.Build()
+	if err == nil {
+		t.Fatal("expected error when calling KwSearch() and then SetKwSearch()")
 	}
-	if qb.spec.KeywordSearch[0].Name() != "email" {
-		t.Fatalf("expected SetKwSearch to keep latest keyword search column, got %q", qb.spec.KeywordSearch[0].Name())
+
+	if !strings.Contains(err.Error(), "KwSearch() or SetKwSearch() can only be called once") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -788,18 +796,16 @@ func TestQueryBuilder_Build_RejectsTablesReferencedOutsideJoinGraph(t *testing.T
 
 func TestQueryBuilder_WhereReplacesConditionTables(t *testing.T) {
 	users := newMockTable("users")
-	orders := newMockTable("orders")
 	userID := newColForTable[Table, int](users, "id", "id", nil)
-	orderID := newColForTable[Table, int](orders, "id", "id", nil)
 
 	query := mustBuild(Select(userID).
 		From(userID.Table()).
-		Where(orderID.EQVar()).
-		Where(userID.EQVar()))
+		Where(userID.EQVar()).
+		And(userID.EQVar()))
 
-	want := `SELECT "users"."id" FROM "users" WHERE "users"."id" = ?`
+	want := `SELECT "users"."id" FROM "users" WHERE ("users"."id" = ? AND "users"."id" = ?)`
 	if query.ListSQL() != want {
-		t.Fatalf("expected repeated Where to replace condition tables, got %q", query.ListSQL())
+		t.Fatalf("expected And to append condition tables, got %q", query.ListSQL())
 	}
 }
 
@@ -887,6 +893,23 @@ func TestQueryBuilder_Build_RejectsNilReceiver(t *testing.T) {
 
 	if !strings.Contains(err.Error(), "query builder cannot be nil") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestQueryBuilder_Build_PreservesOwnerType(t *testing.T) {
+	users := newMockTable("users")
+	userID := newColForTable[Table, int](users, "id", "id", nil)
+
+	qb := Select(userID).From(users)
+	var build func() (*Query[Table], error) = qb.Build
+
+	query, err := build()
+	if err != nil {
+		t.Fatalf("expected typed build to succeed, got %v", err)
+	}
+
+	if query == nil {
+		t.Fatal("expected typed build to return a query")
 	}
 }
 

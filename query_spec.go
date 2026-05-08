@@ -12,11 +12,11 @@ import (
 // QuerySpec is the single source of truth for a query definition before planning.
 type QuerySpec[O Owner] struct {
 	From          Table
-	Selects       []SelectableColumn[O]
+	Selects       []BoundColumn[O]
 	Filters       []Condition
 	KeywordSearch []SearchColumn
 	Joins         []join
-	GroupBy       []AnyColumn
+	GroupBy       []SQLColumn
 	Having        []Condition
 	SetOps        []setOperation[O]
 }
@@ -85,7 +85,7 @@ func buildQueryPlan[O Owner](spec QuerySpec[O]) (*queryPlan, error) {
 }
 
 func (spec QuerySpec[O]) selectTables() map[string]Table {
-	cols := make([]AnyColumn, 0, len(spec.Selects))
+	cols := make([]SQLColumn, 0, len(spec.Selects))
 	for _, col := range spec.Selects {
 		cols = append(cols, col)
 	}
@@ -120,7 +120,7 @@ func (spec QuerySpec[O]) joinTables() map[string]Table {
 }
 
 func (spec QuerySpec[O]) keywordTables() map[string]Table {
-	cols := make([]AnyColumn, 0, len(spec.KeywordSearch))
+	cols := make([]SQLColumn, 0, len(spec.KeywordSearch))
 	for _, col := range spec.KeywordSearch {
 		cols = append(cols, col)
 	}
@@ -150,7 +150,7 @@ func (spec QuerySpec[O]) pageQueryTables() map[string]Table {
 	return tables
 }
 
-func (spec QuerySpec[O]) tablesForColumns(cols []AnyColumn) map[string]Table {
+func (spec QuerySpec[O]) tablesForColumns(cols []SQLColumn) map[string]Table {
 	tables := make(map[string]Table, len(cols))
 
 	for _, col := range cols {

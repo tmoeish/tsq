@@ -24,7 +24,7 @@ const (
 
 // OrderBy represents an ORDER BY clause with field and direction
 type OrderBy struct {
-	field AnyColumn // The column to order by
+	field SQLColumn // The column to order by
 	order Order     // The sort direction (ASC/DESC)
 	err   error
 }
@@ -45,7 +45,7 @@ func (ob OrderBy) Expr() string {
 }
 
 // Field returns the column being ordered
-func (ob OrderBy) Field() AnyColumn {
+func (ob OrderBy) Field() SQLColumn {
 	return ob.field
 }
 
@@ -59,7 +59,7 @@ func (ob OrderBy) Order() Order {
 // ================================================
 
 // Asc creates an ascending ORDER BY clause for this column
-func (c Col[Owner, T]) Asc() OrderBy {
+func (c ColumnImpl[Owner, T]) Asc() OrderBy {
 	return OrderBy{
 		field: c,
 		order: ASC,
@@ -67,7 +67,7 @@ func (c Col[Owner, T]) Asc() OrderBy {
 }
 
 // Desc creates a descending ORDER BY clause for this column
-func (c Col[Owner, T]) Desc() OrderBy {
+func (c ColumnImpl[Owner, T]) Desc() OrderBy {
 	return OrderBy{
 		field: c,
 		order: DESC,

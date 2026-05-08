@@ -154,7 +154,7 @@ func TestNewFeature(t *testing.T) {
 
 - README.md: 项目主要文档
 - Go Doc: 代码注释文档
-- 示例代码: `sample/` 目录
+- 示例代码: `examples/` 目录
 
 ### 文档规范
 

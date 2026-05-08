@@ -1,11 +1,13 @@
 package tsq
 
-// Owner marks a Go struct that can own selected or scanned fields.
+// Owner marks any Go type that tsq can scan selected fields into.
+// Table and Result are the two specialized owner kinds built on top of it.
 type Owner interface {
 	TSQOwner()
 }
 
-// Result marks a projection-only owner generated from a @RESULT spec.
+// Result marks a projection-only owner.
+// It participates in typed SELECT flows but is not a physical mutation target.
 type Result interface {
 	Owner
 	TSQResult()

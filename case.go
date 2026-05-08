@@ -102,21 +102,21 @@ func (b *CaseBuilder[T]) Else(result any) *CaseBuilder[T] {
 }
 
 // End finalizes the CASE expression into a selectable column.
-func (b *CaseBuilder[T]) End() Col[expressionOwner, T] {
+func (b *CaseBuilder[T]) End() ColumnImpl[expressionOwner, T] {
 	if b == nil {
-		return Col[expressionOwner, T]{buildErr: errors.New("case builder cannot be nil")}
+		return ColumnImpl[expressionOwner, T]{buildErr: errors.New("case builder cannot be nil")}
 	}
 
 	if b.buildErr != nil {
-		return Col[expressionOwner, T]{buildErr: errors.Trace(b.buildErr)}
+		return ColumnImpl[expressionOwner, T]{buildErr: errors.Trace(b.buildErr)}
 	}
 
 	if len(b.whens) == 0 {
-		return Col[expressionOwner, T]{buildErr: errors.New("case expression requires at least one WHEN branch")}
+		return ColumnImpl[expressionOwner, T]{buildErr: errors.New("case expression requires at least one WHEN branch")}
 	}
 
 	if len(b.tables) == 0 {
-		return Col[expressionOwner, T]{buildErr: errors.New("case expression must reference at least one table")}
+		return ColumnImpl[expressionOwner, T]{buildErr: errors.New("case expression must reference at least one table")}
 	}
 
 	tableNames := make([]string, 0, len(b.tables))
@@ -154,7 +154,7 @@ func (b *CaseBuilder[T]) End() Col[expressionOwner, T] {
 
 	sqlBuilder.WriteString(" END")
 
-	return Col[expressionOwner, T]{
+	return ColumnImpl[expressionOwner, T]{
 		table:         baseTable,
 		name:          "case",
 		qualifiedName: sqlBuilder.String(),
@@ -180,7 +180,7 @@ func cloneTableMap(src map[string]Table) map[string]Table {
 
 func expressionTables(arg any) map[string]Table {
 	switch v := arg.(type) {
-	case AnyColumn:
+	case SQLColumn:
 		return columnTables(v)
 	default:
 		return nil
@@ -191,7 +191,7 @@ func expressionFlags(arg any) (aggregate, distinct bool) {
 	switch v := arg.(type) {
 	case interface{ isAggregateExpression() bool }:
 		aggregate = v.isAggregateExpression()
-	case AnyColumn:
+	case SQLColumn:
 		if agg, ok := v.(interface{ isAggregateExpression() bool }); ok {
 			aggregate = agg.isAggregateExpression()
 		}
@@ -200,7 +200,7 @@ func expressionFlags(arg any) (aggregate, distinct bool) {
 	switch v := arg.(type) {
 	case interface{ isDistinctExpression() bool }:
 		distinct = v.isDistinctExpression()
-	case AnyColumn:
+	case SQLColumn:
 		if d, ok := v.(interface{ isDistinctExpression() bool }); ok {
 			distinct = d.isDistinctExpression()
 		}
@@ -209,7 +209,7 @@ func expressionFlags(arg any) (aggregate, distinct bool) {
 	return aggregate, distinct
 }
 
-func columnTables(col AnyColumn) map[string]Table {
+func columnTables(col SQLColumn) map[string]Table {
 	table, err := validateColumnInput(col)
 	if err != nil {
 		return nil

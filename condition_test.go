@@ -403,6 +403,61 @@ func TestCondition_UnbuiltSubqueryFailsFast(t *testing.T) {
 
 	if _, _, _, err := validateConditionInput(col.InSub(&Query[queryOwner]{})); err == nil {
 		t.Fatal("expected unbuilt subquery to be captured as a build error")
+	} else if !strings.Contains(err.Error(), "subquery is not built") {
+		t.Fatalf("expected unbuilt subquery error, got %v", err)
+	}
+}
+
+func TestCondition_ScalarSubqueryRejectsMultipleColumns(t *testing.T) {
+	users := newMockTable("users")
+	orders := newMockTable("orders")
+	userID := newColForTable[Table, int](users, "id", "id", nil)
+	orderID := newColForTable[Table, int](orders, "id", "id", nil)
+	orderUserID := newColForTable[Table, int](orders, "user_id", "user_id", nil)
+	subquery := mustBuild(Select(orderID, orderUserID).From(orders))
+
+	if _, _, _, err := validateConditionInput(userID.EQSub(subquery)); err == nil {
+		t.Fatal("expected scalar subquery to reject multiple columns")
+	} else if !strings.Contains(err.Error(), "scalar subquery must select exactly one column") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCondition_InSubRejectsMultipleColumns(t *testing.T) {
+	users := newMockTable("users")
+	orders := newMockTable("orders")
+	userID := newColForTable[Table, int](users, "id", "id", nil)
+	orderID := newColForTable[Table, int](orders, "id", "id", nil)
+	orderUserID := newColForTable[Table, int](orders, "user_id", "user_id", nil)
+	subquery := mustBuild(Select(orderID, orderUserID).From(orders))
+
+	if _, _, _, err := validateConditionInput(userID.InSub(subquery)); err == nil {
+		t.Fatal("expected IN subquery to reject multiple columns")
+	} else if !strings.Contains(err.Error(), "IN subquery must select exactly one column") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCondition_ExistsSubAllowsMultipleColumnsAndKeepsArgs(t *testing.T) {
+	users := newMockTable("users")
+	orders := newMockTable("orders")
+	userID := newColForTable[Table, int](users, "id", "id", nil)
+	orderID := newColForTable[Table, int](orders, "id", "id", nil)
+	orderUserID := newColForTable[Table, int](orders, "user_id", "user_id", nil)
+	subquery := mustBuild(Select(orderID, orderUserID).From(orders).Where(orderUserID.EQ(1)))
+
+	clause, _, args, err := validateConditionInput(userID.ExistsSub(subquery))
+	if err != nil {
+		t.Fatalf("expected EXISTS subquery to allow multiple columns, got %v", err)
+	}
+
+	wantClause := `EXISTS (SELECT "orders"."id", "orders"."user_id" FROM "orders" WHERE "orders"."user_id" = ?)`
+	if got := renderCanonicalSQL(clause); got != wantClause {
+		t.Fatalf("expected exists clause %q, got %q", wantClause, got)
+	}
+
+	if len(args) != 1 || args[0] != 1 {
+		t.Fatalf("expected EXISTS subquery args [1], got %#v", args)
 	}
 }
 
@@ -441,6 +496,17 @@ func TestCondition_PredicateAllowsEscapedPercentLiterals(t *testing.T) {
 	clause := renderCanonicalSQL(col.Predicate("%s LIKE '%%s'").Clause())
 	if clause != `"users"."name" LIKE '%s'` {
 		t.Fatalf("expected escaped percent literal to be preserved, got %q", clause)
+	}
+}
+
+func TestCondition_PredicateRejectsRawSubqueryArguments(t *testing.T) {
+	col := newColForTable[Table, int](newMockTable("users"), "id", "id", nil)
+	subquery := mustBuild(Select(col).From(col.Table()))
+
+	if _, _, _, err := validateConditionInput(col.Predicate("%s = %s", subquery)); err == nil {
+		t.Fatal("expected Predicate to reject raw subquery arguments")
+	} else if !strings.Contains(err.Error(), "raw subqueries are not allowed in Predicate") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

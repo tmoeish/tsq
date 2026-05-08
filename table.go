@@ -1,6 +1,7 @@
 package tsq
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"sort"
@@ -174,10 +175,16 @@ type RegisteredTable struct {
 // ================================================
 
 // Table defines a physical SQL table source.
+// Unlike Result, a Table is both a scan owner and a mutation target, and it
+// exposes stable column and primary-key metadata for metadata-driven execution.
 type Table interface {
 	Owner
+	Cols() []SQLColumn
 	Table() string
 	KwList() []SearchColumn
+	PrimaryKeys() []string
+	AutoIncrement() bool
+	VersionColumn() string
 }
 
 // ================================================
@@ -532,7 +539,7 @@ func inspectMySQLIndexDefinition(
 
 	var existing row
 
-	err := dbMap.SelectOne(&existing, `
+	err := dbMap.QueryRow(context.Background(), `
 		SELECT
 			table_name,
 			CASE WHEN MIN(non_unique) = 0 THEN 1 ELSE 0 END AS is_unique,
@@ -544,7 +551,7 @@ func inspectMySQLIndexDefinition(
 			AND index_name = ?
 		GROUP BY table_name`,
 		table, idx,
-	)
+	).Scan(&existing.Table, &existing.Unique, &existing.Columns)
 	if err != nil {
 		if errors.Is(errors.Cause(err), sql.ErrNoRows) {
 			return indexDefinition{}, false, nil
@@ -587,7 +594,7 @@ func createMySQLIndex(dbMap *DbMap, table string, unique bool, idx string, field
 		quotedTable, uniqueClause, quotedIndex, strings.Join(quotedFields, ", "),
 	)
 
-	_, err = dbMap.Exec(query)
+	_, err = dbMap.Exec(context.Background(), query)
 	if err := finishCreateIndex(dbMap, table, unique, idx, fields, err); err != nil {
 		return errors.Trace(err)
 	}
@@ -624,11 +631,11 @@ func inspectSQLiteIndexDefinition(db *DbMap, idx string) (indexDefinition, bool,
 
 	var master sqliteMasterRow
 
-	err := db.SelectOne(
-		&master,
+	err := db.QueryRow(
+		context.Background(),
 		"SELECT tbl_name FROM sqlite_master WHERE type='index' AND name=?",
 		idx,
-	)
+	).Scan(&master.Table)
 	if err != nil {
 		if errors.Is(errors.Cause(err), sql.ErrNoRows) {
 			return indexDefinition{}, false, nil
@@ -642,18 +649,30 @@ func inspectSQLiteIndexDefinition(db *DbMap, idx string) (indexDefinition, bool,
 		return indexDefinition{}, false, errors.Trace(err)
 	}
 
-	var rows []sqliteIndexListRow
-	if _, err := db.Select(&rows, fmt.Sprintf("PRAGMA index_list(%s)", quotedTable)); err != nil {
+	rows, err := db.Query(context.Background(), fmt.Sprintf("PRAGMA index_list(%s)", quotedTable))
+	if err != nil {
 		return indexDefinition{}, false, errors.Trace(err)
 	}
 
+	defer func() {
+		_ = rows.Close()
+	}()
+
 	definition := indexDefinition{Table: master.Table}
 
-	for _, row := range rows {
+	for rows.Next() {
+		var row sqliteIndexListRow
+		if err := rows.Scan(&row.Seq, &row.Name, &row.Unique, &row.Origin, &row.Partial); err != nil {
+			return indexDefinition{}, false, errors.Trace(err)
+		}
+
 		if row.Name == idx {
 			definition.Unique = row.Unique == 1
-			break
 		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return indexDefinition{}, false, errors.Trace(err)
 	}
 
 	fields, err := inspectSQLiteIndexFields(db, idx)
@@ -678,14 +697,27 @@ func inspectSQLiteIndexFields(db *DbMap, idx string) ([]string, error) {
 		return nil, errors.Trace(err)
 	}
 
-	var rows []sqliteIndexInfoRow
-	if _, err := db.Select(&rows, fmt.Sprintf("PRAGMA index_info(%s)", quotedIndex)); err != nil {
+	rows, err := db.Query(context.Background(), fmt.Sprintf("PRAGMA index_info(%s)", quotedIndex))
+	if err != nil {
 		return nil, errors.Trace(err)
 	}
 
-	fields := make([]string, 0, len(rows))
-	for _, row := range rows {
+	defer func() {
+		_ = rows.Close()
+	}()
+
+	fields := make([]string, 0)
+
+	for rows.Next() {
+		var row sqliteIndexInfoRow
+		if err := rows.Scan(&row.SeqNo, &row.CID, &row.Name); err != nil {
+			return nil, errors.Trace(err)
+		}
 		fields = append(fields, row.Name)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, errors.Trace(err)
 	}
 
 	return fields, nil
@@ -718,7 +750,7 @@ func createSQLiteIndex(db *DbMap, table string, unique bool, idx string, fields 
 		uniqueClause, quotedIndex, quotedTable, strings.Join(quotedFields, ", "),
 	)
 
-	_, err = db.Exec(query)
+	_, err = db.Exec(context.Background(), query)
 	if err := finishCreateIndex(db, table, unique, idx, fields, err); err != nil {
 		return errors.Trace(err)
 	}
@@ -749,7 +781,7 @@ func inspectPostgresIndexDefinition(db *DbMap, idx string) (indexDefinition, boo
 
 	var existing row
 
-	err := db.SelectOne(&existing, `
+	err := db.QueryRow(context.Background(), `
 		SELECT
 			t.relname AS table_name,
 			i.indisunique AS is_unique,
@@ -764,7 +796,7 @@ func inspectPostgresIndexDefinition(db *DbMap, idx string) (indexDefinition, boo
 			AND idx.relname = $1
 		GROUP BY t.relname, i.indisunique`,
 		idx,
-	)
+	).Scan(&existing.Table, &existing.Unique, &existing.Columns)
 	if err != nil {
 		if errors.Is(errors.Cause(err), sql.ErrNoRows) {
 			return indexDefinition{}, false, nil
@@ -807,7 +839,7 @@ func createPostgresIndex(db *DbMap, table string, unique bool, idx string, field
 		uniqueClause, quotedIndex, quotedTable, strings.Join(quotedFields, ", "),
 	)
 
-	_, err = db.Exec(query)
+	_, err = db.Exec(context.Background(), query)
 	if err := finishCreateIndex(db, table, unique, idx, fields, err); err != nil {
 		return errors.Trace(err)
 	}

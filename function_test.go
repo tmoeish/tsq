@@ -410,7 +410,7 @@ func TestCol_StringFunctionHelpersRejectBackslashLiterals(t *testing.T) {
 	table := newMockTable("users")
 	col := newColForTable[Table, string](table, "nickname", "nickname", nil)
 
-	for name, column := range map[string]AnyColumn{
+	for name, column := range map[string]SQLColumn{
 		"Coalesce": col.Coalesce(`path\file`),
 		"NullIf":   col.NullIf(`path\file`),
 	} {

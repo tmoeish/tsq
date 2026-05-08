@@ -133,7 +133,7 @@ func TestQueryBuilder_Build_Success(t *testing.T) {
 	qb := &QueryBuilder[Table]{
 		spec: QuerySpec[Table]{
 			From:    table,
-			Selects: []SelectableColumn[Table]{col},
+			Selects: []BoundColumn[Table]{col},
 		},
 	}
 
@@ -365,7 +365,7 @@ func TestQueryBuilder_MustBuild_Success(t *testing.T) {
 	qb := &QueryBuilder[Table]{
 		spec: QuerySpec[Table]{
 			From:    table,
-			Selects: []SelectableColumn[Table]{col},
+			Selects: []BoundColumn[Table]{col},
 		},
 	}
 
@@ -426,7 +426,7 @@ func TestQuery_MetadataAccess(t *testing.T) {
 	col := newMockColumn(table, "id")
 
 	query := &Query[Table]{
-		selectCols:   []SelectableColumn[Table]{newColForTable[Table, string](table, "id", "id", nil)},
+		selectCols:   []BoundColumn[Table]{newColForTable[Table, string](table, "id", "id", nil)},
 		selectTables: map[string]Table{"users": table},
 		kwCols:       []SearchColumn{col},
 		kwTables:     map[string]Table{"users": table},
@@ -813,7 +813,7 @@ func TestRenderDeleteByIDsSQLForPostgres(t *testing.T) {
 }
 
 func TestChunkedUpdateChunkRejectsNilItems(t *testing.T) {
-	err := chunkedUpdateChunk[int](nil, nil, []*int{nil})
+	err := chunkedUpdateChunk[*mockTable](nil, nil, []*mockTable{nil})
 	if err == nil {
 		t.Fatal("expected nil batch update item to return an error")
 	}
@@ -824,7 +824,7 @@ func TestChunkedUpdateChunkRejectsNilItems(t *testing.T) {
 }
 
 func TestChunkedDeleteChunkRejectsNilItems(t *testing.T) {
-	err := chunkedDeleteChunk[int](nil, nil, []*int{nil})
+	err := chunkedDeleteChunk[*mockTable](nil, nil, []*mockTable{nil})
 	if err == nil {
 		t.Fatal("expected nil batch delete item to return an error")
 	}
@@ -865,9 +865,9 @@ func TestQueryCountRejectsTypedNilExecutor(t *testing.T) {
 func TestInsertRejectsTypedNilExecutor(t *testing.T) {
 	var db *DbMap
 
-	value := 1
+	row := mockTable{tableName: "users"}
 
-	err := Insert(context.Background(), db, &value)
+	err := Insert(context.Background(), db, &row)
 	if err == nil {
 		t.Fatal("expected typed-nil executor to return an error")
 	}
@@ -880,7 +880,7 @@ func TestInsertRejectsTypedNilExecutor(t *testing.T) {
 func TestInsertRejectsNilItem(t *testing.T) {
 	db := &DbMap{}
 
-	var value *int
+	var value *mockTable
 
 	err := Insert(context.Background(), db, value)
 	if err == nil {
@@ -895,7 +895,7 @@ func TestInsertRejectsNilItem(t *testing.T) {
 func TestUpdateRejectsNilItem(t *testing.T) {
 	db := &DbMap{}
 
-	var value *int
+	var value *mockTable
 
 	err := Update(context.Background(), db, value)
 	if err == nil {
@@ -910,7 +910,7 @@ func TestUpdateRejectsNilItem(t *testing.T) {
 func TestDeleteRejectsNilItem(t *testing.T) {
 	db := &DbMap{}
 
-	var value *int
+	var value *mockTable
 
 	err := Delete(context.Background(), db, value)
 	if err == nil {
@@ -1094,7 +1094,7 @@ func TestListValidatesScanDestEvenWhenResultIsEmpty(t *testing.T) {
 	query := &Query[scanDestUser]{
 		cntSQL:     "SELECT COUNT(1) FROM users",
 		listSQL:    "SELECT name FROM users WHERE 1 = 0",
-		selectCols: []SelectableColumn[scanDestUser]{col},
+		selectCols: []BoundColumn[scanDestUser]{col},
 	}
 
 	_, err := List[scanDestUser](context.Background(), db, query)
@@ -1145,7 +1145,7 @@ func TestPageValidatesScanDestEvenWhenResultIsEmpty(t *testing.T) {
 	query := &Query[scanDestUser]{
 		cntSQL:     "SELECT COUNT(1) FROM users",
 		listSQL:    "SELECT name FROM users WHERE 1 = 0",
-		selectCols: []SelectableColumn[scanDestUser]{col},
+		selectCols: []BoundColumn[scanDestUser]{col},
 	}
 
 	_, err := Page[scanDestUser](context.Background(), db, nil, query)
@@ -1161,7 +1161,7 @@ func TestPageValidatesScanDestEvenWhenResultIsEmpty(t *testing.T) {
 func TestBuildScanDestRejectsNilFieldPointer(t *testing.T) {
 	col := newColForTable[scanDestUser, string](newMockTable("users"), "name", "name", nil)
 
-	_, err := buildScanDest([]SelectableColumn[scanDestUser]{col}, &scanDestUser{})
+	_, err := buildScanDest([]BoundColumn[scanDestUser]{col}, &scanDestUser{})
 	if err == nil {
 		t.Fatal("expected nil field pointer to return an error")
 	}
@@ -1197,7 +1197,7 @@ func TestBuildScanDestRejectsNilScanTarget(t *testing.T) {
 		toScanPointer(func(holder *scanDestUser) *string { return nil }),
 	)
 
-	_, err := buildScanDest([]SelectableColumn[scanDestUser]{col}, &scanDestUser{})
+	_, err := buildScanDest([]BoundColumn[scanDestUser]{col}, &scanDestUser{})
 	if err == nil {
 		t.Fatal("expected nil scan target to return an error")
 	}
@@ -1215,7 +1215,7 @@ func TestBuildScanDestRejectsNilHolder(t *testing.T) {
 		toScanPointer(func(holder *scanDestUser) *string { return &holder.Name }),
 	)
 
-	_, err := buildScanDest([]SelectableColumn[scanDestUser]{col}, nil)
+	_, err := buildScanDest([]BoundColumn[scanDestUser]{col}, nil)
 	if err == nil {
 		t.Fatal("expected nil holder to return an error")
 	}

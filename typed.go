@@ -44,31 +44,31 @@ func OnRight[Left, Right Table](pred Pred[Right]) JoinCond[Left, Right] {
 }
 
 // On creates an equality join edge between two typed columns.
-func On[Left, Right Table, T any](left Col[Left, T], right Col[Right, T]) JoinOn[Left, Right] {
+func On[Left, Right Table, T any](left ColumnImpl[Left, T], right ColumnImpl[Right, T]) JoinOn[Left, Right] {
 	return JoinOn[Left, Right]{Cond: left.EQCol(right).Cond}
 }
 
 // OnNE creates a non-equality join edge between two typed columns.
-func OnNE[Left, Right Table, T any](left Col[Left, T], right Col[Right, T]) JoinOn[Left, Right] {
+func OnNE[Left, Right Table, T any](left ColumnImpl[Left, T], right ColumnImpl[Right, T]) JoinOn[Left, Right] {
 	return JoinOn[Left, Right]{Cond: left.NECol(right).Cond}
 }
 
 // OnGT creates a greater-than join edge between two typed columns.
-func OnGT[Left, Right Table, T any](left Col[Left, T], right Col[Right, T]) JoinOn[Left, Right] {
+func OnGT[Left, Right Table, T any](left ColumnImpl[Left, T], right ColumnImpl[Right, T]) JoinOn[Left, Right] {
 	return JoinOn[Left, Right]{Cond: left.GTCol(right).Cond}
 }
 
 // OnGTE creates a greater-than-or-equal join edge between two typed columns.
-func OnGTE[Left, Right Table, T any](left Col[Left, T], right Col[Right, T]) JoinOn[Left, Right] {
+func OnGTE[Left, Right Table, T any](left ColumnImpl[Left, T], right ColumnImpl[Right, T]) JoinOn[Left, Right] {
 	return JoinOn[Left, Right]{Cond: left.GTECol(right).Cond}
 }
 
 // OnLT creates a less-than join edge between two typed columns.
-func OnLT[Left, Right Table, T any](left Col[Left, T], right Col[Right, T]) JoinOn[Left, Right] {
+func OnLT[Left, Right Table, T any](left ColumnImpl[Left, T], right ColumnImpl[Right, T]) JoinOn[Left, Right] {
 	return JoinOn[Left, Right]{Cond: left.LTCol(right).Cond}
 }
 
 // OnLTE creates a less-than-or-equal join edge between two typed columns.
-func OnLTE[Left, Right Table, T any](left Col[Left, T], right Col[Right, T]) JoinOn[Left, Right] {
+func OnLTE[Left, Right Table, T any](left ColumnImpl[Left, T], right ColumnImpl[Right, T]) JoinOn[Left, Right] {
 	return JoinOn[Left, Right]{Cond: left.LTECol(right).Cond}
 }

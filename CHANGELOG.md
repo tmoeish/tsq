@@ -21,6 +21,9 @@
 - 查询现在必须显式调用 `From(table)`，不再从 `Select(...)` 或 Join 链隐式推导主表
 - `Join` / `LeftJoin` / `RightJoin` / `FullJoin` 改为直接接收可变 `Condition`，移除旧的 `.Join(...).On(left, right)` 两步 API
 - 非 `CROSS JOIN` 必须提供 ON 条件；Join 条件必须同时引用已引入表和当前连接表，提前拒绝缺失连接关系或引用未来表的查询
+- `SqlExecutor` / `DbMap` 的执行方法改为显式 `ctx context.Context` 首参，移除 `WithContext(...)`
+- `SqlExecutor.Insert/Update/Delete` 以及对应的 `tsq.Insert/Update/Delete/Chunked*` helper 收紧为只接受 `Table` mutation target
+- `Table` 接口补齐列/主键元数据，表 scan 与 mutation 优先走 field pointer + metadata，不再依赖整结构反射
 
 ### 新增
 - 增加 `tsq.On` / `OnNE` / `OnGT` / `OnGTE` / `OnLT` / `OnLTE`，生成 `JoinOn[Left, Right]` 类型化连接边，为 v4 静态 Join DSL 打基础
@@ -32,6 +35,7 @@
 - 生成的表 DSL 增加 `Cols()`，让 Build 阶段可以校验列确实属于 `From` / Join 图中的表
 - 生成列现在使用 `NewCol[TableStruct, FieldType]`，列 owner 信息可被后续 typed query API 使用
 - `List` / `Get` / `GetOrErr` / `Page` / `Load` 的扫描目标构建链路改为泛型路径，查询返回类型直接从 `*Query[Owner]` 推导
+- `QueryBuilder.Build()` 现在完整保留 owner 类型，子查询比较会按用途校验列数：标量比较与 `IN` 子查询必须单列，`EXISTS` 子查询只要求已构建
 - `Alias(...)` 表会同步重绑定生成列集合，别名查询也能参与列归属校验
 - 示例、文档和生成模板统一迁移到显式 `From` 与新 Join API
 

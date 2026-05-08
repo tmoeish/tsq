@@ -35,6 +35,13 @@ const (
 type QueryBuilder[O Owner] struct {
 	spec     QuerySpec[O]
 	buildErr error
+
+	selectCalled   bool
+	fromCalled     bool
+	whereCalled    bool
+	groupByCalled  bool
+	havingCalled   bool
+	kwSearchCalled bool
 }
 
 // join represents any type of JOIN operation.
@@ -52,9 +59,9 @@ type setOperation[O Owner] struct {
 func newQueryBuilder[O Owner]() *QueryBuilder[O] {
 	return &QueryBuilder[O]{
 		spec: QuerySpec[O]{
-			Selects: make([]SelectableColumn[O], 0),
+			Selects: make([]BoundColumn[O], 0),
 			Joins:   make([]join, 0),
-			GroupBy: make([]AnyColumn, 0),
+			GroupBy: make([]SQLColumn, 0),
 			Having:  make([]Condition, 0),
 			SetOps:  make([]setOperation[O], 0),
 		},
@@ -70,7 +77,7 @@ func (qb *QueryBuilder[O]) ensureInitialized() *QueryBuilder[O] {
 	}
 
 	if qb.spec.Selects == nil {
-		qb.spec.Selects = make([]SelectableColumn[O], 0)
+		qb.spec.Selects = make([]BoundColumn[O], 0)
 	}
 
 	if qb.spec.Joins == nil {
@@ -78,7 +85,7 @@ func (qb *QueryBuilder[O]) ensureInitialized() *QueryBuilder[O] {
 	}
 
 	if qb.spec.GroupBy == nil {
-		qb.spec.GroupBy = make([]AnyColumn, 0)
+		qb.spec.GroupBy = make([]SQLColumn, 0)
 	}
 
 	if qb.spec.Having == nil {
@@ -93,7 +100,7 @@ func (qb *QueryBuilder[O]) ensureInitialized() *QueryBuilder[O] {
 }
 
 // Select creates a new QueryBuilder with the specified owner-constrained columns.
-func Select[O Owner](cols ...SelectableColumn[O]) *QueryBuilder[O] {
+func Select[O Owner](cols ...BoundColumn[O]) *QueryBuilder[O] {
 	qb := newQueryBuilder[O]()
 	qb.Select(cols...)
 
@@ -107,14 +114,20 @@ func From[O Owner](table Table) *QueryBuilder[O] {
 
 // Select sets the projected columns for the query.
 // Existing selected columns are replaced.
-func (qb *QueryBuilder[O]) Select(cols ...SelectableColumn[O]) *QueryBuilder[O] {
+func (qb *QueryBuilder[O]) Select(cols ...BoundColumn[O]) *QueryBuilder[O] {
 	qb = qb.ensureInitialized()
 
 	if qb.buildErr != nil {
 		return qb
 	}
 
-	qb.spec.Selects = make([]SelectableColumn[O], 0, len(cols))
+	if qb.selectCalled {
+		qb.setBuildError(errors.New("Select() can only be called once"))
+		return qb
+	}
+	qb.selectCalled = true
+
+	qb.spec.Selects = make([]BoundColumn[O], 0, len(cols))
 	qb.addSelectColumns(cols...)
 
 	return qb
@@ -205,9 +218,9 @@ func (qb *QueryBuilder[O]) setBuildError(err error) {
 	qb.buildErr = err
 }
 
-func (qb *QueryBuilder[O]) addSelectColumns(cols ...SelectableColumn[O]) {
+func (qb *QueryBuilder[O]) addSelectColumns(cols ...BoundColumn[O]) {
 	for _, col := range cols {
-		if err := validateSelectableColumn(col); err != nil {
+		if err := validateBoundColumn(col); err != nil {
 			qb.setBuildError(errors.Trace(err))
 			continue
 		}
@@ -216,7 +229,7 @@ func (qb *QueryBuilder[O]) addSelectColumns(cols ...SelectableColumn[O]) {
 	}
 }
 
-func (qb *QueryBuilder[O]) appendColumn(target *[]AnyColumn, col AnyColumn) {
+func (qb *QueryBuilder[O]) appendColumn(target *[]SQLColumn, col SQLColumn) {
 	if _, err := validateColumnInput(col); err != nil {
 		qb.setBuildError(errors.Trace(err))
 		return
@@ -251,6 +264,12 @@ func (qb *QueryBuilder[O]) From(table Table) *QueryBuilder[O] {
 	if qb.buildErr != nil {
 		return qb
 	}
+
+	if qb.fromCalled {
+		qb.setBuildError(errors.New("From() can only be called once"))
+		return qb
+	}
+	qb.fromCalled = true
 
 	if err := validateTableInput(table, "from table"); err != nil {
 		qb.setBuildError(errors.Trace(err))
@@ -352,12 +371,18 @@ func (qb *QueryBuilder[O]) CrossJoin(table Table) *QueryBuilder[O] {
 
 // GroupBy adds GROUP BY clause with the specified columns.
 // If the builder is in an error state, this method returns immediately without modifying the query.
-func (qb *QueryBuilder[O]) GroupBy(cols ...AnyColumn) *QueryBuilder[O] {
+func (qb *QueryBuilder[O]) GroupBy(cols ...SQLColumn) *QueryBuilder[O] {
 	qb = qb.ensureInitialized()
 
 	if qb.buildErr != nil {
 		return qb
 	}
+
+	if qb.groupByCalled {
+		qb.setBuildError(errors.New("GroupBy() can only be called once"))
+		return qb
+	}
+	qb.groupByCalled = true
 
 	for _, col := range cols {
 		qb.appendColumn(&qb.spec.GroupBy, col)
@@ -374,6 +399,12 @@ func (qb *QueryBuilder[O]) Having(conds ...Condition) *QueryBuilder[O] {
 	if qb.buildErr != nil {
 		return qb
 	}
+
+	if qb.havingCalled {
+		qb.setBuildError(errors.New("Having() can only be called once"))
+		return qb
+	}
+	qb.havingCalled = true
 
 	for _, cond := range conds {
 		qb.appendCondition(&qb.spec.Having, cond)
@@ -396,6 +427,12 @@ func (qb *QueryBuilder[O]) SetWhere(conds ...Condition) *QueryBuilder[O] {
 	if qb.buildErr != nil {
 		return qb
 	}
+
+	if qb.whereCalled {
+		qb.setBuildError(errors.New("Where() or SetWhere() can only be called once"))
+		return qb
+	}
+	qb.whereCalled = true
 
 	filters := make([]Condition, 0, len(conds))
 	for _, cond := range conds {
@@ -453,6 +490,12 @@ func (qb *QueryBuilder[O]) SetKwSearch(cols ...SearchColumn) *QueryBuilder[O] {
 	if qb.buildErr != nil {
 		return qb
 	}
+
+	if qb.kwSearchCalled {
+		qb.setBuildError(errors.New("KwSearch() or SetKwSearch() can only be called once"))
+		return qb
+	}
+	qb.kwSearchCalled = true
 
 	qb.spec.KeywordSearch = make([]SearchColumn, 0, len(cols))
 

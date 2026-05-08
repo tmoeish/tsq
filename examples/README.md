@@ -18,6 +18,13 @@
 - `database/*_tsq.go`：生成代码
 - `database/mock.sql`：SQLite 示例 schema
 
+当前 `main.go` 里的 full-suite 已经覆盖：
+
+- alias / aggregate / keyword / result page
+- `InVar()` 动态参数
+- `IN` 与标量子查询
+- `CASE` / CTE / set operations / chunked helpers
+
 ## 运行方式
 
 ```bash
