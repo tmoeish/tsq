@@ -88,6 +88,7 @@ func BenchmarkQueryBuilder_WithAliases(b *testing.B) {
 			userIDCol.As("uid"),
 			totalCol.As("order_total"),
 		).
+			From(table).
 			Where(totalCol.GT(100.0)).
 			Build()
 	}

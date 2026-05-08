@@ -15,12 +15,21 @@ type queryOwner struct{}
 func (queryOwner) TSQOwner() {}
 
 // mustBuild is a test helper that builds a query and panics on error.
-func mustBuild[O Owner](qb *QueryBuilder[O]) *Query[O] {
+func mustBuild[O Owner](qb interface{ Build() (*Query[O], error) }) *Query[O] {
 	q, err := qb.Build()
 	if err != nil {
 		panic(err)
 	}
 	return q
+}
+
+func newQueryBuilderForTest[O Owner](spec QuerySpec[O]) *QueryBuilder[O] {
+	return &QueryBuilder[O]{
+		queryBuilderCore: &queryBuilderCore[O]{
+			spec:  spec,
+			phase: builderPhaseBase,
+		},
+	}
 }
 
 func TestErrUnknownSortField(t *testing.T) {
@@ -96,9 +105,7 @@ func TestQuery_SQLAccessors(t *testing.T) {
 }
 
 func TestQueryBuilder_Build_EmptySelectFields(t *testing.T) {
-	qb := &QueryBuilder[Table]{
-		spec: QuerySpec[Table]{},
-	}
+	qb := newQueryBuilderForTest(QuerySpec[Table]{})
 
 	_, err := qb.Build()
 
@@ -116,7 +123,7 @@ func TestQueryBuilder_Build_EmptySelectFieldsWithWhereStillFails(t *testing.T) {
 	table := newMockTable("users")
 	col := newColForTable[Table, string](table, "id", "id", nil)
 
-	_, err := Select[Table]().Where(col.EQVar()).Build()
+	_, err := Select[Table]().From(table).Where(col.EQVar()).Build()
 	if err == nil {
 		t.Fatal("expected empty select fields to fail even when conditions add tables")
 	}
@@ -130,12 +137,10 @@ func TestQueryBuilder_Build_Success(t *testing.T) {
 	table := newMockTable("users")
 	col := newMockColumn(table, "id")
 
-	qb := &QueryBuilder[Table]{
-		spec: QuerySpec[Table]{
-			From:    table,
-			Selects: []BoundColumn[Table]{col},
-		},
-	}
+	qb := newQueryBuilderForTest(QuerySpec[Table]{
+		From:    table,
+		Selects: []BoundColumn[Table]{col},
+	})
 
 	query, err := qb.Build()
 	if err != nil {
@@ -362,12 +367,10 @@ func TestQueryBuilder_MustBuild_Success(t *testing.T) {
 	table := newMockTable("users")
 	col := newMockColumn(table, "id")
 
-	qb := &QueryBuilder[Table]{
-		spec: QuerySpec[Table]{
-			From:    table,
-			Selects: []BoundColumn[Table]{col},
-		},
-	}
+	qb := newQueryBuilderForTest(QuerySpec[Table]{
+		From:    table,
+		Selects: []BoundColumn[Table]{col},
+	})
 
 	// Should not panic
 	query := mustBuild(qb)

@@ -79,13 +79,6 @@ var _ = tsq.Select[userOwner](userID, orderID)
 			want: "cannot use orderID",
 		},
 		{
-			name: "join_cond_reject_wrong_right_owner",
-			body: `
-var _ = tsq.OnRight[userOwner, orderOwner](productStatus.EQ(1))
-`,
-			want: "cannot use productStatus.EQ(1)",
-		},
-		{
 			name: "new_col_rejects_non_table_owner",
 			body: `
 type nonTableOwner struct{}
@@ -139,7 +132,7 @@ var _ = tsq.ChunkedUpdate[nonTableOwner]
 	}
 }
 
-func TestGeneratedResultBuilderDoesNotCompileForInvalidInputs(t *testing.T) {
+func TestStagedQueryBuilderDoesNotCompileForInvalidClauseOrder(t *testing.T) {
 	rootDir, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("get workspace dir: %v", err)
@@ -151,90 +144,54 @@ func TestGeneratedResultBuilderDoesNotCompileForInvalidInputs(t *testing.T) {
 		want string
 	}{
 		{
-			name: "join_stage_rejects_skipped_table",
+			name: "select_stage_rejects_having",
 			body: `
-var _ = database.UserOrderFromUser().
-	LeftJoinOrder(database.UserOrderJoinUserIDToOrderUserID())
+var _ = tsq.Select[userOwner](userID).Having(userID.EQ(1))
 `,
-			want: "LeftJoinOrder undefined",
+			want: "Having undefined",
 		},
 		{
-			name: "join_rejects_wrong_edge",
+			name: "from_stage_rejects_where",
 			body: `
-var _ = database.UserOrderFromUser().
-	LeftJoinOrg(database.UserOrderJoinUserOrgIDToOrgID()).
-	LeftJoinOrder(database.UserOrderJoinOrderItemIDToItemID())
+var _ = tsq.From[userOwner](userOwner{}).Where(userID.EQ(1))
 `,
-			want: "cannot use database.UserOrderJoinOrderItemIDToItemID()",
+			want: "Where undefined",
 		},
 		{
-			name: "join_extra_rejects_third_table",
+			name: "grouped_stage_rejects_where",
 			body: `
-var _ = database.UserOrderFromUser().
-	LeftJoinOrg(
-		database.UserOrderJoinUserOrgIDToOrgID(),
-		tsq.OnRight[database.User, database.Org](database.Category_Name.EQ("x")),
-	)
+var _ = tsq.Select[userOwner](userID).
+	From(userOwner{}).
+	GroupBy(userID).
+	Where(userID.EQ(1))
 `,
-			want: "cannot use database.Category_Name.EQ(\"x\")",
+			want: "Where undefined",
 		},
 		{
-			name: "where_rejects_wrong_table",
+			name: "where_stage_rejects_join",
 			body: `
-var _ = database.UserOrderFromUser().
-	LeftJoinOrg(database.UserOrderJoinUserOrgIDToOrgID()).
-	LeftJoinOrder(database.UserOrderJoinUserIDToOrderUserID()).
-	LeftJoinItem(database.UserOrderJoinOrderItemIDToItemID()).
-	LeftJoinCategory(database.UserOrderJoinItemCategoryIDToCategoryID()).
-	SelectUserOrder().
-	WhereUser(database.Category_Name.EQ("x"))
+var _ = tsq.Select[userOwner](userID).
+	From(userOwner{}).
+	Where(userID.EQ(1)).
+	LeftJoin(orderOwner{}, userID.EQCol(orderID))
 `,
-			want: "cannot use database.Category_Name.EQ(\"x\")",
+			want: "LeftJoin undefined",
 		},
 		{
-			name: "group_by_rejects_result_column",
+			name: "compound_stage_rejects_where",
 			body: `
-var _ = database.UserOrderFromUser().
-	LeftJoinOrg(database.UserOrderJoinUserOrgIDToOrgID()).
-	LeftJoinOrder(database.UserOrderJoinUserIDToOrderUserID()).
-	LeftJoinItem(database.UserOrderJoinOrderItemIDToItemID()).
-	LeftJoinCategory(database.UserOrderJoinItemCategoryIDToCategoryID()).
-	SelectUserOrder().
-	GroupByUser(database.UserOrder_UserID)
+var _ = tsq.Select[userOwner](userID).
+	From(userOwner{}).
+	Union(tsq.Select[userOwner](userID).From(userOwner{})).
+	Where(userID.EQ(1))
 `,
-			want: "does not implement tsq.TableColumn",
-		},
-		{
-			name: "kw_search_rejects_wrong_table",
-			body: `
-var _ = database.UserOrderFromUser().
-	LeftJoinOrg(database.UserOrderJoinUserOrgIDToOrgID()).
-	LeftJoinOrder(database.UserOrderJoinUserIDToOrderUserID()).
-	LeftJoinItem(database.UserOrderJoinOrderItemIDToItemID()).
-	LeftJoinCategory(database.UserOrderJoinItemCategoryIDToCategoryID()).
-	SelectUserOrder().
-	KwSearchUser(database.Category_Name)
-`,
-			want: "does not implement tsq.TableColumn",
-		},
-		{
-			name: "kw_search_rejects_result_column",
-			body: `
-var _ = database.UserOrderFromUser().
-	LeftJoinOrg(database.UserOrderJoinUserOrgIDToOrgID()).
-	LeftJoinOrder(database.UserOrderJoinUserIDToOrderUserID()).
-	LeftJoinItem(database.UserOrderJoinOrderItemIDToItemID()).
-	LeftJoinCategory(database.UserOrderJoinItemCategoryIDToCategoryID()).
-	SelectUserOrder().
-	KwSearchUser(database.UserOrder_UserName)
-`,
-			want: "does not implement tsq.TableColumn",
+			want: "Where undefined",
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			assertCompileFailsSource(t, rootDir, compileFailResultBuilderSource(tc.body), tc.want)
+			assertCompileFails(t, rootDir, tc.body, tc.want)
 		})
 	}
 }
@@ -311,18 +268,6 @@ func (productOwner) VersionColumn() string { return "" }
 var userID = tsq.NewCol[userOwner, int]("id", "id", nil)
 var orderID = tsq.NewCol[orderOwner, int]("id", "id", nil)
 var productStatus = tsq.NewCol[productOwner, int]("status", "status", nil)
-` + body
-}
-
-func compileFailResultBuilderSource(body string) string {
-	return `package compilefail
-
-import (
-	"github.com/tmoeish/tsq"
-	"github.com/tmoeish/tsq/examples/database"
-)
-
-var _ = tsq.ASC
 ` + body
 }
 

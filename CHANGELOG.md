@@ -26,13 +26,11 @@
 - `Table` 接口补齐列/主键元数据，表 scan 与 mutation 优先走 field pointer + metadata，不再依赖整结构反射
 
 ### 新增
-- 增加 `tsq.On` / `OnNE` / `OnGT` / `OnGTE` / `OnLT` / `OnLTE`，生成 `JoinOn[Left, Right]` 类型化连接边，为 v4 静态 Join DSL 打基础
-- 增加 `JoinCond[Left, Right]` 以及 `OnExtra` / `OnLeft` / `OnRight`，用于表达 typed Join ON 中的额外连接边和左右表谓词
 - 增加 `TableColumn[Owner]` / `SearchColumn`，分别约束物理表列与可参与关键词搜索的列
-- `@RESULT` 支持 `join=[{left="Struct.Field", right="Struct.Field"}]`，生成器会据此产出 Result 专属 typed query builder
 
 ### 改进
 - 生成的表 DSL 增加 `Cols()`，让 Build 阶段可以校验列确实属于 `From` / Join 图中的表
+- `Result` 生成代码保持为投影描述符；联表是否合法统一由普通 `QueryBuilder` 在 `Build()` 时校验
 - 生成列现在使用 `NewCol[TableStruct, FieldType]`，列 owner 信息可被后续 typed query API 使用
 - `List` / `Get` / `GetOrErr` / `Page` / `Load` 的扫描目标构建链路改为泛型路径，查询返回类型直接从 `*Query[Owner]` 推导
 - `QueryBuilder.Build()` 现在完整保留 owner 类型，子查询比较会按用途校验列数：标量比较与 `IN` 子查询必须单列，`EXISTS` 子查询只要求已构建

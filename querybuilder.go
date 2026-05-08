@@ -31,17 +31,70 @@ const (
 	ExceptAllType SetOperationType = "EXCEPT ALL"
 )
 
-// QueryBuilder builds a structured query specification for a result owner.
+type builderPhase string
+
+const (
+	builderPhaseUnset      builderPhase = "uninitialized"
+	builderPhaseNeedFrom   builderPhase = "selected"
+	builderPhaseNeedSelect builderPhase = "from-only"
+	builderPhaseBase       builderPhase = "query"
+	builderPhaseWhere      builderPhase = "query-with-where"
+	builderPhaseKwSearch   builderPhase = "query-with-kw-search"
+	builderPhaseFiltered   builderPhase = "query-with-filters"
+	builderPhaseGrouped    builderPhase = "grouped-query"
+	builderPhaseHaving     builderPhase = "query-with-having"
+	builderPhaseCompound   builderPhase = "compound-query"
+)
+
+// QueryBuilder builds a query after both SELECT and FROM are present.
 type QueryBuilder[O Owner] struct {
+	*queryBuilderCore[O]
+}
+
+// SelectBuilder holds a query after SELECT but before FROM.
+type SelectBuilder[O Owner] struct {
+	*queryBuilderCore[O]
+}
+
+// FromBuilder holds a query after FROM but before SELECT.
+type FromBuilder[O Owner] struct {
+	*queryBuilderCore[O]
+}
+
+// WhereQueryBuilder holds a query after WHERE but before keyword search / GROUP BY.
+type WhereQueryBuilder[O Owner] struct {
+	*queryBuilderCore[O]
+}
+
+// KwSearchQueryBuilder holds a query after keyword search but before WHERE / GROUP BY.
+type KwSearchQueryBuilder[O Owner] struct {
+	*queryBuilderCore[O]
+}
+
+// FilteredQueryBuilder holds a query after both WHERE and keyword search are fixed.
+type FilteredQueryBuilder[O Owner] struct {
+	*queryBuilderCore[O]
+}
+
+// GroupedQueryBuilder holds a query after GROUP BY but before HAVING.
+type GroupedQueryBuilder[O Owner] struct {
+	*queryBuilderCore[O]
+}
+
+// HavingQueryBuilder holds a query after HAVING.
+type HavingQueryBuilder[O Owner] struct {
+	*queryBuilderCore[O]
+}
+
+// CompoundQueryBuilder holds a query after a set operation such as UNION / EXCEPT.
+type CompoundQueryBuilder[O Owner] struct {
+	*queryBuilderCore[O]
+}
+
+type queryBuilderCore[O Owner] struct {
 	spec     QuerySpec[O]
 	buildErr error
-
-	selectCalled   bool
-	fromCalled     bool
-	whereCalled    bool
-	groupByCalled  bool
-	havingCalled   bool
-	kwSearchCalled bool
+	phase    builderPhase
 }
 
 // join represents any type of JOIN operation.
@@ -56,8 +109,13 @@ type setOperation[O Owner] struct {
 	spec QuerySpec[O]
 }
 
-func newQueryBuilder[O Owner]() *QueryBuilder[O] {
-	return &QueryBuilder[O]{
+type completeQueryStage[O Owner] interface {
+	core() *queryBuilderCore[O]
+	completeQueryStage()
+}
+
+func newQueryBuilderCore[O Owner](phase builderPhase) *queryBuilderCore[O] {
+	return &queryBuilderCore[O]{
 		spec: QuerySpec[O]{
 			Selects: make([]BoundColumn[O], 0),
 			Joins:   make([]join, 0),
@@ -65,459 +123,997 @@ func newQueryBuilder[O Owner]() *QueryBuilder[O] {
 			Having:  make([]Condition, 0),
 			SetOps:  make([]setOperation[O], 0),
 		},
+		phase: phase,
 	}
 }
 
-func (qb *QueryBuilder[O]) ensureInitialized() *QueryBuilder[O] {
+func ensureQueryBuilderCore[O Owner](
+	core *queryBuilderCore[O],
+	defaultPhase builderPhase,
+	nilReceiver bool,
+) *queryBuilderCore[O] {
+	if core == nil {
+		core = newQueryBuilderCore[O](defaultPhase)
+		if nilReceiver {
+			core.buildErr = errors.New("query builder cannot be nil")
+		}
+
+		return core
+	}
+
+	if core.spec.Selects == nil {
+		core.spec.Selects = make([]BoundColumn[O], 0)
+	}
+
+	if core.spec.Joins == nil {
+		core.spec.Joins = make([]join, 0)
+	}
+
+	if core.spec.GroupBy == nil {
+		core.spec.GroupBy = make([]SQLColumn, 0)
+	}
+
+	if core.spec.Having == nil {
+		core.spec.Having = make([]Condition, 0)
+	}
+
+	if core.spec.SetOps == nil {
+		core.spec.SetOps = make([]setOperation[O], 0)
+	}
+
+	if core.phase == builderPhaseUnset {
+		core.phase = defaultPhase
+	}
+
+	return core
+}
+
+func (qb *QueryBuilder[O]) core() *queryBuilderCore[O] {
 	if qb == nil {
-		qb = newQueryBuilder[O]()
-		qb.buildErr = errors.New("query builder cannot be nil")
-
-		return qb
+		return nil
 	}
 
-	if qb.spec.Selects == nil {
-		qb.spec.Selects = make([]BoundColumn[O], 0)
-	}
-
-	if qb.spec.Joins == nil {
-		qb.spec.Joins = make([]join, 0)
-	}
-
-	if qb.spec.GroupBy == nil {
-		qb.spec.GroupBy = make([]SQLColumn, 0)
-	}
-
-	if qb.spec.Having == nil {
-		qb.spec.Having = make([]Condition, 0)
-	}
-
-	if qb.spec.SetOps == nil {
-		qb.spec.SetOps = make([]setOperation[O], 0)
-	}
-
-	return qb
+	return qb.queryBuilderCore
 }
 
-// Select creates a new QueryBuilder with the specified owner-constrained columns.
-func Select[O Owner](cols ...BoundColumn[O]) *QueryBuilder[O] {
-	qb := newQueryBuilder[O]()
-	qb.Select(cols...)
-
-	return qb
-}
-
-// From creates a new QueryBuilder with the specified base table.
-func From[O Owner](table Table) *QueryBuilder[O] {
-	return newQueryBuilder[O]().From(table)
-}
-
-// Select sets the projected columns for the query.
-// Existing selected columns are replaced.
-func (qb *QueryBuilder[O]) Select(cols ...BoundColumn[O]) *QueryBuilder[O] {
-	qb = qb.ensureInitialized()
-
-	if qb.buildErr != nil {
-		return qb
+func (qb *SelectBuilder[O]) core() *queryBuilderCore[O] {
+	if qb == nil {
+		return nil
 	}
 
-	if qb.selectCalled {
-		qb.setBuildError(errors.New("Select() can only be called once"))
-		return qb
-	}
-	qb.selectCalled = true
-
-	qb.spec.Selects = make([]BoundColumn[O], 0, len(cols))
-	qb.addSelectColumns(cols...)
-
-	return qb
+	return qb.queryBuilderCore
 }
 
-func (qb *QueryBuilder[O]) appendSetOperation(op SetOperationType, other *QueryBuilder[O]) *QueryBuilder[O] {
-	qb = qb.ensureInitialized()
-
-	if qb.buildErr != nil {
-		return qb
+func (qb *FromBuilder[O]) core() *queryBuilderCore[O] {
+	if qb == nil {
+		return nil
 	}
 
-	if other == nil {
-		qb.setBuildError(errors.New("set operation query builder cannot be nil"))
-		return qb
+	return qb.queryBuilderCore
+}
+
+func (qb *WhereQueryBuilder[O]) core() *queryBuilderCore[O] {
+	if qb == nil {
+		return nil
 	}
 
-	other = other.ensureInitialized()
-	if other.buildErr != nil {
-		qb.setBuildError(errors.Trace(other.buildErr))
-		return qb
+	return qb.queryBuilderCore
+}
+
+func (qb *KwSearchQueryBuilder[O]) core() *queryBuilderCore[O] {
+	if qb == nil {
+		return nil
 	}
 
-	if len(qb.spec.Selects) == 0 || len(other.spec.Selects) == 0 {
-		qb.setBuildError(errors.New("set operations require both queries to select at least one column"))
-		return qb
+	return qb.queryBuilderCore
+}
+
+func (qb *FilteredQueryBuilder[O]) core() *queryBuilderCore[O] {
+	if qb == nil {
+		return nil
 	}
 
-	if len(qb.spec.Selects) != len(other.spec.Selects) {
-		qb.setBuildError(errors.Errorf(
-			"set operation %s requires matching select column counts: left=%d right=%d",
-			op,
-			len(qb.spec.Selects),
-			len(other.spec.Selects),
-		))
+	return qb.queryBuilderCore
+}
 
-		return qb
+func (qb *GroupedQueryBuilder[O]) core() *queryBuilderCore[O] {
+	if qb == nil {
+		return nil
 	}
 
-	if len(qb.spec.KeywordSearch) > 0 || len(other.spec.KeywordSearch) > 0 {
-		qb.setBuildError(errors.New("set operations do not support keyword search"))
-		return qb
+	return qb.queryBuilderCore
+}
+
+func (qb *HavingQueryBuilder[O]) core() *queryBuilderCore[O] {
+	if qb == nil {
+		return nil
 	}
 
-	qb.spec.SetOps = append(qb.spec.SetOps, setOperation[O]{
-		op:   op,
-		spec: cloneQuerySpec(other.spec),
-	})
-
-	return qb
+	return qb.queryBuilderCore
 }
 
-// Union appends a UNION clause to the current query.
-func (qb *QueryBuilder[O]) Union(other *QueryBuilder[O]) *QueryBuilder[O] {
-	return qb.appendSetOperation(UnionType, other)
+func (qb *CompoundQueryBuilder[O]) core() *queryBuilderCore[O] {
+	if qb == nil {
+		return nil
+	}
+
+	return qb.queryBuilderCore
 }
 
-// UnionAll appends a UNION ALL clause to the current query.
-func (qb *QueryBuilder[O]) UnionAll(other *QueryBuilder[O]) *QueryBuilder[O] {
-	return qb.appendSetOperation(UnionAllType, other)
+func (qb *QueryBuilder[O]) completeQueryStage()         {}
+func (qb *WhereQueryBuilder[O]) completeQueryStage()    {}
+func (qb *KwSearchQueryBuilder[O]) completeQueryStage() {}
+func (qb *FilteredQueryBuilder[O]) completeQueryStage() {}
+func (qb *GroupedQueryBuilder[O]) completeQueryStage()  {}
+func (qb *HavingQueryBuilder[O]) completeQueryStage()   {}
+func (qb *CompoundQueryBuilder[O]) completeQueryStage() {}
+
+// Select creates a new state-machine builder with the specified owner-constrained columns.
+func Select[O Owner](cols ...BoundColumn[O]) *SelectBuilder[O] {
+	core := newQueryBuilderCore[O](builderPhaseNeedFrom)
+	core.spec.Selects = make([]BoundColumn[O], 0, len(cols))
+	core.addSelectColumns(cols...)
+
+	return &SelectBuilder[O]{queryBuilderCore: core}
 }
 
-// Intersect appends an INTERSECT clause to the current query.
-func (qb *QueryBuilder[O]) Intersect(other *QueryBuilder[O]) *QueryBuilder[O] {
-	return qb.appendSetOperation(IntersectType, other)
+// From creates a new state-machine builder with the specified base table.
+func From[O Owner](table Table) *FromBuilder[O] {
+	core := newQueryBuilderCore[O](builderPhaseNeedSelect)
+	core.setFrom(table)
+
+	return &FromBuilder[O]{queryBuilderCore: core}
 }
 
-// IntersectAll appends an INTERSECT ALL clause to the current query.
-func (qb *QueryBuilder[O]) IntersectAll(other *QueryBuilder[O]) *QueryBuilder[O] {
-	return qb.appendSetOperation(IntersectAllType, other)
-}
-
-// Except appends an EXCEPT clause to the current query.
-func (qb *QueryBuilder[O]) Except(other *QueryBuilder[O]) *QueryBuilder[O] {
-	return qb.appendSetOperation(ExceptType, other)
-}
-
-// ExceptAll appends an EXCEPT ALL clause to the current query.
-func (qb *QueryBuilder[O]) ExceptAll(other *QueryBuilder[O]) *QueryBuilder[O] {
-	return qb.appendSetOperation(ExceptAllType, other)
-}
-
-func (qb *QueryBuilder[O]) setBuildError(err error) {
-	if qb == nil || err == nil || qb.buildErr != nil {
+func (core *queryBuilderCore[O]) setBuildError(err error) {
+	if core == nil || err == nil || core.buildErr != nil {
 		return
 	}
 
-	qb.buildErr = err
+	core.buildErr = err
 }
 
-func (qb *QueryBuilder[O]) addSelectColumns(cols ...BoundColumn[O]) {
+func (core *queryBuilderCore[O]) failTransition(method string) {
+	core.setBuildError(errors.Errorf("%s is not available in %s state", method, core.phase))
+}
+
+func (core *queryBuilderCore[O]) addSelectColumns(cols ...BoundColumn[O]) {
 	for _, col := range cols {
 		if err := validateBoundColumn(col); err != nil {
-			qb.setBuildError(errors.Trace(err))
+			core.setBuildError(errors.Trace(err))
 			continue
 		}
 
-		qb.spec.Selects = append(qb.spec.Selects, col)
+		core.spec.Selects = append(core.spec.Selects, col)
 	}
 }
 
-func (qb *QueryBuilder[O]) appendColumn(target *[]SQLColumn, col SQLColumn) {
+func (core *queryBuilderCore[O]) appendColumn(target *[]SQLColumn, col SQLColumn) {
 	if _, err := validateColumnInput(col); err != nil {
-		qb.setBuildError(errors.Trace(err))
+		core.setBuildError(errors.Trace(err))
 		return
 	}
 
 	*target = append(*target, col)
 }
 
-func (qb *QueryBuilder[O]) appendSearchColumn(target *[]SearchColumn, col SearchColumn) {
+func (core *queryBuilderCore[O]) appendSearchColumn(target *[]SearchColumn, col SearchColumn) {
 	if err := validateSearchColumn(col); err != nil {
-		qb.setBuildError(errors.Trace(err))
+		core.setBuildError(errors.Trace(err))
 		return
 	}
 
 	*target = append(*target, col)
 }
 
-func (qb *QueryBuilder[O]) appendCondition(target *[]Condition, cond Condition) {
+func (core *queryBuilderCore[O]) appendCondition(target *[]Condition, cond Condition) {
 	if _, _, _, err := validateConditionInput(cond); err != nil {
-		qb.setBuildError(errors.Trace(err))
+		core.setBuildError(errors.Trace(err))
 		return
 	}
 
 	*target = append(*target, cond)
 }
 
-// From sets the base table for the query.
-// If the builder is in an error state, this method returns immediately without modifying the query.
-func (qb *QueryBuilder[O]) From(table Table) *QueryBuilder[O] {
-	qb = qb.ensureInitialized()
-
-	if qb.buildErr != nil {
-		return qb
+func (core *queryBuilderCore[O]) setFrom(table Table) {
+	if core.buildErr != nil {
+		return
 	}
 
-	if qb.fromCalled {
-		qb.setBuildError(errors.New("From() can only be called once"))
-		return qb
+	if core.phase != builderPhaseNeedFrom && core.phase != builderPhaseNeedSelect {
+		core.failTransition("From()")
+		return
 	}
-	qb.fromCalled = true
 
 	if err := validateTableInput(table, "from table"); err != nil {
-		qb.setBuildError(errors.Trace(err))
-		return qb
+		core.setBuildError(errors.Trace(err))
+		return
 	}
 
-	qb.spec.From = table
-
-	return qb
+	core.spec.From = table
+	if core.phase == builderPhaseNeedFrom {
+		core.phase = builderPhaseBase
+	}
 }
 
-// Join adds an INNER JOIN clause.
-// If the builder is in an error state, this method returns immediately without modifying the query.
-func (qb *QueryBuilder[O]) Join(table Table, conds ...Condition) *QueryBuilder[O] {
-	return qb.addJoin(InnerJoinType, table, conds...)
+func (core *queryBuilderCore[O]) setSelect(cols ...BoundColumn[O]) {
+	if core.buildErr != nil {
+		return
+	}
+
+	if core.phase != builderPhaseNeedSelect && core.phase != builderPhaseNeedFrom {
+		core.failTransition("Select()")
+		return
+	}
+
+	core.spec.Selects = make([]BoundColumn[O], 0, len(cols))
+	core.addSelectColumns(cols...)
+
+	if core.phase == builderPhaseNeedSelect {
+		core.phase = builderPhaseBase
+	}
 }
 
-// LeftJoin adds a LEFT JOIN clause with ON conditions joined by AND.
-// To join a table to itself, pass an aliased table and rebound columns.
-// If the builder is in an error state, this method returns immediately without modifying the query.
-func (qb *QueryBuilder[O]) LeftJoin(table Table, conds ...Condition) *QueryBuilder[O] {
-	return qb.addJoin(LeftJoinType, table, conds...)
-}
+func (core *queryBuilderCore[O]) addJoin(joinType JoinType, table Table, conds ...Condition) {
+	if core.buildErr != nil {
+		return
+	}
 
-// InnerJoin adds an INNER JOIN clause with ON conditions joined by AND.
-// To join a table to itself, pass an aliased table and rebound columns.
-// If the builder is in an error state, this method returns immediately without modifying the query.
-func (qb *QueryBuilder[O]) InnerJoin(table Table, conds ...Condition) *QueryBuilder[O] {
-	return qb.addJoin(InnerJoinType, table, conds...)
-}
-
-// RightJoin adds a RIGHT JOIN clause with ON conditions joined by AND.
-// To join a table to itself, pass an aliased table and rebound columns.
-// If the builder is in an error state, this method returns immediately without modifying the query.
-func (qb *QueryBuilder[O]) RightJoin(table Table, conds ...Condition) *QueryBuilder[O] {
-	return qb.addJoin(RightJoinType, table, conds...)
-}
-
-// FullJoin adds a FULL JOIN clause with ON conditions joined by AND. SQL generation is supported,
-// but execution still depends on the target dialect supporting FULL JOIN.
-// To join a table to itself, pass an aliased table and rebound columns.
-// If the builder is in an error state, this method returns immediately without modifying the query.
-func (qb *QueryBuilder[O]) FullJoin(table Table, conds ...Condition) *QueryBuilder[O] {
-	return qb.addJoin(FullJoinType, table, conds...)
-}
-
-func (qb *QueryBuilder[O]) addJoin(joinType JoinType, table Table, conds ...Condition) *QueryBuilder[O] {
-	qb = qb.ensureInitialized()
-
-	if qb.buildErr != nil {
-		return qb
+	if core.phase != builderPhaseBase {
+		core.failTransition(string(joinType))
+		return
 	}
 
 	if err := validateTableInput(table, "join table"); err != nil {
-		qb.setBuildError(errors.Trace(err))
-		return qb
+		core.setBuildError(errors.Trace(err))
+		return
 	}
 
 	on := make([]Condition, 0, len(conds))
 	for _, cond := range conds {
 		if _, _, _, err := validateConditionInput(cond); err != nil {
-			qb.setBuildError(errors.Trace(err))
-			return qb
+			core.setBuildError(errors.Trace(err))
+			return
 		}
 
 		on = append(on, cond)
 	}
 
-	qb.spec.Joins = append(qb.spec.Joins, join{
+	core.spec.Joins = append(core.spec.Joins, join{
 		joinType: joinType,
 		table:    table,
 		on:       on,
 	})
-
-	return qb
 }
 
-// CrossJoin adds a CROSS JOIN clause.
-// If the builder is in an error state, this method returns immediately without modifying the query.
-func (qb *QueryBuilder[O]) CrossJoin(table Table) *QueryBuilder[O] {
-	qb = qb.ensureInitialized()
+func (core *queryBuilderCore[O]) addCrossJoin(table Table) {
+	if core.buildErr != nil {
+		return
+	}
 
-	if qb.buildErr != nil {
-		return qb
+	if core.phase != builderPhaseBase {
+		core.failTransition("CrossJoin()")
+		return
 	}
 
 	if err := validateTableInput(table, "cross join table"); err != nil {
-		qb.setBuildError(errors.Trace(err))
-		return qb
+		core.setBuildError(errors.Trace(err))
+		return
 	}
 
-	qb.spec.Joins = append(qb.spec.Joins, join{
+	core.spec.Joins = append(core.spec.Joins, join{
 		joinType: CrossJoinType,
 		table:    table,
 	})
-
-	return qb
 }
 
-// GroupBy adds GROUP BY clause with the specified columns.
-// If the builder is in an error state, this method returns immediately without modifying the query.
-func (qb *QueryBuilder[O]) GroupBy(cols ...SQLColumn) *QueryBuilder[O] {
-	qb = qb.ensureInitialized()
-
-	if qb.buildErr != nil {
-		return qb
+func (core *queryBuilderCore[O]) setWhere(conds ...Condition) {
+	if core.buildErr != nil {
+		return
 	}
 
-	if qb.groupByCalled {
-		qb.setBuildError(errors.New("GroupBy() can only be called once"))
-		return qb
+	switch core.phase {
+	case builderPhaseBase, builderPhaseKwSearch:
+	default:
+		core.failTransition("Where()")
+		return
 	}
-	qb.groupByCalled = true
-
-	for _, col := range cols {
-		qb.appendColumn(&qb.spec.GroupBy, col)
-	}
-
-	return qb
-}
-
-// Having adds HAVING clause with the specified conditions.
-// If the builder is in an error state, this method returns immediately without modifying the query.
-func (qb *QueryBuilder[O]) Having(conds ...Condition) *QueryBuilder[O] {
-	qb = qb.ensureInitialized()
-
-	if qb.buildErr != nil {
-		return qb
-	}
-
-	if qb.havingCalled {
-		qb.setBuildError(errors.New("Having() can only be called once"))
-		return qb
-	}
-	qb.havingCalled = true
-
-	for _, cond := range conds {
-		qb.appendCondition(&qb.spec.Having, cond)
-	}
-
-	return qb
-}
-
-// Where replaces any existing WHERE conditions for the query.
-// If the builder is in an error state, this method returns immediately without modifying the query.
-func (qb *QueryBuilder[O]) Where(conds ...Condition) *QueryBuilder[O] {
-	return qb.SetWhere(conds...)
-}
-
-// SetWhere replaces any existing WHERE conditions for the query.
-// If the builder is in an error state, this method returns immediately without modifying the query.
-func (qb *QueryBuilder[O]) SetWhere(conds ...Condition) *QueryBuilder[O] {
-	qb = qb.ensureInitialized()
-
-	if qb.buildErr != nil {
-		return qb
-	}
-
-	if qb.whereCalled {
-		qb.setBuildError(errors.New("Where() or SetWhere() can only be called once"))
-		return qb
-	}
-	qb.whereCalled = true
 
 	filters := make([]Condition, 0, len(conds))
 	for _, cond := range conds {
-		qb.appendCondition(&filters, cond)
+		core.appendCondition(&filters, cond)
 	}
 
-	qb.spec.Filters = filters
+	core.spec.Filters = filters
+	if core.phase == builderPhaseKwSearch {
+		core.phase = builderPhaseFiltered
+		return
+	}
 
-	return qb
+	core.phase = builderPhaseWhere
 }
 
-// And adds additional conditions with AND logic.
-// If the builder is in an error state, this method returns immediately without modifying the query.
-func (qb *QueryBuilder[O]) And(conds ...Condition) *QueryBuilder[O] {
-	qb = qb.ensureInitialized()
-
-	if qb.buildErr != nil {
-		return qb
+func (core *queryBuilderCore[O]) setKwSearch(cols ...SearchColumn) {
+	if core.buildErr != nil {
+		return
 	}
 
+	switch core.phase {
+	case builderPhaseBase, builderPhaseWhere:
+	default:
+		core.failTransition("KwSearch()")
+		return
+	}
+
+	core.spec.KeywordSearch = make([]SearchColumn, 0, len(cols))
+	for _, col := range cols {
+		core.appendSearchColumn(&core.spec.KeywordSearch, col)
+	}
+
+	if core.phase == builderPhaseWhere {
+		core.phase = builderPhaseFiltered
+		return
+	}
+
+	core.phase = builderPhaseKwSearch
+}
+
+func (core *queryBuilderCore[O]) setGroupBy(cols ...SQLColumn) {
+	if core.buildErr != nil {
+		return
+	}
+
+	switch core.phase {
+	case builderPhaseBase, builderPhaseWhere, builderPhaseKwSearch, builderPhaseFiltered:
+	default:
+		core.failTransition("GroupBy()")
+		return
+	}
+
+	core.spec.GroupBy = make([]SQLColumn, 0, len(cols))
+	for _, col := range cols {
+		core.appendColumn(&core.spec.GroupBy, col)
+	}
+
+	core.phase = builderPhaseGrouped
+}
+
+func (core *queryBuilderCore[O]) setHaving(conds ...Condition) {
+	if core.buildErr != nil {
+		return
+	}
+
+	if core.phase != builderPhaseGrouped {
+		core.failTransition("Having()")
+		return
+	}
+
+	core.spec.Having = make([]Condition, 0, len(conds))
 	for _, cond := range conds {
-		qb.appendCondition(&qb.spec.Filters, cond)
+		core.appendCondition(&core.spec.Having, cond)
 	}
 
-	return qb
+	core.phase = builderPhaseHaving
 }
 
-// AndIf conditionally adds conditions with AND logic.
-// If the builder is in an error state, this method returns immediately without modifying the query.
-func (qb *QueryBuilder[O]) AndIf(ok bool, conds ...Condition) *QueryBuilder[O] {
-	qb = qb.ensureInitialized()
-
-	if qb.buildErr != nil {
-		return qb
+func (core *queryBuilderCore[O]) isComplete() bool {
+	switch core.phase {
+	case builderPhaseBase,
+		builderPhaseWhere,
+		builderPhaseKwSearch,
+		builderPhaseFiltered,
+		builderPhaseGrouped,
+		builderPhaseHaving,
+		builderPhaseCompound:
+		return true
+	default:
+		return false
 	}
-
-	if ok {
-		return qb.And(conds...)
-	}
-
-	return qb
 }
 
-// KwSearch replaces any existing keyword-search columns.
-// If the builder is in an error state, this method returns immediately without modifying the query.
-func (qb *QueryBuilder[O]) KwSearch(cols ...SearchColumn) *QueryBuilder[O] {
-	return qb.SetKwSearch(cols...)
+func (core *queryBuilderCore[O]) appendSetOperation(op SetOperationType, other completeQueryStage[O]) {
+	if core.buildErr != nil {
+		return
+	}
+
+	if !core.isComplete() {
+		core.failTransition(string(op))
+		return
+	}
+
+	if other == nil || other.core() == nil {
+		core.setBuildError(errors.New("set operation query builder cannot be nil"))
+		return
+	}
+
+	otherCore := ensureQueryBuilderCore(other.core(), builderPhaseBase, false)
+	if otherCore.buildErr != nil {
+		core.setBuildError(errors.Trace(otherCore.buildErr))
+		return
+	}
+
+	if !otherCore.isComplete() {
+		core.setBuildError(errors.Errorf("set operation %s requires a complete query", op))
+		return
+	}
+
+	if len(core.spec.Selects) == 0 || len(otherCore.spec.Selects) == 0 {
+		core.setBuildError(errors.New("set operations require both queries to select at least one column"))
+		return
+	}
+
+	if len(core.spec.Selects) != len(otherCore.spec.Selects) {
+		core.setBuildError(errors.Errorf(
+			"set operation %s requires matching select column counts: left=%d right=%d",
+			op,
+			len(core.spec.Selects),
+			len(otherCore.spec.Selects),
+		))
+
+		return
+	}
+
+	if len(core.spec.KeywordSearch) > 0 || len(otherCore.spec.KeywordSearch) > 0 {
+		core.setBuildError(errors.New("set operations do not support keyword search"))
+		return
+	}
+
+	core.spec.SetOps = append(core.spec.SetOps, setOperation[O]{
+		op:   op,
+		spec: cloneQuerySpec(otherCore.spec),
+	})
+	core.phase = builderPhaseCompound
 }
 
-// SetKwSearch replaces any existing keyword-search columns.
-// If the builder is in an error state, this method returns immediately without modifying the query.
-func (qb *QueryBuilder[O]) SetKwSearch(cols ...SearchColumn) *QueryBuilder[O] {
-	qb = qb.ensureInitialized()
+// From sets the base table for a SELECT-first builder.
+func (qb *SelectBuilder[O]) From(table Table) *QueryBuilder[O] {
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseNeedFrom, qb == nil)
+	core.setFrom(table)
 
-	if qb.buildErr != nil {
-		return qb
-	}
-
-	if qb.kwSearchCalled {
-		qb.setBuildError(errors.New("KwSearch() or SetKwSearch() can only be called once"))
-		return qb
-	}
-	qb.kwSearchCalled = true
-
-	qb.spec.KeywordSearch = make([]SearchColumn, 0, len(cols))
-
-	for _, col := range cols {
-		qb.appendSearchColumn(&qb.spec.KeywordSearch, col)
-	}
-
-	return qb
+	return &QueryBuilder[O]{queryBuilderCore: core}
 }
 
-// AppendKwSearch adds keyword-search columns without replacing existing ones.
-// If the builder is in an error state, this method returns immediately without modifying the query.
-func (qb *QueryBuilder[O]) AppendKwSearch(cols ...SearchColumn) *QueryBuilder[O] {
-	qb = qb.ensureInitialized()
+// Select sets the projected columns for a FROM-first builder.
+func (qb *FromBuilder[O]) Select(cols ...BoundColumn[O]) *QueryBuilder[O] {
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseNeedSelect, qb == nil)
+	core.setSelect(cols...)
 
-	if qb.buildErr != nil {
-		return qb
+	return &QueryBuilder[O]{queryBuilderCore: core}
+}
+
+// Join adds an INNER JOIN clause.
+func (qb *QueryBuilder[O]) Join(table Table, conds ...Condition) *QueryBuilder[O] {
+	return qb.InnerJoin(table, conds...)
+}
+
+// LeftJoin adds a LEFT JOIN clause with ON conditions joined by AND.
+func (qb *QueryBuilder[O]) LeftJoin(table Table, conds ...Condition) *QueryBuilder[O] {
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseBase, qb == nil)
+	core.addJoin(LeftJoinType, table, conds...)
+
+	return &QueryBuilder[O]{queryBuilderCore: core}
+}
+
+// InnerJoin adds an INNER JOIN clause with ON conditions joined by AND.
+func (qb *QueryBuilder[O]) InnerJoin(table Table, conds ...Condition) *QueryBuilder[O] {
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseBase, qb == nil)
+	core.addJoin(InnerJoinType, table, conds...)
+
+	return &QueryBuilder[O]{queryBuilderCore: core}
+}
+
+// RightJoin adds a RIGHT JOIN clause with ON conditions joined by AND.
+func (qb *QueryBuilder[O]) RightJoin(table Table, conds ...Condition) *QueryBuilder[O] {
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseBase, qb == nil)
+	core.addJoin(RightJoinType, table, conds...)
+
+	return &QueryBuilder[O]{queryBuilderCore: core}
+}
+
+// FullJoin adds a FULL JOIN clause with ON conditions joined by AND.
+func (qb *QueryBuilder[O]) FullJoin(table Table, conds ...Condition) *QueryBuilder[O] {
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseBase, qb == nil)
+	core.addJoin(FullJoinType, table, conds...)
+
+	return &QueryBuilder[O]{queryBuilderCore: core}
+}
+
+// CrossJoin adds a CROSS JOIN clause.
+func (qb *QueryBuilder[O]) CrossJoin(table Table) *QueryBuilder[O] {
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseBase, qb == nil)
+	core.addCrossJoin(table)
+
+	return &QueryBuilder[O]{queryBuilderCore: core}
+}
+
+// Where sets the WHERE clause for the query.
+func (qb *QueryBuilder[O]) Where(conds ...Condition) *WhereQueryBuilder[O] {
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseBase, qb == nil)
+	core.setWhere(conds...)
+
+	return &WhereQueryBuilder[O]{queryBuilderCore: core}
+}
+
+// KwSearch sets keyword-search columns for the query.
+func (qb *QueryBuilder[O]) KwSearch(cols ...SearchColumn) *KwSearchQueryBuilder[O] {
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseBase, qb == nil)
+	core.setKwSearch(cols...)
+
+	return &KwSearchQueryBuilder[O]{queryBuilderCore: core}
+}
+
+// GroupBy sets the GROUP BY clause for the query.
+func (qb *QueryBuilder[O]) GroupBy(cols ...SQLColumn) *GroupedQueryBuilder[O] {
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseBase, qb == nil)
+	core.setGroupBy(cols...)
+
+	return &GroupedQueryBuilder[O]{queryBuilderCore: core}
+}
+
+// Where sets the WHERE clause after keyword-search columns are fixed.
+func (qb *KwSearchQueryBuilder[O]) Where(conds ...Condition) *FilteredQueryBuilder[O] {
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseKwSearch, qb == nil)
+	core.setWhere(conds...)
+
+	return &FilteredQueryBuilder[O]{queryBuilderCore: core}
+}
+
+// KwSearch sets keyword-search columns after WHERE is fixed.
+func (qb *WhereQueryBuilder[O]) KwSearch(cols ...SearchColumn) *FilteredQueryBuilder[O] {
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseWhere, qb == nil)
+	core.setKwSearch(cols...)
+
+	return &FilteredQueryBuilder[O]{queryBuilderCore: core}
+}
+
+// GroupBy sets the GROUP BY clause after WHERE is fixed.
+func (qb *WhereQueryBuilder[O]) GroupBy(cols ...SQLColumn) *GroupedQueryBuilder[O] {
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseWhere, qb == nil)
+	core.setGroupBy(cols...)
+
+	return &GroupedQueryBuilder[O]{queryBuilderCore: core}
+}
+
+// GroupBy sets the GROUP BY clause after keyword search is fixed.
+func (qb *KwSearchQueryBuilder[O]) GroupBy(cols ...SQLColumn) *GroupedQueryBuilder[O] {
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseKwSearch, qb == nil)
+	core.setGroupBy(cols...)
+
+	return &GroupedQueryBuilder[O]{queryBuilderCore: core}
+}
+
+// GroupBy sets the GROUP BY clause after all filters are fixed.
+func (qb *FilteredQueryBuilder[O]) GroupBy(cols ...SQLColumn) *GroupedQueryBuilder[O] {
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseFiltered, qb == nil)
+	core.setGroupBy(cols...)
+
+	return &GroupedQueryBuilder[O]{queryBuilderCore: core}
+}
+
+// Having sets the HAVING clause for the grouped query.
+func (qb *GroupedQueryBuilder[O]) Having(conds ...Condition) *HavingQueryBuilder[O] {
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseGrouped, qb == nil)
+	core.setHaving(conds...)
+
+	return &HavingQueryBuilder[O]{queryBuilderCore: core}
+}
+
+func buildQuery[O Owner](core *queryBuilderCore[O]) (*Query[O], error) {
+	if core == nil {
+		return nil, errors.New("query builder cannot be nil")
 	}
 
-	for _, col := range cols {
-		qb.appendSearchColumn(&qb.spec.KeywordSearch, col)
+	core = ensureQueryBuilderCore(core, core.phase, false)
+	if core.buildErr != nil {
+		return nil, errors.Trace(core.buildErr)
 	}
 
-	return qb
+	plan, err := buildQueryPlan(core.spec)
+	if err != nil {
+		return nil, errors.Trace(err)
+	}
+
+	return &Query[O]{
+		cntSQL:     plan.cntSQL,
+		listSQL:    plan.listSQL,
+		kwCntSQL:   plan.kwCntSQL,
+		kwListSQL:  plan.kwListSQL,
+		cntArgs:    plan.cntArgs,
+		listArgs:   plan.listArgs,
+		kwCntArgs:  plan.kwCntArgs,
+		kwListArgs: plan.kwListArgs,
+
+		selectCols:   cloneBoundColumns(core.spec.Selects),
+		selectTables: core.spec.selectTables(),
+		kwCols:       cloneSearchColumns(core.spec.KeywordSearch),
+		kwTables:     core.spec.keywordTables(),
+		hasSetOps:    len(core.spec.SetOps) > 0,
+	}, nil
+}
+
+func cloneBoundColumns[O Owner](cols []BoundColumn[O]) []BoundColumn[O] {
+	if len(cols) == 0 {
+		return nil
+	}
+
+	return append([]BoundColumn[O](nil), cols...)
+}
+
+func cloneSearchColumns(cols []SearchColumn) []SearchColumn {
+	if len(cols) == 0 {
+		return nil
+	}
+
+	return append([]SearchColumn(nil), cols...)
+}
+
+// Build builds and validates the query.
+func (qb *QueryBuilder[O]) Build() (*Query[O], error) {
+	return buildQuery(qb.core())
+}
+
+// Build builds and validates the query.
+func (qb *WhereQueryBuilder[O]) Build() (*Query[O], error) {
+	return buildQuery(qb.core())
+}
+
+// Build builds and validates the query.
+func (qb *KwSearchQueryBuilder[O]) Build() (*Query[O], error) {
+	return buildQuery(qb.core())
+}
+
+// Build builds and validates the query.
+func (qb *FilteredQueryBuilder[O]) Build() (*Query[O], error) {
+	return buildQuery(qb.core())
+}
+
+// Build builds and validates the query.
+func (qb *GroupedQueryBuilder[O]) Build() (*Query[O], error) {
+	return buildQuery(qb.core())
+}
+
+// Build builds and validates the query.
+func (qb *HavingQueryBuilder[O]) Build() (*Query[O], error) {
+	return buildQuery(qb.core())
+}
+
+// Build builds and validates the query.
+func (qb *CompoundQueryBuilder[O]) Build() (*Query[O], error) {
+	return buildQuery(qb.core())
+}
+
+// Union appends a UNION clause to the current query.
+func (qb *QueryBuilder[O]) Union(other completeQueryStage[O]) *CompoundQueryBuilder[O] {
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseBase, qb == nil)
+	core.appendSetOperation(UnionType, other)
+
+	return &CompoundQueryBuilder[O]{queryBuilderCore: core}
+}
+
+// Union appends a UNION clause to the current query.
+func (qb *WhereQueryBuilder[O]) Union(other completeQueryStage[O]) *CompoundQueryBuilder[O] {
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseWhere, qb == nil)
+	core.appendSetOperation(UnionType, other)
+
+	return &CompoundQueryBuilder[O]{queryBuilderCore: core}
+}
+
+// Union appends a UNION clause to the current query.
+func (qb *KwSearchQueryBuilder[O]) Union(other completeQueryStage[O]) *CompoundQueryBuilder[O] {
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseKwSearch, qb == nil)
+	core.appendSetOperation(UnionType, other)
+
+	return &CompoundQueryBuilder[O]{queryBuilderCore: core}
+}
+
+// Union appends a UNION clause to the current query.
+func (qb *FilteredQueryBuilder[O]) Union(other completeQueryStage[O]) *CompoundQueryBuilder[O] {
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseFiltered, qb == nil)
+	core.appendSetOperation(UnionType, other)
+
+	return &CompoundQueryBuilder[O]{queryBuilderCore: core}
+}
+
+// Union appends a UNION clause to the current query.
+func (qb *GroupedQueryBuilder[O]) Union(other completeQueryStage[O]) *CompoundQueryBuilder[O] {
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseGrouped, qb == nil)
+	core.appendSetOperation(UnionType, other)
+
+	return &CompoundQueryBuilder[O]{queryBuilderCore: core}
+}
+
+// Union appends a UNION clause to the current query.
+func (qb *HavingQueryBuilder[O]) Union(other completeQueryStage[O]) *CompoundQueryBuilder[O] {
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseHaving, qb == nil)
+	core.appendSetOperation(UnionType, other)
+
+	return &CompoundQueryBuilder[O]{queryBuilderCore: core}
+}
+
+// Union appends a UNION clause to the current query.
+func (qb *CompoundQueryBuilder[O]) Union(other completeQueryStage[O]) *CompoundQueryBuilder[O] {
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseCompound, qb == nil)
+	core.appendSetOperation(UnionType, other)
+
+	return &CompoundQueryBuilder[O]{queryBuilderCore: core}
+}
+
+// UnionAll appends a UNION ALL clause to the current query.
+func (qb *QueryBuilder[O]) UnionAll(other completeQueryStage[O]) *CompoundQueryBuilder[O] {
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseBase, qb == nil)
+	core.appendSetOperation(UnionAllType, other)
+
+	return &CompoundQueryBuilder[O]{queryBuilderCore: core}
+}
+
+// UnionAll appends a UNION ALL clause to the current query.
+func (qb *WhereQueryBuilder[O]) UnionAll(other completeQueryStage[O]) *CompoundQueryBuilder[O] {
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseWhere, qb == nil)
+	core.appendSetOperation(UnionAllType, other)
+
+	return &CompoundQueryBuilder[O]{queryBuilderCore: core}
+}
+
+// UnionAll appends a UNION ALL clause to the current query.
+func (qb *KwSearchQueryBuilder[O]) UnionAll(other completeQueryStage[O]) *CompoundQueryBuilder[O] {
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseKwSearch, qb == nil)
+	core.appendSetOperation(UnionAllType, other)
+
+	return &CompoundQueryBuilder[O]{queryBuilderCore: core}
+}
+
+// UnionAll appends a UNION ALL clause to the current query.
+func (qb *FilteredQueryBuilder[O]) UnionAll(other completeQueryStage[O]) *CompoundQueryBuilder[O] {
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseFiltered, qb == nil)
+	core.appendSetOperation(UnionAllType, other)
+
+	return &CompoundQueryBuilder[O]{queryBuilderCore: core}
+}
+
+// UnionAll appends a UNION ALL clause to the current query.
+func (qb *GroupedQueryBuilder[O]) UnionAll(other completeQueryStage[O]) *CompoundQueryBuilder[O] {
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseGrouped, qb == nil)
+	core.appendSetOperation(UnionAllType, other)
+
+	return &CompoundQueryBuilder[O]{queryBuilderCore: core}
+}
+
+// UnionAll appends a UNION ALL clause to the current query.
+func (qb *HavingQueryBuilder[O]) UnionAll(other completeQueryStage[O]) *CompoundQueryBuilder[O] {
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseHaving, qb == nil)
+	core.appendSetOperation(UnionAllType, other)
+
+	return &CompoundQueryBuilder[O]{queryBuilderCore: core}
+}
+
+// UnionAll appends a UNION ALL clause to the current query.
+func (qb *CompoundQueryBuilder[O]) UnionAll(other completeQueryStage[O]) *CompoundQueryBuilder[O] {
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseCompound, qb == nil)
+	core.appendSetOperation(UnionAllType, other)
+
+	return &CompoundQueryBuilder[O]{queryBuilderCore: core}
+}
+
+// Intersect appends an INTERSECT clause to the current query.
+func (qb *QueryBuilder[O]) Intersect(other completeQueryStage[O]) *CompoundQueryBuilder[O] {
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseBase, qb == nil)
+	core.appendSetOperation(IntersectType, other)
+
+	return &CompoundQueryBuilder[O]{queryBuilderCore: core}
+}
+
+// Intersect appends an INTERSECT clause to the current query.
+func (qb *WhereQueryBuilder[O]) Intersect(other completeQueryStage[O]) *CompoundQueryBuilder[O] {
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseWhere, qb == nil)
+	core.appendSetOperation(IntersectType, other)
+
+	return &CompoundQueryBuilder[O]{queryBuilderCore: core}
+}
+
+// Intersect appends an INTERSECT clause to the current query.
+func (qb *KwSearchQueryBuilder[O]) Intersect(other completeQueryStage[O]) *CompoundQueryBuilder[O] {
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseKwSearch, qb == nil)
+	core.appendSetOperation(IntersectType, other)
+
+	return &CompoundQueryBuilder[O]{queryBuilderCore: core}
+}
+
+// Intersect appends an INTERSECT clause to the current query.
+func (qb *FilteredQueryBuilder[O]) Intersect(other completeQueryStage[O]) *CompoundQueryBuilder[O] {
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseFiltered, qb == nil)
+	core.appendSetOperation(IntersectType, other)
+
+	return &CompoundQueryBuilder[O]{queryBuilderCore: core}
+}
+
+// Intersect appends an INTERSECT clause to the current query.
+func (qb *GroupedQueryBuilder[O]) Intersect(other completeQueryStage[O]) *CompoundQueryBuilder[O] {
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseGrouped, qb == nil)
+	core.appendSetOperation(IntersectType, other)
+
+	return &CompoundQueryBuilder[O]{queryBuilderCore: core}
+}
+
+// Intersect appends an INTERSECT clause to the current query.
+func (qb *HavingQueryBuilder[O]) Intersect(other completeQueryStage[O]) *CompoundQueryBuilder[O] {
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseHaving, qb == nil)
+	core.appendSetOperation(IntersectType, other)
+
+	return &CompoundQueryBuilder[O]{queryBuilderCore: core}
+}
+
+// Intersect appends an INTERSECT clause to the current query.
+func (qb *CompoundQueryBuilder[O]) Intersect(other completeQueryStage[O]) *CompoundQueryBuilder[O] {
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseCompound, qb == nil)
+	core.appendSetOperation(IntersectType, other)
+
+	return &CompoundQueryBuilder[O]{queryBuilderCore: core}
+}
+
+// IntersectAll appends an INTERSECT ALL clause to the current query.
+func (qb *QueryBuilder[O]) IntersectAll(other completeQueryStage[O]) *CompoundQueryBuilder[O] {
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseBase, qb == nil)
+	core.appendSetOperation(IntersectAllType, other)
+
+	return &CompoundQueryBuilder[O]{queryBuilderCore: core}
+}
+
+// IntersectAll appends an INTERSECT ALL clause to the current query.
+func (qb *WhereQueryBuilder[O]) IntersectAll(other completeQueryStage[O]) *CompoundQueryBuilder[O] {
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseWhere, qb == nil)
+	core.appendSetOperation(IntersectAllType, other)
+
+	return &CompoundQueryBuilder[O]{queryBuilderCore: core}
+}
+
+// IntersectAll appends an INTERSECT ALL clause to the current query.
+func (qb *KwSearchQueryBuilder[O]) IntersectAll(other completeQueryStage[O]) *CompoundQueryBuilder[O] {
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseKwSearch, qb == nil)
+	core.appendSetOperation(IntersectAllType, other)
+
+	return &CompoundQueryBuilder[O]{queryBuilderCore: core}
+}
+
+// IntersectAll appends an INTERSECT ALL clause to the current query.
+func (qb *FilteredQueryBuilder[O]) IntersectAll(other completeQueryStage[O]) *CompoundQueryBuilder[O] {
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseFiltered, qb == nil)
+	core.appendSetOperation(IntersectAllType, other)
+
+	return &CompoundQueryBuilder[O]{queryBuilderCore: core}
+}
+
+// IntersectAll appends an INTERSECT ALL clause to the current query.
+func (qb *GroupedQueryBuilder[O]) IntersectAll(other completeQueryStage[O]) *CompoundQueryBuilder[O] {
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseGrouped, qb == nil)
+	core.appendSetOperation(IntersectAllType, other)
+
+	return &CompoundQueryBuilder[O]{queryBuilderCore: core}
+}
+
+// IntersectAll appends an INTERSECT ALL clause to the current query.
+func (qb *HavingQueryBuilder[O]) IntersectAll(other completeQueryStage[O]) *CompoundQueryBuilder[O] {
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseHaving, qb == nil)
+	core.appendSetOperation(IntersectAllType, other)
+
+	return &CompoundQueryBuilder[O]{queryBuilderCore: core}
+}
+
+// IntersectAll appends an INTERSECT ALL clause to the current query.
+func (qb *CompoundQueryBuilder[O]) IntersectAll(other completeQueryStage[O]) *CompoundQueryBuilder[O] {
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseCompound, qb == nil)
+	core.appendSetOperation(IntersectAllType, other)
+
+	return &CompoundQueryBuilder[O]{queryBuilderCore: core}
+}
+
+// Except appends an EXCEPT clause to the current query.
+func (qb *QueryBuilder[O]) Except(other completeQueryStage[O]) *CompoundQueryBuilder[O] {
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseBase, qb == nil)
+	core.appendSetOperation(ExceptType, other)
+
+	return &CompoundQueryBuilder[O]{queryBuilderCore: core}
+}
+
+// Except appends an EXCEPT clause to the current query.
+func (qb *WhereQueryBuilder[O]) Except(other completeQueryStage[O]) *CompoundQueryBuilder[O] {
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseWhere, qb == nil)
+	core.appendSetOperation(ExceptType, other)
+
+	return &CompoundQueryBuilder[O]{queryBuilderCore: core}
+}
+
+// Except appends an EXCEPT clause to the current query.
+func (qb *KwSearchQueryBuilder[O]) Except(other completeQueryStage[O]) *CompoundQueryBuilder[O] {
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseKwSearch, qb == nil)
+	core.appendSetOperation(ExceptType, other)
+
+	return &CompoundQueryBuilder[O]{queryBuilderCore: core}
+}
+
+// Except appends an EXCEPT clause to the current query.
+func (qb *FilteredQueryBuilder[O]) Except(other completeQueryStage[O]) *CompoundQueryBuilder[O] {
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseFiltered, qb == nil)
+	core.appendSetOperation(ExceptType, other)
+
+	return &CompoundQueryBuilder[O]{queryBuilderCore: core}
+}
+
+// Except appends an EXCEPT clause to the current query.
+func (qb *GroupedQueryBuilder[O]) Except(other completeQueryStage[O]) *CompoundQueryBuilder[O] {
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseGrouped, qb == nil)
+	core.appendSetOperation(ExceptType, other)
+
+	return &CompoundQueryBuilder[O]{queryBuilderCore: core}
+}
+
+// Except appends an EXCEPT clause to the current query.
+func (qb *HavingQueryBuilder[O]) Except(other completeQueryStage[O]) *CompoundQueryBuilder[O] {
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseHaving, qb == nil)
+	core.appendSetOperation(ExceptType, other)
+
+	return &CompoundQueryBuilder[O]{queryBuilderCore: core}
+}
+
+// Except appends an EXCEPT clause to the current query.
+func (qb *CompoundQueryBuilder[O]) Except(other completeQueryStage[O]) *CompoundQueryBuilder[O] {
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseCompound, qb == nil)
+	core.appendSetOperation(ExceptType, other)
+
+	return &CompoundQueryBuilder[O]{queryBuilderCore: core}
+}
+
+// ExceptAll appends an EXCEPT ALL clause to the current query.
+func (qb *QueryBuilder[O]) ExceptAll(other completeQueryStage[O]) *CompoundQueryBuilder[O] {
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseBase, qb == nil)
+	core.appendSetOperation(ExceptAllType, other)
+
+	return &CompoundQueryBuilder[O]{queryBuilderCore: core}
+}
+
+// ExceptAll appends an EXCEPT ALL clause to the current query.
+func (qb *WhereQueryBuilder[O]) ExceptAll(other completeQueryStage[O]) *CompoundQueryBuilder[O] {
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseWhere, qb == nil)
+	core.appendSetOperation(ExceptAllType, other)
+
+	return &CompoundQueryBuilder[O]{queryBuilderCore: core}
+}
+
+// ExceptAll appends an EXCEPT ALL clause to the current query.
+func (qb *KwSearchQueryBuilder[O]) ExceptAll(other completeQueryStage[O]) *CompoundQueryBuilder[O] {
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseKwSearch, qb == nil)
+	core.appendSetOperation(ExceptAllType, other)
+
+	return &CompoundQueryBuilder[O]{queryBuilderCore: core}
+}
+
+// ExceptAll appends an EXCEPT ALL clause to the current query.
+func (qb *FilteredQueryBuilder[O]) ExceptAll(other completeQueryStage[O]) *CompoundQueryBuilder[O] {
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseFiltered, qb == nil)
+	core.appendSetOperation(ExceptAllType, other)
+
+	return &CompoundQueryBuilder[O]{queryBuilderCore: core}
+}
+
+// ExceptAll appends an EXCEPT ALL clause to the current query.
+func (qb *GroupedQueryBuilder[O]) ExceptAll(other completeQueryStage[O]) *CompoundQueryBuilder[O] {
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseGrouped, qb == nil)
+	core.appendSetOperation(ExceptAllType, other)
+
+	return &CompoundQueryBuilder[O]{queryBuilderCore: core}
+}
+
+// ExceptAll appends an EXCEPT ALL clause to the current query.
+func (qb *HavingQueryBuilder[O]) ExceptAll(other completeQueryStage[O]) *CompoundQueryBuilder[O] {
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseHaving, qb == nil)
+	core.appendSetOperation(ExceptAllType, other)
+
+	return &CompoundQueryBuilder[O]{queryBuilderCore: core}
+}
+
+// ExceptAll appends an EXCEPT ALL clause to the current query.
+func (qb *CompoundQueryBuilder[O]) ExceptAll(other completeQueryStage[O]) *CompoundQueryBuilder[O] {
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseCompound, qb == nil)
+	core.appendSetOperation(ExceptAllType, other)
+
+	return &CompoundQueryBuilder[O]{queryBuilderCore: core}
 }

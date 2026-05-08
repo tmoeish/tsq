@@ -26,7 +26,7 @@ func TestAPIDocumentation_PublicMethods(t *testing.T) {
 			},
 		},
 		{
-			name: "QueryBuilder_Where_AddConditions",
+			name: "QueryBuilder_Where_SetsAndConditions",
 			test: func(t *testing.T) {
 				table := newMockTable("users")
 				idCol := newColForTable[Table, int](table, "id", "id", nil)
@@ -34,8 +34,7 @@ func TestAPIDocumentation_PublicMethods(t *testing.T) {
 
 				qb := Select(idCol, nameCol).
 					From(idCol.Table()).
-					Where(idCol.GT(0)).
-					Where(nameCol.NE(""))
+					Where(idCol.GT(0), nameCol.NE(""))
 
 				if qb == nil {
 					t.Fatal("QueryBuilder returned nil")

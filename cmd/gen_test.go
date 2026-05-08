@@ -764,40 +764,6 @@ func TestValidateResultFieldsAcceptsMatchingTypes(t *testing.T) {
 	}
 }
 
-func TestValidateResultFieldsValidatesJoinTypes(t *testing.T) {
-	dto := &tsq.StructInfo{
-		TableInfo: &tsq.TableInfo{
-			IsResult: true,
-			JoinList: []tsq.JoinInfo{
-				{Left: "User.ID", Right: "Order.UserID"},
-			},
-		},
-		TypeInfo: tsq.TypeInfo{TypeName: "UserResult"},
-		Fields: []tsq.FieldInfo{
-			{Name: "UserID", Column: "User.ID", Type: tsq.TypeInfo{TypeName: "int64"}},
-		},
-	}
-
-	structsByName := map[string]*tsq.StructInfo{
-		"User": {
-			TableInfo: &tsq.TableInfo{Table: "user"},
-			FieldMap: map[string]tsq.FieldInfo{
-				"ID": {Name: "ID", Column: "id", Type: tsq.TypeInfo{TypeName: "int64"}},
-			},
-		},
-		"Order": {
-			TableInfo: &tsq.TableInfo{Table: "order"},
-			FieldMap: map[string]tsq.FieldInfo{
-				"UserID": {Name: "UserID", Column: "user_id", Type: tsq.TypeInfo{TypeName: "int64"}},
-			},
-		},
-	}
-
-	if err := validateResultFields(dto, structsByName); err != nil {
-		t.Fatalf("expected compatible Result join to pass, got %v", err)
-	}
-}
-
 func TestNormalizeResultColumnsUpdatesFieldMap(t *testing.T) {
 	dto := &tsq.StructInfo{
 		TableInfo: &tsq.TableInfo{IsResult: true},
@@ -820,15 +786,10 @@ func TestNormalizeResultColumnsUpdatesFieldMap(t *testing.T) {
 	}
 }
 
-func TestResultTemplateGeneratesTypedJoinEdges(t *testing.T) {
+func TestResultTemplateGeneratesProjectionOnlyResultFile(t *testing.T) {
 	dir := t.TempDir()
 	data := &tsq.StructInfo{
-		TableInfo: &tsq.TableInfo{
-			IsResult: true,
-			JoinList: []tsq.JoinInfo{
-				{Left: "User.ID", Right: "Order.UserID"},
-			},
-		},
+		TableInfo: &tsq.TableInfo{IsResult: true},
 		TypeInfo: tsq.TypeInfo{
 			Package:  tsq.PackageInfo{Name: "gentest"},
 			TypeName: "UserOrder",
@@ -856,26 +817,28 @@ func TestResultTemplateGeneratesTypedJoinEdges(t *testing.T) {
 
 	rendered := string(contents)
 	for _, want := range []string{
-		"LeftJoinOrder(on tsq.JoinOn[User, Order], conds ...tsq.JoinCond[User, Order])",
-		"UserOrderJoinConditions[Left, Right tsq.Table](on tsq.JoinOn[Left, Right], conds ...tsq.JoinCond[Left, Right])",
-		"GroupByUser(cols ...tsq.TableColumn[User])",
-		"GroupByOrder(cols ...tsq.TableColumn[Order])",
-		"KwSearchUser(cols ...tsq.TableColumn[User])",
-		"KwSearchOrder(cols ...tsq.TableColumn[Order])",
-		"HavingUser(conds ...tsq.Pred[User])",
-		"HavingOrder(conds ...tsq.Pred[Order])",
+		"var ResultUserOrder = UserOrder{}",
+		"func (uo UserOrder) TSQResult() {}",
+		"func (uo UserOrder) Cols() []tsq.BoundColumn[UserOrder] {",
+		"UserOrder_UserID = tsq.Into[UserOrder]",
 	} {
 		if !strings.Contains(rendered, want) {
-			t.Fatalf("expected generated Result query builder to contain %q, got:\n%s", want, rendered)
+			t.Fatalf("expected generated Result file to contain %q, got:\n%s", want, rendered)
 		}
 	}
 
 	for _, blocked := range []string{
-		"conds ...tsq.Condition",
-		"ons ...tsq.JoinOn",
+		"LeftJoinOrder(",
+		"SelectUserOrder(",
+		"WhereUser(",
+		"GroupByUser(",
+		"KwSearchUser(",
+		"HavingUser(",
+		"JoinOn[",
+		"JoinCond[",
 	} {
 		if strings.Contains(rendered, blocked) {
-			t.Fatalf("generated Result Join contains blocked API %q:\n%s", blocked, rendered)
+			t.Fatalf("generated Result file contains removed API %q:\n%s", blocked, rendered)
 		}
 	}
 }

@@ -10,13 +10,19 @@ func TestQueryBuilder_MultiCall_Select(t *testing.T) {
 	id := newMockColumn(table, "id")
 	name := newMockColumn(table, "name")
 
-	qb := Select(id).Select(name)
-	_, err := qb.Build()
+	sb := Select(id)
+	qb := sb.From(table)
+	second := sb.From(table)
+	if qb == nil || second == nil {
+		t.Fatal("expected initial Select/From to succeed")
+	}
+	_ = name
+	_, err := second.Build()
 	if err == nil {
-		t.Fatal("expected error when calling Select() twice")
+		t.Fatal("expected stale SelectBuilder to reject a second From()")
 	}
 
-	if !strings.Contains(err.Error(), "Select() can only be called once") {
+	if !strings.Contains(err.Error(), "From() is not available") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -26,13 +32,19 @@ func TestQueryBuilder_MultiCall_From(t *testing.T) {
 	table2 := newMockTable("orders")
 	id := newMockColumn(table1, "id")
 
-	qb := Select(id).From(table1).From(table2)
-	_, err := qb.Build()
+	fb := From[Table](table1)
+	qb := fb.Select(id)
+	second := fb.Select(id)
+	if qb == nil || second == nil {
+		t.Fatal("expected initial From/Select to succeed")
+	}
+	_ = table2
+	_, err := second.Build()
 	if err == nil {
-		t.Fatal("expected error when calling From() twice")
+		t.Fatal("expected stale FromBuilder to reject a second Select()")
 	}
 
-	if !strings.Contains(err.Error(), "From() can only be called once") {
+	if !strings.Contains(err.Error(), "Select() is not available") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -41,28 +53,17 @@ func TestQueryBuilder_MultiCall_Where(t *testing.T) {
 	table := newMockTable("users")
 	id := newMockColumn(table, "id")
 
-	qb := Select(id).From(table).Where(id.EQ("1")).Where(id.EQ("2"))
-	_, err := qb.Build()
+	qb := Select(id).From(table)
+	first := qb.Where(id.EQ("1"))
+	_, err := qb.Where(id.EQ("2")).Build()
 	if err == nil {
-		t.Fatal("expected error when calling Where() twice")
+		t.Fatal("expected stale QueryBuilder to reject a second Where()")
+	}
+	if first == nil {
+		t.Fatal("expected initial Where() to succeed")
 	}
 
-	if !strings.Contains(err.Error(), "Where() or SetWhere() can only be called once") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestQueryBuilder_MultiCall_SetWhere(t *testing.T) {
-	table := newMockTable("users")
-	id := newMockColumn(table, "id")
-
-	qb := Select(id).From(table).SetWhere(id.EQ("1")).SetWhere(id.EQ("2"))
-	_, err := qb.Build()
-	if err == nil {
-		t.Fatal("expected error when calling SetWhere() twice")
-	}
-
-	if !strings.Contains(err.Error(), "Where() or SetWhere() can only be called once") {
+	if !strings.Contains(err.Error(), "Where() is not available") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -72,13 +73,17 @@ func TestQueryBuilder_MultiCall_GroupBy(t *testing.T) {
 	id := newMockColumn(table, "id")
 	name := newMockColumn(table, "name")
 
-	qb := Select(id).From(table).GroupBy(id).GroupBy(name)
-	_, err := qb.Build()
+	qb := Select(id).From(table)
+	first := qb.GroupBy(id)
+	_, err := qb.GroupBy(name).Build()
 	if err == nil {
-		t.Fatal("expected error when calling GroupBy() twice")
+		t.Fatal("expected stale QueryBuilder to reject a second GroupBy()")
+	}
+	if first == nil {
+		t.Fatal("expected initial GroupBy() to succeed")
 	}
 
-	if !strings.Contains(err.Error(), "GroupBy() can only be called once") {
+	if !strings.Contains(err.Error(), "GroupBy() is not available") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -87,13 +92,17 @@ func TestQueryBuilder_MultiCall_Having(t *testing.T) {
 	table := newMockTable("users")
 	id := newMockColumn(table, "id")
 
-	qb := Select(id).From(table).GroupBy(id).Having(id.EQ("1")).Having(id.EQ("2"))
-	_, err := qb.Build()
+	qb := Select(id).From(table).GroupBy(id)
+	first := qb.Having(id.EQ("1"))
+	_, err := qb.Having(id.EQ("2")).Build()
 	if err == nil {
-		t.Fatal("expected error when calling Having() twice")
+		t.Fatal("expected stale GroupedQueryBuilder to reject a second Having()")
+	}
+	if first == nil {
+		t.Fatal("expected initial Having() to succeed")
 	}
 
-	if !strings.Contains(err.Error(), "Having() can only be called once") {
+	if !strings.Contains(err.Error(), "Having() is not available") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -103,13 +112,17 @@ func TestQueryBuilder_MultiCall_KwSearch(t *testing.T) {
 	id := newMockColumn(table, "id")
 	name := newMockColumn(table, "name")
 
-	qb := Select(id).From(table).KwSearch(id).KwSearch(name)
-	_, err := qb.Build()
+	qb := Select(id).From(table)
+	first := qb.KwSearch(id)
+	_, err := qb.KwSearch(name).Build()
 	if err == nil {
-		t.Fatal("expected error when calling KwSearch() twice")
+		t.Fatal("expected stale QueryBuilder to reject a second KwSearch()")
+	}
+	if first == nil {
+		t.Fatal("expected initial KwSearch() to succeed")
 	}
 
-	if !strings.Contains(err.Error(), "KwSearch() or SetKwSearch() can only be called once") {
+	if !strings.Contains(err.Error(), "KwSearch() is not available") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

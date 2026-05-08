@@ -69,6 +69,26 @@ func TestColumnValidation_AllowsDerivedColumnsFromKnownTableColumns(t *testing.T
 	}
 }
 
+func TestColumnValidation_ResultColumnRequiresSourceTableInJoinGraph(t *testing.T) {
+	users, userCols := newStrictMockTable("users", "id")
+	_, itemCols := newStrictMockTable("items", "id")
+	userID := userCols[0]
+	itemID := itemCols[0]
+	resultUserID := Into[strictResultRow](userID, func(holder *strictResultRow) *int { return nil }, "user_id")
+	resultItemID := Into[strictResultRow](itemID, func(holder *strictResultRow) *int { return nil }, "item_id")
+
+	_, err := Select[strictResultRow](resultUserID, resultItemID).
+		From(users).
+		Build()
+	if err == nil {
+		t.Fatal("expected missing source table for Result column to fail join-graph validation")
+	}
+
+	if !strings.Contains(err.Error(), "table items is referenced outside the join graph") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestColumnValidation_RejectsAggregateFromUnknownTableColumn(t *testing.T) {
 	users, _ := newStrictMockTable("users", "id")
 	missing := newColForTable[Table, int](users, "missing", "missing", nil)
@@ -244,6 +264,27 @@ func TestJoinValidation_RejectsJoinConditionReferencingFutureTable(t *testing.T)
 	}
 
 	if !strings.Contains(err.Error(), "join condition table items is not connected") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestJoinValidation_RejectsJoinConditionThatSkipsJoinedTable(t *testing.T) {
+	users := newMockTable("users")
+	orgs := newMockTable("orgs")
+	items := newMockTable("items")
+
+	userID := newColForTable[Table, int](users, "id", "id", nil)
+	itemUserID := newColForTable[Table, int](items, "user_id", "user_id", nil)
+
+	_, err := Select(userID).
+		From(users).
+		LeftJoin(orgs, userID.EQCol(itemUserID)).
+		Build()
+	if err == nil {
+		t.Fatal("expected error when ON condition references another unjoined table instead of the target join table")
+	}
+
+	if !strings.Contains(err.Error(), "must reference joined table orgs") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

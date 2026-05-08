@@ -93,6 +93,7 @@ func BenchmarkQueryBuilder_AliasAndWhere(b *testing.B) {
 			userID.As("uid"),
 			total.As("order_total"),
 		).
+			From(table).
 			Where(
 				total.GT(100.0),
 				status.NE("cancelled"),

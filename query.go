@@ -231,39 +231,6 @@ func (q *Query[O]) KwListSQL() string {
 // 查询构建器方法
 // ================================================
 
-// Build builds and validates the query.
-func (qb *QueryBuilder[O]) Build() (*Query[O], error) {
-	if qb == nil {
-		return nil, errors.New("query builder cannot be nil")
-	}
-
-	if qb.buildErr != nil {
-		return nil, errors.Trace(qb.buildErr)
-	}
-
-	plan, err := buildQueryPlan(qb.spec)
-	if err != nil {
-		return nil, errors.Trace(err)
-	}
-
-	return &Query[O]{
-		cntSQL:     plan.cntSQL,
-		listSQL:    plan.listSQL,
-		kwCntSQL:   plan.kwCntSQL,
-		kwListSQL:  plan.kwListSQL,
-		cntArgs:    plan.cntArgs,
-		listArgs:   plan.listArgs,
-		kwCntArgs:  plan.kwCntArgs,
-		kwListArgs: plan.kwListArgs,
-
-		selectCols:   slices.Clone(qb.spec.Selects),
-		selectTables: qb.spec.selectTables(),
-		kwCols:       slices.Clone(qb.spec.KeywordSearch),
-		kwTables:     qb.spec.keywordTables(),
-		hasSetOps:    len(qb.spec.SetOps) > 0,
-	}, nil
-}
-
 // ================================================
 // 基础查询执行方法
 // ================================================

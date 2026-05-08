@@ -405,7 +405,7 @@ func TestQueryBuilder_Having(t *testing.T) {
 	}
 
 	qb := Select(col1).
-		From(col1.Table()).Having(mockCond)
+		From(col1.Table()).GroupBy(col1).Having(mockCond)
 
 	if len(qb.spec.Having) != 1 {
 		t.Errorf("Expected 1 HAVING condition, got %d", len(qb.spec.Having))
@@ -417,7 +417,7 @@ func TestQueryBuilder_HavingRejectsEmptyConditionClause(t *testing.T) {
 	col := newMockColumn(table, "count")
 
 	_, err := Select(col).
-		From(col.Table()).Having(Cond{}).Build()
+		From(col.Table()).GroupBy(col).Having(Cond{}).Build()
 	if err == nil {
 		t.Fatal("expected empty HAVING condition clause to return an error")
 	}
@@ -453,32 +453,6 @@ func TestQueryBuilder_Where(t *testing.T) {
 	}
 }
 
-func TestQueryBuilder_SetWhereMatchesWhereOverwriteBehavior(t *testing.T) {
-	table1 := newMockTable("users")
-	col1 := newMockColumn(table1, "id")
-
-	mockCond1 := &mockCondition{
-		clause: "`users`.`id` = 1",
-		tables: map[string]Table{"users": table1},
-	}
-	mockCond2 := &mockCondition{
-		clause: "`users`.`id` = 2",
-		tables: map[string]Table{"users": table1},
-	}
-
-	qb := Select(col1).
-		From(col1.Table()).Where(mockCond1).SetWhere(mockCond2)
-
-	_, err := qb.Build()
-	if err == nil {
-		t.Fatal("expected error when calling Where() and then SetWhere()")
-	}
-
-	if !strings.Contains(err.Error(), "Where() or SetWhere() can only be called once") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
 func TestQueryBuilder_WhereRejectsNilCondition(t *testing.T) {
 	table := newMockTable("users")
 	col := newMockColumn(table, "id")
@@ -496,7 +470,7 @@ func TestQueryBuilder_WhereRejectsNilCondition(t *testing.T) {
 	}
 }
 
-func TestQueryBuilder_And(t *testing.T) {
+func TestQueryBuilder_WhereAcceptsMultipleConditions(t *testing.T) {
 	table1 := newMockTable("users")
 	col1 := newMockColumn(table1, "id")
 
@@ -511,7 +485,7 @@ func TestQueryBuilder_And(t *testing.T) {
 	}
 
 	qb := Select(col1).
-		From(col1.Table()).Where(mockCond1).And(mockCond2)
+		From(col1.Table()).Where(mockCond1, mockCond2)
 
 	if len(qb.spec.Filters) != 2 {
 		t.Errorf("Expected 2 conditions, got %d", len(qb.spec.Filters))
@@ -519,35 +493,6 @@ func TestQueryBuilder_And(t *testing.T) {
 
 	if len(qb.spec.Filters) != 2 {
 		t.Errorf("Expected 2 condition clauses, got %d", len(qb.spec.Filters))
-	}
-}
-
-func TestQueryBuilder_AndIf(t *testing.T) {
-	table1 := newMockTable("users")
-	col1 := newMockColumn(table1, "id")
-
-	mockCond1 := &mockCondition{
-		clause: "`users`.`id` = 1",
-		tables: map[string]Table{"users": table1},
-	}
-
-	mockCond2 := &mockCondition{
-		clause: "`users`.`name` = 'test'",
-		tables: map[string]Table{"users": table1},
-	}
-
-	// Test with true condition
-	qb1 := Select(col1).
-		From(col1.Table()).Where(mockCond1).AndIf(true, mockCond2)
-	if len(qb1.spec.Filters) != 2 {
-		t.Errorf("Expected 2 conditions when condition is true, got %d", len(qb1.spec.Filters))
-	}
-
-	// Test with false condition
-	qb2 := Select(col1).
-		From(col1.Table()).Where(mockCond1).AndIf(false, mockCond2)
-	if len(qb2.spec.Filters) != 1 {
-		t.Errorf("Expected 1 condition when condition is false, got %d", len(qb2.spec.Filters))
 	}
 }
 
@@ -570,41 +515,6 @@ func TestQueryBuilder_KwSearch(t *testing.T) {
 
 	if _, exists := kwTables["users"]; !exists {
 		t.Error("Expected 'users' table to be in kwTables")
-	}
-}
-
-func TestQueryBuilder_SetKwSearchMatchesKwSearchOverwriteBehavior(t *testing.T) {
-	table1 := newMockTable("users")
-	col1 := newMockColumn(table1, "name")
-	col2 := newMockColumn(table1, "email")
-
-	qb := Select(col1).
-		From(col1.Table()).KwSearch(col1).SetKwSearch(col2)
-	_, err := qb.Build()
-	if err == nil {
-		t.Fatal("expected error when calling KwSearch() and then SetKwSearch()")
-	}
-
-	if !strings.Contains(err.Error(), "KwSearch() or SetKwSearch() can only be called once") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestQueryBuilder_AppendKwSearch(t *testing.T) {
-	table1 := newMockTable("users")
-	col1 := newMockColumn(table1, "name")
-	col2 := newMockColumn(table1, "email")
-
-	qb := Select(col1).
-		From(col1.Table()).KwSearch(col1).AppendKwSearch(col2)
-	if len(qb.spec.KeywordSearch) != 2 {
-		t.Fatalf("expected AppendKwSearch to append keyword search columns, got %d", len(qb.spec.KeywordSearch))
-	}
-	if qb.spec.KeywordSearch[0].Name() != "name" {
-		t.Fatalf("expected first keyword search column to remain name, got %q", qb.spec.KeywordSearch[0].Name())
-	}
-	if qb.spec.KeywordSearch[1].Name() != "email" {
-		t.Fatalf("expected second keyword search column to be email, got %q", qb.spec.KeywordSearch[1].Name())
 	}
 }
 
@@ -644,10 +554,10 @@ func TestQueryBuilder_ChainedOperations(t *testing.T) {
 	qb := Select(col1, col2).
 		From(col1.Table()).
 		LeftJoin(table2, col1.EQCol(col3)).
+		KwSearch(col2).
 		Where(mockCond).
 		GroupBy(col2).
-		Having(mockCond).
-		KwSearch(col2)
+		Having(mockCond)
 
 	// Verify all operations were applied
 	if len(qb.spec.Selects) != 2 {
@@ -794,18 +704,17 @@ func TestQueryBuilder_Build_RejectsTablesReferencedOutsideJoinGraph(t *testing.T
 	}
 }
 
-func TestQueryBuilder_WhereReplacesConditionTables(t *testing.T) {
+func TestQueryBuilder_WhereTracksAllConditionTables(t *testing.T) {
 	users := newMockTable("users")
 	userID := newColForTable[Table, int](users, "id", "id", nil)
 
 	query := mustBuild(Select(userID).
 		From(userID.Table()).
-		Where(userID.EQVar()).
-		And(userID.EQVar()))
+		Where(userID.EQVar(), userID.EQVar()))
 
 	want := `SELECT "users"."id" FROM "users" WHERE ("users"."id" = ? AND "users"."id" = ?)`
 	if query.ListSQL() != want {
-		t.Fatalf("expected And to append condition tables, got %q", query.ListSQL())
+		t.Fatalf("expected Where to keep all condition tables, got %q", query.ListSQL())
 	}
 }
 
@@ -920,9 +829,8 @@ func TestQueryBuilder_MethodsHandleNilReceiverWithoutPanicking(t *testing.T) {
 	var qb *QueryBuilder[Table]
 
 	_, err := qb.
-		Where(userID.EQVar()).
-		GroupBy(userID).
 		KwSearch(userID).
+		GroupBy(userID).
 		Build()
 	if err == nil {
 		t.Fatal("expected nil receiver chain to return an error")
@@ -930,32 +838,6 @@ func TestQueryBuilder_MethodsHandleNilReceiverWithoutPanicking(t *testing.T) {
 
 	if !strings.Contains(err.Error(), "query builder cannot be nil") {
 		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestQueryBuilder_MethodsInitializeZeroValueBuilder(t *testing.T) {
-	users := newMockTable("users")
-	userID := newColForTable[Table, int](users, "id", "id", nil)
-	qb := &QueryBuilder[Table]{}
-
-	got := qb.
-		GroupBy(userID).
-		Where(userID.EQVar()).
-		KwSearch(userID)
-	if got != qb {
-		t.Fatal("expected zero-value builder methods to reuse the same builder")
-	}
-
-	if len(qb.spec.GroupBy) != 1 {
-		t.Fatalf("expected group by column to be recorded, got %d", len(qb.spec.GroupBy))
-	}
-
-	if len(qb.spec.Filters) != 1 {
-		t.Fatalf("expected where clause to be recorded, got %d", len(qb.spec.Filters))
-	}
-
-	if len(qb.spec.KeywordSearch) != 1 {
-		t.Fatalf("expected keyword search column to be recorded, got %d", len(qb.spec.KeywordSearch))
 	}
 }
 
