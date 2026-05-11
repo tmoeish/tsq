@@ -123,25 +123,33 @@ func (e *ErrOrderCountMismatch) Is(target error) bool {
 // 查询结构体定义
 // ================================================
 
-// Query represents a compiled SQL query with all its variations.
+// Query 代表一个已编译的 SQL 查询，它包含了多种查询变体（计数、列表、搜索）。
+// 架构意图：Query 是 Build() 调用的最终产物。它是不可变的且线程安全的。
+// 它解耦了“查询定义”（SQL 构建逻辑）和“查询执行”（数据库交互）。
+//
+// 核心字段说明：
+// - cntSQL: 用于 COUNT(*) 查询的 SQL。
+// - listSQL: 用于获取记录列表的 SQL。
+// - baseArgs: 在 Build() 时确定的参数，包含普通值和标记位（Markers）。
 type Query[O Owner] struct {
-	// SQL statements
-	cntSQL    string // COUNT query
-	listSQL   string // Main SELECT query
-	kwCntSQL  string // Keyword search COUNT query
-	kwListSQL string // Keyword search SELECT query
+	// SQL 语句模板。
+	cntSQL    string // COUNT 查询
+	listSQL   string // 主 SELECT 查询
+	kwCntSQL  string // 关键词搜索 COUNT 查询
+	kwListSQL string // 关键词搜索 SELECT 查询
 
+	// 基础参数列表。可能包含延迟绑定的标记（externalArgMarker 等）。
 	cntArgs    []any
 	listArgs   []any
 	kwCntArgs  []any
 	kwListArgs []any
 
-	// Metadata
-	selectCols   []BoundColumn[O]
-	selectTables map[string]Table
-	kwCols       []SearchColumn
+	// 元数据。
+	selectCols   []BoundColumn[O] // 选中的列，用于 Scan 映射。
+	selectTables map[string]Table  // 查询涉及的所有表。
+	kwCols       []SearchColumn   // 关键词搜索涉及的列。
 	kwTables     map[string]Table
-	hasSetOps    bool
+	hasSetOps    bool             // 是否包含集合操作（UNION 等），影响别名处理。
 }
 
 type externalSliceArgMarker struct{}
@@ -1448,6 +1456,18 @@ func resolveQueryArgs(base, extra []any, keyword string) ([]any, error) {
 	return args, errors.Trace(err)
 }
 
+// resolveQuery 是 TSQ 参数绑定的核心算法。
+// 架构意图：它负责将“编译期”确定的基础参数（base）与“执行期”提供的外部参数（extra）进行对齐。
+//
+// 工作原理：
+// 1. 它是基础 SQL 模板的“二遍扫描”过程。
+// 2. 遍历 baseArgs，这些参数是在 Build() 阶段收集的。
+// 3. 遇到普通的绑定值，直接保留。
+// 4. 遇到 externalArgMarker：从 extraArgs 中取出一个值替换，并在 SQL 中保留一个 "?"。
+// 5. 遇到 externalSliceArgMarker：这是最复杂的部分。它从 extraArgs 中取出一个切片，
+//    计算其长度 N，然后在 SQL 中将原来的一个 "?" 展开为 N 个 "?"（如 "?, ?, ?"），
+//    并将切片中的所有元素平铺到结果参数列表中。
+// 6. 遇到 keywordArgMarker：使用传入的 keyword 构造 LIKE 参数。
 func resolveQuery(baseSQL string, base, extra []any, keyword string) (string, []any, error) {
 	result := make([]any, 0, len(base)+len(extra))
 	extraIndex := 0
@@ -1458,6 +1478,7 @@ func resolveQuery(baseSQL string, base, extra []any, keyword string) (string, []
 	hasSQL := baseSQL != ""
 
 	for _, arg := range base {
+		// 如果提供了 baseSQL，我们需要同步处理 SQL 中的问号占位符。
 		if hasSQL {
 			next := strings.Index(baseSQL[cursor:], "?")
 			if next < 0 {
@@ -1471,6 +1492,7 @@ func resolveQuery(baseSQL string, base, extra []any, keyword string) (string, []
 
 		switch arg {
 		case externalArgMarker:
+			// 延迟绑定单个变量。
 			if extraIndex >= len(extra) {
 				return "", nil, errors.New("missing external query argument")
 			}
@@ -1482,6 +1504,7 @@ func resolveQuery(baseSQL string, base, extra []any, keyword string) (string, []
 			result = append(result, extra[extraIndex])
 			extraIndex++
 		case externalSliceArgMarker{}:
+			// 延迟绑定切片变量（处理 IN 语句）。
 			if extraIndex >= len(extra) {
 				return "", nil, errors.New("missing external query argument")
 			}
@@ -1492,12 +1515,14 @@ func resolveQuery(baseSQL string, base, extra []any, keyword string) (string, []
 			}
 
 			if hasSQL {
+				// 关键点：动态展开占位符。
 				sqlBuilder.WriteString(expandSlicePlaceholders(len(values)))
 			}
 
 			result = append(result, values...)
 			extraIndex++
 		case keywordArgMarker:
+			// 处理 Search() 产生的关键词搜索标记。
 			if keyword == "" {
 				return "", nil, errors.New("missing keyword query argument")
 			}
@@ -1512,6 +1537,7 @@ func resolveQuery(baseSQL string, base, extra []any, keyword string) (string, []
 
 			result = append(result, like)
 		default:
+			// 正常的绑定变量（Build 阶段已确定）。
 			if hasSQL {
 				sqlBuilder.WriteString("?")
 			}
@@ -1520,6 +1546,7 @@ func resolveQuery(baseSQL string, base, extra []any, keyword string) (string, []
 		}
 	}
 
+	// 将剩余的 extra 参数（如果有的话，如 LIMIT/OFFSET）追加到末尾。
 	result = append(result, extra[extraIndex:]...)
 
 	if hasSQL {

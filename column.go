@@ -2,25 +2,28 @@ package tsq
 
 import "github.com/juju/errors"
 
-// FieldPointer returns a typed pointer into an owner value.
+// FieldPointer 返回指向 Owner 类型中某个字段的类型安全指针。
+// 架构意图：它使用 Go 1.18+ 的范型和闭包，建立了 SQL 列与 struct 字段之间的直接联系，
+// 而不需要使用低效的反射字符串查找。
 type FieldPointer[O Owner, T any] func(*O) *T
 
+// scanPointer 是擦除了类型的运行时扫描函数。
 type scanPointer func(holder any) any
 
-// SQLColumn is the erased runtime view of a SQL expression that can be rendered
-// and, when selected, scanned into an owner field.
+// SQLColumn 是 SQL 表达式在运行时的视图。
+// 它定义了一个表达式如何被渲染，以及被选中后如何扫描回 Go 对象。
 type SQLColumn interface {
-	SQLExpr() string
-	OutputName() string
-	JSONFieldName() string
-	Table() Table
-	Name() string
-	QualifiedName() string
-	scanPointer() scanPointer
-	referencedTables() map[string]Table
+	SQLExpr() string           // 渲染后的 SQL 表达式（例如 "users.name"）
+	OutputName() string        // 默认的输出列名（别名）
+	JSONFieldName() string     // 对应的 JSON 标签名，用于排序白名单
+	Table() Table              // 所属的主表
+	Name() string              // 原始物理列名
+	QualifiedName() string     // 限定名（带表名）
+	scanPointer() scanPointer  // 获取扫描函数
+	referencedTables() map[string]Table // 表达式中涉及的所有表
 }
 
-// SQLColumns erases a typed column slice to runtime columns.
+// SQLColumns 将一组类型安全的列转换为擦除类型的运行时列列表。
 func SQLColumns[O Owner](cols ...BoundColumn[O]) []SQLColumn {
 	result := make([]SQLColumn, 0, len(cols))
 	for _, col := range cols {
@@ -30,39 +33,14 @@ func SQLColumns[O Owner](cols ...BoundColumn[O]) []SQLColumn {
 	return result
 }
 
-// BoundColumn is a SQL expression selectable into an owner.
+// BoundColumn 是一个绑定到 Owner [O] 的可选择 SQL 表达式。
 type BoundColumn[O Owner] interface {
 	SQLColumn
-	selectOwner(O)
+	selectOwner(O) // 幻影方法，用于范型类型约束
 }
 
-// TypedColumn is a value-typed selectable column.
-type TypedColumn[O Owner, T any] interface {
-	BoundColumn[O]
-	columnValue(T)
-}
-
-// TableColumn is an owner-typed physical/source column.
-type TableColumn[O Table] interface {
-	BoundColumn[O]
-	SearchColumn
-	tableColumnOwner(O)
-	tableSource() Table
-	columnName() string
-}
-
-// SearchColumn is a SQL expression allowed in keyword search.
-type SearchColumn interface {
-	SQLColumn
-	searchColumn()
-}
-
-type typedColumnInternal[T any] interface {
-	SQLColumn
-	columnValue(T)
-}
-
-// ColumnImpl represents a typed source expression.
+// ColumnImpl 是类型安全列的基础实现。
+// 它存储了列的所有静态元数据和映射逻辑。
 type ColumnImpl[O Owner, T any] struct {
 	table         Table
 	name          string
@@ -71,9 +49,9 @@ type ColumnImpl[O Owner, T any] struct {
 	fieldPointer  scanPointer
 	args          []any
 	tables        map[string]Table
-	aggregate     bool
-	distinct      bool
-	transformed   bool
+	aggregate     bool // 是否为聚合函数（SUM, COUNT等）
+	distinct      bool // 是否包含 DISTINCT
+	transformed   bool // 是否经过了某种变换（如 UPPER()），通常不能再被重定向
 	buildErr      error
 }
 

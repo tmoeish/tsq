@@ -41,43 +41,43 @@ func (uo UserOrder) Cols() []tsq.BoundColumn[UserOrder] {
 
 // Column definitions for UserOrder result fields.
 var (
-	UserOrder_ItemCategory = tsq.Into[UserOrder](Category_Name, func(holder *UserOrder) *string {
+	UserOrder_ItemCategory = tsq.Into(Category_Name, func(holder *UserOrder) *string {
 		return &holder.ItemCategory
 	}, "item_category")
-	UserOrder_ItemID = tsq.Into[UserOrder](Item_ID, func(holder *UserOrder) *int64 {
+	UserOrder_ItemID = tsq.Into(Item_ID, func(holder *UserOrder) *int64 {
 		return &holder.ItemID
 	}, "item_id")
-	UserOrder_ItemName = tsq.Into[UserOrder](Item_Name, func(holder *UserOrder) *string {
+	UserOrder_ItemName = tsq.Into(Item_Name, func(holder *UserOrder) *string {
 		return &holder.ItemName
 	}, "item_name")
-	UserOrder_ItemPrice = tsq.Into[UserOrder](Item_Price, func(holder *UserOrder) *int64 {
+	UserOrder_ItemPrice = tsq.Into(Item_Price, func(holder *UserOrder) *int64 {
 		return &holder.ItemPrice
 	}, "item_price")
-	UserOrder_OrderAmount = tsq.Into[UserOrder](Order_Amount, func(holder *UserOrder) *int64 {
+	UserOrder_OrderAmount = tsq.Into(Order_Amount, func(holder *UserOrder) *int64 {
 		return &holder.OrderAmount
 	}, "order_amount")
-	UserOrder_OrderID = tsq.Into[UserOrder](Order_UID, func(holder *UserOrder) *int64 {
+	UserOrder_OrderID = tsq.Into(Order_UID, func(holder *UserOrder) *int64 {
 		return &holder.OrderID
 	}, "order_id")
-	UserOrder_OrderPrice = tsq.Into[UserOrder](Order_Price, func(holder *UserOrder) *int64 {
+	UserOrder_OrderPrice = tsq.Into(Order_Price, func(holder *UserOrder) *int64 {
 		return &holder.OrderPrice
 	}, "order_price")
-	UserOrder_OrderStatus = tsq.Into[UserOrder](Order_Status, func(holder *UserOrder) *OrderStatus {
+	UserOrder_OrderStatus = tsq.Into(Order_Status, func(holder *UserOrder) *OrderStatus {
 		return &holder.OrderStatus
 	}, "order_status")
-	UserOrder_OrderTime = tsq.Into[UserOrder](Order_CreatedAt, func(holder *UserOrder) *tsqtime.Time {
+	UserOrder_OrderTime = tsq.Into(Order_CreatedAt, func(holder *UserOrder) *tsqtime.Time {
 		return &holder.OrderTime
 	}, "order_time")
-	UserOrder_OrgName = tsq.Into[UserOrder](Org_Name, func(holder *UserOrder) *string {
+	UserOrder_OrgName = tsq.Into(Org_Name, func(holder *UserOrder) *string {
 		return &holder.OrgName
 	}, "org_name")
-	UserOrder_UserEmail = tsq.Into[UserOrder](User_Email, func(holder *UserOrder) *string {
+	UserOrder_UserEmail = tsq.Into(User_Email, func(holder *UserOrder) *string {
 		return &holder.UserEmail
 	}, "user_email")
-	UserOrder_UserID = tsq.Into[UserOrder](User_ID, func(holder *UserOrder) *int64 {
+	UserOrder_UserID = tsq.Into(User_ID, func(holder *UserOrder) *int64 {
 		return &holder.UserID
 	}, "user_id")
-	UserOrder_UserName = tsq.Into[UserOrder](User_Name, func(holder *UserOrder) *string {
+	UserOrder_UserName = tsq.Into(User_Name, func(holder *UserOrder) *string {
 		return &holder.UserName
 	}, "user_name")
 )

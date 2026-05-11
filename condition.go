@@ -27,7 +27,9 @@ const (
 // 逻辑组合条件
 // ================================================
 
-// And combines multiple conditions with AND logic
+// And 将多个条件以 AND 逻辑组合。
+// 架构意图：And 实现了条件的链式或组合式构建。它通过遍历子条件，
+// 合并所有引用的表，并将表达式片段用 " AND " 连接。
 func And(conds ...Condition) Cond {
 	if len(conds) == 0 {
 		return rawCondition("1 = 1")
@@ -54,7 +56,8 @@ func And(conds ...Condition) Cond {
 	}
 }
 
-// Or combines multiple conditions with OR logic
+// Or 将多个条件以 OR 逻辑组合。
+// 架构意图：逻辑与 And 类似，但使用 " OR " 连接。
 func Or(conds ...Condition) Cond {
 	if len(conds) == 0 {
 		return rawCondition("1 = 0")
@@ -85,7 +88,8 @@ func Or(conds ...Condition) Cond {
 // 基础条件接口和结构体
 // ================================================
 
-// Condition interface for SQL conditions
+// Condition 是 SQL 条件的接口定义。
+// 它暴露了条件引用的表、SQL 字句片段以及绑定的参数。
 type Condition interface {
 	Tables() map[string]Table
 	Clause() string
@@ -96,7 +100,9 @@ type rawConditionClauser interface {
 	rawClause() string
 }
 
-// Cond represents a SQL condition
+// Cond 是 SQL 条件的具体实现结构。
+// 架构意图：它是构建过程中携带元数据（表引用、表达式字符串、参数、构建错误）的容器。
+// expr 字段存储了带有占位符的原始 SQL 表达式，args 存储了对应的参数。
 type Cond struct {
 	tables   map[string]Table
 	expr     string
@@ -112,6 +118,8 @@ func (c Cond) Tables() map[string]Table {
 	return c.tables
 }
 
+// Clause 返回标准化的 SQL 片段。
+// 注意：此时可能包含标记占位符（如 identifierMarkerPrefix），最终的渲染由 sql_render.go 处理。
 func (c Cond) Clause() string {
 	return renderCanonicalSQL(c.expr)
 }
@@ -505,7 +513,12 @@ func (c ColumnImpl[Owner, T]) NUnique(_ subquery) Pred[Owner] {
 // 条件构建核心方法
 // ================================================
 
-// Predicate builds a condition with the given operator and arguments
+// Predicate 是构建条件的核心方法。
+// 架构意图：它是所有比较操作（EQ, GT, In 等）的基础。它接收一个格式化字符串和变长参数。
+// 1. 验证占位符数量。
+// 2. 自动收集所有涉及到的表（包括接收者列和参数中的列）。
+// 3. 将参数转换为 SQL 表达式。
+// 4. 使用 fmt.Sprintf 组合成最终的表达式字符串。
 func (c ColumnImpl[Owner, T]) Predicate(op string, args ...any) Pred[Owner] {
 	if err := validatePredicateFormat(op, len(args)+1); err != nil {
 		return pred[Owner](Cond{buildErr: errors.Trace(err)})
@@ -518,7 +531,7 @@ func (c ColumnImpl[Owner, T]) Predicate(op string, args ...any) Pred[Owner] {
 
 	tables := map[string]Table{baseTable.Table(): baseTable}
 
-	// Collect tables from arguments that are also columns
+	// 从也是列的参数中收集表引用。
 	for _, arg := range args {
 		if col, ok := arg.(SQLColumn); ok {
 			table, err := validateColumnInput(col)
@@ -530,7 +543,7 @@ func (c ColumnImpl[Owner, T]) Predicate(op string, args ...any) Pred[Owner] {
 		}
 	}
 
-	// Build arguments for string formatting
+	// 构建用于字符串格式化的参数。
 	formatArgs := make([]any, 0, len(args)+1)
 	formatArgs = append(formatArgs, c.rawQualifiedName())
 
@@ -628,7 +641,10 @@ func (e expressionError) buildError() error {
 	return errors.Trace(e.err)
 }
 
-// variableExpression represents a variable placeholder (?)
+// variableExpression 代表一个变量占位符 (?)。
+// 它在 Args() 中返回 externalArgMarker，这是一个特殊的“延迟解析”标记。
+// 架构意图：当用户使用 EQVar() 等方法时，TSQ 并不立即绑定值，而是留下这个标记。
+// 真正的参数值将在 Query.List(ctx, db, value) 调用时，由 resolveQuery 函数根据此标记进行对齐。
 type variableExpression struct{}
 
 func (v variableExpression) Expr() string { return "?" }
@@ -636,6 +652,10 @@ func (v variableExpression) Args() []any  { return []any{externalArgMarker} }
 
 var varMarker variableExpression
 
+// variableSliceExpression 代表一个切片变量占位符。
+// 架构意图：专门用于 IN 比较。在构建期，我们不知道切片的长度，因此无法确定生成多少个 "?"。
+// 它返回 externalSliceArgMarker{}，resolveQuery 在执行时会检测此标记，
+// 并根据传入切片的实际长度动态扩展 SQL 中的 "?" 占位符数量。
 type variableSliceExpression struct{}
 
 func (v variableSliceExpression) Expr() string { return "?" }
