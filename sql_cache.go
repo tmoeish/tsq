@@ -16,12 +16,14 @@ type SQLCacheConfig struct {
 	MaxSize int
 }
 
-// SQLRenderCache is an optional LRU cache for compiled SQL queries
-// It caches rendered SQL strings keyed by a hash of the query specification
+// SQLRenderCache is an optional bounded cache for compiled SQL queries.
+// It caches rendered SQL strings keyed by a hash of the query specification.
+// When MaxSize is reached, Put evicts the oldest inserted entry. Get does not
+// update recency, so eviction is FIFO rather than true LRU.
 type SQLRenderCache struct {
 	mu     sync.RWMutex
 	cache  map[string]cachedSQL
-	order  []string // Simple LRU tracking
+	order  []string // Insertion order for FIFO eviction.
 	config SQLCacheConfig
 
 	hitCount  int64

@@ -532,7 +532,7 @@ func renderInlineValue(node DSLNode) (string, bool) {
 	case DSLString:
 		return strconv.Quote(string(value)), true
 	case DSLBool:
-		if bool(value) {
+		if value {
 			return "", true
 		}
 

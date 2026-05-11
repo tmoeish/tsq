@@ -108,8 +108,8 @@ INSERT INTO user (name, email) VALUES
 		log.Fatal(err)
 	}
 
-	dbmap := &tsq.DbMap{Db: db, Dialect: tsq.SqliteDialect{}}
-	if err := tsq.Init(dbmap, false, true); err != nil {
+	engine := &tsq.Engine{Db: db, Dialect: tsq.SQLiteDialect{}}
+	if err := tsq.Init(engine, false, true); err != nil {
 		log.Fatal(err)
 	}
 
@@ -122,7 +122,7 @@ INSERT INTO user (name, email) VALUES
 		log.Fatal(err)
 	}
 
-	users, err := tsq.List[database.User](ctx, dbmap, query)
+	users, err := tsq.List[database.User](ctx, engine, query)
 	if err != nil {
 		log.Fatal(err)
 	}

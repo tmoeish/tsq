@@ -15,13 +15,13 @@ type batchMutationUser struct {
 	Email string
 }
 
-func (batchMutationUser) TSQOwner()              {}
-func (batchMutationUser) Table() string          { return "users" }
-func (batchMutationUser) Cols() []SQLColumn      { return SQLColumns(batchMutationUserColumns()...) }
-func (batchMutationUser) KwList() []SearchColumn { return nil }
-func (batchMutationUser) PrimaryKeys() []string  { return []string{"id"} }
-func (batchMutationUser) AutoIncrement() bool    { return true }
-func (batchMutationUser) VersionColumn() string  { return "" }
+func (batchMutationUser) TSQOwner()                     {}
+func (batchMutationUser) Table() string                 { return "users" }
+func (batchMutationUser) Cols() []SQLColumn             { return SQLColumns(batchMutationUserColumns()...) }
+func (batchMutationUser) SearchColumns() []SearchColumn { return nil }
+func (batchMutationUser) PrimaryKeys() []string         { return []string{"id"} }
+func (batchMutationUser) AutoIncrement() bool           { return true }
+func (batchMutationUser) VersionColumn() string         { return "" }
 
 func batchMutationUserColumns() []BoundColumn[batchMutationUser] {
 	return []BoundColumn[batchMutationUser]{
@@ -31,7 +31,7 @@ func batchMutationUserColumns() []BoundColumn[batchMutationUser] {
 	}
 }
 
-func newBatchMutationDBMap(t *testing.T) *DbMap {
+func newBatchMutationEngine(t *testing.T) *Engine {
 	t.Helper()
 
 	db, err := sql.Open("sqlite3", ":memory:")
@@ -43,7 +43,7 @@ func newBatchMutationDBMap(t *testing.T) *DbMap {
 		_ = db.Close()
 	})
 
-	if _, err := db.Exec(`CREATE TABLE users (
+	if _, err := db.ExecContext(context.Background(), `CREATE TABLE users (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		name TEXT NOT NULL,
 		email TEXT NOT NULL
@@ -51,11 +51,11 @@ func newBatchMutationDBMap(t *testing.T) *DbMap {
 		t.Fatalf("create users table: %v", err)
 	}
 
-	return &DbMap{Db: db, Dialect: SqliteDialect{}}
+	return &Engine{DB: db, Dialect: SQLiteDialect{}}
 }
 
-func TestDbMapInsertBatchesRows(t *testing.T) {
-	db := newBatchMutationDBMap(t)
+func TestEngineInsertBatchesRows(t *testing.T) {
+	db := newBatchMutationEngine(t)
 
 	u1 := &batchMutationUser{Name: "alice", Email: "alice@example.com"}
 	u2 := &batchMutationUser{Name: "bob", Email: "bob@example.com"}
@@ -69,7 +69,7 @@ func TestDbMapInsertBatchesRows(t *testing.T) {
 	}
 
 	var count int
-	if err := db.QueryRow(context.Background(), `SELECT COUNT(*) FROM users`).Scan(&count); err != nil {
+	if err := db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM users`).Scan(&count); err != nil {
 		t.Fatalf("count inserted rows: %v", err)
 	}
 
@@ -78,10 +78,10 @@ func TestDbMapInsertBatchesRows(t *testing.T) {
 	}
 }
 
-func TestDbMapUpdateBatchesRows(t *testing.T) {
-	db := newBatchMutationDBMap(t)
+func TestEngineUpdateBatchesRows(t *testing.T) {
+	db := newBatchMutationEngine(t)
 
-	if _, err := db.Exec(context.Background(), `
+	if _, err := db.ExecContext(context.Background(), `
 		INSERT INTO users (id, name, email) VALUES
 		(1, 'alice', 'alice@example.com'),
 		(2, 'bob', 'bob@example.com')
@@ -101,7 +101,7 @@ func TestDbMapUpdateBatchesRows(t *testing.T) {
 		t.Fatalf("expected 2 updated rows, got %d", affected)
 	}
 
-	rows, err := db.Query(context.Background(), `SELECT id, name, email FROM users ORDER BY id`)
+	rows, err := db.QueryContext(context.Background(), `SELECT id, name, email FROM users ORDER BY id`)
 	if err != nil {
 		t.Fatalf("query updated rows: %v", err)
 	}
@@ -122,10 +122,10 @@ func TestDbMapUpdateBatchesRows(t *testing.T) {
 	}
 }
 
-func TestDbMapDeleteBatchesRows(t *testing.T) {
-	db := newBatchMutationDBMap(t)
+func TestEngineDeleteBatchesRows(t *testing.T) {
+	db := newBatchMutationEngine(t)
 
-	if _, err := db.Exec(context.Background(), `
+	if _, err := db.ExecContext(context.Background(), `
 		INSERT INTO users (id, name, email) VALUES
 		(1, 'alice', 'alice@example.com'),
 		(2, 'bob', 'bob@example.com'),
@@ -148,7 +148,7 @@ func TestDbMapDeleteBatchesRows(t *testing.T) {
 	}
 
 	var count int
-	if err := db.QueryRow(context.Background(), `SELECT COUNT(*) FROM users`).Scan(&count); err != nil {
+	if err := db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM users`).Scan(&count); err != nil {
 		t.Fatalf("count remaining rows: %v", err)
 	}
 
@@ -161,42 +161,6 @@ type countingMutationExecutor struct {
 	insertBatchSizes []int
 	updateBatchSizes []int
 	deleteBatchSizes []int
-}
-
-func (c *countingMutationExecutor) Query(_ context.Context, _ string, _ ...any) (*sql.Rows, error) {
-	return nil, nil
-}
-
-func (c *countingMutationExecutor) QueryRow(_ context.Context, _ string, _ ...any) *sql.Row {
-	return &sql.Row{}
-}
-
-func (c *countingMutationExecutor) Exec(_ context.Context, _ string, _ ...any) (sql.Result, error) {
-	return nil, nil
-}
-
-func (c *countingMutationExecutor) SelectInt(_ context.Context, _ string, _ ...any) (int64, error) {
-	return 0, nil
-}
-
-func (c *countingMutationExecutor) SelectNullInt(_ context.Context, _ string, _ ...any) (sql.NullInt64, error) {
-	return sql.NullInt64{}, nil
-}
-
-func (c *countingMutationExecutor) SelectFloat(_ context.Context, _ string, _ ...any) (float64, error) {
-	return 0, nil
-}
-
-func (c *countingMutationExecutor) SelectNullFloat(_ context.Context, _ string, _ ...any) (sql.NullFloat64, error) {
-	return sql.NullFloat64{}, nil
-}
-
-func (c *countingMutationExecutor) SelectStr(_ context.Context, _ string, _ ...any) (string, error) {
-	return "", nil
-}
-
-func (c *countingMutationExecutor) SelectNullStr(_ context.Context, _ string, _ ...any) (sql.NullString, error) {
-	return sql.NullString{}, nil
 }
 
 func (c *countingMutationExecutor) Insert(_ context.Context, dst ...Table) error {
@@ -262,13 +226,13 @@ func TestChunkedDeleteChunkUsesBatchDelete(t *testing.T) {
 	}
 }
 
-func TestDbMapQueryUsesContext(t *testing.T) {
-	db := newBatchMutationDBMap(t)
+func TestEngineQueryUsesContext(t *testing.T) {
+	db := newBatchMutationEngine(t)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err := db.Query(ctx, `SELECT id FROM users`)
+	_, err := db.QueryContext(ctx, `SELECT id FROM users`)
 	if err == nil {
 		t.Fatal("expected canceled context to fail query")
 	}
@@ -277,13 +241,13 @@ func TestDbMapQueryUsesContext(t *testing.T) {
 	}
 }
 
-func TestDbMapExecUsesContext(t *testing.T) {
-	db := newBatchMutationDBMap(t)
+func TestEngineExecUsesContext(t *testing.T) {
+	db := newBatchMutationEngine(t)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err := db.Exec(ctx, `INSERT INTO users (name, email) VALUES ('alice', 'alice@example.com')`)
+	_, err := db.ExecContext(ctx, `INSERT INTO users (name, email) VALUES ('alice', 'alice@example.com')`)
 	if err == nil {
 		t.Fatal("expected canceled context to fail exec")
 	}

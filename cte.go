@@ -64,7 +64,7 @@ func (t cteTable) Table() string {
 	return t.name
 }
 
-func (t cteTable) KwList() []SearchColumn {
+func (t cteTable) SearchColumns() []SearchColumn {
 	return nil
 }
 

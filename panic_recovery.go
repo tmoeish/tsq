@@ -6,86 +6,93 @@ import (
 	"github.com/juju/errors"
 )
 
-// PanicContext captures context information when a panic occurs
-type PanicContext struct {
+type panicContext struct {
 	Operation  string // The operation that panicked (e.g., "Query.Build", "Query.Scan")
 	Details    string // Additional context details
 	Recovered  any    // The panic value
 	StackTrace string // Stack trace at panic point
 }
 
-// PanicRecoveryError wraps a panic with context
+// PanicRecoveryError wraps a panic with diagnostic context.
 type PanicRecoveryError struct {
-	Context PanicContext
-	Message string
+	context panicContext
+	message string
 }
 
-func NewPanicRecoveryError(operation, details string, recovered any) *PanicRecoveryError {
+func newPanicRecoveryError(operation, details string, recovered any) *PanicRecoveryError {
 	stackTrace := string(debug.Stack())
 
 	return &PanicRecoveryError{
-		Context: PanicContext{
+		context: panicContext{
 			Operation:  operation,
 			Details:    details,
 			Recovered:  recovered,
 			StackTrace: stackTrace,
 		},
-		Message: errors.Errorf("panic in %s: %v", operation, recovered).Error(),
+		message: errors.Errorf("panic in %s: %v", operation, recovered).Error(),
 	}
 }
 
 func (e *PanicRecoveryError) Error() string {
-	return e.Message
+	if e == nil {
+		return ""
+	}
+
+	return e.message
 }
 
 // Unwrap returns the recovered panic value for errors.Is/As checks
 func (e *PanicRecoveryError) Unwrap() error {
-	if err, ok := e.Context.Recovered.(error); ok {
+	if e == nil {
+		return nil
+	}
+
+	if err, ok := e.context.Recovered.(error); ok {
 		return err
 	}
 
 	return nil
 }
 
-// GetContext returns the panic context for debugging
-func (e *PanicRecoveryError) GetContext() PanicContext {
-	return e.Context
+func (e *PanicRecoveryError) Operation() string {
+	if e == nil {
+		return ""
+	}
+
+	return e.context.Operation
 }
 
-// SafeOperation wraps an operation with panic recovery and context
-// If the operation panics, returns PanicRecoveryError with context
+func (e *PanicRecoveryError) Details() string {
+	if e == nil {
+		return ""
+	}
+
+	return e.context.Details
+}
+
+func (e *PanicRecoveryError) Recovered() any {
+	if e == nil {
+		return nil
+	}
+
+	return e.context.Recovered
+}
+
+func (e *PanicRecoveryError) StackTrace() string {
+	if e == nil {
+		return ""
+	}
+
+	return e.context.StackTrace
+}
+
+// SafeOperation wraps an operation with panic recovery.
 func SafeOperation(operation string, fn func() error) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			err = NewPanicRecoveryError(operation, "", r)
+			err = newPanicRecoveryError(operation, "", r)
 		}
 	}()
 
 	return errors.Trace(fn())
 }
-
-// SafeOperationWithContext wraps an operation and returns context on panic
-func SafeOperationWithContext(operation, details string, fn func() error) (err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			err = NewPanicRecoveryError(operation, details, r)
-		}
-	}()
-
-	return errors.Trace(fn())
-}
-
-// PanicDocumentation documents which operations can panic in TSQ
-
-// Operations that may panic:
-// 1. Query.Scan() - When result scanning encounters type mismatches or field pointer errors
-// 2. Column transformations - When functions receive unexpected input types
-// 3. Condition evaluation - When comparing incompatible types
-// 4. Join operations - When tables or columns are in invalid state
-// 5. Field pointer calls - When the pointer function panics
-//
-// Best practices:
-// - Always validate input before operations
-// - Use proper error handling with errors.Is/As
-// - Provide field pointers that handle edge cases
-// - Test with edge case data

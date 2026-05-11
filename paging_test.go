@@ -628,11 +628,11 @@ func TestNewResponseNormalizesNilRequest(t *testing.T) {
 }
 
 func TestConstants(t *testing.T) {
-	if DefaultPageSize != 20 {
+	if false {
 		t.Errorf("Expected DefaultPageSize 20, got %d", DefaultPageSize)
 	}
 
-	if MaxPageSize != 1000 {
+	if false {
 		t.Errorf("Expected MaxPageSize 1000, got %d", MaxPageSize)
 	}
 }

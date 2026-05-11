@@ -7,7 +7,7 @@
 适合后台列表、管理端搜索、用户列表接口。
 
 ```go
-func ListUsers(ctx context.Context, dbmap *tsq.DbMap, req ListUsersRequest) (*tsq.PageResp[*database.User], error) {
+func ListUsers(ctx context.Context, engine *tsq.engine, req ListUsersRequest) (*tsq.PageResp[*database.User], error) {
 	pageReq := &tsq.PageReq{
 		Page:    req.Page,
 		Size:    req.Size,
@@ -19,7 +19,7 @@ func ListUsers(ctx context.Context, dbmap *tsq.DbMap, req ListUsersRequest) (*ts
 		return nil, fmt.Errorf("invalid list users page: %w", err)
 	}
 
-	return database.PageUser(ctx, dbmap, pageReq)
+	return database.PageUser(ctx, engine, pageReq)
 }
 ```
 
@@ -34,7 +34,7 @@ func ListUsers(ctx context.Context, dbmap *tsq.DbMap, req ListUsersRequest) (*ts
 适合“先写主表，再写明细，再提交”的流程。
 
 ```go
-func CreateOrder(ctx context.Context, db *sql.DB, dbmap *tsq.DbMap, order *database.Order, items []*database.Item) error {
+func CreateOrder(ctx context.Context, db *sql.DB, engine *tsq.engine, order *database.Order, items []*database.Item) error {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -43,7 +43,7 @@ func CreateOrder(ctx context.Context, db *sql.DB, dbmap *tsq.DbMap, order *datab
 		_ = tx.Rollback()
 	}()
 
-	txMap := &tsq.DbMap{Db: tx, Dialect: dbmap.Dialect}
+	txMap := &tsq.engine{Db: tx, Dialect: engine.Dialect}
 
 	if err := order.Insert(ctx, txMap); err != nil {
 		return fmt.Errorf("insert order: %w", err)
@@ -66,7 +66,7 @@ func CreateOrder(ctx context.Context, db *sql.DB, dbmap *tsq.DbMap, order *datab
 这个场景重点看：
 
 - TSQ 不替你管理事务边界，事务仍由 `database/sql` 控制
-- 进入事务后，把 `*sql.Tx` 包进新的 `tsq.DbMap`
+- 进入事务后，把 `*sql.Tx` 包进新的 `tsq.engine`
 - 生成的 `Insert/Update/Delete` 助手可以直接在事务里复用
 
 ## 再往下看什么

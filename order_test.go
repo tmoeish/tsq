@@ -229,7 +229,7 @@ func TestReverseOrder(t *testing.T) {
 }
 
 func TestReverseOrderRejectsInvalidOrder(t *testing.T) {
-	if got := ReverseOrder(Order("SIDEWAYS")); got != "" {
+	if got := ReverseOrder("SIDEWAYS"); got != "" {
 		t.Fatalf("expected invalid order to return empty order, got %q", got)
 	}
 }

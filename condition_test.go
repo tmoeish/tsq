@@ -31,7 +31,7 @@ func TestSqlValue(t *testing.T) {
 		{"sql.RawBytes", sql.RawBytes("raw data"), "'raw data'", false},
 
 		// Integer types
-		{"int", int(42), "42", false},
+		{"int", 42, "42", false},
 		{"int8", int8(-128), "-128", false},
 		{"int16", int16(32767), "32767", false},
 		{"int32", int32(-2147483648), "-2147483648", false},
@@ -46,7 +46,7 @@ func TestSqlValue(t *testing.T) {
 
 		// Floating point types
 		{"float32", float32(3.14), "3.14", false},
-		{"float64", float64(2.718281828), "2.718281828", false},
+		{"float64", 2.718281828, "2.718281828", false},
 		{"float32 NaN", float32(math.NaN()), "NULL", false},
 		{"float64 NaN", math.NaN(), "NULL", false},
 		{"float32 +Inf", float32(math.Inf(1)), "NULL", false},

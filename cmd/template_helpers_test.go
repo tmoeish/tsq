@@ -33,7 +33,7 @@ func TestFieldsToColsReturnsCommaSeparatedIdentifiers(t *testing.T) {
 
 func TestValidateManagedFieldsSupportsPointerAndNullTypes(t *testing.T) {
 	info := &tsq.StructInfo{
-		TableInfo: &tsq.TableInfo{
+		TableMeta: &tsq.TableMeta{
 			CreatedAtField: "CreatedAt",
 			UpdatedAtField: "UpdatedAt",
 			DeletedAtField: "DeletedAt",
@@ -62,7 +62,7 @@ func TestValidateManagedFieldsSupportsPointerAndNullTypes(t *testing.T) {
 
 func TestValidateManagedFieldsRejectsUnsupportedSoftDeleteType(t *testing.T) {
 	info := &tsq.StructInfo{
-		TableInfo: &tsq.TableInfo{
+		TableMeta: &tsq.TableMeta{
 			DeletedAtField: "DeletedAt",
 		},
 		FieldMap: map[string]tsq.FieldInfo{
@@ -80,7 +80,7 @@ func TestValidateManagedFieldsRejectsUnsupportedSoftDeleteType(t *testing.T) {
 
 func TestValidateManagedFieldsRejectsNarrowIntegerSoftDeleteType(t *testing.T) {
 	info := &tsq.StructInfo{
-		TableInfo: &tsq.TableInfo{
+		TableMeta: &tsq.TableMeta{
 			DeletedAtField: "DeletedAt",
 		},
 		FieldMap: map[string]tsq.FieldInfo{
@@ -98,7 +98,7 @@ func TestValidateManagedFieldsRejectsNarrowIntegerSoftDeleteType(t *testing.T) {
 
 func TestValidateManagedFieldsRejectsNullableSoftDeleteUniqueIndexes(t *testing.T) {
 	info := &tsq.StructInfo{
-		TableInfo: &tsq.TableInfo{
+		TableMeta: &tsq.TableMeta{
 			DeletedAtField: "DeletedAt",
 			UxList:         []tsq.IndexInfo{{Name: "ux_name", Fields: []string{"Name"}}},
 		},
@@ -126,7 +126,7 @@ func TestValidateManagedFieldsRejectsNullableSoftDeleteUniqueIndexes(t *testing.
 
 func TestValidateManagedFieldsAllowsIntegerSoftDeleteUniqueIndexes(t *testing.T) {
 	info := &tsq.StructInfo{
-		TableInfo: &tsq.TableInfo{
+		TableMeta: &tsq.TableMeta{
 			DeletedAtField: "DeletedAt",
 			UxList:         []tsq.IndexInfo{{Name: "ux_name", Fields: []string{"Name"}}},
 		},

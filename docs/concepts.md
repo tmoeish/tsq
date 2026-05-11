@@ -26,7 +26,7 @@ Go struct + @TABLE / @RESULT
  *tsq.Query[Owner] + args
             |
             v
- tsq.List/Get/Page + tsq.DbMap / Runtime
+ tsq.List/Get/Page + tsq.Engine / Runtime
 ```
 
 ## 1. `@TABLE`：告诉生成器“这是一个表”
@@ -129,14 +129,14 @@ type UserOrder struct {
 
 生成后你通常会得到像 `PageUserOrder(...)` 这样的助手。
 
-## 6. `tsq.DbMap` / `SqlExecutor`：执行查询时的数据库上下文
+## 6. `tsq.Engine` / `SQLExecutor`：执行查询时的数据库上下文
 
-TSQ 执行查询时需要一个 `DbMap`：
+TSQ 执行查询时需要一个 `Engine`：
 
 ```go
-dbmap := &tsq.DbMap{
+engine := &tsq.Engine{
 	Db:      db,
-	Dialect: tsq.SqliteDialect{},
+	Dialect: tsq.SQLiteDialect{},
 }
 ```
 
@@ -147,12 +147,13 @@ dbmap := &tsq.DbMap{
 
 执行时像 `tsq.List(...)`、`tsq.Get(...)`、`query.Count64(...)` 都会用到它。
 
-底层执行接口是 `SqlExecutor`。这里最重要的约定有两点：
+底层执行接口是 `SQLExecutor`。这里最重要的约定有三点：
 
 1. 所有执行方法都显式接收 `ctx context.Context`
-2. mutation 方法只面向 `Table`，而扫描辅助方法保留对标量 / ad-hoc struct 的灵活性
+2. `SQLExecutor` 只保留 `QueryContext` / `QueryRowContext` / `ExecContext` 这组 `database/sql` 共有方法
+3. 表级 mutation helper 也直接接收 `SQLExecutor`
 
-也就是说，像 `Query / QueryRow / Exec / Insert` 这类方法都直接把 `ctx` 放在第一个参数，不再通过 `WithContext(...)` 返回副本 executor。
+也就是说，查询和生成的 CRUD helper 都可以直接复用 `*sql.DB` / `*sql.Tx` 这类标准库入口；如果你需要方言感知的占位符或引用规则，也可以用 `tsq.Engine` 或 `tsq.WrapExecutor(...)` 提供方言信息。
 
 ## 7. `Runtime`：表注册和隔离
 
@@ -182,9 +183,12 @@ rt := tsq.NewRuntime()
 
 ## 9. 最容易混淆的两个边界
 
-### `Where(...)` 和 `KwSearch(...)` 不是 append
+### `Where(...)` 和 `Search(...)` 不是 append
 
-它们都会覆盖之前的设置；要继续追加条件，用 `And(...)`。
+它们都只能设置一次。
+
+- `Where(cond1, cond2)` / `Search(col1, col2)` 的多个参数会按 `AND` 组合
+- 需要 `OR` 时请显式使用 `tsq.Or(...)`
 
 ### `EscapeKeywordSearch(...)` 不是 SQL 注入防护
 

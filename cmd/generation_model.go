@@ -70,7 +70,7 @@ func buildGenerationModels(
 	models := make([]generationModel, 0, len(list))
 
 	for _, s := range list {
-		if s.TableInfo == nil || len(s.Fields) == 0 {
+		if s.TableMeta == nil || len(s.Fields) == 0 {
 			continue
 		}
 

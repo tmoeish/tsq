@@ -14,13 +14,13 @@ type strictResultRow struct{}
 
 func (strictResultRow) TSQOwner() {}
 
-func (t *strictMockTable) TSQOwner()              {}
-func (t *strictMockTable) Table() string          { return t.name }
-func (t *strictMockTable) KwList() []SearchColumn { return nil }
-func (t *strictMockTable) Cols() []SQLColumn      { return t.cols }
-func (t *strictMockTable) PrimaryKeys() []string  { return nil }
-func (t *strictMockTable) AutoIncrement() bool    { return false }
-func (t *strictMockTable) VersionColumn() string  { return "" }
+func (t *strictMockTable) TSQOwner()                     {}
+func (t *strictMockTable) Table() string                 { return t.name }
+func (t *strictMockTable) SearchColumns() []SearchColumn { return nil }
+func (t *strictMockTable) Cols() []SQLColumn             { return t.cols }
+func (t *strictMockTable) PrimaryKeys() []string         { return nil }
+func (t *strictMockTable) AutoIncrement() bool           { return false }
+func (t *strictMockTable) VersionColumn() string         { return "" }
 
 func newStrictMockTable(name string, colNames ...string) (*strictMockTable, []ColumnImpl[Table, int]) {
 	table := &strictMockTable{name: name}

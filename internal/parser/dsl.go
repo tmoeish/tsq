@@ -472,14 +472,14 @@ func getTokenTypeName(tt TokenType) string {
 	}
 }
 
-// genTableInfoFromAST 将 AST 映射到 tsq.TableInfo
+// genTableInfoFromAST 将 AST 映射到 tsq.TableMeta
 func genTableInfoFromAST(
 	name string,
 	ast DSLObject,
 	isTable bool,
 	structFields map[string]struct{},
-) (*tsq.TableInfo, error) {
-	info := &tsq.TableInfo{
+) (*tsq.TableMeta, error) {
+	info := &tsq.TableMeta{
 		IsResult: !isTable,
 	}
 
@@ -488,7 +488,7 @@ func genTableInfoFromAST(
 	}
 	// 默认值
 	if isTable {
-		info.ID = DefaultPKField
+		info.PK = DefaultPKField
 		info.AI = true
 	}
 
@@ -506,7 +506,7 @@ func genTableInfoFromAST(
 		case "pk":
 			s, ok := v.(DSLString)
 			if !ok {
-				return nil, errors.Trace(NewDSLValueTypeError(k, "string like \"ID\" or \"ID,true\"", v))
+				return nil, errors.Trace(NewDSLValueTypeError(k, "string like \"PK\" or \"PK,true\"", v))
 			}
 
 			id, auto, err := parsePrimaryKeyDSL(string(s))
@@ -514,7 +514,7 @@ func genTableInfoFromAST(
 				return nil, errors.Trace(err)
 			}
 
-			info.ID = id
+			info.PK = id
 			info.AI = auto
 		case "version":
 			if s, ok := v.(DSLString); ok {
@@ -658,7 +658,7 @@ func genTableInfoFromAST(
 					return nil, NewDSLArrayEntryTypeError(k, "string Go field name", node)
 				}
 
-				info.KwList = append(info.KwList, string(s))
+				info.SearchColumns = append(info.SearchColumns, string(s))
 			}
 		default:
 			return nil, NewDSLUnknownTableKeyError(k)
@@ -702,9 +702,9 @@ func normalizeIndexNames(indexes []tsq.IndexInfo, prefix, table string) {
 }
 
 // validateTableInfoAgainstStruct 校验 DSL 字段和索引
-func validateTableInfoAgainstStruct(info *tsq.TableInfo, structFields map[string]struct{}, structName string) error {
+func validateTableInfoAgainstStruct(info *tsq.TableMeta, structFields map[string]struct{}, structName string) error {
 	// 1. 字段存在性校验
-	for _, field := range []string{info.ID, info.VersionField, info.CreatedAtField, info.UpdatedAtField, info.DeletedAtField} {
+	for _, field := range []string{info.PK, info.VersionField, info.CreatedAtField, info.UpdatedAtField, info.DeletedAtField} {
 		if field != "" && structFields != nil {
 			if _, ok := structFields[field]; !ok {
 				return NewDSLFieldNotFoundError(field, structName)
@@ -740,7 +740,7 @@ func validateTableInfoAgainstStruct(info *tsq.TableInfo, structFields map[string
 	}
 
 	// 3. kwList 校验
-	for _, kw := range info.KwList {
+	for _, kw := range info.SearchColumns {
 		if _, ok := structFields[kw]; !ok {
 			return NewDSLFieldNotFoundError(kw, structName)
 		}
@@ -772,23 +772,19 @@ func parsePrimaryKeyDSL(value string) (string, bool, error) {
 		return "", false, errors.Trace(errors.New("composite primary keys are not supported"))
 	}
 
-	auto := true
-
 	switch len(parts) {
 	case 1:
-		return id, auto, nil
+		return id, true, nil
 	case 2:
 		switch strings.TrimSpace(parts[1]) {
 		case "true":
-			auto = true
+			return id, true, nil
 		case "false":
-			auto = false
+			return id, false, nil
 		default:
 			return "", false, NewDSLInvalidPrimaryKeyError(value, "auto-increment flag must be true or false")
 		}
 	default:
 		return "", false, NewDSLInvalidPrimaryKeyError(value, "too many comma-separated parts")
 	}
-
-	return id, auto, nil
 }

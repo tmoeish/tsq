@@ -82,9 +82,9 @@ func TestGenCmdGeneratesDDLArtifactsAndGuidance(t *testing.T) {
 
 import "time"
 
-// @TABLE(name="users", pk="ID,true", created_at)
+// @TABLE(name="users", pk="PK,true", created_at)
 type User struct {
-	ID        int64     `+"`db:\"id\"`"+`
+	PK        int64     `+"`db:\"id\"`"+`
 	CreatedAt time.Time `+"`db:\"created_at\"`"+`
 	Name      string    `+"`db:\"name,size:128\"`"+`
 }
@@ -656,7 +656,7 @@ func TestGenDryRunPrintsStaleStatuses(t *testing.T) {
 
 func TestValidateResultFieldsRejectsUnknownTargetField(t *testing.T) {
 	dto := &tsq.StructInfo{
-		TableInfo: &tsq.TableInfo{IsResult: true},
+		TableMeta: &tsq.TableMeta{IsResult: true},
 		TypeInfo:  tsq.TypeInfo{TypeName: "UserResult"},
 		Fields: []tsq.FieldInfo{
 			{Name: "UserName", Column: "User.Missing"},
@@ -665,9 +665,9 @@ func TestValidateResultFieldsRejectsUnknownTargetField(t *testing.T) {
 
 	structsByName := map[string]*tsq.StructInfo{
 		"User": {
-			TableInfo: &tsq.TableInfo{Table: "user"},
+			TableMeta: &tsq.TableMeta{Table: "user"},
 			FieldMap: map[string]tsq.FieldInfo{
-				"ID": {Name: "ID", Column: "id"},
+				"PK": {Name: "PK", Column: "id"},
 			},
 		},
 	}
@@ -679,7 +679,7 @@ func TestValidateResultFieldsRejectsUnknownTargetField(t *testing.T) {
 
 func TestValidateResultFieldsRejectsNormalizedReferenceCollisions(t *testing.T) {
 	dto := &tsq.StructInfo{
-		TableInfo: &tsq.TableInfo{IsResult: true},
+		TableMeta: &tsq.TableMeta{IsResult: true},
 		TypeInfo:  tsq.TypeInfo{TypeName: "UserResult"},
 		Fields: []tsq.FieldInfo{
 			{Name: "A", Column: "User.Profile_ID"},
@@ -689,13 +689,13 @@ func TestValidateResultFieldsRejectsNormalizedReferenceCollisions(t *testing.T) 
 
 	structsByName := map[string]*tsq.StructInfo{
 		"User": {
-			TableInfo: &tsq.TableInfo{Table: "user"},
+			TableMeta: &tsq.TableMeta{Table: "user"},
 			FieldMap: map[string]tsq.FieldInfo{
 				"Profile_ID": {Name: "Profile_ID", Column: "profile_id"},
 			},
 		},
 		"User_Profile": {
-			TableInfo: &tsq.TableInfo{Table: "user_profile"},
+			TableMeta: &tsq.TableMeta{Table: "user_profile"},
 			FieldMap: map[string]tsq.FieldInfo{
 				"ID": {Name: "ID", Column: "id"},
 			},
@@ -709,7 +709,7 @@ func TestValidateResultFieldsRejectsNormalizedReferenceCollisions(t *testing.T) 
 
 func TestValidateResultFieldsRejectsIncompatibleTypes(t *testing.T) {
 	dto := &tsq.StructInfo{
-		TableInfo: &tsq.TableInfo{IsResult: true},
+		TableMeta: &tsq.TableMeta{IsResult: true},
 		TypeInfo:  tsq.TypeInfo{TypeName: "UserResult"},
 		Fields: []tsq.FieldInfo{
 			{Name: "OrderTime", Column: "Order.CreatedAt", Type: tsq.TypeInfo{TypeName: "string"}},
@@ -718,7 +718,7 @@ func TestValidateResultFieldsRejectsIncompatibleTypes(t *testing.T) {
 
 	structsByName := map[string]*tsq.StructInfo{
 		"Order": {
-			TableInfo: &tsq.TableInfo{Table: "order"},
+			TableMeta: &tsq.TableMeta{Table: "order"},
 			FieldMap: map[string]tsq.FieldInfo{
 				"CreatedAt": {
 					Name:   "CreatedAt",
@@ -743,7 +743,7 @@ func TestValidateResultFieldsAcceptsMatchingTypes(t *testing.T) {
 		TypeName: "Time",
 	}
 	dto := &tsq.StructInfo{
-		TableInfo: &tsq.TableInfo{IsResult: true},
+		TableMeta: &tsq.TableMeta{IsResult: true},
 		TypeInfo:  tsq.TypeInfo{TypeName: "UserResult"},
 		Fields: []tsq.FieldInfo{
 			{Name: "OrderTime", Column: "Order.CreatedAt", Type: timeType},
@@ -752,7 +752,7 @@ func TestValidateResultFieldsAcceptsMatchingTypes(t *testing.T) {
 
 	structsByName := map[string]*tsq.StructInfo{
 		"Order": {
-			TableInfo: &tsq.TableInfo{Table: "order"},
+			TableMeta: &tsq.TableMeta{Table: "order"},
 			FieldMap: map[string]tsq.FieldInfo{
 				"CreatedAt": {Name: "CreatedAt", Column: "created_at", Type: timeType},
 			},
@@ -766,7 +766,7 @@ func TestValidateResultFieldsAcceptsMatchingTypes(t *testing.T) {
 
 func TestNormalizeResultColumnsUpdatesFieldMap(t *testing.T) {
 	dto := &tsq.StructInfo{
-		TableInfo: &tsq.TableInfo{IsResult: true},
+		TableMeta: &tsq.TableMeta{IsResult: true},
 		Fields: []tsq.FieldInfo{
 			{Name: "UserID", Column: "User.ID"},
 		},
@@ -789,7 +789,7 @@ func TestNormalizeResultColumnsUpdatesFieldMap(t *testing.T) {
 func TestResultTemplateGeneratesProjectionOnlyResultFile(t *testing.T) {
 	dir := t.TempDir()
 	data := &tsq.StructInfo{
-		TableInfo: &tsq.TableInfo{IsResult: true},
+		TableMeta: &tsq.TableMeta{IsResult: true},
 		TypeInfo: tsq.TypeInfo{
 			Package:  tsq.PackageInfo{Name: "gentest"},
 			TypeName: "UserOrder",
@@ -846,14 +846,14 @@ func TestResultTemplateGeneratesProjectionOnlyResultFile(t *testing.T) {
 func TestValidateGeneratedFilenameCollisionsRejectsCaseConflicts(t *testing.T) {
 	list := []*tsq.StructInfo{
 		{
-			TableInfo: &tsq.TableInfo{Table: "user"},
+			TableMeta: &tsq.TableMeta{Table: "user"},
 			TypeInfo:  tsq.TypeInfo{TypeName: "User"},
-			Fields:    []tsq.FieldInfo{{Name: "ID"}},
+			Fields:    []tsq.FieldInfo{{Name: "PK"}},
 		},
 		{
-			TableInfo: &tsq.TableInfo{Table: "user_lower"},
+			TableMeta: &tsq.TableMeta{Table: "user_lower"},
 			TypeInfo:  tsq.TypeInfo{TypeName: "user"},
-			Fields:    []tsq.FieldInfo{{Name: "ID"}},
+			Fields:    []tsq.FieldInfo{{Name: "PK"}},
 		},
 	}
 
@@ -865,13 +865,13 @@ func TestValidateGeneratedFilenameCollisionsRejectsCaseConflicts(t *testing.T) {
 func TestValidateIndexNameCollisionsRejectsCrossTableReuse(t *testing.T) {
 	list := []*tsq.StructInfo{
 		{
-			TableInfo: &tsq.TableInfo{
+			TableMeta: &tsq.TableMeta{
 				Table:  "user",
 				UxList: []tsq.IndexInfo{{Name: "ux_name", Fields: []string{"Name"}}},
 			},
 		},
 		{
-			TableInfo: &tsq.TableInfo{
+			TableMeta: &tsq.TableMeta{
 				Table:  "org",
 				UxList: []tsq.IndexInfo{{Name: "ux_name", Fields: []string{"Name"}}},
 			},
@@ -885,14 +885,14 @@ func TestValidateIndexNameCollisionsRejectsCrossTableReuse(t *testing.T) {
 
 func TestValidateStructForGenerationRejectsPointerPrimaryKeys(t *testing.T) {
 	data := &tsq.StructInfo{
-		TableInfo: &tsq.TableInfo{
+		TableMeta: &tsq.TableMeta{
 			Table: "user",
-			ID:    "ID",
+			PK:    "PK",
 		},
 		TypeInfo: tsq.TypeInfo{TypeName: "User"},
 		FieldMap: map[string]tsq.FieldInfo{
-			"ID": {
-				Name:      "ID",
+			"PK": {
+				Name:      "PK",
 				IsPointer: true,
 				Type:      tsq.TypeInfo{TypeName: "string"},
 			},
@@ -906,14 +906,14 @@ func TestValidateStructForGenerationRejectsPointerPrimaryKeys(t *testing.T) {
 
 func TestValidateStructForGenerationRejectsSlicePrimaryKeys(t *testing.T) {
 	data := &tsq.StructInfo{
-		TableInfo: &tsq.TableInfo{
+		TableMeta: &tsq.TableMeta{
 			Table: "blob_user",
-			ID:    "ID",
+			PK:    "PK",
 		},
 		TypeInfo: tsq.TypeInfo{TypeName: "BlobUser"},
 		FieldMap: map[string]tsq.FieldInfo{
-			"ID": {
-				Name:    "ID",
+			"PK": {
+				Name:    "PK",
 				IsArray: true,
 				Type:    tsq.TypeInfo{TypeName: "byte"},
 			},
@@ -942,9 +942,9 @@ func TestTableTemplateAvoidsKeywordParameterNames(t *testing.T) {
 
 	field := tsq.FieldInfo{Name: "Type", Column: "type", JsonTag: "type", Type: tsq.TypeInfo{TypeName: "int64"}}
 	data := &tsq.StructInfo{
-		TableInfo: &tsq.TableInfo{
+		TableMeta: &tsq.TableMeta{
 			Table: "keyworded",
-			ID:    "Type",
+			PK:    "Type",
 			AI:    true,
 		},
 		TypeInfo: tsq.TypeInfo{Package: tsq.PackageInfo{Name: "example"}, TypeName: "Keyworded"},
@@ -983,14 +983,14 @@ func TestTableTemplateAnnotatesQueryListErrorsWithSourceIndexName(t *testing.T) 
 		t.Fatalf("failed to parse table template: %v", err)
 	}
 
-	idField := tsq.FieldInfo{Name: "ID", Column: "id", JsonTag: "id", Type: tsq.TypeInfo{TypeName: "int64"}}
+	idField := tsq.FieldInfo{Name: "PK", Column: "id", JsonTag: "id", Type: tsq.TypeInfo{TypeName: "int64"}}
 	orgField := tsq.FieldInfo{Name: "OrgID", Column: "org_id", JsonTag: "org_id", Type: tsq.TypeInfo{TypeName: "int64"}}
 	itemField := tsq.FieldInfo{Name: "ItemID", Column: "item_id", JsonTag: "item_id", Type: tsq.TypeInfo{TypeName: "int64"}}
 
 	data := &tsq.StructInfo{
-		TableInfo: &tsq.TableInfo{
+		TableMeta: &tsq.TableMeta{
 			Table: "order",
-			ID:    "ID",
+			PK:    "PK",
 			QueryList: []tsq.IndexInfo{
 				{
 					Name:       "OrgIDAndItemID",
@@ -1008,7 +1008,7 @@ func TestTableTemplateAnnotatesQueryListErrorsWithSourceIndexName(t *testing.T) 
 		TypeInfo: tsq.TypeInfo{Package: tsq.PackageInfo{Name: "example"}, TypeName: "Order"},
 		Fields:   []tsq.FieldInfo{idField, orgField, itemField},
 		FieldMap: map[string]tsq.FieldInfo{
-			"ID":     idField,
+			"PK":     idField,
 			"OrgID":  orgField,
 			"ItemID": itemField,
 		},
@@ -1082,9 +1082,9 @@ func TestGenDoesNotWriteBrokenGoOnFormatError(t *testing.T) {
 	}
 
 	data := &tsq.StructInfo{
-		TableInfo: &tsq.TableInfo{Table: "user"},
+		TableMeta: &tsq.TableMeta{Table: "user"},
 		TypeInfo:  tsq.TypeInfo{Package: tsq.PackageInfo{Name: "example"}, TypeName: "User"},
-		Fields:    []tsq.FieldInfo{{Name: "ID"}},
+		Fields:    []tsq.FieldInfo{{Name: "PK"}},
 	}
 
 	if err := gen(data, tpl, dir); err == nil {
@@ -1115,9 +1115,9 @@ func TestGenResultDoesNotWriteBrokenGoOnFormatError(t *testing.T) {
 	}
 
 	data := &tsq.StructInfo{
-		TableInfo: &tsq.TableInfo{IsResult: true},
+		TableMeta: &tsq.TableMeta{IsResult: true},
 		TypeInfo:  tsq.TypeInfo{Package: tsq.PackageInfo{Name: "example"}, TypeName: "UserResult"},
-		Fields:    []tsq.FieldInfo{{Name: "ID"}},
+		Fields:    []tsq.FieldInfo{{Name: "PK"}},
 	}
 
 	if err := genResult(data, tpl, dir); err == nil {

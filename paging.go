@@ -15,8 +15,8 @@ import (
 type Direction = Order
 
 const (
-	Asc  Direction = ASC
-	Desc Direction = DESC
+	Asc  = ASC
+	Desc = DESC
 )
 
 const (

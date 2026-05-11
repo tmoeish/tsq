@@ -8,7 +8,7 @@ import "strings"
 
 // StructInfo 表示用于代码生成的结构体信息
 type StructInfo struct {
-	*TableInfo // 表元数据，如果为 nil 则不是表结构
+	*TableMeta // 表元数据，如果为 nil 则不是表结构
 
 	// 基础类型信息
 	TypeInfo  TypeInfo             // 结构体的类型信息
@@ -105,17 +105,17 @@ func (s *StructInfo) SetTSQVersion(version string) {
 	s.TSQVersion = version
 }
 
-// TableInfo 表示表的元数据信息
-type TableInfo struct {
+// TableMeta 表示表的元数据信息
+type TableMeta struct {
 	IsResult       bool     // 是否为 Result 定义
 	Table          string   // 表名
-	AI             bool     // ID auto-increment
-	ID             string   // 主键字段名
+	AI             bool     // PK auto-increment
+	PK             string   // 主键字段名
 	VersionField   string   // 版本字段名
 	CreatedAtField string   // 创建时间字段名
 	UpdatedAtField string   // 修改时间字段名
 	DeletedAtField string   // 删除时间字段名
-	KwList         []string // 关键词搜索字段列表
+	SearchColumns  []string // 关键词搜索字段列表
 	UxList         UxList   // 唯一约束列表
 	IdxList        IdxList  // 索引列表
 	QueryList      IdxList  // 查询索引列表

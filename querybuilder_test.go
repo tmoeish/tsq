@@ -16,14 +16,14 @@ type queryBuilderCaseRow struct {
 
 func (queryBuilderCaseRow) TSQOwner() {}
 
-func (m mockTable) Init(db *DbMap, upsertIndexies bool) error { return nil }
-func (m mockTable) TSQOwner()                                 {}
-func (m mockTable) Table() string                             { return m.tableName }
-func (m mockTable) Cols() []SQLColumn                         { return nil }
-func (m mockTable) KwList() []SearchColumn                    { return nil }
-func (m mockTable) PrimaryKeys() []string                     { return nil }
-func (m mockTable) AutoIncrement() bool                       { return false }
-func (m mockTable) VersionColumn() string                     { return "" }
+func (m mockTable) Init(db *Engine, upsertIndexies bool) error { return nil }
+func (m mockTable) TSQOwner()                                  {}
+func (m mockTable) Table() string                              { return m.tableName }
+func (m mockTable) Cols() []SQLColumn                          { return nil }
+func (m mockTable) SearchColumns() []SearchColumn              { return nil }
+func (m mockTable) PrimaryKeys() []string                      { return nil }
+func (m mockTable) AutoIncrement() bool                        { return false }
+func (m mockTable) VersionColumn() string                      { return "" }
 
 func newMockTable(name string) Table {
 	return mockTable{tableName: name}
@@ -277,7 +277,7 @@ func TestQueryBuilder_SetOperationRejectsKeywordSearch(t *testing.T) {
 
 	_, err := Select(id).
 		From(id.Table()).
-		KwSearch(id).
+		Search(id).
 		Union(Select(id).From(id.Table())).
 		Build()
 	if err == nil {
@@ -357,7 +357,7 @@ func TestQueryBuilder_CTERejectsKeywordSearchInDefinition(t *testing.T) {
 	name := newColForTable[Table, string](users, "name", "name", nil)
 
 	searchUsers := CTE("search_users", Select(id, name).
-		From(id.Table()).KwSearch(name))
+		From(id.Table()).Search(name))
 	searchUserID := id.WithTable(searchUsers)
 
 	_, err := Select(searchUserID).
@@ -502,7 +502,7 @@ func TestQueryBuilder_KwSearch(t *testing.T) {
 	col2 := newMockColumn(table1, "email")
 
 	qb := Select(col1).
-		From(col1.Table()).KwSearch(col1, col2)
+		From(col1.Table()).Search(col1, col2)
 
 	if len(qb.spec.KeywordSearch) != 2 {
 		t.Errorf("Expected 2 keyword search columns, got %d", len(qb.spec.KeywordSearch))
@@ -554,7 +554,7 @@ func TestQueryBuilder_ChainedOperations(t *testing.T) {
 	qb := Select(col1, col2).
 		From(col1.Table()).
 		LeftJoin(table2, col1.EQCol(col3)).
-		KwSearch(col2).
+		Search(col2).
 		Where(mockCond).
 		GroupBy(col2).
 		Having(mockCond)
@@ -829,7 +829,7 @@ func TestQueryBuilder_MethodsHandleNilReceiverWithoutPanicking(t *testing.T) {
 	var qb *QueryBuilder[Table]
 
 	_, err := qb.
-		KwSearch(userID).
+		Search(userID).
 		GroupBy(userID).
 		Build()
 	if err == nil {

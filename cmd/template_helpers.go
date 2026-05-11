@@ -286,7 +286,7 @@ func validateSoftDeleteField(field tsq.FieldInfo) error {
 }
 
 func validateManagedFields(data *tsq.StructInfo) error {
-	if data == nil || data.TableInfo == nil || data.IsResult {
+	if data == nil || data.TableMeta == nil || data.IsResult {
 		return nil
 	}
 

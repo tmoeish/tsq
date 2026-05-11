@@ -238,20 +238,20 @@ func TestFilterAndProcessResultsOnlyReturnsTargetPackageStructs(t *testing.T) {
 		structMap: map[tsq.TypeInfo]*StructInfo{
 			targetType: {
 				StructInfo: &tsq.StructInfo{
-					TableInfo: &tsq.TableInfo{Table: "targets"},
+					TableMeta: &tsq.TableMeta{Table: "targets"},
 					TypeInfo:  targetType,
 					FieldMap: map[string]tsq.FieldInfo{
-						"ID": {Name: "ID", Type: tsq.TypeInfo{TypeName: "int64"}},
+						"PK": {Name: "PK", Type: tsq.TypeInfo{TypeName: "int64"}},
 					},
 					Recv: "t",
 				},
 			},
 			dependencyType: {
 				StructInfo: &tsq.StructInfo{
-					TableInfo: &tsq.TableInfo{Table: "dependencies"},
+					TableMeta: &tsq.TableMeta{Table: "dependencies"},
 					TypeInfo:  dependencyType,
 					FieldMap: map[string]tsq.FieldInfo{
-						"ID": {Name: "ID", Type: tsq.TypeInfo{TypeName: "int64"}},
+						"PK": {Name: "PK", Type: tsq.TypeInfo{TypeName: "int64"}},
 					},
 					Recv: "d",
 				},

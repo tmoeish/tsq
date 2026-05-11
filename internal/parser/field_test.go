@@ -16,7 +16,7 @@ func Test_parseNamedFields(t *testing.T) {
 package test
 
 type User struct {
-	ID   int64  ` + "`" + `db:"id"` + "`" + `
+	PK   int64  ` + "`" + `db:"id"` + "`" + `
 	Name string ` + "`" + `db:"name"` + "`" + `
 	Age  int    ` + "`" + `db:"age"` + "`" + `
 	Internal string // 没有标签，应该被跳过
@@ -64,12 +64,12 @@ type User struct {
 		t.Errorf("Expected 3 fields, got %d", len(fields))
 	}
 
-	// 验证 ID 字段
-	if field, exists := fields["ID"]; !exists {
-		t.Errorf("ID field not found")
+	// 验证 PK 字段
+	if field, exists := fields["PK"]; !exists {
+		t.Errorf("PK field not found")
 	} else {
-		if field.Name != "ID" || field.Type.TypeName != "int64" || field.Column != "id" {
-			t.Errorf("ID field incorrect: %+v", field)
+		if field.Name != "PK" || field.Type.TypeName != "int64" || field.Column != "id" {
+			t.Errorf("PK field incorrect: %+v", field)
 		}
 	}
 

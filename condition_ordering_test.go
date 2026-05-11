@@ -92,7 +92,7 @@ func TestConditionParameterOrdering_Documentation(t *testing.T) {
 	//   - Value is embedded directly in SQL
 	//   - Useful for static values known at compile time
 	//
-	// Var: Variable placeholder (col.EQVar())
+	// EQVar: Variable placeholder (col.EQVar())
 	//   - Uses ? placeholder, value provided at execution
 	//   - No parameter in method
 	//

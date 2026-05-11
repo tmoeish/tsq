@@ -299,7 +299,7 @@ func (ps *ParseState) processStructTypeSpec(
 	}
 
 	if tableMeta != nil {
-		structInfo.TableInfo = tableMeta
+		structInfo.TableMeta = tableMeta
 	}
 
 	return nil
@@ -326,7 +326,7 @@ func (ps *ParseState) filterAndProcessResults(packagePath string) (*ParseResult,
 	var results []*StructInfo
 
 	for _, structInfo := range ps.structMap {
-		if structInfo.TableInfo == nil {
+		if structInfo.TableMeta == nil {
 			continue
 		}
 

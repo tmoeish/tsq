@@ -8,23 +8,23 @@ import (
 	"github.com/tmoeish/tsq/examples/database"
 )
 
-func newExampleDBMap(t *testing.T) *tsq.DbMap {
+func newExampleEngine(t *testing.T) *tsq.Engine {
 	t.Helper()
 
-	dbmap, cleanup, err := openExampleDB()
+	engine, cleanup, err := openExampleDB()
 	if err != nil {
 		t.Fatalf("open example db: %v", err)
 	}
 
 	t.Cleanup(cleanup)
 
-	return dbmap
+	return engine
 }
 
 func TestRunAllExamples(t *testing.T) {
-	dbmap := newExampleDBMap(t)
+	engine := newExampleEngine(t)
 
-	summary, err := runAllExamples(context.Background(), dbmap)
+	summary, err := runAllExamples(context.Background(), engine)
 	if err != nil {
 		t.Fatalf("run all examples: %v", err)
 	}
@@ -59,7 +59,7 @@ func TestRunAllExamples(t *testing.T) {
 }
 
 func TestPageUserOrderSmoke(t *testing.T) {
-	dbmap := newExampleDBMap(t)
+	engine := newExampleEngine(t)
 	pageReq := &tsq.PageReq{
 		Page:    1,
 		Size:    5,
@@ -71,7 +71,7 @@ func TestPageUserOrderSmoke(t *testing.T) {
 		t.Fatalf("validate page request: %v", err)
 	}
 
-	resp, err := database.PageUserOrder(context.Background(), dbmap, pageReq, 1, "图书", "视频")
+	resp, err := database.PageUserOrder(context.Background(), engine, pageReq, 1, "图书", "视频")
 	if err != nil {
 		t.Fatalf("page user order: %v", err)
 	}

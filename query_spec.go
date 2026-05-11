@@ -722,14 +722,14 @@ func (c *cteCollector) collectDefinition(def cteDefinition) error {
 //
 // Example of circular dependency that WON'T work:
 //
-//	users.InnerJoin(orders, users.ID.EQCol(orders.UserID)).
-//	InnerJoin(invoices, orders.ID.EQCol(invoices.OrderID)).
-//	InnerJoin(users, invoices.UserID.EQCol(users.ID))  // CIRCULAR: users already involved
+//	users.InnerJoin(orders, users.PK.EQCol(orders.UserID)).
+//	InnerJoin(invoices, orders.PK.EQCol(invoices.OrderID)).
+//	InnerJoin(users, invoices.UserID.EQCol(users.PK))  // CIRCULAR: users already involved
 //
 // Example of self-join workaround (WILL work):
 //
 //	usersAlias := AliasTable(users, "u2")
-//	users.InnerJoin(usersAlias, users.ID.EQCol(usersAlias.ParentID))
+//	users.InnerJoin(usersAlias, users.PK.EQCol(usersAlias.ParentID))
 func (spec QuerySpec[O]) validateJoinGraph() error {
 	if err := validateTableInput(spec.From, "from table"); err != nil {
 		return errors.Trace(err)

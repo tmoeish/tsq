@@ -21,7 +21,7 @@ func (newColOwner) Table() string { return "users" }
 
 func (newColOwner) Cols() []SQLColumn { return nil }
 
-func (newColOwner) KwList() []SearchColumn { return nil }
+func (newColOwner) SearchColumns() []SearchColumn { return nil }
 
 func (newColOwner) PrimaryKeys() []string { return nil }
 

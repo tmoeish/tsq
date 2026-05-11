@@ -861,7 +861,7 @@ func TestRestoreTracersFromSnapshot(t *testing.T) {
 	}
 
 	// Test restore with empty snapshot
-	emptySnapshot := []Tracer{}
+	var emptySnapshot []Tracer
 	tm.restore(emptySnapshot)
 	if len(tm.Get()) != 0 {
 		t.Error("restore with empty snapshot should result in empty tracers")

@@ -124,11 +124,11 @@ if err := op2(); err != nil {
 return tx.Commit()
 ```
 
-### 3.3 事务里复用 TSQ 时，重新包装 `DbMap`，ctx 继续显式下传
+### 3.3 事务里复用 TSQ 时，重新包装 `Engine`，ctx 继续显式下传
 
 ```go
-txMap := &tsq.DbMap{Db: tx, Dialect: dbmap.Dialect}
-if err := order.Insert(ctx, txMap); err != nil {
+txEngine := &tsq.Engine{Db: tx, Dialect: engine.Dialect}
+if err := order.Insert(ctx, txEngine); err != nil {
 	return err
 }
 ```
@@ -212,9 +212,12 @@ cache := tsq.NewSQLRenderCache(tsq.SQLCacheConfig{
 
 ## 8. TSQ 特有的两个提醒
 
-### 8.1 `Where(...)` 和 `KwSearch(...)` 会覆盖之前的设置
+### 8.1 `Where(...)` 和 `Search(...)` 会覆盖之前的设置
 
-如果你想继续加条件，请使用 `And(...)`。
+`Where(...)` 和 `Search(...)` 都只能调用一次。
+
+- 同一次调用里传多个条件时，TSQ 会按 `AND` 组合
+- 需要 `OR` 时请显式使用 `tsq.Or(...)`
 
 ### 8.2 `EscapeKeywordSearch(...)` 只转义 LIKE 通配符
 

@@ -73,7 +73,7 @@ type caseSummary struct {
 }
 
 type cteSummary struct {
-	Total int64    `json:"total"`
+	Total int      `json:"total"`
 	Names []string `json:"names"`
 }
 
@@ -86,8 +86,8 @@ type chunkedSummary struct {
 	Inserted int64 `json:"inserted"`
 	Updated  int64 `json:"updated"`
 	Deleted  int64 `json:"deleted"`
-	Before   int64 `json:"before"`
-	After    int64 `json:"after"`
+	Before   int   `json:"before"`
+	After    int   `json:"after"`
 }
 
 type aliasedUserOrgRow struct {
@@ -120,14 +120,14 @@ func (priceValueRow) TSQOwner() {}
 func main() {
 	ctx := context.Background()
 
-	dbmap, cleanup, err := openExampleDB()
+	engine, cleanup, err := openExampleDB()
 	if err != nil {
 		slog.Error("open example db", "error", errors.ErrorStack(err))
 		os.Exit(1)
 	}
 	defer cleanup()
 
-	summary, err := runAllExamples(ctx, dbmap)
+	summary, err := runAllExamples(ctx, engine)
 	if err != nil {
 		slog.Error("run examples", "error", errors.ErrorStack(err))
 		os.Exit(1)
@@ -142,7 +142,7 @@ func main() {
 	fmt.Println(string(output))
 }
 
-func openExampleDB() (*tsq.DbMap, func(), error) {
+func openExampleDB() (*tsq.Engine, func(), error) {
 	db, err := sql.Open("sqlite3", ":memory:")
 	if err != nil {
 		return nil, nil, errors.Trace(err)
@@ -163,13 +163,13 @@ func openExampleDB() (*tsq.DbMap, func(), error) {
 		return nil, nil, errors.Annotate(err, "seed mock.sql")
 	}
 
-	dbmap := &tsq.DbMap{Db: db, Dialect: tsq.SqliteDialect{}}
-	if err := tsq.Init(dbmap, false, true); err != nil {
+	engine := &tsq.Engine{DB: db, Dialect: tsq.SQLiteDialect{}}
+	if err := tsq.Init(engine, false, true); err != nil {
 		cleanup()
 		return nil, nil, errors.Annotate(err, "init tsq")
 	}
 
-	return dbmap, cleanup, nil
+	return engine, cleanup, nil
 }
 
 func readMockSQL() ([]byte, error) {
@@ -192,58 +192,58 @@ func readMockSQL() ([]byte, error) {
 	return nil, errors.Annotate(lastErr, "read mock.sql")
 }
 
-func runAllExamples(ctx context.Context, dbmap *tsq.DbMap) (*exampleSummary, error) {
-	crud, err := runCRUDDemo(ctx, dbmap)
+func runAllExamples(ctx context.Context, engine *tsq.Engine) (*exampleSummary, error) {
+	crud, err := runCRUDDemo(ctx, engine)
 	if err != nil {
 		return nil, errors.Annotate(err, "crud demo")
 	}
 
-	alias, err := runAliasDemo(ctx, dbmap)
+	alias, err := runAliasDemo(ctx, engine)
 	if err != nil {
 		return nil, errors.Annotate(err, "alias demo")
 	}
 
-	aggregate, err := runAggregateDemo(ctx, dbmap)
+	aggregate, err := runAggregateDemo(ctx, engine)
 	if err != nil {
 		return nil, errors.Annotate(err, "aggregate demo")
 	}
 
-	keyword, err := runKeywordDemo(ctx, dbmap)
+	keyword, err := runKeywordDemo(ctx, engine)
 	if err != nil {
 		return nil, errors.Annotate(err, "keyword demo")
 	}
 
-	result, err := runResultDemo(ctx, dbmap)
+	result, err := runResultDemo(ctx, engine)
 	if err != nil {
 		return nil, errors.Annotate(err, "result demo")
 	}
 
-	inVar, err := runInVarDemo(ctx, dbmap)
+	inVar, err := runInVarDemo(ctx, engine)
 	if err != nil {
 		return nil, errors.Annotate(err, "invar demo")
 	}
 
-	subquery, err := runSubqueryDemo(ctx, dbmap)
+	subquery, err := runSubqueryDemo(ctx, engine)
 	if err != nil {
 		return nil, errors.Annotate(err, "subquery demo")
 	}
 
-	caseExpr, err := runCaseDemo(ctx, dbmap)
+	caseExpr, err := runCaseDemo(ctx, engine)
 	if err != nil {
 		return nil, errors.Annotate(err, "case demo")
 	}
 
-	cte, err := runCTEDemo(ctx, dbmap)
+	cte, err := runCTEDemo(ctx, engine)
 	if err != nil {
 		return nil, errors.Annotate(err, "cte demo")
 	}
 
-	setOps, err := runSetOpsDemo(ctx, dbmap)
+	setOps, err := runSetOpsDemo(ctx, engine)
 	if err != nil {
 		return nil, errors.Annotate(err, "set operations demo")
 	}
 
-	chunked, err := runChunkedDemo(ctx, dbmap)
+	chunked, err := runChunkedDemo(ctx, engine)
 	if err != nil {
 		return nil, errors.Annotate(err, "chunked demo")
 	}
@@ -263,7 +263,7 @@ func runAllExamples(ctx context.Context, dbmap *tsq.DbMap) (*exampleSummary, err
 	}, nil
 }
 
-func runCRUDDemo(ctx context.Context, dbmap *tsq.DbMap) (*crudSummary, error) {
+func runCRUDDemo(ctx context.Context, engine *tsq.Engine) (*crudSummary, error) {
 	category := &database.Category{
 		CategoryContent: database.CategoryContent{
 			Type:        database.CategoryTypeArticle,
@@ -272,25 +272,25 @@ func runCRUDDemo(ctx context.Context, dbmap *tsq.DbMap) (*crudSummary, error) {
 		},
 	}
 
-	if err := category.Insert(ctx, dbmap); err != nil {
+	if err := category.Insert(ctx, engine); err != nil {
 		return nil, errors.Trace(err)
 	}
 
 	category.Description = "Result、分页和聚合演示使用的分类（已更新）"
-	if err := category.Update(ctx, dbmap); err != nil {
+	if err := category.Update(ctx, engine); err != nil {
 		return nil, errors.Trace(err)
 	}
 
-	updated, err := database.GetCategoryByNameOrErr(ctx, dbmap, category.Name)
+	updated, err := database.GetCategoryByNameOrErr(ctx, engine, category.Name)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
 
-	if err := updated.Delete(ctx, dbmap); err != nil {
+	if err := updated.Delete(ctx, engine); err != nil {
 		return nil, errors.Trace(err)
 	}
 
-	deleted, err := database.GetCategoryByName(ctx, dbmap, category.Name)
+	deleted, err := database.GetCategoryByName(ctx, engine, category.Name)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -302,7 +302,7 @@ func runCRUDDemo(ctx context.Context, dbmap *tsq.DbMap) (*crudSummary, error) {
 	}, nil
 }
 
-func runAliasDemo(ctx context.Context, dbmap *tsq.DbMap) (*aliasSummary, error) {
+func runAliasDemo(ctx context.Context, engine *tsq.Engine) (*aliasSummary, error) {
 	orgAlias := "user_org"
 	orgID := database.Org_ID.As(orgAlias)
 	orgName := tsq.Into[aliasedUserOrgRow](database.Org_Name.As(orgAlias), func(holder *aliasedUserOrgRow) *string {
@@ -322,7 +322,7 @@ func runAliasDemo(ctx context.Context, dbmap *tsq.DbMap) (*aliasSummary, error) 
 		return nil, errors.Annotate(err, "build alias query")
 	}
 
-	row, err := tsq.GetOrErr[aliasedUserOrgRow](ctx, dbmap, query)
+	row, err := tsq.GetOrErr[aliasedUserOrgRow](ctx, engine, query)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -333,7 +333,7 @@ func runAliasDemo(ctx context.Context, dbmap *tsq.DbMap) (*aliasSummary, error) 
 	}, nil
 }
 
-func runAggregateDemo(ctx context.Context, dbmap *tsq.DbMap) ([]aggregateSummary, error) {
+func runAggregateDemo(ctx context.Context, engine *tsq.Engine) ([]aggregateSummary, error) {
 	categoryName := tsq.Into[categoryAggregateRow](database.Category_Name, func(holder *categoryAggregateRow) *string {
 		return &holder.Category
 	}, "category")
@@ -356,7 +356,7 @@ func runAggregateDemo(ctx context.Context, dbmap *tsq.DbMap) ([]aggregateSummary
 		return nil, errors.Annotate(err, "build aggregate query")
 	}
 
-	rows, err := tsq.List[categoryAggregateRow](ctx, dbmap, query)
+	rows, err := tsq.List[categoryAggregateRow](ctx, engine, query)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -377,7 +377,7 @@ func runAggregateDemo(ctx context.Context, dbmap *tsq.DbMap) ([]aggregateSummary
 	return summaries, nil
 }
 
-func runKeywordDemo(ctx context.Context, dbmap *tsq.DbMap) (*keywordSummary, error) {
+func runKeywordDemo(ctx context.Context, engine *tsq.Engine) (*keywordSummary, error) {
 	pageReq := &tsq.PageReq{
 		Page:    1,
 		Size:    2,
@@ -389,7 +389,7 @@ func runKeywordDemo(ctx context.Context, dbmap *tsq.DbMap) (*keywordSummary, err
 		return nil, errors.Trace(err)
 	}
 
-	resp, err := database.PageUser(ctx, dbmap, pageReq)
+	resp, err := database.PageUser(ctx, engine, pageReq)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -406,7 +406,7 @@ func runKeywordDemo(ctx context.Context, dbmap *tsq.DbMap) (*keywordSummary, err
 	}, nil
 }
 
-func runResultDemo(ctx context.Context, dbmap *tsq.DbMap) (*resultSummary, error) {
+func runResultDemo(ctx context.Context, engine *tsq.Engine) (*resultSummary, error) {
 	pageReq := &tsq.PageReq{
 		Page:    1,
 		Size:    3,
@@ -417,7 +417,7 @@ func runResultDemo(ctx context.Context, dbmap *tsq.DbMap) (*resultSummary, error
 		return nil, errors.Trace(err)
 	}
 
-	resp, err := database.PageUserOrder(ctx, dbmap, pageReq, 1, "图书", "视频")
+	resp, err := database.PageUserOrder(ctx, engine, pageReq, 1, "图书", "视频")
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -433,7 +433,7 @@ func runResultDemo(ctx context.Context, dbmap *tsq.DbMap) (*resultSummary, error
 	}, nil
 }
 
-func runInVarDemo(ctx context.Context, dbmap *tsq.DbMap) (*inVarSummary, error) {
+func runInVarDemo(ctx context.Context, engine *tsq.Engine) (*inVarSummary, error) {
 	query, err := tsq.
 		Select[database.Item](database.TableItemCols...).
 		From(database.TableItem).
@@ -445,7 +445,7 @@ func runInVarDemo(ctx context.Context, dbmap *tsq.DbMap) (*inVarSummary, error) 
 
 	categoryIDs := []int64{1}
 
-	items, err := tsq.List[database.Item](ctx, dbmap, query, categoryIDs)
+	items, err := tsq.List[database.Item](ctx, engine, query, categoryIDs)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -463,7 +463,7 @@ func runInVarDemo(ctx context.Context, dbmap *tsq.DbMap) (*inVarSummary, error) 
 	}, nil
 }
 
-func runSubqueryDemo(ctx context.Context, dbmap *tsq.DbMap) (*subquerySummary, error) {
+func runSubqueryDemo(ctx context.Context, engine *tsq.Engine) (*subquerySummary, error) {
 	orgIDSubquery, err := tsq.
 		Select[database.Org](database.Org_ID).
 		From(database.TableOrg).
@@ -482,7 +482,7 @@ func runSubqueryDemo(ctx context.Context, dbmap *tsq.DbMap) (*subquerySummary, e
 		return nil, errors.Annotate(err, "build users in org query")
 	}
 
-	usersInOrgA, err := tsq.List[database.User](ctx, dbmap, usersInOrgAQuery)
+	usersInOrgA, err := tsq.List[database.User](ctx, engine, usersInOrgAQuery)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -508,7 +508,7 @@ func runSubqueryDemo(ctx context.Context, dbmap *tsq.DbMap) (*subquerySummary, e
 		return nil, errors.Annotate(err, "build items below max query")
 	}
 
-	itemsBelowMax, err := tsq.List[database.Item](ctx, dbmap, itemsBelowMaxQuery)
+	itemsBelowMax, err := tsq.List[database.Item](ctx, engine, itemsBelowMaxQuery)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -533,7 +533,7 @@ func runSubqueryDemo(ctx context.Context, dbmap *tsq.DbMap) (*subquerySummary, e
 	}, nil
 }
 
-func runCaseDemo(ctx context.Context, dbmap *tsq.DbMap) (*caseSummary, error) {
+func runCaseDemo(ctx context.Context, engine *tsq.Engine) (*caseSummary, error) {
 	userLabelExpr := tsq.
 		Case[string]().
 		When(database.User_OrgID.EQ(1), "first_org").
@@ -552,7 +552,7 @@ func runCaseDemo(ctx context.Context, dbmap *tsq.DbMap) (*caseSummary, error) {
 		return nil, errors.Annotate(err, "build case query")
 	}
 
-	rows, err := tsq.List[namedRow](ctx, dbmap, query, []int64{1, 2})
+	rows, err := tsq.List[namedRow](ctx, engine, query, []int64{1, 2})
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -567,7 +567,7 @@ func runCaseDemo(ctx context.Context, dbmap *tsq.DbMap) (*caseSummary, error) {
 	return &caseSummary{Labels: labels}, nil
 }
 
-func runCTEDemo(ctx context.Context, dbmap *tsq.DbMap) (*cteSummary, error) {
+func runCTEDemo(ctx context.Context, engine *tsq.Engine) (*cteSummary, error) {
 	scopedUsers := tsq.CTE(
 		"scoped_users",
 		tsq.Select[database.User](database.User_ID, database.User_Name).
@@ -589,7 +589,7 @@ func runCTEDemo(ctx context.Context, dbmap *tsq.DbMap) (*cteSummary, error) {
 		return nil, errors.Annotate(err, "build cte query")
 	}
 
-	rows, err := tsq.List[namedRow](ctx, dbmap, query)
+	rows, err := tsq.List[namedRow](ctx, engine, query)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -601,7 +601,7 @@ func runCTEDemo(ctx context.Context, dbmap *tsq.DbMap) (*cteSummary, error) {
 
 	sort.Strings(names)
 
-	total, err := query.Count64(ctx, dbmap)
+	total, err := query.Count(ctx, engine)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -612,7 +612,7 @@ func runCTEDemo(ctx context.Context, dbmap *tsq.DbMap) (*cteSummary, error) {
 	}, nil
 }
 
-func runSetOpsDemo(ctx context.Context, dbmap *tsq.DbMap) (*setOpsSummary, error) {
+func runSetOpsDemo(ctx context.Context, engine *tsq.Engine) (*setOpsSummary, error) {
 	categoryName := tsq.Into[namedRow](database.Category_Name, func(holder *namedRow) *string {
 		return &holder.Name
 	}, "name")
@@ -632,7 +632,7 @@ func runSetOpsDemo(ctx context.Context, dbmap *tsq.DbMap) (*setOpsSummary, error
 		return nil, errors.Annotate(err, "build union query")
 	}
 
-	unionRows, err := tsq.List[namedRow](ctx, dbmap, unionQuery, []int64{1, 2}, []int64{1})
+	unionRows, err := tsq.List[namedRow](ctx, engine, unionQuery, []int64{1, 2}, []int64{1})
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -648,7 +648,7 @@ func runSetOpsDemo(ctx context.Context, dbmap *tsq.DbMap) (*setOpsSummary, error
 		return nil, errors.Annotate(err, "build except query")
 	}
 
-	exceptRows, err := tsq.List[namedRow](ctx, dbmap, exceptQuery, []int64{1, 2})
+	exceptRows, err := tsq.List[namedRow](ctx, engine, exceptQuery, []int64{1, 2})
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -672,8 +672,8 @@ func runSetOpsDemo(ctx context.Context, dbmap *tsq.DbMap) (*setOpsSummary, error
 	}, nil
 }
 
-func runChunkedDemo(ctx context.Context, dbmap *tsq.DbMap) (*chunkedSummary, error) {
-	before, err := database.CountUser(ctx, dbmap)
+func runChunkedDemo(ctx context.Context, engine *tsq.Engine) (*chunkedSummary, error) {
+	before, err := database.CountUser(ctx, engine)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -684,7 +684,7 @@ func runChunkedDemo(ctx context.Context, dbmap *tsq.DbMap) (*chunkedSummary, err
 		{OrgID: 2, Name: "chunk_user_gamma", Email: "gamma@example.com"},
 	}
 
-	if err := tsq.ChunkedInsert(ctx, dbmap, users, &tsq.ChunkedInsertOptions{ChunkSize: 2}); err != nil {
+	if err := tsq.ChunkedInsert(ctx, engine, users, &tsq.ChunkedInsertOptions{ChunkSize: 2}); err != nil {
 		return nil, errors.Trace(err)
 	}
 
@@ -699,7 +699,7 @@ func runChunkedDemo(ctx context.Context, dbmap *tsq.DbMap) (*chunkedSummary, err
 
 	names := []string{"chunk_user_alpha", "chunk_user_beta", "chunk_user_gamma"}
 
-	insertedUsers, err := tsq.List[database.User](ctx, dbmap, nameQuery, names)
+	insertedUsers, err := tsq.List[database.User](ctx, engine, nameQuery, names)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -708,11 +708,11 @@ func runChunkedDemo(ctx context.Context, dbmap *tsq.DbMap) (*chunkedSummary, err
 		user.Email = "updated+" + user.Email
 	}
 
-	if err := tsq.ChunkedUpdate(ctx, dbmap, insertedUsers, &tsq.ChunkedOptions{ChunkSize: 2}); err != nil {
+	if err := tsq.ChunkedUpdate(ctx, engine, insertedUsers, &tsq.ChunkedOptions{ChunkSize: 2}); err != nil {
 		return nil, errors.Trace(err)
 	}
 
-	if err := tsq.ChunkedDelete(ctx, dbmap, insertedUsers[:1], &tsq.ChunkedOptions{ChunkSize: 1}); err != nil {
+	if err := tsq.ChunkedDelete(ctx, engine, insertedUsers[:1], &tsq.ChunkedOptions{ChunkSize: 1}); err != nil {
 		return nil, errors.Trace(err)
 	}
 
@@ -723,7 +723,7 @@ func runChunkedDemo(ctx context.Context, dbmap *tsq.DbMap) (*chunkedSummary, err
 
 	if err := tsq.ChunkedDeleteByIDs(
 		ctx,
-		dbmap,
+		engine,
 		"user",
 		"id",
 		remainingIDs,
@@ -732,7 +732,7 @@ func runChunkedDemo(ctx context.Context, dbmap *tsq.DbMap) (*chunkedSummary, err
 		return nil, errors.Trace(err)
 	}
 
-	after, err := database.CountUser(ctx, dbmap)
+	after, err := database.CountUser(ctx, engine)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}

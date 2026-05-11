@@ -80,7 +80,6 @@ Canonical instructions for coding agents and IDE assistants working in this repo
 
 ## Repository-specific cautions
 
-- `Where(...)` and `KwSearch(...)` are overwrite-style setters; use `And(...)` when appending conditions.
 - `FULL JOIN` can be rendered but execution remains dialect-dependent.
 - Example schema lives in `examples/database/mock.sql`; schema changes must stay consistent with example structs and regenerated code.
 - Keep local-only files out of Git:

@@ -66,9 +66,9 @@ func (t aliasedTable) Table() string {
 
 func (t aliasedTable) TSQOwner() {}
 
-func (t aliasedTable) KwList() []SearchColumn {
-	result := make([]SearchColumn, 0, len(t.base.KwList()))
-	for _, col := range t.base.KwList() {
+func (t aliasedTable) SearchColumns() []SearchColumn {
+	result := make([]SearchColumn, 0, len(t.base.SearchColumns()))
+	for _, col := range t.base.SearchColumns() {
 		rebound, ok := RebindColumn(col, t).(SearchColumn)
 		if ok {
 			result = append(result, rebound)

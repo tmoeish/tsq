@@ -113,16 +113,16 @@ func TestQueryBuilder_MultiCall_KwSearch(t *testing.T) {
 	name := newMockColumn(table, "name")
 
 	qb := Select(id).From(table)
-	first := qb.KwSearch(id)
-	_, err := qb.KwSearch(name).Build()
+	first := qb.Search(id)
+	_, err := qb.Search(name).Build()
 	if err == nil {
-		t.Fatal("expected stale QueryBuilder to reject a second KwSearch()")
+		t.Fatal("expected stale QueryBuilder to reject a second Search()")
 	}
 	if first == nil {
-		t.Fatal("expected initial KwSearch() to succeed")
+		t.Fatal("expected initial Search() to succeed")
 	}
 
-	if !strings.Contains(err.Error(), "KwSearch() is not available") {
+	if !strings.Contains(err.Error(), "Search() is not available") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

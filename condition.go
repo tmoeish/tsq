@@ -153,7 +153,7 @@ func (c Cond) buildError() error {
 //   - 空值检查: IsNull, IsNotNull
 //
 // 绑定方式后缀（无后缀为参数绑定）：
-//   - Var: 使用 ? 占位符，值由执行时提供
+//   - EQVar / InVar 等方法：使用执行时占位符，值由执行时提供
 //   - Literal: 直接嵌入字面量
 //   - Col: 与另一列比较
 //   - Sub: 与子查询结果比较
@@ -162,13 +162,13 @@ func (c Cond) buildError() error {
 // 变量比较条件 (使用 ? 占位符)
 // ================================================
 
-func (c ColumnImpl[Owner, T]) EQVar() Pred[Owner]  { return c.Predicate(`%s = %s`, Var) }
-func (c ColumnImpl[Owner, T]) NEVar() Pred[Owner]  { return c.Predicate(`%s <> %s`, Var) }
-func (c ColumnImpl[Owner, T]) GTVar() Pred[Owner]  { return c.Predicate(`%s > %s`, Var) }
-func (c ColumnImpl[Owner, T]) GTEVar() Pred[Owner] { return c.Predicate(`%s >= %s`, Var) }
-func (c ColumnImpl[Owner, T]) LTVar() Pred[Owner]  { return c.Predicate(`%s < %s`, Var) }
-func (c ColumnImpl[Owner, T]) LTEVar() Pred[Owner] { return c.Predicate(`%s <= %s`, Var) }
-func (c ColumnImpl[Owner, T]) InVar() Pred[Owner]  { return c.Predicate(`%s IN (%s)`, VarSlice) }
+func (c ColumnImpl[Owner, T]) EQVar() Pred[Owner]  { return c.Predicate(`%s = %s`, varMarker) }
+func (c ColumnImpl[Owner, T]) NEVar() Pred[Owner]  { return c.Predicate(`%s <> %s`, varMarker) }
+func (c ColumnImpl[Owner, T]) GTVar() Pred[Owner]  { return c.Predicate(`%s > %s`, varMarker) }
+func (c ColumnImpl[Owner, T]) GTEVar() Pred[Owner] { return c.Predicate(`%s >= %s`, varMarker) }
+func (c ColumnImpl[Owner, T]) LTVar() Pred[Owner]  { return c.Predicate(`%s < %s`, varMarker) }
+func (c ColumnImpl[Owner, T]) LTEVar() Pred[Owner] { return c.Predicate(`%s <= %s`, varMarker) }
+func (c ColumnImpl[Owner, T]) InVar() Pred[Owner]  { return c.Predicate(`%s IN (%s)`, varSliceMarker) }
 func (c ColumnImpl[Owner, T]) StartsWithVar() Pred[Owner] {
 	return pred[Owner](unsupportedPatternPredicate("StartsWithVar"))
 }
@@ -194,11 +194,11 @@ func (c ColumnImpl[Owner, T]) NContainsVar() Pred[Owner] {
 }
 
 func (c ColumnImpl[Owner, T]) BetweenVar() Pred[Owner] {
-	return c.Predicate(`%s BETWEEN %s AND %s`, Var, Var)
+	return c.Predicate(`%s BETWEEN %s AND %s`, varMarker, varMarker)
 }
 
 func (c ColumnImpl[Owner, T]) NBetweenVar() Pred[Owner] {
-	return c.Predicate(`%s NOT BETWEEN %s AND %s`, Var, Var)
+	return c.Predicate(`%s NOT BETWEEN %s AND %s`, varMarker, varMarker)
 }
 
 // ================================================
@@ -634,14 +634,14 @@ type variableExpression struct{}
 func (v variableExpression) Expr() string { return "?" }
 func (v variableExpression) Args() []any  { return []any{externalArgMarker} }
 
-var Var variableExpression
+var varMarker variableExpression
 
 type variableSliceExpression struct{}
 
 func (v variableSliceExpression) Expr() string { return "?" }
 func (v variableSliceExpression) Args() []any  { return []any{externalSliceArgMarker{}} }
 
-var VarSlice variableSliceExpression
+var varSliceMarker variableSliceExpression
 
 // valuesExpression represents a list of values in SQL
 type valuesExpression struct {

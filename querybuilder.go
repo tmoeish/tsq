@@ -66,8 +66,8 @@ type WhereQueryBuilder[O Owner] struct {
 	*queryBuilderCore[O]
 }
 
-// KwSearchQueryBuilder holds a query after keyword search but before WHERE / GROUP BY.
-type KwSearchQueryBuilder[O Owner] struct {
+// SearchQueryBuilder holds a query after keyword search but before WHERE / GROUP BY.
+type SearchQueryBuilder[O Owner] struct {
 	*queryBuilderCore[O]
 }
 
@@ -200,7 +200,7 @@ func (qb *WhereQueryBuilder[O]) core() *queryBuilderCore[O] {
 	return qb.queryBuilderCore
 }
 
-func (qb *KwSearchQueryBuilder[O]) core() *queryBuilderCore[O] {
+func (qb *SearchQueryBuilder[O]) core() *queryBuilderCore[O] {
 	if qb == nil {
 		return nil
 	}
@@ -242,7 +242,7 @@ func (qb *CompoundQueryBuilder[O]) core() *queryBuilderCore[O] {
 
 func (qb *QueryBuilder[O]) completeQueryStage()         {}
 func (qb *WhereQueryBuilder[O]) completeQueryStage()    {}
-func (qb *KwSearchQueryBuilder[O]) completeQueryStage() {}
+func (qb *SearchQueryBuilder[O]) completeQueryStage()   {}
 func (qb *FilteredQueryBuilder[O]) completeQueryStage() {}
 func (qb *GroupedQueryBuilder[O]) completeQueryStage()  {}
 func (qb *HavingQueryBuilder[O]) completeQueryStage()   {}
@@ -433,7 +433,7 @@ func (core *queryBuilderCore[O]) setWhere(conds ...Condition) {
 	core.phase = builderPhaseWhere
 }
 
-func (core *queryBuilderCore[O]) setKwSearch(cols ...SearchColumn) {
+func (core *queryBuilderCore[O]) setSearch(cols ...SearchColumn) {
 	if core.buildErr != nil {
 		return
 	}
@@ -441,7 +441,7 @@ func (core *queryBuilderCore[O]) setKwSearch(cols ...SearchColumn) {
 	switch core.phase {
 	case builderPhaseBase, builderPhaseWhere:
 	default:
-		core.failTransition("KwSearch()")
+		core.failTransition("Search()")
 		return
 	}
 
@@ -634,12 +634,12 @@ func (qb *QueryBuilder[O]) Where(conds ...Condition) *WhereQueryBuilder[O] {
 	return &WhereQueryBuilder[O]{queryBuilderCore: core}
 }
 
-// KwSearch sets keyword-search columns for the query.
-func (qb *QueryBuilder[O]) KwSearch(cols ...SearchColumn) *KwSearchQueryBuilder[O] {
+// Search sets keyword-search columns for the query.
+func (qb *QueryBuilder[O]) Search(cols ...SearchColumn) *SearchQueryBuilder[O] {
 	core := ensureQueryBuilderCore(qb.core(), builderPhaseBase, qb == nil)
-	core.setKwSearch(cols...)
+	core.setSearch(cols...)
 
-	return &KwSearchQueryBuilder[O]{queryBuilderCore: core}
+	return &SearchQueryBuilder[O]{queryBuilderCore: core}
 }
 
 // GroupBy sets the GROUP BY clause for the query.
@@ -651,17 +651,17 @@ func (qb *QueryBuilder[O]) GroupBy(cols ...SQLColumn) *GroupedQueryBuilder[O] {
 }
 
 // Where sets the WHERE clause after keyword-search columns are fixed.
-func (qb *KwSearchQueryBuilder[O]) Where(conds ...Condition) *FilteredQueryBuilder[O] {
+func (qb *SearchQueryBuilder[O]) Where(conds ...Condition) *FilteredQueryBuilder[O] {
 	core := ensureQueryBuilderCore(qb.core(), builderPhaseKwSearch, qb == nil)
 	core.setWhere(conds...)
 
 	return &FilteredQueryBuilder[O]{queryBuilderCore: core}
 }
 
-// KwSearch sets keyword-search columns after WHERE is fixed.
-func (qb *WhereQueryBuilder[O]) KwSearch(cols ...SearchColumn) *FilteredQueryBuilder[O] {
+// Search sets keyword-search columns after WHERE is fixed.
+func (qb *WhereQueryBuilder[O]) Search(cols ...SearchColumn) *FilteredQueryBuilder[O] {
 	core := ensureQueryBuilderCore(qb.core(), builderPhaseWhere, qb == nil)
-	core.setKwSearch(cols...)
+	core.setSearch(cols...)
 
 	return &FilteredQueryBuilder[O]{queryBuilderCore: core}
 }
@@ -675,7 +675,7 @@ func (qb *WhereQueryBuilder[O]) GroupBy(cols ...SQLColumn) *GroupedQueryBuilder[
 }
 
 // GroupBy sets the GROUP BY clause after keyword search is fixed.
-func (qb *KwSearchQueryBuilder[O]) GroupBy(cols ...SQLColumn) *GroupedQueryBuilder[O] {
+func (qb *SearchQueryBuilder[O]) GroupBy(cols ...SQLColumn) *GroupedQueryBuilder[O] {
 	core := ensureQueryBuilderCore(qb.core(), builderPhaseKwSearch, qb == nil)
 	core.setGroupBy(cols...)
 
@@ -758,7 +758,7 @@ func (qb *WhereQueryBuilder[O]) Build() (*Query[O], error) {
 }
 
 // Build builds and validates the query.
-func (qb *KwSearchQueryBuilder[O]) Build() (*Query[O], error) {
+func (qb *SearchQueryBuilder[O]) Build() (*Query[O], error) {
 	return buildQuery(qb.core())
 }
 
@@ -799,7 +799,7 @@ func (qb *WhereQueryBuilder[O]) Union(other completeQueryStage[O]) *CompoundQuer
 }
 
 // Union appends a UNION clause to the current query.
-func (qb *KwSearchQueryBuilder[O]) Union(other completeQueryStage[O]) *CompoundQueryBuilder[O] {
+func (qb *SearchQueryBuilder[O]) Union(other completeQueryStage[O]) *CompoundQueryBuilder[O] {
 	core := ensureQueryBuilderCore(qb.core(), builderPhaseKwSearch, qb == nil)
 	core.appendSetOperation(UnionType, other)
 
@@ -855,7 +855,7 @@ func (qb *WhereQueryBuilder[O]) UnionAll(other completeQueryStage[O]) *CompoundQ
 }
 
 // UnionAll appends a UNION ALL clause to the current query.
-func (qb *KwSearchQueryBuilder[O]) UnionAll(other completeQueryStage[O]) *CompoundQueryBuilder[O] {
+func (qb *SearchQueryBuilder[O]) UnionAll(other completeQueryStage[O]) *CompoundQueryBuilder[O] {
 	core := ensureQueryBuilderCore(qb.core(), builderPhaseKwSearch, qb == nil)
 	core.appendSetOperation(UnionAllType, other)
 
@@ -911,7 +911,7 @@ func (qb *WhereQueryBuilder[O]) Intersect(other completeQueryStage[O]) *Compound
 }
 
 // Intersect appends an INTERSECT clause to the current query.
-func (qb *KwSearchQueryBuilder[O]) Intersect(other completeQueryStage[O]) *CompoundQueryBuilder[O] {
+func (qb *SearchQueryBuilder[O]) Intersect(other completeQueryStage[O]) *CompoundQueryBuilder[O] {
 	core := ensureQueryBuilderCore(qb.core(), builderPhaseKwSearch, qb == nil)
 	core.appendSetOperation(IntersectType, other)
 
@@ -967,7 +967,7 @@ func (qb *WhereQueryBuilder[O]) IntersectAll(other completeQueryStage[O]) *Compo
 }
 
 // IntersectAll appends an INTERSECT ALL clause to the current query.
-func (qb *KwSearchQueryBuilder[O]) IntersectAll(other completeQueryStage[O]) *CompoundQueryBuilder[O] {
+func (qb *SearchQueryBuilder[O]) IntersectAll(other completeQueryStage[O]) *CompoundQueryBuilder[O] {
 	core := ensureQueryBuilderCore(qb.core(), builderPhaseKwSearch, qb == nil)
 	core.appendSetOperation(IntersectAllType, other)
 
@@ -1023,7 +1023,7 @@ func (qb *WhereQueryBuilder[O]) Except(other completeQueryStage[O]) *CompoundQue
 }
 
 // Except appends an EXCEPT clause to the current query.
-func (qb *KwSearchQueryBuilder[O]) Except(other completeQueryStage[O]) *CompoundQueryBuilder[O] {
+func (qb *SearchQueryBuilder[O]) Except(other completeQueryStage[O]) *CompoundQueryBuilder[O] {
 	core := ensureQueryBuilderCore(qb.core(), builderPhaseKwSearch, qb == nil)
 	core.appendSetOperation(ExceptType, other)
 
@@ -1079,7 +1079,7 @@ func (qb *WhereQueryBuilder[O]) ExceptAll(other completeQueryStage[O]) *Compound
 }
 
 // ExceptAll appends an EXCEPT ALL clause to the current query.
-func (qb *KwSearchQueryBuilder[O]) ExceptAll(other completeQueryStage[O]) *CompoundQueryBuilder[O] {
+func (qb *SearchQueryBuilder[O]) ExceptAll(other completeQueryStage[O]) *CompoundQueryBuilder[O] {
 	core := ensureQueryBuilderCore(qb.core(), builderPhaseKwSearch, qb == nil)
 	core.appendSetOperation(ExceptAllType, other)
 

@@ -15,7 +15,7 @@ func Test_parseStructDeclaration(t *testing.T) {
 package test
 
 type User struct {
-	ID   int64  ` + "`" + `db:"id"` + "`" + `
+	PK   int64  ` + "`" + `db:"id"` + "`" + `
 	Name string ` + "`" + `db:"name"` + "`" + `
 	BaseModel
 }
@@ -76,12 +76,12 @@ type User struct {
 		t.Errorf("Expected 2 fields, got %d", len(structInfo.FieldMap))
 	}
 
-	// 验证 ID 字段
-	if field, exists := structInfo.FieldMap["ID"]; !exists {
-		t.Errorf("ID field not found")
+	// 验证 PK 字段
+	if field, exists := structInfo.FieldMap["PK"]; !exists {
+		t.Errorf("PK field not found")
 	} else {
-		if field.Name != "ID" || field.Type.TypeName != "int64" || field.Column != "id" {
-			t.Errorf("ID field incorrect: %+v", field)
+		if field.Name != "PK" || field.Type.TypeName != "int64" || field.Column != "id" {
+			t.Errorf("PK field incorrect: %+v", field)
 		}
 	}
 
@@ -116,8 +116,8 @@ func Test_parseStructDeclarationWithErrors(t *testing.T) {
 package test
 
 type User struct {
-	ID   int64  ` + "`" + `db:"id"` + "`" + `
-	ID   string ` + "`" + `db:"id2"` + "`" + ` // 重复字段名
+	PK   int64  ` + "`" + `db:"id"` + "`" + `
+	PK   string ` + "`" + `db:"id2"` + "`" + ` // 重复字段名
 }
 `
 
@@ -268,7 +268,7 @@ func TestParseStructDeclaration_DoesNotQueueCurrentPackageForLocalEmbeds(t *test
 package test
 
 type BaseModel struct {
-	ID int64 ` + "`" + `db:"id"` + "`" + `
+	PK int64 ` + "`" + `db:"id"` + "`" + `
 }
 
 type User struct {
