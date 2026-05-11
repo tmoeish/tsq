@@ -28,7 +28,7 @@ func (i Item) Table() string { return "item" }
 
 // Cols returns all generated columns for Item.
 func (i Item) Cols() []tsq.SQLColumn {
-	return tsq.SQLColumns(TableItemCols...)
+	return tsq.SQLColumns(Item__Cols...)
 }
 
 // SearchColumns returns columns that support keyword search for Item.
@@ -60,8 +60,8 @@ var (
 	Item_Price      = tsq.NewCol("price", "Price", func(t *Item) *int64 { return &t.Price })
 )
 
-// TableItemCols is the list of all selectable columns for Item table.
-var TableItemCols = []tsq.BoundColumn[Item]{
+// Item__Cols is the list of all selectable columns for Item table.
+var Item__Cols = []tsq.BoundColumn[Item]{
 	Item_CategoryID,
 	Item_CreatedAt,
 	Item_ID,
@@ -98,7 +98,7 @@ var getItemByIDQuery *tsq.Query[Item]
 func init() {
 	var err error
 	getItemByIDQuery, err = tsq.
-		Select(TableItemCols...).
+		Select(Item__Cols...).
 		From(TableItem).
 		Where(Item_ID.EQVar()).
 		Build()
@@ -148,7 +148,7 @@ func ListItemByIDIn(
 	iDs ...int64,
 ) ([]*Item, error) {
 	query, err := tsq.
-		Select(TableItemCols...).
+		Select(Item__Cols...).
 		From(TableItem).
 		Where(Item_ID.In(iDs...)).
 		Build()
@@ -166,7 +166,7 @@ func ListItemByIDInOrErr(
 	iDs ...int64,
 ) ([]*Item, error) {
 	query, err := tsq.
-		Select(TableItemCols...).
+		Select(Item__Cols...).
 		From(TableItem).
 		Where(Item_ID.In(iDs...)).
 		Build()
@@ -196,7 +196,7 @@ var getItemByNameQuery *tsq.Query[Item]
 func init() {
 	var err error
 	getItemByNameQuery, err = tsq.
-		Select(TableItemCols...).
+		Select(Item__Cols...).
 		From(TableItem).
 		Search(TableItem.SearchColumns()...).
 		Where(
@@ -268,7 +268,7 @@ var ListItemByCategoryIDQuery *tsq.Query[Item]
 func init() {
 	var err error
 	ListItemByCategoryIDQuery, err = tsq.
-		Select(TableItemCols...).
+		Select(Item__Cols...).
 		From(TableItem).
 		Search(TableItem.SearchColumns()...).
 		Where(
@@ -334,7 +334,7 @@ var ListItemByCategoryIDInQuery *tsq.Query[Item]
 func init() {
 	var err error
 	ListItemByCategoryIDInQuery, err = tsq.
-		Select(TableItemCols...).
+		Select(Item__Cols...).
 		From(TableItem).
 		Where(
 			Item_CategoryID.InVar(),
@@ -369,7 +369,7 @@ var listItemQuery *tsq.Query[Item]
 func init() {
 	var err error
 	listItemQuery, err = tsq.
-		Select(TableItemCols...).
+		Select(Item__Cols...).
 		From(TableItem).
 		Search(TableItem.SearchColumns()...).
 		Build()

@@ -1,7 +1,7 @@
 {{- $dot := . }}
 {{- $type := .TypeInfo.TypeName }}
 {{- $varTbl := printf "Table%s" $type }}
-{{- $varTblCols := printf "Table%sCols" $type }}
+{{- $varTblCols := printf "%s__Cols" $type }}
 {{- $ptype := printf "*%s" $type }}
 {{- $list := printf "[]*%s" $type }}
 {{- $pageResp := printf "tsq.PageResp[%s]" $type }}

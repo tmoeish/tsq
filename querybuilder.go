@@ -38,9 +38,9 @@ type builderPhase string
 
 const (
 	builderPhaseUnset      builderPhase = "uninitialized"
-	builderPhaseNeedFrom   builderPhase = "selected"    // 已 Select，等待 From
-	builderPhaseNeedSelect builderPhase = "from-only"   // 已 From，等待 Select
-	builderPhaseBase       builderPhase = "query"       // 基础查询，可进行 Join/Where/GroupBy
+	builderPhaseNeedFrom   builderPhase = "selected"  // 已 Select，等待 From
+	builderPhaseNeedSelect builderPhase = "from-only" // 已 From，等待 Select
+	builderPhaseBase       builderPhase = "query"     // 基础查询，可进行 Join/Where/GroupBy
 	builderPhaseWhere      builderPhase = "query-with-where"
 	builderPhaseKwSearch   builderPhase = "query-with-kw-search"
 	builderPhaseFiltered   builderPhase = "query-with-filters"
@@ -53,6 +53,38 @@ const (
 // TSQ 提供了多个特定阶段的构建器（如 SelectBuilder, WhereQueryBuilder），
 // 它们在底层共享同一个 queryBuilderCore，但暴露出的方法集不同，从而实现了流式 API 的引导。
 type QueryBuilder[O Owner] struct {
+	*queryBuilderCore[O]
+}
+
+type SelectBuilder[O Owner] struct {
+	*queryBuilderCore[O]
+}
+
+type FromBuilder[O Owner] struct {
+	*queryBuilderCore[O]
+}
+
+type WhereQueryBuilder[O Owner] struct {
+	*queryBuilderCore[O]
+}
+
+type SearchQueryBuilder[O Owner] struct {
+	*queryBuilderCore[O]
+}
+
+type FilteredQueryBuilder[O Owner] struct {
+	*queryBuilderCore[O]
+}
+
+type GroupedQueryBuilder[O Owner] struct {
+	*queryBuilderCore[O]
+}
+
+type HavingQueryBuilder[O Owner] struct {
+	*queryBuilderCore[O]
+}
+
+type CompoundQueryBuilder[O Owner] struct {
 	*queryBuilderCore[O]
 }
 
@@ -689,6 +721,11 @@ func buildQuery[O Owner](core *queryBuilderCore[O]) (*Query[O], error) {
 		listArgs:   plan.listArgs,
 		kwCntArgs:  plan.kwCntArgs,
 		kwListArgs: plan.kwListArgs,
+
+		cntArgState:    scanQueryArgState(plan.cntArgs),
+		listArgState:   scanQueryArgState(plan.listArgs),
+		kwCntArgState:  scanQueryArgState(plan.kwCntArgs),
+		kwListArgState: scanQueryArgState(plan.kwListArgs),
 
 		selectCols:   cloneBoundColumns(core.spec.Selects),
 		selectTables: core.spec.selectTables(),

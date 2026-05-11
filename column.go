@@ -13,13 +13,13 @@ type scanPointer func(holder any) any
 // SQLColumn 是 SQL 表达式在运行时的视图。
 // 它定义了一个表达式如何被渲染，以及被选中后如何扫描回 Go 对象。
 type SQLColumn interface {
-	SQLExpr() string           // 渲染后的 SQL 表达式（例如 "users.name"）
-	OutputName() string        // 默认的输出列名（别名）
-	JSONFieldName() string     // 对应的 JSON 标签名，用于排序白名单
-	Table() Table              // 所属的主表
-	Name() string              // 原始物理列名
-	QualifiedName() string     // 限定名（带表名）
-	scanPointer() scanPointer  // 获取扫描函数
+	SQLExpr() string                    // 渲染后的 SQL 表达式（例如 "users.name"）
+	OutputName() string                 // 默认的输出列名（别名）
+	JSONFieldName() string              // 对应的 JSON 标签名，用于排序白名单
+	Table() Table                       // 所属的主表
+	Name() string                       // 原始物理列名
+	QualifiedName() string              // 限定名（带表名）
+	scanPointer() scanPointer           // 获取扫描函数
 	referencedTables() map[string]Table // 表达式中涉及的所有表
 }
 
@@ -37,6 +37,32 @@ func SQLColumns[O Owner](cols ...BoundColumn[O]) []SQLColumn {
 type BoundColumn[O Owner] interface {
 	SQLColumn
 	selectOwner(O) // 幻影方法，用于范型类型约束
+}
+
+// TypedColumn is a value-typed selectable column.
+type TypedColumn[O Owner, T any] interface {
+	BoundColumn[O]
+	columnValue(T)
+}
+
+// TableColumn is an owner-typed physical/source column.
+type TableColumn[O Table] interface {
+	BoundColumn[O]
+	SearchColumn
+	tableColumnOwner(O)
+	tableSource() Table
+	columnName() string
+}
+
+// SearchColumn is a SQL expression allowed in keyword search.
+type SearchColumn interface {
+	SQLColumn
+	searchColumn()
+}
+
+type typedColumnInternal[T any] interface {
+	SQLColumn
+	columnValue(T)
 }
 
 // ColumnImpl 是类型安全列的基础实现。

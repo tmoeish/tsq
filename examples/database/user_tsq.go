@@ -28,7 +28,7 @@ func (u User) Table() string { return "user" }
 
 // Cols returns all generated columns for User.
 func (u User) Cols() []tsq.SQLColumn {
-	return tsq.SQLColumns(TableUserCols...)
+	return tsq.SQLColumns(User__Cols...)
 }
 
 // SearchColumns returns columns that support keyword search for User.
@@ -61,8 +61,8 @@ var (
 	User_OrgID     = tsq.NewCol("org_id", "org_id", func(t *User) *int64 { return &t.OrgID })
 )
 
-// TableUserCols is the list of all selectable columns for User table.
-var TableUserCols = []tsq.BoundColumn[User]{
+// User__Cols is the list of all selectable columns for User table.
+var User__Cols = []tsq.BoundColumn[User]{
 	User_CreatedAt,
 	User_Email,
 	User_ID,
@@ -95,7 +95,7 @@ var getUserByIDQuery *tsq.Query[User]
 func init() {
 	var err error
 	getUserByIDQuery, err = tsq.
-		Select(TableUserCols...).
+		Select(User__Cols...).
 		From(TableUser).
 		Where(User_ID.EQVar()).
 		Build()
@@ -145,7 +145,7 @@ func ListUserByIDIn(
 	iDs ...int64,
 ) ([]*User, error) {
 	query, err := tsq.
-		Select(TableUserCols...).
+		Select(User__Cols...).
 		From(TableUser).
 		Where(User_ID.In(iDs...)).
 		Build()
@@ -163,7 +163,7 @@ func ListUserByIDInOrErr(
 	iDs ...int64,
 ) ([]*User, error) {
 	query, err := tsq.
-		Select(TableUserCols...).
+		Select(User__Cols...).
 		From(TableUser).
 		Where(User_ID.In(iDs...)).
 		Build()
@@ -193,7 +193,7 @@ var getUserByNameQuery *tsq.Query[User]
 func init() {
 	var err error
 	getUserByNameQuery, err = tsq.
-		Select(TableUserCols...).
+		Select(User__Cols...).
 		From(TableUser).
 		Search(TableUser.SearchColumns()...).
 		Where(
@@ -269,7 +269,7 @@ var listUserQuery *tsq.Query[User]
 func init() {
 	var err error
 	listUserQuery, err = tsq.
-		Select(TableUserCols...).
+		Select(User__Cols...).
 		From(TableUser).
 		Search(TableUser.SearchColumns()...).
 		Build()

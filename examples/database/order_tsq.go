@@ -28,7 +28,7 @@ func (o Order) Table() string { return "order" }
 
 // Cols returns all generated columns for Order.
 func (o Order) Cols() []tsq.SQLColumn {
-	return tsq.SQLColumns(TableOrderCols...)
+	return tsq.SQLColumns(Order__Cols...)
 }
 
 // SearchColumns returns columns that support keyword search for Order.
@@ -68,8 +68,8 @@ var (
 	Order_Version   = tsq.NewCol("version", "version", func(t *Order) *int64 { return &t.Version })
 )
 
-// TableOrderCols is the list of all selectable columns for Order table.
-var TableOrderCols = []tsq.BoundColumn[Order]{
+// Order__Cols is the list of all selectable columns for Order table.
+var Order__Cols = []tsq.BoundColumn[Order]{
 	Order_Amount,
 	Order_CreatedAt,
 	Order_DeletedAt,
@@ -110,7 +110,7 @@ var getOrderByUIDQuery *tsq.Query[Order]
 func init() {
 	var err error
 	getOrderByUIDQuery, err = tsq.
-		Select(TableOrderCols...).
+		Select(Order__Cols...).
 		From(TableOrder).
 		Where(Order_UID.EQVar()).
 		Build()
@@ -160,7 +160,7 @@ func ListOrderByUIDIn(
 	uIDs ...int64,
 ) ([]*Order, error) {
 	query, err := tsq.
-		Select(TableOrderCols...).
+		Select(Order__Cols...).
 		From(TableOrder).
 		Where(Order_UID.In(uIDs...)).
 		Build()
@@ -178,7 +178,7 @@ func ListOrderByUIDInOrErr(
 	uIDs ...int64,
 ) ([]*Order, error) {
 	query, err := tsq.
-		Select(TableOrderCols...).
+		Select(Order__Cols...).
 		From(TableOrder).
 		Where(Order_UID.In(uIDs...)).
 		Build()
@@ -208,7 +208,7 @@ var getActiveOrderByUIDQuery *tsq.Query[Order]
 func init() {
 	var err error
 	getActiveOrderByUIDQuery, err = tsq.
-		Select(TableOrderCols...).
+		Select(Order__Cols...).
 		From(TableOrder).
 		Where(
 			Order_DeletedAt.EQ(0),
@@ -261,7 +261,7 @@ func ListActiveOrderByUIDIn(
 	uIDs ...int64,
 ) ([]*Order, error) {
 	query, err := tsq.
-		Select(TableOrderCols...).
+		Select(Order__Cols...).
 		From(TableOrder).
 		Where(
 			Order_DeletedAt.EQ(0),
@@ -282,7 +282,7 @@ func ListActiveOrderByUIDInOrErr(
 	uIDs ...int64,
 ) ([]*Order, error) {
 	query, err := tsq.
-		Select(TableOrderCols...).
+		Select(Order__Cols...).
 		From(TableOrder).
 		Where(
 			Order_DeletedAt.EQ(0),
@@ -321,7 +321,7 @@ var ListOrderByItemIDQuery *tsq.Query[Order]
 func init() {
 	var err error
 	ListOrderByItemIDQuery, err = tsq.
-		Select(TableOrderCols...).
+		Select(Order__Cols...).
 		From(TableOrder).
 		Search(TableOrder.SearchColumns()...).
 		Where(
@@ -387,7 +387,7 @@ var ListOrderByItemIDInQuery *tsq.Query[Order]
 func init() {
 	var err error
 	ListOrderByItemIDInQuery, err = tsq.
-		Select(TableOrderCols...).
+		Select(Order__Cols...).
 		From(TableOrder).
 		Where(
 			Order_ItemID.InVar(),
@@ -419,7 +419,7 @@ var ListOrderByUserIDQuery *tsq.Query[Order]
 func init() {
 	var err error
 	ListOrderByUserIDQuery, err = tsq.
-		Select(TableOrderCols...).
+		Select(Order__Cols...).
 		From(TableOrder).
 		Search(TableOrder.SearchColumns()...).
 		Where(
@@ -485,7 +485,7 @@ var ListOrderByUserIDAndItemIDQuery *tsq.Query[Order]
 func init() {
 	var err error
 	ListOrderByUserIDAndItemIDQuery, err = tsq.
-		Select(TableOrderCols...).
+		Select(Order__Cols...).
 		From(TableOrder).
 		Search(TableOrder.SearchColumns()...).
 		Where(
@@ -558,7 +558,7 @@ var ListOrderByUserIDAndItemIDInQuery *tsq.Query[Order]
 func init() {
 	var err error
 	ListOrderByUserIDAndItemIDInQuery, err = tsq.
-		Select(TableOrderCols...).
+		Select(Order__Cols...).
 		From(TableOrder).
 		Where(
 			Order_UserID.EQVar(),
@@ -593,7 +593,7 @@ var ListOrderByUserIDInQuery *tsq.Query[Order]
 func init() {
 	var err error
 	ListOrderByUserIDInQuery, err = tsq.
-		Select(TableOrderCols...).
+		Select(Order__Cols...).
 		From(TableOrder).
 		Where(
 			Order_UserID.InVar(),
@@ -628,7 +628,7 @@ var listActiveOrderByItemIDQuery *tsq.Query[Order]
 func init() {
 	var err error
 	listActiveOrderByItemIDQuery, err = tsq.
-		Select(TableOrderCols...).
+		Select(Order__Cols...).
 		From(TableOrder).
 		Search(TableOrder.SearchColumns()...).
 		Where(
@@ -695,7 +695,7 @@ var ListActiveOrderByItemIDInQuery *tsq.Query[Order]
 func init() {
 	var err error
 	ListActiveOrderByItemIDInQuery, err = tsq.
-		Select(TableOrderCols...).
+		Select(Order__Cols...).
 		From(TableOrder).
 		Where(
 			Order_DeletedAt.EQ(0),
@@ -729,7 +729,7 @@ var listActiveOrderByUserIDQuery *tsq.Query[Order]
 func init() {
 	var err error
 	listActiveOrderByUserIDQuery, err = tsq.
-		Select(TableOrderCols...).
+		Select(Order__Cols...).
 		From(TableOrder).
 		Search(TableOrder.SearchColumns()...).
 		Where(
@@ -796,7 +796,7 @@ var listActiveOrderByUserIDAndItemIDQuery *tsq.Query[Order]
 func init() {
 	var err error
 	listActiveOrderByUserIDAndItemIDQuery, err = tsq.
-		Select(TableOrderCols...).
+		Select(Order__Cols...).
 		From(TableOrder).
 		Search(TableOrder.SearchColumns()...).
 		Where(
@@ -870,7 +870,7 @@ var ListActiveOrderByUserIDAndItemIDInQuery *tsq.Query[Order]
 func init() {
 	var err error
 	ListActiveOrderByUserIDAndItemIDInQuery, err = tsq.
-		Select(TableOrderCols...).
+		Select(Order__Cols...).
 		From(TableOrder).
 		Where(
 			Order_DeletedAt.EQ(0),
@@ -907,7 +907,7 @@ var ListActiveOrderByUserIDInQuery *tsq.Query[Order]
 func init() {
 	var err error
 	ListActiveOrderByUserIDInQuery, err = tsq.
-		Select(TableOrderCols...).
+		Select(Order__Cols...).
 		From(TableOrder).
 		Where(
 			Order_DeletedAt.EQ(0),
@@ -944,7 +944,7 @@ var listOrderQuery *tsq.Query[Order]
 func init() {
 	var err error
 	listOrderQuery, err = tsq.
-		Select(TableOrderCols...).
+		Select(Order__Cols...).
 		From(TableOrder).
 		Search(TableOrder.SearchColumns()...).
 		Build()
@@ -986,7 +986,7 @@ var listActiveOrderQuery *tsq.Query[Order]
 func init() {
 	var err error
 	listActiveOrderQuery, err = tsq.
-		Select(TableOrderCols...).
+		Select(Order__Cols...).
 		From(TableOrder).
 		Search(TableOrder.SearchColumns()...).
 		Where(Order_DeletedAt.EQ(0)).

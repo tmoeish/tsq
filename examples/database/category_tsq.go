@@ -28,7 +28,7 @@ func (c Category) Table() string { return "category" }
 
 // Cols returns all generated columns for Category.
 func (c Category) Cols() []tsq.SQLColumn {
-	return tsq.SQLColumns(TableCategoryCols...)
+	return tsq.SQLColumns(Category__Cols...)
 }
 
 // SearchColumns returns columns that support keyword search for Category.
@@ -61,8 +61,8 @@ var (
 	Category_Type        = tsq.NewCol("type", "type", func(t *Category) *CategoryType { return &t.Type })
 )
 
-// TableCategoryCols is the list of all selectable columns for Category table.
-var TableCategoryCols = []tsq.BoundColumn[Category]{
+// Category__Cols is the list of all selectable columns for Category table.
+var Category__Cols = []tsq.BoundColumn[Category]{
 	Category_CreatedAt,
 	Category_Description,
 	Category_ID,
@@ -95,7 +95,7 @@ var getCategoryByIDQuery *tsq.Query[Category]
 func init() {
 	var err error
 	getCategoryByIDQuery, err = tsq.
-		Select(TableCategoryCols...).
+		Select(Category__Cols...).
 		From(TableCategory).
 		Where(Category_ID.EQVar()).
 		Build()
@@ -145,7 +145,7 @@ func ListCategoryByIDIn(
 	iDs ...int64,
 ) ([]*Category, error) {
 	query, err := tsq.
-		Select(TableCategoryCols...).
+		Select(Category__Cols...).
 		From(TableCategory).
 		Where(Category_ID.In(iDs...)).
 		Build()
@@ -163,7 +163,7 @@ func ListCategoryByIDInOrErr(
 	iDs ...int64,
 ) ([]*Category, error) {
 	query, err := tsq.
-		Select(TableCategoryCols...).
+		Select(Category__Cols...).
 		From(TableCategory).
 		Where(Category_ID.In(iDs...)).
 		Build()
@@ -193,7 +193,7 @@ var getCategoryByNameQuery *tsq.Query[Category]
 func init() {
 	var err error
 	getCategoryByNameQuery, err = tsq.
-		Select(TableCategoryCols...).
+		Select(Category__Cols...).
 		From(TableCategory).
 		Search(TableCategory.SearchColumns()...).
 		Where(
@@ -269,7 +269,7 @@ var listCategoryQuery *tsq.Query[Category]
 func init() {
 	var err error
 	listCategoryQuery, err = tsq.
-		Select(TableCategoryCols...).
+		Select(Category__Cols...).
 		From(TableCategory).
 		Search(TableCategory.SearchColumns()...).
 		Build()

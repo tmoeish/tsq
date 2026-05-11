@@ -305,7 +305,7 @@ func runCRUDDemo(ctx context.Context, engine *tsq.Engine) (*crudSummary, error) 
 func runAliasDemo(ctx context.Context, engine *tsq.Engine) (*aliasSummary, error) {
 	orgAlias := "user_org"
 	orgID := database.Org_ID.As(orgAlias)
-	orgName := tsq.Into[aliasedUserOrgRow](database.Org_Name.As(orgAlias), func(holder *aliasedUserOrgRow) *string {
+	orgName := tsq.Into(database.Org_Name.As(orgAlias), func(holder *aliasedUserOrgRow) *string {
 		return &holder.OrgName
 	}, "org_name")
 	userName := tsq.Into[aliasedUserOrgRow](database.User_Name, func(holder *aliasedUserOrgRow) *string {
@@ -435,7 +435,7 @@ func runResultDemo(ctx context.Context, engine *tsq.Engine) (*resultSummary, err
 
 func runInVarDemo(ctx context.Context, engine *tsq.Engine) (*inVarSummary, error) {
 	query, err := tsq.
-		Select[database.Item](database.TableItemCols...).
+		Select(database.Item__Cols...).
 		From(database.TableItem).
 		Where(database.Item_CategoryID.InVar()).
 		Build()
@@ -445,7 +445,7 @@ func runInVarDemo(ctx context.Context, engine *tsq.Engine) (*inVarSummary, error
 
 	categoryIDs := []int64{1}
 
-	items, err := tsq.List[database.Item](ctx, engine, query, categoryIDs)
+	items, err := tsq.List(ctx, engine, query, categoryIDs)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -465,7 +465,7 @@ func runInVarDemo(ctx context.Context, engine *tsq.Engine) (*inVarSummary, error
 
 func runSubqueryDemo(ctx context.Context, engine *tsq.Engine) (*subquerySummary, error) {
 	orgIDSubquery, err := tsq.
-		Select[database.Org](database.Org_ID).
+		Select(database.Org_ID).
 		From(database.TableOrg).
 		Where(database.Org_Name.EQ("组织A")).
 		Build()
@@ -474,7 +474,7 @@ func runSubqueryDemo(ctx context.Context, engine *tsq.Engine) (*subquerySummary,
 	}
 
 	usersInOrgAQuery, err := tsq.
-		Select[database.User](database.TableUserCols...).
+		Select[database.User](database.User__Cols...).
 		From(database.TableUser).
 		Where(database.User_OrgID.InSub(orgIDSubquery)).
 		Build()
@@ -500,7 +500,7 @@ func runSubqueryDemo(ctx context.Context, engine *tsq.Engine) (*subquerySummary,
 	}
 
 	itemsBelowMaxQuery, err := tsq.
-		Select[database.Item](database.TableItemCols...).
+		Select[database.Item](database.Item__Cols...).
 		From(database.TableItem).
 		Where(database.Item_Price.LTSub(maxPriceSubquery)).
 		Build()
@@ -689,7 +689,7 @@ func runChunkedDemo(ctx context.Context, engine *tsq.Engine) (*chunkedSummary, e
 	}
 
 	nameQuery, err := tsq.
-		Select[database.User](database.TableUserCols...).
+		Select[database.User](database.User__Cols...).
 		From(database.TableUser).
 		Where(database.User_Name.InVar()).
 		Build()
@@ -699,7 +699,7 @@ func runChunkedDemo(ctx context.Context, engine *tsq.Engine) (*chunkedSummary, e
 
 	names := []string{"chunk_user_alpha", "chunk_user_beta", "chunk_user_gamma"}
 
-	insertedUsers, err := tsq.List[database.User](ctx, engine, nameQuery, names)
+	insertedUsers, err := tsq.List(ctx, engine, nameQuery, names)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}

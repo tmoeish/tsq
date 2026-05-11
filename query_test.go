@@ -741,6 +741,68 @@ func TestResolveQueryExpandsEmptyExternalSliceArgsToNull(t *testing.T) {
 	}
 }
 
+func TestResolveQueryResolvesExternalArgsWithoutRewritingSQL(t *testing.T) {
+	sqlText, args, err := resolveQuery(
+		`SELECT * FROM "users" WHERE "users"."id" = ? AND "users"."name" LIKE ?`,
+		[]any{externalArgMarker, keywordArgMarker},
+		[]any{int64(7)},
+		"alice",
+	)
+	if err != nil {
+		t.Fatalf("expected resolveQuery to resolve non-slice markers, got %v", err)
+	}
+
+	if want := `SELECT * FROM "users" WHERE "users"."id" = ? AND "users"."name" LIKE ?`; sqlText != want {
+		t.Fatalf("expected SQL %q, got %q", want, sqlText)
+	}
+
+	if want := []any{int64(7), "%alice%"}; len(args) != len(want) || args[0] != want[0] || args[1] != want[1] {
+		t.Fatalf("unexpected resolved args: %#v", args)
+	}
+}
+
+func TestFlattenExternalSliceArgFastPaths(t *testing.T) {
+	values, err := flattenExternalSliceArg([]int64{1, 2, 3})
+	if err != nil {
+		t.Fatalf("expected []int64 fast path to succeed, got %v", err)
+	}
+	if want := []any{int64(1), int64(2), int64(3)}; len(values) != len(want) || values[0] != want[0] || values[1] != want[1] || values[2] != want[2] {
+		t.Fatalf("unexpected flattened []int64 values: %#v", values)
+	}
+
+	values, err = flattenExternalSliceArg([]string{"a", "b"})
+	if err != nil {
+		t.Fatalf("expected []string fast path to succeed, got %v", err)
+	}
+	if want := []any{"a", "b"}; len(values) != len(want) || values[0] != want[0] || values[1] != want[1] {
+		t.Fatalf("unexpected flattened []string values: %#v", values)
+	}
+
+	ints := []int{4, 5}
+	values, err = flattenExternalSliceArg(&ints)
+	if err != nil {
+		t.Fatalf("expected *[]int fast path to succeed, got %v", err)
+	}
+	if want := []any{4, 5}; len(values) != len(want) || values[0] != want[0] || values[1] != want[1] {
+		t.Fatalf("unexpected flattened *[]int values: %#v", values)
+	}
+}
+
+func TestExpandSlicePlaceholdersUsesCache(t *testing.T) {
+	if got := expandSlicePlaceholders(0); got != "NULL" {
+		t.Fatalf("expected NULL placeholder for empty slice, got %q", got)
+	}
+
+	if got := expandSlicePlaceholders(3); got != "?, ?, ?" {
+		t.Fatalf("expected cached placeholder expansion, got %q", got)
+	}
+
+	large := expandSlicePlaceholders(slicePlaceholderCacheMax + 1)
+	if strings.Count(large, "?") != slicePlaceholderCacheMax+1 {
+		t.Fatalf("expected %d placeholders, got %q", slicePlaceholderCacheMax+1, large)
+	}
+}
+
 func TestNormalizeChunkedInsertOptionsValidatesInputs(t *testing.T) {
 	if _, err := normalizeChunkedInsertOptions(&ChunkedInsertOptions{ChunkSize: 0}); err == nil {
 		t.Fatal("expected zero chunk size to return an error")

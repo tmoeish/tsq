@@ -144,15 +144,35 @@ type Query[O Owner] struct {
 	kwCntArgs  []any
 	kwListArgs []any
 
+	cntArgState    queryArgState
+	listArgState   queryArgState
+	kwCntArgState  queryArgState
+	kwListArgState queryArgState
+
 	// 元数据。
 	selectCols   []BoundColumn[O] // 选中的列，用于 Scan 映射。
-	selectTables map[string]Table  // 查询涉及的所有表。
+	selectTables map[string]Table // 查询涉及的所有表。
 	kwCols       []SearchColumn   // 关键词搜索涉及的列。
 	kwTables     map[string]Table
-	hasSetOps    bool             // 是否包含集合操作（UNION 等），影响别名处理。
+	hasSetOps    bool // 是否包含集合操作（UNION 等），影响别名处理。
 }
 
 type externalSliceArgMarker struct{}
+
+type queryArgState struct {
+	initialized         bool
+	hasExternalArg      bool
+	hasExternalSliceArg bool
+	hasKeywordArg       bool
+}
+
+func (s queryArgState) hasDeferredArgs() bool {
+	return s.hasExternalArg || s.hasExternalSliceArg || s.hasKeywordArg
+}
+
+const slicePlaceholderCacheMax = 128
+
+var slicePlaceholderCache = buildSlicePlaceholderCache(slicePlaceholderCacheMax)
 
 var builtInIdentifierPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
@@ -256,7 +276,7 @@ func (q *Query[O]) prepareQueryExecution(
 		return "", nil, errors.Trace(err)
 	}
 
-	resolvedSQL, finalArgs, err := resolveQuery(q.listSQL, q.listArgs, args, "")
+	resolvedSQL, finalArgs, err := resolveQueryWithState(q.listSQL, q.listArgs, args, "", q.listArgState)
 	if err != nil {
 		return "", nil, errors.Trace(err)
 	}
@@ -430,7 +450,7 @@ func (q *Query[O]) count64(
 		return 0, errors.Trace(err)
 	}
 
-	resolvedSQL, finalArgs, err := resolveQuery(q.cntSQL, q.cntArgs, args, "")
+	resolvedSQL, finalArgs, err := resolveQueryWithState(q.cntSQL, q.cntArgs, args, "", q.cntArgState)
 	if err != nil {
 		return 0, errors.Trace(err)
 	}
@@ -473,7 +493,7 @@ func (q *Query[O]) exist(
 		return false, errors.Trace(err)
 	}
 
-	resolvedSQL, finalArgs, err := resolveQuery(q.cntSQL, q.cntArgs, args, "")
+	resolvedSQL, finalArgs, err := resolveQueryWithState(q.cntSQL, q.cntArgs, args, "", q.cntArgState)
 	if err != nil {
 		return false, errors.Trace(err)
 	}
@@ -533,18 +553,22 @@ func pageFn[O Owner](
 
 	queryBaseArgs := q.listArgs
 	countBaseArgs := q.cntArgs
+	queryArgState := q.listArgState
+	countArgState := q.cntArgState
 
 	if len(q.kwCols) > 0 && len(page.Keyword) > 0 {
 		queryBaseArgs = q.kwListArgs
 		countBaseArgs = q.kwCntArgs
+		queryArgState = q.kwListArgState
+		countArgState = q.kwCntArgState
 	}
 
-	resolvedListSQL, finalArgs, err := resolveQuery(listSQL, queryBaseArgs, args, page.Keyword)
+	resolvedListSQL, finalArgs, err := resolveQueryWithState(listSQL, queryBaseArgs, args, page.Keyword, queryArgState)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
 
-	resolvedCntSQL, countArgs, err := resolveQuery(cntSQL, countBaseArgs, args, page.Keyword)
+	resolvedCntSQL, countArgs, err := resolveQueryWithState(cntSQL, countBaseArgs, args, page.Keyword, countArgState)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -561,7 +585,9 @@ func pageFn[O Owner](
 	}
 
 	// Add LIMIT parameters
-	argsWithLimit := append(finalArgs, page.Size, page.Offset())
+	argsWithLimit := make([]any, 0, len(finalArgs)+2)
+	argsWithLimit = append(argsWithLimit, finalArgs...)
+	argsWithLimit = append(argsWithLimit, page.Size, page.Offset())
 
 	if ctx.Value(printSQL) != nil {
 		slog.Info("count", "sql", renderedCntSQL, "args", CompactJSON(finalArgs))
@@ -632,7 +658,7 @@ func listFn[O Owner](
 		return nil, errors.Trace(err)
 	}
 
-	resolvedSQL, finalArgs, err := resolveQuery(q.listSQL, q.listArgs, args, "")
+	resolvedSQL, finalArgs, err := resolveQueryWithState(q.listSQL, q.listArgs, args, "", q.listArgState)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -707,7 +733,7 @@ func getOrErrFn[O Owner](
 		return nil, errors.Trace(err)
 	}
 
-	resolvedSQL, finalArgs, err := resolveQuery(qb.listSQL, qb.listArgs, args, "")
+	resolvedSQL, finalArgs, err := resolveQueryWithState(qb.listSQL, qb.listArgs, args, "", qb.listArgState)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -771,7 +797,7 @@ func (q *Query[O]) Load(
 			return errors.Trace(err)
 		}
 
-		resolvedSQL, finalArgs, err := resolveQuery(q.listSQL, q.listArgs, args, "")
+		resolvedSQL, finalArgs, err := resolveQueryWithState(q.listSQL, q.listArgs, args, "", q.listArgState)
 		if err != nil {
 			return errors.Trace(err)
 		}
@@ -1447,12 +1473,12 @@ func EscapeKeywordSearch(keyword string) string {
 }
 
 func mergeQueryArgs(base, extra []any) ([]any, error) {
-	_, args, err := resolveQuery("", base, extra, "")
+	_, args, err := resolveQueryWithState("", base, extra, "", scanQueryArgState(base))
 	return args, errors.Trace(err)
 }
 
 func resolveQueryArgs(base, extra []any, keyword string) ([]any, error) {
-	_, args, err := resolveQuery("", base, extra, keyword)
+	_, args, err := resolveQueryWithState("", base, extra, keyword, scanQueryArgState(base))
 	return args, errors.Trace(err)
 }
 
@@ -1460,15 +1486,46 @@ func resolveQueryArgs(base, extra []any, keyword string) ([]any, error) {
 // 架构意图：它负责将“编译期”确定的基础参数（base）与“执行期”提供的外部参数（extra）进行对齐。
 //
 // 工作原理：
-// 1. 它是基础 SQL 模板的“二遍扫描”过程。
-// 2. 遍历 baseArgs，这些参数是在 Build() 阶段收集的。
-// 3. 遇到普通的绑定值，直接保留。
-// 4. 遇到 externalArgMarker：从 extraArgs 中取出一个值替换，并在 SQL 中保留一个 "?"。
-// 5. 遇到 externalSliceArgMarker：这是最复杂的部分。它从 extraArgs 中取出一个切片，
-//    计算其长度 N，然后在 SQL 中将原来的一个 "?" 展开为 N 个 "?"（如 "?, ?, ?"），
-//    并将切片中的所有元素平铺到结果参数列表中。
-// 6. 遇到 keywordArgMarker：使用传入的 keyword 构造 LIKE 参数。
+//  1. 它是基础 SQL 模板的“二遍扫描”过程。
+//  2. 遍历 baseArgs，这些参数是在 Build() 阶段收集的。
+//  3. 遇到普通的绑定值，直接保留。
+//  4. 遇到 externalArgMarker：从 extraArgs 中取出一个值替换，并在 SQL 中保留一个 "?"。
+//  5. 遇到 externalSliceArgMarker：这是最复杂的部分。它从 extraArgs 中取出一个切片，
+//     计算其长度 N，然后在 SQL 中将原来的一个 "?" 展开为 N 个 "?"（如 "?, ?, ?"），
+//     并将切片中的所有元素平铺到结果参数列表中。
+//  6. 遇到 keywordArgMarker：使用传入的 keyword 构造 LIKE 参数。
 func resolveQuery(baseSQL string, base, extra []any, keyword string) (string, []any, error) {
+	return resolveQueryWithState(baseSQL, base, extra, keyword, scanQueryArgState(base))
+}
+
+func resolveQueryWithState(
+	baseSQL string,
+	base,
+	extra []any,
+	keyword string,
+	state queryArgState,
+) (string, []any, error) {
+	if !state.initialized {
+		state = scanQueryArgState(base)
+	}
+
+	if !state.hasDeferredArgs() {
+		if len(extra) == 0 {
+			return baseSQL, base, nil
+		}
+
+		result := make([]any, 0, len(base)+len(extra))
+		result = append(result, base...)
+		result = append(result, extra...)
+
+		return baseSQL, result, nil
+	}
+
+	if !state.hasExternalSliceArg {
+		args, err := resolveQueryArgsOnly(base, extra, keyword)
+		return baseSQL, args, errors.Trace(err)
+	}
+
 	result := make([]any, 0, len(base)+len(extra))
 	extraIndex := 0
 	like := ""
@@ -1557,9 +1614,102 @@ func resolveQuery(baseSQL string, base, extra []any, keyword string) (string, []
 	return baseSQL, result, nil
 }
 
+func resolveQueryArgsOnly(base, extra []any, keyword string) ([]any, error) {
+	result := make([]any, 0, len(base)+len(extra))
+	extraIndex := 0
+	like := ""
+
+	for _, arg := range base {
+		switch arg {
+		case externalArgMarker:
+			if extraIndex >= len(extra) {
+				return nil, errors.New("missing external query argument")
+			}
+
+			result = append(result, extra[extraIndex])
+			extraIndex++
+		case keywordArgMarker:
+			if keyword == "" {
+				return nil, errors.New("missing keyword query argument")
+			}
+
+			if like == "" {
+				like = "%" + keyword + "%"
+			}
+
+			result = append(result, like)
+		default:
+			result = append(result, arg)
+		}
+	}
+
+	result = append(result, extra[extraIndex:]...)
+
+	return result, nil
+}
+
 func flattenExternalSliceArg(arg any) ([]any, error) {
 	if isNilValue(arg) {
 		return nil, nil
+	}
+
+	switch v := arg.(type) {
+	case []any:
+		return validateAnySlice(v)
+	case []int:
+		return boxSlice(v), nil
+	case []int64:
+		return boxSlice(v), nil
+	case []string:
+		return boxSlice(v), nil
+	case []bool:
+		return boxSlice(v), nil
+	case []float64:
+		return boxSlice(v), nil
+	case []float32:
+		return boxSlice(v), nil
+	case *[]any:
+		if v == nil {
+			return nil, nil
+		}
+
+		return validateAnySlice(*v)
+	case *[]int:
+		if v == nil {
+			return nil, nil
+		}
+
+		return boxSlice(*v), nil
+	case *[]int64:
+		if v == nil {
+			return nil, nil
+		}
+
+		return boxSlice(*v), nil
+	case *[]string:
+		if v == nil {
+			return nil, nil
+		}
+
+		return boxSlice(*v), nil
+	case *[]bool:
+		if v == nil {
+			return nil, nil
+		}
+
+		return boxSlice(*v), nil
+	case *[]float64:
+		if v == nil {
+			return nil, nil
+		}
+
+		return boxSlice(*v), nil
+	case *[]float32:
+		if v == nil {
+			return nil, nil
+		}
+
+		return boxSlice(*v), nil
 	}
 
 	v := reflect.ValueOf(arg)
@@ -1589,15 +1739,92 @@ func flattenExternalSliceArg(arg any) ([]any, error) {
 }
 
 func expandSlicePlaceholders(size int) string {
-	if size == 0 {
-		return "NULL"
+	if size <= slicePlaceholderCacheMax {
+		return slicePlaceholderCache[size]
 	}
 
-	if size == 1 {
-		return "?"
+	var builder strings.Builder
+	builder.Grow(size*3 - 2)
+
+	for i := range size {
+		if i > 0 {
+			builder.WriteString(", ")
+		}
+
+		builder.WriteByte('?')
 	}
 
-	return strings.TrimSuffix(strings.Repeat("?, ", size), ", ")
+	return builder.String()
+}
+
+func scanQueryArgState(args []any) queryArgState {
+	state := queryArgState{initialized: true}
+
+	for _, arg := range args {
+		switch arg {
+		case externalArgMarker:
+			state.hasExternalArg = true
+		case externalSliceArgMarker{}:
+			state.hasExternalSliceArg = true
+		case keywordArgMarker:
+			state.hasKeywordArg = true
+		}
+	}
+
+	return state
+}
+
+func buildSlicePlaceholderCache(max int) []string {
+	cache := make([]string, max+1)
+	cache[0] = "NULL"
+	cache[1] = "?"
+
+	for size := 2; size <= max; size++ {
+		var builder strings.Builder
+		builder.Grow(size*3 - 2)
+
+		for i := 0; i < size; i++ {
+			if i > 0 {
+				builder.WriteString(", ")
+			}
+
+			builder.WriteByte('?')
+		}
+
+		cache[size] = builder.String()
+	}
+
+	return cache
+}
+
+func validateAnySlice(values []any) ([]any, error) {
+	if len(values) == 0 {
+		return nil, nil
+	}
+
+	result := make([]any, 0, len(values))
+	for _, value := range values {
+		if err := validatePredicateValue(value); err != nil {
+			return nil, errors.Trace(err)
+		}
+
+		result = append(result, value)
+	}
+
+	return result, nil
+}
+
+func boxSlice[T any](values []T) []any {
+	if len(values) == 0 {
+		return nil
+	}
+
+	result := make([]any, len(values))
+	for i, value := range values {
+		result[i] = value
+	}
+
+	return result
 }
 
 func (q *Query[O]) subquerySQL() string {
