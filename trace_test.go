@@ -486,7 +486,7 @@ func TestConcurrentTracerAddDuringRestore(t *testing.T) {
 
 	// Launch multiple goroutines trying to add tracers concurrently
 	var wg sync.WaitGroup
-	errors := make(chan error, 10)
+	errs := make(chan error, 10)
 
 	for i := 0; i < 10; i++ {
 		wg.Add(1)
@@ -515,8 +515,8 @@ func TestConcurrentTracerAddDuringRestore(t *testing.T) {
 	}
 
 	// Verify no errors occurred (the test would panic on race condition)
-	close(errors)
-	for err := range errors {
+	close(errs)
+	for err := range errs {
 		if err != nil {
 			t.Errorf("Concurrent operation failed: %v", err)
 		}
@@ -889,7 +889,7 @@ func TestTraceManagerConcurrentSnapshot(t *testing.T) {
 	}
 
 	done := make(chan struct{})
-	errors := make(chan string, 100)
+	errs := make(chan string, 100)
 
 	// Goroutine that continuously adds tracers
 	go func() {
@@ -908,10 +908,10 @@ func TestTraceManagerConcurrentSnapshot(t *testing.T) {
 			for k := 0; k < 100; k++ {
 				snapshot := tm.snapshot()
 				if snapshot == nil {
-					errors <- "snapshot returned nil"
+					errs <- "snapshot returned nil"
 				}
 				if len(snapshot) < 0 {
-					errors <- "snapshot had negative length"
+					errs <- "snapshot had negative length"
 				}
 			}
 		}()
@@ -926,8 +926,8 @@ func TestTraceManagerConcurrentSnapshot(t *testing.T) {
 	}
 
 	// Check for any errors
-	close(errors)
-	for err := range errors {
+	close(errs)
+	for err := range errs {
 		t.Error(err)
 	}
 
