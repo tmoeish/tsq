@@ -105,33 +105,23 @@ type InitOptions struct {
 	IdentifierValidationMode string
 }
 
-// RegisterTable registers a table in the global registry
-// Returns an error if registration fails; panics if the runtime is nil (indicating misuse)
+// RegisterTable registers a table in the global registry.
+// Returns an error if registration fails.
 func RegisterTable(
 	table Table,
-	addTableFunc func(db *DbMap),
-	initFunc func(db *DbMap) error,
+	initFunc func(db *Engine) error,
 ) error {
-	return defaultRuntime.RegisterTable(table, addTableFunc, initFunc)
+	return defaultRuntime.RegisterTable(table, initFunc)
 }
 
 func (r *Registry) Register(
 	table Table,
-	addTableFunc func(db *DbMap),
-	initFunc func(db *DbMap) error,
+	initFunc func(db *Engine) error,
 ) error {
 	if isNilValue(table) {
 		return &RegistrationError{
 			Type:    RegistrationErrorNilTable,
 			Message: "registered table cannot be nil",
-		}
-	}
-
-	if addTableFunc == nil {
-		return &RegistrationError{
-			Type:      RegistrationErrorNilAddFunc,
-			TableName: fmt.Sprintf("%v", table),
-			Message:   "add table function cannot be nil",
 		}
 	}
 
@@ -156,9 +146,8 @@ func (r *Registry) Register(
 	}
 
 	r.tables[key] = &RegisteredTable{
-		Table:        table,
-		AddTableFunc: addTableFunc,
-		InitFunc:     initFunc,
+		Table:    table,
+		InitFunc: initFunc,
 	}
 
 	return nil
@@ -166,8 +155,7 @@ func (r *Registry) Register(
 
 type RegisteredTable struct {
 	Table
-	AddTableFunc func(db *DbMap)
-	InitFunc     func(db *DbMap) error
+	InitFunc func(db *Engine) error
 }
 
 // ================================================
@@ -181,7 +169,7 @@ type Table interface {
 	Owner
 	Cols() []SQLColumn
 	Table() string
-	KwList() []SearchColumn
+	SearchColumns() []SearchColumn
 	PrimaryKeys() []string
 	AutoIncrement() bool
 	VersionColumn() string
@@ -193,7 +181,7 @@ type Table interface {
 
 // Init initializes the database with all registered tables and creates tables/indexes if needed
 func Init(
-	db *DbMap,
+	db *Engine,
 	autoCreateTable bool,
 	upsertIndexies bool,
 	tracer ...Tracer,
@@ -201,7 +189,7 @@ func Init(
 	return defaultRuntime.Init(db, autoCreateTable, upsertIndexies, tracer...)
 }
 
-func InitWithOptions(db *DbMap, options *InitOptions) error {
+func InitWithOptions(db *Engine, options *InitOptions) error {
 	return defaultRuntime.InitWithOptions(db, options)
 }
 
@@ -245,9 +233,9 @@ func (r *Registry) Snapshot() []*RegisteredTable {
 // ================================================
 
 // UpsertIndex ensures an index exists, with database dialect-specific implementation
-func UpsertIndex(db *DbMap, table string, unique bool, idx string, fields []string) error {
+func UpsertIndex(db *Engine, table string, unique bool, idx string, fields []string) error {
 	if db == nil {
-		return errors.New("db map cannot be nil")
+		return errors.New("engine cannot be nil")
 	}
 
 	if db.Dialect == nil {
@@ -297,25 +285,16 @@ func UpsertIndex(db *DbMap, table string, unique bool, idx string, fields []stri
 		})
 	}
 
-	switch db.Dialect.(type) {
-	case MySQLDialect:
-		return errors.Trace(ensureMySQLIndex(db, table, unique, idx, fields))
-	case SqliteDialect:
-		return errors.Trace(ensureSQLiteIndex(db, table, unique, idx, fields))
-	case PostgresDialect:
-		return errors.Trace(ensurePostgresIndex(db, table, unique, idx, fields))
-	default:
-		return errors.Errorf("unsupported database dialect: %T", db.Dialect)
-	}
+	return errors.Trace(db.Dialect.EnsureIndex(db, table, unique, idx, fields))
 }
 
-func (db *DbMap) effectiveIndexInitMode() IndexInitMode {
-	return loadDBSchemaConfig(db).indexInitMode
+func (e *Engine) effectiveIndexInitMode() IndexInitMode {
+	return loadDBSchemaConfig(e).indexInitMode
 }
 
-func (db *DbMap) emitSchemaEvent(event SchemaEvent) (err error) {
-	handler := loadDBSchemaConfig(db).schemaEventHandler
-	if db == nil || handler == nil {
+func (e *Engine) emitSchemaEvent(event SchemaEvent) (err error) {
+	handler := loadDBSchemaConfig(e).schemaEventHandler
+	if e == nil || handler == nil {
 		return nil
 	}
 
@@ -360,27 +339,12 @@ func validateIndexInitMode(mode IndexInitMode) error {
 	}
 }
 
-type indexDefinition struct {
-	Table  string
-	Unique bool
-	Fields []string
-}
-
 func inspectIndexDefinition(
-	db *DbMap,
+	db *Engine,
 	table string,
 	idx string,
-) (indexDefinition, bool, error) {
-	switch db.Dialect.(type) {
-	case MySQLDialect:
-		return inspectMySQLIndexDefinition(db, table, idx)
-	case SqliteDialect:
-		return inspectSQLiteIndexDefinition(db, idx)
-	case PostgresDialect:
-		return inspectPostgresIndexDefinition(db, idx)
-	default:
-		return indexDefinition{}, false, errors.Errorf("unsupported database dialect: %T", db.Dialect)
-	}
+) (IndexDefinition, bool, error) {
+	return db.Dialect.InspectIndexDefinition(db, table, idx)
 }
 
 func validateIndexDefinition(
@@ -388,7 +352,7 @@ func validateIndexDefinition(
 	unique bool,
 	idx string,
 	fields []string,
-	existing indexDefinition,
+	existing IndexDefinition,
 ) error {
 	if existing.Table != table {
 		return errors.Errorf(
@@ -441,7 +405,7 @@ func parseColumnsCSV(csv string) []string {
 }
 
 func finishCreateIndex(
-	db *DbMap,
+	db *Engine,
 	table string,
 	unique bool,
 	idx string,
@@ -499,6 +463,10 @@ func quoteDialectIdentifier(dialect Dialect, name string) (string, error) {
 		return canonicalQuoteIdentifier(name), nil
 	}
 
+	if err := dialect.ValidateIdentifier(name); err != nil {
+		return "", errors.Trace(err)
+	}
+
 	return dialect.QuoteField(name), nil
 }
 
@@ -522,15 +490,15 @@ func quoteDialectIdentifiers(dialect Dialect, names []string) ([]string, error) 
 // ================================================
 
 // ensureMySQLIndex ensures an index exists in MySQL
-func ensureMySQLIndex(db *DbMap, table string, unique bool, idx string, fields []string) error {
+func ensureMySQLIndex(db *Engine, table string, unique bool, idx string, fields []string) error {
 	return errors.Trace(createMySQLIndex(db, table, unique, idx, fields))
 }
 
 func inspectMySQLIndexDefinition(
-	dbMap *DbMap,
+	engine *Engine,
 	table string,
 	idx string,
-) (indexDefinition, bool, error) {
+) (IndexDefinition, bool, error) {
 	type row struct {
 		Table   string         `db:"table_name"`
 		Unique  int            `db:"is_unique"`
@@ -539,7 +507,7 @@ func inspectMySQLIndexDefinition(
 
 	var existing row
 
-	err := dbMap.QueryRow(context.Background(), `
+	err := engine.QueryRowContext(context.Background(), `
 		SELECT
 			table_name,
 			CASE WHEN MIN(non_unique) = 0 THEN 1 ELSE 0 END AS is_unique,
@@ -554,13 +522,13 @@ func inspectMySQLIndexDefinition(
 	).Scan(&existing.Table, &existing.Unique, &existing.Columns)
 	if err != nil {
 		if errors.Is(errors.Cause(err), sql.ErrNoRows) {
-			return indexDefinition{}, false, nil
+			return IndexDefinition{}, false, nil
 		}
 
-		return indexDefinition{}, false, errors.Trace(err)
+		return IndexDefinition{}, false, errors.Trace(err)
 	}
 
-	return indexDefinition{
+	return IndexDefinition{
 		Table:  existing.Table,
 		Unique: existing.Unique == 1,
 		Fields: parseColumnsCSV(existing.Columns.String),
@@ -568,18 +536,18 @@ func inspectMySQLIndexDefinition(
 }
 
 // createMySQLIndex creates an index in MySQL
-func createMySQLIndex(dbMap *DbMap, table string, unique bool, idx string, fields []string) error {
-	quotedFields, err := quoteDialectIdentifiers(dbMap.Dialect, fields)
+func createMySQLIndex(engine *Engine, table string, unique bool, idx string, fields []string) error {
+	quotedFields, err := quoteDialectIdentifiers(engine.Dialect, fields)
 	if err != nil {
 		return errors.Trace(err)
 	}
 
-	quotedTable, err := quoteDialectIdentifier(dbMap.Dialect, table)
+	quotedTable, err := quoteDialectIdentifier(engine.Dialect, table)
 	if err != nil {
 		return errors.Trace(err)
 	}
 
-	quotedIndex, err := quoteDialectIdentifier(dbMap.Dialect, idx)
+	quotedIndex, err := quoteDialectIdentifier(engine.Dialect, idx)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -594,12 +562,12 @@ func createMySQLIndex(dbMap *DbMap, table string, unique bool, idx string, field
 		quotedTable, uniqueClause, quotedIndex, strings.Join(quotedFields, ", "),
 	)
 
-	_, err = dbMap.Exec(context.Background(), query)
-	if err := finishCreateIndex(dbMap, table, unique, idx, fields, err); err != nil {
+	_, err = engine.ExecContext(context.Background(), query)
+	if err := finishCreateIndex(engine, table, unique, idx, fields, err); err != nil {
 		return errors.Trace(err)
 	}
 
-	return errors.Trace(dbMap.emitSchemaEvent(SchemaEvent{
+	return errors.Trace(engine.emitSchemaEvent(SchemaEvent{
 		Kind:  SchemaEventCreateIndex,
 		Table: table,
 		Name:  idx,
@@ -612,11 +580,11 @@ func createMySQLIndex(dbMap *DbMap, table string, unique bool, idx string, field
 // ================================================
 
 // ensureSQLiteIndex ensures an index exists in SQLite
-func ensureSQLiteIndex(db *DbMap, table string, unique bool, idx string, fields []string) error {
+func ensureSQLiteIndex(db *Engine, table string, unique bool, idx string, fields []string) error {
 	return errors.Trace(createSQLiteIndex(db, table, unique, idx, fields))
 }
 
-func inspectSQLiteIndexDefinition(db *DbMap, idx string) (indexDefinition, bool, error) {
+func inspectSQLiteIndexDefinition(db *Engine, idx string) (IndexDefinition, bool, error) {
 	type sqliteMasterRow struct {
 		Table string `db:"tbl_name"`
 	}
@@ -631,39 +599,39 @@ func inspectSQLiteIndexDefinition(db *DbMap, idx string) (indexDefinition, bool,
 
 	var master sqliteMasterRow
 
-	err := db.QueryRow(
+	err := db.QueryRowContext(
 		context.Background(),
 		"SELECT tbl_name FROM sqlite_master WHERE type='index' AND name=?",
 		idx,
 	).Scan(&master.Table)
 	if err != nil {
 		if errors.Is(errors.Cause(err), sql.ErrNoRows) {
-			return indexDefinition{}, false, nil
+			return IndexDefinition{}, false, nil
 		}
 
-		return indexDefinition{}, false, errors.Trace(err)
+		return IndexDefinition{}, false, errors.Trace(err)
 	}
 
 	quotedTable, err := quoteDialectIdentifier(db.Dialect, master.Table)
 	if err != nil {
-		return indexDefinition{}, false, errors.Trace(err)
+		return IndexDefinition{}, false, errors.Trace(err)
 	}
 
-	rows, err := db.Query(context.Background(), fmt.Sprintf("PRAGMA index_list(%s)", quotedTable))
+	rows, err := db.QueryContext(context.Background(), fmt.Sprintf("PRAGMA index_list(%s)", quotedTable))
 	if err != nil {
-		return indexDefinition{}, false, errors.Trace(err)
+		return IndexDefinition{}, false, errors.Trace(err)
 	}
 
 	defer func() {
 		_ = rows.Close()
 	}()
 
-	definition := indexDefinition{Table: master.Table}
+	definition := IndexDefinition{Table: master.Table}
 
 	for rows.Next() {
 		var row sqliteIndexListRow
 		if err := rows.Scan(&row.Seq, &row.Name, &row.Unique, &row.Origin, &row.Partial); err != nil {
-			return indexDefinition{}, false, errors.Trace(err)
+			return IndexDefinition{}, false, errors.Trace(err)
 		}
 
 		if row.Name == idx {
@@ -672,12 +640,12 @@ func inspectSQLiteIndexDefinition(db *DbMap, idx string) (indexDefinition, bool,
 	}
 
 	if err := rows.Err(); err != nil {
-		return indexDefinition{}, false, errors.Trace(err)
+		return IndexDefinition{}, false, errors.Trace(err)
 	}
 
 	fields, err := inspectSQLiteIndexFields(db, idx)
 	if err != nil {
-		return indexDefinition{}, false, errors.Trace(err)
+		return IndexDefinition{}, false, errors.Trace(err)
 	}
 
 	definition.Fields = fields
@@ -685,7 +653,7 @@ func inspectSQLiteIndexDefinition(db *DbMap, idx string) (indexDefinition, bool,
 	return definition, true, nil
 }
 
-func inspectSQLiteIndexFields(db *DbMap, idx string) ([]string, error) {
+func inspectSQLiteIndexFields(db *Engine, idx string) ([]string, error) {
 	type sqliteIndexInfoRow struct {
 		SeqNo int    `db:"seqno"`
 		CID   int    `db:"cid"`
@@ -697,7 +665,7 @@ func inspectSQLiteIndexFields(db *DbMap, idx string) ([]string, error) {
 		return nil, errors.Trace(err)
 	}
 
-	rows, err := db.Query(context.Background(), fmt.Sprintf("PRAGMA index_info(%s)", quotedIndex))
+	rows, err := db.QueryContext(context.Background(), fmt.Sprintf("PRAGMA index_info(%s)", quotedIndex))
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -724,7 +692,7 @@ func inspectSQLiteIndexFields(db *DbMap, idx string) ([]string, error) {
 }
 
 // createSQLiteIndex creates an index in SQLite
-func createSQLiteIndex(db *DbMap, table string, unique bool, idx string, fields []string) error {
+func createSQLiteIndex(db *Engine, table string, unique bool, idx string, fields []string) error {
 	quotedFields, err := quoteDialectIdentifiers(db.Dialect, fields)
 	if err != nil {
 		return errors.Trace(err)
@@ -750,7 +718,7 @@ func createSQLiteIndex(db *DbMap, table string, unique bool, idx string, fields 
 		uniqueClause, quotedIndex, quotedTable, strings.Join(quotedFields, ", "),
 	)
 
-	_, err = db.Exec(context.Background(), query)
+	_, err = db.ExecContext(context.Background(), query)
 	if err := finishCreateIndex(db, table, unique, idx, fields, err); err != nil {
 		return errors.Trace(err)
 	}
@@ -768,11 +736,11 @@ func createSQLiteIndex(db *DbMap, table string, unique bool, idx string, fields 
 // ================================================
 
 // ensurePostgresIndex ensures an index exists in PostgreSQL
-func ensurePostgresIndex(db *DbMap, table string, unique bool, idx string, fields []string) error {
+func ensurePostgresIndex(db *Engine, table string, unique bool, idx string, fields []string) error {
 	return errors.Trace(createPostgresIndex(db, table, unique, idx, fields))
 }
 
-func inspectPostgresIndexDefinition(db *DbMap, idx string) (indexDefinition, bool, error) {
+func inspectPostgresIndexDefinition(db *Engine, idx string) (IndexDefinition, bool, error) {
 	type row struct {
 		Table   string         `db:"table_name"`
 		Unique  bool           `db:"is_unique"`
@@ -781,7 +749,7 @@ func inspectPostgresIndexDefinition(db *DbMap, idx string) (indexDefinition, boo
 
 	var existing row
 
-	err := db.QueryRow(context.Background(), `
+	err := db.QueryRowContext(context.Background(), `
 		SELECT
 			t.relname AS table_name,
 			i.indisunique AS is_unique,
@@ -799,13 +767,13 @@ func inspectPostgresIndexDefinition(db *DbMap, idx string) (indexDefinition, boo
 	).Scan(&existing.Table, &existing.Unique, &existing.Columns)
 	if err != nil {
 		if errors.Is(errors.Cause(err), sql.ErrNoRows) {
-			return indexDefinition{}, false, nil
+			return IndexDefinition{}, false, nil
 		}
 
-		return indexDefinition{}, false, errors.Trace(err)
+		return IndexDefinition{}, false, errors.Trace(err)
 	}
 
-	return indexDefinition{
+	return IndexDefinition{
 		Table:  existing.Table,
 		Unique: existing.Unique,
 		Fields: parseColumnsCSV(existing.Columns.String),
@@ -813,7 +781,7 @@ func inspectPostgresIndexDefinition(db *DbMap, idx string) (indexDefinition, boo
 }
 
 // createPostgresIndex creates an index in PostgreSQL
-func createPostgresIndex(db *DbMap, table string, unique bool, idx string, fields []string) error {
+func createPostgresIndex(db *Engine, table string, unique bool, idx string, fields []string) error {
 	quotedFields, err := quoteDialectIdentifiers(db.Dialect, fields)
 	if err != nil {
 		return errors.Trace(err)
@@ -839,7 +807,7 @@ func createPostgresIndex(db *DbMap, table string, unique bool, idx string, field
 		uniqueClause, quotedIndex, quotedTable, strings.Join(quotedFields, ", "),
 	)
 
-	_, err = db.Exec(context.Background(), query)
+	_, err = db.ExecContext(context.Background(), query)
 	if err := finishCreateIndex(db, table, unique, idx, fields, err); err != nil {
 		return errors.Trace(err)
 	}

@@ -51,7 +51,7 @@ func init() {
 // PageUserOrder 按用户和分类分页查询 Result 结果。
 func PageUserOrder(
 	ctx context.Context,
-	tx tsq.SqlExecutor,
+	tx tsq.SQLExecutor,
 	page *tsq.PageReq,
 	userID int64,
 	categories ...string,

@@ -31,8 +31,8 @@ func (i Item) Cols() []tsq.SQLColumn {
 	return tsq.SQLColumns(TableItemCols...)
 }
 
-// KwList returns columns that support keyword search for Item.
-func (i Item) KwList() []tsq.SearchColumn {
+// SearchColumns returns columns that support keyword search for Item.
+func (i Item) SearchColumns() []tsq.SearchColumn {
 	return []tsq.SearchColumn{
 		Item_Name,
 	}
@@ -76,10 +76,7 @@ var TableItemCols = []tsq.BoundColumn[Item]{
 func init() {
 	tsq.RegisterTable(
 		TableItem,
-		func(db *tsq.DbMap) {
-			db.AddTableWithName(TableItem, "item").SetKeys(true, "ID")
-		},
-		func(db *tsq.DbMap) error {
+		func(db *tsq.Engine) error {
 			// Upsert unique indexes.
 			if err := tsq.UpsertIndex(db, "item", true, "ux_item_name", []string{"name"}); err != nil {
 				return errors.Annotate(err, "upsert ux_item_name@item")
@@ -114,7 +111,7 @@ func init() {
 // Returns (nil, nil) if the record is not found.
 func GetItemByID(
 	ctx context.Context,
-	db tsq.SqlExecutor,
+	db tsq.SQLExecutor,
 	iD int64,
 ) (*Item, error) {
 	row := &Item{}
@@ -132,7 +129,7 @@ func GetItemByID(
 // Returns (nil, database/sql.ErrNoRows) if the record is not found.
 func GetItemByIDOrErr(
 	ctx context.Context,
-	db tsq.SqlExecutor,
+	db tsq.SQLExecutor,
 	iD int64,
 ) (*Item, error) {
 	row := &Item{}
@@ -147,7 +144,7 @@ func GetItemByIDOrErr(
 // Records not found are silently ignored.
 func ListItemByIDIn(
 	ctx context.Context,
-	db tsq.SqlExecutor,
+	db tsq.SQLExecutor,
 	iDs ...int64,
 ) ([]*Item, error) {
 	query, err := tsq.
@@ -165,7 +162,7 @@ func ListItemByIDIn(
 // Returns an error if any of the specified records are not found.
 func ListItemByIDInOrErr(
 	ctx context.Context,
-	db tsq.SqlExecutor,
+	db tsq.SQLExecutor,
 	iDs ...int64,
 ) ([]*Item, error) {
 	query, err := tsq.
@@ -201,10 +198,10 @@ func init() {
 	getItemByNameQuery, err = tsq.
 		Select(TableItemCols...).
 		From(TableItem).
+		Search(TableItem.SearchColumns()...).
 		Where(
 			Item_Name.EQVar(),
 		).
-		KwSearch(TableItem.KwList()...).
 		Build()
 	if err != nil {
 		panic(errors.Annotate(err, "initialize getItemByNameQuery"))
@@ -215,7 +212,7 @@ func init() {
 // Returns (nil, nil) if the record is not found.
 func GetItemByName(
 	ctx context.Context,
-	db tsq.SqlExecutor,
+	db tsq.SQLExecutor,
 	name string,
 ) (*Item, error) {
 	row := &Item{}
@@ -236,7 +233,7 @@ func GetItemByName(
 // Returns (nil, database/sql.ErrNoRows) if the record is not found.
 func GetItemByNameOrErr(
 	ctx context.Context,
-	db tsq.SqlExecutor,
+	db tsq.SQLExecutor,
 	name string,
 ) (*Item, error) {
 	row := &Item{}
@@ -253,7 +250,7 @@ func GetItemByNameOrErr(
 // ExistsItemByName checks if a Item record exists by unique index ux_item_name.
 func ExistsItemByName(
 	ctx context.Context,
-	db tsq.SqlExecutor,
+	db tsq.SQLExecutor,
 	name string,
 ) (bool, error) {
 	rs, err := getItemByNameQuery.Exists(
@@ -273,10 +270,10 @@ func init() {
 	ListItemByCategoryIDQuery, err = tsq.
 		Select(TableItemCols...).
 		From(TableItem).
+		Search(TableItem.SearchColumns()...).
 		Where(
 			Item_CategoryID.EQVar(),
 		).
-		KwSearch(TableItem.KwList()...).
 		Build()
 	if err != nil {
 		panic(errors.Annotate(err, "initialize ListItemByCategoryIDQuery"))
@@ -286,10 +283,10 @@ func init() {
 // CountItemByCategoryID returns the count of Item records matching index idx_category.
 func CountItemByCategoryID(
 	ctx context.Context,
-	db tsq.SqlExecutor,
+	db tsq.SQLExecutor,
 	categoryID int64,
-) (int64, error) {
-	rs, err := ListItemByCategoryIDQuery.Count64(
+) (int, error) {
+	rs, err := ListItemByCategoryIDQuery.Count(
 		ctx, db,
 		categoryID,
 	)
@@ -302,7 +299,7 @@ func CountItemByCategoryID(
 // ListItemByCategoryID retrieves Item records by index idx_category.
 func ListItemByCategoryID(
 	ctx context.Context,
-	db tsq.SqlExecutor,
+	db tsq.SQLExecutor,
 	categoryID int64,
 ) ([]*Item, error) {
 	data, err := tsq.List(
@@ -318,7 +315,7 @@ func ListItemByCategoryID(
 // PageItemByCategoryID retrieves Item records by index idx_category with pagination.
 func PageItemByCategoryID(
 	ctx context.Context,
-	db tsq.SqlExecutor,
+	db tsq.SQLExecutor,
 	page *tsq.PageReq,
 	categoryID int64,
 ) (*tsq.PageResp[Item], error) {
@@ -351,7 +348,7 @@ func init() {
 // ListItemByCategoryIDIn retrieves multiple Item records by index idx_category using an IN clause.
 func ListItemByCategoryIDIn(
 	ctx context.Context,
-	db tsq.SqlExecutor,
+	db tsq.SQLExecutor,
 	categoryIDs ...int64,
 ) ([]*Item, error) {
 	list, err := tsq.List(
@@ -374,7 +371,7 @@ func init() {
 	listItemQuery, err = tsq.
 		Select(TableItemCols...).
 		From(TableItem).
-		KwSearch(TableItem.KwList()...).
+		Search(TableItem.SearchColumns()...).
 		Build()
 	if err != nil {
 		panic(errors.Annotate(err, "initialize listItemQuery"))
@@ -384,15 +381,15 @@ func init() {
 // CountItem returns the total count of Item records.
 func CountItem(
 	ctx context.Context,
-	tx tsq.SqlExecutor,
-) (int64, error) {
-	return listItemQuery.Count64(ctx, tx)
+	tx tsq.SQLExecutor,
+) (int, error) {
+	return listItemQuery.Count(ctx, tx)
 }
 
 // ListItem retrieves all Item records.
 func ListItem(
 	ctx context.Context,
-	tx tsq.SqlExecutor,
+	tx tsq.SQLExecutor,
 ) ([]*Item, error) {
 	return tsq.List(ctx, tx, listItemQuery)
 }
@@ -400,7 +397,7 @@ func ListItem(
 // PageItem retrieves Item records with pagination.
 func PageItem(
 	ctx context.Context,
-	tx tsq.SqlExecutor,
+	tx tsq.SQLExecutor,
 	page *tsq.PageReq,
 ) (*tsq.PageResp[Item], error) {
 	return tsq.Page(ctx, tx, page, listItemQuery)
@@ -413,7 +410,7 @@ func PageItem(
 // Insert inserts a new Item record.
 func (i *Item) Insert(
 	ctx context.Context,
-	db tsq.SqlExecutor,
+	db tsq.SQLExecutor,
 ) error {
 	i.CreatedAt = null.TimeFrom(tsqtime.Now())
 	err := tsq.Insert(ctx, db, i)
@@ -426,7 +423,7 @@ func (i *Item) Insert(
 // Update updates an existing Item record.
 func (i *Item) Update(
 	ctx context.Context,
-	db tsq.SqlExecutor,
+	db tsq.SQLExecutor,
 ) error {
 	err := tsq.Update(ctx, db, i)
 	if err != nil {
@@ -438,7 +435,7 @@ func (i *Item) Update(
 // Delete permanently removes a Item record.
 func (i *Item) Delete(
 	ctx context.Context,
-	db tsq.SqlExecutor,
+	db tsq.SQLExecutor,
 ) error {
 	err := tsq.Delete(ctx, db, i)
 	if err != nil {
@@ -453,7 +450,7 @@ func (i *Item) Delete(
 // ListItemByQuery executes a custom query to retrieve a list of Item records.
 func ListItemByQuery(
 	ctx context.Context,
-	tx tsq.SqlExecutor,
+	tx tsq.SQLExecutor,
 	qb *tsq.Query[Item],
 	args ...any,
 ) ([]*Item, error) {
@@ -463,7 +460,7 @@ func ListItemByQuery(
 // PageItemByQuery executes a custom query to retrieve a page of Item records.
 func PageItemByQuery(
 	ctx context.Context,
-	tx tsq.SqlExecutor,
+	tx tsq.SQLExecutor,
 	page *tsq.PageReq,
 	qb *tsq.Query[Item],
 	args ...any,

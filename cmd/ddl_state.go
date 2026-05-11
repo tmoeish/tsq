@@ -138,8 +138,8 @@ func buildCurrentDDLTableSnapshot(
 			Unsigned:      desc.unsigned,
 			Nullable:      desc.nullable,
 			Size:          desc.size,
-			PrimaryKey:    field.Name == table.ID,
-			AutoIncrement: field.Name == table.ID && table.AI,
+			PrimaryKey:    field.Name == table.PK,
+			AutoIncrement: field.Name == table.PK && table.AI,
 			Default:       ddlManagedDefaultClause(table, field, desc),
 		})
 	}
@@ -619,7 +619,7 @@ func renderDDLSnapshotAggregateFile(version string, snapshot ddlSnapshot, dialec
 	var buf strings.Builder
 	buf.WriteString(renderDDLHeader(version))
 	buf.WriteString("-- Dialect: ")
-	buf.WriteString(dialect.name)
+	buf.WriteString(ddlDialectName(dialect))
 	buf.WriteString("\n")
 
 	for i, table := range snapshot.Tables {
@@ -674,35 +674,12 @@ func renderDDLSnapshotCreateTable(table ddlSnapshotTable, dialect ddlDialectSpec
 }
 
 func renderDDLSnapshotColumnDefinition(column ddlSnapshotColumn, dialect ddlDialectSpec) string {
-	quotedColumn := dialect.dialect.QuoteField(column.Name)
-	if column.PrimaryKey && column.AutoIncrement {
-		switch dialect.name {
-		case ddlDialectSQLite:
-			return quotedColumn + " INTEGER PRIMARY KEY " + dialect.dialect.AutoIncrementClause()
-		case ddlDialectMySQL:
-			return strings.Join([]string{
-				quotedColumn,
-				renderDDLColumnType(columnDescriptorFromSnapshot(column), dialect),
-				"PRIMARY KEY",
-				dialect.dialect.AutoIncrementClause(),
-			}, " ")
-		case ddlDialectPostgres:
-			return quotedColumn + " " + renderDDLSerialType(columnDescriptorFromSnapshot(column))
-		}
+	definition, err := renderDDLColumnSpec(dialect.dialect, ddlColumnSpecFromSnapshot(column))
+	if err != nil {
+		panic(err)
 	}
 
-	parts := []string{quotedColumn, renderDDLColumnType(columnDescriptorFromSnapshot(column), dialect)}
-	if column.PrimaryKey {
-		parts = append(parts, "PRIMARY KEY")
-	} else if !column.Nullable {
-		parts = append(parts, "NOT NULL")
-	}
-
-	if column.Default != "" {
-		parts = append(parts, "DEFAULT "+column.Default)
-	}
-
-	return strings.Join(parts, " ")
+	return definition
 }
 
 func renderDDLSnapshotIndexStatements(table ddlSnapshotTable, dialect ddlDialectSpec) []string {
@@ -720,33 +697,7 @@ func renderDDLIndexCreateStatement(tableName string, idx ddlSnapshotIndex, diale
 		quotedFields = append(quotedFields, dialect.dialect.QuoteField(field))
 	}
 
-	quotedTable := dialect.dialect.QuoteField(tableName)
-	quotedIndex := dialect.dialect.QuoteField(idx.Name)
-
-	uniqueClause := ""
-	if idx.Unique {
-		uniqueClause = "UNIQUE "
-	}
-
-	if dialect.name == ddlDialectMySQL {
-		return fmt.Sprintf(
-			"ALTER TABLE %s ADD %sINDEX %s(%s)%s",
-			quotedTable,
-			uniqueClause,
-			quotedIndex,
-			strings.Join(quotedFields, ", "),
-			dialect.dialect.CreateIndexSuffix(),
-		)
-	}
-
-	return fmt.Sprintf(
-		"CREATE %sINDEX %s ON %s(%s)%s",
-		uniqueClause,
-		quotedIndex,
-		quotedTable,
-		strings.Join(quotedFields, ", "),
-		dialect.dialect.CreateIndexSuffix(),
-	)
+	return dialect.dialect.DDLCreateIndex(tableName, idx.Name, quotedFields, idx.Unique)
 }
 
 func renderDDLIncrementalArtifacts(
@@ -756,11 +707,12 @@ func renderDDLIncrementalArtifacts(
 ) ([]ddlFileModel, ddlStateDialectDiff, error) {
 	result := ddlStateDialectDiff{}
 	models := make([]ddlFileModel, 0, 1)
+	dialectName := ddlDialectName(dialect)
 
 	aggregateBody := renderDDLIncrementalAggregateBody(dialect, changes)
-	aggregateSource := renderDDLIncrementalHeader(version, dialect.name, "") + aggregateBody + "\n"
+	aggregateSource := renderDDLIncrementalHeader(version, dialectName, "") + aggregateBody + "\n"
 	models = append(models, ddlFileModel{
-		Filename: dialectIncrementalFilename(dialect.name),
+		Filename: dialectIncrementalFilename(dialectName),
 		Source:   []byte(aggregateSource),
 	})
 	result.AggregateSQL = aggregateBody
@@ -820,7 +772,7 @@ func renderDDLIncrementalTableBody(
 		return "", false
 	}
 
-	if dialect.name == ddlDialectSQLite && ddlChangesRequireSQLiteRebuild(ops) {
+	if dialect.dialect.DDLAlterColumnMode() == tsq.DDLAlterColumnRebuild && ddlChangesRequireTableRebuild(ops) {
 		body, ok := renderSQLiteRebuildTableBody(dialect, tableName, ops)
 		if ok {
 			return body, true
@@ -843,7 +795,7 @@ func renderDDLIncrementalTableBody(
 	return strings.Join(lines, "\n\n"), true
 }
 
-func ddlChangesRequireSQLiteRebuild(ops []ddlChange) bool {
+func ddlChangesRequireTableRebuild(ops []ddlChange) bool {
 	for _, op := range ops {
 		if op.kind == ddlChangeAlterColumn {
 			return true
@@ -970,67 +922,16 @@ func renderDDLAlterColumnStatements(
 		return []string{renderDDLManualComment(tableName, fmt.Sprintf("manual change required for primary key column %s", after.Name))}
 	}
 
-	switch dialect.name {
-	case ddlDialectMySQL:
-		return []string{fmt.Sprintf(
-			"ALTER TABLE %s MODIFY COLUMN %s;",
-			dialect.dialect.QuoteField(tableName),
-			renderDDLSnapshotColumnDefinition(after, dialect),
-		)}
-	case ddlDialectPostgres:
-		statements := make([]string, 0, 3)
-		quotedTable := dialect.dialect.QuoteField(tableName)
-		quotedColumn := dialect.dialect.QuoteField(after.Name)
-
-		if ddlColumnTypeChanged(before, after) {
-			statements = append(statements, fmt.Sprintf(
-				"ALTER TABLE %s ALTER COLUMN %s TYPE %s;",
-				quotedTable,
-				quotedColumn,
-				renderDDLColumnType(columnDescriptorFromSnapshot(after), dialect),
-			))
-		}
-
-		if before.Nullable != after.Nullable {
-			action := "SET"
-			if after.Nullable {
-				action = "DROP"
-			}
-
-			statements = append(statements, fmt.Sprintf(
-				"ALTER TABLE %s ALTER COLUMN %s %s NOT NULL;",
-				quotedTable,
-				quotedColumn,
-				action,
-			))
-		}
-
-		if before.Default != after.Default {
-			if after.Default == "" {
-				statements = append(statements, fmt.Sprintf(
-					"ALTER TABLE %s ALTER COLUMN %s DROP DEFAULT;",
-					quotedTable,
-					quotedColumn,
-				))
-			} else {
-				statements = append(statements, fmt.Sprintf(
-					"ALTER TABLE %s ALTER COLUMN %s SET DEFAULT %s;",
-					quotedTable,
-					quotedColumn,
-					after.Default,
-				))
-			}
-		}
-
-		if len(statements) == 0 {
-			return []string{renderDDLManualComment(tableName, fmt.Sprintf("manual change required for column %s", after.Name))}
-		}
-
-		return statements
-
-	default:
-		return []string{renderDDLManualComment(tableName, fmt.Sprintf("manual change required for column %s on %s", after.Name, dialect.name))}
+	if dialect.dialect.DDLAlterColumnMode() != tsq.DDLAlterColumnDirect {
+		return []string{renderDDLManualComment(tableName, fmt.Sprintf("manual change required for column %s on %s", after.Name, ddlDialectName(dialect)))}
 	}
+
+	statements := dialect.dialect.DDLAlterColumnStatements(tableName, ddlColumnSpecFromSnapshot(before), ddlColumnSpecFromSnapshot(after))
+	if len(statements) == 0 {
+		return []string{renderDDLManualComment(tableName, fmt.Sprintf("manual change required for column %s", after.Name))}
+	}
+
+	return statements
 }
 
 func ddlColumnTypeChanged(before, after ddlSnapshotColumn) bool {
@@ -1041,16 +942,7 @@ func ddlColumnTypeChanged(before, after ddlSnapshotColumn) bool {
 }
 
 func renderDDLDropIndexStatement(tableName string, idx ddlSnapshotIndex, dialect ddlDialectSpec) string {
-	quotedIndex := dialect.dialect.QuoteField(idx.Name)
-	if dialect.name == ddlDialectMySQL {
-		return fmt.Sprintf(
-			"DROP INDEX %s ON %s;",
-			quotedIndex,
-			dialect.dialect.QuoteField(tableName),
-		)
-	}
-
-	return fmt.Sprintf("DROP INDEX %s;", quotedIndex)
+	return dialect.dialect.DDLDropIndex(tableName, idx.Name)
 }
 
 func renderDDLManualComment(tableName, message string) string {

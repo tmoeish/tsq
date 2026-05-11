@@ -31,8 +31,8 @@ func (c Category) Cols() []tsq.SQLColumn {
 	return tsq.SQLColumns(TableCategoryCols...)
 }
 
-// KwList returns columns that support keyword search for Category.
-func (c Category) KwList() []tsq.SearchColumn {
+// SearchColumns returns columns that support keyword search for Category.
+func (c Category) SearchColumns() []tsq.SearchColumn {
 	return []tsq.SearchColumn{
 		Category_Name,
 		Category_Description,
@@ -77,10 +77,7 @@ var TableCategoryCols = []tsq.BoundColumn[Category]{
 func init() {
 	tsq.RegisterTable(
 		TableCategory,
-		func(db *tsq.DbMap) {
-			db.AddTableWithName(TableCategory, "category").SetKeys(true, "ID")
-		},
-		func(db *tsq.DbMap) error {
+		func(db *tsq.Engine) error {
 			// Upsert unique indexes.
 			if err := tsq.UpsertIndex(db, "category", true, "ux_category_name", []string{"name"}); err != nil {
 				return errors.Annotate(err, "upsert ux_category_name@category")
@@ -111,7 +108,7 @@ func init() {
 // Returns (nil, nil) if the record is not found.
 func GetCategoryByID(
 	ctx context.Context,
-	db tsq.SqlExecutor,
+	db tsq.SQLExecutor,
 	iD int64,
 ) (*Category, error) {
 	row := &Category{}
@@ -129,7 +126,7 @@ func GetCategoryByID(
 // Returns (nil, database/sql.ErrNoRows) if the record is not found.
 func GetCategoryByIDOrErr(
 	ctx context.Context,
-	db tsq.SqlExecutor,
+	db tsq.SQLExecutor,
 	iD int64,
 ) (*Category, error) {
 	row := &Category{}
@@ -144,7 +141,7 @@ func GetCategoryByIDOrErr(
 // Records not found are silently ignored.
 func ListCategoryByIDIn(
 	ctx context.Context,
-	db tsq.SqlExecutor,
+	db tsq.SQLExecutor,
 	iDs ...int64,
 ) ([]*Category, error) {
 	query, err := tsq.
@@ -162,7 +159,7 @@ func ListCategoryByIDIn(
 // Returns an error if any of the specified records are not found.
 func ListCategoryByIDInOrErr(
 	ctx context.Context,
-	db tsq.SqlExecutor,
+	db tsq.SQLExecutor,
 	iDs ...int64,
 ) ([]*Category, error) {
 	query, err := tsq.
@@ -198,10 +195,10 @@ func init() {
 	getCategoryByNameQuery, err = tsq.
 		Select(TableCategoryCols...).
 		From(TableCategory).
+		Search(TableCategory.SearchColumns()...).
 		Where(
 			Category_Name.EQVar(),
 		).
-		KwSearch(TableCategory.KwList()...).
 		Build()
 	if err != nil {
 		panic(errors.Annotate(err, "initialize getCategoryByNameQuery"))
@@ -212,7 +209,7 @@ func init() {
 // Returns (nil, nil) if the record is not found.
 func GetCategoryByName(
 	ctx context.Context,
-	db tsq.SqlExecutor,
+	db tsq.SQLExecutor,
 	name string,
 ) (*Category, error) {
 	row := &Category{}
@@ -233,7 +230,7 @@ func GetCategoryByName(
 // Returns (nil, database/sql.ErrNoRows) if the record is not found.
 func GetCategoryByNameOrErr(
 	ctx context.Context,
-	db tsq.SqlExecutor,
+	db tsq.SQLExecutor,
 	name string,
 ) (*Category, error) {
 	row := &Category{}
@@ -250,7 +247,7 @@ func GetCategoryByNameOrErr(
 // ExistsCategoryByName checks if a Category record exists by unique index ux_category_name.
 func ExistsCategoryByName(
 	ctx context.Context,
-	db tsq.SqlExecutor,
+	db tsq.SQLExecutor,
 	name string,
 ) (bool, error) {
 	rs, err := getCategoryByNameQuery.Exists(
@@ -274,7 +271,7 @@ func init() {
 	listCategoryQuery, err = tsq.
 		Select(TableCategoryCols...).
 		From(TableCategory).
-		KwSearch(TableCategory.KwList()...).
+		Search(TableCategory.SearchColumns()...).
 		Build()
 	if err != nil {
 		panic(errors.Annotate(err, "initialize listCategoryQuery"))
@@ -284,15 +281,15 @@ func init() {
 // CountCategory returns the total count of Category records.
 func CountCategory(
 	ctx context.Context,
-	tx tsq.SqlExecutor,
-) (int64, error) {
-	return listCategoryQuery.Count64(ctx, tx)
+	tx tsq.SQLExecutor,
+) (int, error) {
+	return listCategoryQuery.Count(ctx, tx)
 }
 
 // ListCategory retrieves all Category records.
 func ListCategory(
 	ctx context.Context,
-	tx tsq.SqlExecutor,
+	tx tsq.SQLExecutor,
 ) ([]*Category, error) {
 	return tsq.List(ctx, tx, listCategoryQuery)
 }
@@ -300,7 +297,7 @@ func ListCategory(
 // PageCategory retrieves Category records with pagination.
 func PageCategory(
 	ctx context.Context,
-	tx tsq.SqlExecutor,
+	tx tsq.SQLExecutor,
 	page *tsq.PageReq,
 ) (*tsq.PageResp[Category], error) {
 	return tsq.Page(ctx, tx, page, listCategoryQuery)
@@ -313,7 +310,7 @@ func PageCategory(
 // Insert inserts a new Category record.
 func (c *Category) Insert(
 	ctx context.Context,
-	db tsq.SqlExecutor,
+	db tsq.SQLExecutor,
 ) error {
 	c.CreatedAt = null.TimeFrom(tsqtime.Now())
 	err := tsq.Insert(ctx, db, c)
@@ -326,7 +323,7 @@ func (c *Category) Insert(
 // Update updates an existing Category record.
 func (c *Category) Update(
 	ctx context.Context,
-	db tsq.SqlExecutor,
+	db tsq.SQLExecutor,
 ) error {
 	err := tsq.Update(ctx, db, c)
 	if err != nil {
@@ -338,7 +335,7 @@ func (c *Category) Update(
 // Delete permanently removes a Category record.
 func (c *Category) Delete(
 	ctx context.Context,
-	db tsq.SqlExecutor,
+	db tsq.SQLExecutor,
 ) error {
 	err := tsq.Delete(ctx, db, c)
 	if err != nil {
@@ -353,7 +350,7 @@ func (c *Category) Delete(
 // ListCategoryByQuery executes a custom query to retrieve a list of Category records.
 func ListCategoryByQuery(
 	ctx context.Context,
-	tx tsq.SqlExecutor,
+	tx tsq.SQLExecutor,
 	qb *tsq.Query[Category],
 	args ...any,
 ) ([]*Category, error) {
@@ -363,7 +360,7 @@ func ListCategoryByQuery(
 // PageCategoryByQuery executes a custom query to retrieve a page of Category records.
 func PageCategoryByQuery(
 	ctx context.Context,
-	tx tsq.SqlExecutor,
+	tx tsq.SQLExecutor,
 	page *tsq.PageReq,
 	qb *tsq.Query[Category],
 	args ...any,

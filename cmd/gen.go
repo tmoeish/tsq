@@ -257,12 +257,16 @@ func printDDLGuidance(w io.Writer, artifacts ddlArtifacts) error {
 		action = "execute the incremental schema file matching your database dialect"
 	}
 
-	if _, err := fmt.Fprintf(w, "%s: %s: sqlite=%s mysql=%s postgres=%s\n",
+	paths := make([]string, 0, len(ddlDialects))
+	for _, dialect := range ddlDialects {
+		name := ddlDialectName(dialect)
+		paths = append(paths, fmt.Sprintf("%s=%s", name, strings.Replace(filename, "<dialect>", name, 1)))
+	}
+
+	if _, err := fmt.Fprintf(w, "%s: %s: %s\n",
 		label,
 		action,
-		strings.Replace(filename, "<dialect>", ddlDialectSQLite, 1),
-		strings.Replace(filename, "<dialect>", ddlDialectMySQL, 1),
-		strings.Replace(filename, "<dialect>", ddlDialectPostgres, 1),
+		strings.Join(paths, " "),
 	); err != nil {
 		return errors.Trace(err)
 	}
@@ -400,7 +404,7 @@ func validateStructForGeneration(
 	data *tsq.StructInfo,
 	structsByName map[string]*tsq.StructInfo,
 ) error {
-	if data == nil || data.TableInfo == nil {
+	if data == nil || data.TableMeta == nil {
 		return nil
 	}
 
@@ -452,7 +456,7 @@ func validateResultFields(
 		normalizedRefs[normalizedRef] = field.Column
 
 		targetStruct, ok := structsByName[parts[0]]
-		if !ok || targetStruct.TableInfo == nil {
+		if !ok || targetStruct.TableMeta == nil {
 			return errors.Errorf(
 				"Result field %s references unknown struct %s",
 				field.Name,
@@ -506,7 +510,7 @@ func validateGeneratedFilenameCollisions(list []*tsq.StructInfo) error {
 	seen := make(map[string]string, len(list))
 
 	for _, data := range list {
-		if data == nil || data.TableInfo == nil || len(data.Fields) == 0 {
+		if data == nil || data.TableMeta == nil || len(data.Fields) == 0 {
 			continue
 		}
 
@@ -536,7 +540,7 @@ func validateIndexNameCollisions(list []*tsq.StructInfo) error {
 	seen := make(map[string]definition)
 
 	for _, data := range list {
-		if data == nil || data.TableInfo == nil || data.IsResult {
+		if data == nil || data.TableMeta == nil || data.IsResult {
 			continue
 		}
 
@@ -601,7 +605,7 @@ func validateGeneratedSymbolCollisions(list []*tsq.StructInfo) error {
 	}
 
 	for _, data := range list {
-		if data == nil || data.TableInfo == nil {
+		if data == nil || data.TableMeta == nil {
 			continue
 		}
 
@@ -609,11 +613,11 @@ func validateGeneratedSymbolCollisions(list []*tsq.StructInfo) error {
 		baseSymbols := []string{
 			"Table" + typeName,
 			"Table" + typeName + "Cols",
-			"get" + typeName + "By" + data.ID + "Query",
-			"Get" + typeName + "By" + data.ID,
-			"Get" + typeName + "By" + data.ID + "OrErr",
-			"List" + typeName + "By" + data.ID + "In",
-			"List" + typeName + "By" + data.ID + "InOrErr",
+			"get" + typeName + "By" + data.PK + "Query",
+			"Get" + typeName + "By" + data.PK,
+			"Get" + typeName + "By" + data.PK + "OrErr",
+			"List" + typeName + "By" + data.PK + "In",
+			"List" + typeName + "By" + data.PK + "InOrErr",
 			"List" + typeName,
 			"Page" + typeName,
 			"Count" + typeName,
@@ -664,19 +668,19 @@ func generatedFilename(data *tsq.StructInfo) string {
 }
 
 func validatePrimaryKeyField(data *tsq.StructInfo) error {
-	if data == nil || data.TableInfo == nil || data.ID == "" {
+	if data == nil || data.TableMeta == nil || data.PK == "" {
 		return nil
 	}
 
-	field, ok := data.FieldMap[data.ID]
+	field, ok := data.FieldMap[data.PK]
 	if !ok {
-		return errors.Errorf("id field %s not found in %s", data.ID, data.TypeInfo.TypeName)
+		return errors.Errorf("id field %s not found in %s", data.PK, data.TypeInfo.TypeName)
 	}
 
 	if field.IsPointer || field.IsArray {
 		return errors.Errorf(
 			"id field %s in %s cannot be a pointer or slice/array type",
-			data.ID,
+			data.PK,
 			data.TypeInfo.TypeName,
 		)
 	}
@@ -685,7 +689,7 @@ func validatePrimaryKeyField(data *tsq.StructInfo) error {
 }
 
 func validateVersionField(data *tsq.StructInfo) error {
-	if data == nil || data.TableInfo == nil || data.VersionField == "" {
+	if data == nil || data.TableMeta == nil || data.VersionField == "" {
 		return nil
 	}
 
@@ -702,12 +706,12 @@ func validateVersionField(data *tsq.StructInfo) error {
 }
 
 func validateFieldDatabaseCompatibility(data *tsq.StructInfo) error {
-	if data == nil || data.TableInfo == nil {
+	if data == nil || data.TableMeta == nil {
 		return nil
 	}
 
-	keywordFields := make(map[string]struct{}, len(data.KwList))
-	for _, field := range data.KwList {
+	keywordFields := make(map[string]struct{}, len(data.SearchColumns))
+	for _, field := range data.SearchColumns {
 		keywordFields[field] = struct{}{}
 	}
 

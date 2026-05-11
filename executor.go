@@ -27,29 +27,43 @@ var (
 	errMutationItemNoTaggedFields  = errors.New("mutation item has no db-tagged fields")
 )
 
-// SqlExecutor defines tsq's low-level execution surface.
-// It exists for handwritten SQL fallbacks and to centralize common table
-// mutation helpers, not for gorp compatibility.
-type SqlExecutor interface {
-	Query(ctx context.Context, query string, args ...any) (*sql.Rows, error)
-	QueryRow(ctx context.Context, query string, args ...any) *sql.Row
-	Exec(ctx context.Context, query string, args ...any) (sql.Result, error)
+// SQLExecutor defines the shared query execution surface implemented by
+// database/sql entry points such as *sql.DB and *sql.Tx.
+// The standard library does not provide this exact interface, so tsq defines
+// the minimal Context-based method set it needs.
+type SQLExecutor interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
 
-	SelectInt(ctx context.Context, query string, args ...any) (int64, error)
-	SelectNullInt(ctx context.Context, query string, args ...any) (sql.NullInt64, error)
-	SelectFloat(ctx context.Context, query string, args ...any) (float64, error)
-	SelectNullFloat(ctx context.Context, query string, args ...any) (sql.NullFloat64, error)
-	SelectStr(ctx context.Context, query string, args ...any) (string, error)
-	SelectNullStr(ctx context.Context, query string, args ...any) (sql.NullString, error)
-
+type mutationExecutor interface {
 	Insert(ctx context.Context, dst ...Table) error
 	Update(ctx context.Context, dst ...Table) (int64, error)
 	Delete(ctx context.Context, dst ...Table) (int64, error)
 }
 
+type sqlMutationExecutor struct {
+	exec SQLExecutor
+}
+
+func (m sqlMutationExecutor) Insert(ctx context.Context, dst ...Table) error {
+	return insertTables(ctx, m.exec, dst...)
+}
+
+func (m sqlMutationExecutor) Update(ctx context.Context, dst ...Table) (int64, error) {
+	return updateTables(ctx, m.exec, dst...)
+}
+
+func (m sqlMutationExecutor) Delete(ctx context.Context, dst ...Table) (int64, error) {
+	return deleteTables(ctx, m.exec, dst...)
+}
+
 // Dialect defines the interface for database dialect-specific operations.
 // It mirrors the Dialect interface but is owned by tsq.
 type Dialect interface {
+	// Name returns the stable tsq dialect name.
+	Name() DialectName
 	// QuoteField returns the dialect-specific quoted identifier
 	QuoteField(field string) string
 	// BindVar returns the dialect-specific bind variable placeholder
@@ -74,12 +88,32 @@ type Dialect interface {
 	CreateTableIfNotExistsSuffix() string
 	// HasConstraintsQuery returns the dialect-specific query to check constraints
 	HasConstraintsQuery(string, string) string
+	// ValidateIdentifier validates a SQL identifier for this dialect.
+	ValidateIdentifier(identifier string) error
+	// SupportsCapability reports whether this dialect supports the named SQL capability.
+	SupportsCapability(capability DialectCapability) bool
+	// BatchInsertStartID returns the first ID assigned by a multi-row insert when it can be derived.
+	BatchInsertStartID(lastID, rowsAffected int64) (int64, bool)
+	// EnsureIndex creates an index for this dialect.
+	EnsureIndex(db *Engine, table string, unique bool, idx string, fields []string) error
+	// InspectIndexDefinition returns the current definition of an existing index.
+	InspectIndexDefinition(db *Engine, table, idx string) (IndexDefinition, bool, error)
+	// DDLColumnType returns the SQL type for a column descriptor.
+	DDLColumnType(desc DDLColumnType) string
+	// DDLAutoIncrementPrimaryKey renders an auto-increment primary key column definition.
+	DDLAutoIncrementPrimaryKey(quotedColumn string, desc DDLColumnType) (string, error)
+	// DDLCreateIndex renders the dialect-specific index creation statement.
+	DDLCreateIndex(table, idx string, fields []string, unique bool) string
+	// DDLDropIndex renders the dialect-specific index drop statement.
+	DDLDropIndex(table, idx string) string
+	// DDLAlterColumnMode reports how this dialect applies column changes.
+	DDLAlterColumnMode() DDLAlterColumnMode
+	// DDLAlterColumnStatements renders direct ALTER COLUMN statements for this dialect.
+	DDLAlterColumnStatements(table string, before, after DDLColumnSpec) []string
 }
 
-// DbMap represents a database map that holds database connection and dialect information.
-// It mirrors the DbMap structure but is owned by tsq.
-type DbMap struct {
-	Db      *sql.DB
+type Engine struct {
+	DB      *sql.DB
 	Dialect Dialect
 }
 
@@ -94,7 +128,7 @@ func defaultDBSchemaConfig() dbSchemaConfig {
 	return dbSchemaConfig{indexInitMode: IndexInitUpsert}
 }
 
-func loadDBSchemaConfig(db *DbMap) dbSchemaConfig {
+func loadDBSchemaConfig(db *Engine) dbSchemaConfig {
 	if db == nil {
 		return defaultDBSchemaConfig()
 	}
@@ -106,7 +140,7 @@ func loadDBSchemaConfig(db *DbMap) dbSchemaConfig {
 	return defaultDBSchemaConfig()
 }
 
-func storeDBSchemaConfig(db *DbMap, cfg dbSchemaConfig) {
+func storeDBSchemaConfig(db *Engine, cfg dbSchemaConfig) {
 	if db == nil {
 		return
 	}
@@ -123,99 +157,48 @@ func storeDBSchemaConfig(db *DbMap, cfg dbSchemaConfig) {
 	dbSchemaConfigs.Store(db, cfg)
 }
 
-// Query executes a query and returns rows.
-func (db *DbMap) Query(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
-	if db == nil || db.Db == nil {
+// TSQDialect exposes the Engine dialect for SQL rendering and validation.
+func (e *Engine) TSQDialect() Dialect {
+	if e == nil {
+		return nil
+	}
+
+	return e.Dialect
+}
+
+// QueryContext executes a query and returns rows.
+func (e *Engine) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	if e == nil || e.DB == nil {
 		return nil, nil
 	}
 
-	rows, err := db.Db.QueryContext(ctx, query, args...)
+	rows, err := e.DB.QueryContext(ctx, query, args...)
 
 	return rows, errors.Trace(err)
 }
 
-// QueryRow executes a query that returns a single row.
-func (db *DbMap) QueryRow(ctx context.Context, query string, args ...any) *sql.Row {
-	if db == nil || db.Db == nil {
+// QueryRowContext executes a query that returns a single row.
+func (e *Engine) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
+	if e == nil || e.DB == nil {
 		return nil
 	}
 
-	return db.Db.QueryRowContext(ctx, query, args...)
+	return e.DB.QueryRowContext(ctx, query, args...)
 }
 
-// Exec executes a query without returning rows.
-func (db *DbMap) Exec(ctx context.Context, query string, args ...any) (sql.Result, error) {
-	if db == nil || db.Db == nil {
+// ExecContext executes a query without returning rows.
+func (e *Engine) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	if e == nil || e.DB == nil {
 		return nil, nil
 	}
 
-	res, err := db.Db.ExecContext(ctx, query, args...)
+	res, err := e.DB.ExecContext(ctx, query, args...)
 
 	return res, errors.Trace(err)
 }
 
-// SelectInt executes a query and returns a single integer result.
-func (db *DbMap) SelectInt(ctx context.Context, query string, args ...any) (int64, error) {
-	var result sql.NullInt64
-
-	err := db.QueryRow(ctx, query, args...).Scan(&result)
-	if err != nil {
-		return 0, errors.Trace(err)
-	}
-
-	return result.Int64, nil
-}
-
-// SelectNullInt executes a query and returns a nullable integer result.
-func (db *DbMap) SelectNullInt(ctx context.Context, query string, args ...any) (sql.NullInt64, error) {
-	var result sql.NullInt64
-	err := db.QueryRow(ctx, query, args...).Scan(&result)
-
-	return result, errors.Trace(err)
-}
-
-// SelectFloat executes a query and returns a single float result.
-func (db *DbMap) SelectFloat(ctx context.Context, query string, args ...any) (float64, error) {
-	var result sql.NullFloat64
-
-	err := db.QueryRow(ctx, query, args...).Scan(&result)
-	if err != nil {
-		return 0, errors.Trace(err)
-	}
-
-	return result.Float64, nil
-}
-
-// SelectNullFloat executes a query and returns a nullable float result.
-func (db *DbMap) SelectNullFloat(ctx context.Context, query string, args ...any) (sql.NullFloat64, error) {
-	var result sql.NullFloat64
-	err := db.QueryRow(ctx, query, args...).Scan(&result)
-
-	return result, errors.Trace(err)
-}
-
-// SelectStr executes a query and returns a single string result.
-func (db *DbMap) SelectStr(ctx context.Context, query string, args ...any) (string, error) {
-	var result sql.NullString
-
-	err := db.QueryRow(ctx, query, args...).Scan(&result)
-	if err != nil {
-		return "", errors.Trace(err)
-	}
-
-	return result.String, nil
-}
-
-// SelectNullStr executes a query and returns a nullable string result.
-func (db *DbMap) SelectNullStr(ctx context.Context, query string, args ...any) (sql.NullString, error) {
-	var result sql.NullString
-	err := db.QueryRow(ctx, query, args...).Scan(&result)
-
-	return result, errors.Trace(err)
-}
-
 // CreateTablesIfNotExists creates all tables if they don't exist.
-func (db *DbMap) CreateTablesIfNotExists() error {
+func (e *Engine) CreateTablesIfNotExists() error {
 	// This is typically used during initialization
 	// Implementation depends on registered tables
 	return nil
@@ -234,14 +217,28 @@ type mutationRecord struct {
 }
 
 // Insert inserts objects into the database.
-func (db *DbMap) Insert(ctx context.Context, dst ...Table) error {
+func (e *Engine) Insert(ctx context.Context, dst ...Table) error {
+	return insertTables(ctx, e, dst...)
+}
+
+// Update updates objects in the database.
+func (e *Engine) Update(ctx context.Context, dst ...Table) (int64, error) {
+	return updateTables(ctx, e, dst...)
+}
+
+// Delete deletes objects from the database.
+func (e *Engine) Delete(ctx context.Context, dst ...Table) (int64, error) {
+	return deleteTables(ctx, e, dst...)
+}
+
+func insertTables(ctx context.Context, exec SQLExecutor, dst ...Table) error {
 	records, err := collectMutationRecords(dst)
 	if err != nil {
 		return errors.Trace(err)
 	}
 
 	for _, group := range groupInsertRecords(records) {
-		if err := db.insertBatch(ctx, group); err != nil {
+		if err := insertBatch(ctx, exec, group); err != nil {
 			return errors.Trace(err)
 		}
 	}
@@ -249,8 +246,7 @@ func (db *DbMap) Insert(ctx context.Context, dst ...Table) error {
 	return nil
 }
 
-// Update updates objects in the database.
-func (db *DbMap) Update(ctx context.Context, dst ...Table) (int64, error) {
+func updateTables(ctx context.Context, exec SQLExecutor, dst ...Table) (int64, error) {
 	records, err := collectMutationRecords(dst)
 	if err != nil {
 		return 0, errors.Trace(err)
@@ -259,7 +255,7 @@ func (db *DbMap) Update(ctx context.Context, dst ...Table) (int64, error) {
 	var total int64
 
 	for _, group := range groupUpdateRecords(records) {
-		affected, err := db.updateBatch(ctx, group)
+		affected, err := updateBatch(ctx, exec, group)
 		if err != nil {
 			return total, errors.Trace(err)
 		}
@@ -270,8 +266,7 @@ func (db *DbMap) Update(ctx context.Context, dst ...Table) (int64, error) {
 	return total, nil
 }
 
-// Delete deletes objects from the database.
-func (db *DbMap) Delete(ctx context.Context, dst ...Table) (int64, error) {
+func deleteTables(ctx context.Context, exec SQLExecutor, dst ...Table) (int64, error) {
 	records, err := collectMutationRecords(dst)
 	if err != nil {
 		return 0, errors.Trace(err)
@@ -280,7 +275,7 @@ func (db *DbMap) Delete(ctx context.Context, dst ...Table) (int64, error) {
 	var total int64
 
 	for _, group := range groupDeleteRecords(records) {
-		affected, err := db.deleteBatch(ctx, group)
+		affected, err := deleteBatch(ctx, exec, group)
 		if err != nil {
 			return total, errors.Trace(err)
 		}
@@ -348,7 +343,7 @@ func groupMutationRecords(records []mutationRecord, keyFn func(mutationRecord) s
 	return groups
 }
 
-func (db *DbMap) insertBatch(ctx context.Context, records []mutationRecord) error {
+func insertBatch(ctx context.Context, exec SQLExecutor, records []mutationRecord) error {
 	if len(records) == 0 {
 		return nil
 	}
@@ -364,7 +359,7 @@ func (db *DbMap) insertBatch(ctx context.Context, records []mutationRecord) erro
 		}
 	}
 
-	tableSQL, err := db.quoteMutationIdentifier(records[0].tableName)
+	tableSQL, err := quoteMutationIdentifier(exec, records[0].tableName)
 	if err != nil {
 		return errors.Trace(err)
 	}
@@ -372,7 +367,7 @@ func (db *DbMap) insertBatch(ctx context.Context, records []mutationRecord) erro
 	quotedCols := make([]string, 0, len(insertFields))
 
 	for _, field := range insertFields {
-		col, err := db.quoteMutationIdentifier(field.column)
+		col, err := quoteMutationIdentifier(exec, field.column)
 		if err != nil {
 			return errors.Trace(err)
 		}
@@ -391,7 +386,7 @@ func (db *DbMap) insertBatch(ctx context.Context, records []mutationRecord) erro
 		placeholders := make([]string, 0, len(recordFields))
 
 		for _, field := range recordFields {
-			placeholders = append(placeholders, db.nextBindVar(&argIndex))
+			placeholders = append(placeholders, nextBindVar(exec, &argIndex))
 			args = append(args, field.value.Interface())
 		}
 
@@ -405,17 +400,17 @@ func (db *DbMap) insertBatch(ctx context.Context, records []mutationRecord) erro
 		strings.Join(valueClauses, ", "),
 	)
 
-	result, err := db.Exec(ctx, query, args...)
+	result, err := exec.ExecContext(ctx, query, args...)
 	if err != nil {
 		return errors.Trace(err)
 	}
 
-	assignBatchInsertIDs(db, records, result, len(insertFields) != len(records[0].fields))
+	assignBatchInsertIDs(exec, records, result, len(insertFields) != len(records[0].fields))
 
 	return nil
 }
 
-func (db *DbMap) updateBatch(ctx context.Context, records []mutationRecord) (int64, error) {
+func updateBatch(ctx context.Context, exec SQLExecutor, records []mutationRecord) (int64, error) {
 	if len(records) == 0 {
 		return 0, nil
 	}
@@ -435,12 +430,12 @@ func (db *DbMap) updateBatch(ctx context.Context, records []mutationRecord) (int
 		}
 	}
 
-	tableSQL, err := db.quoteMutationIdentifier(records[0].tableName)
+	tableSQL, err := quoteMutationIdentifier(exec, records[0].tableName)
 	if err != nil {
 		return 0, errors.Trace(err)
 	}
 
-	pkSQL, err := db.quoteMutationIdentifier(records[0].pkField.column)
+	pkSQL, err := quoteMutationIdentifier(exec, records[0].pkField.column)
 	if err != nil {
 		return 0, errors.Trace(err)
 	}
@@ -452,7 +447,7 @@ func (db *DbMap) updateBatch(ctx context.Context, records []mutationRecord) (int
 	)
 
 	for _, field := range updateFields {
-		colSQL, err := db.quoteMutationIdentifier(field.column)
+		colSQL, err := quoteMutationIdentifier(exec, field.column)
 		if err != nil {
 			return 0, errors.Trace(err)
 		}
@@ -466,9 +461,9 @@ func (db *DbMap) updateBatch(ctx context.Context, records []mutationRecord) (int
 			recordField := mutationFieldByColumn(record.fields, field.column)
 
 			clause.WriteString(" WHEN ")
-			clause.WriteString(db.nextBindVar(&argIndex))
+			clause.WriteString(nextBindVar(exec, &argIndex))
 			clause.WriteString(" THEN ")
-			clause.WriteString(db.nextBindVar(&argIndex))
+			clause.WriteString(nextBindVar(exec, &argIndex))
 
 			args = append(args, record.pkField.value.Interface(), recordField.value.Interface())
 		}
@@ -481,7 +476,7 @@ func (db *DbMap) updateBatch(ctx context.Context, records []mutationRecord) (int
 
 	wherePlaceholders := make([]string, 0, len(records))
 	for _, record := range records {
-		wherePlaceholders = append(wherePlaceholders, db.nextBindVar(&argIndex))
+		wherePlaceholders = append(wherePlaceholders, nextBindVar(exec, &argIndex))
 		args = append(args, record.pkField.value.Interface())
 	}
 
@@ -493,7 +488,7 @@ func (db *DbMap) updateBatch(ctx context.Context, records []mutationRecord) (int
 		strings.Join(wherePlaceholders, ", "),
 	)
 
-	result, err := db.Exec(ctx, query, args...)
+	result, err := exec.ExecContext(ctx, query, args...)
 	if err != nil {
 		return 0, errors.Trace(err)
 	}
@@ -503,7 +498,7 @@ func (db *DbMap) updateBatch(ctx context.Context, records []mutationRecord) (int
 	return rowsAffected, errors.Trace(err)
 }
 
-func (db *DbMap) deleteBatch(ctx context.Context, records []mutationRecord) (int64, error) {
+func deleteBatch(ctx context.Context, exec SQLExecutor, records []mutationRecord) (int64, error) {
 	if len(records) == 0 {
 		return 0, nil
 	}
@@ -514,12 +509,12 @@ func (db *DbMap) deleteBatch(ctx context.Context, records []mutationRecord) (int
 		}
 	}
 
-	tableSQL, err := db.quoteMutationIdentifier(records[0].tableName)
+	tableSQL, err := quoteMutationIdentifier(exec, records[0].tableName)
 	if err != nil {
 		return 0, errors.Trace(err)
 	}
 
-	pkSQL, err := db.quoteMutationIdentifier(records[0].pkField.column)
+	pkSQL, err := quoteMutationIdentifier(exec, records[0].pkField.column)
 	if err != nil {
 		return 0, errors.Trace(err)
 	}
@@ -531,7 +526,7 @@ func (db *DbMap) deleteBatch(ctx context.Context, records []mutationRecord) (int
 	)
 
 	for _, record := range records {
-		placeholders = append(placeholders, db.nextBindVar(&argIndex))
+		placeholders = append(placeholders, nextBindVar(exec, &argIndex))
 		args = append(args, record.pkField.value.Interface())
 	}
 
@@ -542,7 +537,7 @@ func (db *DbMap) deleteBatch(ctx context.Context, records []mutationRecord) (int
 		strings.Join(placeholders, ", "),
 	)
 
-	result, err := db.Exec(ctx, query, args...)
+	result, err := exec.ExecContext(ctx, query, args...)
 	if err != nil {
 		return 0, errors.Trace(err)
 	}
@@ -682,7 +677,7 @@ func primaryMutationField(pkColumns []string, fields []mutationField) (mutationF
 	return mutationField{}, errors.Errorf("mutation item is missing primary key column %s", pkColumns[0])
 }
 
-func (db *DbMap) quoteMutationIdentifier(name string) (string, error) {
+func quoteMutationIdentifier(exec SQLExecutor, name string) (string, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return "", errors.New("identifier cannot be empty")
@@ -692,16 +687,16 @@ func (db *DbMap) quoteMutationIdentifier(name string) (string, error) {
 		return "", errors.Errorf("invalid identifier: %s", name)
 	}
 
-	if db != nil && db.Dialect != nil {
-		return db.Dialect.QuoteField(name), nil
+	if dialect := dialectForExecutor(exec); dialect != nil {
+		return dialect.QuoteField(name), nil
 	}
 
 	return name, nil
 }
 
-func (db *DbMap) bindVar(index int) string {
-	if db != nil && db.Dialect != nil {
-		return db.Dialect.BindVar(index)
+func bindVar(exec SQLExecutor, index int) string {
+	if dialect := dialectForExecutor(exec); dialect != nil {
+		return dialect.BindVar(index)
 	}
 
 	return "?"
@@ -711,9 +706,9 @@ func isZeroMutationValue(value reflect.Value) bool {
 	return value.IsZero()
 }
 
-func (db *DbMap) nextBindVar(index *int) string {
-	placeholder := db.bindVar(*index)
-	(*index)++
+func nextBindVar(exec SQLExecutor, index *int) string {
+	placeholder := bindVar(exec, *index)
+	*index++
 
 	return placeholder
 }
@@ -727,7 +722,7 @@ func assignMutationID(field reflect.Value, id int64) {
 	}
 }
 
-func assignBatchInsertIDs(db *DbMap, records []mutationRecord, result sql.Result, omittedPrimaryKey bool) {
+func assignBatchInsertIDs(exec SQLExecutor, records []mutationRecord, result sql.Result, omittedPrimaryKey bool) {
 	if !omittedPrimaryKey || len(records) == 0 {
 		return
 	}
@@ -747,14 +742,13 @@ func assignBatchInsertIDs(db *DbMap, records []mutationRecord, result sql.Result
 		return
 	}
 
-	var startID int64
+	dialect := dialectForExecutor(exec)
+	if dialect == nil {
+		return
+	}
 
-	switch db.Dialect.(type) {
-	case SqliteDialect, *SqliteDialect:
-		startID = lastID - rowsAffected + 1
-	case MySQLDialect, *MySQLDialect:
-		startID = lastID
-	default:
+	startID, ok := dialect.BatchInsertStartID(lastID, rowsAffected)
+	if !ok {
 		return
 	}
 
@@ -782,73 +776,54 @@ func mutationFieldPointer(col SQLColumn, holder Table) (any, error) {
 	return ptr, nil
 }
 
-// AddTableWithName registers a table mapping (stub implementation for gorp compatibility)
-func (db *DbMap) AddTableWithName(dst any, name string) *DbMapTable {
-	// This is a stub implementation kept for gorp compatibility
-	return &DbMapTable{}
-}
+// SQLiteDialect is the SQLite dialect implementation.
+type SQLiteDialect struct{}
 
-// DbMapTable is a stub for method chaining compatibility
-type DbMapTable struct{}
-
-// SetKeys sets the primary keys (stub for gorp compatibility)
-func (t *DbMapTable) SetKeys(autoincr bool, keynames ...string) *DbMapTable {
-	return t
-}
-
-// SetVersionCol sets the version column (stub for gorp compatibility)
-func (t *DbMapTable) SetVersionCol(name string) *DbMapTable {
-	return t
-}
-
-// SqliteDialect is the SQLite dialect implementation.
-type SqliteDialect struct{}
-
-func (d SqliteDialect) QuoteField(f string) string {
+func (d SQLiteDialect) QuoteField(f string) string {
 	return `"` + f + `"`
 }
 
-func (d SqliteDialect) BindVar(i int) string {
+func (d SQLiteDialect) BindVar(i int) string {
 	return "?"
 }
 
-func (d SqliteDialect) CreateTableSuffix() string {
+func (d SQLiteDialect) CreateTableSuffix() string {
 	return ";"
 }
 
-func (d SqliteDialect) CreateIndexSuffix() string {
+func (d SQLiteDialect) CreateIndexSuffix() string {
 	return ";"
 }
 
-func (d SqliteDialect) DropIndexSuffix() string {
+func (d SQLiteDialect) DropIndexSuffix() string {
 	return ";"
 }
 
-func (d SqliteDialect) TruncateClause() string {
+func (d SQLiteDialect) TruncateClause() string {
 	return "DELETE FROM"
 }
 
-func (d SqliteDialect) AutoIncrementClause() string {
+func (d SQLiteDialect) AutoIncrementClause() string {
 	return "AUTOINCREMENT"
 }
 
-func (d SqliteDialect) AutoIncrementBindValue() string {
+func (d SQLiteDialect) AutoIncrementBindValue() string {
 	return ""
 }
 
-func (d SqliteDialect) LastInsertIdReturningSuffix(table, col string) string {
+func (d SQLiteDialect) LastInsertIdReturningSuffix(table, col string) string {
 	return ""
 }
 
-func (d SqliteDialect) AllTablesQuery() string {
+func (d SQLiteDialect) AllTablesQuery() string {
 	return "SELECT name FROM sqlite_master WHERE type='table'"
 }
 
-func (d SqliteDialect) CreateTableIfNotExistsSuffix() string {
+func (d SQLiteDialect) CreateTableIfNotExistsSuffix() string {
 	return "IF NOT EXISTS"
 }
 
-func (d SqliteDialect) HasConstraintsQuery(table, column string) string {
+func (d SQLiteDialect) HasConstraintsQuery(table, column string) string {
 	return ""
 }
 
@@ -957,7 +932,7 @@ func (d PostgresDialect) HasConstraintsQuery(table, column string) string {
 
 // wrappedExecutor wraps a standard SQL executor with dialect information.
 type wrappedExecutor struct {
-	SqlExecutor
+	SQLExecutor
 	dialect Dialect
 }
 
@@ -965,8 +940,8 @@ func (w wrappedExecutor) TSQDialect() Dialect {
 	return w.dialect
 }
 
-// WrapExecutor wraps a SqlExecutor with dialect information.
-func WrapExecutor(exec SqlExecutor, dialect Dialect) SqlExecutor {
+// WrapExecutor wraps a SQLExecutor with dialect information.
+func WrapExecutor(exec SQLExecutor, dialect Dialect) SQLExecutor {
 	if exec == nil {
 		return nil
 	}
@@ -976,16 +951,16 @@ func WrapExecutor(exec SqlExecutor, dialect Dialect) SqlExecutor {
 	}
 
 	return wrappedExecutor{
-		SqlExecutor: exec,
+		SQLExecutor: exec,
 		dialect:     dialect,
 	}
 }
 
-// WrapDBMapExecutor wraps a SqlExecutor with dialect from DbMap.
-func WrapDBMapExecutor(exec SqlExecutor, db *DbMap) SqlExecutor {
-	if db == nil {
+// WrapEngineExecutor wraps a SQLExecutor with dialect from Engine.
+func WrapEngineExecutor(exec SQLExecutor, engine *Engine) SQLExecutor {
+	if engine == nil {
 		return exec
 	}
 
-	return WrapExecutor(exec, db.Dialect)
+	return WrapExecutor(exec, engine.Dialect)
 }

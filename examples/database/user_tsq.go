@@ -31,8 +31,8 @@ func (u User) Cols() []tsq.SQLColumn {
 	return tsq.SQLColumns(TableUserCols...)
 }
 
-// KwList returns columns that support keyword search for User.
-func (u User) KwList() []tsq.SearchColumn {
+// SearchColumns returns columns that support keyword search for User.
+func (u User) SearchColumns() []tsq.SearchColumn {
 	return []tsq.SearchColumn{
 		User_Name,
 		User_Email,
@@ -77,10 +77,7 @@ var TableUserCols = []tsq.BoundColumn[User]{
 func init() {
 	tsq.RegisterTable(
 		TableUser,
-		func(db *tsq.DbMap) {
-			db.AddTableWithName(TableUser, "user").SetKeys(true, "ID")
-		},
-		func(db *tsq.DbMap) error {
+		func(db *tsq.Engine) error {
 			// Upsert unique indexes.
 			if err := tsq.UpsertIndex(db, "user", true, "ux_user_name", []string{"name"}); err != nil {
 				return errors.Annotate(err, "upsert ux_user_name@user")
@@ -111,7 +108,7 @@ func init() {
 // Returns (nil, nil) if the record is not found.
 func GetUserByID(
 	ctx context.Context,
-	db tsq.SqlExecutor,
+	db tsq.SQLExecutor,
 	iD int64,
 ) (*User, error) {
 	row := &User{}
@@ -129,7 +126,7 @@ func GetUserByID(
 // Returns (nil, database/sql.ErrNoRows) if the record is not found.
 func GetUserByIDOrErr(
 	ctx context.Context,
-	db tsq.SqlExecutor,
+	db tsq.SQLExecutor,
 	iD int64,
 ) (*User, error) {
 	row := &User{}
@@ -144,7 +141,7 @@ func GetUserByIDOrErr(
 // Records not found are silently ignored.
 func ListUserByIDIn(
 	ctx context.Context,
-	db tsq.SqlExecutor,
+	db tsq.SQLExecutor,
 	iDs ...int64,
 ) ([]*User, error) {
 	query, err := tsq.
@@ -162,7 +159,7 @@ func ListUserByIDIn(
 // Returns an error if any of the specified records are not found.
 func ListUserByIDInOrErr(
 	ctx context.Context,
-	db tsq.SqlExecutor,
+	db tsq.SQLExecutor,
 	iDs ...int64,
 ) ([]*User, error) {
 	query, err := tsq.
@@ -198,10 +195,10 @@ func init() {
 	getUserByNameQuery, err = tsq.
 		Select(TableUserCols...).
 		From(TableUser).
+		Search(TableUser.SearchColumns()...).
 		Where(
 			User_Name.EQVar(),
 		).
-		KwSearch(TableUser.KwList()...).
 		Build()
 	if err != nil {
 		panic(errors.Annotate(err, "initialize getUserByNameQuery"))
@@ -212,7 +209,7 @@ func init() {
 // Returns (nil, nil) if the record is not found.
 func GetUserByName(
 	ctx context.Context,
-	db tsq.SqlExecutor,
+	db tsq.SQLExecutor,
 	name string,
 ) (*User, error) {
 	row := &User{}
@@ -233,7 +230,7 @@ func GetUserByName(
 // Returns (nil, database/sql.ErrNoRows) if the record is not found.
 func GetUserByNameOrErr(
 	ctx context.Context,
-	db tsq.SqlExecutor,
+	db tsq.SQLExecutor,
 	name string,
 ) (*User, error) {
 	row := &User{}
@@ -250,7 +247,7 @@ func GetUserByNameOrErr(
 // ExistsUserByName checks if a User record exists by unique index ux_user_name.
 func ExistsUserByName(
 	ctx context.Context,
-	db tsq.SqlExecutor,
+	db tsq.SQLExecutor,
 	name string,
 ) (bool, error) {
 	rs, err := getUserByNameQuery.Exists(
@@ -274,7 +271,7 @@ func init() {
 	listUserQuery, err = tsq.
 		Select(TableUserCols...).
 		From(TableUser).
-		KwSearch(TableUser.KwList()...).
+		Search(TableUser.SearchColumns()...).
 		Build()
 	if err != nil {
 		panic(errors.Annotate(err, "initialize listUserQuery"))
@@ -284,15 +281,15 @@ func init() {
 // CountUser returns the total count of User records.
 func CountUser(
 	ctx context.Context,
-	tx tsq.SqlExecutor,
-) (int64, error) {
-	return listUserQuery.Count64(ctx, tx)
+	tx tsq.SQLExecutor,
+) (int, error) {
+	return listUserQuery.Count(ctx, tx)
 }
 
 // ListUser retrieves all User records.
 func ListUser(
 	ctx context.Context,
-	tx tsq.SqlExecutor,
+	tx tsq.SQLExecutor,
 ) ([]*User, error) {
 	return tsq.List(ctx, tx, listUserQuery)
 }
@@ -300,7 +297,7 @@ func ListUser(
 // PageUser retrieves User records with pagination.
 func PageUser(
 	ctx context.Context,
-	tx tsq.SqlExecutor,
+	tx tsq.SQLExecutor,
 	page *tsq.PageReq,
 ) (*tsq.PageResp[User], error) {
 	return tsq.Page(ctx, tx, page, listUserQuery)
@@ -313,7 +310,7 @@ func PageUser(
 // Insert inserts a new User record.
 func (u *User) Insert(
 	ctx context.Context,
-	db tsq.SqlExecutor,
+	db tsq.SQLExecutor,
 ) error {
 	u.CreatedAt = null.TimeFrom(tsqtime.Now())
 	err := tsq.Insert(ctx, db, u)
@@ -326,7 +323,7 @@ func (u *User) Insert(
 // Update updates an existing User record.
 func (u *User) Update(
 	ctx context.Context,
-	db tsq.SqlExecutor,
+	db tsq.SQLExecutor,
 ) error {
 	err := tsq.Update(ctx, db, u)
 	if err != nil {
@@ -338,7 +335,7 @@ func (u *User) Update(
 // Delete permanently removes a User record.
 func (u *User) Delete(
 	ctx context.Context,
-	db tsq.SqlExecutor,
+	db tsq.SQLExecutor,
 ) error {
 	err := tsq.Delete(ctx, db, u)
 	if err != nil {
@@ -353,7 +350,7 @@ func (u *User) Delete(
 // ListUserByQuery executes a custom query to retrieve a list of User records.
 func ListUserByQuery(
 	ctx context.Context,
-	tx tsq.SqlExecutor,
+	tx tsq.SQLExecutor,
 	qb *tsq.Query[User],
 	args ...any,
 ) ([]*User, error) {
@@ -363,7 +360,7 @@ func ListUserByQuery(
 // PageUserByQuery executes a custom query to retrieve a page of User records.
 func PageUserByQuery(
 	ctx context.Context,
-	tx tsq.SqlExecutor,
+	tx tsq.SQLExecutor,
 	page *tsq.PageReq,
 	qb *tsq.Query[User],
 	args ...any,

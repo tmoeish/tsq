@@ -31,8 +31,8 @@ func (o Org) Cols() []tsq.SQLColumn {
 	return tsq.SQLColumns(TableOrgCols...)
 }
 
-// KwList returns columns that support keyword search for Org.
-func (o Org) KwList() []tsq.SearchColumn {
+// SearchColumns returns columns that support keyword search for Org.
+func (o Org) SearchColumns() []tsq.SearchColumn {
 	return []tsq.SearchColumn{}
 }
 
@@ -70,10 +70,7 @@ var TableOrgCols = []tsq.BoundColumn[Org]{
 func init() {
 	tsq.RegisterTable(
 		TableOrg,
-		func(db *tsq.DbMap) {
-			db.AddTableWithName(TableOrg, "org").SetKeys(true, "ID")
-		},
-		func(db *tsq.DbMap) error {
+		func(db *tsq.Engine) error {
 			// Upsert unique indexes.
 			if err := tsq.UpsertIndex(db, "org", true, "ux_org_name", []string{"name"}); err != nil {
 				return errors.Annotate(err, "upsert ux_org_name@org")
@@ -104,7 +101,7 @@ func init() {
 // Returns (nil, nil) if the record is not found.
 func GetOrgByID(
 	ctx context.Context,
-	db tsq.SqlExecutor,
+	db tsq.SQLExecutor,
 	iD int64,
 ) (*Org, error) {
 	row := &Org{}
@@ -122,7 +119,7 @@ func GetOrgByID(
 // Returns (nil, database/sql.ErrNoRows) if the record is not found.
 func GetOrgByIDOrErr(
 	ctx context.Context,
-	db tsq.SqlExecutor,
+	db tsq.SQLExecutor,
 	iD int64,
 ) (*Org, error) {
 	row := &Org{}
@@ -137,7 +134,7 @@ func GetOrgByIDOrErr(
 // Records not found are silently ignored.
 func ListOrgByIDIn(
 	ctx context.Context,
-	db tsq.SqlExecutor,
+	db tsq.SQLExecutor,
 	iDs ...int64,
 ) ([]*Org, error) {
 	query, err := tsq.
@@ -155,7 +152,7 @@ func ListOrgByIDIn(
 // Returns an error if any of the specified records are not found.
 func ListOrgByIDInOrErr(
 	ctx context.Context,
-	db tsq.SqlExecutor,
+	db tsq.SQLExecutor,
 	iDs ...int64,
 ) ([]*Org, error) {
 	query, err := tsq.
@@ -191,10 +188,10 @@ func init() {
 	getOrgByNameQuery, err = tsq.
 		Select(TableOrgCols...).
 		From(TableOrg).
+		Search(TableOrg.SearchColumns()...).
 		Where(
 			Org_Name.EQVar(),
 		).
-		KwSearch(TableOrg.KwList()...).
 		Build()
 	if err != nil {
 		panic(errors.Annotate(err, "initialize getOrgByNameQuery"))
@@ -205,7 +202,7 @@ func init() {
 // Returns (nil, nil) if the record is not found.
 func GetOrgByName(
 	ctx context.Context,
-	db tsq.SqlExecutor,
+	db tsq.SQLExecutor,
 	name string,
 ) (*Org, error) {
 	row := &Org{}
@@ -226,7 +223,7 @@ func GetOrgByName(
 // Returns (nil, database/sql.ErrNoRows) if the record is not found.
 func GetOrgByNameOrErr(
 	ctx context.Context,
-	db tsq.SqlExecutor,
+	db tsq.SQLExecutor,
 	name string,
 ) (*Org, error) {
 	row := &Org{}
@@ -243,7 +240,7 @@ func GetOrgByNameOrErr(
 // ExistsOrgByName checks if a Org record exists by unique index ux_org_name.
 func ExistsOrgByName(
 	ctx context.Context,
-	db tsq.SqlExecutor,
+	db tsq.SQLExecutor,
 	name string,
 ) (bool, error) {
 	rs, err := getOrgByNameQuery.Exists(
@@ -267,7 +264,7 @@ func init() {
 	listOrgQuery, err = tsq.
 		Select(TableOrgCols...).
 		From(TableOrg).
-		KwSearch(TableOrg.KwList()...).
+		Search(TableOrg.SearchColumns()...).
 		Build()
 	if err != nil {
 		panic(errors.Annotate(err, "initialize listOrgQuery"))
@@ -277,15 +274,15 @@ func init() {
 // CountOrg returns the total count of Org records.
 func CountOrg(
 	ctx context.Context,
-	tx tsq.SqlExecutor,
-) (int64, error) {
-	return listOrgQuery.Count64(ctx, tx)
+	tx tsq.SQLExecutor,
+) (int, error) {
+	return listOrgQuery.Count(ctx, tx)
 }
 
 // ListOrg retrieves all Org records.
 func ListOrg(
 	ctx context.Context,
-	tx tsq.SqlExecutor,
+	tx tsq.SQLExecutor,
 ) ([]*Org, error) {
 	return tsq.List(ctx, tx, listOrgQuery)
 }
@@ -293,7 +290,7 @@ func ListOrg(
 // PageOrg retrieves Org records with pagination.
 func PageOrg(
 	ctx context.Context,
-	tx tsq.SqlExecutor,
+	tx tsq.SQLExecutor,
 	page *tsq.PageReq,
 ) (*tsq.PageResp[Org], error) {
 	return tsq.Page(ctx, tx, page, listOrgQuery)
@@ -306,7 +303,7 @@ func PageOrg(
 // Insert inserts a new Org record.
 func (o *Org) Insert(
 	ctx context.Context,
-	db tsq.SqlExecutor,
+	db tsq.SQLExecutor,
 ) error {
 	o.CreatedAt = null.TimeFrom(tsqtime.Now())
 	err := tsq.Insert(ctx, db, o)
@@ -319,7 +316,7 @@ func (o *Org) Insert(
 // Update updates an existing Org record.
 func (o *Org) Update(
 	ctx context.Context,
-	db tsq.SqlExecutor,
+	db tsq.SQLExecutor,
 ) error {
 	err := tsq.Update(ctx, db, o)
 	if err != nil {
@@ -331,7 +328,7 @@ func (o *Org) Update(
 // Delete permanently removes a Org record.
 func (o *Org) Delete(
 	ctx context.Context,
-	db tsq.SqlExecutor,
+	db tsq.SQLExecutor,
 ) error {
 	err := tsq.Delete(ctx, db, o)
 	if err != nil {
@@ -346,7 +343,7 @@ func (o *Org) Delete(
 // ListOrgByQuery executes a custom query to retrieve a list of Org records.
 func ListOrgByQuery(
 	ctx context.Context,
-	tx tsq.SqlExecutor,
+	tx tsq.SQLExecutor,
 	qb *tsq.Query[Org],
 	args ...any,
 ) ([]*Org, error) {
@@ -356,7 +353,7 @@ func ListOrgByQuery(
 // PageOrgByQuery executes a custom query to retrieve a page of Org records.
 func PageOrgByQuery(
 	ctx context.Context,
-	tx tsq.SqlExecutor,
+	tx tsq.SQLExecutor,
 	page *tsq.PageReq,
 	qb *tsq.Query[Org],
 	args ...any,

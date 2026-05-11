@@ -2,7 +2,6 @@ package tsq
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
@@ -17,7 +16,7 @@ type Runtime struct {
 	registry     *Registry
 	traceManager *TraceManager
 	initMu       sync.Mutex
-	db           *DbMap // Stored after InitWithOptions for dialect access
+	db           *Engine // Stored after InitWithOptions for dialect access
 }
 
 func NewRuntime() *Runtime {
@@ -49,9 +48,9 @@ func (r *Runtime) TraceManager() *TraceManager {
 	return r.traceManager
 }
 
-// CurrentDB returns the current database map if Init has been called.
+// CurrentDB returns the current Engine if Init has been called.
 // Returns nil if Init has not been called or if runtime is nil.
-func (r *Runtime) CurrentDB() *DbMap {
+func (r *Runtime) CurrentDB() *Engine {
 	if r == nil {
 		return nil
 	}
@@ -60,39 +59,18 @@ func (r *Runtime) CurrentDB() *DbMap {
 }
 
 // CurrentDialect returns the SQL dialect of the current database if Init has been called.
-// Returns empty string if Init has not been called, runtime is nil, or dialect cannot be determined.
-func (r *Runtime) CurrentDialect() string {
+// Returns empty string if Init has not been called or runtime has no initialized dialect.
+func (r *Runtime) CurrentDialect() DialectName {
 	if r == nil || r.db == nil || r.db.Dialect == nil {
 		return ""
 	}
 
-	// Get the type name of the dialect to determine which database is being used
-	dialectType := fmt.Sprintf("%T", r.db.Dialect)
-
-	// Map gorp dialect types to our standard names
-	switch {
-	case strings.Contains(strings.ToLower(dialectType), "mysql"):
-		return "mysql"
-	case strings.Contains(strings.ToLower(dialectType), "postgre"):
-		return "postgres"
-	case strings.Contains(strings.ToLower(dialectType), "oracle"):
-		return "oracle"
-	case strings.Contains(strings.ToLower(dialectType), "sqlite"):
-		return "sqlite"
-	default:
-		return ""
-	}
-}
-
-func contains(s, substr string) bool {
-	return len(s) > 0 && len(substr) > 0 && (s == substr || len(s) > len(substr) &&
-		(s[:len(substr)] == substr || s[len(s)-len(substr):] == substr))
+	return r.db.Dialect.Name()
 }
 
 func (r *Runtime) RegisterTable(
 	table Table,
-	addTableFunc func(db *DbMap),
-	initFunc func(db *DbMap) error,
+	initFunc func(db *Engine) error,
 ) error {
 	if r == nil {
 		return errors.Trace(&RegistrationError{
@@ -101,7 +79,7 @@ func (r *Runtime) RegisterTable(
 		})
 	}
 
-	return errors.Trace(r.registry.Register(table, addTableFunc, initFunc))
+	return errors.Trace(r.registry.Register(table, initFunc))
 }
 
 func (r *Runtime) snapshotRegisteredTables() []*RegisteredTable {
@@ -113,7 +91,7 @@ func (r *Runtime) snapshotRegisteredTables() []*RegisteredTable {
 }
 
 func (r *Runtime) Init(
-	db *DbMap,
+	db *Engine,
 	autoCreateTable bool,
 	upsertIndexies bool,
 	tracer ...Tracer,
@@ -125,21 +103,21 @@ func (r *Runtime) Init(
 	}))
 }
 
-func (r *Runtime) InitWithOptions(db *DbMap, options *InitOptions) error {
+func (r *Runtime) InitWithOptions(db *Engine, options *InitOptions) error {
 	if r == nil {
 		return errors.New("runtime cannot be nil")
 	}
 
 	if db == nil {
-		return errors.New("db map cannot be nil")
+		return errors.New("engine cannot be nil")
 	}
 
-	if db.Db == nil {
-		return errors.New("db map database cannot be nil")
+	if db.DB == nil {
+		return errors.New("engine database cannot be nil")
 	}
 
 	if db.Dialect == nil {
-		return errors.New("db map dialect cannot be nil")
+		return errors.New("engine dialect cannot be nil")
 	}
 
 	if options == nil {
@@ -154,7 +132,7 @@ func (r *Runtime) InitWithOptions(db *DbMap, options *InitOptions) error {
 	r.initMu.Lock()
 	defer r.initMu.Unlock()
 
-	// Store the database map for later dialect access
+	// Store the Engine for later dialect access.
 	r.db = db
 	storeDBSchemaConfig(db, dbSchemaConfig{
 		indexInitMode:      indexMode,
@@ -176,10 +154,6 @@ func (r *Runtime) InitWithOptions(db *DbMap, options *InitOptions) error {
 			// For "warn" mode, just log the error but continue
 			slog.Warn("identifier validation warning during init", "error", err)
 		}
-	}
-
-	for _, table := range registeredTables {
-		table.AddTableFunc(db)
 	}
 
 	if options.AutoCreateTables {
@@ -264,7 +238,7 @@ func (r *Runtime) validateRegisteredTableIdentifiers(mode string) error {
 		}
 
 		tableName := table.Table.Table()
-		if err := ValidateIdentifierLength(tableName, dialect); err != nil {
+		if err := ValidateIdentifierLength(tableName, r.db.Dialect); err != nil {
 			if mode == "strict" {
 				return errors.Annotatef(err, "table %s identifier validation failed", tableName)
 			}
@@ -273,14 +247,14 @@ func (r *Runtime) validateRegisteredTableIdentifiers(mode string) error {
 		}
 
 		// Also validate keyword search columns if present
-		if kwCols := table.KwList(); kwCols != nil {
+		if kwCols := table.SearchColumns(); kwCols != nil {
 			for _, col := range kwCols {
 				if col == nil {
 					continue
 				}
 
 				colName := col.OutputName()
-				if err := ValidateIdentifierLength(colName, dialect); err != nil {
+				if err := ValidateIdentifierLength(colName, r.db.Dialect); err != nil {
 					if mode == "strict" {
 						return errors.Annotatef(err, "column %s.%s identifier validation failed", tableName, colName)
 					}

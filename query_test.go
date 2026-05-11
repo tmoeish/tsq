@@ -181,7 +181,7 @@ func TestQueryBuilder_Build_FullJoinDefersDialectValidationToExecution(t *testin
 		t.Fatalf("expected FULL JOIN build to succeed, got %v", err)
 	}
 
-	db := newSQLiteIndexTestDBMap(t)
+	db := newSQLiteIndexTestEngine(t)
 	err = validateOperationalExecutorForSQL(db, query.listSQL)
 	if err == nil {
 		t.Fatal("expected sqlite dialect validation to reject FULL JOIN")
@@ -219,7 +219,7 @@ func TestQueryBuilder_Build_SetOperationPaginationUsesOutputColumnNames(t *testi
 }
 
 func TestQueryBuilder_Build_CTEExecutionOnSQLite(t *testing.T) {
-	db := newInVarDBMap(t)
+	db := newInVarEngine(t)
 	users := newMockTable("users")
 	idCol := newColForTable[inVarUser, int64](users, "id", "id", toScanPointer(func(holder *inVarUser) *int64 { return &holder.ID }))
 	nameCol := newColForTable[inVarUser, string](users, "name", "name", toScanPointer(func(holder *inVarUser) *string { return &holder.Name }))
@@ -245,7 +245,7 @@ func TestQueryBuilder_Build_CTEExecutionOnSQLite(t *testing.T) {
 		t.Fatalf("unexpected CTE rows returned: %#v", rows)
 	}
 
-	count, err := query.Count64(context.Background(), db, []int64{1, 2, 3})
+	count, err := query.Count(context.Background(), db, []int64{1, 2, 3})
 	if err != nil {
 		t.Fatalf("expected CTE count query to execute, got %v", err)
 	}
@@ -256,7 +256,7 @@ func TestQueryBuilder_Build_CTEExecutionOnSQLite(t *testing.T) {
 }
 
 func TestQueryBuilder_Build_CTEDefersDialectValidationToExecution(t *testing.T) {
-	db := newInVarDBMap(t)
+	db := newInVarEngine(t)
 	db.Dialect = MySQLDialect{}
 
 	users := newMockTable("users")
@@ -277,7 +277,7 @@ func TestQueryBuilder_Build_CTEDefersDialectValidationToExecution(t *testing.T) 
 }
 
 func TestQueryBuilder_Build_IntersectDefersDialectValidationToExecution(t *testing.T) {
-	db := newInVarDBMap(t)
+	db := newInVarEngine(t)
 	db.Dialect = MySQLDialect{}
 
 	users := newMockTable("users")
@@ -297,7 +297,7 @@ func TestQueryBuilder_Build_IntersectDefersDialectValidationToExecution(t *testi
 }
 
 func TestQueryBuilder_Build_ExceptDefersDialectValidationToExecution(t *testing.T) {
-	db := newInVarDBMap(t)
+	db := newInVarEngine(t)
 	db.Dialect = MySQLDialect{}
 
 	users := newMockTable("users")
@@ -317,7 +317,7 @@ func TestQueryBuilder_Build_ExceptDefersDialectValidationToExecution(t *testing.
 }
 
 func TestQueryBuilder_Build_MinusDefersDialectValidationToExecution(t *testing.T) {
-	db := newInVarDBMap(t)
+	db := newInVarEngine(t)
 	db.Dialect = MySQLDialect{}
 
 	err := validateOperationalExecutorForSQL(db, "SELECT 1 MINUS SELECT 1")
@@ -338,7 +338,7 @@ type caseUser struct {
 func (caseUser) TSQOwner() {}
 
 func TestQueryBuilder_Build_CaseExecutionOnSQLite(t *testing.T) {
-	db := newInVarDBMap(t)
+	db := newInVarEngine(t)
 	users := newMockTable("users")
 	idCol := newColForTable[caseUser, int64](users, "id", "id", toScanPointer(func(holder *caseUser) *int64 { return &holder.ID }))
 	nameLabel := Into[caseUser](Case[string]().
@@ -679,7 +679,7 @@ func TestQuery_BuildKeywordQueriesTrackDedicatedMarkers(t *testing.T) {
 
 	query := mustBuild(Select(userID, userName).
 		From(userID.Table()).
-		KwSearch(userID, userName))
+		Search(userID, userName))
 
 	if got := len(query.kwListArgs); got != 2 {
 		t.Fatalf("expected 2 keyword list args, got %d", got)
@@ -849,7 +849,7 @@ func TestPageFnRejectsNilQuery(t *testing.T) {
 }
 
 func TestQueryCountRejectsTypedNilExecutor(t *testing.T) {
-	var db *DbMap
+	var db *Engine
 
 	users := newMockTable("users")
 	userID := newMockColumn(users, "id")
@@ -866,7 +866,7 @@ func TestQueryCountRejectsTypedNilExecutor(t *testing.T) {
 }
 
 func TestInsertRejectsTypedNilExecutor(t *testing.T) {
-	var db *DbMap
+	var db *Engine
 
 	row := mockTable{tableName: "users"}
 
@@ -881,7 +881,7 @@ func TestInsertRejectsTypedNilExecutor(t *testing.T) {
 }
 
 func TestInsertRejectsNilItem(t *testing.T) {
-	db := &DbMap{}
+	db := &Engine{}
 
 	var value *mockTable
 
@@ -896,7 +896,7 @@ func TestInsertRejectsNilItem(t *testing.T) {
 }
 
 func TestUpdateRejectsNilItem(t *testing.T) {
-	db := &DbMap{}
+	db := &Engine{}
 
 	var value *mockTable
 
@@ -911,7 +911,7 @@ func TestUpdateRejectsNilItem(t *testing.T) {
 }
 
 func TestDeleteRejectsNilItem(t *testing.T) {
-	db := &DbMap{}
+	db := &Engine{}
 
 	var value *mockTable
 
@@ -926,7 +926,7 @@ func TestDeleteRejectsNilItem(t *testing.T) {
 }
 
 func TestChunkedInsertRejectsTypedNilExecutor(t *testing.T) {
-	var db *DbMap
+	var db *Engine
 
 	row := mockTable{tableName: "users"}
 
@@ -941,7 +941,7 @@ func TestChunkedInsertRejectsTypedNilExecutor(t *testing.T) {
 }
 
 func TestQueryCountRejectsExecutorWithoutDialectForRenderedSQL(t *testing.T) {
-	db := newDBMapWithoutDialect(t)
+	db := newEngineWithoutDialect(t)
 	users := newMockTable("users")
 	userID := newColForTable[Table, int](users, "id", "id", nil)
 	query := mustBuild(Select(userID).From(userID.Table()))
@@ -957,7 +957,7 @@ func TestQueryCountRejectsExecutorWithoutDialectForRenderedSQL(t *testing.T) {
 }
 
 func TestChunkedDeleteByIDsRejectsExecutorWithoutDialectForRenderedSQL(t *testing.T) {
-	db := newDBMapWithoutDialect(t)
+	db := newEngineWithoutDialect(t)
 
 	err := ChunkedDeleteByIDs(context.Background(), db, "users", "id", []any{1})
 	if err == nil {
@@ -970,7 +970,7 @@ func TestChunkedDeleteByIDsRejectsExecutorWithoutDialectForRenderedSQL(t *testin
 }
 
 func TestValidateExecutorForSQLIgnoresMarkersInsideStringsAndComments(t *testing.T) {
-	db := &DbMap{}
+	db := &Engine{}
 	rawSQL := "SELECT 1 /* " + identifierMarkerPrefix + "ignored_comment" + identifierMarkerSuffix + " */" +
 		" WHERE note = '" + identifierMarkerPrefix + "ignored_string" + identifierMarkerSuffix + "'" +
 		" -- " + identifierMarkerPrefix + "ignored_tail" + identifierMarkerSuffix + "\n"
@@ -981,7 +981,7 @@ func TestValidateExecutorForSQLIgnoresMarkersInsideStringsAndComments(t *testing
 }
 
 func TestValidateExecutorForSQLIgnoresMarkersInsideDollarQuotedStrings(t *testing.T) {
-	db := &DbMap{}
+	db := &Engine{}
 	rawSQL := "SELECT $$" + identifierMarkerPrefix + "ignored_marker" + identifierMarkerSuffix + "$$"
 
 	if err := validateExecutorForSQL(db, rawSQL); err != nil {
@@ -990,7 +990,7 @@ func TestValidateExecutorForSQLIgnoresMarkersInsideDollarQuotedStrings(t *testin
 }
 
 func TestValidateExecutorForSQLRejectsBindVarsWithoutDialect(t *testing.T) {
-	db := &DbMap{}
+	db := &Engine{}
 
 	if err := validateExecutorForSQL(db, "SELECT ?"); err == nil {
 		t.Fatal("expected bind vars without a known dialect to return an error")
@@ -998,7 +998,7 @@ func TestValidateExecutorForSQLRejectsBindVarsWithoutDialect(t *testing.T) {
 }
 
 func TestValidateExecutorForSQLIgnoresBindVarsInsideStringsCommentsAndDollarQuotes(t *testing.T) {
-	db := &DbMap{}
+	db := &Engine{}
 	rawSQL := "SELECT '?'" +
 		" /* ? */" +
 		" WHERE note = $$?$$" +
@@ -1010,7 +1010,7 @@ func TestValidateExecutorForSQLIgnoresBindVarsInsideStringsCommentsAndDollarQuot
 }
 
 func TestChunkedDeleteByIDsRejectsNilIDs(t *testing.T) {
-	db := &DbMap{Dialect: SqliteDialect{}}
+	db := &Engine{Dialect: SQLiteDialect{}}
 
 	err := ChunkedDeleteByIDs(context.Background(), db, "users", "id", []any{1, nil})
 	if err == nil {
@@ -1035,7 +1035,7 @@ type inVarUser struct {
 
 func (inVarUser) TSQOwner() {}
 
-func newScanValidationDBMap(t *testing.T) *DbMap {
+func newScanValidationEngine(t *testing.T) *Engine {
 	t.Helper()
 
 	db, err := sql.Open("sqlite3", ":memory:")
@@ -1051,10 +1051,10 @@ func newScanValidationDBMap(t *testing.T) *DbMap {
 		t.Fatalf("failed to create users table: %v", err)
 	}
 
-	return &DbMap{Db: db, Dialect: SqliteDialect{}}
+	return &Engine{DB: db, Dialect: SQLiteDialect{}}
 }
 
-func newInVarDBMap(t *testing.T) *DbMap {
+func newInVarEngine(t *testing.T) *Engine {
 	t.Helper()
 
 	db, err := sql.Open("sqlite3", ":memory:")
@@ -1073,10 +1073,10 @@ func newInVarDBMap(t *testing.T) *DbMap {
 		t.Fatalf("failed to seed users table: %v", err)
 	}
 
-	return &DbMap{Db: db, Dialect: SqliteDialect{}}
+	return &Engine{DB: db, Dialect: SQLiteDialect{}}
 }
 
-func newDBMapWithoutDialect(t *testing.T) *DbMap {
+func newEngineWithoutDialect(t *testing.T) *Engine {
 	t.Helper()
 
 	db, err := sql.Open("sqlite3", ":memory:")
@@ -1088,11 +1088,11 @@ func newDBMapWithoutDialect(t *testing.T) *DbMap {
 		_ = db.Close()
 	})
 
-	return &DbMap{Db: db}
+	return &Engine{DB: db}
 }
 
 func TestListValidatesScanDestEvenWhenResultIsEmpty(t *testing.T) {
-	db := newScanValidationDBMap(t)
+	db := newScanValidationEngine(t)
 	col := newColForTable[scanDestUser, string](newMockTable("users"), "name", "name", nil)
 	query := &Query[scanDestUser]{
 		cntSQL:     "SELECT COUNT(1) FROM users",
@@ -1111,7 +1111,7 @@ func TestListValidatesScanDestEvenWhenResultIsEmpty(t *testing.T) {
 }
 
 func TestListSupportsInVarSlices(t *testing.T) {
-	db := newInVarDBMap(t)
+	db := newInVarEngine(t)
 	users := newMockTable("users")
 	idCol := newColForTable[inVarUser, int64](users, "id", "id", toScanPointer(func(holder *inVarUser) *int64 { return &holder.ID }))
 	nameCol := newColForTable[inVarUser, string](users, "name", "name", toScanPointer(func(holder *inVarUser) *string { return &holder.Name }))
@@ -1132,7 +1132,7 @@ func TestListSupportsInVarSlices(t *testing.T) {
 		t.Fatalf("unexpected rows returned: %#v", rows)
 	}
 
-	count, err := query.Count64(context.Background(), db, []int64{1, 3})
+	count, err := query.Count(context.Background(), db, []int64{1, 3})
 	if err != nil {
 		t.Fatalf("expected InVar count query to execute, got %v", err)
 	}
@@ -1143,7 +1143,7 @@ func TestListSupportsInVarSlices(t *testing.T) {
 }
 
 func TestPageValidatesScanDestEvenWhenResultIsEmpty(t *testing.T) {
-	db := newScanValidationDBMap(t)
+	db := newScanValidationEngine(t)
 	col := newColForTable[scanDestUser, string](newMockTable("users"), "name", "name", nil)
 	query := &Query[scanDestUser]{
 		cntSQL:     "SELECT COUNT(1) FROM users",
@@ -1301,67 +1301,61 @@ func TestValidateIdentifierLength(t *testing.T) {
 	tests := []struct {
 		name       string
 		identifier string
-		dialect    string
+		dialect    Dialect
 		wantErr    bool
 	}{
 		{
 			name:       "valid identifier - mysql",
 			identifier: "users",
-			dialect:    "mysql",
+			dialect:    MySQLDialect{},
 			wantErr:    false,
 		},
 		{
 			name:       "valid identifier - postgres",
 			identifier: "users",
-			dialect:    "postgres",
+			dialect:    PostgresDialect{},
 			wantErr:    false,
 		},
 		{
 			name:       "max length postgres (63)",
 			identifier: "a" + strings.Repeat("b", 62),
-			dialect:    "postgres",
+			dialect:    PostgresDialect{},
 			wantErr:    false,
 		},
 		{
 			name:       "exceeds max postgres (64 > 63)",
 			identifier: strings.Repeat("a", 64),
-			dialect:    "postgres",
+			dialect:    PostgresDialect{},
 			wantErr:    true,
 		},
 		{
 			name:       "max length mysql (64)",
 			identifier: strings.Repeat("a", 64),
-			dialect:    "mysql",
+			dialect:    MySQLDialect{},
 			wantErr:    false,
 		},
 		{
 			name:       "exceeds max mysql (65 > 64)",
 			identifier: strings.Repeat("a", 65),
-			dialect:    "mysql",
-			wantErr:    true,
-		},
-		{
-			name:       "exceeds oracle limit (31 > 30)",
-			identifier: strings.Repeat("a", 31),
-			dialect:    "oracle",
+			dialect:    MySQLDialect{},
 			wantErr:    true,
 		},
 		{
 			name:       "sqlite has no limit",
 			identifier: strings.Repeat("a", 200),
-			dialect:    "sqlite",
+			dialect:    SQLiteDialect{},
 			wantErr:    false,
 		},
 		{
 			name:       "empty identifier",
 			identifier: "",
-			dialect:    "mysql",
+			dialect:    MySQLDialect{},
 			wantErr:    true,
 		},
 		{
-			name:       "unknown dialect skips validation",
+			name:       "nil dialect skips length validation",
 			identifier: strings.Repeat("a", 100),
-			dialect:    "unknown",
+			dialect:    nil,
 			wantErr:    false,
 		},
 	}
@@ -1370,7 +1364,7 @@ func TestValidateIdentifierLength(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			err := ValidateIdentifierLength(tt.identifier, tt.dialect)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("ValidateIdentifierLength(%q, %q) error = %v, wantErr %v", tt.identifier, tt.dialect, err, tt.wantErr)
+				t.Errorf("ValidateIdentifierLength(%q, %T) error = %v, wantErr %v", tt.identifier, tt.dialect, err, tt.wantErr)
 			}
 		})
 	}
@@ -1380,59 +1374,59 @@ func TestValidateIdentifierForDialect(t *testing.T) {
 	tests := []struct {
 		name       string
 		identifier string
-		dialect    string
+		dialect    Dialect
 		wantErr    bool
 		errContent string
 	}{
 		{
 			name:       "valid identifier - mysql",
 			identifier: "users",
-			dialect:    "mysql",
+			dialect:    MySQLDialect{},
 			wantErr:    false,
 		},
 		{
 			name:       "valid identifier - postgres",
 			identifier: "users_table",
-			dialect:    "postgres",
+			dialect:    PostgresDialect{},
 			wantErr:    false,
 		},
 		{
 			name:       "starts with underscore",
 			identifier: "_internal",
-			dialect:    "mysql",
+			dialect:    MySQLDialect{},
 			wantErr:    false,
 		},
 		{
 			name:       "invalid - starts with number",
 			identifier: "123users",
-			dialect:    "mysql",
+			dialect:    MySQLDialect{},
 			wantErr:    true,
 			errContent: "invalid SQL identifier",
 		},
 		{
 			name:       "invalid - contains hyphen",
 			identifier: "user-table",
-			dialect:    "mysql",
+			dialect:    MySQLDialect{},
 			wantErr:    true,
 			errContent: "invalid SQL identifier",
 		},
 		{
 			name:       "exceeds postgres limit",
 			identifier: strings.Repeat("a", 64),
-			dialect:    "postgres",
+			dialect:    PostgresDialect{},
 			wantErr:    true,
 			errContent: "exceeds",
 		},
 		{
 			name:       "at mysql limit (64)",
 			identifier: strings.Repeat("x", 64),
-			dialect:    "mysql",
+			dialect:    MySQLDialect{},
 			wantErr:    false,
 		},
 		{
 			name:       "empty identifier",
 			identifier: "",
-			dialect:    "mysql",
+			dialect:    MySQLDialect{},
 			wantErr:    true,
 			errContent: "cannot be empty",
 		},
@@ -1442,11 +1436,11 @@ func TestValidateIdentifierForDialect(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			err := ValidateIdentifierForDialect(tt.identifier, tt.dialect)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("ValidateIdentifierForDialect(%q, %q) error = %v, wantErr %v", tt.identifier, tt.dialect, err, tt.wantErr)
+				t.Errorf("ValidateIdentifierForDialect(%q, %T) error = %v, wantErr %v", tt.identifier, tt.dialect, err, tt.wantErr)
 				return
 			}
 			if tt.wantErr && tt.errContent != "" && !strings.Contains(err.Error(), tt.errContent) {
-				t.Errorf("ValidateIdentifierForDialect(%q, %q) error message %q should contain %q", tt.identifier, tt.dialect, err.Error(), tt.errContent)
+				t.Errorf("ValidateIdentifierForDialect(%q, %T) error message %q should contain %q", tt.identifier, tt.dialect, err.Error(), tt.errContent)
 			}
 		})
 	}
