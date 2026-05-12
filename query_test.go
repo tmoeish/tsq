@@ -87,20 +87,20 @@ func TestQuery_SQLAccessors(t *testing.T) {
 		kwListSQL: "SELECT * FROM users WHERE name LIKE ?",
 	}
 
-	if query.CntSQL() != "SELECT COUNT(*) FROM users" {
-		t.Errorf("Expected CntSQL 'SELECT COUNT(*) FROM users', got '%s'", query.CntSQL())
+	if query.CountSQL() != "SELECT COUNT(*) FROM users" {
+		t.Errorf("Expected CountSQL 'SELECT COUNT(*) FROM users', got '%s'", query.CountSQL())
 	}
 
 	if query.ListSQL() != "SELECT * FROM users" {
 		t.Errorf("Expected ListSQL 'SELECT * FROM users', got '%s'", query.ListSQL())
 	}
 
-	if query.KwCntSQL() != "SELECT COUNT(*) FROM users WHERE name LIKE ?" {
-		t.Errorf("Expected KwCntSQL 'SELECT COUNT(*) FROM users WHERE name LIKE ?', got '%s'", query.KwCntSQL())
+	if query.KeywordCountSQL() != "SELECT COUNT(*) FROM users WHERE name LIKE ?" {
+		t.Errorf("Expected KeywordCountSQL 'SELECT COUNT(*) FROM users WHERE name LIKE ?', got '%s'", query.KeywordCountSQL())
 	}
 
-	if query.KwListSQL() != "SELECT * FROM users WHERE name LIKE ?" {
-		t.Errorf("Expected KwListSQL 'SELECT * FROM users WHERE name LIKE ?', got '%s'", query.KwListSQL())
+	if query.KeywordListSQL() != "SELECT * FROM users WHERE name LIKE ?" {
+		t.Errorf("Expected KeywordListSQL 'SELECT * FROM users WHERE name LIKE ?', got '%s'", query.KeywordListSQL())
 	}
 }
 
@@ -152,7 +152,7 @@ func TestQueryBuilder_Build_Success(t *testing.T) {
 	}
 
 	// Check that SQL statements are not empty
-	if query.CntSQL() == "" {
+	if query.CountSQL() == "" {
 		t.Error("Expected non-empty CntSQL")
 	}
 
@@ -160,11 +160,11 @@ func TestQueryBuilder_Build_Success(t *testing.T) {
 		t.Error("Expected non-empty ListSQL")
 	}
 
-	if query.KwCntSQL() == "" {
+	if query.KeywordCountSQL() == "" {
 		t.Error("Expected non-empty KwCntSQL")
 	}
 
-	if query.KwListSQL() == "" {
+	if query.KeywordListSQL() == "" {
 		t.Error("Expected non-empty KwListSQL")
 	}
 }
@@ -476,40 +476,40 @@ func TestQuery_EmptySQL(t *testing.T) {
 	query := &Query[queryOwner]{}
 
 	// Test that empty SQL strings are returned correctly
-	if query.CntSQL() != "" {
-		t.Errorf("Expected empty CntSQL, got '%s'", query.CntSQL())
+	if query.CountSQL() != "" {
+		t.Errorf("Expected empty CountSQL, got '%s'", query.CountSQL())
 	}
 
 	if query.ListSQL() != "" {
 		t.Errorf("Expected empty ListSQL, got '%s'", query.ListSQL())
 	}
 
-	if query.KwCntSQL() != "" {
-		t.Errorf("Expected empty KwCntSQL, got '%s'", query.KwCntSQL())
+	if query.KeywordCountSQL() != "" {
+		t.Errorf("Expected empty KeywordCountSQL, got '%s'", query.KeywordCountSQL())
 	}
 
-	if query.KwListSQL() != "" {
-		t.Errorf("Expected empty KwListSQL, got '%s'", query.KwListSQL())
+	if query.KeywordListSQL() != "" {
+		t.Errorf("Expected empty KeywordListSQL, got '%s'", query.KeywordListSQL())
 	}
 }
 
 func TestNilQuery_SQLAccessorsReturnEmptyStrings(t *testing.T) {
 	var query *Query[queryOwner]
 
-	if query.CntSQL() != "" {
-		t.Errorf("Expected empty CntSQL for nil query, got %q", query.CntSQL())
+	if query.CountSQL() != "" {
+		t.Errorf("Expected empty CountSQL for nil query, got %q", query.CountSQL())
 	}
 
 	if query.ListSQL() != "" {
 		t.Errorf("Expected empty ListSQL for nil query, got %q", query.ListSQL())
 	}
 
-	if query.KwCntSQL() != "" {
-		t.Errorf("Expected empty KwCntSQL for nil query, got %q", query.KwCntSQL())
+	if query.KeywordCountSQL() != "" {
+		t.Errorf("Expected empty KeywordCountSQL for nil query, got %q", query.KeywordCountSQL())
 	}
 
-	if query.KwListSQL() != "" {
-		t.Errorf("Expected empty KwListSQL for nil query, got %q", query.KwListSQL())
+	if query.KeywordListSQL() != "" {
+		t.Errorf("Expected empty KeywordListSQL for nil query, got %q", query.KeywordListSQL())
 	}
 }
 

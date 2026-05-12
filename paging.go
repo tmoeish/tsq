@@ -15,13 +15,17 @@ import (
 type Direction = Order
 
 const (
-	Asc  = ASC
+	// Asc is the paging-layer alias of ASC.
+	Asc = ASC
+	// Desc is the paging-layer alias of DESC.
 	Desc = DESC
 )
 
 const (
+	// DefaultPageSize is the default number of rows returned per page.
 	DefaultPageSize = 20
-	MaxPageSize     = 1000 // 防止过大的页面大小
+	// MaxPageSize is the largest page size accepted by PageReq.
+	MaxPageSize = 1000 // 防止过大的页面大小
 )
 
 // ================================================

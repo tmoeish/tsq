@@ -7,16 +7,16 @@ import (
 
 	"github.com/juju/errors"
 
-	"github.com/tmoeish/tsq"
+	"github.com/tmoeish/tsq/internal/genmodel"
 )
 
 // parseNamedFields 解析具名字段
 func parseNamedFields(
-	packageAliases map[string]tsq.PackageInfo,
-	currentPkg tsq.PackageInfo,
+	packageAliases map[string]genmodel.PackageInfo,
+	currentPkg genmodel.PackageInfo,
 	structType *ast.StructType,
-) (map[string]tsq.FieldInfo, error) {
-	fields := make(map[string]tsq.FieldInfo)
+) (map[string]genmodel.FieldInfo, error) {
+	fields := make(map[string]genmodel.FieldInfo)
 
 	for _, field := range structType.Fields.List {
 		// 跳过嵌入字段（没有名称）
@@ -53,11 +53,11 @@ func parseNamedFields(
 			}
 
 			// 创建字段对象
-			field := tsq.FieldInfo{
+			field := genmodel.FieldInfo{
 				Name:      fieldName,
 				IsPointer: isPointer,
 				IsArray:   isArray,
-				Type:      tsq.TypeInfo{Package: typePackage, TypeName: typeName},
+				Type:      genmodel.TypeInfo{Package: typePackage, TypeName: typeName},
 				Column:    getColumnName(fieldTags),
 				JsonTag:   getJsonTagName(fieldTags, fieldName),
 			}
@@ -143,9 +143,9 @@ func getJsonTagName(tags FieldTags, fieldName string) string {
 func resolveFieldPackage(
 	packagePath string,
 	typeName string,
-	packageAliases map[string]tsq.PackageInfo,
-	currentPkg tsq.PackageInfo,
-) (tsq.PackageInfo, error) {
+	packageAliases map[string]genmodel.PackageInfo,
+	currentPkg genmodel.PackageInfo,
+) (genmodel.PackageInfo, error) {
 	if packagePath == "" {
 		// 检查是否为原始类型
 		if _, isPrimitive := PrimitiveTypes[typeName]; !isPrimitive {
@@ -153,13 +153,13 @@ func resolveFieldPackage(
 			return currentPkg, nil
 		}
 		// 原始类型返回空包
-		return tsq.PackageInfo{}, nil
+		return genmodel.PackageInfo{}, nil
 	}
 
 	// 使用包别名解析
 	pkg, ok := packageAliases[packagePath]
 	if !ok {
-		return tsq.PackageInfo{}, errors.Errorf(
+		return genmodel.PackageInfo{}, errors.Errorf(
 			"unknown package alias %q for field type %s",
 			packagePath,
 			typeName,
@@ -171,11 +171,11 @@ func resolveFieldPackage(
 
 // parseEmbeddedFields 解析嵌入字段
 func parseEmbeddedFields(
-	packageAliases map[string]tsq.PackageInfo,
-	currentPkg tsq.PackageInfo,
+	packageAliases map[string]genmodel.PackageInfo,
+	currentPkg genmodel.PackageInfo,
 	structType *ast.StructType,
-) (map[tsq.TypeInfo]bool, error) {
-	embeddedTypes := make(map[tsq.TypeInfo]bool)
+) (map[genmodel.TypeInfo]bool, error) {
+	embeddedTypes := make(map[genmodel.TypeInfo]bool)
 
 	for _, field := range structType.Fields.List {
 		// 只处理嵌入字段（没有名称）
@@ -189,14 +189,14 @@ func parseEmbeddedFields(
 			return nil, errors.Trace(err)
 		}
 
-		var embeddedType tsq.TypeInfo
+		var embeddedType genmodel.TypeInfo
 		if packagePath == "" {
-			embeddedType = tsq.TypeInfo{
+			embeddedType = genmodel.TypeInfo{
 				Package:  currentPkg,
 				TypeName: typeName,
 			}
 		} else {
-			embeddedType = tsq.TypeInfo{
+			embeddedType = genmodel.TypeInfo{
 				Package:  packageAliases[packagePath],
 				TypeName: typeName,
 			}

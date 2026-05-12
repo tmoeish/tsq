@@ -8,7 +8,7 @@ BUILD_TIME=$(shell date -u '+%Y-%m-%d %H:%M:%S')
 GIT_COMMIT=$(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 GIT_BRANCH=$(shell git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
 
-LDFLAGS=-ldflags "-X '$(MODULE).Version=$(VERSION)' -X '$(MODULE).BuildTime=$(BUILD_TIME)' -X '$(MODULE).GitCommit=$(GIT_COMMIT)' -X '$(MODULE).GitBranch=$(GIT_BRANCH)'"
+LDFLAGS=-ldflags "-X '$(MODULE).version=$(VERSION)' -X '$(MODULE).buildTime=$(BUILD_TIME)' -X '$(MODULE).gitCommit=$(GIT_COMMIT)' -X '$(MODULE).gitBranch=$(GIT_BRANCH)'"
 
 # Allow turning off function inlining and variable registerization
 ifeq ($(DISABLE_OPTIMIZATION),true)

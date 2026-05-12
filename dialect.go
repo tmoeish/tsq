@@ -7,42 +7,63 @@ import (
 	"github.com/juju/errors"
 )
 
+// DialectName is the stable name used by tsq for a SQL dialect.
 type DialectName string
 
 const (
-	DialectMySQL    DialectName = "mysql"
+	// DialectMySQL identifies MySQL-compatible SQL rendering.
+	DialectMySQL DialectName = "mysql"
+	// DialectPostgres identifies PostgreSQL-compatible SQL rendering.
 	DialectPostgres DialectName = "postgres"
-	DialectSQLite   DialectName = "sqlite"
-	DialectUnknown  DialectName = "unknown"
+	// DialectSQLite identifies SQLite-compatible SQL rendering.
+	DialectSQLite DialectName = "sqlite"
+	// DialectUnknown is used when no dialect can be determined.
+	DialectUnknown DialectName = "unknown"
 )
 
+// DialectCapability identifies an optional SQL feature that may vary by dialect.
 type DialectCapability string
 
 const (
-	DialectCapabilityCTE           DialectCapability = "CTE"
-	DialectCapabilityExcept        DialectCapability = "EXCEPT"
+	// DialectCapabilityCTE represents WITH / common table expression support.
+	DialectCapabilityCTE DialectCapability = "CTE"
+	// DialectCapabilityExcept represents EXCEPT support.
+	DialectCapabilityExcept DialectCapability = "EXCEPT"
+	// DialectCapabilityFullOuterJoin represents FULL OUTER JOIN support.
 	DialectCapabilityFullOuterJoin DialectCapability = "FULL_OUTER_JOIN"
-	DialectCapabilityIntersect     DialectCapability = "INTERSECT"
+	// DialectCapabilityIntersect represents INTERSECT support.
+	DialectCapabilityIntersect DialectCapability = "INTERSECT"
 )
 
+// DDLAlterColumnMode describes how a dialect applies ALTER COLUMN changes.
 type DDLAlterColumnMode string
 
 const (
-	DDLAlterColumnDirect  DDLAlterColumnMode = "direct"
+	// DDLAlterColumnDirect means the dialect can alter a column in place.
+	DDLAlterColumnDirect DDLAlterColumnMode = "direct"
+	// DDLAlterColumnRebuild means the dialect must rebuild a table to alter a column.
 	DDLAlterColumnRebuild DDLAlterColumnMode = "rebuild"
 )
 
+// DDLColumnKind is the abstract tsq column family used for DDL rendering.
 type DDLColumnKind string
 
 const (
-	DDLColumnKindBool   DDLColumnKind = "bool"
-	DDLColumnKindBytes  DDLColumnKind = "bytes"
-	DDLColumnKindFloat  DDLColumnKind = "float"
-	DDLColumnKindInt    DDLColumnKind = "int"
+	// DDLColumnKindBool is a boolean-like column.
+	DDLColumnKindBool DDLColumnKind = "bool"
+	// DDLColumnKindBytes is a binary/blob column.
+	DDLColumnKindBytes DDLColumnKind = "bytes"
+	// DDLColumnKindFloat is a floating-point column.
+	DDLColumnKindFloat DDLColumnKind = "float"
+	// DDLColumnKindInt is an integer column.
+	DDLColumnKindInt DDLColumnKind = "int"
+	// DDLColumnKindString is a text-like column.
 	DDLColumnKindString DDLColumnKind = "string"
-	DDLColumnKindTime   DDLColumnKind = "time"
+	// DDLColumnKindTime is a timestamp/date-time column.
+	DDLColumnKindTime DDLColumnKind = "time"
 )
 
+// DDLColumnType describes the SQL type shape for a generated column.
 type DDLColumnType struct {
 	Kind     DDLColumnKind
 	Bits     int
@@ -51,6 +72,7 @@ type DDLColumnType struct {
 	Size     int
 }
 
+// DDLColumnSpec describes a full column definition for DDL rendering.
 type DDLColumnSpec struct {
 	Name          string
 	Type          DDLColumnType
@@ -59,18 +81,21 @@ type DDLColumnSpec struct {
 	Default       string
 }
 
+// IndexDefinition is the normalized definition tsq reads back from an existing index.
 type IndexDefinition struct {
 	Table  string
 	Unique bool
 	Fields []string
 }
 
+// ErrUnsupportedOperation reports that a dialect cannot perform a requested capability.
 type ErrUnsupportedOperation struct {
 	operation DialectCapability
 	dialect   DialectName
 	reason    string
 }
 
+// NewErrUnsupportedOperation constructs an ErrUnsupportedOperation.
 func NewErrUnsupportedOperation(operation DialectCapability, dialect DialectName, reason string) *ErrUnsupportedOperation {
 	return &ErrUnsupportedOperation{
 		operation: canonicalCapabilityName(string(operation)),
@@ -79,6 +104,7 @@ func NewErrUnsupportedOperation(operation DialectCapability, dialect DialectName
 	}
 }
 
+// Error implements error.
 func (e *ErrUnsupportedOperation) Error() string {
 	if e.reason != "" {
 		return fmt.Sprintf(
@@ -96,6 +122,7 @@ func (e *ErrUnsupportedOperation) Error() string {
 	)
 }
 
+// ValidateOperationForDialect reports whether d supports operation.
 func ValidateOperationForDialect(operation string, d Dialect) error {
 	if d == nil {
 		return nil
@@ -104,6 +131,7 @@ func ValidateOperationForDialect(operation string, d Dialect) error {
 	return errors.Trace(validateDialectCapability(d, canonicalCapabilityName(operation)))
 }
 
+// ValidateIdentifierForDialect validates identifier syntax and dialect-specific limits.
 func ValidateIdentifierForDialect(identifier string, dialect Dialect) error {
 	if identifier == "" {
 		return errors.New("identifier cannot be empty")
@@ -116,6 +144,7 @@ func ValidateIdentifierForDialect(identifier string, dialect Dialect) error {
 	return ValidateIdentifierLength(identifier, dialect)
 }
 
+// ValidateIdentifierLength validates only the dialect-specific identifier length rules.
 func ValidateIdentifierLength(identifier string, dialect Dialect) error {
 	if identifier == "" {
 		return errors.New("identifier cannot be empty")
@@ -222,14 +251,17 @@ func ddlSerialType(desc DDLColumnType) string {
 	}
 }
 
+// Name returns DialectSQLite.
 func (d SQLiteDialect) Name() DialectName {
 	return DialectSQLite
 }
 
+// ValidateIdentifier applies SQLite's identifier validation rules.
 func (d SQLiteDialect) ValidateIdentifier(identifier string) error {
 	return errors.Trace(validateDialectIdentifier(identifier, d.Name(), 0))
 }
 
+// SupportsCapability reports whether SQLite supports capability.
 func (d SQLiteDialect) SupportsCapability(capability DialectCapability) bool {
 	switch canonicalCapabilityName(string(capability)) {
 	case DialectCapabilityCTE, DialectCapabilityExcept, DialectCapabilityIntersect:
@@ -241,6 +273,7 @@ func (d SQLiteDialect) SupportsCapability(capability DialectCapability) bool {
 	}
 }
 
+// BatchInsertStartID derives the first id assigned by a SQLite batch insert when possible.
 func (d SQLiteDialect) BatchInsertStartID(lastID, rowsAffected int64) (int64, bool) {
 	if rowsAffected <= 0 {
 		return 0, false
@@ -249,14 +282,17 @@ func (d SQLiteDialect) BatchInsertStartID(lastID, rowsAffected int64) (int64, bo
 	return lastID - rowsAffected + 1, true
 }
 
+// EnsureIndex creates or updates an index definition for SQLite.
 func (d SQLiteDialect) EnsureIndex(db *Engine, table string, unique bool, idx string, fields []string) error {
 	return errors.Trace(ensureSQLiteIndex(db, table, unique, idx, fields))
 }
 
+// InspectIndexDefinition reads back an existing SQLite index definition.
 func (d SQLiteDialect) InspectIndexDefinition(db *Engine, table, idx string) (IndexDefinition, bool, error) {
 	return inspectSQLiteIndexDefinition(db, idx)
 }
 
+// DDLColumnType renders a SQLite column type for desc.
 func (d SQLiteDialect) DDLColumnType(desc DDLColumnType) string {
 	switch desc.Kind {
 	case DDLColumnKindBool:
@@ -276,6 +312,7 @@ func (d SQLiteDialect) DDLColumnType(desc DDLColumnType) string {
 	}
 }
 
+// DDLAutoIncrementPrimaryKey renders a SQLite auto-increment primary key column.
 func (d SQLiteDialect) DDLAutoIncrementPrimaryKey(quotedColumn string, desc DDLColumnType) (string, error) {
 	if desc.Kind != DDLColumnKindInt {
 		return "", errors.New("auto-increment primary key requires an integer field")
@@ -284,6 +321,7 @@ func (d SQLiteDialect) DDLAutoIncrementPrimaryKey(quotedColumn string, desc DDLC
 	return quotedColumn + " INTEGER PRIMARY KEY " + d.AutoIncrementClause(), nil
 }
 
+// DDLCreateIndex renders a SQLite CREATE INDEX statement.
 func (d SQLiteDialect) DDLCreateIndex(table, idx string, fields []string, unique bool) string {
 	uniqueClause := ""
 	if unique {
@@ -300,26 +338,32 @@ func (d SQLiteDialect) DDLCreateIndex(table, idx string, fields []string, unique
 	)
 }
 
+// DDLDropIndex renders a SQLite DROP INDEX statement.
 func (d SQLiteDialect) DDLDropIndex(table, idx string) string {
 	return fmt.Sprintf("DROP INDEX %s;", d.QuoteField(idx))
 }
 
+// DDLAlterColumnMode reports that SQLite applies column changes by table rebuild.
 func (d SQLiteDialect) DDLAlterColumnMode() DDLAlterColumnMode {
 	return DDLAlterColumnRebuild
 }
 
+// DDLAlterColumnStatements returns SQLite's direct alter-column statements, if any.
 func (d SQLiteDialect) DDLAlterColumnStatements(table string, before, after DDLColumnSpec) []string {
 	return nil
 }
 
+// Name returns DialectMySQL.
 func (d MySQLDialect) Name() DialectName {
 	return DialectMySQL
 }
 
+// ValidateIdentifier applies MySQL's identifier validation rules.
 func (d MySQLDialect) ValidateIdentifier(identifier string) error {
 	return errors.Trace(validateDialectIdentifier(identifier, d.Name(), MaxIdentifierLengthMySQL))
 }
 
+// SupportsCapability reports whether MySQL supports capability.
 func (d MySQLDialect) SupportsCapability(capability DialectCapability) bool {
 	switch canonicalCapabilityName(string(capability)) {
 	case DialectCapabilityCTE, DialectCapabilityExcept, DialectCapabilityFullOuterJoin, DialectCapabilityIntersect:
@@ -329,6 +373,7 @@ func (d MySQLDialect) SupportsCapability(capability DialectCapability) bool {
 	}
 }
 
+// BatchInsertStartID derives the first id assigned by a MySQL batch insert when possible.
 func (d MySQLDialect) BatchInsertStartID(lastID, rowsAffected int64) (int64, bool) {
 	if rowsAffected <= 0 {
 		return 0, false
@@ -337,14 +382,17 @@ func (d MySQLDialect) BatchInsertStartID(lastID, rowsAffected int64) (int64, boo
 	return lastID, true
 }
 
+// EnsureIndex creates or updates an index definition for MySQL.
 func (d MySQLDialect) EnsureIndex(db *Engine, table string, unique bool, idx string, fields []string) error {
 	return errors.Trace(ensureMySQLIndex(db, table, unique, idx, fields))
 }
 
+// InspectIndexDefinition reads back an existing MySQL index definition.
 func (d MySQLDialect) InspectIndexDefinition(db *Engine, table, idx string) (IndexDefinition, bool, error) {
 	return inspectMySQLIndexDefinition(db, table, idx)
 }
 
+// DDLColumnType renders a MySQL column type for desc.
 func (d MySQLDialect) DDLColumnType(desc DDLColumnType) string {
 	switch desc.Kind {
 	case DDLColumnKindBool:
@@ -398,6 +446,7 @@ func (d MySQLDialect) DDLColumnType(desc DDLColumnType) string {
 	}
 }
 
+// DDLAutoIncrementPrimaryKey renders a MySQL auto-increment primary key column.
 func (d MySQLDialect) DDLAutoIncrementPrimaryKey(quotedColumn string, desc DDLColumnType) (string, error) {
 	if desc.Kind != DDLColumnKindInt {
 		return "", errors.New("auto-increment primary key requires an integer field")
@@ -411,6 +460,7 @@ func (d MySQLDialect) DDLAutoIncrementPrimaryKey(quotedColumn string, desc DDLCo
 	}, " "), nil
 }
 
+// DDLCreateIndex renders a MySQL CREATE INDEX statement.
 func (d MySQLDialect) DDLCreateIndex(table, idx string, fields []string, unique bool) string {
 	uniqueClause := ""
 	if unique {
@@ -427,6 +477,7 @@ func (d MySQLDialect) DDLCreateIndex(table, idx string, fields []string, unique 
 	)
 }
 
+// DDLDropIndex renders the MySQL statements needed to drop idx.
 func (d MySQLDialect) DDLDropIndex(table, idx string) string {
 	return fmt.Sprintf(
 		"DROP INDEX %s ON %s;",
@@ -435,10 +486,12 @@ func (d MySQLDialect) DDLDropIndex(table, idx string) string {
 	)
 }
 
+// DDLAlterColumnMode reports that MySQL alters columns in place.
 func (d MySQLDialect) DDLAlterColumnMode() DDLAlterColumnMode {
 	return DDLAlterColumnDirect
 }
 
+// DDLAlterColumnStatements returns MySQL ALTER COLUMN statements for the change.
 func (d MySQLDialect) DDLAlterColumnStatements(table string, before, after DDLColumnSpec) []string {
 	return []string{fmt.Sprintf(
 		"ALTER TABLE %s MODIFY COLUMN %s;",
@@ -447,14 +500,17 @@ func (d MySQLDialect) DDLAlterColumnStatements(table string, before, after DDLCo
 	)}
 }
 
+// Name returns DialectPostgres.
 func (d PostgresDialect) Name() DialectName {
 	return DialectPostgres
 }
 
+// ValidateIdentifier applies PostgreSQL's identifier validation rules.
 func (d PostgresDialect) ValidateIdentifier(identifier string) error {
 	return errors.Trace(validateDialectIdentifier(identifier, d.Name(), MaxIdentifierLengthPostgreSQL))
 }
 
+// SupportsCapability reports whether PostgreSQL supports capability.
 func (d PostgresDialect) SupportsCapability(capability DialectCapability) bool {
 	switch canonicalCapabilityName(string(capability)) {
 	case DialectCapabilityCTE, DialectCapabilityExcept, DialectCapabilityFullOuterJoin, DialectCapabilityIntersect:
@@ -464,18 +520,22 @@ func (d PostgresDialect) SupportsCapability(capability DialectCapability) bool {
 	}
 }
 
+// BatchInsertStartID reports PostgreSQL's inability to derive a batch insert start id.
 func (d PostgresDialect) BatchInsertStartID(lastID, rowsAffected int64) (int64, bool) {
 	return 0, false
 }
 
+// EnsureIndex creates or updates an index definition for PostgreSQL.
 func (d PostgresDialect) EnsureIndex(db *Engine, table string, unique bool, idx string, fields []string) error {
 	return errors.Trace(ensurePostgresIndex(db, table, unique, idx, fields))
 }
 
+// InspectIndexDefinition reads back an existing PostgreSQL index definition.
 func (d PostgresDialect) InspectIndexDefinition(db *Engine, table, idx string) (IndexDefinition, bool, error) {
 	return inspectPostgresIndexDefinition(db, idx)
 }
 
+// DDLColumnType renders a PostgreSQL column type for desc.
 func (d PostgresDialect) DDLColumnType(desc DDLColumnType) string {
 	switch desc.Kind {
 	case DDLColumnKindBool:
@@ -510,6 +570,7 @@ func (d PostgresDialect) DDLColumnType(desc DDLColumnType) string {
 	}
 }
 
+// DDLAutoIncrementPrimaryKey renders a PostgreSQL auto-increment primary key column.
 func (d PostgresDialect) DDLAutoIncrementPrimaryKey(quotedColumn string, desc DDLColumnType) (string, error) {
 	if desc.Kind != DDLColumnKindInt {
 		return "", errors.New("auto-increment primary key requires an integer field")
@@ -518,6 +579,7 @@ func (d PostgresDialect) DDLAutoIncrementPrimaryKey(quotedColumn string, desc DD
 	return quotedColumn + " " + ddlSerialType(desc), nil
 }
 
+// DDLCreateIndex renders a PostgreSQL CREATE INDEX statement.
 func (d PostgresDialect) DDLCreateIndex(table, idx string, fields []string, unique bool) string {
 	uniqueClause := ""
 	if unique {
@@ -534,14 +596,17 @@ func (d PostgresDialect) DDLCreateIndex(table, idx string, fields []string, uniq
 	)
 }
 
+// DDLDropIndex renders a PostgreSQL DROP INDEX statement.
 func (d PostgresDialect) DDLDropIndex(table, idx string) string {
 	return fmt.Sprintf("DROP INDEX %s;", d.QuoteField(idx))
 }
 
+// DDLAlterColumnMode reports that PostgreSQL alters columns in place.
 func (d PostgresDialect) DDLAlterColumnMode() DDLAlterColumnMode {
 	return DDLAlterColumnDirect
 }
 
+// DDLAlterColumnStatements returns PostgreSQL ALTER COLUMN statements for the change.
 func (d PostgresDialect) DDLAlterColumnStatements(table string, before, after DDLColumnSpec) []string {
 	statements := make([]string, 0, 3)
 	quotedTable := d.QuoteField(table)

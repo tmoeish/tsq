@@ -16,6 +16,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/tmoeish/tsq"
+	"github.com/tmoeish/tsq/internal/genmodel"
 	"github.com/tmoeish/tsq/internal/parser"
 )
 
@@ -120,7 +121,7 @@ Overwrite behavior:
 		}
 
 		for i := range list {
-			list[i].SetTSQVersion(stableVersion(tsq.Version))
+			list[i].SetTSQVersion(stableVersion(tsq.GetVersion()))
 		}
 
 		tpl, err := template.New("tsq.go.tmpl").Funcs(TemplateFuncs()).Parse(tableTpl)
@@ -401,8 +402,8 @@ func resolveTemplateText(overridePath, fallback, label string) (string, error) {
 }
 
 func validateStructForGeneration(
-	data *tsq.StructInfo,
-	structsByName map[string]*tsq.StructInfo,
+	data *genmodel.StructInfo,
+	structsByName map[string]*genmodel.StructInfo,
 ) error {
 	if data == nil || data.TableMeta == nil {
 		return nil
@@ -428,8 +429,8 @@ func validateStructForGeneration(
 }
 
 func validateResultFields(
-	dto *tsq.StructInfo,
-	structsByName map[string]*tsq.StructInfo,
+	dto *genmodel.StructInfo,
+	structsByName map[string]*genmodel.StructInfo,
 ) error {
 	normalizedRefs := make(map[string]string, len(dto.Fields))
 
@@ -489,13 +490,13 @@ func validateResultFields(
 	return nil
 }
 
-func isScanCompatible(dst, src tsq.FieldInfo) bool {
+func isScanCompatible(dst, src genmodel.FieldInfo) bool {
 	return dst.Type == src.Type &&
 		dst.IsPointer == src.IsPointer &&
 		dst.IsArray == src.IsArray
 }
 
-func normalizeResultColumns(data *tsq.StructInfo) {
+func normalizeResultColumns(data *genmodel.StructInfo) {
 	for i, field := range data.Fields {
 		field.Column = strings.ReplaceAll(field.Column, ".", "_")
 		data.Fields[i] = field
@@ -506,7 +507,7 @@ func normalizeResultColumns(data *tsq.StructInfo) {
 	}
 }
 
-func validateGeneratedFilenameCollisions(list []*tsq.StructInfo) error {
+func validateGeneratedFilenameCollisions(list []*genmodel.StructInfo) error {
 	seen := make(map[string]string, len(list))
 
 	for _, data := range list {
@@ -530,7 +531,7 @@ func validateGeneratedFilenameCollisions(list []*tsq.StructInfo) error {
 	return nil
 }
 
-func validateIndexNameCollisions(list []*tsq.StructInfo) error {
+func validateIndexNameCollisions(list []*genmodel.StructInfo) error {
 	type definition struct {
 		table  string
 		fields string
@@ -546,7 +547,7 @@ func validateIndexNameCollisions(list []*tsq.StructInfo) error {
 
 		for _, group := range []struct {
 			unique bool
-			items  []tsq.IndexInfo
+			items  []genmodel.IndexInfo
 		}{
 			{unique: true, items: data.UxList},
 			{unique: false, items: data.IdxList},
@@ -587,7 +588,7 @@ func validateIndexNameCollisions(list []*tsq.StructInfo) error {
 	return nil
 }
 
-func validateGeneratedSymbolCollisions(list []*tsq.StructInfo) error {
+func validateGeneratedSymbolCollisions(list []*genmodel.StructInfo) error {
 	seen := make(map[string]string)
 
 	register := func(symbol, owner string) error {
@@ -658,7 +659,7 @@ func validateGeneratedSymbolCollisions(list []*tsq.StructInfo) error {
 	return nil
 }
 
-func generatedFilename(data *tsq.StructInfo) string {
+func generatedFilename(data *genmodel.StructInfo) string {
 	base := strings.ToLower(data.TypeInfo.TypeName)
 	if data.IsResult {
 		return fmt.Sprintf("%s_result_tsq.go", base)
@@ -667,7 +668,7 @@ func generatedFilename(data *tsq.StructInfo) string {
 	return fmt.Sprintf("%s_tsq.go", base)
 }
 
-func validatePrimaryKeyField(data *tsq.StructInfo) error {
+func validatePrimaryKeyField(data *genmodel.StructInfo) error {
 	if data == nil || data.TableMeta == nil || data.PK == "" {
 		return nil
 	}
@@ -688,7 +689,7 @@ func validatePrimaryKeyField(data *tsq.StructInfo) error {
 	return nil
 }
 
-func validateVersionField(data *tsq.StructInfo) error {
+func validateVersionField(data *genmodel.StructInfo) error {
 	if data == nil || data.TableMeta == nil || data.VersionField == "" {
 		return nil
 	}
@@ -705,7 +706,7 @@ func validateVersionField(data *tsq.StructInfo) error {
 	return nil
 }
 
-func validateFieldDatabaseCompatibility(data *tsq.StructInfo) error {
+func validateFieldDatabaseCompatibility(data *genmodel.StructInfo) error {
 	if data == nil || data.TableMeta == nil {
 		return nil
 	}
@@ -724,7 +725,7 @@ func validateFieldDatabaseCompatibility(data *tsq.StructInfo) error {
 	return nil
 }
 
-func validateFieldDatabaseType(field tsq.FieldInfo, keywordFields map[string]struct{}) error {
+func validateFieldDatabaseType(field genmodel.FieldInfo, keywordFields map[string]struct{}) error {
 	if field.Type.Package.Path == "" {
 		switch field.Type.TypeName {
 		case "complex64", "complex128", "uintptr":
@@ -759,7 +760,7 @@ func validateFieldDatabaseType(field tsq.FieldInfo, keywordFields map[string]str
 	return nil
 }
 
-func isIntegerFieldType(field tsq.FieldInfo) bool {
+func isIntegerFieldType(field genmodel.FieldInfo) bool {
 	if field.Type.Package.Path != "" {
 		return false
 	}

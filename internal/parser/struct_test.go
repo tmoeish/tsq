@@ -7,7 +7,7 @@ import (
 	"go/token"
 	"testing"
 
-	"github.com/tmoeish/tsq"
+	"github.com/tmoeish/tsq/internal/genmodel"
 )
 
 func Test_parseStructDeclaration(t *testing.T) {
@@ -52,10 +52,10 @@ type User struct {
 		}
 	}
 
-	packageAliases := make(map[string]tsq.PackageInfo)
-	currentPkg := tsq.PackageInfo{Path: "test", Name: "test"}
-	structMap := make(map[tsq.TypeInfo]*StructInfo)
-	parsedPackages := make(map[tsq.PackageInfo]bool)
+	packageAliases := make(map[string]genmodel.PackageInfo)
+	currentPkg := genmodel.PackageInfo{Path: "test", Name: "test"}
+	structMap := make(map[genmodel.TypeInfo]*StructInfo)
+	parsedPackages := make(map[genmodel.PackageInfo]bool)
 	pendingPackages := list.New()
 
 	err = parseStructDeclaration(packageAliases, currentPkg, structName, structType, structMap, parsedPackages, pendingPackages)
@@ -64,7 +64,7 @@ type User struct {
 	}
 
 	// 验证结构体是否正确解析
-	typeInfo := tsq.TypeInfo{Package: currentPkg, TypeName: "User"}
+	typeInfo := genmodel.TypeInfo{Package: currentPkg, TypeName: "User"}
 
 	structInfo, exists := structMap[typeInfo]
 	if !exists {
@@ -99,7 +99,7 @@ type User struct {
 		t.Errorf("Expected 1 embedded type, got %d", len(structInfo.embeddedTypes))
 	}
 
-	baseModelType := tsq.TypeInfo{Package: currentPkg, TypeName: "BaseModel"}
+	baseModelType := genmodel.TypeInfo{Package: currentPkg, TypeName: "BaseModel"}
 	if _, exists := structInfo.embeddedTypes[baseModelType]; !exists {
 		t.Errorf("BaseModel not found in embedded types")
 	}
@@ -152,10 +152,10 @@ type User struct {
 		}
 	}
 
-	packageAliases := make(map[string]tsq.PackageInfo)
-	currentPkg := tsq.PackageInfo{Path: "test", Name: "test"}
-	structMap := make(map[tsq.TypeInfo]*StructInfo)
-	parsedPackages := make(map[tsq.PackageInfo]bool)
+	packageAliases := make(map[string]genmodel.PackageInfo)
+	currentPkg := genmodel.PackageInfo{Path: "test", Name: "test"}
+	structMap := make(map[genmodel.TypeInfo]*StructInfo)
+	parsedPackages := make(map[genmodel.PackageInfo]bool)
 	pendingPackages := list.New()
 
 	err = parseStructDeclaration(packageAliases, currentPkg, structName, structType, structMap, parsedPackages, pendingPackages)
@@ -198,10 +198,10 @@ func Test_genRecv(t *testing.T) {
 
 func TestResolvePackageNameConflictsAvoidsReservedAliases(t *testing.T) {
 	structInfo := &StructInfo{
-		StructInfo: &tsq.StructInfo{},
+		StructInfo: &genmodel.StructInfo{},
 	}
 
-	imports := structInfo.resolvePackageNameConflicts(map[tsq.PackageInfo]bool{
+	imports := structInfo.resolvePackageNameConflicts(map[genmodel.PackageInfo]bool{
 		{Path: "example.com/context", Name: "context"}: true,
 		{Path: "example.com/errors", Name: "errors"}:   true,
 		{Path: "example.com/tsqsql", Name: "tsqsql"}:   true,
@@ -231,26 +231,26 @@ func TestResolvePackageNameConflictsAvoidsReservedAliases(t *testing.T) {
 }
 
 func TestResolveEmbeddedFields_DetectsCycles(t *testing.T) {
-	pkg := tsq.PackageInfo{Path: "test", Name: "test"}
-	typeA := tsq.TypeInfo{Package: pkg, TypeName: "A"}
-	typeB := tsq.TypeInfo{Package: pkg, TypeName: "B"}
+	pkg := genmodel.PackageInfo{Path: "test", Name: "test"}
+	typeA := genmodel.TypeInfo{Package: pkg, TypeName: "A"}
+	typeB := genmodel.TypeInfo{Package: pkg, TypeName: "B"}
 
 	structA := &StructInfo{
-		StructInfo: &tsq.StructInfo{
+		StructInfo: &genmodel.StructInfo{
 			TypeInfo: typeA,
-			FieldMap: map[string]tsq.FieldInfo{},
+			FieldMap: map[string]genmodel.FieldInfo{},
 		},
-		embeddedTypes: map[tsq.TypeInfo]bool{typeB: true},
+		embeddedTypes: map[genmodel.TypeInfo]bool{typeB: true},
 	}
 	structB := &StructInfo{
-		StructInfo: &tsq.StructInfo{
+		StructInfo: &genmodel.StructInfo{
 			TypeInfo: typeB,
-			FieldMap: map[string]tsq.FieldInfo{},
+			FieldMap: map[string]genmodel.FieldInfo{},
 		},
-		embeddedTypes: map[tsq.TypeInfo]bool{typeA: true},
+		embeddedTypes: map[genmodel.TypeInfo]bool{typeA: true},
 	}
 
-	err := resolveEmbeddedFields(structA, map[tsq.TypeInfo]*StructInfo{
+	err := resolveEmbeddedFields(structA, map[genmodel.TypeInfo]*StructInfo{
 		typeA: structA,
 		typeB: structB,
 	})
@@ -284,10 +284,10 @@ type User struct {
 		t.Fatal(err)
 	}
 
-	currentPkg := tsq.PackageInfo{Path: "test", Name: "test"}
-	packageAliases := make(map[string]tsq.PackageInfo)
-	structMap := make(map[tsq.TypeInfo]*StructInfo)
-	parsedPackages := make(map[tsq.PackageInfo]bool)
+	currentPkg := genmodel.PackageInfo{Path: "test", Name: "test"}
+	packageAliases := make(map[string]genmodel.PackageInfo)
+	structMap := make(map[genmodel.TypeInfo]*StructInfo)
+	parsedPackages := make(map[genmodel.PackageInfo]bool)
 	pendingPackages := list.New()
 
 	for _, decl := range file.Decls {

@@ -11,7 +11,7 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/tmoeish/tsq"
+	"github.com/tmoeish/tsq/internal/genmodel"
 )
 
 func TestGenArgsRejectsMissingOrExtraPackagePaths(t *testing.T) {
@@ -655,18 +655,18 @@ func TestGenDryRunPrintsStaleStatuses(t *testing.T) {
 }
 
 func TestValidateResultFieldsRejectsUnknownTargetField(t *testing.T) {
-	dto := &tsq.StructInfo{
-		TableMeta: &tsq.TableMeta{IsResult: true},
-		TypeInfo:  tsq.TypeInfo{TypeName: "UserResult"},
-		Fields: []tsq.FieldInfo{
+	dto := &genmodel.StructInfo{
+		TableMeta: &genmodel.TableMeta{IsResult: true},
+		TypeInfo:  genmodel.TypeInfo{TypeName: "UserResult"},
+		Fields: []genmodel.FieldInfo{
 			{Name: "UserName", Column: "User.Missing"},
 		},
 	}
 
-	structsByName := map[string]*tsq.StructInfo{
+	structsByName := map[string]*genmodel.StructInfo{
 		"User": {
-			TableMeta: &tsq.TableMeta{Table: "user"},
-			FieldMap: map[string]tsq.FieldInfo{
+			TableMeta: &genmodel.TableMeta{Table: "user"},
+			FieldMap: map[string]genmodel.FieldInfo{
 				"PK": {Name: "PK", Column: "id"},
 			},
 		},
@@ -678,25 +678,25 @@ func TestValidateResultFieldsRejectsUnknownTargetField(t *testing.T) {
 }
 
 func TestValidateResultFieldsRejectsNormalizedReferenceCollisions(t *testing.T) {
-	dto := &tsq.StructInfo{
-		TableMeta: &tsq.TableMeta{IsResult: true},
-		TypeInfo:  tsq.TypeInfo{TypeName: "UserResult"},
-		Fields: []tsq.FieldInfo{
+	dto := &genmodel.StructInfo{
+		TableMeta: &genmodel.TableMeta{IsResult: true},
+		TypeInfo:  genmodel.TypeInfo{TypeName: "UserResult"},
+		Fields: []genmodel.FieldInfo{
 			{Name: "A", Column: "User.Profile_ID"},
 			{Name: "B", Column: "User_Profile.ID"},
 		},
 	}
 
-	structsByName := map[string]*tsq.StructInfo{
+	structsByName := map[string]*genmodel.StructInfo{
 		"User": {
-			TableMeta: &tsq.TableMeta{Table: "user"},
-			FieldMap: map[string]tsq.FieldInfo{
+			TableMeta: &genmodel.TableMeta{Table: "user"},
+			FieldMap: map[string]genmodel.FieldInfo{
 				"Profile_ID": {Name: "Profile_ID", Column: "profile_id"},
 			},
 		},
 		"User_Profile": {
-			TableMeta: &tsq.TableMeta{Table: "user_profile"},
-			FieldMap: map[string]tsq.FieldInfo{
+			TableMeta: &genmodel.TableMeta{Table: "user_profile"},
+			FieldMap: map[string]genmodel.FieldInfo{
 				"ID": {Name: "ID", Column: "id"},
 			},
 		},
@@ -708,23 +708,23 @@ func TestValidateResultFieldsRejectsNormalizedReferenceCollisions(t *testing.T) 
 }
 
 func TestValidateResultFieldsRejectsIncompatibleTypes(t *testing.T) {
-	dto := &tsq.StructInfo{
-		TableMeta: &tsq.TableMeta{IsResult: true},
-		TypeInfo:  tsq.TypeInfo{TypeName: "UserResult"},
-		Fields: []tsq.FieldInfo{
-			{Name: "OrderTime", Column: "Order.CreatedAt", Type: tsq.TypeInfo{TypeName: "string"}},
+	dto := &genmodel.StructInfo{
+		TableMeta: &genmodel.TableMeta{IsResult: true},
+		TypeInfo:  genmodel.TypeInfo{TypeName: "UserResult"},
+		Fields: []genmodel.FieldInfo{
+			{Name: "OrderTime", Column: "Order.CreatedAt", Type: genmodel.TypeInfo{TypeName: "string"}},
 		},
 	}
 
-	structsByName := map[string]*tsq.StructInfo{
+	structsByName := map[string]*genmodel.StructInfo{
 		"Order": {
-			TableMeta: &tsq.TableMeta{Table: "order"},
-			FieldMap: map[string]tsq.FieldInfo{
+			TableMeta: &genmodel.TableMeta{Table: "order"},
+			FieldMap: map[string]genmodel.FieldInfo{
 				"CreatedAt": {
 					Name:   "CreatedAt",
 					Column: "created_at",
-					Type: tsq.TypeInfo{
-						Package:  tsq.PackageInfo{Path: "time", Name: "time"},
+					Type: genmodel.TypeInfo{
+						Package:  genmodel.PackageInfo{Path: "time", Name: "time"},
 						TypeName: "Time",
 					},
 				},
@@ -738,22 +738,22 @@ func TestValidateResultFieldsRejectsIncompatibleTypes(t *testing.T) {
 }
 
 func TestValidateResultFieldsAcceptsMatchingTypes(t *testing.T) {
-	timeType := tsq.TypeInfo{
-		Package:  tsq.PackageInfo{Path: "time", Name: "time"},
+	timeType := genmodel.TypeInfo{
+		Package:  genmodel.PackageInfo{Path: "time", Name: "time"},
 		TypeName: "Time",
 	}
-	dto := &tsq.StructInfo{
-		TableMeta: &tsq.TableMeta{IsResult: true},
-		TypeInfo:  tsq.TypeInfo{TypeName: "UserResult"},
-		Fields: []tsq.FieldInfo{
+	dto := &genmodel.StructInfo{
+		TableMeta: &genmodel.TableMeta{IsResult: true},
+		TypeInfo:  genmodel.TypeInfo{TypeName: "UserResult"},
+		Fields: []genmodel.FieldInfo{
 			{Name: "OrderTime", Column: "Order.CreatedAt", Type: timeType},
 		},
 	}
 
-	structsByName := map[string]*tsq.StructInfo{
+	structsByName := map[string]*genmodel.StructInfo{
 		"Order": {
-			TableMeta: &tsq.TableMeta{Table: "order"},
-			FieldMap: map[string]tsq.FieldInfo{
+			TableMeta: &genmodel.TableMeta{Table: "order"},
+			FieldMap: map[string]genmodel.FieldInfo{
 				"CreatedAt": {Name: "CreatedAt", Column: "created_at", Type: timeType},
 			},
 		},
@@ -765,12 +765,12 @@ func TestValidateResultFieldsAcceptsMatchingTypes(t *testing.T) {
 }
 
 func TestNormalizeResultColumnsUpdatesFieldMap(t *testing.T) {
-	dto := &tsq.StructInfo{
-		TableMeta: &tsq.TableMeta{IsResult: true},
-		Fields: []tsq.FieldInfo{
+	dto := &genmodel.StructInfo{
+		TableMeta: &genmodel.TableMeta{IsResult: true},
+		Fields: []genmodel.FieldInfo{
 			{Name: "UserID", Column: "User.ID"},
 		},
-		FieldMap: map[string]tsq.FieldInfo{
+		FieldMap: map[string]genmodel.FieldInfo{
 			"UserID": {Name: "UserID", Column: "User.ID"},
 		},
 	}
@@ -788,16 +788,16 @@ func TestNormalizeResultColumnsUpdatesFieldMap(t *testing.T) {
 
 func TestResultTemplateGeneratesProjectionOnlyResultFile(t *testing.T) {
 	dir := t.TempDir()
-	data := &tsq.StructInfo{
-		TableMeta: &tsq.TableMeta{IsResult: true},
-		TypeInfo: tsq.TypeInfo{
-			Package:  tsq.PackageInfo{Name: "gentest"},
+	data := &genmodel.StructInfo{
+		TableMeta: &genmodel.TableMeta{IsResult: true},
+		TypeInfo: genmodel.TypeInfo{
+			Package:  genmodel.PackageInfo{Name: "gentest"},
 			TypeName: "UserOrder",
 		},
 		Recv:       "uo",
 		TSQVersion: "test",
-		Fields: []tsq.FieldInfo{
-			{Name: "UserID", Type: tsq.TypeInfo{TypeName: "int64"}, Column: "User_ID", JsonTag: "user_id"},
+		Fields: []genmodel.FieldInfo{
+			{Name: "UserID", Type: genmodel.TypeInfo{TypeName: "int64"}, Column: "User_ID", JsonTag: "user_id"},
 		},
 	}
 
@@ -844,16 +844,16 @@ func TestResultTemplateGeneratesProjectionOnlyResultFile(t *testing.T) {
 }
 
 func TestValidateGeneratedFilenameCollisionsRejectsCaseConflicts(t *testing.T) {
-	list := []*tsq.StructInfo{
+	list := []*genmodel.StructInfo{
 		{
-			TableMeta: &tsq.TableMeta{Table: "user"},
-			TypeInfo:  tsq.TypeInfo{TypeName: "User"},
-			Fields:    []tsq.FieldInfo{{Name: "PK"}},
+			TableMeta: &genmodel.TableMeta{Table: "user"},
+			TypeInfo:  genmodel.TypeInfo{TypeName: "User"},
+			Fields:    []genmodel.FieldInfo{{Name: "PK"}},
 		},
 		{
-			TableMeta: &tsq.TableMeta{Table: "user_lower"},
-			TypeInfo:  tsq.TypeInfo{TypeName: "user"},
-			Fields:    []tsq.FieldInfo{{Name: "PK"}},
+			TableMeta: &genmodel.TableMeta{Table: "user_lower"},
+			TypeInfo:  genmodel.TypeInfo{TypeName: "user"},
+			Fields:    []genmodel.FieldInfo{{Name: "PK"}},
 		},
 	}
 
@@ -863,17 +863,17 @@ func TestValidateGeneratedFilenameCollisionsRejectsCaseConflicts(t *testing.T) {
 }
 
 func TestValidateIndexNameCollisionsRejectsCrossTableReuse(t *testing.T) {
-	list := []*tsq.StructInfo{
+	list := []*genmodel.StructInfo{
 		{
-			TableMeta: &tsq.TableMeta{
+			TableMeta: &genmodel.TableMeta{
 				Table:  "user",
-				UxList: []tsq.IndexInfo{{Name: "ux_name", Fields: []string{"Name"}}},
+				UxList: []genmodel.IndexInfo{{Name: "ux_name", Fields: []string{"Name"}}},
 			},
 		},
 		{
-			TableMeta: &tsq.TableMeta{
+			TableMeta: &genmodel.TableMeta{
 				Table:  "org",
-				UxList: []tsq.IndexInfo{{Name: "ux_name", Fields: []string{"Name"}}},
+				UxList: []genmodel.IndexInfo{{Name: "ux_name", Fields: []string{"Name"}}},
 			},
 		},
 	}
@@ -884,17 +884,17 @@ func TestValidateIndexNameCollisionsRejectsCrossTableReuse(t *testing.T) {
 }
 
 func TestValidateStructForGenerationRejectsPointerPrimaryKeys(t *testing.T) {
-	data := &tsq.StructInfo{
-		TableMeta: &tsq.TableMeta{
+	data := &genmodel.StructInfo{
+		TableMeta: &genmodel.TableMeta{
 			Table: "user",
 			PK:    "PK",
 		},
-		TypeInfo: tsq.TypeInfo{TypeName: "User"},
-		FieldMap: map[string]tsq.FieldInfo{
+		TypeInfo: genmodel.TypeInfo{TypeName: "User"},
+		FieldMap: map[string]genmodel.FieldInfo{
 			"PK": {
 				Name:      "PK",
 				IsPointer: true,
-				Type:      tsq.TypeInfo{TypeName: "string"},
+				Type:      genmodel.TypeInfo{TypeName: "string"},
 			},
 		},
 	}
@@ -905,17 +905,17 @@ func TestValidateStructForGenerationRejectsPointerPrimaryKeys(t *testing.T) {
 }
 
 func TestValidateStructForGenerationRejectsSlicePrimaryKeys(t *testing.T) {
-	data := &tsq.StructInfo{
-		TableMeta: &tsq.TableMeta{
+	data := &genmodel.StructInfo{
+		TableMeta: &genmodel.TableMeta{
 			Table: "blob_user",
 			PK:    "PK",
 		},
-		TypeInfo: tsq.TypeInfo{TypeName: "BlobUser"},
-		FieldMap: map[string]tsq.FieldInfo{
+		TypeInfo: genmodel.TypeInfo{TypeName: "BlobUser"},
+		FieldMap: map[string]genmodel.FieldInfo{
 			"PK": {
 				Name:    "PK",
 				IsArray: true,
-				Type:    tsq.TypeInfo{TypeName: "byte"},
+				Type:    genmodel.TypeInfo{TypeName: "byte"},
 			},
 		},
 	}
@@ -940,16 +940,16 @@ func TestTableTemplateAvoidsKeywordParameterNames(t *testing.T) {
 		t.Fatalf("failed to parse table template: %v", err)
 	}
 
-	field := tsq.FieldInfo{Name: "Type", Column: "type", JsonTag: "type", Type: tsq.TypeInfo{TypeName: "int64"}}
-	data := &tsq.StructInfo{
-		TableMeta: &tsq.TableMeta{
+	field := genmodel.FieldInfo{Name: "Type", Column: "type", JsonTag: "type", Type: genmodel.TypeInfo{TypeName: "int64"}}
+	data := &genmodel.StructInfo{
+		TableMeta: &genmodel.TableMeta{
 			Table: "keyworded",
 			PK:    "Type",
 			AI:    true,
 		},
-		TypeInfo: tsq.TypeInfo{Package: tsq.PackageInfo{Name: "example"}, TypeName: "Keyworded"},
-		Fields:   []tsq.FieldInfo{field},
-		FieldMap: map[string]tsq.FieldInfo{
+		TypeInfo: genmodel.TypeInfo{Package: genmodel.PackageInfo{Name: "example"}, TypeName: "Keyworded"},
+		Fields:   []genmodel.FieldInfo{field},
+		FieldMap: map[string]genmodel.FieldInfo{
 			"Type": field,
 		},
 		Recv:       "k",
@@ -983,15 +983,15 @@ func TestTableTemplateAnnotatesQueryListErrorsWithSourceIndexName(t *testing.T) 
 		t.Fatalf("failed to parse table template: %v", err)
 	}
 
-	idField := tsq.FieldInfo{Name: "PK", Column: "id", JsonTag: "id", Type: tsq.TypeInfo{TypeName: "int64"}}
-	orgField := tsq.FieldInfo{Name: "OrgID", Column: "org_id", JsonTag: "org_id", Type: tsq.TypeInfo{TypeName: "int64"}}
-	itemField := tsq.FieldInfo{Name: "ItemID", Column: "item_id", JsonTag: "item_id", Type: tsq.TypeInfo{TypeName: "int64"}}
+	idField := genmodel.FieldInfo{Name: "PK", Column: "id", JsonTag: "id", Type: genmodel.TypeInfo{TypeName: "int64"}}
+	orgField := genmodel.FieldInfo{Name: "OrgID", Column: "org_id", JsonTag: "org_id", Type: genmodel.TypeInfo{TypeName: "int64"}}
+	itemField := genmodel.FieldInfo{Name: "ItemID", Column: "item_id", JsonTag: "item_id", Type: genmodel.TypeInfo{TypeName: "int64"}}
 
-	data := &tsq.StructInfo{
-		TableMeta: &tsq.TableMeta{
+	data := &genmodel.StructInfo{
+		TableMeta: &genmodel.TableMeta{
 			Table: "order",
 			PK:    "PK",
-			QueryList: []tsq.IndexInfo{
+			QueryList: []genmodel.IndexInfo{
 				{
 					Name:       "OrgIDAndItemID",
 					SourceName: "idx_order_org_item",
@@ -1005,9 +1005,9 @@ func TestTableTemplateAnnotatesQueryListErrorsWithSourceIndexName(t *testing.T) 
 				},
 			},
 		},
-		TypeInfo: tsq.TypeInfo{Package: tsq.PackageInfo{Name: "example"}, TypeName: "Order"},
-		Fields:   []tsq.FieldInfo{idField, orgField, itemField},
-		FieldMap: map[string]tsq.FieldInfo{
+		TypeInfo: genmodel.TypeInfo{Package: genmodel.PackageInfo{Name: "example"}, TypeName: "Order"},
+		Fields:   []genmodel.FieldInfo{idField, orgField, itemField},
+		FieldMap: map[string]genmodel.FieldInfo{
 			"PK":     idField,
 			"OrgID":  orgField,
 			"ItemID": itemField,
@@ -1081,10 +1081,10 @@ func TestGenDoesNotWriteBrokenGoOnFormatError(t *testing.T) {
 		t.Fatalf("failed to parse broken template: %v", err)
 	}
 
-	data := &tsq.StructInfo{
-		TableMeta: &tsq.TableMeta{Table: "user"},
-		TypeInfo:  tsq.TypeInfo{Package: tsq.PackageInfo{Name: "example"}, TypeName: "User"},
-		Fields:    []tsq.FieldInfo{{Name: "PK"}},
+	data := &genmodel.StructInfo{
+		TableMeta: &genmodel.TableMeta{Table: "user"},
+		TypeInfo:  genmodel.TypeInfo{Package: genmodel.PackageInfo{Name: "example"}, TypeName: "User"},
+		Fields:    []genmodel.FieldInfo{{Name: "PK"}},
 	}
 
 	if err := gen(data, tpl, dir); err == nil {
@@ -1114,10 +1114,10 @@ func TestGenResultDoesNotWriteBrokenGoOnFormatError(t *testing.T) {
 		t.Fatalf("failed to parse broken template: %v", err)
 	}
 
-	data := &tsq.StructInfo{
-		TableMeta: &tsq.TableMeta{IsResult: true},
-		TypeInfo:  tsq.TypeInfo{Package: tsq.PackageInfo{Name: "example"}, TypeName: "UserResult"},
-		Fields:    []tsq.FieldInfo{{Name: "PK"}},
+	data := &genmodel.StructInfo{
+		TableMeta: &genmodel.TableMeta{IsResult: true},
+		TypeInfo:  genmodel.TypeInfo{Package: genmodel.PackageInfo{Name: "example"}, TypeName: "UserResult"},
+		Fields:    []genmodel.FieldInfo{{Name: "PK"}},
 	}
 
 	if err := genResult(data, tpl, dir); err == nil {
@@ -1197,7 +1197,7 @@ func TestWriteGeneratedFilePreservesPermissions(t *testing.T) {
 // around renderGenerationModel and intentionally not part of the production
 // code path.
 
-func gen(data *tsq.StructInfo, t *template.Template, dir string) error {
+func gen(data *genmodel.StructInfo, t *template.Template, dir string) error {
 	return renderGenerationModel(generationModel{
 		Data:       data,
 		Template:   t,
@@ -1206,7 +1206,7 @@ func gen(data *tsq.StructInfo, t *template.Template, dir string) error {
 	})
 }
 
-func genResult(data *tsq.StructInfo, t *template.Template, dir string) error {
+func genResult(data *genmodel.StructInfo, t *template.Template, dir string) error {
 	return renderGenerationModel(generationModel{
 		Data:       data,
 		Template:   t,

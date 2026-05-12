@@ -1,6 +1,6 @@
 // internal/parser/table.go
 //
-// 负责从 Go AST 注释中解析表（@TABLE）和结果结构（@RESULT）元数据，生成 tsq.TableMeta 结构体。
+// 负责从 Go AST 注释中解析表（@TABLE）和结果结构（@RESULT）元数据，生成 genmodel.TableMeta 结构体。
 // 支持自定义 DSL 解析、索引与查询生成、元数据排序等。
 
 package parser
@@ -13,7 +13,7 @@ import (
 
 	"github.com/juju/errors"
 
-	"github.com/tmoeish/tsq"
+	"github.com/tmoeish/tsq/internal/genmodel"
 )
 
 // ParseTableInfo 从注释组中解析表元数据，返回 TableMeta 结构体
@@ -22,7 +22,7 @@ func ParseTableInfo(
 	commentGroup []*ast.CommentGroup,
 	structFields map[string]struct{},
 	fileSet *token.FileSet,
-) (*tsq.TableMeta, error) {
+) (*genmodel.TableMeta, error) {
 	if commentGroup == nil {
 		return nil, nil
 	}
@@ -510,7 +510,7 @@ func parseDSL(
 	structName string,
 	commentGroup []*ast.CommentGroup,
 	structFields map[string]struct{},
-) (*tsq.TableMeta, error) {
+) (*genmodel.TableMeta, error) {
 	for _, comments := range commentGroup {
 		// 合并整个注释组，并健壮去除每行注释前缀
 		var lines []string
@@ -536,7 +536,7 @@ func parseTableDSL(
 	structName string,
 	text string,
 	structFields map[string]struct{},
-) (*tsq.TableMeta, error) {
+) (*genmodel.TableMeta, error) {
 	// 去除注释前缀
 	text = CleanBlockComment(text)
 
@@ -571,7 +571,7 @@ func parseResultDSL(
 	structName string,
 	text string,
 	structFields map[string]struct{},
-) (*tsq.TableMeta, error) {
+) (*genmodel.TableMeta, error) {
 	// 去除注释前缀
 	text = CleanBlockComment(text)
 
@@ -581,7 +581,7 @@ func parseResultDSL(
 	}
 
 	if content == "" {
-		return &tsq.TableMeta{IsResult: true}, nil
+		return &genmodel.TableMeta{IsResult: true}, nil
 	}
 
 	content = strings.ReplaceAll(content, "\n", " ")
@@ -602,14 +602,14 @@ func parseResultDSL(
 }
 
 // generateQueryList 生成查询索引列表，支持普通、集合、前缀等多种组合
-func generateQueryList(meta *tsq.TableMeta) {
+func generateQueryList(meta *genmodel.TableMeta) {
 	queryMap := make(map[string]bool)
 
 	for _, idx := range meta.IdxList {
 		// 普通 query
 		queryName := strings.Join(idx.Fields, "And")
 		if !queryMap[queryName] {
-			meta.QueryList = append(meta.QueryList, tsq.IndexInfo{
+			meta.QueryList = append(meta.QueryList, genmodel.IndexInfo{
 				Name:       queryName,
 				SourceName: idx.Name,
 				Fields:     idx.Fields,
@@ -621,7 +621,7 @@ func generateQueryList(meta *tsq.TableMeta) {
 		// set query
 		setName := queryName + "In"
 		if !queryMap[setName] {
-			meta.QueryList = append(meta.QueryList, tsq.IndexInfo{
+			meta.QueryList = append(meta.QueryList, genmodel.IndexInfo{
 				Name:       setName,
 				SourceName: idx.Name,
 				Fields:     idx.Fields,
@@ -634,7 +634,7 @@ func generateQueryList(meta *tsq.TableMeta) {
 		for j := len(idx.Fields); j > 0; j-- {
 			prefixQueryName := strings.Join(idx.Fields[:j], "And")
 			if !queryMap[prefixQueryName] {
-				meta.QueryList = append(meta.QueryList, tsq.IndexInfo{
+				meta.QueryList = append(meta.QueryList, genmodel.IndexInfo{
 					Name:       prefixQueryName,
 					SourceName: idx.Name,
 					Fields:     idx.Fields[:j],
@@ -645,7 +645,7 @@ func generateQueryList(meta *tsq.TableMeta) {
 
 			setName := prefixQueryName + "In"
 			if !queryMap[setName] {
-				meta.QueryList = append(meta.QueryList, tsq.IndexInfo{
+				meta.QueryList = append(meta.QueryList, genmodel.IndexInfo{
 					Name:       setName,
 					SourceName: idx.Name,
 					Fields:     idx.Fields[:j],
@@ -660,7 +660,7 @@ func generateQueryList(meta *tsq.TableMeta) {
 		for j := len(ux.Fields) - 1; j > 0; j-- {
 			prefixQueryName := strings.Join(ux.Fields[:j], "And")
 			if !queryMap[prefixQueryName] {
-				meta.QueryList = append(meta.QueryList, tsq.IndexInfo{
+				meta.QueryList = append(meta.QueryList, genmodel.IndexInfo{
 					Name:       prefixQueryName,
 					SourceName: ux.Name,
 					Fields:     ux.Fields[:j],
@@ -671,7 +671,7 @@ func generateQueryList(meta *tsq.TableMeta) {
 
 			setName := prefixQueryName + "In"
 			if !queryMap[setName] {
-				meta.QueryList = append(meta.QueryList, tsq.IndexInfo{
+				meta.QueryList = append(meta.QueryList, genmodel.IndexInfo{
 					Name:       setName,
 					SourceName: ux.Name,
 					Fields:     ux.Fields[:j],
@@ -684,7 +684,7 @@ func generateQueryList(meta *tsq.TableMeta) {
 }
 
 // sortTableInfoLists 对元数据中的各种列表进行排序，保证输出有序
-func sortTableInfoLists(meta *tsq.TableMeta) {
+func sortTableInfoLists(meta *genmodel.TableMeta) {
 	sort.Slice(meta.UxList, func(i, j int) bool {
 		return meta.UxList[i].Name < meta.UxList[j].Name
 	})

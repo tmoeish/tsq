@@ -465,8 +465,7 @@ func TestConcurrentTracerAddDuringRestore(t *testing.T) {
 	}
 
 	// Now we'll simulate a restore operation while concurrent AddTracer calls happen
-	rt := DefaultRuntime()
-	tm := rt.TraceManager()
+	tm := defaultRuntime.traceManager
 
 	// Create a channel to signal when restore has begun
 	restoreStarted := make(chan struct{})
@@ -764,38 +763,7 @@ func TestPrintSQLTracer(t *testing.T) {
 	}
 }
 
-// TestPrintVersionFunctions tests PrintVersion() and PrintVersionJSON()
-func TestPrintVersionFunctions(t *testing.T) {
-	// These functions write to stdout, so we mainly test that they don't panic
-	// In a real scenario, we'd capture stdout
-	testCases := []struct {
-		name string
-		fn   func()
-	}{
-		{
-			name: "PrintVersion",
-			fn:   PrintVersion,
-		},
-		{
-			name: "PrintVersionJSON",
-			fn:   PrintVersionJSON,
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			// Should not panic
-			defer func() {
-				if r := recover(); r != nil {
-					t.Errorf("PrintVersion functions should not panic: %v", r)
-				}
-			}()
-
-			tc.fn()
-		})
-	}
-
-	// Also test GetVersionInfo doesn't return nil
+func TestGetVersionInfoForTraceHelpers(t *testing.T) {
 	info := GetVersionInfo()
 	if info == nil {
 		t.Error("GetVersionInfo should never return nil")
@@ -821,8 +789,7 @@ func TestPrintVersionFunctions(t *testing.T) {
 // TestRestoreTracersFromSnapshot tests restore() in various states
 func TestRestoreTracersFromSnapshot(t *testing.T) {
 	ClearTracers()
-	rt := DefaultRuntime()
-	tm := rt.TraceManager()
+	tm := defaultRuntime.traceManager
 
 	// Add some initial tracers
 	tracer1 := func(next Fn) Fn {
@@ -877,8 +844,7 @@ func TestRestoreTracersFromSnapshot(t *testing.T) {
 // TestTraceManagerConcurrentSnapshot tests concurrent reads during tracer changes
 func TestTraceManagerConcurrentSnapshot(t *testing.T) {
 	ClearTracers()
-	rt := DefaultRuntime()
-	tm := rt.TraceManager()
+	tm := defaultRuntime.traceManager
 
 	// Add initial tracers
 	for i := 0; i < 10; i++ {

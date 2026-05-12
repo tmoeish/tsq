@@ -164,7 +164,7 @@ func openExampleDB() (*tsq.Engine, func(), error) {
 	}
 
 	engine := &tsq.Engine{DB: db, Dialect: tsq.SQLiteDialect{}}
-	if err := tsq.Init(engine, false, true); err != nil {
+	if err := tsq.Init(engine, true); err != nil {
 		cleanup()
 		return nil, nil, errors.Annotate(err, "init tsq")
 	}

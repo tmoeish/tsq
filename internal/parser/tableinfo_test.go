@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/tmoeish/tsq"
+	"github.com/tmoeish/tsq/internal/genmodel"
 )
 
 func TestParseAnnotations_DSL(t *testing.T) {
@@ -15,13 +16,13 @@ func TestParseAnnotations_DSL(t *testing.T) {
 	tests := []struct {
 		desc    string
 		comment string
-		want    tsq.TableMeta
+		want    genmodel.TableMeta
 	}{
 		{
 			desc: "典型 TABLE 全写",
 			comment: `
 			//   @TABLE(   	name="account",   	pk="C1,true",   	version, created_at, updated_at="MTime", deleted_at,   	ux=[   		{name="U1", fields=["F1","F2"]},   		{fields=["F3"]}   	],   	idx=[   		{name="I1", fields=["F4"]},   		{fields=["F5","F6"]}   	],   	kw=["foo","bar"]   )`,
-			want: tsq.TableMeta{
+			want: genmodel.TableMeta{
 				Table:          "account",
 				PK:             "C1",
 				AI:             true,
@@ -29,11 +30,11 @@ func TestParseAnnotations_DSL(t *testing.T) {
 				CreatedAtField: "CreatedAt",
 				UpdatedAtField: "MTime",
 				DeletedAtField: "DeletedAt",
-				UxList: []tsq.IndexInfo{
+				UxList: []genmodel.IndexInfo{
 					{Name: "U1", Fields: []string{"F1", "F2"}},
 					{Name: "ux_account_f3", Fields: []string{"F3"}},
 				},
-				IdxList: []tsq.IndexInfo{
+				IdxList: []genmodel.IndexInfo{
 					{Name: "I1", Fields: []string{"F4"}},
 					{Name: "idx_account_f5_f6", Fields: []string{"F5", "F6"}},
 				},
@@ -43,7 +44,7 @@ func TestParseAnnotations_DSL(t *testing.T) {
 		{
 			desc:    "TABLE 省略主键和简写",
 			comment: `// @TABLE( 	name="user", 	version, created_at, updated_at="MTime", deleted_at  )`,
-			want: tsq.TableMeta{
+			want: genmodel.TableMeta{
 				Table:          "user",
 				PK:             "ID",
 				AI:             true,
@@ -56,7 +57,7 @@ func TestParseAnnotations_DSL(t *testing.T) {
 		{
 			desc:    "Result 注解",
 			comment: `// @RESULT(name="UserResult",  kw=["foo","bar"]  )`,
-			want: tsq.TableMeta{
+			want: genmodel.TableMeta{
 				Table:         "UserResult",
 				SearchColumns: []string{"foo", "bar"},
 			},
@@ -64,18 +65,18 @@ func TestParseAnnotations_DSL(t *testing.T) {
 		{
 			desc:    "TABLE ux 和 idx 无 name",
 			comment: `// @TABLE(ux=[{fields=["F1"]}], idx=[{fields=["F2","F3"]}])`,
-			want: tsq.TableMeta{
+			want: genmodel.TableMeta{
 				Table:   "user",
 				PK:      "ID",
 				AI:      true,
-				UxList:  []tsq.IndexInfo{{Name: "ux_user_f1", Fields: []string{"F1"}}},
-				IdxList: []tsq.IndexInfo{{Name: "idx_user_f2_f3", Fields: []string{"F2", "F3"}}},
+				UxList:  []genmodel.IndexInfo{{Name: "ux_user_f1", Fields: []string{"F1"}}},
+				IdxList: []genmodel.IndexInfo{{Name: "idx_user_f2_f3", Fields: []string{"F2", "F3"}}},
 			},
 		},
 		{
 			desc:    "TABLE 省略 name",
 			comment: `// @TABLE(pk="PK,true", version, created_at)`,
-			want: tsq.TableMeta{
+			want: genmodel.TableMeta{
 				Table:          "user",
 				PK:             "PK",
 				AI:             true,
@@ -86,14 +87,14 @@ func TestParseAnnotations_DSL(t *testing.T) {
 		{
 			desc:    "Result 省略 name",
 			comment: `// @RESULT(kw=["foo","bar"])`,
-			want: tsq.TableMeta{
+			want: genmodel.TableMeta{
 				SearchColumns: []string{"foo", "bar"},
 			},
 		},
 		{
 			desc:    "Result最简",
 			comment: `// @RESULT`,
-			want:    tsq.TableMeta{},
+			want:    genmodel.TableMeta{},
 		},
 	}
 
@@ -250,8 +251,8 @@ type TableInfoReal struct {
 	CreatedAtField string
 	UpdatedAtField string
 	DeletedAtField string
-	UxList         []tsq.IndexInfo
-	IdxList        []tsq.IndexInfo
+	UxList         []genmodel.IndexInfo
+	IdxList        []genmodel.IndexInfo
 	SearchColumns  []string
 }
 

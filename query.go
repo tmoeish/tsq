@@ -44,10 +44,12 @@ type ErrUnknownSortField struct {
 	field string
 }
 
+// NewErrUnknownSortField constructs an ErrUnknownSortField.
 func NewErrUnknownSortField(field string) *ErrUnknownSortField {
 	return &ErrUnknownSortField{field: field}
 }
 
+// Error implements error.
 func (e *ErrUnknownSortField) Error() string {
 	return fmt.Sprintf("unknown sort field: %s", e.field)
 }
@@ -69,10 +71,12 @@ type ErrAmbiguousSortField struct {
 	field string
 }
 
+// NewErrAmbiguousSortField constructs an ErrAmbiguousSortField.
 func NewErrAmbiguousSortField(field string) *ErrAmbiguousSortField {
 	return &ErrAmbiguousSortField{field: field}
 }
 
+// Error implements error.
 func (e *ErrAmbiguousSortField) Error() string {
 	return fmt.Sprintf("ambiguous sort field: %s", e.field)
 }
@@ -95,10 +99,12 @@ type ErrOrderCountMismatch struct {
 	orders   int
 }
 
+// NewErrOrderCountMismatch constructs an ErrOrderCountMismatch.
 func NewErrOrderCountMismatch(orderbys, orders int) *ErrOrderCountMismatch {
 	return &ErrOrderCountMismatch{orderBys: orderbys, orders: orders}
 }
 
+// Error implements error.
 func (e *ErrOrderCountMismatch) Error() string {
 	return fmt.Sprintf(
 		"ORDER BY fields count(%d) and ORDER directions count(%d) mismatch",
@@ -176,51 +182,26 @@ var slicePlaceholderCache = buildSlicePlaceholderCache(slicePlaceholderCacheMax)
 
 var builtInIdentifierPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
-// Identifier length limits by SQL dialect
+// Identifier length limits by SQL dialect.
 const (
 	// MaxIdentifierLengthMySQL = 64  // Actual is 64, but we allow 63 for compatibility
-	MaxIdentifierLengthMySQL      = 64
+	MaxIdentifierLengthMySQL = 64
+	// MaxIdentifierLengthPostgreSQL is PostgreSQL's maximum identifier length.
 	MaxIdentifierLengthPostgreSQL = 63
-	MaxIdentifierLengthOracleSQL  = 30
-	MaxIdentifierLengthSQLite     = 0 // SQLite has no practical limit, 0 means unlimited
+	// MaxIdentifierLengthOracleSQL is Oracle's maximum identifier length.
+	MaxIdentifierLengthOracleSQL = 30
+	// MaxIdentifierLengthSQLite is zero because SQLite has no practical identifier limit.
+	MaxIdentifierLengthSQLite = 0 // SQLite has no practical limit, 0 means unlimited
 )
 
 // ================================================
 // SQL 访问方法
 // ================================================
 
-// 查询计划缓存考虑
-//
-// TSQ 本身不提供内置的查询计划缓存，但支持多种缓存策略：
-//
-// 1. 应用层缓存（推荐）
-//    对于频繁重复的查询，在应用层缓存生成的 SQL：
-//
-//    type CachedQuery struct {
-//        key  string
-//        sql  string
-//        args []any
-//    }
-//
-//    // 或使用 sync.Map 进行无锁缓存
-//    var queryCache sync.Map
-//    q := queryCache.LoadOrStore(key, buildQuery()).(Query)
-//
-// 2. 数据库驱动缓存
-//    许多驱动程序（如 github.com/jmoiron/sqlx）支持准备语句缓存。
-//    只需确保对相同的 SQL 使用相同的参数类型。
-//
-// 3. 连接池准备缓存
-//    使用支持准备语句缓存的连接池（如 pgx 连接池）。
-//
-// 性能建议：
-// - 对于一次性查询，不需要缓存
-// - 对于循环中的查询，在循环外构建一次
-// - 对于参数不同的动态查询，使用数据库参数化
-// - 避免在热路径中调用 Build() 多次
+// Build once and reuse Query values on hot paths instead of rebuilding the same shape.
 
-// CntSQL returns the COUNT query SQL statement
-func (q *Query[O]) CntSQL() string {
+// CountSQL returns the COUNT query SQL statement.
+func (q *Query[O]) CountSQL() string {
 	if q == nil {
 		return ""
 	}
@@ -237,8 +218,8 @@ func (q *Query[O]) ListSQL() string {
 	return renderCanonicalSQL(q.listSQL)
 }
 
-// KwCntSQL returns the keyword search COUNT query SQL statement
-func (q *Query[O]) KwCntSQL() string {
+// KeywordCountSQL returns the keyword-search COUNT query SQL statement.
+func (q *Query[O]) KeywordCountSQL() string {
 	if q == nil {
 		return ""
 	}
@@ -246,8 +227,8 @@ func (q *Query[O]) KwCntSQL() string {
 	return renderCanonicalSQL(q.kwCntSQL)
 }
 
-// KwListSQL returns the keyword search SELECT query SQL statement
-func (q *Query[O]) KwListSQL() string {
+// KeywordListSQL returns the keyword-search SELECT query SQL statement.
+func (q *Query[O]) KeywordListSQL() string {
 	if q == nil {
 		return ""
 	}
@@ -379,8 +360,8 @@ func (q *Query[O]) queryFloat(
 	return result, nil
 }
 
-// QueryStr executes the query and returns a single string result
-func (q *Query[O]) QueryStr(
+// QueryString executes the query and returns a single string result.
+func (q *Query[O]) QueryString(
 	ctx context.Context,
 	tx SQLExecutor,
 	args ...any,
@@ -637,6 +618,7 @@ func pageFn[O Owner](
 	return NewResponse(page, count, list), nil
 }
 
+// List executes q and returns all matching rows.
 func List[O Owner](
 	ctx context.Context,
 	tx SQLExecutor,
@@ -712,6 +694,7 @@ func listFn[O Owner](
 	return list, nil
 }
 
+// GetOrErr executes q and returns one row or sql.ErrNoRows.
 func GetOrErr[O Owner](
 	ctx context.Context,
 	tx SQLExecutor,
@@ -768,6 +751,7 @@ func getOrErrFn[O Owner](
 	return r, nil
 }
 
+// Get executes q and returns one row or nil when no row matches.
 func Get[O Owner](
 	ctx context.Context,
 	tx SQLExecutor,
@@ -786,6 +770,7 @@ func Get[O Owner](
 	return row, nil
 }
 
+// Load executes q and scans one row into holder.
 func (q *Query[O]) Load(
 	ctx context.Context,
 	tx SQLExecutor,
@@ -2037,6 +2022,7 @@ func invokeFieldPointer[O Owner](pointerFunc scanPointer, holder *O) (ptr any, e
 	return pointerFunc(holder), nil
 }
 
+// Insert inserts item using the table metadata on T.
 func Insert[T Table](
 	ctx context.Context,
 	tx SQLExecutor,
@@ -2063,6 +2049,7 @@ func insertFn[T Table](
 	return errors.Trace(insertTables(ctx, tx, item))
 }
 
+// Update updates item using the table metadata on T.
 func Update[T Table](
 	ctx context.Context,
 	tx SQLExecutor,
@@ -2091,6 +2078,7 @@ func updateFn[T Table](
 	return errors.Trace(err)
 }
 
+// Delete deletes item using the table metadata on T.
 func Delete[T Table](
 	ctx context.Context,
 	tx SQLExecutor,

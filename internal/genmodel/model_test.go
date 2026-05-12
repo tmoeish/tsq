@@ -1,4 +1,4 @@
-package tsq
+package genmodel
 
 import "testing"
 

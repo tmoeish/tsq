@@ -14,7 +14,9 @@ import (
 type Order string
 
 const (
-	ASC  Order = "ASC"  // Ascending order
+	// ASC sorts rows in ascending order.
+	ASC Order = "ASC" // Ascending order
+	// DESC sorts rows in descending order.
 	DESC Order = "DESC" // Descending order
 )
 
@@ -72,20 +74,6 @@ func (c ColumnImpl[Owner, T]) Desc() OrderBy {
 		field: c,
 		order: DESC,
 	}
-}
-
-// ================================================
-// 排序工具函数
-// ================================================
-
-// OrderByMultiple creates multiple ORDER BY clauses
-func OrderByMultiple(orderBys ...OrderBy) []string {
-	expressions := make([]string, 0, len(orderBys))
-	for _, ob := range orderBys {
-		expressions = append(expressions, ob.Expr())
-	}
-
-	return expressions
 }
 
 // ReverseOrder returns the opposite order direction

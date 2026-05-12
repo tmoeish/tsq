@@ -18,7 +18,7 @@ var rootCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		_ = cmd.Usage()
 	},
-	Version:       tsq.Version,
+	Version:       tsq.GetVersion(),
 	SilenceErrors: true,
 	SilenceUsage:  true,
 }

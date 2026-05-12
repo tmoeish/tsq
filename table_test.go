@@ -109,7 +109,7 @@ func TestRuntimeRegisterTableRejectsNilRuntime(t *testing.T) {
 func TestSnapshotRegisteredTablesReturnsDeterministicOrder(t *testing.T) {
 	oldRuntime := defaultRuntime
 	defaultRuntime = NewRuntime()
-	defaultRuntime.registry = &Registry{tables: map[string]*RegisteredTable{
+	defaultRuntime.registry = &registry{tables: map[string]*registeredTable{
 		"users": {
 			Table:    newMockTable("users"),
 			InitFunc: func(db *Engine) error { return nil },
@@ -148,11 +148,11 @@ func TestInitDeduplicatesProvidedTracers(t *testing.T) {
 
 	tracer := func(next Fn) Fn { return next }
 
-	if err := Init(newSQLiteIndexTestEngine(t), false, false, tracer); err != nil {
+	if err := Init(newSQLiteIndexTestEngine(t), false, tracer); err != nil {
 		t.Fatalf("unexpected init error: %v", err)
 	}
 
-	if err := Init(newSQLiteIndexTestEngine(t), false, false, tracer); err != nil {
+	if err := Init(newSQLiteIndexTestEngine(t), false, tracer); err != nil {
 		t.Fatalf("unexpected init error: %v", err)
 	}
 
@@ -223,7 +223,7 @@ func TestUpsertIndexRejectsNilEngine(t *testing.T) {
 }
 
 func TestInitRejectsNilEngine(t *testing.T) {
-	if err := Init(nil, false, false); err == nil {
+	if err := Init(nil, false); err == nil {
 		t.Fatal("expected nil engine to return an error")
 	}
 }
@@ -361,7 +361,7 @@ func TestInitCompatibilityUpsertIndexesTrueStillCreatesIndex(t *testing.T) {
 	}
 
 	runtime := registerIndexRuntime(t, "users", true, "ux_users_name", []string{"name"})
-	if err := runtime.Init(db, false, true); err != nil {
+	if err := runtime.Init(db, true); err != nil {
 		t.Fatalf("expected legacy init upsert=true to keep working, got %v", err)
 	}
 
@@ -381,7 +381,7 @@ func TestInitCompatibilityUpsertIndexesFalseStillSkipsIndexInit(t *testing.T) {
 	}
 
 	runtime := registerIndexRuntime(t, "users", true, "ux_users_name", []string{"name"})
-	if err := runtime.Init(db, false, false); err != nil {
+	if err := runtime.Init(db, false); err != nil {
 		t.Fatalf("expected legacy init upsert=false to keep working, got %v", err)
 	}
 

@@ -23,6 +23,7 @@ type aliasedTable struct {
 	alias string
 }
 
+// AliasTable returns table wrapped with the provided SQL alias.
 func AliasTable(table Table, alias string) Table {
 	if isNilValue(table) {
 		return nil
@@ -39,6 +40,7 @@ func AliasTable(table Table, alias string) Table {
 	}
 }
 
+// AliasColumns rebinds cols onto table.
 func AliasColumns(cols []SQLColumn, table Table) []SQLColumn {
 	result := make([]SQLColumn, 0, len(cols))
 	for _, col := range cols {
@@ -48,6 +50,7 @@ func AliasColumns(cols []SQLColumn, table Table) []SQLColumn {
 	return result
 }
 
+// RebindColumn returns col rebound to table when the column supports rebinding.
 func RebindColumn(col SQLColumn, table Table) SQLColumn {
 	if isNilValue(col) || isNilValue(table) {
 		return col

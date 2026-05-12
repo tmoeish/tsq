@@ -13,6 +13,7 @@ import (
 	"github.com/juju/errors"
 
 	"github.com/tmoeish/tsq"
+	"github.com/tmoeish/tsq/internal/genmodel"
 )
 
 const (
@@ -96,7 +97,7 @@ const (
 	ddlChangeDropIndex   = "drop_index"
 )
 
-func buildCurrentDDLSnapshot(tables []*tsq.StructInfo, resolver *ddlTypeResolver) (ddlSnapshot, error) {
+func buildCurrentDDLSnapshot(tables []*genmodel.StructInfo, resolver *ddlTypeResolver) (ddlSnapshot, error) {
 	snapshot := ddlSnapshot{Tables: make([]ddlSnapshotTable, 0, len(tables))}
 
 	for _, table := range tables {
@@ -116,7 +117,7 @@ func buildCurrentDDLSnapshot(tables []*tsq.StructInfo, resolver *ddlTypeResolver
 }
 
 func buildCurrentDDLTableSnapshot(
-	table *tsq.StructInfo,
+	table *genmodel.StructInfo,
 	resolver *ddlTypeResolver,
 ) (ddlSnapshotTable, error) {
 	result := ddlSnapshotTable{
@@ -144,7 +145,7 @@ func buildCurrentDDLTableSnapshot(
 		})
 	}
 
-	appendIndexes := func(items []tsq.IndexInfo, unique bool) error {
+	appendIndexes := func(items []genmodel.IndexInfo, unique bool) error {
 		for _, idx := range items {
 			fields := make([]string, 0, len(idx.Fields))
 			for _, fieldName := range idx.Fields {

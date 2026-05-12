@@ -1,4 +1,3 @@
-// Package tsq provides type-safe SQL query helpers and code generation utilities.
 package tsq
 
 import (
@@ -59,8 +58,7 @@ func (m sqlMutationExecutor) Delete(ctx context.Context, dst ...Table) (int64, e
 	return deleteTables(ctx, m.exec, dst...)
 }
 
-// Dialect defines the interface for database dialect-specific operations.
-// It mirrors the Dialect interface but is owned by tsq.
+// Dialect defines the operations tsq needs from a SQL dialect.
 type Dialect interface {
 	// Name returns the stable tsq dialect name.
 	Name() DialectName
@@ -112,6 +110,7 @@ type Dialect interface {
 	DDLAlterColumnStatements(table string, before, after DDLColumnSpec) []string
 }
 
+// Engine couples a *sql.DB with the dialect rules tsq should use for it.
 type Engine struct {
 	DB      *sql.DB
 	Dialect Dialect
@@ -195,13 +194,6 @@ func (e *Engine) ExecContext(ctx context.Context, query string, args ...any) (sq
 	res, err := e.DB.ExecContext(ctx, query, args...)
 
 	return res, errors.Trace(err)
-}
-
-// CreateTablesIfNotExists creates all tables if they don't exist.
-func (e *Engine) CreateTablesIfNotExists() error {
-	// This is typically used during initialization
-	// Implementation depends on registered tables
-	return nil
 }
 
 type mutationField struct {
@@ -779,50 +771,62 @@ func mutationFieldPointer(col SQLColumn, holder Table) (any, error) {
 // SQLiteDialect is the SQLite dialect implementation.
 type SQLiteDialect struct{}
 
+// QuoteField quotes an identifier for SQLite.
 func (d SQLiteDialect) QuoteField(f string) string {
 	return `"` + f + `"`
 }
 
+// BindVar returns SQLite's placeholder at position i.
 func (d SQLiteDialect) BindVar(i int) string {
 	return "?"
 }
 
+// CreateTableSuffix returns the SQLite CREATE TABLE suffix.
 func (d SQLiteDialect) CreateTableSuffix() string {
 	return ";"
 }
 
+// CreateIndexSuffix returns the SQLite CREATE INDEX suffix.
 func (d SQLiteDialect) CreateIndexSuffix() string {
 	return ";"
 }
 
+// DropIndexSuffix returns the SQLite DROP INDEX suffix.
 func (d SQLiteDialect) DropIndexSuffix() string {
 	return ";"
 }
 
+// TruncateClause returns the SQLite fallback used for truncation-like behavior.
 func (d SQLiteDialect) TruncateClause() string {
 	return "DELETE FROM"
 }
 
+// AutoIncrementClause returns SQLite's auto-increment column clause.
 func (d SQLiteDialect) AutoIncrementClause() string {
 	return "AUTOINCREMENT"
 }
 
+// AutoIncrementBindValue returns the bind-time auto-increment placeholder for SQLite.
 func (d SQLiteDialect) AutoIncrementBindValue() string {
 	return ""
 }
 
+// LastInsertIdReturningSuffix returns SQLite's RETURNING clause for generated ids.
 func (d SQLiteDialect) LastInsertIdReturningSuffix(table, col string) string {
 	return ""
 }
 
+// AllTablesQuery returns the SQLite query used to list tables.
 func (d SQLiteDialect) AllTablesQuery() string {
 	return "SELECT name FROM sqlite_master WHERE type='table'"
 }
 
+// CreateTableIfNotExistsSuffix returns SQLite's IF NOT EXISTS fragment.
 func (d SQLiteDialect) CreateTableIfNotExistsSuffix() string {
 	return "IF NOT EXISTS"
 }
 
+// HasConstraintsQuery returns the SQLite query used to inspect column constraints.
 func (d SQLiteDialect) HasConstraintsQuery(table, column string) string {
 	return ""
 }
@@ -830,50 +834,62 @@ func (d SQLiteDialect) HasConstraintsQuery(table, column string) string {
 // MySQLDialect is the MySQL dialect implementation.
 type MySQLDialect struct{}
 
+// QuoteField quotes an identifier for MySQL.
 func (d MySQLDialect) QuoteField(f string) string {
 	return "`" + f + "`"
 }
 
+// BindVar returns MySQL's placeholder at position i.
 func (d MySQLDialect) BindVar(i int) string {
 	return "?"
 }
 
+// CreateTableSuffix returns the MySQL CREATE TABLE suffix.
 func (d MySQLDialect) CreateTableSuffix() string {
 	return ";"
 }
 
+// CreateIndexSuffix returns the MySQL CREATE INDEX suffix.
 func (d MySQLDialect) CreateIndexSuffix() string {
 	return ";"
 }
 
+// DropIndexSuffix returns the MySQL DROP INDEX suffix.
 func (d MySQLDialect) DropIndexSuffix() string {
 	return ";"
 }
 
+// TruncateClause returns MySQL's TRUNCATE TABLE clause.
 func (d MySQLDialect) TruncateClause() string {
 	return "TRUNCATE"
 }
 
+// AutoIncrementClause returns MySQL's auto-increment column clause.
 func (d MySQLDialect) AutoIncrementClause() string {
 	return "AUTO_INCREMENT"
 }
 
+// AutoIncrementBindValue returns the bind-time auto-increment placeholder for MySQL.
 func (d MySQLDialect) AutoIncrementBindValue() string {
 	return ""
 }
 
+// LastInsertIdReturningSuffix returns the MySQL-specific suffix for generated ids.
 func (d MySQLDialect) LastInsertIdReturningSuffix(table, col string) string {
 	return ""
 }
 
+// AllTablesQuery returns the MySQL query used to list tables.
 func (d MySQLDialect) AllTablesQuery() string {
 	return "SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE()"
 }
 
+// CreateTableIfNotExistsSuffix returns MySQL's IF NOT EXISTS fragment.
 func (d MySQLDialect) CreateTableIfNotExistsSuffix() string {
 	return "IF NOT EXISTS"
 }
 
+// HasConstraintsQuery returns the MySQL query used to inspect column constraints.
 func (d MySQLDialect) HasConstraintsQuery(table, column string) string {
 	return ""
 }
@@ -881,51 +897,63 @@ func (d MySQLDialect) HasConstraintsQuery(table, column string) string {
 // PostgresDialect is the PostgreSQL dialect implementation.
 type PostgresDialect struct{}
 
+// QuoteField quotes an identifier for PostgreSQL.
 func (d PostgresDialect) QuoteField(f string) string {
 	return `"` + f + `"`
 }
 
+// BindVar returns PostgreSQL's placeholder at position i.
 func (d PostgresDialect) BindVar(i int) string {
 	// PostgreSQL uses $1, $2, etc for bind variables (1-indexed)
 	return "$" + strconv.Itoa(i+1)
 }
 
+// CreateTableSuffix returns the PostgreSQL CREATE TABLE suffix.
 func (d PostgresDialect) CreateTableSuffix() string {
 	return ";"
 }
 
+// CreateIndexSuffix returns the PostgreSQL CREATE INDEX suffix.
 func (d PostgresDialect) CreateIndexSuffix() string {
 	return ";"
 }
 
+// DropIndexSuffix returns the PostgreSQL DROP INDEX suffix.
 func (d PostgresDialect) DropIndexSuffix() string {
 	return ";"
 }
 
+// TruncateClause returns PostgreSQL's TRUNCATE TABLE clause.
 func (d PostgresDialect) TruncateClause() string {
 	return "TRUNCATE"
 }
 
+// AutoIncrementClause returns PostgreSQL's identity-column clause.
 func (d PostgresDialect) AutoIncrementClause() string {
 	return ""
 }
 
+// AutoIncrementBindValue returns the bind-time auto-increment placeholder for PostgreSQL.
 func (d PostgresDialect) AutoIncrementBindValue() string {
 	return ""
 }
 
+// LastInsertIdReturningSuffix returns PostgreSQL's RETURNING clause for generated ids.
 func (d PostgresDialect) LastInsertIdReturningSuffix(table, col string) string {
 	return " RETURNING " + d.QuoteField(col)
 }
 
+// AllTablesQuery returns the PostgreSQL query used to list tables.
 func (d PostgresDialect) AllTablesQuery() string {
 	return "SELECT tablename FROM pg_catalog.pg_tables WHERE schemaname != 'pg_catalog' AND schemaname != 'information_schema'"
 }
 
+// CreateTableIfNotExistsSuffix returns PostgreSQL's IF NOT EXISTS fragment.
 func (d PostgresDialect) CreateTableIfNotExistsSuffix() string {
 	return "IF NOT EXISTS"
 }
 
+// HasConstraintsQuery returns the PostgreSQL query used to inspect column constraints.
 func (d PostgresDialect) HasConstraintsQuery(table, column string) string {
 	return ""
 }
@@ -954,13 +982,4 @@ func WrapExecutor(exec SQLExecutor, dialect Dialect) SQLExecutor {
 		SQLExecutor: exec,
 		dialect:     dialect,
 	}
-}
-
-// WrapEngineExecutor wraps a SQLExecutor with dialect from Engine.
-func WrapEngineExecutor(exec SQLExecutor, engine *Engine) SQLExecutor {
-	if engine == nil {
-		return exec
-	}
-
-	return WrapExecutor(exec, engine.Dialect)
 }

@@ -3,12 +3,12 @@ package cmd
 import (
 	"testing"
 
-	"github.com/tmoeish/tsq"
+	"github.com/tmoeish/tsq/internal/genmodel"
 )
 
 func TestFieldToColReturnsUnquotedIdentifier(t *testing.T) {
-	info := &tsq.StructInfo{
-		FieldMap: map[string]tsq.FieldInfo{
+	info := &genmodel.StructInfo{
+		FieldMap: map[string]genmodel.FieldInfo{
 			"Name": {Column: "name"},
 		},
 	}
@@ -19,8 +19,8 @@ func TestFieldToColReturnsUnquotedIdentifier(t *testing.T) {
 }
 
 func TestFieldsToColsReturnsCommaSeparatedIdentifiers(t *testing.T) {
-	info := &tsq.StructInfo{
-		FieldMap: map[string]tsq.FieldInfo{
+	info := &genmodel.StructInfo{
+		FieldMap: map[string]genmodel.FieldInfo{
 			"Name":      {Column: "name"},
 			"DeletedAt": {Column: "deleted_at"},
 		},
@@ -32,25 +32,25 @@ func TestFieldsToColsReturnsCommaSeparatedIdentifiers(t *testing.T) {
 }
 
 func TestValidateManagedFieldsSupportsPointerAndNullTypes(t *testing.T) {
-	info := &tsq.StructInfo{
-		TableMeta: &tsq.TableMeta{
+	info := &genmodel.StructInfo{
+		TableMeta: &genmodel.TableMeta{
 			CreatedAtField: "CreatedAt",
 			UpdatedAtField: "UpdatedAt",
 			DeletedAtField: "DeletedAt",
 		},
-		FieldMap: map[string]tsq.FieldInfo{
+		FieldMap: map[string]genmodel.FieldInfo{
 			"CreatedAt": {
 				Name:      "CreatedAt",
-				Type:      tsq.TypeInfo{Package: tsq.PackageInfo{Path: "time", Name: "time"}, TypeName: "Time"},
+				Type:      genmodel.TypeInfo{Package: genmodel.PackageInfo{Path: "time", Name: "time"}, TypeName: "Time"},
 				IsPointer: true,
 			},
 			"UpdatedAt": {
 				Name: "UpdatedAt",
-				Type: tsq.TypeInfo{Package: tsq.PackageInfo{Path: "database/sql", Name: "sql"}, TypeName: "NullTime"},
+				Type: genmodel.TypeInfo{Package: genmodel.PackageInfo{Path: "database/sql", Name: "sql"}, TypeName: "NullTime"},
 			},
 			"DeletedAt": {
 				Name: "DeletedAt",
-				Type: tsq.TypeInfo{Package: tsq.PackageInfo{Path: "gopkg.in/nullbio/null.v6", Name: "null"}, TypeName: "Time"},
+				Type: genmodel.TypeInfo{Package: genmodel.PackageInfo{Path: "gopkg.in/nullbio/null.v6", Name: "null"}, TypeName: "Time"},
 			},
 		},
 	}
@@ -61,14 +61,14 @@ func TestValidateManagedFieldsSupportsPointerAndNullTypes(t *testing.T) {
 }
 
 func TestValidateManagedFieldsRejectsUnsupportedSoftDeleteType(t *testing.T) {
-	info := &tsq.StructInfo{
-		TableMeta: &tsq.TableMeta{
+	info := &genmodel.StructInfo{
+		TableMeta: &genmodel.TableMeta{
 			DeletedAtField: "DeletedAt",
 		},
-		FieldMap: map[string]tsq.FieldInfo{
+		FieldMap: map[string]genmodel.FieldInfo{
 			"DeletedAt": {
 				Name: "DeletedAt",
-				Type: tsq.TypeInfo{Package: tsq.PackageInfo{Path: "time", Name: "time"}, TypeName: "Time"},
+				Type: genmodel.TypeInfo{Package: genmodel.PackageInfo{Path: "time", Name: "time"}, TypeName: "Time"},
 			},
 		},
 	}
@@ -79,14 +79,14 @@ func TestValidateManagedFieldsRejectsUnsupportedSoftDeleteType(t *testing.T) {
 }
 
 func TestValidateManagedFieldsRejectsNarrowIntegerSoftDeleteType(t *testing.T) {
-	info := &tsq.StructInfo{
-		TableMeta: &tsq.TableMeta{
+	info := &genmodel.StructInfo{
+		TableMeta: &genmodel.TableMeta{
 			DeletedAtField: "DeletedAt",
 		},
-		FieldMap: map[string]tsq.FieldInfo{
+		FieldMap: map[string]genmodel.FieldInfo{
 			"DeletedAt": {
 				Name: "DeletedAt",
-				Type: tsq.TypeInfo{TypeName: "int8"},
+				Type: genmodel.TypeInfo{TypeName: "int8"},
 			},
 		},
 	}
@@ -97,24 +97,24 @@ func TestValidateManagedFieldsRejectsNarrowIntegerSoftDeleteType(t *testing.T) {
 }
 
 func TestValidateManagedFieldsRejectsNullableSoftDeleteUniqueIndexes(t *testing.T) {
-	info := &tsq.StructInfo{
-		TableMeta: &tsq.TableMeta{
+	info := &genmodel.StructInfo{
+		TableMeta: &genmodel.TableMeta{
 			DeletedAtField: "DeletedAt",
-			UxList:         []tsq.IndexInfo{{Name: "ux_name", Fields: []string{"Name"}}},
+			UxList:         []genmodel.IndexInfo{{Name: "ux_name", Fields: []string{"Name"}}},
 		},
-		TypeInfo: tsq.TypeInfo{TypeName: "User"},
-		FieldMap: map[string]tsq.FieldInfo{
+		TypeInfo: genmodel.TypeInfo{TypeName: "User"},
+		FieldMap: map[string]genmodel.FieldInfo{
 			"DeletedAt": {
 				Name:      "DeletedAt",
 				IsPointer: true,
-				Type: tsq.TypeInfo{
-					Package:  tsq.PackageInfo{Path: "time", Name: "time"},
+				Type: genmodel.TypeInfo{
+					Package:  genmodel.PackageInfo{Path: "time", Name: "time"},
 					TypeName: "Time",
 				},
 			},
 			"Name": {
 				Name: "Name",
-				Type: tsq.TypeInfo{TypeName: "string"},
+				Type: genmodel.TypeInfo{TypeName: "string"},
 			},
 		},
 	}
@@ -125,20 +125,20 @@ func TestValidateManagedFieldsRejectsNullableSoftDeleteUniqueIndexes(t *testing.
 }
 
 func TestValidateManagedFieldsAllowsIntegerSoftDeleteUniqueIndexes(t *testing.T) {
-	info := &tsq.StructInfo{
-		TableMeta: &tsq.TableMeta{
+	info := &genmodel.StructInfo{
+		TableMeta: &genmodel.TableMeta{
 			DeletedAtField: "DeletedAt",
-			UxList:         []tsq.IndexInfo{{Name: "ux_name", Fields: []string{"Name"}}},
+			UxList:         []genmodel.IndexInfo{{Name: "ux_name", Fields: []string{"Name"}}},
 		},
-		TypeInfo: tsq.TypeInfo{TypeName: "User"},
-		FieldMap: map[string]tsq.FieldInfo{
+		TypeInfo: genmodel.TypeInfo{TypeName: "User"},
+		FieldMap: map[string]genmodel.FieldInfo{
 			"DeletedAt": {
 				Name: "DeletedAt",
-				Type: tsq.TypeInfo{TypeName: "int64"},
+				Type: genmodel.TypeInfo{TypeName: "int64"},
 			},
 			"Name": {
 				Name: "Name",
-				Type: tsq.TypeInfo{TypeName: "string"},
+				Type: genmodel.TypeInfo{TypeName: "string"},
 			},
 		},
 	}
@@ -149,15 +149,15 @@ func TestValidateManagedFieldsAllowsIntegerSoftDeleteUniqueIndexes(t *testing.T)
 }
 
 func TestFieldTypeUsesGeneratedAliasesForStdlibPackages(t *testing.T) {
-	sqlField := tsq.FieldInfo{
-		Type: tsq.TypeInfo{
-			Package:  tsq.PackageInfo{Path: "database/sql", Name: "sql1"},
+	sqlField := genmodel.FieldInfo{
+		Type: genmodel.TypeInfo{
+			Package:  genmodel.PackageInfo{Path: "database/sql", Name: "sql1"},
 			TypeName: "NullTime",
 		},
 	}
-	timeField := tsq.FieldInfo{
-		Type: tsq.TypeInfo{
-			Package:  tsq.PackageInfo{Path: "time", Name: "time1"},
+	timeField := genmodel.FieldInfo{
+		Type: genmodel.TypeInfo{
+			Package:  genmodel.PackageInfo{Path: "time", Name: "time1"},
 			TypeName: "Time",
 		},
 	}
@@ -172,24 +172,24 @@ func TestFieldTypeUsesGeneratedAliasesForStdlibPackages(t *testing.T) {
 }
 
 func TestFieldTypePreservesPointerAndSliceModifiers(t *testing.T) {
-	ptrField := tsq.FieldInfo{
+	ptrField := genmodel.FieldInfo{
 		IsPointer: true,
-		Type: tsq.TypeInfo{
-			Package:  tsq.PackageInfo{Path: "time", Name: "time"},
+		Type: genmodel.TypeInfo{
+			Package:  genmodel.PackageInfo{Path: "time", Name: "time"},
 			TypeName: "Time",
 		},
 	}
-	sliceField := tsq.FieldInfo{
+	sliceField := genmodel.FieldInfo{
 		IsArray: true,
-		Type: tsq.TypeInfo{
+		Type: genmodel.TypeInfo{
 			TypeName: "int64",
 		},
 	}
-	slicePtrField := tsq.FieldInfo{
+	slicePtrField := genmodel.FieldInfo{
 		IsArray:   true,
 		IsPointer: true,
-		Type: tsq.TypeInfo{
-			Package:  tsq.PackageInfo{Path: "example.com/pkg", Name: "pkg"},
+		Type: genmodel.TypeInfo{
+			Package:  genmodel.PackageInfo{Path: "example.com/pkg", Name: "pkg"},
 			TypeName: "Thing",
 		},
 	}
@@ -242,18 +242,18 @@ func TestFieldVarNameAvoidsGoKeywords(t *testing.T) {
 }
 
 func TestTimestampNowValueUsesGeneratedAliases(t *testing.T) {
-	sqlField := tsq.FieldInfo{
+	sqlField := genmodel.FieldInfo{
 		Name: "UpdatedAt",
-		Type: tsq.TypeInfo{
-			Package:  tsq.PackageInfo{Path: "database/sql", Name: "sql"},
+		Type: genmodel.TypeInfo{
+			Package:  genmodel.PackageInfo{Path: "database/sql", Name: "sql"},
 			TypeName: "NullTime",
 		},
 	}
-	timePtrField := tsq.FieldInfo{
+	timePtrField := genmodel.FieldInfo{
 		Name:      "CreatedAt",
 		IsPointer: true,
-		Type: tsq.TypeInfo{
-			Package:  tsq.PackageInfo{Path: "time", Name: "time"},
+		Type: genmodel.TypeInfo{
+			Package:  genmodel.PackageInfo{Path: "time", Name: "time"},
 			TypeName: "Time",
 		},
 	}

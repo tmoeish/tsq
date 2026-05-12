@@ -114,6 +114,7 @@ func pred[O Owner](cond Cond) Pred[O] {
 	return Pred[O]{Cond: cond}
 }
 
+// Tables returns the tables referenced by the condition, keyed by logical table name.
 func (c Cond) Tables() map[string]Table {
 	return c.tables
 }
@@ -128,6 +129,7 @@ func (c Cond) rawClause() string {
 	return c.expr
 }
 
+// Args returns the bind arguments captured by the condition.
 func (c Cond) Args() []any {
 	return append([]any(nil), c.args...)
 }
@@ -625,7 +627,7 @@ func validatePredicateFormat(op string, placeholderCount int) error {
 // 表达式类型和辅助函数
 // ================================================
 
-// Expression interface for SQL expressions
+// Expression represents a SQL fragment plus the args needed to render it safely.
 type Expression interface {
 	Expr() string
 	Args() []any
@@ -710,6 +712,7 @@ type rawExpression struct {
 func (r rawExpression) Expr() string { return r.expr }
 func (r rawExpression) Args() []any  { return append([]any(nil), r.args...) }
 
+// Bind returns a parameterized expression for value.
 func Bind(value any) Expression {
 	if err := validatePredicateValue(value); err != nil {
 		return expressionError{err: errors.Trace(err)}
@@ -718,10 +721,12 @@ func Bind(value any) Expression {
 	return rawExpression{expr: "?", args: []any{value}}
 }
 
+// BindSlice returns a comma-separated placeholder list for a slice value.
 func BindSlice(values any) Expression {
 	return newValuesExpression(values)
 }
 
+// Literal returns an inline SQL literal expression for value.
 func Literal(value any) Expression {
 	expr, err := literalValue(value)
 	if err != nil {

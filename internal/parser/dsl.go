@@ -7,7 +7,7 @@ import (
 	"github.com/juju/errors"
 	"github.com/serenize/snaker"
 
-	"github.com/tmoeish/tsq"
+	"github.com/tmoeish/tsq/internal/genmodel"
 )
 
 // ========== DSL AST 解析器实现 ========== //
@@ -472,14 +472,14 @@ func getTokenTypeName(tt TokenType) string {
 	}
 }
 
-// genTableInfoFromAST 将 AST 映射到 tsq.TableMeta
+// genTableInfoFromAST 将 AST 映射到 genmodel.TableMeta
 func genTableInfoFromAST(
 	name string,
 	ast DSLObject,
 	isTable bool,
 	structFields map[string]struct{},
-) (*tsq.TableMeta, error) {
-	info := &tsq.TableMeta{
+) (*genmodel.TableMeta, error) {
+	info := &genmodel.TableMeta{
 		IsResult: !isTable,
 	}
 
@@ -560,7 +560,7 @@ func genTableInfoFromAST(
 					return nil, NewDSLArrayEntryTypeError(k, "object with fields=[...]", node)
 				}
 
-				idx := tsq.IndexInfo{}
+				idx := genmodel.IndexInfo{}
 
 				for k2, v2 := range obj {
 					switch k2 {
@@ -609,7 +609,7 @@ func genTableInfoFromAST(
 					return nil, NewDSLArrayEntryTypeError(k, "object with fields=[...]", node)
 				}
 
-				idx := tsq.IndexInfo{}
+				idx := genmodel.IndexInfo{}
 
 				for k2, v2 := range obj {
 					switch k2 {
@@ -688,7 +688,7 @@ func defaultIndexName(prefix, table string, fields []string) string {
 	return strings.Join(parts, "_")
 }
 
-func normalizeIndexNames(indexes []tsq.IndexInfo, prefix, table string) {
+func normalizeIndexNames(indexes []genmodel.IndexInfo, prefix, table string) {
 	for i := range indexes {
 		switch {
 		case indexes[i].Name == "":
@@ -702,7 +702,7 @@ func normalizeIndexNames(indexes []tsq.IndexInfo, prefix, table string) {
 }
 
 // validateTableInfoAgainstStruct 校验 DSL 字段和索引
-func validateTableInfoAgainstStruct(info *tsq.TableMeta, structFields map[string]struct{}, structName string) error {
+func validateTableInfoAgainstStruct(info *genmodel.TableMeta, structFields map[string]struct{}, structName string) error {
 	// 1. 字段存在性校验
 	for _, field := range []string{info.PK, info.VersionField, info.CreatedAtField, info.UpdatedAtField, info.DeletedAtField} {
 		if field != "" && structFields != nil {

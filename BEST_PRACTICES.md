@@ -175,20 +175,20 @@ if errors.As(err, &unknownField) {
 
 不要把可排序字段留给调用方猜。
 
-## 6. SQL cache
+## 6. 查询构建复用
 
-### 6.1 只有在高频构建场景再打开缓存
+### 6.1 高频场景优先复用已构建的 `Query`
 
 ```go
-cache := tsq.NewSQLRenderCache(tsq.SQLCacheConfig{
-	Enabled: true,
-	MaxSize: 1000,
-})
+query, err := tsq.Select(User_ID, User_Name).
+	From(TableUser).
+	Where(User_Status.EQ("active")).
+	Build()
 ```
 
-### 6.2 监控命中率
+### 6.2 不要在热路径里重复 `Build()`
 
-如果命中率很低，缓存可能只是增加复杂度。
+稳定查询形状应当在初始化阶段或循环外构建一次，然后重复执行。
 
 ## 7. 生产环境建议
 

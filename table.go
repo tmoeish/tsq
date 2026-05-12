@@ -15,34 +15,47 @@ import (
 // 表注册和管理
 // ================================================
 
-// RegistrationErrorType describes the kind of registration error
+// RegistrationErrorType identifies a table-registration failure category.
 type RegistrationErrorType string
 
 const (
-	RegistrationErrorNilTable    RegistrationErrorType = "nil_table"
-	RegistrationErrorNilAddFunc  RegistrationErrorType = "nil_add_func"
+	// RegistrationErrorNilTable means RegisterTable received a nil table.
+	RegistrationErrorNilTable RegistrationErrorType = "nil_table"
+	// RegistrationErrorNilInitFunc means RegisterTable received a nil init hook.
 	RegistrationErrorNilInitFunc RegistrationErrorType = "nil_init_func"
-	RegistrationErrorDuplicate   RegistrationErrorType = "duplicate"
-	RegistrationErrorNilRuntime  RegistrationErrorType = "nil_runtime"
+	// RegistrationErrorDuplicate means the same table key was registered twice.
+	RegistrationErrorDuplicate RegistrationErrorType = "duplicate"
+	// RegistrationErrorNilRuntime means a method was called on a nil runtime.
+	RegistrationErrorNilRuntime RegistrationErrorType = "nil_runtime"
 )
 
+// IndexInitMode controls how tsq handles declared indexes during Init.
 type IndexInitMode string
 
 const (
-	IndexInitSkip     IndexInitMode = "skip"
-	IndexInitUpsert   IndexInitMode = "upsert"
+	// IndexInitSkip leaves declared indexes untouched.
+	IndexInitSkip IndexInitMode = "skip"
+	// IndexInitUpsert creates missing declared indexes when possible.
+	IndexInitUpsert IndexInitMode = "upsert"
+	// IndexInitValidate fails when a declared index is missing or mismatched.
 	IndexInitValidate IndexInitMode = "validate"
 )
 
+// SchemaEventKind classifies emitted schema events.
 type SchemaEventKind string
 
 const (
-	SchemaEventCreateTable   SchemaEventKind = "create_table"
-	SchemaEventCreateIndex   SchemaEventKind = "create_index"
+	// SchemaEventCreateTable reports table creation.
+	SchemaEventCreateTable SchemaEventKind = "create_table"
+	// SchemaEventCreateIndex reports index creation.
+	SchemaEventCreateIndex SchemaEventKind = "create_index"
+	// SchemaEventValidateIndex reports successful index validation.
 	SchemaEventValidateIndex SchemaEventKind = "validate_index"
-	SchemaEventSkipIndex     SchemaEventKind = "skip_index"
+	// SchemaEventSkipIndex reports that index work was skipped.
+	SchemaEventSkipIndex SchemaEventKind = "skip_index"
 )
 
+// SchemaEvent reports a schema action performed or skipped during Init.
 type SchemaEvent struct {
 	Kind  SchemaEventKind
 	Table string
@@ -50,6 +63,7 @@ type SchemaEvent struct {
 	SQL   string
 }
 
+// ErrIndexMissing reports that an expected index was not found.
 type ErrIndexMissing struct {
 	Table  string
 	Name   string
@@ -57,6 +71,7 @@ type ErrIndexMissing struct {
 	Unique bool
 }
 
+// Error implements error.
 func (e *ErrIndexMissing) Error() string {
 	if e == nil {
 		return ""
@@ -70,30 +85,31 @@ func (e *ErrIndexMissing) Error() string {
 	)
 }
 
-// RegistrationError represents an error that occurred during table registration
+// RegistrationError reports a table-registration failure.
 type RegistrationError struct {
 	Type      RegistrationErrorType
 	TableName string
 	Message   string
 }
 
+// Error implements error.
 func (e *RegistrationError) Error() string {
 	return e.Message
 }
 
-type Registry struct {
+type registry struct {
 	mu     sync.RWMutex
-	tables map[string]*RegisteredTable
+	tables map[string]*registeredTable
 }
 
-func NewRegistry() *Registry {
-	return &Registry{
-		tables: make(map[string]*RegisteredTable),
+func newRegistry() *registry {
+	return &registry{
+		tables: make(map[string]*registeredTable),
 	}
 }
 
+// InitOptions controls runtime initialization behavior.
 type InitOptions struct {
-	AutoCreateTables   bool
 	UpsertIndexes      bool
 	IndexMode          IndexInitMode
 	Tracers            []Tracer
@@ -114,7 +130,7 @@ func RegisterTable(
 	return defaultRuntime.RegisterTable(table, initFunc)
 }
 
-func (r *Registry) Register(
+func (r *registry) Register(
 	table Table,
 	initFunc func(db *Engine) error,
 ) error {
@@ -145,7 +161,7 @@ func (r *Registry) Register(
 		}
 	}
 
-	r.tables[key] = &RegisteredTable{
+	r.tables[key] = &registeredTable{
 		Table:    table,
 		InitFunc: initFunc,
 	}
@@ -153,7 +169,7 @@ func (r *Registry) Register(
 	return nil
 }
 
-type RegisteredTable struct {
+type registeredTable struct {
 	Table
 	InitFunc func(db *Engine) error
 }
@@ -179,16 +195,12 @@ type Table interface {
 // 数据库初始化
 // ================================================
 
-// Init initializes the database with all registered tables and creates tables/indexes if needed
-func Init(
-	db *Engine,
-	autoCreateTable bool,
-	upsertIndexies bool,
-	tracer ...Tracer,
-) error {
-	return defaultRuntime.Init(db, autoCreateTable, upsertIndexies, tracer...)
+// Init initializes indexes and tracers for the default runtime.
+func Init(db *Engine, upsertIndexes bool, tracers ...Tracer) error {
+	return defaultRuntime.Init(db, upsertIndexes, tracers...)
 }
 
+// InitWithOptions initializes the default runtime with explicit options.
 func InitWithOptions(db *Engine, options *InitOptions) error {
 	return defaultRuntime.InitWithOptions(db, options)
 }
@@ -205,11 +217,11 @@ func registeredTableKey(table Table) string {
 	return table.Table()
 }
 
-func snapshotRegisteredTables() []*RegisteredTable {
+func snapshotRegisteredTables() []*registeredTable {
 	return defaultRuntime.snapshotRegisteredTables()
 }
 
-func (r *Registry) Snapshot() []*RegisteredTable {
+func (r *registry) Snapshot() []*registeredTable {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -220,7 +232,7 @@ func (r *Registry) Snapshot() []*RegisteredTable {
 
 	sort.Strings(names)
 
-	result := make([]*RegisteredTable, 0, len(names))
+	result := make([]*registeredTable, 0, len(names))
 	for _, name := range names {
 		result = append(result, r.tables[name])
 	}

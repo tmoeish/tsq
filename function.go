@@ -45,7 +45,7 @@ func (c ColumnImpl[Owner, T]) Fn(format string) ColumnImpl[Owner, T] {
 	}
 }
 
-// FnRaw fn 不带参数
+// FnRaw returns a raw SQL expression that does not format the receiver column into it.
 func (c ColumnImpl[Owner, T]) FnRaw(fn string) ColumnImpl[Owner, T] {
 	if strings.TrimSpace(fn) == "" {
 		c.buildErr = errors.New("function expression cannot be empty")
@@ -78,6 +78,7 @@ func (c ColumnImpl[Owner, T]) FnRaw(fn string) ColumnImpl[Owner, T] {
 	}
 }
 
+// FnExpr formats the receiver column plus extra SQL expressions into format.
 func (c ColumnImpl[Owner, T]) FnExpr(format string, args ...any) ColumnImpl[Owner, T] {
 	if strings.TrimSpace(format) == "" {
 		c.buildErr = errors.New("function format cannot be empty")

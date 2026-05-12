@@ -14,10 +14,11 @@ import (
 	"mvdan.cc/gofumpt/format"
 
 	"github.com/tmoeish/tsq"
+	"github.com/tmoeish/tsq/internal/genmodel"
 )
 
 type generationModel struct {
-	Data       *tsq.StructInfo
+	Data       *genmodel.StructInfo
 	Template   *template.Template
 	Filename   string
 	ErrorLabel string
@@ -45,7 +46,7 @@ type generationStats struct {
 }
 
 func buildGenerationModels(
-	list []*tsq.StructInfo,
+	list []*genmodel.StructInfo,
 	dir string,
 	tableTpl *template.Template,
 	resultTpl *template.Template,
@@ -62,7 +63,7 @@ func buildGenerationModels(
 		return nil, errors.Trace(err)
 	}
 
-	structsByName := make(map[string]*tsq.StructInfo, len(list))
+	structsByName := make(map[string]*genmodel.StructInfo, len(list))
 	for _, s := range list {
 		structsByName[s.TypeInfo.TypeName] = s
 	}

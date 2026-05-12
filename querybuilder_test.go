@@ -119,7 +119,7 @@ func TestQueryBuilder_LeftJoin(t *testing.T) {
 	}
 
 	join := qb.spec.Joins[0]
-	if join.joinType != LeftJoinType {
+	if join.joinType != leftJoinType {
 		t.Errorf("Expected LEFT JOIN, got %s", join.joinType)
 	}
 
@@ -150,7 +150,7 @@ func TestQueryBuilder_InnerJoin(t *testing.T) {
 		t.Errorf("Expected 1 join, got %d", len(qb.spec.Joins))
 	}
 
-	if qb.spec.Joins[0].joinType != InnerJoinType {
+	if qb.spec.Joins[0].joinType != innerJoinType {
 		t.Errorf("Expected INNER JOIN, got %s", qb.spec.Joins[0].joinType)
 	}
 }
@@ -168,7 +168,7 @@ func TestQueryBuilder_RightJoin(t *testing.T) {
 		t.Errorf("Expected 1 join, got %d", len(qb.spec.Joins))
 	}
 
-	if qb.spec.Joins[0].joinType != RightJoinType {
+	if qb.spec.Joins[0].joinType != rightJoinType {
 		t.Errorf("Expected RIGHT JOIN, got %s", qb.spec.Joins[0].joinType)
 	}
 }
@@ -186,7 +186,7 @@ func TestQueryBuilder_FullJoin(t *testing.T) {
 		t.Errorf("Expected 1 join, got %d", len(qb.spec.Joins))
 	}
 
-	if qb.spec.Joins[0].joinType != FullJoinType {
+	if qb.spec.Joins[0].joinType != fullJoinType {
 		t.Errorf("Expected FULL JOIN, got %s", qb.spec.Joins[0].joinType)
 	}
 }
@@ -204,7 +204,7 @@ func TestQueryBuilder_CrossJoin(t *testing.T) {
 	}
 
 	join := qb.spec.Joins[0]
-	if join.joinType != CrossJoinType {
+	if join.joinType != crossJoinType {
 		t.Errorf("Expected CROSS JOIN, got %s", join.joinType)
 	}
 
@@ -248,7 +248,7 @@ func TestQueryBuilder_Union(t *testing.T) {
 		t.Fatalf("expected 1 set operation, got %d", len(qb.spec.SetOps))
 	}
 
-	if qb.spec.SetOps[0].op != UnionType {
+	if qb.spec.SetOps[0].op != unionType {
 		t.Fatalf("expected UNION operation, got %s", qb.spec.SetOps[0].op)
 	}
 }
@@ -305,8 +305,8 @@ func TestQueryBuilder_SetOperationBuildsWrappedCountSQL(t *testing.T) {
 	}
 
 	wantCount := `SELECT COUNT(1) FROM (` + wantList + `) AS _tsq_cnt`
-	if query.CntSQL() != wantCount {
-		t.Fatalf("expected count SQL %q, got %q", wantCount, query.CntSQL())
+	if query.CountSQL() != wantCount {
+		t.Fatalf("expected count SQL %q, got %q", wantCount, query.CountSQL())
 	}
 }
 
@@ -328,8 +328,8 @@ func TestQueryBuilder_CTEBuildsWithClause(t *testing.T) {
 	}
 
 	wantCount := `WITH "active_users" AS (SELECT "users"."id", "users"."name" FROM "users" WHERE "users"."id" > ?) SELECT COUNT(1) FROM "active_users"`
-	if query.CntSQL() != wantCount {
-		t.Fatalf("expected CTE count SQL %q, got %q", wantCount, query.CntSQL())
+	if query.CountSQL() != wantCount {
+		t.Fatalf("expected CTE count SQL %q, got %q", wantCount, query.CountSQL())
 	}
 }
 
@@ -518,16 +518,16 @@ func TestQueryBuilder_KwSearch(t *testing.T) {
 	}
 }
 
-func TestJoinType_Constants(t *testing.T) {
+func TestJoinTypeConstants(t *testing.T) {
 	tests := []struct {
-		joinType JoinType
+		joinType joinType
 		expected string
 	}{
-		{LeftJoinType, "LEFT JOIN"},
-		{InnerJoinType, "INNER JOIN"},
-		{RightJoinType, "RIGHT JOIN"},
-		{FullJoinType, "FULL JOIN"},
-		{CrossJoinType, "CROSS JOIN"},
+		{leftJoinType, "LEFT JOIN"},
+		{innerJoinType, "INNER JOIN"},
+		{rightJoinType, "RIGHT JOIN"},
+		{fullJoinType, "FULL JOIN"},
+		{crossJoinType, "CROSS JOIN"},
 	}
 
 	for _, tt := range tests {
@@ -608,8 +608,8 @@ func TestQueryBuilder_GroupedCountUsesWrappedSubquery(t *testing.T) {
 	}
 
 	wantCount := "SELECT COUNT(1) FROM (" + wantList + ") AS _tsq_cnt"
-	if query.CntSQL() != wantCount {
-		t.Fatalf("expected count SQL %q, got %q", wantCount, query.CntSQL())
+	if query.CountSQL() != wantCount {
+		t.Fatalf("expected count SQL %q, got %q", wantCount, query.CountSQL())
 	}
 }
 
@@ -625,8 +625,8 @@ func TestQueryBuilder_DistinctCountUsesWrappedSubquery(t *testing.T) {
 	}
 
 	wantCount := "SELECT COUNT(1) FROM (" + wantList + ") AS _tsq_cnt"
-	if query.CntSQL() != wantCount {
-		t.Fatalf("expected count SQL %q, got %q", wantCount, query.CntSQL())
+	if query.CountSQL() != wantCount {
+		t.Fatalf("expected count SQL %q, got %q", wantCount, query.CountSQL())
 	}
 }
 
@@ -642,8 +642,8 @@ func TestQueryBuilder_AggregateCountUsesWrappedSubquery(t *testing.T) {
 	}
 
 	wantCount := "SELECT COUNT(1) FROM (" + wantList + ") AS _tsq_cnt"
-	if query.CntSQL() != wantCount {
-		t.Fatalf("expected count SQL %q, got %q", wantCount, query.CntSQL())
+	if query.CountSQL() != wantCount {
+		t.Fatalf("expected count SQL %q, got %q", wantCount, query.CountSQL())
 	}
 }
 

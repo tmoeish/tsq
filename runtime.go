@@ -13,40 +13,21 @@ import (
 // initialization, and tracing. Applications that need isolation can create a
 // dedicated Runtime instead of relying on the package-level defaults.
 type Runtime struct {
-	registry     *Registry
-	traceManager *TraceManager
+	registry     *registry
+	traceManager *traceManager
 	initMu       sync.Mutex
 	db           *Engine // Stored after InitWithOptions for dialect access
 }
 
+// NewRuntime creates an isolated runtime with its own registrations and tracers.
 func NewRuntime() *Runtime {
 	return &Runtime{
-		registry:     NewRegistry(),
-		traceManager: NewTraceManager(),
+		registry:     newRegistry(),
+		traceManager: newTraceManager(),
 	}
 }
 
 var defaultRuntime = NewRuntime()
-
-func DefaultRuntime() *Runtime {
-	return defaultRuntime
-}
-
-func (r *Runtime) Registry() *Registry {
-	if r == nil {
-		return nil
-	}
-
-	return r.registry
-}
-
-func (r *Runtime) TraceManager() *TraceManager {
-	if r == nil {
-		return nil
-	}
-
-	return r.traceManager
-}
 
 // CurrentDB returns the current Engine if Init has been called.
 // Returns nil if Init has not been called or if runtime is nil.
@@ -68,21 +49,19 @@ func (r *Runtime) CurrentDialect() DialectName {
 	return r.db.Dialect.Name()
 }
 
+// RegisterTable registers a table and its index-initialization hook on this runtime.
 func (r *Runtime) RegisterTable(
 	table Table,
 	initFunc func(db *Engine) error,
 ) error {
 	if r == nil {
-		return errors.Trace(&RegistrationError{
-			Type:    RegistrationErrorNilRuntime,
-			Message: "runtime cannot be nil",
-		})
+		return errors.Trace(&RegistrationError{Type: RegistrationErrorNilRuntime, Message: "runtime cannot be nil"})
 	}
 
 	return errors.Trace(r.registry.Register(table, initFunc))
 }
 
-func (r *Runtime) snapshotRegisteredTables() []*RegisteredTable {
+func (r *Runtime) snapshotRegisteredTables() []*registeredTable {
 	if r == nil {
 		return nil
 	}
@@ -90,19 +69,15 @@ func (r *Runtime) snapshotRegisteredTables() []*RegisteredTable {
 	return r.registry.Snapshot()
 }
 
-func (r *Runtime) Init(
-	db *Engine,
-	autoCreateTable bool,
-	upsertIndexies bool,
-	tracer ...Tracer,
-) error {
+// Init initializes indexes and tracers for the runtime using the convenience options.
+func (r *Runtime) Init(db *Engine, upsertIndexes bool, tracers ...Tracer) error {
 	return errors.Trace(r.InitWithOptions(db, &InitOptions{
-		AutoCreateTables: autoCreateTable,
-		UpsertIndexes:    upsertIndexies,
-		Tracers:          tracer,
+		UpsertIndexes: upsertIndexes,
+		Tracers:       tracers,
 	}))
 }
 
+// InitWithOptions initializes indexes and runtime state using explicit options.
 func (r *Runtime) InitWithOptions(db *Engine, options *InitOptions) error {
 	if r == nil {
 		return errors.New("runtime cannot be nil")
@@ -156,13 +131,6 @@ func (r *Runtime) InitWithOptions(db *Engine, options *InitOptions) error {
 		}
 	}
 
-	if options.AutoCreateTables {
-		if err := db.CreateTablesIfNotExists(); err != nil {
-			r.traceManager.restore(rollbackTracers)
-			return errors.Annotate(err, "failed to create tables")
-		}
-	}
-
 	if indexMode != IndexInitSkip {
 		for _, table := range registeredTables {
 			if err := table.InitFunc(db); err != nil {
@@ -175,6 +143,7 @@ func (r *Runtime) InitWithOptions(db *Engine, options *InitOptions) error {
 	return nil
 }
 
+// AddTracer adds a tracer to this runtime.
 func (r *Runtime) AddTracer(tracer Tracer) {
 	if r == nil {
 		return
@@ -183,6 +152,7 @@ func (r *Runtime) AddTracer(tracer Tracer) {
 	r.traceManager.Add(tracer)
 }
 
+// ClearTracers removes all tracers from this runtime.
 func (r *Runtime) ClearTracers() {
 	if r == nil {
 		return
@@ -191,6 +161,7 @@ func (r *Runtime) ClearTracers() {
 	r.traceManager.Clear()
 }
 
+// GetTracers returns a snapshot of this runtime's tracers.
 func (r *Runtime) GetTracers() []Tracer {
 	if r == nil {
 		return nil
@@ -199,6 +170,7 @@ func (r *Runtime) GetTracers() []Tracer {
 	return r.traceManager.Get()
 }
 
+// Trace executes fn with this runtime's tracers applied.
 func (r *Runtime) Trace(ctx context.Context, fn func(ctx context.Context) error) error {
 	if r == nil {
 		return errors.New("runtime cannot be nil")
@@ -207,7 +179,7 @@ func (r *Runtime) Trace(ctx context.Context, fn func(ctx context.Context) error)
 	return r.traceManager.Trace(ctx, fn)
 }
 
-func Trace1WithRuntime[T any](r *Runtime, ctx context.Context, fn func(ctx context.Context) (T, error)) (T, error) {
+func trace1WithRuntime[T any](r *Runtime, ctx context.Context, fn func(ctx context.Context) (T, error)) (T, error) {
 	if r == nil {
 		var zero T
 		return zero, errors.New("runtime cannot be nil")

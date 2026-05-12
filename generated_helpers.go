@@ -1,11 +1,12 @@
-// Package tsq provides type-safe SQL query helpers and code generation utilities.
 package tsq
 
+// InputOrderMatch groups rows reordered to match caller input and the missing keys.
 type InputOrderMatch[T any, K comparable] struct {
 	Ordered []*T
 	Missing []K
 }
 
+// MatchByInputOrder reorders rows to match inputs and reports which keys were missing.
 func MatchByInputOrder[T any, K comparable](inputs []K, rows []*T, key func(*T) K) InputOrderMatch[T, K] {
 	index := make(map[K]*T, len(rows))
 

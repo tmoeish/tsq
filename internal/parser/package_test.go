@@ -10,7 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/tmoeish/tsq"
+	"github.com/tmoeish/tsq/internal/genmodel"
 )
 
 func Test_parsePackageAliases(t *testing.T) {
@@ -222,36 +222,36 @@ func TestFilterAndProcessResultsOnlyReturnsTargetPackageStructs(t *testing.T) {
 		t.Fatalf("importBuildPackage returned error: %v", err)
 	}
 
-	targetPkg := tsq.PackageInfo{
+	targetPkg := genmodel.PackageInfo{
 		Path: buildPkg.ImportPath,
 		Name: buildPkg.Name,
 	}
-	dependencyPkg := tsq.PackageInfo{
+	dependencyPkg := genmodel.PackageInfo{
 		Path: "example.com/dependency",
 		Name: "dependency",
 	}
 
-	targetType := tsq.TypeInfo{Package: targetPkg, TypeName: "Target"}
-	dependencyType := tsq.TypeInfo{Package: dependencyPkg, TypeName: "Dependency"}
+	targetType := genmodel.TypeInfo{Package: targetPkg, TypeName: "Target"}
+	dependencyType := genmodel.TypeInfo{Package: dependencyPkg, TypeName: "Dependency"}
 
 	ps := &ParseState{
-		structMap: map[tsq.TypeInfo]*StructInfo{
+		structMap: map[genmodel.TypeInfo]*StructInfo{
 			targetType: {
-				StructInfo: &tsq.StructInfo{
-					TableMeta: &tsq.TableMeta{Table: "targets"},
+				StructInfo: &genmodel.StructInfo{
+					TableMeta: &genmodel.TableMeta{Table: "targets"},
 					TypeInfo:  targetType,
-					FieldMap: map[string]tsq.FieldInfo{
-						"PK": {Name: "PK", Type: tsq.TypeInfo{TypeName: "int64"}},
+					FieldMap: map[string]genmodel.FieldInfo{
+						"PK": {Name: "PK", Type: genmodel.TypeInfo{TypeName: "int64"}},
 					},
 					Recv: "t",
 				},
 			},
 			dependencyType: {
-				StructInfo: &tsq.StructInfo{
-					TableMeta: &tsq.TableMeta{Table: "dependencies"},
+				StructInfo: &genmodel.StructInfo{
+					TableMeta: &genmodel.TableMeta{Table: "dependencies"},
 					TypeInfo:  dependencyType,
-					FieldMap: map[string]tsq.FieldInfo{
-						"PK": {Name: "PK", Type: tsq.TypeInfo{TypeName: "int64"}},
+					FieldMap: map[string]genmodel.FieldInfo{
+						"PK": {Name: "PK", Type: genmodel.TypeInfo{TypeName: "int64"}},
 					},
 					Recv: "d",
 				},

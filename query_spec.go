@@ -444,7 +444,7 @@ func (spec QuerySpec[O]) buildFrom() (string, []any) {
 	includedTables[spec.From.Table()] = true
 
 	for _, item := range spec.Joins {
-		if item.joinType == CrossJoinType {
+		if item.joinType == crossJoinType {
 			if includedTables[item.table.Table()] {
 				continue
 			}
@@ -746,7 +746,7 @@ func (spec QuerySpec[O]) validateJoinGraph() error {
 		}
 
 		switch item.joinType {
-		case CrossJoinType:
+		case crossJoinType:
 			tableName := item.table.Table()
 			if _, exists := introduced[tableName]; exists {
 				return errors.Errorf("table %s is already present in join graph", tableName)

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tmoeish/tsq"
+	"github.com/tmoeish/tsq/internal/genmodel"
 )
 
 func TestTokenize(t *testing.T) {
@@ -714,15 +714,15 @@ func Test_validateTableInfoAgainstStruct(t *testing.T) {
 		"id": {}, "name": {}, "age": {}, "email": {}, "created": {}, "updated": {},
 	}
 	// 1. 字段不存在
-	info := &tsq.TableMeta{PK: "not_exist"}
+	info := &genmodel.TableMeta{PK: "not_exist"}
 
 	err := validateTableInfoAgainstStruct(info, structFields, "User")
 	if err == nil || !IsErrorType(err, ErrorTypeDSLFieldNotFound) {
 		t.Errorf("should detect field not found, got: %v", err)
 	}
 	// 2. ux/idx fields 内部有重复
-	info = &tsq.TableMeta{
-		UxList: []tsq.IndexInfo{{Name: "ux1", Fields: []string{"name", "name"}}},
+	info = &genmodel.TableMeta{
+		UxList: []genmodel.IndexInfo{{Name: "ux1", Fields: []string{"name", "name"}}},
 	}
 
 	err = validateTableInfoAgainstStruct(info, structFields, "User")
@@ -730,8 +730,8 @@ func Test_validateTableInfoAgainstStruct(t *testing.T) {
 		t.Errorf("should detect index field duplicate, got: %v", err)
 	}
 	// 3. ux/idx 列表有重复定义
-	info = &tsq.TableMeta{
-		UxList: []tsq.IndexInfo{{Name: "ux1", Fields: []string{"name", "email"}}, {Name: "ux2", Fields: []string{"name", "email"}}},
+	info = &genmodel.TableMeta{
+		UxList: []genmodel.IndexInfo{{Name: "ux1", Fields: []string{"name", "email"}}, {Name: "ux2", Fields: []string{"name", "email"}}},
 	}
 
 	err = validateTableInfoAgainstStruct(info, structFields, "User")
@@ -739,10 +739,10 @@ func Test_validateTableInfoAgainstStruct(t *testing.T) {
 		t.Errorf("should detect index duplicate, got: %v", err)
 	}
 	// 4. 正常通过
-	info = &tsq.TableMeta{
+	info = &genmodel.TableMeta{
 		PK:      "id",
-		UxList:  []tsq.IndexInfo{{Name: "ux1", Fields: []string{"name", "email"}}},
-		IdxList: []tsq.IndexInfo{{Name: "idx1", Fields: []string{"age"}}},
+		UxList:  []genmodel.IndexInfo{{Name: "ux1", Fields: []string{"name", "email"}}},
+		IdxList: []genmodel.IndexInfo{{Name: "idx1", Fields: []string{"age"}}},
 	}
 
 	err = validateTableInfoAgainstStruct(info, structFields, "User")
