@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"reflect"
 	"strconv"
 	"strings"
@@ -730,6 +731,12 @@ func assignBatchInsertIDs(exec SQLExecutor, records []mutationRecord, result sql
 
 	rowsAffected, err := result.RowsAffected()
 	if err != nil || rowsAffected != int64(len(records)) {
+		slog.Warn("batch insert ID assignment skipped: rows affected mismatch",
+			"expected", len(records),
+			"actual", rowsAffected,
+			"error", err,
+		)
+
 		return
 	}
 

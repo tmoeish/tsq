@@ -1563,6 +1563,7 @@ func resolveQueryWithState(
 
 			result = append(result, values...)
 			extraIndex++
+
 		case keywordArgMarker:
 			// 处理 Search() 产生的关键词搜索标记。
 			if keyword == "" {
