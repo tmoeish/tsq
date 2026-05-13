@@ -44,8 +44,8 @@ type ErrUnknownSortField struct {
 	field string
 }
 
-// NewErrUnknownSortField constructs an ErrUnknownSortField.
-func NewErrUnknownSortField(field string) *ErrUnknownSortField {
+// newErrUnknownSortField constructs an ErrUnknownSortField.
+func newErrUnknownSortField(field string) *ErrUnknownSortField {
 	return &ErrUnknownSortField{field: field}
 }
 
@@ -71,8 +71,8 @@ type ErrAmbiguousSortField struct {
 	field string
 }
 
-// NewErrAmbiguousSortField constructs an ErrAmbiguousSortField.
-func NewErrAmbiguousSortField(field string) *ErrAmbiguousSortField {
+// newErrAmbiguousSortField constructs an ErrAmbiguousSortField.
+func newErrAmbiguousSortField(field string) *ErrAmbiguousSortField {
 	return &ErrAmbiguousSortField{field: field}
 }
 
@@ -99,8 +99,8 @@ type ErrOrderCountMismatch struct {
 	orders   int
 }
 
-// NewErrOrderCountMismatch constructs an ErrOrderCountMismatch.
-func NewErrOrderCountMismatch(orderbys, orders int) *ErrOrderCountMismatch {
+// newErrOrderCountMismatch constructs an ErrOrderCountMismatch.
+func newErrOrderCountMismatch(orderbys, orders int) *ErrOrderCountMismatch {
 	return &ErrOrderCountMismatch{orderBys: orderbys, orders: orders}
 }
 
@@ -615,7 +615,7 @@ func pageFn[O Owner](
 		return nil, errors.Annotate(err, "failed to execute paginated query")
 	}
 
-	return NewResponse(page, count, list), nil
+	return NewPageResp(page, count, list), nil
 }
 
 // List executes q and returns all matching rows.
@@ -890,13 +890,13 @@ func (q *Query[O]) buildPageSQLs(page *PageReq) (string, string, error) {
 		for i, ob := range orderbys {
 			ob = strings.TrimSpace(ob)
 			if _, ok := ambiguousFields[ob]; ok {
-				return "", "", NewErrAmbiguousSortField(ob)
+				return "", "", newErrAmbiguousSortField(ob)
 			}
 
 			fullName, ok := allowedFields[ob]
 
 			if !ok {
-				return "", "", NewErrUnknownSortField(ob)
+				return "", "", newErrUnknownSortField(ob)
 			}
 
 			fullNames = append(fullNames, fullName+" "+string(orders[i]))

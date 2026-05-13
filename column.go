@@ -217,8 +217,8 @@ func (c ColumnImpl[O, T]) As(alias string) ColumnImpl[O, T] {
 	return c.WithTable(AliasTable(c.table, alias))
 }
 
-// Into creates a result-owned projection column from another typed column.
-func Into[Target, Source Owner, T any](
+// MapInto creates a result-owned projection column from another typed column.
+func MapInto[Target, Source Owner, T any](
 	source TypedColumn[Source, T],
 	fieldPointer FieldPointer[Target, T],
 	jsonFieldName string,

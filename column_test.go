@@ -176,7 +176,7 @@ func TestCol_Into(t *testing.T) {
 	// Create new field pointer and JSON field name
 	newJSONFieldName := "display_name"
 
-	newCol := Into[colProjection](col, func(holder *colProjection) *string {
+	newCol := MapInto[colProjection](col, func(holder *colProjection) *string {
 		return &holder.DisplayName
 	}, newJSONFieldName)
 
@@ -213,7 +213,7 @@ func TestCol_Into_NilPointer(t *testing.T) {
 	table := newMockTable("users")
 	col := newColForTable[newColOwner, string](table, "name", "name", nil)
 
-	next := Into[newColOwner](col, nil, "new_name")
+	next := MapInto[newColOwner](col, nil, "new_name")
 	if _, err := validateColumnInput(next); err == nil {
 		t.Fatal("expected nil field pointer to be captured as a build error")
 	}
@@ -290,7 +290,7 @@ func TestCol_ImmutabilityOfInto(t *testing.T) {
 	}))
 
 	// Create a new column using Into
-	newCol := Into[colProjection](originalCol, func(holder *colProjection) *string {
+	newCol := MapInto[colProjection](originalCol, func(holder *colProjection) *string {
 		return &holder.DisplayName
 	}, "new_name")
 

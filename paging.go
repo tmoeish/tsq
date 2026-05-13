@@ -11,16 +11,6 @@ import (
 // 分页常量和类型
 // ================================================
 
-// Direction is the paging-layer alias of Order.
-type Direction = Order
-
-const (
-	// Asc is the paging-layer alias of ASC.
-	Asc = ASC
-	// Desc is the paging-layer alias of DESC.
-	Desc = DESC
-)
-
 const (
 	// DefaultPageSize is the default number of rows returned per page.
 	DefaultPageSize = 20
@@ -122,8 +112,8 @@ func (r *PageReq) Offset() int {
 	return r.Size * (r.Page - 1)
 }
 
-// Validate validates the pagination request parameters
-func (r *PageReq) Validate() error {
+// Normalize ensures PageReq is valid
+func (r *PageReq) Normalize() error {
 	if r == nil {
 		return nil
 	}
@@ -143,8 +133,8 @@ func (r *PageReq) Validate() error {
 	return nil
 }
 
-// ValidateStrict reports invalid paging or sorting input without mutating r.
-func (r *PageReq) ValidateStrict() error {
+// Validate reports invalid paging or sorting input without mutating r.
+func (r *PageReq) Validate() error {
 	if r == nil {
 		return nil
 	}
@@ -187,8 +177,8 @@ type PageResp[T any] struct {
 	Data      []*T  `json:"data"`       // 当前页数据
 }
 
-// NewResponse creates a new PageResp from request, total count, and data
-func NewResponse[T any](r *PageReq, total int64, data []*T) *PageResp[T] {
+// NewPageResp creates a new PageResp from request, total count, and data
+func NewPageResp[T any](r *PageReq, total int64, data []*T) *PageResp[T] {
 	r = normalizePageReq(r)
 
 	resp := &PageResp[T]{

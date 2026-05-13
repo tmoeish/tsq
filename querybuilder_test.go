@@ -378,7 +378,7 @@ func TestQueryBuilder_CaseExpressionTracksConditionTables(t *testing.T) {
 	orgID := newColForTable[Table, int](orgs, "id", "id", nil)
 	orgName := newColForTable[Table, string](orgs, "name", "name", nil)
 
-	label := Into[queryBuilderCaseRow](Case[string]().
+	label := MapInto[queryBuilderCaseRow](Case[string]().
 		When(orgID.EQ(1), orgName).
 		Else("unknown").
 		End(), func(holder *queryBuilderCaseRow) *string { return &holder.Label }, "label")

@@ -142,7 +142,7 @@ go run .
 ## 下一步最值得看什么
 
 - 想理解生成了哪些符号：看 [`docs/concepts.md`](concepts.md)
-- 想看分页、事务、HTTP API 场景：看 [`../examples/cookbook/README.md`](../examples/cookbook/README.md)
+- 想看分页、事务、HTTP API 场景：看 [`../examples/advanced/README.md`](../examples/advanced/README.md)
 - 想看完整能力展示：看 [`../examples/full-suite/README.md`](../examples/full-suite/README.md)
 
 ## 常见问题

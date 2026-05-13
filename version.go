@@ -10,8 +10,8 @@ import (
 // ================================================
 
 // version 是构建时通过 ldflags 注入的版本信息。
-// 使用方式: go build -ldflags "-X github.com/tmoeish/tsq.version=v5.0.0"
-var version = "v5.0.0"
+// 使用方式: go build -ldflags "-X github.com/tmoeish/tsq.version=v4.0.0"
+var version = "v4.0.0"
 
 // buildTime 是构建时通过 ldflags 注入的构建时间。
 // 使用方式: go build -ldflags "-X github.com/tmoeish/tsq.buildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)"

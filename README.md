@@ -223,7 +223,7 @@ query, err := tsq.
 	Build()
 ```
 
-如果你在旧示例里看到 `NewQueryBuilder()`，请优先参考 `docs/quickstart.md`、`docs/concepts.md` 和 `examples/main.go` 的写法。
+如果你在旧示例里看到 `NewQueryBuilder()`，请优先参考 `docs/quickstart.md`、`docs/concepts.md` 和 `examples/full-suite/main.go` 的写法。
 
 ### 子查询边界要显式遵守
 
@@ -235,7 +235,7 @@ query, err := tsq.
 ## 示例入口
 
 - **Quickstart**：[`examples/quickstart/README.md`](examples/quickstart/README.md)
-- **Cookbook**：[`examples/cookbook/README.md`](examples/cookbook/README.md)
+- **Advanced**：[`examples/advanced/README.md`](examples/advanced/README.md)
 - **Full suite**：[`examples/full-suite/README.md`](examples/full-suite/README.md)
 
 ## 开发
@@ -246,7 +246,7 @@ make lint
 make test
 make build
 make examples
-./bin/examples
+./bin/examples/full-suite
 ```
 
 常用目标：

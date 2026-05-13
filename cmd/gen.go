@@ -90,10 +90,10 @@ Overwrite behavior:
   - after generation, execute the SQL file matching your live database dialect
   - generator validation errors point to the offending struct or field`,
 	Example: strings.Join([]string{
-		"  tsq gen ./examples/database",
-		"  tsq gen --dry-run ./examples/database",
-		"  tsq gen --check github.com/tmoeish/tsq/examples/database",
-		"  tsq gen github.com/tmoeish/tsq/examples/database",
+		"  tsq gen ./examples/academy",
+		"  tsq gen --dry-run ./examples/academy",
+		"  tsq gen --check github.com/tmoeish/tsq/examples/academy",
+		"  tsq gen github.com/tmoeish/tsq/examples/academy",
 		"  tsq gen /abs/path/to/project/internal/database --tpl ./cmd/tsq.go.tmpl",
 	}, "\n"),
 	Args: exactOnePackageArg,
@@ -124,12 +124,12 @@ Overwrite behavior:
 			list[i].SetTSQVersion(stableVersion(tsq.GetVersion()))
 		}
 
-		tpl, err := template.New("tsq.go.tmpl").Funcs(TemplateFuncs()).Parse(tableTpl)
+		tpl, err := template.New("tsq.go.tmpl").Funcs(funcMap()).Parse(tableTpl)
 		if err != nil {
 			return errors.Annotate(err, "failed to parse table template")
 		}
 
-		resultTplParsed, err := template.New("tsq_result.go.tmpl").Funcs(TemplateFuncs()).Parse(resultTpl)
+		resultTplParsed, err := template.New("tsq_result.go.tmpl").Funcs(funcMap()).Parse(resultTpl)
 		if err != nil {
 			return errors.Annotate(err, "failed to parse Result template")
 		}

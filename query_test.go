@@ -34,7 +34,7 @@ func newQueryBuilderForTest[O Owner](spec QuerySpec[O]) *QueryBuilder[O] {
 
 func TestErrUnknownSortField(t *testing.T) {
 	field := "unknown_field"
-	err := NewErrUnknownSortField(field)
+	err := newErrUnknownSortField(field)
 
 	if err.field != field {
 		t.Errorf("Expected field '%s', got '%s'", field, err.field)
@@ -48,7 +48,7 @@ func TestErrUnknownSortField(t *testing.T) {
 
 func TestErrAmbiguousSortField(t *testing.T) {
 	field := "id"
-	err := NewErrAmbiguousSortField(field)
+	err := newErrAmbiguousSortField(field)
 
 	if err.field != field {
 		t.Errorf("Expected field '%s', got '%s'", field, err.field)
@@ -63,7 +63,7 @@ func TestErrAmbiguousSortField(t *testing.T) {
 func TestErrOrderCountMismatch(t *testing.T) {
 	orderBys := 3
 	orders := 2
-	err := NewErrOrderCountMismatch(orderBys, orders)
+	err := newErrOrderCountMismatch(orderBys, orders)
 
 	if err.orderBys != orderBys {
 		t.Errorf("Expected orderBys %d, got %d", orderBys, err.orderBys)
@@ -341,7 +341,7 @@ func TestQueryBuilder_Build_CaseExecutionOnSQLite(t *testing.T) {
 	db := newInVarEngine(t)
 	users := newMockTable("users")
 	idCol := newColForTable[caseUser, int64](users, "id", "id", toScanPointer(func(holder *caseUser) *int64 { return &holder.ID }))
-	nameLabel := Into[caseUser](Case[string]().
+	nameLabel := MapInto[caseUser](Case[string]().
 		When(idCol.GT(1), "member").
 		Else("owner").
 		End(), func(holder *caseUser) *string { return &holder.Label }, "label")
@@ -461,12 +461,12 @@ func TestErrorTypes_Interfaces(t *testing.T) {
 	var _ error = &ErrOrderCountMismatch{}
 
 	// Test that they can be created and used
-	err1 := NewErrUnknownSortField("test")
+	err1 := newErrUnknownSortField("test")
 	if err1 == nil {
 		t.Error("Expected non-nil error")
 	}
 
-	err2 := NewErrOrderCountMismatch(1, 2)
+	err2 := newErrOrderCountMismatch(1, 2)
 	if err2 == nil {
 		t.Error("Expected non-nil error")
 	}

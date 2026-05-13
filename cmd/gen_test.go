@@ -270,8 +270,8 @@ type User struct {
 
 func TestNewDDLTypeResolverAllowsExamplePackageWithoutGeneratedFiles(t *testing.T) {
 	resolver, err := newDDLTypeResolver(
-		"github.com/tmoeish/tsq/examples/database",
-		filepath.Join("..", "examples", "database"),
+		"github.com/tmoeish/tsq/examples/academy",
+		filepath.Join("..", "examples", "academy"),
 	)
 	if err != nil {
 		t.Fatalf("newDDLTypeResolver() error = %v", err)
@@ -801,7 +801,7 @@ func TestResultTemplateGeneratesProjectionOnlyResultFile(t *testing.T) {
 		},
 	}
 
-	tpl, err := template.New("tsq_result.go.tmpl").Funcs(TemplateFuncs()).Parse(defaultResultTpl)
+	tpl, err := template.New("tsq_result.go.tmpl").Funcs(funcMap()).Parse(defaultResultTpl)
 	if err != nil {
 		t.Fatalf("parse Result template: %v", err)
 	}
@@ -935,7 +935,7 @@ func TestTableTemplateOrErrPreservesErrNoRows(t *testing.T) {
 func TestTableTemplateAvoidsKeywordParameterNames(t *testing.T) {
 	dir := t.TempDir()
 
-	tpl, err := template.New("tsq.go.tmpl").Funcs(TemplateFuncs()).Parse(defaultTableTpl)
+	tpl, err := template.New("tsq.go.tmpl").Funcs(funcMap()).Parse(defaultTableTpl)
 	if err != nil {
 		t.Fatalf("failed to parse table template: %v", err)
 	}
@@ -978,7 +978,7 @@ func TestTableTemplateAvoidsKeywordParameterNames(t *testing.T) {
 func TestTableTemplateAnnotatesQueryListErrorsWithSourceIndexName(t *testing.T) {
 	dir := t.TempDir()
 
-	tpl, err := template.New("tsq.go.tmpl").Funcs(TemplateFuncs()).Parse(defaultTableTpl)
+	tpl, err := template.New("tsq.go.tmpl").Funcs(funcMap()).Parse(defaultTableTpl)
 	if err != nil {
 		t.Fatalf("failed to parse table template: %v", err)
 	}

@@ -16,7 +16,7 @@ type Runtime struct {
 	registry     *registry
 	traceManager *traceManager
 	initMu       sync.Mutex
-	db           *Engine // Stored after InitWithOptions for dialect access
+	engine       *Engine // Stored after InitWithOptions for dialect access
 }
 
 // NewRuntime creates an isolated runtime with its own registrations and tracers.
@@ -29,24 +29,24 @@ func NewRuntime() *Runtime {
 
 var defaultRuntime = NewRuntime()
 
-// CurrentDB returns the current Engine if Init has been called.
+// Engine returns the current Engine if Init has been called.
 // Returns nil if Init has not been called or if runtime is nil.
-func (r *Runtime) CurrentDB() *Engine {
+func (r *Runtime) Engine() *Engine {
 	if r == nil {
 		return nil
 	}
 
-	return r.db
+	return r.engine
 }
 
-// CurrentDialect returns the SQL dialect of the current database if Init has been called.
+// Dialect returns the SQL dialect of the current database if Init has been called.
 // Returns empty string if Init has not been called or runtime has no initialized dialect.
-func (r *Runtime) CurrentDialect() DialectName {
-	if r == nil || r.db == nil || r.db.Dialect == nil {
+func (r *Runtime) Dialect() DialectName {
+	if r == nil || r.engine == nil || r.engine.Dialect == nil {
 		return ""
 	}
 
-	return r.db.Dialect.Name()
+	return r.engine.Dialect.Name()
 }
 
 // RegisterTable registers a table and its index-initialization hook on this runtime.
@@ -108,7 +108,7 @@ func (r *Runtime) InitWithOptions(db *Engine, options *InitOptions) error {
 	defer r.initMu.Unlock()
 
 	// Store the Engine for later dialect access.
-	r.db = db
+	r.engine = db
 	storeDBSchemaConfig(db, dbSchemaConfig{
 		indexInitMode:      indexMode,
 		schemaEventHandler: options.SchemaEventHandler,
@@ -195,7 +195,7 @@ func (r *Runtime) validateRegisteredTableIdentifiers(mode string) error {
 		return errors.New("runtime cannot be nil")
 	}
 
-	dialect := r.CurrentDialect()
+	dialect := r.Dialect()
 	if dialect == "" {
 		// Unknown dialect, skip validation
 		return nil
@@ -210,7 +210,7 @@ func (r *Runtime) validateRegisteredTableIdentifiers(mode string) error {
 		}
 
 		tableName := table.Table.Table()
-		if err := ValidateIdentifierLength(tableName, r.db.Dialect); err != nil {
+		if err := ValidateIdentifierLength(tableName, r.engine.Dialect); err != nil {
 			if mode == "strict" {
 				return errors.Annotatef(err, "table %s identifier validation failed", tableName)
 			}
@@ -226,7 +226,7 @@ func (r *Runtime) validateRegisteredTableIdentifiers(mode string) error {
 				}
 
 				colName := col.OutputName()
-				if err := ValidateIdentifierLength(colName, r.db.Dialect); err != nil {
+				if err := ValidateIdentifierLength(colName, r.engine.Dialect); err != nil {
 					if mode == "strict" {
 						return errors.Annotatef(err, "column %s.%s identifier validation failed", tableName, colName)
 					}
@@ -253,11 +253,11 @@ func (r *Runtime) ValidateIdentifiersForDialect() error {
 		return errors.New("runtime cannot be nil")
 	}
 
-	if r.db == nil {
+	if r.engine == nil {
 		return errors.New("database not initialized; call Init or InitWithOptions first")
 	}
 
-	dialect := r.CurrentDialect()
+	dialect := r.Dialect()
 	if dialect == "" {
 		return errors.New("unable to determine current database dialect")
 	}

@@ -541,8 +541,8 @@ func TestCurrentDialectDetection(t *testing.T) {
 	r := NewRuntime()
 
 	// Before Init, should return empty string
-	if r.CurrentDialect() != "" {
-		t.Errorf("expected empty dialect before Init, got %q", r.CurrentDialect())
+	if r.Dialect() != "" {
+		t.Errorf("expected empty dialect before Init, got %q", r.Dialect())
 	}
 
 	// After Init with SQLite, should detect dialect
@@ -551,7 +551,7 @@ func TestCurrentDialectDetection(t *testing.T) {
 		t.Fatalf("failed to init runtime: %v", err)
 	}
 
-	dialect := r.CurrentDialect()
+	dialect := r.Dialect()
 	if dialect == "" {
 		t.Errorf("expected non-empty dialect after Init with SQLite")
 	}
@@ -586,7 +586,7 @@ func TestCurrentDBAccess(t *testing.T) {
 	r := NewRuntime()
 
 	// Before Init, should return nil
-	if r.CurrentDB() != nil {
+	if r.Engine() != nil {
 		t.Errorf("expected nil CurrentDB before Init, got non-nil")
 	}
 
@@ -596,7 +596,7 @@ func TestCurrentDBAccess(t *testing.T) {
 		t.Fatalf("failed to init runtime: %v", err)
 	}
 
-	currentDB := r.CurrentDB()
+	currentDB := r.Engine()
 	if currentDB == nil {
 		t.Errorf("expected non-nil CurrentDB after Init, got nil")
 	}

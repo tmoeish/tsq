@@ -109,7 +109,7 @@ func normalizeSortOrders(values []string, expected int) ([]Order, error) {
 	}
 
 	if len(values) != expected {
-		return nil, NewErrOrderCountMismatch(expected, len(values))
+		return nil, newErrOrderCountMismatch(expected, len(values))
 	}
 
 	orders := make([]Order, 0, len(values))

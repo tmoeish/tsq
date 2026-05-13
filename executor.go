@@ -20,7 +20,6 @@ var (
 	errUpdateLayoutMismatch        = errors.New("batch update requires matching column layouts")
 	errDeleteRequiresPrimaryKey    = errors.New("delete requires a non-zero primary key")
 	errMutationItemNil             = errors.New("mutation item cannot be nil")
-	errMutationItemTableMethod     = errors.New("mutation item must implement Table() string")
 	errMutationItemPointer         = errors.New("mutation item must be a non-nil pointer")
 	errMutationItemStructPointer   = errors.New("mutation item must point to a struct")
 	errMutationItemNoTaggedFields  = errors.New("mutation item has no db-tagged fields")

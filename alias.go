@@ -14,10 +14,6 @@ type tableRebinder interface {
 	withTable(Table) SQLColumn
 }
 
-type anyColumnLister interface {
-	Cols() []SQLColumn
-}
-
 type aliasedTable struct {
 	base  Table
 	alias string

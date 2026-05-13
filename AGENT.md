@@ -31,7 +31,7 @@ Canonical instructions for coding agents and IDE assistants working in this repo
 - Prefer `make` targets over ad-hoc commands when an equivalent target exists.
 - When changing generated code paths, table DSL, templates, parser logic, or examples:
   - run `make examples`
-  - keep generated files in `examples/database/*_tsq.go` committed
+  - keep generated files in `examples/academy/*_tsq.go` committed
 - Do not hand-edit generated files unless you are explicitly debugging generation output; change the source/template and regenerate instead.
 - Keep versioned release changes coherent:
   - update `version.go`
@@ -48,7 +48,7 @@ Canonical instructions for coding agents and IDE assistants working in this repo
 - For cross-cutting runtime/query/concurrency work, also run: `go test -race ./...`
 - For generator, template, parser, or example changes, also run:
   1. `make examples`
-  2. `./bin/examples`
+  2. `./bin/examples/full-suite`
 - For release/build workflow changes, also run:
   1. `make build`
   2. `goreleaser check` if GoReleaser config changed
@@ -81,7 +81,7 @@ Canonical instructions for coding agents and IDE assistants working in this repo
 ## Repository-specific cautions
 
 - `FULL JOIN` can be rendered but execution remains dialect-dependent.
-- Example schema lives in `examples/database/mock.sql`; schema changes must stay consistent with example structs and regenerated code.
+- Example schema lives in `examples/academy/mock.sql`; schema changes must stay consistent with example structs and regenerated code.
 - Keep local-only files out of Git:
   - coverage outputs
   - local assistant settings such as `.claude/`

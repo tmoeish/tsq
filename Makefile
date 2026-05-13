@@ -78,10 +78,14 @@ install: build ## Install to GOPATH/bin
 	@cp bin/$(BINARY_NAME) $$($(GO) env GOPATH)/bin/
 
 .PHONY: examples
-examples: build ## Regenerate and build examples program
-	@rm -f ./examples/database/*_tsq.go
-	@./bin/$(BINARY_NAME) gen -v $(MODULE)/examples/database
-	@$(GO) build -o bin/examples ./examples/
+examples: build ## Regenerate and build examples programs
+	@rm -f ./examples/academy/*_tsq.go ./examples/academy/*_result_tsq.go ./examples/academy/mysql.sql ./examples/academy/postgres.sql ./examples/academy/sqlite.sql ./examples/academy/ddl.json
+	@./bin/$(BINARY_NAME) gen -v $(MODULE)/examples/academy
+	@rm -rf ./bin/examples
+	@mkdir -p ./bin/examples
+	@$(GO) build -o ./bin/examples/quickstart ./examples/quickstart
+	@$(GO) build -o ./bin/examples/advanced ./examples/advanced
+	@$(GO) build -o ./bin/examples/full-suite ./examples/full-suite
 
 .PHONY: update-examples
 update-examples: examples ## Update examples code

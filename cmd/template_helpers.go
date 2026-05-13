@@ -20,8 +20,8 @@ const (
 	generatedTimeAlias    = "tsqtime"
 )
 
-// TemplateFuncs 返回模板中可用的函数映射
-func TemplateFuncs() template.FuncMap {
+// funcMap 返回模板中可用的函数映射
+func funcMap() template.FuncMap {
 	return template.FuncMap{
 		"ToUpper":                  strings.ToUpper,
 		"ToLower":                  strings.ToLower,

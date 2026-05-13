@@ -24,7 +24,7 @@ Formatting behavior:
   - rewrites only @TABLE / @RESULT annotations attached to struct declarations
   - keeps surrounding prose text while tightening spacing around annotations
   - normalizes key order, indentation, blank lines, commas, and string quoting`,
-	Example: "  tsq fmt ./examples/database\n  tsq fmt github.com/tmoeish/tsq/examples/database",
+	Example: "  tsq fmt ./examples/academy\n  tsq fmt github.com/tmoeish/tsq/examples/academy",
 	Args:    exactOnePackageArgFor("fmt"),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		changed, err := parser.FormatPackage(args[0])
