@@ -80,7 +80,9 @@ Canonical instructions for coding agents and IDE assistants working in this repo
 
 ## Repository-specific cautions
 
+- `InVar()` intentionally treats empty or nil runtime slices as explicit no-match filters; keep comments, docs, and examples aligned with that contract.
 - `FULL JOIN` can be rendered but execution remains dialect-dependent.
+- Dialect capability checks that depend on the executor stay at execution time because the actual dialect may only be known per runtime/registry/executor.
 - Example schema lives in `examples/academy/mock.sql`; schema changes must stay consistent with example structs and regenerated code.
 - Keep local-only files out of Git:
   - coverage outputs

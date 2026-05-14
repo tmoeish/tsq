@@ -59,7 +59,7 @@ erDiagram
 | `runCaseDemo` | 给学员报名打运营标签 | `CASE WHEN` |
 | `runCTEDemo` | 先抽平台课程子集再继续查询 | non-recursive CTE |
 | `runSetOpsDemo` | 合并/排除课程集合 | `UNION`、`EXCEPT` |
-| `runChunkedDemo` | 批量处理报名记录 | `ChunkedInsert`、`ChunkedUpdate`、`ChunkedDelete` |
+| `runChunkedDemo` | 批量处理报名记录 | `ChunkedInsert`、`ChunkedUpdate`、`ChunkedDelete`（事务边界由调用方控制） |
 | `runComprehensive` | 生成学习旅程看板 | joins、子查询、`@RESULT`、`tsq.Page(...)` |
 
 ## 运行方式

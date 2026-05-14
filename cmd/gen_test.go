@@ -820,7 +820,7 @@ func TestResultTemplateGeneratesProjectionOnlyResultFile(t *testing.T) {
 		"var ResultUserOrder = UserOrder{}",
 		"func (uo UserOrder) TSQResult() {}",
 		"func (uo UserOrder) Cols() []tsq.BoundColumn[UserOrder] {",
-		"UserOrder_UserID = tsq.Into",
+		"UserOrder_UserID = tsq.MapInto",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("expected generated Result file to contain %q, got:\n%s", want, rendered)

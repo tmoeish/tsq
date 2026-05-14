@@ -751,37 +751,86 @@ func cloneSearchColumns(cols []SearchColumn) []SearchColumn {
 	return append([]SearchColumn(nil), cols...)
 }
 
-// Build builds and validates the query.
+// Build compiles and validates the query shape.
+//
+// Build validates owner wiring, clause ordering, selected columns, and other
+// dialect-independent structure. It intentionally does not reject dialect-
+// specific capabilities that depend on the runtime executor, because the same
+// built Query may later run against different registries or executors with
+// different dialects. Capability checks that require the concrete executor
+// dialect therefore happen during execution.
 func (qb *QueryBuilder[O]) Build() (*Query[O], error) {
 	return buildQuery(qb.core())
 }
 
-// Build builds and validates the query.
+// Build compiles and validates the query shape.
+//
+// Build validates owner wiring, clause ordering, selected columns, and other
+// dialect-independent structure. It intentionally does not reject dialect-
+// specific capabilities that depend on the runtime executor, because the same
+// built Query may later run against different registries or executors with
+// different dialects. Capability checks that require the concrete executor
+// dialect therefore happen during execution.
 func (qb *WhereQueryBuilder[O]) Build() (*Query[O], error) {
 	return buildQuery(qb.core())
 }
 
-// Build builds and validates the query.
+// Build compiles and validates the query shape.
+//
+// Build validates owner wiring, clause ordering, selected columns, and other
+// dialect-independent structure. It intentionally does not reject dialect-
+// specific capabilities that depend on the runtime executor, because the same
+// built Query may later run against different registries or executors with
+// different dialects. Capability checks that require the concrete executor
+// dialect therefore happen during execution.
 func (qb *SearchQueryBuilder[O]) Build() (*Query[O], error) {
 	return buildQuery(qb.core())
 }
 
-// Build builds and validates the query.
+// Build compiles and validates the query shape.
+//
+// Build validates owner wiring, clause ordering, selected columns, and other
+// dialect-independent structure. It intentionally does not reject dialect-
+// specific capabilities that depend on the runtime executor, because the same
+// built Query may later run against different registries or executors with
+// different dialects. Capability checks that require the concrete executor
+// dialect therefore happen during execution.
 func (qb *FilteredQueryBuilder[O]) Build() (*Query[O], error) {
 	return buildQuery(qb.core())
 }
 
-// Build builds and validates the query.
+// Build compiles and validates the query shape.
+//
+// Build validates owner wiring, clause ordering, selected columns, and other
+// dialect-independent structure. It intentionally does not reject dialect-
+// specific capabilities that depend on the runtime executor, because the same
+// built Query may later run against different registries or executors with
+// different dialects. Capability checks that require the concrete executor
+// dialect therefore happen during execution.
 func (qb *GroupedQueryBuilder[O]) Build() (*Query[O], error) {
 	return buildQuery(qb.core())
 }
 
-// Build builds and validates the query.
+// Build compiles and validates the query shape.
+//
+// Build validates owner wiring, clause ordering, selected columns, and other
+// dialect-independent structure. It intentionally does not reject dialect-
+// specific capabilities that depend on the runtime executor, because the same
+// built Query may later run against different registries or executors with
+// different dialects. Capability checks that require the concrete executor
+// dialect therefore happen during execution.
 func (qb *HavingQueryBuilder[O]) Build() (*Query[O], error) {
 	return buildQuery(qb.core())
 }
 
-// Build builds and validates the query.
+// Build compiles and validates the query shape.
+//
+// Build validates owner wiring, clause ordering, selected columns, and other
+// dialect-independent structure. It intentionally does not reject dialect-
+// specific capabilities that depend on the runtime executor, because the same
+// built Query may later run against different registries or executors with
+// different dialects. Capability checks that require the concrete executor
+// dialect therefore happen during execution.
 func (qb *CompoundQueryBuilder[O]) Build() (*Query[O], error) {
 	return buildQuery(qb.core())
 }

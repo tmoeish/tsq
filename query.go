@@ -957,7 +957,12 @@ func DefaultChunkedInsertOptions() *ChunkedInsertOptions {
 	}
 }
 
-// ChunkedInsert 按块逐条插入数据。
+// ChunkedInsert inserts items in chunks using the provided executor.
+//
+// Transaction boundaries are intentionally caller-controlled. Passing a plain
+// *sql.DB or non-transactional executor allows partial progress across chunks;
+// passing a *sql.Tx makes the whole chunked operation participate in that
+// transaction. TSQ does not open an implicit outer transaction for this helper.
 func ChunkedInsert[T Table](
 	ctx context.Context,
 	tx SQLExecutor,
@@ -1042,7 +1047,12 @@ func chunkedInsertChunk[T Table](
 	return nil
 }
 
-// ChunkedUpdate 按块逐条更新数据。
+// ChunkedUpdate updates items in chunks using the provided executor.
+//
+// Transaction boundaries are intentionally caller-controlled. Passing a plain
+// *sql.DB or non-transactional executor allows partial progress across chunks;
+// passing a *sql.Tx makes the whole chunked operation participate in that
+// transaction. TSQ does not open an implicit outer transaction for this helper.
 func ChunkedUpdate[T Table](
 	ctx context.Context,
 	tx SQLExecutor,
@@ -1111,7 +1121,12 @@ func chunkedUpdateChunk[T Table](
 	return nil
 }
 
-// ChunkedDelete 按块逐条删除数据。
+// ChunkedDelete deletes items in chunks using the provided executor.
+//
+// Transaction boundaries are intentionally caller-controlled. Passing a plain
+// *sql.DB or non-transactional executor allows partial progress across chunks;
+// passing a *sql.Tx makes the whole chunked operation participate in that
+// transaction. TSQ does not open an implicit outer transaction for this helper.
 func ChunkedDelete[T Table](
 	ctx context.Context,
 	tx SQLExecutor,
@@ -1180,7 +1195,12 @@ func chunkedDeleteChunk[T Table](
 	return nil
 }
 
-// ChunkedDeleteByIDs 按块根据 PK 列表删除数据。
+// ChunkedDeleteByIDs deletes rows by primary-key values in chunks.
+//
+// Transaction boundaries are intentionally caller-controlled. Passing a plain
+// *sql.DB or non-transactional executor allows partial progress across chunks;
+// passing a *sql.Tx makes the whole chunked operation participate in that
+// transaction. TSQ does not open an implicit outer transaction for this helper.
 func ChunkedDeleteByIDs(
 	ctx context.Context,
 	tx SQLExecutor,

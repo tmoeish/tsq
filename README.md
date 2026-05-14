@@ -196,6 +196,43 @@ query, err := tsq.
 	Build()
 ```
 
+### `InVar()` 的空切片 / nil 切片语义是“显式不匹配”
+
+`InVar()` 用于把执行时传入的切片参数展开成 `IN (...)`。  
+这里有一个**刻意设计**的边界：如果执行时传入的是空切片或 `nil`，TSQ 会把它渲染成 `IN (NULL)`，从而让查询保持合法 SQL，同时返回 **0 条结果**。
+
+这不是兜底容错，而是 API 语义的一部分：
+
+- 适合表达“调用方当前没有任何可匹配 ID / 状态 / 分类”
+- 避免业务层为了空列表额外分叉写一套“不查任何数据”的逻辑
+- 让 `InVar()` 在 nil / empty / non-empty 三种输入下都保持统一调用方式
+
+如果你的业务想表达“空列表时忽略这个筛选条件”，请在业务层显式分支，不要依赖 `InVar()` 自动跳过过滤。
+
+### `Build()` 成功不代表所有方言都能执行
+
+`Build()` 负责校验查询结构本身：列归属、子句顺序、结果映射、子查询形状等。  
+但像 CTE、`FULL JOIN`、`INTERSECT` 这类能力是否可执行，**必须等拿到实际执行器和它对应的 dialect 之后**才能判断。
+
+仓库里这是刻意保留的行为，因为：
+
+- 同一个 `*tsq.Query` 可能会在不同 runtime / registry / executor 上复用
+- 一个进程里可以存在多个 registry，各自绑定不同 dialect
+- `Build()` 阶段并不知道最终会由哪个数据库实例执行
+
+因此，TSQ 会在 `List/Get/Page/Count/...` 这类执行入口按实际 executor dialect 做能力校验。  
+如果你要提前约束方言，请在应用层把 query 的使用范围限制到固定 executor，而不是假设 `Build()` 能替你推断运行时环境。
+
+### Chunked helper 的事务边界由调用方控制
+
+`ChunkedInsert`、`ChunkedUpdate`、`ChunkedDelete`、`ChunkedDeleteByIDs` 都接收 `SQLExecutor`，这是刻意设计：
+
+- 传普通 `*sql.DB` / `*tsq.Engine`：允许按 chunk 执行，前面成功的 chunk 不会因为后面失败自动回滚
+- 传 `*sql.Tx`（或包着 `*sql.Tx` 的 `Engine`）：整个 chunked 操作就运行在该事务里
+
+换句话说，TSQ 不会在 chunked helper 里偷偷创建外层事务。  
+如果你的业务需要原子性，请显式开启事务并把 `*sql.Tx` 传进去。
+
 ### 关键词搜索的“转义”不是 SQL 注入防护
 
 TSQ 的参数绑定本身负责避免把用户输入直接拼进 SQL。  

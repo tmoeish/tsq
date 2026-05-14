@@ -133,6 +133,34 @@ if err := order.Insert(ctx, txEngine); err != nil {
 }
 ```
 
+### 3.4 `ChunkedInsert` / `ChunkedUpdate` / `ChunkedDelete` 不会自动开启事务
+
+这是刻意设计。
+
+这些 helper 接收的是 `SQLExecutor`，因此事务边界由调用方决定：
+
+- 传 `*sql.DB` / 普通 executor：允许按 chunk 逐步提交
+- 传 `*sql.Tx`：让整个 chunked 操作参与同一个事务
+
+```go
+tx, err := db.BeginTx(ctx, nil)
+if err != nil {
+	return err
+}
+defer func() {
+	_ = tx.Rollback()
+}()
+
+txEngine := &tsq.Engine{Db: tx, Dialect: engine.Dialect}
+if err := tsq.ChunkedInsert(ctx, txEngine, rows, &tsq.ChunkedInsertOptions{ChunkSize: 500}); err != nil {
+	return err
+}
+
+return tx.Commit()
+```
+
+不要假设 chunked helper 会替你包一层外部事务；如果你需要“全部成功或全部回滚”，请显式传入 `*sql.Tx`。
+
 ## 4. Field pointer 和 `Into(...)`
 
 ### 4.1 field pointer 要能安全处理 nil / 错误类型
@@ -222,3 +250,49 @@ query, err := tsq.Select(User_ID, User_Name).
 ### 8.2 `EscapeKeywordSearch(...)` 只转义 LIKE 通配符
 
 SQL 注入边界来自参数绑定，不来自这个转义函数。
+
+### 8.3 `InVar()` 的空切片 / nil 切片不是异常，而是“查不到任何结果”
+
+`InVar()` 适合执行时才知道筛选集合的场景：
+
+```go
+query, err := tsq.
+	Select(database.Course_ID, database.Course_Title).
+	From(database.TableCourse).
+	Where(database.Course_ID.InVar()).
+	Build()
+```
+
+执行时：
+
+- 传入非空切片：正常展开成 `IN (?, ?, ...)`
+- 传入空切片：TSQ 会渲染成 `IN (NULL)`
+- 传入 `nil`：语义与空切片一致，同样返回空结果
+
+这套行为是刻意设计的，目的是把“当前没有任何允许值 / 选中值”的情况表达成**显式不匹配**，而不是偷偷跳过过滤条件。
+
+因此：
+
+- 想表达“没有任何候选值，所以结果应为空”时，直接传空切片 / `nil`
+- 想表达“没有筛选值，所以不要加这个过滤条件”时，应该在业务层自己分支，不要把这个职责交给 `InVar()`
+
+### 8.4 `Build()` 只做结构校验，方言能力在执行时校验
+
+`Build()` 会校验：
+
+- 查询子句顺序是否有效
+- 列、表、Result owner 是否正确绑定
+- 子查询和投影的形状是否符合 TSQ 规则
+
+但 `Build()` **不会**承诺“这个查询一定能在所有执行器上跑起来”。
+
+对 CTE、`FULL JOIN`、`INTERSECT`、`EXCEPT` 这类能力，TSQ 需要在真正执行时根据 executor 上的 dialect 做判断。原因是：
+
+- 同一个查询值可以被复用到不同数据库
+- 运行时可能有多个 registry / runtime，每个都有不同 dialect
+- `Build()` 阶段没有足够信息决定最终 SQL 能力边界
+
+实践上应当这样理解：
+
+- `Build()` 成功：说明查询结构合法
+- `List/Get/Page/Count/...` 成功：说明结构合法，而且当前 executor dialect 也支持这条 SQL

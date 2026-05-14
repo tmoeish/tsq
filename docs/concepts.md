@@ -84,6 +84,13 @@ query, err := tsq.
 
 你可以把 `*tsq.Query[Owner]` 理解为“已经准备好执行的 SQL + args”，其中 `Owner` 是扫描目标。
 
+这里要特别区分两层校验：
+
+- `Build()` 负责 **结构正确性**：owner 绑定、子句顺序、投影列、子查询形状等
+- 真正执行时负责 **方言能力正确性**：例如 CTE、`FULL JOIN`、`INTERSECT` 是否被当前 executor dialect 支持
+
+之所以不把所有校验都放进 `Build()`，是因为同一个 `*tsq.Query` 可以被多个 runtime / registry / executor 复用，而这些执行入口未必共享同一种 dialect。
+
 如果把一个查询拿去当子查询用，也沿用这条规则：`Build()` 后得到的是 `*tsq.Query[Owner]`。其中：
 
 - `EQSub` / `GTSub` / `LikeSub` 这类标量比较要求子查询只返回 1 列；
@@ -147,6 +154,8 @@ engine := &tsq.Engine{
 
 执行时像 `tsq.List(...)`、`tsq.Get(...)`、`query.Count64(...)` 都会用到它。
 
+这也是为什么 TSQ 把一部分能力校验放在执行阶段：**真正决定 SQL 方言边界的是 executor / engine，而不是 Build 阶段的 QueryBuilder。**
+
 底层执行接口是 `SQLExecutor`。这里最重要的约定有三点：
 
 1. 所有执行方法都显式接收 `ctx context.Context`
@@ -154,6 +163,13 @@ engine := &tsq.Engine{
 3. 表级 mutation helper 也直接接收 `SQLExecutor`
 
 也就是说，查询和生成的 CRUD helper 都可以直接复用 `*sql.DB` / `*sql.Tx` 这类标准库入口；如果你需要方言感知的占位符或引用规则，也可以用 `tsq.Engine` 或 `tsq.WrapExecutor(...)` 提供方言信息。
+
+对于 `ChunkedInsert` / `ChunkedUpdate` / `ChunkedDelete` 这类 helper，也沿用同一个原则：**TSQ 不替调用方决定事务边界。**
+
+- 传普通 DB / Engine：允许 chunk 之间分别生效
+- 传 `*sql.Tx` / 基于事务的 Engine：让整个 chunked 流程参与同一个事务
+
+这不是缺少事务支持，而是把“是否需要原子性”的决定权留给调用方。
 
 ## 7. `Runtime`：表注册和隔离
 
@@ -178,7 +194,7 @@ rt := tsq.NewRuntime()
 | 概念 | 解决的问题 | 什么时候需要 |
 | --- | --- | --- |
 | `PageReq` | 列表页分页、排序、关键词搜索 | HTTP API / 后台列表 |
-| `InVar()` | 执行时传入动态切片参数 | `WHERE id IN (?)` 这类场景 |
+| `InVar()` | 执行时传入动态切片参数；空 / nil 切片表示显式不匹配 | `WHERE id IN (?)` 这类场景 |
 | `WithTable()` | 把列重绑定到别名表或 CTE | 自连接、别名联表、CTE 外层引用 |
 
 ## 9. 最容易混淆的两个边界

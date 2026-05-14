@@ -178,7 +178,17 @@ func (c ColumnImpl[Owner, T]) GTVar() Pred[Owner]  { return c.Predicate(`%s > %s
 func (c ColumnImpl[Owner, T]) GTEVar() Pred[Owner] { return c.Predicate(`%s >= %s`, varMarker) }
 func (c ColumnImpl[Owner, T]) LTVar() Pred[Owner]  { return c.Predicate(`%s < %s`, varMarker) }
 func (c ColumnImpl[Owner, T]) LTEVar() Pred[Owner] { return c.Predicate(`%s <= %s`, varMarker) }
-func (c ColumnImpl[Owner, T]) InVar() Pred[Owner]  { return c.Predicate(`%s IN (%s)`, varSliceMarker) }
+
+// InVar binds a slice at execution time for IN predicates.
+//
+// TSQ intentionally treats nil and empty slices as an explicit "match nothing"
+// filter. During execution the placeholder list is expanded from the runtime
+// argument slice; when that slice is empty, TSQ renders IN (NULL), which keeps
+// the query valid while producing zero matches across the supported built-in
+// dialects. This is by design and lets callers express "no selected IDs" without
+// adding custom branching around the query.
+func (c ColumnImpl[Owner, T]) InVar() Pred[Owner] { return c.Predicate(`%s IN (%s)`, varSliceMarker) }
+
 func (c ColumnImpl[Owner, T]) StartsWithVar() Pred[Owner] {
 	return pred[Owner](unsupportedPatternPredicate("StartsWithVar"))
 }

@@ -22,15 +22,15 @@ func TestTypedAPIDoesNotCompileForInvalidResultInputs(t *testing.T) {
 		{
 			name: "col_into_removed",
 			body: `
-var resultCol = userID.Into(func(any) any { return nil }, "user_id")
+var resultCol = userID.MapInto(func(any) any { return nil }, "user_id")
 var _ = resultCol
 `,
-			want: "userID.Into undefined",
+			want: "userID.MapInto undefined",
 		},
 		{
 			name: "result_col_predicate",
 			body: `
-var resultCol = tsq.Into[userOwner](userID, func(holder *userOwner) *int { return nil }, "user_id")
+var resultCol = tsq.MapInto[userOwner](userID, func(holder *userOwner) *int { return nil }, "user_id")
 var _ = resultCol.EQVar()
 `,
 			want: "resultCol.EQVar undefined",
@@ -38,7 +38,7 @@ var _ = resultCol.EQVar()
 		{
 			name: "table_column_rejects_result_col",
 			body: `
-var resultCol = tsq.Into[userOwner](userID, func(holder *userOwner) *int { return nil }, "user_id")
+var resultCol = tsq.MapInto[userOwner](userID, func(holder *userOwner) *int { return nil }, "user_id")
 var _ tsq.TableColumn[userOwner] = resultCol
 `,
 			want: "does not implement tsq.TableColumn",
