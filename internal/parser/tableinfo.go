@@ -11,8 +11,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/juju/errors"
-
 	"github.com/tmoeish/tsq/internal/genmodel"
 )
 
@@ -32,7 +30,7 @@ func ParseTableInfo(
 	// 解析注解，填充 meta
 	info, err := parseDSL(structName, commentGroup, structFields)
 	if err != nil {
-		return nil, errors.Trace(locator.attach(err))
+		return nil, locator.attach(err)
 	}
 
 	if info == nil {
@@ -542,7 +540,7 @@ func parseTableDSL(
 
 	content, err := extractDSLContent(text, "@TABLE")
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	if content == "" {
@@ -555,12 +553,12 @@ func parseTableDSL(
 
 	tokens, err := Tokenize(content)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	dsl, err := ParseDSL(tokens)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	return genTableInfoFromAST(structName, dsl, true, structFields)
@@ -577,7 +575,7 @@ func parseResultDSL(
 
 	content, err := extractDSLContent(text, "@RESULT")
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	if content == "" {
@@ -590,12 +588,12 @@ func parseResultDSL(
 
 	tokens, err := Tokenize(content)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	dsl, err := ParseDSL(tokens)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	return genTableInfoFromAST(structName, dsl, false, structFields)

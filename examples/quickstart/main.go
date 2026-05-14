@@ -7,8 +7,6 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/juju/errors"
-
 	"github.com/tmoeish/tsq/examples/academy"
 )
 
@@ -17,20 +15,20 @@ import (
 func main() {
 	engine, cleanup, err := academy.OpenSQLiteExampleDB()
 	if err != nil {
-		slog.Error("open example db", "error", errors.ErrorStack(err))
+		slog.Error("open example db", "error", err)
 		os.Exit(1)
 	}
 	defer cleanup()
 
 	summary, err := academy.RunQuickstart(context.Background(), engine)
 	if err != nil {
-		slog.Error("run quickstart", "error", errors.ErrorStack(err))
+		slog.Error("run quickstart", "error", err)
 		os.Exit(1)
 	}
 
 	output, err := json.MarshalIndent(summary, "", "  ")
 	if err != nil {
-		slog.Error("marshal quickstart", "error", errors.ErrorStack(err))
+		slog.Error("marshal quickstart", "error", err)
 		os.Exit(1)
 	}
 

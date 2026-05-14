@@ -230,9 +230,13 @@ func TestCaseBuilder_End(t *testing.T) {
 		Else("external").
 		End()
 
-	expectedQualified := `CASE WHEN "users"."org_id" = ? THEN 'internal' ELSE 'external' END`
+	expectedQualified := `CASE WHEN "users"."org_id" = ? THEN ? ELSE ? END`
 	if result.QualifiedName() != expectedQualified {
 		t.Fatalf("expected qualified name %q, got %q", expectedQualified, result.QualifiedName())
+	}
+
+	if args := result.expressionArgs(); len(args) != 3 || args[0] != 1 || args[1] != "internal" || args[2] != "external" {
+		t.Fatalf("expected bound args [1 internal external], got %#v", args)
 	}
 }
 
@@ -388,9 +392,13 @@ func TestCol_Coalesce(t *testing.T) {
 
 	result := col.Coalesce("Anonymous")
 
-	expectedQualified := `COALESCE("users"."nickname", 'Anonymous')`
+	expectedQualified := `COALESCE("users"."nickname", ?)`
 	if result.QualifiedName() != expectedQualified {
 		t.Errorf("Expected qualified name '%s', got '%s'", expectedQualified, result.QualifiedName())
+	}
+
+	if args := result.expressionArgs(); len(args) != 1 || args[0] != "Anonymous" {
+		t.Fatalf("expected bound args [Anonymous], got %#v", args)
 	}
 }
 
@@ -400,13 +408,17 @@ func TestCol_NullIf(t *testing.T) {
 
 	result := col.NullIf("inactive")
 
-	expectedQualified := `NULLIF("users"."status", 'inactive')`
+	expectedQualified := `NULLIF("users"."status", ?)`
 	if result.QualifiedName() != expectedQualified {
 		t.Errorf("Expected qualified name '%s', got '%s'", expectedQualified, result.QualifiedName())
 	}
+
+	if args := result.expressionArgs(); len(args) != 1 || args[0] != "inactive" {
+		t.Fatalf("expected bound args [inactive], got %#v", args)
+	}
 }
 
-func TestCol_StringFunctionHelpersRejectBackslashLiterals(t *testing.T) {
+func TestCol_StringFunctionHelpersBindBackslashesSafely(t *testing.T) {
 	table := newMockTable("users")
 	col := newColForTable[Table, string](table, "nickname", "nickname", nil)
 
@@ -415,8 +427,13 @@ func TestCol_StringFunctionHelpersRejectBackslashLiterals(t *testing.T) {
 		"NullIf":   col.NullIf(`path\file`),
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := validateColumnInput(column); err == nil {
-				t.Fatal("expected helper to capture backslash-containing string literal as a build error")
+			if _, err := validateColumnInput(column); err != nil {
+				t.Fatalf("expected helper to keep backslash strings parameterized, got %v", err)
+			}
+
+			exprArgs := column.(interface{ expressionArgs() []any }).expressionArgs()
+			if len(exprArgs) != 1 || exprArgs[0] != `path\file` {
+				t.Fatalf("expected bound backslash arg, got %#v", exprArgs)
 			}
 		})
 	}
@@ -451,9 +468,13 @@ func TestCol_ComplexFunctionChain(t *testing.T) {
 	// Test complex function chaining
 	result := col.Round(2).Coalesce("0.00")
 
-	expectedQualified := `COALESCE(ROUND("products"."price", 2), '0.00')`
+	expectedQualified := `COALESCE(ROUND("products"."price", 2), ?)`
 	if result.QualifiedName() != expectedQualified {
 		t.Errorf("Expected qualified name '%s', got '%s'", expectedQualified, result.QualifiedName())
+	}
+
+	if args := result.expressionArgs(); len(args) != 1 || args[0] != "0.00" {
+		t.Fatalf("expected bound args [0.00], got %#v", args)
 	}
 }
 

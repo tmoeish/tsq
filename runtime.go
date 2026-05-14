@@ -2,11 +2,11 @@ package tsq
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
-
-	"github.com/juju/errors"
 )
 
 // Runtime owns the mutable TSQ process state used for table registration,
@@ -55,10 +55,10 @@ func (r *Runtime) RegisterTable(
 	initFunc func(db *Engine) error,
 ) error {
 	if r == nil {
-		return errors.Trace(&RegistrationError{Type: RegistrationErrorNilRuntime, Message: "runtime cannot be nil"})
+		return &RegistrationError{Type: RegistrationErrorNilRuntime, Message: "runtime cannot be nil"}
 	}
 
-	return errors.Trace(r.registry.Register(table, initFunc))
+	return r.registry.Register(table, initFunc)
 }
 
 func (r *Runtime) snapshotRegisteredTables() []*registeredTable {
@@ -71,10 +71,10 @@ func (r *Runtime) snapshotRegisteredTables() []*registeredTable {
 
 // Init initializes indexes and tracers for the runtime using the convenience options.
 func (r *Runtime) Init(db *Engine, upsertIndexes bool, tracers ...Tracer) error {
-	return errors.Trace(r.InitWithOptions(db, &InitOptions{
+	return r.InitWithOptions(db, &InitOptions{
 		UpsertIndexes: upsertIndexes,
 		Tracers:       tracers,
-	}))
+	})
 }
 
 // InitWithOptions initializes indexes and runtime state using explicit options.
@@ -101,7 +101,7 @@ func (r *Runtime) InitWithOptions(db *Engine, options *InitOptions) error {
 
 	indexMode := resolveIndexInitMode(options)
 	if err := validateIndexInitMode(indexMode); err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
 	r.initMu.Lock()
@@ -124,7 +124,7 @@ func (r *Runtime) InitWithOptions(db *Engine, options *InitOptions) error {
 		if err := r.validateRegisteredTableIdentifiers(options.IdentifierValidationMode); err != nil {
 			if options.IdentifierValidationMode == "strict" {
 				r.traceManager.restore(rollbackTracers)
-				return errors.Trace(err)
+				return err
 			}
 			// For "warn" mode, just log the error but continue
 			slog.Warn("identifier validation warning during init", "error", err)
@@ -135,7 +135,7 @@ func (r *Runtime) InitWithOptions(db *Engine, options *InitOptions) error {
 		for _, table := range registeredTables {
 			if err := table.InitFunc(db); err != nil {
 				r.traceManager.restore(rollbackTracers)
-				return errors.Annotatef(err, "failed to initialize table %s", table.Table.Table())
+				return fmt.Errorf("failed to initialize table %s"+": %w", table.Table.Table(), err)
 			}
 		}
 	}
@@ -212,7 +212,7 @@ func (r *Runtime) validateRegisteredTableIdentifiers(mode string) error {
 		tableName := table.Table.Table()
 		if err := ValidateIdentifierLength(tableName, r.engine.Dialect); err != nil {
 			if mode == "strict" {
-				return errors.Annotatef(err, "table %s identifier validation failed", tableName)
+				return fmt.Errorf("table %s identifier validation failed"+": %w", tableName, err)
 			}
 
 			validationErrors = append(validationErrors, err.Error())
@@ -228,7 +228,7 @@ func (r *Runtime) validateRegisteredTableIdentifiers(mode string) error {
 				colName := col.OutputName()
 				if err := ValidateIdentifierLength(colName, r.engine.Dialect); err != nil {
 					if mode == "strict" {
-						return errors.Annotatef(err, "column %s.%s identifier validation failed", tableName, colName)
+						return fmt.Errorf("column %s.%s identifier validation failed"+": %w", tableName, colName, err)
 					}
 
 					validationErrors = append(validationErrors, err.Error())

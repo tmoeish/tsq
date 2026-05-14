@@ -1,6 +1,6 @@
 package tsq
 
-import "github.com/juju/errors"
+import "errors"
 
 // FieldPointer 返回指向 Owner 类型中某个字段的类型安全指针。
 // 架构意图：它使用 Go 1.18+ 的范型和闭包，建立了 SQL 列与 struct 字段之间的直接联系，
@@ -251,7 +251,7 @@ func MapInto[Target, Source Owner, T any](
 
 	buildErr := error(nil)
 	if carrier, ok := source.(buildErrorCarrier); ok {
-		buildErr = errors.Trace(carrier.buildError())
+		buildErr = carrier.buildError()
 	}
 
 	if pointer == nil {
@@ -322,7 +322,7 @@ func (c ColumnImpl[O, T]) expressionArgs() []any {
 }
 
 func (c ColumnImpl[O, T]) buildError() error {
-	return errors.Trace(c.buildErr)
+	return c.buildErr
 }
 
 func (c ColumnImpl[O, T]) referencedTables() map[string]Table {

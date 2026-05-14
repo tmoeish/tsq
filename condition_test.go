@@ -3,200 +3,12 @@ package tsq
 import (
 	"database/sql"
 	"database/sql/driver"
-	"math"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 )
 
-func TestSqlValue(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    any
-		expected string
-		hasError bool
-	}{
-		// Nil values
-		{"nil", nil, "NULL", false},
-
-		// String types
-		{"string", "hello", "'hello'", false},
-		{"string with quotes", "it's a test", "'it''s a test'", false},
-		{"string with backslash", "path\\to\\file", "", true},
-		{"empty string", "", "''", false},
-
-		// Byte types
-		{"[]byte", []byte("hello"), "'hello'", false},
-		{"[]byte with quotes", []byte("it's a test"), "'it''s a test'", false},
-		{"sql.RawBytes", sql.RawBytes("raw data"), "'raw data'", false},
-
-		// Integer types
-		{"int", 42, "42", false},
-		{"int8", int8(-128), "-128", false},
-		{"int16", int16(32767), "32767", false},
-		{"int32", int32(-2147483648), "-2147483648", false},
-		{"int64", int64(9223372036854775807), "9223372036854775807", false},
-
-		// Unsigned integer types
-		{"uint", uint(42), "42", false},
-		{"uint8", uint8(255), "255", false},
-		{"uint16", uint16(65535), "65535", false},
-		{"uint32", uint32(4294967295), "4294967295", false},
-		{"uint64", uint64(18446744073709551615), "18446744073709551615", false},
-
-		// Floating point types
-		{"float32", float32(3.14), "3.14", false},
-		{"float64", 2.718281828, "2.718281828", false},
-		{"float32 NaN", float32(math.NaN()), "NULL", false},
-		{"float64 NaN", math.NaN(), "NULL", false},
-		{"float32 +Inf", float32(math.Inf(1)), "NULL", false},
-		{"float64 +Inf", math.Inf(1), "NULL", false},
-		{"float32 -Inf", float32(math.Inf(-1)), "NULL", false},
-		{"float64 -Inf", math.Inf(-1), "NULL", false},
-
-		// Boolean types
-		{"bool true", true, "TRUE", false},
-		{"bool false", false, "FALSE", false},
-
-		// Time types
-		{"time.Time", time.Date(2023, 12, 25, 15, 30, 45, 0, time.UTC), "'2023-12-25 15:30:45'", false},
-		{"time.Time zero", time.Time{}, "NULL", false},
-
-		// Pointer types
-		{"*string", stringPtr("hello"), "'hello'", false},
-		{"*string nil", (*string)(nil), "NULL", false},
-		{"*int", intPtr(42), "42", false},
-		{"*int nil", (*int)(nil), "NULL", false},
-
-		// sql.Null* types (through driver.Valuer interface)
-		{"sql.NullString valid", sql.NullString{String: "hello", Valid: true}, "'hello'", false},
-		{"sql.NullString invalid", sql.NullString{String: "hello", Valid: false}, "NULL", false},
-		{"sql.NullInt64 valid", sql.NullInt64{Int64: 42, Valid: true}, "42", false},
-		{"sql.NullInt64 invalid", sql.NullInt64{Int64: 42, Valid: false}, "NULL", false},
-		{"sql.NullFloat64 valid", sql.NullFloat64{Float64: 3.14, Valid: true}, "3.14", false},
-		{"sql.NullFloat64 invalid", sql.NullFloat64{Float64: 3.14, Valid: false}, "NULL", false},
-		{"sql.NullBool valid true", sql.NullBool{Bool: true, Valid: true}, "TRUE", false},
-		{"sql.NullBool valid false", sql.NullBool{Bool: false, Valid: true}, "FALSE", false},
-		{"sql.NullBool invalid", sql.NullBool{Bool: true, Valid: false}, "NULL", false},
-		{"sql.NullTime valid", sql.NullTime{Time: time.Date(2023, 12, 25, 15, 30, 45, 0, time.UTC), Valid: true}, "'2023-12-25 15:30:45'", false},
-		{"sql.NullTime invalid", sql.NullTime{Time: time.Now(), Valid: false}, "NULL", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result, err := sqlValue(tt.input)
-
-			if tt.hasError {
-				if err == nil {
-					t.Errorf("Expected error but got none")
-				}
-
-				return
-			}
-
-			if err != nil {
-				t.Errorf("Unexpected error: %v", err)
-				return
-			}
-
-			if result != tt.expected {
-				t.Errorf("Expected %q, got %q", tt.expected, result)
-			}
-		})
-	}
-}
-
-func TestSqlValueReflect(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    any
-		expected string
-		hasError bool
-	}{
-		// Byte arrays
-		{"[4]byte", [4]byte{'t', 'e', 's', 't'}, "'test'", false},
-		{"[]uint8", []uint8{116, 101, 115, 116}, "'test'", false},
-
-		// Unsupported slice types
-		{"[]int", []int{1, 2, 3}, "", true},
-		{"[]string", []string{"a", "b"}, "", true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result, err := sqlValue(tt.input)
-
-			if tt.hasError {
-				if err == nil {
-					t.Errorf("Expected error but got none")
-				}
-
-				return
-			}
-
-			if err != nil {
-				t.Errorf("Unexpected error: %v", err)
-				return
-			}
-
-			if result != tt.expected {
-				t.Errorf("Expected %q, got %q", tt.expected, result)
-			}
-		})
-	}
-}
-
-func TestSqlValueRejectsUnsupportedCompositeTypes(t *testing.T) {
-	tests := []struct {
-		name  string
-		input any
-	}{
-		{name: "struct", input: struct{ ID int }{ID: 1}},
-		{name: "map", input: map[string]int{"id": 1}},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if _, err := sqlValue(tt.input); err == nil {
-				t.Fatal("expected unsupported value type to return an error")
-			}
-		})
-	}
-}
-
-func TestSqlEscapeString(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		expected string
-	}{
-		{"simple string", "hello", "'hello'"},
-		{"string with single quote", "it's", "'it''s'"},
-		{"string with multiple quotes", "it's a 'test'", "'it''s a ''test'''"},
-		{"empty string", "", "''"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result, err := sqlEscapeString(tt.input)
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-
-			if result != tt.expected {
-				t.Errorf("Expected %q, got %q", tt.expected, result)
-			}
-		})
-	}
-}
-
-func TestSqlEscapeStringRejectsBackslashes(t *testing.T) {
-	if _, err := sqlEscapeString(`path\file`); err == nil {
-		t.Fatal("expected backslash-containing string literal to return an error")
-	}
-}
-
-// Custom type implementing driver.Valuer
 type customValuer struct {
 	value string
 	valid bool
@@ -216,57 +28,94 @@ type pointerValuer struct {
 
 func (p *pointerValuer) Value() (driver.Value, error) {
 	if p == nil {
-		return "unexpected", nil
+		return nil, nil
 	}
 
 	return p.value, nil
 }
 
-func TestSqlValueCustomValuer(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    customValuer
-		expected string
-	}{
-		{"valid custom valuer", customValuer{value: "custom", valid: true}, "'custom'"},
-		{"invalid custom valuer", customValuer{value: "custom", valid: false}, "NULL"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result, err := sqlValue(tt.input)
-			if err != nil {
-				t.Errorf("Unexpected error: %v", err)
-				return
-			}
-
-			if result != tt.expected {
-				t.Errorf("Expected %q, got %q", tt.expected, result)
-			}
-		})
-	}
-}
-
-func TestSqlValueTreatsTypedNilPointerValuerAsNull(t *testing.T) {
-	var value *pointerValuer
-
-	result, err := sqlValue(value)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if result != "NULL" {
-		t.Fatalf("expected typed nil pointer valuer to map to NULL, got %q", result)
-	}
-}
-
-// Helper functions for pointer tests
 func stringPtr(s string) *string {
 	return &s
 }
 
 func intPtr(i int) *int {
 	return &i
+}
+
+func TestBindUsesPlaceholdersForDatabaseCompatibleValues(t *testing.T) {
+	now := time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC)
+	tests := []struct {
+		name  string
+		input any
+	}{
+		{name: "string", input: `path\file`},
+		{name: "bytes", input: []byte("hello")},
+		{name: "time", input: now},
+		{name: "valuer", input: customValuer{value: "custom", valid: true}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			expr := Bind(tt.input)
+			if err := expressionBuildError(expr); err != nil {
+				t.Fatalf("unexpected bind error: %v", err)
+			}
+
+			if got := expr.Expr(); got != "?" {
+				t.Fatalf("expected bind expression to use placeholder, got %q", got)
+			}
+
+			args := expr.Args()
+			if len(args) != 1 {
+				t.Fatalf("expected one bound arg, got %#v", args)
+			}
+
+			if !reflect.DeepEqual(args[0], tt.input) {
+				t.Fatalf("expected bound arg %#v, got %#v", tt.input, args[0])
+			}
+		})
+	}
+}
+
+func TestBindRejectsNullAndUnsupportedPredicateValues(t *testing.T) {
+	var nilPointerValuer *pointerValuer
+
+	tests := []struct {
+		name  string
+		input any
+	}{
+		{name: "nil", input: nil},
+		{name: "null string", input: sql.NullString{}},
+		{name: "invalid valuer", input: customValuer{value: "custom", valid: false}},
+		{name: "typed nil valuer", input: nilPointerValuer},
+		{name: "slice", input: []int{1, 2, 3}},
+		{name: "map", input: map[string]int{"id": 1}},
+		{name: "struct", input: struct{ ID int }{ID: 1}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := expressionBuildError(Bind(tt.input)); err == nil {
+				t.Fatal("expected bind to reject value")
+			}
+		})
+	}
+}
+
+func TestArgumentToExpressionDefaultsToBind(t *testing.T) {
+	expr := argumentToExpression(`it's a test`)
+	if err := expressionBuildError(expr); err != nil {
+		t.Fatalf("unexpected expression error: %v", err)
+	}
+
+	if got := expr.Expr(); got != "?" {
+		t.Fatalf("expected default expression conversion to bind values, got %q", got)
+	}
+
+	args := expr.Args()
+	if len(args) != 1 || args[0] != `it's a test` {
+		t.Fatalf("expected bound args [it's a test], got %#v", args)
+	}
 }
 
 func TestCondition_EmptyInShortCircuits(t *testing.T) {
@@ -330,7 +179,21 @@ func TestCondition_EmptyAndOrShortCircuit(t *testing.T) {
 	}
 }
 
-func TestCondition_NullLiteralPredicatesFailFast(t *testing.T) {
+func TestCondition_TablesReturnsDefensiveCopy(t *testing.T) {
+	users := newMockTable("users")
+	cond := newColForTable[Table, int](users, "id", "id", nil).EQ(1)
+
+	tables := cond.Tables()
+	delete(tables, "users")
+	tables["other"] = newMockTable("other")
+
+	fresh := cond.Tables()
+	if len(fresh) != 1 || fresh["users"] == nil {
+		t.Fatalf("expected condition tables to stay intact, got %#v", fresh)
+	}
+}
+
+func TestCondition_NullPredicateValuesFailFast(t *testing.T) {
 	ptrCol := newColForTable[Table, *string](newMockTable("users"), "name", "name", nil)
 	nullableCol := newColForTable[Table, sql.NullString](newMockTable("users"), "nickname", "nickname", nil)
 
@@ -340,7 +203,7 @@ func TestCondition_NullLiteralPredicatesFailFast(t *testing.T) {
 		nullableCol.EQ(sql.NullString{}),
 	} {
 		if _, _, _, err := validateConditionInput(cond); err == nil {
-			t.Fatal("expected null literal predicate to return a build error")
+			t.Fatal("expected null predicate value to return a build error")
 		}
 	}
 }
@@ -370,7 +233,7 @@ func TestCondition_PortabilitySensitiveLikePredicatesFailFast(t *testing.T) {
 	}
 }
 
-func TestCondition_StringLiteralsRejectBackslashes(t *testing.T) {
+func TestCondition_StringPredicatesBindBackslashesSafely(t *testing.T) {
 	col := newColForTable[Table, string](newMockTable("users"), "name", "name", nil)
 
 	for name, cond := range map[string]Condition{
@@ -378,8 +241,17 @@ func TestCondition_StringLiteralsRejectBackslashes(t *testing.T) {
 		"IN": col.In(`path\file`),
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, _, _, err := validateConditionInput(cond); err == nil {
-				t.Fatal("expected backslash-containing string literal to return a build error")
+			clause, _, args, err := validateConditionInput(cond)
+			if err != nil {
+				t.Fatalf("expected backslash-containing string to bind successfully, got %v", err)
+			}
+
+			if !strings.Contains(renderCanonicalSQL(clause), "?") {
+				t.Fatalf("expected predicate to stay parameterized, got %q", renderCanonicalSQL(clause))
+			}
+
+			if len(args) == 0 || args[0] != `path\file` {
+				t.Fatalf("expected bound backslash arg, got %#v", args)
 			}
 		})
 	}
@@ -433,7 +305,7 @@ func TestCondition_InSubRejectsMultipleColumns(t *testing.T) {
 
 	if _, _, _, err := validateConditionInput(userID.InSub(subquery)); err == nil {
 		t.Fatal("expected IN subquery to reject multiple columns")
-	} else if !strings.Contains(err.Error(), "IN subquery must select exactly one column") {
+	} else if !strings.Contains(err.Error(), "in subquery must select exactly one column") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

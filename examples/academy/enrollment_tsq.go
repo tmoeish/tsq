@@ -5,13 +5,76 @@ package academy
 import (
 	"context"
 	tsqsql "database/sql"
+	"errors"
+	"fmt"
 	tsqtime "time"
 
 	null "gopkg.in/nullbio/null.v6"
 
-	"github.com/juju/errors"
 	"github.com/tmoeish/tsq"
 )
+
+type EnrollmentGeneratedQuery struct {
+	query *tsq.Query[Enrollment]
+	err   error
+}
+
+func (g EnrollmentGeneratedQuery) resolved() (*tsq.Query[Enrollment], error) {
+	if g.err != nil {
+		return nil, g.err
+	}
+
+	if g.query == nil {
+		return nil, errors.New("generated query is not initialized")
+	}
+
+	return g.query, nil
+}
+
+func (g EnrollmentGeneratedQuery) Load(ctx context.Context, db tsq.SQLExecutor, holder *Enrollment, args ...any) error {
+	query, err := g.resolved()
+	if err != nil {
+		return err
+	}
+
+	return query.Load(ctx, db, holder, args...)
+}
+
+func (g EnrollmentGeneratedQuery) Exists(ctx context.Context, db tsq.SQLExecutor, args ...any) (bool, error) {
+	query, err := g.resolved()
+	if err != nil {
+		return false, err
+	}
+
+	return query.Exists(ctx, db, args...)
+}
+
+func (g EnrollmentGeneratedQuery) Count(ctx context.Context, db tsq.SQLExecutor, args ...any) (int, error) {
+	query, err := g.resolved()
+	if err != nil {
+		return 0, err
+	}
+
+	return query.Count(ctx, db, args...)
+}
+
+func (g EnrollmentGeneratedQuery) List(ctx context.Context, db tsq.SQLExecutor, args ...any) ([]*Enrollment, error) {
+	query, err := g.resolved()
+	if err != nil {
+		return nil, err
+	}
+
+	return tsq.List(ctx, db, query, args...)
+}
+
+func (g EnrollmentGeneratedQuery) Page(ctx context.Context, db tsq.SQLExecutor, page *tsq.PageReq, args ...any) (*tsq.PageResp[Enrollment], error) {
+	query, err := g.resolved()
+	if err != nil {
+		return nil, err
+	}
+
+	return tsq.Page(ctx, db, page, query, args...)
+}
 
 // =============================================================================
 // Table Interface Implementation
@@ -92,13 +155,13 @@ func init() {
 		func(db *tsq.Engine) error {
 			// Upsert non-unique indexes.
 			if err := tsq.UpsertIndex(db, "enrollment", false, "idx_enrollment_course_id", []string{"deleted_at", "course_id"}); err != nil {
-				return errors.Annotate(err, "upsert idx_enrollment_course_id@enrollment")
+				return fmt.Errorf("%s: %w", "upsert idx_enrollment_course_id@enrollment", err)
 			}
 			if err := tsq.UpsertIndex(db, "enrollment", false, "idx_enrollment_learner_id_course_id", []string{"deleted_at", "learner_id", "course_id"}); err != nil {
-				return errors.Annotate(err, "upsert idx_enrollment_learner_id_course_id@enrollment")
+				return fmt.Errorf("%s: %w", "upsert idx_enrollment_learner_id_course_id@enrollment", err)
 			}
 			if err := tsq.UpsertIndex(db, "enrollment", false, "idx_enrollment_status", []string{"deleted_at", "status"}); err != nil {
-				return errors.Annotate(err, "upsert idx_enrollment_status@enrollment")
+				return fmt.Errorf("%s: %w", "upsert idx_enrollment_status@enrollment", err)
 			}
 			return nil
 		},
@@ -108,17 +171,17 @@ func init() {
 // =============================================================================
 // Query by Primary Key
 // =============================================================================
-var getEnrollmentByUIDQuery *tsq.Query[Enrollment]
+var getEnrollmentByUIDQuery EnrollmentGeneratedQuery
 
 func init() {
 	var err error
-	getEnrollmentByUIDQuery, err = tsq.
+	getEnrollmentByUIDQuery.query, err = tsq.
 		Select(Enrollment__Cols...).
 		From(TableEnrollment).
 		Where(Enrollment_UID.EQVar()).
 		Build()
 	if err != nil {
-		panic(errors.Annotate(err, "initialize getEnrollmentByUIDQuery"))
+		getEnrollmentByUIDQuery.err = fmt.Errorf("%s: %w", "initialize getEnrollmentByUIDQuery", err)
 	}
 }
 
@@ -135,7 +198,7 @@ func GetEnrollmentByUID(
 		if errors.Is(err, tsqsql.ErrNoRows) {
 			return nil, nil
 		}
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 	return row, nil
 }
@@ -150,7 +213,7 @@ func GetEnrollmentByUIDOrErr(
 	row := &Enrollment{}
 	err := getEnrollmentByUIDQuery.Load(ctx, db, row, uID)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 	return row, nil
 }
@@ -168,7 +231,7 @@ func ListEnrollmentByUIDIn(
 		Where(Enrollment_UID.In(uIDs...)).
 		Build()
 	if err != nil {
-		return nil, errors.Annotate(err, "build query")
+		return nil, fmt.Errorf("%s: %w", "build query", err)
 	}
 	return tsq.List(ctx, db, query)
 }
@@ -186,19 +249,19 @@ func ListEnrollmentByUIDInOrErr(
 		Where(Enrollment_UID.In(uIDs...)).
 		Build()
 	if err != nil {
-		return nil, errors.Annotate(err, "build query")
+		return nil, fmt.Errorf("%s: %w", "build query", err)
 	}
 
 	list, err := tsq.List(ctx, db, query)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	match := tsq.MatchByInputOrder(uIDs, list, func(row *Enrollment) int64 {
 		return row.UID
 	})
 	if len(match.Missing) > 0 {
-		return nil, errors.Errorf("Enrollment(s) not found: %v", match.Missing)
+		return nil, fmt.Errorf("records not found: %v", match.Missing)
 	}
 	return match.Ordered, nil
 }
@@ -206,11 +269,11 @@ func ListEnrollmentByUIDInOrErr(
 // =============================================================================
 // Query Active Records by Primary Key
 // =============================================================================
-var getActiveEnrollmentByUIDQuery *tsq.Query[Enrollment]
+var getActiveEnrollmentByUIDQuery EnrollmentGeneratedQuery
 
 func init() {
 	var err error
-	getActiveEnrollmentByUIDQuery, err = tsq.
+	getActiveEnrollmentByUIDQuery.query, err = tsq.
 		Select(Enrollment__Cols...).
 		From(TableEnrollment).
 		Where(
@@ -219,7 +282,7 @@ func init() {
 		).
 		Build()
 	if err != nil {
-		panic(errors.Annotate(err, "initialize getActiveEnrollmentByUIDQuery"))
+		getActiveEnrollmentByUIDQuery.err = fmt.Errorf("%s: %w", "initialize getActiveEnrollmentByUIDQuery", err)
 	}
 }
 
@@ -236,7 +299,7 @@ func GetActiveEnrollmentByUID(
 		if errors.Is(err, tsqsql.ErrNoRows) {
 			return nil, nil
 		}
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 	return row, nil
 }
@@ -251,7 +314,7 @@ func GetActiveEnrollmentByUIDOrErr(
 	row := &Enrollment{}
 	err := getActiveEnrollmentByUIDQuery.Load(ctx, db, row, uID)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 	return row, nil
 }
@@ -272,7 +335,7 @@ func ListActiveEnrollmentByUIDIn(
 		).
 		Build()
 	if err != nil {
-		return nil, errors.Annotate(err, "build query")
+		return nil, fmt.Errorf("%s: %w", "build query", err)
 	}
 	return tsq.List(ctx, db, query)
 }
@@ -293,18 +356,18 @@ func ListActiveEnrollmentByUIDInOrErr(
 		).
 		Build()
 	if err != nil {
-		return nil, errors.Annotate(err, "build query")
+		return nil, fmt.Errorf("%s: %w", "build query", err)
 	}
 
 	list, err := tsq.List(ctx, db, query)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 	match := tsq.MatchByInputOrder(uIDs, list, func(row *Enrollment) int64 {
 		return row.UID
 	})
 	if len(match.Missing) > 0 {
-		return nil, errors.Errorf("Enrollment(s) not found: %v", match.Missing)
+		return nil, fmt.Errorf("records not found: %v", match.Missing)
 	}
 	return match.Ordered, nil
 }
@@ -319,11 +382,11 @@ func ListActiveEnrollmentByUIDInOrErr(
 // =============================================================================
 // Query by Indexes
 // =============================================================================
-var ListEnrollmentByCourseIDQuery *tsq.Query[Enrollment]
+var ListEnrollmentByCourseIDQuery EnrollmentGeneratedQuery
 
 func init() {
 	var err error
-	ListEnrollmentByCourseIDQuery, err = tsq.
+	ListEnrollmentByCourseIDQuery.query, err = tsq.
 		Select(Enrollment__Cols...).
 		From(TableEnrollment).
 		Search(TableEnrollment.SearchColumns()...).
@@ -332,7 +395,7 @@ func init() {
 		).
 		Build()
 	if err != nil {
-		panic(errors.Annotate(err, "initialize ListEnrollmentByCourseIDQuery"))
+		ListEnrollmentByCourseIDQuery.err = fmt.Errorf("%s: %w", "initialize ListEnrollmentByCourseIDQuery", err)
 	}
 }
 
@@ -347,7 +410,7 @@ func CountEnrollmentByCourseID(
 		courseID,
 	)
 	if err != nil {
-		return 0, errors.Annotate(err, "query by index idx_enrollment_course_id")
+		return 0, fmt.Errorf("%s: %w", "query by index idx_enrollment_course_id", err)
 	}
 	return rs, nil
 }
@@ -358,12 +421,12 @@ func ListEnrollmentByCourseID(
 	db tsq.SQLExecutor,
 	courseID int64,
 ) ([]*Enrollment, error) {
-	data, err := tsq.List(
-		ctx, db, ListEnrollmentByCourseIDQuery,
+	data, err := ListEnrollmentByCourseIDQuery.List(
+		ctx, db,
 		courseID,
 	)
 	if err != nil {
-		return nil, errors.Annotate(err, "query by index idx_enrollment_course_id")
+		return nil, fmt.Errorf("%s: %w", "query by index idx_enrollment_course_id", err)
 	}
 	return data, nil
 }
@@ -375,21 +438,21 @@ func PageEnrollmentByCourseID(
 	page *tsq.PageReq,
 	courseID int64,
 ) (*tsq.PageResp[Enrollment], error) {
-	rs, err := tsq.Page(
-		ctx, db, page, ListEnrollmentByCourseIDQuery,
+	rs, err := ListEnrollmentByCourseIDQuery.Page(
+		ctx, db, page,
 		courseID,
 	)
 	if err != nil {
-		return nil, errors.Annotate(err, "query by index idx_enrollment_course_id")
+		return nil, fmt.Errorf("%s: %w", "query by index idx_enrollment_course_id", err)
 	}
 	return rs, nil
 }
 
-var ListEnrollmentByCourseIDInQuery *tsq.Query[Enrollment]
+var ListEnrollmentByCourseIDInQuery EnrollmentGeneratedQuery
 
 func init() {
 	var err error
-	ListEnrollmentByCourseIDInQuery, err = tsq.
+	ListEnrollmentByCourseIDInQuery.query, err = tsq.
 		Select(Enrollment__Cols...).
 		From(TableEnrollment).
 		Where(
@@ -397,7 +460,7 @@ func init() {
 		).
 		Build()
 	if err != nil {
-		panic(errors.Annotate(err, "initialize ListEnrollmentByCourseIDInQuery"))
+		ListEnrollmentByCourseIDInQuery.err = fmt.Errorf("%s: %w", "initialize ListEnrollmentByCourseIDInQuery", err)
 	}
 }
 
@@ -407,21 +470,21 @@ func ListEnrollmentByCourseIDIn(
 	db tsq.SQLExecutor,
 	courseIDs ...int64,
 ) ([]*Enrollment, error) {
-	list, err := tsq.List(
-		ctx, db, ListEnrollmentByCourseIDInQuery,
+	list, err := ListEnrollmentByCourseIDInQuery.List(
+		ctx, db,
 		courseIDs,
 	)
 	if err != nil {
-		return nil, errors.Annotate(err, "query by index idx_enrollment_course_id")
+		return nil, fmt.Errorf("%s: %w", "query by index idx_enrollment_course_id", err)
 	}
 	return list, nil
 }
 
-var ListEnrollmentByLearnerIDQuery *tsq.Query[Enrollment]
+var ListEnrollmentByLearnerIDQuery EnrollmentGeneratedQuery
 
 func init() {
 	var err error
-	ListEnrollmentByLearnerIDQuery, err = tsq.
+	ListEnrollmentByLearnerIDQuery.query, err = tsq.
 		Select(Enrollment__Cols...).
 		From(TableEnrollment).
 		Search(TableEnrollment.SearchColumns()...).
@@ -430,7 +493,7 @@ func init() {
 		).
 		Build()
 	if err != nil {
-		panic(errors.Annotate(err, "initialize ListEnrollmentByLearnerIDQuery"))
+		ListEnrollmentByLearnerIDQuery.err = fmt.Errorf("%s: %w", "initialize ListEnrollmentByLearnerIDQuery", err)
 	}
 }
 
@@ -445,7 +508,7 @@ func CountEnrollmentByLearnerID(
 		learnerID,
 	)
 	if err != nil {
-		return 0, errors.Annotate(err, "query by index idx_enrollment_learner_id_course_id")
+		return 0, fmt.Errorf("%s: %w", "query by index idx_enrollment_learner_id_course_id", err)
 	}
 	return rs, nil
 }
@@ -456,12 +519,12 @@ func ListEnrollmentByLearnerID(
 	db tsq.SQLExecutor,
 	learnerID int64,
 ) ([]*Enrollment, error) {
-	data, err := tsq.List(
-		ctx, db, ListEnrollmentByLearnerIDQuery,
+	data, err := ListEnrollmentByLearnerIDQuery.List(
+		ctx, db,
 		learnerID,
 	)
 	if err != nil {
-		return nil, errors.Annotate(err, "query by index idx_enrollment_learner_id_course_id")
+		return nil, fmt.Errorf("%s: %w", "query by index idx_enrollment_learner_id_course_id", err)
 	}
 	return data, nil
 }
@@ -473,21 +536,21 @@ func PageEnrollmentByLearnerID(
 	page *tsq.PageReq,
 	learnerID int64,
 ) (*tsq.PageResp[Enrollment], error) {
-	rs, err := tsq.Page(
-		ctx, db, page, ListEnrollmentByLearnerIDQuery,
+	rs, err := ListEnrollmentByLearnerIDQuery.Page(
+		ctx, db, page,
 		learnerID,
 	)
 	if err != nil {
-		return nil, errors.Annotate(err, "query by index idx_enrollment_learner_id_course_id")
+		return nil, fmt.Errorf("%s: %w", "query by index idx_enrollment_learner_id_course_id", err)
 	}
 	return rs, nil
 }
 
-var ListEnrollmentByLearnerIDAndCourseIDQuery *tsq.Query[Enrollment]
+var ListEnrollmentByLearnerIDAndCourseIDQuery EnrollmentGeneratedQuery
 
 func init() {
 	var err error
-	ListEnrollmentByLearnerIDAndCourseIDQuery, err = tsq.
+	ListEnrollmentByLearnerIDAndCourseIDQuery.query, err = tsq.
 		Select(Enrollment__Cols...).
 		From(TableEnrollment).
 		Search(TableEnrollment.SearchColumns()...).
@@ -497,7 +560,7 @@ func init() {
 		).
 		Build()
 	if err != nil {
-		panic(errors.Annotate(err, "initialize ListEnrollmentByLearnerIDAndCourseIDQuery"))
+		ListEnrollmentByLearnerIDAndCourseIDQuery.err = fmt.Errorf("%s: %w", "initialize ListEnrollmentByLearnerIDAndCourseIDQuery", err)
 	}
 }
 
@@ -514,7 +577,7 @@ func CountEnrollmentByLearnerIDAndCourseID(
 		courseID,
 	)
 	if err != nil {
-		return 0, errors.Annotate(err, "query by index idx_enrollment_learner_id_course_id")
+		return 0, fmt.Errorf("%s: %w", "query by index idx_enrollment_learner_id_course_id", err)
 	}
 	return rs, nil
 }
@@ -526,13 +589,13 @@ func ListEnrollmentByLearnerIDAndCourseID(
 	learnerID int64,
 	courseID int64,
 ) ([]*Enrollment, error) {
-	data, err := tsq.List(
-		ctx, db, ListEnrollmentByLearnerIDAndCourseIDQuery,
+	data, err := ListEnrollmentByLearnerIDAndCourseIDQuery.List(
+		ctx, db,
 		learnerID,
 		courseID,
 	)
 	if err != nil {
-		return nil, errors.Annotate(err, "query by index idx_enrollment_learner_id_course_id")
+		return nil, fmt.Errorf("%s: %w", "query by index idx_enrollment_learner_id_course_id", err)
 	}
 	return data, nil
 }
@@ -545,22 +608,22 @@ func PageEnrollmentByLearnerIDAndCourseID(
 	learnerID int64,
 	courseID int64,
 ) (*tsq.PageResp[Enrollment], error) {
-	rs, err := tsq.Page(
-		ctx, db, page, ListEnrollmentByLearnerIDAndCourseIDQuery,
+	rs, err := ListEnrollmentByLearnerIDAndCourseIDQuery.Page(
+		ctx, db, page,
 		learnerID,
 		courseID,
 	)
 	if err != nil {
-		return nil, errors.Annotate(err, "query by index idx_enrollment_learner_id_course_id")
+		return nil, fmt.Errorf("%s: %w", "query by index idx_enrollment_learner_id_course_id", err)
 	}
 	return rs, nil
 }
 
-var ListEnrollmentByLearnerIDAndCourseIDInQuery *tsq.Query[Enrollment]
+var ListEnrollmentByLearnerIDAndCourseIDInQuery EnrollmentGeneratedQuery
 
 func init() {
 	var err error
-	ListEnrollmentByLearnerIDAndCourseIDInQuery, err = tsq.
+	ListEnrollmentByLearnerIDAndCourseIDInQuery.query, err = tsq.
 		Select(Enrollment__Cols...).
 		From(TableEnrollment).
 		Where(
@@ -569,7 +632,7 @@ func init() {
 		).
 		Build()
 	if err != nil {
-		panic(errors.Annotate(err, "initialize ListEnrollmentByLearnerIDAndCourseIDInQuery"))
+		ListEnrollmentByLearnerIDAndCourseIDInQuery.err = fmt.Errorf("%s: %w", "initialize ListEnrollmentByLearnerIDAndCourseIDInQuery", err)
 	}
 }
 
@@ -580,22 +643,22 @@ func ListEnrollmentByLearnerIDAndCourseIDIn(
 	learnerID int64,
 	courseIDs ...int64,
 ) ([]*Enrollment, error) {
-	list, err := tsq.List(
-		ctx, db, ListEnrollmentByLearnerIDAndCourseIDInQuery,
+	list, err := ListEnrollmentByLearnerIDAndCourseIDInQuery.List(
+		ctx, db,
 		learnerID,
 		courseIDs,
 	)
 	if err != nil {
-		return nil, errors.Annotate(err, "query by index idx_enrollment_learner_id_course_id")
+		return nil, fmt.Errorf("%s: %w", "query by index idx_enrollment_learner_id_course_id", err)
 	}
 	return list, nil
 }
 
-var ListEnrollmentByLearnerIDInQuery *tsq.Query[Enrollment]
+var ListEnrollmentByLearnerIDInQuery EnrollmentGeneratedQuery
 
 func init() {
 	var err error
-	ListEnrollmentByLearnerIDInQuery, err = tsq.
+	ListEnrollmentByLearnerIDInQuery.query, err = tsq.
 		Select(Enrollment__Cols...).
 		From(TableEnrollment).
 		Where(
@@ -603,7 +666,7 @@ func init() {
 		).
 		Build()
 	if err != nil {
-		panic(errors.Annotate(err, "initialize ListEnrollmentByLearnerIDInQuery"))
+		ListEnrollmentByLearnerIDInQuery.err = fmt.Errorf("%s: %w", "initialize ListEnrollmentByLearnerIDInQuery", err)
 	}
 }
 
@@ -613,21 +676,21 @@ func ListEnrollmentByLearnerIDIn(
 	db tsq.SQLExecutor,
 	learnerIDs ...int64,
 ) ([]*Enrollment, error) {
-	list, err := tsq.List(
-		ctx, db, ListEnrollmentByLearnerIDInQuery,
+	list, err := ListEnrollmentByLearnerIDInQuery.List(
+		ctx, db,
 		learnerIDs,
 	)
 	if err != nil {
-		return nil, errors.Annotate(err, "query by index idx_enrollment_learner_id_course_id")
+		return nil, fmt.Errorf("%s: %w", "query by index idx_enrollment_learner_id_course_id", err)
 	}
 	return list, nil
 }
 
-var ListEnrollmentByStatusQuery *tsq.Query[Enrollment]
+var ListEnrollmentByStatusQuery EnrollmentGeneratedQuery
 
 func init() {
 	var err error
-	ListEnrollmentByStatusQuery, err = tsq.
+	ListEnrollmentByStatusQuery.query, err = tsq.
 		Select(Enrollment__Cols...).
 		From(TableEnrollment).
 		Search(TableEnrollment.SearchColumns()...).
@@ -636,7 +699,7 @@ func init() {
 		).
 		Build()
 	if err != nil {
-		panic(errors.Annotate(err, "initialize ListEnrollmentByStatusQuery"))
+		ListEnrollmentByStatusQuery.err = fmt.Errorf("%s: %w", "initialize ListEnrollmentByStatusQuery", err)
 	}
 }
 
@@ -651,7 +714,7 @@ func CountEnrollmentByStatus(
 		status,
 	)
 	if err != nil {
-		return 0, errors.Annotate(err, "query by index idx_enrollment_status")
+		return 0, fmt.Errorf("%s: %w", "query by index idx_enrollment_status", err)
 	}
 	return rs, nil
 }
@@ -662,12 +725,12 @@ func ListEnrollmentByStatus(
 	db tsq.SQLExecutor,
 	status EnrollmentStatus,
 ) ([]*Enrollment, error) {
-	data, err := tsq.List(
-		ctx, db, ListEnrollmentByStatusQuery,
+	data, err := ListEnrollmentByStatusQuery.List(
+		ctx, db,
 		status,
 	)
 	if err != nil {
-		return nil, errors.Annotate(err, "query by index idx_enrollment_status")
+		return nil, fmt.Errorf("%s: %w", "query by index idx_enrollment_status", err)
 	}
 	return data, nil
 }
@@ -679,21 +742,21 @@ func PageEnrollmentByStatus(
 	page *tsq.PageReq,
 	status EnrollmentStatus,
 ) (*tsq.PageResp[Enrollment], error) {
-	rs, err := tsq.Page(
-		ctx, db, page, ListEnrollmentByStatusQuery,
+	rs, err := ListEnrollmentByStatusQuery.Page(
+		ctx, db, page,
 		status,
 	)
 	if err != nil {
-		return nil, errors.Annotate(err, "query by index idx_enrollment_status")
+		return nil, fmt.Errorf("%s: %w", "query by index idx_enrollment_status", err)
 	}
 	return rs, nil
 }
 
-var ListEnrollmentByStatusInQuery *tsq.Query[Enrollment]
+var ListEnrollmentByStatusInQuery EnrollmentGeneratedQuery
 
 func init() {
 	var err error
-	ListEnrollmentByStatusInQuery, err = tsq.
+	ListEnrollmentByStatusInQuery.query, err = tsq.
 		Select(Enrollment__Cols...).
 		From(TableEnrollment).
 		Where(
@@ -701,7 +764,7 @@ func init() {
 		).
 		Build()
 	if err != nil {
-		panic(errors.Annotate(err, "initialize ListEnrollmentByStatusInQuery"))
+		ListEnrollmentByStatusInQuery.err = fmt.Errorf("%s: %w", "initialize ListEnrollmentByStatusInQuery", err)
 	}
 }
 
@@ -711,12 +774,12 @@ func ListEnrollmentByStatusIn(
 	db tsq.SQLExecutor,
 	statuss ...EnrollmentStatus,
 ) ([]*Enrollment, error) {
-	list, err := tsq.List(
-		ctx, db, ListEnrollmentByStatusInQuery,
+	list, err := ListEnrollmentByStatusInQuery.List(
+		ctx, db,
 		statuss,
 	)
 	if err != nil {
-		return nil, errors.Annotate(err, "query by index idx_enrollment_status")
+		return nil, fmt.Errorf("%s: %w", "query by index idx_enrollment_status", err)
 	}
 	return list, nil
 }
@@ -724,11 +787,11 @@ func ListEnrollmentByStatusIn(
 // =============================================================================
 // Query Active Records by Indexes
 // =============================================================================
-var listActiveEnrollmentByCourseIDQuery *tsq.Query[Enrollment]
+var listActiveEnrollmentByCourseIDQuery EnrollmentGeneratedQuery
 
 func init() {
 	var err error
-	listActiveEnrollmentByCourseIDQuery, err = tsq.
+	listActiveEnrollmentByCourseIDQuery.query, err = tsq.
 		Select(Enrollment__Cols...).
 		From(TableEnrollment).
 		Search(TableEnrollment.SearchColumns()...).
@@ -738,7 +801,7 @@ func init() {
 		).
 		Build()
 	if err != nil {
-		panic(errors.Annotate(err, "initialize listActiveEnrollmentByCourseIDQuery"))
+		listActiveEnrollmentByCourseIDQuery.err = fmt.Errorf("%s: %w", "initialize listActiveEnrollmentByCourseIDQuery", err)
 	}
 }
 
@@ -753,7 +816,7 @@ func CountActiveEnrollmentByCourseID(
 		courseID,
 	)
 	if err != nil {
-		return 0, errors.Annotate(err, "query by index idx_enrollment_course_id")
+		return 0, fmt.Errorf("%s: %w", "query by index idx_enrollment_course_id", err)
 	}
 	return rs, nil
 }
@@ -764,12 +827,12 @@ func ListActiveEnrollmentByCourseID(
 	db tsq.SQLExecutor,
 	courseID int64,
 ) ([]*Enrollment, error) {
-	data, err := tsq.List(
-		ctx, db, listActiveEnrollmentByCourseIDQuery,
+	data, err := listActiveEnrollmentByCourseIDQuery.List(
+		ctx, db,
 		courseID,
 	)
 	if err != nil {
-		return nil, errors.Annotate(err, "query by index idx_enrollment_course_id")
+		return nil, fmt.Errorf("%s: %w", "query by index idx_enrollment_course_id", err)
 	}
 	return data, nil
 }
@@ -781,21 +844,21 @@ func PageActiveEnrollmentByCourseID(
 	page *tsq.PageReq,
 	courseID int64,
 ) (*tsq.PageResp[Enrollment], error) {
-	rs, err := tsq.Page(
-		ctx, db, page, listActiveEnrollmentByCourseIDQuery,
+	rs, err := listActiveEnrollmentByCourseIDQuery.Page(
+		ctx, db, page,
 		courseID,
 	)
 	if err != nil {
-		return nil, errors.Annotate(err, "query by index idx_enrollment_course_id")
+		return nil, fmt.Errorf("%s: %w", "query by index idx_enrollment_course_id", err)
 	}
 	return rs, nil
 }
 
-var ListActiveEnrollmentByCourseIDInQuery *tsq.Query[Enrollment]
+var ListActiveEnrollmentByCourseIDInQuery EnrollmentGeneratedQuery
 
 func init() {
 	var err error
-	ListActiveEnrollmentByCourseIDInQuery, err = tsq.
+	ListActiveEnrollmentByCourseIDInQuery.query, err = tsq.
 		Select(Enrollment__Cols...).
 		From(TableEnrollment).
 		Where(
@@ -804,7 +867,7 @@ func init() {
 		).
 		Build()
 	if err != nil {
-		panic(errors.Annotate(err, "initialize ListActiveEnrollmentByCourseIDInQuery"))
+		ListActiveEnrollmentByCourseIDInQuery.err = fmt.Errorf("%s: %w", "initialize ListActiveEnrollmentByCourseIDInQuery", err)
 	}
 }
 
@@ -815,21 +878,21 @@ func ListActiveEnrollmentByCourseIDIn(
 	courseIDs ...int64,
 ) ([]*Enrollment, error) {
 	query := ListActiveEnrollmentByCourseIDInQuery
-	list, err := tsq.List(
-		ctx, db, query,
+	list, err := query.List(
+		ctx, db,
 		courseIDs,
 	)
 	if err != nil {
-		return nil, errors.Annotate(err, "query by index idx_enrollment_course_id")
+		return nil, fmt.Errorf("%s: %w", "query by index idx_enrollment_course_id", err)
 	}
 	return list, nil
 }
 
-var listActiveEnrollmentByLearnerIDQuery *tsq.Query[Enrollment]
+var listActiveEnrollmentByLearnerIDQuery EnrollmentGeneratedQuery
 
 func init() {
 	var err error
-	listActiveEnrollmentByLearnerIDQuery, err = tsq.
+	listActiveEnrollmentByLearnerIDQuery.query, err = tsq.
 		Select(Enrollment__Cols...).
 		From(TableEnrollment).
 		Search(TableEnrollment.SearchColumns()...).
@@ -839,7 +902,7 @@ func init() {
 		).
 		Build()
 	if err != nil {
-		panic(errors.Annotate(err, "initialize listActiveEnrollmentByLearnerIDQuery"))
+		listActiveEnrollmentByLearnerIDQuery.err = fmt.Errorf("%s: %w", "initialize listActiveEnrollmentByLearnerIDQuery", err)
 	}
 }
 
@@ -854,7 +917,7 @@ func CountActiveEnrollmentByLearnerID(
 		learnerID,
 	)
 	if err != nil {
-		return 0, errors.Annotate(err, "query by index idx_enrollment_learner_id_course_id")
+		return 0, fmt.Errorf("%s: %w", "query by index idx_enrollment_learner_id_course_id", err)
 	}
 	return rs, nil
 }
@@ -865,12 +928,12 @@ func ListActiveEnrollmentByLearnerID(
 	db tsq.SQLExecutor,
 	learnerID int64,
 ) ([]*Enrollment, error) {
-	data, err := tsq.List(
-		ctx, db, listActiveEnrollmentByLearnerIDQuery,
+	data, err := listActiveEnrollmentByLearnerIDQuery.List(
+		ctx, db,
 		learnerID,
 	)
 	if err != nil {
-		return nil, errors.Annotate(err, "query by index idx_enrollment_learner_id_course_id")
+		return nil, fmt.Errorf("%s: %w", "query by index idx_enrollment_learner_id_course_id", err)
 	}
 	return data, nil
 }
@@ -882,21 +945,21 @@ func PageActiveEnrollmentByLearnerID(
 	page *tsq.PageReq,
 	learnerID int64,
 ) (*tsq.PageResp[Enrollment], error) {
-	rs, err := tsq.Page(
-		ctx, db, page, listActiveEnrollmentByLearnerIDQuery,
+	rs, err := listActiveEnrollmentByLearnerIDQuery.Page(
+		ctx, db, page,
 		learnerID,
 	)
 	if err != nil {
-		return nil, errors.Annotate(err, "query by index idx_enrollment_learner_id_course_id")
+		return nil, fmt.Errorf("%s: %w", "query by index idx_enrollment_learner_id_course_id", err)
 	}
 	return rs, nil
 }
 
-var listActiveEnrollmentByLearnerIDAndCourseIDQuery *tsq.Query[Enrollment]
+var listActiveEnrollmentByLearnerIDAndCourseIDQuery EnrollmentGeneratedQuery
 
 func init() {
 	var err error
-	listActiveEnrollmentByLearnerIDAndCourseIDQuery, err = tsq.
+	listActiveEnrollmentByLearnerIDAndCourseIDQuery.query, err = tsq.
 		Select(Enrollment__Cols...).
 		From(TableEnrollment).
 		Search(TableEnrollment.SearchColumns()...).
@@ -907,7 +970,7 @@ func init() {
 		).
 		Build()
 	if err != nil {
-		panic(errors.Annotate(err, "initialize listActiveEnrollmentByLearnerIDAndCourseIDQuery"))
+		listActiveEnrollmentByLearnerIDAndCourseIDQuery.err = fmt.Errorf("%s: %w", "initialize listActiveEnrollmentByLearnerIDAndCourseIDQuery", err)
 	}
 }
 
@@ -924,7 +987,7 @@ func CountActiveEnrollmentByLearnerIDAndCourseID(
 		courseID,
 	)
 	if err != nil {
-		return 0, errors.Annotate(err, "query by index idx_enrollment_learner_id_course_id")
+		return 0, fmt.Errorf("%s: %w", "query by index idx_enrollment_learner_id_course_id", err)
 	}
 	return rs, nil
 }
@@ -936,13 +999,13 @@ func ListActiveEnrollmentByLearnerIDAndCourseID(
 	learnerID int64,
 	courseID int64,
 ) ([]*Enrollment, error) {
-	data, err := tsq.List(
-		ctx, db, listActiveEnrollmentByLearnerIDAndCourseIDQuery,
+	data, err := listActiveEnrollmentByLearnerIDAndCourseIDQuery.List(
+		ctx, db,
 		learnerID,
 		courseID,
 	)
 	if err != nil {
-		return nil, errors.Annotate(err, "query by index idx_enrollment_learner_id_course_id")
+		return nil, fmt.Errorf("%s: %w", "query by index idx_enrollment_learner_id_course_id", err)
 	}
 	return data, nil
 }
@@ -955,22 +1018,22 @@ func PageActiveEnrollmentByLearnerIDAndCourseID(
 	learnerID int64,
 	courseID int64,
 ) (*tsq.PageResp[Enrollment], error) {
-	rs, err := tsq.Page(
-		ctx, db, page, listActiveEnrollmentByLearnerIDAndCourseIDQuery,
+	rs, err := listActiveEnrollmentByLearnerIDAndCourseIDQuery.Page(
+		ctx, db, page,
 		learnerID,
 		courseID,
 	)
 	if err != nil {
-		return nil, errors.Annotate(err, "query by index idx_enrollment_learner_id_course_id")
+		return nil, fmt.Errorf("%s: %w", "query by index idx_enrollment_learner_id_course_id", err)
 	}
 	return rs, nil
 }
 
-var ListActiveEnrollmentByLearnerIDAndCourseIDInQuery *tsq.Query[Enrollment]
+var ListActiveEnrollmentByLearnerIDAndCourseIDInQuery EnrollmentGeneratedQuery
 
 func init() {
 	var err error
-	ListActiveEnrollmentByLearnerIDAndCourseIDInQuery, err = tsq.
+	ListActiveEnrollmentByLearnerIDAndCourseIDInQuery.query, err = tsq.
 		Select(Enrollment__Cols...).
 		From(TableEnrollment).
 		Where(
@@ -980,7 +1043,7 @@ func init() {
 		).
 		Build()
 	if err != nil {
-		panic(errors.Annotate(err, "initialize ListActiveEnrollmentByLearnerIDAndCourseIDInQuery"))
+		ListActiveEnrollmentByLearnerIDAndCourseIDInQuery.err = fmt.Errorf("%s: %w", "initialize ListActiveEnrollmentByLearnerIDAndCourseIDInQuery", err)
 	}
 }
 
@@ -992,22 +1055,22 @@ func ListActiveEnrollmentByLearnerIDAndCourseIDIn(
 	courseIDs ...int64,
 ) ([]*Enrollment, error) {
 	query := ListActiveEnrollmentByLearnerIDAndCourseIDInQuery
-	list, err := tsq.List(
-		ctx, db, query,
+	list, err := query.List(
+		ctx, db,
 		learnerID,
 		courseIDs,
 	)
 	if err != nil {
-		return nil, errors.Annotate(err, "query by index idx_enrollment_learner_id_course_id")
+		return nil, fmt.Errorf("%s: %w", "query by index idx_enrollment_learner_id_course_id", err)
 	}
 	return list, nil
 }
 
-var ListActiveEnrollmentByLearnerIDInQuery *tsq.Query[Enrollment]
+var ListActiveEnrollmentByLearnerIDInQuery EnrollmentGeneratedQuery
 
 func init() {
 	var err error
-	ListActiveEnrollmentByLearnerIDInQuery, err = tsq.
+	ListActiveEnrollmentByLearnerIDInQuery.query, err = tsq.
 		Select(Enrollment__Cols...).
 		From(TableEnrollment).
 		Where(
@@ -1016,7 +1079,7 @@ func init() {
 		).
 		Build()
 	if err != nil {
-		panic(errors.Annotate(err, "initialize ListActiveEnrollmentByLearnerIDInQuery"))
+		ListActiveEnrollmentByLearnerIDInQuery.err = fmt.Errorf("%s: %w", "initialize ListActiveEnrollmentByLearnerIDInQuery", err)
 	}
 }
 
@@ -1027,21 +1090,21 @@ func ListActiveEnrollmentByLearnerIDIn(
 	learnerIDs ...int64,
 ) ([]*Enrollment, error) {
 	query := ListActiveEnrollmentByLearnerIDInQuery
-	list, err := tsq.List(
-		ctx, db, query,
+	list, err := query.List(
+		ctx, db,
 		learnerIDs,
 	)
 	if err != nil {
-		return nil, errors.Annotate(err, "query by index idx_enrollment_learner_id_course_id")
+		return nil, fmt.Errorf("%s: %w", "query by index idx_enrollment_learner_id_course_id", err)
 	}
 	return list, nil
 }
 
-var listActiveEnrollmentByStatusQuery *tsq.Query[Enrollment]
+var listActiveEnrollmentByStatusQuery EnrollmentGeneratedQuery
 
 func init() {
 	var err error
-	listActiveEnrollmentByStatusQuery, err = tsq.
+	listActiveEnrollmentByStatusQuery.query, err = tsq.
 		Select(Enrollment__Cols...).
 		From(TableEnrollment).
 		Search(TableEnrollment.SearchColumns()...).
@@ -1051,7 +1114,7 @@ func init() {
 		).
 		Build()
 	if err != nil {
-		panic(errors.Annotate(err, "initialize listActiveEnrollmentByStatusQuery"))
+		listActiveEnrollmentByStatusQuery.err = fmt.Errorf("%s: %w", "initialize listActiveEnrollmentByStatusQuery", err)
 	}
 }
 
@@ -1066,7 +1129,7 @@ func CountActiveEnrollmentByStatus(
 		status,
 	)
 	if err != nil {
-		return 0, errors.Annotate(err, "query by index idx_enrollment_status")
+		return 0, fmt.Errorf("%s: %w", "query by index idx_enrollment_status", err)
 	}
 	return rs, nil
 }
@@ -1077,12 +1140,12 @@ func ListActiveEnrollmentByStatus(
 	db tsq.SQLExecutor,
 	status EnrollmentStatus,
 ) ([]*Enrollment, error) {
-	data, err := tsq.List(
-		ctx, db, listActiveEnrollmentByStatusQuery,
+	data, err := listActiveEnrollmentByStatusQuery.List(
+		ctx, db,
 		status,
 	)
 	if err != nil {
-		return nil, errors.Annotate(err, "query by index idx_enrollment_status")
+		return nil, fmt.Errorf("%s: %w", "query by index idx_enrollment_status", err)
 	}
 	return data, nil
 }
@@ -1094,21 +1157,21 @@ func PageActiveEnrollmentByStatus(
 	page *tsq.PageReq,
 	status EnrollmentStatus,
 ) (*tsq.PageResp[Enrollment], error) {
-	rs, err := tsq.Page(
-		ctx, db, page, listActiveEnrollmentByStatusQuery,
+	rs, err := listActiveEnrollmentByStatusQuery.Page(
+		ctx, db, page,
 		status,
 	)
 	if err != nil {
-		return nil, errors.Annotate(err, "query by index idx_enrollment_status")
+		return nil, fmt.Errorf("%s: %w", "query by index idx_enrollment_status", err)
 	}
 	return rs, nil
 }
 
-var ListActiveEnrollmentByStatusInQuery *tsq.Query[Enrollment]
+var ListActiveEnrollmentByStatusInQuery EnrollmentGeneratedQuery
 
 func init() {
 	var err error
-	ListActiveEnrollmentByStatusInQuery, err = tsq.
+	ListActiveEnrollmentByStatusInQuery.query, err = tsq.
 		Select(Enrollment__Cols...).
 		From(TableEnrollment).
 		Where(
@@ -1117,7 +1180,7 @@ func init() {
 		).
 		Build()
 	if err != nil {
-		panic(errors.Annotate(err, "initialize ListActiveEnrollmentByStatusInQuery"))
+		ListActiveEnrollmentByStatusInQuery.err = fmt.Errorf("%s: %w", "initialize ListActiveEnrollmentByStatusInQuery", err)
 	}
 }
 
@@ -1128,12 +1191,12 @@ func ListActiveEnrollmentByStatusIn(
 	statuss ...EnrollmentStatus,
 ) ([]*Enrollment, error) {
 	query := ListActiveEnrollmentByStatusInQuery
-	list, err := tsq.List(
-		ctx, db, query,
+	list, err := query.List(
+		ctx, db,
 		statuss,
 	)
 	if err != nil {
-		return nil, errors.Annotate(err, "query by index idx_enrollment_status")
+		return nil, fmt.Errorf("%s: %w", "query by index idx_enrollment_status", err)
 	}
 	return list, nil
 }
@@ -1141,17 +1204,17 @@ func ListActiveEnrollmentByStatusIn(
 // =============================================================================
 // List All Records
 // =============================================================================
-var listEnrollmentQuery *tsq.Query[Enrollment]
+var listEnrollmentQuery EnrollmentGeneratedQuery
 
 func init() {
 	var err error
-	listEnrollmentQuery, err = tsq.
+	listEnrollmentQuery.query, err = tsq.
 		Select(Enrollment__Cols...).
 		From(TableEnrollment).
 		Search(TableEnrollment.SearchColumns()...).
 		Build()
 	if err != nil {
-		panic(errors.Annotate(err, "initialize listEnrollmentQuery"))
+		listEnrollmentQuery.err = fmt.Errorf("%s: %w", "initialize listEnrollmentQuery", err)
 	}
 }
 
@@ -1168,7 +1231,7 @@ func ListEnrollment(
 	ctx context.Context,
 	tx tsq.SQLExecutor,
 ) ([]*Enrollment, error) {
-	return tsq.List(ctx, tx, listEnrollmentQuery)
+	return listEnrollmentQuery.List(ctx, tx)
 }
 
 // PageEnrollment retrieves Enrollment records with pagination.
@@ -1177,24 +1240,24 @@ func PageEnrollment(
 	tx tsq.SQLExecutor,
 	page *tsq.PageReq,
 ) (*tsq.PageResp[Enrollment], error) {
-	return tsq.Page(ctx, tx, page, listEnrollmentQuery)
+	return listEnrollmentQuery.Page(ctx, tx, page)
 }
 
 // =============================================================================
 // List Active Records
 // =============================================================================
-var listActiveEnrollmentQuery *tsq.Query[Enrollment]
+var listActiveEnrollmentQuery EnrollmentGeneratedQuery
 
 func init() {
 	var err error
-	listActiveEnrollmentQuery, err = tsq.
+	listActiveEnrollmentQuery.query, err = tsq.
 		Select(Enrollment__Cols...).
 		From(TableEnrollment).
 		Search(TableEnrollment.SearchColumns()...).
 		Where(Enrollment_DeletedAt.EQ(0)).
 		Build()
 	if err != nil {
-		panic(errors.Annotate(err, "initialize listActiveEnrollmentQuery"))
+		listActiveEnrollmentQuery.err = fmt.Errorf("%s: %w", "initialize listActiveEnrollmentQuery", err)
 	}
 }
 
@@ -1211,7 +1274,7 @@ func ListActiveEnrollment(
 	ctx context.Context,
 	tx tsq.SQLExecutor,
 ) ([]*Enrollment, error) {
-	return tsq.List(ctx, tx, listActiveEnrollmentQuery)
+	return listActiveEnrollmentQuery.List(ctx, tx)
 }
 
 // PageActiveEnrollment retrieves active Enrollment records with pagination.
@@ -1220,7 +1283,7 @@ func PageActiveEnrollment(
 	tx tsq.SQLExecutor,
 	page *tsq.PageReq,
 ) (*tsq.PageResp[Enrollment], error) {
-	return tsq.Page(ctx, tx, page, listActiveEnrollmentQuery)
+	return listActiveEnrollmentQuery.Page(ctx, tx, page)
 }
 
 // =============================================================================
@@ -1236,7 +1299,7 @@ func (e *Enrollment) Insert(
 	e.UpdatedAt = null.TimeFrom(tsqtime.Now())
 	err := tsq.Insert(ctx, db, e)
 	if err != nil {
-		return errors.Annotatef(err, "insert Enrollment: %s", tsq.CompactJSON(e))
+		return fmt.Errorf("insert Enrollment: %s: %w", tsq.CompactJSON(e), err)
 	}
 	return nil
 }
@@ -1249,7 +1312,7 @@ func (e *Enrollment) Update(
 	e.UpdatedAt = null.TimeFrom(tsqtime.Now())
 	err := tsq.Update(ctx, db, e)
 	if err != nil {
-		return errors.Annotatef(err, "update Enrollment: %s", tsq.CompactJSON(e))
+		return fmt.Errorf("update Enrollment: %s: %w", tsq.CompactJSON(e), err)
 	}
 	return nil
 }
@@ -1261,7 +1324,7 @@ func (e *Enrollment) Delete(
 ) error {
 	err := tsq.Delete(ctx, db, e)
 	if err != nil {
-		return errors.Annotatef(err, "delete Enrollment: %s", tsq.CompactJSON(e))
+		return fmt.Errorf("delete Enrollment: %s: %w", tsq.CompactJSON(e), err)
 	}
 	return nil
 }
@@ -1280,7 +1343,7 @@ func (e *Enrollment) SoftDelete(
 	e.UpdatedAt = null.TimeFrom(tsqtime.Now())
 	err := tsq.Update(ctx, db, e)
 	if err != nil {
-		return errors.Annotatef(err, "soft-delete Enrollment: %s", tsq.CompactJSON(e))
+		return fmt.Errorf("soft-delete Enrollment: %s: %w", tsq.CompactJSON(e), err)
 	}
 	return nil
 }

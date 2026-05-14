@@ -1,11 +1,10 @@
 package tsq
 
 import (
+	"errors"
 	"maps"
 	"sort"
 	"strings"
-
-	"github.com/juju/errors"
 )
 
 type caseBranch struct {
@@ -48,7 +47,7 @@ func (b *CaseBuilder[T]) When(cond Condition, result any) *CaseBuilder[T] {
 
 	clause, condTables, _, err := validateConditionInput(cond)
 	if err != nil {
-		b.buildErr = errors.Trace(err)
+		b.buildErr = err
 		return b
 	}
 
@@ -59,7 +58,7 @@ func (b *CaseBuilder[T]) When(cond Condition, result any) *CaseBuilder[T] {
 
 	expr := argumentToExpression(result)
 	if err := expressionBuildError(expr); err != nil {
-		b.buildErr = errors.Trace(err)
+		b.buildErr = err
 		return b
 	}
 
@@ -86,7 +85,7 @@ func (b *CaseBuilder[T]) Else(result any) *CaseBuilder[T] {
 
 	expr := argumentToExpression(result)
 	if err := expressionBuildError(expr); err != nil {
-		b.buildErr = errors.Trace(err)
+		b.buildErr = err
 		return b
 	}
 
@@ -108,7 +107,7 @@ func (b *CaseBuilder[T]) End() ColumnImpl[expressionOwner, T] {
 	}
 
 	if b.buildErr != nil {
-		return ColumnImpl[expressionOwner, T]{buildErr: errors.Trace(b.buildErr)}
+		return ColumnImpl[expressionOwner, T]{buildErr: b.buildErr}
 	}
 
 	if len(b.whens) == 0 {

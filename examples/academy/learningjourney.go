@@ -2,9 +2,8 @@ package academy
 
 import (
 	"context"
+	"fmt"
 	"time"
-
-	"github.com/juju/errors"
 
 	"github.com/tmoeish/tsq"
 )
@@ -52,7 +51,7 @@ func init() {
 		Having(Enrollment_UID.Count().GTE(2)).
 		Build()
 	if err != nil {
-		panic(errors.Annotate(err, "initialize engagedCourseIDs"))
+		panic(fmt.Errorf("%s: %w", "initialize engagedCourseIDs", err))
 	}
 
 	pageLearningJourneyQuery, err = tsq.
@@ -69,7 +68,7 @@ func init() {
 		).
 		Build()
 	if err != nil {
-		panic(errors.Annotate(err, "initialize pageLearningJourneyQuery"))
+		panic(fmt.Errorf("%s: %w", "initialize pageLearningJourneyQuery", err))
 	}
 }
 

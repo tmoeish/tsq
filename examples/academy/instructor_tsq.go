@@ -5,13 +5,76 @@ package academy
 import (
 	"context"
 	tsqsql "database/sql"
+	"errors"
+	"fmt"
 	tsqtime "time"
 
 	null "gopkg.in/nullbio/null.v6"
 
-	"github.com/juju/errors"
 	"github.com/tmoeish/tsq"
 )
+
+type InstructorGeneratedQuery struct {
+	query *tsq.Query[Instructor]
+	err   error
+}
+
+func (g InstructorGeneratedQuery) resolved() (*tsq.Query[Instructor], error) {
+	if g.err != nil {
+		return nil, g.err
+	}
+
+	if g.query == nil {
+		return nil, errors.New("generated query is not initialized")
+	}
+
+	return g.query, nil
+}
+
+func (g InstructorGeneratedQuery) Load(ctx context.Context, db tsq.SQLExecutor, holder *Instructor, args ...any) error {
+	query, err := g.resolved()
+	if err != nil {
+		return err
+	}
+
+	return query.Load(ctx, db, holder, args...)
+}
+
+func (g InstructorGeneratedQuery) Exists(ctx context.Context, db tsq.SQLExecutor, args ...any) (bool, error) {
+	query, err := g.resolved()
+	if err != nil {
+		return false, err
+	}
+
+	return query.Exists(ctx, db, args...)
+}
+
+func (g InstructorGeneratedQuery) Count(ctx context.Context, db tsq.SQLExecutor, args ...any) (int, error) {
+	query, err := g.resolved()
+	if err != nil {
+		return 0, err
+	}
+
+	return query.Count(ctx, db, args...)
+}
+
+func (g InstructorGeneratedQuery) List(ctx context.Context, db tsq.SQLExecutor, args ...any) ([]*Instructor, error) {
+	query, err := g.resolved()
+	if err != nil {
+		return nil, err
+	}
+
+	return tsq.List(ctx, db, query, args...)
+}
+
+func (g InstructorGeneratedQuery) Page(ctx context.Context, db tsq.SQLExecutor, page *tsq.PageReq, args ...any) (*tsq.PageResp[Instructor], error) {
+	query, err := g.resolved()
+	if err != nil {
+		return nil, err
+	}
+
+	return tsq.Page(ctx, db, page, query, args...)
+}
 
 // =============================================================================
 // Table Interface Implementation
@@ -83,7 +146,7 @@ func init() {
 		func(db *tsq.Engine) error {
 			// Upsert unique indexes.
 			if err := tsq.UpsertIndex(db, "instructor", true, "ux_instructor_email", []string{"email"}); err != nil {
-				return errors.Annotate(err, "upsert ux_instructor_email@instructor")
+				return fmt.Errorf("%s: %w", "upsert ux_instructor_email@instructor", err)
 			}
 			return nil
 		},
@@ -93,17 +156,17 @@ func init() {
 // =============================================================================
 // Query by Primary Key
 // =============================================================================
-var getInstructorByIDQuery *tsq.Query[Instructor]
+var getInstructorByIDQuery InstructorGeneratedQuery
 
 func init() {
 	var err error
-	getInstructorByIDQuery, err = tsq.
+	getInstructorByIDQuery.query, err = tsq.
 		Select(Instructor__Cols...).
 		From(TableInstructor).
 		Where(Instructor_ID.EQVar()).
 		Build()
 	if err != nil {
-		panic(errors.Annotate(err, "initialize getInstructorByIDQuery"))
+		getInstructorByIDQuery.err = fmt.Errorf("%s: %w", "initialize getInstructorByIDQuery", err)
 	}
 }
 
@@ -120,7 +183,7 @@ func GetInstructorByID(
 		if errors.Is(err, tsqsql.ErrNoRows) {
 			return nil, nil
 		}
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 	return row, nil
 }
@@ -135,7 +198,7 @@ func GetInstructorByIDOrErr(
 	row := &Instructor{}
 	err := getInstructorByIDQuery.Load(ctx, db, row, iD)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 	return row, nil
 }
@@ -153,7 +216,7 @@ func ListInstructorByIDIn(
 		Where(Instructor_ID.In(iDs...)).
 		Build()
 	if err != nil {
-		return nil, errors.Annotate(err, "build query")
+		return nil, fmt.Errorf("%s: %w", "build query", err)
 	}
 	return tsq.List(ctx, db, query)
 }
@@ -171,19 +234,19 @@ func ListInstructorByIDInOrErr(
 		Where(Instructor_ID.In(iDs...)).
 		Build()
 	if err != nil {
-		return nil, errors.Annotate(err, "build query")
+		return nil, fmt.Errorf("%s: %w", "build query", err)
 	}
 
 	list, err := tsq.List(ctx, db, query)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	match := tsq.MatchByInputOrder(iDs, list, func(row *Instructor) int64 {
 		return row.ID
 	})
 	if len(match.Missing) > 0 {
-		return nil, errors.Errorf("Instructor(s) not found: %v", match.Missing)
+		return nil, fmt.Errorf("records not found: %v", match.Missing)
 	}
 	return match.Ordered, nil
 }
@@ -191,11 +254,11 @@ func ListInstructorByIDInOrErr(
 // =============================================================================
 // Query by Unique Indexes
 // =============================================================================
-var getInstructorByEmailQuery *tsq.Query[Instructor]
+var getInstructorByEmailQuery InstructorGeneratedQuery
 
 func init() {
 	var err error
-	getInstructorByEmailQuery, err = tsq.
+	getInstructorByEmailQuery.query, err = tsq.
 		Select(Instructor__Cols...).
 		From(TableInstructor).
 		Search(TableInstructor.SearchColumns()...).
@@ -204,7 +267,7 @@ func init() {
 		).
 		Build()
 	if err != nil {
-		panic(errors.Annotate(err, "initialize getInstructorByEmailQuery"))
+		getInstructorByEmailQuery.err = fmt.Errorf("%s: %w", "initialize getInstructorByEmailQuery", err)
 	}
 }
 
@@ -224,7 +287,7 @@ func GetInstructorByEmail(
 		if errors.Is(err, tsqsql.ErrNoRows) {
 			return nil, nil
 		}
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 	return row, nil
 }
@@ -242,7 +305,7 @@ func GetInstructorByEmailOrErr(
 		email,
 	)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 	return row, nil
 }
@@ -257,7 +320,7 @@ func ExistsInstructorByEmail(
 		ctx, db,
 		email,
 	)
-	return rs, errors.Trace(err)
+	return rs, err
 }
 
 // =============================================================================
@@ -267,17 +330,17 @@ func ExistsInstructorByEmail(
 // =============================================================================
 // List All Records
 // =============================================================================
-var listInstructorQuery *tsq.Query[Instructor]
+var listInstructorQuery InstructorGeneratedQuery
 
 func init() {
 	var err error
-	listInstructorQuery, err = tsq.
+	listInstructorQuery.query, err = tsq.
 		Select(Instructor__Cols...).
 		From(TableInstructor).
 		Search(TableInstructor.SearchColumns()...).
 		Build()
 	if err != nil {
-		panic(errors.Annotate(err, "initialize listInstructorQuery"))
+		listInstructorQuery.err = fmt.Errorf("%s: %w", "initialize listInstructorQuery", err)
 	}
 }
 
@@ -294,7 +357,7 @@ func ListInstructor(
 	ctx context.Context,
 	tx tsq.SQLExecutor,
 ) ([]*Instructor, error) {
-	return tsq.List(ctx, tx, listInstructorQuery)
+	return listInstructorQuery.List(ctx, tx)
 }
 
 // PageInstructor retrieves Instructor records with pagination.
@@ -303,7 +366,7 @@ func PageInstructor(
 	tx tsq.SQLExecutor,
 	page *tsq.PageReq,
 ) (*tsq.PageResp[Instructor], error) {
-	return tsq.Page(ctx, tx, page, listInstructorQuery)
+	return listInstructorQuery.Page(ctx, tx, page)
 }
 
 // =============================================================================
@@ -318,7 +381,7 @@ func (i *Instructor) Insert(
 	i.CreatedAt = null.TimeFrom(tsqtime.Now())
 	err := tsq.Insert(ctx, db, i)
 	if err != nil {
-		return errors.Annotatef(err, "insert Instructor: %s", tsq.CompactJSON(i))
+		return fmt.Errorf("insert Instructor: %s: %w", tsq.CompactJSON(i), err)
 	}
 	return nil
 }
@@ -330,7 +393,7 @@ func (i *Instructor) Update(
 ) error {
 	err := tsq.Update(ctx, db, i)
 	if err != nil {
-		return errors.Annotatef(err, "update Instructor: %s", tsq.CompactJSON(i))
+		return fmt.Errorf("update Instructor: %s: %w", tsq.CompactJSON(i), err)
 	}
 	return nil
 }
@@ -342,7 +405,7 @@ func (i *Instructor) Delete(
 ) error {
 	err := tsq.Delete(ctx, db, i)
 	if err != nil {
-		return errors.Annotatef(err, "delete Instructor: %s", tsq.CompactJSON(i))
+		return fmt.Errorf("delete Instructor: %s: %w", tsq.CompactJSON(i), err)
 	}
 	return nil
 }

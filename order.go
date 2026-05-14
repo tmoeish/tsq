@@ -1,9 +1,8 @@
 package tsq
 
 import (
+	"fmt"
 	"strings"
-
-	"github.com/juju/errors"
 )
 
 // ================================================
@@ -94,7 +93,7 @@ func parseOrder(value string) (Order, error) {
 	case ASC, DESC:
 		return order, nil
 	default:
-		return "", errors.Errorf("invalid order: %s", value)
+		return "", fmt.Errorf("invalid order: %s", value)
 	}
 }
 
@@ -116,7 +115,7 @@ func normalizeSortOrders(values []string, expected int) ([]Order, error) {
 	for _, value := range values {
 		order, err := parseOrder(value)
 		if err != nil {
-			return nil, errors.Trace(err)
+			return nil, err
 		}
 
 		orders = append(orders, order)

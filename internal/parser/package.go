@@ -2,6 +2,7 @@ package parser
 
 import (
 	"container/list"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -14,7 +15,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/juju/errors"
 	"golang.org/x/tools/go/packages"
 
 	"github.com/tmoeish/tsq/internal/genmodel"
@@ -30,7 +30,7 @@ type ParseResult struct {
 func Parse(packagePath string) ([]*genmodel.StructInfo, string, error) {
 	result, err := parsePackage(packagePath)
 	if err != nil {
-		return nil, "", errors.Annotatef(err, "failed to parse package %s", packagePath)
+		return nil, "", fmt.Errorf("failed to parse package %s"+": %w", packagePath, err)
 	}
 
 	infos := make([]*genmodel.StructInfo, len(result.Structs))
@@ -56,25 +56,25 @@ func parsePackage(packagePath string) (*ParseResult, error) {
 	}
 
 	if err := pipeline.collectStructs(); err != nil {
-		return nil, errors.Annotate(err, "failed to recursively parse package")
+		return nil, fmt.Errorf("%s: %w", "failed to recursively parse package", err)
 	}
 
 	if err := pipeline.resolveEmbeds(); err != nil {
-		return nil, errors.Annotate(err, "failed to parse embedded fields")
+		return nil, fmt.Errorf("%s: %w", "failed to parse embedded fields", err)
 	}
 
 	packageInfo, err := pipeline.targetPackageInfo()
 	if err != nil {
-		return nil, errors.Annotate(err, "failed to get package info")
+		return nil, fmt.Errorf("%s: %w", "failed to get package info", err)
 	}
 
 	if err := pipeline.annotateTables(packageInfo); err != nil {
-		return nil, errors.Annotate(err, "failed to parse table metadata")
+		return nil, fmt.Errorf("%s: %w", "failed to parse table metadata", err)
 	}
 
 	result, err := pipeline.finalize()
 	if err != nil {
-		return nil, errors.Annotate(err, "failed to filter and process parse results")
+		return nil, fmt.Errorf("%s: %w", "failed to filter and process parse results", err)
 	}
 
 	return result, nil
@@ -131,7 +131,7 @@ func (ps *ParseState) parsePackagesRecursively(packagePath string) error {
 		currentPath := element.Value.(string)
 
 		if err := ps.parseSinglePackage(currentPath); err != nil {
-			return errors.Annotatef(err, "failed to recursively parse package %s", currentPath)
+			return fmt.Errorf("failed to recursively parse package %s"+": %w", currentPath, err)
 		}
 	}
 
@@ -142,7 +142,7 @@ func (ps *ParseState) parsePackagesRecursively(packagePath string) error {
 func (ps *ParseState) resolveAllEmbeddedFields() error {
 	for _, structInfo := range ps.structMap {
 		if err := resolveEmbeddedFields(structInfo, ps.structMap); err != nil {
-			return errors.Annotatef(err, "failed to parse embedded fields: %v", structInfo.TypeInfo)
+			return fmt.Errorf("failed to parse embedded fields: %v"+": %w", structInfo.TypeInfo, err)
 		}
 	}
 
@@ -153,7 +153,7 @@ func (ps *ParseState) resolveAllEmbeddedFields() error {
 func (ps *ParseState) getPackageInfo(packagePath string) (genmodel.PackageInfo, error) {
 	buildPkg, err := ps.importBuildPackage(packagePath)
 	if err != nil {
-		return genmodel.PackageInfo{}, errors.Annotatef(err, "failed to process directory: %s", packagePath)
+		return genmodel.PackageInfo{}, fmt.Errorf("failed to process directory: %s"+": %w", packagePath, err)
 	}
 
 	return genmodel.PackageInfo{
@@ -166,7 +166,7 @@ func (ps *ParseState) getPackageInfo(packagePath string) (genmodel.PackageInfo, 
 func (ps *ParseState) parseTableMetadata(pkg genmodel.PackageInfo) error {
 	buildPkg, err := ps.importBuildPackage(pkg.Path)
 	if err != nil {
-		return errors.Annotatef(err, "failed to process directory: %s", pkg.Path)
+		return fmt.Errorf("failed to process directory: %s"+": %w", pkg.Path, err)
 	}
 
 	fileSet := token.NewFileSet()
@@ -180,11 +180,11 @@ func (ps *ParseState) parseTableMetadata(pkg genmodel.PackageInfo) error {
 
 		file, err := parser.ParseFile(fileSet, fullPath, nil, parser.ParseComments)
 		if err != nil {
-			return errors.Annotatef(err, "failed to parse file: %s", fullPath)
+			return fmt.Errorf("failed to parse file: %s"+": %w", fullPath, err)
 		}
 
 		if err := ps.processFileComments(file, fileSet, pkg); err != nil {
-			return errors.Annotate(err, "failed to parse @TABLE/@RESULT annotations")
+			return fmt.Errorf("%s: %w", "failed to parse @TABLE/@RESULT annotations", err)
 		}
 	}
 
@@ -220,11 +220,11 @@ func (ps *ParseState) processFileComments(
 		switch n := node.(type) {
 		case *ast.GenDecl:
 			if err := ps.processGenDecl(n, comments, fileSet, pkg); err != nil {
-				return errors.Trace(err)
+				return err
 			}
 		case *ast.TypeSpec:
 			if err := ps.processTypeSpec(n, comments, fileSet, pkg); err != nil {
-				return errors.Trace(err)
+				return err
 			}
 		default:
 			slog.Debug("skip node type", "type", reflect.TypeOf(node))
@@ -252,7 +252,7 @@ func (ps *ParseState) processGenDecl(
 		}
 
 		if err := ps.processStructTypeSpec(typeSpec, comments, fileSet, pkg); err != nil {
-			return errors.Trace(err)
+			return err
 		}
 	}
 
@@ -270,7 +270,7 @@ func (ps *ParseState) processTypeSpec(
 		return nil
 	}
 
-	return errors.Trace(ps.processStructTypeSpec(typeSpec, comments, fileSet, pkg))
+	return ps.processStructTypeSpec(typeSpec, comments, fileSet, pkg)
 }
 
 // processStructTypeSpec 处理结构体类型声明
@@ -295,7 +295,7 @@ func (ps *ParseState) processStructTypeSpec(
 
 	tableMeta, err := ParseTableInfo(structName, comments, fields, fileSet)
 	if err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
 	if tableMeta != nil {
@@ -315,7 +315,7 @@ func isStructType(typeExpr ast.Expr) bool {
 func (ps *ParseState) filterAndProcessResults(packagePath string) (*ParseResult, error) {
 	buildPkg, err := ps.importBuildPackage(packagePath)
 	if err != nil {
-		return nil, errors.Annotatef(err, "failed to process directory: %s", packagePath)
+		return nil, fmt.Errorf("failed to process directory: %s"+": %w", packagePath, err)
 	}
 
 	targetPkg := genmodel.PackageInfo{
@@ -349,7 +349,7 @@ func (ps *ParseState) filterAndProcessResults(packagePath string) (*ParseResult,
 func (ps *ParseState) parseSinglePackage(packagePath string) error {
 	buildPkg, err := ps.importBuildPackage(packagePath)
 	if err != nil {
-		return errors.Annotatef(err, "failed to process pkg: %s", packagePath)
+		return fmt.Errorf("failed to process pkg: %s"+": %w", packagePath, err)
 	}
 
 	pkg := genmodel.PackageInfo{
@@ -371,17 +371,17 @@ func (ps *ParseState) parseSinglePackage(packagePath string) error {
 
 		file, err := parser.ParseFile(fileSet, fullPath, nil, parser.ParseComments)
 		if err != nil {
-			return errors.Annotatef(err, "failed to parse file: %s", fullPath)
+			return fmt.Errorf("failed to parse file: %s"+": %w", fullPath, err)
 		}
 
 		packageAliases, err := parsePackageAliases(file)
 		if err != nil {
-			return errors.Annotatef(err, "failed to resolve package aliases: %s", fullPath)
+			return fmt.Errorf("failed to resolve package aliases: %s"+": %w", fullPath, err)
 		}
 
 		err = ps.parseStructDeclarations(file, packageAliases, pkg)
 		if err != nil {
-			return errors.Annotatef(err, "failed to parse struct declarations: %s", fullPath)
+			return fmt.Errorf("failed to parse struct declarations: %s"+": %w", fullPath, err)
 		}
 	}
 
@@ -416,7 +416,7 @@ func (ps *ParseState) parseStructDeclarations(
 				ps.structMap, ps.parsedPackages, ps.pendingPackages,
 			)
 			if err != nil {
-				return errors.Trace(err)
+				return err
 			}
 		}
 	}
@@ -433,7 +433,7 @@ func parsePackageAliases(file *ast.File) (map[string]genmodel.PackageInfo, error
 
 		pkg, err := getPackageInfo(importPath)
 		if err != nil {
-			return nil, errors.Trace(err)
+			return nil, err
 		}
 
 		if importSpec.Name != nil {
@@ -441,11 +441,11 @@ func parsePackageAliases(file *ast.File) (map[string]genmodel.PackageInfo, error
 			case "_":
 				continue
 			case ".":
-				return nil, errors.Errorf("dot imports are not supported: %s", importPath)
+				return nil, fmt.Errorf("dot imports are not supported: %s", importPath)
 			}
 
 			if existing, ok := packageAliases[importSpec.Name.Name]; ok {
-				return nil, errors.Errorf(
+				return nil, fmt.Errorf(
 					"duplicate import alias %q for %s and %s",
 					importSpec.Name.Name,
 					existing.Path,
@@ -460,7 +460,7 @@ func parsePackageAliases(file *ast.File) (map[string]genmodel.PackageInfo, error
 		}
 
 		if existing, ok := packageAliases[pkg.Name]; ok {
-			return nil, errors.Errorf(
+			return nil, fmt.Errorf(
 				"duplicate import alias %q for %s and %s",
 				pkg.Name,
 				existing.Path,
@@ -510,17 +510,17 @@ func resolveEmbeddedFields(
 	for embeddedType := range structInfo.embeddedTypes {
 		embeddedStruct, found := allStructs[embeddedType]
 		if !found {
-			return errors.Errorf("embedded struct %s not found", embeddedType)
+			return fmt.Errorf("embedded struct %s not found", embeddedType)
 		}
 
 		if !embeddedStruct.embeddedResolved {
 			if err := resolveEmbeddedFields(embeddedStruct, allStructs); err != nil {
-				return errors.Annotatef(err, "failed to recursively parse embedded struct %s", embeddedType)
+				return fmt.Errorf("failed to recursively parse embedded struct %s"+": %w", embeddedType, err)
 			}
 		}
 
 		if err := copyEmbeddedFields(structInfo, embeddedStruct); err != nil {
-			return errors.Annotatef(err, "failed to copy embedded fields: %s", embeddedType)
+			return fmt.Errorf("failed to copy embedded fields: %s"+": %w", embeddedType, err)
 		}
 	}
 
@@ -561,7 +561,7 @@ var defaultPackageLoader = newPackageLoader()
 func (l *packageLoader) load(packagePath string) (*loadedPackage, error) {
 	key, cfg, pattern, err := resolveLoadRequest(packagePath)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	l.mu.Lock()
@@ -574,7 +574,7 @@ func (l *packageLoader) load(packagePath string) (*loadedPackage, error) {
 
 	pkg, err := l.loadWithConfig(cfg, pattern, packagePath)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	l.mu.Lock()
@@ -594,7 +594,7 @@ func (l *packageLoader) load(packagePath string) (*loadedPackage, error) {
 func (l *packageLoader) loadUncached(packagePath string) (*loadedPackage, error) {
 	_, cfg, pattern, err := resolveLoadRequest(packagePath)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	return l.loadWithConfig(cfg, pattern, packagePath)
@@ -613,7 +613,7 @@ func resolveLoadRequest(packagePath string) (string, *packages.Config, string, e
 	} else if strings.HasPrefix(packagePath, ".") {
 		absPath, err := filepath.Abs(packagePath)
 		if err != nil {
-			return "", nil, "", errors.Trace(err)
+			return "", nil, "", err
 		}
 
 		if _, statErr := os.Stat(absPath); statErr != nil {
@@ -644,17 +644,17 @@ func (l *packageLoader) loadWithConfig(
 ) (*loadedPackage, error) {
 	pkgs, err := packages.Load(cfg, pattern)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	for _, pkg := range pkgs {
 		if len(pkg.Errors) > 0 {
-			return nil, errors.Errorf("failed to load package %s", packagePath)
+			return nil, fmt.Errorf("failed to load package %s", packagePath)
 		}
 	}
 
 	if len(pkgs) == 0 {
-		return nil, errors.Errorf("package %s not found", packagePath)
+		return nil, fmt.Errorf("package %s not found", packagePath)
 	}
 
 	pkg := pkgs[0]
@@ -715,7 +715,7 @@ func cloneLoadedPackage(pkg *loadedPackage) *loadedPackage {
 func copyEmbeddedFields(targetStruct, embeddedStruct *StructInfo) error {
 	for fieldName, field := range embeddedStruct.FieldMap {
 		if _, exists := targetStruct.FieldMap[fieldName]; exists {
-			return errors.Errorf("field %s already exists in struct %v", fieldName, targetStruct.TypeInfo)
+			return fmt.Errorf("field %s already exists in struct %v", fieldName, targetStruct.TypeInfo)
 		}
 
 		targetStruct.FieldMap[fieldName] = field

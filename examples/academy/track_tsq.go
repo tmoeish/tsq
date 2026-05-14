@@ -5,13 +5,76 @@ package academy
 import (
 	"context"
 	tsqsql "database/sql"
+	"errors"
+	"fmt"
 	tsqtime "time"
 
 	null "gopkg.in/nullbio/null.v6"
 
-	"github.com/juju/errors"
 	"github.com/tmoeish/tsq"
 )
+
+type TrackGeneratedQuery struct {
+	query *tsq.Query[Track]
+	err   error
+}
+
+func (g TrackGeneratedQuery) resolved() (*tsq.Query[Track], error) {
+	if g.err != nil {
+		return nil, g.err
+	}
+
+	if g.query == nil {
+		return nil, errors.New("generated query is not initialized")
+	}
+
+	return g.query, nil
+}
+
+func (g TrackGeneratedQuery) Load(ctx context.Context, db tsq.SQLExecutor, holder *Track, args ...any) error {
+	query, err := g.resolved()
+	if err != nil {
+		return err
+	}
+
+	return query.Load(ctx, db, holder, args...)
+}
+
+func (g TrackGeneratedQuery) Exists(ctx context.Context, db tsq.SQLExecutor, args ...any) (bool, error) {
+	query, err := g.resolved()
+	if err != nil {
+		return false, err
+	}
+
+	return query.Exists(ctx, db, args...)
+}
+
+func (g TrackGeneratedQuery) Count(ctx context.Context, db tsq.SQLExecutor, args ...any) (int, error) {
+	query, err := g.resolved()
+	if err != nil {
+		return 0, err
+	}
+
+	return query.Count(ctx, db, args...)
+}
+
+func (g TrackGeneratedQuery) List(ctx context.Context, db tsq.SQLExecutor, args ...any) ([]*Track, error) {
+	query, err := g.resolved()
+	if err != nil {
+		return nil, err
+	}
+
+	return tsq.List(ctx, db, query, args...)
+}
+
+func (g TrackGeneratedQuery) Page(ctx context.Context, db tsq.SQLExecutor, page *tsq.PageReq, args ...any) (*tsq.PageResp[Track], error) {
+	query, err := g.resolved()
+	if err != nil {
+		return nil, err
+	}
+
+	return tsq.Page(ctx, db, page, query, args...)
+}
 
 // =============================================================================
 // Table Interface Implementation
@@ -78,7 +141,7 @@ func init() {
 		func(db *tsq.Engine) error {
 			// Upsert unique indexes.
 			if err := tsq.UpsertIndex(db, "track", true, "ux_track_name", []string{"name"}); err != nil {
-				return errors.Annotate(err, "upsert ux_track_name@track")
+				return fmt.Errorf("%s: %w", "upsert ux_track_name@track", err)
 			}
 			return nil
 		},
@@ -88,17 +151,17 @@ func init() {
 // =============================================================================
 // Query by Primary Key
 // =============================================================================
-var getTrackByIDQuery *tsq.Query[Track]
+var getTrackByIDQuery TrackGeneratedQuery
 
 func init() {
 	var err error
-	getTrackByIDQuery, err = tsq.
+	getTrackByIDQuery.query, err = tsq.
 		Select(Track__Cols...).
 		From(TableTrack).
 		Where(Track_ID.EQVar()).
 		Build()
 	if err != nil {
-		panic(errors.Annotate(err, "initialize getTrackByIDQuery"))
+		getTrackByIDQuery.err = fmt.Errorf("%s: %w", "initialize getTrackByIDQuery", err)
 	}
 }
 
@@ -115,7 +178,7 @@ func GetTrackByID(
 		if errors.Is(err, tsqsql.ErrNoRows) {
 			return nil, nil
 		}
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 	return row, nil
 }
@@ -130,7 +193,7 @@ func GetTrackByIDOrErr(
 	row := &Track{}
 	err := getTrackByIDQuery.Load(ctx, db, row, iD)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 	return row, nil
 }
@@ -148,7 +211,7 @@ func ListTrackByIDIn(
 		Where(Track_ID.In(iDs...)).
 		Build()
 	if err != nil {
-		return nil, errors.Annotate(err, "build query")
+		return nil, fmt.Errorf("%s: %w", "build query", err)
 	}
 	return tsq.List(ctx, db, query)
 }
@@ -166,19 +229,19 @@ func ListTrackByIDInOrErr(
 		Where(Track_ID.In(iDs...)).
 		Build()
 	if err != nil {
-		return nil, errors.Annotate(err, "build query")
+		return nil, fmt.Errorf("%s: %w", "build query", err)
 	}
 
 	list, err := tsq.List(ctx, db, query)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	match := tsq.MatchByInputOrder(iDs, list, func(row *Track) int64 {
 		return row.ID
 	})
 	if len(match.Missing) > 0 {
-		return nil, errors.Errorf("Track(s) not found: %v", match.Missing)
+		return nil, fmt.Errorf("records not found: %v", match.Missing)
 	}
 	return match.Ordered, nil
 }
@@ -186,11 +249,11 @@ func ListTrackByIDInOrErr(
 // =============================================================================
 // Query by Unique Indexes
 // =============================================================================
-var getTrackByNameQuery *tsq.Query[Track]
+var getTrackByNameQuery TrackGeneratedQuery
 
 func init() {
 	var err error
-	getTrackByNameQuery, err = tsq.
+	getTrackByNameQuery.query, err = tsq.
 		Select(Track__Cols...).
 		From(TableTrack).
 		Search(TableTrack.SearchColumns()...).
@@ -199,7 +262,7 @@ func init() {
 		).
 		Build()
 	if err != nil {
-		panic(errors.Annotate(err, "initialize getTrackByNameQuery"))
+		getTrackByNameQuery.err = fmt.Errorf("%s: %w", "initialize getTrackByNameQuery", err)
 	}
 }
 
@@ -219,7 +282,7 @@ func GetTrackByName(
 		if errors.Is(err, tsqsql.ErrNoRows) {
 			return nil, nil
 		}
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 	return row, nil
 }
@@ -237,7 +300,7 @@ func GetTrackByNameOrErr(
 		name,
 	)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 	return row, nil
 }
@@ -252,7 +315,7 @@ func ExistsTrackByName(
 		ctx, db,
 		name,
 	)
-	return rs, errors.Trace(err)
+	return rs, err
 }
 
 // =============================================================================
@@ -262,17 +325,17 @@ func ExistsTrackByName(
 // =============================================================================
 // List All Records
 // =============================================================================
-var listTrackQuery *tsq.Query[Track]
+var listTrackQuery TrackGeneratedQuery
 
 func init() {
 	var err error
-	listTrackQuery, err = tsq.
+	listTrackQuery.query, err = tsq.
 		Select(Track__Cols...).
 		From(TableTrack).
 		Search(TableTrack.SearchColumns()...).
 		Build()
 	if err != nil {
-		panic(errors.Annotate(err, "initialize listTrackQuery"))
+		listTrackQuery.err = fmt.Errorf("%s: %w", "initialize listTrackQuery", err)
 	}
 }
 
@@ -289,7 +352,7 @@ func ListTrack(
 	ctx context.Context,
 	tx tsq.SQLExecutor,
 ) ([]*Track, error) {
-	return tsq.List(ctx, tx, listTrackQuery)
+	return listTrackQuery.List(ctx, tx)
 }
 
 // PageTrack retrieves Track records with pagination.
@@ -298,7 +361,7 @@ func PageTrack(
 	tx tsq.SQLExecutor,
 	page *tsq.PageReq,
 ) (*tsq.PageResp[Track], error) {
-	return tsq.Page(ctx, tx, page, listTrackQuery)
+	return listTrackQuery.Page(ctx, tx, page)
 }
 
 // =============================================================================
@@ -313,7 +376,7 @@ func (t *Track) Insert(
 	t.CreatedAt = null.TimeFrom(tsqtime.Now())
 	err := tsq.Insert(ctx, db, t)
 	if err != nil {
-		return errors.Annotatef(err, "insert Track: %s", tsq.CompactJSON(t))
+		return fmt.Errorf("insert Track: %s: %w", tsq.CompactJSON(t), err)
 	}
 	return nil
 }
@@ -325,7 +388,7 @@ func (t *Track) Update(
 ) error {
 	err := tsq.Update(ctx, db, t)
 	if err != nil {
-		return errors.Annotatef(err, "update Track: %s", tsq.CompactJSON(t))
+		return fmt.Errorf("update Track: %s: %w", tsq.CompactJSON(t), err)
 	}
 	return nil
 }
@@ -337,7 +400,7 @@ func (t *Track) Delete(
 ) error {
 	err := tsq.Delete(ctx, db, t)
 	if err != nil {
-		return errors.Annotatef(err, "delete Track: %s", tsq.CompactJSON(t))
+		return fmt.Errorf("delete Track: %s: %w", tsq.CompactJSON(t), err)
 	}
 	return nil
 }

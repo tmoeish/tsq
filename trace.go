@@ -3,12 +3,11 @@ package tsq
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"reflect"
 	"sync"
 	"time"
-
-	"github.com/juju/errors"
 )
 
 // MaxTracers bounds the number of tracers retained by a runtime.
@@ -166,7 +165,7 @@ func traceManagerTrace1[T any](m *traceManager, ctx context.Context, fn func(ctx
 
 		result, err = fn(ctx)
 		if err != nil {
-			return errors.Trace(err)
+			return err
 		}
 
 		return nil
@@ -176,18 +175,18 @@ func traceManagerTrace1[T any](m *traceManager, ctx context.Context, fn func(ctx
 		wrappedFn = tracers[i](wrappedFn)
 	}
 
-	return result, errors.Trace(wrappedFn(ctx))
+	return result, wrappedFn(ctx)
 }
 
 // Trace executes a function with all registered tracers applied.
 func Trace(ctx context.Context, fn func(ctx context.Context) error) error {
-	return errors.Trace(defaultRuntime.Trace(ctx, fn))
+	return defaultRuntime.Trace(ctx, fn)
 }
 
 // Trace1 executes fn with all registered tracers applied and returns its typed result.
 func Trace1[T any](ctx context.Context, fn func(ctx context.Context) (T, error)) (T, error) {
 	result, err := trace1WithRuntime(defaultRuntime, ctx, fn)
-	return result, errors.Trace(err)
+	return result, err
 }
 
 func appendUniqueTracers(existing []Tracer, newTracers ...Tracer) []Tracer {
@@ -239,12 +238,12 @@ func PrintCost(next Fn) Fn {
 
 		duration := time.Since(start)
 		if err != nil {
-			slog.Info("cost", "duration", duration, "error", errors.ErrorStack(err))
+			slog.Info("cost", "duration", duration, "error", err)
 		} else {
 			slog.Info("cost", "duration", duration)
 		}
 
-		return errors.Trace(err)
+		return err
 	}
 }
 
@@ -253,10 +252,10 @@ func PrintError(next Fn) Fn {
 	return func(ctx context.Context) error {
 		err := next(ctx)
 		if err != nil {
-			slog.Error("error", "error", errors.ErrorStack(err))
+			slog.Error("error", "error", err)
 		}
 
-		return errors.Trace(err)
+		return err
 	}
 }
 
@@ -269,7 +268,7 @@ const (
 // PrintSQL marks the context so query helpers log SQL and args.
 func PrintSQL(next Fn) Fn {
 	return func(ctx context.Context) error {
-		return errors.Trace(next(context.WithValue(ctx, printSQL, true)))
+		return next(context.WithValue(ctx, printSQL, true))
 	}
 }
 

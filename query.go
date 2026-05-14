@@ -3,6 +3,7 @@ package tsq
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"reflect"
@@ -10,7 +11,10 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/juju/errors"
+	"github.com/go-sql-driver/mysql"
+	"github.com/jackc/pgconn"
+	"github.com/lib/pq"
+	sqlite3 "github.com/mattn/go-sqlite3"
 )
 
 // ================================================
@@ -254,16 +258,16 @@ func (q *Query[O]) prepareQueryExecution(
 	args ...any,
 ) (string, []any, error) {
 	if err := validateQuery(q); err != nil {
-		return "", nil, errors.Trace(err)
+		return "", nil, err
 	}
 
 	resolvedSQL, finalArgs, err := resolveQueryWithState(q.listSQL, q.listArgs, args, "", q.listArgState)
 	if err != nil {
-		return "", nil, errors.Trace(err)
+		return "", nil, err
 	}
 
 	if err := validateOperationalExecutorForSQL(tx, resolvedSQL); err != nil {
-		return "", nil, errors.Trace(err)
+		return "", nil, err
 	}
 
 	sqlText := renderSQLForExecutor(tx, resolvedSQL)
@@ -278,7 +282,7 @@ func (q *Query[O]) prepareQueryExecution(
 func queryInt64(ctx context.Context, tx SQLExecutor, sqlText string, args ...any) (int64, error) {
 	var result sql.NullInt64
 	if err := tx.QueryRowContext(ctx, sqlText, args...).Scan(&result); err != nil {
-		return 0, errors.Trace(err)
+		return 0, err
 	}
 
 	return result.Int64, nil
@@ -287,7 +291,7 @@ func queryInt64(ctx context.Context, tx SQLExecutor, sqlText string, args ...any
 func queryFloat64(ctx context.Context, tx SQLExecutor, sqlText string, args ...any) (float64, error) {
 	var result sql.NullFloat64
 	if err := tx.QueryRowContext(ctx, sqlText, args...).Scan(&result); err != nil {
-		return 0, errors.Trace(err)
+		return 0, err
 	}
 
 	return result.Float64, nil
@@ -296,7 +300,7 @@ func queryFloat64(ctx context.Context, tx SQLExecutor, sqlText string, args ...a
 func queryString(ctx context.Context, tx SQLExecutor, sqlText string, args ...any) (string, error) {
 	var result sql.NullString
 	if err := tx.QueryRowContext(ctx, sqlText, args...).Scan(&result); err != nil {
-		return "", errors.Trace(err)
+		return "", err
 	}
 
 	return result.String, nil
@@ -320,12 +324,12 @@ func (q *Query[O]) queryInt(
 ) (int64, error) {
 	sqlText, finalArgs, err := q.prepareQueryExecution(ctx, tx, "queryInt", args...)
 	if err != nil {
-		return 0, errors.Trace(err)
+		return 0, err
 	}
 
 	result, err := queryInt64(ctx, tx, sqlText, finalArgs...)
 	if err != nil {
-		return 0, errors.Annotate(err, "failed to execute select query")
+		return 0, fmt.Errorf("%s: %w", "failed to execute select query", err)
 	}
 
 	return result, nil
@@ -349,12 +353,12 @@ func (q *Query[O]) queryFloat(
 ) (float64, error) {
 	sqlText, finalArgs, err := q.prepareQueryExecution(ctx, tx, "queryFloat", args...)
 	if err != nil {
-		return 0, errors.Trace(err)
+		return 0, err
 	}
 
 	result, err := queryFloat64(ctx, tx, sqlText, finalArgs...)
 	if err != nil {
-		return 0, errors.Annotate(err, "failed to execute select query")
+		return 0, fmt.Errorf("%s: %w", "failed to execute select query", err)
 	}
 
 	return result, nil
@@ -378,12 +382,12 @@ func (q *Query[O]) queryStr(
 ) (string, error) {
 	sqlText, finalArgs, err := q.prepareQueryExecution(ctx, tx, "queryStr", args...)
 	if err != nil {
-		return "", errors.Trace(err)
+		return "", err
 	}
 
 	result, err := queryString(ctx, tx, sqlText, finalArgs...)
 	if err != nil {
-		return "", errors.Annotate(err, "failed to execute select query")
+		return "", fmt.Errorf("%s: %w", "failed to execute select query", err)
 	}
 
 	return result, nil
@@ -419,7 +423,7 @@ func (q *Query[O]) count(
 	args ...any,
 ) (int, error) {
 	n, err := q.count64(ctx, tx, args...)
-	return int(n), errors.Trace(err)
+	return int(n), err
 }
 
 func (q *Query[O]) count64(
@@ -428,16 +432,16 @@ func (q *Query[O]) count64(
 	args ...any,
 ) (int64, error) {
 	if err := validateQuery(q); err != nil {
-		return 0, errors.Trace(err)
+		return 0, err
 	}
 
 	resolvedSQL, finalArgs, err := resolveQueryWithState(q.cntSQL, q.cntArgs, args, "", q.cntArgState)
 	if err != nil {
-		return 0, errors.Trace(err)
+		return 0, err
 	}
 
 	if err := validateOperationalExecutorForSQL(tx, resolvedSQL); err != nil {
-		return 0, errors.Trace(err)
+		return 0, err
 	}
 
 	sqlText := renderSQLForExecutor(tx, resolvedSQL)
@@ -448,7 +452,7 @@ func (q *Query[O]) count64(
 
 	count, err := queryInt64(ctx, tx, sqlText, finalArgs...)
 	if err != nil {
-		return 0, errors.Annotate(err, "failed to execute count query")
+		return 0, fmt.Errorf("%s: %w", "failed to execute count query", err)
 	}
 
 	return count, nil
@@ -471,16 +475,16 @@ func (q *Query[O]) exist(
 	args ...any,
 ) (bool, error) {
 	if err := validateQuery(q); err != nil {
-		return false, errors.Trace(err)
+		return false, err
 	}
 
 	resolvedSQL, finalArgs, err := resolveQueryWithState(q.cntSQL, q.cntArgs, args, "", q.cntArgState)
 	if err != nil {
-		return false, errors.Trace(err)
+		return false, err
 	}
 
 	if err := validateOperationalExecutorForSQL(tx, resolvedSQL); err != nil {
-		return false, errors.Trace(err)
+		return false, err
 	}
 
 	sqlText := renderSQLForExecutor(tx, resolvedSQL)
@@ -491,7 +495,7 @@ func (q *Query[O]) exist(
 
 	count, err := queryInt64(ctx, tx, sqlText, finalArgs...)
 	if err != nil {
-		return false, errors.Annotate(err, "failed to check record existence")
+		return false, fmt.Errorf("%s: %w", "failed to check record existence", err)
 	}
 
 	return count > 0, nil
@@ -522,14 +526,14 @@ func pageFn[O Owner](
 	args ...any,
 ) (*PageResp[O], error) {
 	if err := validateQuery(q); err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	page = normalizePageReq(page)
 
 	cntSQL, listSQL, err := q.buildPageSQLs(page)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	queryBaseArgs := q.listArgs
@@ -546,23 +550,23 @@ func pageFn[O Owner](
 
 	resolvedListSQL, finalArgs, err := resolveQueryWithState(listSQL, queryBaseArgs, args, page.Keyword, queryArgState)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	resolvedCntSQL, countArgs, err := resolveQueryWithState(cntSQL, countBaseArgs, args, page.Keyword, countArgState)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	if err := validateOperationalExecutorForSQL(tx, resolvedCntSQL, resolvedListSQL); err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	renderedCntSQL := renderSQLForExecutor(tx, resolvedCntSQL)
 	renderedListSQL := renderSQLForExecutor(tx, resolvedListSQL)
 
 	if err := validateScanDestForType(q.selectCols, renderedListSQL, finalArgs); err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	// Add LIMIT parameters
@@ -571,20 +575,20 @@ func pageFn[O Owner](
 	argsWithLimit = append(argsWithLimit, page.Size, page.Offset())
 
 	if ctx.Value(printSQL) != nil {
-		slog.Info("count", "sql", renderedCntSQL, "args", CompactJSON(finalArgs))
+		slog.Info("count", "sql", renderedCntSQL, "args", CompactJSON(countArgs))
 		slog.Info("list", "sql", renderedListSQL, "args", CompactJSON(argsWithLimit))
 	}
 
 	// Execute count query
 	count, err := queryInt64(ctx, tx, renderedCntSQL, countArgs...)
 	if err != nil {
-		return nil, errors.Annotate(err, "failed to execute count query")
+		return nil, fmt.Errorf("%s: %w", "failed to execute count query", err)
 	}
 
 	// Execute list query
 	rows, err := tx.QueryContext(ctx, renderedListSQL, argsWithLimit...)
 	if err != nil {
-		return nil, errors.Annotate(err, "failed to execute paginated query")
+		return nil, fmt.Errorf("%s: %w", "failed to execute paginated query", err)
 	}
 
 	defer func() {
@@ -601,18 +605,18 @@ func pageFn[O Owner](
 
 		dest, err := buildScanDest(q.selectCols, r)
 		if err != nil {
-			return nil, errors.Annotate(err, "failed to execute paginated query")
+			return nil, fmt.Errorf("%s: %w", "failed to execute paginated query", err)
 		}
 
 		if err := rows.Scan(dest...); err != nil {
-			return nil, errors.Annotate(err, "failed to execute paginated query")
+			return nil, fmt.Errorf("%s: %w", "failed to execute paginated query", err)
 		}
 
 		list = append(list, r)
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, errors.Annotate(err, "failed to execute paginated query")
+		return nil, fmt.Errorf("%s: %w", "failed to execute paginated query", err)
 	}
 
 	return NewPageResp(page, count, list), nil
@@ -637,22 +641,22 @@ func listFn[O Owner](
 	args ...any,
 ) ([]*O, error) {
 	if err := validateQuery(q); err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	resolvedSQL, finalArgs, err := resolveQueryWithState(q.listSQL, q.listArgs, args, "", q.listArgState)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	if err := validateOperationalExecutorForSQL(tx, resolvedSQL); err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	sqlText := renderSQLForExecutor(tx, resolvedSQL)
 
 	if err := validateScanDestForType(q.selectCols, sqlText, finalArgs); err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	if ctx.Value(printSQL) != nil {
@@ -661,7 +665,7 @@ func listFn[O Owner](
 
 	rows, err := tx.QueryContext(ctx, sqlText, finalArgs...)
 	if err != nil {
-		return nil, errors.Annotate(err, "failed to execute list query")
+		return nil, fmt.Errorf("%s: %w", "failed to execute list query", err)
 	}
 
 	defer func() {
@@ -677,18 +681,18 @@ func listFn[O Owner](
 
 		dest, err := buildScanDest(q.selectCols, r)
 		if err != nil {
-			return nil, errors.Annotate(err, "failed to execute list query")
+			return nil, fmt.Errorf("%s: %w", "failed to execute list query", err)
 		}
 
 		if err := rows.Scan(dest...); err != nil {
-			return nil, errors.Annotate(err, "failed to execute list query")
+			return nil, fmt.Errorf("%s: %w", "failed to execute list query", err)
 		}
 
 		list = append(list, r)
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, errors.Annotate(err, "failed to execute list query")
+		return nil, fmt.Errorf("%s: %w", "failed to execute list query", err)
 	}
 
 	return list, nil
@@ -713,16 +717,16 @@ func getOrErrFn[O Owner](
 	args ...any,
 ) (*O, error) {
 	if err := validateQuery(qb); err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	resolvedSQL, finalArgs, err := resolveQueryWithState(qb.listSQL, qb.listArgs, args, "", qb.listArgState)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	if err := validateOperationalExecutorForSQL(tx, resolvedSQL); err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	sqlText := renderSQLForExecutor(tx, resolvedSQL)
@@ -735,17 +739,17 @@ func getOrErrFn[O Owner](
 
 	dest, err := buildScanDest(qb.selectCols, r)
 	if err != nil {
-		return nil, errors.Annotate(err, "failed to execute select query")
+		return nil, fmt.Errorf("%s: %w", "failed to execute select query", err)
 	}
 
 	row := tx.QueryRowContext(ctx, sqlText, finalArgs...)
 
 	if err := row.Scan(dest...); err != nil {
-		if errors.Is(errors.Cause(err), sql.ErrNoRows) {
-			return nil, errors.Trace(sql.ErrNoRows)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, sql.ErrNoRows
 		}
 
-		return nil, errors.Annotate(err, "failed to execute select query")
+		return nil, fmt.Errorf("%s: %w", "failed to execute select query", err)
 	}
 
 	return r, nil
@@ -760,11 +764,11 @@ func Get[O Owner](
 ) (*O, error) {
 	row, err := GetOrErr(ctx, tx, qb, args...)
 	if err != nil {
-		if errors.Is(errors.Cause(err), sql.ErrNoRows) {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
 
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	return row, nil
@@ -779,16 +783,16 @@ func (q *Query[O]) Load(
 ) error {
 	return Trace(ctx, func(ctx context.Context) error {
 		if err := validateQuery(q); err != nil {
-			return errors.Trace(err)
+			return err
 		}
 
 		resolvedSQL, finalArgs, err := resolveQueryWithState(q.listSQL, q.listArgs, args, "", q.listArgState)
 		if err != nil {
-			return errors.Trace(err)
+			return err
 		}
 
 		if err := validateOperationalExecutorForSQL(tx, resolvedSQL); err != nil {
-			return errors.Trace(err)
+			return err
 		}
 
 		sqlText := renderSQLForExecutor(tx, resolvedSQL)
@@ -799,16 +803,16 @@ func (q *Query[O]) Load(
 
 		dest, err := buildScanDest(q.selectCols, holder)
 		if err != nil {
-			return errors.Annotate(err, "failed to execute select query")
+			return fmt.Errorf("%s: %w", "failed to execute select query", err)
 		}
 
 		row := tx.QueryRowContext(ctx, sqlText, finalArgs...)
 		if err := row.Scan(dest...); err != nil {
-			if errors.Is(errors.Cause(err), sql.ErrNoRows) {
-				return errors.Trace(sql.ErrNoRows)
+			if errors.Is(err, sql.ErrNoRows) {
+				return sql.ErrNoRows
 			}
 
-			return errors.Annotate(err, "failed to execute select query")
+			return fmt.Errorf("%s: %w", "failed to execute select query", err)
 		}
 
 		return nil
@@ -817,7 +821,7 @@ func (q *Query[O]) Load(
 
 func (q *Query[O]) buildPageSQLs(page *PageReq) (string, string, error) {
 	if err := validateQuery(q); err != nil {
-		return "", "", errors.Trace(err)
+		return "", "", err
 	}
 
 	page = normalizePageReq(page)
@@ -882,7 +886,7 @@ func (q *Query[O]) buildPageSQLs(page *PageReq) (string, string, error) {
 
 		orders, err := normalizeSortOrders(splitCommaValues(page.Order), len(orderbys))
 		if err != nil {
-			return "", "", errors.Trace(err)
+			return "", "", err
 		}
 
 		var fullNames []string
@@ -985,12 +989,12 @@ func chunkedInsertFn[T Table](
 	}
 
 	if err := validateOperationalExecutor(tx); err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
 	opts, err := normalizeChunkedInsertOptions(options...)
 	if err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
 	// 批量处理
@@ -999,7 +1003,7 @@ func chunkedInsertFn[T Table](
 
 		batch := items[i:end]
 		if err := chunkedInsertChunk(ctx, sqlMutationExecutor{exec: tx}, batch, opts); err != nil {
-			return errors.Annotatef(err, "chunked insert failed at index %d", i)
+			return fmt.Errorf("chunked insert failed at index %d"+": %w", i, err)
 		}
 	}
 
@@ -1019,7 +1023,7 @@ func chunkedInsertChunk[T Table](
 	batch := make([]Table, 0, len(items))
 	for itemIdx, item := range items {
 		if isNilValue(item) {
-			return errors.Errorf("item at index %d is nil", itemIdx)
+			return fmt.Errorf("item at index %d is nil", itemIdx)
 		}
 
 		batch = append(batch, item)
@@ -1033,7 +1037,7 @@ func chunkedInsertChunk[T Table](
 					continue
 				}
 
-				return errors.Annotatef(err, "chunked insert failed at item %d", itemIdx)
+				return fmt.Errorf("chunked insert failed at item %d"+": %w", itemIdx, err)
 			}
 		}
 
@@ -1041,7 +1045,7 @@ func chunkedInsertChunk[T Table](
 	}
 
 	if err := tx.Insert(ctx, batch...); err != nil {
-		return errors.Annotate(err, "chunked insert batch failed")
+		return fmt.Errorf("%s: %w", "chunked insert batch failed", err)
 	}
 
 	return nil
@@ -1075,12 +1079,12 @@ func chunkedUpdateFn[T Table](
 	}
 
 	if err := validateOperationalExecutor(tx); err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
 	opts, err := normalizeChunkedOptions(options...)
 	if err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
 	// 批量处理
@@ -1089,7 +1093,7 @@ func chunkedUpdateFn[T Table](
 
 		batch := items[i:end]
 		if err := chunkedUpdateChunk(ctx, sqlMutationExecutor{exec: tx}, batch); err != nil {
-			return errors.Annotatef(err, "chunked update failed at index %d", i)
+			return fmt.Errorf("chunked update failed at index %d"+": %w", i, err)
 		}
 	}
 
@@ -1104,7 +1108,7 @@ func chunkedUpdateChunk[T Table](
 	batch := make([]Table, 0, len(items))
 	for itemIdx, item := range items {
 		if isNilValue(item) {
-			return errors.Errorf("item at index %d is nil", itemIdx)
+			return fmt.Errorf("item at index %d is nil", itemIdx)
 		}
 
 		batch = append(batch, item)
@@ -1115,7 +1119,7 @@ func chunkedUpdateChunk[T Table](
 	}
 
 	if _, err := tx.Update(ctx, batch...); err != nil {
-		return errors.Annotate(err, "chunked update batch failed")
+		return fmt.Errorf("%s: %w", "chunked update batch failed", err)
 	}
 
 	return nil
@@ -1149,12 +1153,12 @@ func chunkedDeleteFn[T Table](
 	}
 
 	if err := validateOperationalExecutor(tx); err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
 	opts, err := normalizeChunkedOptions(options...)
 	if err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
 	// 批量处理
@@ -1163,7 +1167,7 @@ func chunkedDeleteFn[T Table](
 
 		batch := items[i:end]
 		if err := chunkedDeleteChunk(ctx, sqlMutationExecutor{exec: tx}, batch); err != nil {
-			return errors.Annotatef(err, "chunked delete failed at index %d", i)
+			return fmt.Errorf("chunked delete failed at index %d"+": %w", i, err)
 		}
 	}
 
@@ -1178,7 +1182,7 @@ func chunkedDeleteChunk[T Table](
 	batch := make([]Table, 0, len(items))
 	for itemIdx, item := range items {
 		if isNilValue(item) {
-			return errors.Errorf("item at index %d is nil", itemIdx)
+			return fmt.Errorf("item at index %d is nil", itemIdx)
 		}
 
 		batch = append(batch, item)
@@ -1189,7 +1193,7 @@ func chunkedDeleteChunk[T Table](
 	}
 
 	if _, err := tx.Delete(ctx, batch...); err != nil {
-		return errors.Annotate(err, "chunked delete batch failed")
+		return fmt.Errorf("%s: %w", "chunked delete batch failed", err)
 	}
 
 	return nil
@@ -1227,16 +1231,16 @@ func chunkedDeleteByIDsFn(
 	}
 
 	if err := validateOperationalExecutor(tx); err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
 	if err := validateIDValues(ids); err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
 	opts, err := normalizeChunkedOptions(options...)
 	if err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
 	// 批量处理
@@ -1245,7 +1249,7 @@ func chunkedDeleteByIDsFn(
 
 		batch := ids[i:end]
 		if err := chunkedDeleteByIDsChunk(ctx, tx, tableName, idColumn, batch); err != nil {
-			return errors.Annotatef(err, "chunked delete by IDs failed at index %d", i)
+			return fmt.Errorf("chunked delete by IDs failed at index %d"+": %w", i, err)
 		}
 	}
 
@@ -1271,18 +1275,18 @@ func chunkedDeleteByIDsChunk(
 
 	sqlStr, err := buildDeleteByIDsSQL(tableName, idColumn, len(placeholders))
 	if err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
 	sqlText := renderSQLForExecutor(tx, sqlStr)
 
 	if err := validateOperationalExecutorForSQL(tx, sqlStr); err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
 	_, err = tx.ExecContext(ctx, sqlText, ids...)
 	if err != nil {
-		return errors.Annotatef(err, "chunked delete by IDs failed: %s", sqlText)
+		return fmt.Errorf("chunked delete by IDs failed: %s"+": %w", sqlText, err)
 	}
 
 	return nil
@@ -1295,12 +1299,12 @@ func buildDeleteByIDsSQL(tableName, idColumn string, placeholderCount int) (stri
 
 	quotedTable, err := quoteBuiltInIdentifier(tableName)
 	if err != nil {
-		return "", errors.Trace(err)
+		return "", err
 	}
 
 	quotedColumn, err := quoteBuiltInIdentifier(idColumn)
 	if err != nil {
-		return "", errors.Trace(err)
+		return "", err
 	}
 
 	placeholders := make([]string, placeholderCount)
@@ -1318,7 +1322,7 @@ func buildDeleteByIDsSQL(tableName, idColumn string, placeholderCount int) (stri
 
 func quoteBuiltInIdentifier(name string) (string, error) {
 	if !builtInIdentifierPattern.MatchString(name) {
-		return "", errors.Errorf("invalid SQL identifier: %s", name)
+		return "", fmt.Errorf("invalid SQL identifier: %s", name)
 	}
 
 	// Warn if identifier is very long (>50 chars) as it may exceed limits in some databases
@@ -1333,43 +1337,30 @@ func quoteBuiltInIdentifier(name string) (string, error) {
 // 批量操作辅助函数
 // ================================================
 
-// isDuplicateKeyError 检查是否是重复键错误
-// 这里提供一个简化的实现，实际项目中应该根据具体数据库类型进行判断
 func isDuplicateKeyError(err error) bool {
 	if err == nil {
 		return false
 	}
 
-	errStr := strings.ToLower(err.Error())
-
-	// MySQL 重复键错误关键词
-	mysqlKeywords := []string{
-		"duplicate entry",
-		"duplicate key",
-		"unique constraint",
-		"primary key",
+	var mysqlErr *mysql.MySQLError
+	if errors.As(err, &mysqlErr) {
+		return mysqlErr.Number == 1062
 	}
 
-	// PostgreSQL 重复键错误关键词
-	pgKeywords := []string{
-		"duplicate key value",
-		"unique_violation",
-		"unique constraint",
+	var sqliteErr sqlite3.Error
+	if errors.As(err, &sqliteErr) {
+		return sqliteErr.ExtendedCode == sqlite3.ErrConstraintUnique ||
+			sqliteErr.ExtendedCode == sqlite3.ErrConstraintPrimaryKey
 	}
 
-	// SQLite 重复键错误关键词
-	sqliteKeywords := []string{
-		"unique constraint failed",
-		"primary key constraint failed",
+	var pqErr *pq.Error
+	if errors.As(err, &pqErr) {
+		return string(pqErr.Code) == "23505"
 	}
 
-	allKeywords := append(mysqlKeywords, pgKeywords...)
-	allKeywords = append(allKeywords, sqliteKeywords...)
-
-	for _, keyword := range allKeywords {
-		if strings.Contains(errStr, keyword) {
-			return true
-		}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		return pgErr.Code == "23505"
 	}
 
 	return false
@@ -1409,7 +1400,7 @@ func normalizeChunkedInsertOptions(options ...*ChunkedInsertOptions) (*ChunkedIn
 	}
 
 	if err := validateChunkSize(opts.ChunkSize); err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	return opts, nil
@@ -1428,7 +1419,7 @@ func normalizeChunkedOptions(options ...*ChunkedOptions) (*ChunkedOptions, error
 	}
 
 	if err := validateChunkSize(opts.ChunkSize); err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	return opts, nil
@@ -1436,7 +1427,7 @@ func normalizeChunkedOptions(options ...*ChunkedOptions) (*ChunkedOptions, error
 
 func validateChunkSize(chunkSize int) error {
 	if chunkSize <= 0 {
-		return errors.Errorf("invalid chunk size: %d", chunkSize)
+		return fmt.Errorf("invalid chunk size: %d", chunkSize)
 	}
 
 	return nil
@@ -1445,7 +1436,7 @@ func validateChunkSize(chunkSize int) error {
 func validateIDValues(ids []any) error {
 	for i, id := range ids {
 		if isNilValue(id) {
-			return errors.Errorf("id at index %d cannot be nil", i)
+			return fmt.Errorf("id at index %d cannot be nil", i)
 		}
 	}
 
@@ -1479,12 +1470,12 @@ func EscapeKeywordSearch(keyword string) string {
 
 func mergeQueryArgs(base, extra []any) ([]any, error) {
 	_, args, err := resolveQueryWithState("", base, extra, "", scanQueryArgState(base))
-	return args, errors.Trace(err)
+	return args, err
 }
 
 func resolveQueryArgs(base, extra []any, keyword string) ([]any, error) {
 	_, args, err := resolveQueryWithState("", base, extra, keyword, scanQueryArgState(base))
-	return args, errors.Trace(err)
+	return args, err
 }
 
 // resolveQuery 是 TSQ 参数绑定的核心算法。
@@ -1528,7 +1519,7 @@ func resolveQueryWithState(
 
 	if !state.hasExternalSliceArg {
 		args, err := resolveQueryArgsOnly(base, extra, keyword)
-		return baseSQL, args, errors.Trace(err)
+		return baseSQL, args, err
 	}
 
 	result := make([]any, 0, len(base)+len(extra))
@@ -1573,7 +1564,7 @@ func resolveQueryWithState(
 
 			values, err := flattenExternalSliceArg(extra[extraIndex])
 			if err != nil {
-				return "", nil, errors.Trace(err)
+				return "", nil, err
 			}
 
 			if hasSQL {
@@ -1728,14 +1719,14 @@ func flattenExternalSliceArg(arg any) ([]any, error) {
 	}
 
 	if v.Kind() != reflect.Slice && v.Kind() != reflect.Array {
-		return nil, errors.Errorf("external IN query argument must be a slice or array, got %T", arg)
+		return nil, fmt.Errorf("external IN query argument must be a slice or array, got %T", arg)
 	}
 
 	values := make([]any, 0, v.Len())
 	for i := range v.Len() {
 		value := v.Index(i).Interface()
 		if err := validatePredicateValue(value); err != nil {
-			return nil, errors.Trace(err)
+			return nil, err
 		}
 
 		values = append(values, value)
@@ -1811,7 +1802,7 @@ func validateAnySlice(values []any) ([]any, error) {
 	result := make([]any, 0, len(values))
 	for _, value := range values {
 		if err := validatePredicateValue(value); err != nil {
-			return nil, errors.Trace(err)
+			return nil, err
 		}
 
 		result = append(result, value)
@@ -1876,12 +1867,12 @@ func validateQuery[O Owner](q *Query[O]) error {
 
 func validateExecutor(tx SQLExecutor) error {
 	if tx == nil {
-		return errors.New("sql executor cannot be nil")
+		return errSQLExecutorNil
 	}
 
 	value := reflect.ValueOf(tx)
 	if value.IsValid() && value.Kind() == reflect.Pointer && value.IsNil() {
-		return errors.New("sql executor cannot be nil")
+		return errSQLExecutorNil
 	}
 
 	return nil
@@ -1889,11 +1880,11 @@ func validateExecutor(tx SQLExecutor) error {
 
 func validateOperationalExecutor(tx SQLExecutor) error {
 	if err := validateExecutor(tx); err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
 	if engine, ok := tx.(*Engine); ok && engine.DB == nil {
-		return errors.New("engine database cannot be nil")
+		return errEngineDatabaseNil
 	}
 
 	return nil
@@ -1901,7 +1892,7 @@ func validateOperationalExecutor(tx SQLExecutor) error {
 
 func validateExecutorForSQL(tx SQLExecutor, rawSQLs ...string) error {
 	if err := validateExecutor(tx); err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
 	dialect := dialectForExecutor(tx)
@@ -1909,7 +1900,7 @@ func validateExecutorForSQL(tx SQLExecutor, rawSQLs ...string) error {
 		for _, rawSQL := range rawSQLs {
 			for _, capability := range detectSQLCapabilities(rawSQL) {
 				if err := validateDialectCapability(dialect, capability); err != nil {
-					return errors.Trace(err)
+					return err
 				}
 			}
 		}
@@ -1951,7 +1942,7 @@ func detectSQLCapabilities(rawSQL string) []DialectCapability {
 
 func validateOperationalExecutorForSQL(tx SQLExecutor, rawSQLs ...string) error {
 	if err := validateOperationalExecutor(tx); err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
 	return validateExecutorForSQL(tx, rawSQLs...)
@@ -1998,21 +1989,21 @@ func buildScanDestWith(cols []SQLColumn, invoke func(scanPointer) (any, error)) 
 	for i, col := range cols {
 		pointerFunc := col.scanPointer()
 		if pointerFunc == nil {
-			return nil, errors.Errorf("select column %s cannot be scanned: field pointer is nil", col.SQLExpr())
+			return nil, fmt.Errorf("select column %s cannot be scanned: field pointer is nil", col.SQLExpr())
 		}
 
 		ptr, err := invoke(pointerFunc)
 		if err != nil {
-			return nil, errors.Annotatef(err, "select column %s cannot be scanned", col.SQLExpr())
+			return nil, fmt.Errorf("select column %s cannot be scanned"+": %w", col.SQLExpr(), err)
 		}
 
 		if ptr == nil {
-			return nil, errors.Errorf("select column %s cannot be scanned: field pointer returned nil", col.SQLExpr())
+			return nil, fmt.Errorf("select column %s cannot be scanned: field pointer returned nil", col.SQLExpr())
 		}
 
 		value := reflect.ValueOf(ptr)
 		if value.IsValid() && value.Kind() == reflect.Pointer && value.IsNil() {
-			return nil, errors.Errorf("select column %s cannot be scanned: field pointer returned nil", col.SQLExpr())
+			return nil, fmt.Errorf("select column %s cannot be scanned: field pointer returned nil", col.SQLExpr())
 		}
 
 		dest[i] = ptr
@@ -2024,10 +2015,8 @@ func buildScanDestWith(cols []SQLColumn, invoke func(scanPointer) (any, error)) 
 func validateScanDestForType[O Owner](cols []BoundColumn[O], sqlText string, args []any) error {
 	holder := new(O)
 	if _, err := buildScanDest(cols, holder); err != nil {
-		return errors.Annotatef(err,
-			"build scan dest\n%s\n%v",
-			sqlText, CompactJSON(args),
-		)
+		return fmt.Errorf("build scan dest\n%s\n%v"+": %w",
+			sqlText, CompactJSON(args), err)
 	}
 
 	return nil
@@ -2036,7 +2025,7 @@ func validateScanDestForType[O Owner](cols []BoundColumn[O], sqlText string, arg
 func invokeFieldPointer[O Owner](pointerFunc scanPointer, holder *O) (ptr any, err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			err = errors.Errorf("field pointer panicked: %v", recovered)
+			err = fmt.Errorf("field pointer panicked: %v", recovered)
 		}
 	}()
 
@@ -2060,14 +2049,14 @@ func insertFn[T Table](
 	item T,
 ) error {
 	if err := validateMutationItem(item); err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
 	if err := validateOperationalExecutor(tx); err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
-	return errors.Trace(insertTables(ctx, tx, item))
+	return insertTables(ctx, tx, item)
 }
 
 // Update updates item using the table metadata on T.
@@ -2087,16 +2076,16 @@ func updateFn[T Table](
 	item T,
 ) error {
 	if err := validateMutationItem(item); err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
 	if err := validateOperationalExecutor(tx); err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
 	_, err := updateTables(ctx, tx, item)
 
-	return errors.Trace(err)
+	return err
 }
 
 // Delete deletes item using the table metadata on T.
@@ -2116,14 +2105,14 @@ func deleteFn[T Table](
 	item T,
 ) error {
 	if err := validateMutationItem(item); err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
 	if err := validateOperationalExecutor(tx); err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
 	_, err := deleteTables(ctx, tx, item)
 
-	return errors.Trace(err)
+	return err
 }

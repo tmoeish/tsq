@@ -6,7 +6,6 @@ import (
 	"text/template"
 	"unicode"
 
-	"github.com/juju/errors"
 	"github.com/serenize/snaker"
 
 	"github.com/tmoeish/tsq/internal/genmodel"
@@ -265,7 +264,7 @@ func validateTimestampField(field genmodel.FieldInfo, role string) error {
 		return nil
 	}
 
-	return errors.Errorf(
+	return fmt.Errorf(
 		"%s field %s has unsupported type %s; supported types are time.Time, *time.Time, sql.NullTime, null.Time",
 		role,
 		field.Name,
@@ -278,7 +277,7 @@ func validateSoftDeleteField(field genmodel.FieldInfo) error {
 		return nil
 	}
 
-	return errors.Errorf(
+	return fmt.Errorf(
 		"deleted_at field %s has unsupported type %s; supported types are int64, uint64, *time.Time, sql.NullTime, null.Time",
 		field.Name,
 		fieldType(field),
@@ -303,11 +302,11 @@ func validateManagedFields(data *genmodel.StructInfo) error {
 
 		field, ok := data.FieldMap[item.name]
 		if !ok {
-			return errors.Errorf("%s field %s not found in %s", item.role, item.name, data.TypeInfo.TypeName)
+			return fmt.Errorf("%s field %s not found in %s", item.role, item.name, data.TypeInfo.TypeName)
 		}
 
 		if err := validateTimestampField(field, item.role); err != nil {
-			return errors.Trace(err)
+			return err
 		}
 	}
 
@@ -317,15 +316,15 @@ func validateManagedFields(data *genmodel.StructInfo) error {
 
 	field, ok := data.FieldMap[data.DeletedAtField]
 	if !ok {
-		return errors.Errorf("deleted_at field %s not found in %s", data.DeletedAtField, data.TypeInfo.TypeName)
+		return fmt.Errorf("deleted_at field %s not found in %s", data.DeletedAtField, data.TypeInfo.TypeName)
 	}
 
 	if err := validateSoftDeleteField(field); err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
 	if len(data.UxList) > 0 && softDeleteKind(field) != "integer" {
-		return errors.Errorf(
+		return fmt.Errorf(
 			"deleted_at field %s in %s cannot use nullable time semantics with unique indexes; use int64 or uint64 tombstones for portable uniqueness",
 			data.DeletedAtField,
 			data.TypeInfo.TypeName,

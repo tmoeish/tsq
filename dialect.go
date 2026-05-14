@@ -1,10 +1,9 @@
 package tsq
 
 import (
+	"errors"
 	"fmt"
 	"strings"
-
-	"github.com/juju/errors"
 )
 
 // DialectName is the stable name used by tsq for a SQL dialect.
@@ -128,7 +127,7 @@ func ValidateOperationForDialect(operation string, d Dialect) error {
 		return nil
 	}
 
-	return errors.Trace(validateDialectCapability(d, canonicalCapabilityName(operation)))
+	return validateDialectCapability(d, canonicalCapabilityName(operation))
 }
 
 // ValidateIdentifierForDialect validates identifier syntax and dialect-specific limits.
@@ -138,7 +137,7 @@ func ValidateIdentifierForDialect(identifier string, dialect Dialect) error {
 	}
 
 	if !builtInIdentifierPattern.MatchString(identifier) {
-		return errors.Errorf("invalid SQL identifier: %s (must match pattern [A-Za-z_][A-Za-z0-9_]*)", identifier)
+		return fmt.Errorf("invalid SQL identifier: %s (must match pattern [A-Za-z_][A-Za-z0-9_]*)", identifier)
 	}
 
 	return ValidateIdentifierLength(identifier, dialect)
@@ -154,7 +153,7 @@ func ValidateIdentifierLength(identifier string, dialect Dialect) error {
 		return nil
 	}
 
-	return errors.Trace(dialect.ValidateIdentifier(identifier))
+	return dialect.ValidateIdentifier(identifier)
 }
 
 func validateDialectCapability(dialect Dialect, capability DialectCapability) error {
@@ -162,11 +161,11 @@ func validateDialectCapability(dialect Dialect, capability DialectCapability) er
 		return nil
 	}
 
-	return errors.Trace(NewErrUnsupportedOperation(
+	return NewErrUnsupportedOperation(
 		capability,
 		dialect.Name(),
 		unsupportedCapabilityHint(capability, dialect.Name()),
-	))
+	)
 }
 
 func validateDialectIdentifier(identifier string, dialect DialectName, maxLen int) error {
@@ -175,11 +174,11 @@ func validateDialectIdentifier(identifier string, dialect DialectName, maxLen in
 	}
 
 	if !builtInIdentifierPattern.MatchString(identifier) {
-		return errors.Errorf("invalid SQL identifier: %s (must match pattern [A-Za-z_][A-Za-z0-9_]*)", identifier)
+		return fmt.Errorf("invalid SQL identifier: %s (must match pattern [A-Za-z_][A-Za-z0-9_]*)", identifier)
 	}
 
 	if maxLen > 0 && len(identifier) > maxLen {
-		return errors.Errorf(
+		return fmt.Errorf(
 			"identifier %q exceeds %s maximum length of %d characters (got %d)",
 			identifier,
 			displayDialectName(dialect),
@@ -258,7 +257,7 @@ func (d SQLiteDialect) Name() DialectName {
 
 // ValidateIdentifier applies SQLite's identifier validation rules.
 func (d SQLiteDialect) ValidateIdentifier(identifier string) error {
-	return errors.Trace(validateDialectIdentifier(identifier, d.Name(), 0))
+	return validateDialectIdentifier(identifier, d.Name(), 0)
 }
 
 // SupportsCapability reports whether SQLite supports capability.
@@ -284,7 +283,7 @@ func (d SQLiteDialect) BatchInsertStartID(lastID, rowsAffected int64) (int64, bo
 
 // EnsureIndex creates or updates an index definition for SQLite.
 func (d SQLiteDialect) EnsureIndex(db *Engine, table string, unique bool, idx string, fields []string) error {
-	return errors.Trace(ensureSQLiteIndex(db, table, unique, idx, fields))
+	return ensureSQLiteIndex(db, table, unique, idx, fields)
 }
 
 // InspectIndexDefinition reads back an existing SQLite index definition.
@@ -360,7 +359,7 @@ func (d MySQLDialect) Name() DialectName {
 
 // ValidateIdentifier applies MySQL's identifier validation rules.
 func (d MySQLDialect) ValidateIdentifier(identifier string) error {
-	return errors.Trace(validateDialectIdentifier(identifier, d.Name(), MaxIdentifierLengthMySQL))
+	return validateDialectIdentifier(identifier, d.Name(), MaxIdentifierLengthMySQL)
 }
 
 // SupportsCapability reports whether MySQL supports capability.
@@ -384,7 +383,7 @@ func (d MySQLDialect) BatchInsertStartID(lastID, rowsAffected int64) (int64, boo
 
 // EnsureIndex creates or updates an index definition for MySQL.
 func (d MySQLDialect) EnsureIndex(db *Engine, table string, unique bool, idx string, fields []string) error {
-	return errors.Trace(ensureMySQLIndex(db, table, unique, idx, fields))
+	return ensureMySQLIndex(db, table, unique, idx, fields)
 }
 
 // InspectIndexDefinition reads back an existing MySQL index definition.
@@ -507,7 +506,7 @@ func (d PostgresDialect) Name() DialectName {
 
 // ValidateIdentifier applies PostgreSQL's identifier validation rules.
 func (d PostgresDialect) ValidateIdentifier(identifier string) error {
-	return errors.Trace(validateDialectIdentifier(identifier, d.Name(), MaxIdentifierLengthPostgreSQL))
+	return validateDialectIdentifier(identifier, d.Name(), MaxIdentifierLengthPostgreSQL)
 }
 
 // SupportsCapability reports whether PostgreSQL supports capability.
@@ -527,7 +526,7 @@ func (d PostgresDialect) BatchInsertStartID(lastID, rowsAffected int64) (int64, 
 
 // EnsureIndex creates or updates an index definition for PostgreSQL.
 func (d PostgresDialect) EnsureIndex(db *Engine, table string, unique bool, idx string, fields []string) error {
-	return errors.Trace(ensurePostgresIndex(db, table, unique, idx, fields))
+	return ensurePostgresIndex(db, table, unique, idx, fields)
 }
 
 // InspectIndexDefinition reads back an existing PostgreSQL index definition.

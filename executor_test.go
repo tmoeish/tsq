@@ -3,6 +3,7 @@ package tsq
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"strings"
 	"testing"
 
@@ -46,7 +47,7 @@ func newBatchMutationEngine(t *testing.T) *Engine {
 	if _, err := db.ExecContext(context.Background(), `CREATE TABLE users (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		name TEXT NOT NULL,
-		email TEXT NOT NULL
+		email TEXT NOT NULL UNIQUE
 	)`); err != nil {
 		t.Fatalf("create users table: %v", err)
 	}
@@ -253,5 +254,62 @@ func TestEngineExecUsesContext(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), context.Canceled.Error()) {
 		t.Fatalf("expected exec to surface context cancellation, got %v", err)
+	}
+}
+
+func TestEngineQueryContextRejectsMissingDatabase(t *testing.T) {
+	db := &Engine{}
+
+	_, err := db.QueryContext(context.Background(), `SELECT 1`)
+	if !errors.Is(err, errEngineDatabaseNil) {
+		t.Fatalf("expected errEngineDatabaseNil, got %v", err)
+	}
+}
+
+func TestEngineExecContextRejectsMissingDatabase(t *testing.T) {
+	db := &Engine{}
+
+	_, err := db.ExecContext(context.Background(), `SELECT 1`)
+	if !errors.Is(err, errEngineDatabaseNil) {
+		t.Fatalf("expected errEngineDatabaseNil, got %v", err)
+	}
+}
+
+func TestEngineQueryRowContextRejectsMissingDatabase(t *testing.T) {
+	db := &Engine{}
+
+	var count int
+	err := db.QueryRowContext(context.Background(), `SELECT 1`).Scan(&count)
+	if !errors.Is(err, errEngineDatabaseNil) {
+		t.Fatalf("expected errEngineDatabaseNil, got %v", err)
+	}
+}
+
+func TestChunkedInsertIgnoreErrorsSkipsSQLiteUniqueViolations(t *testing.T) {
+	db := newBatchMutationEngine(t)
+
+	if err := db.Insert(context.Background(), &batchMutationUser{Name: "seed", Email: "alice@example.com"}); err != nil {
+		t.Fatalf("seed insert failed: %v", err)
+	}
+
+	items := []*batchMutationUser{
+		{Name: "duplicate", Email: "alice@example.com"},
+		{Name: "fresh", Email: "bob@example.com"},
+	}
+
+	if err := ChunkedInsert(context.Background(), db, items, &ChunkedInsertOptions{
+		ChunkSize:    2,
+		IgnoreErrors: true,
+	}); err != nil {
+		t.Fatalf("chunked insert with ignore errors failed: %v", err)
+	}
+
+	var count int
+	if err := db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM users`).Scan(&count); err != nil {
+		t.Fatalf("count rows after ignored duplicate: %v", err)
+	}
+
+	if count != 2 {
+		t.Fatalf("expected 2 rows after ignoring duplicate, got %d", count)
 	}
 }

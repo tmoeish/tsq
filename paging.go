@@ -1,10 +1,10 @@
 package tsq
 
 import (
+	"errors"
+	"fmt"
 	"net/url"
 	"strconv"
-
-	"github.com/juju/errors"
 )
 
 // ================================================
@@ -140,15 +140,15 @@ func (r *PageReq) Validate() error {
 	}
 
 	if r.Page <= 0 {
-		return errors.Errorf("page must be greater than 0, got %d", r.Page)
+		return fmt.Errorf("page must be greater than 0, got %d", r.Page)
 	}
 
 	if r.Size <= 0 {
-		return errors.Errorf("size must be greater than 0, got %d", r.Size)
+		return fmt.Errorf("size must be greater than 0, got %d", r.Size)
 	}
 
 	if r.Size > MaxPageSize {
-		return errors.Errorf("size must be less than or equal to %d, got %d", MaxPageSize, r.Size)
+		return fmt.Errorf("size must be less than or equal to %d, got %d", MaxPageSize, r.Size)
 	}
 
 	if len(splitCommaValues(r.OrderBy)) == 0 && len(splitCommaValues(r.Order)) > 0 {
@@ -157,7 +157,7 @@ func (r *PageReq) Validate() error {
 
 	for _, rawOrder := range splitCommaValues(r.Order) {
 		if _, err := parseOrder(rawOrder); err != nil {
-			return errors.Trace(err)
+			return err
 		}
 	}
 

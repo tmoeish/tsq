@@ -1028,7 +1028,7 @@ func TestTableTemplateAnnotatesQueryListErrorsWithSourceIndexName(t *testing.T) 
 	rendered := string(contents)
 	for _, want := range []string{
 		"query by index idx_order_org_item",
-		"var ListOrderByOrgIDAndItemIDInQuery *tsq.Query",
+		"var ListOrderByOrgIDAndItemIDInQuery OrderGeneratedQuery",
 		"Order_ItemID.InVar()",
 	} {
 		if !strings.Contains(rendered, want) {

@@ -1,7 +1,7 @@
 package tsq
 
 import (
-	"github.com/juju/errors"
+	"fmt"
 )
 
 func countStringFormatPlaceholders(format string) (int, error) {
@@ -13,7 +13,7 @@ func countStringFormatPlaceholders(format string) (int, error) {
 		}
 
 		if i+1 >= len(format) {
-			return 0, errors.Errorf("unterminated format verb")
+			return 0, fmt.Errorf("unterminated format verb")
 		}
 
 		switch format[i+1] {
@@ -23,7 +23,7 @@ func countStringFormatPlaceholders(format string) (int, error) {
 			count++
 			i++
 		default:
-			return 0, errors.Errorf("unsupported format verb %%%c", format[i+1])
+			return 0, fmt.Errorf("unsupported format verb %%%c", format[i+1])
 		}
 	}
 

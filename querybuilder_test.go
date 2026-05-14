@@ -795,14 +795,19 @@ func TestQueryBuilder_Build_AllowsRepeatedJoinTableWithAliases(t *testing.T) {
 func TestQueryBuilder_Build_RejectsNilReceiver(t *testing.T) {
 	var qb *QueryBuilder[Table]
 
-	_, err := qb.Build()
-	if err == nil {
-		t.Fatal("expected nil query builder to return an error")
-	}
+	defer func() {
+		recovered := recover()
+		if recovered == nil {
+			t.Fatal("expected nil query builder to panic")
+		}
 
-	if !strings.Contains(err.Error(), "query builder cannot be nil") {
-		t.Fatalf("unexpected error: %v", err)
-	}
+		err, ok := recovered.(error)
+		if !ok || !strings.Contains(err.Error(), "query builder cannot be nil") {
+			t.Fatalf("unexpected panic: %#v", recovered)
+		}
+	}()
+
+	qb.Build()
 }
 
 func TestQueryBuilder_Build_PreservesOwnerType(t *testing.T) {
@@ -828,16 +833,46 @@ func TestQueryBuilder_MethodsHandleNilReceiverWithoutPanicking(t *testing.T) {
 
 	var qb *QueryBuilder[Table]
 
-	_, err := qb.
-		Search(userID).
-		GroupBy(userID).
-		Build()
-	if err == nil {
-		t.Fatal("expected nil receiver chain to return an error")
+	defer func() {
+		recovered := recover()
+		if recovered == nil {
+			t.Fatal("expected nil receiver chain to panic")
+		}
+
+		err, ok := recovered.(error)
+		if !ok || !strings.Contains(err.Error(), "query builder cannot be nil") {
+			t.Fatalf("unexpected panic: %#v", recovered)
+		}
+	}()
+
+	qb.Search(userID).GroupBy(userID).Build()
+}
+
+func TestQueryBuilder_BranchingDoesNotShareMutableState(t *testing.T) {
+	users := newMockTable("users")
+	userID := newColForTable[Table, int](users, "id", "id", nil)
+
+	base := Select(userID).From(users)
+	left, err := base.Where(userID.EQ(1)).Build()
+	if err != nil {
+		t.Fatalf("expected left branch to build, got %v", err)
 	}
 
-	if !strings.Contains(err.Error(), "query builder cannot be nil") {
-		t.Fatalf("unexpected error: %v", err)
+	right, err := base.Where(userID.EQ(2)).Build()
+	if err != nil {
+		t.Fatalf("expected right branch to build, got %v", err)
+	}
+
+	if len(left.listArgs) != 1 || left.listArgs[0] != 1 {
+		t.Fatalf("expected left branch args [1], got %#v", left.listArgs)
+	}
+
+	if len(right.listArgs) != 1 || right.listArgs[0] != 2 {
+		t.Fatalf("expected right branch args [2], got %#v", right.listArgs)
+	}
+
+	if len(base.queryBuilderCore.spec.Filters) != 0 {
+		t.Fatalf("expected base builder to remain unfiltered, got %#v", base.queryBuilderCore.spec.Filters)
 	}
 }
 

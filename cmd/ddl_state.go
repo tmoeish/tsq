@@ -10,8 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/juju/errors"
-
 	"github.com/tmoeish/tsq"
 	"github.com/tmoeish/tsq/internal/genmodel"
 )
@@ -103,7 +101,7 @@ func buildCurrentDDLSnapshot(tables []*genmodel.StructInfo, resolver *ddlTypeRes
 	for _, table := range tables {
 		item, err := buildCurrentDDLTableSnapshot(table, resolver)
 		if err != nil {
-			return ddlSnapshot{}, errors.Trace(err)
+			return ddlSnapshot{}, err
 		}
 
 		snapshot.Tables = append(snapshot.Tables, item)
@@ -129,7 +127,7 @@ func buildCurrentDDLTableSnapshot(
 	for _, field := range orderedDDLFields(table) {
 		desc, err := resolver.describeField(table, field)
 		if err != nil {
-			return ddlSnapshotTable{}, errors.Annotatef(err, "failed to describe %s.%s", table.TypeInfo.TypeName, field.Name)
+			return ddlSnapshotTable{}, fmt.Errorf("failed to describe %s.%s"+": %w", table.TypeInfo.TypeName, field.Name, err)
 		}
 
 		result.Columns = append(result.Columns, ddlSnapshotColumn{
@@ -151,7 +149,7 @@ func buildCurrentDDLTableSnapshot(
 			for _, fieldName := range idx.Fields {
 				field, ok := table.FieldMap[fieldName]
 				if !ok {
-					return errors.Errorf("index %s references unknown field %s", idx.Name, fieldName)
+					return fmt.Errorf("index %s references unknown field %s", idx.Name, fieldName)
 				}
 
 				fields = append(fields, field.Column)
@@ -168,11 +166,11 @@ func buildCurrentDDLTableSnapshot(
 	}
 
 	if err := appendIndexes(table.UxList, true); err != nil {
-		return ddlSnapshotTable{}, errors.Trace(err)
+		return ddlSnapshotTable{}, err
 	}
 
 	if err := appendIndexes(table.IdxList, false); err != nil {
-		return ddlSnapshotTable{}, errors.Trace(err)
+		return ddlSnapshotTable{}, err
 	}
 
 	sort.Slice(result.Indexes, func(i, j int) bool {
@@ -191,16 +189,16 @@ func loadDDLStateFile(outDir string) (*ddlStateFile, error) {
 	}
 
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	if !isGeneratedDDLArtifact(content) {
-		return nil, errors.Errorf("refusing to read non-generated DDL state file: %s", filename)
+		return nil, fmt.Errorf("refusing to read non-generated DDL state file: %s", filename)
 	}
 
 	var state ddlStateFile
 	if err := json.Unmarshal(content, &state); err != nil {
-		return nil, errors.Annotatef(err, "failed to parse DDL state file: %s", filename)
+		return nil, fmt.Errorf("failed to parse DDL state file: %s"+": %w", filename, err)
 	}
 
 	return &state, nil
@@ -235,7 +233,7 @@ func marshalDDLStateFile(
 
 	content, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	return append(content, '\n'), nil

@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	goparser "go/parser"
 	"go/token"
@@ -14,7 +15,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/juju/errors"
 	"golang.org/x/tools/go/packages"
 
 	"github.com/tmoeish/tsq"
@@ -70,7 +70,7 @@ var ddlDialects = []ddlDialectSpec{
 
 func buildDDLArtifacts(packagePath string, list []*genmodel.StructInfo, outDir string) (ddlArtifacts, error) {
 	if err := validateIndexNameCollisions(list); err != nil {
-		return ddlArtifacts{}, errors.Trace(err)
+		return ddlArtifacts{}, err
 	}
 
 	tables := make([]*genmodel.StructInfo, 0, len(list))
@@ -92,19 +92,19 @@ func buildDDLArtifacts(packagePath string, list []*genmodel.StructInfo, outDir s
 
 	resolver, err := newDDLTypeResolver(packagePath, outDir)
 	if err != nil {
-		return ddlArtifacts{}, errors.Trace(err)
+		return ddlArtifacts{}, err
 	}
 
 	version := stableVersion(tsq.GetVersion())
 
 	currentSnapshot, err := buildCurrentDDLSnapshot(tables, resolver)
 	if err != nil {
-		return ddlArtifacts{}, errors.Trace(err)
+		return ddlArtifacts{}, err
 	}
 
 	previousState, err := loadDDLStateFile(outDir)
 	if err != nil {
-		return ddlArtifacts{}, errors.Trace(err)
+		return ddlArtifacts{}, err
 	}
 
 	var previousSnapshot *ddlSnapshot
@@ -127,7 +127,7 @@ func buildDDLArtifacts(packagePath string, list []*genmodel.StructInfo, outDir s
 
 		incrementalModels, diffRecord, err := renderDDLIncrementalArtifacts(version, dialect, changes)
 		if err != nil {
-			return ddlArtifacts{}, errors.Trace(err)
+			return ddlArtifacts{}, err
 		}
 
 		if !firstRun && hasChange {
@@ -142,7 +142,7 @@ func buildDDLArtifacts(packagePath string, list []*genmodel.StructInfo, outDir s
 
 	stateSource, err := marshalDDLStateFile(version, previousState, currentSnapshot, recordTables, dialectHistory)
 	if err != nil {
-		return ddlArtifacts{}, errors.Trace(err)
+		return ddlArtifacts{}, err
 	}
 
 	models = append(models, ddlFileModel{
@@ -175,12 +175,12 @@ func renderDDLTableBlock(
 	for _, field := range orderedDDLFields(table) {
 		desc, err := resolver.describeField(table, field)
 		if err != nil {
-			return "", errors.Annotatef(err, "failed to describe %s.%s", table.TypeInfo.TypeName, field.Name)
+			return "", fmt.Errorf("failed to describe %s.%s"+": %w", table.TypeInfo.TypeName, field.Name, err)
 		}
 
 		line, err := renderDDLColumnDefinition(table, field, desc, dialect)
 		if err != nil {
-			return "", errors.Annotatef(err, "failed to render column %s.%s", table.TypeInfo.TypeName, field.Name)
+			return "", fmt.Errorf("failed to render column %s.%s"+": %w", table.TypeInfo.TypeName, field.Name, err)
 		}
 
 		columnLines = append(columnLines, "    "+line)
@@ -191,7 +191,7 @@ func renderDDLTableBlock(
 
 	indexStatements, err := renderDDLIndexStatements(table, dialect)
 	if err != nil {
-		return "", errors.Trace(err)
+		return "", err
 	}
 
 	for _, stmt := range indexStatements {
@@ -235,7 +235,7 @@ func renderDDLIndexStatements(table *genmodel.StructInfo, dialect ddlDialectSpec
 			for _, fieldName := range idx.Fields {
 				field, ok := table.FieldMap[fieldName]
 				if !ok {
-					return nil, errors.Errorf("index %s references unknown field %s", idx.Name, fieldName)
+					return nil, fmt.Errorf("index %s references unknown field %s", idx.Name, fieldName)
 				}
 
 				quotedFields = append(quotedFields, dialect.dialect.QuoteField(field.Column))
@@ -472,12 +472,12 @@ func renderDDLColumnSpec(dialect tsq.Dialect, column tsq.DDLColumnSpec) (string,
 func newDDLTypeResolver(packagePath, dir string) (*ddlTypeResolver, error) {
 	cfg, pattern, err := resolveDDLLoadRequest(packagePath, dir)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	pkgs, err := packages.Load(cfg, pattern)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	all := flattenLoadedPackages(pkgs)
@@ -492,7 +492,7 @@ func newDDLTypeResolver(packagePath, dir string) (*ddlTypeResolver, error) {
 	}
 
 	if len(byPath) == 0 {
-		return nil, errors.Errorf("failed to load package %s", packagePath)
+		return nil, fmt.Errorf("failed to load package %s", packagePath)
 	}
 
 	return &ddlTypeResolver{packages: byPath}, nil
@@ -516,7 +516,7 @@ func resolveDDLLoadRequest(packagePath, dir string) (*packages.Config, string, e
 	case dir != "":
 		absDir, err := filepath.Abs(dir)
 		if err != nil {
-			return nil, "", errors.Trace(err)
+			return nil, "", err
 		}
 
 		cfg.Dir = absDir
@@ -527,7 +527,7 @@ func resolveDDLLoadRequest(packagePath, dir string) (*packages.Config, string, e
 	case strings.HasPrefix(packagePath, "."):
 		absPath, err := filepath.Abs(packagePath)
 		if err != nil {
-			return nil, "", errors.Trace(err)
+			return nil, "", err
 		}
 
 		cfg.Dir = absPath
@@ -537,7 +537,7 @@ func resolveDDLLoadRequest(packagePath, dir string) (*packages.Config, string, e
 	if cfg.Dir != "" {
 		overlay, err := buildDDLGeneratedFileOverlay(cfg.Dir)
 		if err != nil {
-			return nil, "", errors.Trace(err)
+			return nil, "", err
 		}
 
 		if len(overlay) > 0 {
@@ -555,12 +555,12 @@ func buildDDLGeneratedFileOverlay(dir string) (map[string][]byte, error) {
 	}
 
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	packageName, err := detectDDLPackageName(dir, entries)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	if packageName == "" {
@@ -595,7 +595,7 @@ func detectDDLPackageName(dir string, entries []os.DirEntry) (string, error) {
 
 		file, err := goparser.ParseFile(fileSet, filepath.Join(dir, name), nil, goparser.PackageClauseOnly)
 		if err != nil {
-			return "", errors.Trace(err)
+			return "", err
 		}
 
 		return file.Name.Name, nil
@@ -652,12 +652,12 @@ func (r *ddlTypeResolver) describeField(
 ) (ddlColumnDescriptor, error) {
 	namedType, pkg, err := r.lookupNamedStruct(table.TypeInfo)
 	if err != nil {
-		return ddlColumnDescriptor{}, errors.Trace(err)
+		return ddlColumnDescriptor{}, err
 	}
 
 	varObj, tag, err := lookupDDLField(namedType, pkg, field.Name)
 	if err != nil {
-		return ddlColumnDescriptor{}, errors.Trace(err)
+		return ddlColumnDescriptor{}, err
 	}
 
 	return classifyDDLColumnType(varObj.Type(), tag)
@@ -666,22 +666,22 @@ func (r *ddlTypeResolver) describeField(
 func (r *ddlTypeResolver) lookupNamedStruct(typeInfo genmodel.TypeInfo) (*types.Named, *types.Package, error) {
 	pkg, ok := r.packages[typeInfo.Package.Path]
 	if !ok || pkg.Types == nil {
-		return nil, nil, errors.Errorf("loaded type package %s not found", typeInfo.Package.Path)
+		return nil, nil, fmt.Errorf("loaded type package %s not found", typeInfo.Package.Path)
 	}
 
 	obj := pkg.Types.Scope().Lookup(typeInfo.TypeName)
 	if obj == nil {
-		return nil, nil, errors.Errorf("type %s not found in package %s", typeInfo.TypeName, typeInfo.Package.Path)
+		return nil, nil, fmt.Errorf("type %s not found in package %s", typeInfo.TypeName, typeInfo.Package.Path)
 	}
 
 	typeName, ok := obj.(*types.TypeName)
 	if !ok {
-		return nil, nil, errors.Errorf("%s in package %s is not a named type", typeInfo.TypeName, typeInfo.Package.Path)
+		return nil, nil, fmt.Errorf("%s in package %s is not a named type", typeInfo.TypeName, typeInfo.Package.Path)
 	}
 
 	named, ok := typeName.Type().(*types.Named)
 	if !ok || underlyingStructType(named) == nil {
-		return nil, nil, errors.Errorf("%s is not a struct type", typeInfo.TypeName)
+		return nil, nil, fmt.Errorf("%s is not a struct type", typeInfo.TypeName)
 	}
 
 	return named, pkg.Types, nil
@@ -692,18 +692,18 @@ func lookupDDLField(named *types.Named, pkg *types.Package, fieldName string) (*
 	if obj == nil {
 		obj, index, _ = types.LookupFieldOrMethod(types.NewPointer(named), false, pkg, fieldName)
 		if obj == nil {
-			return nil, "", errors.Errorf("field %s not found", fieldName)
+			return nil, "", fmt.Errorf("field %s not found", fieldName)
 		}
 	}
 
 	fieldObj, ok := obj.(*types.Var)
 	if !ok || !fieldObj.IsField() {
-		return nil, "", errors.Errorf("%s is not a field", fieldName)
+		return nil, "", fmt.Errorf("%s is not a field", fieldName)
 	}
 
 	tag, err := lookupDDLFieldTag(named, index)
 	if err != nil {
-		return nil, "", errors.Trace(err)
+		return nil, "", err
 	}
 
 	return fieldObj, tag, nil
@@ -744,7 +744,7 @@ func classifyDDLColumnType(t types.Type, rawTag string) (ddlColumnDescriptor, er
 
 	desc, err := classifyDDLColumnTypeRecursive(t, opts.size, false)
 	if err != nil {
-		return ddlColumnDescriptor{}, errors.Trace(err)
+		return ddlColumnDescriptor{}, err
 	}
 
 	if desc.kind == ddlColumnString {
@@ -829,7 +829,7 @@ func classifyDDLColumnTypeRecursive(
 		}
 	}
 
-	return ddlColumnDescriptor{}, errors.Errorf("unsupported DDL field type %s", types.TypeString(t, nil))
+	return ddlColumnDescriptor{}, fmt.Errorf("unsupported DDL field type %s", types.TypeString(t, nil))
 }
 
 func ddlBasicIntegerDescriptor(basic *types.Basic, nullable bool) ddlColumnDescriptor {
@@ -900,7 +900,7 @@ func buildDDLPlan(models []ddlFileModel, dir string) ([]generationPlanEntry, err
 	for _, model := range models {
 		status, err := ddlPlanStatusFor(model.Filename, model.Source)
 		if err != nil {
-			return nil, errors.Annotatef(err, "failed to plan DDL file: %s", model.Filename)
+			return nil, fmt.Errorf("failed to plan DDL file: %s"+": %w", model.Filename, err)
 		}
 
 		plan = append(plan, generationPlanEntry{
@@ -913,7 +913,7 @@ func buildDDLPlan(models []ddlFileModel, dir string) ([]generationPlanEntry, err
 
 	staleFiles, err := findStaleDDLFiles(dir, plannedFiles)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	for _, stale := range staleFiles {
@@ -937,7 +937,7 @@ func ddlPlanStatusFor(filename string, src []byte) (generationPlanStatus, error)
 	}
 
 	if err != nil {
-		return "", errors.Trace(err)
+		return "", err
 	}
 
 	if bytes.Equal(existing, src) {
@@ -945,7 +945,7 @@ func ddlPlanStatusFor(filename string, src []byte) (generationPlanStatus, error)
 	}
 
 	if err := ensureWritableDDLFile(filename); err != nil {
-		return "", errors.Trace(err)
+		return "", err
 	}
 
 	return generationPlanUpdate, nil
@@ -958,7 +958,7 @@ func findStaleDDLFiles(dir string, plannedFiles map[string]struct{}) ([]string, 
 	}
 
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	stale := make([]string, 0)
@@ -980,7 +980,7 @@ func findStaleDDLFiles(dir string, plannedFiles map[string]struct{}) ([]string, 
 
 		content, err := os.ReadFile(filename)
 		if err != nil {
-			return nil, errors.Trace(err)
+			return nil, err
 		}
 
 		if !isGeneratedDDLArtifact(content) {
@@ -997,18 +997,18 @@ func findStaleDDLFiles(dir string, plannedFiles map[string]struct{}) ([]string, 
 
 func writeDDLFile(filename string, src []byte) error {
 	if err := ensureWritableDDLFile(filename); err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
 	if err := os.MkdirAll(filepath.Dir(filename), 0o755); err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
 	perm := os.FileMode(0o644)
 	if info, err := os.Stat(filename); err == nil {
 		perm = info.Mode().Perm()
 	} else if !os.IsNotExist(err) {
-		return errors.Trace(err)
+		return err
 	}
 
 	dir := filepath.Dir(filename)
@@ -1016,7 +1016,7 @@ func writeDDLFile(filename string, src []byte) error {
 
 	tmpFile, err := os.CreateTemp(dir, pattern)
 	if err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
 	tmpName := tmpFile.Name()
@@ -1027,19 +1027,19 @@ func writeDDLFile(filename string, src []byte) error {
 
 	if err := tmpFile.Chmod(perm); err != nil {
 		_ = tmpFile.Close()
-		return errors.Trace(err)
+		return err
 	}
 
 	if _, err := tmpFile.Write(src); err != nil {
 		_ = tmpFile.Close()
-		return errors.Trace(err)
+		return err
 	}
 
 	if err := tmpFile.Close(); err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
-	return errors.Trace(os.Rename(tmpName, filename))
+	return os.Rename(tmpName, filename)
 }
 
 func ensureWritableDDLFile(filename string) error {
@@ -1049,14 +1049,14 @@ func ensureWritableDDLFile(filename string) error {
 	}
 
 	if err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
 	if len(existing) == 0 || isGeneratedDDLArtifact(existing) {
 		return nil
 	}
 
-	return errors.Errorf("refusing to overwrite non-generated file: %s", filename)
+	return fmt.Errorf("refusing to overwrite non-generated file: %s", filename)
 }
 
 func isGeneratedDDLArtifact(content []byte) bool {

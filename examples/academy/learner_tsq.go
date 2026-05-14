@@ -5,13 +5,76 @@ package academy
 import (
 	"context"
 	tsqsql "database/sql"
+	"errors"
+	"fmt"
 	tsqtime "time"
 
 	null "gopkg.in/nullbio/null.v6"
 
-	"github.com/juju/errors"
 	"github.com/tmoeish/tsq"
 )
+
+type LearnerGeneratedQuery struct {
+	query *tsq.Query[Learner]
+	err   error
+}
+
+func (g LearnerGeneratedQuery) resolved() (*tsq.Query[Learner], error) {
+	if g.err != nil {
+		return nil, g.err
+	}
+
+	if g.query == nil {
+		return nil, errors.New("generated query is not initialized")
+	}
+
+	return g.query, nil
+}
+
+func (g LearnerGeneratedQuery) Load(ctx context.Context, db tsq.SQLExecutor, holder *Learner, args ...any) error {
+	query, err := g.resolved()
+	if err != nil {
+		return err
+	}
+
+	return query.Load(ctx, db, holder, args...)
+}
+
+func (g LearnerGeneratedQuery) Exists(ctx context.Context, db tsq.SQLExecutor, args ...any) (bool, error) {
+	query, err := g.resolved()
+	if err != nil {
+		return false, err
+	}
+
+	return query.Exists(ctx, db, args...)
+}
+
+func (g LearnerGeneratedQuery) Count(ctx context.Context, db tsq.SQLExecutor, args ...any) (int, error) {
+	query, err := g.resolved()
+	if err != nil {
+		return 0, err
+	}
+
+	return query.Count(ctx, db, args...)
+}
+
+func (g LearnerGeneratedQuery) List(ctx context.Context, db tsq.SQLExecutor, args ...any) ([]*Learner, error) {
+	query, err := g.resolved()
+	if err != nil {
+		return nil, err
+	}
+
+	return tsq.List(ctx, db, query, args...)
+}
+
+func (g LearnerGeneratedQuery) Page(ctx context.Context, db tsq.SQLExecutor, page *tsq.PageReq, args ...any) (*tsq.PageResp[Learner], error) {
+	query, err := g.resolved()
+	if err != nil {
+		return nil, err
+	}
+
+	return tsq.Page(ctx, db, page, query, args...)
+}
 
 // =============================================================================
 // Table Interface Implementation
@@ -81,11 +144,11 @@ func init() {
 		func(db *tsq.Engine) error {
 			// Upsert unique indexes.
 			if err := tsq.UpsertIndex(db, "learner", true, "ux_learner_email", []string{"email"}); err != nil {
-				return errors.Annotate(err, "upsert ux_learner_email@learner")
+				return fmt.Errorf("%s: %w", "upsert ux_learner_email@learner", err)
 			}
 			// Upsert non-unique indexes.
 			if err := tsq.UpsertIndex(db, "learner", false, "idx_learner_company", []string{"company"}); err != nil {
-				return errors.Annotate(err, "upsert idx_learner_company@learner")
+				return fmt.Errorf("%s: %w", "upsert idx_learner_company@learner", err)
 			}
 			return nil
 		},
@@ -95,17 +158,17 @@ func init() {
 // =============================================================================
 // Query by Primary Key
 // =============================================================================
-var getLearnerByIDQuery *tsq.Query[Learner]
+var getLearnerByIDQuery LearnerGeneratedQuery
 
 func init() {
 	var err error
-	getLearnerByIDQuery, err = tsq.
+	getLearnerByIDQuery.query, err = tsq.
 		Select(Learner__Cols...).
 		From(TableLearner).
 		Where(Learner_ID.EQVar()).
 		Build()
 	if err != nil {
-		panic(errors.Annotate(err, "initialize getLearnerByIDQuery"))
+		getLearnerByIDQuery.err = fmt.Errorf("%s: %w", "initialize getLearnerByIDQuery", err)
 	}
 }
 
@@ -122,7 +185,7 @@ func GetLearnerByID(
 		if errors.Is(err, tsqsql.ErrNoRows) {
 			return nil, nil
 		}
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 	return row, nil
 }
@@ -137,7 +200,7 @@ func GetLearnerByIDOrErr(
 	row := &Learner{}
 	err := getLearnerByIDQuery.Load(ctx, db, row, iD)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 	return row, nil
 }
@@ -155,7 +218,7 @@ func ListLearnerByIDIn(
 		Where(Learner_ID.In(iDs...)).
 		Build()
 	if err != nil {
-		return nil, errors.Annotate(err, "build query")
+		return nil, fmt.Errorf("%s: %w", "build query", err)
 	}
 	return tsq.List(ctx, db, query)
 }
@@ -173,19 +236,19 @@ func ListLearnerByIDInOrErr(
 		Where(Learner_ID.In(iDs...)).
 		Build()
 	if err != nil {
-		return nil, errors.Annotate(err, "build query")
+		return nil, fmt.Errorf("%s: %w", "build query", err)
 	}
 
 	list, err := tsq.List(ctx, db, query)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	match := tsq.MatchByInputOrder(iDs, list, func(row *Learner) int64 {
 		return row.ID
 	})
 	if len(match.Missing) > 0 {
-		return nil, errors.Errorf("Learner(s) not found: %v", match.Missing)
+		return nil, fmt.Errorf("records not found: %v", match.Missing)
 	}
 	return match.Ordered, nil
 }
@@ -193,11 +256,11 @@ func ListLearnerByIDInOrErr(
 // =============================================================================
 // Query by Unique Indexes
 // =============================================================================
-var getLearnerByEmailQuery *tsq.Query[Learner]
+var getLearnerByEmailQuery LearnerGeneratedQuery
 
 func init() {
 	var err error
-	getLearnerByEmailQuery, err = tsq.
+	getLearnerByEmailQuery.query, err = tsq.
 		Select(Learner__Cols...).
 		From(TableLearner).
 		Search(TableLearner.SearchColumns()...).
@@ -206,7 +269,7 @@ func init() {
 		).
 		Build()
 	if err != nil {
-		panic(errors.Annotate(err, "initialize getLearnerByEmailQuery"))
+		getLearnerByEmailQuery.err = fmt.Errorf("%s: %w", "initialize getLearnerByEmailQuery", err)
 	}
 }
 
@@ -226,7 +289,7 @@ func GetLearnerByEmail(
 		if errors.Is(err, tsqsql.ErrNoRows) {
 			return nil, nil
 		}
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 	return row, nil
 }
@@ -244,7 +307,7 @@ func GetLearnerByEmailOrErr(
 		email,
 	)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 	return row, nil
 }
@@ -259,17 +322,17 @@ func ExistsLearnerByEmail(
 		ctx, db,
 		email,
 	)
-	return rs, errors.Trace(err)
+	return rs, err
 }
 
 // =============================================================================
 // Query by Indexes
 // =============================================================================
-var ListLearnerByCompanyQuery *tsq.Query[Learner]
+var ListLearnerByCompanyQuery LearnerGeneratedQuery
 
 func init() {
 	var err error
-	ListLearnerByCompanyQuery, err = tsq.
+	ListLearnerByCompanyQuery.query, err = tsq.
 		Select(Learner__Cols...).
 		From(TableLearner).
 		Search(TableLearner.SearchColumns()...).
@@ -278,7 +341,7 @@ func init() {
 		).
 		Build()
 	if err != nil {
-		panic(errors.Annotate(err, "initialize ListLearnerByCompanyQuery"))
+		ListLearnerByCompanyQuery.err = fmt.Errorf("%s: %w", "initialize ListLearnerByCompanyQuery", err)
 	}
 }
 
@@ -293,7 +356,7 @@ func CountLearnerByCompany(
 		company,
 	)
 	if err != nil {
-		return 0, errors.Annotate(err, "query by index idx_learner_company")
+		return 0, fmt.Errorf("%s: %w", "query by index idx_learner_company", err)
 	}
 	return rs, nil
 }
@@ -304,12 +367,12 @@ func ListLearnerByCompany(
 	db tsq.SQLExecutor,
 	company string,
 ) ([]*Learner, error) {
-	data, err := tsq.List(
-		ctx, db, ListLearnerByCompanyQuery,
+	data, err := ListLearnerByCompanyQuery.List(
+		ctx, db,
 		company,
 	)
 	if err != nil {
-		return nil, errors.Annotate(err, "query by index idx_learner_company")
+		return nil, fmt.Errorf("%s: %w", "query by index idx_learner_company", err)
 	}
 	return data, nil
 }
@@ -321,21 +384,21 @@ func PageLearnerByCompany(
 	page *tsq.PageReq,
 	company string,
 ) (*tsq.PageResp[Learner], error) {
-	rs, err := tsq.Page(
-		ctx, db, page, ListLearnerByCompanyQuery,
+	rs, err := ListLearnerByCompanyQuery.Page(
+		ctx, db, page,
 		company,
 	)
 	if err != nil {
-		return nil, errors.Annotate(err, "query by index idx_learner_company")
+		return nil, fmt.Errorf("%s: %w", "query by index idx_learner_company", err)
 	}
 	return rs, nil
 }
 
-var ListLearnerByCompanyInQuery *tsq.Query[Learner]
+var ListLearnerByCompanyInQuery LearnerGeneratedQuery
 
 func init() {
 	var err error
-	ListLearnerByCompanyInQuery, err = tsq.
+	ListLearnerByCompanyInQuery.query, err = tsq.
 		Select(Learner__Cols...).
 		From(TableLearner).
 		Where(
@@ -343,7 +406,7 @@ func init() {
 		).
 		Build()
 	if err != nil {
-		panic(errors.Annotate(err, "initialize ListLearnerByCompanyInQuery"))
+		ListLearnerByCompanyInQuery.err = fmt.Errorf("%s: %w", "initialize ListLearnerByCompanyInQuery", err)
 	}
 }
 
@@ -353,12 +416,12 @@ func ListLearnerByCompanyIn(
 	db tsq.SQLExecutor,
 	companys ...string,
 ) ([]*Learner, error) {
-	list, err := tsq.List(
-		ctx, db, ListLearnerByCompanyInQuery,
+	list, err := ListLearnerByCompanyInQuery.List(
+		ctx, db,
 		companys,
 	)
 	if err != nil {
-		return nil, errors.Annotate(err, "query by index idx_learner_company")
+		return nil, fmt.Errorf("%s: %w", "query by index idx_learner_company", err)
 	}
 	return list, nil
 }
@@ -366,17 +429,17 @@ func ListLearnerByCompanyIn(
 // =============================================================================
 // List All Records
 // =============================================================================
-var listLearnerQuery *tsq.Query[Learner]
+var listLearnerQuery LearnerGeneratedQuery
 
 func init() {
 	var err error
-	listLearnerQuery, err = tsq.
+	listLearnerQuery.query, err = tsq.
 		Select(Learner__Cols...).
 		From(TableLearner).
 		Search(TableLearner.SearchColumns()...).
 		Build()
 	if err != nil {
-		panic(errors.Annotate(err, "initialize listLearnerQuery"))
+		listLearnerQuery.err = fmt.Errorf("%s: %w", "initialize listLearnerQuery", err)
 	}
 }
 
@@ -393,7 +456,7 @@ func ListLearner(
 	ctx context.Context,
 	tx tsq.SQLExecutor,
 ) ([]*Learner, error) {
-	return tsq.List(ctx, tx, listLearnerQuery)
+	return listLearnerQuery.List(ctx, tx)
 }
 
 // PageLearner retrieves Learner records with pagination.
@@ -402,7 +465,7 @@ func PageLearner(
 	tx tsq.SQLExecutor,
 	page *tsq.PageReq,
 ) (*tsq.PageResp[Learner], error) {
-	return tsq.Page(ctx, tx, page, listLearnerQuery)
+	return listLearnerQuery.Page(ctx, tx, page)
 }
 
 // =============================================================================
@@ -417,7 +480,7 @@ func (l *Learner) Insert(
 	l.CreatedAt = null.TimeFrom(tsqtime.Now())
 	err := tsq.Insert(ctx, db, l)
 	if err != nil {
-		return errors.Annotatef(err, "insert Learner: %s", tsq.CompactJSON(l))
+		return fmt.Errorf("insert Learner: %s: %w", tsq.CompactJSON(l), err)
 	}
 	return nil
 }
@@ -429,7 +492,7 @@ func (l *Learner) Update(
 ) error {
 	err := tsq.Update(ctx, db, l)
 	if err != nil {
-		return errors.Annotatef(err, "update Learner: %s", tsq.CompactJSON(l))
+		return fmt.Errorf("update Learner: %s: %w", tsq.CompactJSON(l), err)
 	}
 	return nil
 }
@@ -441,7 +504,7 @@ func (l *Learner) Delete(
 ) error {
 	err := tsq.Delete(ctx, db, l)
 	if err != nil {
-		return errors.Annotatef(err, "delete Learner: %s", tsq.CompactJSON(l))
+		return fmt.Errorf("delete Learner: %s: %w", tsq.CompactJSON(l), err)
 	}
 	return nil
 }

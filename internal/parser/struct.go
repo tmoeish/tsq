@@ -9,7 +9,6 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/juju/errors"
 	"github.com/serenize/snaker"
 
 	"github.com/tmoeish/tsq/internal/genmodel"
@@ -52,7 +51,7 @@ func parseStructDeclaration(
 	// 解析嵌入字段
 	embeddedTypes, err := parseEmbeddedFields(packageAliases, currentPkg, structType)
 	if err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
 	// 将嵌入字段的包添加到待解析列表
@@ -71,7 +70,7 @@ func parseStructDeclaration(
 	// 解析具名字段
 	fieldMap, err := parseNamedFields(packageAliases, currentPkg, structType)
 	if err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
 	// 创建结构体对象

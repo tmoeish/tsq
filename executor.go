@@ -3,17 +3,20 @@ package tsq
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
+	"errors"
 	"fmt"
 	"log/slog"
 	"reflect"
 	"strconv"
 	"strings"
 	"sync"
-
-	"github.com/juju/errors"
 )
 
 var (
+	errSQLExecutorNil              = errors.New("sql executor cannot be nil")
+	errEngineNil                   = errors.New("engine cannot be nil")
+	errEngineDatabaseNil           = errors.New("engine database cannot be nil")
 	errInsertRequiresColumn        = errors.New("insert requires at least one column")
 	errInsertLayoutMismatch        = errors.New("batch insert requires matching column layouts")
 	errUpdateRequiresMutableColumn = errors.New("update requires at least one mutable column")
@@ -25,6 +28,75 @@ var (
 	errMutationItemStructPointer   = errors.New("mutation item must point to a struct")
 	errMutationItemNoTaggedFields  = errors.New("mutation item has no db-tagged fields")
 )
+
+type errorRowContextKey struct{}
+
+type errorRowDriver struct{}
+
+type errorRowConn struct{}
+
+var (
+	errorRowDBOnce sync.Once
+	errorRowDB     *sql.DB
+)
+
+func (errorRowDriver) Open(string) (driver.Conn, error) {
+	return errorRowConn{}, nil
+}
+
+func (errorRowConn) Prepare(string) (driver.Stmt, error) {
+	return nil, errors.New("prepare is not supported")
+}
+
+func (errorRowConn) Close() error {
+	return nil
+}
+
+func (errorRowConn) Begin() (driver.Tx, error) {
+	return nil, errors.New("transactions are not supported")
+}
+
+func (errorRowConn) QueryContext(ctx context.Context, _ string, _ []driver.NamedValue) (driver.Rows, error) {
+	if err, ok := ctx.Value(errorRowContextKey{}).(error); ok && err != nil {
+		return nil, err
+	}
+
+	return nil, errors.New("missing query row error")
+}
+
+func (errorRowConn) CheckNamedValue(*driver.NamedValue) error {
+	return nil
+}
+
+func errorQueryRow(ctx context.Context, err error) *sql.Row {
+	errorRowDBOnce.Do(func() {
+		sql.Register("tsq-error-row", errorRowDriver{})
+
+		db, openErr := sql.Open("tsq-error-row", "")
+		if openErr != nil {
+			panic(openErr)
+		}
+		errorRowDB = db
+	})
+
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	return errorRowDB.QueryRowContext(context.WithValue(ctx, errorRowContextKey{}, err), "SELECT 1")
+}
+
+func engineExecutionError(engine *Engine) error {
+	if engine == nil {
+		return errEngineNil
+	}
+
+	if engine.DB == nil {
+		return errEngineDatabaseNil
+	}
+
+	return nil
+}
 
 // SQLExecutor defines the shared query execution surface implemented by
 // database/sql entry points such as *sql.DB and *sql.Tx.
@@ -112,16 +184,16 @@ type Dialect interface {
 
 // Engine couples a *sql.DB with the dialect rules tsq should use for it.
 type Engine struct {
-	DB      *sql.DB
-	Dialect Dialect
+	DB             *sql.DB
+	Dialect        Dialect
+	schemaConfigMu sync.RWMutex
+	schemaConfig   dbSchemaConfig
 }
 
 type dbSchemaConfig struct {
 	indexInitMode      IndexInitMode
 	schemaEventHandler func(SchemaEvent)
 }
-
-var dbSchemaConfigs sync.Map
 
 func defaultDBSchemaConfig() dbSchemaConfig {
 	return dbSchemaConfig{indexInitMode: IndexInitUpsert}
@@ -132,8 +204,12 @@ func loadDBSchemaConfig(db *Engine) dbSchemaConfig {
 		return defaultDBSchemaConfig()
 	}
 
-	if cfg, ok := dbSchemaConfigs.Load(db); ok {
-		return cfg.(dbSchemaConfig)
+	db.schemaConfigMu.RLock()
+	cfg := db.schemaConfig
+	db.schemaConfigMu.RUnlock()
+
+	if cfg.indexInitMode != "" || cfg.schemaEventHandler != nil {
+		return cfg
 	}
 
 	return defaultDBSchemaConfig()
@@ -149,11 +225,16 @@ func storeDBSchemaConfig(db *Engine, cfg dbSchemaConfig) {
 	}
 
 	if cfg.indexInitMode == IndexInitUpsert && cfg.schemaEventHandler == nil {
-		dbSchemaConfigs.Delete(db)
+		db.schemaConfigMu.Lock()
+		db.schemaConfig = dbSchemaConfig{}
+		db.schemaConfigMu.Unlock()
+
 		return
 	}
 
-	dbSchemaConfigs.Store(db, cfg)
+	db.schemaConfigMu.Lock()
+	db.schemaConfig = cfg
+	db.schemaConfigMu.Unlock()
 }
 
 // TSQDialect exposes the Engine dialect for SQL rendering and validation.
@@ -167,19 +248,19 @@ func (e *Engine) TSQDialect() Dialect {
 
 // QueryContext executes a query and returns rows.
 func (e *Engine) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
-	if e == nil || e.DB == nil {
-		return nil, nil
+	if err := engineExecutionError(e); err != nil {
+		return nil, err
 	}
 
 	rows, err := e.DB.QueryContext(ctx, query, args...)
 
-	return rows, errors.Trace(err)
+	return rows, err
 }
 
 // QueryRowContext executes a query that returns a single row.
 func (e *Engine) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
-	if e == nil || e.DB == nil {
-		return nil
+	if err := engineExecutionError(e); err != nil {
+		return errorQueryRow(ctx, err)
 	}
 
 	return e.DB.QueryRowContext(ctx, query, args...)
@@ -187,13 +268,13 @@ func (e *Engine) QueryRowContext(ctx context.Context, query string, args ...any)
 
 // ExecContext executes a query without returning rows.
 func (e *Engine) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
-	if e == nil || e.DB == nil {
-		return nil, nil
+	if err := engineExecutionError(e); err != nil {
+		return nil, err
 	}
 
 	res, err := e.DB.ExecContext(ctx, query, args...)
 
-	return res, errors.Trace(err)
+	return res, err
 }
 
 type mutationField struct {
@@ -226,12 +307,12 @@ func (e *Engine) Delete(ctx context.Context, dst ...Table) (int64, error) {
 func insertTables(ctx context.Context, exec SQLExecutor, dst ...Table) error {
 	records, err := collectMutationRecords(dst)
 	if err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
 	for _, group := range groupInsertRecords(records) {
 		if err := insertBatch(ctx, exec, group); err != nil {
-			return errors.Trace(err)
+			return err
 		}
 	}
 
@@ -241,7 +322,7 @@ func insertTables(ctx context.Context, exec SQLExecutor, dst ...Table) error {
 func updateTables(ctx context.Context, exec SQLExecutor, dst ...Table) (int64, error) {
 	records, err := collectMutationRecords(dst)
 	if err != nil {
-		return 0, errors.Trace(err)
+		return 0, err
 	}
 
 	var total int64
@@ -249,7 +330,7 @@ func updateTables(ctx context.Context, exec SQLExecutor, dst ...Table) (int64, e
 	for _, group := range groupUpdateRecords(records) {
 		affected, err := updateBatch(ctx, exec, group)
 		if err != nil {
-			return total, errors.Trace(err)
+			return total, err
 		}
 
 		total += affected
@@ -261,7 +342,7 @@ func updateTables(ctx context.Context, exec SQLExecutor, dst ...Table) (int64, e
 func deleteTables(ctx context.Context, exec SQLExecutor, dst ...Table) (int64, error) {
 	records, err := collectMutationRecords(dst)
 	if err != nil {
-		return 0, errors.Trace(err)
+		return 0, err
 	}
 
 	var total int64
@@ -269,7 +350,7 @@ func deleteTables(ctx context.Context, exec SQLExecutor, dst ...Table) (int64, e
 	for _, group := range groupDeleteRecords(records) {
 		affected, err := deleteBatch(ctx, exec, group)
 		if err != nil {
-			return total, errors.Trace(err)
+			return total, err
 		}
 
 		total += affected
@@ -284,7 +365,7 @@ func collectMutationRecords(dst []Table) ([]mutationRecord, error) {
 	for _, item := range dst {
 		record, err := mutationMetadata(item)
 		if err != nil {
-			return nil, errors.Trace(err)
+			return nil, err
 		}
 
 		records = append(records, record)
@@ -342,18 +423,18 @@ func insertBatch(ctx context.Context, exec SQLExecutor, records []mutationRecord
 
 	insertFields := insertFieldsForRecord(records[0])
 	if len(insertFields) == 0 {
-		return errors.Trace(errInsertRequiresColumn)
+		return errInsertRequiresColumn
 	}
 
 	for _, record := range records[1:] {
 		if !mutationFieldColumnsEqual(insertFields, insertFieldsForRecord(record)) {
-			return errors.Trace(errInsertLayoutMismatch)
+			return errInsertLayoutMismatch
 		}
 	}
 
 	tableSQL, err := quoteMutationIdentifier(exec, records[0].tableName)
 	if err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
 	quotedCols := make([]string, 0, len(insertFields))
@@ -361,7 +442,7 @@ func insertBatch(ctx context.Context, exec SQLExecutor, records []mutationRecord
 	for _, field := range insertFields {
 		col, err := quoteMutationIdentifier(exec, field.column)
 		if err != nil {
-			return errors.Trace(err)
+			return err
 		}
 
 		quotedCols = append(quotedCols, col)
@@ -394,7 +475,7 @@ func insertBatch(ctx context.Context, exec SQLExecutor, records []mutationRecord
 
 	result, err := exec.ExecContext(ctx, query, args...)
 	if err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
 	assignBatchInsertIDs(exec, records, result, len(insertFields) != len(records[0].fields))
@@ -409,27 +490,27 @@ func updateBatch(ctx context.Context, exec SQLExecutor, records []mutationRecord
 
 	updateFields := updateFieldsForRecord(records[0])
 	if len(updateFields) == 0 {
-		return 0, errors.Trace(errUpdateRequiresMutableColumn)
+		return 0, errUpdateRequiresMutableColumn
 	}
 
 	for _, record := range records {
 		if isZeroMutationValue(record.pkField.value) {
-			return 0, errors.Trace(errUpdateRequiresPrimaryKey)
+			return 0, errUpdateRequiresPrimaryKey
 		}
 
 		if !mutationFieldColumnsEqual(updateFields, updateFieldsForRecord(record)) {
-			return 0, errors.Trace(errUpdateLayoutMismatch)
+			return 0, errUpdateLayoutMismatch
 		}
 	}
 
 	tableSQL, err := quoteMutationIdentifier(exec, records[0].tableName)
 	if err != nil {
-		return 0, errors.Trace(err)
+		return 0, err
 	}
 
 	pkSQL, err := quoteMutationIdentifier(exec, records[0].pkField.column)
 	if err != nil {
-		return 0, errors.Trace(err)
+		return 0, err
 	}
 
 	var (
@@ -441,7 +522,7 @@ func updateBatch(ctx context.Context, exec SQLExecutor, records []mutationRecord
 	for _, field := range updateFields {
 		colSQL, err := quoteMutationIdentifier(exec, field.column)
 		if err != nil {
-			return 0, errors.Trace(err)
+			return 0, err
 		}
 
 		var clause strings.Builder
@@ -482,12 +563,12 @@ func updateBatch(ctx context.Context, exec SQLExecutor, records []mutationRecord
 
 	result, err := exec.ExecContext(ctx, query, args...)
 	if err != nil {
-		return 0, errors.Trace(err)
+		return 0, err
 	}
 
 	rowsAffected, err := result.RowsAffected()
 
-	return rowsAffected, errors.Trace(err)
+	return rowsAffected, err
 }
 
 func deleteBatch(ctx context.Context, exec SQLExecutor, records []mutationRecord) (int64, error) {
@@ -497,18 +578,18 @@ func deleteBatch(ctx context.Context, exec SQLExecutor, records []mutationRecord
 
 	for _, record := range records {
 		if isZeroMutationValue(record.pkField.value) {
-			return 0, errors.Trace(errDeleteRequiresPrimaryKey)
+			return 0, errDeleteRequiresPrimaryKey
 		}
 	}
 
 	tableSQL, err := quoteMutationIdentifier(exec, records[0].tableName)
 	if err != nil {
-		return 0, errors.Trace(err)
+		return 0, err
 	}
 
 	pkSQL, err := quoteMutationIdentifier(exec, records[0].pkField.column)
 	if err != nil {
-		return 0, errors.Trace(err)
+		return 0, err
 	}
 
 	var (
@@ -531,40 +612,40 @@ func deleteBatch(ctx context.Context, exec SQLExecutor, records []mutationRecord
 
 	result, err := exec.ExecContext(ctx, query, args...)
 	if err != nil {
-		return 0, errors.Trace(err)
+		return 0, err
 	}
 
 	rowsAffected, err := result.RowsAffected()
 
-	return rowsAffected, errors.Trace(err)
+	return rowsAffected, err
 }
 
 func mutationMetadata(dst Table) (mutationRecord, error) {
 	if isNilValue(dst) {
-		return mutationRecord{}, errors.Trace(errMutationItemNil)
+		return mutationRecord{}, errMutationItemNil
 	}
 
 	value := reflect.ValueOf(dst)
 	if value.Kind() != reflect.Ptr || value.IsNil() {
-		return mutationRecord{}, errors.Trace(errMutationItemPointer)
+		return mutationRecord{}, errMutationItemPointer
 	}
 
 	if value.Elem().Kind() != reflect.Struct {
-		return mutationRecord{}, errors.Trace(errMutationItemStructPointer)
+		return mutationRecord{}, errMutationItemStructPointer
 	}
 
 	fields, err := collectMutationFields(dst)
 	if err != nil {
-		return mutationRecord{}, errors.Trace(err)
+		return mutationRecord{}, err
 	}
 
 	if len(fields) == 0 {
-		return mutationRecord{}, errors.Trace(errMutationItemNoTaggedFields)
+		return mutationRecord{}, errMutationItemNoTaggedFields
 	}
 
 	pkField, err := primaryMutationField(dst.PrimaryKeys(), fields)
 	if err != nil {
-		return mutationRecord{}, errors.Trace(err)
+		return mutationRecord{}, err
 	}
 
 	return mutationRecord{
@@ -584,7 +665,7 @@ func collectMutationFields(dst Table) ([]mutationField, error) {
 
 		ptr, err := mutationFieldPointer(col, dst)
 		if err != nil {
-			return nil, errors.Trace(err)
+			return nil, err
 		}
 
 		fields = append(fields, mutationField{
@@ -666,7 +747,7 @@ func primaryMutationField(pkColumns []string, fields []mutationField) (mutationF
 		}
 	}
 
-	return mutationField{}, errors.Errorf("mutation item is missing primary key column %s", pkColumns[0])
+	return mutationField{}, fmt.Errorf("mutation item is missing primary key column %s", pkColumns[0])
 }
 
 func quoteMutationIdentifier(exec SQLExecutor, name string) (string, error) {
@@ -676,7 +757,7 @@ func quoteMutationIdentifier(exec SQLExecutor, name string) (string, error) {
 	}
 
 	if !builtInIdentifierPattern.MatchString(name) {
-		return "", errors.Errorf("invalid identifier: %s", name)
+		return "", fmt.Errorf("invalid identifier: %s", name)
 	}
 
 	if dialect := dialectForExecutor(exec); dialect != nil {
@@ -758,17 +839,17 @@ func assignBatchInsertIDs(exec SQLExecutor, records []mutationRecord, result sql
 func mutationFieldPointer(col SQLColumn, holder Table) (any, error) {
 	pointerFunc := col.scanPointer()
 	if pointerFunc == nil {
-		return nil, errors.Errorf("column %s field pointer is nil", col.Name())
+		return nil, fmt.Errorf("column %s field pointer is nil", col.Name())
 	}
 
 	ptr := pointerFunc(holder)
 	if ptr == nil {
-		return nil, errors.Errorf("column %s field pointer returned nil", col.Name())
+		return nil, fmt.Errorf("column %s field pointer returned nil", col.Name())
 	}
 
 	value := reflect.ValueOf(ptr)
 	if !value.IsValid() || value.Kind() != reflect.Pointer || value.IsNil() {
-		return nil, errors.Errorf("column %s field pointer must return a non-nil pointer", col.Name())
+		return nil, fmt.Errorf("column %s field pointer must return a non-nil pointer", col.Name())
 	}
 
 	return ptr, nil

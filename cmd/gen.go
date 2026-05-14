@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	_ "embed"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -11,7 +12,6 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/juju/errors"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
@@ -104,12 +104,12 @@ Overwrite behavior:
 
 		tableTpl, err := resolveTemplateText(tplFlag, defaultTableTpl, "template")
 		if err != nil {
-			return errors.Trace(err)
+			return err
 		}
 
 		resultTpl, err := resolveTemplateText(resultTplFlag, defaultResultTpl, "Result template")
 		if err != nil {
-			return errors.Trace(err)
+			return err
 		}
 
 		pPath := args[0]
@@ -117,7 +117,7 @@ Overwrite behavior:
 
 		list, dir, err := parser.Parse(pPath)
 		if err != nil {
-			return errors.Trace(err)
+			return err
 		}
 
 		for i := range list {
@@ -126,17 +126,17 @@ Overwrite behavior:
 
 		tpl, err := template.New("tsq.go.tmpl").Funcs(funcMap()).Parse(tableTpl)
 		if err != nil {
-			return errors.Annotate(err, "failed to parse table template")
+			return fmt.Errorf("%s: %w", "failed to parse table template", err)
 		}
 
 		resultTplParsed, err := template.New("tsq_result.go.tmpl").Funcs(funcMap()).Parse(resultTpl)
 		if err != nil {
-			return errors.Annotate(err, "failed to parse Result template")
+			return fmt.Errorf("%s: %w", "failed to parse Result template", err)
 		}
 
 		models, err := buildGenerationModels(list, dir, tpl, resultTplParsed)
 		if err != nil {
-			return errors.Trace(err)
+			return err
 		}
 
 		stats := summarizeGenerationModels(models)
@@ -146,17 +146,17 @@ Overwrite behavior:
 
 		plan, err := buildGenerationPlan(models, dir)
 		if err != nil {
-			return errors.Trace(err)
+			return err
 		}
 
 		ddlArtifacts, err := buildDDLArtifacts(pPath, list, dir)
 		if err != nil {
-			return errors.Trace(err)
+			return err
 		}
 
 		ddlPlan, err := buildDDLPlan(ddlArtifacts.models, dir)
 		if err != nil {
-			return errors.Trace(err)
+			return err
 		}
 
 		combinedPlan := appendCombinedGenerationPlans(plan, ddlPlan)
@@ -179,7 +179,7 @@ Overwrite behavior:
 			}
 
 			if err := ensureGenerationPlanUpToDate(combinedPlan); err != nil {
-				return errors.Trace(err)
+				return err
 			}
 
 			return nil
@@ -187,19 +187,19 @@ Overwrite behavior:
 
 		for _, model := range models {
 			if err := renderGenerationModel(model); err != nil {
-				return errors.Trace(err)
+				return err
 			}
 		}
 
 		for _, model := range ddlArtifacts.models {
 			if v {
 				if _, err := fmt.Fprintf(errWriter, "ddl %s\n", model.Filename); err != nil {
-					return errors.Trace(err)
+					return err
 				}
 			}
 
 			if err := writeDDLFile(model.Filename, model.Source); err != nil {
-				return errors.Annotatef(err, "failed to write DDL file: %s", model.Filename)
+				return fmt.Errorf("failed to write DDL file: %s"+": %w", model.Filename, err)
 			}
 		}
 
@@ -209,12 +209,12 @@ Overwrite behavior:
 			}
 
 			if err := os.Remove(entry.Filename); err != nil && !os.IsNotExist(err) {
-				return errors.Annotatef(err, "failed to remove stale DDL file: %s", entry.Filename)
+				return fmt.Errorf("failed to remove stale DDL file: %s"+": %w", entry.Filename, err)
 			}
 		}
 
 		if err := printDDLGuidance(errWriter, ddlArtifacts); err != nil {
-			return errors.Trace(err)
+			return err
 		}
 
 		if v {
@@ -269,7 +269,7 @@ func printDDLGuidance(w io.Writer, artifacts ddlArtifacts) error {
 		action,
 		strings.Join(paths, " "),
 	); err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
 	return nil
@@ -384,7 +384,7 @@ func exactOnePackageArgFor(command string) cobra.PositionalArgs {
 			return nil
 		}
 
-		return errors.Errorf("tsq %s expects exactly one package path, got %d", command, len(args))
+		return fmt.Errorf("tsq %s expects exactly one package path, got %d", command, len(args))
 	}
 }
 
@@ -395,7 +395,7 @@ func resolveTemplateText(overridePath, fallback, label string) (string, error) {
 
 	tplBytes, err := os.ReadFile(overridePath)
 	if err != nil {
-		return "", errors.Annotatef(err, "failed to read %s file: %s", label, overridePath)
+		return "", fmt.Errorf("failed to read %s file: %s"+": %w", label, overridePath, err)
 	}
 
 	return string(tplBytes), nil
@@ -410,22 +410,22 @@ func validateStructForGeneration(
 	}
 
 	if data.IsResult {
-		return errors.Trace(validateResultFields(data, structsByName))
+		return validateResultFields(data, structsByName)
 	}
 
 	if err := validatePrimaryKeyField(data); err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
 	if err := validateVersionField(data); err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
 	if err := validateFieldDatabaseCompatibility(data); err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
-	return errors.Trace(validateManagedFields(data))
+	return validateManagedFields(data)
 }
 
 func validateResultFields(
@@ -437,8 +437,8 @@ func validateResultFields(
 	for _, field := range dto.Fields {
 		parts := strings.Split(field.Column, ".")
 		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-			return errors.Errorf(
-				"Result field %s must reference a generated column as Struct.Field, got %q",
+			return fmt.Errorf(
+				"result field %s must reference a generated column as Struct.Field, got %q",
 				field.Name,
 				field.Column,
 			)
@@ -446,8 +446,8 @@ func validateResultFields(
 
 		normalizedRef := strings.ReplaceAll(field.Column, ".", "_")
 		if existing, ok := normalizedRefs[normalizedRef]; ok && existing != field.Column {
-			return errors.Errorf(
-				"Result field %s reference %s collides with %s after normalization",
+			return fmt.Errorf(
+				"result field %s reference %s collides with %s after normalization",
 				field.Name,
 				field.Column,
 				existing,
@@ -458,8 +458,8 @@ func validateResultFields(
 
 		targetStruct, ok := structsByName[parts[0]]
 		if !ok || targetStruct.TableMeta == nil {
-			return errors.Errorf(
-				"Result field %s references unknown struct %s",
+			return fmt.Errorf(
+				"result field %s references unknown struct %s",
 				field.Name,
 				parts[0],
 			)
@@ -467,8 +467,8 @@ func validateResultFields(
 
 		sourceField, ok := targetStruct.FieldMap[parts[1]]
 		if !ok {
-			return errors.Errorf(
-				"Result field %s references unknown field %s.%s",
+			return fmt.Errorf(
+				"result field %s references unknown field %s.%s",
 				field.Name,
 				parts[0],
 				parts[1],
@@ -476,8 +476,8 @@ func validateResultFields(
 		}
 
 		if !isScanCompatible(field, sourceField) {
-			return errors.Errorf(
-				"Result field %s type %s is incompatible with %s.%s type %s",
+			return fmt.Errorf(
+				"result field %s type %s is incompatible with %s.%s type %s",
 				field.Name,
 				field.String(),
 				parts[0],
@@ -517,7 +517,7 @@ func validateGeneratedFilenameCollisions(list []*genmodel.StructInfo) error {
 
 		filename := generatedFilename(data)
 		if existing, ok := seen[filename]; ok && existing != data.TypeInfo.TypeName {
-			return errors.Errorf(
+			return fmt.Errorf(
 				"generated filename %s collides between %s and %s",
 				filename,
 				existing,
@@ -566,14 +566,14 @@ func validateIndexNameCollisions(list []*genmodel.StructInfo) error {
 				}
 
 				if existing == current {
-					return errors.Errorf(
+					return fmt.Errorf(
 						"duplicate index name %s on table %s",
 						idx.Name,
 						data.Table,
 					)
 				}
 
-				return errors.Errorf(
+				return fmt.Errorf(
 					"index name %s collides between %s(%s) and %s(%s)",
 					idx.Name,
 					existing.table,
@@ -597,7 +597,7 @@ func validateGeneratedSymbolCollisions(list []*genmodel.StructInfo) error {
 		}
 
 		if existing, ok := seen[symbol]; ok && existing != owner {
-			return errors.Errorf("generated symbol %s collides between %s and %s", symbol, existing, owner)
+			return fmt.Errorf("generated symbol %s collides between %s and %s", symbol, existing, owner)
 		}
 
 		seen[symbol] = owner
@@ -632,13 +632,13 @@ func validateGeneratedSymbolCollisions(list []*genmodel.StructInfo) error {
 
 		for _, symbol := range baseSymbols {
 			if err := register(symbol, typeName); err != nil {
-				return errors.Trace(err)
+				return err
 			}
 		}
 
 		for _, field := range data.Fields {
 			if err := register(typeName+"_"+field.Name, typeName); err != nil {
-				return errors.Trace(err)
+				return err
 			}
 		}
 
@@ -650,7 +650,7 @@ func validateGeneratedSymbolCollisions(list []*genmodel.StructInfo) error {
 				"Page" + typeName + "By" + queryName,
 			} {
 				if err := register(symbol, typeName); err != nil {
-					return errors.Trace(err)
+					return err
 				}
 			}
 		}
@@ -675,11 +675,11 @@ func validatePrimaryKeyField(data *genmodel.StructInfo) error {
 
 	field, ok := data.FieldMap[data.PK]
 	if !ok {
-		return errors.Errorf("id field %s not found in %s", data.PK, data.TypeInfo.TypeName)
+		return fmt.Errorf("id field %s not found in %s", data.PK, data.TypeInfo.TypeName)
 	}
 
 	if field.IsPointer || field.IsArray {
-		return errors.Errorf(
+		return fmt.Errorf(
 			"id field %s in %s cannot be a pointer or slice/array type",
 			data.PK,
 			data.TypeInfo.TypeName,
@@ -696,11 +696,11 @@ func validateVersionField(data *genmodel.StructInfo) error {
 
 	field, ok := data.FieldMap[data.VersionField]
 	if !ok {
-		return errors.Errorf("version field %s not found in %s", data.VersionField, data.TypeInfo.TypeName)
+		return fmt.Errorf("version field %s not found in %s", data.VersionField, data.TypeInfo.TypeName)
 	}
 
 	if !isIntegerFieldType(field) || field.IsPointer || field.IsArray {
-		return errors.Errorf("version field %s in %s must be a non-pointer integer type", data.VersionField, data.TypeInfo.TypeName)
+		return fmt.Errorf("version field %s in %s must be a non-pointer integer type", data.VersionField, data.TypeInfo.TypeName)
 	}
 
 	return nil
@@ -718,7 +718,7 @@ func validateFieldDatabaseCompatibility(data *genmodel.StructInfo) error {
 
 	for _, field := range data.Fields {
 		if err := validateFieldDatabaseType(field, keywordFields); err != nil {
-			return errors.Annotatef(err, "field %s in %s", field.Name, data.TypeInfo.TypeName)
+			return fmt.Errorf("field %s in %s"+": %w", field.Name, data.TypeInfo.TypeName, err)
 		}
 	}
 
@@ -729,7 +729,7 @@ func validateFieldDatabaseType(field genmodel.FieldInfo, keywordFields map[strin
 	if field.Type.Package.Path == "" {
 		switch field.Type.TypeName {
 		case "complex64", "complex128", "uintptr":
-			return errors.Errorf("type %s is not supported for generated columns", field.Type.TypeName)
+			return fmt.Errorf("type %s is not supported for generated columns", field.Type.TypeName)
 		}
 	}
 
@@ -775,14 +775,14 @@ func isIntegerFieldType(field genmodel.FieldInfo) bool {
 
 func writeGeneratedFile(filename string, src []byte) error {
 	if err := ensureWritableGeneratedFile(filename); err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
 	perm := os.FileMode(0o644)
 	if info, err := os.Stat(filename); err == nil {
 		perm = info.Mode().Perm()
 	} else if !os.IsNotExist(err) {
-		return errors.Trace(err)
+		return err
 	}
 
 	dir := filepath.Dir(filename)
@@ -790,7 +790,7 @@ func writeGeneratedFile(filename string, src []byte) error {
 
 	tmpFile, err := os.CreateTemp(dir, pattern)
 	if err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
 	tmpName := tmpFile.Name()
@@ -802,20 +802,20 @@ func writeGeneratedFile(filename string, src []byte) error {
 
 	if err := tmpFile.Chmod(perm); err != nil {
 		_ = tmpFile.Close()
-		return errors.Trace(err)
+		return err
 	}
 
 	if _, err := tmpFile.Write(src); err != nil {
 		_ = tmpFile.Close()
-		return errors.Trace(err)
+		return err
 	}
 
 	if err := tmpFile.Close(); err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
 	if err := os.Rename(tmpName, filename); err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
 	return nil
@@ -828,14 +828,14 @@ func ensureWritableGeneratedFile(filename string) error {
 	}
 
 	if err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
 	if len(existing) == 0 || bytes.HasPrefix(existing, []byte(generatedFileHeaderPrefix)) {
 		return nil
 	}
 
-	return errors.Errorf("refusing to overwrite non-generated file: %s", filename)
+	return fmt.Errorf("refusing to overwrite non-generated file: %s", filename)
 }
 
 // stableVersion returns a version string suitable for embedding in generated

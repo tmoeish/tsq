@@ -1,9 +1,8 @@
 package tsq
 
 import (
+	"errors"
 	"strings"
-
-	"github.com/juju/errors"
 )
 
 type cteProvider interface {
@@ -44,11 +43,11 @@ func CTE[O Owner](name string, query completeQueryStage[O]) Table {
 		}
 	}
 
-	core := ensureQueryBuilderCore(query.core(), builderPhaseBase, false)
+	core := ensureQueryBuilderCore(query.core(), builderPhaseBase)
 	if core.buildErr != nil {
 		return cteTable{
 			name:     name,
-			buildErr: errors.Trace(core.buildErr),
+			buildErr: core.buildErr,
 		}
 	}
 
@@ -93,7 +92,7 @@ func (t cteTable) PhysicalTable() string {
 }
 
 func (t cteTable) buildError() error {
-	return errors.Trace(t.buildErr)
+	return t.buildErr
 }
 
 func (t cteTable) cteDefinition() cteDefinition {
@@ -110,11 +109,11 @@ func newCTEDefinition[O Owner](name string, spec QuerySpec[O]) cteDefinition {
 		cols:         SQLColumns(cloned.Selects...),
 		validate: func() error {
 			if err := cloned.validateJoinGraph(); err != nil {
-				return errors.Trace(err)
+				return err
 			}
 
 			if err := cloned.validateSetOperations(); err != nil {
-				return errors.Trace(err)
+				return err
 			}
 
 			return nil

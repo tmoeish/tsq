@@ -2,9 +2,8 @@ package academy
 
 import (
 	"context"
+	"fmt"
 	"sort"
-
-	"github.com/juju/errors"
 
 	"github.com/tmoeish/tsq"
 )
@@ -126,17 +125,17 @@ func (namedRow) TSQOwner() {}
 func RunQuickstart(ctx context.Context, engine *tsq.Engine) (*QuickstartSummary, error) {
 	crud, err := runTrackCRUDDemo(ctx, engine)
 	if err != nil {
-		return nil, errors.Annotate(err, "track crud")
+		return nil, fmt.Errorf("%s: %w", "track crud", err)
 	}
 
 	search, err := runCatalogSearchDemo(ctx, engine)
 	if err != nil {
-		return nil, errors.Annotate(err, "catalog search")
+		return nil, fmt.Errorf("%s: %w", "catalog search", err)
 	}
 
 	catalog, err := runBackendCatalogDemo(ctx, engine)
 	if err != nil {
-		return nil, errors.Annotate(err, "backend catalog")
+		return nil, fmt.Errorf("%s: %w", "backend catalog", err)
 	}
 
 	return &QuickstartSummary{
@@ -151,42 +150,42 @@ func RunQuickstart(ctx context.Context, engine *tsq.Engine) (*QuickstartSummary,
 func RunAdvanced(ctx context.Context, engine *tsq.Engine) (*AdvancedSummary, error) {
 	alias, err := runAliasDemo(ctx, engine)
 	if err != nil {
-		return nil, errors.Annotate(err, "alias demo")
+		return nil, fmt.Errorf("%s: %w", "alias demo", err)
 	}
 
 	aggregate, err := runAggregateDemo(ctx, engine)
 	if err != nil {
-		return nil, errors.Annotate(err, "aggregate demo")
+		return nil, fmt.Errorf("%s: %w", "aggregate demo", err)
 	}
 
 	inVar, err := runInVarDemo(ctx, engine)
 	if err != nil {
-		return nil, errors.Annotate(err, "dynamic in demo")
+		return nil, fmt.Errorf("%s: %w", "dynamic in demo", err)
 	}
 
 	subquery, err := runSubqueryDemo(ctx, engine)
 	if err != nil {
-		return nil, errors.Annotate(err, "subquery demo")
+		return nil, fmt.Errorf("%s: %w", "subquery demo", err)
 	}
 
 	caseExpr, err := runCaseDemo(ctx, engine)
 	if err != nil {
-		return nil, errors.Annotate(err, "case demo")
+		return nil, fmt.Errorf("%s: %w", "case demo", err)
 	}
 
 	cte, err := runCTEDemo(ctx, engine)
 	if err != nil {
-		return nil, errors.Annotate(err, "cte demo")
+		return nil, fmt.Errorf("%s: %w", "cte demo", err)
 	}
 
 	setOps, err := runSetOpsDemo(ctx, engine)
 	if err != nil {
-		return nil, errors.Annotate(err, "set operations demo")
+		return nil, fmt.Errorf("%s: %w", "set operations demo", err)
 	}
 
 	chunked, err := runChunkedDemo(ctx, engine)
 	if err != nil {
-		return nil, errors.Annotate(err, "chunked demo")
+		return nil, fmt.Errorf("%s: %w", "chunked demo", err)
 	}
 
 	return &AdvancedSummary{
@@ -206,17 +205,17 @@ func RunAdvanced(ctx context.Context, engine *tsq.Engine) (*AdvancedSummary, err
 func RunFullSuite(ctx context.Context, engine *tsq.Engine) (*FullSuiteSummary, error) {
 	quickstart, err := RunQuickstart(ctx, engine)
 	if err != nil {
-		return nil, errors.Annotate(err, "quickstart")
+		return nil, fmt.Errorf("%s: %w", "quickstart", err)
 	}
 
 	advanced, err := RunAdvanced(ctx, engine)
 	if err != nil {
-		return nil, errors.Annotate(err, "advanced")
+		return nil, fmt.Errorf("%s: %w", "advanced", err)
 	}
 
 	comprehensive, err := runComprehensive(ctx, engine)
 	if err != nil {
-		return nil, errors.Annotate(err, "comprehensive")
+		return nil, fmt.Errorf("%s: %w", "comprehensive", err)
 	}
 
 	return &FullSuiteSummary{
@@ -239,12 +238,12 @@ func runComprehensive(ctx context.Context, engine *tsq.Engine) (*ComprehensiveSu
 		Order:   "asc,asc",
 	}
 	if err := pageReq.Validate(); err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	resp, err := PageLearningJourney(ctx, engine, pageReq, learnerIDs, tracks...)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	var first *LearningJourney
@@ -269,13 +268,13 @@ func runTrackCRUDDemo(ctx context.Context, engine *tsq.Engine) (*CRUDSummary, er
 		Description: "Temporary track used to demonstrate Insert, Update, and Delete.",
 	}
 	if err := inserted.Insert(ctx, engine); err != nil {
-		return nil, errors.Annotate(err, "insert track")
+		return nil, fmt.Errorf("%s: %w", "insert track", err)
 	}
 
 	// Update the track.
 	inserted.Description = "Updated through the generated Track helpers."
 	if err := inserted.Update(ctx, engine); err != nil {
-		return nil, errors.Annotate(err, "update track")
+		return nil, fmt.Errorf("%s: %w", "update track", err)
 	}
 
 	// Look up the track to verify the update.
@@ -288,23 +287,23 @@ func runTrackCRUDDemo(ctx context.Context, engine *tsq.Engine) (*CRUDSummary, er
 		Where(Track_ID.EQ(inserted.ID)).
 		Build()
 	if err != nil {
-		return nil, errors.Annotate(err, "build track lookup")
+		return nil, fmt.Errorf("%s: %w", "build track lookup", err)
 	}
 
 	updated, err := tsq.GetOrErr(ctx, engine, query)
 	if err != nil {
-		return nil, errors.Annotate(err, "get updated track")
+		return nil, fmt.Errorf("%s: %w", "get updated track", err)
 	}
 
 	// Delete the track.
 	if err := inserted.Delete(ctx, engine); err != nil {
-		return nil, errors.Annotate(err, "delete track")
+		return nil, fmt.Errorf("%s: %w", "delete track", err)
 	}
 
 	// Look up the track to verify the delete.
 	deleted, err := tsq.Get(ctx, engine, query)
 	if err != nil {
-		return nil, errors.Annotate(err, "verify deleted track")
+		return nil, fmt.Errorf("%s: %w", "verify deleted track", err)
 	}
 
 	return &CRUDSummary{
@@ -325,12 +324,12 @@ func runCatalogSearchDemo(ctx context.Context, engine *tsq.Engine) (*SearchSumma
 		Keyword: tsq.EscapeKeywordSearch("SQLite"),
 	}
 	if err := pageReq.Validate(); err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	resp, err := PageCourse(ctx, engine, pageReq)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	titles := make([]string, 0, len(resp.Data))
@@ -358,12 +357,12 @@ func runBackendCatalogDemo(ctx context.Context, engine *tsq.Engine) (*CatalogSum
 		).
 		Build()
 	if err != nil {
-		return nil, errors.Annotate(err, "build backend catalog query")
+		return nil, fmt.Errorf("%s: %w", "build backend catalog query", err)
 	}
 
 	courses, err := tsq.List(ctx, engine, query)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	titles := make([]string, 0, len(courses))
@@ -399,12 +398,12 @@ func runAliasDemo(ctx context.Context, engine *tsq.Engine) (*AliasSummary, error
 		Where(Course_Title.EQ("API Design Workshop")).
 		Build()
 	if err != nil {
-		return nil, errors.Annotate(err, "build alias query")
+		return nil, fmt.Errorf("%s: %w", "build alias query", err)
 	}
 
 	row, err := tsq.GetOrErr(ctx, engine, query)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	return &AliasSummary{
@@ -439,12 +438,12 @@ func runAggregateDemo(ctx context.Context, engine *tsq.Engine) ([]AggregateSumma
 		Having(Enrollment_UID.Count().GT(0)).
 		Build()
 	if err != nil {
-		return nil, errors.Annotate(err, "build aggregate query")
+		return nil, fmt.Errorf("%s: %w", "build aggregate query", err)
 	}
 
 	rows, err := tsq.List(ctx, engine, query)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	summaries := make([]AggregateSummary, 0, len(rows))
@@ -472,14 +471,14 @@ func runInVarDemo(ctx context.Context, engine *tsq.Engine) (*InVarSummary, error
 		Where(Course_ID.InVar()).
 		Build()
 	if err != nil {
-		return nil, errors.Annotate(err, "build dynamic in query")
+		return nil, fmt.Errorf("%s: %w", "build dynamic in query", err)
 	}
 
 	courseIDs := []int64{1, 4, 6}
 
 	courses, err := tsq.List(ctx, engine, query, courseIDs)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	titles := make([]string, 0, len(courses))
@@ -504,7 +503,7 @@ func runSubqueryDemo(ctx context.Context, engine *tsq.Engine) (*SubquerySummary,
 		Where(Track_Name.EQ("Data & AI")).
 		Build()
 	if err != nil {
-		return nil, errors.Annotate(err, "build data track id subquery")
+		return nil, fmt.Errorf("%s: %w", "build data track id subquery", err)
 	}
 
 	dataTrackLearnerIDs, err := tsq.
@@ -514,7 +513,7 @@ func runSubqueryDemo(ctx context.Context, engine *tsq.Engine) (*SubquerySummary,
 		Where(Course_TrackID.InSub(dataTrackIDSubquery)).
 		Build()
 	if err != nil {
-		return nil, errors.Annotate(err, "build learner ids in data track subquery")
+		return nil, fmt.Errorf("%s: %w", "build learner ids in data track subquery", err)
 	}
 
 	learnersInDataTrackQuery, err := tsq.
@@ -523,12 +522,12 @@ func runSubqueryDemo(ctx context.Context, engine *tsq.Engine) (*SubquerySummary,
 		Where(Learner_ID.InSub(dataTrackLearnerIDs)).
 		Build()
 	if err != nil {
-		return nil, errors.Annotate(err, "build learners in data track query")
+		return nil, fmt.Errorf("%s: %w", "build learners in data track query", err)
 	}
 
 	learnersInDataTrack, err := tsq.List(ctx, engine, learnersInDataTrackQuery)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	anchorPriceSubquery, err := tsq.
@@ -537,7 +536,7 @@ func runSubqueryDemo(ctx context.Context, engine *tsq.Engine) (*SubquerySummary,
 		Where(Course_Title.EQ("Retrieval Systems with SQLite")).
 		Build()
 	if err != nil {
-		return nil, errors.Annotate(err, "build anchor price subquery")
+		return nil, fmt.Errorf("%s: %w", "build anchor price subquery", err)
 	}
 
 	coursesCheaperThanAnchorQuery, err := tsq.
@@ -546,12 +545,12 @@ func runSubqueryDemo(ctx context.Context, engine *tsq.Engine) (*SubquerySummary,
 		Where(Course_ListPriceCents.LTSub(anchorPriceSubquery)).
 		Build()
 	if err != nil {
-		return nil, errors.Annotate(err, "build cheaper courses query")
+		return nil, fmt.Errorf("%s: %w", "build cheaper courses query", err)
 	}
 
 	coursesCheaperThanAnchor, err := tsq.List(ctx, engine, coursesCheaperThanAnchorQuery)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	learnerNames := make([]string, 0, len(learnersInDataTrack))
@@ -606,12 +605,12 @@ func runCaseDemo(ctx context.Context, engine *tsq.Engine) (*CaseSummary, error) 
 		Where(Enrollment_LearnerID.EQ(1)).
 		Build()
 	if err != nil {
-		return nil, errors.Annotate(err, "build case query")
+		return nil, fmt.Errorf("%s: %w", "build case query", err)
 	}
 
 	rows, err := tsq.List(ctx, engine, query)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	labels := make([]string, 0, len(rows))
@@ -649,12 +648,12 @@ func runCTEDemo(ctx context.Context, engine *tsq.Engine) (*CTESummary, error) {
 		Where(platformCourseID.GT(0)).
 		Build()
 	if err != nil {
-		return nil, errors.Annotate(err, "build cte query")
+		return nil, fmt.Errorf("%s: %w", "build cte query", err)
 	}
 
 	rows, err := tsq.List(ctx, engine, query)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	titles := make([]string, 0, len(rows))
@@ -666,7 +665,7 @@ func runCTEDemo(ctx context.Context, engine *tsq.Engine) (*CTESummary, error) {
 
 	total, err := query.Count(ctx, engine)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	return &CTESummary{
@@ -696,12 +695,12 @@ func runSetOpsDemo(ctx context.Context, engine *tsq.Engine) (*SetOpsSummary, err
 		).
 		Build()
 	if err != nil {
-		return nil, errors.Annotate(err, "build union query")
+		return nil, fmt.Errorf("%s: %w", "build union query", err)
 	}
 
 	unionRows, err := tsq.List(ctx, engine, unionQuery)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	exceptQuery, err := tsq.
@@ -714,12 +713,12 @@ func runSetOpsDemo(ctx context.Context, engine *tsq.Engine) (*SetOpsSummary, err
 		).
 		Build()
 	if err != nil {
-		return nil, errors.Annotate(err, "build except query")
+		return nil, fmt.Errorf("%s: %w", "build except query", err)
 	}
 
 	exceptRows, err := tsq.List(ctx, engine, exceptQuery)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	unionTitles := make([]string, 0, len(unionRows))
@@ -747,7 +746,7 @@ func runSetOpsDemo(ctx context.Context, engine *tsq.Engine) (*SetOpsSummary, err
 func runChunkedDemo(ctx context.Context, engine *tsq.Engine) (*ChunkedSummary, error) {
 	before, err := CountEnrollment(ctx, engine)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	enrollments := []*Enrollment{
@@ -775,7 +774,7 @@ func runChunkedDemo(ctx context.Context, engine *tsq.Engine) (*ChunkedSummary, e
 	}
 
 	if err := tsq.ChunkedInsert(ctx, engine, enrollments, &tsq.ChunkedInsertOptions{ChunkSize: 2}); err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	for _, enrollment := range enrollments {
@@ -790,11 +789,11 @@ func runChunkedDemo(ctx context.Context, engine *tsq.Engine) (*ChunkedSummary, e
 	}
 
 	if err := tsq.ChunkedUpdate(ctx, engine, enrollments, &tsq.ChunkedOptions{ChunkSize: 2}); err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	if err := tsq.ChunkedDelete(ctx, engine, enrollments[:1], &tsq.ChunkedOptions{ChunkSize: 1}); err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	remainingIDs := make([]any, 0, len(enrollments)-1)
@@ -810,12 +809,12 @@ func runChunkedDemo(ctx context.Context, engine *tsq.Engine) (*ChunkedSummary, e
 		remainingIDs,
 		&tsq.ChunkedOptions{ChunkSize: 2},
 	); err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	after, err := CountEnrollment(ctx, engine)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	return &ChunkedSummary{

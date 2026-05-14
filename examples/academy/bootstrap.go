@@ -3,8 +3,8 @@ package academy
 import (
 	"database/sql"
 	_ "embed"
+	"fmt"
 
-	"github.com/juju/errors"
 	_ "github.com/mattn/go-sqlite3"
 
 	"github.com/tmoeish/tsq"
@@ -16,7 +16,7 @@ var mockSQL string
 func OpenSQLiteExampleDB() (*tsq.Engine, func(), error) {
 	db, err := sql.Open("sqlite3", ":memory:")
 	if err != nil {
-		return nil, nil, errors.Trace(err)
+		return nil, nil, err
 	}
 
 	cleanup := func() {
@@ -25,13 +25,13 @@ func OpenSQLiteExampleDB() (*tsq.Engine, func(), error) {
 
 	if _, err := db.Exec(mockSQL); err != nil {
 		cleanup()
-		return nil, nil, errors.Annotate(err, "seed mock.sql")
+		return nil, nil, fmt.Errorf("%s: %w", "seed mock.sql", err)
 	}
 
 	engine := &tsq.Engine{DB: db, Dialect: tsq.SQLiteDialect{}}
 	if err := tsq.Init(engine, true); err != nil {
 		cleanup()
-		return nil, nil, errors.Annotate(err, "init tsq")
+		return nil, nil, fmt.Errorf("%s: %w", "init tsq", err)
 	}
 
 	return engine, cleanup, nil

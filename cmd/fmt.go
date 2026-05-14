@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/juju/errors"
 	"github.com/spf13/cobra"
 
 	"github.com/tmoeish/tsq/internal/parser"
@@ -29,12 +28,12 @@ Formatting behavior:
 	RunE: func(cmd *cobra.Command, args []string) error {
 		changed, err := parser.FormatPackage(args[0])
 		if err != nil {
-			return errors.Trace(err)
+			return err
 		}
 
 		for _, filename := range changed {
 			if _, err := fmt.Fprintln(cmd.OutOrStdout(), filename); err != nil {
-				return errors.Trace(err)
+				return err
 			}
 		}
 
