@@ -7,16 +7,16 @@
 ### 1.1 尽早校验输入
 
 - 在构建查询前校验分页、排序和用户输入
-- 对外部输入优先使用 `ValidateStrict()`
+- 对外部输入优先使用 `Validate()`
 - `Build()` 返回错误时立即处理
 
 ```go
-if err := pageReq.ValidateStrict(); err != nil {
+if err := pageReq.Validate(); err != nil {
 	return fmt.Errorf("invalid pagination: %w", err)
 }
 
 query, err := tsq.
-	Select(database.TableUserCols...).
+	Select(database.User__Cols...).
 	From(database.TableUser).
 	Where(database.User_ID.EQ(1)).
 	Build()
@@ -40,7 +40,7 @@ query, _ := qb.Build()
 ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 defer cancel()
 
-users, err := tsq.List[database.User](ctx, dbmap, query)
+users, err := tsq.List[database.User](ctx, engine, query)
 ```
 
 ### 1.3 用 `%w` 保留错误上下文
@@ -62,13 +62,13 @@ if errors.As(err, &unknownField) {
 
 ## 2. 分页
 
-### 2.1 对 API 输入优先使用 `ValidateStrict()`
+### 2.1 对 API 输入优先使用 `Validate()`
 
-`Validate()` 会把非法值归一化为安全默认值，适合兼容场景；  
-`ValidateStrict()` 会直接返回错误，更适合 HTTP API 和管理端输入。
+`Normalize()` 会把非法值归一化为安全默认值，适合兼容场景；  
+`Validate()` 会直接返回错误，更适合 HTTP API 和管理端输入。
 
 ```go
-if err := pageReq.ValidateStrict(); err != nil {
+if err := pageReq.Validate(); err != nil {
 	return nil, err
 }
 ```
@@ -124,11 +124,11 @@ if err := op2(); err != nil {
 return tx.Commit()
 ```
 
-### 3.3 事务里复用 TSQ 时，重新包装 `Engine`，ctx 继续显式下传
+### 3.3 事务里复用 TSQ 时，用 `WrapExecutor(...)` 继续携带方言
 
 ```go
-txEngine := &tsq.Engine{Db: tx, Dialect: engine.Dialect}
-if err := order.Insert(ctx, txEngine); err != nil {
+txExec := tsq.WrapExecutor(tx, engine.Dialect)
+if err := order.Insert(ctx, txExec); err != nil {
 	return err
 }
 ```
@@ -151,8 +151,8 @@ defer func() {
 	_ = tx.Rollback()
 }()
 
-txEngine := &tsq.Engine{Db: tx, Dialect: engine.Dialect}
-if err := tsq.ChunkedInsert(ctx, txEngine, rows, &tsq.ChunkedInsertOptions{ChunkSize: 500}); err != nil {
+txExec := tsq.WrapExecutor(tx, engine.Dialect)
+if err := tsq.ChunkedInsert(ctx, txExec, rows, &tsq.ChunkedInsertOptions{ChunkSize: 500}); err != nil {
 	return err
 }
 
@@ -218,6 +218,25 @@ query, err := tsq.Select(User_ID, User_Name).
 
 稳定查询形状应当在初始化阶段或循环外构建一次，然后重复执行。
 
+### 6.3 需要分支时复用 builder 中间态是安全的
+
+当前 builder 会在继续链式调用时隔离分支状态，所以：
+
+- 可以从同一个中间 builder 派生两个不同查询
+- 不需要再担心“后一个分支把前一个分支的条件改掉”
+
+但如果查询形状已经稳定，仍然优先缓存 `Build()` 后的 `*tsq.Query[Owner]`，而不是在热路径里反复从 builder 往下走。
+
+### 6.4 把生成 helper 的初始化失败当普通错误处理
+
+生成的查询 helper 不会因为导入包直接 `panic`。  
+如果内部静态查询初始化失败，错误会在调用 `Get...` / `List...` / `Page...` 这类 helper 时返回。
+
+这意味着：
+
+- 不要假设“能 import 就说明生成查询一定没问题”
+- 对生成 helper 的返回错误照常做 `%w` 包装和日志记录
+
 ## 7. 生产环境建议
 
 ### 7.1 日志分级
@@ -275,6 +294,11 @@ query, err := tsq.
 
 - 想表达“没有任何候选值，所以结果应为空”时，直接传空切片 / `nil`
 - 想表达“没有筛选值，所以不要加这个过滤条件”时，应该在业务层自己分支，不要把这个职责交给 `InVar()`
+
+### 8.4 普通值不要试图手工转成 SQL literal
+
+当前 TSQ 的安全主路径是参数绑定。  
+如果你要表达列、函数、子查询，请显式传表达式对象；如果你只是传普通值，就让 TSQ 去绑定参数，不要自己拼 SQL 字符串。
 
 ### 8.4 `Build()` 只做结构校验，方言能力在执行时校验
 

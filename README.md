@@ -119,13 +119,13 @@ func main() {
 		log.Fatal(err)
 	}
 
-	engine := &tsq.Engine{Db: db, Dialect: tsq.SQLiteDialect{}}
+	engine := &tsq.Engine{DB: db, Dialect: tsq.SQLiteDialect{}}
 	if err := tsq.Init(engine, false, true); err != nil {
 		log.Fatal(err)
 	}
 
 	query, err := tsq.
-		Select(database.TableUserCols...).
+		Select(database.User__Cols...).
 		From(database.TableUser).
 		Where(database.User_Name.Contains("alice")).
 		Build()
@@ -184,7 +184,7 @@ TSQ 当前内置的 `Dialect` 实现只有 **SQLite / MySQL / PostgreSQL**。下
 
 ```go
 query, err := tsq.
-	Select(database.TableUserCols...).
+	Select(database.User__Cols...).
 	From(database.TableUser).
 	Where(
 		database.User_OrgID.EQ(1),
@@ -248,19 +248,46 @@ pageReq := &tsq.PageReq{
 }
 ```
 
+### 普通值默认走 bind 参数，不提供 literal SQL 快捷入口
+
+当前 TSQ 的默认行为是：**把普通值绑定成参数**，而不是把值直接拼进 SQL 字符串。
+
+- `EQ("alice")`、`In(1, 2, 3)`、`CASE ... THEN "ok"` 这类普通值都会进入参数列表
+- 如果你需要数据库函数、列引用或子查询，请显式传 `Col`、`Fn(...)`、`SubQuery` 这类表达式对象
+- 不要把“手工拼 SQL literal”当成常规扩展方式
+
 ### 推荐使用当前的 Build-based API
 
 仓库当前主路径是：
 
 ```go
 query, err := tsq.
-	Select(database.TableUserCols...).
+	Select(database.User__Cols...).
 	From(database.TableUser).
 	Where(database.User_ID.EQ(1)).
 	Build()
 ```
 
-如果你在旧示例里看到 `NewQueryBuilder()`，请优先参考 `docs/quickstart.md`、`docs/concepts.md` 和 `examples/full-suite/main.go` 的写法。
+查询写法请优先参考 `docs/quickstart.md`、`docs/concepts.md` 和 `examples/full-suite/main.go` 的当前示例。
+
+### Builder 中间态可以安全分支，但最终复用优先用已构建 Query
+
+当前 builder 在链式推进时会隔离分支状态：
+
+- 从同一个中间 builder 继续往下链，不会回写污染之前的分支
+- 但真正需要高频复用的对象仍然应该是 `Build()` 后得到的 `*tsq.Query[Owner]`
+
+也就是说，**builder 适合表达构建过程，query 适合表达稳定复用的查询形状**。
+
+### 生成 helper 不会在导入包时 panic
+
+生成的 `*_tsq.go` 会在包初始化时准备查询定义，但如果准备失败，错误会在调用对应 helper 时显式返回，而不是因为 `import` 该包直接 `panic`。
+
+如果你看到类似 `initialize XxxQuery` 的错误，优先检查：
+
+- 生成前后的模型/注解是否一致
+- 生成代码是否已重新运行
+- 当前查询涉及的列、索引、`@RESULT` 投影是否仍然合法
 
 ### 子查询边界要显式遵守
 

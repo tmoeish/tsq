@@ -32,7 +32,7 @@ erDiagram
 - `track` 与 `course` 是一对多：`course.track_id -> track.id`，一条学习路径下可以挂多门课程。
 - `instructor` 与 `course` 是一对多：`course.instructor_id -> instructor.id`，一位讲师可以负责多门课程。
 - `course` 存在自关联：`course.prerequisite_id -> course.id`，表示当前课程的前置课；示例数据里 `0` 表示“没有前置课”。
-- `learner` 与 `einrollment` 是一对多：`enrollment.learner_id -> learner.id`，一个学员可以报名多门课程。
+- `learner` 与 `enrollment` 是一对多：`enrollment.learner_id -> learner.id`，一个学员可以报名多门课程。
 - `course` 与 `enrollment` 是一对多：`enrollment.course_id -> course.id`，一门课程可以有多条报名记录。
 - `enrollment` 是学员和课程之间的关联表，同时承载报名状态、得分、实付金额，以及 `version` / `deleted_at` 这类生命周期字段。
 
@@ -88,3 +88,6 @@ go test ./examples/...
 ```bash
 tsq gen ./examples/academy
 ```
+
+当前生成代码中的查询 helper 不会因为包初始化失败直接 `panic`；  
+如果模型、注解和生成结果不一致，错误会在调用对应 helper 时返回出来，因此重新生成后最好直接跑一遍示例或测试。

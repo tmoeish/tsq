@@ -108,13 +108,13 @@ INSERT INTO user (name, email) VALUES
 		log.Fatal(err)
 	}
 
-	engine := &tsq.Engine{Db: db, Dialect: tsq.SQLiteDialect{}}
+	engine := &tsq.Engine{DB: db, Dialect: tsq.SQLiteDialect{}}
 	if err := tsq.Init(engine, false, true); err != nil {
 		log.Fatal(err)
 	}
 
 	query, err := tsq.
-		Select(database.TableUserCols...).
+		Select(database.User__Cols...).
 		From(database.TableUser).
 		Where(database.User_Name.Contains("A")).
 		Build()
@@ -169,6 +169,17 @@ TSQ 的一部分能力（如 CTE、`FULL JOIN`）会在**执行阶段**按方言
 
 所以 `Build()` 成功表示“查询结构合法”，不表示“任何数据库都能执行这条 SQL”。SQLite / MySQL / PostgreSQL 的边界见根目录 [`README.md`](../README.md)。
 
+### 生成 helper 一调用就报 `initialize XxxQuery`
+
+这说明对应的生成查询在包初始化时准备失败了，但 TSQ 不会再因为导入包直接 `panic`。  
+现在的行为是：**等你调用 `Get...` / `List...` / `Page...` helper 时，把初始化错误正常返回出来**。
+
+优先检查：
+
+- 最近是否改过 `@TABLE` / `@RESULT` 注解但还没重新生成
+- 生成代码和当前模型定义是否一致
+- 查询里引用的列、索引、投影字段是否仍然合法
+
 ### `InVar()` 传空切片为什么返回空结果
 
 这是 `InVar()` 的设计语义，不是异常。
@@ -176,3 +187,11 @@ TSQ 的一部分能力（如 CTE、`FULL JOIN`）会在**执行阶段**按方言
 当执行时传入空切片或 `nil` 时，TSQ 会把 `IN` 条件展开成 `IN (NULL)`，从而让 SQL 保持合法并返回 0 条结果。这样做是为了把“当前没有任何可匹配值”表达成**显式不匹配**，而不是自动忽略筛选条件。
 
 如果你的业务含义是“空列表时不要加这个筛选”，请在业务层自己决定是否构造 `Where(...InVar())`，不要依赖 TSQ 自动跳过这个条件。
+
+### 普通值为什么没有直接拼成 SQL 字面量
+
+这是刻意设计。当前 TSQ 默认把普通值放进参数列表，而不是把值直接拼进 SQL 文本。
+
+- 这样更安全，也更符合数据库驱动的常规使用方式
+- 如果你要表达的是列、函数或子查询，请显式传对应表达式对象
+- 如果只是普通值，就让 TSQ 负责参数绑定

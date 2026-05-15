@@ -57,11 +57,14 @@ type User struct {
 
 | 产物 | 例子 | 用途 |
 | --- | --- | --- |
-| 表和列元数据 | `TableUserCols`, `User_ID`, `User_Name` | 用来构建类型安全查询 |
-| CRUD / 查询助手 | `GetUserByID`, `ListUser`, `PageUser` | 常见读写路径直接用 |
+| 表和列元数据 | `User__Cols`, `User_ID`, `User_Name` | 用来构建类型安全查询 |
+| CRUD / 查询助手 | `GetUserByID`, `ListUser`, `PageUser` | 常见读写路径直接用，查询初始化失败时会显式返回错误 |
 | 表注册逻辑 | `RegisterTable`, `Init` 所需元数据 | 让运行时知道这个表的结构 |
 
 如果定义了 `@RESULT`，则会额外生成 `*_result_tsq.go`。
+
+生成代码里的静态查询会在包初始化时准备，但不会因为初始化失败直接把进程打崩。  
+现在的约定是：**helper 在真正被调用时返回初始化错误**，调用方按普通错误处理即可。
 
 ## 3. `QueryBuilder`：拼 SQL 的主路径
 
@@ -69,7 +72,7 @@ type User struct {
 
 ```go
 query, err := tsq.
-	Select(database.TableUserCols...).
+	Select(database.User__Cols...).
 	From(database.TableUser).
 	Where(database.User_Name.Contains("alice")).
 	OrderBy(database.User_ID.Desc()).
@@ -81,6 +84,9 @@ query, err := tsq.
 - 收集要查哪些列
 - 收集过滤、排序、分组、联接等信息
 - 在 `Build()` 时生成最终 SQL 和参数
+
+如果你从同一个中间 builder 再继续链式调用两次，后续分支不会共享同一个可变状态；  
+真正适合长期复用的对象仍然是 `Build()` 之后的 `*tsq.Query[Owner]`。
 
 你可以把 `*tsq.Query[Owner]` 理解为“已经准备好执行的 SQL + args”，其中 `Owner` 是扫描目标。
 
@@ -142,7 +148,7 @@ TSQ 执行查询时需要一个 `Engine`：
 
 ```go
 engine := &tsq.Engine{
-	Db:      db,
+	DB:      db,
 	Dialect: tsq.SQLiteDialect{},
 }
 ```
