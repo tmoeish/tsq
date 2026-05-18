@@ -148,11 +148,11 @@ func TestInitDeduplicatesProvidedTracers(t *testing.T) {
 
 	tracer := func(next Fn) Fn { return next }
 
-	if err := Init(newSQLiteIndexTestEngine(t), false, tracer); err != nil {
+	if err := Init(newSQLiteIndexTestEngine(t), &InitOptions{Tracers: []Tracer{tracer}}); err != nil {
 		t.Fatalf("unexpected init error: %v", err)
 	}
 
-	if err := Init(newSQLiteIndexTestEngine(t), false, tracer); err != nil {
+	if err := Init(newSQLiteIndexTestEngine(t), &InitOptions{Tracers: []Tracer{tracer}}); err != nil {
 		t.Fatalf("unexpected init error: %v", err)
 	}
 
@@ -223,7 +223,7 @@ func TestUpsertIndexRejectsNilEngine(t *testing.T) {
 }
 
 func TestInitRejectsNilEngine(t *testing.T) {
-	if err := Init(nil, false); err == nil {
+	if err := Init(nil, nil); err == nil {
 		t.Fatal("expected nil engine to return an error")
 	}
 }
@@ -300,7 +300,7 @@ func TestUpsertIndexSQLiteAcceptsMatchingDefinition(t *testing.T) {
 	}
 }
 
-func TestInitWithOptionsIndexModeValidateReturnsMissingIndexError(t *testing.T) {
+func TestInitIndexModeValidateReturnsMissingIndexError(t *testing.T) {
 	db := newSQLiteIndexTestEngine(t)
 	if _, err := db.ExecContext(context.Background(), "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)"); err != nil {
 		t.Fatalf("failed to create users table: %v", err)
@@ -308,7 +308,7 @@ func TestInitWithOptionsIndexModeValidateReturnsMissingIndexError(t *testing.T) 
 
 	runtime := registerIndexRuntime(t, "users", true, "ux_users_name", []string{"name"})
 
-	err := runtime.InitWithOptions(db, &InitOptions{IndexMode: IndexInitValidate})
+	err := runtime.Init(db, &InitOptions{IndexMode: IndexInitValidate})
 	if err == nil {
 		t.Fatal("expected validate mode to fail when index is missing")
 	}
@@ -331,14 +331,14 @@ func TestInitWithOptionsIndexModeValidateReturnsMissingIndexError(t *testing.T) 
 	}
 }
 
-func TestInitWithOptionsIndexModeUpsertCreatesMissingIndex(t *testing.T) {
+func TestInitIndexModeUpsertCreatesMissingIndex(t *testing.T) {
 	db := newSQLiteIndexTestEngine(t)
 	if _, err := db.ExecContext(context.Background(), "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)"); err != nil {
 		t.Fatalf("failed to create users table: %v", err)
 	}
 
 	runtime := registerIndexRuntime(t, "users", true, "ux_users_name", []string{"name"})
-	if err := runtime.InitWithOptions(db, &InitOptions{IndexMode: IndexInitUpsert}); err != nil {
+	if err := runtime.Init(db, &InitOptions{IndexMode: IndexInitUpsert}); err != nil {
 		t.Fatalf("expected upsert mode to create missing index, got %v", err)
 	}
 
@@ -361,7 +361,7 @@ func TestInitCompatibilityUpsertIndexesTrueStillCreatesIndex(t *testing.T) {
 	}
 
 	runtime := registerIndexRuntime(t, "users", true, "ux_users_name", []string{"name"})
-	if err := runtime.Init(db, true); err != nil {
+	if err := runtime.Init(db, &InitOptions{UpsertIndexes: true}); err != nil {
 		t.Fatalf("expected legacy init upsert=true to keep working, got %v", err)
 	}
 
@@ -381,7 +381,7 @@ func TestInitCompatibilityUpsertIndexesFalseStillSkipsIndexInit(t *testing.T) {
 	}
 
 	runtime := registerIndexRuntime(t, "users", true, "ux_users_name", []string{"name"})
-	if err := runtime.Init(db, false); err != nil {
+	if err := runtime.Init(db, &InitOptions{UpsertIndexes: false}); err != nil {
 		t.Fatalf("expected legacy init upsert=false to keep working, got %v", err)
 	}
 
@@ -394,7 +394,7 @@ func TestInitCompatibilityUpsertIndexesFalseStillSkipsIndexInit(t *testing.T) {
 	}
 }
 
-func TestInitWithOptionsSchemaEventCreateIndex(t *testing.T) {
+func TestInitSchemaEventCreateIndex(t *testing.T) {
 	db := newSQLiteIndexTestEngine(t)
 	if _, err := db.ExecContext(context.Background(), "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)"); err != nil {
 		t.Fatalf("failed to create users table: %v", err)
@@ -402,7 +402,7 @@ func TestInitWithOptionsSchemaEventCreateIndex(t *testing.T) {
 
 	runtime := registerIndexRuntime(t, "users", true, "ux_users_name", []string{"name"})
 	events := make([]SchemaEvent, 0)
-	if err := runtime.InitWithOptions(db, &InitOptions{
+	if err := runtime.Init(db, &InitOptions{
 		IndexMode: IndexInitUpsert,
 		SchemaEventHandler: func(event SchemaEvent) {
 			events = append(events, event)
@@ -422,7 +422,7 @@ func TestInitWithOptionsSchemaEventCreateIndex(t *testing.T) {
 	}
 }
 
-func TestInitWithOptionsSchemaEventValidateIndex(t *testing.T) {
+func TestInitSchemaEventValidateIndex(t *testing.T) {
 	db := newSQLiteIndexTestEngine(t)
 	statements := []string{
 		"CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)",
@@ -436,7 +436,7 @@ func TestInitWithOptionsSchemaEventValidateIndex(t *testing.T) {
 
 	runtime := registerIndexRuntime(t, "users", true, "ux_users_name", []string{"name"})
 	events := make([]SchemaEvent, 0)
-	if err := runtime.InitWithOptions(db, &InitOptions{
+	if err := runtime.Init(db, &InitOptions{
 		IndexMode: IndexInitValidate,
 		SchemaEventHandler: func(event SchemaEvent) {
 			events = append(events, event)
@@ -453,14 +453,14 @@ func TestInitWithOptionsSchemaEventValidateIndex(t *testing.T) {
 	}
 }
 
-func TestInitWithOptionsSchemaEventHandlerPanicReturnsError(t *testing.T) {
+func TestInitSchemaEventHandlerPanicReturnsError(t *testing.T) {
 	db := newSQLiteIndexTestEngine(t)
 	if _, err := db.ExecContext(context.Background(), "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)"); err != nil {
 		t.Fatalf("failed to create users table: %v", err)
 	}
 
 	runtime := registerIndexRuntime(t, "users", true, "ux_users_name", []string{"name"})
-	err := runtime.InitWithOptions(db, &InitOptions{
+	err := runtime.Init(db, &InitOptions{
 		IndexMode: IndexInitUpsert,
 		SchemaEventHandler: func(event SchemaEvent) {
 			panic("boom")
@@ -474,7 +474,7 @@ func TestInitWithOptionsSchemaEventHandlerPanicReturnsError(t *testing.T) {
 	}
 }
 
-func TestInitWithOptionsPersistsIndexModeOnEngine(t *testing.T) {
+func TestInitPersistsIndexModeOnEngine(t *testing.T) {
 	db := newSQLiteIndexTestEngine(t)
 	statements := []string{
 		"CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)",
@@ -487,7 +487,7 @@ func TestInitWithOptionsPersistsIndexModeOnEngine(t *testing.T) {
 	}
 
 	runtime := registerIndexRuntime(t, "users", true, "ux_users_name", []string{"name"})
-	if err := runtime.InitWithOptions(db, &InitOptions{IndexMode: IndexInitValidate}); err != nil {
+	if err := runtime.Init(db, &InitOptions{IndexMode: IndexInitValidate}); err != nil {
 		t.Fatalf("expected validate mode init to succeed, got %v", err)
 	}
 
@@ -500,7 +500,7 @@ func TestInitWithOptionsPersistsIndexModeOnEngine(t *testing.T) {
 	}
 }
 
-func TestInitWithOptionsPersistsSchemaEventHandlerOnEngine(t *testing.T) {
+func TestInitPersistsSchemaEventHandlerOnEngine(t *testing.T) {
 	db := newSQLiteIndexTestEngine(t)
 	statements := []string{
 		"CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)",
@@ -517,7 +517,7 @@ func TestInitWithOptionsPersistsSchemaEventHandlerOnEngine(t *testing.T) {
 	handler := func(event SchemaEvent) {
 		events = append(events, event)
 	}
-	if err := runtime.InitWithOptions(db, &InitOptions{
+	if err := runtime.Init(db, &InitOptions{
 		IndexMode:          IndexInitValidate,
 		SchemaEventHandler: handler,
 	}); err != nil {
@@ -547,7 +547,7 @@ func TestCurrentDialectDetection(t *testing.T) {
 
 	// After Init with SQLite, should detect dialect
 	db := newSQLiteIndexTestEngine(t)
-	if err := r.InitWithOptions(db, &InitOptions{}); err != nil {
+	if err := r.Init(db, &InitOptions{}); err != nil {
 		t.Fatalf("failed to init runtime: %v", err)
 	}
 
@@ -592,7 +592,7 @@ func TestCurrentDBAccess(t *testing.T) {
 
 	// After Init, should return the DB
 	db := newSQLiteIndexTestEngine(t)
-	if err := r.InitWithOptions(db, &InitOptions{}); err != nil {
+	if err := r.Init(db, &InitOptions{}); err != nil {
 		t.Fatalf("failed to init runtime: %v", err)
 	}
 
@@ -616,12 +616,158 @@ func TestValidateIdentifiersForDialect(t *testing.T) {
 
 	// After Init, should succeed (no invalid identifiers registered)
 	db := newSQLiteIndexTestEngine(t)
-	if err := r.InitWithOptions(db, &InitOptions{}); err != nil {
+	if err := r.Init(db, &InitOptions{}); err != nil {
 		t.Fatalf("failed to init runtime: %v", err)
 	}
 
 	err = r.ValidateIdentifiersForDialect()
 	if err != nil {
 		t.Errorf("ValidateIdentifiersForDialect after Init should succeed, got error: %v", err)
+	}
+}
+
+func TestInitFailureRestoresPreviousRuntimeStateAfterStrictValidation(t *testing.T) {
+	r := NewRuntime()
+
+	previousDB := newSQLiteIndexTestEngine(t)
+	previousEvents := make([]SchemaEvent, 0, 1)
+	previousHandler := func(event SchemaEvent) {
+		previousEvents = append(previousEvents, event)
+	}
+	if err := r.Init(previousDB, &InitOptions{
+		IndexMode:          IndexInitValidate,
+		SchemaEventHandler: previousHandler,
+	}); err != nil {
+		t.Fatalf("failed to initialize previous runtime state: %v", err)
+	}
+
+	failingDB := newSQLiteIndexTestEngine(t)
+	failingDB.Dialect = MySQLDialect{}
+	failingEvents := make([]SchemaEvent, 0, 1)
+	failingHandler := func(event SchemaEvent) {
+		failingEvents = append(failingEvents, event)
+	}
+
+	longTableName := strings.Repeat("u", MaxIdentifierLengthMySQL+1)
+	if err := r.RegisterTable(newMockTable(longTableName), func(db *Engine) error { return nil }); err != nil {
+		t.Fatalf("failed to register invalid table: %v", err)
+	}
+
+	err := r.Init(failingDB, &InitOptions{
+		IndexMode:                IndexInitSkip,
+		IdentifierValidationMode: "strict",
+		SchemaEventHandler:       failingHandler,
+	})
+	if err == nil {
+		t.Fatal("expected strict identifier validation to fail")
+	}
+
+	if r.Engine() != previousDB {
+		t.Fatal("expected runtime engine to be restored after failed init")
+	}
+
+	if got := loadDBSchemaConfig(previousDB).indexInitMode; got != IndexInitValidate {
+		t.Fatalf("expected previous db index mode %q after rollback, got %q", IndexInitValidate, got)
+	}
+	if err := previousDB.emitSchemaEvent(SchemaEvent{Kind: SchemaEventValidateIndex, Table: "users", Name: "ux_users_name"}); err != nil {
+		t.Fatalf("expected previous db handler to remain active after rollback, got %v", err)
+	}
+	if len(previousEvents) != 1 {
+		t.Fatalf("expected previous db handler to receive one event after rollback, got %d", len(previousEvents))
+	}
+
+	if got := loadDBSchemaConfig(failingDB).indexInitMode; got != IndexInitUpsert {
+		t.Fatalf("expected failing db index mode to rollback to default %q, got %q", IndexInitUpsert, got)
+	}
+	if err := failingDB.emitSchemaEvent(SchemaEvent{Kind: SchemaEventValidateIndex, Table: "users", Name: "ux_users_name"}); err != nil {
+		t.Fatalf("expected failing db to have no persisted handler after rollback, got %v", err)
+	}
+	if len(failingEvents) != 0 {
+		t.Fatalf("expected failing db handler to be rolled back, got %d events", len(failingEvents))
+	}
+}
+
+func TestInitFailureRestoresPreviousRuntimeStateAfterInitFuncError(t *testing.T) {
+	r := NewRuntime()
+
+	previousDB := newSQLiteIndexTestEngine(t)
+	previousEvents := make([]SchemaEvent, 0, 1)
+	previousHandler := func(event SchemaEvent) {
+		previousEvents = append(previousEvents, event)
+	}
+	if err := r.Init(previousDB, &InitOptions{
+		IndexMode:          IndexInitValidate,
+		SchemaEventHandler: previousHandler,
+	}); err != nil {
+		t.Fatalf("failed to initialize previous runtime state: %v", err)
+	}
+
+	failingDB := newSQLiteIndexTestEngine(t)
+	failingEvents := make([]SchemaEvent, 0, 1)
+	failingHandler := func(event SchemaEvent) {
+		failingEvents = append(failingEvents, event)
+	}
+
+	if err := r.RegisterTable(newMockTable("users"), func(db *Engine) error {
+		return errors.New("boom")
+	}); err != nil {
+		t.Fatalf("failed to register failing table: %v", err)
+	}
+
+	err := r.Init(failingDB, &InitOptions{
+		IndexMode:          IndexInitValidate,
+		SchemaEventHandler: failingHandler,
+	})
+	if err == nil {
+		t.Fatal("expected init func failure to fail init")
+	}
+
+	if r.Engine() != previousDB {
+		t.Fatal("expected runtime engine to be restored after init func failure")
+	}
+
+	if got := loadDBSchemaConfig(previousDB).indexInitMode; got != IndexInitValidate {
+		t.Fatalf("expected previous db index mode %q after rollback, got %q", IndexInitValidate, got)
+	}
+	if err := previousDB.emitSchemaEvent(SchemaEvent{Kind: SchemaEventValidateIndex, Table: "users", Name: "ux_users_name"}); err != nil {
+		t.Fatalf("expected previous db handler to remain active after rollback, got %v", err)
+	}
+	if len(previousEvents) != 1 {
+		t.Fatalf("expected previous db handler to receive one event after rollback, got %d", len(previousEvents))
+	}
+
+	if got := loadDBSchemaConfig(failingDB).indexInitMode; got != IndexInitUpsert {
+		t.Fatalf("expected failing db index mode to rollback to default %q, got %q", IndexInitUpsert, got)
+	}
+	if err := failingDB.emitSchemaEvent(SchemaEvent{Kind: SchemaEventValidateIndex, Table: "users", Name: "ux_users_name"}); err != nil {
+		t.Fatalf("expected failing db to have no persisted handler after rollback, got %v", err)
+	}
+	if len(failingEvents) != 0 {
+		t.Fatalf("expected failing db handler to be rolled back, got %d events", len(failingEvents))
+	}
+}
+
+func TestValidateIdentifiersForDialectChecksTableColumns(t *testing.T) {
+	r := NewRuntime()
+
+	db := newSQLiteIndexTestEngine(t)
+	db.Dialect = MySQLDialect{}
+
+	longColumnName := strings.Repeat("c", MaxIdentifierLengthMySQL+1)
+	table, _ := newStrictMockTable("users", longColumnName)
+	if err := r.RegisterTable(table, func(db *Engine) error { return nil }); err != nil {
+		t.Fatalf("failed to register table with long column name: %v", err)
+	}
+
+	if err := r.Init(db, &InitOptions{IdentifierValidationMode: "skip"}); err != nil {
+		t.Fatalf("failed to initialize runtime with validation skipped: %v", err)
+	}
+
+	err := r.ValidateIdentifiersForDialect()
+	if err == nil {
+		t.Fatal("expected ValidateIdentifiersForDialect to reject oversized regular column names")
+	}
+	if !strings.Contains(err.Error(), longColumnName) {
+		t.Fatalf("expected validation error to mention oversized column name, got: %v", err)
 	}
 }

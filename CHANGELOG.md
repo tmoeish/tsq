@@ -100,7 +100,7 @@
 ### 改进
 - 重写 README 首屏与 examples 导航，拆分 quickstart / cookbook / full-suite，明确最小使用路径、能力边界和方言矩阵
 - `tsq gen --help` 现在明确说明 package 参数格式、生成文件命名、覆盖规则和常见排查方式
-- `InitWithOptions` 现在会把索引初始化模式和 schema 事件处理器持久绑定到 `Engine`
+- `Init` 现在会把索引初始化模式和 schema 事件处理器持久绑定到 `Engine`
 - SQL 能力校验现在会把 Oracle `MINUS` 视为 `EXCEPT` 能力的一种写法，执行前即可给出一致的方言提示
 - `QueryBuilder` 增加显式覆盖式 setter：`SetWhere` 与 `SetKwSearch`
 - 生成的索引查询 helper 现在会保留源 DSL 索引名并复用缓存查询，减少排查和重复构建成本
@@ -285,7 +285,7 @@
 - 增加索引自动校验和创建功能，支持 MySQL, SQLite, PostgreSQL
 - 增加 `WrapExecutor` 用于跨 DB/TX 的方言透传
 - 增加 `MatchByInputOrder` 辅助函数用于结果重排序
-- 支持 `InitWithOptions` 进行更灵活的初始化配置
+- 支持 `Init` 进行更灵活的初始化配置
 - 增加了 Docker 构建支持
 - 增加了 GoReleaser 自动化发布配置
 - 完善项目文档结构

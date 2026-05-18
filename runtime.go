@@ -16,7 +16,7 @@ type Runtime struct {
 	registry     *registry
 	traceManager *traceManager
 	initMu       sync.Mutex
-	engine       *Engine // Stored after InitWithOptions for dialect access
+	engine       *Engine // Stored after Init for dialect access
 }
 
 // NewRuntime creates an isolated runtime with its own registrations and tracers.
@@ -69,16 +69,8 @@ func (r *Runtime) snapshotRegisteredTables() []*registeredTable {
 	return r.registry.Snapshot()
 }
 
-// Init initializes indexes and tracers for the runtime using the convenience options.
-func (r *Runtime) Init(db *Engine, upsertIndexes bool, tracers ...Tracer) error {
-	return r.InitWithOptions(db, &InitOptions{
-		UpsertIndexes: upsertIndexes,
-		Tracers:       tracers,
-	})
-}
-
-// InitWithOptions initializes indexes and runtime state using explicit options.
-func (r *Runtime) InitWithOptions(db *Engine, options *InitOptions) error {
+// Init initializes indexes and runtime state using explicit options.
+func (r *Runtime) Init(db *Engine, options *InitOptions) error {
 	if r == nil {
 		return errors.New("runtime cannot be nil")
 	}
@@ -107,6 +99,8 @@ func (r *Runtime) InitWithOptions(db *Engine, options *InitOptions) error {
 	r.initMu.Lock()
 	defer r.initMu.Unlock()
 
+	prevEngine := r.engine
+	prevDBConfig := loadDBSchemaConfig(db)
 	// Store the Engine for later dialect access.
 	r.engine = db
 	storeDBSchemaConfig(db, dbSchemaConfig{
@@ -115,6 +109,19 @@ func (r *Runtime) InitWithOptions(db *Engine, options *InitOptions) error {
 	})
 
 	rollbackTracers := r.traceManager.snapshot()
+	committed := false
+
+	defer func() {
+		if committed {
+			return
+		}
+
+		r.engine = prevEngine
+
+		storeDBSchemaConfig(db, prevDBConfig)
+		r.traceManager.restore(rollbackTracers)
+	}()
+
 	r.traceManager.AddUnique(options.Tracers...)
 
 	registeredTables := r.registry.Snapshot()
@@ -123,7 +130,6 @@ func (r *Runtime) InitWithOptions(db *Engine, options *InitOptions) error {
 	if options.IdentifierValidationMode != "skip" {
 		if err := r.validateRegisteredTableIdentifiers(options.IdentifierValidationMode); err != nil {
 			if options.IdentifierValidationMode == "strict" {
-				r.traceManager.restore(rollbackTracers)
 				return err
 			}
 			// For "warn" mode, just log the error but continue
@@ -134,11 +140,12 @@ func (r *Runtime) InitWithOptions(db *Engine, options *InitOptions) error {
 	if indexMode != IndexInitSkip {
 		for _, table := range registeredTables {
 			if err := table.InitFunc(db); err != nil {
-				r.traceManager.restore(rollbackTracers)
 				return fmt.Errorf("failed to initialize table %s"+": %w", table.Table.Table(), err)
 			}
 		}
 	}
+
+	committed = true
 
 	return nil
 }
@@ -188,7 +195,8 @@ func trace1WithRuntime[T any](r *Runtime, ctx context.Context, fn func(ctx conte
 	return traceManagerTrace1(r.traceManager, ctx, fn)
 }
 
-// validateRegisteredTableIdentifiers checks if all registered table names conform to dialect-specific length limits.
+// validateRegisteredTableIdentifiers checks registered table and column identifiers
+// against the current dialect-specific length limits.
 // mode should be "strict" (fail on violation), "warn" (log warning), or "skip" (no validation).
 func (r *Runtime) validateRegisteredTableIdentifiers(mode string) error {
 	if r == nil {
@@ -218,22 +226,13 @@ func (r *Runtime) validateRegisteredTableIdentifiers(mode string) error {
 			validationErrors = append(validationErrors, err.Error())
 		}
 
+		if err := validateColumnIdentifiersForDialect(tableName, table.Cols(), r.engine.Dialect, mode, &validationErrors); err != nil {
+			return err
+		}
+
 		// Also validate keyword search columns if present
-		if kwCols := table.SearchColumns(); kwCols != nil {
-			for _, col := range kwCols {
-				if col == nil {
-					continue
-				}
-
-				colName := col.OutputName()
-				if err := ValidateIdentifierLength(colName, r.engine.Dialect); err != nil {
-					if mode == "strict" {
-						return fmt.Errorf("column %s.%s identifier validation failed"+": %w", tableName, colName, err)
-					}
-
-					validationErrors = append(validationErrors, err.Error())
-				}
-			}
+		if err := validateColumnIdentifiersForDialect(tableName, searchColumnsAsSQLColumns(table.SearchColumns()), r.engine.Dialect, mode, &validationErrors); err != nil {
+			return err
 		}
 	}
 
@@ -254,7 +253,7 @@ func (r *Runtime) ValidateIdentifiersForDialect() error {
 	}
 
 	if r.engine == nil {
-		return errors.New("database not initialized; call Init or InitWithOptions first")
+		return errors.New("database not initialized; call Init first")
 	}
 
 	dialect := r.Dialect()
@@ -264,4 +263,44 @@ func (r *Runtime) ValidateIdentifiersForDialect() error {
 
 	// Use strict mode for explicit validation call
 	return r.validateRegisteredTableIdentifiers("strict")
+}
+
+func validateColumnIdentifiersForDialect(
+	tableName string,
+	cols []SQLColumn,
+	dialect Dialect,
+	mode string,
+	validationErrors *[]string,
+) error {
+	seen := make(map[string]struct{}, len(cols))
+	for _, col := range cols {
+		if col == nil {
+			continue
+		}
+
+		colName := col.OutputName()
+		if _, ok := seen[colName]; ok {
+			continue
+		}
+		seen[colName] = struct{}{}
+
+		if err := ValidateIdentifierLength(colName, dialect); err != nil {
+			if mode == "strict" {
+				return fmt.Errorf("column %s.%s identifier validation failed"+": %w", tableName, colName, err)
+			}
+
+			*validationErrors = append(*validationErrors, err.Error())
+		}
+	}
+
+	return nil
+}
+
+func searchColumnsAsSQLColumns(cols []SearchColumn) []SQLColumn {
+	result := make([]SQLColumn, 0, len(cols))
+	for _, col := range cols {
+		result = append(result, col)
+	}
+
+	return result
 }

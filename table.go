@@ -195,13 +195,8 @@ type Table interface {
 // ================================================
 
 // Init initializes indexes and tracers for the default runtime.
-func Init(db *Engine, upsertIndexes bool, tracers ...Tracer) error {
-	return defaultRuntime.Init(db, upsertIndexes, tracers...)
-}
-
-// InitWithOptions initializes the default runtime with explicit options.
-func InitWithOptions(db *Engine, options *InitOptions) error {
-	return defaultRuntime.InitWithOptions(db, options)
+func Init(db *Engine, options *InitOptions) error {
+	return defaultRuntime.Init(db, options)
 }
 
 func registeredTableKey(table Table) string {

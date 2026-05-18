@@ -120,7 +120,7 @@ func main() {
 	}
 
 	engine := &tsq.Engine{DB: db, Dialect: tsq.SQLiteDialect{}}
-	if err := tsq.Init(engine, false, true); err != nil {
+	if err := tsq.Init(engine, &tsq.InitOptions{}); err != nil {
 		log.Fatal(err)
 	}
 

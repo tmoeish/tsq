@@ -29,7 +29,7 @@ func OpenSQLiteExampleDB() (*tsq.Engine, func(), error) {
 	}
 
 	engine := &tsq.Engine{DB: db, Dialect: tsq.SQLiteDialect{}}
-	if err := tsq.Init(engine, true); err != nil {
+	if err := tsq.Init(engine, &tsq.InitOptions{UpsertIndexes: true}); err != nil {
 		cleanup()
 		return nil, nil, fmt.Errorf("%s: %w", "init tsq", err)
 	}
