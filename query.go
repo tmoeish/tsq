@@ -910,7 +910,12 @@ func (q *Query[O]) buildPageSQLs(page *PageReq) (string, string, error) {
 	}
 
 	// LIMIT 参数化
-	listQuery += "\nLIMIT ? OFFSET ?"
+	bodySQL, lockClause := splitTrailingQueryLockClause(listQuery)
+
+	listQuery = bodySQL + "\nLIMIT ? OFFSET ?"
+	if lockClause != "" {
+		listQuery += "\n" + lockClause
+	}
 
 	return cntQuery, listQuery, nil
 }
@@ -1919,7 +1924,7 @@ func validateExecutorForSQL(tx SQLExecutor, rawSQLs ...string) error {
 
 func detectSQLCapabilities(rawSQL string) []DialectCapability {
 	upperSQL := strings.ToUpper(strings.TrimSpace(rawSQL))
-	capabilities := make([]DialectCapability, 0, 4)
+	capabilities := make([]DialectCapability, 0, 8)
 
 	if strings.HasPrefix(upperSQL, "WITH ") {
 		capabilities = append(capabilities, DialectCapabilityCTE)
@@ -1937,7 +1942,40 @@ func detectSQLCapabilities(rawSQL string) []DialectCapability {
 		capabilities = append(capabilities, DialectCapabilityExcept)
 	}
 
+	if strings.Contains(upperSQL, " FOR UPDATE") {
+		capabilities = append(capabilities, DialectCapabilitySelectForUpdate)
+	}
+
+	if strings.Contains(upperSQL, " FOR SHARE") {
+		capabilities = append(capabilities, DialectCapabilitySelectForShare)
+	}
+
+	if strings.Contains(upperSQL, " NOWAIT") {
+		capabilities = append(capabilities, DialectCapabilitySelectForNoWait)
+	}
+
+	if strings.Contains(upperSQL, " SKIP LOCKED") {
+		capabilities = append(capabilities, DialectCapabilitySelectForSkipLocked)
+	}
+
 	return capabilities
+}
+
+func splitTrailingQueryLockClause(sql string) (string, string) {
+	for _, clause := range []string{
+		" FOR UPDATE SKIP LOCKED",
+		" FOR UPDATE NOWAIT",
+		" FOR SHARE SKIP LOCKED",
+		" FOR SHARE NOWAIT",
+		" FOR UPDATE",
+		" FOR SHARE",
+	} {
+		if before, ok := strings.CutSuffix(sql, clause); ok {
+			return before, strings.TrimSpace(clause)
+		}
+	}
+
+	return sql, ""
 }
 
 func validateOperationalExecutorForSQL(tx SQLExecutor, rawSQLs ...string) error {

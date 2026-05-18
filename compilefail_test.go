@@ -187,6 +187,16 @@ var _ = tsq.Select[userOwner](userID).
 `,
 			want: "Where undefined",
 		},
+		{
+			name: "locked_stage_rejects_where",
+			body: `
+var _ = tsq.Select[userOwner](userID).
+	From(userOwner{}).
+	ForUpdate().
+	Where(userID.EQ(1))
+`,
+			want: "Where undefined",
+		},
 	}
 
 	for _, tc := range cases {

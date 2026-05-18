@@ -2,6 +2,7 @@ package academy
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 
@@ -15,14 +16,15 @@ type QuickstartSummary struct {
 }
 
 type AdvancedSummary struct {
-	Alias     AliasSummary       `json:"alias_prerequisite"`
-	Aggregate []AggregateSummary `json:"track_metrics"`
-	InVar     InVarSummary       `json:"dynamic_in"`
-	Subquery  SubquerySummary    `json:"subquery"`
-	Case      CaseSummary        `json:"case_labels"`
-	CTE       CTESummary         `json:"cte"`
-	SetOps    SetOpsSummary      `json:"set_ops"`
-	Chunked   ChunkedSummary     `json:"chunked"`
+	Alias          AliasSummary          `json:"alias_prerequisite"`
+	Aggregate      []AggregateSummary    `json:"track_metrics"`
+	InVar          InVarSummary          `json:"dynamic_in"`
+	Subquery       SubquerySummary       `json:"subquery"`
+	Case           CaseSummary           `json:"case_labels"`
+	CTE            CTESummary            `json:"cte"`
+	SetOps         SetOpsSummary         `json:"set_ops"`
+	Chunked        ChunkedSummary        `json:"chunked"`
+	OptimisticLock OptimisticLockSummary `json:"optimistic_lock"`
 }
 
 type FullSuiteSummary struct {
@@ -97,6 +99,14 @@ type ChunkedSummary struct {
 	Deleted  int64 `json:"deleted"`
 	Before   int   `json:"before"`
 	After    int   `json:"after"`
+}
+
+type OptimisticLockSummary struct {
+	EnrollmentUID       int64 `json:"enrollment_uid"`
+	InitialVersion      int64 `json:"initial_version"`
+	UpdatedVersion      int64 `json:"updated_version"`
+	ConflictDetected    bool  `json:"conflict_detected"`
+	DeletedSuccessfully bool  `json:"deleted_successfully"`
 }
 
 type prerequisiteRow struct {
@@ -188,15 +198,21 @@ func RunAdvanced(ctx context.Context, engine *tsq.Engine) (*AdvancedSummary, err
 		return nil, fmt.Errorf("%s: %w", "chunked demo", err)
 	}
 
+	optimisticLock, err := runOptimisticLockDemo(ctx, engine)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", "optimistic lock demo", err)
+	}
+
 	return &AdvancedSummary{
-		Alias:     *alias,
-		Aggregate: aggregate,
-		InVar:     *inVar,
-		Subquery:  *subquery,
-		Case:      *caseExpr,
-		CTE:       *cte,
-		SetOps:    *setOps,
-		Chunked:   *chunked,
+		Alias:          *alias,
+		Aggregate:      aggregate,
+		InVar:          *inVar,
+		Subquery:       *subquery,
+		Case:           *caseExpr,
+		CTE:            *cte,
+		SetOps:         *setOps,
+		Chunked:        *chunked,
+		OptimisticLock: *optimisticLock,
 	}, nil
 }
 
@@ -823,5 +839,62 @@ func runChunkedDemo(ctx context.Context, engine *tsq.Engine) (*ChunkedSummary, e
 		Deleted:  int64(len(enrollments)),
 		Before:   before,
 		After:    after,
+	}, nil
+}
+
+// runOptimisticLockDemo demonstrates the SQLite-safe part of the new locking model:
+// automatic version guarding on Update/Delete. Row-lock reads are intentionally not
+// executed here because the examples runtime uses SQLite, which rejects FOR UPDATE /
+// FOR SHARE at execution time.
+func runOptimisticLockDemo(ctx context.Context, engine *tsq.Engine) (*OptimisticLockSummary, error) {
+	inserted := &Enrollment{
+		LearnerID: 4,
+		CourseID:  2,
+		Status:    EnrollmentStatusActive,
+		Score:     88,
+		FeeCents:  110000,
+	}
+	if err := inserted.Insert(ctx, engine); err != nil {
+		return nil, fmt.Errorf("%s: %w", "insert enrollment", err)
+	}
+
+	loaded, err := GetEnrollmentByUIDOrErr(ctx, engine, inserted.UID)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", "load enrollment", err)
+	}
+	stale := *loaded
+
+	loaded.Score = 92
+
+	loaded.Status = EnrollmentStatusCompleted
+	if err := loaded.Update(ctx, engine); err != nil {
+		return nil, fmt.Errorf("%s: %w", "update fresh enrollment", err)
+	}
+
+	stale.Score = 61
+	conflictDetected := false
+
+	if err := stale.Update(ctx, engine); err != nil {
+		if !errors.Is(err, &tsq.ErrOptimisticLockConflict{}) {
+			return nil, fmt.Errorf("%s: %w", "update stale enrollment", err)
+		}
+		conflictDetected = true
+	}
+
+	if err := loaded.Delete(ctx, engine); err != nil {
+		return nil, fmt.Errorf("%s: %w", "delete fresh enrollment", err)
+	}
+
+	deleted, err := GetEnrollmentByUID(ctx, engine, loaded.UID)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", "verify deleted enrollment", err)
+	}
+
+	return &OptimisticLockSummary{
+		EnrollmentUID:       loaded.UID,
+		InitialVersion:      stale.Version,
+		UpdatedVersion:      loaded.Version,
+		ConflictDetected:    conflictDetected,
+		DeletedSuccessfully: deleted == nil,
 	}, nil
 }

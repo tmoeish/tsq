@@ -60,6 +60,7 @@ erDiagram
 | `runCTEDemo` | 先抽平台课程子集再继续查询 | non-recursive CTE |
 | `runSetOpsDemo` | 合并/排除课程集合 | `UNION`、`EXCEPT` |
 | `runChunkedDemo` | 批量处理报名记录 | `ChunkedInsert`、`ChunkedUpdate`、`ChunkedDelete`（事务边界由调用方控制） |
+| `runOptimisticLockDemo` | 模拟并发修改同一条报名记录 | 自动乐观锁、`ErrOptimisticLockConflict` |
 | `runComprehensive` | 生成学习旅程看板 | joins、子查询、`@RESULT`、`tsq.Page(...)` |
 
 ## 运行方式
@@ -91,3 +92,12 @@ tsq gen ./examples/academy
 
 当前生成代码中的查询 helper 不会因为包初始化失败直接 `panic`；  
 如果模型、注解和生成结果不一致，错误会在调用对应 helper 时返回出来，因此重新生成后最好直接跑一遍示例或测试。
+
+## 锁相关说明
+
+这套示例运行时统一使用 **SQLite**，所以：
+
+- **自动乐观锁** 是可运行、可观察的，`runOptimisticLockDemo` 会演示版本冲突
+- **行锁 DSL**（`ForUpdate()` / `ForShare()` / `NoWait()` / `SkipLocked()`）不会在示例里执行，因为 SQLite 不支持这些语句
+
+如果你想演示行锁，请把同样的 query 放到 MySQL 或 PostgreSQL runtime 中执行，并放在显式事务里观察锁行为。

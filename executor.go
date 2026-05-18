@@ -29,6 +29,42 @@ var (
 	errMutationItemNoTaggedFields  = errors.New("mutation item has no db-tagged fields")
 )
 
+// ErrOptimisticLockConflict reports that a version-guarded mutation matched fewer
+// rows than expected.
+type ErrOptimisticLockConflict struct {
+	table    string
+	expected int
+	actual   int64
+}
+
+// Error implements error.
+func (e *ErrOptimisticLockConflict) Error() string {
+	if e == nil {
+		return "optimistic lock conflict"
+	}
+
+	if e.table == "" {
+		return fmt.Sprintf(
+			"optimistic lock conflict: expected %d row(s) to match, updated %d",
+			e.expected,
+			e.actual,
+		)
+	}
+
+	return fmt.Sprintf(
+		"optimistic lock conflict on %s: expected %d row(s) to match, updated %d",
+		e.table,
+		e.expected,
+		e.actual,
+	)
+}
+
+// Is reports whether target is an optimistic lock conflict.
+func (e *ErrOptimisticLockConflict) Is(target error) bool {
+	_, ok := target.(*ErrOptimisticLockConflict)
+	return ok
+}
+
 type errorRowContextKey struct{}
 
 type errorRowDriver struct{}
@@ -283,10 +319,11 @@ type mutationField struct {
 }
 
 type mutationRecord struct {
-	tableName string
-	fields    []mutationField
-	pkField   mutationField
-	autoIncr  bool
+	tableName    string
+	fields       []mutationField
+	pkField      mutationField
+	versionField mutationField
+	autoIncr     bool
 }
 
 // Insert inserts objects into the database.
@@ -513,6 +550,16 @@ func updateBatch(ctx context.Context, exec SQLExecutor, records []mutationRecord
 		return 0, err
 	}
 
+	hasOptimisticLock := hasOptimisticMutation(records[0])
+
+	versionSQL := ""
+	if hasOptimisticLock {
+		versionSQL, err = quoteMutationIdentifier(exec, records[0].versionField.column)
+		if err != nil {
+			return 0, err
+		}
+	}
+
 	var (
 		argIndex   int
 		args       []any
@@ -547,18 +594,22 @@ func updateBatch(ctx context.Context, exec SQLExecutor, records []mutationRecord
 		setClauses = append(setClauses, clause.String())
 	}
 
-	wherePlaceholders := make([]string, 0, len(records))
-	for _, record := range records {
-		wherePlaceholders = append(wherePlaceholders, nextBindVar(exec, &argIndex))
-		args = append(args, record.pkField.value.Interface())
+	if hasOptimisticLock {
+		setClauses = append(setClauses, versionSQL+" = "+versionSQL+" + 1")
 	}
 
+	whereSQL, whereArgs, err := buildMutationWhereClause(exec, records, &argIndex)
+	if err != nil {
+		return 0, err
+	}
+
+	args = append(args, whereArgs...)
+
 	query := fmt.Sprintf(
-		"UPDATE %s SET %s WHERE %s IN (%s)",
+		"UPDATE %s SET %s WHERE %s",
 		tableSQL,
 		strings.Join(setClauses, ", "),
-		pkSQL,
-		strings.Join(wherePlaceholders, ", "),
+		whereSQL,
 	)
 
 	result, err := exec.ExecContext(ctx, query, args...)
@@ -567,8 +618,23 @@ func updateBatch(ctx context.Context, exec SQLExecutor, records []mutationRecord
 	}
 
 	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
 
-	return rowsAffected, err
+	if hasOptimisticLock && rowsAffected != int64(len(records)) {
+		return rowsAffected, &ErrOptimisticLockConflict{
+			table:    records[0].tableName,
+			expected: len(records),
+			actual:   rowsAffected,
+		}
+	}
+
+	if hasOptimisticLock {
+		incrementMutationVersions(records)
+	}
+
+	return rowsAffected, nil
 }
 
 func deleteBatch(ctx context.Context, exec SQLExecutor, records []mutationRecord) (int64, error) {
@@ -587,27 +653,17 @@ func deleteBatch(ctx context.Context, exec SQLExecutor, records []mutationRecord
 		return 0, err
 	}
 
-	pkSQL, err := quoteMutationIdentifier(exec, records[0].pkField.column)
+	var argIndex int
+
+	whereSQL, args, err := buildMutationWhereClause(exec, records, &argIndex)
 	if err != nil {
 		return 0, err
 	}
 
-	var (
-		argIndex     int
-		args         = make([]any, 0, len(records))
-		placeholders = make([]string, 0, len(records))
-	)
-
-	for _, record := range records {
-		placeholders = append(placeholders, nextBindVar(exec, &argIndex))
-		args = append(args, record.pkField.value.Interface())
-	}
-
 	query := fmt.Sprintf(
-		"DELETE FROM %s WHERE %s IN (%s)",
+		"DELETE FROM %s WHERE %s",
 		tableSQL,
-		pkSQL,
-		strings.Join(placeholders, ", "),
+		whereSQL,
 	)
 
 	result, err := exec.ExecContext(ctx, query, args...)
@@ -616,8 +672,19 @@ func deleteBatch(ctx context.Context, exec SQLExecutor, records []mutationRecord
 	}
 
 	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
 
-	return rowsAffected, err
+	if hasOptimisticMutation(records[0]) && rowsAffected != int64(len(records)) {
+		return rowsAffected, &ErrOptimisticLockConflict{
+			table:    records[0].tableName,
+			expected: len(records),
+			actual:   rowsAffected,
+		}
+	}
+
+	return rowsAffected, nil
 }
 
 func mutationMetadata(dst Table) (mutationRecord, error) {
@@ -648,11 +715,17 @@ func mutationMetadata(dst Table) (mutationRecord, error) {
 		return mutationRecord{}, err
 	}
 
+	versionField, err := optimisticLockMutationField(dst.VersionColumn(), fields)
+	if err != nil {
+		return mutationRecord{}, err
+	}
+
 	return mutationRecord{
-		tableName: dst.Table(),
-		fields:    fields,
-		pkField:   pkField,
-		autoIncr:  dst.AutoIncrement(),
+		tableName:    dst.Table(),
+		fields:       fields,
+		pkField:      pkField,
+		versionField: versionField,
+		autoIncr:     dst.AutoIncrement(),
 	}, nil
 }
 
@@ -693,7 +766,7 @@ func insertFieldsForRecord(record mutationRecord) []mutationField {
 func updateFieldsForRecord(record mutationRecord) []mutationField {
 	fields := make([]mutationField, 0, len(record.fields)-1)
 	for _, field := range record.fields {
-		if field.column == record.pkField.column {
+		if field.column == record.pkField.column || field.column == record.versionField.column {
 			continue
 		}
 
@@ -701,6 +774,21 @@ func updateFieldsForRecord(record mutationRecord) []mutationField {
 	}
 
 	return fields
+}
+
+func optimisticLockMutationField(column string, fields []mutationField) (mutationField, error) {
+	column = strings.TrimSpace(column)
+	if column == "" {
+		return mutationField{}, nil
+	}
+
+	for _, field := range fields {
+		if field.column == column {
+			return field, nil
+		}
+	}
+
+	return mutationField{}, fmt.Errorf("mutation item is missing optimistic lock column %s", column)
 }
 
 func mutationFieldColumns(fields []mutationField) []string {
@@ -734,6 +822,66 @@ func mutationFieldByColumn(fields []mutationField, column string) mutationField 
 	}
 
 	return mutationField{}
+}
+
+func hasOptimisticMutation(record mutationRecord) bool {
+	return record.versionField.column != ""
+}
+
+func buildMutationWhereClause(exec SQLExecutor, records []mutationRecord, argIndex *int) (string, []any, error) {
+	pkSQL, err := quoteMutationIdentifier(exec, records[0].pkField.column)
+	if err != nil {
+		return "", nil, err
+	}
+
+	if !hasOptimisticMutation(records[0]) {
+		placeholders := make([]string, 0, len(records))
+
+		args := make([]any, 0, len(records))
+		for _, record := range records {
+			placeholders = append(placeholders, nextBindVar(exec, argIndex))
+			args = append(args, record.pkField.value.Interface())
+		}
+
+		return pkSQL + " IN (" + strings.Join(placeholders, ", ") + ")", args, nil
+	}
+
+	versionSQL, err := quoteMutationIdentifier(exec, records[0].versionField.column)
+	if err != nil {
+		return "", nil, err
+	}
+
+	clauses := make([]string, 0, len(records))
+
+	args := make([]any, 0, len(records)*2)
+	for _, record := range records {
+		clauses = append(
+			clauses,
+			"("+pkSQL+" = "+nextBindVar(exec, argIndex)+" AND "+versionSQL+" = "+nextBindVar(exec, argIndex)+")",
+		)
+		args = append(args, record.pkField.value.Interface(), record.versionField.value.Interface())
+	}
+
+	if len(clauses) == 1 {
+		return clauses[0], args, nil
+	}
+
+	return "(" + strings.Join(clauses, " OR ") + ")", args, nil
+}
+
+func incrementMutationVersions(records []mutationRecord) {
+	for _, record := range records {
+		if !hasOptimisticMutation(record) || !record.versionField.value.IsValid() {
+			continue
+		}
+
+		switch record.versionField.value.Kind() {
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			record.versionField.value.SetInt(record.versionField.value.Int() + 1)
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+			record.versionField.value.SetUint(record.versionField.value.Uint() + 1)
+		}
+	}
 }
 
 func primaryMutationField(pkColumns []string, fields []mutationField) (mutationField, error) {

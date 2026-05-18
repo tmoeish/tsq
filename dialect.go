@@ -32,6 +32,14 @@ const (
 	DialectCapabilityFullOuterJoin DialectCapability = "FULL_OUTER_JOIN"
 	// DialectCapabilityIntersect represents INTERSECT support.
 	DialectCapabilityIntersect DialectCapability = "INTERSECT"
+	// DialectCapabilitySelectForUpdate represents SELECT ... FOR UPDATE support.
+	DialectCapabilitySelectForUpdate DialectCapability = "SELECT_FOR_UPDATE"
+	// DialectCapabilitySelectForShare represents SELECT ... FOR SHARE support.
+	DialectCapabilitySelectForShare DialectCapability = "SELECT_FOR_SHARE"
+	// DialectCapabilitySelectForNoWait represents NOWAIT row-lock modifier support.
+	DialectCapabilitySelectForNoWait DialectCapability = "SELECT_FOR_NOWAIT"
+	// DialectCapabilitySelectForSkipLocked represents SKIP LOCKED row-lock modifier support.
+	DialectCapabilitySelectForSkipLocked DialectCapability = "SELECT_FOR_SKIP_LOCKED"
 )
 
 // DDLAlterColumnMode describes how a dialect applies ALTER COLUMN changes.
@@ -202,6 +210,14 @@ func canonicalCapabilityName(operation string) DialectCapability {
 		return DialectCapabilityIntersect
 	case "EXCEPT", "MINUS":
 		return DialectCapabilityExcept
+	case "FOR UPDATE":
+		return DialectCapabilitySelectForUpdate
+	case "FOR SHARE":
+		return DialectCapabilitySelectForShare
+	case "NOWAIT":
+		return DialectCapabilitySelectForNoWait
+	case "SKIP LOCKED":
+		return DialectCapabilitySelectForSkipLocked
 	default:
 		return DialectCapability(value)
 	}
@@ -211,6 +227,14 @@ func displayCapabilityName(operation DialectCapability) string {
 	switch canonicalCapabilityName(string(operation)) {
 	case DialectCapabilityFullOuterJoin:
 		return "FULL JOIN"
+	case DialectCapabilitySelectForUpdate:
+		return "FOR UPDATE"
+	case DialectCapabilitySelectForShare:
+		return "FOR SHARE"
+	case DialectCapabilitySelectForNoWait:
+		return "NOWAIT"
+	case DialectCapabilitySelectForSkipLocked:
+		return "SKIP LOCKED"
 	default:
 		return string(canonicalCapabilityName(string(operation)))
 	}
@@ -234,6 +258,10 @@ func unsupportedCapabilityHint(operation DialectCapability, dialect DialectName)
 		return "use IN/EXISTS filtering, or execute on sqlite/postgres"
 	case DialectCapabilityExcept:
 		return "use NOT EXISTS filtering, or execute on sqlite/postgres"
+	case DialectCapabilitySelectForUpdate, DialectCapabilitySelectForShare:
+		return "execute on a dialect that supports row-locking reads"
+	case DialectCapabilitySelectForNoWait, DialectCapabilitySelectForSkipLocked:
+		return "execute on a dialect that supports row-lock wait modifiers"
 	default:
 		return "use a simpler query shape or a dialect that supports this capability"
 	}
@@ -265,7 +293,11 @@ func (d SQLiteDialect) SupportsCapability(capability DialectCapability) bool {
 	switch canonicalCapabilityName(string(capability)) {
 	case DialectCapabilityCTE, DialectCapabilityExcept, DialectCapabilityIntersect:
 		return true
-	case DialectCapabilityFullOuterJoin:
+	case DialectCapabilityFullOuterJoin,
+		DialectCapabilitySelectForUpdate,
+		DialectCapabilitySelectForShare,
+		DialectCapabilitySelectForNoWait,
+		DialectCapabilitySelectForSkipLocked:
 		return false
 	default:
 		return false
@@ -367,6 +399,11 @@ func (d MySQLDialect) SupportsCapability(capability DialectCapability) bool {
 	switch canonicalCapabilityName(string(capability)) {
 	case DialectCapabilityCTE, DialectCapabilityExcept, DialectCapabilityFullOuterJoin, DialectCapabilityIntersect:
 		return false
+	case DialectCapabilitySelectForUpdate,
+		DialectCapabilitySelectForShare,
+		DialectCapabilitySelectForNoWait,
+		DialectCapabilitySelectForSkipLocked:
+		return true
 	default:
 		return false
 	}
@@ -512,7 +549,14 @@ func (d PostgresDialect) ValidateIdentifier(identifier string) error {
 // SupportsCapability reports whether PostgreSQL supports capability.
 func (d PostgresDialect) SupportsCapability(capability DialectCapability) bool {
 	switch canonicalCapabilityName(string(capability)) {
-	case DialectCapabilityCTE, DialectCapabilityExcept, DialectCapabilityFullOuterJoin, DialectCapabilityIntersect:
+	case DialectCapabilityCTE,
+		DialectCapabilityExcept,
+		DialectCapabilityFullOuterJoin,
+		DialectCapabilityIntersect,
+		DialectCapabilitySelectForUpdate,
+		DialectCapabilitySelectForShare,
+		DialectCapabilitySelectForNoWait,
+		DialectCapabilitySelectForSkipLocked:
 		return true
 	default:
 		return false

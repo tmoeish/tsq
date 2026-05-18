@@ -34,9 +34,12 @@ func TestDialectCapabilities(t *testing.T) {
 		want       bool
 	}{
 		{name: "sqlite lacks full join", dialect: SQLiteDialect{}, capability: DialectCapabilityFullOuterJoin, want: false},
+		{name: "sqlite lacks for update", dialect: SQLiteDialect{}, capability: DialectCapabilitySelectForUpdate, want: false},
 		{name: "sqlite supports cte", dialect: SQLiteDialect{}, capability: DialectCapabilityCTE, want: true},
 		{name: "mysql lacks cte", dialect: MySQLDialect{}, capability: DialectCapabilityCTE, want: false},
+		{name: "mysql supports skip locked", dialect: MySQLDialect{}, capability: DialectCapabilitySelectForSkipLocked, want: true},
 		{name: "postgres supports full join", dialect: PostgresDialect{}, capability: DialectCapabilityFullOuterJoin, want: true},
+		{name: "postgres supports for share", dialect: PostgresDialect{}, capability: DialectCapabilitySelectForShare, want: true},
 		{name: "postgres supports except", dialect: PostgresDialect{}, capability: DialectCapabilityExcept, want: true},
 	}
 
@@ -78,6 +81,20 @@ func TestValidateOperationForDialect(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "FULL JOIN") {
 		t.Fatalf("expected FULL JOIN in error, got %q", err.Error())
+	}
+}
+
+func TestValidateOperationForDialectForUpdate(t *testing.T) {
+	if err := ValidateOperationForDialect("FOR UPDATE", PostgresDialect{}); err != nil {
+		t.Fatalf("postgres should allow FOR UPDATE: %v", err)
+	}
+
+	err := ValidateOperationForDialect("FOR UPDATE", SQLiteDialect{})
+	if err == nil {
+		t.Fatal("sqlite should reject FOR UPDATE")
+	}
+	if !strings.Contains(err.Error(), "FOR UPDATE") {
+		t.Fatalf("expected FOR UPDATE in error, got %q", err.Error())
 	}
 }
 

@@ -192,6 +192,44 @@ func TestQueryBuilder_Build_FullJoinDefersDialectValidationToExecution(t *testin
 	}
 }
 
+func TestQueryBuilder_Build_ForUpdateDefersDialectValidationToExecution(t *testing.T) {
+	users := newMockTable("users")
+	userID := newColForTable[Table, string](users, "id", "id", nil)
+
+	query, err := Select(userID).
+		From(userID.Table()).
+		ForUpdate().
+		Build()
+	if err != nil {
+		t.Fatalf("expected FOR UPDATE build to succeed, got %v", err)
+	}
+
+	db := newSQLiteIndexTestEngine(t)
+	err = validateOperationalExecutorForSQL(db, query.listSQL)
+	if err == nil {
+		t.Fatal("expected sqlite dialect validation to reject FOR UPDATE")
+	}
+	if !strings.Contains(err.Error(), "FOR UPDATE") {
+		t.Fatalf("expected FOR UPDATE dialect error, got %v", err)
+	}
+}
+
+func TestQueryBuilder_Build_ForShareNoWaitDefersDialectValidationToExecution(t *testing.T) {
+	db := newInVarEngine(t)
+	db.Dialect = MySQLDialect{}
+	users := newMockTable("users")
+	userID := newColForTable[Table, string](users, "id", "id", nil)
+
+	query := mustBuild(Select(userID).
+		From(userID.Table()).
+		ForShare().
+		NoWait())
+
+	if err := validateOperationalExecutorForSQL(db, query.listSQL); err != nil {
+		t.Fatalf("expected mysql dialect validation to allow FOR SHARE NOWAIT, got %v", err)
+	}
+}
+
 func TestQueryBuilder_Build_SetOperationPaginationUsesOutputColumnNames(t *testing.T) {
 	users := newMockTable("users")
 	orders := newMockTable("orders")
@@ -215,6 +253,26 @@ func TestQueryBuilder_Build_SetOperationPaginationUsesOutputColumnNames(t *testi
 	orderClause := listSQL[strings.Index(listSQL, "ORDER BY "):]
 	if strings.Contains(orderClause, rawIdentifier("users")+"."+rawIdentifier("id")) {
 		t.Fatalf("expected compound query ordering to avoid table-qualified columns, got %q", listSQL)
+	}
+}
+
+func TestQueryBuilder_Build_PageSQLPlacesLockAfterLimit(t *testing.T) {
+	users := newMockTable("users")
+	userID := newMockColumn(users, "id")
+
+	query := mustBuild(Select(userID).
+		From(userID.Table()).
+		ForUpdate().
+		SkipLocked())
+	page := &PageReq{Page: 1, Size: 10}
+
+	_, listSQL, err := query.buildPageSQLs(page)
+	if err != nil {
+		t.Fatalf("expected page SQL build to succeed, got %v", err)
+	}
+
+	if !strings.HasSuffix(listSQL, "LIMIT ? OFFSET ?\nFOR UPDATE SKIP LOCKED") {
+		t.Fatalf("expected lock clause after LIMIT/OFFSET, got %q", listSQL)
 	}
 }
 

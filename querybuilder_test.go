@@ -17,13 +17,13 @@ type queryBuilderCaseRow struct {
 func (queryBuilderCaseRow) TSQOwner() {}
 
 func (m mockTable) Init(db *Engine, options *InitOptions) error { return nil }
-func (m mockTable) TSQOwner()                                  {}
-func (m mockTable) Table() string                              { return m.tableName }
-func (m mockTable) Cols() []SQLColumn                          { return nil }
-func (m mockTable) SearchColumns() []SearchColumn              { return nil }
-func (m mockTable) PrimaryKeys() []string                      { return nil }
-func (m mockTable) AutoIncrement() bool                        { return false }
-func (m mockTable) VersionColumn() string                      { return "" }
+func (m mockTable) TSQOwner()                                   {}
+func (m mockTable) Table() string                               { return m.tableName }
+func (m mockTable) Cols() []SQLColumn                           { return nil }
+func (m mockTable) SearchColumns() []SearchColumn               { return nil }
+func (m mockTable) PrimaryKeys() []string                       { return nil }
+func (m mockTable) AutoIncrement() bool                         { return false }
+func (m mockTable) VersionColumn() string                       { return "" }
 
 func newMockTable(name string) Table {
 	return mockTable{tableName: name}
@@ -188,6 +188,47 @@ func TestQueryBuilder_FullJoin(t *testing.T) {
 
 	if qb.spec.Joins[0].joinType != fullJoinType {
 		t.Errorf("Expected FULL JOIN, got %s", qb.spec.Joins[0].joinType)
+	}
+}
+
+func TestQueryBuilder_ForUpdate(t *testing.T) {
+	table := newMockTable("users")
+	id := newMockColumn(table, "id")
+
+	qb := Select(id).From(table).ForUpdate()
+
+	if qb.spec.Lock.strength != queryLockStrengthUpdate {
+		t.Fatalf("expected FOR UPDATE lock, got %q", qb.spec.Lock.strength)
+	}
+	if qb.spec.Lock.waitMode != "" {
+		t.Fatalf("expected empty wait mode, got %q", qb.spec.Lock.waitMode)
+	}
+}
+
+func TestQueryBuilder_ForShareSkipLocked(t *testing.T) {
+	table := newMockTable("users")
+	id := newMockColumn(table, "id")
+
+	qb := Select(id).From(table).ForShare().SkipLocked()
+
+	if qb.spec.Lock.strength != queryLockStrengthShare {
+		t.Fatalf("expected FOR SHARE lock, got %q", qb.spec.Lock.strength)
+	}
+	if qb.spec.Lock.waitMode != queryLockWaitSkipLocked {
+		t.Fatalf("expected SKIP LOCKED wait mode, got %q", qb.spec.Lock.waitMode)
+	}
+}
+
+func TestQueryBuilder_LockWaitModeCannotBeSetTwice(t *testing.T) {
+	table := newMockTable("users")
+	id := newMockColumn(table, "id")
+
+	_, err := Select(id).From(table).ForUpdate().NoWait().SkipLocked().Build()
+	if err == nil {
+		t.Fatal("expected duplicate lock wait mode to fail")
+	}
+	if !strings.Contains(err.Error(), "lock wait mode is already set") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

@@ -16,6 +16,13 @@ type batchMutationUser struct {
 	Email string
 }
 
+type optimisticMutationUser struct {
+	ID      int64
+	Name    string
+	Email   string
+	Version int64
+}
+
 func (batchMutationUser) TSQOwner()                     {}
 func (batchMutationUser) Table() string                 { return "users" }
 func (batchMutationUser) Cols() []SQLColumn             { return SQLColumns(batchMutationUserColumns()...) }
@@ -29,6 +36,25 @@ func batchMutationUserColumns() []BoundColumn[batchMutationUser] {
 		NewCol[batchMutationUser, int64]("id", "id", func(t *batchMutationUser) *int64 { return &t.ID }),
 		NewCol[batchMutationUser, string]("name", "name", func(t *batchMutationUser) *string { return &t.Name }),
 		NewCol[batchMutationUser, string]("email", "email", func(t *batchMutationUser) *string { return &t.Email }),
+	}
+}
+
+func (optimisticMutationUser) TSQOwner()     {}
+func (optimisticMutationUser) Table() string { return "users" }
+func (optimisticMutationUser) Cols() []SQLColumn {
+	return SQLColumns(optimisticMutationUserColumns()...)
+}
+func (optimisticMutationUser) SearchColumns() []SearchColumn { return nil }
+func (optimisticMutationUser) PrimaryKeys() []string         { return []string{"id"} }
+func (optimisticMutationUser) AutoIncrement() bool           { return true }
+func (optimisticMutationUser) VersionColumn() string         { return "version" }
+
+func optimisticMutationUserColumns() []BoundColumn[optimisticMutationUser] {
+	return []BoundColumn[optimisticMutationUser]{
+		NewCol[optimisticMutationUser, int64]("id", "id", func(t *optimisticMutationUser) *int64 { return &t.ID }),
+		NewCol[optimisticMutationUser, string]("name", "name", func(t *optimisticMutationUser) *string { return &t.Name }),
+		NewCol[optimisticMutationUser, string]("email", "email", func(t *optimisticMutationUser) *string { return &t.Email }),
+		NewCol[optimisticMutationUser, int64]("version", "version", func(t *optimisticMutationUser) *int64 { return &t.Version }),
 	}
 }
 
@@ -48,6 +74,30 @@ func newBatchMutationEngine(t *testing.T) *Engine {
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		name TEXT NOT NULL,
 		email TEXT NOT NULL UNIQUE
+	)`); err != nil {
+		t.Fatalf("create users table: %v", err)
+	}
+
+	return &Engine{DB: db, Dialect: SQLiteDialect{}}
+}
+
+func newOptimisticMutationEngine(t *testing.T) *Engine {
+	t.Helper()
+
+	db, err := sql.Open("sqlite3", ":memory:")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+
+	t.Cleanup(func() {
+		_ = db.Close()
+	})
+
+	if _, err := db.ExecContext(context.Background(), `CREATE TABLE users (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		name TEXT NOT NULL,
+		email TEXT NOT NULL UNIQUE,
+		version INTEGER NOT NULL
 	)`); err != nil {
 		t.Fatalf("create users table: %v", err)
 	}
@@ -155,6 +205,123 @@ func TestEngineDeleteBatchesRows(t *testing.T) {
 
 	if count != 1 {
 		t.Fatalf("expected 1 remaining row, got %d", count)
+	}
+}
+
+func TestEngineUpdateUsesOptimisticLockVersion(t *testing.T) {
+	db := newOptimisticMutationEngine(t)
+
+	if _, err := db.ExecContext(context.Background(), `
+		INSERT INTO users (id, name, email, version) VALUES
+		(1, 'alice', 'alice@example.com', 3),
+		(2, 'bob', 'bob@example.com', 7)
+	`); err != nil {
+		t.Fatalf("seed rows: %v", err)
+	}
+
+	u1 := &optimisticMutationUser{ID: 1, Name: "alice-updated", Email: "alice+updated@example.com", Version: 3}
+	u2 := &optimisticMutationUser{ID: 2, Name: "bob-updated", Email: "bob+updated@example.com", Version: 7}
+
+	affected, err := db.Update(context.Background(), u1, u2)
+	if err != nil {
+		t.Fatalf("optimistic batch update failed: %v", err)
+	}
+	if affected != 2 {
+		t.Fatalf("expected 2 updated rows, got %d", affected)
+	}
+	if u1.Version != 4 || u2.Version != 8 {
+		t.Fatalf("expected in-memory versions to increment, got %d and %d", u1.Version, u2.Version)
+	}
+
+	rows, err := db.QueryContext(context.Background(), `SELECT id, version FROM users ORDER BY id`)
+	if err != nil {
+		t.Fatalf("query versions: %v", err)
+	}
+	defer rows.Close()
+
+	var got []optimisticMutationUser
+	for rows.Next() {
+		var user optimisticMutationUser
+		if err := rows.Scan(&user.ID, &user.Version); err != nil {
+			t.Fatalf("scan version row: %v", err)
+		}
+		got = append(got, user)
+	}
+
+	if len(got) != 2 || got[0].Version != 4 || got[1].Version != 8 {
+		t.Fatalf("unexpected stored versions: %#v", got)
+	}
+}
+
+func TestEngineUpdateOptimisticLockConflict(t *testing.T) {
+	db := newOptimisticMutationEngine(t)
+
+	if _, err := db.ExecContext(context.Background(), `
+		INSERT INTO users (id, name, email, version) VALUES
+		(1, 'alice', 'alice@example.com', 3)
+	`); err != nil {
+		t.Fatalf("seed row: %v", err)
+	}
+
+	user := &optimisticMutationUser{ID: 1, Name: "alice-stale", Email: "alice+stale@example.com", Version: 2}
+	affected, err := db.Update(context.Background(), user)
+	if err == nil {
+		t.Fatal("expected optimistic lock conflict")
+	}
+	if affected != 0 {
+		t.Fatalf("expected 0 updated rows, got %d", affected)
+	}
+	if !errors.Is(err, &ErrOptimisticLockConflict{}) {
+		t.Fatalf("expected optimistic lock conflict error, got %v", err)
+	}
+	if user.Version != 2 {
+		t.Fatalf("expected in-memory version to stay unchanged, got %d", user.Version)
+	}
+}
+
+func TestEngineDeleteUsesOptimisticLockVersion(t *testing.T) {
+	db := newOptimisticMutationEngine(t)
+
+	if _, err := db.ExecContext(context.Background(), `
+		INSERT INTO users (id, name, email, version) VALUES
+		(1, 'alice', 'alice@example.com', 3),
+		(2, 'bob', 'bob@example.com', 5)
+	`); err != nil {
+		t.Fatalf("seed rows: %v", err)
+	}
+
+	affected, err := db.Delete(
+		context.Background(),
+		&optimisticMutationUser{ID: 1, Version: 3},
+		&optimisticMutationUser{ID: 2, Version: 5},
+	)
+	if err != nil {
+		t.Fatalf("optimistic delete failed: %v", err)
+	}
+	if affected != 2 {
+		t.Fatalf("expected 2 deleted rows, got %d", affected)
+	}
+}
+
+func TestEngineDeleteOptimisticLockConflict(t *testing.T) {
+	db := newOptimisticMutationEngine(t)
+
+	if _, err := db.ExecContext(context.Background(), `
+		INSERT INTO users (id, name, email, version) VALUES
+		(1, 'alice', 'alice@example.com', 3)
+	`); err != nil {
+		t.Fatalf("seed row: %v", err)
+	}
+
+	affected, err := db.Delete(context.Background(), &optimisticMutationUser{ID: 1, Version: 2})
+	if err == nil {
+		t.Fatal("expected optimistic lock conflict")
+	}
+	if affected != 0 {
+		t.Fatalf("expected 0 deleted rows, got %d", affected)
+	}
+	if !errors.Is(err, &ErrOptimisticLockConflict{}) {
+		t.Fatalf("expected optimistic lock conflict error, got %v", err)
 	}
 }
 

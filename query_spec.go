@@ -18,6 +18,7 @@ type QuerySpec[O Owner] struct {
 	Joins         []join
 	GroupBy       []SQLColumn
 	Having        []Condition
+	Lock          queryLock
 	SetOps        []setOperation[O]
 }
 
@@ -214,7 +215,7 @@ func (spec QuerySpec[O]) buildListSQL() (string, []any, error) {
 	bodySQL, bodyArgs := spec.buildListBodySQL(false)
 	args := append(slices.Clone(cteArgs), bodyArgs...)
 
-	return cteSQL + bodySQL, args, nil
+	return appendQueryLockClause(cteSQL+bodySQL, spec.Lock), args, nil
 }
 
 func (spec QuerySpec[O]) buildSimpleListSQL() (string, []any) {
@@ -264,7 +265,7 @@ func (spec QuerySpec[O]) buildKwListSQL() (string, []any, error) {
 	bodySQL, bodyArgs := spec.buildListBodySQL(true)
 	args := append(slices.Clone(cteArgs), bodyArgs...)
 
-	return cteSQL + bodySQL, args, nil
+	return appendQueryLockClause(cteSQL+bodySQL, spec.Lock), args, nil
 }
 
 func (spec QuerySpec[O]) buildSimpleKwListSQL() (string, []any) {
@@ -610,6 +611,7 @@ func cloneQuerySpec[O Owner](spec QuerySpec[O]) QuerySpec[O] {
 		Joins:         slices.Clone(spec.Joins),
 		GroupBy:       slices.Clone(spec.GroupBy),
 		Having:        slices.Clone(spec.Having),
+		Lock:          spec.Lock,
 		SetOps:        make([]setOperation[O], 0, len(spec.SetOps)),
 	}
 
@@ -621,6 +623,15 @@ func cloneQuerySpec[O Owner](spec QuerySpec[O]) QuerySpec[O] {
 	}
 
 	return cloned
+}
+
+func appendQueryLockClause(sql string, lock queryLock) string {
+	clause := lock.clause()
+	if clause == "" {
+		return sql
+	}
+
+	return sql + " " + clause
 }
 
 type cteCollector struct {

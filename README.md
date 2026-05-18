@@ -163,8 +163,10 @@ TSQ 当前内置的 `Dialect` 实现只有 **SQLite / MySQL / PostgreSQL**。下
 | 生成 CRUD / 分页助手 | ✅ | ✅ | ✅ | 生成层支持一致 |
 | 类型安全列与链式查询 | ✅ | ✅ | ✅ | `tsq.Select(...).From(table).Where(...).Build()` |
 | `@RESULT` 结果映射 | ✅ | ✅ | ✅ | 生成 `*_result_tsq.go` |
+| 自动乐观锁（`version`） | ✅ | ✅ | ✅ | `Update/Delete` 在执行时按 `VersionColumn()` 做版本校验 |
 | `InVar()` 动态 `IN (...)` | ✅ | ✅ | ✅ | 执行时展开参数 |
 | `CASE` 表达式 | ✅ | ✅ | ✅ | 构建与执行都支持 |
+| 行锁读取（`FOR UPDATE` / `FOR SHARE`） | ❌ | ✅ | ✅ | 能否执行取决于运行时 dialect |
 | 非递归 CTE / `WITH` | ✅ | ❌ | ✅ | MySQL 会在执行前显式拒绝 |
 | `FULL JOIN` 执行 | ❌ | ❌ | ✅ | SQL 可构建，执行能力受方言限制 |
 
@@ -222,6 +224,24 @@ query, err := tsq.
 
 因此，TSQ 会在 `List/Get/Page/Count/...` 这类执行入口按实际 executor dialect 做能力校验。  
 如果你要提前约束方言，请在应用层把 query 的使用范围限制到固定 executor，而不是假设 `Build()` 能替你推断运行时环境。
+
+同样的规则也适用于行锁：
+
+- `ForUpdate()` / `ForShare()` 会在 `Build()` 成功
+- 但 SQLite 这类不支持行锁的方言，会在真正执行时返回显式错误
+- `NOWAIT` / `SKIP LOCKED` 也属于执行期 capability 校验的一部分
+
+### `version` 字段现在是自动乐观锁语义
+
+如果表声明了 `VersionColumn()`：
+
+- `Update(...)` 会自动把版本条件带进 `WHERE`
+- 更新成功后会把数据库里的 `version` 自增 1，并同步回内存对象
+- `Delete(...)` 会按主键 + version 做删除
+- 如果匹配行数少于预期，会返回 `ErrOptimisticLockConflict`
+
+这不是“仅提供版本元数据”的弱约定，而是默认生效的 mutation 语义。  
+如果你不想启用自动乐观锁，就不要给表声明 `version` 列。
 
 ### Chunked helper 的事务边界由调用方控制
 

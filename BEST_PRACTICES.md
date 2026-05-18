@@ -161,6 +161,56 @@ return tx.Commit()
 
 不要假设 chunked helper 会替你包一层外部事务；如果你需要“全部成功或全部回滚”，请显式传入 `*sql.Tx`。
 
+### 3.5 行锁读取要显式放进事务
+
+`ForUpdate()` / `ForShare()` 适合表达“读取并锁定随后要修改的行”，但只有放在事务里才有实际意义。
+
+```go
+tx, err := db.BeginTx(ctx, nil)
+if err != nil {
+	return err
+}
+defer func() {
+	_ = tx.Rollback()
+}()
+
+txExec := tsq.WrapExecutor(tx, engine.Dialect)
+query, err := tsq.Select(database.User__Cols...).
+	From(database.TableUser).
+	Where(database.User_ID.EQ(userID)).
+	ForUpdate().
+	Build()
+if err != nil {
+	return err
+}
+
+user, err := tsq.GetOrErr(ctx, txExec, query)
+if err != nil {
+	return err
+}
+
+_ = user
+return tx.Commit()
+```
+
+不要把行锁查询放到普通自动提交连接里然后期待锁能跨后续写操作继续存在。
+
+### 3.6 自动乐观锁冲突要按业务错误处理
+
+如果表声明了 `version` 列，`Update(...)` / `Delete(...)` 会自动做版本校验。  
+版本不匹配时，TSQ 会返回 `ErrOptimisticLockConflict`。
+
+```go
+if _, err := engine.Update(ctx, user); err != nil {
+	if errors.Is(err, &tsq.ErrOptimisticLockConflict{}) {
+		return fmt.Errorf("record has been modified by another request: %w", err)
+	}
+	return err
+}
+```
+
+不要自己再手工拼一层 `WHERE version = ?`，也不要忽略这类冲突再继续覆盖写。
+
 ## 4. Field pointer 和 `Into(...)`
 
 ### 4.1 field pointer 要能安全处理 nil / 错误类型
