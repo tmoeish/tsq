@@ -119,10 +119,11 @@ func main() {
 		log.Fatal(err)
 	}
 
-	engine := &tsq.Engine{DB: db, Dialect: tsq.SQLiteDialect{}}
-	if err := tsq.Init(engine, &tsq.InitOptions{}); err != nil {
+	if err := tsq.Init(db, tsq.SQLiteDialect{}); err != nil {
 		log.Fatal(err)
 	}
+
+	engine := tsq.CurrentEngine()
 
 	query, err := tsq.
 		Select(database.User__Cols...).

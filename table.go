@@ -194,9 +194,19 @@ type Table interface {
 // 数据库初始化
 // ================================================
 
-// Init initializes indexes and tracers for the default runtime.
-func Init(db *Engine, options *InitOptions) error {
-	return defaultRuntime.Init(db, options)
+// Init initializes indexes and tracers for the default runtime with default options.
+func Init(db *sql.DB, dialect Dialect) error {
+	return defaultRuntime.Init(db, dialect)
+}
+
+// InitWithOpts initializes indexes and tracers for the default runtime with explicit options.
+func InitWithOpts(db *sql.DB, dialect Dialect, options *InitOptions) error {
+	return defaultRuntime.InitWithOpts(db, dialect, options)
+}
+
+// CurrentEngine returns the Engine of the default runtime.
+func CurrentEngine() *Engine {
+	return defaultRuntime.Engine()
 }
 
 func registeredTableKey(table Table) string {

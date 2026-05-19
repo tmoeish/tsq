@@ -16,7 +16,7 @@ type queryBuilderCaseRow struct {
 
 func (queryBuilderCaseRow) TSQOwner() {}
 
-func (m mockTable) Init(db *Engine, options *InitOptions) error { return nil }
+func (m mockTable) Init(db *Engine) error { return nil }
 func (m mockTable) TSQOwner()                                   {}
 func (m mockTable) Table() string                               { return m.tableName }
 func (m mockTable) Cols() []SQLColumn                           { return nil }

@@ -28,11 +28,10 @@ func OpenSQLiteExampleDB() (*tsq.Engine, func(), error) {
 		return nil, nil, fmt.Errorf("%s: %w", "seed mock.sql", err)
 	}
 
-	engine := &tsq.Engine{DB: db, Dialect: tsq.SQLiteDialect{}}
-	if err := tsq.Init(engine, &tsq.InitOptions{UpsertIndexes: true}); err != nil {
+	if err := tsq.InitWithOpts(db, tsq.SQLiteDialect{}, &tsq.InitOptions{UpsertIndexes: true}); err != nil {
 		cleanup()
 		return nil, nil, fmt.Errorf("%s: %w", "init tsq", err)
 	}
 
-	return engine, cleanup, nil
+	return tsq.CurrentEngine(), cleanup, nil
 }

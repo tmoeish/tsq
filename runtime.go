@@ -2,6 +2,7 @@ package tsq
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -69,22 +70,23 @@ func (r *Runtime) snapshotRegisteredTables() []*registeredTable {
 	return r.registry.Snapshot()
 }
 
-// Init initializes indexes and runtime state using explicit options.
-func (r *Runtime) Init(db *Engine, options *InitOptions) error {
+// Init initializes indexes and runtime state with default options.
+func (r *Runtime) Init(db *sql.DB, dialect Dialect) error {
+	return r.InitWithOpts(db, dialect, nil)
+}
+
+// InitWithOpts initializes indexes and runtime state using explicit options.
+func (r *Runtime) InitWithOpts(db *sql.DB, dialect Dialect, options *InitOptions) error {
 	if r == nil {
 		return errors.New("runtime cannot be nil")
 	}
 
 	if db == nil {
-		return errors.New("engine cannot be nil")
+		return errors.New("database connection cannot be nil")
 	}
 
-	if db.DB == nil {
-		return errors.New("engine database cannot be nil")
-	}
-
-	if db.Dialect == nil {
-		return errors.New("engine dialect cannot be nil")
+	if dialect == nil {
+		return errors.New("dialect cannot be nil")
 	}
 
 	if options == nil {
@@ -99,11 +101,12 @@ func (r *Runtime) Init(db *Engine, options *InitOptions) error {
 	r.initMu.Lock()
 	defer r.initMu.Unlock()
 
+	engine := &Engine{DB: db, Dialect: dialect}
 	prevEngine := r.engine
-	prevDBConfig := loadDBSchemaConfig(db)
+	prevDBConfig := loadDBSchemaConfig(engine)
 	// Store the Engine for later dialect access.
-	r.engine = db
-	storeDBSchemaConfig(db, dbSchemaConfig{
+	r.engine = engine
+	storeDBSchemaConfig(engine, dbSchemaConfig{
 		indexInitMode:      indexMode,
 		schemaEventHandler: options.SchemaEventHandler,
 	})
@@ -118,7 +121,7 @@ func (r *Runtime) Init(db *Engine, options *InitOptions) error {
 
 		r.engine = prevEngine
 
-		storeDBSchemaConfig(db, prevDBConfig)
+		storeDBSchemaConfig(engine, prevDBConfig)
 		r.traceManager.restore(rollbackTracers)
 	}()
 
@@ -139,7 +142,7 @@ func (r *Runtime) Init(db *Engine, options *InitOptions) error {
 
 	if indexMode != IndexInitSkip {
 		for _, table := range registeredTables {
-			if err := table.InitFunc(db); err != nil {
+			if err := table.InitFunc(engine); err != nil {
 				return fmt.Errorf("failed to initialize table %s"+": %w", table.Table.Table(), err)
 			}
 		}
