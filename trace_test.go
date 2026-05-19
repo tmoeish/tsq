@@ -465,8 +465,7 @@ func TestConcurrentTracerAddDuringRestore(t *testing.T) {
 	}
 
 	// Now we'll simulate a restore operation while concurrent AddTracer calls happen
-	rt := DefaultRuntime()
-	tm := rt.TraceManager()
+	tm := defaultRuntime.traceManager
 
 	// Create a channel to signal when restore has begun
 	restoreStarted := make(chan struct{})
@@ -486,7 +485,7 @@ func TestConcurrentTracerAddDuringRestore(t *testing.T) {
 
 	// Launch multiple goroutines trying to add tracers concurrently
 	var wg sync.WaitGroup
-	errors := make(chan error, 10)
+	errs := make(chan error, 10)
 
 	for i := 0; i < 10; i++ {
 		wg.Add(1)
@@ -515,8 +514,8 @@ func TestConcurrentTracerAddDuringRestore(t *testing.T) {
 	}
 
 	// Verify no errors occurred (the test would panic on race condition)
-	close(errors)
-	for err := range errors {
+	close(errs)
+	for err := range errs {
 		if err != nil {
 			t.Errorf("Concurrent operation failed: %v", err)
 		}
@@ -764,38 +763,7 @@ func TestPrintSQLTracer(t *testing.T) {
 	}
 }
 
-// TestPrintVersionFunctions tests PrintVersion() and PrintVersionJSON()
-func TestPrintVersionFunctions(t *testing.T) {
-	// These functions write to stdout, so we mainly test that they don't panic
-	// In a real scenario, we'd capture stdout
-	testCases := []struct {
-		name string
-		fn   func()
-	}{
-		{
-			name: "PrintVersion",
-			fn:   PrintVersion,
-		},
-		{
-			name: "PrintVersionJSON",
-			fn:   PrintVersionJSON,
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			// Should not panic
-			defer func() {
-				if r := recover(); r != nil {
-					t.Errorf("PrintVersion functions should not panic: %v", r)
-				}
-			}()
-
-			tc.fn()
-		})
-	}
-
-	// Also test GetVersionInfo doesn't return nil
+func TestGetVersionInfoForTraceHelpers(t *testing.T) {
 	info := GetVersionInfo()
 	if info == nil {
 		t.Error("GetVersionInfo should never return nil")
@@ -821,8 +789,7 @@ func TestPrintVersionFunctions(t *testing.T) {
 // TestRestoreTracersFromSnapshot tests restore() in various states
 func TestRestoreTracersFromSnapshot(t *testing.T) {
 	ClearTracers()
-	rt := DefaultRuntime()
-	tm := rt.TraceManager()
+	tm := defaultRuntime.traceManager
 
 	// Add some initial tracers
 	tracer1 := func(next Fn) Fn {
@@ -861,7 +828,7 @@ func TestRestoreTracersFromSnapshot(t *testing.T) {
 	}
 
 	// Test restore with empty snapshot
-	emptySnapshot := []Tracer{}
+	var emptySnapshot []Tracer
 	tm.restore(emptySnapshot)
 	if len(tm.Get()) != 0 {
 		t.Error("restore with empty snapshot should result in empty tracers")
@@ -877,8 +844,7 @@ func TestRestoreTracersFromSnapshot(t *testing.T) {
 // TestTraceManagerConcurrentSnapshot tests concurrent reads during tracer changes
 func TestTraceManagerConcurrentSnapshot(t *testing.T) {
 	ClearTracers()
-	rt := DefaultRuntime()
-	tm := rt.TraceManager()
+	tm := defaultRuntime.traceManager
 
 	// Add initial tracers
 	for i := 0; i < 10; i++ {
@@ -889,7 +855,7 @@ func TestTraceManagerConcurrentSnapshot(t *testing.T) {
 	}
 
 	done := make(chan struct{})
-	errors := make(chan string, 100)
+	errs := make(chan string, 100)
 
 	// Goroutine that continuously adds tracers
 	go func() {
@@ -908,10 +874,10 @@ func TestTraceManagerConcurrentSnapshot(t *testing.T) {
 			for k := 0; k < 100; k++ {
 				snapshot := tm.snapshot()
 				if snapshot == nil {
-					errors <- "snapshot returned nil"
+					errs <- "snapshot returned nil"
 				}
 				if len(snapshot) < 0 {
-					errors <- "snapshot had negative length"
+					errs <- "snapshot had negative length"
 				}
 			}
 		}()
@@ -926,8 +892,8 @@ func TestTraceManagerConcurrentSnapshot(t *testing.T) {
 	}
 
 	// Check for any errors
-	close(errors)
-	for err := range errors {
+	close(errs)
+	for err := range errs {
 		t.Error(err)
 	}
 

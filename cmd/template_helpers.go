@@ -6,10 +6,9 @@ import (
 	"text/template"
 	"unicode"
 
-	"github.com/juju/errors"
 	"github.com/serenize/snaker"
 
-	"github.com/tmoeish/tsq/v4"
+	"github.com/tmoeish/tsq/v4/internal/genmodel"
 )
 
 const (
@@ -20,8 +19,8 @@ const (
 	generatedTimeAlias    = "tsqtime"
 )
 
-// TemplateFuncs 返回模板中可用的函数映射
-func TemplateFuncs() template.FuncMap {
+// funcMap 返回模板中可用的函数映射
+func funcMap() template.FuncMap {
 	return template.FuncMap{
 		"ToUpper":                  strings.ToUpper,
 		"ToLower":                  strings.ToLower,
@@ -121,7 +120,7 @@ func fieldSliceVarName(fieldName string) string {
 }
 
 // fieldType 返回字段的Go类型字符串
-func fieldType(field tsq.FieldInfo) string {
+func fieldType(field genmodel.FieldInfo) string {
 	pkg := field.Type.Package
 	typeName := field.Type.TypeName
 	fullTypeName := typeName
@@ -182,11 +181,11 @@ func sub1(n int) int {
 	return n - 1
 }
 
-func fieldToCol(data *tsq.StructInfo, field string) string {
+func fieldToCol(data *genmodel.StructInfo, field string) string {
 	return fmt.Sprintf("%q", data.FieldMap[field].Column)
 }
 
-func fieldsToCols(data *tsq.StructInfo, fields []string) string {
+func fieldsToCols(data *genmodel.StructInfo, fields []string) string {
 	cols := make([]string, len(fields))
 	for i, field := range fields {
 		cols[i] = fieldToCol(data, field)
@@ -195,7 +194,7 @@ func fieldsToCols(data *tsq.StructInfo, fields []string) string {
 	return strings.Join(cols, ", ")
 }
 
-func hasImport(data *tsq.StructInfo, importPath string) bool {
+func hasImport(data *genmodel.StructInfo, importPath string) bool {
 	if data == nil {
 		return false
 	}
@@ -205,7 +204,7 @@ func hasImport(data *tsq.StructInfo, importPath string) bool {
 	return ok
 }
 
-func needsGeneratedTimeImport(data *tsq.StructInfo) bool {
+func needsGeneratedTimeImport(data *genmodel.StructInfo) bool {
 	if data == nil {
 		return false
 	}
@@ -221,7 +220,7 @@ func generatedTimeRef(name string) string {
 	return generatedTimeAlias + "." + name
 }
 
-func managedTimestampKind(field tsq.FieldInfo) string {
+func managedTimestampKind(field genmodel.FieldInfo) string {
 	if field.IsArray {
 		return ""
 	}
@@ -242,7 +241,7 @@ func managedTimestampKind(field tsq.FieldInfo) string {
 	}
 }
 
-func softDeleteKind(field tsq.FieldInfo) string {
+func softDeleteKind(field genmodel.FieldInfo) string {
 	switch managedTimestampKind(field) {
 	case "time_ptr", "sql_null_time", "null_time":
 		return managedTimestampKind(field)
@@ -260,12 +259,12 @@ func softDeleteKind(field tsq.FieldInfo) string {
 	}
 }
 
-func validateTimestampField(field tsq.FieldInfo, role string) error {
+func validateTimestampField(field genmodel.FieldInfo, role string) error {
 	if managedTimestampKind(field) != "" {
 		return nil
 	}
 
-	return errors.Errorf(
+	return fmt.Errorf(
 		"%s field %s has unsupported type %s; supported types are time.Time, *time.Time, sql.NullTime, null.Time",
 		role,
 		field.Name,
@@ -273,20 +272,20 @@ func validateTimestampField(field tsq.FieldInfo, role string) error {
 	)
 }
 
-func validateSoftDeleteField(field tsq.FieldInfo) error {
+func validateSoftDeleteField(field genmodel.FieldInfo) error {
 	if softDeleteKind(field) != "" {
 		return nil
 	}
 
-	return errors.Errorf(
+	return fmt.Errorf(
 		"deleted_at field %s has unsupported type %s; supported types are int64, uint64, *time.Time, sql.NullTime, null.Time",
 		field.Name,
 		fieldType(field),
 	)
 }
 
-func validateManagedFields(data *tsq.StructInfo) error {
-	if data == nil || data.TableInfo == nil || data.IsResult {
+func validateManagedFields(data *genmodel.StructInfo) error {
+	if data == nil || data.TableMeta == nil || data.IsResult {
 		return nil
 	}
 
@@ -303,11 +302,11 @@ func validateManagedFields(data *tsq.StructInfo) error {
 
 		field, ok := data.FieldMap[item.name]
 		if !ok {
-			return errors.Errorf("%s field %s not found in %s", item.role, item.name, data.TypeInfo.TypeName)
+			return fmt.Errorf("%s field %s not found in %s", item.role, item.name, data.TypeInfo.TypeName)
 		}
 
 		if err := validateTimestampField(field, item.role); err != nil {
-			return errors.Trace(err)
+			return err
 		}
 	}
 
@@ -317,15 +316,15 @@ func validateManagedFields(data *tsq.StructInfo) error {
 
 	field, ok := data.FieldMap[data.DeletedAtField]
 	if !ok {
-		return errors.Errorf("deleted_at field %s not found in %s", data.DeletedAtField, data.TypeInfo.TypeName)
+		return fmt.Errorf("deleted_at field %s not found in %s", data.DeletedAtField, data.TypeInfo.TypeName)
 	}
 
 	if err := validateSoftDeleteField(field); err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
 	if len(data.UxList) > 0 && softDeleteKind(field) != "integer" {
-		return errors.Errorf(
+		return fmt.Errorf(
 			"deleted_at field %s in %s cannot use nullable time semantics with unique indexes; use int64 or uint64 tombstones for portable uniqueness",
 			data.DeletedAtField,
 			data.TypeInfo.TypeName,
@@ -335,7 +334,7 @@ func validateManagedFields(data *tsq.StructInfo) error {
 	return nil
 }
 
-func timestampNowValue(field tsq.FieldInfo) string {
+func timestampNowValue(field genmodel.FieldInfo) string {
 	switch managedTimestampKind(field) {
 	case "time":
 		return generatedTimeRef("Now()")
@@ -350,11 +349,11 @@ func timestampNowValue(field tsq.FieldInfo) string {
 	}
 }
 
-func softDeleteParamType(field tsq.FieldInfo) string {
+func softDeleteParamType(field genmodel.FieldInfo) string {
 	return fieldType(field)
 }
 
-func softDeleteParamSetExpr(param string, field tsq.FieldInfo) string {
+func softDeleteParamSetExpr(param string, field genmodel.FieldInfo) string {
 	switch softDeleteKind(field) {
 	case "integer":
 		return param + " != 0"
@@ -367,7 +366,7 @@ func softDeleteParamSetExpr(param string, field tsq.FieldInfo) string {
 	}
 }
 
-func softDeleteNowValue(field tsq.FieldInfo) string {
+func softDeleteNowValue(field genmodel.FieldInfo) string {
 	switch softDeleteKind(field) {
 	case "integer":
 		if field.Type.TypeName == "uint64" {
@@ -386,7 +385,7 @@ func softDeleteNowValue(field tsq.FieldInfo) string {
 	}
 }
 
-func softDeleteActiveExpr(recv, fieldName string, field tsq.FieldInfo) string {
+func softDeleteActiveExpr(recv, fieldName string, field genmodel.FieldInfo) string {
 	target := fmt.Sprintf("%s.%s", recv, fieldName)
 
 	switch softDeleteKind(field) {
@@ -401,7 +400,7 @@ func softDeleteActiveExpr(recv, fieldName string, field tsq.FieldInfo) string {
 	}
 }
 
-func softDeleteActiveCond(typeName, fieldName string, field tsq.FieldInfo) string {
+func softDeleteActiveCond(typeName, fieldName string, field genmodel.FieldInfo) string {
 	col := fmt.Sprintf("%s_%s", typeName, fieldName)
 
 	switch softDeleteKind(field) {

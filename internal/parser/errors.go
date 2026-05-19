@@ -1,10 +1,9 @@
 package parser
 
 import (
+	"errors"
 	"fmt"
 	"strings"
-
-	"github.com/juju/errors"
 )
 
 // ErrorType 表示错误类型
@@ -137,7 +136,7 @@ func NewPackageImportError(packagePath string, cause error) error {
 		"package": packagePath,
 	})
 
-	return errors.Trace(errors.Annotatef(err, "%v", cause))
+	return fmt.Errorf("%v"+": %w", cause, err)
 }
 
 // NewFileParseError 创建文件解析错误
@@ -147,7 +146,7 @@ func NewFileParseError(filename string, cause error) error {
 		"filename": filename,
 	})
 
-	return errors.Trace(errors.Annotatef(err, "%v", cause))
+	return fmt.Errorf("%v"+": %w", cause, err)
 }
 
 // NewDuplicateFieldError 创建重复字段错误
@@ -158,7 +157,7 @@ func NewDuplicateFieldError(fieldName, structName string) error {
 		"struct": structName,
 	})
 
-	return errors.Trace(err)
+	return err
 }
 
 // NewDuplicateEmbeddedError 创建重复嵌入类型错误
@@ -169,7 +168,7 @@ func NewDuplicateEmbeddedError(typeName, structName string) error {
 		"struct": structName,
 	})
 
-	return errors.Trace(err)
+	return err
 }
 
 // NewEmbeddedNotFoundError 创建嵌入结构体未找到错误
@@ -179,7 +178,7 @@ func NewEmbeddedNotFoundError(structName string) error {
 		"struct": structName,
 	})
 
-	return errors.Trace(err)
+	return err
 }
 
 // NewEmbeddedCycleError 创建嵌入结构体循环引用错误
@@ -189,7 +188,7 @@ func NewEmbeddedCycleError(structName string) error {
 		"struct": structName,
 	})
 
-	return errors.Trace(err)
+	return err
 }
 
 // NewUnsupportedTypeError 创建不支持类型错误
@@ -200,7 +199,7 @@ func NewUnsupportedTypeError(typeExpr any) error {
 		"type": typeStr,
 	})
 
-	return errors.Trace(err)
+	return err
 }
 
 // ===== DSL 相关错误 =====
@@ -219,7 +218,7 @@ func NewDSLTokenizeError(input string, position int, char byte) error {
 		"snippet":  highlightedSnippet,
 	})
 
-	return errors.Trace(err)
+	return err
 }
 
 // NewDSLUnexpectedTokenError 创建 DSL 意外 token 错误
@@ -234,7 +233,7 @@ func NewDSLUnexpectedTokenError(expected, actual string, position int) error {
 		"position": position,
 	})
 
-	return errors.Trace(err)
+	return err
 }
 
 func NewDSLUnexpectedTopLevelTokenError(actual string, position int) error {
@@ -249,7 +248,7 @@ func NewDSLUnexpectedTopLevelTokenError(actual string, position int) error {
 		"position": position,
 	})
 
-	return errors.Trace(err)
+	return err
 }
 
 func NewDSLUnexpectedObjectTokenError(actual string, position int) error {
@@ -268,7 +267,7 @@ func NewDSLUnexpectedObjectTokenError(actual string, position int) error {
 		"position": position,
 	})
 
-	return errors.Trace(err)
+	return err
 }
 
 func NewDSLUnexpectedValueTokenError(actual string, position int) error {
@@ -282,7 +281,7 @@ func NewDSLUnexpectedValueTokenError(actual string, position int) error {
 		"position": position,
 	})
 
-	return errors.Trace(err)
+	return err
 }
 
 func NewDSLUnknownTableKeyError(actual string) error {
@@ -314,7 +313,7 @@ func newDSLUnknownKeyError(scope, actual string, validKeys []string) error {
 		"validKeys": append([]string(nil), validKeys...),
 	})
 
-	return errors.Trace(err)
+	return err
 }
 
 func closestDSLKey(actual string, validKeys []string) string {
@@ -389,7 +388,7 @@ func NewDSLUnexpectedValueError(tokenValue string, position int) error {
 		"position": position,
 	})
 
-	return errors.Trace(err)
+	return err
 }
 
 func NewDSLValueTypeError(key, expected string, actual any) error {
@@ -405,7 +404,7 @@ func NewDSLValueTypeError(key, expected string, actual any) error {
 		"actual":   describeDSLValue(actual),
 	})
 
-	return errors.Trace(err)
+	return err
 }
 
 func NewDSLArrayEntryTypeError(key, expected string, actual any) error {
@@ -421,7 +420,7 @@ func NewDSLArrayEntryTypeError(key, expected string, actual any) error {
 		"actual":   describeDSLValue(actual),
 	})
 
-	return errors.Trace(err)
+	return err
 }
 
 func NewDSLEmptyArrayError(key string) error {
@@ -430,7 +429,7 @@ func NewDSLEmptyArrayError(key string) error {
 		"key": key,
 	})
 
-	return errors.Trace(err)
+	return err
 }
 
 // NewDSLUnclosedStringError 创建 DSL 未闭合字符串错误
@@ -446,7 +445,7 @@ func NewDSLUnclosedStringError(input string, position int) error {
 		"snippet":  highlightedSnippet,
 	})
 
-	return errors.Trace(err)
+	return err
 }
 
 // NewDSLInvalidNumberError 创建 DSL 无效数字错误
@@ -460,7 +459,7 @@ func NewDSLInvalidNumberError(numberStr string, position int) error {
 		"position": position,
 	})
 
-	return errors.Trace(err)
+	return err
 }
 
 // NewDSLDuplicateKeyError 创建 DSL 重复 key 错误
@@ -471,7 +470,7 @@ func NewDSLDuplicateKeyError(key string, position int) error {
 		"position": position,
 	})
 
-	return errors.Trace(err)
+	return err
 }
 
 // NewDSLMissingBracketError 创建 DSL 缺失括号错误
@@ -482,7 +481,7 @@ func NewDSLMissingBracketError(input string, position int) error {
 		"position": position,
 	})
 
-	return errors.Trace(err)
+	return err
 }
 
 func NewDSLAnnotationMissingOpeningParenError(keyword, input string, position int) error {
@@ -498,7 +497,7 @@ func NewDSLAnnotationMissingOpeningParenError(keyword, input string, position in
 		"position": position,
 	})
 
-	return errors.Trace(err)
+	return err
 }
 
 func NewDSLAnnotationMissingClosingParenError(keyword, input string, position int) error {
@@ -513,7 +512,7 @@ func NewDSLAnnotationMissingClosingParenError(keyword, input string, position in
 		"position": position,
 	})
 
-	return errors.Trace(err)
+	return err
 }
 
 func NewDSLMissingBraceError(position int) error {
@@ -522,7 +521,7 @@ func NewDSLMissingBraceError(position int) error {
 		"position": position,
 	})
 
-	return errors.Trace(err)
+	return err
 }
 
 func NewDSLArrayMissingClosingBracketError(position int) error {
@@ -531,7 +530,7 @@ func NewDSLArrayMissingClosingBracketError(position int) error {
 		"position": position,
 	})
 
-	return errors.Trace(err)
+	return err
 }
 
 func NewDSLInvalidPrimaryKeyError(value, reason string) error {
@@ -548,7 +547,7 @@ func NewDSLInvalidPrimaryKeyError(value, reason string) error {
 		"reason": reason,
 	})
 
-	return errors.Trace(err)
+	return err
 }
 
 // ===== Field 相关错误 =====
@@ -561,7 +560,7 @@ func NewFieldUnsupportedTypeError(typeExpr any) error {
 		"type": typeStr,
 	})
 
-	return errors.Trace(err)
+	return err
 }
 
 func NewFieldUnsupportedCompositionError(description string) error {
@@ -570,7 +569,7 @@ func NewFieldUnsupportedCompositionError(description string) error {
 		"type": description,
 	})
 
-	return errors.Trace(err)
+	return err
 }
 
 // NewFieldInvalidSelectorError 创建字段无效选择器错误
@@ -581,7 +580,7 @@ func NewFieldInvalidSelectorError(selectorExpr any) error {
 		"selector": selStr,
 	})
 
-	return errors.Trace(err)
+	return err
 }
 
 // ===== DSL 字段和索引校验 =====
@@ -598,7 +597,7 @@ func NewDSLFieldNotFoundError(field, structName string) error {
 		map[string]any{"field": field, "struct": structName},
 	)
 
-	return errors.Trace(err)
+	return err
 }
 
 // NewDSLIndexFieldDuplicateError 创建索引字段重复错误
@@ -609,7 +608,7 @@ func NewDSLIndexFieldDuplicateError(indexName, field string) error {
 		map[string]any{"index": indexName, "field": field},
 	)
 
-	return errors.Trace(err)
+	return err
 }
 
 // NewDSLIndexDuplicateError 创建索引定义重复错误
@@ -620,7 +619,7 @@ func NewDSLIndexDuplicateError(indexName, fields string) error {
 		map[string]any{"index": indexName, "fields": fields},
 	)
 
-	return errors.Trace(err)
+	return err
 }
 
 // ===== 错误类型检查辅助函数 =====

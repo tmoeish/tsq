@@ -21,7 +21,7 @@ builds:
     env:
       - CGO_ENABLED=0
     ldflags:
-      - -s -w -X github.com/tmoeish/tsq/v4.Version={{ .Version }} -X github.com/tmoeish/tsq/v4.BuildTime={{ .Date }} -X github.com/tmoeish/tsq/v4.GitCommit={{ .Commit }} -X github.com/tmoeish/tsq/v4.GitBranch={{ .Branch }}
+      - -s -w -X github.com/tmoeish/tsq/v4.version={{ .Version }} -X github.com/tmoeish/tsq/v4.buildTime={{ .Date }} -X github.com/tmoeish/tsq/v4.gitCommit={{ .Commit }} -X github.com/tmoeish/tsq/v4.gitBranch={{ .Branch }}
     goos:
       - linux
       - windows

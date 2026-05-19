@@ -96,7 +96,7 @@ jobs:
       run: make update-examples
 
     - name: Ensure generated examples are committed
-      run: git diff --exit-code -- examples/database
+      run: git diff --exit-code -- examples/academy
 
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v5

@@ -1,9 +1,8 @@
 package tsq
 
 import (
+	"fmt"
 	"strings"
-
-	"github.com/juju/errors"
 )
 
 // ================================================
@@ -14,7 +13,9 @@ import (
 type Order string
 
 const (
-	ASC  Order = "ASC"  // Ascending order
+	// ASC sorts rows in ascending order.
+	ASC Order = "ASC" // Ascending order
+	// DESC sorts rows in descending order.
 	DESC Order = "DESC" // Descending order
 )
 
@@ -74,20 +75,6 @@ func (c ColumnImpl[Owner, T]) Desc() OrderBy {
 	}
 }
 
-// ================================================
-// 排序工具函数
-// ================================================
-
-// OrderByMultiple creates multiple ORDER BY clauses
-func OrderByMultiple(orderBys ...OrderBy) []string {
-	expressions := make([]string, 0, len(orderBys))
-	for _, ob := range orderBys {
-		expressions = append(expressions, ob.Expr())
-	}
-
-	return expressions
-}
-
 // ReverseOrder returns the opposite order direction
 func ReverseOrder(order Order) Order {
 	switch order {
@@ -106,7 +93,7 @@ func parseOrder(value string) (Order, error) {
 	case ASC, DESC:
 		return order, nil
 	default:
-		return "", errors.Errorf("invalid order: %s", value)
+		return "", fmt.Errorf("invalid order: %s", value)
 	}
 }
 
@@ -121,14 +108,14 @@ func normalizeSortOrders(values []string, expected int) ([]Order, error) {
 	}
 
 	if len(values) != expected {
-		return nil, NewErrOrderCountMismatch(expected, len(values))
+		return nil, newErrOrderCountMismatch(expected, len(values))
 	}
 
 	orders := make([]Order, 0, len(values))
 	for _, value := range values {
 		order, err := parseOrder(value)
 		if err != nil {
-			return nil, errors.Trace(err)
+			return nil, err
 		}
 
 		orders = append(orders, order)

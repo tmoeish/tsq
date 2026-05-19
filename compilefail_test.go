@@ -22,15 +22,15 @@ func TestTypedAPIDoesNotCompileForInvalidResultInputs(t *testing.T) {
 		{
 			name: "col_into_removed",
 			body: `
-var resultCol = userID.Into(func(any) any { return nil }, "user_id")
+var resultCol = userID.MapInto(func(any) any { return nil }, "user_id")
 var _ = resultCol
 `,
-			want: "userID.Into undefined",
+			want: "userID.MapInto undefined",
 		},
 		{
 			name: "result_col_predicate",
 			body: `
-var resultCol = tsq.Into[userOwner](userID, func(holder *userOwner) *int { return nil }, "user_id")
+var resultCol = tsq.MapInto[userOwner](userID, func(holder *userOwner) *int { return nil }, "user_id")
 var _ = resultCol.EQVar()
 `,
 			want: "resultCol.EQVar undefined",
@@ -38,7 +38,7 @@ var _ = resultCol.EQVar()
 		{
 			name: "table_column_rejects_result_col",
 			body: `
-var resultCol = tsq.Into[userOwner](userID, func(holder *userOwner) *int { return nil }, "user_id")
+var resultCol = tsq.MapInto[userOwner](userID, func(holder *userOwner) *int { return nil }, "user_id")
 var _ tsq.TableColumn[userOwner] = resultCol
 `,
 			want: "does not implement tsq.TableColumn",
@@ -187,6 +187,16 @@ var _ = tsq.Select[userOwner](userID).
 `,
 			want: "Where undefined",
 		},
+		{
+			name: "locked_stage_rejects_where",
+			body: `
+var _ = tsq.Select[userOwner](userID).
+	From(userOwner{}).
+	ForUpdate().
+	Where(userID.EQ(1))
+`,
+			want: "Where undefined",
+		},
 	}
 
 	for _, tc := range cases {
@@ -242,7 +252,7 @@ func (userOwner) TSQOwner() {}
 func (userOwner) Table() string { return "users" }
 func (userOwner) Cols() []tsq.SQLColumn { return nil }
 
-func (userOwner) KwList() []tsq.SearchColumn { return nil }
+func (userOwner) SearchColumns() []tsq.SearchColumn { return nil }
 func (userOwner) PrimaryKeys() []string { return nil }
 func (userOwner) AutoIncrement() bool { return false }
 func (userOwner) VersionColumn() string { return "" }
@@ -251,7 +261,7 @@ func (orderOwner) TSQOwner() {}
 func (orderOwner) Table() string { return "orders" }
 func (orderOwner) Cols() []tsq.SQLColumn { return nil }
 
-func (orderOwner) KwList() []tsq.SearchColumn { return nil }
+func (orderOwner) SearchColumns() []tsq.SearchColumn { return nil }
 func (orderOwner) PrimaryKeys() []string { return nil }
 func (orderOwner) AutoIncrement() bool { return false }
 func (orderOwner) VersionColumn() string { return "" }
@@ -260,7 +270,7 @@ func (productOwner) TSQOwner() {}
 func (productOwner) Table() string { return "products" }
 func (productOwner) Cols() []tsq.SQLColumn { return nil }
 
-func (productOwner) KwList() []tsq.SearchColumn { return nil }
+func (productOwner) SearchColumns() []tsq.SearchColumn { return nil }
 func (productOwner) PrimaryKeys() []string { return nil }
 func (productOwner) AutoIncrement() bool { return false }
 func (productOwner) VersionColumn() string { return "" }

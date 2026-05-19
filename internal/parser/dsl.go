@@ -1,13 +1,13 @@
 package parser
 
 import (
+	"errors"
 	"strconv"
 	"strings"
 
-	"github.com/juju/errors"
 	"github.com/serenize/snaker"
 
-	"github.com/tmoeish/tsq/v4"
+	"github.com/tmoeish/tsq/v4/internal/genmodel"
 )
 
 // ========== DSL AST 解析器实现 ========== //
@@ -256,17 +256,17 @@ func ParseDSL(tokens []Token) (DSLObject, error) {
 
 		key, val, err := p.parseKeyValueOrIdent()
 		if err != nil {
-			return nil, errors.Trace(err)
+			return nil, err
 		}
 
 		if key != "" {
 			if _, exists := obj[key]; exists {
-				return nil, errors.Trace(NewDSLDuplicateKeyError(key, p.tokens[p.pos-1].Pos))
+				return nil, NewDSLDuplicateKeyError(key, p.tokens[p.pos-1].Pos)
 			}
 
 			obj[key] = val
 		} else {
-			return nil, errors.Trace(unexpectedDSLTopLevelTokenError(p.peek()))
+			return nil, unexpectedDSLTopLevelTokenError(p.peek())
 		}
 	}
 
@@ -284,7 +284,7 @@ func (p *Parser) parseKeyValueOrIdent() (string, DSLNode, error) {
 
 			val, err := p.parseValue()
 			if err != nil {
-				return "", nil, errors.Trace(err)
+				return "", nil, err
 			}
 
 			return key, val, nil
@@ -360,7 +360,7 @@ func (p *Parser) parseValue() (DSLNode, error) {
 func (p *Parser) parseArray() (DSLArray, error) {
 	_, err := p.expect(TokenLBracket)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	arr := DSLArray{}
@@ -373,7 +373,7 @@ func (p *Parser) parseArray() (DSLArray, error) {
 
 		val, err := p.parseValue()
 		if err != nil {
-			return nil, errors.Trace(err)
+			return nil, err
 		}
 
 		arr = append(arr, val)
@@ -381,7 +381,7 @@ func (p *Parser) parseArray() (DSLArray, error) {
 
 	_, err = p.expect(TokenRBracket)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	return arr, nil
@@ -390,7 +390,7 @@ func (p *Parser) parseArray() (DSLArray, error) {
 func (p *Parser) parseObject() (DSLObject, error) {
 	_, err := p.expect(TokenLBrace)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	obj := DSLObject{}
@@ -403,7 +403,7 @@ func (p *Parser) parseObject() (DSLObject, error) {
 
 		key, val, err := p.parseKeyValueOrIdent()
 		if err != nil {
-			return nil, errors.Trace(err)
+			return nil, err
 		}
 
 		if key != "" {
@@ -419,7 +419,7 @@ func (p *Parser) parseObject() (DSLObject, error) {
 
 	_, err = p.expect(TokenRBrace)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	return obj, nil
@@ -436,7 +436,7 @@ func parseNumber(s string) (float64, error) {
 	// 使用标准库解析，支持更多数字格式
 	num, err := strconv.ParseFloat(s, 64)
 	if err != nil {
-		return 0, errors.Trace(err)
+		return 0, err
 	}
 
 	return num, nil
@@ -472,14 +472,14 @@ func getTokenTypeName(tt TokenType) string {
 	}
 }
 
-// genTableInfoFromAST 将 AST 映射到 tsq.TableInfo
+// genTableInfoFromAST 将 AST 映射到 genmodel.TableMeta
 func genTableInfoFromAST(
 	name string,
 	ast DSLObject,
 	isTable bool,
 	structFields map[string]struct{},
-) (*tsq.TableInfo, error) {
-	info := &tsq.TableInfo{
+) (*genmodel.TableMeta, error) {
+	info := &genmodel.TableMeta{
 		IsResult: !isTable,
 	}
 
@@ -488,7 +488,7 @@ func genTableInfoFromAST(
 	}
 	// 默认值
 	if isTable {
-		info.ID = DefaultPKField
+		info.PK = DefaultPKField
 		info.AI = true
 	}
 
@@ -497,7 +497,7 @@ func genTableInfoFromAST(
 		case "name":
 			s, ok := v.(DSLString)
 			if !ok {
-				return nil, errors.Trace(NewDSLValueTypeError(k, "string", v))
+				return nil, NewDSLValueTypeError(k, "string", v)
 			}
 
 			if string(s) != "" {
@@ -506,15 +506,15 @@ func genTableInfoFromAST(
 		case "pk":
 			s, ok := v.(DSLString)
 			if !ok {
-				return nil, errors.Trace(NewDSLValueTypeError(k, "string like \"ID\" or \"ID,true\"", v))
+				return nil, NewDSLValueTypeError(k, "string like \"PK\" or \"PK,true\"", v)
 			}
 
 			id, auto, err := parsePrimaryKeyDSL(string(s))
 			if err != nil {
-				return nil, errors.Trace(err)
+				return nil, err
 			}
 
-			info.ID = id
+			info.PK = id
 			info.AI = auto
 		case "version":
 			if s, ok := v.(DSLString); ok {
@@ -560,7 +560,7 @@ func genTableInfoFromAST(
 					return nil, NewDSLArrayEntryTypeError(k, "object with fields=[...]", node)
 				}
 
-				idx := tsq.IndexInfo{}
+				idx := genmodel.IndexInfo{}
 
 				for k2, v2 := range obj {
 					switch k2 {
@@ -609,7 +609,7 @@ func genTableInfoFromAST(
 					return nil, NewDSLArrayEntryTypeError(k, "object with fields=[...]", node)
 				}
 
-				idx := tsq.IndexInfo{}
+				idx := genmodel.IndexInfo{}
 
 				for k2, v2 := range obj {
 					switch k2 {
@@ -658,7 +658,7 @@ func genTableInfoFromAST(
 					return nil, NewDSLArrayEntryTypeError(k, "string Go field name", node)
 				}
 
-				info.KwList = append(info.KwList, string(s))
+				info.SearchColumns = append(info.SearchColumns, string(s))
 			}
 		default:
 			return nil, NewDSLUnknownTableKeyError(k)
@@ -671,7 +671,7 @@ func genTableInfoFromAST(
 	// 新增：校验 DSL 字段和索引
 	err := validateTableInfoAgainstStruct(info, structFields, name)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	return info, nil
@@ -688,7 +688,7 @@ func defaultIndexName(prefix, table string, fields []string) string {
 	return strings.Join(parts, "_")
 }
 
-func normalizeIndexNames(indexes []tsq.IndexInfo, prefix, table string) {
+func normalizeIndexNames(indexes []genmodel.IndexInfo, prefix, table string) {
 	for i := range indexes {
 		switch {
 		case indexes[i].Name == "":
@@ -702,9 +702,9 @@ func normalizeIndexNames(indexes []tsq.IndexInfo, prefix, table string) {
 }
 
 // validateTableInfoAgainstStruct 校验 DSL 字段和索引
-func validateTableInfoAgainstStruct(info *tsq.TableInfo, structFields map[string]struct{}, structName string) error {
+func validateTableInfoAgainstStruct(info *genmodel.TableMeta, structFields map[string]struct{}, structName string) error {
 	// 1. 字段存在性校验
-	for _, field := range []string{info.ID, info.VersionField, info.CreatedAtField, info.UpdatedAtField, info.DeletedAtField} {
+	for _, field := range []string{info.PK, info.VersionField, info.CreatedAtField, info.UpdatedAtField, info.DeletedAtField} {
 		if field != "" && structFields != nil {
 			if _, ok := structFields[field]; !ok {
 				return NewDSLFieldNotFoundError(field, structName)
@@ -740,7 +740,7 @@ func validateTableInfoAgainstStruct(info *tsq.TableInfo, structFields map[string
 	}
 
 	// 3. kwList 校验
-	for _, kw := range info.KwList {
+	for _, kw := range info.SearchColumns {
 		if _, ok := structFields[kw]; !ok {
 			return NewDSLFieldNotFoundError(kw, structName)
 		}
@@ -769,26 +769,22 @@ func parsePrimaryKeyDSL(value string) (string, bool, error) {
 	}
 
 	if strings.Contains(id, ",") {
-		return "", false, errors.Trace(errors.New("composite primary keys are not supported"))
+		return "", false, errors.New("composite primary keys are not supported")
 	}
-
-	auto := true
 
 	switch len(parts) {
 	case 1:
-		return id, auto, nil
+		return id, true, nil
 	case 2:
 		switch strings.TrimSpace(parts[1]) {
 		case "true":
-			auto = true
+			return id, true, nil
 		case "false":
-			auto = false
+			return id, false, nil
 		default:
 			return "", false, NewDSLInvalidPrimaryKeyError(value, "auto-increment flag must be true or false")
 		}
 	default:
 		return "", false, NewDSLInvalidPrimaryKeyError(value, "too many comma-separated parts")
 	}
-
-	return id, auto, nil
 }

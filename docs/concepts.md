@@ -26,7 +26,7 @@ Go struct + @TABLE / @RESULT
  *tsq.Query[Owner] + args
             |
             v
- tsq.List/Get/Page + tsq.DbMap / Runtime
+ tsq.List/Get/Page + tsq.Engine / Runtime
 ```
 
 ## 1. `@TABLE`：告诉生成器“这是一个表”
@@ -57,11 +57,14 @@ type User struct {
 
 | 产物 | 例子 | 用途 |
 | --- | --- | --- |
-| 表和列元数据 | `TableUserCols`, `User_ID`, `User_Name` | 用来构建类型安全查询 |
-| CRUD / 查询助手 | `GetUserByID`, `ListUser`, `PageUser` | 常见读写路径直接用 |
+| 表和列元数据 | `User__Cols`, `User_ID`, `User_Name` | 用来构建类型安全查询 |
+| CRUD / 查询助手 | `GetUserByID`, `ListUser`, `PageUser` | 常见读写路径直接用，查询初始化失败时会显式返回错误 |
 | 表注册逻辑 | `RegisterTable`, `Init` 所需元数据 | 让运行时知道这个表的结构 |
 
 如果定义了 `@RESULT`，则会额外生成 `*_result_tsq.go`。
+
+生成代码里的静态查询会在包初始化时准备，但不会因为初始化失败直接把进程打崩。  
+现在的约定是：**helper 在真正被调用时返回初始化错误**，调用方按普通错误处理即可。
 
 ## 3. `QueryBuilder`：拼 SQL 的主路径
 
@@ -69,7 +72,7 @@ type User struct {
 
 ```go
 query, err := tsq.
-	Select(database.TableUserCols...).
+	Select(database.User__Cols...).
 	From(database.TableUser).
 	Where(database.User_Name.Contains("alice")).
 	OrderBy(database.User_ID.Desc()).
@@ -82,7 +85,17 @@ query, err := tsq.
 - 收集过滤、排序、分组、联接等信息
 - 在 `Build()` 时生成最终 SQL 和参数
 
+如果你从同一个中间 builder 再继续链式调用两次，后续分支不会共享同一个可变状态；  
+真正适合长期复用的对象仍然是 `Build()` 之后的 `*tsq.Query[Owner]`。
+
 你可以把 `*tsq.Query[Owner]` 理解为“已经准备好执行的 SQL + args”，其中 `Owner` 是扫描目标。
+
+这里要特别区分两层校验：
+
+- `Build()` 负责 **结构正确性**：owner 绑定、子句顺序、投影列、子查询形状等
+- 真正执行时负责 **方言能力正确性**：例如 CTE、`FULL JOIN`、`INTERSECT` 是否被当前 executor dialect 支持
+
+之所以不把所有校验都放进 `Build()`，是因为同一个 `*tsq.Query` 可以被多个 runtime / registry / executor 复用，而这些执行入口未必共享同一种 dialect。
 
 如果把一个查询拿去当子查询用，也沿用这条规则：`Build()` 后得到的是 `*tsq.Query[Owner]`。其中：
 
@@ -129,14 +142,14 @@ type UserOrder struct {
 
 生成后你通常会得到像 `PageUserOrder(...)` 这样的助手。
 
-## 6. `tsq.DbMap` / `SqlExecutor`：执行查询时的数据库上下文
+## 6. `tsq.Engine` / `SQLExecutor`：执行查询时的数据库上下文
 
-TSQ 执行查询时需要一个 `DbMap`：
+TSQ 执行查询时需要一个 `Engine`：
 
 ```go
-dbmap := &tsq.DbMap{
-	Db:      db,
-	Dialect: tsq.SqliteDialect{},
+engine := &tsq.Engine{
+	DB:      db,
+	Dialect: tsq.SQLiteDialect{},
 }
 ```
 
@@ -147,12 +160,22 @@ dbmap := &tsq.DbMap{
 
 执行时像 `tsq.List(...)`、`tsq.Get(...)`、`query.Count64(...)` 都会用到它。
 
-底层执行接口是 `SqlExecutor`。这里最重要的约定有两点：
+这也是为什么 TSQ 把一部分能力校验放在执行阶段：**真正决定 SQL 方言边界的是 executor / engine，而不是 Build 阶段的 QueryBuilder。**
+
+底层执行接口是 `SQLExecutor`。这里最重要的约定有三点：
 
 1. 所有执行方法都显式接收 `ctx context.Context`
-2. mutation 方法只面向 `Table`，而扫描辅助方法保留对标量 / ad-hoc struct 的灵活性
+2. `SQLExecutor` 只保留 `QueryContext` / `QueryRowContext` / `ExecContext` 这组 `database/sql` 共有方法
+3. 表级 mutation helper 也直接接收 `SQLExecutor`
 
-也就是说，像 `Query / QueryRow / Exec / Insert` 这类方法都直接把 `ctx` 放在第一个参数，不再通过 `WithContext(...)` 返回副本 executor。
+也就是说，查询和生成的 CRUD helper 都可以直接复用 `*sql.DB` / `*sql.Tx` 这类标准库入口；如果你需要方言感知的占位符或引用规则，也可以用 `tsq.Engine` 或 `tsq.WrapExecutor(...)` 提供方言信息。
+
+对于 `ChunkedInsert` / `ChunkedUpdate` / `ChunkedDelete` 这类 helper，也沿用同一个原则：**TSQ 不替调用方决定事务边界。**
+
+- 传普通 DB / Engine：允许 chunk 之间分别生效
+- 传 `*sql.Tx` / 基于事务的 Engine：让整个 chunked 流程参与同一个事务
+
+这不是缺少事务支持，而是把“是否需要原子性”的决定权留给调用方。
 
 ## 7. `Runtime`：表注册和隔离
 
@@ -177,14 +200,17 @@ rt := tsq.NewRuntime()
 | 概念 | 解决的问题 | 什么时候需要 |
 | --- | --- | --- |
 | `PageReq` | 列表页分页、排序、关键词搜索 | HTTP API / 后台列表 |
-| `InVar()` | 执行时传入动态切片参数 | `WHERE id IN (?)` 这类场景 |
+| `InVar()` | 执行时传入动态切片参数；空 / nil 切片表示显式不匹配 | `WHERE id IN (?)` 这类场景 |
 | `WithTable()` | 把列重绑定到别名表或 CTE | 自连接、别名联表、CTE 外层引用 |
 
 ## 9. 最容易混淆的两个边界
 
-### `Where(...)` 和 `KwSearch(...)` 不是 append
+### `Where(...)` 和 `Search(...)` 不是 append
 
-它们都会覆盖之前的设置；要继续追加条件，用 `And(...)`。
+它们都只能设置一次。
+
+- `Where(cond1, cond2)` / `Search(col1, col2)` 的多个参数会按 `AND` 组合
+- 需要 `OR` 时请显式使用 `tsq.Or(...)`
 
 ### `EscapeKeywordSearch(...)` 不是 SQL 注入防护
 

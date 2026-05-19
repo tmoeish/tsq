@@ -34,7 +34,7 @@ func newQueryBuilderForTest[O Owner](spec QuerySpec[O]) *QueryBuilder[O] {
 
 func TestErrUnknownSortField(t *testing.T) {
 	field := "unknown_field"
-	err := NewErrUnknownSortField(field)
+	err := newErrUnknownSortField(field)
 
 	if err.field != field {
 		t.Errorf("Expected field '%s', got '%s'", field, err.field)
@@ -48,7 +48,7 @@ func TestErrUnknownSortField(t *testing.T) {
 
 func TestErrAmbiguousSortField(t *testing.T) {
 	field := "id"
-	err := NewErrAmbiguousSortField(field)
+	err := newErrAmbiguousSortField(field)
 
 	if err.field != field {
 		t.Errorf("Expected field '%s', got '%s'", field, err.field)
@@ -63,7 +63,7 @@ func TestErrAmbiguousSortField(t *testing.T) {
 func TestErrOrderCountMismatch(t *testing.T) {
 	orderBys := 3
 	orders := 2
-	err := NewErrOrderCountMismatch(orderBys, orders)
+	err := newErrOrderCountMismatch(orderBys, orders)
 
 	if err.orderBys != orderBys {
 		t.Errorf("Expected orderBys %d, got %d", orderBys, err.orderBys)
@@ -87,20 +87,20 @@ func TestQuery_SQLAccessors(t *testing.T) {
 		kwListSQL: "SELECT * FROM users WHERE name LIKE ?",
 	}
 
-	if query.CntSQL() != "SELECT COUNT(*) FROM users" {
-		t.Errorf("Expected CntSQL 'SELECT COUNT(*) FROM users', got '%s'", query.CntSQL())
+	if query.CountSQL() != "SELECT COUNT(*) FROM users" {
+		t.Errorf("Expected CountSQL 'SELECT COUNT(*) FROM users', got '%s'", query.CountSQL())
 	}
 
 	if query.ListSQL() != "SELECT * FROM users" {
 		t.Errorf("Expected ListSQL 'SELECT * FROM users', got '%s'", query.ListSQL())
 	}
 
-	if query.KwCntSQL() != "SELECT COUNT(*) FROM users WHERE name LIKE ?" {
-		t.Errorf("Expected KwCntSQL 'SELECT COUNT(*) FROM users WHERE name LIKE ?', got '%s'", query.KwCntSQL())
+	if query.KeywordCountSQL() != "SELECT COUNT(*) FROM users WHERE name LIKE ?" {
+		t.Errorf("Expected KeywordCountSQL 'SELECT COUNT(*) FROM users WHERE name LIKE ?', got '%s'", query.KeywordCountSQL())
 	}
 
-	if query.KwListSQL() != "SELECT * FROM users WHERE name LIKE ?" {
-		t.Errorf("Expected KwListSQL 'SELECT * FROM users WHERE name LIKE ?', got '%s'", query.KwListSQL())
+	if query.KeywordListSQL() != "SELECT * FROM users WHERE name LIKE ?" {
+		t.Errorf("Expected KeywordListSQL 'SELECT * FROM users WHERE name LIKE ?', got '%s'", query.KeywordListSQL())
 	}
 }
 
@@ -152,7 +152,7 @@ func TestQueryBuilder_Build_Success(t *testing.T) {
 	}
 
 	// Check that SQL statements are not empty
-	if query.CntSQL() == "" {
+	if query.CountSQL() == "" {
 		t.Error("Expected non-empty CntSQL")
 	}
 
@@ -160,11 +160,11 @@ func TestQueryBuilder_Build_Success(t *testing.T) {
 		t.Error("Expected non-empty ListSQL")
 	}
 
-	if query.KwCntSQL() == "" {
+	if query.KeywordCountSQL() == "" {
 		t.Error("Expected non-empty KwCntSQL")
 	}
 
-	if query.KwListSQL() == "" {
+	if query.KeywordListSQL() == "" {
 		t.Error("Expected non-empty KwListSQL")
 	}
 }
@@ -181,7 +181,7 @@ func TestQueryBuilder_Build_FullJoinDefersDialectValidationToExecution(t *testin
 		t.Fatalf("expected FULL JOIN build to succeed, got %v", err)
 	}
 
-	db := newSQLiteIndexTestDBMap(t)
+	db := newSQLiteIndexTestEngine(t)
 	err = validateOperationalExecutorForSQL(db, query.listSQL)
 	if err == nil {
 		t.Fatal("expected sqlite dialect validation to reject FULL JOIN")
@@ -189,6 +189,44 @@ func TestQueryBuilder_Build_FullJoinDefersDialectValidationToExecution(t *testin
 
 	if !strings.Contains(err.Error(), "FULL JOIN") {
 		t.Fatalf("expected FULL JOIN dialect error, got %v", err)
+	}
+}
+
+func TestQueryBuilder_Build_ForUpdateDefersDialectValidationToExecution(t *testing.T) {
+	users := newMockTable("users")
+	userID := newColForTable[Table, string](users, "id", "id", nil)
+
+	query, err := Select(userID).
+		From(userID.Table()).
+		ForUpdate().
+		Build()
+	if err != nil {
+		t.Fatalf("expected FOR UPDATE build to succeed, got %v", err)
+	}
+
+	db := newSQLiteIndexTestEngine(t)
+	err = validateOperationalExecutorForSQL(db, query.listSQL)
+	if err == nil {
+		t.Fatal("expected sqlite dialect validation to reject FOR UPDATE")
+	}
+	if !strings.Contains(err.Error(), "FOR UPDATE") {
+		t.Fatalf("expected FOR UPDATE dialect error, got %v", err)
+	}
+}
+
+func TestQueryBuilder_Build_ForShareNoWaitDefersDialectValidationToExecution(t *testing.T) {
+	db := newInVarEngine(t)
+	db.Dialect = MySQLDialect{}
+	users := newMockTable("users")
+	userID := newColForTable[Table, string](users, "id", "id", nil)
+
+	query := mustBuild(Select(userID).
+		From(userID.Table()).
+		ForShare().
+		NoWait())
+
+	if err := validateOperationalExecutorForSQL(db, query.listSQL); err != nil {
+		t.Fatalf("expected mysql dialect validation to allow FOR SHARE NOWAIT, got %v", err)
 	}
 }
 
@@ -218,8 +256,28 @@ func TestQueryBuilder_Build_SetOperationPaginationUsesOutputColumnNames(t *testi
 	}
 }
 
+func TestQueryBuilder_Build_PageSQLPlacesLockAfterLimit(t *testing.T) {
+	users := newMockTable("users")
+	userID := newMockColumn(users, "id")
+
+	query := mustBuild(Select(userID).
+		From(userID.Table()).
+		ForUpdate().
+		SkipLocked())
+	page := &PageReq{Page: 1, Size: 10}
+
+	_, listSQL, err := query.buildPageSQLs(page)
+	if err != nil {
+		t.Fatalf("expected page SQL build to succeed, got %v", err)
+	}
+
+	if !strings.HasSuffix(listSQL, "LIMIT ? OFFSET ?\nFOR UPDATE SKIP LOCKED") {
+		t.Fatalf("expected lock clause after LIMIT/OFFSET, got %q", listSQL)
+	}
+}
+
 func TestQueryBuilder_Build_CTEExecutionOnSQLite(t *testing.T) {
-	db := newInVarDBMap(t)
+	db := newInVarEngine(t)
 	users := newMockTable("users")
 	idCol := newColForTable[inVarUser, int64](users, "id", "id", toScanPointer(func(holder *inVarUser) *int64 { return &holder.ID }))
 	nameCol := newColForTable[inVarUser, string](users, "name", "name", toScanPointer(func(holder *inVarUser) *string { return &holder.Name }))
@@ -245,7 +303,7 @@ func TestQueryBuilder_Build_CTEExecutionOnSQLite(t *testing.T) {
 		t.Fatalf("unexpected CTE rows returned: %#v", rows)
 	}
 
-	count, err := query.Count64(context.Background(), db, []int64{1, 2, 3})
+	count, err := query.Count(context.Background(), db, []int64{1, 2, 3})
 	if err != nil {
 		t.Fatalf("expected CTE count query to execute, got %v", err)
 	}
@@ -256,7 +314,7 @@ func TestQueryBuilder_Build_CTEExecutionOnSQLite(t *testing.T) {
 }
 
 func TestQueryBuilder_Build_CTEDefersDialectValidationToExecution(t *testing.T) {
-	db := newInVarDBMap(t)
+	db := newInVarEngine(t)
 	db.Dialect = MySQLDialect{}
 
 	users := newMockTable("users")
@@ -277,7 +335,7 @@ func TestQueryBuilder_Build_CTEDefersDialectValidationToExecution(t *testing.T) 
 }
 
 func TestQueryBuilder_Build_IntersectDefersDialectValidationToExecution(t *testing.T) {
-	db := newInVarDBMap(t)
+	db := newInVarEngine(t)
 	db.Dialect = MySQLDialect{}
 
 	users := newMockTable("users")
@@ -297,7 +355,7 @@ func TestQueryBuilder_Build_IntersectDefersDialectValidationToExecution(t *testi
 }
 
 func TestQueryBuilder_Build_ExceptDefersDialectValidationToExecution(t *testing.T) {
-	db := newInVarDBMap(t)
+	db := newInVarEngine(t)
 	db.Dialect = MySQLDialect{}
 
 	users := newMockTable("users")
@@ -317,7 +375,7 @@ func TestQueryBuilder_Build_ExceptDefersDialectValidationToExecution(t *testing.
 }
 
 func TestQueryBuilder_Build_MinusDefersDialectValidationToExecution(t *testing.T) {
-	db := newInVarDBMap(t)
+	db := newInVarEngine(t)
 	db.Dialect = MySQLDialect{}
 
 	err := validateOperationalExecutorForSQL(db, "SELECT 1 MINUS SELECT 1")
@@ -338,10 +396,10 @@ type caseUser struct {
 func (caseUser) TSQOwner() {}
 
 func TestQueryBuilder_Build_CaseExecutionOnSQLite(t *testing.T) {
-	db := newInVarDBMap(t)
+	db := newInVarEngine(t)
 	users := newMockTable("users")
 	idCol := newColForTable[caseUser, int64](users, "id", "id", toScanPointer(func(holder *caseUser) *int64 { return &holder.ID }))
-	nameLabel := Into[caseUser](Case[string]().
+	nameLabel := MapInto[caseUser](Case[string]().
 		When(idCol.GT(1), "member").
 		Else("owner").
 		End(), func(holder *caseUser) *string { return &holder.Label }, "label")
@@ -461,12 +519,12 @@ func TestErrorTypes_Interfaces(t *testing.T) {
 	var _ error = &ErrOrderCountMismatch{}
 
 	// Test that they can be created and used
-	err1 := NewErrUnknownSortField("test")
+	err1 := newErrUnknownSortField("test")
 	if err1 == nil {
 		t.Error("Expected non-nil error")
 	}
 
-	err2 := NewErrOrderCountMismatch(1, 2)
+	err2 := newErrOrderCountMismatch(1, 2)
 	if err2 == nil {
 		t.Error("Expected non-nil error")
 	}
@@ -476,40 +534,40 @@ func TestQuery_EmptySQL(t *testing.T) {
 	query := &Query[queryOwner]{}
 
 	// Test that empty SQL strings are returned correctly
-	if query.CntSQL() != "" {
-		t.Errorf("Expected empty CntSQL, got '%s'", query.CntSQL())
+	if query.CountSQL() != "" {
+		t.Errorf("Expected empty CountSQL, got '%s'", query.CountSQL())
 	}
 
 	if query.ListSQL() != "" {
 		t.Errorf("Expected empty ListSQL, got '%s'", query.ListSQL())
 	}
 
-	if query.KwCntSQL() != "" {
-		t.Errorf("Expected empty KwCntSQL, got '%s'", query.KwCntSQL())
+	if query.KeywordCountSQL() != "" {
+		t.Errorf("Expected empty KeywordCountSQL, got '%s'", query.KeywordCountSQL())
 	}
 
-	if query.KwListSQL() != "" {
-		t.Errorf("Expected empty KwListSQL, got '%s'", query.KwListSQL())
+	if query.KeywordListSQL() != "" {
+		t.Errorf("Expected empty KeywordListSQL, got '%s'", query.KeywordListSQL())
 	}
 }
 
 func TestNilQuery_SQLAccessorsReturnEmptyStrings(t *testing.T) {
 	var query *Query[queryOwner]
 
-	if query.CntSQL() != "" {
-		t.Errorf("Expected empty CntSQL for nil query, got %q", query.CntSQL())
+	if query.CountSQL() != "" {
+		t.Errorf("Expected empty CountSQL for nil query, got %q", query.CountSQL())
 	}
 
 	if query.ListSQL() != "" {
 		t.Errorf("Expected empty ListSQL for nil query, got %q", query.ListSQL())
 	}
 
-	if query.KwCntSQL() != "" {
-		t.Errorf("Expected empty KwCntSQL for nil query, got %q", query.KwCntSQL())
+	if query.KeywordCountSQL() != "" {
+		t.Errorf("Expected empty KeywordCountSQL for nil query, got %q", query.KeywordCountSQL())
 	}
 
-	if query.KwListSQL() != "" {
-		t.Errorf("Expected empty KwListSQL for nil query, got %q", query.KwListSQL())
+	if query.KeywordListSQL() != "" {
+		t.Errorf("Expected empty KeywordListSQL for nil query, got %q", query.KeywordListSQL())
 	}
 }
 
@@ -679,7 +737,7 @@ func TestQuery_BuildKeywordQueriesTrackDedicatedMarkers(t *testing.T) {
 
 	query := mustBuild(Select(userID, userName).
 		From(userID.Table()).
-		KwSearch(userID, userName))
+		Search(userID, userName))
 
 	if got := len(query.kwListArgs); got != 2 {
 		t.Fatalf("expected 2 keyword list args, got %d", got)
@@ -738,6 +796,68 @@ func TestResolveQueryExpandsEmptyExternalSliceArgsToNull(t *testing.T) {
 
 	if len(args) != 0 {
 		t.Fatalf("expected empty slice to contribute no args, got %#v", args)
+	}
+}
+
+func TestResolveQueryResolvesExternalArgsWithoutRewritingSQL(t *testing.T) {
+	sqlText, args, err := resolveQuery(
+		`SELECT * FROM "users" WHERE "users"."id" = ? AND "users"."name" LIKE ?`,
+		[]any{externalArgMarker, keywordArgMarker},
+		[]any{int64(7)},
+		"alice",
+	)
+	if err != nil {
+		t.Fatalf("expected resolveQuery to resolve non-slice markers, got %v", err)
+	}
+
+	if want := `SELECT * FROM "users" WHERE "users"."id" = ? AND "users"."name" LIKE ?`; sqlText != want {
+		t.Fatalf("expected SQL %q, got %q", want, sqlText)
+	}
+
+	if want := []any{int64(7), "%alice%"}; len(args) != len(want) || args[0] != want[0] || args[1] != want[1] {
+		t.Fatalf("unexpected resolved args: %#v", args)
+	}
+}
+
+func TestFlattenExternalSliceArgFastPaths(t *testing.T) {
+	values, err := flattenExternalSliceArg([]int64{1, 2, 3})
+	if err != nil {
+		t.Fatalf("expected []int64 fast path to succeed, got %v", err)
+	}
+	if want := []any{int64(1), int64(2), int64(3)}; len(values) != len(want) || values[0] != want[0] || values[1] != want[1] || values[2] != want[2] {
+		t.Fatalf("unexpected flattened []int64 values: %#v", values)
+	}
+
+	values, err = flattenExternalSliceArg([]string{"a", "b"})
+	if err != nil {
+		t.Fatalf("expected []string fast path to succeed, got %v", err)
+	}
+	if want := []any{"a", "b"}; len(values) != len(want) || values[0] != want[0] || values[1] != want[1] {
+		t.Fatalf("unexpected flattened []string values: %#v", values)
+	}
+
+	ints := []int{4, 5}
+	values, err = flattenExternalSliceArg(&ints)
+	if err != nil {
+		t.Fatalf("expected *[]int fast path to succeed, got %v", err)
+	}
+	if want := []any{4, 5}; len(values) != len(want) || values[0] != want[0] || values[1] != want[1] {
+		t.Fatalf("unexpected flattened *[]int values: %#v", values)
+	}
+}
+
+func TestExpandSlicePlaceholdersUsesCache(t *testing.T) {
+	if got := expandSlicePlaceholders(0); got != "NULL" {
+		t.Fatalf("expected NULL placeholder for empty slice, got %q", got)
+	}
+
+	if got := expandSlicePlaceholders(3); got != "?, ?, ?" {
+		t.Fatalf("expected cached placeholder expansion, got %q", got)
+	}
+
+	large := expandSlicePlaceholders(slicePlaceholderCacheMax + 1)
+	if strings.Count(large, "?") != slicePlaceholderCacheMax+1 {
+		t.Fatalf("expected %d placeholders, got %q", slicePlaceholderCacheMax+1, large)
 	}
 }
 
@@ -849,7 +969,7 @@ func TestPageFnRejectsNilQuery(t *testing.T) {
 }
 
 func TestQueryCountRejectsTypedNilExecutor(t *testing.T) {
-	var db *DbMap
+	var db *Engine
 
 	users := newMockTable("users")
 	userID := newMockColumn(users, "id")
@@ -866,7 +986,7 @@ func TestQueryCountRejectsTypedNilExecutor(t *testing.T) {
 }
 
 func TestInsertRejectsTypedNilExecutor(t *testing.T) {
-	var db *DbMap
+	var db *Engine
 
 	row := mockTable{tableName: "users"}
 
@@ -881,7 +1001,7 @@ func TestInsertRejectsTypedNilExecutor(t *testing.T) {
 }
 
 func TestInsertRejectsNilItem(t *testing.T) {
-	db := &DbMap{}
+	db := &Engine{}
 
 	var value *mockTable
 
@@ -896,7 +1016,7 @@ func TestInsertRejectsNilItem(t *testing.T) {
 }
 
 func TestUpdateRejectsNilItem(t *testing.T) {
-	db := &DbMap{}
+	db := &Engine{}
 
 	var value *mockTable
 
@@ -911,7 +1031,7 @@ func TestUpdateRejectsNilItem(t *testing.T) {
 }
 
 func TestDeleteRejectsNilItem(t *testing.T) {
-	db := &DbMap{}
+	db := &Engine{}
 
 	var value *mockTable
 
@@ -926,7 +1046,7 @@ func TestDeleteRejectsNilItem(t *testing.T) {
 }
 
 func TestChunkedInsertRejectsTypedNilExecutor(t *testing.T) {
-	var db *DbMap
+	var db *Engine
 
 	row := mockTable{tableName: "users"}
 
@@ -941,7 +1061,7 @@ func TestChunkedInsertRejectsTypedNilExecutor(t *testing.T) {
 }
 
 func TestQueryCountRejectsExecutorWithoutDialectForRenderedSQL(t *testing.T) {
-	db := newDBMapWithoutDialect(t)
+	db := newEngineWithoutDialect(t)
 	users := newMockTable("users")
 	userID := newColForTable[Table, int](users, "id", "id", nil)
 	query := mustBuild(Select(userID).From(userID.Table()))
@@ -957,7 +1077,7 @@ func TestQueryCountRejectsExecutorWithoutDialectForRenderedSQL(t *testing.T) {
 }
 
 func TestChunkedDeleteByIDsRejectsExecutorWithoutDialectForRenderedSQL(t *testing.T) {
-	db := newDBMapWithoutDialect(t)
+	db := newEngineWithoutDialect(t)
 
 	err := ChunkedDeleteByIDs(context.Background(), db, "users", "id", []any{1})
 	if err == nil {
@@ -970,7 +1090,7 @@ func TestChunkedDeleteByIDsRejectsExecutorWithoutDialectForRenderedSQL(t *testin
 }
 
 func TestValidateExecutorForSQLIgnoresMarkersInsideStringsAndComments(t *testing.T) {
-	db := &DbMap{}
+	db := &Engine{}
 	rawSQL := "SELECT 1 /* " + identifierMarkerPrefix + "ignored_comment" + identifierMarkerSuffix + " */" +
 		" WHERE note = '" + identifierMarkerPrefix + "ignored_string" + identifierMarkerSuffix + "'" +
 		" -- " + identifierMarkerPrefix + "ignored_tail" + identifierMarkerSuffix + "\n"
@@ -981,7 +1101,7 @@ func TestValidateExecutorForSQLIgnoresMarkersInsideStringsAndComments(t *testing
 }
 
 func TestValidateExecutorForSQLIgnoresMarkersInsideDollarQuotedStrings(t *testing.T) {
-	db := &DbMap{}
+	db := &Engine{}
 	rawSQL := "SELECT $$" + identifierMarkerPrefix + "ignored_marker" + identifierMarkerSuffix + "$$"
 
 	if err := validateExecutorForSQL(db, rawSQL); err != nil {
@@ -990,7 +1110,7 @@ func TestValidateExecutorForSQLIgnoresMarkersInsideDollarQuotedStrings(t *testin
 }
 
 func TestValidateExecutorForSQLRejectsBindVarsWithoutDialect(t *testing.T) {
-	db := &DbMap{}
+	db := &Engine{}
 
 	if err := validateExecutorForSQL(db, "SELECT ?"); err == nil {
 		t.Fatal("expected bind vars without a known dialect to return an error")
@@ -998,7 +1118,7 @@ func TestValidateExecutorForSQLRejectsBindVarsWithoutDialect(t *testing.T) {
 }
 
 func TestValidateExecutorForSQLIgnoresBindVarsInsideStringsCommentsAndDollarQuotes(t *testing.T) {
-	db := &DbMap{}
+	db := &Engine{}
 	rawSQL := "SELECT '?'" +
 		" /* ? */" +
 		" WHERE note = $$?$$" +
@@ -1010,7 +1130,7 @@ func TestValidateExecutorForSQLIgnoresBindVarsInsideStringsCommentsAndDollarQuot
 }
 
 func TestChunkedDeleteByIDsRejectsNilIDs(t *testing.T) {
-	db := &DbMap{Dialect: SqliteDialect{}}
+	db := &Engine{Dialect: SQLiteDialect{}}
 
 	err := ChunkedDeleteByIDs(context.Background(), db, "users", "id", []any{1, nil})
 	if err == nil {
@@ -1035,7 +1155,7 @@ type inVarUser struct {
 
 func (inVarUser) TSQOwner() {}
 
-func newScanValidationDBMap(t *testing.T) *DbMap {
+func newScanValidationEngine(t *testing.T) *Engine {
 	t.Helper()
 
 	db, err := sql.Open("sqlite3", ":memory:")
@@ -1051,10 +1171,10 @@ func newScanValidationDBMap(t *testing.T) *DbMap {
 		t.Fatalf("failed to create users table: %v", err)
 	}
 
-	return &DbMap{Db: db, Dialect: SqliteDialect{}}
+	return &Engine{DB: db, Dialect: SQLiteDialect{}}
 }
 
-func newInVarDBMap(t *testing.T) *DbMap {
+func newInVarEngine(t *testing.T) *Engine {
 	t.Helper()
 
 	db, err := sql.Open("sqlite3", ":memory:")
@@ -1073,10 +1193,10 @@ func newInVarDBMap(t *testing.T) *DbMap {
 		t.Fatalf("failed to seed users table: %v", err)
 	}
 
-	return &DbMap{Db: db, Dialect: SqliteDialect{}}
+	return &Engine{DB: db, Dialect: SQLiteDialect{}}
 }
 
-func newDBMapWithoutDialect(t *testing.T) *DbMap {
+func newEngineWithoutDialect(t *testing.T) *Engine {
 	t.Helper()
 
 	db, err := sql.Open("sqlite3", ":memory:")
@@ -1088,11 +1208,11 @@ func newDBMapWithoutDialect(t *testing.T) *DbMap {
 		_ = db.Close()
 	})
 
-	return &DbMap{Db: db}
+	return &Engine{DB: db}
 }
 
 func TestListValidatesScanDestEvenWhenResultIsEmpty(t *testing.T) {
-	db := newScanValidationDBMap(t)
+	db := newScanValidationEngine(t)
 	col := newColForTable[scanDestUser, string](newMockTable("users"), "name", "name", nil)
 	query := &Query[scanDestUser]{
 		cntSQL:     "SELECT COUNT(1) FROM users",
@@ -1111,7 +1231,7 @@ func TestListValidatesScanDestEvenWhenResultIsEmpty(t *testing.T) {
 }
 
 func TestListSupportsInVarSlices(t *testing.T) {
-	db := newInVarDBMap(t)
+	db := newInVarEngine(t)
 	users := newMockTable("users")
 	idCol := newColForTable[inVarUser, int64](users, "id", "id", toScanPointer(func(holder *inVarUser) *int64 { return &holder.ID }))
 	nameCol := newColForTable[inVarUser, string](users, "name", "name", toScanPointer(func(holder *inVarUser) *string { return &holder.Name }))
@@ -1132,7 +1252,7 @@ func TestListSupportsInVarSlices(t *testing.T) {
 		t.Fatalf("unexpected rows returned: %#v", rows)
 	}
 
-	count, err := query.Count64(context.Background(), db, []int64{1, 3})
+	count, err := query.Count(context.Background(), db, []int64{1, 3})
 	if err != nil {
 		t.Fatalf("expected InVar count query to execute, got %v", err)
 	}
@@ -1143,7 +1263,7 @@ func TestListSupportsInVarSlices(t *testing.T) {
 }
 
 func TestPageValidatesScanDestEvenWhenResultIsEmpty(t *testing.T) {
-	db := newScanValidationDBMap(t)
+	db := newScanValidationEngine(t)
 	col := newColForTable[scanDestUser, string](newMockTable("users"), "name", "name", nil)
 	query := &Query[scanDestUser]{
 		cntSQL:     "SELECT COUNT(1) FROM users",
@@ -1301,67 +1421,61 @@ func TestValidateIdentifierLength(t *testing.T) {
 	tests := []struct {
 		name       string
 		identifier string
-		dialect    string
+		dialect    Dialect
 		wantErr    bool
 	}{
 		{
 			name:       "valid identifier - mysql",
 			identifier: "users",
-			dialect:    "mysql",
+			dialect:    MySQLDialect{},
 			wantErr:    false,
 		},
 		{
 			name:       "valid identifier - postgres",
 			identifier: "users",
-			dialect:    "postgres",
+			dialect:    PostgresDialect{},
 			wantErr:    false,
 		},
 		{
 			name:       "max length postgres (63)",
 			identifier: "a" + strings.Repeat("b", 62),
-			dialect:    "postgres",
+			dialect:    PostgresDialect{},
 			wantErr:    false,
 		},
 		{
 			name:       "exceeds max postgres (64 > 63)",
 			identifier: strings.Repeat("a", 64),
-			dialect:    "postgres",
+			dialect:    PostgresDialect{},
 			wantErr:    true,
 		},
 		{
 			name:       "max length mysql (64)",
 			identifier: strings.Repeat("a", 64),
-			dialect:    "mysql",
+			dialect:    MySQLDialect{},
 			wantErr:    false,
 		},
 		{
 			name:       "exceeds max mysql (65 > 64)",
 			identifier: strings.Repeat("a", 65),
-			dialect:    "mysql",
-			wantErr:    true,
-		},
-		{
-			name:       "exceeds oracle limit (31 > 30)",
-			identifier: strings.Repeat("a", 31),
-			dialect:    "oracle",
+			dialect:    MySQLDialect{},
 			wantErr:    true,
 		},
 		{
 			name:       "sqlite has no limit",
 			identifier: strings.Repeat("a", 200),
-			dialect:    "sqlite",
+			dialect:    SQLiteDialect{},
 			wantErr:    false,
 		},
 		{
 			name:       "empty identifier",
 			identifier: "",
-			dialect:    "mysql",
+			dialect:    MySQLDialect{},
 			wantErr:    true,
 		},
 		{
-			name:       "unknown dialect skips validation",
+			name:       "nil dialect skips length validation",
 			identifier: strings.Repeat("a", 100),
-			dialect:    "unknown",
+			dialect:    nil,
 			wantErr:    false,
 		},
 	}
@@ -1370,7 +1484,7 @@ func TestValidateIdentifierLength(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			err := ValidateIdentifierLength(tt.identifier, tt.dialect)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("ValidateIdentifierLength(%q, %q) error = %v, wantErr %v", tt.identifier, tt.dialect, err, tt.wantErr)
+				t.Errorf("ValidateIdentifierLength(%q, %T) error = %v, wantErr %v", tt.identifier, tt.dialect, err, tt.wantErr)
 			}
 		})
 	}
@@ -1380,59 +1494,59 @@ func TestValidateIdentifierForDialect(t *testing.T) {
 	tests := []struct {
 		name       string
 		identifier string
-		dialect    string
+		dialect    Dialect
 		wantErr    bool
 		errContent string
 	}{
 		{
 			name:       "valid identifier - mysql",
 			identifier: "users",
-			dialect:    "mysql",
+			dialect:    MySQLDialect{},
 			wantErr:    false,
 		},
 		{
 			name:       "valid identifier - postgres",
 			identifier: "users_table",
-			dialect:    "postgres",
+			dialect:    PostgresDialect{},
 			wantErr:    false,
 		},
 		{
 			name:       "starts with underscore",
 			identifier: "_internal",
-			dialect:    "mysql",
+			dialect:    MySQLDialect{},
 			wantErr:    false,
 		},
 		{
 			name:       "invalid - starts with number",
 			identifier: "123users",
-			dialect:    "mysql",
+			dialect:    MySQLDialect{},
 			wantErr:    true,
 			errContent: "invalid SQL identifier",
 		},
 		{
 			name:       "invalid - contains hyphen",
 			identifier: "user-table",
-			dialect:    "mysql",
+			dialect:    MySQLDialect{},
 			wantErr:    true,
 			errContent: "invalid SQL identifier",
 		},
 		{
 			name:       "exceeds postgres limit",
 			identifier: strings.Repeat("a", 64),
-			dialect:    "postgres",
+			dialect:    PostgresDialect{},
 			wantErr:    true,
 			errContent: "exceeds",
 		},
 		{
 			name:       "at mysql limit (64)",
 			identifier: strings.Repeat("x", 64),
-			dialect:    "mysql",
+			dialect:    MySQLDialect{},
 			wantErr:    false,
 		},
 		{
 			name:       "empty identifier",
 			identifier: "",
-			dialect:    "mysql",
+			dialect:    MySQLDialect{},
 			wantErr:    true,
 			errContent: "cannot be empty",
 		},
@@ -1442,11 +1556,11 @@ func TestValidateIdentifierForDialect(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			err := ValidateIdentifierForDialect(tt.identifier, tt.dialect)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("ValidateIdentifierForDialect(%q, %q) error = %v, wantErr %v", tt.identifier, tt.dialect, err, tt.wantErr)
+				t.Errorf("ValidateIdentifierForDialect(%q, %T) error = %v, wantErr %v", tt.identifier, tt.dialect, err, tt.wantErr)
 				return
 			}
 			if tt.wantErr && tt.errContent != "" && !strings.Contains(err.Error(), tt.errContent) {
-				t.Errorf("ValidateIdentifierForDialect(%q, %q) error message %q should contain %q", tt.identifier, tt.dialect, err.Error(), tt.errContent)
+				t.Errorf("ValidateIdentifierForDialect(%q, %T) error message %q should contain %q", tt.identifier, tt.dialect, err.Error(), tt.errContent)
 			}
 		})
 	}

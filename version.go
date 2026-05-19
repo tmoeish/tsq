@@ -9,21 +9,21 @@ import (
 // 版本信息变量
 // ================================================
 
-// Version 是构建时通过 ldflags 注入的版本信息
-// 使用方式: go build -ldflags "-X github.com/tmoeish/tsq/v4.Version=v4.0.1"
-var Version = "v4.0.1"
+// version 是构建时通过 ldflags 注入的版本信息。
+// 使用方式: go build -ldflags "-X github.com/tmoeish/tsq/v4.version=v4.0.2"
+var version = "v4.0.2"
 
-// BuildTime 是构建时通过 ldflags 注入的构建时间
-// 使用方式: go build -ldflags "-X github.com/tmoeish/tsq/v4.BuildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-var BuildTime = "unknown"
+// buildTime 是构建时通过 ldflags 注入的构建时间。
+// 使用方式: go build -ldflags "-X github.com/tmoeish/tsq/v4.buildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+var buildTime = "unknown"
 
-// GitCommit 是构建时通过 ldflags 注入的 Git 提交哈希
-// 使用方式: go build -ldflags "-X github.com/tmoeish/tsq/v4.GitCommit=$(git rev-parse HEAD)"
-var GitCommit = "unknown"
+// gitCommit 是构建时通过 ldflags 注入的 Git 提交哈希。
+// 使用方式: go build -ldflags "-X github.com/tmoeish/tsq/v4.gitCommit=$(git rev-parse HEAD)"
+var gitCommit = "unknown"
 
-// GitBranch 是构建时通过 ldflags 注入的 Git 分支名
-// 使用方式: go build -ldflags "-X github.com/tmoeish/tsq/v4.GitBranch=$(git rev-parse --abbrev-ref HEAD)"
-var GitBranch = "unknown"
+// gitBranch 是构建时通过 ldflags 注入的 Git 分支名。
+// 使用方式: go build -ldflags "-X github.com/tmoeish/tsq/v4.gitBranch=$(git rev-parse --abbrev-ref HEAD)"
+var gitBranch = "unknown"
 
 // ================================================
 // 版本信息结构体
@@ -46,31 +46,31 @@ type VersionInfo struct {
 
 // GetVersion returns the current version string
 func GetVersion() string {
-	return Version
+	return version
 }
 
 // GetBuildTime returns the build time string
 func GetBuildTime() string {
-	return BuildTime
+	return buildTime
 }
 
 // GetGitCommit returns the git commit hash
 func GetGitCommit() string {
-	return GitCommit
+	return gitCommit
 }
 
 // GetGitBranch returns the git branch name
 func GetGitBranch() string {
-	return GitBranch
+	return gitBranch
 }
 
 // GetVersionInfo returns comprehensive version information
 func GetVersionInfo() *VersionInfo {
 	return &VersionInfo{
-		Version:   Version,
-		BuildTime: BuildTime,
-		GitCommit: GitCommit,
-		GitBranch: GitBranch,
+		Version:   version,
+		BuildTime: buildTime,
+		GitCommit: gitCommit,
+		GitBranch: gitBranch,
 		GoVersion: runtime.Version(),
 		Platform:  runtime.GOOS,
 		Arch:      runtime.GOARCH,
@@ -99,18 +99,4 @@ func (v *VersionInfo) ShortString() string {
 	}
 
 	return fmt.Sprintf("TSQ %s", v.Version)
-}
-
-// ================================================
-// 便捷函数
-// ================================================
-
-// PrintVersion prints version information to stdout
-func PrintVersion() {
-	fmt.Println(GetVersionInfo().String())
-}
-
-// PrintVersionJSON prints version information as JSON to stdout
-func PrintVersionJSON() {
-	fmt.Println(PrettyJSON(GetVersionInfo()))
 }

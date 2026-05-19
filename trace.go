@@ -3,31 +3,30 @@ package tsq
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"reflect"
 	"sync"
 	"time"
-
-	"github.com/juju/errors"
 )
 
+// MaxTracers bounds the number of tracers retained by a runtime.
 const MaxTracers = 100
 
-// Fn represents a function that can be traced.
+// Fn is the traced function shape used by Tracer.
 type Fn func(ctx context.Context) error
 
-// Tracer is a middleware function that wraps another function for tracing/monitoring.
+// Tracer wraps a function call with tracing behavior.
 type Tracer func(next Fn) Fn
 
-// TraceManager stores and executes tracers.
-type TraceManager struct {
+type traceManager struct {
 	mu        sync.RWMutex
 	restoreMu sync.Mutex
 	tracers   []Tracer
 }
 
-func NewTraceManager() *TraceManager {
-	return &TraceManager{}
+func newTraceManager() *traceManager {
+	return &traceManager{}
 }
 
 // AddTracer adds a tracer to the default trace manager.
@@ -45,7 +44,7 @@ func GetTracers() []Tracer {
 	return defaultRuntime.GetTracers()
 }
 
-func (m *TraceManager) Add(tracer Tracer) {
+func (m *traceManager) Add(tracer Tracer) {
 	if tracer == nil {
 		return
 	}
@@ -64,7 +63,7 @@ func (m *TraceManager) Add(tracer Tracer) {
 	m.tracers = append(m.tracers, tracer)
 }
 
-func (m *TraceManager) AddUnique(tracers ...Tracer) {
+func (m *traceManager) AddUnique(tracers ...Tracer) {
 	m.restoreMu.Lock()
 	defer m.restoreMu.Unlock()
 
@@ -96,18 +95,18 @@ func (m *TraceManager) AddUnique(tracers ...Tracer) {
 	}
 }
 
-func (m *TraceManager) Clear() {
+func (m *traceManager) Clear() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	m.tracers = nil
 }
 
-func (m *TraceManager) Get() []Tracer {
+func (m *traceManager) Get() []Tracer {
 	return m.snapshot()
 }
 
-func (m *TraceManager) snapshot() []Tracer {
+func (m *traceManager) snapshot() []Tracer {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -117,7 +116,7 @@ func (m *TraceManager) snapshot() []Tracer {
 	return result
 }
 
-func (m *TraceManager) restore(snapshot []Tracer) {
+func (m *traceManager) restore(snapshot []Tracer) {
 	m.restoreMu.Lock()
 	defer m.restoreMu.Unlock()
 
@@ -127,7 +126,7 @@ func (m *TraceManager) restore(snapshot []Tracer) {
 	m.tracers = append([]Tracer(nil), snapshot...)
 }
 
-func (m *TraceManager) Trace(ctx context.Context, fn func(ctx context.Context) error) error {
+func (m *traceManager) Trace(ctx context.Context, fn func(ctx context.Context) error) error {
 	if fn == nil {
 		return errors.New("trace function cannot be nil")
 	}
@@ -146,7 +145,7 @@ func (m *TraceManager) Trace(ctx context.Context, fn func(ctx context.Context) e
 	return wrappedFn(ctx)
 }
 
-func traceManagerTrace1[T any](m *TraceManager, ctx context.Context, fn func(ctx context.Context) (T, error)) (T, error) {
+func traceManagerTrace1[T any](m *traceManager, ctx context.Context, fn func(ctx context.Context) (T, error)) (T, error) {
 	if fn == nil {
 		var zero T
 		return zero, errors.New("trace function cannot be nil")
@@ -166,7 +165,7 @@ func traceManagerTrace1[T any](m *TraceManager, ctx context.Context, fn func(ctx
 
 		result, err = fn(ctx)
 		if err != nil {
-			return errors.Trace(err)
+			return err
 		}
 
 		return nil
@@ -176,17 +175,18 @@ func traceManagerTrace1[T any](m *TraceManager, ctx context.Context, fn func(ctx
 		wrappedFn = tracers[i](wrappedFn)
 	}
 
-	return result, errors.Trace(wrappedFn(ctx))
+	return result, wrappedFn(ctx)
 }
 
 // Trace executes a function with all registered tracers applied.
 func Trace(ctx context.Context, fn func(ctx context.Context) error) error {
-	return errors.Trace(defaultRuntime.Trace(ctx, fn))
+	return defaultRuntime.Trace(ctx, fn)
 }
 
+// Trace1 executes fn with all registered tracers applied and returns its typed result.
 func Trace1[T any](ctx context.Context, fn func(ctx context.Context) (T, error)) (T, error) {
-	result, err := Trace1WithRuntime(defaultRuntime, ctx, fn)
-	return result, errors.Trace(err)
+	result, err := trace1WithRuntime(defaultRuntime, ctx, fn)
+	return result, err
 }
 
 func appendUniqueTracers(existing []Tracer, newTracers ...Tracer) []Tracer {
@@ -230,6 +230,7 @@ func tracerIdentity(tracer Tracer) uintptr {
 	return reflect.ValueOf(tracer).Pointer()
 }
 
+// PrintCost logs how long the wrapped call took.
 func PrintCost(next Fn) Fn {
 	return func(ctx context.Context) error {
 		start := time.Now()
@@ -237,23 +238,24 @@ func PrintCost(next Fn) Fn {
 
 		duration := time.Since(start)
 		if err != nil {
-			slog.Info("cost", "duration", duration, "error", errors.ErrorStack(err))
+			slog.Info("cost", "duration", duration, "error", err)
 		} else {
 			slog.Info("cost", "duration", duration)
 		}
 
-		return errors.Trace(err)
+		return err
 	}
 }
 
+// PrintError logs the wrapped error, if any.
 func PrintError(next Fn) Fn {
 	return func(ctx context.Context) error {
 		err := next(ctx)
 		if err != nil {
-			slog.Error("error", "error", errors.ErrorStack(err))
+			slog.Error("error", "error", err)
 		}
 
-		return errors.Trace(err)
+		return err
 	}
 }
 
@@ -263,9 +265,10 @@ const (
 	printSQL contextKey = "printSQL"
 )
 
+// PrintSQL marks the context so query helpers log SQL and args.
 func PrintSQL(next Fn) Fn {
 	return func(ctx context.Context) error {
-		return errors.Trace(next(context.WithValue(ctx, printSQL, true)))
+		return next(context.WithValue(ctx, printSQL, true))
 	}
 }
 

@@ -1,19 +1,22 @@
-// Package tsq provides type-safe SQL query helpers and code generation utilities.
 package tsq
 
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
+	"errors"
 	"fmt"
+	"log/slog"
 	"reflect"
 	"strconv"
 	"strings"
 	"sync"
-
-	"github.com/juju/errors"
 )
 
 var (
+	errSQLExecutorNil              = errors.New("sql executor cannot be nil")
+	errEngineNil                   = errors.New("engine cannot be nil")
+	errEngineDatabaseNil           = errors.New("engine database cannot be nil")
 	errInsertRequiresColumn        = errors.New("insert requires at least one column")
 	errInsertLayoutMismatch        = errors.New("batch insert requires matching column layouts")
 	errUpdateRequiresMutableColumn = errors.New("update requires at least one mutable column")
@@ -21,35 +24,152 @@ var (
 	errUpdateLayoutMismatch        = errors.New("batch update requires matching column layouts")
 	errDeleteRequiresPrimaryKey    = errors.New("delete requires a non-zero primary key")
 	errMutationItemNil             = errors.New("mutation item cannot be nil")
-	errMutationItemTableMethod     = errors.New("mutation item must implement Table() string")
 	errMutationItemPointer         = errors.New("mutation item must be a non-nil pointer")
 	errMutationItemStructPointer   = errors.New("mutation item must point to a struct")
 	errMutationItemNoTaggedFields  = errors.New("mutation item has no db-tagged fields")
 )
 
-// SqlExecutor defines tsq's low-level execution surface.
-// It exists for handwritten SQL fallbacks and to centralize common table
-// mutation helpers, not for gorp compatibility.
-type SqlExecutor interface {
-	Query(ctx context.Context, query string, args ...any) (*sql.Rows, error)
-	QueryRow(ctx context.Context, query string, args ...any) *sql.Row
-	Exec(ctx context.Context, query string, args ...any) (sql.Result, error)
+// ErrOptimisticLockConflict reports that a version-guarded mutation matched fewer
+// rows than expected.
+type ErrOptimisticLockConflict struct {
+	table    string
+	expected int
+	actual   int64
+}
 
-	SelectInt(ctx context.Context, query string, args ...any) (int64, error)
-	SelectNullInt(ctx context.Context, query string, args ...any) (sql.NullInt64, error)
-	SelectFloat(ctx context.Context, query string, args ...any) (float64, error)
-	SelectNullFloat(ctx context.Context, query string, args ...any) (sql.NullFloat64, error)
-	SelectStr(ctx context.Context, query string, args ...any) (string, error)
-	SelectNullStr(ctx context.Context, query string, args ...any) (sql.NullString, error)
+// Error implements error.
+func (e *ErrOptimisticLockConflict) Error() string {
+	if e == nil {
+		return "optimistic lock conflict"
+	}
 
+	if e.table == "" {
+		return fmt.Sprintf(
+			"optimistic lock conflict: expected %d row(s) to match, updated %d",
+			e.expected,
+			e.actual,
+		)
+	}
+
+	return fmt.Sprintf(
+		"optimistic lock conflict on %s: expected %d row(s) to match, updated %d",
+		e.table,
+		e.expected,
+		e.actual,
+	)
+}
+
+// Is reports whether target is an optimistic lock conflict.
+func (e *ErrOptimisticLockConflict) Is(target error) bool {
+	_, ok := target.(*ErrOptimisticLockConflict)
+	return ok
+}
+
+type errorRowContextKey struct{}
+
+type errorRowDriver struct{}
+
+type errorRowConn struct{}
+
+var (
+	errorRowDBOnce sync.Once
+	errorRowDB     *sql.DB
+)
+
+func (errorRowDriver) Open(string) (driver.Conn, error) {
+	return errorRowConn{}, nil
+}
+
+func (errorRowConn) Prepare(string) (driver.Stmt, error) {
+	return nil, errors.New("prepare is not supported")
+}
+
+func (errorRowConn) Close() error {
+	return nil
+}
+
+func (errorRowConn) Begin() (driver.Tx, error) {
+	return nil, errors.New("transactions are not supported")
+}
+
+func (errorRowConn) QueryContext(ctx context.Context, _ string, _ []driver.NamedValue) (driver.Rows, error) {
+	if err, ok := ctx.Value(errorRowContextKey{}).(error); ok && err != nil {
+		return nil, err
+	}
+
+	return nil, errors.New("missing query row error")
+}
+
+func (errorRowConn) CheckNamedValue(*driver.NamedValue) error {
+	return nil
+}
+
+func errorQueryRow(ctx context.Context, err error) *sql.Row {
+	errorRowDBOnce.Do(func() {
+		sql.Register("tsq-error-row", errorRowDriver{})
+
+		db, openErr := sql.Open("tsq-error-row", "")
+		if openErr != nil {
+			panic(openErr)
+		}
+		errorRowDB = db
+	})
+
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	return errorRowDB.QueryRowContext(context.WithValue(ctx, errorRowContextKey{}, err), "SELECT 1")
+}
+
+func engineExecutionError(engine *Engine) error {
+	if engine == nil {
+		return errEngineNil
+	}
+
+	if engine.DB == nil {
+		return errEngineDatabaseNil
+	}
+
+	return nil
+}
+
+// SQLExecutor defines the shared query execution surface implemented by
+// database/sql entry points such as *sql.DB and *sql.Tx.
+// The standard library does not provide this exact interface, so tsq defines
+// the minimal Context-based method set it needs.
+type SQLExecutor interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
+type mutationExecutor interface {
 	Insert(ctx context.Context, dst ...Table) error
 	Update(ctx context.Context, dst ...Table) (int64, error)
 	Delete(ctx context.Context, dst ...Table) (int64, error)
 }
 
-// Dialect defines the interface for database dialect-specific operations.
-// It mirrors the Dialect interface but is owned by tsq.
+type sqlMutationExecutor struct {
+	exec SQLExecutor
+}
+
+func (m sqlMutationExecutor) Insert(ctx context.Context, dst ...Table) error {
+	return insertTables(ctx, m.exec, dst...)
+}
+
+func (m sqlMutationExecutor) Update(ctx context.Context, dst ...Table) (int64, error) {
+	return updateTables(ctx, m.exec, dst...)
+}
+
+func (m sqlMutationExecutor) Delete(ctx context.Context, dst ...Table) (int64, error) {
+	return deleteTables(ctx, m.exec, dst...)
+}
+
+// Dialect defines the operations tsq needs from a SQL dialect.
 type Dialect interface {
+	// Name returns the stable tsq dialect name.
+	Name() DialectName
 	// QuoteField returns the dialect-specific quoted identifier
 	QuoteField(field string) string
 	// BindVar returns the dialect-specific bind variable placeholder
@@ -74,13 +194,36 @@ type Dialect interface {
 	CreateTableIfNotExistsSuffix() string
 	// HasConstraintsQuery returns the dialect-specific query to check constraints
 	HasConstraintsQuery(string, string) string
+	// ValidateIdentifier validates a SQL identifier for this dialect.
+	ValidateIdentifier(identifier string) error
+	// SupportsCapability reports whether this dialect supports the named SQL capability.
+	SupportsCapability(capability DialectCapability) bool
+	// BatchInsertStartID returns the first ID assigned by a multi-row insert when it can be derived.
+	BatchInsertStartID(lastID, rowsAffected int64) (int64, bool)
+	// EnsureIndex creates an index for this dialect.
+	EnsureIndex(db *Engine, table string, unique bool, idx string, fields []string) error
+	// InspectIndexDefinition returns the current definition of an existing index.
+	InspectIndexDefinition(db *Engine, table, idx string) (IndexDefinition, bool, error)
+	// DDLColumnType returns the SQL type for a column descriptor.
+	DDLColumnType(desc DDLColumnType) string
+	// DDLAutoIncrementPrimaryKey renders an auto-increment primary key column definition.
+	DDLAutoIncrementPrimaryKey(quotedColumn string, desc DDLColumnType) (string, error)
+	// DDLCreateIndex renders the dialect-specific index creation statement.
+	DDLCreateIndex(table, idx string, fields []string, unique bool) string
+	// DDLDropIndex renders the dialect-specific index drop statement.
+	DDLDropIndex(table, idx string) string
+	// DDLAlterColumnMode reports how this dialect applies column changes.
+	DDLAlterColumnMode() DDLAlterColumnMode
+	// DDLAlterColumnStatements renders direct ALTER COLUMN statements for this dialect.
+	DDLAlterColumnStatements(table string, before, after DDLColumnSpec) []string
 }
 
-// DbMap represents a database map that holds database connection and dialect information.
-// It mirrors the DbMap structure but is owned by tsq.
-type DbMap struct {
-	Db      *sql.DB
-	Dialect Dialect
+// Engine couples a *sql.DB with the dialect rules tsq should use for it.
+type Engine struct {
+	DB             *sql.DB
+	Dialect        Dialect
+	schemaConfigMu sync.RWMutex
+	schemaConfig   dbSchemaConfig
 }
 
 type dbSchemaConfig struct {
@@ -88,25 +231,27 @@ type dbSchemaConfig struct {
 	schemaEventHandler func(SchemaEvent)
 }
 
-var dbSchemaConfigs sync.Map
-
 func defaultDBSchemaConfig() dbSchemaConfig {
 	return dbSchemaConfig{indexInitMode: IndexInitUpsert}
 }
 
-func loadDBSchemaConfig(db *DbMap) dbSchemaConfig {
+func loadDBSchemaConfig(db *Engine) dbSchemaConfig {
 	if db == nil {
 		return defaultDBSchemaConfig()
 	}
 
-	if cfg, ok := dbSchemaConfigs.Load(db); ok {
-		return cfg.(dbSchemaConfig)
+	db.schemaConfigMu.RLock()
+	cfg := db.schemaConfig
+	db.schemaConfigMu.RUnlock()
+
+	if cfg.indexInitMode != "" || cfg.schemaEventHandler != nil {
+		return cfg
 	}
 
 	return defaultDBSchemaConfig()
 }
 
-func storeDBSchemaConfig(db *DbMap, cfg dbSchemaConfig) {
+func storeDBSchemaConfig(db *Engine, cfg dbSchemaConfig) {
 	if db == nil {
 		return
 	}
@@ -116,109 +261,56 @@ func storeDBSchemaConfig(db *DbMap, cfg dbSchemaConfig) {
 	}
 
 	if cfg.indexInitMode == IndexInitUpsert && cfg.schemaEventHandler == nil {
-		dbSchemaConfigs.Delete(db)
+		db.schemaConfigMu.Lock()
+		db.schemaConfig = dbSchemaConfig{}
+		db.schemaConfigMu.Unlock()
+
 		return
 	}
 
-	dbSchemaConfigs.Store(db, cfg)
+	db.schemaConfigMu.Lock()
+	db.schemaConfig = cfg
+	db.schemaConfigMu.Unlock()
 }
 
-// Query executes a query and returns rows.
-func (db *DbMap) Query(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
-	if db == nil || db.Db == nil {
-		return nil, nil
-	}
-
-	rows, err := db.Db.QueryContext(ctx, query, args...)
-
-	return rows, errors.Trace(err)
-}
-
-// QueryRow executes a query that returns a single row.
-func (db *DbMap) QueryRow(ctx context.Context, query string, args ...any) *sql.Row {
-	if db == nil || db.Db == nil {
+// TSQDialect exposes the Engine dialect for SQL rendering and validation.
+func (e *Engine) TSQDialect() Dialect {
+	if e == nil {
 		return nil
 	}
 
-	return db.Db.QueryRowContext(ctx, query, args...)
+	return e.Dialect
 }
 
-// Exec executes a query without returning rows.
-func (db *DbMap) Exec(ctx context.Context, query string, args ...any) (sql.Result, error) {
-	if db == nil || db.Db == nil {
-		return nil, nil
+// QueryContext executes a query and returns rows.
+func (e *Engine) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	if err := engineExecutionError(e); err != nil {
+		return nil, err
 	}
 
-	res, err := db.Db.ExecContext(ctx, query, args...)
+	rows, err := e.DB.QueryContext(ctx, query, args...)
 
-	return res, errors.Trace(err)
+	return rows, err
 }
 
-// SelectInt executes a query and returns a single integer result.
-func (db *DbMap) SelectInt(ctx context.Context, query string, args ...any) (int64, error) {
-	var result sql.NullInt64
-
-	err := db.QueryRow(ctx, query, args...).Scan(&result)
-	if err != nil {
-		return 0, errors.Trace(err)
+// QueryRowContext executes a query that returns a single row.
+func (e *Engine) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
+	if err := engineExecutionError(e); err != nil {
+		return errorQueryRow(ctx, err)
 	}
 
-	return result.Int64, nil
+	return e.DB.QueryRowContext(ctx, query, args...)
 }
 
-// SelectNullInt executes a query and returns a nullable integer result.
-func (db *DbMap) SelectNullInt(ctx context.Context, query string, args ...any) (sql.NullInt64, error) {
-	var result sql.NullInt64
-	err := db.QueryRow(ctx, query, args...).Scan(&result)
-
-	return result, errors.Trace(err)
-}
-
-// SelectFloat executes a query and returns a single float result.
-func (db *DbMap) SelectFloat(ctx context.Context, query string, args ...any) (float64, error) {
-	var result sql.NullFloat64
-
-	err := db.QueryRow(ctx, query, args...).Scan(&result)
-	if err != nil {
-		return 0, errors.Trace(err)
+// ExecContext executes a query without returning rows.
+func (e *Engine) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	if err := engineExecutionError(e); err != nil {
+		return nil, err
 	}
 
-	return result.Float64, nil
-}
+	res, err := e.DB.ExecContext(ctx, query, args...)
 
-// SelectNullFloat executes a query and returns a nullable float result.
-func (db *DbMap) SelectNullFloat(ctx context.Context, query string, args ...any) (sql.NullFloat64, error) {
-	var result sql.NullFloat64
-	err := db.QueryRow(ctx, query, args...).Scan(&result)
-
-	return result, errors.Trace(err)
-}
-
-// SelectStr executes a query and returns a single string result.
-func (db *DbMap) SelectStr(ctx context.Context, query string, args ...any) (string, error) {
-	var result sql.NullString
-
-	err := db.QueryRow(ctx, query, args...).Scan(&result)
-	if err != nil {
-		return "", errors.Trace(err)
-	}
-
-	return result.String, nil
-}
-
-// SelectNullStr executes a query and returns a nullable string result.
-func (db *DbMap) SelectNullStr(ctx context.Context, query string, args ...any) (sql.NullString, error) {
-	var result sql.NullString
-	err := db.QueryRow(ctx, query, args...).Scan(&result)
-
-	return result, errors.Trace(err)
-}
-
-// CreateTablesIfNotExists creates all tables if they don't exist.
-func (db *DbMap) CreateTablesIfNotExists() error {
-	// This is typically used during initialization
-	// Implementation depends on registered tables
-	return nil
+	return res, err
 }
 
 type mutationField struct {
@@ -227,41 +319,55 @@ type mutationField struct {
 }
 
 type mutationRecord struct {
-	tableName string
-	fields    []mutationField
-	pkField   mutationField
-	autoIncr  bool
+	tableName    string
+	fields       []mutationField
+	pkField      mutationField
+	versionField mutationField
+	autoIncr     bool
 }
 
 // Insert inserts objects into the database.
-func (db *DbMap) Insert(ctx context.Context, dst ...Table) error {
+func (e *Engine) Insert(ctx context.Context, dst ...Table) error {
+	return insertTables(ctx, e, dst...)
+}
+
+// Update updates objects in the database.
+func (e *Engine) Update(ctx context.Context, dst ...Table) (int64, error) {
+	return updateTables(ctx, e, dst...)
+}
+
+// Delete deletes objects from the database.
+func (e *Engine) Delete(ctx context.Context, dst ...Table) (int64, error) {
+	return deleteTables(ctx, e, dst...)
+}
+
+func insertTables(ctx context.Context, exec SQLExecutor, dst ...Table) error {
 	records, err := collectMutationRecords(dst)
 	if err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
 	for _, group := range groupInsertRecords(records) {
-		if err := db.insertBatch(ctx, group); err != nil {
-			return errors.Trace(err)
+		if err := insertBatch(ctx, exec, group); err != nil {
+			return err
 		}
 	}
 
 	return nil
 }
 
-// Update updates objects in the database.
-func (db *DbMap) Update(ctx context.Context, dst ...Table) (int64, error) {
+func updateTables(ctx context.Context, exec SQLExecutor, dst ...Table) (int64, error) {
 	records, err := collectMutationRecords(dst)
 	if err != nil {
-		return 0, errors.Trace(err)
+		return 0, err
 	}
 
 	var total int64
 
 	for _, group := range groupUpdateRecords(records) {
-		affected, err := db.updateBatch(ctx, group)
+		affected, err := updateBatch(ctx, exec, group)
 		if err != nil {
-			return total, errors.Trace(err)
+			return total, err
 		}
 
 		total += affected
@@ -270,19 +376,18 @@ func (db *DbMap) Update(ctx context.Context, dst ...Table) (int64, error) {
 	return total, nil
 }
 
-// Delete deletes objects from the database.
-func (db *DbMap) Delete(ctx context.Context, dst ...Table) (int64, error) {
+func deleteTables(ctx context.Context, exec SQLExecutor, dst ...Table) (int64, error) {
 	records, err := collectMutationRecords(dst)
 	if err != nil {
-		return 0, errors.Trace(err)
+		return 0, err
 	}
 
 	var total int64
 
 	for _, group := range groupDeleteRecords(records) {
-		affected, err := db.deleteBatch(ctx, group)
+		affected, err := deleteBatch(ctx, exec, group)
 		if err != nil {
-			return total, errors.Trace(err)
+			return total, err
 		}
 
 		total += affected
@@ -297,7 +402,7 @@ func collectMutationRecords(dst []Table) ([]mutationRecord, error) {
 	for _, item := range dst {
 		record, err := mutationMetadata(item)
 		if err != nil {
-			return nil, errors.Trace(err)
+			return nil, err
 		}
 
 		records = append(records, record)
@@ -348,33 +453,33 @@ func groupMutationRecords(records []mutationRecord, keyFn func(mutationRecord) s
 	return groups
 }
 
-func (db *DbMap) insertBatch(ctx context.Context, records []mutationRecord) error {
+func insertBatch(ctx context.Context, exec SQLExecutor, records []mutationRecord) error {
 	if len(records) == 0 {
 		return nil
 	}
 
 	insertFields := insertFieldsForRecord(records[0])
 	if len(insertFields) == 0 {
-		return errors.Trace(errInsertRequiresColumn)
+		return errInsertRequiresColumn
 	}
 
 	for _, record := range records[1:] {
 		if !mutationFieldColumnsEqual(insertFields, insertFieldsForRecord(record)) {
-			return errors.Trace(errInsertLayoutMismatch)
+			return errInsertLayoutMismatch
 		}
 	}
 
-	tableSQL, err := db.quoteMutationIdentifier(records[0].tableName)
+	tableSQL, err := quoteMutationIdentifier(exec, records[0].tableName)
 	if err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
 	quotedCols := make([]string, 0, len(insertFields))
 
 	for _, field := range insertFields {
-		col, err := db.quoteMutationIdentifier(field.column)
+		col, err := quoteMutationIdentifier(exec, field.column)
 		if err != nil {
-			return errors.Trace(err)
+			return err
 		}
 
 		quotedCols = append(quotedCols, col)
@@ -391,7 +496,7 @@ func (db *DbMap) insertBatch(ctx context.Context, records []mutationRecord) erro
 		placeholders := make([]string, 0, len(recordFields))
 
 		for _, field := range recordFields {
-			placeholders = append(placeholders, db.nextBindVar(&argIndex))
+			placeholders = append(placeholders, nextBindVar(exec, &argIndex))
 			args = append(args, field.value.Interface())
 		}
 
@@ -405,44 +510,54 @@ func (db *DbMap) insertBatch(ctx context.Context, records []mutationRecord) erro
 		strings.Join(valueClauses, ", "),
 	)
 
-	result, err := db.Exec(ctx, query, args...)
+	result, err := exec.ExecContext(ctx, query, args...)
 	if err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
-	assignBatchInsertIDs(db, records, result, len(insertFields) != len(records[0].fields))
+	assignBatchInsertIDs(exec, records, result, len(insertFields) != len(records[0].fields))
 
 	return nil
 }
 
-func (db *DbMap) updateBatch(ctx context.Context, records []mutationRecord) (int64, error) {
+func updateBatch(ctx context.Context, exec SQLExecutor, records []mutationRecord) (int64, error) {
 	if len(records) == 0 {
 		return 0, nil
 	}
 
 	updateFields := updateFieldsForRecord(records[0])
 	if len(updateFields) == 0 {
-		return 0, errors.Trace(errUpdateRequiresMutableColumn)
+		return 0, errUpdateRequiresMutableColumn
 	}
 
 	for _, record := range records {
 		if isZeroMutationValue(record.pkField.value) {
-			return 0, errors.Trace(errUpdateRequiresPrimaryKey)
+			return 0, errUpdateRequiresPrimaryKey
 		}
 
 		if !mutationFieldColumnsEqual(updateFields, updateFieldsForRecord(record)) {
-			return 0, errors.Trace(errUpdateLayoutMismatch)
+			return 0, errUpdateLayoutMismatch
 		}
 	}
 
-	tableSQL, err := db.quoteMutationIdentifier(records[0].tableName)
+	tableSQL, err := quoteMutationIdentifier(exec, records[0].tableName)
 	if err != nil {
-		return 0, errors.Trace(err)
+		return 0, err
 	}
 
-	pkSQL, err := db.quoteMutationIdentifier(records[0].pkField.column)
+	pkSQL, err := quoteMutationIdentifier(exec, records[0].pkField.column)
 	if err != nil {
-		return 0, errors.Trace(err)
+		return 0, err
+	}
+
+	hasOptimisticLock := hasOptimisticMutation(records[0])
+
+	versionSQL := ""
+	if hasOptimisticLock {
+		versionSQL, err = quoteMutationIdentifier(exec, records[0].versionField.column)
+		if err != nil {
+			return 0, err
+		}
 	}
 
 	var (
@@ -452,9 +567,9 @@ func (db *DbMap) updateBatch(ctx context.Context, records []mutationRecord) (int
 	)
 
 	for _, field := range updateFields {
-		colSQL, err := db.quoteMutationIdentifier(field.column)
+		colSQL, err := quoteMutationIdentifier(exec, field.column)
 		if err != nil {
-			return 0, errors.Trace(err)
+			return 0, err
 		}
 
 		var clause strings.Builder
@@ -466,9 +581,9 @@ func (db *DbMap) updateBatch(ctx context.Context, records []mutationRecord) (int
 			recordField := mutationFieldByColumn(record.fields, field.column)
 
 			clause.WriteString(" WHEN ")
-			clause.WriteString(db.nextBindVar(&argIndex))
+			clause.WriteString(nextBindVar(exec, &argIndex))
 			clause.WriteString(" THEN ")
-			clause.WriteString(db.nextBindVar(&argIndex))
+			clause.WriteString(nextBindVar(exec, &argIndex))
 
 			args = append(args, record.pkField.value.Interface(), recordField.value.Interface())
 		}
@@ -479,112 +594,138 @@ func (db *DbMap) updateBatch(ctx context.Context, records []mutationRecord) (int
 		setClauses = append(setClauses, clause.String())
 	}
 
-	wherePlaceholders := make([]string, 0, len(records))
-	for _, record := range records {
-		wherePlaceholders = append(wherePlaceholders, db.nextBindVar(&argIndex))
-		args = append(args, record.pkField.value.Interface())
+	if hasOptimisticLock {
+		setClauses = append(setClauses, versionSQL+" = "+versionSQL+" + 1")
 	}
 
+	whereSQL, whereArgs, err := buildMutationWhereClause(exec, records, &argIndex)
+	if err != nil {
+		return 0, err
+	}
+
+	args = append(args, whereArgs...)
+
 	query := fmt.Sprintf(
-		"UPDATE %s SET %s WHERE %s IN (%s)",
+		"UPDATE %s SET %s WHERE %s",
 		tableSQL,
 		strings.Join(setClauses, ", "),
-		pkSQL,
-		strings.Join(wherePlaceholders, ", "),
+		whereSQL,
 	)
 
-	result, err := db.Exec(ctx, query, args...)
+	result, err := exec.ExecContext(ctx, query, args...)
 	if err != nil {
-		return 0, errors.Trace(err)
+		return 0, err
 	}
 
 	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
 
-	return rowsAffected, errors.Trace(err)
+	if hasOptimisticLock && rowsAffected != int64(len(records)) {
+		return rowsAffected, &ErrOptimisticLockConflict{
+			table:    records[0].tableName,
+			expected: len(records),
+			actual:   rowsAffected,
+		}
+	}
+
+	if hasOptimisticLock {
+		incrementMutationVersions(records)
+	}
+
+	return rowsAffected, nil
 }
 
-func (db *DbMap) deleteBatch(ctx context.Context, records []mutationRecord) (int64, error) {
+func deleteBatch(ctx context.Context, exec SQLExecutor, records []mutationRecord) (int64, error) {
 	if len(records) == 0 {
 		return 0, nil
 	}
 
 	for _, record := range records {
 		if isZeroMutationValue(record.pkField.value) {
-			return 0, errors.Trace(errDeleteRequiresPrimaryKey)
+			return 0, errDeleteRequiresPrimaryKey
 		}
 	}
 
-	tableSQL, err := db.quoteMutationIdentifier(records[0].tableName)
+	tableSQL, err := quoteMutationIdentifier(exec, records[0].tableName)
 	if err != nil {
-		return 0, errors.Trace(err)
+		return 0, err
 	}
 
-	pkSQL, err := db.quoteMutationIdentifier(records[0].pkField.column)
+	var argIndex int
+
+	whereSQL, args, err := buildMutationWhereClause(exec, records, &argIndex)
 	if err != nil {
-		return 0, errors.Trace(err)
-	}
-
-	var (
-		argIndex     int
-		args         = make([]any, 0, len(records))
-		placeholders = make([]string, 0, len(records))
-	)
-
-	for _, record := range records {
-		placeholders = append(placeholders, db.nextBindVar(&argIndex))
-		args = append(args, record.pkField.value.Interface())
+		return 0, err
 	}
 
 	query := fmt.Sprintf(
-		"DELETE FROM %s WHERE %s IN (%s)",
+		"DELETE FROM %s WHERE %s",
 		tableSQL,
-		pkSQL,
-		strings.Join(placeholders, ", "),
+		whereSQL,
 	)
 
-	result, err := db.Exec(ctx, query, args...)
+	result, err := exec.ExecContext(ctx, query, args...)
 	if err != nil {
-		return 0, errors.Trace(err)
+		return 0, err
 	}
 
 	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
 
-	return rowsAffected, errors.Trace(err)
+	if hasOptimisticMutation(records[0]) && rowsAffected != int64(len(records)) {
+		return rowsAffected, &ErrOptimisticLockConflict{
+			table:    records[0].tableName,
+			expected: len(records),
+			actual:   rowsAffected,
+		}
+	}
+
+	return rowsAffected, nil
 }
 
 func mutationMetadata(dst Table) (mutationRecord, error) {
 	if isNilValue(dst) {
-		return mutationRecord{}, errors.Trace(errMutationItemNil)
+		return mutationRecord{}, errMutationItemNil
 	}
 
 	value := reflect.ValueOf(dst)
 	if value.Kind() != reflect.Ptr || value.IsNil() {
-		return mutationRecord{}, errors.Trace(errMutationItemPointer)
+		return mutationRecord{}, errMutationItemPointer
 	}
 
 	if value.Elem().Kind() != reflect.Struct {
-		return mutationRecord{}, errors.Trace(errMutationItemStructPointer)
+		return mutationRecord{}, errMutationItemStructPointer
 	}
 
 	fields, err := collectMutationFields(dst)
 	if err != nil {
-		return mutationRecord{}, errors.Trace(err)
+		return mutationRecord{}, err
 	}
 
 	if len(fields) == 0 {
-		return mutationRecord{}, errors.Trace(errMutationItemNoTaggedFields)
+		return mutationRecord{}, errMutationItemNoTaggedFields
 	}
 
 	pkField, err := primaryMutationField(dst.PrimaryKeys(), fields)
 	if err != nil {
-		return mutationRecord{}, errors.Trace(err)
+		return mutationRecord{}, err
+	}
+
+	versionField, err := optimisticLockMutationField(dst.VersionColumn(), fields)
+	if err != nil {
+		return mutationRecord{}, err
 	}
 
 	return mutationRecord{
-		tableName: dst.Table(),
-		fields:    fields,
-		pkField:   pkField,
-		autoIncr:  dst.AutoIncrement(),
+		tableName:    dst.Table(),
+		fields:       fields,
+		pkField:      pkField,
+		versionField: versionField,
+		autoIncr:     dst.AutoIncrement(),
 	}, nil
 }
 
@@ -597,7 +738,7 @@ func collectMutationFields(dst Table) ([]mutationField, error) {
 
 		ptr, err := mutationFieldPointer(col, dst)
 		if err != nil {
-			return nil, errors.Trace(err)
+			return nil, err
 		}
 
 		fields = append(fields, mutationField{
@@ -625,7 +766,7 @@ func insertFieldsForRecord(record mutationRecord) []mutationField {
 func updateFieldsForRecord(record mutationRecord) []mutationField {
 	fields := make([]mutationField, 0, len(record.fields)-1)
 	for _, field := range record.fields {
-		if field.column == record.pkField.column {
+		if field.column == record.pkField.column || field.column == record.versionField.column {
 			continue
 		}
 
@@ -633,6 +774,21 @@ func updateFieldsForRecord(record mutationRecord) []mutationField {
 	}
 
 	return fields
+}
+
+func optimisticLockMutationField(column string, fields []mutationField) (mutationField, error) {
+	column = strings.TrimSpace(column)
+	if column == "" {
+		return mutationField{}, nil
+	}
+
+	for _, field := range fields {
+		if field.column == column {
+			return field, nil
+		}
+	}
+
+	return mutationField{}, fmt.Errorf("mutation item is missing optimistic lock column %s", column)
 }
 
 func mutationFieldColumns(fields []mutationField) []string {
@@ -668,6 +824,66 @@ func mutationFieldByColumn(fields []mutationField, column string) mutationField 
 	return mutationField{}
 }
 
+func hasOptimisticMutation(record mutationRecord) bool {
+	return record.versionField.column != ""
+}
+
+func buildMutationWhereClause(exec SQLExecutor, records []mutationRecord, argIndex *int) (string, []any, error) {
+	pkSQL, err := quoteMutationIdentifier(exec, records[0].pkField.column)
+	if err != nil {
+		return "", nil, err
+	}
+
+	if !hasOptimisticMutation(records[0]) {
+		placeholders := make([]string, 0, len(records))
+
+		args := make([]any, 0, len(records))
+		for _, record := range records {
+			placeholders = append(placeholders, nextBindVar(exec, argIndex))
+			args = append(args, record.pkField.value.Interface())
+		}
+
+		return pkSQL + " IN (" + strings.Join(placeholders, ", ") + ")", args, nil
+	}
+
+	versionSQL, err := quoteMutationIdentifier(exec, records[0].versionField.column)
+	if err != nil {
+		return "", nil, err
+	}
+
+	clauses := make([]string, 0, len(records))
+
+	args := make([]any, 0, len(records)*2)
+	for _, record := range records {
+		clauses = append(
+			clauses,
+			"("+pkSQL+" = "+nextBindVar(exec, argIndex)+" AND "+versionSQL+" = "+nextBindVar(exec, argIndex)+")",
+		)
+		args = append(args, record.pkField.value.Interface(), record.versionField.value.Interface())
+	}
+
+	if len(clauses) == 1 {
+		return clauses[0], args, nil
+	}
+
+	return "(" + strings.Join(clauses, " OR ") + ")", args, nil
+}
+
+func incrementMutationVersions(records []mutationRecord) {
+	for _, record := range records {
+		if !hasOptimisticMutation(record) || !record.versionField.value.IsValid() {
+			continue
+		}
+
+		switch record.versionField.value.Kind() {
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			record.versionField.value.SetInt(record.versionField.value.Int() + 1)
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+			record.versionField.value.SetUint(record.versionField.value.Uint() + 1)
+		}
+	}
+}
+
 func primaryMutationField(pkColumns []string, fields []mutationField) (mutationField, error) {
 	if len(pkColumns) != 1 {
 		return mutationField{}, errors.New("mutation item must define exactly one primary key column")
@@ -679,29 +895,29 @@ func primaryMutationField(pkColumns []string, fields []mutationField) (mutationF
 		}
 	}
 
-	return mutationField{}, errors.Errorf("mutation item is missing primary key column %s", pkColumns[0])
+	return mutationField{}, fmt.Errorf("mutation item is missing primary key column %s", pkColumns[0])
 }
 
-func (db *DbMap) quoteMutationIdentifier(name string) (string, error) {
+func quoteMutationIdentifier(exec SQLExecutor, name string) (string, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return "", errors.New("identifier cannot be empty")
 	}
 
 	if !builtInIdentifierPattern.MatchString(name) {
-		return "", errors.Errorf("invalid identifier: %s", name)
+		return "", fmt.Errorf("invalid identifier: %s", name)
 	}
 
-	if db != nil && db.Dialect != nil {
-		return db.Dialect.QuoteField(name), nil
+	if dialect := dialectForExecutor(exec); dialect != nil {
+		return dialect.QuoteField(name), nil
 	}
 
 	return name, nil
 }
 
-func (db *DbMap) bindVar(index int) string {
-	if db != nil && db.Dialect != nil {
-		return db.Dialect.BindVar(index)
+func bindVar(exec SQLExecutor, index int) string {
+	if dialect := dialectForExecutor(exec); dialect != nil {
+		return dialect.BindVar(index)
 	}
 
 	return "?"
@@ -711,9 +927,9 @@ func isZeroMutationValue(value reflect.Value) bool {
 	return value.IsZero()
 }
 
-func (db *DbMap) nextBindVar(index *int) string {
-	placeholder := db.bindVar(*index)
-	(*index)++
+func nextBindVar(exec SQLExecutor, index *int) string {
+	placeholder := bindVar(exec, *index)
+	*index++
 
 	return placeholder
 }
@@ -727,7 +943,7 @@ func assignMutationID(field reflect.Value, id int64) {
 	}
 }
 
-func assignBatchInsertIDs(db *DbMap, records []mutationRecord, result sql.Result, omittedPrimaryKey bool) {
+func assignBatchInsertIDs(exec SQLExecutor, records []mutationRecord, result sql.Result, omittedPrimaryKey bool) {
 	if !omittedPrimaryKey || len(records) == 0 {
 		return
 	}
@@ -744,17 +960,22 @@ func assignBatchInsertIDs(db *DbMap, records []mutationRecord, result sql.Result
 
 	rowsAffected, err := result.RowsAffected()
 	if err != nil || rowsAffected != int64(len(records)) {
+		slog.Warn("batch insert ID assignment skipped: rows affected mismatch",
+			"expected", len(records),
+			"actual", rowsAffected,
+			"error", err,
+		)
+
 		return
 	}
 
-	var startID int64
+	dialect := dialectForExecutor(exec)
+	if dialect == nil {
+		return
+	}
 
-	switch db.Dialect.(type) {
-	case SqliteDialect, *SqliteDialect:
-		startID = lastID - rowsAffected + 1
-	case MySQLDialect, *MySQLDialect:
-		startID = lastID
-	default:
+	startID, ok := dialect.BatchInsertStartID(lastID, rowsAffected)
+	if !ok {
 		return
 	}
 
@@ -766,139 +987,144 @@ func assignBatchInsertIDs(db *DbMap, records []mutationRecord, result sql.Result
 func mutationFieldPointer(col SQLColumn, holder Table) (any, error) {
 	pointerFunc := col.scanPointer()
 	if pointerFunc == nil {
-		return nil, errors.Errorf("column %s field pointer is nil", col.Name())
+		return nil, fmt.Errorf("column %s field pointer is nil", col.Name())
 	}
 
 	ptr := pointerFunc(holder)
 	if ptr == nil {
-		return nil, errors.Errorf("column %s field pointer returned nil", col.Name())
+		return nil, fmt.Errorf("column %s field pointer returned nil", col.Name())
 	}
 
 	value := reflect.ValueOf(ptr)
 	if !value.IsValid() || value.Kind() != reflect.Pointer || value.IsNil() {
-		return nil, errors.Errorf("column %s field pointer must return a non-nil pointer", col.Name())
+		return nil, fmt.Errorf("column %s field pointer must return a non-nil pointer", col.Name())
 	}
 
 	return ptr, nil
 }
 
-// AddTableWithName registers a table mapping (stub implementation for gorp compatibility)
-func (db *DbMap) AddTableWithName(dst any, name string) *DbMapTable {
-	// This is a stub implementation kept for gorp compatibility
-	return &DbMapTable{}
-}
+// SQLiteDialect is the SQLite dialect implementation.
+type SQLiteDialect struct{}
 
-// DbMapTable is a stub for method chaining compatibility
-type DbMapTable struct{}
-
-// SetKeys sets the primary keys (stub for gorp compatibility)
-func (t *DbMapTable) SetKeys(autoincr bool, keynames ...string) *DbMapTable {
-	return t
-}
-
-// SetVersionCol sets the version column (stub for gorp compatibility)
-func (t *DbMapTable) SetVersionCol(name string) *DbMapTable {
-	return t
-}
-
-// SqliteDialect is the SQLite dialect implementation.
-type SqliteDialect struct{}
-
-func (d SqliteDialect) QuoteField(f string) string {
+// QuoteField quotes an identifier for SQLite.
+func (d SQLiteDialect) QuoteField(f string) string {
 	return `"` + f + `"`
 }
 
-func (d SqliteDialect) BindVar(i int) string {
+// BindVar returns SQLite's placeholder at position i.
+func (d SQLiteDialect) BindVar(i int) string {
 	return "?"
 }
 
-func (d SqliteDialect) CreateTableSuffix() string {
+// CreateTableSuffix returns the SQLite CREATE TABLE suffix.
+func (d SQLiteDialect) CreateTableSuffix() string {
 	return ";"
 }
 
-func (d SqliteDialect) CreateIndexSuffix() string {
+// CreateIndexSuffix returns the SQLite CREATE INDEX suffix.
+func (d SQLiteDialect) CreateIndexSuffix() string {
 	return ";"
 }
 
-func (d SqliteDialect) DropIndexSuffix() string {
+// DropIndexSuffix returns the SQLite DROP INDEX suffix.
+func (d SQLiteDialect) DropIndexSuffix() string {
 	return ";"
 }
 
-func (d SqliteDialect) TruncateClause() string {
+// TruncateClause returns the SQLite fallback used for truncation-like behavior.
+func (d SQLiteDialect) TruncateClause() string {
 	return "DELETE FROM"
 }
 
-func (d SqliteDialect) AutoIncrementClause() string {
+// AutoIncrementClause returns SQLite's auto-increment column clause.
+func (d SQLiteDialect) AutoIncrementClause() string {
 	return "AUTOINCREMENT"
 }
 
-func (d SqliteDialect) AutoIncrementBindValue() string {
+// AutoIncrementBindValue returns the bind-time auto-increment placeholder for SQLite.
+func (d SQLiteDialect) AutoIncrementBindValue() string {
 	return ""
 }
 
-func (d SqliteDialect) LastInsertIdReturningSuffix(table, col string) string {
+// LastInsertIdReturningSuffix returns SQLite's RETURNING clause for generated ids.
+func (d SQLiteDialect) LastInsertIdReturningSuffix(table, col string) string {
 	return ""
 }
 
-func (d SqliteDialect) AllTablesQuery() string {
+// AllTablesQuery returns the SQLite query used to list tables.
+func (d SQLiteDialect) AllTablesQuery() string {
 	return "SELECT name FROM sqlite_master WHERE type='table'"
 }
 
-func (d SqliteDialect) CreateTableIfNotExistsSuffix() string {
+// CreateTableIfNotExistsSuffix returns SQLite's IF NOT EXISTS fragment.
+func (d SQLiteDialect) CreateTableIfNotExistsSuffix() string {
 	return "IF NOT EXISTS"
 }
 
-func (d SqliteDialect) HasConstraintsQuery(table, column string) string {
+// HasConstraintsQuery returns the SQLite query used to inspect column constraints.
+func (d SQLiteDialect) HasConstraintsQuery(table, column string) string {
 	return ""
 }
 
 // MySQLDialect is the MySQL dialect implementation.
 type MySQLDialect struct{}
 
+// QuoteField quotes an identifier for MySQL.
 func (d MySQLDialect) QuoteField(f string) string {
 	return "`" + f + "`"
 }
 
+// BindVar returns MySQL's placeholder at position i.
 func (d MySQLDialect) BindVar(i int) string {
 	return "?"
 }
 
+// CreateTableSuffix returns the MySQL CREATE TABLE suffix.
 func (d MySQLDialect) CreateTableSuffix() string {
 	return ";"
 }
 
+// CreateIndexSuffix returns the MySQL CREATE INDEX suffix.
 func (d MySQLDialect) CreateIndexSuffix() string {
 	return ";"
 }
 
+// DropIndexSuffix returns the MySQL DROP INDEX suffix.
 func (d MySQLDialect) DropIndexSuffix() string {
 	return ";"
 }
 
+// TruncateClause returns MySQL's TRUNCATE TABLE clause.
 func (d MySQLDialect) TruncateClause() string {
 	return "TRUNCATE"
 }
 
+// AutoIncrementClause returns MySQL's auto-increment column clause.
 func (d MySQLDialect) AutoIncrementClause() string {
 	return "AUTO_INCREMENT"
 }
 
+// AutoIncrementBindValue returns the bind-time auto-increment placeholder for MySQL.
 func (d MySQLDialect) AutoIncrementBindValue() string {
 	return ""
 }
 
+// LastInsertIdReturningSuffix returns the MySQL-specific suffix for generated ids.
 func (d MySQLDialect) LastInsertIdReturningSuffix(table, col string) string {
 	return ""
 }
 
+// AllTablesQuery returns the MySQL query used to list tables.
 func (d MySQLDialect) AllTablesQuery() string {
 	return "SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE()"
 }
 
+// CreateTableIfNotExistsSuffix returns MySQL's IF NOT EXISTS fragment.
 func (d MySQLDialect) CreateTableIfNotExistsSuffix() string {
 	return "IF NOT EXISTS"
 }
 
+// HasConstraintsQuery returns the MySQL query used to inspect column constraints.
 func (d MySQLDialect) HasConstraintsQuery(table, column string) string {
 	return ""
 }
@@ -906,58 +1132,70 @@ func (d MySQLDialect) HasConstraintsQuery(table, column string) string {
 // PostgresDialect is the PostgreSQL dialect implementation.
 type PostgresDialect struct{}
 
+// QuoteField quotes an identifier for PostgreSQL.
 func (d PostgresDialect) QuoteField(f string) string {
 	return `"` + f + `"`
 }
 
+// BindVar returns PostgreSQL's placeholder at position i.
 func (d PostgresDialect) BindVar(i int) string {
 	// PostgreSQL uses $1, $2, etc for bind variables (1-indexed)
 	return "$" + strconv.Itoa(i+1)
 }
 
+// CreateTableSuffix returns the PostgreSQL CREATE TABLE suffix.
 func (d PostgresDialect) CreateTableSuffix() string {
 	return ";"
 }
 
+// CreateIndexSuffix returns the PostgreSQL CREATE INDEX suffix.
 func (d PostgresDialect) CreateIndexSuffix() string {
 	return ";"
 }
 
+// DropIndexSuffix returns the PostgreSQL DROP INDEX suffix.
 func (d PostgresDialect) DropIndexSuffix() string {
 	return ";"
 }
 
+// TruncateClause returns PostgreSQL's TRUNCATE TABLE clause.
 func (d PostgresDialect) TruncateClause() string {
 	return "TRUNCATE"
 }
 
+// AutoIncrementClause returns PostgreSQL's identity-column clause.
 func (d PostgresDialect) AutoIncrementClause() string {
 	return ""
 }
 
+// AutoIncrementBindValue returns the bind-time auto-increment placeholder for PostgreSQL.
 func (d PostgresDialect) AutoIncrementBindValue() string {
 	return ""
 }
 
+// LastInsertIdReturningSuffix returns PostgreSQL's RETURNING clause for generated ids.
 func (d PostgresDialect) LastInsertIdReturningSuffix(table, col string) string {
 	return " RETURNING " + d.QuoteField(col)
 }
 
+// AllTablesQuery returns the PostgreSQL query used to list tables.
 func (d PostgresDialect) AllTablesQuery() string {
 	return "SELECT tablename FROM pg_catalog.pg_tables WHERE schemaname != 'pg_catalog' AND schemaname != 'information_schema'"
 }
 
+// CreateTableIfNotExistsSuffix returns PostgreSQL's IF NOT EXISTS fragment.
 func (d PostgresDialect) CreateTableIfNotExistsSuffix() string {
 	return "IF NOT EXISTS"
 }
 
+// HasConstraintsQuery returns the PostgreSQL query used to inspect column constraints.
 func (d PostgresDialect) HasConstraintsQuery(table, column string) string {
 	return ""
 }
 
 // wrappedExecutor wraps a standard SQL executor with dialect information.
 type wrappedExecutor struct {
-	SqlExecutor
+	SQLExecutor
 	dialect Dialect
 }
 
@@ -965,8 +1203,8 @@ func (w wrappedExecutor) TSQDialect() Dialect {
 	return w.dialect
 }
 
-// WrapExecutor wraps a SqlExecutor with dialect information.
-func WrapExecutor(exec SqlExecutor, dialect Dialect) SqlExecutor {
+// WrapExecutor wraps a SQLExecutor with dialect information.
+func WrapExecutor(exec SQLExecutor, dialect Dialect) SQLExecutor {
 	if exec == nil {
 		return nil
 	}
@@ -976,16 +1214,7 @@ func WrapExecutor(exec SqlExecutor, dialect Dialect) SqlExecutor {
 	}
 
 	return wrappedExecutor{
-		SqlExecutor: exec,
+		SQLExecutor: exec,
 		dialect:     dialect,
 	}
-}
-
-// WrapDBMapExecutor wraps a SqlExecutor with dialect from DbMap.
-func WrapDBMapExecutor(exec SqlExecutor, db *DbMap) SqlExecutor {
-	if db == nil {
-		return exec
-	}
-
-	return WrapExecutor(exec, db.Dialect)
 }

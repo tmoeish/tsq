@@ -59,10 +59,6 @@ func TestConditionParameterOrdering_BindingStyles(t *testing.T) {
 	_ = col.EQ(5)
 	_ = col.GT(10)
 
-	// Literal binding (value embedded in SQL)
-	_ = col.EQLiteral(5)
-	_ = col.GTLiteral(10)
-
 	// Variable binding (? placeholder, value provided at execution)
 	_ = col.EQVar()
 	_ = col.GTVar()
@@ -88,11 +84,7 @@ func TestConditionParameterOrdering_Documentation(t *testing.T) {
 	//   - Value is bound with ? placeholder
 	//   - Executes faster, safer from SQL injection
 	//
-	// Literal: Literal embedding (col.EQLiteral(value))
-	//   - Value is embedded directly in SQL
-	//   - Useful for static values known at compile time
-	//
-	// Var: Variable placeholder (col.EQVar())
+	// EQVar: Variable placeholder (col.EQVar())
 	//   - Uses ? placeholder, value provided at execution
 	//   - No parameter in method
 	//

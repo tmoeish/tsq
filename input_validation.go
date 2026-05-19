@@ -1,11 +1,11 @@
 package tsq
 
 import (
+	"errors"
+	"fmt"
 	"reflect"
 	"sort"
 	"strings"
-
-	"github.com/juju/errors"
 )
 
 type buildErrorCarrier interface {
@@ -40,7 +40,7 @@ func validateColumnInput(col SQLColumn) (Table, error) {
 	}
 
 	if carrier, ok := col.(buildErrorCarrier); ok && carrier.buildError() != nil {
-		return nil, errors.Trace(carrier.buildError())
+		return nil, carrier.buildError()
 	}
 
 	table := columnPrimaryTable(col)
@@ -48,7 +48,7 @@ func validateColumnInput(col SQLColumn) (Table, error) {
 	refs := col.referencedTables()
 	if len(refs) == 0 && isNilValue(table) {
 		if name := strings.TrimSpace(col.OutputName()); name != "" {
-			return nil, errors.Errorf("column %s must reference at least one table", name)
+			return nil, fmt.Errorf("column %s must reference at least one table", name)
 		}
 
 		return nil, errors.New("column must reference at least one table")
@@ -56,18 +56,18 @@ func validateColumnInput(col SQLColumn) (Table, error) {
 
 	if isNilValue(table) {
 		if name := strings.TrimSpace(col.OutputName()); name != "" {
-			return nil, errors.Errorf("column %s table cannot be nil", name)
+			return nil, fmt.Errorf("column %s table cannot be nil", name)
 		}
 
 		return nil, errors.New("column table cannot be nil")
 	}
 
 	if carrier, ok := table.(buildErrorCarrier); ok && carrier.buildError() != nil {
-		return nil, errors.Trace(carrier.buildError())
+		return nil, carrier.buildError()
 	}
 
 	if err := validateColumnBelongsToTable(col, table); err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	return table, nil
@@ -97,7 +97,7 @@ func validateColumnBelongsToTable(col SQLColumn, table Table) error {
 			}
 		}
 
-		return errors.Errorf("column %s does not belong to table %s", source.columnName(), table.Table())
+		return fmt.Errorf("column %s does not belong to table %s", source.columnName(), table.Table())
 	}
 
 transformed:
@@ -113,7 +113,7 @@ transformed:
 		return nil
 	}
 
-	return errors.Errorf("column %s does not belong to table %s", source.columnName(), table.Table())
+	return fmt.Errorf("column %s does not belong to table %s", source.columnName(), table.Table())
 }
 
 func tableColumns(table Table) ([]SQLColumn, bool) {
@@ -156,25 +156,25 @@ func tableColumns(table Table) ([]SQLColumn, bool) {
 
 func validateBoundColumn[O Owner](col BoundColumn[O]) error {
 	_, err := validateColumnInput(col)
-	return errors.Trace(err)
+	return err
 }
 
 func validateSearchColumn(col SearchColumn) error {
 	_, err := validateColumnInput(col)
-	return errors.Trace(err)
+	return err
 }
 
 func validateTableInput(table Table, label string) error {
 	if isNilValue(table) {
-		return errors.Errorf("%s cannot be nil", label)
+		return fmt.Errorf("%s cannot be nil", label)
 	}
 
 	if carrier, ok := table.(buildErrorCarrier); ok && carrier.buildError() != nil {
-		return errors.Trace(carrier.buildError())
+		return carrier.buildError()
 	}
 
 	if strings.TrimSpace(table.Table()) == "" {
-		return errors.Errorf("%s name cannot be empty", label)
+		return fmt.Errorf("%s name cannot be empty", label)
 	}
 
 	return nil
@@ -186,7 +186,7 @@ func validateConditionInput(cond Condition) (string, map[string]Table, []any, er
 	}
 
 	if carrier, ok := cond.(buildErrorCarrier); ok && carrier.buildError() != nil {
-		return "", nil, nil, errors.Trace(carrier.buildError())
+		return "", nil, nil, carrier.buildError()
 	}
 
 	clause := strings.TrimSpace(conditionClause(cond))
@@ -205,7 +205,7 @@ func validateConditionInput(cond Condition) (string, map[string]Table, []any, er
 				return "", nil, nil, errors.New("condition table cannot be nil")
 			}
 
-			return "", nil, nil, errors.Errorf("condition table %s cannot be nil", name)
+			return "", nil, nil, fmt.Errorf("condition table %s cannot be nil", name)
 		}
 	}
 

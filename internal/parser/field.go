@@ -1,22 +1,21 @@
 package parser
 
 import (
+	"fmt"
 	"go/ast"
 	"reflect"
 	"strings"
 
-	"github.com/juju/errors"
-
-	"github.com/tmoeish/tsq/v4"
+	"github.com/tmoeish/tsq/v4/internal/genmodel"
 )
 
 // parseNamedFields 解析具名字段
 func parseNamedFields(
-	packageAliases map[string]tsq.PackageInfo,
-	currentPkg tsq.PackageInfo,
+	packageAliases map[string]genmodel.PackageInfo,
+	currentPkg genmodel.PackageInfo,
 	structType *ast.StructType,
-) (map[string]tsq.FieldInfo, error) {
-	fields := make(map[string]tsq.FieldInfo)
+) (map[string]genmodel.FieldInfo, error) {
+	fields := make(map[string]genmodel.FieldInfo)
 
 	for _, field := range structType.Fields.List {
 		// 跳过嵌入字段（没有名称）
@@ -43,21 +42,21 @@ func parseNamedFields(
 			// 解析字段类型
 			isPointer, isArray, packagePath, typeName, err := parseFieldType(field.Type)
 			if err != nil {
-				return nil, errors.Trace(err)
+				return nil, err
 			}
 
 			// 解析字段包信息
 			typePackage, err := resolveFieldPackage(packagePath, typeName, packageAliases, currentPkg)
 			if err != nil {
-				return nil, errors.Trace(err)
+				return nil, err
 			}
 
 			// 创建字段对象
-			field := tsq.FieldInfo{
+			field := genmodel.FieldInfo{
 				Name:      fieldName,
 				IsPointer: isPointer,
 				IsArray:   isArray,
-				Type:      tsq.TypeInfo{Package: typePackage, TypeName: typeName},
+				Type:      genmodel.TypeInfo{Package: typePackage, TypeName: typeName},
 				Column:    getColumnName(fieldTags),
 				JsonTag:   getJsonTagName(fieldTags, fieldName),
 			}
@@ -143,9 +142,9 @@ func getJsonTagName(tags FieldTags, fieldName string) string {
 func resolveFieldPackage(
 	packagePath string,
 	typeName string,
-	packageAliases map[string]tsq.PackageInfo,
-	currentPkg tsq.PackageInfo,
-) (tsq.PackageInfo, error) {
+	packageAliases map[string]genmodel.PackageInfo,
+	currentPkg genmodel.PackageInfo,
+) (genmodel.PackageInfo, error) {
 	if packagePath == "" {
 		// 检查是否为原始类型
 		if _, isPrimitive := PrimitiveTypes[typeName]; !isPrimitive {
@@ -153,13 +152,13 @@ func resolveFieldPackage(
 			return currentPkg, nil
 		}
 		// 原始类型返回空包
-		return tsq.PackageInfo{}, nil
+		return genmodel.PackageInfo{}, nil
 	}
 
 	// 使用包别名解析
 	pkg, ok := packageAliases[packagePath]
 	if !ok {
-		return tsq.PackageInfo{}, errors.Errorf(
+		return genmodel.PackageInfo{}, fmt.Errorf(
 			"unknown package alias %q for field type %s",
 			packagePath,
 			typeName,
@@ -171,11 +170,11 @@ func resolveFieldPackage(
 
 // parseEmbeddedFields 解析嵌入字段
 func parseEmbeddedFields(
-	packageAliases map[string]tsq.PackageInfo,
-	currentPkg tsq.PackageInfo,
+	packageAliases map[string]genmodel.PackageInfo,
+	currentPkg genmodel.PackageInfo,
 	structType *ast.StructType,
-) (map[tsq.TypeInfo]bool, error) {
-	embeddedTypes := make(map[tsq.TypeInfo]bool)
+) (map[genmodel.TypeInfo]bool, error) {
+	embeddedTypes := make(map[genmodel.TypeInfo]bool)
 
 	for _, field := range structType.Fields.List {
 		// 只处理嵌入字段（没有名称）
@@ -186,17 +185,17 @@ func parseEmbeddedFields(
 		// 解析嵌入字段类型
 		_, _, packagePath, typeName, err := parseFieldType(field.Type)
 		if err != nil {
-			return nil, errors.Trace(err)
+			return nil, err
 		}
 
-		var embeddedType tsq.TypeInfo
+		var embeddedType genmodel.TypeInfo
 		if packagePath == "" {
-			embeddedType = tsq.TypeInfo{
+			embeddedType = genmodel.TypeInfo{
 				Package:  currentPkg,
 				TypeName: typeName,
 			}
 		} else {
-			embeddedType = tsq.TypeInfo{
+			embeddedType = genmodel.TypeInfo{
 				Package:  packageAliases[packagePath],
 				TypeName: typeName,
 			}
@@ -231,17 +230,17 @@ func parseFieldType(
 	case *ast.SelectorExpr:
 		// 选择器表达式：pkg.Type
 		isPointer, isArray, packagePath, typeName, err := parseSelectorExpr(t)
-		return isPointer, isArray, packagePath, typeName, errors.Trace(err)
+		return isPointer, isArray, packagePath, typeName, err
 
 	case *ast.ArrayType:
 		// 数组类型：[]Type
 		if _, nestedArray := t.Elt.(*ast.ArrayType); nestedArray {
-			return false, false, "", "", errors.Trace(NewFieldUnsupportedCompositionError("nested slices/arrays are not supported"))
+			return false, false, "", "", NewFieldUnsupportedCompositionError("nested slices/arrays are not supported")
 		}
 
 		isPointer, _, packagePath, typeName, err := parseFieldType(t.Elt)
 		if err != nil {
-			return false, false, "", "", errors.Trace(err)
+			return false, false, "", "", err
 		}
 
 		return isPointer, true, packagePath, typeName, nil
@@ -250,24 +249,24 @@ func parseFieldType(
 		// 指针类型：*Type
 		switch t.X.(type) {
 		case *ast.ArrayType:
-			return false, false, "", "", errors.Trace(NewFieldUnsupportedCompositionError("pointer-to-slice fields are not supported"))
+			return false, false, "", "", NewFieldUnsupportedCompositionError("pointer-to-slice fields are not supported")
 		case *ast.StarExpr:
-			return false, false, "", "", errors.Trace(NewFieldUnsupportedCompositionError("multi-level pointers are not supported"))
+			return false, false, "", "", NewFieldUnsupportedCompositionError("multi-level pointers are not supported")
 		}
 
 		_, isArray, packagePath, typeName, err := parseFieldType(t.X)
 		if err != nil {
-			return false, false, "", "", errors.Trace(err)
+			return false, false, "", "", err
 		}
 
 		if isArray {
-			return false, false, "", "", errors.Trace(NewFieldUnsupportedCompositionError("pointer-to-slice fields are not supported"))
+			return false, false, "", "", NewFieldUnsupportedCompositionError("pointer-to-slice fields are not supported")
 		}
 
 		return true, false, packagePath, typeName, nil
 
 	default:
-		return false, false, "", "", errors.Trace(NewFieldUnsupportedTypeError(t))
+		return false, false, "", "", NewFieldUnsupportedTypeError(t)
 	}
 }
 
@@ -287,5 +286,5 @@ func parseSelectorExpr(
 
 	// 如果不是简单的标识符，可能是嵌套的选择器表达式
 	// 目前不支持这种情况
-	return false, false, "", "", errors.Trace(NewFieldInvalidSelectorError(selExpr.X))
+	return false, false, "", "", NewFieldInvalidSelectorError(selExpr.X)
 }

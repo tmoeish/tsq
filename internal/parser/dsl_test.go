@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tmoeish/tsq/v4"
+	"github.com/tmoeish/tsq/v4/internal/genmodel"
 )
 
 func TestTokenize(t *testing.T) {
@@ -255,7 +255,7 @@ func TestParser_parseObject(t *testing.T) {
 }
 
 func TestParser_parseObjectRejectsDuplicateKeys(t *testing.T) {
-	tokens, err := Tokenize(`{fields=["ID"], fields=["Name"]}`)
+	tokens, err := Tokenize(`{fields=["PK"], fields=["Name"]}`)
 	if err != nil {
 		t.Fatalf("Tokenize error: %v", err)
 	}
@@ -273,7 +273,7 @@ func TestParser_parseObjectRejectsDuplicateKeys(t *testing.T) {
 }
 
 func TestParser_parseObjectRejectsUnexpectedTokens(t *testing.T) {
-	tokens, err := Tokenize(`{fields ["ID"]}`)
+	tokens, err := Tokenize(`{fields ["PK"]}`)
 	if err != nil {
 		t.Fatalf("Tokenize error: %v", err)
 	}
@@ -291,7 +291,7 @@ func TestParser_parseObjectRejectsUnexpectedTokens(t *testing.T) {
 }
 
 func TestParser_parseObjectSuggestsMissingClosingBrace(t *testing.T) {
-	tokens, err := Tokenize(`{fields=["ID"], ]}`)
+	tokens, err := Tokenize(`{fields=["PK"], ]}`)
 	if err != nil {
 		t.Fatalf("Tokenize error: %v", err)
 	}
@@ -339,7 +339,7 @@ func TestParser_parseArrayReportsMissingClosingBracket(t *testing.T) {
 }
 
 func TestParser_parseObjectReportsMissingClosingBraceAtEOF(t *testing.T) {
-	tokens, err := Tokenize(`{fields=["ID"]`)
+	tokens, err := Tokenize(`{fields=["PK"]`)
 	if err != nil {
 		t.Fatalf("Tokenize error: %v", err)
 	}
@@ -443,8 +443,8 @@ func Test_genTableInfoFromAST(t *testing.T) {
 		t.Errorf("Table name error: got %s, want t1", info.Table)
 	}
 
-	if info.ID != "id" || info.AI != false {
-		t.Errorf("Primary key error: ID=%s, AI=%v", info.ID, info.AI)
+	if info.PK != "id" || info.AI != false {
+		t.Errorf("Primary key error: PK=%s, AI=%v", info.PK, info.AI)
 	}
 
 	if info.VersionField != "Version1" {
@@ -492,11 +492,11 @@ func Test_genTableInfoFromAST(t *testing.T) {
 	}
 
 	// 验证关键词
-	if len(info.KwList) != 2 {
-		t.Errorf("Keyword count error: got %d, want 2", len(info.KwList))
+	if len(info.SearchColumns) != 2 {
+		t.Errorf("Keyword count error: got %d, want 2", len(info.SearchColumns))
 	} else {
-		if info.KwList[0] != "f2" || info.KwList[1] != "f3" {
-			t.Errorf("Keywords error: got %v, want [f2, f3]", info.KwList)
+		if info.SearchColumns[0] != "f2" || info.SearchColumns[1] != "f3" {
+			t.Errorf("Keywords error: got %v, want [f2, f3]", info.SearchColumns)
 		}
 	}
 }
@@ -506,7 +506,7 @@ func Test_genTableInfoFromASTRejectsUnknownTopLevelKeys(t *testing.T) {
 		"MyTable",
 		DSLObject{"unknown": DSLBool(true)},
 		true,
-		map[string]struct{}{"ID": {}},
+		map[string]struct{}{"PK": {}},
 	)
 	if err == nil {
 		t.Fatal("expected unknown DSL key to return an error")
@@ -531,13 +531,13 @@ func Test_genTableInfoFromASTRejectsUnknownIndexKeys(t *testing.T) {
 		DSLObject{
 			"idx": DSLArray{
 				DSLObject{
-					"fields": DSLArray{DSLString("ID")},
+					"fields": DSLArray{DSLString("PK")},
 					"extra":  DSLBool(true),
 				},
 			},
 		},
 		true,
-		map[string]struct{}{"ID": {}},
+		map[string]struct{}{"PK": {}},
 	)
 	if err == nil {
 		t.Fatal("expected unknown index DSL key to return an error")
@@ -561,7 +561,7 @@ func Test_genTableInfoFromASTSuggestsClosestTopLevelKey(t *testing.T) {
 		"MyTable",
 		DSLObject{"created_a": DSLBool(true)},
 		true,
-		map[string]struct{}{"ID": {}, "CreatedAt": {}},
+		map[string]struct{}{"PK": {}, "CreatedAt": {}},
 	)
 	if err == nil {
 		t.Fatal("expected mistyped DSL key to return an error")
@@ -595,14 +595,14 @@ func Test_genTableInfoFromASTRejectsWrongValueTypes(t *testing.T) {
 		},
 		{
 			name: "idx entry must be object",
-			ast:  DSLObject{"idx": DSLArray{DSLString("ID")}},
+			ast:  DSLObject{"idx": DSLArray{DSLString("PK")}},
 		},
 		{
 			name: "idx name must be string",
 			ast: DSLObject{
 				"idx": DSLArray{DSLObject{
 					"name":   DSLBool(true),
-					"fields": DSLArray{DSLString("ID")},
+					"fields": DSLArray{DSLString("PK")},
 				}},
 			},
 		},
@@ -610,7 +610,7 @@ func Test_genTableInfoFromASTRejectsWrongValueTypes(t *testing.T) {
 			name: "idx fields must be array",
 			ast: DSLObject{
 				"idx": DSLArray{DSLObject{
-					"fields": DSLString("ID"),
+					"fields": DSLString("PK"),
 				}},
 			},
 		},
@@ -644,7 +644,7 @@ func Test_genTableInfoFromASTRejectsWrongValueTypes(t *testing.T) {
 		},
 	}
 
-	structFields := map[string]struct{}{"ID": {}, "Name": {}}
+	structFields := map[string]struct{}{"PK": {}, "Name": {}}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -665,7 +665,7 @@ func Test_genTableInfoFromASTReportsExpectedValueTypes(t *testing.T) {
 		"MyTable",
 		DSLObject{"created_at": DSLNumber(1)},
 		true,
-		map[string]struct{}{"ID": {}, "CreatedAt": {}},
+		map[string]struct{}{"PK": {}, "CreatedAt": {}},
 	)
 	if err == nil {
 		t.Fatal("expected invalid managed field type to return an error")
@@ -714,15 +714,15 @@ func Test_validateTableInfoAgainstStruct(t *testing.T) {
 		"id": {}, "name": {}, "age": {}, "email": {}, "created": {}, "updated": {},
 	}
 	// 1. 字段不存在
-	info := &tsq.TableInfo{ID: "not_exist"}
+	info := &genmodel.TableMeta{PK: "not_exist"}
 
 	err := validateTableInfoAgainstStruct(info, structFields, "User")
 	if err == nil || !IsErrorType(err, ErrorTypeDSLFieldNotFound) {
 		t.Errorf("should detect field not found, got: %v", err)
 	}
 	// 2. ux/idx fields 内部有重复
-	info = &tsq.TableInfo{
-		UxList: []tsq.IndexInfo{{Name: "ux1", Fields: []string{"name", "name"}}},
+	info = &genmodel.TableMeta{
+		UxList: []genmodel.IndexInfo{{Name: "ux1", Fields: []string{"name", "name"}}},
 	}
 
 	err = validateTableInfoAgainstStruct(info, structFields, "User")
@@ -730,8 +730,8 @@ func Test_validateTableInfoAgainstStruct(t *testing.T) {
 		t.Errorf("should detect index field duplicate, got: %v", err)
 	}
 	// 3. ux/idx 列表有重复定义
-	info = &tsq.TableInfo{
-		UxList: []tsq.IndexInfo{{Name: "ux1", Fields: []string{"name", "email"}}, {Name: "ux2", Fields: []string{"name", "email"}}},
+	info = &genmodel.TableMeta{
+		UxList: []genmodel.IndexInfo{{Name: "ux1", Fields: []string{"name", "email"}}, {Name: "ux2", Fields: []string{"name", "email"}}},
 	}
 
 	err = validateTableInfoAgainstStruct(info, structFields, "User")
@@ -739,10 +739,10 @@ func Test_validateTableInfoAgainstStruct(t *testing.T) {
 		t.Errorf("should detect index duplicate, got: %v", err)
 	}
 	// 4. 正常通过
-	info = &tsq.TableInfo{
-		ID:      "id",
-		UxList:  []tsq.IndexInfo{{Name: "ux1", Fields: []string{"name", "email"}}},
-		IdxList: []tsq.IndexInfo{{Name: "idx1", Fields: []string{"age"}}},
+	info = &genmodel.TableMeta{
+		PK:      "id",
+		UxList:  []genmodel.IndexInfo{{Name: "ux1", Fields: []string{"name", "email"}}},
+		IdxList: []genmodel.IndexInfo{{Name: "idx1", Fields: []string{"age"}}},
 	}
 
 	err = validateTableInfoAgainstStruct(info, structFields, "User")

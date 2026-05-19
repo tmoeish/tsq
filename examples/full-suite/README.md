@@ -1,34 +1,51 @@
 # Examples / Full Suite
 
-这里对应当前仓库的完整 runnable 示例套件。
+这一层把前两层能力收敛成一个完整报表：**学习旅程看板**。
 
-## 入口文件
+把它想成后台里的一个页面：
 
-- `../main.go`：端到端执行所有示例并输出 JSON summary
-- `../main_test.go`：验证 full-suite 的主要路径
-- `../database/*.go`：手写表结构、Result 定义、mock schema
-- `../database/*_tsq.go`：生成代码
+- 左边先选一组学员
+- 再选几条学习路径
+- 后台返回这些学员在这些路径上的报名明细
+- 每行都要带课程、讲师、得分、状态、报名时间
+- 结果还要支持分页
 
-## 覆盖能力
+## 这个示例到底在演示什么
 
-`main.go` 当前覆盖：
+| 需求 | TSQ 能力 |
+| --- | --- |
+| 把 `Learner + Enrollment + Course + Track + Instructor` 组装成一行结果 | joins |
+| 让 API 直接消费结果结构 | `@RESULT` |
+| 只保留“参与度足够高”的课程 | 子查询 |
+| 给看板列表做分页和排序 | `tsq.Page(...)` |
 
-- CRUD generated methods
-- alias / rebinding queries
-- aggregation and `GROUP BY`
-- keyword search and pagination
-- `@RESULT` join queries
-- `InVar()` dynamic `IN (...)`
-- public searched `CASE`
-- non-recursive CTE / `WITH`
-- set operations
-- chunked insert / update / delete
+## 核心文件
+
+| 文件 | 作用 |
+| --- | --- |
+| `../academy/learningjourney.go` | 定义 `LearningJourney` Result 和预构建分页查询 |
+| `../academy/scenarios.go` 的 `runComprehensive` | 传入筛选条件并执行分页查询 |
+| `main.go` | 打开 SQLite 示例库并输出完整 JSON |
+
+## 输出结构
+
+`full-suite` 的输出分三层：
+
+1. `quickstart`：基础 demo 结果
+2. `advanced`：进阶 demo 结果
+3. `comprehensive`：最终学习旅程看板
+
+其中 `comprehensive.first` 是当前页第一条记录，方便直接看 `@RESULT` 映射出来的最终形状。
+
+`advanced.optimistic_lock` 会额外展示 SQLite 示例里的自动乐观锁结果；  
+而行锁 DSL 不会出现在 `full-suite` 的执行结果中，因为整个 examples runtime 仍然是 SQLite。
 
 ## 运行
 
 ```bash
 make examples
-./bin/examples
+./bin/examples/full-suite
+go test ./examples/full-suite
 ```
 
-如果你只是第一次接触 TSQ，先不要从这里开始；优先看 `../quickstart/README.md`。
+如果你是第一次接触 TSQ，先看 `../quickstart/README.md`，再看 `../advanced/README.md`。

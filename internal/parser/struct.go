@@ -9,10 +9,9 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/juju/errors"
 	"github.com/serenize/snaker"
 
-	"github.com/tmoeish/tsq/v4"
+	"github.com/tmoeish/tsq/v4/internal/genmodel"
 )
 
 var reservedImportAliases = map[string]struct{}{
@@ -25,24 +24,24 @@ var reservedImportAliases = map[string]struct{}{
 
 // StructInfo 表示一个解析后的结构体信息
 type StructInfo struct {
-	*tsq.StructInfo
+	*genmodel.StructInfo
 
-	embeddedTypes     map[tsq.TypeInfo]bool // 嵌入的结构体类型
-	embeddedResolving bool                  // 嵌入字段是否正在解析
-	embeddedResolved  bool                  // 嵌入字段是否已解析
+	embeddedTypes     map[genmodel.TypeInfo]bool // 嵌入的结构体类型
+	embeddedResolving bool                       // 嵌入字段是否正在解析
+	embeddedResolved  bool                       // 嵌入字段是否已解析
 }
 
 // parseStructDeclaration 解析单个结构体定义
 func parseStructDeclaration(
-	packageAliases map[string]tsq.PackageInfo, // 包别名映射
-	currentPkg tsq.PackageInfo, // 当前包信息
+	packageAliases map[string]genmodel.PackageInfo, // 包别名映射
+	currentPkg genmodel.PackageInfo, // 当前包信息
 	structName string, // 结构体名称
 	structType *ast.StructType, // AST 结构体类型
-	structMap map[tsq.TypeInfo]*StructInfo, // 已解析的结构体映射
-	parsedPackages map[tsq.PackageInfo]bool, // 已解析的包
+	structMap map[genmodel.TypeInfo]*StructInfo, // 已解析的结构体映射
+	parsedPackages map[genmodel.PackageInfo]bool, // 已解析的包
 	pendingPackages *list.List, // 待解析的包列表
 ) error {
-	typeInfo := tsq.TypeInfo{
+	typeInfo := genmodel.TypeInfo{
 		Package:  currentPkg,
 		TypeName: structName,
 	}
@@ -52,7 +51,7 @@ func parseStructDeclaration(
 	// 解析嵌入字段
 	embeddedTypes, err := parseEmbeddedFields(packageAliases, currentPkg, structType)
 	if err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
 	// 将嵌入字段的包添加到待解析列表
@@ -71,12 +70,12 @@ func parseStructDeclaration(
 	// 解析具名字段
 	fieldMap, err := parseNamedFields(packageAliases, currentPkg, structType)
 	if err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
 	// 创建结构体对象
 	structMap[typeInfo] = &StructInfo{
-		StructInfo: &tsq.StructInfo{ // 初始化表元数据
+		StructInfo: &genmodel.StructInfo{ // 初始化表元数据
 			TypeInfo: typeInfo,
 			FieldMap: fieldMap,
 			Recv:     genRecv(structName),
@@ -98,8 +97,8 @@ func (s *StructInfo) resolveImportDependencies() {
 }
 
 // collectRequiredPackages 收集所有需要导入的包
-func (s *StructInfo) collectRequiredPackages() map[tsq.PackageInfo]bool {
-	packages := make(map[tsq.PackageInfo]bool)
+func (s *StructInfo) collectRequiredPackages() map[genmodel.PackageInfo]bool {
+	packages := make(map[genmodel.PackageInfo]bool)
 
 	for _, field := range s.FieldMap {
 		fieldPkg := field.Type.Package
@@ -117,7 +116,7 @@ func (s *StructInfo) collectRequiredPackages() map[tsq.PackageInfo]bool {
 
 // resolvePackageNameConflicts 解决包名冲突
 func (s *StructInfo) resolvePackageNameConflicts(
-	packages map[tsq.PackageInfo]bool,
+	packages map[genmodel.PackageInfo]bool,
 ) map[string]string {
 	// 按包名分组
 	nameGroups := make(map[string][]string)
@@ -212,7 +211,7 @@ func (s *StructInfo) updateFieldPackageNames() {
 
 // buildFieldList rebuilds Fields from FieldMap using a fresh slice.
 func (s *StructInfo) buildFieldList() {
-	fields := make([]tsq.FieldInfo, 0, len(s.FieldMap))
+	fields := make([]genmodel.FieldInfo, 0, len(s.FieldMap))
 
 	for _, field := range s.FieldMap {
 		fields = append(fields, field)

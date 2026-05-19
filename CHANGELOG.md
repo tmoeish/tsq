@@ -7,6 +7,23 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 项目遵循 [语义化版本控制](https://semver.org/lang/zh-CN/)。
 
+## [4.0.2] - 2026-05-19
+
+### 变更（Breaking Changes）
+- `Dialect` 升级为完整闭环合约：方言名称、标识符校验、SQL 能力校验、批量插入 ID 语义、索引管理、DDL 列类型/索引/ALTER COLUMN 规则都必须由 `Dialect` 自身提供
+- 移除 `detectDialectName`、`KeywordRegistry`、`DialectExtension`、`DialectValidator` 这类接口外的方言推断/注册表路径，不再保留兼容层
+- `ValidateIdentifierForDialect` / `ValidateIdentifierLength` 改为直接接收 `Dialect`，`Runtime.CurrentDialect()` 改为返回 `DialectName`
+- 内置能力矩阵收紧为 **SQLite / MySQL / PostgreSQL** 三个实际实现，不再保留仓库内未实现的 Oracle / SQL Server 半支持声明
+
+### 新增
+- 增加自动 optimistic locking 与行级锁读取支持
+
+### 改进
+- `Runtime`、SQL 执行前能力校验、索引初始化、批量插入主键回填、DDL 快照/增量渲染现在统一走 `Dialect` 合约，消除了字符串和 type switch 旁路
+- DDL 生成与 schema diff 现在复用 `Dialect` 的列类型、索引 SQL、ALTER COLUMN 策略，新增方言时不再需要在 `cmd/` 下重复散落分支
+- 错误处理切换到 Go 标准库错误语义，并修正 QueryBuilder 状态相关问题
+- 示例、文档与生成代码更新为 Academy 示例集和新的运行路径
+
 ## [4.0.1] - 2026-05-19
 
 ### 修复
@@ -28,8 +45,8 @@
 - 查询现在必须显式调用 `From(table)`，不再从 `Select(...)` 或 Join 链隐式推导主表
 - `Join` / `LeftJoin` / `RightJoin` / `FullJoin` 改为直接接收可变 `Condition`，移除旧的 `.Join(...).On(left, right)` 两步 API
 - 非 `CROSS JOIN` 必须提供 ON 条件；Join 条件必须同时引用已引入表和当前连接表，提前拒绝缺失连接关系或引用未来表的查询
-- `SqlExecutor` / `DbMap` 的执行方法改为显式 `ctx context.Context` 首参，移除 `WithContext(...)`
-- `SqlExecutor.Insert/Update/Delete` 以及对应的 `tsq.Insert/Update/Delete/Chunked*` helper 收紧为只接受 `Table` mutation target
+- `SQLExecutor` 收紧为 `QueryContext` / `QueryRowContext` / `ExecContext` 这组 `database/sql` 共有方法；生成 CRUD 与表级写 helper 也统一接收 `SQLExecutor`
+- `Engine` 的执行方法改为显式 `ctx context.Context` 首参，对应的 `tsq.Insert/Update/Delete/Chunked*` helper 也只接受 `Table` mutation target
 - `Table` 接口补齐列/主键元数据，表 scan 与 mutation 优先走 field pointer + metadata，不再依赖整结构反射
 
 ### 新增
@@ -95,7 +112,7 @@
 ### 改进
 - 重写 README 首屏与 examples 导航，拆分 quickstart / cookbook / full-suite，明确最小使用路径、能力边界和方言矩阵
 - `tsq gen --help` 现在明确说明 package 参数格式、生成文件命名、覆盖规则和常见排查方式
-- `InitWithOptions` 现在会把索引初始化模式和 schema 事件处理器持久绑定到 `DbMap`，并由 `WithContext` 继承，避免初始化后语义漂移
+- `Init` 现在会把索引初始化模式和 schema 事件处理器持久绑定到 `Engine`
 - SQL 能力校验现在会把 Oracle `MINUS` 视为 `EXCEPT` 能力的一种写法，执行前即可给出一致的方言提示
 - `QueryBuilder` 增加显式覆盖式 setter：`SetWhere` 与 `SetKwSearch`
 - 生成的索引查询 helper 现在会保留源 DSL 索引名并复用缓存查询，减少排查和重复构建成本
@@ -173,7 +190,7 @@
 - 增加 `Col[T].As()` 和 `Col[T].WithTable()` 方法用于列重绑定
 - 增加 `PageReq.ValidateStrict()` 用于严格分页/排序验证
 - 增加 `Order` 作为 `Direction` 的别名以统一排序合约
-- 增加 `DbMap.Insert/Update/Delete` 的真实批量写入能力，支持多行 `VALUES`、批量 `CASE ... WHEN` 更新和 `IN (...)` 删除
+- 增加 `Engine.Insert/Update/Delete` 的真实批量写入能力，支持多行 `VALUES`、批量 `CASE ... WHEN` 更新和 `IN (...)` 删除
 - 增加 `make fmt` 的 golangci-lint v2 格式化与自动修复流程，统一执行 `gofumpt`、`gci`、`modernize`、`tagalign` 和 `wsl_v5`
 
 ### 改进
@@ -280,7 +297,7 @@
 - 增加索引自动校验和创建功能，支持 MySQL, SQLite, PostgreSQL
 - 增加 `WrapExecutor` 用于跨 DB/TX 的方言透传
 - 增加 `MatchByInputOrder` 辅助函数用于结果重排序
-- 支持 `InitWithOptions` 进行更灵活的初始化配置
+- 支持 `Init` 进行更灵活的初始化配置
 - 增加了 Docker 构建支持
 - 增加了 GoReleaser 自动化发布配置
 - 完善项目文档结构

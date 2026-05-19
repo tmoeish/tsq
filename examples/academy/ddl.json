@@ -1,0 +1,307 @@
+{
+  "generated_by": "tsq-v4.0.1",
+  "version": "v4.0.1",
+  "snapshot": {
+    "tables": [
+      {
+        "name": "course",
+        "columns": [
+          {
+            "name": "id",
+            "kind": "int",
+            "bits": 64,
+            "primary_key": true,
+            "auto_increment": true
+          },
+          {
+            "name": "created_at",
+            "kind": "time",
+            "nullable": true
+          },
+          {
+            "name": "instructor_id",
+            "kind": "int",
+            "bits": 64
+          },
+          {
+            "name": "level",
+            "kind": "int",
+            "bits": 64
+          },
+          {
+            "name": "list_price_cents",
+            "kind": "int",
+            "bits": 64
+          },
+          {
+            "name": "prerequisite_id",
+            "kind": "int",
+            "bits": 64
+          },
+          {
+            "name": "published",
+            "kind": "bool"
+          },
+          {
+            "name": "summary",
+            "kind": "string",
+            "size": 4096
+          },
+          {
+            "name": "title",
+            "kind": "string",
+            "size": 160
+          },
+          {
+            "name": "track_id",
+            "kind": "int",
+            "bits": 64
+          }
+        ],
+        "indexes": [
+          {
+            "name": "idx_course_instructor_id",
+            "fields": [
+              "instructor_id"
+            ],
+            "unique": false
+          },
+          {
+            "name": "idx_course_prerequisite_id",
+            "fields": [
+              "prerequisite_id"
+            ],
+            "unique": false
+          },
+          {
+            "name": "idx_course_track_id",
+            "fields": [
+              "track_id"
+            ],
+            "unique": false
+          },
+          {
+            "name": "ux_course_title",
+            "fields": [
+              "title"
+            ],
+            "unique": true
+          }
+        ]
+      },
+      {
+        "name": "enrollment",
+        "columns": [
+          {
+            "name": "uid",
+            "kind": "int",
+            "bits": 64,
+            "primary_key": true,
+            "auto_increment": true
+          },
+          {
+            "name": "created_at",
+            "kind": "time",
+            "default": "CURRENT_TIMESTAMP"
+          },
+          {
+            "name": "updated_at",
+            "kind": "time",
+            "nullable": true
+          },
+          {
+            "name": "deleted_at",
+            "kind": "int",
+            "bits": 64,
+            "default": "0"
+          },
+          {
+            "name": "version",
+            "kind": "int",
+            "bits": 64,
+            "default": "1"
+          },
+          {
+            "name": "course_id",
+            "kind": "int",
+            "bits": 64
+          },
+          {
+            "name": "fee_cents",
+            "kind": "int",
+            "bits": 64
+          },
+          {
+            "name": "learner_id",
+            "kind": "int",
+            "bits": 64
+          },
+          {
+            "name": "score",
+            "kind": "int",
+            "bits": 64
+          },
+          {
+            "name": "status",
+            "kind": "int",
+            "bits": 64
+          }
+        ],
+        "indexes": [
+          {
+            "name": "idx_enrollment_course_id",
+            "fields": [
+              "course_id"
+            ],
+            "unique": false
+          },
+          {
+            "name": "idx_enrollment_learner_id_course_id",
+            "fields": [
+              "learner_id",
+              "course_id"
+            ],
+            "unique": false
+          },
+          {
+            "name": "idx_enrollment_status",
+            "fields": [
+              "status"
+            ],
+            "unique": false
+          }
+        ]
+      },
+      {
+        "name": "instructor",
+        "columns": [
+          {
+            "name": "id",
+            "kind": "int",
+            "bits": 64,
+            "primary_key": true,
+            "auto_increment": true
+          },
+          {
+            "name": "created_at",
+            "kind": "time",
+            "nullable": true
+          },
+          {
+            "name": "bio",
+            "kind": "string",
+            "size": 2048
+          },
+          {
+            "name": "email",
+            "kind": "string",
+            "size": 160
+          },
+          {
+            "name": "name",
+            "kind": "string",
+            "size": 120
+          },
+          {
+            "name": "specialty",
+            "kind": "string",
+            "size": 160
+          }
+        ],
+        "indexes": [
+          {
+            "name": "ux_instructor_email",
+            "fields": [
+              "email"
+            ],
+            "unique": true
+          }
+        ]
+      },
+      {
+        "name": "learner",
+        "columns": [
+          {
+            "name": "id",
+            "kind": "int",
+            "bits": 64,
+            "primary_key": true,
+            "auto_increment": true
+          },
+          {
+            "name": "created_at",
+            "kind": "time",
+            "nullable": true
+          },
+          {
+            "name": "company",
+            "kind": "string",
+            "size": 160
+          },
+          {
+            "name": "email",
+            "kind": "string",
+            "size": 160
+          },
+          {
+            "name": "name",
+            "kind": "string",
+            "size": 120
+          }
+        ],
+        "indexes": [
+          {
+            "name": "idx_learner_company",
+            "fields": [
+              "company"
+            ],
+            "unique": false
+          },
+          {
+            "name": "ux_learner_email",
+            "fields": [
+              "email"
+            ],
+            "unique": true
+          }
+        ]
+      },
+      {
+        "name": "track",
+        "columns": [
+          {
+            "name": "id",
+            "kind": "int",
+            "bits": 64,
+            "primary_key": true,
+            "auto_increment": true
+          },
+          {
+            "name": "created_at",
+            "kind": "time",
+            "nullable": true
+          },
+          {
+            "name": "description",
+            "kind": "string",
+            "size": 1024
+          },
+          {
+            "name": "name",
+            "kind": "string",
+            "size": 120
+          }
+        ],
+        "indexes": [
+          {
+            "name": "ux_track_name",
+            "fields": [
+              "name"
+            ],
+            "unique": true
+          }
+        ]
+      }
+    ]
+  }
+}

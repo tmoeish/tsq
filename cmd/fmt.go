@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/juju/errors"
 	"github.com/spf13/cobra"
 
 	"github.com/tmoeish/tsq/v4/internal/parser"
@@ -24,17 +23,17 @@ Formatting behavior:
   - rewrites only @TABLE / @RESULT annotations attached to struct declarations
   - keeps surrounding prose text while tightening spacing around annotations
   - normalizes key order, indentation, blank lines, commas, and string quoting`,
-	Example: "  tsq fmt ./examples/database\n  tsq fmt github.com/tmoeish/tsq/v4/examples/database",
+	Example: "  tsq fmt ./examples/academy\n  tsq fmt github.com/tmoeish/tsq/v4/examples/academy",
 	Args:    exactOnePackageArgFor("fmt"),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		changed, err := parser.FormatPackage(args[0])
 		if err != nil {
-			return errors.Trace(err)
+			return err
 		}
 
 		for _, filename := range changed {
 			if _, err := fmt.Fprintln(cmd.OutOrStdout(), filename); err != nil {
-				return errors.Trace(err)
+				return err
 			}
 		}
 

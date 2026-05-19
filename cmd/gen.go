@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	_ "embed"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -11,11 +12,11 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/juju/errors"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
 	"github.com/tmoeish/tsq/v4"
+	"github.com/tmoeish/tsq/v4/internal/genmodel"
 	"github.com/tmoeish/tsq/v4/internal/parser"
 )
 
@@ -89,10 +90,10 @@ Overwrite behavior:
   - after generation, execute the SQL file matching your live database dialect
   - generator validation errors point to the offending struct or field`,
 	Example: strings.Join([]string{
-		"  tsq gen ./examples/database",
-		"  tsq gen --dry-run ./examples/database",
-		"  tsq gen --check github.com/tmoeish/tsq/v4/examples/database",
-		"  tsq gen github.com/tmoeish/tsq/v4/examples/database",
+		"  tsq gen ./examples/academy",
+		"  tsq gen --dry-run ./examples/academy",
+		"  tsq gen --check github.com/tmoeish/tsq/v4/examples/academy",
+		"  tsq gen github.com/tmoeish/tsq/v4/examples/academy",
 		"  tsq gen /abs/path/to/project/internal/database --tpl ./cmd/tsq.go.tmpl",
 	}, "\n"),
 	Args: exactOnePackageArg,
@@ -103,12 +104,12 @@ Overwrite behavior:
 
 		tableTpl, err := resolveTemplateText(tplFlag, defaultTableTpl, "template")
 		if err != nil {
-			return errors.Trace(err)
+			return err
 		}
 
 		resultTpl, err := resolveTemplateText(resultTplFlag, defaultResultTpl, "Result template")
 		if err != nil {
-			return errors.Trace(err)
+			return err
 		}
 
 		pPath := args[0]
@@ -116,26 +117,26 @@ Overwrite behavior:
 
 		list, dir, err := parser.Parse(pPath)
 		if err != nil {
-			return errors.Trace(err)
+			return err
 		}
 
 		for i := range list {
-			list[i].SetTSQVersion(stableVersion(tsq.Version))
+			list[i].SetTSQVersion(stableVersion(tsq.GetVersion()))
 		}
 
-		tpl, err := template.New("tsq.go.tmpl").Funcs(TemplateFuncs()).Parse(tableTpl)
+		tpl, err := template.New("tsq.go.tmpl").Funcs(funcMap()).Parse(tableTpl)
 		if err != nil {
-			return errors.Annotate(err, "failed to parse table template")
+			return fmt.Errorf("%s: %w", "failed to parse table template", err)
 		}
 
-		resultTplParsed, err := template.New("tsq_result.go.tmpl").Funcs(TemplateFuncs()).Parse(resultTpl)
+		resultTplParsed, err := template.New("tsq_result.go.tmpl").Funcs(funcMap()).Parse(resultTpl)
 		if err != nil {
-			return errors.Annotate(err, "failed to parse Result template")
+			return fmt.Errorf("%s: %w", "failed to parse Result template", err)
 		}
 
 		models, err := buildGenerationModels(list, dir, tpl, resultTplParsed)
 		if err != nil {
-			return errors.Trace(err)
+			return err
 		}
 
 		stats := summarizeGenerationModels(models)
@@ -145,17 +146,17 @@ Overwrite behavior:
 
 		plan, err := buildGenerationPlan(models, dir)
 		if err != nil {
-			return errors.Trace(err)
+			return err
 		}
 
 		ddlArtifacts, err := buildDDLArtifacts(pPath, list, dir)
 		if err != nil {
-			return errors.Trace(err)
+			return err
 		}
 
 		ddlPlan, err := buildDDLPlan(ddlArtifacts.models, dir)
 		if err != nil {
-			return errors.Trace(err)
+			return err
 		}
 
 		combinedPlan := appendCombinedGenerationPlans(plan, ddlPlan)
@@ -178,7 +179,7 @@ Overwrite behavior:
 			}
 
 			if err := ensureGenerationPlanUpToDate(combinedPlan); err != nil {
-				return errors.Trace(err)
+				return err
 			}
 
 			return nil
@@ -186,19 +187,19 @@ Overwrite behavior:
 
 		for _, model := range models {
 			if err := renderGenerationModel(model); err != nil {
-				return errors.Trace(err)
+				return err
 			}
 		}
 
 		for _, model := range ddlArtifacts.models {
 			if v {
 				if _, err := fmt.Fprintf(errWriter, "ddl %s\n", model.Filename); err != nil {
-					return errors.Trace(err)
+					return err
 				}
 			}
 
 			if err := writeDDLFile(model.Filename, model.Source); err != nil {
-				return errors.Annotatef(err, "failed to write DDL file: %s", model.Filename)
+				return fmt.Errorf("failed to write DDL file: %s"+": %w", model.Filename, err)
 			}
 		}
 
@@ -208,12 +209,12 @@ Overwrite behavior:
 			}
 
 			if err := os.Remove(entry.Filename); err != nil && !os.IsNotExist(err) {
-				return errors.Annotatef(err, "failed to remove stale DDL file: %s", entry.Filename)
+				return fmt.Errorf("failed to remove stale DDL file: %s"+": %w", entry.Filename, err)
 			}
 		}
 
 		if err := printDDLGuidance(errWriter, ddlArtifacts); err != nil {
-			return errors.Trace(err)
+			return err
 		}
 
 		if v {
@@ -257,14 +258,18 @@ func printDDLGuidance(w io.Writer, artifacts ddlArtifacts) error {
 		action = "execute the incremental schema file matching your database dialect"
 	}
 
-	if _, err := fmt.Fprintf(w, "%s: %s: sqlite=%s mysql=%s postgres=%s\n",
+	paths := make([]string, 0, len(ddlDialects))
+	for _, dialect := range ddlDialects {
+		name := ddlDialectName(dialect)
+		paths = append(paths, fmt.Sprintf("%s=%s", name, strings.Replace(filename, "<dialect>", name, 1)))
+	}
+
+	if _, err := fmt.Fprintf(w, "%s: %s: %s\n",
 		label,
 		action,
-		strings.Replace(filename, "<dialect>", ddlDialectSQLite, 1),
-		strings.Replace(filename, "<dialect>", ddlDialectMySQL, 1),
-		strings.Replace(filename, "<dialect>", ddlDialectPostgres, 1),
+		strings.Join(paths, " "),
 	); err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
 	return nil
@@ -379,7 +384,7 @@ func exactOnePackageArgFor(command string) cobra.PositionalArgs {
 			return nil
 		}
 
-		return errors.Errorf("tsq %s expects exactly one package path, got %d", command, len(args))
+		return fmt.Errorf("tsq %s expects exactly one package path, got %d", command, len(args))
 	}
 }
 
@@ -390,50 +395,50 @@ func resolveTemplateText(overridePath, fallback, label string) (string, error) {
 
 	tplBytes, err := os.ReadFile(overridePath)
 	if err != nil {
-		return "", errors.Annotatef(err, "failed to read %s file: %s", label, overridePath)
+		return "", fmt.Errorf("failed to read %s file: %s"+": %w", label, overridePath, err)
 	}
 
 	return string(tplBytes), nil
 }
 
 func validateStructForGeneration(
-	data *tsq.StructInfo,
-	structsByName map[string]*tsq.StructInfo,
+	data *genmodel.StructInfo,
+	structsByName map[string]*genmodel.StructInfo,
 ) error {
-	if data == nil || data.TableInfo == nil {
+	if data == nil || data.TableMeta == nil {
 		return nil
 	}
 
 	if data.IsResult {
-		return errors.Trace(validateResultFields(data, structsByName))
+		return validateResultFields(data, structsByName)
 	}
 
 	if err := validatePrimaryKeyField(data); err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
 	if err := validateVersionField(data); err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
 	if err := validateFieldDatabaseCompatibility(data); err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
-	return errors.Trace(validateManagedFields(data))
+	return validateManagedFields(data)
 }
 
 func validateResultFields(
-	dto *tsq.StructInfo,
-	structsByName map[string]*tsq.StructInfo,
+	dto *genmodel.StructInfo,
+	structsByName map[string]*genmodel.StructInfo,
 ) error {
 	normalizedRefs := make(map[string]string, len(dto.Fields))
 
 	for _, field := range dto.Fields {
 		parts := strings.Split(field.Column, ".")
 		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-			return errors.Errorf(
-				"Result field %s must reference a generated column as Struct.Field, got %q",
+			return fmt.Errorf(
+				"result field %s must reference a generated column as Struct.Field, got %q",
 				field.Name,
 				field.Column,
 			)
@@ -441,8 +446,8 @@ func validateResultFields(
 
 		normalizedRef := strings.ReplaceAll(field.Column, ".", "_")
 		if existing, ok := normalizedRefs[normalizedRef]; ok && existing != field.Column {
-			return errors.Errorf(
-				"Result field %s reference %s collides with %s after normalization",
+			return fmt.Errorf(
+				"result field %s reference %s collides with %s after normalization",
 				field.Name,
 				field.Column,
 				existing,
@@ -452,9 +457,9 @@ func validateResultFields(
 		normalizedRefs[normalizedRef] = field.Column
 
 		targetStruct, ok := structsByName[parts[0]]
-		if !ok || targetStruct.TableInfo == nil {
-			return errors.Errorf(
-				"Result field %s references unknown struct %s",
+		if !ok || targetStruct.TableMeta == nil {
+			return fmt.Errorf(
+				"result field %s references unknown struct %s",
 				field.Name,
 				parts[0],
 			)
@@ -462,8 +467,8 @@ func validateResultFields(
 
 		sourceField, ok := targetStruct.FieldMap[parts[1]]
 		if !ok {
-			return errors.Errorf(
-				"Result field %s references unknown field %s.%s",
+			return fmt.Errorf(
+				"result field %s references unknown field %s.%s",
 				field.Name,
 				parts[0],
 				parts[1],
@@ -471,8 +476,8 @@ func validateResultFields(
 		}
 
 		if !isScanCompatible(field, sourceField) {
-			return errors.Errorf(
-				"Result field %s type %s is incompatible with %s.%s type %s",
+			return fmt.Errorf(
+				"result field %s type %s is incompatible with %s.%s type %s",
 				field.Name,
 				field.String(),
 				parts[0],
@@ -485,13 +490,13 @@ func validateResultFields(
 	return nil
 }
 
-func isScanCompatible(dst, src tsq.FieldInfo) bool {
+func isScanCompatible(dst, src genmodel.FieldInfo) bool {
 	return dst.Type == src.Type &&
 		dst.IsPointer == src.IsPointer &&
 		dst.IsArray == src.IsArray
 }
 
-func normalizeResultColumns(data *tsq.StructInfo) {
+func normalizeResultColumns(data *genmodel.StructInfo) {
 	for i, field := range data.Fields {
 		field.Column = strings.ReplaceAll(field.Column, ".", "_")
 		data.Fields[i] = field
@@ -502,17 +507,17 @@ func normalizeResultColumns(data *tsq.StructInfo) {
 	}
 }
 
-func validateGeneratedFilenameCollisions(list []*tsq.StructInfo) error {
+func validateGeneratedFilenameCollisions(list []*genmodel.StructInfo) error {
 	seen := make(map[string]string, len(list))
 
 	for _, data := range list {
-		if data == nil || data.TableInfo == nil || len(data.Fields) == 0 {
+		if data == nil || data.TableMeta == nil || len(data.Fields) == 0 {
 			continue
 		}
 
 		filename := generatedFilename(data)
 		if existing, ok := seen[filename]; ok && existing != data.TypeInfo.TypeName {
-			return errors.Errorf(
+			return fmt.Errorf(
 				"generated filename %s collides between %s and %s",
 				filename,
 				existing,
@@ -526,7 +531,7 @@ func validateGeneratedFilenameCollisions(list []*tsq.StructInfo) error {
 	return nil
 }
 
-func validateIndexNameCollisions(list []*tsq.StructInfo) error {
+func validateIndexNameCollisions(list []*genmodel.StructInfo) error {
 	type definition struct {
 		table  string
 		fields string
@@ -536,13 +541,13 @@ func validateIndexNameCollisions(list []*tsq.StructInfo) error {
 	seen := make(map[string]definition)
 
 	for _, data := range list {
-		if data == nil || data.TableInfo == nil || data.IsResult {
+		if data == nil || data.TableMeta == nil || data.IsResult {
 			continue
 		}
 
 		for _, group := range []struct {
 			unique bool
-			items  []tsq.IndexInfo
+			items  []genmodel.IndexInfo
 		}{
 			{unique: true, items: data.UxList},
 			{unique: false, items: data.IdxList},
@@ -561,14 +566,14 @@ func validateIndexNameCollisions(list []*tsq.StructInfo) error {
 				}
 
 				if existing == current {
-					return errors.Errorf(
+					return fmt.Errorf(
 						"duplicate index name %s on table %s",
 						idx.Name,
 						data.Table,
 					)
 				}
 
-				return errors.Errorf(
+				return fmt.Errorf(
 					"index name %s collides between %s(%s) and %s(%s)",
 					idx.Name,
 					existing.table,
@@ -583,7 +588,7 @@ func validateIndexNameCollisions(list []*tsq.StructInfo) error {
 	return nil
 }
 
-func validateGeneratedSymbolCollisions(list []*tsq.StructInfo) error {
+func validateGeneratedSymbolCollisions(list []*genmodel.StructInfo) error {
 	seen := make(map[string]string)
 
 	register := func(symbol, owner string) error {
@@ -592,7 +597,7 @@ func validateGeneratedSymbolCollisions(list []*tsq.StructInfo) error {
 		}
 
 		if existing, ok := seen[symbol]; ok && existing != owner {
-			return errors.Errorf("generated symbol %s collides between %s and %s", symbol, existing, owner)
+			return fmt.Errorf("generated symbol %s collides between %s and %s", symbol, existing, owner)
 		}
 
 		seen[symbol] = owner
@@ -601,7 +606,7 @@ func validateGeneratedSymbolCollisions(list []*tsq.StructInfo) error {
 	}
 
 	for _, data := range list {
-		if data == nil || data.TableInfo == nil {
+		if data == nil || data.TableMeta == nil {
 			continue
 		}
 
@@ -609,11 +614,11 @@ func validateGeneratedSymbolCollisions(list []*tsq.StructInfo) error {
 		baseSymbols := []string{
 			"Table" + typeName,
 			"Table" + typeName + "Cols",
-			"get" + typeName + "By" + data.ID + "Query",
-			"Get" + typeName + "By" + data.ID,
-			"Get" + typeName + "By" + data.ID + "OrErr",
-			"List" + typeName + "By" + data.ID + "In",
-			"List" + typeName + "By" + data.ID + "InOrErr",
+			"get" + typeName + "By" + data.PK + "Query",
+			"Get" + typeName + "By" + data.PK,
+			"Get" + typeName + "By" + data.PK + "OrErr",
+			"List" + typeName + "By" + data.PK + "In",
+			"List" + typeName + "By" + data.PK + "InOrErr",
 			"List" + typeName,
 			"Page" + typeName,
 			"Count" + typeName,
@@ -627,13 +632,13 @@ func validateGeneratedSymbolCollisions(list []*tsq.StructInfo) error {
 
 		for _, symbol := range baseSymbols {
 			if err := register(symbol, typeName); err != nil {
-				return errors.Trace(err)
+				return err
 			}
 		}
 
 		for _, field := range data.Fields {
 			if err := register(typeName+"_"+field.Name, typeName); err != nil {
-				return errors.Trace(err)
+				return err
 			}
 		}
 
@@ -645,7 +650,7 @@ func validateGeneratedSymbolCollisions(list []*tsq.StructInfo) error {
 				"Page" + typeName + "By" + queryName,
 			} {
 				if err := register(symbol, typeName); err != nil {
-					return errors.Trace(err)
+					return err
 				}
 			}
 		}
@@ -654,7 +659,7 @@ func validateGeneratedSymbolCollisions(list []*tsq.StructInfo) error {
 	return nil
 }
 
-func generatedFilename(data *tsq.StructInfo) string {
+func generatedFilename(data *genmodel.StructInfo) string {
 	base := strings.ToLower(data.TypeInfo.TypeName)
 	if data.IsResult {
 		return fmt.Sprintf("%s_result_tsq.go", base)
@@ -663,20 +668,20 @@ func generatedFilename(data *tsq.StructInfo) string {
 	return fmt.Sprintf("%s_tsq.go", base)
 }
 
-func validatePrimaryKeyField(data *tsq.StructInfo) error {
-	if data == nil || data.TableInfo == nil || data.ID == "" {
+func validatePrimaryKeyField(data *genmodel.StructInfo) error {
+	if data == nil || data.TableMeta == nil || data.PK == "" {
 		return nil
 	}
 
-	field, ok := data.FieldMap[data.ID]
+	field, ok := data.FieldMap[data.PK]
 	if !ok {
-		return errors.Errorf("id field %s not found in %s", data.ID, data.TypeInfo.TypeName)
+		return fmt.Errorf("id field %s not found in %s", data.PK, data.TypeInfo.TypeName)
 	}
 
 	if field.IsPointer || field.IsArray {
-		return errors.Errorf(
+		return fmt.Errorf(
 			"id field %s in %s cannot be a pointer or slice/array type",
-			data.ID,
+			data.PK,
 			data.TypeInfo.TypeName,
 		)
 	}
@@ -684,47 +689,47 @@ func validatePrimaryKeyField(data *tsq.StructInfo) error {
 	return nil
 }
 
-func validateVersionField(data *tsq.StructInfo) error {
-	if data == nil || data.TableInfo == nil || data.VersionField == "" {
+func validateVersionField(data *genmodel.StructInfo) error {
+	if data == nil || data.TableMeta == nil || data.VersionField == "" {
 		return nil
 	}
 
 	field, ok := data.FieldMap[data.VersionField]
 	if !ok {
-		return errors.Errorf("version field %s not found in %s", data.VersionField, data.TypeInfo.TypeName)
+		return fmt.Errorf("version field %s not found in %s", data.VersionField, data.TypeInfo.TypeName)
 	}
 
 	if !isIntegerFieldType(field) || field.IsPointer || field.IsArray {
-		return errors.Errorf("version field %s in %s must be a non-pointer integer type", data.VersionField, data.TypeInfo.TypeName)
+		return fmt.Errorf("version field %s in %s must be a non-pointer integer type", data.VersionField, data.TypeInfo.TypeName)
 	}
 
 	return nil
 }
 
-func validateFieldDatabaseCompatibility(data *tsq.StructInfo) error {
-	if data == nil || data.TableInfo == nil {
+func validateFieldDatabaseCompatibility(data *genmodel.StructInfo) error {
+	if data == nil || data.TableMeta == nil {
 		return nil
 	}
 
-	keywordFields := make(map[string]struct{}, len(data.KwList))
-	for _, field := range data.KwList {
+	keywordFields := make(map[string]struct{}, len(data.SearchColumns))
+	for _, field := range data.SearchColumns {
 		keywordFields[field] = struct{}{}
 	}
 
 	for _, field := range data.Fields {
 		if err := validateFieldDatabaseType(field, keywordFields); err != nil {
-			return errors.Annotatef(err, "field %s in %s", field.Name, data.TypeInfo.TypeName)
+			return fmt.Errorf("field %s in %s"+": %w", field.Name, data.TypeInfo.TypeName, err)
 		}
 	}
 
 	return nil
 }
 
-func validateFieldDatabaseType(field tsq.FieldInfo, keywordFields map[string]struct{}) error {
+func validateFieldDatabaseType(field genmodel.FieldInfo, keywordFields map[string]struct{}) error {
 	if field.Type.Package.Path == "" {
 		switch field.Type.TypeName {
 		case "complex64", "complex128", "uintptr":
-			return errors.Errorf("type %s is not supported for generated columns", field.Type.TypeName)
+			return fmt.Errorf("type %s is not supported for generated columns", field.Type.TypeName)
 		}
 	}
 
@@ -755,7 +760,7 @@ func validateFieldDatabaseType(field tsq.FieldInfo, keywordFields map[string]str
 	return nil
 }
 
-func isIntegerFieldType(field tsq.FieldInfo) bool {
+func isIntegerFieldType(field genmodel.FieldInfo) bool {
 	if field.Type.Package.Path != "" {
 		return false
 	}
@@ -770,14 +775,14 @@ func isIntegerFieldType(field tsq.FieldInfo) bool {
 
 func writeGeneratedFile(filename string, src []byte) error {
 	if err := ensureWritableGeneratedFile(filename); err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
 	perm := os.FileMode(0o644)
 	if info, err := os.Stat(filename); err == nil {
 		perm = info.Mode().Perm()
 	} else if !os.IsNotExist(err) {
-		return errors.Trace(err)
+		return err
 	}
 
 	dir := filepath.Dir(filename)
@@ -785,7 +790,7 @@ func writeGeneratedFile(filename string, src []byte) error {
 
 	tmpFile, err := os.CreateTemp(dir, pattern)
 	if err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
 	tmpName := tmpFile.Name()
@@ -797,20 +802,20 @@ func writeGeneratedFile(filename string, src []byte) error {
 
 	if err := tmpFile.Chmod(perm); err != nil {
 		_ = tmpFile.Close()
-		return errors.Trace(err)
+		return err
 	}
 
 	if _, err := tmpFile.Write(src); err != nil {
 		_ = tmpFile.Close()
-		return errors.Trace(err)
+		return err
 	}
 
 	if err := tmpFile.Close(); err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
 	if err := os.Rename(tmpName, filename); err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
 	return nil
@@ -823,14 +828,14 @@ func ensureWritableGeneratedFile(filename string) error {
 	}
 
 	if err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
 	if len(existing) == 0 || bytes.HasPrefix(existing, []byte(generatedFileHeaderPrefix)) {
 		return nil
 	}
 
-	return errors.Errorf("refusing to overwrite non-generated file: %s", filename)
+	return fmt.Errorf("refusing to overwrite non-generated file: %s", filename)
 }
 
 // stableVersion returns a version string suitable for embedding in generated

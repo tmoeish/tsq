@@ -1,20 +1,14 @@
 package tsq
 
 import (
-	"database/sql"
 	"database/sql/driver"
+	"errors"
 	"fmt"
 	"maps"
-	"math"
 	"reflect"
-	"strconv"
 	"strings"
 	"time"
-
-	"github.com/juju/errors"
 )
-
-const sqlNullLiteral = "NULL"
 
 type queryArgMarker string
 
@@ -27,7 +21,9 @@ const (
 // 逻辑组合条件
 // ================================================
 
-// And combines multiple conditions with AND logic
+// And 将多个条件以 AND 逻辑组合。
+// 架构意图：And 实现了条件的链式或组合式构建。它通过遍历子条件，
+// 合并所有引用的表，并将表达式片段用 " AND " 连接。
 func And(conds ...Condition) Cond {
 	if len(conds) == 0 {
 		return rawCondition("1 = 1")
@@ -39,7 +35,7 @@ func And(conds ...Condition) Cond {
 	for _, c := range conds {
 		clause, condTables, _, err := validateConditionInput(c)
 		if err != nil {
-			return Cond{buildErr: errors.Trace(err)}
+			return Cond{buildErr: err}
 		}
 
 		maps.Copy(tables, condTables)
@@ -54,7 +50,8 @@ func And(conds ...Condition) Cond {
 	}
 }
 
-// Or combines multiple conditions with OR logic
+// Or 将多个条件以 OR 逻辑组合。
+// 架构意图：逻辑与 And 类似，但使用 " OR " 连接。
 func Or(conds ...Condition) Cond {
 	if len(conds) == 0 {
 		return rawCondition("1 = 0")
@@ -66,7 +63,7 @@ func Or(conds ...Condition) Cond {
 	for _, c := range conds {
 		clause, condTables, _, err := validateConditionInput(c)
 		if err != nil {
-			return Cond{buildErr: errors.Trace(err)}
+			return Cond{buildErr: err}
 		}
 
 		maps.Copy(tables, condTables)
@@ -85,7 +82,8 @@ func Or(conds ...Condition) Cond {
 // 基础条件接口和结构体
 // ================================================
 
-// Condition interface for SQL conditions
+// Condition 是 SQL 条件的接口定义。
+// 它暴露了条件引用的表、SQL 字句片段以及绑定的参数。
 type Condition interface {
 	Tables() map[string]Table
 	Clause() string
@@ -96,7 +94,9 @@ type rawConditionClauser interface {
 	rawClause() string
 }
 
-// Cond represents a SQL condition
+// Cond 是 SQL 条件的具体实现结构。
+// 架构意图：它是构建过程中携带元数据（表引用、表达式字符串、参数、构建错误）的容器。
+// expr 字段存储了带有占位符的原始 SQL 表达式，args 存储了对应的参数。
 type Cond struct {
 	tables   map[string]Table
 	expr     string
@@ -108,10 +108,13 @@ func pred[O Owner](cond Cond) Pred[O] {
 	return Pred[O]{Cond: cond}
 }
 
+// Tables returns the tables referenced by the condition, keyed by logical table name.
 func (c Cond) Tables() map[string]Table {
-	return c.tables
+	return cloneTableMap(c.tables)
 }
 
+// Clause 返回标准化的 SQL 片段。
+// 注意：此时可能包含标记占位符（如 identifierMarkerPrefix），最终的渲染由 sql_render.go 处理。
 func (c Cond) Clause() string {
 	return renderCanonicalSQL(c.expr)
 }
@@ -120,6 +123,7 @@ func (c Cond) rawClause() string {
 	return c.expr
 }
 
+// Args returns the bind arguments captured by the condition.
 func (c Cond) Args() []any {
 	return append([]any(nil), c.args...)
 }
@@ -153,8 +157,7 @@ func (c Cond) buildError() error {
 //   - 空值检查: IsNull, IsNotNull
 //
 // 绑定方式后缀（无后缀为参数绑定）：
-//   - Var: 使用 ? 占位符，值由执行时提供
-//   - Literal: 直接嵌入字面量
+//   - EQVar / InVar 等方法：使用执行时占位符，值由执行时提供
 //   - Col: 与另一列比较
 //   - Sub: 与子查询结果比较
 
@@ -162,13 +165,23 @@ func (c Cond) buildError() error {
 // 变量比较条件 (使用 ? 占位符)
 // ================================================
 
-func (c ColumnImpl[Owner, T]) EQVar() Pred[Owner]  { return c.Predicate(`%s = %s`, Var) }
-func (c ColumnImpl[Owner, T]) NEVar() Pred[Owner]  { return c.Predicate(`%s <> %s`, Var) }
-func (c ColumnImpl[Owner, T]) GTVar() Pred[Owner]  { return c.Predicate(`%s > %s`, Var) }
-func (c ColumnImpl[Owner, T]) GTEVar() Pred[Owner] { return c.Predicate(`%s >= %s`, Var) }
-func (c ColumnImpl[Owner, T]) LTVar() Pred[Owner]  { return c.Predicate(`%s < %s`, Var) }
-func (c ColumnImpl[Owner, T]) LTEVar() Pred[Owner] { return c.Predicate(`%s <= %s`, Var) }
-func (c ColumnImpl[Owner, T]) InVar() Pred[Owner]  { return c.Predicate(`%s IN (%s)`, VarSlice) }
+func (c ColumnImpl[Owner, T]) EQVar() Pred[Owner]  { return c.Predicate(`%s = %s`, varMarker) }
+func (c ColumnImpl[Owner, T]) NEVar() Pred[Owner]  { return c.Predicate(`%s <> %s`, varMarker) }
+func (c ColumnImpl[Owner, T]) GTVar() Pred[Owner]  { return c.Predicate(`%s > %s`, varMarker) }
+func (c ColumnImpl[Owner, T]) GTEVar() Pred[Owner] { return c.Predicate(`%s >= %s`, varMarker) }
+func (c ColumnImpl[Owner, T]) LTVar() Pred[Owner]  { return c.Predicate(`%s < %s`, varMarker) }
+func (c ColumnImpl[Owner, T]) LTEVar() Pred[Owner] { return c.Predicate(`%s <= %s`, varMarker) }
+
+// InVar binds a slice at execution time for IN predicates.
+//
+// TSQ intentionally treats nil and empty slices as an explicit "match nothing"
+// filter. During execution the placeholder list is expanded from the runtime
+// argument slice; when that slice is empty, TSQ renders IN (NULL), which keeps
+// the query valid while producing zero matches across the supported built-in
+// dialects. This is by design and lets callers express "no selected IDs" without
+// adding custom branching around the query.
+func (c ColumnImpl[Owner, T]) InVar() Pred[Owner] { return c.Predicate(`%s IN (%s)`, varSliceMarker) }
+
 func (c ColumnImpl[Owner, T]) StartsWithVar() Pred[Owner] {
 	return pred[Owner](unsupportedPatternPredicate("StartsWithVar"))
 }
@@ -194,11 +207,11 @@ func (c ColumnImpl[Owner, T]) NContainsVar() Pred[Owner] {
 }
 
 func (c ColumnImpl[Owner, T]) BetweenVar() Pred[Owner] {
-	return c.Predicate(`%s BETWEEN %s AND %s`, Var, Var)
+	return c.Predicate(`%s BETWEEN %s AND %s`, varMarker, varMarker)
 }
 
 func (c ColumnImpl[Owner, T]) NBetweenVar() Pred[Owner] {
-	return c.Predicate(`%s NOT BETWEEN %s AND %s`, Var, Var)
+	return c.Predicate(`%s NOT BETWEEN %s AND %s`, varMarker, varMarker)
 }
 
 // ================================================
@@ -261,62 +274,6 @@ func (c ColumnImpl[Owner, T]) NBetween(start, end T) Pred[Owner] {
 	return c.Predicate(`%s NOT BETWEEN %s AND %s`, Bind(start), Bind(end))
 }
 
-func (c ColumnImpl[Owner, T]) EQLiteral(arg T) Pred[Owner] {
-	return c.Predicate(`%s = %s`, Literal(arg))
-}
-
-func (c ColumnImpl[Owner, T]) NELiteral(arg T) Pred[Owner] {
-	return c.Predicate(`%s <> %s`, Literal(arg))
-}
-
-func (c ColumnImpl[Owner, T]) GTLiteral(arg T) Pred[Owner] {
-	return c.Predicate(`%s > %s`, Literal(arg))
-}
-
-func (c ColumnImpl[Owner, T]) GTELiteral(arg T) Pred[Owner] {
-	return c.Predicate(`%s >= %s`, Literal(arg))
-}
-
-func (c ColumnImpl[Owner, T]) LTLiteral(arg T) Pred[Owner] {
-	return c.Predicate(`%s < %s`, Literal(arg))
-}
-
-func (c ColumnImpl[Owner, T]) LTELiteral(arg T) Pred[Owner] {
-	return c.Predicate(`%s <= %s`, Literal(arg))
-}
-
-func (c ColumnImpl[Owner, T]) StartsWithLiteral(str string) Pred[Owner] {
-	return c.Predicate(`%s LIKE %s`, Literal(str+"%"))
-}
-
-func (c ColumnImpl[Owner, T]) NStartsWithLiteral(str string) Pred[Owner] {
-	return c.Predicate(`%s NOT LIKE %s`, Literal(str+"%"))
-}
-
-func (c ColumnImpl[Owner, T]) EndsWithLiteral(str string) Pred[Owner] {
-	return c.Predicate(`%s LIKE %s`, Literal("%"+str))
-}
-
-func (c ColumnImpl[Owner, T]) NEndsWithLiteral(str string) Pred[Owner] {
-	return c.Predicate(`%s NOT LIKE %s`, Literal("%"+str))
-}
-
-func (c ColumnImpl[Owner, T]) ContainsLiteral(str string) Pred[Owner] {
-	return c.Predicate(`%s LIKE %s`, Literal("%"+str+"%"))
-}
-
-func (c ColumnImpl[Owner, T]) NContainsLiteral(str string) Pred[Owner] {
-	return c.Predicate(`%s NOT LIKE %s`, Literal("%"+str+"%"))
-}
-
-func (c ColumnImpl[Owner, T]) BetweenLiteral(start, end T) Pred[Owner] {
-	return c.Predicate(`%s BETWEEN %s AND %s`, Literal(start), Literal(end))
-}
-
-func (c ColumnImpl[Owner, T]) NBetweenLiteral(start, end T) Pred[Owner] {
-	return c.Predicate(`%s NOT BETWEEN %s AND %s`, Literal(start), Literal(end))
-}
-
 func (c ColumnImpl[Owner, T]) In(args ...T) Pred[Owner] {
 	if len(args) == 0 {
 		return pred[Owner](rawCondition("1 = 0"))
@@ -331,22 +288,6 @@ func (c ColumnImpl[Owner, T]) NIn(args ...T) Pred[Owner] {
 	}
 
 	return c.Predicate(`%s NOT IN (%s)`, BindSlice(args))
-}
-
-func (c ColumnImpl[Owner, T]) InLiteral(args ...T) Pred[Owner] {
-	if len(args) == 0 {
-		return pred[Owner](rawCondition("1 = 0"))
-	}
-
-	return c.Predicate(`%s IN (%s)`, literalValues(args))
-}
-
-func (c ColumnImpl[Owner, T]) NInLiteral(args ...T) Pred[Owner] {
-	if len(args) == 0 {
-		return pred[Owner](rawCondition("1 = 1"))
-	}
-
-	return c.Predicate(`%s NOT IN (%s)`, literalValues(args))
 }
 
 func (c ColumnImpl[Owner, T]) IsNull() Pred[Owner] {
@@ -470,7 +411,7 @@ func (c ColumnImpl[Owner, T]) NInSub(sq subquery) Pred[Owner] {
 func (c ColumnImpl[Owner, T]) ExistsSub(sq subquery) Pred[Owner] {
 	subquery, args, err := buildSubqueryExpression(sq, existsSubqueryUsage)
 	if err != nil {
-		return pred[Owner](Cond{buildErr: errors.Trace(err)})
+		return pred[Owner](Cond{buildErr: err})
 	}
 
 	return pred[Owner](Cond{
@@ -483,7 +424,7 @@ func (c ColumnImpl[Owner, T]) ExistsSub(sq subquery) Pred[Owner] {
 func (c ColumnImpl[Owner, T]) NExistsSub(sq subquery) Pred[Owner] {
 	subquery, args, err := buildSubqueryExpression(sq, existsSubqueryUsage)
 	if err != nil {
-		return pred[Owner](Cond{buildErr: errors.Trace(err)})
+		return pred[Owner](Cond{buildErr: err})
 	}
 
 	return pred[Owner](Cond{
@@ -505,39 +446,44 @@ func (c ColumnImpl[Owner, T]) NUnique(_ subquery) Pred[Owner] {
 // 条件构建核心方法
 // ================================================
 
-// Predicate builds a condition with the given operator and arguments
+// Predicate 是构建条件的核心方法。
+// 架构意图：它是所有比较操作（EQ, GT, In 等）的基础。它接收一个格式化字符串和变长参数。
+// 1. 验证占位符数量。
+// 2. 自动收集所有涉及到的表（包括接收者列和参数中的列）。
+// 3. 将参数转换为 SQL 表达式。
+// 4. 使用 fmt.Sprintf 组合成最终的表达式字符串。
 func (c ColumnImpl[Owner, T]) Predicate(op string, args ...any) Pred[Owner] {
 	if err := validatePredicateFormat(op, len(args)+1); err != nil {
-		return pred[Owner](Cond{buildErr: errors.Trace(err)})
+		return pred[Owner](Cond{buildErr: err})
 	}
 
 	baseTable, err := validateColumnInput(c)
 	if err != nil {
-		return pred[Owner](Cond{buildErr: errors.Trace(err)})
+		return pred[Owner](Cond{buildErr: err})
 	}
 
 	tables := map[string]Table{baseTable.Table(): baseTable}
 
-	// Collect tables from arguments that are also columns
+	// 从也是列的参数中收集表引用。
 	for _, arg := range args {
 		if col, ok := arg.(SQLColumn); ok {
 			table, err := validateColumnInput(col)
 			if err != nil {
-				return pred[Owner](Cond{buildErr: errors.Trace(err)})
+				return pred[Owner](Cond{buildErr: err})
 			}
 
 			tables[table.Table()] = table
 		}
 	}
 
-	// Build arguments for string formatting
+	// 构建用于字符串格式化的参数。
 	formatArgs := make([]any, 0, len(args)+1)
 	formatArgs = append(formatArgs, c.rawQualifiedName())
 
 	for _, arg := range args {
 		expr := argumentToExpression(arg)
 		if err := expressionBuildError(expr); err != nil {
-			return pred[Owner](Cond{buildErr: errors.Trace(err)})
+			return pred[Owner](Cond{buildErr: err})
 		}
 
 		formatArgs = append(formatArgs, expr.Expr())
@@ -553,7 +499,7 @@ func (c ColumnImpl[Owner, T]) Predicate(op string, args ...any) Pred[Owner] {
 func (c ColumnImpl[Owner, T]) rawCondition(expr string) Pred[Owner] {
 	table, err := validateColumnInput(c)
 	if err != nil {
-		return pred[Owner](Cond{buildErr: errors.Trace(err)})
+		return pred[Owner](Cond{buildErr: err})
 	}
 
 	return pred[Owner](Cond{
@@ -573,7 +519,7 @@ func rawCondition(expr string) Cond {
 // that this predicate uses subqueries, which are not supported by TSQ's built-in dialects.
 // The error will be returned when Build() is called, not immediately.
 func unsupportedSubqueryPredicate(name string) Cond {
-	return Cond{buildErr: errors.Errorf("%s subquery predicate is not supported by TSQ's built-in dialects", name)}
+	return Cond{buildErr: fmt.Errorf("%s subquery predicate is not supported by TSQ's built-in dialects", name)}
 }
 
 // unsupportedPatternPredicate returns a condition with a deferred error indicating
@@ -581,7 +527,7 @@ func unsupportedSubqueryPredicate(name string) Cond {
 // The error will be returned when Build() is called, not immediately.
 // Users should use LIKE with an explicit pattern instead.
 func unsupportedPatternPredicate(name string) Cond {
-	return Cond{buildErr: errors.Errorf(
+	return Cond{buildErr: fmt.Errorf(
 		"%s is not portable across TSQ's built-in dialects; use LIKE with an explicit pattern instead",
 		name,
 	)}
@@ -589,16 +535,16 @@ func unsupportedPatternPredicate(name string) Cond {
 
 func validatePredicateFormat(op string, placeholderCount int) error {
 	if strings.TrimSpace(op) == "" {
-		return errors.Errorf("predicate format cannot be empty")
+		return fmt.Errorf("predicate format cannot be empty")
 	}
 
 	actual, err := countStringFormatPlaceholders(op)
 	if err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
 	if actual != placeholderCount {
-		return errors.Errorf(
+		return fmt.Errorf(
 			"predicate format placeholder count mismatch: expected %d, got %d",
 			placeholderCount,
 			actual,
@@ -612,7 +558,7 @@ func validatePredicateFormat(op string, placeholderCount int) error {
 // 表达式类型和辅助函数
 // ================================================
 
-// Expression interface for SQL expressions
+// Expression represents a SQL fragment plus the args needed to render it safely.
 type Expression interface {
 	Expr() string
 	Args() []any
@@ -625,23 +571,30 @@ type expressionError struct {
 func (e expressionError) Expr() string { return "" }
 func (e expressionError) Args() []any  { return nil }
 func (e expressionError) buildError() error {
-	return errors.Trace(e.err)
+	return e.err
 }
 
-// variableExpression represents a variable placeholder (?)
+// variableExpression 代表一个变量占位符 (?)。
+// 它在 Args() 中返回 externalArgMarker，这是一个特殊的“延迟解析”标记。
+// 架构意图：当用户使用 EQVar() 等方法时，TSQ 并不立即绑定值，而是留下这个标记。
+// 真正的参数值将在 Query.List(ctx, db, value) 调用时，由 resolveQuery 函数根据此标记进行对齐。
 type variableExpression struct{}
 
 func (v variableExpression) Expr() string { return "?" }
 func (v variableExpression) Args() []any  { return []any{externalArgMarker} }
 
-var Var variableExpression
+var varMarker variableExpression
 
+// variableSliceExpression 代表一个切片变量占位符。
+// 架构意图：专门用于 IN 比较。在构建期，我们不知道切片的长度，因此无法确定生成多少个 "?"。
+// 它返回 externalSliceArgMarker{}，resolveQuery 在执行时会检测此标记，
+// 并根据传入切片的实际长度动态扩展 SQL 中的 "?" 占位符数量。
 type variableSliceExpression struct{}
 
 func (v variableSliceExpression) Expr() string { return "?" }
 func (v variableSliceExpression) Args() []any  { return []any{externalSliceArgMarker{}} }
 
-var VarSlice variableSliceExpression
+var varSliceMarker variableSliceExpression
 
 // valuesExpression represents a list of values in SQL
 type valuesExpression struct {
@@ -660,7 +613,7 @@ func (a valuesExpression) Args() []any {
 func newValuesExpression(args any) Expression {
 	v := reflect.ValueOf(args)
 	if v.Kind() != reflect.Slice {
-		return expressionError{err: errors.Errorf("expected slice, got %T", args)}
+		return expressionError{err: fmt.Errorf("expected slice, got %T", args)}
 	}
 
 	values := make([]string, v.Len())
@@ -669,7 +622,7 @@ func newValuesExpression(args any) Expression {
 	for i := range v.Len() {
 		value := v.Index(i).Interface()
 		if err := validatePredicateValue(value); err != nil {
-			return expressionError{err: errors.Trace(err)}
+			return expressionError{err: err}
 		}
 
 		values[i] = "?"
@@ -690,44 +643,18 @@ type rawExpression struct {
 func (r rawExpression) Expr() string { return r.expr }
 func (r rawExpression) Args() []any  { return append([]any(nil), r.args...) }
 
+// Bind returns a parameterized expression for value.
 func Bind(value any) Expression {
 	if err := validatePredicateValue(value); err != nil {
-		return expressionError{err: errors.Trace(err)}
+		return expressionError{err: err}
 	}
 
 	return rawExpression{expr: "?", args: []any{value}}
 }
 
+// BindSlice returns a comma-separated placeholder list for a slice value.
 func BindSlice(values any) Expression {
 	return newValuesExpression(values)
-}
-
-func Literal(value any) Expression {
-	expr, err := literalValue(value)
-	if err != nil {
-		return expressionError{err: errors.Trace(err)}
-	}
-
-	return rawExpression{expr: expr}
-}
-
-func literalValues(values any) Expression {
-	v := reflect.ValueOf(values)
-	if v.Kind() != reflect.Slice {
-		return expressionError{err: errors.Errorf("expected slice, got %T", values)}
-	}
-
-	parts := make([]string, v.Len())
-	for i := range v.Len() {
-		part, err := literalValue(v.Index(i).Interface())
-		if err != nil {
-			return expressionError{err: errors.Trace(err)}
-		}
-
-		parts[i] = part
-	}
-
-	return rawExpression{expr: strings.Join(parts, ", ")}
 }
 
 // argumentToExpression converts various argument types to their SQL expression representation.
@@ -740,7 +667,7 @@ func argumentToExpression(arg any) Expression {
 	case validatedSubquery:
 		expr, args, err := buildSubqueryExpression(v.query, v.usage)
 		if err != nil {
-			return expressionError{err: errors.Trace(err)}
+			return expressionError{err: err}
 		}
 
 		return rawExpression{expr: expr, args: args}
@@ -749,7 +676,7 @@ func argumentToExpression(arg any) Expression {
 			"raw subqueries are not allowed in Predicate; use EQSub/NESub/GTSub/InSub/ExistsSub helpers",
 		)}
 	default:
-		return Literal(v)
+		return Bind(v)
 	}
 }
 
@@ -784,15 +711,15 @@ func buildSubqueryExpression(q subquery, usage subqueryUsage) (string, []any, er
 	switch usage {
 	case scalarSubqueryUsage:
 		if selectCount != 1 {
-			return "", nil, errors.Errorf("scalar subquery must select exactly one column, got %d", selectCount)
+			return "", nil, fmt.Errorf("scalar subquery must select exactly one column, got %d", selectCount)
 		}
 	case membershipSubqueryUsage:
 		if selectCount != 1 {
-			return "", nil, errors.Errorf("IN subquery must select exactly one column, got %d", selectCount)
+			return "", nil, fmt.Errorf("in subquery must select exactly one column, got %d", selectCount)
 		}
 	case existsSubqueryUsage:
 	default:
-		return "", nil, errors.Errorf("unknown subquery usage %q", usage)
+		return "", nil, fmt.Errorf("unknown subquery usage %q", usage)
 	}
 
 	return fmt.Sprintf("(%s)", sqlText), q.subqueryArgs(), nil
@@ -840,210 +767,68 @@ func expressionBuildError(expr Expression) error {
 	}
 
 	if carrier, ok := expr.(buildErrorCarrier); ok && carrier.buildError() != nil {
-		return errors.Trace(carrier.buildError())
+		return carrier.buildError()
 	}
 
 	return nil
 }
 
 func validatePredicateValue(arg any) error {
-	val, err := sqlValue(arg)
-	if err != nil {
-		return errors.Errorf("failed to convert value %v (%T): %v", arg, arg, err)
-	}
-
-	if val == sqlNullLiteral {
-		return errors.New("null literal values are not supported in predicates; use IsNull/IsNotNull explicitly")
-	}
-
-	return nil
-}
-
-func literalValue(arg any) (string, error) {
-	val, err := sqlValue(arg)
-	if err != nil {
-		return "", errors.Errorf("failed to convert value %v (%T): %v", arg, arg, err)
-	}
-
-	if val == sqlNullLiteral {
-		return "", errors.New("null literal values are not supported in predicates; use IsNull/IsNotNull explicitly")
-	}
-
-	return val, nil
-}
-
-// sqlValue converts a Go value to its SQL string representation
-// This function supports all standard SQL types and their Go equivalents
-func sqlValue(arg any) (string, error) {
 	if isNilValue(arg) {
-		return sqlNullLiteral, nil
+		return errors.New("null predicate values are not supported; use IsNull/IsNotNull explicitly")
 	}
 
-	// Handle driver.Valuer interface (e.g., time.Time, sql.Null* types, custom types)
 	if valuer, ok := arg.(driver.Valuer); ok {
-		val, err := valuer.Value()
+		value, err := valuer.Value()
 		if err != nil {
-			return "", errors.Trace(err)
+			return fmt.Errorf("failed to evaluate predicate value %T: %w", arg, err)
 		}
 
-		if val == nil {
-			return sqlNullLiteral, nil
+		if value == nil {
+			return errors.New("null predicate values are not supported; use IsNull/IsNotNull explicitly")
 		}
-		// Recursively handle the converted value
-		res, err := sqlValue(val)
 
-		return res, errors.Trace(err)
+		return validatePredicateScalar(value)
 	}
 
-	// Use reflection to handle pointers and get the underlying type
+	return validatePredicateScalar(arg)
+}
+
+func validatePredicateScalar(arg any) error {
 	v := reflect.ValueOf(arg)
-	for v.Kind() == reflect.Ptr {
+	for v.IsValid() && v.Kind() == reflect.Ptr {
 		if v.IsNil() {
-			return sqlNullLiteral, nil
+			return errors.New("null predicate values are not supported; use IsNull/IsNotNull explicitly")
 		}
 
 		v = v.Elem()
 		arg = v.Interface()
 	}
 
-	switch val := arg.(type) {
-	case string:
-		return sqlEscapeString(val)
-	case []byte:
-		return sqlEscapeString(string(val))
-	case sql.RawBytes:
-		return sqlEscapeString(string(val))
-
-	// Integer types
-	case int:
-		return strconv.FormatInt(int64(val), 10), nil
-	case int8:
-		return strconv.FormatInt(int64(val), 10), nil
-	case int16:
-		return strconv.FormatInt(int64(val), 10), nil
-	case int32:
-		return strconv.FormatInt(int64(val), 10), nil
-	case int64:
-		return strconv.FormatInt(val, 10), nil
-
-	// Unsigned integer types
-	case uint:
-		return strconv.FormatUint(uint64(val), 10), nil
-	case uint8:
-		return strconv.FormatUint(uint64(val), 10), nil
-	case uint16:
-		return strconv.FormatUint(uint64(val), 10), nil
-	case uint32:
-		return strconv.FormatUint(uint64(val), 10), nil
-	case uint64:
-		return strconv.FormatUint(val, 10), nil
-
-	// Floating point types
-	case float32:
-		if math.IsNaN(float64(val)) {
-			return "NULL", nil // NaN is treated as NULL in SQL
-		}
-
-		if math.IsInf(float64(val), 0) {
-			return "NULL", nil // Infinity is treated as NULL in SQL
-		}
-
-		return strconv.FormatFloat(float64(val), 'g', -1, 32), nil
-	case float64:
-		if math.IsNaN(val) {
-			return "NULL", nil // NaN is treated as NULL in SQL
-		}
-
-		if math.IsInf(val, 0) {
-			return "NULL", nil // Infinity is treated as NULL in SQL
-		}
-
-		return strconv.FormatFloat(val, 'g', -1, 64), nil
-
-	// Boolean type
-	case bool:
-		if val {
-			return "TRUE", nil
-		}
-
-		return "FALSE", nil
-
-	// Time type
-	case time.Time:
-		if val.IsZero() {
-			return "NULL", nil
-		}
-		// Format as SQL standard datetime: 'YYYY-MM-DD HH:MM:SS'
-		return fmt.Sprintf("'%s'", val.Format("2006-01-02 15:04:05")), nil
-
-	default:
-		// Use reflection for other types
-		return sqlValueReflect(v)
-	}
-}
-
-// sqlEscapeString escapes a string for safe use in SQL
-func sqlEscapeString(s string) (string, error) {
-	if strings.Contains(s, `\`) {
-		return "", errors.Errorf("string literals containing backslashes are not portable; use bind variables instead")
+	if !v.IsValid() {
+		return errors.New("null predicate values are not supported; use IsNull/IsNotNull explicitly")
 	}
 
-	// Replace single quotes with double single quotes (SQL standard)
-	escaped := strings.ReplaceAll(s, "'", "''")
+	if _, ok := arg.(time.Time); ok {
+		return nil
+	}
 
-	return fmt.Sprintf("'%s'", escaped), nil
-}
-
-// sqlValueReflect handles types using reflection
-func sqlValueReflect(v reflect.Value) (string, error) {
 	switch v.Kind() {
 	case reflect.Slice:
 		if v.Type().Elem().Kind() == reflect.Uint8 {
-			// Handle []uint8 (same as []byte)
-			bytes := v.Bytes()
-			return sqlEscapeString(string(bytes))
+			return nil
 		}
 
-		return "", errors.Errorf("unsupported slice type: %v", v.Type())
-
+		return fmt.Errorf("unsupported predicate slice type %v; use In/InVar for collections", v.Type())
 	case reflect.Array:
 		if v.Type().Elem().Kind() == reflect.Uint8 {
-			// Handle [N]uint8 (byte arrays)
-			bytes := make([]byte, v.Len())
-			for i := range v.Len() {
-				bytes[i] = byte(v.Index(i).Uint())
-			}
-
-			return sqlEscapeString(string(bytes))
+			return nil
 		}
 
-		return "", errors.Errorf("unsupported array type: %v", v.Type())
-
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		return strconv.FormatInt(v.Int(), 10), nil
-
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		return strconv.FormatUint(v.Uint(), 10), nil
-
-	case reflect.Float32, reflect.Float64:
-		f := v.Float()
-		if math.IsNaN(f) || math.IsInf(f, 0) {
-			return "NULL", nil
-		}
-
-		return strconv.FormatFloat(f, 'g', -1, 64), nil
-
-	case reflect.Bool:
-		if v.Bool() {
-			return "TRUE", nil
-		}
-
-		return "FALSE", nil
-
-	case reflect.String:
-		return sqlEscapeString(v.String())
-
+		return fmt.Errorf("unsupported predicate array type %v", v.Type())
+	case reflect.Map, reflect.Struct:
+		return fmt.Errorf("unsupported predicate value type %v", v.Type())
 	default:
-		return "", errors.Errorf("unsupported value type: %v", v.Type())
+		return nil
 	}
 }

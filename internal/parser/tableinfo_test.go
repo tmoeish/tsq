@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/tmoeish/tsq/v4"
+	"github.com/tmoeish/tsq/v4/internal/genmodel"
 )
 
 func TestParseAnnotations_DSL(t *testing.T) {
@@ -15,37 +16,37 @@ func TestParseAnnotations_DSL(t *testing.T) {
 	tests := []struct {
 		desc    string
 		comment string
-		want    tsq.TableInfo
+		want    genmodel.TableMeta
 	}{
 		{
 			desc: "典型 TABLE 全写",
 			comment: `
 			//   @TABLE(   	name="account",   	pk="C1,true",   	version, created_at, updated_at="MTime", deleted_at,   	ux=[   		{name="U1", fields=["F1","F2"]},   		{fields=["F3"]}   	],   	idx=[   		{name="I1", fields=["F4"]},   		{fields=["F5","F6"]}   	],   	kw=["foo","bar"]   )`,
-			want: tsq.TableInfo{
+			want: genmodel.TableMeta{
 				Table:          "account",
-				ID:             "C1",
+				PK:             "C1",
 				AI:             true,
 				VersionField:   "Version",
 				CreatedAtField: "CreatedAt",
 				UpdatedAtField: "MTime",
 				DeletedAtField: "DeletedAt",
-				UxList: []tsq.IndexInfo{
+				UxList: []genmodel.IndexInfo{
 					{Name: "U1", Fields: []string{"F1", "F2"}},
 					{Name: "ux_account_f3", Fields: []string{"F3"}},
 				},
-				IdxList: []tsq.IndexInfo{
+				IdxList: []genmodel.IndexInfo{
 					{Name: "I1", Fields: []string{"F4"}},
 					{Name: "idx_account_f5_f6", Fields: []string{"F5", "F6"}},
 				},
-				KwList: []string{"foo", "bar"},
+				SearchColumns: []string{"foo", "bar"},
 			},
 		},
 		{
 			desc:    "TABLE 省略主键和简写",
 			comment: `// @TABLE( 	name="user", 	version, created_at, updated_at="MTime", deleted_at  )`,
-			want: tsq.TableInfo{
+			want: genmodel.TableMeta{
 				Table:          "user",
-				ID:             "ID",
+				PK:             "ID",
 				AI:             true,
 				VersionField:   "Version",
 				CreatedAtField: "CreatedAt",
@@ -56,28 +57,28 @@ func TestParseAnnotations_DSL(t *testing.T) {
 		{
 			desc:    "Result 注解",
 			comment: `// @RESULT(name="UserResult",  kw=["foo","bar"]  )`,
-			want: tsq.TableInfo{
-				Table:  "UserResult",
-				KwList: []string{"foo", "bar"},
+			want: genmodel.TableMeta{
+				Table:         "UserResult",
+				SearchColumns: []string{"foo", "bar"},
 			},
 		},
 		{
 			desc:    "TABLE ux 和 idx 无 name",
 			comment: `// @TABLE(ux=[{fields=["F1"]}], idx=[{fields=["F2","F3"]}])`,
-			want: tsq.TableInfo{
+			want: genmodel.TableMeta{
 				Table:   "user",
-				ID:      "ID",
+				PK:      "ID",
 				AI:      true,
-				UxList:  []tsq.IndexInfo{{Name: "ux_user_f1", Fields: []string{"F1"}}},
-				IdxList: []tsq.IndexInfo{{Name: "idx_user_f2_f3", Fields: []string{"F2", "F3"}}},
+				UxList:  []genmodel.IndexInfo{{Name: "ux_user_f1", Fields: []string{"F1"}}},
+				IdxList: []genmodel.IndexInfo{{Name: "idx_user_f2_f3", Fields: []string{"F2", "F3"}}},
 			},
 		},
 		{
 			desc:    "TABLE 省略 name",
-			comment: `// @TABLE(pk="ID,true", version, created_at)`,
-			want: tsq.TableInfo{
+			comment: `// @TABLE(pk="PK,true", version, created_at)`,
+			want: genmodel.TableMeta{
 				Table:          "user",
-				ID:             "ID",
+				PK:             "PK",
 				AI:             true,
 				VersionField:   "Version",
 				CreatedAtField: "CreatedAt",
@@ -86,19 +87,19 @@ func TestParseAnnotations_DSL(t *testing.T) {
 		{
 			desc:    "Result 省略 name",
 			comment: `// @RESULT(kw=["foo","bar"])`,
-			want: tsq.TableInfo{
-				KwList: []string{"foo", "bar"},
+			want: genmodel.TableMeta{
+				SearchColumns: []string{"foo", "bar"},
 			},
 		},
 		{
 			desc:    "Result最简",
 			comment: `// @RESULT`,
-			want:    tsq.TableInfo{},
+			want:    genmodel.TableMeta{},
 		},
 	}
 
 	structFields := map[string]struct{}{
-		"ID": {}, "C1": {}, "Version": {}, "CreatedAt": {}, "MTime": {}, "DeletedAt": {}, "F1": {}, "F2": {}, "F3": {}, "F4": {}, "F5": {}, "F6": {}, "account": {}, "user": {}, "UserResult": {}, "foo": {}, "bar": {}, "Order": {}, "UserID": {},
+		"ID": {}, "PK": {}, "C1": {}, "Version": {}, "CreatedAt": {}, "MTime": {}, "DeletedAt": {}, "F1": {}, "F2": {}, "F3": {}, "F4": {}, "F5": {}, "F6": {}, "account": {}, "user": {}, "UserResult": {}, "foo": {}, "bar": {}, "Order": {}, "UserID": {},
 	}
 
 	for _, tt := range tests {
@@ -115,7 +116,7 @@ func TestParseAnnotations_DSL(t *testing.T) {
 			}
 
 			if !reflect.DeepEqual(info.Table, tt.want.Table) ||
-				!reflect.DeepEqual(info.ID, tt.want.ID) ||
+				!reflect.DeepEqual(info.PK, tt.want.PK) ||
 				!reflect.DeepEqual(info.AI, tt.want.AI) ||
 				!reflect.DeepEqual(info.VersionField, tt.want.VersionField) ||
 				!reflect.DeepEqual(info.CreatedAtField, tt.want.CreatedAtField) ||
@@ -123,7 +124,7 @@ func TestParseAnnotations_DSL(t *testing.T) {
 				!reflect.DeepEqual(info.DeletedAtField, tt.want.DeletedAtField) ||
 				!reflect.DeepEqual(info.UxList, tt.want.UxList) ||
 				!reflect.DeepEqual(info.IdxList, tt.want.IdxList) ||
-				!reflect.DeepEqual(info.KwList, tt.want.KwList) {
+				!reflect.DeepEqual(info.SearchColumns, tt.want.SearchColumns) {
 				infoStr := tsq.PrettyJSON(info)
 				wantStr := tsq.PrettyJSON(tt.want)
 				t.Errorf("got = %s, want %s", infoStr, wantStr)
@@ -176,7 +177,7 @@ func TestExtractDSLContent_ReturnsErrorForArgumentsWithoutBrackets(t *testing.T)
 func TestParseDSL_IgnoresAnnotationPrefixes(t *testing.T) {
 	cg := []*ast.CommentGroup{{List: []*ast.Comment{{Text: `// @TABLEX(name="user")`}}}}
 
-	info, err := parseDSL("User", cg, map[string]struct{}{"ID": {}})
+	info, err := parseDSL("User", cg, map[string]struct{}{"PK": {}})
 	if err != nil {
 		t.Fatalf("parseDSL returned error for non-annotation prefix: %v", err)
 	}
@@ -189,7 +190,7 @@ func TestParseDSL_IgnoresAnnotationPrefixes(t *testing.T) {
 func TestParseDSL_IgnoresAnnotationMentionsInProse(t *testing.T) {
 	cg := []*ast.CommentGroup{{List: []*ast.Comment{{Text: `// This struct can be generated with @TABLE(name="user") later.`}}}}
 
-	info, err := parseDSL("User", cg, map[string]struct{}{"ID": {}})
+	info, err := parseDSL("User", cg, map[string]struct{}{"PK": {}})
 	if err != nil {
 		t.Fatalf("parseDSL returned error for prose annotation mention: %v", err)
 	}
@@ -201,7 +202,7 @@ func TestParseDSL_IgnoresAnnotationMentionsInProse(t *testing.T) {
 
 func TestParseTableDSL_ReturnsErrorForMalformedAnnotation(t *testing.T) {
 	_, err := parseTableDSL("User", `// @TABLE(name="user"`, map[string]struct{}{
-		"ID": {},
+		"PK": {},
 	})
 	if err == nil {
 		t.Fatal("expected malformed TABLE annotation to return an error")
@@ -214,7 +215,7 @@ func TestParseTableDSL_ReturnsErrorForMalformedAnnotation(t *testing.T) {
 
 func TestParseResultDSL_ReturnsErrorForMalformedAnnotation(t *testing.T) {
 	_, err := parseResultDSL("UserResult", `// @RESULT(name="user"`, map[string]struct{}{
-		"ID": {},
+		"PK": {},
 	})
 	if err == nil {
 		t.Fatal("expected malformed Result annotation to return an error")
@@ -239,7 +240,7 @@ type TableInfoMock struct {
 	DeletedAtField string
 	UxList         []string
 	IdxList        []string
-	KwList         []string
+	SearchColumns  []string
 }
 
 type TableInfoReal struct {
@@ -250,9 +251,9 @@ type TableInfoReal struct {
 	CreatedAtField string
 	UpdatedAtField string
 	DeletedAtField string
-	UxList         []tsq.IndexInfo
-	IdxList        []tsq.IndexInfo
-	KwList         []string
+	UxList         []genmodel.IndexInfo
+	IdxList        []genmodel.IndexInfo
+	SearchColumns  []string
 }
 
 func (r *TableInfoReal) ToMock() TableInfoMock {
@@ -264,7 +265,7 @@ func (r *TableInfoReal) ToMock() TableInfoMock {
 		CreatedAtField: r.CreatedAtField,
 		UpdatedAtField: r.UpdatedAtField,
 		DeletedAtField: r.DeletedAtField,
-		KwList:         r.KwList,
+		SearchColumns:  r.SearchColumns,
 	}
 	for _, ux := range r.UxList {
 		mock.UxList = append(mock.UxList, ux.Name+":"+joinFields(ux.Fields))
@@ -290,7 +291,7 @@ func (m TableInfoMock) Get(key string) any {
 	switch key {
 	case "Table":
 		return m.Table
-	case "ID":
+	case "PK":
 		return m.ID
 	case "CustomID":
 		return m.CustomID
@@ -306,8 +307,8 @@ func (m TableInfoMock) Get(key string) any {
 		return m.UxList
 	case "IdxList":
 		return m.IdxList
-	case "KwList":
-		return m.KwList
+	case "SearchColumns":
+		return m.SearchColumns
 	default:
 		return nil
 	}

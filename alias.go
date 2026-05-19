@@ -14,15 +14,12 @@ type tableRebinder interface {
 	withTable(Table) SQLColumn
 }
 
-type anyColumnLister interface {
-	Cols() []SQLColumn
-}
-
 type aliasedTable struct {
 	base  Table
 	alias string
 }
 
+// AliasTable returns table wrapped with the provided SQL alias.
 func AliasTable(table Table, alias string) Table {
 	if isNilValue(table) {
 		return nil
@@ -39,6 +36,7 @@ func AliasTable(table Table, alias string) Table {
 	}
 }
 
+// AliasColumns rebinds cols onto table.
 func AliasColumns(cols []SQLColumn, table Table) []SQLColumn {
 	result := make([]SQLColumn, 0, len(cols))
 	for _, col := range cols {
@@ -48,6 +46,7 @@ func AliasColumns(cols []SQLColumn, table Table) []SQLColumn {
 	return result
 }
 
+// RebindColumn returns col rebound to table when the column supports rebinding.
 func RebindColumn(col SQLColumn, table Table) SQLColumn {
 	if isNilValue(col) || isNilValue(table) {
 		return col
@@ -66,9 +65,9 @@ func (t aliasedTable) Table() string {
 
 func (t aliasedTable) TSQOwner() {}
 
-func (t aliasedTable) KwList() []SearchColumn {
-	result := make([]SearchColumn, 0, len(t.base.KwList()))
-	for _, col := range t.base.KwList() {
+func (t aliasedTable) SearchColumns() []SearchColumn {
+	result := make([]SearchColumn, 0, len(t.base.SearchColumns()))
+	for _, col := range t.base.SearchColumns() {
 		rebound, ok := RebindColumn(col, t).(SearchColumn)
 		if ok {
 			result = append(result, rebound)

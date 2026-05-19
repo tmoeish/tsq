@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tmoeish/tsq/v4"
+	"github.com/tmoeish/tsq/v4/internal/genmodel"
 )
 
 // Test_parseNamedFields 测试解析具名字段
@@ -16,7 +16,7 @@ func Test_parseNamedFields(t *testing.T) {
 package test
 
 type User struct {
-	ID   int64  ` + "`" + `db:"id"` + "`" + `
+	PK   int64  ` + "`" + `db:"id"` + "`" + `
 	Name string ` + "`" + `db:"name"` + "`" + `
 	Age  int    ` + "`" + `db:"age"` + "`" + `
 	Internal string // 没有标签，应该被跳过
@@ -51,8 +51,8 @@ type User struct {
 		}
 	}
 
-	packageAliases := make(map[string]tsq.PackageInfo)
-	currentPkg := tsq.PackageInfo{Path: "test", Name: "test"}
+	packageAliases := make(map[string]genmodel.PackageInfo)
+	currentPkg := genmodel.PackageInfo{Path: "test", Name: "test"}
 
 	fields, err := parseNamedFields(packageAliases, currentPkg, st)
 	if err != nil {
@@ -64,12 +64,12 @@ type User struct {
 		t.Errorf("Expected 3 fields, got %d", len(fields))
 	}
 
-	// 验证 ID 字段
-	if field, exists := fields["ID"]; !exists {
-		t.Errorf("ID field not found")
+	// 验证 PK 字段
+	if field, exists := fields["PK"]; !exists {
+		t.Errorf("PK field not found")
 	} else {
-		if field.Name != "ID" || field.Type.TypeName != "int64" || field.Column != "id" {
-			t.Errorf("ID field incorrect: %+v", field)
+		if field.Name != "PK" || field.Type.TypeName != "int64" || field.Column != "id" {
+			t.Errorf("PK field incorrect: %+v", field)
 		}
 	}
 
@@ -135,8 +135,8 @@ type User struct {
 		}
 	}
 
-	packageAliases := make(map[string]tsq.PackageInfo)
-	currentPkg := tsq.PackageInfo{Path: "test", Name: "test"}
+	packageAliases := make(map[string]genmodel.PackageInfo)
+	currentPkg := genmodel.PackageInfo{Path: "test", Name: "test"}
 
 	pkgs, err := parseEmbeddedFields(packageAliases, currentPkg, st)
 	if err != nil {
@@ -149,13 +149,13 @@ type User struct {
 	}
 
 	// 验证 BaseModel
-	baseModelType := tsq.TypeInfo{Package: currentPkg, TypeName: "BaseModel"}
+	baseModelType := genmodel.TypeInfo{Package: currentPkg, TypeName: "BaseModel"}
 	if _, exists := pkgs[baseModelType]; !exists {
 		t.Errorf("BaseModel not found in embedded types")
 	}
 
 	// 验证 AuditModel
-	auditModelType := tsq.TypeInfo{Package: currentPkg, TypeName: "AuditModel"}
+	auditModelType := genmodel.TypeInfo{Package: currentPkg, TypeName: "AuditModel"}
 	if _, exists := pkgs[auditModelType]; !exists {
 		t.Errorf("AuditModel not found in embedded types")
 	}
@@ -445,7 +445,7 @@ type Test struct {
 		t.Fatal("expected to find Test struct")
 	}
 
-	_, err = parseNamedFields(map[string]tsq.PackageInfo{}, tsq.PackageInfo{Name: "test"}, structType)
+	_, err = parseNamedFields(map[string]genmodel.PackageInfo{}, genmodel.PackageInfo{Name: "test"}, structType)
 	if err == nil {
 		t.Fatal("expected unknown package alias to return an error")
 	}

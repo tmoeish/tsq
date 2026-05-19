@@ -1,12 +1,12 @@
 package tsq
 
 import (
+	"errors"
+	"fmt"
 	"maps"
 	"slices"
 	"sort"
 	"strings"
-
-	"github.com/juju/errors"
 )
 
 // QuerySpec is the single source of truth for a query definition before planning.
@@ -18,6 +18,7 @@ type QuerySpec[O Owner] struct {
 	Joins         []join
 	GroupBy       []SQLColumn
 	Having        []Condition
+	Lock          queryLock
 	SetOps        []setOperation[O]
 }
 
@@ -41,35 +42,35 @@ type queryPlan struct {
 
 func buildQueryPlan[O Owner](spec QuerySpec[O]) (*queryPlan, error) {
 	if len(spec.Selects) == 0 {
-		return nil, errors.Errorf("empty select fields: %+v", spec)
+		return nil, fmt.Errorf("empty select fields: %+v", spec)
 	}
 
 	if err := spec.validateJoinGraph(); err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	if err := spec.validateSetOperations(); err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	cntSQL, cntArgs, err := spec.buildCntSQL()
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	listSQL, listArgs, err := spec.buildListSQL()
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	kwCntSQL, kwCntArgs, err := spec.buildKwCntSQL()
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	kwListSQL, kwListArgs, err := spec.buildKwListSQL()
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	return &queryPlan{
@@ -186,7 +187,7 @@ func (spec QuerySpec[O]) tablesForConditions(conds []Condition) map[string]Table
 func (spec QuerySpec[O]) buildCntSQL() (string, []any, error) {
 	cteSQL, cteArgs, err := spec.buildCTEPrefix(false)
 	if err != nil {
-		return "", nil, errors.Trace(err)
+		return "", nil, err
 	}
 
 	if len(spec.SetOps) > 0 || spec.requiresWrappedCount() {
@@ -208,13 +209,13 @@ func (spec QuerySpec[O]) buildCntSQL() (string, []any, error) {
 func (spec QuerySpec[O]) buildListSQL() (string, []any, error) {
 	cteSQL, cteArgs, err := spec.buildCTEPrefix(false)
 	if err != nil {
-		return "", nil, errors.Trace(err)
+		return "", nil, err
 	}
 
 	bodySQL, bodyArgs := spec.buildListBodySQL(false)
 	args := append(slices.Clone(cteArgs), bodyArgs...)
 
-	return cteSQL + bodySQL, args, nil
+	return appendQueryLockClause(cteSQL+bodySQL, spec.Lock), args, nil
 }
 
 func (spec QuerySpec[O]) buildSimpleListSQL() (string, []any) {
@@ -236,7 +237,7 @@ func (spec QuerySpec[O]) buildSimpleListSQL() (string, []any) {
 func (spec QuerySpec[O]) buildKwCntSQL() (string, []any, error) {
 	cteSQL, cteArgs, err := spec.buildCTEPrefix(true)
 	if err != nil {
-		return "", nil, errors.Trace(err)
+		return "", nil, err
 	}
 
 	if len(spec.SetOps) > 0 || spec.requiresWrappedCount() {
@@ -258,13 +259,13 @@ func (spec QuerySpec[O]) buildKwCntSQL() (string, []any, error) {
 func (spec QuerySpec[O]) buildKwListSQL() (string, []any, error) {
 	cteSQL, cteArgs, err := spec.buildCTEPrefix(true)
 	if err != nil {
-		return "", nil, errors.Trace(err)
+		return "", nil, err
 	}
 
 	bodySQL, bodyArgs := spec.buildListBodySQL(true)
 	args := append(slices.Clone(cteArgs), bodyArgs...)
 
-	return cteSQL + bodySQL, args, nil
+	return appendQueryLockClause(cteSQL+bodySQL, spec.Lock), args, nil
 }
 
 func (spec QuerySpec[O]) buildSimpleKwListSQL() (string, []any) {
@@ -444,7 +445,7 @@ func (spec QuerySpec[O]) buildFrom() (string, []any) {
 	includedTables[spec.From.Table()] = true
 
 	for _, item := range spec.Joins {
-		if item.joinType == CrossJoinType {
+		if item.joinType == crossJoinType {
 			if includedTables[item.table.Table()] {
 				continue
 			}
@@ -533,7 +534,7 @@ func (spec QuerySpec[O]) hasAggregateSelect() bool {
 func (spec QuerySpec[O]) buildCTEPrefix(useKeyword bool) (string, []any, error) {
 	defs, err := spec.collectCTEDefinitions(useKeyword)
 	if err != nil {
-		return "", nil, errors.Trace(err)
+		return "", nil, err
 	}
 
 	if len(defs) == 0 {
@@ -559,7 +560,7 @@ func (spec QuerySpec[O]) collectCTEDefinitions(useKeyword bool) ([]cteDefinition
 	}
 
 	if err := collectCTEFromSpec(collector, spec, useKeyword); err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	return collector.ordered, nil
@@ -577,7 +578,7 @@ func (spec QuerySpec[O]) validateSetOperations() error {
 	leftCount := len(spec.Selects)
 	for _, op := range spec.SetOps {
 		if len(op.spec.Selects) != leftCount {
-			return errors.Errorf(
+			return fmt.Errorf(
 				"set operation %s requires matching select column counts: left=%d right=%d",
 				op.op,
 				leftCount,
@@ -590,11 +591,11 @@ func (spec QuerySpec[O]) validateSetOperations() error {
 		}
 
 		if err := op.spec.validateJoinGraph(); err != nil {
-			return errors.Trace(err)
+			return err
 		}
 
 		if err := op.spec.validateSetOperations(); err != nil {
-			return errors.Trace(err)
+			return err
 		}
 	}
 
@@ -610,6 +611,7 @@ func cloneQuerySpec[O Owner](spec QuerySpec[O]) QuerySpec[O] {
 		Joins:         slices.Clone(spec.Joins),
 		GroupBy:       slices.Clone(spec.GroupBy),
 		Having:        slices.Clone(spec.Having),
+		Lock:          spec.Lock,
 		SetOps:        make([]setOperation[O], 0, len(spec.SetOps)),
 	}
 
@@ -621,6 +623,15 @@ func cloneQuerySpec[O Owner](spec QuerySpec[O]) QuerySpec[O] {
 	}
 
 	return cloned
+}
+
+func appendQueryLockClause(sql string, lock queryLock) string {
+	clause := lock.clause()
+	if clause == "" {
+		return sql
+	}
+
+	return sql + " " + clause
 }
 
 type cteCollector struct {
@@ -651,13 +662,13 @@ func collectCTEFromSpec[O Owner](c *cteCollector, spec QuerySpec[O], useKeyword 
 		}
 
 		if err := c.collectDefinition(provider.cteDefinition()); err != nil {
-			return errors.Trace(err)
+			return err
 		}
 	}
 
 	for _, op := range spec.SetOps {
 		if err := collectCTEFromSpec(c, op.spec, useKeyword); err != nil {
-			return errors.Trace(err)
+			return err
 		}
 	}
 
@@ -674,25 +685,25 @@ func (c *cteCollector) collectDefinition(def cteDefinition) error {
 	}
 
 	if _, visiting := c.visiting[def.name]; visiting {
-		return errors.Errorf("cyclic CTE dependency detected for %s", def.name)
+		return fmt.Errorf("cyclic CTE dependency detected for %s", def.name)
 	}
 
 	if def.selectCount == 0 {
-		return errors.Errorf("cte %s requires at least one selected column", def.name)
+		return fmt.Errorf("cte %s requires at least one selected column", def.name)
 	}
 
 	if def.keywordCount > 0 {
-		return errors.Errorf("cte %s does not support keyword search", def.name)
+		return fmt.Errorf("cte %s does not support keyword search", def.name)
 	}
 
 	if err := def.validate(); err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
 	c.visiting[def.name] = struct{}{}
 	if err := def.collectNested(c, false); err != nil {
 		delete(c.visiting, def.name)
-		return errors.Trace(err)
+		return err
 	}
 
 	delete(c.visiting, def.name)
@@ -722,17 +733,17 @@ func (c *cteCollector) collectDefinition(def cteDefinition) error {
 //
 // Example of circular dependency that WON'T work:
 //
-//	users.InnerJoin(orders, users.ID.EQCol(orders.UserID)).
-//	InnerJoin(invoices, orders.ID.EQCol(invoices.OrderID)).
-//	InnerJoin(users, invoices.UserID.EQCol(users.ID))  // CIRCULAR: users already involved
+//	users.InnerJoin(orders, users.PK.EQCol(orders.UserID)).
+//	InnerJoin(invoices, orders.PK.EQCol(invoices.OrderID)).
+//	InnerJoin(users, invoices.UserID.EQCol(users.PK))  // CIRCULAR: users already involved
 //
 // Example of self-join workaround (WILL work):
 //
 //	usersAlias := AliasTable(users, "u2")
-//	users.InnerJoin(usersAlias, users.ID.EQCol(usersAlias.ParentID))
+//	users.InnerJoin(usersAlias, users.PK.EQCol(usersAlias.ParentID))
 func (spec QuerySpec[O]) validateJoinGraph() error {
 	if err := validateTableInput(spec.From, "from table"); err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
 	allTables := spec.pageQueryTables()
@@ -746,26 +757,26 @@ func (spec QuerySpec[O]) validateJoinGraph() error {
 		}
 
 		switch item.joinType {
-		case CrossJoinType:
+		case crossJoinType:
 			tableName := item.table.Table()
 			if _, exists := introduced[tableName]; exists {
-				return errors.Errorf("table %s is already present in join graph", tableName)
+				return fmt.Errorf("table %s is already present in join graph", tableName)
 			}
 
 			introduced[tableName] = struct{}{}
 		default:
 			tableName := item.table.Table()
 			if _, exists := introduced[tableName]; exists {
-				return errors.Errorf("join table %s is already present; aliases are required for repeated joins", tableName)
+				return fmt.Errorf("join table %s is already present; aliases are required for repeated joins", tableName)
 			}
 
 			if len(item.on) == 0 {
-				return errors.Errorf("%s %s requires at least one ON condition", item.joinType, tableName)
+				return fmt.Errorf("%s %s requires at least one ON condition", item.joinType, tableName)
 			}
 
 			condTables := spec.tablesForConditions(item.on)
 			if _, exists := condTables[tableName]; !exists {
-				return errors.Errorf("%s %s ON conditions must reference joined table %s", item.joinType, tableName, tableName)
+				return fmt.Errorf("%s %s ON conditions must reference joined table %s", item.joinType, tableName, tableName)
 			}
 
 			connectedToIntroduced := false
@@ -776,14 +787,14 @@ func (spec QuerySpec[O]) validateJoinGraph() error {
 				}
 
 				if _, exists := introduced[condTable]; !exists {
-					return errors.Errorf("join condition table %s is not connected to the current FROM/JOIN graph", condTable)
+					return fmt.Errorf("join condition table %s is not connected to the current FROM/JOIN graph", condTable)
 				}
 
 				connectedToIntroduced = true
 			}
 
 			if !connectedToIntroduced {
-				return errors.Errorf("%s %s ON conditions must reference at least one table already in the FROM/JOIN graph", item.joinType, tableName)
+				return fmt.Errorf("%s %s ON conditions must reference at least one table already in the FROM/JOIN graph", item.joinType, tableName)
 			}
 
 			introduced[tableName] = struct{}{}
@@ -795,7 +806,7 @@ func (spec QuerySpec[O]) validateJoinGraph() error {
 			continue
 		}
 
-		return errors.Errorf(
+		return fmt.Errorf(
 			"table %s is referenced outside the join graph; use CrossJoin to include it explicitly",
 			tableName,
 		)

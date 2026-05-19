@@ -28,7 +28,7 @@ ARG GIT_BRANCH=unknown
 
 # Build the application
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
-    -ldflags='-w -s -extldflags "-static" -X github.com/tmoeish/tsq.Version=${VERSION} -X github.com/tmoeish/tsq.BuildTime=${BUILD_TIME} -X github.com/tmoeish/tsq.GitCommit=${GIT_COMMIT} -X github.com/tmoeish/tsq.GitBranch=${GIT_BRANCH}' \
+    -ldflags='-w -s -extldflags "-static" -X github.com/tmoeish/tsq.version=${VERSION} -X github.com/tmoeish/tsq.buildTime=${BUILD_TIME} -X github.com/tmoeish/tsq.gitCommit=${GIT_COMMIT} -X github.com/tmoeish/tsq.gitBranch=${GIT_BRANCH}' \
     -a -installsuffix cgo \
     -o tsq ./cmd/tsq
 

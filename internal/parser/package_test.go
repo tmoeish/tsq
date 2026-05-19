@@ -10,7 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/tmoeish/tsq/v4"
+	"github.com/tmoeish/tsq/v4/internal/genmodel"
 )
 
 func Test_parsePackageAliases(t *testing.T) {
@@ -206,52 +206,52 @@ import (
 }
 
 func Test_importBuildPackage_RelativePath(t *testing.T) {
-	buildPkg, err := importBuildPackage("../../examples/database")
+	buildPkg, err := importBuildPackage("../../examples/academy")
 	if err != nil {
 		t.Fatalf("importBuildPackage returned error: %v", err)
 	}
 
-	if got := filepath.ToSlash(buildPkg.Dir); !strings.HasSuffix(got, "/examples/database") {
-		t.Fatalf("expected package dir to resolve examples/database, got %q", got)
+	if got := filepath.ToSlash(buildPkg.Dir); !strings.HasSuffix(got, "/examples/academy") {
+		t.Fatalf("expected package dir to resolve examples/academy, got %q", got)
 	}
 }
 
 func TestFilterAndProcessResultsOnlyReturnsTargetPackageStructs(t *testing.T) {
-	buildPkg, err := importBuildPackage("../../examples/database")
+	buildPkg, err := importBuildPackage("../../examples/academy")
 	if err != nil {
 		t.Fatalf("importBuildPackage returned error: %v", err)
 	}
 
-	targetPkg := tsq.PackageInfo{
+	targetPkg := genmodel.PackageInfo{
 		Path: buildPkg.ImportPath,
 		Name: buildPkg.Name,
 	}
-	dependencyPkg := tsq.PackageInfo{
+	dependencyPkg := genmodel.PackageInfo{
 		Path: "example.com/dependency",
 		Name: "dependency",
 	}
 
-	targetType := tsq.TypeInfo{Package: targetPkg, TypeName: "Target"}
-	dependencyType := tsq.TypeInfo{Package: dependencyPkg, TypeName: "Dependency"}
+	targetType := genmodel.TypeInfo{Package: targetPkg, TypeName: "Target"}
+	dependencyType := genmodel.TypeInfo{Package: dependencyPkg, TypeName: "Dependency"}
 
 	ps := &ParseState{
-		structMap: map[tsq.TypeInfo]*StructInfo{
+		structMap: map[genmodel.TypeInfo]*StructInfo{
 			targetType: {
-				StructInfo: &tsq.StructInfo{
-					TableInfo: &tsq.TableInfo{Table: "targets"},
+				StructInfo: &genmodel.StructInfo{
+					TableMeta: &genmodel.TableMeta{Table: "targets"},
 					TypeInfo:  targetType,
-					FieldMap: map[string]tsq.FieldInfo{
-						"ID": {Name: "ID", Type: tsq.TypeInfo{TypeName: "int64"}},
+					FieldMap: map[string]genmodel.FieldInfo{
+						"PK": {Name: "PK", Type: genmodel.TypeInfo{TypeName: "int64"}},
 					},
 					Recv: "t",
 				},
 			},
 			dependencyType: {
-				StructInfo: &tsq.StructInfo{
-					TableInfo: &tsq.TableInfo{Table: "dependencies"},
+				StructInfo: &genmodel.StructInfo{
+					TableMeta: &genmodel.TableMeta{Table: "dependencies"},
 					TypeInfo:  dependencyType,
-					FieldMap: map[string]tsq.FieldInfo{
-						"ID": {Name: "ID", Type: tsq.TypeInfo{TypeName: "int64"}},
+					FieldMap: map[string]genmodel.FieldInfo{
+						"PK": {Name: "PK", Type: genmodel.TypeInfo{TypeName: "int64"}},
 					},
 					Recv: "d",
 				},
@@ -259,7 +259,7 @@ func TestFilterAndProcessResultsOnlyReturnsTargetPackageStructs(t *testing.T) {
 		},
 	}
 
-	result, err := ps.filterAndProcessResults("../../examples/database")
+	result, err := ps.filterAndProcessResults("../../examples/academy")
 	if err != nil {
 		t.Fatalf("filterAndProcessResults returned error: %v", err)
 	}

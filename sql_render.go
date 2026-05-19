@@ -6,6 +6,10 @@ import (
 )
 
 const (
+	// identifierMarkerPrefix 和相关的常量用于实现“方言无关”的 SQL 生成。
+	// 架构意图：在 Build() 阶段，我们并不知道最终会连接哪种数据库（MySQL, Postgres, 等）。
+	// 为了生成通用的 SQL 模板，所有的标识符（表名、列名）都被包装在这些特殊的标记中。
+	// 它们在最终执行前的 renderSQLForDialect 阶段才会被根据具体的数据库方言进行转义。
 	identifierMarkerPrefix         = "__tsq_ident__("
 	identifierMarkerSuffix         = ")"
 	identifierMarkerEncodingPrefix = "b64:"
@@ -23,6 +27,7 @@ type schemaTabler interface {
 	Schema() string
 }
 
+// rawIdentifier 将标识符名包装在 TSQ 的内部标记中。
 func rawIdentifier(name string) string {
 	return identifierMarkerPrefix +
 		identifierMarkerEncodingPrefix +
@@ -88,7 +93,7 @@ func renderCanonicalSQL(raw string) string {
 	return renderSQLWithIdentifierQuoter(raw, canonicalQuoteIdentifier)
 }
 
-func renderSQLForExecutor(exec SqlExecutor, raw string) string {
+func renderSQLForExecutor(exec SQLExecutor, raw string) string {
 	return renderSQLForDialect(raw, dialectForExecutor(exec))
 }
 
@@ -458,9 +463,9 @@ func isDollarQuoteTagChar(ch byte) bool {
 	return isDollarQuoteTagStart(ch) || ('0' <= ch && ch <= '9')
 }
 
-func dialectForExecutor(exec SqlExecutor) Dialect {
+func dialectForExecutor(exec SQLExecutor) Dialect {
 	switch tx := exec.(type) {
-	case *DbMap:
+	case *Engine:
 		return tx.Dialect
 	case dialectProvider:
 		return tx.TSQDialect()

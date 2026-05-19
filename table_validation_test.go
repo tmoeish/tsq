@@ -14,13 +14,13 @@ type strictResultRow struct{}
 
 func (strictResultRow) TSQOwner() {}
 
-func (t *strictMockTable) TSQOwner()              {}
-func (t *strictMockTable) Table() string          { return t.name }
-func (t *strictMockTable) KwList() []SearchColumn { return nil }
-func (t *strictMockTable) Cols() []SQLColumn      { return t.cols }
-func (t *strictMockTable) PrimaryKeys() []string  { return nil }
-func (t *strictMockTable) AutoIncrement() bool    { return false }
-func (t *strictMockTable) VersionColumn() string  { return "" }
+func (t *strictMockTable) TSQOwner()                     {}
+func (t *strictMockTable) Table() string                 { return t.name }
+func (t *strictMockTable) SearchColumns() []SearchColumn { return nil }
+func (t *strictMockTable) Cols() []SQLColumn             { return t.cols }
+func (t *strictMockTable) PrimaryKeys() []string         { return nil }
+func (t *strictMockTable) AutoIncrement() bool           { return false }
+func (t *strictMockTable) VersionColumn() string         { return "" }
 
 func newStrictMockTable(name string, colNames ...string) (*strictMockTable, []ColumnImpl[Table, int]) {
 	table := &strictMockTable{name: name}
@@ -58,7 +58,7 @@ func TestColumnValidation_RejectsColumnOutsideKnownTableSchema(t *testing.T) {
 func TestColumnValidation_AllowsDerivedColumnsFromKnownTableColumns(t *testing.T) {
 	users, cols := newStrictMockTable("users", "id")
 	id := cols[0]
-	resultID := Into[strictResultRow](id, func(holder *strictResultRow) *int { return nil }, "result_id")
+	resultID := MapInto[strictResultRow](id, func(holder *strictResultRow) *int { return nil }, "result_id")
 
 	_, err := Select[strictResultRow](resultID).
 		From(users).
@@ -74,8 +74,8 @@ func TestColumnValidation_ResultColumnRequiresSourceTableInJoinGraph(t *testing.
 	_, itemCols := newStrictMockTable("items", "id")
 	userID := userCols[0]
 	itemID := itemCols[0]
-	resultUserID := Into[strictResultRow](userID, func(holder *strictResultRow) *int { return nil }, "user_id")
-	resultItemID := Into[strictResultRow](itemID, func(holder *strictResultRow) *int { return nil }, "item_id")
+	resultUserID := MapInto[strictResultRow](userID, func(holder *strictResultRow) *int { return nil }, "user_id")
+	resultItemID := MapInto[strictResultRow](itemID, func(holder *strictResultRow) *int { return nil }, "item_id")
 
 	_, err := Select[strictResultRow](resultUserID, resultItemID).
 		From(users).

@@ -16,14 +16,14 @@ type queryBuilderCaseRow struct {
 
 func (queryBuilderCaseRow) TSQOwner() {}
 
-func (m mockTable) Init(db *DbMap, upsertIndexies bool) error { return nil }
-func (m mockTable) TSQOwner()                                 {}
-func (m mockTable) Table() string                             { return m.tableName }
-func (m mockTable) Cols() []SQLColumn                         { return nil }
-func (m mockTable) KwList() []SearchColumn                    { return nil }
-func (m mockTable) PrimaryKeys() []string                     { return nil }
-func (m mockTable) AutoIncrement() bool                       { return false }
-func (m mockTable) VersionColumn() string                     { return "" }
+func (m mockTable) Init(db *Engine, options *InitOptions) error { return nil }
+func (m mockTable) TSQOwner()                                   {}
+func (m mockTable) Table() string                               { return m.tableName }
+func (m mockTable) Cols() []SQLColumn                           { return nil }
+func (m mockTable) SearchColumns() []SearchColumn               { return nil }
+func (m mockTable) PrimaryKeys() []string                       { return nil }
+func (m mockTable) AutoIncrement() bool                         { return false }
+func (m mockTable) VersionColumn() string                       { return "" }
 
 func newMockTable(name string) Table {
 	return mockTable{tableName: name}
@@ -119,7 +119,7 @@ func TestQueryBuilder_LeftJoin(t *testing.T) {
 	}
 
 	join := qb.spec.Joins[0]
-	if join.joinType != LeftJoinType {
+	if join.joinType != leftJoinType {
 		t.Errorf("Expected LEFT JOIN, got %s", join.joinType)
 	}
 
@@ -150,7 +150,7 @@ func TestQueryBuilder_InnerJoin(t *testing.T) {
 		t.Errorf("Expected 1 join, got %d", len(qb.spec.Joins))
 	}
 
-	if qb.spec.Joins[0].joinType != InnerJoinType {
+	if qb.spec.Joins[0].joinType != innerJoinType {
 		t.Errorf("Expected INNER JOIN, got %s", qb.spec.Joins[0].joinType)
 	}
 }
@@ -168,7 +168,7 @@ func TestQueryBuilder_RightJoin(t *testing.T) {
 		t.Errorf("Expected 1 join, got %d", len(qb.spec.Joins))
 	}
 
-	if qb.spec.Joins[0].joinType != RightJoinType {
+	if qb.spec.Joins[0].joinType != rightJoinType {
 		t.Errorf("Expected RIGHT JOIN, got %s", qb.spec.Joins[0].joinType)
 	}
 }
@@ -186,8 +186,49 @@ func TestQueryBuilder_FullJoin(t *testing.T) {
 		t.Errorf("Expected 1 join, got %d", len(qb.spec.Joins))
 	}
 
-	if qb.spec.Joins[0].joinType != FullJoinType {
+	if qb.spec.Joins[0].joinType != fullJoinType {
 		t.Errorf("Expected FULL JOIN, got %s", qb.spec.Joins[0].joinType)
+	}
+}
+
+func TestQueryBuilder_ForUpdate(t *testing.T) {
+	table := newMockTable("users")
+	id := newMockColumn(table, "id")
+
+	qb := Select(id).From(table).ForUpdate()
+
+	if qb.spec.Lock.strength != queryLockStrengthUpdate {
+		t.Fatalf("expected FOR UPDATE lock, got %q", qb.spec.Lock.strength)
+	}
+	if qb.spec.Lock.waitMode != "" {
+		t.Fatalf("expected empty wait mode, got %q", qb.spec.Lock.waitMode)
+	}
+}
+
+func TestQueryBuilder_ForShareSkipLocked(t *testing.T) {
+	table := newMockTable("users")
+	id := newMockColumn(table, "id")
+
+	qb := Select(id).From(table).ForShare().SkipLocked()
+
+	if qb.spec.Lock.strength != queryLockStrengthShare {
+		t.Fatalf("expected FOR SHARE lock, got %q", qb.spec.Lock.strength)
+	}
+	if qb.spec.Lock.waitMode != queryLockWaitSkipLocked {
+		t.Fatalf("expected SKIP LOCKED wait mode, got %q", qb.spec.Lock.waitMode)
+	}
+}
+
+func TestQueryBuilder_LockWaitModeCannotBeSetTwice(t *testing.T) {
+	table := newMockTable("users")
+	id := newMockColumn(table, "id")
+
+	_, err := Select(id).From(table).ForUpdate().NoWait().SkipLocked().Build()
+	if err == nil {
+		t.Fatal("expected duplicate lock wait mode to fail")
+	}
+	if !strings.Contains(err.Error(), "lock wait mode is already set") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -204,7 +245,7 @@ func TestQueryBuilder_CrossJoin(t *testing.T) {
 	}
 
 	join := qb.spec.Joins[0]
-	if join.joinType != CrossJoinType {
+	if join.joinType != crossJoinType {
 		t.Errorf("Expected CROSS JOIN, got %s", join.joinType)
 	}
 
@@ -248,7 +289,7 @@ func TestQueryBuilder_Union(t *testing.T) {
 		t.Fatalf("expected 1 set operation, got %d", len(qb.spec.SetOps))
 	}
 
-	if qb.spec.SetOps[0].op != UnionType {
+	if qb.spec.SetOps[0].op != unionType {
 		t.Fatalf("expected UNION operation, got %s", qb.spec.SetOps[0].op)
 	}
 }
@@ -277,7 +318,7 @@ func TestQueryBuilder_SetOperationRejectsKeywordSearch(t *testing.T) {
 
 	_, err := Select(id).
 		From(id.Table()).
-		KwSearch(id).
+		Search(id).
 		Union(Select(id).From(id.Table())).
 		Build()
 	if err == nil {
@@ -305,8 +346,8 @@ func TestQueryBuilder_SetOperationBuildsWrappedCountSQL(t *testing.T) {
 	}
 
 	wantCount := `SELECT COUNT(1) FROM (` + wantList + `) AS _tsq_cnt`
-	if query.CntSQL() != wantCount {
-		t.Fatalf("expected count SQL %q, got %q", wantCount, query.CntSQL())
+	if query.CountSQL() != wantCount {
+		t.Fatalf("expected count SQL %q, got %q", wantCount, query.CountSQL())
 	}
 }
 
@@ -328,8 +369,8 @@ func TestQueryBuilder_CTEBuildsWithClause(t *testing.T) {
 	}
 
 	wantCount := `WITH "active_users" AS (SELECT "users"."id", "users"."name" FROM "users" WHERE "users"."id" > ?) SELECT COUNT(1) FROM "active_users"`
-	if query.CntSQL() != wantCount {
-		t.Fatalf("expected CTE count SQL %q, got %q", wantCount, query.CntSQL())
+	if query.CountSQL() != wantCount {
+		t.Fatalf("expected CTE count SQL %q, got %q", wantCount, query.CountSQL())
 	}
 }
 
@@ -357,7 +398,7 @@ func TestQueryBuilder_CTERejectsKeywordSearchInDefinition(t *testing.T) {
 	name := newColForTable[Table, string](users, "name", "name", nil)
 
 	searchUsers := CTE("search_users", Select(id, name).
-		From(id.Table()).KwSearch(name))
+		From(id.Table()).Search(name))
 	searchUserID := id.WithTable(searchUsers)
 
 	_, err := Select(searchUserID).
@@ -378,7 +419,7 @@ func TestQueryBuilder_CaseExpressionTracksConditionTables(t *testing.T) {
 	orgID := newColForTable[Table, int](orgs, "id", "id", nil)
 	orgName := newColForTable[Table, string](orgs, "name", "name", nil)
 
-	label := Into[queryBuilderCaseRow](Case[string]().
+	label := MapInto[queryBuilderCaseRow](Case[string]().
 		When(orgID.EQ(1), orgName).
 		Else("unknown").
 		End(), func(holder *queryBuilderCaseRow) *string { return &holder.Label }, "label")
@@ -502,7 +543,7 @@ func TestQueryBuilder_KwSearch(t *testing.T) {
 	col2 := newMockColumn(table1, "email")
 
 	qb := Select(col1).
-		From(col1.Table()).KwSearch(col1, col2)
+		From(col1.Table()).Search(col1, col2)
 
 	if len(qb.spec.KeywordSearch) != 2 {
 		t.Errorf("Expected 2 keyword search columns, got %d", len(qb.spec.KeywordSearch))
@@ -518,16 +559,16 @@ func TestQueryBuilder_KwSearch(t *testing.T) {
 	}
 }
 
-func TestJoinType_Constants(t *testing.T) {
+func TestJoinTypeConstants(t *testing.T) {
 	tests := []struct {
-		joinType JoinType
+		joinType joinType
 		expected string
 	}{
-		{LeftJoinType, "LEFT JOIN"},
-		{InnerJoinType, "INNER JOIN"},
-		{RightJoinType, "RIGHT JOIN"},
-		{FullJoinType, "FULL JOIN"},
-		{CrossJoinType, "CROSS JOIN"},
+		{leftJoinType, "LEFT JOIN"},
+		{innerJoinType, "INNER JOIN"},
+		{rightJoinType, "RIGHT JOIN"},
+		{fullJoinType, "FULL JOIN"},
+		{crossJoinType, "CROSS JOIN"},
 	}
 
 	for _, tt := range tests {
@@ -554,7 +595,7 @@ func TestQueryBuilder_ChainedOperations(t *testing.T) {
 	qb := Select(col1, col2).
 		From(col1.Table()).
 		LeftJoin(table2, col1.EQCol(col3)).
-		KwSearch(col2).
+		Search(col2).
 		Where(mockCond).
 		GroupBy(col2).
 		Having(mockCond)
@@ -608,8 +649,8 @@ func TestQueryBuilder_GroupedCountUsesWrappedSubquery(t *testing.T) {
 	}
 
 	wantCount := "SELECT COUNT(1) FROM (" + wantList + ") AS _tsq_cnt"
-	if query.CntSQL() != wantCount {
-		t.Fatalf("expected count SQL %q, got %q", wantCount, query.CntSQL())
+	if query.CountSQL() != wantCount {
+		t.Fatalf("expected count SQL %q, got %q", wantCount, query.CountSQL())
 	}
 }
 
@@ -625,8 +666,8 @@ func TestQueryBuilder_DistinctCountUsesWrappedSubquery(t *testing.T) {
 	}
 
 	wantCount := "SELECT COUNT(1) FROM (" + wantList + ") AS _tsq_cnt"
-	if query.CntSQL() != wantCount {
-		t.Fatalf("expected count SQL %q, got %q", wantCount, query.CntSQL())
+	if query.CountSQL() != wantCount {
+		t.Fatalf("expected count SQL %q, got %q", wantCount, query.CountSQL())
 	}
 }
 
@@ -642,8 +683,8 @@ func TestQueryBuilder_AggregateCountUsesWrappedSubquery(t *testing.T) {
 	}
 
 	wantCount := "SELECT COUNT(1) FROM (" + wantList + ") AS _tsq_cnt"
-	if query.CntSQL() != wantCount {
-		t.Fatalf("expected count SQL %q, got %q", wantCount, query.CntSQL())
+	if query.CountSQL() != wantCount {
+		t.Fatalf("expected count SQL %q, got %q", wantCount, query.CountSQL())
 	}
 }
 
@@ -795,14 +836,19 @@ func TestQueryBuilder_Build_AllowsRepeatedJoinTableWithAliases(t *testing.T) {
 func TestQueryBuilder_Build_RejectsNilReceiver(t *testing.T) {
 	var qb *QueryBuilder[Table]
 
-	_, err := qb.Build()
-	if err == nil {
-		t.Fatal("expected nil query builder to return an error")
-	}
+	defer func() {
+		recovered := recover()
+		if recovered == nil {
+			t.Fatal("expected nil query builder to panic")
+		}
 
-	if !strings.Contains(err.Error(), "query builder cannot be nil") {
-		t.Fatalf("unexpected error: %v", err)
-	}
+		err, ok := recovered.(error)
+		if !ok || !strings.Contains(err.Error(), "query builder cannot be nil") {
+			t.Fatalf("unexpected panic: %#v", recovered)
+		}
+	}()
+
+	qb.Build()
 }
 
 func TestQueryBuilder_Build_PreservesOwnerType(t *testing.T) {
@@ -828,16 +874,46 @@ func TestQueryBuilder_MethodsHandleNilReceiverWithoutPanicking(t *testing.T) {
 
 	var qb *QueryBuilder[Table]
 
-	_, err := qb.
-		KwSearch(userID).
-		GroupBy(userID).
-		Build()
-	if err == nil {
-		t.Fatal("expected nil receiver chain to return an error")
+	defer func() {
+		recovered := recover()
+		if recovered == nil {
+			t.Fatal("expected nil receiver chain to panic")
+		}
+
+		err, ok := recovered.(error)
+		if !ok || !strings.Contains(err.Error(), "query builder cannot be nil") {
+			t.Fatalf("unexpected panic: %#v", recovered)
+		}
+	}()
+
+	qb.Search(userID).GroupBy(userID).Build()
+}
+
+func TestQueryBuilder_BranchingDoesNotShareMutableState(t *testing.T) {
+	users := newMockTable("users")
+	userID := newColForTable[Table, int](users, "id", "id", nil)
+
+	base := Select(userID).From(users)
+	left, err := base.Where(userID.EQ(1)).Build()
+	if err != nil {
+		t.Fatalf("expected left branch to build, got %v", err)
 	}
 
-	if !strings.Contains(err.Error(), "query builder cannot be nil") {
-		t.Fatalf("unexpected error: %v", err)
+	right, err := base.Where(userID.EQ(2)).Build()
+	if err != nil {
+		t.Fatalf("expected right branch to build, got %v", err)
+	}
+
+	if len(left.listArgs) != 1 || left.listArgs[0] != 1 {
+		t.Fatalf("expected left branch args [1], got %#v", left.listArgs)
+	}
+
+	if len(right.listArgs) != 1 || right.listArgs[0] != 2 {
+		t.Fatalf("expected right branch args [2], got %#v", right.listArgs)
+	}
+
+	if len(base.queryBuilderCore.spec.Filters) != 0 {
+		t.Fatalf("expected base builder to remain unfiltered, got %#v", base.queryBuilderCore.spec.Filters)
 	}
 }
 

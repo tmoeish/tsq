@@ -10,14 +10,14 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/juju/errors"
 	"mvdan.cc/gofumpt/format"
 
 	"github.com/tmoeish/tsq/v4"
+	"github.com/tmoeish/tsq/v4/internal/genmodel"
 )
 
 type generationModel struct {
-	Data       *tsq.StructInfo
+	Data       *genmodel.StructInfo
 	Template   *template.Template
 	Filename   string
 	ErrorLabel string
@@ -45,24 +45,24 @@ type generationStats struct {
 }
 
 func buildGenerationModels(
-	list []*tsq.StructInfo,
+	list []*genmodel.StructInfo,
 	dir string,
 	tableTpl *template.Template,
 	resultTpl *template.Template,
 ) ([]generationModel, error) {
 	if err := validateGeneratedFilenameCollisions(list); err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	if err := validateIndexNameCollisions(list); err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	if err := validateGeneratedSymbolCollisions(list); err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
-	structsByName := make(map[string]*tsq.StructInfo, len(list))
+	structsByName := make(map[string]*genmodel.StructInfo, len(list))
 	for _, s := range list {
 		structsByName[s.TypeInfo.TypeName] = s
 	}
@@ -70,12 +70,12 @@ func buildGenerationModels(
 	models := make([]generationModel, 0, len(list))
 
 	for _, s := range list {
-		if s.TableInfo == nil || len(s.Fields) == 0 {
+		if s.TableMeta == nil || len(s.Fields) == 0 {
 			continue
 		}
 
 		if err := validateStructForGeneration(s, structsByName); err != nil {
-			return nil, errors.Annotatef(err, "failed to validate %s", s.TypeInfo.TypeName)
+			return nil, fmt.Errorf("failed to validate %s"+": %w", s.TypeInfo.TypeName, err)
 		}
 
 		model := generationModel{
@@ -118,12 +118,12 @@ func renderGenerationModelSource(model generationModel) ([]byte, error) {
 	buf := new(bytes.Buffer)
 	if err := model.Template.Execute(buf, model.Data); err != nil {
 		bs := tsq.PrettyJSON(model.Data)
-		return nil, errors.Annotatef(err, "%s: %s, data: %s", model.ErrorLabel, model.Filename, bs)
+		return nil, fmt.Errorf("%s: %s, data: %s"+": %w", model.ErrorLabel, model.Filename, bs, err)
 	}
 
 	src, err := format.Source(buf.Bytes(), format.Options{})
 	if err != nil {
-		return nil, errors.Annotatef(err, "Go code formatting failed: %s", model.Filename)
+		return nil, fmt.Errorf("go code formatting failed: %s: %w", model.Filename, err)
 	}
 
 	return src, nil
@@ -132,17 +132,17 @@ func renderGenerationModelSource(model generationModel) ([]byte, error) {
 func renderGenerationModel(model generationModel) error {
 	if v {
 		if _, err := fmt.Fprintf(os.Stderr, "gen %s\n", model.Filename); err != nil {
-			return errors.Trace(err)
+			return err
 		}
 	}
 
 	src, err := renderGenerationModelSource(model)
 	if err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
 	if err := writeGeneratedFile(model.Filename, src); err != nil {
-		return errors.Annotatef(err, "failed to write file: %s", model.Filename)
+		return fmt.Errorf("failed to write file: %s"+": %w", model.Filename, err)
 	}
 
 	return nil
@@ -155,12 +155,12 @@ func buildGenerationPlan(models []generationModel, dir string) ([]generationPlan
 	for _, model := range models {
 		src, err := renderGenerationModelSource(model)
 		if err != nil {
-			return nil, errors.Trace(err)
+			return nil, err
 		}
 
 		status, err := generationPlanStatusFor(model.Filename, src)
 		if err != nil {
-			return nil, errors.Annotatef(err, "failed to plan file: %s", model.Filename)
+			return nil, fmt.Errorf("failed to plan file: %s"+": %w", model.Filename, err)
 		}
 
 		plan = append(plan, generationPlanEntry{
@@ -174,7 +174,7 @@ func buildGenerationPlan(models []generationModel, dir string) ([]generationPlan
 
 	staleFiles, err := findStaleGeneratedFiles(dir, plannedFiles)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	for _, staleFile := range staleFiles {
@@ -190,7 +190,7 @@ func buildGenerationPlan(models []generationModel, dir string) ([]generationPlan
 func findStaleGeneratedFiles(dir string, plannedFiles map[string]struct{}) ([]string, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return nil, errors.Trace(err)
+		return nil, err
 	}
 
 	stale := make([]string, 0)
@@ -212,7 +212,7 @@ func findStaleGeneratedFiles(dir string, plannedFiles map[string]struct{}) ([]st
 
 		content, err := os.ReadFile(filename)
 		if err != nil {
-			return nil, errors.Trace(err)
+			return nil, err
 		}
 
 		if !bytes.HasPrefix(content, []byte(generatedFileHeaderPrefix)) {
@@ -238,7 +238,7 @@ func generationPlanStatusFor(filename string, src []byte) (generationPlanStatus,
 	}
 
 	if err != nil {
-		return "", errors.Trace(err)
+		return "", err
 	}
 
 	if bytes.Equal(existing, src) {
@@ -246,7 +246,7 @@ func generationPlanStatusFor(filename string, src []byte) (generationPlanStatus,
 	}
 
 	if err := ensureWritableGeneratedFile(filename); err != nil {
-		return "", errors.Trace(err)
+		return "", err
 	}
 
 	return generationPlanUpdate, nil
@@ -267,7 +267,7 @@ func ensureGenerationPlanUpToDate(plan []generationPlanEntry) error {
 		return nil
 	}
 
-	return errors.Errorf("generated files are out of date:\n%s", strings.Join(outdated, "\n"))
+	return fmt.Errorf("generated files are out of date:\n%s", strings.Join(outdated, "\n"))
 }
 
 func printGenerationPlan(w io.Writer, plan []generationPlanEntry) {

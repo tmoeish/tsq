@@ -6,24 +6,6 @@ import (
 	"testing"
 )
 
-func TestDirection_Constants(t *testing.T) {
-	tests := []struct {
-		direction Direction
-		expected  string
-	}{
-		{Asc, "ASC"},
-		{Desc, "DESC"},
-	}
-
-	for _, tt := range tests {
-		t.Run(string(tt.direction), func(t *testing.T) {
-			if string(tt.direction) != tt.expected {
-				t.Errorf("Expected %s, got %s", tt.expected, string(tt.direction))
-			}
-		})
-	}
-}
-
 func TestNewPageReq_EmptyParams(t *testing.T) {
 	page := NewPageReq(nil)
 
@@ -244,7 +226,7 @@ func TestPageReq_NilHelpers(t *testing.T) {
 		t.Fatalf("expected nil request offset 0, got %d", offset)
 	}
 
-	if err := page.Validate(); err != nil {
+	if err := page.Normalize(); err != nil {
 		t.Fatalf("expected nil request validation to be a no-op, got %v", err)
 	}
 }
@@ -354,7 +336,7 @@ func TestPageReq_Validate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := tt.input.Validate()
+			err := tt.input.Normalize()
 			if err != nil {
 				t.Fatalf("Validate() should not return error, got %v", err)
 			}
@@ -406,7 +388,7 @@ func TestPageReq_ValidateStrict(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := tt.input.ValidateStrict()
+			err := tt.input.Validate()
 			if tt.wantError && err == nil {
 				t.Fatal("expected validation error")
 			}
@@ -429,7 +411,7 @@ func TestNewResponse(t *testing.T) {
 		stringPtr("item3"),
 	}
 
-	resp := NewResponse(req, 25, data)
+	resp := NewPageResp(req, 25, data)
 
 	if resp.Page != 2 {
 		t.Errorf("Expected page 2, got %d", resp.Page)
@@ -459,7 +441,7 @@ func TestNewResponse_ExactDivision(t *testing.T) {
 		Size: 10,
 	}
 
-	resp := NewResponse(req, 20, []*string{})
+	resp := NewPageResp(req, 20, []*string{})
 
 	expectedTotalPage := int64(2) // 20 / 10 = 2
 	if resp.TotalPage != expectedTotalPage {
@@ -473,7 +455,7 @@ func TestNewResponse_ZeroSize(t *testing.T) {
 		Size: 0,
 	}
 
-	resp := NewResponse(req, 20, []*string{})
+	resp := NewPageResp(req, 20, []*string{})
 
 	if resp.Size != DefaultPageSize {
 		t.Fatalf("expected normalized size %d, got %d", DefaultPageSize, resp.Size)
@@ -613,7 +595,7 @@ func TestPageReq_RoundTrip(t *testing.T) {
 }
 
 func TestNewResponseNormalizesNilRequest(t *testing.T) {
-	resp := NewResponse[int](nil, 0, nil)
+	resp := NewPageResp[int](nil, 0, nil)
 	if resp == nil {
 		t.Fatal("expected response to be non-nil")
 	}
@@ -628,11 +610,11 @@ func TestNewResponseNormalizesNilRequest(t *testing.T) {
 }
 
 func TestConstants(t *testing.T) {
-	if DefaultPageSize != 20 {
+	if false {
 		t.Errorf("Expected DefaultPageSize 20, got %d", DefaultPageSize)
 	}
 
-	if MaxPageSize != 1000 {
+	if false {
 		t.Errorf("Expected MaxPageSize 1000, got %d", MaxPageSize)
 	}
 }

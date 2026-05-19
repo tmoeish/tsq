@@ -175,15 +175,14 @@ func TestCol_Desc(t *testing.T) {
 	}
 }
 
-func TestOrderByMultiple(t *testing.T) {
+func TestOrderByExpressions(t *testing.T) {
 	table := newMockTable("users")
 	col1 := newColForTable[Table, string](table, "name", "name", nil)
 	col2 := newColForTable[Table, int](table, "age", "age", nil)
 
 	orderBy1 := col1.Asc()
 	orderBy2 := col2.Desc()
-
-	expressions := OrderByMultiple(orderBy1, orderBy2)
+	expressions := []string{orderBy1.Expr(), orderBy2.Expr()}
 
 	if len(expressions) != 2 {
 		t.Errorf("Expected 2 expressions, got %d", len(expressions))
@@ -200,8 +199,12 @@ func TestOrderByMultiple(t *testing.T) {
 	}
 }
 
-func TestOrderByMultiple_Empty(t *testing.T) {
-	expressions := OrderByMultiple()
+func TestOrderByExpressions_Empty(t *testing.T) {
+	var orderBys []OrderBy
+	expressions := make([]string, 0, len(orderBys))
+	for _, orderBy := range orderBys {
+		expressions = append(expressions, orderBy.Expr())
+	}
 
 	if len(expressions) != 0 {
 		t.Errorf("Expected 0 expressions, got %d", len(expressions))
@@ -229,7 +232,7 @@ func TestReverseOrder(t *testing.T) {
 }
 
 func TestReverseOrderRejectsInvalidOrder(t *testing.T) {
-	if got := ReverseOrder(Order("SIDEWAYS")); got != "" {
+	if got := ReverseOrder("SIDEWAYS"); got != "" {
 		t.Fatalf("expected invalid order to return empty order, got %q", got)
 	}
 }
@@ -249,7 +252,10 @@ func TestOrderBy_ComplexScenario(t *testing.T) {
 		orderDateCol.Asc(),
 	}
 
-	expressions := OrderByMultiple(orderBys...)
+	expressions := make([]string, 0, len(orderBys))
+	for _, orderBy := range orderBys {
+		expressions = append(expressions, orderBy.Expr())
+	}
 
 	expectedExpressions := []string{
 		`"users"."name" ASC`,

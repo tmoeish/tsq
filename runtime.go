@@ -2,109 +2,66 @@ package tsq
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
-
-	"github.com/juju/errors"
 )
 
 // Runtime owns the mutable TSQ process state used for table registration,
 // initialization, and tracing. Applications that need isolation can create a
 // dedicated Runtime instead of relying on the package-level defaults.
 type Runtime struct {
-	registry     *Registry
-	traceManager *TraceManager
+	registry     *registry
+	traceManager *traceManager
 	initMu       sync.Mutex
-	db           *DbMap // Stored after InitWithOptions for dialect access
+	engine       *Engine // Stored after Init for dialect access
 }
 
+// NewRuntime creates an isolated runtime with its own registrations and tracers.
 func NewRuntime() *Runtime {
 	return &Runtime{
-		registry:     NewRegistry(),
-		traceManager: NewTraceManager(),
+		registry:     newRegistry(),
+		traceManager: newTraceManager(),
 	}
 }
 
 var defaultRuntime = NewRuntime()
 
-func DefaultRuntime() *Runtime {
-	return defaultRuntime
-}
-
-func (r *Runtime) Registry() *Registry {
-	if r == nil {
-		return nil
-	}
-
-	return r.registry
-}
-
-func (r *Runtime) TraceManager() *TraceManager {
-	if r == nil {
-		return nil
-	}
-
-	return r.traceManager
-}
-
-// CurrentDB returns the current database map if Init has been called.
+// Engine returns the current Engine if Init has been called.
 // Returns nil if Init has not been called or if runtime is nil.
-func (r *Runtime) CurrentDB() *DbMap {
+func (r *Runtime) Engine() *Engine {
 	if r == nil {
 		return nil
 	}
 
-	return r.db
+	return r.engine
 }
 
-// CurrentDialect returns the SQL dialect of the current database if Init has been called.
-// Returns empty string if Init has not been called, runtime is nil, or dialect cannot be determined.
-func (r *Runtime) CurrentDialect() string {
-	if r == nil || r.db == nil || r.db.Dialect == nil {
+// Dialect returns the SQL dialect of the current database if Init has been called.
+// Returns empty string if Init has not been called or runtime has no initialized dialect.
+func (r *Runtime) Dialect() DialectName {
+	if r == nil || r.engine == nil || r.engine.Dialect == nil {
 		return ""
 	}
 
-	// Get the type name of the dialect to determine which database is being used
-	dialectType := fmt.Sprintf("%T", r.db.Dialect)
-
-	// Map gorp dialect types to our standard names
-	switch {
-	case strings.Contains(strings.ToLower(dialectType), "mysql"):
-		return "mysql"
-	case strings.Contains(strings.ToLower(dialectType), "postgre"):
-		return "postgres"
-	case strings.Contains(strings.ToLower(dialectType), "oracle"):
-		return "oracle"
-	case strings.Contains(strings.ToLower(dialectType), "sqlite"):
-		return "sqlite"
-	default:
-		return ""
-	}
+	return r.engine.Dialect.Name()
 }
 
-func contains(s, substr string) bool {
-	return len(s) > 0 && len(substr) > 0 && (s == substr || len(s) > len(substr) &&
-		(s[:len(substr)] == substr || s[len(s)-len(substr):] == substr))
-}
-
+// RegisterTable registers a table and its index-initialization hook on this runtime.
 func (r *Runtime) RegisterTable(
 	table Table,
-	addTableFunc func(db *DbMap),
-	initFunc func(db *DbMap) error,
+	initFunc func(db *Engine) error,
 ) error {
 	if r == nil {
-		return errors.Trace(&RegistrationError{
-			Type:    RegistrationErrorNilRuntime,
-			Message: "runtime cannot be nil",
-		})
+		return &RegistrationError{Type: RegistrationErrorNilRuntime, Message: "runtime cannot be nil"}
 	}
 
-	return errors.Trace(r.registry.Register(table, addTableFunc, initFunc))
+	return r.registry.Register(table, initFunc)
 }
 
-func (r *Runtime) snapshotRegisteredTables() []*RegisteredTable {
+func (r *Runtime) snapshotRegisteredTables() []*registeredTable {
 	if r == nil {
 		return nil
 	}
@@ -112,34 +69,22 @@ func (r *Runtime) snapshotRegisteredTables() []*RegisteredTable {
 	return r.registry.Snapshot()
 }
 
-func (r *Runtime) Init(
-	db *DbMap,
-	autoCreateTable bool,
-	upsertIndexies bool,
-	tracer ...Tracer,
-) error {
-	return errors.Trace(r.InitWithOptions(db, &InitOptions{
-		AutoCreateTables: autoCreateTable,
-		UpsertIndexes:    upsertIndexies,
-		Tracers:          tracer,
-	}))
-}
-
-func (r *Runtime) InitWithOptions(db *DbMap, options *InitOptions) error {
+// Init initializes indexes and runtime state using explicit options.
+func (r *Runtime) Init(db *Engine, options *InitOptions) error {
 	if r == nil {
 		return errors.New("runtime cannot be nil")
 	}
 
 	if db == nil {
-		return errors.New("db map cannot be nil")
+		return errors.New("engine cannot be nil")
 	}
 
-	if db.Db == nil {
-		return errors.New("db map database cannot be nil")
+	if db.DB == nil {
+		return errors.New("engine database cannot be nil")
 	}
 
 	if db.Dialect == nil {
-		return errors.New("db map dialect cannot be nil")
+		return errors.New("engine dialect cannot be nil")
 	}
 
 	if options == nil {
@@ -148,20 +93,35 @@ func (r *Runtime) InitWithOptions(db *DbMap, options *InitOptions) error {
 
 	indexMode := resolveIndexInitMode(options)
 	if err := validateIndexInitMode(indexMode); err != nil {
-		return errors.Trace(err)
+		return err
 	}
 
 	r.initMu.Lock()
 	defer r.initMu.Unlock()
 
-	// Store the database map for later dialect access
-	r.db = db
+	prevEngine := r.engine
+	prevDBConfig := loadDBSchemaConfig(db)
+	// Store the Engine for later dialect access.
+	r.engine = db
 	storeDBSchemaConfig(db, dbSchemaConfig{
 		indexInitMode:      indexMode,
 		schemaEventHandler: options.SchemaEventHandler,
 	})
 
 	rollbackTracers := r.traceManager.snapshot()
+	committed := false
+
+	defer func() {
+		if committed {
+			return
+		}
+
+		r.engine = prevEngine
+
+		storeDBSchemaConfig(db, prevDBConfig)
+		r.traceManager.restore(rollbackTracers)
+	}()
+
 	r.traceManager.AddUnique(options.Tracers...)
 
 	registeredTables := r.registry.Snapshot()
@@ -170,37 +130,27 @@ func (r *Runtime) InitWithOptions(db *DbMap, options *InitOptions) error {
 	if options.IdentifierValidationMode != "skip" {
 		if err := r.validateRegisteredTableIdentifiers(options.IdentifierValidationMode); err != nil {
 			if options.IdentifierValidationMode == "strict" {
-				r.traceManager.restore(rollbackTracers)
-				return errors.Trace(err)
+				return err
 			}
 			// For "warn" mode, just log the error but continue
 			slog.Warn("identifier validation warning during init", "error", err)
 		}
 	}
 
-	for _, table := range registeredTables {
-		table.AddTableFunc(db)
-	}
-
-	if options.AutoCreateTables {
-		if err := db.CreateTablesIfNotExists(); err != nil {
-			r.traceManager.restore(rollbackTracers)
-			return errors.Annotate(err, "failed to create tables")
-		}
-	}
-
 	if indexMode != IndexInitSkip {
 		for _, table := range registeredTables {
 			if err := table.InitFunc(db); err != nil {
-				r.traceManager.restore(rollbackTracers)
-				return errors.Annotatef(err, "failed to initialize table %s", table.Table.Table())
+				return fmt.Errorf("failed to initialize table %s"+": %w", table.Table.Table(), err)
 			}
 		}
 	}
 
+	committed = true
+
 	return nil
 }
 
+// AddTracer adds a tracer to this runtime.
 func (r *Runtime) AddTracer(tracer Tracer) {
 	if r == nil {
 		return
@@ -209,6 +159,7 @@ func (r *Runtime) AddTracer(tracer Tracer) {
 	r.traceManager.Add(tracer)
 }
 
+// ClearTracers removes all tracers from this runtime.
 func (r *Runtime) ClearTracers() {
 	if r == nil {
 		return
@@ -217,6 +168,7 @@ func (r *Runtime) ClearTracers() {
 	r.traceManager.Clear()
 }
 
+// GetTracers returns a snapshot of this runtime's tracers.
 func (r *Runtime) GetTracers() []Tracer {
 	if r == nil {
 		return nil
@@ -225,6 +177,7 @@ func (r *Runtime) GetTracers() []Tracer {
 	return r.traceManager.Get()
 }
 
+// Trace executes fn with this runtime's tracers applied.
 func (r *Runtime) Trace(ctx context.Context, fn func(ctx context.Context) error) error {
 	if r == nil {
 		return errors.New("runtime cannot be nil")
@@ -233,7 +186,7 @@ func (r *Runtime) Trace(ctx context.Context, fn func(ctx context.Context) error)
 	return r.traceManager.Trace(ctx, fn)
 }
 
-func Trace1WithRuntime[T any](r *Runtime, ctx context.Context, fn func(ctx context.Context) (T, error)) (T, error) {
+func trace1WithRuntime[T any](r *Runtime, ctx context.Context, fn func(ctx context.Context) (T, error)) (T, error) {
 	if r == nil {
 		var zero T
 		return zero, errors.New("runtime cannot be nil")
@@ -242,14 +195,15 @@ func Trace1WithRuntime[T any](r *Runtime, ctx context.Context, fn func(ctx conte
 	return traceManagerTrace1(r.traceManager, ctx, fn)
 }
 
-// validateRegisteredTableIdentifiers checks if all registered table names conform to dialect-specific length limits.
+// validateRegisteredTableIdentifiers checks registered table and column identifiers
+// against the current dialect-specific length limits.
 // mode should be "strict" (fail on violation), "warn" (log warning), or "skip" (no validation).
 func (r *Runtime) validateRegisteredTableIdentifiers(mode string) error {
 	if r == nil {
 		return errors.New("runtime cannot be nil")
 	}
 
-	dialect := r.CurrentDialect()
+	dialect := r.Dialect()
 	if dialect == "" {
 		// Unknown dialect, skip validation
 		return nil
@@ -264,30 +218,21 @@ func (r *Runtime) validateRegisteredTableIdentifiers(mode string) error {
 		}
 
 		tableName := table.Table.Table()
-		if err := ValidateIdentifierLength(tableName, dialect); err != nil {
+		if err := ValidateIdentifierLength(tableName, r.engine.Dialect); err != nil {
 			if mode == "strict" {
-				return errors.Annotatef(err, "table %s identifier validation failed", tableName)
+				return fmt.Errorf("table %s identifier validation failed"+": %w", tableName, err)
 			}
 
 			validationErrors = append(validationErrors, err.Error())
 		}
 
+		if err := validateColumnIdentifiersForDialect(tableName, table.Cols(), r.engine.Dialect, mode, &validationErrors); err != nil {
+			return err
+		}
+
 		// Also validate keyword search columns if present
-		if kwCols := table.KwList(); kwCols != nil {
-			for _, col := range kwCols {
-				if col == nil {
-					continue
-				}
-
-				colName := col.OutputName()
-				if err := ValidateIdentifierLength(colName, dialect); err != nil {
-					if mode == "strict" {
-						return errors.Annotatef(err, "column %s.%s identifier validation failed", tableName, colName)
-					}
-
-					validationErrors = append(validationErrors, err.Error())
-				}
-			}
+		if err := validateColumnIdentifiersForDialect(tableName, searchColumnsAsSQLColumns(table.SearchColumns()), r.engine.Dialect, mode, &validationErrors); err != nil {
+			return err
 		}
 	}
 
@@ -307,15 +252,55 @@ func (r *Runtime) ValidateIdentifiersForDialect() error {
 		return errors.New("runtime cannot be nil")
 	}
 
-	if r.db == nil {
-		return errors.New("database not initialized; call Init or InitWithOptions first")
+	if r.engine == nil {
+		return errors.New("database not initialized; call Init first")
 	}
 
-	dialect := r.CurrentDialect()
+	dialect := r.Dialect()
 	if dialect == "" {
 		return errors.New("unable to determine current database dialect")
 	}
 
 	// Use strict mode for explicit validation call
 	return r.validateRegisteredTableIdentifiers("strict")
+}
+
+func validateColumnIdentifiersForDialect(
+	tableName string,
+	cols []SQLColumn,
+	dialect Dialect,
+	mode string,
+	validationErrors *[]string,
+) error {
+	seen := make(map[string]struct{}, len(cols))
+	for _, col := range cols {
+		if col == nil {
+			continue
+		}
+
+		colName := col.OutputName()
+		if _, ok := seen[colName]; ok {
+			continue
+		}
+		seen[colName] = struct{}{}
+
+		if err := ValidateIdentifierLength(colName, dialect); err != nil {
+			if mode == "strict" {
+				return fmt.Errorf("column %s.%s identifier validation failed"+": %w", tableName, colName, err)
+			}
+
+			*validationErrors = append(*validationErrors, err.Error())
+		}
+	}
+
+	return nil
+}
+
+func searchColumnsAsSQLColumns(cols []SearchColumn) []SQLColumn {
+	result := make([]SQLColumn, 0, len(cols))
+	for _, col := range cols {
+		result = append(result, col)
+	}
+
+	return result
 }

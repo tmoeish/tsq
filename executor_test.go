@@ -3,6 +3,7 @@ package tsq
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"strings"
 	"testing"
 
@@ -15,13 +16,20 @@ type batchMutationUser struct {
 	Email string
 }
 
-func (batchMutationUser) TSQOwner()              {}
-func (batchMutationUser) Table() string          { return "users" }
-func (batchMutationUser) Cols() []SQLColumn      { return SQLColumns(batchMutationUserColumns()...) }
-func (batchMutationUser) KwList() []SearchColumn { return nil }
-func (batchMutationUser) PrimaryKeys() []string  { return []string{"id"} }
-func (batchMutationUser) AutoIncrement() bool    { return true }
-func (batchMutationUser) VersionColumn() string  { return "" }
+type optimisticMutationUser struct {
+	ID      int64
+	Name    string
+	Email   string
+	Version int64
+}
+
+func (batchMutationUser) TSQOwner()                     {}
+func (batchMutationUser) Table() string                 { return "users" }
+func (batchMutationUser) Cols() []SQLColumn             { return SQLColumns(batchMutationUserColumns()...) }
+func (batchMutationUser) SearchColumns() []SearchColumn { return nil }
+func (batchMutationUser) PrimaryKeys() []string         { return []string{"id"} }
+func (batchMutationUser) AutoIncrement() bool           { return true }
+func (batchMutationUser) VersionColumn() string         { return "" }
 
 func batchMutationUserColumns() []BoundColumn[batchMutationUser] {
 	return []BoundColumn[batchMutationUser]{
@@ -31,7 +39,26 @@ func batchMutationUserColumns() []BoundColumn[batchMutationUser] {
 	}
 }
 
-func newBatchMutationDBMap(t *testing.T) *DbMap {
+func (optimisticMutationUser) TSQOwner()     {}
+func (optimisticMutationUser) Table() string { return "users" }
+func (optimisticMutationUser) Cols() []SQLColumn {
+	return SQLColumns(optimisticMutationUserColumns()...)
+}
+func (optimisticMutationUser) SearchColumns() []SearchColumn { return nil }
+func (optimisticMutationUser) PrimaryKeys() []string         { return []string{"id"} }
+func (optimisticMutationUser) AutoIncrement() bool           { return true }
+func (optimisticMutationUser) VersionColumn() string         { return "version" }
+
+func optimisticMutationUserColumns() []BoundColumn[optimisticMutationUser] {
+	return []BoundColumn[optimisticMutationUser]{
+		NewCol[optimisticMutationUser, int64]("id", "id", func(t *optimisticMutationUser) *int64 { return &t.ID }),
+		NewCol[optimisticMutationUser, string]("name", "name", func(t *optimisticMutationUser) *string { return &t.Name }),
+		NewCol[optimisticMutationUser, string]("email", "email", func(t *optimisticMutationUser) *string { return &t.Email }),
+		NewCol[optimisticMutationUser, int64]("version", "version", func(t *optimisticMutationUser) *int64 { return &t.Version }),
+	}
+}
+
+func newBatchMutationEngine(t *testing.T) *Engine {
 	t.Helper()
 
 	db, err := sql.Open("sqlite3", ":memory:")
@@ -43,19 +70,43 @@ func newBatchMutationDBMap(t *testing.T) *DbMap {
 		_ = db.Close()
 	})
 
-	if _, err := db.Exec(`CREATE TABLE users (
+	if _, err := db.ExecContext(context.Background(), `CREATE TABLE users (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		name TEXT NOT NULL,
-		email TEXT NOT NULL
+		email TEXT NOT NULL UNIQUE
 	)`); err != nil {
 		t.Fatalf("create users table: %v", err)
 	}
 
-	return &DbMap{Db: db, Dialect: SqliteDialect{}}
+	return &Engine{DB: db, Dialect: SQLiteDialect{}}
 }
 
-func TestDbMapInsertBatchesRows(t *testing.T) {
-	db := newBatchMutationDBMap(t)
+func newOptimisticMutationEngine(t *testing.T) *Engine {
+	t.Helper()
+
+	db, err := sql.Open("sqlite3", ":memory:")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+
+	t.Cleanup(func() {
+		_ = db.Close()
+	})
+
+	if _, err := db.ExecContext(context.Background(), `CREATE TABLE users (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		name TEXT NOT NULL,
+		email TEXT NOT NULL UNIQUE,
+		version INTEGER NOT NULL
+	)`); err != nil {
+		t.Fatalf("create users table: %v", err)
+	}
+
+	return &Engine{DB: db, Dialect: SQLiteDialect{}}
+}
+
+func TestEngineInsertBatchesRows(t *testing.T) {
+	db := newBatchMutationEngine(t)
 
 	u1 := &batchMutationUser{Name: "alice", Email: "alice@example.com"}
 	u2 := &batchMutationUser{Name: "bob", Email: "bob@example.com"}
@@ -69,7 +120,7 @@ func TestDbMapInsertBatchesRows(t *testing.T) {
 	}
 
 	var count int
-	if err := db.QueryRow(context.Background(), `SELECT COUNT(*) FROM users`).Scan(&count); err != nil {
+	if err := db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM users`).Scan(&count); err != nil {
 		t.Fatalf("count inserted rows: %v", err)
 	}
 
@@ -78,10 +129,10 @@ func TestDbMapInsertBatchesRows(t *testing.T) {
 	}
 }
 
-func TestDbMapUpdateBatchesRows(t *testing.T) {
-	db := newBatchMutationDBMap(t)
+func TestEngineUpdateBatchesRows(t *testing.T) {
+	db := newBatchMutationEngine(t)
 
-	if _, err := db.Exec(context.Background(), `
+	if _, err := db.ExecContext(context.Background(), `
 		INSERT INTO users (id, name, email) VALUES
 		(1, 'alice', 'alice@example.com'),
 		(2, 'bob', 'bob@example.com')
@@ -101,7 +152,7 @@ func TestDbMapUpdateBatchesRows(t *testing.T) {
 		t.Fatalf("expected 2 updated rows, got %d", affected)
 	}
 
-	rows, err := db.Query(context.Background(), `SELECT id, name, email FROM users ORDER BY id`)
+	rows, err := db.QueryContext(context.Background(), `SELECT id, name, email FROM users ORDER BY id`)
 	if err != nil {
 		t.Fatalf("query updated rows: %v", err)
 	}
@@ -122,10 +173,10 @@ func TestDbMapUpdateBatchesRows(t *testing.T) {
 	}
 }
 
-func TestDbMapDeleteBatchesRows(t *testing.T) {
-	db := newBatchMutationDBMap(t)
+func TestEngineDeleteBatchesRows(t *testing.T) {
+	db := newBatchMutationEngine(t)
 
-	if _, err := db.Exec(context.Background(), `
+	if _, err := db.ExecContext(context.Background(), `
 		INSERT INTO users (id, name, email) VALUES
 		(1, 'alice', 'alice@example.com'),
 		(2, 'bob', 'bob@example.com'),
@@ -148,7 +199,7 @@ func TestDbMapDeleteBatchesRows(t *testing.T) {
 	}
 
 	var count int
-	if err := db.QueryRow(context.Background(), `SELECT COUNT(*) FROM users`).Scan(&count); err != nil {
+	if err := db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM users`).Scan(&count); err != nil {
 		t.Fatalf("count remaining rows: %v", err)
 	}
 
@@ -157,46 +208,127 @@ func TestDbMapDeleteBatchesRows(t *testing.T) {
 	}
 }
 
+func TestEngineUpdateUsesOptimisticLockVersion(t *testing.T) {
+	db := newOptimisticMutationEngine(t)
+
+	if _, err := db.ExecContext(context.Background(), `
+		INSERT INTO users (id, name, email, version) VALUES
+		(1, 'alice', 'alice@example.com', 3),
+		(2, 'bob', 'bob@example.com', 7)
+	`); err != nil {
+		t.Fatalf("seed rows: %v", err)
+	}
+
+	u1 := &optimisticMutationUser{ID: 1, Name: "alice-updated", Email: "alice+updated@example.com", Version: 3}
+	u2 := &optimisticMutationUser{ID: 2, Name: "bob-updated", Email: "bob+updated@example.com", Version: 7}
+
+	affected, err := db.Update(context.Background(), u1, u2)
+	if err != nil {
+		t.Fatalf("optimistic batch update failed: %v", err)
+	}
+	if affected != 2 {
+		t.Fatalf("expected 2 updated rows, got %d", affected)
+	}
+	if u1.Version != 4 || u2.Version != 8 {
+		t.Fatalf("expected in-memory versions to increment, got %d and %d", u1.Version, u2.Version)
+	}
+
+	rows, err := db.QueryContext(context.Background(), `SELECT id, version FROM users ORDER BY id`)
+	if err != nil {
+		t.Fatalf("query versions: %v", err)
+	}
+	defer rows.Close()
+
+	var got []optimisticMutationUser
+	for rows.Next() {
+		var user optimisticMutationUser
+		if err := rows.Scan(&user.ID, &user.Version); err != nil {
+			t.Fatalf("scan version row: %v", err)
+		}
+		got = append(got, user)
+	}
+
+	if len(got) != 2 || got[0].Version != 4 || got[1].Version != 8 {
+		t.Fatalf("unexpected stored versions: %#v", got)
+	}
+}
+
+func TestEngineUpdateOptimisticLockConflict(t *testing.T) {
+	db := newOptimisticMutationEngine(t)
+
+	if _, err := db.ExecContext(context.Background(), `
+		INSERT INTO users (id, name, email, version) VALUES
+		(1, 'alice', 'alice@example.com', 3)
+	`); err != nil {
+		t.Fatalf("seed row: %v", err)
+	}
+
+	user := &optimisticMutationUser{ID: 1, Name: "alice-stale", Email: "alice+stale@example.com", Version: 2}
+	affected, err := db.Update(context.Background(), user)
+	if err == nil {
+		t.Fatal("expected optimistic lock conflict")
+	}
+	if affected != 0 {
+		t.Fatalf("expected 0 updated rows, got %d", affected)
+	}
+	if !errors.Is(err, &ErrOptimisticLockConflict{}) {
+		t.Fatalf("expected optimistic lock conflict error, got %v", err)
+	}
+	if user.Version != 2 {
+		t.Fatalf("expected in-memory version to stay unchanged, got %d", user.Version)
+	}
+}
+
+func TestEngineDeleteUsesOptimisticLockVersion(t *testing.T) {
+	db := newOptimisticMutationEngine(t)
+
+	if _, err := db.ExecContext(context.Background(), `
+		INSERT INTO users (id, name, email, version) VALUES
+		(1, 'alice', 'alice@example.com', 3),
+		(2, 'bob', 'bob@example.com', 5)
+	`); err != nil {
+		t.Fatalf("seed rows: %v", err)
+	}
+
+	affected, err := db.Delete(
+		context.Background(),
+		&optimisticMutationUser{ID: 1, Version: 3},
+		&optimisticMutationUser{ID: 2, Version: 5},
+	)
+	if err != nil {
+		t.Fatalf("optimistic delete failed: %v", err)
+	}
+	if affected != 2 {
+		t.Fatalf("expected 2 deleted rows, got %d", affected)
+	}
+}
+
+func TestEngineDeleteOptimisticLockConflict(t *testing.T) {
+	db := newOptimisticMutationEngine(t)
+
+	if _, err := db.ExecContext(context.Background(), `
+		INSERT INTO users (id, name, email, version) VALUES
+		(1, 'alice', 'alice@example.com', 3)
+	`); err != nil {
+		t.Fatalf("seed row: %v", err)
+	}
+
+	affected, err := db.Delete(context.Background(), &optimisticMutationUser{ID: 1, Version: 2})
+	if err == nil {
+		t.Fatal("expected optimistic lock conflict")
+	}
+	if affected != 0 {
+		t.Fatalf("expected 0 deleted rows, got %d", affected)
+	}
+	if !errors.Is(err, &ErrOptimisticLockConflict{}) {
+		t.Fatalf("expected optimistic lock conflict error, got %v", err)
+	}
+}
+
 type countingMutationExecutor struct {
 	insertBatchSizes []int
 	updateBatchSizes []int
 	deleteBatchSizes []int
-}
-
-func (c *countingMutationExecutor) Query(_ context.Context, _ string, _ ...any) (*sql.Rows, error) {
-	return nil, nil
-}
-
-func (c *countingMutationExecutor) QueryRow(_ context.Context, _ string, _ ...any) *sql.Row {
-	return &sql.Row{}
-}
-
-func (c *countingMutationExecutor) Exec(_ context.Context, _ string, _ ...any) (sql.Result, error) {
-	return nil, nil
-}
-
-func (c *countingMutationExecutor) SelectInt(_ context.Context, _ string, _ ...any) (int64, error) {
-	return 0, nil
-}
-
-func (c *countingMutationExecutor) SelectNullInt(_ context.Context, _ string, _ ...any) (sql.NullInt64, error) {
-	return sql.NullInt64{}, nil
-}
-
-func (c *countingMutationExecutor) SelectFloat(_ context.Context, _ string, _ ...any) (float64, error) {
-	return 0, nil
-}
-
-func (c *countingMutationExecutor) SelectNullFloat(_ context.Context, _ string, _ ...any) (sql.NullFloat64, error) {
-	return sql.NullFloat64{}, nil
-}
-
-func (c *countingMutationExecutor) SelectStr(_ context.Context, _ string, _ ...any) (string, error) {
-	return "", nil
-}
-
-func (c *countingMutationExecutor) SelectNullStr(_ context.Context, _ string, _ ...any) (sql.NullString, error) {
-	return sql.NullString{}, nil
 }
 
 func (c *countingMutationExecutor) Insert(_ context.Context, dst ...Table) error {
@@ -262,13 +394,13 @@ func TestChunkedDeleteChunkUsesBatchDelete(t *testing.T) {
 	}
 }
 
-func TestDbMapQueryUsesContext(t *testing.T) {
-	db := newBatchMutationDBMap(t)
+func TestEngineQueryUsesContext(t *testing.T) {
+	db := newBatchMutationEngine(t)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err := db.Query(ctx, `SELECT id FROM users`)
+	_, err := db.QueryContext(ctx, `SELECT id FROM users`)
 	if err == nil {
 		t.Fatal("expected canceled context to fail query")
 	}
@@ -277,17 +409,74 @@ func TestDbMapQueryUsesContext(t *testing.T) {
 	}
 }
 
-func TestDbMapExecUsesContext(t *testing.T) {
-	db := newBatchMutationDBMap(t)
+func TestEngineExecUsesContext(t *testing.T) {
+	db := newBatchMutationEngine(t)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err := db.Exec(ctx, `INSERT INTO users (name, email) VALUES ('alice', 'alice@example.com')`)
+	_, err := db.ExecContext(ctx, `INSERT INTO users (name, email) VALUES ('alice', 'alice@example.com')`)
 	if err == nil {
 		t.Fatal("expected canceled context to fail exec")
 	}
 	if !strings.Contains(err.Error(), context.Canceled.Error()) {
 		t.Fatalf("expected exec to surface context cancellation, got %v", err)
+	}
+}
+
+func TestEngineQueryContextRejectsMissingDatabase(t *testing.T) {
+	db := &Engine{}
+
+	_, err := db.QueryContext(context.Background(), `SELECT 1`)
+	if !errors.Is(err, errEngineDatabaseNil) {
+		t.Fatalf("expected errEngineDatabaseNil, got %v", err)
+	}
+}
+
+func TestEngineExecContextRejectsMissingDatabase(t *testing.T) {
+	db := &Engine{}
+
+	_, err := db.ExecContext(context.Background(), `SELECT 1`)
+	if !errors.Is(err, errEngineDatabaseNil) {
+		t.Fatalf("expected errEngineDatabaseNil, got %v", err)
+	}
+}
+
+func TestEngineQueryRowContextRejectsMissingDatabase(t *testing.T) {
+	db := &Engine{}
+
+	var count int
+	err := db.QueryRowContext(context.Background(), `SELECT 1`).Scan(&count)
+	if !errors.Is(err, errEngineDatabaseNil) {
+		t.Fatalf("expected errEngineDatabaseNil, got %v", err)
+	}
+}
+
+func TestChunkedInsertIgnoreErrorsSkipsSQLiteUniqueViolations(t *testing.T) {
+	db := newBatchMutationEngine(t)
+
+	if err := db.Insert(context.Background(), &batchMutationUser{Name: "seed", Email: "alice@example.com"}); err != nil {
+		t.Fatalf("seed insert failed: %v", err)
+	}
+
+	items := []*batchMutationUser{
+		{Name: "duplicate", Email: "alice@example.com"},
+		{Name: "fresh", Email: "bob@example.com"},
+	}
+
+	if err := ChunkedInsert(context.Background(), db, items, &ChunkedInsertOptions{
+		ChunkSize:    2,
+		IgnoreErrors: true,
+	}); err != nil {
+		t.Fatalf("chunked insert with ignore errors failed: %v", err)
+	}
+
+	var count int
+	if err := db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM users`).Scan(&count); err != nil {
+		t.Fatalf("count rows after ignored duplicate: %v", err)
+	}
+
+	if count != 2 {
+		t.Fatalf("expected 2 rows after ignoring duplicate, got %d", count)
 	}
 }

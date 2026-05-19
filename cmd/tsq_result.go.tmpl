@@ -38,7 +38,7 @@ func ({{$dot.Recv}} {{$type}}) TSQResult() {}
 // Column definitions for {{$type}} result fields.
 var (
 {{- range $f := .Fields }}
-	{{$type}}_{{$f.Name}} = tsq.Into[{{$type}}]({{$f.Column}}, func(holder {{$ptype}}) *{{$f | FieldType}} {
+	{{$type}}_{{$f.Name}} = tsq.MapInto({{$f.Column}}, func(holder {{$ptype}}) *{{$f | FieldType}} {
 		return &holder.{{$f.Name}}
 	}, "{{$f.JsonTag}}")
 {{- end }}
