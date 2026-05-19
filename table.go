@@ -296,7 +296,21 @@ func UpsertIndex(db *Engine, table string, unique bool, idx string, fields []str
 		}
 	}
 
-	return db.Dialect.EnsureIndex(db, table, unique, idx, fields)
+	query, err := db.Dialect.EnsureIndex(context.Background(), db, table, unique, idx, fields)
+	if err != nil {
+		return err
+	}
+
+	if query != "" {
+		return db.emitSchemaEvent(SchemaEvent{
+			Kind:  SchemaEventCreateIndex,
+			Table: table,
+			Name:  idx,
+			SQL:   query,
+		})
+	}
+
+	return nil
 }
 
 func (e *Engine) effectiveIndexInitMode() IndexInitMode {
@@ -355,7 +369,7 @@ func inspectIndexDefinition(
 	table string,
 	idx string,
 ) (IndexDefinition, bool, error) {
-	return db.Dialect.InspectIndexDefinition(db, table, idx)
+	return db.Dialect.InspectIndexDefinition(context.Background(), db, table, idx)
 }
 
 func validateIndexDefinition(

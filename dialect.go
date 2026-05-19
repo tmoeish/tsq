@@ -1,10 +1,74 @@
 package tsq
 
 import (
+	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
 )
+
+// SQLExecutor defines the shared query execution surface implemented by
+// database/sql entry points such as *sql.DB and *sql.Tx.
+// The standard library does not provide this exact interface, so tsq defines
+// the minimal Context-based method set it needs.
+type SQLExecutor interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
+// Dialect defines the operations tsq needs from a SQL dialect.
+type Dialect interface {
+	// Name returns the stable tsq dialect name.
+	Name() DialectName
+	// QuoteField returns the dialect-specific quoted identifier
+	QuoteField(field string) string
+	// BindVar returns the dialect-specific bind variable placeholder
+	BindVar(i int) string
+	// CreateTableSuffix returns dialect-specific create table suffix
+	CreateTableSuffix() string
+	// CreateIndexSuffix returns dialect-specific create index suffix
+	CreateIndexSuffix() string
+	// DropIndexSuffix returns dialect-specific drop index suffix
+	DropIndexSuffix() string
+	// TruncateClause returns the dialect-specific truncate clause
+	TruncateClause() string
+	// AutoIncrementClause returns the dialect-specific auto-increment clause
+	AutoIncrementClause() string
+	// AutoIncrementBindValue returns the dialect-specific auto-increment bind value
+	AutoIncrementBindValue() string
+	// LastInsertIdReturningSuffix returns the dialect-specific returning suffix for last insert id
+	LastInsertIdReturningSuffix(table, col string) string
+	// AllTablesQuery returns the dialect-specific query to list all tables
+	AllTablesQuery() string
+	// CreateTableIfNotExistsSuffix returns the dialect-specific create if not exists suffix
+	CreateTableIfNotExistsSuffix() string
+	// HasConstraintsQuery returns the dialect-specific query to check constraints
+	HasConstraintsQuery(string, string) string
+	// ValidateIdentifier validates a SQL identifier for this dialect.
+	ValidateIdentifier(identifier string) error
+	// SupportsCapability reports whether this dialect supports the named SQL capability.
+	SupportsCapability(capability DialectCapability) bool
+	// BatchInsertStartID returns the first ID assigned by a multi-row insert when it can be derived.
+	BatchInsertStartID(lastID, rowsAffected int64) (int64, bool)
+	// EnsureIndex creates an index for this dialect. Returns the SQL query executed.
+	EnsureIndex(ctx context.Context, db SQLExecutor, table string, unique bool, idx string, fields []string) (string, error)
+	// InspectIndexDefinition returns the current definition of an existing index.
+	InspectIndexDefinition(ctx context.Context, db SQLExecutor, table, idx string) (IndexDefinition, bool, error)
+	// DDLColumnType returns the SQL type for a column descriptor.
+	DDLColumnType(desc DDLColumnType) string
+	// DDLAutoIncrementPrimaryKey renders an auto-increment primary key column definition.
+	DDLAutoIncrementPrimaryKey(quotedColumn string, desc DDLColumnType) (string, error)
+	// DDLCreateIndex renders the dialect-specific index creation statement.
+	DDLCreateIndex(table, idx string, fields []string, unique bool) string
+	// DDLDropIndex renders the dialect-specific index drop statement.
+	DDLDropIndex(table, idx string) string
+	// DDLAlterColumnMode reports how this dialect applies column changes.
+	DDLAlterColumnMode() DDLAlterColumnMode
+	// DDLAlterColumnStatements renders direct ALTER COLUMN statements for this dialect.
+	DDLAlterColumnStatements(table string, before, after DDLColumnSpec) []string
+}
 
 // DialectName is the stable name used by tsq for a SQL dialect.
 type DialectName string
@@ -276,430 +340,6 @@ func ddlSerialType(desc DDLColumnType) string {
 	default:
 		return "BIGSERIAL PRIMARY KEY"
 	}
-}
-
-// Name returns DialectSQLite.
-func (d SQLiteDialect) Name() DialectName {
-	return DialectSQLite
-}
-
-// ValidateIdentifier applies SQLite's identifier validation rules.
-func (d SQLiteDialect) ValidateIdentifier(identifier string) error {
-	return validateDialectIdentifier(identifier, d.Name(), 0)
-}
-
-// SupportsCapability reports whether SQLite supports capability.
-func (d SQLiteDialect) SupportsCapability(capability DialectCapability) bool {
-	switch canonicalCapabilityName(string(capability)) {
-	case DialectCapabilityCTE, DialectCapabilityExcept, DialectCapabilityIntersect:
-		return true
-	case DialectCapabilityFullOuterJoin,
-		DialectCapabilitySelectForUpdate,
-		DialectCapabilitySelectForShare,
-		DialectCapabilitySelectForNoWait,
-		DialectCapabilitySelectForSkipLocked:
-		return false
-	default:
-		return false
-	}
-}
-
-// BatchInsertStartID derives the first id assigned by a SQLite batch insert when possible.
-func (d SQLiteDialect) BatchInsertStartID(lastID, rowsAffected int64) (int64, bool) {
-	if rowsAffected <= 0 {
-		return 0, false
-	}
-
-	return lastID - rowsAffected + 1, true
-}
-
-// EnsureIndex creates or updates an index definition for SQLite.
-func (d SQLiteDialect) EnsureIndex(db *Engine, table string, unique bool, idx string, fields []string) error {
-	return ensureSQLiteIndex(db, table, unique, idx, fields)
-}
-
-// InspectIndexDefinition reads back an existing SQLite index definition.
-func (d SQLiteDialect) InspectIndexDefinition(db *Engine, table, idx string) (IndexDefinition, bool, error) {
-	return inspectSQLiteIndexDefinition(db, idx)
-}
-
-// DDLColumnType renders a SQLite column type for desc.
-func (d SQLiteDialect) DDLColumnType(desc DDLColumnType) string {
-	switch desc.Kind {
-	case DDLColumnKindBool:
-		return "BOOLEAN"
-	case DDLColumnKindBytes:
-		return "BLOB"
-	case DDLColumnKindFloat:
-		return "REAL"
-	case DDLColumnKindInt:
-		return "INTEGER"
-	case DDLColumnKindString:
-		return "TEXT"
-	case DDLColumnKindTime:
-		return "TIMESTAMP"
-	default:
-		return "TEXT"
-	}
-}
-
-// DDLAutoIncrementPrimaryKey renders a SQLite auto-increment primary key column.
-func (d SQLiteDialect) DDLAutoIncrementPrimaryKey(quotedColumn string, desc DDLColumnType) (string, error) {
-	if desc.Kind != DDLColumnKindInt {
-		return "", errors.New("auto-increment primary key requires an integer field")
-	}
-
-	return quotedColumn + " INTEGER PRIMARY KEY " + d.AutoIncrementClause(), nil
-}
-
-// DDLCreateIndex renders a SQLite CREATE INDEX statement.
-func (d SQLiteDialect) DDLCreateIndex(table, idx string, fields []string, unique bool) string {
-	uniqueClause := ""
-	if unique {
-		uniqueClause = "UNIQUE "
-	}
-
-	return fmt.Sprintf(
-		"CREATE %sINDEX %s ON %s(%s)%s",
-		uniqueClause,
-		d.QuoteField(idx),
-		d.QuoteField(table),
-		strings.Join(fields, ", "),
-		d.CreateIndexSuffix(),
-	)
-}
-
-// DDLDropIndex renders a SQLite DROP INDEX statement.
-func (d SQLiteDialect) DDLDropIndex(table, idx string) string {
-	return fmt.Sprintf("DROP INDEX %s;", d.QuoteField(idx))
-}
-
-// DDLAlterColumnMode reports that SQLite applies column changes by table rebuild.
-func (d SQLiteDialect) DDLAlterColumnMode() DDLAlterColumnMode {
-	return DDLAlterColumnRebuild
-}
-
-// DDLAlterColumnStatements returns SQLite's direct alter-column statements, if any.
-func (d SQLiteDialect) DDLAlterColumnStatements(table string, before, after DDLColumnSpec) []string {
-	return nil
-}
-
-// Name returns DialectMySQL.
-func (d MySQLDialect) Name() DialectName {
-	return DialectMySQL
-}
-
-// ValidateIdentifier applies MySQL's identifier validation rules.
-func (d MySQLDialect) ValidateIdentifier(identifier string) error {
-	return validateDialectIdentifier(identifier, d.Name(), MaxIdentifierLengthMySQL)
-}
-
-// SupportsCapability reports whether MySQL supports capability.
-func (d MySQLDialect) SupportsCapability(capability DialectCapability) bool {
-	switch canonicalCapabilityName(string(capability)) {
-	case DialectCapabilityCTE, DialectCapabilityExcept, DialectCapabilityFullOuterJoin, DialectCapabilityIntersect:
-		return false
-	case DialectCapabilitySelectForUpdate,
-		DialectCapabilitySelectForShare,
-		DialectCapabilitySelectForNoWait,
-		DialectCapabilitySelectForSkipLocked:
-		return true
-	default:
-		return false
-	}
-}
-
-// BatchInsertStartID derives the first id assigned by a MySQL batch insert when possible.
-func (d MySQLDialect) BatchInsertStartID(lastID, rowsAffected int64) (int64, bool) {
-	if rowsAffected <= 0 {
-		return 0, false
-	}
-
-	return lastID, true
-}
-
-// EnsureIndex creates or updates an index definition for MySQL.
-func (d MySQLDialect) EnsureIndex(db *Engine, table string, unique bool, idx string, fields []string) error {
-	return ensureMySQLIndex(db, table, unique, idx, fields)
-}
-
-// InspectIndexDefinition reads back an existing MySQL index definition.
-func (d MySQLDialect) InspectIndexDefinition(db *Engine, table, idx string) (IndexDefinition, bool, error) {
-	return inspectMySQLIndexDefinition(db, table, idx)
-}
-
-// DDLColumnType renders a MySQL column type for desc.
-func (d MySQLDialect) DDLColumnType(desc DDLColumnType) string {
-	switch desc.Kind {
-	case DDLColumnKindBool:
-		return "BOOLEAN"
-	case DDLColumnKindBytes:
-		return "BLOB"
-	case DDLColumnKindFloat:
-		if desc.Bits <= 32 {
-			return "FLOAT"
-		}
-
-		return "DOUBLE"
-	case DDLColumnKindInt:
-		switch {
-		case desc.Bits <= 8:
-			if desc.Unsigned {
-				return "TINYINT UNSIGNED"
-			}
-
-			return "TINYINT"
-		case desc.Bits <= 16:
-			if desc.Unsigned {
-				return "SMALLINT UNSIGNED"
-			}
-
-			return "SMALLINT"
-		case desc.Bits <= 32:
-			if desc.Unsigned {
-				return "INT UNSIGNED"
-			}
-
-			return "INT"
-		default:
-			if desc.Unsigned {
-				return "BIGINT UNSIGNED"
-			}
-
-			return "BIGINT"
-		}
-
-	case DDLColumnKindString:
-		if desc.Size > 0 {
-			return fmt.Sprintf("VARCHAR(%d)", desc.Size)
-		}
-
-		return "TEXT"
-	case DDLColumnKindTime:
-		return "DATETIME"
-	default:
-		return "TEXT"
-	}
-}
-
-// DDLAutoIncrementPrimaryKey renders a MySQL auto-increment primary key column.
-func (d MySQLDialect) DDLAutoIncrementPrimaryKey(quotedColumn string, desc DDLColumnType) (string, error) {
-	if desc.Kind != DDLColumnKindInt {
-		return "", errors.New("auto-increment primary key requires an integer field")
-	}
-
-	return strings.Join([]string{
-		quotedColumn,
-		d.DDLColumnType(desc),
-		"PRIMARY KEY",
-		d.AutoIncrementClause(),
-	}, " "), nil
-}
-
-// DDLCreateIndex renders a MySQL CREATE INDEX statement.
-func (d MySQLDialect) DDLCreateIndex(table, idx string, fields []string, unique bool) string {
-	uniqueClause := ""
-	if unique {
-		uniqueClause = "UNIQUE "
-	}
-
-	return fmt.Sprintf(
-		"ALTER TABLE %s ADD %sINDEX %s(%s)%s",
-		d.QuoteField(table),
-		uniqueClause,
-		d.QuoteField(idx),
-		strings.Join(fields, ", "),
-		d.CreateIndexSuffix(),
-	)
-}
-
-// DDLDropIndex renders the MySQL statements needed to drop idx.
-func (d MySQLDialect) DDLDropIndex(table, idx string) string {
-	return fmt.Sprintf(
-		"DROP INDEX %s ON %s;",
-		d.QuoteField(idx),
-		d.QuoteField(table),
-	)
-}
-
-// DDLAlterColumnMode reports that MySQL alters columns in place.
-func (d MySQLDialect) DDLAlterColumnMode() DDLAlterColumnMode {
-	return DDLAlterColumnDirect
-}
-
-// DDLAlterColumnStatements returns MySQL ALTER COLUMN statements for the change.
-func (d MySQLDialect) DDLAlterColumnStatements(table string, before, after DDLColumnSpec) []string {
-	return []string{fmt.Sprintf(
-		"ALTER TABLE %s MODIFY COLUMN %s;",
-		d.QuoteField(table),
-		renderDDLColumnDefinition(d, after),
-	)}
-}
-
-// Name returns DialectPostgres.
-func (d PostgresDialect) Name() DialectName {
-	return DialectPostgres
-}
-
-// ValidateIdentifier applies PostgreSQL's identifier validation rules.
-func (d PostgresDialect) ValidateIdentifier(identifier string) error {
-	return validateDialectIdentifier(identifier, d.Name(), MaxIdentifierLengthPostgreSQL)
-}
-
-// SupportsCapability reports whether PostgreSQL supports capability.
-func (d PostgresDialect) SupportsCapability(capability DialectCapability) bool {
-	switch canonicalCapabilityName(string(capability)) {
-	case DialectCapabilityCTE,
-		DialectCapabilityExcept,
-		DialectCapabilityFullOuterJoin,
-		DialectCapabilityIntersect,
-		DialectCapabilitySelectForUpdate,
-		DialectCapabilitySelectForShare,
-		DialectCapabilitySelectForNoWait,
-		DialectCapabilitySelectForSkipLocked:
-		return true
-	default:
-		return false
-	}
-}
-
-// BatchInsertStartID reports PostgreSQL's inability to derive a batch insert start id.
-func (d PostgresDialect) BatchInsertStartID(lastID, rowsAffected int64) (int64, bool) {
-	return 0, false
-}
-
-// EnsureIndex creates or updates an index definition for PostgreSQL.
-func (d PostgresDialect) EnsureIndex(db *Engine, table string, unique bool, idx string, fields []string) error {
-	return ensurePostgresIndex(db, table, unique, idx, fields)
-}
-
-// InspectIndexDefinition reads back an existing PostgreSQL index definition.
-func (d PostgresDialect) InspectIndexDefinition(db *Engine, table, idx string) (IndexDefinition, bool, error) {
-	return inspectPostgresIndexDefinition(db, idx)
-}
-
-// DDLColumnType renders a PostgreSQL column type for desc.
-func (d PostgresDialect) DDLColumnType(desc DDLColumnType) string {
-	switch desc.Kind {
-	case DDLColumnKindBool:
-		return "BOOLEAN"
-	case DDLColumnKindBytes:
-		return "BYTEA"
-	case DDLColumnKindFloat:
-		if desc.Bits <= 32 {
-			return "REAL"
-		}
-
-		return "DOUBLE PRECISION"
-	case DDLColumnKindInt:
-		switch {
-		case desc.Bits <= 16:
-			return "SMALLINT"
-		case desc.Bits <= 32:
-			return "INTEGER"
-		default:
-			return "BIGINT"
-		}
-	case DDLColumnKindString:
-		if desc.Size > 0 {
-			return fmt.Sprintf("VARCHAR(%d)", desc.Size)
-		}
-
-		return "TEXT"
-	case DDLColumnKindTime:
-		return "TIMESTAMP"
-	default:
-		return "TEXT"
-	}
-}
-
-// DDLAutoIncrementPrimaryKey renders a PostgreSQL auto-increment primary key column.
-func (d PostgresDialect) DDLAutoIncrementPrimaryKey(quotedColumn string, desc DDLColumnType) (string, error) {
-	if desc.Kind != DDLColumnKindInt {
-		return "", errors.New("auto-increment primary key requires an integer field")
-	}
-
-	return quotedColumn + " " + ddlSerialType(desc), nil
-}
-
-// DDLCreateIndex renders a PostgreSQL CREATE INDEX statement.
-func (d PostgresDialect) DDLCreateIndex(table, idx string, fields []string, unique bool) string {
-	uniqueClause := ""
-	if unique {
-		uniqueClause = "UNIQUE "
-	}
-
-	return fmt.Sprintf(
-		"CREATE %sINDEX %s ON %s(%s)%s",
-		uniqueClause,
-		d.QuoteField(idx),
-		d.QuoteField(table),
-		strings.Join(fields, ", "),
-		d.CreateIndexSuffix(),
-	)
-}
-
-// DDLDropIndex renders a PostgreSQL DROP INDEX statement.
-func (d PostgresDialect) DDLDropIndex(table, idx string) string {
-	return fmt.Sprintf("DROP INDEX %s;", d.QuoteField(idx))
-}
-
-// DDLAlterColumnMode reports that PostgreSQL alters columns in place.
-func (d PostgresDialect) DDLAlterColumnMode() DDLAlterColumnMode {
-	return DDLAlterColumnDirect
-}
-
-// DDLAlterColumnStatements returns PostgreSQL ALTER COLUMN statements for the change.
-func (d PostgresDialect) DDLAlterColumnStatements(table string, before, after DDLColumnSpec) []string {
-	statements := make([]string, 0, 3)
-	quotedTable := d.QuoteField(table)
-	quotedColumn := d.QuoteField(after.Name)
-
-	if before.Type != after.Type {
-		statements = append(statements, fmt.Sprintf(
-			"ALTER TABLE %s ALTER COLUMN %s TYPE %s;",
-			quotedTable,
-			quotedColumn,
-			d.DDLColumnType(after.Type),
-		))
-	}
-
-	if before.PrimaryKey != after.PrimaryKey || before.AutoIncrement != after.AutoIncrement {
-		return nil
-	}
-
-	if before.Type.Nullable != after.Type.Nullable {
-		action := "SET"
-		if after.Type.Nullable {
-			action = "DROP"
-		}
-
-		statements = append(statements, fmt.Sprintf(
-			"ALTER TABLE %s ALTER COLUMN %s %s NOT NULL;",
-			quotedTable,
-			quotedColumn,
-			action,
-		))
-	}
-
-	if before.Default != after.Default {
-		if after.Default == "" {
-			statements = append(statements, fmt.Sprintf(
-				"ALTER TABLE %s ALTER COLUMN %s DROP DEFAULT;",
-				quotedTable,
-				quotedColumn,
-			))
-		} else {
-			statements = append(statements, fmt.Sprintf(
-				"ALTER TABLE %s ALTER COLUMN %s SET DEFAULT %s;",
-				quotedTable,
-				quotedColumn,
-				after.Default,
-			))
-		}
-	}
-
-	return statements
 }
 
 func renderDDLColumnDefinition(dialect Dialect, column DDLColumnSpec) string {

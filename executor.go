@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"log/slog"
 	"reflect"
-	"strconv"
 	"strings"
 	"sync"
 )
@@ -134,16 +133,6 @@ func engineExecutionError(engine *Engine) error {
 	return nil
 }
 
-// SQLExecutor defines the shared query execution surface implemented by
-// database/sql entry points such as *sql.DB and *sql.Tx.
-// The standard library does not provide this exact interface, so tsq defines
-// the minimal Context-based method set it needs.
-type SQLExecutor interface {
-	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
-	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
-	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
-}
-
 type mutationExecutor interface {
 	Insert(ctx context.Context, dst ...Table) error
 	Update(ctx context.Context, dst ...Table) (int64, error)
@@ -166,58 +155,6 @@ func (m sqlMutationExecutor) Delete(ctx context.Context, dst ...Table) (int64, e
 	return deleteTables(ctx, m.exec, dst...)
 }
 
-// Dialect defines the operations tsq needs from a SQL dialect.
-type Dialect interface {
-	// Name returns the stable tsq dialect name.
-	Name() DialectName
-	// QuoteField returns the dialect-specific quoted identifier
-	QuoteField(field string) string
-	// BindVar returns the dialect-specific bind variable placeholder
-	BindVar(i int) string
-	// CreateTableSuffix returns dialect-specific create table suffix
-	CreateTableSuffix() string
-	// CreateIndexSuffix returns dialect-specific create index suffix
-	CreateIndexSuffix() string
-	// DropIndexSuffix returns dialect-specific drop index suffix
-	DropIndexSuffix() string
-	// TruncateClause returns the dialect-specific truncate clause
-	TruncateClause() string
-	// AutoIncrementClause returns the dialect-specific auto-increment clause
-	AutoIncrementClause() string
-	// AutoIncrementBindValue returns the dialect-specific auto-increment bind value
-	AutoIncrementBindValue() string
-	// LastInsertIdReturningSuffix returns the dialect-specific returning suffix for last insert id
-	LastInsertIdReturningSuffix(table, col string) string
-	// AllTablesQuery returns the dialect-specific query to list all tables
-	AllTablesQuery() string
-	// CreateTableIfNotExistsSuffix returns the dialect-specific create if not exists suffix
-	CreateTableIfNotExistsSuffix() string
-	// HasConstraintsQuery returns the dialect-specific query to check constraints
-	HasConstraintsQuery(string, string) string
-	// ValidateIdentifier validates a SQL identifier for this dialect.
-	ValidateIdentifier(identifier string) error
-	// SupportsCapability reports whether this dialect supports the named SQL capability.
-	SupportsCapability(capability DialectCapability) bool
-	// BatchInsertStartID returns the first ID assigned by a multi-row insert when it can be derived.
-	BatchInsertStartID(lastID, rowsAffected int64) (int64, bool)
-	// EnsureIndex creates an index for this dialect.
-	EnsureIndex(db *Engine, table string, unique bool, idx string, fields []string) error
-	// InspectIndexDefinition returns the current definition of an existing index.
-	InspectIndexDefinition(db *Engine, table, idx string) (IndexDefinition, bool, error)
-	// DDLColumnType returns the SQL type for a column descriptor.
-	DDLColumnType(desc DDLColumnType) string
-	// DDLAutoIncrementPrimaryKey renders an auto-increment primary key column definition.
-	DDLAutoIncrementPrimaryKey(quotedColumn string, desc DDLColumnType) (string, error)
-	// DDLCreateIndex renders the dialect-specific index creation statement.
-	DDLCreateIndex(table, idx string, fields []string, unique bool) string
-	// DDLDropIndex renders the dialect-specific index drop statement.
-	DDLDropIndex(table, idx string) string
-	// DDLAlterColumnMode reports how this dialect applies column changes.
-	DDLAlterColumnMode() DDLAlterColumnMode
-	// DDLAlterColumnStatements renders direct ALTER COLUMN statements for this dialect.
-	DDLAlterColumnStatements(table string, before, after DDLColumnSpec) []string
-}
-
 // Engine couples a *sql.DB with the dialect rules tsq should use for it.
 type Engine struct {
 	DB             *sql.DB
@@ -225,7 +162,6 @@ type Engine struct {
 	schemaConfigMu sync.RWMutex
 	schemaConfig   dbSchemaConfig
 }
-
 type dbSchemaConfig struct {
 	indexInitMode      IndexInitMode
 	schemaEventHandler func(SchemaEvent)
@@ -1001,196 +937,6 @@ func mutationFieldPointer(col SQLColumn, holder Table) (any, error) {
 	}
 
 	return ptr, nil
-}
-
-// SQLiteDialect is the SQLite dialect implementation.
-type SQLiteDialect struct{}
-
-// QuoteField quotes an identifier for SQLite.
-func (d SQLiteDialect) QuoteField(f string) string {
-	return `"` + f + `"`
-}
-
-// BindVar returns SQLite's placeholder at position i.
-func (d SQLiteDialect) BindVar(i int) string {
-	return "?"
-}
-
-// CreateTableSuffix returns the SQLite CREATE TABLE suffix.
-func (d SQLiteDialect) CreateTableSuffix() string {
-	return ";"
-}
-
-// CreateIndexSuffix returns the SQLite CREATE INDEX suffix.
-func (d SQLiteDialect) CreateIndexSuffix() string {
-	return ";"
-}
-
-// DropIndexSuffix returns the SQLite DROP INDEX suffix.
-func (d SQLiteDialect) DropIndexSuffix() string {
-	return ";"
-}
-
-// TruncateClause returns the SQLite fallback used for truncation-like behavior.
-func (d SQLiteDialect) TruncateClause() string {
-	return "DELETE FROM"
-}
-
-// AutoIncrementClause returns SQLite's auto-increment column clause.
-func (d SQLiteDialect) AutoIncrementClause() string {
-	return "AUTOINCREMENT"
-}
-
-// AutoIncrementBindValue returns the bind-time auto-increment placeholder for SQLite.
-func (d SQLiteDialect) AutoIncrementBindValue() string {
-	return ""
-}
-
-// LastInsertIdReturningSuffix returns SQLite's RETURNING clause for generated ids.
-func (d SQLiteDialect) LastInsertIdReturningSuffix(table, col string) string {
-	return ""
-}
-
-// AllTablesQuery returns the SQLite query used to list tables.
-func (d SQLiteDialect) AllTablesQuery() string {
-	return "SELECT name FROM sqlite_master WHERE type='table'"
-}
-
-// CreateTableIfNotExistsSuffix returns SQLite's IF NOT EXISTS fragment.
-func (d SQLiteDialect) CreateTableIfNotExistsSuffix() string {
-	return "IF NOT EXISTS"
-}
-
-// HasConstraintsQuery returns the SQLite query used to inspect column constraints.
-func (d SQLiteDialect) HasConstraintsQuery(table, column string) string {
-	return ""
-}
-
-// MySQLDialect is the MySQL dialect implementation.
-type MySQLDialect struct{}
-
-// QuoteField quotes an identifier for MySQL.
-func (d MySQLDialect) QuoteField(f string) string {
-	return "`" + f + "`"
-}
-
-// BindVar returns MySQL's placeholder at position i.
-func (d MySQLDialect) BindVar(i int) string {
-	return "?"
-}
-
-// CreateTableSuffix returns the MySQL CREATE TABLE suffix.
-func (d MySQLDialect) CreateTableSuffix() string {
-	return ";"
-}
-
-// CreateIndexSuffix returns the MySQL CREATE INDEX suffix.
-func (d MySQLDialect) CreateIndexSuffix() string {
-	return ";"
-}
-
-// DropIndexSuffix returns the MySQL DROP INDEX suffix.
-func (d MySQLDialect) DropIndexSuffix() string {
-	return ";"
-}
-
-// TruncateClause returns MySQL's TRUNCATE TABLE clause.
-func (d MySQLDialect) TruncateClause() string {
-	return "TRUNCATE"
-}
-
-// AutoIncrementClause returns MySQL's auto-increment column clause.
-func (d MySQLDialect) AutoIncrementClause() string {
-	return "AUTO_INCREMENT"
-}
-
-// AutoIncrementBindValue returns the bind-time auto-increment placeholder for MySQL.
-func (d MySQLDialect) AutoIncrementBindValue() string {
-	return ""
-}
-
-// LastInsertIdReturningSuffix returns the MySQL-specific suffix for generated ids.
-func (d MySQLDialect) LastInsertIdReturningSuffix(table, col string) string {
-	return ""
-}
-
-// AllTablesQuery returns the MySQL query used to list tables.
-func (d MySQLDialect) AllTablesQuery() string {
-	return "SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE()"
-}
-
-// CreateTableIfNotExistsSuffix returns MySQL's IF NOT EXISTS fragment.
-func (d MySQLDialect) CreateTableIfNotExistsSuffix() string {
-	return "IF NOT EXISTS"
-}
-
-// HasConstraintsQuery returns the MySQL query used to inspect column constraints.
-func (d MySQLDialect) HasConstraintsQuery(table, column string) string {
-	return ""
-}
-
-// PostgresDialect is the PostgreSQL dialect implementation.
-type PostgresDialect struct{}
-
-// QuoteField quotes an identifier for PostgreSQL.
-func (d PostgresDialect) QuoteField(f string) string {
-	return `"` + f + `"`
-}
-
-// BindVar returns PostgreSQL's placeholder at position i.
-func (d PostgresDialect) BindVar(i int) string {
-	// PostgreSQL uses $1, $2, etc for bind variables (1-indexed)
-	return "$" + strconv.Itoa(i+1)
-}
-
-// CreateTableSuffix returns the PostgreSQL CREATE TABLE suffix.
-func (d PostgresDialect) CreateTableSuffix() string {
-	return ";"
-}
-
-// CreateIndexSuffix returns the PostgreSQL CREATE INDEX suffix.
-func (d PostgresDialect) CreateIndexSuffix() string {
-	return ";"
-}
-
-// DropIndexSuffix returns the PostgreSQL DROP INDEX suffix.
-func (d PostgresDialect) DropIndexSuffix() string {
-	return ";"
-}
-
-// TruncateClause returns PostgreSQL's TRUNCATE TABLE clause.
-func (d PostgresDialect) TruncateClause() string {
-	return "TRUNCATE"
-}
-
-// AutoIncrementClause returns PostgreSQL's identity-column clause.
-func (d PostgresDialect) AutoIncrementClause() string {
-	return ""
-}
-
-// AutoIncrementBindValue returns the bind-time auto-increment placeholder for PostgreSQL.
-func (d PostgresDialect) AutoIncrementBindValue() string {
-	return ""
-}
-
-// LastInsertIdReturningSuffix returns PostgreSQL's RETURNING clause for generated ids.
-func (d PostgresDialect) LastInsertIdReturningSuffix(table, col string) string {
-	return " RETURNING " + d.QuoteField(col)
-}
-
-// AllTablesQuery returns the PostgreSQL query used to list tables.
-func (d PostgresDialect) AllTablesQuery() string {
-	return "SELECT tablename FROM pg_catalog.pg_tables WHERE schemaname != 'pg_catalog' AND schemaname != 'information_schema'"
-}
-
-// CreateTableIfNotExistsSuffix returns PostgreSQL's IF NOT EXISTS fragment.
-func (d PostgresDialect) CreateTableIfNotExistsSuffix() string {
-	return "IF NOT EXISTS"
-}
-
-// HasConstraintsQuery returns the PostgreSQL query used to inspect column constraints.
-func (d PostgresDialect) HasConstraintsQuery(table, column string) string {
-	return ""
 }
 
 // wrappedExecutor wraps a standard SQL executor with dialect information.
