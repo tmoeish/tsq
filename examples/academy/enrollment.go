@@ -33,17 +33,23 @@ type Enrollment struct {
 	FeeCents int64 `db:"fee_cents" json:"fee_cents"`
 }
 
+// EnrollmentStatus classifies a learner's lifecycle state within a course.
 type EnrollmentStatus int
 
 const (
+	// EnrollmentStatusActive marks an in-progress enrollment.
 	EnrollmentStatusActive EnrollmentStatus = iota
+	// EnrollmentStatusCompleted marks a finished enrollment.
 	EnrollmentStatusCompleted
+	// EnrollmentStatusWaitlisted marks a learner waiting for a seat.
 	EnrollmentStatusWaitlisted
+	// EnrollmentStatusCancelled marks an enrollment that was cancelled.
 	EnrollmentStatusCancelled
 )
 
 var _ driver.Valuer = EnrollmentStatus(0)
 
+// Value stores the enum as an integer in the database.
 func (s EnrollmentStatus) Value() (driver.Value, error) {
 	return int64(s), nil
 }

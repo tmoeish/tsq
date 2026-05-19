@@ -17,13 +17,7 @@ const (
 	keywordArgMarker  queryArgMarker = "keyword"
 )
 
-// ================================================
-// 逻辑组合条件
-// ================================================
-
-// And 将多个条件以 AND 逻辑组合。
-// 架构意图：And 实现了条件的链式或组合式构建。它通过遍历子条件，
-// 合并所有引用的表，并将表达式片段用 " AND " 连接。
+// And combines conditions with SQL AND.
 func And(conds ...Condition) Cond {
 	if len(conds) == 0 {
 		return rawCondition("1 = 1")
@@ -50,8 +44,7 @@ func And(conds ...Condition) Cond {
 	}
 }
 
-// Or 将多个条件以 OR 逻辑组合。
-// 架构意图：逻辑与 And 类似，但使用 " OR " 连接。
+// Or combines conditions with SQL OR.
 func Or(conds ...Condition) Cond {
 	if len(conds) == 0 {
 		return rawCondition("1 = 0")
@@ -78,25 +71,18 @@ func Or(conds ...Condition) Cond {
 	}
 }
 
-// ================================================
-// 基础条件接口和结构体
-// ================================================
-
-// Condition 是 SQL 条件的接口定义。
-// 它暴露了条件引用的表、SQL 字句片段以及绑定的参数。
+// Condition is the runtime view of a rendered SQL predicate.
 type Condition interface {
-	Tables() map[string]Table
-	Clause() string
-	Args() []any
+	Tables() map[string]Table // Tables returns the tables referenced by the predicate.
+	Clause() string           // Clause returns the predicate SQL in canonical form.
+	Args() []any              // Args returns the bind arguments captured by the predicate.
 }
 
 type rawConditionClauser interface {
 	rawClause() string
 }
 
-// Cond 是 SQL 条件的具体实现结构。
-// 架构意图：它是构建过程中携带元数据（表引用、表达式字符串、参数、构建错误）的容器。
-// expr 字段存储了带有占位符的原始 SQL 表达式，args 存储了对应的参数。
+// Cond stores a rendered predicate plus the metadata needed to execute it.
 type Cond struct {
 	tables   map[string]Table
 	expr     string
@@ -104,8 +90,8 @@ type Cond struct {
 	buildErr error
 }
 
-func pred[O Owner](cond Cond) Pred[O] {
-	return Pred[O]{Cond: cond}
+func pred[O Owner](cond Cond) Predicate[O] {
+	return Predicate[O]{Cond: cond}
 }
 
 // Tables returns the tables referenced by the condition, keyed by logical table name.
@@ -113,8 +99,7 @@ func (c Cond) Tables() map[string]Table {
 	return cloneTableMap(c.tables)
 }
 
-// Clause 返回标准化的 SQL 片段。
-// 注意：此时可能包含标记占位符（如 identifierMarkerPrefix），最终的渲染由 sql_render.go 处理。
+// Clause returns the canonical SQL fragment for the condition.
 func (c Cond) Clause() string {
 	return renderCanonicalSQL(c.expr)
 }
@@ -132,45 +117,23 @@ func (c Cond) buildError() error {
 	return c.buildErr
 }
 
-// ================================================
-// 条件方法参数顺序约定
-// ================================================
-//
-// 所有 Condition 方法遵循一致的参数顺序模式：
-//
-// Pattern: column.OPERATOR(values...)
-//   - AnyColumn: 接收者 (implicit)
-//   - Operator: 方法名（EQ, GT, StartsWith 等）
-//   - Values: 参数（value1, value2, ...)
-//
-// 约定示例：
-//   col.EQ(value)              // column = value
-//   col.Between(start, end)    // column BETWEEN start AND end
-//   col.In(v1, v2, v3)        // column IN (v1, v2, v3)
-//   col.StartsWith(prefix)      // column LIKE 'prefix%'
-//
-// 方法分类：
-//   - 基础比较: EQ, NE, GT, GTE, LT, LTE
-//   - 模式匹配: StartsWith, EndsWith, Contains
-//   - 集合: In, InVar, NIn
-//   - 范围: Between, NBetween
-//   - 空值检查: IsNull, IsNotNull
-//
-// 绑定方式后缀（无后缀为参数绑定）：
-//   - EQVar / InVar 等方法：使用执行时占位符，值由执行时提供
-//   - Col: 与另一列比较
-//   - Sub: 与子查询结果比较
+// EQVar compares the column to a runtime-bound value with =.
+func (c ColumnImpl[Owner, T]) EQVar() Predicate[Owner] { return c.Predicate(`%s = %s`, varMarker) }
 
-// ================================================
-// 变量比较条件 (使用 ? 占位符)
-// ================================================
+// NEVar compares the column to a runtime-bound value with <>.
+func (c ColumnImpl[Owner, T]) NEVar() Predicate[Owner] { return c.Predicate(`%s <> %s`, varMarker) }
 
-func (c ColumnImpl[Owner, T]) EQVar() Pred[Owner]  { return c.Predicate(`%s = %s`, varMarker) }
-func (c ColumnImpl[Owner, T]) NEVar() Pred[Owner]  { return c.Predicate(`%s <> %s`, varMarker) }
-func (c ColumnImpl[Owner, T]) GTVar() Pred[Owner]  { return c.Predicate(`%s > %s`, varMarker) }
-func (c ColumnImpl[Owner, T]) GTEVar() Pred[Owner] { return c.Predicate(`%s >= %s`, varMarker) }
-func (c ColumnImpl[Owner, T]) LTVar() Pred[Owner]  { return c.Predicate(`%s < %s`, varMarker) }
-func (c ColumnImpl[Owner, T]) LTEVar() Pred[Owner] { return c.Predicate(`%s <= %s`, varMarker) }
+// GTVar compares the column to a runtime-bound value with >.
+func (c ColumnImpl[Owner, T]) GTVar() Predicate[Owner] { return c.Predicate(`%s > %s`, varMarker) }
+
+// GTEVar compares the column to a runtime-bound value with >=.
+func (c ColumnImpl[Owner, T]) GTEVar() Predicate[Owner] { return c.Predicate(`%s >= %s`, varMarker) }
+
+// LTVar compares the column to a runtime-bound value with <.
+func (c ColumnImpl[Owner, T]) LTVar() Predicate[Owner] { return c.Predicate(`%s < %s`, varMarker) }
+
+// LTEVar compares the column to a runtime-bound value with <=.
+func (c ColumnImpl[Owner, T]) LTEVar() Predicate[Owner] { return c.Predicate(`%s <= %s`, varMarker) }
 
 // InVar binds a slice at execution time for IN predicates.
 //
@@ -180,101 +143,122 @@ func (c ColumnImpl[Owner, T]) LTEVar() Pred[Owner] { return c.Predicate(`%s <= %
 // the query valid while producing zero matches across the supported built-in
 // dialects. This is by design and lets callers express "no selected IDs" without
 // adding custom branching around the query.
-func (c ColumnImpl[Owner, T]) InVar() Pred[Owner] { return c.Predicate(`%s IN (%s)`, varSliceMarker) }
+func (c ColumnImpl[Owner, T]) InVar() Predicate[Owner] {
+	return c.Predicate(`%s IN (%s)`, varSliceMarker)
+}
 
-func (c ColumnImpl[Owner, T]) StartsWithVar() Pred[Owner] {
+// StartsWithVar defers a prefix match to execution time, which tsq rejects for portability.
+func (c ColumnImpl[Owner, T]) StartsWithVar() Predicate[Owner] {
 	return pred[Owner](unsupportedPatternPredicate("StartsWithVar"))
 }
 
-func (c ColumnImpl[Owner, T]) NStartsWithVar() Pred[Owner] {
+// NStartsWithVar defers a negated prefix match to execution time, which tsq rejects for portability.
+func (c ColumnImpl[Owner, T]) NStartsWithVar() Predicate[Owner] {
 	return pred[Owner](unsupportedPatternPredicate("NStartsWithVar"))
 }
 
-func (c ColumnImpl[Owner, T]) EndsWithVar() Pred[Owner] {
+// EndsWithVar defers a suffix match to execution time, which tsq rejects for portability.
+func (c ColumnImpl[Owner, T]) EndsWithVar() Predicate[Owner] {
 	return pred[Owner](unsupportedPatternPredicate("EndsWithVar"))
 }
 
-func (c ColumnImpl[Owner, T]) NEndsWithVar() Pred[Owner] {
+// NEndsWithVar defers a negated suffix match to execution time, which tsq rejects for portability.
+func (c ColumnImpl[Owner, T]) NEndsWithVar() Predicate[Owner] {
 	return pred[Owner](unsupportedPatternPredicate("NEndsWithVar"))
 }
 
-func (c ColumnImpl[Owner, T]) ContainsVar() Pred[Owner] {
+// ContainsVar defers a contains match to execution time, which tsq rejects for portability.
+func (c ColumnImpl[Owner, T]) ContainsVar() Predicate[Owner] {
 	return pred[Owner](unsupportedPatternPredicate("ContainsVar"))
 }
 
-func (c ColumnImpl[Owner, T]) NContainsVar() Pred[Owner] {
+// NContainsVar defers a negated contains match to execution time, which tsq rejects for portability.
+func (c ColumnImpl[Owner, T]) NContainsVar() Predicate[Owner] {
 	return pred[Owner](unsupportedPatternPredicate("NContainsVar"))
 }
 
-func (c ColumnImpl[Owner, T]) BetweenVar() Pred[Owner] {
+// BetweenVar compares the column to two runtime-bound values with BETWEEN.
+func (c ColumnImpl[Owner, T]) BetweenVar() Predicate[Owner] {
 	return c.Predicate(`%s BETWEEN %s AND %s`, varMarker, varMarker)
 }
 
-func (c ColumnImpl[Owner, T]) NBetweenVar() Pred[Owner] {
+// NBetweenVar compares the column to two runtime-bound values with NOT BETWEEN.
+func (c ColumnImpl[Owner, T]) NBetweenVar() Predicate[Owner] {
 	return c.Predicate(`%s NOT BETWEEN %s AND %s`, varMarker, varMarker)
 }
 
-// ================================================
-// 常量比较条件
-// ================================================
-
-func (c ColumnImpl[Owner, T]) EQ(arg T) Pred[Owner] {
+// EQ compares the column to arg with =.
+func (c ColumnImpl[Owner, T]) EQ(arg T) Predicate[Owner] {
 	return c.Predicate(`%s = %s`, Bind(arg))
 }
 
-func (c ColumnImpl[Owner, T]) NE(arg T) Pred[Owner] {
+// NE compares the column to arg with <>.
+func (c ColumnImpl[Owner, T]) NE(arg T) Predicate[Owner] {
 	return c.Predicate(`%s <> %s`, Bind(arg))
 }
 
-func (c ColumnImpl[Owner, T]) GT(arg T) Pred[Owner] {
+// GT compares the column to arg with >.
+func (c ColumnImpl[Owner, T]) GT(arg T) Predicate[Owner] {
 	return c.Predicate(`%s > %s`, Bind(arg))
 }
 
-func (c ColumnImpl[Owner, T]) GTE(arg T) Pred[Owner] {
+// GTE compares the column to arg with >=.
+func (c ColumnImpl[Owner, T]) GTE(arg T) Predicate[Owner] {
 	return c.Predicate(`%s >= %s`, Bind(arg))
 }
 
-func (c ColumnImpl[Owner, T]) LT(arg T) Pred[Owner] {
+// LT compares the column to arg with <.
+func (c ColumnImpl[Owner, T]) LT(arg T) Predicate[Owner] {
 	return c.Predicate(`%s < %s`, Bind(arg))
 }
 
-func (c ColumnImpl[Owner, T]) LTE(arg T) Pred[Owner] {
+// LTE compares the column to arg with <=.
+func (c ColumnImpl[Owner, T]) LTE(arg T) Predicate[Owner] {
 	return c.Predicate(`%s <= %s`, Bind(arg))
 }
 
-func (c ColumnImpl[Owner, T]) StartsWith(str string) Pred[Owner] {
+// StartsWith compares the column to a bound prefix pattern.
+func (c ColumnImpl[Owner, T]) StartsWith(str string) Predicate[Owner] {
 	return c.Predicate(`%s LIKE %s`, Bind(str+"%"))
 }
 
-func (c ColumnImpl[Owner, T]) NStartsWith(str string) Pred[Owner] {
+// NStartsWith compares the column to a negated bound prefix pattern.
+func (c ColumnImpl[Owner, T]) NStartsWith(str string) Predicate[Owner] {
 	return c.Predicate(`%s NOT LIKE %s`, Bind(str+"%"))
 }
 
-func (c ColumnImpl[Owner, T]) EndsWith(str string) Pred[Owner] {
+// EndsWith compares the column to a bound suffix pattern.
+func (c ColumnImpl[Owner, T]) EndsWith(str string) Predicate[Owner] {
 	return c.Predicate(`%s LIKE %s`, Bind("%"+str))
 }
 
-func (c ColumnImpl[Owner, T]) NEndsWith(str string) Pred[Owner] {
+// NEndsWith compares the column to a negated bound suffix pattern.
+func (c ColumnImpl[Owner, T]) NEndsWith(str string) Predicate[Owner] {
 	return c.Predicate(`%s NOT LIKE %s`, Bind("%"+str))
 }
 
-func (c ColumnImpl[Owner, T]) Contains(str string) Pred[Owner] {
+// Contains compares the column to a bound contains pattern.
+func (c ColumnImpl[Owner, T]) Contains(str string) Predicate[Owner] {
 	return c.Predicate(`%s LIKE %s`, Bind("%"+str+"%"))
 }
 
-func (c ColumnImpl[Owner, T]) NContains(str string) Pred[Owner] {
+// NContains compares the column to a negated bound contains pattern.
+func (c ColumnImpl[Owner, T]) NContains(str string) Predicate[Owner] {
 	return c.Predicate(`%s NOT LIKE %s`, Bind("%"+str+"%"))
 }
 
-func (c ColumnImpl[Owner, T]) Between(start, end T) Pred[Owner] {
+// Between compares the column to an inclusive range.
+func (c ColumnImpl[Owner, T]) Between(start, end T) Predicate[Owner] {
 	return c.Predicate(`%s BETWEEN %s AND %s`, Bind(start), Bind(end))
 }
 
-func (c ColumnImpl[Owner, T]) NBetween(start, end T) Pred[Owner] {
+// NBetween compares the column to values outside an inclusive range.
+func (c ColumnImpl[Owner, T]) NBetween(start, end T) Predicate[Owner] {
 	return c.Predicate(`%s NOT BETWEEN %s AND %s`, Bind(start), Bind(end))
 }
 
-func (c ColumnImpl[Owner, T]) In(args ...T) Pred[Owner] {
+// In compares the column to an explicit list of bound values.
+func (c ColumnImpl[Owner, T]) In(args ...T) Predicate[Owner] {
 	if len(args) == 0 {
 		return pred[Owner](rawCondition("1 = 0"))
 	}
@@ -282,7 +266,8 @@ func (c ColumnImpl[Owner, T]) In(args ...T) Pred[Owner] {
 	return c.Predicate(`%s IN (%s)`, BindSlice(args))
 }
 
-func (c ColumnImpl[Owner, T]) NIn(args ...T) Pred[Owner] {
+// NIn compares the column to a negated list of bound values.
+func (c ColumnImpl[Owner, T]) NIn(args ...T) Predicate[Owner] {
 	if len(args) == 0 {
 		return pred[Owner](rawCondition("1 = 1"))
 	}
@@ -290,63 +275,73 @@ func (c ColumnImpl[Owner, T]) NIn(args ...T) Pred[Owner] {
 	return c.Predicate(`%s NOT IN (%s)`, BindSlice(args))
 }
 
-func (c ColumnImpl[Owner, T]) IsNull() Pred[Owner] {
+// IsNull checks whether the column value is NULL.
+func (c ColumnImpl[Owner, T]) IsNull() Predicate[Owner] {
 	return c.Predicate(`%s IS NULL`)
 }
 
-func (c ColumnImpl[Owner, T]) IsNotNull() Pred[Owner] {
+// IsNotNull checks whether the column value is not NULL.
+func (c ColumnImpl[Owner, T]) IsNotNull() Predicate[Owner] {
 	return c.Predicate(`%s IS NOT NULL`)
 }
 
-// ================================================
-// 字段比较条件
-// ================================================
-
-func (c ColumnImpl[Owner, T]) EQCol(other typedColumnInternal[T]) Pred[Owner] {
+// EQCol compares the column to another column with =.
+func (c ColumnImpl[Owner, T]) EQCol(other typedColumnInternal[T]) Predicate[Owner] {
 	return c.Predicate(`%s = %s`, other)
 }
 
-func (c ColumnImpl[Owner, T]) NECol(other typedColumnInternal[T]) Pred[Owner] {
+// NECol compares the column to another column with <>.
+func (c ColumnImpl[Owner, T]) NECol(other typedColumnInternal[T]) Predicate[Owner] {
 	return c.Predicate(`%s <> %s`, other)
 }
 
-func (c ColumnImpl[Owner, T]) GTCol(other typedColumnInternal[T]) Pred[Owner] {
+// GTCol compares the column to another column with >.
+func (c ColumnImpl[Owner, T]) GTCol(other typedColumnInternal[T]) Predicate[Owner] {
 	return c.Predicate(`%s > %s`, other)
 }
 
-func (c ColumnImpl[Owner, T]) GTECol(other typedColumnInternal[T]) Pred[Owner] {
+// GTECol compares the column to another column with >=.
+func (c ColumnImpl[Owner, T]) GTECol(other typedColumnInternal[T]) Predicate[Owner] {
 	return c.Predicate(`%s >= %s`, other)
 }
 
-func (c ColumnImpl[Owner, T]) LTCol(other typedColumnInternal[T]) Pred[Owner] {
+// LTCol compares the column to another column with <.
+func (c ColumnImpl[Owner, T]) LTCol(other typedColumnInternal[T]) Predicate[Owner] {
 	return c.Predicate(`%s < %s`, other)
 }
 
-func (c ColumnImpl[Owner, T]) LTECol(other typedColumnInternal[T]) Pred[Owner] {
+// LTECol compares the column to another column with <=.
+func (c ColumnImpl[Owner, T]) LTECol(other typedColumnInternal[T]) Predicate[Owner] {
 	return c.Predicate(`%s <= %s`, other)
 }
 
-func (c ColumnImpl[Owner, T]) StartsWithCol(_ typedColumnInternal[T]) Pred[Owner] {
+// StartsWithCol compares the column to another column with a prefix match, which tsq rejects for portability.
+func (c ColumnImpl[Owner, T]) StartsWithCol(_ typedColumnInternal[T]) Predicate[Owner] {
 	return pred[Owner](unsupportedPatternPredicate("StartsWithCol"))
 }
 
-func (c ColumnImpl[Owner, T]) NStartsWithCol(_ typedColumnInternal[T]) Pred[Owner] {
+// NStartsWithCol compares the column to another column with a negated prefix match, which tsq rejects for portability.
+func (c ColumnImpl[Owner, T]) NStartsWithCol(_ typedColumnInternal[T]) Predicate[Owner] {
 	return pred[Owner](unsupportedPatternPredicate("NStartsWithCol"))
 }
 
-func (c ColumnImpl[Owner, T]) EndsWithCol(_ typedColumnInternal[T]) Pred[Owner] {
+// EndsWithCol compares the column to another column with a suffix match, which tsq rejects for portability.
+func (c ColumnImpl[Owner, T]) EndsWithCol(_ typedColumnInternal[T]) Predicate[Owner] {
 	return pred[Owner](unsupportedPatternPredicate("EndsWithCol"))
 }
 
-func (c ColumnImpl[Owner, T]) NEndsWithCol(_ typedColumnInternal[T]) Pred[Owner] {
+// NEndsWithCol compares the column to another column with a negated suffix match, which tsq rejects for portability.
+func (c ColumnImpl[Owner, T]) NEndsWithCol(_ typedColumnInternal[T]) Predicate[Owner] {
 	return pred[Owner](unsupportedPatternPredicate("NEndsWithCol"))
 }
 
-func (c ColumnImpl[Owner, T]) ContainsCol(_ typedColumnInternal[T]) Pred[Owner] {
+// ContainsCol compares the column to another column with a contains match, which tsq rejects for portability.
+func (c ColumnImpl[Owner, T]) ContainsCol(_ typedColumnInternal[T]) Predicate[Owner] {
 	return pred[Owner](unsupportedPatternPredicate("ContainsCol"))
 }
 
-func (c ColumnImpl[Owner, T]) NContainsCol(_ typedColumnInternal[T]) Pred[Owner] {
+// NContainsCol compares the column to another column with a negated contains match, which tsq rejects for portability.
+func (c ColumnImpl[Owner, T]) NContainsCol(_ typedColumnInternal[T]) Predicate[Owner] {
 	return pred[Owner](unsupportedPatternPredicate("NContainsCol"))
 }
 
@@ -368,47 +363,58 @@ const (
 	existsSubqueryUsage     subqueryUsage = "exists"
 )
 
-func (c ColumnImpl[Owner, T]) EQSub(sq subquery) Pred[Owner] {
+// EQSub compares the column to a scalar subquery with =.
+func (c ColumnImpl[Owner, T]) EQSub(sq subquery) Predicate[Owner] {
 	return c.Predicate(`%s = %s`, scalarSubquery(sq))
 }
 
-func (c ColumnImpl[Owner, T]) NESub(sq subquery) Pred[Owner] {
+// NESub compares the column to a scalar subquery with <>.
+func (c ColumnImpl[Owner, T]) NESub(sq subquery) Predicate[Owner] {
 	return c.Predicate(`%s <> %s`, scalarSubquery(sq))
 }
 
-func (c ColumnImpl[Owner, T]) GTSub(sq subquery) Pred[Owner] {
+// GTSub compares the column to a scalar subquery with >.
+func (c ColumnImpl[Owner, T]) GTSub(sq subquery) Predicate[Owner] {
 	return c.Predicate(`%s > %s`, scalarSubquery(sq))
 }
 
-func (c ColumnImpl[Owner, T]) GTESub(sq subquery) Pred[Owner] {
+// GTESub compares the column to a scalar subquery with >=.
+func (c ColumnImpl[Owner, T]) GTESub(sq subquery) Predicate[Owner] {
 	return c.Predicate(`%s >= %s`, scalarSubquery(sq))
 }
 
-func (c ColumnImpl[Owner, T]) LTSub(sq subquery) Pred[Owner] {
+// LTSub compares the column to a scalar subquery with <.
+func (c ColumnImpl[Owner, T]) LTSub(sq subquery) Predicate[Owner] {
 	return c.Predicate(`%s < %s`, scalarSubquery(sq))
 }
 
-func (c ColumnImpl[Owner, T]) LTESub(sq subquery) Pred[Owner] {
+// LTESub compares the column to a scalar subquery with <=.
+func (c ColumnImpl[Owner, T]) LTESub(sq subquery) Predicate[Owner] {
 	return c.Predicate(`%s <= %s`, scalarSubquery(sq))
 }
 
-func (c ColumnImpl[Owner, T]) LikeSub(sq subquery) Pred[Owner] {
+// LikeSub compares the column to a scalar subquery with LIKE.
+func (c ColumnImpl[Owner, T]) LikeSub(sq subquery) Predicate[Owner] {
 	return c.Predicate(`%s LIKE %s`, scalarSubquery(sq))
 }
 
-func (c ColumnImpl[Owner, T]) NLikeSub(sq subquery) Pred[Owner] {
+// NLikeSub compares the column to a scalar subquery with NOT LIKE.
+func (c ColumnImpl[Owner, T]) NLikeSub(sq subquery) Predicate[Owner] {
 	return c.Predicate(`%s NOT LIKE %s`, scalarSubquery(sq))
 }
 
-func (c ColumnImpl[Owner, T]) InSub(sq subquery) Pred[Owner] {
+// InSub compares the column to a membership subquery with IN.
+func (c ColumnImpl[Owner, T]) InSub(sq subquery) Predicate[Owner] {
 	return c.Predicate(`%s IN %s`, membershipSubquery(sq))
 }
 
-func (c ColumnImpl[Owner, T]) NInSub(sq subquery) Pred[Owner] {
+// NInSub compares the column to a membership subquery with NOT IN.
+func (c ColumnImpl[Owner, T]) NInSub(sq subquery) Predicate[Owner] {
 	return c.Predicate(`%s NOT IN %s`, membershipSubquery(sq))
 }
 
-func (c ColumnImpl[Owner, T]) ExistsSub(sq subquery) Pred[Owner] {
+// ExistsSub returns an EXISTS predicate for the supplied subquery.
+func (c ColumnImpl[Owner, T]) ExistsSub(sq subquery) Predicate[Owner] {
 	subquery, args, err := buildSubqueryExpression(sq, existsSubqueryUsage)
 	if err != nil {
 		return pred[Owner](Cond{buildErr: err})
@@ -421,7 +427,8 @@ func (c ColumnImpl[Owner, T]) ExistsSub(sq subquery) Pred[Owner] {
 	})
 }
 
-func (c ColumnImpl[Owner, T]) NExistsSub(sq subquery) Pred[Owner] {
+// NExistsSub returns a NOT EXISTS predicate for the supplied subquery.
+func (c ColumnImpl[Owner, T]) NExistsSub(sq subquery) Predicate[Owner] {
 	subquery, args, err := buildSubqueryExpression(sq, existsSubqueryUsage)
 	if err != nil {
 		return pred[Owner](Cond{buildErr: err})
@@ -434,25 +441,18 @@ func (c ColumnImpl[Owner, T]) NExistsSub(sq subquery) Pred[Owner] {
 	})
 }
 
-func (c ColumnImpl[Owner, T]) Unique(_ subquery) Pred[Owner] {
+// Unique returns a deferred portability error because UNIQUE subquery predicates are not supported.
+func (c ColumnImpl[Owner, T]) Unique(_ subquery) Predicate[Owner] {
 	return pred[Owner](unsupportedSubqueryPredicate("UNIQUE"))
 }
 
-func (c ColumnImpl[Owner, T]) NUnique(_ subquery) Pred[Owner] {
+// NUnique returns a deferred portability error because NOT UNIQUE subquery predicates are not supported.
+func (c ColumnImpl[Owner, T]) NUnique(_ subquery) Predicate[Owner] {
 	return pred[Owner](unsupportedSubqueryPredicate("NOT UNIQUE"))
 }
 
-// ================================================
-// 条件构建核心方法
-// ================================================
-
-// Predicate 是构建条件的核心方法。
-// 架构意图：它是所有比较操作（EQ, GT, In 等）的基础。它接收一个格式化字符串和变长参数。
-// 1. 验证占位符数量。
-// 2. 自动收集所有涉及到的表（包括接收者列和参数中的列）。
-// 3. 将参数转换为 SQL 表达式。
-// 4. 使用 fmt.Sprintf 组合成最终的表达式字符串。
-func (c ColumnImpl[Owner, T]) Predicate(op string, args ...any) Pred[Owner] {
+// Predicate renders a custom predicate format around the receiver column.
+func (c ColumnImpl[Owner, T]) Predicate(op string, args ...any) Predicate[Owner] {
 	if err := validatePredicateFormat(op, len(args)+1); err != nil {
 		return pred[Owner](Cond{buildErr: err})
 	}
@@ -464,7 +464,6 @@ func (c ColumnImpl[Owner, T]) Predicate(op string, args ...any) Pred[Owner] {
 
 	tables := map[string]Table{baseTable.Table(): baseTable}
 
-	// 从也是列的参数中收集表引用。
 	for _, arg := range args {
 		if col, ok := arg.(SQLColumn); ok {
 			table, err := validateColumnInput(col)
@@ -476,7 +475,6 @@ func (c ColumnImpl[Owner, T]) Predicate(op string, args ...any) Pred[Owner] {
 		}
 	}
 
-	// 构建用于字符串格式化的参数。
 	formatArgs := make([]any, 0, len(args)+1)
 	formatArgs = append(formatArgs, c.rawQualifiedName())
 
@@ -496,7 +494,7 @@ func (c ColumnImpl[Owner, T]) Predicate(op string, args ...any) Pred[Owner] {
 	})
 }
 
-func (c ColumnImpl[Owner, T]) rawCondition(expr string) Pred[Owner] {
+func (c ColumnImpl[Owner, T]) rawCondition(expr string) Predicate[Owner] {
 	table, err := validateColumnInput(c)
 	if err != nil {
 		return pred[Owner](Cond{buildErr: err})
@@ -554,58 +552,60 @@ func validatePredicateFormat(op string, placeholderCount int) error {
 	return nil
 }
 
-// ================================================
-// 表达式类型和辅助函数
-// ================================================
-
 // Expression represents a SQL fragment plus the args needed to render it safely.
 type Expression interface {
-	Expr() string
-	Args() []any
+	Expr() string // Expr returns the SQL fragment text.
+	Args() []any  // Args returns the bind arguments referenced by Expr.
 }
 
 type expressionError struct {
 	err error
 }
 
+// Expr returns an empty fragment so expressionError can flow through builders until build time.
 func (e expressionError) Expr() string { return "" }
-func (e expressionError) Args() []any  { return nil }
+
+// Args returns nil because expressionError carries only a deferred build error.
+func (e expressionError) Args() []any { return nil }
+
 func (e expressionError) buildError() error {
 	return e.err
 }
 
-// variableExpression 代表一个变量占位符 (?)。
-// 它在 Args() 中返回 externalArgMarker，这是一个特殊的“延迟解析”标记。
-// 架构意图：当用户使用 EQVar() 等方法时，TSQ 并不立即绑定值，而是留下这个标记。
-// 真正的参数值将在 Query.List(ctx, db, value) 调用时，由 resolveQuery 函数根据此标记进行对齐。
+// variableExpression marks a single runtime-supplied bind placeholder.
 type variableExpression struct{}
 
+// Expr returns the placeholder emitted into the SQL fragment.
 func (v variableExpression) Expr() string { return "?" }
-func (v variableExpression) Args() []any  { return []any{externalArgMarker} }
+
+// Args returns the marker consumed later by runtime argument resolution.
+func (v variableExpression) Args() []any { return []any{externalArgMarker} }
 
 var varMarker variableExpression
 
-// variableSliceExpression 代表一个切片变量占位符。
-// 架构意图：专门用于 IN 比较。在构建期，我们不知道切片的长度，因此无法确定生成多少个 "?"。
-// 它返回 externalSliceArgMarker{}，resolveQuery 在执行时会检测此标记，
-// 并根据传入切片的实际长度动态扩展 SQL 中的 "?" 占位符数量。
+// variableSliceExpression marks a runtime-supplied slice placeholder used by IN predicates.
 type variableSliceExpression struct{}
 
+// Expr returns the placeholder emitted into the SQL fragment before slice expansion.
 func (v variableSliceExpression) Expr() string { return "?" }
-func (v variableSliceExpression) Args() []any  { return []any{externalSliceArgMarker{}} }
+
+// Args returns the marker consumed later by runtime slice expansion.
+func (v variableSliceExpression) Args() []any { return []any{externalSliceArgMarker{}} }
 
 var varSliceMarker variableSliceExpression
 
-// valuesExpression represents a list of values in SQL
+// valuesExpression stores a fully expanded placeholder list such as "?, ?, ?".
 type valuesExpression struct {
 	expr string
 	args []any
 }
 
+// Expr returns the expanded placeholder list.
 func (a valuesExpression) Expr() string {
 	return a.expr
 }
 
+// Args returns the bind arguments that correspond to the placeholder list.
 func (a valuesExpression) Args() []any {
 	return append([]any(nil), a.args...)
 }
@@ -640,8 +640,11 @@ type rawExpression struct {
 	args []any
 }
 
+// Expr returns the raw SQL fragment.
 func (r rawExpression) Expr() string { return r.expr }
-func (r rawExpression) Args() []any  { return append([]any(nil), r.args...) }
+
+// Args returns the bind arguments referenced by the raw fragment.
+func (r rawExpression) Args() []any { return append([]any(nil), r.args...) }
 
 // Bind returns a parameterized expression for value.
 func Bind(value any) Expression {

@@ -41,16 +41,21 @@ type Course struct {
 	Published bool `db:"published" json:"published"`
 }
 
+// CourseLevel classifies how advanced a course is within the catalog.
 type CourseLevel int
 
 const (
+	// CourseLevelFoundations marks entry-level courses.
 	CourseLevelFoundations CourseLevel = iota
+	// CourseLevelApplied marks practice-oriented intermediate courses.
 	CourseLevelApplied
+	// CourseLevelAdvanced marks advanced specialist courses.
 	CourseLevelAdvanced
 )
 
 var _ driver.Valuer = CourseLevel(0)
 
+// Value stores the enum as an integer in the database.
 func (l CourseLevel) Value() (driver.Value, error) {
 	return int64(l), nil
 }

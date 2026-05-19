@@ -11,15 +11,15 @@ import (
 
 // QuerySpec is the single source of truth for a query definition before planning.
 type QuerySpec[O Owner] struct {
-	From          Table
-	Selects       []BoundColumn[O]
-	Filters       []Condition
-	KeywordSearch []SearchColumn
-	Joins         []join
-	GroupBy       []SQLColumn
-	Having        []Condition
-	Lock          queryLock
-	SetOps        []setOperation[O]
+	From          Table             // From stores the base table used by the query.
+	Selects       []BoundColumn[O]  // Selects stores the projected columns in output order.
+	Filters       []Condition       // Filters stores WHERE predicates.
+	KeywordSearch []SearchColumn    // KeywordSearch stores columns used by keyword-search helpers.
+	Joins         []join            // Joins stores JOIN clauses in declaration order.
+	GroupBy       []SQLColumn       // GroupBy stores GROUP BY expressions.
+	Having        []Condition       // Having stores HAVING predicates.
+	Lock          queryLock         // Lock stores the optional row-lock clause.
+	SetOps        []setOperation[O] // SetOps stores UNION/INTERSECT/EXCEPT operations appended to the query.
 }
 
 func (spec QuerySpec[O]) selectCount() int        { return len(spec.Selects) }

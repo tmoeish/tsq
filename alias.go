@@ -36,7 +36,7 @@ func AliasTable(table Table, alias string) Table {
 	}
 }
 
-// AliasColumns rebinds cols onto table.
+// AliasColumns rebinds each column onto table while preserving order.
 func AliasColumns(cols []SQLColumn, table Table) []SQLColumn {
 	result := make([]SQLColumn, 0, len(cols))
 	for _, col := range cols {
@@ -59,12 +59,15 @@ func RebindColumn(col SQLColumn, table Table) SQLColumn {
 	return col
 }
 
+// Table returns the SQL identifier that should be used after aliasing.
 func (t aliasedTable) Table() string {
 	return t.alias
 }
 
+// TSQOwner marks aliasedTable as a valid tsq owner.
 func (t aliasedTable) TSQOwner() {}
 
+// SearchColumns returns the base table's search columns rebound to the alias.
 func (t aliasedTable) SearchColumns() []SearchColumn {
 	result := make([]SearchColumn, 0, len(t.base.SearchColumns()))
 	for _, col := range t.base.SearchColumns() {
@@ -77,30 +80,37 @@ func (t aliasedTable) SearchColumns() []SearchColumn {
 	return result
 }
 
+// Cols returns the base table's columns rebound to the alias.
 func (t aliasedTable) Cols() []SQLColumn {
 	return AliasColumns(t.base.Cols(), t)
 }
 
+// PrimaryKeys returns a defensive copy of the base table's primary key list.
 func (t aliasedTable) PrimaryKeys() []string {
 	return append([]string(nil), t.base.PrimaryKeys()...)
 }
 
+// AutoIncrement reports whether inserts rely on database-generated IDs.
 func (t aliasedTable) AutoIncrement() bool {
 	return t.base.AutoIncrement()
 }
 
+// VersionColumn returns the optimistic-lock version column name, if any.
 func (t aliasedTable) VersionColumn() string {
 	return t.base.VersionColumn()
 }
 
+// Alias returns the SQL alias applied to the base table.
 func (t aliasedTable) Alias() string {
 	return t.alias
 }
 
+// PhysicalTable returns the underlying table name without the SQL alias.
 func (t aliasedTable) PhysicalTable() string {
 	return physicalTableName(t.base)
 }
 
+// Schema returns the base table schema when the base table exposes one.
 func (t aliasedTable) Schema() string {
 	if schemaTable, ok := t.base.(schemaTabler); ok {
 		return schemaTable.Schema()

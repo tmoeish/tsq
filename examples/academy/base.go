@@ -6,6 +6,7 @@ import (
 	"gopkg.in/nullbio/null.v6"
 )
 
+// MutableTable provides shared lifecycle fields for mutable Academy tables.
 type MutableTable struct {
 	// UID 是带生命周期管理表的自增主键。
 	UID int64 `db:"uid" json:"uid"`
@@ -19,6 +20,7 @@ type MutableTable struct {
 	Version int64 `db:"version" json:"version"`
 }
 
+// ImmutableTable provides shared identity fields for append-only Academy tables.
 type ImmutableTable struct {
 	// ID 是业务主表的自增主键。
 	ID int64 `db:"id" json:"id"`

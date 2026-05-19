@@ -57,28 +57,24 @@ func (l queryLock) clause() string {
 	return string(l.strength) + " " + string(l.waitMode)
 }
 
-// builderPhase 定义了查询构建过程中的各种状态。
-// 架构意图：TSQ 使用有限状态机（FSM）来管理查询构建。
-// 这种设计可以在编译期（通过不同的返回类型）或运行期（通过状态检查）防止生成无效的 SQL（如在 WHERE 之后调用 JOIN）。
+// builderPhase tracks which clauses may still be appended to a query builder.
 type builderPhase string
 
 const (
 	builderPhaseUnset      builderPhase = "uninitialized"
-	builderPhaseNeedFrom   builderPhase = "selected"  // 已 Select，等待 From
-	builderPhaseNeedSelect builderPhase = "from-only" // 已 From，等待 Select
-	builderPhaseBase       builderPhase = "query"     // 基础查询，可进行 Join/Where/GroupBy
+	builderPhaseNeedFrom   builderPhase = "selected"
+	builderPhaseNeedSelect builderPhase = "from-only"
+	builderPhaseBase       builderPhase = "query"
 	builderPhaseWhere      builderPhase = "query-with-where"
 	builderPhaseKwSearch   builderPhase = "query-with-kw-search"
 	builderPhaseFiltered   builderPhase = "query-with-filters"
 	builderPhaseGrouped    builderPhase = "grouped-query"
 	builderPhaseHaving     builderPhase = "query-with-having"
 	builderPhaseLocked     builderPhase = "query-with-lock"
-	builderPhaseCompound   builderPhase = "compound-query" // 集合操作后的状态
+	builderPhaseCompound   builderPhase = "compound-query"
 )
 
-// QueryBuilder 是一个通用的构建器包装器。
-// TSQ 提供了多个特定阶段的构建器（如 SelectBuilder, WhereQueryBuilder），
-// 它们在底层共享同一个 queryBuilderCore，但暴露出的方法集不同，从而实现了流式 API 的引导。
+// QueryBuilder is the main fluent builder once both SELECT and FROM are known.
 type QueryBuilder[O Owner] struct {
 	*queryBuilderCore[O]
 }
@@ -128,12 +124,11 @@ type LockedQueryBuilder[O Owner] struct {
 	*queryBuilderCore[O]
 }
 
-// queryBuilderCore 存储了查询构建的所有状态和配置。
-// 架构意图：它是所有构建器变体的单一状态来源，确保了状态转移的原子性和一致性。
+// queryBuilderCore stores the shared mutable state for every staged builder wrapper.
 type queryBuilderCore[O Owner] struct {
-	spec     QuerySpec[O] // 查询定义的详细规范
-	buildErr error        // 构建过程中遇到的第一个错误，采取“错误冒泡”策略
-	phase    builderPhase // 当前状态机所处的阶段
+	spec     QuerySpec[O]
+	buildErr error
+	phase    builderPhase
 }
 
 // join represents any type of JOIN operation.

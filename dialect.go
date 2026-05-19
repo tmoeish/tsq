@@ -136,39 +136,39 @@ const (
 
 // DDLColumnType describes the SQL type shape for a generated column.
 type DDLColumnType struct {
-	Kind     DDLColumnKind
-	Bits     int
-	Unsigned bool
-	Nullable bool
-	Size     int
+	Kind     DDLColumnKind // Kind selects the abstract column family to render.
+	Bits     int           // Bits records the requested integer or floating-point width.
+	Unsigned bool          // Unsigned reports whether integer output should omit the sign bit.
+	Nullable bool          // Nullable reports whether the column allows NULL values.
+	Size     int           // Size records the requested length for sized text or binary types.
 }
 
 // DDLColumnSpec describes a full column definition for DDL rendering.
 type DDLColumnSpec struct {
-	Name          string
-	Type          DDLColumnType
-	PrimaryKey    bool
-	AutoIncrement bool
-	Default       string
+	Name          string        // Name is the logical column name before dialect quoting.
+	Type          DDLColumnType // Type describes the SQL type shape for the column.
+	PrimaryKey    bool          // PrimaryKey marks the column as part of the table primary key.
+	AutoIncrement bool          // AutoIncrement requests dialect-specific generated key behavior.
+	Default       string        // Default is appended as the raw SQL DEFAULT expression when non-empty.
 }
 
 // IndexDefinition is the normalized definition tsq reads back from an existing index.
 type IndexDefinition struct {
-	Table  string
-	Unique bool
-	Fields []string
+	Table  string   // Table is the physical table that owns the index.
+	Unique bool     // Unique reports whether the index enforces uniqueness.
+	Fields []string // Fields preserves the indexed column order returned by the dialect.
 }
 
-// ErrUnsupportedOperation reports that a dialect cannot perform a requested capability.
-type ErrUnsupportedOperation struct {
+// ErrUnsupportedCapability reports that a dialect cannot perform a requested capability.
+type ErrUnsupportedCapability struct {
 	operation DialectCapability
 	dialect   DialectName
 	reason    string
 }
 
-// NewErrUnsupportedOperation constructs an ErrUnsupportedOperation.
-func NewErrUnsupportedOperation(operation DialectCapability, dialect DialectName, reason string) *ErrUnsupportedOperation {
-	return &ErrUnsupportedOperation{
+// NewErrUnsupportedCapability constructs an ErrUnsupportedCapability.
+func NewErrUnsupportedCapability(operation DialectCapability, dialect DialectName, reason string) *ErrUnsupportedCapability {
+	return &ErrUnsupportedCapability{
 		operation: canonicalCapabilityName(string(operation)),
 		dialect:   dialect,
 		reason:    reason,
@@ -176,7 +176,7 @@ func NewErrUnsupportedOperation(operation DialectCapability, dialect DialectName
 }
 
 // Error implements error.
-func (e *ErrUnsupportedOperation) Error() string {
+func (e *ErrUnsupportedCapability) Error() string {
 	if e.reason != "" {
 		return fmt.Sprintf(
 			"operation %s is not supported by %s dialect; %s",
@@ -233,7 +233,7 @@ func validateDialectCapability(dialect Dialect, capability DialectCapability) er
 		return nil
 	}
 
-	return NewErrUnsupportedOperation(
+	return NewErrUnsupportedCapability(
 		capability,
 		dialect.Name(),
 		unsupportedCapabilityHint(capability, dialect.Name()),

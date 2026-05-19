@@ -140,6 +140,7 @@ func (d SQLiteDialect) EnsureIndex(ctx context.Context, db SQLExecutor, table st
 		if inspectErr == nil && found && validateIndexDefinition(table, unique, idx, fields, definition) == nil {
 			return "", nil
 		}
+
 		return "", err
 	}
 
@@ -198,10 +199,11 @@ func (d SQLiteDialect) InspectIndexDefinition(ctx context.Context, db SQLExecuto
 		if row.Name == idx {
 			definition.Unique = row.Unique == 1
 			found = true
+
 			break // we found it, can stop iterating
 		}
 	}
-	
+
 	if err := rows.Err(); err != nil {
 		_ = rows.Close()
 		return IndexDefinition{}, false, err
@@ -231,20 +233,23 @@ func (d SQLiteDialect) inspectSQLiteIndexColumns(ctx context.Context, db SQLExec
 	if err != nil {
 		return nil, err
 	}
+
 	defer func() {
 		_ = rows.Close()
 	}()
 
 	var fields []string
+
 	for rows.Next() {
 		var seqno, cid int
+
 		var name string
 		if err := rows.Scan(&seqno, &cid, &name); err != nil {
 			return nil, err
 		}
 		fields = append(fields, name)
 	}
-	
+
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}

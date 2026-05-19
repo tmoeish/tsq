@@ -75,22 +75,27 @@ var (
 	errorRowDB     *sql.DB
 )
 
+// Open returns the single-purpose driver connection used to surface QueryRow errors.
 func (errorRowDriver) Open(string) (driver.Conn, error) {
 	return errorRowConn{}, nil
 }
 
+// Prepare rejects prepared statements because the error-row driver is QueryRow-only.
 func (errorRowConn) Prepare(string) (driver.Stmt, error) {
 	return nil, errors.New("prepare is not supported")
 }
 
+// Close is a no-op because the error-row driver holds no external resources.
 func (errorRowConn) Close() error {
 	return nil
 }
 
+// Begin rejects transactions because the error-row driver only simulates QueryRow failures.
 func (errorRowConn) Begin() (driver.Tx, error) {
 	return nil, errors.New("transactions are not supported")
 }
 
+// QueryContext returns the injected error stored on the context.
 func (errorRowConn) QueryContext(ctx context.Context, _ string, _ []driver.NamedValue) (driver.Rows, error) {
 	if err, ok := ctx.Value(errorRowContextKey{}).(error); ok && err != nil {
 		return nil, err
@@ -99,6 +104,7 @@ func (errorRowConn) QueryContext(ctx context.Context, _ string, _ []driver.Named
 	return nil, errors.New("missing query row error")
 }
 
+// CheckNamedValue accepts all argument values because they are ignored by the driver.
 func (errorRowConn) CheckNamedValue(*driver.NamedValue) error {
 	return nil
 }
@@ -143,22 +149,25 @@ type sqlMutationExecutor struct {
 	exec SQLExecutor
 }
 
+// Insert inserts dst using the wrapped SQL executor.
 func (m sqlMutationExecutor) Insert(ctx context.Context, dst ...Table) error {
 	return insertTables(ctx, m.exec, dst...)
 }
 
+// Update updates dst using the wrapped SQL executor.
 func (m sqlMutationExecutor) Update(ctx context.Context, dst ...Table) (int64, error) {
 	return updateTables(ctx, m.exec, dst...)
 }
 
+// Delete deletes dst using the wrapped SQL executor.
 func (m sqlMutationExecutor) Delete(ctx context.Context, dst ...Table) (int64, error) {
 	return deleteTables(ctx, m.exec, dst...)
 }
 
 // Engine couples a *sql.DB with the dialect rules tsq should use for it.
 type Engine struct {
-	DB             *sql.DB
-	Dialect        Dialect
+	DB             *sql.DB // DB is the underlying database handle used for execution.
+	Dialect        Dialect // Dialect controls SQL rendering and identifier rules for DB.
 	schemaConfigMu sync.RWMutex
 	schemaConfig   dbSchemaConfig
 }
@@ -945,6 +954,7 @@ type wrappedExecutor struct {
 	dialect Dialect
 }
 
+// TSQDialect exposes the wrapped executor's dialect to renderer helpers.
 func (w wrappedExecutor) TSQDialect() Dialect {
 	return w.dialect
 }

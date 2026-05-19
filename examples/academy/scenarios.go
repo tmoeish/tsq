@@ -9,104 +9,120 @@ import (
 	"github.com/tmoeish/tsq/v4"
 )
 
+// QuickstartSummary captures the three introductory Academy demo outcomes.
 type QuickstartSummary struct {
-	TrackCRUD      CRUDSummary    `json:"track_crud"`
-	CatalogSearch  SearchSummary  `json:"catalog_search"`
-	BackendCatalog CatalogSummary `json:"backend_catalog"`
+	TrackCRUD      CRUDSummary    `json:"track_crud"`      // TrackCRUD summarizes generated CRUD helper usage.
+	CatalogSearch  SearchSummary  `json:"catalog_search"`  // CatalogSearch summarizes keyword search with paging.
+	BackendCatalog CatalogSummary `json:"backend_catalog"` // BackendCatalog summarizes a joined catalog listing.
 }
 
+// AdvancedSummary captures the focused feature demos in the advanced example.
 type AdvancedSummary struct {
-	Alias          AliasSummary          `json:"alias_prerequisite"`
-	Aggregate      []AggregateSummary    `json:"track_metrics"`
-	InVar          InVarSummary          `json:"dynamic_in"`
-	Subquery       SubquerySummary       `json:"subquery"`
-	Case           CaseSummary           `json:"case_labels"`
-	CTE            CTESummary            `json:"cte"`
-	SetOps         SetOpsSummary         `json:"set_ops"`
-	Chunked        ChunkedSummary        `json:"chunked"`
-	OptimisticLock OptimisticLockSummary `json:"optimistic_lock"`
+	Alias          AliasSummary          `json:"alias_prerequisite"` // Alias summarizes table aliasing over prerequisite joins.
+	Aggregate      []AggregateSummary    `json:"track_metrics"`      // Aggregate summarizes grouped track metrics.
+	InVar          InVarSummary          `json:"dynamic_in"`         // InVar summarizes runtime slice binding.
+	Subquery       SubquerySummary       `json:"subquery"`           // Subquery summarizes scalar and membership subquery usage.
+	Case           CaseSummary           `json:"case_labels"`        // Case summarizes CASE-expression labeling.
+	CTE            CTESummary            `json:"cte"`                // CTE summarizes common-table-expression queries.
+	SetOps         SetOpsSummary         `json:"set_ops"`            // SetOps summarizes UNION and INTERSECT style queries.
+	Chunked        ChunkedSummary        `json:"chunked"`            // Chunked summarizes chunked write helpers.
+	OptimisticLock OptimisticLockSummary `json:"optimistic_lock"`    // OptimisticLock summarizes version-guarded writes.
 }
 
+// FullSuiteSummary aggregates the quickstart, advanced, and comprehensive demos.
 type FullSuiteSummary struct {
-	Quickstart    QuickstartSummary    `json:"quickstart"`
-	Advanced      AdvancedSummary      `json:"advanced"`
-	Comprehensive ComprehensiveSummary `json:"comprehensive"`
+	Quickstart    QuickstartSummary    `json:"quickstart"`    // Quickstart contains the introductory demos.
+	Advanced      AdvancedSummary      `json:"advanced"`      // Advanced contains the focused feature demos.
+	Comprehensive ComprehensiveSummary `json:"comprehensive"` // Comprehensive contains the end-to-end reporting demo.
 }
 
+// ComprehensiveSummary captures the final paginated LearningJourney demo result.
 type ComprehensiveSummary struct {
-	LearnerIDs []int64          `json:"learner_ids"`
-	Tracks     []string         `json:"tracks"`
-	Total      int64            `json:"total"`
-	First      *LearningJourney `json:"first,omitempty"`
+	LearnerIDs []int64          `json:"learner_ids"`     // LearnerIDs lists the learner filters passed into the query.
+	Tracks     []string         `json:"tracks"`          // Tracks lists the selected track filters.
+	Total      int64            `json:"total"`           // Total is the total number of matching rows.
+	First      *LearningJourney `json:"first,omitempty"` // First holds the first matching row when present.
 }
 
+// CRUDSummary captures the create, update, and delete demo outputs.
 type CRUDSummary struct {
-	InsertedID          int64  `json:"inserted_id"`
-	UpdatedDescription  string `json:"updated_description"`
-	DeletedSuccessfully bool   `json:"deleted_successfully"`
+	InsertedID          int64  `json:"inserted_id"`          // InsertedID is the generated ID returned by the insert demo.
+	UpdatedDescription  string `json:"updated_description"`  // UpdatedDescription is the description after the update demo.
+	DeletedSuccessfully bool   `json:"deleted_successfully"` // DeletedSuccessfully reports whether the delete demo removed the row.
 }
 
+// SearchSummary captures the keyword-search demo result.
 type SearchSummary struct {
-	Keyword string   `json:"keyword"`
-	Total   int64    `json:"total"`
-	Titles  []string `json:"titles"`
+	Keyword string   `json:"keyword"` // Keyword is the search term used in the demo.
+	Total   int64    `json:"total"`   // Total is the total number of matching rows.
+	Titles  []string `json:"titles"`  // Titles lists the returned course titles.
 }
 
+// CatalogSummary captures the joined catalog listing demo result.
 type CatalogSummary struct {
-	Track  string   `json:"track"`
-	Titles []string `json:"titles"`
+	Track  string   `json:"track"`  // Track is the track filter used for the listing.
+	Titles []string `json:"titles"` // Titles lists the returned course titles.
 }
 
+// AliasSummary captures the self-join alias demo result.
 type AliasSummary struct {
-	CourseTitle       string `json:"course_title"`
-	PrerequisiteTitle string `json:"prerequisite_title"`
+	CourseTitle       string `json:"course_title"`       // CourseTitle is the course title.
+	PrerequisiteTitle string `json:"prerequisite_title"` // PrerequisiteTitle is the aliased prerequisite title.
 }
 
+// AggregateSummary captures one grouped metric row.
 type AggregateSummary struct {
-	Track           string  `json:"track"`
-	EnrollmentCount int64   `json:"enrollment_count"`
-	AverageScore    float64 `json:"average_score"`
+	Track           string  `json:"track"`            // Track is the grouped track name.
+	EnrollmentCount int64   `json:"enrollment_count"` // EnrollmentCount is the number of enrollments in the group.
+	AverageScore    float64 `json:"average_score"`    // AverageScore is the average score within the group.
 }
 
+// InVarSummary captures the runtime slice binding demo result.
 type InVarSummary struct {
-	CourseIDs []int64  `json:"course_ids"`
-	Titles    []string `json:"titles"`
+	CourseIDs []int64  `json:"course_ids"` // CourseIDs is the input ID slice bound at execution time.
+	Titles    []string `json:"titles"`     // Titles lists the matched course titles.
 }
 
+// SubquerySummary captures the subquery demo outputs.
 type SubquerySummary struct {
-	LearnersInDataTrack      []string `json:"learners_in_data_track"`
-	CoursesCheaperThanAnchor []string `json:"courses_cheaper_than_anchor"`
+	LearnersInDataTrack      []string `json:"learners_in_data_track"`      // LearnersInDataTrack lists learners returned by an IN subquery.
+	CoursesCheaperThanAnchor []string `json:"courses_cheaper_than_anchor"` // CoursesCheaperThanAnchor lists courses filtered by a scalar subquery.
 }
 
+// CaseSummary captures labels produced by a CASE expression.
 type CaseSummary struct {
-	Labels []string `json:"labels"`
+	Labels []string `json:"labels"` // Labels lists the derived labels returned by the CASE demo.
 }
 
+// CTESummary captures the common-table-expression demo result.
 type CTESummary struct {
-	Track  string   `json:"track"`
-	Total  int      `json:"total"`
-	Titles []string `json:"titles"`
+	Track  string   `json:"track"`  // Track is the track summarized by the CTE query.
+	Total  int      `json:"total"`  // Total is the number of returned titles.
+	Titles []string `json:"titles"` // Titles lists the titles returned from the CTE query.
 }
 
+// SetOpsSummary captures the set-operation demo result.
 type SetOpsSummary struct {
-	UnionTitles   []string `json:"union_titles"`
-	StarterTitles []string `json:"starter_titles"`
+	UnionTitles   []string `json:"union_titles"`   // UnionTitles lists titles returned by the UNION query.
+	StarterTitles []string `json:"starter_titles"` // StarterTitles lists titles returned by the INTERSECT query.
 }
 
+// ChunkedSummary captures the chunked write demo result.
 type ChunkedSummary struct {
-	Inserted int64 `json:"inserted"`
-	Updated  int64 `json:"updated"`
-	Deleted  int64 `json:"deleted"`
-	Before   int   `json:"before"`
-	After    int   `json:"after"`
+	Inserted int64 `json:"inserted"` // Inserted is the number of rows inserted by the chunked demo.
+	Updated  int64 `json:"updated"`  // Updated is the number of rows updated by the chunked demo.
+	Deleted  int64 `json:"deleted"`  // Deleted is the number of rows deleted by the chunked demo.
+	Before   int   `json:"before"`   // Before is the number of rows loaded before the update step.
+	After    int   `json:"after"`    // After is the number of rows remaining after cleanup.
 }
 
+// OptimisticLockSummary captures the optimistic-lock demo result.
 type OptimisticLockSummary struct {
-	EnrollmentUID       int64 `json:"enrollment_uid"`
-	InitialVersion      int64 `json:"initial_version"`
-	UpdatedVersion      int64 `json:"updated_version"`
-	ConflictDetected    bool  `json:"conflict_detected"`
-	DeletedSuccessfully bool  `json:"deleted_successfully"`
+	EnrollmentUID       int64 `json:"enrollment_uid"`       // EnrollmentUID is the row used for the optimistic-lock demo.
+	InitialVersion      int64 `json:"initial_version"`      // InitialVersion is the row version before the update.
+	UpdatedVersion      int64 `json:"updated_version"`      // UpdatedVersion is the row version after the successful update.
+	ConflictDetected    bool  `json:"conflict_detected"`    // ConflictDetected reports whether the stale write failed as expected.
+	DeletedSuccessfully bool  `json:"deleted_successfully"` // DeletedSuccessfully reports whether cleanup removed the demo row.
 }
 
 type prerequisiteRow struct {
@@ -114,6 +130,7 @@ type prerequisiteRow struct {
 	PrerequisiteTitle string
 }
 
+// TSQOwner marks prerequisiteRow as an internal projection owner.
 func (prerequisiteRow) TSQOwner() {}
 
 type trackMetricRow struct {
@@ -122,12 +139,14 @@ type trackMetricRow struct {
 	AverageScore    float64
 }
 
+// TSQOwner marks trackMetricRow as an internal projection owner.
 func (trackMetricRow) TSQOwner() {}
 
 type namedRow struct {
 	Name string
 }
 
+// TSQOwner marks namedRow as an internal projection owner.
 func (namedRow) TSQOwner() {}
 
 // RunQuickstart bundles the three smallest day-to-day Academy demos:
@@ -247,7 +266,7 @@ func runComprehensive(ctx context.Context, engine *tsq.Engine) (*ComprehensiveSu
 	learnerIDs := []int64{1, 3, 5}
 	tracks := []string{"Backend Engineering", "Data & AI"}
 
-	pageReq := &tsq.PageReq{
+	pageReq := &tsq.PageRequest{
 		Page:    1,
 		Size:    4,
 		OrderBy: "learner_id,enrollment_id",
@@ -332,7 +351,7 @@ func runTrackCRUDDemo(ctx context.Context, engine *tsq.Engine) (*CRUDSummary, er
 // runCatalogSearchDemo demonstrates keyword search and paging over the public
 // course catalog by searching for SQLite-themed classes.
 func runCatalogSearchDemo(ctx context.Context, engine *tsq.Engine) (*SearchSummary, error) {
-	pageReq := &tsq.PageReq{
+	pageReq := &tsq.PageRequest{
 		Page:    1,
 		Size:    5,
 		OrderBy: "id", // OrderBy uses the JSON tag because callers (e.g. the frontend) only see JSON tags, not column names or db tags.

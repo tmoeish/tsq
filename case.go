@@ -14,6 +14,7 @@ type caseBranch struct {
 
 type expressionOwner struct{}
 
+// TSQOwner marks expressionOwner as the synthetic owner for CASE projections.
 func (expressionOwner) TSQOwner() {}
 
 // CaseBuilder builds a searched CASE expression.

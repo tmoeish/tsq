@@ -11,27 +11,41 @@ import (
 // LearningJourney is the end-to-end Result projection used in the full suite.
 // @RESULT(name="LearningJourney")
 type LearningJourney struct {
-	LearnerID      int64  `json:"learner_id"      tsq:"Learner.ID"`
-	LearnerName    string `json:"learner_name"    tsq:"Learner.Name"`
+	// LearnerID identifies the learner row joined into the projection.
+	LearnerID int64 `json:"learner_id" tsq:"Learner.ID"`
+	// LearnerName carries the learner display name.
+	LearnerName string `json:"learner_name" tsq:"Learner.Name"`
+	// LearnerCompany carries the learner's company affiliation.
 	LearnerCompany string `json:"learner_company" tsq:"Learner.Company"`
 
-	TrackName      string      `json:"track_name"      tsq:"Track.Name"`
-	CourseID       int64       `json:"course_id"       tsq:"Course.ID"`
-	CourseTitle    string      `json:"course_title"    tsq:"Course.Title"`
-	CourseLevel    CourseLevel `json:"course_level"    tsq:"Course.Level"`
-	InstructorName string      `json:"instructor_name" tsq:"Instructor.Name"`
+	// TrackName carries the course track name.
+	TrackName string `json:"track_name" tsq:"Track.Name"`
+	// CourseID identifies the enrolled course.
+	CourseID int64 `json:"course_id" tsq:"Course.ID"`
+	// CourseTitle carries the course title.
+	CourseTitle string `json:"course_title" tsq:"Course.Title"`
+	// CourseLevel carries the course difficulty level.
+	CourseLevel CourseLevel `json:"course_level" tsq:"Course.Level"`
+	// InstructorName carries the assigned instructor name.
+	InstructorName string `json:"instructor_name" tsq:"Instructor.Name"`
 
-	EnrollmentID     int64            `json:"enrollment_id"     tsq:"Enrollment.UID"`
+	// EnrollmentID identifies the enrollment row.
+	EnrollmentID int64 `json:"enrollment_id" tsq:"Enrollment.UID"`
+	// EnrollmentStatus carries the learner's enrollment status.
 	EnrollmentStatus EnrollmentStatus `json:"enrollment_status" tsq:"Enrollment.Status"`
-	EnrollmentScore  int64            `json:"enrollment_score"  tsq:"Enrollment.Score"`
-	EnrollmentFee    int64            `json:"enrollment_fee"    tsq:"Enrollment.FeeCents"`
-	EnrolledAt       time.Time        `json:"enrolled_at"       tsq:"Enrollment.CreatedAt"`
+	// EnrollmentScore carries the learner's score.
+	EnrollmentScore int64 `json:"enrollment_score" tsq:"Enrollment.Score"`
+	// EnrollmentFee carries the enrollment fee in cents.
+	EnrollmentFee int64 `json:"enrollment_fee" tsq:"Enrollment.FeeCents"`
+	// EnrolledAt carries the enrollment creation time.
+	EnrolledAt time.Time `json:"enrolled_at" tsq:"Enrollment.CreatedAt"`
 }
 
 type engagedCourseRow struct {
 	CourseID int64
 }
 
+// TSQOwner marks engagedCourseRow as an internal projection owner.
 func (engagedCourseRow) TSQOwner() {}
 
 var pageLearningJourneyQuery *tsq.Query[LearningJourney]
@@ -72,12 +86,13 @@ func init() {
 	}
 }
 
+// PageLearningJourney pages the full-suite LearningJourney projection for selected learners and tracks.
 func PageLearningJourney(
 	ctx context.Context,
 	tx tsq.SQLExecutor,
-	page *tsq.PageReq,
+	page *tsq.PageRequest,
 	learnerIDs []int64,
 	tracks ...string,
-) (*tsq.PageResp[LearningJourney], error) {
+) (*tsq.PageResponse[LearningJourney], error) {
 	return tsq.Page(ctx, tx, page, pageLearningJourneyQuery, learnerIDs, tracks)
 }

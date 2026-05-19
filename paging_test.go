@@ -7,7 +7,7 @@ import (
 )
 
 func TestNewPageReq_EmptyParams(t *testing.T) {
-	page := NewPageReq(nil)
+	page := NewPageRequest(nil)
 
 	if page.Page != 1 {
 		t.Errorf("Expected default page 1, got %d", page.Page)
@@ -38,7 +38,7 @@ func TestNewPageReq_WithParams(t *testing.T) {
 	params.Set("order", "ASC,DESC")
 	params.Set("keyword", "test")
 
-	page := NewPageReq(params)
+	page := NewPageRequest(params)
 
 	if page.Page != 2 {
 		t.Errorf("Expected page 2, got %d", page.Page)
@@ -78,7 +78,7 @@ func TestNewPageReq_InvalidPage(t *testing.T) {
 			params := url.Values{}
 			params.Set("page", tt.pageStr)
 
-			page := NewPageReq(params)
+			page := NewPageRequest(params)
 
 			if page.Page != tt.expected {
 				t.Errorf("Expected page %d, got %d", tt.expected, page.Page)
@@ -104,7 +104,7 @@ func TestNewPageReq_InvalidSize(t *testing.T) {
 			params := url.Values{}
 			params.Set("size", tt.sizeStr)
 
-			page := NewPageReq(params)
+			page := NewPageRequest(params)
 
 			if page.Size != tt.expected {
 				t.Errorf("Expected size %d, got %d", tt.expected, page.Size)
@@ -117,7 +117,7 @@ func TestNewPageReq_MaxSize(t *testing.T) {
 	params := url.Values{}
 	params.Set("size", strconv.Itoa(MaxPageSize+100))
 
-	page := NewPageReq(params)
+	page := NewPageRequest(params)
 
 	if page.Size != MaxPageSize {
 		t.Errorf("Expected size to be capped at %d, got %d", MaxPageSize, page.Size)
@@ -128,7 +128,7 @@ func TestNewPageReq_AlternativeSortParam(t *testing.T) {
 	params := url.Values{}
 	params.Set("sort", "name")
 
-	page := NewPageReq(params)
+	page := NewPageRequest(params)
 
 	if page.OrderBy != "name" {
 		t.Errorf("Expected order_by 'name' from 'sort' param, got '%s'", page.OrderBy)
@@ -141,7 +141,7 @@ func TestNewPageReq_OrderByPriority(t *testing.T) {
 	params.Set("order_by", "name")
 	params.Set("sort", "age")
 
-	page := NewPageReq(params)
+	page := NewPageRequest(params)
 
 	if page.OrderBy != "name" {
 		t.Errorf("Expected order_by 'name' to take priority, got '%s'", page.OrderBy)
@@ -149,7 +149,7 @@ func TestNewPageReq_OrderByPriority(t *testing.T) {
 }
 
 func TestPageReq_ToQuery(t *testing.T) {
-	page := &PageReq{
+	page := &PageRequest{
 		Page:    2,
 		Size:    50,
 		OrderBy: "name,age",
@@ -181,7 +181,7 @@ func TestPageReq_ToQuery(t *testing.T) {
 }
 
 func TestPageReq_ToQuery_EmptyValues(t *testing.T) {
-	page := &PageReq{
+	page := &PageRequest{
 		Page: 1,
 		Size: DefaultPageSize,
 	}
@@ -211,7 +211,7 @@ func TestPageReq_ToQuery_EmptyValues(t *testing.T) {
 }
 
 func TestPageReq_NilHelpers(t *testing.T) {
-	var page *PageReq
+	var page *PageRequest
 
 	query := page.ToQuery()
 	if query.Get("page") != "1" {
@@ -232,7 +232,7 @@ func TestPageReq_NilHelpers(t *testing.T) {
 }
 
 func TestPageReq_HelpersNormalizeInvalidValues(t *testing.T) {
-	page := &PageReq{
+	page := &PageRequest{
 		Page: -2,
 		Size: 0,
 	}
@@ -267,7 +267,7 @@ func TestPageReq_Offset(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			page := &PageReq{
+			page := &PageRequest{
 				Page: tt.page,
 				Size: tt.size,
 			}
@@ -283,13 +283,13 @@ func TestPageReq_Offset(t *testing.T) {
 func TestPageReq_Validate(t *testing.T) {
 	tests := []struct {
 		name         string
-		input        *PageReq
+		input        *PageRequest
 		expectedPage int
 		expectedSize int
 	}{
 		{
 			name: "valid values",
-			input: &PageReq{
+			input: &PageRequest{
 				Page: 2,
 				Size: 50,
 			},
@@ -298,7 +298,7 @@ func TestPageReq_Validate(t *testing.T) {
 		},
 		{
 			name: "invalid page",
-			input: &PageReq{
+			input: &PageRequest{
 				Page: 0,
 				Size: 50,
 			},
@@ -307,7 +307,7 @@ func TestPageReq_Validate(t *testing.T) {
 		},
 		{
 			name: "invalid size",
-			input: &PageReq{
+			input: &PageRequest{
 				Page: 2,
 				Size: 0,
 			},
@@ -316,7 +316,7 @@ func TestPageReq_Validate(t *testing.T) {
 		},
 		{
 			name: "size too large",
-			input: &PageReq{
+			input: &PageRequest{
 				Page: 2,
 				Size: MaxPageSize + 100,
 			},
@@ -325,7 +325,7 @@ func TestPageReq_Validate(t *testing.T) {
 		},
 		{
 			name: "negative values",
-			input: &PageReq{
+			input: &PageRequest{
 				Page: -1,
 				Size: -10,
 			},
@@ -355,19 +355,19 @@ func TestPageReq_Validate(t *testing.T) {
 func TestPageReq_ValidateStrict(t *testing.T) {
 	tests := []struct {
 		name      string
-		input     *PageReq
+		input     *PageRequest
 		wantError bool
 	}{
 		{
 			name: "valid values",
-			input: &PageReq{
+			input: &PageRequest{
 				Page: 2,
 				Size: 50,
 			},
 		},
 		{
 			name: "invalid order token",
-			input: &PageReq{
+			input: &PageRequest{
 				Page:    1,
 				Size:    20,
 				OrderBy: "name",
@@ -377,7 +377,7 @@ func TestPageReq_ValidateStrict(t *testing.T) {
 		},
 		{
 			name: "order without field",
-			input: &PageReq{
+			input: &PageRequest{
 				Page:  1,
 				Size:  20,
 				Order: "ASC",
@@ -400,7 +400,7 @@ func TestPageReq_ValidateStrict(t *testing.T) {
 }
 
 func TestNewResponse(t *testing.T) {
-	req := &PageReq{
+	req := &PageRequest{
 		Page: 2,
 		Size: 10,
 	}
@@ -411,7 +411,7 @@ func TestNewResponse(t *testing.T) {
 		stringPtr("item3"),
 	}
 
-	resp := NewPageResp(req, 25, data)
+	resp := NewPageResponse(req, 25, data)
 
 	if resp.Page != 2 {
 		t.Errorf("Expected page 2, got %d", resp.Page)
@@ -436,12 +436,12 @@ func TestNewResponse(t *testing.T) {
 }
 
 func TestNewResponse_ExactDivision(t *testing.T) {
-	req := &PageReq{
+	req := &PageRequest{
 		Page: 1,
 		Size: 10,
 	}
 
-	resp := NewPageResp(req, 20, []*string{})
+	resp := NewPageResponse(req, 20, []*string{})
 
 	expectedTotalPage := int64(2) // 20 / 10 = 2
 	if resp.TotalPage != expectedTotalPage {
@@ -450,12 +450,12 @@ func TestNewResponse_ExactDivision(t *testing.T) {
 }
 
 func TestNewResponse_ZeroSize(t *testing.T) {
-	req := &PageReq{
+	req := &PageRequest{
 		Page: 1,
 		Size: 0,
 	}
 
-	resp := NewPageResp(req, 20, []*string{})
+	resp := NewPageResponse(req, 20, []*string{})
 
 	if resp.Size != DefaultPageSize {
 		t.Fatalf("expected normalized size %d, got %d", DefaultPageSize, resp.Size)
@@ -480,8 +480,8 @@ func TestPageResp_HasNext(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resp := &PageResp[string]{
-				PageReq: PageReq{
+			resp := &PageResponse[string]{
+				PageRequest: PageRequest{
 					Page: tt.page,
 				},
 				TotalPage: tt.total,
@@ -507,8 +507,8 @@ func TestPageResp_HasPrev(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resp := &PageResp[string]{
-				PageReq: PageReq{
+			resp := &PageResponse[string]{
+				PageRequest: PageRequest{
 					Page: tt.page,
 				},
 			}
@@ -521,7 +521,7 @@ func TestPageResp_HasPrev(t *testing.T) {
 }
 
 func TestPageResp_NilHelpers(t *testing.T) {
-	var resp *PageResp[int]
+	var resp *PageResponse[int]
 
 	if resp.HasNext() {
 		t.Fatal("expected nil response to report no next page")
@@ -549,7 +549,7 @@ func TestPageResp_IsEmpty(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resp := &PageResp[string]{
+			resp := &PageResponse[string]{
 				Data: tt.data,
 			}
 
@@ -562,7 +562,7 @@ func TestPageResp_IsEmpty(t *testing.T) {
 
 func TestPageReq_RoundTrip(t *testing.T) {
 	// Test that ToQuery() and NewPageReq() are inverse operations
-	original := &PageReq{
+	original := &PageRequest{
 		Page:    3,
 		Size:    25,
 		OrderBy: "name,created_at",
@@ -571,7 +571,7 @@ func TestPageReq_RoundTrip(t *testing.T) {
 	}
 
 	query := original.ToQuery()
-	reconstructed := NewPageReq(query)
+	reconstructed := NewPageRequest(query)
 
 	if reconstructed.Page != original.Page {
 		t.Errorf("Page mismatch: expected %d, got %d", original.Page, reconstructed.Page)
@@ -595,7 +595,7 @@ func TestPageReq_RoundTrip(t *testing.T) {
 }
 
 func TestNewResponseNormalizesNilRequest(t *testing.T) {
-	resp := NewPageResp[int](nil, 0, nil)
+	resp := NewPageResponse[int](nil, 0, nil)
 	if resp == nil {
 		t.Fatal("expected response to be non-nil")
 	}

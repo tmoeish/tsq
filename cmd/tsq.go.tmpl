@@ -4,7 +4,7 @@
 {{- $varTblCols := printf "%s__Cols" $type }}
 {{- $ptype := printf "*%s" $type }}
 {{- $list := printf "[]*%s" $type }}
-{{- $pageResp := printf "tsq.PageResp[%s]" $type }}
+{{- $pageResp := printf "tsq.PageResponse[%s]" $type }}
 
 {{- $recv := printf "func (%s %s) " .Recv $type }}
 {{- $precv := printf "func (%s *%s) " .Recv $type }}
@@ -46,6 +46,7 @@ import (
 	"github.com/tmoeish/tsq/v4"
 )
 
+// {{$type}}GeneratedQuery wraps a generated query and preserves any init-time build error.
 type {{$type}}GeneratedQuery struct {
 	query *tsq.Query[{{$type}}]
 	err   error
@@ -63,6 +64,7 @@ func (g {{$type}}GeneratedQuery) resolved() (*tsq.Query[{{$type}}], error) {
 	return g.query, nil
 }
 
+// Load executes the generated query and scans one {{$type}} row into holder.
 func (g {{$type}}GeneratedQuery) Load(ctx context.Context, db tsq.SQLExecutor, holder *{{$type}}, args ...any) error {
 	query, err := g.resolved()
 	if err != nil {
@@ -72,6 +74,7 @@ func (g {{$type}}GeneratedQuery) Load(ctx context.Context, db tsq.SQLExecutor, h
 	return query.Load(ctx, db, holder, args...)
 }
 
+// Exists reports whether the generated query matches at least one {{$type}} row.
 func (g {{$type}}GeneratedQuery) Exists(ctx context.Context, db tsq.SQLExecutor, args ...any) (bool, error) {
 	query, err := g.resolved()
 	if err != nil {
@@ -81,6 +84,7 @@ func (g {{$type}}GeneratedQuery) Exists(ctx context.Context, db tsq.SQLExecutor,
 	return query.Exists(ctx, db, args...)
 }
 
+// Count returns the number of {{$type}} rows matched by the generated query.
 func (g {{$type}}GeneratedQuery) Count(ctx context.Context, db tsq.SQLExecutor, args ...any) (int, error) {
 	query, err := g.resolved()
 	if err != nil {
@@ -90,6 +94,7 @@ func (g {{$type}}GeneratedQuery) Count(ctx context.Context, db tsq.SQLExecutor, 
 	return query.Count(ctx, db, args...)
 }
 
+// List executes the generated query and returns all matching {{$type}} rows.
 func (g {{$type}}GeneratedQuery) List(ctx context.Context, db tsq.SQLExecutor, args ...any) ([]*{{$type}}, error) {
 	query, err := g.resolved()
 	if err != nil {
@@ -99,7 +104,8 @@ func (g {{$type}}GeneratedQuery) List(ctx context.Context, db tsq.SQLExecutor, a
 	return tsq.List(ctx, db, query, args...)
 }
 
-func (g {{$type}}GeneratedQuery) Page(ctx context.Context, db tsq.SQLExecutor, page *tsq.PageReq, args ...any) (*tsq.PageResp[{{$type}}], error) {
+// Page executes the generated query with paging and returns a paged {{$type}} result.
+func (g {{$type}}GeneratedQuery) Page(ctx context.Context, db tsq.SQLExecutor, page *tsq.PageRequest, args ...any) (*tsq.PageResponse[{{$type}}], error) {
 	query, err := g.resolved()
 	if err != nil {
 		return nil, err
@@ -207,6 +213,7 @@ func init() {
 // =============================================================================
 
 {{- with $query := printf "%s%sQuery" $getBy $dot.PK }}
+// {{$query}} stores the generated primary-key lookup query for {{$type}}.
 var {{$query}} {{$type}}GeneratedQuery
 
 func init() {
@@ -317,6 +324,7 @@ func {{$name}}(
 // =============================================================================
 
 	{{- with $query := printf "%s%sQuery" $getActiveBy $dot.PK }}
+// {{$query}} stores the generated active primary-key lookup query for {{$type}}.
 var {{$query}} {{$type}}GeneratedQuery
 
 func init() {
@@ -436,6 +444,7 @@ func {{$name}}(
 
 {{- range $ux := .UxList }}
 	{{- with $query := printf "%s%sQuery" $getBy (JoinAnd $ux.Fields) }}
+// {{$query}} stores the generated unique-index lookup query for {{$type}}.
 var {{$query}} {{$type}}GeneratedQuery
 
 func init() {
@@ -531,6 +540,7 @@ func {{$name}}(
 
 	{{- range $ux := .UxList }}
 		{{- with $query := printf "%s%sQuery" $getActiveBy (JoinAnd $ux.Fields) }}
+// {{$query}} stores the generated active unique-index lookup query for {{$type}}.
 var {{$query}} {{$type}}GeneratedQuery
 
 func init() {
@@ -629,6 +639,7 @@ func {{$name}}(
 	{{- $indexLabel := or $idx.SourceName $idx.Name }}
 	{{- if $idx.IsSet }}
 		{{- with $query := printf "%s%sQuery" $ListBy $idx.Name }}
+// {{$query}} stores the generated index query for {{$type}}.
 var {{$query}} {{$type}}GeneratedQuery
 
 func init() {
@@ -680,6 +691,7 @@ func List{{$type}}By{{$idx.Name}}(
 }
 	{{- else }}
 		{{- with $query := printf "%s%sQuery" $ListBy $idx.Name }}
+// {{$query}} stores the generated index query for {{$type}}.
 var {{$query}} {{$type}}GeneratedQuery
 
 func init() {
@@ -746,7 +758,7 @@ func {{$name}}(
 func {{$name}}(
 	ctx context.Context,
 	db tsq.SQLExecutor,
-	page *tsq.PageReq,
+	page *tsq.PageRequest,
 	{{- range $f := $idx.Fields }}
 	{{ FieldVarName $f }} {{ index $dot.FieldMap $f | FieldType }},
 	{{- end }}
@@ -775,6 +787,7 @@ func {{$name}}(
 		{{- $indexLabel := or $idx.SourceName $idx.Name }}
 		{{- if $idx.IsSet }}
 			{{- with $query := printf "%s%sQuery" $ListActiveBy $idx.Name }}
+// {{$query}} stores the generated active index query for {{$type}}.
 var {{$query}} {{$type}}GeneratedQuery
 
 func init() {
@@ -830,6 +843,7 @@ func {{$name}}(
 			{{- end }}
 		{{- else }}
 			{{- with $query := printf "%s%sQuery" $listActiveBy $idx.Name }}
+// {{$query}} stores the generated active index query for {{$type}}.
 var {{$query}} {{$type}}GeneratedQuery
 
 func init() {
@@ -897,7 +911,7 @@ func {{$name}}(
 func {{$name}}(
 	ctx context.Context,
 	db tsq.SQLExecutor,
-	page *tsq.PageReq,
+	page *tsq.PageRequest,
 	{{- range $f := $idx.Fields }}
 	{{ FieldVarName $f }} {{ index $dot.FieldMap $f | FieldType }},
 	{{- end }}
@@ -923,6 +937,7 @@ func {{$name}}(
 // =============================================================================
 
 {{- with $query := printf "list%sQuery" $type }}
+// {{$query}} stores the generated list-all query for {{$type}}.
 var {{$query}} {{$type}}GeneratedQuery
 
 func init() {
@@ -962,7 +977,7 @@ func {{$name}}(
 func {{$name}}(
 	ctx context.Context,
 	tx tsq.SQLExecutor,
-	page *tsq.PageReq,
+	page *tsq.PageRequest,
 ) (*{{$pageResp}}, error) {
 	return {{$query}}.Page(ctx, tx, page)
 }
@@ -975,6 +990,7 @@ func {{$name}}(
 // =============================================================================
 
 	{{- with $query := printf "listActive%sQuery" $type }}
+// {{$query}} stores the generated active list-all query for {{$type}}.
 var {{$query}} {{$type}}GeneratedQuery
 
 func init() {
@@ -1015,7 +1031,7 @@ func {{$name}}(
 func {{$name}}(
 	ctx context.Context,
 	tx tsq.SQLExecutor,
-	page *tsq.PageReq,
+	page *tsq.PageRequest,
 ) (*{{$pageResp}}, error) {
 	return {{$query}}.Page(ctx, tx, page)
 }
@@ -1116,7 +1132,7 @@ func {{$name}}(
 func {{$name}}(
 	ctx context.Context,
 	tx tsq.SQLExecutor,
-	page *tsq.PageReq,
+	page *tsq.PageRequest,
 	qb *tsq.Query[{{$type}}],
 	args ...any,
 ) (*{{$pageResp}}, error) {

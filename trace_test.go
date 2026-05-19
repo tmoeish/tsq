@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func passthroughTracer(next Fn) Fn {
+func passthroughTracer(next TraceFn) TraceFn {
 	return next
 }
 
@@ -17,7 +17,7 @@ func TestAddTracer(t *testing.T) {
 	ClearTracers()
 
 	// Test adding a tracer
-	tracer1 := func(next Fn) Fn {
+	tracer1 := func(next TraceFn) TraceFn {
 		return func(ctx context.Context) error {
 			return next(ctx)
 		}
@@ -31,7 +31,7 @@ func TestAddTracer(t *testing.T) {
 	}
 
 	// Test adding multiple tracers
-	tracer2 := func(next Fn) Fn {
+	tracer2 := func(next TraceFn) TraceFn {
 		return func(ctx context.Context) error {
 			return next(ctx)
 		}
@@ -50,7 +50,7 @@ func TestClearTracers(t *testing.T) {
 	ClearTracers()
 
 	// Add some tracers
-	tracer := func(next Fn) Fn {
+	tracer := func(next TraceFn) TraceFn {
 		return func(ctx context.Context) error {
 			return next(ctx)
 		}
@@ -85,8 +85,8 @@ func TestGetTracers(t *testing.T) {
 	}
 
 	// Add tracers and test
-	tracer1 := func(next Fn) Fn { return next }
-	tracer2 := func(next Fn) Fn { return next }
+	tracer1 := func(next TraceFn) TraceFn { return next }
+	tracer2 := func(next TraceFn) TraceFn { return next }
 
 	AddTracer(tracer1)
 	AddTracer(tracer2)
@@ -107,7 +107,7 @@ func TestGetTracers(t *testing.T) {
 
 func TestAppendUniqueTracersPreservesDistinctClosures(t *testing.T) {
 	makeTracer := func(label string) Tracer {
-		return func(next Fn) Fn {
+		return func(next TraceFn) TraceFn {
 			return func(ctx context.Context) error {
 				_ = label
 				return next(ctx)
@@ -190,7 +190,7 @@ func TestTrace_SingleTracer(t *testing.T) {
 	tracerExecuted := false
 	functionExecuted := false
 
-	tracer := func(next Fn) Fn {
+	tracer := func(next TraceFn) TraceFn {
 		return func(ctx context.Context) error {
 			tracerExecuted = true
 			return next(ctx)
@@ -224,7 +224,7 @@ func TestTrace_MultipleTracers(t *testing.T) {
 
 	var executionOrder []string
 
-	tracer1 := func(next Fn) Fn {
+	tracer1 := func(next TraceFn) TraceFn {
 		return func(ctx context.Context) error {
 			executionOrder = append(executionOrder, "tracer1_start")
 			err := next(ctx)
@@ -235,7 +235,7 @@ func TestTrace_MultipleTracers(t *testing.T) {
 		}
 	}
 
-	tracer2 := func(next Fn) Fn {
+	tracer2 := func(next TraceFn) TraceFn {
 		return func(ctx context.Context) error {
 			executionOrder = append(executionOrder, "tracer2_start")
 			err := next(ctx)
@@ -287,7 +287,7 @@ func TestTrace_ErrorPropagation(t *testing.T) {
 
 	expectedError := errors.New("test error")
 
-	tracer := func(next Fn) Fn {
+	tracer := func(next TraceFn) TraceFn {
 		return func(ctx context.Context) error {
 			return next(ctx) // Should propagate error
 		}
@@ -312,7 +312,7 @@ func TestTrace_TracerError(t *testing.T) {
 
 	expectedError := errors.New("tracer error")
 
-	tracer := func(next Fn) Fn {
+	tracer := func(next TraceFn) TraceFn {
 		return func(ctx context.Context) error {
 			return expectedError // Tracer returns error without calling next
 		}
@@ -423,7 +423,7 @@ func TestMaxTracersEnforced(t *testing.T) {
 
 	// Add exactly MaxTracers tracers
 	for i := 0; i < MaxTracers; i++ {
-		tracer := func(next Fn) Fn {
+		tracer := func(next TraceFn) TraceFn {
 			return func(ctx context.Context) error {
 				return next(ctx)
 			}
@@ -437,7 +437,7 @@ func TestMaxTracersEnforced(t *testing.T) {
 	}
 
 	// Try to add one more tracer - should be rejected
-	tracer := func(next Fn) Fn {
+	tracer := func(next TraceFn) TraceFn {
 		return func(ctx context.Context) error {
 			return next(ctx)
 		}
@@ -456,7 +456,7 @@ func TestConcurrentTracerAddDuringRestore(t *testing.T) {
 
 	// Add some initial tracers
 	for i := 0; i < 5; i++ {
-		tracer := func(next Fn) Fn {
+		tracer := func(next TraceFn) TraceFn {
 			return func(ctx context.Context) error {
 				return next(ctx)
 			}
@@ -491,7 +491,7 @@ func TestConcurrentTracerAddDuringRestore(t *testing.T) {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			tracer := func(next Fn) Fn {
+			tracer := func(next TraceFn) TraceFn {
 				return func(ctx context.Context) error {
 					return next(ctx)
 				}
@@ -677,7 +677,7 @@ func TestPrettyJSON_vs_CompactJSON(t *testing.T) {
 
 // TestAppendUniqueTracersWithNilInput tests dedup with nil entries
 func TestAppendUniqueTracersWithNilInput(t *testing.T) {
-	tracer1 := func(next Fn) Fn {
+	tracer1 := func(next TraceFn) TraceFn {
 		return func(ctx context.Context) error { return next(ctx) }
 	}
 
@@ -709,7 +709,7 @@ func TestAppendUniqueTracersWithNilInput(t *testing.T) {
 func TestAppendUniqueTracersWithLargeList(t *testing.T) {
 	// Use the same tracer reference multiple times
 	executed := 0
-	tracer := func(next Fn) Fn {
+	tracer := func(next TraceFn) TraceFn {
 		return func(ctx context.Context) error {
 			executed++
 			return next(ctx)
@@ -792,10 +792,10 @@ func TestRestoreTracersFromSnapshot(t *testing.T) {
 	tm := defaultRuntime.traceManager
 
 	// Add some initial tracers
-	tracer1 := func(next Fn) Fn {
+	tracer1 := func(next TraceFn) TraceFn {
 		return func(ctx context.Context) error { return next(ctx) }
 	}
-	tracer2 := func(next Fn) Fn {
+	tracer2 := func(next TraceFn) TraceFn {
 		return func(ctx context.Context) error { return next(ctx) }
 	}
 
@@ -809,7 +809,7 @@ func TestRestoreTracersFromSnapshot(t *testing.T) {
 	}
 
 	// Add another tracer
-	tracer3 := func(next Fn) Fn {
+	tracer3 := func(next TraceFn) TraceFn {
 		return func(ctx context.Context) error { return next(ctx) }
 	}
 	AddTracer(tracer3)
@@ -848,7 +848,7 @@ func TestTraceManagerConcurrentSnapshot(t *testing.T) {
 
 	// Add initial tracers
 	for i := 0; i < 10; i++ {
-		tracer := func(next Fn) Fn {
+		tracer := func(next TraceFn) TraceFn {
 			return func(ctx context.Context) error { return next(ctx) }
 		}
 		AddTracer(tracer)
@@ -860,7 +860,7 @@ func TestTraceManagerConcurrentSnapshot(t *testing.T) {
 	// Goroutine that continuously adds tracers
 	go func() {
 		for i := 0; i < 50; i++ {
-			tracer := func(next Fn) Fn {
+			tracer := func(next TraceFn) TraceFn {
 				return func(ctx context.Context) error { return next(ctx) }
 			}
 			AddTracer(tracer)

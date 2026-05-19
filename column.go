@@ -2,25 +2,22 @@ package tsq
 
 import "errors"
 
-// FieldPointer 返回指向 Owner 类型中某个字段的类型安全指针。
-// 架构意图：它使用 Go 1.18+ 的范型和闭包，建立了 SQL 列与 struct 字段之间的直接联系，
-// 而不需要使用低效的反射字符串查找。
+// FieldPointer binds a selected column value to a concrete field on an owner.
 type FieldPointer[O Owner, T any] func(*O) *T
 
-// scanPointer 是擦除了类型的运行时扫描函数。
+// scanPointer adapts a typed FieldPointer to the untyped scan path.
 type scanPointer func(holder any) any
 
-// SQLColumn 是 SQL 表达式在运行时的视图。
-// 它定义了一个表达式如何被渲染，以及被选中后如何扫描回 Go 对象。
+// SQLColumn is the runtime view of a selectable SQL expression.
 type SQLColumn interface {
-	SQLExpr() string                    // 渲染后的 SQL 表达式（例如 "users.name"）
-	OutputName() string                 // 默认的输出列名（别名）
-	JSONFieldName() string              // 对应的 JSON 标签名，用于排序白名单
-	Table() Table                       // 所属的主表
-	Name() string                       // 原始物理列名
-	QualifiedName() string              // 限定名（带表名）
-	scanPointer() scanPointer           // 获取扫描函数
-	referencedTables() map[string]Table // 表达式中涉及的所有表
+	SQLExpr() string                    // SQLExpr returns the rendered expression, such as "users.name".
+	OutputName() string                 // OutputName returns the default scan alias for the expression.
+	JSONFieldName() string              // JSONFieldName returns the stable field name used by JSON-facing helpers.
+	Table() Table                       // Table returns the primary table that owns the expression.
+	Name() string                       // Name returns the physical column name when the expression comes from a table column.
+	QualifiedName() string              // QualifiedName returns the expression with its table qualifier or transformation applied.
+	scanPointer() scanPointer           // scanPointer returns the runtime adapter used when scanning result rows.
+	referencedTables() map[string]Table // referencedTables returns every table referenced by the expression.
 }
 
 // SQLColumns 将一组类型安全的列转换为擦除类型的运行时列列表。
@@ -33,19 +30,19 @@ func SQLColumns[O Owner](cols ...BoundColumn[O]) []SQLColumn {
 	return result
 }
 
-// BoundColumn 是一个绑定到 Owner [O] 的可选择 SQL 表达式。
+// BoundColumn is a selectable expression bound to a specific owner type.
 type BoundColumn[O Owner] interface {
 	SQLColumn
 	selectOwner(O) // 幻影方法，用于范型类型约束
 }
 
-// TypedColumn is a value-typed selectable column.
+// TypedColumn is a selectable expression that also carries the scanned Go value type.
 type TypedColumn[O Owner, T any] interface {
 	BoundColumn[O]
 	columnValue(T)
 }
 
-// TableColumn is an owner-typed physical/source column.
+// TableColumn is a physical source column that belongs to a table owner.
 type TableColumn[O Table] interface {
 	BoundColumn[O]
 	SearchColumn
@@ -54,7 +51,7 @@ type TableColumn[O Table] interface {
 	columnName() string
 }
 
-// SearchColumn is a SQL expression allowed in keyword search.
+// SearchColumn marks expressions that may participate in keyword search expansion.
 type SearchColumn interface {
 	SQLColumn
 	searchColumn()
@@ -65,8 +62,7 @@ type typedColumnInternal[T any] interface {
 	columnValue(T)
 }
 
-// ColumnImpl 是类型安全列的基础实现。
-// 它存储了列的所有静态元数据和映射逻辑。
+// ColumnImpl stores the metadata and scan mapping for a typed column expression.
 type ColumnImpl[O Owner, T any] struct {
 	table         Table
 	name          string
@@ -75,13 +71,13 @@ type ColumnImpl[O Owner, T any] struct {
 	fieldPointer  scanPointer
 	args          []any
 	tables        map[string]Table
-	aggregate     bool // 是否为聚合函数（SUM, COUNT等）
-	distinct      bool // 是否包含 DISTINCT
-	transformed   bool // 是否经过了某种变换（如 UPPER()），通常不能再被重定向
+	aggregate     bool
+	distinct      bool
+	transformed   bool
 	buildErr      error
 }
 
-// ProjectedColumn is a projection-only column selected into a result owner.
+// ProjectedColumn reuses an existing expression while scanning into another owner.
 type ProjectedColumn[O Owner, T any] struct {
 	col ColumnImpl[O, T]
 }
@@ -123,30 +119,37 @@ func newColForTable[O Owner, T any](table Table, baseName, jsonFieldName string,
 	}
 }
 
+// SQLExpr renders the column expression in canonical SQL form.
 func (c ColumnImpl[O, T]) SQLExpr() string {
 	return renderCanonicalSQL(c.qualifiedName)
 }
 
+// Table returns the primary table that owns the column.
 func (c ColumnImpl[O, T]) Table() Table {
 	return c.table
 }
 
+// Name returns the underlying physical column name.
 func (c ColumnImpl[O, T]) Name() string {
 	return c.name
 }
 
+// QualifiedName returns the rendered column reference, including table qualifier.
 func (c ColumnImpl[O, T]) QualifiedName() string {
 	return c.SQLExpr()
 }
 
+// FieldPointer returns the runtime scan adapter for the bound destination field.
 func (c ColumnImpl[O, T]) FieldPointer() scanPointer {
 	return c.scanPointer()
 }
 
+// OutputName returns the default column label used in result scans.
 func (c ColumnImpl[O, T]) OutputName() string {
 	return c.name
 }
 
+// JSONFieldName returns the stable JSON-facing field label for the column.
 func (c ColumnImpl[O, T]) JSONFieldName() string {
 	return c.jsonFieldName
 }
@@ -273,18 +276,25 @@ func MapInto[Target, Source Owner, T any](
 	}}
 }
 
+// SQLExpr renders the projected expression in canonical SQL form.
 func (c ProjectedColumn[O, T]) SQLExpr() string { return c.col.SQLExpr() }
 
+// Table returns the primary table that owns the source expression.
 func (c ProjectedColumn[O, T]) Table() Table { return c.col.Table() }
 
+// Name returns the source expression's output name.
 func (c ProjectedColumn[O, T]) Name() string { return c.col.Name() }
 
+// QualifiedName returns the rendered SQL expression for the projection.
 func (c ProjectedColumn[O, T]) QualifiedName() string { return c.col.QualifiedName() }
 
+// FieldPointer returns the runtime scan adapter for the projected destination field.
 func (c ProjectedColumn[O, T]) FieldPointer() scanPointer { return c.col.FieldPointer() }
 
+// OutputName returns the default scan alias inherited from the source expression.
 func (c ProjectedColumn[O, T]) OutputName() string { return c.col.OutputName() }
 
+// JSONFieldName returns the JSON-facing field label used for the projection.
 func (c ProjectedColumn[O, T]) JSONFieldName() string { return c.col.JSONFieldName() }
 
 func (c ProjectedColumn[O, T]) scanPointer() scanPointer { return c.col.scanPointer() }

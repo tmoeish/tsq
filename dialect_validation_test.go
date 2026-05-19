@@ -53,7 +53,7 @@ func TestDialectCapabilities(t *testing.T) {
 }
 
 func TestErrUnsupportedOperation(t *testing.T) {
-	err := NewErrUnsupportedOperation(DialectCapabilityFullOuterJoin, DialectMySQL, "use LEFT/RIGHT JOIN with UNION")
+	err := NewErrUnsupportedCapability(DialectCapabilityFullOuterJoin, DialectMySQL, "use LEFT/RIGHT JOIN with UNION")
 	msg := err.Error()
 	if !strings.Contains(msg, "FULL JOIN") {
 		t.Fatalf("expected FULL JOIN in error, got %q", msg)

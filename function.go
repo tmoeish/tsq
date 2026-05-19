@@ -11,7 +11,7 @@ import (
 // 基础函数构建方法
 // ================================================
 
-// Fn creates a custom SQL function by applying the format string to the column
+// Fn wraps the receiver column in a single-argument SQL function template.
 func (c ColumnImpl[Owner, T]) Fn(format string) ColumnImpl[Owner, T] {
 	if strings.TrimSpace(format) == "" {
 		c.buildErr = errors.New("function format cannot be empty")
@@ -32,9 +32,9 @@ func (c ColumnImpl[Owner, T]) Fn(format string) ColumnImpl[Owner, T] {
 	return ColumnImpl[Owner, T]{
 		table:         c.table,
 		qualifiedName: fmt.Sprintf(format, c.rawQualifiedName()),
-		name:          c.name,          // 保持原始名称
-		fieldPointer:  c.fieldPointer,  // 保持原始指针函数
-		jsonFieldName: c.jsonFieldName, // 保持原始JSON标签
+		name:          c.name,
+		fieldPointer:  c.fieldPointer,
+		jsonFieldName: c.jsonFieldName,
 		args:          append([]any(nil), c.args...),
 		tables:        cloneTableMap(c.tables),
 		aggregate:     c.aggregate,
@@ -65,9 +65,9 @@ func (c ColumnImpl[Owner, T]) FnRaw(fn string) ColumnImpl[Owner, T] {
 	return ColumnImpl[Owner, T]{
 		table:         c.table,
 		qualifiedName: fn,
-		name:          c.name,          // 保持原始名称
-		fieldPointer:  c.fieldPointer,  // 保持原始指针函数
-		jsonFieldName: c.jsonFieldName, // 保持原始JSON标签
+		name:          c.name,
+		fieldPointer:  c.fieldPointer,
+		jsonFieldName: c.jsonFieldName,
 		args:          append([]any(nil), c.args...),
 		tables:        cloneTableMap(c.tables),
 		aggregate:     c.aggregate,
@@ -155,7 +155,7 @@ func mergeTableMaps(base, extras map[string]Table) map[string]Table {
 // 聚合函数 (Aggregate Functions)
 // ================================================
 
-// Count returns COUNT(column) - counts non-null values
+// Count wraps the column in COUNT and marks it as an aggregate expression.
 func (c ColumnImpl[Owner, T]) Count() ColumnImpl[Owner, int64] {
 	result := ColumnImpl[Owner, int64](c.Fn("COUNT(%s)"))
 	result.aggregate = true
@@ -163,7 +163,7 @@ func (c ColumnImpl[Owner, T]) Count() ColumnImpl[Owner, int64] {
 	return result
 }
 
-// Sum returns SUM(column) - calculates sum of numeric values
+// Sum wraps the column in SUM and marks it as an aggregate expression.
 func (c ColumnImpl[Owner, T]) Sum() ColumnImpl[Owner, T] {
 	result := c.Fn("SUM(%s)")
 	result.aggregate = true
@@ -171,7 +171,7 @@ func (c ColumnImpl[Owner, T]) Sum() ColumnImpl[Owner, T] {
 	return result
 }
 
-// Avg returns AVG(column) - calculates average of numeric values
+// Avg wraps the column in AVG and marks it as an aggregate expression.
 func (c ColumnImpl[Owner, T]) Avg() ColumnImpl[Owner, float64] {
 	result := ColumnImpl[Owner, float64](c.Fn("AVG(%s)"))
 	result.aggregate = true
@@ -179,7 +179,7 @@ func (c ColumnImpl[Owner, T]) Avg() ColumnImpl[Owner, float64] {
 	return result
 }
 
-// Max returns MAX(column) - finds maximum value
+// Max wraps the column in MAX and marks it as an aggregate expression.
 func (c ColumnImpl[Owner, T]) Max() ColumnImpl[Owner, T] {
 	result := c.Fn("MAX(%s)")
 	result.aggregate = true
@@ -187,7 +187,7 @@ func (c ColumnImpl[Owner, T]) Max() ColumnImpl[Owner, T] {
 	return result
 }
 
-// Min returns MIN(column) - finds minimum value
+// Min wraps the column in MIN and marks it as an aggregate expression.
 func (c ColumnImpl[Owner, T]) Min() ColumnImpl[Owner, T] {
 	result := c.Fn("MIN(%s)")
 	result.aggregate = true
@@ -195,7 +195,7 @@ func (c ColumnImpl[Owner, T]) Min() ColumnImpl[Owner, T] {
 	return result
 }
 
-// Distinct returns DISTINCT(column) - returns unique values
+// Distinct wraps the column in DISTINCT and marks it as a distinct expression.
 func (c ColumnImpl[Owner, T]) Distinct() ColumnImpl[Owner, T] {
 	result := c.Fn("DISTINCT(%s)")
 	result.distinct = true
@@ -207,27 +207,27 @@ func (c ColumnImpl[Owner, T]) Distinct() ColumnImpl[Owner, T] {
 // 字符串函数 (String Functions)
 // ================================================
 
-// Upper returns UPPER(column) - converts to uppercase
+// Upper applies UPPER to the column.
 func (c ColumnImpl[Owner, T]) Upper() ColumnImpl[Owner, T] {
 	return c.Fn("UPPER(%s)")
 }
 
-// Lower returns LOWER(column) - converts to lowercase
+// Lower applies LOWER to the column.
 func (c ColumnImpl[Owner, T]) Lower() ColumnImpl[Owner, T] {
 	return c.Fn("LOWER(%s)")
 }
 
-// Substring returns SUBSTRING(column, start, length) - extracts substring
+// Substring applies SUBSTRING(column, start, length).
 func (c ColumnImpl[Owner, T]) Substring(start, length int) ColumnImpl[Owner, T] {
 	return c.Fn(fmt.Sprintf("SUBSTRING(%%s, %d, %d)", start, length))
 }
 
-// Length returns LENGTH(column) - returns string length
+// Length applies LENGTH to the column.
 func (c ColumnImpl[Owner, T]) Length() ColumnImpl[Owner, T] {
 	return c.Fn("LENGTH(%s)")
 }
 
-// Trim returns TRIM(column) - removes leading and trailing spaces
+// Trim applies TRIM to the column.
 func (c ColumnImpl[Owner, T]) Trim() ColumnImpl[Owner, T] {
 	return c.Fn("TRIM(%s)")
 }
@@ -243,27 +243,27 @@ func (c ColumnImpl[Owner, T]) Concat(_ string) ColumnImpl[Owner, T] {
 // 日期和时间函数 (Date/Time Functions)
 // ================================================
 
-// Now returns CURRENT_TIMESTAMP - current timestamp (usually used as static function)
+// Now replaces the receiver with the CURRENT_TIMESTAMP expression.
 func (c ColumnImpl[Owner, T]) Now() ColumnImpl[Owner, T] {
 	return c.FnRaw("CURRENT_TIMESTAMP")
 }
 
-// Date returns DATE(column) - extracts date part from datetime
+// Date extracts the date portion of the column with DATE(...).
 func (c ColumnImpl[Owner, T]) Date() ColumnImpl[Owner, T] {
 	return c.Fn("DATE(%s)")
 }
 
-// Year returns a portable year extraction expression for the column
+// Year extracts the four-digit year from the column using portable SQL.
 func (c ColumnImpl[Owner, T]) Year() ColumnImpl[Owner, T] {
 	return c.Fn("SUBSTR(DATE(%s), 1, 4)")
 }
 
-// Month returns a portable month extraction expression for the column
+// Month extracts the two-digit month from the column using portable SQL.
 func (c ColumnImpl[Owner, T]) Month() ColumnImpl[Owner, T] {
 	return c.Fn("SUBSTR(DATE(%s), 6, 2)")
 }
 
-// Day returns a portable day extraction expression for the column
+// Day extracts the two-digit day from the column using portable SQL.
 func (c ColumnImpl[Owner, T]) Day() ColumnImpl[Owner, T] {
 	return c.Fn("SUBSTR(DATE(%s), 9, 2)")
 }
@@ -272,7 +272,7 @@ func (c ColumnImpl[Owner, T]) Day() ColumnImpl[Owner, T] {
 // 数学函数 (Math Functions)
 // ================================================
 
-// Round returns ROUND(column, precision) - rounds to specified decimal places
+// Round applies ROUND(column, precision).
 func (c ColumnImpl[Owner, T]) Round(precision int) ColumnImpl[Owner, T] {
 	if precision < 0 {
 		c.buildErr = errors.New("round precision cannot be negative")
@@ -282,17 +282,17 @@ func (c ColumnImpl[Owner, T]) Round(precision int) ColumnImpl[Owner, T] {
 	return c.Fn(fmt.Sprintf("ROUND(%%s, %d)", precision))
 }
 
-// Ceil returns CEIL(column) - rounds up to nearest integer
+// Ceil applies CEIL to the column.
 func (c ColumnImpl[Owner, T]) Ceil() ColumnImpl[Owner, T] {
 	return c.Fn("CEIL(%s)")
 }
 
-// Floor returns FLOOR(column) - rounds down to nearest integer
+// Floor applies FLOOR to the column.
 func (c ColumnImpl[Owner, T]) Floor() ColumnImpl[Owner, T] {
 	return c.Fn("FLOOR(%s)")
 }
 
-// Abs returns ABS(column) - returns absolute value
+// Abs applies ABS to the column.
 func (c ColumnImpl[Owner, T]) Abs() ColumnImpl[Owner, T] {
 	return c.Fn("ABS(%s)")
 }
@@ -301,12 +301,12 @@ func (c ColumnImpl[Owner, T]) Abs() ColumnImpl[Owner, T] {
 // 条件函数 (Conditional Functions)
 // ================================================
 
-// Coalesce returns COALESCE(column, value) - returns first non-null value
+// Coalesce applies COALESCE(column, value).
 func (c ColumnImpl[Owner, T]) Coalesce(value any) ColumnImpl[Owner, T] {
 	return c.FnExpr("COALESCE(%s, %s)", value)
 }
 
-// NullIf returns NULLIF(column, value) - returns NULL if values are equal
+// NullIf applies NULLIF(column, value).
 func (c ColumnImpl[Owner, T]) NullIf(value any) ColumnImpl[Owner, T] {
 	return c.FnExpr("NULLIF(%s, %s)", value)
 }

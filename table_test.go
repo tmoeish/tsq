@@ -146,7 +146,7 @@ func TestInitDeduplicatesProvidedTracers(t *testing.T) {
 		defaultRuntime = oldRuntime
 	})
 
-	tracer := func(next Fn) Fn { return next }
+	tracer := func(next TraceFn) TraceFn { return next }
 
 	db := newSQLiteIndexTestEngine(t)
 	if err := Init(db.DB, db.Dialect, &InitOptions{Tracers: []Tracer{tracer}}); err != nil {
@@ -169,7 +169,7 @@ func TestRuntimeKeepsRegistrationsAndTracersIsolated(t *testing.T) {
 	left.RegisterTable(newMockTable("users"), func(db *Engine) error { return nil })
 	right.RegisterTable(newMockTable("users"), func(db *Engine) error { return nil })
 
-	left.AddTracer(func(next Fn) Fn { return next })
+	left.AddTracer(func(next TraceFn) TraceFn { return next })
 
 	if got := len(left.snapshotRegisteredTables()); got != 1 {
 		t.Fatalf("expected left runtime registration count 1, got %d", got)

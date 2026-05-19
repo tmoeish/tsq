@@ -139,6 +139,7 @@ func (d MySQLDialect) EnsureIndex(ctx context.Context, db SQLExecutor, table str
 		if inspectErr == nil && found && validateIndexDefinition(table, unique, idx, fields, definition) == nil {
 			return "", nil
 		}
+
 		return "", err
 	}
 

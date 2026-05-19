@@ -59,6 +59,7 @@ func init() {
 	GenCmd.Flags().BoolVarP(&v, "verbose", "v", false, "print each generated file path")
 }
 
+// GenCmd generates tsq table, result, and DDL artifacts for a package.
 var GenCmd = &cobra.Command{
 	Use:   "gen <package-or-dir>",
 	Short: "Generate *_tsq.go files for one Go package",

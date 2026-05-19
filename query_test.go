@@ -239,7 +239,7 @@ func TestQueryBuilder_Build_SetOperationPaginationUsesOutputColumnNames(t *testi
 	query := mustBuild(Select(userID).
 		From(userID.Table()).
 		Union(Select(orderUserID).From(orderUserID.Table())))
-	page := &PageReq{Page: 1, Size: 10, OrderBy: "id", Order: "asc"}
+	page := &PageRequest{Page: 1, Size: 10, OrderBy: "id", Order: "asc"}
 
 	_, listSQL, err := query.buildPageSQLs(page)
 	if err != nil {
@@ -264,7 +264,7 @@ func TestQueryBuilder_Build_PageSQLPlacesLockAfterLimit(t *testing.T) {
 		From(userID.Table()).
 		ForUpdate().
 		SkipLocked())
-	page := &PageReq{Page: 1, Size: 10}
+	page := &PageRequest{Page: 1, Size: 10}
 
 	_, listSQL, err := query.buildPageSQLs(page)
 	if err != nil {
@@ -653,7 +653,7 @@ func TestQuery_buildPageSQLsRejectsAmbiguousSortField(t *testing.T) {
 		From(userID.Table()).
 		CrossJoin(orderID.Table()))
 
-	_, _, err := query.buildPageSQLs(&PageReq{
+	_, _, err := query.buildPageSQLs(&PageRequest{
 		OrderBy: "id",
 		Order:   "ASC",
 	})
@@ -673,7 +673,7 @@ func TestQuery_buildPageSQLsIgnoresHiddenJSONSortAlias(t *testing.T) {
 
 	query := mustBuild(Select(hidden).From(hidden.Table()))
 
-	_, _, err := query.buildPageSQLs(&PageReq{
+	_, _, err := query.buildPageSQLs(&PageRequest{
 		OrderBy: "-",
 		Order:   "ASC",
 	})
@@ -694,7 +694,7 @@ func TestQuery_buildPageSQLsDefaultsMissingOrderToASC(t *testing.T) {
 
 	query := mustBuild(Select(userID, userName).From(userID.Table()))
 
-	_, listSQL, err := query.buildPageSQLs(&PageReq{
+	_, listSQL, err := query.buildPageSQLs(&PageRequest{
 		OrderBy: "name,id",
 	})
 	if err != nil {
@@ -716,7 +716,7 @@ func TestQuery_buildPageSQLsRejectsExplicitOrderCountMismatch(t *testing.T) {
 
 	query := mustBuild(Select(userID, userName).From(userID.Table()))
 
-	_, _, err := query.buildPageSQLs(&PageReq{
+	_, _, err := query.buildPageSQLs(&PageRequest{
 		OrderBy: "name,id",
 		Order:   "DESC",
 	})

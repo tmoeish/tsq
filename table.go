@@ -10,10 +10,6 @@ import (
 	"sync"
 )
 
-// ================================================
-// 表注册和管理
-// ================================================
-
 // RegistrationErrorType identifies a table-registration failure category.
 type RegistrationErrorType string
 
@@ -56,18 +52,18 @@ const (
 
 // SchemaEvent reports a schema action performed or skipped during Init.
 type SchemaEvent struct {
-	Kind  SchemaEventKind
-	Table string
-	Name  string
-	SQL   string
+	Kind  SchemaEventKind // Kind identifies which schema action tsq took.
+	Table string          // Table names the table associated with the action.
+	Name  string          // Name names the affected schema object, such as an index.
+	SQL   string          // SQL contains the statement tsq executed when one was emitted.
 }
 
 // ErrIndexMissing reports that an expected index was not found.
 type ErrIndexMissing struct {
-	Table  string
-	Name   string
-	Fields []string
-	Unique bool
+	Table  string   // Table is the table that should contain the index.
+	Name   string   // Name is the expected index name.
+	Fields []string // Fields is the expected indexed column order.
+	Unique bool     // Unique reports whether the missing index should be unique.
 }
 
 // Error implements error.
@@ -86,9 +82,9 @@ func (e *ErrIndexMissing) Error() string {
 
 // RegistrationError reports a table-registration failure.
 type RegistrationError struct {
-	Type      RegistrationErrorType
-	TableName string
-	Message   string
+	Type      RegistrationErrorType // Type classifies the registration failure.
+	TableName string                // TableName identifies the conflicting or invalid table entry.
+	Message   string                // Message contains the user-facing error text.
 }
 
 // Error implements error.
@@ -109,10 +105,10 @@ func newRegistry() *registry {
 
 // InitOptions controls runtime initialization behavior.
 type InitOptions struct {
-	UpsertIndexes      bool
-	IndexMode          IndexInitMode
-	Tracers            []Tracer
-	SchemaEventHandler func(SchemaEvent)
+	UpsertIndexes      bool              // UpsertIndexes keeps the legacy "create missing indexes" behavior when IndexMode is unset.
+	IndexMode          IndexInitMode     // IndexMode chooses whether Init skips, upserts, or validates declared indexes.
+	Tracers            []Tracer          // Tracers are appended to the runtime before initialization work begins.
+	SchemaEventHandler func(SchemaEvent) // SchemaEventHandler receives emitted schema actions such as created or validated indexes.
 	// IdentifierValidationMode controls how to handle identifier length violations:
 	// "strict" = fail if any identifier exceeds dialect limits (default for most dialects)
 	// "warn"   = log warnings but allow (for permissive databases)
@@ -129,6 +125,7 @@ func RegisterTable(
 	return defaultRuntime.RegisterTable(table, initFunc)
 }
 
+// Register adds a table/init pair to the runtime registry keyed by table name.
 func (r *registry) Register(
 	table Table,
 	initFunc func(db *Engine) error,
@@ -173,34 +170,26 @@ type registeredTable struct {
 	InitFunc func(db *Engine) error
 }
 
-// ================================================
-// 表接口定义
-// ================================================
-
 // Table defines a physical SQL table source.
 // Unlike Result, a Table is both a scan owner and a mutation target, and it
 // exposes stable column and primary-key metadata for metadata-driven execution.
 type Table interface {
 	Owner
-	Cols() []SQLColumn
-	Table() string
-	SearchColumns() []SearchColumn
-	PrimaryKeys() []string
-	AutoIncrement() bool
-	VersionColumn() string
+	Cols() []SQLColumn             // Cols returns the physical columns exposed by the table.
+	Table() string                 // Table returns the SQL identifier used in rendered queries.
+	SearchColumns() []SearchColumn // SearchColumns returns columns eligible for keyword-search helpers.
+	PrimaryKeys() []string         // PrimaryKeys returns the primary-key column names in declaration order.
+	AutoIncrement() bool           // AutoIncrement reports whether inserts rely on generated primary keys.
+	VersionColumn() string         // VersionColumn returns the optimistic-lock column name, if any.
 }
-
-// ================================================
-// 数据库初始化
-// ================================================
 
 // Init initializes indexes and tracers for the default runtime with optional explicit options.
 func Init(db *sql.DB, dialect Dialect, options ...*InitOptions) error {
 	return defaultRuntime.Init(db, dialect, options...)
 }
 
-// CurrentEngine returns the Engine of the default runtime.
-func CurrentEngine() *Engine {
+// DefaultEngine returns the Engine of the default runtime.
+func DefaultEngine() *Engine {
 	return defaultRuntime.Engine()
 }
 
@@ -220,6 +209,7 @@ func snapshotRegisteredTables() []*registeredTable {
 	return defaultRuntime.snapshotRegisteredTables()
 }
 
+// Snapshot returns the registered tables in deterministic key order.
 func (r *registry) Snapshot() []*registeredTable {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -243,7 +233,7 @@ func (r *registry) Snapshot() []*registeredTable {
 // 索引管理 - 数据库方言检测
 // ================================================
 
-// UpsertIndex ensures an index exists, with database dialect-specific implementation
+// UpsertIndex ensures a declared index exists or validates it, depending on InitOptions.
 func UpsertIndex(db *Engine, table string, unique bool, idx string, fields []string) error {
 	if db == nil {
 		return errors.New("engine cannot be nil")
@@ -514,7 +504,7 @@ func quoteDialectIdentifiers(dialect Dialect, names []string) ([]string, error) 
 // MySQL 索引管理
 // ================================================
 
-// ensureMySQLIndex ensures an index exists in MySQL
+// ensureMySQLIndex delegates index creation to the MySQL-specific DDL path.
 func ensureMySQLIndex(db *Engine, table string, unique bool, idx string, fields []string) error {
 	return createMySQLIndex(db, table, unique, idx, fields)
 }
@@ -560,7 +550,7 @@ func inspectMySQLIndexDefinition(
 	}, true, nil
 }
 
-// createMySQLIndex creates an index in MySQL
+// createMySQLIndex issues the MySQL DDL needed to create an index and emits schema events.
 func createMySQLIndex(engine *Engine, table string, unique bool, idx string, fields []string) error {
 	quotedFields, err := quoteDialectIdentifiers(engine.Dialect, fields)
 	if err != nil {
@@ -604,7 +594,7 @@ func createMySQLIndex(engine *Engine, table string, unique bool, idx string, fie
 // SQLite 索引管理
 // ================================================
 
-// ensureSQLiteIndex ensures an index exists in SQLite
+// ensureSQLiteIndex delegates index creation to the SQLite-specific DDL path.
 func ensureSQLiteIndex(db *Engine, table string, unique bool, idx string, fields []string) error {
 	return createSQLiteIndex(db, table, unique, idx, fields)
 }
@@ -716,7 +706,7 @@ func inspectSQLiteIndexFields(db *Engine, idx string) ([]string, error) {
 	return fields, nil
 }
 
-// createSQLiteIndex creates an index in SQLite
+// createSQLiteIndex issues the SQLite DDL needed to create an index and emits schema events.
 func createSQLiteIndex(db *Engine, table string, unique bool, idx string, fields []string) error {
 	quotedFields, err := quoteDialectIdentifiers(db.Dialect, fields)
 	if err != nil {
@@ -760,7 +750,7 @@ func createSQLiteIndex(db *Engine, table string, unique bool, idx string, fields
 // PostgreSQL 索引管理
 // ================================================
 
-// ensurePostgresIndex ensures an index exists in PostgreSQL
+// ensurePostgresIndex delegates index creation to the PostgreSQL-specific DDL path.
 func ensurePostgresIndex(db *Engine, table string, unique bool, idx string, fields []string) error {
 	return createPostgresIndex(db, table, unique, idx, fields)
 }
@@ -805,7 +795,7 @@ func inspectPostgresIndexDefinition(db *Engine, idx string) (IndexDefinition, bo
 	}, true, nil
 }
 
-// createPostgresIndex creates an index in PostgreSQL
+// createPostgresIndex issues the PostgreSQL DDL needed to create an index and emits schema events.
 func createPostgresIndex(db *Engine, table string, unique bool, idx string, fields []string) error {
 	quotedFields, err := quoteDialectIdentifiers(db.Dialect, fields)
 	if err != nil {

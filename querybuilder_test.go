@@ -16,14 +16,14 @@ type queryBuilderCaseRow struct {
 
 func (queryBuilderCaseRow) TSQOwner() {}
 
-func (m mockTable) Init(db *Engine) error { return nil }
-func (m mockTable) TSQOwner()                                   {}
-func (m mockTable) Table() string                               { return m.tableName }
-func (m mockTable) Cols() []SQLColumn                           { return nil }
-func (m mockTable) SearchColumns() []SearchColumn               { return nil }
-func (m mockTable) PrimaryKeys() []string                       { return nil }
-func (m mockTable) AutoIncrement() bool                         { return false }
-func (m mockTable) VersionColumn() string                       { return "" }
+func (m mockTable) Init(db *Engine) error         { return nil }
+func (m mockTable) TSQOwner()                     {}
+func (m mockTable) Table() string                 { return m.tableName }
+func (m mockTable) Cols() []SQLColumn             { return nil }
+func (m mockTable) SearchColumns() []SearchColumn { return nil }
+func (m mockTable) PrimaryKeys() []string         { return nil }
+func (m mockTable) AutoIncrement() bool           { return false }
+func (m mockTable) VersionColumn() string         { return "" }
 
 func newMockTable(name string) Table {
 	return mockTable{tableName: name}

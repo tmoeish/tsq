@@ -509,11 +509,11 @@ func (q *Query[O]) exist(
 func Page[O Owner](
 	ctx context.Context,
 	tx SQLExecutor,
-	page *PageReq,
+	page *PageRequest,
 	q *Query[O],
 	args ...any,
-) (*PageResp[O], error) {
-	return Trace1(ctx, func(ctx context.Context) (*PageResp[O], error) {
+) (*PageResponse[O], error) {
+	return Trace1(ctx, func(ctx context.Context) (*PageResponse[O], error) {
 		return pageFn(ctx, tx, page, q, args...)
 	})
 }
@@ -521,10 +521,10 @@ func Page[O Owner](
 func pageFn[O Owner](
 	ctx context.Context,
 	tx SQLExecutor,
-	page *PageReq,
+	page *PageRequest,
 	q *Query[O],
 	args ...any,
-) (*PageResp[O], error) {
+) (*PageResponse[O], error) {
 	if err := validateQuery(q); err != nil {
 		return nil, err
 	}
@@ -619,7 +619,7 @@ func pageFn[O Owner](
 		return nil, fmt.Errorf("%s: %w", "failed to execute paginated query", err)
 	}
 
-	return NewPageResp(page, count, list), nil
+	return NewPageResponse(page, count, list), nil
 }
 
 // List executes q and returns all matching rows.
@@ -819,7 +819,7 @@ func (q *Query[O]) Load(
 	})
 }
 
-func (q *Query[O]) buildPageSQLs(page *PageReq) (string, string, error) {
+func (q *Query[O]) buildPageSQLs(page *PageRequest) (string, string, error) {
 	if err := validateQuery(q); err != nil {
 		return "", "", err
 	}
@@ -1371,9 +1371,9 @@ func isDuplicateKeyError(err error) bool {
 	return false
 }
 
-func normalizePageReq(page *PageReq) *PageReq {
+func normalizePageReq(page *PageRequest) *PageRequest {
 	if page == nil {
-		page = &PageReq{}
+		page = &PageRequest{}
 	}
 
 	normalized := *page

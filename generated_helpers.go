@@ -2,8 +2,8 @@ package tsq
 
 // InputOrderMatch groups rows reordered to match caller input and the missing keys.
 type InputOrderMatch[T any, K comparable] struct {
-	Ordered []*T
-	Missing []K
+	Ordered []*T // Ordered contains rows sorted to match the input key order.
+	Missing []K  // Missing contains input keys that did not match any row.
 }
 
 // MatchByInputOrder reorders rows to match inputs and reports which keys were missing.

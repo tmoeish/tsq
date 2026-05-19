@@ -13,6 +13,7 @@ import (
 //go:embed mock.sql
 var mockSQL string
 
+// OpenSQLiteExampleDB opens the in-memory Academy example database and seeds it.
 func OpenSQLiteExampleDB() (*tsq.Engine, func(), error) {
 	db, err := sql.Open("sqlite3", ":memory:")
 	if err != nil {
@@ -33,5 +34,5 @@ func OpenSQLiteExampleDB() (*tsq.Engine, func(), error) {
 		return nil, nil, fmt.Errorf("%s: %w", "init tsq", err)
 	}
 
-	return tsq.CurrentEngine(), cleanup, nil
+	return tsq.DefaultEngine(), cleanup, nil
 }

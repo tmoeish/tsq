@@ -57,16 +57,20 @@ func CTE[O Owner](name string, query completeQueryStage[O]) Table {
 	}
 }
 
+// TSQOwner marks cteTable as a valid tsq owner.
 func (cteTable) TSQOwner() {}
 
+// Table returns the CTE name used in the surrounding query.
 func (t cteTable) Table() string {
 	return t.name
 }
 
+// SearchColumns returns nil because CTE handles do not declare search metadata.
 func (t cteTable) SearchColumns() []SearchColumn {
 	return nil
 }
 
+// Cols returns the selected columns rebound onto the CTE name.
 func (t cteTable) Cols() []SQLColumn {
 	if len(t.def.cols) == 0 {
 		return nil
@@ -75,18 +79,22 @@ func (t cteTable) Cols() []SQLColumn {
 	return AliasColumns(t.def.cols, t)
 }
 
+// PrimaryKeys returns nil because CTE handles do not declare primary keys.
 func (cteTable) PrimaryKeys() []string {
 	return nil
 }
 
+// AutoIncrement reports false because CTE handles are read-only query sources.
 func (cteTable) AutoIncrement() bool {
 	return false
 }
 
+// VersionColumn returns an empty string because CTE handles do not expose version metadata.
 func (cteTable) VersionColumn() string {
 	return ""
 }
 
+// PhysicalTable returns the CTE name because there is no separate underlying table.
 func (t cteTable) PhysicalTable() string {
 	return t.name
 }

@@ -13,11 +13,11 @@ import (
 // MaxTracers bounds the number of tracers retained by a runtime.
 const MaxTracers = 100
 
-// Fn is the traced function shape used by Tracer.
-type Fn func(ctx context.Context) error
+// TraceFn is the traced function signature used by Tracer.
+type TraceFn func(ctx context.Context) error
 
 // Tracer wraps a function call with tracing behavior.
-type Tracer func(next Fn) Fn
+type Tracer func(next TraceFn) TraceFn
 
 type traceManager struct {
 	mu        sync.RWMutex
@@ -44,6 +44,7 @@ func GetTracers() []Tracer {
 	return defaultRuntime.GetTracers()
 }
 
+// Add appends a tracer when capacity allows.
 func (m *traceManager) Add(tracer Tracer) {
 	if tracer == nil {
 		return
@@ -63,6 +64,7 @@ func (m *traceManager) Add(tracer Tracer) {
 	m.tracers = append(m.tracers, tracer)
 }
 
+// AddUnique appends only tracers that are not already registered.
 func (m *traceManager) AddUnique(tracers ...Tracer) {
 	m.restoreMu.Lock()
 	defer m.restoreMu.Unlock()
@@ -95,6 +97,7 @@ func (m *traceManager) AddUnique(tracers ...Tracer) {
 	}
 }
 
+// Clear removes all registered tracers.
 func (m *traceManager) Clear() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -102,6 +105,7 @@ func (m *traceManager) Clear() {
 	m.tracers = nil
 }
 
+// Get returns a defensive copy of the registered tracers.
 func (m *traceManager) Get() []Tracer {
 	return m.snapshot()
 }
@@ -126,6 +130,7 @@ func (m *traceManager) restore(snapshot []Tracer) {
 	m.tracers = append([]Tracer(nil), snapshot...)
 }
 
+// Trace executes fn through the registered tracer chain.
 func (m *traceManager) Trace(ctx context.Context, fn func(ctx context.Context) error) error {
 	if fn == nil {
 		return errors.New("trace function cannot be nil")
@@ -231,7 +236,7 @@ func tracerIdentity(tracer Tracer) uintptr {
 }
 
 // PrintCost logs how long the wrapped call took.
-func PrintCost(next Fn) Fn {
+func PrintCost(next TraceFn) TraceFn {
 	return func(ctx context.Context) error {
 		start := time.Now()
 		err := next(ctx)
@@ -248,7 +253,7 @@ func PrintCost(next Fn) Fn {
 }
 
 // PrintError logs the wrapped error, if any.
-func PrintError(next Fn) Fn {
+func PrintError(next TraceFn) TraceFn {
 	return func(ctx context.Context) error {
 		err := next(ctx)
 		if err != nil {
@@ -266,7 +271,7 @@ const (
 )
 
 // PrintSQL marks the context so query helpers log SQL and args.
-func PrintSQL(next Fn) Fn {
+func PrintSQL(next TraceFn) TraceFn {
 	return func(ctx context.Context) error {
 		return next(context.WithValue(ctx, printSQL, true))
 	}

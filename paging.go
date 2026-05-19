@@ -7,33 +7,25 @@ import (
 	"strconv"
 )
 
-// ================================================
-// 分页常量和类型
-// ================================================
-
 const (
 	// DefaultPageSize is the default number of rows returned per page.
 	DefaultPageSize = 20
-	// MaxPageSize is the largest page size accepted by PageReq.
-	MaxPageSize = 1000 // 防止过大的页面大小
+	// MaxPageSize is the largest page size accepted by PageRequest.
+	MaxPageSize = 1000
 )
 
-// ================================================
-// 分页请求结构体
-// ================================================
-
-// PageReq represents a pagination request with search and sorting capabilities
-type PageReq struct {
-	Size    int    `json:"size"     query:"size"`     // 页面大小，默认 20
-	Page    int    `json:"page"     query:"page"`     // 页码，从 1 开始，默认 1
-	OrderBy string `json:"order_by" query:"order_by"` // 排序字段，逗号分隔
-	Order   string `json:"order"    query:"order"`    // 排序方向 [asc|desc]，逗号分隔
-	Keyword string `json:"keyword"  query:"keyword"`  // 搜索关键词（可选）
+// PageRequest captures a page request, sort instructions, and optional keyword search.
+type PageRequest struct {
+	Size    int    `json:"size"     query:"size"`     // Size is the requested page size.
+	Page    int    `json:"page"     query:"page"`     // Page is the 1-based page number.
+	OrderBy string `json:"order_by" query:"order_by"` // OrderBy lists sortable field names separated by commas.
+	Order   string `json:"order"    query:"order"`    // Order lists sort directions aligned with OrderBy.
+	Keyword string `json:"keyword"  query:"keyword"`  // Keyword carries the optional free-text search term.
 }
 
-// NewPageReq creates *PageReq from query parameters(e.g. page=1&size=20&order_by=id&order=DESC).
-func NewPageReq(params url.Values) *PageReq {
-	page := &PageReq{
+// NewPageRequest creates *PageRequest from query parameters(e.g. page=1&size=20&order_by=id&order=DESC).
+func NewPageRequest(params url.Values) *PageRequest {
+	page := &PageRequest{
 		Page:    1,
 		Size:    DefaultPageSize,
 		Order:   "",
@@ -45,37 +37,32 @@ func NewPageReq(params url.Values) *PageReq {
 		return page
 	}
 
-	// Parse page number
 	if pageStr := params.Get("page"); pageStr != "" {
 		if n, err := strconv.ParseInt(pageStr, 10, 64); err == nil && n > 0 {
 			page.Page = int(n)
 		}
 	}
 
-	// Parse page size with limits
 	if sizeStr := params.Get("size"); sizeStr != "" {
 		if n, err := strconv.ParseInt(sizeStr, 10, 64); err == nil && n > 0 {
 			page.Size = min(int(n), MaxPageSize)
 		}
 	}
 
-	// Parse order by field
 	page.OrderBy = params.Get("order_by")
 	if page.OrderBy == "" {
-		page.OrderBy = params.Get("sort") // Alternative parameter name
+		page.OrderBy = params.Get("sort")
 	}
 
-	// Parse order direction
 	page.Order = params.Get("order")
 
-	// Parse search keyword
 	page.Keyword = params.Get("keyword")
 
 	return page
 }
 
-// ToQuery converts PageReq to url.Values for URL generation
-func (r *PageReq) ToQuery() url.Values {
+// ToQuery serializes the request back into URL query parameters.
+func (r *PageRequest) ToQuery() url.Values {
 	r = normalizePageReq(r)
 
 	v := url.Values{}
@@ -99,12 +86,10 @@ func (r *PageReq) ToQuery() url.Values {
 
 // Offset calculates the offset value for SQL LIMIT clause.
 // Returns 0 if calculation would overflow; guaranteed safe for use in SQL.
-func (r *PageReq) Offset() int {
+func (r *PageRequest) Offset() int {
 	r = normalizePageReq(r)
 
-	// Prevent integer overflow: if (page-1) * size would exceed maxInt
-	// Conservative check: if either operand is large enough to risk overflow
-	const maxSafe = 1000000 // 1M rows should be more than enough for any pagination
+	const maxSafe = 1000000
 	if r.Page > maxSafe || r.Size > maxSafe {
 		return 0
 	}
@@ -112,8 +97,8 @@ func (r *PageReq) Offset() int {
 	return r.Size * (r.Page - 1)
 }
 
-// Normalize ensures PageReq is valid
-func (r *PageReq) Normalize() error {
+// Normalize applies default page values and clamps the requested page size.
+func (r *PageRequest) Normalize() error {
 	if r == nil {
 		return nil
 	}
@@ -134,7 +119,7 @@ func (r *PageReq) Normalize() error {
 }
 
 // Validate reports invalid paging or sorting input without mutating r.
-func (r *PageReq) Validate() error {
+func (r *PageRequest) Validate() error {
 	if r == nil {
 		return nil
 	}
@@ -164,30 +149,25 @@ func (r *PageReq) Validate() error {
 	return nil
 }
 
-// ================================================
-// 分页响应结构体
-// ================================================
+// PageResponse wraps paginated data with request and count metadata.
+type PageResponse[T any] struct {
+	PageRequest
 
-// PageResp represents a paginated response with metadata
-type PageResp[T any] struct {
-	PageReq
-
-	Total     int64 `json:"total"`      // 总记录数
-	TotalPage int64 `json:"total_page"` // 总页数
-	Data      []*T  `json:"data"`       // 当前页数据
+	Total     int64 `json:"total"`      // Total is the full number of matching rows.
+	TotalPage int64 `json:"total_page"` // TotalPage is the number of available pages after rounding up.
+	Data      []*T  `json:"data"`       // Data contains the rows for the current page.
 }
 
-// NewPageResp creates a new PageResp from request, total count, and data
-func NewPageResp[T any](r *PageReq, total int64, data []*T) *PageResp[T] {
+// NewPageResponse creates a new PageResponse from request, total count, and data
+func NewPageResponse[T any](r *PageRequest, total int64, data []*T) *PageResponse[T] {
 	r = normalizePageReq(r)
 
-	resp := &PageResp[T]{
-		PageReq: *r,
-		Total:   total,
-		Data:    data,
+	resp := &PageResponse[T]{
+		PageRequest: *r,
+		Total:       total,
+		Data:        data,
 	}
 
-	// Calculate total pages
 	if r.Size > 0 {
 		resp.TotalPage = total / int64(r.Size)
 		if total%int64(r.Size) != 0 {
@@ -198,8 +178,8 @@ func NewPageResp[T any](r *PageReq, total int64, data []*T) *PageResp[T] {
 	return resp
 }
 
-// HasNext returns true if there are more pages available
-func (r *PageResp[T]) HasNext() bool {
+// HasNext reports whether another page exists after the current one.
+func (r *PageResponse[T]) HasNext() bool {
 	if r == nil {
 		return false
 	}
@@ -207,8 +187,8 @@ func (r *PageResp[T]) HasNext() bool {
 	return r.Page < int(r.TotalPage)
 }
 
-// HasPrev returns true if there are previous pages available
-func (r *PageResp[T]) HasPrev() bool {
+// HasPrev reports whether a page exists before the current one.
+func (r *PageResponse[T]) HasPrev() bool {
 	if r == nil {
 		return false
 	}
@@ -216,8 +196,8 @@ func (r *PageResp[T]) HasPrev() bool {
 	return r.Page > 1
 }
 
-// IsEmpty returns true if the result set is empty
-func (r *PageResp[T]) IsEmpty() bool {
+// IsEmpty reports whether the current page contains any rows.
+func (r *PageResponse[T]) IsEmpty() bool {
 	if r == nil {
 		return true
 	}
