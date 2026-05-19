@@ -10,6 +10,7 @@
 
 [![GitHub release (latest by date)][1]][2]
 [![Build Status][3]](https://github.com/tmoeish/tsq/actions)
+[![Go Reference](https://pkg.go.dev/badge/github.com/tmoeish/tsq/v4.svg)](https://pkg.go.dev/github.com/tmoeish/tsq/v4)
 [![Go Report Card][4]][5]
 [![License: MIT][6]][7]
 
