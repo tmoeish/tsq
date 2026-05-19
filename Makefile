@@ -1,6 +1,6 @@
 GO ?= $(shell command -v go 2>/dev/null || echo /usr/local/go/bin/go)
 MODULE=$(shell $(GO) list -m)
-BINARY_NAME=$(shell basename $(MODULE))
+BINARY_NAME=tsq
 OS ?= $(shell $(GO) env GOOS)
 ARCH ?= $(shell $(GO) env GOARCH)
 VERSION=$(shell git describe --tags --always --dirty 2>/dev/null || echo "unknown")
