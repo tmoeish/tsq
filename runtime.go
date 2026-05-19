@@ -70,13 +70,8 @@ func (r *Runtime) snapshotRegisteredTables() []*registeredTable {
 	return r.registry.Snapshot()
 }
 
-// Init initializes indexes and runtime state with default options.
-func (r *Runtime) Init(db *sql.DB, dialect Dialect) error {
-	return r.InitWithOpts(db, dialect, nil)
-}
-
-// InitWithOpts initializes indexes and runtime state using explicit options.
-func (r *Runtime) InitWithOpts(db *sql.DB, dialect Dialect, options *InitOptions) error {
+// Init initializes indexes and runtime state using optional explicit options.
+func (r *Runtime) Init(db *sql.DB, dialect Dialect, options ...*InitOptions) error {
 	if r == nil {
 		return errors.New("runtime cannot be nil")
 	}
@@ -89,11 +84,16 @@ func (r *Runtime) InitWithOpts(db *sql.DB, dialect Dialect, options *InitOptions
 		return errors.New("dialect cannot be nil")
 	}
 
-	if options == nil {
-		options = &InitOptions{}
+	var opts *InitOptions
+	if len(options) > 0 {
+		opts = options[0]
 	}
 
-	indexMode := resolveIndexInitMode(options)
+	if opts == nil {
+		opts = &InitOptions{}
+	}
+
+	indexMode := resolveIndexInitMode(opts)
 	if err := validateIndexInitMode(indexMode); err != nil {
 		return err
 	}
@@ -108,7 +108,7 @@ func (r *Runtime) InitWithOpts(db *sql.DB, dialect Dialect, options *InitOptions
 	r.engine = engine
 	storeDBSchemaConfig(engine, dbSchemaConfig{
 		indexInitMode:      indexMode,
-		schemaEventHandler: options.SchemaEventHandler,
+		schemaEventHandler: opts.SchemaEventHandler,
 	})
 
 	rollbackTracers := r.traceManager.snapshot()
@@ -125,14 +125,14 @@ func (r *Runtime) InitWithOpts(db *sql.DB, dialect Dialect, options *InitOptions
 		r.traceManager.restore(rollbackTracers)
 	}()
 
-	r.traceManager.AddUnique(options.Tracers...)
+	r.traceManager.AddUnique(opts.Tracers...)
 
 	registeredTables := r.registry.Snapshot()
 
 	// Validate identifiers if configured (after db is stored so we can get current dialect)
-	if options.IdentifierValidationMode != "skip" {
-		if err := r.validateRegisteredTableIdentifiers(options.IdentifierValidationMode); err != nil {
-			if options.IdentifierValidationMode == "strict" {
+	if opts.IdentifierValidationMode != "skip" {
+		if err := r.validateRegisteredTableIdentifiers(opts.IdentifierValidationMode); err != nil {
+			if opts.IdentifierValidationMode == "strict" {
 				return err
 			}
 			// For "warn" mode, just log the error but continue
