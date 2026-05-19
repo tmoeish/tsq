@@ -1,6 +1,4 @@
-module github.com/tmoeish/tsq
-
-retract [v1.0.0, v1.0.20] // 撤回所有误发的 v1.0.x 版本
+module github.com/tmoeish/tsq/v4
 
 go 1.25.0
 

@@ -17,7 +17,7 @@ import (
 	"github.com/juju/errors"
 	"golang.org/x/tools/go/packages"
 
-	"github.com/tmoeish/tsq"
+	"github.com/tmoeish/tsq/v4"
 )
 
 // ParseResult 解析结果

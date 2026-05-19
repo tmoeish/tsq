@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/tmoeish/tsq"
-	"github.com/tmoeish/tsq/examples/database"
+	"github.com/tmoeish/tsq/v4"
+	"github.com/tmoeish/tsq/v4/examples/database"
 )
 
 func newExampleDBMap(t *testing.T) *tsq.DbMap {

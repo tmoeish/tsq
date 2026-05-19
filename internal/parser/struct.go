@@ -12,7 +12,7 @@ import (
 	"github.com/juju/errors"
 	"github.com/serenize/snaker"
 
-	"github.com/tmoeish/tsq"
+	"github.com/tmoeish/tsq/v4"
 )
 
 var reservedImportAliases = map[string]struct{}{

@@ -1,6 +1,6 @@
 package database
 
-import "github.com/tmoeish/tsq/examples/common"
+import "github.com/tmoeish/tsq/v4/examples/common"
 
 // 用户表
 // @TABLE(

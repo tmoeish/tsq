@@ -7,6 +7,13 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 项目遵循 [语义化版本控制](https://semver.org/lang/zh-CN/)。
 
+## [4.0.1] - 2026-05-19
+
+### 修复
+- 将 v4 发布线对齐到 Go major version module 约定，模块路径改为 `github.com/tmoeish/tsq/v4`
+- 同步更新安装命令、示例导入路径、GoReleaser ldflags 与 golangci module-path，避免发布产物和下游导入不一致
+- 将 CI 的 Go 版本提升到 `1.25.0`，与 `go.mod` 保持一致
+
 ## [4.0.0] - 2026-05-07
 
 ### 变更（Breaking Changes）

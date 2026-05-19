@@ -10,7 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/tmoeish/tsq"
+	"github.com/tmoeish/tsq/v4"
 )
 
 func Test_parsePackageAliases(t *testing.T) {

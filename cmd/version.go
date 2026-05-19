@@ -5,7 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/tmoeish/tsq"
+	"github.com/tmoeish/tsq/v4"
 )
 
 // VersionCmd 显示 tsq 的版本信息

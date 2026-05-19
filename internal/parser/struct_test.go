@@ -7,7 +7,7 @@ import (
 	"go/token"
 	"testing"
 
-	"github.com/tmoeish/tsq"
+	"github.com/tmoeish/tsq/v4"
 )
 
 func Test_parseStructDeclaration(t *testing.T) {

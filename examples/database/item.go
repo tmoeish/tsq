@@ -1,7 +1,7 @@
 package database
 
 import (
-	"github.com/tmoeish/tsq/examples/common"
+	"github.com/tmoeish/tsq/v4/examples/common"
 )
 
 /*

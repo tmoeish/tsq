@@ -232,7 +232,7 @@ func assertCompileFailsSource(t *testing.T, rootDir, source, want string) {
 func compileFailSource(body string) string {
 	return `package compilefail
 
-import "github.com/tmoeish/tsq"
+import "github.com/tmoeish/tsq/v4"
 
 type userOwner struct{}
 type orderOwner struct{}

@@ -13,7 +13,7 @@ import (
 	"github.com/juju/errors"
 	"mvdan.cc/gofumpt/format"
 
-	"github.com/tmoeish/tsq"
+	"github.com/tmoeish/tsq/v4"
 )
 
 type generationModel struct {

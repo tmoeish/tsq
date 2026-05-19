@@ -17,9 +17,9 @@ mkdir tsq-quickstart
 cd tsq-quickstart
 
 go mod init example.com/tsq-quickstart
-go get github.com/tmoeish/tsq@latest
+go get github.com/tmoeish/tsq/v4@latest
 go get github.com/mattn/go-sqlite3@latest
-go install github.com/tmoeish/tsq/cmd/tsq@latest
+go install github.com/tmoeish/tsq/v4/cmd/tsq@latest
 ```
 
 创建目录：
@@ -82,7 +82,7 @@ import (
 
 	_ "github.com/mattn/go-sqlite3"
 
-	"github.com/tmoeish/tsq"
+	"github.com/tmoeish/tsq/v4"
 	"example.com/tsq-quickstart/database"
 )
 

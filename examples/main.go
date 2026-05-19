@@ -12,8 +12,8 @@ import (
 	"github.com/juju/errors"
 	_ "github.com/mattn/go-sqlite3"
 
-	"github.com/tmoeish/tsq"
-	"github.com/tmoeish/tsq/examples/database"
+	"github.com/tmoeish/tsq/v4"
+	"github.com/tmoeish/tsq/v4/examples/database"
 )
 
 type exampleSummary struct {

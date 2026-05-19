@@ -15,8 +15,8 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
-	"github.com/tmoeish/tsq"
-	"github.com/tmoeish/tsq/internal/parser"
+	"github.com/tmoeish/tsq/v4"
+	"github.com/tmoeish/tsq/v4/internal/parser"
 )
 
 var (
@@ -91,8 +91,8 @@ Overwrite behavior:
 	Example: strings.Join([]string{
 		"  tsq gen ./examples/database",
 		"  tsq gen --dry-run ./examples/database",
-		"  tsq gen --check github.com/tmoeish/tsq/examples/database",
-		"  tsq gen github.com/tmoeish/tsq/examples/database",
+		"  tsq gen --check github.com/tmoeish/tsq/v4/examples/database",
+		"  tsq gen github.com/tmoeish/tsq/v4/examples/database",
 		"  tsq gen /abs/path/to/project/internal/database --tpl ./cmd/tsq.go.tmpl",
 	}, "\n"),
 	Args: exactOnePackageArg,

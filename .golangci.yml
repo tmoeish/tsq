@@ -89,7 +89,7 @@ formatters:
       no-inline-comments: true
       no-prefix-comments: true
     gofumpt:
-      module-path: github.com/tmoeish/tsq
+      module-path: github.com/tmoeish/tsq/v4
       extra-rules: true
   exclusions:
     generated: strict

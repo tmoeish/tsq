@@ -7,8 +7,8 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
-	"github.com/tmoeish/tsq"
-	"github.com/tmoeish/tsq/cmd"
+	"github.com/tmoeish/tsq/v4"
+	"github.com/tmoeish/tsq/v4/cmd"
 )
 
 var rootCmd = &cobra.Command{

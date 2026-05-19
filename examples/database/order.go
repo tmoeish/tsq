@@ -3,7 +3,7 @@ package database
 import (
 	"database/sql/driver"
 
-	"github.com/tmoeish/tsq/examples/common"
+	"github.com/tmoeish/tsq/v4/examples/common"
 )
 
 // 订单表

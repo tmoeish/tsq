@@ -13,7 +13,7 @@ import (
 
 	"github.com/juju/errors"
 
-	"github.com/tmoeish/tsq"
+	"github.com/tmoeish/tsq/v4"
 )
 
 // ParseTableInfo 从注释组中解析表元数据，返回 TableInfo 结构体

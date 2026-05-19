@@ -12,7 +12,7 @@ import (
 
 	"github.com/juju/errors"
 
-	"github.com/tmoeish/tsq"
+	"github.com/tmoeish/tsq/v4"
 )
 
 const (

@@ -10,7 +10,7 @@ import (
 	null "gopkg.in/nullbio/null.v6"
 
 	"github.com/juju/errors"
-	"github.com/tmoeish/tsq"
+	"github.com/tmoeish/tsq/v4"
 )
 
 // =============================================================================

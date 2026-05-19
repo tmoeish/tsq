@@ -6,7 +6,7 @@ import (
 
 	"github.com/juju/errors"
 
-	"github.com/tmoeish/tsq"
+	"github.com/tmoeish/tsq/v4"
 )
 
 // UserOrder 演示查询结果联表映射。

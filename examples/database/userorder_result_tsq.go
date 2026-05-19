@@ -4,7 +4,7 @@ package database
 import (
 	tsqtime "time"
 
-	"github.com/tmoeish/tsq"
+	"github.com/tmoeish/tsq/v4"
 )
 
 // =============================================================================

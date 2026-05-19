@@ -11,7 +11,7 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/tmoeish/tsq"
+	"github.com/tmoeish/tsq/v4"
 )
 
 func TestGenArgsRejectsMissingOrExtraPackagePaths(t *testing.T) {
@@ -270,7 +270,7 @@ type User struct {
 
 func TestNewDDLTypeResolverAllowsExamplePackageWithoutGeneratedFiles(t *testing.T) {
 	resolver, err := newDDLTypeResolver(
-		"github.com/tmoeish/tsq/examples/database",
+		"github.com/tmoeish/tsq/v4/examples/database",
 		filepath.Join("..", "examples", "database"),
 	)
 	if err != nil {
@@ -1265,8 +1265,8 @@ func genTestModuleFile(t *testing.T) string {
 
 	return "module example.com/gentest\n\n" +
 		"go 1.24.2\n\n" +
-		"require github.com/tmoeish/tsq v0.0.0\n\n" +
-		"replace github.com/tmoeish/tsq => " + wd + "\n"
+		"require github.com/tmoeish/tsq/v4 v4.0.1\n\n" +
+		"replace github.com/tmoeish/tsq/v4 => " + wd + "\n"
 }
 
 func tidyGenTestModule(t *testing.T) {
