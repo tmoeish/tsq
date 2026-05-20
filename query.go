@@ -147,14 +147,14 @@ var builtInIdentifierPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 // Identifier length limits by SQL dialect.
 const (
-	// MaxIdentifierLengthMySQL = 64  // Actual is 64, but we allow 63 for compatibility
-	MaxIdentifierLengthMySQL = 64
-	// MaxIdentifierLengthPostgreSQL is PostgreSQL's maximum identifier length.
-	MaxIdentifierLengthPostgreSQL = 63
-	// MaxIdentifierLengthOracleSQL is Oracle's maximum identifier length.
-	MaxIdentifierLengthOracleSQL = 30
-	// MaxIdentifierLengthSQLite is zero because SQLite has no practical identifier limit.
-	MaxIdentifierLengthSQLite = 0 // SQLite has no practical limit, 0 means unlimited
+	// maxIdentifierLengthMySQL is MySQL's maximum identifier length.
+	maxIdentifierLengthMySQL = 64
+	// maxIdentifierLengthPostgreSQL is PostgreSQL's maximum identifier length.
+	maxIdentifierLengthPostgreSQL = 63
+	// maxIdentifierLengthOracleSQL is Oracle's maximum identifier length.
+	maxIdentifierLengthOracleSQL = 30
+	// maxIdentifierLengthSQLite is zero because SQLite has no practical identifier limit.
+	maxIdentifierLengthSQLite = 0 // SQLite has no practical limit, 0 means unlimited
 )
 
 // Build once and reuse Query values on hot paths instead of rebuilding the same shape.

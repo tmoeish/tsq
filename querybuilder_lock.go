@@ -1,7 +1,7 @@
 package tsq
 
 // ForUpdate adds a FOR UPDATE row-lock clause to the query.
-func (qb *QueryBuilder[O]) ForUpdate() LockedStage[O] {
+func (qb *queryBuilder[O]) ForUpdate() LockedStage[O] {
 	core := ensureQueryBuilderCore(qb.core(), builderPhaseBase)
 	core.setLockStrength(queryLockStrengthUpdate)
 
@@ -57,7 +57,7 @@ func (qb *compoundQueryBuilder[O]) ForUpdate() LockedStage[O] {
 }
 
 // ForShare adds a FOR SHARE row-lock clause to the query.
-func (qb *QueryBuilder[O]) ForShare() LockedStage[O] {
+func (qb *queryBuilder[O]) ForShare() LockedStage[O] {
 	core := ensureQueryBuilderCore(qb.core(), builderPhaseBase)
 	core.setLockStrength(queryLockStrengthShare)
 

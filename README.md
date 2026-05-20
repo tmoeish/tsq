@@ -24,7 +24,7 @@
 
 TSQ（Type-Safe Query）会把带注解的 Go 结构体生成为**表元数据、CRUD/分页助手和类型安全查询列**，让你用 Go API 组合 SQL，而不是在业务代码里手写大量字符串。
 
-当前主线版本是 **v4 typed DSL**：`Query` / `QueryBuilder` / `Into` 都带 owner 类型，表 owner、结果 owner 和物理表语义已经拆开，联表结果与本地结果扫描会更早在编译期暴露错误。
+当前主线版本是 **v4 typed DSL**：`Query` / Build-based 查询链路 / `Into` 都带 owner 类型，表 owner、结果 owner 和物理表语义已经拆开，联表结果与本地结果扫描会更早在编译期暴露错误。
 
 核心关系现在可以直接记成：
 
@@ -151,7 +151,7 @@ func main() {
 | 文档 | 适合什么时候看 |
 | --- | --- |
 | [`docs/quickstart.md`](docs/quickstart.md) | 从空目录开始，5 分钟跑通 SQLite 示例 |
-| [`docs/concepts.md`](docs/concepts.md) | 想建立 Table 注解、生成文件、QueryBuilder、Result、Runtime 的心智模型 |
+| [`docs/concepts.md`](docs/concepts.md) | 想建立 Table 注解、生成文件、查询构建链路、Result、Runtime 的心智模型 |
 | [`examples/README.md`](examples/README.md) | 想按 quickstart / cookbook / full-suite 找示例 |
 | [`BEST_PRACTICES.md`](BEST_PRACTICES.md) | 想看输入校验、分页、事务、排序和生产环境建议 |
 | [`MIGRATION_GUIDE.md`](MIGRATION_GUIDE.md) | 从旧 API 迁移到当前 Build-based API |

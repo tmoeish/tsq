@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -12,7 +13,6 @@ import (
 
 	"mvdan.cc/gofumpt/format"
 
-	"github.com/tmoeish/tsq/v4"
 	"github.com/tmoeish/tsq/v4/internal/genmodel"
 )
 
@@ -117,7 +117,7 @@ func summarizeGenerationModels(models []generationModel) generationStats {
 func renderGenerationModelSource(model generationModel) ([]byte, error) {
 	buf := new(bytes.Buffer)
 	if err := model.Template.Execute(buf, model.Data); err != nil {
-		bs := tsq.PrettyJSON(model.Data)
+		bs := prettyJSON(model.Data)
 		return nil, fmt.Errorf("%s: %s, data: %s"+": %w", model.ErrorLabel, model.Filename, bs, err)
 	}
 
@@ -127,6 +127,15 @@ func renderGenerationModelSource(model generationModel) ([]byte, error) {
 	}
 
 	return src, nil
+}
+
+func prettyJSON(v any) string {
+	bs, err := json.MarshalIndent(v, "", "    ")
+	if err != nil {
+		return ""
+	}
+
+	return string(bs)
 }
 
 func renderGenerationModel(model generationModel) error {

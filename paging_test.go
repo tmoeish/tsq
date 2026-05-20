@@ -13,8 +13,8 @@ func TestNewPageReq_EmptyParams(t *testing.T) {
 		t.Errorf("Expected default page 1, got %d", page.Page)
 	}
 
-	if page.Size != DefaultPageSize {
-		t.Errorf("Expected default size %d, got %d", DefaultPageSize, page.Size)
+	if page.Size != defaultPageSize {
+		t.Errorf("Expected default size %d, got %d", defaultPageSize, page.Size)
 	}
 
 	if page.Order != "" {
@@ -93,10 +93,10 @@ func TestNewPageReq_InvalidSize(t *testing.T) {
 		sizeStr  string
 		expected int
 	}{
-		{"negative size", "-1", DefaultPageSize},
-		{"zero size", "0", DefaultPageSize},
-		{"invalid string", "abc", DefaultPageSize},
-		{"empty string", "", DefaultPageSize},
+		{"negative size", "-1", defaultPageSize},
+		{"zero size", "0", defaultPageSize},
+		{"invalid string", "abc", defaultPageSize},
+		{"empty string", "", defaultPageSize},
 	}
 
 	for _, tt := range tests {
@@ -115,12 +115,12 @@ func TestNewPageReq_InvalidSize(t *testing.T) {
 
 func TestNewPageReq_MaxSize(t *testing.T) {
 	params := url.Values{}
-	params.Set("size", strconv.Itoa(MaxPageSize+100))
+	params.Set("size", strconv.Itoa(maxPageSize+100))
 
 	page := NewPageRequest(params)
 
-	if page.Size != MaxPageSize {
-		t.Errorf("Expected size to be capped at %d, got %d", MaxPageSize, page.Size)
+	if page.Size != maxPageSize {
+		t.Errorf("Expected size to be capped at %d, got %d", maxPageSize, page.Size)
 	}
 }
 
@@ -183,7 +183,7 @@ func TestPageReq_ToQuery(t *testing.T) {
 func TestPageReq_ToQuery_EmptyValues(t *testing.T) {
 	page := &PageRequest{
 		Page: 1,
-		Size: DefaultPageSize,
+		Size: defaultPageSize,
 	}
 
 	query := page.ToQuery()
@@ -192,8 +192,8 @@ func TestPageReq_ToQuery_EmptyValues(t *testing.T) {
 		t.Errorf("Expected page '1', got '%s'", query.Get("page"))
 	}
 
-	if query.Get("size") != strconv.Itoa(DefaultPageSize) {
-		t.Errorf("Expected size '%d', got '%s'", DefaultPageSize, query.Get("size"))
+	if query.Get("size") != strconv.Itoa(defaultPageSize) {
+		t.Errorf("Expected size '%d', got '%s'", defaultPageSize, query.Get("size"))
 	}
 
 	// Empty values should not be set
@@ -218,7 +218,7 @@ func TestPageReq_NilHelpers(t *testing.T) {
 		t.Fatalf("expected default page for nil request, got %q", query.Get("page"))
 	}
 
-	if query.Get("size") != strconv.Itoa(DefaultPageSize) {
+	if query.Get("size") != strconv.Itoa(defaultPageSize) {
 		t.Fatalf("expected default size for nil request, got %q", query.Get("size"))
 	}
 
@@ -242,8 +242,8 @@ func TestPageReq_HelpersNormalizeInvalidValues(t *testing.T) {
 		t.Fatalf("expected normalized page 1, got %q", query.Get("page"))
 	}
 
-	if query.Get("size") != strconv.Itoa(DefaultPageSize) {
-		t.Fatalf("expected normalized size %d, got %q", DefaultPageSize, query.Get("size"))
+	if query.Get("size") != strconv.Itoa(defaultPageSize) {
+		t.Fatalf("expected normalized size %d, got %q", defaultPageSize, query.Get("size"))
 	}
 
 	if offset := page.Offset(); offset != 0 {
@@ -312,16 +312,16 @@ func TestPageReq_Validate(t *testing.T) {
 				Size: 0,
 			},
 			expectedPage: 2,
-			expectedSize: DefaultPageSize,
+			expectedSize: defaultPageSize,
 		},
 		{
 			name: "size too large",
 			input: &PageRequest{
 				Page: 2,
-				Size: MaxPageSize + 100,
+				Size: maxPageSize + 100,
 			},
 			expectedPage: 2,
-			expectedSize: MaxPageSize,
+			expectedSize: maxPageSize,
 		},
 		{
 			name: "negative values",
@@ -330,7 +330,7 @@ func TestPageReq_Validate(t *testing.T) {
 				Size: -10,
 			},
 			expectedPage: 1,
-			expectedSize: DefaultPageSize,
+			expectedSize: defaultPageSize,
 		},
 	}
 
@@ -457,8 +457,8 @@ func TestNewResponse_ZeroSize(t *testing.T) {
 
 	resp := NewPageResponse(req, 20, []*string{})
 
-	if resp.Size != DefaultPageSize {
-		t.Fatalf("expected normalized size %d, got %d", DefaultPageSize, resp.Size)
+	if resp.Size != defaultPageSize {
+		t.Fatalf("expected normalized size %d, got %d", defaultPageSize, resp.Size)
 	}
 
 	if resp.TotalPage != 1 {
@@ -604,17 +604,17 @@ func TestNewResponseNormalizesNilRequest(t *testing.T) {
 		t.Fatalf("expected default page 1, got %d", resp.Page)
 	}
 
-	if resp.Size != DefaultPageSize {
-		t.Fatalf("expected default size %d, got %d", DefaultPageSize, resp.Size)
+	if resp.Size != defaultPageSize {
+		t.Fatalf("expected default size %d, got %d", defaultPageSize, resp.Size)
 	}
 }
 
 func TestConstants(t *testing.T) {
 	if false {
-		t.Errorf("Expected DefaultPageSize 20, got %d", DefaultPageSize)
+		t.Errorf("Expected defaultPageSize 20, got %d", defaultPageSize)
 	}
 
 	if false {
-		t.Errorf("Expected MaxPageSize 1000, got %d", MaxPageSize)
+		t.Errorf("Expected maxPageSize 1000, got %d", maxPageSize)
 	}
 }

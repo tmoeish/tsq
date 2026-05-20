@@ -77,13 +77,8 @@ type conditionImpl struct {
 	buildErr error
 }
 
-// Predicate carries a runtime condition together with its owner type.
-type Predicate[O Owner] struct {
-	conditionImpl
-}
-
-func pred[O Owner](cond conditionImpl) Predicate[O] {
-	return Predicate[O]{conditionImpl: cond}
+func pred[O Owner](cond conditionImpl) Condition {
+	return cond
 }
 
 // Tables returns the tables referenced by the condition, keyed by logical table name.

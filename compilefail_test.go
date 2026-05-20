@@ -57,6 +57,48 @@ var _ tsq.Cond
 			want: "undefined: tsq.Cond",
 		},
 		{
+			name: "predicate_hidden",
+			body: `
+var _ tsq.Predicate[userOwner]
+`,
+			want: "undefined: tsq.Predicate",
+		},
+		{
+			name: "query_builder_hidden",
+			body: `
+var _ tsq.QueryBuilder[userOwner]
+`,
+			want: "undefined: tsq.QueryBuilder",
+		},
+		{
+			name: "input_order_match_hidden",
+			body: `
+var _ tsq.InputOrderMatch[userOwner, int]
+`,
+			want: "undefined: tsq.InputOrderMatch",
+		},
+		{
+			name: "default_page_size_hidden",
+			body: `
+var _ = tsq.DefaultPageSize
+`,
+			want: "undefined: tsq.DefaultPageSize",
+		},
+		{
+			name: "max_page_size_hidden",
+			body: `
+var _ = tsq.MaxPageSize
+`,
+			want: "undefined: tsq.MaxPageSize",
+		},
+		{
+			name: "pretty_json_hidden",
+			body: `
+var _ = tsq.PrettyJSON
+`,
+			want: "undefined: tsq.PrettyJSON",
+		},
+		{
 			name: "table_column_rejects_result_col",
 			body: `
 var resultCol = tsq.MapInto[userOwner](userID, func(holder *userOwner) *int { return nil }, "user_id")

@@ -221,7 +221,7 @@ func (r *Runtime) validateRegisteredTableIdentifiers(mode string) error {
 		}
 
 		tableName := table.Table.Table()
-		if err := ValidateIdentifierLength(tableName, r.engine.Dialect); err != nil {
+		if err := validateIdentifierLength(tableName, r.engine.Dialect); err != nil {
 			if mode == "strict" {
 				return fmt.Errorf("table %s identifier validation failed"+": %w", tableName, err)
 			}
@@ -287,7 +287,7 @@ func validateColumnIdentifiersForDialect(
 		}
 		seen[colName] = struct{}{}
 
-		if err := ValidateIdentifierLength(colName, dialect); err != nil {
+		if err := validateIdentifierLength(colName, dialect); err != nil {
 			if mode == "strict" {
 				return fmt.Errorf("column %s.%s identifier validation failed"+": %w", tableName, colName, err)
 			}

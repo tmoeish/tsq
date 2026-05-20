@@ -235,7 +235,7 @@ func TestInitFailureRestoresPreviousRuntimeStateAfterStrictValidation(t *testing
 	failingHandler := func(event SchemaEvent) {
 		failingEvents = append(failingEvents, event)
 	}
-	longTableName := strings.Repeat("u", MaxIdentifierLengthMySQL+1)
+	longTableName := strings.Repeat("u", maxIdentifierLengthMySQL+1)
 	if err := r.RegisterTable(newMockTable(longTableName), func(db *Engine) error {
 		return nil
 	}); err != nil {

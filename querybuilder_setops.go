@@ -1,7 +1,7 @@
 package tsq
 
 // Union appends a UNION clause to the current query.
-func (qb *QueryBuilder[O]) Union(other QueryStage[O]) CompoundStage[O] {
+func (qb *queryBuilder[O]) Union(other QueryStage[O]) CompoundStage[O] {
 	core := ensureQueryBuilderCore(qb.core(), builderPhaseBase)
 	core.appendSetOperation(unionType, other)
 
@@ -57,7 +57,7 @@ func (qb *compoundQueryBuilder[O]) Union(other QueryStage[O]) CompoundStage[O] {
 }
 
 // UnionAll appends a UNION ALL clause to the current query.
-func (qb *QueryBuilder[O]) UnionAll(other QueryStage[O]) CompoundStage[O] {
+func (qb *queryBuilder[O]) UnionAll(other QueryStage[O]) CompoundStage[O] {
 	core := ensureQueryBuilderCore(qb.core(), builderPhaseBase)
 	core.appendSetOperation(unionAllType, other)
 
@@ -113,7 +113,7 @@ func (qb *compoundQueryBuilder[O]) UnionAll(other QueryStage[O]) CompoundStage[O
 }
 
 // Intersect appends an INTERSECT clause to the current query.
-func (qb *QueryBuilder[O]) Intersect(other QueryStage[O]) CompoundStage[O] {
+func (qb *queryBuilder[O]) Intersect(other QueryStage[O]) CompoundStage[O] {
 	core := ensureQueryBuilderCore(qb.core(), builderPhaseBase)
 	core.appendSetOperation(intersectType, other)
 
@@ -169,7 +169,7 @@ func (qb *compoundQueryBuilder[O]) Intersect(other QueryStage[O]) CompoundStage[
 }
 
 // IntersectAll appends an INTERSECT ALL clause to the current query.
-func (qb *QueryBuilder[O]) IntersectAll(other QueryStage[O]) CompoundStage[O] {
+func (qb *queryBuilder[O]) IntersectAll(other QueryStage[O]) CompoundStage[O] {
 	core := ensureQueryBuilderCore(qb.core(), builderPhaseBase)
 	core.appendSetOperation(intersectAllType, other)
 
@@ -225,7 +225,7 @@ func (qb *compoundQueryBuilder[O]) IntersectAll(other QueryStage[O]) CompoundSta
 }
 
 // Except appends an EXCEPT clause to the current query.
-func (qb *QueryBuilder[O]) Except(other QueryStage[O]) CompoundStage[O] {
+func (qb *queryBuilder[O]) Except(other QueryStage[O]) CompoundStage[O] {
 	core := ensureQueryBuilderCore(qb.core(), builderPhaseBase)
 	core.appendSetOperation(exceptType, other)
 
@@ -281,7 +281,7 @@ func (qb *compoundQueryBuilder[O]) Except(other QueryStage[O]) CompoundStage[O] 
 }
 
 // ExceptAll appends an EXCEPT ALL clause to the current query.
-func (qb *QueryBuilder[O]) ExceptAll(other QueryStage[O]) CompoundStage[O] {
+func (qb *queryBuilder[O]) ExceptAll(other QueryStage[O]) CompoundStage[O] {
 	core := ensureQueryBuilderCore(qb.core(), builderPhaseBase)
 	core.appendSetOperation(exceptAllType, other)
 

@@ -169,8 +169,8 @@ type ErrUnsupportedCapability struct {
 	reason    string
 }
 
-// NewErrUnsupportedCapability constructs an ErrUnsupportedCapability.
-func NewErrUnsupportedCapability(operation DialectCapability, dialect DialectName, reason string) *ErrUnsupportedCapability {
+// newErrUnsupportedCapability constructs an ErrUnsupportedCapability.
+func newErrUnsupportedCapability(operation DialectCapability, dialect DialectName, reason string) *ErrUnsupportedCapability {
 	return &ErrUnsupportedCapability{
 		operation: canonicalCapabilityName(string(operation)),
 		dialect:   dialect,
@@ -196,8 +196,8 @@ func (e *ErrUnsupportedCapability) Error() string {
 	)
 }
 
-// ValidateOperationForDialect reports whether d supports operation.
-func ValidateOperationForDialect(operation string, d Dialect) error {
+// validateOperationForDialect reports whether d supports operation.
+func validateOperationForDialect(operation string, d Dialect) error {
 	if d == nil {
 		return nil
 	}
@@ -205,8 +205,8 @@ func ValidateOperationForDialect(operation string, d Dialect) error {
 	return validateDialectCapability(d, canonicalCapabilityName(operation))
 }
 
-// ValidateIdentifierForDialect validates identifier syntax and dialect-specific limits.
-func ValidateIdentifierForDialect(identifier string, dialect Dialect) error {
+// validateIdentifierForDialect validates identifier syntax and dialect-specific limits.
+func validateIdentifierForDialect(identifier string, dialect Dialect) error {
 	if identifier == "" {
 		return errors.New("identifier cannot be empty")
 	}
@@ -215,11 +215,11 @@ func ValidateIdentifierForDialect(identifier string, dialect Dialect) error {
 		return fmt.Errorf("invalid SQL identifier: %s (must match pattern [A-Za-z_][A-Za-z0-9_]*)", identifier)
 	}
 
-	return ValidateIdentifierLength(identifier, dialect)
+	return validateIdentifierLength(identifier, dialect)
 }
 
-// ValidateIdentifierLength validates only the dialect-specific identifier length rules.
-func ValidateIdentifierLength(identifier string, dialect Dialect) error {
+// validateIdentifierLength validates only the dialect-specific identifier length rules.
+func validateIdentifierLength(identifier string, dialect Dialect) error {
 	if identifier == "" {
 		return errors.New("identifier cannot be empty")
 	}
@@ -236,7 +236,7 @@ func validateDialectCapability(dialect Dialect, capability DialectCapability) er
 		return nil
 	}
 
-	return NewErrUnsupportedCapability(
+	return newErrUnsupportedCapability(
 		capability,
 		dialect.Name(),
 		unsupportedCapabilityHint(capability, dialect.Name()),

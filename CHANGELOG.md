@@ -7,6 +7,14 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 项目遵循 [语义化版本控制](https://semver.org/lang/zh-CN/)。
 
+## [4.1.2] - 2026-05-20
+
+### 改进
+- **内部封装收紧**: 进一步将多个公开类型、常量和函数转为内部可见（如 `QueryBuilder` -> `queryBuilder`、`MaxTracers` -> `maxTracers` 等），减少了 API 暴露面，使包语义更清晰。
+- **条件表达统一**: 规范了 `Condition` 接口在内部链路中的使用，移除了部分冗余的 `Predicate` 包装。
+- **模板与助手优化**: 更新了代码生成模板中的 `MatchByInputOrder` 使用方式，并同步优化了文档说明。
+- **文档完善**: 更新了 `README.md` 和 `MIGRATION_GUIDE.md`，使其与当前的 Build-based 泛型链路描述保持一致。
+
 ## [4.1.1] - 2026-05-20
 
 ### 改进

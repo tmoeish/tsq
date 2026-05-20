@@ -69,7 +69,7 @@ func coreForQueryStage[O Owner](stage QueryStage[O]) *queryBuilderCore[O] {
 	return provider.core()
 }
 
-func (qb *QueryBuilder[O]) core() *queryBuilderCore[O] {
+func (qb *queryBuilder[O]) core() *queryBuilderCore[O] {
 	if qb == nil {
 		panic(errQueryBuilderNil)
 	}

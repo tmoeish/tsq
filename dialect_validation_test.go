@@ -53,7 +53,7 @@ func TestDialectCapabilities(t *testing.T) {
 }
 
 func TestErrUnsupportedOperation(t *testing.T) {
-	err := NewErrUnsupportedCapability(DialectCapabilityFullOuterJoin, DialectMySQL, "use LEFT/RIGHT JOIN with UNION")
+	err := newErrUnsupportedCapability(DialectCapabilityFullOuterJoin, DialectMySQL, "use LEFT/RIGHT JOIN with UNION")
 	msg := err.Error()
 	if !strings.Contains(msg, "FULL JOIN") {
 		t.Fatalf("expected FULL JOIN in error, got %q", msg)
@@ -67,15 +67,15 @@ func TestErrUnsupportedOperation(t *testing.T) {
 }
 
 func TestValidateOperationForDialect(t *testing.T) {
-	if err := ValidateOperationForDialect("FULL OUTER JOIN", nil); err != nil {
+	if err := validateOperationForDialect("FULL OUTER JOIN", nil); err != nil {
 		t.Fatalf("nil dialect should skip capability validation: %v", err)
 	}
 
-	if err := ValidateOperationForDialect("FULL OUTER JOIN", PostgresDialect{}); err != nil {
+	if err := validateOperationForDialect("FULL OUTER JOIN", PostgresDialect{}); err != nil {
 		t.Fatalf("postgres should allow FULL OUTER JOIN: %v", err)
 	}
 
-	err := ValidateOperationForDialect("FULL OUTER JOIN", MySQLDialect{})
+	err := validateOperationForDialect("FULL OUTER JOIN", MySQLDialect{})
 	if err == nil {
 		t.Fatal("mysql should reject FULL OUTER JOIN")
 	}
@@ -85,11 +85,11 @@ func TestValidateOperationForDialect(t *testing.T) {
 }
 
 func TestValidateOperationForDialectForUpdate(t *testing.T) {
-	if err := ValidateOperationForDialect("FOR UPDATE", PostgresDialect{}); err != nil {
+	if err := validateOperationForDialect("FOR UPDATE", PostgresDialect{}); err != nil {
 		t.Fatalf("postgres should allow FOR UPDATE: %v", err)
 	}
 
-	err := ValidateOperationForDialect("FOR UPDATE", SQLiteDialect{})
+	err := validateOperationForDialect("FOR UPDATE", SQLiteDialect{})
 	if err == nil {
 		t.Fatal("sqlite should reject FOR UPDATE")
 	}

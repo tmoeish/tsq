@@ -78,7 +78,7 @@ func (d MySQLDialect) HasConstraintsQuery(table, column string) string {
 
 // ValidateIdentifier applies MySQL's identifier validation rules.
 func (d MySQLDialect) ValidateIdentifier(identifier string) error {
-	return validateDialectIdentifier(identifier, d.Name(), MaxIdentifierLengthMySQL)
+	return validateDialectIdentifier(identifier, d.Name(), maxIdentifierLengthMySQL)
 }
 
 // SupportsCapability reports whether MySQL supports capability.

@@ -19,7 +19,7 @@ func TestCTERejectsInvalidInputs(t *testing.T) {
 		},
 		{
 			name: "missing query core",
-			cte:  CTE("users_cte", &QueryBuilder[Table]{}),
+			cte:  CTE("users_cte", &queryBuilder[Table]{}),
 		},
 	}
 

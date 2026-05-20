@@ -308,13 +308,13 @@ func {{$name}}(
 		return nil, err
 	}
 
-	match := tsq.MatchByInputOrder({{ FieldSliceVarName $dot.PK }}, list, func(row *{{$type}}) {{index $dot.FieldMap $dot.PK | FieldType}} {
+	ordered, missing := tsq.MatchByInputOrder({{ FieldSliceVarName $dot.PK }}, list, func(row *{{$type}}) {{index $dot.FieldMap $dot.PK | FieldType}} {
 		return row.{{$dot.PK}}
 	})
-	if len(match.Missing) > 0 {
-		return nil, fmt.Errorf("records not found: %v", match.Missing)
+	if len(missing) > 0 {
+		return nil, fmt.Errorf("records not found: %v", missing)
 	}
-	return match.Ordered, nil
+	return ordered, nil
 }
 {{- end }}
 
@@ -427,13 +427,13 @@ func {{$name}}(
 	if err != nil {
 		return nil, err
 	}
-	match := tsq.MatchByInputOrder({{ FieldSliceVarName $dot.PK }}, list, func(row *{{$type}}) {{index $dot.FieldMap $dot.PK | FieldType}} {
+	ordered, missing := tsq.MatchByInputOrder({{ FieldSliceVarName $dot.PK }}, list, func(row *{{$type}}) {{index $dot.FieldMap $dot.PK | FieldType}} {
 		return row.{{$dot.PK}}
 	})
-	if len(match.Missing) > 0 {
-		return nil, fmt.Errorf("records not found: %v", match.Missing)
+	if len(missing) > 0 {
+		return nil, fmt.Errorf("records not found: %v", missing)
 	}
-	return match.Ordered, nil
+	return ordered, nil
 }
 	{{- end }}
 {{- end }}

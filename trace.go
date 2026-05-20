@@ -276,8 +276,7 @@ func PrintSQL(next TraceFn) TraceFn {
 	}
 }
 
-// PrettyJSON returns indented JSON string of obj.
-func PrettyJSON(obj any) string {
+func prettyJSON(obj any) string {
 	bs, err := json.MarshalIndent(obj, "", "    ")
 	if err != nil {
 		return ""

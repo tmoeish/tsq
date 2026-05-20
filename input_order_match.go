@@ -1,13 +1,7 @@
 package tsq
 
-// InputOrderMatch groups rows reordered to match caller input and the missing keys.
-type InputOrderMatch[T any, K comparable] struct {
-	Ordered []*T // Ordered contains rows sorted to match the input key order.
-	Missing []K  // Missing contains input keys that did not match any row.
-}
-
 // MatchByInputOrder reorders rows to match inputs and reports which keys were missing.
-func MatchByInputOrder[T any, K comparable](inputs []K, rows []*T, key func(*T) K) InputOrderMatch[T, K] {
+func MatchByInputOrder[T any, K comparable](inputs []K, rows []*T, key func(*T) K) ([]*T, []K) {
 	index := make(map[K]*T, len(rows))
 
 	for _, row := range rows {
@@ -38,8 +32,5 @@ func MatchByInputOrder[T any, K comparable](inputs []K, rows []*T, key func(*T) 
 		missing = append(missing, input)
 	}
 
-	return InputOrderMatch[T, K]{
-		Ordered: ordered,
-		Missing: missing,
-	}
+	return ordered, missing
 }

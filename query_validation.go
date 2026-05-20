@@ -53,11 +53,11 @@ func normalizePageReq(page *PageRequest) *PageRequest {
 	}
 
 	if normalized.Size <= 0 {
-		normalized.Size = DefaultPageSize
+		normalized.Size = defaultPageSize
 	}
 
-	if normalized.Size > MaxPageSize {
-		normalized.Size = MaxPageSize
+	if normalized.Size > maxPageSize {
+		normalized.Size = maxPageSize
 	}
 
 	return &normalized

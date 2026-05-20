@@ -156,7 +156,7 @@ func TestQueryBuilder_Build_AllowsRepeatedJoinTableWithAliases(t *testing.T) {
 }
 
 func TestQueryBuilder_Build_RejectsNilReceiver(t *testing.T) {
-	var qb *QueryBuilder[Table]
+	var qb *queryBuilder[Table]
 	defer func() {
 		recovered := recover()
 		if recovered == nil {
@@ -187,7 +187,7 @@ func TestQueryBuilder_Build_PreservesOwnerType(t *testing.T) {
 func TestQueryBuilder_MethodsHandleNilReceiverWithoutPanicking(t *testing.T) {
 	users := newMockTable("users")
 	userID := newColForTable[Table, int](users, "id", "id", nil)
-	var qb *QueryBuilder[Table]
+	var qb *queryBuilder[Table]
 	defer func() {
 		recovered := recover()
 		if recovered == nil {

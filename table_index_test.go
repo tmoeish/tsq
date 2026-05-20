@@ -302,7 +302,7 @@ func TestValidateIdentifiersForDialectChecksTableColumns(t *testing.T) {
 	r := NewRuntime()
 	db := newSQLiteIndexTestEngine(t)
 	db.Dialect = MySQLDialect{}
-	longColumnName := strings.Repeat("c", MaxIdentifierLengthMySQL+1)
+	longColumnName := strings.Repeat("c", maxIdentifierLengthMySQL+1)
 	table, _ := newStrictMockTable("users", longColumnName)
 	if err := r.RegisterTable(table, func(db *Engine) error {
 		return nil

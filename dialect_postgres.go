@@ -85,7 +85,7 @@ func (d PostgresDialect) HasConstraintsQuery(table, column string) string {
 
 // ValidateIdentifier applies PostgreSQL's identifier validation rules.
 func (d PostgresDialect) ValidateIdentifier(identifier string) error {
-	return validateDialectIdentifier(identifier, d.Name(), MaxIdentifierLengthPostgreSQL)
+	return validateDialectIdentifier(identifier, d.Name(), maxIdentifierLengthPostgreSQL)
 }
 
 // SupportsCapability reports whether PostgreSQL supports capability.

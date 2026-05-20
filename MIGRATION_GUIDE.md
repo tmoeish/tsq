@@ -7,7 +7,7 @@ TSQ v4 是一个重大的架构升级，旨在通过 Go 泛型提供更强的编
 | 特性 | v3 (及更早) | v4 |
 | --- | --- | --- |
 | **列类型** | `Col[T]` | `Col[Owner, T]` (强绑定所属结构) |
-| **QueryBuilder** | 弱类型，推导式 | `QueryBuilder[Owner]` (强绑定结果类型) |
+| **查询构建链路** | 弱类型，推导式 | Build-based owner 泛型链路（强绑定结果类型） |
 | **主表声明** | 隐式 (从 Select/Join 推导) | **显式** (必须调用 `From(table)`) |
 | **Join API** | `Join(t).On(l, r)` (两步) | `Join(t, conds...)` (一步) |
 | **结果映射** | `Col.Into(fp, json)` | `tsq.Into[Owner](source, fp, json)` |
@@ -19,7 +19,7 @@ TSQ v4 是一个重大的架构升级，旨在通过 Go 泛型提供更强的编
 
 ### 1. 显式声明主表
 
-在 v4 中，`From(table)` 不再是可选的。QueryBuilder 需要明确知道主表是谁以进行权限和列归属校验。
+在 v4 中，`From(table)` 不再是可选的。查询构建链路需要明确知道主表是谁以进行权限和列归属校验。
 
 **旧代码：**
 ```go
@@ -105,7 +105,7 @@ make examples  # 或者 tsq gen ./your/package
 所有的 `Insert`, `Update`, `Delete` 现在只接受实现了 `tsq.Table` 的结构体。对于纯结果集（Result），请使用 `Query` 进行查询。
 
 ### 提前错误校验
-v4 的 QueryBuilder 在 `Build()` 阶段会进行更严格的校验：
+v4 的查询构建链路会在 `Build()` 阶段进行更严格的校验：
 - Join 条件必须引用已经 `From` 或 `Join` 引入的表。
 - 投影的列必须在查询涉及的表中。
 

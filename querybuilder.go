@@ -71,7 +71,7 @@ const (
 	builderPhaseCompound   builderPhase = "compound-query"
 )
 
-type QueryBuilder[O Owner] struct {
+type queryBuilder[O Owner] struct {
 	*queryBuilderCore[O]
 }
 
@@ -82,12 +82,12 @@ type QueryStage[O Owner] interface {
 
 // SelectStage is the result of Select(...) before From(...) is attached.
 type SelectStage[O Owner] interface {
-	From(table Table) *QueryBuilder[O]
+	From(table Table) *queryBuilder[O]
 }
 
 // FromStage is the result of From(...) before Select(...) is attached.
 type FromStage[O Owner] interface {
-	Select(cols ...BoundColumn[O]) *QueryBuilder[O]
+	Select(cols ...BoundColumn[O]) *queryBuilder[O]
 }
 
 // WhereStage is the query state after Where(...).

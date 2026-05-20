@@ -22,8 +22,8 @@ func mustBuild[O Owner](qb interface{ Build() (*Query[O], error) }) *Query[O] {
 	return q
 }
 
-func newQueryBuilderForTest[O Owner](spec querySpec[O]) *QueryBuilder[O] {
-	return &QueryBuilder[O]{queryBuilderCore: &queryBuilderCore[O]{spec: spec, phase: builderPhaseBase}}
+func newQueryBuilderForTest[O Owner](spec querySpec[O]) *queryBuilder[O] {
+	return &queryBuilder[O]{queryBuilderCore: &queryBuilderCore[O]{spec: spec, phase: builderPhaseBase}}
 }
 
 func TestErrUnknownSortField(t *testing.T) {

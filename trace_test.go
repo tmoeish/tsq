@@ -560,7 +560,7 @@ func TestPrettyJSON(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := PrettyJSON(tt.input)
+			result := prettyJSON(tt.input)
 
 			if tt.expected && result == "" {
 				t.Error("Expected non-empty result")
@@ -652,7 +652,7 @@ func TestPrettyJSON_vs_CompactJSON(t *testing.T) {
 		},
 	}
 
-	pretty := PrettyJSON(input)
+	pretty := prettyJSON(input)
 	compact := CompactJSON(input)
 
 	if pretty == "" || compact == "" {

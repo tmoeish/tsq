@@ -12,7 +12,7 @@
 | 目录 | 业务场景 | 重点能力 |
 | --- | --- | --- |
 | [`academy/`](academy/) | 共享 Academy 模型、seed 数据和场景实现 | `@TABLE`、`@RESULT`、生成代码、可复用 query logic |
-| [`quickstart/`](quickstart/) | 课程目录的最小日常操作 | CRUD helper、关键词搜索、基础 QueryBuilder |
+| [`quickstart/`](quickstart/) | 课程目录的最小日常操作 | CRUD helper、关键词搜索、基础查询构建链路 |
 | [`advanced/`](advanced/) | 把目录和报名数据做成分析型查询 | alias、聚合、`InVar`、subquery、`CASE`、CTE、set ops、chunked |
 | [`full-suite/`](full-suite/) | 给学习后台做一个学习旅程看板 | joins、子查询、`@RESULT`、分页 |
 

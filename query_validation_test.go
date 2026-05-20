@@ -70,9 +70,9 @@ func TestValidateIdentifierLength(t *testing.T) {
 	}{{name: "valid identifier - mysql", identifier: "users", dialect: MySQLDialect{}, wantErr: false}, {name: "valid identifier - postgres", identifier: "users", dialect: PostgresDialect{}, wantErr: false}, {name: "max length postgres (63)", identifier: "a" + strings.Repeat("b", 62), dialect: PostgresDialect{}, wantErr: false}, {name: "exceeds max postgres (64 > 63)", identifier: strings.Repeat("a", 64), dialect: PostgresDialect{}, wantErr: true}, {name: "max length mysql (64)", identifier: strings.Repeat("a", 64), dialect: MySQLDialect{}, wantErr: false}, {name: "exceeds max mysql (65 > 64)", identifier: strings.Repeat("a", 65), dialect: MySQLDialect{}, wantErr: true}, {name: "sqlite has no limit", identifier: strings.Repeat("a", 200), dialect: SQLiteDialect{}, wantErr: false}, {name: "empty identifier", identifier: "", dialect: MySQLDialect{}, wantErr: true}, {name: "nil dialect skips length validation", identifier: strings.Repeat("a", 100), dialect: nil, wantErr: false}}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := ValidateIdentifierLength(tt.identifier, tt.dialect)
+			err := validateIdentifierLength(tt.identifier, tt.dialect)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("ValidateIdentifierLength(%q, %T) error = %v, wantErr %v", tt.identifier, tt.dialect, err, tt.wantErr)
+				t.Errorf("validateIdentifierLength(%q, %T) error = %v, wantErr %v", tt.identifier, tt.dialect, err, tt.wantErr)
 			}
 		})
 	}
@@ -88,13 +88,13 @@ func TestValidateIdentifierForDialect(t *testing.T) {
 	}{{name: "valid identifier - mysql", identifier: "users", dialect: MySQLDialect{}, wantErr: false}, {name: "valid identifier - postgres", identifier: "users_table", dialect: PostgresDialect{}, wantErr: false}, {name: "starts with underscore", identifier: "_internal", dialect: MySQLDialect{}, wantErr: false}, {name: "invalid - starts with number", identifier: "123users", dialect: MySQLDialect{}, wantErr: true, errContent: "invalid SQL identifier"}, {name: "invalid - contains hyphen", identifier: "user-table", dialect: MySQLDialect{}, wantErr: true, errContent: "invalid SQL identifier"}, {name: "exceeds postgres limit", identifier: strings.Repeat("a", 64), dialect: PostgresDialect{}, wantErr: true, errContent: "exceeds"}, {name: "at mysql limit (64)", identifier: strings.Repeat("x", 64), dialect: MySQLDialect{}, wantErr: false}, {name: "empty identifier", identifier: "", dialect: MySQLDialect{}, wantErr: true, errContent: "cannot be empty"}}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := ValidateIdentifierForDialect(tt.identifier, tt.dialect)
+			err := validateIdentifierForDialect(tt.identifier, tt.dialect)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("ValidateIdentifierForDialect(%q, %T) error = %v, wantErr %v", tt.identifier, tt.dialect, err, tt.wantErr)
+				t.Errorf("validateIdentifierForDialect(%q, %T) error = %v, wantErr %v", tt.identifier, tt.dialect, err, tt.wantErr)
 				return
 			}
 			if tt.wantErr && tt.errContent != "" && !strings.Contains(err.Error(), tt.errContent) {
-				t.Errorf("ValidateIdentifierForDialect(%q, %T) error message %q should contain %q", tt.identifier, tt.dialect, err.Error(), tt.errContent)
+				t.Errorf("validateIdentifierForDialect(%q, %T) error message %q should contain %q", tt.identifier, tt.dialect, err.Error(), tt.errContent)
 			}
 		})
 	}

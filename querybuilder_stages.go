@@ -1,68 +1,68 @@
 package tsq
 
 // From sets the base table for a SELECT-first builder.
-func (qb *selectBuilder[O]) From(table Table) *QueryBuilder[O] {
+func (qb *selectBuilder[O]) From(table Table) *queryBuilder[O] {
 	core := ensureQueryBuilderCore(qb.core(), builderPhaseNeedFrom)
 	core.setFrom(table)
 
-	return &QueryBuilder[O]{queryBuilderCore: core}
+	return &queryBuilder[O]{queryBuilderCore: core}
 }
 
 // Select sets the projected columns for a FROM-first builder.
-func (qb *fromBuilder[O]) Select(cols ...BoundColumn[O]) *QueryBuilder[O] {
+func (qb *fromBuilder[O]) Select(cols ...BoundColumn[O]) *queryBuilder[O] {
 	core := ensureQueryBuilderCore(qb.core(), builderPhaseNeedSelect)
 	core.setSelect(cols...)
 
-	return &QueryBuilder[O]{queryBuilderCore: core}
+	return &queryBuilder[O]{queryBuilderCore: core}
 }
 
 // Join adds an INNER JOIN clause.
-func (qb *QueryBuilder[O]) Join(table Table, conds ...Condition) *QueryBuilder[O] {
+func (qb *queryBuilder[O]) Join(table Table, conds ...Condition) *queryBuilder[O] {
 	return qb.InnerJoin(table, conds...)
 }
 
 // LeftJoin adds a LEFT JOIN clause with ON conditions joined by AND.
-func (qb *QueryBuilder[O]) LeftJoin(table Table, conds ...Condition) *QueryBuilder[O] {
+func (qb *queryBuilder[O]) LeftJoin(table Table, conds ...Condition) *queryBuilder[O] {
 	core := ensureQueryBuilderCore(qb.core(), builderPhaseBase)
 	core.addJoin(leftJoinType, table, conds...)
 
-	return &QueryBuilder[O]{queryBuilderCore: core}
+	return &queryBuilder[O]{queryBuilderCore: core}
 }
 
 // InnerJoin adds an INNER JOIN clause with ON conditions joined by AND.
-func (qb *QueryBuilder[O]) InnerJoin(table Table, conds ...Condition) *QueryBuilder[O] {
+func (qb *queryBuilder[O]) InnerJoin(table Table, conds ...Condition) *queryBuilder[O] {
 	core := ensureQueryBuilderCore(qb.core(), builderPhaseBase)
 	core.addJoin(innerJoinType, table, conds...)
 
-	return &QueryBuilder[O]{queryBuilderCore: core}
+	return &queryBuilder[O]{queryBuilderCore: core}
 }
 
 // RightJoin adds a RIGHT JOIN clause with ON conditions joined by AND.
-func (qb *QueryBuilder[O]) RightJoin(table Table, conds ...Condition) *QueryBuilder[O] {
+func (qb *queryBuilder[O]) RightJoin(table Table, conds ...Condition) *queryBuilder[O] {
 	core := ensureQueryBuilderCore(qb.core(), builderPhaseBase)
 	core.addJoin(rightJoinType, table, conds...)
 
-	return &QueryBuilder[O]{queryBuilderCore: core}
+	return &queryBuilder[O]{queryBuilderCore: core}
 }
 
 // FullJoin adds a FULL JOIN clause with ON conditions joined by AND.
-func (qb *QueryBuilder[O]) FullJoin(table Table, conds ...Condition) *QueryBuilder[O] {
+func (qb *queryBuilder[O]) FullJoin(table Table, conds ...Condition) *queryBuilder[O] {
 	core := ensureQueryBuilderCore(qb.core(), builderPhaseBase)
 	core.addJoin(fullJoinType, table, conds...)
 
-	return &QueryBuilder[O]{queryBuilderCore: core}
+	return &queryBuilder[O]{queryBuilderCore: core}
 }
 
 // CrossJoin adds a CROSS JOIN clause.
-func (qb *QueryBuilder[O]) CrossJoin(table Table) *QueryBuilder[O] {
+func (qb *queryBuilder[O]) CrossJoin(table Table) *queryBuilder[O] {
 	core := ensureQueryBuilderCore(qb.core(), builderPhaseBase)
 	core.addCrossJoin(table)
 
-	return &QueryBuilder[O]{queryBuilderCore: core}
+	return &queryBuilder[O]{queryBuilderCore: core}
 }
 
 // Where sets the WHERE clause for the query.
-func (qb *QueryBuilder[O]) Where(conds ...Condition) WhereStage[O] {
+func (qb *queryBuilder[O]) Where(conds ...Condition) WhereStage[O] {
 	core := ensureQueryBuilderCore(qb.core(), builderPhaseBase)
 	core.setWhere(conds...)
 
@@ -70,7 +70,7 @@ func (qb *QueryBuilder[O]) Where(conds ...Condition) WhereStage[O] {
 }
 
 // Search sets keyword-search columns for the query.
-func (qb *QueryBuilder[O]) Search(cols ...SearchColumn) SearchStage[O] {
+func (qb *queryBuilder[O]) Search(cols ...SearchColumn) SearchStage[O] {
 	core := ensureQueryBuilderCore(qb.core(), builderPhaseBase)
 	core.setSearch(cols...)
 
@@ -78,7 +78,7 @@ func (qb *QueryBuilder[O]) Search(cols ...SearchColumn) SearchStage[O] {
 }
 
 // GroupBy sets the GROUP BY clause for the query.
-func (qb *QueryBuilder[O]) GroupBy(cols ...SQLColumn) GroupedStage[O] {
+func (qb *queryBuilder[O]) GroupBy(cols ...SQLColumn) GroupedStage[O] {
 	core := ensureQueryBuilderCore(qb.core(), builderPhaseBase)
 	core.setGroupBy(cols...)
 
@@ -141,7 +141,7 @@ func (qb *groupedQueryBuilder[O]) Having(conds ...Condition) HavingStage[O] {
 // built Query may later run against different registries or executors with
 // different dialects. Capability checks that require the concrete executor
 // dialect therefore happen during execution.
-func (qb *QueryBuilder[O]) Build() (*Query[O], error) {
+func (qb *queryBuilder[O]) Build() (*Query[O], error) {
 	return buildQuery(qb.core())
 }
 

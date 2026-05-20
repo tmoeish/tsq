@@ -379,7 +379,7 @@ func runCatalogSearchDemo(ctx context.Context, engine *tsq.Engine) (*SearchSumma
 	}, nil
 }
 
-// runBackendCatalogDemo is the simplest hand-written QueryBuilder example:
+// runBackendCatalogDemo is the simplest hand-written query builder example:
 // list the published courses for the Backend Engineering track.
 func runBackendCatalogDemo(ctx context.Context, engine *tsq.Engine) (*CatalogSummary, error) {
 	query, err := tsq.

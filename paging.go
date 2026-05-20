@@ -8,10 +8,10 @@ import (
 )
 
 const (
-	// DefaultPageSize is the default number of rows returned per page.
-	DefaultPageSize = 20
-	// MaxPageSize is the largest page size accepted by PageRequest.
-	MaxPageSize = 1000
+	// defaultPageSize is the default number of rows returned per page.
+	defaultPageSize = 20
+	// maxPageSize is the largest page size accepted by PageRequest.
+	maxPageSize = 1000
 )
 
 // PageRequest captures a page request, sort instructions, and optional keyword search.
@@ -27,7 +27,7 @@ type PageRequest struct {
 func NewPageRequest(params url.Values) *PageRequest {
 	page := &PageRequest{
 		Page:    1,
-		Size:    DefaultPageSize,
+		Size:    defaultPageSize,
 		Order:   "",
 		OrderBy: "",
 		Keyword: "",
@@ -45,7 +45,7 @@ func NewPageRequest(params url.Values) *PageRequest {
 
 	if sizeStr := params.Get("size"); sizeStr != "" {
 		if n, err := strconv.ParseInt(sizeStr, 10, 64); err == nil && n > 0 {
-			page.Size = min(int(n), MaxPageSize)
+			page.Size = min(int(n), maxPageSize)
 		}
 	}
 
@@ -108,11 +108,11 @@ func (r *PageRequest) Normalize() error {
 	}
 
 	if r.Size <= 0 {
-		r.Size = DefaultPageSize
+		r.Size = defaultPageSize
 	}
 
-	if r.Size > MaxPageSize {
-		r.Size = MaxPageSize
+	if r.Size > maxPageSize {
+		r.Size = maxPageSize
 	}
 
 	return nil
@@ -132,8 +132,8 @@ func (r *PageRequest) Validate() error {
 		return fmt.Errorf("size must be greater than 0, got %d", r.Size)
 	}
 
-	if r.Size > MaxPageSize {
-		return fmt.Errorf("size must be less than or equal to %d, got %d", MaxPageSize, r.Size)
+	if r.Size > maxPageSize {
+		return fmt.Errorf("size must be less than or equal to %d, got %d", maxPageSize, r.Size)
 	}
 
 	if len(splitCommaValues(r.OrderBy)) == 0 && len(splitCommaValues(r.Order)) > 0 {

@@ -1,12 +1,12 @@
 package parser
 
 import (
+	"encoding/json"
 	"go/ast"
 	"reflect"
 	"strings"
 	"testing"
 
-	"github.com/tmoeish/tsq/v4"
 	"github.com/tmoeish/tsq/v4/internal/genmodel"
 )
 
@@ -125,12 +125,21 @@ func TestParseAnnotations_DSL(t *testing.T) {
 				!reflect.DeepEqual(info.UxList, tt.want.UxList) ||
 				!reflect.DeepEqual(info.IdxList, tt.want.IdxList) ||
 				!reflect.DeepEqual(info.SearchColumns, tt.want.SearchColumns) {
-				infoStr := tsq.PrettyJSON(info)
-				wantStr := tsq.PrettyJSON(tt.want)
+				infoStr := prettyJSON(info)
+				wantStr := prettyJSON(tt.want)
 				t.Errorf("got = %s, want %s", infoStr, wantStr)
 			}
 		})
 	}
+}
+
+func prettyJSON(v any) string {
+	bs, err := json.MarshalIndent(v, "", "    ")
+	if err != nil {
+		return ""
+	}
+
+	return string(bs)
 }
 
 func TestExtractDSLContent_IgnoresParenthesesInsideStrings(t *testing.T) {

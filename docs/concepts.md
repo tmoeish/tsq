@@ -66,7 +66,7 @@ type User struct {
 生成代码里的静态查询会在包初始化时准备，但不会因为初始化失败直接把进程打崩。  
 现在的约定是：**helper 在真正被调用时返回初始化错误**，调用方按普通错误处理即可。
 
-## 3. `QueryBuilder`：拼 SQL 的主路径
+## 3. Build-based 查询链路：拼 SQL 的主路径
 
 当前推荐的查询构建方式是 Build-based API：
 
@@ -160,7 +160,7 @@ engine := &tsq.Engine{
 
 执行时像 `tsq.List(...)`、`tsq.Get(...)`、`query.Count64(...)` 都会用到它。
 
-这也是为什么 TSQ 把一部分能力校验放在执行阶段：**真正决定 SQL 方言边界的是 executor / engine，而不是 Build 阶段的 QueryBuilder。**
+这也是为什么 TSQ 把一部分能力校验放在执行阶段：**真正决定 SQL 方言边界的是 executor / engine，而不是 Build 阶段的查询构建链路。**
 
 底层执行接口是 `SQLExecutor`。这里最重要的约定有三点：
 
