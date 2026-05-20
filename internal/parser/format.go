@@ -566,7 +566,7 @@ func orderedRootKeys(obj DSLObject) []string {
 		"deleted_at",
 		"ux",
 		"idx",
-		"kw",
+		"search",
 	}
 
 	return orderedKeys(obj, order)

@@ -87,7 +87,7 @@ func (qb *queryBuilder[O]) GroupBy(cols ...SQLColumn) GroupedStage[O] {
 
 // Where sets the WHERE clause after keyword-search columns are fixed.
 func (qb *searchQueryBuilder[O]) Where(conds ...Condition) FilteredStage[O] {
-	core := ensureQueryBuilderCore(qb.core(), builderPhaseKwSearch)
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseSearch)
 	core.setWhere(conds...)
 
 	return &filteredQueryBuilder[O]{queryBuilderCore: core}
@@ -111,7 +111,7 @@ func (qb *whereQueryBuilder[O]) GroupBy(cols ...SQLColumn) GroupedStage[O] {
 
 // GroupBy sets the GROUP BY clause after keyword search is fixed.
 func (qb *searchQueryBuilder[O]) GroupBy(cols ...SQLColumn) GroupedStage[O] {
-	core := ensureQueryBuilderCore(qb.core(), builderPhaseKwSearch)
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseSearch)
 	core.setGroupBy(cols...)
 
 	return &groupedQueryBuilder[O]{queryBuilderCore: core}

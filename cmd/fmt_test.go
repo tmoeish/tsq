@@ -40,7 +40,7 @@ func TestFmtCmdFormatsPackage(t *testing.T) {
 // 用户表
 // @TABLE(
 //
-//	kw=["Name","Email"],
+//	search=["Name","Email"],
 //	created_at
 //
 // )
@@ -71,7 +71,7 @@ type User struct {
 	for _, want := range []string{
 		"// 用户表\n// @TABLE(",
 		"// @TABLE(\n//\n//\tcreated_at,",
-		"//\tkw=[\"Name\", \"Email\"],",
+		"//\tsearch=[\"Name\", \"Email\"],",
 	} {
 		if !strings.Contains(string(formatted), want) {
 			t.Fatalf("expected formatted file to contain %q, got:\n%s", want, string(formatted))

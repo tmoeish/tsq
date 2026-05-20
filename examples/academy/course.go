@@ -16,7 +16,7 @@ import "database/sql/driver"
 //		{fields=["InstructorID"]},
 //		{fields=["PrerequisiteID"]},
 //	],
-//	kw=["Title", "Summary"],
+//	search=["Title", "Summary"],
 //
 // )
 type Course struct {

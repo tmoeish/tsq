@@ -12,7 +12,7 @@ package academy
 //	idx=[
 //		{fields=["Company"]},
 //	],
-//	kw=["Name", "Email", "Company"],
+//	search=["Name", "Email", "Company"],
 //
 // )
 type Learner struct {

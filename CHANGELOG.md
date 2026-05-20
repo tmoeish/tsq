@@ -7,6 +7,16 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 项目遵循 [语义化版本控制](https://semver.org/lang/zh-CN/)。
 
+## [4.1.3] - 2026-05-20
+
+### 变更 (Breaking Changes)
+- **DSL 关键字重命名**: 将 `@TABLE` 和 `@RESULT` 注解中的 `kw` 关键字重命名为更具语义的 `search`。为了保持向后兼容，解析器目前仍会尝试将 `kw` 模糊匹配到 `search` 并给出提示，但建议尽快迁移。
+
+### 改进
+- **内部状态机重构**: 将 `builderPhaseKwSearch` 重构为 `builderPhaseSearch`，统一了内部搜索链路的命名规范。
+- **文档与示例同步**: 全面更新了 `README.md`、`docs/` 以及所有示例代码中的注解示例，统一使用 `search` 关键字。
+- **错误提示增强**: 优化了 DSL 解析错误提示，当用户输入旧的 `kw` 关键字时，解析器会智能提示建议使用 `search`。
+
 ## [4.1.2] - 2026-05-20
 
 ### 改进

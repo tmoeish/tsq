@@ -103,7 +103,7 @@ func TestParseTableInfoAttachesSyntaxErrorToLaterDSLLine(t *testing.T) {
 //   ux=[
 //     {fields=["Name"]},
 //   ],
-//   kw={"Name", "Description"},
+//   search={"Name", "Description"},
 // )
 type User struct {
 	ID int64
@@ -118,7 +118,7 @@ type User struct {
 
 	_, err = ParseTableInfo("User", file.Comments, map[string]struct{}{"ID": {}, "Name": {}, "Description": {}}, fset)
 	if err == nil {
-		t.Fatal("expected ParseTableInfo to fail for malformed kw object")
+		t.Fatal("expected ParseTableInfo to fail for malformed search object")
 	}
 
 	if got := err.Error(); !strings.Contains(got, "test.go:8") {

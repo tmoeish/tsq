@@ -290,7 +290,7 @@ func (core *queryBuilderCore[O]) setWhere(conds ...Condition) {
 	}
 
 	switch core.phase {
-	case builderPhaseBase, builderPhaseKwSearch:
+	case builderPhaseBase, builderPhaseSearch:
 	default:
 		core.failTransition("Where()")
 		return
@@ -332,7 +332,7 @@ func (core *queryBuilderCore[O]) setSearch(cols ...SearchColumn) {
 		return
 	}
 
-	core.phase = builderPhaseKwSearch
+	core.phase = builderPhaseSearch
 }
 
 func (core *queryBuilderCore[O]) setGroupBy(cols ...SQLColumn) {
@@ -341,7 +341,7 @@ func (core *queryBuilderCore[O]) setGroupBy(cols ...SQLColumn) {
 	}
 
 	switch core.phase {
-	case builderPhaseBase, builderPhaseWhere, builderPhaseKwSearch, builderPhaseFiltered:
+	case builderPhaseBase, builderPhaseWhere, builderPhaseSearch, builderPhaseFiltered:
 	default:
 		core.failTransition("GroupBy()")
 		return
@@ -377,7 +377,7 @@ func (core *queryBuilderCore[O]) isComplete() bool {
 	switch core.phase {
 	case builderPhaseBase,
 		builderPhaseWhere,
-		builderPhaseKwSearch,
+		builderPhaseSearch,
 		builderPhaseFiltered,
 		builderPhaseGrouped,
 		builderPhaseHaving,

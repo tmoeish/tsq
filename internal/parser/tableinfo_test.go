@@ -21,7 +21,7 @@ func TestParseAnnotations_DSL(t *testing.T) {
 		{
 			desc: "典型 TABLE 全写",
 			comment: `
-			//   @TABLE(   	name="account",   	pk="C1,true",   	version, created_at, updated_at="MTime", deleted_at,   	ux=[   		{name="U1", fields=["F1","F2"]},   		{fields=["F3"]}   	],   	idx=[   		{name="I1", fields=["F4"]},   		{fields=["F5","F6"]}   	],   	kw=["foo","bar"]   )`,
+			//   @TABLE(   	name="account",   	pk="C1,true",   	version, created_at, updated_at="MTime", deleted_at,   	ux=[   		{name="U1", fields=["F1","F2"]},   		{fields=["F3"]}   	],   	idx=[   		{name="I1", fields=["F4"]},   		{fields=["F5","F6"]}   	],   	search=["foo","bar"]   )`,
 			want: genmodel.TableMeta{
 				Table:          "account",
 				PK:             "C1",
@@ -56,7 +56,7 @@ func TestParseAnnotations_DSL(t *testing.T) {
 		},
 		{
 			desc:    "Result 注解",
-			comment: `// @RESULT(name="UserResult",  kw=["foo","bar"]  )`,
+			comment: `// @RESULT(name="UserResult",  search=["foo","bar"]  )`,
 			want: genmodel.TableMeta{
 				Table:         "UserResult",
 				SearchColumns: []string{"foo", "bar"},
@@ -86,7 +86,7 @@ func TestParseAnnotations_DSL(t *testing.T) {
 		},
 		{
 			desc:    "Result 省略 name",
-			comment: `// @RESULT(kw=["foo","bar"])`,
+			comment: `// @RESULT(search=["foo","bar"])`,
 			want: genmodel.TableMeta{
 				SearchColumns: []string{"foo", "bar"},
 			},
@@ -143,7 +143,7 @@ func prettyJSON(v any) string {
 }
 
 func TestExtractDSLContent_IgnoresParenthesesInsideStrings(t *testing.T) {
-	content, err := extractDSLContent(`// @TABLE(name="user(test)", kw=["name"])`, "@TABLE")
+	content, err := extractDSLContent(`// @TABLE(name="user(test)", search=["name"])`, "@TABLE")
 	if err != nil {
 		t.Fatalf("extractDSLContent returned error: %v", err)
 	}

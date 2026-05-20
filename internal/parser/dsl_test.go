@@ -427,7 +427,7 @@ func Test_genTableInfoFromAST(t *testing.T) {
 		"idx": DSLArray{
 			DSLObject{"fields": DSLArray{DSLString("f3")}},
 		},
-		"kw": DSLArray{
+		"search": DSLArray{
 			DSLString("f2"), DSLString("f3"),
 		},
 	}
@@ -520,7 +520,7 @@ func Test_genTableInfoFromASTRejectsUnknownTopLevelKeys(t *testing.T) {
 	if !strings.Contains(got, `unknown table DSL key "unknown"`) {
 		t.Fatalf("expected clearer table DSL key error, got %q", got)
 	}
-	if !strings.Contains(got, "valid keys: name, pk, version, created_at, updated_at, deleted_at, ux, idx, kw") {
+	if !strings.Contains(got, "valid keys: name, pk, version, created_at, updated_at, deleted_at, ux, idx, search") {
 		t.Fatalf("expected valid table DSL keys in error, got %q", got)
 	}
 }
@@ -635,12 +635,12 @@ func Test_genTableInfoFromASTRejectsWrongValueTypes(t *testing.T) {
 			ast:  DSLObject{"ux": DSLObject{}},
 		},
 		{
-			name: "kw must be array",
-			ast:  DSLObject{"kw": DSLString("Name")},
+			name: "search must be array",
+			ast:  DSLObject{"search": DSLString("Name")},
 		},
 		{
-			name: "kw entries must be strings",
-			ast:  DSLObject{"kw": DSLArray{DSLNumber(1)}},
+			name: "search entries must be strings",
+			ast:  DSLObject{"search": DSLArray{DSLNumber(1)}},
 		},
 	}
 

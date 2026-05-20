@@ -18,7 +18,7 @@ func (qb *whereQueryBuilder[O]) ForUpdate() LockedStage[O] {
 
 // ForUpdate adds a FOR UPDATE row-lock clause to the query.
 func (qb *searchQueryBuilder[O]) ForUpdate() LockedStage[O] {
-	core := ensureQueryBuilderCore(qb.core(), builderPhaseKwSearch)
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseSearch)
 	core.setLockStrength(queryLockStrengthUpdate)
 
 	return &lockedQueryBuilder[O]{queryBuilderCore: core}
@@ -74,7 +74,7 @@ func (qb *whereQueryBuilder[O]) ForShare() LockedStage[O] {
 
 // ForShare adds a FOR SHARE row-lock clause to the query.
 func (qb *searchQueryBuilder[O]) ForShare() LockedStage[O] {
-	core := ensureQueryBuilderCore(qb.core(), builderPhaseKwSearch)
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseSearch)
 	core.setLockStrength(queryLockStrengthShare)
 
 	return &lockedQueryBuilder[O]{queryBuilderCore: core}

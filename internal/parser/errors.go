@@ -238,7 +238,7 @@ func NewDSLUnexpectedTokenError(expected, actual string, position int) error {
 
 func NewDSLUnexpectedTopLevelTokenError(actual string, position int) error {
 	msg := fmt.Sprintf(
-		"unexpected token in @TABLE/@RESULT body at position %d: got %q; expected a DSL key like name=..., pk=..., created_at, ux=[...], idx=[...], or kw=[...]",
+		"unexpected token in @TABLE/@RESULT body at position %d: got %q; expected a DSL key like name=..., pk=..., created_at, ux=[...], idx=[...], or search=[...]",
 		position,
 		actual,
 	)
@@ -286,7 +286,7 @@ func NewDSLUnexpectedValueTokenError(actual string, position int) error {
 
 func NewDSLUnknownTableKeyError(actual string) error {
 	return newDSLUnknownKeyError("table DSL", actual, []string{
-		"name", "pk", "version", "created_at", "updated_at", "deleted_at", "ux", "idx", "kw",
+		"name", "pk", "version", "created_at", "updated_at", "deleted_at", "ux", "idx", "search",
 	})
 }
 
@@ -317,6 +317,14 @@ func newDSLUnknownKeyError(scope, actual string, validKeys []string) error {
 }
 
 func closestDSLKey(actual string, validKeys []string) string {
+	if actual == "kw" {
+		for _, key := range validKeys {
+			if key == "search" {
+				return key
+			}
+		}
+	}
+
 	bestKey := ""
 	bestDistance := -1
 

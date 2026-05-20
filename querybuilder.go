@@ -63,7 +63,7 @@ const (
 	builderPhaseNeedSelect builderPhase = "from-only"
 	builderPhaseBase       builderPhase = "query"
 	builderPhaseWhere      builderPhase = "query-with-where"
-	builderPhaseKwSearch   builderPhase = "query-with-kw-search"
+	builderPhaseSearch     builderPhase = "query-with-search"
 	builderPhaseFiltered   builderPhase = "query-with-filters"
 	builderPhaseGrouped    builderPhase = "grouped-query"
 	builderPhaseHaving     builderPhase = "query-with-having"

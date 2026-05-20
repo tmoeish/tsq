@@ -9,7 +9,7 @@ package academy
 //	ux=[
 //		{fields=["Email"]},
 //	],
-//	kw=["Name", "Specialty", "Bio"],
+//	search=["Name", "Specialty", "Bio"],
 //
 // )
 type Instructor struct {

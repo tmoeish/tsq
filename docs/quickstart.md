@@ -36,7 +36,7 @@ mkdir -p database
 package database
 
 // @TABLE(
-//   kw=["Name","Email"]
+//   search=["Name","Email"]
 // )
 type User struct {
 	ID    int64  `db:"id" json:"id"`

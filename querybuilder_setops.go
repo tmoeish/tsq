@@ -18,7 +18,7 @@ func (qb *whereQueryBuilder[O]) Union(other QueryStage[O]) CompoundStage[O] {
 
 // Union appends a UNION clause to the current query.
 func (qb *searchQueryBuilder[O]) Union(other QueryStage[O]) CompoundStage[O] {
-	core := ensureQueryBuilderCore(qb.core(), builderPhaseKwSearch)
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseSearch)
 	core.appendSetOperation(unionType, other)
 
 	return &compoundQueryBuilder[O]{queryBuilderCore: core}
@@ -74,7 +74,7 @@ func (qb *whereQueryBuilder[O]) UnionAll(other QueryStage[O]) CompoundStage[O] {
 
 // UnionAll appends a UNION ALL clause to the current query.
 func (qb *searchQueryBuilder[O]) UnionAll(other QueryStage[O]) CompoundStage[O] {
-	core := ensureQueryBuilderCore(qb.core(), builderPhaseKwSearch)
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseSearch)
 	core.appendSetOperation(unionAllType, other)
 
 	return &compoundQueryBuilder[O]{queryBuilderCore: core}
@@ -130,7 +130,7 @@ func (qb *whereQueryBuilder[O]) Intersect(other QueryStage[O]) CompoundStage[O] 
 
 // Intersect appends an INTERSECT clause to the current query.
 func (qb *searchQueryBuilder[O]) Intersect(other QueryStage[O]) CompoundStage[O] {
-	core := ensureQueryBuilderCore(qb.core(), builderPhaseKwSearch)
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseSearch)
 	core.appendSetOperation(intersectType, other)
 
 	return &compoundQueryBuilder[O]{queryBuilderCore: core}
@@ -186,7 +186,7 @@ func (qb *whereQueryBuilder[O]) IntersectAll(other QueryStage[O]) CompoundStage[
 
 // IntersectAll appends an INTERSECT ALL clause to the current query.
 func (qb *searchQueryBuilder[O]) IntersectAll(other QueryStage[O]) CompoundStage[O] {
-	core := ensureQueryBuilderCore(qb.core(), builderPhaseKwSearch)
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseSearch)
 	core.appendSetOperation(intersectAllType, other)
 
 	return &compoundQueryBuilder[O]{queryBuilderCore: core}
@@ -242,7 +242,7 @@ func (qb *whereQueryBuilder[O]) Except(other QueryStage[O]) CompoundStage[O] {
 
 // Except appends an EXCEPT clause to the current query.
 func (qb *searchQueryBuilder[O]) Except(other QueryStage[O]) CompoundStage[O] {
-	core := ensureQueryBuilderCore(qb.core(), builderPhaseKwSearch)
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseSearch)
 	core.appendSetOperation(exceptType, other)
 
 	return &compoundQueryBuilder[O]{queryBuilderCore: core}
@@ -298,7 +298,7 @@ func (qb *whereQueryBuilder[O]) ExceptAll(other QueryStage[O]) CompoundStage[O] 
 
 // ExceptAll appends an EXCEPT ALL clause to the current query.
 func (qb *searchQueryBuilder[O]) ExceptAll(other QueryStage[O]) CompoundStage[O] {
-	core := ensureQueryBuilderCore(qb.core(), builderPhaseKwSearch)
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseSearch)
 	core.appendSetOperation(exceptAllType, other)
 
 	return &compoundQueryBuilder[O]{queryBuilderCore: core}

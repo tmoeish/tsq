@@ -66,7 +66,7 @@ Item 商品表
 	@TABLE(
 		ux=[{fields=["Name"]}],
 		idx=[{name="IdxCategory", fields=["CategoryID"]}],
-		kw=["Name"],
+		search=["Name"],
 		created_at
 	)
 */
@@ -89,7 +89,7 @@ type Item struct{}
 		"\t\tidx=[",
 		"\t\t\t{name=\"IdxCategory\", fields=[\"CategoryID\"]},",
 		"\t\t],",
-		"\t\tkw=[\"Name\"],",
+		"\t\tsearch=[\"Name\"],",
 		"\t)",
 	}, "\n") + "\n*/"
 
@@ -109,7 +109,7 @@ var marker = 1
 // 用户表
 // @TABLE(
 //
-//	kw=["Name","Email"],
+//	search=["Name","Email"],
 //	created_at
 //
 // )
@@ -151,7 +151,7 @@ type UserOrder struct{}
 	for _, want := range []string{
 		`// this prose mention should stay untouched: @TABLE(name="noop")`,
 		"// 用户表\n// @TABLE(\n//\n//\tcreated_at,",
-		"//\tkw=[\"Name\", \"Email\"],",
+		"//\tsearch=[\"Name\", \"Email\"],",
 		"Item 商品表\n\n\t@TABLE(",
 		"\t\t{fields=[\"Name\"]},",
 		"// @RESULT(name=\"UserOrder\")",

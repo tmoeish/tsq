@@ -9,7 +9,7 @@ package academy
 //	ux=[
 //		{fields=["Name"]},
 //	],
-//	kw=["Name", "Description"],
+//	search=["Name", "Description"],
 //
 // )
 type Track struct {

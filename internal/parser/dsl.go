@@ -646,7 +646,7 @@ func genTableInfoFromAST(
 				info.IdxList = append(info.IdxList, idx)
 			}
 
-		case "kw":
+		case "search":
 			arr, ok := v.(DSLArray)
 			if !ok {
 				return nil, NewDSLValueTypeError(k, "array of Go field names", v)
@@ -739,10 +739,10 @@ func validateTableInfoAgainstStruct(info *genmodel.TableMeta, structFields map[s
 		seen[key] = idx.Name
 	}
 
-	// 3. kwList 校验
-	for _, kw := range info.SearchColumns {
-		if _, ok := structFields[kw]; !ok {
-			return NewDSLFieldNotFoundError(kw, structName)
+	// 3. search 校验
+	for _, field := range info.SearchColumns {
+		if _, ok := structFields[field]; !ok {
+			return NewDSLFieldNotFoundError(field, structName)
 		}
 	}
 
