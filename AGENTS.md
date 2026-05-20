@@ -62,29 +62,24 @@ Canonical instructions for coding agents and IDE assistants working in this repo
 
 ## Release & Version Upgrade Procedure
 
-Follow these steps strictly when performing a version upgrade or release:
+Follow these steps for a standard release (vX.Y.Z):
 
-1. **Check current version**: Identify the current version in `version.go`.
-2. **Create release branch**: Create a new branch named `release/vX.Y.Z` (e.g., `git checkout -b release/v4.0.5`).
-3. **Update version files**:
-   - Update the version string in `version.go`.
-   - Update `version_test.go` if necessary.
-   - Update `CHANGELOG.md` with the new version and a summary of changes.
-4. **Regenerate artifacts**:
-   - Run `make examples` to ensure generated headers in example files reflect the new version.
-   - Run `make build` to verify the CLI build.
-5. **Verify everything**: Run `make all` (fmt, lint, vet, test, examples).
-6. **Commit changes**: Use a clear commit message like `chore: release vX.Y.Z`.
-7. **Create Tag**: After pushing the branch and confirming CI passes, create a tag: `git tag vX.Y.Z`.
-8. **Push Tag**: `git push origin vX.Y.Z`.
-9. **Update documentation**: Ensure `README.md` installation instructions or examples use the latest version if they are version-pinned.
-10. **Record Upgrade**: Add a record of the upgrade to the upgrade history below.
+1.  **Prepare**: Identify the current version in `version.go` and create a `release/vX.Y.Z` branch.
+2.  **Update**:
+    *   Update version strings in `version.go` and `version_test.go`.
+    *   Update `CHANGELOG.md` with version highlights.
+    *   Run `make examples` and `make build` to sync generated code and verify the CLI.
+3.  **Verify**: Run `make all` to ensure all tests, linting, and examples pass.
+4.  **Finalize**:
+    *   Commit changes: `chore: release vX.Y.Z`.
+    *   Merge to `main`, then tag: `git tag vX.Y.Z`.
+    *   Push: `git push origin main --tags`.
 
 ### Recent Upgrades
-
-- **2026-05-20**: Upgraded Go version to 1.26.0 and updated all dependencies.
+- **2026-05-20**: Upgraded Go to 1.26.0 and refreshed all dependencies.
 
 ## Branch Management Strategies
+
 
 绝大多数 Go 项目应以 main（或 master）作为唯一的长期主干。根据项目的成熟度和维护规模，我们可以分为以下几种典型场景：
 
