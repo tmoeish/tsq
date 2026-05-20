@@ -1,30 +1,30 @@
-# AGENT.md
+# AGENTS.md
 
 Canonical instructions for coding agents and IDE assistants working in this repository.
 
 ## Project environment
 
-- Repository: `github.com/tmoeish/tsq`
-- Language: Go `1.24.x` (`go.mod` uses `go 1.24.2`; CI uses Go `1.24.3`)
-- Main deliverables:
+- **Repository**: `github.com/tmoeish/tsq`
+- **Language**: Go `1.24.x` (`go.mod` uses `go 1.24.2`; CI uses Go `1.24.3`)
+- **Main deliverables**:
   - CLI generator: `./cmd/tsq`
   - Go library: repository root package
   - Runnable example app: `./examples`
-- Primary task runner: `make`
-- Local lint binary path: `./bin/golangci-lint`
+- **Primary task runner**: `make`
+- **Local lint binary path**: `./bin/golangci-lint`
 
 ## Core commands
 
-- Download modules: `make mod-download`
-- Tidy modules: `make mod-tidy`
-- Format: `make fmt`
-- Lint: `make lint`
-- Vet: `make vet`
-- Test: `make test`
-- Coverage: `make test-coverage`
-- Build CLI: `make build`
-- Regenerate examples and build example app: `make examples`
-- Full local sweep: `make all`
+- **Download modules**: `make mod-download`
+- **Tidy modules**: `make mod-tidy`
+- **Format**: `make fmt`
+- **Lint**: `make lint`
+- **Vet**: `make vet`
+- **Test**: `make test`
+- **Coverage**: `make test-coverage`
+- **Build CLI**: `make build`
+- **Regenerate examples and build example app**: `make examples`
+- **Full local sweep**: `make all`
 
 ## Required workflow
 
@@ -33,15 +33,7 @@ Canonical instructions for coding agents and IDE assistants working in this repo
   - run `make examples`
   - keep generated files in `examples/academy/*_tsq.go` committed
 - Do not hand-edit generated files unless you are explicitly debugging generation output; change the source/template and regenerate instead.
-- Keep versioned release changes coherent:
-  - update `version.go`
-  - update `version_test.go`
-  - update `CHANGELOG.md`
-  - regenerate examples when the generated header version changes
-
-## Validation order
-
-- Default code-change validation:
+- **Validation order**:
   1. `make fmt`
   2. `make lint`
   3. `make test`
@@ -56,41 +48,40 @@ Canonical instructions for coding agents and IDE assistants working in this repo
 ## Coding conventions
 
 - Follow repository Go style and keep edits surgical.
-- Follow mainstream Go guidance from Effective Go, Go Code Review Comments, the Google Go style guide, and Rob Pike's Go proverbs when they do not conflict with repository-specific rules.
 - Use the Build-based query flow; avoid reintroducing removed compatibility wrappers.
 - Prefer explicit, typed APIs over stringly shortcuts.
-- Prefer clarity over cleverness: keep functions focused, keep control flow flat with early returns, and avoid over-abstracting small pieces of logic.
-- Keep names short, specific, and context-aware; avoid stutter and vague abbreviations.
-- Keep public naming consistent with current repo vocabulary:
+- Keep naming consistent with current repo vocabulary:
   - use `Result`, not `DTO`
   - use `GTE` / `LTE`
   - use `StartsWith` / `EndsWith`
   - use `FnRaw` for raw function expressions
-- Table DSL uses explicit managed-field names:
-  - `version`
-  - `created_at`
-  - `updated_at`
-  - `deleted_at`
-- Handle errors immediately after the failing operation, prefer early returns, and use `errors.Is` / `errors.As` when behavior depends on wrapped error types.
-- Prefer small consumer-defined interfaces; do not introduce broad interfaces where a concrete type or a tiny interface is clearer.
-- Design zero values to be useful when adding new types, and prefer slices over arrays in public APIs.
-- Keep comments high-signal: document exported behavior and non-obvious constraints, not line-by-line mechanics.
-- Prefer table-driven tests and focused assertions over noisy ad-hoc test code.
+- Table DSL uses explicit managed-field names: `version`, `created_at`, `updated_at`, `deleted_at`.
+- Handle errors immediately after the failing operation, prefer early returns, and use `errors.Is` / `errors.As`.
+- Keep comments high-signal: document exported behavior and non-obvious constraints.
 - Generated examples are part of the repository contract; keep source structs, schema, generated code, and docs aligned.
+
+## Release & Version Upgrade Procedure
+
+Follow these steps strictly when performing a version upgrade or release:
+
+1. **Check current version**: Identify the current version in `version.go`.
+2. **Create release branch**: Create a new branch named `release/vX.Y.Z` (e.g., `git checkout -b release/v4.0.5`).
+3. **Update version files**:
+   - Update the version string in `version.go`.
+   - Update `version_test.go` if necessary.
+   - Update `CHANGELOG.md` with the new version and a summary of changes.
+4. **Regenerate artifacts**:
+   - Run `make examples` to ensure generated headers in example files reflect the new version.
+   - Run `make build` to verify the CLI build.
+5. **Verify everything**: Run `make all` (fmt, lint, vet, test, examples).
+6. **Commit changes**: Use a clear commit message like `chore: release vX.Y.Z`.
+7. **Create Tag**: After pushing the branch and confirming CI passes, create a tag: `git tag vX.Y.Z`.
+8. **Push Tag**: `git push origin vX.Y.Z`.
+9. **Update documentation**: Ensure `README.md` installation instructions or examples use the latest version if they are version-pinned.
 
 ## Repository-specific cautions
 
-- `InVar()` intentionally treats empty or nil runtime slices as explicit no-match filters; keep comments, docs, and examples aligned with that contract.
+- `Where(...)` and `Search(...)` are overwrite-style setters; use `And(...)` when appending conditions.
 - `FULL JOIN` can be rendered but execution remains dialect-dependent.
-- Dialect capability checks that depend on the executor stay at execution time because the actual dialect may only be known per runtime/registry/executor.
 - Example schema lives in `examples/academy/mock.sql`; schema changes must stay consistent with example structs and regenerated code.
-- Keep local-only files out of Git:
-  - coverage outputs
-  - local assistant settings such as `.claude/`
-  - built binaries at repo root
-
-## Release notes
-
-- CI runs tests, race tests, lint, coverage, example regeneration drift checks, Docker build, and GoReleaser validation.
-- Releases are tag-driven via GitHub Actions.
-- If you create a release commit, create and push the tag after the repository is clean and validated.
+- Keep local-only files out of Git: coverage outputs, local assistant settings such as `.claude/`, built binaries at repo root.

@@ -7,6 +7,21 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 项目遵循 [语义化版本控制](https://semver.org/lang/zh-CN/)。
 
+## [4.0.6] - 2026-05-19
+
+### 变更 (Breaking Changes)
+- **Init API 重构**: `tsq.Init` 和 `runtime.Init` 的签名改为 `Init(db *sql.DB, dialect Dialect, options ...*InitOptions) error`。不再接收 `*Engine` 作为首参，改由 `CurrentEngine()` 或 `DefaultEngine()` 获取初始化后的引擎。
+- **Dialect 接口解耦**: `Dialect` 接口的方法（如 `EnsureIndex`, `InspectIndexDefinition`）不再依赖具体的 `*Engine` 类型，改为依赖 `SQLExecutor` 接口和 `context.Context`，进一步降低了组件间的耦合。
+
+### 新增
+- 新增 `tsq.CurrentEngine()` 用于获取默认运行时的 `*Engine`。
+- 新增 `AGENTS.md` 规范项目级 AI Agent 协作准则。
+
+### 改进
+- **方言代码拆分**: 将原本臃肿的 `dialect.go` 拆分为 `dialect_sqlite.go`、`dialect_mysql.go` 和 `dialect_postgres.go`，提升了可维护性。
+- **SQLite 稳定性修复**: 修复了 SQLite 在索引初始化时由于嵌套查询导致结果集意外关闭的 bug。
+- **文档增强**: 在 `README.md` 中添加了 `pkg.go.dev` 文档徽章。
+
 ## [4.0.2] - 2026-05-19
 
 ### 变更（Breaking Changes）
