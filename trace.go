@@ -10,8 +10,7 @@ import (
 	"time"
 )
 
-// MaxTracers bounds the number of tracers retained by a runtime.
-const MaxTracers = 100
+const maxTracers = 100
 
 // TraceFn is the traced function signature used by Tracer.
 type TraceFn func(ctx context.Context) error
@@ -56,8 +55,8 @@ func (m *traceManager) Add(tracer Tracer) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if len(m.tracers) >= MaxTracers {
-		slog.Warn("maximum tracer limit reached", "limit", MaxTracers)
+	if len(m.tracers) >= maxTracers {
+		slog.Warn("maximum tracer limit reached", "limit", maxTracers)
 		return
 	}
 
@@ -77,8 +76,8 @@ func (m *traceManager) AddUnique(tracers ...Tracer) {
 			continue
 		}
 
-		if len(m.tracers) >= MaxTracers {
-			slog.Warn("maximum tracer limit reached", "limit", MaxTracers)
+		if len(m.tracers) >= maxTracers {
+			slog.Warn("maximum tracer limit reached", "limit", maxTracers)
 			return
 		}
 

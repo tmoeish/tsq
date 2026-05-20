@@ -21,6 +21,7 @@ func TestCondition_EmptyInShortCircuits(t *testing.T) {
 		t.Fatalf("expected empty NOT IN short-circuit to avoid leaking source tables")
 	}
 }
+
 func TestCondition_InVarDefersSliceBindingToExecution(t *testing.T) {
 	col := newColForTable[Table, int](newMockTable("users"), "id", "id", nil)
 	cond := col.InVar()
@@ -35,6 +36,7 @@ func TestCondition_InVarDefersSliceBindingToExecution(t *testing.T) {
 		t.Fatalf("expected deferred arg marker to be externalSliceArgMarker, got %T", args[0])
 	}
 }
+
 func TestCondition_NullPredicateValuesFailFast(t *testing.T) {
 	ptrCol := newColForTable[Table, *string](newMockTable("users"), "name", "name", nil)
 	nullableCol := newColForTable[Table, sql.NullString](newMockTable("users"), "nickname", "nickname", nil)
@@ -44,6 +46,7 @@ func TestCondition_NullPredicateValuesFailFast(t *testing.T) {
 		}
 	}
 }
+
 func TestCondition_PortabilitySensitiveLikePredicatesFailFast(t *testing.T) {
 	users := newMockTable("users")
 	nameCol := newColForTable[Table, string](users, "name", "name", nil)
@@ -54,6 +57,7 @@ func TestCondition_PortabilitySensitiveLikePredicatesFailFast(t *testing.T) {
 		}
 	}
 }
+
 func TestCondition_StringPredicatesBindBackslashesSafely(t *testing.T) {
 	col := newColForTable[Table, string](newMockTable("users"), "name", "name", nil)
 	for name, cond := range map[string]Condition{"EQ": col.EQ(`path\file`), "IN": col.In(`path\file`)} {
@@ -71,6 +75,7 @@ func TestCondition_StringPredicatesBindBackslashesSafely(t *testing.T) {
 		})
 	}
 }
+
 func TestCondition_PredRejectsInvalidFormat(t *testing.T) {
 	col := newColForTable[Table, int](newMockTable("users"), "id", "id", nil)
 	tests := []struct {
@@ -86,6 +91,7 @@ func TestCondition_PredRejectsInvalidFormat(t *testing.T) {
 		})
 	}
 }
+
 func TestCondition_PredAllowsEscapedPercentLiterals(t *testing.T) {
 	col := newColForTable[Table, string](newMockTable("users"), "name", "name", nil)
 	clause := renderCanonicalSQL(col.Pred("%s LIKE '%%s'").Clause())
@@ -93,6 +99,7 @@ func TestCondition_PredAllowsEscapedPercentLiterals(t *testing.T) {
 		t.Fatalf("expected escaped percent literal to be preserved, got %q", clause)
 	}
 }
+
 func TestCondition_PredRejectsRawSubqueryArguments(t *testing.T) {
 	col := newColForTable[Table, int](newMockTable("users"), "id", "id", nil)
 	subquery := mustBuild(Select(col).From(col.Table()))
@@ -105,7 +112,7 @@ func TestCondition_PredRejectsRawSubqueryArguments(t *testing.T) {
 
 func TestUnsupportedPatternPredicatesDeferred(t *testing.T) {
 	col := newColForTable[Table, string](newMockTable("users"), "name", "name", nil)
-	tests := []struct// TestUnsupportedPatternPredicatesDefer Error tests that unsupported pattern predicates
+	tests := []struct // TestUnsupportedPatternPredicatesDefer Error tests that unsupported pattern predicates
 	// return deferred errors (not immediate panics) that are reported at Build() time.
 	{
 		name string

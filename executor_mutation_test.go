@@ -3,8 +3,9 @@ package tsq
 import (
 	"context"
 	"errors"
-	_ "github.com/mattn/go-sqlite3"
 	"testing"
+
+	_ "github.com/mattn/go-sqlite3"
 )
 
 func TestEngineInsertBatchesRows(t *testing.T) {
@@ -25,6 +26,7 @@ func TestEngineInsertBatchesRows(t *testing.T) {
 		t.Fatalf("expected 2 inserted rows, got %d", count)
 	}
 }
+
 func TestEngineUpdateBatchesRows(t *testing.T) {
 	db := newBatchMutationEngine(t)
 	if _, err := db.ExecContext(context.Background(), `
@@ -60,6 +62,7 @@ func TestEngineUpdateBatchesRows(t *testing.T) {
 		t.Fatalf("unexpected updated rows: %#v", got)
 	}
 }
+
 func TestEngineDeleteBatchesRows(t *testing.T) {
 	db := newBatchMutationEngine(t)
 	if _, err := db.ExecContext(context.Background(), `
@@ -85,6 +88,7 @@ func TestEngineDeleteBatchesRows(t *testing.T) {
 		t.Fatalf("expected 1 remaining row, got %d", count)
 	}
 }
+
 func TestEngineUpdateUsesOptimisticLockVersion(t *testing.T) {
 	db := newOptimisticMutationEngine(t)
 	if _, err := db.ExecContext(context.Background(), `
@@ -123,6 +127,7 @@ func TestEngineUpdateUsesOptimisticLockVersion(t *testing.T) {
 		t.Fatalf("unexpected stored versions: %#v", got)
 	}
 }
+
 func TestEngineUpdateOptimisticLockConflict(t *testing.T) {
 	db := newOptimisticMutationEngine(t)
 	if _, err := db.ExecContext(context.Background(), `
@@ -146,6 +151,7 @@ func TestEngineUpdateOptimisticLockConflict(t *testing.T) {
 		t.Fatalf("expected in-memory version to stay unchanged, got %d", user.Version)
 	}
 }
+
 func TestEngineDeleteUsesOptimisticLockVersion(t *testing.T) {
 	db := newOptimisticMutationEngine(t)
 	if _, err := db.ExecContext(context.Background(), `
@@ -163,6 +169,7 @@ func TestEngineDeleteUsesOptimisticLockVersion(t *testing.T) {
 		t.Fatalf("expected 2 deleted rows, got %d", affected)
 	}
 }
+
 func TestEngineDeleteOptimisticLockConflict(t *testing.T) {
 	db := newOptimisticMutationEngine(t)
 	if _, err := db.ExecContext(context.Background(), `
@@ -182,6 +189,7 @@ func TestEngineDeleteOptimisticLockConflict(t *testing.T) {
 		t.Fatalf("expected optimistic lock conflict error, got %v", err)
 	}
 }
+
 func TestChunkedInsertChunkUsesBatchInsert(t *testing.T) {
 	exec := &countingMutationExecutor{}
 	items := []*batchMutationUser{{Name: "alice", Email: "alice@example.com"}, {Name: "bob", Email: "bob@example.com"}}
@@ -192,6 +200,7 @@ func TestChunkedInsertChunkUsesBatchInsert(t *testing.T) {
 		t.Fatalf("expected one batched insert call of size 2, got %#v", exec.insertBatchSizes)
 	}
 }
+
 func TestChunkedUpdateChunkUsesBatchUpdate(t *testing.T) {
 	exec := &countingMutationExecutor{}
 	items := []*batchMutationUser{{ID: 1, Name: "alice", Email: "alice@example.com"}, {ID: 2, Name: "bob", Email: "bob@example.com"}}
@@ -202,6 +211,7 @@ func TestChunkedUpdateChunkUsesBatchUpdate(t *testing.T) {
 		t.Fatalf("expected one batched update call of size 2, got %#v", exec.updateBatchSizes)
 	}
 }
+
 func TestChunkedDeleteChunkUsesBatchDelete(t *testing.T) {
 	exec := &countingMutationExecutor{}
 	items := []*batchMutationUser{{ID: 1}, {ID: 2}}
@@ -212,6 +222,7 @@ func TestChunkedDeleteChunkUsesBatchDelete(t *testing.T) {
 		t.Fatalf("expected one batched delete call of size 2, got %#v", exec.deleteBatchSizes)
 	}
 }
+
 func TestChunkedInsertIgnoreErrorsSkipsSQLiteUniqueViolations(t *testing.T) {
 	db := newBatchMutationEngine(t)
 	if err := db.Insert(context.Background(), &batchMutationUser{Name: "seed", Email: "alice@example.com"}); err != nil {

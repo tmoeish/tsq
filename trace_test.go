@@ -421,8 +421,8 @@ func TestMaxTracersEnforced(t *testing.T) {
 	// Clear tracers before test
 	ClearTracers()
 
-	// Add exactly MaxTracers tracers
-	for i := 0; i < MaxTracers; i++ {
+	// Add exactly the internal tracer limit.
+	for i := 0; i < maxTracers; i++ {
 		tracer := func(next TraceFn) TraceFn {
 			return func(ctx context.Context) error {
 				return next(ctx)
@@ -432,8 +432,8 @@ func TestMaxTracersEnforced(t *testing.T) {
 	}
 
 	tracers := GetTracers()
-	if len(tracers) != MaxTracers {
-		t.Errorf("Expected %d tracers, got %d", MaxTracers, len(tracers))
+	if len(tracers) != maxTracers {
+		t.Errorf("Expected %d tracers, got %d", maxTracers, len(tracers))
 	}
 
 	// Try to add one more tracer - should be rejected
@@ -445,8 +445,8 @@ func TestMaxTracersEnforced(t *testing.T) {
 	AddTracer(tracer)
 
 	tracers = GetTracers()
-	if len(tracers) != MaxTracers {
-		t.Errorf("Expected max tracers to remain at %d, got %d", MaxTracers, len(tracers))
+	if len(tracers) != maxTracers {
+		t.Errorf("Expected max tracers to remain at %d, got %d", maxTracers, len(tracers))
 	}
 }
 

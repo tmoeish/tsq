@@ -15,6 +15,7 @@ func TestCondition_ExistsSubIsStandalonePredicate(t *testing.T) {
 		t.Fatalf("expected exists clause %q, got %q", want, got)
 	}
 }
+
 func TestCondition_UnbuiltSubqueryFailsFast(t *testing.T) {
 	col := newColForTable[Table, int](newMockTable("users"), "id", "id", nil)
 	if _, _, _, err := validateConditionInput(col.InSub(&Query[queryOwner]{})); err == nil {
@@ -23,6 +24,7 @@ func TestCondition_UnbuiltSubqueryFailsFast(t *testing.T) {
 		t.Fatalf("expected unbuilt subquery error, got %v", err)
 	}
 }
+
 func TestCondition_ScalarSubqueryRejectsMultipleColumns(t *testing.T) {
 	users := newMockTable("users")
 	orders := newMockTable("orders")
@@ -36,6 +38,7 @@ func TestCondition_ScalarSubqueryRejectsMultipleColumns(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
 func TestCondition_InSubRejectsMultipleColumns(t *testing.T) {
 	users := newMockTable("users")
 	orders := newMockTable("orders")
@@ -49,6 +52,7 @@ func TestCondition_InSubRejectsMultipleColumns(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
 func TestCondition_ExistsSubAllowsMultipleColumnsAndKeepsArgs(t *testing.T) {
 	users := newMockTable("users")
 	orders := newMockTable("orders")
@@ -68,6 +72,7 @@ func TestCondition_ExistsSubAllowsMultipleColumnsAndKeepsArgs(t *testing.T) {
 		t.Fatalf("expected EXISTS subquery args [1], got %#v", args)
 	}
 }
+
 func TestCondition_UniqueSubqueryPredicatesFailFast(t *testing.T) {
 	col := newColForTable[Table, int](newMockTable("users"), "id", "id", nil)
 	subquery := &Query[queryOwner]{listSQL: "SELECT 1"}
@@ -79,7 +84,7 @@ func TestCondition_UniqueSubqueryPredicatesFailFast(t *testing.T) {
 func TestUnsupportedSubqueryPredicatesDeferred(t *testing.T) {
 	col := newColForTable[Table, int](newMockTable("users"), "id", "id", nil)
 	query := &Query[queryOwner]{listSQL: "SELECT 1"}
-	tests := []struct// TestUnsupportedSubqueryPredicatesDeferred tests that unsupported subquery predicates
+	tests := []struct // TestUnsupportedSubqueryPredicatesDeferred tests that unsupported subquery predicates
 	// return deferred errors at Build() time, not immediate panics.
 	{
 		name string

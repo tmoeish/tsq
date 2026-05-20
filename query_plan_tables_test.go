@@ -8,7 +8,7 @@ func TestQuerySpecTablesForColumnsIncludeReferencedTables(t *testing.T) {
 	userName := newColForTable[Table, string](users, "name", "name", nil)
 	orgName := newColForTable[Table, string](orgs, "name", "name", nil)
 	expr := userName.Exprf("COALESCE(%s, %s)", orgName)
-	tables := (QuerySpec[Table]{}).tablesForColumns([]SQLColumn{expr})
+	tables := (querySpec[Table]{}).tablesForColumns([]SQLColumn{expr})
 	if len(tables) != 2 {
 		t.Fatalf("expected transformed column to surface two referenced tables, got %#v", tables)
 	}

@@ -9,24 +9,28 @@ func TestQueryBuilder_ForUpdate(t *testing.T) {
 	table := newMockTable("users")
 	id := newMockColumn(table, "id")
 	qb := Select(id).From(table).ForUpdate()
-	if qb.spec.Lock.strength != queryLockStrengthUpdate {
-		t.Fatalf("expected FOR UPDATE lock, got %q", qb.spec.Lock.strength)
+	core := mustBuilderCore[Table](t, qb)
+	if core.spec.Lock.strength != queryLockStrengthUpdate {
+		t.Fatalf("expected FOR UPDATE lock, got %q", core.spec.Lock.strength)
 	}
-	if qb.spec.Lock.waitMode != "" {
-		t.Fatalf("expected empty wait mode, got %q", qb.spec.Lock.waitMode)
+	if core.spec.Lock.waitMode != "" {
+		t.Fatalf("expected empty wait mode, got %q", core.spec.Lock.waitMode)
 	}
 }
+
 func TestQueryBuilder_ForShareSkipLocked(t *testing.T) {
 	table := newMockTable("users")
 	id := newMockColumn(table, "id")
 	qb := Select(id).From(table).ForShare().SkipLocked()
-	if qb.spec.Lock.strength != queryLockStrengthShare {
-		t.Fatalf("expected FOR SHARE lock, got %q", qb.spec.Lock.strength)
+	core := mustBuilderCore[Table](t, qb)
+	if core.spec.Lock.strength != queryLockStrengthShare {
+		t.Fatalf("expected FOR SHARE lock, got %q", core.spec.Lock.strength)
 	}
-	if qb.spec.Lock.waitMode != queryLockWaitSkipLocked {
-		t.Fatalf("expected SKIP LOCKED wait mode, got %q", qb.spec.Lock.waitMode)
+	if core.spec.Lock.waitMode != queryLockWaitSkipLocked {
+		t.Fatalf("expected SKIP LOCKED wait mode, got %q", core.spec.Lock.waitMode)
 	}
 }
+
 func TestQueryBuilder_LockWaitModeCannotBeSetTwice(t *testing.T) {
 	table := newMockTable("users")
 	id := newMockColumn(table, "id")

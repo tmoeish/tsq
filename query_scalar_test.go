@@ -2,9 +2,10 @@ package tsq
 
 import (
 	"context"
-	_ "github.com/mattn/go-sqlite3"
 	"strings"
 	"testing"
+
+	_ "github.com/mattn/go-sqlite3"
 )
 
 func TestQueryCountRejectsUnbuiltQuery(t *testing.T) {
@@ -16,6 +17,7 @@ func TestQueryCountRejectsUnbuiltQuery(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
 func TestQueryCountRejectsTypedNilExecutor(t *testing.T) {
 	var db *Engine
 	users := newMockTable("users")
@@ -29,6 +31,7 @@ func TestQueryCountRejectsTypedNilExecutor(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
 func TestQueryCountRejectsExecutorWithoutDialectForRenderedSQL(t *testing.T) {
 	db := newEngineWithoutDialect(t)
 	users := newMockTable("users")

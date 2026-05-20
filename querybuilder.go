@@ -71,59 +71,155 @@ const (
 	builderPhaseCompound   builderPhase = "compound-query"
 )
 
-// QueryBuilder is the main fluent builder once both SELECT and FROM are known.
 type QueryBuilder[O Owner] struct {
 	*queryBuilderCore[O]
 }
 
-// SelectBuilder represents a query after Select(...) and before From(...).
-type SelectBuilder[O Owner] struct {
+// QueryStage is a buildable query state that can participate in CTEs and set operations.
+type QueryStage[O Owner] interface {
+	Build() (*Query[O], error)
+}
+
+// SelectStage is the result of Select(...) before From(...) is attached.
+type SelectStage[O Owner] interface {
+	From(table Table) *QueryBuilder[O]
+}
+
+// FromStage is the result of From(...) before Select(...) is attached.
+type FromStage[O Owner] interface {
+	Select(cols ...BoundColumn[O]) *QueryBuilder[O]
+}
+
+// WhereStage is the query state after Where(...).
+type WhereStage[O Owner] interface {
+	QueryStage[O]
+	Search(cols ...SearchColumn) FilteredStage[O]
+	GroupBy(cols ...SQLColumn) GroupedStage[O]
+	ForUpdate() LockedStage[O]
+	ForShare() LockedStage[O]
+	Union(other QueryStage[O]) CompoundStage[O]
+	UnionAll(other QueryStage[O]) CompoundStage[O]
+	Intersect(other QueryStage[O]) CompoundStage[O]
+	IntersectAll(other QueryStage[O]) CompoundStage[O]
+	Except(other QueryStage[O]) CompoundStage[O]
+	ExceptAll(other QueryStage[O]) CompoundStage[O]
+}
+
+// SearchStage is the query state after Search(...).
+type SearchStage[O Owner] interface {
+	QueryStage[O]
+	Where(conds ...Condition) FilteredStage[O]
+	GroupBy(cols ...SQLColumn) GroupedStage[O]
+	ForUpdate() LockedStage[O]
+	ForShare() LockedStage[O]
+	Union(other QueryStage[O]) CompoundStage[O]
+	UnionAll(other QueryStage[O]) CompoundStage[O]
+	Intersect(other QueryStage[O]) CompoundStage[O]
+	IntersectAll(other QueryStage[O]) CompoundStage[O]
+	Except(other QueryStage[O]) CompoundStage[O]
+	ExceptAll(other QueryStage[O]) CompoundStage[O]
+}
+
+// FilteredStage is the query state after both Where(...) and Search(...).
+type FilteredStage[O Owner] interface {
+	QueryStage[O]
+	GroupBy(cols ...SQLColumn) GroupedStage[O]
+	ForUpdate() LockedStage[O]
+	ForShare() LockedStage[O]
+	Union(other QueryStage[O]) CompoundStage[O]
+	UnionAll(other QueryStage[O]) CompoundStage[O]
+	Intersect(other QueryStage[O]) CompoundStage[O]
+	IntersectAll(other QueryStage[O]) CompoundStage[O]
+	Except(other QueryStage[O]) CompoundStage[O]
+	ExceptAll(other QueryStage[O]) CompoundStage[O]
+}
+
+// GroupedStage is the query state after GroupBy(...).
+type GroupedStage[O Owner] interface {
+	QueryStage[O]
+	Having(conds ...Condition) HavingStage[O]
+	ForUpdate() LockedStage[O]
+	ForShare() LockedStage[O]
+	Union(other QueryStage[O]) CompoundStage[O]
+	UnionAll(other QueryStage[O]) CompoundStage[O]
+	Intersect(other QueryStage[O]) CompoundStage[O]
+	IntersectAll(other QueryStage[O]) CompoundStage[O]
+	Except(other QueryStage[O]) CompoundStage[O]
+	ExceptAll(other QueryStage[O]) CompoundStage[O]
+}
+
+// HavingStage is the query state after Having(...).
+type HavingStage[O Owner] interface {
+	QueryStage[O]
+	ForUpdate() LockedStage[O]
+	ForShare() LockedStage[O]
+	Union(other QueryStage[O]) CompoundStage[O]
+	UnionAll(other QueryStage[O]) CompoundStage[O]
+	Intersect(other QueryStage[O]) CompoundStage[O]
+	IntersectAll(other QueryStage[O]) CompoundStage[O]
+	Except(other QueryStage[O]) CompoundStage[O]
+	ExceptAll(other QueryStage[O]) CompoundStage[O]
+}
+
+// CompoundStage is the query state after one or more set operations.
+type CompoundStage[O Owner] interface {
+	QueryStage[O]
+	ForUpdate() LockedStage[O]
+	ForShare() LockedStage[O]
+	Union(other QueryStage[O]) CompoundStage[O]
+	UnionAll(other QueryStage[O]) CompoundStage[O]
+	Intersect(other QueryStage[O]) CompoundStage[O]
+	IntersectAll(other QueryStage[O]) CompoundStage[O]
+	Except(other QueryStage[O]) CompoundStage[O]
+	ExceptAll(other QueryStage[O]) CompoundStage[O]
+}
+
+// LockedStage is the query state after ForUpdate()/ForShare().
+type LockedStage[O Owner] interface {
+	QueryStage[O]
+	NoWait() LockedStage[O]
+	SkipLocked() LockedStage[O]
+}
+
+type selectBuilder[O Owner] struct {
 	*queryBuilderCore[O]
 }
 
-// FromBuilder represents a query after From(...) and before Select(...).
-type FromBuilder[O Owner] struct {
+type fromBuilder[O Owner] struct {
 	*queryBuilderCore[O]
 }
 
-// WhereQueryBuilder represents a query with WHERE set and before Search/GroupBy/Build.
-type WhereQueryBuilder[O Owner] struct {
+type whereQueryBuilder[O Owner] struct {
 	*queryBuilderCore[O]
 }
 
-// SearchQueryBuilder represents a query with Search set and before Where/GroupBy/Build.
-type SearchQueryBuilder[O Owner] struct {
+type searchQueryBuilder[O Owner] struct {
 	*queryBuilderCore[O]
 }
 
-// FilteredQueryBuilder represents a query with both WHERE and Search set.
-type FilteredQueryBuilder[O Owner] struct {
+type filteredQueryBuilder[O Owner] struct {
 	*queryBuilderCore[O]
 }
 
-// GroupedQueryBuilder represents a query after GroupBy(...) and before Having/Build.
-type GroupedQueryBuilder[O Owner] struct {
+type groupedQueryBuilder[O Owner] struct {
 	*queryBuilderCore[O]
 }
 
-// HavingQueryBuilder represents a grouped query with HAVING applied.
-type HavingQueryBuilder[O Owner] struct {
+type havingQueryBuilder[O Owner] struct {
 	*queryBuilderCore[O]
 }
 
-// CompoundQueryBuilder represents a query with one or more set operations.
-type CompoundQueryBuilder[O Owner] struct {
+type compoundQueryBuilder[O Owner] struct {
 	*queryBuilderCore[O]
 }
 
-// LockedQueryBuilder represents a query with a row-lock clause.
-type LockedQueryBuilder[O Owner] struct {
+type lockedQueryBuilder[O Owner] struct {
 	*queryBuilderCore[O]
 }
 
 // queryBuilderCore stores the shared mutable state for every staged builder wrapper.
 type queryBuilderCore[O Owner] struct {
-	spec     QuerySpec[O]
+	spec     querySpec[O]
 	buildErr error
 	phase    builderPhase
 }
@@ -137,28 +233,23 @@ type join struct {
 
 type setOperation[O Owner] struct {
 	op   setOperationType
-	spec QuerySpec[O]
+	spec querySpec[O]
 }
 
 var errQueryBuilderNil = errors.New("query builder cannot be nil")
 
-type completeQueryStage[O Owner] interface {
-	core() *queryBuilderCore[O]
-	completeQueryStage()
-}
-
 // Select creates a new state-machine builder with the specified columns.
-func Select[O Owner](cols ...BoundColumn[O]) *SelectBuilder[O] {
+func Select[O Owner](cols ...BoundColumn[O]) SelectStage[O] {
 	core := newQueryBuilderCore[O](builderPhaseNeedFrom)
 	core.setSelect(cols...)
 
-	return &SelectBuilder[O]{queryBuilderCore: core}
+	return &selectBuilder[O]{queryBuilderCore: core}
 }
 
 // From creates a new state-machine builder with the specified base table.
-func From[O Owner](table Table) *FromBuilder[O] {
+func From[O Owner](table Table) FromStage[O] {
 	core := newQueryBuilderCore[O](builderPhaseNeedSelect)
 	core.setFrom(table)
 
-	return &FromBuilder[O]{queryBuilderCore: core}
+	return &fromBuilder[O]{queryBuilderCore: core}
 }

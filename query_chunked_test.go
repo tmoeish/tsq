@@ -2,9 +2,10 @@ package tsq
 
 import (
 	"context"
-	_ "github.com/mattn/go-sqlite3"
 	"strings"
 	"testing"
+
+	_ "github.com/mattn/go-sqlite3"
 )
 
 func TestDefaultChunkedInsertOptions(t *testing.T) {
@@ -19,6 +20,7 @@ func TestDefaultChunkedInsertOptions(t *testing.T) {
 		t.Errorf("Expected IgnoreErrors false, got %v", opts.IgnoreErrors)
 	}
 }
+
 func TestDefaultChunkedOptions(t *testing.T) {
 	opts := DefaultChunkedOptions()
 	if opts == nil {
@@ -28,6 +30,7 @@ func TestDefaultChunkedOptions(t *testing.T) {
 		t.Fatalf("expected chunk size 1000, got %d", opts.ChunkSize)
 	}
 }
+
 func TestChunkedInsertOptions_Modification(t *testing.T) {
 	opts := DefaultChunkedInsertOptions()
 	opts.ChunkSize = 500
@@ -39,6 +42,7 @@ func TestChunkedInsertOptions_Modification(t *testing.T) {
 		t.Errorf("Expected IgnoreErrors true, got %v", opts.IgnoreErrors)
 	}
 }
+
 func TestBuildDeleteByIDsSQL(t *testing.T) {
 	sqlStr, err := buildDeleteByIDsSQL("users", "id", 2)
 	if err != nil {
@@ -49,6 +53,7 @@ func TestBuildDeleteByIDsSQL(t *testing.T) {
 		t.Fatalf("expected %q, got %q", want, got)
 	}
 }
+
 func TestBuildDeleteByIDsSQLRejectsInvalidIdentifiers(t *testing.T) {
 	_, err := buildDeleteByIDsSQL("users; DROP TABLE users", "id", 1)
 	if err == nil {
@@ -59,11 +64,13 @@ func TestBuildDeleteByIDsSQLRejectsInvalidIdentifiers(t *testing.T) {
 		t.Fatal("expected invalid column name to return an error")
 	}
 }
+
 func TestNormalizeChunkedInsertOptionsValidatesInputs(t *testing.T) {
 	if _, err := normalizeChunkedInsertOptions(&ChunkedInsertOptions{ChunkSize: 0}); err == nil {
 		t.Fatal("expected zero chunk size to return an error")
 	}
 }
+
 func TestNormalizeChunkedInsertOptionsRejectsMultipleValues(t *testing.T) {
 	_, err := normalizeChunkedInsertOptions(&ChunkedInsertOptions{}, &ChunkedInsertOptions{})
 	if err == nil {
@@ -73,11 +80,13 @@ func TestNormalizeChunkedInsertOptionsRejectsMultipleValues(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
 func TestNormalizeChunkedOptionsValidatesInputs(t *testing.T) {
 	if _, err := normalizeChunkedOptions(&ChunkedOptions{ChunkSize: 0}); err == nil {
 		t.Fatal("expected zero chunk size to return an error")
 	}
 }
+
 func TestNormalizeChunkedOptionsRejectsMultipleValues(t *testing.T) {
 	_, err := normalizeChunkedOptions(&ChunkedOptions{}, &ChunkedOptions{})
 	if err == nil {
@@ -87,6 +96,7 @@ func TestNormalizeChunkedOptionsRejectsMultipleValues(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
 func TestChunkedUpdateChunkRejectsNilItems(t *testing.T) {
 	err := chunkedUpdateChunk[*mockTable](nil, nil, []*mockTable{nil})
 	if err == nil {
@@ -96,6 +106,7 @@ func TestChunkedUpdateChunkRejectsNilItems(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
 func TestChunkedDeleteChunkRejectsNilItems(t *testing.T) {
 	err := chunkedDeleteChunk[*mockTable](nil, nil, []*mockTable{nil})
 	if err == nil {
@@ -105,6 +116,7 @@ func TestChunkedDeleteChunkRejectsNilItems(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
 func TestInsertRejectsTypedNilExecutor(t *testing.T) {
 	var db *Engine
 	row := mockTable{tableName: "users"}
@@ -116,6 +128,7 @@ func TestInsertRejectsTypedNilExecutor(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
 func TestInsertRejectsNilItem(t *testing.T) {
 	db := &Engine{}
 	var value *mockTable
@@ -127,6 +140,7 @@ func TestInsertRejectsNilItem(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
 func TestUpdateRejectsNilItem(t *testing.T) {
 	db := &Engine{}
 	var value *mockTable
@@ -138,6 +152,7 @@ func TestUpdateRejectsNilItem(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
 func TestDeleteRejectsNilItem(t *testing.T) {
 	db := &Engine{}
 	var value *mockTable
@@ -149,6 +164,7 @@ func TestDeleteRejectsNilItem(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
 func TestChunkedInsertRejectsTypedNilExecutor(t *testing.T) {
 	var db *Engine
 	row := mockTable{tableName: "users"}
@@ -160,6 +176,7 @@ func TestChunkedInsertRejectsTypedNilExecutor(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
 func TestChunkedDeleteByIDsRejectsExecutorWithoutDialectForRenderedSQL(t *testing.T) {
 	db := newEngineWithoutDialect(t)
 	err := ChunkedDeleteByIDs(context.Background(), db, "users", "id", []any{1})
@@ -170,6 +187,7 @@ func TestChunkedDeleteByIDsRejectsExecutorWithoutDialectForRenderedSQL(t *testin
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
 func TestChunkedDeleteByIDsRejectsNilIDs(t *testing.T) {
 	db := &Engine{Dialect: SQLiteDialect{}}
 	err := ChunkedDeleteByIDs(context.Background(), db, "users", "id", []any{1, nil})

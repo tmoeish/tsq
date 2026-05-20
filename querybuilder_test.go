@@ -5,40 +5,64 @@ import (
 	"testing"
 )
 
-type mockTable struct{ tableName string }
-type queryBuilderCaseRow struct{ Label string }
+type (
+	mockTable           struct{ tableName string }
+	queryBuilderCaseRow struct{ Label string }
+)
 
 func (queryBuilderCaseRow) TSQOwner() {
 }
+
 func (m mockTable) Init(db *Engine) error {
 	return nil
 }
+
 func (m mockTable) TSQOwner() {
 }
+
 func (m mockTable) Table() string {
 	return m.tableName
 }
+
 func (m mockTable) Cols() []SQLColumn {
 	return nil
 }
+
 func (m mockTable) SearchColumns() []SearchColumn {
 	return nil
 }
+
 func (m mockTable) PrimaryKeys() []string {
 	return nil
 }
+
 func (m mockTable) AutoIncrement() bool {
 	return false
 }
+
 func (m mockTable) VersionColumn() string {
 	return ""
 }
+
 func newMockTable(name string) Table {
 	return mockTable{tableName: name}
 }
+
 func newMockColumn(table Table, name string) columnImpl[Table, string] {
 	return newColForTable[Table, string](table, name, name, nil)
 }
+
+func mustBuilderCore[O Owner](t *testing.T, builder any) *queryBuilderCore[O] {
+	t.Helper()
+
+	provider, ok := builder.(interface{ core() *queryBuilderCore[O] })
+	if !ok || provider.core() == nil {
+		t.Fatal("expected tsq internal builder core")
+	}
+
+	return provider.core()
+}
+
 func TestSelect(t *testing.T) {
 	table1 := newMockTable("users")
 	col1 := newMockColumn(table1, "id")
@@ -47,10 +71,11 @@ func TestSelect(t *testing.T) {
 	if qb == nil {
 		t.Fatal("Select() returned nil")
 	}
-	if len(qb.spec.Selects) != 2 {
-		t.Errorf("Expected 2 select columns, got %d", len(qb.spec.Selects))
+	core := mustBuilderCore[Table](t, qb)
+	if len(core.spec.Selects) != 2 {
+		t.Errorf("Expected 2 select columns, got %d", len(core.spec.Selects))
 	}
-	selectTables := qb.spec.selectTables()
+	selectTables := core.spec.selectTables()
 	if len(selectTables) != 1 {
 		t.Errorf("Expected 1 select table, got %d", len(selectTables))
 	}
@@ -58,6 +83,7 @@ func TestSelect(t *testing.T) {
 		t.Error("Expected 'users' table to be in selectTables")
 	}
 }
+
 func TestFromCreatesBuilderAndSelectSetsColumns(t *testing.T) {
 	table := newMockTable("users")
 	id := newMockColumn(table, "id")
@@ -66,13 +92,15 @@ func TestFromCreatesBuilderAndSelectSetsColumns(t *testing.T) {
 	if qb == nil {
 		t.Fatal("From().Select() returned nil")
 	}
-	if qb.spec.From != table {
-		t.Fatalf("expected from table %v, got %v", table, qb.spec.From)
+	core := mustBuilderCore[Table](t, qb)
+	if core.spec.From != table {
+		t.Fatalf("expected from table %v, got %v", table, core.spec.From)
 	}
-	if len(qb.spec.Selects) != 2 {
-		t.Fatalf("expected 2 selected columns, got %d", len(qb.spec.Selects))
+	if len(core.spec.Selects) != 2 {
+		t.Fatalf("expected 2 selected columns, got %d", len(core.spec.Selects))
 	}
 }
+
 func TestSelect_NilColumnDefersToBuildError(t *testing.T) {
 	table := newMockTable("users")
 	var col BoundColumn[Table]
@@ -84,6 +112,7 @@ func TestSelect_NilColumnDefersToBuildError(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
 func TestSelect_ZeroValueColumnDefersToBuildError(t *testing.T) {
 	table := newMockTable("users")
 	var col columnImpl[Table, int]
@@ -95,6 +124,7 @@ func TestSelect_ZeroValueColumnDefersToBuildError(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
 func TestJoinTypeConstants(t *testing.T) {
 	tests := []struct {
 		joinType joinType
@@ -117,9 +147,11 @@ type mockCondition struct {
 func (m *mockCondition) Clause() string {
 	return m.clause
 }
+
 func (m *mockCondition) Tables() map[string]Table {
 	return m.tables
 }
+
 func (m *mockCondition) Args() []any {
 	return nil
 }

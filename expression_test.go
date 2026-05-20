@@ -32,6 +32,7 @@ func TestBindUsesPlaceholdersForDatabaseCompatibleValues(t *testing.T) {
 		})
 	}
 }
+
 func TestBindRejectsNullAndUnsupportedPredicateValues(t *testing.T) {
 	var nilPointerValuer *pointerValuer
 	tests := []struct {
@@ -46,6 +47,7 @@ func TestBindRejectsNullAndUnsupportedPredicateValues(t *testing.T) {
 		})
 	}
 }
+
 func TestArgumentToExpressionDefaultsToBind(t *testing.T) {
 	expr := argumentToExpression(`it's a test`)
 	if err := expressionBuildError(expr); err != nil {

@@ -5,11 +5,11 @@ import (
 	"strings"
 )
 
-func (spec QuerySpec[O]) buildCntSQL() (string, []any, error) {
+func (spec querySpec[O]) buildCntSQL() (string, []any, error) {
 	return spec.buildCountSQL(false)
 }
 
-func (spec QuerySpec[O]) buildListSQL() (string, []any, error) {
+func (spec querySpec[O]) buildListSQL() (string, []any, error) {
 	cteSQL, cteArgs, err := spec.buildCTEPrefix(false)
 	if err != nil {
 		return "", nil, err
@@ -21,7 +21,7 @@ func (spec QuerySpec[O]) buildListSQL() (string, []any, error) {
 	return appendQueryLockClause(cteSQL+bodySQL, spec.Lock), args, nil
 }
 
-func (spec QuerySpec[O]) buildSimpleListSQL(useKeyword bool) (string, []any) {
+func (spec querySpec[O]) buildSimpleListSQL(useKeyword bool) (string, []any) {
 	selectSQL, selectArgs := spec.buildSelect()
 	fromSQL, fromArgs := spec.buildFrom()
 	whereSQL, whereArgs := spec.buildWhere(useKeyword)
@@ -37,7 +37,7 @@ func (spec QuerySpec[O]) buildSimpleListSQL(useKeyword bool) (string, []any) {
 	return selectSQL + fromSQL + whereSQL + groupBySQL + havingSQL, args
 }
 
-func (spec QuerySpec[O]) buildCountSQL(useKeyword bool) (string, []any, error) {
+func (spec querySpec[O]) buildCountSQL(useKeyword bool) (string, []any, error) {
 	cteSQL, cteArgs, err := spec.buildCTEPrefix(useKeyword)
 	if err != nil {
 		return "", nil, err
@@ -59,11 +59,11 @@ func (spec QuerySpec[O]) buildCountSQL(useKeyword bool) (string, []any, error) {
 	return cteSQL + "SELECT COUNT(1)" + fromSQL + whereSQL, args, nil
 }
 
-func (spec QuerySpec[O]) buildKwCntSQL() (string, []any, error) {
+func (spec querySpec[O]) buildKwCntSQL() (string, []any, error) {
 	return spec.buildCountSQL(true)
 }
 
-func (spec QuerySpec[O]) buildKwListSQL() (string, []any, error) {
+func (spec querySpec[O]) buildKwListSQL() (string, []any, error) {
 	cteSQL, cteArgs, err := spec.buildCTEPrefix(true)
 	if err != nil {
 		return "", nil, err
@@ -75,7 +75,7 @@ func (spec QuerySpec[O]) buildKwListSQL() (string, []any, error) {
 	return appendQueryLockClause(cteSQL+bodySQL, spec.Lock), args, nil
 }
 
-func (spec QuerySpec[O]) buildListBodySQL(useKeyword bool) (string, []any) {
+func (spec querySpec[O]) buildListBodySQL(useKeyword bool) (string, []any) {
 	if len(spec.SetOps) > 0 {
 		return spec.buildCompoundListSQL(useKeyword)
 	}
@@ -83,7 +83,7 @@ func (spec QuerySpec[O]) buildListBodySQL(useKeyword bool) (string, []any) {
 	return spec.buildSimpleCompoundOperandSQL(useKeyword)
 }
 
-func (spec QuerySpec[O]) buildCompoundListSQL(useKeyword bool) (string, []any) {
+func (spec querySpec[O]) buildCompoundListSQL(useKeyword bool) (string, []any) {
 	baseSQL, baseArgs := spec.buildSimpleCompoundOperandSQL(useKeyword)
 	args := slices.Clone(baseArgs)
 
@@ -104,7 +104,7 @@ func (spec QuerySpec[O]) buildCompoundListSQL(useKeyword bool) (string, []any) {
 	return builder.String(), args
 }
 
-func (spec QuerySpec[O]) buildOperandSQL(useKeyword bool) (string, []any) {
+func (spec querySpec[O]) buildOperandSQL(useKeyword bool) (string, []any) {
 	if len(spec.SetOps) > 0 {
 		sql, args := spec.buildListBodySQL(useKeyword)
 		return "(" + sql + ")", args
@@ -113,11 +113,11 @@ func (spec QuerySpec[O]) buildOperandSQL(useKeyword bool) (string, []any) {
 	return spec.buildSimpleCompoundOperandSQL(useKeyword)
 }
 
-func (spec QuerySpec[O]) buildSimpleCompoundOperandSQL(useKeyword bool) (string, []any) {
+func (spec querySpec[O]) buildSimpleCompoundOperandSQL(useKeyword bool) (string, []any) {
 	return spec.buildSimpleListSQL(useKeyword)
 }
 
-func (spec QuerySpec[O]) buildSelect() (string, []any) {
+func (spec querySpec[O]) buildSelect() (string, []any) {
 	args := make([]any, 0, len(spec.Selects))
 	fullNames := make([]string, 0, len(spec.Selects))
 
@@ -129,7 +129,7 @@ func (spec QuerySpec[O]) buildSelect() (string, []any) {
 	return "SELECT " + strings.Join(fullNames, ", "), args
 }
 
-func (spec QuerySpec[O]) buildGroupBy() (string, []any) {
+func (spec querySpec[O]) buildGroupBy() (string, []any) {
 	if len(spec.GroupBy) == 0 {
 		return "", nil
 	}
@@ -146,7 +146,7 @@ func (spec QuerySpec[O]) buildGroupBy() (string, []any) {
 	return " GROUP BY " + strings.Join(groupByExprs, ", "), args
 }
 
-func (spec QuerySpec[O]) buildHaving() (string, []any) {
+func (spec querySpec[O]) buildHaving() (string, []any) {
 	if len(spec.Having) == 0 {
 		return "", nil
 	}
@@ -181,7 +181,7 @@ func buildConditionSQL(prefix string, conds []Condition) (string, []any) {
 	return prefix + "(" + strings.Join(clauses, " AND ") + ")", args
 }
 
-func (spec QuerySpec[O]) buildWhere(useKeyword bool) (string, []any) {
+func (spec querySpec[O]) buildWhere(useKeyword bool) (string, []any) {
 	if !useKeyword {
 		if len(spec.Filters) == 0 {
 			return "", nil
@@ -220,7 +220,7 @@ func (spec QuerySpec[O]) buildWhere(useKeyword bool) (string, []any) {
 	return " WHERE (" + strings.Join(clauses, " AND ") + ")", args
 }
 
-func (spec QuerySpec[O]) buildFrom() (string, []any) {
+func (spec querySpec[O]) buildFrom() (string, []any) {
 	var fromBuilder strings.Builder
 	args := make([]any, 0)
 
@@ -270,7 +270,7 @@ func (spec QuerySpec[O]) buildFrom() (string, []any) {
 	return fromBuilder.String(), args
 }
 
-func (spec QuerySpec[O]) requiresWrappedCount() bool {
+func (spec querySpec[O]) requiresWrappedCount() bool {
 	return len(spec.SetOps) > 0 ||
 		len(spec.GroupBy) > 0 ||
 		len(spec.Having) > 0 ||
@@ -278,11 +278,11 @@ func (spec QuerySpec[O]) requiresWrappedCount() bool {
 		spec.hasAggregateSelect()
 }
 
-func (spec QuerySpec[O]) wrapCountSQL(inner string) string {
+func (spec querySpec[O]) wrapCountSQL(inner string) string {
 	return "SELECT COUNT(1) FROM (" + inner + ") AS _tsq_cnt"
 }
 
-func (spec QuerySpec[O]) hasDistinctSelect() bool {
+func (spec querySpec[O]) hasDistinctSelect() bool {
 	type distinctExpr interface {
 		isDistinctExpression() bool
 	}
@@ -296,7 +296,7 @@ func (spec QuerySpec[O]) hasDistinctSelect() bool {
 	return false
 }
 
-func (spec QuerySpec[O]) hasAggregateSelect() bool {
+func (spec querySpec[O]) hasAggregateSelect() bool {
 	type aggregateExpr interface {
 		isAggregateExpression() bool
 	}
@@ -310,8 +310,8 @@ func (spec QuerySpec[O]) hasAggregateSelect() bool {
 	return false
 }
 
-func cloneQuerySpec[O Owner](spec QuerySpec[O]) QuerySpec[O] {
-	cloned := QuerySpec[O]{
+func cloneQuerySpec[O Owner](spec querySpec[O]) querySpec[O] {
+	cloned := querySpec[O]{
 		From:          spec.From,
 		Selects:       slices.Clone(spec.Selects),
 		Filters:       slices.Clone(spec.Filters),

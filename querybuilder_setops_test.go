@@ -11,13 +11,15 @@ func TestQueryBuilder_Union(t *testing.T) {
 	userID := newMockColumn(users, "id")
 	orderUserID := newMockColumn(orders, "user_id")
 	qb := Select(userID).From(userID.Table()).Union(Select(orderUserID).From(orderUserID.Table()))
-	if len(qb.spec.SetOps) != 1 {
-		t.Fatalf("expected 1 set operation, got %d", len(qb.spec.SetOps))
+	core := mustBuilderCore[Table](t, qb)
+	if len(core.spec.SetOps) != 1 {
+		t.Fatalf("expected 1 set operation, got %d", len(core.spec.SetOps))
 	}
-	if qb.spec.SetOps[0].op != unionType {
-		t.Fatalf("expected UNION operation, got %s", qb.spec.SetOps[0].op)
+	if core.spec.SetOps[0].op != unionType {
+		t.Fatalf("expected UNION operation, got %s", core.spec.SetOps[0].op)
 	}
 }
+
 func TestQueryBuilder_SetOperationRejectsMismatchedSelectCounts(t *testing.T) {
 	users := newMockTable("users")
 	id := newMockColumn(users, "id")
@@ -30,6 +32,7 @@ func TestQueryBuilder_SetOperationRejectsMismatchedSelectCounts(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
 func TestQueryBuilder_SetOperationRejectsKeywordSearch(t *testing.T) {
 	users := newMockTable("users")
 	id := newMockColumn(users, "id")
@@ -41,6 +44,7 @@ func TestQueryBuilder_SetOperationRejectsKeywordSearch(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
 func TestQueryBuilder_SetOperationBuildsWrappedCountSQL(t *testing.T) {
 	users := newMockTable("users")
 	orders := newMockTable("orders")

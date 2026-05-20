@@ -7,7 +7,7 @@ import (
 
 func newQueryBuilderCore[O Owner](phase builderPhase) *queryBuilderCore[O] {
 	return &queryBuilderCore[O]{
-		spec: QuerySpec[O]{
+		spec: querySpec[O]{
 			Selects: make([]BoundColumn[O], 0),
 			Joins:   make([]join, 0),
 			GroupBy: make([]SQLColumn, 0),
@@ -56,6 +56,19 @@ func ensureQueryBuilderCore[O Owner](core *queryBuilderCore[O], defaultPhase bui
 	return core
 }
 
+func coreForQueryStage[O Owner](stage QueryStage[O]) *queryBuilderCore[O] {
+	if stage == nil {
+		return nil
+	}
+
+	provider, ok := any(stage).(interface{ core() *queryBuilderCore[O] })
+	if !ok {
+		return nil
+	}
+
+	return provider.core()
+}
+
 func (qb *QueryBuilder[O]) core() *queryBuilderCore[O] {
 	if qb == nil {
 		panic(errQueryBuilderNil)
@@ -64,7 +77,7 @@ func (qb *QueryBuilder[O]) core() *queryBuilderCore[O] {
 	return qb.queryBuilderCore
 }
 
-func (qb *SelectBuilder[O]) core() *queryBuilderCore[O] {
+func (qb *selectBuilder[O]) core() *queryBuilderCore[O] {
 	if qb == nil {
 		panic(errQueryBuilderNil)
 	}
@@ -72,7 +85,7 @@ func (qb *SelectBuilder[O]) core() *queryBuilderCore[O] {
 	return qb.queryBuilderCore
 }
 
-func (qb *FromBuilder[O]) core() *queryBuilderCore[O] {
+func (qb *fromBuilder[O]) core() *queryBuilderCore[O] {
 	if qb == nil {
 		panic(errQueryBuilderNil)
 	}
@@ -80,7 +93,7 @@ func (qb *FromBuilder[O]) core() *queryBuilderCore[O] {
 	return qb.queryBuilderCore
 }
 
-func (qb *WhereQueryBuilder[O]) core() *queryBuilderCore[O] {
+func (qb *whereQueryBuilder[O]) core() *queryBuilderCore[O] {
 	if qb == nil {
 		panic(errQueryBuilderNil)
 	}
@@ -88,7 +101,7 @@ func (qb *WhereQueryBuilder[O]) core() *queryBuilderCore[O] {
 	return qb.queryBuilderCore
 }
 
-func (qb *SearchQueryBuilder[O]) core() *queryBuilderCore[O] {
+func (qb *searchQueryBuilder[O]) core() *queryBuilderCore[O] {
 	if qb == nil {
 		panic(errQueryBuilderNil)
 	}
@@ -96,7 +109,7 @@ func (qb *SearchQueryBuilder[O]) core() *queryBuilderCore[O] {
 	return qb.queryBuilderCore
 }
 
-func (qb *FilteredQueryBuilder[O]) core() *queryBuilderCore[O] {
+func (qb *filteredQueryBuilder[O]) core() *queryBuilderCore[O] {
 	if qb == nil {
 		panic(errQueryBuilderNil)
 	}
@@ -104,7 +117,7 @@ func (qb *FilteredQueryBuilder[O]) core() *queryBuilderCore[O] {
 	return qb.queryBuilderCore
 }
 
-func (qb *GroupedQueryBuilder[O]) core() *queryBuilderCore[O] {
+func (qb *groupedQueryBuilder[O]) core() *queryBuilderCore[O] {
 	if qb == nil {
 		panic(errQueryBuilderNil)
 	}
@@ -112,7 +125,7 @@ func (qb *GroupedQueryBuilder[O]) core() *queryBuilderCore[O] {
 	return qb.queryBuilderCore
 }
 
-func (qb *HavingQueryBuilder[O]) core() *queryBuilderCore[O] {
+func (qb *havingQueryBuilder[O]) core() *queryBuilderCore[O] {
 	if qb == nil {
 		panic(errQueryBuilderNil)
 	}
@@ -120,7 +133,7 @@ func (qb *HavingQueryBuilder[O]) core() *queryBuilderCore[O] {
 	return qb.queryBuilderCore
 }
 
-func (qb *CompoundQueryBuilder[O]) core() *queryBuilderCore[O] {
+func (qb *compoundQueryBuilder[O]) core() *queryBuilderCore[O] {
 	if qb == nil {
 		panic(errQueryBuilderNil)
 	}
@@ -128,21 +141,13 @@ func (qb *CompoundQueryBuilder[O]) core() *queryBuilderCore[O] {
 	return qb.queryBuilderCore
 }
 
-func (qb *LockedQueryBuilder[O]) core() *queryBuilderCore[O] {
+func (qb *lockedQueryBuilder[O]) core() *queryBuilderCore[O] {
 	if qb == nil {
 		panic(errQueryBuilderNil)
 	}
 
 	return qb.queryBuilderCore
 }
-
-func (qb *QueryBuilder[O]) completeQueryStage()         {}
-func (qb *WhereQueryBuilder[O]) completeQueryStage()    {}
-func (qb *SearchQueryBuilder[O]) completeQueryStage()   {}
-func (qb *FilteredQueryBuilder[O]) completeQueryStage() {}
-func (qb *GroupedQueryBuilder[O]) completeQueryStage()  {}
-func (qb *HavingQueryBuilder[O]) completeQueryStage()   {}
-func (qb *CompoundQueryBuilder[O]) completeQueryStage() {}
 
 func (core *queryBuilderCore[O]) setBuildError(err error) {
 	if core == nil || err == nil || core.buildErr != nil {
@@ -384,7 +389,7 @@ func (core *queryBuilderCore[O]) isComplete() bool {
 	}
 }
 
-func (core *queryBuilderCore[O]) appendSetOperation(op setOperationType, other completeQueryStage[O]) {
+func (core *queryBuilderCore[O]) appendSetOperation(op setOperationType, other QueryStage[O]) {
 	if core.buildErr != nil {
 		return
 	}
@@ -394,12 +399,13 @@ func (core *queryBuilderCore[O]) appendSetOperation(op setOperationType, other c
 		return
 	}
 
-	if other == nil || other.core() == nil {
-		core.setBuildError(errors.New("set operation query builder cannot be nil"))
+	otherStageCore := coreForQueryStage(other)
+	if otherStageCore == nil {
+		core.setBuildError(errors.New("set operation query stage must come from tsq builders"))
 		return
 	}
 
-	otherCore := ensureQueryBuilderCore(other.core(), builderPhaseBase)
+	otherCore := ensureQueryBuilderCore(otherStageCore, builderPhaseBase)
 	if otherCore.buildErr != nil {
 		core.setBuildError(otherCore.buildErr)
 		return

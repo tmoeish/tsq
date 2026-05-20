@@ -17,8 +17,14 @@ type expressionOwner struct{}
 // TSQOwner marks expressionOwner as the synthetic owner for CASE projections.
 func (expressionOwner) TSQOwner() {}
 
-// CaseBuilder builds a searched CASE expression.
-type CaseBuilder[T any] struct {
+// CaseStage builds a searched CASE expression.
+type CaseStage[T any] interface {
+	When(cond Condition, result any) CaseStage[T]
+	Else(result any) CaseStage[T]
+	End() ValueColumn[T]
+}
+
+type caseBuilder[T any] struct {
 	whens     []caseBranch
 	elseExpr  Expression
 	hasElse   bool
@@ -29,17 +35,17 @@ type CaseBuilder[T any] struct {
 }
 
 // Case creates a searched CASE expression builder.
-func Case[T any]() *CaseBuilder[T] {
-	return &CaseBuilder[T]{
+func Case[T any]() CaseStage[T] {
+	return &caseBuilder[T]{
 		whens:  make([]caseBranch, 0),
 		tables: make(map[string]Table),
 	}
 }
 
 // When appends a WHEN ... THEN ... branch to the CASE expression.
-func (b *CaseBuilder[T]) When(cond Condition, result any) *CaseBuilder[T] {
+func (b *caseBuilder[T]) When(cond Condition, result any) CaseStage[T] {
 	if b == nil {
-		return &CaseBuilder[T]{buildErr: errors.New("case builder cannot be nil")}
+		return &caseBuilder[T]{buildErr: errors.New("case builder cannot be nil")}
 	}
 
 	if b.buildErr != nil {
@@ -75,9 +81,9 @@ func (b *CaseBuilder[T]) When(cond Condition, result any) *CaseBuilder[T] {
 }
 
 // Else sets the ELSE branch for the CASE expression.
-func (b *CaseBuilder[T]) Else(result any) *CaseBuilder[T] {
+func (b *caseBuilder[T]) Else(result any) CaseStage[T] {
 	if b == nil {
-		return &CaseBuilder[T]{buildErr: errors.New("case builder cannot be nil")}
+		return &caseBuilder[T]{buildErr: errors.New("case builder cannot be nil")}
 	}
 
 	if b.buildErr != nil {
@@ -102,7 +108,7 @@ func (b *CaseBuilder[T]) Else(result any) *CaseBuilder[T] {
 }
 
 // End finalizes the CASE expression into a selectable column.
-func (b *CaseBuilder[T]) End() Column[expressionOwner, T] {
+func (b *caseBuilder[T]) End() ValueColumn[T] {
 	if b == nil {
 		return columnImpl[expressionOwner, T]{buildErr: errors.New("case builder cannot be nil")}
 	}

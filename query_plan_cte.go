@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-func (spec QuerySpec[O]) buildCTEPrefix(useKeyword bool) (string, []any, error) {
+func (spec querySpec[O]) buildCTEPrefix(useKeyword bool) (string, []any, error) {
 	defs, err := spec.collectCTEDefinitions(useKeyword)
 	if err != nil {
 		return "", nil, err
@@ -29,7 +29,7 @@ func (spec QuerySpec[O]) buildCTEPrefix(useKeyword bool) (string, []any, error) 
 	return "WITH " + strings.Join(parts, ", ") + " ", args, nil
 }
 
-func (spec QuerySpec[O]) collectCTEDefinitions(useKeyword bool) ([]cteDefinition, error) {
+func (spec querySpec[O]) collectCTEDefinitions(useKeyword bool) ([]cteDefinition, error) {
 	collector := &cteCollector{
 		seen:     make(map[string]struct{}),
 		visiting: make(map[string]struct{}),
@@ -48,7 +48,7 @@ type cteCollector struct {
 	visiting map[string]struct{}
 }
 
-func collectCTEFromSpec[O Owner](c *cteCollector, spec QuerySpec[O], useKeyword bool) error {
+func collectCTEFromSpec[O Owner](c *cteCollector, spec querySpec[O], useKeyword bool) error {
 	var tables map[string]Table
 	if useKeyword {
 		tables = spec.pageQueryTables()

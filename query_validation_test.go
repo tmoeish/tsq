@@ -1,9 +1,10 @@
 package tsq
 
 import (
-	_ "github.com/mattn/go-sqlite3"
 	"strings"
 	"testing"
+
+	_ "github.com/mattn/go-sqlite3"
 )
 
 func TestRenderSQLForDialectPostgres(t *testing.T) {
@@ -16,6 +17,7 @@ func TestRenderSQLForDialectPostgres(t *testing.T) {
 		t.Fatalf("expected postgres SQL %q, got %q", want, got)
 	}
 }
+
 func TestRenderDeleteByIDsSQLForPostgres(t *testing.T) {
 	sqlStr, err := buildDeleteByIDsSQL("users", "id", 2)
 	if err != nil {
@@ -27,6 +29,7 @@ func TestRenderDeleteByIDsSQLForPostgres(t *testing.T) {
 		t.Fatalf("expected postgres delete SQL %q, got %q", want, got)
 	}
 }
+
 func TestValidateExecutorForSQLIgnoresMarkersInsideStringsAndComments(t *testing.T) {
 	db := &Engine{}
 	rawSQL := "SELECT 1 /* " + identifierMarkerPrefix + "ignored_comment" + identifierMarkerSuffix + " */" + " WHERE note = '" + identifierMarkerPrefix + "ignored_string" + identifierMarkerSuffix + "'" + " -- " + identifierMarkerPrefix + "ignored_tail" + identifierMarkerSuffix + "\n"
@@ -34,6 +37,7 @@ func TestValidateExecutorForSQLIgnoresMarkersInsideStringsAndComments(t *testing
 		t.Fatalf("expected markers inside strings/comments to be ignored, got %v", err)
 	}
 }
+
 func TestValidateExecutorForSQLIgnoresMarkersInsideDollarQuotedStrings(t *testing.T) {
 	db := &Engine{}
 	rawSQL := "SELECT $$" + identifierMarkerPrefix + "ignored_marker" + identifierMarkerSuffix + "$$"
@@ -41,12 +45,14 @@ func TestValidateExecutorForSQLIgnoresMarkersInsideDollarQuotedStrings(t *testin
 		t.Fatalf("expected markers inside dollar-quoted strings to be ignored, got %v", err)
 	}
 }
+
 func TestValidateExecutorForSQLRejectsBindVarsWithoutDialect(t *testing.T) {
 	db := &Engine{}
 	if err := validateExecutorForSQL(db, "SELECT ?"); err == nil {
 		t.Fatal("expected bind vars without a known dialect to return an error")
 	}
 }
+
 func TestValidateExecutorForSQLIgnoresBindVarsInsideStringsCommentsAndDollarQuotes(t *testing.T) {
 	db := &Engine{}
 	rawSQL := "SELECT '?'" + " /* ? */" + " WHERE note = $$?$$" + " -- ?\n"
@@ -54,6 +60,7 @@ func TestValidateExecutorForSQLIgnoresBindVarsInsideStringsCommentsAndDollarQuot
 		t.Fatalf("expected bind vars inside strings/comments to be ignored, got %v", err)
 	}
 }
+
 func TestValidateIdentifierLength(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -70,6 +77,7 @@ func TestValidateIdentifierLength(t *testing.T) {
 		})
 	}
 }
+
 func TestValidateIdentifierForDialect(t *testing.T) {
 	tests := []struct {
 		name       string

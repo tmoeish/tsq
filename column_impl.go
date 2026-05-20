@@ -18,13 +18,13 @@ type columnImpl[O Owner, T any] struct {
 }
 
 // NewCol creates a new typed column for the table represented by O.
-func NewCol[O Table, T any](baseName, jsonFieldName string, fieldPointer FieldPointer[O, T]) Column[O, T] {
+func NewCol[O Table, T any](baseName, jsonFieldName string, fieldPointer func(*O) *T) Column[O, T] {
 	var table O
 
 	return newColForTable[O, T](table, baseName, jsonFieldName, toScanPointer(fieldPointer))
 }
 
-func toScanPointer[O Owner, T any](fieldPointer FieldPointer[O, T]) scanPointer {
+func toScanPointer[O Owner, T any](fieldPointer func(*O) *T) scanPointer {
 	if fieldPointer == nil {
 		return nil
 	}

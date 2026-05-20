@@ -5,7 +5,7 @@ import (
 	"fmt"
 )
 
-func (spec QuerySpec[O]) validateSetOperations() error {
+func (spec querySpec[O]) validateSetOperations() error {
 	if len(spec.SetOps) == 0 {
 		return nil
 	}
@@ -42,7 +42,7 @@ func (spec QuerySpec[O]) validateSetOperations() error {
 }
 
 // validateJoinGraph validates that joins form a valid directed acyclic graph (DAG).
-func (spec QuerySpec[O]) validateJoinGraph() error {
+func (spec querySpec[O]) validateJoinGraph() error {
 	if err := validateTableInput(spec.From, "from table"); err != nil {
 		return err
 	}

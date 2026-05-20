@@ -22,6 +22,7 @@ func TestQueryBuilder_CTEBuildsWithClause(t *testing.T) {
 		t.Fatalf("expected CTE count SQL %q, got %q", wantCount, query.CountSQL())
 	}
 }
+
 func TestQueryBuilder_CTECollectsNestedDependencies(t *testing.T) {
 	users := newMockTable("users")
 	id := newColForTable[Table, int](users, "id", "id", nil)
@@ -35,6 +36,7 @@ func TestQueryBuilder_CTECollectsNestedDependencies(t *testing.T) {
 		t.Fatalf("expected nested CTE SQL %q, got %q", want, query.ListSQL())
 	}
 }
+
 func TestQueryBuilder_CTERejectsKeywordSearchInDefinition(t *testing.T) {
 	users := newMockTable("users")
 	id := newColForTable[Table, int](users, "id", "id", nil)
@@ -49,6 +51,7 @@ func TestQueryBuilder_CTERejectsKeywordSearchInDefinition(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
 func TestQueryBuilder_CaseExpressionTracksConditionTables(t *testing.T) {
 	users := newMockTable("users")
 	orgs := newMockTable("orgs")

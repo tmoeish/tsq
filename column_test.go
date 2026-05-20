@@ -2,31 +2,41 @@ package tsq
 
 import "testing"
 
-type newColOwner struct{ Name string }
-type colProjection struct{ DisplayName string }
+type (
+	newColOwner   struct{ Name string }
+	colProjection struct{ DisplayName string }
+)
 
 func (colProjection) TSQOwner() {
 }
+
 func (newColOwner) TSQOwner() {
 }
+
 func (newColOwner) Table() string {
 	return "users"
 }
+
 func (newColOwner) Cols() []SQLColumn {
 	return nil
 }
+
 func (newColOwner) SearchColumns() []SearchColumn {
 	return nil
 }
+
 func (newColOwner) PrimaryKeys() []string {
 	return nil
 }
+
 func (newColOwner) AutoIncrement() bool {
 	return false
 }
+
 func (newColOwner) VersionColumn() string {
 	return ""
 }
+
 func TestNewCol(t *testing.T) {
 	col := NewCol[newColOwner, string]("name", "user_name", nil)
 	var _ Column[newColOwner, string] = col
@@ -39,10 +49,11 @@ func TestNewCol(t *testing.T) {
 	if col.QualifiedName() != expectedQualified {
 		t.Errorf("Expected qualified name '%s', got '%s'", expectedQualified, col.QualifiedName())
 	}
-	if col.FieldPointer() != nil {
+	if col.scanPointer() != nil {
 		t.Error("Expected nil field pointer")
 	}
 }
+
 func TestNewColWithExplicitTableInternal(t *testing.T) {
 	table := newMockTable("users")
 	col := newColForTable[newColOwner, string](table, "name", "user_name", toScanPointer(func(holder *newColOwner) *string {
@@ -61,16 +72,18 @@ func TestNewColWithExplicitTableInternal(t *testing.T) {
 	if col.JSONFieldName() != "user_name" {
 		t.Errorf("Expected JSON field name 'user_name', got '%s'", col.JSONFieldName())
 	}
-	if col.FieldPointer() == nil {
+	if col.scanPointer() == nil {
 		t.Error("Expected field pointer to be set")
 	}
 }
+
 func TestNewCol_RejectsNilTable(t *testing.T) {
 	col := newColForTable[Table, string](nil, "name", "name", nil)
 	if _, err := validateColumnInput(col); err == nil {
 		t.Fatal("expected nil table to be captured as a build error")
 	}
 }
+
 func TestCol_Table(t *testing.T) {
 	table := newMockTable("products")
 	col := newColForTable[Table, float64](table, "price", "price", nil)
@@ -79,6 +92,7 @@ func TestCol_Table(t *testing.T) {
 		t.Errorf("Expected table 'products', got '%s'", resultTable.Table())
 	}
 }
+
 func TestCol_Name(t *testing.T) {
 	table := newMockTable("orders")
 	col := newColForTable[Table, int](table, "id", "id", nil)
@@ -86,6 +100,7 @@ func TestCol_Name(t *testing.T) {
 		t.Errorf("Expected name 'id', got '%s'", col.Name())
 	}
 }
+
 func TestCol_QualifiedName(t *testing.T) {
 	tests := []struct {
 		tableName    string
@@ -102,19 +117,21 @@ func TestCol_QualifiedName(t *testing.T) {
 		})
 	}
 }
+
 func TestCol_FieldPointer(t *testing.T) {
 	table := newMockTable("users")
 	col1 := newColForTable[Table, string](table, "name", "name", nil)
-	if col1.FieldPointer() != nil {
+	if col1.scanPointer() != nil {
 		t.Error("Expected nil field pointer")
 	}
 	col2 := newColForTable[newColOwner, string](table, "name", "name", toScanPointer(func(holder *newColOwner) *string {
 		return &holder.Name
 	}))
-	if col2.FieldPointer() == nil {
+	if col2.scanPointer() == nil {
 		t.Error("Expected non-nil field pointer")
 	}
 }
+
 func TestCol_JSONFieldName(t *testing.T) {
 	table := newMockTable("users")
 	tests := []struct {
@@ -130,6 +147,7 @@ func TestCol_JSONFieldName(t *testing.T) {
 		})
 	}
 }
+
 func TestCol_TypeSafety(t *testing.T) {
 	table := newMockTable("users")
 	stringCol := newColForTable[Table, string](table, "name", "name", nil)
@@ -149,6 +167,7 @@ func TestCol_TypeSafety(t *testing.T) {
 		}
 	}
 }
+
 func TestCol_QualifiedNameFormatting(t *testing.T) {
 	table := newMockTable("user_profiles")
 	col := newColForTable[Table, string](table, "profile_image_url", "profile_image_url", nil)
@@ -157,6 +176,7 @@ func TestCol_QualifiedNameFormatting(t *testing.T) {
 		t.Errorf("Expected qualified name '%s', got '%s'", expected, col.QualifiedName())
 	}
 }
+
 func TestCol_InterfaceCompliance(t *testing.T) {
 	table := newMockTable("test_table")
 	col := newColForTable[Table, string](table, "test_column", "test_column", nil)
@@ -174,6 +194,7 @@ func TestCol_InterfaceCompliance(t *testing.T) {
 		t.Error("JSONFieldName() should not return empty string")
 	}
 }
+
 func TestCol_AsRebindsQualifiedName(t *testing.T) {
 	table := newMockTable("users")
 	col := newColForTable[Table, string](table, "name", "name", nil)
@@ -185,6 +206,7 @@ func TestCol_AsRebindsQualifiedName(t *testing.T) {
 		t.Fatalf("expected aliased qualified name, got %q", got)
 	}
 }
+
 func TestCol_AsRejectsTransformedColumn(t *testing.T) {
 	table := newMockTable("users")
 	col := newColForTable[Table, string](table, "name", "name", nil).Upper()

@@ -485,7 +485,7 @@ func TestCol_FunctionPreservesMetadata(t *testing.T) {
 	}
 
 	// Check that function pointer is preserved (can't compare directly, but can check it's not nil)
-	if result.FieldPointer() == nil {
+	if result.scanPointer() == nil {
 		t.Error("Expected field pointer to be preserved")
 	}
 }

@@ -25,12 +25,15 @@ func (p *pointerValuer) Value() (driver.Value, error) {
 	}
 	return p.value, nil
 }
+
 func stringPtr(s string) *string {
 	return &s
 }
+
 func intPtr(i int) *int {
 	return &i
 }
+
 func TestConditionClauseRendersCanonicalSQL(t *testing.T) {
 	col := newColForTable[Table, int](newMockTable("users"), "id", "id", nil)
 	cond := col.EQ(1)
@@ -41,6 +44,7 @@ func TestConditionClauseRendersCanonicalSQL(t *testing.T) {
 		t.Fatalf("expected parameterized predicate args [1], got %#v", got)
 	}
 }
+
 func TestCondition_EmptyAndOrShortCircuit(t *testing.T) {
 	if got := And().Clause(); got != "1 = 1" {
 		t.Fatalf("expected empty And to short-circuit to true predicate, got %q", got)
@@ -49,6 +53,7 @@ func TestCondition_EmptyAndOrShortCircuit(t *testing.T) {
 		t.Fatalf("expected empty Or to short-circuit to false predicate, got %q", got)
 	}
 }
+
 func TestCondition_TablesReturnsDefensiveCopy(t *testing.T) {
 	users := newMockTable("users")
 	cond := newColForTable[Table, int](users, "id", "id", nil).EQ(1)
@@ -60,6 +65,7 @@ func TestCondition_TablesReturnsDefensiveCopy(t *testing.T) {
 		t.Fatalf("expected condition tables to stay intact, got %#v", fresh)
 	}
 }
+
 func TestCondition_NilCompositeInputsFailFast(t *testing.T) {
 	var nilCond Condition
 	for _, cond := range []Condition{And(nilCond), Or(nilCond)} {
@@ -68,6 +74,7 @@ func TestCondition_NilCompositeInputsFailFast(t *testing.T) {
 		}
 	}
 }
+
 func TestCondition_EmptyClauseFailsFast(t *testing.T) {
 	if _, _, _, err := validateConditionInput(And(conditionImpl{})); err == nil {
 		t.Fatal("expected empty condition clause to be captured as a build error")

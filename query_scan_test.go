@@ -2,9 +2,10 @@ package tsq
 
 import (
 	"context"
-	_ "github.com/mattn/go-sqlite3"
 	"strings"
 	"testing"
+
+	_ "github.com/mattn/go-sqlite3"
 )
 
 func TestListValidatesScanDestEvenWhenResultIsEmpty(t *testing.T) {
@@ -19,6 +20,7 @@ func TestListValidatesScanDestEvenWhenResultIsEmpty(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
 func TestListSupportsInVarSlices(t *testing.T) {
 	db := newInVarEngine(t)
 	users := newMockTable("users")
@@ -47,6 +49,7 @@ func TestListSupportsInVarSlices(t *testing.T) {
 		t.Fatalf("expected InVar count query to return 2, got %d", count)
 	}
 }
+
 func TestPageValidatesScanDestEvenWhenResultIsEmpty(t *testing.T) {
 	db := newScanValidationEngine(t)
 	col := newColForTable[scanDestUser, string](newMockTable("users"), "name", "name", nil)
@@ -59,6 +62,7 @@ func TestPageValidatesScanDestEvenWhenResultIsEmpty(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
 func TestBuildScanDestRejectsNilFieldPointer(t *testing.T) {
 	col := newColForTable[scanDestUser, string](newMockTable("users"), "name", "name", nil)
 	_, err := buildScanDest([]BoundColumn[scanDestUser]{col}, &scanDestUser{})
@@ -69,6 +73,7 @@ func TestBuildScanDestRejectsNilFieldPointer(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
 func TestBuildScanDestRecoversFieldPointerPanics(t *testing.T) {
 	col := newColForTable[scanDestUser, string](newMockTable("users"), "name", "name", toScanPointer(func(holder *scanDestUser) *string {
 		return &holder.Name
@@ -81,6 +86,7 @@ func TestBuildScanDestRecoversFieldPointerPanics(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
 func TestBuildScanDestRejectsNilScanTarget(t *testing.T) {
 	col := newColForTable[scanDestUser, string](newMockTable("users"), "name", "name", toScanPointer(func(holder *scanDestUser) *string {
 		return nil
@@ -93,6 +99,7 @@ func TestBuildScanDestRejectsNilScanTarget(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
 func TestBuildScanDestRejectsNilHolder(t *testing.T) {
 	col := newColForTable[scanDestUser, string](newMockTable("users"), "name", "name", toScanPointer(func(holder *scanDestUser) *string {
 		return &holder.Name
@@ -105,6 +112,7 @@ func TestBuildScanDestRejectsNilHolder(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
 func TestBuildScanDestRejectsNonPointerHolder(t *testing.T) {
 	err := validateScanHolder(scanDestUser{})
 	if err == nil {

@@ -7,10 +7,10 @@ type projectedColumn[O Owner, T any] struct {
 	col columnImpl[O, T]
 }
 
-// MapInto creates a result-owned projection column from another typed column.
-func MapInto[Target, Source Owner, T any](
-	source TypedColumn[Source, T],
-	fieldPointer FieldPointer[Target, T],
+// MapInto creates a result-owned projection column from another typed expression.
+func MapInto[Target Owner, T any](
+	source ValueColumn[T],
+	fieldPointer func(*Target) *T,
 	jsonFieldName string,
 ) ResultColumn[Target, T] {
 	pointer := toScanPointer(fieldPointer)

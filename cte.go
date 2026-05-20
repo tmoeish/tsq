@@ -30,20 +30,21 @@ type cteTable struct {
 // CTE creates a reusable non-recursive WITH/CTE table handle from a query.
 // Rebind existing columns to the returned table via RebindColumn or Col.WithTable
 // to reference the CTE output columns in outer queries.
-func CTE[O Owner](name string, query completeQueryStage[O]) Table {
+func CTE[O Owner](name string, query QueryStage[O]) Table {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return cteTable{buildErr: errors.New("cte name cannot be empty")}
 	}
 
-	if query == nil || query.core() == nil {
+	queryCore := coreForQueryStage(query)
+	if queryCore == nil {
 		return cteTable{
 			name:     name,
-			buildErr: errors.New("cte query builder cannot be nil"),
+			buildErr: errors.New("cte query stage must come from tsq builders"),
 		}
 	}
 
-	core := ensureQueryBuilderCore(query.core(), builderPhaseBase)
+	core := ensureQueryBuilderCore(queryCore, builderPhaseBase)
 	if core.buildErr != nil {
 		return cteTable{
 			name:     name,
@@ -107,7 +108,7 @@ func (t cteTable) cteDefinition() cteDefinition {
 	return t.def
 }
 
-func newCTEDefinition[O Owner](name string, spec QuerySpec[O]) cteDefinition {
+func newCTEDefinition[O Owner](name string, spec querySpec[O]) cteDefinition {
 	cloned := cloneQuerySpec(spec)
 
 	return cteDefinition{

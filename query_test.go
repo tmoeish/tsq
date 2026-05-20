@@ -3,15 +3,17 @@ package tsq
 import (
 	"context"
 	"database/sql"
-	_ "github.com/mattn/go-sqlite3"
 	"strings"
 	"testing"
+
+	_ "github.com/mattn/go-sqlite3"
 )
 
 type queryOwner struct{}
 
 func (queryOwner) TSQOwner() {
 }
+
 func mustBuild[O Owner](qb interface{ Build() (*Query[O], error) }) *Query[O] {
 	q, err := qb.Build()
 	if err != nil {
@@ -19,9 +21,11 @@ func mustBuild[O Owner](qb interface{ Build() (*Query[O], error) }) *Query[O] {
 	}
 	return q
 }
-func newQueryBuilderForTest[O Owner](spec QuerySpec[O]) *QueryBuilder[O] {
+
+func newQueryBuilderForTest[O Owner](spec querySpec[O]) *QueryBuilder[O] {
 	return &QueryBuilder[O]{queryBuilderCore: &queryBuilderCore[O]{spec: spec, phase: builderPhaseBase}}
 }
+
 func TestErrUnknownSortField(t *testing.T) {
 	field := "unknown_field"
 	err := newErrUnknownSortField(field)
@@ -33,6 +37,7 @@ func TestErrUnknownSortField(t *testing.T) {
 		t.Errorf("Expected error message '%s', got '%s'", expectedMsg, err.Error())
 	}
 }
+
 func TestErrAmbiguousSortField(t *testing.T) {
 	field := "id"
 	err := newErrAmbiguousSortField(field)
@@ -44,6 +49,7 @@ func TestErrAmbiguousSortField(t *testing.T) {
 		t.Errorf("Expected error message '%s', got '%s'", expectedMsg, err.Error())
 	}
 }
+
 func TestErrOrderCountMismatch(t *testing.T) {
 	orderBys := 3
 	orders := 2
@@ -59,6 +65,7 @@ func TestErrOrderCountMismatch(t *testing.T) {
 		t.Errorf("Expected error message '%s', got '%s'", expectedMsg, err.Error())
 	}
 }
+
 func TestQuery_SQLAccessors(t *testing.T) {
 	query := &Query[queryOwner]{cntSQL: "SELECT COUNT(*) FROM users", listSQL: "SELECT * FROM users", kwCntSQL: "SELECT COUNT(*) FROM users WHERE name LIKE ?", kwListSQL: "SELECT * FROM users WHERE name LIKE ?"}
 	if query.CountSQL() != "SELECT COUNT(*) FROM users" {
@@ -74,8 +81,9 @@ func TestQuery_SQLAccessors(t *testing.T) {
 		t.Errorf("Expected KeywordListSQL 'SELECT * FROM users WHERE name LIKE ?', got '%s'", query.KeywordListSQL())
 	}
 }
+
 func TestQueryBuilder_Build_EmptySelectFields(t *testing.T) {
-	qb := newQueryBuilderForTest(QuerySpec[Table]{})
+	qb := newQueryBuilderForTest(querySpec[Table]{})
 	_, err := qb.Build()
 	if err == nil {
 		t.Error("Expected error for empty select fields")
@@ -85,6 +93,7 @@ func TestQueryBuilder_Build_EmptySelectFields(t *testing.T) {
 		t.Errorf("Expected error message to contain '%s', got '%s'", expectedErrMsg, err.Error())
 	}
 }
+
 func TestQueryBuilder_Build_EmptySelectFieldsWithWhereStillFails(t *testing.T) {
 	table := newMockTable("users")
 	col := newColForTable[Table, string](table, "id", "id", nil)
@@ -96,10 +105,11 @@ func TestQueryBuilder_Build_EmptySelectFieldsWithWhereStillFails(t *testing.T) {
 		t.Fatalf("expected empty select fields error, got %v", err)
 	}
 }
+
 func TestQueryBuilder_Build_Success(t *testing.T) {
 	table := newMockTable("users")
 	col := newMockColumn(table, "id")
-	qb := newQueryBuilderForTest(QuerySpec[Table]{From: table, Selects: []BoundColumn[Table]{col}})
+	qb := newQueryBuilderForTest(querySpec[Table]{From: table, Selects: []BoundColumn[Table]{col}})
 	query, err := qb.Build()
 	if err != nil {
 		t.Errorf("Expected no error, got %v", err)
@@ -120,6 +130,7 @@ func TestQueryBuilder_Build_Success(t *testing.T) {
 		t.Error("Expected non-empty KwListSQL")
 	}
 }
+
 func TestQueryBuilder_Build_FullJoinDefersDialectValidationToExecution(t *testing.T) {
 	users := newMockTable("users")
 	orders := newMockTable("orders")
@@ -138,6 +149,7 @@ func TestQueryBuilder_Build_FullJoinDefersDialectValidationToExecution(t *testin
 		t.Fatalf("expected FULL JOIN dialect error, got %v", err)
 	}
 }
+
 func TestQueryBuilder_Build_ForUpdateDefersDialectValidationToExecution(t *testing.T) {
 	users := newMockTable("users")
 	userID := newColForTable[Table, string](users, "id", "id", nil)
@@ -154,6 +166,7 @@ func TestQueryBuilder_Build_ForUpdateDefersDialectValidationToExecution(t *testi
 		t.Fatalf("expected FOR UPDATE dialect error, got %v", err)
 	}
 }
+
 func TestQueryBuilder_Build_ForShareNoWaitDefersDialectValidationToExecution(t *testing.T) {
 	db := newInVarEngine(t)
 	db.Dialect = MySQLDialect{}
@@ -164,6 +177,7 @@ func TestQueryBuilder_Build_ForShareNoWaitDefersDialectValidationToExecution(t *
 		t.Fatalf("expected mysql dialect validation to allow FOR SHARE NOWAIT, got %v", err)
 	}
 }
+
 func TestQueryBuilder_Build_SetOperationPaginationUsesOutputColumnNames(t *testing.T) {
 	users := newMockTable("users")
 	orders := newMockTable("orders")
@@ -183,6 +197,7 @@ func TestQueryBuilder_Build_SetOperationPaginationUsesOutputColumnNames(t *testi
 		t.Fatalf("expected compound query ordering to avoid table-qualified columns, got %q", listSQL)
 	}
 }
+
 func TestQueryBuilder_Build_PageSQLPlacesLockAfterLimit(t *testing.T) {
 	users := newMockTable("users")
 	userID := newMockColumn(users, "id")
@@ -196,6 +211,7 @@ func TestQueryBuilder_Build_PageSQLPlacesLockAfterLimit(t *testing.T) {
 		t.Fatalf("expected lock clause after LIMIT/OFFSET, got %q", listSQL)
 	}
 }
+
 func TestQueryBuilder_Build_CTEExecutionOnSQLite(t *testing.T) {
 	db := newInVarEngine(t)
 	users := newMockTable("users")
@@ -227,6 +243,7 @@ func TestQueryBuilder_Build_CTEExecutionOnSQLite(t *testing.T) {
 		t.Fatalf("expected CTE count query to return 2, got %d", count)
 	}
 }
+
 func TestQueryBuilder_Build_CTEDefersDialectValidationToExecution(t *testing.T) {
 	db := newInVarEngine(t)
 	db.Dialect = MySQLDialect{}
@@ -243,6 +260,7 @@ func TestQueryBuilder_Build_CTEDefersDialectValidationToExecution(t *testing.T) 
 		t.Fatalf("expected CTE dialect error, got %v", err)
 	}
 }
+
 func TestQueryBuilder_Build_IntersectDefersDialectValidationToExecution(t *testing.T) {
 	db := newInVarEngine(t)
 	db.Dialect = MySQLDialect{}
@@ -257,6 +275,7 @@ func TestQueryBuilder_Build_IntersectDefersDialectValidationToExecution(t *testi
 		t.Fatalf("expected INTERSECT dialect error, got %v", err)
 	}
 }
+
 func TestQueryBuilder_Build_ExceptDefersDialectValidationToExecution(t *testing.T) {
 	db := newInVarEngine(t)
 	db.Dialect = MySQLDialect{}
@@ -271,6 +290,7 @@ func TestQueryBuilder_Build_ExceptDefersDialectValidationToExecution(t *testing.
 		t.Fatalf("expected EXCEPT dialect error, got %v", err)
 	}
 }
+
 func TestQueryBuilder_Build_MinusDefersDialectValidationToExecution(t *testing.T) {
 	db := newInVarEngine(t)
 	db.Dialect = MySQLDialect{}
@@ -290,6 +310,7 @@ type caseUser struct {
 
 func (caseUser) TSQOwner() {
 }
+
 func TestQueryBuilder_Build_CaseExecutionOnSQLite(t *testing.T) {
 	db := newInVarEngine(t)
 	users := newMockTable("users")
@@ -311,15 +332,17 @@ func TestQueryBuilder_Build_CaseExecutionOnSQLite(t *testing.T) {
 		t.Fatalf("unexpected CASE labels: %#v", rows)
 	}
 }
+
 func TestQueryBuilder_MustBuild_Success(t *testing.T) {
 	table := newMockTable("users")
 	col := newMockColumn(table, "id")
-	qb := newQueryBuilderForTest(QuerySpec[Table]{From: table, Selects: []BoundColumn[Table]{col}})
+	qb := newQueryBuilderForTest(querySpec[Table]{From: table, Selects: []BoundColumn[Table]{col}})
 	query := mustBuild(qb)
 	if query == nil {
 		t.Error("Expected non-nil query")
 	}
 }
+
 func TestQuery_MetadataAccess(t *testing.T) {
 	table := newMockTable("users")
 	col := newMockColumn(table, "id")
@@ -337,6 +360,7 @@ func TestQuery_MetadataAccess(t *testing.T) {
 		t.Errorf("Expected 1 keyword table, got %d", len(query.kwTables))
 	}
 }
+
 func TestErrorTypes_Interfaces(t *testing.T) {
 	var _ error = &ErrUnknownSortField{}
 	var _ error = &ErrOrderCountMismatch{}
@@ -349,6 +373,7 @@ func TestErrorTypes_Interfaces(t *testing.T) {
 		t.Error("Expected non-nil error")
 	}
 }
+
 func TestQuery_EmptySQL(t *testing.T) {
 	query := &Query[queryOwner]{}
 	if query.CountSQL() != "" {
@@ -364,6 +389,7 @@ func TestQuery_EmptySQL(t *testing.T) {
 		t.Errorf("Expected empty KeywordListSQL, got '%s'", query.KeywordListSQL())
 	}
 }
+
 func TestNilQuery_SQLAccessorsReturnEmptyStrings(t *testing.T) {
 	var query *Query[queryOwner]
 	if query.CountSQL() != "" {
@@ -392,6 +418,7 @@ type inVarUser struct {
 
 func (inVarUser) TSQOwner() {
 }
+
 func newScanValidationEngine(t *testing.T) *Engine {
 	t.Helper()
 	db, err := sql.Open("sqlite3", ":memory:")
@@ -406,6 +433,7 @@ func newScanValidationEngine(t *testing.T) *Engine {
 	}
 	return &Engine{DB: db, Dialect: SQLiteDialect{}}
 }
+
 func newInVarEngine(t *testing.T) *Engine {
 	t.Helper()
 	db, err := sql.Open("sqlite3", ":memory:")
@@ -423,6 +451,7 @@ func newInVarEngine(t *testing.T) *Engine {
 	}
 	return &Engine{DB: db, Dialect: SQLiteDialect{}}
 }
+
 func newEngineWithoutDialect(t *testing.T) *Engine {
 	t.Helper()
 	db, err := sql.Open("sqlite3", ":memory:")

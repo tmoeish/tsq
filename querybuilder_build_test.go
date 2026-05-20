@@ -19,6 +19,7 @@ func TestQueryBuilder_GroupedCountUsesWrappedSubquery(t *testing.T) {
 		t.Fatalf("expected count SQL %q, got %q", wantCount, query.CountSQL())
 	}
 }
+
 func TestQueryBuilder_DistinctCountUsesWrappedSubquery(t *testing.T) {
 	table := newMockTable("users")
 	name := newColForTable[Table, string](table, "name", "name", nil)
@@ -32,6 +33,7 @@ func TestQueryBuilder_DistinctCountUsesWrappedSubquery(t *testing.T) {
 		t.Fatalf("expected count SQL %q, got %q", wantCount, query.CountSQL())
 	}
 }
+
 func TestQueryBuilder_AggregateCountUsesWrappedSubquery(t *testing.T) {
 	table := newMockTable("users")
 	id := newColForTable[Table, int](table, "id", "id", nil)
@@ -45,6 +47,7 @@ func TestQueryBuilder_AggregateCountUsesWrappedSubquery(t *testing.T) {
 		t.Fatalf("expected count SQL %q, got %q", wantCount, query.CountSQL())
 	}
 }
+
 func TestQueryBuilder_HavingKeepsRawClauseForDialectRendering(t *testing.T) {
 	users := newMockTable("users")
 	id := newColForTable[Table, int](users, "id", "id", nil)
@@ -60,6 +63,7 @@ func TestQueryBuilder_HavingKeepsRawClauseForDialectRendering(t *testing.T) {
 		t.Fatalf("expected HAVING clause not to leak canonical identifiers into dialect SQL, got %s", rendered)
 	}
 }
+
 func TestQueryBuilder_CrossJoinKeepsSelectedBaseTable(t *testing.T) {
 	users := newMockTable("users")
 	orders := newMockTable("orders")
@@ -70,6 +74,7 @@ func TestQueryBuilder_CrossJoinKeepsSelectedBaseTable(t *testing.T) {
 		t.Fatalf("expected cross join SQL %q, got %q", want, query.ListSQL())
 	}
 }
+
 func TestQueryBuilder_Build_RejectsTablesReferencedOutsideJoinGraph(t *testing.T) {
 	users := newMockTable("users")
 	orgs := newMockTable("orgs")
@@ -86,6 +91,7 @@ func TestQueryBuilder_Build_RejectsTablesReferencedOutsideJoinGraph(t *testing.T
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
 func TestQueryBuilder_WhereTracksAllConditionTables(t *testing.T) {
 	users := newMockTable("users")
 	userID := newColForTable[Table, int](users, "id", "id", nil)
@@ -95,6 +101,7 @@ func TestQueryBuilder_WhereTracksAllConditionTables(t *testing.T) {
 		t.Fatalf("expected Where to keep all condition tables, got %q", query.ListSQL())
 	}
 }
+
 func TestQueryBuilder_Build_RejectsDisconnectedJoinGraph(t *testing.T) {
 	users := newMockTable("users")
 	orgs := newMockTable("orgs")
@@ -113,6 +120,7 @@ func TestQueryBuilder_Build_RejectsDisconnectedJoinGraph(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
 func TestQueryBuilder_Build_RejectsRepeatedJoinTableWithoutAliases(t *testing.T) {
 	users := newMockTable("users")
 	orgs := newMockTable("orgs")
@@ -129,6 +137,7 @@ func TestQueryBuilder_Build_RejectsRepeatedJoinTableWithoutAliases(t *testing.T)
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
 func TestQueryBuilder_Build_AllowsRepeatedJoinTableWithAliases(t *testing.T) {
 	users := newMockTable("users")
 	orgs := newMockTable("orgs")
@@ -145,6 +154,7 @@ func TestQueryBuilder_Build_AllowsRepeatedJoinTableWithAliases(t *testing.T) {
 		t.Fatalf("expected aliased join SQL %q, got %q", want, got)
 	}
 }
+
 func TestQueryBuilder_Build_RejectsNilReceiver(t *testing.T) {
 	var qb *QueryBuilder[Table]
 	defer func() {
@@ -159,6 +169,7 @@ func TestQueryBuilder_Build_RejectsNilReceiver(t *testing.T) {
 	}()
 	qb.Build()
 }
+
 func TestQueryBuilder_Build_PreservesOwnerType(t *testing.T) {
 	users := newMockTable("users")
 	userID := newColForTable[Table, int](users, "id", "id", nil)
@@ -172,6 +183,7 @@ func TestQueryBuilder_Build_PreservesOwnerType(t *testing.T) {
 		t.Fatal("expected typed build to return a query")
 	}
 }
+
 func TestQueryBuilder_MethodsHandleNilReceiverWithoutPanicking(t *testing.T) {
 	users := newMockTable("users")
 	userID := newColForTable[Table, int](users, "id", "id", nil)
@@ -188,6 +200,7 @@ func TestQueryBuilder_MethodsHandleNilReceiverWithoutPanicking(t *testing.T) {
 	}()
 	qb.Search(userID).GroupBy(userID).Build()
 }
+
 func TestQueryBuilder_BranchingDoesNotShareMutableState(t *testing.T) {
 	users := newMockTable("users")
 	userID := newColForTable[Table, int](users, "id", "id", nil)

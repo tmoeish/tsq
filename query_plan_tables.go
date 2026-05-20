@@ -2,7 +2,7 @@ package tsq
 
 import "maps"
 
-func (spec QuerySpec[O]) selectTables() map[string]Table {
+func (spec querySpec[O]) selectTables() map[string]Table {
 	cols := make([]SQLColumn, 0, len(spec.Selects))
 	for _, col := range spec.Selects {
 		cols = append(cols, col)
@@ -11,7 +11,7 @@ func (spec QuerySpec[O]) selectTables() map[string]Table {
 	return spec.tablesForColumns(cols)
 }
 
-func (spec QuerySpec[O]) fromTables() map[string]Table {
+func (spec querySpec[O]) fromTables() map[string]Table {
 	if isNilValue(spec.From) {
 		return map[string]Table{}
 	}
@@ -19,11 +19,11 @@ func (spec QuerySpec[O]) fromTables() map[string]Table {
 	return map[string]Table{spec.From.Table(): spec.From}
 }
 
-func (spec QuerySpec[O]) conditionTables() map[string]Table {
+func (spec querySpec[O]) conditionTables() map[string]Table {
 	return spec.tablesForConditions(spec.Filters)
 }
 
-func (spec QuerySpec[O]) joinTables() map[string]Table {
+func (spec querySpec[O]) joinTables() map[string]Table {
 	tables := make(map[string]Table, len(spec.Joins)*2)
 
 	for _, item := range spec.Joins {
@@ -37,7 +37,7 @@ func (spec QuerySpec[O]) joinTables() map[string]Table {
 	return tables
 }
 
-func (spec QuerySpec[O]) keywordTables() map[string]Table {
+func (spec querySpec[O]) keywordTables() map[string]Table {
 	cols := make([]SQLColumn, 0, len(spec.KeywordSearch))
 	for _, col := range spec.KeywordSearch {
 		cols = append(cols, col)
@@ -46,7 +46,7 @@ func (spec QuerySpec[O]) keywordTables() map[string]Table {
 	return spec.tablesForColumns(cols)
 }
 
-func (spec QuerySpec[O]) listQueryTables() map[string]Table {
+func (spec querySpec[O]) listQueryTables() map[string]Table {
 	tables := spec.fromTables()
 	maps.Copy(tables, spec.selectTables())
 	maps.Copy(tables, spec.conditionTables())
@@ -57,14 +57,14 @@ func (spec QuerySpec[O]) listQueryTables() map[string]Table {
 	return tables
 }
 
-func (spec QuerySpec[O]) pageQueryTables() map[string]Table {
+func (spec querySpec[O]) pageQueryTables() map[string]Table {
 	tables := spec.listQueryTables()
 	maps.Copy(tables, spec.keywordTables())
 
 	return tables
 }
 
-func (spec QuerySpec[O]) tablesForColumns(cols []SQLColumn) map[string]Table {
+func (spec querySpec[O]) tablesForColumns(cols []SQLColumn) map[string]Table {
 	tables := make(map[string]Table, len(cols))
 
 	for _, col := range cols {
@@ -82,7 +82,7 @@ func (spec QuerySpec[O]) tablesForColumns(cols []SQLColumn) map[string]Table {
 	return tables
 }
 
-func (spec QuerySpec[O]) tablesForConditions(conds []Condition) map[string]Table {
+func (spec querySpec[O]) tablesForConditions(conds []Condition) map[string]Table {
 	tables := make(map[string]Table)
 
 	for _, cond := range conds {

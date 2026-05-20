@@ -1,9 +1,10 @@
 package tsq
 
 import (
-	_ "github.com/mattn/go-sqlite3"
 	"strings"
 	"testing"
+
+	_ "github.com/mattn/go-sqlite3"
 )
 
 func TestQuery_BuildKeywordQueriesTrackDedicatedMarkers(t *testing.T) {
@@ -25,6 +26,7 @@ func TestQuery_BuildKeywordQueriesTrackDedicatedMarkers(t *testing.T) {
 		t.Fatalf("unexpected resolved keyword args: %#v", args)
 	}
 }
+
 func TestResolveQueryExpandsExternalSliceArgs(t *testing.T) {
 	sqlText, args, err := resolveQuery(`SELECT * FROM "users" WHERE "users"."id" IN (?) AND "users"."name" = ?`, []any{externalSliceArgMarker{}, externalArgMarker}, []any{[]int64{1, 3, 5}, "alice"}, "")
 	if err != nil {
@@ -38,6 +40,7 @@ func TestResolveQueryExpandsExternalSliceArgs(t *testing.T) {
 		t.Fatalf("unexpected resolved args: %#v", args)
 	}
 }
+
 func TestResolveQueryExpandsEmptyExternalSliceArgsToNull(t *testing.T) {
 	sqlText, args, err := resolveQuery(`SELECT * FROM "users" WHERE "users"."id" IN (?)`, []any{externalSliceArgMarker{}}, []any{[]int64{}}, "")
 	if err != nil {
@@ -50,6 +53,7 @@ func TestResolveQueryExpandsEmptyExternalSliceArgsToNull(t *testing.T) {
 		t.Fatalf("expected empty slice to contribute no args, got %#v", args)
 	}
 }
+
 func TestResolveQueryResolvesExternalArgsWithoutRewritingSQL(t *testing.T) {
 	sqlText, args, err := resolveQuery(`SELECT * FROM "users" WHERE "users"."id" = ? AND "users"."name" LIKE ?`, []any{externalArgMarker, keywordArgMarker}, []any{int64(7)}, "alice")
 	if err != nil {
@@ -62,6 +66,7 @@ func TestResolveQueryResolvesExternalArgsWithoutRewritingSQL(t *testing.T) {
 		t.Fatalf("unexpected resolved args: %#v", args)
 	}
 }
+
 func TestFlattenExternalSliceArgFastPaths(t *testing.T) {
 	values, err := flattenExternalSliceArg([]int64{1, 2, 3})
 	if err != nil {
@@ -86,6 +91,7 @@ func TestFlattenExternalSliceArgFastPaths(t *testing.T) {
 		t.Fatalf("unexpected flattened *[]int values: %#v", values)
 	}
 }
+
 func TestExpandSlicePlaceholdersUsesCache(t *testing.T) {
 	if got := expandSlicePlaceholders(0); got != "NULL" {
 		t.Fatalf("expected NULL placeholder for empty slice, got %q", got)
@@ -98,6 +104,7 @@ func TestExpandSlicePlaceholdersUsesCache(t *testing.T) {
 		t.Fatalf("expected %d placeholders, got %q", slicePlaceholderCacheMax+1, large)
 	}
 }
+
 func TestEscapeKeywordSearch(t *testing.T) {
 	tests := []struct {
 		name     string

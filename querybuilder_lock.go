@@ -1,129 +1,129 @@
 package tsq
 
 // ForUpdate adds a FOR UPDATE row-lock clause to the query.
-func (qb *QueryBuilder[O]) ForUpdate() *LockedQueryBuilder[O] {
+func (qb *QueryBuilder[O]) ForUpdate() LockedStage[O] {
 	core := ensureQueryBuilderCore(qb.core(), builderPhaseBase)
 	core.setLockStrength(queryLockStrengthUpdate)
 
-	return &LockedQueryBuilder[O]{queryBuilderCore: core}
+	return &lockedQueryBuilder[O]{queryBuilderCore: core}
 }
 
 // ForUpdate adds a FOR UPDATE row-lock clause to the query.
-func (qb *WhereQueryBuilder[O]) ForUpdate() *LockedQueryBuilder[O] {
+func (qb *whereQueryBuilder[O]) ForUpdate() LockedStage[O] {
 	core := ensureQueryBuilderCore(qb.core(), builderPhaseWhere)
 	core.setLockStrength(queryLockStrengthUpdate)
 
-	return &LockedQueryBuilder[O]{queryBuilderCore: core}
+	return &lockedQueryBuilder[O]{queryBuilderCore: core}
 }
 
 // ForUpdate adds a FOR UPDATE row-lock clause to the query.
-func (qb *SearchQueryBuilder[O]) ForUpdate() *LockedQueryBuilder[O] {
+func (qb *searchQueryBuilder[O]) ForUpdate() LockedStage[O] {
 	core := ensureQueryBuilderCore(qb.core(), builderPhaseKwSearch)
 	core.setLockStrength(queryLockStrengthUpdate)
 
-	return &LockedQueryBuilder[O]{queryBuilderCore: core}
+	return &lockedQueryBuilder[O]{queryBuilderCore: core}
 }
 
 // ForUpdate adds a FOR UPDATE row-lock clause to the query.
-func (qb *FilteredQueryBuilder[O]) ForUpdate() *LockedQueryBuilder[O] {
+func (qb *filteredQueryBuilder[O]) ForUpdate() LockedStage[O] {
 	core := ensureQueryBuilderCore(qb.core(), builderPhaseFiltered)
 	core.setLockStrength(queryLockStrengthUpdate)
 
-	return &LockedQueryBuilder[O]{queryBuilderCore: core}
+	return &lockedQueryBuilder[O]{queryBuilderCore: core}
 }
 
 // ForUpdate adds a FOR UPDATE row-lock clause to the query.
-func (qb *GroupedQueryBuilder[O]) ForUpdate() *LockedQueryBuilder[O] {
+func (qb *groupedQueryBuilder[O]) ForUpdate() LockedStage[O] {
 	core := ensureQueryBuilderCore(qb.core(), builderPhaseGrouped)
 	core.setLockStrength(queryLockStrengthUpdate)
 
-	return &LockedQueryBuilder[O]{queryBuilderCore: core}
+	return &lockedQueryBuilder[O]{queryBuilderCore: core}
 }
 
 // ForUpdate adds a FOR UPDATE row-lock clause to the query.
-func (qb *HavingQueryBuilder[O]) ForUpdate() *LockedQueryBuilder[O] {
+func (qb *havingQueryBuilder[O]) ForUpdate() LockedStage[O] {
 	core := ensureQueryBuilderCore(qb.core(), builderPhaseHaving)
 	core.setLockStrength(queryLockStrengthUpdate)
 
-	return &LockedQueryBuilder[O]{queryBuilderCore: core}
+	return &lockedQueryBuilder[O]{queryBuilderCore: core}
 }
 
 // ForUpdate adds a FOR UPDATE row-lock clause to the query.
-func (qb *CompoundQueryBuilder[O]) ForUpdate() *LockedQueryBuilder[O] {
+func (qb *compoundQueryBuilder[O]) ForUpdate() LockedStage[O] {
 	core := ensureQueryBuilderCore(qb.core(), builderPhaseCompound)
 	core.setLockStrength(queryLockStrengthUpdate)
 
-	return &LockedQueryBuilder[O]{queryBuilderCore: core}
+	return &lockedQueryBuilder[O]{queryBuilderCore: core}
 }
 
 // ForShare adds a FOR SHARE row-lock clause to the query.
-func (qb *QueryBuilder[O]) ForShare() *LockedQueryBuilder[O] {
+func (qb *QueryBuilder[O]) ForShare() LockedStage[O] {
 	core := ensureQueryBuilderCore(qb.core(), builderPhaseBase)
 	core.setLockStrength(queryLockStrengthShare)
 
-	return &LockedQueryBuilder[O]{queryBuilderCore: core}
+	return &lockedQueryBuilder[O]{queryBuilderCore: core}
 }
 
 // ForShare adds a FOR SHARE row-lock clause to the query.
-func (qb *WhereQueryBuilder[O]) ForShare() *LockedQueryBuilder[O] {
+func (qb *whereQueryBuilder[O]) ForShare() LockedStage[O] {
 	core := ensureQueryBuilderCore(qb.core(), builderPhaseWhere)
 	core.setLockStrength(queryLockStrengthShare)
 
-	return &LockedQueryBuilder[O]{queryBuilderCore: core}
+	return &lockedQueryBuilder[O]{queryBuilderCore: core}
 }
 
 // ForShare adds a FOR SHARE row-lock clause to the query.
-func (qb *SearchQueryBuilder[O]) ForShare() *LockedQueryBuilder[O] {
+func (qb *searchQueryBuilder[O]) ForShare() LockedStage[O] {
 	core := ensureQueryBuilderCore(qb.core(), builderPhaseKwSearch)
 	core.setLockStrength(queryLockStrengthShare)
 
-	return &LockedQueryBuilder[O]{queryBuilderCore: core}
+	return &lockedQueryBuilder[O]{queryBuilderCore: core}
 }
 
 // ForShare adds a FOR SHARE row-lock clause to the query.
-func (qb *FilteredQueryBuilder[O]) ForShare() *LockedQueryBuilder[O] {
+func (qb *filteredQueryBuilder[O]) ForShare() LockedStage[O] {
 	core := ensureQueryBuilderCore(qb.core(), builderPhaseFiltered)
 	core.setLockStrength(queryLockStrengthShare)
 
-	return &LockedQueryBuilder[O]{queryBuilderCore: core}
+	return &lockedQueryBuilder[O]{queryBuilderCore: core}
 }
 
 // ForShare adds a FOR SHARE row-lock clause to the query.
-func (qb *GroupedQueryBuilder[O]) ForShare() *LockedQueryBuilder[O] {
+func (qb *groupedQueryBuilder[O]) ForShare() LockedStage[O] {
 	core := ensureQueryBuilderCore(qb.core(), builderPhaseGrouped)
 	core.setLockStrength(queryLockStrengthShare)
 
-	return &LockedQueryBuilder[O]{queryBuilderCore: core}
+	return &lockedQueryBuilder[O]{queryBuilderCore: core}
 }
 
 // ForShare adds a FOR SHARE row-lock clause to the query.
-func (qb *HavingQueryBuilder[O]) ForShare() *LockedQueryBuilder[O] {
+func (qb *havingQueryBuilder[O]) ForShare() LockedStage[O] {
 	core := ensureQueryBuilderCore(qb.core(), builderPhaseHaving)
 	core.setLockStrength(queryLockStrengthShare)
 
-	return &LockedQueryBuilder[O]{queryBuilderCore: core}
+	return &lockedQueryBuilder[O]{queryBuilderCore: core}
 }
 
 // ForShare adds a FOR SHARE row-lock clause to the query.
-func (qb *CompoundQueryBuilder[O]) ForShare() *LockedQueryBuilder[O] {
+func (qb *compoundQueryBuilder[O]) ForShare() LockedStage[O] {
 	core := ensureQueryBuilderCore(qb.core(), builderPhaseCompound)
 	core.setLockStrength(queryLockStrengthShare)
 
-	return &LockedQueryBuilder[O]{queryBuilderCore: core}
+	return &lockedQueryBuilder[O]{queryBuilderCore: core}
 }
 
 // NoWait adds NOWAIT to a locked query.
-func (qb *LockedQueryBuilder[O]) NoWait() *LockedQueryBuilder[O] {
+func (qb *lockedQueryBuilder[O]) NoWait() LockedStage[O] {
 	core := ensureQueryBuilderCore(qb.core(), builderPhaseLocked)
 	core.setLockWaitMode(queryLockWaitNoWait)
 
-	return &LockedQueryBuilder[O]{queryBuilderCore: core}
+	return &lockedQueryBuilder[O]{queryBuilderCore: core}
 }
 
 // SkipLocked adds SKIP LOCKED to a locked query.
-func (qb *LockedQueryBuilder[O]) SkipLocked() *LockedQueryBuilder[O] {
+func (qb *lockedQueryBuilder[O]) SkipLocked() LockedStage[O] {
 	core := ensureQueryBuilderCore(qb.core(), builderPhaseLocked)
 	core.setLockWaitMode(queryLockWaitSkipLocked)
 
-	return &LockedQueryBuilder[O]{queryBuilderCore: core}
+	return &lockedQueryBuilder[O]{queryBuilderCore: core}
 }

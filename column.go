@@ -1,9 +1,6 @@
 package tsq
 
-// FieldPointer binds a selected column value to a concrete field on an owner.
-type FieldPointer[O Owner, T any] func(*O) *T
-
-// scanPointer adapts a typed FieldPointer to the untyped scan path.
+// scanPointer adapts a typed field-pointer function to the untyped scan path.
 type scanPointer func(holder any) any
 
 // SQLColumn is the runtime view of a selectable SQL expression.
@@ -40,6 +37,13 @@ type TypedColumn[O Owner, T any] interface {
 	columnValue(T)
 }
 
+// ValueColumn is a selectable expression that carries a scanned Go value type
+// without exposing its owner in the API surface.
+type ValueColumn[T any] interface {
+	SQLColumn
+	columnValue(T)
+}
+
 // Column is the user-facing typed SQL expression API that preserves fluent
 // chaining without exposing the concrete implementation.
 type Column[O Owner, T any] interface {
@@ -47,8 +51,6 @@ type Column[O Owner, T any] interface {
 	TypedColumn[O, T]
 	// SearchColumn marks the expression as usable in keyword search expansion.
 	SearchColumn
-	// FieldPointer returns the runtime scan adapter for the bound destination field.
-	FieldPointer() scanPointer
 	// WithTable returns a copy of the column rebound to a different table source.
 	WithTable(table Table) Column[O, T]
 	// As returns a copy of the column that targets an aliased table reference.
@@ -273,7 +275,6 @@ type Column[O Owner, T any] interface {
 // projection implementation.
 type ResultColumn[O Owner, T any] interface {
 	TypedColumn[O, T]
-	FieldPointer() scanPointer
 }
 
 // TableColumn is a physical source column that belongs to a table owner.

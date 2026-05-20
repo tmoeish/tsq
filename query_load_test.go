@@ -3,9 +3,10 @@ package tsq
 import (
 	"context"
 	"errors"
-	_ "github.com/mattn/go-sqlite3"
 	"strings"
 	"testing"
+
+	_ "github.com/mattn/go-sqlite3"
 )
 
 func TestQuery_buildPageSQLsNormalizesNilRequest(t *testing.T) {
@@ -21,6 +22,7 @@ func TestQuery_buildPageSQLsNormalizesNilRequest(t *testing.T) {
 		t.Fatalf("unexpected list SQL: %q", listSQL)
 	}
 }
+
 func TestQuery_buildPageSQLsRejectsNilQuery(t *testing.T) {
 	var query *Query[queryOwner]
 	_, _, err := query.buildPageSQLs(nil)
@@ -31,6 +33,7 @@ func TestQuery_buildPageSQLsRejectsNilQuery(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
 func TestQuery_buildPageSQLsRejectsUnbuiltQuery(t *testing.T) {
 	query := &Query[queryOwner]{}
 	_, _, err := query.buildPageSQLs(nil)
@@ -41,6 +44,7 @@ func TestQuery_buildPageSQLsRejectsUnbuiltQuery(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
 func TestQuery_buildPageSQLsRejectsAmbiguousSortField(t *testing.T) {
 	users := newMockTable("users")
 	orders := newMockTable("orders")
@@ -56,6 +60,7 @@ func TestQuery_buildPageSQLsRejectsAmbiguousSortField(t *testing.T) {
 		t.Fatalf("expected ErrAmbiguousSortField, got %v", err)
 	}
 }
+
 func TestQuery_buildPageSQLsIgnoresHiddenJSONSortAlias(t *testing.T) {
 	users := newMockTable("users")
 	hidden := newColForTable[Table, string](users, "secret", "-", nil)
@@ -69,6 +74,7 @@ func TestQuery_buildPageSQLsIgnoresHiddenJSONSortAlias(t *testing.T) {
 		t.Fatalf("expected ErrUnknownSortField, got %v", err)
 	}
 }
+
 func TestQuery_buildPageSQLsDefaultsMissingOrderToASC(t *testing.T) {
 	users := newMockTable("users")
 	userID := newMockColumn(users, "id")
@@ -83,6 +89,7 @@ func TestQuery_buildPageSQLsDefaultsMissingOrderToASC(t *testing.T) {
 		t.Fatalf("expected list SQL %q, got %q", want, got)
 	}
 }
+
 func TestQuery_buildPageSQLsRejectsExplicitOrderCountMismatch(t *testing.T) {
 	users := newMockTable("users")
 	userID := newMockColumn(users, "id")
@@ -97,6 +104,7 @@ func TestQuery_buildPageSQLsRejectsExplicitOrderCountMismatch(t *testing.T) {
 		t.Fatalf("expected ErrOrderCountMismatch, got %v", err)
 	}
 }
+
 func TestPageFnRejectsNilQuery(t *testing.T) {
 	_, err := pageFn[queryOwner](context.Background(), nil, nil, nil)
 	if err == nil {

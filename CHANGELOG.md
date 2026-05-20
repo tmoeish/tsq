@@ -7,6 +7,14 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 项目遵循 [语义化版本控制](https://semver.org/lang/zh-CN/)。
 
+## [4.1.1] - 2026-05-20
+
+### 改进
+- **API 接口收紧**: 将 `CaseBuilder` 重构为 `CaseStage` 接口，并隐藏了多个内部 Builder 实现，进一步提升了 API 的封装性和类型安全性。
+- **查询规划优化**: 优化了 `query_plan` 和 `querybuilder` 内部的逻辑流转，通过引入 `queryBuilderCore` 减少了冗余的状态传递。
+- **内部元数据管理**: 将 `MaxTracers` 等常量收紧为包私有，并规范了内部变量的命名规范。
+- **测试覆盖率提升**: 针对 `CASE` 表达式、CTE 规划和多级 Join 场景补齐了大量边界测试。
+
 ## [4.1.0] - 2026-05-20
 
 ### 变更 (Breaking Changes)

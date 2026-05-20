@@ -3,9 +3,10 @@ package tsq
 import (
 	"database/sql"
 	"errors"
-	_ "github.com/mattn/go-sqlite3"
 	"strings"
 	"testing"
+
+	_ "github.com/mattn/go-sqlite3"
 )
 
 func TestRegisterTableRejectsNilInputs(t *testing.T) {
@@ -41,6 +42,7 @@ func TestRegisterTableRejectsNilInputs(t *testing.T) {
 		})
 	}
 }
+
 func TestRegisterTableRejectsDuplicate(t *testing.T) {
 	oldRuntime := defaultRuntime
 	defaultRuntime = NewRuntime()
@@ -68,6 +70,7 @@ func TestRegisterTableRejectsDuplicate(t *testing.T) {
 		t.Errorf("expected error type %v, got %v", RegistrationErrorDuplicate, regErr.Type)
 	}
 }
+
 func TestRuntimeRegisterTableRejectsNilRuntime(t *testing.T) {
 	var r *Runtime
 	table := newMockTable("users")
@@ -85,6 +88,7 @@ func TestRuntimeRegisterTableRejectsNilRuntime(t *testing.T) {
 		t.Errorf("expected error type %v, got %v", RegistrationErrorNilRuntime, regErr.Type)
 	}
 }
+
 func TestSnapshotRegisteredTablesReturnsDeterministicOrder(t *testing.T) {
 	oldRuntime := defaultRuntime
 	defaultRuntime = NewRuntime()
@@ -107,6 +111,7 @@ func TestSnapshotRegisteredTablesReturnsDeterministicOrder(t *testing.T) {
 		t.Fatalf("expected deterministic alphabetical order, got second table %q", got)
 	}
 }
+
 func TestInitDeduplicatesProvidedTracers(t *testing.T) {
 	oldRuntime := defaultRuntime
 	defaultRuntime = NewRuntime()
@@ -127,6 +132,7 @@ func TestInitDeduplicatesProvidedTracers(t *testing.T) {
 		t.Fatalf("expected Init to deduplicate tracers, got %d", got)
 	}
 }
+
 func TestRuntimeKeepsRegistrationsAndTracersIsolated(t *testing.T) {
 	left := NewRuntime()
 	right := NewRuntime()
@@ -152,6 +158,7 @@ func TestRuntimeKeepsRegistrationsAndTracersIsolated(t *testing.T) {
 		t.Fatalf("expected right runtime tracer count 0, got %d", got)
 	}
 }
+
 func newSQLiteIndexTestEngine(t *testing.T) *Engine {
 	t.Helper()
 	db, err := sql.Open("sqlite3", ":memory:")
@@ -163,6 +170,7 @@ func newSQLiteIndexTestEngine(t *testing.T) *Engine {
 	})
 	return &Engine{DB: db, Dialect: SQLiteDialect{}}
 }
+
 func TestCurrentDialectDetection(t *testing.T) {
 	r := NewRuntime()
 	if r.Dialect() != "" {
@@ -180,6 +188,7 @@ func TestCurrentDialectDetection(t *testing.T) {
 		t.Logf("detected dialect: %s", dialect)
 	}
 }
+
 func registerIndexRuntime(t *testing.T, tableName string, unique bool, indexName string, fields []string) *Runtime {
 	t.Helper()
 	runtime := NewRuntime()
@@ -190,6 +199,7 @@ func registerIndexRuntime(t *testing.T, tableName string, unique bool, indexName
 	}
 	return runtime
 }
+
 func TestRuntimeEngineAccess(t *testing.T) {
 	r := NewRuntime()
 	if r.Engine() != nil {
@@ -207,6 +217,7 @@ func TestRuntimeEngineAccess(t *testing.T) {
 		t.Errorf("expected Engine to return same underlying DB and dialect")
 	}
 }
+
 func TestInitFailureRestoresPreviousRuntimeStateAfterStrictValidation(t *testing.T) {
 	r := NewRuntime()
 	previousDB := newSQLiteIndexTestEngine(t)
@@ -256,6 +267,7 @@ func TestInitFailureRestoresPreviousRuntimeStateAfterStrictValidation(t *testing
 		t.Fatalf("expected failing db handler to be rolled back, got %d events", len(failingEvents))
 	}
 }
+
 func TestInitFailureRestoresPreviousRuntimeStateAfterInitFuncError(t *testing.T) {
 	r := NewRuntime()
 	previousDB := newSQLiteIndexTestEngine(t)

@@ -3,9 +3,10 @@ package tsq
 import (
 	"context"
 	"errors"
-	_ "github.com/mattn/go-sqlite3"
 	"strings"
 	"testing"
+
+	_ "github.com/mattn/go-sqlite3"
 )
 
 func TestUpsertIndexRejectsInvalidIdentifiers(t *testing.T) {
@@ -23,6 +24,7 @@ func TestUpsertIndexRejectsInvalidIdentifiers(t *testing.T) {
 		t.Fatal("expected invalid field name to return an error")
 	}
 }
+
 func TestUpsertIndexRejectsEmptyFields(t *testing.T) {
 	db := &Engine{Dialect: MySQLDialect{}}
 	err := UpsertIndex(db, "users", false, "idx_users_id", nil)
@@ -30,17 +32,20 @@ func TestUpsertIndexRejectsEmptyFields(t *testing.T) {
 		t.Fatal("expected empty index fields to return an error")
 	}
 }
+
 func TestUpsertIndexRejectsNilEngine(t *testing.T) {
 	err := UpsertIndex(nil, "users", false, "idx_users_id", []string{"id"})
 	if err == nil {
 		t.Fatal("expected nil engine to return an error")
 	}
 }
+
 func TestInitRejectsNilEngine(t *testing.T) {
 	if err := Init(nil, nil); err == nil {
 		t.Fatal("expected nil engine to return an error")
 	}
 }
+
 func TestUpsertIndexSQLiteRejectsConflictingTableReuse(t *testing.T) {
 	db := newSQLiteIndexTestEngine(t)
 	statements := []string{"CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)", "CREATE TABLE orgs (id INTEGER PRIMARY KEY, name TEXT)", "CREATE UNIQUE INDEX ux_name ON users(name)"}
@@ -54,6 +59,7 @@ func TestUpsertIndexSQLiteRejectsConflictingTableReuse(t *testing.T) {
 		t.Fatal("expected conflicting sqlite index name to return an error")
 	}
 }
+
 func TestUpsertIndexSQLiteRejectsDefinitionMismatch(t *testing.T) {
 	db := newSQLiteIndexTestEngine(t)
 	statements := []string{"CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, email TEXT)", "CREATE UNIQUE INDEX ux_users_name ON users(email)"}
@@ -67,6 +73,7 @@ func TestUpsertIndexSQLiteRejectsDefinitionMismatch(t *testing.T) {
 		t.Fatal("expected mismatched sqlite index definition to return an error")
 	}
 }
+
 func TestUpsertIndexSQLiteAcceptsMatchingDefinition(t *testing.T) {
 	db := newSQLiteIndexTestEngine(t)
 	statements := []string{"CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)", "CREATE UNIQUE INDEX ux_users_name ON users(name)"}
@@ -79,6 +86,7 @@ func TestUpsertIndexSQLiteAcceptsMatchingDefinition(t *testing.T) {
 		t.Fatalf("expected matching sqlite index definition to pass, got %v", err)
 	}
 }
+
 func TestInitIndexModeValidateReturnsMissingIndexError(t *testing.T) {
 	db := newSQLiteIndexTestEngine(t)
 	if _, err := db.ExecContext(context.Background(), "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)"); err != nil {
@@ -104,6 +112,7 @@ func TestInitIndexModeValidateReturnsMissingIndexError(t *testing.T) {
 		t.Fatal("validate mode should not create missing indexes")
 	}
 }
+
 func TestInitIndexModeUpsertCreatesMissingIndex(t *testing.T) {
 	db := newSQLiteIndexTestEngine(t)
 	if _, err := db.ExecContext(context.Background(), "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)"); err != nil {
@@ -124,6 +133,7 @@ func TestInitIndexModeUpsertCreatesMissingIndex(t *testing.T) {
 		t.Fatalf("unexpected sqlite index definition: %#v", definition)
 	}
 }
+
 func TestInitCompatibilityUpsertIndexesTrueStillCreatesIndex(t *testing.T) {
 	db := newSQLiteIndexTestEngine(t)
 	if _, err := db.ExecContext(context.Background(), "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)"); err != nil {
@@ -141,6 +151,7 @@ func TestInitCompatibilityUpsertIndexesTrueStillCreatesIndex(t *testing.T) {
 		t.Fatal("expected legacy init upsert=true to create the index")
 	}
 }
+
 func TestInitCompatibilityUpsertIndexesFalseStillSkipsIndexInit(t *testing.T) {
 	db := newSQLiteIndexTestEngine(t)
 	if _, err := db.ExecContext(context.Background(), "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)"); err != nil {
@@ -158,6 +169,7 @@ func TestInitCompatibilityUpsertIndexesFalseStillSkipsIndexInit(t *testing.T) {
 		t.Fatal("expected legacy init upsert=false to skip index creation")
 	}
 }
+
 func TestInitSchemaEventCreateIndex(t *testing.T) {
 	db := newSQLiteIndexTestEngine(t)
 	if _, err := db.ExecContext(context.Background(), "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)"); err != nil {
@@ -180,6 +192,7 @@ func TestInitSchemaEventCreateIndex(t *testing.T) {
 		t.Fatal("expected create index event to include SQL")
 	}
 }
+
 func TestInitSchemaEventValidateIndex(t *testing.T) {
 	db := newSQLiteIndexTestEngine(t)
 	statements := []string{"CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)", "CREATE UNIQUE INDEX ux_users_name ON users(name)"}
@@ -202,6 +215,7 @@ func TestInitSchemaEventValidateIndex(t *testing.T) {
 		t.Fatalf("unexpected validate index event: %#v", events[0])
 	}
 }
+
 func TestInitSchemaEventHandlerPanicReturnsError(t *testing.T) {
 	db := newSQLiteIndexTestEngine(t)
 	if _, err := db.ExecContext(context.Background(), "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)"); err != nil {
@@ -218,6 +232,7 @@ func TestInitSchemaEventHandlerPanicReturnsError(t *testing.T) {
 		t.Fatalf("unexpected schema event panic error: %v", err)
 	}
 }
+
 func TestInitPersistsIndexModeOnEngine(t *testing.T) {
 	db := newSQLiteIndexTestEngine(t)
 	statements := []string{"CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)", "CREATE UNIQUE INDEX ux_users_name ON users(name)"}
@@ -238,6 +253,7 @@ func TestInitPersistsIndexModeOnEngine(t *testing.T) {
 		t.Fatalf("expected stored db index mode %q after init, got %q", IndexInitValidate, got)
 	}
 }
+
 func TestInitPersistsSchemaEventHandlerOnEngine(t *testing.T) {
 	db := newSQLiteIndexTestEngine(t)
 	statements := []string{"CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)", "CREATE UNIQUE INDEX ux_users_name ON users(name)"}
@@ -265,6 +281,7 @@ func TestInitPersistsSchemaEventHandlerOnEngine(t *testing.T) {
 		t.Fatalf("expected init plus two manual schema events, got %d", len(events))
 	}
 }
+
 func TestValidateIdentifiersForDialect(t *testing.T) {
 	r := NewRuntime()
 	err := r.ValidateIdentifiersForDialect()
@@ -280,6 +297,7 @@ func TestValidateIdentifiersForDialect(t *testing.T) {
 		t.Errorf("ValidateIdentifiersForDialect after Init should succeed, got error: %v", err)
 	}
 }
+
 func TestValidateIdentifiersForDialectChecksTableColumns(t *testing.T) {
 	r := NewRuntime()
 	db := newSQLiteIndexTestEngine(t)

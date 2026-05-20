@@ -5,8 +5,7 @@ import (
 	"slices"
 )
 
-// QuerySpec is the single source of truth for a query definition before planning.
-type QuerySpec[O Owner] struct {
+type querySpec[O Owner] struct {
 	From          Table             // From stores the base table used by the query.
 	Selects       []BoundColumn[O]  // Selects stores the projected columns in output order.
 	Filters       []Condition       // Filters stores WHERE predicates.
@@ -18,12 +17,12 @@ type QuerySpec[O Owner] struct {
 	SetOps        []setOperation[O] // SetOps stores UNION/INTERSECT/EXCEPT operations appended to the query.
 }
 
-func (spec QuerySpec[O]) selectCount() int        { return len(spec.Selects) }
-func (spec QuerySpec[O]) filterCount() int        { return len(spec.Filters) }
-func (spec QuerySpec[O]) joinCount() int          { return len(spec.Joins) }
-func (spec QuerySpec[O]) groupCount() int         { return len(spec.GroupBy) }
-func (spec QuerySpec[O]) havingCount() int        { return len(spec.Having) }
-func (spec QuerySpec[O]) keywordSearchCount() int { return len(spec.KeywordSearch) }
+func (spec querySpec[O]) selectCount() int        { return len(spec.Selects) }
+func (spec querySpec[O]) filterCount() int        { return len(spec.Filters) }
+func (spec querySpec[O]) joinCount() int          { return len(spec.Joins) }
+func (spec querySpec[O]) groupCount() int         { return len(spec.GroupBy) }
+func (spec querySpec[O]) havingCount() int        { return len(spec.Having) }
+func (spec querySpec[O]) keywordSearchCount() int { return len(spec.KeywordSearch) }
 
 type queryPlan struct {
 	cntSQL     string
@@ -36,7 +35,7 @@ type queryPlan struct {
 	kwListArgs []any
 }
 
-func buildQueryPlan[O Owner](spec QuerySpec[O]) (*queryPlan, error) {
+func buildQueryPlan[O Owner](spec querySpec[O]) (*queryPlan, error) {
 	if len(spec.Selects) == 0 {
 		return nil, fmt.Errorf("empty select fields: %+v", spec)
 	}
