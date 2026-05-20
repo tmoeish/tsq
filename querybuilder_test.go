@@ -5,64 +5,63 @@ import (
 	"testing"
 )
 
-// Mock table and column for testing
-type mockTable struct {
-	tableName string
+type mockTable struct{ tableName string }
+type queryBuilderCaseRow struct{ Label string }
+
+func (queryBuilderCaseRow) TSQOwner() {
 }
-
-type queryBuilderCaseRow struct {
-	Label string
+func (m mockTable) Init(db *Engine) error {
+	return nil
 }
-
-func (queryBuilderCaseRow) TSQOwner() {}
-
-func (m mockTable) Init(db *Engine) error         { return nil }
-func (m mockTable) TSQOwner()                     {}
-func (m mockTable) Table() string                 { return m.tableName }
-func (m mockTable) Cols() []SQLColumn             { return nil }
-func (m mockTable) SearchColumns() []SearchColumn { return nil }
-func (m mockTable) PrimaryKeys() []string         { return nil }
-func (m mockTable) AutoIncrement() bool           { return false }
-func (m mockTable) VersionColumn() string         { return "" }
-
+func (m mockTable) TSQOwner() {
+}
+func (m mockTable) Table() string {
+	return m.tableName
+}
+func (m mockTable) Cols() []SQLColumn {
+	return nil
+}
+func (m mockTable) SearchColumns() []SearchColumn {
+	return nil
+}
+func (m mockTable) PrimaryKeys() []string {
+	return nil
+}
+func (m mockTable) AutoIncrement() bool {
+	return false
+}
+func (m mockTable) VersionColumn() string {
+	return ""
+}
 func newMockTable(name string) Table {
 	return mockTable{tableName: name}
 }
-
-func newMockColumn(table Table, name string) ColumnImpl[Table, string] {
+func newMockColumn(table Table, name string) columnImpl[Table, string] {
 	return newColForTable[Table, string](table, name, name, nil)
 }
-
 func TestSelect(t *testing.T) {
 	table1 := newMockTable("users")
 	col1 := newMockColumn(table1, "id")
 	col2 := newMockColumn(table1, "name")
-
 	qb := Select(col1, col2)
-
 	if qb == nil {
 		t.Fatal("Select() returned nil")
 	}
-
 	if len(qb.spec.Selects) != 2 {
 		t.Errorf("Expected 2 select columns, got %d", len(qb.spec.Selects))
 	}
-
 	selectTables := qb.spec.selectTables()
 	if len(selectTables) != 1 {
 		t.Errorf("Expected 1 select table, got %d", len(selectTables))
 	}
-
 	if _, exists := selectTables["users"]; !exists {
 		t.Error("Expected 'users' table to be in selectTables")
 	}
 }
-
 func TestFromCreatesBuilderAndSelectSetsColumns(t *testing.T) {
 	table := newMockTable("users")
 	id := newMockColumn(table, "id")
 	name := newMockColumn(table, "name")
-
 	qb := From[Table](table).Select(id, name)
 	if qb == nil {
 		t.Fatal("From().Select() returned nil")
@@ -74,503 +73,33 @@ func TestFromCreatesBuilderAndSelectSetsColumns(t *testing.T) {
 		t.Fatalf("expected 2 selected columns, got %d", len(qb.spec.Selects))
 	}
 }
-
 func TestSelect_NilColumnDefersToBuildError(t *testing.T) {
 	table := newMockTable("users")
 	var col BoundColumn[Table]
-
-	_, err := Select(col).
-		From(table).Build()
+	_, err := Select(col).From(table).Build()
 	if err == nil {
 		t.Fatal("expected nil select column to return an error")
 	}
-
 	if !strings.Contains(err.Error(), "column cannot be nil") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
-
 func TestSelect_ZeroValueColumnDefersToBuildError(t *testing.T) {
 	table := newMockTable("users")
-	var col ColumnImpl[Table, int]
-
-	_, err := Select(col).
-		From(table).Build()
+	var col columnImpl[Table, int]
+	_, err := Select(col).From(table).Build()
 	if err == nil {
 		t.Fatal("expected zero-value select column to return an error")
 	}
-
 	if !strings.Contains(err.Error(), "must reference at least one table") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
-
-func TestQueryBuilder_LeftJoin(t *testing.T) {
-	table1 := newMockTable("users")
-	table2 := newMockTable("orders")
-	col1 := newColForTable[Table, string](table1, "id", "id", nil)
-	col2 := newColForTable[Table, string](table2, "user_id", "user_id", nil)
-
-	qb := Select(col1).
-		From(col1.Table()).LeftJoin(table2, col1.EQCol(col2))
-
-	if len(qb.spec.Joins) != 1 {
-		t.Errorf("Expected 1 join, got %d", len(qb.spec.Joins))
-	}
-
-	join := qb.spec.Joins[0]
-	if join.joinType != leftJoinType {
-		t.Errorf("Expected LEFT JOIN, got %s", join.joinType)
-	}
-
-	if join.table.Table() != "orders" {
-		t.Errorf("Expected join table 'orders', got '%s'", join.table.Table())
-	}
-
-	if len(join.on) != 1 {
-		t.Errorf("Expected 1 join condition, got %d", len(join.on))
-	}
-
-	// Check that both tables are added to selectTables
-	if len(qb.spec.pageQueryTables()) != 2 {
-		t.Errorf("Expected 2 tables in join graph, got %d", len(qb.spec.pageQueryTables()))
-	}
-}
-
-func TestQueryBuilder_InnerJoin(t *testing.T) {
-	table1 := newMockTable("users")
-	table2 := newMockTable("orders")
-	col1 := newColForTable[Table, string](table1, "id", "id", nil)
-	col2 := newColForTable[Table, string](table2, "user_id", "user_id", nil)
-
-	qb := Select(col1).
-		From(col1.Table()).InnerJoin(table2, col1.EQCol(col2))
-
-	if len(qb.spec.Joins) != 1 {
-		t.Errorf("Expected 1 join, got %d", len(qb.spec.Joins))
-	}
-
-	if qb.spec.Joins[0].joinType != innerJoinType {
-		t.Errorf("Expected INNER JOIN, got %s", qb.spec.Joins[0].joinType)
-	}
-}
-
-func TestQueryBuilder_RightJoin(t *testing.T) {
-	table1 := newMockTable("users")
-	table2 := newMockTable("orders")
-	col1 := newColForTable[Table, string](table1, "id", "id", nil)
-	col2 := newColForTable[Table, string](table2, "user_id", "user_id", nil)
-
-	qb := Select(col1).
-		From(col1.Table()).RightJoin(table2, col1.EQCol(col2))
-
-	if len(qb.spec.Joins) != 1 {
-		t.Errorf("Expected 1 join, got %d", len(qb.spec.Joins))
-	}
-
-	if qb.spec.Joins[0].joinType != rightJoinType {
-		t.Errorf("Expected RIGHT JOIN, got %s", qb.spec.Joins[0].joinType)
-	}
-}
-
-func TestQueryBuilder_FullJoin(t *testing.T) {
-	table1 := newMockTable("users")
-	table2 := newMockTable("orders")
-	col1 := newColForTable[Table, string](table1, "id", "id", nil)
-	col2 := newColForTable[Table, string](table2, "user_id", "user_id", nil)
-
-	qb := Select(col1).
-		From(col1.Table()).FullJoin(table2, col1.EQCol(col2))
-
-	if len(qb.spec.Joins) != 1 {
-		t.Errorf("Expected 1 join, got %d", len(qb.spec.Joins))
-	}
-
-	if qb.spec.Joins[0].joinType != fullJoinType {
-		t.Errorf("Expected FULL JOIN, got %s", qb.spec.Joins[0].joinType)
-	}
-}
-
-func TestQueryBuilder_ForUpdate(t *testing.T) {
-	table := newMockTable("users")
-	id := newMockColumn(table, "id")
-
-	qb := Select(id).From(table).ForUpdate()
-
-	if qb.spec.Lock.strength != queryLockStrengthUpdate {
-		t.Fatalf("expected FOR UPDATE lock, got %q", qb.spec.Lock.strength)
-	}
-	if qb.spec.Lock.waitMode != "" {
-		t.Fatalf("expected empty wait mode, got %q", qb.spec.Lock.waitMode)
-	}
-}
-
-func TestQueryBuilder_ForShareSkipLocked(t *testing.T) {
-	table := newMockTable("users")
-	id := newMockColumn(table, "id")
-
-	qb := Select(id).From(table).ForShare().SkipLocked()
-
-	if qb.spec.Lock.strength != queryLockStrengthShare {
-		t.Fatalf("expected FOR SHARE lock, got %q", qb.spec.Lock.strength)
-	}
-	if qb.spec.Lock.waitMode != queryLockWaitSkipLocked {
-		t.Fatalf("expected SKIP LOCKED wait mode, got %q", qb.spec.Lock.waitMode)
-	}
-}
-
-func TestQueryBuilder_LockWaitModeCannotBeSetTwice(t *testing.T) {
-	table := newMockTable("users")
-	id := newMockColumn(table, "id")
-
-	_, err := Select(id).From(table).ForUpdate().NoWait().SkipLocked().Build()
-	if err == nil {
-		t.Fatal("expected duplicate lock wait mode to fail")
-	}
-	if !strings.Contains(err.Error(), "lock wait mode is already set") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestQueryBuilder_CrossJoin(t *testing.T) {
-	table1 := newMockTable("users")
-	table2 := newMockTable("orders")
-	col1 := newMockColumn(table1, "id")
-
-	qb := Select(col1).
-		From(col1.Table()).CrossJoin(table2)
-
-	if len(qb.spec.Joins) != 1 {
-		t.Errorf("Expected 1 join, got %d", len(qb.spec.Joins))
-	}
-
-	join := qb.spec.Joins[0]
-	if join.joinType != crossJoinType {
-		t.Errorf("Expected CROSS JOIN, got %s", join.joinType)
-	}
-
-	if join.table.Table() != "orders" {
-		t.Errorf("Expected table 'orders', got '%s'", join.table.Table())
-	}
-}
-
-func TestQueryBuilder_GroupBy(t *testing.T) {
-	table1 := newMockTable("users")
-	col1 := newMockColumn(table1, "department")
-	col2 := newMockColumn(table1, "status")
-
-	qb := Select(col1).
-		From(col1.Table()).GroupBy(col1, col2)
-
-	if len(qb.spec.GroupBy) != 2 {
-		t.Errorf("Expected 2 GROUP BY columns, got %d", len(qb.spec.GroupBy))
-	}
-
-	if qb.spec.GroupBy[0].Name() != "department" {
-		t.Errorf("Expected first GROUP BY column 'department', got '%s'", qb.spec.GroupBy[0].Name())
-	}
-
-	if qb.spec.GroupBy[1].Name() != "status" {
-		t.Errorf("Expected second GROUP BY column 'status', got '%s'", qb.spec.GroupBy[1].Name())
-	}
-}
-
-func TestQueryBuilder_Union(t *testing.T) {
-	users := newMockTable("users")
-	orders := newMockTable("orders")
-	userID := newMockColumn(users, "id")
-	orderUserID := newMockColumn(orders, "user_id")
-
-	qb := Select(userID).
-		From(userID.Table()).
-		Union(Select(orderUserID).From(orderUserID.Table()))
-
-	if len(qb.spec.SetOps) != 1 {
-		t.Fatalf("expected 1 set operation, got %d", len(qb.spec.SetOps))
-	}
-
-	if qb.spec.SetOps[0].op != unionType {
-		t.Fatalf("expected UNION operation, got %s", qb.spec.SetOps[0].op)
-	}
-}
-
-func TestQueryBuilder_SetOperationRejectsMismatchedSelectCounts(t *testing.T) {
-	users := newMockTable("users")
-	id := newMockColumn(users, "id")
-	name := newMockColumn(users, "name")
-
-	_, err := Select(id).
-		From(id.Table()).
-		Union(Select(id, name).From(id.Table())).
-		Build()
-	if err == nil {
-		t.Fatal("expected mismatched select counts to fail")
-	}
-
-	if !strings.Contains(err.Error(), "matching select column counts") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestQueryBuilder_SetOperationRejectsKeywordSearch(t *testing.T) {
-	users := newMockTable("users")
-	id := newMockColumn(users, "id")
-
-	_, err := Select(id).
-		From(id.Table()).
-		Search(id).
-		Union(Select(id).From(id.Table())).
-		Build()
-	if err == nil {
-		t.Fatal("expected keyword search with set operations to fail")
-	}
-
-	if !strings.Contains(err.Error(), "do not support keyword search") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestQueryBuilder_SetOperationBuildsWrappedCountSQL(t *testing.T) {
-	users := newMockTable("users")
-	orders := newMockTable("orders")
-	userID := newMockColumn(users, "id")
-	orderUserID := newMockColumn(orders, "user_id")
-
-	query := mustBuild(Select(userID).
-		From(userID.Table()).
-		UnionAll(Select(orderUserID).From(orderUserID.Table())))
-
-	wantList := `SELECT "users"."id" FROM "users" UNION ALL SELECT "orders"."user_id" FROM "orders"`
-	if query.ListSQL() != wantList {
-		t.Fatalf("expected list SQL %q, got %q", wantList, query.ListSQL())
-	}
-
-	wantCount := `SELECT COUNT(1) FROM (` + wantList + `) AS _tsq_cnt`
-	if query.CountSQL() != wantCount {
-		t.Fatalf("expected count SQL %q, got %q", wantCount, query.CountSQL())
-	}
-}
-
-func TestQueryBuilder_CTEBuildsWithClause(t *testing.T) {
-	users := newMockTable("users")
-	id := newColForTable[Table, int](users, "id", "id", nil)
-	name := newColForTable[Table, string](users, "name", "name", nil)
-
-	activeUsers := CTE("active_users", Select(id, name).
-		From(id.Table()).Where(id.GT(10)))
-	activeUserID := id.WithTable(activeUsers)
-	activeUserName := name.WithTable(activeUsers)
-
-	query := mustBuild(Select(activeUserID, activeUserName).From(activeUsers))
-
-	wantList := `WITH "active_users" AS (SELECT "users"."id", "users"."name" FROM "users" WHERE "users"."id" > ?) SELECT "active_users"."id", "active_users"."name" FROM "active_users"`
-	if query.ListSQL() != wantList {
-		t.Fatalf("expected CTE list SQL %q, got %q", wantList, query.ListSQL())
-	}
-
-	wantCount := `WITH "active_users" AS (SELECT "users"."id", "users"."name" FROM "users" WHERE "users"."id" > ?) SELECT COUNT(1) FROM "active_users"`
-	if query.CountSQL() != wantCount {
-		t.Fatalf("expected CTE count SQL %q, got %q", wantCount, query.CountSQL())
-	}
-}
-
-func TestQueryBuilder_CTECollectsNestedDependencies(t *testing.T) {
-	users := newMockTable("users")
-	id := newColForTable[Table, int](users, "id", "id", nil)
-
-	baseUsers := CTE("base_users", Select(id).
-		From(id.Table()).Where(id.GT(1)))
-	baseUserID := id.WithTable(baseUsers)
-	filteredUsers := CTE("filtered_users", Select(baseUserID).From(baseUserID.Table()))
-	filteredUserID := id.WithTable(filteredUsers)
-
-	query := mustBuild(Select(filteredUserID).From(filteredUsers))
-
-	want := `WITH "base_users" AS (SELECT "users"."id" FROM "users" WHERE "users"."id" > ?), "filtered_users" AS (SELECT "base_users"."id" FROM "base_users") SELECT "filtered_users"."id" FROM "filtered_users"`
-	if query.ListSQL() != want {
-		t.Fatalf("expected nested CTE SQL %q, got %q", want, query.ListSQL())
-	}
-}
-
-func TestQueryBuilder_CTERejectsKeywordSearchInDefinition(t *testing.T) {
-	users := newMockTable("users")
-	id := newColForTable[Table, int](users, "id", "id", nil)
-	name := newColForTable[Table, string](users, "name", "name", nil)
-
-	searchUsers := CTE("search_users", Select(id, name).
-		From(id.Table()).Search(name))
-	searchUserID := id.WithTable(searchUsers)
-
-	_, err := Select(searchUserID).
-		From(searchUserID.Table()).Build()
-	if err == nil {
-		t.Fatal("expected CTE keyword search definition to fail")
-	}
-
-	if !strings.Contains(err.Error(), "does not support keyword search") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestQueryBuilder_CaseExpressionTracksConditionTables(t *testing.T) {
-	users := newMockTable("users")
-	orgs := newMockTable("orgs")
-	userID := newColForTable[Table, int](users, "id", "id", nil)
-	orgID := newColForTable[Table, int](orgs, "id", "id", nil)
-	orgName := newColForTable[Table, string](orgs, "name", "name", nil)
-
-	label := MapInto[queryBuilderCaseRow](Case[string]().
-		When(orgID.EQ(1), orgName).
-		Else("unknown").
-		End(), func(holder *queryBuilderCaseRow) *string { return &holder.Label }, "label")
-
-	_, err := Select[queryBuilderCaseRow](label).
-		From(userID.Table()).Build()
-	if err == nil {
-		t.Fatal("expected CASE expression to surface orgs table into join validation")
-	}
-
-	if !strings.Contains(err.Error(), "use CrossJoin") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestQueryBuilder_Having(t *testing.T) {
-	table1 := newMockTable("users")
-	col1 := newMockColumn(table1, "count")
-
-	// Create a mock condition
-	mockCond := &mockCondition{
-		clause: "COUNT(*) > 5",
-		tables: map[string]Table{"users": table1},
-	}
-
-	qb := Select(col1).
-		From(col1.Table()).GroupBy(col1).Having(mockCond)
-
-	if len(qb.spec.Having) != 1 {
-		t.Errorf("Expected 1 HAVING condition, got %d", len(qb.spec.Having))
-	}
-}
-
-func TestQueryBuilder_HavingRejectsEmptyConditionClause(t *testing.T) {
-	table := newMockTable("users")
-	col := newMockColumn(table, "count")
-
-	_, err := Select(col).
-		From(col.Table()).GroupBy(col).Having(Cond{}).Build()
-	if err == nil {
-		t.Fatal("expected empty HAVING condition clause to return an error")
-	}
-
-	if !strings.Contains(err.Error(), "condition clause cannot be empty") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestQueryBuilder_Where(t *testing.T) {
-	table1 := newMockTable("users")
-	col1 := newMockColumn(table1, "id")
-
-	// Create a mock condition
-	mockCond := &mockCondition{
-		clause: "`users`.`id` = 1",
-		tables: map[string]Table{"users": table1},
-	}
-
-	qb := Select(col1).
-		From(col1.Table()).Where(mockCond)
-
-	if len(qb.spec.Filters) != 1 {
-		t.Errorf("Expected 1 WHERE condition, got %d", len(qb.spec.Filters))
-	}
-
-	if len(qb.spec.Filters) != 1 {
-		t.Errorf("Expected 1 condition clause, got %d", len(qb.spec.Filters))
-	}
-
-	if conditionClause(qb.spec.Filters[0]) != "`users`.`id` = 1" {
-		t.Errorf("Expected condition clause '`users`.`id` = 1', got '%s'", conditionClause(qb.spec.Filters[0]))
-	}
-}
-
-func TestQueryBuilder_WhereRejectsNilCondition(t *testing.T) {
-	table := newMockTable("users")
-	col := newMockColumn(table, "id")
-
-	var cond Condition
-
-	_, err := Select(col).
-		From(col.Table()).Where(cond).Build()
-	if err == nil {
-		t.Fatal("expected nil WHERE condition to return an error")
-	}
-
-	if !strings.Contains(err.Error(), "condition cannot be nil") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestQueryBuilder_WhereAcceptsMultipleConditions(t *testing.T) {
-	table1 := newMockTable("users")
-	col1 := newMockColumn(table1, "id")
-
-	mockCond1 := &mockCondition{
-		clause: "`users`.`id` = 1",
-		tables: map[string]Table{"users": table1},
-	}
-
-	mockCond2 := &mockCondition{
-		clause: "`users`.`name` = 'test'",
-		tables: map[string]Table{"users": table1},
-	}
-
-	qb := Select(col1).
-		From(col1.Table()).Where(mockCond1, mockCond2)
-
-	if len(qb.spec.Filters) != 2 {
-		t.Errorf("Expected 2 conditions, got %d", len(qb.spec.Filters))
-	}
-
-	if len(qb.spec.Filters) != 2 {
-		t.Errorf("Expected 2 condition clauses, got %d", len(qb.spec.Filters))
-	}
-}
-
-func TestQueryBuilder_KwSearch(t *testing.T) {
-	table1 := newMockTable("users")
-	col1 := newMockColumn(table1, "name")
-	col2 := newMockColumn(table1, "email")
-
-	qb := Select(col1).
-		From(col1.Table()).Search(col1, col2)
-
-	if len(qb.spec.KeywordSearch) != 2 {
-		t.Errorf("Expected 2 keyword search columns, got %d", len(qb.spec.KeywordSearch))
-	}
-
-	kwTables := qb.spec.keywordTables()
-	if len(kwTables) != 1 {
-		t.Errorf("Expected 1 keyword search table, got %d", len(kwTables))
-	}
-
-	if _, exists := kwTables["users"]; !exists {
-		t.Error("Expected 'users' table to be in kwTables")
-	}
-}
-
 func TestJoinTypeConstants(t *testing.T) {
 	tests := []struct {
 		joinType joinType
 		expected string
-	}{
-		{leftJoinType, "LEFT JOIN"},
-		{innerJoinType, "INNER JOIN"},
-		{rightJoinType, "RIGHT JOIN"},
-		{fullJoinType, "FULL JOIN"},
-		{crossJoinType, "CROSS JOIN"},
-	}
-
+	}{{leftJoinType, "LEFT JOIN"}, {innerJoinType, "INNER JOIN"}, {rightJoinType, "RIGHT JOIN"}, {fullJoinType, "FULL JOIN"}, {crossJoinType, "CROSS JOIN"}}
 	for _, tt := range tests {
 		t.Run(string(tt.joinType), func(t *testing.T) {
 			if string(tt.joinType) != tt.expected {
@@ -580,344 +109,6 @@ func TestJoinTypeConstants(t *testing.T) {
 	}
 }
 
-func TestQueryBuilder_ChainedOperations(t *testing.T) {
-	table1 := newMockTable("users")
-	table2 := newMockTable("orders")
-	col1 := newColForTable[Table, string](table1, "id", "id", nil)
-	col2 := newColForTable[Table, string](table1, "name", "name", nil)
-	col3 := newColForTable[Table, string](table2, "user_id", "user_id", nil)
-
-	mockCond := &mockCondition{
-		clause: "`users`.`id` > 0",
-		tables: map[string]Table{"users": table1},
-	}
-
-	qb := Select(col1, col2).
-		From(col1.Table()).
-		LeftJoin(table2, col1.EQCol(col3)).
-		Search(col2).
-		Where(mockCond).
-		GroupBy(col2).
-		Having(mockCond)
-
-	// Verify all operations were applied
-	if len(qb.spec.Selects) != 2 {
-		t.Errorf("Expected 2 select columns, got %d", len(qb.spec.Selects))
-	}
-
-	if len(qb.spec.Joins) != 1 {
-		t.Errorf("Expected 1 join, got %d", len(qb.spec.Joins))
-	}
-
-	if len(qb.spec.Filters) != 1 {
-		t.Errorf("Expected 1 WHERE condition, got %d", len(qb.spec.Filters))
-	}
-
-	if len(qb.spec.GroupBy) != 1 {
-		t.Errorf("Expected 1 GROUP BY column, got %d", len(qb.spec.GroupBy))
-	}
-
-	if len(qb.spec.Having) != 1 {
-		t.Errorf("Expected 1 HAVING condition, got %d", len(qb.spec.Having))
-	}
-
-	if len(qb.spec.KeywordSearch) != 1 {
-		t.Errorf("Expected 1 keyword search column, got %d", len(qb.spec.KeywordSearch))
-	}
-
-	if len(qb.spec.pageQueryTables()) != 2 {
-		t.Errorf("Expected 2 tables in planned query, got %d", len(qb.spec.pageQueryTables()))
-	}
-}
-
-func TestQueryBuilder_GroupedCountUsesWrappedSubquery(t *testing.T) {
-	table := newMockTable("users")
-	department := newMockColumn(table, "department")
-	having := &mockCondition{
-		clause: "COUNT(*) > 1",
-		tables: map[string]Table{"users": table},
-	}
-
-	query := mustBuild(Select(department).
-		From(department.Table()).
-		GroupBy(department).
-		Having(having))
-
-	wantList := `SELECT "users"."department" FROM "users" GROUP BY "users"."department" HAVING COUNT(*) > 1`
-	if query.ListSQL() != wantList {
-		t.Fatalf("expected list SQL %q, got %q", wantList, query.ListSQL())
-	}
-
-	wantCount := "SELECT COUNT(1) FROM (" + wantList + ") AS _tsq_cnt"
-	if query.CountSQL() != wantCount {
-		t.Fatalf("expected count SQL %q, got %q", wantCount, query.CountSQL())
-	}
-}
-
-func TestQueryBuilder_DistinctCountUsesWrappedSubquery(t *testing.T) {
-	table := newMockTable("users")
-	name := newColForTable[Table, string](table, "name", "name", nil)
-
-	query := mustBuild(Select(name.Distinct()).From(name.Table()))
-
-	wantList := `SELECT DISTINCT("users"."name") FROM "users"`
-	if query.ListSQL() != wantList {
-		t.Fatalf("expected list SQL %q, got %q", wantList, query.ListSQL())
-	}
-
-	wantCount := "SELECT COUNT(1) FROM (" + wantList + ") AS _tsq_cnt"
-	if query.CountSQL() != wantCount {
-		t.Fatalf("expected count SQL %q, got %q", wantCount, query.CountSQL())
-	}
-}
-
-func TestQueryBuilder_AggregateCountUsesWrappedSubquery(t *testing.T) {
-	table := newMockTable("users")
-	id := newColForTable[Table, int](table, "id", "id", nil)
-
-	query := mustBuild(Select(id.Count()).From(id.Table()))
-
-	wantList := `SELECT COUNT("users"."id") FROM "users"`
-	if query.ListSQL() != wantList {
-		t.Fatalf("expected list SQL %q, got %q", wantList, query.ListSQL())
-	}
-
-	wantCount := "SELECT COUNT(1) FROM (" + wantList + ") AS _tsq_cnt"
-	if query.CountSQL() != wantCount {
-		t.Fatalf("expected count SQL %q, got %q", wantCount, query.CountSQL())
-	}
-}
-
-func TestQueryBuilder_HavingKeepsRawClauseForDialectRendering(t *testing.T) {
-	users := newMockTable("users")
-	id := newColForTable[Table, int](users, "id", "id", nil)
-
-	q, err := Select(id).
-		From(id.Table()).GroupBy(id).Having(id.GT(1)).Build()
-	if err != nil {
-		t.Fatalf("Build returned error: %v", err)
-	}
-
-	rendered := renderSQLForDialect(q.listSQL, MySQLDialect{})
-	if !strings.Contains(rendered, "HAVING `users`.`id` > ?") {
-		t.Fatalf("expected HAVING clause to use dialect identifiers, got %s", rendered)
-	}
-
-	if strings.Contains(rendered, `"users"."id"`) {
-		t.Fatalf("expected HAVING clause not to leak canonical identifiers into dialect SQL, got %s", rendered)
-	}
-}
-
-func TestQueryBuilder_CrossJoinKeepsSelectedBaseTable(t *testing.T) {
-	users := newMockTable("users")
-	orders := newMockTable("orders")
-	userID := newMockColumn(users, "id")
-
-	query := mustBuild(Select(userID).
-		From(userID.Table()).CrossJoin(orders))
-	want := `SELECT "users"."id" FROM "users" CROSS JOIN "orders"`
-
-	if query.ListSQL() != want {
-		t.Fatalf("expected cross join SQL %q, got %q", want, query.ListSQL())
-	}
-}
-
-func TestQueryBuilder_Build_RejectsTablesReferencedOutsideJoinGraph(t *testing.T) {
-	users := newMockTable("users")
-	orgs := newMockTable("orgs")
-	items := newMockTable("items")
-	userID := newColForTable[Table, int](users, "id", "id", nil)
-	userOrgID := newColForTable[Table, int](users, "org_id", "org_id", nil)
-	orgID := newColForTable[Table, int](orgs, "id", "id", nil)
-	itemID := newColForTable[Table, int](items, "id", "id", nil)
-
-	_, err := Select(userID).
-		From(userID.Table()).
-		LeftJoin(orgs, userOrgID.EQCol(orgID)).
-		Where(itemID.EQVar()).
-		Build()
-	if err == nil {
-		t.Fatal("expected unjoined table reference to return an error")
-	}
-
-	if !strings.Contains(err.Error(), "use CrossJoin") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestQueryBuilder_WhereTracksAllConditionTables(t *testing.T) {
-	users := newMockTable("users")
-	userID := newColForTable[Table, int](users, "id", "id", nil)
-
-	query := mustBuild(Select(userID).
-		From(userID.Table()).
-		Where(userID.EQVar(), userID.EQVar()))
-
-	want := `SELECT "users"."id" FROM "users" WHERE ("users"."id" = ? AND "users"."id" = ?)`
-	if query.ListSQL() != want {
-		t.Fatalf("expected Where to keep all condition tables, got %q", query.ListSQL())
-	}
-}
-
-func TestQueryBuilder_Build_RejectsDisconnectedJoinGraph(t *testing.T) {
-	users := newMockTable("users")
-	orgs := newMockTable("orgs")
-	orders := newMockTable("orders")
-	items := newMockTable("items")
-
-	userID := newColForTable[Table, int](users, "id", "id", nil)
-	userOrgID := newColForTable[Table, int](users, "org_id", "org_id", nil)
-	orgID := newColForTable[Table, int](orgs, "id", "id", nil)
-	orderItemID := newColForTable[Table, int](orders, "item_id", "item_id", nil)
-	itemID := newColForTable[Table, int](items, "id", "id", nil)
-
-	_, err := Select(userID).
-		From(userID.Table()).
-		LeftJoin(orgs, userOrgID.EQCol(orgID)).
-		LeftJoin(items, orderItemID.EQCol(itemID)).
-		Build()
-	if err == nil {
-		t.Fatal("expected disconnected join graph to return an error")
-	}
-
-	if !strings.Contains(err.Error(), "not connected") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestQueryBuilder_Build_RejectsRepeatedJoinTableWithoutAliases(t *testing.T) {
-	users := newMockTable("users")
-	orgs := newMockTable("orgs")
-
-	userID := newColForTable[Table, int](users, "id", "id", nil)
-	userOrgID := newColForTable[Table, int](users, "org_id", "org_id", nil)
-	orgID := newColForTable[Table, int](orgs, "id", "id", nil)
-	orgParentID := newColForTable[Table, int](orgs, "parent_id", "parent_id", nil)
-
-	_, err := Select(userID).
-		From(userID.Table()).
-		LeftJoin(orgs, userOrgID.EQCol(orgID)).
-		LeftJoin(orgs, orgParentID.EQCol(orgID)).
-		Build()
-	if err == nil {
-		t.Fatal("expected repeated join table to return an error")
-	}
-
-	errMsg := err.Error()
-	if !strings.Contains(errMsg, "aliases are required") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestQueryBuilder_Build_AllowsRepeatedJoinTableWithAliases(t *testing.T) {
-	users := newMockTable("users")
-	orgs := newMockTable("orgs")
-
-	userID := newColForTable[Table, int](users, "id", "id", nil)
-	userOrgID := newColForTable[Table, int](users, "org_id", "org_id", nil)
-	orgID := newColForTable[Table, int](orgs, "id", "id", nil)
-	parentOrgID := orgID.As("parent_orgs")
-
-	query, err := Select(userID, parentOrgID).
-		From(userID.Table()).
-		LeftJoin(orgs, userOrgID.EQCol(orgID)).
-		LeftJoin(parentOrgID.Table(), newColForTable[Table, int](orgs, "parent_id", "parent_id", nil).EQCol(parentOrgID)).
-		Build()
-	if err != nil {
-		t.Fatalf("expected aliased repeated join to build, got %v", err)
-	}
-
-	want := `SELECT "users"."id", "parent_orgs"."id" FROM "users" LEFT JOIN "orgs" ON "users"."org_id" = "orgs"."id" LEFT JOIN "orgs" AS "parent_orgs" ON "orgs"."parent_id" = "parent_orgs"."id"`
-	if got := query.ListSQL(); got != want {
-		t.Fatalf("expected aliased join SQL %q, got %q", want, got)
-	}
-}
-
-func TestQueryBuilder_Build_RejectsNilReceiver(t *testing.T) {
-	var qb *QueryBuilder[Table]
-
-	defer func() {
-		recovered := recover()
-		if recovered == nil {
-			t.Fatal("expected nil query builder to panic")
-		}
-
-		err, ok := recovered.(error)
-		if !ok || !strings.Contains(err.Error(), "query builder cannot be nil") {
-			t.Fatalf("unexpected panic: %#v", recovered)
-		}
-	}()
-
-	qb.Build()
-}
-
-func TestQueryBuilder_Build_PreservesOwnerType(t *testing.T) {
-	users := newMockTable("users")
-	userID := newColForTable[Table, int](users, "id", "id", nil)
-
-	qb := Select(userID).From(users)
-	var build func() (*Query[Table], error) = qb.Build
-
-	query, err := build()
-	if err != nil {
-		t.Fatalf("expected typed build to succeed, got %v", err)
-	}
-
-	if query == nil {
-		t.Fatal("expected typed build to return a query")
-	}
-}
-
-func TestQueryBuilder_MethodsHandleNilReceiverWithoutPanicking(t *testing.T) {
-	users := newMockTable("users")
-	userID := newColForTable[Table, int](users, "id", "id", nil)
-
-	var qb *QueryBuilder[Table]
-
-	defer func() {
-		recovered := recover()
-		if recovered == nil {
-			t.Fatal("expected nil receiver chain to panic")
-		}
-
-		err, ok := recovered.(error)
-		if !ok || !strings.Contains(err.Error(), "query builder cannot be nil") {
-			t.Fatalf("unexpected panic: %#v", recovered)
-		}
-	}()
-
-	qb.Search(userID).GroupBy(userID).Build()
-}
-
-func TestQueryBuilder_BranchingDoesNotShareMutableState(t *testing.T) {
-	users := newMockTable("users")
-	userID := newColForTable[Table, int](users, "id", "id", nil)
-
-	base := Select(userID).From(users)
-	left, err := base.Where(userID.EQ(1)).Build()
-	if err != nil {
-		t.Fatalf("expected left branch to build, got %v", err)
-	}
-
-	right, err := base.Where(userID.EQ(2)).Build()
-	if err != nil {
-		t.Fatalf("expected right branch to build, got %v", err)
-	}
-
-	if len(left.listArgs) != 1 || left.listArgs[0] != 1 {
-		t.Fatalf("expected left branch args [1], got %#v", left.listArgs)
-	}
-
-	if len(right.listArgs) != 1 || right.listArgs[0] != 2 {
-		t.Fatalf("expected right branch args [2], got %#v", right.listArgs)
-	}
-
-	if len(base.queryBuilderCore.spec.Filters) != 0 {
-		t.Fatalf("expected base builder to remain unfiltered, got %#v", base.queryBuilderCore.spec.Filters)
-	}
-}
-
-// Mock condition for testing
 type mockCondition struct {
 	clause string
 	tables map[string]Table
@@ -926,11 +117,9 @@ type mockCondition struct {
 func (m *mockCondition) Clause() string {
 	return m.clause
 }
-
 func (m *mockCondition) Tables() map[string]Table {
 	return m.tables
 }
-
 func (m *mockCondition) Args() []any {
 	return nil
 }

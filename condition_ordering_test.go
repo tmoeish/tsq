@@ -63,7 +63,7 @@ func TestConditionParameterOrdering_BindingStyles(t *testing.T) {
 	_ = col.EQVar()
 	_ = col.GTVar()
 
-	// AnyColumn comparison
+	// Column comparison
 	otherTable := newMockTable("orders")
 	otherCol := newColForTable[Table, int](otherTable, "user_id", "user_id", nil)
 	_ = col.EQCol(otherCol)
@@ -88,9 +88,9 @@ func TestConditionParameterOrdering_Documentation(t *testing.T) {
 	//   - Uses ? placeholder, value provided at execution
 	//   - No parameter in method
 	//
-	// Col: AnyColumn comparison (col.EQCol(otherCol))
+	// Col: column comparison (col.EQCol(otherCol))
 	//   - Compares two columns
-	//   - Parameter is another AnyColumn
+	//   - Parameter is another column
 	//
 	// Sub: Subquery comparison (col.EQSub(query))
 	//   - Compares with subquery result

@@ -22,10 +22,10 @@ func (t *strictMockTable) PrimaryKeys() []string         { return nil }
 func (t *strictMockTable) AutoIncrement() bool           { return false }
 func (t *strictMockTable) VersionColumn() string         { return "" }
 
-func newStrictMockTable(name string, colNames ...string) (*strictMockTable, []ColumnImpl[Table, int]) {
+func newStrictMockTable(name string, colNames ...string) (*strictMockTable, []columnImpl[Table, int]) {
 	table := &strictMockTable{name: name}
 	cols := make([]SQLColumn, 0, len(colNames))
-	typed := make([]ColumnImpl[Table, int], 0, len(colNames))
+	typed := make([]columnImpl[Table, int], 0, len(colNames))
 
 	for _, name := range colNames {
 		col := newColForTable[Table, int](table, name, name, nil)

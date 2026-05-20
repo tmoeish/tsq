@@ -7,6 +7,21 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 项目遵循 [语义化版本控制](https://semver.org/lang/zh-CN/)。
 
+## [4.1.0] - 2026-05-20
+
+### 变更 (Breaking Changes)
+- **核心架构重构**: 大规模重构了查询规划、列实现和执行引擎。将原本分散的逻辑解耦并按功能模块化，提升了系统的可维护性和扩展性。
+- **移除弃用代码**: 清理了旧版的 `typed.go`、`alias.go`、`query_spec.go` 和 `time_helpers.go` 等冗余或已弃用的文件。
+
+### 新增
+- **查询规划器 (Query Planner)**: 引入了全新的查询规划机制 (`query_plan.go`)，支持更复杂的查询拓扑和优化。
+- **增强的执行器**: 新增 `executor_mutation.go` 和 `executor_wrap.go`，统一并优化了写操作和查询执行流程。
+- **模块化列实现**: 采用新的 `column_impl.go` 管理列元数据和扫描映射，支持更灵活的列重绑定和别名。
+
+### 改进
+- **测试套件全面升级**: 针对查询规划、Builder 状态机和 Mutation 流程新增了大量测试用例，显著提升了核心逻辑的测试覆盖率。
+- **验证逻辑收紧**: 强化了标识符、查询参数和表注册的校验规则。
+
 ## [4.0.6] - 2026-05-19
 
 ### 变更 (Breaking Changes)

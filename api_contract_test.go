@@ -1,15 +1,10 @@
 package tsq
 
-import (
-	"testing"
-)
+import "testing"
 
-// TestAPIDocumentation_PublicMethods verifies that key public methods have proper documentation
-// This test documents the main API entry points and their usage patterns
-func TestAPIDocumentation_PublicMethods(t *testing.T) {
-	// Testing common public API methods have documentation
-
-	// QueryBuilder methods
+// TestAPIContract_PublicEntryPoints verifies that common public builder entry
+// points remain usable together.
+func TestAPIContract_PublicEntryPoints(t *testing.T) {
 	tests := []struct {
 		name string
 		test func(*testing.T)
@@ -83,27 +78,26 @@ func TestAPIDocumentation_PublicMethods(t *testing.T) {
 	}
 }
 
-// TestAPIDocumentation_ColumnConditions verifies condition methods have consistent documentation
-func TestAPIDocumentation_ColumnConditions(t *testing.T) {
+// TestAPIContract_ColumnConditions verifies that common typed condition helpers
+// produce usable predicates.
+func TestAPIContract_ColumnConditions(t *testing.T) {
 	table := newMockTable("users")
 	col := newColForTable[Table, int](table, "id", "id", nil)
 
-	// All comparison methods exist and return Condition
 	conditions := []struct {
-		name  string
-		cond  Condition
-		valid bool
+		name string
+		cond Condition
 	}{
-		{"EQ", col.EQ(1), true},
-		{"NE", col.NE(1), true},
-		{"GT", col.GT(0), true},
-		{"GTE", col.GTE(0), true},
-		{"LT", col.LT(100), true},
-		{"LTE", col.LTE(100), true},
-		{"Between", col.Between(1, 100), true},
-		{"In", col.In(1, 2, 3), true},
-		{"IsNull", col.IsNull(), true},
-		{"IsNotNull", col.IsNotNull(), true},
+		{"EQ", col.EQ(1)},
+		{"NE", col.NE(1)},
+		{"GT", col.GT(0)},
+		{"GTE", col.GTE(0)},
+		{"LT", col.LT(100)},
+		{"LTE", col.LTE(100)},
+		{"Between", col.Between(1, 100)},
+		{"In", col.In(1, 2, 3)},
+		{"IsNull", col.IsNull()},
+		{"IsNotNull", col.IsNotNull()},
 	}
 
 	for _, tt := range conditions {
@@ -111,23 +105,21 @@ func TestAPIDocumentation_ColumnConditions(t *testing.T) {
 			t.Errorf("condition %s returned nil", tt.name)
 			continue
 		}
-		// Verify it's a valid Condition
-		if tt.cond.Clause() == "" && tt.valid {
+		if tt.cond.Clause() == "" {
 			t.Errorf("condition %s has empty clause", tt.name)
 		}
 	}
 }
 
-// TestAPIDocumentation_TableAndColumn verifies table and column API
-func TestAPIDocumentation_TableAndColumn(t *testing.T) {
-	// Table creation and column access
+// TestAPIContract_TableAndColumn verifies basic table and column metadata
+// behavior used by public query construction.
+func TestAPIContract_TableAndColumn(t *testing.T) {
 	table := newMockTable("users")
 
 	if table.Table() != "users" {
 		t.Errorf("table name mismatch: got %s, want users", table.Table())
 	}
 
-	// AnyColumn creation
 	col := newColForTable[Table, int](table, "id", "id", nil)
 	if col.Name() != "id" {
 		t.Errorf("column name mismatch: got %s, want id", col.Name())
@@ -136,13 +128,17 @@ func TestAPIDocumentation_TableAndColumn(t *testing.T) {
 		t.Fatal("column table is nil")
 	}
 
-	// AnyColumn alias
 	aliasedCol := col.As("u")
 	if aliasedCol.Name() != "id" {
 		t.Errorf("aliased column name changed: got %s, want id", aliasedCol.Name())
 	}
+	if got := aliasedCol.Table().Table(); got != "u" {
+		t.Errorf("aliased column table mismatch: got %s, want u", got)
+	}
+	if got := aliasedCol.QualifiedName(); got != `"u"."id"` {
+		t.Errorf("aliased column qualified name mismatch: got %s, want %s", got, `"u"."id"`)
+	}
 
-	// AnyColumn WithTable (rebinding)
 	otherTable := newMockTable("orders")
 	reboundCol := col.WithTable(otherTable)
 	if reboundCol.Table().Table() != "orders" {

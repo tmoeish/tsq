@@ -54,7 +54,7 @@ Canonical instructions for coding agents and IDE assistants working in this repo
   - use `Result`, not `DTO`
   - use `GTE` / `LTE`
   - use `StartsWith` / `EndsWith`
-  - use `FnRaw` for raw function expressions
+  - use `Expr` / `Exprf` / `Pred` for custom column expressions and predicates
 - Table DSL uses explicit managed-field names: `version`, `created_at`, `updated_at`, `deleted_at`.
 - Handle errors immediately after the failing operation, prefer early returns, and use `errors.Is` / `errors.As`.
 - Keep comments high-signal: document exported behavior and non-obvious constraints.

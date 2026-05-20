@@ -60,7 +60,7 @@ func (ob OrderBy) Order() Order {
 // ================================================
 
 // Asc creates an ascending ORDER BY clause for this column
-func (c ColumnImpl[Owner, T]) Asc() OrderBy {
+func (c columnImpl[Owner, T]) Asc() OrderBy {
 	return OrderBy{
 		field: c,
 		order: ASC,
@@ -68,7 +68,7 @@ func (c ColumnImpl[Owner, T]) Asc() OrderBy {
 }
 
 // Desc creates a descending ORDER BY clause for this column
-func (c ColumnImpl[Owner, T]) Desc() OrderBy {
+func (c columnImpl[Owner, T]) Desc() OrderBy {
 	return OrderBy{
 		field: c,
 		order: DESC,

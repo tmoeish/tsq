@@ -4,12 +4,12 @@ import (
 	"testing"
 )
 
-func TestCol_Fn(t *testing.T) {
+func TestCol_Expr(t *testing.T) {
 	table := newMockTable("users")
 	col := newColForTable[Table, string](table, "name", "name", nil)
 
 	// Test custom function format
-	result := col.Fn("UPPER(%s)")
+	result := col.Expr("UPPER(%s)")
 
 	if result.Name() != "name" {
 		t.Errorf("Expected name 'name', got '%s'", result.Name())
@@ -29,7 +29,7 @@ func TestCol_Fn(t *testing.T) {
 	}
 }
 
-func TestCol_FnRejectsInvalidFormat(t *testing.T) {
+func TestCol_ExprRejectsInvalidFormat(t *testing.T) {
 	table := newMockTable("users")
 	col := newColForTable[Table, string](table, "name", "name", nil)
 
@@ -45,38 +45,20 @@ func TestCol_FnRejectsInvalidFormat(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if _, err := validateColumnInput(col.Fn(tt.format)); err == nil {
-				t.Fatal("expected Fn to return a build error for invalid format")
+			if _, err := validateColumnInput(col.Expr(tt.format)); err == nil {
+				t.Fatal("expected Expr to return a build error for invalid format")
 			}
 		})
 	}
 }
 
-func TestCol_FnAllowsEscapedPercentLiterals(t *testing.T) {
+func TestCol_ExprAllowsEscapedPercentLiterals(t *testing.T) {
 	table := newMockTable("users")
 	col := newColForTable[Table, string](table, "name", "name", nil)
 
-	result := col.Fn("CONCAT(%s, '%%s')")
+	result := col.Expr("CONCAT(%s, '%%s')")
 	if got := result.QualifiedName(); got != `CONCAT("users"."name", '%s')` {
 		t.Fatalf("expected escaped percent literal to be preserved, got %s", got)
-	}
-}
-
-func TestCol_FnRawRejectsEmptyExpression(t *testing.T) {
-	table := newMockTable("users")
-	col := newColForTable[Table, string](table, "name", "name", nil)
-
-	if _, err := validateColumnInput(col.FnRaw("   ")); err == nil {
-		t.Fatal("expected FnRaw to return a build error for empty expression")
-	}
-}
-
-func TestCol_FnRawRejectsPlaceholders(t *testing.T) {
-	table := newMockTable("users")
-	col := newColForTable[Table, string](table, "name", "name", nil)
-
-	if _, err := validateColumnInput(col.FnRaw("COALESCE(%s, 1)")); err == nil {
-		t.Fatal("expected FnRaw to return a build error when placeholders are present")
 	}
 }
 
@@ -235,7 +217,8 @@ func TestCaseBuilder_End(t *testing.T) {
 		t.Fatalf("expected qualified name %q, got %q", expectedQualified, result.QualifiedName())
 	}
 
-	if args := result.expressionArgs(); len(args) != 3 || args[0] != 1 || args[1] != "internal" || args[2] != "external" {
+	args := result.(interface{ expressionArgs() []any }).expressionArgs()
+	if len(args) != 3 || args[0] != 1 || args[1] != "internal" || args[2] != "external" {
 		t.Fatalf("expected bound args [1 internal external], got %#v", args)
 	}
 }
@@ -246,16 +229,17 @@ func TestCaseBuilder_RequiresWhenBranch(t *testing.T) {
 	}
 }
 
-func TestCol_FnExprTracksReferencedTables(t *testing.T) {
+func TestCol_ExprfTracksReferencedTables(t *testing.T) {
 	users := newMockTable("users")
 	orgs := newMockTable("orgs")
 	userName := newColForTable[Table, string](users, "name", "name", nil)
 	orgName := newColForTable[Table, string](orgs, "name", "name", nil)
 
-	result := userName.FnExpr("COALESCE(%s, %s)", orgName)
+	result := userName.Exprf("COALESCE(%s, %s)", orgName)
 
-	if refs := result.referencedTables(); len(refs) != 2 || refs["orgs"] == nil || refs["users"] == nil {
-		t.Fatalf("expected FnExpr to track referenced tables, got %#v", refs)
+	refs := result.(interface{ referencedTables() map[string]Table }).referencedTables()
+	if len(refs) != 2 || refs["orgs"] == nil || refs["users"] == nil {
+		t.Fatalf("expected Exprf to track referenced tables, got %#v", refs)
 	}
 }
 
@@ -397,7 +381,8 @@ func TestCol_Coalesce(t *testing.T) {
 		t.Errorf("Expected qualified name '%s', got '%s'", expectedQualified, result.QualifiedName())
 	}
 
-	if args := result.expressionArgs(); len(args) != 1 || args[0] != "Anonymous" {
+	args := result.(interface{ expressionArgs() []any }).expressionArgs()
+	if len(args) != 1 || args[0] != "Anonymous" {
 		t.Fatalf("expected bound args [Anonymous], got %#v", args)
 	}
 }
@@ -413,7 +398,8 @@ func TestCol_NullIf(t *testing.T) {
 		t.Errorf("Expected qualified name '%s', got '%s'", expectedQualified, result.QualifiedName())
 	}
 
-	if args := result.expressionArgs(); len(args) != 1 || args[0] != "inactive" {
+	args := result.(interface{ expressionArgs() []any }).expressionArgs()
+	if len(args) != 1 || args[0] != "inactive" {
 		t.Fatalf("expected bound args [inactive], got %#v", args)
 	}
 }
@@ -473,7 +459,8 @@ func TestCol_ComplexFunctionChain(t *testing.T) {
 		t.Errorf("Expected qualified name '%s', got '%s'", expectedQualified, result.QualifiedName())
 	}
 
-	if args := result.expressionArgs(); len(args) != 1 || args[0] != "0.00" {
+	args := result.(interface{ expressionArgs() []any }).expressionArgs()
+	if len(args) != 1 || args[0] != "0.00" {
 		t.Fatalf("expected bound args [0.00], got %#v", args)
 	}
 }

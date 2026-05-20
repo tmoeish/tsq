@@ -36,6 +36,27 @@ var _ = resultCol.EQVar()
 			want: "resultCol.EQVar undefined",
 		},
 		{
+			name: "column_impl_hidden",
+			body: `
+var _ tsq.ColumnImpl[userOwner, int]
+`,
+			want: "undefined: tsq.ColumnImpl",
+		},
+		{
+			name: "projected_column_hidden",
+			body: `
+var _ tsq.ProjectedColumn[userOwner, int]
+`,
+			want: "undefined: tsq.ProjectedColumn",
+		},
+		{
+			name: "cond_hidden",
+			body: `
+var _ tsq.Cond
+`,
+			want: "undefined: tsq.Cond",
+		},
+		{
 			name: "table_column_rejects_result_col",
 			body: `
 var resultCol = tsq.MapInto[userOwner](userID, func(holder *userOwner) *int { return nil }, "user_id")

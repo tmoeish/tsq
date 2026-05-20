@@ -1,7 +1,5 @@
 package tsq
 
-import "errors"
-
 // FieldPointer binds a selected column value to a concrete field on an owner.
 type FieldPointer[O Owner, T any] func(*O) *T
 
@@ -42,6 +40,242 @@ type TypedColumn[O Owner, T any] interface {
 	columnValue(T)
 }
 
+// Column is the user-facing typed SQL expression API that preserves fluent
+// chaining without exposing the concrete implementation.
+type Column[O Owner, T any] interface {
+	// TypedColumn exposes the common SQL expression metadata and typed value marker.
+	TypedColumn[O, T]
+	// SearchColumn marks the expression as usable in keyword search expansion.
+	SearchColumn
+	// FieldPointer returns the runtime scan adapter for the bound destination field.
+	FieldPointer() scanPointer
+	// WithTable returns a copy of the column rebound to a different table source.
+	WithTable(table Table) Column[O, T]
+	// As returns a copy of the column that targets an aliased table reference.
+	As(alias string) Column[O, T]
+
+	// EQVar compares the column to a runtime-bound value with =.
+	EQVar() Predicate[O]
+	// NEVar compares the column to a runtime-bound value with <>.
+	NEVar() Predicate[O]
+	// GTVar compares the column to a runtime-bound value with >.
+	GTVar() Predicate[O]
+	// GTEVar compares the column to a runtime-bound value with >=.
+	GTEVar() Predicate[O]
+	// LTVar compares the column to a runtime-bound value with <.
+	LTVar() Predicate[O]
+	// LTEVar compares the column to a runtime-bound value with <=.
+	LTEVar() Predicate[O]
+	// InVar binds a slice at execution time for IN predicates.
+	InVar() Predicate[O]
+	// StartsWithVar defers a prefix match to execution time, which tsq rejects for portability.
+	StartsWithVar() Predicate[O]
+	// NStartsWithVar defers a negated prefix match to execution time, which tsq rejects for portability.
+	NStartsWithVar() Predicate[O]
+	// EndsWithVar defers a suffix match to execution time, which tsq rejects for portability.
+	EndsWithVar() Predicate[O]
+	// NEndsWithVar defers a negated suffix match to execution time, which tsq rejects for portability.
+	NEndsWithVar() Predicate[O]
+	// ContainsVar defers a contains match to execution time, which tsq rejects for portability.
+	ContainsVar() Predicate[O]
+	// NContainsVar defers a negated contains match to execution time, which tsq rejects for portability.
+	NContainsVar() Predicate[O]
+	// BetweenVar compares the column to two runtime-bound values with BETWEEN.
+	BetweenVar() Predicate[O]
+	// NBetweenVar compares the column to two runtime-bound values with NOT BETWEEN.
+	NBetweenVar() Predicate[O]
+
+	// EQ compares the column to arg with =.
+	EQ(arg T) Predicate[O]
+	// NE compares the column to arg with <>.
+	NE(arg T) Predicate[O]
+	// GT compares the column to arg with >.
+	GT(arg T) Predicate[O]
+	// GTE compares the column to arg with >=.
+	GTE(arg T) Predicate[O]
+	// LT compares the column to arg with <.
+	LT(arg T) Predicate[O]
+	// LTE compares the column to arg with <=.
+	LTE(arg T) Predicate[O]
+	// StartsWith compares the column to a bound prefix pattern.
+	StartsWith(str string) Predicate[O]
+	// NStartsWith compares the column to a negated bound prefix pattern.
+	NStartsWith(str string) Predicate[O]
+	// EndsWith compares the column to a bound suffix pattern.
+	EndsWith(str string) Predicate[O]
+	// NEndsWith compares the column to a negated bound suffix pattern.
+	NEndsWith(str string) Predicate[O]
+	// Contains compares the column to a bound contains pattern.
+	Contains(str string) Predicate[O]
+	// NContains compares the column to a negated bound contains pattern.
+	NContains(str string) Predicate[O]
+	// Between compares the column to an inclusive range.
+	Between(start, end T) Predicate[O]
+	// NBetween compares the column to values outside an inclusive range.
+	NBetween(start, end T) Predicate[O]
+	// In compares the column to an explicit list of bound values.
+	In(args ...T) Predicate[O]
+	// NIn compares the column to a negated list of bound values.
+	NIn(args ...T) Predicate[O]
+	// IsNull checks whether the column value is NULL.
+	IsNull() Predicate[O]
+	// IsNotNull checks whether the column value is not NULL.
+	IsNotNull() Predicate[O]
+
+	// EQCol compares the column to another column with =.
+	EQCol(other typedColumnInternal[T]) Predicate[O]
+	// NECol compares the column to another column with <>.
+	NECol(other typedColumnInternal[T]) Predicate[O]
+	// GTCol compares the column to another column with >.
+	GTCol(other typedColumnInternal[T]) Predicate[O]
+	// GTECol compares the column to another column with >=.
+	GTECol(other typedColumnInternal[T]) Predicate[O]
+	// LTCol compares the column to another column with <.
+	LTCol(other typedColumnInternal[T]) Predicate[O]
+	// LTECol compares the column to another column with <=.
+	LTECol(other typedColumnInternal[T]) Predicate[O]
+	// StartsWithCol compares the column to another column with a prefix match, which tsq rejects for portability.
+	StartsWithCol(other typedColumnInternal[T]) Predicate[O]
+	// NStartsWithCol compares the column to another column with a negated prefix match, which tsq rejects for portability.
+	NStartsWithCol(other typedColumnInternal[T]) Predicate[O]
+	// EndsWithCol compares the column to another column with a suffix match, which tsq rejects for portability.
+	EndsWithCol(other typedColumnInternal[T]) Predicate[O]
+	// NEndsWithCol compares the column to another column with a negated suffix match, which tsq rejects for portability.
+	NEndsWithCol(other typedColumnInternal[T]) Predicate[O]
+	// ContainsCol compares the column to another column with a contains match, which tsq rejects for portability.
+	ContainsCol(other typedColumnInternal[T]) Predicate[O]
+	// NContainsCol compares the column to another column with a negated contains match, which tsq rejects for portability.
+	NContainsCol(other typedColumnInternal[T]) Predicate[O]
+	// EQSub compares the column to a scalar subquery with =.
+	EQSub(sq subquery) Predicate[O]
+	// NESub compares the column to a scalar subquery with <>.
+	NESub(sq subquery) Predicate[O]
+	// GTSub compares the column to a scalar subquery with >.
+	GTSub(sq subquery) Predicate[O]
+	// GTESub compares the column to a scalar subquery with >=.
+	GTESub(sq subquery) Predicate[O]
+	// LTSub compares the column to a scalar subquery with <.
+	LTSub(sq subquery) Predicate[O]
+	// LTESub compares the column to a scalar subquery with <=.
+	LTESub(sq subquery) Predicate[O]
+	// LikeSub compares the column to a scalar subquery with LIKE.
+	LikeSub(sq subquery) Predicate[O]
+	// NLikeSub compares the column to a scalar subquery with NOT LIKE.
+	NLikeSub(sq subquery) Predicate[O]
+	// InSub compares the column to a membership subquery with IN.
+	InSub(sq subquery) Predicate[O]
+	// NInSub compares the column to a membership subquery with NOT IN.
+	NInSub(sq subquery) Predicate[O]
+	// ExistsSub returns an EXISTS predicate for the supplied subquery.
+	ExistsSub(sq subquery) Predicate[O]
+	// NExistsSub returns a NOT EXISTS predicate for the supplied subquery.
+	NExistsSub(sq subquery) Predicate[O]
+	// Unique returns a deferred portability error because UNIQUE subquery predicates are not supported.
+	Unique(sq subquery) Predicate[O]
+	// NUnique returns a deferred portability error because NOT UNIQUE subquery predicates are not supported.
+	NUnique(sq subquery) Predicate[O]
+
+	// Pred formats a custom predicate template around the receiver column.
+	// The format must contain one %s placeholder for the receiver column plus
+	// one %s placeholder for each extra argument.
+	//
+	// Extra arguments may be:
+	//   - another SQL expression such as a Column
+	//   - an Expression such as Bind(...)
+	//   - a plain Go value, which TSQ turns into a bound parameter
+	//
+	// Raw subqueries are rejected; use the dedicated EQSub/NESub/GTSub/InSub/
+	// ExistsSub helpers instead.
+	//
+	// Example:
+	//
+	//	users.Name.Pred("LOWER(%s) = LOWER(%s)", tsq.Bind("alice"))
+	Pred(format string, args ...any) Predicate[O]
+	// Expr formats the receiver column into a custom SQL expression template.
+	// The format must contain exactly one %s placeholder, which receives the
+	// receiver column expression.
+	//
+	// This is an escape hatch for expression wrappers that TSQ does not model
+	// directly, such as CAST(%s AS TEXT) or (%s COLLATE NOCASE).
+	//
+	// Example:
+	//
+	//	users.Name.Expr("LOWER(%s)")
+	Expr(format string) Column[O, T]
+	// Exprf formats the receiver column plus extra SQL expressions into a custom
+	// SQL expression template. The first %s placeholder receives the receiver
+	// column; each additional %s placeholder receives the corresponding argument
+	// expression.
+	//
+	// Extra arguments may be Columns, Expressions, or plain Go values.
+	//
+	// Example:
+	//
+	//	users.Name.Exprf("COALESCE(%s, %s)", orgs.Name)
+	Exprf(format string, args ...any) Column[O, T]
+
+	// Count wraps the column in COUNT and marks it as an aggregate expression.
+	Count() Column[O, int64]
+	// Sum wraps the column in SUM and marks it as an aggregate expression.
+	Sum() Column[O, T]
+	// Avg wraps the column in AVG and marks it as an aggregate expression.
+	Avg() Column[O, float64]
+	// Max wraps the column in MAX and marks it as an aggregate expression.
+	Max() Column[O, T]
+	// Min wraps the column in MIN and marks it as an aggregate expression.
+	Min() Column[O, T]
+	// Distinct wraps the column in DISTINCT and marks it as a distinct expression.
+	Distinct() Column[O, T]
+
+	// Upper wraps the column in UPPER.
+	Upper() Column[O, T]
+	// Lower wraps the column in LOWER.
+	Lower() Column[O, T]
+	// Substring wraps the column in SUBSTRING using start and length.
+	Substring(start, length int) Column[O, T]
+	// Length wraps the column in LENGTH.
+	Length() Column[O, T]
+	// Trim wraps the column in TRIM.
+	Trim() Column[O, T]
+	// Concat appends str to the column expression with CONCAT.
+	Concat(str string) Column[O, T]
+	// Now returns a NOW expression.
+	Now() Column[O, T]
+	// Date wraps the column in DATE.
+	Date() Column[O, T]
+	// Year wraps the column in YEAR.
+	Year() Column[O, T]
+	// Month wraps the column in MONTH.
+	Month() Column[O, T]
+	// Day wraps the column in DAY.
+	Day() Column[O, T]
+	// Round wraps the column in ROUND with precision.
+	Round(precision int) Column[O, T]
+	// Ceil wraps the column in CEIL.
+	Ceil() Column[O, T]
+	// Floor wraps the column in FLOOR.
+	Floor() Column[O, T]
+	// Abs wraps the column in ABS.
+	Abs() Column[O, T]
+	// Coalesce wraps the column in COALESCE with a fallback value.
+	Coalesce(value any) Column[O, T]
+	// NullIf wraps the column in NULLIF with value.
+	NullIf(value any) Column[O, T]
+
+	// Asc creates an ascending ORDER BY clause for this column.
+	Asc() OrderBy
+	// Desc creates a descending ORDER BY clause for this column.
+	Desc() OrderBy
+}
+
+// ResultColumn is the user-facing typed projection API returned by MapInto.
+// It keeps result bindings inspectable without exposing the concrete
+// projection implementation.
+type ResultColumn[O Owner, T any] interface {
+	TypedColumn[O, T]
+	FieldPointer() scanPointer
+}
+
 // TableColumn is a physical source column that belongs to a table owner.
 type TableColumn[O Table] interface {
 	BoundColumn[O]
@@ -60,297 +294,4 @@ type SearchColumn interface {
 type typedColumnInternal[T any] interface {
 	SQLColumn
 	columnValue(T)
-}
-
-// ColumnImpl stores the metadata and scan mapping for a typed column expression.
-type ColumnImpl[O Owner, T any] struct {
-	table         Table
-	name          string
-	qualifiedName string
-	jsonFieldName string
-	fieldPointer  scanPointer
-	args          []any
-	tables        map[string]Table
-	aggregate     bool
-	distinct      bool
-	transformed   bool
-	buildErr      error
-}
-
-// ProjectedColumn reuses an existing expression while scanning into another owner.
-type ProjectedColumn[O Owner, T any] struct {
-	col ColumnImpl[O, T]
-}
-
-// NewCol creates a new typed column for the table represented by O.
-func NewCol[O Table, T any](baseName, jsonFieldName string, fieldPointer FieldPointer[O, T]) ColumnImpl[O, T] {
-	var table O
-
-	return newColForTable[O, T](table, baseName, jsonFieldName, toScanPointer(fieldPointer))
-}
-
-func toScanPointer[O Owner, T any](fieldPointer FieldPointer[O, T]) scanPointer {
-	if fieldPointer == nil {
-		return nil
-	}
-
-	return func(holder any) any {
-		return fieldPointer(holder.(*O))
-	}
-}
-
-func newColForTable[O Owner, T any](table Table, baseName, jsonFieldName string, fieldPointer scanPointer) ColumnImpl[O, T] {
-	if isNilValue(table) {
-		return ColumnImpl[O, T]{
-			name:          baseName,
-			jsonFieldName: jsonFieldName,
-			fieldPointer:  fieldPointer,
-			buildErr:      errors.New("column table cannot be nil"),
-		}
-	}
-
-	return ColumnImpl[O, T]{
-		table:         table,
-		name:          baseName,
-		qualifiedName: rawQualifiedIdentifierForTable(table, baseName),
-		jsonFieldName: jsonFieldName,
-		fieldPointer:  fieldPointer,
-		tables:        map[string]Table{table.Table(): table},
-	}
-}
-
-// SQLExpr renders the column expression in canonical SQL form.
-func (c ColumnImpl[O, T]) SQLExpr() string {
-	return renderCanonicalSQL(c.qualifiedName)
-}
-
-// Table returns the primary table that owns the column.
-func (c ColumnImpl[O, T]) Table() Table {
-	return c.table
-}
-
-// Name returns the underlying physical column name.
-func (c ColumnImpl[O, T]) Name() string {
-	return c.name
-}
-
-// QualifiedName returns the rendered column reference, including table qualifier.
-func (c ColumnImpl[O, T]) QualifiedName() string {
-	return c.SQLExpr()
-}
-
-// FieldPointer returns the runtime scan adapter for the bound destination field.
-func (c ColumnImpl[O, T]) FieldPointer() scanPointer {
-	return c.scanPointer()
-}
-
-// OutputName returns the default column label used in result scans.
-func (c ColumnImpl[O, T]) OutputName() string {
-	return c.name
-}
-
-// JSONFieldName returns the stable JSON-facing field label for the column.
-func (c ColumnImpl[O, T]) JSONFieldName() string {
-	return c.jsonFieldName
-}
-
-func (c ColumnImpl[O, T]) scanPointer() scanPointer {
-	return c.fieldPointer
-}
-
-func (c ColumnImpl[O, T]) rawQualifiedName() string {
-	return c.qualifiedName
-}
-
-func (c ColumnImpl[O, T]) columnValue(T) {}
-
-func (c ColumnImpl[O, T]) selectOwner(O) {}
-
-func (c ColumnImpl[O, T]) tableColumnOwner(O) {}
-
-func (c ColumnImpl[O, T]) searchColumn() {}
-
-func (c ColumnImpl[O, T]) tableSource() Table {
-	return c.table
-}
-
-func (c ColumnImpl[O, T]) columnName() string {
-	return c.name
-}
-
-// WithTable returns a copy of the column rebound to a different table source.
-func (c ColumnImpl[O, T]) WithTable(table Table) ColumnImpl[O, T] {
-	if isNilValue(table) {
-		c.buildErr = errors.New("column table cannot be nil")
-		return c
-	}
-
-	if c.transformed {
-		c.buildErr = errors.New("cannot rebind transformed column; alias the base column before applying expressions")
-		return c
-	}
-
-	tables := cloneTableMap(c.tables)
-	if len(tables) == 0 {
-		tables = make(map[string]Table, 1)
-	}
-
-	if !isNilValue(c.table) {
-		delete(tables, c.table.Table())
-	}
-	tables[table.Table()] = table
-
-	return ColumnImpl[O, T]{
-		table:         table,
-		name:          c.name,
-		qualifiedName: rawQualifiedIdentifierForTable(table, c.name),
-		jsonFieldName: c.jsonFieldName,
-		fieldPointer:  c.fieldPointer,
-		args:          append([]any(nil), c.args...),
-		tables:        tables,
-		aggregate:     c.aggregate,
-		distinct:      c.distinct,
-		transformed:   c.transformed,
-		buildErr:      c.buildErr,
-	}
-}
-
-// As returns a copy of the column that targets an aliased table reference.
-func (c ColumnImpl[O, T]) As(alias string) ColumnImpl[O, T] {
-	return c.WithTable(AliasTable(c.table, alias))
-}
-
-// MapInto creates a result-owned projection column from another typed column.
-func MapInto[Target, Source Owner, T any](
-	source TypedColumn[Source, T],
-	fieldPointer FieldPointer[Target, T],
-	jsonFieldName string,
-) ProjectedColumn[Target, T] {
-	pointer := toScanPointer(fieldPointer)
-	if isNilValue(source) {
-		return ProjectedColumn[Target, T]{col: ColumnImpl[Target, T]{
-			fieldPointer:  pointer,
-			jsonFieldName: jsonFieldName,
-			buildErr:      errors.New("source column cannot be nil"),
-		}}
-	}
-
-	tables := source.referencedTables()
-
-	aggregate := false
-	if agg, ok := source.(interface{ isAggregateExpression() bool }); ok {
-		aggregate = agg.isAggregateExpression()
-	}
-
-	distinct := false
-	if d, ok := source.(interface{ isDistinctExpression() bool }); ok {
-		distinct = d.isDistinctExpression()
-	}
-
-	transformed := false
-	if t, ok := source.(interface{ isTransformedExpression() bool }); ok {
-		transformed = t.isTransformedExpression()
-	}
-
-	buildErr := error(nil)
-	if carrier, ok := source.(buildErrorCarrier); ok {
-		buildErr = carrier.buildError()
-	}
-
-	if pointer == nil {
-		buildErr = errors.New("field pointer cannot be nil")
-	}
-
-	return ProjectedColumn[Target, T]{col: ColumnImpl[Target, T]{
-		table:         columnPrimaryTable(source),
-		name:          source.OutputName(),
-		qualifiedName: rawColumnQualifiedName(source),
-		fieldPointer:  pointer,
-		jsonFieldName: jsonFieldName,
-		args:          expressionArgs(source),
-		tables:        tables,
-		aggregate:     aggregate,
-		distinct:      distinct,
-		transformed:   transformed,
-		buildErr:      buildErr,
-	}}
-}
-
-// SQLExpr renders the projected expression in canonical SQL form.
-func (c ProjectedColumn[O, T]) SQLExpr() string { return c.col.SQLExpr() }
-
-// Table returns the primary table that owns the source expression.
-func (c ProjectedColumn[O, T]) Table() Table { return c.col.Table() }
-
-// Name returns the source expression's output name.
-func (c ProjectedColumn[O, T]) Name() string { return c.col.Name() }
-
-// QualifiedName returns the rendered SQL expression for the projection.
-func (c ProjectedColumn[O, T]) QualifiedName() string { return c.col.QualifiedName() }
-
-// FieldPointer returns the runtime scan adapter for the projected destination field.
-func (c ProjectedColumn[O, T]) FieldPointer() scanPointer { return c.col.FieldPointer() }
-
-// OutputName returns the default scan alias inherited from the source expression.
-func (c ProjectedColumn[O, T]) OutputName() string { return c.col.OutputName() }
-
-// JSONFieldName returns the JSON-facing field label used for the projection.
-func (c ProjectedColumn[O, T]) JSONFieldName() string { return c.col.JSONFieldName() }
-
-func (c ProjectedColumn[O, T]) scanPointer() scanPointer { return c.col.scanPointer() }
-
-func (c ProjectedColumn[O, T]) columnValue(T) {}
-
-func (c ProjectedColumn[O, T]) selectOwner(O) {}
-
-func (c ProjectedColumn[O, T]) rawQualifiedName() string { return c.col.rawQualifiedName() }
-
-func (c ProjectedColumn[O, T]) expressionArgs() []any { return c.col.expressionArgs() }
-
-func (c ProjectedColumn[O, T]) buildError() error { return c.col.buildError() }
-
-func (c ProjectedColumn[O, T]) tableSource() Table { return c.col.tableSource() }
-
-func (c ProjectedColumn[O, T]) referencedTables() map[string]Table {
-	return c.col.referencedTables()
-}
-
-func (c ProjectedColumn[O, T]) isAggregateExpression() bool {
-	return c.col.isAggregateExpression()
-}
-
-func (c ProjectedColumn[O, T]) isDistinctExpression() bool {
-	return c.col.isDistinctExpression()
-}
-
-func (c ProjectedColumn[O, T]) isTransformedExpression() bool {
-	return c.col.isTransformedExpression()
-}
-
-func (c ColumnImpl[O, T]) expressionArgs() []any {
-	return append([]any(nil), c.args...)
-}
-
-func (c ColumnImpl[O, T]) buildError() error {
-	return c.buildErr
-}
-
-func (c ColumnImpl[O, T]) referencedTables() map[string]Table {
-	return cloneTableMap(c.tables)
-}
-
-func (c ColumnImpl[O, T]) withTable(table Table) SQLColumn {
-	return c.WithTable(table)
-}
-
-func (c ColumnImpl[O, T]) isAggregateExpression() bool {
-	return c.aggregate
-}
-
-func (c ColumnImpl[O, T]) isDistinctExpression() bool {
-	return c.distinct
-}
-
-func (c ColumnImpl[O, T]) isTransformedExpression() bool {
-	return c.transformed
 }

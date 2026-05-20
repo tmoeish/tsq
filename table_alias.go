@@ -14,6 +14,15 @@ type tableRebinder interface {
 	withTable(Table) SQLColumn
 }
 
+type reboundColumn struct {
+	source SQLColumn
+	table  Table
+}
+
+type reboundSearchColumn struct {
+	reboundColumn
+}
+
 type aliasedTable struct {
 	base  Table
 	alias string
@@ -52,11 +61,31 @@ func RebindColumn(col SQLColumn, table Table) SQLColumn {
 		return col
 	}
 
+	if transformed, ok := col.(transformedColumn); ok && transformed.isTransformedExpression() {
+		return col
+	}
+
 	if rebinder, ok := col.(tableRebinder); ok {
 		return rebinder.withTable(table)
 	}
 
-	return col
+	if strings.TrimSpace(col.Name()) == "" {
+		return col
+	}
+
+	if _, ok := col.(SearchColumn); ok {
+		return reboundSearchColumn{
+			reboundColumn: reboundColumn{
+				source: col,
+				table:  table,
+			},
+		}
+	}
+
+	return reboundColumn{
+		source: col,
+		table:  table,
+	}
 }
 
 // Table returns the SQL identifier that should be used after aliasing.
@@ -153,3 +182,37 @@ func tableAliasName(table Table) string {
 
 	return ""
 }
+
+func (c reboundColumn) SQLExpr() string {
+	return renderCanonicalSQL(rawQualifiedIdentifierForTable(c.table, c.source.Name()))
+}
+
+func (c reboundColumn) OutputName() string {
+	return c.source.OutputName()
+}
+
+func (c reboundColumn) JSONFieldName() string {
+	return c.source.JSONFieldName()
+}
+
+func (c reboundColumn) Table() Table {
+	return c.table
+}
+
+func (c reboundColumn) Name() string {
+	return c.source.Name()
+}
+
+func (c reboundColumn) QualifiedName() string {
+	return c.SQLExpr()
+}
+
+func (c reboundColumn) scanPointer() scanPointer {
+	return c.source.scanPointer()
+}
+
+func (c reboundColumn) referencedTables() map[string]Table {
+	return map[string]Table{c.table.Table(): c.table}
+}
+
+func (c reboundSearchColumn) searchColumn() {}

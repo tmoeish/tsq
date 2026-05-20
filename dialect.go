@@ -13,8 +13,11 @@ import (
 // The standard library does not provide this exact interface, so tsq defines
 // the minimal Context-based method set it needs.
 type SQLExecutor interface {
+	// QueryContext runs a query that returns rows.
 	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	// QueryRowContext runs a query that is expected to return at most one row.
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+	// ExecContext runs a statement that does not return rows.
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 }
 

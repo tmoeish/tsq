@@ -102,21 +102,21 @@ func (b *CaseBuilder[T]) Else(result any) *CaseBuilder[T] {
 }
 
 // End finalizes the CASE expression into a selectable column.
-func (b *CaseBuilder[T]) End() ColumnImpl[expressionOwner, T] {
+func (b *CaseBuilder[T]) End() Column[expressionOwner, T] {
 	if b == nil {
-		return ColumnImpl[expressionOwner, T]{buildErr: errors.New("case builder cannot be nil")}
+		return columnImpl[expressionOwner, T]{buildErr: errors.New("case builder cannot be nil")}
 	}
 
 	if b.buildErr != nil {
-		return ColumnImpl[expressionOwner, T]{buildErr: b.buildErr}
+		return columnImpl[expressionOwner, T]{buildErr: b.buildErr}
 	}
 
 	if len(b.whens) == 0 {
-		return ColumnImpl[expressionOwner, T]{buildErr: errors.New("case expression requires at least one WHEN branch")}
+		return columnImpl[expressionOwner, T]{buildErr: errors.New("case expression requires at least one WHEN branch")}
 	}
 
 	if len(b.tables) == 0 {
-		return ColumnImpl[expressionOwner, T]{buildErr: errors.New("case expression must reference at least one table")}
+		return columnImpl[expressionOwner, T]{buildErr: errors.New("case expression must reference at least one table")}
 	}
 
 	tableNames := make([]string, 0, len(b.tables))
@@ -154,7 +154,7 @@ func (b *CaseBuilder[T]) End() ColumnImpl[expressionOwner, T] {
 
 	sqlBuilder.WriteString(" END")
 
-	return ColumnImpl[expressionOwner, T]{
+	return columnImpl[expressionOwner, T]{
 		table:         baseTable,
 		name:          "case",
 		qualifiedName: sqlBuilder.String(),
