@@ -151,18 +151,18 @@ func (namedRow) TSQOwner() {}
 
 // RunQuickstart bundles the three smallest day-to-day Academy demos:
 // generated CRUD helpers, keyword search with paging, and a basic joined list query.
-func RunQuickstart(ctx context.Context, engine *tsq.Engine) (*QuickstartSummary, error) {
-	crud, err := runTrackCRUDDemo(ctx, engine)
+func RunQuickstart(ctx context.Context, runtime *tsq.Runtime) (*QuickstartSummary, error) {
+	crud, err := runTrackCRUDDemo(ctx, runtime)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "track crud", err)
 	}
 
-	search, err := runCatalogSearchDemo(ctx, engine)
+	search, err := runCatalogSearchDemo(ctx, runtime)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "catalog search", err)
 	}
 
-	catalog, err := runBackendCatalogDemo(ctx, engine)
+	catalog, err := runBackendCatalogDemo(ctx, runtime)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "backend catalog", err)
 	}
@@ -176,48 +176,48 @@ func RunQuickstart(ctx context.Context, engine *tsq.Engine) (*QuickstartSummary,
 
 // RunAdvanced collects focused feature demos that each highlight one TSQ capability
 // in a realistic Academy reporting or batch-processing scenario.
-func RunAdvanced(ctx context.Context, engine *tsq.Engine) (*AdvancedSummary, error) {
-	alias, err := runAliasDemo(ctx, engine)
+func RunAdvanced(ctx context.Context, runtime *tsq.Runtime) (*AdvancedSummary, error) {
+	alias, err := runAliasDemo(ctx, runtime)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "alias demo", err)
 	}
 
-	aggregate, err := runAggregateDemo(ctx, engine)
+	aggregate, err := runAggregateDemo(ctx, runtime)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "aggregate demo", err)
 	}
 
-	inVar, err := runInVarDemo(ctx, engine)
+	inVar, err := runInVarDemo(ctx, runtime)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "dynamic in demo", err)
 	}
 
-	subquery, err := runSubqueryDemo(ctx, engine)
+	subquery, err := runSubqueryDemo(ctx, runtime)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "subquery demo", err)
 	}
 
-	caseExpr, err := runCaseDemo(ctx, engine)
+	caseExpr, err := runCaseDemo(ctx, runtime)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "case demo", err)
 	}
 
-	cte, err := runCTEDemo(ctx, engine)
+	cte, err := runCTEDemo(ctx, runtime)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "cte demo", err)
 	}
 
-	setOps, err := runSetOpsDemo(ctx, engine)
+	setOps, err := runSetOpsDemo(ctx, runtime)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "set operations demo", err)
 	}
 
-	chunked, err := runChunkedDemo(ctx, engine)
+	chunked, err := runChunkedDemo(ctx, runtime)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "chunked demo", err)
 	}
 
-	optimisticLock, err := runOptimisticLockDemo(ctx, engine)
+	optimisticLock, err := runOptimisticLockDemo(ctx, runtime)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "optimistic lock demo", err)
 	}
@@ -237,18 +237,18 @@ func RunAdvanced(ctx context.Context, engine *tsq.Engine) (*AdvancedSummary, err
 
 // RunFullSuite executes the whole teaching path and ends with the LearningJourney
 // result projection, which is the most complete query in the examples suite.
-func RunFullSuite(ctx context.Context, engine *tsq.Engine) (*FullSuiteSummary, error) {
-	quickstart, err := RunQuickstart(ctx, engine)
+func RunFullSuite(ctx context.Context, runtime *tsq.Runtime) (*FullSuiteSummary, error) {
+	quickstart, err := RunQuickstart(ctx, runtime)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "quickstart", err)
 	}
 
-	advanced, err := RunAdvanced(ctx, engine)
+	advanced, err := RunAdvanced(ctx, runtime)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "advanced", err)
 	}
 
-	comprehensive, err := runComprehensive(ctx, engine)
+	comprehensive, err := runComprehensive(ctx, runtime)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "comprehensive", err)
 	}
@@ -262,7 +262,8 @@ func RunFullSuite(ctx context.Context, engine *tsq.Engine) (*FullSuiteSummary, e
 
 // runComprehensive builds the final Academy "learning journey" board:
 // filter a learner set and track set, then page through the joined Result rows.
-func runComprehensive(ctx context.Context, engine *tsq.Engine) (*ComprehensiveSummary, error) {
+func runComprehensive(ctx context.Context, runtime *tsq.Runtime) (*ComprehensiveSummary, error) {
+	exec := runtime.Executor()
 	learnerIDs := []int64{1, 3, 5}
 	tracks := []string{"Backend Engineering", "Data & AI"}
 
@@ -276,7 +277,7 @@ func runComprehensive(ctx context.Context, engine *tsq.Engine) (*ComprehensiveSu
 		return nil, err
 	}
 
-	resp, err := PageLearningJourney(ctx, engine, pageReq, learnerIDs, tracks...)
+	resp, err := PageLearningJourney(ctx, exec, pageReq, learnerIDs, tracks...)
 	if err != nil {
 		return nil, err
 	}
@@ -296,25 +297,26 @@ func runComprehensive(ctx context.Context, engine *tsq.Engine) (*ComprehensiveSu
 
 // runTrackCRUDDemo shows the smallest generated-helper loop on a business entity:
 // create a track, update its description, then delete it again.
-func runTrackCRUDDemo(ctx context.Context, engine *tsq.Engine) (*CRUDSummary, error) {
+func runTrackCRUDDemo(ctx context.Context, runtime *tsq.Runtime) (*CRUDSummary, error) {
+	exec := runtime.Executor()
 	// Create a track.
 	inserted := &Track{
 		Name:        "Edge Delivery Systems",
 		Description: "Temporary track used to demonstrate Insert, Update, and Delete.",
 	}
-	if err := inserted.Insert(ctx, engine); err != nil {
+	if err := inserted.Insert(ctx, exec); err != nil {
 		return nil, fmt.Errorf("%s: %w", "insert track", err)
 	}
 
 	// Update the track.
 	inserted.Description = "Updated through the generated Track helpers."
-	if err := inserted.Update(ctx, engine); err != nil {
+	if err := inserted.Update(ctx, exec); err != nil {
 		return nil, fmt.Errorf("%s: %w", "update track", err)
 	}
 
 	// Look up the track to verify the update.
 	// You can also use GetXXByPK to get a single record by its primary key:
-	//   updated, err := GetTrackByID(ctx, engine, inserted.ID)
+	//   updated, err := GetTrackByID(ctx, exec, inserted.ID)
 
 	query, err := tsq.
 		Select(Track__Cols...).
@@ -325,18 +327,18 @@ func runTrackCRUDDemo(ctx context.Context, engine *tsq.Engine) (*CRUDSummary, er
 		return nil, fmt.Errorf("%s: %w", "build track lookup", err)
 	}
 
-	updated, err := tsq.GetOrErr(ctx, engine, query)
+	updated, err := tsq.GetOrErr(ctx, exec, query)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "get updated track", err)
 	}
 
 	// Delete the track.
-	if err := inserted.Delete(ctx, engine); err != nil {
+	if err := inserted.Delete(ctx, exec); err != nil {
 		return nil, fmt.Errorf("%s: %w", "delete track", err)
 	}
 
 	// Look up the track to verify the delete.
-	deleted, err := tsq.Get(ctx, engine, query)
+	deleted, err := tsq.Get(ctx, exec, query)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "verify deleted track", err)
 	}
@@ -350,7 +352,9 @@ func runTrackCRUDDemo(ctx context.Context, engine *tsq.Engine) (*CRUDSummary, er
 
 // runCatalogSearchDemo demonstrates keyword search and paging over the public
 // course catalog by searching for SQLite-themed classes.
-func runCatalogSearchDemo(ctx context.Context, engine *tsq.Engine) (*SearchSummary, error) {
+func runCatalogSearchDemo(ctx context.Context, runtime *tsq.Runtime) (*SearchSummary, error) {
+	exec := runtime.Executor()
+
 	pageReq := &tsq.PageRequest{
 		Page:    1,
 		Size:    5,
@@ -362,7 +366,7 @@ func runCatalogSearchDemo(ctx context.Context, engine *tsq.Engine) (*SearchSumma
 		return nil, err
 	}
 
-	resp, err := PageCourse(ctx, engine, pageReq)
+	resp, err := PageCourse(ctx, exec, pageReq)
 	if err != nil {
 		return nil, err
 	}
@@ -381,7 +385,9 @@ func runCatalogSearchDemo(ctx context.Context, engine *tsq.Engine) (*SearchSumma
 
 // runBackendCatalogDemo is the simplest hand-written query builder example:
 // list the published courses for the Backend Engineering track.
-func runBackendCatalogDemo(ctx context.Context, engine *tsq.Engine) (*CatalogSummary, error) {
+func runBackendCatalogDemo(ctx context.Context, runtime *tsq.Runtime) (*CatalogSummary, error) {
+	exec := runtime.Executor()
+
 	query, err := tsq.
 		Select(Course__Cols...).
 		From(TableCourse).
@@ -395,7 +401,7 @@ func runBackendCatalogDemo(ctx context.Context, engine *tsq.Engine) (*CatalogSum
 		return nil, fmt.Errorf("%s: %w", "build backend catalog query", err)
 	}
 
-	courses, err := tsq.List(ctx, engine, query)
+	courses, err := tsq.List(ctx, exec, query)
 	if err != nil {
 		return nil, err
 	}
@@ -415,7 +421,8 @@ func runBackendCatalogDemo(ctx context.Context, engine *tsq.Engine) (*CatalogSum
 
 // runAliasDemo shows how to rebind the course table so one query can read both a
 // course and its prerequisite title.
-func runAliasDemo(ctx context.Context, engine *tsq.Engine) (*AliasSummary, error) {
+func runAliasDemo(ctx context.Context, runtime *tsq.Runtime) (*AliasSummary, error) {
+	exec := runtime.Executor()
 	prerequisiteAlias := "prerequisite_course"
 	prerequisiteID := Course_ID.As(prerequisiteAlias)
 
@@ -436,7 +443,7 @@ func runAliasDemo(ctx context.Context, engine *tsq.Engine) (*AliasSummary, error
 		return nil, fmt.Errorf("%s: %w", "build alias query", err)
 	}
 
-	row, err := tsq.GetOrErr(ctx, engine, query)
+	row, err := tsq.GetOrErr(ctx, exec, query)
 	if err != nil {
 		return nil, err
 	}
@@ -449,7 +456,8 @@ func runAliasDemo(ctx context.Context, engine *tsq.Engine) (*AliasSummary, error
 
 // runAggregateDemo turns enrollment rows into track-level metrics by combining
 // aggregate functions, GroupBy, and Having.
-func runAggregateDemo(ctx context.Context, engine *tsq.Engine) ([]AggregateSummary, error) {
+func runAggregateDemo(ctx context.Context, runtime *tsq.Runtime) ([]AggregateSummary, error) {
+	exec := runtime.Executor()
 	trackName := tsq.MapInto(Track_Name, func(holder *trackMetricRow) *string {
 		return &holder.Track
 	}, "track")
@@ -476,7 +484,7 @@ func runAggregateDemo(ctx context.Context, engine *tsq.Engine) ([]AggregateSumma
 		return nil, fmt.Errorf("%s: %w", "build aggregate query", err)
 	}
 
-	rows, err := tsq.List(ctx, engine, query)
+	rows, err := tsq.List(ctx, exec, query)
 	if err != nil {
 		return nil, err
 	}
@@ -499,7 +507,9 @@ func runAggregateDemo(ctx context.Context, engine *tsq.Engine) ([]AggregateSumma
 
 // runInVarDemo demonstrates the dynamic IN placeholder flow used when callers
 // provide a runtime-sized list of course IDs.
-func runInVarDemo(ctx context.Context, engine *tsq.Engine) (*InVarSummary, error) {
+func runInVarDemo(ctx context.Context, runtime *tsq.Runtime) (*InVarSummary, error) {
+	exec := runtime.Executor()
+
 	query, err := tsq.
 		Select(Course__Cols...).
 		From(TableCourse).
@@ -511,7 +521,7 @@ func runInVarDemo(ctx context.Context, engine *tsq.Engine) (*InVarSummary, error
 
 	courseIDs := []int64{1, 4, 6}
 
-	courses, err := tsq.List(ctx, engine, query, courseIDs)
+	courses, err := tsq.List(ctx, exec, query, courseIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -531,7 +541,9 @@ func runInVarDemo(ctx context.Context, engine *tsq.Engine) (*InVarSummary, error
 
 // runSubqueryDemo stacks two business filters on top of subqueries:
 // "learners enrolled in Data & AI" and "courses cheaper than a reference course".
-func runSubqueryDemo(ctx context.Context, engine *tsq.Engine) (*SubquerySummary, error) {
+func runSubqueryDemo(ctx context.Context, runtime *tsq.Runtime) (*SubquerySummary, error) {
+	exec := runtime.Executor()
+
 	dataTrackIDSubquery, err := tsq.
 		Select(Track_ID).
 		From(TableTrack).
@@ -560,7 +572,7 @@ func runSubqueryDemo(ctx context.Context, engine *tsq.Engine) (*SubquerySummary,
 		return nil, fmt.Errorf("%s: %w", "build learners in data track query", err)
 	}
 
-	learnersInDataTrack, err := tsq.List(ctx, engine, learnersInDataTrackQuery)
+	learnersInDataTrack, err := tsq.List(ctx, exec, learnersInDataTrackQuery)
 	if err != nil {
 		return nil, err
 	}
@@ -583,7 +595,7 @@ func runSubqueryDemo(ctx context.Context, engine *tsq.Engine) (*SubquerySummary,
 		return nil, fmt.Errorf("%s: %w", "build cheaper courses query", err)
 	}
 
-	coursesCheaperThanAnchor, err := tsq.List(ctx, engine, coursesCheaperThanAnchorQuery)
+	coursesCheaperThanAnchor, err := tsq.List(ctx, exec, coursesCheaperThanAnchorQuery)
 	if err != nil {
 		return nil, err
 	}
@@ -609,7 +621,8 @@ func runSubqueryDemo(ctx context.Context, engine *tsq.Engine) (*SubquerySummary,
 }
 
 // runCaseDemo maps raw enrollment states into user-facing labels with CASE WHEN.
-func runCaseDemo(ctx context.Context, engine *tsq.Engine) (*CaseSummary, error) {
+func runCaseDemo(ctx context.Context, runtime *tsq.Runtime) (*CaseSummary, error) {
+	exec := runtime.Executor()
 	labelExpr := tsq.
 		Case[string]().
 		When(
@@ -643,7 +656,7 @@ func runCaseDemo(ctx context.Context, engine *tsq.Engine) (*CaseSummary, error) 
 		return nil, fmt.Errorf("%s: %w", "build case query", err)
 	}
 
-	rows, err := tsq.List(ctx, engine, query)
+	rows, err := tsq.List(ctx, exec, query)
 	if err != nil {
 		return nil, err
 	}
@@ -660,7 +673,8 @@ func runCaseDemo(ctx context.Context, engine *tsq.Engine) (*CaseSummary, error) 
 
 // runCTEDemo shows a non-recursive CTE that first names a filtered course subset
 // and then queries it like a normal table.
-func runCTEDemo(ctx context.Context, engine *tsq.Engine) (*CTESummary, error) {
+func runCTEDemo(ctx context.Context, runtime *tsq.Runtime) (*CTESummary, error) {
+	exec := runtime.Executor()
 	platformCatalog := tsq.CTE(
 		"platform_catalog",
 		tsq.Select(Course_ID, Course_Title).
@@ -686,7 +700,7 @@ func runCTEDemo(ctx context.Context, engine *tsq.Engine) (*CTESummary, error) {
 		return nil, fmt.Errorf("%s: %w", "build cte query", err)
 	}
 
-	rows, err := tsq.List(ctx, engine, query)
+	rows, err := tsq.List(ctx, exec, query)
 	if err != nil {
 		return nil, err
 	}
@@ -698,7 +712,7 @@ func runCTEDemo(ctx context.Context, engine *tsq.Engine) (*CTESummary, error) {
 
 	sort.Strings(titles)
 
-	total, err := query.Count(ctx, engine)
+	total, err := query.Count(ctx, exec)
 	if err != nil {
 		return nil, err
 	}
@@ -712,7 +726,8 @@ func runCTEDemo(ctx context.Context, engine *tsq.Engine) (*CTESummary, error) {
 
 // runSetOpsDemo demonstrates set composition for course catalogs:
 // union two tracks, then exclude courses that require prerequisites.
-func runSetOpsDemo(ctx context.Context, engine *tsq.Engine) (*SetOpsSummary, error) {
+func runSetOpsDemo(ctx context.Context, runtime *tsq.Runtime) (*SetOpsSummary, error) {
+	exec := runtime.Executor()
 	courseTitle := tsq.MapInto(Course_Title, func(holder *namedRow) *string {
 		return &holder.Name
 	}, "name")
@@ -733,7 +748,7 @@ func runSetOpsDemo(ctx context.Context, engine *tsq.Engine) (*SetOpsSummary, err
 		return nil, fmt.Errorf("%s: %w", "build union query", err)
 	}
 
-	unionRows, err := tsq.List(ctx, engine, unionQuery)
+	unionRows, err := tsq.List(ctx, exec, unionQuery)
 	if err != nil {
 		return nil, err
 	}
@@ -751,7 +766,7 @@ func runSetOpsDemo(ctx context.Context, engine *tsq.Engine) (*SetOpsSummary, err
 		return nil, fmt.Errorf("%s: %w", "build except query", err)
 	}
 
-	exceptRows, err := tsq.List(ctx, engine, exceptQuery)
+	exceptRows, err := tsq.List(ctx, exec, exceptQuery)
 	if err != nil {
 		return nil, err
 	}
@@ -778,8 +793,10 @@ func runSetOpsDemo(ctx context.Context, engine *tsq.Engine) (*SetOpsSummary, err
 
 // runChunkedDemo simulates a batch enrollment workflow where records are inserted,
 // updated, and removed in bounded chunks instead of one huge statement.
-func runChunkedDemo(ctx context.Context, engine *tsq.Engine) (*ChunkedSummary, error) {
-	before, err := CountEnrollment(ctx, engine)
+func runChunkedDemo(ctx context.Context, runtime *tsq.Runtime) (*ChunkedSummary, error) {
+	exec := runtime.Executor()
+
+	before, err := CountEnrollment(ctx, exec)
 	if err != nil {
 		return nil, err
 	}
@@ -808,7 +825,7 @@ func runChunkedDemo(ctx context.Context, engine *tsq.Engine) (*ChunkedSummary, e
 		},
 	}
 
-	if err := tsq.ChunkedInsert(ctx, engine, enrollments, &tsq.ChunkedInsertOptions{ChunkSize: 2}); err != nil {
+	if err := tsq.ChunkedInsert(ctx, exec, enrollments, &tsq.ChunkedInsertOptions{ChunkSize: 2}); err != nil {
 		return nil, err
 	}
 
@@ -823,11 +840,11 @@ func runChunkedDemo(ctx context.Context, engine *tsq.Engine) (*ChunkedSummary, e
 		enrollment.Score += 3
 	}
 
-	if err := tsq.ChunkedUpdate(ctx, engine, enrollments, &tsq.ChunkedOptions{ChunkSize: 2}); err != nil {
+	if err := tsq.ChunkedUpdate(ctx, exec, enrollments, &tsq.ChunkedOptions{ChunkSize: 2}); err != nil {
 		return nil, err
 	}
 
-	if err := tsq.ChunkedDelete(ctx, engine, enrollments[:1], &tsq.ChunkedOptions{ChunkSize: 1}); err != nil {
+	if err := tsq.ChunkedDelete(ctx, exec, enrollments[:1], &tsq.ChunkedOptions{ChunkSize: 1}); err != nil {
 		return nil, err
 	}
 
@@ -838,7 +855,7 @@ func runChunkedDemo(ctx context.Context, engine *tsq.Engine) (*ChunkedSummary, e
 
 	if err := tsq.ChunkedDeleteByIDs(
 		ctx,
-		engine,
+		exec,
 		"enrollment",
 		"uid",
 		remainingIDs,
@@ -847,7 +864,7 @@ func runChunkedDemo(ctx context.Context, engine *tsq.Engine) (*ChunkedSummary, e
 		return nil, err
 	}
 
-	after, err := CountEnrollment(ctx, engine)
+	after, err := CountEnrollment(ctx, exec)
 	if err != nil {
 		return nil, err
 	}
@@ -865,7 +882,9 @@ func runChunkedDemo(ctx context.Context, engine *tsq.Engine) (*ChunkedSummary, e
 // automatic version guarding on Update/Delete. Row-lock reads are intentionally not
 // executed here because the examples runtime uses SQLite, which rejects FOR UPDATE /
 // FOR SHARE at execution time.
-func runOptimisticLockDemo(ctx context.Context, engine *tsq.Engine) (*OptimisticLockSummary, error) {
+func runOptimisticLockDemo(ctx context.Context, runtime *tsq.Runtime) (*OptimisticLockSummary, error) {
+	exec := runtime.Executor()
+
 	inserted := &Enrollment{
 		LearnerID: 4,
 		CourseID:  2,
@@ -873,11 +892,11 @@ func runOptimisticLockDemo(ctx context.Context, engine *tsq.Engine) (*Optimistic
 		Score:     88,
 		FeeCents:  110000,
 	}
-	if err := inserted.Insert(ctx, engine); err != nil {
+	if err := inserted.Insert(ctx, exec); err != nil {
 		return nil, fmt.Errorf("%s: %w", "insert enrollment", err)
 	}
 
-	loaded, err := GetEnrollmentByUIDOrErr(ctx, engine, inserted.UID)
+	loaded, err := GetEnrollmentByUIDOrErr(ctx, exec, inserted.UID)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "load enrollment", err)
 	}
@@ -886,25 +905,25 @@ func runOptimisticLockDemo(ctx context.Context, engine *tsq.Engine) (*Optimistic
 	loaded.Score = 92
 
 	loaded.Status = EnrollmentStatusCompleted
-	if err := loaded.Update(ctx, engine); err != nil {
+	if err := loaded.Update(ctx, exec); err != nil {
 		return nil, fmt.Errorf("%s: %w", "update fresh enrollment", err)
 	}
 
 	stale.Score = 61
 	conflictDetected := false
 
-	if err := stale.Update(ctx, engine); err != nil {
+	if err := stale.Update(ctx, exec); err != nil {
 		if !errors.Is(err, &tsq.ErrOptimisticLockConflict{}) {
 			return nil, fmt.Errorf("%s: %w", "update stale enrollment", err)
 		}
 		conflictDetected = true
 	}
 
-	if err := loaded.Delete(ctx, engine); err != nil {
+	if err := loaded.Delete(ctx, exec); err != nil {
 		return nil, fmt.Errorf("%s: %w", "delete fresh enrollment", err)
 	}
 
-	deleted, err := GetEnrollmentByUID(ctx, engine, loaded.UID)
+	deleted, err := GetEnrollmentByUID(ctx, exec, loaded.UID)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "verify deleted enrollment", err)
 	}

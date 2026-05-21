@@ -2,6 +2,7 @@ package tsq
 
 import (
 	"context"
+	"database/sql"
 	"strings"
 	"testing"
 
@@ -19,7 +20,7 @@ func TestQueryCountRejectsUnbuiltQuery(t *testing.T) {
 }
 
 func TestQueryCountRejectsTypedNilExecutor(t *testing.T) {
-	var db *Engine
+	var db *sql.DB
 	users := newMockTable("users")
 	userID := newMockColumn(users, "id")
 	query := mustBuild(Select(userID).From(userID.Table()))
@@ -37,7 +38,7 @@ func TestQueryCountRejectsExecutorWithoutDialectForRenderedSQL(t *testing.T) {
 	users := newMockTable("users")
 	userID := newColForTable[Table, int](users, "id", "id", nil)
 	query := mustBuild(Select(userID).From(userID.Table()))
-	_, err := query.Count(context.Background(), db)
+	_, err := query.Count(context.Background(), db.Executor())
 	if err == nil {
 		t.Fatal("expected executor without dialect to return an error")
 	}

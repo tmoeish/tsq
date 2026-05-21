@@ -99,6 +99,69 @@ var _ = tsq.PrettyJSON
 			want: "undefined: tsq.PrettyJSON",
 		},
 		{
+			name: "version_hidden",
+			body: `
+var _ = tsq.GetVersion()
+`,
+			want: "undefined: tsq.GetVersion",
+		},
+		{
+			name: "version_info_hidden",
+			body: `
+var _ tsq.VersionInfo
+`,
+			want: "undefined: tsq.VersionInfo",
+		},
+		{
+			name: "trace_hidden",
+			body: `
+var _ = tsq.Trace
+`,
+			want: "undefined: tsq.Trace",
+		},
+		{
+			name: "trace1_hidden",
+			body: `
+var _ = tsq.Trace1[int]
+`,
+			want: "undefined: tsq.Trace1",
+		},
+		{
+			name: "add_tracer_hidden",
+			body: `
+var _ = tsq.AddTracer
+`,
+			want: "undefined: tsq.AddTracer",
+		},
+		{
+			name: "print_sql_hidden",
+			body: `
+var _ = tsq.PrintSQL
+`,
+			want: "undefined: tsq.PrintSQL",
+		},
+		{
+			name: "dialect_hidden",
+			body: `
+var _ tsq.Dialect
+`,
+			want: "undefined: tsq.Dialect",
+		},
+		{
+			name: "sqlite_dialect_hidden",
+			body: `
+var _ tsq.SQLiteDialect
+`,
+			want: "undefined: tsq.SQLiteDialect",
+		},
+		{
+			name: "ddl_column_type_hidden",
+			body: `
+var _ tsq.DDLColumnType
+`,
+			want: "undefined: tsq.DDLColumnType",
+		},
+		{
 			name: "table_column_rejects_result_col",
 			body: `
 var resultCol = tsq.MapInto[userOwner](userID, func(holder *userOwner) *int { return nil }, "user_id")

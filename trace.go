@@ -28,18 +28,15 @@ func newTraceManager() *traceManager {
 	return &traceManager{}
 }
 
-// AddTracer adds a tracer to the default trace manager.
-func AddTracer(tracer Tracer) {
+func addTracer(tracer Tracer) {
 	defaultRuntime.AddTracer(tracer)
 }
 
-// ClearTracers clears the default trace manager.
-func ClearTracers() {
+func clearTracers() {
 	defaultRuntime.ClearTracers()
 }
 
-// GetTracers returns all tracers from the default trace manager.
-func GetTracers() []Tracer {
+func getTracers() []Tracer {
 	return defaultRuntime.GetTracers()
 }
 
@@ -182,13 +179,11 @@ func traceManagerTrace1[T any](m *traceManager, ctx context.Context, fn func(ctx
 	return result, wrappedFn(ctx)
 }
 
-// Trace executes a function with all registered tracers applied.
-func Trace(ctx context.Context, fn func(ctx context.Context) error) error {
+func trace(ctx context.Context, fn func(ctx context.Context) error) error {
 	return defaultRuntime.Trace(ctx, fn)
 }
 
-// Trace1 executes fn with all registered tracers applied and returns its typed result.
-func Trace1[T any](ctx context.Context, fn func(ctx context.Context) (T, error)) (T, error) {
+func trace1[T any](ctx context.Context, fn func(ctx context.Context) (T, error)) (T, error) {
 	result, err := trace1WithRuntime(defaultRuntime, ctx, fn)
 	return result, err
 }
@@ -234,8 +229,7 @@ func tracerIdentity(tracer Tracer) uintptr {
 	return reflect.ValueOf(tracer).Pointer()
 }
 
-// PrintCost logs how long the wrapped call took.
-func PrintCost(next TraceFn) TraceFn {
+func printCost(next TraceFn) TraceFn {
 	return func(ctx context.Context) error {
 		start := time.Now()
 		err := next(ctx)
@@ -251,8 +245,7 @@ func PrintCost(next TraceFn) TraceFn {
 	}
 }
 
-// PrintError logs the wrapped error, if any.
-func PrintError(next TraceFn) TraceFn {
+func printError(next TraceFn) TraceFn {
 	return func(ctx context.Context) error {
 		err := next(ctx)
 		if err != nil {
@@ -269,8 +262,7 @@ const (
 	printSQL contextKey = "printSQL"
 )
 
-// PrintSQL marks the context so query helpers log SQL and args.
-func PrintSQL(next TraceFn) TraceFn {
+func printSQLTracer(next TraceFn) TraceFn {
 	return func(ctx context.Context) error {
 		return next(context.WithValue(ctx, printSQL, true))
 	}

@@ -1,4 +1,4 @@
-package tsq
+package buildinfo
 
 import (
 	"encoding/json"
@@ -7,81 +7,68 @@ import (
 	"testing"
 )
 
-func TestGetVersion(t *testing.T) {
-	// Save original value
+func TestVersion(t *testing.T) {
 	originalVersion := version
 	defer func() { version = originalVersion }()
 
-	// Test with current value (release builds may vary)
-	currentVersion := GetVersion()
+	currentVersion := Version()
 	if currentVersion != "v4.1.3" && currentVersion != "dev" {
-		t.Errorf("Expected version to be 'v4.1.3' or 'dev', got '%s'", GetVersion())
+		t.Errorf("Expected version to be 'v4.1.3' or 'dev', got '%s'", Version())
 	}
 
-	// Test with custom value
 	version = "v1.2.3"
 
-	if GetVersion() != "v1.2.3" {
-		t.Errorf("Expected version 'v1.2.3', got '%s'", GetVersion())
+	if Version() != "v1.2.3" {
+		t.Errorf("Expected version 'v1.2.3', got '%s'", Version())
 	}
 }
 
-func TestGetBuildTime(t *testing.T) {
-	// Save original value
+func TestBuildTime(t *testing.T) {
 	originalBuildTime := buildTime
 	defer func() { buildTime = originalBuildTime }()
 
-	// Test with default value
-	if GetBuildTime() != "unknown" {
-		t.Errorf("Expected default build time 'unknown', got '%s'", GetBuildTime())
+	if BuildTime() != "unknown" {
+		t.Errorf("Expected default build time 'unknown', got '%s'", BuildTime())
 	}
 
-	// Test with custom value
 	buildTime = "2023-12-25T10:30:00Z"
 
-	if GetBuildTime() != "2023-12-25T10:30:00Z" {
-		t.Errorf("Expected build time '2023-12-25T10:30:00Z', got '%s'", GetBuildTime())
+	if BuildTime() != "2023-12-25T10:30:00Z" {
+		t.Errorf("Expected build time '2023-12-25T10:30:00Z', got '%s'", BuildTime())
 	}
 }
 
-func TestGetGitCommit(t *testing.T) {
-	// Save original value
+func TestGitCommit(t *testing.T) {
 	originalGitCommit := gitCommit
 	defer func() { gitCommit = originalGitCommit }()
 
-	// Test with default value
-	if GetGitCommit() != "unknown" {
-		t.Errorf("Expected default git commit 'unknown', got '%s'", GetGitCommit())
+	if GitCommit() != "unknown" {
+		t.Errorf("Expected default git commit 'unknown', got '%s'", GitCommit())
 	}
 
-	// Test with custom value
 	gitCommit = "abc123def456"
 
-	if GetGitCommit() != "abc123def456" {
-		t.Errorf("Expected git commit 'abc123def456', got '%s'", GetGitCommit())
+	if GitCommit() != "abc123def456" {
+		t.Errorf("Expected git commit 'abc123def456', got '%s'", GitCommit())
 	}
 }
 
-func TestGetGitBranch(t *testing.T) {
-	// Save original value
+func TestGitBranch(t *testing.T) {
 	originalGitBranch := gitBranch
 	defer func() { gitBranch = originalGitBranch }()
 
-	// Test with default value
-	if GetGitBranch() != "unknown" {
-		t.Errorf("Expected default git branch 'unknown', got '%s'", GetGitBranch())
+	if GitBranch() != "unknown" {
+		t.Errorf("Expected default git branch 'unknown', got '%s'", GitBranch())
 	}
 
-	// Test with custom value
 	gitBranch = "main"
 
-	if GetGitBranch() != "main" {
-		t.Errorf("Expected git branch 'main', got '%s'", GetGitBranch())
+	if GitBranch() != "main" {
+		t.Errorf("Expected git branch 'main', got '%s'", GitBranch())
 	}
 }
 
-func TestGetVersionInfo(t *testing.T) {
-	// Save original values
+func TestCurrent(t *testing.T) {
 	originalVersion := version
 	originalBuildTime := buildTime
 	originalGitCommit := gitCommit
@@ -94,16 +81,15 @@ func TestGetVersionInfo(t *testing.T) {
 		gitBranch = originalGitBranch
 	}()
 
-	// Set test values
 	version = "v1.0.0"
 	buildTime = "2023-12-25T10:30:00Z"
 	gitCommit = "abc123def456"
 	gitBranch = "main"
 
-	info := GetVersionInfo()
+	info := Current()
 
 	if info == nil {
-		t.Fatal("GetVersionInfo() returned nil")
+		t.Fatal("Current() returned nil")
 	}
 
 	if info.Version != "v1.0.0" {
@@ -135,8 +121,7 @@ func TestGetVersionInfo(t *testing.T) {
 	}
 }
 
-func TestVersionInfo_String(t *testing.T) {
-	// Save original values
+func TestInfo_String(t *testing.T) {
 	originalVersion := version
 	originalBuildTime := buildTime
 	originalGitCommit := gitCommit
@@ -149,20 +134,18 @@ func TestVersionInfo_String(t *testing.T) {
 		gitBranch = originalGitBranch
 	}()
 
-	// Set test values
 	version = "v1.0.0"
 	buildTime = "2023-12-25T10:30:00Z"
 	gitCommit = "abc123def456789"
 	gitBranch = "main"
 
-	info := GetVersionInfo()
+	info := Current()
 	result := info.String()
 
-	// Check that the string contains expected components
 	expectedComponents := []string{
 		"TSQ v1.0.0",
 		"built 2023-12-25T10:30:00Z",
-		"from main@abc123de", // First 8 chars of commit
+		"from main@abc123de",
 		runtime.Version(),
 		runtime.GOOS,
 		runtime.GOARCH,
@@ -175,8 +158,8 @@ func TestVersionInfo_String(t *testing.T) {
 	}
 }
 
-func TestVersionInfo_StringHandlesShortCommit(t *testing.T) {
-	info := &VersionInfo{
+func TestInfo_StringHandlesShortCommit(t *testing.T) {
+	info := &Info{
 		Version:   "dev",
 		BuildTime: "unknown",
 		GitCommit: "short",
@@ -192,14 +175,13 @@ func TestVersionInfo_StringHandlesShortCommit(t *testing.T) {
 	}
 }
 
-func TestVersionInfo_ShortString(t *testing.T) {
-	// Save original values
+func TestInfo_ShortString(t *testing.T) {
 	originalVersion := version
 	defer func() { version = originalVersion }()
 
 	version = "v1.0.0"
 
-	info := GetVersionInfo()
+	info := Current()
 	result := info.ShortString()
 
 	expected := "TSQ v1.0.0"
@@ -208,8 +190,8 @@ func TestVersionInfo_ShortString(t *testing.T) {
 	}
 }
 
-func TestVersionInfo_NilReceiverHelpers(t *testing.T) {
-	var info *VersionInfo
+func TestInfo_NilReceiverHelpers(t *testing.T) {
+	var info *Info
 
 	if got := info.String(); got != "TSQ unknown" {
 		t.Fatalf("expected nil String fallback, got %q", got)
@@ -220,8 +202,7 @@ func TestVersionInfo_NilReceiverHelpers(t *testing.T) {
 	}
 }
 
-func TestVersionInfo_JSONSerialization(t *testing.T) {
-	// Save original values
+func TestInfo_JSONSerialization(t *testing.T) {
 	originalVersion := version
 	originalBuildTime := buildTime
 	originalGitCommit := gitCommit
@@ -234,29 +215,25 @@ func TestVersionInfo_JSONSerialization(t *testing.T) {
 		gitBranch = originalGitBranch
 	}()
 
-	// Set test values
 	version = "v1.0.0"
 	buildTime = "2023-12-25T10:30:00Z"
 	gitCommit = "abc123def456"
 	gitBranch = "main"
 
-	info := GetVersionInfo()
+	info := Current()
 
-	// Test JSON marshaling
 	jsonData, err := json.Marshal(info)
 	if err != nil {
-		t.Fatalf("Failed to marshal VersionInfo to JSON: %v", err)
+		t.Fatalf("Failed to marshal Info to JSON: %v", err)
 	}
 
-	// Test JSON unmarshaling
-	var unmarshaled VersionInfo
+	var unmarshaled Info
 
 	err = json.Unmarshal(jsonData, &unmarshaled)
 	if err != nil {
-		t.Fatalf("Failed to unmarshal VersionInfo from JSON: %v", err)
+		t.Fatalf("Failed to unmarshal Info from JSON: %v", err)
 	}
 
-	// Verify all fields are preserved
 	if unmarshaled.Version != info.Version {
 		t.Errorf("version mismatch after JSON round-trip: expected '%s', got '%s'", info.Version, unmarshaled.Version)
 	}
@@ -286,8 +263,7 @@ func TestVersionInfo_JSONSerialization(t *testing.T) {
 	}
 }
 
-func TestVersionInfo_DefaultValues(t *testing.T) {
-	// Save original values
+func TestInfo_DefaultValues(t *testing.T) {
 	originalVersion := version
 	originalBuildTime := buildTime
 	originalGitCommit := gitCommit
@@ -300,13 +276,12 @@ func TestVersionInfo_DefaultValues(t *testing.T) {
 		gitBranch = originalGitBranch
 	}()
 
-	// Reset to default values
 	version = "dev"
 	buildTime = "unknown"
 	gitCommit = "unknown"
 	gitBranch = "unknown"
 
-	info := GetVersionInfo()
+	info := Current()
 
 	if info.Version != "dev" {
 		t.Errorf("Expected default version 'dev', got '%s'", info.Version)
@@ -324,7 +299,6 @@ func TestVersionInfo_DefaultValues(t *testing.T) {
 		t.Errorf("Expected default git branch 'unknown', got '%s'", info.GitBranch)
 	}
 
-	// Runtime values should still be populated
 	if info.GoVersion == "" {
 		t.Error("GoVersion should not be empty")
 	}
@@ -338,8 +312,7 @@ func TestVersionInfo_DefaultValues(t *testing.T) {
 	}
 }
 
-func TestVersionInfo_StringWithShortCommit(t *testing.T) {
-	// Save original values
+func TestInfo_StringWithShortCommit(t *testing.T) {
 	originalVersion := version
 	originalBuildTime := buildTime
 	originalGitCommit := gitCommit
@@ -352,23 +325,20 @@ func TestVersionInfo_StringWithShortCommit(t *testing.T) {
 		gitBranch = originalGitBranch
 	}()
 
-	// Test with short commit hash (at least 8 characters to avoid slice bounds error)
 	version = "v1.0.0"
 	buildTime = "2023-12-25T10:30:00Z"
-	gitCommit = "abc12345" // 8 characters
+	gitCommit = "abc12345"
 	gitBranch = "main"
 
-	info := GetVersionInfo()
+	info := Current()
 	result := info.String()
 
-	// Should handle commit hash correctly
 	if !strings.Contains(result, "main@abc12345") {
 		t.Errorf("Expected string to contain 'main@abc12345', got '%s'", result)
 	}
 }
 
-func TestVersionInfo_StringWithLongCommit(t *testing.T) {
-	// Save original values
+func TestInfo_StringWithLongCommit(t *testing.T) {
 	originalVersion := version
 	originalBuildTime := buildTime
 	originalGitCommit := gitCommit
@@ -381,16 +351,14 @@ func TestVersionInfo_StringWithLongCommit(t *testing.T) {
 		gitBranch = originalGitBranch
 	}()
 
-	// Test with long commit hash
 	version = "v1.0.0"
 	buildTime = "2023-12-25T10:30:00Z"
 	gitCommit = "abc123def456789012345678901234567890"
 	gitBranch = "feature/test"
 
-	info := GetVersionInfo()
+	info := Current()
 	result := info.String()
 
-	// Should truncate to first 8 characters
 	if !strings.Contains(result, "feature/test@abc123de") {
 		t.Errorf("Expected string to contain 'feature/test@abc123de', got '%s'", result)
 	}

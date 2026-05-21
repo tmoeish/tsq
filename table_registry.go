@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	"github.com/tmoeish/tsq/v4/dialect"
 )
 
 type registry struct {
@@ -23,15 +25,15 @@ func newRegistry() *registry {
 // Returns an error if registration fails.
 func RegisterTable(
 	table Table,
-	initFunc func(db *Engine) error,
+	indexes ...TableIndex,
 ) error {
-	return defaultRuntime.RegisterTable(table, initFunc)
+	return defaultRuntime.RegisterTable(table, indexes...)
 }
 
-// Register adds a table/init pair to the runtime registry keyed by table name.
+// Register adds a table/index declaration to the runtime registry keyed by table name.
 func (r *registry) Register(
 	table Table,
-	initFunc func(db *Engine) error,
+	indexes ...TableIndex,
 ) error {
 	if isNilValue(table) {
 		return &RegistrationError{
@@ -40,12 +42,8 @@ func (r *registry) Register(
 		}
 	}
 
-	if initFunc == nil {
-		return &RegistrationError{
-			Type:      RegistrationErrorNilInitFunc,
-			TableName: fmt.Sprintf("%v", table),
-			Message:   "init function cannot be nil",
-		}
+	if err := validateRegisteredIndexes(table, indexes); err != nil {
+		return err
 	}
 
 	r.mu.Lock()
@@ -61,8 +59,8 @@ func (r *registry) Register(
 	}
 
 	r.tables[key] = &registeredTable{
-		Table:    table,
-		InitFunc: initFunc,
+		Table:   table,
+		Indexes: cloneTableIndexes(indexes),
 	}
 
 	return nil
@@ -70,17 +68,17 @@ func (r *registry) Register(
 
 type registeredTable struct {
 	Table
-	InitFunc func(db *Engine) error
+	Indexes []TableIndex
 }
 
 // Init initializes indexes and tracers for the default runtime with optional explicit options.
-func Init(db *sql.DB, dialect Dialect, options ...*InitOptions) error {
-	return defaultRuntime.Init(db, dialect, options...)
+func Init(db *sql.DB, sqlDialect dialect.Dialect, options ...*InitOptions) error {
+	return defaultRuntime.Init(db, sqlDialect, options...)
 }
 
-// DefaultEngine returns the Engine of the default runtime.
-func DefaultEngine() *Engine {
-	return defaultRuntime.Engine()
+// DefaultRuntime returns the package-level runtime.
+func DefaultRuntime() *Runtime {
+	return defaultRuntime
 }
 
 func registeredTableKey(table Table) string {
@@ -114,6 +112,79 @@ func (r *registry) Snapshot() []*registeredTable {
 	result := make([]*registeredTable, 0, len(names))
 	for _, name := range names {
 		result = append(result, r.tables[name])
+	}
+
+	return result
+}
+
+func validateRegisteredIndexes(table Table, indexes []TableIndex) error {
+	if len(indexes) == 0 {
+		return nil
+	}
+
+	tableName := physicalTableName(table)
+
+	availableColumns := make(map[string]struct{}, len(table.Cols()))
+	for _, col := range table.Cols() {
+		if col == nil {
+			continue
+		}
+
+		availableColumns[col.OutputName()] = struct{}{}
+	}
+
+	for _, index := range indexes {
+		if err := validateBuiltInIdentifier(index.Name); err != nil {
+			return &RegistrationError{
+				Type:      RegistrationErrorInvalidIndex,
+				TableName: tableName,
+				Message:   fmt.Sprintf("invalid index %q on table %s: %v", index.Name, tableName, err),
+			}
+		}
+
+		if len(index.Fields) == 0 {
+			return &RegistrationError{
+				Type:      RegistrationErrorInvalidIndex,
+				TableName: tableName,
+				Message:   fmt.Sprintf("index %q on table %s must declare at least one field", index.Name, tableName),
+			}
+		}
+
+		for _, field := range index.Fields {
+			if err := validateBuiltInIdentifier(field); err != nil {
+				return &RegistrationError{
+					Type:      RegistrationErrorInvalidIndex,
+					TableName: tableName,
+					Message:   fmt.Sprintf("invalid field %q in index %q on table %s: %v", field, index.Name, tableName, err),
+				}
+			}
+
+			if _, ok := availableColumns[field]; !ok {
+				return &RegistrationError{
+					Type:      RegistrationErrorInvalidIndex,
+					TableName: tableName,
+					Message:   fmt.Sprintf("index %q on table %s references unknown field %q", index.Name, tableName, field),
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+func cloneTableIndexes(indexes []TableIndex) []TableIndex {
+	if len(indexes) == 0 {
+		return nil
+	}
+
+	result := make([]TableIndex, 0, len(indexes))
+	for _, index := range indexes {
+		fields := append([]string(nil), index.Fields...)
+		result = append(result, TableIndex{
+			Name:   index.Name,
+			Fields: fields,
+			Unique: index.Unique,
+		})
 	}
 
 	return result

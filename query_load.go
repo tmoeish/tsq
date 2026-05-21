@@ -17,7 +17,7 @@ func Page[O Owner](
 	q *Query[O],
 	args ...any,
 ) (*PageResponse[O], error) {
-	return Trace1(ctx, func(ctx context.Context) (*PageResponse[O], error) {
+	return trace1(ctx, func(ctx context.Context) (*PageResponse[O], error) {
 		return pageFn(ctx, tx, page, q, args...)
 	})
 }
@@ -129,7 +129,7 @@ func List[O Owner](
 	qb *Query[O],
 	args ...any,
 ) ([]*O, error) {
-	return Trace1(ctx, func(ctx context.Context) ([]*O, error) {
+	return trace1(ctx, func(ctx context.Context) ([]*O, error) {
 		return listFn(ctx, tx, qb, args...)
 	})
 }
@@ -205,7 +205,7 @@ func GetOrErr[O Owner](
 	qb *Query[O],
 	args ...any,
 ) (*O, error) {
-	return Trace1(ctx, func(ctx context.Context) (*O, error) {
+	return trace1(ctx, func(ctx context.Context) (*O, error) {
 		return getOrErrFn(ctx, tx, qb, args...)
 	})
 }
@@ -281,7 +281,7 @@ func (q *Query[O]) Load(
 	holder *O,
 	args ...any,
 ) error {
-	return Trace(ctx, func(ctx context.Context) error {
+	return trace(ctx, func(ctx context.Context) error {
 		if err := validateQuery(q); err != nil {
 			return err
 		}

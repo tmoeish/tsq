@@ -5,15 +5,17 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	tsqdialect "github.com/tmoeish/tsq/v4/dialect"
 )
 
 // UpsertIndex ensures a declared index exists or validates it, depending on InitOptions.
-func UpsertIndex(db *Engine, table string, unique bool, idx string, fields []string) error {
+func upsertIndex(db *engine, table string, unique bool, idx string, fields []string) error {
 	if db == nil {
 		return errors.New("engine cannot be nil")
 	}
 
-	if db.Dialect == nil {
+	if db.dialect == nil {
 		return errors.New("database dialect is required")
 	}
 
@@ -23,11 +25,7 @@ func UpsertIndex(db *Engine, table string, unique bool, idx string, fields []str
 
 	mode := db.effectiveIndexInitMode()
 	if mode == IndexInitSkip {
-		return db.emitSchemaEvent(SchemaEvent{
-			Kind:  SchemaEventSkipIndex,
-			Table: table,
-			Name:  idx,
-		})
+		return nil
 	}
 
 	definition, found, err := inspectIndexDefinition(db, table, idx)
@@ -36,19 +34,7 @@ func UpsertIndex(db *Engine, table string, unique bool, idx string, fields []str
 	}
 
 	if found {
-		if err := validateIndexDefinition(table, unique, idx, fields, definition); err != nil {
-			return err
-		}
-
-		if err := db.emitSchemaEvent(SchemaEvent{
-			Kind:  SchemaEventValidateIndex,
-			Table: table,
-			Name:  idx,
-		}); err != nil {
-			return err
-		}
-
-		return nil
+		return validateIndexDefinition(table, unique, idx, fields, definition)
 	}
 
 	if mode == IndexInitValidate {
@@ -60,47 +46,20 @@ func UpsertIndex(db *Engine, table string, unique bool, idx string, fields []str
 		}
 	}
 
-	query, err := db.Dialect.EnsureIndex(context.Background(), db, table, unique, idx, fields)
+	_, err = db.dialect.EnsureIndex(context.Background(), db.db, table, unique, idx, fields)
 	if err != nil {
 		return err
 	}
 
-	if query != "" {
-		return db.emitSchemaEvent(SchemaEvent{
-			Kind:  SchemaEventCreateIndex,
-			Table: table,
-			Name:  idx,
-			SQL:   query,
-		})
-	}
-
 	return nil
 }
 
-func (e *Engine) effectiveIndexInitMode() IndexInitMode {
-	return loadDBSchemaConfig(e).indexInitMode
-}
-
-func (e *Engine) emitSchemaEvent(event SchemaEvent) (err error) {
-	handler := loadDBSchemaConfig(e).schemaEventHandler
-	if e == nil || handler == nil {
-		return nil
+func (e *engine) effectiveIndexInitMode() IndexInitMode {
+	if e == nil || e.indexInitMode == "" {
+		return IndexInitUpsert
 	}
 
-	defer func() {
-		if r := recover(); r != nil {
-			err = fmt.Errorf(
-				"schema event handler panicked for %s on %s: %v",
-				event.Kind,
-				event.Table,
-				r,
-			)
-		}
-	}()
-
-	handler(event)
-
-	return nil
+	return e.indexInitMode
 }
 
 func resolveIndexInitMode(options *InitOptions) IndexInitMode {
@@ -129,11 +88,11 @@ func validateIndexInitMode(mode IndexInitMode) error {
 }
 
 func inspectIndexDefinition(
-	db *Engine,
+	db *engine,
 	table string,
 	idx string,
-) (IndexDefinition, bool, error) {
-	return db.Dialect.InspectIndexDefinition(context.Background(), db, table, idx)
+) (tsqdialect.IndexDefinition, bool, error) {
+	return db.dialect.InspectIndexDefinition(context.Background(), db.db, table, idx)
 }
 
 func validateIndexDefinition(
@@ -141,7 +100,7 @@ func validateIndexDefinition(
 	unique bool,
 	idx string,
 	fields []string,
-	existing IndexDefinition,
+	existing tsqdialect.IndexDefinition,
 ) error {
 	if existing.Table != table {
 		return fmt.Errorf(
@@ -194,7 +153,7 @@ func parseColumnsCSV(csv string) []string {
 }
 
 func finishCreateIndex(
-	db *Engine,
+	db *engine,
 	table string,
 	unique bool,
 	idx string,
@@ -243,27 +202,27 @@ func validateBuiltInIdentifier(name string) error {
 	return nil
 }
 
-func quoteDialectIdentifier(dialect Dialect, name string) (string, error) {
+func quoteDialectIdentifier(sqlDialect tsqdialect.Dialect, name string) (string, error) {
 	if err := validateBuiltInIdentifier(name); err != nil {
 		return "", err
 	}
 
-	if dialect == nil {
+	if sqlDialect == nil {
 		return canonicalQuoteIdentifier(name), nil
 	}
 
-	if err := dialect.ValidateIdentifier(name); err != nil {
+	if err := sqlDialect.ValidateIdentifier(name); err != nil {
 		return "", err
 	}
 
-	return dialect.QuoteField(name), nil
+	return sqlDialect.QuoteField(name), nil
 }
 
-func quoteDialectIdentifiers(dialect Dialect, names []string) ([]string, error) {
+func quoteDialectIdentifiers(sqlDialect tsqdialect.Dialect, names []string) ([]string, error) {
 	quoted := make([]string, len(names))
 
 	for i, name := range names {
-		value, err := quoteDialectIdentifier(dialect, name)
+		value, err := quoteDialectIdentifier(sqlDialect, name)
 		if err != nil {
 			return nil, err
 		}

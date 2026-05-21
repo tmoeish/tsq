@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tmoeish/tsq/v4"
+	tsqdialect "github.com/tmoeish/tsq/v4/dialect"
 	"github.com/tmoeish/tsq/v4/internal/genmodel"
 )
 
@@ -771,7 +771,7 @@ func renderDDLIncrementalTableBody(
 		return "", false
 	}
 
-	if dialect.dialect.DDLAlterColumnMode() == tsq.DDLAlterColumnRebuild && ddlChangesRequireTableRebuild(ops) {
+	if dialect.dialect.DDLAlterColumnMode() == tsqdialect.DDLAlterColumnRebuild && ddlChangesRequireTableRebuild(ops) {
 		body, ok := renderSQLiteRebuildTableBody(dialect, tableName, ops)
 		if ok {
 			return body, true
@@ -921,7 +921,7 @@ func renderDDLAlterColumnStatements(
 		return []string{renderDDLManualComment(tableName, fmt.Sprintf("manual change required for primary key column %s", after.Name))}
 	}
 
-	if dialect.dialect.DDLAlterColumnMode() != tsq.DDLAlterColumnDirect {
+	if dialect.dialect.DDLAlterColumnMode() != tsqdialect.DDLAlterColumnDirect {
 		return []string{renderDDLManualComment(tableName, fmt.Sprintf("manual change required for column %s on %s", after.Name, ddlDialectName(dialect)))}
 	}
 

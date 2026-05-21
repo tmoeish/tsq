@@ -2,6 +2,7 @@ package tsq
 
 import (
 	"context"
+	"database/sql"
 	"strings"
 	"testing"
 
@@ -118,7 +119,7 @@ func TestChunkedDeleteChunkRejectsNilItems(t *testing.T) {
 }
 
 func TestInsertRejectsTypedNilExecutor(t *testing.T) {
-	var db *Engine
+	var db *sql.DB
 	row := mockTable{tableName: "users"}
 	err := Insert(context.Background(), db, &row)
 	if err == nil {
@@ -130,7 +131,7 @@ func TestInsertRejectsTypedNilExecutor(t *testing.T) {
 }
 
 func TestInsertRejectsNilItem(t *testing.T) {
-	db := &Engine{}
+	db := &sql.DB{}
 	var value *mockTable
 	err := Insert(context.Background(), db, value)
 	if err == nil {
@@ -142,7 +143,7 @@ func TestInsertRejectsNilItem(t *testing.T) {
 }
 
 func TestUpdateRejectsNilItem(t *testing.T) {
-	db := &Engine{}
+	db := &sql.DB{}
 	var value *mockTable
 	err := Update(context.Background(), db, value)
 	if err == nil {
@@ -154,7 +155,7 @@ func TestUpdateRejectsNilItem(t *testing.T) {
 }
 
 func TestDeleteRejectsNilItem(t *testing.T) {
-	db := &Engine{}
+	db := &sql.DB{}
 	var value *mockTable
 	err := Delete(context.Background(), db, value)
 	if err == nil {
@@ -166,7 +167,7 @@ func TestDeleteRejectsNilItem(t *testing.T) {
 }
 
 func TestChunkedInsertRejectsTypedNilExecutor(t *testing.T) {
-	var db *Engine
+	var db *sql.DB
 	row := mockTable{tableName: "users"}
 	err := ChunkedInsert(context.Background(), db, []*mockTable{&row})
 	if err == nil {
@@ -179,7 +180,7 @@ func TestChunkedInsertRejectsTypedNilExecutor(t *testing.T) {
 
 func TestChunkedDeleteByIDsRejectsExecutorWithoutDialectForRenderedSQL(t *testing.T) {
 	db := newEngineWithoutDialect(t)
-	err := ChunkedDeleteByIDs(context.Background(), db, "users", "id", []any{1})
+	err := ChunkedDeleteByIDs(context.Background(), db.Executor(), "users", "id", []any{1})
 	if err == nil {
 		t.Fatal("expected executor without dialect to return an error")
 	}
@@ -189,7 +190,7 @@ func TestChunkedDeleteByIDsRejectsExecutorWithoutDialectForRenderedSQL(t *testin
 }
 
 func TestChunkedDeleteByIDsRejectsNilIDs(t *testing.T) {
-	db := &Engine{Dialect: SQLiteDialect{}}
+	db := WrapExecutor(&sql.DB{}, SQLiteDialect{})
 	err := ChunkedDeleteByIDs(context.Background(), db, "users", "id", []any{1, nil})
 	if err == nil {
 		t.Fatal("expected nil ids to return an error")

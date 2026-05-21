@@ -8,8 +8,8 @@ type RegistrationErrorType string
 const (
 	// RegistrationErrorNilTable means RegisterTable received a nil table.
 	RegistrationErrorNilTable RegistrationErrorType = "nil_table"
-	// RegistrationErrorNilInitFunc means RegisterTable received a nil init hook.
-	RegistrationErrorNilInitFunc RegistrationErrorType = "nil_init_func"
+	// RegistrationErrorInvalidIndex means RegisterTable received invalid index metadata.
+	RegistrationErrorInvalidIndex RegistrationErrorType = "invalid_index"
 	// RegistrationErrorDuplicate means the same table key was registered twice.
 	RegistrationErrorDuplicate RegistrationErrorType = "duplicate"
 	// RegistrationErrorNilRuntime means a method was called on a nil runtime.
@@ -28,26 +28,11 @@ const (
 	IndexInitValidate IndexInitMode = "validate"
 )
 
-// SchemaEventKind classifies emitted schema events.
-type SchemaEventKind string
-
-const (
-	// SchemaEventCreateTable reports table creation.
-	SchemaEventCreateTable SchemaEventKind = "create_table"
-	// SchemaEventCreateIndex reports index creation.
-	SchemaEventCreateIndex SchemaEventKind = "create_index"
-	// SchemaEventValidateIndex reports successful index validation.
-	SchemaEventValidateIndex SchemaEventKind = "validate_index"
-	// SchemaEventSkipIndex reports that index work was skipped.
-	SchemaEventSkipIndex SchemaEventKind = "skip_index"
-)
-
-// SchemaEvent reports a schema action performed or skipped during Init.
-type SchemaEvent struct {
-	Kind  SchemaEventKind // Kind identifies which schema action tsq took.
-	Table string          // Table names the table associated with the action.
-	Name  string          // Name names the affected schema object, such as an index.
-	SQL   string          // SQL contains the statement tsq executed when one was emitted.
+// TableIndex declares one physical index owned by a registered table.
+type TableIndex struct {
+	Name   string   // Name is the stable physical index name.
+	Fields []string // Fields preserves the indexed column order.
+	Unique bool     // Unique reports whether the index enforces uniqueness.
 }
 
 // ErrIndexMissing reports that an expected index was not found.
@@ -86,10 +71,9 @@ func (e *RegistrationError) Error() string {
 
 // InitOptions controls runtime initialization behavior.
 type InitOptions struct {
-	UpsertIndexes      bool              // UpsertIndexes keeps the legacy "create missing indexes" behavior when IndexMode is unset.
-	IndexMode          IndexInitMode     // IndexMode chooses whether Init skips, upserts, or validates declared indexes.
-	Tracers            []Tracer          // Tracers are appended to the runtime before initialization work begins.
-	SchemaEventHandler func(SchemaEvent) // SchemaEventHandler receives emitted schema actions such as created or validated indexes.
+	UpsertIndexes bool          // UpsertIndexes keeps the legacy "create missing indexes" behavior when IndexMode is unset.
+	IndexMode     IndexInitMode // IndexMode chooses whether Init skips, upserts, or validates declared indexes.
+	Tracers       []Tracer      // Tracers are appended to the runtime before initialization work begins.
 	// IdentifierValidationMode controls how to handle identifier length violations:
 	// "strict" = fail if any identifier exceeds dialect limits (default for most dialects)
 	// "warn"   = log warnings but allow (for permissive databases)

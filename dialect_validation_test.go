@@ -3,6 +3,8 @@ package tsq
 import (
 	"strings"
 	"testing"
+
+	tsqdialect "github.com/tmoeish/tsq/v4/dialect"
 )
 
 func TestDialectNames(t *testing.T) {
@@ -53,7 +55,10 @@ func TestDialectCapabilities(t *testing.T) {
 }
 
 func TestErrUnsupportedOperation(t *testing.T) {
-	err := newErrUnsupportedCapability(DialectCapabilityFullOuterJoin, DialectMySQL, "use LEFT/RIGHT JOIN with UNION")
+	err := tsqdialect.ValidateCapability(MySQLDialect{}, DialectCapabilityFullOuterJoin)
+	if err == nil {
+		t.Fatal("expected unsupported capability error")
+	}
 	msg := err.Error()
 	if !strings.Contains(msg, "FULL JOIN") {
 		t.Fatalf("expected FULL JOIN in error, got %q", msg)

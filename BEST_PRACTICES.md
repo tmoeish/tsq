@@ -40,7 +40,7 @@ query, _ := qb.Build()
 ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 defer cancel()
 
-users, err := tsq.List[database.User](ctx, engine, query)
+users, err := tsq.List[database.User](ctx, runtime.Executor(), query)
 ```
 
 ### 1.3 用 `%w` 保留错误上下文
@@ -127,7 +127,7 @@ return tx.Commit()
 ### 3.3 事务里复用 TSQ 时，用 `WrapExecutor(...)` 继续携带方言
 
 ```go
-txExec := tsq.WrapExecutor(tx, engine.Dialect)
+txExec := tsq.WrapExecutor(tx, runtime.SQLDialect())
 if err := order.Insert(ctx, txExec); err != nil {
 	return err
 }
@@ -151,7 +151,7 @@ defer func() {
 	_ = tx.Rollback()
 }()
 
-txExec := tsq.WrapExecutor(tx, engine.Dialect)
+txExec := tsq.WrapExecutor(tx, runtime.SQLDialect())
 if err := tsq.ChunkedInsert(ctx, txExec, rows, &tsq.ChunkedInsertOptions{ChunkSize: 500}); err != nil {
 	return err
 }
@@ -174,7 +174,7 @@ defer func() {
 	_ = tx.Rollback()
 }()
 
-txExec := tsq.WrapExecutor(tx, engine.Dialect)
+txExec := tsq.WrapExecutor(tx, runtime.SQLDialect())
 query, err := tsq.Select(database.User__Cols...).
 	From(database.TableUser).
 	Where(database.User_ID.EQ(userID)).
@@ -201,7 +201,7 @@ return tx.Commit()
 版本不匹配时，TSQ 会返回 `ErrOptimisticLockConflict`。
 
 ```go
-if _, err := engine.Update(ctx, user); err != nil {
+if err := tsq.Update(ctx, runtime.Executor(), user); err != nil {
 	if errors.Is(err, &tsq.ErrOptimisticLockConflict{}) {
 		return fmt.Errorf("record has been modified by another request: %w", err)
 	}

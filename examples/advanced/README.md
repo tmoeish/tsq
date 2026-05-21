@@ -38,7 +38,7 @@
 
 它们一一对应上面的 demo，方便你边读代码边对照结果。
 
-`runChunkedDemo` 主要演示 chunked helper 的调用方式。它默认直接使用示例里的 `engine`，没有额外包外层事务；如果你的业务需要整批原子提交，请改为显式创建 `*sql.Tx` 并把事务 executor 传给这些 helper。
+`runChunkedDemo` 主要演示 chunked helper 的调用方式。它默认直接使用示例里的 `runtime`，没有额外包外层事务；如果你的业务需要整批原子提交，请改为显式创建 `*sql.Tx` 并把事务 executor 传给这些 helper。
 
 `runOptimisticLockDemo` 演示的是 **SQLite 下可以真实运行的锁语义**：自动乐观锁。  
 它会先读取一条报名记录，再让“新版本对象”更新成功，然后让“旧版本对象”更新失败，并通过 `ErrOptimisticLockConflict` 明确暴露冲突。

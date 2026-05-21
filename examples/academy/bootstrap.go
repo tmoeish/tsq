@@ -8,13 +8,14 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 
 	"github.com/tmoeish/tsq/v4"
+	tsqdialect "github.com/tmoeish/tsq/v4/dialect"
 )
 
 //go:embed mock.sql
 var mockSQL string
 
 // OpenSQLiteExampleDB opens the in-memory Academy example database and seeds it.
-func OpenSQLiteExampleDB() (*tsq.Engine, func(), error) {
+func OpenSQLiteExampleDB() (*tsq.Runtime, func(), error) {
 	db, err := sql.Open("sqlite3", ":memory:")
 	if err != nil {
 		return nil, nil, err
@@ -29,10 +30,10 @@ func OpenSQLiteExampleDB() (*tsq.Engine, func(), error) {
 		return nil, nil, fmt.Errorf("%s: %w", "seed mock.sql", err)
 	}
 
-	if err := tsq.Init(db, tsq.SQLiteDialect{}, &tsq.InitOptions{UpsertIndexes: true}); err != nil {
+	if err := tsq.Init(db, tsqdialect.SQLiteDialect{}, &tsq.InitOptions{UpsertIndexes: true}); err != nil {
 		cleanup()
 		return nil, nil, fmt.Errorf("%s: %w", "init tsq", err)
 	}
 
-	return tsq.DefaultEngine(), cleanup, nil
+	return tsq.DefaultRuntime(), cleanup, nil
 }

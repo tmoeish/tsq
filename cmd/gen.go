@@ -15,7 +15,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
-	"github.com/tmoeish/tsq/v4"
+	"github.com/tmoeish/tsq/v4/internal/buildinfo"
 	"github.com/tmoeish/tsq/v4/internal/genmodel"
 	"github.com/tmoeish/tsq/v4/internal/parser"
 )
@@ -122,7 +122,7 @@ Overwrite behavior:
 		}
 
 		for i := range list {
-			list[i].SetTSQVersion(stableVersion(tsq.GetVersion()))
+			list[i].SetTSQVersion(stableVersion(buildinfo.Version()))
 		}
 
 		tpl, err := template.New("tsq.go.tmpl").Funcs(funcMap()).Parse(tableTpl)

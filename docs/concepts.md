@@ -26,7 +26,7 @@ Go struct + @TABLE / @RESULT
  *tsq.Query[Owner] + args
             |
             v
- tsq.List/Get/Page + tsq.Engine / Runtime
+ tsq.List/Get/Page + tsq.SQLExecutor
 ```
 
 ## 1. `@TABLE`：告诉生成器“这是一个表”
@@ -59,7 +59,7 @@ type User struct {
 | --- | --- | --- |
 | 表和列元数据 | `User__Cols`, `User_ID`, `User_Name` | 用来构建类型安全查询 |
 | CRUD / 查询助手 | `GetUserByID`, `ListUser`, `PageUser` | 常见读写路径直接用，查询初始化失败时会显式返回错误 |
-| 表注册逻辑 | `RegisterTable`, `Init` 所需元数据 | 让运行时知道这个表的结构 |
+| 表注册逻辑 | `RegisterTable`, `Init` 所需元数据 | 让运行时知道这个表的结构和声明索引 |
 
 如果定义了 `@RESULT`，则会额外生成 `*_result_tsq.go`。
 
@@ -142,44 +142,52 @@ type UserOrder struct {
 
 生成后你通常会得到像 `PageUserOrder(...)` 这样的助手。
 
-## 6. `tsq.Engine` / `SQLExecutor`：执行查询时的数据库上下文
+## 6. `tsq.Runtime` / `SQLExecutor`：运行时与执行器的分工
 
-TSQ 执行查询时需要一个 `Engine`：
+`SQLExecutor` 是 TSQ 执行查询和 CRUD helper 的通用入口。  
+它只保留 `QueryContext` / `QueryRowContext` / `ExecContext` 这组 `database/sql` 共有方法。
+
+如果你要用 TSQ 默认持有的数据库上下文，先从 `Runtime` 取出执行器：
 
 ```go
-engine := &tsq.Engine{
-	DB:      db,
-	Dialect: tsq.SQLiteDialect{},
+rt := tsq.NewRuntime()
+if err := rt.Init(db, dialect.SQLiteDialect{}); err != nil {
+	panic(err)
 }
+exec := rt.Executor()
 ```
 
-它把两件事绑在一起：
+它把这几件事绑在一起：
 
 1. 底层数据库连接
 2. 当前 SQL 方言
+3. 注册表和 tracer
 
-执行时像 `tsq.List(...)`、`tsq.Get(...)`、`query.Count64(...)` 都会用到它。
+但职责要分开记：
 
-这也是为什么 TSQ 把一部分能力校验放在执行阶段：**真正决定 SQL 方言边界的是 executor / engine，而不是 Build 阶段的查询构建链路。**
+- `SQLExecutor`：执行契约，`*sql.DB` / `*sql.Tx` / `tsq.WrapExecutor(...)` 的返回值都满足
+- `Runtime`：默认数据库上下文 + 注册表 + tracer 容器；通过 `Executor()` 暴露可执行句柄
 
-底层执行接口是 `SQLExecutor`。这里最重要的约定有三点：
+这也是为什么 TSQ 把一部分能力校验放在执行阶段：**真正决定 SQL 方言边界的是实际 executor，而不是 Build 阶段的查询构建链路。**
+
+这里最重要的约定有三点：
 
 1. 所有执行方法都显式接收 `ctx context.Context`
 2. `SQLExecutor` 只保留 `QueryContext` / `QueryRowContext` / `ExecContext` 这组 `database/sql` 共有方法
 3. 表级 mutation helper 也直接接收 `SQLExecutor`
 
-也就是说，查询和生成的 CRUD helper 都可以直接复用 `*sql.DB` / `*sql.Tx` 这类标准库入口；如果你需要方言感知的占位符或引用规则，也可以用 `tsq.Engine` 或 `tsq.WrapExecutor(...)` 提供方言信息。
+也就是说，查询和生成的 CRUD helper 都可以直接复用 `*sql.DB` / `*sql.Tx` 这类标准库入口；如果你需要默认数据库上下文，就传 `runtime.Executor()`；如果你要在事务里继续保留方言信息，则用 `tsq.WrapExecutor(...)`。
 
 对于 `ChunkedInsert` / `ChunkedUpdate` / `ChunkedDelete` 这类 helper，也沿用同一个原则：**TSQ 不替调用方决定事务边界。**
 
-- 传普通 DB / Engine：允许 chunk 之间分别生效
-- 传 `*sql.Tx` / 基于事务的 Engine：让整个 chunked 流程参与同一个事务
+- 传普通 DB / `runtime.Executor()`：允许 chunk 之间分别生效
+- 传 `*sql.Tx` / 通过 `WrapExecutor` 带上 runtime 方言：让整个 chunked 流程参与同一个事务
 
 这不是缺少事务支持，而是把“是否需要原子性”的决定权留给调用方。
 
 ## 7. `Runtime`：表注册和隔离
 
-默认情况下，生成代码会把表注册到全局运行时。对单数据库应用来说，这通常就够了。
+默认情况下，生成代码会把表元数据和声明索引注册到全局运行时。`Init(...)` 再根据 `IndexMode` 决定是跳过、补齐还是校验这些索引。对单数据库应用来说，这通常就够了。
 
 如果你有这些需求，再关心 `Runtime`：
 

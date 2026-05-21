@@ -1,6 +1,7 @@
 package tsq
 
 import (
+	"database/sql"
 	"strings"
 	"testing"
 
@@ -31,7 +32,7 @@ func TestRenderDeleteByIDsSQLForPostgres(t *testing.T) {
 }
 
 func TestValidateExecutorForSQLIgnoresMarkersInsideStringsAndComments(t *testing.T) {
-	db := &Engine{}
+	db := &sql.DB{}
 	rawSQL := "SELECT 1 /* " + identifierMarkerPrefix + "ignored_comment" + identifierMarkerSuffix + " */" + " WHERE note = '" + identifierMarkerPrefix + "ignored_string" + identifierMarkerSuffix + "'" + " -- " + identifierMarkerPrefix + "ignored_tail" + identifierMarkerSuffix + "\n"
 	if err := validateExecutorForSQL(db, rawSQL); err != nil {
 		t.Fatalf("expected markers inside strings/comments to be ignored, got %v", err)
@@ -39,7 +40,7 @@ func TestValidateExecutorForSQLIgnoresMarkersInsideStringsAndComments(t *testing
 }
 
 func TestValidateExecutorForSQLIgnoresMarkersInsideDollarQuotedStrings(t *testing.T) {
-	db := &Engine{}
+	db := &sql.DB{}
 	rawSQL := "SELECT $$" + identifierMarkerPrefix + "ignored_marker" + identifierMarkerSuffix + "$$"
 	if err := validateExecutorForSQL(db, rawSQL); err != nil {
 		t.Fatalf("expected markers inside dollar-quoted strings to be ignored, got %v", err)
@@ -47,14 +48,14 @@ func TestValidateExecutorForSQLIgnoresMarkersInsideDollarQuotedStrings(t *testin
 }
 
 func TestValidateExecutorForSQLRejectsBindVarsWithoutDialect(t *testing.T) {
-	db := &Engine{}
+	db := &sql.DB{}
 	if err := validateExecutorForSQL(db, "SELECT ?"); err == nil {
 		t.Fatal("expected bind vars without a known dialect to return an error")
 	}
 }
 
 func TestValidateExecutorForSQLIgnoresBindVarsInsideStringsCommentsAndDollarQuotes(t *testing.T) {
-	db := &Engine{}
+	db := &sql.DB{}
 	rawSQL := "SELECT '?'" + " /* ? */" + " WHERE note = $$?$$" + " -- ?\n"
 	if err := validateExecutorForSQL(db, rawSQL); err != nil {
 		t.Fatalf("expected bind vars inside strings/comments to be ignored, got %v", err)

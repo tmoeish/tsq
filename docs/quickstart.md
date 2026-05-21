@@ -83,6 +83,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 
 	"github.com/tmoeish/tsq/v4"
+	"github.com/tmoeish/tsq/v4/dialect"
 	"example.com/tsq-quickstart/database"
 )
 
@@ -108,11 +109,12 @@ INSERT INTO user (name, email) VALUES
 		log.Fatal(err)
 	}
 
-	if err := tsq.Init(db, tsq.SQLiteDialect{}); err != nil {
+	if err := tsq.Init(db, dialect.SQLiteDialect{}); err != nil {
 		log.Fatal(err)
 	}
 
-	engine := tsq.CurrentEngine()
+	runtime := tsq.DefaultRuntime()
+	exec := runtime.Executor()
 
 	query, err := tsq.
 		Select(database.User__Cols...).
@@ -123,7 +125,7 @@ INSERT INTO user (name, email) VALUES
 		log.Fatal(err)
 	}
 
-	users, err := tsq.List[database.User](ctx, engine, query)
+	users, err := tsq.List[database.User](ctx, exec, query)
 	if err != nil {
 		log.Fatal(err)
 	}

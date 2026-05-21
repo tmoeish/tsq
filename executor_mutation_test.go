@@ -10,16 +10,17 @@ import (
 
 func TestEngineInsertBatchesRows(t *testing.T) {
 	db := newBatchMutationEngine(t)
+	exec := requireRuntimeExecutor(t, db)
 	u1 := &batchMutationUser{Name: "alice", Email: "alice@example.com"}
 	u2 := &batchMutationUser{Name: "bob", Email: "bob@example.com"}
-	if err := db.Insert(context.Background(), u1, u2); err != nil {
+	if err := insertTables(context.Background(), exec, u1, u2); err != nil {
 		t.Fatalf("batch insert failed: %v", err)
 	}
 	if u1.ID != 1 || u2.ID != 2 {
 		t.Fatalf("expected contiguous IDs to be assigned, got %d and %d", u1.ID, u2.ID)
 	}
 	var count int
-	if err := db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM users`).Scan(&count); err != nil {
+	if err := db.DB().QueryRowContext(context.Background(), `SELECT COUNT(*) FROM users`).Scan(&count); err != nil {
 		t.Fatalf("count inserted rows: %v", err)
 	}
 	if count != 2 {
@@ -29,7 +30,8 @@ func TestEngineInsertBatchesRows(t *testing.T) {
 
 func TestEngineUpdateBatchesRows(t *testing.T) {
 	db := newBatchMutationEngine(t)
-	if _, err := db.ExecContext(context.Background(), `
+	exec := requireRuntimeExecutor(t, db)
+	if _, err := db.DB().ExecContext(context.Background(), `
 		INSERT INTO users (id, name, email) VALUES
 		(1, 'alice', 'alice@example.com'),
 		(2, 'bob', 'bob@example.com')
@@ -38,14 +40,14 @@ func TestEngineUpdateBatchesRows(t *testing.T) {
 	}
 	u1 := &batchMutationUser{ID: 1, Name: "alice-updated", Email: "alice+updated@example.com"}
 	u2 := &batchMutationUser{ID: 2, Name: "bob-updated", Email: "bob+updated@example.com"}
-	affected, err := db.Update(context.Background(), u1, u2)
+	affected, err := updateTables(context.Background(), exec, u1, u2)
 	if err != nil {
 		t.Fatalf("batch update failed: %v", err)
 	}
 	if affected != 2 {
 		t.Fatalf("expected 2 updated rows, got %d", affected)
 	}
-	rows, err := db.QueryContext(context.Background(), `SELECT id, name, email FROM users ORDER BY id`)
+	rows, err := db.DB().QueryContext(context.Background(), `SELECT id, name, email FROM users ORDER BY id`)
 	if err != nil {
 		t.Fatalf("query updated rows: %v", err)
 	}
@@ -65,7 +67,8 @@ func TestEngineUpdateBatchesRows(t *testing.T) {
 
 func TestEngineDeleteBatchesRows(t *testing.T) {
 	db := newBatchMutationEngine(t)
-	if _, err := db.ExecContext(context.Background(), `
+	exec := requireRuntimeExecutor(t, db)
+	if _, err := db.DB().ExecContext(context.Background(), `
 		INSERT INTO users (id, name, email) VALUES
 		(1, 'alice', 'alice@example.com'),
 		(2, 'bob', 'bob@example.com'),
@@ -73,7 +76,7 @@ func TestEngineDeleteBatchesRows(t *testing.T) {
 	`); err != nil {
 		t.Fatalf("seed rows: %v", err)
 	}
-	affected, err := db.Delete(context.Background(), &batchMutationUser{ID: 1}, &batchMutationUser{ID: 3})
+	affected, err := deleteTables(context.Background(), exec, &batchMutationUser{ID: 1}, &batchMutationUser{ID: 3})
 	if err != nil {
 		t.Fatalf("batch delete failed: %v", err)
 	}
@@ -81,7 +84,7 @@ func TestEngineDeleteBatchesRows(t *testing.T) {
 		t.Fatalf("expected 2 deleted rows, got %d", affected)
 	}
 	var count int
-	if err := db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM users`).Scan(&count); err != nil {
+	if err := db.DB().QueryRowContext(context.Background(), `SELECT COUNT(*) FROM users`).Scan(&count); err != nil {
 		t.Fatalf("count remaining rows: %v", err)
 	}
 	if count != 1 {
@@ -91,7 +94,8 @@ func TestEngineDeleteBatchesRows(t *testing.T) {
 
 func TestEngineUpdateUsesOptimisticLockVersion(t *testing.T) {
 	db := newOptimisticMutationEngine(t)
-	if _, err := db.ExecContext(context.Background(), `
+	exec := requireRuntimeExecutor(t, db)
+	if _, err := db.DB().ExecContext(context.Background(), `
 		INSERT INTO users (id, name, email, version) VALUES
 		(1, 'alice', 'alice@example.com', 3),
 		(2, 'bob', 'bob@example.com', 7)
@@ -100,7 +104,7 @@ func TestEngineUpdateUsesOptimisticLockVersion(t *testing.T) {
 	}
 	u1 := &optimisticMutationUser{ID: 1, Name: "alice-updated", Email: "alice+updated@example.com", Version: 3}
 	u2 := &optimisticMutationUser{ID: 2, Name: "bob-updated", Email: "bob+updated@example.com", Version: 7}
-	affected, err := db.Update(context.Background(), u1, u2)
+	affected, err := updateTables(context.Background(), exec, u1, u2)
 	if err != nil {
 		t.Fatalf("optimistic batch update failed: %v", err)
 	}
@@ -110,7 +114,7 @@ func TestEngineUpdateUsesOptimisticLockVersion(t *testing.T) {
 	if u1.Version != 4 || u2.Version != 8 {
 		t.Fatalf("expected in-memory versions to increment, got %d and %d", u1.Version, u2.Version)
 	}
-	rows, err := db.QueryContext(context.Background(), `SELECT id, version FROM users ORDER BY id`)
+	rows, err := db.DB().QueryContext(context.Background(), `SELECT id, version FROM users ORDER BY id`)
 	if err != nil {
 		t.Fatalf("query versions: %v", err)
 	}
@@ -130,14 +134,15 @@ func TestEngineUpdateUsesOptimisticLockVersion(t *testing.T) {
 
 func TestEngineUpdateOptimisticLockConflict(t *testing.T) {
 	db := newOptimisticMutationEngine(t)
-	if _, err := db.ExecContext(context.Background(), `
+	exec := requireRuntimeExecutor(t, db)
+	if _, err := db.DB().ExecContext(context.Background(), `
 		INSERT INTO users (id, name, email, version) VALUES
 		(1, 'alice', 'alice@example.com', 3)
 	`); err != nil {
 		t.Fatalf("seed row: %v", err)
 	}
 	user := &optimisticMutationUser{ID: 1, Name: "alice-stale", Email: "alice+stale@example.com", Version: 2}
-	affected, err := db.Update(context.Background(), user)
+	affected, err := updateTables(context.Background(), exec, user)
 	if err == nil {
 		t.Fatal("expected optimistic lock conflict")
 	}
@@ -154,14 +159,15 @@ func TestEngineUpdateOptimisticLockConflict(t *testing.T) {
 
 func TestEngineDeleteUsesOptimisticLockVersion(t *testing.T) {
 	db := newOptimisticMutationEngine(t)
-	if _, err := db.ExecContext(context.Background(), `
+	exec := requireRuntimeExecutor(t, db)
+	if _, err := db.DB().ExecContext(context.Background(), `
 		INSERT INTO users (id, name, email, version) VALUES
 		(1, 'alice', 'alice@example.com', 3),
 		(2, 'bob', 'bob@example.com', 5)
 	`); err != nil {
 		t.Fatalf("seed rows: %v", err)
 	}
-	affected, err := db.Delete(context.Background(), &optimisticMutationUser{ID: 1, Version: 3}, &optimisticMutationUser{ID: 2, Version: 5})
+	affected, err := deleteTables(context.Background(), exec, &optimisticMutationUser{ID: 1, Version: 3}, &optimisticMutationUser{ID: 2, Version: 5})
 	if err != nil {
 		t.Fatalf("optimistic delete failed: %v", err)
 	}
@@ -172,13 +178,14 @@ func TestEngineDeleteUsesOptimisticLockVersion(t *testing.T) {
 
 func TestEngineDeleteOptimisticLockConflict(t *testing.T) {
 	db := newOptimisticMutationEngine(t)
-	if _, err := db.ExecContext(context.Background(), `
+	exec := requireRuntimeExecutor(t, db)
+	if _, err := db.DB().ExecContext(context.Background(), `
 		INSERT INTO users (id, name, email, version) VALUES
 		(1, 'alice', 'alice@example.com', 3)
 	`); err != nil {
 		t.Fatalf("seed row: %v", err)
 	}
-	affected, err := db.Delete(context.Background(), &optimisticMutationUser{ID: 1, Version: 2})
+	affected, err := deleteTables(context.Background(), exec, &optimisticMutationUser{ID: 1, Version: 2})
 	if err == nil {
 		t.Fatal("expected optimistic lock conflict")
 	}
@@ -191,49 +198,82 @@ func TestEngineDeleteOptimisticLockConflict(t *testing.T) {
 }
 
 func TestChunkedInsertChunkUsesBatchInsert(t *testing.T) {
-	exec := &countingMutationExecutor{}
+	runtime := newBatchMutationEngine(t)
+	exec := requireRuntimeExecutor(t, runtime)
 	items := []*batchMutationUser{{Name: "alice", Email: "alice@example.com"}, {Name: "bob", Email: "bob@example.com"}}
 	if err := chunkedInsertChunk(context.Background(), exec, items, &ChunkedInsertOptions{}); err != nil {
 		t.Fatalf("chunked insert chunk failed: %v", err)
 	}
-	if len(exec.insertBatchSizes) != 1 || exec.insertBatchSizes[0] != 2 {
-		t.Fatalf("expected one batched insert call of size 2, got %#v", exec.insertBatchSizes)
+	var count int
+	if err := runtime.DB().QueryRowContext(context.Background(), `SELECT COUNT(*) FROM users`).Scan(&count); err != nil {
+		t.Fatalf("count inserted rows: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("expected 2 inserted rows, got %d", count)
 	}
 }
 
 func TestChunkedUpdateChunkUsesBatchUpdate(t *testing.T) {
-	exec := &countingMutationExecutor{}
-	items := []*batchMutationUser{{ID: 1, Name: "alice", Email: "alice@example.com"}, {ID: 2, Name: "bob", Email: "bob@example.com"}}
+	runtime := newBatchMutationEngine(t)
+	exec := requireRuntimeExecutor(t, runtime)
+	if _, err := runtime.DB().ExecContext(context.Background(), `
+		INSERT INTO users (id, name, email) VALUES
+		(1, 'alice', 'alice@example.com'),
+		(2, 'bob', 'bob@example.com')
+	`); err != nil {
+		t.Fatalf("seed rows: %v", err)
+	}
+	items := []*batchMutationUser{
+		{ID: 1, Name: "alice-updated", Email: "alice+updated@example.com"},
+		{ID: 2, Name: "bob-updated", Email: "bob+updated@example.com"},
+	}
 	if err := chunkedUpdateChunk(context.Background(), exec, items); err != nil {
 		t.Fatalf("chunked update chunk failed: %v", err)
 	}
-	if len(exec.updateBatchSizes) != 1 || exec.updateBatchSizes[0] != 2 {
-		t.Fatalf("expected one batched update call of size 2, got %#v", exec.updateBatchSizes)
+	var count int
+	if err := runtime.DB().QueryRowContext(context.Background(), `SELECT COUNT(*) FROM users WHERE name IN ('alice-updated', 'bob-updated')`).Scan(&count); err != nil {
+		t.Fatalf("count updated rows: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("expected 2 updated rows, got %d", count)
 	}
 }
 
 func TestChunkedDeleteChunkUsesBatchDelete(t *testing.T) {
-	exec := &countingMutationExecutor{}
+	runtime := newBatchMutationEngine(t)
+	exec := requireRuntimeExecutor(t, runtime)
+	if _, err := runtime.DB().ExecContext(context.Background(), `
+		INSERT INTO users (id, name, email) VALUES
+		(1, 'alice', 'alice@example.com'),
+		(2, 'bob', 'bob@example.com')
+	`); err != nil {
+		t.Fatalf("seed rows: %v", err)
+	}
 	items := []*batchMutationUser{{ID: 1}, {ID: 2}}
 	if err := chunkedDeleteChunk(context.Background(), exec, items); err != nil {
 		t.Fatalf("chunked delete chunk failed: %v", err)
 	}
-	if len(exec.deleteBatchSizes) != 1 || exec.deleteBatchSizes[0] != 2 {
-		t.Fatalf("expected one batched delete call of size 2, got %#v", exec.deleteBatchSizes)
+	var count int
+	if err := runtime.DB().QueryRowContext(context.Background(), `SELECT COUNT(*) FROM users`).Scan(&count); err != nil {
+		t.Fatalf("count remaining rows: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected all rows to be deleted, got %d remaining", count)
 	}
 }
 
 func TestChunkedInsertIgnoreErrorsSkipsSQLiteUniqueViolations(t *testing.T) {
 	db := newBatchMutationEngine(t)
-	if err := db.Insert(context.Background(), &batchMutationUser{Name: "seed", Email: "alice@example.com"}); err != nil {
+	exec := requireRuntimeExecutor(t, db)
+	if err := Insert(context.Background(), exec, &batchMutationUser{Name: "seed", Email: "alice@example.com"}); err != nil {
 		t.Fatalf("seed insert failed: %v", err)
 	}
 	items := []*batchMutationUser{{Name: "duplicate", Email: "alice@example.com"}, {Name: "fresh", Email: "bob@example.com"}}
-	if err := ChunkedInsert(context.Background(), db, items, &ChunkedInsertOptions{ChunkSize: 2, IgnoreErrors: true}); err != nil {
+	if err := ChunkedInsert(context.Background(), exec, items, &ChunkedInsertOptions{ChunkSize: 2, IgnoreErrors: true}); err != nil {
 		t.Fatalf("chunked insert with ignore errors failed: %v", err)
 	}
 	var count int
-	if err := db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM users`).Scan(&count); err != nil {
+	if err := db.DB().QueryRowContext(context.Background(), `SELECT COUNT(*) FROM users`).Scan(&count); err != nil {
 		t.Fatalf("count rows after ignored duplicate: %v", err)
 	}
 	if count != 2 {

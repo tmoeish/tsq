@@ -1,4 +1,4 @@
-package tsq
+package dialect
 
 import (
 	"context"
@@ -9,71 +9,56 @@ import (
 	"strings"
 )
 
-// PostgresDialect is the PostgreSQL dialect implementation.
 type PostgresDialect struct{}
 
-// Name returns DialectPostgres.
 func (d PostgresDialect) Name() DialectName {
 	return DialectPostgres
 }
 
-// QuoteField quotes an identifier for PostgreSQL.
 func (d PostgresDialect) QuoteField(f string) string {
 	return `"` + f + `"`
 }
 
-// BindVar returns PostgreSQL's placeholder at position i.
 func (d PostgresDialect) BindVar(i int) string {
-	// PostgreSQL uses $1, $2, etc for bind variables (1-indexed)
 	return "$" + strconv.Itoa(i+1)
 }
 
-// CreateTableSuffix returns the PostgreSQL CREATE TABLE suffix.
 func (d PostgresDialect) CreateTableSuffix() string {
 	return ";"
 }
 
-// CreateIndexSuffix returns the PostgreSQL CREATE INDEX suffix.
 func (d PostgresDialect) CreateIndexSuffix() string {
 	return ""
 }
 
-// DropIndexSuffix returns the PostgreSQL DROP INDEX suffix.
 func (d PostgresDialect) DropIndexSuffix() string {
 	return ""
 }
 
-// TruncateClause returns the PostgreSQL TRUNCATE clause.
 func (d PostgresDialect) TruncateClause() string {
 	return "TRUNCATE TABLE"
 }
 
-// AutoIncrementClause returns the PostgreSQL auto-increment clause.
 func (d PostgresDialect) AutoIncrementClause() string {
 	return ""
 }
 
-// AutoIncrementBindValue returns the PostgreSQL auto-increment bind value.
 func (d PostgresDialect) AutoIncrementBindValue() string {
 	return "DEFAULT"
 }
 
-// LastInsertIdReturningSuffix returns the PostgreSQL returning suffix for last insert id.
 func (d PostgresDialect) LastInsertIdReturningSuffix(table, col string) string {
 	return " RETURNING " + d.QuoteField(col)
 }
 
-// AllTablesQuery returns the PostgreSQL query used to list all tables.
 func (d PostgresDialect) AllTablesQuery() string {
 	return "SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema()"
 }
 
-// CreateTableIfNotExistsSuffix returns PostgreSQL's IF NOT EXISTS fragment.
 func (d PostgresDialect) CreateTableIfNotExistsSuffix() string {
 	return "IF NOT EXISTS"
 }
 
-// HasConstraintsQuery returns the PostgreSQL query used to inspect column constraints.
 func (d PostgresDialect) HasConstraintsQuery(table, column string) string {
 	return `
 		SELECT constraint_name
@@ -83,12 +68,10 @@ func (d PostgresDialect) HasConstraintsQuery(table, column string) string {
 			AND column_name = $2`
 }
 
-// ValidateIdentifier applies PostgreSQL's identifier validation rules.
 func (d PostgresDialect) ValidateIdentifier(identifier string) error {
 	return validateDialectIdentifier(identifier, d.Name(), maxIdentifierLengthPostgreSQL)
 }
 
-// SupportsCapability reports whether PostgreSQL supports capability.
 func (d PostgresDialect) SupportsCapability(capability DialectCapability) bool {
 	switch canonicalCapabilityName(string(capability)) {
 	case DialectCapabilityCTE,
@@ -105,13 +88,11 @@ func (d PostgresDialect) SupportsCapability(capability DialectCapability) bool {
 	}
 }
 
-// BatchInsertStartID reports PostgreSQL's inability to derive a batch insert start id.
 func (d PostgresDialect) BatchInsertStartID(lastID, rowsAffected int64) (int64, bool) {
 	return 0, false
 }
 
-// EnsureIndex creates or updates an index definition for PostgreSQL.
-func (d PostgresDialect) EnsureIndex(ctx context.Context, db SQLExecutor, table string, unique bool, idx string, fields []string) (string, error) {
+func (d PostgresDialect) EnsureIndex(ctx context.Context, db Executor, table string, unique bool, idx string, fields []string) (string, error) {
 	quotedFields, err := quoteDialectIdentifiers(d, fields)
 	if err != nil {
 		return "", err
@@ -139,7 +120,6 @@ func (d PostgresDialect) EnsureIndex(ctx context.Context, db SQLExecutor, table 
 
 	_, err = db.ExecContext(ctx, query)
 	if err != nil {
-		// Check if it's already created and matches
 		definition, found, inspectErr := d.InspectIndexDefinition(ctx, db, table, idx)
 		if inspectErr == nil && found && validateIndexDefinition(table, unique, idx, fields, definition) == nil {
 			return "", nil
@@ -151,8 +131,7 @@ func (d PostgresDialect) EnsureIndex(ctx context.Context, db SQLExecutor, table 
 	return query, nil
 }
 
-// InspectIndexDefinition reads back an existing PostgreSQL index definition.
-func (d PostgresDialect) InspectIndexDefinition(ctx context.Context, db SQLExecutor, table, idx string) (IndexDefinition, bool, error) {
+func (d PostgresDialect) InspectIndexDefinition(ctx context.Context, db Executor, table, idx string) (IndexDefinition, bool, error) {
 	type row struct {
 		Table   string         `db:"table_name"`
 		Unique  bool           `db:"is_unique"`
@@ -192,7 +171,6 @@ func (d PostgresDialect) InspectIndexDefinition(ctx context.Context, db SQLExecu
 	}, true, nil
 }
 
-// DDLColumnType renders a PostgreSQL column type for desc.
 func (d PostgresDialect) DDLColumnType(desc DDLColumnType) string {
 	switch desc.Kind {
 	case DDLColumnKindBool:
@@ -227,7 +205,6 @@ func (d PostgresDialect) DDLColumnType(desc DDLColumnType) string {
 	}
 }
 
-// DDLAutoIncrementPrimaryKey renders a PostgreSQL auto-increment primary key column.
 func (d PostgresDialect) DDLAutoIncrementPrimaryKey(quotedColumn string, desc DDLColumnType) (string, error) {
 	if desc.Kind != DDLColumnKindInt {
 		return "", errors.New("auto-increment primary key requires an integer field")
@@ -236,7 +213,6 @@ func (d PostgresDialect) DDLAutoIncrementPrimaryKey(quotedColumn string, desc DD
 	return quotedColumn + " " + ddlSerialType(desc), nil
 }
 
-// DDLCreateIndex renders a PostgreSQL CREATE INDEX statement.
 func (d PostgresDialect) DDLCreateIndex(table, idx string, fields []string, unique bool) string {
 	uniqueClause := ""
 	if unique {
@@ -253,17 +229,14 @@ func (d PostgresDialect) DDLCreateIndex(table, idx string, fields []string, uniq
 	)
 }
 
-// DDLDropIndex renders a PostgreSQL DROP INDEX statement.
 func (d PostgresDialect) DDLDropIndex(table, idx string) string {
 	return fmt.Sprintf("DROP INDEX %s;", d.QuoteField(idx))
 }
 
-// DDLAlterColumnMode reports that PostgreSQL alters columns in place.
 func (d PostgresDialect) DDLAlterColumnMode() DDLAlterColumnMode {
 	return DDLAlterColumnDirect
 }
 
-// DDLAlterColumnStatements returns PostgreSQL ALTER COLUMN statements for the change.
 func (d PostgresDialect) DDLAlterColumnStatements(table string, before, after DDLColumnSpec) []string {
 	statements := make([]string, 0, 3)
 	quotedTable := d.QuoteField(table)

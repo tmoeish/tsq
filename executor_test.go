@@ -3,7 +3,6 @@ package tsq
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"strings"
 	"testing"
 
@@ -98,7 +97,24 @@ func optimisticMutationUserColumns() []BoundColumn[optimisticMutationUser] {
 	})}
 }
 
-func newBatchMutationEngine(t *testing.T) *Engine {
+func newRuntimeWithDB(db *sql.DB, dialect Dialect) *Runtime {
+	runtime := NewRuntime()
+	runtime.engine = newEngine(db, dialect)
+	return runtime
+}
+
+func requireRuntimeExecutor(t *testing.T, runtime *Runtime) SQLExecutor {
+	t.Helper()
+
+	exec := runtime.Executor()
+	if exec == nil {
+		t.Fatal("expected runtime executor to be initialized")
+	}
+
+	return exec
+}
+
+func newBatchMutationEngine(t *testing.T) *Runtime {
 	t.Helper()
 	db, err := sql.Open("sqlite3", ":memory:")
 	if err != nil {
@@ -114,10 +130,10 @@ func newBatchMutationEngine(t *testing.T) *Engine {
 	)`); err != nil {
 		t.Fatalf("create users table: %v", err)
 	}
-	return &Engine{DB: db, Dialect: SQLiteDialect{}}
+	return newRuntimeWithDB(db, SQLiteDialect{})
 }
 
-func newOptimisticMutationEngine(t *testing.T) *Engine {
+func newOptimisticMutationEngine(t *testing.T) *Runtime {
 	t.Helper()
 	db, err := sql.Open("sqlite3", ":memory:")
 	if err != nil {
@@ -134,35 +150,15 @@ func newOptimisticMutationEngine(t *testing.T) *Engine {
 	)`); err != nil {
 		t.Fatalf("create users table: %v", err)
 	}
-	return &Engine{DB: db, Dialect: SQLiteDialect{}}
-}
-
-type countingMutationExecutor struct {
-	insertBatchSizes []int
-	updateBatchSizes []int
-	deleteBatchSizes []int
-}
-
-func (c *countingMutationExecutor) Insert(_ context.Context, dst ...Table) error {
-	c.insertBatchSizes = append(c.insertBatchSizes, len(dst))
-	return nil
-}
-
-func (c *countingMutationExecutor) Update(_ context.Context, dst ...Table) (int64, error) {
-	c.updateBatchSizes = append(c.updateBatchSizes, len(dst))
-	return int64(len(dst)), nil
-}
-
-func (c *countingMutationExecutor) Delete(_ context.Context, dst ...Table) (int64, error) {
-	c.deleteBatchSizes = append(c.deleteBatchSizes, len(dst))
-	return int64(len(dst)), nil
+	return newRuntimeWithDB(db, SQLiteDialect{})
 }
 
 func TestEngineQueryUsesContext(t *testing.T) {
 	db := newBatchMutationEngine(t)
+	exec := requireRuntimeExecutor(t, db)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := db.QueryContext(ctx, `SELECT id FROM users`)
+	_, err := exec.QueryContext(ctx, `SELECT id FROM users`)
 	if err == nil {
 		t.Fatal("expected canceled context to fail query")
 	}
@@ -173,9 +169,10 @@ func TestEngineQueryUsesContext(t *testing.T) {
 
 func TestEngineExecUsesContext(t *testing.T) {
 	db := newBatchMutationEngine(t)
+	exec := requireRuntimeExecutor(t, db)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := db.ExecContext(ctx, `INSERT INTO users (name, email) VALUES ('alice', 'alice@example.com')`)
+	_, err := exec.ExecContext(ctx, `INSERT INTO users (name, email) VALUES ('alice', 'alice@example.com')`)
 	if err == nil {
 		t.Fatal("expected canceled context to fail exec")
 	}
@@ -184,27 +181,16 @@ func TestEngineExecUsesContext(t *testing.T) {
 	}
 }
 
-func TestEngineQueryContextRejectsMissingDatabase(t *testing.T) {
-	db := &Engine{}
-	_, err := db.QueryContext(context.Background(), `SELECT 1`)
-	if !errors.Is(err, errEngineDatabaseNil) {
-		t.Fatalf("expected errEngineDatabaseNil, got %v", err)
+func TestRuntimeExecutorIsNilBeforeInit(t *testing.T) {
+	db := &Runtime{}
+	if exec := db.Executor(); exec != nil {
+		t.Fatalf("expected nil executor before Init, got %#v", exec)
 	}
 }
 
-func TestEngineExecContextRejectsMissingDatabase(t *testing.T) {
-	db := &Engine{}
-	_, err := db.ExecContext(context.Background(), `SELECT 1`)
-	if !errors.Is(err, errEngineDatabaseNil) {
-		t.Fatalf("expected errEngineDatabaseNil, got %v", err)
-	}
-}
-
-func TestEngineQueryRowContextRejectsMissingDatabase(t *testing.T) {
-	db := &Engine{}
-	var count int
-	err := db.QueryRowContext(context.Background(), `SELECT 1`).Scan(&count)
-	if !errors.Is(err, errEngineDatabaseNil) {
-		t.Fatalf("expected errEngineDatabaseNil, got %v", err)
+func TestNilRuntimeExecutorIsNil(t *testing.T) {
+	var db *Runtime
+	if exec := db.Executor(); exec != nil {
+		t.Fatalf("expected nil executor for nil runtime, got %#v", exec)
 	}
 }

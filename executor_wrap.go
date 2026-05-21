@@ -1,25 +1,26 @@
 package tsq
 
+import "github.com/tmoeish/tsq/v4/dialect"
+
 // wrappedExecutor wraps a standard SQL executor with dialect information.
 type wrappedExecutor struct {
 	SQLExecutor
-	dialect Dialect
+	dialect dialect.Dialect
 }
 
-// TSQDialect exposes the wrapped executor's dialect to renderer helpers.
-func (w wrappedExecutor) TSQDialect() Dialect {
+func (w wrappedExecutor) tsqDialect() dialect.Dialect {
 	return w.dialect
 }
 
 // WrapExecutor wraps a SQLExecutor with dialect information.
-func WrapExecutor(exec SQLExecutor, dialect Dialect) SQLExecutor {
+func WrapExecutor(exec SQLExecutor, sqlDialect dialect.Dialect) SQLExecutor {
 	if exec == nil {
 		return nil
 	}
 
-	if provider, ok := exec.(dialectProvider); ok && provider.TSQDialect() == dialect {
+	if provider, ok := exec.(dialectProvider); ok && provider.tsqDialect() == sqlDialect {
 		return exec
 	}
 
-	return wrappedExecutor{SQLExecutor: exec, dialect: dialect}
+	return wrappedExecutor{SQLExecutor: exec, dialect: sqlDialect}
 }

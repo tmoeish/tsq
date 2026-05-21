@@ -9,31 +9,6 @@ import (
 	"strings"
 )
 
-type mutationExecutor interface {
-	Insert(ctx context.Context, dst ...Table) error
-	Update(ctx context.Context, dst ...Table) (int64, error)
-	Delete(ctx context.Context, dst ...Table) (int64, error)
-}
-
-type sqlMutationExecutor struct {
-	exec SQLExecutor
-}
-
-// Insert inserts dst using the wrapped SQL executor.
-func (m sqlMutationExecutor) Insert(ctx context.Context, dst ...Table) error {
-	return insertTables(ctx, m.exec, dst...)
-}
-
-// Update updates dst using the wrapped SQL executor.
-func (m sqlMutationExecutor) Update(ctx context.Context, dst ...Table) (int64, error) {
-	return updateTables(ctx, m.exec, dst...)
-}
-
-// Delete deletes dst using the wrapped SQL executor.
-func (m sqlMutationExecutor) Delete(ctx context.Context, dst ...Table) (int64, error) {
-	return deleteTables(ctx, m.exec, dst...)
-}
-
 type mutationField struct {
 	column string
 	value  reflect.Value
@@ -45,21 +20,6 @@ type mutationRecord struct {
 	pkField      mutationField
 	versionField mutationField
 	autoIncr     bool
-}
-
-// Insert inserts objects into the database.
-func (e *Engine) Insert(ctx context.Context, dst ...Table) error {
-	return insertTables(ctx, e, dst...)
-}
-
-// Update updates objects in the database.
-func (e *Engine) Update(ctx context.Context, dst ...Table) (int64, error) {
-	return updateTables(ctx, e, dst...)
-}
-
-// Delete deletes objects from the database.
-func (e *Engine) Delete(ctx context.Context, dst ...Table) (int64, error) {
-	return deleteTables(ctx, e, dst...)
 }
 
 func insertTables(ctx context.Context, exec SQLExecutor, dst ...Table) error {

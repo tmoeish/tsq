@@ -13,10 +13,6 @@ type (
 func (queryBuilderCaseRow) TSQOwner() {
 }
 
-func (m mockTable) Init(db *Engine) error {
-	return nil
-}
-
 func (m mockTable) TSQOwner() {
 }
 

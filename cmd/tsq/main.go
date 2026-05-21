@@ -7,8 +7,8 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
-	"github.com/tmoeish/tsq/v4"
 	"github.com/tmoeish/tsq/v4/cmd"
+	"github.com/tmoeish/tsq/v4/internal/buildinfo"
 )
 
 var rootCmd = &cobra.Command{
@@ -18,7 +18,7 @@ var rootCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		_ = cmd.Usage()
 	},
-	Version:       tsq.GetVersion(),
+	Version:       buildinfo.Version(),
 	SilenceErrors: true,
 	SilenceUsage:  true,
 }

@@ -71,7 +71,7 @@ func (q *Query[O]) QueryInt(
 	tx SQLExecutor,
 	args ...any,
 ) (int64, error) {
-	return Trace1(ctx, func(ctx context.Context) (int64, error) {
+	return trace1(ctx, func(ctx context.Context) (int64, error) {
 		return q.queryInt(ctx, tx, args...)
 	})
 }
@@ -100,7 +100,7 @@ func (q *Query[O]) QueryFloat(
 	tx SQLExecutor,
 	args ...any,
 ) (float64, error) {
-	return Trace1(ctx, func(ctx context.Context) (float64, error) {
+	return trace1(ctx, func(ctx context.Context) (float64, error) {
 		return q.queryFloat(ctx, tx, args...)
 	})
 }
@@ -129,7 +129,7 @@ func (q *Query[O]) QueryString(
 	tx SQLExecutor,
 	args ...any,
 ) (string, error) {
-	return Trace1(ctx, func(ctx context.Context) (string, error) {
+	return trace1(ctx, func(ctx context.Context) (string, error) {
 		return q.queryStr(ctx, tx, args...)
 	})
 }
@@ -159,7 +159,7 @@ func (q *Query[O]) Count(
 	tx SQLExecutor,
 	args ...any,
 ) (int, error) {
-	return Trace1(ctx, func(ctx context.Context) (int, error) {
+	return trace1(ctx, func(ctx context.Context) (int, error) {
 		return q.count(ctx, tx, args...)
 	})
 }
@@ -171,7 +171,7 @@ func (q *Query[O]) Count64(
 	tx SQLExecutor,
 	args ...any,
 ) (int64, error) {
-	return Trace1(ctx, func(ctx context.Context) (int64, error) {
+	return trace1(ctx, func(ctx context.Context) (int64, error) {
 		return q.count64(ctx, tx, args...)
 	})
 }
@@ -223,7 +223,7 @@ func (q *Query[O]) Exists(
 	tx SQLExecutor,
 	args ...any,
 ) (bool, error) {
-	return Trace1(ctx, func(ctx context.Context) (bool, error) {
+	return trace1(ctx, func(ctx context.Context) (bool, error) {
 		return q.exist(ctx, tx, args...)
 	})
 }

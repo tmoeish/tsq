@@ -46,7 +46,7 @@ func ChunkedInsert[T Table](
 	items []T,
 	options ...*ChunkedInsertOptions,
 ) error {
-	return Trace(ctx, func(ctx context.Context) error {
+	return trace(ctx, func(ctx context.Context) error {
 		return chunkedInsertFn(ctx, tx, items, options...)
 	})
 }
@@ -74,7 +74,7 @@ func chunkedInsertFn[T Table](
 		end := min(i+opts.ChunkSize, len(items))
 
 		batch := items[i:end]
-		if err := chunkedInsertChunk(ctx, sqlMutationExecutor{exec: tx}, batch, opts); err != nil {
+		if err := chunkedInsertChunk(ctx, tx, batch, opts); err != nil {
 			return fmt.Errorf("chunked insert failed at index %d"+": %w", i, err)
 		}
 	}
@@ -84,7 +84,7 @@ func chunkedInsertFn[T Table](
 
 func chunkedInsertChunk[T Table](
 	ctx context.Context,
-	tx mutationExecutor,
+	tx SQLExecutor,
 	items []T,
 	opts *ChunkedInsertOptions,
 ) error {
@@ -103,7 +103,7 @@ func chunkedInsertChunk[T Table](
 
 	if opts.IgnoreErrors {
 		for itemIdx, item := range batch {
-			if err := tx.Insert(ctx, item); err != nil {
+			if err := insertTables(ctx, tx, item); err != nil {
 				if isDuplicateKeyError(err) {
 					slog.Debug("Ignored duplicate key error in batch insert", "error", err)
 					continue
@@ -116,7 +116,7 @@ func chunkedInsertChunk[T Table](
 		return nil
 	}
 
-	if err := tx.Insert(ctx, batch...); err != nil {
+	if err := insertTables(ctx, tx, batch...); err != nil {
 		return fmt.Errorf("%s: %w", "chunked insert batch failed", err)
 	}
 
@@ -135,7 +135,7 @@ func ChunkedUpdate[T Table](
 	items []T,
 	options ...*ChunkedOptions,
 ) error {
-	return Trace(ctx, func(ctx context.Context) error {
+	return trace(ctx, func(ctx context.Context) error {
 		return chunkedUpdateFn(ctx, tx, items, options...)
 	})
 }
@@ -163,7 +163,7 @@ func chunkedUpdateFn[T Table](
 		end := min(i+opts.ChunkSize, len(items))
 
 		batch := items[i:end]
-		if err := chunkedUpdateChunk(ctx, sqlMutationExecutor{exec: tx}, batch); err != nil {
+		if err := chunkedUpdateChunk(ctx, tx, batch); err != nil {
 			return fmt.Errorf("chunked update failed at index %d"+": %w", i, err)
 		}
 	}
@@ -173,7 +173,7 @@ func chunkedUpdateFn[T Table](
 
 func chunkedUpdateChunk[T Table](
 	ctx context.Context,
-	tx mutationExecutor,
+	tx SQLExecutor,
 	items []T,
 ) error {
 	batch := make([]Table, 0, len(items))
@@ -189,7 +189,7 @@ func chunkedUpdateChunk[T Table](
 		return nil
 	}
 
-	if _, err := tx.Update(ctx, batch...); err != nil {
+	if _, err := updateTables(ctx, tx, batch...); err != nil {
 		return fmt.Errorf("%s: %w", "chunked update batch failed", err)
 	}
 
@@ -208,7 +208,7 @@ func ChunkedDelete[T Table](
 	items []T,
 	options ...*ChunkedOptions,
 ) error {
-	return Trace(ctx, func(ctx context.Context) error {
+	return trace(ctx, func(ctx context.Context) error {
 		return chunkedDeleteFn(ctx, tx, items, options...)
 	})
 }
@@ -236,7 +236,7 @@ func chunkedDeleteFn[T Table](
 		end := min(i+opts.ChunkSize, len(items))
 
 		batch := items[i:end]
-		if err := chunkedDeleteChunk(ctx, sqlMutationExecutor{exec: tx}, batch); err != nil {
+		if err := chunkedDeleteChunk(ctx, tx, batch); err != nil {
 			return fmt.Errorf("chunked delete failed at index %d"+": %w", i, err)
 		}
 	}
@@ -246,7 +246,7 @@ func chunkedDeleteFn[T Table](
 
 func chunkedDeleteChunk[T Table](
 	ctx context.Context,
-	tx mutationExecutor,
+	tx SQLExecutor,
 	items []T,
 ) error {
 	batch := make([]Table, 0, len(items))
@@ -262,7 +262,7 @@ func chunkedDeleteChunk[T Table](
 		return nil
 	}
 
-	if _, err := tx.Delete(ctx, batch...); err != nil {
+	if _, err := deleteTables(ctx, tx, batch...); err != nil {
 		return fmt.Errorf("%s: %w", "chunked delete batch failed", err)
 	}
 
@@ -283,7 +283,7 @@ func ChunkedDeleteByIDs(
 	ids []any,
 	options ...*ChunkedOptions,
 ) error {
-	return Trace(ctx, func(ctx context.Context) error {
+	return trace(ctx, func(ctx context.Context) error {
 		return chunkedDeleteByIDsFn(ctx, tx, tableName, idColumn, ids, options...)
 	})
 }
@@ -394,7 +394,7 @@ func Insert[T Table](
 	tx SQLExecutor,
 	item T,
 ) error {
-	return Trace(ctx, func(ctx context.Context) error {
+	return trace(ctx, func(ctx context.Context) error {
 		return insertFn(ctx, tx, item)
 	})
 }
@@ -421,7 +421,7 @@ func Update[T Table](
 	tx SQLExecutor,
 	item T,
 ) error {
-	return Trace(ctx, func(ctx context.Context) error {
+	return trace(ctx, func(ctx context.Context) error {
 		return updateFn(ctx, tx, item)
 	})
 }
@@ -450,7 +450,7 @@ func Delete[T Table](
 	tx SQLExecutor,
 	item T,
 ) error {
-	return Trace(ctx, func(ctx context.Context) error {
+	return trace(ctx, func(ctx context.Context) error {
 		return deleteFn(ctx, tx, item)
 	})
 }

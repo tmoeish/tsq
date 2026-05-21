@@ -17,7 +17,8 @@ import (
 
 	"golang.org/x/tools/go/packages"
 
-	"github.com/tmoeish/tsq/v4"
+	tsqdialect "github.com/tmoeish/tsq/v4/dialect"
+	"github.com/tmoeish/tsq/v4/internal/buildinfo"
 	"github.com/tmoeish/tsq/v4/internal/genmodel"
 )
 
@@ -36,7 +37,7 @@ type ddlArtifacts struct {
 }
 
 type ddlDialectSpec struct {
-	dialect tsq.Dialect
+	dialect tsqdialect.Dialect
 }
 
 type ddlTypeResolver struct {
@@ -63,9 +64,9 @@ type ddlColumnDescriptor struct {
 }
 
 var ddlDialects = []ddlDialectSpec{
-	{dialect: tsq.SQLiteDialect{}},
-	{dialect: tsq.MySQLDialect{}},
-	{dialect: tsq.PostgresDialect{}},
+	{dialect: tsqdialect.SQLiteDialect{}},
+	{dialect: tsqdialect.MySQLDialect{}},
+	{dialect: tsqdialect.PostgresDialect{}},
 }
 
 func buildDDLArtifacts(packagePath string, list []*genmodel.StructInfo, outDir string) (ddlArtifacts, error) {
@@ -95,7 +96,7 @@ func buildDDLArtifacts(packagePath string, list []*genmodel.StructInfo, outDir s
 		return ddlArtifacts{}, err
 	}
 
-	version := stableVersion(tsq.GetVersion())
+	version := stableVersion(buildinfo.Version())
 
 	currentSnapshot, err := buildCurrentDDLSnapshot(tables, resolver)
 	if err != nil {
@@ -295,7 +296,7 @@ func renderDDLColumnDefinition(
 ) (string, error) {
 	return renderDDLColumnSpec(
 		dialect.dialect,
-		tsq.DDLColumnSpec{
+		tsqdialect.DDLColumnSpec{
 			Name:          field.Column,
 			Type:          toTSQDDLColumnType(desc),
 			PrimaryKey:    field.Name == table.PK,
@@ -423,9 +424,9 @@ func ddlDialectName(dialect ddlDialectSpec) string {
 	return string(dialect.dialect.Name())
 }
 
-func toTSQDDLColumnType(desc ddlColumnDescriptor) tsq.DDLColumnType {
-	return tsq.DDLColumnType{
-		Kind:     tsq.DDLColumnKind(desc.kind),
+func toTSQDDLColumnType(desc ddlColumnDescriptor) tsqdialect.DDLColumnType {
+	return tsqdialect.DDLColumnType{
+		Kind:     tsqdialect.DDLColumnKind(desc.kind),
 		Bits:     desc.bits,
 		Unsigned: desc.unsigned,
 		Nullable: desc.nullable,
@@ -433,11 +434,11 @@ func toTSQDDLColumnType(desc ddlColumnDescriptor) tsq.DDLColumnType {
 	}
 }
 
-func ddlColumnSpecFromSnapshot(column ddlSnapshotColumn) tsq.DDLColumnSpec {
-	return tsq.DDLColumnSpec{
+func ddlColumnSpecFromSnapshot(column ddlSnapshotColumn) tsqdialect.DDLColumnSpec {
+	return tsqdialect.DDLColumnSpec{
 		Name: column.Name,
-		Type: tsq.DDLColumnType{
-			Kind:     tsq.DDLColumnKind(column.Kind),
+		Type: tsqdialect.DDLColumnType{
+			Kind:     tsqdialect.DDLColumnKind(column.Kind),
 			Bits:     column.Bits,
 			Unsigned: column.Unsigned,
 			Nullable: column.Nullable,
@@ -449,7 +450,7 @@ func ddlColumnSpecFromSnapshot(column ddlSnapshotColumn) tsq.DDLColumnSpec {
 	}
 }
 
-func renderDDLColumnSpec(dialect tsq.Dialect, column tsq.DDLColumnSpec) (string, error) {
+func renderDDLColumnSpec(dialect tsqdialect.Dialect, column tsqdialect.DDLColumnSpec) (string, error) {
 	quotedColumn := dialect.QuoteField(column.Name)
 	if column.PrimaryKey && column.AutoIncrement {
 		return dialect.DDLAutoIncrementPrimaryKey(quotedColumn, column.Type)

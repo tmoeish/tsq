@@ -1,4 +1,4 @@
-package tsq
+package dialect
 
 import (
 	"context"
@@ -8,80 +8,64 @@ import (
 	"strings"
 )
 
-// MySQLDialect is the MySQL dialect implementation.
 type MySQLDialect struct{}
 
-// Name returns DialectMySQL.
 func (d MySQLDialect) Name() DialectName {
 	return DialectMySQL
 }
 
-// QuoteField quotes an identifier for MySQL.
 func (d MySQLDialect) QuoteField(f string) string {
 	return "`" + f + "`"
 }
 
-// BindVar returns MySQL's placeholder at position i.
 func (d MySQLDialect) BindVar(i int) string {
 	return "?"
 }
 
-// CreateTableSuffix returns the MySQL CREATE TABLE suffix.
 func (d MySQLDialect) CreateTableSuffix() string {
 	return ";"
 }
 
-// CreateIndexSuffix returns the MySQL CREATE INDEX suffix.
 func (d MySQLDialect) CreateIndexSuffix() string {
 	return ""
 }
 
-// DropIndexSuffix returns the MySQL DROP INDEX suffix.
 func (d MySQLDialect) DropIndexSuffix() string {
 	return ""
 }
 
-// TruncateClause returns the MySQL TRUNCATE clause.
 func (d MySQLDialect) TruncateClause() string {
 	return "TRUNCATE TABLE"
 }
 
-// AutoIncrementClause returns the MySQL AUTO_INCREMENT clause.
 func (d MySQLDialect) AutoIncrementClause() string {
 	return "AUTO_INCREMENT"
 }
 
-// AutoIncrementBindValue returns the MySQL AUTO_INCREMENT bind value.
 func (d MySQLDialect) AutoIncrementBindValue() string {
 	return "0"
 }
 
-// LastInsertIdReturningSuffix returns MySQL's empty returning suffix.
 func (d MySQLDialect) LastInsertIdReturningSuffix(table, col string) string {
 	return ""
 }
 
-// AllTablesQuery returns the MySQL query used to list all tables.
 func (d MySQLDialect) AllTablesQuery() string {
 	return "SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE()"
 }
 
-// CreateTableIfNotExistsSuffix returns MySQL's IF NOT EXISTS fragment.
 func (d MySQLDialect) CreateTableIfNotExistsSuffix() string {
 	return "IF NOT EXISTS"
 }
 
-// HasConstraintsQuery returns the MySQL query used to inspect column constraints.
 func (d MySQLDialect) HasConstraintsQuery(table, column string) string {
 	return ""
 }
 
-// ValidateIdentifier applies MySQL's identifier validation rules.
 func (d MySQLDialect) ValidateIdentifier(identifier string) error {
 	return validateDialectIdentifier(identifier, d.Name(), maxIdentifierLengthMySQL)
 }
 
-// SupportsCapability reports whether MySQL supports capability.
 func (d MySQLDialect) SupportsCapability(capability DialectCapability) bool {
 	switch canonicalCapabilityName(string(capability)) {
 	case DialectCapabilityCTE, DialectCapabilityExcept, DialectCapabilityFullOuterJoin, DialectCapabilityIntersect:
@@ -96,7 +80,6 @@ func (d MySQLDialect) SupportsCapability(capability DialectCapability) bool {
 	}
 }
 
-// BatchInsertStartID derives the first id assigned by a MySQL batch insert when possible.
 func (d MySQLDialect) BatchInsertStartID(lastID, rowsAffected int64) (int64, bool) {
 	if rowsAffected <= 0 {
 		return 0, false
@@ -105,8 +88,7 @@ func (d MySQLDialect) BatchInsertStartID(lastID, rowsAffected int64) (int64, boo
 	return lastID, true
 }
 
-// EnsureIndex creates or updates an index definition for MySQL.
-func (d MySQLDialect) EnsureIndex(ctx context.Context, db SQLExecutor, table string, unique bool, idx string, fields []string) (string, error) {
+func (d MySQLDialect) EnsureIndex(ctx context.Context, db Executor, table string, unique bool, idx string, fields []string) (string, error) {
 	quotedFields, err := quoteDialectIdentifiers(d, fields)
 	if err != nil {
 		return "", err
@@ -134,7 +116,6 @@ func (d MySQLDialect) EnsureIndex(ctx context.Context, db SQLExecutor, table str
 
 	_, err = db.ExecContext(ctx, query)
 	if err != nil {
-		// Check if it's already created and matches
 		definition, found, inspectErr := d.InspectIndexDefinition(ctx, db, table, idx)
 		if inspectErr == nil && found && validateIndexDefinition(table, unique, idx, fields, definition) == nil {
 			return "", nil
@@ -146,8 +127,7 @@ func (d MySQLDialect) EnsureIndex(ctx context.Context, db SQLExecutor, table str
 	return query, nil
 }
 
-// InspectIndexDefinition reads back an existing MySQL index definition.
-func (d MySQLDialect) InspectIndexDefinition(ctx context.Context, db SQLExecutor, table, idx string) (IndexDefinition, bool, error) {
+func (d MySQLDialect) InspectIndexDefinition(ctx context.Context, db Executor, table, idx string) (IndexDefinition, bool, error) {
 	type row struct {
 		Table   string         `db:"table_name"`
 		Unique  int            `db:"is_unique"`
@@ -184,7 +164,6 @@ func (d MySQLDialect) InspectIndexDefinition(ctx context.Context, db SQLExecutor
 	}, true, nil
 }
 
-// DDLColumnType renders a MySQL column type for desc.
 func (d MySQLDialect) DDLColumnType(desc DDLColumnType) string {
 	switch desc.Kind {
 	case DDLColumnKindBool:
@@ -238,7 +217,6 @@ func (d MySQLDialect) DDLColumnType(desc DDLColumnType) string {
 	}
 }
 
-// DDLAutoIncrementPrimaryKey renders a MySQL auto-increment primary key column.
 func (d MySQLDialect) DDLAutoIncrementPrimaryKey(quotedColumn string, desc DDLColumnType) (string, error) {
 	if desc.Kind != DDLColumnKindInt {
 		return "", errors.New("auto-increment primary key requires an integer field")
@@ -252,7 +230,6 @@ func (d MySQLDialect) DDLAutoIncrementPrimaryKey(quotedColumn string, desc DDLCo
 	}, " "), nil
 }
 
-// DDLCreateIndex renders a MySQL CREATE INDEX statement.
 func (d MySQLDialect) DDLCreateIndex(table, idx string, fields []string, unique bool) string {
 	uniqueClause := ""
 	if unique {
@@ -269,7 +246,6 @@ func (d MySQLDialect) DDLCreateIndex(table, idx string, fields []string, unique 
 	)
 }
 
-// DDLDropIndex renders the MySQL statements needed to drop idx.
 func (d MySQLDialect) DDLDropIndex(table, idx string) string {
 	return fmt.Sprintf(
 		"DROP INDEX %s ON %s;",
@@ -278,12 +254,10 @@ func (d MySQLDialect) DDLDropIndex(table, idx string) string {
 	)
 }
 
-// DDLAlterColumnMode reports that MySQL alters columns in place.
 func (d MySQLDialect) DDLAlterColumnMode() DDLAlterColumnMode {
 	return DDLAlterColumnDirect
 }
 
-// DDLAlterColumnStatements returns MySQL ALTER COLUMN statements for the change.
 func (d MySQLDialect) DDLAlterColumnStatements(table string, before, after DDLColumnSpec) []string {
 	return []string{fmt.Sprintf(
 		"ALTER TABLE %s MODIFY COLUMN %s;",

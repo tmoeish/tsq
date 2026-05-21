@@ -7,8 +7,6 @@ import (
 
 var (
 	errSQLExecutorNil              = errors.New("sql executor cannot be nil")
-	errEngineNil                   = errors.New("engine cannot be nil")
-	errEngineDatabaseNil           = errors.New("engine database cannot be nil")
 	errInsertRequiresColumn        = errors.New("insert requires at least one column")
 	errInsertLayoutMismatch        = errors.New("batch insert requires matching column layouts")
 	errUpdateRequiresMutableColumn = errors.New("update requires at least one mutable column")

@@ -11,6 +11,8 @@ import (
 	"github.com/jackc/pgconn"
 	"github.com/lib/pq"
 	sqlite3 "github.com/mattn/go-sqlite3"
+
+	tsqdialect "github.com/tmoeish/tsq/v4/dialect"
 )
 
 func isDuplicateKeyError(err error) bool {
@@ -162,15 +164,7 @@ func validateExecutor(tx SQLExecutor) error {
 }
 
 func validateOperationalExecutor(tx SQLExecutor) error {
-	if err := validateExecutor(tx); err != nil {
-		return err
-	}
-
-	if engine, ok := tx.(*Engine); ok && engine.DB == nil {
-		return errEngineDatabaseNil
-	}
-
-	return nil
+	return validateExecutor(tx)
 }
 
 func validateExecutorForSQL(tx SQLExecutor, rawSQLs ...string) error {
@@ -182,7 +176,7 @@ func validateExecutorForSQL(tx SQLExecutor, rawSQLs ...string) error {
 	if dialect != nil {
 		for _, rawSQL := range rawSQLs {
 			for _, capability := range detectSQLCapabilities(rawSQL) {
-				if err := validateDialectCapability(dialect, capability); err != nil {
+				if err := tsqdialect.ValidateCapability(dialect, capability); err != nil {
 					return err
 				}
 			}
@@ -200,40 +194,40 @@ func validateExecutorForSQL(tx SQLExecutor, rawSQLs ...string) error {
 	return nil
 }
 
-func detectSQLCapabilities(rawSQL string) []DialectCapability {
+func detectSQLCapabilities(rawSQL string) []tsqdialect.DialectCapability {
 	upperSQL := strings.ToUpper(strings.TrimSpace(rawSQL))
-	capabilities := make([]DialectCapability, 0, 8)
+	capabilities := make([]tsqdialect.DialectCapability, 0, 8)
 
 	if strings.HasPrefix(upperSQL, "WITH ") {
-		capabilities = append(capabilities, DialectCapabilityCTE)
+		capabilities = append(capabilities, tsqdialect.DialectCapabilityCTE)
 	}
 
 	if strings.Contains(upperSQL, " FULL JOIN ") {
-		capabilities = append(capabilities, DialectCapabilityFullOuterJoin)
+		capabilities = append(capabilities, tsqdialect.DialectCapabilityFullOuterJoin)
 	}
 
 	if strings.Contains(upperSQL, " INTERSECT ") {
-		capabilities = append(capabilities, DialectCapabilityIntersect)
+		capabilities = append(capabilities, tsqdialect.DialectCapabilityIntersect)
 	}
 
 	if strings.Contains(upperSQL, " EXCEPT ") || strings.Contains(upperSQL, " MINUS ") {
-		capabilities = append(capabilities, DialectCapabilityExcept)
+		capabilities = append(capabilities, tsqdialect.DialectCapabilityExcept)
 	}
 
 	if strings.Contains(upperSQL, " FOR UPDATE") {
-		capabilities = append(capabilities, DialectCapabilitySelectForUpdate)
+		capabilities = append(capabilities, tsqdialect.DialectCapabilitySelectForUpdate)
 	}
 
 	if strings.Contains(upperSQL, " FOR SHARE") {
-		capabilities = append(capabilities, DialectCapabilitySelectForShare)
+		capabilities = append(capabilities, tsqdialect.DialectCapabilitySelectForShare)
 	}
 
 	if strings.Contains(upperSQL, " NOWAIT") {
-		capabilities = append(capabilities, DialectCapabilitySelectForNoWait)
+		capabilities = append(capabilities, tsqdialect.DialectCapabilitySelectForNoWait)
 	}
 
 	if strings.Contains(upperSQL, " SKIP LOCKED") {
-		capabilities = append(capabilities, DialectCapabilitySelectForSkipLocked)
+		capabilities = append(capabilities, tsqdialect.DialectCapabilitySelectForSkipLocked)
 	}
 
 	return capabilities

@@ -12,7 +12,7 @@ func TestListValidatesScanDestEvenWhenResultIsEmpty(t *testing.T) {
 	db := newScanValidationEngine(t)
 	col := newColForTable[scanDestUser, string](newMockTable("users"), "name", "name", nil)
 	query := &Query[scanDestUser]{cntSQL: "SELECT COUNT(1) FROM users", listSQL: "SELECT name FROM users WHERE 1 = 0", selectCols: []BoundColumn[scanDestUser]{col}}
-	_, err := List[scanDestUser](context.Background(), db, query)
+	_, err := List[scanDestUser](context.Background(), db.Executor(), query)
 	if err == nil {
 		t.Fatal("expected invalid scan destination to fail before returning an empty list")
 	}
@@ -31,7 +31,7 @@ func TestListSupportsInVarSlices(t *testing.T) {
 		return &holder.Name
 	}))
 	query := mustBuild(Select(idCol, nameCol).From(idCol.Table()).Where(idCol.InVar()))
-	rows, err := List[inVarUser](context.Background(), db, query, []int64{1, 3})
+	rows, err := List[inVarUser](context.Background(), db.Executor(), query, []int64{1, 3})
 	if err != nil {
 		t.Fatalf("expected InVar query to execute, got %v", err)
 	}
@@ -41,7 +41,7 @@ func TestListSupportsInVarSlices(t *testing.T) {
 	if rows[0].ID != 1 || rows[1].ID != 3 {
 		t.Fatalf("unexpected rows returned: %#v", rows)
 	}
-	count, err := query.Count(context.Background(), db, []int64{1, 3})
+	count, err := query.Count(context.Background(), db.Executor(), []int64{1, 3})
 	if err != nil {
 		t.Fatalf("expected InVar count query to execute, got %v", err)
 	}
@@ -54,7 +54,7 @@ func TestPageValidatesScanDestEvenWhenResultIsEmpty(t *testing.T) {
 	db := newScanValidationEngine(t)
 	col := newColForTable[scanDestUser, string](newMockTable("users"), "name", "name", nil)
 	query := &Query[scanDestUser]{cntSQL: "SELECT COUNT(1) FROM users", listSQL: "SELECT name FROM users WHERE 1 = 0", selectCols: []BoundColumn[scanDestUser]{col}}
-	_, err := Page[scanDestUser](context.Background(), db, nil, query)
+	_, err := Page[scanDestUser](context.Background(), db.Executor(), nil, query)
 	if err == nil {
 		t.Fatal("expected invalid scan destination to fail before returning an empty page")
 	}

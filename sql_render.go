@@ -3,6 +3,8 @@ package tsq
 import (
 	"encoding/base64"
 	"strings"
+
+	tsqdialect "github.com/tmoeish/tsq/v4/dialect"
 )
 
 const (
@@ -20,7 +22,7 @@ type rawQualifiedNamer interface {
 }
 
 type dialectProvider interface {
-	TSQDialect() Dialect
+	tsqDialect() tsqdialect.Dialect
 }
 
 type schemaTabler interface {
@@ -97,20 +99,20 @@ func renderSQLForExecutor(exec SQLExecutor, raw string) string {
 	return renderSQLForDialect(raw, dialectForExecutor(exec))
 }
 
-func renderSQLForDialect(raw string, dialect Dialect) string {
+func renderSQLForDialect(raw string, sqlDialect tsqdialect.Dialect) string {
 	rendered := renderSQLWithIdentifierQuoter(raw, func(name string) string {
-		if dialect == nil {
+		if sqlDialect == nil {
 			return canonicalQuoteIdentifier(name)
 		}
 
-		return dialect.QuoteField(name)
+		return sqlDialect.QuoteField(name)
 	})
 
-	if dialect == nil {
+	if sqlDialect == nil {
 		return rendered
 	}
 
-	return rewriteBindVars(rendered, dialect)
+	return rewriteBindVars(rendered, sqlDialect)
 }
 
 func containsIdentifierMarkersNeedingRender(raw string) bool {
@@ -310,7 +312,7 @@ func canonicalQuoteIdentifier(name string) string {
 	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
 }
 
-func rewriteBindVars(sql string, dialect Dialect) string {
+func rewriteBindVars(sql string, dialect tsqdialect.Dialect) string {
 	if dialect == nil || !strings.Contains(sql, "?") {
 		return sql
 	}
@@ -463,12 +465,10 @@ func isDollarQuoteTagChar(ch byte) bool {
 	return isDollarQuoteTagStart(ch) || ('0' <= ch && ch <= '9')
 }
 
-func dialectForExecutor(exec SQLExecutor) Dialect {
+func dialectForExecutor(exec SQLExecutor) tsqdialect.Dialect {
 	switch tx := exec.(type) {
-	case *Engine:
-		return tx.Dialect
 	case dialectProvider:
-		return tx.TSQDialect()
+		return tx.tsqDialect()
 	}
 
 	return nil

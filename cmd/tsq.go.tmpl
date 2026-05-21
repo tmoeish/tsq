@@ -180,31 +180,24 @@ var {{$varTblCols}} = []tsq.BoundColumn[{{$type}}]{
 }
 
 // =============================================================================
-// Table Registration and Index Initialization
+// Table Registration and Declared Index Metadata
 // =============================================================================
 
 func init() {
 	tsq.RegisterTable(
 		Table{{$type}},
-		func(db *tsq.Engine) error {
 {{- if $dot.UxList }}
-			// Upsert unique indexes.
+		// Declared unique indexes.
 	{{- range $name, $idx := $dot.UxList }}
-			if err := tsq.UpsertIndex(db, "{{ $dot.Table }}", true, "{{$idx.Name}}", []string{{"{"}}{{if $dot.DeletedAtField}}{{ FieldToCol $dot $dot.DeletedAtField }}, {{end}}{{ FieldsToCols $dot $idx.Fields }}{{"}"}}); err != nil {
-				return fmt.Errorf("%s: %w", "upsert {{$idx.Name}}@{{ $dot.Table }}", err)
-			}
+		tsq.TableIndex{Name: "{{$idx.Name}}", Unique: true, Fields: []string{{"{"}}{{if $dot.DeletedAtField}}{{ FieldToCol $dot $dot.DeletedAtField }}, {{end}}{{ FieldsToCols $dot $idx.Fields }}{{"}"}}},
 	{{- end }}
 {{- end }}
 {{- if $dot.IdxList }}
-			// Upsert non-unique indexes.
+		// Declared non-unique indexes.
 	{{- range $name, $idx := $dot.IdxList }}
-			if err := tsq.UpsertIndex(db, "{{ $dot.Table }}", false, "{{$idx.Name}}", []string{{"{"}}{{if $dot.DeletedAtField}}{{ FieldToCol $dot $dot.DeletedAtField }}, {{end}}{{ FieldsToCols $dot $idx.Fields }}{{"}"}}); err != nil {
-				return fmt.Errorf("%s: %w", "upsert {{$idx.Name}}@{{ $dot.Table }}", err)
-			}
+		tsq.TableIndex{Name: "{{$idx.Name}}", Fields: []string{{"{"}}{{if $dot.DeletedAtField}}{{ FieldToCol $dot $dot.DeletedAtField }}, {{end}}{{ FieldsToCols $dot $idx.Fields }}{{"}"}}},
 	{{- end }}
 {{- end }}
-			return nil
-		},
 	)
 }
 
