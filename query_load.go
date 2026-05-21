@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-// Page executes a paginated query with the given page parameters
+// Page executes a paginated query with the provided page parameters.
 func Page[O Owner](
 	ctx context.Context,
 	tx SQLExecutor,

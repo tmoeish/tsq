@@ -65,7 +65,7 @@ func queryString(ctx context.Context, tx SQLExecutor, sqlText string, args ...an
 	return result.String, nil
 }
 
-// QueryInt executes the query and returns a single integer result
+// QueryInt executes the query and returns a single integer result.
 func (q *Query[O]) QueryInt(
 	ctx context.Context,
 	tx SQLExecutor,
@@ -94,7 +94,7 @@ func (q *Query[O]) queryInt(
 	return result, nil
 }
 
-// QueryFloat executes the query and returns a single float result
+// QueryFloat executes the query and returns a single float result.
 func (q *Query[O]) QueryFloat(
 	ctx context.Context,
 	tx SQLExecutor,
@@ -164,8 +164,8 @@ func (q *Query[O]) Count(
 	})
 }
 
-// Count64 executes the count query and returns the number of matching records
-// as int64, avoiding truncation on large result sets or 32-bit platforms.
+// Count64 executes the count query and returns the number of matching records as int64.
+// This avoids truncation on large result sets or 32-bit platforms.
 func (q *Query[O]) Count64(
 	ctx context.Context,
 	tx SQLExecutor,
@@ -217,7 +217,7 @@ func (q *Query[O]) count64(
 	return count, nil
 }
 
-// Exists checks if any records match the query conditions
+// Exists reports whether any records match the query conditions.
 func (q *Query[O]) Exists(
 	ctx context.Context,
 	tx SQLExecutor,

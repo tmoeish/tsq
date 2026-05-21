@@ -9,7 +9,7 @@ import (
 // 排序方向枚举
 // ================================================
 
-// Order represents SQL ORDER BY direction
+// Order represents a SQL ORDER BY direction.
 type Order string
 
 const (
@@ -23,14 +23,14 @@ const (
 // 排序结构体
 // ================================================
 
-// OrderBy represents an ORDER BY clause with field and direction
+// OrderBy represents an ORDER BY clause with its column and direction.
 type OrderBy struct {
 	field SQLColumn // The column to order by
 	order Order     // The sort direction (ASC/DESC)
 	err   error
 }
 
-// Expr returns the SQL expression for this ORDER BY clause
+// Expr returns the SQL expression for this ORDER BY clause.
 func (ob OrderBy) Expr() string {
 	if _, err := validateColumnInput(ob.field); err != nil {
 		return ""
@@ -45,12 +45,12 @@ func (ob OrderBy) Expr() string {
 	return ob.field.SQLExpr() + " " + string(ob.order)
 }
 
-// Field returns the column being ordered
+// Field returns the ordered column.
 func (ob OrderBy) Field() SQLColumn {
 	return ob.field
 }
 
-// Order returns the sort direction
+// Order returns the sort direction.
 func (ob OrderBy) Order() Order {
 	return ob.order
 }
@@ -59,7 +59,7 @@ func (ob OrderBy) Order() Order {
 // 列排序方法
 // ================================================
 
-// Asc creates an ascending ORDER BY clause for this column
+// Asc creates an ascending ORDER BY clause for this column.
 func (c columnImpl[Owner, T]) Asc() OrderBy {
 	return OrderBy{
 		field: c,
@@ -67,7 +67,7 @@ func (c columnImpl[Owner, T]) Asc() OrderBy {
 	}
 }
 
-// Desc creates a descending ORDER BY clause for this column
+// Desc creates a descending ORDER BY clause for this column.
 func (c columnImpl[Owner, T]) Desc() OrderBy {
 	return OrderBy{
 		field: c,
@@ -75,7 +75,7 @@ func (c columnImpl[Owner, T]) Desc() OrderBy {
 	}
 }
 
-// ReverseOrder returns the opposite order direction
+// ReverseOrder returns the opposite sort direction.
 func ReverseOrder(order Order) Order {
 	switch order {
 	case ASC:

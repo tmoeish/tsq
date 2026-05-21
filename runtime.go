@@ -280,10 +280,10 @@ func validateIndexIdentifiersForDialect(
 	return nil
 }
 
-// ValidateIdentifiersForDialect validates all registered table and column identifiers
-// against the current database dialect. This is useful for pre-deployment validation.
-// Returns nil if all identifiers are valid for the current dialect, otherwise returns an error.
-// If no database has been initialized (Init not called), returns an error.
+// ValidateIdentifiersForDialect validates all registered table and column identifiers against the current database dialect.
+// It is useful for pre-deployment validation.
+// It returns nil when all identifiers are valid for the current dialect.
+// It returns an error if validation fails or Init has not been called.
 func (r *Runtime) ValidateIdentifiersForDialect() error {
 	if r == nil {
 		return errors.New("runtime cannot be nil")

@@ -15,7 +15,7 @@ type SQLColumn interface {
 	referencedTables() map[string]Table // referencedTables returns every table referenced by the expression.
 }
 
-// SQLColumns 将一组类型安全的列转换为擦除类型的运行时列列表。
+// SQLColumns converts typed columns into a runtime slice of SQLColumn values.
 func SQLColumns[O Owner](cols ...BoundColumn[O]) []SQLColumn {
 	result := make([]SQLColumn, 0, len(cols))
 	for _, col := range cols {

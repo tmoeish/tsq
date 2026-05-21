@@ -158,7 +158,7 @@ type PageResponse[T any] struct {
 	Data      []*T  `json:"data"`       // Data contains the rows for the current page.
 }
 
-// NewPageResponse creates a new PageResponse from request, total count, and data
+// NewPageResponse creates a PageResponse from the request, total count, and data.
 func NewPageResponse[T any](r *PageRequest, total int64, data []*T) *PageResponse[T] {
 	r = normalizePageReq(r)
 

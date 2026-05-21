@@ -6,7 +6,7 @@ import (
 	"slices"
 )
 
-// ErrUnknownSortField represents an error when an unknown sort field is encountered
+// ErrUnknownSortField reports that a requested sort field is unknown.
 type ErrUnknownSortField struct {
 	field string
 }
@@ -33,7 +33,7 @@ func (e *ErrUnknownSortField) Is(target error) bool {
 	return other.field == "" || e.field == other.field
 }
 
-// ErrAmbiguousSortField represents an error when a sort field matches multiple selected columns
+// ErrAmbiguousSortField reports that a sort field matches multiple selected columns.
 type ErrAmbiguousSortField struct {
 	field string
 }
@@ -60,7 +60,7 @@ func (e *ErrAmbiguousSortField) Is(target error) bool {
 	return other.field == "" || e.field == other.field
 }
 
-// ErrOrderCountMismatch represents an error when order by and order count mismatch
+// ErrOrderCountMismatch reports that the ORDER BY field and direction counts differ.
 type ErrOrderCountMismatch struct {
 	orderBys int
 	orders   int
@@ -92,14 +92,9 @@ func (e *ErrOrderCountMismatch) Is(target error) bool {
 		(e.orderBys == other.orderBys && e.orders == other.orders)
 }
 
-// Query 代表一个已编译的 SQL 查询，它包含了多种查询变体（计数、列表、搜索）。
-// 架构意图：Query 是 Build() 调用的最终产物。它是不可变的且线程安全的。
-// 它解耦了“查询定义”（SQL 构建逻辑）和“查询执行”（数据库交互）。
-//
-// 核心字段说明：
-// - cntSQL: 用于 COUNT(*) 查询的 SQL。
-// - listSQL: 用于获取记录列表的 SQL。
-// - baseArgs: 在 Build() 时确定的参数，包含普通值和标记位（Markers）。
+// Query is a compiled SQL query with count, list, and keyword-search variants.
+// Query is the immutable, concurrency-safe result of Build, separating query
+// definition from execution.
 type Query[O Owner] struct {
 	// SQL 语句模板。
 	cntSQL    string // COUNT 查询
@@ -168,7 +163,7 @@ func (q *Query[O]) CountSQL() string {
 	return renderCanonicalSQL(q.cntSQL)
 }
 
-// ListSQL returns the main SELECT query SQL statement
+// ListSQL returns the main SELECT query SQL statement.
 func (q *Query[O]) ListSQL() string {
 	if q == nil {
 		return ""

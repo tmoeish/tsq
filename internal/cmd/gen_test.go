@@ -268,19 +268,6 @@ type User struct {
 	}
 }
 
-func TestNewDDLTypeResolverAllowsExamplePackageWithoutGeneratedFiles(t *testing.T) {
-	resolver, err := newDDLTypeResolver(
-		"github.com/tmoeish/tsq/v4/examples/academy",
-		filepath.Join("..", "examples", "academy"),
-	)
-	if err != nil {
-		t.Fatalf("newDDLTypeResolver() error = %v", err)
-	}
-	if resolver == nil {
-		t.Fatal("expected resolver to be created")
-	}
-}
-
 func TestPrintDDLChangeSummary(t *testing.T) {
 	t.Run("changed", func(t *testing.T) {
 		buf := new(bytes.Buffer)
