@@ -114,7 +114,6 @@ INSERT INTO user (name, email) VALUES
 	}
 
 	runtime := tsq.DefaultRuntime()
-	exec := runtime.Executor()
 
 	query, err := tsq.
 		Select(database.User__Cols...).
@@ -125,7 +124,7 @@ INSERT INTO user (name, email) VALUES
 		log.Fatal(err)
 	}
 
-	users, err := tsq.List[database.User](ctx, exec, query)
+	users, err := tsq.List[database.User](ctx, runtime, query)
 	if err != nil {
 		log.Fatal(err)
 	}

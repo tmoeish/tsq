@@ -37,7 +37,7 @@
 
 其中 `comprehensive.first` 是当前页第一条记录，方便直接看 `@RESULT` 映射出来的最终形状。
 
-`advanced.optimistic_lock` 会额外展示 SQLite 示例里的自动乐观锁结果；  
+`advanced.optimistic_lock` 会额外展示 SQLite 示例里的自动乐观锁重试结果；  
 而行锁 DSL 不会出现在 `full-suite` 的执行结果中，因为整个 examples runtime 仍然是 SQLite。
 
 ## 运行

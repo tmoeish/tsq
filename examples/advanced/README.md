@@ -13,8 +13,8 @@
 | `runCaseDemo` | 按报名状态和分数打标签 | `CASE` |
 | `runCTEDemo` | 先定义一组平台课程，再继续查询 | non-recursive CTE |
 | `runSetOpsDemo` | 合并两条路径的课程，或排除有前置课的课程 | `UNION`、`EXCEPT` |
-| `runChunkedDemo` | 分块插入、更新、删除报名记录 | chunked helper（事务边界由调用方控制） |
-| `runOptimisticLockDemo` | 模拟两次更新同一条报名记录 | 自动乐观锁、`ErrOptimisticLockConflict` |
+| `runChunkedDemo` | 在一个事务里分块插入、更新、删除报名记录 | `runtime.WithTx(...)` + chunked helper |
+| `runOptimisticLockDemo` | 先触发一次过期版本失败，再自动重试更新报名记录 | `tsq.WithTx1(...)`、`IsOptimisticLockError`、自动乐观锁重试 |
 
 ## 怎么读最顺
 
@@ -38,10 +38,11 @@
 
 它们一一对应上面的 demo，方便你边读代码边对照结果。
 
-`runChunkedDemo` 主要演示 chunked helper 的调用方式。它默认直接使用示例里的 `runtime`，没有额外包外层事务；如果你的业务需要整批原子提交，请改为显式创建 `*sql.Tx` 并把事务 executor 传给这些 helper。
+`runChunkedDemo` 主要演示 chunked helper 和 `runtime.WithTx(...)` 的配合方式。  
+如果你的业务需要整批原子提交，推荐直接把整段 chunked 流程放进 `WithTx(...)`；只有在你已经手动持有 `*sql.Tx` 时，才需要退回到底层事务 executor 方案。
 
 `runOptimisticLockDemo` 演示的是 **SQLite 下可以真实运行的锁语义**：自动乐观锁。  
-它会先读取一条报名记录，再让“新版本对象”更新成功，然后让“旧版本对象”更新失败，并通过 `ErrOptimisticLockConflict` 明确暴露冲突。
+它会先制造一个过期快照，让第一次事务尝试因为版本冲突失败；随后 `tsq.WithTx1(...)` 在 `Retry: tsq.IsOptimisticLockError` 的配置下自动重试，重新加载新版本并完成更新。
 
 这里**不会**执行 `ForUpdate()` / `ForShare()` 之类的行锁 query，因为 examples 统一跑在 SQLite 上，而 SQLite 不支持这些语句；行锁示例请放到 MySQL 或 PostgreSQL runtime 中演示。
 

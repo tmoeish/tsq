@@ -154,6 +154,10 @@ func validateExecutor(tx SQLExecutor) error {
 		return errSQLExecutorNil
 	}
 
+	if runtime, ok := tx.(*Runtime); ok {
+		return validateTxRuntime(runtime)
+	}
+
 	return nil
 }
 

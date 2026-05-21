@@ -147,14 +147,13 @@ type UserOrder struct {
 `SQLExecutor` 是 TSQ 执行查询和 CRUD helper 的通用入口。  
 它只保留 `QueryContext` / `QueryRowContext` / `ExecContext` 这组 `database/sql` 共有方法。
 
-如果你要用 TSQ 默认持有的数据库上下文，先从 `Runtime` 取出执行器：
+如果你要用 TSQ 默认持有的数据库上下文，直接把 `Runtime` 当 `SQLExecutor` 传进去即可：
 
 ```go
 rt := tsq.NewRuntime()
 if err := rt.Init(db, dialect.SQLiteDialect{}); err != nil {
 	panic(err)
 }
-exec := rt.Executor()
 ```
 
 它把这几件事绑在一起：
@@ -165,8 +164,8 @@ exec := rt.Executor()
 
 但职责要分开记：
 
-- `SQLExecutor`：执行契约，`*sql.DB` / `*sql.Tx` / `tsq.WrapExecutor(...)` 的返回值都满足
-- `Runtime`：默认数据库上下文 + 注册表 + tracer 容器；通过 `Executor()` 暴露可执行句柄
+- `SQLExecutor`：执行契约，`runtime`、`*sql.DB`、`*sql.Tx`、`runtime.WithTx(...)` 回调里的 `txExec` 都满足
+- `Runtime`：默认数据库上下文 + 注册表 + tracer 容器；平时直接当执行器使用，需要事务时通过 `WithTx(...)` 提供事务执行句柄
 
 这也是为什么 TSQ 把一部分能力校验放在执行阶段：**真正决定 SQL 方言边界的是实际 executor，而不是 Build 阶段的查询构建链路。**
 
@@ -176,12 +175,22 @@ exec := rt.Executor()
 2. `SQLExecutor` 只保留 `QueryContext` / `QueryRowContext` / `ExecContext` 这组 `database/sql` 共有方法
 3. 表级 mutation helper 也直接接收 `SQLExecutor`
 
-也就是说，查询和生成的 CRUD helper 都可以直接复用 `*sql.DB` / `*sql.Tx` 这类标准库入口；如果你需要默认数据库上下文，就传 `runtime.Executor()`；如果你要在事务里继续保留方言信息，则用 `tsq.WrapExecutor(...)`。
+也就是说，查询和生成的 CRUD helper 都可以直接复用 `runtime` 这种普通执行器；如果你要把一组操作放进同一个事务里，就用：
 
-对于 `ChunkedInsert` / `ChunkedUpdate` / `ChunkedDelete` 这类 helper，也沿用同一个原则：**TSQ 不替调用方决定事务边界。**
+```go
+if err := rt.WithTx(ctx, nil, func(ctx context.Context, txExec tsq.SQLExecutor) error {
+	return tsq.Insert(ctx, txExec, user)
+}); err != nil {
+	return err
+}
+```
 
-- 传普通 DB / `runtime.Executor()`：允许 chunk 之间分别生效
-- 传 `*sql.Tx` / 通过 `WrapExecutor` 带上 runtime 方言：让整个 chunked 流程参与同一个事务
+如果你想在事务里顺便返回值，则用 `tsq.WithTx1(...)` / `tsq.WithTx2(...)` 这两个泛型函数。
+
+对于 `ChunkedInsert` / `ChunkedUpdate` / `ChunkedDelete` 这类 helper，也沿用同一个原则：**TSQ 不替调用方偷偷决定事务边界。**
+
+- 传普通执行器 / `runtime`：允许 chunk 之间分别生效
+- 放进 `runtime.WithTx(...)`：让整个 chunked 流程参与同一个事务
 
 这不是缺少事务支持，而是把“是否需要原子性”的决定权留给调用方。
 

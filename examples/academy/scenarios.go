@@ -2,7 +2,6 @@ package academy
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sort"
 
@@ -119,9 +118,10 @@ type ChunkedSummary struct {
 // OptimisticLockSummary captures the optimistic-lock demo result.
 type OptimisticLockSummary struct {
 	EnrollmentUID       int64 `json:"enrollment_uid"`       // EnrollmentUID is the row used for the optimistic-lock demo.
-	InitialVersion      int64 `json:"initial_version"`      // InitialVersion is the row version before the update.
-	UpdatedVersion      int64 `json:"updated_version"`      // UpdatedVersion is the row version after the successful update.
-	ConflictDetected    bool  `json:"conflict_detected"`    // ConflictDetected reports whether the stale write failed as expected.
+	InitialVersion      int64 `json:"initial_version"`      // InitialVersion is the stale snapshot version captured before another writer commits.
+	ConcurrentVersion   int64 `json:"concurrent_version"`   // ConcurrentVersion is the version after the competing update commits.
+	FinalVersion        int64 `json:"final_version"`        // FinalVersion is the version after the retried transaction succeeds.
+	Attempts            int   `json:"attempts"`             // Attempts is the number of transaction attempts needed before success.
 	DeletedSuccessfully bool  `json:"deleted_successfully"` // DeletedSuccessfully reports whether cleanup removed the demo row.
 }
 
@@ -263,7 +263,7 @@ func RunFullSuite(ctx context.Context, runtime *tsq.Runtime) (*FullSuiteSummary,
 // runComprehensive builds the final Academy "learning journey" board:
 // filter a learner set and track set, then page through the joined Result rows.
 func runComprehensive(ctx context.Context, runtime *tsq.Runtime) (*ComprehensiveSummary, error) {
-	exec := runtime.Executor()
+	exec := runtime
 	learnerIDs := []int64{1, 3, 5}
 	tracks := []string{"Backend Engineering", "Data & AI"}
 
@@ -298,7 +298,7 @@ func runComprehensive(ctx context.Context, runtime *tsq.Runtime) (*Comprehensive
 // runTrackCRUDDemo shows the smallest generated-helper loop on a business entity:
 // create a track, update its description, then delete it again.
 func runTrackCRUDDemo(ctx context.Context, runtime *tsq.Runtime) (*CRUDSummary, error) {
-	exec := runtime.Executor()
+	exec := runtime
 	// Create a track.
 	inserted := &Track{
 		Name:        "Edge Delivery Systems",
@@ -353,7 +353,7 @@ func runTrackCRUDDemo(ctx context.Context, runtime *tsq.Runtime) (*CRUDSummary, 
 // runCatalogSearchDemo demonstrates keyword search and paging over the public
 // course catalog by searching for SQLite-themed classes.
 func runCatalogSearchDemo(ctx context.Context, runtime *tsq.Runtime) (*SearchSummary, error) {
-	exec := runtime.Executor()
+	exec := runtime
 
 	pageReq := &tsq.PageRequest{
 		Page:    1,
@@ -386,7 +386,7 @@ func runCatalogSearchDemo(ctx context.Context, runtime *tsq.Runtime) (*SearchSum
 // runBackendCatalogDemo is the simplest hand-written query builder example:
 // list the published courses for the Backend Engineering track.
 func runBackendCatalogDemo(ctx context.Context, runtime *tsq.Runtime) (*CatalogSummary, error) {
-	exec := runtime.Executor()
+	exec := runtime
 
 	query, err := tsq.
 		Select(Course__Cols...).
@@ -422,7 +422,7 @@ func runBackendCatalogDemo(ctx context.Context, runtime *tsq.Runtime) (*CatalogS
 // runAliasDemo shows how to rebind the course table so one query can read both a
 // course and its prerequisite title.
 func runAliasDemo(ctx context.Context, runtime *tsq.Runtime) (*AliasSummary, error) {
-	exec := runtime.Executor()
+	exec := runtime
 	prerequisiteAlias := "prerequisite_course"
 	prerequisiteID := Course_ID.As(prerequisiteAlias)
 
@@ -457,7 +457,7 @@ func runAliasDemo(ctx context.Context, runtime *tsq.Runtime) (*AliasSummary, err
 // runAggregateDemo turns enrollment rows into track-level metrics by combining
 // aggregate functions, GroupBy, and Having.
 func runAggregateDemo(ctx context.Context, runtime *tsq.Runtime) ([]AggregateSummary, error) {
-	exec := runtime.Executor()
+	exec := runtime
 	trackName := tsq.MapInto(Track_Name, func(holder *trackMetricRow) *string {
 		return &holder.Track
 	}, "track")
@@ -508,7 +508,7 @@ func runAggregateDemo(ctx context.Context, runtime *tsq.Runtime) ([]AggregateSum
 // runInVarDemo demonstrates the dynamic IN placeholder flow used when callers
 // provide a runtime-sized list of course IDs.
 func runInVarDemo(ctx context.Context, runtime *tsq.Runtime) (*InVarSummary, error) {
-	exec := runtime.Executor()
+	exec := runtime
 
 	query, err := tsq.
 		Select(Course__Cols...).
@@ -542,7 +542,7 @@ func runInVarDemo(ctx context.Context, runtime *tsq.Runtime) (*InVarSummary, err
 // runSubqueryDemo stacks two business filters on top of subqueries:
 // "learners enrolled in Data & AI" and "courses cheaper than a reference course".
 func runSubqueryDemo(ctx context.Context, runtime *tsq.Runtime) (*SubquerySummary, error) {
-	exec := runtime.Executor()
+	exec := runtime
 
 	dataTrackIDSubquery, err := tsq.
 		Select(Track_ID).
@@ -622,7 +622,7 @@ func runSubqueryDemo(ctx context.Context, runtime *tsq.Runtime) (*SubquerySummar
 
 // runCaseDemo maps raw enrollment states into user-facing labels with CASE WHEN.
 func runCaseDemo(ctx context.Context, runtime *tsq.Runtime) (*CaseSummary, error) {
-	exec := runtime.Executor()
+	exec := runtime
 	labelExpr := tsq.
 		Case[string]().
 		When(
@@ -674,7 +674,7 @@ func runCaseDemo(ctx context.Context, runtime *tsq.Runtime) (*CaseSummary, error
 // runCTEDemo shows a non-recursive CTE that first names a filtered course subset
 // and then queries it like a normal table.
 func runCTEDemo(ctx context.Context, runtime *tsq.Runtime) (*CTESummary, error) {
-	exec := runtime.Executor()
+	exec := runtime
 	platformCatalog := tsq.CTE(
 		"platform_catalog",
 		tsq.Select(Course_ID, Course_Title).
@@ -727,7 +727,7 @@ func runCTEDemo(ctx context.Context, runtime *tsq.Runtime) (*CTESummary, error) 
 // runSetOpsDemo demonstrates set composition for course catalogs:
 // union two tracks, then exclude courses that require prerequisites.
 func runSetOpsDemo(ctx context.Context, runtime *tsq.Runtime) (*SetOpsSummary, error) {
-	exec := runtime.Executor()
+	exec := runtime
 	courseTitle := tsq.MapInto(Course_Title, func(holder *namedRow) *string {
 		return &holder.Name
 	}, "name")
@@ -792,9 +792,9 @@ func runSetOpsDemo(ctx context.Context, runtime *tsq.Runtime) (*SetOpsSummary, e
 }
 
 // runChunkedDemo simulates a batch enrollment workflow where records are inserted,
-// updated, and removed in bounded chunks instead of one huge statement.
+// updated, and removed in bounded chunks inside one explicit transaction helper.
 func runChunkedDemo(ctx context.Context, runtime *tsq.Runtime) (*ChunkedSummary, error) {
-	exec := runtime.Executor()
+	exec := runtime
 
 	before, err := CountEnrollment(ctx, exec)
 	if err != nil {
@@ -825,42 +825,48 @@ func runChunkedDemo(ctx context.Context, runtime *tsq.Runtime) (*ChunkedSummary,
 		},
 	}
 
-	if err := tsq.ChunkedInsert(ctx, exec, enrollments, &tsq.ChunkedInsertOptions{ChunkSize: 2}); err != nil {
-		return nil, err
-	}
-
-	for _, enrollment := range enrollments {
-		if enrollment.Status == EnrollmentStatusWaitlisted {
-			enrollment.Status = EnrollmentStatusActive
-			enrollment.Score = 72
-
-			continue
+	if err := runtime.WithTx(ctx, nil, func(ctx context.Context, txExec tsq.SQLExecutor) error {
+		if err := tsq.ChunkedInsert(ctx, txExec, enrollments, &tsq.ChunkedInsertOptions{ChunkSize: 2}); err != nil {
+			return err
 		}
 
-		enrollment.Score += 3
-	}
+		for _, enrollment := range enrollments {
+			if enrollment.Status == EnrollmentStatusWaitlisted {
+				enrollment.Status = EnrollmentStatusActive
+				enrollment.Score = 72
 
-	if err := tsq.ChunkedUpdate(ctx, exec, enrollments, &tsq.ChunkedOptions{ChunkSize: 2}); err != nil {
-		return nil, err
-	}
+				continue
+			}
 
-	if err := tsq.ChunkedDelete(ctx, exec, enrollments[:1], &tsq.ChunkedOptions{ChunkSize: 1}); err != nil {
-		return nil, err
-	}
+			enrollment.Score += 3
+		}
 
-	remainingIDs := make([]any, 0, len(enrollments)-1)
-	for _, enrollment := range enrollments[1:] {
-		remainingIDs = append(remainingIDs, enrollment.UID)
-	}
+		if err := tsq.ChunkedUpdate(ctx, txExec, enrollments, &tsq.ChunkedOptions{ChunkSize: 2}); err != nil {
+			return err
+		}
 
-	if err := tsq.ChunkedDeleteByIDs(
-		ctx,
-		exec,
-		"enrollment",
-		"uid",
-		remainingIDs,
-		&tsq.ChunkedOptions{ChunkSize: 2},
-	); err != nil {
+		if err := tsq.ChunkedDelete(ctx, txExec, enrollments[:1], &tsq.ChunkedOptions{ChunkSize: 1}); err != nil {
+			return err
+		}
+
+		remainingIDs := make([]any, 0, len(enrollments)-1)
+		for _, enrollment := range enrollments[1:] {
+			remainingIDs = append(remainingIDs, enrollment.UID)
+		}
+
+		if err := tsq.ChunkedDeleteByIDs(
+			ctx,
+			txExec,
+			"enrollment",
+			"uid",
+			remainingIDs,
+			&tsq.ChunkedOptions{ChunkSize: 2},
+		); err != nil {
+			return err
+		}
+
+		return nil
+	}); err != nil {
 		return nil, err
 	}
 
@@ -879,11 +885,12 @@ func runChunkedDemo(ctx context.Context, runtime *tsq.Runtime) (*ChunkedSummary,
 }
 
 // runOptimisticLockDemo demonstrates the SQLite-safe part of the new locking model:
-// automatic version guarding on Update/Delete. Row-lock reads are intentionally not
-// executed here because the examples runtime uses SQLite, which rejects FOR UPDATE /
-// FOR SHARE at execution time.
+// a stale snapshot first fails with ErrOptimisticLockConflict, then WithTx1
+// automatically retries and succeeds after reloading the fresh row version.
+// Row-lock reads are intentionally not executed here because the examples runtime
+// uses SQLite, which rejects FOR UPDATE / FOR SHARE at execution time.
 func runOptimisticLockDemo(ctx context.Context, runtime *tsq.Runtime) (*OptimisticLockSummary, error) {
-	exec := runtime.Executor()
+	exec := runtime
 
 	inserted := &Enrollment{
 		LearnerID: 4,
@@ -896,43 +903,72 @@ func runOptimisticLockDemo(ctx context.Context, runtime *tsq.Runtime) (*Optimist
 		return nil, fmt.Errorf("%s: %w", "insert enrollment", err)
 	}
 
-	loaded, err := GetEnrollmentByUIDOrErr(ctx, exec, inserted.UID)
+	stale, err := GetEnrollmentByUIDOrErr(ctx, exec, inserted.UID)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", "load enrollment", err)
-	}
-	stale := *loaded
-
-	loaded.Score = 92
-
-	loaded.Status = EnrollmentStatusCompleted
-	if err := loaded.Update(ctx, exec); err != nil {
-		return nil, fmt.Errorf("%s: %w", "update fresh enrollment", err)
+		return nil, fmt.Errorf("%s: %w", "load stale enrollment snapshot", err)
 	}
 
-	stale.Score = 61
-	conflictDetected := false
+	concurrent, err := GetEnrollmentByUIDOrErr(ctx, exec, inserted.UID)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", "load competing enrollment snapshot", err)
+	}
 
-	if err := stale.Update(ctx, exec); err != nil {
-		if !errors.Is(err, &tsq.ErrOptimisticLockConflict{}) {
-			return nil, fmt.Errorf("%s: %w", "update stale enrollment", err)
+	concurrent.Score = 91
+	if err := concurrent.Update(ctx, exec); err != nil {
+		return nil, fmt.Errorf("%s: %w", "commit competing enrollment update", err)
+	}
+
+	attempts := 0
+
+	summary, err := tsq.WithTx1(runtime, ctx, &tsq.TxOptions{Retry: tsq.IsOptimisticLockError}, func(ctx context.Context, txExec tsq.SQLExecutor) (*OptimisticLockSummary, error) {
+		attempts++
+
+		if attempts == 1 {
+			staleAttempt := *stale
+			staleAttempt.Score = 95
+
+			staleAttempt.Status = EnrollmentStatusCompleted
+			if err := staleAttempt.Update(ctx, txExec); err != nil {
+				return nil, err
+			}
+
+			return nil, fmt.Errorf("%s", "expected stale snapshot to trigger optimistic lock retry")
 		}
-		conflictDetected = true
-	}
 
-	if err := loaded.Delete(ctx, exec); err != nil {
-		return nil, fmt.Errorf("%s: %w", "delete fresh enrollment", err)
-	}
+		loaded, err := GetEnrollmentByUIDOrErr(ctx, txExec, inserted.UID)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", "reload enrollment after retry", err)
+		}
 
-	deleted, err := GetEnrollmentByUID(ctx, exec, loaded.UID)
+		loaded.Score = 95
+
+		loaded.Status = EnrollmentStatusCompleted
+		if err := loaded.Update(ctx, txExec); err != nil {
+			return nil, fmt.Errorf("%s: %w", "update fresh enrollment after retry", err)
+		}
+		finalVersion := loaded.Version
+
+		if err := loaded.Delete(ctx, txExec); err != nil {
+			return nil, fmt.Errorf("%s: %w", "delete fresh enrollment", err)
+		}
+
+		deleted, err := GetEnrollmentByUID(ctx, txExec, loaded.UID)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", "verify deleted enrollment", err)
+		}
+
+		return &OptimisticLockSummary{
+			EnrollmentUID:       loaded.UID,
+			InitialVersion:      stale.Version,
+			ConcurrentVersion:   concurrent.Version,
+			FinalVersion:        finalVersion,
+			Attempts:            attempts,
+			DeletedSuccessfully: deleted == nil,
+		}, nil
+	})
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", "verify deleted enrollment", err)
+		return nil, err
 	}
 
-	return &OptimisticLockSummary{
-		EnrollmentUID:       loaded.UID,
-		InitialVersion:      stale.Version,
-		UpdatedVersion:      loaded.Version,
-		ConflictDetected:    conflictDetected,
-		DeletedSuccessfully: deleted == nil,
-	}, nil
+	return summary, nil
 }

@@ -40,7 +40,7 @@ query, _ := qb.Build()
 ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 defer cancel()
 
-users, err := tsq.List[database.User](ctx, runtime.Executor(), query)
+users, err := tsq.List[database.User](ctx, runtime, query)
 ```
 
 ### 1.3 用 `%w` 保留错误上下文
@@ -124,14 +124,35 @@ if err := op2(); err != nil {
 return tx.Commit()
 ```
 
-### 3.3 事务里复用 TSQ 时，用 `WrapExecutor(...)` 继续携带方言
+### 3.3 优先用 `runtime.WithTx(...)` 执行事务里的 TSQ 操作
 
 ```go
-txExec := tsq.WrapExecutor(tx, runtime.SQLDialect())
-if err := order.Insert(ctx, txExec); err != nil {
+if err := runtime.WithTx(ctx, nil, func(ctx context.Context, txExec tsq.SQLExecutor) error {
+	if err := order.Insert(ctx, txExec); err != nil {
+		return err
+	}
+
+	return nil
+}); err != nil {
 	return err
 }
 ```
+
+`runtime.WithTx(...)` 会自动包掉 `BeginTx`、失败回滚和成功提交。  
+如果你已经启用了 `version` 乐观锁，并且希望冲突时自动重跑整个事务回调，最短写法是：
+
+```go
+if err := runtime.WithTx(ctx, &tsq.TxOptions{
+	Retry: tsq.IsOptimisticLockError,
+}, func(ctx context.Context, txExec tsq.SQLExecutor) error {
+	// 在回调里重新读取、重新计算、重新写入。
+	return nil
+}); err != nil {
+	return err
+}
+```
+
+注意：重试的是**整个回调**。如果你把旧对象在事务外先读好，再在回调里反复提交同一份过期数据，自动重试也不会帮你成功。
 
 ### 3.4 `ChunkedInsert` / `ChunkedUpdate` / `ChunkedDelete` 不会自动开启事务
 
@@ -139,33 +160,57 @@ if err := order.Insert(ctx, txExec); err != nil {
 
 这些 helper 接收的是 `SQLExecutor`，因此事务边界由调用方决定：
 
-- 传 `*sql.DB` / 普通 executor：允许按 chunk 逐步提交
-- 传 `*sql.Tx`：让整个 chunked 操作参与同一个事务
+- 传 `*sql.DB` / `runtime`：允许按 chunk 逐步提交
+- 通过 `runtime.WithTx(...)` 提供的事务 executor：让整个 chunked 操作参与同一个事务
 
 ```go
-tx, err := db.BeginTx(ctx, nil)
-if err != nil {
+if err := runtime.WithTx(ctx, nil, func(ctx context.Context, txExec tsq.SQLExecutor) error {
+	if err := tsq.ChunkedInsert(ctx, txExec, rows, &tsq.ChunkedInsertOptions{ChunkSize: 500}); err != nil {
+		return err
+	}
+
+	return nil
+}); err != nil {
 	return err
 }
-defer func() {
-	_ = tx.Rollback()
-}()
-
-txExec := tsq.WrapExecutor(tx, runtime.SQLDialect())
-if err := tsq.ChunkedInsert(ctx, txExec, rows, &tsq.ChunkedInsertOptions{ChunkSize: 500}); err != nil {
-	return err
-}
-
-return tx.Commit()
 ```
 
-不要假设 chunked helper 会替你包一层外部事务；如果你需要“全部成功或全部回滚”，请显式传入 `*sql.Tx`。
+不要假设 chunked helper 会替你包一层外部事务；如果你需要“全部成功或全部回滚”，请显式放进 `runtime.WithTx(...)` 或自己管理 `*sql.Tx`。
 
 ### 3.5 行锁读取要显式放进事务
 
 `ForUpdate()` / `ForShare()` 适合表达“读取并锁定随后要修改的行”，但只有放在事务里才有实际意义。
 
 ```go
+if err := runtime.WithTx(ctx, nil, func(ctx context.Context, txExec tsq.SQLExecutor) error {
+	query, err := tsq.Select(database.User__Cols...).
+		From(database.TableUser).
+		Where(database.User_ID.EQ(userID)).
+		ForUpdate().
+		Build()
+	if err != nil {
+		return err
+	}
+
+	user, err := tsq.GetOrErr(ctx, txExec, query)
+	if err != nil {
+		return err
+	}
+
+	_ = user
+	return nil
+}); err != nil {
+	return err
+}
+```
+
+不要把行锁查询放到普通自动提交连接里然后期待锁能跨后续写操作继续存在。
+
+### 3.6 `WrapExecutor(...)` 只在你已经手动持有 `*sql.Tx` 时作为底层 escape hatch
+
+大多数业务代码优先用 `runtime.WithTx(...)` 即可。只有你明确需要自己控制 `BeginTx` / `Commit` / `Rollback` 生命周期时，再手动：
+
+```go
 tx, err := db.BeginTx(ctx, nil)
 if err != nil {
 	return err
@@ -175,33 +220,16 @@ defer func() {
 }()
 
 txExec := tsq.WrapExecutor(tx, runtime.SQLDialect())
-query, err := tsq.Select(database.User__Cols...).
-	From(database.TableUser).
-	Where(database.User_ID.EQ(userID)).
-	ForUpdate().
-	Build()
-if err != nil {
-	return err
-}
-
-user, err := tsq.GetOrErr(ctx, txExec, query)
-if err != nil {
-	return err
-}
-
-_ = user
-return tx.Commit()
+_ = txExec
 ```
 
-不要把行锁查询放到普通自动提交连接里然后期待锁能跨后续写操作继续存在。
-
-### 3.6 自动乐观锁冲突要按业务错误处理
+### 3.7 自动乐观锁冲突要按业务错误处理
 
 如果表声明了 `version` 列，`Update(...)` / `Delete(...)` 会自动做版本校验。  
 版本不匹配时，TSQ 会返回 `ErrOptimisticLockConflict`。
 
 ```go
-if err := tsq.Update(ctx, runtime.Executor(), user); err != nil {
+if err := tsq.Update(ctx, runtime, user); err != nil {
 	if errors.Is(err, &tsq.ErrOptimisticLockConflict{}) {
 		return fmt.Errorf("record has been modified by another request: %w", err)
 	}
@@ -210,6 +238,8 @@ if err := tsq.Update(ctx, runtime.Executor(), user); err != nil {
 ```
 
 不要自己再手工拼一层 `WHERE version = ?`，也不要忽略这类冲突再继续覆盖写。
+
+如果你的写逻辑天然支持“重读后重算再提交”，也可以配合 `runtime.WithTx(..., &tsq.TxOptions{Retry: tsq.IsOptimisticLockError}, ...)` 把这类冲突交给事务 helper 重试。
 
 ## 4. Field pointer 和 `Into(...)`
 

@@ -3,6 +3,7 @@ package tsq
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -32,6 +33,8 @@ func NewRuntime() *Runtime {
 
 var defaultRuntime = NewRuntime()
 
+var _ SQLExecutor = (*Runtime)(nil)
+
 // DB returns the current *sql.DB if Init has been called.
 func (r *Runtime) DB() *sql.DB {
 	if r == nil {
@@ -54,14 +57,56 @@ func (r *Runtime) SQLDialect() tsqdialect.Dialect {
 	return r.engine.dialect
 }
 
-// Executor returns the runtime's initialized SQL executor with dialect metadata attached.
-// It returns nil until Init has been called successfully.
-func (r *Runtime) Executor() SQLExecutor {
-	if r == nil || r.engine == nil {
-		return nil
+func (r *Runtime) tsqDialect() tsqdialect.Dialect {
+	return r.SQLDialect()
+}
+
+// QueryContext executes a query against the runtime's initialized database.
+func (r *Runtime) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	db, err := r.sqlDB()
+	if err != nil {
+		return nil, err
 	}
 
-	return WrapExecutor(r.engine.db, r.engine.dialect)
+	return db.QueryContext(ctx, query, args...)
+}
+
+// QueryRowContext executes a query expected to return at most one row.
+func (r *Runtime) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
+	db, err := r.sqlDB()
+	if err != nil {
+		return sql.OpenDB(runtimeErrorConnector{err: err}).QueryRowContext(ctx, query, args...)
+	}
+
+	return db.QueryRowContext(ctx, query, args...)
+}
+
+// ExecContext executes a statement against the runtime's initialized database.
+func (r *Runtime) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	db, err := r.sqlDB()
+	if err != nil {
+		return nil, err
+	}
+
+	return db.ExecContext(ctx, query, args...)
+}
+
+// WithTx starts a transaction on the runtime database and passes a dialect-aware executor to fn.
+// It manages BeginTx, Commit, and Rollback automatically.
+func (r *Runtime) WithTx(
+	ctx context.Context,
+	options *TxOptions,
+	fn func(context.Context, SQLExecutor) error,
+) error {
+	if fn == nil {
+		return errors.New("transaction function cannot be nil")
+	}
+
+	_, err := withTxRuntime1(r, ctx, options, func(ctx context.Context, txExec SQLExecutor) (struct{}, error) {
+		return struct{}{}, fn(ctx, txExec)
+	})
+
+	return err
 }
 
 // RegisterTable registers a table and its declared indexes on this runtime.
@@ -161,6 +206,34 @@ func (r *Runtime) Init(db *sql.DB, sqlDialect tsqdialect.Dialect, options ...*In
 	committed = true
 
 	return nil
+}
+
+func (r *Runtime) sqlDB() (*sql.DB, error) {
+	if err := validateTxRuntime(r); err != nil {
+		return nil, err
+	}
+
+	return r.engine.db, nil
+}
+
+type runtimeErrorConnector struct {
+	err error
+}
+
+func (c runtimeErrorConnector) Connect(context.Context) (driver.Conn, error) {
+	return nil, c.err
+}
+
+func (c runtimeErrorConnector) Driver() driver.Driver {
+	return runtimeErrorDriver(c)
+}
+
+type runtimeErrorDriver struct {
+	err error
+}
+
+func (d runtimeErrorDriver) Open(string) (driver.Conn, error) {
+	return nil, d.err
 }
 
 // AddTracer adds a tracer to this runtime.

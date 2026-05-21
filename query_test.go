@@ -141,7 +141,7 @@ func TestQueryBuilder_Build_FullJoinDefersDialectValidationToExecution(t *testin
 		t.Fatalf("expected FULL JOIN build to succeed, got %v", err)
 	}
 	db := newSQLiteIndexTestEngine(t)
-	err = validateOperationalExecutorForSQL(db.Executor(), query.listSQL)
+	err = validateOperationalExecutorForSQL(db, query.listSQL)
 	if err == nil {
 		t.Fatal("expected sqlite dialect validation to reject FULL JOIN")
 	}
@@ -158,7 +158,7 @@ func TestQueryBuilder_Build_ForUpdateDefersDialectValidationToExecution(t *testi
 		t.Fatalf("expected FOR UPDATE build to succeed, got %v", err)
 	}
 	db := newSQLiteIndexTestEngine(t)
-	err = validateOperationalExecutorForSQL(db.Executor(), query.listSQL)
+	err = validateOperationalExecutorForSQL(db, query.listSQL)
 	if err == nil {
 		t.Fatal("expected sqlite dialect validation to reject FOR UPDATE")
 	}
@@ -173,7 +173,7 @@ func TestQueryBuilder_Build_ForShareNoWaitDefersDialectValidationToExecution(t *
 	users := newMockTable("users")
 	userID := newColForTable[Table, string](users, "id", "id", nil)
 	query := mustBuild(Select(userID).From(userID.Table()).ForShare().NoWait())
-	if err := validateOperationalExecutorForSQL(db.Executor(), query.listSQL); err != nil {
+	if err := validateOperationalExecutorForSQL(db, query.listSQL); err != nil {
 		t.Fatalf("expected mysql dialect validation to allow FOR SHARE NOWAIT, got %v", err)
 	}
 }
@@ -225,7 +225,7 @@ func TestQueryBuilder_Build_CTEExecutionOnSQLite(t *testing.T) {
 	selectedUserID := idCol.WithTable(selectedUsers)
 	selectedUserName := nameCol.WithTable(selectedUsers)
 	query := mustBuild(Select(selectedUserID, selectedUserName).From(selectedUserID.Table()).Where(selectedUserID.GT(1)))
-	rows, err := List[inVarUser](context.Background(), db.Executor(), query, []int64{1, 2, 3})
+	rows, err := List[inVarUser](context.Background(), db, query, []int64{1, 2, 3})
 	if err != nil {
 		t.Fatalf("expected CTE query to execute, got %v", err)
 	}
@@ -235,7 +235,7 @@ func TestQueryBuilder_Build_CTEExecutionOnSQLite(t *testing.T) {
 	if rows[0].ID != 2 || rows[1].ID != 3 {
 		t.Fatalf("unexpected CTE rows returned: %#v", rows)
 	}
-	count, err := query.Count(context.Background(), db.Executor(), []int64{1, 2, 3})
+	count, err := query.Count(context.Background(), db, []int64{1, 2, 3})
 	if err != nil {
 		t.Fatalf("expected CTE count query to execute, got %v", err)
 	}
@@ -252,7 +252,7 @@ func TestQueryBuilder_Build_CTEDefersDialectValidationToExecution(t *testing.T) 
 	filteredUsers := CTE("filtered_users", Select(id).From(id.Table()).Where(id.GT(1)))
 	filteredUserID := id.WithTable(filteredUsers)
 	query := mustBuild(Select(filteredUserID).From(filteredUsers))
-	err := validateOperationalExecutorForSQL(db.Executor(), query.listSQL)
+	err := validateOperationalExecutorForSQL(db, query.listSQL)
 	if err == nil {
 		t.Fatal("expected mysql dialect validation to reject CTE")
 	}
@@ -267,7 +267,7 @@ func TestQueryBuilder_Build_IntersectDefersDialectValidationToExecution(t *testi
 	users := newMockTable("users")
 	id := newColForTable[Table, int](users, "id", "id", nil)
 	query := mustBuild(Select(id).From(id.Table()).Intersect(Select(id).From(id.Table())))
-	err := validateOperationalExecutorForSQL(db.Executor(), query.listSQL)
+	err := validateOperationalExecutorForSQL(db, query.listSQL)
 	if err == nil {
 		t.Fatal("expected mysql dialect validation to reject INTERSECT")
 	}
@@ -282,7 +282,7 @@ func TestQueryBuilder_Build_ExceptDefersDialectValidationToExecution(t *testing.
 	users := newMockTable("users")
 	id := newColForTable[Table, int](users, "id", "id", nil)
 	query := mustBuild(Select(id).From(id.Table()).Except(Select(id).From(id.Table())))
-	err := validateOperationalExecutorForSQL(db.Executor(), query.listSQL)
+	err := validateOperationalExecutorForSQL(db, query.listSQL)
 	if err == nil {
 		t.Fatal("expected mysql dialect validation to reject EXCEPT")
 	}
@@ -294,7 +294,7 @@ func TestQueryBuilder_Build_ExceptDefersDialectValidationToExecution(t *testing.
 func TestQueryBuilder_Build_MinusDefersDialectValidationToExecution(t *testing.T) {
 	db := newInVarEngine(t)
 	db.engine.dialect = MySQLDialect{}
-	err := validateOperationalExecutorForSQL(db.Executor(), "SELECT 1 MINUS SELECT 1")
+	err := validateOperationalExecutorForSQL(db, "SELECT 1 MINUS SELECT 1")
 	if err == nil {
 		t.Fatal("expected mysql dialect validation to reject MINUS")
 	}
@@ -321,7 +321,7 @@ func TestQueryBuilder_Build_CaseExecutionOnSQLite(t *testing.T) {
 		return &holder.Label
 	}, "label")
 	query := mustBuild(Select(idCol, nameLabel).From(idCol.Table()).Where(idCol.InVar()))
-	rows, err := List[caseUser](context.Background(), db.Executor(), query, []int64{1, 2})
+	rows, err := List[caseUser](context.Background(), db, query, []int64{1, 2})
 	if err != nil {
 		t.Fatalf("expected CASE query to execute, got %v", err)
 	}
@@ -452,7 +452,7 @@ func newInVarEngine(t *testing.T) *Runtime {
 	return newRuntimeWithDB(db, SQLiteDialect{})
 }
 
-func newEngineWithoutDialect(t *testing.T) *Runtime {
+func newEngineWithoutDialect(t *testing.T) *sql.DB {
 	t.Helper()
 	db, err := sql.Open("sqlite3", ":memory:")
 	if err != nil {
@@ -461,5 +461,5 @@ func newEngineWithoutDialect(t *testing.T) *Runtime {
 	t.Cleanup(func() {
 		_ = db.Close()
 	})
-	return newRuntimeWithDB(db, nil)
+	return db
 }

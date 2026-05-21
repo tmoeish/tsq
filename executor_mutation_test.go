@@ -10,7 +10,7 @@ import (
 
 func TestEngineInsertBatchesRows(t *testing.T) {
 	db := newBatchMutationEngine(t)
-	exec := requireRuntimeExecutor(t, db)
+	exec := requireInitializedRuntime(t, db)
 	u1 := &batchMutationUser{Name: "alice", Email: "alice@example.com"}
 	u2 := &batchMutationUser{Name: "bob", Email: "bob@example.com"}
 	if err := insertTables(context.Background(), exec, u1, u2); err != nil {
@@ -30,7 +30,7 @@ func TestEngineInsertBatchesRows(t *testing.T) {
 
 func TestEngineUpdateBatchesRows(t *testing.T) {
 	db := newBatchMutationEngine(t)
-	exec := requireRuntimeExecutor(t, db)
+	exec := requireInitializedRuntime(t, db)
 	if _, err := db.DB().ExecContext(context.Background(), `
 		INSERT INTO users (id, name, email) VALUES
 		(1, 'alice', 'alice@example.com'),
@@ -67,7 +67,7 @@ func TestEngineUpdateBatchesRows(t *testing.T) {
 
 func TestEngineDeleteBatchesRows(t *testing.T) {
 	db := newBatchMutationEngine(t)
-	exec := requireRuntimeExecutor(t, db)
+	exec := requireInitializedRuntime(t, db)
 	if _, err := db.DB().ExecContext(context.Background(), `
 		INSERT INTO users (id, name, email) VALUES
 		(1, 'alice', 'alice@example.com'),
@@ -94,7 +94,7 @@ func TestEngineDeleteBatchesRows(t *testing.T) {
 
 func TestEngineUpdateUsesOptimisticLockVersion(t *testing.T) {
 	db := newOptimisticMutationEngine(t)
-	exec := requireRuntimeExecutor(t, db)
+	exec := requireInitializedRuntime(t, db)
 	if _, err := db.DB().ExecContext(context.Background(), `
 		INSERT INTO users (id, name, email, version) VALUES
 		(1, 'alice', 'alice@example.com', 3),
@@ -134,7 +134,7 @@ func TestEngineUpdateUsesOptimisticLockVersion(t *testing.T) {
 
 func TestEngineUpdateOptimisticLockConflict(t *testing.T) {
 	db := newOptimisticMutationEngine(t)
-	exec := requireRuntimeExecutor(t, db)
+	exec := requireInitializedRuntime(t, db)
 	if _, err := db.DB().ExecContext(context.Background(), `
 		INSERT INTO users (id, name, email, version) VALUES
 		(1, 'alice', 'alice@example.com', 3)
@@ -159,7 +159,7 @@ func TestEngineUpdateOptimisticLockConflict(t *testing.T) {
 
 func TestEngineDeleteUsesOptimisticLockVersion(t *testing.T) {
 	db := newOptimisticMutationEngine(t)
-	exec := requireRuntimeExecutor(t, db)
+	exec := requireInitializedRuntime(t, db)
 	if _, err := db.DB().ExecContext(context.Background(), `
 		INSERT INTO users (id, name, email, version) VALUES
 		(1, 'alice', 'alice@example.com', 3),
@@ -178,7 +178,7 @@ func TestEngineDeleteUsesOptimisticLockVersion(t *testing.T) {
 
 func TestEngineDeleteOptimisticLockConflict(t *testing.T) {
 	db := newOptimisticMutationEngine(t)
-	exec := requireRuntimeExecutor(t, db)
+	exec := requireInitializedRuntime(t, db)
 	if _, err := db.DB().ExecContext(context.Background(), `
 		INSERT INTO users (id, name, email, version) VALUES
 		(1, 'alice', 'alice@example.com', 3)
@@ -199,7 +199,7 @@ func TestEngineDeleteOptimisticLockConflict(t *testing.T) {
 
 func TestChunkedInsertChunkUsesBatchInsert(t *testing.T) {
 	runtime := newBatchMutationEngine(t)
-	exec := requireRuntimeExecutor(t, runtime)
+	exec := requireInitializedRuntime(t, runtime)
 	items := []*batchMutationUser{{Name: "alice", Email: "alice@example.com"}, {Name: "bob", Email: "bob@example.com"}}
 	if err := chunkedInsertChunk(context.Background(), exec, items, &ChunkedInsertOptions{}); err != nil {
 		t.Fatalf("chunked insert chunk failed: %v", err)
@@ -215,7 +215,7 @@ func TestChunkedInsertChunkUsesBatchInsert(t *testing.T) {
 
 func TestChunkedUpdateChunkUsesBatchUpdate(t *testing.T) {
 	runtime := newBatchMutationEngine(t)
-	exec := requireRuntimeExecutor(t, runtime)
+	exec := requireInitializedRuntime(t, runtime)
 	if _, err := runtime.DB().ExecContext(context.Background(), `
 		INSERT INTO users (id, name, email) VALUES
 		(1, 'alice', 'alice@example.com'),
@@ -241,7 +241,7 @@ func TestChunkedUpdateChunkUsesBatchUpdate(t *testing.T) {
 
 func TestChunkedDeleteChunkUsesBatchDelete(t *testing.T) {
 	runtime := newBatchMutationEngine(t)
-	exec := requireRuntimeExecutor(t, runtime)
+	exec := requireInitializedRuntime(t, runtime)
 	if _, err := runtime.DB().ExecContext(context.Background(), `
 		INSERT INTO users (id, name, email) VALUES
 		(1, 'alice', 'alice@example.com'),
@@ -264,7 +264,7 @@ func TestChunkedDeleteChunkUsesBatchDelete(t *testing.T) {
 
 func TestChunkedInsertIgnoreErrorsSkipsSQLiteUniqueViolations(t *testing.T) {
 	db := newBatchMutationEngine(t)
-	exec := requireRuntimeExecutor(t, db)
+	exec := requireInitializedRuntime(t, db)
 	if err := Insert(context.Background(), exec, &batchMutationUser{Name: "seed", Email: "alice@example.com"}); err != nil {
 		t.Fatalf("seed insert failed: %v", err)
 	}

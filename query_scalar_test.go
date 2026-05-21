@@ -38,7 +38,7 @@ func TestQueryCountRejectsExecutorWithoutDialectForRenderedSQL(t *testing.T) {
 	users := newMockTable("users")
 	userID := newColForTable[Table, int](users, "id", "id", nil)
 	query := mustBuild(Select(userID).From(userID.Table()))
-	_, err := query.Count(context.Background(), db.Executor())
+	_, err := query.Count(context.Background(), db)
 	if err == nil {
 		t.Fatal("expected executor without dialect to return an error")
 	}

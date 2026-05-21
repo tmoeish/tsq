@@ -59,8 +59,8 @@ erDiagram
 | `runCaseDemo` | 给学员报名打运营标签 | `CASE WHEN` |
 | `runCTEDemo` | 先抽平台课程子集再继续查询 | non-recursive CTE |
 | `runSetOpsDemo` | 合并/排除课程集合 | `UNION`、`EXCEPT` |
-| `runChunkedDemo` | 批量处理报名记录 | `ChunkedInsert`、`ChunkedUpdate`、`ChunkedDelete`（事务边界由调用方控制） |
-| `runOptimisticLockDemo` | 模拟并发修改同一条报名记录 | 自动乐观锁、`ErrOptimisticLockConflict` |
+| `runChunkedDemo` | 在一个事务里批量处理报名记录 | `runtime.WithTx(...)`、`ChunkedInsert`、`ChunkedUpdate`、`ChunkedDelete` |
+| `runOptimisticLockDemo` | 先制造过期快照，再自动重试更新同一条报名记录 | `tsq.WithTx1(...)`、`IsOptimisticLockError`、自动乐观锁重试 |
 | `runComprehensive` | 生成学习旅程看板 | joins、子查询、`@RESULT`、`tsq.Page(...)` |
 
 ## 运行方式
@@ -97,7 +97,7 @@ tsq gen ./examples/academy
 
 这套示例运行时统一使用 **SQLite**，所以：
 
-- **自动乐观锁** 是可运行、可观察的，`runOptimisticLockDemo` 会演示版本冲突
+- **自动乐观锁** 是可运行、可观察的，`runOptimisticLockDemo` 会演示“第一次因过期版本失败、随后自动重试成功”的完整流程
 - **行锁 DSL**（`ForUpdate()` / `ForShare()` / `NoWait()` / `SkipLocked()`）不会在示例里执行，因为 SQLite 不支持这些语句
 
 如果你想演示行锁，请把同样的 query 放到 MySQL 或 PostgreSQL runtime 中执行，并放在显式事务里观察锁行为。

@@ -12,7 +12,7 @@ import (
 func inspectRegisteredIndex(t *testing.T, db *Runtime, table, idx string) (IndexDefinition, bool) {
 	t.Helper()
 
-	definition, found, err := db.SQLDialect().InspectIndexDefinition(context.Background(), db.Executor(), table, idx)
+	definition, found, err := db.SQLDialect().InspectIndexDefinition(context.Background(), db, table, idx)
 	if err != nil {
 		t.Fatalf("failed to inspect index %s on %s: %v", idx, table, err)
 	}

@@ -180,7 +180,7 @@ func TestChunkedInsertRejectsTypedNilExecutor(t *testing.T) {
 
 func TestChunkedDeleteByIDsRejectsExecutorWithoutDialectForRenderedSQL(t *testing.T) {
 	db := newEngineWithoutDialect(t)
-	err := ChunkedDeleteByIDs(context.Background(), db.Executor(), "users", "id", []any{1})
+	err := ChunkedDeleteByIDs(context.Background(), db, "users", "id", []any{1})
 	if err == nil {
 		t.Fatal("expected executor without dialect to return an error")
 	}
