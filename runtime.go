@@ -9,7 +9,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/tmoeish/tsq/v4/dialect"
+	tsqdialect "github.com/tmoeish/tsq/v4/dialect"
 )
 
 // Runtime owns the mutable TSQ process state used for table registration,
@@ -46,7 +46,7 @@ func (r *Runtime) DB() *sql.DB {
 }
 
 // SQLDialect returns the concrete SQL dialect bound to this runtime.
-func (r *Runtime) SQLDialect() dialect.Dialect {
+func (r *Runtime) SQLDialect() tsqdialect.Dialect {
 	if r == nil || r.engine == nil {
 		return nil
 	}
@@ -85,7 +85,7 @@ func (r *Runtime) snapshotRegisteredTables() []*registeredTable {
 }
 
 // Init initializes indexes and runtime state using optional explicit options.
-func (r *Runtime) Init(db *sql.DB, sqlDialect dialect.Dialect, options ...*InitOptions) error {
+func (r *Runtime) Init(db *sql.DB, sqlDialect tsqdialect.Dialect, options ...*InitOptions) error {
 	if r == nil {
 		return errors.New("runtime cannot be nil")
 	}
@@ -263,7 +263,7 @@ func (r *Runtime) validateRegisteredTableIdentifiers(mode string) error {
 func validateIndexIdentifiersForDialect(
 	tableName string,
 	indexes []TableIndex,
-	dialect dialect.Dialect,
+	dialect tsqdialect.Dialect,
 	mode string,
 	validationErrors *[]string,
 ) error {
@@ -305,7 +305,7 @@ func (r *Runtime) ValidateIdentifiersForDialect() error {
 func validateColumnIdentifiersForDialect(
 	tableName string,
 	cols []SQLColumn,
-	dialect dialect.Dialect,
+	dialect tsqdialect.Dialect,
 	mode string,
 	validationErrors *[]string,
 ) error {

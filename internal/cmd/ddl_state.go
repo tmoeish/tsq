@@ -251,11 +251,10 @@ func diffDDLSnapshots(previous *ddlSnapshot, current ddlSnapshot) ddlChangeSet {
 
 	if previous == nil {
 		for _, table := range current.Tables {
-			tableCopy := table
 			result.ByTable[table.Name] = []ddlChange{{
 				kind:     ddlChangeCreateTable,
 				table:    table.Name,
-				newTable: &tableCopy,
+				newTable: new(table),
 			}}
 			result.Tables = append(result.Tables, table.Name)
 		}
@@ -293,18 +292,16 @@ func diffDDLSnapshots(previous *ddlSnapshot, current ddlSnapshot) ddlChangeSet {
 
 		switch {
 		case !hadBefore && hasAfter:
-			afterCopy := after
 			result.ByTable[tableName] = append(result.ByTable[tableName], ddlChange{
 				kind:     ddlChangeCreateTable,
 				table:    tableName,
-				newTable: &afterCopy,
+				newTable: new(after),
 			})
 		case hadBefore && !hasAfter:
-			beforeCopy := before
 			result.ByTable[tableName] = append(result.ByTable[tableName], ddlChange{
 				kind:     ddlChangeDropTable,
 				table:    tableName,
-				oldTable: &beforeCopy,
+				oldTable: new(before),
 			})
 		default:
 			diffExistingDDLTable(&result, before, after)
@@ -343,26 +340,24 @@ func diffExistingDDLTable(result *ddlChangeSet, before, after ddlSnapshotTable) 
 			continue
 		}
 
-		columnCopy := column
 		result.ByTable[tableName] = append(result.ByTable[tableName], ddlChange{
 			kind:      ddlChangeDropColumn,
 			table:     tableName,
 			oldTable:  &beforeTableCopy,
 			newTable:  &afterTableCopy,
-			oldColumn: &columnCopy,
+			oldColumn: new(column),
 		})
 	}
 
 	for _, column := range after.Columns {
 		beforeColumn, ok := beforeColumns[column.Name]
 		if !ok {
-			columnCopy := column
 			result.ByTable[tableName] = append(result.ByTable[tableName], ddlChange{
 				kind:      ddlChangeAddColumn,
 				table:     tableName,
 				oldTable:  &beforeTableCopy,
 				newTable:  &afterTableCopy,
-				newColumn: &columnCopy,
+				newColumn: new(column),
 			})
 
 			continue
@@ -372,15 +367,13 @@ func diffExistingDDLTable(result *ddlChangeSet, before, after ddlSnapshotTable) 
 			continue
 		}
 
-		beforeCopy := beforeColumn
-		afterCopy := column
 		result.ByTable[tableName] = append(result.ByTable[tableName], ddlChange{
 			kind:      ddlChangeAlterColumn,
 			table:     tableName,
 			oldTable:  &beforeTableCopy,
 			newTable:  &afterTableCopy,
-			oldColumn: &beforeCopy,
-			newColumn: &afterCopy,
+			oldColumn: new(beforeColumn),
+			newColumn: new(column),
 		})
 	}
 
@@ -397,13 +390,12 @@ func diffExistingDDLTable(result *ddlChangeSet, before, after ddlSnapshotTable) 
 	for _, idx := range before.Indexes {
 		next, ok := afterIndexes[idx.Name]
 		if !ok {
-			idxCopy := idx
 			result.ByTable[tableName] = append(result.ByTable[tableName], ddlChange{
 				kind:     ddlChangeDropIndex,
 				table:    tableName,
 				oldTable: &beforeTableCopy,
 				newTable: &afterTableCopy,
-				oldIndex: &idxCopy,
+				oldIndex: new(idx),
 			})
 
 			continue
@@ -413,22 +405,19 @@ func diffExistingDDLTable(result *ddlChangeSet, before, after ddlSnapshotTable) 
 			continue
 		}
 
-		oldCopy := idx
-		newCopy := next
-
 		result.ByTable[tableName] = append(result.ByTable[tableName], ddlChange{
 			kind:     ddlChangeDropIndex,
 			table:    tableName,
 			oldTable: &beforeTableCopy,
 			newTable: &afterTableCopy,
-			oldIndex: &oldCopy,
+			oldIndex: new(idx),
 		})
 		result.ByTable[tableName] = append(result.ByTable[tableName], ddlChange{
 			kind:     ddlChangeAddIndex,
 			table:    tableName,
 			oldTable: &beforeTableCopy,
 			newTable: &afterTableCopy,
-			newIndex: &newCopy,
+			newIndex: new(next),
 		})
 	}
 
@@ -437,13 +426,12 @@ func diffExistingDDLTable(result *ddlChangeSet, before, after ddlSnapshotTable) 
 			continue
 		}
 
-		idxCopy := idx
 		result.ByTable[tableName] = append(result.ByTable[tableName], ddlChange{
 			kind:     ddlChangeAddIndex,
 			table:    tableName,
 			oldTable: &beforeTableCopy,
 			newTable: &afterTableCopy,
-			newIndex: &idxCopy,
+			newIndex: new(idx),
 		})
 	}
 }
@@ -950,14 +938,4 @@ func renderDDLManualComment(tableName, message string) string {
 
 func dialectIncrementalFilename(dialectName string) string {
 	return dialectName + ".incremental.sql"
-}
-
-func columnDescriptorFromSnapshot(column ddlSnapshotColumn) ddlColumnDescriptor {
-	return ddlColumnDescriptor{
-		kind:     column.Kind,
-		bits:     column.Bits,
-		unsigned: column.Unsigned,
-		nullable: column.Nullable,
-		size:     column.Size,
-	}
 }

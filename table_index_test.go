@@ -220,7 +220,7 @@ func TestValidateIdentifiersForDialectChecksTableColumns(t *testing.T) {
 	r := NewRuntime()
 	db := newSQLiteIndexTestEngine(t)
 	db.engine.dialect = MySQLDialect{}
-	longColumnName := strings.Repeat("c", maxIdentifierLengthMySQL+1)
+	longColumnName := firstRejectedIdentifier(t, MySQLDialect{}, "c")
 	table, _ := newStrictMockTable("users", longColumnName)
 	if err := r.RegisterTable(table); err != nil {
 		t.Fatalf("failed to register table with long column name: %v", err)
@@ -241,7 +241,7 @@ func TestValidateIdentifiersForDialectChecksIndexNames(t *testing.T) {
 	r := NewRuntime()
 	db := newSQLiteIndexTestEngine(t)
 	db.engine.dialect = MySQLDialect{}
-	longIndexName := strings.Repeat("i", maxIdentifierLengthMySQL+1)
+	longIndexName := firstRejectedIdentifier(t, MySQLDialect{}, "i")
 	table, _ := newStrictMockTable("users", "id")
 	if err := r.RegisterTable(table, TableIndex{
 		Name:   longIndexName,

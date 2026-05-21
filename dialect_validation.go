@@ -32,27 +32,27 @@ func validateIdentifierLength(identifier string, sqlDialect tsqdialect.Dialect) 
 	return tsqdialect.ValidateIdentifierLength(identifier, sqlDialect)
 }
 
-func canonicalDialectCapability(operation string) tsqdialect.DialectCapability {
+func canonicalDialectCapability(operation string) tsqdialect.Capability {
 	value := strings.ToUpper(strings.TrimSpace(operation))
 
 	switch value {
 	case "FULL JOIN", "FULL OUTER JOIN":
-		return tsqdialect.DialectCapabilityFullOuterJoin
+		return tsqdialect.CapabilityFullOuterJoin
 	case "CTE":
-		return tsqdialect.DialectCapabilityCTE
+		return tsqdialect.CapabilityCTE
 	case "INTERSECT":
-		return tsqdialect.DialectCapabilityIntersect
+		return tsqdialect.CapabilityIntersect
 	case "EXCEPT", "MINUS":
-		return tsqdialect.DialectCapabilityExcept
+		return tsqdialect.CapabilityExcept
 	case "FOR UPDATE":
-		return tsqdialect.DialectCapabilitySelectForUpdate
+		return tsqdialect.CapabilitySelectForUpdate
 	case "FOR SHARE":
-		return tsqdialect.DialectCapabilitySelectForShare
+		return tsqdialect.CapabilitySelectForShare
 	case "NOWAIT":
-		return tsqdialect.DialectCapabilitySelectForNoWait
+		return tsqdialect.CapabilitySelectForNoWait
 	case "SKIP LOCKED":
-		return tsqdialect.DialectCapabilitySelectForSkipLocked
+		return tsqdialect.CapabilitySelectForSkipLocked
 	default:
-		return tsqdialect.DialectCapability(value)
+		return tsqdialect.Capability(value)
 	}
 }

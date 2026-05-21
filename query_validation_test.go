@@ -79,6 +79,22 @@ func TestValidateIdentifierLength(t *testing.T) {
 	}
 }
 
+func firstRejectedIdentifier(t *testing.T, dialect Dialect, ch string) string {
+	t.Helper()
+
+	identifier := ch
+	for i := 0; i < 1024; i++ {
+		if err := validateIdentifierLength(identifier, dialect); err != nil {
+			return identifier
+		}
+
+		identifier += ch
+	}
+
+	t.Fatalf("failed to find rejected identifier for %T", dialect)
+	return ""
+}
+
 func TestValidateIdentifierForDialect(t *testing.T) {
 	tests := []struct {
 		name       string

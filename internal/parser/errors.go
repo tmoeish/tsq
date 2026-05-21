@@ -12,14 +12,11 @@ type ErrorType int
 const (
 	// Package 相关错误
 	ErrorTypePackageImport ErrorType = iota
-	ErrorTypeFileParseError
 
 	// Struct 相关错误
 	ErrorTypeDuplicateField
 	ErrorTypeDuplicateEmbedded
 	ErrorTypeEmbeddedCycle
-	ErrorTypeEmbeddedNotFound
-	ErrorTypeUnsupportedType
 
 	// DSL 相关错误
 	ErrorTypeDSLTokenize
@@ -94,39 +91,6 @@ func parserErrorLocationPrefix(context map[string]any) string {
 	return filename
 }
 
-// ErrorMessages 错误消息模板
-var ErrorMessages = map[ErrorType]string{
-	// Package 相关错误
-	ErrorTypePackageImport:  "failed to import package",
-	ErrorTypeFileParseError: "failed to parse file",
-
-	// Struct 相关错误
-	ErrorTypeDuplicateField:    "duplicate field in struct",
-	ErrorTypeDuplicateEmbedded: "duplicate embedded type in struct",
-	ErrorTypeEmbeddedCycle:     "cyclic embedded type in struct",
-	ErrorTypeEmbeddedNotFound:  "embedded struct not found",
-	ErrorTypeUnsupportedType:   "unsupported type expression",
-
-	// DSL 相关错误
-	ErrorTypeDSLTokenize:        "failed to tokenize DSL",
-	ErrorTypeDSLUnexpectedToken: "unexpected token in DSL",
-	ErrorTypeDSLUnexpectedValue: "unexpected value token in DSL",
-	ErrorTypeDSLUnclosedString:  "unclosed string literal in DSL",
-	ErrorTypeDSLInvalidNumber:   "invalid number format in DSL",
-	ErrorTypeDSLMissingBracket:  "missing bracket in DSL",
-	ErrorTypeDSLMissingBrace:    "missing brace in DSL",
-	ErrorTypeDSLDuplicateKey:    "duplicate key in DSL",
-
-	// Field 相关错误
-	ErrorTypeFieldUnsupportedType: "unsupported field type",
-	ErrorTypeFieldInvalidSelector: "invalid selector expression",
-
-	// DSL 字段和索引校验
-	ErrorTypeDSLFieldNotFound:       "field '%s' not found in struct '%s'",
-	ErrorTypeDSLIndexFieldDuplicate: "duplicate field '%s' in index '%s'",
-	ErrorTypeDSLIndexDuplicate:      "duplicate index definition: fields '%s' in index '%s'",
-}
-
 // ===== 错误创建辅助函数 =====
 
 // NewPackageImportError 创建包导入错误
@@ -134,16 +98,6 @@ func NewPackageImportError(packagePath string, cause error) error {
 	msg := fmt.Sprintf("failed to import package: %s", packagePath)
 	err := newParserError(ErrorTypePackageImport, msg, map[string]any{
 		"package": packagePath,
-	})
-
-	return fmt.Errorf("%v"+": %w", cause, err)
-}
-
-// NewFileParseError 创建文件解析错误
-func NewFileParseError(filename string, cause error) error {
-	msg := fmt.Sprintf("failed to parse file: %s", filename)
-	err := newParserError(ErrorTypeFileParseError, msg, map[string]any{
-		"filename": filename,
 	})
 
 	return fmt.Errorf("%v"+": %w", cause, err)
@@ -171,32 +125,11 @@ func NewDuplicateEmbeddedError(typeName, structName string) error {
 	return err
 }
 
-// NewEmbeddedNotFoundError 创建嵌入结构体未找到错误
-func NewEmbeddedNotFoundError(structName string) error {
-	msg := fmt.Sprintf("embedded struct not found: '%s'", structName)
-	err := newParserError(ErrorTypeEmbeddedNotFound, msg, map[string]any{
-		"struct": structName,
-	})
-
-	return err
-}
-
 // NewEmbeddedCycleError 创建嵌入结构体循环引用错误
 func NewEmbeddedCycleError(structName string) error {
 	msg := fmt.Sprintf("cyclic embedded struct reference: '%s'", structName)
 	err := newParserError(ErrorTypeEmbeddedCycle, msg, map[string]any{
 		"struct": structName,
-	})
-
-	return err
-}
-
-// NewUnsupportedTypeError 创建不支持类型错误
-func NewUnsupportedTypeError(typeExpr any) error {
-	typeStr := fmt.Sprintf("%T", typeExpr)
-	msg := fmt.Sprintf("unsupported type expression: %s", typeStr)
-	err := newParserError(ErrorTypeUnsupportedType, msg, map[string]any{
-		"type": typeStr,
 	})
 
 	return err
@@ -385,20 +318,6 @@ func levenshteinDistance(a, b string) int {
 	return prev[len(b)]
 }
 
-// NewDSLUnexpectedValueError 创建 DSL 意外值错误
-func NewDSLUnexpectedValueError(tokenValue string, position int) error {
-	msg := fmt.Sprintf(
-		"invalid DSL value for %q at position %d",
-		tokenValue, position,
-	)
-	err := newParserError(ErrorTypeDSLUnexpectedValue, msg, map[string]any{
-		"token":    tokenValue,
-		"position": position,
-	})
-
-	return err
-}
-
 func NewDSLValueTypeError(key, expected string, actual any) error {
 	msg := fmt.Sprintf(
 		"invalid value for DSL key %q: expected %s, got %s",
@@ -475,17 +394,6 @@ func NewDSLDuplicateKeyError(key string, position int) error {
 	msg := fmt.Sprintf("duplicate DSL key %q at position %d; each key can only appear once in the same object", key, position)
 	err := newParserError(ErrorTypeDSLDuplicateKey, msg, map[string]any{
 		"key":      key,
-		"position": position,
-	})
-
-	return err
-}
-
-// NewDSLMissingBracketError 创建 DSL 缺失括号错误
-func NewDSLMissingBracketError(input string, position int) error {
-	msg := fmt.Sprintf("missing bracket in DSL at position %d near ...%s...", position, highlightDSLPosition(input, position))
-	err := newParserError(ErrorTypeDSLMissingBracket, msg, map[string]any{
-		"input":    input,
 		"position": position,
 	})
 
@@ -632,18 +540,9 @@ func NewDSLIndexDuplicateError(indexName, fields string) error {
 
 // ===== 错误类型检查辅助函数 =====
 
-// IsParserError 检查是否为解析器错误
-func IsParserError(err error) bool {
-	var parserError *ParserError
-	ok := errors.As(err, &parserError)
-
-	return ok
-}
-
 // GetParserError 获取解析器错误
 func GetParserError(err error) *ParserError {
-	var parserErr *ParserError
-	if errors.As(err, &parserErr) {
+	if parserErr, ok := errors.AsType[*ParserError](err); ok {
 		return parserErr
 	}
 

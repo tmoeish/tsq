@@ -360,7 +360,7 @@ func runCatalogSearchDemo(ctx context.Context, runtime *tsq.Runtime) (*SearchSum
 		Size:    5,
 		OrderBy: "id", // OrderBy uses the JSON tag because callers (e.g. the frontend) only see JSON tags, not column names or db tags.
 		Order:   "asc",
-		Keyword: tsq.EscapeKeywordSearch("SQLite"),
+		Keyword: "SQLite",
 	}
 	if err := pageReq.Validate(); err != nil {
 		return nil, err

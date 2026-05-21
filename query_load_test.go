@@ -55,8 +55,7 @@ func TestQuery_buildPageSQLsRejectsAmbiguousSortField(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected ambiguous sort field to return an error")
 	}
-	var ambiguousErr *ErrAmbiguousSortField
-	if !errors.As(err, &ambiguousErr) {
+	if _, ok := errors.AsType[*ErrAmbiguousSortField](err); !ok {
 		t.Fatalf("expected ErrAmbiguousSortField, got %v", err)
 	}
 }
@@ -69,8 +68,7 @@ func TestQuery_buildPageSQLsIgnoresHiddenJSONSortAlias(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected json:- sort alias to be rejected")
 	}
-	var unknownErr *ErrUnknownSortField
-	if !errors.As(err, &unknownErr) {
+	if _, ok := errors.AsType[*ErrUnknownSortField](err); !ok {
 		t.Fatalf("expected ErrUnknownSortField, got %v", err)
 	}
 }
@@ -99,8 +97,7 @@ func TestQuery_buildPageSQLsRejectsExplicitOrderCountMismatch(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected explicit order count mismatch to return an error")
 	}
-	var mismatchErr *ErrOrderCountMismatch
-	if !errors.As(err, &mismatchErr) {
+	if _, ok := errors.AsType[*ErrOrderCountMismatch](err); !ok {
 		t.Fatalf("expected ErrOrderCountMismatch, got %v", err)
 	}
 }

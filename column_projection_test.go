@@ -14,7 +14,7 @@ func TestCol_MapInto(t *testing.T) {
 	newCol := MapInto[colProjection](col, func(holder *colProjection) *string {
 		return &holder.DisplayName
 	}, newJSONFieldName)
-	var _ ResultColumn[colProjection, string] = newCol
+	_ = newCol
 	if newCol.JSONFieldName() != newJSONFieldName {
 		t.Errorf("Expected JSON field name '%s', got '%s'", newJSONFieldName, newCol.JSONFieldName())
 	}

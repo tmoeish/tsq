@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// EscapeKeywordSearch escapes special characters in keyword search strings for use with LIKE clauses.
+// escapeKeywordSearch escapes special characters in keyword search strings for use with LIKE clauses.
 // This prevents SQL injection via LIKE wildcard characters (% and _).
 //
 // Example:
@@ -22,17 +22,12 @@ import (
 //
 // Currently, TSQ keyword search does not apply escaping automatically. Users MUST call this function
 // if their keywords contain % or _ characters to prevent unintended pattern matching or SQL injection.
-func EscapeKeywordSearch(keyword string) string {
+func escapeKeywordSearch(keyword string) string {
 	s := strings.ReplaceAll(keyword, "\\", "\\\\")
 	s = strings.ReplaceAll(s, "%", "\\%")
 	s = strings.ReplaceAll(s, "_", "\\_")
 
 	return s
-}
-
-func mergeQueryArgs(base, extra []any) ([]any, error) {
-	_, args, err := resolveQueryWithState("", base, extra, "", scanQueryArgState(base))
-	return args, err
 }
 
 func resolveQueryArgs(base, extra []any, keyword string) ([]any, error) {

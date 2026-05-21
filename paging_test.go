@@ -406,9 +406,9 @@ func TestNewResponse(t *testing.T) {
 	}
 
 	data := []*string{
-		stringPtr("item1"),
-		stringPtr("item2"),
-		stringPtr("item3"),
+		new("item1"),
+		new("item2"),
+		new("item3"),
 	}
 
 	resp := NewPageResponse(req, 25, data)
@@ -543,7 +543,7 @@ func TestPageResp_IsEmpty(t *testing.T) {
 		expected bool
 	}{
 		{"empty", []*string{}, true},
-		{"not empty", []*string{stringPtr("item")}, false},
+		{"not empty", []*string{new("item")}, false},
 		{"nil", nil, true},
 	}
 

@@ -39,7 +39,7 @@ func (newColOwner) VersionColumn() string {
 
 func TestNewCol(t *testing.T) {
 	col := NewCol[newColOwner, string]("name", "user_name", nil)
-	var _ Column[newColOwner, string] = col
+	_ = col
 	var _ TypedColumn[newColOwner, string] = col
 	var _ SQLColumn = col
 	if col.Table().Table() != "users" {

@@ -10,7 +10,7 @@ import (
 	"github.com/go-sql-driver/mysql"
 	"github.com/jackc/pgconn"
 	"github.com/lib/pq"
-	sqlite3 "github.com/mattn/go-sqlite3"
+	"github.com/mattn/go-sqlite3"
 
 	tsqdialect "github.com/tmoeish/tsq/v4/dialect"
 )
@@ -20,24 +20,20 @@ func isDuplicateKeyError(err error) bool {
 		return false
 	}
 
-	var mysqlErr *mysql.MySQLError
-	if errors.As(err, &mysqlErr) {
+	if mysqlErr, ok := errors.AsType[*mysql.MySQLError](err); ok {
 		return mysqlErr.Number == 1062
 	}
 
-	var sqliteErr sqlite3.Error
-	if errors.As(err, &sqliteErr) {
-		return sqliteErr.ExtendedCode == sqlite3.ErrConstraintUnique ||
-			sqliteErr.ExtendedCode == sqlite3.ErrConstraintPrimaryKey
+	if sqliteErr, ok := errors.AsType[sqlite3.Error](err); ok {
+		return errors.Is(sqliteErr.ExtendedCode, sqlite3.ErrConstraintUnique) ||
+			errors.Is(sqliteErr.ExtendedCode, sqlite3.ErrConstraintPrimaryKey)
 	}
 
-	var pqErr *pq.Error
-	if errors.As(err, &pqErr) {
+	if pqErr, ok := errors.AsType[*pq.Error](err); ok {
 		return string(pqErr.Code) == "23505"
 	}
 
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) {
+	if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok {
 		return pgErr.Code == "23505"
 	}
 
@@ -73,8 +69,7 @@ func normalizeChunkedInsertOptions(options ...*ChunkedInsertOptions) (*ChunkedIn
 	opts := DefaultChunkedInsertOptions()
 
 	if len(options) > 0 && options[0] != nil {
-		copied := *options[0]
-		opts = &copied
+		opts = new(*options[0])
 	}
 
 	if err := validateChunkSize(opts.ChunkSize); err != nil {
@@ -92,8 +87,7 @@ func normalizeChunkedOptions(options ...*ChunkedOptions) (*ChunkedOptions, error
 	opts := DefaultChunkedOptions()
 
 	if len(options) > 0 && options[0] != nil {
-		copied := *options[0]
-		opts = &copied
+		opts = new(*options[0])
 	}
 
 	if err := validateChunkSize(opts.ChunkSize); err != nil {
@@ -194,40 +188,40 @@ func validateExecutorForSQL(tx SQLExecutor, rawSQLs ...string) error {
 	return nil
 }
 
-func detectSQLCapabilities(rawSQL string) []tsqdialect.DialectCapability {
+func detectSQLCapabilities(rawSQL string) []tsqdialect.Capability {
 	upperSQL := strings.ToUpper(strings.TrimSpace(rawSQL))
-	capabilities := make([]tsqdialect.DialectCapability, 0, 8)
+	capabilities := make([]tsqdialect.Capability, 0, 8)
 
 	if strings.HasPrefix(upperSQL, "WITH ") {
-		capabilities = append(capabilities, tsqdialect.DialectCapabilityCTE)
+		capabilities = append(capabilities, tsqdialect.CapabilityCTE)
 	}
 
 	if strings.Contains(upperSQL, " FULL JOIN ") {
-		capabilities = append(capabilities, tsqdialect.DialectCapabilityFullOuterJoin)
+		capabilities = append(capabilities, tsqdialect.CapabilityFullOuterJoin)
 	}
 
 	if strings.Contains(upperSQL, " INTERSECT ") {
-		capabilities = append(capabilities, tsqdialect.DialectCapabilityIntersect)
+		capabilities = append(capabilities, tsqdialect.CapabilityIntersect)
 	}
 
 	if strings.Contains(upperSQL, " EXCEPT ") || strings.Contains(upperSQL, " MINUS ") {
-		capabilities = append(capabilities, tsqdialect.DialectCapabilityExcept)
+		capabilities = append(capabilities, tsqdialect.CapabilityExcept)
 	}
 
 	if strings.Contains(upperSQL, " FOR UPDATE") {
-		capabilities = append(capabilities, tsqdialect.DialectCapabilitySelectForUpdate)
+		capabilities = append(capabilities, tsqdialect.CapabilitySelectForUpdate)
 	}
 
 	if strings.Contains(upperSQL, " FOR SHARE") {
-		capabilities = append(capabilities, tsqdialect.DialectCapabilitySelectForShare)
+		capabilities = append(capabilities, tsqdialect.CapabilitySelectForShare)
 	}
 
 	if strings.Contains(upperSQL, " NOWAIT") {
-		capabilities = append(capabilities, tsqdialect.DialectCapabilitySelectForNoWait)
+		capabilities = append(capabilities, tsqdialect.CapabilitySelectForNoWait)
 	}
 
 	if strings.Contains(upperSQL, " SKIP LOCKED") {
-		capabilities = append(capabilities, tsqdialect.DialectCapabilitySelectForSkipLocked)
+		capabilities = append(capabilities, tsqdialect.CapabilitySelectForSkipLocked)
 	}
 
 	return capabilities

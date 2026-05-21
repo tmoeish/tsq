@@ -1,6 +1,7 @@
 package tsq
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"slices"
@@ -25,7 +26,9 @@ func (e *ErrUnknownSortField) Error() string {
 // An *ErrUnknownSortField with an empty field matches any ErrUnknownSortField,
 // enabling both type-level and value-level errors.Is checks.
 func (e *ErrUnknownSortField) Is(target error) bool {
-	other, ok := target.(*ErrUnknownSortField)
+	var other *ErrUnknownSortField
+
+	ok := errors.As(target, &other)
 	if !ok {
 		return false
 	}
@@ -52,7 +55,9 @@ func (e *ErrAmbiguousSortField) Error() string {
 // An *ErrAmbiguousSortField with an empty field matches any ErrAmbiguousSortField,
 // enabling both type-level and value-level errors.Is checks.
 func (e *ErrAmbiguousSortField) Is(target error) bool {
-	other, ok := target.(*ErrAmbiguousSortField)
+	var other *ErrAmbiguousSortField
+
+	ok := errors.As(target, &other)
 	if !ok {
 		return false
 	}
@@ -83,7 +88,9 @@ func (e *ErrOrderCountMismatch) Error() string {
 // An *ErrOrderCountMismatch with zero orderBys and zero orders matches any
 // ErrOrderCountMismatch, enabling type-level errors.Is checks.
 func (e *ErrOrderCountMismatch) Is(target error) bool {
-	other, ok := target.(*ErrOrderCountMismatch)
+	var other *ErrOrderCountMismatch
+
+	ok := errors.As(target, &other)
 	if !ok {
 		return false
 	}
@@ -139,18 +146,6 @@ const slicePlaceholderCacheMax = 128
 var slicePlaceholderCache = buildSlicePlaceholderCache(slicePlaceholderCacheMax)
 
 var builtInIdentifierPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
-
-// Identifier length limits by SQL dialect.
-const (
-	// maxIdentifierLengthMySQL is MySQL's maximum identifier length.
-	maxIdentifierLengthMySQL = 64
-	// maxIdentifierLengthPostgreSQL is PostgreSQL's maximum identifier length.
-	maxIdentifierLengthPostgreSQL = 63
-	// maxIdentifierLengthOracleSQL is Oracle's maximum identifier length.
-	maxIdentifierLengthOracleSQL = 30
-	// maxIdentifierLengthSQLite is zero because SQLite has no practical identifier limit.
-	maxIdentifierLengthSQLite = 0 // SQLite has no practical limit, 0 means unlimited
-)
 
 // Build once and reuse Query values on hot paths instead of rebuilding the same shape.
 

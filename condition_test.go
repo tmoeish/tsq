@@ -30,10 +30,6 @@ func stringPtr(s string) *string {
 	return &s
 }
 
-func intPtr(i int) *int {
-	return &i
-}
-
 func TestConditionClauseRendersCanonicalSQL(t *testing.T) {
 	col := newColForTable[Table, int](newMockTable("users"), "id", "id", nil)
 	cond := col.EQ(1)

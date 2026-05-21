@@ -10,8 +10,8 @@ import (
 type (
 	VersionInfo              = buildinfo.Info
 	Dialect                  = tsqdialect.Dialect
-	DialectName              = tsqdialect.DialectName
-	DialectCapability        = tsqdialect.DialectCapability
+	DialectName              = tsqdialect.Name
+	DialectCapability        = tsqdialect.Capability
 	DDLAlterColumnMode       = tsqdialect.DDLAlterColumnMode
 	DDLColumnKind            = tsqdialect.DDLColumnKind
 	DDLColumnType            = tsqdialect.DDLColumnType
@@ -24,18 +24,18 @@ type (
 )
 
 const (
-	DialectMySQL                         = tsqdialect.DialectMySQL
-	DialectPostgres                      = tsqdialect.DialectPostgres
-	DialectSQLite                        = tsqdialect.DialectSQLite
-	DialectUnknown                       = tsqdialect.DialectUnknown
-	DialectCapabilityCTE                 = tsqdialect.DialectCapabilityCTE
-	DialectCapabilityExcept              = tsqdialect.DialectCapabilityExcept
-	DialectCapabilityFullOuterJoin       = tsqdialect.DialectCapabilityFullOuterJoin
-	DialectCapabilityIntersect           = tsqdialect.DialectCapabilityIntersect
-	DialectCapabilitySelectForUpdate     = tsqdialect.DialectCapabilitySelectForUpdate
-	DialectCapabilitySelectForShare      = tsqdialect.DialectCapabilitySelectForShare
-	DialectCapabilitySelectForNoWait     = tsqdialect.DialectCapabilitySelectForNoWait
-	DialectCapabilitySelectForSkipLocked = tsqdialect.DialectCapabilitySelectForSkipLocked
+	DialectMySQL                         = tsqdialect.MySQL
+	DialectPostgres                      = tsqdialect.Postgres
+	DialectSQLite                        = tsqdialect.SQLite
+	DialectUnknown                       = tsqdialect.Unknown
+	DialectCapabilityCTE                 = tsqdialect.CapabilityCTE
+	DialectCapabilityExcept              = tsqdialect.CapabilityExcept
+	DialectCapabilityFullOuterJoin       = tsqdialect.CapabilityFullOuterJoin
+	DialectCapabilityIntersect           = tsqdialect.CapabilityIntersect
+	DialectCapabilitySelectForUpdate     = tsqdialect.CapabilitySelectForUpdate
+	DialectCapabilitySelectForShare      = tsqdialect.CapabilitySelectForShare
+	DialectCapabilitySelectForNoWait     = tsqdialect.CapabilitySelectForNoWait
+	DialectCapabilitySelectForSkipLocked = tsqdialect.CapabilitySelectForSkipLocked
 	DDLAlterColumnDirect                 = tsqdialect.DDLAlterColumnDirect
 	DDLAlterColumnRebuild                = tsqdialect.DDLAlterColumnRebuild
 	DDLColumnKindBool                    = tsqdialect.DDLColumnKindBool
@@ -45,22 +45,6 @@ const (
 	DDLColumnKindString                  = tsqdialect.DDLColumnKindString
 	DDLColumnKindTime                    = tsqdialect.DDLColumnKindTime
 )
-
-func GetVersion() string {
-	return buildinfo.Version()
-}
-
-func GetBuildTime() string {
-	return buildinfo.BuildTime()
-}
-
-func GetGitCommit() string {
-	return buildinfo.GitCommit()
-}
-
-func GetGitBranch() string {
-	return buildinfo.GitBranch()
-}
 
 func GetVersionInfo() *VersionInfo {
 	return buildinfo.Current()

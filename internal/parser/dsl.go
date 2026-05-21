@@ -296,15 +296,6 @@ func (p *Parser) parseKeyValueOrIdent() (string, DSLNode, error) {
 	return "", nil, nil
 }
 
-func unexpectedDSLTokenError(tok Token) error {
-	actual := tok.Value
-	if actual == "" {
-		actual = getTokenTypeName(tok.Type)
-	}
-
-	return NewDSLUnexpectedTokenError("identifier", actual, tok.Pos)
-}
-
 func unexpectedDSLTopLevelTokenError(tok Token) error {
 	actual := tok.Value
 	if actual == "" {

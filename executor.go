@@ -51,6 +51,8 @@ func (e *ErrOptimisticLockConflict) Error() string {
 
 // Is reports whether target is an optimistic lock conflict.
 func (e *ErrOptimisticLockConflict) Is(target error) bool {
-	_, ok := target.(*ErrOptimisticLockConflict)
+	var errOptimisticLockConflict *ErrOptimisticLockConflict
+	ok := errors.As(target, &errOptimisticLockConflict)
+
 	return ok
 }

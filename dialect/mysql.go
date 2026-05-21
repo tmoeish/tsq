@@ -10,8 +10,8 @@ import (
 
 type MySQLDialect struct{}
 
-func (d MySQLDialect) Name() DialectName {
-	return DialectMySQL
+func (d MySQLDialect) Name() Name {
+	return MySQL
 }
 
 func (d MySQLDialect) QuoteField(f string) string {
@@ -66,14 +66,14 @@ func (d MySQLDialect) ValidateIdentifier(identifier string) error {
 	return validateDialectIdentifier(identifier, d.Name(), maxIdentifierLengthMySQL)
 }
 
-func (d MySQLDialect) SupportsCapability(capability DialectCapability) bool {
+func (d MySQLDialect) SupportsCapability(capability Capability) bool {
 	switch canonicalCapabilityName(string(capability)) {
-	case DialectCapabilityCTE, DialectCapabilityExcept, DialectCapabilityFullOuterJoin, DialectCapabilityIntersect:
+	case CapabilityCTE, CapabilityExcept, CapabilityFullOuterJoin, CapabilityIntersect:
 		return false
-	case DialectCapabilitySelectForUpdate,
-		DialectCapabilitySelectForShare,
-		DialectCapabilitySelectForNoWait,
-		DialectCapabilitySelectForSkipLocked:
+	case CapabilitySelectForUpdate,
+		CapabilitySelectForShare,
+		CapabilitySelectForNoWait,
+		CapabilitySelectForSkipLocked:
 		return true
 	default:
 		return false

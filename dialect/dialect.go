@@ -25,7 +25,7 @@ type Executor interface {
 
 // Dialect defines the operations tsq needs from a SQL dialect.
 type Dialect interface {
-	Name() DialectName
+	Name() Name
 	QuoteField(field string) string
 	BindVar(i int) string
 	CreateTableSuffix() string
@@ -39,7 +39,7 @@ type Dialect interface {
 	CreateTableIfNotExistsSuffix() string
 	HasConstraintsQuery(string, string) string
 	ValidateIdentifier(identifier string) error
-	SupportsCapability(capability DialectCapability) bool
+	SupportsCapability(capability Capability) bool
 	BatchInsertStartID(lastID, rowsAffected int64) (int64, bool)
 	EnsureIndex(ctx context.Context, db Executor, table string, unique bool, idx string, fields []string) (string, error)
 	InspectIndexDefinition(ctx context.Context, db Executor, table, idx string) (IndexDefinition, bool, error)
@@ -51,26 +51,26 @@ type Dialect interface {
 	DDLAlterColumnStatements(table string, before, after DDLColumnSpec) []string
 }
 
-type DialectName string
+type Name string
 
 const (
-	DialectMySQL    DialectName = "mysql"
-	DialectPostgres DialectName = "postgres"
-	DialectSQLite   DialectName = "sqlite"
-	DialectUnknown  DialectName = "unknown"
+	MySQL    Name = "mysql"
+	Postgres Name = "postgres"
+	SQLite   Name = "sqlite"
+	Unknown  Name = "unknown"
 )
 
-type DialectCapability string
+type Capability string
 
 const (
-	DialectCapabilityCTE                 DialectCapability = "CTE"
-	DialectCapabilityExcept              DialectCapability = "EXCEPT"
-	DialectCapabilityFullOuterJoin       DialectCapability = "FULL_OUTER_JOIN"
-	DialectCapabilityIntersect           DialectCapability = "INTERSECT"
-	DialectCapabilitySelectForUpdate     DialectCapability = "SELECT_FOR_UPDATE"
-	DialectCapabilitySelectForShare      DialectCapability = "SELECT_FOR_SHARE"
-	DialectCapabilitySelectForNoWait     DialectCapability = "SELECT_FOR_NOWAIT"
-	DialectCapabilitySelectForSkipLocked DialectCapability = "SELECT_FOR_SKIP_LOCKED"
+	CapabilityCTE                 Capability = "CTE"
+	CapabilityExcept              Capability = "EXCEPT"
+	CapabilityFullOuterJoin       Capability = "FULL_OUTER_JOIN"
+	CapabilityIntersect           Capability = "INTERSECT"
+	CapabilitySelectForUpdate     Capability = "SELECT_FOR_UPDATE"
+	CapabilitySelectForShare      Capability = "SELECT_FOR_SHARE"
+	CapabilitySelectForNoWait     Capability = "SELECT_FOR_NOWAIT"
+	CapabilitySelectForSkipLocked Capability = "SELECT_FOR_SKIP_LOCKED"
 )
 
 type DDLAlterColumnMode string
@@ -115,12 +115,12 @@ type IndexDefinition struct {
 
 // ErrUnsupportedCapability reports that a dialect cannot perform a requested capability.
 type ErrUnsupportedCapability struct {
-	operation DialectCapability
-	dialect   DialectName
+	operation Capability
+	dialect   Name
 	reason    string
 }
 
-func newErrUnsupportedCapability(operation DialectCapability, dialect DialectName, reason string) *ErrUnsupportedCapability {
+func newErrUnsupportedCapability(operation Capability, dialect Name, reason string) *ErrUnsupportedCapability {
 	return &ErrUnsupportedCapability{
 		operation: canonicalCapabilityName(string(operation)),
 		dialect:   dialect,
@@ -146,7 +146,7 @@ func (e *ErrUnsupportedCapability) Error() string {
 }
 
 // ValidateCapability reports whether dialect supports capability.
-func ValidateCapability(dialect Dialect, capability DialectCapability) error {
+func ValidateCapability(dialect Dialect, capability Capability) error {
 	if dialect == nil || dialect.SupportsCapability(capability) {
 		return nil
 	}
@@ -170,7 +170,7 @@ func ValidateIdentifierLength(identifier string, dialect Dialect) error {
 	return dialect.ValidateIdentifier(identifier)
 }
 
-func validateDialectIdentifier(identifier string, dialect DialectName, maxLen int) error {
+func validateDialectIdentifier(identifier string, dialect Name, maxLen int) error {
 	if identifier == "" {
 		return errors.New("identifier cannot be empty")
 	}
@@ -192,69 +192,69 @@ func validateDialectIdentifier(identifier string, dialect DialectName, maxLen in
 	return nil
 }
 
-func canonicalCapabilityName(operation string) DialectCapability {
+func canonicalCapabilityName(operation string) Capability {
 	value := strings.ToUpper(strings.TrimSpace(operation))
 
 	switch value {
 	case "FULL JOIN", "FULL OUTER JOIN":
-		return DialectCapabilityFullOuterJoin
+		return CapabilityFullOuterJoin
 	case "CTE":
-		return DialectCapabilityCTE
+		return CapabilityCTE
 	case "INTERSECT":
-		return DialectCapabilityIntersect
+		return CapabilityIntersect
 	case "EXCEPT", "MINUS":
-		return DialectCapabilityExcept
+		return CapabilityExcept
 	case "FOR UPDATE":
-		return DialectCapabilitySelectForUpdate
+		return CapabilitySelectForUpdate
 	case "FOR SHARE":
-		return DialectCapabilitySelectForShare
+		return CapabilitySelectForShare
 	case "NOWAIT":
-		return DialectCapabilitySelectForNoWait
+		return CapabilitySelectForNoWait
 	case "SKIP LOCKED":
-		return DialectCapabilitySelectForSkipLocked
+		return CapabilitySelectForSkipLocked
 	default:
-		return DialectCapability(value)
+		return Capability(value)
 	}
 }
 
-func displayCapabilityName(operation DialectCapability) string {
+func displayCapabilityName(operation Capability) string {
 	switch canonicalCapabilityName(string(operation)) {
-	case DialectCapabilityFullOuterJoin:
+	case CapabilityFullOuterJoin:
 		return "FULL JOIN"
-	case DialectCapabilitySelectForUpdate:
+	case CapabilitySelectForUpdate:
 		return "FOR UPDATE"
-	case DialectCapabilitySelectForShare:
+	case CapabilitySelectForShare:
 		return "FOR SHARE"
-	case DialectCapabilitySelectForNoWait:
+	case CapabilitySelectForNoWait:
 		return "NOWAIT"
-	case DialectCapabilitySelectForSkipLocked:
+	case CapabilitySelectForSkipLocked:
 		return "SKIP LOCKED"
 	default:
 		return string(canonicalCapabilityName(string(operation)))
 	}
 }
 
-func displayDialectName(dialect DialectName) string {
+func displayDialectName(dialect Name) string {
 	if dialect == "" {
-		return string(DialectUnknown)
+		return string(Unknown)
 	}
 
 	return string(dialect)
 }
 
-func unsupportedCapabilityHint(operation DialectCapability, dialect DialectName) string {
+func unsupportedCapabilityHint(operation Capability, dialect Name) string {
 	switch canonicalCapabilityName(string(operation)) {
-	case DialectCapabilityCTE:
+	case CapabilityCTE:
 		return "use a subquery, split the query, or execute on sqlite/postgres"
-	case DialectCapabilityFullOuterJoin:
+	case CapabilityFullOuterJoin:
 		return "use LEFT/RIGHT JOIN with UNION, or execute on postgres"
-	case DialectCapabilityIntersect:
+	case CapabilityIntersect:
 		return "use IN/EXISTS filtering, or execute on sqlite/postgres"
-	case DialectCapabilityExcept:
+	case CapabilityExcept:
 		return "use NOT EXISTS filtering, or execute on sqlite/postgres"
-	case DialectCapabilitySelectForUpdate, DialectCapabilitySelectForShare:
+	case CapabilitySelectForUpdate, CapabilitySelectForShare:
 		return "execute on a dialect that supports row-locking reads"
-	case DialectCapabilitySelectForNoWait, DialectCapabilitySelectForSkipLocked:
+	case CapabilitySelectForNoWait, CapabilitySelectForSkipLocked:
 		return "execute on a dialect that supports row-lock wait modifiers"
 	default:
 		return "use a simpler query shape or a dialect that supports this capability"

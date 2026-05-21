@@ -11,8 +11,8 @@ import (
 
 type PostgresDialect struct{}
 
-func (d PostgresDialect) Name() DialectName {
-	return DialectPostgres
+func (d PostgresDialect) Name() Name {
+	return Postgres
 }
 
 func (d PostgresDialect) QuoteField(f string) string {
@@ -72,16 +72,16 @@ func (d PostgresDialect) ValidateIdentifier(identifier string) error {
 	return validateDialectIdentifier(identifier, d.Name(), maxIdentifierLengthPostgreSQL)
 }
 
-func (d PostgresDialect) SupportsCapability(capability DialectCapability) bool {
+func (d PostgresDialect) SupportsCapability(capability Capability) bool {
 	switch canonicalCapabilityName(string(capability)) {
-	case DialectCapabilityCTE,
-		DialectCapabilityExcept,
-		DialectCapabilityFullOuterJoin,
-		DialectCapabilityIntersect,
-		DialectCapabilitySelectForUpdate,
-		DialectCapabilitySelectForShare,
-		DialectCapabilitySelectForNoWait,
-		DialectCapabilitySelectForSkipLocked:
+	case CapabilityCTE,
+		CapabilityExcept,
+		CapabilityFullOuterJoin,
+		CapabilityIntersect,
+		CapabilitySelectForUpdate,
+		CapabilitySelectForShare,
+		CapabilitySelectForNoWait,
+		CapabilitySelectForSkipLocked:
 		return true
 	default:
 		return false

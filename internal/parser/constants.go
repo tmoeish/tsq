@@ -1,19 +1,16 @@
 package parser
 
-// 文件后缀常量
 const (
 	TSQFileSuffix = "_tsq.go"
 	GoFileSuffix  = ".go"
 )
 
-// 标签名称常量
 const (
 	TagDB   = "db"
 	TagTSQ  = "tsq"
 	TagJSON = "json"
 )
 
-// 特殊值常量
 const (
 	TagIgnore = "-"
 )
@@ -27,7 +24,6 @@ const (
 	DefaultDeletedAtField = "DeletedAt"
 )
 
-// Go 原始类型集合
 var PrimitiveTypes = map[string]struct{}{
 	"bool":       {},
 	"string":     {},

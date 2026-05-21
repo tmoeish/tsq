@@ -10,8 +10,8 @@ import (
 
 type SQLiteDialect struct{}
 
-func (d SQLiteDialect) Name() DialectName {
-	return DialectSQLite
+func (d SQLiteDialect) Name() Name {
+	return SQLite
 }
 
 func (d SQLiteDialect) QuoteField(f string) string {
@@ -66,15 +66,15 @@ func (d SQLiteDialect) ValidateIdentifier(identifier string) error {
 	return validateDialectIdentifier(identifier, d.Name(), 0)
 }
 
-func (d SQLiteDialect) SupportsCapability(capability DialectCapability) bool {
+func (d SQLiteDialect) SupportsCapability(capability Capability) bool {
 	switch canonicalCapabilityName(string(capability)) {
-	case DialectCapabilityCTE, DialectCapabilityExcept, DialectCapabilityIntersect:
+	case CapabilityCTE, CapabilityExcept, CapabilityIntersect:
 		return true
-	case DialectCapabilityFullOuterJoin,
-		DialectCapabilitySelectForUpdate,
-		DialectCapabilitySelectForShare,
-		DialectCapabilitySelectForNoWait,
-		DialectCapabilitySelectForSkipLocked:
+	case CapabilityFullOuterJoin,
+		CapabilitySelectForUpdate,
+		CapabilitySelectForShare,
+		CapabilitySelectForNoWait,
+		CapabilitySelectForSkipLocked:
 		return false
 	default:
 		return false

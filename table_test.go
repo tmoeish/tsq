@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"strings"
 	"testing"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -215,7 +214,7 @@ func TestInitFailureRestoresPreviousRuntimeStateAfterStrictValidation(t *testing
 	expectedEngine := r.engine
 	failingDB := newSQLiteIndexTestEngine(t)
 	failingDB.engine.dialect = MySQLDialect{}
-	longTableName := strings.Repeat("u", maxIdentifierLengthMySQL+1)
+	longTableName := firstRejectedIdentifier(t, MySQLDialect{}, "u")
 	if err := r.RegisterTable(newMockTable(longTableName)); err != nil {
 		t.Fatalf("failed to register invalid table: %v", err)
 	}

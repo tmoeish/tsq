@@ -52,12 +52,12 @@ func pageFn[O Owner](
 		countArgState = q.kwCntArgState
 	}
 
-	resolvedListSQL, finalArgs, err := resolveQueryWithState(listSQL, queryBaseArgs, args, page.Keyword, queryArgState)
+	resolvedListSQL, finalArgs, err := resolveQueryWithState(listSQL, queryBaseArgs, args, escapeKeywordSearch(page.Keyword), queryArgState)
 	if err != nil {
 		return nil, err
 	}
 
-	resolvedCntSQL, countArgs, err := resolveQueryWithState(cntSQL, countBaseArgs, args, page.Keyword, countArgState)
+	resolvedCntSQL, countArgs, err := resolveQueryWithState(cntSQL, countBaseArgs, args, escapeKeywordSearch(page.Keyword), countArgState)
 	if err != nil {
 		return nil, err
 	}

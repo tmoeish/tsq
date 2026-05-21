@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	tsqdialect "github.com/tmoeish/tsq/v4/dialect"
 )
@@ -140,38 +139,6 @@ func sameOrderedFields(left, right []string) bool {
 	return true
 }
 
-func columnsCSV(fields []string) string {
-	return strings.Join(fields, ",")
-}
-
-func parseColumnsCSV(csv string) []string {
-	if csv == "" {
-		return nil
-	}
-
-	return strings.Split(csv, ",")
-}
-
-func finishCreateIndex(
-	db *engine,
-	table string,
-	unique bool,
-	idx string,
-	fields []string,
-	createErr error,
-) error {
-	if createErr == nil {
-		return nil
-	}
-
-	definition, found, err := inspectIndexDefinition(db, table, idx)
-	if err == nil && found && validateIndexDefinition(table, unique, idx, fields, definition) == nil {
-		return nil
-	}
-
-	return createErr
-}
-
 func validateIndexIdentifiers(table, idx string, fields []string) error {
 	if err := validateBuiltInIdentifier(table); err != nil {
 		return fmt.Errorf("%s: %w", "invalid table name", err)
@@ -216,19 +183,4 @@ func quoteDialectIdentifier(sqlDialect tsqdialect.Dialect, name string) (string,
 	}
 
 	return sqlDialect.QuoteField(name), nil
-}
-
-func quoteDialectIdentifiers(sqlDialect tsqdialect.Dialect, names []string) ([]string, error) {
-	quoted := make([]string, len(names))
-
-	for i, name := range names {
-		value, err := quoteDialectIdentifier(sqlDialect, name)
-		if err != nil {
-			return nil, err
-		}
-
-		quoted[i] = value
-	}
-
-	return quoted, nil
 }
