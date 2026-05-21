@@ -422,7 +422,7 @@ func TestMaxTracersEnforced(t *testing.T) {
 	ClearTracers()
 
 	// Add exactly the internal tracer limit.
-	for i := 0; i < maxTracers; i++ {
+	for range maxTracers {
 		tracer := func(next TraceFn) TraceFn {
 			return func(ctx context.Context) error {
 				return next(ctx)
@@ -455,7 +455,7 @@ func TestConcurrentTracerAddDuringRestore(t *testing.T) {
 	ClearTracers()
 
 	// Add some initial tracers
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		tracer := func(next TraceFn) TraceFn {
 			return func(ctx context.Context) error {
 				return next(ctx)
@@ -487,7 +487,7 @@ func TestConcurrentTracerAddDuringRestore(t *testing.T) {
 	var wg sync.WaitGroup
 	errs := make(chan error, 10)
 
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
@@ -718,7 +718,7 @@ func TestAppendUniqueTracersWithLargeList(t *testing.T) {
 
 	// Add the same tracer 60 times (simulating duplicate adds)
 	var input []Tracer
-	for i := 0; i < 60; i++ {
+	for range 60 {
 		input = append(input, tracer)
 	}
 
@@ -847,7 +847,7 @@ func TestTraceManagerConcurrentSnapshot(t *testing.T) {
 	tm := defaultRuntime.traceManager
 
 	// Add initial tracers
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		tracer := func(next TraceFn) TraceFn {
 			return func(ctx context.Context) error { return next(ctx) }
 		}
@@ -859,7 +859,7 @@ func TestTraceManagerConcurrentSnapshot(t *testing.T) {
 
 	// Goroutine that continuously adds tracers
 	go func() {
-		for i := 0; i < 50; i++ {
+		for range 50 {
 			tracer := func(next TraceFn) TraceFn {
 				return func(ctx context.Context) error { return next(ctx) }
 			}
@@ -869,9 +869,9 @@ func TestTraceManagerConcurrentSnapshot(t *testing.T) {
 	}()
 
 	// Goroutine that continuously takes snapshots
-	for j := 0; j < 20; j++ {
+	for range 20 {
 		go func() {
-			for k := 0; k < 100; k++ {
+			for range 100 {
 				snapshot := tm.snapshot()
 				if snapshot == nil {
 					errs <- "snapshot returned nil"
@@ -887,7 +887,7 @@ func TestTraceManagerConcurrentSnapshot(t *testing.T) {
 	<-done
 
 	// Give snapshot goroutines time to finish
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		// Small delay to allow goroutines to finish
 	}
 

@@ -83,7 +83,7 @@ func firstRejectedIdentifier(t *testing.T, dialect Dialect, ch string) string {
 	t.Helper()
 
 	identifier := ch
-	for i := 0; i < 1024; i++ {
+	for range 1024 {
 		if err := validateIdentifierLength(identifier, dialect); err != nil {
 			return identifier
 		}

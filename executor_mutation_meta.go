@@ -13,7 +13,7 @@ func mutationMetadata(dst Table) (mutationRecord, error) {
 	}
 
 	value := reflect.ValueOf(dst)
-	if value.Kind() != reflect.Ptr || value.IsNil() {
+	if value.Kind() != reflect.Pointer || value.IsNil() {
 		return mutationRecord{}, errMutationItemPointer
 	}
 

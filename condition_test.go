@@ -26,8 +26,9 @@ func (p *pointerValuer) Value() (driver.Value, error) {
 	return p.value, nil
 }
 
+//go:fix inline
 func stringPtr(s string) *string {
-	return &s
+	return new(s)
 }
 
 func TestConditionClauseRendersCanonicalSQL(t *testing.T) {

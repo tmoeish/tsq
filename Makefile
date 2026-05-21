@@ -48,6 +48,7 @@ mod-tidy: ## Tidy dependencies
 
 .PHONY: fmt
 fmt: mod-tidy $(LINT_BIN) ## Format code
+	@$(GO) fix ./...
 	@$(LINT_BIN) fmt -c .golangci.yml
 	@$(LINT_BIN) run --fix --issues-exit-code=0 --enable-only $(FMT_FIX_LINTERS)
 

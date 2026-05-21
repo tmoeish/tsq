@@ -204,7 +204,7 @@ func validatePredicateValue(arg any) error {
 
 func validatePredicateScalar(arg any) error {
 	v := reflect.ValueOf(arg)
-	for v.IsValid() && v.Kind() == reflect.Ptr {
+	for v.IsValid() && v.Kind() == reflect.Pointer {
 		if v.IsNil() {
 			return errors.New("null predicate values are not supported; use IsNull/IsNotNull explicitly")
 		}
