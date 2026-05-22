@@ -46,7 +46,7 @@ func ChunkedInsert[T Table](
 	items []T,
 	options ...*ChunkedInsertOptions,
 ) error {
-	return trace(ctx, func(ctx context.Context) error {
+	return traceExecutor(ctx, tx, func(ctx context.Context) error {
 		return chunkedInsertFn(ctx, tx, items, options...)
 	})
 }
@@ -135,7 +135,7 @@ func ChunkedUpdate[T Table](
 	items []T,
 	options ...*ChunkedOptions,
 ) error {
-	return trace(ctx, func(ctx context.Context) error {
+	return traceExecutor(ctx, tx, func(ctx context.Context) error {
 		return chunkedUpdateFn(ctx, tx, items, options...)
 	})
 }
@@ -208,7 +208,7 @@ func ChunkedDelete[T Table](
 	items []T,
 	options ...*ChunkedOptions,
 ) error {
-	return trace(ctx, func(ctx context.Context) error {
+	return traceExecutor(ctx, tx, func(ctx context.Context) error {
 		return chunkedDeleteFn(ctx, tx, items, options...)
 	})
 }
@@ -283,7 +283,7 @@ func ChunkedDeleteByIDs(
 	ids []any,
 	options ...*ChunkedOptions,
 ) error {
-	return trace(ctx, func(ctx context.Context) error {
+	return traceExecutor(ctx, tx, func(ctx context.Context) error {
 		return chunkedDeleteByIDsFn(ctx, tx, tableName, idColumn, ids, options...)
 	})
 }
@@ -394,7 +394,7 @@ func Insert[T Table](
 	tx SQLExecutor,
 	item T,
 ) error {
-	return trace(ctx, func(ctx context.Context) error {
+	return traceExecutor(ctx, tx, func(ctx context.Context) error {
 		return insertFn(ctx, tx, item)
 	})
 }
@@ -421,7 +421,7 @@ func Update[T Table](
 	tx SQLExecutor,
 	item T,
 ) error {
-	return trace(ctx, func(ctx context.Context) error {
+	return traceExecutor(ctx, tx, func(ctx context.Context) error {
 		return updateFn(ctx, tx, item)
 	})
 }
@@ -450,7 +450,7 @@ func Delete[T Table](
 	tx SQLExecutor,
 	item T,
 ) error {
-	return trace(ctx, func(ctx context.Context) error {
+	return traceExecutor(ctx, tx, func(ctx context.Context) error {
 		return deleteFn(ctx, tx, item)
 	})
 }

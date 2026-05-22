@@ -63,6 +63,7 @@ Expected output:
 
 ```txt
 database/
+  runtime_tsq.go
   user.go
   user_tsq.go
 ```
@@ -79,11 +80,10 @@ if err != nil {
 	return err
 }
 
-if err := tsq.Init(db, dialect.SQLiteDialect{}); err != nil {
+runtime, err := tsq.NewRuntime(db, dialect.SQLiteDialect{}, database.TSQTables())
+if err != nil {
 	return err
 }
-
-runtime := tsq.DefaultRuntime()
 ```
 
 If the target project already has a DB bootstrap path, integrate TSQ there instead of creating a second runtime path.

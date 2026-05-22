@@ -516,8 +516,8 @@ They all take an explicit `context.Context` and an executor.
 `Runtime` is the TSQ-managed executor and runtime container.
 
 - it implements `SQLExecutor` directly
-- use `tsq.Init(db, dialect)` for the default runtime
-- use `rt := tsq.NewRuntime(); rt.Init(...)` when isolation is needed
+- use `tsq.NewRuntime(db, dialect, database.TSQTables())` for one generated package
+- combine multiple generated packages by concatenating their `TSQTables()` slices before calling `NewRuntime`
 
 ### Transactions
 

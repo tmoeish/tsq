@@ -12,8 +12,6 @@ const (
 	RegistrationErrorInvalidIndex RegistrationErrorType = "invalid_index"
 	// RegistrationErrorDuplicate means the same table key was registered twice.
 	RegistrationErrorDuplicate RegistrationErrorType = "duplicate"
-	// RegistrationErrorNilRuntime means a method was called on a nil runtime.
-	RegistrationErrorNilRuntime RegistrationErrorType = "nil_runtime"
 )
 
 // IndexInitMode controls how tsq handles declared indexes during Init.
@@ -33,6 +31,12 @@ type TableIndex struct {
 	Name   string   // Name is the stable physical index name.
 	Fields []string // Fields preserves the indexed column order.
 	Unique bool     // Unique reports whether the index enforces uniqueness.
+}
+
+// TableRegistration describes one table plus its declared indexes for runtime bootstrap.
+type TableRegistration struct {
+	Table   Table        // Table is the physical table metadata.
+	Indexes []TableIndex // Indexes declares the indexes owned by Table.
 }
 
 // ErrIndexMissing reports that an expected index was not found.

@@ -50,24 +50,28 @@ func GetVersionInfo() *VersionInfo {
 	return buildinfo.Current()
 }
 
+var exportCompatRuntime = &Runtime{
+	traceManager: newTraceManager(),
+}
+
 func AddTracer(tracer Tracer) {
-	defaultRuntime.AddTracer(tracer)
+	exportCompatRuntime.AddTracer(tracer)
 }
 
 func ClearTracers() {
-	defaultRuntime.ClearTracers()
+	exportCompatRuntime.ClearTracers()
 }
 
 func GetTracers() []Tracer {
-	return defaultRuntime.GetTracers()
+	return exportCompatRuntime.GetTracers()
 }
 
 func Trace(ctx context.Context, fn func(ctx context.Context) error) error {
-	return trace(ctx, fn)
+	return exportCompatRuntime.Trace(ctx, fn)
 }
 
 func Trace1[T any](ctx context.Context, fn func(ctx context.Context) (T, error)) (T, error) {
-	return trace1(ctx, fn)
+	return trace1WithRuntime(exportCompatRuntime, ctx, fn)
 }
 
 func PrintCost(next TraceFn) TraceFn {

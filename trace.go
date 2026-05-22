@@ -24,20 +24,12 @@ type traceManager struct {
 	tracers   []Tracer
 }
 
+type traceProvider interface {
+	tsqTraceManager() *traceManager
+}
+
 func newTraceManager() *traceManager {
 	return &traceManager{}
-}
-
-func addTracer(tracer Tracer) {
-	defaultRuntime.AddTracer(tracer)
-}
-
-func clearTracers() {
-	defaultRuntime.ClearTracers()
-}
-
-func getTracers() []Tracer {
-	return defaultRuntime.GetTracers()
 }
 
 // Add appends a tracer when capacity allows.
@@ -179,13 +171,38 @@ func traceManagerTrace1[T any](m *traceManager, ctx context.Context, fn func(ctx
 	return result, wrappedFn(ctx)
 }
 
-func trace(ctx context.Context, fn func(ctx context.Context) error) error {
-	return defaultRuntime.Trace(ctx, fn)
+func traceExecutor(ctx context.Context, exec SQLExecutor, fn func(ctx context.Context) error) error {
+	if provider, ok := exec.(traceProvider); ok && provider.tsqTraceManager() != nil {
+		return provider.tsqTraceManager().Trace(ctx, fn)
+	}
+
+	if fn == nil {
+		return errors.New("trace function cannot be nil")
+	}
+
+	if ctx == nil {
+		return errors.New("context cannot be nil")
+	}
+
+	return fn(ctx)
 }
 
-func trace1[T any](ctx context.Context, fn func(ctx context.Context) (T, error)) (T, error) {
-	result, err := trace1WithRuntime(defaultRuntime, ctx, fn)
-	return result, err
+func traceExecutor1[T any](ctx context.Context, exec SQLExecutor, fn func(ctx context.Context) (T, error)) (T, error) {
+	if provider, ok := exec.(traceProvider); ok && provider.tsqTraceManager() != nil {
+		return traceManagerTrace1(provider.tsqTraceManager(), ctx, fn)
+	}
+
+	if fn == nil {
+		var zero T
+		return zero, errors.New("trace function cannot be nil")
+	}
+
+	if ctx == nil {
+		var zero T
+		return zero, errors.New("context cannot be nil")
+	}
+
+	return fn(ctx)
 }
 
 func appendUniqueTracers(existing []Tracer, newTracers ...Tracer) []Tracer {

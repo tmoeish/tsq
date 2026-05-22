@@ -147,11 +147,11 @@ type UserOrder struct {
 `SQLExecutor` 是 TSQ 执行查询和 CRUD helper 的通用入口。  
 它只保留 `QueryContext` / `QueryRowContext` / `ExecContext` 这组 `database/sql` 共有方法。
 
-如果你要用 TSQ 默认持有的数据库上下文，直接把 `Runtime` 当 `SQLExecutor` 传进去即可：
+如果你要用 TSQ 管理好的数据库上下文，直接把 `Runtime` 当 `SQLExecutor` 传进去即可：
 
 ```go
-rt := tsq.NewRuntime()
-if err := rt.Init(db, dialect.SQLiteDialect{}); err != nil {
+rt, err := tsq.NewRuntime(db, dialect.SQLiteDialect{}, database.TSQTables())
+if err != nil {
 	panic(err)
 }
 ```
@@ -160,12 +160,12 @@ if err := rt.Init(db, dialect.SQLiteDialect{}); err != nil {
 
 1. 底层数据库连接
 2. 当前 SQL 方言
-3. 注册表和 tracer
+3. 表 metadata 和 tracer
 
 但职责要分开记：
 
 - `SQLExecutor`：执行契约，`runtime`、`*sql.DB`、`*sql.Tx`、`runtime.WithTx(...)` 回调里的 `txExec` 都满足
-- `Runtime`：默认数据库上下文 + 注册表 + tracer 容器；平时直接当执行器使用，需要事务时通过 `WithTx(...)` 提供事务执行句柄
+- `Runtime`：数据库上下文 + 当前这组表 metadata + tracer 容器；平时直接当执行器使用，需要事务时通过 `WithTx(...)` 提供事务执行句柄
 
 这也是为什么 TSQ 把一部分能力校验放在执行阶段：**真正决定 SQL 方言边界的是实际 executor，而不是 Build 阶段的查询构建链路。**
 
@@ -194,23 +194,23 @@ if err := rt.WithTx(ctx, nil, func(ctx context.Context, txExec tsq.SQLExecutor) 
 
 这不是缺少事务支持，而是把“是否需要原子性”的决定权留给调用方。
 
-## 7. `Runtime`：表注册和隔离
+## 7. `Runtime`：表 metadata 和隔离
 
-默认情况下，生成代码会把表元数据和声明索引注册到全局运行时。`Init(...)` 再根据 `IndexMode` 决定是跳过、补齐还是校验这些索引。对单数据库应用来说，这通常就够了。
+生成代码会额外产出一个包级 `TSQTables()`，把当前包全部表和声明索引整理成 metadata。`tsq.NewRuntime(...)` 会消费这份 metadata，并按 `IndexMode` 决定是跳过、补齐还是校验这些索引。
 
 如果你有这些需求，再关心 `Runtime`：
 
 - 测试里想隔离注册状态
 - 一个进程里管理多个数据库
-- 插件式宿主，不希望共享全局注册表
+- 插件式宿主，不希望共享表 metadata
 
 这时可以显式创建独立运行时：
 
 ```go
-rt := tsq.NewRuntime()
+rt, err := tsq.NewRuntime(db, dialect.SQLiteDialect{}, academy.TSQTables())
 ```
 
-然后使用该运行时注册表、初始化 tracer 或执行需要隔离的流程。
+如果一个进程里有多个生成包共用同一个数据库，把各包的 `TSQTables()` 拼起来再传给一个 `Runtime` 即可；如果是多个数据库，就各自构造各自的 `Runtime`。
 
 ## 8. `PageReq`、`InVar()`、`WithTable()` 分别解决什么问题
 

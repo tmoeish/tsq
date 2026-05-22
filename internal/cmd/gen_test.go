@@ -103,6 +103,7 @@ type User struct {
 	}
 
 	for _, name := range []string{
+		"runtime_tsq.go",
 		"user_tsq.go",
 		"sqlite.sql",
 		"mysql.sql",
@@ -142,6 +143,55 @@ type User struct {
 	}
 	if len(state.Records) != 0 {
 		t.Fatalf("expected first run to skip incremental records, got %d", len(state.Records))
+	}
+}
+
+func TestGenCmdGeneratesRuntimeMetadataFile(t *testing.T) {
+	t.Cleanup(func() {
+		dryRunFlag = false
+		checkFlag = false
+		v = false
+		GenCmd.SetArgs(nil)
+	})
+
+	dir := t.TempDir()
+	writeTestFile(t, filepath.Join(dir, "go.mod"), genTestModuleFile(t))
+	writeTestFile(t, filepath.Join(dir, "model.go"), `package gentest
+
+// @TABLE(
+//   ux=[{name="ux_users_email",fields=["Email"]}]
+// )
+type User struct {
+	ID    int64  `+"`db:\"id\"`"+`
+	Email string `+"`db:\"email\"`"+`
+}
+`)
+	chdirForGenTest(t, dir)
+	tidyGenTestModule(t)
+
+	GenCmd.SetOut(new(bytes.Buffer))
+	GenCmd.SetErr(new(bytes.Buffer))
+	GenCmd.SetArgs([]string{"."})
+
+	if err := GenCmd.Execute(); err != nil {
+		t.Fatalf("GenCmd.Execute() error = %v", err)
+	}
+
+	runtimeFile, err := os.ReadFile(filepath.Join(dir, "runtime_tsq.go"))
+	if err != nil {
+		t.Fatalf("failed to read runtime_tsq.go: %v", err)
+	}
+
+	rendered := string(runtimeFile)
+	for _, want := range []string{
+		"func TSQTables() []tsq.TableRegistration",
+		"Table: TableUser",
+		`Name: "ux_users_email"`,
+		`Fields: []string{"email"}`,
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("expected runtime_tsq.go to contain %q, got:\n%s", want, rendered)
+		}
 	}
 }
 

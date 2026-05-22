@@ -103,9 +103,10 @@ func optimisticMutationUserColumns() []BoundColumn[optimisticMutationUser] {
 }
 
 func newRuntimeWithDB(db *sql.DB, dialect Dialect) *Runtime {
-	runtime := NewRuntime()
-	runtime.engine = newEngine(db, dialect)
-	return runtime
+	return &Runtime{
+		traceManager: newTraceManager(),
+		engine:       newEngine(db, dialect),
+	}
 }
 
 func requireInitializedRuntime(t *testing.T, runtime *Runtime) *Runtime {
@@ -192,7 +193,7 @@ func TestRuntimeAsExecutorRequiresInitBeforeQuery(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected uninitialized runtime query to fail")
 	}
-	if !strings.Contains(err.Error(), "call Init first") {
+	if !strings.Contains(err.Error(), "construct it with NewRuntime") {
 		t.Fatalf("expected initialization guidance, got %v", err)
 	}
 }
@@ -217,7 +218,7 @@ func TestRuntimeQueryRowContextRequiresInit(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected uninitialized runtime query row to fail")
 	}
-	if !strings.Contains(err.Error(), "call Init first") {
+	if !strings.Contains(err.Error(), "construct it with NewRuntime") {
 		t.Fatalf("expected initialization guidance, got %v", err)
 	}
 }
@@ -272,7 +273,7 @@ func TestRuntimeWithTxRollsBackOnCallbackError(t *testing.T) {
 }
 
 func TestRuntimeWithTxRequiresInitializedRuntime(t *testing.T) {
-	runtime := NewRuntime()
+	runtime := &Runtime{traceManager: newTraceManager()}
 
 	err := runtime.WithTx(context.Background(), nil, func(context.Context, SQLExecutor) error {
 		return nil
@@ -280,7 +281,7 @@ func TestRuntimeWithTxRequiresInitializedRuntime(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected uninitialized runtime to fail")
 	}
-	if !strings.Contains(err.Error(), "call Init first") {
+	if !strings.Contains(err.Error(), "construct it with NewRuntime") {
 		t.Fatalf("expected initialization guidance, got %v", err)
 	}
 }

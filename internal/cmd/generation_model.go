@@ -17,7 +17,7 @@ import (
 )
 
 type generationModel struct {
-	Data       *genmodel.StructInfo
+	Data       any
 	Template   *template.Template
 	Filename   string
 	ErrorLabel string
@@ -49,6 +49,7 @@ func buildGenerationModels(
 	dir string,
 	tableTpl *template.Template,
 	resultTpl *template.Template,
+	runtimeTpl *template.Template,
 ) ([]generationModel, error) {
 	if err := validateGeneratedFilenameCollisions(list); err != nil {
 		return nil, err
@@ -96,19 +97,68 @@ func buildGenerationModels(
 		models = append(models, model)
 	}
 
+	runtimeModel := buildPackageRuntimeModel(list, dir, runtimeTpl)
+	if runtimeModel != nil {
+		models = append(models, *runtimeModel)
+	}
+
 	return models, nil
+}
+
+func buildPackageRuntimeModel(
+	list []*genmodel.StructInfo,
+	dir string,
+	runtimeTpl *template.Template,
+) *generationModel {
+	if runtimeTpl == nil {
+		return nil
+	}
+
+	tables := make([]*genmodel.StructInfo, 0, len(list))
+	for _, s := range list {
+		if s == nil || s.TableMeta == nil || s.IsResult || len(s.Fields) == 0 {
+			continue
+		}
+
+		tables = append(tables, s)
+	}
+
+	if len(tables) == 0 {
+		return nil
+	}
+
+	sort.Slice(tables, func(i, j int) bool {
+		if tables[i].Table == tables[j].Table {
+			return tables[i].TypeInfo.TypeName < tables[j].TypeInfo.TypeName
+		}
+
+		return tables[i].Table < tables[j].Table
+	})
+
+	return &generationModel{
+		Data: packageRuntimeTemplateData{
+			Package:    tables[0].TypeInfo.Package,
+			Tables:     tables,
+			TSQVersion: tables[0].TSQVersion,
+		},
+		Template:   runtimeTpl,
+		Filename:   filepath.Join(dir, "runtime_tsq.go"),
+		ErrorLabel: "runtime template rendering failed",
+	}
 }
 
 func summarizeGenerationModels(models []generationModel) generationStats {
 	stats := generationStats{}
 
 	for _, model := range models {
-		if model.Data != nil && model.Data.IsResult {
-			stats.Results++
-			continue
-		}
+		if data, ok := model.Data.(*genmodel.StructInfo); ok && data != nil {
+			if data.IsResult {
+				stats.Results++
+				continue
+			}
 
-		stats.Tables++
+			stats.Tables++
+		}
 	}
 
 	return stats

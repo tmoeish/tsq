@@ -219,7 +219,7 @@ func validateTxRuntime(r *Runtime) error {
 	}
 
 	if r.engine == nil || r.engine.db == nil || r.engine.dialect == nil {
-		return errors.New("runtime is not initialized; call Init first")
+		return errors.New("runtime is not initialized; construct it with NewRuntime")
 	}
 
 	return nil
@@ -301,7 +301,7 @@ func executeTxAttempt1[T any](
 		}
 	}()
 
-	result, err := fn(ctx, WrapExecutor(tx, r.engine.dialect))
+	result, err := fn(ctx, wrapExecutor(tx, r.engine.dialect, r.traceManager))
 	if err != nil {
 		var zero T
 		return zero, txRetryStageBody, err

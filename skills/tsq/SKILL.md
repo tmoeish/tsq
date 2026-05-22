@@ -55,7 +55,7 @@ Use this skill for **using TSQ in another Go project**, not for developing the T
 1. Choose the target package for table structs and result structs.
 2. Add or update `@TABLE` / `@RESULT`.
 3. Run `tsq fmt` and `tsq gen`.
-4. Wire `tsq.Init(...)` or `Runtime.Init(...)` in the existing DB bootstrap path.
+4. Wire `tsq.NewRuntime(db, dialect, package.TSQTables(), opts...)` in the existing DB bootstrap path.
 5. Replace one query or CRUD path at a time.
 6. Keep the change aligned with the target project's existing tests and transaction model.
 

@@ -465,7 +465,7 @@ func TestConcurrentTracerAddDuringRestore(t *testing.T) {
 	}
 
 	// Now we'll simulate a restore operation while concurrent AddTracer calls happen
-	tm := defaultRuntime.traceManager
+	tm := exportCompatRuntime.traceManager
 
 	// Create a channel to signal when restore has begun
 	restoreStarted := make(chan struct{})
@@ -789,7 +789,7 @@ func TestGetVersionInfoForTraceHelpers(t *testing.T) {
 // TestRestoreTracersFromSnapshot tests restore() in various states
 func TestRestoreTracersFromSnapshot(t *testing.T) {
 	ClearTracers()
-	tm := defaultRuntime.traceManager
+	tm := exportCompatRuntime.traceManager
 
 	// Add some initial tracers
 	tracer1 := func(next TraceFn) TraceFn {
@@ -844,7 +844,7 @@ func TestRestoreTracersFromSnapshot(t *testing.T) {
 // TestTraceManagerConcurrentSnapshot tests concurrent reads during tracer changes
 func TestTraceManagerConcurrentSnapshot(t *testing.T) {
 	ClearTracers()
-	tm := defaultRuntime.traceManager
+	tm := exportCompatRuntime.traceManager
 
 	// Add initial tracers
 	for range 10 {

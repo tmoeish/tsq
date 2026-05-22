@@ -62,6 +62,7 @@ tsq gen ./database
 
 ```txt
 database/
+  runtime_tsq.go
   user.go
   user_tsq.go
 ```
@@ -109,11 +110,10 @@ INSERT INTO user (name, email) VALUES
 		log.Fatal(err)
 	}
 
-	if err := tsq.Init(db, dialect.SQLiteDialect{}); err != nil {
+	runtime, err := tsq.NewRuntime(db, dialect.SQLiteDialect{}, database.TSQTables())
+	if err != nil {
 		log.Fatal(err)
 	}
-
-	runtime := tsq.DefaultRuntime()
 
 	query, err := tsq.
 		Select(database.User__Cols...).

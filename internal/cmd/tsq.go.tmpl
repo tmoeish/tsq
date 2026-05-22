@@ -180,28 +180,6 @@ var {{$varTblCols}} = []tsq.BoundColumn[{{$type}}]{
 }
 
 // =============================================================================
-// Table Registration and Declared Index Metadata
-// =============================================================================
-
-func init() {
-	tsq.RegisterTable(
-		Table{{$type}},
-{{- if $dot.UxList }}
-		// Declared unique indexes.
-	{{- range $name, $idx := $dot.UxList }}
-		tsq.TableIndex{Name: "{{$idx.Name}}", Unique: true, Fields: []string{{"{"}}{{if $dot.DeletedAtField}}{{ FieldToCol $dot $dot.DeletedAtField }}, {{end}}{{ FieldsToCols $dot $idx.Fields }}{{"}"}}},
-	{{- end }}
-{{- end }}
-{{- if $dot.IdxList }}
-		// Declared non-unique indexes.
-	{{- range $name, $idx := $dot.IdxList }}
-		tsq.TableIndex{Name: "{{$idx.Name}}", Fields: []string{{"{"}}{{if $dot.DeletedAtField}}{{ FieldToCol $dot $dot.DeletedAtField }}, {{end}}{{ FieldsToCols $dot $idx.Fields }}{{"}"}}},
-	{{- end }}
-{{- end }}
-	)
-}
-
-// =============================================================================
 // Query by Primary Key
 // =============================================================================
 

@@ -1,109 +1,52 @@
 package tsq
 
 import (
-	"database/sql"
 	"fmt"
 	"sort"
-	"strings"
-	"sync"
-
-	"github.com/tmoeish/tsq/v4/dialect"
 )
-
-type registry struct {
-	mu     sync.RWMutex
-	tables map[string]*registeredTable
-}
-
-func newRegistry() *registry {
-	return &registry{
-		tables: make(map[string]*registeredTable),
-	}
-}
-
-// RegisterTable registers a table in the global registry.
-// Returns an error if registration fails.
-func RegisterTable(
-	table Table,
-	indexes ...TableIndex,
-) error {
-	return defaultRuntime.RegisterTable(table, indexes...)
-}
-
-// Register adds a table/index declaration to the runtime registry keyed by table name.
-func (r *registry) Register(
-	table Table,
-	indexes ...TableIndex,
-) error {
-	if isNilValue(table) {
-		return &RegistrationError{
-			Type:    RegistrationErrorNilTable,
-			Message: "registered table cannot be nil",
-		}
-	}
-
-	if err := validateRegisteredIndexes(table, indexes); err != nil {
-		return err
-	}
-
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	key := registeredTableKey(table)
-	if _, exists := r.tables[key]; exists {
-		return &RegistrationError{
-			Type:      RegistrationErrorDuplicate,
-			TableName: key,
-			Message:   fmt.Sprintf("table %s is already registered", key),
-		}
-	}
-
-	r.tables[key] = &registeredTable{
-		Table:   table,
-		Indexes: cloneTableIndexes(indexes),
-	}
-
-	return nil
-}
 
 type registeredTable struct {
 	Table
 	Indexes []TableIndex
 }
 
-// Init initializes indexes and tracers for the default runtime with optional explicit options.
-func Init(db *sql.DB, sqlDialect dialect.Dialect, options ...*InitOptions) error {
-	return defaultRuntime.Init(db, sqlDialect, options...)
-}
-
-// DefaultRuntime returns the package-level runtime.
-func DefaultRuntime() *Runtime {
-	return defaultRuntime
-}
-
-func registeredTableKey(table Table) string {
-	if table == nil {
-		return ""
+func buildRegisteredTables(registrations []TableRegistration) ([]*registeredTable, error) {
+	if len(registrations) == 0 {
+		return nil, nil
 	}
 
-	if schemaTable, ok := table.(schemaTabler); ok && strings.TrimSpace(schemaTable.Schema()) != "" {
-		return schemaTable.Schema() + "." + table.Table()
+	tables := make(map[string]*registeredTable, len(registrations))
+
+	for _, registration := range registrations {
+		table := registration.Table
+		if isNilValue(table) {
+			return nil, &RegistrationError{
+				Type:    RegistrationErrorNilTable,
+				Message: "registered table cannot be nil",
+			}
+		}
+
+		if err := validateRegisteredIndexes(table, registration.Indexes); err != nil {
+			return nil, err
+		}
+
+		key := registeredTableKey(table)
+		if _, exists := tables[key]; exists {
+			return nil, &RegistrationError{
+				Type:      RegistrationErrorDuplicate,
+				TableName: key,
+				Message:   fmt.Sprintf("table %s is already registered", key),
+			}
+		}
+
+		tables[key] = &registeredTable{
+			Table:   table,
+			Indexes: cloneTableIndexes(registration.Indexes),
+		}
 	}
 
-	return table.Table()
-}
-
-func snapshotRegisteredTables() []*registeredTable {
-	return defaultRuntime.snapshotRegisteredTables()
-}
-
-// Snapshot returns the registered tables in deterministic key order.
-func (r *registry) Snapshot() []*registeredTable {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	names := make([]string, 0, len(r.tables))
-	for name := range r.tables {
+	names := make([]string, 0, len(tables))
+	for name := range tables {
 		names = append(names, name)
 	}
 
@@ -111,10 +54,22 @@ func (r *registry) Snapshot() []*registeredTable {
 
 	result := make([]*registeredTable, 0, len(names))
 	for _, name := range names {
-		result = append(result, r.tables[name])
+		result = append(result, tables[name])
 	}
 
-	return result
+	return result, nil
+}
+
+func registeredTableKey(table Table) string {
+	if table == nil {
+		return ""
+	}
+
+	if schemaTable, ok := table.(schemaTabler); ok && schemaTable.Schema() != "" {
+		return schemaTable.Schema() + "." + table.Table()
+	}
+
+	return table.Table()
 }
 
 func validateRegisteredIndexes(table Table, indexes []TableIndex) error {

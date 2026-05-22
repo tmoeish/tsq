@@ -27,6 +27,9 @@ var (
 	//go:embed tsq_result.go.tmpl
 	defaultResultTpl string
 
+	//go:embed tsq_runtime.go.tmpl
+	defaultRuntimeTpl string
+
 	tplFlag       string
 	resultTplFlag string
 	dryRunFlag    bool
@@ -57,6 +60,12 @@ func init() {
 	GenCmd.Flags().BoolVar(&dryRunFlag, "dry-run", false, "render in memory and print which files would change")
 	GenCmd.Flags().BoolVar(&checkFlag, "check", false, "render in memory and fail if generated files are out of date")
 	GenCmd.Flags().BoolVarP(&v, "verbose", "v", false, "print each generated file path")
+}
+
+type packageRuntimeTemplateData struct {
+	Package    genmodel.PackageInfo
+	Tables     []*genmodel.StructInfo
+	TSQVersion string
 }
 
 // GenCmd generates tsq table, result, and DDL artifacts for a package.
@@ -113,6 +122,11 @@ Overwrite behavior:
 			return err
 		}
 
+		runtimeTplText, err := resolveTemplateText("", defaultRuntimeTpl, "runtime template")
+		if err != nil {
+			return err
+		}
+
 		pPath := args[0]
 		errWriter := cmd.ErrOrStderr()
 
@@ -135,7 +149,12 @@ Overwrite behavior:
 			return fmt.Errorf("%s: %w", "failed to parse Result template", err)
 		}
 
-		models, err := buildGenerationModels(list, dir, tpl, resultTplParsed)
+		runtimeTplParsed, err := template.New("tsq_runtime.go.tmpl").Funcs(funcMap()).Parse(runtimeTplText)
+		if err != nil {
+			return fmt.Errorf("%s: %w", "failed to parse runtime template", err)
+		}
+
+		models, err := buildGenerationModels(list, dir, tpl, resultTplParsed, runtimeTplParsed)
 		if err != nil {
 			return err
 		}

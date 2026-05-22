@@ -7,6 +7,39 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 项目遵循 [语义化版本控制](https://semver.org/lang/zh-CN/)。
 
+## [4.1.11] - 2026-05-22
+
+### 变更 (Breaking Changes)
+- **Runtime 初始化重构**: 移除全局 `Init()` / `DefaultRuntime()` / `CurrentEngine()` 等 API，改为显式 `NewRuntime(db, dialect, tables)` 构造
+- **表注册入口**: `tsq gen` 现在会生成 `runtime_tsq.go`，提供 `TSQTables()` 函数返回当前包所有表的 metadata 切片
+- **执行函数签名**: `List()` / `Get()` / `GetOrErr()` / `Page()` / `Load()` / `Insert()` / `Update()` / `Delete()` / `Chunked*` 等现在直接接受 `*Runtime` 或 `SQLExecutor`，不再需要显式 engine
+
+### 新增
+- **Runtime 直接构造**: `NewRuntime(db, dialect, tables, ...options)` 一步初始化，返回可用的 `*Runtime`
+- **Runtime 实现 SQLExecutor**: `*Runtime` 现在直接实现 `SQLExecutor`，可以直接用于查询执行
+- **Runtime 方法**: `Runtime.DB()`、`Runtime.SQLDialect()`、`Runtime.WithTx()`、`Runtime.ValidateIdentifiersForDialect()` 等
+- **TableRegistration 类型**: 用于把表 metadata 传递给 `NewRuntime`
+- **事务重试增强**: 新增 `IsRetryableNetworkError()`、`IsOptimisticLockError()` 等辅助函数
+- **事务重试配置**: `DefaultTxRetryConfig()`、`TxRetryConfig`、`TxRetryPredicate` 等
+
+### 改进
+- **生成代码优化**: `tsq gen` 生成的 `runtime_tsq.go` 集中管理当前包所有表的注册
+- **文档全面更新**: README、quickstart、concepts、skill references 全部同步到新 API
+- **最佳实践更新**: 事务部分补充新的使用模式和示例
+- **测试覆盖扩展**: executor_test.go 大幅扩展，覆盖新 Runtime API 的各种场景
+
+### 迁移指南
+从 `Init()` + `DefaultRuntime()` 迁移：
+```go
+// 旧 API
+if err := tsq.Init(db, dialect.SQLiteDialect{}); err != nil { ... }
+runtime := tsq.DefaultRuntime()
+
+// 新 API
+runtime, err := tsq.NewRuntime(db, dialect.SQLiteDialect{}, database.TSQTables())
+if err != nil { ... }
+```
+
 ## [4.1.10] - 2026-05-22
 
 ### 新增
