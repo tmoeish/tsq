@@ -169,7 +169,7 @@ func TestQueryBuilder_Build_ForUpdateDefersDialectValidationToExecution(t *testi
 
 func TestQueryBuilder_Build_ForShareNoWaitDefersDialectValidationToExecution(t *testing.T) {
 	db := newInVarEngine(t)
-	db.engine.dialect = MySQLDialect{}
+	db.dialect = MySQLDialect{}
 	users := newMockTable("users")
 	userID := newColForTable[Table, string](users, "id", "id", nil)
 	query := mustBuild(Select(userID).From(userID.Table()).ForShare().NoWait())
@@ -246,7 +246,7 @@ func TestQueryBuilder_Build_CTEExecutionOnSQLite(t *testing.T) {
 
 func TestQueryBuilder_Build_CTEDefersDialectValidationToExecution(t *testing.T) {
 	db := newInVarEngine(t)
-	db.engine.dialect = MySQLDialect{}
+	db.dialect = MySQLDialect{}
 	users := newMockTable("users")
 	id := newColForTable[Table, int](users, "id", "id", nil)
 	filteredUsers := CTE("filtered_users", Select(id).From(id.Table()).Where(id.GT(1)))
@@ -263,7 +263,7 @@ func TestQueryBuilder_Build_CTEDefersDialectValidationToExecution(t *testing.T) 
 
 func TestQueryBuilder_Build_IntersectDefersDialectValidationToExecution(t *testing.T) {
 	db := newInVarEngine(t)
-	db.engine.dialect = MySQLDialect{}
+	db.dialect = MySQLDialect{}
 	users := newMockTable("users")
 	id := newColForTable[Table, int](users, "id", "id", nil)
 	query := mustBuild(Select(id).From(id.Table()).Intersect(Select(id).From(id.Table())))
@@ -278,7 +278,7 @@ func TestQueryBuilder_Build_IntersectDefersDialectValidationToExecution(t *testi
 
 func TestQueryBuilder_Build_ExceptDefersDialectValidationToExecution(t *testing.T) {
 	db := newInVarEngine(t)
-	db.engine.dialect = MySQLDialect{}
+	db.dialect = MySQLDialect{}
 	users := newMockTable("users")
 	id := newColForTable[Table, int](users, "id", "id", nil)
 	query := mustBuild(Select(id).From(id.Table()).Except(Select(id).From(id.Table())))
@@ -293,7 +293,7 @@ func TestQueryBuilder_Build_ExceptDefersDialectValidationToExecution(t *testing.
 
 func TestQueryBuilder_Build_MinusDefersDialectValidationToExecution(t *testing.T) {
 	db := newInVarEngine(t)
-	db.engine.dialect = MySQLDialect{}
+	db.dialect = MySQLDialect{}
 	err := validateOperationalExecutorForSQL(db, "SELECT 1 MINUS SELECT 1")
 	if err == nil {
 		t.Fatal("expected mysql dialect validation to reject MINUS")

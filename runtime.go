@@ -15,9 +15,11 @@ import (
 // Runtime owns the initialized TSQ process state used for execution, index setup,
 // identifier validation, and tracing.
 type Runtime struct {
-	tables       []*registeredTable
-	traceManager *traceManager
-	engine       *engine
+	tables        []*registeredTable
+	traceManager  *traceManager
+	db            *sql.DB
+	dialect       tsqdialect.Dialect
+	indexInitMode IndexInitMode
 }
 
 // NewRuntime constructs an initialized runtime for one database connection and
@@ -56,11 +58,12 @@ func NewRuntime(
 	}
 
 	runtime := &Runtime{
-		tables:       registeredTables,
-		traceManager: newTraceManager(),
-		engine:       newEngine(db, sqlDialect),
+		tables:        registeredTables,
+		traceManager:  newTraceManager(),
+		db:            db,
+		dialect:       sqlDialect,
+		indexInitMode: indexMode,
 	}
-	runtime.engine.indexInitMode = indexMode
 	runtime.traceManager.AddUnique(opts.Tracers...)
 
 	if opts.IdentifierValidationMode != "skip" {
@@ -77,7 +80,7 @@ func NewRuntime(
 		for _, table := range runtime.tables {
 			tableName := physicalTableName(table.Table)
 			for _, index := range table.Indexes {
-				if err := upsertIndex(runtime.engine, tableName, index.Unique, index.Name, index.Fields); err != nil {
+				if err := upsertIndex(runtime.db, runtime.dialect, runtime.indexInitMode, tableName, index.Unique, index.Name, index.Fields); err != nil {
 					return nil, fmt.Errorf("failed to initialize index %s on table %s: %w", index.Name, tableName, err)
 				}
 			}
@@ -103,20 +106,20 @@ func (r *Runtime) tsqTraceManager() *traceManager {
 
 // DB returns the current *sql.DB.
 func (r *Runtime) DB() *sql.DB {
-	if r == nil || r.engine == nil {
+	if r == nil {
 		return nil
 	}
 
-	return r.engine.db
+	return r.db
 }
 
 // SQLDialect returns the concrete SQL dialect bound to this runtime.
 func (r *Runtime) SQLDialect() tsqdialect.Dialect {
-	if r == nil || r.engine == nil {
+	if r == nil {
 		return nil
 	}
 
-	return r.engine.dialect
+	return r.dialect
 }
 
 // QueryContext executes a query against the runtime database.
@@ -172,7 +175,7 @@ func (r *Runtime) sqlDB() (*sql.DB, error) {
 		return nil, err
 	}
 
-	return r.engine.db, nil
+	return r.db, nil
 }
 
 type runtimeErrorConnector struct {
@@ -246,7 +249,7 @@ func (r *Runtime) ValidateIdentifiersForDialect() error {
 		return errors.New("runtime cannot be nil")
 	}
 
-	if r.engine == nil {
+	if r.db == nil || r.dialect == nil {
 		return errors.New("runtime is not initialized; construct it with NewRuntime")
 	}
 
@@ -275,7 +278,7 @@ func (r *Runtime) validateRegisteredTableIdentifiers(mode string) error {
 		}
 
 		tableName := physicalTableName(table.Table)
-		if err := validateIdentifierLength(tableName, r.engine.dialect); err != nil {
+		if err := validateIdentifierLength(tableName, r.dialect); err != nil {
 			if mode == "strict" {
 				return fmt.Errorf("table %s identifier validation failed: %w", tableName, err)
 			}
@@ -283,15 +286,15 @@ func (r *Runtime) validateRegisteredTableIdentifiers(mode string) error {
 			validationErrors = append(validationErrors, err.Error())
 		}
 
-		if err := validateColumnIdentifiersForDialect(tableName, table.Cols(), r.engine.dialect, mode, &validationErrors); err != nil {
+		if err := validateColumnIdentifiersForDialect(tableName, table.Cols(), r.dialect, mode, &validationErrors); err != nil {
 			return err
 		}
 
-		if err := validateColumnIdentifiersForDialect(tableName, searchColumnsAsSQLColumns(table.SearchColumns()), r.engine.dialect, mode, &validationErrors); err != nil {
+		if err := validateColumnIdentifiersForDialect(tableName, searchColumnsAsSQLColumns(table.SearchColumns()), r.dialect, mode, &validationErrors); err != nil {
 			return err
 		}
 
-		if err := validateIndexIdentifiersForDialect(tableName, table.Indexes, r.engine.dialect, mode, &validationErrors); err != nil {
+		if err := validateIndexIdentifiersForDialect(tableName, table.Indexes, r.dialect, mode, &validationErrors); err != nil {
 			return err
 		}
 	}

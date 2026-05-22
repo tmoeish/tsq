@@ -185,7 +185,7 @@ func TestRuntimeEngineAccess(t *testing.T) {
 
 func TestNewRuntimeFailsOnStrictValidation(t *testing.T) {
 	failingDB := newSQLiteIndexTestEngine(t)
-	failingDB.engine.dialect = MySQLDialect{}
+	failingDB.dialect = MySQLDialect{}
 	longTableName := firstRejectedIdentifier(t, MySQLDialect{}, "u")
 
 	_, err := NewRuntime(

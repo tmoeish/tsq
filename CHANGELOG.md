@@ -7,6 +7,15 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 项目遵循 [语义化版本控制](https://semver.org/lang/zh-CN/)。
 
+## [4.1.12] - 2026-05-22
+
+### 改进
+- **移除中间 engine 层**: 删除 `engine.go`，把 `db`、`dialect`、`indexInitMode` 直接内联到 `Runtime` 结构体
+- **简化索引初始化**: `upsertIndex()` 和相关函数不再接受 `*engine`，改为直接接受 `*sql.DB`、`Dialect`、`IndexInitMode`
+- **代码整洁度提升**: 减少间接访问层级，`runtime.db` 和 `runtime.dialect` 直接可用
+- **示例全部更新**: academy 示例的 `OpenSQLiteExampleDB()` 现在返回 `*Runtime`
+- **重新生成代码**: 所有生成文件更新到 v4.1.11 版本标记
+
 ## [4.1.11] - 2026-05-22
 
 ### 变更 (Breaking Changes)

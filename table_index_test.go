@@ -49,33 +49,37 @@ func newRegisteredIndexRuntime(
 }
 
 func TestUpsertIndexRejectsInvalidIdentifiers(t *testing.T) {
-	db := newEngine(nil, MySQLDialect{})
-	err := upsertIndex(db, "users;drop", false, "idx_users_id", []string{"id"})
+	err := upsertIndex(nil, MySQLDialect{}, IndexInitUpsert, "users;drop", false, "idx_users_id", []string{"id"})
+	if err == nil {
+		t.Fatal("expected nil db to return an error")
+	}
+	db := newSQLiteIndexTestEngine(t)
+	err = upsertIndex(db.DB(), MySQLDialect{}, IndexInitUpsert, "users;drop", false, "idx_users_id", []string{"id"})
 	if err == nil {
 		t.Fatal("expected invalid table name to return an error")
 	}
-	err = upsertIndex(db, "users", false, "idx users id", []string{"id"})
+	err = upsertIndex(db.DB(), MySQLDialect{}, IndexInitUpsert, "users", false, "idx users id", []string{"id"})
 	if err == nil {
 		t.Fatal("expected invalid index name to return an error")
 	}
-	err = upsertIndex(db, "users", false, "idx_users_id", []string{"id", "name desc"})
+	err = upsertIndex(db.DB(), MySQLDialect{}, IndexInitUpsert, "users", false, "idx_users_id", []string{"id", "name desc"})
 	if err == nil {
 		t.Fatal("expected invalid field name to return an error")
 	}
 }
 
 func TestUpsertIndexRejectsEmptyFields(t *testing.T) {
-	db := newEngine(nil, MySQLDialect{})
-	err := upsertIndex(db, "users", false, "idx_users_id", nil)
+	db := newSQLiteIndexTestEngine(t)
+	err := upsertIndex(db.DB(), MySQLDialect{}, IndexInitUpsert, "users", false, "idx_users_id", nil)
 	if err == nil {
 		t.Fatal("expected empty index fields to return an error")
 	}
 }
 
-func TestUpsertIndexRejectsNilEngine(t *testing.T) {
-	err := upsertIndex(nil, "users", false, "idx_users_id", []string{"id"})
+func TestUpsertIndexRejectsNilDB(t *testing.T) {
+	err := upsertIndex(nil, MySQLDialect{}, IndexInitUpsert, "users", false, "idx_users_id", []string{"id"})
 	if err == nil {
-		t.Fatal("expected nil engine to return an error")
+		t.Fatal("expected nil db to return an error")
 	}
 }
 
@@ -93,7 +97,7 @@ func TestUpsertIndexSQLiteRejectsConflictingTableReuse(t *testing.T) {
 			t.Fatalf("failed to execute setup statement %q: %v", statement, err)
 		}
 	}
-	err := upsertIndex(db.engine, "orgs", true, "ux_name", []string{"name"})
+	err := upsertIndex(db.DB(), db.SQLDialect(), db.indexInitMode, "orgs", true, "ux_name", []string{"name"})
 	if err == nil {
 		t.Fatal("expected conflicting sqlite index name to return an error")
 	}
@@ -107,7 +111,7 @@ func TestUpsertIndexSQLiteRejectsDefinitionMismatch(t *testing.T) {
 			t.Fatalf("failed to execute setup statement %q: %v", statement, err)
 		}
 	}
-	err := upsertIndex(db.engine, "users", true, "ux_users_name", []string{"name"})
+	err := upsertIndex(db.DB(), db.SQLDialect(), db.indexInitMode, "users", true, "ux_users_name", []string{"name"})
 	if err == nil {
 		t.Fatal("expected mismatched sqlite index definition to return an error")
 	}
@@ -121,7 +125,7 @@ func TestUpsertIndexSQLiteAcceptsMatchingDefinition(t *testing.T) {
 			t.Fatalf("failed to execute setup statement %q: %v", statement, err)
 		}
 	}
-	if err := upsertIndex(db.engine, "users", true, "ux_users_name", []string{"name"}); err != nil {
+	if err := upsertIndex(db.DB(), db.SQLDialect(), db.indexInitMode, "users", true, "ux_users_name", []string{"name"}); err != nil {
 		t.Fatalf("expected matching sqlite index definition to pass, got %v", err)
 	}
 }
@@ -233,7 +237,7 @@ func TestNewRuntimePersistsIndexModeOnEngine(t *testing.T) {
 	}
 
 	runtime := newRegisteredIndexRuntime(t, db, "users", true, "ux_users_name", []string{"name"}, &InitOptions{IndexMode: IndexInitValidate})
-	if got := runtime.engine.effectiveIndexInitMode(); got != IndexInitValidate {
+	if got := effectiveIndexInitMode(runtime.indexInitMode); got != IndexInitValidate {
 		t.Fatalf("expected db index mode %q after init, got %q", IndexInitValidate, got)
 	}
 }
@@ -252,7 +256,7 @@ func TestValidateIdentifiersForDialect(t *testing.T) {
 
 func TestValidateIdentifiersForDialectChecksTableColumns(t *testing.T) {
 	db := newSQLiteIndexTestEngine(t)
-	db.engine.dialect = MySQLDialect{}
+	db.dialect = MySQLDialect{}
 	longColumnName := firstRejectedIdentifier(t, MySQLDialect{}, "c")
 	table, _ := newStrictMockTable("users", longColumnName)
 
@@ -277,7 +281,7 @@ func TestValidateIdentifiersForDialectChecksTableColumns(t *testing.T) {
 
 func TestValidateIdentifiersForDialectChecksIndexNames(t *testing.T) {
 	db := newSQLiteIndexTestEngine(t)
-	db.engine.dialect = MySQLDialect{}
+	db.dialect = MySQLDialect{}
 	longIndexName := firstRejectedIdentifier(t, MySQLDialect{}, "i")
 	table, _ := newStrictMockTable("users", "id")
 

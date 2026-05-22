@@ -13,14 +13,14 @@ import (
 // advanced prints the focused feature demos as JSON: each top-level field maps to
 // one advanced TSQ capability described in advanced/README.md.
 func main() {
-	engine, cleanup, err := academy.OpenSQLiteExampleDB()
+	rt, cleanup, err := academy.OpenSQLiteExampleDB()
 	if err != nil {
 		slog.Error("open example db", "error", err)
 		os.Exit(1)
 	}
 	defer cleanup()
 
-	summary, err := academy.RunAdvanced(context.Background(), engine)
+	summary, err := academy.RunAdvanced(context.Background(), rt)
 	if err != nil {
 		slog.Error("run advanced", "error", err)
 		os.Exit(1)

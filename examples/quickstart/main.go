@@ -13,14 +13,14 @@ import (
 // quickstart prints the three beginner Academy demos as JSON so the output can be
 // matched directly against quickstart/README.md while reading the example code.
 func main() {
-	engine, cleanup, err := academy.OpenSQLiteExampleDB()
+	rt, cleanup, err := academy.OpenSQLiteExampleDB()
 	if err != nil {
 		slog.Error("open example db", "error", err)
 		os.Exit(1)
 	}
 	defer cleanup()
 
-	summary, err := academy.RunQuickstart(context.Background(), engine)
+	summary, err := academy.RunQuickstart(context.Background(), rt)
 	if err != nil {
 		slog.Error("run quickstart", "error", err)
 		os.Exit(1)

@@ -8,13 +8,13 @@ import (
 )
 
 func TestFullSuite(t *testing.T) {
-	engine, cleanup, err := academy.OpenSQLiteExampleDB()
+	rt, cleanup, err := academy.OpenSQLiteExampleDB()
 	if err != nil {
 		t.Fatalf("open example db: %v", err)
 	}
 	t.Cleanup(cleanup)
 
-	summary, err := academy.RunFullSuite(context.Background(), engine)
+	summary, err := academy.RunFullSuite(context.Background(), rt)
 	if err != nil {
 		t.Fatalf("run full suite: %v", err)
 	}

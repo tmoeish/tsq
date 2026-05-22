@@ -2,6 +2,7 @@ package tsq
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 
@@ -9,12 +10,12 @@ import (
 )
 
 // UpsertIndex ensures a declared index exists or validates it, depending on InitOptions.
-func upsertIndex(db *engine, table string, unique bool, idx string, fields []string) error {
+func upsertIndex(db *sql.DB, sqlDialect tsqdialect.Dialect, indexInitMode IndexInitMode, table string, unique bool, idx string, fields []string) error {
 	if db == nil {
-		return errors.New("engine cannot be nil")
+		return errors.New("database connection cannot be nil")
 	}
 
-	if db.dialect == nil {
+	if sqlDialect == nil {
 		return errors.New("database dialect is required")
 	}
 
@@ -22,12 +23,12 @@ func upsertIndex(db *engine, table string, unique bool, idx string, fields []str
 		return err
 	}
 
-	mode := db.effectiveIndexInitMode()
+	mode := effectiveIndexInitMode(indexInitMode)
 	if mode == IndexInitSkip {
 		return nil
 	}
 
-	definition, found, err := inspectIndexDefinition(db, table, idx)
+	definition, found, err := inspectIndexDefinition(db, sqlDialect, table, idx)
 	if err != nil {
 		return err
 	}
@@ -45,7 +46,7 @@ func upsertIndex(db *engine, table string, unique bool, idx string, fields []str
 		}
 	}
 
-	_, err = db.dialect.EnsureIndex(context.Background(), db.db, table, unique, idx, fields)
+	_, err = sqlDialect.EnsureIndex(context.Background(), db, table, unique, idx, fields)
 	if err != nil {
 		return err
 	}
@@ -53,12 +54,12 @@ func upsertIndex(db *engine, table string, unique bool, idx string, fields []str
 	return nil
 }
 
-func (e *engine) effectiveIndexInitMode() IndexInitMode {
-	if e == nil || e.indexInitMode == "" {
+func effectiveIndexInitMode(mode IndexInitMode) IndexInitMode {
+	if mode == "" {
 		return IndexInitUpsert
 	}
 
-	return e.indexInitMode
+	return mode
 }
 
 func resolveIndexInitMode(options *InitOptions) IndexInitMode {
@@ -87,11 +88,12 @@ func validateIndexInitMode(mode IndexInitMode) error {
 }
 
 func inspectIndexDefinition(
-	db *engine,
+	db *sql.DB,
+	sqlDialect tsqdialect.Dialect,
 	table string,
 	idx string,
 ) (tsqdialect.IndexDefinition, bool, error) {
-	return db.dialect.InspectIndexDefinition(context.Background(), db.db, table, idx)
+	return sqlDialect.InspectIndexDefinition(context.Background(), db, table, idx)
 }
 
 func validateIndexDefinition(

@@ -218,7 +218,7 @@ func validateTxRuntime(r *Runtime) error {
 		return errors.New("runtime cannot be nil")
 	}
 
-	if r.engine == nil || r.engine.db == nil || r.engine.dialect == nil {
+	if r.db == nil || r.dialect == nil {
 		return errors.New("runtime is not initialized; construct it with NewRuntime")
 	}
 
@@ -277,7 +277,7 @@ func executeTxAttempt1[T any](
 	options *normalizedTxOptions,
 	fn func(context.Context, SQLExecutor) (T, error),
 ) (_ T, stage txRetryStage, err error) {
-	tx, err := r.engine.db.BeginTx(ctx, options.sqlOptions)
+	tx, err := r.db.BeginTx(ctx, options.sqlOptions)
 	if err != nil {
 		var zero T
 		return zero, txRetryStageBegin, fmt.Errorf("begin transaction: %w", err)
@@ -301,7 +301,7 @@ func executeTxAttempt1[T any](
 		}
 	}()
 
-	result, err := fn(ctx, wrapExecutor(tx, r.engine.dialect, r.traceManager))
+	result, err := fn(ctx, wrapExecutor(tx, r.dialect, r.traceManager))
 	if err != nil {
 		var zero T
 		return zero, txRetryStageBody, err

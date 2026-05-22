@@ -105,7 +105,8 @@ func optimisticMutationUserColumns() []BoundColumn[optimisticMutationUser] {
 func newRuntimeWithDB(db *sql.DB, dialect Dialect) *Runtime {
 	return &Runtime{
 		traceManager: newTraceManager(),
-		engine:       newEngine(db, dialect),
+		db:           db,
+		dialect:      dialect,
 	}
 }
 
