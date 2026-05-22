@@ -7,6 +7,30 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 项目遵循 [语义化版本控制](https://semver.org/lang/zh-CN/)。
 
+## [4.1.10] - 2026-05-22
+
+### 新增
+- **Agent Skill 支持**: 新增 `skills/tsq/` 目录，可作为 GitHub Copilot、Claude Code、Gemini CLI 的 agent skill 安装使用
+- **Skill 文档**: 新增 `docs/skill.md`，说明如何将 TSQ 作为 agent skill 安装到其他项目
+
+### 改进
+- **README 完善**: 在 README 中增加 skill 安装说明，扩展文档导航链接
+
+## [4.1.9] - 2026-05-21
+
+### 新增
+- **事务支持**: 新增 `tx.go`，提供完整的事务抽象和带重试的事务执行函数
+- **事务 API**: `WithTx()`、`WithTxReadOnly()`、`WithTxRetry()`、`Commit()`、`Rollback()` 等
+- **最佳实践文档**: 大幅扩展 `BEST_PRACTICES.md`，补充事务使用指南和示例
+
+### 改进
+- **Go 语法现代化**: 全面使用 Go 1.26 简洁语法（如 `for range slice` 替代 `for _, _ = range slice`）
+- **执行器增强**: `executor_test.go` 大幅扩展，覆盖事务边界条件和并发场景
+- **Runtime 完善**: 增加事务支持的内部链路和类型约束
+
+### 修复
+- **查询校验**: 修复查询构建阶段的部分边界条件校验问题
+
 ## [4.1.3] - 2026-05-20
 
 ### 变更 (Breaking Changes)

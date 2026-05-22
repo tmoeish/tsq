@@ -61,6 +61,16 @@ cd tsq
 make build
 ```
 
+### 安装 TSQ agent skill
+
+这个仓库同时发布了一个可安装的 agent skill，适合 GitHub Copilot、Claude Code、Gemini CLI 等 coding agent 在**别的 Go 项目里**学习如何接入和使用 TSQ。
+
+```bash
+gh skill install tmoeish/tsq tsq --agent github-copilot --scope user
+```
+
+安装方式、手动复制路径和使用示例见 [`docs/skill.md`](docs/skill.md)。
+
 ## 5 分钟最小路径
 
 ### 1. 定义一个表结构
@@ -158,6 +168,7 @@ func main() {
 | --- | --- |
 | [`docs/quickstart.md`](docs/quickstart.md) | 从空目录开始，5 分钟跑通 SQLite 示例 |
 | [`docs/concepts.md`](docs/concepts.md) | 想建立 Table 注解、生成文件、查询构建链路、Result、Runtime 的心智模型 |
+| [`docs/skill.md`](docs/skill.md) | 想把 TSQ 作为一个 agent skill 安装到 Copilot / Claude Code / Gemini CLI |
 | [`examples/README.md`](examples/README.md) | 想按 quickstart / cookbook / full-suite 找示例 |
 | [`BEST_PRACTICES.md`](BEST_PRACTICES.md) | 想看输入校验、分页、事务、排序和生产环境建议 |
 | [`MIGRATION_GUIDE.md`](MIGRATION_GUIDE.md) | 从旧 API 迁移到当前 Build-based API |
