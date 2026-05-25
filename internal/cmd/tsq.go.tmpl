@@ -279,7 +279,7 @@ func {{$name}}(
 		return nil, err
 	}
 
-	ordered, missing := tsq.MatchByInputOrder({{ FieldSliceVarName $dot.PK }}, list, func(row *{{$type}}) {{index $dot.FieldMap $dot.PK | FieldType}} {
+	ordered, missing := matchByInputOrder({{ FieldSliceVarName $dot.PK }}, list, func(row *{{$type}}) {{index $dot.FieldMap $dot.PK | FieldType}} {
 		return row.{{$dot.PK}}
 	})
 	if len(missing) > 0 {
@@ -398,7 +398,7 @@ func {{$name}}(
 	if err != nil {
 		return nil, err
 	}
-	ordered, missing := tsq.MatchByInputOrder({{ FieldSliceVarName $dot.PK }}, list, func(row *{{$type}}) {{index $dot.FieldMap $dot.PK | FieldType}} {
+	ordered, missing := matchByInputOrder({{ FieldSliceVarName $dot.PK }}, list, func(row *{{$type}}) {{index $dot.FieldMap $dot.PK | FieldType}} {
 		return row.{{$dot.PK}}
 	})
 	if len(missing) > 0 {

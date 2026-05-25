@@ -9,6 +9,28 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
+type pointerPKUser struct {
+	ID *int64
+}
+
+func (pointerPKUser) TSQOwner() {}
+
+func (pointerPKUser) Table() string { return "pointer_users" }
+
+func (pointerPKUser) Cols() []SQLColumn {
+	return SQLColumns(NewCol[pointerPKUser, *int64]("id", "id", func(t *pointerPKUser) **int64 {
+		return &t.ID
+	}))
+}
+
+func (pointerPKUser) SearchColumns() []SearchColumn { return nil }
+
+func (pointerPKUser) PrimaryKeys() []string { return []string{"id"} }
+
+func (pointerPKUser) AutoIncrement() bool { return false }
+
+func (pointerPKUser) VersionColumn() string { return "" }
+
 func TestDefaultChunkedInsertOptions(t *testing.T) {
 	opts := DefaultChunkedInsertOptions()
 	if opts == nil {
@@ -45,7 +67,7 @@ func TestChunkedInsertOptions_Modification(t *testing.T) {
 }
 
 func TestBuildDeleteByIDsSQL(t *testing.T) {
-	sqlStr, err := buildDeleteByIDsSQL("users", "id", 2)
+	sqlStr, err := buildDeleteByPKsSQL("users", "id", 2)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -56,11 +78,11 @@ func TestBuildDeleteByIDsSQL(t *testing.T) {
 }
 
 func TestBuildDeleteByIDsSQLRejectsInvalidIdentifiers(t *testing.T) {
-	_, err := buildDeleteByIDsSQL("users; DROP TABLE users", "id", 1)
+	_, err := buildDeleteByPKsSQL("users; DROP TABLE users", "id", 1)
 	if err == nil {
 		t.Fatal("expected invalid table name to return an error")
 	}
-	_, err = buildDeleteByIDsSQL("users", "id)` OR 1=1 --", 1)
+	_, err = buildDeleteByPKsSQL("users", "id)` OR 1=1 --", 1)
 	if err == nil {
 		t.Fatal("expected invalid column name to return an error")
 	}
@@ -180,7 +202,8 @@ func TestChunkedInsertRejectsTypedNilExecutor(t *testing.T) {
 
 func TestChunkedDeleteByIDsRejectsExecutorWithoutDialectForRenderedSQL(t *testing.T) {
 	db := newEngineWithoutDialect(t)
-	err := ChunkedDeleteByIDs(context.Background(), db, "users", "id", []any{1})
+	pkField := batchMutationUserColumns()[0].(TypedColumn[batchMutationUser, int64])
+	err := ChunkedDeleteByPKs(context.Background(), db, pkField, []int64{1})
 	if err == nil {
 		t.Fatal("expected executor without dialect to return an error")
 	}
@@ -191,11 +214,29 @@ func TestChunkedDeleteByIDsRejectsExecutorWithoutDialectForRenderedSQL(t *testin
 
 func TestChunkedDeleteByIDsRejectsNilIDs(t *testing.T) {
 	db := WrapExecutor(&sql.DB{}, SQLiteDialect{})
-	err := ChunkedDeleteByIDs(context.Background(), db, "users", "id", []any{1, nil})
+	id := int64(1)
+	err := ChunkedDeleteByPKs(
+		context.Background(),
+		db,
+		NewCol[pointerPKUser, *int64]("id", "id", func(t *pointerPKUser) **int64 { return &t.ID }),
+		[]*int64{&id, nil},
+	)
 	if err == nil {
 		t.Fatal("expected nil ids to return an error")
 	}
 	if !strings.Contains(err.Error(), "cannot be nil") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestChunkedDeleteByPKsRejectsNonPKField(t *testing.T) {
+	db := WrapExecutor(&sql.DB{}, SQLiteDialect{})
+	nameField := batchMutationUserColumns()[1].(TypedColumn[batchMutationUser, string])
+	err := ChunkedDeleteByPKs(context.Background(), db, nameField, []string{"alice"})
+	if err == nil {
+		t.Fatal("expected non-primary-key field to return an error")
+	}
+	if !strings.Contains(err.Error(), "is not the primary key") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

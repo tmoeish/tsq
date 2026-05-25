@@ -20,7 +20,7 @@ func TestRenderSQLForDialectPostgres(t *testing.T) {
 }
 
 func TestRenderDeleteByIDsSQLForPostgres(t *testing.T) {
-	sqlStr, err := buildDeleteByIDsSQL("users", "id", 2)
+	sqlStr, err := buildDeleteByPKsSQL("users", "id", 2)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

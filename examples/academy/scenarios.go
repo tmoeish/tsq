@@ -849,16 +849,15 @@ func runChunkedDemo(ctx context.Context, runtime *tsq.Runtime) (*ChunkedSummary,
 			return err
 		}
 
-		remainingIDs := make([]any, 0, len(enrollments)-1)
+		remainingIDs := make([]int64, 0, len(enrollments)-1)
 		for _, enrollment := range enrollments[1:] {
 			remainingIDs = append(remainingIDs, enrollment.UID)
 		}
 
-		if err := tsq.ChunkedDeleteByIDs(
+		if err := tsq.ChunkedDeleteByPKs(
 			ctx,
 			txExec,
-			"enrollment",
-			"uid",
+			Enrollment_UID,
 			remainingIDs,
 			&tsq.ChunkedOptions{ChunkSize: 2},
 		); err != nil {

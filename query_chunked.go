@@ -269,31 +269,29 @@ func chunkedDeleteChunk[T Table](
 	return nil
 }
 
-// ChunkedDeleteByIDs deletes rows by primary-key values in chunks.
+// ChunkedDeleteByPKs deletes rows by primary-key values in chunks.
 //
 // Transaction boundaries are intentionally caller-controlled. Passing a plain
 // *sql.DB or non-transactional executor allows partial progress across chunks;
 // passing a *sql.Tx makes the whole chunked operation participate in that
 // transaction. TSQ does not open an implicit outer transaction for this helper.
-func ChunkedDeleteByIDs(
+func ChunkedDeleteByPKs[O Table, T any](
 	ctx context.Context,
 	tx SQLExecutor,
-	tableName string,
-	idColumn string,
-	ids []any,
+	pkField TypedColumn[O, T],
+	pks []T,
 	options ...*ChunkedOptions,
 ) error {
 	return traceExecutor(ctx, tx, func(ctx context.Context) error {
-		return chunkedDeleteByIDsFn(ctx, tx, tableName, idColumn, ids, options...)
+		return chunkedDeleteByPKsFn(ctx, tx, pkField, pks, options...)
 	})
 }
 
-func chunkedDeleteByIDsFn(
+func chunkedDeleteByPKsFn[O Table, T any](
 	ctx context.Context,
 	tx SQLExecutor,
-	tableName string,
-	idColumn string,
-	ids []any,
+	pkField TypedColumn[O, T],
+	ids []T,
 	options ...*ChunkedOptions,
 ) error {
 	if len(ids) == 0 {
@@ -304,7 +302,13 @@ func chunkedDeleteByIDsFn(
 		return err
 	}
 
-	if err := validateIDValues(ids); err != nil {
+	tableName, pkColumn, err := resolveChunkedDeletePKField(pkField)
+	if err != nil {
+		return err
+	}
+
+	boxedIDs := boxSlice(ids)
+	if err := validateIDValues(boxedIDs); err != nil {
 		return err
 	}
 
@@ -313,23 +317,55 @@ func chunkedDeleteByIDsFn(
 		return err
 	}
 
-	for i := 0; i < len(ids); i += opts.ChunkSize {
-		end := min(i+opts.ChunkSize, len(ids))
+	for i := 0; i < len(boxedIDs); i += opts.ChunkSize {
+		end := min(i+opts.ChunkSize, len(boxedIDs))
 
-		batch := ids[i:end]
-		if err := chunkedDeleteByIDsChunk(ctx, tx, tableName, idColumn, batch); err != nil {
-			return fmt.Errorf("chunked delete by IDs failed at index %d"+": %w", i, err)
+		batch := boxedIDs[i:end]
+		if err := chunkedDeleteByPKsChunk(ctx, tx, tableName, pkColumn, batch); err != nil {
+			return fmt.Errorf("chunked delete by primary keys failed at index %d: %w", i, err)
 		}
 	}
 
 	return nil
 }
 
-func chunkedDeleteByIDsChunk(
+func resolveChunkedDeletePKField(col SQLColumn) (string, string, error) {
+	table, err := validateColumnInput(col)
+	if err != nil {
+		return "", "", err
+	}
+
+	if transformed, ok := col.(transformedColumn); ok && transformed.isTransformedExpression() {
+		return "", "", errors.New("primary-key field must be a physical table column")
+	}
+
+	pkColumns := table.PrimaryKeys()
+	if len(pkColumns) != 1 {
+		return "", "", errors.New("chunked delete by PKs requires exactly one primary key column")
+	}
+
+	columnName := strings.TrimSpace(col.Name())
+	if columnName == "" {
+		return "", "", errors.New("primary-key field must be a physical table column")
+	}
+
+	if columnName != pkColumns[0] {
+		return "", "", fmt.Errorf("column %s is not the primary key of table %s", columnName, physicalTableName(table))
+	}
+
+	tableName := physicalTableName(table)
+	if tableName == "" {
+		return "", "", errors.New("primary-key field table cannot be empty")
+	}
+
+	return tableName, columnName, nil
+}
+
+func chunkedDeleteByPKsChunk(
 	ctx context.Context,
 	tx SQLExecutor,
 	tableName string,
-	idColumn string,
+	pkColumn string,
 	ids []any,
 ) error {
 	if len(ids) == 0 {
@@ -341,7 +377,7 @@ func chunkedDeleteByIDsChunk(
 		placeholders[i] = "?"
 	}
 
-	sqlStr, err := buildDeleteByIDsSQL(tableName, idColumn, len(placeholders))
+	sqlStr, err := buildDeleteByPKsSQL(tableName, pkColumn, len(placeholders))
 	if err != nil {
 		return err
 	}
@@ -354,13 +390,13 @@ func chunkedDeleteByIDsChunk(
 
 	_, err = tx.ExecContext(ctx, sqlText, ids...)
 	if err != nil {
-		return fmt.Errorf("chunked delete by IDs failed: %s"+": %w", sqlText, err)
+		return fmt.Errorf("chunked delete by primary keys failed: %s: %w", sqlText, err)
 	}
 
 	return nil
 }
 
-func buildDeleteByIDsSQL(tableName, idColumn string, placeholderCount int) (string, error) {
+func buildDeleteByPKsSQL(tableName, pkColumn string, placeholderCount int) (string, error) {
 	if placeholderCount <= 0 {
 		return "", errors.New("placeholder count must be greater than 0")
 	}
@@ -370,7 +406,7 @@ func buildDeleteByIDsSQL(tableName, idColumn string, placeholderCount int) (stri
 		return "", err
 	}
 
-	quotedColumn, err := quoteBuiltInIdentifier(idColumn)
+	quotedColumn, err := quoteBuiltInIdentifier(pkColumn)
 	if err != nil {
 		return "", err
 	}

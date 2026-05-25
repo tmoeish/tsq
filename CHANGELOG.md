@@ -7,6 +7,18 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 项目遵循 [语义化版本控制](https://semver.org/lang/zh-CN/)。
 
+## [4.1.14] - 2026-05-25
+
+### 变更 (Breaking Changes)
+- **移除 MatchByInputOrder**: 从公开 API 中删除，现在作为生成代码的内部函数 `matchByInputOrder`
+- **ChunkedDeleteByIDs 重构**: 改为 `ChunkedDeleteByPKs`，使用泛型接受 `TypedColumn` 字段而不是字符串表名/列名
+
+### 改进
+- **类型安全提升**: `ChunkedDeleteByPKs` 现在在编译期验证主键字段类型和表归属
+- **生成代码优化**: `runtime_tsq.go` 现在同时包含 `compactJSON()` 和 `matchByInputOrder()` 内部辅助函数
+- **示例更新**: academy 示例同步到新 API
+- **重新生成代码**: 所有生成文件更新到 v4.1.13 版本标记
+
 ## [4.1.13] - 2026-05-25
 
 ### 改进
