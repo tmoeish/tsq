@@ -10,7 +10,7 @@ func TestQueryBuilder_LeftJoin(t *testing.T) {
 	table2 := newMockTable("orders")
 	col1 := newColForTable[Table, string](table1, "id", "id", nil)
 	col2 := newColForTable[Table, string](table2, "user_id", "user_id", nil)
-	qb := Select(col1).From(col1.Table()).LeftJoin(table2, col1.EQCol(col2))
+	qb := Select(col1).From(col1.Table()).LeftJoin(table2, col1.EQ(col2))
 	core := mustBuilderCore[Table](t, qb)
 	if len(core.spec.Joins) != 1 {
 		t.Errorf("Expected 1 join, got %d", len(core.spec.Joins))
@@ -35,7 +35,7 @@ func TestQueryBuilder_InnerJoin(t *testing.T) {
 	table2 := newMockTable("orders")
 	col1 := newColForTable[Table, string](table1, "id", "id", nil)
 	col2 := newColForTable[Table, string](table2, "user_id", "user_id", nil)
-	qb := Select(col1).From(col1.Table()).InnerJoin(table2, col1.EQCol(col2))
+	qb := Select(col1).From(col1.Table()).InnerJoin(table2, col1.EQ(col2))
 	core := mustBuilderCore[Table](t, qb)
 	if len(core.spec.Joins) != 1 {
 		t.Errorf("Expected 1 join, got %d", len(core.spec.Joins))
@@ -50,7 +50,7 @@ func TestQueryBuilder_RightJoin(t *testing.T) {
 	table2 := newMockTable("orders")
 	col1 := newColForTable[Table, string](table1, "id", "id", nil)
 	col2 := newColForTable[Table, string](table2, "user_id", "user_id", nil)
-	qb := Select(col1).From(col1.Table()).RightJoin(table2, col1.EQCol(col2))
+	qb := Select(col1).From(col1.Table()).RightJoin(table2, col1.EQ(col2))
 	core := mustBuilderCore[Table](t, qb)
 	if len(core.spec.Joins) != 1 {
 		t.Errorf("Expected 1 join, got %d", len(core.spec.Joins))
@@ -65,7 +65,7 @@ func TestQueryBuilder_FullJoin(t *testing.T) {
 	table2 := newMockTable("orders")
 	col1 := newColForTable[Table, string](table1, "id", "id", nil)
 	col2 := newColForTable[Table, string](table2, "user_id", "user_id", nil)
-	qb := Select(col1).From(col1.Table()).FullJoin(table2, col1.EQCol(col2))
+	qb := Select(col1).From(col1.Table()).FullJoin(table2, col1.EQ(col2))
 	core := mustBuilderCore[Table](t, qb)
 	if len(core.spec.Joins) != 1 {
 		t.Errorf("Expected 1 join, got %d", len(core.spec.Joins))
@@ -203,7 +203,7 @@ func TestQueryBuilder_ChainedOperations(t *testing.T) {
 	col2 := newColForTable[Table, string](table1, "name", "name", nil)
 	col3 := newColForTable[Table, string](table2, "user_id", "user_id", nil)
 	mockCond := &mockCondition{clause: "`users`.`id` > 0", tables: map[string]Table{"users": table1}}
-	qb := Select(col1, col2).From(col1.Table()).LeftJoin(table2, col1.EQCol(col3)).Search(col2).Where(mockCond).GroupBy(col2).Having(mockCond)
+	qb := Select(col1, col2).From(col1.Table()).LeftJoin(table2, col1.EQ(col3)).Search(col2).Where(mockCond).GroupBy(col2).Having(mockCond)
 	core := mustBuilderCore[Table](t, qb)
 	if len(core.spec.Selects) != 2 {
 		t.Errorf("Expected 2 select columns, got %d", len(core.spec.Selects))

@@ -23,12 +23,12 @@ TSQ v4 是一个重大的架构升级，旨在通过 Go 泛型提供更强的编
 
 **旧代码：**
 ```go
-tsq.Select(User_Name).Where(User_ID.EQ(1)).Build()
+tsq.Select(User_Name).Where(User_ID.EQVal(1)).Build()
 ```
 
 **新代码：**
 ```go
-tsq.Select(User_Name).From(TableUser).Where(User_ID.EQ(1)).Build()
+tsq.Select(User_Name).From(TableUser).Where(User_ID.EQVal(1)).Build()
 ```
 
 ### 2. 升级 Join API
@@ -42,7 +42,7 @@ tsq.Select(cols...).From(TableUser).LeftJoin(TableOrg).On(User_OrgID, Org_ID)
 
 **新代码：**
 ```go
-tsq.Select(cols...).From(TableUser).LeftJoin(TableOrg, User_OrgID.EQCol(Org_ID))
+tsq.Select(cols...).From(TableUser).LeftJoin(TableOrg, User_OrgID.EQ(Org_ID))
 ```
 
 ### 3. 结果映射 `Into` 迁移

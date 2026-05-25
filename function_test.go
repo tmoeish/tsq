@@ -208,7 +208,7 @@ func TestCaseBuilder_End(t *testing.T) {
 	orgID := newColForTable[Table, int](users, "org_id", "org_id", nil)
 
 	result := Case[string]().
-		When(orgID.EQ(1), "internal").
+		When(orgID.EQVal(1), "internal").
 		Else("external").
 		End()
 

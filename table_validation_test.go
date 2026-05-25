@@ -113,7 +113,7 @@ func TestColumnValidation_AllowsAliasedKnownTableColumns(t *testing.T) {
 
 	_, err := Select(id, parentID).
 		From(users).
-		LeftJoin(parentUsers, id.EQCol(parentID)).
+		LeftJoin(parentUsers, id.EQ(parentID)).
 		Build()
 	if err != nil {
 		t.Fatalf("expected aliased known column to build, got: %v", err)
@@ -129,7 +129,7 @@ func TestJoinValidation_DifferentTablesSucceeds(t *testing.T) {
 
 	_, err := Select(userID).
 		From(userID.Table()).
-		LeftJoin(orders, userID.EQCol(orderUserID)).
+		LeftJoin(orders, userID.EQ(orderUserID)).
 		Build()
 	if err != nil {
 		t.Fatalf("expected no error for different tables, got: %v", err)
@@ -144,7 +144,7 @@ func TestJoinValidation_SameTableWithoutAliasRejectsJoin(t *testing.T) {
 
 	_, err := Select(userID).
 		From(userID.Table()).
-		LeftJoin(users, userID.EQCol(parentID)).
+		LeftJoin(users, userID.EQ(parentID)).
 		Build()
 	if err == nil {
 		t.Fatal("expected error for repeated table without alias, got nil")
@@ -161,7 +161,7 @@ func TestJoinValidation_NilTableRejectsJoin(t *testing.T) {
 
 	_, err := Select(userID).
 		From(userID.Table()).
-		LeftJoin(nil, userID.EQ(1)).
+		LeftJoin(nil, userID.EQVal(1)).
 		Build()
 	if err == nil {
 		t.Fatal("expected error for nil join table, got nil")
@@ -216,7 +216,7 @@ func TestJoinValidation_RejectsJoinConditionWithoutJoinedTable(t *testing.T) {
 
 	_, err := Select(userID).
 		From(users).
-		LeftJoin(orders, userID.EQ(1)).
+		LeftJoin(orders, userID.EQVal(1)).
 		Build()
 	if err == nil {
 		t.Fatal("expected error when ON condition omits joined table, got nil")
@@ -235,7 +235,7 @@ func TestJoinValidation_RejectsJoinConditionWithoutIntroducedTable(t *testing.T)
 
 	_, err := Select(userID).
 		From(users).
-		LeftJoin(orders, orderStatus.EQ(1)).
+		LeftJoin(orders, orderStatus.EQVal(1)).
 		Build()
 	if err == nil {
 		t.Fatal("expected error when ON condition omits introduced table, got nil")
@@ -257,7 +257,7 @@ func TestJoinValidation_RejectsJoinConditionReferencingFutureTable(t *testing.T)
 
 	_, err := Select(userID).
 		From(users).
-		LeftJoin(orders, userID.EQCol(orderUserID), itemOrderID.EQ(1)).
+		LeftJoin(orders, userID.EQ(orderUserID), itemOrderID.EQVal(1)).
 		Build()
 	if err == nil {
 		t.Fatal("expected error for ON condition referencing future table, got nil")
@@ -278,7 +278,7 @@ func TestJoinValidation_RejectsJoinConditionThatSkipsJoinedTable(t *testing.T) {
 
 	_, err := Select(userID).
 		From(users).
-		LeftJoin(orgs, userID.EQCol(itemUserID)).
+		LeftJoin(orgs, userID.EQ(itemUserID)).
 		Build()
 	if err == nil {
 		t.Fatal("expected error when ON condition references another unjoined table instead of the target join table")
@@ -299,7 +299,7 @@ func TestJoinValidation_SelfJoinWithAliasSucceeds(t *testing.T) {
 
 	query, err := Select(userID, parentID).
 		From(userID.Table()).
-		LeftJoin(parentUsers, userParentID.EQCol(parentID)).
+		LeftJoin(parentUsers, userParentID.EQ(parentID)).
 		Build()
 	if err != nil {
 		t.Fatalf("expected no error for self-join with alias, got: %v", err)
@@ -321,7 +321,7 @@ func TestJoinValidation_AllowsAdditionalJoinedTablePredicates(t *testing.T) {
 
 	query, err := Select(userID).
 		From(users).
-		LeftJoin(orders, userID.EQCol(orderUserID), orderStatus.EQ(1)).
+		LeftJoin(orders, userID.EQ(orderUserID), orderStatus.EQVal(1)).
 		Build()
 	if err != nil {
 		t.Fatalf("expected joined-table predicate to build, got: %v", err)
@@ -342,7 +342,7 @@ func TestJoinValidation_NonEqualityConditionSucceeds(t *testing.T) {
 
 	query, err := Select(userScore).
 		From(userScore.Table()).
-		InnerJoin(orders, userScore.GTECol(orderMinimum)).
+		InnerJoin(orders, userScore.GTE(orderMinimum)).
 		Build()
 	if err != nil {
 		t.Fatalf("expected no error for non-equality join condition, got: %v", err)

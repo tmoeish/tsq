@@ -99,6 +99,10 @@ func (c columnImpl[O, T]) rawQualifiedName() string {
 
 func (c columnImpl[O, T]) columnValue(T) {}
 
+func (c columnImpl[O, T]) rhsValue(T) {}
+
+func (c columnImpl[O, T]) rhsPredicateArg() any { return c }
+
 func (c columnImpl[O, T]) selectOwner(O) {}
 
 func (c columnImpl[O, T]) tableColumnOwner(O) {}

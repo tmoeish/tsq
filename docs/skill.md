@@ -116,7 +116,7 @@ Use the /tsq skill to add TSQ to this Go service.
 - 初始化 `tsq.Runtime`
 - 编写 Build-based 查询
 - 使用 CRUD / 分页 / 搜索 helper
-- 处理事务、`InVar()`、CTE、`FULL JOIN` 等边界
+- 处理事务、`InVar()` / `NInVar()`、CTE、`FULL JOIN` 等边界
 
 skill 内部的参考资料见：
 

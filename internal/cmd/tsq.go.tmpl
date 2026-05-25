@@ -248,7 +248,7 @@ func {{$name}}(
 	query, err := tsq.
 		Select({{$varTblCols}}...).
 		From({{$varTbl}}).
-		Where({{$type}}_{{$dot.PK}}.In({{ FieldSliceVarName $dot.PK }}...)).
+		Where({{$type}}_{{$dot.PK}}.InVal({{ FieldSliceVarName $dot.PK }}...)).
 		Build()
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "build query", err)
@@ -268,7 +268,7 @@ func {{$name}}(
 	query, err := tsq.
 		Select({{$varTblCols}}...).
 		From({{$varTbl}}).
-		Where({{$type}}_{{$dot.PK}}.In({{ FieldSliceVarName $dot.PK }}...)).
+		Where({{$type}}_{{$dot.PK}}.InVal({{ FieldSliceVarName $dot.PK }}...)).
 		Build()
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "build query", err)
@@ -364,7 +364,7 @@ func {{$name}}(
 		From({{$varTbl}}).
 		Where(
 			{{ SoftDeleteActiveCond $type $dot.DeletedAtField (index $dot.FieldMap $dot.DeletedAtField) }},
-			{{$type}}_{{$dot.PK}}.In({{ FieldSliceVarName $dot.PK }}...),
+			{{$type}}_{{$dot.PK}}.InVal({{ FieldSliceVarName $dot.PK }}...),
 		).
 		Build()
 	if err != nil {
@@ -387,7 +387,7 @@ func {{$name}}(
 		From({{$varTbl}}).
 		Where(
 			{{ SoftDeleteActiveCond $type $dot.DeletedAtField (index $dot.FieldMap $dot.DeletedAtField) }},
-			{{$type}}_{{$dot.PK}}.In({{ FieldSliceVarName $dot.PK }}...),
+			{{$type}}_{{$dot.PK}}.InVal({{ FieldSliceVarName $dot.PK }}...),
 		).
 		Build()
 	if err != nil {

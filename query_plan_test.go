@@ -5,7 +5,7 @@ import "testing"
 func TestBuildQueryPlanClonesArgumentSlices(t *testing.T) {
 	users := newMockTable("users")
 	id := newColForTable[Table, int](users, "id", "id", nil)
-	plan, err := buildQueryPlan(querySpec[Table]{From: users, Selects: []BoundColumn[Table]{id}, Filters: []Condition{id.EQ(1)}})
+	plan, err := buildQueryPlan(querySpec[Table]{From: users, Selects: []BoundColumn[Table]{id}, Filters: []Condition{id.EQVal(1)}})
 	if err != nil {
 		t.Fatalf("expected query plan build to succeed, got %v", err)
 	}

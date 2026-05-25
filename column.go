@@ -49,12 +49,81 @@ type ValueColumn[T any] interface {
 type Column[O Owner, T any] interface {
 	// TypedColumn exposes the common SQL expression metadata and typed value marker.
 	TypedColumn[O, T]
+	// RHS lets typed expressions flow into comparison predicates on another column.
+	RHS[T]
 	// SearchColumn marks the expression as usable in keyword search expansion.
 	SearchColumn
 	// WithTable returns a copy of the column rebound to a different table source.
 	WithTable(table Table) Column[O, T]
 	// As returns a copy of the column that targets an aliased table reference.
 	As(alias string) Column[O, T]
+
+	// IsNull checks whether the column value is NULL.
+	IsNull() Condition
+	// IsNotNull checks whether the column value is not NULL.
+	IsNotNull() Condition
+
+	// EQ compares the column to rhs with =.
+	EQ(rhs RHS[T]) Condition
+	// NE compares the column to rhs with <>.
+	NE(rhs RHS[T]) Condition
+	// GT compares the column to rhs with >.
+	GT(rhs RHS[T]) Condition
+	// GTE compares the column to rhs with >=.
+	GTE(rhs RHS[T]) Condition
+	// LT compares the column to rhs with <.
+	LT(rhs RHS[T]) Condition
+	// LTE compares the column to rhs with <=.
+	LTE(rhs RHS[T]) Condition
+	// Like compares the column to rhs with LIKE.
+	Like(rhs RHS[T]) Condition
+	// NLike compares the column to rhs with NOT LIKE.
+	NLike(rhs RHS[T]) Condition
+	// Between compares the column to an inclusive RHS range.
+	Between(start, end RHS[T]) Condition
+	// NBetween compares the column to values outside an inclusive RHS range.
+	NBetween(start, end RHS[T]) Condition
+	// In compares the column to a typed membership subquery with IN.
+	In(rhs Subquery[T]) Condition
+	// NIn compares the column to a typed membership subquery with NOT IN.
+	NIn(rhs Subquery[T]) Condition
+
+	// EQVal compares the column to arg with =.
+	EQVal(arg T) Condition
+	// NEVal compares the column to arg with <>.
+	NEVal(arg T) Condition
+	// GTVal compares the column to arg with >.
+	GTVal(arg T) Condition
+	// GTEVal compares the column to arg with >=.
+	GTEVal(arg T) Condition
+	// LTVal compares the column to arg with <.
+	LTVal(arg T) Condition
+	// LTEVal compares the column to arg with <=.
+	LTEVal(arg T) Condition
+	// LikeVal compares the column to arg with LIKE.
+	LikeVal(arg T) Condition
+	// NLikeVal compares the column to arg with NOT LIKE.
+	NLikeVal(arg T) Condition
+	// BetweenVal compares the column to an inclusive literal range.
+	BetweenVal(start, end T) Condition
+	// NBetweenVal compares the column to values outside an inclusive literal range.
+	NBetweenVal(start, end T) Condition
+	// InVal compares the column to an explicit list of bound values.
+	InVal(args ...T) Condition
+	// NInVal compares the column to a negated list of bound values.
+	NInVal(args ...T) Condition
+	// StartsWithVal compares the column to a bound prefix pattern.
+	StartsWithVal(str string) Condition
+	// NStartsWithVal compares the column to a negated bound prefix pattern.
+	NStartsWithVal(str string) Condition
+	// EndsWithVal compares the column to a bound suffix pattern.
+	EndsWithVal(str string) Condition
+	// NEndsWithVal compares the column to a negated bound suffix pattern.
+	NEndsWithVal(str string) Condition
+	// ContainsVal compares the column to a bound contains pattern.
+	ContainsVal(str string) Condition
+	// NContainsVal compares the column to a negated bound contains pattern.
+	NContainsVal(str string) Condition
 
 	// EQVar compares the column to a runtime-bound value with =.
 	EQVar() Condition
@@ -68,114 +137,39 @@ type Column[O Owner, T any] interface {
 	LTVar() Condition
 	// LTEVar compares the column to a runtime-bound value with <=.
 	LTEVar() Condition
-	// InVar binds a slice at execution time for IN predicates.
-	InVar() Condition
-	// StartsWithVar defers a prefix match to execution time, which tsq rejects for portability.
-	StartsWithVar() Condition
-	// NStartsWithVar defers a negated prefix match to execution time, which tsq rejects for portability.
-	NStartsWithVar() Condition
-	// EndsWithVar defers a suffix match to execution time, which tsq rejects for portability.
-	EndsWithVar() Condition
-	// NEndsWithVar defers a negated suffix match to execution time, which tsq rejects for portability.
-	NEndsWithVar() Condition
-	// ContainsVar defers a contains match to execution time, which tsq rejects for portability.
-	ContainsVar() Condition
-	// NContainsVar defers a negated contains match to execution time, which tsq rejects for portability.
-	NContainsVar() Condition
+	// LikeVar compares the column to a runtime-bound pattern with LIKE.
+	LikeVar() Condition
+	// NLikeVar compares the column to a runtime-bound pattern with NOT LIKE.
+	NLikeVar() Condition
 	// BetweenVar compares the column to two runtime-bound values with BETWEEN.
 	BetweenVar() Condition
 	// NBetweenVar compares the column to two runtime-bound values with NOT BETWEEN.
 	NBetweenVar() Condition
+	// InVar binds a slice at execution time for IN predicates.
+	InVar() Condition
+	// NInVar binds a slice at execution time for NOT IN predicates.
+	NInVar() Condition
+	// StartsWithVar compares the column to a runtime-bound prefix pattern.
+	StartsWithVar() Condition
+	// NStartsWithVar compares the column to a negated runtime-bound prefix pattern.
+	NStartsWithVar() Condition
+	// EndsWithVar compares the column to a runtime-bound suffix pattern.
+	EndsWithVar() Condition
+	// NEndsWithVar compares the column to a negated runtime-bound suffix pattern.
+	NEndsWithVar() Condition
+	// ContainsVar compares the column to a runtime-bound contains pattern.
+	ContainsVar() Condition
+	// NContainsVar compares the column to a negated runtime-bound contains pattern.
+	NContainsVar() Condition
 
-	// EQ compares the column to arg with =.
-	EQ(arg T) Condition
-	// NE compares the column to arg with <>.
-	NE(arg T) Condition
-	// GT compares the column to arg with >.
-	GT(arg T) Condition
-	// GTE compares the column to arg with >=.
-	GTE(arg T) Condition
-	// LT compares the column to arg with <.
-	LT(arg T) Condition
-	// LTE compares the column to arg with <=.
-	LTE(arg T) Condition
-	// StartsWith compares the column to a bound prefix pattern.
-	StartsWith(str string) Condition
-	// NStartsWith compares the column to a negated bound prefix pattern.
-	NStartsWith(str string) Condition
-	// EndsWith compares the column to a bound suffix pattern.
-	EndsWith(str string) Condition
-	// NEndsWith compares the column to a negated bound suffix pattern.
-	NEndsWith(str string) Condition
-	// Contains compares the column to a bound contains pattern.
-	Contains(str string) Condition
-	// NContains compares the column to a negated bound contains pattern.
-	NContains(str string) Condition
-	// Between compares the column to an inclusive range.
-	Between(start, end T) Condition
-	// NBetween compares the column to values outside an inclusive range.
-	NBetween(start, end T) Condition
-	// In compares the column to an explicit list of bound values.
-	In(args ...T) Condition
-	// NIn compares the column to a negated list of bound values.
-	NIn(args ...T) Condition
-	// IsNull checks whether the column value is NULL.
-	IsNull() Condition
-	// IsNotNull checks whether the column value is not NULL.
-	IsNotNull() Condition
-
-	// EQCol compares the column to another column with =.
-	EQCol(other typedColumnInternal[T]) Condition
-	// NECol compares the column to another column with <>.
-	NECol(other typedColumnInternal[T]) Condition
-	// GTCol compares the column to another column with >.
-	GTCol(other typedColumnInternal[T]) Condition
-	// GTECol compares the column to another column with >=.
-	GTECol(other typedColumnInternal[T]) Condition
-	// LTCol compares the column to another column with <.
-	LTCol(other typedColumnInternal[T]) Condition
-	// LTECol compares the column to another column with <=.
-	LTECol(other typedColumnInternal[T]) Condition
-	// StartsWithCol compares the column to another column with a prefix match, which tsq rejects for portability.
-	StartsWithCol(other typedColumnInternal[T]) Condition
-	// NStartsWithCol compares the column to another column with a negated prefix match, which tsq rejects for portability.
-	NStartsWithCol(other typedColumnInternal[T]) Condition
-	// EndsWithCol compares the column to another column with a suffix match, which tsq rejects for portability.
-	EndsWithCol(other typedColumnInternal[T]) Condition
-	// NEndsWithCol compares the column to another column with a negated suffix match, which tsq rejects for portability.
-	NEndsWithCol(other typedColumnInternal[T]) Condition
-	// ContainsCol compares the column to another column with a contains match, which tsq rejects for portability.
-	ContainsCol(other typedColumnInternal[T]) Condition
-	// NContainsCol compares the column to another column with a negated contains match, which tsq rejects for portability.
-	NContainsCol(other typedColumnInternal[T]) Condition
-	// EQSub compares the column to a scalar subquery with =.
-	EQSub(sq subquery) Condition
-	// NESub compares the column to a scalar subquery with <>.
-	NESub(sq subquery) Condition
-	// GTSub compares the column to a scalar subquery with >.
-	GTSub(sq subquery) Condition
-	// GTESub compares the column to a scalar subquery with >=.
-	GTESub(sq subquery) Condition
-	// LTSub compares the column to a scalar subquery with <.
-	LTSub(sq subquery) Condition
-	// LTESub compares the column to a scalar subquery with <=.
-	LTESub(sq subquery) Condition
-	// LikeSub compares the column to a scalar subquery with LIKE.
-	LikeSub(sq subquery) Condition
-	// NLikeSub compares the column to a scalar subquery with NOT LIKE.
-	NLikeSub(sq subquery) Condition
-	// InSub compares the column to a membership subquery with IN.
-	InSub(sq subquery) Condition
-	// NInSub compares the column to a membership subquery with NOT IN.
-	NInSub(sq subquery) Condition
 	// ExistsSub returns an EXISTS predicate for the supplied subquery.
-	ExistsSub(sq subquery) Condition
+	ExistsSub(sq rawSubquery) Condition
 	// NExistsSub returns a NOT EXISTS predicate for the supplied subquery.
-	NExistsSub(sq subquery) Condition
+	NExistsSub(sq rawSubquery) Condition
 	// Unique returns a deferred portability error because UNIQUE subquery predicates are not supported.
-	Unique(sq subquery) Condition
+	Unique(sq rawSubquery) Condition
 	// NUnique returns a deferred portability error because NOT UNIQUE subquery predicates are not supported.
-	NUnique(sq subquery) Condition
+	NUnique(sq rawSubquery) Condition
 
 	// Pred formats a custom predicate template around the receiver column.
 	// The format must contain one %s placeholder for the receiver column plus
@@ -186,8 +180,9 @@ type Column[O Owner, T any] interface {
 	//   - an Expression such as Bind(...)
 	//   - a plain Go value, which TSQ turns into a bound parameter
 	//
-	// Raw subqueries are rejected; use the dedicated EQSub/NESub/GTSub/InSub/
-	// ExistsSub helpers instead.
+	// Raw subqueries are rejected; use typed RHS values such as a Column or
+	// typed Subquery via EQ/NE/GT/GTE/LT/LTE/Like/Between, or use In/ExistsSub
+	// style helpers instead.
 	//
 	// Example:
 	//

@@ -41,8 +41,8 @@ func TestQueryBuilder_MultiCall_Where(t *testing.T) {
 	id := newMockColumn(table, "id")
 
 	qb := Select(id).From(table)
-	first := qb.Where(id.EQ("1"))
-	second, err := qb.Where(id.EQ("2")).Build()
+	first := qb.Where(id.EQVal("1"))
+	second, err := qb.Where(id.EQVal("2")).Build()
 	if first == nil {
 		t.Fatal("expected initial Where() to succeed")
 	}
@@ -78,8 +78,8 @@ func TestQueryBuilder_MultiCall_Having(t *testing.T) {
 	id := newMockColumn(table, "id")
 
 	qb := Select(id).From(table).GroupBy(id)
-	first := qb.Having(id.EQ("1"))
-	second, err := qb.Having(id.EQ("2")).Build()
+	first := qb.Having(id.EQVal("1"))
+	second, err := qb.Having(id.EQVal("2")).Build()
 	if first == nil {
 		t.Fatal("expected initial Having() to succeed")
 	}

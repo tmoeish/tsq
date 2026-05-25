@@ -74,7 +74,7 @@ type User struct {
 query, err := tsq.
 	Select(database.User__Cols...).
 	From(database.TableUser).
-	Where(database.User_Name.Contains("alice")).
+	Where(database.User_Name.ContainsVal("alice")).
 	OrderBy(database.User_ID.Desc()).
 	Build()
 ```
@@ -99,8 +99,8 @@ query, err := tsq.
 
 如果把一个查询拿去当子查询用，也沿用这条规则：`Build()` 后得到的是 `*tsq.Query[Owner]`。其中：
 
-- `EQSub` / `GTSub` / `LikeSub` 这类标量比较要求子查询只返回 1 列；
-- `InSub` / `NInSub` 也要求子查询只返回 1 列；
+- `EQ(...)` / `GT(...)` / `Like(...)` 这类 RHS 比较支持把 typed `tsq.Subquery[T]` 当 RHS 传入，且该子查询必须只返回 1 列；
+- `In(...)` / `NIn(...)` 这类 membership subquery 比较也要求子查询只返回 1 列；
 - `ExistsSub` / `NExistsSub` 只要求子查询已经 `Build()`。
 
 ## 4. `Owner` / `Table` / `Result`：三层 owner 语义
@@ -212,12 +212,12 @@ rt, err := tsq.NewRuntime(db, dialect.SQLiteDialect{}, academy.TSQTables())
 
 如果一个进程里有多个生成包共用同一个数据库，把各包的 `TSQTables()` 拼起来再传给一个 `Runtime` 即可；如果是多个数据库，就各自构造各自的 `Runtime`。
 
-## 8. `PageReq`、`InVar()`、`WithTable()` 分别解决什么问题
+## 8. `PageReq`、`InVar()` / `NInVar()`、`WithTable()` 分别解决什么问题
 
 | 概念 | 解决的问题 | 什么时候需要 |
 | --- | --- | --- |
 | `PageReq` | 列表页分页、排序、关键词搜索 | HTTP API / 后台列表 |
-| `InVar()` | 执行时传入动态切片参数；空 / nil 切片表示显式不匹配 | `WHERE id IN (?)` 这类场景 |
+| `InVar()` / `NInVar()` | 执行时传入动态切片参数；空 / nil 切片分别表示显式不匹配 / 显式全匹配 | `WHERE id IN (?)` / `WHERE id NOT IN (?)` |
 | `WithTable()` | 把列重绑定到别名表或 CTE | 自连接、别名联表、CTE 外层引用 |
 
 ## 9. 最容易混淆的两个边界

@@ -12,8 +12,11 @@ import (
 type queryArgMarker string
 
 const (
-	externalArgMarker queryArgMarker = "external"
-	keywordArgMarker  queryArgMarker = "keyword"
+	externalArgMarker        queryArgMarker = "external"
+	externalStartsWithMarker queryArgMarker = "external_starts_with"
+	externalEndsWithMarker   queryArgMarker = "external_ends_with"
+	externalContainsMarker   queryArgMarker = "external_contains"
+	keywordArgMarker         queryArgMarker = "keyword"
 )
 
 // Expression represents a SQL fragment plus the args needed to render it safely.
@@ -37,15 +40,20 @@ func (e expressionError) buildError() error {
 }
 
 // variableExpression marks a single runtime-supplied bind placeholder.
-type variableExpression struct{}
+type variableExpression struct{ marker queryArgMarker }
 
 // Expr returns the placeholder emitted into the SQL fragment.
 func (v variableExpression) Expr() string { return "?" }
 
 // Args returns the marker consumed later by runtime argument resolution.
-func (v variableExpression) Args() []any { return []any{externalArgMarker} }
+func (v variableExpression) Args() []any { return []any{v.marker} }
 
-var varMarker variableExpression
+var (
+	varMarker           = variableExpression{marker: externalArgMarker}
+	varStartsWithMarker = variableExpression{marker: externalStartsWithMarker}
+	varEndsWithMarker   = variableExpression{marker: externalEndsWithMarker}
+	varContainsMarker   = variableExpression{marker: externalContainsMarker}
+)
 
 // variableSliceExpression marks a runtime-supplied slice placeholder used by IN predicates.
 type variableSliceExpression struct{}
@@ -57,6 +65,18 @@ func (v variableSliceExpression) Expr() string { return "?" }
 func (v variableSliceExpression) Args() []any { return []any{externalSliceArgMarker{}} }
 
 var varSliceMarker variableSliceExpression
+
+// variableNotInSliceExpression marks a runtime-supplied slice placeholder used
+// by NOT IN predicates.
+type variableNotInSliceExpression struct{}
+
+// Expr returns the placeholder emitted into the SQL fragment before slice expansion.
+func (v variableNotInSliceExpression) Expr() string { return "?" }
+
+// Args returns the marker consumed later by runtime slice expansion.
+func (v variableNotInSliceExpression) Args() []any { return []any{externalNotInSliceArgMarker{}} }
+
+var varNotInSliceMarker variableNotInSliceExpression
 
 // valuesExpression stores a fully expanded placeholder list such as "?, ?, ?".
 type valuesExpression struct {
@@ -138,9 +158,9 @@ func argumentToExpression(arg any) Expression {
 		}
 
 		return rawExpression{expr: expr, args: args}
-	case subquery:
+	case rawSubquery:
 		return expressionError{err: errors.New(
-			"raw subqueries are not allowed in Pred; use EQSub/NESub/GTSub/InSub/ExistsSub helpers",
+			"raw subqueries are not allowed in Pred; use EQ/NE/GT/GTE/LT/LTE/Like/NLike/Between with typed subqueries or use In/ExistsSub helpers",
 		)}
 	default:
 		return Bind(v)

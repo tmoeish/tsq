@@ -409,7 +409,7 @@ The main query flow is:
 query, err := tsq.
 	Select(database.User__Cols...).
 	From(database.TableUser).
-	Where(database.User_Name.Contains("alice")).
+	Where(database.User_Name.ContainsVal("alice")).
 	OrderBy(database.User_ID.Desc()).
 	Build()
 ```
@@ -443,9 +443,9 @@ Builder state can branch safely, but the main reusable object is the built query
 Common examples:
 
 ```go
-database.User_ID.EQ(1)
-database.User_Name.Contains("alice")
-database.User_Email.Like("%@example.com")
+database.User_ID.EQVal(1)
+database.User_Name.ContainsVal("alice")
+database.User_Email.LikeVal("%@example.com")
 database.User_DeletedAt.IsNull()
 ```
 
@@ -455,10 +455,10 @@ database.User_DeletedAt.IsNull()
 
 ```go
 Where(
-	database.User_OrgID.EQ(1),
+	database.User_OrgID.EQVal(1),
 	tsq.Or(
-		database.User_Name.Contains("alice"),
-		database.User_Email.Contains("alice"),
+		database.User_Name.ContainsVal("alice"),
+		database.User_Email.ContainsVal("alice"),
 	),
 )
 ```
@@ -565,14 +565,14 @@ TSQ supports more than simple list queries. Common advanced shapes include:
 
 - aggregate queries with `GroupBy(...)` and `Having(...)`
 - `CASE` expressions
-- subqueries such as `InSub`, `ExistsSub`, `EQSub`
+- subqueries such as `In(subquery)`, `ExistsSub`, and typed RHS comparisons like `EQ(subquery)` or `Like(subquery)`
 - non-recursive CTEs
 - set operations such as `UNION` and `EXCEPT`
 - row-lock clauses such as `ForUpdate()` and `ForShare()`
 
 Important subquery rule:
 
-- scalar comparisons and `InSub`-style usage require subqueries that select exactly one column
+- scalar RHS comparisons such as `EQ(subquery)`, `Between(subqueryA, subqueryB)`, and `In(subquery)`-style usage require subqueries that select exactly one column
 
 ## 12. Dialect capability boundaries
 
@@ -616,9 +616,12 @@ If the desired behavior is “no optimistic locking,” do not declare a managed
 
 They are overwrite-style setters.
 
-### `InVar()`
+### `InVar()` / `NInVar()`
 
-If the runtime slice is empty or nil, TSQ renders an explicit no-match shape instead of silently dropping the filter.
+If the runtime slice is empty or nil, TSQ keeps the filter explicit instead of silently dropping it:
+
+- `InVar()` renders an explicit no-match shape
+- `NInVar()` renders an explicit match-all shape
 
 ### Generated helpers
 

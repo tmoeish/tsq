@@ -88,6 +88,10 @@ func (c projectedColumn[O, T]) scanPointer() scanPointer { return c.col.scanPoin
 
 func (c projectedColumn[O, T]) columnValue(T) {}
 
+func (c projectedColumn[O, T]) rhsValue(T) {}
+
+func (c projectedColumn[O, T]) rhsPredicateArg() any { return c }
+
 func (c projectedColumn[O, T]) selectOwner(O) {}
 
 func (c projectedColumn[O, T]) rawQualifiedName() string { return c.col.rawQualifiedName() }

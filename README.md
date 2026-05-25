@@ -145,7 +145,7 @@ func main() {
 	query, err := tsq.
 		Select(database.User__Cols...).
 		From(database.TableUser).
-		Where(database.User_Name.Contains("alice")).
+		Where(database.User_Name.ContainsVal("alice")).
 		Build()
 	if err != nil {
 		log.Fatal(err)
@@ -183,7 +183,7 @@ TSQ 当前内置的 `Dialect` 实现只有 **SQLite / MySQL / PostgreSQL**。下
 | 类型安全列与链式查询 | ✅ | ✅ | ✅ | `tsq.Select(...).From(table).Where(...).Build()` |
 | `@RESULT` 结果映射 | ✅ | ✅ | ✅ | 生成 `*_result_tsq.go` |
 | 自动乐观锁（`version`） | ✅ | ✅ | ✅ | `Update/Delete` 在执行时按 `VersionColumn()` 做版本校验 |
-| `InVar()` 动态 `IN (...)` | ✅ | ✅ | ✅ | 执行时展开参数 |
+| `InVar()` / `NInVar()` 动态集合过滤 | ✅ | ✅ | ✅ | 执行时展开参数 |
 | `CASE` 表达式 | ✅ | ✅ | ✅ | 构建与执行都支持 |
 | 行锁读取（`FOR UPDATE` / `FOR SHARE`） | ❌ | ✅ | ✅ | 能否执行取决于运行时 dialect |
 | 非递归 CTE / `WITH` | ✅ | ❌ | ✅ | MySQL 会在执行前显式拒绝 |
@@ -208,10 +208,10 @@ query, err := tsq.
 	Select(database.User__Cols...).
 	From(database.TableUser).
 	Where(
-		database.User_OrgID.EQ(1),
+		database.User_OrgID.EQVal(1),
 		tsq.Or(
-			database.User_Name.Contains("alice"),
-			database.User_Email.Contains("alice"),
+			database.User_Name.ContainsVal("alice"),
+			database.User_Email.ContainsVal("alice"),
 		),
 	).
 	Build()
@@ -229,6 +229,18 @@ query, err := tsq.
 - 让 `InVar()` 在 nil / empty / non-empty 三种输入下都保持统一调用方式
 
 如果你的业务想表达“空列表时忽略这个筛选条件”，请在业务层显式分支，不要依赖 `InVar()` 自动跳过过滤。
+
+### `NInVar()` 的空切片 / nil 切片语义是“显式全匹配”
+
+`NInVar()` 用于把执行时传入的切片参数展开成 `NOT IN (...)`。  
+如果执行时传入的是空切片或 `nil`，TSQ 会把它渲染成一个空结果子查询，让 `NOT IN (...)` 保持合法 SQL，同时等价于**不过滤任何值**。
+
+这同样是刻意设计的 API 语义：
+
+- 适合表达“当前没有任何需要排除的 ID / 状态 / 分类”
+- 让 `NInVar()` 在 nil / empty / non-empty 三种输入下都保持统一调用方式
+
+如果你的业务想表达别的含义，请在业务层显式分支，而不是依赖 TSQ 猜测空切片语义。
 
 ### `Build()` 成功不代表所有方言都能执行
 
@@ -297,8 +309,8 @@ pageReq := &tsq.PageReq{
 
 当前 TSQ 的默认行为是：**把普通值绑定成参数**，而不是把值直接拼进 SQL 字符串。
 
-- `EQ("alice")`、`In(1, 2, 3)`、`CASE ... THEN "ok"` 这类普通值都会进入参数列表
-- 如果你需要数据库函数、列引用或子查询，请显式传 `Col`、`Fn(...)`、`SubQuery` 这类表达式对象
+- `EQVal("alice")`、`InVal(1, 2, 3)`、`CASE ... THEN "ok"` 这类普通值都会进入参数列表
+- 如果你需要列引用或 typed 子查询，请把它们直接作为 `EQ/NE/GT/GTE/LT/LTE` 的 RHS 传入；如果你需要数据库函数，请继续用 `Fn(...)`、`Expr(...)`、`Exprf(...)` 这类表达式能力
 - 不要把“手工拼 SQL literal”当成常规扩展方式
 
 ### 推荐使用当前的 Build-based API
@@ -309,7 +321,7 @@ pageReq := &tsq.PageReq{
 query, err := tsq.
 	Select(database.User__Cols...).
 	From(database.TableUser).
-	Where(database.User_ID.EQ(1)).
+	Where(database.User_ID.EQVal(1)).
 	Build()
 ```
 
@@ -337,8 +349,9 @@ query, err := tsq.
 ### 子查询边界要显式遵守
 
 - `Build()` 返回的是 `*tsq.Query[Owner]`，owner 类型会沿着 builder 保留下来。
-- 标量子查询（如 `EQSub` / `GTSub` / `LikeSub`）和 `InSub` / `NInSub` **必须只选择一列**。
+- 标量比较（如 `EQ(subquery)` / `GT(subquery)`）、`Between(subqueryA, subqueryB)`，以及 `In(subquery)` / `NIn(subquery)` 里的 typed 子查询 **必须只选择一列**。
 - `ExistsSub` / `NExistsSub` 只要求传入已 `Build()` 的子查询，不受返回列数限制。
+- 值比较推荐用 `EQVal/NEVal/GTVal/GTEVal/LTVal/LTEVal`，列和 typed 子查询则直接作为 `EQ/NE/GT/GTE/LT/LTE` 的 RHS 传入。
 - 结果投影统一使用包级 `tsq.Into(...)`，不要再写 `col.Into(...)`。
 
 ## 示例入口

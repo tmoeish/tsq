@@ -95,9 +95,12 @@ Important split:
 
 They are setters, not appenders.
 
-### `InVar()`
+### `InVar()` / `NInVar()`
 
-Empty or nil slices mean explicit no-match, not “remove the filter”.
+Empty or nil slices do not remove the filter:
+
+- `InVar()` means explicit no-match
+- `NInVar()` means explicit match-all
 
 ## Related files
 

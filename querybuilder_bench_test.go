@@ -15,7 +15,7 @@ func BenchmarkQueryBuilder_SimpleBuild(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		_, _ = Select(col1, col2, col3).
 			From(col1.Table()).
-			Where(col1.GT(100)).
+			Where(col1.GTVal(100)).
 			Build()
 	}
 }
@@ -34,8 +34,8 @@ func BenchmarkQueryBuilder_JoinBuild(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		_, _ = Select(uid, oid, oTotal).
 			From(uid.Table()).
-			InnerJoin(ordersTable, uid.EQCol(oUserID)).
-			Where(oTotal.GT(50.0)).
+			InnerJoin(ordersTable, uid.EQ(oUserID)).
+			Where(oTotal.GTVal(50.0)).
 			Build()
 	}
 }
@@ -54,10 +54,10 @@ func BenchmarkQueryBuilder_ComplexBuild(b *testing.B) {
 		_, _ = Select(id, price, stock, status, category).
 			From(id.Table()).
 			Where(
-				price.GT(10.0),
-				price.LT(1000.0),
-				stock.GTE(1),
-				status.EQ("active"),
+				price.GTVal(10.0),
+				price.LTVal(1000.0),
+				stock.GTEVal(1),
+				status.EQVal("active"),
 			).
 			Build()
 	}
@@ -95,8 +95,8 @@ func BenchmarkQueryBuilder_AliasAndWhere(b *testing.B) {
 		).
 			From(table).
 			Where(
-				total.GT(100.0),
-				status.NE("cancelled"),
+				total.GTVal(100.0),
+				status.NEVal("cancelled"),
 			).
 			Build()
 	}

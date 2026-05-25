@@ -405,7 +405,7 @@ func softDeleteActiveCond(typeName, fieldName string, field genmodel.FieldInfo) 
 
 	switch softDeleteKind(field) {
 	case "integer":
-		return col + ".EQ(0)"
+		return col + ".EQVal(0)"
 	case "time_ptr", "sql_null_time", "null_time":
 		return col + ".IsNull()"
 	default:

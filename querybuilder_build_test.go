@@ -51,7 +51,7 @@ func TestQueryBuilder_AggregateCountUsesWrappedSubquery(t *testing.T) {
 func TestQueryBuilder_HavingKeepsRawClauseForDialectRendering(t *testing.T) {
 	users := newMockTable("users")
 	id := newColForTable[Table, int](users, "id", "id", nil)
-	q, err := Select(id).From(id.Table()).GroupBy(id).Having(id.GT(1)).Build()
+	q, err := Select(id).From(id.Table()).GroupBy(id).Having(id.GTVal(1)).Build()
 	if err != nil {
 		t.Fatalf("Build returned error: %v", err)
 	}
@@ -83,7 +83,7 @@ func TestQueryBuilder_Build_RejectsTablesReferencedOutsideJoinGraph(t *testing.T
 	userOrgID := newColForTable[Table, int](users, "org_id", "org_id", nil)
 	orgID := newColForTable[Table, int](orgs, "id", "id", nil)
 	itemID := newColForTable[Table, int](items, "id", "id", nil)
-	_, err := Select(userID).From(userID.Table()).LeftJoin(orgs, userOrgID.EQCol(orgID)).Where(itemID.EQVar()).Build()
+	_, err := Select(userID).From(userID.Table()).LeftJoin(orgs, userOrgID.EQ(orgID)).Where(itemID.EQVar()).Build()
 	if err == nil {
 		t.Fatal("expected unjoined table reference to return an error")
 	}
@@ -112,7 +112,7 @@ func TestQueryBuilder_Build_RejectsDisconnectedJoinGraph(t *testing.T) {
 	orgID := newColForTable[Table, int](orgs, "id", "id", nil)
 	orderItemID := newColForTable[Table, int](orders, "item_id", "item_id", nil)
 	itemID := newColForTable[Table, int](items, "id", "id", nil)
-	_, err := Select(userID).From(userID.Table()).LeftJoin(orgs, userOrgID.EQCol(orgID)).LeftJoin(items, orderItemID.EQCol(itemID)).Build()
+	_, err := Select(userID).From(userID.Table()).LeftJoin(orgs, userOrgID.EQ(orgID)).LeftJoin(items, orderItemID.EQ(itemID)).Build()
 	if err == nil {
 		t.Fatal("expected disconnected join graph to return an error")
 	}
@@ -128,7 +128,7 @@ func TestQueryBuilder_Build_RejectsRepeatedJoinTableWithoutAliases(t *testing.T)
 	userOrgID := newColForTable[Table, int](users, "org_id", "org_id", nil)
 	orgID := newColForTable[Table, int](orgs, "id", "id", nil)
 	orgParentID := newColForTable[Table, int](orgs, "parent_id", "parent_id", nil)
-	_, err := Select(userID).From(userID.Table()).LeftJoin(orgs, userOrgID.EQCol(orgID)).LeftJoin(orgs, orgParentID.EQCol(orgID)).Build()
+	_, err := Select(userID).From(userID.Table()).LeftJoin(orgs, userOrgID.EQ(orgID)).LeftJoin(orgs, orgParentID.EQ(orgID)).Build()
 	if err == nil {
 		t.Fatal("expected repeated join table to return an error")
 	}
@@ -145,7 +145,7 @@ func TestQueryBuilder_Build_AllowsRepeatedJoinTableWithAliases(t *testing.T) {
 	userOrgID := newColForTable[Table, int](users, "org_id", "org_id", nil)
 	orgID := newColForTable[Table, int](orgs, "id", "id", nil)
 	parentOrgID := orgID.As("parent_orgs")
-	query, err := Select(userID, parentOrgID).From(userID.Table()).LeftJoin(orgs, userOrgID.EQCol(orgID)).LeftJoin(parentOrgID.Table(), newColForTable[Table, int](orgs, "parent_id", "parent_id", nil).EQCol(parentOrgID)).Build()
+	query, err := Select(userID, parentOrgID).From(userID.Table()).LeftJoin(orgs, userOrgID.EQ(orgID)).LeftJoin(parentOrgID.Table(), newColForTable[Table, int](orgs, "parent_id", "parent_id", nil).EQ(parentOrgID)).Build()
 	if err != nil {
 		t.Fatalf("expected aliased repeated join to build, got %v", err)
 	}
@@ -205,11 +205,11 @@ func TestQueryBuilder_BranchingDoesNotShareMutableState(t *testing.T) {
 	users := newMockTable("users")
 	userID := newColForTable[Table, int](users, "id", "id", nil)
 	base := Select(userID).From(users)
-	left, err := base.Where(userID.EQ(1)).Build()
+	left, err := base.Where(userID.EQVal(1)).Build()
 	if err != nil {
 		t.Fatalf("expected left branch to build, got %v", err)
 	}
-	right, err := base.Where(userID.EQ(2)).Build()
+	right, err := base.Where(userID.EQVal(2)).Build()
 	if err != nil {
 		t.Fatalf("expected right branch to build, got %v", err)
 	}

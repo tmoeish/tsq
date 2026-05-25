@@ -55,7 +55,7 @@ erDiagram
 | `runAliasDemo` | 查课程及其前置课标题 | alias / rebinding |
 | `runAggregateDemo` | 按路径汇总报名人数与平均得分 | aggregate、`GroupBy`、`Having` |
 | `runInVarDemo` | 用一组动态课程 ID 过滤目录 | `InVar()` |
-| `runSubqueryDemo` | 用子查询筛学员和课程 | `InSub`、标量子查询 |
+| `runSubqueryDemo` | 用子查询筛学员和课程 | `In(subquery)`、标量子查询 |
 | `runCaseDemo` | 给学员报名打运营标签 | `CASE WHEN` |
 | `runCTEDemo` | 先抽平台课程子集再继续查询 | non-recursive CTE |
 | `runSetOpsDemo` | 合并/排除课程集合 | `UNION`、`EXCEPT` |

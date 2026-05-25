@@ -99,6 +99,54 @@ func resolveQueryWithState(
 
 			result = append(result, extra[extraIndex])
 			extraIndex++
+		case externalStartsWithMarker:
+			if extraIndex >= len(extra) {
+				return "", nil, errors.New("missing external query argument")
+			}
+
+			value, err := buildPatternQueryArg(extra[extraIndex], "", "%")
+			if err != nil {
+				return "", nil, err
+			}
+
+			if hasSQL {
+				sqlBuilder.WriteString("?")
+			}
+
+			result = append(result, value)
+			extraIndex++
+		case externalEndsWithMarker:
+			if extraIndex >= len(extra) {
+				return "", nil, errors.New("missing external query argument")
+			}
+
+			value, err := buildPatternQueryArg(extra[extraIndex], "%", "")
+			if err != nil {
+				return "", nil, err
+			}
+
+			if hasSQL {
+				sqlBuilder.WriteString("?")
+			}
+
+			result = append(result, value)
+			extraIndex++
+		case externalContainsMarker:
+			if extraIndex >= len(extra) {
+				return "", nil, errors.New("missing external query argument")
+			}
+
+			value, err := buildPatternQueryArg(extra[extraIndex], "%", "%")
+			if err != nil {
+				return "", nil, err
+			}
+
+			if hasSQL {
+				sqlBuilder.WriteString("?")
+			}
+
+			result = append(result, value)
+			extraIndex++
 		case externalSliceArgMarker{}:
 			if extraIndex >= len(extra) {
 				return "", nil, errors.New("missing external query argument")
@@ -111,6 +159,22 @@ func resolveQueryWithState(
 
 			if hasSQL {
 				sqlBuilder.WriteString(expandSlicePlaceholders(len(values)))
+			}
+
+			result = append(result, values...)
+			extraIndex++
+		case externalNotInSliceArgMarker{}:
+			if extraIndex >= len(extra) {
+				return "", nil, errors.New("missing external query argument")
+			}
+
+			values, err := flattenExternalSliceArg(extra[extraIndex])
+			if err != nil {
+				return "", nil, err
+			}
+
+			if hasSQL {
+				sqlBuilder.WriteString(expandNotInSlicePlaceholders(len(values)))
 			}
 
 			result = append(result, values...)
@@ -162,6 +226,42 @@ func resolveQueryArgsOnly(base, extra []any, keyword string) ([]any, error) {
 
 			result = append(result, extra[extraIndex])
 			extraIndex++
+		case externalStartsWithMarker:
+			if extraIndex >= len(extra) {
+				return nil, errors.New("missing external query argument")
+			}
+
+			value, err := buildPatternQueryArg(extra[extraIndex], "", "%")
+			if err != nil {
+				return nil, err
+			}
+
+			result = append(result, value)
+			extraIndex++
+		case externalEndsWithMarker:
+			if extraIndex >= len(extra) {
+				return nil, errors.New("missing external query argument")
+			}
+
+			value, err := buildPatternQueryArg(extra[extraIndex], "%", "")
+			if err != nil {
+				return nil, err
+			}
+
+			result = append(result, value)
+			extraIndex++
+		case externalContainsMarker:
+			if extraIndex >= len(extra) {
+				return nil, errors.New("missing external query argument")
+			}
+
+			value, err := buildPatternQueryArg(extra[extraIndex], "%", "%")
+			if err != nil {
+				return nil, err
+			}
+
+			result = append(result, value)
+			extraIndex++
 		case keywordArgMarker:
 			if keyword == "" {
 				return nil, errors.New("missing keyword query argument")
@@ -172,6 +272,18 @@ func resolveQueryArgsOnly(base, extra []any, keyword string) ([]any, error) {
 			}
 
 			result = append(result, like)
+		case externalNotInSliceArgMarker{}:
+			if extraIndex >= len(extra) {
+				return nil, errors.New("missing external query argument")
+			}
+
+			values, err := flattenExternalSliceArg(extra[extraIndex])
+			if err != nil {
+				return nil, err
+			}
+
+			result = append(result, values...)
+			extraIndex++
 		default:
 			result = append(result, arg)
 		}
@@ -272,6 +384,19 @@ func flattenExternalSliceArg(arg any) ([]any, error) {
 	return values, nil
 }
 
+func buildPatternQueryArg(arg any, prefix, suffix string) (string, error) {
+	if isNilValue(arg) {
+		return "", errors.New("pattern query argument cannot be nil")
+	}
+
+	value := reflect.ValueOf(arg)
+	if value.Kind() != reflect.String {
+		return "", fmt.Errorf("pattern query argument must be a string, got %T", arg)
+	}
+
+	return prefix + value.String() + suffix, nil
+}
+
 func expandSlicePlaceholders(size int) string {
 	if size <= slicePlaceholderCacheMax {
 		return slicePlaceholderCache[size]
@@ -291,6 +416,14 @@ func expandSlicePlaceholders(size int) string {
 	return builder.String()
 }
 
+func expandNotInSlicePlaceholders(size int) string {
+	if size == 0 {
+		return "SELECT 1 WHERE 1 = 0"
+	}
+
+	return expandSlicePlaceholders(size)
+}
+
 func scanQueryArgState(args []any) queryArgState {
 	state := queryArgState{initialized: true}
 
@@ -298,7 +431,11 @@ func scanQueryArgState(args []any) queryArgState {
 		switch arg {
 		case externalArgMarker:
 			state.hasExternalArg = true
+		case externalStartsWithMarker, externalEndsWithMarker, externalContainsMarker:
+			state.hasExternalArg = true
 		case externalSliceArgMarker{}:
+			state.hasExternalSliceArg = true
+		case externalNotInSliceArgMarker{}:
 			state.hasExternalSliceArg = true
 		case keywordArgMarker:
 			state.hasKeywordArg = true

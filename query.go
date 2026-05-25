@@ -128,7 +128,10 @@ type Query[O Owner] struct {
 	hasSetOps    bool // 是否包含集合操作（UNION 等），影响别名处理。
 }
 
-type externalSliceArgMarker struct{}
+type (
+	externalSliceArgMarker      struct{}
+	externalNotInSliceArgMarker struct{}
+)
 
 type queryArgState struct {
 	initialized         bool

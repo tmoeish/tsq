@@ -7,6 +7,35 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 项目遵循 [语义化版本控制](https://semver.org/lang/zh-CN/)。
 
+## [4.1.15] - 2026-05-25
+
+### 变更 (Breaking Changes)
+- **谓词 API 重构**: `EQ/NE/GT/GTE/LT/LTE` 现在接受 `RHS[T]` 类型，普通 Go 值需要使用 `EQVal/NEVal/GTVal/GTEVal/LTVal/LTEVal`
+- **列比较 API 变更**: `EQCol/NECol/GTCol/GTECol/LTCol/LTECol` 现在直接使用 `EQ/NE/GT/GTE/LT/LTE`
+- **子查询 API 引入**: 新增 `Subquery[T]` 类型和 `BuildSubquery/AsSubquery` 构造函数
+
+### 新增
+- **类型安全的子查询**: `BuildSubquery/AsSubquery` 构建类型安全的子查询，可用于 `RHS[T]` 位置
+- **RHS 接口**: `RHS[T]` 统一标量谓词的右操作数类型，支持列/表达式/子查询
+- **子查询文件**: 新增 `subquery.go` 和 `rhs.go`
+
+### 改进
+- **API 一致性**: 字符串匹配谓词同时提供 `ContainsVal/HasPrefixVal/HasSuffixVal` 和 `Contains/HasPrefix/HasSuffix`
+- **文档全面更新**: README、迁移指南、concepts、skill 等全部同步到新 API
+- **测试覆盖**: 新增大量测试覆盖新的子查询和 RHS 接口
+- **重新生成代码**: 所有生成文件更新到 v4.1.14 版本标记
+
+### 迁移示例
+```go
+// 旧代码
+Where(User_ID.EQ(1))
+Where(User_OrgID.EQCol(Org_ID))
+
+// 新代码
+Where(User_ID.EQVal(1))
+Where(User_OrgID.EQ(Org_ID))
+```
+
 ## [4.1.14] - 2026-05-25
 
 ### 变更 (Breaking Changes)

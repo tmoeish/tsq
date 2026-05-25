@@ -23,6 +23,38 @@ func (c columnImpl[Owner, T]) LTVar() Condition { return c.Pred(`%s < %s`, varMa
 // LTEVar compares the column to a runtime-bound value with <=.
 func (c columnImpl[Owner, T]) LTEVar() Condition { return c.Pred(`%s <= %s`, varMarker) }
 
+// LikeVar compares the column to a runtime-bound pattern with LIKE.
+func (c columnImpl[Owner, T]) LikeVar() Condition { return c.Pred(`%s LIKE %s`, varMarker) }
+
+// NLikeVar compares the column to a runtime-bound pattern with NOT LIKE.
+func (c columnImpl[Owner, T]) NLikeVar() Condition { return c.Pred(`%s NOT LIKE %s`, varMarker) }
+
+// StartsWithVar compares the column to a runtime-bound prefix pattern.
+func (c columnImpl[Owner, T]) StartsWithVar() Condition {
+	return c.Pred(`%s LIKE %s`, varStartsWithMarker)
+}
+
+// NStartsWithVar compares the column to a negated runtime-bound prefix pattern.
+func (c columnImpl[Owner, T]) NStartsWithVar() Condition {
+	return c.Pred(`%s NOT LIKE %s`, varStartsWithMarker)
+}
+
+// EndsWithVar compares the column to a runtime-bound suffix pattern.
+func (c columnImpl[Owner, T]) EndsWithVar() Condition { return c.Pred(`%s LIKE %s`, varEndsWithMarker) }
+
+// NEndsWithVar compares the column to a negated runtime-bound suffix pattern.
+func (c columnImpl[Owner, T]) NEndsWithVar() Condition {
+	return c.Pred(`%s NOT LIKE %s`, varEndsWithMarker)
+}
+
+// ContainsVar compares the column to a runtime-bound contains pattern.
+func (c columnImpl[Owner, T]) ContainsVar() Condition { return c.Pred(`%s LIKE %s`, varContainsMarker) }
+
+// NContainsVar compares the column to a negated runtime-bound contains pattern.
+func (c columnImpl[Owner, T]) NContainsVar() Condition {
+	return c.Pred(`%s NOT LIKE %s`, varContainsMarker)
+}
+
 // InVar binds a slice at execution time for IN predicates.
 //
 // TSQ intentionally treats nil and empty slices as an explicit "match nothing"
@@ -35,34 +67,13 @@ func (c columnImpl[Owner, T]) InVar() Condition {
 	return c.Pred(`%s IN (%s)`, varSliceMarker)
 }
 
-// StartsWithVar defers a prefix match to execution time, which tsq rejects for portability.
-func (c columnImpl[Owner, T]) StartsWithVar() Condition {
-	return pred[Owner](unsupportedPatternPredicate("StartsWithVar"))
-}
-
-// NStartsWithVar defers a negated prefix match to execution time, which tsq rejects for portability.
-func (c columnImpl[Owner, T]) NStartsWithVar() Condition {
-	return pred[Owner](unsupportedPatternPredicate("NStartsWithVar"))
-}
-
-// EndsWithVar defers a suffix match to execution time, which tsq rejects for portability.
-func (c columnImpl[Owner, T]) EndsWithVar() Condition {
-	return pred[Owner](unsupportedPatternPredicate("EndsWithVar"))
-}
-
-// NEndsWithVar defers a negated suffix match to execution time, which tsq rejects for portability.
-func (c columnImpl[Owner, T]) NEndsWithVar() Condition {
-	return pred[Owner](unsupportedPatternPredicate("NEndsWithVar"))
-}
-
-// ContainsVar defers a contains match to execution time, which tsq rejects for portability.
-func (c columnImpl[Owner, T]) ContainsVar() Condition {
-	return pred[Owner](unsupportedPatternPredicate("ContainsVar"))
-}
-
-// NContainsVar defers a negated contains match to execution time, which tsq rejects for portability.
-func (c columnImpl[Owner, T]) NContainsVar() Condition {
-	return pred[Owner](unsupportedPatternPredicate("NContainsVar"))
+// NInVar binds a slice at execution time for NOT IN predicates.
+//
+// For nil and empty slices, TSQ renders the empty-set form `NOT IN (SELECT 1
+// WHERE 1 = 0)`, which preserves the explicit "match everything" meaning of an
+// empty NOT IN list across the built-in dialects.
+func (c columnImpl[Owner, T]) NInVar() Condition {
+	return c.Pred(`%s NOT IN (%s)`, varNotInSliceMarker)
 }
 
 // BetweenVar compares the column to two runtime-bound values with BETWEEN.
@@ -75,78 +86,138 @@ func (c columnImpl[Owner, T]) NBetweenVar() Condition {
 	return c.Pred(`%s NOT BETWEEN %s AND %s`, varMarker, varMarker)
 }
 
-// EQ compares the column to arg with =.
-func (c columnImpl[Owner, T]) EQ(arg T) Condition {
+// EQ compares the column to rhs with =.
+func (c columnImpl[Owner, T]) EQ(rhs RHS[T]) Condition {
+	return c.Pred(`%s = %s`, predicateRHSArg(rhs))
+}
+
+// NE compares the column to rhs with <>.
+func (c columnImpl[Owner, T]) NE(rhs RHS[T]) Condition {
+	return c.Pred(`%s <> %s`, predicateRHSArg(rhs))
+}
+
+// GT compares the column to rhs with >.
+func (c columnImpl[Owner, T]) GT(rhs RHS[T]) Condition {
+	return c.Pred(`%s > %s`, predicateRHSArg(rhs))
+}
+
+// GTE compares the column to rhs with >=.
+func (c columnImpl[Owner, T]) GTE(rhs RHS[T]) Condition {
+	return c.Pred(`%s >= %s`, predicateRHSArg(rhs))
+}
+
+// LT compares the column to rhs with <.
+func (c columnImpl[Owner, T]) LT(rhs RHS[T]) Condition {
+	return c.Pred(`%s < %s`, predicateRHSArg(rhs))
+}
+
+// LTE compares the column to rhs with <=.
+func (c columnImpl[Owner, T]) LTE(rhs RHS[T]) Condition {
+	return c.Pred(`%s <= %s`, predicateRHSArg(rhs))
+}
+
+// Like compares the column to rhs with LIKE.
+func (c columnImpl[Owner, T]) Like(rhs RHS[T]) Condition {
+	return c.Pred(`%s LIKE %s`, predicateRHSArg(rhs))
+}
+
+// NLike compares the column to rhs with NOT LIKE.
+func (c columnImpl[Owner, T]) NLike(rhs RHS[T]) Condition {
+	return c.Pred(`%s NOT LIKE %s`, predicateRHSArg(rhs))
+}
+
+// Between compares the column to an inclusive RHS range.
+func (c columnImpl[Owner, T]) Between(start, end RHS[T]) Condition {
+	return c.Pred(`%s BETWEEN %s AND %s`, predicateRHSArg(start), predicateRHSArg(end))
+}
+
+// NBetween compares the column to values outside an inclusive RHS range.
+func (c columnImpl[Owner, T]) NBetween(start, end RHS[T]) Condition {
+	return c.Pred(`%s NOT BETWEEN %s AND %s`, predicateRHSArg(start), predicateRHSArg(end))
+}
+
+// EQVal compares the column to arg with =.
+func (c columnImpl[Owner, T]) EQVal(arg T) Condition {
 	return c.Pred(`%s = %s`, Bind(arg))
 }
 
-// NE compares the column to arg with <>.
-func (c columnImpl[Owner, T]) NE(arg T) Condition {
+// NEVal compares the column to arg with <>.
+func (c columnImpl[Owner, T]) NEVal(arg T) Condition {
 	return c.Pred(`%s <> %s`, Bind(arg))
 }
 
-// GT compares the column to arg with >.
-func (c columnImpl[Owner, T]) GT(arg T) Condition {
+// GTVal compares the column to arg with >.
+func (c columnImpl[Owner, T]) GTVal(arg T) Condition {
 	return c.Pred(`%s > %s`, Bind(arg))
 }
 
-// GTE compares the column to arg with >=.
-func (c columnImpl[Owner, T]) GTE(arg T) Condition {
+// GTEVal compares the column to arg with >=.
+func (c columnImpl[Owner, T]) GTEVal(arg T) Condition {
 	return c.Pred(`%s >= %s`, Bind(arg))
 }
 
-// LT compares the column to arg with <.
-func (c columnImpl[Owner, T]) LT(arg T) Condition {
+// LTVal compares the column to arg with <.
+func (c columnImpl[Owner, T]) LTVal(arg T) Condition {
 	return c.Pred(`%s < %s`, Bind(arg))
 }
 
-// LTE compares the column to arg with <=.
-func (c columnImpl[Owner, T]) LTE(arg T) Condition {
+// LTEVal compares the column to arg with <=.
+func (c columnImpl[Owner, T]) LTEVal(arg T) Condition {
 	return c.Pred(`%s <= %s`, Bind(arg))
 }
 
-// StartsWith compares the column to a bound prefix pattern.
-func (c columnImpl[Owner, T]) StartsWith(str string) Condition {
-	return c.Pred(`%s LIKE %s`, Bind(str+"%"))
+// LikeVal compares the column to arg with LIKE.
+func (c columnImpl[Owner, T]) LikeVal(arg T) Condition {
+	return c.Pred(`%s LIKE %s`, Bind(arg))
 }
 
-// NStartsWith compares the column to a negated bound prefix pattern.
-func (c columnImpl[Owner, T]) NStartsWith(str string) Condition {
-	return c.Pred(`%s NOT LIKE %s`, Bind(str+"%"))
+// NLikeVal compares the column to arg with NOT LIKE.
+func (c columnImpl[Owner, T]) NLikeVal(arg T) Condition {
+	return c.Pred(`%s NOT LIKE %s`, Bind(arg))
 }
 
-// EndsWith compares the column to a bound suffix pattern.
-func (c columnImpl[Owner, T]) EndsWith(str string) Condition {
-	return c.Pred(`%s LIKE %s`, Bind("%"+str))
-}
-
-// NEndsWith compares the column to a negated bound suffix pattern.
-func (c columnImpl[Owner, T]) NEndsWith(str string) Condition {
-	return c.Pred(`%s NOT LIKE %s`, Bind("%"+str))
-}
-
-// Contains compares the column to a bound contains pattern.
-func (c columnImpl[Owner, T]) Contains(str string) Condition {
-	return c.Pred(`%s LIKE %s`, Bind("%"+str+"%"))
-}
-
-// NContains compares the column to a negated bound contains pattern.
-func (c columnImpl[Owner, T]) NContains(str string) Condition {
-	return c.Pred(`%s NOT LIKE %s`, Bind("%"+str+"%"))
-}
-
-// Between compares the column to an inclusive range.
-func (c columnImpl[Owner, T]) Between(start, end T) Condition {
+// BetweenVal compares the column to an inclusive literal range.
+func (c columnImpl[Owner, T]) BetweenVal(start, end T) Condition {
 	return c.Pred(`%s BETWEEN %s AND %s`, Bind(start), Bind(end))
 }
 
-// NBetween compares the column to values outside an inclusive range.
-func (c columnImpl[Owner, T]) NBetween(start, end T) Condition {
+// NBetweenVal compares the column to values outside an inclusive literal range.
+func (c columnImpl[Owner, T]) NBetweenVal(start, end T) Condition {
 	return c.Pred(`%s NOT BETWEEN %s AND %s`, Bind(start), Bind(end))
 }
 
-// In compares the column to an explicit list of bound values.
-func (c columnImpl[Owner, T]) In(args ...T) Condition {
+// StartsWithVal compares the column to a bound prefix pattern.
+func (c columnImpl[Owner, T]) StartsWithVal(str string) Condition {
+	return c.Pred(`%s LIKE %s`, Bind(str+"%"))
+}
+
+// NStartsWithVal compares the column to a negated bound prefix pattern.
+func (c columnImpl[Owner, T]) NStartsWithVal(str string) Condition {
+	return c.Pred(`%s NOT LIKE %s`, Bind(str+"%"))
+}
+
+// EndsWithVal compares the column to a bound suffix pattern.
+func (c columnImpl[Owner, T]) EndsWithVal(str string) Condition {
+	return c.Pred(`%s LIKE %s`, Bind("%"+str))
+}
+
+// NEndsWithVal compares the column to a negated bound suffix pattern.
+func (c columnImpl[Owner, T]) NEndsWithVal(str string) Condition {
+	return c.Pred(`%s NOT LIKE %s`, Bind("%"+str))
+}
+
+// ContainsVal compares the column to a bound contains pattern.
+func (c columnImpl[Owner, T]) ContainsVal(str string) Condition {
+	return c.Pred(`%s LIKE %s`, Bind("%"+str+"%"))
+}
+
+// NContainsVal compares the column to a negated bound contains pattern.
+func (c columnImpl[Owner, T]) NContainsVal(str string) Condition {
+	return c.Pred(`%s NOT LIKE %s`, Bind("%"+str+"%"))
+}
+
+// InVal compares the column to an explicit list of bound values.
+func (c columnImpl[Owner, T]) InVal(args ...T) Condition {
 	if len(args) == 0 {
 		return pred[Owner](rawCondition("1 = 0"))
 	}
@@ -154,8 +225,8 @@ func (c columnImpl[Owner, T]) In(args ...T) Condition {
 	return c.Pred(`%s IN (%s)`, BindSlice(args))
 }
 
-// NIn compares the column to a negated list of bound values.
-func (c columnImpl[Owner, T]) NIn(args ...T) Condition {
+// NInVal compares the column to a negated list of bound values.
+func (c columnImpl[Owner, T]) NInVal(args ...T) Condition {
 	if len(args) == 0 {
 		return pred[Owner](rawCondition("1 = 1"))
 	}
@@ -171,66 +242,6 @@ func (c columnImpl[Owner, T]) IsNull() Condition {
 // IsNotNull checks whether the column value is not NULL.
 func (c columnImpl[Owner, T]) IsNotNull() Condition {
 	return c.Pred(`%s IS NOT NULL`)
-}
-
-// EQCol compares the column to another column with =.
-func (c columnImpl[Owner, T]) EQCol(other typedColumnInternal[T]) Condition {
-	return c.Pred(`%s = %s`, other)
-}
-
-// NECol compares the column to another column with <>.
-func (c columnImpl[Owner, T]) NECol(other typedColumnInternal[T]) Condition {
-	return c.Pred(`%s <> %s`, other)
-}
-
-// GTCol compares the column to another column with >.
-func (c columnImpl[Owner, T]) GTCol(other typedColumnInternal[T]) Condition {
-	return c.Pred(`%s > %s`, other)
-}
-
-// GTECol compares the column to another column with >=.
-func (c columnImpl[Owner, T]) GTECol(other typedColumnInternal[T]) Condition {
-	return c.Pred(`%s >= %s`, other)
-}
-
-// LTCol compares the column to another column with <.
-func (c columnImpl[Owner, T]) LTCol(other typedColumnInternal[T]) Condition {
-	return c.Pred(`%s < %s`, other)
-}
-
-// LTECol compares the column to another column with <=.
-func (c columnImpl[Owner, T]) LTECol(other typedColumnInternal[T]) Condition {
-	return c.Pred(`%s <= %s`, other)
-}
-
-// StartsWithCol compares the column to another column with a prefix match, which tsq rejects for portability.
-func (c columnImpl[Owner, T]) StartsWithCol(_ typedColumnInternal[T]) Condition {
-	return pred[Owner](unsupportedPatternPredicate("StartsWithCol"))
-}
-
-// NStartsWithCol compares the column to another column with a negated prefix match, which tsq rejects for portability.
-func (c columnImpl[Owner, T]) NStartsWithCol(_ typedColumnInternal[T]) Condition {
-	return pred[Owner](unsupportedPatternPredicate("NStartsWithCol"))
-}
-
-// EndsWithCol compares the column to another column with a suffix match, which tsq rejects for portability.
-func (c columnImpl[Owner, T]) EndsWithCol(_ typedColumnInternal[T]) Condition {
-	return pred[Owner](unsupportedPatternPredicate("EndsWithCol"))
-}
-
-// NEndsWithCol compares the column to another column with a negated suffix match, which tsq rejects for portability.
-func (c columnImpl[Owner, T]) NEndsWithCol(_ typedColumnInternal[T]) Condition {
-	return pred[Owner](unsupportedPatternPredicate("NEndsWithCol"))
-}
-
-// ContainsCol compares the column to another column with a contains match, which tsq rejects for portability.
-func (c columnImpl[Owner, T]) ContainsCol(_ typedColumnInternal[T]) Condition {
-	return pred[Owner](unsupportedPatternPredicate("ContainsCol"))
-}
-
-// NContainsCol compares the column to another column with a negated contains match, which tsq rejects for portability.
-func (c columnImpl[Owner, T]) NContainsCol(_ typedColumnInternal[T]) Condition {
-	return pred[Owner](unsupportedPatternPredicate("NContainsCol"))
 }
 
 // Pred formats a custom predicate template around the receiver column.
@@ -286,17 +297,6 @@ func (c columnImpl[Owner, T]) rawCondition(expr string) Condition {
 		tables: map[string]Table{table.Table(): table},
 		expr:   expr,
 	})
-}
-
-// unsupportedPatternPredicate returns a condition with a deferred error indicating
-// that this pattern predicate is not portable across TSQ's built-in dialects.
-// The error will be returned when Build() is called, not immediately.
-// Users should use LIKE with an explicit pattern instead.
-func unsupportedPatternPredicate(name string) conditionImpl {
-	return conditionImpl{buildErr: fmt.Errorf(
-		"%s is not portable across TSQ's built-in dialects; use LIKE with an explicit pattern instead",
-		name,
-	)}
 }
 
 func validatePredicateFormat(format string, placeholderCount int) error {

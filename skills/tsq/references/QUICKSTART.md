@@ -94,7 +94,7 @@ If the target project already has a DB bootstrap path, integrate TSQ there inste
 query, err := tsq.
 	Select(database.User__Cols...).
 	From(database.TableUser).
-	Where(database.User_Name.Contains("alice")).
+	Where(database.User_Name.ContainsVal("alice")).
 	Build()
 if err != nil {
 	return err
@@ -107,6 +107,9 @@ if err != nil {
 ```
 
 This is the main TSQ shape:
+
+- use value helpers such as `EQVal(...)` / `LikeVal(...)` for concrete literals
+- use `EQ(...)` / `Like(...)` when the RHS is another typed column or typed subquery
 
 1. choose columns
 2. choose source table

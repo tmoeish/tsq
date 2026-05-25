@@ -136,7 +136,7 @@ func TestQueryBuilder_Build_FullJoinDefersDialectValidationToExecution(t *testin
 	orders := newMockTable("orders")
 	userID := newColForTable[Table, string](users, "id", "id", nil)
 	orderUserID := newColForTable[Table, string](orders, "user_id", "user_id", nil)
-	query, err := Select(userID).From(userID.Table()).FullJoin(orders, userID.EQCol(orderUserID)).Build()
+	query, err := Select(userID).From(userID.Table()).FullJoin(orders, userID.EQ(orderUserID)).Build()
 	if err != nil {
 		t.Fatalf("expected FULL JOIN build to succeed, got %v", err)
 	}
@@ -224,7 +224,7 @@ func TestQueryBuilder_Build_CTEExecutionOnSQLite(t *testing.T) {
 	selectedUsers := CTE("selected_users", Select(idCol, nameCol).From(idCol.Table()).Where(idCol.InVar()))
 	selectedUserID := idCol.WithTable(selectedUsers)
 	selectedUserName := nameCol.WithTable(selectedUsers)
-	query := mustBuild(Select(selectedUserID, selectedUserName).From(selectedUserID.Table()).Where(selectedUserID.GT(1)))
+	query := mustBuild(Select(selectedUserID, selectedUserName).From(selectedUserID.Table()).Where(selectedUserID.GTVal(1)))
 	rows, err := List[inVarUser](context.Background(), db, query, []int64{1, 2, 3})
 	if err != nil {
 		t.Fatalf("expected CTE query to execute, got %v", err)
@@ -249,7 +249,7 @@ func TestQueryBuilder_Build_CTEDefersDialectValidationToExecution(t *testing.T) 
 	db.dialect = MySQLDialect{}
 	users := newMockTable("users")
 	id := newColForTable[Table, int](users, "id", "id", nil)
-	filteredUsers := CTE("filtered_users", Select(id).From(id.Table()).Where(id.GT(1)))
+	filteredUsers := CTE("filtered_users", Select(id).From(id.Table()).Where(id.GTVal(1)))
 	filteredUserID := id.WithTable(filteredUsers)
 	query := mustBuild(Select(filteredUserID).From(filteredUsers))
 	err := validateOperationalExecutorForSQL(db, query.listSQL)
@@ -317,7 +317,7 @@ func TestQueryBuilder_Build_CaseExecutionOnSQLite(t *testing.T) {
 	idCol := newColForTable[caseUser, int64](users, "id", "id", toScanPointer(func(holder *caseUser) *int64 {
 		return &holder.ID
 	}))
-	nameLabel := MapInto[caseUser](Case[string]().When(idCol.GT(1), "member").Else("owner").End(), func(holder *caseUser) *string {
+	nameLabel := MapInto[caseUser](Case[string]().When(idCol.GTVal(1), "member").Else("owner").End(), func(holder *caseUser) *string {
 		return &holder.Label
 	}, "label")
 	query := mustBuild(Select(idCol, nameLabel).From(idCol.Table()).Where(idCol.InVar()))

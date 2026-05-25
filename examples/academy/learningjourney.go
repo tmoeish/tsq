@@ -57,13 +57,15 @@ func init() {
 		return &holder.CourseID
 	}, "course_id")
 
-	engagedCourseIDs, err := tsq.
-		Select(courseID).
-		From(TableEnrollment).
-		Where(Enrollment_Status.NE(EnrollmentStatusCancelled)).
-		GroupBy(Enrollment_CourseID).
-		Having(Enrollment_UID.Count().GTE(2)).
-		Build()
+	engagedCourseIDs, err := tsq.BuildSubquery(
+		tsq.
+			Select(courseID).
+			From(TableEnrollment).
+			Where(Enrollment_Status.NEVal(EnrollmentStatusCancelled)).
+			GroupBy(Enrollment_CourseID).
+			Having(Enrollment_UID.Count().GTEVal(2)),
+		courseID,
+	)
 	if err != nil {
 		panic(fmt.Errorf("%s: %w", "initialize engagedCourseIDs", err))
 	}
@@ -71,14 +73,14 @@ func init() {
 	pageLearningJourneyQuery, err = tsq.
 		Select(ResultLearningJourney.Cols()...).
 		From(TableEnrollment).
-		LeftJoin(TableLearner, Enrollment_LearnerID.EQCol(Learner_ID)).
-		LeftJoin(TableCourse, Enrollment_CourseID.EQCol(Course_ID)).
-		LeftJoin(TableTrack, Course_TrackID.EQCol(Track_ID)).
-		LeftJoin(TableInstructor, Course_InstructorID.EQCol(Instructor_ID)).
+		LeftJoin(TableLearner, Enrollment_LearnerID.EQ(Learner_ID)).
+		LeftJoin(TableCourse, Enrollment_CourseID.EQ(Course_ID)).
+		LeftJoin(TableTrack, Course_TrackID.EQ(Track_ID)).
+		LeftJoin(TableInstructor, Course_InstructorID.EQ(Instructor_ID)).
 		Where(
 			Learner_ID.InVar(),
 			Track_Name.InVar(),
-			Enrollment_CourseID.InSub(engagedCourseIDs),
+			Enrollment_CourseID.In(engagedCourseIDs),
 		).
 		Build()
 	if err != nil {

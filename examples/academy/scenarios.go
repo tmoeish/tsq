@@ -321,7 +321,7 @@ func runTrackCRUDDemo(ctx context.Context, runtime *tsq.Runtime) (*CRUDSummary, 
 	query, err := tsq.
 		Select(Track__Cols...).
 		From(TableTrack).
-		Where(Track_ID.EQ(inserted.ID)).
+		Where(Track_ID.EQVal(inserted.ID)).
 		Build()
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "build track lookup", err)
@@ -391,10 +391,10 @@ func runBackendCatalogDemo(ctx context.Context, runtime *tsq.Runtime) (*CatalogS
 	query, err := tsq.
 		Select(Course__Cols...).
 		From(TableCourse).
-		LeftJoin(TableTrack, Course_TrackID.EQCol(Track_ID)).
+		LeftJoin(TableTrack, Course_TrackID.EQ(Track_ID)).
 		Where(
-			Track_Name.EQ("Backend Engineering"),
-			Course_Published.EQ(true),
+			Track_Name.EQVal("Backend Engineering"),
+			Course_Published.EQVal(true),
 		).
 		Build()
 	if err != nil {
@@ -436,8 +436,8 @@ func runAliasDemo(ctx context.Context, runtime *tsq.Runtime) (*AliasSummary, err
 	query, err := tsq.
 		Select(courseTitle, prerequisiteTitle).
 		From(TableCourse).
-		LeftJoin(prerequisiteID.Table(), Course_PrerequisiteID.EQCol(prerequisiteID)).
-		Where(Course_Title.EQ("API Design Workshop")).
+		LeftJoin(prerequisiteID.Table(), Course_PrerequisiteID.EQ(prerequisiteID)).
+		Where(Course_Title.EQVal("API Design Workshop")).
 		Build()
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "build alias query", err)
@@ -471,14 +471,14 @@ func runAggregateDemo(ctx context.Context, runtime *tsq.Runtime) ([]AggregateSum
 	query, err := tsq.
 		Select(trackName, enrollmentCount, averageScore).
 		From(TableTrack).
-		LeftJoin(TableCourse, Track_ID.EQCol(Course_TrackID)).
-		LeftJoin(TableEnrollment, Course_ID.EQCol(Enrollment_CourseID)).
+		LeftJoin(TableCourse, Track_ID.EQ(Course_TrackID)).
+		LeftJoin(TableEnrollment, Course_ID.EQ(Enrollment_CourseID)).
 		Where(tsq.Or(
-			Enrollment_Status.EQ(EnrollmentStatusActive),
-			Enrollment_Status.EQ(EnrollmentStatusCompleted),
+			Enrollment_Status.EQVal(EnrollmentStatusActive),
+			Enrollment_Status.EQVal(EnrollmentStatusCompleted),
 		)).
 		GroupBy(Track_Name).
-		Having(Enrollment_UID.Count().GT(0)).
+		Having(Enrollment_UID.Count().GTVal(0)).
 		Build()
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "build aggregate query", err)
@@ -544,21 +544,25 @@ func runInVarDemo(ctx context.Context, runtime *tsq.Runtime) (*InVarSummary, err
 func runSubqueryDemo(ctx context.Context, runtime *tsq.Runtime) (*SubquerySummary, error) {
 	exec := runtime
 
-	dataTrackIDSubquery, err := tsq.
-		Select(Track_ID).
-		From(TableTrack).
-		Where(Track_Name.EQ("Data & AI")).
-		Build()
+	dataTrackIDSubquery, err := tsq.BuildSubquery(
+		tsq.
+			Select(Track_ID).
+			From(TableTrack).
+			Where(Track_Name.EQVal("Data & AI")),
+		Track_ID,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "build data track id subquery", err)
 	}
 
-	dataTrackLearnerIDs, err := tsq.
-		Select(Enrollment_LearnerID).
-		From(TableEnrollment).
-		LeftJoin(TableCourse, Enrollment_CourseID.EQCol(Course_ID)).
-		Where(Course_TrackID.InSub(dataTrackIDSubquery)).
-		Build()
+	dataTrackLearnerIDs, err := tsq.BuildSubquery(
+		tsq.
+			Select(Enrollment_LearnerID).
+			From(TableEnrollment).
+			LeftJoin(TableCourse, Enrollment_CourseID.EQ(Course_ID)).
+			Where(Course_TrackID.In(dataTrackIDSubquery)),
+		Enrollment_LearnerID,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "build learner ids in data track subquery", err)
 	}
@@ -566,7 +570,7 @@ func runSubqueryDemo(ctx context.Context, runtime *tsq.Runtime) (*SubquerySummar
 	learnersInDataTrackQuery, err := tsq.
 		Select(Learner__Cols...).
 		From(TableLearner).
-		Where(Learner_ID.InSub(dataTrackLearnerIDs)).
+		Where(Learner_ID.In(dataTrackLearnerIDs)).
 		Build()
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "build learners in data track query", err)
@@ -577,11 +581,13 @@ func runSubqueryDemo(ctx context.Context, runtime *tsq.Runtime) (*SubquerySummar
 		return nil, err
 	}
 
-	anchorPriceSubquery, err := tsq.
-		Select(Course_ListPriceCents).
-		From(TableCourse).
-		Where(Course_Title.EQ("Retrieval Systems with SQLite")).
-		Build()
+	anchorPriceSubquery, err := tsq.BuildSubquery(
+		tsq.
+			Select(Course_ListPriceCents).
+			From(TableCourse).
+			Where(Course_Title.EQVal("Retrieval Systems with SQLite")),
+		Course_ListPriceCents,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "build anchor price subquery", err)
 	}
@@ -589,7 +595,7 @@ func runSubqueryDemo(ctx context.Context, runtime *tsq.Runtime) (*SubquerySummar
 	coursesCheaperThanAnchorQuery, err := tsq.
 		Select(Course__Cols...).
 		From(TableCourse).
-		Where(Course_ListPriceCents.LTSub(anchorPriceSubquery)).
+		Where(Course_ListPriceCents.LT(anchorPriceSubquery)).
 		Build()
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "build cheaper courses query", err)
@@ -627,19 +633,19 @@ func runCaseDemo(ctx context.Context, runtime *tsq.Runtime) (*CaseSummary, error
 		Case[string]().
 		When(
 			tsq.And(
-				Enrollment_Status.EQ(EnrollmentStatusCompleted),
-				Enrollment_Score.GTE(90),
+				Enrollment_Status.EQVal(EnrollmentStatusCompleted),
+				Enrollment_Score.GTEVal(90),
 			),
 			"excellent",
 		).
 		When(
 			tsq.And(
-				Enrollment_Status.EQ(EnrollmentStatusActive),
-				Enrollment_Score.GTE(80),
+				Enrollment_Status.EQVal(EnrollmentStatusActive),
+				Enrollment_Score.GTEVal(80),
 			),
 			"on_track",
 		).
-		When(Enrollment_Status.EQ(EnrollmentStatusWaitlisted), "waitlist").
+		When(Enrollment_Status.EQVal(EnrollmentStatusWaitlisted), "waitlist").
 		Else("watchlist").
 		End()
 
@@ -650,7 +656,7 @@ func runCaseDemo(ctx context.Context, runtime *tsq.Runtime) (*CaseSummary, error
 	query, err := tsq.
 		Select(label).
 		From(TableEnrollment).
-		Where(Enrollment_LearnerID.EQ(1)).
+		Where(Enrollment_LearnerID.EQVal(1)).
 		Build()
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "build case query", err)
@@ -679,10 +685,10 @@ func runCTEDemo(ctx context.Context, runtime *tsq.Runtime) (*CTESummary, error) 
 		"platform_catalog",
 		tsq.Select(Course_ID, Course_Title).
 			From(TableCourse).
-			LeftJoin(TableTrack, Course_TrackID.EQCol(Track_ID)).
+			LeftJoin(TableTrack, Course_TrackID.EQ(Track_ID)).
 			Where(
-				Track_Name.EQ("Platform Reliability"),
-				Course_Published.EQ(true),
+				Track_Name.EQVal("Platform Reliability"),
+				Course_Published.EQVal(true),
 			),
 	)
 
@@ -694,7 +700,7 @@ func runCTEDemo(ctx context.Context, runtime *tsq.Runtime) (*CTESummary, error) 
 	query, err := tsq.
 		Select(platformCourseTitle).
 		From(platformCatalog).
-		Where(platformCourseID.GT(0)).
+		Where(platformCourseID.GTVal(0)).
 		Build()
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "build cte query", err)
@@ -735,13 +741,13 @@ func runSetOpsDemo(ctx context.Context, runtime *tsq.Runtime) (*SetOpsSummary, e
 	unionQuery, err := tsq.
 		Select(courseTitle).
 		From(TableCourse).
-		LeftJoin(TableTrack, Course_TrackID.EQCol(Track_ID)).
-		Where(Track_Name.EQ("Backend Engineering")).
+		LeftJoin(TableTrack, Course_TrackID.EQ(Track_ID)).
+		Where(Track_Name.EQVal("Backend Engineering")).
 		Union(
 			tsq.Select(courseTitle).
 				From(TableCourse).
-				LeftJoin(TableTrack, Course_TrackID.EQCol(Track_ID)).
-				Where(Track_Name.EQ("Platform Reliability")),
+				LeftJoin(TableTrack, Course_TrackID.EQ(Track_ID)).
+				Where(Track_Name.EQVal("Platform Reliability")),
 		).
 		Build()
 	if err != nil {
@@ -759,7 +765,7 @@ func runSetOpsDemo(ctx context.Context, runtime *tsq.Runtime) (*SetOpsSummary, e
 		Except(
 			tsq.Select(courseTitle).
 				From(TableCourse).
-				Where(Course_PrerequisiteID.GT(0)),
+				Where(Course_PrerequisiteID.GTVal(0)),
 		).
 		Build()
 	if err != nil {

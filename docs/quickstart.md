@@ -118,7 +118,7 @@ INSERT INTO user (name, email) VALUES
 	query, err := tsq.
 		Select(database.User__Cols...).
 		From(database.TableUser).
-		Where(database.User_Name.Contains("A")).
+		Where(database.User_Name.ContainsVal("A")).
 		Build()
 	if err != nil {
 		log.Fatal(err)
@@ -189,6 +189,14 @@ TSQ 的一部分能力（如 CTE、`FULL JOIN`）会在**执行阶段**按方言
 当执行时传入空切片或 `nil` 时，TSQ 会把 `IN` 条件展开成 `IN (NULL)`，从而让 SQL 保持合法并返回 0 条结果。这样做是为了把“当前没有任何可匹配值”表达成**显式不匹配**，而不是自动忽略筛选条件。
 
 如果你的业务含义是“空列表时不要加这个筛选”，请在业务层自己决定是否构造 `Where(...InVar())`，不要依赖 TSQ 自动跳过这个条件。
+
+### `NInVar()` 传空切片为什么没有过滤任何结果
+
+这是 `NInVar()` 的设计语义，不是异常。
+
+当执行时传入空切片或 `nil` 时，TSQ 会把 `NOT IN` 条件展开成一个空结果子查询，从而让 SQL 保持合法，并等价于“不排除任何值”。
+
+如果你的业务需要别的含义，请在业务层显式分支，不要依赖 TSQ 自动推断。
 
 ### 普通值为什么没有直接拼成 SQL 字面量
 

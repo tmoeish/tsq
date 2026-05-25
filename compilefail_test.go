@@ -227,6 +227,73 @@ var _ = tsq.Select[userOwner](userID, orderID)
 			want: "cannot use orderID",
 		},
 		{
+			name: "eqsub_rejects_raw_query",
+			body: `
+var raw = &tsq.Query[userOwner]{}
+var _ = userID.EQ(raw)
+`,
+			want: "cannot use raw",
+		},
+		{
+			name: "eqsub_rejects_wrong_subquery_value",
+			body: `
+var nameSubquery, _ = tsq.AsSubquery(&tsq.Query[userOwner]{}, userName)
+var _ = userID.EQ(nameSubquery)
+`,
+			want: "cannot use nameSubquery",
+		},
+		{
+			name: "as_subquery_rejects_wrong_owner",
+			body: `
+var _, _ = tsq.AsSubquery(&tsq.Query[userOwner]{}, orderID)
+`,
+			want: "type tsq.Column[orderOwner, int] of orderID does not match inferred type tsq.TypedColumn[userOwner, int]",
+		},
+		{
+			name: "startswith_removed",
+			body: `
+var _ = userName.StartsWith("abc")
+`,
+			want: "userName.StartsWith undefined",
+		},
+		{
+			name: "startswith_col_removed",
+			body: `
+var _ = userName.StartsWithCol(userName)
+`,
+			want: "userName.StartsWithCol undefined",
+		},
+		{
+			name: "insub_removed",
+			body: `
+var nameSubquery, _ = tsq.AsSubquery(&tsq.Query[userOwner]{}, userName)
+var _ = userName.InSub(nameSubquery)
+`,
+			want: "userName.InSub undefined",
+		},
+		{
+			name: "between_literal_requires_val_suffix",
+			body: `
+var _ = userID.Between(1, 2)
+`,
+			want: "cannot use 1",
+		},
+		{
+			name: "in_literal_requires_val_suffix",
+			body: `
+var _ = userID.In(1)
+`,
+			want: "cannot use 1",
+		},
+		{
+			name: "likesub_removed",
+			body: `
+var nameSubquery, _ = tsq.AsSubquery(&tsq.Query[userOwner]{}, userName)
+var _ = userName.LikeSub(nameSubquery)
+`,
+			want: "userName.LikeSub undefined",
+		},
+		{
 			name: "new_col_rejects_non_table_owner",
 			body: `
 type nonTableOwner struct{}
@@ -294,14 +361,14 @@ func TestStagedQueryBuilderDoesNotCompileForInvalidClauseOrder(t *testing.T) {
 		{
 			name: "select_stage_rejects_having",
 			body: `
-var _ = tsq.Select[userOwner](userID).Having(userID.EQ(1))
+var _ = tsq.Select[userOwner](userID).Having(userID.EQVal(1))
 `,
 			want: "Having undefined",
 		},
 		{
 			name: "from_stage_rejects_where",
 			body: `
-var _ = tsq.From[userOwner](userOwner{}).Where(userID.EQ(1))
+var _ = tsq.From[userOwner](userOwner{}).Where(userID.EQVal(1))
 `,
 			want: "Where undefined",
 		},
@@ -311,7 +378,7 @@ var _ = tsq.From[userOwner](userOwner{}).Where(userID.EQ(1))
 var _ = tsq.Select[userOwner](userID).
 	From(userOwner{}).
 	GroupBy(userID).
-	Where(userID.EQ(1))
+	Where(userID.EQVal(1))
 `,
 			want: "Where undefined",
 		},
@@ -320,8 +387,8 @@ var _ = tsq.Select[userOwner](userID).
 			body: `
 var _ = tsq.Select[userOwner](userID).
 	From(userOwner{}).
-	Where(userID.EQ(1)).
-	LeftJoin(orderOwner{}, userID.EQCol(orderID))
+	Where(userID.EQVal(1)).
+	LeftJoin(orderOwner{}, userID.EQ(orderID))
 `,
 			want: "LeftJoin undefined",
 		},
@@ -331,7 +398,7 @@ var _ = tsq.Select[userOwner](userID).
 var _ = tsq.Select[userOwner](userID).
 	From(userOwner{}).
 	Union(tsq.Select[userOwner](userID).From(userOwner{})).
-	Where(userID.EQ(1))
+	Where(userID.EQVal(1))
 `,
 			want: "Where undefined",
 		},
@@ -341,7 +408,7 @@ var _ = tsq.Select[userOwner](userID).
 var _ = tsq.Select[userOwner](userID).
 	From(userOwner{}).
 	ForUpdate().
-	Where(userID.EQ(1))
+	Where(userID.EQVal(1))
 `,
 			want: "Where undefined",
 		},
@@ -424,6 +491,7 @@ func (productOwner) AutoIncrement() bool { return false }
 func (productOwner) VersionColumn() string { return "" }
 
 var userID = tsq.NewCol[userOwner, int]("id", "id", nil)
+var userName = tsq.NewCol[userOwner, string]("name", "name", nil)
 var orderID = tsq.NewCol[orderOwner, int]("id", "id", nil)
 var productStatus = tsq.NewCol[productOwner, int]("status", "status", nil)
 ` + body

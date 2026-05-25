@@ -9,7 +9,7 @@ func TestQueryBuilder_CTEBuildsWithClause(t *testing.T) {
 	users := newMockTable("users")
 	id := newColForTable[Table, int](users, "id", "id", nil)
 	name := newColForTable[Table, string](users, "name", "name", nil)
-	activeUsers := CTE("active_users", Select(id, name).From(id.Table()).Where(id.GT(10)))
+	activeUsers := CTE("active_users", Select(id, name).From(id.Table()).Where(id.GTVal(10)))
 	activeUserID := id.WithTable(activeUsers)
 	activeUserName := name.WithTable(activeUsers)
 	query := mustBuild(Select(activeUserID, activeUserName).From(activeUsers))
@@ -26,7 +26,7 @@ func TestQueryBuilder_CTEBuildsWithClause(t *testing.T) {
 func TestQueryBuilder_CTECollectsNestedDependencies(t *testing.T) {
 	users := newMockTable("users")
 	id := newColForTable[Table, int](users, "id", "id", nil)
-	baseUsers := CTE("base_users", Select(id).From(id.Table()).Where(id.GT(1)))
+	baseUsers := CTE("base_users", Select(id).From(id.Table()).Where(id.GTVal(1)))
 	baseUserID := id.WithTable(baseUsers)
 	filteredUsers := CTE("filtered_users", Select(baseUserID).From(baseUserID.Table()))
 	filteredUserID := id.WithTable(filteredUsers)
@@ -58,7 +58,7 @@ func TestQueryBuilder_CaseExpressionTracksConditionTables(t *testing.T) {
 	userID := newColForTable[Table, int](users, "id", "id", nil)
 	orgID := newColForTable[Table, int](orgs, "id", "id", nil)
 	orgName := newColForTable[Table, string](orgs, "name", "name", nil)
-	label := MapInto[queryBuilderCaseRow](Case[string]().When(orgID.EQ(1), orgName).Else("unknown").End(), func(holder *queryBuilderCaseRow) *string {
+	label := MapInto[queryBuilderCaseRow](Case[string]().When(orgID.EQVal(1), orgName).Else("unknown").End(), func(holder *queryBuilderCaseRow) *string {
 		return &holder.Label
 	}, "label")
 	_, err := Select[queryBuilderCaseRow](label).From(userID.Table()).Build()

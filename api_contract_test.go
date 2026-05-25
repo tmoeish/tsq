@@ -29,7 +29,7 @@ func TestAPIContract_PublicEntryPoints(t *testing.T) {
 
 				qb := Select(idCol, nameCol).
 					From(idCol.Table()).
-					Where(idCol.GT(0), nameCol.NE(""))
+					Where(idCol.GTVal(0), nameCol.NEVal(""))
 
 				if qb == nil {
 					t.Fatal("QueryBuilder returned nil")
@@ -48,7 +48,7 @@ func TestAPIContract_PublicEntryPoints(t *testing.T) {
 
 				qb := Select(uid, oid).
 					From(uid.Table()).
-					InnerJoin(ordersTable, uid.EQCol(oUserID))
+					InnerJoin(ordersTable, uid.EQ(oUserID))
 
 				if qb == nil {
 					t.Fatal("QueryBuilder returned nil")
@@ -88,14 +88,14 @@ func TestAPIContract_ColumnConditions(t *testing.T) {
 		name string
 		cond Condition
 	}{
-		{"EQ", col.EQ(1)},
-		{"NE", col.NE(1)},
-		{"GT", col.GT(0)},
-		{"GTE", col.GTE(0)},
-		{"LT", col.LT(100)},
-		{"LTE", col.LTE(100)},
-		{"Between", col.Between(1, 100)},
-		{"In", col.In(1, 2, 3)},
+		{"EQVal", col.EQVal(1)},
+		{"NEVal", col.NEVal(1)},
+		{"GTVal", col.GTVal(0)},
+		{"GTEVal", col.GTEVal(0)},
+		{"LTVal", col.LTVal(100)},
+		{"LTEVal", col.LTEVal(100)},
+		{"BetweenVal", col.BetweenVal(1, 100)},
+		{"InVal", col.InVal(1, 2, 3)},
 		{"IsNull", col.IsNull()},
 		{"IsNotNull", col.IsNotNull()},
 	}

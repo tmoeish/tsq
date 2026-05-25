@@ -40,6 +40,8 @@ Use this skill for **using TSQ in another Go project**, not for developing the T
 - Do not assume this skill ships management scripts; install or upgrade TSQ with explicit `go install .../cmd/tsq@version` commands, and run `tsq fmt` / `tsq gen` directly against the chosen package.
 - Remember that `Where(...)` and `Search(...)` are overwrite-style setters.
 - Remember that `InVar()` with an empty or nil slice means explicit no-match.
+- Remember that `NInVar()` with an empty or nil slice means explicit match-all.
+- Prefer the predicate naming split: RHS uses `Op(...)`, literal values use `OpVal(...)`, runtime placeholders use `OpVar()`, and pattern sugar uses `StartsWithVal/StartsWithVar`-style names while cross-column or subquery pattern matching goes through `Like(...)`.
 - Remember that `Build()` validates query structure, while execution validates dialect capabilities.
 
 ## What to inspect in the target project first
@@ -65,6 +67,7 @@ Use this skill for **using TSQ in another Go project**, not for developing the T
 - do not call `Where(...)` twice expecting conditions to append
 - do not assume every built query runs on every dialect
 - do not treat `InVar(nil)` as “ignore this filter”
+- do not treat `NInVar(nil)` as “reject everything”
 - do not use legacy `kw`; use `search=[...]`
 - do not move transaction boundaries into hidden helper behavior
 

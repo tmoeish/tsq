@@ -33,7 +33,7 @@ func stringPtr(s string) *string {
 
 func TestConditionClauseRendersCanonicalSQL(t *testing.T) {
 	col := newColForTable[Table, int](newMockTable("users"), "id", "id", nil)
-	cond := col.EQ(1)
+	cond := col.EQVal(1)
 	if got := cond.Clause(); got != `"users"."id" = ?` {
 		t.Fatalf("expected public condition clause to render canonical SQL, got %q", got)
 	}
@@ -53,7 +53,7 @@ func TestCondition_EmptyAndOrShortCircuit(t *testing.T) {
 
 func TestCondition_TablesReturnsDefensiveCopy(t *testing.T) {
 	users := newMockTable("users")
-	cond := newColForTable[Table, int](users, "id", "id", nil).EQ(1)
+	cond := newColForTable[Table, int](users, "id", "id", nil).EQVal(1)
 	tables := cond.Tables()
 	delete(tables, "users")
 	tables["other"] = newMockTable("other")

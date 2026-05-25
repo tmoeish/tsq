@@ -54,6 +54,33 @@ func TestResolveQueryExpandsEmptyExternalSliceArgsToNull(t *testing.T) {
 	}
 }
 
+func TestResolveQueryExpandsEmptyExternalNotInSliceArgsToEmptySet(t *testing.T) {
+	sqlText, args, err := resolveQuery(`SELECT * FROM "users" WHERE "users"."id" NOT IN (?)`, []any{externalNotInSliceArgMarker{}}, []any{[]int64{}}, "")
+	if err != nil {
+		t.Fatalf("expected empty slice to resolve, got %v", err)
+	}
+	if sqlText != `SELECT * FROM "users" WHERE "users"."id" NOT IN (SELECT 1 WHERE 1 = 0)` {
+		t.Fatalf("unexpected SQL for empty NOT IN slice: %q", sqlText)
+	}
+	if len(args) != 0 {
+		t.Fatalf("expected empty slice to contribute no args, got %#v", args)
+	}
+}
+
+func TestResolveQueryExpandsExternalNotInSliceArgs(t *testing.T) {
+	sqlText, args, err := resolveQuery(`SELECT * FROM "users" WHERE "users"."id" NOT IN (?) AND "users"."name" = ?`, []any{externalNotInSliceArgMarker{}, externalArgMarker}, []any{[]int64{1, 3, 5}, "alice"}, "")
+	if err != nil {
+		t.Fatalf("expected resolveQuery to expand NOT IN slice args, got %v", err)
+	}
+	wantSQL := `SELECT * FROM "users" WHERE "users"."id" NOT IN (?, ?, ?) AND "users"."name" = ?`
+	if sqlText != wantSQL {
+		t.Fatalf("expected SQL %q, got %q", wantSQL, sqlText)
+	}
+	if want := []any{int64(1), int64(3), int64(5), "alice"}; len(args) != len(want) || args[0] != want[0] || args[1] != want[1] || args[2] != want[2] || args[3] != want[3] {
+		t.Fatalf("unexpected resolved args: %#v", args)
+	}
+}
+
 func TestResolveQueryResolvesExternalArgsWithoutRewritingSQL(t *testing.T) {
 	sqlText, args, err := resolveQuery(`SELECT * FROM "users" WHERE "users"."id" = ? AND "users"."name" LIKE ?`, []any{externalArgMarker, keywordArgMarker}, []any{int64(7)}, "alice")
 	if err != nil {
@@ -64,6 +91,32 @@ func TestResolveQueryResolvesExternalArgsWithoutRewritingSQL(t *testing.T) {
 	}
 	if want := []any{int64(7), "%alice%"}; len(args) != len(want) || args[0] != want[0] || args[1] != want[1] {
 		t.Fatalf("unexpected resolved args: %#v", args)
+	}
+}
+
+func TestResolveQueryResolvesPatternVarMarkers(t *testing.T) {
+	sqlText, args, err := resolveQuery(
+		`SELECT * FROM "users" WHERE "users"."name" LIKE ? AND "users"."email" LIKE ? AND "users"."nickname" NOT LIKE ?`,
+		[]any{externalStartsWithMarker, externalEndsWithMarker, externalContainsMarker},
+		[]any{"al", "ce", "lic"},
+		"",
+	)
+	if err != nil {
+		t.Fatalf("expected pattern markers to resolve, got %v", err)
+	}
+	wantSQL := `SELECT * FROM "users" WHERE "users"."name" LIKE ? AND "users"."email" LIKE ? AND "users"."nickname" NOT LIKE ?`
+	if sqlText != wantSQL {
+		t.Fatalf("expected SQL %q, got %q", wantSQL, sqlText)
+	}
+	if want := []any{"al%", "%ce", "%lic%"}; len(args) != len(want) || args[0] != want[0] || args[1] != want[1] || args[2] != want[2] {
+		t.Fatalf("unexpected resolved args: %#v", args)
+	}
+}
+
+func TestResolveQueryRejectsNonStringPatternVarArgs(t *testing.T) {
+	_, _, err := resolveQuery(`SELECT * FROM "users" WHERE "users"."name" LIKE ?`, []any{externalStartsWithMarker}, []any{123}, "")
+	if err == nil {
+		t.Fatal("expected non-string pattern arg to fail")
 	}
 }
 
