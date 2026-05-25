@@ -123,7 +123,7 @@ func IsRetryableTransactionConflictError(err error) bool {
 	}
 
 	if sqliteErr, ok := errors.AsType[sqlite3.Error](err); ok {
-		return sqliteErr.Code == sqlite3.ErrBusy || sqliteErr.Code == sqlite3.ErrLocked
+		return errors.Is(sqliteErr.Code, sqlite3.ErrBusy) || errors.Is(sqliteErr.Code, sqlite3.ErrLocked)
 	}
 
 	return false
@@ -149,8 +149,7 @@ func normalizeTxOptions(options *TxOptions) (*normalizedTxOptions, error) {
 	}
 
 	if options.SQL != nil {
-		sqlOptions := *options.SQL
-		normalized.sqlOptions = &sqlOptions
+		normalized.sqlOptions = new(*options.SQL)
 	}
 
 	if options.Retry == nil {

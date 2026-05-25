@@ -7,6 +7,15 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 项目遵循 [语义化版本控制](https://semver.org/lang/zh-CN/)。
 
+## [4.1.16] - 2026-05-25
+
+### 改进
+- **清理未使用代码**: 删除 `toTSQDDLColumnType` 和 `quoteDialectIdentifier` 未使用函数
+- **修复测试**: 修复 `query_chunked_test.go` 中指针语法 `new(int64(1))
+- **优化事务选项**: 优化 `normalizeTxOptions` 中选项复制方式
+- **SQLite 错误检测**: 改用 `errors.Is` 检测 SQLite 错误码
+- **重新生成代码**: 所有生成文件更新到 v4.1.15 版本标记
+
 ## [4.1.15] - 2026-05-25
 
 ### 变更 (Breaking Changes)

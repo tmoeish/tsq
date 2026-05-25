@@ -171,18 +171,3 @@ func validateBuiltInIdentifier(name string) error {
 	return nil
 }
 
-func quoteDialectIdentifier(sqlDialect tsqdialect.Dialect, name string) (string, error) {
-	if err := validateBuiltInIdentifier(name); err != nil {
-		return "", err
-	}
-
-	if sqlDialect == nil {
-		return canonicalQuoteIdentifier(name), nil
-	}
-
-	if err := sqlDialect.ValidateIdentifier(name); err != nil {
-		return "", err
-	}
-
-	return sqlDialect.QuoteField(name), nil
-}

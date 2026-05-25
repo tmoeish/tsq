@@ -229,16 +229,6 @@ func ddlDialectName(dialect ddlDialectSpec) string {
 	return string(dialect.dialect.Name())
 }
 
-func toTSQDDLColumnType(desc ddlColumnDescriptor) tsqdialect.DDLColumnType {
-	return tsqdialect.DDLColumnType{
-		Kind:     tsqdialect.DDLColumnKind(desc.kind),
-		Bits:     desc.bits,
-		Unsigned: desc.unsigned,
-		Nullable: desc.nullable,
-		Size:     desc.size,
-	}
-}
-
 func ddlColumnSpecFromSnapshot(column ddlSnapshotColumn) tsqdialect.DDLColumnSpec {
 	return tsqdialect.DDLColumnSpec{
 		Name: column.Name,

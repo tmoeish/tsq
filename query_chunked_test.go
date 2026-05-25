@@ -214,12 +214,11 @@ func TestChunkedDeleteByIDsRejectsExecutorWithoutDialectForRenderedSQL(t *testin
 
 func TestChunkedDeleteByIDsRejectsNilIDs(t *testing.T) {
 	db := WrapExecutor(&sql.DB{}, SQLiteDialect{})
-	id := int64(1)
 	err := ChunkedDeleteByPKs(
 		context.Background(),
 		db,
 		NewCol[pointerPKUser, *int64]("id", "id", func(t *pointerPKUser) **int64 { return &t.ID }),
-		[]*int64{&id, nil},
+		[]*int64{new(int64(1)), nil},
 	)
 	if err == nil {
 		t.Fatal("expected nil ids to return an error")
