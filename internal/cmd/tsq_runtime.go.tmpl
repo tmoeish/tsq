@@ -2,7 +2,20 @@
 
 package {{.Package.Name}}
 
-import "github.com/tmoeish/tsq/v4"
+import (
+	"encoding/json"
+
+	"github.com/tmoeish/tsq/v4"
+)
+
+func compactJSON(v any) string {
+	bs, err := json.Marshal(v)
+	if err != nil {
+		return ""
+	}
+
+	return string(bs)
+}
 
 // TSQTables returns all generated table registrations for this package.
 func TSQTables() []tsq.TableRegistration {

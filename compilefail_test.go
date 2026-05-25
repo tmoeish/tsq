@@ -99,6 +99,13 @@ var _ = tsq.PrettyJSON
 			want: "undefined: tsq.PrettyJSON",
 		},
 		{
+			name: "compact_json_hidden",
+			body: `
+var _ = tsq.CompactJSON
+`,
+			want: "undefined: tsq.CompactJSON",
+		},
+		{
 			name: "version_hidden",
 			body: `
 var _ = tsq.GetVersion()
@@ -127,11 +134,26 @@ var _ = tsq.Trace1[int]
 			want: "undefined: tsq.Trace1",
 		},
 		{
+			name: "trace_fn_hidden",
+			body: `
+var _ tsq.TraceFn
+`,
+			want: "undefined: tsq.TraceFn",
+		},
+		{
 			name: "add_tracer_hidden",
 			body: `
 var _ = tsq.AddTracer
 `,
 			want: "undefined: tsq.AddTracer",
+		},
+		{
+			name: "runtime_trace_hidden",
+			body: `
+var rt *tsq.Runtime
+var _ = rt.Trace
+`,
+			want: "rt.Trace undefined",
 		},
 		{
 			name: "print_sql_hidden",

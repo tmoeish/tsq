@@ -1027,7 +1027,7 @@ func {{$name}}(
 {{- end }}
 	err := tsq.Insert(ctx, db, {{$dot.Recv}})
 	if err != nil {
-		return fmt.Errorf("insert {{$type}}: %s: %w", tsq.CompactJSON({{$dot.Recv}}), err)
+		return fmt.Errorf("insert {{$type}}: %s: %w", compactJSON({{$dot.Recv}}), err)
 	}
 	return nil
 }
@@ -1042,7 +1042,7 @@ func {{$name}}(
 {{- end }}
 	err := tsq.Update(ctx, db, {{$dot.Recv}})
 	if err != nil {
-		return fmt.Errorf("update {{$type}}: %s: %w", tsq.CompactJSON({{$dot.Recv}}), err)
+		return fmt.Errorf("update {{$type}}: %s: %w", compactJSON({{$dot.Recv}}), err)
 	}
 	return nil
 }
@@ -1054,7 +1054,7 @@ func {{$name}}(
 ) error {
 	err := tsq.Delete(ctx, db, {{$dot.Recv}})
 	if err != nil {
-		return fmt.Errorf("delete {{$type}}: %s: %w", tsq.CompactJSON({{$dot.Recv}}), err)
+		return fmt.Errorf("delete {{$type}}: %s: %w", compactJSON({{$dot.Recv}}), err)
 	}
 	return nil
 }
@@ -1076,7 +1076,7 @@ func {{$name}}(
 {{- end }}
 	err := tsq.Update(ctx, db, {{$dot.Recv}})
 	if err != nil {
-		return fmt.Errorf("soft-delete {{$type}}: %s: %w", tsq.CompactJSON({{$dot.Recv}}), err)
+		return fmt.Errorf("soft-delete {{$type}}: %s: %w", compactJSON({{$dot.Recv}}), err)
 	}
 	return nil
 }

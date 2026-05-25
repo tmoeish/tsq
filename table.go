@@ -77,7 +77,7 @@ func (e *RegistrationError) Error() string {
 type InitOptions struct {
 	UpsertIndexes bool          // UpsertIndexes keeps the legacy "create missing indexes" behavior when IndexMode is unset.
 	IndexMode     IndexInitMode // IndexMode chooses whether Init skips, upserts, or validates declared indexes.
-	Tracers       []Tracer      // Tracers are appended to the runtime before initialization work begins.
+	Tracers       []Tracer      // Tracers configures the runtime's tracer chain during NewRuntime.
 	// IdentifierValidationMode controls how to handle identifier length violations:
 	// "strict" = fail if any identifier exceeds dialect limits (default for most dialects)
 	// "warn"   = log warnings but allow (for permissive databases)

@@ -301,7 +301,7 @@ func executeTxAttempt1[T any](
 		}
 	}()
 
-	result, err := fn(ctx, wrapExecutor(tx, r.dialect, r.traceManager))
+	result, err := fn(ctx, wrapExecutor(tx, r.dialect, r))
 	if err != nil {
 		var zero T
 		return zero, txRetryStageBody, err

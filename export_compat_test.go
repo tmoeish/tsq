@@ -2,6 +2,7 @@ package tsq
 
 import (
 	"context"
+	"log/slog"
 
 	tsqdialect "github.com/tmoeish/tsq/v4/dialect"
 	"github.com/tmoeish/tsq/v4/internal/buildinfo"
@@ -50,38 +51,36 @@ func GetVersionInfo() *VersionInfo {
 	return buildinfo.Current()
 }
 
-var exportCompatRuntime = &Runtime{
-	traceManager: newTraceManager(),
-}
+var exportCompatRuntime = &Runtime{}
 
 func AddTracer(tracer Tracer) {
-	exportCompatRuntime.AddTracer(tracer)
+	if tracer == nil {
+		return
+	}
+	if len(exportCompatRuntime.tracers) >= maxTracers {
+		slog.Warn("maximum tracer limit reached", "limit", maxTracers)
+		return
+	}
+
+	exportCompatRuntime.tracers = append(exportCompatRuntime.tracers, tracer)
 }
 
 func ClearTracers() {
-	exportCompatRuntime.ClearTracers()
-}
-
-func GetTracers() []Tracer {
-	return exportCompatRuntime.GetTracers()
-}
-
-func Trace(ctx context.Context, fn func(ctx context.Context) error) error {
-	return exportCompatRuntime.Trace(ctx, fn)
+	exportCompatRuntime.tracers = nil
 }
 
 func Trace1[T any](ctx context.Context, fn func(ctx context.Context) (T, error)) (T, error) {
 	return trace1WithRuntime(exportCompatRuntime, ctx, fn)
 }
 
-func PrintCost(next TraceFn) TraceFn {
+func PrintCost(next func(ctx context.Context) error) func(ctx context.Context) error {
 	return printCost(next)
 }
 
-func PrintError(next TraceFn) TraceFn {
+func PrintError(next func(ctx context.Context) error) func(ctx context.Context) error {
 	return printError(next)
 }
 
-func PrintSQL(next TraceFn) TraceFn {
+func PrintSQL(next func(ctx context.Context) error) func(ctx context.Context) error {
 	return printSQLTracer(next)
 }

@@ -16,7 +16,7 @@ import (
 // identifier validation, and tracing.
 type Runtime struct {
 	tables        []*registeredTable
-	traceManager  *traceManager
+	tracers       []Tracer
 	db            *sql.DB
 	dialect       tsqdialect.Dialect
 	indexInitMode IndexInitMode
@@ -59,12 +59,11 @@ func NewRuntime(
 
 	runtime := &Runtime{
 		tables:        registeredTables,
-		traceManager:  newTraceManager(),
+		tracers:       appendUniqueTracers(nil, opts.Tracers...),
 		db:            db,
 		dialect:       sqlDialect,
 		indexInitMode: indexMode,
 	}
-	runtime.traceManager.AddUnique(opts.Tracers...)
 
 	if opts.IdentifierValidationMode != "skip" {
 		if err := runtime.validateRegisteredTableIdentifiers(opts.IdentifierValidationMode); err != nil {
@@ -96,12 +95,8 @@ func (r *Runtime) tsqDialect() tsqdialect.Dialect {
 	return r.SQLDialect()
 }
 
-func (r *Runtime) tsqTraceManager() *traceManager {
-	if r == nil {
-		return nil
-	}
-
-	return r.traceManager
+func (r *Runtime) tsqRuntime() *Runtime {
+	return r
 }
 
 // DB returns the current *sql.DB.
@@ -198,49 +193,13 @@ func (d runtimeErrorDriver) Open(string) (driver.Conn, error) {
 	return nil, d.err
 }
 
-// AddTracer adds a tracer to this runtime.
-func (r *Runtime) AddTracer(tracer Tracer) {
-	if r == nil {
-		return
-	}
-
-	r.traceManager.Add(tracer)
-}
-
-// ClearTracers removes all tracers from this runtime.
-func (r *Runtime) ClearTracers() {
-	if r == nil {
-		return
-	}
-
-	r.traceManager.Clear()
-}
-
-// GetTracers returns a snapshot of this runtime's tracers.
-func (r *Runtime) GetTracers() []Tracer {
-	if r == nil {
-		return nil
-	}
-
-	return r.traceManager.Get()
-}
-
-// Trace executes fn with this runtime's tracers applied.
-func (r *Runtime) Trace(ctx context.Context, fn func(ctx context.Context) error) error {
-	if r == nil {
-		return errors.New("runtime cannot be nil")
-	}
-
-	return r.traceManager.Trace(ctx, fn)
-}
-
 func trace1WithRuntime[T any](r *Runtime, ctx context.Context, fn func(ctx context.Context) (T, error)) (T, error) {
 	if r == nil {
 		var zero T
 		return zero, errors.New("runtime cannot be nil")
 	}
 
-	return traceManagerTrace1(r.traceManager, ctx, fn)
+	return traceRuntime1(r, ctx, fn)
 }
 
 // ValidateIdentifiersForDialect validates all configured table and column identifiers against the current database dialect.

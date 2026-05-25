@@ -32,7 +32,7 @@ func (q *Query[O]) prepareQueryExecution(
 	sqlText := renderSQLForExecutor(tx, resolvedSQL)
 
 	if ctx.Value(printSQL) != nil {
-		slog.Info(methodName, "sql", sqlText, "args", CompactJSON(finalArgs))
+		slog.Info(methodName, "sql", sqlText, "args", compactJSON(finalArgs))
 	}
 
 	return sqlText, finalArgs, nil
@@ -206,7 +206,7 @@ func (q *Query[O]) count64(
 	sqlText := renderSQLForExecutor(tx, resolvedSQL)
 
 	if ctx.Value(printSQL) != nil {
-		slog.Info("count", "sql", sqlText, "args", CompactJSON(finalArgs))
+		slog.Info("count", "sql", sqlText, "args", compactJSON(finalArgs))
 	}
 
 	count, err := queryInt64(ctx, tx, sqlText, finalArgs...)
@@ -249,7 +249,7 @@ func (q *Query[O]) exist(
 	sqlText := renderSQLForExecutor(tx, resolvedSQL)
 
 	if ctx.Value(printSQL) != nil {
-		slog.Info("exist", "sql", sqlText, "args", CompactJSON(finalArgs))
+		slog.Info("exist", "sql", sqlText, "args", compactJSON(finalArgs))
 	}
 
 	count, err := queryInt64(ctx, tx, sqlText, finalArgs...)

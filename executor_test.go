@@ -104,9 +104,8 @@ func optimisticMutationUserColumns() []BoundColumn[optimisticMutationUser] {
 
 func newRuntimeWithDB(db *sql.DB, dialect Dialect) *Runtime {
 	return &Runtime{
-		traceManager: newTraceManager(),
-		db:           db,
-		dialect:      dialect,
+		db:      db,
+		dialect: dialect,
 	}
 }
 
@@ -274,7 +273,7 @@ func TestRuntimeWithTxRollsBackOnCallbackError(t *testing.T) {
 }
 
 func TestRuntimeWithTxRequiresInitializedRuntime(t *testing.T) {
-	runtime := &Runtime{traceManager: newTraceManager()}
+	runtime := &Runtime{}
 
 	err := runtime.WithTx(context.Background(), nil, func(context.Context, SQLExecutor) error {
 		return nil

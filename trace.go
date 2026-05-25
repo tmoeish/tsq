@@ -6,120 +6,20 @@ import (
 	"errors"
 	"log/slog"
 	"reflect"
-	"sync"
 	"time"
 )
 
 const maxTracers = 100
 
-// TraceFn is the traced function signature used by Tracer.
-type TraceFn func(ctx context.Context) error
-
 // Tracer wraps a function call with tracing behavior.
-type Tracer func(next TraceFn) TraceFn
-
-type traceManager struct {
-	mu        sync.RWMutex
-	restoreMu sync.Mutex
-	tracers   []Tracer
-}
+// Configure tracers via InitOptions.Tracers when constructing a Runtime.
+type Tracer func(next func(ctx context.Context) error) func(ctx context.Context) error
 
 type traceProvider interface {
-	tsqTraceManager() *traceManager
+	tsqRuntime() *Runtime
 }
 
-func newTraceManager() *traceManager {
-	return &traceManager{}
-}
-
-// Add appends a tracer when capacity allows.
-func (m *traceManager) Add(tracer Tracer) {
-	if tracer == nil {
-		return
-	}
-
-	m.restoreMu.Lock()
-	defer m.restoreMu.Unlock()
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if len(m.tracers) >= maxTracers {
-		slog.Warn("maximum tracer limit reached", "limit", maxTracers)
-		return
-	}
-
-	m.tracers = append(m.tracers, tracer)
-}
-
-// AddUnique appends only tracers that are not already registered.
-func (m *traceManager) AddUnique(tracers ...Tracer) {
-	m.restoreMu.Lock()
-	defer m.restoreMu.Unlock()
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	for _, tracer := range tracers {
-		if tracer == nil {
-			continue
-		}
-
-		if len(m.tracers) >= maxTracers {
-			slog.Warn("maximum tracer limit reached", "limit", maxTracers)
-			return
-		}
-
-		duplicated := false
-
-		for _, current := range m.tracers {
-			if sameTracer(current, tracer) {
-				duplicated = true
-				break
-			}
-		}
-
-		if !duplicated {
-			m.tracers = append(m.tracers, tracer)
-		}
-	}
-}
-
-// Clear removes all registered tracers.
-func (m *traceManager) Clear() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	m.tracers = nil
-}
-
-// Get returns a defensive copy of the registered tracers.
-func (m *traceManager) Get() []Tracer {
-	return m.snapshot()
-}
-
-func (m *traceManager) snapshot() []Tracer {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	result := make([]Tracer, len(m.tracers))
-	copy(result, m.tracers)
-
-	return result
-}
-
-func (m *traceManager) restore(snapshot []Tracer) {
-	m.restoreMu.Lock()
-	defer m.restoreMu.Unlock()
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	m.tracers = append([]Tracer(nil), snapshot...)
-}
-
-// Trace executes fn through the registered tracer chain.
-func (m *traceManager) Trace(ctx context.Context, fn func(ctx context.Context) error) error {
+func (r *Runtime) trace(ctx context.Context, fn func(ctx context.Context) error) error {
 	if fn == nil {
 		return errors.New("trace function cannot be nil")
 	}
@@ -128,17 +28,16 @@ func (m *traceManager) Trace(ctx context.Context, fn func(ctx context.Context) e
 		return errors.New("context cannot be nil")
 	}
 
-	tracers := m.snapshot()
 	wrappedFn := fn
 
-	for i := len(tracers) - 1; i >= 0; i-- {
-		wrappedFn = tracers[i](wrappedFn)
+	for i := len(r.tracers) - 1; i >= 0; i-- {
+		wrappedFn = r.tracers[i](wrappedFn)
 	}
 
 	return wrappedFn(ctx)
 }
 
-func traceManagerTrace1[T any](m *traceManager, ctx context.Context, fn func(ctx context.Context) (T, error)) (T, error) {
+func traceRuntime1[T any](r *Runtime, ctx context.Context, fn func(ctx context.Context) (T, error)) (T, error) {
 	if fn == nil {
 		var zero T
 		return zero, errors.New("trace function cannot be nil")
@@ -148,8 +47,6 @@ func traceManagerTrace1[T any](m *traceManager, ctx context.Context, fn func(ctx
 		var zero T
 		return zero, errors.New("context cannot be nil")
 	}
-
-	tracers := m.snapshot()
 
 	var result T
 
@@ -164,16 +61,16 @@ func traceManagerTrace1[T any](m *traceManager, ctx context.Context, fn func(ctx
 		return nil
 	}
 
-	for i := len(tracers) - 1; i >= 0; i-- {
-		wrappedFn = tracers[i](wrappedFn)
+	for i := len(r.tracers) - 1; i >= 0; i-- {
+		wrappedFn = r.tracers[i](wrappedFn)
 	}
 
 	return result, wrappedFn(ctx)
 }
 
 func traceExecutor(ctx context.Context, exec SQLExecutor, fn func(ctx context.Context) error) error {
-	if provider, ok := exec.(traceProvider); ok && provider.tsqTraceManager() != nil {
-		return provider.tsqTraceManager().Trace(ctx, fn)
+	if provider, ok := exec.(traceProvider); ok && provider.tsqRuntime() != nil {
+		return provider.tsqRuntime().trace(ctx, fn)
 	}
 
 	if fn == nil {
@@ -188,8 +85,8 @@ func traceExecutor(ctx context.Context, exec SQLExecutor, fn func(ctx context.Co
 }
 
 func traceExecutor1[T any](ctx context.Context, exec SQLExecutor, fn func(ctx context.Context) (T, error)) (T, error) {
-	if provider, ok := exec.(traceProvider); ok && provider.tsqTraceManager() != nil {
-		return traceManagerTrace1(provider.tsqTraceManager(), ctx, fn)
+	if provider, ok := exec.(traceProvider); ok && provider.tsqRuntime() != nil {
+		return traceRuntime1(provider.tsqRuntime(), ctx, fn)
 	}
 
 	if fn == nil {
@@ -206,11 +103,16 @@ func traceExecutor1[T any](ctx context.Context, exec SQLExecutor, fn func(ctx co
 }
 
 func appendUniqueTracers(existing []Tracer, newTracers ...Tracer) []Tracer {
-	result := existing
+	result := append([]Tracer(nil), existing...)
 
 	for _, tracer := range newTracers {
 		if tracer == nil {
 			continue
+		}
+
+		if len(result) >= maxTracers {
+			slog.Warn("maximum tracer limit reached", "limit", maxTracers)
+			return result
 		}
 
 		duplicated := false
@@ -246,7 +148,7 @@ func tracerIdentity(tracer Tracer) uintptr {
 	return reflect.ValueOf(tracer).Pointer()
 }
 
-func printCost(next TraceFn) TraceFn {
+func printCost(next func(ctx context.Context) error) func(ctx context.Context) error {
 	return func(ctx context.Context) error {
 		start := time.Now()
 		err := next(ctx)
@@ -262,7 +164,7 @@ func printCost(next TraceFn) TraceFn {
 	}
 }
 
-func printError(next TraceFn) TraceFn {
+func printError(next func(ctx context.Context) error) func(ctx context.Context) error {
 	return func(ctx context.Context) error {
 		err := next(ctx)
 		if err != nil {
@@ -279,23 +181,13 @@ const (
 	printSQL contextKey = "printSQL"
 )
 
-func printSQLTracer(next TraceFn) TraceFn {
+func printSQLTracer(next func(ctx context.Context) error) func(ctx context.Context) error {
 	return func(ctx context.Context) error {
 		return next(context.WithValue(ctx, printSQL, true))
 	}
 }
 
-func prettyJSON(obj any) string {
-	bs, err := json.MarshalIndent(obj, "", "    ")
-	if err != nil {
-		return ""
-	}
-
-	return string(bs)
-}
-
-// CompactJSON returns compact JSON string of obj.
-func CompactJSON(obj any) string {
+func compactJSON(obj any) string {
 	bs, err := json.Marshal(obj)
 	if err != nil {
 		return ""

@@ -53,7 +53,7 @@ func validateScanDestForType[O Owner](cols []BoundColumn[O], sqlText string, arg
 	holder := new(O)
 	if _, err := buildScanDest(cols, holder); err != nil {
 		return fmt.Errorf("build scan dest\n%s\n%v"+": %w",
-			sqlText, CompactJSON(args), err)
+			sqlText, compactJSON(args), err)
 	}
 
 	return nil

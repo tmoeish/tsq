@@ -88,55 +88,6 @@ func TestBuildRegisteredTablesReturnsDeterministicOrder(t *testing.T) {
 	}
 }
 
-func TestNewRuntimeDeduplicatesProvidedTracers(t *testing.T) {
-	tracer := func(next TraceFn) TraceFn { return next }
-	db := newSQLiteIndexTestEngine(t)
-
-	runtime, err := NewRuntime(
-		db.DB(),
-		db.SQLDialect(),
-		nil,
-		&InitOptions{Tracers: []Tracer{tracer, tracer}},
-	)
-	if err != nil {
-		t.Fatalf("NewRuntime() error = %v", err)
-	}
-
-	if got := len(runtime.GetTracers()); got != 1 {
-		t.Fatalf("expected tracer deduplication, got %d", got)
-	}
-}
-
-func TestRuntimeKeepsTablesAndTracersIsolated(t *testing.T) {
-	leftDB := newSQLiteIndexTestEngine(t)
-	rightDB := newSQLiteIndexTestEngine(t)
-
-	left, err := NewRuntime(leftDB.DB(), leftDB.SQLDialect(), []TableRegistration{{Table: newMockTable("users")}})
-	if err != nil {
-		t.Fatalf("left runtime error = %v", err)
-	}
-
-	right, err := NewRuntime(rightDB.DB(), rightDB.SQLDialect(), []TableRegistration{{Table: newMockTable("users")}})
-	if err != nil {
-		t.Fatalf("right runtime error = %v", err)
-	}
-
-	left.AddTracer(func(next TraceFn) TraceFn { return next })
-
-	if got := len(left.tables); got != 1 {
-		t.Fatalf("expected left runtime table count 1, got %d", got)
-	}
-	if got := len(right.tables); got != 1 {
-		t.Fatalf("expected right runtime table count 1, got %d", got)
-	}
-	if got := len(left.GetTracers()); got != 1 {
-		t.Fatalf("expected left runtime tracer count 1, got %d", got)
-	}
-	if got := len(right.GetTracers()); got != 0 {
-		t.Fatalf("expected right runtime tracer count 0, got %d", got)
-	}
-}
-
 func newSQLiteIndexTestEngine(t *testing.T) *Runtime {
 	t.Helper()
 

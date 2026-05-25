@@ -78,8 +78,8 @@ func pageFn[O Owner](
 	argsWithLimit = append(argsWithLimit, page.Size, page.Offset())
 
 	if ctx.Value(printSQL) != nil {
-		slog.Info("count", "sql", renderedCntSQL, "args", CompactJSON(countArgs))
-		slog.Info("list", "sql", renderedListSQL, "args", CompactJSON(argsWithLimit))
+		slog.Info("count", "sql", renderedCntSQL, "args", compactJSON(countArgs))
+		slog.Info("list", "sql", renderedListSQL, "args", compactJSON(argsWithLimit))
 	}
 
 	count, err := queryInt64(ctx, tx, renderedCntSQL, countArgs...)
@@ -160,7 +160,7 @@ func listFn[O Owner](
 	}
 
 	if ctx.Value(printSQL) != nil {
-		slog.Info("list", "sql", sqlText, "args", CompactJSON(finalArgs))
+		slog.Info("list", "sql", sqlText, "args", compactJSON(finalArgs))
 	}
 
 	rows, err := tx.QueryContext(ctx, sqlText, finalArgs...)
@@ -232,7 +232,7 @@ func getOrErrFn[O Owner](
 	sqlText := renderSQLForExecutor(tx, resolvedSQL)
 
 	if ctx.Value(printSQL) != nil {
-		slog.Info("getOrErr", "sql", sqlText, "args", CompactJSON(finalArgs))
+		slog.Info("getOrErr", "sql", sqlText, "args", compactJSON(finalArgs))
 	}
 
 	r := new(O)
@@ -298,7 +298,7 @@ func (q *Query[O]) Load(
 		sqlText := renderSQLForExecutor(tx, resolvedSQL)
 
 		if ctx.Value(printSQL) != nil {
-			slog.Info("load", "sql", sqlText, "args", CompactJSON(finalArgs))
+			slog.Info("load", "sql", sqlText, "args", compactJSON(finalArgs))
 		}
 
 		dest, err := buildScanDest(q.selectCols, holder)

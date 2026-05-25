@@ -7,6 +7,15 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 项目遵循 [语义化版本控制](https://semver.org/lang/zh-CN/)。
 
+## [4.1.13] - 2026-05-25
+
+### 改进
+- **移除 traceManager 中间层**: 直接把 `tracers []Tracer` 放在 `Runtime` 结构体中
+- **收紧公开 API**: 隐藏 `CompactJSON`、`Trace1`、`TraceFn`、`Runtime.Trace()` 等内部实现细节
+- **模板更新**: 生成的代码现在使用内部的 `compactJSON()` 而不是公开 API
+- **简化测试**: 删除 `trace_test.go`，相关测试已整合
+- **重新生成代码**: 所有生成文件更新到 v4.1.12 版本标记
+
 ## [4.1.12] - 2026-05-22
 
 ### 改进
