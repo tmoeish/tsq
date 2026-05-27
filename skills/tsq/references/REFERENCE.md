@@ -94,6 +94,22 @@ Important points:
 - do not use legacy `kw`
 - the source struct plus annotation is the source-of-truth
 
+#### `db` tags and DDL string defaults
+
+Examples:
+
+```go
+Name  string `db:"name"`
+Email string `db:"email,size:160"`
+```
+
+Rules:
+
+- `db:"col"` keeps the default DDL mapping for that Go field type
+- `string`, `sql.NullString`, `null.String`, and their type alias / custom string forms default to `VARCHAR(255)` when `size` is omitted
+- `db:"col,size:N"` sets an explicit string width
+- dialects may still choose a more suitable large-text type for oversized strings; for example, MySQL upgrades very large strings to `MEDIUMTEXT` / `LONGTEXT`
+
 #### Supported `@TABLE` keys
 
 The current table DSL recognizes these top-level keys:

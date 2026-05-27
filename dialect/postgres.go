@@ -28,7 +28,7 @@ func (d PostgresDialect) CreateTableSuffix() string {
 }
 
 func (d PostgresDialect) CreateIndexSuffix() string {
-	return ""
+	return ";"
 }
 
 func (d PostgresDialect) DropIndexSuffix() string {
@@ -193,11 +193,11 @@ func (d PostgresDialect) DDLColumnType(desc DDLColumnType) string {
 			return "BIGINT"
 		}
 	case DDLColumnKindString:
-		if desc.Size > 0 {
-			return fmt.Sprintf("VARCHAR(%d)", desc.Size)
+		if desc.Size <= 0 {
+			return fmt.Sprintf("VARCHAR(%d)", defaultDDLStringSize)
 		}
 
-		return "TEXT"
+		return fmt.Sprintf("VARCHAR(%d)", desc.Size)
 	case DDLColumnKindTime:
 		return "TIMESTAMP"
 	default:

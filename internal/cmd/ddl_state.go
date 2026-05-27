@@ -818,7 +818,7 @@ func renderSQLiteRebuildTableBody(dialect ddlDialectSpec, tableName string, ops 
 			dialect.dialect.QuoteField(tableName),
 			dialect.dialect.QuoteField(tempTable),
 		),
-		renderDDLSnapshotCreateTable(*after, dialect) + ";",
+		renderDDLSnapshotCreateTable(*after, dialect),
 	}
 
 	commonColumns := sharedDDLSnapshotColumns(*before, *after)

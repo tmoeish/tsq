@@ -502,6 +502,225 @@ type User struct {
 			t.Fatalf("expected sqlite incremental ddl to contain %q, got:\n%s", want, got)
 		}
 	}
+	if strings.Contains(got, ";;") {
+		t.Fatalf("expected sqlite incremental ddl to avoid duplicate semicolons, got:\n%s", got)
+	}
+}
+
+func TestGenCmdGeneratesMySQLSafeDDLForLargeStringsAndIndexes(t *testing.T) {
+	t.Cleanup(func() {
+		dryRunFlag = false
+		checkFlag = false
+		v = false
+		GenCmd.SetArgs(nil)
+	})
+
+	dir := t.TempDir()
+	writeTestFile(t, filepath.Join(dir, "go.mod"), genTestModuleFile(t))
+	writeTestFile(t, filepath.Join(dir, "model.go"), `package gentest
+
+// @TABLE(
+//   name="task",
+//   pk="ID,true",
+//   idx=[{fields=["State"]}],
+// )
+type Task struct {
+	ID     int64  `+"`db:\"id\"`"+`
+	State  string `+"`db:\"state,size:32\"`"+`
+	Params string `+"`db:\"params,size:20000\"`"+`
+}
+`)
+	chdirForGenTest(t, dir)
+	tidyGenTestModule(t)
+
+	GenCmd.SetOut(new(bytes.Buffer))
+	GenCmd.SetErr(new(bytes.Buffer))
+	GenCmd.SetArgs([]string{"."})
+	if err := GenCmd.Execute(); err != nil {
+		t.Fatalf("GenCmd.Execute() error = %v", err)
+	}
+
+	mysqlDDL, err := os.ReadFile(filepath.Join(dir, "mysql.sql"))
+	if err != nil {
+		t.Fatalf("failed to read mysql ddl: %v", err)
+	}
+
+	got := string(mysqlDDL)
+	for _, want := range []string{
+		"`params` MEDIUMTEXT NOT NULL",
+		"ALTER TABLE `task` ADD INDEX `idx_task_state`(`state`);",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("expected mysql ddl to contain %q, got:\n%s", want, got)
+		}
+	}
+}
+
+func TestGenCmdUsesReasonableDDLTypesForDefaultStringsAndAliases(t *testing.T) {
+	t.Cleanup(func() {
+		dryRunFlag = false
+		checkFlag = false
+		v = false
+		GenCmd.SetArgs(nil)
+	})
+
+	dir := t.TempDir()
+	writeTestFile(t, filepath.Join(dir, "go.mod"), genTestModuleFile(t))
+	writeTestFile(t, filepath.Join(dir, "model.go"), `package gentest
+
+import (
+	"database/sql"
+	"time"
+)
+
+type AliasString = string
+type NamedString string
+type AliasNullString = sql.NullString
+type AliasInt32 = int32
+type NamedInt32 int32
+type AliasBool = bool
+type AliasBytes = []byte
+type AliasTime = time.Time
+
+// @TABLE(name="artifacts", pk="ID,true")
+type Artifact struct {
+	ID         int64           `+"`db:\"id\"`"+`
+	Name       string          `+"`db:\"name\"`"+`
+	AliasName  AliasString     `+"`db:\"alias_name\"`"+`
+	NamedName  NamedString     `+"`db:\"named_name\"`"+`
+	Note       sql.NullString  `+"`db:\"note\"`"+`
+	AliasNote  AliasNullString `+"`db:\"alias_note\"`"+`
+	Count      AliasInt32      `+"`db:\"count\"`"+`
+	NamedCount NamedInt32      `+"`db:\"named_count\"`"+`
+	Enabled    AliasBool       `+"`db:\"enabled\"`"+`
+	Payload    AliasBytes      `+"`db:\"payload\"`"+`
+	CreatedAt  AliasTime       `+"`db:\"created_at\"`"+`
+}
+`)
+	chdirForGenTest(t, dir)
+	tidyGenTestModule(t)
+
+	GenCmd.SetOut(new(bytes.Buffer))
+	GenCmd.SetErr(new(bytes.Buffer))
+	GenCmd.SetArgs([]string{"."})
+	if err := GenCmd.Execute(); err != nil {
+		t.Fatalf("GenCmd.Execute() error = %v", err)
+	}
+
+	tests := []struct {
+		name  string
+		file  string
+		wants []string
+	}{
+		{
+			name: "mysql",
+			file: "mysql.sql",
+			wants: []string{
+				"`name` VARCHAR(255) NOT NULL",
+				"`alias_name` VARCHAR(255) NOT NULL",
+				"`named_name` VARCHAR(255) NOT NULL",
+				"`note` VARCHAR(255)",
+				"`alias_note` VARCHAR(255)",
+				"`count` INT NOT NULL",
+				"`named_count` INT NOT NULL",
+				"`enabled` BOOLEAN NOT NULL",
+				"`payload` BLOB NOT NULL",
+				"`created_at` DATETIME NOT NULL",
+			},
+		},
+		{
+			name: "postgres",
+			file: "postgres.sql",
+			wants: []string{
+				`"name" VARCHAR(255) NOT NULL`,
+				`"alias_name" VARCHAR(255) NOT NULL`,
+				`"named_name" VARCHAR(255) NOT NULL`,
+				`"note" VARCHAR(255)`,
+				`"alias_note" VARCHAR(255)`,
+				`"count" INTEGER NOT NULL`,
+				`"named_count" INTEGER NOT NULL`,
+				`"enabled" BOOLEAN NOT NULL`,
+				`"payload" BYTEA NOT NULL`,
+				`"created_at" TIMESTAMP NOT NULL`,
+			},
+		},
+		{
+			name: "sqlite",
+			file: "sqlite.sql",
+			wants: []string{
+				`"name" VARCHAR(255) NOT NULL`,
+				`"alias_name" VARCHAR(255) NOT NULL`,
+				`"named_name" VARCHAR(255) NOT NULL`,
+				`"note" VARCHAR(255)`,
+				`"alias_note" VARCHAR(255)`,
+				`"count" INTEGER NOT NULL`,
+				`"named_count" INTEGER NOT NULL`,
+				`"enabled" BOOLEAN NOT NULL`,
+				`"payload" BLOB NOT NULL`,
+				`"created_at" TIMESTAMP NOT NULL`,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			content, err := os.ReadFile(filepath.Join(dir, tt.file))
+			if err != nil {
+				t.Fatalf("failed to read %s: %v", tt.file, err)
+			}
+
+			got := string(content)
+			for _, want := range tt.wants {
+				if !strings.Contains(got, want) {
+					t.Fatalf("expected %s to contain %q, got:\n%s", tt.file, want, got)
+				}
+			}
+		})
+	}
+
+	stateBytes, err := os.ReadFile(filepath.Join(dir, ddlStateFilename))
+	if err != nil {
+		t.Fatalf("failed to read ddl state file: %v", err)
+	}
+
+	var state ddlStateFile
+	if err := json.Unmarshal(stateBytes, &state); err != nil {
+		t.Fatalf("failed to parse ddl state file: %v", err)
+	}
+
+	var columns map[string]ddlSnapshotColumn
+	for _, table := range state.Snapshot.Tables {
+		if table.Name != "artifacts" {
+			continue
+		}
+
+		columns = make(map[string]ddlSnapshotColumn, len(table.Columns))
+		for _, column := range table.Columns {
+			columns[column.Name] = column
+		}
+	}
+
+	if columns == nil {
+		t.Fatal("expected artifacts table in ddl snapshot")
+	}
+
+	for _, name := range []string{"name", "alias_name", "named_name", "note", "alias_note"} {
+		if got := columns[name].Size; got != 255 {
+			t.Fatalf("expected ddl snapshot to record default string size 255 for %s, got %d", name, got)
+		}
+	}
+	if got := columns["count"].Bits; got != 32 {
+		t.Fatalf("expected int32 alias to keep 32-bit width, got %d", got)
+	}
+	if got := columns["named_count"].Bits; got != 32 {
+		t.Fatalf("expected named int32 to keep 32-bit width, got %d", got)
+	}
+	if got := columns["payload"].Kind; got != ddlColumnBytes {
+		t.Fatalf("expected []byte alias to map to bytes kind, got %s", got)
+	}
+	if got := columns["created_at"].Kind; got != ddlColumnTime {
+		t.Fatalf("expected time alias to map to time kind, got %s", got)
+	}
 }
 
 func TestGenCmdReportsDSLSourceLocation(t *testing.T) {

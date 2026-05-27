@@ -112,6 +112,11 @@ tsq gen ./database
 
 如果目标文件已经存在，TSQ 只会覆盖**已有的生成文件**；遇到手写文件会拒绝覆盖并直接报错。
 
+DDL 的默认字符串映射现在更偏向“常规业务字段”：
+
+- `string`、`sql.NullString`、`null.String` 以及它们的 type alias / 自定义字符串类型，在**没写 `size`** 时默认生成 `VARCHAR(255)`
+- 写了 `size:N` 之后，会按方言选更合适的类型；例如 MySQL 超过 `VARCHAR` 安全范围时会自动切到 `MEDIUMTEXT` / `LONGTEXT`
+
 ### 3. 跑第一条查询
 
 ```go

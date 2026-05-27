@@ -27,7 +27,7 @@ func (d SQLiteDialect) CreateTableSuffix() string {
 }
 
 func (d SQLiteDialect) CreateIndexSuffix() string {
-	return ""
+	return ";"
 }
 
 func (d SQLiteDialect) DropIndexSuffix() string {
@@ -248,7 +248,11 @@ func (d SQLiteDialect) DDLColumnType(desc DDLColumnType) string {
 	case DDLColumnKindInt:
 		return "INTEGER"
 	case DDLColumnKindString:
-		return "TEXT"
+		if desc.Size <= 0 {
+			return fmt.Sprintf("VARCHAR(%d)", defaultDDLStringSize)
+		}
+
+		return fmt.Sprintf("VARCHAR(%d)", desc.Size)
 	case DDLColumnKindTime:
 		return "TIMESTAMP"
 	default:

@@ -8,6 +8,11 @@ import (
 	"strings"
 )
 
+const (
+	mysqlMaxVarcharChars    = 16383
+	mysqlMaxMediumTextChars = 4_194_303
+)
+
 type MySQLDialect struct{}
 
 func (d MySQLDialect) Name() Name {
@@ -27,7 +32,7 @@ func (d MySQLDialect) CreateTableSuffix() string {
 }
 
 func (d MySQLDialect) CreateIndexSuffix() string {
-	return ""
+	return ";"
 }
 
 func (d MySQLDialect) DropIndexSuffix() string {
@@ -205,11 +210,16 @@ func (d MySQLDialect) DDLColumnType(desc DDLColumnType) string {
 		}
 
 	case DDLColumnKindString:
-		if desc.Size > 0 {
+		switch {
+		case desc.Size <= 0:
+			return fmt.Sprintf("VARCHAR(%d)", defaultDDLStringSize)
+		case desc.Size <= mysqlMaxVarcharChars:
 			return fmt.Sprintf("VARCHAR(%d)", desc.Size)
+		case desc.Size <= mysqlMaxMediumTextChars:
+			return "MEDIUMTEXT"
+		default:
+			return "LONGTEXT"
 		}
-
-		return "TEXT"
 	case DDLColumnKindTime:
 		return "DATETIME"
 	default:

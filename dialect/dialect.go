@@ -14,6 +14,7 @@ var builtInIdentifierPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 const (
 	maxIdentifierLengthMySQL      = 64
 	maxIdentifierLengthPostgreSQL = 63
+	defaultDDLStringSize          = 255
 )
 
 // Executor defines the minimal execution surface dialects need from *sql.DB or *sql.Tx.

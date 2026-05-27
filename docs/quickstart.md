@@ -100,8 +100,8 @@ func main() {
 	if _, err := db.Exec(`
 CREATE TABLE user (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  name TEXT NOT NULL,
-  email TEXT NOT NULL
+  name VARCHAR(255) NOT NULL,
+  email VARCHAR(255) NOT NULL
 );
 INSERT INTO user (name, email) VALUES
   ('Alice', 'alice@example.com'),
@@ -140,6 +140,8 @@ go run .
 ```
 
 你应该能看到至少一条包含 `Alice` 的结果。
+
+补充一点：如果你的 Go 字段是 `string` 且 `db` tag 没写 `size`，TSQ 生成 DDL 时会默认用 `VARCHAR(255)`；只有显式写更大的 `size` 时，才会按方言升级到更大的文本类型。
 
 ## 下一步最值得看什么
 
