@@ -59,6 +59,33 @@ func (d MySQLDialect) AllTablesQuery() string {
 	return "SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE()"
 }
 
+func (d MySQLDialect) ListTables(ctx context.Context, db Executor) ([]string, error) {
+	rows, err := db.QueryContext(ctx, "SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE() ORDER BY table_name")
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() {
+		_ = rows.Close()
+	}()
+
+	var tables []string
+
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		tables = append(tables, name)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return tables, nil
+}
+
 func (d MySQLDialect) CreateTableIfNotExistsSuffix() string {
 	return "IF NOT EXISTS"
 }
@@ -91,6 +118,122 @@ func (d MySQLDialect) BatchInsertStartID(lastID, rowsAffected int64) (int64, boo
 	}
 
 	return lastID, true
+}
+
+func (d MySQLDialect) InspectTableColumns(ctx context.Context, db Executor, table string) ([]DDLColumnSpec, bool, error) {
+	rows, err := db.QueryContext(ctx, `
+		SELECT
+			column_name,
+			data_type,
+			column_type,
+			is_nullable,
+			column_default,
+			column_key,
+			extra,
+			character_maximum_length
+		FROM information_schema.columns
+		WHERE table_schema = DATABASE() AND table_name = ?
+		ORDER BY ordinal_position`,
+		table,
+	)
+	if err != nil {
+		return nil, false, err
+	}
+
+	defer func() {
+		_ = rows.Close()
+	}()
+
+	type row struct {
+		Name    string
+		Data    string
+		Type    string
+		Null    string
+		Default sql.NullString
+		Key     string
+		Extra   string
+		Size    sql.NullInt64
+	}
+
+	columns := make([]DDLColumnSpec, 0)
+
+	for rows.Next() {
+		var item row
+		if err := rows.Scan(&item.Name, &item.Data, &item.Type, &item.Null, &item.Default, &item.Key, &item.Extra, &item.Size); err != nil {
+			return nil, false, err
+		}
+
+		desc, err := parseMySQLDDLColumnType(item.Data, item.Type, item.Size)
+		if err != nil {
+			return nil, false, fmt.Errorf("inspect mysql column %s.%s: %w", table, item.Name, err)
+		}
+
+		nullable := strings.EqualFold(item.Null, "YES")
+		columns = append(columns, DDLColumnSpec{
+			Name:          item.Name,
+			Type:          withDDLNullable(desc, nullable && item.Key != "PRI"),
+			PrimaryKey:    item.Key == "PRI",
+			AutoIncrement: strings.Contains(strings.ToLower(item.Extra), "auto_increment"),
+			Default:       normalizeDDLDefault(item.Default),
+		})
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, false, err
+	}
+
+	if len(columns) == 0 {
+		return nil, false, nil
+	}
+
+	return columns, true, nil
+}
+
+func (d MySQLDialect) ListIndexes(ctx context.Context, db Executor, table string) ([]NamedIndexDefinition, error) {
+	rows, err := db.QueryContext(ctx, `
+		SELECT
+			index_name,
+			CASE WHEN MIN(non_unique) = 0 THEN 1 ELSE 0 END AS is_unique,
+			GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR ',') AS columns_csv
+		FROM information_schema.statistics
+		WHERE table_schema = DATABASE() AND table_name = ?
+		GROUP BY index_name
+		ORDER BY index_name`,
+		table,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() {
+		_ = rows.Close()
+	}()
+
+	indexes := make([]NamedIndexDefinition, 0)
+
+	for rows.Next() {
+		var name string
+		var unique int
+
+		var columns sql.NullString
+		if err := rows.Scan(&name, &unique, &columns); err != nil {
+			return nil, err
+		}
+
+		indexes = append(indexes, NamedIndexDefinition{
+			Name:       name,
+			Table:      table,
+			Unique:     unique == 1,
+			Fields:     parseColumnsCSV(columns.String),
+			PrimaryKey: name == "PRIMARY",
+		})
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return indexes, nil
 }
 
 func (d MySQLDialect) EnsureIndex(ctx context.Context, db Executor, table string, unique bool, idx string, fields []string) (string, error) {
@@ -167,6 +310,52 @@ func (d MySQLDialect) InspectIndexDefinition(ctx context.Context, db Executor, t
 		Unique: existing.Unique == 1,
 		Fields: parseColumnsCSV(existing.Columns.String),
 	}, true, nil
+}
+
+func parseMySQLDDLColumnType(dataType, columnType string, size sql.NullInt64) (DDLColumnType, error) {
+	data := strings.ToLower(strings.TrimSpace(dataType))
+	colType := strings.ToLower(strings.TrimSpace(columnType))
+	unsigned := strings.Contains(colType, "unsigned")
+
+	switch data {
+	case "bool", "boolean":
+		return DDLColumnType{Kind: DDLColumnKindBool}, nil
+	case "tinyint":
+		if strings.HasPrefix(colType, "tinyint(1)") {
+			return DDLColumnType{Kind: DDLColumnKindBool}, nil
+		}
+
+		return DDLColumnType{Kind: DDLColumnKindInt, Bits: 8, Unsigned: unsigned}, nil
+	case "smallint":
+		return DDLColumnType{Kind: DDLColumnKindInt, Bits: 16, Unsigned: unsigned}, nil
+	case "int", "integer", "mediumint":
+		return DDLColumnType{Kind: DDLColumnKindInt, Bits: 32, Unsigned: unsigned}, nil
+	case "bigint":
+		return DDLColumnType{Kind: DDLColumnKindInt, Bits: 64, Unsigned: unsigned}, nil
+	case "float":
+		return DDLColumnType{Kind: DDLColumnKindFloat, Bits: 32}, nil
+	case "double", "double precision", "decimal", "numeric":
+		return DDLColumnType{Kind: DDLColumnKindFloat, Bits: 64}, nil
+	case "blob", "tinyblob", "mediumblob", "longblob":
+		return DDLColumnType{Kind: DDLColumnKindBytes}, nil
+	case "varchar", "char":
+		result := DDLColumnType{Kind: DDLColumnKindString}
+		if size.Valid && size.Int64 > 0 {
+			result.Size = int(size.Int64)
+		}
+
+		return result, nil
+	case "text", "tinytext":
+		return DDLColumnType{Kind: DDLColumnKindString, Size: mysqlMaxVarcharChars + 1}, nil
+	case "mediumtext":
+		return DDLColumnType{Kind: DDLColumnKindString, Size: mysqlMaxVarcharChars + 1}, nil
+	case "longtext":
+		return DDLColumnType{Kind: DDLColumnKindString, Size: mysqlMaxMediumTextChars + 1}, nil
+	case "datetime", "timestamp", "date":
+		return DDLColumnType{Kind: DDLColumnKindTime}, nil
+	default:
+		return DDLColumnType{}, fmt.Errorf("unsupported mysql column type %q", dataType)
+	}
 }
 
 func (d MySQLDialect) DDLColumnType(desc DDLColumnType) string {

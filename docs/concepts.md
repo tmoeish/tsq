@@ -152,7 +152,7 @@ type UserOrder struct {
 如果你要用 TSQ 管理好的数据库上下文，直接把 `Runtime` 当 `SQLExecutor` 传进去即可：
 
 ```go
-rt, err := tsq.NewRuntime(db, dialect.SQLiteDialect{}, database.TSQTables())
+rt, err := tsq.NewRuntime("sqlite3", dsn, database.TSQTables())
 if err != nil {
 	panic(err)
 }
@@ -198,7 +198,7 @@ if err := rt.WithTx(ctx, nil, func(ctx context.Context, txExec tsq.SQLExecutor) 
 
 ## 7. `Runtime`：表 metadata 和隔离
 
-生成代码会额外产出一个包级 `TSQTables()`，把当前包全部表和声明索引整理成 metadata。`tsq.NewRuntime(...)` 会消费这份 metadata，并按 `RuntimeOptions.IndexMode` 决定是跳过、补齐还是校验这些索引。
+生成代码会额外产出一个包级 `TSQTables()`，把当前包全部表、列 schema 和声明索引整理成 metadata。`tsq.NewRuntime(...)` 会消费这份 metadata，并按 `RuntimeOptions.TablePolicy` / `RuntimeOptions.IndexPolicy` 决定是只提醒、校验、补齐、重建，还是在 TSQ 托管范围内做完全管理。
 
 如果你有这些需求，再关心 `Runtime`：
 
@@ -209,7 +209,7 @@ if err := rt.WithTx(ctx, nil, func(ctx context.Context, txExec tsq.SQLExecutor) 
 这时可以显式创建独立运行时：
 
 ```go
-rt, err := tsq.NewRuntime(db, dialect.SQLiteDialect{}, academy.TSQTables())
+rt, err := tsq.NewRuntime("sqlite3", dsn, academy.TSQTables())
 ```
 
 如果一个进程里有多个生成包共用同一个数据库，把各包的 `TSQTables()` 拼起来再传给一个 `Runtime` 即可；如果是多个数据库，就各自构造各自的 `Runtime`。
@@ -218,10 +218,13 @@ rt, err := tsq.NewRuntime(db, dialect.SQLiteDialect{}, academy.TSQTables())
 
 ```go
 rt, err := tsq.NewRuntime(
-	db,
-	dialect.SQLiteDialect{},
+	"sqlite3",
+	dsn,
 	academy.TSQTables(),
-	&tsq.RuntimeOptions{IndexMode: tsq.IndexInitUpsert},
+	&tsq.RuntimeOptions{
+		TablePolicy: tsq.SchemaPolicyCreateMissing,
+		IndexPolicy: tsq.SchemaPolicyCreateMissing,
+	},
 )
 ```
 

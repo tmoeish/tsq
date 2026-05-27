@@ -42,6 +42,9 @@ type Dialect interface {
 	ValidateIdentifier(identifier string) error
 	SupportsCapability(capability Capability) bool
 	BatchInsertStartID(lastID, rowsAffected int64) (int64, bool)
+	ListTables(ctx context.Context, db Executor) ([]string, error)
+	InspectTableColumns(ctx context.Context, db Executor, table string) ([]DDLColumnSpec, bool, error)
+	ListIndexes(ctx context.Context, db Executor, table string) ([]NamedIndexDefinition, error)
 	EnsureIndex(ctx context.Context, db Executor, table string, unique bool, idx string, fields []string) (string, error)
 	InspectIndexDefinition(ctx context.Context, db Executor, table, idx string) (IndexDefinition, bool, error)
 	DDLColumnType(desc DDLColumnType) string
@@ -112,6 +115,15 @@ type IndexDefinition struct {
 	Table  string
 	Unique bool
 	Fields []string
+}
+
+type NamedIndexDefinition struct {
+	Name       string
+	Table      string
+	Unique     bool
+	Fields     []string
+	PrimaryKey bool
+	Constraint bool
 }
 
 // ErrUnsupportedCapability reports that a dialect cannot perform a requested capability.
@@ -191,6 +203,19 @@ func validateDialectIdentifier(identifier string, dialect Name, maxLen int) erro
 	}
 
 	return nil
+}
+
+func normalizeDDLDefault(value sql.NullString) string {
+	if !value.Valid {
+		return ""
+	}
+
+	return strings.TrimSpace(value.String)
+}
+
+func withDDLNullable(desc DDLColumnType, nullable bool) DDLColumnType {
+	desc.Nullable = nullable
+	return desc
 }
 
 func canonicalCapabilityName(operation string) Capability {

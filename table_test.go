@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"path/filepath"
 	"testing"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -88,10 +89,11 @@ func TestBuildRegisteredTablesReturnsDeterministicOrder(t *testing.T) {
 	}
 }
 
-func newSQLiteIndexTestEngine(t *testing.T) *Runtime {
+func newSQLiteIndexTestEngine(t *testing.T) (*Runtime, string) {
 	t.Helper()
 
-	db, err := sql.Open("sqlite3", ":memory:")
+	dsn := filepath.Join(t.TempDir(), "test.db")
+	db, err := sql.Open("sqlite3", dsn)
 	if err != nil {
 		t.Fatalf("failed to open sqlite database: %v", err)
 	}
@@ -99,12 +101,12 @@ func newSQLiteIndexTestEngine(t *testing.T) *Runtime {
 		_ = db.Close()
 	})
 
-	return newRuntimeWithDB(db, SQLiteDialect{})
+	return newRuntimeWithDB(db, SQLiteDialect{}), dsn
 }
 
 func TestCurrentDialectDetection(t *testing.T) {
-	db := newSQLiteIndexTestEngine(t)
-	r, err := NewRuntime(db.DB(), db.SQLDialect(), nil)
+	_, dsn := newSQLiteIndexTestEngine(t)
+	r, err := NewRuntime("sqlite3", dsn, nil)
 	if err != nil {
 		t.Fatalf("NewRuntime() error = %v", err)
 	}
@@ -119,8 +121,8 @@ func TestCurrentDialectDetection(t *testing.T) {
 }
 
 func TestRuntimeEngineAccess(t *testing.T) {
-	db := newSQLiteIndexTestEngine(t)
-	r, err := NewRuntime(db.DB(), db.SQLDialect(), nil)
+	db, dsn := newSQLiteIndexTestEngine(t)
+	r, err := NewRuntime("sqlite3", dsn, nil)
 	if err != nil {
 		t.Fatalf("NewRuntime() error = %v", err)
 	}
@@ -129,42 +131,42 @@ func TestRuntimeEngineAccess(t *testing.T) {
 	if currentDB == nil {
 		t.Errorf("expected non-nil DB after NewRuntime, got nil")
 	}
-	if currentDB != db.DB() || r.SQLDialect() != db.SQLDialect() {
-		t.Errorf("expected runtime to return same underlying DB and dialect")
+	if r.SQLDialect() == nil || r.SQLDialect().Name() != db.SQLDialect().Name() {
+		t.Errorf("expected runtime to resolve the same dialect")
 	}
 }
 
 func TestNewRuntimeFailsOnStrictValidation(t *testing.T) {
-	failingDB := newSQLiteIndexTestEngine(t)
-	failingDB.dialect = MySQLDialect{}
 	longTableName := firstRejectedIdentifier(t, MySQLDialect{}, "u")
+	runtime := &Runtime{
+		db:      &sql.DB{},
+		dialect: MySQLDialect{},
+		tables: []*registeredTable{{
+			Table: newMockTable(longTableName),
+		}},
+	}
 
-	_, err := NewRuntime(
-		failingDB.DB(),
-		failingDB.SQLDialect(),
-		[]TableRegistration{{Table: newMockTable(longTableName)}},
-		&RuntimeOptions{IndexMode: IndexInitSkip, IdentifierValidationMode: "strict"},
-	)
+	err := runtime.validateRegisteredTableIdentifiers("strict")
 	if err == nil {
 		t.Fatal("expected strict identifier validation to fail")
 	}
 }
 
 func TestNewRuntimeFailsOnMissingRegisteredIndex(t *testing.T) {
-	failingDB := newSQLiteIndexTestEngine(t)
+	failingDB, dsn := newSQLiteIndexTestEngine(t)
 	if _, err := failingDB.DB().ExecContext(context.Background(), "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)"); err != nil {
 		t.Fatalf("failed to create users table: %v", err)
 	}
 
 	table, _ := newStrictMockTable("users", "name")
 	_, err := NewRuntime(
-		failingDB.DB(),
-		failingDB.SQLDialect(),
+		"sqlite3",
+		dsn,
 		[]TableRegistration{{
 			Table:   table,
 			Indexes: []TableIndex{{Name: "ux_users_name", Fields: []string{"name"}, Unique: true}},
 		}},
-		&RuntimeOptions{IndexMode: IndexInitValidate},
+		&RuntimeOptions{IndexPolicy: SchemaPolicyValidate},
 	)
 	if err == nil {
 		t.Fatal("expected missing registered index to fail NewRuntime")

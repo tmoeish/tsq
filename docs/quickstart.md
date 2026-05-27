@@ -78,40 +78,35 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"log"
 
 	_ "github.com/mattn/go-sqlite3"
 
 	"github.com/tmoeish/tsq/v4"
-	"github.com/tmoeish/tsq/v4/dialect"
 	"example.com/tsq-quickstart/database"
 )
 
 func main() {
 	ctx := context.Background()
 
-	db, err := sql.Open("sqlite3", ":memory:")
+	runtime, err := tsq.NewRuntime(
+		"sqlite3",
+		"file:quickstart.db?cache=shared",
+		database.TSQTables(),
+		&tsq.RuntimeOptions{
+			TablePolicy: tsq.SchemaPolicyCreateMissing,
+			IndexPolicy: tsq.SchemaPolicyCreateMissing,
+		},
+	)
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer db.Close()
 
-	if _, err := db.Exec(`
-CREATE TABLE user (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  name VARCHAR(255) NOT NULL,
-  email VARCHAR(255) NOT NULL
-);
+	if _, err := runtime.DB().Exec(`
 INSERT INTO user (name, email) VALUES
   ('Alice', 'alice@example.com'),
   ('Bob', 'bob@example.com');
 `); err != nil {
-		log.Fatal(err)
-	}
-
-	runtime, err := tsq.NewRuntime(db, dialect.SQLiteDialect{}, database.TSQTables())
-	if err != nil {
 		log.Fatal(err)
 	}
 
@@ -140,6 +135,8 @@ go run .
 ```
 
 你应该能看到至少一条包含 `Alice` 的结果。
+
+这里用的是 `SchemaPolicyCreateMissing`，所以 runtime 启动时会按 `TSQTables()` 自动创建缺失表和索引；如果你不传策略，默认是 manual，只会打日志提醒你自己管理 schema。
 
 补充一点：如果你的 Go 字段是 `string` 且 `db` tag 没写 `size`，TSQ 生成 DDL 时会默认用 `VARCHAR(255)`；只有显式写更大的 `size` 时，才会按方言升级到更大的文本类型。
 

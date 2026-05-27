@@ -97,7 +97,11 @@ func buildGenerationModels(
 		models = append(models, model)
 	}
 
-	runtimeModel := buildPackageRuntimeModel(list, dir, runtimeTpl)
+	runtimeModel, err := buildPackageRuntimeModel(list, dir, runtimeTpl)
+	if err != nil {
+		return nil, err
+	}
+
 	if runtimeModel != nil {
 		models = append(models, *runtimeModel)
 	}
@@ -109,9 +113,9 @@ func buildPackageRuntimeModel(
 	list []*genmodel.StructInfo,
 	dir string,
 	runtimeTpl *template.Template,
-) *generationModel {
+) (*generationModel, error) {
 	if runtimeTpl == nil {
-		return nil
+		return nil, nil
 	}
 
 	tables := make([]*genmodel.StructInfo, 0, len(list))
@@ -124,7 +128,7 @@ func buildPackageRuntimeModel(
 	}
 
 	if len(tables) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	sort.Slice(tables, func(i, j int) bool {
@@ -135,16 +139,61 @@ func buildPackageRuntimeModel(
 		return tables[i].Table < tables[j].Table
 	})
 
+	resolver, err := newDDLTypeResolver(tables[0].TypeInfo.Package.Path, dir)
+	if err != nil {
+		return nil, err
+	}
+
+	templateTables := make([]runtimeTableTemplateData, 0, len(tables))
+	for _, table := range tables {
+		schemaColumns, err := buildRuntimeSchemaColumns(table, resolver)
+		if err != nil {
+			return nil, fmt.Errorf("build runtime schema columns for %s: %w", table.TypeInfo.TypeName, err)
+		}
+
+		templateTables = append(templateTables, runtimeTableTemplateData{
+			StructInfo:    table,
+			SchemaColumns: schemaColumns,
+		})
+	}
+
 	return &generationModel{
 		Data: packageRuntimeTemplateData{
 			Package:    tables[0].TypeInfo.Package,
-			Tables:     tables,
+			Tables:     templateTables,
 			TSQVersion: tables[0].TSQVersion,
 		},
 		Template:   runtimeTpl,
 		Filename:   filepath.Join(dir, "runtime_tsq.go"),
 		ErrorLabel: "runtime template rendering failed",
+	}, nil
+}
+
+func buildRuntimeSchemaColumns(
+	table *genmodel.StructInfo,
+	resolver *ddlTypeResolver,
+) ([]runtimeColumnTemplateData, error) {
+	columns := make([]runtimeColumnTemplateData, 0, len(table.Fields))
+	for _, field := range orderedDDLFields(table) {
+		desc, err := resolver.describeField(table, field)
+		if err != nil {
+			return nil, err
+		}
+
+		columns = append(columns, runtimeColumnTemplateData{
+			Name:          field.Column,
+			Kind:          string(desc.kind),
+			Bits:          desc.bits,
+			Unsigned:      desc.unsigned,
+			Nullable:      desc.nullable,
+			Size:          desc.size,
+			PrimaryKey:    field.Name == table.PK,
+			AutoIncrement: field.Name == table.PK && table.AI,
+			Default:       ddlManagedDefaultClause(table, field, desc),
+		})
 	}
+
+	return columns, nil
 }
 
 func summarizeGenerationModels(models []generationModel) generationStats {

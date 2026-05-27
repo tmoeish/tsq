@@ -1,14 +1,14 @@
 package academy
 
 import (
-	"database/sql"
 	_ "embed"
 	"fmt"
+	"os"
+	"path/filepath"
 
 	_ "github.com/mattn/go-sqlite3"
 
 	"github.com/tmoeish/tsq/v4"
-	tsqdialect "github.com/tmoeish/tsq/v4/dialect"
 )
 
 //go:embed mock.sql
@@ -16,24 +16,38 @@ var mockSQL string
 
 // OpenSQLiteExampleDB opens the in-memory Academy example database and seeds it.
 func OpenSQLiteExampleDB() (*tsq.Runtime, func(), error) {
-	db, err := sql.Open("sqlite3", ":memory:")
+	dir, err := os.MkdirTemp("", "tsq-academy-*")
 	if err != nil {
 		return nil, nil, err
 	}
+	dsn := filepath.Join(dir, "academy.db")
 
-	cleanup := func() {
-		_ = db.Close()
+	baseCleanup := func() {
+		_ = os.RemoveAll(dir)
 	}
 
-	if _, err := db.Exec(mockSQL); err != nil {
-		cleanup()
+	db, err := tsq.NewRuntime("sqlite3", dsn, nil)
+	if err != nil {
+		baseCleanup()
+		return nil, nil, err
+	}
+
+	if _, err := db.DB().Exec(mockSQL); err != nil {
+		baseCleanup()
 		return nil, nil, fmt.Errorf("%s: %w", "seed mock.sql", err)
 	}
+	_ = db.DB().Close()
 
-	runtime, err := tsq.NewRuntime(db, tsqdialect.SQLiteDialect{}, TSQTables(), &tsq.RuntimeOptions{IndexMode: tsq.IndexInitUpsert})
+	runtime, err := tsq.NewRuntime("sqlite3", dsn, TSQTables(), &tsq.RuntimeOptions{IndexPolicy: tsq.SchemaPolicyCreateMissing})
 	if err != nil {
-		cleanup()
+		baseCleanup()
 		return nil, nil, fmt.Errorf("%s: %w", "init tsq runtime", err)
+	}
+
+	cleanup := func() {
+		_ = runtime.DB().Close()
+
+		baseCleanup()
 	}
 
 	return runtime, cleanup, nil

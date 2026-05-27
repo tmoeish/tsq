@@ -3,10 +3,13 @@ package tsq
 import (
 	"fmt"
 	"sort"
+
+	tsqdialect "github.com/tmoeish/tsq/v4/dialect"
 )
 
 type registeredTable struct {
 	Table
+	Columns []tsqdialect.DDLColumnSpec
 	Indexes []TableIndex
 }
 
@@ -30,6 +33,10 @@ func buildRegisteredTables(registrations []TableRegistration) ([]*registeredTabl
 			return nil, err
 		}
 
+		if err := validateRegisteredColumns(table, registration.Columns); err != nil {
+			return nil, err
+		}
+
 		key := registeredTableKey(table)
 		if _, exists := tables[key]; exists {
 			return nil, &RegistrationError{
@@ -41,6 +48,7 @@ func buildRegisteredTables(registrations []TableRegistration) ([]*registeredTabl
 
 		tables[key] = &registeredTable{
 			Table:   table,
+			Columns: cloneDDLColumnSpecs(registration.Columns),
 			Indexes: cloneTableIndexes(registration.Indexes),
 		}
 	}
@@ -143,4 +151,61 @@ func cloneTableIndexes(indexes []TableIndex) []TableIndex {
 	}
 
 	return result
+}
+
+func validateRegisteredColumns(table Table, columns []tsqdialect.DDLColumnSpec) error {
+	if len(columns) == 0 {
+		return nil
+	}
+
+	tableName := physicalTableName(table)
+
+	availableColumns := make(map[string]struct{}, len(table.Cols()))
+	for _, col := range table.Cols() {
+		if col == nil {
+			continue
+		}
+
+		availableColumns[col.OutputName()] = struct{}{}
+	}
+
+	seen := make(map[string]struct{}, len(columns))
+	for _, column := range columns {
+		if err := validateBuiltInIdentifier(column.Name); err != nil {
+			return &RegistrationError{
+				Type:      RegistrationErrorInvalidIndex,
+				TableName: tableName,
+				Message:   fmt.Sprintf("invalid column %q on table %s: %v", column.Name, tableName, err),
+			}
+		}
+
+		if _, ok := availableColumns[column.Name]; !ok {
+			return &RegistrationError{
+				Type:      RegistrationErrorInvalidIndex,
+				TableName: tableName,
+				Message:   fmt.Sprintf("column %q on table %s is not exposed by Cols()", column.Name, tableName),
+			}
+		}
+
+		if _, ok := seen[column.Name]; ok {
+			return &RegistrationError{
+				Type:      RegistrationErrorInvalidIndex,
+				TableName: tableName,
+				Message:   fmt.Sprintf("column %q on table %s is declared more than once", column.Name, tableName),
+			}
+		}
+		seen[column.Name] = struct{}{}
+	}
+
+	return nil
+}
+
+func cloneDDLColumnSpecs(columns []tsqdialect.DDLColumnSpec) []tsqdialect.DDLColumnSpec {
+	if len(columns) == 0 {
+		return nil
+	}
+
+	result := make([]tsqdialect.DDLColumnSpec, 0, len(columns))
+
+	return append(result, columns...)
 }

@@ -6,7 +6,6 @@ import (
 	"database/sql/driver"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
 
 	tsqdialect "github.com/tmoeish/tsq/v4/dialect"
@@ -15,27 +14,29 @@ import (
 // Runtime owns the initialized TSQ process state used for execution, index setup,
 // identifier validation, and tracing.
 type Runtime struct {
-	tables        []*registeredTable
-	tracers       []Tracer
-	db            *sql.DB
-	dialect       tsqdialect.Dialect
-	indexInitMode IndexInitMode
+	tables      []*registeredTable
+	tracers     []Tracer
+	db          *sql.DB
+	dialect     tsqdialect.Dialect
+	tablePolicy SchemaPolicy
+	indexPolicy SchemaPolicy
+	logger      Logger
 }
 
-// NewRuntime constructs an initialized runtime for one database connection and
-// the provided table metadata.
+// NewRuntime opens a database connection, resolves the SQL dialect from driverName,
+// and constructs an initialized runtime for the provided table metadata.
 func NewRuntime(
-	db *sql.DB,
-	sqlDialect tsqdialect.Dialect,
+	driverName string,
+	dsn string,
 	tables []TableRegistration,
 	options ...*RuntimeOptions,
 ) (*Runtime, error) {
-	if db == nil {
-		return nil, errors.New("database connection cannot be nil")
+	if driverName == "" {
+		return nil, errors.New("driver name cannot be empty")
 	}
 
-	if sqlDialect == nil {
-		return nil, errors.New("dialect cannot be nil")
+	if dsn == "" {
+		return nil, errors.New("dsn cannot be empty")
 	}
 
 	registeredTables, err := buildRegisteredTables(tables)
@@ -52,17 +53,41 @@ func NewRuntime(
 		opts = &RuntimeOptions{}
 	}
 
-	indexMode := resolveIndexInitMode(opts)
-	if err := validateIndexInitMode(indexMode); err != nil {
+	tablePolicy := resolveSchemaPolicy(opts.TablePolicy)
+	if err := validateSchemaPolicy(tablePolicy); err != nil {
 		return nil, err
 	}
 
+	indexPolicy := resolveSchemaPolicy(opts.IndexPolicy)
+	if indexPolicy == SchemaPolicyManual && opts.IndexMode != "" {
+		indexPolicy = resolveSchemaPolicy(opts.IndexMode)
+	}
+
+	if err := validateSchemaPolicy(indexPolicy); err != nil {
+		return nil, err
+	}
+
+	db, sqlDialect, err := openRuntimeDB(driverName, dsn)
+	if err != nil {
+		return nil, err
+	}
+
+	cleanup := true
+
+	defer func() {
+		if cleanup {
+			_ = db.Close()
+		}
+	}()
+
 	runtime := &Runtime{
-		tables:        registeredTables,
-		tracers:       appendUniqueTracers(nil, opts.Tracers...),
-		db:            db,
-		dialect:       sqlDialect,
-		indexInitMode: indexMode,
+		tables:      registeredTables,
+		tracers:     appendUniqueTracers(nil, opts.Tracers...),
+		db:          db,
+		dialect:     sqlDialect,
+		tablePolicy: tablePolicy,
+		indexPolicy: indexPolicy,
+		logger:      resolveRuntimeLogger(opts),
 	}
 
 	if opts.IdentifierValidationMode != "skip" {
@@ -71,20 +96,15 @@ func NewRuntime(
 				return nil, err
 			}
 
-			slog.Warn("identifier validation warning during runtime bootstrap", "error", err)
+			runtime.warn("identifier validation warning during runtime bootstrap", "error", err)
 		}
 	}
 
-	if indexMode != IndexInitSkip {
-		for _, table := range runtime.tables {
-			tableName := physicalTableName(table.Table)
-			for _, index := range table.Indexes {
-				if err := upsertIndex(runtime.db, runtime.dialect, runtime.indexInitMode, tableName, index.Unique, index.Name, index.Fields); err != nil {
-					return nil, fmt.Errorf("failed to initialize index %s on table %s: %w", index.Name, tableName, err)
-				}
-			}
-		}
+	if err := runtime.applySchemaPolicies(context.Background()); err != nil {
+		return nil, err
 	}
+
+	cleanup = false
 
 	return runtime, nil
 }

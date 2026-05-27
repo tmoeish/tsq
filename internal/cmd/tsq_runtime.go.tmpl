@@ -6,15 +6,47 @@ import (
 	"encoding/json"
 
 	"github.com/tmoeish/tsq/v4"
+	tsqdialect "github.com/tmoeish/tsq/v4/dialect"
 )
 
 // TSQTables returns all generated table registrations for this package.
 func TSQTables() []tsq.TableRegistration {
 	return []tsq.TableRegistration{
 {{- range .Tables }}
-	{{- $table := . }}
+	{{- $table := .StructInfo }}
 		{
 			Table: Table{{.TypeInfo.TypeName}},
+			Columns: []tsqdialect.DDLColumnSpec{
+	{{- range .SchemaColumns }}
+				{
+					Name: "{{ .Name }}",
+					Type: tsqdialect.DDLColumnType{
+						Kind: tsqdialect.DDLColumnKind{{ UpperInitial .Kind }},
+			{{- if .Bits }}
+						Bits: {{ .Bits }},
+			{{- end }}
+			{{- if .Unsigned }}
+						Unsigned: true,
+			{{- end }}
+			{{- if .Nullable }}
+						Nullable: true,
+			{{- end }}
+			{{- if .Size }}
+						Size: {{ .Size }},
+			{{- end }}
+					},
+			{{- if .PrimaryKey }}
+					PrimaryKey: true,
+			{{- end }}
+			{{- if .AutoIncrement }}
+					AutoIncrement: true,
+			{{- end }}
+			{{- if .Default }}
+					Default: {{ printf "%q" .Default }},
+			{{- end }}
+				},
+	{{- end }}
+			},
 {{- if or .UxList .IdxList }}
 			Indexes: []tsq.TableIndex{
 	{{- if .UxList }}

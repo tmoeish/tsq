@@ -64,8 +64,25 @@ func init() {
 
 type packageRuntimeTemplateData struct {
 	Package    genmodel.PackageInfo
-	Tables     []*genmodel.StructInfo
+	Tables     []runtimeTableTemplateData
 	TSQVersion string
+}
+
+type runtimeTableTemplateData struct {
+	*genmodel.StructInfo
+	SchemaColumns []runtimeColumnTemplateData
+}
+
+type runtimeColumnTemplateData struct {
+	Name          string
+	Kind          string
+	Bits          int
+	Unsigned      bool
+	Nullable      bool
+	Size          int
+	PrimaryKey    bool
+	AutoIncrement bool
+	Default       string
 }
 
 // GenCmd generates tsq table, result, and DDL artifacts for a package.

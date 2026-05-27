@@ -7,6 +7,23 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 项目遵循 [语义化版本控制](https://semver.org/lang/zh-CN/)。
 
+## [4.1.18] - 2026-05-27
+
+### 变更 (Breaking Changes)
+- **Runtime 构造签名调整**: `NewRuntime` 现在改为 `NewRuntime(driverName, dsn, tables, ...options)`，运行时会自行打开数据库并按 driver 解析 dialect。
+- **Schema 管理策略重命名**: 运行时 schema 管理改为 `SchemaPolicy`，通过 `RuntimeOptions.TablePolicy` / `RuntimeOptions.IndexPolicy` 控制；旧 `IndexInit*` 名称仅保留为兼容别名。
+
+### 新增
+- **表管理策略**: 新增表级 `Manual / Validate / CreateMissing / Reconcile / Managed` 五档策略。
+- **索引托管增强**: 索引支持缺失创建、定义不一致重建，以及仅在 TSQ 托管范围内清理未声明索引。
+- **运行时 schema 元数据**: 生成的 `TSQTables()` 现在同时携带列 schema 与索引声明，供 runtime 直接做校验和 DDL 协调。
+- **DDL 日志**: runtime 启动期间会明确记录 manual 提醒和实际执行的 DDL 语句。
+
+### 改进
+- **Dialect 检查能力增强**: SQLite / MySQL / PostgreSQL 新增表、列、索引检查能力，支持 runtime schema 对账。
+- **示例与文档同步**: README、quickstart、concepts、skill references、academy 示例全部更新到新 runtime API 和 schema policy 模型。
+- **测试覆盖扩展**: 新增表创建、表 reconcile、managed 索引清理、仅删除 TSQ 托管表等回归测试。
+
 ## [4.1.16] - 2026-05-25
 
 ### 改进

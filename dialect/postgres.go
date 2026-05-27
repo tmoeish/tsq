@@ -55,6 +55,37 @@ func (d PostgresDialect) AllTablesQuery() string {
 	return "SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema()"
 }
 
+func (d PostgresDialect) ListTables(ctx context.Context, db Executor) ([]string, error) {
+	rows, err := db.QueryContext(ctx, `
+		SELECT table_name
+		FROM information_schema.tables
+		WHERE table_schema = current_schema() AND table_type = 'BASE TABLE'
+		ORDER BY table_name`)
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() {
+		_ = rows.Close()
+	}()
+
+	var tables []string
+
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		tables = append(tables, name)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return tables, nil
+}
+
 func (d PostgresDialect) CreateTableIfNotExistsSuffix() string {
 	return "IF NOT EXISTS"
 }
@@ -90,6 +121,132 @@ func (d PostgresDialect) SupportsCapability(capability Capability) bool {
 
 func (d PostgresDialect) BatchInsertStartID(lastID, rowsAffected int64) (int64, bool) {
 	return 0, false
+}
+
+func (d PostgresDialect) InspectTableColumns(ctx context.Context, db Executor, table string) ([]DDLColumnSpec, bool, error) {
+	rows, err := db.QueryContext(ctx, `
+		SELECT
+			c.column_name,
+			c.data_type,
+			c.udt_name,
+			c.is_nullable,
+			c.column_default,
+			c.character_maximum_length,
+			EXISTS (
+				SELECT 1
+				FROM pg_index i
+				JOIN pg_class t ON t.oid = i.indrelid
+				JOIN pg_namespace ns ON ns.oid = t.relnamespace
+				JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(i.indkey)
+				WHERE ns.nspname = current_schema()
+					AND t.relname = c.table_name
+					AND a.attname = c.column_name
+					AND i.indisprimary
+			) AS is_primary
+		FROM information_schema.columns c
+		WHERE c.table_schema = current_schema() AND c.table_name = $1
+		ORDER BY c.ordinal_position`,
+		table,
+	)
+	if err != nil {
+		return nil, false, err
+	}
+
+	defer func() {
+		_ = rows.Close()
+	}()
+
+	type row struct {
+		Name    string
+		Data    string
+		UDT     string
+		Null    string
+		Default sql.NullString
+		Size    sql.NullInt64
+		Primary bool
+	}
+
+	columns := make([]DDLColumnSpec, 0)
+
+	for rows.Next() {
+		var item row
+		if err := rows.Scan(&item.Name, &item.Data, &item.UDT, &item.Null, &item.Default, &item.Size, &item.Primary); err != nil {
+			return nil, false, err
+		}
+
+		desc, err := parsePostgresDDLColumnType(item.Data, item.UDT, item.Size)
+		if err != nil {
+			return nil, false, fmt.Errorf("inspect postgres column %s.%s: %w", table, item.Name, err)
+		}
+
+		defaultValue := normalizeDDLDefault(item.Default)
+		columns = append(columns, DDLColumnSpec{
+			Name:          item.Name,
+			Type:          withDDLNullable(desc, strings.EqualFold(item.Null, "YES") && !item.Primary),
+			PrimaryKey:    item.Primary,
+			AutoIncrement: strings.HasPrefix(defaultValue, "nextval("),
+			Default:       defaultValue,
+		})
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, false, err
+	}
+
+	if len(columns) == 0 {
+		return nil, false, nil
+	}
+
+	return columns, true, nil
+}
+
+func (d PostgresDialect) ListIndexes(ctx context.Context, db Executor, table string) ([]NamedIndexDefinition, error) {
+	rows, err := db.QueryContext(ctx, `
+		SELECT
+			idx.relname AS index_name,
+			i.indisunique AS is_unique,
+			i.indisprimary AS is_primary,
+			COALESCE(c.oid IS NOT NULL, false) AS is_constraint,
+			STRING_AGG(a.attname, ',' ORDER BY ord.ord) AS columns_csv
+		FROM pg_class t
+		JOIN pg_namespace ns ON ns.oid = t.relnamespace
+		JOIN pg_index i ON i.indrelid = t.oid
+		JOIN pg_class idx ON idx.oid = i.indexrelid
+		JOIN UNNEST(i.indkey) WITH ORDINALITY AS ord(attnum, ord) ON TRUE
+		JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ord.attnum
+		LEFT JOIN pg_constraint c ON c.conindid = idx.oid
+		WHERE ns.nspname = current_schema() AND t.relname = $1
+		GROUP BY idx.relname, i.indisunique, i.indisprimary, c.oid
+		ORDER BY idx.relname`,
+		table,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() {
+		_ = rows.Close()
+	}()
+
+	indexes := make([]NamedIndexDefinition, 0)
+
+	for rows.Next() {
+		var item NamedIndexDefinition
+
+		var columns sql.NullString
+		if err := rows.Scan(&item.Name, &item.Unique, &item.PrimaryKey, &item.Constraint, &columns); err != nil {
+			return nil, err
+		}
+		item.Table = table
+		item.Fields = parseColumnsCSV(columns.String)
+		indexes = append(indexes, item)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return indexes, nil
 }
 
 func (d PostgresDialect) EnsureIndex(ctx context.Context, db Executor, table string, unique bool, idx string, fields []string) (string, error) {
@@ -169,6 +326,69 @@ func (d PostgresDialect) InspectIndexDefinition(ctx context.Context, db Executor
 		Unique: existing.Unique,
 		Fields: parseColumnsCSV(existing.Columns.String),
 	}, true, nil
+}
+
+func parsePostgresDDLColumnType(dataType, udtName string, size sql.NullInt64) (DDLColumnType, error) {
+	data := strings.ToLower(strings.TrimSpace(dataType))
+	udt := strings.ToLower(strings.TrimSpace(udtName))
+
+	switch data {
+	case "boolean":
+		return DDLColumnType{Kind: DDLColumnKindBool}, nil
+	case "smallint":
+		return DDLColumnType{Kind: DDLColumnKindInt, Bits: 16}, nil
+	case "integer":
+		return DDLColumnType{Kind: DDLColumnKindInt, Bits: 32}, nil
+	case "bigint":
+		return DDLColumnType{Kind: DDLColumnKindInt, Bits: 64}, nil
+	case "real":
+		return DDLColumnType{Kind: DDLColumnKindFloat, Bits: 32}, nil
+	case "double precision", "numeric":
+		return DDLColumnType{Kind: DDLColumnKindFloat, Bits: 64}, nil
+	case "bytea":
+		return DDLColumnType{Kind: DDLColumnKindBytes}, nil
+	case "character varying", "character":
+		desc := DDLColumnType{Kind: DDLColumnKindString}
+		if size.Valid && size.Int64 > 0 {
+			desc.Size = int(size.Int64)
+		}
+
+		return desc, nil
+	case "text":
+		return DDLColumnType{Kind: DDLColumnKindString}, nil
+	case "timestamp without time zone", "timestamp with time zone", "date":
+		return DDLColumnType{Kind: DDLColumnKindTime}, nil
+	}
+
+	switch udt {
+	case "bool":
+		return DDLColumnType{Kind: DDLColumnKindBool}, nil
+	case "bytea":
+		return DDLColumnType{Kind: DDLColumnKindBytes}, nil
+	case "int2":
+		return DDLColumnType{Kind: DDLColumnKindInt, Bits: 16}, nil
+	case "int4":
+		return DDLColumnType{Kind: DDLColumnKindInt, Bits: 32}, nil
+	case "int8":
+		return DDLColumnType{Kind: DDLColumnKindInt, Bits: 64}, nil
+	case "float4":
+		return DDLColumnType{Kind: DDLColumnKindFloat, Bits: 32}, nil
+	case "float8":
+		return DDLColumnType{Kind: DDLColumnKindFloat, Bits: 64}, nil
+	case "varchar":
+		desc := DDLColumnType{Kind: DDLColumnKindString}
+		if size.Valid && size.Int64 > 0 {
+			desc.Size = int(size.Int64)
+		}
+
+		return desc, nil
+	case "text":
+		return DDLColumnType{Kind: DDLColumnKindString}, nil
+	case "timestamp", "timestamptz", "date":
+		return DDLColumnType{Kind: DDLColumnKindTime}, nil
+	default:
+		return DDLColumnType{}, fmt.Errorf("unsupported postgres column type %q (%q)", dataType, udtName)
+	}
 }
 
 func (d PostgresDialect) DDLColumnType(desc DDLColumnType) string {

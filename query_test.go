@@ -140,7 +140,7 @@ func TestQueryBuilder_Build_FullJoinDefersDialectValidationToExecution(t *testin
 	if err != nil {
 		t.Fatalf("expected FULL JOIN build to succeed, got %v", err)
 	}
-	db := newSQLiteIndexTestEngine(t)
+	db, _ := newSQLiteIndexTestEngine(t)
 	err = validateOperationalExecutorForSQL(db, query.listSQL)
 	if err == nil {
 		t.Fatal("expected sqlite dialect validation to reject FULL JOIN")
@@ -157,7 +157,7 @@ func TestQueryBuilder_Build_ForUpdateDefersDialectValidationToExecution(t *testi
 	if err != nil {
 		t.Fatalf("expected FOR UPDATE build to succeed, got %v", err)
 	}
-	db := newSQLiteIndexTestEngine(t)
+	db, _ := newSQLiteIndexTestEngine(t)
 	err = validateOperationalExecutorForSQL(db, query.listSQL)
 	if err == nil {
 		t.Fatal("expected sqlite dialect validation to reject FOR UPDATE")

@@ -75,18 +75,21 @@ Generated files are outputs. Change the source struct or annotation, then regene
 The shortest SQLite example:
 
 ```go
-db, err := sql.Open("sqlite3", ":memory:")
-if err != nil {
-	return err
-}
-
-runtime, err := tsq.NewRuntime(db, dialect.SQLiteDialect{}, database.TSQTables())
+runtime, err := tsq.NewRuntime(
+	"sqlite3",
+	"file:app.db?cache=shared",
+	database.TSQTables(),
+	&tsq.RuntimeOptions{
+		TablePolicy: tsq.SchemaPolicyCreateMissing,
+		IndexPolicy: tsq.SchemaPolicyCreateMissing,
+	},
+)
 if err != nil {
 	return err
 }
 ```
 
-If the target project already has a DB bootstrap path, integrate TSQ there instead of creating a second runtime path.
+`NewRuntime` opens the DB itself and resolves the dialect from `driverName`. If the target project already has a DB bootstrap path, integrate TSQ there instead of creating a second runtime path. If the project manages schema by migrations, omit the policies and keep the default manual mode.
 
 ## 6. Run a first query
 

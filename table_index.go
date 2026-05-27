@@ -9,77 +9,20 @@ import (
 	tsqdialect "github.com/tmoeish/tsq/v4/dialect"
 )
 
-// UpsertIndex ensures a declared index exists or validates it, depending on RuntimeOptions.
-func upsertIndex(db *sql.DB, sqlDialect tsqdialect.Dialect, indexInitMode IndexInitMode, table string, unique bool, idx string, fields []string) error {
-	if db == nil {
-		return errors.New("database connection cannot be nil")
+func resolveSchemaPolicy(policy SchemaPolicy) SchemaPolicy {
+	if policy == "" {
+		return SchemaPolicyManual
 	}
 
-	if sqlDialect == nil {
-		return errors.New("database dialect is required")
-	}
-
-	if err := validateIndexIdentifiers(table, idx, fields); err != nil {
-		return err
-	}
-
-	mode := effectiveIndexInitMode(indexInitMode)
-	if mode == IndexInitSkip {
-		return nil
-	}
-
-	definition, found, err := inspectIndexDefinition(db, sqlDialect, table, idx)
-	if err != nil {
-		return err
-	}
-
-	if found {
-		return validateIndexDefinition(table, unique, idx, fields, definition)
-	}
-
-	if mode == IndexInitValidate {
-		return &ErrIndexMissing{
-			Table:  table,
-			Name:   idx,
-			Fields: append([]string(nil), fields...),
-			Unique: unique,
-		}
-	}
-
-	_, err = sqlDialect.EnsureIndex(context.Background(), db, table, unique, idx, fields)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return policy
 }
 
-func effectiveIndexInitMode(mode IndexInitMode) IndexInitMode {
-	if mode == "" {
-		return IndexInitUpsert
-	}
-
-	return mode
-}
-
-func resolveIndexInitMode(options *RuntimeOptions) IndexInitMode {
-	if options == nil {
-		return IndexInitSkip
-	}
-
-	if options.IndexMode != "" {
-		return options.IndexMode
-	}
-
-	return IndexInitSkip
-}
-
-func validateIndexInitMode(mode IndexInitMode) error {
-	switch mode {
-	case IndexInitSkip, IndexInitUpsert, IndexInitValidate:
+func validateSchemaPolicy(policy SchemaPolicy) error {
+	switch policy {
+	case SchemaPolicyManual, SchemaPolicyValidate, SchemaPolicyCreateMissing, SchemaPolicyReconcile, SchemaPolicyManaged:
 		return nil
 	default:
-		return fmt.Errorf("invalid index init mode %q", mode)
+		return fmt.Errorf("invalid schema policy %q", policy)
 	}
 }
 
@@ -152,7 +95,7 @@ func validateIndexIdentifiers(table, idx string, fields []string) error {
 
 	for _, field := range fields {
 		if err := validateBuiltInIdentifier(field); err != nil {
-			return fmt.Errorf("invalid index field %s"+": %w", field, err)
+			return fmt.Errorf("invalid index field %s: %w", field, err)
 		}
 	}
 
@@ -165,4 +108,59 @@ func validateBuiltInIdentifier(name string) error {
 	}
 
 	return nil
+}
+
+func upsertIndex(
+	db *sql.DB,
+	sqlDialect tsqdialect.Dialect,
+	policy SchemaPolicy,
+	table string,
+	unique bool,
+	idx string,
+	fields []string,
+) error {
+	if db == nil {
+		return errors.New("database connection cannot be nil")
+	}
+
+	if sqlDialect == nil {
+		return errors.New("database dialect is required")
+	}
+
+	if err := validateIndexIdentifiers(table, idx, fields); err != nil {
+		return err
+	}
+
+	mode := resolveSchemaPolicy(policy)
+	if mode == SchemaPolicyManual {
+		return nil
+	}
+
+	definition, found, err := inspectIndexDefinition(db, sqlDialect, table, idx)
+	if err != nil {
+		return err
+	}
+
+	if found {
+		if err := validateIndexDefinition(table, unique, idx, fields, definition); err == nil || mode == SchemaPolicyValidate || mode == SchemaPolicyCreateMissing {
+			return err
+		}
+
+		if _, err := db.ExecContext(context.Background(), sqlDialect.DDLDropIndex(table, idx)); err != nil {
+			return err
+		}
+	}
+
+	if !found && mode == SchemaPolicyValidate {
+		return &ErrIndexMissing{
+			Table:  table,
+			Name:   idx,
+			Fields: append([]string(nil), fields...),
+			Unique: unique,
+		}
+	}
+
+	_, err = sqlDialect.EnsureIndex(context.Background(), db, table, unique, idx, fields)
+
+	return err
 }

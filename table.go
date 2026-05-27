@@ -1,6 +1,12 @@
 package tsq
 
-import "fmt"
+import (
+	"context"
+	"fmt"
+	"log/slog"
+
+	tsqdialect "github.com/tmoeish/tsq/v4/dialect"
+)
 
 // RegistrationErrorType identifies a table-registration failure category.
 type RegistrationErrorType string
@@ -14,16 +20,32 @@ const (
 	RegistrationErrorDuplicate RegistrationErrorType = "duplicate"
 )
 
-// IndexInitMode controls how tsq handles declared indexes during Init.
-type IndexInitMode string
+// SchemaPolicy controls how TSQ manages declared schema objects during runtime bootstrap.
+type SchemaPolicy string
 
 const (
-	// IndexInitSkip leaves declared indexes untouched.
-	IndexInitSkip IndexInitMode = "skip"
-	// IndexInitUpsert creates missing declared indexes when possible.
-	IndexInitUpsert IndexInitMode = "upsert"
-	// IndexInitValidate fails when a declared index is missing or mismatched.
-	IndexInitValidate IndexInitMode = "validate"
+	// SchemaPolicyManual leaves declared objects untouched and only logs a reminder.
+	SchemaPolicyManual SchemaPolicy = "manual"
+	// SchemaPolicyValidate fails when a declared object is missing or mismatched.
+	SchemaPolicyValidate SchemaPolicy = "validate"
+	// SchemaPolicyCreateMissing creates missing declared objects but still fails on mismatches.
+	SchemaPolicyCreateMissing SchemaPolicy = "create_missing"
+	// SchemaPolicyReconcile creates missing declared objects and reconciles mismatches.
+	SchemaPolicyReconcile SchemaPolicy = "reconcile"
+	// SchemaPolicyManaged reconciles declared objects and removes TSQ-managed extras.
+	SchemaPolicyManaged SchemaPolicy = "managed"
+)
+
+// IndexInitMode is kept as a deprecated alias for SchemaPolicy during the policy rename.
+type IndexInitMode = SchemaPolicy
+
+const (
+	// IndexInitSkip is deprecated; use SchemaPolicyManual.
+	IndexInitSkip = SchemaPolicyManual
+	// IndexInitValidate is deprecated; use SchemaPolicyValidate.
+	IndexInitValidate = SchemaPolicyValidate
+	// IndexInitUpsert is deprecated; use SchemaPolicyCreateMissing.
+	IndexInitUpsert = SchemaPolicyCreateMissing
 )
 
 // TableIndex declares one physical index owned by a registered table.
@@ -35,8 +57,9 @@ type TableIndex struct {
 
 // TableRegistration describes one table plus its declared indexes for runtime bootstrap.
 type TableRegistration struct {
-	Table   Table        // Table is the physical table metadata.
-	Indexes []TableIndex // Indexes declares the indexes owned by Table.
+	Table   Table                      // Table is the physical table metadata.
+	Columns []tsqdialect.DDLColumnSpec // Columns declares the physical column schema owned by Table.
+	Indexes []TableIndex               // Indexes declares the indexes owned by Table.
 }
 
 // ErrIndexMissing reports that an expected index was not found.
@@ -54,10 +77,27 @@ func (e *ErrIndexMissing) Error() string {
 	}
 
 	return fmt.Sprintf(
-		"index %s on table %s is missing; expected fields %v; use RuntimeOptions{IndexMode: IndexInitUpsert} or create the index in your migration",
+		"index %s on table %s is missing; expected fields %v; use RuntimeOptions{IndexPolicy: SchemaPolicyCreateMissing} or create the index in your migration",
 		e.Name,
 		e.Table,
 		e.Fields,
+	)
+}
+
+// ErrTableMissing reports that an expected table was not found.
+type ErrTableMissing struct {
+	Name string // Name is the expected physical table name.
+}
+
+// Error implements error.
+func (e *ErrTableMissing) Error() string {
+	if e == nil {
+		return ""
+	}
+
+	return fmt.Sprintf(
+		"table %s is missing; use RuntimeOptions{TablePolicy: SchemaPolicyCreateMissing} or create the table in your migration",
+		e.Name,
 	)
 }
 
@@ -75,13 +115,22 @@ func (e *RegistrationError) Error() string {
 
 // RuntimeOptions controls runtime initialization behavior.
 type RuntimeOptions struct {
-	IndexMode IndexInitMode // IndexMode chooses whether Init skips, upserts, or validates declared indexes.
-	Tracers   []Tracer      // Tracers configures the runtime's tracer chain during NewRuntime.
+	TablePolicy SchemaPolicy // TablePolicy chooses how TSQ manages declared tables and columns during NewRuntime.
+	IndexPolicy SchemaPolicy // IndexPolicy chooses how TSQ manages declared indexes during NewRuntime.
+	IndexMode   SchemaPolicy // Deprecated: use IndexPolicy.
+	Tracers     []Tracer     // Tracers configures the runtime's tracer chain during NewRuntime.
+	Logger      Logger       // Logger receives schema bootstrap decisions and executed DDL.
 	// IdentifierValidationMode controls how to handle identifier length violations:
 	// "strict" = fail if any identifier exceeds dialect limits (default for most dialects)
 	// "warn"   = log warnings but allow (for permissive databases)
 	// "skip"   = no validation (useful for dynamic schemas)
 	IdentifierValidationMode string
+}
+
+// Logger is the subset of slog.Logger used by runtime bootstrap.
+type Logger interface {
+	Enabled(ctx context.Context, level slog.Level) bool
+	LogAttrs(ctx context.Context, level slog.Level, msg string, attrs ...slog.Attr)
 }
 
 // Table defines a physical SQL table source.
