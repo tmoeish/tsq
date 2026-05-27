@@ -20,13 +20,13 @@ func TSQTables() []tsq.TableRegistration {
 	{{- if .UxList }}
 				// Declared unique indexes.
 		{{- range $name, $idx := .UxList }}
-				{Name: "{{$idx.Name}}", Unique: true, Fields: []string{{"{"}}{{if $table.DeletedAtField}}{{ FieldToCol $table $table.DeletedAtField }}, {{end}}{{ FieldsToCols $table $idx.Fields }}{{"}"}}},
+				{Name: "{{$idx.Name}}", Unique: true, Fields: []string{{"{"}}{{ IndexFieldsToCols $table $idx.Fields }}{{"}"}}},
 		{{- end }}
 	{{- end }}
 	{{- if .IdxList }}
 				// Declared non-unique indexes.
 		{{- range $name, $idx := .IdxList }}
-				{Name: "{{$idx.Name}}", Fields: []string{{"{"}}{{if $table.DeletedAtField}}{{ FieldToCol $table $table.DeletedAtField }}, {{end}}{{ FieldsToCols $table $idx.Fields }}{{"}"}}},
+				{Name: "{{$idx.Name}}", Fields: []string{{"{"}}{{ IndexFieldsToCols $table $idx.Fields }}{{"}"}}},
 		{{- end }}
 	{{- end }}
 			},

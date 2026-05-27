@@ -28,7 +28,7 @@ func NewRuntime(
 	db *sql.DB,
 	sqlDialect tsqdialect.Dialect,
 	tables []TableRegistration,
-	options ...*InitOptions,
+	options ...*RuntimeOptions,
 ) (*Runtime, error) {
 	if db == nil {
 		return nil, errors.New("database connection cannot be nil")
@@ -43,13 +43,13 @@ func NewRuntime(
 		return nil, err
 	}
 
-	var opts *InitOptions
+	var opts *RuntimeOptions
 	if len(options) > 0 {
 		opts = options[0]
 	}
 
 	if opts == nil {
-		opts = &InitOptions{}
+		opts = &RuntimeOptions{}
 	}
 
 	indexMode := resolveIndexInitMode(opts)

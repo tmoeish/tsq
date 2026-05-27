@@ -195,6 +195,65 @@ type User struct {
 	}
 }
 
+func TestGenCmdKeepsDeletedAtInRuntimeAndDDLIndexes(t *testing.T) {
+	t.Cleanup(func() {
+		dryRunFlag = false
+		checkFlag = false
+		v = false
+		GenCmd.SetArgs(nil)
+	})
+
+	dir := t.TempDir()
+	writeTestFile(t, filepath.Join(dir, "go.mod"), genTestModuleFile(t))
+	writeTestFile(t, filepath.Join(dir, "model.go"), `package gentest
+
+// @TABLE(
+//   name="orders",
+//   deleted_at,
+//   idx=[{fields=["Status"]}],
+// )
+type Order struct {
+	ID        int64 `+"`db:\"id\"`"+`
+	DeletedAt int64 `+"`db:\"deleted_at\"`"+`
+	Status    int64 `+"`db:\"status\"`"+`
+}
+`)
+	chdirForGenTest(t, dir)
+	tidyGenTestModule(t)
+
+	GenCmd.SetOut(new(bytes.Buffer))
+	GenCmd.SetErr(new(bytes.Buffer))
+	GenCmd.SetArgs([]string{"."})
+	if err := GenCmd.Execute(); err != nil {
+		t.Fatalf("GenCmd.Execute() error = %v", err)
+	}
+
+	runtimeFile, err := os.ReadFile(filepath.Join(dir, "runtime_tsq.go"))
+	if err != nil {
+		t.Fatalf("failed to read runtime_tsq.go: %v", err)
+	}
+	if got := string(runtimeFile); !strings.Contains(got, `Fields: []string{"deleted_at", "status"}`) {
+		t.Fatalf("expected runtime index fields to include deleted_at prefix, got:\n%s", got)
+	}
+
+	for _, tt := range []struct {
+		filename string
+		want     string
+	}{
+		{filename: "mysql.sql", want: "ALTER TABLE `orders` ADD INDEX `idx_orders_status`(`deleted_at`, `status`);"},
+		{filename: "postgres.sql", want: `CREATE INDEX "idx_orders_status" ON "orders"("deleted_at", "status");`},
+		{filename: "sqlite.sql", want: `CREATE INDEX "idx_orders_status" ON "orders"("deleted_at", "status");`},
+	} {
+		content, err := os.ReadFile(filepath.Join(dir, tt.filename))
+		if err != nil {
+			t.Fatalf("failed to read %s: %v", tt.filename, err)
+		}
+		if got := string(content); !strings.Contains(got, tt.want) {
+			t.Fatalf("expected %s to contain %q, got:\n%s", tt.filename, tt.want, got)
+		}
+	}
+}
+
 func TestGenCmdGeneratesIncrementalDDLOnSubsequentRuns(t *testing.T) {
 	t.Cleanup(func() {
 		dryRunFlag = false

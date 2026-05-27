@@ -54,7 +54,7 @@ func (e *ErrIndexMissing) Error() string {
 	}
 
 	return fmt.Sprintf(
-		"index %s on table %s is missing; expected fields %v; enable IndexInitUpsert or create the index in your migration",
+		"index %s on table %s is missing; expected fields %v; use RuntimeOptions{IndexMode: IndexInitUpsert} or create the index in your migration",
 		e.Name,
 		e.Table,
 		e.Fields,
@@ -73,11 +73,10 @@ func (e *RegistrationError) Error() string {
 	return e.Message
 }
 
-// InitOptions controls runtime initialization behavior.
-type InitOptions struct {
-	UpsertIndexes bool          // UpsertIndexes keeps the legacy "create missing indexes" behavior when IndexMode is unset.
-	IndexMode     IndexInitMode // IndexMode chooses whether Init skips, upserts, or validates declared indexes.
-	Tracers       []Tracer      // Tracers configures the runtime's tracer chain during NewRuntime.
+// RuntimeOptions controls runtime initialization behavior.
+type RuntimeOptions struct {
+	IndexMode IndexInitMode // IndexMode chooses whether Init skips, upserts, or validates declared indexes.
+	Tracers   []Tracer      // Tracers configures the runtime's tracer chain during NewRuntime.
 	// IdentifierValidationMode controls how to handle identifier length violations:
 	// "strict" = fail if any identifier exceeds dialect limits (default for most dialects)
 	// "warn"   = log warnings but allow (for permissive databases)

@@ -37,6 +37,7 @@ func funcMap() template.FuncMap {
 		"Sub1":                     sub1,
 		"FieldToCol":               fieldToCol,
 		"FieldsToCols":             fieldsToCols,
+		"IndexFieldsToCols":        indexFieldsToCols,
 		"HasImport":                hasImport,
 		"NeedsGeneratedTimeImport": needsGeneratedTimeImport,
 		"GeneratedSQLRef":          generatedSQLRef,
@@ -192,6 +193,28 @@ func fieldsToCols(data *genmodel.StructInfo, fields []string) string {
 	}
 
 	return strings.Join(cols, ", ")
+}
+
+func indexFieldNames(data *genmodel.StructInfo, fields []string) []string {
+	if data == nil || data.DeletedAtField == "" {
+		return append([]string(nil), fields...)
+	}
+
+	result := make([]string, 0, len(fields)+1)
+
+	result = append(result, data.DeletedAtField)
+	for _, field := range fields {
+		if field == data.DeletedAtField {
+			continue
+		}
+		result = append(result, field)
+	}
+
+	return result
+}
+
+func indexFieldsToCols(data *genmodel.StructInfo, fields []string) string {
+	return fieldsToCols(data, indexFieldNames(data, fields))
 }
 
 func hasImport(data *genmodel.StructInfo, importPath string) bool {

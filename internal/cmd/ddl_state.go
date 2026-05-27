@@ -145,8 +145,10 @@ func buildCurrentDDLTableSnapshot(
 
 	appendIndexes := func(items []genmodel.IndexInfo, unique bool) error {
 		for _, idx := range items {
-			fields := make([]string, 0, len(idx.Fields))
-			for _, fieldName := range idx.Fields {
+			fieldNames := indexFieldNames(table, idx.Fields)
+
+			fields := make([]string, 0, len(fieldNames))
+			for _, fieldName := range fieldNames {
 				field, ok := table.FieldMap[fieldName]
 				if !ok {
 					return fmt.Errorf("index %s references unknown field %s", idx.Name, fieldName)

@@ -9,7 +9,7 @@ import (
 	tsqdialect "github.com/tmoeish/tsq/v4/dialect"
 )
 
-// UpsertIndex ensures a declared index exists or validates it, depending on InitOptions.
+// UpsertIndex ensures a declared index exists or validates it, depending on RuntimeOptions.
 func upsertIndex(db *sql.DB, sqlDialect tsqdialect.Dialect, indexInitMode IndexInitMode, table string, unique bool, idx string, fields []string) error {
 	if db == nil {
 		return errors.New("database connection cannot be nil")
@@ -62,17 +62,13 @@ func effectiveIndexInitMode(mode IndexInitMode) IndexInitMode {
 	return mode
 }
 
-func resolveIndexInitMode(options *InitOptions) IndexInitMode {
+func resolveIndexInitMode(options *RuntimeOptions) IndexInitMode {
 	if options == nil {
 		return IndexInitSkip
 	}
 
 	if options.IndexMode != "" {
 		return options.IndexMode
-	}
-
-	if options.UpsertIndexes {
-		return IndexInitUpsert
 	}
 
 	return IndexInitSkip

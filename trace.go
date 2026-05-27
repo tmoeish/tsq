@@ -12,7 +12,7 @@ import (
 const maxTracers = 100
 
 // Tracer wraps a function call with tracing behavior.
-// Configure tracers via InitOptions.Tracers when constructing a Runtime.
+// Configure tracers via RuntimeOptions.Tracers when constructing a Runtime.
 type Tracer func(next func(ctx context.Context) error) func(ctx context.Context) error
 
 type traceProvider interface {

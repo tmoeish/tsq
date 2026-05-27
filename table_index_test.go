@@ -27,7 +27,7 @@ func newRegisteredIndexRuntime(
 	unique bool,
 	indexName string,
 	fields []string,
-	options ...*InitOptions,
+	options ...*RuntimeOptions,
 ) *Runtime {
 	t.Helper()
 
@@ -143,7 +143,7 @@ func TestNewRuntimeIndexModeValidateReturnsMissingIndexError(t *testing.T) {
 			Table:   mustStrictMockTable(t, "users", "name"),
 			Indexes: []TableIndex{{Name: "ux_users_name", Fields: []string{"name"}, Unique: true}},
 		}},
-		&InitOptions{IndexMode: IndexInitValidate},
+		&RuntimeOptions{IndexMode: IndexInitValidate},
 	)
 	if err == nil {
 		t.Fatal("expected validate mode to fail when index is missing")
@@ -169,39 +169,13 @@ func TestNewRuntimeIndexModeUpsertCreatesMissingIndex(t *testing.T) {
 		t.Fatalf("failed to create users table: %v", err)
 	}
 
-	runtime := newRegisteredIndexRuntime(t, db, "users", true, "ux_users_name", []string{"name"}, &InitOptions{IndexMode: IndexInitUpsert})
+	runtime := newRegisteredIndexRuntime(t, db, "users", true, "ux_users_name", []string{"name"}, &RuntimeOptions{IndexMode: IndexInitUpsert})
 	definition, found := inspectRegisteredIndex(t, runtime, "users", "ux_users_name")
 	if !found {
 		t.Fatal("expected upsert mode to create missing index")
 	}
 	if !definition.Unique || len(definition.Fields) != 1 || definition.Fields[0] != "name" {
 		t.Fatalf("unexpected sqlite index definition: %#v", definition)
-	}
-}
-
-func TestNewRuntimeCompatibilityUpsertIndexesTrueStillCreatesIndex(t *testing.T) {
-	db := newSQLiteIndexTestEngine(t)
-	if _, err := db.DB().ExecContext(context.Background(), "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)"); err != nil {
-		t.Fatalf("failed to create users table: %v", err)
-	}
-
-	runtime := newRegisteredIndexRuntime(t, db, "users", true, "ux_users_name", []string{"name"}, &InitOptions{UpsertIndexes: true})
-	_, found := inspectRegisteredIndex(t, runtime, "users", "ux_users_name")
-	if !found {
-		t.Fatal("expected legacy upsert=true to create the index")
-	}
-}
-
-func TestNewRuntimeCompatibilityUpsertIndexesFalseStillSkipsIndexInit(t *testing.T) {
-	db := newSQLiteIndexTestEngine(t)
-	if _, err := db.DB().ExecContext(context.Background(), "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)"); err != nil {
-		t.Fatalf("failed to create users table: %v", err)
-	}
-
-	runtime := newRegisteredIndexRuntime(t, db, "users", true, "ux_users_name", []string{"name"}, &InitOptions{UpsertIndexes: false})
-	_, found := inspectRegisteredIndex(t, runtime, "users", "ux_users_name")
-	if found {
-		t.Fatal("expected legacy upsert=false to skip index creation")
 	}
 }
 
@@ -221,7 +195,7 @@ func TestNewRuntimeValidateModeAcceptsExistingRegisteredIndex(t *testing.T) {
 			Table:   mustStrictMockTable(t, "users", "name"),
 			Indexes: []TableIndex{{Name: "ux_users_name", Fields: []string{"name"}, Unique: true}},
 		}},
-		&InitOptions{IndexMode: IndexInitValidate},
+		&RuntimeOptions{IndexMode: IndexInitValidate},
 	); err != nil {
 		t.Fatalf("expected validate mode with existing index to succeed, got %v", err)
 	}
@@ -236,7 +210,7 @@ func TestNewRuntimePersistsIndexModeOnEngine(t *testing.T) {
 		}
 	}
 
-	runtime := newRegisteredIndexRuntime(t, db, "users", true, "ux_users_name", []string{"name"}, &InitOptions{IndexMode: IndexInitValidate})
+	runtime := newRegisteredIndexRuntime(t, db, "users", true, "ux_users_name", []string{"name"}, &RuntimeOptions{IndexMode: IndexInitValidate})
 	if got := effectiveIndexInitMode(runtime.indexInitMode); got != IndexInitValidate {
 		t.Fatalf("expected db index mode %q after init, got %q", IndexInitValidate, got)
 	}
@@ -264,7 +238,7 @@ func TestValidateIdentifiersForDialectChecksTableColumns(t *testing.T) {
 		db.DB(),
 		db.SQLDialect(),
 		[]TableRegistration{{Table: table}},
-		&InitOptions{IdentifierValidationMode: "skip"},
+		&RuntimeOptions{IdentifierValidationMode: "skip"},
 	)
 	if err != nil {
 		t.Fatalf("NewRuntime() error = %v", err)
@@ -292,7 +266,7 @@ func TestValidateIdentifiersForDialectChecksIndexNames(t *testing.T) {
 			Table:   table,
 			Indexes: []TableIndex{{Name: longIndexName, Fields: []string{"id"}}},
 		}},
-		&InitOptions{IdentifierValidationMode: "skip"},
+		&RuntimeOptions{IdentifierValidationMode: "skip"},
 	)
 	if err != nil {
 		t.Fatalf("NewRuntime() error = %v", err)

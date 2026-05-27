@@ -143,7 +143,7 @@ func TestNewRuntimeFailsOnStrictValidation(t *testing.T) {
 		failingDB.DB(),
 		failingDB.SQLDialect(),
 		[]TableRegistration{{Table: newMockTable(longTableName)}},
-		&InitOptions{IndexMode: IndexInitSkip, IdentifierValidationMode: "strict"},
+		&RuntimeOptions{IndexMode: IndexInitSkip, IdentifierValidationMode: "strict"},
 	)
 	if err == nil {
 		t.Fatal("expected strict identifier validation to fail")
@@ -164,7 +164,7 @@ func TestNewRuntimeFailsOnMissingRegisteredIndex(t *testing.T) {
 			Table:   table,
 			Indexes: []TableIndex{{Name: "ux_users_name", Fields: []string{"name"}, Unique: true}},
 		}},
-		&InitOptions{IndexMode: IndexInitValidate},
+		&RuntimeOptions{IndexMode: IndexInitValidate},
 	)
 	if err == nil {
 		t.Fatal("expected missing registered index to fail NewRuntime")

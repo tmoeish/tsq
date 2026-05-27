@@ -168,6 +168,8 @@ func main() {
 
 更完整的从零到 SQLite 示例见 [`docs/quickstart.md`](docs/quickstart.md)。
 
+如果你希望 `NewRuntime` 在启动时自动补齐声明索引，使用 `&tsq.RuntimeOptions{IndexMode: tsq.IndexInitUpsert}`；默认会跳过索引初始化。
+
 ## 文档导航
 
 | 文档 | 适合什么时候看 |
