@@ -576,8 +576,12 @@ import (
 type AliasString = string
 type NamedString string
 type AliasNullString = sql.NullString
+type AliasInt = int
+type NamedInt int
 type AliasInt32 = int32
 type NamedInt32 int32
+type AliasUint = uint
+type NamedUint uint
 type AliasBool = bool
 type AliasBytes = []byte
 type AliasTime = time.Time
@@ -590,8 +594,13 @@ type Artifact struct {
 	NamedName  NamedString     `+"`db:\"named_name\"`"+`
 	Note       sql.NullString  `+"`db:\"note\"`"+`
 	AliasNote  AliasNullString `+"`db:\"alias_note\"`"+`
+	Rank       AliasInt        `+"`db:\"rank\"`"+`
+	NamedRank  NamedInt        `+"`db:\"named_rank\"`"+`
 	Count      AliasInt32      `+"`db:\"count\"`"+`
 	NamedCount NamedInt32      `+"`db:\"named_count\"`"+`
+	Flags      AliasUint       `+"`db:\"flags\"`"+`
+	NamedFlags NamedUint       `+"`db:\"named_flags\"`"+`
+	LegacyID   sql.NullInt64   `+"`db:\"legacy_id\"`"+`
 	Enabled    AliasBool       `+"`db:\"enabled\"`"+`
 	Payload    AliasBytes      `+"`db:\"payload\"`"+`
 	CreatedAt  AliasTime       `+"`db:\"created_at\"`"+`
@@ -621,8 +630,13 @@ type Artifact struct {
 				"`named_name` VARCHAR(255) NOT NULL",
 				"`note` VARCHAR(255)",
 				"`alias_note` VARCHAR(255)",
+				"`rank` INT NOT NULL",
+				"`named_rank` INT NOT NULL",
 				"`count` INT NOT NULL",
 				"`named_count` INT NOT NULL",
+				"`flags` INT UNSIGNED NOT NULL",
+				"`named_flags` INT UNSIGNED NOT NULL",
+				"`legacy_id` BIGINT",
 				"`enabled` BOOLEAN NOT NULL",
 				"`payload` BLOB NOT NULL",
 				"`created_at` DATETIME NOT NULL",
@@ -637,8 +651,13 @@ type Artifact struct {
 				`"named_name" VARCHAR(255) NOT NULL`,
 				`"note" VARCHAR(255)`,
 				`"alias_note" VARCHAR(255)`,
+				`"rank" INTEGER NOT NULL`,
+				`"named_rank" INTEGER NOT NULL`,
 				`"count" INTEGER NOT NULL`,
 				`"named_count" INTEGER NOT NULL`,
+				`"flags" INTEGER NOT NULL`,
+				`"named_flags" INTEGER NOT NULL`,
+				`"legacy_id" BIGINT`,
 				`"enabled" BOOLEAN NOT NULL`,
 				`"payload" BYTEA NOT NULL`,
 				`"created_at" TIMESTAMP NOT NULL`,
@@ -653,8 +672,13 @@ type Artifact struct {
 				`"named_name" VARCHAR(255) NOT NULL`,
 				`"note" VARCHAR(255)`,
 				`"alias_note" VARCHAR(255)`,
+				`"rank" INTEGER NOT NULL`,
+				`"named_rank" INTEGER NOT NULL`,
 				`"count" INTEGER NOT NULL`,
 				`"named_count" INTEGER NOT NULL`,
+				`"flags" INTEGER NOT NULL`,
+				`"named_flags" INTEGER NOT NULL`,
+				`"legacy_id" INTEGER`,
 				`"enabled" BOOLEAN NOT NULL`,
 				`"payload" BLOB NOT NULL`,
 				`"created_at" TIMESTAMP NOT NULL`,
@@ -708,6 +732,20 @@ type Artifact struct {
 		if got := columns[name].Size; got != 255 {
 			t.Fatalf("expected ddl snapshot to record default string size 255 for %s, got %d", name, got)
 		}
+	}
+	for _, name := range []string{"rank", "named_rank", "count", "named_count", "flags", "named_flags"} {
+		if got := columns[name].Bits; got != 32 {
+			t.Fatalf("expected %s to keep 32-bit width, got %d", name, got)
+		}
+	}
+	if got := columns["flags"].Unsigned; !got {
+		t.Fatal("expected uint alias to keep unsigned metadata")
+	}
+	if got := columns["named_flags"].Unsigned; !got {
+		t.Fatal("expected named uint to keep unsigned metadata")
+	}
+	if got := columns["legacy_id"].Bits; got != 64 {
+		t.Fatalf("expected explicit 64-bit nullable integer to keep 64-bit width, got %d", got)
 	}
 	if got := columns["count"].Bits; got != 32 {
 		t.Fatalf("expected int32 alias to keep 32-bit width, got %d", got)

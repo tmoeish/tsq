@@ -596,7 +596,7 @@ func classifyDDLColumnTypeRecursive(
 					case "Float64":
 						return ddlColumnDescriptor{kind: ddlColumnFloat, bits: 64, nullable: true}, nil
 					case "Int":
-						return ddlColumnDescriptor{kind: ddlColumnInt, bits: 64, nullable: true}, nil
+						return ddlColumnDescriptor{kind: ddlColumnInt, bits: 32, nullable: true}, nil
 					case "Int8":
 						return ddlColumnDescriptor{kind: ddlColumnInt, bits: 8, nullable: true}, nil
 					case "Int16":
@@ -606,7 +606,7 @@ func classifyDDLColumnTypeRecursive(
 					case "Int64":
 						return ddlColumnDescriptor{kind: ddlColumnInt, bits: 64, nullable: true}, nil
 					case "Uint":
-						return ddlColumnDescriptor{kind: ddlColumnInt, bits: 64, unsigned: true, nullable: true}, nil
+						return ddlColumnDescriptor{kind: ddlColumnInt, bits: 32, unsigned: true, nullable: true}, nil
 					case "Uint8":
 						return ddlColumnDescriptor{kind: ddlColumnInt, bits: 8, unsigned: true, nullable: true}, nil
 					case "Uint16":
@@ -666,7 +666,9 @@ func ddlBasicIntegerDescriptor(basic *types.Basic, nullable bool) ddlColumnDescr
 		desc.bits = 16
 	case types.Int32:
 		desc.bits = 32
-	case types.Int64, types.Int:
+	case types.Int:
+		desc.bits = 32
+	case types.Int64:
 		desc.bits = 64
 	case types.Uint8:
 		desc.bits = 8
@@ -677,7 +679,10 @@ func ddlBasicIntegerDescriptor(basic *types.Basic, nullable bool) ddlColumnDescr
 	case types.Uint32:
 		desc.bits = 32
 		desc.unsigned = true
-	case types.Uint64, types.Uint, types.Uintptr:
+	case types.Uint:
+		desc.bits = 32
+		desc.unsigned = true
+	case types.Uint64, types.Uintptr:
 		desc.bits = 64
 		desc.unsigned = true
 	}

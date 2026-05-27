@@ -170,4 +170,3 @@ func validateBuiltInIdentifier(name string) error {
 
 	return nil
 }
-
