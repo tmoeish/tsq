@@ -41,11 +41,11 @@ CREATE TABLE IF NOT EXISTS `enrollment` (
     `status` INT NOT NULL
 );
 
-ALTER TABLE `enrollment` ADD INDEX `idx_enrollment_course_id`(`course_id`);
+ALTER TABLE `enrollment` ADD INDEX `idx_enrollment_course_id`(`deleted_at`, `course_id`);
 
-ALTER TABLE `enrollment` ADD INDEX `idx_enrollment_learner_id_course_id`(`learner_id`, `course_id`);
+ALTER TABLE `enrollment` ADD INDEX `idx_enrollment_learner_id_course_id`(`deleted_at`, `learner_id`, `course_id`);
 
-ALTER TABLE `enrollment` ADD INDEX `idx_enrollment_status`(`status`);
+ALTER TABLE `enrollment` ADD INDEX `idx_enrollment_status`(`deleted_at`, `status`);
 
 
 -- Table: instructor

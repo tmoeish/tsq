@@ -31,6 +31,22 @@ func TestFieldsToColsReturnsCommaSeparatedIdentifiers(t *testing.T) {
 	}
 }
 
+func TestIndexFieldsToColsPrependsDeletedAt(t *testing.T) {
+	info := &genmodel.StructInfo{
+		TableMeta: &genmodel.TableMeta{
+			DeletedAtField: "DeletedAt",
+		},
+		FieldMap: map[string]genmodel.FieldInfo{
+			"DeletedAt": {Column: "deleted_at"},
+			"Name":      {Column: "name"},
+		},
+	}
+
+	if got := indexFieldsToCols(info, []string{"Name"}); got != `"deleted_at", "name"` {
+		t.Fatalf("unexpected index columns string: %q", got)
+	}
+}
+
 func TestValidateManagedFieldsSupportsPointerAndNullTypes(t *testing.T) {
 	info := &genmodel.StructInfo{
 		TableMeta: &genmodel.TableMeta{

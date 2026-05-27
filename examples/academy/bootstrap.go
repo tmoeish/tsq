@@ -30,7 +30,7 @@ func OpenSQLiteExampleDB() (*tsq.Runtime, func(), error) {
 		return nil, nil, fmt.Errorf("%s: %w", "seed mock.sql", err)
 	}
 
-	runtime, err := tsq.NewRuntime(db, tsqdialect.SQLiteDialect{}, TSQTables(), &tsq.InitOptions{UpsertIndexes: true})
+	runtime, err := tsq.NewRuntime(db, tsqdialect.SQLiteDialect{}, TSQTables(), &tsq.RuntimeOptions{IndexMode: tsq.IndexInitUpsert})
 	if err != nil {
 		cleanup()
 		return nil, nil, fmt.Errorf("%s: %w", "init tsq runtime", err)

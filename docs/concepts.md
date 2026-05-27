@@ -198,7 +198,7 @@ if err := rt.WithTx(ctx, nil, func(ctx context.Context, txExec tsq.SQLExecutor) 
 
 ## 7. `Runtime`：表 metadata 和隔离
 
-生成代码会额外产出一个包级 `TSQTables()`，把当前包全部表和声明索引整理成 metadata。`tsq.NewRuntime(...)` 会消费这份 metadata，并按 `IndexMode` 决定是跳过、补齐还是校验这些索引。
+生成代码会额外产出一个包级 `TSQTables()`，把当前包全部表和声明索引整理成 metadata。`tsq.NewRuntime(...)` 会消费这份 metadata，并按 `RuntimeOptions.IndexMode` 决定是跳过、补齐还是校验这些索引。
 
 如果你有这些需求，再关心 `Runtime`：
 
@@ -213,6 +213,17 @@ rt, err := tsq.NewRuntime(db, dialect.SQLiteDialect{}, academy.TSQTables())
 ```
 
 如果一个进程里有多个生成包共用同一个数据库，把各包的 `TSQTables()` 拼起来再传给一个 `Runtime` 即可；如果是多个数据库，就各自构造各自的 `Runtime`。
+
+如果你希望启动时自动补齐缺失索引，可以传：
+
+```go
+rt, err := tsq.NewRuntime(
+	db,
+	dialect.SQLiteDialect{},
+	academy.TSQTables(),
+	&tsq.RuntimeOptions{IndexMode: tsq.IndexInitUpsert},
+)
+```
 
 ## 8. `PageReq`、`InVar()` / `NInVar()`、`WithTable()` 分别解决什么问题
 

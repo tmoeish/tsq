@@ -535,6 +535,7 @@ They all take an explicit `context.Context` and an executor.
 - it implements `SQLExecutor` directly
 - use `tsq.NewRuntime(db, dialect, database.TSQTables())` for one generated package
 - combine multiple generated packages by concatenating their `TSQTables()` slices before calling `NewRuntime`
+- configure optional bootstrap behavior with `tsq.RuntimeOptions`, for example `&tsq.RuntimeOptions{IndexMode: tsq.IndexInitUpsert}`
 
 ### Transactions
 

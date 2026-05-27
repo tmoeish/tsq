@@ -41,11 +41,11 @@ CREATE TABLE IF NOT EXISTS "enrollment" (
     "status" INTEGER NOT NULL
 );
 
-CREATE INDEX "idx_enrollment_course_id" ON "enrollment"("course_id");
+CREATE INDEX "idx_enrollment_course_id" ON "enrollment"("deleted_at", "course_id");
 
-CREATE INDEX "idx_enrollment_learner_id_course_id" ON "enrollment"("learner_id", "course_id");
+CREATE INDEX "idx_enrollment_learner_id_course_id" ON "enrollment"("deleted_at", "learner_id", "course_id");
 
-CREATE INDEX "idx_enrollment_status" ON "enrollment"("status");
+CREATE INDEX "idx_enrollment_status" ON "enrollment"("deleted_at", "status");
 
 
 -- Table: instructor
