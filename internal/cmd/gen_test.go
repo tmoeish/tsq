@@ -56,7 +56,7 @@ func TestGenCmdHelpDocumentsInputsAndOverwriteBehavior(t *testing.T) {
 		"<struct>_tsq.go",
 		"<result>_result_tsq.go",
 		"sqlite.sql / mysql.sql / postgres.sql",
-		"ddl.json",
+		"tsq.json",
 		`refuses to overwrite non-generated files`,
 		"--dry-run",
 		"--check",
@@ -254,7 +254,7 @@ type Order struct {
 	}
 }
 
-func TestGenCmdGeneratesIncrementalDDLOnSubsequentRuns(t *testing.T) {
+func TestGenCmdAppendsDDLHistoryOnSubsequentRuns(t *testing.T) {
 	t.Cleanup(func() {
 		dryRunFlag = false
 		checkFlag = false
@@ -300,16 +300,25 @@ type User struct {
 		t.Fatalf("second GenCmd.Execute() error = %v", err)
 	}
 
-	incremental, err := os.ReadFile(filepath.Join(dir, "postgres.incremental.sql"))
+	postgresDDL, err := os.ReadFile(filepath.Join(dir, "postgres.sql"))
 	if err != nil {
-		t.Fatalf("failed to read postgres incremental ddl: %v", err)
-	}
-	if !strings.Contains(string(incremental), `ALTER TABLE "users" ADD COLUMN "name" VARCHAR(128) NOT NULL;`) {
-		t.Fatalf("expected postgres incremental ddl to add name column, got:\n%s", string(incremental))
+		t.Fatalf("failed to read postgres ddl: %v", err)
 	}
 
-	if got := stderr.String(); !strings.Contains(got, "sqlite=sqlite.incremental.sql mysql=mysql.incremental.sql postgres=postgres.incremental.sql") {
-		t.Fatalf("expected stderr guidance to mention incremental ddl files, got:\n%s", got)
+	gotDDL := string(postgresDDL)
+	for _, want := range []string{
+		`CREATE TABLE IF NOT EXISTS "users" (`,
+		`"id" BIGSERIAL PRIMARY KEY`,
+		`-- Migration: `,
+		`ALTER TABLE "users" ADD COLUMN "name" VARCHAR(128) NOT NULL;`,
+	} {
+		if !strings.Contains(gotDDL, want) {
+			t.Fatalf("expected postgres ddl history to contain %q, got:\n%s", want, gotDDL)
+		}
+	}
+
+	if got := stderr.String(); !strings.Contains(got, "sqlite=sqlite.sql mysql=mysql.sql postgres=postgres.sql") {
+		t.Fatalf("expected stderr guidance to mention schema files, got:\n%s", got)
 	}
 	if got := stderr.String(); !strings.Contains(got, "ddl:\n  <users>:\n    columns:\n      add column name\n") {
 		t.Fatalf("expected stderr summary to mention actual ddl diff, got:\n%s", got)
@@ -340,6 +349,7 @@ type User struct {
 		t.Fatalf("expected record sequence to match time.DateTime, got %q: %v", state.Records[0].Sequence, err)
 	}
 
+	beforeNoChange := append([]byte(nil), postgresDDL...)
 	stderr.Reset()
 	GenCmd.SetOut(new(bytes.Buffer))
 	GenCmd.SetErr(stderr)
@@ -348,17 +358,15 @@ type User struct {
 		t.Fatalf("third GenCmd.Execute() error = %v", err)
 	}
 
-	for _, name := range []string{
-		"sqlite.incremental.sql",
-		"mysql.incremental.sql",
-		"postgres.incremental.sql",
-	} {
-		if _, err := os.Stat(filepath.Join(dir, name)); !os.IsNotExist(err) {
-			t.Fatalf("expected no-change run to remove %s, got err=%v", name, err)
-		}
+	postgresDDL, err = os.ReadFile(filepath.Join(dir, "postgres.sql"))
+	if err != nil {
+		t.Fatalf("failed to read postgres ddl after no-change run: %v", err)
+	}
+	if !bytes.Equal(postgresDDL, beforeNoChange) {
+		t.Fatalf("expected no-change run to keep postgres.sql unchanged, got:\n%s", string(postgresDDL))
 	}
 
-	if got := stderr.String(); strings.Contains(got, "incremental.sql") {
+	if got := stderr.String(); strings.Contains(got, "execute the latest dated schema section") {
 		t.Fatalf("expected no-change run to skip ddl guidance, got:\n%s", got)
 	}
 	if got := stderr.String(); !strings.Contains(got, "ddl: no schema changes") {
@@ -499,7 +507,7 @@ func TestPrintDDLChangeSummary(t *testing.T) {
 	})
 }
 
-func TestGenCmdGeneratesSQLiteRebuildDDLForTypeChange(t *testing.T) {
+func TestGenCmdAppendsSQLiteRebuildDDLForTypeChange(t *testing.T) {
 	t.Cleanup(func() {
 		dryRunFlag = false
 		checkFlag = false
@@ -544,13 +552,14 @@ type User struct {
 		t.Fatalf("second GenCmd.Execute() error = %v", err)
 	}
 
-	incremental, err := os.ReadFile(filepath.Join(dir, "sqlite.incremental.sql"))
+	sqliteDDL, err := os.ReadFile(filepath.Join(dir, "sqlite.sql"))
 	if err != nil {
-		t.Fatalf("failed to read sqlite incremental ddl: %v", err)
+		t.Fatalf("failed to read sqlite ddl: %v", err)
 	}
 
-	got := string(incremental)
+	got := string(sqliteDDL)
 	for _, want := range []string{
+		`-- Migration: `,
 		`ALTER TABLE "users" RENAME TO "__tsq_rebuild_users";`,
 		`CREATE TABLE IF NOT EXISTS "users" (`,
 		`INSERT INTO "users" ("id", "name") SELECT "id", "name" FROM "__tsq_rebuild_users";`,
@@ -562,7 +571,128 @@ type User struct {
 		}
 	}
 	if strings.Contains(got, ";;") {
-		t.Fatalf("expected sqlite incremental ddl to avoid duplicate semicolons, got:\n%s", got)
+		t.Fatalf("expected sqlite ddl history to avoid duplicate semicolons, got:\n%s", got)
+	}
+}
+
+func TestGenCmdMigratesLegacyDDLStateFile(t *testing.T) {
+	t.Cleanup(func() {
+		dryRunFlag = false
+		checkFlag = false
+		v = false
+		GenCmd.SetArgs(nil)
+	})
+
+	dir := t.TempDir()
+	modelPath := filepath.Join(dir, "model.go")
+	writeTestFile(t, filepath.Join(dir, "go.mod"), genTestModuleFile(t))
+	writeTestFile(t, modelPath, `package gentest
+
+// @TABLE(name="users")
+type User struct {
+	ID int64 `+"`db:\"id\"`"+`
+}
+`)
+	chdirForGenTest(t, dir)
+	tidyGenTestModule(t)
+
+	GenCmd.SetOut(new(bytes.Buffer))
+	GenCmd.SetErr(new(bytes.Buffer))
+	GenCmd.SetArgs([]string{"."})
+	if err := GenCmd.Execute(); err != nil {
+		t.Fatalf("initial GenCmd.Execute() error = %v", err)
+	}
+
+	writeTestFile(t, modelPath, `package gentest
+
+// @TABLE(name="users")
+type User struct {
+	ID   int64  `+"`db:\"id\"`"+`
+	Name string `+"`db:\"name,size:128\"`"+`
+}
+`)
+	GenCmd.SetOut(new(bytes.Buffer))
+	GenCmd.SetErr(new(bytes.Buffer))
+	GenCmd.SetArgs([]string{"."})
+	if err := GenCmd.Execute(); err != nil {
+		t.Fatalf("second GenCmd.Execute() error = %v", err)
+	}
+
+	postgresDDL, err := os.ReadFile(filepath.Join(dir, "postgres.sql"))
+	if err != nil {
+		t.Fatalf("failed to read postgres ddl: %v", err)
+	}
+
+	stateBytes, err := os.ReadFile(filepath.Join(dir, ddlStateFilename))
+	if err != nil {
+		t.Fatalf("failed to read tsq state file: %v", err)
+	}
+
+	var state ddlStateFile
+	if err := json.Unmarshal(stateBytes, &state); err != nil {
+		t.Fatalf("failed to parse tsq state file: %v", err)
+	}
+
+	legacyState := map[string]any{
+		"generated_by": state.GeneratedBy,
+		"version":      state.Version,
+		"snapshot":     state.Snapshot,
+		"records":      state.Records,
+	}
+	legacyBytes, err := json.MarshalIndent(legacyState, "", "  ")
+	if err != nil {
+		t.Fatalf("failed to marshal legacy state: %v", err)
+	}
+	legacyBytes = append(legacyBytes, '\n')
+
+	if err := os.Remove(filepath.Join(dir, ddlStateFilename)); err != nil {
+		t.Fatalf("failed to remove tsq state file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, legacyDDLStateFilename), legacyBytes, 0o644); err != nil {
+		t.Fatalf("failed to write legacy ddl.json: %v", err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(dir, "postgres.incremental.sql"),
+		[]byte("-- Code generated by tsq-test. DO NOT EDIT.\n\n-- old incremental\n"),
+		0o644,
+	); err != nil {
+		t.Fatalf("failed to seed stale incremental ddl: %v", err)
+	}
+
+	GenCmd.SetOut(new(bytes.Buffer))
+	GenCmd.SetErr(new(bytes.Buffer))
+	GenCmd.SetArgs([]string{"."})
+	if err := GenCmd.Execute(); err != nil {
+		t.Fatalf("third GenCmd.Execute() error = %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(dir, legacyDDLStateFilename)); !os.IsNotExist(err) {
+		t.Fatalf("expected legacy ddl.json to be removed, got err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "postgres.incremental.sql")); !os.IsNotExist(err) {
+		t.Fatalf("expected legacy incremental sql to be removed, got err=%v", err)
+	}
+
+	postgresAfter, err := os.ReadFile(filepath.Join(dir, "postgres.sql"))
+	if err != nil {
+		t.Fatalf("failed to read postgres ddl after legacy migration: %v", err)
+	}
+	if !bytes.Equal(postgresAfter, postgresDDL) {
+		t.Fatalf("expected postgres.sql to stay unchanged after legacy migration, got:\n%s", string(postgresAfter))
+	}
+
+	stateBytes, err = os.ReadFile(filepath.Join(dir, ddlStateFilename))
+	if err != nil {
+		t.Fatalf("failed to read migrated tsq state file: %v", err)
+	}
+	if err := json.Unmarshal(stateBytes, &state); err != nil {
+		t.Fatalf("failed to parse migrated tsq state file: %v", err)
+	}
+	if len(state.InitialDialects) == 0 {
+		t.Fatal("expected migrated tsq.json to hydrate initial dialect SQL")
+	}
+	if state.RenderedRecords != len(state.Records) {
+		t.Fatalf("expected migrated tsq.json to mark legacy records as already rendered, got rendered=%d records=%d", state.RenderedRecords, len(state.Records))
 	}
 }
 

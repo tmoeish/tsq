@@ -100,9 +100,8 @@ Generated files:
   - <struct>_tsq.go for each @TABLE struct
   - <result>_result_tsq.go for each @RESULT struct
   - sqlite.sql / mysql.sql / postgres.sql beside generated Go files
-  - sqlite.incremental.sql / mysql.incremental.sql / postgres.incremental.sql
-    after the first schema snapshot
-  - ddl.json with the latest snapshot and migration history
+    with the initial schema plus dated migration sections
+  - tsq.json with the latest snapshot and migration history
 
 Overwrite behavior:
   - creates missing generated files
@@ -291,8 +290,7 @@ func printDDLGuidance(w io.Writer, artifacts ddlArtifacts) error {
 	action := "execute the full schema file matching your database dialect"
 
 	if !artifacts.firstRun {
-		filename = "<dialect>.incremental.sql"
-		action = "execute the incremental schema file matching your database dialect"
+		action = "execute the latest dated schema section in the file matching your database dialect"
 	}
 
 	paths := make([]string, 0, len(ddlDialects))

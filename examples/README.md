@@ -82,7 +82,7 @@ go test ./examples/...
 - `academy/sqlite.sql`
 - `academy/mysql.sql`
 - `academy/postgres.sql`
-- `academy/ddl.json`
+- `academy/tsq.json`
 
 修改 `academy/*.go` 后，重新生成：
 

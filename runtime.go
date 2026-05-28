@@ -59,9 +59,6 @@ func NewRuntime(
 	}
 
 	indexPolicy := resolveSchemaPolicy(opts.IndexPolicy)
-	if indexPolicy == SchemaPolicyManual && opts.IndexMode != "" {
-		indexPolicy = resolveSchemaPolicy(opts.IndexMode)
-	}
 
 	if err := validateSchemaPolicy(indexPolicy); err != nil {
 		return nil, err

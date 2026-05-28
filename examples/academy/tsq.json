@@ -1,0 +1,321 @@
+{
+  "generated_by": "tsq-v4.1.19",
+  "version": "v4.1.19",
+  "snapshot": {
+    "tables": [
+      {
+        "name": "course",
+        "columns": [
+          {
+            "name": "id",
+            "kind": "int",
+            "bits": 64,
+            "primary_key": true,
+            "auto_increment": true
+          },
+          {
+            "name": "created_at",
+            "kind": "time",
+            "nullable": true
+          },
+          {
+            "name": "instructor_id",
+            "kind": "int",
+            "bits": 64
+          },
+          {
+            "name": "level",
+            "kind": "int",
+            "bits": 32
+          },
+          {
+            "name": "list_price_cents",
+            "kind": "int",
+            "bits": 64
+          },
+          {
+            "name": "prerequisite_id",
+            "kind": "int",
+            "bits": 64
+          },
+          {
+            "name": "published",
+            "kind": "bool"
+          },
+          {
+            "name": "summary",
+            "kind": "string",
+            "size": 4096
+          },
+          {
+            "name": "title",
+            "kind": "string",
+            "size": 160
+          },
+          {
+            "name": "track_id",
+            "kind": "int",
+            "bits": 64
+          }
+        ],
+        "indexes": [
+          {
+            "name": "idx_course_instructor_id",
+            "fields": [
+              "instructor_id"
+            ],
+            "unique": false
+          },
+          {
+            "name": "idx_course_prerequisite_id",
+            "fields": [
+              "prerequisite_id"
+            ],
+            "unique": false
+          },
+          {
+            "name": "idx_course_track_id",
+            "fields": [
+              "track_id"
+            ],
+            "unique": false
+          },
+          {
+            "name": "ux_course_title",
+            "fields": [
+              "title"
+            ],
+            "unique": true
+          }
+        ]
+      },
+      {
+        "name": "enrollment",
+        "columns": [
+          {
+            "name": "uid",
+            "kind": "int",
+            "bits": 64,
+            "primary_key": true,
+            "auto_increment": true
+          },
+          {
+            "name": "created_at",
+            "kind": "time",
+            "default": "CURRENT_TIMESTAMP"
+          },
+          {
+            "name": "updated_at",
+            "kind": "time",
+            "nullable": true
+          },
+          {
+            "name": "deleted_at",
+            "kind": "int",
+            "bits": 64,
+            "default": "0"
+          },
+          {
+            "name": "version",
+            "kind": "int",
+            "bits": 64,
+            "default": "1"
+          },
+          {
+            "name": "course_id",
+            "kind": "int",
+            "bits": 64
+          },
+          {
+            "name": "fee_cents",
+            "kind": "int",
+            "bits": 64
+          },
+          {
+            "name": "learner_id",
+            "kind": "int",
+            "bits": 64
+          },
+          {
+            "name": "score",
+            "kind": "int",
+            "bits": 64
+          },
+          {
+            "name": "status",
+            "kind": "int",
+            "bits": 32
+          }
+        ],
+        "indexes": [
+          {
+            "name": "idx_enrollment_course_id",
+            "fields": [
+              "deleted_at",
+              "course_id"
+            ],
+            "unique": false
+          },
+          {
+            "name": "idx_enrollment_learner_id_course_id",
+            "fields": [
+              "deleted_at",
+              "learner_id",
+              "course_id"
+            ],
+            "unique": false
+          },
+          {
+            "name": "idx_enrollment_status",
+            "fields": [
+              "deleted_at",
+              "status"
+            ],
+            "unique": false
+          }
+        ]
+      },
+      {
+        "name": "instructor",
+        "columns": [
+          {
+            "name": "id",
+            "kind": "int",
+            "bits": 64,
+            "primary_key": true,
+            "auto_increment": true
+          },
+          {
+            "name": "created_at",
+            "kind": "time",
+            "nullable": true
+          },
+          {
+            "name": "bio",
+            "kind": "string",
+            "size": 2048
+          },
+          {
+            "name": "email",
+            "kind": "string",
+            "size": 160
+          },
+          {
+            "name": "name",
+            "kind": "string",
+            "size": 120
+          },
+          {
+            "name": "specialty",
+            "kind": "string",
+            "size": 160
+          }
+        ],
+        "indexes": [
+          {
+            "name": "ux_instructor_email",
+            "fields": [
+              "email"
+            ],
+            "unique": true
+          }
+        ]
+      },
+      {
+        "name": "learner",
+        "columns": [
+          {
+            "name": "id",
+            "kind": "int",
+            "bits": 64,
+            "primary_key": true,
+            "auto_increment": true
+          },
+          {
+            "name": "created_at",
+            "kind": "time",
+            "nullable": true
+          },
+          {
+            "name": "company",
+            "kind": "string",
+            "size": 160
+          },
+          {
+            "name": "email",
+            "kind": "string",
+            "size": 160
+          },
+          {
+            "name": "name",
+            "kind": "string",
+            "size": 120
+          }
+        ],
+        "indexes": [
+          {
+            "name": "idx_learner_company",
+            "fields": [
+              "company"
+            ],
+            "unique": false
+          },
+          {
+            "name": "ux_learner_email",
+            "fields": [
+              "email"
+            ],
+            "unique": true
+          }
+        ]
+      },
+      {
+        "name": "track",
+        "columns": [
+          {
+            "name": "id",
+            "kind": "int",
+            "bits": 64,
+            "primary_key": true,
+            "auto_increment": true
+          },
+          {
+            "name": "created_at",
+            "kind": "time",
+            "nullable": true
+          },
+          {
+            "name": "description",
+            "kind": "string",
+            "size": 1024
+          },
+          {
+            "name": "name",
+            "kind": "string",
+            "size": 120
+          }
+        ],
+        "indexes": [
+          {
+            "name": "ux_track_name",
+            "fields": [
+              "name"
+            ],
+            "unique": true
+          }
+        ]
+      }
+    ]
+  },
+  "initial_dialects": {
+    "mysql": {
+      "sql": "-- Code generated by tsq-v4.1.19. DO NOT EDIT.\n\n-- Dialect: mysql\n\n-- Table: course\n\nCREATE TABLE IF NOT EXISTS `course` (\n    `id` BIGINT PRIMARY KEY AUTO_INCREMENT,\n    `created_at` DATETIME,\n    `instructor_id` BIGINT NOT NULL,\n    `level` INT NOT NULL,\n    `list_price_cents` BIGINT NOT NULL,\n    `prerequisite_id` BIGINT NOT NULL,\n    `published` BOOLEAN NOT NULL,\n    `summary` VARCHAR(4096) NOT NULL,\n    `title` VARCHAR(160) NOT NULL,\n    `track_id` BIGINT NOT NULL\n);\n\nALTER TABLE `course` ADD INDEX `idx_course_instructor_id`(`instructor_id`);\n\nALTER TABLE `course` ADD INDEX `idx_course_prerequisite_id`(`prerequisite_id`);\n\nALTER TABLE `course` ADD INDEX `idx_course_track_id`(`track_id`);\n\nALTER TABLE `course` ADD UNIQUE INDEX `ux_course_title`(`title`);\n\n\n-- Table: enrollment\n\nCREATE TABLE IF NOT EXISTS `enrollment` (\n    `uid` BIGINT PRIMARY KEY AUTO_INCREMENT,\n    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    `updated_at` DATETIME,\n    `deleted_at` BIGINT NOT NULL DEFAULT 0,\n    `version` BIGINT NOT NULL DEFAULT 1,\n    `course_id` BIGINT NOT NULL,\n    `fee_cents` BIGINT NOT NULL,\n    `learner_id` BIGINT NOT NULL,\n    `score` BIGINT NOT NULL,\n    `status` INT NOT NULL\n);\n\nALTER TABLE `enrollment` ADD INDEX `idx_enrollment_course_id`(`deleted_at`, `course_id`);\n\nALTER TABLE `enrollment` ADD INDEX `idx_enrollment_learner_id_course_id`(`deleted_at`, `learner_id`, `course_id`);\n\nALTER TABLE `enrollment` ADD INDEX `idx_enrollment_status`(`deleted_at`, `status`);\n\n\n-- Table: instructor\n\nCREATE TABLE IF NOT EXISTS `instructor` (\n    `id` BIGINT PRIMARY KEY AUTO_INCREMENT,\n    `created_at` DATETIME,\n    `bio` VARCHAR(2048) NOT NULL,\n    `email` VARCHAR(160) NOT NULL,\n    `name` VARCHAR(120) NOT NULL,\n    `specialty` VARCHAR(160) NOT NULL\n);\n\nALTER TABLE `instructor` ADD UNIQUE INDEX `ux_instructor_email`(`email`);\n\n\n-- Table: learner\n\nCREATE TABLE IF NOT EXISTS `learner` (\n    `id` BIGINT PRIMARY KEY AUTO_INCREMENT,\n    `created_at` DATETIME,\n    `company` VARCHAR(160) NOT NULL,\n    `email` VARCHAR(160) NOT NULL,\n    `name` VARCHAR(120) NOT NULL\n);\n\nALTER TABLE `learner` ADD INDEX `idx_learner_company`(`company`);\n\nALTER TABLE `learner` ADD UNIQUE INDEX `ux_learner_email`(`email`);\n\n\n-- Table: track\n\nCREATE TABLE IF NOT EXISTS `track` (\n    `id` BIGINT PRIMARY KEY AUTO_INCREMENT,\n    `created_at` DATETIME,\n    `description` VARCHAR(1024) NOT NULL,\n    `name` VARCHAR(120) NOT NULL\n);\n\nALTER TABLE `track` ADD UNIQUE INDEX `ux_track_name`(`name`);\n"
+    },
+    "postgres": {
+      "sql": "-- Code generated by tsq-v4.1.19. DO NOT EDIT.\n\n-- Dialect: postgres\n\n-- Table: course\n\nCREATE TABLE IF NOT EXISTS \"course\" (\n    \"id\" BIGSERIAL PRIMARY KEY,\n    \"created_at\" TIMESTAMP,\n    \"instructor_id\" BIGINT NOT NULL,\n    \"level\" INTEGER NOT NULL,\n    \"list_price_cents\" BIGINT NOT NULL,\n    \"prerequisite_id\" BIGINT NOT NULL,\n    \"published\" BOOLEAN NOT NULL,\n    \"summary\" VARCHAR(4096) NOT NULL,\n    \"title\" VARCHAR(160) NOT NULL,\n    \"track_id\" BIGINT NOT NULL\n);\n\nCREATE INDEX \"idx_course_instructor_id\" ON \"course\"(\"instructor_id\");\n\nCREATE INDEX \"idx_course_prerequisite_id\" ON \"course\"(\"prerequisite_id\");\n\nCREATE INDEX \"idx_course_track_id\" ON \"course\"(\"track_id\");\n\nCREATE UNIQUE INDEX \"ux_course_title\" ON \"course\"(\"title\");\n\n\n-- Table: enrollment\n\nCREATE TABLE IF NOT EXISTS \"enrollment\" (\n    \"uid\" BIGSERIAL PRIMARY KEY,\n    \"created_at\" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    \"updated_at\" TIMESTAMP,\n    \"deleted_at\" BIGINT NOT NULL DEFAULT 0,\n    \"version\" BIGINT NOT NULL DEFAULT 1,\n    \"course_id\" BIGINT NOT NULL,\n    \"fee_cents\" BIGINT NOT NULL,\n    \"learner_id\" BIGINT NOT NULL,\n    \"score\" BIGINT NOT NULL,\n    \"status\" INTEGER NOT NULL\n);\n\nCREATE INDEX \"idx_enrollment_course_id\" ON \"enrollment\"(\"deleted_at\", \"course_id\");\n\nCREATE INDEX \"idx_enrollment_learner_id_course_id\" ON \"enrollment\"(\"deleted_at\", \"learner_id\", \"course_id\");\n\nCREATE INDEX \"idx_enrollment_status\" ON \"enrollment\"(\"deleted_at\", \"status\");\n\n\n-- Table: instructor\n\nCREATE TABLE IF NOT EXISTS \"instructor\" (\n    \"id\" BIGSERIAL PRIMARY KEY,\n    \"created_at\" TIMESTAMP,\n    \"bio\" VARCHAR(2048) NOT NULL,\n    \"email\" VARCHAR(160) NOT NULL,\n    \"name\" VARCHAR(120) NOT NULL,\n    \"specialty\" VARCHAR(160) NOT NULL\n);\n\nCREATE UNIQUE INDEX \"ux_instructor_email\" ON \"instructor\"(\"email\");\n\n\n-- Table: learner\n\nCREATE TABLE IF NOT EXISTS \"learner\" (\n    \"id\" BIGSERIAL PRIMARY KEY,\n    \"created_at\" TIMESTAMP,\n    \"company\" VARCHAR(160) NOT NULL,\n    \"email\" VARCHAR(160) NOT NULL,\n    \"name\" VARCHAR(120) NOT NULL\n);\n\nCREATE INDEX \"idx_learner_company\" ON \"learner\"(\"company\");\n\nCREATE UNIQUE INDEX \"ux_learner_email\" ON \"learner\"(\"email\");\n\n\n-- Table: track\n\nCREATE TABLE IF NOT EXISTS \"track\" (\n    \"id\" BIGSERIAL PRIMARY KEY,\n    \"created_at\" TIMESTAMP,\n    \"description\" VARCHAR(1024) NOT NULL,\n    \"name\" VARCHAR(120) NOT NULL\n);\n\nCREATE UNIQUE INDEX \"ux_track_name\" ON \"track\"(\"name\");\n"
+    },
+    "sqlite": {
+      "sql": "-- Code generated by tsq-v4.1.19. DO NOT EDIT.\n\n-- Dialect: sqlite\n\n-- Table: course\n\nCREATE TABLE IF NOT EXISTS \"course\" (\n    \"id\" INTEGER PRIMARY KEY AUTOINCREMENT,\n    \"created_at\" TIMESTAMP,\n    \"instructor_id\" INTEGER NOT NULL,\n    \"level\" INTEGER NOT NULL,\n    \"list_price_cents\" INTEGER NOT NULL,\n    \"prerequisite_id\" INTEGER NOT NULL,\n    \"published\" BOOLEAN NOT NULL,\n    \"summary\" VARCHAR(4096) NOT NULL,\n    \"title\" VARCHAR(160) NOT NULL,\n    \"track_id\" INTEGER NOT NULL\n);\n\nCREATE INDEX \"idx_course_instructor_id\" ON \"course\"(\"instructor_id\");\n\nCREATE INDEX \"idx_course_prerequisite_id\" ON \"course\"(\"prerequisite_id\");\n\nCREATE INDEX \"idx_course_track_id\" ON \"course\"(\"track_id\");\n\nCREATE UNIQUE INDEX \"ux_course_title\" ON \"course\"(\"title\");\n\n\n-- Table: enrollment\n\nCREATE TABLE IF NOT EXISTS \"enrollment\" (\n    \"uid\" INTEGER PRIMARY KEY AUTOINCREMENT,\n    \"created_at\" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    \"updated_at\" TIMESTAMP,\n    \"deleted_at\" INTEGER NOT NULL DEFAULT 0,\n    \"version\" INTEGER NOT NULL DEFAULT 1,\n    \"course_id\" INTEGER NOT NULL,\n    \"fee_cents\" INTEGER NOT NULL,\n    \"learner_id\" INTEGER NOT NULL,\n    \"score\" INTEGER NOT NULL,\n    \"status\" INTEGER NOT NULL\n);\n\nCREATE INDEX \"idx_enrollment_course_id\" ON \"enrollment\"(\"deleted_at\", \"course_id\");\n\nCREATE INDEX \"idx_enrollment_learner_id_course_id\" ON \"enrollment\"(\"deleted_at\", \"learner_id\", \"course_id\");\n\nCREATE INDEX \"idx_enrollment_status\" ON \"enrollment\"(\"deleted_at\", \"status\");\n\n\n-- Table: instructor\n\nCREATE TABLE IF NOT EXISTS \"instructor\" (\n    \"id\" INTEGER PRIMARY KEY AUTOINCREMENT,\n    \"created_at\" TIMESTAMP,\n    \"bio\" VARCHAR(2048) NOT NULL,\n    \"email\" VARCHAR(160) NOT NULL,\n    \"name\" VARCHAR(120) NOT NULL,\n    \"specialty\" VARCHAR(160) NOT NULL\n);\n\nCREATE UNIQUE INDEX \"ux_instructor_email\" ON \"instructor\"(\"email\");\n\n\n-- Table: learner\n\nCREATE TABLE IF NOT EXISTS \"learner\" (\n    \"id\" INTEGER PRIMARY KEY AUTOINCREMENT,\n    \"created_at\" TIMESTAMP,\n    \"company\" VARCHAR(160) NOT NULL,\n    \"email\" VARCHAR(160) NOT NULL,\n    \"name\" VARCHAR(120) NOT NULL\n);\n\nCREATE INDEX \"idx_learner_company\" ON \"learner\"(\"company\");\n\nCREATE UNIQUE INDEX \"ux_learner_email\" ON \"learner\"(\"email\");\n\n\n-- Table: track\n\nCREATE TABLE IF NOT EXISTS \"track\" (\n    \"id\" INTEGER PRIMARY KEY AUTOINCREMENT,\n    \"created_at\" TIMESTAMP,\n    \"description\" VARCHAR(1024) NOT NULL,\n    \"name\" VARCHAR(120) NOT NULL\n);\n\nCREATE UNIQUE INDEX \"ux_track_name\" ON \"track\"(\"name\");\n"
+    }
+  }
+}

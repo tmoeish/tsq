@@ -289,8 +289,7 @@ In projects that keep schema artifacts, TSQ may also generate:
 - `sqlite.sql`
 - `mysql.sql`
 - `postgres.sql`
-- `ddl.json`
-- incremental DDL files
+- `tsq.json`
 
 Do not hand-edit generated outputs in normal usage.
 

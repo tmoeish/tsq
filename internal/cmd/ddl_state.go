@@ -3,26 +3,29 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
-	"time"
 
 	tsqdialect "github.com/tmoeish/tsq/v4/dialect"
 	"github.com/tmoeish/tsq/v4/internal/genmodel"
 )
 
 const (
-	ddlStateFilename = "ddl.json"
+	ddlStateFilename       = "tsq.json"
+	legacyDDLStateFilename = "ddl.json"
 )
 
 type ddlStateFile struct {
-	GeneratedBy string           `json:"generated_by"`
-	Version     string           `json:"version"`
-	Snapshot    ddlSnapshot      `json:"snapshot"`
-	Records     []ddlStateRecord `json:"records,omitempty"`
+	GeneratedBy     string                        `json:"generated_by"`
+	Version         string                        `json:"version"`
+	Snapshot        ddlSnapshot                   `json:"snapshot"`
+	InitialDialects map[string]ddlStateDialectSQL `json:"initial_dialects,omitempty"`
+	RenderedRecords int                           `json:"rendered_records,omitempty"`
+	Records         []ddlStateRecord              `json:"records,omitempty"`
 }
 
 type ddlStateRecord struct {
@@ -39,6 +42,10 @@ type ddlStateRecordTable struct {
 
 type ddlStateDialectDiff struct {
 	AggregateSQL string `json:"aggregate_sql"`
+}
+
+type ddlStateDialectSQL struct {
+	SQL string `json:"sql"`
 }
 
 type ddlSnapshot struct {
@@ -183,51 +190,68 @@ func buildCurrentDDLTableSnapshot(
 }
 
 func loadDDLStateFile(outDir string) (*ddlStateFile, error) {
-	filename := filepath.Join(outDir, ddlStateFilename)
+	for _, name := range []string{ddlStateFilename, legacyDDLStateFilename} {
+		filename := filepath.Join(outDir, name)
 
-	content, err := os.ReadFile(filename)
-	if os.IsNotExist(err) {
-		return nil, nil
+		content, err := os.ReadFile(filename)
+		if os.IsNotExist(err) {
+			continue
+		}
+
+		if err != nil {
+			return nil, err
+		}
+
+		if !isGeneratedDDLArtifact(content) {
+			return nil, fmt.Errorf("refusing to read non-generated DDL state file: %s", filename)
+		}
+
+		var state ddlStateFile
+		if err := json.Unmarshal(content, &state); err != nil {
+			return nil, fmt.Errorf("failed to parse DDL state file: %s"+": %w", filename, err)
+		}
+
+		if state.RenderedRecords > len(state.Records) {
+			state.RenderedRecords = len(state.Records)
+		}
+
+		return &state, nil
 	}
 
-	if err != nil {
-		return nil, err
-	}
-
-	if !isGeneratedDDLArtifact(content) {
-		return nil, fmt.Errorf("refusing to read non-generated DDL state file: %s", filename)
-	}
-
-	var state ddlStateFile
-	if err := json.Unmarshal(content, &state); err != nil {
-		return nil, fmt.Errorf("failed to parse DDL state file: %s"+": %w", filename, err)
-	}
-
-	return &state, nil
+	return nil, nil
 }
 
 func marshalDDLStateFile(
 	version string,
 	previous *ddlStateFile,
 	current ddlSnapshot,
+	initialDialects map[string]ddlStateDialectSQL,
+	renderedRecords int,
 	recordTables []ddlStateRecordTable,
 	dialects map[string]ddlStateDialectDiff,
+	sequence string,
 ) ([]byte, error) {
 	state := ddlStateFile{
-		GeneratedBy: "tsq-" + version,
-		Version:     version,
-		Snapshot:    current,
+		GeneratedBy:     "tsq-" + version,
+		Version:         version,
+		Snapshot:        current,
+		InitialDialects: cloneDDLStateDialects(initialDialects),
+		RenderedRecords: renderedRecords,
 	}
 
 	if previous != nil {
 		state.Records = append(state.Records, previous.Records...)
 	}
 
-	if previous != nil && len(recordTables) > 0 {
+	if state.RenderedRecords > len(state.Records) {
+		state.RenderedRecords = len(state.Records)
+	}
+
+	if sequence != "" && len(recordTables) > 0 {
 		record := ddlStateRecord{
-			Sequence: time.Now().Format(time.DateTime),
+			Sequence: sequence,
 			Tables:   append([]ddlStateRecordTable(nil), recordTables...),
-			Dialects: dialects,
+			Dialects: cloneDDLStateDiffs(dialects),
 		}
 
 		state.Records = append(state.Records, record)
@@ -239,6 +263,28 @@ func marshalDDLStateFile(
 	}
 
 	return append(content, '\n'), nil
+}
+
+func cloneDDLStateDialects(items map[string]ddlStateDialectSQL) map[string]ddlStateDialectSQL {
+	if len(items) == 0 {
+		return nil
+	}
+
+	cloned := make(map[string]ddlStateDialectSQL, len(items))
+	maps.Copy(cloned, items)
+
+	return cloned
+}
+
+func cloneDDLStateDiffs(items map[string]ddlStateDialectDiff) map[string]ddlStateDialectDiff {
+	if len(items) == 0 {
+		return nil
+	}
+
+	cloned := make(map[string]ddlStateDialectDiff, len(items))
+	maps.Copy(cloned, items)
+
+	return cloned
 }
 
 func diffDDLSnapshots(previous *ddlSnapshot, current ddlSnapshot) ddlChangeSet {
@@ -689,44 +735,12 @@ func renderDDLIndexCreateStatement(tableName string, idx ddlSnapshotIndex, diale
 	return dialect.dialect.DDLCreateIndex(tableName, idx.Name, quotedFields, idx.Unique)
 }
 
-func renderDDLIncrementalArtifacts(
-	version string,
-	dialect ddlDialectSpec,
-	changes ddlChangeSet,
-) ([]ddlFileModel, ddlStateDialectDiff, error) {
-	result := ddlStateDialectDiff{}
-	models := make([]ddlFileModel, 0, 1)
-	dialectName := ddlDialectName(dialect)
-
-	aggregateBody := renderDDLIncrementalAggregateBody(dialect, changes)
-	aggregateSource := renderDDLIncrementalHeader(version, dialectName, "") + aggregateBody + "\n"
-	models = append(models, ddlFileModel{
-		Filename: dialectIncrementalFilename(dialectName),
-		Source:   []byte(aggregateSource),
-	})
-	result.AggregateSQL = aggregateBody
-
-	return models, result, nil
-}
-
-func renderDDLIncrementalHeader(version, dialectName, tableName string) string {
-	var buf strings.Builder
-	buf.WriteString(renderDDLHeader(version))
-	buf.WriteString("-- Incremental DDL")
-
-	if dialectName != "" {
-		buf.WriteString(" for ")
-		buf.WriteString(dialectName)
+func renderDDLIncrementalArtifact(dialect ddlDialectSpec, changes ddlChangeSet) (ddlStateDialectDiff, error) {
+	result := ddlStateDialectDiff{
+		AggregateSQL: renderDDLIncrementalAggregateBody(dialect, changes),
 	}
 
-	if tableName != "" {
-		buf.WriteString(" / ")
-		buf.WriteString(tableName)
-	}
-
-	buf.WriteString("\n\n")
-
-	return buf.String()
+	return result, nil
 }
 
 func renderDDLIncrementalAggregateBody(dialect ddlDialectSpec, changes ddlChangeSet) string {
@@ -938,6 +952,40 @@ func renderDDLManualComment(tableName, message string) string {
 	return fmt.Sprintf("-- %s: %s", tableName, message)
 }
 
-func dialectIncrementalFilename(dialectName string) string {
-	return dialectName + ".incremental.sql"
+func renderDDLAggregateFileFromState(state ddlStateFile, dialectName string) ([]byte, error) {
+	initial, ok := state.InitialDialects[dialectName]
+	if !ok || strings.TrimSpace(initial.SQL) == "" {
+		return nil, fmt.Errorf("missing initial DDL for dialect %s", dialectName)
+	}
+
+	var buf strings.Builder
+	buf.WriteString(strings.TrimRight(initial.SQL, "\n"))
+
+	for idx, record := range state.Records {
+		if idx < state.RenderedRecords {
+			continue
+		}
+
+		diff, ok := record.Dialects[dialectName]
+		if !ok || strings.TrimSpace(diff.AggregateSQL) == "" {
+			continue
+		}
+
+		buf.WriteString("\n\n")
+		buf.WriteString(renderDDLHistorySection(record.Sequence, diff.AggregateSQL))
+	}
+
+	buf.WriteByte('\n')
+
+	return []byte(buf.String()), nil
+}
+
+func renderDDLHistorySection(sequence, body string) string {
+	var buf strings.Builder
+	buf.WriteString("-- Migration: ")
+	buf.WriteString(sequence)
+	buf.WriteString("\n\n")
+	buf.WriteString(strings.TrimSpace(body))
+
+	return buf.String()
 }

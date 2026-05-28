@@ -117,7 +117,6 @@ func (e *RegistrationError) Error() string {
 type RuntimeOptions struct {
 	TablePolicy SchemaPolicy // TablePolicy chooses how TSQ manages declared tables and columns during NewRuntime.
 	IndexPolicy SchemaPolicy // IndexPolicy chooses how TSQ manages declared indexes during NewRuntime.
-	IndexMode   SchemaPolicy // Deprecated: use IndexPolicy.
 	Tracers     []Tracer     // Tracers configures the runtime's tracer chain during NewRuntime.
 	Logger      Logger       // Logger receives schema bootstrap decisions and executed DDL.
 	// IdentifierValidationMode controls how to handle identifier length violations:

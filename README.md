@@ -106,9 +106,8 @@ tsq gen ./database
 - `database/user_tsq.go`：`User` 表的列、CRUD、分页和查询助手
 - `database/runtime_tsq.go`：当前包全部表的 `TSQTables()` metadata 入口
 - `database/*_result_tsq.go`：只在你声明 `@RESULT` 时生成
-- `database/sqlite.sql` / `database/mysql.sql` / `database/postgres.sql`：每种内置方言的最新全量 DDL
-- `database/<dialect>.incremental.sql`：有 schema 增量时，基于 `ddl.json` 的最新增量 DDL
-- `database/ddl.json`：最新 schema snapshot 与增量历史记录，用于后续 `tsq gen` 对账
+- `database/sqlite.sql` / `database/mysql.sql` / `database/postgres.sql`：每种内置方言的 schema 文件；首次生成写入初始建表语句，后续变更会按时间顺序追加带日期注释的增量 DDL
+- `database/tsq.json`：最新 schema snapshot、初始 schema 文件内容与增量历史记录，用于后续 `tsq gen` 对账
 
 如果目标文件已经存在，TSQ 只会覆盖**已有的生成文件**；遇到手写文件会拒绝覆盖并直接报错。
 

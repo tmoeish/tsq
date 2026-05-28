@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"golang.org/x/tools/go/packages"
 
@@ -118,34 +119,67 @@ func buildDDLArtifacts(packagePath string, list []*genmodel.StructInfo, outDir s
 	changes := diffDDLSnapshots(previousSnapshot, currentSnapshot)
 	recordTables := buildDDLRecordTables(changes)
 	hasChange := len(recordTables) > 0
-	models := make([]ddlFileModel, 0, len(ddlDialects)*2+1)
+	models := make([]ddlFileModel, 0, len(ddlDialects)+1)
 	dialectHistory := make(map[string]ddlStateDialectDiff, len(ddlDialects))
 	firstRun := previousState == nil
+	currentDialects := make(map[string][]byte, len(ddlDialects))
 
 	for _, dialect := range ddlDialects {
-		models = append(models, ddlFileModel{
-			Filename: filepath.Join(outDir, ddlDialectName(dialect)+".sql"),
-			Source:   renderDDLSnapshotAggregateFile(version, currentSnapshot, dialect),
-		})
+		name := ddlDialectName(dialect)
+		currentDialects[name] = renderDDLSnapshotAggregateFile(version, currentSnapshot, dialect)
+	}
 
-		incrementalModels, diffRecord, err := renderDDLIncrementalArtifacts(version, dialect, changes)
+	initialDialects, renderedRecords, err := buildDDLInitialDialects(previousState, outDir, currentDialects)
+	if err != nil {
+		return ddlArtifacts{}, err
+	}
+
+	sequence := ""
+	if previousState != nil && hasChange {
+		sequence = time.Now().Format(time.DateTime)
+	}
+
+	for _, dialect := range ddlDialects {
+		name := ddlDialectName(dialect)
+
+		diffRecord, err := renderDDLIncrementalArtifact(dialect, changes)
+		if err != nil {
+			return ddlArtifacts{}, err
+		}
+		dialectHistory[name] = diffRecord
+	}
+
+	stateSource, err := marshalDDLStateFile(
+		version,
+		previousState,
+		currentSnapshot,
+		initialDialects,
+		renderedRecords,
+		recordTables,
+		dialectHistory,
+		sequence,
+	)
+	if err != nil {
+		return ddlArtifacts{}, err
+	}
+
+	var state ddlStateFile
+	if err := json.Unmarshal(stateSource, &state); err != nil {
+		return ddlArtifacts{}, fmt.Errorf("failed to parse rendered DDL state: %w", err)
+	}
+
+	for _, dialect := range ddlDialects {
+		name := ddlDialectName(dialect)
+
+		source, err := renderDDLAggregateFileFromState(state, name)
 		if err != nil {
 			return ddlArtifacts{}, err
 		}
 
-		if !firstRun && hasChange {
-			for _, model := range incrementalModels {
-				model.Filename = filepath.Join(outDir, model.Filename)
-				models = append(models, model)
-			}
-		}
-
-		dialectHistory[ddlDialectName(dialect)] = diffRecord
-	}
-
-	stateSource, err := marshalDDLStateFile(version, previousState, currentSnapshot, recordTables, dialectHistory)
-	if err != nil {
-		return ddlArtifacts{}, err
+		models = append(models, ddlFileModel{
+			Filename: filepath.Join(outDir, name+".sql"),
+			Source:   source,
+		})
 	}
 
 	models = append(models, ddlFileModel{
@@ -163,6 +197,45 @@ func buildDDLArtifacts(packagePath string, list []*genmodel.StructInfo, outDir s
 		hasChange:    hasChange,
 		recordTables: append([]ddlStateRecordTable(nil), recordTables...),
 	}, nil
+}
+
+func buildDDLInitialDialects(
+	previous *ddlStateFile,
+	outDir string,
+	current map[string][]byte,
+) (map[string]ddlStateDialectSQL, int, error) {
+	if previous != nil && len(previous.InitialDialects) > 0 {
+		renderedRecords := min(previous.RenderedRecords, len(previous.Records))
+
+		return cloneDDLStateDialects(previous.InitialDialects), renderedRecords, nil
+	}
+
+	initial := make(map[string]ddlStateDialectSQL, len(ddlDialects))
+	for _, dialect := range ddlDialects {
+		name := ddlDialectName(dialect)
+		filename := filepath.Join(outDir, name+".sql")
+
+		content, err := os.ReadFile(filename)
+		switch {
+		case os.IsNotExist(err):
+			content = current[name]
+		case err != nil:
+			return nil, 0, err
+		default:
+			if !isGeneratedDDLArtifact(content) {
+				return nil, 0, fmt.Errorf("refusing to read non-generated DDL file: %s", filename)
+			}
+		}
+
+		initial[name] = ddlStateDialectSQL{SQL: string(content)}
+	}
+
+	renderedRecords := 0
+	if previous != nil {
+		renderedRecords = len(previous.Records)
+	}
+
+	return initial, renderedRecords, nil
 }
 
 func renderDDLHeader(version string) string {
@@ -798,7 +871,7 @@ func findStaleDDLFiles(dir string, plannedFiles map[string]struct{}) ([]string, 
 		}
 
 		name := entry.Name()
-		if !strings.HasSuffix(name, ".sql") && name != ddlStateFilename {
+		if !strings.HasSuffix(name, ".sql") && name != ddlStateFilename && name != legacyDDLStateFilename {
 			continue
 		}
 
