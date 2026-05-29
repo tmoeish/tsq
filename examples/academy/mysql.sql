@@ -87,3 +87,9 @@ CREATE TABLE IF NOT EXISTS `track` (
 );
 
 ALTER TABLE `track` ADD UNIQUE INDEX `ux_track_name`(`name`);
+
+-- Migration: 2026-05-29 11:20:41
+
+-- Table: track
+
+ALTER TABLE `track` ADD COLUMN `skill_items` JSON NOT NULL;

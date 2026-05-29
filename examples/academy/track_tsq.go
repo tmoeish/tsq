@@ -5,6 +5,7 @@ package academy
 import (
 	"context"
 	tsqsql "database/sql"
+	json "encoding/json"
 	"errors"
 	"fmt"
 	tsqtime "time"
@@ -127,6 +128,7 @@ var (
 	Track_Description = tsq.NewCol("description", "description", func(t *Track) *string { return &t.Description })
 	Track_ID          = tsq.NewCol("id", "id", func(t *Track) *int64 { return &t.ID })
 	Track_Name        = tsq.NewCol("name", "name", func(t *Track) *string { return &t.Name })
+	Track_SkillItems  = tsq.NewCol("skill_items", "skill_items", func(t *Track) *json.RawMessage { return &t.SkillItems })
 )
 
 // Track__Cols is the list of all selectable columns for Track table.
@@ -135,6 +137,7 @@ var Track__Cols = []tsq.BoundColumn[Track]{
 	Track_Description,
 	Track_ID,
 	Track_Name,
+	Track_SkillItems,
 }
 
 // =============================================================================

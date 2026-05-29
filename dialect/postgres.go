@@ -129,6 +129,18 @@ func (d PostgresDialect) InspectTableColumns(ctx context.Context, db Executor, t
 			c.column_name,
 			c.data_type,
 			c.udt_name,
+			(
+				SELECT pg_catalog.format_type(a.atttypid, a.atttypmod)
+				FROM pg_class t
+				JOIN pg_namespace ns ON ns.oid = t.relnamespace
+				JOIN pg_attribute a ON a.attrelid = t.oid
+				WHERE ns.nspname = current_schema()
+					AND t.relname = c.table_name
+					AND a.attname = c.column_name
+					AND a.attnum > 0
+					AND NOT a.attisdropped
+				LIMIT 1
+			) AS formatted_type,
 			c.is_nullable,
 			c.column_default,
 			c.character_maximum_length,
@@ -160,6 +172,7 @@ func (d PostgresDialect) InspectTableColumns(ctx context.Context, db Executor, t
 		Name    string
 		Data    string
 		UDT     string
+		Format  string
 		Null    string
 		Default sql.NullString
 		Size    sql.NullInt64
@@ -170,11 +183,11 @@ func (d PostgresDialect) InspectTableColumns(ctx context.Context, db Executor, t
 
 	for rows.Next() {
 		var item row
-		if err := rows.Scan(&item.Name, &item.Data, &item.UDT, &item.Null, &item.Default, &item.Size, &item.Primary); err != nil {
+		if err := rows.Scan(&item.Name, &item.Data, &item.UDT, &item.Format, &item.Null, &item.Default, &item.Size, &item.Primary); err != nil {
 			return nil, false, err
 		}
 
-		desc, err := parsePostgresDDLColumnType(item.Data, item.UDT, item.Size)
+		desc, err := parsePostgresDDLColumnType(item.Data, item.UDT, item.Format, item.Size)
 		if err != nil {
 			return nil, false, fmt.Errorf("inspect postgres column %s.%s: %w", table, item.Name, err)
 		}
@@ -328,7 +341,7 @@ func (d PostgresDialect) InspectIndexDefinition(ctx context.Context, db Executor
 	}, true, nil
 }
 
-func parsePostgresDDLColumnType(dataType, udtName string, size sql.NullInt64) (DDLColumnType, error) {
+func parsePostgresDDLColumnType(dataType, udtName, formattedType string, size sql.NullInt64) (DDLColumnType, error) {
 	data := strings.ToLower(strings.TrimSpace(dataType))
 	udt := strings.ToLower(strings.TrimSpace(udtName))
 
@@ -387,11 +400,20 @@ func parsePostgresDDLColumnType(dataType, udtName string, size sql.NullInt64) (D
 	case "timestamp", "timestamptz", "date":
 		return DDLColumnType{Kind: DDLColumnKindTime}, nil
 	default:
-		return DDLColumnType{}, fmt.Errorf("unsupported postgres column type %q (%q)", dataType, udtName)
+		rawType := strings.TrimSpace(formattedType)
+		if rawType == "" {
+			rawType = strings.TrimSpace(dataType)
+		}
+
+		return DDLColumnType{RawType: rawType}, nil
 	}
 }
 
 func (d PostgresDialect) DDLColumnType(desc DDLColumnType) string {
+	if desc.RawType != "" {
+		return desc.RawType
+	}
+
 	switch desc.Kind {
 	case DDLColumnKindBool:
 		return "BOOLEAN"

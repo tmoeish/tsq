@@ -101,6 +101,7 @@ type DDLColumnType struct {
 	Unsigned bool
 	Nullable bool
 	Size     int
+	RawType  string
 }
 
 type DDLColumnSpec struct {

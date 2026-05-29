@@ -315,6 +315,13 @@ func TSQTables() []tsq.TableRegistration {
 						Size: 120,
 					},
 				},
+				{
+					Name: "skill_items",
+					Type: tsqdialect.DDLColumnType{
+						RawType: "JSON",
+						Kind:    tsqdialect.DDLColumnKindBytes,
+					},
+				},
 			},
 			Indexes: []tsq.TableIndex{
 				// Declared unique indexes.

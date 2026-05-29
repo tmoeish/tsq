@@ -31,7 +31,7 @@
 
 `full-suite` 的输出分三层：
 
-1. `quickstart`：基础 demo 结果
+1. `quickstart`：基础 demo 结果，其中 `track_crud.updated_skill_items` 会展示自定义 JSON 字段的 round-trip
 2. `advanced`：进阶 demo 结果
 3. `comprehensive`：最终学习旅程看板
 

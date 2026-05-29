@@ -65,6 +65,7 @@ type ddlSnapshotColumn struct {
 	Unsigned      bool          `json:"unsigned,omitempty"`
 	Nullable      bool          `json:"nullable,omitempty"`
 	Size          int           `json:"size,omitempty"`
+	RawType       string        `json:"raw_type,omitempty"`
 	PrimaryKey    bool          `json:"primary_key,omitempty"`
 	AutoIncrement bool          `json:"auto_increment,omitempty"`
 	Default       string        `json:"default,omitempty"`
@@ -144,6 +145,7 @@ func buildCurrentDDLTableSnapshot(
 			Unsigned:      desc.unsigned,
 			Nullable:      desc.nullable,
 			Size:          desc.size,
+			RawType:       desc.rawType,
 			PrimaryKey:    field.Name == table.PK,
 			AutoIncrement: field.Name == table.PK && table.AI,
 			Default:       ddlManagedDefaultClause(table, field, desc),
@@ -941,7 +943,8 @@ func ddlColumnTypeChanged(before, after ddlSnapshotColumn) bool {
 	return before.Kind != after.Kind ||
 		before.Bits != after.Bits ||
 		before.Unsigned != after.Unsigned ||
-		before.Size != after.Size
+		before.Size != after.Size ||
+		before.RawType != after.RawType
 }
 
 func renderDDLDropIndexStatement(tableName string, idx ddlSnapshotIndex, dialect ddlDialectSpec) string {

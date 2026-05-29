@@ -21,7 +21,12 @@ func TSQTables() []tsq.TableRegistration {
 				{
 					Name: "{{ .Name }}",
 					Type: tsqdialect.DDLColumnType{
+			{{- if .RawType }}
+						RawType: {{ printf "%q" .RawType }},
+			{{- end }}
+			{{- if .Kind }}
 						Kind: tsqdialect.DDLColumnKind{{ UpperInitial .Kind }},
+			{{- end }}
 			{{- if .Bits }}
 						Bits: {{ .Bits }},
 			{{- end }}

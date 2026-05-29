@@ -80,6 +80,7 @@ type runtimeColumnTemplateData struct {
 	Unsigned      bool
 	Nullable      bool
 	Size          int
+	RawType       string
 	PrimaryKey    bool
 	AutoIncrement bool
 	Default       string

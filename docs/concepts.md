@@ -51,7 +51,7 @@ type User struct {
 1. 让生成器知道要为哪个 struct 产出表代码
 2. 让生成器知道哪些字段参与关键词搜索、索引、唯一约束等
 
-如果字段是 `string` 且 `db` tag 没写 `size`，DDL 默认会按常规业务字段生成 `VARCHAR(255)`；显式 `size:N` 时再按各方言映射到更合适的字符串类型。`int` / `uint` 以及基于它们的自定义枚举类型默认按常规整型宽度生成，`int64` / `uint64` 才会映射到大整数类型。
+如果字段是 `string` 且 `db` tag 没写 `size`，DDL 默认会按常规业务字段生成 `VARCHAR(255)`；显式 `size:N` 时再按各方言映射到更合适的字符串类型。`int` / `uint` 以及基于它们的自定义枚举类型默认按常规整型宽度生成，`int64` / `uint64` 才会映射到大整数类型。对于 TSQ 无法直接识别的自定义字段类型，可以在 `db` tag 里显式写 `type:JSON`、`type:TEXT`、`type:JSONB` 之类的 raw SQL 类型覆盖。
 
 ## 2. `*_tsq.go`：生成后的主要产物
 

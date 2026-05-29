@@ -314,7 +314,8 @@ func (d MySQLDialect) InspectIndexDefinition(ctx context.Context, db Executor, t
 
 func parseMySQLDDLColumnType(dataType, columnType string, size sql.NullInt64) (DDLColumnType, error) {
 	data := strings.ToLower(strings.TrimSpace(dataType))
-	colType := strings.ToLower(strings.TrimSpace(columnType))
+	rawColumnType := strings.TrimSpace(columnType)
+	colType := strings.ToLower(rawColumnType)
 	unsigned := strings.Contains(colType, "unsigned")
 
 	switch data {
@@ -354,11 +355,19 @@ func parseMySQLDDLColumnType(dataType, columnType string, size sql.NullInt64) (D
 	case "datetime", "timestamp", "date":
 		return DDLColumnType{Kind: DDLColumnKindTime}, nil
 	default:
-		return DDLColumnType{}, fmt.Errorf("unsupported mysql column type %q", dataType)
+		if rawColumnType == "" {
+			rawColumnType = strings.TrimSpace(dataType)
+		}
+
+		return DDLColumnType{RawType: rawColumnType}, nil
 	}
 }
 
 func (d MySQLDialect) DDLColumnType(desc DDLColumnType) string {
+	if desc.RawType != "" {
+		return desc.RawType
+	}
+
 	switch desc.Kind {
 	case DDLColumnKindBool:
 		return "BOOLEAN"

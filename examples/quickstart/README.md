@@ -12,7 +12,7 @@
 
 | Demo | 业务场景 | 重点能力 |
 | --- | --- | --- |
-| `runTrackCRUDDemo` | 临时创建一条学习路径并完成更新、删除 | 生成的 CRUD helper |
+| `runTrackCRUDDemo` | 临时创建一条学习路径，顺带演示自定义 JSON 字段的插入、更新、删除 | 生成的 CRUD helper、`db:"...,type:JSON"` |
 | `runCatalogSearchDemo` | 给课程目录做关键词搜索和分页 | `PageCourse(...)`、关键词搜索 |
 | `runBackendCatalogDemo` | 列出某条路径下的已发布课程 | 最直接的查询构建链路 |
 
@@ -27,7 +27,7 @@
 
 输出 JSON 会分成三段：
 
-- `track_crud`：插入的路径 ID、更新后的说明、是否删除成功
+- `track_crud`：插入的路径 ID、更新后的说明、更新后 round-trip 回来的 `skill_items`、是否删除成功
 - `catalog_search`：关键词、总数、当前页课程标题
 - `backend_catalog`：指定学习路径下的课程标题
 
@@ -37,6 +37,7 @@
 - `tsq gen ./examples/academy`
 - 生成的 `Insert / Update / Delete / Page...` helper
 - `Select(...).From(...).Where(...).Build()`
+- 自定义 `driver.Valuer` / `sql.Scanner` 类型如何配合 `db:"...,type:JSON"` 指定 DDL 类型
 
 ## 运行
 

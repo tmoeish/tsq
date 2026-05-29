@@ -187,6 +187,7 @@ func buildRuntimeSchemaColumns(
 			Unsigned:      desc.unsigned,
 			Nullable:      desc.nullable,
 			Size:          desc.size,
+			RawType:       desc.rawType,
 			PrimaryKey:    field.Name == table.PK,
 			AutoIncrement: field.Name == table.PK && table.AI,
 			Default:       ddlManagedDefaultClause(table, field, desc),

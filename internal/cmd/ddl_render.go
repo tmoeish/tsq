@@ -64,6 +64,7 @@ type ddlColumnDescriptor struct {
 	unsigned bool
 	nullable bool
 	size     int
+	rawType  string
 }
 
 var ddlDialects = []ddlDialectSpec{
@@ -313,6 +314,7 @@ func ddlColumnSpecFromSnapshot(column ddlSnapshotColumn) tsqdialect.DDLColumnSpe
 			Unsigned: column.Unsigned,
 			Nullable: column.Nullable,
 			Size:     column.Size,
+			RawType:  column.RawType,
 		},
 		PrimaryKey:    column.PrimaryKey,
 		AutoIncrement: column.AutoIncrement,
@@ -615,12 +617,23 @@ func classifyDDLColumnType(t types.Type, rawTag string) (ddlColumnDescriptor, er
 
 	desc, err := classifyDDLColumnTypeRecursive(t, opts.size, false)
 	if err != nil {
-		return ddlColumnDescriptor{}, err
+		if opts.rawType == "" {
+			return ddlColumnDescriptor{}, fmt.Errorf(
+				"%w; use db tag option type:<SQL_TYPE> to override the DDL column type",
+				err,
+			)
+		}
+
+		desc = ddlColumnDescriptor{
+			nullable: ddlTypeNullable(t),
+		}
 	}
 
 	if desc.kind == ddlColumnString {
 		desc.size = normalizeDDLStringSize(opts.size)
 	}
+
+	desc.rawType = opts.rawType
 
 	return desc, nil
 }
@@ -764,7 +777,8 @@ func ddlBasicIntegerDescriptor(basic *types.Basic, nullable bool) ddlColumnDescr
 }
 
 type ddlTagOptions struct {
-	size int
+	size    int
+	rawType string
 }
 
 func parseDDLTagOptions(dbTag string) ddlTagOptions {
@@ -773,26 +787,81 @@ func parseDDLTagOptions(dbTag string) ddlTagOptions {
 		return opts
 	}
 
-	parts := strings.Split(dbTag, ",")
+	parts := splitDDLTagParts(dbTag)
 	for _, part := range parts[1:] {
-		key, value, ok := strings.Cut(part, ":")
+		key, value, ok := strings.Cut(strings.TrimSpace(part), ":")
 		if !ok {
 			continue
 		}
 
-		if key != "size" {
-			continue
-		}
+		key = strings.TrimSpace(key)
+		value = strings.TrimSpace(value)
 
-		n, err := strconv.Atoi(value)
-		if err != nil || n <= 0 {
-			continue
-		}
+		switch key {
+		case "size":
+			n, err := strconv.Atoi(value)
+			if err != nil || n <= 0 {
+				continue
+			}
 
-		opts.size = n
+			opts.size = n
+		case "type":
+			if value == "" {
+				continue
+			}
+
+			opts.rawType = value
+		}
 	}
 
 	return opts
+}
+
+func splitDDLTagParts(dbTag string) []string {
+	if dbTag == "" {
+		return nil
+	}
+
+	parts := make([]string, 0, 4)
+	var current strings.Builder
+	depth := 0
+
+	for _, r := range dbTag {
+		switch r {
+		case '(':
+			depth++
+		case ')':
+			if depth > 0 {
+				depth--
+			}
+		case ',':
+			if depth == 0 {
+				parts = append(parts, current.String())
+				current.Reset()
+
+				continue
+			}
+		}
+
+		current.WriteRune(r)
+	}
+
+	parts = append(parts, current.String())
+
+	return parts
+}
+
+func ddlTypeNullable(t types.Type) bool {
+	switch value := t.(type) {
+	case *types.Pointer:
+		return true
+	case *types.Alias:
+		return ddlTypeNullable(types.Unalias(value))
+	case *types.Named:
+		return ddlTypeNullable(value.Underlying())
+	default:
+		return false
+	}
 }
 
 func buildDDLPlan(models []ddlFileModel, dir string) ([]generationPlanEntry, error) {

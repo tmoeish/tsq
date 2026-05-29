@@ -2,6 +2,7 @@ CREATE TABLE IF NOT EXISTS "track" (
     "id" INTEGER PRIMARY KEY AUTOINCREMENT,
     "created_at" TIMESTAMP,
     "description" TEXT NOT NULL,
+    "skill_items" JSON NOT NULL,
     "name" TEXT NOT NULL
 );
 
@@ -48,10 +49,10 @@ CREATE TABLE IF NOT EXISTS "enrollment" (
     "status" INTEGER NOT NULL
 );
 
-INSERT INTO "track" ("id", "created_at", "name", "description") VALUES
-    (1, '2026-01-01 09:00:00', 'Backend Engineering', 'Build production backend services, APIs, and data access layers.'),
-    (2, '2026-01-01 09:00:00', 'Data & AI', 'Ship retrieval, ranking, and applied machine learning workflows.'),
-    (3, '2026-01-01 09:00:00', 'Platform Reliability', 'Operate stable platforms, on-call systems, and internal automation.');
+INSERT INTO "track" ("id", "created_at", "name", "description", "skill_items") VALUES
+    (1, '2026-01-01 09:00:00', 'Backend Engineering', 'Build production backend services, APIs, and data access layers.', '[{"name":"Go services","focus":"service boundaries"},{"name":"SQLite query plans","focus":"persistence"}]'),
+    (2, '2026-01-01 09:00:00', 'Data & AI', 'Ship retrieval, ranking, and applied machine learning workflows.', '[{"name":"Embedding retrieval","focus":"ranking"},{"name":"Feature pipelines","focus":"offline-online parity"}]'),
+    (3, '2026-01-01 09:00:00', 'Platform Reliability', 'Operate stable platforms, on-call systems, and internal automation.', '[{"name":"Incident automation","focus":"response"},{"name":"SLO reviews","focus":"operations"}]');
 
 INSERT INTO "instructor" ("id", "created_at", "name", "email", "specialty", "bio") VALUES
     (1, '2026-01-01 09:00:00', 'Nora Patel', 'nora@academy.test', 'Backend Architecture', 'Designs high-throughput Go services and durable persistence layers.'),

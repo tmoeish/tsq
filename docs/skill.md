@@ -232,7 +232,27 @@ tsq:"Struct.Field"
 
 不应作为正常设计的一部分使用。对 agent 来说，应该把它们视为 **unsupported / no-op in normal usage**，不要依赖这些 key 在 result model 上产生表语义。
 
-### 5. 这个 skill 故意不带管理脚本
+### 5. `driver.Valuer` / `sql.Scanner` 不会自动决定 DDL 列类型
+
+如果一个字段是自定义 Go 类型，即使它实现了 `driver.Valuer` 和 `sql.Scanner`，agent 也**不能**据此推断它应该落成 `JSON`、`TEXT`、`JSONB` 还是别的数据库类型。
+
+正确做法是：
+
+```go
+type SkillItems []*SkillItem
+
+type Track struct {
+    SkillItems SkillItems `db:"skill_items,type:JSON" json:"skill_items"`
+}
+```
+
+也就是说：
+
+- `Valuer` / `Scanner` 负责运行时读写
+- `db:"...,type:SQL_TYPE"` 负责 DDL 类型覆盖
+- `type:` 的值会按字面写入生成的各方言 DDL；只有在这个类型对目标方言都合理时才应直接复用
+
+### 6. 这个 skill 故意不带管理脚本
 
 这个 skill 没有提供 `scripts/` 去包装：
 

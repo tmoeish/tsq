@@ -950,6 +950,120 @@ type Artifact struct {
 	}
 }
 
+func TestGenCmdSupportsExplicitDDLTypeOverrideForUnsupportedCustomTypes(t *testing.T) {
+	t.Cleanup(func() {
+		dryRunFlag = false
+		checkFlag = false
+		v = false
+		GenCmd.SetArgs(nil)
+	})
+
+	dir := t.TempDir()
+	writeTestFile(t, filepath.Join(dir, "go.mod"), genTestModuleFile(t))
+	writeTestFile(t, filepath.Join(dir, "model.go"), `package gentest
+
+import (
+	"database/sql/driver"
+	"encoding/json"
+	"fmt"
+)
+
+type SkillItem struct {
+	Name string `+"`json:\"name\"`"+`
+}
+
+type SkillItems []*SkillItem
+
+func (s SkillItems) Value() (driver.Value, error) {
+	bs, err := json.Marshal(s)
+	if err != nil {
+		return nil, err
+	}
+
+	return string(bs), nil
+}
+
+func (s *SkillItems) Scan(src any) error {
+	switch value := src.(type) {
+	case []byte:
+		return json.Unmarshal(value, s)
+	case string:
+		return json.Unmarshal([]byte(value), s)
+	case nil:
+		*s = nil
+		return nil
+	default:
+		return fmt.Errorf("unsupported scan type %T", src)
+	}
+}
+
+// @TABLE(name="profile", pk="ID,true")
+type Profile struct {
+	ID         int64      `+"`db:\"id\"`"+`
+	SkillItems SkillItems `+"`db:\"skill_items,type:JSON\"`"+`
+}
+`)
+	chdirForGenTest(t, dir)
+	tidyGenTestModule(t)
+
+	GenCmd.SetOut(new(bytes.Buffer))
+	GenCmd.SetErr(new(bytes.Buffer))
+	GenCmd.SetArgs([]string{"."})
+	if err := GenCmd.Execute(); err != nil {
+		t.Fatalf("GenCmd.Execute() error = %v", err)
+	}
+
+	for _, filename := range []string{"mysql.sql", "postgres.sql", "sqlite.sql"} {
+		content, err := os.ReadFile(filepath.Join(dir, filename))
+		if err != nil {
+			t.Fatalf("failed to read %s: %v", filename, err)
+		}
+		if !strings.Contains(string(content), `skill_items`) || !strings.Contains(string(content), ` JSON NOT NULL`) {
+			t.Fatalf("expected %s to keep explicit JSON type, got:\n%s", filename, string(content))
+		}
+	}
+
+	runtimeSource, err := os.ReadFile(filepath.Join(dir, "runtime_tsq.go"))
+	if err != nil {
+		t.Fatalf("failed to read runtime_tsq.go: %v", err)
+	}
+	if !strings.Contains(string(runtimeSource), `RawType: "JSON"`) {
+		t.Fatalf("expected runtime_tsq.go to keep explicit raw type, got:\n%s", string(runtimeSource))
+	}
+
+	stateBytes, err := os.ReadFile(filepath.Join(dir, ddlStateFilename))
+	if err != nil {
+		t.Fatalf("failed to read ddl state file: %v", err)
+	}
+
+	var state ddlStateFile
+	if err := json.Unmarshal(stateBytes, &state); err != nil {
+		t.Fatalf("failed to parse ddl state file: %v", err)
+	}
+
+	found := false
+	for _, table := range state.Snapshot.Tables {
+		if table.Name != "profile" {
+			continue
+		}
+
+		for _, column := range table.Columns {
+			if column.Name != "skill_items" {
+				continue
+			}
+
+			found = true
+			if column.RawType != "JSON" {
+				t.Fatalf("expected ddl snapshot raw_type JSON, got %q", column.RawType)
+			}
+		}
+	}
+
+	if !found {
+		t.Fatal("expected profile.skill_items column in ddl snapshot")
+	}
+}
+
 func TestGenCmdReportsDSLSourceLocation(t *testing.T) {
 	t.Cleanup(func() {
 		dryRunFlag = false

@@ -138,7 +138,7 @@ go run .
 
 这里用的是 `SchemaPolicyCreateMissing`，所以 runtime 启动时会按 `TSQTables()` 自动创建缺失表和索引；如果你不传策略，默认是 manual，只会打日志提醒你自己管理 schema。
 
-补充一点：如果你的 Go 字段是 `string` 且 `db` tag 没写 `size`，TSQ 生成 DDL 时会默认用 `VARCHAR(255)`；只有显式写更大的 `size` 时，才会按方言升级到更大的文本类型。
+补充一点：如果你的 Go 字段是 `string` 且 `db` tag 没写 `size`，TSQ 生成 DDL 时会默认用 `VARCHAR(255)`；只有显式写更大的 `size` 时，才会按方言升级到更大的文本类型。如果字段是自定义 JSON / slice / codec 类型，TSQ 又推不出 DDL，可以在 `db` tag 上额外写 `type:JSON`、`type:TEXT` 这类覆盖。
 
 ## 下一步最值得看什么
 

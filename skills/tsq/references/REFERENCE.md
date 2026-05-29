@@ -101,6 +101,7 @@ Examples:
 ```go
 Name  string `db:"name"`
 Email string `db:"email,size:160"`
+Meta  SkillItems `db:"skill_items,type:JSON"`
 ```
 
 Rules:
@@ -109,6 +110,9 @@ Rules:
 - `string`, `sql.NullString`, `null.String`, and their type alias / custom string forms default to `VARCHAR(255)` when `size` is omitted
 - `int`, `uint`, and enum-like custom types built on them default to regular integer width; `int64` / `uint64` map to big-integer types
 - `db:"col,size:N"` sets an explicit string width
+- `db:"col,type:SQL_TYPE"` sets an explicit raw SQL type override for DDL generation and runtime schema metadata
+- use `type:` for custom Go types such as JSON slices that implement `driver.Valuer` / `sql.Scanner`; those runtime interfaces do not tell TSQ whether the column should be `JSON`, `TEXT`, `JSONB`, or another SQL type
+- `type:` is emitted verbatim to generated dialect DDL, so only reuse the same value across dialects when that is actually correct
 - dialects may still choose a more suitable large-text type for oversized strings; for example, MySQL upgrades very large strings to `MEDIUMTEXT` / `LONGTEXT`
 
 #### Supported `@TABLE` keys

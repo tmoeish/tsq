@@ -392,7 +392,8 @@ func (d SQLiteDialect) inspectSQLiteIndexColumns(ctx context.Context, db Executo
 }
 
 func parseSQLiteDDLColumnType(raw string) (DDLColumnType, error) {
-	upper := strings.ToUpper(strings.TrimSpace(raw))
+	rawType := strings.TrimSpace(raw)
+	upper := strings.ToUpper(rawType)
 
 	switch {
 	case upper == "", strings.Contains(upper, "VARCHAR"), strings.Contains(upper, "TEXT"), strings.Contains(upper, "CLOB"):
@@ -417,11 +418,15 @@ func parseSQLiteDDLColumnType(raw string) (DDLColumnType, error) {
 	case strings.Contains(upper, "INT"):
 		return DDLColumnType{Kind: DDLColumnKindInt, Bits: 64}, nil
 	default:
-		return DDLColumnType{}, fmt.Errorf("unsupported sqlite column type %q", raw)
+		return DDLColumnType{RawType: rawType}, nil
 	}
 }
 
 func (d SQLiteDialect) DDLColumnType(desc DDLColumnType) string {
+	if desc.RawType != "" {
+		return desc.RawType
+	}
+
 	switch desc.Kind {
 	case DDLColumnKindBool:
 		return "BOOLEAN"

@@ -23,6 +23,10 @@ func TestQuickstart(t *testing.T) {
 		t.Fatal("expected CRUD demo to delete the inserted track")
 	}
 
+	if len(summary.TrackCRUD.UpdatedSkillItems) == 0 {
+		t.Fatal("expected CRUD demo to round-trip custom JSON skill items")
+	}
+
 	if summary.CatalogSearch.Total == 0 || len(summary.CatalogSearch.Titles) == 0 {
 		t.Fatal("expected catalog search to return rows")
 	}

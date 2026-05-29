@@ -2,6 +2,7 @@ package academy
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 
@@ -45,9 +46,10 @@ type ComprehensiveSummary struct {
 
 // CRUDSummary captures the create, update, and delete demo outputs.
 type CRUDSummary struct {
-	InsertedID          int64  `json:"inserted_id"`          // InsertedID is the generated ID returned by the insert demo.
-	UpdatedDescription  string `json:"updated_description"`  // UpdatedDescription is the description after the update demo.
-	DeletedSuccessfully bool   `json:"deleted_successfully"` // DeletedSuccessfully reports whether the delete demo removed the row.
+	InsertedID          int64           `json:"inserted_id"`          // InsertedID is the generated ID returned by the insert demo.
+	UpdatedDescription  string          `json:"updated_description"`  // UpdatedDescription is the description after the update demo.
+	UpdatedSkillItems   json.RawMessage `json:"updated_skill_items"`  // UpdatedSkillItems shows explicit JSON db-type override data round-tripping through generated CRUD helpers.
+	DeletedSuccessfully bool            `json:"deleted_successfully"` // DeletedSuccessfully reports whether the delete demo removed the row.
 }
 
 // SearchSummary captures the keyword-search demo result.
@@ -303,6 +305,7 @@ func runTrackCRUDDemo(ctx context.Context, runtime *tsq.Runtime) (*CRUDSummary, 
 	inserted := &Track{
 		Name:        "Edge Delivery Systems",
 		Description: "Temporary track used to demonstrate Insert, Update, and Delete.",
+		SkillItems:  json.RawMessage(`[{"name":"Global Cache Invalidation","focus":"consistency"},{"name":"Request Hedging","focus":"latency"}]`),
 	}
 	if err := inserted.Insert(ctx, exec); err != nil {
 		return nil, fmt.Errorf("%s: %w", "insert track", err)
@@ -310,6 +313,8 @@ func runTrackCRUDDemo(ctx context.Context, runtime *tsq.Runtime) (*CRUDSummary, 
 
 	// Update the track.
 	inserted.Description = "Updated through the generated Track helpers."
+
+	inserted.SkillItems = json.RawMessage(`[{"name":"Global Cache Invalidation","focus":"consistency"},{"name":"Request Hedging","focus":"latency"},{"name":"Regional Traffic Steering","focus":"resilience"}]`)
 	if err := inserted.Update(ctx, exec); err != nil {
 		return nil, fmt.Errorf("%s: %w", "update track", err)
 	}
@@ -346,6 +351,7 @@ func runTrackCRUDDemo(ctx context.Context, runtime *tsq.Runtime) (*CRUDSummary, 
 	return &CRUDSummary{
 		InsertedID:          inserted.ID,
 		UpdatedDescription:  updated.Description,
+		UpdatedSkillItems:   updated.SkillItems,
 		DeletedSuccessfully: deleted == nil,
 	}, nil
 }

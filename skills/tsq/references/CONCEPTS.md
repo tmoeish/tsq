@@ -60,6 +60,11 @@ Typical generated outputs:
 
 Generated files should follow the handwritten struct definitions, not the other way around.
 
+When a field uses a custom Go codec type, keep two responsibilities separate:
+
+- `driver.Valuer` / `sql.Scanner` handle runtime read/write conversion
+- `db:"...,type:SQL_TYPE"` handles DDL type override when TSQ cannot infer a column type from the Go type
+
 ## Owner model
 
 TSQ separates several concepts:

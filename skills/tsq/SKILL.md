@@ -43,6 +43,7 @@ Use this skill for **using TSQ in another Go project**, not for developing the T
 - Remember that `NInVar()` with an empty or nil slice means explicit match-all.
 - Prefer the predicate naming split: RHS uses `Op(...)`, literal values use `OpVal(...)`, runtime placeholders use `OpVar()`, and pattern sugar uses `StartsWithVal/StartsWithVar`-style names while cross-column or subquery pattern matching goes through `Like(...)`.
 - Remember that `Build()` validates query structure, while execution validates dialect capabilities.
+- Do not assume a custom `driver.Valuer` / `sql.Scanner` type implies a DDL column type; use an explicit `db:"...,type:JSON"` / `type:TEXT` / `type:JSONB"` override when the Go type is not directly mappable.
 
 ## What to inspect in the target project first
 

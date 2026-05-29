@@ -52,6 +52,16 @@ Minimum requirements:
 - an `@TABLE` annotation
 - `db` tags on persisted fields
 
+If a field uses a custom Go type that TSQ cannot map directly to a SQL column type, keep the runtime codec on the Go type and add an explicit DDL override in the `db` tag:
+
+```go
+type SkillItems []*SkillItem
+
+type Track struct {
+	SkillItems SkillItems `db:"skill_items,type:JSON" json:"skill_items"`
+}
+```
+
 ## 4. Generate TSQ files
 
 ```bash
