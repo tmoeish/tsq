@@ -26,7 +26,7 @@ skills/
 ### GitHub Copilot
 
 ```bash
-gh skill install tmoeish/tsq tsq --agent github-copilot --scope user
+gh skill install tmoeish/tsq skills/tsq --agent github-copilot --scope user
 ```
 
 ### Claude Code
@@ -50,13 +50,13 @@ gh skill install tmoeish/tsq tsq --agent gemini-cli --scope user
 例如：
 
 ```bash
-gh skill install tmoeish/tsq tsq@v4.0.0 --agent github-copilot --scope user
+gh skill install tmoeish/tsq skills/tsq@v4.1.21 --agent github-copilot --scope user
 ```
 
 安装前建议先预览：
 
 ```bash
-gh skill preview tmoeish/tsq tsq
+gh skill preview tmoeish/tsq skills/tsq
 ```
 
 ## 从本地仓库安装
@@ -64,13 +64,13 @@ gh skill preview tmoeish/tsq tsq
 如果你已经 clone 了本仓库，也可以直接从本地目录安装：
 
 ```bash
-gh skill install /path/to/tsq tsq --from-local --agent github-copilot --scope user
+gh skill install /path/to/tsq skills/tsq --from-local --agent github-copilot --scope user
 ```
 
 例如在仓库根目录执行：
 
 ```bash
-gh skill install . tsq --from-local --agent github-copilot --scope user
+gh skill install . skills/tsq --from-local --agent github-copilot --scope user
 ```
 
 ## 手动安装
