@@ -152,7 +152,7 @@ type UserOrder struct {
 如果你要用 TSQ 管理好的数据库上下文，直接把 `Runtime` 当 `SQLExecutor` 传进去即可：
 
 ```go
-rt, err := tsq.NewRuntime("sqlite3", dsn, database.TSQTables())
+rt, err := tsq.NewRuntime("sqlite", dsn, database.TSQTables())
 if err != nil {
 	panic(err)
 }
@@ -209,7 +209,7 @@ if err := rt.WithTx(ctx, nil, func(ctx context.Context, txExec tsq.SQLExecutor) 
 这时可以显式创建独立运行时：
 
 ```go
-rt, err := tsq.NewRuntime("sqlite3", dsn, academy.TSQTables())
+rt, err := tsq.NewRuntime("sqlite", dsn, academy.TSQTables())
 ```
 
 如果一个进程里有多个生成包共用同一个数据库，把各包的 `TSQTables()` 拼起来再传给一个 `Runtime` 即可；如果是多个数据库，就各自构造各自的 `Runtime`。
@@ -218,7 +218,7 @@ rt, err := tsq.NewRuntime("sqlite3", dsn, academy.TSQTables())
 
 ```go
 rt, err := tsq.NewRuntime(
-	"sqlite3",
+	"sqlite",
 	dsn,
 	academy.TSQTables(),
 	&tsq.RuntimeOptions{

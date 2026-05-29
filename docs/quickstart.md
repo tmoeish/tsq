@@ -18,9 +18,11 @@ cd tsq-quickstart
 
 go mod init example.com/tsq-quickstart
 go get github.com/tmoeish/tsq/v4@latest
-go get github.com/mattn/go-sqlite3@latest
+go get modernc.org/sqlite@latest
 go install github.com/tmoeish/tsq/v4/cmd/tsq@latest
 ```
+
+TSQ 不会替应用引入数据库 driver；这里只是为了 quickstart 选了一个零 CGO 的 SQLite driver。
 
 创建目录：
 
@@ -80,7 +82,7 @@ import (
 	"context"
 	"log"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 
 	"github.com/tmoeish/tsq/v4"
 	"example.com/tsq-quickstart/database"
@@ -90,7 +92,7 @@ func main() {
 	ctx := context.Background()
 
 	runtime, err := tsq.NewRuntime(
-		"sqlite3",
+		"sqlite",
 		"file:quickstart.db?cache=shared",
 		database.TSQTables(),
 		&tsq.RuntimeOptions{

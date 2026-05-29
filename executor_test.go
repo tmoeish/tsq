@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgconn"
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 type batchMutationUser struct {
@@ -121,7 +121,7 @@ func requireInitializedRuntime(t *testing.T, runtime *Runtime) *Runtime {
 
 func newBatchMutationEngine(t *testing.T) *Runtime {
 	t.Helper()
-	db, err := sql.Open("sqlite3", ":memory:")
+	db, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
@@ -140,7 +140,7 @@ func newBatchMutationEngine(t *testing.T) *Runtime {
 
 func newOptimisticMutationEngine(t *testing.T) *Runtime {
 	t.Helper()
-	db, err := sql.Open("sqlite3", ":memory:")
+	db, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}

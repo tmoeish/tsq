@@ -10,7 +10,6 @@ import (
 	"github.com/go-sql-driver/mysql"
 	"github.com/jackc/pgconn"
 	"github.com/lib/pq"
-	"github.com/mattn/go-sqlite3"
 
 	tsqdialect "github.com/tmoeish/tsq/v4/dialect"
 )
@@ -24,9 +23,8 @@ func isDuplicateKeyError(err error) bool {
 		return mysqlErr.Number == 1062
 	}
 
-	if sqliteErr, ok := errors.AsType[sqlite3.Error](err); ok {
-		return errors.Is(sqliteErr.ExtendedCode, sqlite3.ErrConstraintUnique) ||
-			errors.Is(sqliteErr.ExtendedCode, sqlite3.ErrConstraintPrimaryKey)
+	if isSQLiteDuplicateKeyError(err) {
+		return true
 	}
 
 	if pqErr, ok := errors.AsType[*pq.Error](err); ok {

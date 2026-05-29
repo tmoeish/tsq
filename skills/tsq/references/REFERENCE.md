@@ -536,7 +536,7 @@ They all take an explicit `context.Context` and an executor.
 `Runtime` is the TSQ-managed executor and runtime container.
 
 - it implements `SQLExecutor` directly
-- use `tsq.NewRuntime("sqlite3", dsn, database.TSQTables())` for one generated package
+- use `tsq.NewRuntime("sqlite", dsn, database.TSQTables())` for one generated package
 - combine multiple generated packages by concatenating their `TSQTables()` slices before calling `NewRuntime`
 - `NewRuntime` opens the DB itself and resolves the dialect from `driverName`
 - configure optional bootstrap behavior with `tsq.RuntimeOptions`, for example `&tsq.RuntimeOptions{TablePolicy: tsq.SchemaPolicyCreateMissing, IndexPolicy: tsq.SchemaPolicyCreateMissing}`

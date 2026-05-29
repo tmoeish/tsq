@@ -15,11 +15,11 @@ After this flow, the target project should have:
 
 ```bash
 go get github.com/tmoeish/tsq/v4@latest
-go get github.com/mattn/go-sqlite3@latest
+go get modernc.org/sqlite@latest
 go install github.com/tmoeish/tsq/v4/cmd/tsq@latest
 ```
 
-If the project already uses MySQL or PostgreSQL, keep its existing driver instead of adding SQLite just for TSQ.
+TSQ does not ship a database driver; the project only needs the driver it actually uses. This quickstart picks `modernc.org/sqlite` because it works without CGO.
 
 ## 2. Create or choose a package for database models
 
@@ -86,7 +86,7 @@ The shortest SQLite example:
 
 ```go
 runtime, err := tsq.NewRuntime(
-	"sqlite3",
+	"sqlite",
 	"file:app.db?cache=shared",
 	database.TSQTables(),
 	&tsq.RuntimeOptions{

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 func inspectRegisteredIndex(t *testing.T, db *Runtime, table, idx string) (IndexDefinition, bool) {
@@ -34,7 +34,7 @@ func newRegisteredIndexRuntime(
 
 	table, _ := newStrictMockTable(tableName, fields...)
 	runtime, err := NewRuntime(
-		"sqlite3",
+		"sqlite",
 		dsn,
 		[]TableRegistration{{
 			Table:   table,
@@ -138,7 +138,7 @@ func TestNewRuntimeIndexModeValidateReturnsMissingIndexError(t *testing.T) {
 	}
 
 	_, err := NewRuntime(
-		"sqlite3",
+		"sqlite",
 		dsn,
 		[]TableRegistration{{
 			Table:   mustStrictMockTable(t, "users", "name"),
@@ -190,7 +190,7 @@ func TestNewRuntimeValidateModeAcceptsExistingRegisteredIndex(t *testing.T) {
 	}
 
 	if _, err := NewRuntime(
-		"sqlite3",
+		"sqlite",
 		dsn,
 		[]TableRegistration{{
 			Table:   mustStrictMockTable(t, "users", "name"),
@@ -219,7 +219,7 @@ func TestNewRuntimePersistsIndexModeOnEngine(t *testing.T) {
 
 func TestValidateIdentifiersForDialect(t *testing.T) {
 	_, dsn := newSQLiteIndexTestEngine(t)
-	r, err := NewRuntime("sqlite3", dsn, nil)
+	r, err := NewRuntime("sqlite", dsn, nil)
 	if err != nil {
 		t.Fatalf("NewRuntime() error = %v", err)
 	}
@@ -235,7 +235,7 @@ func TestValidateIdentifiersForDialectChecksTableColumns(t *testing.T) {
 	table, _ := newStrictMockTable("users", longColumnName)
 
 	r, err := NewRuntime(
-		"sqlite3",
+		"sqlite",
 		dsn,
 		[]TableRegistration{{Table: table}},
 		&RuntimeOptions{IdentifierValidationMode: "skip"},
@@ -260,7 +260,7 @@ func TestValidateIdentifiersForDialectChecksIndexNames(t *testing.T) {
 	table, _ := newStrictMockTable("users", "id")
 
 	r, err := NewRuntime(
-		"sqlite3",
+		"sqlite",
 		dsn,
 		[]TableRegistration{{
 			Table:   table,

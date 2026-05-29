@@ -14,7 +14,6 @@ import (
 	"github.com/go-sql-driver/mysql"
 	"github.com/jackc/pgconn"
 	"github.com/lib/pq"
-	"github.com/mattn/go-sqlite3"
 )
 
 const (
@@ -122,8 +121,8 @@ func IsRetryableTransactionConflictError(err error) bool {
 		}
 	}
 
-	if sqliteErr, ok := errors.AsType[sqlite3.Error](err); ok {
-		return errors.Is(sqliteErr.Code, sqlite3.ErrBusy) || errors.Is(sqliteErr.Code, sqlite3.ErrLocked)
+	if isSQLiteRetryableTransactionConflict(err) {
+		return true
 	}
 
 	return false

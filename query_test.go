@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 type queryOwner struct{}
@@ -421,7 +421,7 @@ func (inVarUser) TSQOwner() {
 
 func newScanValidationEngine(t *testing.T) *Runtime {
 	t.Helper()
-	db, err := sql.Open("sqlite3", ":memory:")
+	db, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
 		t.Fatalf("failed to open sqlite database: %v", err)
 	}
@@ -436,7 +436,7 @@ func newScanValidationEngine(t *testing.T) *Runtime {
 
 func newInVarEngine(t *testing.T) *Runtime {
 	t.Helper()
-	db, err := sql.Open("sqlite3", ":memory:")
+	db, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
 		t.Fatalf("failed to open sqlite database: %v", err)
 	}
@@ -454,7 +454,7 @@ func newInVarEngine(t *testing.T) *Runtime {
 
 func newEngineWithoutDialect(t *testing.T) *sql.DB {
 	t.Helper()
-	db, err := sql.Open("sqlite3", ":memory:")
+	db, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
 		t.Fatalf("failed to open sqlite database: %v", err)
 	}

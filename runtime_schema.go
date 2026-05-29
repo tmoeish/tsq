@@ -48,14 +48,14 @@ func openRuntimeDB(driverName, dsn string) (*sql.DB, tsqdialect.Dialect, error) 
 
 func resolveRuntimeDialect(driverName string) (tsqdialect.Dialect, error) {
 	switch strings.ToLower(strings.TrimSpace(driverName)) {
-	case "sqlite", "sqlite3":
+	case "sqlite":
 		return tsqdialect.SQLiteDialect{}, nil
 	case "mysql":
 		return tsqdialect.MySQLDialect{}, nil
 	case "postgres", "postgresql", "pgx", "pq":
 		return tsqdialect.PostgresDialect{}, nil
 	default:
-		return nil, fmt.Errorf("unsupported sql driver %q; expected sqlite3, mysql, postgres, pgx, or pq", driverName)
+		return nil, fmt.Errorf("unsupported sql driver %q; expected sqlite, mysql, postgres, pgx, or pq", driverName)
 	}
 }
 

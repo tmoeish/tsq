@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 func TestBuildRegisteredTablesRejectsNilInputs(t *testing.T) {
@@ -93,7 +93,7 @@ func newSQLiteIndexTestEngine(t *testing.T) (*Runtime, string) {
 	t.Helper()
 
 	dsn := filepath.Join(t.TempDir(), "test.db")
-	db, err := sql.Open("sqlite3", dsn)
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		t.Fatalf("failed to open sqlite database: %v", err)
 	}
@@ -106,7 +106,7 @@ func newSQLiteIndexTestEngine(t *testing.T) (*Runtime, string) {
 
 func TestCurrentDialectDetection(t *testing.T) {
 	_, dsn := newSQLiteIndexTestEngine(t)
-	r, err := NewRuntime("sqlite3", dsn, nil)
+	r, err := NewRuntime("sqlite", dsn, nil)
 	if err != nil {
 		t.Fatalf("NewRuntime() error = %v", err)
 	}
@@ -122,7 +122,7 @@ func TestCurrentDialectDetection(t *testing.T) {
 
 func TestRuntimeEngineAccess(t *testing.T) {
 	db, dsn := newSQLiteIndexTestEngine(t)
-	r, err := NewRuntime("sqlite3", dsn, nil)
+	r, err := NewRuntime("sqlite", dsn, nil)
 	if err != nil {
 		t.Fatalf("NewRuntime() error = %v", err)
 	}
@@ -160,7 +160,7 @@ func TestNewRuntimeFailsOnMissingRegisteredIndex(t *testing.T) {
 
 	table, _ := newStrictMockTable("users", "name")
 	_, err := NewRuntime(
-		"sqlite3",
+		"sqlite",
 		dsn,
 		[]TableRegistration{{
 			Table:   table,

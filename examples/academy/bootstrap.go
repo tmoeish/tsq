@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 
 	"github.com/tmoeish/tsq/v4"
 )
@@ -26,7 +26,7 @@ func OpenSQLiteExampleDB() (*tsq.Runtime, func(), error) {
 		_ = os.RemoveAll(dir)
 	}
 
-	db, err := tsq.NewRuntime("sqlite3", dsn, nil)
+	db, err := tsq.NewRuntime("sqlite", dsn, nil)
 	if err != nil {
 		baseCleanup()
 		return nil, nil, err
@@ -38,7 +38,7 @@ func OpenSQLiteExampleDB() (*tsq.Runtime, func(), error) {
 	}
 	_ = db.DB().Close()
 
-	runtime, err := tsq.NewRuntime("sqlite3", dsn, TSQTables(), &tsq.RuntimeOptions{IndexPolicy: tsq.SchemaPolicyCreateMissing})
+	runtime, err := tsq.NewRuntime("sqlite", dsn, TSQTables(), &tsq.RuntimeOptions{IndexPolicy: tsq.SchemaPolicyCreateMissing})
 	if err != nil {
 		baseCleanup()
 		return nil, nil, fmt.Errorf("%s: %w", "init tsq runtime", err)

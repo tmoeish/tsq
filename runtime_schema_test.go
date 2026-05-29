@@ -2,6 +2,7 @@ package tsq
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	tsqdialect "github.com/tmoeish/tsq/v4/dialect"
@@ -12,7 +13,7 @@ func TestNewRuntimeTablePolicyCreateMissingCreatesTable(t *testing.T) {
 	table, _ := newStrictMockTable("users", "id", "name")
 
 	runtime, err := NewRuntime(
-		"sqlite3",
+		"sqlite",
 		dsn,
 		[]TableRegistration{{
 			Table: table,
@@ -55,7 +56,7 @@ func TestNewRuntimeTablePolicyReconcileAddsMissingColumn(t *testing.T) {
 
 	table, _ := newStrictMockTable("users", "id", "name")
 	runtime, err := NewRuntime(
-		"sqlite3",
+		"sqlite",
 		dsn,
 		[]TableRegistration{{
 			Table: table,
@@ -104,7 +105,7 @@ func TestNewRuntimeIndexPolicyManagedDropsUndeclaredIndexes(t *testing.T) {
 
 	table, _ := newStrictMockTable("users", "id", "name", "email")
 	runtime, err := NewRuntime(
-		"sqlite3",
+		"sqlite",
 		dsn,
 		[]TableRegistration{{
 			Table: table,
@@ -136,7 +137,7 @@ func TestNewRuntimeTablePolicyManagedDropsOnlyTrackedTables(t *testing.T) {
 
 	table, _ := newStrictMockTable("users", "id")
 	_, err := NewRuntime(
-		"sqlite3",
+		"sqlite",
 		dsn,
 		[]TableRegistration{{
 			Table: table,
@@ -154,7 +155,7 @@ func TestNewRuntimeTablePolicyManagedDropsOnlyTrackedTables(t *testing.T) {
 	}
 
 	runtime, err := NewRuntime(
-		"sqlite3",
+		"sqlite",
 		dsn,
 		nil,
 		&RuntimeOptions{TablePolicy: SchemaPolicyManaged},
@@ -173,5 +174,15 @@ func TestNewRuntimeTablePolicyManagedDropsOnlyTrackedTables(t *testing.T) {
 		t.Fatalf("InspectTableColumns(admins) error = %v", err)
 	} else if !found {
 		t.Fatal("expected unrelated admins table to remain")
+	}
+}
+
+func TestResolveRuntimeDialectRejectsLegacySQLite3DriverName(t *testing.T) {
+	_, err := resolveRuntimeDialect("sqlite3")
+	if err == nil {
+		t.Fatal("expected sqlite3 driver name to be rejected")
+	}
+	if !strings.Contains(err.Error(), "expected sqlite, mysql, postgres, pgx, or pq") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
