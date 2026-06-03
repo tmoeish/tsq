@@ -234,3 +234,50 @@ func TestParseResultDSL_ReturnsErrorForMalformedAnnotation(t *testing.T) {
 		t.Fatalf("expected missing bracket error, got %v", err)
 	}
 }
+
+func TestGenerateQueryListIncludesFullUniqueSetVariantsOnly(t *testing.T) {
+	meta := &genmodel.TableMeta{
+		UxList: []genmodel.IndexInfo{
+			{Name: "ux_user_email", Fields: []string{"Email"}},
+			{Name: "ux_user_org_slug", Fields: []string{"OrgID", "Slug"}},
+		},
+	}
+
+	generateQueryList(meta)
+
+	assertQuery := func(name string, isSet bool, fields ...string) {
+		t.Helper()
+
+		for _, idx := range meta.QueryList {
+			if idx.Name == name {
+				if idx.IsSet != isSet {
+					t.Fatalf("query %s IsSet = %v, want %v", name, idx.IsSet, isSet)
+				}
+				if !reflect.DeepEqual(idx.Fields, fields) {
+					t.Fatalf("query %s fields = %v, want %v", name, idx.Fields, fields)
+				}
+				return
+			}
+		}
+
+		t.Fatalf("query %s not found", name)
+	}
+
+	assertNoQuery := func(name string) {
+		t.Helper()
+
+		for _, idx := range meta.QueryList {
+			if idx.Name == name {
+				t.Fatalf("unexpected query %s found: %#v", name, idx)
+			}
+		}
+	}
+
+	assertQuery("EmailIn", true, "Email")
+	assertNoQuery("Email")
+
+	assertQuery("OrgID", false, "OrgID")
+	assertQuery("OrgIDIn", true, "OrgID")
+	assertQuery("OrgIDAndSlugIn", true, "OrgID", "Slug")
+	assertNoQuery("OrgIDAndSlug")
+}

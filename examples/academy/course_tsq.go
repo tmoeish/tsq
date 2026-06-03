@@ -4,8 +4,6 @@ package academy
 
 import (
 	"context"
-	tsqsql "database/sql"
-	"errors"
 	"fmt"
 	tsqtime "time"
 
@@ -13,74 +11,6 @@ import (
 
 	"github.com/tmoeish/tsq/v4"
 )
-
-// CourseGeneratedQuery wraps a generated query and preserves any init-time build error.
-type CourseGeneratedQuery struct {
-	query *tsq.Query[Course]
-	err   error
-}
-
-func (g CourseGeneratedQuery) resolved() (*tsq.Query[Course], error) {
-	if g.err != nil {
-		return nil, g.err
-	}
-
-	if g.query == nil {
-		return nil, errors.New("generated query is not initialized")
-	}
-
-	return g.query, nil
-}
-
-// Load executes the generated query and scans one Course row into holder.
-func (g CourseGeneratedQuery) Load(ctx context.Context, db tsq.SQLExecutor, holder *Course, args ...any) error {
-	query, err := g.resolved()
-	if err != nil {
-		return err
-	}
-
-	return query.Load(ctx, db, holder, args...)
-}
-
-// Exists reports whether the generated query matches at least one Course row.
-func (g CourseGeneratedQuery) Exists(ctx context.Context, db tsq.SQLExecutor, args ...any) (bool, error) {
-	query, err := g.resolved()
-	if err != nil {
-		return false, err
-	}
-
-	return query.Exists(ctx, db, args...)
-}
-
-// Count returns the number of Course rows matched by the generated query.
-func (g CourseGeneratedQuery) Count(ctx context.Context, db tsq.SQLExecutor, args ...any) (int, error) {
-	query, err := g.resolved()
-	if err != nil {
-		return 0, err
-	}
-
-	return query.Count(ctx, db, args...)
-}
-
-// List executes the generated query and returns all matching Course rows.
-func (g CourseGeneratedQuery) List(ctx context.Context, db tsq.SQLExecutor, args ...any) ([]*Course, error) {
-	query, err := g.resolved()
-	if err != nil {
-		return nil, err
-	}
-
-	return tsq.List(ctx, db, query, args...)
-}
-
-// Page executes the generated query with paging and returns a paged Course result.
-func (g CourseGeneratedQuery) Page(ctx context.Context, db tsq.SQLExecutor, page *tsq.PageRequest, args ...any) (*tsq.PageResponse[Course], error) {
-	query, err := g.resolved()
-	if err != nil {
-		return nil, err
-	}
-
-	return tsq.Page(ctx, db, page, query, args...)
-}
 
 // =============================================================================
 // Table Interface Implementation
@@ -152,71 +82,19 @@ var Course__Cols = []tsq.BoundColumn[Course]{
 // =============================================================================
 // Query by Primary Key
 // =============================================================================
-// getCourseByIDQuery stores the generated primary-key lookup query for Course.
-var getCourseByIDQuery CourseGeneratedQuery
+// QueryCourseByID stores the generated primary-key lookup query for Course.
+var QueryCourseByID = tsq.
+	Select(Course__Cols...).
+	From(TableCourse).
+	Where(Course_ID.EQVar()).
+	MustBuild()
 
-func init() {
-	var err error
-	getCourseByIDQuery.query, err = tsq.
-		Select(Course__Cols...).
-		From(TableCourse).
-		Where(Course_ID.EQVar()).
-		Build()
-	if err != nil {
-		getCourseByIDQuery.err = fmt.Errorf("%s: %w", "initialize getCourseByIDQuery", err)
-	}
-}
-
-// GetCourseByID retrieves a Course record by its primary key.
-// Returns (nil, nil) if the record is not found.
-func GetCourseByID(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	iD int64,
-) (*Course, error) {
-	row := &Course{}
-	err := getCourseByIDQuery.Load(ctx, db, row, iD)
-	if err != nil {
-		if errors.Is(err, tsqsql.ErrNoRows) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	return row, nil
-}
-
-// GetCourseByIDOrErr retrieves a Course record by its primary key.
-// Returns (nil, database/sql.ErrNoRows) if the record is not found.
-func GetCourseByIDOrErr(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	iD int64,
-) (*Course, error) {
-	row := &Course{}
-	err := getCourseByIDQuery.Load(ctx, db, row, iD)
-	if err != nil {
-		return nil, err
-	}
-	return row, nil
-}
-
-// ListCourseByIDIn retrieves multiple Course records by a set of primary key values.
-// Records not found are silently ignored.
-func ListCourseByIDIn(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	iDs ...int64,
-) ([]*Course, error) {
-	query, err := tsq.
-		Select(Course__Cols...).
-		From(TableCourse).
-		Where(Course_ID.InVal(iDs...)).
-		Build()
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", "build query", err)
-	}
-	return tsq.List(ctx, db, query)
-}
+// QueryCourseByIDIn stores the generated primary-key IN lookup query for Course.
+var QueryCourseByIDIn = tsq.
+	Select(Course__Cols...).
+	From(TableCourse).
+	Where(Course_ID.InVar()).
+	MustBuild()
 
 // ListCourseByIDInOrErr retrieves multiple Course records by a set of primary key values.
 // Returns an error if any of the specified records are not found.
@@ -225,16 +103,7 @@ func ListCourseByIDInOrErr(
 	db tsq.SQLExecutor,
 	iDs ...int64,
 ) ([]*Course, error) {
-	query, err := tsq.
-		Select(Course__Cols...).
-		From(TableCourse).
-		Where(Course_ID.InVal(iDs...)).
-		Build()
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", "build query", err)
-	}
-
-	list, err := tsq.List(ctx, db, query)
+	list, err := QueryCourseByIDIn.List(ctx, db, iDs)
 	if err != nil {
 		return nil, err
 	}
@@ -251,421 +120,120 @@ func ListCourseByIDInOrErr(
 // =============================================================================
 // Query by Unique Indexes
 // =============================================================================
-// getCourseByTitleQuery stores the generated unique-index lookup query for Course.
-var getCourseByTitleQuery CourseGeneratedQuery
+// QueryCourseByTitle stores the generated unique-index lookup query for Course.
+var QueryCourseByTitle = tsq.
+	Select(Course__Cols...).
+	From(TableCourse).
+	Search(TableCourse.SearchColumns()...).
+	Where(
+		Course_Title.EQVar(),
+	).
+	MustBuild()
 
-func init() {
-	var err error
-	getCourseByTitleQuery.query, err = tsq.
-		Select(Course__Cols...).
-		From(TableCourse).
-		Search(TableCourse.SearchColumns()...).
-		Where(
-			Course_Title.EQVar(),
-		).
-		Build()
-	if err != nil {
-		getCourseByTitleQuery.err = fmt.Errorf("%s: %w", "initialize getCourseByTitleQuery", err)
-	}
-}
-
-// GetCourseByTitle retrieves a Course record by unique index ux_course_title.
-// Returns (nil, nil) if the record is not found.
-func GetCourseByTitle(
+// ListCourseByTitleInOrErr retrieves multiple Course records by unique index ux_course_title using an IN clause.
+// Returns an error if any of the specified records are not found.
+func ListCourseByTitleInOrErr(
 	ctx context.Context,
 	db tsq.SQLExecutor,
-	title string,
-) (*Course, error) {
-	row := &Course{}
-	err := getCourseByTitleQuery.Load(
-		ctx, db, row,
-		title,
-	)
-	if err != nil {
-		if errors.Is(err, tsqsql.ErrNoRows) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	return row, nil
-}
-
-// GetCourseByTitleOrErr retrieves a Course record by unique index ux_course_title.
-// Returns (nil, database/sql.ErrNoRows) if the record is not found.
-func GetCourseByTitleOrErr(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	title string,
-) (*Course, error) {
-	row := &Course{}
-	err := getCourseByTitleQuery.Load(
-		ctx, db, row,
-		title,
-	)
-	if err != nil {
-		return nil, err
-	}
-	return row, nil
-}
-
-// ExistsCourseByTitle checks if a Course record exists by unique index ux_course_title.
-func ExistsCourseByTitle(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	title string,
-) (bool, error) {
-	rs, err := getCourseByTitleQuery.Exists(
+	titles ...string,
+) ([]*Course, error) {
+	list, err := QueryCourseByTitleIn.List(
 		ctx, db,
-		title,
+		titles,
 	)
-	return rs, err
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", "query by unique index ux_course_title", err)
+	}
+
+	ordered, missing := matchByInputOrderKey(
+		titles, list,
+		func(row *Course) string { return compactJSON(row.Title) },
+		func(input string) string { return compactJSON(input) },
+	)
+	if len(missing) > 0 {
+		return nil, fmt.Errorf("records not found: %v", missing)
+	}
+	return ordered, nil
 }
 
 // =============================================================================
 // Query by Indexes
 // =============================================================================
-// ListCourseByInstructorIDQuery stores the generated index query for Course.
-var ListCourseByInstructorIDQuery CourseGeneratedQuery
+// QueryCourseByInstructorID stores the generated index query for Course.
+var QueryCourseByInstructorID = tsq.
+	Select(Course__Cols...).
+	From(TableCourse).
+	Search(TableCourse.SearchColumns()...).
+	Where(
+		Course_InstructorID.EQVar(),
+	).
+	MustBuild()
 
-func init() {
-	var err error
-	ListCourseByInstructorIDQuery.query, err = tsq.
-		Select(Course__Cols...).
-		From(TableCourse).
-		Search(TableCourse.SearchColumns()...).
-		Where(
-			Course_InstructorID.EQVar(),
-		).
-		Build()
-	if err != nil {
-		ListCourseByInstructorIDQuery.err = fmt.Errorf("%s: %w", "initialize ListCourseByInstructorIDQuery", err)
-	}
-}
+// QueryCourseByInstructorIDIn stores the generated index query for Course.
+var QueryCourseByInstructorIDIn = tsq.
+	Select(Course__Cols...).
+	From(TableCourse).
+	Where(
+		Course_InstructorID.InVar(),
+	).
+	MustBuild()
 
-// CountCourseByInstructorID returns the count of Course records matching index idx_course_instructor_id.
-func CountCourseByInstructorID(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	instructorID int64,
-) (int, error) {
-	rs, err := ListCourseByInstructorIDQuery.Count(
-		ctx, db,
-		instructorID,
-	)
-	if err != nil {
-		return 0, fmt.Errorf("%s: %w", "query by index idx_course_instructor_id", err)
-	}
-	return rs, nil
-}
+// QueryCourseByPrerequisiteID stores the generated index query for Course.
+var QueryCourseByPrerequisiteID = tsq.
+	Select(Course__Cols...).
+	From(TableCourse).
+	Search(TableCourse.SearchColumns()...).
+	Where(
+		Course_PrerequisiteID.EQVar(),
+	).
+	MustBuild()
 
-// ListCourseByInstructorID retrieves Course records by index idx_course_instructor_id.
-func ListCourseByInstructorID(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	instructorID int64,
-) ([]*Course, error) {
-	data, err := ListCourseByInstructorIDQuery.List(
-		ctx, db,
-		instructorID,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", "query by index idx_course_instructor_id", err)
-	}
-	return data, nil
-}
+// QueryCourseByPrerequisiteIDIn stores the generated index query for Course.
+var QueryCourseByPrerequisiteIDIn = tsq.
+	Select(Course__Cols...).
+	From(TableCourse).
+	Where(
+		Course_PrerequisiteID.InVar(),
+	).
+	MustBuild()
 
-// PageCourseByInstructorID retrieves Course records by index idx_course_instructor_id with pagination.
-func PageCourseByInstructorID(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	page *tsq.PageRequest,
-	instructorID int64,
-) (*tsq.PageResponse[Course], error) {
-	rs, err := ListCourseByInstructorIDQuery.Page(
-		ctx, db, page,
-		instructorID,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", "query by index idx_course_instructor_id", err)
-	}
-	return rs, nil
-}
+// QueryCourseByTitleIn stores the generated index query for Course.
+var QueryCourseByTitleIn = tsq.
+	Select(Course__Cols...).
+	From(TableCourse).
+	Where(
+		Course_Title.InVar(),
+	).
+	MustBuild()
 
-// ListCourseByInstructorIDInQuery stores the generated index query for Course.
-var ListCourseByInstructorIDInQuery CourseGeneratedQuery
+// QueryCourseByTrackID stores the generated index query for Course.
+var QueryCourseByTrackID = tsq.
+	Select(Course__Cols...).
+	From(TableCourse).
+	Search(TableCourse.SearchColumns()...).
+	Where(
+		Course_TrackID.EQVar(),
+	).
+	MustBuild()
 
-func init() {
-	var err error
-	ListCourseByInstructorIDInQuery.query, err = tsq.
-		Select(Course__Cols...).
-		From(TableCourse).
-		Where(
-			Course_InstructorID.InVar(),
-		).
-		Build()
-	if err != nil {
-		ListCourseByInstructorIDInQuery.err = fmt.Errorf("%s: %w", "initialize ListCourseByInstructorIDInQuery", err)
-	}
-}
-
-// ListCourseByInstructorIDIn retrieves multiple Course records by index idx_course_instructor_id using an IN clause.
-func ListCourseByInstructorIDIn(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	instructorIDs ...int64,
-) ([]*Course, error) {
-	list, err := ListCourseByInstructorIDInQuery.List(
-		ctx, db,
-		instructorIDs,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", "query by index idx_course_instructor_id", err)
-	}
-	return list, nil
-}
-
-// ListCourseByPrerequisiteIDQuery stores the generated index query for Course.
-var ListCourseByPrerequisiteIDQuery CourseGeneratedQuery
-
-func init() {
-	var err error
-	ListCourseByPrerequisiteIDQuery.query, err = tsq.
-		Select(Course__Cols...).
-		From(TableCourse).
-		Search(TableCourse.SearchColumns()...).
-		Where(
-			Course_PrerequisiteID.EQVar(),
-		).
-		Build()
-	if err != nil {
-		ListCourseByPrerequisiteIDQuery.err = fmt.Errorf("%s: %w", "initialize ListCourseByPrerequisiteIDQuery", err)
-	}
-}
-
-// CountCourseByPrerequisiteID returns the count of Course records matching index idx_course_prerequisite_id.
-func CountCourseByPrerequisiteID(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	prerequisiteID int64,
-) (int, error) {
-	rs, err := ListCourseByPrerequisiteIDQuery.Count(
-		ctx, db,
-		prerequisiteID,
-	)
-	if err != nil {
-		return 0, fmt.Errorf("%s: %w", "query by index idx_course_prerequisite_id", err)
-	}
-	return rs, nil
-}
-
-// ListCourseByPrerequisiteID retrieves Course records by index idx_course_prerequisite_id.
-func ListCourseByPrerequisiteID(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	prerequisiteID int64,
-) ([]*Course, error) {
-	data, err := ListCourseByPrerequisiteIDQuery.List(
-		ctx, db,
-		prerequisiteID,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", "query by index idx_course_prerequisite_id", err)
-	}
-	return data, nil
-}
-
-// PageCourseByPrerequisiteID retrieves Course records by index idx_course_prerequisite_id with pagination.
-func PageCourseByPrerequisiteID(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	page *tsq.PageRequest,
-	prerequisiteID int64,
-) (*tsq.PageResponse[Course], error) {
-	rs, err := ListCourseByPrerequisiteIDQuery.Page(
-		ctx, db, page,
-		prerequisiteID,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", "query by index idx_course_prerequisite_id", err)
-	}
-	return rs, nil
-}
-
-// ListCourseByPrerequisiteIDInQuery stores the generated index query for Course.
-var ListCourseByPrerequisiteIDInQuery CourseGeneratedQuery
-
-func init() {
-	var err error
-	ListCourseByPrerequisiteIDInQuery.query, err = tsq.
-		Select(Course__Cols...).
-		From(TableCourse).
-		Where(
-			Course_PrerequisiteID.InVar(),
-		).
-		Build()
-	if err != nil {
-		ListCourseByPrerequisiteIDInQuery.err = fmt.Errorf("%s: %w", "initialize ListCourseByPrerequisiteIDInQuery", err)
-	}
-}
-
-// ListCourseByPrerequisiteIDIn retrieves multiple Course records by index idx_course_prerequisite_id using an IN clause.
-func ListCourseByPrerequisiteIDIn(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	prerequisiteIDs ...int64,
-) ([]*Course, error) {
-	list, err := ListCourseByPrerequisiteIDInQuery.List(
-		ctx, db,
-		prerequisiteIDs,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", "query by index idx_course_prerequisite_id", err)
-	}
-	return list, nil
-}
-
-// ListCourseByTrackIDQuery stores the generated index query for Course.
-var ListCourseByTrackIDQuery CourseGeneratedQuery
-
-func init() {
-	var err error
-	ListCourseByTrackIDQuery.query, err = tsq.
-		Select(Course__Cols...).
-		From(TableCourse).
-		Search(TableCourse.SearchColumns()...).
-		Where(
-			Course_TrackID.EQVar(),
-		).
-		Build()
-	if err != nil {
-		ListCourseByTrackIDQuery.err = fmt.Errorf("%s: %w", "initialize ListCourseByTrackIDQuery", err)
-	}
-}
-
-// CountCourseByTrackID returns the count of Course records matching index idx_course_track_id.
-func CountCourseByTrackID(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	trackID int64,
-) (int, error) {
-	rs, err := ListCourseByTrackIDQuery.Count(
-		ctx, db,
-		trackID,
-	)
-	if err != nil {
-		return 0, fmt.Errorf("%s: %w", "query by index idx_course_track_id", err)
-	}
-	return rs, nil
-}
-
-// ListCourseByTrackID retrieves Course records by index idx_course_track_id.
-func ListCourseByTrackID(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	trackID int64,
-) ([]*Course, error) {
-	data, err := ListCourseByTrackIDQuery.List(
-		ctx, db,
-		trackID,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", "query by index idx_course_track_id", err)
-	}
-	return data, nil
-}
-
-// PageCourseByTrackID retrieves Course records by index idx_course_track_id with pagination.
-func PageCourseByTrackID(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	page *tsq.PageRequest,
-	trackID int64,
-) (*tsq.PageResponse[Course], error) {
-	rs, err := ListCourseByTrackIDQuery.Page(
-		ctx, db, page,
-		trackID,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", "query by index idx_course_track_id", err)
-	}
-	return rs, nil
-}
-
-// ListCourseByTrackIDInQuery stores the generated index query for Course.
-var ListCourseByTrackIDInQuery CourseGeneratedQuery
-
-func init() {
-	var err error
-	ListCourseByTrackIDInQuery.query, err = tsq.
-		Select(Course__Cols...).
-		From(TableCourse).
-		Where(
-			Course_TrackID.InVar(),
-		).
-		Build()
-	if err != nil {
-		ListCourseByTrackIDInQuery.err = fmt.Errorf("%s: %w", "initialize ListCourseByTrackIDInQuery", err)
-	}
-}
-
-// ListCourseByTrackIDIn retrieves multiple Course records by index idx_course_track_id using an IN clause.
-func ListCourseByTrackIDIn(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	trackIDs ...int64,
-) ([]*Course, error) {
-	list, err := ListCourseByTrackIDInQuery.List(
-		ctx, db,
-		trackIDs,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", "query by index idx_course_track_id", err)
-	}
-	return list, nil
-}
+// QueryCourseByTrackIDIn stores the generated index query for Course.
+var QueryCourseByTrackIDIn = tsq.
+	Select(Course__Cols...).
+	From(TableCourse).
+	Where(
+		Course_TrackID.InVar(),
+	).
+	MustBuild()
 
 // =============================================================================
 // List All Records
 // =============================================================================
-// listCourseQuery stores the generated list-all query for Course.
-var listCourseQuery CourseGeneratedQuery
-
-func init() {
-	var err error
-	listCourseQuery.query, err = tsq.
-		Select(Course__Cols...).
-		From(TableCourse).
-		Search(TableCourse.SearchColumns()...).
-		Build()
-	if err != nil {
-		listCourseQuery.err = fmt.Errorf("%s: %w", "initialize listCourseQuery", err)
-	}
-}
-
-// CountCourse returns the total count of Course records.
-func CountCourse(
-	ctx context.Context,
-	tx tsq.SQLExecutor,
-) (int, error) {
-	return listCourseQuery.Count(ctx, tx)
-}
-
-// ListCourse retrieves all Course records.
-func ListCourse(
-	ctx context.Context,
-	tx tsq.SQLExecutor,
-) ([]*Course, error) {
-	return listCourseQuery.List(ctx, tx)
-}
-
-// PageCourse retrieves Course records with pagination.
-func PageCourse(
-	ctx context.Context,
-	tx tsq.SQLExecutor,
-	page *tsq.PageRequest,
-) (*tsq.PageResponse[Course], error) {
-	return listCourseQuery.Page(ctx, tx, page)
-}
+// QueryCourse stores the generated list-all query for Course.
+var QueryCourse = tsq.
+	Select(Course__Cols...).
+	From(TableCourse).
+	Search(TableCourse.SearchColumns()...).
+	MustBuild()
 
 // =============================================================================
 // CRUD Operations
@@ -706,28 +274,4 @@ func (c *Course) Delete(
 		return fmt.Errorf("delete Course: %s: %w", compactJSON(c), err)
 	}
 	return nil
-}
-
-// =============================================================================
-// Custom Query Helpers
-// =============================================================================
-// ListCourseByQuery executes a custom query to retrieve a list of Course records.
-func ListCourseByQuery(
-	ctx context.Context,
-	tx tsq.SQLExecutor,
-	qb *tsq.Query[Course],
-	args ...any,
-) ([]*Course, error) {
-	return tsq.List(ctx, tx, qb, args...)
-}
-
-// PageCourseByQuery executes a custom query to retrieve a page of Course records.
-func PageCourseByQuery(
-	ctx context.Context,
-	tx tsq.SQLExecutor,
-	page *tsq.PageRequest,
-	qb *tsq.Query[Course],
-	args ...any,
-) (*tsq.PageResponse[Course], error) {
-	return tsq.Page(ctx, tx, page, qb, args...)
 }

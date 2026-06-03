@@ -96,5 +96,5 @@ func PageLearningJourney(
 	learnerIDs []int64,
 	tracks ...string,
 ) (*tsq.PageResponse[LearningJourney], error) {
-	return tsq.Page(ctx, tx, page, pageLearningJourneyQuery, learnerIDs, tracks)
+	return pageLearningJourneyQuery.Page(ctx, tx, page, learnerIDs, tracks)
 }

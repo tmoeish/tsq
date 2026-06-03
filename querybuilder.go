@@ -1,6 +1,9 @@
 package tsq
 
-import "errors"
+import (
+	"context"
+	"errors"
+)
 
 type joinType string
 
@@ -78,6 +81,14 @@ type queryBuilder[O Owner] struct {
 // QueryStage is a buildable query state that can participate in CTEs and set operations.
 type QueryStage[O Owner] interface {
 	Build() (*Query[O], error)
+	MustBuild() *Query[O]
+	Get(ctx context.Context, tx SQLExecutor, args ...any) (*O, error)
+	GetOrErr(ctx context.Context, tx SQLExecutor, args ...any) (*O, error)
+	Load(ctx context.Context, tx SQLExecutor, holder *O, args ...any) error
+	Exists(ctx context.Context, tx SQLExecutor, args ...any) (bool, error)
+	Count(ctx context.Context, tx SQLExecutor, args ...any) (int, error)
+	List(ctx context.Context, tx SQLExecutor, args ...any) ([]*O, error)
+	Page(ctx context.Context, tx SQLExecutor, page *PageRequest, args ...any) (*PageResponse[O], error)
 }
 
 // SelectStage is the result of Select(...) before From(...) is attached.

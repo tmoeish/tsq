@@ -4,8 +4,6 @@ package academy
 
 import (
 	"context"
-	tsqsql "database/sql"
-	"errors"
 	"fmt"
 	tsqtime "time"
 
@@ -13,74 +11,6 @@ import (
 
 	"github.com/tmoeish/tsq/v4"
 )
-
-// InstructorGeneratedQuery wraps a generated query and preserves any init-time build error.
-type InstructorGeneratedQuery struct {
-	query *tsq.Query[Instructor]
-	err   error
-}
-
-func (g InstructorGeneratedQuery) resolved() (*tsq.Query[Instructor], error) {
-	if g.err != nil {
-		return nil, g.err
-	}
-
-	if g.query == nil {
-		return nil, errors.New("generated query is not initialized")
-	}
-
-	return g.query, nil
-}
-
-// Load executes the generated query and scans one Instructor row into holder.
-func (g InstructorGeneratedQuery) Load(ctx context.Context, db tsq.SQLExecutor, holder *Instructor, args ...any) error {
-	query, err := g.resolved()
-	if err != nil {
-		return err
-	}
-
-	return query.Load(ctx, db, holder, args...)
-}
-
-// Exists reports whether the generated query matches at least one Instructor row.
-func (g InstructorGeneratedQuery) Exists(ctx context.Context, db tsq.SQLExecutor, args ...any) (bool, error) {
-	query, err := g.resolved()
-	if err != nil {
-		return false, err
-	}
-
-	return query.Exists(ctx, db, args...)
-}
-
-// Count returns the number of Instructor rows matched by the generated query.
-func (g InstructorGeneratedQuery) Count(ctx context.Context, db tsq.SQLExecutor, args ...any) (int, error) {
-	query, err := g.resolved()
-	if err != nil {
-		return 0, err
-	}
-
-	return query.Count(ctx, db, args...)
-}
-
-// List executes the generated query and returns all matching Instructor rows.
-func (g InstructorGeneratedQuery) List(ctx context.Context, db tsq.SQLExecutor, args ...any) ([]*Instructor, error) {
-	query, err := g.resolved()
-	if err != nil {
-		return nil, err
-	}
-
-	return tsq.List(ctx, db, query, args...)
-}
-
-// Page executes the generated query with paging and returns a paged Instructor result.
-func (g InstructorGeneratedQuery) Page(ctx context.Context, db tsq.SQLExecutor, page *tsq.PageRequest, args ...any) (*tsq.PageResponse[Instructor], error) {
-	query, err := g.resolved()
-	if err != nil {
-		return nil, err
-	}
-
-	return tsq.Page(ctx, db, page, query, args...)
-}
 
 // =============================================================================
 // Table Interface Implementation
@@ -145,71 +75,19 @@ var Instructor__Cols = []tsq.BoundColumn[Instructor]{
 // =============================================================================
 // Query by Primary Key
 // =============================================================================
-// getInstructorByIDQuery stores the generated primary-key lookup query for Instructor.
-var getInstructorByIDQuery InstructorGeneratedQuery
+// QueryInstructorByID stores the generated primary-key lookup query for Instructor.
+var QueryInstructorByID = tsq.
+	Select(Instructor__Cols...).
+	From(TableInstructor).
+	Where(Instructor_ID.EQVar()).
+	MustBuild()
 
-func init() {
-	var err error
-	getInstructorByIDQuery.query, err = tsq.
-		Select(Instructor__Cols...).
-		From(TableInstructor).
-		Where(Instructor_ID.EQVar()).
-		Build()
-	if err != nil {
-		getInstructorByIDQuery.err = fmt.Errorf("%s: %w", "initialize getInstructorByIDQuery", err)
-	}
-}
-
-// GetInstructorByID retrieves a Instructor record by its primary key.
-// Returns (nil, nil) if the record is not found.
-func GetInstructorByID(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	iD int64,
-) (*Instructor, error) {
-	row := &Instructor{}
-	err := getInstructorByIDQuery.Load(ctx, db, row, iD)
-	if err != nil {
-		if errors.Is(err, tsqsql.ErrNoRows) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	return row, nil
-}
-
-// GetInstructorByIDOrErr retrieves a Instructor record by its primary key.
-// Returns (nil, database/sql.ErrNoRows) if the record is not found.
-func GetInstructorByIDOrErr(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	iD int64,
-) (*Instructor, error) {
-	row := &Instructor{}
-	err := getInstructorByIDQuery.Load(ctx, db, row, iD)
-	if err != nil {
-		return nil, err
-	}
-	return row, nil
-}
-
-// ListInstructorByIDIn retrieves multiple Instructor records by a set of primary key values.
-// Records not found are silently ignored.
-func ListInstructorByIDIn(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	iDs ...int64,
-) ([]*Instructor, error) {
-	query, err := tsq.
-		Select(Instructor__Cols...).
-		From(TableInstructor).
-		Where(Instructor_ID.InVal(iDs...)).
-		Build()
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", "build query", err)
-	}
-	return tsq.List(ctx, db, query)
-}
+// QueryInstructorByIDIn stores the generated primary-key IN lookup query for Instructor.
+var QueryInstructorByIDIn = tsq.
+	Select(Instructor__Cols...).
+	From(TableInstructor).
+	Where(Instructor_ID.InVar()).
+	MustBuild()
 
 // ListInstructorByIDInOrErr retrieves multiple Instructor records by a set of primary key values.
 // Returns an error if any of the specified records are not found.
@@ -218,16 +96,7 @@ func ListInstructorByIDInOrErr(
 	db tsq.SQLExecutor,
 	iDs ...int64,
 ) ([]*Instructor, error) {
-	query, err := tsq.
-		Select(Instructor__Cols...).
-		From(TableInstructor).
-		Where(Instructor_ID.InVal(iDs...)).
-		Build()
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", "build query", err)
-	}
-
-	list, err := tsq.List(ctx, db, query)
+	list, err := QueryInstructorByIDIn.List(ctx, db, iDs)
 	if err != nil {
 		return nil, err
 	}
@@ -244,122 +113,63 @@ func ListInstructorByIDInOrErr(
 // =============================================================================
 // Query by Unique Indexes
 // =============================================================================
-// getInstructorByEmailQuery stores the generated unique-index lookup query for Instructor.
-var getInstructorByEmailQuery InstructorGeneratedQuery
+// QueryInstructorByEmail stores the generated unique-index lookup query for Instructor.
+var QueryInstructorByEmail = tsq.
+	Select(Instructor__Cols...).
+	From(TableInstructor).
+	Search(TableInstructor.SearchColumns()...).
+	Where(
+		Instructor_Email.EQVar(),
+	).
+	MustBuild()
 
-func init() {
-	var err error
-	getInstructorByEmailQuery.query, err = tsq.
-		Select(Instructor__Cols...).
-		From(TableInstructor).
-		Search(TableInstructor.SearchColumns()...).
-		Where(
-			Instructor_Email.EQVar(),
-		).
-		Build()
-	if err != nil {
-		getInstructorByEmailQuery.err = fmt.Errorf("%s: %w", "initialize getInstructorByEmailQuery", err)
-	}
-}
-
-// GetInstructorByEmail retrieves a Instructor record by unique index ux_instructor_email.
-// Returns (nil, nil) if the record is not found.
-func GetInstructorByEmail(
+// ListInstructorByEmailInOrErr retrieves multiple Instructor records by unique index ux_instructor_email using an IN clause.
+// Returns an error if any of the specified records are not found.
+func ListInstructorByEmailInOrErr(
 	ctx context.Context,
 	db tsq.SQLExecutor,
-	email string,
-) (*Instructor, error) {
-	row := &Instructor{}
-	err := getInstructorByEmailQuery.Load(
-		ctx, db, row,
-		email,
-	)
-	if err != nil {
-		if errors.Is(err, tsqsql.ErrNoRows) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	return row, nil
-}
-
-// GetInstructorByEmailOrErr retrieves a Instructor record by unique index ux_instructor_email.
-// Returns (nil, database/sql.ErrNoRows) if the record is not found.
-func GetInstructorByEmailOrErr(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	email string,
-) (*Instructor, error) {
-	row := &Instructor{}
-	err := getInstructorByEmailQuery.Load(
-		ctx, db, row,
-		email,
-	)
-	if err != nil {
-		return nil, err
-	}
-	return row, nil
-}
-
-// ExistsInstructorByEmail checks if a Instructor record exists by unique index ux_instructor_email.
-func ExistsInstructorByEmail(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	email string,
-) (bool, error) {
-	rs, err := getInstructorByEmailQuery.Exists(
+	emails ...string,
+) ([]*Instructor, error) {
+	list, err := QueryInstructorByEmailIn.List(
 		ctx, db,
-		email,
+		emails,
 	)
-	return rs, err
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", "query by unique index ux_instructor_email", err)
+	}
+
+	ordered, missing := matchByInputOrderKey(
+		emails, list,
+		func(row *Instructor) string { return compactJSON(row.Email) },
+		func(input string) string { return compactJSON(input) },
+	)
+	if len(missing) > 0 {
+		return nil, fmt.Errorf("records not found: %v", missing)
+	}
+	return ordered, nil
 }
 
 // =============================================================================
 // Query by Indexes
 // =============================================================================
+// QueryInstructorByEmailIn stores the generated index query for Instructor.
+var QueryInstructorByEmailIn = tsq.
+	Select(Instructor__Cols...).
+	From(TableInstructor).
+	Where(
+		Instructor_Email.InVar(),
+	).
+	MustBuild()
 
 // =============================================================================
 // List All Records
 // =============================================================================
-// listInstructorQuery stores the generated list-all query for Instructor.
-var listInstructorQuery InstructorGeneratedQuery
-
-func init() {
-	var err error
-	listInstructorQuery.query, err = tsq.
-		Select(Instructor__Cols...).
-		From(TableInstructor).
-		Search(TableInstructor.SearchColumns()...).
-		Build()
-	if err != nil {
-		listInstructorQuery.err = fmt.Errorf("%s: %w", "initialize listInstructorQuery", err)
-	}
-}
-
-// CountInstructor returns the total count of Instructor records.
-func CountInstructor(
-	ctx context.Context,
-	tx tsq.SQLExecutor,
-) (int, error) {
-	return listInstructorQuery.Count(ctx, tx)
-}
-
-// ListInstructor retrieves all Instructor records.
-func ListInstructor(
-	ctx context.Context,
-	tx tsq.SQLExecutor,
-) ([]*Instructor, error) {
-	return listInstructorQuery.List(ctx, tx)
-}
-
-// PageInstructor retrieves Instructor records with pagination.
-func PageInstructor(
-	ctx context.Context,
-	tx tsq.SQLExecutor,
-	page *tsq.PageRequest,
-) (*tsq.PageResponse[Instructor], error) {
-	return listInstructorQuery.Page(ctx, tx, page)
-}
+// QueryInstructor stores the generated list-all query for Instructor.
+var QueryInstructor = tsq.
+	Select(Instructor__Cols...).
+	From(TableInstructor).
+	Search(TableInstructor.SearchColumns()...).
+	MustBuild()
 
 // =============================================================================
 // CRUD Operations
@@ -400,28 +210,4 @@ func (i *Instructor) Delete(
 		return fmt.Errorf("delete Instructor: %s: %w", compactJSON(i), err)
 	}
 	return nil
-}
-
-// =============================================================================
-// Custom Query Helpers
-// =============================================================================
-// ListInstructorByQuery executes a custom query to retrieve a list of Instructor records.
-func ListInstructorByQuery(
-	ctx context.Context,
-	tx tsq.SQLExecutor,
-	qb *tsq.Query[Instructor],
-	args ...any,
-) ([]*Instructor, error) {
-	return tsq.List(ctx, tx, qb, args...)
-}
-
-// PageInstructorByQuery executes a custom query to retrieve a page of Instructor records.
-func PageInstructorByQuery(
-	ctx context.Context,
-	tx tsq.SQLExecutor,
-	page *tsq.PageRequest,
-	qb *tsq.Query[Instructor],
-	args ...any,
-) (*tsq.PageResponse[Instructor], error) {
-	return tsq.Page(ctx, tx, page, qb, args...)
 }

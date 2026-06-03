@@ -121,7 +121,7 @@ INSERT INTO user (name, email) VALUES
 		log.Fatal(err)
 	}
 
-	users, err := tsq.List[database.User](ctx, runtime, query)
+	users, err := query.List(ctx, runtime)
 	if err != nil {
 		log.Fatal(err)
 	}

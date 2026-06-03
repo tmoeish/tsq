@@ -61,7 +61,7 @@ erDiagram
 | `runSetOpsDemo` | 合并/排除课程集合 | `UNION`、`EXCEPT` |
 | `runChunkedDemo` | 在一个事务里批量处理报名记录 | `runtime.WithTx(...)`、`ChunkedInsert`、`ChunkedUpdate`、`ChunkedDelete` |
 | `runOptimisticLockDemo` | 先制造过期快照，再自动重试更新同一条报名记录 | `tsq.WithTx1(...)`、`IsOptimisticLockError`、自动乐观锁重试 |
-| `runComprehensive` | 生成学习旅程看板 | joins、子查询、`@RESULT`、`tsq.Page(...)` |
+| `runComprehensive` | 生成学习旅程看板 | joins、子查询、`@RESULT`、`query.Page(...)` |
 
 ## 运行方式
 

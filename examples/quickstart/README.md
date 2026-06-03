@@ -13,7 +13,7 @@
 | Demo | 业务场景 | 重点能力 |
 | --- | --- | --- |
 | `runTrackCRUDDemo` | 临时创建一条学习路径，顺带演示自定义 JSON 字段的插入、更新、删除 | 生成的 CRUD helper、`db:"...,type:JSON"` |
-| `runCatalogSearchDemo` | 给课程目录做关键词搜索和分页 | `PageCourse(...)`、关键词搜索 |
+| `runCatalogSearchDemo` | 给课程目录做关键词搜索和分页 | `QueryCourse.Page(...)`、关键词搜索 |
 | `runBackendCatalogDemo` | 列出某条路径下的已发布课程 | 最直接的查询构建链路 |
 
 ## 先看哪些文件

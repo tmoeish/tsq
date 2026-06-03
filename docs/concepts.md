@@ -26,7 +26,7 @@ Go struct + @TABLE / @RESULT
  *tsq.Query[Owner] + args
             |
             v
- tsq.List/Get/Page + tsq.SQLExecutor
+ Query.List/Page/Load + tsq.SQLExecutor
 ```
 
 ## 1. `@TABLE`：告诉生成器“这是一个表”
@@ -60,13 +60,13 @@ type User struct {
 | 产物 | 例子 | 用途 |
 | --- | --- | --- |
 | 表和列元数据 | `User__Cols`, `User_ID`, `User_Name` | 用来构建类型安全查询 |
-| CRUD / 查询助手 | `GetUserByID`, `ListUser`, `PageUser` | 常见读写路径直接用，查询初始化失败时会显式返回错误 |
+| CRUD / 查询入口 | `QueryUser`, `QueryUserByID`, `QueryActiveUserByEmail` | 通过 `Query` 直接发起 `Get` / `GetOrErr` / `Load` / `Exists` / `Count` / `List` / `Page` |
 | 表注册逻辑 | `RegisterTable`, `Init` 所需元数据 | 让运行时知道这个表的结构和声明索引 |
 
 如果定义了 `@RESULT`，则会额外生成 `*_result_tsq.go`。
 
-生成代码里的静态查询会在包初始化时准备，但不会因为初始化失败直接把进程打崩。  
-现在的约定是：**helper 在真正被调用时返回初始化错误**，调用方按普通错误处理即可。
+生成代码里的静态查询现在会直接以包级变量形式构建，例如 `QueryUserByID = ...MustBuild()`。  
+`MustBuild()` 是给 TSQ 框架和生成代码用的，框架保证查询结构正确；业务代码自己拼查询时，应该继续使用 `Build()` 并检查返回的 `error`。
 
 ## 3. Build-based 查询链路：拼 SQL 的主路径
 
@@ -142,7 +142,7 @@ type UserOrder struct {
 - 报表 / 聚合结果
 - API 返回模型和表模型不一致的场景
 
-生成后你通常会得到像 `PageUserOrder(...)` 这样的助手。
+生成后你通常会得到像 `QueryUserOrder` 这样的可复用查询。
 
 ## 6. `tsq.Runtime` / `SQLExecutor`：运行时与执行器的分工
 

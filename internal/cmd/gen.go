@@ -650,20 +650,23 @@ func validateGeneratedSymbolCollisions(list []*genmodel.StructInfo) error {
 		baseSymbols := []string{
 			"Table" + typeName,
 			"Table" + typeName + "Cols",
-			"get" + typeName + "By" + data.PK + "Query",
-			"Get" + typeName + "By" + data.PK,
-			"Get" + typeName + "By" + data.PK + "OrErr",
-			"List" + typeName + "By" + data.PK + "In",
+			"Query" + typeName,
+			"Query" + typeName + "By" + data.PK,
+			"Query" + typeName + "By" + data.PK + "In",
 			"List" + typeName + "By" + data.PK + "InOrErr",
-			"List" + typeName,
-			"Page" + typeName,
-			"Count" + typeName,
-			"List" + typeName + "ByQuery",
-			"Page" + typeName + "ByQuery",
 		}
 
 		if data.IsResult {
 			baseSymbols = append(baseSymbols, "Result"+typeName)
+		}
+
+		if data.DeletedAtField != "" {
+			baseSymbols = append(baseSymbols,
+				"QueryActive"+typeName,
+				"QueryActive"+typeName+"By"+data.PK,
+				"QueryActive"+typeName+"By"+data.PK+"In",
+				"ListActive"+typeName+"By"+data.PK+"InOrErr",
+			)
 		}
 
 		for _, symbol := range baseSymbols {
@@ -679,11 +682,37 @@ func validateGeneratedSymbolCollisions(list []*genmodel.StructInfo) error {
 		}
 
 		for _, idx := range data.QueryList {
-			queryName := joinAnd(idx.Fields)
+			if err := register("Query"+typeName+"By"+idx.Name, typeName); err != nil {
+				return err
+			}
+
+			if data.DeletedAtField == "" {
+				continue
+			}
+
+			if err := register("QueryActive"+typeName+"By"+idx.Name, typeName); err != nil {
+				return err
+			}
+		}
+
+		for _, ux := range data.UxList {
+			queryName := joinAnd(ux.Fields)
 			for _, symbol := range []string{
-				"Count" + typeName + "By" + queryName,
-				"List" + typeName + "By" + queryName,
-				"Page" + typeName + "By" + queryName,
+				"Query" + typeName + "By" + queryName,
+				"List" + typeName + "By" + queryName + "InOrErr",
+			} {
+				if err := register(symbol, typeName); err != nil {
+					return err
+				}
+			}
+
+			if data.DeletedAtField == "" {
+				continue
+			}
+
+			for _, symbol := range []string{
+				"QueryActive" + typeName + "By" + queryName,
+				"ListActive" + typeName + "By" + queryName + "InOrErr",
 			} {
 				if err := register(symbol, typeName); err != nil {
 					return err

@@ -4,8 +4,6 @@ package academy
 
 import (
 	"context"
-	tsqsql "database/sql"
-	"errors"
 	"fmt"
 	tsqtime "time"
 
@@ -13,74 +11,6 @@ import (
 
 	"github.com/tmoeish/tsq/v4"
 )
-
-// LearnerGeneratedQuery wraps a generated query and preserves any init-time build error.
-type LearnerGeneratedQuery struct {
-	query *tsq.Query[Learner]
-	err   error
-}
-
-func (g LearnerGeneratedQuery) resolved() (*tsq.Query[Learner], error) {
-	if g.err != nil {
-		return nil, g.err
-	}
-
-	if g.query == nil {
-		return nil, errors.New("generated query is not initialized")
-	}
-
-	return g.query, nil
-}
-
-// Load executes the generated query and scans one Learner row into holder.
-func (g LearnerGeneratedQuery) Load(ctx context.Context, db tsq.SQLExecutor, holder *Learner, args ...any) error {
-	query, err := g.resolved()
-	if err != nil {
-		return err
-	}
-
-	return query.Load(ctx, db, holder, args...)
-}
-
-// Exists reports whether the generated query matches at least one Learner row.
-func (g LearnerGeneratedQuery) Exists(ctx context.Context, db tsq.SQLExecutor, args ...any) (bool, error) {
-	query, err := g.resolved()
-	if err != nil {
-		return false, err
-	}
-
-	return query.Exists(ctx, db, args...)
-}
-
-// Count returns the number of Learner rows matched by the generated query.
-func (g LearnerGeneratedQuery) Count(ctx context.Context, db tsq.SQLExecutor, args ...any) (int, error) {
-	query, err := g.resolved()
-	if err != nil {
-		return 0, err
-	}
-
-	return query.Count(ctx, db, args...)
-}
-
-// List executes the generated query and returns all matching Learner rows.
-func (g LearnerGeneratedQuery) List(ctx context.Context, db tsq.SQLExecutor, args ...any) ([]*Learner, error) {
-	query, err := g.resolved()
-	if err != nil {
-		return nil, err
-	}
-
-	return tsq.List(ctx, db, query, args...)
-}
-
-// Page executes the generated query with paging and returns a paged Learner result.
-func (g LearnerGeneratedQuery) Page(ctx context.Context, db tsq.SQLExecutor, page *tsq.PageRequest, args ...any) (*tsq.PageResponse[Learner], error) {
-	query, err := g.resolved()
-	if err != nil {
-		return nil, err
-	}
-
-	return tsq.Page(ctx, db, page, query, args...)
-}
 
 // =============================================================================
 // Table Interface Implementation
@@ -143,71 +73,19 @@ var Learner__Cols = []tsq.BoundColumn[Learner]{
 // =============================================================================
 // Query by Primary Key
 // =============================================================================
-// getLearnerByIDQuery stores the generated primary-key lookup query for Learner.
-var getLearnerByIDQuery LearnerGeneratedQuery
+// QueryLearnerByID stores the generated primary-key lookup query for Learner.
+var QueryLearnerByID = tsq.
+	Select(Learner__Cols...).
+	From(TableLearner).
+	Where(Learner_ID.EQVar()).
+	MustBuild()
 
-func init() {
-	var err error
-	getLearnerByIDQuery.query, err = tsq.
-		Select(Learner__Cols...).
-		From(TableLearner).
-		Where(Learner_ID.EQVar()).
-		Build()
-	if err != nil {
-		getLearnerByIDQuery.err = fmt.Errorf("%s: %w", "initialize getLearnerByIDQuery", err)
-	}
-}
-
-// GetLearnerByID retrieves a Learner record by its primary key.
-// Returns (nil, nil) if the record is not found.
-func GetLearnerByID(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	iD int64,
-) (*Learner, error) {
-	row := &Learner{}
-	err := getLearnerByIDQuery.Load(ctx, db, row, iD)
-	if err != nil {
-		if errors.Is(err, tsqsql.ErrNoRows) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	return row, nil
-}
-
-// GetLearnerByIDOrErr retrieves a Learner record by its primary key.
-// Returns (nil, database/sql.ErrNoRows) if the record is not found.
-func GetLearnerByIDOrErr(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	iD int64,
-) (*Learner, error) {
-	row := &Learner{}
-	err := getLearnerByIDQuery.Load(ctx, db, row, iD)
-	if err != nil {
-		return nil, err
-	}
-	return row, nil
-}
-
-// ListLearnerByIDIn retrieves multiple Learner records by a set of primary key values.
-// Records not found are silently ignored.
-func ListLearnerByIDIn(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	iDs ...int64,
-) ([]*Learner, error) {
-	query, err := tsq.
-		Select(Learner__Cols...).
-		From(TableLearner).
-		Where(Learner_ID.InVal(iDs...)).
-		Build()
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", "build query", err)
-	}
-	return tsq.List(ctx, db, query)
-}
+// QueryLearnerByIDIn stores the generated primary-key IN lookup query for Learner.
+var QueryLearnerByIDIn = tsq.
+	Select(Learner__Cols...).
+	From(TableLearner).
+	Where(Learner_ID.InVar()).
+	MustBuild()
 
 // ListLearnerByIDInOrErr retrieves multiple Learner records by a set of primary key values.
 // Returns an error if any of the specified records are not found.
@@ -216,16 +94,7 @@ func ListLearnerByIDInOrErr(
 	db tsq.SQLExecutor,
 	iDs ...int64,
 ) ([]*Learner, error) {
-	query, err := tsq.
-		Select(Learner__Cols...).
-		From(TableLearner).
-		Where(Learner_ID.InVal(iDs...)).
-		Build()
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", "build query", err)
-	}
-
-	list, err := tsq.List(ctx, db, query)
+	list, err := QueryLearnerByIDIn.List(ctx, db, iDs)
 	if err != nil {
 		return nil, err
 	}
@@ -242,221 +111,82 @@ func ListLearnerByIDInOrErr(
 // =============================================================================
 // Query by Unique Indexes
 // =============================================================================
-// getLearnerByEmailQuery stores the generated unique-index lookup query for Learner.
-var getLearnerByEmailQuery LearnerGeneratedQuery
+// QueryLearnerByEmail stores the generated unique-index lookup query for Learner.
+var QueryLearnerByEmail = tsq.
+	Select(Learner__Cols...).
+	From(TableLearner).
+	Search(TableLearner.SearchColumns()...).
+	Where(
+		Learner_Email.EQVar(),
+	).
+	MustBuild()
 
-func init() {
-	var err error
-	getLearnerByEmailQuery.query, err = tsq.
-		Select(Learner__Cols...).
-		From(TableLearner).
-		Search(TableLearner.SearchColumns()...).
-		Where(
-			Learner_Email.EQVar(),
-		).
-		Build()
-	if err != nil {
-		getLearnerByEmailQuery.err = fmt.Errorf("%s: %w", "initialize getLearnerByEmailQuery", err)
-	}
-}
-
-// GetLearnerByEmail retrieves a Learner record by unique index ux_learner_email.
-// Returns (nil, nil) if the record is not found.
-func GetLearnerByEmail(
+// ListLearnerByEmailInOrErr retrieves multiple Learner records by unique index ux_learner_email using an IN clause.
+// Returns an error if any of the specified records are not found.
+func ListLearnerByEmailInOrErr(
 	ctx context.Context,
 	db tsq.SQLExecutor,
-	email string,
-) (*Learner, error) {
-	row := &Learner{}
-	err := getLearnerByEmailQuery.Load(
-		ctx, db, row,
-		email,
-	)
-	if err != nil {
-		if errors.Is(err, tsqsql.ErrNoRows) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	return row, nil
-}
-
-// GetLearnerByEmailOrErr retrieves a Learner record by unique index ux_learner_email.
-// Returns (nil, database/sql.ErrNoRows) if the record is not found.
-func GetLearnerByEmailOrErr(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	email string,
-) (*Learner, error) {
-	row := &Learner{}
-	err := getLearnerByEmailQuery.Load(
-		ctx, db, row,
-		email,
-	)
-	if err != nil {
-		return nil, err
-	}
-	return row, nil
-}
-
-// ExistsLearnerByEmail checks if a Learner record exists by unique index ux_learner_email.
-func ExistsLearnerByEmail(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	email string,
-) (bool, error) {
-	rs, err := getLearnerByEmailQuery.Exists(
+	emails ...string,
+) ([]*Learner, error) {
+	list, err := QueryLearnerByEmailIn.List(
 		ctx, db,
-		email,
+		emails,
 	)
-	return rs, err
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", "query by unique index ux_learner_email", err)
+	}
+
+	ordered, missing := matchByInputOrderKey(
+		emails, list,
+		func(row *Learner) string { return compactJSON(row.Email) },
+		func(input string) string { return compactJSON(input) },
+	)
+	if len(missing) > 0 {
+		return nil, fmt.Errorf("records not found: %v", missing)
+	}
+	return ordered, nil
 }
 
 // =============================================================================
 // Query by Indexes
 // =============================================================================
-// ListLearnerByCompanyQuery stores the generated index query for Learner.
-var ListLearnerByCompanyQuery LearnerGeneratedQuery
+// QueryLearnerByCompany stores the generated index query for Learner.
+var QueryLearnerByCompany = tsq.
+	Select(Learner__Cols...).
+	From(TableLearner).
+	Search(TableLearner.SearchColumns()...).
+	Where(
+		Learner_Company.EQVar(),
+	).
+	MustBuild()
 
-func init() {
-	var err error
-	ListLearnerByCompanyQuery.query, err = tsq.
-		Select(Learner__Cols...).
-		From(TableLearner).
-		Search(TableLearner.SearchColumns()...).
-		Where(
-			Learner_Company.EQVar(),
-		).
-		Build()
-	if err != nil {
-		ListLearnerByCompanyQuery.err = fmt.Errorf("%s: %w", "initialize ListLearnerByCompanyQuery", err)
-	}
-}
+// QueryLearnerByCompanyIn stores the generated index query for Learner.
+var QueryLearnerByCompanyIn = tsq.
+	Select(Learner__Cols...).
+	From(TableLearner).
+	Where(
+		Learner_Company.InVar(),
+	).
+	MustBuild()
 
-// CountLearnerByCompany returns the count of Learner records matching index idx_learner_company.
-func CountLearnerByCompany(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	company string,
-) (int, error) {
-	rs, err := ListLearnerByCompanyQuery.Count(
-		ctx, db,
-		company,
-	)
-	if err != nil {
-		return 0, fmt.Errorf("%s: %w", "query by index idx_learner_company", err)
-	}
-	return rs, nil
-}
-
-// ListLearnerByCompany retrieves Learner records by index idx_learner_company.
-func ListLearnerByCompany(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	company string,
-) ([]*Learner, error) {
-	data, err := ListLearnerByCompanyQuery.List(
-		ctx, db,
-		company,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", "query by index idx_learner_company", err)
-	}
-	return data, nil
-}
-
-// PageLearnerByCompany retrieves Learner records by index idx_learner_company with pagination.
-func PageLearnerByCompany(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	page *tsq.PageRequest,
-	company string,
-) (*tsq.PageResponse[Learner], error) {
-	rs, err := ListLearnerByCompanyQuery.Page(
-		ctx, db, page,
-		company,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", "query by index idx_learner_company", err)
-	}
-	return rs, nil
-}
-
-// ListLearnerByCompanyInQuery stores the generated index query for Learner.
-var ListLearnerByCompanyInQuery LearnerGeneratedQuery
-
-func init() {
-	var err error
-	ListLearnerByCompanyInQuery.query, err = tsq.
-		Select(Learner__Cols...).
-		From(TableLearner).
-		Where(
-			Learner_Company.InVar(),
-		).
-		Build()
-	if err != nil {
-		ListLearnerByCompanyInQuery.err = fmt.Errorf("%s: %w", "initialize ListLearnerByCompanyInQuery", err)
-	}
-}
-
-// ListLearnerByCompanyIn retrieves multiple Learner records by index idx_learner_company using an IN clause.
-func ListLearnerByCompanyIn(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	companys ...string,
-) ([]*Learner, error) {
-	list, err := ListLearnerByCompanyInQuery.List(
-		ctx, db,
-		companys,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", "query by index idx_learner_company", err)
-	}
-	return list, nil
-}
+// QueryLearnerByEmailIn stores the generated index query for Learner.
+var QueryLearnerByEmailIn = tsq.
+	Select(Learner__Cols...).
+	From(TableLearner).
+	Where(
+		Learner_Email.InVar(),
+	).
+	MustBuild()
 
 // =============================================================================
 // List All Records
 // =============================================================================
-// listLearnerQuery stores the generated list-all query for Learner.
-var listLearnerQuery LearnerGeneratedQuery
-
-func init() {
-	var err error
-	listLearnerQuery.query, err = tsq.
-		Select(Learner__Cols...).
-		From(TableLearner).
-		Search(TableLearner.SearchColumns()...).
-		Build()
-	if err != nil {
-		listLearnerQuery.err = fmt.Errorf("%s: %w", "initialize listLearnerQuery", err)
-	}
-}
-
-// CountLearner returns the total count of Learner records.
-func CountLearner(
-	ctx context.Context,
-	tx tsq.SQLExecutor,
-) (int, error) {
-	return listLearnerQuery.Count(ctx, tx)
-}
-
-// ListLearner retrieves all Learner records.
-func ListLearner(
-	ctx context.Context,
-	tx tsq.SQLExecutor,
-) ([]*Learner, error) {
-	return listLearnerQuery.List(ctx, tx)
-}
-
-// PageLearner retrieves Learner records with pagination.
-func PageLearner(
-	ctx context.Context,
-	tx tsq.SQLExecutor,
-	page *tsq.PageRequest,
-) (*tsq.PageResponse[Learner], error) {
-	return listLearnerQuery.Page(ctx, tx, page)
-}
+// QueryLearner stores the generated list-all query for Learner.
+var QueryLearner = tsq.
+	Select(Learner__Cols...).
+	From(TableLearner).
+	Search(TableLearner.SearchColumns()...).
+	MustBuild()
 
 // =============================================================================
 // CRUD Operations
@@ -497,28 +227,4 @@ func (l *Learner) Delete(
 		return fmt.Errorf("delete Learner: %s: %w", compactJSON(l), err)
 	}
 	return nil
-}
-
-// =============================================================================
-// Custom Query Helpers
-// =============================================================================
-// ListLearnerByQuery executes a custom query to retrieve a list of Learner records.
-func ListLearnerByQuery(
-	ctx context.Context,
-	tx tsq.SQLExecutor,
-	qb *tsq.Query[Learner],
-	args ...any,
-) ([]*Learner, error) {
-	return tsq.List(ctx, tx, qb, args...)
-}
-
-// PageLearnerByQuery executes a custom query to retrieve a page of Learner records.
-func PageLearnerByQuery(
-	ctx context.Context,
-	tx tsq.SQLExecutor,
-	page *tsq.PageRequest,
-	qb *tsq.Query[Learner],
-	args ...any,
-) (*tsq.PageResponse[Learner], error) {
-	return tsq.Page(ctx, tx, page, qb, args...)
 }

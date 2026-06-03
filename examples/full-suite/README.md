@@ -17,7 +17,7 @@
 | 把 `Learner + Enrollment + Course + Track + Instructor` 组装成一行结果 | joins |
 | 让 API 直接消费结果结构 | `@RESULT` |
 | 只保留“参与度足够高”的课程 | 子查询 |
-| 给看板列表做分页和排序 | `tsq.Page(...)` |
+| 给看板列表做分页和排序 | `query.Page(...)` |
 
 ## 核心文件
 

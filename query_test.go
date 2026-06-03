@@ -225,7 +225,7 @@ func TestQueryBuilder_Build_CTEExecutionOnSQLite(t *testing.T) {
 	selectedUserID := idCol.WithTable(selectedUsers)
 	selectedUserName := nameCol.WithTable(selectedUsers)
 	query := mustBuild(Select(selectedUserID, selectedUserName).From(selectedUserID.Table()).Where(selectedUserID.GTVal(1)))
-	rows, err := List[inVarUser](context.Background(), db, query, []int64{1, 2, 3})
+	rows, err := query.List(context.Background(), db, []int64{1, 2, 3})
 	if err != nil {
 		t.Fatalf("expected CTE query to execute, got %v", err)
 	}
@@ -321,7 +321,7 @@ func TestQueryBuilder_Build_CaseExecutionOnSQLite(t *testing.T) {
 		return &holder.Label
 	}, "label")
 	query := mustBuild(Select(idCol, nameLabel).From(idCol.Table()).Where(idCol.InVar()))
-	rows, err := List[caseUser](context.Background(), db, query, []int64{1, 2})
+	rows, err := query.List(context.Background(), db, []int64{1, 2})
 	if err != nil {
 		t.Fatalf("expected CASE query to execute, got %v", err)
 	}

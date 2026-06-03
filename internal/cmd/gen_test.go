@@ -1522,13 +1522,6 @@ func TestValidateStructForGenerationRejectsSlicePrimaryKeys(t *testing.T) {
 	}
 }
 
-func TestTableTemplateOrErrPreservesErrNoRows(t *testing.T) {
-	want := `if errors.Is(err, {{ GeneratedSQLRef "ErrNoRows" }}) {`
-	if count := strings.Count(defaultTableTpl, want); count < 4 {
-		t.Fatalf("expected table template to preserve sql.ErrNoRows in every OrErr helper, count=%d", count)
-	}
-}
-
 func TestTableTemplateAvoidsKeywordParameterNames(t *testing.T) {
 	dir := t.TempDir()
 
@@ -1563,16 +1556,16 @@ func TestTableTemplateAvoidsKeywordParameterNames(t *testing.T) {
 	}
 
 	rendered := string(contents)
-	if !strings.Contains(rendered, "type_ int64") {
+	if !strings.Contains(rendered, "type_s ...int64") {
 		t.Fatalf("expected generated parameter to avoid Go keyword, got:\n%s", rendered)
 	}
 
-	if strings.Contains(rendered, "\ttype int64") {
+	if strings.Contains(rendered, "\ttype ...int64") {
 		t.Fatalf("generated code still contains keyword parameter:\n%s", rendered)
 	}
 }
 
-func TestTableTemplateAnnotatesQueryListErrorsWithSourceIndexName(t *testing.T) {
+func TestTableTemplateGeneratesQueryListBuilders(t *testing.T) {
 	dir := t.TempDir()
 
 	tpl, err := template.New("tsq.go.tmpl").Funcs(funcMap()).Parse(defaultTableTpl)
@@ -1624,13 +1617,83 @@ func TestTableTemplateAnnotatesQueryListErrorsWithSourceIndexName(t *testing.T) 
 
 	rendered := string(contents)
 	for _, want := range []string{
-		"query by index idx_order_org_item",
-		"var ListOrderByOrgIDAndItemIDInQuery OrderGeneratedQuery",
+		"var QueryOrderByOrgIDAndItemID = tsq.",
+		"var QueryOrderByOrgIDAndItemIDIn = tsq.",
 		"Order_ItemID.InVar()",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("expected generated query list code to mention %q, got:\n%s", want, rendered)
 		}
+	}
+}
+
+func TestTableTemplateGeneratesFullUniqueIndexInHelpers(t *testing.T) {
+	dir := t.TempDir()
+
+	tpl, err := template.New("tsq.go.tmpl").Funcs(funcMap()).Parse(defaultTableTpl)
+	if err != nil {
+		t.Fatalf("failed to parse table template: %v", err)
+	}
+
+	idField := genmodel.FieldInfo{Name: "ID", Column: "id", JsonTag: "id", Type: genmodel.TypeInfo{TypeName: "int64"}}
+	emailField := genmodel.FieldInfo{Name: "Email", Column: "email", JsonTag: "email", Type: genmodel.TypeInfo{TypeName: "string"}}
+	orgField := genmodel.FieldInfo{Name: "OrgID", Column: "org_id", JsonTag: "org_id", Type: genmodel.TypeInfo{TypeName: "int64"}}
+	slugField := genmodel.FieldInfo{Name: "Slug", Column: "slug", JsonTag: "slug", Type: genmodel.TypeInfo{TypeName: "string"}}
+
+	data := &genmodel.StructInfo{
+		TableMeta: &genmodel.TableMeta{
+			Table: "user",
+			PK:    "ID",
+			UxList: []genmodel.IndexInfo{
+				{Name: "ux_user_email", Fields: []string{"Email"}},
+				{Name: "ux_user_org_slug", Fields: []string{"OrgID", "Slug"}},
+			},
+			QueryList: []genmodel.IndexInfo{
+				{Name: "EmailIn", SourceName: "ux_user_email", Fields: []string{"Email"}, IsSet: true},
+				{Name: "OrgID", SourceName: "ux_user_org_slug", Fields: []string{"OrgID"}},
+				{Name: "OrgIDIn", SourceName: "ux_user_org_slug", Fields: []string{"OrgID"}, IsSet: true},
+				{Name: "OrgIDAndSlugIn", SourceName: "ux_user_org_slug", Fields: []string{"OrgID", "Slug"}, IsSet: true},
+			},
+		},
+		TypeInfo: genmodel.TypeInfo{Package: genmodel.PackageInfo{Name: "example"}, TypeName: "User"},
+		Fields:   []genmodel.FieldInfo{idField, emailField, orgField, slugField},
+		FieldMap: map[string]genmodel.FieldInfo{
+			"ID":    idField,
+			"Email": emailField,
+			"OrgID": orgField,
+			"Slug":  slugField,
+		},
+		Recv:       "u",
+		TSQVersion: "test",
+	}
+
+	if err := gen(data, tpl, dir); err != nil {
+		t.Fatalf("expected unique index IN helpers to render valid Go, got %v", err)
+	}
+
+	contents, err := os.ReadFile(filepath.Join(dir, "user_tsq.go"))
+	if err != nil {
+		t.Fatalf("failed to read generated file: %v", err)
+	}
+
+	rendered := string(contents)
+	for _, want := range []string{
+		"var QueryUserByEmailIn = tsq.",
+		"func ListUserByEmailInOrErr(",
+		"ordered, missing := matchByInputOrderKey(",
+		"emails,",
+		"var QueryUserByOrgIDAndSlugIn = tsq.",
+		"func ListUserByOrgIDAndSlugInOrErr(",
+		"User_Slug.InVar()",
+		"slugs,",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("expected generated unique index IN code to mention %q, got:\n%s", want, rendered)
+		}
+	}
+
+	if strings.Contains(rendered, "func ListUserByEmail(") {
+		t.Fatalf("did not expect exact list helper for full unique index, got:\n%s", rendered)
 	}
 }
 

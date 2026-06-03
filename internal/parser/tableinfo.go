@@ -655,9 +655,9 @@ func generateQueryList(meta *genmodel.TableMeta) {
 	}
 
 	for _, ux := range meta.UxList {
-		for j := len(ux.Fields) - 1; j > 0; j-- {
+		for j := len(ux.Fields); j > 0; j-- {
 			prefixQueryName := strings.Join(ux.Fields[:j], "And")
-			if !queryMap[prefixQueryName] {
+			if j < len(ux.Fields) && !queryMap[prefixQueryName] {
 				meta.QueryList = append(meta.QueryList, genmodel.IndexInfo{
 					Name:       prefixQueryName,
 					SourceName: ux.Name,

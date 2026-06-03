@@ -4,8 +4,6 @@ package academy
 
 import (
 	"context"
-	tsqsql "database/sql"
-	"errors"
 	"fmt"
 	tsqtime "time"
 
@@ -13,74 +11,6 @@ import (
 
 	"github.com/tmoeish/tsq/v4"
 )
-
-// EnrollmentGeneratedQuery wraps a generated query and preserves any init-time build error.
-type EnrollmentGeneratedQuery struct {
-	query *tsq.Query[Enrollment]
-	err   error
-}
-
-func (g EnrollmentGeneratedQuery) resolved() (*tsq.Query[Enrollment], error) {
-	if g.err != nil {
-		return nil, g.err
-	}
-
-	if g.query == nil {
-		return nil, errors.New("generated query is not initialized")
-	}
-
-	return g.query, nil
-}
-
-// Load executes the generated query and scans one Enrollment row into holder.
-func (g EnrollmentGeneratedQuery) Load(ctx context.Context, db tsq.SQLExecutor, holder *Enrollment, args ...any) error {
-	query, err := g.resolved()
-	if err != nil {
-		return err
-	}
-
-	return query.Load(ctx, db, holder, args...)
-}
-
-// Exists reports whether the generated query matches at least one Enrollment row.
-func (g EnrollmentGeneratedQuery) Exists(ctx context.Context, db tsq.SQLExecutor, args ...any) (bool, error) {
-	query, err := g.resolved()
-	if err != nil {
-		return false, err
-	}
-
-	return query.Exists(ctx, db, args...)
-}
-
-// Count returns the number of Enrollment rows matched by the generated query.
-func (g EnrollmentGeneratedQuery) Count(ctx context.Context, db tsq.SQLExecutor, args ...any) (int, error) {
-	query, err := g.resolved()
-	if err != nil {
-		return 0, err
-	}
-
-	return query.Count(ctx, db, args...)
-}
-
-// List executes the generated query and returns all matching Enrollment rows.
-func (g EnrollmentGeneratedQuery) List(ctx context.Context, db tsq.SQLExecutor, args ...any) ([]*Enrollment, error) {
-	query, err := g.resolved()
-	if err != nil {
-		return nil, err
-	}
-
-	return tsq.List(ctx, db, query, args...)
-}
-
-// Page executes the generated query with paging and returns a paged Enrollment result.
-func (g EnrollmentGeneratedQuery) Page(ctx context.Context, db tsq.SQLExecutor, page *tsq.PageRequest, args ...any) (*tsq.PageResponse[Enrollment], error) {
-	query, err := g.resolved()
-	if err != nil {
-		return nil, err
-	}
-
-	return tsq.Page(ctx, db, page, query, args...)
-}
 
 // =============================================================================
 // Table Interface Implementation
@@ -154,71 +84,19 @@ var Enrollment__Cols = []tsq.BoundColumn[Enrollment]{
 // =============================================================================
 // Query by Primary Key
 // =============================================================================
-// getEnrollmentByUIDQuery stores the generated primary-key lookup query for Enrollment.
-var getEnrollmentByUIDQuery EnrollmentGeneratedQuery
+// QueryEnrollmentByUID stores the generated primary-key lookup query for Enrollment.
+var QueryEnrollmentByUID = tsq.
+	Select(Enrollment__Cols...).
+	From(TableEnrollment).
+	Where(Enrollment_UID.EQVar()).
+	MustBuild()
 
-func init() {
-	var err error
-	getEnrollmentByUIDQuery.query, err = tsq.
-		Select(Enrollment__Cols...).
-		From(TableEnrollment).
-		Where(Enrollment_UID.EQVar()).
-		Build()
-	if err != nil {
-		getEnrollmentByUIDQuery.err = fmt.Errorf("%s: %w", "initialize getEnrollmentByUIDQuery", err)
-	}
-}
-
-// GetEnrollmentByUID retrieves a Enrollment record by its primary key.
-// Returns (nil, nil) if the record is not found.
-func GetEnrollmentByUID(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	uID int64,
-) (*Enrollment, error) {
-	row := &Enrollment{}
-	err := getEnrollmentByUIDQuery.Load(ctx, db, row, uID)
-	if err != nil {
-		if errors.Is(err, tsqsql.ErrNoRows) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	return row, nil
-}
-
-// GetEnrollmentByUIDOrErr retrieves a Enrollment record by its primary key.
-// Returns (nil, database/sql.ErrNoRows) if the record is not found.
-func GetEnrollmentByUIDOrErr(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	uID int64,
-) (*Enrollment, error) {
-	row := &Enrollment{}
-	err := getEnrollmentByUIDQuery.Load(ctx, db, row, uID)
-	if err != nil {
-		return nil, err
-	}
-	return row, nil
-}
-
-// ListEnrollmentByUIDIn retrieves multiple Enrollment records by a set of primary key values.
-// Records not found are silently ignored.
-func ListEnrollmentByUIDIn(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	uIDs ...int64,
-) ([]*Enrollment, error) {
-	query, err := tsq.
-		Select(Enrollment__Cols...).
-		From(TableEnrollment).
-		Where(Enrollment_UID.InVal(uIDs...)).
-		Build()
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", "build query", err)
-	}
-	return tsq.List(ctx, db, query)
-}
+// QueryEnrollmentByUIDIn stores the generated primary-key IN lookup query for Enrollment.
+var QueryEnrollmentByUIDIn = tsq.
+	Select(Enrollment__Cols...).
+	From(TableEnrollment).
+	Where(Enrollment_UID.InVar()).
+	MustBuild()
 
 // ListEnrollmentByUIDInOrErr retrieves multiple Enrollment records by a set of primary key values.
 // Returns an error if any of the specified records are not found.
@@ -227,16 +105,7 @@ func ListEnrollmentByUIDInOrErr(
 	db tsq.SQLExecutor,
 	uIDs ...int64,
 ) ([]*Enrollment, error) {
-	query, err := tsq.
-		Select(Enrollment__Cols...).
-		From(TableEnrollment).
-		Where(Enrollment_UID.InVal(uIDs...)).
-		Build()
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", "build query", err)
-	}
-
-	list, err := tsq.List(ctx, db, query)
+	list, err := QueryEnrollmentByUIDIn.List(ctx, db, uIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -253,77 +122,25 @@ func ListEnrollmentByUIDInOrErr(
 // =============================================================================
 // Query Active Records by Primary Key
 // =============================================================================
-// getActiveEnrollmentByUIDQuery stores the generated active primary-key lookup query for Enrollment.
-var getActiveEnrollmentByUIDQuery EnrollmentGeneratedQuery
+// QueryActiveEnrollmentByUID stores the generated active primary-key lookup query for Enrollment.
+var QueryActiveEnrollmentByUID = tsq.
+	Select(Enrollment__Cols...).
+	From(TableEnrollment).
+	Where(
+		Enrollment_DeletedAt.EQVal(0),
+		Enrollment_UID.EQVar(),
+	).
+	MustBuild()
 
-func init() {
-	var err error
-	getActiveEnrollmentByUIDQuery.query, err = tsq.
-		Select(Enrollment__Cols...).
-		From(TableEnrollment).
-		Where(
-			Enrollment_DeletedAt.EQVal(0),
-			Enrollment_UID.EQVar(),
-		).
-		Build()
-	if err != nil {
-		getActiveEnrollmentByUIDQuery.err = fmt.Errorf("%s: %w", "initialize getActiveEnrollmentByUIDQuery", err)
-	}
-}
-
-// GetActiveEnrollmentByUID retrieves an active Enrollment record by its primary key.
-// Returns (nil, nil) if the record is not found or has been soft-deleted.
-func GetActiveEnrollmentByUID(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	uID int64,
-) (*Enrollment, error) {
-	row := &Enrollment{}
-	err := getActiveEnrollmentByUIDQuery.Load(ctx, db, row, uID)
-	if err != nil {
-		if errors.Is(err, tsqsql.ErrNoRows) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	return row, nil
-}
-
-// GetActiveEnrollmentByUIDOrErr retrieves an active Enrollment record by its primary key.
-// Returns (nil, database/sql.ErrNoRows) if the record is not found or has been soft-deleted.
-func GetActiveEnrollmentByUIDOrErr(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	uID int64,
-) (*Enrollment, error) {
-	row := &Enrollment{}
-	err := getActiveEnrollmentByUIDQuery.Load(ctx, db, row, uID)
-	if err != nil {
-		return nil, err
-	}
-	return row, nil
-}
-
-// ListActiveEnrollmentByUIDIn retrieves multiple active Enrollment records by a set of primary key values.
-// Records not found or soft-deleted are silently ignored.
-func ListActiveEnrollmentByUIDIn(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	uIDs ...int64,
-) ([]*Enrollment, error) {
-	query, err := tsq.
-		Select(Enrollment__Cols...).
-		From(TableEnrollment).
-		Where(
-			Enrollment_DeletedAt.EQVal(0),
-			Enrollment_UID.InVal(uIDs...),
-		).
-		Build()
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", "build query", err)
-	}
-	return tsq.List(ctx, db, query)
-}
+// QueryActiveEnrollmentByUIDIn stores the generated active primary-key IN lookup query for Enrollment.
+var QueryActiveEnrollmentByUIDIn = tsq.
+	Select(Enrollment__Cols...).
+	From(TableEnrollment).
+	Where(
+		Enrollment_DeletedAt.EQVal(0),
+		Enrollment_UID.InVar(),
+	).
+	MustBuild()
 
 // ListActiveEnrollmentByUIDInOrErr retrieves multiple active Enrollment records by a set of primary key values.
 // Returns an error if any of the specified active records are not found.
@@ -332,19 +149,7 @@ func ListActiveEnrollmentByUIDInOrErr(
 	db tsq.SQLExecutor,
 	uIDs ...int64,
 ) ([]*Enrollment, error) {
-	query, err := tsq.
-		Select(Enrollment__Cols...).
-		From(TableEnrollment).
-		Where(
-			Enrollment_DeletedAt.EQVal(0),
-			Enrollment_UID.InVal(uIDs...),
-		).
-		Build()
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", "build query", err)
-	}
-
-	list, err := tsq.List(ctx, db, query)
+	list, err := QueryActiveEnrollmentByUIDIn.List(ctx, db, uIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -367,927 +172,193 @@ func ListActiveEnrollmentByUIDInOrErr(
 // =============================================================================
 // Query by Indexes
 // =============================================================================
-// ListEnrollmentByCourseIDQuery stores the generated index query for Enrollment.
-var ListEnrollmentByCourseIDQuery EnrollmentGeneratedQuery
+// QueryEnrollmentByCourseID stores the generated index query for Enrollment.
+var QueryEnrollmentByCourseID = tsq.
+	Select(Enrollment__Cols...).
+	From(TableEnrollment).
+	Search(TableEnrollment.SearchColumns()...).
+	Where(
+		Enrollment_CourseID.EQVar(),
+	).
+	MustBuild()
 
-func init() {
-	var err error
-	ListEnrollmentByCourseIDQuery.query, err = tsq.
-		Select(Enrollment__Cols...).
-		From(TableEnrollment).
-		Search(TableEnrollment.SearchColumns()...).
-		Where(
-			Enrollment_CourseID.EQVar(),
-		).
-		Build()
-	if err != nil {
-		ListEnrollmentByCourseIDQuery.err = fmt.Errorf("%s: %w", "initialize ListEnrollmentByCourseIDQuery", err)
-	}
-}
+// QueryEnrollmentByCourseIDIn stores the generated index query for Enrollment.
+var QueryEnrollmentByCourseIDIn = tsq.
+	Select(Enrollment__Cols...).
+	From(TableEnrollment).
+	Where(
+		Enrollment_CourseID.InVar(),
+	).
+	MustBuild()
 
-// CountEnrollmentByCourseID returns the count of Enrollment records matching index idx_enrollment_course_id.
-func CountEnrollmentByCourseID(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	courseID int64,
-) (int, error) {
-	rs, err := ListEnrollmentByCourseIDQuery.Count(
-		ctx, db,
-		courseID,
-	)
-	if err != nil {
-		return 0, fmt.Errorf("%s: %w", "query by index idx_enrollment_course_id", err)
-	}
-	return rs, nil
-}
+// QueryEnrollmentByLearnerID stores the generated index query for Enrollment.
+var QueryEnrollmentByLearnerID = tsq.
+	Select(Enrollment__Cols...).
+	From(TableEnrollment).
+	Search(TableEnrollment.SearchColumns()...).
+	Where(
+		Enrollment_LearnerID.EQVar(),
+	).
+	MustBuild()
 
-// ListEnrollmentByCourseID retrieves Enrollment records by index idx_enrollment_course_id.
-func ListEnrollmentByCourseID(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	courseID int64,
-) ([]*Enrollment, error) {
-	data, err := ListEnrollmentByCourseIDQuery.List(
-		ctx, db,
-		courseID,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", "query by index idx_enrollment_course_id", err)
-	}
-	return data, nil
-}
+// QueryEnrollmentByLearnerIDAndCourseID stores the generated index query for Enrollment.
+var QueryEnrollmentByLearnerIDAndCourseID = tsq.
+	Select(Enrollment__Cols...).
+	From(TableEnrollment).
+	Search(TableEnrollment.SearchColumns()...).
+	Where(
+		Enrollment_LearnerID.EQVar(),
+		Enrollment_CourseID.EQVar(),
+	).
+	MustBuild()
 
-// PageEnrollmentByCourseID retrieves Enrollment records by index idx_enrollment_course_id with pagination.
-func PageEnrollmentByCourseID(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	page *tsq.PageRequest,
-	courseID int64,
-) (*tsq.PageResponse[Enrollment], error) {
-	rs, err := ListEnrollmentByCourseIDQuery.Page(
-		ctx, db, page,
-		courseID,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", "query by index idx_enrollment_course_id", err)
-	}
-	return rs, nil
-}
+// QueryEnrollmentByLearnerIDAndCourseIDIn stores the generated index query for Enrollment.
+var QueryEnrollmentByLearnerIDAndCourseIDIn = tsq.
+	Select(Enrollment__Cols...).
+	From(TableEnrollment).
+	Where(
+		Enrollment_LearnerID.EQVar(),
+		Enrollment_CourseID.InVar(),
+	).
+	MustBuild()
 
-// ListEnrollmentByCourseIDInQuery stores the generated index query for Enrollment.
-var ListEnrollmentByCourseIDInQuery EnrollmentGeneratedQuery
+// QueryEnrollmentByLearnerIDIn stores the generated index query for Enrollment.
+var QueryEnrollmentByLearnerIDIn = tsq.
+	Select(Enrollment__Cols...).
+	From(TableEnrollment).
+	Where(
+		Enrollment_LearnerID.InVar(),
+	).
+	MustBuild()
 
-func init() {
-	var err error
-	ListEnrollmentByCourseIDInQuery.query, err = tsq.
-		Select(Enrollment__Cols...).
-		From(TableEnrollment).
-		Where(
-			Enrollment_CourseID.InVar(),
-		).
-		Build()
-	if err != nil {
-		ListEnrollmentByCourseIDInQuery.err = fmt.Errorf("%s: %w", "initialize ListEnrollmentByCourseIDInQuery", err)
-	}
-}
+// QueryEnrollmentByStatus stores the generated index query for Enrollment.
+var QueryEnrollmentByStatus = tsq.
+	Select(Enrollment__Cols...).
+	From(TableEnrollment).
+	Search(TableEnrollment.SearchColumns()...).
+	Where(
+		Enrollment_Status.EQVar(),
+	).
+	MustBuild()
 
-// ListEnrollmentByCourseIDIn retrieves multiple Enrollment records by index idx_enrollment_course_id using an IN clause.
-func ListEnrollmentByCourseIDIn(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	courseIDs ...int64,
-) ([]*Enrollment, error) {
-	list, err := ListEnrollmentByCourseIDInQuery.List(
-		ctx, db,
-		courseIDs,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", "query by index idx_enrollment_course_id", err)
-	}
-	return list, nil
-}
-
-// ListEnrollmentByLearnerIDQuery stores the generated index query for Enrollment.
-var ListEnrollmentByLearnerIDQuery EnrollmentGeneratedQuery
-
-func init() {
-	var err error
-	ListEnrollmentByLearnerIDQuery.query, err = tsq.
-		Select(Enrollment__Cols...).
-		From(TableEnrollment).
-		Search(TableEnrollment.SearchColumns()...).
-		Where(
-			Enrollment_LearnerID.EQVar(),
-		).
-		Build()
-	if err != nil {
-		ListEnrollmentByLearnerIDQuery.err = fmt.Errorf("%s: %w", "initialize ListEnrollmentByLearnerIDQuery", err)
-	}
-}
-
-// CountEnrollmentByLearnerID returns the count of Enrollment records matching index idx_enrollment_learner_id_course_id.
-func CountEnrollmentByLearnerID(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	learnerID int64,
-) (int, error) {
-	rs, err := ListEnrollmentByLearnerIDQuery.Count(
-		ctx, db,
-		learnerID,
-	)
-	if err != nil {
-		return 0, fmt.Errorf("%s: %w", "query by index idx_enrollment_learner_id_course_id", err)
-	}
-	return rs, nil
-}
-
-// ListEnrollmentByLearnerID retrieves Enrollment records by index idx_enrollment_learner_id_course_id.
-func ListEnrollmentByLearnerID(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	learnerID int64,
-) ([]*Enrollment, error) {
-	data, err := ListEnrollmentByLearnerIDQuery.List(
-		ctx, db,
-		learnerID,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", "query by index idx_enrollment_learner_id_course_id", err)
-	}
-	return data, nil
-}
-
-// PageEnrollmentByLearnerID retrieves Enrollment records by index idx_enrollment_learner_id_course_id with pagination.
-func PageEnrollmentByLearnerID(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	page *tsq.PageRequest,
-	learnerID int64,
-) (*tsq.PageResponse[Enrollment], error) {
-	rs, err := ListEnrollmentByLearnerIDQuery.Page(
-		ctx, db, page,
-		learnerID,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", "query by index idx_enrollment_learner_id_course_id", err)
-	}
-	return rs, nil
-}
-
-// ListEnrollmentByLearnerIDAndCourseIDQuery stores the generated index query for Enrollment.
-var ListEnrollmentByLearnerIDAndCourseIDQuery EnrollmentGeneratedQuery
-
-func init() {
-	var err error
-	ListEnrollmentByLearnerIDAndCourseIDQuery.query, err = tsq.
-		Select(Enrollment__Cols...).
-		From(TableEnrollment).
-		Search(TableEnrollment.SearchColumns()...).
-		Where(
-			Enrollment_LearnerID.EQVar(),
-			Enrollment_CourseID.EQVar(),
-		).
-		Build()
-	if err != nil {
-		ListEnrollmentByLearnerIDAndCourseIDQuery.err = fmt.Errorf("%s: %w", "initialize ListEnrollmentByLearnerIDAndCourseIDQuery", err)
-	}
-}
-
-// CountEnrollmentByLearnerIDAndCourseID returns the count of Enrollment records matching index idx_enrollment_learner_id_course_id.
-func CountEnrollmentByLearnerIDAndCourseID(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	learnerID int64,
-	courseID int64,
-) (int, error) {
-	rs, err := ListEnrollmentByLearnerIDAndCourseIDQuery.Count(
-		ctx, db,
-		learnerID,
-		courseID,
-	)
-	if err != nil {
-		return 0, fmt.Errorf("%s: %w", "query by index idx_enrollment_learner_id_course_id", err)
-	}
-	return rs, nil
-}
-
-// ListEnrollmentByLearnerIDAndCourseID retrieves Enrollment records by index idx_enrollment_learner_id_course_id.
-func ListEnrollmentByLearnerIDAndCourseID(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	learnerID int64,
-	courseID int64,
-) ([]*Enrollment, error) {
-	data, err := ListEnrollmentByLearnerIDAndCourseIDQuery.List(
-		ctx, db,
-		learnerID,
-		courseID,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", "query by index idx_enrollment_learner_id_course_id", err)
-	}
-	return data, nil
-}
-
-// PageEnrollmentByLearnerIDAndCourseID retrieves Enrollment records by index idx_enrollment_learner_id_course_id with pagination.
-func PageEnrollmentByLearnerIDAndCourseID(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	page *tsq.PageRequest,
-	learnerID int64,
-	courseID int64,
-) (*tsq.PageResponse[Enrollment], error) {
-	rs, err := ListEnrollmentByLearnerIDAndCourseIDQuery.Page(
-		ctx, db, page,
-		learnerID,
-		courseID,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", "query by index idx_enrollment_learner_id_course_id", err)
-	}
-	return rs, nil
-}
-
-// ListEnrollmentByLearnerIDAndCourseIDInQuery stores the generated index query for Enrollment.
-var ListEnrollmentByLearnerIDAndCourseIDInQuery EnrollmentGeneratedQuery
-
-func init() {
-	var err error
-	ListEnrollmentByLearnerIDAndCourseIDInQuery.query, err = tsq.
-		Select(Enrollment__Cols...).
-		From(TableEnrollment).
-		Where(
-			Enrollment_LearnerID.EQVar(),
-			Enrollment_CourseID.InVar(),
-		).
-		Build()
-	if err != nil {
-		ListEnrollmentByLearnerIDAndCourseIDInQuery.err = fmt.Errorf("%s: %w", "initialize ListEnrollmentByLearnerIDAndCourseIDInQuery", err)
-	}
-}
-
-// ListEnrollmentByLearnerIDAndCourseIDIn retrieves multiple Enrollment records by index idx_enrollment_learner_id_course_id using an IN clause.
-func ListEnrollmentByLearnerIDAndCourseIDIn(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	learnerID int64,
-	courseIDs ...int64,
-) ([]*Enrollment, error) {
-	list, err := ListEnrollmentByLearnerIDAndCourseIDInQuery.List(
-		ctx, db,
-		learnerID,
-		courseIDs,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", "query by index idx_enrollment_learner_id_course_id", err)
-	}
-	return list, nil
-}
-
-// ListEnrollmentByLearnerIDInQuery stores the generated index query for Enrollment.
-var ListEnrollmentByLearnerIDInQuery EnrollmentGeneratedQuery
-
-func init() {
-	var err error
-	ListEnrollmentByLearnerIDInQuery.query, err = tsq.
-		Select(Enrollment__Cols...).
-		From(TableEnrollment).
-		Where(
-			Enrollment_LearnerID.InVar(),
-		).
-		Build()
-	if err != nil {
-		ListEnrollmentByLearnerIDInQuery.err = fmt.Errorf("%s: %w", "initialize ListEnrollmentByLearnerIDInQuery", err)
-	}
-}
-
-// ListEnrollmentByLearnerIDIn retrieves multiple Enrollment records by index idx_enrollment_learner_id_course_id using an IN clause.
-func ListEnrollmentByLearnerIDIn(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	learnerIDs ...int64,
-) ([]*Enrollment, error) {
-	list, err := ListEnrollmentByLearnerIDInQuery.List(
-		ctx, db,
-		learnerIDs,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", "query by index idx_enrollment_learner_id_course_id", err)
-	}
-	return list, nil
-}
-
-// ListEnrollmentByStatusQuery stores the generated index query for Enrollment.
-var ListEnrollmentByStatusQuery EnrollmentGeneratedQuery
-
-func init() {
-	var err error
-	ListEnrollmentByStatusQuery.query, err = tsq.
-		Select(Enrollment__Cols...).
-		From(TableEnrollment).
-		Search(TableEnrollment.SearchColumns()...).
-		Where(
-			Enrollment_Status.EQVar(),
-		).
-		Build()
-	if err != nil {
-		ListEnrollmentByStatusQuery.err = fmt.Errorf("%s: %w", "initialize ListEnrollmentByStatusQuery", err)
-	}
-}
-
-// CountEnrollmentByStatus returns the count of Enrollment records matching index idx_enrollment_status.
-func CountEnrollmentByStatus(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	status EnrollmentStatus,
-) (int, error) {
-	rs, err := ListEnrollmentByStatusQuery.Count(
-		ctx, db,
-		status,
-	)
-	if err != nil {
-		return 0, fmt.Errorf("%s: %w", "query by index idx_enrollment_status", err)
-	}
-	return rs, nil
-}
-
-// ListEnrollmentByStatus retrieves Enrollment records by index idx_enrollment_status.
-func ListEnrollmentByStatus(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	status EnrollmentStatus,
-) ([]*Enrollment, error) {
-	data, err := ListEnrollmentByStatusQuery.List(
-		ctx, db,
-		status,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", "query by index idx_enrollment_status", err)
-	}
-	return data, nil
-}
-
-// PageEnrollmentByStatus retrieves Enrollment records by index idx_enrollment_status with pagination.
-func PageEnrollmentByStatus(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	page *tsq.PageRequest,
-	status EnrollmentStatus,
-) (*tsq.PageResponse[Enrollment], error) {
-	rs, err := ListEnrollmentByStatusQuery.Page(
-		ctx, db, page,
-		status,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", "query by index idx_enrollment_status", err)
-	}
-	return rs, nil
-}
-
-// ListEnrollmentByStatusInQuery stores the generated index query for Enrollment.
-var ListEnrollmentByStatusInQuery EnrollmentGeneratedQuery
-
-func init() {
-	var err error
-	ListEnrollmentByStatusInQuery.query, err = tsq.
-		Select(Enrollment__Cols...).
-		From(TableEnrollment).
-		Where(
-			Enrollment_Status.InVar(),
-		).
-		Build()
-	if err != nil {
-		ListEnrollmentByStatusInQuery.err = fmt.Errorf("%s: %w", "initialize ListEnrollmentByStatusInQuery", err)
-	}
-}
-
-// ListEnrollmentByStatusIn retrieves multiple Enrollment records by index idx_enrollment_status using an IN clause.
-func ListEnrollmentByStatusIn(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	statuss ...EnrollmentStatus,
-) ([]*Enrollment, error) {
-	list, err := ListEnrollmentByStatusInQuery.List(
-		ctx, db,
-		statuss,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", "query by index idx_enrollment_status", err)
-	}
-	return list, nil
-}
+// QueryEnrollmentByStatusIn stores the generated index query for Enrollment.
+var QueryEnrollmentByStatusIn = tsq.
+	Select(Enrollment__Cols...).
+	From(TableEnrollment).
+	Where(
+		Enrollment_Status.InVar(),
+	).
+	MustBuild()
 
 // =============================================================================
 // Query Active Records by Indexes
 // =============================================================================
-// listActiveEnrollmentByCourseIDQuery stores the generated active index query for Enrollment.
-var listActiveEnrollmentByCourseIDQuery EnrollmentGeneratedQuery
+// QueryActiveEnrollmentByCourseID stores the generated active index query for Enrollment.
+var QueryActiveEnrollmentByCourseID = tsq.
+	Select(Enrollment__Cols...).
+	From(TableEnrollment).
+	Search(TableEnrollment.SearchColumns()...).
+	Where(
+		Enrollment_DeletedAt.EQVal(0),
+		Enrollment_CourseID.EQVar(),
+	).
+	MustBuild()
 
-func init() {
-	var err error
-	listActiveEnrollmentByCourseIDQuery.query, err = tsq.
-		Select(Enrollment__Cols...).
-		From(TableEnrollment).
-		Search(TableEnrollment.SearchColumns()...).
-		Where(
-			Enrollment_DeletedAt.EQVal(0),
-			Enrollment_CourseID.EQVar(),
-		).
-		Build()
-	if err != nil {
-		listActiveEnrollmentByCourseIDQuery.err = fmt.Errorf("%s: %w", "initialize listActiveEnrollmentByCourseIDQuery", err)
-	}
-}
+// QueryActiveEnrollmentByCourseIDIn stores the generated active index query for Enrollment.
+var QueryActiveEnrollmentByCourseIDIn = tsq.
+	Select(Enrollment__Cols...).
+	From(TableEnrollment).
+	Where(
+		Enrollment_DeletedAt.EQVal(0),
+		Enrollment_CourseID.InVar(),
+	).
+	MustBuild()
 
-// CountActiveEnrollmentByCourseID returns the count of active Enrollment records matching index idx_enrollment_course_id.
-func CountActiveEnrollmentByCourseID(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	courseID int64,
-) (int, error) {
-	rs, err := listActiveEnrollmentByCourseIDQuery.Count(
-		ctx, db,
-		courseID,
-	)
-	if err != nil {
-		return 0, fmt.Errorf("%s: %w", "query by index idx_enrollment_course_id", err)
-	}
-	return rs, nil
-}
+// QueryActiveEnrollmentByLearnerID stores the generated active index query for Enrollment.
+var QueryActiveEnrollmentByLearnerID = tsq.
+	Select(Enrollment__Cols...).
+	From(TableEnrollment).
+	Search(TableEnrollment.SearchColumns()...).
+	Where(
+		Enrollment_DeletedAt.EQVal(0),
+		Enrollment_LearnerID.EQVar(),
+	).
+	MustBuild()
 
-// ListActiveEnrollmentByCourseID retrieves active Enrollment records by index idx_enrollment_course_id.
-func ListActiveEnrollmentByCourseID(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	courseID int64,
-) ([]*Enrollment, error) {
-	data, err := listActiveEnrollmentByCourseIDQuery.List(
-		ctx, db,
-		courseID,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", "query by index idx_enrollment_course_id", err)
-	}
-	return data, nil
-}
+// QueryActiveEnrollmentByLearnerIDAndCourseID stores the generated active index query for Enrollment.
+var QueryActiveEnrollmentByLearnerIDAndCourseID = tsq.
+	Select(Enrollment__Cols...).
+	From(TableEnrollment).
+	Search(TableEnrollment.SearchColumns()...).
+	Where(
+		Enrollment_DeletedAt.EQVal(0),
+		Enrollment_LearnerID.EQVar(),
+		Enrollment_CourseID.EQVar(),
+	).
+	MustBuild()
 
-// PageActiveEnrollmentByCourseID retrieves active Enrollment records by index idx_enrollment_course_id with pagination.
-func PageActiveEnrollmentByCourseID(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	page *tsq.PageRequest,
-	courseID int64,
-) (*tsq.PageResponse[Enrollment], error) {
-	rs, err := listActiveEnrollmentByCourseIDQuery.Page(
-		ctx, db, page,
-		courseID,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", "query by index idx_enrollment_course_id", err)
-	}
-	return rs, nil
-}
+// QueryActiveEnrollmentByLearnerIDAndCourseIDIn stores the generated active index query for Enrollment.
+var QueryActiveEnrollmentByLearnerIDAndCourseIDIn = tsq.
+	Select(Enrollment__Cols...).
+	From(TableEnrollment).
+	Where(
+		Enrollment_DeletedAt.EQVal(0),
+		Enrollment_LearnerID.EQVar(),
+		Enrollment_CourseID.InVar(),
+	).
+	MustBuild()
 
-// ListActiveEnrollmentByCourseIDInQuery stores the generated active index query for Enrollment.
-var ListActiveEnrollmentByCourseIDInQuery EnrollmentGeneratedQuery
+// QueryActiveEnrollmentByLearnerIDIn stores the generated active index query for Enrollment.
+var QueryActiveEnrollmentByLearnerIDIn = tsq.
+	Select(Enrollment__Cols...).
+	From(TableEnrollment).
+	Where(
+		Enrollment_DeletedAt.EQVal(0),
+		Enrollment_LearnerID.InVar(),
+	).
+	MustBuild()
 
-func init() {
-	var err error
-	ListActiveEnrollmentByCourseIDInQuery.query, err = tsq.
-		Select(Enrollment__Cols...).
-		From(TableEnrollment).
-		Where(
-			Enrollment_DeletedAt.EQVal(0),
-			Enrollment_CourseID.InVar(),
-		).
-		Build()
-	if err != nil {
-		ListActiveEnrollmentByCourseIDInQuery.err = fmt.Errorf("%s: %w", "initialize ListActiveEnrollmentByCourseIDInQuery", err)
-	}
-}
+// QueryActiveEnrollmentByStatus stores the generated active index query for Enrollment.
+var QueryActiveEnrollmentByStatus = tsq.
+	Select(Enrollment__Cols...).
+	From(TableEnrollment).
+	Search(TableEnrollment.SearchColumns()...).
+	Where(
+		Enrollment_DeletedAt.EQVal(0),
+		Enrollment_Status.EQVar(),
+	).
+	MustBuild()
 
-// ListActiveEnrollmentByCourseIDIn retrieves active Enrollment records by index idx_enrollment_course_id using an IN clause.
-func ListActiveEnrollmentByCourseIDIn(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	courseIDs ...int64,
-) ([]*Enrollment, error) {
-	query := ListActiveEnrollmentByCourseIDInQuery
-	list, err := query.List(
-		ctx, db,
-		courseIDs,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", "query by index idx_enrollment_course_id", err)
-	}
-	return list, nil
-}
-
-// listActiveEnrollmentByLearnerIDQuery stores the generated active index query for Enrollment.
-var listActiveEnrollmentByLearnerIDQuery EnrollmentGeneratedQuery
-
-func init() {
-	var err error
-	listActiveEnrollmentByLearnerIDQuery.query, err = tsq.
-		Select(Enrollment__Cols...).
-		From(TableEnrollment).
-		Search(TableEnrollment.SearchColumns()...).
-		Where(
-			Enrollment_DeletedAt.EQVal(0),
-			Enrollment_LearnerID.EQVar(),
-		).
-		Build()
-	if err != nil {
-		listActiveEnrollmentByLearnerIDQuery.err = fmt.Errorf("%s: %w", "initialize listActiveEnrollmentByLearnerIDQuery", err)
-	}
-}
-
-// CountActiveEnrollmentByLearnerID returns the count of active Enrollment records matching index idx_enrollment_learner_id_course_id.
-func CountActiveEnrollmentByLearnerID(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	learnerID int64,
-) (int, error) {
-	rs, err := listActiveEnrollmentByLearnerIDQuery.Count(
-		ctx, db,
-		learnerID,
-	)
-	if err != nil {
-		return 0, fmt.Errorf("%s: %w", "query by index idx_enrollment_learner_id_course_id", err)
-	}
-	return rs, nil
-}
-
-// ListActiveEnrollmentByLearnerID retrieves active Enrollment records by index idx_enrollment_learner_id_course_id.
-func ListActiveEnrollmentByLearnerID(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	learnerID int64,
-) ([]*Enrollment, error) {
-	data, err := listActiveEnrollmentByLearnerIDQuery.List(
-		ctx, db,
-		learnerID,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", "query by index idx_enrollment_learner_id_course_id", err)
-	}
-	return data, nil
-}
-
-// PageActiveEnrollmentByLearnerID retrieves active Enrollment records by index idx_enrollment_learner_id_course_id with pagination.
-func PageActiveEnrollmentByLearnerID(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	page *tsq.PageRequest,
-	learnerID int64,
-) (*tsq.PageResponse[Enrollment], error) {
-	rs, err := listActiveEnrollmentByLearnerIDQuery.Page(
-		ctx, db, page,
-		learnerID,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", "query by index idx_enrollment_learner_id_course_id", err)
-	}
-	return rs, nil
-}
-
-// listActiveEnrollmentByLearnerIDAndCourseIDQuery stores the generated active index query for Enrollment.
-var listActiveEnrollmentByLearnerIDAndCourseIDQuery EnrollmentGeneratedQuery
-
-func init() {
-	var err error
-	listActiveEnrollmentByLearnerIDAndCourseIDQuery.query, err = tsq.
-		Select(Enrollment__Cols...).
-		From(TableEnrollment).
-		Search(TableEnrollment.SearchColumns()...).
-		Where(
-			Enrollment_DeletedAt.EQVal(0),
-			Enrollment_LearnerID.EQVar(),
-			Enrollment_CourseID.EQVar(),
-		).
-		Build()
-	if err != nil {
-		listActiveEnrollmentByLearnerIDAndCourseIDQuery.err = fmt.Errorf("%s: %w", "initialize listActiveEnrollmentByLearnerIDAndCourseIDQuery", err)
-	}
-}
-
-// CountActiveEnrollmentByLearnerIDAndCourseID returns the count of active Enrollment records matching index idx_enrollment_learner_id_course_id.
-func CountActiveEnrollmentByLearnerIDAndCourseID(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	learnerID int64,
-	courseID int64,
-) (int, error) {
-	rs, err := listActiveEnrollmentByLearnerIDAndCourseIDQuery.Count(
-		ctx, db,
-		learnerID,
-		courseID,
-	)
-	if err != nil {
-		return 0, fmt.Errorf("%s: %w", "query by index idx_enrollment_learner_id_course_id", err)
-	}
-	return rs, nil
-}
-
-// ListActiveEnrollmentByLearnerIDAndCourseID retrieves active Enrollment records by index idx_enrollment_learner_id_course_id.
-func ListActiveEnrollmentByLearnerIDAndCourseID(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	learnerID int64,
-	courseID int64,
-) ([]*Enrollment, error) {
-	data, err := listActiveEnrollmentByLearnerIDAndCourseIDQuery.List(
-		ctx, db,
-		learnerID,
-		courseID,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", "query by index idx_enrollment_learner_id_course_id", err)
-	}
-	return data, nil
-}
-
-// PageActiveEnrollmentByLearnerIDAndCourseID retrieves active Enrollment records by index idx_enrollment_learner_id_course_id with pagination.
-func PageActiveEnrollmentByLearnerIDAndCourseID(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	page *tsq.PageRequest,
-	learnerID int64,
-	courseID int64,
-) (*tsq.PageResponse[Enrollment], error) {
-	rs, err := listActiveEnrollmentByLearnerIDAndCourseIDQuery.Page(
-		ctx, db, page,
-		learnerID,
-		courseID,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", "query by index idx_enrollment_learner_id_course_id", err)
-	}
-	return rs, nil
-}
-
-// ListActiveEnrollmentByLearnerIDAndCourseIDInQuery stores the generated active index query for Enrollment.
-var ListActiveEnrollmentByLearnerIDAndCourseIDInQuery EnrollmentGeneratedQuery
-
-func init() {
-	var err error
-	ListActiveEnrollmentByLearnerIDAndCourseIDInQuery.query, err = tsq.
-		Select(Enrollment__Cols...).
-		From(TableEnrollment).
-		Where(
-			Enrollment_DeletedAt.EQVal(0),
-			Enrollment_LearnerID.EQVar(),
-			Enrollment_CourseID.InVar(),
-		).
-		Build()
-	if err != nil {
-		ListActiveEnrollmentByLearnerIDAndCourseIDInQuery.err = fmt.Errorf("%s: %w", "initialize ListActiveEnrollmentByLearnerIDAndCourseIDInQuery", err)
-	}
-}
-
-// ListActiveEnrollmentByLearnerIDAndCourseIDIn retrieves active Enrollment records by index idx_enrollment_learner_id_course_id using an IN clause.
-func ListActiveEnrollmentByLearnerIDAndCourseIDIn(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	learnerID int64,
-	courseIDs ...int64,
-) ([]*Enrollment, error) {
-	query := ListActiveEnrollmentByLearnerIDAndCourseIDInQuery
-	list, err := query.List(
-		ctx, db,
-		learnerID,
-		courseIDs,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", "query by index idx_enrollment_learner_id_course_id", err)
-	}
-	return list, nil
-}
-
-// ListActiveEnrollmentByLearnerIDInQuery stores the generated active index query for Enrollment.
-var ListActiveEnrollmentByLearnerIDInQuery EnrollmentGeneratedQuery
-
-func init() {
-	var err error
-	ListActiveEnrollmentByLearnerIDInQuery.query, err = tsq.
-		Select(Enrollment__Cols...).
-		From(TableEnrollment).
-		Where(
-			Enrollment_DeletedAt.EQVal(0),
-			Enrollment_LearnerID.InVar(),
-		).
-		Build()
-	if err != nil {
-		ListActiveEnrollmentByLearnerIDInQuery.err = fmt.Errorf("%s: %w", "initialize ListActiveEnrollmentByLearnerIDInQuery", err)
-	}
-}
-
-// ListActiveEnrollmentByLearnerIDIn retrieves active Enrollment records by index idx_enrollment_learner_id_course_id using an IN clause.
-func ListActiveEnrollmentByLearnerIDIn(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	learnerIDs ...int64,
-) ([]*Enrollment, error) {
-	query := ListActiveEnrollmentByLearnerIDInQuery
-	list, err := query.List(
-		ctx, db,
-		learnerIDs,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", "query by index idx_enrollment_learner_id_course_id", err)
-	}
-	return list, nil
-}
-
-// listActiveEnrollmentByStatusQuery stores the generated active index query for Enrollment.
-var listActiveEnrollmentByStatusQuery EnrollmentGeneratedQuery
-
-func init() {
-	var err error
-	listActiveEnrollmentByStatusQuery.query, err = tsq.
-		Select(Enrollment__Cols...).
-		From(TableEnrollment).
-		Search(TableEnrollment.SearchColumns()...).
-		Where(
-			Enrollment_DeletedAt.EQVal(0),
-			Enrollment_Status.EQVar(),
-		).
-		Build()
-	if err != nil {
-		listActiveEnrollmentByStatusQuery.err = fmt.Errorf("%s: %w", "initialize listActiveEnrollmentByStatusQuery", err)
-	}
-}
-
-// CountActiveEnrollmentByStatus returns the count of active Enrollment records matching index idx_enrollment_status.
-func CountActiveEnrollmentByStatus(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	status EnrollmentStatus,
-) (int, error) {
-	rs, err := listActiveEnrollmentByStatusQuery.Count(
-		ctx, db,
-		status,
-	)
-	if err != nil {
-		return 0, fmt.Errorf("%s: %w", "query by index idx_enrollment_status", err)
-	}
-	return rs, nil
-}
-
-// ListActiveEnrollmentByStatus retrieves active Enrollment records by index idx_enrollment_status.
-func ListActiveEnrollmentByStatus(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	status EnrollmentStatus,
-) ([]*Enrollment, error) {
-	data, err := listActiveEnrollmentByStatusQuery.List(
-		ctx, db,
-		status,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", "query by index idx_enrollment_status", err)
-	}
-	return data, nil
-}
-
-// PageActiveEnrollmentByStatus retrieves active Enrollment records by index idx_enrollment_status with pagination.
-func PageActiveEnrollmentByStatus(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	page *tsq.PageRequest,
-	status EnrollmentStatus,
-) (*tsq.PageResponse[Enrollment], error) {
-	rs, err := listActiveEnrollmentByStatusQuery.Page(
-		ctx, db, page,
-		status,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", "query by index idx_enrollment_status", err)
-	}
-	return rs, nil
-}
-
-// ListActiveEnrollmentByStatusInQuery stores the generated active index query for Enrollment.
-var ListActiveEnrollmentByStatusInQuery EnrollmentGeneratedQuery
-
-func init() {
-	var err error
-	ListActiveEnrollmentByStatusInQuery.query, err = tsq.
-		Select(Enrollment__Cols...).
-		From(TableEnrollment).
-		Where(
-			Enrollment_DeletedAt.EQVal(0),
-			Enrollment_Status.InVar(),
-		).
-		Build()
-	if err != nil {
-		ListActiveEnrollmentByStatusInQuery.err = fmt.Errorf("%s: %w", "initialize ListActiveEnrollmentByStatusInQuery", err)
-	}
-}
-
-// ListActiveEnrollmentByStatusIn retrieves active Enrollment records by index idx_enrollment_status using an IN clause.
-func ListActiveEnrollmentByStatusIn(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	statuss ...EnrollmentStatus,
-) ([]*Enrollment, error) {
-	query := ListActiveEnrollmentByStatusInQuery
-	list, err := query.List(
-		ctx, db,
-		statuss,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", "query by index idx_enrollment_status", err)
-	}
-	return list, nil
-}
+// QueryActiveEnrollmentByStatusIn stores the generated active index query for Enrollment.
+var QueryActiveEnrollmentByStatusIn = tsq.
+	Select(Enrollment__Cols...).
+	From(TableEnrollment).
+	Where(
+		Enrollment_DeletedAt.EQVal(0),
+		Enrollment_Status.InVar(),
+	).
+	MustBuild()
 
 // =============================================================================
 // List All Records
 // =============================================================================
-// listEnrollmentQuery stores the generated list-all query for Enrollment.
-var listEnrollmentQuery EnrollmentGeneratedQuery
-
-func init() {
-	var err error
-	listEnrollmentQuery.query, err = tsq.
-		Select(Enrollment__Cols...).
-		From(TableEnrollment).
-		Search(TableEnrollment.SearchColumns()...).
-		Build()
-	if err != nil {
-		listEnrollmentQuery.err = fmt.Errorf("%s: %w", "initialize listEnrollmentQuery", err)
-	}
-}
-
-// CountEnrollment returns the total count of Enrollment records.
-func CountEnrollment(
-	ctx context.Context,
-	tx tsq.SQLExecutor,
-) (int, error) {
-	return listEnrollmentQuery.Count(ctx, tx)
-}
-
-// ListEnrollment retrieves all Enrollment records.
-func ListEnrollment(
-	ctx context.Context,
-	tx tsq.SQLExecutor,
-) ([]*Enrollment, error) {
-	return listEnrollmentQuery.List(ctx, tx)
-}
-
-// PageEnrollment retrieves Enrollment records with pagination.
-func PageEnrollment(
-	ctx context.Context,
-	tx tsq.SQLExecutor,
-	page *tsq.PageRequest,
-) (*tsq.PageResponse[Enrollment], error) {
-	return listEnrollmentQuery.Page(ctx, tx, page)
-}
+// QueryEnrollment stores the generated list-all query for Enrollment.
+var QueryEnrollment = tsq.
+	Select(Enrollment__Cols...).
+	From(TableEnrollment).
+	Search(TableEnrollment.SearchColumns()...).
+	MustBuild()
 
 // =============================================================================
 // List Active Records
 // =============================================================================
-// listActiveEnrollmentQuery stores the generated active list-all query for Enrollment.
-var listActiveEnrollmentQuery EnrollmentGeneratedQuery
-
-func init() {
-	var err error
-	listActiveEnrollmentQuery.query, err = tsq.
-		Select(Enrollment__Cols...).
-		From(TableEnrollment).
-		Search(TableEnrollment.SearchColumns()...).
-		Where(Enrollment_DeletedAt.EQVal(0)).
-		Build()
-	if err != nil {
-		listActiveEnrollmentQuery.err = fmt.Errorf("%s: %w", "initialize listActiveEnrollmentQuery", err)
-	}
-}
-
-// CountActiveEnrollment returns the count of active Enrollment records.
-func CountActiveEnrollment(
-	ctx context.Context,
-	tx tsq.SQLExecutor,
-) (int, error) {
-	return listActiveEnrollmentQuery.Count(ctx, tx)
-}
-
-// ListActiveEnrollment retrieves all active Enrollment records.
-func ListActiveEnrollment(
-	ctx context.Context,
-	tx tsq.SQLExecutor,
-) ([]*Enrollment, error) {
-	return listActiveEnrollmentQuery.List(ctx, tx)
-}
-
-// PageActiveEnrollment retrieves active Enrollment records with pagination.
-func PageActiveEnrollment(
-	ctx context.Context,
-	tx tsq.SQLExecutor,
-	page *tsq.PageRequest,
-) (*tsq.PageResponse[Enrollment], error) {
-	return listActiveEnrollmentQuery.Page(ctx, tx, page)
-}
+// QueryActiveEnrollment stores the generated active list-all query for Enrollment.
+var QueryActiveEnrollment = tsq.
+	Select(Enrollment__Cols...).
+	From(TableEnrollment).
+	Search(TableEnrollment.SearchColumns()...).
+	Where(Enrollment_DeletedAt.EQVal(0)).
+	MustBuild()
 
 // =============================================================================
 // CRUD Operations
@@ -1349,28 +420,4 @@ func (e *Enrollment) SoftDelete(
 		return fmt.Errorf("soft-delete Enrollment: %s: %w", compactJSON(e), err)
 	}
 	return nil
-}
-
-// =============================================================================
-// Custom Query Helpers
-// =============================================================================
-// ListEnrollmentByQuery executes a custom query to retrieve a list of Enrollment records.
-func ListEnrollmentByQuery(
-	ctx context.Context,
-	tx tsq.SQLExecutor,
-	qb *tsq.Query[Enrollment],
-	args ...any,
-) ([]*Enrollment, error) {
-	return tsq.List(ctx, tx, qb, args...)
-}
-
-// PageEnrollmentByQuery executes a custom query to retrieve a page of Enrollment records.
-func PageEnrollmentByQuery(
-	ctx context.Context,
-	tx tsq.SQLExecutor,
-	page *tsq.PageRequest,
-	qb *tsq.Query[Enrollment],
-	args ...any,
-) (*tsq.PageResponse[Enrollment], error) {
-	return tsq.Page(ctx, tx, page, qb, args...)
 }

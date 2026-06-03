@@ -119,3 +119,38 @@ func matchByInputOrder[T any, K comparable](inputs []K, rows []*T, key func(*T) 
 
 	return ordered, missing
 }
+
+// matchByInputOrderKey reorders rows to match inputs using derived string keys and reports which keys were missing.
+func matchByInputOrderKey[T any, K any](inputs []K, rows []*T, rowKey func(*T) string, inputKey func(K) string) ([]*T, []K) {
+	index := make(map[string]*T, len(rows))
+
+	for _, row := range rows {
+		if row == nil {
+			continue
+		}
+
+		index[rowKey(row)] = row
+	}
+
+	ordered := make([]*T, 0, len(inputs))
+	missing := make([]K, 0)
+	seenMissing := make(map[string]struct{})
+
+	for _, input := range inputs {
+		k := inputKey(input)
+		row, ok := index[k]
+		if ok {
+			ordered = append(ordered, row)
+			continue
+		}
+
+		if _, exists := seenMissing[k]; exists {
+			continue
+		}
+
+		seenMissing[k] = struct{}{}
+		missing = append(missing, input)
+	}
+
+	return ordered, missing
+}

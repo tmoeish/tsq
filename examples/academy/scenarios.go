@@ -320,8 +320,8 @@ func runTrackCRUDDemo(ctx context.Context, runtime *tsq.Runtime) (*CRUDSummary, 
 	}
 
 	// Look up the track to verify the update.
-	// You can also use GetXXByPK to get a single record by its primary key:
-	//   updated, err := GetTrackByID(ctx, exec, inserted.ID)
+	// Generated Query values can also load a single record by primary key:
+	//   updated, err := QueryTrackByID.GetOrErr(ctx, exec, inserted.ID)
 
 	query, err := tsq.
 		Select(Track__Cols...).
@@ -332,7 +332,7 @@ func runTrackCRUDDemo(ctx context.Context, runtime *tsq.Runtime) (*CRUDSummary, 
 		return nil, fmt.Errorf("%s: %w", "build track lookup", err)
 	}
 
-	updated, err := tsq.GetOrErr(ctx, exec, query)
+	updated, err := query.GetOrErr(ctx, exec)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "get updated track", err)
 	}
@@ -343,7 +343,7 @@ func runTrackCRUDDemo(ctx context.Context, runtime *tsq.Runtime) (*CRUDSummary, 
 	}
 
 	// Look up the track to verify the delete.
-	deleted, err := tsq.Get(ctx, exec, query)
+	deleted, err := query.Get(ctx, exec)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "verify deleted track", err)
 	}
@@ -372,7 +372,7 @@ func runCatalogSearchDemo(ctx context.Context, runtime *tsq.Runtime) (*SearchSum
 		return nil, err
 	}
 
-	resp, err := PageCourse(ctx, exec, pageReq)
+	resp, err := QueryCourse.Page(ctx, exec, pageReq)
 	if err != nil {
 		return nil, err
 	}
@@ -407,7 +407,7 @@ func runBackendCatalogDemo(ctx context.Context, runtime *tsq.Runtime) (*CatalogS
 		return nil, fmt.Errorf("%s: %w", "build backend catalog query", err)
 	}
 
-	courses, err := tsq.List(ctx, exec, query)
+	courses, err := query.List(ctx, exec)
 	if err != nil {
 		return nil, err
 	}
@@ -449,7 +449,7 @@ func runAliasDemo(ctx context.Context, runtime *tsq.Runtime) (*AliasSummary, err
 		return nil, fmt.Errorf("%s: %w", "build alias query", err)
 	}
 
-	row, err := tsq.GetOrErr(ctx, exec, query)
+	row, err := query.GetOrErr(ctx, exec)
 	if err != nil {
 		return nil, err
 	}
@@ -490,7 +490,7 @@ func runAggregateDemo(ctx context.Context, runtime *tsq.Runtime) ([]AggregateSum
 		return nil, fmt.Errorf("%s: %w", "build aggregate query", err)
 	}
 
-	rows, err := tsq.List(ctx, exec, query)
+	rows, err := query.List(ctx, exec)
 	if err != nil {
 		return nil, err
 	}
@@ -527,7 +527,7 @@ func runInVarDemo(ctx context.Context, runtime *tsq.Runtime) (*InVarSummary, err
 
 	courseIDs := []int64{1, 4, 6}
 
-	courses, err := tsq.List(ctx, exec, query, courseIDs)
+	courses, err := query.List(ctx, exec, courseIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -582,7 +582,7 @@ func runSubqueryDemo(ctx context.Context, runtime *tsq.Runtime) (*SubquerySummar
 		return nil, fmt.Errorf("%s: %w", "build learners in data track query", err)
 	}
 
-	learnersInDataTrack, err := tsq.List(ctx, exec, learnersInDataTrackQuery)
+	learnersInDataTrack, err := learnersInDataTrackQuery.List(ctx, exec)
 	if err != nil {
 		return nil, err
 	}
@@ -607,7 +607,7 @@ func runSubqueryDemo(ctx context.Context, runtime *tsq.Runtime) (*SubquerySummar
 		return nil, fmt.Errorf("%s: %w", "build cheaper courses query", err)
 	}
 
-	coursesCheaperThanAnchor, err := tsq.List(ctx, exec, coursesCheaperThanAnchorQuery)
+	coursesCheaperThanAnchor, err := coursesCheaperThanAnchorQuery.List(ctx, exec)
 	if err != nil {
 		return nil, err
 	}
@@ -668,7 +668,7 @@ func runCaseDemo(ctx context.Context, runtime *tsq.Runtime) (*CaseSummary, error
 		return nil, fmt.Errorf("%s: %w", "build case query", err)
 	}
 
-	rows, err := tsq.List(ctx, exec, query)
+	rows, err := query.List(ctx, exec)
 	if err != nil {
 		return nil, err
 	}
@@ -712,7 +712,7 @@ func runCTEDemo(ctx context.Context, runtime *tsq.Runtime) (*CTESummary, error) 
 		return nil, fmt.Errorf("%s: %w", "build cte query", err)
 	}
 
-	rows, err := tsq.List(ctx, exec, query)
+	rows, err := query.List(ctx, exec)
 	if err != nil {
 		return nil, err
 	}
@@ -760,7 +760,7 @@ func runSetOpsDemo(ctx context.Context, runtime *tsq.Runtime) (*SetOpsSummary, e
 		return nil, fmt.Errorf("%s: %w", "build union query", err)
 	}
 
-	unionRows, err := tsq.List(ctx, exec, unionQuery)
+	unionRows, err := unionQuery.List(ctx, exec)
 	if err != nil {
 		return nil, err
 	}
@@ -778,7 +778,7 @@ func runSetOpsDemo(ctx context.Context, runtime *tsq.Runtime) (*SetOpsSummary, e
 		return nil, fmt.Errorf("%s: %w", "build except query", err)
 	}
 
-	exceptRows, err := tsq.List(ctx, exec, exceptQuery)
+	exceptRows, err := exceptQuery.List(ctx, exec)
 	if err != nil {
 		return nil, err
 	}
@@ -808,7 +808,7 @@ func runSetOpsDemo(ctx context.Context, runtime *tsq.Runtime) (*SetOpsSummary, e
 func runChunkedDemo(ctx context.Context, runtime *tsq.Runtime) (*ChunkedSummary, error) {
 	exec := runtime
 
-	before, err := CountEnrollment(ctx, exec)
+	before, err := QueryEnrollment.Count(ctx, exec)
 	if err != nil {
 		return nil, err
 	}
@@ -881,7 +881,7 @@ func runChunkedDemo(ctx context.Context, runtime *tsq.Runtime) (*ChunkedSummary,
 		return nil, err
 	}
 
-	after, err := CountEnrollment(ctx, exec)
+	after, err := QueryEnrollment.Count(ctx, exec)
 	if err != nil {
 		return nil, err
 	}
@@ -914,12 +914,12 @@ func runOptimisticLockDemo(ctx context.Context, runtime *tsq.Runtime) (*Optimist
 		return nil, fmt.Errorf("%s: %w", "insert enrollment", err)
 	}
 
-	stale, err := GetEnrollmentByUIDOrErr(ctx, exec, inserted.UID)
+	stale, err := QueryEnrollmentByUID.GetOrErr(ctx, exec, inserted.UID)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "load stale enrollment snapshot", err)
 	}
 
-	concurrent, err := GetEnrollmentByUIDOrErr(ctx, exec, inserted.UID)
+	concurrent, err := QueryEnrollmentByUID.GetOrErr(ctx, exec, inserted.UID)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "load competing enrollment snapshot", err)
 	}
@@ -946,7 +946,7 @@ func runOptimisticLockDemo(ctx context.Context, runtime *tsq.Runtime) (*Optimist
 			return nil, fmt.Errorf("%s", "expected stale snapshot to trigger optimistic lock retry")
 		}
 
-		loaded, err := GetEnrollmentByUIDOrErr(ctx, txExec, inserted.UID)
+		loaded, err := QueryEnrollmentByUID.GetOrErr(ctx, txExec, inserted.UID)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", "reload enrollment after retry", err)
 		}
@@ -963,7 +963,7 @@ func runOptimisticLockDemo(ctx context.Context, runtime *tsq.Runtime) (*Optimist
 			return nil, fmt.Errorf("%s: %w", "delete fresh enrollment", err)
 		}
 
-		deleted, err := GetEnrollmentByUID(ctx, txExec, loaded.UID)
+		deleted, err := QueryEnrollmentByUID.Get(ctx, txExec, loaded.UID)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", "verify deleted enrollment", err)
 		}

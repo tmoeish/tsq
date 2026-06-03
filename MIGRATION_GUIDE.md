@@ -65,7 +65,7 @@ userName := tsq.Into[MyResult](User_Name, func(r *MyResult) *string {
 
 ### 4. 执行 API 的 Context 处理
 
-移除了 `WithContext`，所有执行方法（`List`, `Get`, `Insert`, `Update`, `Delete` 等）现在都要求 `context.Context` 作为第一个参数。
+移除了 `WithContext`，所有执行方法（`Query.List`, `Get`, `Insert`, `Update`, `Delete` 等）现在都要求 `context.Context` 作为第一个参数。
 
 **旧代码：**
 ```go
@@ -75,7 +75,7 @@ user.WithContext(ctx).Insert(db)
 
 **新代码：**
 ```go
-tsq.List(ctx, db, query)
+query.List(ctx, db)
 user.Insert(ctx, db)
 ```
 

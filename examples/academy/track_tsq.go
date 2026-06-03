@@ -4,9 +4,7 @@ package academy
 
 import (
 	"context"
-	tsqsql "database/sql"
 	json "encoding/json"
-	"errors"
 	"fmt"
 	tsqtime "time"
 
@@ -14,74 +12,6 @@ import (
 
 	"github.com/tmoeish/tsq/v4"
 )
-
-// TrackGeneratedQuery wraps a generated query and preserves any init-time build error.
-type TrackGeneratedQuery struct {
-	query *tsq.Query[Track]
-	err   error
-}
-
-func (g TrackGeneratedQuery) resolved() (*tsq.Query[Track], error) {
-	if g.err != nil {
-		return nil, g.err
-	}
-
-	if g.query == nil {
-		return nil, errors.New("generated query is not initialized")
-	}
-
-	return g.query, nil
-}
-
-// Load executes the generated query and scans one Track row into holder.
-func (g TrackGeneratedQuery) Load(ctx context.Context, db tsq.SQLExecutor, holder *Track, args ...any) error {
-	query, err := g.resolved()
-	if err != nil {
-		return err
-	}
-
-	return query.Load(ctx, db, holder, args...)
-}
-
-// Exists reports whether the generated query matches at least one Track row.
-func (g TrackGeneratedQuery) Exists(ctx context.Context, db tsq.SQLExecutor, args ...any) (bool, error) {
-	query, err := g.resolved()
-	if err != nil {
-		return false, err
-	}
-
-	return query.Exists(ctx, db, args...)
-}
-
-// Count returns the number of Track rows matched by the generated query.
-func (g TrackGeneratedQuery) Count(ctx context.Context, db tsq.SQLExecutor, args ...any) (int, error) {
-	query, err := g.resolved()
-	if err != nil {
-		return 0, err
-	}
-
-	return query.Count(ctx, db, args...)
-}
-
-// List executes the generated query and returns all matching Track rows.
-func (g TrackGeneratedQuery) List(ctx context.Context, db tsq.SQLExecutor, args ...any) ([]*Track, error) {
-	query, err := g.resolved()
-	if err != nil {
-		return nil, err
-	}
-
-	return tsq.List(ctx, db, query, args...)
-}
-
-// Page executes the generated query with paging and returns a paged Track result.
-func (g TrackGeneratedQuery) Page(ctx context.Context, db tsq.SQLExecutor, page *tsq.PageRequest, args ...any) (*tsq.PageResponse[Track], error) {
-	query, err := g.resolved()
-	if err != nil {
-		return nil, err
-	}
-
-	return tsq.Page(ctx, db, page, query, args...)
-}
 
 // =============================================================================
 // Table Interface Implementation
@@ -143,71 +73,19 @@ var Track__Cols = []tsq.BoundColumn[Track]{
 // =============================================================================
 // Query by Primary Key
 // =============================================================================
-// getTrackByIDQuery stores the generated primary-key lookup query for Track.
-var getTrackByIDQuery TrackGeneratedQuery
+// QueryTrackByID stores the generated primary-key lookup query for Track.
+var QueryTrackByID = tsq.
+	Select(Track__Cols...).
+	From(TableTrack).
+	Where(Track_ID.EQVar()).
+	MustBuild()
 
-func init() {
-	var err error
-	getTrackByIDQuery.query, err = tsq.
-		Select(Track__Cols...).
-		From(TableTrack).
-		Where(Track_ID.EQVar()).
-		Build()
-	if err != nil {
-		getTrackByIDQuery.err = fmt.Errorf("%s: %w", "initialize getTrackByIDQuery", err)
-	}
-}
-
-// GetTrackByID retrieves a Track record by its primary key.
-// Returns (nil, nil) if the record is not found.
-func GetTrackByID(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	iD int64,
-) (*Track, error) {
-	row := &Track{}
-	err := getTrackByIDQuery.Load(ctx, db, row, iD)
-	if err != nil {
-		if errors.Is(err, tsqsql.ErrNoRows) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	return row, nil
-}
-
-// GetTrackByIDOrErr retrieves a Track record by its primary key.
-// Returns (nil, database/sql.ErrNoRows) if the record is not found.
-func GetTrackByIDOrErr(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	iD int64,
-) (*Track, error) {
-	row := &Track{}
-	err := getTrackByIDQuery.Load(ctx, db, row, iD)
-	if err != nil {
-		return nil, err
-	}
-	return row, nil
-}
-
-// ListTrackByIDIn retrieves multiple Track records by a set of primary key values.
-// Records not found are silently ignored.
-func ListTrackByIDIn(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	iDs ...int64,
-) ([]*Track, error) {
-	query, err := tsq.
-		Select(Track__Cols...).
-		From(TableTrack).
-		Where(Track_ID.InVal(iDs...)).
-		Build()
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", "build query", err)
-	}
-	return tsq.List(ctx, db, query)
-}
+// QueryTrackByIDIn stores the generated primary-key IN lookup query for Track.
+var QueryTrackByIDIn = tsq.
+	Select(Track__Cols...).
+	From(TableTrack).
+	Where(Track_ID.InVar()).
+	MustBuild()
 
 // ListTrackByIDInOrErr retrieves multiple Track records by a set of primary key values.
 // Returns an error if any of the specified records are not found.
@@ -216,16 +94,7 @@ func ListTrackByIDInOrErr(
 	db tsq.SQLExecutor,
 	iDs ...int64,
 ) ([]*Track, error) {
-	query, err := tsq.
-		Select(Track__Cols...).
-		From(TableTrack).
-		Where(Track_ID.InVal(iDs...)).
-		Build()
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", "build query", err)
-	}
-
-	list, err := tsq.List(ctx, db, query)
+	list, err := QueryTrackByIDIn.List(ctx, db, iDs)
 	if err != nil {
 		return nil, err
 	}
@@ -242,122 +111,63 @@ func ListTrackByIDInOrErr(
 // =============================================================================
 // Query by Unique Indexes
 // =============================================================================
-// getTrackByNameQuery stores the generated unique-index lookup query for Track.
-var getTrackByNameQuery TrackGeneratedQuery
+// QueryTrackByName stores the generated unique-index lookup query for Track.
+var QueryTrackByName = tsq.
+	Select(Track__Cols...).
+	From(TableTrack).
+	Search(TableTrack.SearchColumns()...).
+	Where(
+		Track_Name.EQVar(),
+	).
+	MustBuild()
 
-func init() {
-	var err error
-	getTrackByNameQuery.query, err = tsq.
-		Select(Track__Cols...).
-		From(TableTrack).
-		Search(TableTrack.SearchColumns()...).
-		Where(
-			Track_Name.EQVar(),
-		).
-		Build()
-	if err != nil {
-		getTrackByNameQuery.err = fmt.Errorf("%s: %w", "initialize getTrackByNameQuery", err)
-	}
-}
-
-// GetTrackByName retrieves a Track record by unique index ux_track_name.
-// Returns (nil, nil) if the record is not found.
-func GetTrackByName(
+// ListTrackByNameInOrErr retrieves multiple Track records by unique index ux_track_name using an IN clause.
+// Returns an error if any of the specified records are not found.
+func ListTrackByNameInOrErr(
 	ctx context.Context,
 	db tsq.SQLExecutor,
-	name string,
-) (*Track, error) {
-	row := &Track{}
-	err := getTrackByNameQuery.Load(
-		ctx, db, row,
-		name,
-	)
-	if err != nil {
-		if errors.Is(err, tsqsql.ErrNoRows) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	return row, nil
-}
-
-// GetTrackByNameOrErr retrieves a Track record by unique index ux_track_name.
-// Returns (nil, database/sql.ErrNoRows) if the record is not found.
-func GetTrackByNameOrErr(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	name string,
-) (*Track, error) {
-	row := &Track{}
-	err := getTrackByNameQuery.Load(
-		ctx, db, row,
-		name,
-	)
-	if err != nil {
-		return nil, err
-	}
-	return row, nil
-}
-
-// ExistsTrackByName checks if a Track record exists by unique index ux_track_name.
-func ExistsTrackByName(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	name string,
-) (bool, error) {
-	rs, err := getTrackByNameQuery.Exists(
+	names ...string,
+) ([]*Track, error) {
+	list, err := QueryTrackByNameIn.List(
 		ctx, db,
-		name,
+		names,
 	)
-	return rs, err
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", "query by unique index ux_track_name", err)
+	}
+
+	ordered, missing := matchByInputOrderKey(
+		names, list,
+		func(row *Track) string { return compactJSON(row.Name) },
+		func(input string) string { return compactJSON(input) },
+	)
+	if len(missing) > 0 {
+		return nil, fmt.Errorf("records not found: %v", missing)
+	}
+	return ordered, nil
 }
 
 // =============================================================================
 // Query by Indexes
 // =============================================================================
+// QueryTrackByNameIn stores the generated index query for Track.
+var QueryTrackByNameIn = tsq.
+	Select(Track__Cols...).
+	From(TableTrack).
+	Where(
+		Track_Name.InVar(),
+	).
+	MustBuild()
 
 // =============================================================================
 // List All Records
 // =============================================================================
-// listTrackQuery stores the generated list-all query for Track.
-var listTrackQuery TrackGeneratedQuery
-
-func init() {
-	var err error
-	listTrackQuery.query, err = tsq.
-		Select(Track__Cols...).
-		From(TableTrack).
-		Search(TableTrack.SearchColumns()...).
-		Build()
-	if err != nil {
-		listTrackQuery.err = fmt.Errorf("%s: %w", "initialize listTrackQuery", err)
-	}
-}
-
-// CountTrack returns the total count of Track records.
-func CountTrack(
-	ctx context.Context,
-	tx tsq.SQLExecutor,
-) (int, error) {
-	return listTrackQuery.Count(ctx, tx)
-}
-
-// ListTrack retrieves all Track records.
-func ListTrack(
-	ctx context.Context,
-	tx tsq.SQLExecutor,
-) ([]*Track, error) {
-	return listTrackQuery.List(ctx, tx)
-}
-
-// PageTrack retrieves Track records with pagination.
-func PageTrack(
-	ctx context.Context,
-	tx tsq.SQLExecutor,
-	page *tsq.PageRequest,
-) (*tsq.PageResponse[Track], error) {
-	return listTrackQuery.Page(ctx, tx, page)
-}
+// QueryTrack stores the generated list-all query for Track.
+var QueryTrack = tsq.
+	Select(Track__Cols...).
+	From(TableTrack).
+	Search(TableTrack.SearchColumns()...).
+	MustBuild()
 
 // =============================================================================
 // CRUD Operations
@@ -398,28 +208,4 @@ func (t *Track) Delete(
 		return fmt.Errorf("delete Track: %s: %w", compactJSON(t), err)
 	}
 	return nil
-}
-
-// =============================================================================
-// Custom Query Helpers
-// =============================================================================
-// ListTrackByQuery executes a custom query to retrieve a list of Track records.
-func ListTrackByQuery(
-	ctx context.Context,
-	tx tsq.SQLExecutor,
-	qb *tsq.Query[Track],
-	args ...any,
-) ([]*Track, error) {
-	return tsq.List(ctx, tx, qb, args...)
-}
-
-// PageTrackByQuery executes a custom query to retrieve a page of Track records.
-func PageTrackByQuery(
-	ctx context.Context,
-	tx tsq.SQLExecutor,
-	page *tsq.PageRequest,
-	qb *tsq.Query[Track],
-	args ...any,
-) (*tsq.PageResponse[Track], error) {
-	return tsq.Page(ctx, tx, page, qb, args...)
 }
