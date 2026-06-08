@@ -12,7 +12,7 @@ require (
 	golang.org/x/term v0.43.0
 	golang.org/x/tools v0.45.0
 	gopkg.in/nullbio/null.v6 v6.0.0-20161116030900-40264a2e6b79
-	modernc.org/sqlite v1.51.0
+	modernc.org/sqlite v1.52.0
 )
 
 require (
