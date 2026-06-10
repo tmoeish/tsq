@@ -175,6 +175,7 @@ func (d MySQLDialect) InspectTableColumns(ctx context.Context, db Executor, tabl
 			PrimaryKey:    item.Key == "PRI",
 			AutoIncrement: strings.Contains(strings.ToLower(item.Extra), "auto_increment"),
 			Default:       normalizeDDLDefault(item.Default),
+			NativeType:    strings.TrimSpace(item.Type),
 		})
 	}
 
@@ -470,6 +471,26 @@ func (d MySQLDialect) DDLAlterColumnStatements(table string, before, after DDLCo
 	return []string{fmt.Sprintf(
 		"ALTER TABLE %s MODIFY COLUMN %s;",
 		d.QuoteField(table),
-		renderDDLColumnDefinition(d, after),
+		d.renderModifyColumnDefinition(after),
 	)}
+}
+
+// renderModifyColumnDefinition renders a column definition for MODIFY COLUMN.
+// It must not repeat PRIMARY KEY: MySQL rejects MODIFY COLUMN ... PRIMARY KEY
+// on a column that already is the primary key (error 1068 "Multiple primary
+// key defined"). AUTO_INCREMENT, however, must be restated or it gets dropped.
+func (d MySQLDialect) renderModifyColumnDefinition(column DDLColumnSpec) string {
+	parts := []string{d.QuoteField(column.Name), d.DDLColumnType(column.Type)}
+
+	if column.PrimaryKey || !column.Type.Nullable {
+		parts = append(parts, "NOT NULL")
+	}
+
+	if column.AutoIncrement {
+		parts = append(parts, d.AutoIncrementClause())
+	} else if column.Default != "" {
+		parts = append(parts, "DEFAULT "+column.Default)
+	}
+
+	return strings.Join(parts, " ")
 }
