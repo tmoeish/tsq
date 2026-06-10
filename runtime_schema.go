@@ -198,7 +198,22 @@ func (r *Runtime) applyTablePolicyForTable(ctx context.Context, table *registere
 	case SchemaPolicyValidate, SchemaPolicyCreateMissing:
 		return fmt.Errorf("table %s schema mismatch: %s", tableName, summarizeTableColumnChanges(changes))
 	case SchemaPolicyReconcile, SchemaPolicyManaged:
-		statements, err := renderTableColumnChanges(r.dialect, tableName, current, table.Columns, changes)
+		for _, change := range changes {
+			if change.kind == tableColumnDrop {
+				r.warn("schema reconcile drops a column and its data",
+					"table", tableName, "column", change.before.Name, "policy", r.tablePolicy)
+			}
+		}
+
+		if r.dialect.DDLAlterColumnMode() == tsqdialect.DDLAlterColumnRebuild && hasAlterColumnChange(changes) {
+			if err := r.rebuildTable(ctx, tableName, current, table.Columns); err != nil {
+				return fmt.Errorf("reconcile table %s: %w", tableName, err)
+			}
+
+			return nil
+		}
+
+		statements, err := renderTableColumnChanges(r.dialect, tableName, changes)
 		if err != nil {
 			return fmt.Errorf("reconcile table %s: %w", tableName, err)
 		}
@@ -211,6 +226,43 @@ func (r *Runtime) applyTablePolicyForTable(ctx context.Context, table *registere
 	}
 
 	return nil
+}
+
+// rebuildTable rewrites a table in place (rename, recreate, copy, drop) for
+// dialects that cannot ALTER columns directly. All statements run on a single
+// transaction: executing BEGIN/COMMIT as separate pooled Exec calls could land
+// on different connections and leave a dangling transaction.
+func (r *Runtime) rebuildTable(
+	ctx context.Context,
+	tableName string,
+	current []tsqdialect.DDLColumnSpec,
+	desired []tsqdialect.DDLColumnSpec,
+) error {
+	existingIndexes, err := r.dialect.ListIndexes(ctx, r.db, tableName)
+	if err != nil {
+		return fmt.Errorf("list indexes for %s: %w", tableName, err)
+	}
+
+	statements, err := renderRebuildTableStatements(r.dialect, tableName, current, desired, existingIndexes)
+	if err != nil {
+		return err
+	}
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+
+	for _, statement := range statements {
+		r.info("applied ddl", "table", tableName, "kind", "table_rebuild", "ddl", statement)
+
+		if _, err := tx.ExecContext(ctx, statement); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("apply table rebuild on %s: %w", tableName, err)
+		}
+	}
+
+	return tx.Commit()
 }
 
 func (r *Runtime) applyIndexPolicy(ctx context.Context) error {
@@ -482,15 +534,21 @@ func diffTableColumns(
 }
 
 func columnsEqual(dialect tsqdialect.Dialect, left, right tsqdialect.DDLColumnSpec) bool {
-	return strings.EqualFold(normalizedDDLColumnType(dialect, left.Type), normalizedDDLColumnType(dialect, right.Type)) &&
-		left.PrimaryKey == right.PrimaryKey &&
-		left.AutoIncrement == right.AutoIncrement &&
-		left.Type.Nullable == right.Type.Nullable &&
-		strings.EqualFold(strings.TrimSpace(left.Default), strings.TrimSpace(right.Default))
-}
+	if !tsqdialect.DDLColumnTypesEquivalent(dialect, left, right) ||
+		left.PrimaryKey != right.PrimaryKey ||
+		left.AutoIncrement != right.AutoIncrement ||
+		left.Type.Nullable != right.Type.Nullable {
+		return false
+	}
+	// Auto-increment columns carry dialect-managed defaults (e.g. PostgreSQL
+	// SERIAL reports nextval('..._seq')) that the declared schema never
+	// states. Treating them as drift would make reconcile DROP the sequence
+	// default and break inserts, so ignore defaults for these columns.
+	if left.PrimaryKey && left.AutoIncrement {
+		return true
+	}
 
-func normalizedDDLColumnType(dialect tsqdialect.Dialect, desc tsqdialect.DDLColumnType) string {
-	return strings.ToUpper(strings.TrimSpace(dialect.DDLColumnType(desc)))
+	return strings.EqualFold(strings.TrimSpace(left.Default), strings.TrimSpace(right.Default))
 }
 
 func ddlColumnChangeName(change tableColumnChange) string {
@@ -575,14 +633,8 @@ func renderRuntimeDDLColumnSpec(dialect tsqdialect.Dialect, column tsqdialect.DD
 func renderTableColumnChanges(
 	dialect tsqdialect.Dialect,
 	tableName string,
-	current []tsqdialect.DDLColumnSpec,
-	desired []tsqdialect.DDLColumnSpec,
 	changes []tableColumnChange,
 ) ([]string, error) {
-	if dialect.DDLAlterColumnMode() == tsqdialect.DDLAlterColumnRebuild && hasAlterColumnChange(changes) {
-		return renderRebuildTableStatements(dialect, tableName, current, desired)
-	}
-
 	statements := make([]string, 0, len(changes))
 	for _, change := range changes {
 		switch change.kind {
@@ -630,6 +682,7 @@ func renderRebuildTableStatements(
 	tableName string,
 	current []tsqdialect.DDLColumnSpec,
 	desired []tsqdialect.DDLColumnSpec,
+	existingIndexes []tsqdialect.NamedIndexDefinition,
 ) ([]string, error) {
 	tempTable := "__tsq_rebuild_" + tableName
 
@@ -640,7 +693,6 @@ func renderRebuildTableStatements(
 
 	shared := sharedColumnNames(current, desired)
 	statements := []string{
-		"BEGIN TRANSACTION;",
 		fmt.Sprintf(
 			"ALTER TABLE %s RENAME TO %s;",
 			dialect.QuoteField(tableName),
@@ -664,12 +716,55 @@ func renderRebuildTableStatements(
 		))
 	}
 
-	statements = append(statements,
-		fmt.Sprintf("DROP TABLE %s;", dialect.QuoteField(tempTable)),
-		"COMMIT;",
-	)
+	statements = append(statements, fmt.Sprintf("DROP TABLE %s;", dialect.QuoteField(tempTable)))
+
+	// Dropping the old table also drops its indexes; restore every secondary
+	// index that still applies, regardless of the index policy in effect.
+	statements = append(statements, renderRebuildIndexStatements(dialect, tableName, desired, existingIndexes)...)
 
 	return statements, nil
+}
+
+func renderRebuildIndexStatements(
+	dialect tsqdialect.Dialect,
+	tableName string,
+	desired []tsqdialect.DDLColumnSpec,
+	existingIndexes []tsqdialect.NamedIndexDefinition,
+) []string {
+	desiredNames := make(map[string]struct{}, len(desired))
+	for _, column := range desired {
+		desiredNames[column.Name] = struct{}{}
+	}
+
+	statements := make([]string, 0, len(existingIndexes))
+
+	for _, idx := range existingIndexes {
+		// Primary-key and constraint-backed indexes are created with the table
+		// itself and cannot be recreated as standalone indexes.
+		if idx.PrimaryKey || idx.Constraint || len(idx.Fields) == 0 {
+			continue
+		}
+
+		quotedFields := make([]string, 0, len(idx.Fields))
+		applicable := true
+
+		for _, field := range idx.Fields {
+			if _, ok := desiredNames[field]; !ok {
+				applicable = false
+				break
+			}
+
+			quotedFields = append(quotedFields, dialect.QuoteField(field))
+		}
+
+		if !applicable {
+			continue
+		}
+
+		statements = append(statements, dialect.DDLCreateIndex(tableName, idx.Name, quotedFields, idx.Unique))
+	}
+
+	return statements
 }
 
 func sharedColumnNames(current, desired []tsqdialect.DDLColumnSpec) []string {

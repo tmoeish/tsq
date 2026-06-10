@@ -110,6 +110,9 @@ type DDLColumnSpec struct {
 	PrimaryKey    bool
 	AutoIncrement bool
 	Default       string
+	// NativeType is the column type exactly as reported by the database.
+	// It is populated by InspectTableColumns and is empty on declared specs.
+	NativeType string
 }
 
 type IndexDefinition struct {
@@ -206,6 +209,61 @@ func validateDialectIdentifier(identifier string, dialect Name, maxLen int) erro
 	return nil
 }
 
+// ddlNativeTypeAliases maps database-reported type spellings to the canonical
+// spellings commonly used in declared raw types (db:"...,type:X"), so the two
+// representations can be compared textually.
+var ddlNativeTypeAliases = map[string]string{
+	"BOOLEAN":                     "BOOL",
+	"CHARACTER VARYING":           "VARCHAR",
+	"CHARACTER":                   "CHAR",
+	"INTEGER":                     "INT",
+	"NUMERIC":                     "DECIMAL",
+	"TIMESTAMP WITHOUT TIME ZONE": "TIMESTAMP",
+	"TIMESTAMP WITH TIME ZONE":    "TIMESTAMPTZ",
+}
+
+// DDLColumnTypesEquivalent reports whether two column specs resolve to the same
+// database type under the dialect. Besides comparing rendered DDL types, it
+// matches a declared raw type override against the type the database reported
+// during inspection. Without that second check, types that inspection collapses
+// into a canonical kind (TEXT, DECIMAL(n,m), CHAR(n), ...) would be flagged as
+// drift on every reconcile and produce repeated, never-converging ALTERs.
+func DDLColumnTypesEquivalent(dialect Dialect, left, right DDLColumnSpec) bool {
+	if strings.EqualFold(
+		strings.TrimSpace(dialect.DDLColumnType(left.Type)),
+		strings.TrimSpace(dialect.DDLColumnType(right.Type)),
+	) {
+		return true
+	}
+
+	return nativeDDLTypeMatchesDeclared(left, right) || nativeDDLTypeMatchesDeclared(right, left)
+}
+
+func nativeDDLTypeMatchesDeclared(inspected, declared DDLColumnSpec) bool {
+	if inspected.NativeType == "" || declared.Type.RawType == "" {
+		return false
+	}
+
+	return normalizeDDLNativeTypeName(inspected.NativeType) == normalizeDDLNativeTypeName(declared.Type.RawType)
+}
+
+func normalizeDDLNativeTypeName(value string) string {
+	value = strings.ToUpper(strings.TrimSpace(value))
+
+	base, args, hasArgs := strings.Cut(value, "(")
+	base = strings.Join(strings.Fields(base), " ")
+
+	if alias, ok := ddlNativeTypeAliases[base]; ok {
+		base = alias
+	}
+
+	if !hasArgs {
+		return base
+	}
+
+	return base + "(" + strings.ReplaceAll(args, " ", "")
+}
+
 func normalizeDDLDefault(value sql.NullString) string {
 	if !value.Valid {
 		return ""
@@ -297,29 +355,6 @@ func ddlSerialType(desc DDLColumnType) string {
 	default:
 		return "BIGSERIAL PRIMARY KEY"
 	}
-}
-
-func renderDDLColumnDefinition(dialect Dialect, column DDLColumnSpec) string {
-	quotedColumn := dialect.QuoteField(column.Name)
-	if column.PrimaryKey && column.AutoIncrement {
-		definition, err := dialect.DDLAutoIncrementPrimaryKey(quotedColumn, column.Type)
-		if err == nil {
-			return definition
-		}
-	}
-
-	parts := []string{quotedColumn, dialect.DDLColumnType(column.Type)}
-	if column.PrimaryKey {
-		parts = append(parts, "PRIMARY KEY")
-	} else if !column.Type.Nullable {
-		parts = append(parts, "NOT NULL")
-	}
-
-	if column.Default != "" {
-		parts = append(parts, "DEFAULT "+column.Default)
-	}
-
-	return strings.Join(parts, " ")
 }
 
 func validateBuiltInIdentifier(name string) error {

@@ -170,9 +170,8 @@ func (d SQLiteDialect) InspectTableColumns(ctx context.Context, db Executor, tab
 			return nil, false, fmt.Errorf("inspect sqlite column %s.%s: %w", table, row.Name, err)
 		}
 
-		quotedColumn := d.QuoteField(row.Name)
 		autoincrement := row.PrimaryKey > 0 &&
-			strings.Contains(createStmtUpper, quotedColumn+" INTEGER PRIMARY KEY AUTOINCREMENT")
+			sqliteCreateSQLDeclaresAutoincrement(createStmtUpper, row.Name)
 
 		columns = append(columns, DDLColumnSpec{
 			Name:          row.Name,
@@ -180,6 +179,7 @@ func (d SQLiteDialect) InspectTableColumns(ctx context.Context, db Executor, tab
 			PrimaryKey:    row.PrimaryKey > 0,
 			AutoIncrement: autoincrement,
 			Default:       normalizeDDLDefault(row.Default),
+			NativeType:    strings.TrimSpace(row.Type),
 		})
 	}
 
@@ -389,6 +389,40 @@ func (d SQLiteDialect) inspectSQLiteIndexColumns(ctx context.Context, db Executo
 	}
 
 	return fields, nil
+}
+
+// sqliteCreateSQLDeclaresAutoincrement reports whether the CREATE TABLE SQL
+// declares column as INTEGER PRIMARY KEY AUTOINCREMENT. The match is performed
+// case-insensitively and tolerates `"x"`, `[x]`, backtick, or bare identifier
+// quoting, since handwritten DDL rarely matches tsq's own quoting style.
+func sqliteCreateSQLDeclaresAutoincrement(createStmtUpper, column string) bool {
+	normalized := createStmtUpper
+	for _, quote := range []string{`"`, "`", "[", "]"} {
+		normalized = strings.ReplaceAll(normalized, quote, "")
+	}
+
+	needle := strings.ToUpper(column) + " INTEGER PRIMARY KEY AUTOINCREMENT"
+
+	for offset := 0; ; {
+		idx := strings.Index(normalized[offset:], needle)
+		if idx < 0 {
+			return false
+		}
+
+		idx += offset
+		if idx == 0 || !isSQLIdentifierChar(normalized[idx-1]) {
+			return true
+		}
+
+		offset = idx + 1
+	}
+}
+
+func isSQLIdentifierChar(c byte) bool {
+	return c == '_' ||
+		(c >= '0' && c <= '9') ||
+		(c >= 'A' && c <= 'Z') ||
+		(c >= 'a' && c <= 'z')
 }
 
 func parseSQLiteDDLColumnType(raw string) (DDLColumnType, error) {

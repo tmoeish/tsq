@@ -143,6 +143,7 @@ func (d PostgresDialect) InspectTableColumns(ctx context.Context, db Executor, t
 			) AS formatted_type,
 			c.is_nullable,
 			c.column_default,
+			c.is_identity,
 			c.character_maximum_length,
 			EXISTS (
 				SELECT 1
@@ -169,21 +170,22 @@ func (d PostgresDialect) InspectTableColumns(ctx context.Context, db Executor, t
 	}()
 
 	type row struct {
-		Name    string
-		Data    string
-		UDT     string
-		Format  string
-		Null    string
-		Default sql.NullString
-		Size    sql.NullInt64
-		Primary bool
+		Name     string
+		Data     string
+		UDT      string
+		Format   string
+		Null     string
+		Default  sql.NullString
+		Identity sql.NullString
+		Size     sql.NullInt64
+		Primary  bool
 	}
 
 	columns := make([]DDLColumnSpec, 0)
 
 	for rows.Next() {
 		var item row
-		if err := rows.Scan(&item.Name, &item.Data, &item.UDT, &item.Format, &item.Null, &item.Default, &item.Size, &item.Primary); err != nil {
+		if err := rows.Scan(&item.Name, &item.Data, &item.UDT, &item.Format, &item.Null, &item.Default, &item.Identity, &item.Size, &item.Primary); err != nil {
 			return nil, false, err
 		}
 
@@ -193,12 +195,18 @@ func (d PostgresDialect) InspectTableColumns(ctx context.Context, db Executor, t
 		}
 
 		defaultValue := normalizeDDLDefault(item.Default)
+		// SERIAL columns surface as a nextval(...) default; identity columns
+		// (GENERATED ... AS IDENTITY) have no default and must be detected via
+		// is_identity. Both are database-managed auto-increment mechanisms.
+		autoIncrement := strings.HasPrefix(defaultValue, "nextval(") ||
+			strings.EqualFold(strings.TrimSpace(item.Identity.String), "YES")
 		columns = append(columns, DDLColumnSpec{
 			Name:          item.Name,
 			Type:          withDDLNullable(desc, strings.EqualFold(item.Null, "YES") && !item.Primary),
 			PrimaryKey:    item.Primary,
-			AutoIncrement: strings.HasPrefix(defaultValue, "nextval("),
+			AutoIncrement: autoIncrement,
 			Default:       defaultValue,
+			NativeType:    strings.TrimSpace(item.Format),
 		})
 	}
 
@@ -368,7 +376,10 @@ func parsePostgresDDLColumnType(dataType, udtName, formattedType string, size sq
 
 		return desc, nil
 	case "text":
-		return DDLColumnType{Kind: DDLColumnKindString}, nil
+		// Keep TEXT as a raw type so it round-trips; mapping it to the string
+		// kind would render as VARCHAR(n) and produce spurious ALTERs on every
+		// reconcile of columns declared as TEXT.
+		return DDLColumnType{RawType: "TEXT"}, nil
 	case "timestamp without time zone", "timestamp with time zone", "date":
 		return DDLColumnType{Kind: DDLColumnKindTime}, nil
 	}
@@ -396,7 +407,7 @@ func parsePostgresDDLColumnType(dataType, udtName, formattedType string, size sq
 
 		return desc, nil
 	case "text":
-		return DDLColumnType{Kind: DDLColumnKindString}, nil
+		return DDLColumnType{RawType: "TEXT"}, nil
 	case "timestamp", "timestamptz", "date":
 		return DDLColumnType{Kind: DDLColumnKindTime}, nil
 	default:
@@ -484,7 +495,10 @@ func (d PostgresDialect) DDLAlterColumnStatements(table string, before, after DD
 	quotedTable := d.QuoteField(table)
 	quotedColumn := d.QuoteField(after.Name)
 
-	if before.Type != after.Type {
+	// Compare resolved types instead of raw struct equality: nullability lives
+	// inside DDLColumnType, and a nullability-only drift must not trigger a
+	// table-rewriting ALTER TYPE.
+	if !DDLColumnTypesEquivalent(d, before, after) {
 		statements = append(statements, fmt.Sprintf(
 			"ALTER TABLE %s ALTER COLUMN %s TYPE %s;",
 			quotedTable,
@@ -511,7 +525,10 @@ func (d PostgresDialect) DDLAlterColumnStatements(table string, before, after DD
 		))
 	}
 
-	if before.Default != after.Default {
+	// Never touch defaults on auto-increment columns: the database-side
+	// nextval('..._seq') default is an implementation detail of SERIAL and
+	// dropping it would break inserts.
+	if before.Default != after.Default && (!before.AutoIncrement || !after.AutoIncrement) {
 		if after.Default == "" {
 			statements = append(statements, fmt.Sprintf(
 				"ALTER TABLE %s ALTER COLUMN %s DROP DEFAULT;",

@@ -7,6 +7,27 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 项目遵循 [语义化版本控制](https://semver.org/lang/zh-CN/)。
 
+## [4.2.0] - 2026-06-10
+
+### 修复 (Critical)
+- **PostgreSQL 自增主键默认值被破坏**: schema reconcile 曾把 BIGSERIAL/SERIAL 主键的 `nextval('..._seq')` 默认值当作漂移并执行 `DROP DEFAULT`，导致重启后插入报 `null value in column "id"`。现在 diff 层（`columnsEqual`）与渲染层（`DDLAlterColumnStatements`）都会忽略自增列的数据库托管默认值。
+- **MySQL 主键列 ALTER 必然失败**: `MODIFY COLUMN` 不再重复输出 `PRIMARY KEY`（MySQL error 1068 "Multiple primary key defined"），同时保留 `AUTO_INCREMENT` 与 `NOT NULL`；主键升位（如 INT→BIGINT）现在可以正常执行。
+- **SQLite 自增检测大小写错误**: CREATE SQL 匹配因引号/大小写问题永远失败，导致 Reconcile 策略下每次重启都重建所有自增表。现在大小写不敏感，并兼容 `"x"`、`[x]`、反引号与裸标识符等手写 DDL 引用风格。
+- **SQLite 表重建事务穿透连接池**: 重建语句改为在单个事务（同一连接）内执行，不再以独立 Exec 发送 `BEGIN`/`COMMIT`（可能落到不同池化连接，留下悬挂事务）。
+- **SQLite 表重建丢失二级索引**: 重建会随 `DROP TABLE` 丢弃旧表索引；现在无论索引策略如何，都会在重建事务内恢复仍然适用的二级索引。
+
+### 修复 (噪音/重复 DDL)
+- **类型往返不闭合导致永久重复 DDL（类修）**: inspect 会把部分 SQL 类型坍缩为 canonical kind（PG `TEXT`/`CHAR(n)`/`NUMERIC(n,m)`、MySQL `TEXT`/`DECIMAL(n,m)`、SQLite `TEXT` 等），与 `db:"...,type:X"` 声明对账时每次重启都触发 ALTER/重建且永不收敛。`DDLColumnSpec` 新增 `NativeType` 字段记录数据库原始类型，新增 `DDLColumnTypesEquivalent` 做「渲染类型 + 原生类型别名归一」双轨比较。
+- **PostgreSQL TEXT 列往返**: inspect 的 `text` 列按 `RawType: "TEXT"` 往返，不再渲染为 `VARCHAR(255)` 触发重复 ALTER。
+- **PostgreSQL 仅 nullability 漂移时多发 ALTER TYPE**: 类型比较改用解析后的等价比较，仅 NULL/NOT NULL 漂移不再附带一条会锁表重写的 `ALTER ... TYPE`。
+
+### 新增
+- **PostgreSQL identity 列识别**: `GENERATED ... AS IDENTITY` 列（`is_identity = 'YES'`）现在与 SERIAL 一样识别为自增，不再误报 "manual change required"。
+- **Reconcile 删列警告日志**: Reconcile/Managed 策略执行 `DROP COLUMN` 前输出 WARN 日志，明确提示该操作会删除列数据。
+
+### 行为变化
+- **TEXT 列漂移不再被掩盖（PostgreSQL）**: 数据库列为 `TEXT` 而 Go 端声明为普通 `string`（即 `VARCHAR(255)`）时，Reconcile 现在会如实执行 `ALTER ... TYPE VARCHAR(255)`；若存量数据超长，PostgreSQL 会报错使启动失败（不会截断数据）。如希望保持 TEXT，请为字段添加 `db:"...,type:TEXT"`。
+
 ## [4.1.18] - 2026-05-27
 
 ### 变更 (Breaking Changes)
