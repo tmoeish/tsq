@@ -113,7 +113,7 @@ if err != nil {
 	return err
 }
 
-users, err := tsq.List[database.User](ctx, runtime, query)
+users, err := query.List(ctx, runtime)
 if err != nil {
 	return err
 }
@@ -128,7 +128,7 @@ This is the main TSQ shape:
 2. choose source table
 3. add predicates
 4. `Build()`
-5. execute with `List`, `Get`, `Page`, `Count`, or generated helpers
+5. execute via methods on the built query: `query.List(ctx, exec)`, `query.Get(ctx, exec)`, `query.GetOrErr(ctx, exec)`, `query.Page(ctx, exec, pageReq)`, `query.Count(ctx, exec)`, or generated helpers
 
 ## 7. Add a transaction when needed
 

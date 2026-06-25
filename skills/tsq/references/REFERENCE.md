@@ -437,7 +437,7 @@ query, err := tsq.
 Then execute it:
 
 ```go
-users, err := tsq.List[database.User](ctx, runtime, query)
+users, err := query.List(ctx, runtime)
 ```
 
 Typical stages include:
@@ -471,7 +471,7 @@ database.User_DeletedAt.IsNull()
 
 ### Combine conditions
 
-`Where(...)` is a setter. Put all logic in one call:
+The builder is stage-based: `Where(...)` appears at most once per chain (the type system enforces this at compile time). Put all filter logic in a single `Where(...)` call:
 
 ```go
 Where(
@@ -499,7 +499,7 @@ TSQ normally binds values as parameters instead of inlining SQL literals. If the
 
 ## 7. Pagination and keyword search
 
-Use `PageReq` for list endpoints that need:
+Use `PageRequest` for list endpoints that need:
 
 - page number
 - page size
@@ -514,20 +514,21 @@ Useful rules:
 - use `Offset()` instead of hand-calculating offset
 - use `HasNext()` / `HasPrev()` for UI navigation logic
 
-`EscapeKeywordSearch(...)` only escapes LIKE wildcards. It is not SQL injection protection.
+`PageRequest.Keyword` is automatically escaped for LIKE wildcards when executing via `query.Page(...)`. For keyword values passed as variadic args to `query.List` or `query.Get`, the caller must escape `%` and `_` manually. Wildcard escaping is not SQL injection protection — that comes from parameter binding.
 
 ## 8. Execution helpers
 
-Common execution entrypoints include:
+Execution is via methods on the built `*Query[O]`:
 
-- `tsq.List`
-- `tsq.Get`
-- `tsq.GetOrErr`
-- `tsq.Page`
-- `tsq.Count`
-- generated list/get/page helpers
+- `query.List(ctx, exec, args...)` → `[]*O, error`
+- `query.Get(ctx, exec, args...)` → `*O, error` (nil when not found)
+- `query.GetOrErr(ctx, exec, args...)` → `*O, error` (error when not found)
+- `query.Page(ctx, exec, pageReq, args...)` → `*PageResponse[O], error`
+- `query.Count(ctx, exec, args...)` → `int, error`
+- `query.Count64(ctx, exec, args...)` → `int64, error`
+- generated list/get/page helpers (wrap the above)
 
-They all take an explicit `context.Context` and an executor.
+All methods take an explicit `context.Context` and a `SQLExecutor`.
 
 ## 9. Runtime and transactions
 
@@ -637,7 +638,7 @@ If the desired behavior is “no optimistic locking,” do not declare a managed
 
 ### `Where(...)` and `Search(...)`
 
-They are overwrite-style setters.
+The builder is **stage-based**: each call returns a different concrete type that restricts what can be called next. `Where(...)` and `Search(...)` each appear **at most once** per chain — the Go type system enforces this at compile time. Both clauses can coexist in either order: `Where(...).Search(...)` or `Search(...).Where(...)`.
 
 ### `InVar()` / `NInVar()`
 

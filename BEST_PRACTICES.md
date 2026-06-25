@@ -40,7 +40,7 @@ query, _ := qb.Build()
 ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 defer cancel()
 
-users, err := tsq.List[database.User](ctx, runtime, query)
+users, err := query.List(ctx, runtime)
 ```
 
 ### 1.3 用 `%w` 保留错误上下文
@@ -75,7 +75,7 @@ if err := pageReq.Validate(); err != nil {
 
 ### 2.2 不要自己手算 offset
 
-`PageReq.Offset()` 已经处理了溢出保护。
+`PageRequest.Offset()` 已经处理了溢出保护。
 
 ```go
 offset := pageReq.Offset()
@@ -339,16 +339,20 @@ query, err := tsq.Select(User_ID, User_Name).
 
 ## 8. TSQ 特有的两个提醒
 
-### 8.1 `Where(...)` 和 `Search(...)` 会覆盖之前的设置
+### 8.1 `Where(...)` 和 `Search(...)` 每条链只能出现一次
 
-`Where(...)` 和 `Search(...)` 都只能调用一次。
+Builder 采用**阶段型类型系统**：每次调用都会返回不同的具体类型，由编译器限制后续可调用的方法。`Where(...)` 和 `Search(...)` 每条链各最多出现一次——Go 类型系统在编译期强制保证，无法再次调用。
 
-- 同一次调用里传多个条件时，TSQ 会按 `AND` 组合
-- 需要 `OR` 时请显式使用 `tsq.Or(...)`
+- 同一次 `Where(...)` 调用里传多个条件时，TSQ 按 `AND` 组合
+- 需要 `OR` 时，请显式使用 `tsq.Or(...)`
+- 需要构建复合子条件时，使用 `tsq.And(...)`
+- 两个子句可以按任意顺序共存：`Where(...).Search(...)` 或 `Search(...).Where(...)`
 
-### 8.2 `EscapeKeywordSearch(...)` 只转义 LIKE 通配符
+### 8.2 关键词转义规则
 
-SQL 注入边界来自参数绑定，不来自这个转义函数。
+- `Page(ctx, exec, pageReq)` 会自动对 `pageReq.Keyword` 转义 LIKE 通配符（`%` 和 `_`）。
+- 通过可变参数传给 `query.List` / `query.Get` 的关键词**不会**自动转义，调用方需自行处理。
+- SQL 注入防护来自参数绑定本身，LIKE 通配符转义只防止意外的模糊匹配，两者不能互替。
 
 ### 8.3 `InVar()` 的空切片 / nil 切片不是异常，而是“查不到任何结果”
 

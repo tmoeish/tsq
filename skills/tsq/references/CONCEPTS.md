@@ -26,7 +26,7 @@ tsq.Select(...).From(...).Where(...).Build()
        *tsq.Query[Owner]
             |
             v
-tsq.List/Get/Page/Count + tsq.SQLExecutor
+query.List/Get/GetOrErr/Page/Count(ctx, SQLExecutor, args...)
 ```
 
 ## `@TABLE`
@@ -98,7 +98,7 @@ Important split:
 
 ### `Where(...)` / `Search(...)`
 
-They are setters, not appenders.
+The builder is **stage-based**: each call returns a different concrete type that restricts what comes next. `Where(...)` and `Search(...)` each appear at most once per chain — enforced by the Go type system at compile time. Both can coexist in either order.
 
 ### `InVar()` / `NInVar()`
 

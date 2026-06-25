@@ -38,7 +38,7 @@ Use this skill for **using TSQ in another Go project**, not for developing the T
 - Pass `runtime` directly where a `tsq.SQLExecutor` is needed.
 - Use `Runtime.WithTx(...)` when several TSQ operations must share one transaction.
 - Do not assume this skill ships management scripts; install or upgrade TSQ with explicit `go install .../cmd/tsq@version` commands, and run `tsq fmt` / `tsq gen` directly against the chosen package.
-- Remember that `Where(...)` and `Search(...)` are overwrite-style setters.
+- The builder is stage-based: `Where(...)` and `Search(...)` each appear at most once per chain, enforced by the Go type system at compile time. Pass all filter conditions to the single `Where(...)` call; use `tsq.Or(...)` for OR groups. Both clauses can coexist in either order.
 - Remember that `InVar()` with an empty or nil slice means explicit no-match.
 - Remember that `NInVar()` with an empty or nil slice means explicit match-all.
 - Prefer the predicate naming split: RHS uses `Op(...)`, literal values use `OpVal(...)`, runtime placeholders use `OpVar()`, and pattern sugar uses `StartsWithVal/StartsWithVar`-style names while cross-column or subquery pattern matching goes through `Like(...)`.
@@ -65,7 +65,7 @@ Use this skill for **using TSQ in another Go project**, not for developing the T
 ## Do not do these things
 
 - do not hand-maintain generated column metadata or CRUD helpers
-- do not call `Where(...)` twice expecting conditions to append
+- do not try to call `Where(...)` or `Search(...)` more than once per chain; the stage-based type system makes this a compile error — put all conditions in the single call
 - do not assume every built query runs on every dialect
 - do not treat `InVar(nil)` as “ignore this filter”
 - do not treat `NInVar(nil)` as “reject everything”
