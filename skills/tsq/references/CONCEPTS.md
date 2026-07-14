@@ -14,7 +14,7 @@ Go struct + @TABLE / @RESULT
         tsq gen
             |
             v
-generated *_tsq.go / *_result_tsq.go
+generated *.tsq.go / *.result.tsq.go
             |
             v
 generated columns + CRUD helpers + paging/search helpers
@@ -54,8 +54,8 @@ Use it for:
 
 Typical generated outputs:
 
-- `*_tsq.go` for tables
-- `*_result_tsq.go` for result models
+- `*.tsq.go` for tables
+- `*.result.tsq.go` for result models
 - dialect DDL files and schema snapshots in projects that use generation output for schema artifacts
 
 Generated files should follow the handwritten struct definitions, not the other way around.

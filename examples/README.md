@@ -77,8 +77,8 @@ go test ./examples/...
 
 以下文件由 `tsq gen` 基于 `academy/*.go` 生成，不要手改：
 
-- `academy/*_tsq.go`
-- `academy/*_result_tsq.go`
+- `academy/*.tsq.go`
+- `academy/*.result.tsq.go`
 - `academy/sqlite.sql`
 - `academy/mysql.sql`
 - `academy/postgres.sql`

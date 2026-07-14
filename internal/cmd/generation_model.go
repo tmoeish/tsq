@@ -164,7 +164,7 @@ func buildPackageRuntimeModel(
 			TSQVersion: tables[0].TSQVersion,
 		},
 		Template:   runtimeTpl,
-		Filename:   filepath.Join(dir, "runtime_tsq.go"),
+		Filename:   filepath.Join(dir, "runtime.tsq.go"),
 		ErrorLabel: "runtime template rendering failed",
 	}, nil
 }
@@ -337,7 +337,7 @@ func findStaleGeneratedFiles(dir string, plannedFiles map[string]struct{}) ([]st
 }
 
 func isGeneratedFilename(name string) bool {
-	return strings.HasSuffix(name, "_tsq.go") || strings.HasSuffix(name, "_result_tsq.go")
+	return strings.HasSuffix(name, ".tsq.go") || strings.HasSuffix(name, ".result.tsq.go")
 }
 
 func generationPlanStatusFor(filename string, src []byte) (generationPlanStatus, error) {

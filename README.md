@@ -44,7 +44,7 @@ TSQ（Type-Safe Query）会把带注解的 Go 结构体生成为**表元数据�
 | 问题 | 最短答案 |
 | --- | --- |
 | **最小要写什么？** | 一个带 `@TABLE` 注解的 Go struct。 |
-| **生成后得到什么？** | 每个表生成一个 `*_tsq.go`；每个 `@RESULT` 生成一个 `*_result_tsq.go`。 |
+| **生成后得到什么？** | 每个表生成一个 `*.tsq.go`；每个 `@RESULT` 生成一个 `*.result.tsq.go`。 |
 | **怎么跑第一条查询？** | `tsq gen ./db` → `runtime, err := tsq.NewRuntime("sqlite", dsn, database.TSQTables())` → `query, err := tsq.Select(...).From(table).Where(...).Build()` → `query.List(ctx, runtime, ...)`。 |
 
 ## 安装
@@ -105,9 +105,9 @@ tsq gen ./database
 
 生成后通常会看到：
 
-- `database/user_tsq.go`：`User` 表的列、CRUD、分页和查询助手
-- `database/runtime_tsq.go`：当前包全部表的 `TSQTables()` metadata 入口
-- `database/*_result_tsq.go`：只在你声明 `@RESULT` 时生成
+- `database/user.tsq.go`：`User` 表的列、CRUD、分页和查询助手
+- `database/runtime.tsq.go`：当前包全部表的 `TSQTables()` metadata 入口
+- `database/*.result.tsq.go`：只在你声明 `@RESULT` 时生成
 - `database/sqlite.sql` / `database/mysql.sql` / `database/postgres.sql`：每种内置方言的 schema 文件；首次生成写入初始建表语句，后续变更会按时间顺序追加带日期注释的增量 DDL
 - `database/tsq.json`：最新 schema snapshot、初始 schema 文件内容与增量历史记录，用于后续 `tsq gen` 对账
 
@@ -197,7 +197,7 @@ TSQ 当前内置的 `Dialect` 实现只有 **SQLite / MySQL / PostgreSQL**。下
 | --- | --- | --- | --- | --- |
 | 生成 CRUD / 分页助手 | ✅ | ✅ | ✅ | 生成层支持一致 |
 | 类型安全列与链式查询 | ✅ | ✅ | ✅ | `tsq.Select(...).From(table).Where(...).Build()` |
-| `@RESULT` 结果映射 | ✅ | ✅ | ✅ | 生成 `*_result_tsq.go` |
+| `@RESULT` 结果映射 | ✅ | ✅ | ✅ | 生成 `*.result.tsq.go` |
 | 自动乐观锁（`version`） | ✅ | ✅ | ✅ | `Update/Delete` 在执行时按 `VersionColumn()` 做版本校验 |
 | `InVar()` / `NInVar()` 动态集合过滤 | ✅ | ✅ | ✅ | 执行时展开参数 |
 | `CASE` 表达式 | ✅ | ✅ | ✅ | 构建与执行都支持 |
@@ -354,7 +354,7 @@ query, err := tsq.
 
 ### 生成 helper 不会在导入包时 panic
 
-生成的 `*_tsq.go` 会在包初始化时准备查询定义，但如果准备失败，错误会在调用对应 helper 时显式返回，而不是因为 `import` 该包直接 `panic`。
+生成的 `*.tsq.go` 会在包初始化时准备查询定义，但如果准备失败，错误会在调用对应 helper 时显式返回，而不是因为 `import` 该包直接 `panic`。
 
 如果你看到类似 `initialize XxxQuery` 的错误，优先检查：
 

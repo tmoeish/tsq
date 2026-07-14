@@ -285,7 +285,7 @@ From table structs, TSQ commonly generates:
 
 From result structs, TSQ commonly generates:
 
-- `*_result_tsq.go`
+- `*.result.tsq.go`
 - helpers that return the result owner
 
 In projects that keep schema artifacts, TSQ may also generate:

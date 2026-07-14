@@ -46,9 +46,9 @@ For release/build workflow changes:
 
 ## Generated code rules
 
-- Do not hand-edit `*_tsq.go`, `*_result_tsq.go`, or `examples/academy/*_tsq.go`. Change the source struct or template and regenerate instead.
+- Do not hand-edit `*.tsq.go`, `*.result.tsq.go`, or `examples/academy/*.tsq.go`. Change the source struct or template and regenerate instead.
 - Exception: you may hand-edit generated files only when explicitly debugging generation output.
-- When changing table DSL, templates, parser logic, or examples: run `make examples` and keep the generated files in `examples/academy/*_tsq.go` committed.
+- When changing table DSL, templates, parser logic, or examples: run `make examples` and keep the generated files in `examples/academy/*.tsq.go` committed.
 
 ## Coding conventions
 

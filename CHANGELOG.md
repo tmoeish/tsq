@@ -7,6 +7,20 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 项目遵循 [语义化版本控制](https://semver.org/lang/zh-CN/)。
 
+## [4.3.0] - 2026-07-14
+
+### 变更
+
+- **生成文件命名惯例**: 生成文件后缀从 `_tsq.go` / `_result_tsq.go` 改为 `.tsq.go` / `.result.tsq.go`，与 Go 生态复合扩展名惯例（如 `.pb.go`）保持一致。视觉分隔更清晰，IDE 识别更友好。
+  - `user_tsq.go` → `user.tsq.go`
+  - `userorder_result_tsq.go` → `userorder.result.tsq.go`
+  - `runtime_tsq.go` → `runtime.tsq.go`
+
+### 迁移指南
+
+- 删除旧的 `*_tsq.go` / `*_result_tsq.go` 文件，重新运行 `tsq gen` 即可。
+- 更新 `.gitignore`、Makefile 或 CI 中引用旧后缀的 glob 模式。
+
 ## [4.2.0] - 2026-06-10
 
 ### 修复 (Critical)

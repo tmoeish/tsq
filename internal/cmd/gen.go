@@ -89,7 +89,7 @@ type runtimeColumnTemplateData struct {
 // GenCmd generates tsq table, result, and DDL artifacts for a package.
 var GenCmd = &cobra.Command{
 	Use:   "gen <package-or-dir>",
-	Short: "Generate *_tsq.go files for one Go package",
+	Short: "Generate *.tsq.go files for one Go package",
 	Long: `Generate TSQ code for one Go package.
 
 Accepted inputs:
@@ -98,8 +98,8 @@ Accepted inputs:
   - absolute directory: /path/to/project/internal/database
 
 Generated files:
-  - <struct>_tsq.go for each @TABLE struct
-  - <result>_result_tsq.go for each @RESULT struct
+  - <struct>.tsq.go for each @TABLE struct
+  - <result>.result.tsq.go for each @RESULT struct
   - sqlite.sql / mysql.sql / postgres.sql beside generated Go files
     with the initial schema plus dated migration sections
   - tsq.json with the latest snapshot and migration history
@@ -727,10 +727,10 @@ func validateGeneratedSymbolCollisions(list []*genmodel.StructInfo) error {
 func generatedFilename(data *genmodel.StructInfo) string {
 	base := strings.ToLower(data.TypeInfo.TypeName)
 	if data.IsResult {
-		return fmt.Sprintf("%s_result_tsq.go", base)
+		return fmt.Sprintf("%s.result.tsq.go", base)
 	}
 
-	return fmt.Sprintf("%s_tsq.go", base)
+	return fmt.Sprintf("%s.tsq.go", base)
 }
 
 func validatePrimaryKeyField(data *genmodel.StructInfo) error {

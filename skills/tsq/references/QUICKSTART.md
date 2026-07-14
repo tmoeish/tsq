@@ -7,7 +7,7 @@ This file is the **shortest practical path** for adding TSQ to a Go project.
 After this flow, the target project should have:
 
 1. one annotated table struct
-2. one generated `*_tsq.go` file
+2. one generated `*.tsq.go` file
 3. one initialized runtime
 4. one successful typed query
 
@@ -73,9 +73,9 @@ Expected output:
 
 ```txt
 database/
-  runtime_tsq.go
+  runtime.tsq.go
   user.go
-  user_tsq.go
+  user.tsq.go
 ```
 
 Generated files are outputs. Change the source struct or annotation, then regenerate.

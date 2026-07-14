@@ -443,7 +443,7 @@ func buildDDLGeneratedFileOverlay(dir string) (map[string][]byte, error) {
 	overlay := make(map[string][]byte)
 
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), "_tsq.go") {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".tsq.go") {
 			continue
 		}
 
@@ -462,7 +462,7 @@ func detectDDLPackageName(dir string, entries []os.DirEntry) (string, error) {
 		}
 
 		name := entry.Name()
-		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") || strings.HasSuffix(name, "_tsq.go") {
+		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") || strings.HasSuffix(name, ".tsq.go") {
 			continue
 		}
 

@@ -7,7 +7,7 @@
 完成后你会得到：
 
 1. 一个带 `@TABLE` 注解的表结构
-2. 一个 `*_tsq.go` 生成文件
+2. 一个 `*.tsq.go` 生成文件
 3. 一个能连 SQLite、初始化 TSQ 并查出用户列表的 `main.go`
 
 ## 1. 初始化项目
@@ -64,12 +64,12 @@ tsq gen ./database
 
 ```txt
 database/
-  runtime_tsq.go
+  runtime.tsq.go
   user.go
-  user_tsq.go
+  user.tsq.go
 ```
 
-其中 `user_tsq.go` 是生成文件，不要手改。`tsq fmt` 会复用同样的包定位规则，只整理 struct 注释里的 `@TABLE` / `@RESULT` DSL，不会改写其他注释内容。
+其中 `user.tsq.go` 是生成文件，不要手改。`tsq fmt` 会复用同样的包定位规则，只整理 struct 注释里的 `@TABLE` / `@RESULT` DSL，不会改写其他注释内容。
 
 ## 4. 准备一个最小 SQLite 数据库
 
@@ -158,7 +158,7 @@ go run .
 
 ### 生成时报拒绝覆盖文件
 
-TSQ 只会覆盖已有的生成文件。如果你手工创建了 `user_tsq.go`，生成器会拒绝覆盖它。
+TSQ 只会覆盖已有的生成文件。如果你手工创建了 `user.tsq.go`，生成器会拒绝覆盖它。
 
 ### 查询构建成功但执行时报方言错误
 

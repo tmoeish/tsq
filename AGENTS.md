@@ -31,7 +31,7 @@ Canonical instructions for coding agents and IDE assistants working in this repo
 - Prefer `make` targets over ad-hoc commands when an equivalent target exists.
 - When changing generated code paths, table DSL, templates, parser logic, or examples:
   - run `make examples`
-  - keep generated files in `examples/academy/*_tsq.go` committed
+  - keep generated files in `examples/academy/*.tsq.go` committed
 - Do not hand-edit generated files unless you are explicitly debugging generation output; change the source/template and regenerate instead.
 - **Validation order**:
   1. `make fmt`

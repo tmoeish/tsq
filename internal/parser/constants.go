@@ -1,7 +1,7 @@
 package parser
 
 const (
-	TSQFileSuffix = "_tsq.go"
+	TSQFileSuffix = ".tsq.go"
 	GoFileSuffix  = ".go"
 )
 

@@ -14,7 +14,7 @@ Go struct + @TABLE / @RESULT
         tsq gen
             |
             v
-  generated *_tsq.go / *_result_tsq.go
+  generated *.tsq.go / *.result.tsq.go
             |
             v
  generated columns + CRUD helpers + Page/List helpers
@@ -53,9 +53,9 @@ type User struct {
 
 如果字段是 `string` 且 `db` tag 没写 `size`，DDL 默认会按常规业务字段生成 `VARCHAR(255)`；显式 `size:N` 时再按各方言映射到更合适的字符串类型。`int` / `uint` 以及基于它们的自定义枚举类型默认按常规整型宽度生成，`int64` / `uint64` 才会映射到大整数类型。对于 TSQ 无法直接识别的自定义字段类型，可以在 `db` tag 里显式写 `type:JSON`、`type:TEXT`、`type:JSONB` 之类的 raw SQL 类型覆盖。
 
-## 2. `*_tsq.go`：生成后的主要产物
+## 2. `*.tsq.go`：生成后的主要产物
 
-对上面的 `User`，TSQ 会生成 `user_tsq.go`。你最常用到的是三类内容：
+对上面的 `User`，TSQ 会生成 `user.tsq.go`。你最常用到的是三类内容：
 
 | 产物 | 例子 | 用途 |
 | --- | --- | --- |
@@ -63,7 +63,7 @@ type User struct {
 | CRUD / 查询入口 | `QueryUser`, `QueryUserByID`, `QueryActiveUserByEmail` | 通过 `Query` 直接发起 `Get` / `GetOrErr` / `Load` / `Exists` / `Count` / `List` / `Page` |
 | 表注册逻辑 | `RegisterTable`, `Init` 所需元数据 | 让运行时知道这个表的结构和声明索引 |
 
-如果定义了 `@RESULT`，则会额外生成 `*_result_tsq.go`。
+如果定义了 `@RESULT`，则会额外生成 `*.result.tsq.go`。
 
 生成代码里的静态查询现在会直接以包级变量形式构建，例如 `QueryUserByID = ...MustBuild()`。  
 `MustBuild()` 是给 TSQ 框架和生成代码用的，框架保证查询结构正确；业务代码自己拼查询时，应该继续使用 `Build()` 并检查返回的 `error`。
@@ -252,6 +252,6 @@ SQL 注入防护来自参数绑定。`EscapeKeywordSearch(...)` 只负责转义 
 ## 10. 推荐的学习顺序
 
 1. 先跑 [`quickstart.md`](quickstart.md)
-2. 再理解 `@TABLE` → `tsq gen` → `*_tsq.go`
+2. 再理解 `@TABLE` → `tsq gen` → `*.tsq.go`
 3. 然后只学 `Select/Where/Build/List`
 4. 最后再看 `Result`、分页、CTE、运行时隔离这些高级能力

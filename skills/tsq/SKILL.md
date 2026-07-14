@@ -16,7 +16,7 @@ Use this skill for **using TSQ in another Go project**, not for developing the T
 
 - the user wants to add TSQ to a Go service or library
 - the task involves `@TABLE`, `@RESULT`, `tsq fmt`, or `tsq gen`
-- the task involves generated `*_tsq.go` files
+- the task involves generated `*.tsq.go` files
 - the user wants typed query building instead of handwritten SQL helpers
 - the task involves TSQ paging, search, CRUD helpers, transactions, aliases, subqueries, `CASE`, CTEs, set operations, or optimistic locking
 
@@ -32,7 +32,7 @@ Use this skill for **using TSQ in another Go project**, not for developing the T
 
 - Prefer `@TABLE` / `@RESULT` annotations over handwritten metadata layers.
 - Run `tsq fmt` before `tsq gen`.
-- Treat generated `*_tsq.go` and `*_result_tsq.go` as outputs; do not hand-edit them unless the user is explicitly debugging generation output.
+- Treat generated `*.tsq.go` and `*.result.tsq.go` as outputs; do not hand-edit them unless the user is explicitly debugging generation output.
 - Prefer the current Build-based query flow:
   `tsq.Select(...).From(...).Where(...).Build()`
 - Pass `runtime` directly where a `tsq.SQLExecutor` is needed.
