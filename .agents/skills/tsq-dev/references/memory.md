@@ -77,6 +77,26 @@
 引用这个路径的地方有 12 个文件（脚本常量、Makefile、`.gitignore`、三份文档、技能自身），
 `grep -rn` 一遍是唯一可靠的确认方式。
 
+## 2026-08-21 — 钩子和 `commit-check` 校验的是两个不同的字符串
+
+PR #59 合进 `main` 之后，`make harness` 立刻红了：
+
+```
+提交主题 77 字符，上限 72：
+'docs: rewrite CONTRIBUTING for contributors and gate stale make targets (#59)'
+```
+
+我写的主题是 71 字符，本地 `commit-msg` 钩子放行。**GitHub 的 squash 合并往末尾追加了
+` (#59)`**，于是同一条提交信息在两道门里长度不同：钩子看的是作者写的（合并前，无后缀），
+`commit-check` 看的是 GitHub 改过的（合并后，有后缀）。作者能过钩子，却让 `main` 上的门
+变红，而且**没有任何办法提前避免**——写提交信息的时候 PR 号还不存在。
+
+修法是量长度前剥掉 ` (#\d+)` 后缀：那不是作者写的东西，拿它去衡量作者是在量错的东西。
+
+引申：**任何在合并前后各跑一次的检查，都要确认两次跑的是同一个输入。** 合并会改写提交
+信息（squash 追加 PR 号）、会改写 SHA（squash 造新 commit）、会改写历史形状（PR 的多个
+提交压成一个）。这三件事今天各绊了一次。
+
 ## 2026-08-21 — 那个不存在的 `make update-examples` 在文档里又活了三个月
 
 v4.4.1 是为了修 CI 调用不存在的 `make update-examples` 而发的补丁版本。修的时候只改了

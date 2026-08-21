@@ -22,7 +22,13 @@ from typing import Final
 from changeset import PROJECT_ROOT, ChangesetError, git_paths
 
 FENCED: Final = re.compile(r"```.*?```", re.DOTALL)
-MAKE_CALL: Final = re.compile(r"\bmake\s+([a-z][a-z0-9-]*)")
+# 只认真正处在"被调用"位置的 make：行首、`$ ` 提示符之后、或 `&&` / `;` / `|` 之后。
+# 代码块里不全是命令——报错输出、日志、被引用的提交信息都可能落在围栏里，而英文散文里
+# 的 "gate stale make targets" 会被朴素的 `\bmake\s+\w+` 误判成调用 `make targets`
+# （这道门加上的当天就自己踩了一次）。
+MAKE_CALL: Final = re.compile(
+    r"(?:^|&&|;|\|)[ \t]*(?:\$[ \t]*)?make[ \t]+([a-z][a-z0-9-]*)", re.MULTILINE
+)
 # Makefile 里的目标定义：行首、非缩进、冒号前。
 TARGET_DEF: Final = re.compile(r"^([a-zA-Z][a-zA-Z0-9_-]*)\s*:(?!=)", re.MULTILINE)
 # 传给 make 的选项值不是目标。

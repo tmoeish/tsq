@@ -60,6 +60,11 @@ VAGUE_SUMMARIES: Final = frozenset(
 )
 EXEMPT_PREFIXES: Final = ("Merge ", "Revert ", "fixup!", "squash!")
 
+# GitHub 的 squash 合并会往主题末尾追加 " (#123)"。那不是作者写的，PR 号在写提交信息的
+# 时候也不可能知道，所以量长度之前要把它剥掉——否则 `commit-msg` 钩子（合并前，没有后缀）
+# 和这里（合并后，有后缀）校验的是两个不同的字符串，作者能过钩子却让 main 上的门变红。
+SQUASH_REFERENCE: Final = re.compile(r"\s*\(#\d+\)$")
+
 # 发版提交只碰这些非生成物文件。
 RELEASE_ONLY_FILES: Final = frozenset(
     {Path("internal/buildinfo/buildinfo.go")}
@@ -179,15 +184,17 @@ def check_commit(message_file: str | None) -> None:
         return
 
     lines = commit_message(message_file).splitlines()
-    subject = lines[0].strip() if lines else ""
+    raw_subject = lines[0].strip() if lines else ""
 
-    if not subject:
+    if not raw_subject:
         raise ChangeLogError("提交信息没有主题行")
 
-    if subject.startswith(EXEMPT_PREFIXES):
+    if raw_subject.startswith(EXEMPT_PREFIXES):
         print("提交信息检查跳过：merge、revert 或 fixup 提交。")
 
         return
+
+    subject = SQUASH_REFERENCE.sub("", raw_subject)
 
     if len(subject) > SUBJECT_LIMIT:
         raise ChangeLogError(
