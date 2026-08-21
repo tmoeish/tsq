@@ -24,6 +24,9 @@ SUBJECT_LIMIT: Final = 72
 BODY_MIN_LINES: Final = 3
 BODY_MIN_CHARS: Final = 120
 
+# 项目内存的行数上限。定得宽松是有意的：一道从没触发过的门，触发的那次才有意义。
+MEMORY_MAX_LINES: Final = 400
+
 # 本仓是公开 OSS，提交历史面向使用者，因此沿用英文 Conventional Commits。
 CONVENTIONAL: Final = re.compile(
     r"^(?P<type>feat|fix|perf|refactor|docs|test|build|ci|chore|style|revert)"
@@ -89,7 +92,38 @@ def memory_insertions() -> int:
     return 0
 
 
+def check_memory_budget() -> None:
+    """项目内存的长度是每次会话都要付的上下文成本，所以它有上限。
+
+    这道检查和"这波带没带记录"无关，因此**无条件**跑：文件是不是太长，跟当前这波改了
+    什么没有关系。撞上限不是让你随便删，是提醒你按 memory.md 开头那张表裁剪一遍——
+    搁置项处理完就删，事故根因在有门禁挡着之后压成一行，决定和死胡同永久保留。
+    """
+    absolute = PROJECT_ROOT / MEMORY_PATH
+    if not absolute.is_file():
+        return
+
+    lines = len(absolute.read_text(encoding="utf-8").splitlines())
+    if lines <= MEMORY_MAX_LINES:
+        print(f"项目内存 {lines} 行，上限 {MEMORY_MAX_LINES}。")
+
+        return
+
+    raise ChangeLogError(
+        f"{MEMORY_PATH} 有 {lines} 行，超过上限 {MEMORY_MAX_LINES}。\n"
+        "这个文件被每个 agent 加载进上下文，长度是每次会话都要付的成本。按它开头那张表"
+        "裁剪一遍：\n"
+        "  - `已知未处理：` 开头的搁置项，已经处理掉的就删掉整条\n"
+        "  - 事故 + 根因：现在有门禁挡着的，压成一行指向那道门，叙事丢掉\n"
+        "  - 决定 + 理由、死胡同：留着，删了下一个人会改回去或者重试一遍\n"
+        "判据只有一条：删掉它之后，有人会不会重犯、或者重新调查一遍。\n"
+        "删除不是销毁——`git log -p --follow` 能还原任何被删的条目。"
+    )
+
+
 def check_memory() -> None:
+    check_memory_budget()
+
     code = changed_functional_files()
     if not code:
         print("项目内存检查跳过：没有未提交的功能性改动。")
