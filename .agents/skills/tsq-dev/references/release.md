@@ -153,9 +153,27 @@ Go 的语义化导入版本要求：
 
 ## 分支策略
 
-- 日常特性和修复：从 `main` 切 `feature/xxx` 或 `fix/xxx`，PR 合回 `main` 后删分支，
-  在 `main` 最新 commit 上打 tag。
-- 维护旧大版本：基于最后一个该版本的 tag 切长期分支（`git checkout -b v3 v3.9.5`），
+`main` 是唯一的长期分支，**没有 develop、没有 master**。任何改动都从 `main` 切一支短命
+分支，走 PR 合回 `main`，合完分支自动删除（仓库开了 `delete_branch_on_merge`）。
+
+**分支命名用 Conventional Commit 的 type 作前缀**：`<type>/<短横线描述>`，type 取
+`feat|fix|perf|refactor|docs|test|build|ci|chore|style|revert`——和 `commit-msg` 钩子强制的
+是同一份词表。两套词汇必然漂移，所以只留一套。
+
+```
+feat/scalar-query-method
+fix/goreleaser-ldflags
+docs/route-deferred-decisions
+build/memory-line-budget
+release/v4.5.0          ← 唯一的例外，由 `script/release.py` 自己创建，不要手工建
+```
+
+- **开新分支之前先回 `main` 同步**：`git checkout main && git fetch && git reset --hard
+  origin/main`。叠在还没合的 PR 分支上，等那个 PR 被 squash 之后你这支必然冲突。
+- 分支名没有门禁守着，这是有意的：名字取错不会导致任何下游故障，分支合并后就消失了。
+  它是约定，不是正确性问题。
+- 维护旧大版本（**唯一的长期分支例外**）：基于最后一个该版本的 tag 切分支
+  （`git checkout -b v3 v3.9.5`），
   在上面修、在上面打 tag，发版时加 `--allow-branch`。
 - 旧次版本的紧急修复：基于出问题的 tag 切临时分支，修完打 tag，**再把修复反向合并回
   `main`**，然后删临时分支。忘了反向合并，下一个次版本会把同一个 bug 再放出去一次。

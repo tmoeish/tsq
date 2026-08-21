@@ -235,7 +235,11 @@
 - **`v*` 的 tag 有 ruleset，禁止删除、禁止移动、禁止强推。**"不要删 tag 重打"从此不是
   一条靠人记得的规则。真需要清理非发布用途的 `v*` tag，先把 ruleset 停用再操作，然后
   立刻恢复。
-- 手写代码同样走 PR。日常改动可以攒着，见上面的表格判断要不要发版。
+- **日常改动的完整路径**：从同步过的 `main` 切 `<type>/<描述>` 分支（type 用
+  Conventional Commit 那份词表，和提交信息同一套）→ 改代码 → `make fmt` → 更新技能与
+  项目内存 → `make harness` 全绿 → 提交（`commit-msg` 钩子校验）→ 推分支 → 开 PR →
+  CI 五检查全绿后 squash 合入 → 分支自动删除。`main` 是唯一的长期分支，没有 develop。
+  合进 `main` **不等于**发版，见上面的表格判断这波要不要发。
 - **开新分支之前先回 `main` 同步**：`git checkout main && git fetch && git reset --hard
   origin/main`。把新分支叠在还没合的 PR 分支上，等那个 PR 被 squash 合并（产生新 SHA）
   之后，你这支里的原始提交立刻和 `main` 冲突，只能重做。合并之后同样要 `reset --hard`
