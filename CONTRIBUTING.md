@@ -72,8 +72,9 @@ refactor/split-parser
 ```
 
 - type 取 `feat|fix|perf|refactor|docs|test|build|ci|chore|style|revert`
-- 主题不超过 72 字符、不以句号结尾、不能是 `wip` / `update` / `fix` 这类说不清改了什么的词
-- 空一行后写正文：**改了什么、为什么改、怎么验证的**，至少 3 行、120 字符
+- **主题用英文**，不超过 72 字符、不以句号结尾、不能是 `wip` / `update` / `fix` 这类说不
+  清改了什么的词。合并时 GitHub 会自动追加 ` (#123)`，那部分不算进长度
+- 空一行后写正文：**改了什么、为什么改、怎么验证的**，至少 3 行、120 字符。正文中英文皆可
 - 破坏性变更在 type 后加 `!`，或在正文写 `BREAKING CHANGE:`
 
 示例：
@@ -183,7 +184,7 @@ examples/academy/{mysql,postgres,sqlite}.sql
 
 ## 语言
 
-- **英文**：代码注释、Go doc、`README.md`、`docs/`、`skills/tsq`、提交信息——这些是使用者
+- **英文**：代码注释、Go doc、`README.md`、`docs/`、`skills/tsq`、提交主题——这些是使用者
   读的东西。
 - **中文**：`CHANGELOG.md`、`AGENTS.md`、`CLAUDE.md`、本文档、`.agents/skills/tsq-dev`——
   这些的读者是维护者。

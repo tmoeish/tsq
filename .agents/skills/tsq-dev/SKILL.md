@@ -54,7 +54,10 @@ TSQ 由三件东西组成，它们共用一个仓库和一个版本号：
    `skills/tsq`、`README.md`、`docs/` 和 `CHANGELOG.md` 的未发布段。
 7. 交接前跑 `make harness`。它的权威顺序只写在 `AGENTS.md` § 验证与交接，本技能只引用
    不复述。
-8. 提交（`commit-msg` 钩子校验提交信息），需要发版时跑 `make release`。
+8. 提交（`commit-msg` 钩子校验提交信息，主题用英文、正文中英文皆可），需要发版时跑
+   `make release`。主题长度按你写的那一段算——GitHub squash 合并追加的 ` (#123)` 会被
+   `check_change_log.py` 剥掉之后再量，否则钩子和 `commit-check` 会对同一条信息给出
+   不同结论。
 
 ## 维护这份技能
 

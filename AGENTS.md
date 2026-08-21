@@ -125,10 +125,14 @@
 
 ## 语言与提交
 
-- 提交信息用**英文 Conventional Commits**：`type(scope): summary`，type 取
+- **主题用英文** Conventional Commits：`type(scope): summary`，type 取
   `feat|fix|perf|refactor|docs|test|build|ci|chore|style|revert`。主题不超过 72 字符、
-  不以句号结尾、不能是 `wip` / `update` / `fix` 这类说不清改了什么的词。
+  不以句号结尾、不能是 `wip` / `update` / `fix` 这类说不清改了什么的词。主题会出现在
+  GitHub Release 和自动生成的 changelog 里，那是对外的表面。
 - 空一行，然后写正文：改了什么、为什么改、怎么验证的。至少 3 行、120 字符。
+  **正文中英文皆可**——它是给维护者读的细节，写清楚比写成哪种语言重要。
+- 主题长度按**作者写的那一段**算：GitHub 的 squash 合并会追加 ` (#123)`，那不是你写的，
+  PR 号在写提交信息时也不可能知道，所以 `check_change_log.py` 量长度前会剥掉它。
 - 破坏性变更在 type 后加 `!` 或在正文写 `BREAKING CHANGE:`。`script/release.py` 靠这个
   推断版本递增级别。
 - merge、revert、fixup、squash 提交豁免。
