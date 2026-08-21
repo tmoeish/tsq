@@ -924,12 +924,10 @@ func stableVersion(v string) string {
 	// Strip -N-gHASH suffix produced by `git describe --long`.
 	// The pattern is: dash, one-or-more digits, dash, 'g', hex digits, end.
 	for {
-		dashIdx := strings.LastIndex(v, "-")
-		if dashIdx < 0 {
+		prefix, suffix, found := strings.CutLast(v, "-")
+		if !found {
 			break
 		}
-
-		suffix := v[dashIdx+1:]
 
 		// Matches "g<hexchars>" (git abbreviated hash)
 		if len(suffix) > 1 && suffix[0] == 'g' {
@@ -943,7 +941,7 @@ func stableVersion(v string) string {
 			}
 
 			if allHex {
-				v = v[:dashIdx]
+				v = prefix
 				continue
 			}
 		}
@@ -959,7 +957,7 @@ func stableVersion(v string) string {
 		}
 
 		if allDigit {
-			v = v[:dashIdx]
+			v = prefix
 			continue
 		}
 

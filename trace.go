@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"reflect"
+	"slices"
 	"time"
 )
 
@@ -30,8 +31,8 @@ func (r *Runtime) trace(ctx context.Context, fn func(ctx context.Context) error)
 
 	wrappedFn := fn
 
-	for i := len(r.tracers) - 1; i >= 0; i-- {
-		wrappedFn = r.tracers[i](wrappedFn)
+	for _, v := range slices.Backward(r.tracers) {
+		wrappedFn = v(wrappedFn)
 	}
 
 	return wrappedFn(ctx)
@@ -61,8 +62,8 @@ func traceRuntime1[T any](r *Runtime, ctx context.Context, fn func(ctx context.C
 		return nil
 	}
 
-	for i := len(r.tracers) - 1; i >= 0; i-- {
-		wrappedFn = r.tracers[i](wrappedFn)
+	for _, v := range slices.Backward(r.tracers) {
+		wrappedFn = v(wrappedFn)
 	}
 
 	return result, wrappedFn(ctx)

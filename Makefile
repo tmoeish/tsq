@@ -32,7 +32,7 @@ $(LOCALBIN):
 LINT_BIN = $(LOCALBIN)/golangci-lint
 FMT_FIX_LINTERS = modernize,tagalign,wsl_v5
 $(LINT_BIN): $(LOCALBIN)
-	$(call go-get-tool,$(LINT_BIN),github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.11.4)
+	$(call go-get-tool,$(LINT_BIN),github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.1)
 
 .PHONY: lint
 lint: $(LINT_BIN) ## Run golangci-lint

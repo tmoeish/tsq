@@ -10,6 +10,7 @@ const (
 )
 
 type sqliteErrorCoder interface {
+	error
 	Code() int
 }
 
@@ -34,8 +35,7 @@ func isSQLiteRetryableTransactionConflict(err error) bool {
 }
 
 func sqliteErrorCode(err error) (int, bool) {
-	var sqliteErr sqliteErrorCoder
-	if errors.As(err, &sqliteErr) {
+	if sqliteErr, ok := errors.AsType[sqliteErrorCoder](err); ok {
 		return sqliteErr.Code(), true
 	}
 

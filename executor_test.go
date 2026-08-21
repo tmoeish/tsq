@@ -368,10 +368,10 @@ func TestRuntimeWithTxRejectsInvalidRetryPolicy(t *testing.T) {
 	}
 }
 
-func TestWithTx1ReturnsValue(t *testing.T) {
+func TestRuntimeWithTx1ReturnsValue(t *testing.T) {
 	db := newBatchMutationEngine(t)
 
-	got, err := WithTx1(db, context.Background(), nil, func(ctx context.Context, txExec SQLExecutor) (int, error) {
+	got, err := db.WithTx1(context.Background(), nil, func(ctx context.Context, txExec SQLExecutor) (int, error) {
 		if err := Insert(ctx, txExec, &batchMutationUser{
 			Name:  "alice",
 			Email: "alice@example.com",
@@ -389,10 +389,10 @@ func TestWithTx1ReturnsValue(t *testing.T) {
 	}
 }
 
-func TestWithTx2ReturnsValues(t *testing.T) {
+func TestRuntimeWithTx2ReturnsValues(t *testing.T) {
 	db := newBatchMutationEngine(t)
 
-	first, second, err := WithTx2(db, context.Background(), &TxOptions{
+	first, second, err := db.WithTx2(context.Background(), &TxOptions{
 		Retry: IsOptimisticLockError,
 		RetryConfig: &TxRetryConfig{
 			MaxAttempts:       2,

@@ -169,7 +169,7 @@ func tableColumns(table Table) ([]SQLColumn, bool) {
 
 	cols := make([]SQLColumn, 0, result.Len())
 	for i := 0; i < result.Len(); i++ {
-		col, ok := result.Index(i).Interface().(SQLColumn)
+		col, ok := reflect.TypeAssert[SQLColumn](result.Index(i))
 		if !ok {
 			return nil, false
 		}

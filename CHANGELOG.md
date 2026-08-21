@@ -7,6 +7,14 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 项目遵循 [语义化版本控制](https://semver.org/lang/zh-CN/)。
 
+## [4.4.0] - 2026-08-21
+
+### 变更
+
+- **Go 1.27**: 最低 Go 版本、CI 和 Docker 构建环境统一升级到 Go 1.27.0，并将 golangci-lint 升级到兼容版本。
+- **泛型事务方法**: 新增 `Runtime.WithTx1` / `Runtime.WithTx2` 泛型方法；原包级函数保留为弃用入口。
+- **标准库现代化**: 使用 Go 1.27 的 `strings.CutLast`、`slices.Backward` 和 `errors.AsType` 简化实现。
+
 ## [4.3.0] - 2026-07-14
 
 ### 变更

@@ -481,9 +481,7 @@ func TestPageResp_HasNext(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			resp := &PageResponse[string]{
-				PageRequest: PageRequest{
-					Page: tt.page,
-				},
+				Page:      tt.page,
 				TotalPage: tt.total,
 			}
 
@@ -508,9 +506,7 @@ func TestPageResp_HasPrev(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			resp := &PageResponse[string]{
-				PageRequest: PageRequest{
-					Page: tt.page,
-				},
+				Page: tt.page,
 			}
 
 			if resp.HasPrev() != tt.expected {

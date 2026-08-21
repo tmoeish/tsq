@@ -90,7 +90,8 @@ formatters:
       no-prefix-comments: true
     gofumpt:
       module-path: github.com/tmoeish/tsq/v4
-      extra-rules: true
+      extra:
+        group-params: true
   exclusions:
     generated: strict
     warn-unused: true

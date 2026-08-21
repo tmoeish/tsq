@@ -5,7 +5,7 @@ Canonical instructions for coding agents and IDE assistants working in this repo
 ## Project environment
 
 - **Repository**: `github.com/tmoeish/tsq`
-- **Language**: Go `1.26.x` (`go.mod` uses `go 1.26.0`; CI uses Go `1.26.0`)
+- **Language**: Go `1.27.x` (`go.mod` uses `go 1.27.0`; CI uses Go `1.27.0`)
 - **Main deliverables**:
   - CLI generator: `./cmd/tsq`
   - Go library: repository root package
@@ -76,6 +76,7 @@ Follow these steps for a standard release (vX.Y.Z):
     *   Push: `git push origin main --tags`.
 
 ### Recent Upgrades
+- **2026-08-21**: Upgraded Go to 1.27.0 and adopted generic methods and Go 1.27 modernizers.
 - **2026-05-20**: Upgraded Go to 1.26.0 and refreshed all dependencies.
 
 ## Branch Management Strategies

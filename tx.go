@@ -355,9 +355,7 @@ func withTxRuntime1[T any](
 }
 
 // WithTx1 runs fn in a transaction and returns one result value plus an error.
-// The runtime is an explicit parameter because Go does not support generic methods on Runtime.
-func WithTx1[T any](
-	r *Runtime,
+func (r *Runtime) WithTx1[T any](
 	ctx context.Context,
 	options *TxOptions,
 	fn func(context.Context, SQLExecutor) (T, error),
@@ -366,9 +364,7 @@ func WithTx1[T any](
 }
 
 // WithTx2 runs fn in a transaction and returns two result values plus an error.
-// The runtime is an explicit parameter because Go does not support generic methods on Runtime.
-func WithTx2[T1, T2 any](
-	r *Runtime,
+func (r *Runtime) WithTx2[T1, T2 any](
 	ctx context.Context,
 	options *TxOptions,
 	fn func(context.Context, SQLExecutor) (T1, T2, error),
@@ -378,7 +374,7 @@ func WithTx2[T1, T2 any](
 		second T2
 	}
 
-	result, err := withTxRuntime1(r, ctx, options, func(ctx context.Context, txExec SQLExecutor) (pair, error) {
+	result, err := r.WithTx1(ctx, options, func(ctx context.Context, txExec SQLExecutor) (pair, error) {
 		first, second, err := fn(ctx, txExec)
 		if err != nil {
 			return pair{}, err
@@ -394,4 +390,26 @@ func WithTx2[T1, T2 any](
 	}
 
 	return result.first, result.second, nil
+}
+
+// WithTx1 runs fn in a transaction and returns one result value plus an error.
+// Deprecated: use Runtime.WithTx1.
+func WithTx1[T any](
+	r *Runtime,
+	ctx context.Context,
+	options *TxOptions,
+	fn func(context.Context, SQLExecutor) (T, error),
+) (T, error) {
+	return r.WithTx1(ctx, options, fn)
+}
+
+// WithTx2 runs fn in a transaction and returns two result values plus an error.
+// Deprecated: use Runtime.WithTx2.
+func WithTx2[T1, T2 any](
+	r *Runtime,
+	ctx context.Context,
+	options *TxOptions,
+	fn func(context.Context, SQLExecutor) (T1, T2, error),
+) (T1, T2, error) {
+	return r.WithTx2(ctx, options, fn)
 }

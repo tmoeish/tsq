@@ -187,7 +187,7 @@ if err := rt.WithTx(ctx, nil, func(ctx context.Context, txExec tsq.SQLExecutor) 
 }
 ```
 
-如果你想在事务里顺便返回值，则用 `tsq.WithTx1(...)` / `tsq.WithTx2(...)` 这两个泛型函数。
+如果你想在事务里顺便返回值，则用 Go 1.27 泛型方法 `runtime.WithTx1(...)` / `runtime.WithTx2(...)`。
 
 对于 `ChunkedInsert` / `ChunkedUpdate` / `ChunkedDelete` 这类 helper，也沿用同一个原则：**TSQ 不替调用方偷偷决定事务边界。**
 

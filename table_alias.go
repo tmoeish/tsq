@@ -75,10 +75,8 @@ func RebindColumn(col SQLColumn, table Table) SQLColumn {
 
 	if _, ok := col.(SearchColumn); ok {
 		return reboundSearchColumn{
-			reboundColumn: reboundColumn{
-				source: col,
-				table:  table,
-			},
+			source: col,
+			table:  table,
 		}
 	}
 

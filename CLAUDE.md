@@ -2,7 +2,7 @@
 
 Type-safe SQL query builder and code generator for Go. The CLI lives at `./cmd/tsq`; the library is the root package; runnable examples are at `./examples`.
 
-- **Language**: Go 1.26.x
+- **Language**: Go 1.27.x
 - **Module**: `github.com/tmoeish/tsq`
 - **Task runner**: `make`
 - **Local lint binary**: `./bin/golangci-lint`
