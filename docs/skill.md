@@ -1,6 +1,7 @@
 # TSQ Agent Skill
 
-这个仓库除了是 `github.com/tmoeish/tsq/v4` 的源码仓库，也额外发布了一个可安装的 agent skill，目录在：
+This repository publishes an installable agent skill in addition to the
+`github.com/tmoeish/tsq/v4` Go module:
 
 ```txt
 skills/
@@ -9,138 +10,208 @@ skills/
     references/
 ```
 
-这个 skill 面向 **其他 Go 项目中的 coding agent**。仓库里的 `docs/` 主要给人类读者和仓库访客看；skill 真正随安装一起分发、能被 agent 读取的参考资料，都放在 `skills/tsq/` 目录内。
+The skill is intended for coding agents working in other Go projects. The files under `docs/`
+are for people browsing this repository; the references that are installed with the skill and
+read by agents live under `skills/tsq/`.
 
-## 适用 agent
+## Recommended: install into a project
 
-- GitHub Copilot
-- Claude Code
-- Gemini CLI
+Project-level installation is the recommended and most common setup. Run this command from the
+root of the Go project that uses TSQ:
 
-`gh skill install` 当前也支持更多 agent，但上面三类是这个 skill 的主要目标。
+```bash
+gh skill install tmoeish/tsq skills/tsq --dir .agents/skills
+```
 
-## 推荐安装方式
+The installed skill is located at:
 
-推荐使用 GitHub CLI 的 `gh skill install`，因为它会把 skill 安装到对应 agent 约定的位置。
+```txt
+<project-root>/.agents/skills/tsq/
+  SKILL.md
+  references/
+```
 
-### GitHub Copilot
+Explicitly targeting `.agents/skills/` is recommended because:
+
+- it is the common project-level skill directory recognized by many agents, including GitHub
+  Copilot, Cursor, Codex, Gemini CLI, and others;
+- one project-local copy can serve multiple agents and collaborators instead of creating
+  duplicate, agent-specific copies that may drift apart;
+- the TSQ guidance stays with the project that needs it and does not affect unrelated projects;
+- the installation location remains predictable regardless of the CLI's default agent or an
+  interactive agent selection.
+
+The `--dir` path is relative to the current directory, so run the command from the target project's
+root. The command records GitHub source metadata in the installed skill, which enables later
+updates with `gh skill update`.
+
+## Update an installed skill
+
+Preview available updates without changing files:
+
+```bash
+gh skill update tsq --dir .agents/skills --dry-run
+```
+
+Update the project-level TSQ skill:
+
+```bash
+gh skill update tsq --dir .agents/skills
+```
+
+To update every skill installed in that directory without prompting:
+
+```bash
+gh skill update --all --dir .agents/skills
+```
+
+A skill installed with `--pin` is skipped during normal updates. Clear the pin and update it with:
+
+```bash
+gh skill update tsq --dir .agents/skills --unpin
+```
+
+`gh skill update` relies on the source metadata added by `gh skill install`. A manually copied
+skill has no such metadata, so update it by copying a newer version again or reinstall it with
+`gh skill install`.
+
+## Other installation scopes and locations
+
+`gh skill install` currently supports many agents. TSQ primarily targets GitHub Copilot, Claude
+Code, and Gemini CLI, but the shared project directory above is suitable for any agent that
+recognizes the Agent Skills convention.
+
+If an agent requires its own project directory, let `gh skill install` resolve that location:
+
+```bash
+gh skill install tmoeish/tsq skills/tsq --agent github-copilot --scope project
+gh skill install tmoeish/tsq skills/tsq --agent claude-code --scope project
+gh skill install tmoeish/tsq skills/tsq --agent gemini-cli --scope project
+```
+
+The skill will be installed as a `tsq/` directory below that agent's project-level skill directory.
+At the time of writing, GitHub Copilot and Gemini CLI resolve project scope to
+`.agents/skills/tsq/`, while Claude Code resolves it to `.claude/skills/tsq/`. Explicit `--dir`
+remains the clearest way to select the shared location without depending on agent-specific
+resolution.
+
+Use user scope only when you want the skill available in every project for the current user:
 
 ```bash
 gh skill install tmoeish/tsq skills/tsq --agent github-copilot --scope user
+gh skill install tmoeish/tsq skills/tsq --agent claude-code --scope user
+gh skill install tmoeish/tsq skills/tsq --agent gemini-cli --scope user
 ```
 
-### Claude Code
+Common user-level destinations include:
 
-```bash
-gh skill install tmoeish/tsq tsq --agent claude-code --scope user
-```
+- `~/.copilot/skills/tsq/`
+- `~/.claude/skills/tsq/`
+- `~/.gemini/skills/tsq/`
+- `~/.agents/skills/tsq/`
 
-### Gemini CLI
+The exact user-level destination depends on the selected agent and CLI version. Use `gh skill list`
+to inspect installed skills and their resolved locations.
 
-```bash
-gh skill install tmoeish/tsq tsq --agent gemini-cli --scope user
-```
+## Preview and pin a version
 
-说明：
-
-- `--scope user`：当前用户全局可用
-- `--scope project`：只安装到当前项目
-- 需要固定版本时，可用 `tsq@vX.Y.Z` 或 `--pin vX.Y.Z`
-
-例如：
-
-```bash
-gh skill install tmoeish/tsq skills/tsq@v4.1.21 --agent github-copilot --scope user
-```
-
-安装前建议先预览：
+Preview the skill before installing it:
 
 ```bash
 gh skill preview tmoeish/tsq skills/tsq
 ```
 
-## 从本地仓库安装
-
-如果你已经 clone 了本仓库，也可以直接从本地目录安装：
-
-```bash
-gh skill install /path/to/tsq skills/tsq --from-local --agent github-copilot --scope user
-```
-
-例如在仓库根目录执行：
+Without a version, `gh skill install` resolves the latest tagged release and then falls back to the
+default branch. To pin a project installation to a specific release:
 
 ```bash
-gh skill install . skills/tsq --from-local --agent github-copilot --scope user
+gh skill install tmoeish/tsq skills/tsq@v4.1.21 --dir .agents/skills
 ```
 
-## 手动安装
+The equivalent `--pin v4.1.21` form is also supported.
 
-如果你不想依赖 `gh skill install`，也可以手动把 `skills/tsq` 目录复制到 agent 的 skills 目录中。
+## Install from a local clone
 
-### GitHub Copilot 项目级
+If this repository is already cloned, install from its local path. Run the following from the root
+of the target project:
 
-复制到目标项目的任一目录：
+```bash
+gh skill install /path/to/tsq tsq --from-local --dir .agents/skills
+```
 
-- `.github/skills/tsq`
-- `.claude/skills/tsq`
-- `.agents/skills/tsq`
+Local files are copied rather than symlinked. The installed location is still:
 
-### GitHub Copilot / Claude Code / Gemini CLI 用户级
+```txt
+<project-root>/.agents/skills/tsq/
+```
 
-常见位置：
+## Manual installation
 
-- `~/.copilot/skills/tsq`
-- `~/.agents/skills/tsq`
+If you do not want to use `gh skill install`, copy the complete `skills/tsq` directory into the
+target project's skill directory. The recommended destination is:
 
-手动复制后，按 agent 的方式重载 skills。对于 GitHub Copilot CLI，通常可以使用：
+```txt
+<project-root>/.agents/skills/tsq/
+```
+
+Other project-level destinations recognized by some agents include:
+
+- `.github/skills/tsq/`
+- `.claude/skills/tsq/`
+
+After copying, reload skills using the selected agent's mechanism. For GitHub Copilot CLI, the
+commands are typically:
 
 ```txt
 /skills reload
 /skills info tsq
 ```
 
-## 使用这个 skill
+Manual copies do not contain the GitHub source metadata required for automatic updates.
 
-安装后，一般不需要每次显式点名，agent 会根据 `description` 自动判断是否启用。  
-如果你想强制使用，可以在 prompt 里直接提到它：
+## Use the skill
+
+After installation, the agent usually activates the skill automatically based on its `description`.
+To request it explicitly, mention it in the prompt:
 
 ```txt
 Use the /tsq skill to add TSQ to this Go service.
 ```
 
-适合触发这个 skill 的任务包括：
+Tasks that should activate the skill include:
 
-- 在 Go 项目中接入 TSQ
-- 给 struct 添加 `@TABLE` / `@RESULT`
-- 运行 `tsq fmt` / `tsq gen`
-- 初始化 `tsq.Runtime`
-- 编写 Build-based 查询
-- 使用 CRUD / 分页 / 搜索 helper
-- 处理事务、`InVar()` / `NInVar()`、CTE、`FULL JOIN` 等边界
+- adding TSQ to a Go project;
+- adding `@TABLE` or `@RESULT` annotations to structs;
+- running `tsq fmt` or `tsq gen`;
+- initializing `tsq.Runtime`;
+- writing Build-based queries;
+- using CRUD, pagination, or search helpers; and
+- handling transactions and edge cases involving `InVar()`, `NInVar()`, CTEs, or `FULL JOIN`.
 
-skill 内部的参考资料见：
+The installed technical references are:
 
 - `skills/tsq/SKILL.md`
 - `skills/tsq/references/QUICKSTART.md`
 - `skills/tsq/references/CONCEPTS.md`
 - `skills/tsq/references/REFERENCE.md`
 
-## 这份文档和 skill reference 的分工
+## Documentation ownership
 
-为了避免 agent 因文档歧义写出错误代码，这里采用两层说明：
+The documentation is split into two layers to keep agent guidance unambiguous:
 
-1. `docs/skill.md`：给仓库访客和使用者看的安装、使用和风险说明
-2. `skills/tsq/references/*.md`：随 skill 一起分发的**技术参考正文**
+1. `docs/skill.md` explains installation, usage, and important risks to repository visitors.
+2. `skills/tsq/references/*.md` contains the technical reference installed with the skill.
 
-如果你关心 **DSL key、managed field 语义、查询 DSL、事务和方言边界**，请直接把 `skills/tsq/references/REFERENCE.md` 视为当前 skill 的 canonical reference。
+For DSL keys, managed-field semantics, the query DSL, transactions, and dialect boundaries, treat
+`skills/tsq/references/REFERENCE.md` as the canonical skill reference.
 
-## 关键正确性约束
+## Important correctness constraints
 
-下面这些点如果写错，agent 很容易产出错误代码，因此这里明确写出来。
+Agents can easily generate incorrect code when the following details are misunderstood.
 
-### 1. DSL 里填的是 Go struct field name，不是 SQL column name
+### 1. DSL keys refer to Go struct field names, not SQL column names
 
-无论是：
+The following keys all refer to Go struct field names:
 
 - `pk`
 - `version`
@@ -151,12 +222,11 @@ skill 内部的参考资料见：
 - `idx[].fields`
 - `search`
 
-这些 DSL key 引用的都是 **Go struct 字段名**。  
-真正的 SQL 列名仍然来自字段的 `db` tag 或生成器的列命名规则。
+The SQL column name still comes from the field's `db` tag or the generator's column-naming rules.
 
-### 2. `version` 不是任意字段，它是自动乐观锁字段
+### 2. `version` is the managed optimistic-lock field
 
-`version` 的 DSL 形式包括：
+The supported forms are:
 
 ```txt
 version
@@ -165,62 +235,62 @@ version="Version"
 version="CustomField"
 ```
 
-含义：
+Their meanings are:
 
-- `version` / `version=true`：启用乐观锁，默认 Go 字段名为 `Version`
-- `version="CustomField"`：启用乐观锁，并指定 Go struct 字段名
-- `version=false`：等价于不配置
+- `version` or `version=true` enables optimistic locking and defaults to the Go field `Version`;
+- `version="CustomField"` enables optimistic locking with the specified Go struct field; and
+- `version=false` is equivalent to omitting the option.
 
-要求：
+The referenced field must exist and use a non-pointer integer type. Do not use a string, time,
+nullable wrapper, slice, or array.
 
-- 引用的字段必须存在
-- 必须是**非指针整数类型**
-- 不应使用 string、time、nullable wrapper、slice/array
+The generated behavior is:
 
-语义：
+- `Update(...)` and `Delete(...)` match by primary key and version;
+- the version is incremented automatically after a successful update; and
+- a conflict returns `ErrOptimisticLockConflict`.
 
-- `Update(...)` / `Delete(...)` 会按 `pk + version` 匹配
-- 更新成功后版本会自动 `+1`
-- 冲突时返回 `ErrOptimisticLockConflict`
+### 3. `created_at`, `updated_at`, and `deleted_at` have type requirements
 
-### 3. `created_at` / `updated_at` / `deleted_at` 也是有类型要求的
+`created_at` and `updated_at` support:
 
-- `created_at` / `updated_at` 支持：
-  - `time.Time`
-  - `*time.Time`
-  - `sql.NullTime`
-  - `null.Time`
-- `deleted_at` 支持：
-  - `int64`
-  - `uint64`
-  - `*time.Time`
-  - `sql.NullTime`
-  - `null.Time`
+- `time.Time`
+- `*time.Time`
+- `sql.NullTime`
+- `null.Time`
 
-其中：
+`deleted_at` supports:
 
-- `created_at`：生成的 insert helper 会自动写当前时间
-- `updated_at`：insert/update/soft-delete helper 会自动刷新
-- `deleted_at`：用于 soft delete；list/get/page helper 会自动带 active-row 过滤
+- `int64`
+- `uint64`
+- `*time.Time`
+- `sql.NullTime`
+- `null.Time`
 
-如果表还声明了 unique index，`deleted_at` 更推荐用 `int64/uint64` tombstone 语义，而不是 nullable time。
+Their behavior is:
 
-### 4. `@RESULT` 和 `@TABLE` 不一样
+- generated insert helpers set `created_at` to the current time;
+- generated insert, update, and soft-delete helpers refresh `updated_at`; and
+- `deleted_at` enables soft deletion, and list, get, and page helpers automatically filter for
+  active rows.
 
-正常情况下，`@RESULT` 只应使用：
+For a table with a unique index, prefer `int64` or `uint64` tombstone semantics for `deleted_at`
+over nullable time semantics.
+
+### 4. `@RESULT` is different from `@TABLE`
+
+Normally, `@RESULT` should use only:
 
 - `name`
 - `search`
 
-并通过字段 tag：
+Declare projection sources using field tags:
 
 ```go
 tsq:"Struct.Field"
 ```
 
-来声明投影来源。
-
-对 `@RESULT` 来说，像下面这些 table-only key：
+The following table-only keys should not be used as part of a normal `@RESULT` design:
 
 - `pk`
 - `version`
@@ -230,13 +300,14 @@ tsq:"Struct.Field"
 - `ux`
 - `idx`
 
-不应作为正常设计的一部分使用。对 agent 来说，应该把它们视为 **unsupported / no-op in normal usage**，不要依赖这些 key 在 result model 上产生表语义。
+Agents should treat them as unsupported or no-op in normal result-model usage and must not depend
+on them to provide table semantics.
 
-### 5. `driver.Valuer` / `sql.Scanner` 不会自动决定 DDL 列类型
+### 5. `driver.Valuer` and `sql.Scanner` do not determine a DDL column type
 
-如果一个字段是自定义 Go 类型，即使它实现了 `driver.Valuer` 和 `sql.Scanner`，agent 也**不能**据此推断它应该落成 `JSON`、`TEXT`、`JSONB` 还是别的数据库类型。
-
-正确做法是：
+Even when a custom Go type implements `driver.Valuer` and `sql.Scanner`, an agent cannot infer
+whether its database type should be `JSON`, `TEXT`, `JSONB`, or something else. Provide an explicit
+DDL type override:
 
 ```go
 type SkillItems []*SkillItem
@@ -246,27 +317,26 @@ type Track struct {
 }
 ```
 
-也就是说：
+In other words:
 
-- `Valuer` / `Scanner` 负责运行时读写
-- `db:"...,type:SQL_TYPE"` 负责 DDL 类型覆盖
-- `type:` 的值会按字面写入生成的各方言 DDL；只有在这个类型对目标方言都合理时才应直接复用
+- `Valuer` and `Scanner` control runtime reads and writes;
+- `db:"...,type:SQL_TYPE"` controls the DDL type override; and
+- the `type:` value is written literally into each dialect's generated DDL, so reuse it only when
+  that type is valid for every target dialect.
 
-### 6. 这个 skill 故意不带管理脚本
+### 6. The skill intentionally contains no management scripts
 
-这个 skill 没有提供 `scripts/` 去包装：
+The skill does not provide scripts that wrap:
 
-- TSQ CLI 安装/升级
-- `tsq fmt`
-- `tsq gen`
+- TSQ CLI installation or upgrades;
+- `tsq fmt`; or
+- `tsq gen`.
 
-这是刻意的。原因是这些动作都强依赖目标项目的模块布局和包路径，通用脚本更容易：
+This is intentional. Those operations depend on the target project's module layout and package
+paths. A generic script could run in the wrong directory, modify the wrong package, or encourage an
+agent to execute it without inspecting the project first.
 
-- 在错误目录执行
-- 修改错误包
-- 让 agent 误以为“应该无脑运行脚本”
-
-正确做法是：agent 先检查目标项目的包结构，再显式运行：
+The agent should inspect the target project's package structure and then run explicit commands:
 
 ```bash
 go install github.com/tmoeish/tsq/v4/cmd/tsq@latest
@@ -274,22 +344,23 @@ tsq fmt ./your/package
 tsq gen ./your/package
 ```
 
-## 建议阅读顺序
+## Suggested reading order
 
-如果你想确认这个 skill 是否足够完整，按下面顺序阅读最省时间：
+To evaluate the skill, read the files in this order:
 
-1. `docs/skill.md`：安装、使用方式、关键风险
-2. `skills/tsq/SKILL.md`：agent 触发条件和工作规则
-3. `skills/tsq/references/QUICKSTART.md`：最短接入路径
-4. `skills/tsq/references/REFERENCE.md`：完整 DSL 和语义说明
+1. `docs/skill.md` for installation, usage, and important risks.
+2. `skills/tsq/SKILL.md` for activation conditions and agent workflow.
+3. `skills/tsq/references/QUICKSTART.md` for the shortest integration path.
+4. `skills/tsq/references/REFERENCE.md` for complete DSL and semantic details.
 
-## 仓库内布局说明
+## Repository layout
 
-这个 skill 放在 `skills/tsq/`，而不是仓库根目录，原因是：
+The skill lives under `skills/tsq/`, rather than at the repository root, because:
 
-1. 更符合 Agent Skills 规范里“一个 skill 是一个目录”的模型
-2. 更适合 `gh skill install` 从仓库中自动发现
-3. skill 的引用资料可以和 `SKILL.md` 一起打包安装
-4. 安装后的 agent 不需要依赖仓库根目录 `docs/` 才能获得 TSQ 用法说明
+1. it follows the Agent Skills model in which each skill is a directory;
+2. `gh skill install` can discover it automatically;
+3. its reference files can be packaged and installed with `SKILL.md`; and
+4. the installed agent does not need repository-level `docs/` files to understand TSQ.
 
-也就是说，这个仓库既是 TSQ 的源码仓库，也是一个**包含 TSQ skill 的发布仓库**。
+This repository is therefore both the TSQ source repository and a repository that publishes the
+TSQ skill.
