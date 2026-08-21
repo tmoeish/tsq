@@ -24,6 +24,25 @@
 真正的错误状态只有一个：buildinfo **低于**最新 tag，也就是有人把版本号改回去了。
 "HEAD 上有 tag 时 tag 必须等于代码里的版本"那条单独守着重打 tag 的情况。
 
+## 2026-08-21 — `-X` 打错包路径是**静默**失败的
+
+`.goreleaser.yaml` 的 ldflags 一直打的是 `github.com/tmoeish/tsq/v4.version`，而这些变量
+实际声明在 `github.com/tmoeish/tsq/v4/internal/buildinfo` 里。**Go 链接器找不到 `-X` 指定的
+符号时不报错，直接忽略。** 所以每一个 GoReleaser 发出去的二进制，`buildTime`、`gitCommit`、
+`gitBranch` 都是 `"unknown"`，而 `version` 悄悄退回源码字面量——恰好是对的，掩盖了另外三个
+是错的。构建日志、`goreleaser check`、CI 全绿，没有任何地方会提示你。
+
+验证方式只有一个：真的构建出来跑一遍。`goreleaser check` 只校验 YAML 结构，证明不了
+`-X` 有没有生效。`goreleaser build --snapshot --single-target` 之后看 `tsq version` 的
+构建时间是不是还写着 `unknown`——这是判断这类 bug 的唯一可靠信号。
+
+顺带钉死两件事：
+
+- 用 `{{ .Tag }}` 而不是 `{{ .Version }}`。后者会剥掉前导 `v`，而版本号的其他三个副本
+  （`internal/buildinfo` 的字面量、CHANGELOG 的标题、生成文件头）都带 `v`。
+- 加上 `-trimpath`。GoReleaser **不会**默认加它（`make build` 一直有），少了它发布的二进制
+  会嵌进 CI 机器的绝对路径。
+
 ## 2026-08-21 — 生成器不能带 `git describe` 的版本号，否则发版是死锁
 
 `make examples` 原本用 `make build` 产出的 `bin/tsq`，而 `build` 会用
@@ -44,9 +63,7 @@
 `bin/tsq`（带 ldflags）仍然是给人用的 CLI，`tsq version` 该报告 git 状态。两个二进制的
 分工不要合并。
 
-顺带记一笔：`.goreleaser.yaml` 的 ldflags 打的是 `github.com/tmoeish/tsq/v4.version`，
-而变量实际在 `internal/buildinfo` 里——所以 GoReleaser 产出的二进制其实报告的是源码字面量。
-结果恰好是对的，但那是巧合不是设计。改动那份配置之前先知道这件事。
+`.goreleaser.yaml` 曾经犯的是同一类错误的另一面，已于 2026-08-21 修好，见下一条。
 
 ## 2026-08-21 — 引入 harness 与 tsq-dev 技能
 

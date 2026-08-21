@@ -20,8 +20,23 @@ builds:
     main: ./cmd/tsq
     env:
       - CGO_ENABLED=0
+    # -trimpath keeps the released binary from embedding the CI machine's absolute
+    # paths, matching what `make build` already does locally.
+    flags:
+      - -trimpath
+    # The -X targets must name the package that actually declares the variables.
+    # The linker silently ignores an -X for a symbol it cannot find, so a wrong
+    # import path here fails invisibly: it produced binaries reporting "unknown"
+    # for build time, commit and branch, with no build error anywhere.
+    # Use .Tag, not .Version: .Version strips the leading "v", and every other
+    # copy of this version string ("v4.4.2" in internal/buildinfo, the CHANGELOG
+    # heading, the generated file headers) carries it.
     ldflags:
-      - -s -w -X github.com/tmoeish/tsq/v4.version={{ .Version }} -X github.com/tmoeish/tsq/v4.buildTime={{ .Date }} -X github.com/tmoeish/tsq/v4.gitCommit={{ .Commit }} -X github.com/tmoeish/tsq/v4.gitBranch={{ .Branch }}
+      - -s -w
+      - -X github.com/tmoeish/tsq/v4/internal/buildinfo.version={{ .Tag }}
+      - -X github.com/tmoeish/tsq/v4/internal/buildinfo.buildTime={{ .Date }}
+      - -X github.com/tmoeish/tsq/v4/internal/buildinfo.gitCommit={{ .Commit }}
+      - -X github.com/tmoeish/tsq/v4/internal/buildinfo.gitBranch={{ .Branch }}
     goos:
       - linux
       - windows

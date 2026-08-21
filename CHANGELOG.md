@@ -7,6 +7,13 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 项目遵循 [语义化版本控制](https://semver.org/lang/zh-CN/)。
 
+## [未发布]
+
+### 修复
+
+- **发布产物的版本信息**: `.goreleaser.yaml` 的 ldflags 打在了不存在的包路径上，而 Go 链接器对找不到的 `-X` 符号是静默忽略的，因此此前所有 GitHub Release 二进制的构建时间、commit 和分支都是 `unknown`。改为注入 `internal/buildinfo`，并用 `{{ .Tag }}` 保留版本号的前导 `v`。
+- **发布产物的构建路径**: 为发布构建补上 `-trimpath`（GoReleaser 不默认添加），不再把 CI 机器的绝对路径嵌进二进制。
+
 ## [4.4.2] - 2026-08-21
 
 ### 变更
