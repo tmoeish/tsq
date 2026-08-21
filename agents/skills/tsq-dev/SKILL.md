@@ -65,6 +65,7 @@ TSQ 由三件东西组成，它们共用一个仓库和一个版本号：
 | 你学到了什么 | 去哪 |
 | --- | --- |
 | bug 的根本原因；为什么看起来对的修法是错的；值得不再重复的死胡同；不明显的运行时行为；一个决定及其理由 | `references/memory.md`，带绝对日期 |
+| **发现了但决定暂不处理的问题**——现象、为什么现在不值得动、什么条件下该动 | `references/memory.md`，带绝对日期；要排期就再开 GitHub issue |
 | "改 A 也得改 B"——尤其是你靠弄坏它才发现的 | `references/change-impact.md` |
 | 新文件、新入口、职责搬家、新的 CLI 子命令或 flag | `references/feature-map.md` |
 | 新组件、新的阶段类型、新方言能力、新的执行路径 | `references/architecture.md` |
