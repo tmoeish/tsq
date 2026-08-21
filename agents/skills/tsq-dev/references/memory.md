@@ -24,6 +24,22 @@
 真正的错误状态只有一个：buildinfo **低于**最新 tag，也就是有人把版本号改回去了。
 "HEAD 上有 tag 时 tag 必须等于代码里的版本"那条单独守着重打 tag 的情况。
 
+## 2026-08-21 — 版本号是给使用者的，不是给每一次提交的
+
+v4.4.2 只改了 `Makefile`、`script/` 和 `agents/`——纯 harness 和技能，使用者拿到手里和
+v4.4.1 一模一样。它是一个不该存在的版本，发它是个错误。
+
+判据不是"这波重不重要"，是"使用者拿到的东西变了没有"。使用者只拿得到两样：`go get` 的
+模块和 `tsq` 二进制。`script/release.py` 的 `user_visible_changes` 现在自己算这件事，
+没有可见改动就拒绝，`--allow-maintenance` 显式放行。
+
+一个反直觉的点：`internal/` **算**使用者可见。Go 的 import 规则让使用者引用不到它，但
+CLI 的全部行为都在那里面——`internal/parser` 改了解析规则，使用者手写的注解就换了含义。
+"internal 就是内部实现，不影响外部"这个直觉在有 CLI 的库上是错的。
+
+`## [未发布]` 段就是为"攒着"存在的：不值得单独发版的改动写进去，等下一次真需要发版时一起
+出去。这也是为什么 `release-check` 只查倒退不查前进（见上面那条）。
+
 ## 2026-08-21 — cobra 的互斥标志组按 `Changed` 位判定，测试里必须手动清
 
 `internal/cmd/version_test.go` 一开始只在每个用例前把 `versionShortFlag` /

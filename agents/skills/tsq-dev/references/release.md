@@ -16,6 +16,26 @@
 `make release-check` 校验四者一致，外加：主版本号必须和 go.mod 的模块路径匹配；
 版本号不能倒退；HEAD 上已有 tag 时 tag 必须等于代码里的版本。
 
+## 什么时候**不**发版
+
+绝大多数波都不该发版。harness 不要求发版：`release-check` 只校验四个副本一致且没有倒退，
+发版之间 buildinfo 等于最新 tag 是常态。
+
+判据是"使用者拿到的东西变了没有"。使用者只拿得到 `go get` 的模块和 `tsq` 二进制：
+
+| 改了什么 | 发版？ |
+| --- | --- |
+| `*.go`（非测试）、`*.tmpl`、`go.mod`/`go.sum`、`.goreleaser.yaml`、`Dockerfile` | 是 |
+| `agents/`、`script/`、`skills/`、`docs/`、`.github/`、`Makefile`、`*.md`、`*_test.go` | 否 |
+
+`internal/` 算使用者可见（CLI 的全部行为都在那里），但 `internal/` 里**纯粹的**重构不值得
+单独占一个版本号——攒进 `## [未发布]` 段，等下一次真有使用者可见的改动一起发。
+
+`release.py` 自己算这件事，没有使用者可见的改动就拒绝发版；纯维护版本加
+`--allow-maintenance`。这道门是为了防版本号噪音：使用者拿到手里毫无区别的版本只会让版本
+列表变长，让「我该升到哪个版本」变难回答。**v4.4.2 就是这样一个不该存在的版本**——它只改了
+`Makefile`、`script/` 和 `agents/`，是在这道门加上之前发的。
+
 ## 平时怎么做
 
 每波变更把人话写进 `CHANGELOG.md` 的 `## [未发布]` 段，按小节分：

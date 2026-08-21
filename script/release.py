@@ -57,6 +57,19 @@ SECTIONS: Final = (
 BREAKING_SECTION: Final = "破坏性变更"
 
 
+# 使用者拿得到的东西只有两样：`go get` 到的模块，和 `go install .../cmd/tsq` 或 GitHub
+# Release 下载到的 CLI 二进制。这两样的内容完全由下面这些文件决定。
+#
+# 注意 `internal/` **算**用户可见：Go 的 import 规则让使用者引用不到它，但 CLI 的全部行为
+# 都在那里面——`internal/parser` 改了解析规则，使用者手写的注解就换了含义。
+USER_VISIBLE_SUFFIXES: Final = (".go", ".tmpl")
+USER_VISIBLE_FILES: Final = frozenset(
+    {"go.mod", "go.sum", ".goreleaser.yaml", "Dockerfile"}
+)
+# 这些只服务维护者，改它们不会让任何使用者拿到不同的东西。
+MAINTAINER_ONLY_PREFIXES: Final = ("agents/", "script/", ".github/", "skills/", "docs/")
+
+
 class ReleaseError(RuntimeError):
     """发版前置条件不满足时抛出。"""
 
@@ -103,6 +116,27 @@ def commits_since(previous: Version | None) -> list[tuple[str, str]]:
         entries.append((subject.strip(), body.strip()))
 
     return entries
+
+
+def user_visible_changes(previous: Version | None) -> list[str]:
+    """上一个 tag 之后，改动里真正会让使用者拿到不同东西的那些文件。"""
+    span = f"{previous}..HEAD" if previous is not None else "HEAD"
+    raw = git_output(
+        ["diff", "--name-only", "-z", "--diff-filter=ACDMRTUXB", span]
+    ).decode("utf-8", errors="surrogateescape")
+
+    visible: list[str] = []
+    for path in (entry for entry in raw.split("\0") if entry):
+        if path.startswith(MAINTAINER_ONLY_PREFIXES):
+            continue
+
+        if path.endswith("_test.go"):
+            continue
+
+        if path.endswith(USER_VISIBLE_SUFFIXES) or path in USER_VISIBLE_FILES:
+            visible.append(path)
+
+    return sorted(visible)
 
 
 def infer_level(entries: Sequence[tuple[str, str]]) -> str:
@@ -180,7 +214,11 @@ def render_body(entries: Sequence[tuple[str, str]]) -> str:
             blocks.append(f"### {name}\n\n" + "\n".join(buckets[name]))
 
     if not blocks:
-        blocks.append("### 变更\n\n- 维护性更新")
+        raise ReleaseError(
+            "上一个 tag 之后只有 docs / test 类型的提交，没有任何值得写进 CHANGELOG "
+            "的条目。发一个使用者拿到手里毫无区别的版本，只会让版本列表变长、"
+            "让「该升到哪个版本」变难回答。"
+        )
 
     return "\n\n".join(blocks)
 
@@ -263,6 +301,11 @@ def main(argv: Sequence[str]) -> int:
         action="store_true",
         help=f"允许在 {RELEASE_BRANCH} 以外的分支发版",
     )
+    parser.add_argument(
+        "--allow-maintenance",
+        action="store_true",
+        help="即使这波没有任何使用者可见的改动也发版",
+    )
     namespace = parser.parse_args(argv)
 
     branch = current_branch()
@@ -288,6 +331,22 @@ def main(argv: Sequence[str]) -> int:
         )
 
     previous = latest_tag()
+
+    # 版本号只对使用者有意义。文档、技能、harness、CI 和纯测试改动不会让任何人拿到
+    # 不同的东西，为它们发一个版本只是在制造噪音——`## [未发布]` 段本来就是给这种情况
+    # 攒着用的：等到下一次真有使用者可见的改动，一起发出去。
+    visible = user_visible_changes(previous)
+    if not visible and not namespace.allow_maintenance:
+        raise ReleaseError(
+            f"{previous or 'HEAD'} 之后没有任何使用者可见的改动，这波不该发版。\n"
+            "使用者拿得到的只有 `go get` 的模块和 `tsq` 二进制，它们的内容由 *.go、"
+            "*.tmpl、go.mod/go.sum、.goreleaser.yaml 和 Dockerfile 决定；"
+            "agents/、script/、skills/、docs/、.github/ 和 *_test.go 不算。\n"
+            "把这波攒在 CHANGELOG 的 `## [未发布]` 段里，等下次真有使用者可见的改动一起"
+            "发。确实要发一个纯维护版本（比如只为了让 .goreleaser.yaml 的修复生效），"
+            "加 --allow-maintenance。"
+        )
+
     version, body, from_unreleased = resolve_version(namespace.version, previous)
 
     if previous is not None and version <= previous:
@@ -307,6 +366,10 @@ def main(argv: Sequence[str]) -> int:
     today = dt.date.today().isoformat()
     source = "CHANGELOG 的未发布段" if from_unreleased else "提交历史推断"
     print(f"发布版本：{version}（上一个 {previous or '无'}，条目来自{source}）")
+    if visible:
+        print(f"使用者可见的改动：{len(visible)} 个文件，含 {visible[0]}")
+    else:
+        print("使用者可见的改动：无（--allow-maintenance 放行的纯维护版本）")
     print(f"日期：{today}\n")
     print(body)
 

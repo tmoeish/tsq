@@ -186,8 +186,28 @@
 
 ## 发版
 
+**harness 不要求每一波都发版，绝大多数波都不该发。** `make release-check` 只校验版本号的
+四个副本一致且没有倒退；发版之间 buildinfo 等于最新 tag 是**常态**，`make harness` 对此
+完全满意。`make release` 是显式动作，`harness` 从不调用它。
+
+判据是"使用者拿到的东西变了没有"。使用者只拿得到两样：`go get` 到的模块，和
+`go install .../cmd/tsq` 或 GitHub Release 下载到的二进制。于是：
+
+| 改了什么 | 发版？ |
+| --- | --- |
+| 根包、`dialect`、`internal/**`（非测试）、模板、`go.mod`/`go.sum`、`.goreleaser.yaml`、`Dockerfile` | 是 |
+| `agents/`、`script/`、`skills/`、`docs/`、`.github/`、`Makefile`、`*.md`、`*_test.go` | 否 |
+
+`internal/` **算**使用者可见：Go 的 import 规则让使用者引用不到它，但 CLI 的全部行为都在
+那里面——`internal/parser` 改了解析规则，使用者手写的注解就换了含义。反过来，`internal/`
+里**纯粹的**重构（没有任何行为变化）不该单独发版，把它攒进 `## [未发布]` 段等下一次。
+
+`script/release.py` 会自己算这件事并在没有使用者可见改动时拒绝发版，真要发纯维护版本
+（比如只为了让 `.goreleaser.yaml` 的修复生效）加 `--allow-maintenance`。
+
 - 平时把人话写进 `CHANGELOG.md` 的 `## [未发布]` 段，按 `### 新增` / `### 修复` /
-  `### 破坏性变更` 分节。小节名决定版本递增级别。
+  `### 破坏性变更` 分节。小节名决定版本递增级别。这个段落就是为"攒着"存在的：一波不值得
+  单独发版的改动写进去，等下一波真需要发版时一起出去。
 - `make release-dry-run` 看一眼会发成什么；`make release` 真的发：定版本号 → 写 CHANGELOG →
   重新生成示例 → `make harness` → 提交 → 打 tag → 推送。推送 tag 触发 CI 的 GoReleaser。
 - **tag 推送之后不可撤销**：Go Proxy 永久缓存内容哈希，删掉重打会让全球用户 checksum 校验
