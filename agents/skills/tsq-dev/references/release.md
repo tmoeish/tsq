@@ -1,0 +1,102 @@
+# 发版
+
+**在 Go 生态里，发版是不可逆的。** tag 一旦推送，Go Proxy 就永久缓存了那个版本的内容
+哈希。删掉重打同一个号，会让已经拉取过的用户全部 `checksum mismatch`，而且没有办法让他们
+恢复——唯一的补救是 `retract` 加一个新的补丁版本。所以这里的每一道检查都在 push 之前。
+
+## 版本号有四个副本
+
+| 副本 | 位置 | 谁写 |
+| --- | --- | --- |
+| 代码里的 | `internal/buildinfo/buildinfo.go` 的 `var version` | `script/release.py` |
+| 变更日志 | `CHANGELOG.md` 置顶的 `## [X.Y.Z] - YYYY-MM-DD` | `script/release.py` |
+| 生成文件头 | `examples/academy/*.tsq.go` 首行、`tsq.json` 的 `version` | `make examples` 从 buildinfo 传导 |
+| git tag | `vX.Y.Z` | `script/release.py` |
+
+`make release-check` 校验四者一致，外加：主版本号必须和 go.mod 的模块路径匹配；
+版本号不能倒退；HEAD 上已有 tag 时 tag 必须等于代码里的版本。
+
+## 平时怎么做
+
+每波变更把人话写进 `CHANGELOG.md` 的 `## [未发布]` 段，按小节分：
+
+```markdown
+## [未发布]
+
+### 新增
+
+- 具体写新增了什么能力，使用者怎么用得上
+
+### 修复
+
+- 具体写修了什么，什么情况下会触发
+
+### 破坏性变更
+
+- 具体写什么不兼容了，怎么迁移
+```
+
+小节名决定递增级别：`### 破坏性变更` → major，`### 新增` → minor，其余 → patch。
+没有未发布段时，`release.py` 退而从上一个 tag 之后的 Conventional Commits 推断并自动
+生成条目——那份条目远不如手写的好读，所以**推荐路径是写未发布段**。
+
+## 发版
+
+```bash
+make release-dry-run     # 先看一眼会发成什么版本、条目长什么样
+make release             # 真的发
+```
+
+`script/release.py` 按顺序做这些事，任何一步失败就停下：
+
+1. 确认在 `main` 分支（维护旧大版本时用 `--allow-branch`）。
+2. 确认工作区干净——发版只负责打包已经提交的东西。这波工作的内存、技能、提交信息应该在
+   发版之前就走完正常流程了。
+3. 确认 HEAD 上还没有 tag。
+4. 算出新版本号和 CHANGELOG 条目。
+5. 写 `internal/buildinfo/buildinfo.go` 和 `CHANGELOG.md`。
+6. `make examples`——让生成文件头带上新版本号。
+7. `make harness`——全绿才继续。
+8. `git commit -m "chore: release vX.Y.Z"`，正文写清变更和验证方式。
+9. `git tag -a vX.Y.Z`。
+10. `git push origin main --follow-tags`。
+
+推送 tag 会触发 `.github/workflows/go.yml` 的 `release` job，由 GoReleaser 构建三平台
+二进制并创建 GitHub Release。
+
+参数：`--version vX.Y.Z` 显式指定版本；`--dry-run` 只打印；`--no-push` 提交并打 tag 但
+不推送（tag 还留在本地，可以删）。
+
+## 跨主版本（v4 → v5）不自动做
+
+Go 的语义化导入版本要求：
+
+1. `go.mod` 的 `module github.com/tmoeish/tsq/v4` 改成 `/v5`。
+2. 仓库内所有 import 路径跟着改。
+3. `README.md`、`docs/`、`skills/tsq`、`CHANGELOG.md` 的迁移说明全部更新。
+4. 然后才打 `v5.0.0`。
+
+漏掉第 1 步就打 tag，Go Proxy 会判这个版本非法，使用者 `go get` 收到 `invalid version`，
+而这个 tag 已经不能重用了。所以 `release.py` 检测到主版本跨越会直接拒绝，让你把它当成一波
+正常的代码变更做完、提交，再发版。
+
+## 发错了怎么办
+
+**不要删 tag 重打。** 正确做法（Go 1.16+）：
+
+1. 在 `main` 上修好这个 bug。
+2. `go.mod` 末尾加撤回声明，注释里写清原因：
+   ```go
+   retract v4.4.2 // 生成的 UPDATE 语句漏掉了乐观锁条件
+   ```
+3. 提交，发一个新的补丁版本。
+
+## 分支策略
+
+- 日常特性和修复：从 `main` 切 `feature/xxx` 或 `fix/xxx`，PR 合回 `main` 后删分支，
+  在 `main` 最新 commit 上打 tag。
+- 维护旧大版本：基于最后一个该版本的 tag 切长期分支（`git checkout -b v3 v3.9.5`），
+  在上面修、在上面打 tag，发版时加 `--allow-branch`。
+- 旧次版本的紧急修复：基于出问题的 tag 切临时分支，修完打 tag，**再把修复反向合并回
+  `main`**，然后删临时分支。忘了反向合并，下一个次版本会把同一个 bug 再放出去一次。
+- 大型实验特性优先用特性开关或 `//go:build` 构建标签，不要长期不合并的分支。

@@ -60,9 +60,13 @@ vet: ## Run go vet
 build: ## Run go build
 	@GOOS=$(OS) GOARCH=$(ARCH) $(GO) build -v -trimpath $(GO_GCFLAGS) $(LDFLAGS) $(GO_TAGS) -o ./bin/$(BINARY_NAME) ./cmd/tsq
 
-.PHONY: run
+.PHONY: test
 test: ## Run tests
-	@$(GO) test -v ./...
+	@$(GO) test ./...
+
+.PHONY: test-race
+test-race: ## Run tests with the race detector and shuffled order
+	@$(GO) test -race -shuffle=on -count=1 ./...
 
 .PHONY: test-coverage
 test-coverage: ## Run tests with coverage
@@ -88,6 +92,57 @@ examples: build ## Regenerate and build examples programs
 	@$(GO) build -o ./bin/examples/advanced ./examples/advanced
 	@$(GO) build -o ./bin/examples/full-suite ./examples/full-suite
 
+
+##@ Agent harness
+
+.PHONY: hooks
+hooks: ## Install this repo's git hooks (once per machine)
+	@python3 script/install_hooks.py
+
+.PHONY: memory-check
+memory-check: ## Require uncommitted functional changes to carry a project-memory entry
+	@python3 script/check_change_log.py memory
+
+.PHONY: commit-check
+commit-check: ## Require this wave's commit message to explain the change
+	@python3 script/check_change_log.py commit
+
+.PHONY: skill-check
+skill-check: ## Require skills/tsq and agents/skills/tsq-dev to track the code
+	@python3 script/check_skills.py
+
+.PHONY: gen-check
+gen-check: build ## Verify examples/academy is what the current sources generate
+	@python3 script/check_generated.py
+
+.PHONY: api-snapshot
+api-snapshot: ## Rewrite the public Go API snapshot
+	@python3 script/check_api_surface.py write
+
+.PHONY: api-check
+api-check: ## Fail when the public Go API drifts from its committed snapshot
+	@python3 script/check_api_surface.py check
+
+.PHONY: release-check
+release-check: ## Verify buildinfo, CHANGELOG, generated headers and tags agree
+	@python3 script/check_release.py
+
+.PHONY: examples-run
+examples-run: examples ## Regenerate examples and run the full-suite example end to end
+	@./bin/examples/full-suite > /dev/null
+
+.PHONY: harness
+harness: skill-check memory-check lint vet gen-check api-check release-check test test-race examples-run commit-check ## Run every deterministic gate a coding agent must pass before handoff
+
+.PHONY: release
+release: ## Cut a release: bump, changelog, regenerate, harness, commit, tag, push
+	@python3 script/release.py $(RELEASE_ARGS)
+
+.PHONY: release-dry-run
+release-dry-run: ## Print the version and changelog entry a release would produce
+	@python3 script/release.py --dry-run
+
+##@ Help
 
 help: ## Display this help.
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target.env>\033[0m\n"} /^[a-zA-Z_0-9\-\\.% ]+:.*?##/ { printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)

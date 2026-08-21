@@ -1,162 +1,202 @@
-# AGENTS.md
+# TSQ 智能体指南
 
-Canonical instructions for coding agents and IDE assistants working in this repository.
+用于编码智能体和 IDE 助手的规范规则集；`CLAUDE.md` 是路由到此处的入口点。
 
-## Project environment
+改代码之前，先读 `agents/skills/tsq-dev/SKILL.md` 以及它 `references/` 下覆盖你要碰的
+领域的上下文文件。
 
-- **Repository**: `github.com/tmoeish/tsq`
-- **Language**: Go `1.27.x` (`go.mod` uses `go 1.27.0`; CI uses Go `1.27.0`)
-- **Main deliverables**:
-  - CLI generator: `./cmd/tsq`
-  - Go library: repository root package
-  - Runnable example app: `./examples`
-- **Primary task runner**: `make`
-- **Local lint binary path**: `./bin/golangci-lint`
+所有权的划分，没有什么是跨越它复制的：
 
-## Core commands
+- **本文件包含规则** —— 必须对所有未来变更成立的约束。
+- `agents/skills/tsq-dev` 包含**开发本仓的工程上下文** —— `architecture.md`、
+  `feature-map.md`、`codegen.md`、`change-impact.md`、`release.md`，以及
+  `references/memory.md` 里带日期的事故与决策。
+- `skills/tsq`（仓库根，随发布分发）包含**给 TSQ 使用者的说明书**。它描述契约，不描述
+  实现。
+- `README.md`、`docs/`、`CHANGELOG.md` 是面向使用者的产品文档。
 
-- **Download modules**: `make mod-download`
-- **Tidy modules**: `make mod-tidy`
-- **Format**: `make fmt`
-- **Lint**: `make lint`
-- **Vet**: `make vet`
-- **Test**: `make test`
-- **Coverage**: `make test-coverage`
-- **Build CLI**: `make build`
-- **Regenerate examples and build example app**: `make examples`
-- **Full local sweep**: `make all`
+重复的语句是注定漂移的语句。交叉引用，不要复制。
 
-## Required workflow
+## 这个仓库是什么
 
-- Prefer `make` targets over ad-hoc commands when an equivalent target exists.
-- When changing generated code paths, table DSL, templates, parser logic, or examples:
-  - run `make examples`
-  - keep generated files in `examples/academy/*.tsq.go` committed
-- Do not hand-edit generated files unless you are explicitly debugging generation output; change the source/template and regenerate instead.
-- **Validation order**:
-  1. `make fmt`
-  2. `make lint`
-  3. `make test`
-- For cross-cutting runtime/query/concurrency work, also run: `go test -race ./...`
-- For generator, template, parser, or example changes, also run:
-  1. `make examples`
-  2. `./bin/examples/full-suite`
-- For release/build workflow changes, also run:
-  1. `make build`
-  2. `goreleaser check` if GoReleaser config changed
+三个交付物共用一个版本号：
 
-## Coding conventions
+- **库**：仓库根包 `tsq`，被别的项目 import。
+- **生成器**：`./cmd/tsq` CLI（实现在 `internal/cmd`），读 `@TABLE` / `@RESULT` 注解产出
+  类型化代码和 DDL。
+- **示例**：`./examples`，可运行的契约；`examples/academy` 的生成物被提交。
 
-- Follow repository Go style and keep edits surgical.
-- Use the Build-based query flow; avoid reintroducing removed compatibility wrappers.
-- Prefer explicit, typed APIs over stringly shortcuts.
-- Keep naming consistent with current repo vocabulary:
-  - use `Result`, not `DTO`
-  - use `GTE` / `LTE`
-  - use `StartsWith` / `EndsWith`
-  - use `Expr` / `Exprf` / `Pred` for custom column expressions and predicates
-- Table DSL uses explicit managed-field names: `version`, `created_at`, `updated_at`, `deleted_at`.
-- Handle errors immediately after the failing operation, prefer early returns, and use `errors.Is` / `errors.As`.
-- Keep comments high-signal: document exported behavior and non-obvious constraints.
-- Generated examples are part of the repository contract; keep source structs, schema, generated code, and docs aligned.
+环境：Go `1.27.x`（`go.mod` 写 `go 1.27.0`，CI 用 `1.27.0`），模块 `github.com/tmoeish/tsq/v4`，
+任务运行器 `make`，本地 lint 二进制 `./bin/golangci-lint`。
 
-## Release & Version Upgrade Procedure
+## 分层
 
-Follow these steps for a standard release (vX.Y.Z):
+- 根包 `tsq` **不 import 任何 `internal/` 包**。生成的代码只依赖根包和 `dialect`。
+- `internal/genmodel` 是中立数据模型，不 import 解析器也不 import 命令层。这是"解析"和
+  "渲染"能各自被测试的原因。
+- `internal/parser` 只做 Go 源码 → `genmodel`；`internal/cmd` 只做 `genmodel` → 磁盘。
+- `dialect` 同时被库和生成器使用：运行期的方言能力和生成期的 DDL 类型映射说的是同一件事
+  （这个库支持什么），拆开必然漂移。
 
-1.  **Prepare**: Identify the current version in `version.go` and create a `release/vX.Y.Z` branch.
-2.  **Update**:
-    *   Update version strings in `version.go` and `version_test.go`.
-    *   Update `CHANGELOG.md` with version highlights.
-    *   Run `make examples` and `make build` to sync generated code and verify the CLI.
-3.  **Verify**: Run `make all` to ensure all tests, linting, and examples pass.
-4.  **Finalize**:
-    *   Commit changes: `chore: release vX.Y.Z`.
-    *   Merge to `main`, then tag: `git tag vX.Y.Z`.
-    *   Push: `git push origin main --tags`.
+## 类型系统是约束的来源
 
-### Recent Upgrades
-- **2026-08-21**: Upgraded Go to 1.27.0 and adopted generic methods and Go 1.27 modernizers.
-- **2026-05-20**: Upgraded Go to 1.26.0 and refreshed all dependencies.
+查询构建器是**阶段式**的：每次方法调用返回不同的具体类型，限制接下来能调什么。
 
-## Branch Management Strategies
+- `Where(...)` 和 `Search(...)` 每条链上**最多各出现一次**，由 Go 类型系统在编译期强制——
+  调用过 `Where` 之后拿到的 `WhereStage` 上根本没有 `Where` 方法。所有过滤条件传给唯一的
+  那次 `Where(...)`（多参数是 AND），OR 组用 `tsq.Or(...)`，复合子条件用 `tsq.And(...)`。
+  两个子句可以共存，顺序任意。
+- **不要把编译期约束改成运行期检查。** `builderPhase` 只用于改善错误信息，不是约束来源。
+- 新增阶段就是新增一个接口加一个具体 builder 类型。返回值类型写错，约束会静悄悄地松掉，
+  而测试不看类型发现不了——`compilefail_test.go` 和 `querybuilder_stages_test.go` 是防线，
+  新增阶段两边都要加。
 
+## 校验分两边，边界是有意的
 
-绝大多数 Go 项目应以 main（或 master）作为唯一的长期主干。根据项目的成熟度和维护规模，我们可以分为以下几种典型场景：
+- `Build()` 只校验**结构**：列属不属于查询涉及的表、聚合和 GROUP BY 合不合法、有没有选列。
+- **方言能力**（CTE、`FULL JOIN`、行锁）在**执行**时才校验，返回 `*ErrUnsupportedCapability`，
+  错误里必须带能力名和方言名。
+- 把方言校验提前到 `Build()` 会断掉"一个 `*Query` 在多个方言上复用"这个用法。改校验之前
+  先确定它属于哪一边。
+- 新增方言能力位，`mysql` / `postgres` / `sqlite` **三个都要显式表态**。漏掉一个，默认值会
+  让不支持的方言悄悄放行——那是跑到生产库上才炸的一类错。
 
-### 场景一：日常特性开发与 Bug 修复（标准路径）
-这是最常见的状态。所有的新功能和非紧急 Bug 修复都在主干上持续推进。
-- **策略**：从 main 切出 feature/xxx 或 fix/xxx 分支。
-- **合并规则**：通过 PR 合并到 main 后，立即删除该临时分支。
-- **发版**：直接在 main 分支的最新 commit 上打 Tag（如 v1.4.0）。
+## 生成物
 
-### 场景二：维护旧的大版本（同时存在 v1 和 v2）
-当你的项目进行了重大重构（如发布了 v2.0.0），main 分支已经升级为 v2 甚至更高版本。但社区中仍有大量用户在使用 v1，你需要为他们修复严重漏洞。
-- **策略**：创建一个长期的维护分支，例如 v1 或 v1-maintenance。
-- **操作流**：
-  1. 基于最后一个 v1 的 Tag（如 v1.9.5）切出新分支：`git checkout -b v1 v1.9.5`。
-  2. 在 v1 分支上修复 Bug（或者从 main cherry-pick 修复代码）。
-  3. 在 v1 分支上打出新的 Tag：`v1.9.6`。
+- **不要手改** `*.tsq.go`、`*.result.tsq.go`、`runtime.tsq.go`、`tsq.json`、
+  `examples/academy/{mysql,postgres,sqlite}.sql`、
+  `agents/skills/tsq-dev/references/api-surface.txt`。改结构体、注解、模板或解析器，然后
+  重新生成。唯一例外是显式调试生成输出的时候。
+- `examples/academy/mock.sql` 是**手写的** schema 真相源，和示例结构体必须保持一致。
+- 生成物是否同步不能用 `git diff` 判断——一波变更本来就可能合法地改动生成物。判据是
+  `tsq gen --check`（`make gen-check`）：拿当前源码重新渲染一遍，看结果一不一样。
+- 生成文件头印着 TSQ 版本号，所以**改了版本号也必须重新生成示例**。
+- 先 `tsq fmt` 再 `tsq gen`。反过来的话 fmt 改动了注解文本，生成物立刻过期。
+- 改模板等于改 API：模板决定生成代码长什么样，也就决定了使用者能调用哪些方法。
 
-### 场景三：修复旧次版本的紧急 Bug（Hotfix，少见但偶尔需要）
-假设 main 正在热火朝天地开发 v1.5.0，包含大量未稳定的代码。此时用户报告了 v1.4.2 的线上致命问题，你不能基于现在的 main 发版。
-- **策略**：基于出问题的 Tag 创建临时热修复分支。
-- **操作流**：
-  1. 基于 v1.4.2 切出分支：`git checkout -b hotfix-xxx v1.4.2`。
-  2. 修复问题并提交。
-  3. 在该分支打 Tag：`v1.4.3`。
-  4. 将该分支的修复代码反向合并（Backport）回 main 分支，防止未来的 v1.5.0 再次出现同样的 Bug。
-  5. 删除 hotfix-xxx 分支。
+## 对外契约
 
-### 场景四：开发颠覆性的大型实验功能
-有些新特性需要多人数周的开发，频繁合入 main 可能会影响当前版本的稳定性。
-- **策略**：使用特性开关（Feature Flags）优先于长期分支。
-- **Go 生态推荐**：Go 项目极度排斥长期不合并的分支（容易产生合并地狱）。尽量将代码通过接口隔离，放入主干但不暴露，或者在构建时通过 `//go:build experimental` 构建标签（Build Tags）隔离代码，确保 main 永远处于随时可发布状态。
+- 根包和 `dialect` 的导出符号就是这个库的产品。`references/api-surface.txt` 是它的快照，
+  `make api-check` 守着它，`make api-snapshot` 刷新它。
+- 快照存在的意义不是禁止改 API，而是让"改了"这件事无法悄悄发生。它变了，就回头看
+  `skills/tsq`、`README.md`、`docs/` 还真不真实。
+- 使用 Build 式查询流程；不要重新引入已被删除的兼容包装、全局 `Init()`、engine 中间层或
+  `traceManager` 层。任何形式的"方便起见加个全局默认 runtime"都是在往回走。
+- 优先显式的、类型化的 API，不要字符串快捷方式。
 
-## Tag Management Strategies
+## 命名
 
-Go 代理系统（Proxy）是根据 Git Tag 缓存代码的。你的 Tag 怎么打，直接决定了用户 go get 能不能拿到代码。
+- `Result`，不是 `DTO`。
+- `GTE` / `LTE`，不是 `GreaterOrEqual`。
+- `StartsWith` / `EndsWith`。
+- `Expr` / `Exprf` / `Pred` 用于自定义列表达式和谓词。
+- 谓词命名的分工：RHS 用 `Op(...)`，字面量用 `OpVal(...)`，运行期占位符用 `OpVar()`，
+  模式糖用 `StartsWithVal` / `StartsWithVar` 这类名字，跨列或子查询的模式匹配走 `Like(...)`。
+- 表 DSL 的受管理字段名：`version`、`created_at`、`updated_at`、`deleted_at`。
+- 测试文件名要么对应一个特性，要么对应一个被测文件，没有第三种。按"待办批次"命名的文件
+  会从 `feature-map.md` 的清单里掉出去，因为没有哪个特性认领得了那个名字。
 
-### 场景一：发布预发布版本（Alpha / Beta / RC）
-当新版本（如 v1.5.0）开发完毕，你想让社区先测试，但不想让默认的 go get 拉取到这个版本。
-- **规范**：使用 SemVer 预发布后缀，格式如 `vX.Y.Z-后缀`。
-- **示例**：`v1.5.0-alpha.1`, `v1.5.0-beta`, `v1.5.0-rc.1`。
-- **Go Module 行为**：当用户执行 `go get github.com/user/repo@latest` 时，Go 会自动忽略带有这类后缀的预发布版本。用户必须精确指定 `go get github.com/user/repo@v1.5.0-rc.1` 才能拉取。
+## 语义陷阱（改动时不要"顺手修正"）
 
-### 场景二：发布破坏性更新（Major Version 升级至 v2+）
-这是 Go 标签管理中最容易踩坑的场景。如果你修改了对外暴露的函数签名，导致旧代码无法编译，你必须发布 v2.0.0。
-- **强制规则（Semantic Import Versioning）**：Tag 升级到 v2，go.mod 里的模块名必须跟着变。
-- **操作流**：
-  1. 修改项目根目录的 go.mod，将 `module github.com/user/repo` 改为 `module github.com/user/repo/v2`。
-  2. 确保项目内部的所有互相引用（import 路径）都加上 `/v2`。
-  3. 提交这些修改到 main。
-  4. 打上 `v2.0.0` 的 Tag 并推送。
-- **注意**：如果没有修改 go.mod 就直接打 v2.0.0 标签，Go Proxy 将视其为非法版本，用户会遇到 invalid version 错误。
+- `InVar()` 传空或 nil 切片 = **显式不匹配**（渲染成 `IN (NULL)`）。
+- `NInVar()` 传空或 nil 切片 = **显式全匹配**。
+- 两者都不会静默地把过滤条件去掉。这是有意的：静默去掉过滤条件的查询会返回全表。
+- `ChunkedInsert` / `ChunkedUpdate` / `ChunkedDelete` **不自动开事务**，需要全有或全无时
+  由调用方用 `WithTx(...)` 包起来。
+- `ForUpdate()` / `ForShare()` 只在显式事务里有意义。
+- 乐观锁冲突 `ErrOptimisticLockConflict` 是**业务错误**，必须处理，不能忽略。
+- 自定义 codec 字段（`driver.Valuer` / `sql.Scanner`）推不出 DDL 列类型，使用者必须写显式的
+  `db:"...,type:SQL_TYPE"` 覆盖。不要把"必须显式"改成"猜一个"——猜错的列类型在建表那一刻
+  不报错，在写入超长数据那一刻才报错。
 
-### 场景三：发布了严重 Bug 版本（版本撤回）
-刚发布了 v1.2.3 标签并推送到 GitHub，5 分钟后发现包含一个致命的安全漏洞，或者无法编译。
-- **错误做法**：在本地 `git tag -d v1.2.3`，然后重新修复再打一个相同的 v1.2.3 推送。
-- **后果**：Go Proxy 是不可变的。一旦它抓取了第一个错误的 v1.2.3，它就会永久缓存。重新推送相同的 Tag 会导致全球不同用户的哈希校验失败（checksum mismatch）。
-- **正确做法（Go 1.16+）**：使用 `retract` 指令并发布补丁。
-  1. 在 main 分支修复该 Bug。
-  2. 打开 go.mod，在末尾添加撤回声明（一定要写注释解释原因）：
-     ```go
-     retract v1.2.3 // contains critical security vulnerability
-     ```
-  3. 提交代码，并打一个新的 Tag：`v1.2.4`。
+## Go 代码风格
 
-### 场景四：单仓库多模块（Monorepo）
-如果你的仓库不仅在根目录有一个 go.mod，在子目录（比如 sdk/ 目录下）也有一个独立的 go.mod。
-- **规范**：必须使用带有目录前缀的 Tag 才能触发子模块的版本发布。
-- **示例**：
-  - 要发布根目录的代码版本：执行 `git tag v1.2.0`
-  - 要发布 sdk/ 目录的代码版本：执行 `git tag sdk/v1.0.0`
-- **Go Module 行为**：Go 会根据斜杠前缀去寻找对应目录下的 go.mod 文件。
+- 跟随仓库现有风格，改动保持外科手术式。
+- 错误在失败调用之后**立即**处理；优先早返回；用 `errors.Is` / `errors.As` 分支。
+- 所有 DB 操作第一个参数是 `context.Context`。
+- 用 `%w` 包装错误。
+- 注释只记录导出行为和不明显的约束。不要逐行叙述代码在做什么。
+- **代码注释、Go doc、README、`docs/` 和 `skills/tsq` 用英文**——这是一个公开的库，
+  这些是使用者读的东西。`CHANGELOG.md`、`AGENTS.md`、`CLAUDE.md` 和
+  `agents/skills/tsq-dev` 用中文，它们的读者是维护者。
 
-## Repository-specific cautions
+## 语言与提交
 
-- The query builder is **stage-based**: each method call returns a different concrete type that restricts what can be called next. `Where(...)` and `Search(...)` each appear **at most once** per chain — the Go type system enforces this at compile time; you cannot call either a second time. Pass all filter conditions to the single `Where(...)` call (multiple arguments are ANDed); use `tsq.Or(...)` for OR groups and `tsq.And(...)` to build compound sub-conditions. Both clauses can coexist in either order: `Where(...).Search(...)` or `Search(...).Where(...)`.
-- `FULL JOIN` can be rendered but execution remains dialect-dependent.
-- Custom codec fields that implement `driver.Valuer` / `sql.Scanner` still need an explicit `db:"...,type:SQL_TYPE"` override when TSQ cannot infer a DDL type.
-- Example schema lives in `examples/academy/mock.sql`; schema changes must stay consistent with example structs and regenerated code.
-- Keep local-only files out of Git: coverage outputs, local assistant settings such as `.claude/`, built binaries at repo root.
+- 提交信息用**英文 Conventional Commits**：`type(scope): summary`，type 取
+  `feat|fix|perf|refactor|docs|test|build|ci|chore|style|revert`。主题不超过 72 字符、
+  不以句号结尾、不能是 `wip` / `update` / `fix` 这类说不清改了什么的词。
+- 空一行，然后写正文：改了什么、为什么改、怎么验证的。至少 3 行、120 字符。
+- 破坏性变更在 type 后加 `!` 或在正文写 `BREAKING CHANGE:`。`script/release.py` 靠这个
+  推断版本递增级别。
+- merge、revert、fixup、squash 提交豁免。
+- `make commit-check` 校验这些，但它作为 Makefile 目标是结构性失效的（有未提交代码时它
+  跳过，代码一提交 `memory-check` 又跳过）。提交信息真正被校验的唯一时机是 `commit-msg`
+  钩子——**每台机器克隆后跑一次 `make hooks`**。
+
+## 验证与交接
+
+- 编辑期间跑窄范围的相关检查和 `make fmt`。
+- 动了生成器、模板、解析器或示例：`make examples`，然后 `./bin/examples/full-suite`。
+- 交接前跑 `make harness`。它的顺序是**唯一权威**，按"便宜且常失败的靠前"排：
+
+  ```
+  skill-check  memory-check  lint  vet  gen-check  api-check  release-check
+  test  test-race  examples-run  commit-check
+  ```
+
+  项目技能只引用这个顺序，不复述它。
+- 跨切面的运行时、查询或并发改动，`test-race` 是必需的而不是可选的：这个库没有集成环境
+  兜底，测试是它唯一的安全网。
+- 改了 GoReleaser 配置，跑 `goreleaser check`。
+- 一波变更的定义只有一处：`script/changeset.py`（非 Markdown、非生成物）。所以改
+  `Makefile`、`.golangci.yml`、`Dockerfile` 或 CI 和改 Go 代码一样，要带内存记录。
+
+## 技能维护是变更的一部分
+
+项目技能是下一个智能体获取上下文的地方。一个任务应该从读记录下来的上下文开始，而不是从
+猜文件名再从源码重构设计开始。只有每一波都让技能比之前更真实，这才成立。
+
+- 改代码**之前**，读覆盖你要碰的领域的上下文文件，并对每个匹配的触发器处理
+  `agents/skills/tsq-dev/references/change-impact.md`。耦合的工作在同一波里做完。
+- 改代码**之后**，把这波教会你的东西路由到持久的地方——一个事实，一个归宿。路由表在
+  `agents/skills/tsq-dev/SKILL.md` § 维护这份技能。
+- 使用者看得见的变化（新 API、改掉的语义、新的注解键、改掉的 CLI flag）必须同时进
+  `skills/tsq`、`README.md`、`docs/` 和 `CHANGELOG.md` 的未发布段。
+- 如果你必须读源码才能弄清楚技能本该告诉你的东西，那个空白就是缺陷的一部分。交接前补上。
+- 一个被修两次的问题是一个不彻底的修复：直到 `change-impact.md` 或 `memory.md` 阻止了第三次
+  发生，第二次修复才算完成。
+- 就地更正，删掉变错的条目。**永远不要追加自相矛盾的内容**——过时的上下文文件比缺失的更糟，
+  因为人会相信它。
+- `make skill-check` 把最容易忘的几条耦合钉死了。确实判断过不需要动技能时，用
+  `SKIP_SKILL_CHECK=<触发器名>` 逐条豁免，并在提交正文里写理由。无理由的总开关不提供。
+
+## 项目内存
+
+`agents/skills/tsq-dev/references/memory.md` 被提交，所以每台机器和 agent 共享一份记忆。
+和它描述的代码在同一波里更新它。
+
+- 只写仓库讲不出来的东西：事故及其根本原因、决定及其推理、不明显的运行时行为、值得不再
+  重复的死胡同。
+- 不要复述规则、包布局或使用者契约——本文件、`architecture.md` 和 `skills/tsq` 各自拥有
+  它们。
+- 每条标绝对日期。变错的条目就地更正或删除。
+- `make memory-check` 在未提交的功能性改动没有携带内存更新时失败。发版波（只改
+  `internal/buildinfo/buildinfo.go`）被精确豁免。如果一波确实没教会任何持久的东西，在提交
+  正文里说明，而不是编一条。
+
+## 发版
+
+- 平时把人话写进 `CHANGELOG.md` 的 `## [未发布]` 段，按 `### 新增` / `### 修复` /
+  `### 破坏性变更` 分节。小节名决定版本递增级别。
+- `make release-dry-run` 看一眼会发成什么；`make release` 真的发：定版本号 → 写 CHANGELOG →
+  重新生成示例 → `make harness` → 提交 → 打 tag → 推送。推送 tag 触发 CI 的 GoReleaser。
+- **tag 推送之后不可撤销**：Go Proxy 永久缓存内容哈希，删掉重打会让全球用户 checksum 校验
+  失败。发错了用 `go.mod` 的 `retract` 加一个新补丁版本，**不要删 tag 重打**。
+- 跨主版本（v4 → v5）不自动做：Go 的语义化导入版本要求先改 go.mod 模块路径和全部内部
+  import，那是一次真实的代码变更。`release.py` 检测到会直接拒绝。
+- 完整流程、分支策略和踩过的坑见 `agents/skills/tsq-dev/references/release.md`。
+
+## 本地文件（已 gitignore，不要提交）
+
+`bin/`、`dist/`、`coverage.out`、根目录的 `/tsq` 二进制、`.claude/settings*.json`、
+`.antigravitycli/`。`.claude/skills` 是被跟踪的符号链接，指向共享的技能目录。

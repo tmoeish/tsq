@@ -1,0 +1,747 @@
+# TSQ 对外 Go 契约快照——由 `make api-snapshot` 生成，不要手改。
+# 它变了就说明使用者读的 skills/tsq 可能不再真实。
+
+## .
+package tsq // import "github.com/tmoeish/tsq/v4"
+CONSTANTS
+const (
+	IndexInitSkip = SchemaPolicyManual
+	IndexInitValidate = SchemaPolicyValidate
+	IndexInitUpsert = SchemaPolicyCreateMissing
+)
+FUNCTIONS
+func AsSubquery[O Owner, T any](query *Query[O], selected TypedColumn[O, T]) (Subquery[T], error)
+func BuildSubquery[O Owner, T any](qb QueryStage[O], selected TypedColumn[O, T]) (Subquery[T], error)
+func ChunkedDelete[T Table](
+	ctx context.Context,
+	tx SQLExecutor,
+	items []T,
+	options ...*ChunkedOptions,
+) error
+func ChunkedDeleteByPKs[O Table, T any](
+	ctx context.Context,
+	tx SQLExecutor,
+	pkField TypedColumn[O, T],
+	pks []T,
+	options ...*ChunkedOptions,
+) error
+func ChunkedInsert[T Table](
+	ctx context.Context,
+	tx SQLExecutor,
+	items []T,
+	options ...*ChunkedInsertOptions,
+) error
+func ChunkedUpdate[T Table](
+	ctx context.Context,
+	tx SQLExecutor,
+	items []T,
+	options ...*ChunkedOptions,
+) error
+func Delete[T Table](
+	ctx context.Context,
+	tx SQLExecutor,
+	item T,
+) error
+func Insert[T Table](
+	ctx context.Context,
+	tx SQLExecutor,
+	item T,
+) error
+func IsCommonTransactionRetryableError(err error) bool
+func IsOptimisticLockError(err error) bool
+func IsRetryableNetworkError(err error) bool
+func IsRetryableTransactionConflictError(err error) bool
+func NewRuntime(
+	driverName string,
+	dsn string,
+	tables []TableRegistration,
+	options ...*RuntimeOptions,
+) (*Runtime, error)
+func Update[T Table](
+	ctx context.Context,
+	tx SQLExecutor,
+	item T,
+) error
+func WithTx1[T any](
+	r *Runtime,
+	ctx context.Context,
+	options *TxOptions,
+	fn func(context.Context, SQLExecutor) (T, error),
+) (T, error)
+func WithTx2[T1, T2 any](
+	r *Runtime,
+	ctx context.Context,
+	options *TxOptions,
+	fn func(context.Context, SQLExecutor) (T1, T2, error),
+) (T1, T2, error)
+TYPES
+type BoundColumn[O Owner] interface {
+	SQLColumn
+}
+type CaseStage[T any] interface {
+	When(cond Condition, result any) CaseStage[T]
+	Else(result any) CaseStage[T]
+	End() ValueColumn[T]
+}
+func Case[T any]() CaseStage[T]
+type ChunkedInsertOptions struct {
+	ChunkSize    int  // 每块处理的数量，默认 1000
+	IgnoreErrors bool // 是否忽略重复键插入错误并继续处理后续数据
+}
+func DefaultChunkedInsertOptions() *ChunkedInsertOptions
+type ChunkedOptions struct {
+	ChunkSize int // 每块处理的数量，默认 1000
+}
+func DefaultChunkedOptions() *ChunkedOptions
+type Column[O Owner, T any] interface {
+	TypedColumn[O, T]
+	RHS[T]
+	SearchColumn
+	WithTable(table Table) Column[O, T]
+	As(alias string) Column[O, T]
+	IsNull() Condition
+	IsNotNull() Condition
+	EQ(rhs RHS[T]) Condition
+	NE(rhs RHS[T]) Condition
+	GT(rhs RHS[T]) Condition
+	GTE(rhs RHS[T]) Condition
+	LT(rhs RHS[T]) Condition
+	LTE(rhs RHS[T]) Condition
+	Like(rhs RHS[T]) Condition
+	NLike(rhs RHS[T]) Condition
+	Between(start, end RHS[T]) Condition
+	NBetween(start, end RHS[T]) Condition
+	In(rhs Subquery[T]) Condition
+	NIn(rhs Subquery[T]) Condition
+	EQVal(arg T) Condition
+	NEVal(arg T) Condition
+	GTVal(arg T) Condition
+	GTEVal(arg T) Condition
+	LTVal(arg T) Condition
+	LTEVal(arg T) Condition
+	LikeVal(arg T) Condition
+	NLikeVal(arg T) Condition
+	BetweenVal(start, end T) Condition
+	NBetweenVal(start, end T) Condition
+	InVal(args ...T) Condition
+	NInVal(args ...T) Condition
+	StartsWithVal(str string) Condition
+	NStartsWithVal(str string) Condition
+	EndsWithVal(str string) Condition
+	NEndsWithVal(str string) Condition
+	ContainsVal(str string) Condition
+	NContainsVal(str string) Condition
+	EQVar() Condition
+	NEVar() Condition
+	GTVar() Condition
+	GTEVar() Condition
+	LTVar() Condition
+	LTEVar() Condition
+	LikeVar() Condition
+	NLikeVar() Condition
+	BetweenVar() Condition
+	NBetweenVar() Condition
+	InVar() Condition
+	NInVar() Condition
+	StartsWithVar() Condition
+	NStartsWithVar() Condition
+	EndsWithVar() Condition
+	NEndsWithVar() Condition
+	ContainsVar() Condition
+	NContainsVar() Condition
+	ExistsSub(sq rawSubquery) Condition
+	NExistsSub(sq rawSubquery) Condition
+	Unique(sq rawSubquery) Condition
+	NUnique(sq rawSubquery) Condition
+	Pred(format string, args ...any) Condition
+	Expr(format string) Column[O, T]
+	Exprf(format string, args ...any) Column[O, T]
+	Count() Column[O, int64]
+	Sum() Column[O, T]
+	Avg() Column[O, float64]
+	Max() Column[O, T]
+	Min() Column[O, T]
+	Distinct() Column[O, T]
+	Upper() Column[O, T]
+	Lower() Column[O, T]
+	Substring(start, length int) Column[O, T]
+	Length() Column[O, T]
+	Trim() Column[O, T]
+	Concat(str string) Column[O, T]
+	Now() Column[O, T]
+	Date() Column[O, T]
+	Year() Column[O, T]
+	Month() Column[O, T]
+	Day() Column[O, T]
+	Round(precision int) Column[O, T]
+	Ceil() Column[O, T]
+	Floor() Column[O, T]
+	Abs() Column[O, T]
+	Coalesce(value any) Column[O, T]
+	NullIf(value any) Column[O, T]
+	Asc() OrderBy
+	Desc() OrderBy
+}
+func NewCol[O Table, T any](baseName, jsonFieldName string, fieldPointer func(*O) *T) Column[O, T]
+type CompoundStage[O Owner] interface {
+	QueryStage[O]
+	ForUpdate() LockedStage[O]
+	ForShare() LockedStage[O]
+	Union(other QueryStage[O]) CompoundStage[O]
+	UnionAll(other QueryStage[O]) CompoundStage[O]
+	Intersect(other QueryStage[O]) CompoundStage[O]
+	IntersectAll(other QueryStage[O]) CompoundStage[O]
+	Except(other QueryStage[O]) CompoundStage[O]
+	ExceptAll(other QueryStage[O]) CompoundStage[O]
+}
+type Condition interface {
+	Tables() map[string]Table // Tables returns the tables referenced by the predicate.
+	Clause() string           // Clause returns the predicate SQL in canonical form.
+	Args() []any              // Args returns the bind arguments captured by the predicate.
+}
+func And(conds ...Condition) Condition
+func Or(conds ...Condition) Condition
+type ErrAmbiguousSortField struct {
+}
+func (e *ErrAmbiguousSortField) Error() string
+func (e *ErrAmbiguousSortField) Is(target error) bool
+type ErrIndexMissing struct {
+	Table  string   // Table is the table that should contain the index.
+	Name   string   // Name is the expected index name.
+	Fields []string // Fields is the expected indexed column order.
+	Unique bool     // Unique reports whether the missing index should be unique.
+}
+func (e *ErrIndexMissing) Error() string
+type ErrOptimisticLockConflict struct {
+}
+func (e *ErrOptimisticLockConflict) Error() string
+func (e *ErrOptimisticLockConflict) Is(target error) bool
+type ErrOrderCountMismatch struct {
+}
+func (e *ErrOrderCountMismatch) Error() string
+func (e *ErrOrderCountMismatch) Is(target error) bool
+type ErrTableMissing struct {
+	Name string // Name is the expected physical table name.
+}
+func (e *ErrTableMissing) Error() string
+type ErrUnknownSortField struct {
+}
+func (e *ErrUnknownSortField) Error() string
+func (e *ErrUnknownSortField) Is(target error) bool
+type Expression interface {
+	Expr() string // Expr returns the SQL fragment text.
+	Args() []any  // Args returns the bind arguments referenced by Expr.
+}
+func Bind(value any) Expression
+func BindSlice(values any) Expression
+type FilteredStage[O Owner] interface {
+	QueryStage[O]
+	GroupBy(cols ...SQLColumn) GroupedStage[O]
+	ForUpdate() LockedStage[O]
+	ForShare() LockedStage[O]
+	Union(other QueryStage[O]) CompoundStage[O]
+	UnionAll(other QueryStage[O]) CompoundStage[O]
+	Intersect(other QueryStage[O]) CompoundStage[O]
+	IntersectAll(other QueryStage[O]) CompoundStage[O]
+	Except(other QueryStage[O]) CompoundStage[O]
+	ExceptAll(other QueryStage[O]) CompoundStage[O]
+}
+type FromStage[O Owner] interface {
+	Select(cols ...BoundColumn[O]) *queryBuilder[O]
+}
+func From[O Owner](table Table) FromStage[O]
+type GroupedStage[O Owner] interface {
+	QueryStage[O]
+	Having(conds ...Condition) HavingStage[O]
+	ForUpdate() LockedStage[O]
+	ForShare() LockedStage[O]
+	Union(other QueryStage[O]) CompoundStage[O]
+	UnionAll(other QueryStage[O]) CompoundStage[O]
+	Intersect(other QueryStage[O]) CompoundStage[O]
+	IntersectAll(other QueryStage[O]) CompoundStage[O]
+	Except(other QueryStage[O]) CompoundStage[O]
+	ExceptAll(other QueryStage[O]) CompoundStage[O]
+}
+type HavingStage[O Owner] interface {
+	QueryStage[O]
+	ForUpdate() LockedStage[O]
+	ForShare() LockedStage[O]
+	Union(other QueryStage[O]) CompoundStage[O]
+	UnionAll(other QueryStage[O]) CompoundStage[O]
+	Intersect(other QueryStage[O]) CompoundStage[O]
+	IntersectAll(other QueryStage[O]) CompoundStage[O]
+	Except(other QueryStage[O]) CompoundStage[O]
+	ExceptAll(other QueryStage[O]) CompoundStage[O]
+}
+type IndexInitMode = SchemaPolicy
+type LockedStage[O Owner] interface {
+	QueryStage[O]
+	NoWait() LockedStage[O]
+	SkipLocked() LockedStage[O]
+}
+type Logger interface {
+	Enabled(ctx context.Context, level slog.Level) bool
+	LogAttrs(ctx context.Context, level slog.Level, msg string, attrs ...slog.Attr)
+}
+type Order string
+const (
+	ASC Order = "ASC" // Ascending order
+	DESC Order = "DESC" // Descending order
+)
+func ReverseOrder(order Order) Order
+type OrderBy struct {
+}
+func (ob OrderBy) Expr() string
+func (ob OrderBy) Field() SQLColumn
+func (ob OrderBy) Order() Order
+type Owner interface {
+	TSQOwner()
+}
+type PageRequest struct {
+	Size    int    `json:"size"     query:"size"`     // Size is the requested page size.
+	Page    int    `json:"page"     query:"page"`     // Page is the 1-based page number.
+	OrderBy string `json:"order_by" query:"order_by"` // OrderBy lists sortable field names separated by commas.
+	Order   string `json:"order"    query:"order"`    // Order lists sort directions aligned with OrderBy.
+	Keyword string `json:"keyword"  query:"keyword"`  // Keyword carries the optional free-text search term.
+}
+func NewPageRequest(params url.Values) *PageRequest
+func (r *PageRequest) Normalize() error
+func (r *PageRequest) Offset() int
+func (r *PageRequest) ToQuery() url.Values
+func (r *PageRequest) Validate() error
+type PageResponse[T any] struct {
+	PageRequest
+	Total     int64 `json:"total"`      // Total is the full number of matching rows.
+	TotalPage int64 `json:"total_page"` // TotalPage is the number of available pages after rounding up.
+	Data      []*T  `json:"data"`       // Data contains the rows for the current page.
+}
+func NewPageResponse[T any](r *PageRequest, total int64, data []*T) *PageResponse[T]
+func (r *PageResponse[T]) HasNext() bool
+func (r *PageResponse[T]) HasPrev() bool
+func (r *PageResponse[T]) IsEmpty() bool
+type Query[O Owner] struct {
+}
+func (q *Query[O]) Count(
+	ctx context.Context,
+	tx SQLExecutor,
+	args ...any,
+) (int, error)
+func (q *Query[O]) Count64(
+	ctx context.Context,
+	tx SQLExecutor,
+	args ...any,
+) (int64, error)
+func (q *Query[O]) CountSQL() string
+func (q *Query[O]) Exists(
+	ctx context.Context,
+	tx SQLExecutor,
+	args ...any,
+) (bool, error)
+func (q *Query[O]) Get(
+	ctx context.Context,
+	tx SQLExecutor,
+	args ...any,
+) (*O, error)
+func (q *Query[O]) GetOrErr(
+	ctx context.Context,
+	tx SQLExecutor,
+	args ...any,
+) (*O, error)
+func (q *Query[O]) KeywordCountSQL() string
+func (q *Query[O]) KeywordListSQL() string
+func (q *Query[O]) List(
+	ctx context.Context,
+	tx SQLExecutor,
+	args ...any,
+) ([]*O, error)
+func (q *Query[O]) ListSQL() string
+func (q *Query[O]) Load(
+	ctx context.Context,
+	tx SQLExecutor,
+	holder *O,
+	args ...any,
+) error
+func (q *Query[O]) Page(
+	ctx context.Context,
+	tx SQLExecutor,
+	page *PageRequest,
+	args ...any,
+) (*PageResponse[O], error)
+func (q *Query[O]) QueryFloat(
+	ctx context.Context,
+	tx SQLExecutor,
+	args ...any,
+) (float64, error)
+func (q *Query[O]) QueryInt(
+	ctx context.Context,
+	tx SQLExecutor,
+	args ...any,
+) (int64, error)
+func (q *Query[O]) QueryString(
+	ctx context.Context,
+	tx SQLExecutor,
+	args ...any,
+) (string, error)
+type QueryStage[O Owner] interface {
+	Build() (*Query[O], error)
+	MustBuild() *Query[O]
+	Get(ctx context.Context, tx SQLExecutor, args ...any) (*O, error)
+	GetOrErr(ctx context.Context, tx SQLExecutor, args ...any) (*O, error)
+	Load(ctx context.Context, tx SQLExecutor, holder *O, args ...any) error
+	Exists(ctx context.Context, tx SQLExecutor, args ...any) (bool, error)
+	Count(ctx context.Context, tx SQLExecutor, args ...any) (int, error)
+	List(ctx context.Context, tx SQLExecutor, args ...any) ([]*O, error)
+	Page(ctx context.Context, tx SQLExecutor, page *PageRequest, args ...any) (*PageResponse[O], error)
+}
+type RHS[T any] interface {
+}
+type RegistrationError struct {
+	Type      RegistrationErrorType // Type classifies the registration failure.
+	TableName string                // TableName identifies the conflicting or invalid table entry.
+	Message   string                // Message contains the user-facing error text.
+}
+func (e *RegistrationError) Error() string
+type RegistrationErrorType string
+const (
+	RegistrationErrorNilTable RegistrationErrorType = "nil_table"
+	RegistrationErrorInvalidIndex RegistrationErrorType = "invalid_index"
+	RegistrationErrorDuplicate RegistrationErrorType = "duplicate"
+)
+type Result interface {
+	Owner
+	TSQResult()
+}
+type ResultColumn[O Owner, T any] interface {
+	TypedColumn[O, T]
+}
+func MapInto[Target Owner, T any](
+	source ValueColumn[T],
+	fieldPointer func(*Target) *T,
+	jsonFieldName string,
+) ResultColumn[Target, T]
+type Runtime struct {
+}
+func (r *Runtime) DB() *sql.DB
+func (r *Runtime) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+func (r *Runtime) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+func (r *Runtime) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+func (r *Runtime) SQLDialect() tsqdialect.Dialect
+func (r *Runtime) ValidateIdentifiersForDialect() error
+func (r *Runtime) WithTx(
+	ctx context.Context,
+	options *TxOptions,
+	fn func(context.Context, SQLExecutor) error,
+) error
+func (r *Runtime) WithTx1[T any](
+	ctx context.Context,
+	options *TxOptions,
+	fn func(context.Context, SQLExecutor) (T, error),
+) (T, error)
+func (r *Runtime) WithTx2[T1, T2 any](
+	ctx context.Context,
+	options *TxOptions,
+	fn func(context.Context, SQLExecutor) (T1, T2, error),
+) (T1, T2, error)
+type RuntimeOptions struct {
+	TablePolicy SchemaPolicy // TablePolicy chooses how TSQ manages declared tables and columns during NewRuntime.
+	IndexPolicy SchemaPolicy // IndexPolicy chooses how TSQ manages declared indexes during NewRuntime.
+	Tracers     []Tracer     // Tracers configures the runtime's tracer chain during NewRuntime.
+	Logger      Logger       // Logger receives schema bootstrap decisions and executed DDL.
+	IdentifierValidationMode string
+}
+type SQLColumn interface {
+	SQLExpr() string       // SQLExpr returns the rendered expression, such as "users.name".
+	OutputName() string    // OutputName returns the default scan alias for the expression.
+	JSONFieldName() string // JSONFieldName returns the stable field name used by JSON-facing helpers.
+	Table() Table          // Table returns the primary table that owns the expression.
+	Name() string          // Name returns the physical column name when the expression comes from a table column.
+	QualifiedName() string // QualifiedName returns the expression with its table qualifier or transformation applied.
+}
+func AliasColumns(cols []SQLColumn, table Table) []SQLColumn
+func RebindColumn(col SQLColumn, table Table) SQLColumn
+func SQLColumns[O Owner](cols ...BoundColumn[O]) []SQLColumn
+type SQLExecutor interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+func WrapExecutor(exec SQLExecutor, sqlDialect dialect.Dialect) SQLExecutor
+type SchemaPolicy string
+const (
+	SchemaPolicyManual SchemaPolicy = "manual"
+	SchemaPolicyValidate SchemaPolicy = "validate"
+	SchemaPolicyCreateMissing SchemaPolicy = "create_missing"
+	SchemaPolicyReconcile SchemaPolicy = "reconcile"
+	SchemaPolicyManaged SchemaPolicy = "managed"
+)
+type SearchColumn interface {
+	SQLColumn
+}
+type SearchStage[O Owner] interface {
+	QueryStage[O]
+	Where(conds ...Condition) FilteredStage[O]
+	GroupBy(cols ...SQLColumn) GroupedStage[O]
+	ForUpdate() LockedStage[O]
+	ForShare() LockedStage[O]
+	Union(other QueryStage[O]) CompoundStage[O]
+	UnionAll(other QueryStage[O]) CompoundStage[O]
+	Intersect(other QueryStage[O]) CompoundStage[O]
+	IntersectAll(other QueryStage[O]) CompoundStage[O]
+	Except(other QueryStage[O]) CompoundStage[O]
+	ExceptAll(other QueryStage[O]) CompoundStage[O]
+}
+type SelectStage[O Owner] interface {
+	From(table Table) *queryBuilder[O]
+}
+func Select[O Owner](cols ...BoundColumn[O]) SelectStage[O]
+type Subquery[T any] interface {
+	RHS[T]
+}
+type Table interface {
+	Owner
+	Cols() []SQLColumn             // Cols returns the physical columns exposed by the table.
+	Table() string                 // Table returns the SQL identifier used in rendered queries.
+	SearchColumns() []SearchColumn // SearchColumns returns columns eligible for keyword-search helpers.
+	PrimaryKeys() []string         // PrimaryKeys returns the primary-key column names in declaration order.
+	AutoIncrement() bool           // AutoIncrement reports whether inserts rely on generated primary keys.
+	VersionColumn() string         // VersionColumn returns the optimistic-lock column name, if any.
+}
+func AliasTable(table Table, alias string) Table
+func CTE[O Owner](name string, query QueryStage[O]) Table
+type TableColumn[O Table] interface {
+	BoundColumn[O]
+	SearchColumn
+}
+type TableIndex struct {
+	Name   string   // Name is the stable physical index name.
+	Fields []string // Fields preserves the indexed column order.
+	Unique bool     // Unique reports whether the index enforces uniqueness.
+}
+type TableRegistration struct {
+	Table   Table                      // Table is the physical table metadata.
+	Columns []tsqdialect.DDLColumnSpec // Columns declares the physical column schema owned by Table.
+	Indexes []TableIndex               // Indexes declares the indexes owned by Table.
+}
+type Tracer func(next func(ctx context.Context) error) func(ctx context.Context) error
+type TxOptions struct {
+	SQL *sql.TxOptions
+	Retry TxRetryPredicate
+	RetryConfig *TxRetryConfig
+}
+type TxRetryConfig struct {
+	MaxAttempts int
+	InitialBackoff time.Duration
+	MaxBackoff time.Duration
+	BackoffMultiplier float64
+}
+func DefaultTxRetryConfig() *TxRetryConfig
+type TxRetryPredicate func(err error) bool
+type TypedColumn[O Owner, T any] interface {
+	BoundColumn[O]
+}
+type ValueColumn[T any] interface {
+	SQLColumn
+}
+type WhereStage[O Owner] interface {
+	QueryStage[O]
+	Search(cols ...SearchColumn) FilteredStage[O]
+	GroupBy(cols ...SQLColumn) GroupedStage[O]
+	ForUpdate() LockedStage[O]
+	ForShare() LockedStage[O]
+	Union(other QueryStage[O]) CompoundStage[O]
+	UnionAll(other QueryStage[O]) CompoundStage[O]
+	Intersect(other QueryStage[O]) CompoundStage[O]
+	IntersectAll(other QueryStage[O]) CompoundStage[O]
+	Except(other QueryStage[O]) CompoundStage[O]
+	ExceptAll(other QueryStage[O]) CompoundStage[O]
+}
+
+## ./dialect
+package dialect // import "github.com/tmoeish/tsq/v4/dialect"
+FUNCTIONS
+func DDLColumnTypesEquivalent(dialect Dialect, left, right DDLColumnSpec) bool
+func ValidateCapability(dialect Dialect, capability Capability) error
+func ValidateIdentifierLength(identifier string, dialect Dialect) error
+TYPES
+type Capability string
+const (
+	CapabilityCTE                 Capability = "CTE"
+	CapabilityExcept              Capability = "EXCEPT"
+	CapabilityFullOuterJoin       Capability = "FULL_OUTER_JOIN"
+	CapabilityIntersect           Capability = "INTERSECT"
+	CapabilitySelectForUpdate     Capability = "SELECT_FOR_UPDATE"
+	CapabilitySelectForShare      Capability = "SELECT_FOR_SHARE"
+	CapabilitySelectForNoWait     Capability = "SELECT_FOR_NOWAIT"
+	CapabilitySelectForSkipLocked Capability = "SELECT_FOR_SKIP_LOCKED"
+)
+type DDLAlterColumnMode string
+const (
+	DDLAlterColumnDirect  DDLAlterColumnMode = "direct"
+	DDLAlterColumnRebuild DDLAlterColumnMode = "rebuild"
+)
+type DDLColumnKind string
+const (
+	DDLColumnKindBool   DDLColumnKind = "bool"
+	DDLColumnKindBytes  DDLColumnKind = "bytes"
+	DDLColumnKindFloat  DDLColumnKind = "float"
+	DDLColumnKindInt    DDLColumnKind = "int"
+	DDLColumnKindString DDLColumnKind = "string"
+	DDLColumnKindTime   DDLColumnKind = "time"
+)
+type DDLColumnSpec struct {
+	Name          string
+	Type          DDLColumnType
+	PrimaryKey    bool
+	AutoIncrement bool
+	Default       string
+	NativeType string
+}
+type DDLColumnType struct {
+	Kind     DDLColumnKind
+	Bits     int
+	Unsigned bool
+	Nullable bool
+	Size     int
+	RawType  string
+}
+type Dialect interface {
+	Name() Name
+	QuoteField(field string) string
+	BindVar(i int) string
+	CreateTableSuffix() string
+	CreateIndexSuffix() string
+	DropIndexSuffix() string
+	TruncateClause() string
+	AutoIncrementClause() string
+	AutoIncrementBindValue() string
+	LastInsertIdReturningSuffix(table, col string) string
+	AllTablesQuery() string
+	CreateTableIfNotExistsSuffix() string
+	HasConstraintsQuery(string, string) string
+	ValidateIdentifier(identifier string) error
+	SupportsCapability(capability Capability) bool
+	BatchInsertStartID(lastID, rowsAffected int64) (int64, bool)
+	ListTables(ctx context.Context, db Executor) ([]string, error)
+	InspectTableColumns(ctx context.Context, db Executor, table string) ([]DDLColumnSpec, bool, error)
+	ListIndexes(ctx context.Context, db Executor, table string) ([]NamedIndexDefinition, error)
+	EnsureIndex(ctx context.Context, db Executor, table string, unique bool, idx string, fields []string) (string, error)
+	InspectIndexDefinition(ctx context.Context, db Executor, table, idx string) (IndexDefinition, bool, error)
+	DDLColumnType(desc DDLColumnType) string
+	DDLAutoIncrementPrimaryKey(quotedColumn string, desc DDLColumnType) (string, error)
+	DDLCreateIndex(table, idx string, fields []string, unique bool) string
+	DDLDropIndex(table, idx string) string
+	DDLAlterColumnMode() DDLAlterColumnMode
+	DDLAlterColumnStatements(table string, before, after DDLColumnSpec) []string
+}
+type ErrUnsupportedCapability struct {
+}
+func (e *ErrUnsupportedCapability) Error() string
+type Executor interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+type IndexDefinition struct {
+	Table  string
+	Unique bool
+	Fields []string
+}
+type MySQLDialect struct{}
+func (d MySQLDialect) AllTablesQuery() string
+func (d MySQLDialect) AutoIncrementBindValue() string
+func (d MySQLDialect) AutoIncrementClause() string
+func (d MySQLDialect) BatchInsertStartID(lastID, rowsAffected int64) (int64, bool)
+func (d MySQLDialect) BindVar(i int) string
+func (d MySQLDialect) CreateIndexSuffix() string
+func (d MySQLDialect) CreateTableIfNotExistsSuffix() string
+func (d MySQLDialect) CreateTableSuffix() string
+func (d MySQLDialect) DDLAlterColumnMode() DDLAlterColumnMode
+func (d MySQLDialect) DDLAlterColumnStatements(table string, before, after DDLColumnSpec) []string
+func (d MySQLDialect) DDLAutoIncrementPrimaryKey(quotedColumn string, desc DDLColumnType) (string, error)
+func (d MySQLDialect) DDLColumnType(desc DDLColumnType) string
+func (d MySQLDialect) DDLCreateIndex(table, idx string, fields []string, unique bool) string
+func (d MySQLDialect) DDLDropIndex(table, idx string) string
+func (d MySQLDialect) DropIndexSuffix() string
+func (d MySQLDialect) EnsureIndex(ctx context.Context, db Executor, table string, unique bool, idx string, fields []string) (string, error)
+func (d MySQLDialect) HasConstraintsQuery(table, column string) string
+func (d MySQLDialect) InspectIndexDefinition(ctx context.Context, db Executor, table, idx string) (IndexDefinition, bool, error)
+func (d MySQLDialect) InspectTableColumns(ctx context.Context, db Executor, table string) ([]DDLColumnSpec, bool, error)
+func (d MySQLDialect) LastInsertIdReturningSuffix(table, col string) string
+func (d MySQLDialect) ListIndexes(ctx context.Context, db Executor, table string) ([]NamedIndexDefinition, error)
+func (d MySQLDialect) ListTables(ctx context.Context, db Executor) ([]string, error)
+func (d MySQLDialect) Name() Name
+func (d MySQLDialect) QuoteField(f string) string
+func (d MySQLDialect) SupportsCapability(capability Capability) bool
+func (d MySQLDialect) TruncateClause() string
+func (d MySQLDialect) ValidateIdentifier(identifier string) error
+type Name string
+const (
+	MySQL    Name = "mysql"
+	Postgres Name = "postgres"
+	SQLite   Name = "sqlite"
+	Unknown  Name = "unknown"
+)
+type NamedIndexDefinition struct {
+	Name       string
+	Table      string
+	Unique     bool
+	Fields     []string
+	PrimaryKey bool
+	Constraint bool
+}
+type PostgresDialect struct{}
+func (d PostgresDialect) AllTablesQuery() string
+func (d PostgresDialect) AutoIncrementBindValue() string
+func (d PostgresDialect) AutoIncrementClause() string
+func (d PostgresDialect) BatchInsertStartID(lastID, rowsAffected int64) (int64, bool)
+func (d PostgresDialect) BindVar(i int) string
+func (d PostgresDialect) CreateIndexSuffix() string
+func (d PostgresDialect) CreateTableIfNotExistsSuffix() string
+func (d PostgresDialect) CreateTableSuffix() string
+func (d PostgresDialect) DDLAlterColumnMode() DDLAlterColumnMode
+func (d PostgresDialect) DDLAlterColumnStatements(table string, before, after DDLColumnSpec) []string
+func (d PostgresDialect) DDLAutoIncrementPrimaryKey(quotedColumn string, desc DDLColumnType) (string, error)
+func (d PostgresDialect) DDLColumnType(desc DDLColumnType) string
+func (d PostgresDialect) DDLCreateIndex(table, idx string, fields []string, unique bool) string
+func (d PostgresDialect) DDLDropIndex(table, idx string) string
+func (d PostgresDialect) DropIndexSuffix() string
+func (d PostgresDialect) EnsureIndex(ctx context.Context, db Executor, table string, unique bool, idx string, fields []string) (string, error)
+func (d PostgresDialect) HasConstraintsQuery(table, column string) string
+func (d PostgresDialect) InspectIndexDefinition(ctx context.Context, db Executor, table, idx string) (IndexDefinition, bool, error)
+func (d PostgresDialect) InspectTableColumns(ctx context.Context, db Executor, table string) ([]DDLColumnSpec, bool, error)
+func (d PostgresDialect) LastInsertIdReturningSuffix(table, col string) string
+func (d PostgresDialect) ListIndexes(ctx context.Context, db Executor, table string) ([]NamedIndexDefinition, error)
+func (d PostgresDialect) ListTables(ctx context.Context, db Executor) ([]string, error)
+func (d PostgresDialect) Name() Name
+func (d PostgresDialect) QuoteField(f string) string
+func (d PostgresDialect) SupportsCapability(capability Capability) bool
+func (d PostgresDialect) TruncateClause() string
+func (d PostgresDialect) ValidateIdentifier(identifier string) error
+type SQLiteDialect struct{}
+func (d SQLiteDialect) AllTablesQuery() string
+func (d SQLiteDialect) AutoIncrementBindValue() string
+func (d SQLiteDialect) AutoIncrementClause() string
+func (d SQLiteDialect) BatchInsertStartID(lastID, rowsAffected int64) (int64, bool)
+func (d SQLiteDialect) BindVar(i int) string
+func (d SQLiteDialect) CreateIndexSuffix() string
+func (d SQLiteDialect) CreateTableIfNotExistsSuffix() string
+func (d SQLiteDialect) CreateTableSuffix() string
+func (d SQLiteDialect) DDLAlterColumnMode() DDLAlterColumnMode
+func (d SQLiteDialect) DDLAlterColumnStatements(table string, before, after DDLColumnSpec) []string
+func (d SQLiteDialect) DDLAutoIncrementPrimaryKey(quotedColumn string, desc DDLColumnType) (string, error)
+func (d SQLiteDialect) DDLColumnType(desc DDLColumnType) string
+func (d SQLiteDialect) DDLCreateIndex(table, idx string, fields []string, unique bool) string
+func (d SQLiteDialect) DDLDropIndex(table, idx string) string
+func (d SQLiteDialect) DropIndexSuffix() string
+func (d SQLiteDialect) EnsureIndex(ctx context.Context, db Executor, table string, unique bool, idx string, fields []string) (string, error)
+func (d SQLiteDialect) HasConstraintsQuery(table, column string) string
+func (d SQLiteDialect) InspectIndexDefinition(ctx context.Context, db Executor, table, idx string) (IndexDefinition, bool, error)
+func (d SQLiteDialect) InspectTableColumns(ctx context.Context, db Executor, table string) ([]DDLColumnSpec, bool, error)
+func (d SQLiteDialect) LastInsertIdReturningSuffix(table, col string) string
+func (d SQLiteDialect) ListIndexes(ctx context.Context, db Executor, table string) ([]NamedIndexDefinition, error)
+func (d SQLiteDialect) ListTables(ctx context.Context, db Executor) ([]string, error)
+func (d SQLiteDialect) Name() Name
+func (d SQLiteDialect) QuoteField(f string) string
+func (d SQLiteDialect) SupportsCapability(capability Capability) bool
+func (d SQLiteDialect) TruncateClause() string
+func (d SQLiteDialect) ValidateIdentifier(identifier string) error
