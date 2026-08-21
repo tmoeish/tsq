@@ -125,6 +125,13 @@
 出来的副本里复现——本仓有过一次把并发 agent 的编辑误判成 `go fix` bug 的教训，见
 `memory.md` 2026-08-21 那条。
 
+## 改名或删除了一个 make 目标
+
+`grep -rn 'make <旧名>' --include='*.md' .` 一遍。文档里的命令是给人复制粘贴的，改名之后
+它们会让照做的人得到 `No rule to make target`，然后开始怀疑自己的环境。`make doc-check`
+守着围栏代码块里的引用；散文里的历史提及（`memory.md`、`CHANGELOG.md` 讲事故经过时）
+有意不管。`.github/workflows/` 不是 Markdown，那道门管不到，要单独 grep。
+
 ## 改了 CI 的 job 名字
 
 `main` 的 ruleset 按**检查名**要求 `Lint`、`Coverage`、`Build`、`Docker Build`、

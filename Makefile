@@ -126,6 +126,10 @@ commit-check: ## Require this wave's commit message to explain the change
 skill-check: ## Require skills/tsq and .agents/skills/tsq-dev to track the code
 	@python3 script/check_skills.py
 
+.PHONY: doc-check
+doc-check: ## Fail when documentation shows a make target that does not exist
+	@python3 script/check_docs.py
+
 .PHONY: gen-check
 gen-check: build-gen ## Verify examples/academy is what the current sources generate
 	@python3 script/check_generated.py
@@ -147,7 +151,7 @@ examples-run: examples ## Regenerate examples and run the full-suite example end
 	@./bin/examples/full-suite > /dev/null
 
 .PHONY: harness
-harness: skill-check memory-check lint vet gen-check api-check release-check test test-race examples-run commit-check ## Run every deterministic gate a coding agent must pass before handoff
+harness: skill-check doc-check memory-check lint vet gen-check api-check release-check test test-race examples-run commit-check ## Run every deterministic gate a coding agent must pass before handoff
 
 .PHONY: release
 release: ## Cut a release: bump, changelog, regenerate, harness, commit, tag, push

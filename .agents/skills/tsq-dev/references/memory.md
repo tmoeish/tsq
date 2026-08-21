@@ -77,6 +77,22 @@
 引用这个路径的地方有 12 个文件（脚本常量、Makefile、`.gitignore`、三份文档、技能自身），
 `grep -rn` 一遍是唯一可靠的确认方式。
 
+## 2026-08-21 — 那个不存在的 `make update-examples` 在文档里又活了三个月
+
+v4.4.1 是为了修 CI 调用不存在的 `make update-examples` 而发的补丁版本。修的时候只改了
+`.github/workflows/go.yml`——**同一个幽灵还留在 `README.md` 和 `CONTRIBUTING.md` 的代码块
+里**，谁照着敲都会得到 `No rule to make target`，然后开始怀疑自己的环境，而没有任何东西
+会告诉他文档是错的。
+
+这就是"一个被修两次的问题是一个不彻底的修复"的样板：第一次只修了报错的那一处，没有问
+"同一个名字还写在哪"。
+
+`make doc-check` 现在守着这条。判据是"读者会不会把这一行复制去执行"：**只扫围栏代码块，
+不扫行内反引号**。这条界线让门不需要任何按文件的白名单——`memory.md` 记录事故经过时必须
+能写出这个已经不存在的名字，`CHANGELOG.md` 的历史条目同理，而它们都在散文里。
+
+它管不到 `.github/workflows/`（不是 Markdown），改 make 目标名时那里仍然要手动 grep。
+
 ## 2026-08-21 — 已知未处理：发布二进制的 `gitBranch` 显示 `HEAD`
 
 `tsq version` 在 GitHub Release 的产物上显示 `branch  HEAD` 而不是 `main`。原因是 tag
