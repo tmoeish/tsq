@@ -369,6 +369,20 @@ def main(argv: Sequence[str]) -> int:
             f"HEAD 上已经有 tag {head_tag()}，这个 commit 已经发过了。"
         )
 
+    # 发版 PR 里应该只有发版提交。本地还有没推的提交时，它们会被一起卷进这个 PR，
+    # squash 之后 `main` 上就只剩一句 "chore: release vX.Y.Z"——那几条讲清楚了改动的
+    # 提交信息就此从历史里消失（v4.5.0 就是这么发出去的，四个提交被压成了一个）。
+    ahead = git_output(
+        ["rev-list", "--count", f"origin/{branch}..{branch}"]
+    ).decode().strip()
+    if ahead != "0":
+        raise ReleaseError(
+            f"本地 {branch} 比 origin/{branch} 多 {ahead} 个提交，还没推上去。\n"
+            "先让这些工作走它们自己的 PR 合进 main，再发版——否则它们会被卷进发版 PR，"
+            "squash 之后只剩一句发版提交信息，改动的来龙去脉全丢了。\n"
+            f"`git log origin/{branch}..{branch} --oneline` 看是哪些。"
+        )
+
     previous = latest_tag()
 
     # 版本号只对使用者有意义。文档、技能、harness、CI 和纯测试改动不会让任何人拿到
@@ -477,9 +491,13 @@ def main(argv: Sequence[str]) -> int:
     print(f"等 CI 与合并……（最多 {MERGE_TIMEOUT_SECONDS // 60} 分钟）")
     wait_for_merge(url)
 
-    print(f"回到 {branch} 并拉取合并结果……")
+    # squash 合并在 origin 上造出一个**新** commit，本地这条分支上的原始提交不在它的
+    # 历史里——`git pull --ff-only` 必然报分叉。合并之后唯一正确的动作是让本地采纳远端的
+    # 历史：内容已经在那个 squash commit 里了。
+    print(f"回到 {branch} 并采纳合并结果……")
     run(["git", "checkout", branch])
-    run(["git", "pull", "--ff-only", "origin", branch])
+    run(["git", "fetch", "origin", branch])
+    run(["git", "reset", "--hard", f"origin/{branch}"])
 
     merged = git_output(["rev-parse", "HEAD"]).decode().strip()
     if buildinfo_version() != version:
