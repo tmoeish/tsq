@@ -114,7 +114,7 @@ make hooks            # 装 commit-msg 钩子，每台机器一次
 - `examples/academy/runtime.tsq.go`
 - `examples/academy/tsq.json`
 - `examples/academy/{mysql,postgres,sqlite}.sql`
-- `agents/skills/tsq-dev/references/api-surface.txt`
+- `.agents/skills/tsq-dev/references/api-surface.txt`
 
 `examples/academy/mock.sql` 是**手写的**——它是示例库的 schema 真相源，和示例结构体必须
 保持一致。

@@ -34,16 +34,16 @@ GENERATED_PATHS: Final = frozenset(
         Path("examples/academy/mysql.sql"),
         Path("examples/academy/postgres.sql"),
         Path("examples/academy/sqlite.sql"),
-        Path("agents/skills/tsq-dev/references/api-surface.txt"),
+        Path(".agents/skills/tsq-dev/references/api-surface.txt"),
     }
 )
 
 # 用户可见的公开契约。改到这里就意味着使用者读的东西变了。
 PUBLIC_API_ROOTS: Final = ("dialect",)
 
-# 面向 TSQ 使用者的技能（仓库根 skills/），与面向本仓开发者的技能（agents/skills/）。
+# 面向 TSQ 使用者的技能（仓库根 skills/），与面向本仓开发者的技能（.agents/skills/）。
 USER_SKILL_DIR: Final = Path("skills/tsq")
-DEV_SKILL_DIR: Final = Path("agents/skills/tsq-dev")
+DEV_SKILL_DIR: Final = Path(".agents/skills/tsq-dev")
 MEMORY_PATH: Final = DEV_SKILL_DIR / "references/memory.md"
 
 
