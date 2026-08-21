@@ -3,6 +3,7 @@ package tsq
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 )
@@ -38,118 +39,116 @@ func (q *Query[O]) prepareQueryExecution(
 	return sqlText, finalArgs, nil
 }
 
+func queryScalar[T any](ctx context.Context, tx SQLExecutor, sqlText string, args ...any) (T, error) {
+	var result sql.Null[T]
+	if err := tx.QueryRowContext(ctx, sqlText, args...).Scan(&result); err != nil {
+		var zero T
+		return zero, err
+	}
+
+	return result.V, nil
+}
+
 func queryInt64(ctx context.Context, tx SQLExecutor, sqlText string, args ...any) (int64, error) {
-	var result sql.NullInt64
-	if err := tx.QueryRowContext(ctx, sqlText, args...).Scan(&result); err != nil {
-		return 0, err
-	}
-
-	return result.Int64, nil
+	return queryScalar[int64](ctx, tx, sqlText, args...)
 }
 
-func queryFloat64(ctx context.Context, tx SQLExecutor, sqlText string, args ...any) (float64, error) {
-	var result sql.NullFloat64
-	if err := tx.QueryRowContext(ctx, sqlText, args...).Scan(&result); err != nil {
-		return 0, err
+func (q *Query[O]) validateScalarSelection[T any](selected TypedColumn[O, T]) error {
+	if err := validateQuery(q); err != nil {
+		return err
 	}
 
-	return result.Float64, nil
+	if isNilValue(selected) {
+		return errors.New("scalar selected column cannot be nil")
+	}
+
+	if len(q.selectCols) != 1 {
+		return fmt.Errorf("scalar query must select exactly one column, got %d", len(q.selectCols))
+	}
+
+	actual, ok := q.selectCols[0].(typedColumnInternal[T])
+	if !ok {
+		return errors.New("scalar selected column type does not match the query column type")
+	}
+
+	if !sameSubqueryColumn(selected, actual) {
+		return fmt.Errorf(
+			"scalar query selected %s but expected %s",
+			describeSubqueryColumn(actual),
+			describeSubqueryColumn(selected),
+		)
+	}
+
+	return nil
 }
 
-func queryString(ctx context.Context, tx SQLExecutor, sqlText string, args ...any) (string, error) {
-	var result sql.NullString
-	if err := tx.QueryRowContext(ctx, sqlText, args...).Scan(&result); err != nil {
-		return "", err
+func (q *Query[O]) scalarValue[T any](ctx context.Context, tx SQLExecutor, args ...any) (T, error) {
+	var zero T
+
+	sqlText, finalArgs, err := q.prepareQueryExecution(ctx, tx, "scalar", args...)
+	if err != nil {
+		return zero, err
 	}
 
-	return result.String, nil
+	result, err := queryScalar[T](ctx, tx, sqlText, finalArgs...)
+	if err != nil {
+		return zero, fmt.Errorf("failed to execute scalar query: %w", err)
+	}
+
+	return result, nil
+}
+
+// Scalar executes a single-column query and returns the selected column's Go type.
+func (q *Query[O]) Scalar[T any](
+	ctx context.Context,
+	tx SQLExecutor,
+	selected TypedColumn[O, T],
+	args ...any,
+) (T, error) {
+	return traceExecutor1(ctx, tx, func(ctx context.Context) (T, error) {
+		if err := q.validateScalarSelection(selected); err != nil {
+			var zero T
+			return zero, err
+		}
+
+		return q.scalarValue[T](ctx, tx, args...)
+	})
 }
 
 // QueryInt executes the query and returns a single integer result.
+// Deprecated: use Query.Scalar with an integer selected column.
 func (q *Query[O]) QueryInt(
 	ctx context.Context,
 	tx SQLExecutor,
 	args ...any,
 ) (int64, error) {
 	return traceExecutor1(ctx, tx, func(ctx context.Context) (int64, error) {
-		return q.queryInt(ctx, tx, args...)
+		return q.scalarValue[int64](ctx, tx, args...)
 	})
 }
 
-func (q *Query[O]) queryInt(
-	ctx context.Context,
-	tx SQLExecutor,
-	args ...any,
-) (int64, error) {
-	sqlText, finalArgs, err := q.prepareQueryExecution(ctx, tx, "queryInt", args...)
-	if err != nil {
-		return 0, err
-	}
-
-	result, err := queryInt64(ctx, tx, sqlText, finalArgs...)
-	if err != nil {
-		return 0, fmt.Errorf("%s: %w", "failed to execute select query", err)
-	}
-
-	return result, nil
-}
-
 // QueryFloat executes the query and returns a single float result.
+// Deprecated: use Query.Scalar with a floating-point selected column.
 func (q *Query[O]) QueryFloat(
 	ctx context.Context,
 	tx SQLExecutor,
 	args ...any,
 ) (float64, error) {
 	return traceExecutor1(ctx, tx, func(ctx context.Context) (float64, error) {
-		return q.queryFloat(ctx, tx, args...)
+		return q.scalarValue[float64](ctx, tx, args...)
 	})
 }
 
-func (q *Query[O]) queryFloat(
-	ctx context.Context,
-	tx SQLExecutor,
-	args ...any,
-) (float64, error) {
-	sqlText, finalArgs, err := q.prepareQueryExecution(ctx, tx, "queryFloat", args...)
-	if err != nil {
-		return 0, err
-	}
-
-	result, err := queryFloat64(ctx, tx, sqlText, finalArgs...)
-	if err != nil {
-		return 0, fmt.Errorf("%s: %w", "failed to execute select query", err)
-	}
-
-	return result, nil
-}
-
 // QueryString executes the query and returns a single string result.
+// Deprecated: use Query.Scalar with a string selected column.
 func (q *Query[O]) QueryString(
 	ctx context.Context,
 	tx SQLExecutor,
 	args ...any,
 ) (string, error) {
 	return traceExecutor1(ctx, tx, func(ctx context.Context) (string, error) {
-		return q.queryStr(ctx, tx, args...)
+		return q.scalarValue[string](ctx, tx, args...)
 	})
-}
-
-func (q *Query[O]) queryStr(
-	ctx context.Context,
-	tx SQLExecutor,
-	args ...any,
-) (string, error) {
-	sqlText, finalArgs, err := q.prepareQueryExecution(ctx, tx, "queryStr", args...)
-	if err != nil {
-		return "", err
-	}
-
-	result, err := queryString(ctx, tx, sqlText, finalArgs...)
-	if err != nil {
-		return "", fmt.Errorf("%s: %w", "failed to execute select query", err)
-	}
-
-	return result, nil
 }
 
 // Count executes the count query and returns the number of matching records.

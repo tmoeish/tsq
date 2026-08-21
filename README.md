@@ -341,6 +341,19 @@ query, err := tsq.
 	Build()
 ```
 
+Go 1.27 generic methods keep typed operations on the value that owns them:
+
+```go
+title, err := query.Scalar(ctx, runtime, database.Course_Title)
+courseIDs, err := query.AsSubquery(database.Course_ID)
+summary, err := runtime.WithTxResult(ctx, opts, func(ctx context.Context, tx tsq.SQLExecutor) (*Summary, error) {
+	// Execute atomic work and return one typed result.
+	return buildSummary(ctx, tx)
+})
+```
+
+`Scalar` and `AsSubquery` validate that the supplied typed column is the query's only selected column. The column argument also lets Go infer the result type. `QueryInt`, `QueryFloat`, and `QueryString` remain deprecated wrappers. `WithTxResult` replaces the arity-named `WithTx1` / `WithTx2` APIs; those names also remain deprecated compatibility wrappers.
+
 查询写法请优先参考 `docs/quickstart.md`、`docs/concepts.md` 和 `examples/full-suite/main.go` 的当前示例。
 
 ### Builder 中间态可以安全分支，但最终复用优先用已构建 Query
@@ -366,6 +379,7 @@ query, err := tsq.
 
 - `Build()` 返回的是 `*tsq.Query[Owner]`，owner 类型会沿着 builder 保留下来。
 - 标量比较（如 `EQ(subquery)` / `GT(subquery)`）、`Between(subqueryA, subqueryB)`，以及 `In(subquery)` / `NIn(subquery)` 里的 typed 子查询 **必须只选择一列**。
+- Prefer `query.AsSubquery(selectedColumn)` after `Build()`. `BuildSubquery(stage, selectedColumn)` remains useful when the value is still exposed through the `QueryStage` interface, whose methods cannot declare type parameters.
 - `ExistsSub` / `NExistsSub` 只要求传入已 `Build()` 的子查询，不受返回列数限制。
 - 值比较推荐用 `EQVal/NEVal/GTVal/GTEVal/LTVal/LTEVal`，列和 typed 子查询则直接作为 `EQ/NE/GT/GTE/LT/LTE` 的 RHS 传入。
 - 结果投影统一使用包级 `tsq.Into(...)`，不要再写 `col.Into(...)`。

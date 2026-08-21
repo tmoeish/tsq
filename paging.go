@@ -158,8 +158,8 @@ type PageResponse[T any] struct {
 	Data      []*T  `json:"data"`       // Data contains the rows for the current page.
 }
 
-// NewPageResponse creates a PageResponse from the request, total count, and data.
-func NewPageResponse[T any](r *PageRequest, total int64, data []*T) *PageResponse[T] {
+// Response creates a typed page response from the request, total count, and data.
+func (r *PageRequest) Response[T any](total int64, data []*T) *PageResponse[T] {
 	r = normalizePageReq(r)
 
 	resp := &PageResponse[T]{
@@ -176,6 +176,12 @@ func NewPageResponse[T any](r *PageRequest, total int64, data []*T) *PageRespons
 	}
 
 	return resp
+}
+
+// NewPageResponse creates a PageResponse from the request, total count, and data.
+// Deprecated: use PageRequest.Response.
+func NewPageResponse[T any](r *PageRequest, total int64, data []*T) *PageResponse[T] {
+	return r.Response(total, data)
 }
 
 // HasNext reports whether another page exists after the current one.

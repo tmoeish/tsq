@@ -896,7 +896,7 @@ func runChunkedDemo(ctx context.Context, runtime *tsq.Runtime) (*ChunkedSummary,
 }
 
 // runOptimisticLockDemo demonstrates the SQLite-safe part of the new locking model:
-// a stale snapshot first fails with ErrOptimisticLockConflict, then Runtime.WithTx1
+// a stale snapshot first fails with ErrOptimisticLockConflict, then Runtime.WithTxResult
 // automatically retries and succeeds after reloading the fresh row version.
 // Row-lock reads are intentionally not executed here because the examples runtime
 // uses SQLite, which rejects FOR UPDATE / FOR SHARE at execution time.
@@ -931,7 +931,7 @@ func runOptimisticLockDemo(ctx context.Context, runtime *tsq.Runtime) (*Optimist
 
 	attempts := 0
 
-	summary, err := runtime.WithTx1(ctx, &tsq.TxOptions{Retry: tsq.IsOptimisticLockError}, func(ctx context.Context, txExec tsq.SQLExecutor) (*OptimisticLockSummary, error) {
+	summary, err := runtime.WithTxResult(ctx, &tsq.TxOptions{Retry: tsq.IsOptimisticLockError}, func(ctx context.Context, txExec tsq.SQLExecutor) (*OptimisticLockSummary, error) {
 		attempts++
 
 		if attempts == 1 {

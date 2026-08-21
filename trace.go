@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
-	"reflect"
 	"slices"
 	"time"
 )
@@ -38,7 +37,12 @@ func (r *Runtime) trace(ctx context.Context, fn func(ctx context.Context) error)
 	return wrappedFn(ctx)
 }
 
-func traceRuntime1[T any](r *Runtime, ctx context.Context, fn func(ctx context.Context) (T, error)) (T, error) {
+func (r *Runtime) trace1[T any](ctx context.Context, fn func(ctx context.Context) (T, error)) (T, error) {
+	if r == nil {
+		var zero T
+		return zero, errors.New("runtime cannot be nil")
+	}
+
 	if fn == nil {
 		var zero T
 		return zero, errors.New("trace function cannot be nil")
@@ -87,7 +91,7 @@ func traceExecutor(ctx context.Context, exec SQLExecutor, fn func(ctx context.Co
 
 func traceExecutor1[T any](ctx context.Context, exec SQLExecutor, fn func(ctx context.Context) (T, error)) (T, error) {
 	if provider, ok := exec.(traceProvider); ok && provider.tsqRuntime() != nil {
-		return traceRuntime1(provider.tsqRuntime(), ctx, fn)
+		return provider.tsqRuntime().trace1(ctx, fn)
 	}
 
 	if fn == nil {
@@ -103,7 +107,7 @@ func traceExecutor1[T any](ctx context.Context, exec SQLExecutor, fn func(ctx co
 	return fn(ctx)
 }
 
-func appendUniqueTracers(existing []Tracer, newTracers ...Tracer) []Tracer {
+func appendTracers(existing []Tracer, newTracers ...Tracer) []Tracer {
 	result := append([]Tracer(nil), existing...)
 
 	for _, tracer := range newTracers {
@@ -116,37 +120,10 @@ func appendUniqueTracers(existing []Tracer, newTracers ...Tracer) []Tracer {
 			return result
 		}
 
-		duplicated := false
-
-		for _, current := range result {
-			if sameTracer(current, tracer) {
-				duplicated = true
-				break
-			}
-		}
-
-		if !duplicated {
-			result = append(result, tracer)
-		}
+		result = append(result, tracer)
 	}
 
 	return result
-}
-
-func sameTracer(left, right Tracer) bool {
-	if left == nil {
-		return right == nil
-	}
-
-	if right == nil {
-		return false
-	}
-
-	return tracerIdentity(left) == tracerIdentity(right)
-}
-
-func tracerIdentity(tracer Tracer) uintptr {
-	return reflect.ValueOf(tracer).Pointer()
 }
 
 func printCost(next func(ctx context.Context) error) func(ctx context.Context) error {

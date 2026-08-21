@@ -115,11 +115,39 @@
 - `.github/workflows/go.yml` 和本地 `make` 目标是两条独立的真相。改了本地目标名，
   CI 里引用它的地方要一起改（v4.4.1 那次 CI 调了一个不存在的 `make update-examples`）。
 
+## 想往 `make fmt` 里加自动改写工具
+
+`make fmt` 里每一步都在改写源码（`go fix`、`golangci-lint fmt`、`run --fix`），末尾的
+`go build ./...` 是守卫：**格式化绝不能交回一棵编不过的树。** 加任何改写工具都必须能过它，
+并且要先证明它是幂等的。
+
+排查"某个工具改坏了我的文件"之前，先确认自己是不是唯一的写入者，并在 `git archive HEAD`
+出来的副本里复现——本仓有过一次把并发 agent 的编辑误判成 `go fix` bug 的教训，见
+`memory.md` 2026-08-21 那条。
+
+## 改了 CI 的 job 名字
+
+`main` 的 ruleset 按**检查名**要求 `Lint`、`Coverage`、`Build`、`Docker Build`、
+`GoReleaser Check` 全绿。改掉其中任何一个 job 的 `name:`，那个必需检查就再也不会出现在
+PR 上，而"等不到的检查"等于**所有 PR 永久合不进去**，包括发版 PR。
+
+改 job 名必须同步 ruleset：
+
+```bash
+gh api repos/tmoeish/tsq/rulesets --jq '.[] | "\(.id) \(.name)"'
+gh api repos/tmoeish/tsq/rulesets/<id> --jq '.rules[] | select(.type=="required_status_checks")'
+```
+
+同理，**不要把 matrix job 加进必需检查**：`Test` 的检查名是
+`Test (ubuntu-latest, 1.27.0)`，升 Go 版本就会变成另一个名字。
+
 ## 升级 Go 版本
 
 `go.mod`、`.github/workflows/go.yml` 的 `GO_VERSION` 与 matrix、`Dockerfile`、
 `CLAUDE.md` / `AGENTS.md` 里写的版本号，全部一起改。golangci-lint 也要升到兼容版本
 （`Makefile` 的 `LINT_BIN` 那行钉死了版本）。
+
+matrix 一改，`Test` 的检查名就跟着变——所以 ruleset 的必需检查里没有它，见上一条。
 
 ## 加了新的 Go 源文件
 

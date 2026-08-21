@@ -76,6 +76,20 @@ From(...)    ──► FromStage    ──Select─► ├──► queryBuilder
 **这条分界线是有意的**：同一个 `*Query` 可以在多个方言上复用，把方言校验提前到 `Build()`
 就断了这个用法。改校验时先想清楚它属于哪一边。
 
+### Go 1.27 泛型方法的落点
+
+Go 1.27 允许具体 receiver 的方法声明自己的类型参数，因此类型化操作归回拥有状态的对象：
+
+- `Query.Scalar(selected)` 从 `selected` 推导结果类型，并校验它就是查询唯一的选列。
+- `Query.AsSubquery(selected)` 在已构建查询上产出类型化子查询。
+- `Runtime.WithTxResult(...)` 执行带一个类型化返回值的事务；多个相关值用小结果结构体承载。
+- `PageRequest.Response(total, data)` 构造类型化分页响应。
+
+没有把所有泛型函数机械地改成方法。`QueryStage`、`SQLExecutor`、`Column` / `ValueColumn` 都是
+接口，而 Go 1.27 仍禁止接口方法声明类型参数；`BuildSubquery`、`MapInto`、mutation/chunked
+helper 因此继续作为包级函数。为了一点调用语法把这些接口改成公开具体类型，会破坏阶段机、
+事务 executor 通用性或列实现封装，收益不抵代价。
+
 ## 运行时
 
 `Runtime`（`runtime.go`）是 `*sql.DB` 加方言加已注册表的组合，显式构造：

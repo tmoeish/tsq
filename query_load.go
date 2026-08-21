@@ -118,7 +118,7 @@ func pageFn[O Owner](
 		return nil, fmt.Errorf("%s: %w", "failed to execute paginated query", err)
 	}
 
-	return NewPageResponse(page, count, list), nil
+	return page.Response(count, list), nil
 }
 
 // List executes q and returns all matching rows.

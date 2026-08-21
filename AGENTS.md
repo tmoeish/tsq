@@ -186,10 +186,41 @@
 
 ## 发版
 
+**harness 不要求每一波都发版，绝大多数波都不该发。** `make release-check` 只校验版本号的
+四个副本一致且没有倒退；发版之间 buildinfo 等于最新 tag 是**常态**，`make harness` 对此
+完全满意。`make release` 是显式动作，`harness` 从不调用它。
+
+判据是"使用者拿到的东西变了没有"。使用者只拿得到两样：`go get` 到的模块，和
+`go install .../cmd/tsq` 或 GitHub Release 下载到的二进制。于是：
+
+| 改了什么 | 发版？ |
+| --- | --- |
+| 根包、`dialect`、`internal/**`（非测试）、模板、`go.mod`/`go.sum`、`.goreleaser.yaml`、`Dockerfile` | 是 |
+| `agents/`、`script/`、`skills/`、`docs/`、`.github/`、`Makefile`、`*.md`、`*_test.go` | 否 |
+
+`internal/` **算**使用者可见：Go 的 import 规则让使用者引用不到它，但 CLI 的全部行为都在
+那里面——`internal/parser` 改了解析规则，使用者手写的注解就换了含义。反过来，`internal/`
+里**纯粹的**重构（没有任何行为变化）不该单独发版，把它攒进 `## [未发布]` 段等下一次。
+
+`script/release.py` 会自己算这件事并在没有使用者可见改动时拒绝发版，真要发纯维护版本
+（比如只为了让 `.goreleaser.yaml` 的修复生效）加 `--allow-maintenance`。
+
 - 平时把人话写进 `CHANGELOG.md` 的 `## [未发布]` 段，按 `### 新增` / `### 修复` /
-  `### 破坏性变更` 分节。小节名决定版本递增级别。
-- `make release-dry-run` 看一眼会发成什么；`make release` 真的发：定版本号 → 写 CHANGELOG →
-  重新生成示例 → `make harness` → 提交 → 打 tag → 推送。推送 tag 触发 CI 的 GoReleaser。
+  `### 破坏性变更` 分节。小节名决定版本递增级别。这个段落就是为"攒着"存在的：一波不值得
+  单独发版的改动写进去，等下一波真需要发版时一起出去。
+- `make release-dry-run` 看一眼会发成什么；`make release` 真的发。
+- **`main` 上有 ruleset，禁止直推**：必须走 PR，且 `Lint`、`Coverage`、`Build`、
+  `Docker Build`、`GoReleaser Check` 五个检查全绿才能合。所以 `make release` 是这条路：
+  切 `release/vX.Y.Z` 分支 → 改版本号和 CHANGELOG → 重新生成 → 本地 `make harness` →
+  提交 → 推分支 → 开 PR → 开启自动合并 → CI 全绿后 squash 合入 → 回 `main` 拉最新 →
+  在**合并后的 HEAD** 上打 tag → 推 tag。推 tag 触发 CI 的 GoReleaser。
+- tag 必须打在合并**之后**的那个 commit 上：squash 会产生新的 SHA，打在 release 分支上的
+  tag 会指向一个不在 `main` 历史里的 commit。`release.py` 打 tag 前会重新读一遍
+  `buildinfo` 确认版本对得上。
+- **`v*` 的 tag 有 ruleset，禁止删除、禁止移动、禁止强推。**"不要删 tag 重打"从此不是
+  一条靠人记得的规则。真需要清理非发布用途的 `v*` tag，先把 ruleset 停用再操作，然后
+  立刻恢复。
+- 手写代码同样走 PR。日常改动可以攒着，见上面的表格判断要不要发版。
 - **tag 推送之后不可撤销**：Go Proxy 永久缓存内容哈希，删掉重打会让全球用户 checksum 校验
   失败。发错了用 `go.mod` 的 `retract` 加一个新补丁版本，**不要删 tag 重打**。
 - 跨主版本（v4 → v5）不自动做：Go 的语义化导入版本要求先改 go.mod 模块路径和全部内部

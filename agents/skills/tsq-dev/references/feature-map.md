@@ -13,7 +13,7 @@
 | 集合运算 UNION / INTERSECT / EXCEPT | `querybuilder_setops.go` |
 | `ForUpdate` / `ForShare` / NOWAIT / SKIP LOCKED | `querybuilder_lock.go` |
 | CTE 声明 | `cte.go`、`query_plan_cte.go` |
-| 执行入口（`Load` / `Scalar` / `Scan` 的 builder 侧） | `querybuilder_exec.go` |
+| 执行入口（`Load` / `List` / `Page` 的 builder 侧） | `querybuilder_exec.go` |
 
 ## 根包：列、条件、表达式
 
@@ -41,7 +41,7 @@
 | 参数绑定 | `query_args.go` |
 | 结构校验（`Build()` 时） | `query_validation.go`、`query_plan_validate.go`、`validation.go` |
 | 方言能力校验（执行时） | `dialect_validation.go` |
-| 查询对象与执行 | `query.go`、`query_load.go`、`query_scalar.go`、`query_scan.go` |
+| 查询对象与执行（含泛型 `Query.Scalar`） | `query.go`、`query_load.go`、`query_scalar.go`、`query_scan.go` |
 | 执行器接口与包装 | `executor.go`、`executor_wrap.go`、`sql_executor.go` |
 | 写操作（Insert / Update / Delete / Upsert） | `executor_mutation.go`、`executor_mutation_meta.go` |
 | 分批写（`ChunkedInsert` / `ChunkedUpdate` / `ChunkedDelete`） | `query_chunked.go` |
@@ -52,7 +52,7 @@
 | --- | --- |
 | `NewRuntime`、`Options`、`SQLExecutor` 实现 | `runtime.go` |
 | schema 对账（`TablePolicy` / `IndexPolicy`） | `runtime_schema.go` |
-| 事务与重试（`WithTx`、`TxOptions`、`TxRetryConfig`） | `tx.go` |
+| 事务与重试（`WithTx`、`WithTxResult`、`TxOptions`、`TxRetryConfig`） | `tx.go` |
 | 表注册与元数据 | `table.go`、`table_registry.go` |
 | 索引元数据 | `table_index.go` |
 | 表别名 | `table_alias.go` |
@@ -75,7 +75,7 @@
 | 关注点 | 文件 |
 | --- | --- |
 | CLI 入口、子命令注册 | `cmd/tsq/main.go` |
-| `tsq version` | `internal/cmd/version.go` |
+| `tsq version`（默认表格 / `--short` / `--json`） | `internal/cmd/version.go` |
 | `tsq fmt` | `internal/cmd/fmt.go` |
 | `tsq gen`（flag、校验、渲染、写盘） | `internal/cmd/gen.go` |
 | 模板 | `internal/cmd/tsq.go.tmpl`、`tsq_result.go.tmpl`、`tsq_runtime.go.tmpl` |

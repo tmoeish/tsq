@@ -269,9 +269,8 @@ func waitTxRetry(ctx context.Context, options *TxRetryConfig, attempt int) error
 	}
 }
 
-func executeTxAttempt1[T any](
+func (r *Runtime) executeTxAttempt[T any](
 	ctx context.Context,
-	r *Runtime,
 	options *normalizedTxOptions,
 	fn func(context.Context, SQLExecutor) (T, error),
 ) (_ T, stage txRetryStage, err error) {
@@ -315,8 +314,7 @@ func executeTxAttempt1[T any](
 	return result, 0, nil
 }
 
-func withTxRuntime1[T any](
-	r *Runtime,
+func (r *Runtime) withTxResult[T any](
 	ctx context.Context,
 	options *TxOptions,
 	fn func(context.Context, SQLExecutor) (T, error),
@@ -336,9 +334,9 @@ func withTxRuntime1[T any](
 		return zero, err
 	}
 
-	return trace1WithRuntime(r, ctx, func(ctx context.Context) (T, error) {
+	return r.trace1(ctx, func(ctx context.Context) (T, error) {
 		for attempt := 1; ; attempt++ {
-			result, phase, err := executeTxAttempt1(ctx, r, normalized, fn)
+			result, phase, err := r.executeTxAttempt(ctx, normalized, fn)
 			if err == nil {
 				return result, nil
 			}
@@ -354,16 +352,27 @@ func withTxRuntime1[T any](
 	})
 }
 
+// WithTxResult runs fn in a transaction and returns its typed result.
+func (r *Runtime) WithTxResult[T any](
+	ctx context.Context,
+	options *TxOptions,
+	fn func(context.Context, SQLExecutor) (T, error),
+) (T, error) {
+	return r.withTxResult(ctx, options, fn)
+}
+
 // WithTx1 runs fn in a transaction and returns one result value plus an error.
+// Deprecated: use Runtime.WithTxResult.
 func (r *Runtime) WithTx1[T any](
 	ctx context.Context,
 	options *TxOptions,
 	fn func(context.Context, SQLExecutor) (T, error),
 ) (T, error) {
-	return withTxRuntime1(r, ctx, options, fn)
+	return r.WithTxResult(ctx, options, fn)
 }
 
 // WithTx2 runs fn in a transaction and returns two result values plus an error.
+// Deprecated: return a small result struct from Runtime.WithTxResult.
 func (r *Runtime) WithTx2[T1, T2 any](
 	ctx context.Context,
 	options *TxOptions,
@@ -374,7 +383,7 @@ func (r *Runtime) WithTx2[T1, T2 any](
 		second T2
 	}
 
-	result, err := r.WithTx1(ctx, options, func(ctx context.Context, txExec SQLExecutor) (pair, error) {
+	result, err := r.WithTxResult(ctx, options, func(ctx context.Context, txExec SQLExecutor) (pair, error) {
 		first, second, err := fn(ctx, txExec)
 		if err != nil {
 			return pair{}, err
@@ -393,18 +402,18 @@ func (r *Runtime) WithTx2[T1, T2 any](
 }
 
 // WithTx1 runs fn in a transaction and returns one result value plus an error.
-// Deprecated: use Runtime.WithTx1.
+// Deprecated: use Runtime.WithTxResult.
 func WithTx1[T any](
 	r *Runtime,
 	ctx context.Context,
 	options *TxOptions,
 	fn func(context.Context, SQLExecutor) (T, error),
 ) (T, error) {
-	return r.WithTx1(ctx, options, fn)
+	return r.WithTxResult(ctx, options, fn)
 }
 
 // WithTx2 runs fn in a transaction and returns two result values plus an error.
-// Deprecated: use Runtime.WithTx2.
+// Deprecated: return a small result struct from Runtime.WithTxResult.
 func WithTx2[T1, T2 any](
 	r *Runtime,
 	ctx context.Context,

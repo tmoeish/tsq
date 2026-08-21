@@ -16,6 +16,26 @@
 `make release-check` 校验四者一致，外加：主版本号必须和 go.mod 的模块路径匹配；
 版本号不能倒退；HEAD 上已有 tag 时 tag 必须等于代码里的版本。
 
+## 什么时候**不**发版
+
+绝大多数波都不该发版。harness 不要求发版：`release-check` 只校验四个副本一致且没有倒退，
+发版之间 buildinfo 等于最新 tag 是常态。
+
+判据是"使用者拿到的东西变了没有"。使用者只拿得到 `go get` 的模块和 `tsq` 二进制：
+
+| 改了什么 | 发版？ |
+| --- | --- |
+| `*.go`（非测试）、`*.tmpl`、`go.mod`/`go.sum`、`.goreleaser.yaml`、`Dockerfile` | 是 |
+| `agents/`、`script/`、`skills/`、`docs/`、`.github/`、`Makefile`、`*.md`、`*_test.go` | 否 |
+
+`internal/` 算使用者可见（CLI 的全部行为都在那里），但 `internal/` 里**纯粹的**重构不值得
+单独占一个版本号——攒进 `## [未发布]` 段，等下一次真有使用者可见的改动一起发。
+
+`release.py` 自己算这件事，没有使用者可见的改动就拒绝发版；纯维护版本加
+`--allow-maintenance`。这道门是为了防版本号噪音：使用者拿到手里毫无区别的版本只会让版本
+列表变长，让「我该升到哪个版本」变难回答。**v4.4.2 就是这样一个不该存在的版本**——它只改了
+`Makefile`、`script/` 和 `agents/`，是在这道门加上之前发的。
+
 ## 平时怎么做
 
 每波变更把人话写进 `CHANGELOG.md` 的 `## [未发布]` 段，按小节分：
@@ -52,17 +72,41 @@ make release             # 真的发
 1. 确认在 `main` 分支（维护旧大版本时用 `--allow-branch`）。
 2. 确认工作区干净——发版只负责打包已经提交的东西。这波工作的内存、技能、提交信息应该在
    发版之前就走完正常流程了。
-3. 确认 HEAD 上还没有 tag。
+3. 确认 HEAD 上还没有 tag，且上一个 tag 之后有使用者可见的改动。
 4. 算出新版本号和 CHANGELOG 条目。
-5. 写 `internal/buildinfo/buildinfo.go` 和 `CHANGELOG.md`。
-6. `make examples`——让生成文件头带上新版本号。它用的是 `make build-gen` 产出的
+5. 切 `release/vX.Y.Z` 分支。
+6. 写 `internal/buildinfo/buildinfo.go` 和 `CHANGELOG.md`。
+7. `make examples`——让生成文件头带上新版本号。它用的是 `make build-gen` 产出的
    `bin/tsq-gen`，**故意不带 `$(LDFLAGS)`**：`bin/tsq` 的版本号来自 `git describe`，
    而即将发布的 tag 那一刻还不存在，用它生成会让 `release-check` 永远失败（想写对头部
    要先打 tag，想打 tag 要先过 release-check）。见 `memory.md` 2026-08-21 那条。
-7. `make harness`——全绿才继续。
-8. `git commit -m "chore: release vX.Y.Z"`，正文写清变更和验证方式。
-9. `git tag -a vX.Y.Z`。
-10. `git push origin main --follow-tags`。
+8. `make harness`——全绿才继续。
+9. 提交，推 release 分支，开 PR，开启自动合并。
+10. 等 CI 全绿、PR 被 squash 合入。
+11. 回 `main` 拉最新，**重新读一遍 `buildinfo` 确认版本对得上**，在合并后的 HEAD 上打
+    tag 并推送。
+
+## `main` 和 tag 都有 ruleset
+
+- **`main`**：禁止直推、禁止强推、禁止删除；必须走 PR，且 `Lint`、`Coverage`、`Build`、
+  `Docker Build`、`GoReleaser Check` 五个检查全绿。规则对仓库所有者也生效（没有配
+  bypass actor），所以 `git push origin main` 一定会被拒——这就是发版走 PR 的原因。
+- **`refs/tags/v*`**：禁止删除、禁止移动、禁止强推。这条比分支保护重要得多：Go Proxy
+  永久缓存每个 tag 的内容哈希，删掉重打会让全球用户 checksum 校验失败。**"不要删 tag
+  重打"从此是被强制的，不是靠人记得的。**
+- 必需检查里**故意不包含** `Test`：它是 matrix job，检查名叫
+  `Test (ubuntu-latest, 1.27.0)`，升 Go 版本时名字会变，而变了的名字永远不会出现在 PR 上，
+  必需检查就永远等不到——PR 从此合不进去。`Build` / `Docker Build` / `GoReleaser Check`
+  都 `needs: [test, lint, coverage]`，测试挂了它们就不会绿，覆盖是等价的且名字稳定。
+- 必需检查里也**不包含** `Release`：它 `if: startsWith(github.ref, 'refs/tags/')`，
+  在 PR 上永远不会跑。要求一个永不出现的检查就是把 PR 永久卡死。
+- 真需要清理非发布用途的 `v*` tag：先把 tag ruleset 停用，删完立刻恢复。
+  ```bash
+  gh api repos/tmoeish/tsq/rulesets --jq '.[] | "\(.id) \(.name)"'
+  gh api repos/tmoeish/tsq/rulesets/<id> -X PUT -f enforcement=disabled
+  git push origin :refs/tags/<tag>
+  gh api repos/tmoeish/tsq/rulesets/<id> -X PUT -f enforcement=active
+  ```
 
 推送 tag 会触发 `.github/workflows/go.yml` 的 `release` job，由 GoReleaser 构建三平台
 二进制并创建 GitHub Release。

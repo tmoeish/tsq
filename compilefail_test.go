@@ -250,6 +250,22 @@ var _, _ = tsq.AsSubquery(&tsq.Query[userOwner]{}, orderID)
 			want: "type tsq.Column[orderOwner, int] of orderID does not match inferred type tsq.TypedColumn[userOwner, int]",
 		},
 		{
+			name: "query_as_subquery_rejects_wrong_owner",
+			body: `
+var query *tsq.Query[userOwner]
+var _, _ = query.AsSubquery(orderID)
+`,
+			want: "type tsq.Column[orderOwner, int] of orderID does not match inferred type tsq.TypedColumn[userOwner, int]",
+		},
+		{
+			name: "query_scalar_rejects_wrong_owner",
+			body: `
+var query *tsq.Query[userOwner]
+var _, _ = query.Scalar(nil, nil, orderID)
+`,
+			want: "type tsq.Column[orderOwner, int] of orderID does not match inferred type tsq.TypedColumn[userOwner, int]",
+		},
+		{
 			name: "startswith_removed",
 			body: `
 var _ = userName.StartsWith("abc")

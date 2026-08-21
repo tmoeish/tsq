@@ -6,6 +6,12 @@
 `retract` 加一个新补丁版本。所以这个脚本把顺序写死，并且在推送之前就把所有能在本地
 发现的问题拦下来——`make harness` 必须全绿才会有 tag。
 
+`main` 上有 ruleset：禁止直推，必须走 PR 且 CI 全绿。所以发版是这样的：切
+`release/vX.Y.Z` 分支 → 改版本号和 CHANGELOG → 重新生成 → 本地 harness → 提交 → 推分支
+→ 开 PR → 等 CI → squash 合并 → 回到 main 拉最新 → 在**合并后的 main HEAD** 上打 tag
+→ 推 tag。tag 必须打在合并之后的那个 commit 上：squash 会产生新的 SHA，打在分支上的
+tag 会指向一个不在 main 历史里的 commit。
+
 版本号从哪来，按优先级：
 1. 命令行显式给的 `--version vX.Y.Z`。
 2. `CHANGELOG.md` 里的 `## [未发布]` 段落——这是推荐路径：每波变更顺手把人话写进
@@ -23,6 +29,7 @@ import datetime as dt
 import re
 import subprocess
 import sys
+import time
 from collections.abc import Sequence
 from typing import Final
 
@@ -40,6 +47,8 @@ from version import (
 )
 
 RELEASE_BRANCH: Final = "main"
+MERGE_TIMEOUT_SECONDS: Final = 30 * 60
+MERGE_POLL_SECONDS: Final = 20
 UNRELEASED_HEADING: Final = re.compile(
     r"^## \[(?:未发布|Unreleased)\]\s*$", re.MULTILINE
 )
@@ -55,6 +64,19 @@ SECTIONS: Final = (
     ("变更", ("refactor", "perf", "build", "ci", "chore", "style")),
 )
 BREAKING_SECTION: Final = "破坏性变更"
+
+
+# 使用者拿得到的东西只有两样：`go get` 到的模块，和 `go install .../cmd/tsq` 或 GitHub
+# Release 下载到的 CLI 二进制。这两样的内容完全由下面这些文件决定。
+#
+# 注意 `internal/` **算**用户可见：Go 的 import 规则让使用者引用不到它，但 CLI 的全部行为
+# 都在那里面——`internal/parser` 改了解析规则，使用者手写的注解就换了含义。
+USER_VISIBLE_SUFFIXES: Final = (".go", ".tmpl")
+USER_VISIBLE_FILES: Final = frozenset(
+    {"go.mod", "go.sum", ".goreleaser.yaml", "Dockerfile"}
+)
+# 这些只服务维护者，改它们不会让任何使用者拿到不同的东西。
+MAINTAINER_ONLY_PREFIXES: Final = ("agents/", "script/", ".github/", "skills/", "docs/")
 
 
 class ReleaseError(RuntimeError):
@@ -77,6 +99,36 @@ def run(command: Sequence[str], *, capture: bool = False) -> str:
         )
 
     return (completed.stdout or "") if capture else ""
+
+
+def wait_for_merge(url: str) -> None:
+    """等 PR 被自动合并；被关掉或超时都要停下来而不是继续往下打 tag。"""
+    deadline = time.monotonic() + MERGE_TIMEOUT_SECONDS
+    while True:
+        state = run(
+            ["gh", "pr", "view", url, "--json", "state", "--jq", ".state"],
+            capture=True,
+        ).strip()
+
+        if state == "MERGED":
+            print("  已合并。")
+
+            return
+
+        if state == "CLOSED":
+            raise ReleaseError(
+                f"{url} 被关闭而没有合并。工作还在 release 分支上；"
+                "查清楚原因再重来。"
+            )
+
+        if time.monotonic() > deadline:
+            raise ReleaseError(
+                f"等了 {MERGE_TIMEOUT_SECONDS // 60} 分钟，{url} 还没合并。"
+                "多半是某个必需检查红了或者卡住了。去看一眼；PR 上的自动合并还开着，"
+                "检查转绿后它会自己合，那之后重跑发版即可。"
+            )
+
+        time.sleep(MERGE_POLL_SECONDS)
 
 
 def current_branch() -> str:
@@ -103,6 +155,27 @@ def commits_since(previous: Version | None) -> list[tuple[str, str]]:
         entries.append((subject.strip(), body.strip()))
 
     return entries
+
+
+def user_visible_changes(previous: Version | None) -> list[str]:
+    """上一个 tag 之后，改动里真正会让使用者拿到不同东西的那些文件。"""
+    span = f"{previous}..HEAD" if previous is not None else "HEAD"
+    raw = git_output(
+        ["diff", "--name-only", "-z", "--diff-filter=ACDMRTUXB", span]
+    ).decode("utf-8", errors="surrogateescape")
+
+    visible: list[str] = []
+    for path in (entry for entry in raw.split("\0") if entry):
+        if path.startswith(MAINTAINER_ONLY_PREFIXES):
+            continue
+
+        if path.endswith("_test.go"):
+            continue
+
+        if path.endswith(USER_VISIBLE_SUFFIXES) or path in USER_VISIBLE_FILES:
+            visible.append(path)
+
+    return sorted(visible)
 
 
 def infer_level(entries: Sequence[tuple[str, str]]) -> str:
@@ -180,7 +253,11 @@ def render_body(entries: Sequence[tuple[str, str]]) -> str:
             blocks.append(f"### {name}\n\n" + "\n".join(buckets[name]))
 
     if not blocks:
-        blocks.append("### 变更\n\n- 维护性更新")
+        raise ReleaseError(
+            "上一个 tag 之后只有 docs / test 类型的提交，没有任何值得写进 CHANGELOG "
+            "的条目。发一个使用者拿到手里毫无区别的版本，只会让版本列表变长、"
+            "让「该升到哪个版本」变难回答。"
+        )
 
     return "\n\n".join(blocks)
 
@@ -256,12 +333,17 @@ def main(argv: Sequence[str]) -> int:
     parser.add_argument(
         "--no-push",
         action="store_true",
-        help="提交并打 tag，但不推送（tag 留在本地，可以删）",
+        help="在 release 分支上提交，但不推送、不开 PR、不打 tag",
     )
     parser.add_argument(
         "--allow-branch",
         action="store_true",
         help=f"允许在 {RELEASE_BRANCH} 以外的分支发版",
+    )
+    parser.add_argument(
+        "--allow-maintenance",
+        action="store_true",
+        help="即使这波没有任何使用者可见的改动也发版",
     )
     namespace = parser.parse_args(argv)
 
@@ -288,6 +370,22 @@ def main(argv: Sequence[str]) -> int:
         )
 
     previous = latest_tag()
+
+    # 版本号只对使用者有意义。文档、技能、harness、CI 和纯测试改动不会让任何人拿到
+    # 不同的东西，为它们发一个版本只是在制造噪音——`## [未发布]` 段本来就是给这种情况
+    # 攒着用的：等到下一次真有使用者可见的改动，一起发出去。
+    visible = user_visible_changes(previous)
+    if not visible and not namespace.allow_maintenance:
+        raise ReleaseError(
+            f"{previous or 'HEAD'} 之后没有任何使用者可见的改动，这波不该发版。\n"
+            "使用者拿得到的只有 `go get` 的模块和 `tsq` 二进制，它们的内容由 *.go、"
+            "*.tmpl、go.mod/go.sum、.goreleaser.yaml 和 Dockerfile 决定；"
+            "agents/、script/、skills/、docs/、.github/ 和 *_test.go 不算。\n"
+            "把这波攒在 CHANGELOG 的 `## [未发布]` 段里，等下次真有使用者可见的改动一起"
+            "发。确实要发一个纯维护版本（比如只为了让 .goreleaser.yaml 的修复生效），"
+            "加 --allow-maintenance。"
+        )
+
     version, body, from_unreleased = resolve_version(namespace.version, previous)
 
     if previous is not None and version <= previous:
@@ -307,6 +405,10 @@ def main(argv: Sequence[str]) -> int:
     today = dt.date.today().isoformat()
     source = "CHANGELOG 的未发布段" if from_unreleased else "提交历史推断"
     print(f"发布版本：{version}（上一个 {previous or '无'}，条目来自{source}）")
+    if visible:
+        print(f"使用者可见的改动：{len(visible)} 个文件，含 {visible[0]}")
+    else:
+        print("使用者可见的改动：无（--allow-maintenance 放行的纯维护版本）")
     print(f"日期：{today}\n")
     print(body)
 
@@ -315,10 +417,14 @@ def main(argv: Sequence[str]) -> int:
 
         return 0
 
+    release_branch = f"release/{version}"
+    print(f"\n切到 {release_branch}……")
+    run(["git", "checkout", "-b", release_branch])
+
     write_buildinfo_version(version)
     write_changelog(version, body, today)
 
-    print("\n重新生成示例，让生成文件头带上新版本号……")
+    print("重新生成示例，让生成文件头带上新版本号……")
     run(["make", "--no-print-directory", "examples"])
 
     print("跑 make harness……")
@@ -327,23 +433,69 @@ def main(argv: Sequence[str]) -> int:
     message = commit_message(version, body)
     run(["git", "add", "-A"])
     run(["git", "commit", "-m", message])
-    run(["git", "tag", "-a", str(version), "-m", f"tsq {version}"])
 
     if namespace.no_push:
         print(
-            f"\n已在本地提交并打上 {version}。--no-push：没有推送。\n"
-            f"确认无误后：git push origin {branch} --follow-tags"
+            f"\n已在 {release_branch} 上提交。--no-push：没有推送，也没有开 PR。\n"
+            f"回到 {branch}：git checkout {branch} && git branch -D {release_branch}"
         )
 
         return 0
 
-    print(f"\n推送 {branch} 与 tag {version}……")
-    run(["git", "push", "origin", branch, "--follow-tags"])
+    print(f"推送 {release_branch}……")
+    run(["git", "push", "-u", "origin", release_branch])
+
+    subject, _, pr_body = message.partition("\n\n")
+    print("开 PR……")
+    url = run(
+        [
+            "gh", "pr", "create",
+            "--base", branch,
+            "--head", release_branch,
+            "--title", subject,
+            "--body", pr_body.strip(),
+        ],
+        capture=True,
+    ).strip()
+    print(f"  {url}")
+
+    # 用 --auto 而不是"等 CI 再合"：PR 刚建出来的头几秒还没有任何 check 注册，
+    # `gh pr checks --watch` 在那一刻会以"no checks reported"退出。交给 GitHub 自己
+    # 在必需检查全绿时合并，这里只负责等结果。
+    print("开启自动合并（CI 全绿即 squash 合入）……")
+    run(
+        [
+            "gh", "pr", "merge", url,
+            "--squash",
+            "--auto",
+            "--delete-branch",
+            "--subject", subject,
+            "--body", pr_body.strip(),
+        ]
+    )
+
+    print(f"等 CI 与合并……（最多 {MERGE_TIMEOUT_SECONDS // 60} 分钟）")
+    wait_for_merge(url)
+
+    print(f"回到 {branch} 并拉取合并结果……")
+    run(["git", "checkout", branch])
+    run(["git", "pull", "--ff-only", "origin", branch])
+
+    merged = git_output(["rev-parse", "HEAD"]).decode().strip()
+    if buildinfo_version() != version:
+        raise ReleaseError(
+            f"合并后的 {branch} 上版本号是 {buildinfo_version()}，不是 {version}。"
+            "tag 绝不能打在对不上的 commit 上——先查清楚 PR 合进去的是什么。"
+        )
+
+    print(f"在合并后的 {branch} HEAD（{merged[:8]}）上打 tag {version}……")
+    run(["git", "tag", "-a", str(version), "-m", f"tsq {version}"])
+    run(["git", "push", "origin", str(version)])
 
     print(
-        f"\n{version} 已推送。CI 的 release job 会由 tag 触发并跑 GoReleaser。\n"
+        f"\n{version} 已发布。CI 的 release job 会由 tag 触发并跑 GoReleaser。\n"
         "从现在起这个版本号在 Go Proxy 上不可撤销：发现问题用 go.mod 的 retract "
-        "加一个新补丁版本，不要删 tag 重打。"
+        "加一个新补丁版本，不要删 tag 重打（tag 的 ruleset 也会拦下删除和移动）。"
     )
 
     return 0

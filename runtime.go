@@ -79,7 +79,7 @@ func NewRuntime(
 
 	runtime := &Runtime{
 		tables:      registeredTables,
-		tracers:     appendUniqueTracers(nil, opts.Tracers...),
+		tracers:     appendTracers(nil, opts.Tracers...),
 		db:          db,
 		dialect:     sqlDialect,
 		tablePolicy: tablePolicy,
@@ -175,7 +175,7 @@ func (r *Runtime) WithTx(
 		return errors.New("transaction function cannot be nil")
 	}
 
-	_, err := withTxRuntime1(r, ctx, options, func(ctx context.Context, txExec SQLExecutor) (struct{}, error) {
+	_, err := r.withTxResult(ctx, options, func(ctx context.Context, txExec SQLExecutor) (struct{}, error) {
 		return struct{}{}, fn(ctx, txExec)
 	})
 
@@ -208,15 +208,6 @@ type runtimeErrorDriver struct {
 
 func (d runtimeErrorDriver) Open(string) (driver.Conn, error) {
 	return nil, d.err
-}
-
-func trace1WithRuntime[T any](r *Runtime, ctx context.Context, fn func(ctx context.Context) (T, error)) (T, error) {
-	if r == nil {
-		var zero T
-		return zero, errors.New("runtime cannot be nil")
-	}
-
-	return traceRuntime1(r, ctx, fn)
 }
 
 // ValidateIdentifiersForDialect validates all configured table and column identifiers against the current database dialect.

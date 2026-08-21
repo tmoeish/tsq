@@ -70,7 +70,7 @@ func ClearTracers() {
 }
 
 func Trace1[T any](ctx context.Context, fn func(ctx context.Context) (T, error)) (T, error) {
-	return trace1WithRuntime(exportCompatRuntime, ctx, fn)
+	return exportCompatRuntime.trace1(ctx, fn)
 }
 
 func PrintCost(next func(ctx context.Context) error) func(ctx context.Context) error {

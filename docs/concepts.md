@@ -187,7 +187,7 @@ if err := rt.WithTx(ctx, nil, func(ctx context.Context, txExec tsq.SQLExecutor) 
 }
 ```
 
-如果你想在事务里顺便返回值，则用 Go 1.27 泛型方法 `runtime.WithTx1(...)` / `runtime.WithTx2(...)`。
+Use the Go 1.27 generic method `runtime.WithTxResult(...)` when the transaction callback returns a value. Return a small result struct when several values belong together. The older `WithTx1` / `WithTx2` entry points remain as deprecated compatibility wrappers.
 
 对于 `ChunkedInsert` / `ChunkedUpdate` / `ChunkedDelete` 这类 helper，也沿用同一个原则：**TSQ 不替调用方偷偷决定事务边界。**
 

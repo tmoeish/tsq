@@ -1,9 +1,6 @@
 package tsq
 
-import (
-	"reflect"
-	"testing"
-)
+import "testing"
 
 func TestCol_MapInto(t *testing.T) {
 	table := newMockTable("users")
@@ -68,7 +65,13 @@ func TestCol_MapIntoDoesNotMutateOriginal(t *testing.T) {
 	if originalCol.QualifiedName() != newCol.QualifiedName() {
 		t.Error("Both columns should have the same qualified name")
 	}
-	if reflect.ValueOf(originalCol.scanPointer()).Pointer() == reflect.ValueOf(newCol.scanPointer()).Pointer() {
-		t.Error("MapInto should not mutate the original field pointer")
+	originalHolder := &newColOwner{}
+	if got := originalCol.scanPointer()(originalHolder); got != &originalHolder.Name {
+		t.Fatalf("original scan pointer targets %p, want %p", got, &originalHolder.Name)
+	}
+
+	projectedHolder := &colProjection{}
+	if got := newCol.scanPointer()(projectedHolder); got != &projectedHolder.DisplayName {
+		t.Fatalf("projected scan pointer targets %p, want %p", got, &projectedHolder.DisplayName)
 	}
 }

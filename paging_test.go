@@ -411,7 +411,7 @@ func TestNewResponse(t *testing.T) {
 		new("item3"),
 	}
 
-	resp := NewPageResponse(req, 25, data)
+	resp := req.Response(25, data)
 
 	if resp.Page != 2 {
 		t.Errorf("Expected page 2, got %d", resp.Page)
