@@ -24,6 +24,23 @@
 真正的错误状态只有一个：buildinfo **低于**最新 tag，也就是有人把版本号改回去了。
 "HEAD 上有 tag 时 tag 必须等于代码里的版本"那条单独守着重打 tag 的情况。
 
+## 2026-08-21 — 第一次真跑 PR 发版流程暴露的两件事
+
+v4.5.0 是第一个走 PR 流程发出去的版本（`main` 加 ruleset 之后不能直推了）。两处踩坑：
+
+**squash 之后不能 `git pull --ff-only`。** squash 在 origin 上造出一个**新** commit，
+本地 release 分支上的原始提交不在它的历史里，`--ff-only` 必然报分叉。合并之后唯一正确的
+动作是 `git fetch` + `git reset --hard origin/main`——内容已经全在那个 squash commit 里，
+本地要做的是采纳远端历史，不是合并它。
+
+**发版 PR 里只该有发版提交。** v4.5.0 发的时候本地 `main` 还压着三个没推的提交，它们被
+一起卷进了发版 PR，squash 之后 `main` 上只剩一句 `chore: release v4.5.0`——那三条讲清楚了
+改动的提交信息就此从历史里消失了（PR 里还能翻到，但 `git log` 上没有）。`release.py` 现在
+在发版前检查 `origin/main..main` 是不是空的，不空就拒绝，让那些工作先走自己的 PR。
+
+这条对所有走 PR + squash 的仓库都成立：**squash 的粒度是 PR，所以 PR 的粒度就是你能保留的
+历史粒度。**
+
 ## 2026-08-21 — 把并发写入者的改动误判成了工具的 bug
 
 本会话一度断定"`make fmt` 里的 `go fix ./...` 会把仓库改到编译不过"，并据此从 `make fmt`

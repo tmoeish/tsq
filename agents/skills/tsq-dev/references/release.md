@@ -70,8 +70,9 @@ make release             # 真的发
 `script/release.py` 按顺序做这些事，任何一步失败就停下：
 
 1. 确认在 `main` 分支（维护旧大版本时用 `--allow-branch`）。
-2. 确认工作区干净——发版只负责打包已经提交的东西。这波工作的内存、技能、提交信息应该在
-   发版之前就走完正常流程了。
+2. 确认工作区干净，**且本地没有未推送的提交**——发版 PR 里只该有发版提交。本地攒着没推的
+   提交会被一起卷进发版 PR，squash 之后 `main` 上只剩一句 `chore: release vX.Y.Z`，那些
+   讲清楚了改动的提交信息就从 `git log` 上消失了。先让它们走自己的 PR 合进 `main`。
 3. 确认 HEAD 上还没有 tag，且上一个 tag 之后有使用者可见的改动。
 4. 算出新版本号和 CHANGELOG 条目。
 5. 切 `release/vX.Y.Z` 分支。
@@ -83,8 +84,9 @@ make release             # 真的发
 8. `make harness`——全绿才继续。
 9. 提交，推 release 分支，开 PR，开启自动合并。
 10. 等 CI 全绿、PR 被 squash 合入。
-11. 回 `main` 拉最新，**重新读一遍 `buildinfo` 确认版本对得上**，在合并后的 HEAD 上打
-    tag 并推送。
+11. 回 `main`，`git fetch` + `git reset --hard origin/main` 采纳合并结果——squash 造出
+    的是新 commit，`git pull --ff-only` 会报分叉。**重新读一遍 `buildinfo` 确认版本对得
+    上**，在合并后的 HEAD 上打 tag 并推送。
 
 ## `main` 和 tag 都有 ruleset
 
