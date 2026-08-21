@@ -65,6 +65,7 @@ TSQ 由三件东西组成，它们共用一个仓库和一个版本号：
 | 你学到了什么 | 去哪 |
 | --- | --- |
 | bug 的根本原因；为什么看起来对的修法是错的；值得不再重复的死胡同；不明显的运行时行为；一个决定及其理由 | `references/memory.md`，带绝对日期 |
+| **发现了但决定暂不处理的问题**——现象、为什么现在不值得动、什么条件下该动 | `references/memory.md`，`已知未处理：` 开头；要排期就再开 GitHub issue |
 | **发现了但决定暂不处理的问题**——现象、为什么现在不值得动、什么条件下该动 | `references/memory.md`，带绝对日期；要排期就再开 GitHub issue |
 | "改 A 也得改 B"——尤其是你靠弄坏它才发现的 | `references/change-impact.md` |
 | 新文件、新入口、职责搬家、新的 CLI 子命令或 flag | `references/feature-map.md` |
@@ -87,6 +88,10 @@ TSQ 由三件东西组成，它们共用一个仓库和一个版本号：
 - **同一类问题被修两次，说明第二次修得也不彻底。** 直到 `change-impact.md` 或 `memory.md`
   阻止了第三次发生，那次修复才算完成。
 - `make skill-check` 把最容易忘的几条耦合钉死了；它没覆盖的部分靠这一节。
+- **内存里的条目是有寿命的。** 一件事了结之后那条记录是删是留，判据只有一条：删掉之后
+  有人会不会重犯、或者重新调查一遍。搁置项处理完就删，事故根因在有门禁挡着之后压成一行，
+  决定和死胡同永久保留。**不要新增"XX 已处理"的条目**——那是成本翻倍而信息量没变。
+  完整的分类表在 `memory.md` 开头，`make memory-check` 守着行数上限。
 
 ## 命令
 
@@ -100,7 +105,7 @@ make gen-check        # 生成物是不是当前源码的输出（tsq gen --chec
 make api-check        # 对外 Go 契约有没有偏离快照
 make api-snapshot     # 刷新快照
 make skill-check      # 技能有没有跟上代码
-make memory-check     # 这波有没有留下项目内存
+make memory-check     # 这波有没有留下项目内存，以及内存文件有没有超出行数上限
 make release-check    # 版本号四个副本一致
 make harness          # 交接前的全部确定性门禁
 make release          # 发版（改版本号 → CHANGELOG → 重新生成 → harness → 提交 → tag → push）
