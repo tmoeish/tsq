@@ -14,6 +14,9 @@
 - `skills/tsq`（仓库根，随发布分发）包含**给 TSQ 使用者的说明书**。它描述契约，不描述
   实现。
 - `README.md`、`docs/`、`CHANGELOG.md` 是面向使用者的产品文档。
+- `CONTRIBUTING.md` 是**给外部贡献者**的：从 fork 到 PR 合入需要知道的全部，不含项目内存、
+  技能维护和发版这些只有维护者才做的事。它和本文件有意重叠的部分只有分支命名、提交规范和
+  `make harness`——**其余一律交叉引用，不复制**。
 
 重复的语句是注定漂移的语句。交叉引用，不要复制。
 
@@ -140,8 +143,8 @@
 - 交接前跑 `make harness`。它的顺序是**唯一权威**，按"便宜且常失败的靠前"排：
 
   ```
-  skill-check  memory-check  lint  vet  gen-check  api-check  release-check
-  test  test-race  examples-run  commit-check
+  skill-check  doc-check  memory-check  lint  vet  gen-check  api-check
+  release-check  test  test-race  examples-run  commit-check
   ```
 
   项目技能只引用这个顺序，不复述它。

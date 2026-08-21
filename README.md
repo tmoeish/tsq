@@ -413,5 +413,5 @@ make vet
 make lint
 make clean
 make install
-make update-examples
+make examples
 ```

@@ -35,6 +35,7 @@ TSQ 由三件东西组成，它们共用一个仓库和一个版本号：
 | "为什么是这样？"、过去的事故、死胡同 | `references/memory.md` |
 | 对外 Go 符号的当前全集 | `references/api-surface.txt`（生成物，`make api-snapshot` 重写） |
 | 有约束力的规则 | `AGENTS.md`（仓库根） |
+| 外部贡献者怎么参与 | `CONTRIBUTING.md`（仓库根） |
 | 使用者看到的契约 | `README.md`、`docs/`、`skills/tsq/`（仓库根） |
 
 **用这些文件，不要靠猜文件名再从源码重构设计。** 其中某份错了或者少了你不得不自己弄清楚
@@ -105,6 +106,7 @@ make gen-check        # 生成物是不是当前源码的输出（tsq gen --chec
 make api-check        # 对外 Go 契约有没有偏离快照
 make api-snapshot     # 刷新快照
 make skill-check      # 技能有没有跟上代码
+make doc-check        # 文档里写的 make 目标是不是真的存在
 make memory-check     # 这波有没有留下项目内存，以及内存文件有没有超出行数上限
 make release-check    # 版本号四个副本一致
 make harness          # 交接前的全部确定性门禁
