@@ -24,6 +24,10 @@ from changeset import PROJECT_ROOT, ChangesetError, git_output
 
 EXAMPLE_PACKAGE: Final = "examples/academy"
 
+# 必须和 `make examples` 用同一个二进制：`bin/tsq` 带着 git describe 注入的版本号，
+# 用它比对会把"工作区脏"读成"生成物过期"。见 Makefile 的 build-gen。
+GENERATOR_BINARY: Final = "tsq-gen"
+
 
 class GeneratedError(RuntimeError):
     """生成物与源码脱节时抛出。"""
@@ -45,13 +49,13 @@ def run(command: list[str]) -> subprocess.CompletedProcess[bytes]:
 
 
 def main() -> int:
-    built = run(["make", "--no-print-directory", "build"])
+    built = run(["make", "--no-print-directory", "build-gen"])
     if built.returncode != 0:
         detail = built.stderr.decode("utf-8", errors="replace").strip()
-        raise GeneratedError(f"构建 tsq CLI 失败：\n{detail}")
+        raise GeneratedError(f"构建 tsq 生成器失败：\n{detail}")
 
     package = f"{module_path()}/{EXAMPLE_PACKAGE}"
-    checked = run(["./bin/tsq", "gen", "--check", package])
+    checked = run([f"./bin/{GENERATOR_BINARY}", "gen", "--check", package])
     output = (checked.stdout + checked.stderr).decode("utf-8", errors="replace").strip()
     if checked.returncode == 0:
         print(f"生成物检查通过：{EXAMPLE_PACKAGE} 就是当前源码的输出。")

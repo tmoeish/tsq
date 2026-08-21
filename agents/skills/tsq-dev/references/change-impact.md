@@ -92,6 +92,12 @@
   `[门禁: gen-check、release-check]`
 - 正常情况下不要手改：`make release` 会替你改，并保证四个副本一致。
 
+## 改了生成器的构建方式（`make build` / `make build-gen`）
+
+`bin/tsq-gen` **故意不带 `$(LDFLAGS)`**，这样生成结果只依赖源码。给它加上版本 ldflags
+会让发版死锁（生成文件头要写还不存在的 tag），也会让同一份源码在脏工作区和干净检出上
+生成出不同的文件。`make examples` 和 `script/check_generated.py` 必须用同一个二进制。
+
 ## 改了 examples/
 
 - `examples/academy/mock.sql` 是手写的 schema 真相源，示例结构体改了它要跟着改。

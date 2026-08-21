@@ -102,3 +102,7 @@ DSL 是使用者手写的，所以**解析器接受或拒绝什么，就是使�
 
 **改了版本号就必须重新生成示例**，否则 `make gen-check` 和 `make release-check` 都会失败。
 `script/release.py` 依赖这一点来保证 tag 和生成物是同一个版本。
+
+生成用的是 `make build-gen` 产出的 `bin/tsq-gen`，**故意不带 `$(LDFLAGS)`**。带 ldflags 的
+`bin/tsq` 的版本号来自 `git describe`，那既不是即将发布的版本，也会随工作区干不干净而变——
+生成结果必须只依赖源码。两个二进制的分工不要合并，理由见 `memory.md` 2026-08-21 那条。

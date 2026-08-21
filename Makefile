@@ -1,6 +1,7 @@
 GO ?= $(shell command -v go 2>/dev/null || echo /usr/local/go/bin/go)
 MODULE=$(shell $(GO) list -m)
 BINARY_NAME=tsq
+GEN_BINARY_NAME=tsq-gen
 OS ?= $(shell $(GO) env GOOS)
 ARCH ?= $(shell $(GO) env GOARCH)
 VERSION=$(shell git describe --tags --always --dirty 2>/dev/null || echo "unknown")
@@ -60,6 +61,15 @@ vet: ## Run go vet
 build: ## Run go build
 	@GOOS=$(OS) GOARCH=$(ARCH) $(GO) build -v -trimpath $(GO_GCFLAGS) $(LDFLAGS) $(GO_TAGS) -o ./bin/$(BINARY_NAME) ./cmd/tsq
 
+# Built WITHOUT $(LDFLAGS) on purpose. The generated file header records the TSQ version,
+# and $(VERSION) comes from `git describe`, which cannot know the version being released
+# (the tag does not exist yet) and differs between a clean checkout and a dirty tree.
+# Generation must be reproducible from the sources alone, so the generator used by
+# `make examples` and `make gen-check` reports internal/buildinfo's literal instead.
+.PHONY: build-gen
+build-gen: ## Build the generator used for reproducible codegen (no version ldflags)
+	@GOOS=$(OS) GOARCH=$(ARCH) $(GO) build -trimpath $(GO_GCFLAGS) $(GO_TAGS) -o ./bin/$(GEN_BINARY_NAME) ./cmd/tsq
+
 .PHONY: test
 test: ## Run tests
 	@$(GO) test ./...
@@ -75,7 +85,7 @@ test-coverage: ## Run tests with coverage
 
 .PHONY: clean
 clean: ## Clean build artifacts
-	@rm -f bin/$(BINARY_NAME)
+	@rm -f bin/$(BINARY_NAME) bin/$(GEN_BINARY_NAME)
 	@rm -f coverage.out
 
 .PHONY: install
@@ -83,9 +93,9 @@ install: build ## Install to GOPATH/bin
 	@cp bin/$(BINARY_NAME) $$($(GO) env GOPATH)/bin/
 
 .PHONY: examples
-examples: build ## Regenerate and build examples programs
+examples: build-gen ## Regenerate and build examples programs
 	@rm -f ./examples/academy/*.tsq.go ./examples/academy/*.result.tsq.go ./examples/academy/mysql.sql ./examples/academy/postgres.sql ./examples/academy/sqlite.sql ./examples/academy/ddl.json
-	@./bin/$(BINARY_NAME) gen -v $(MODULE)/examples/academy
+	@./bin/$(GEN_BINARY_NAME) gen -v $(MODULE)/examples/academy
 	@rm -rf ./bin/examples
 	@mkdir -p ./bin/examples
 	@$(GO) build -o ./bin/examples/quickstart ./examples/quickstart
@@ -112,7 +122,7 @@ skill-check: ## Require skills/tsq and agents/skills/tsq-dev to track the code
 	@python3 script/check_skills.py
 
 .PHONY: gen-check
-gen-check: build ## Verify examples/academy is what the current sources generate
+gen-check: build-gen ## Verify examples/academy is what the current sources generate
 	@python3 script/check_generated.py
 
 .PHONY: api-snapshot

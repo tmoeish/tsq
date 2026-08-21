@@ -77,10 +77,14 @@ def main() -> int:
             "修好代码里的版本号，用一个新的补丁版本重新发。"
         )
 
-    if previous is not None and pinned is None and code <= previous:
+    # 只查"倒退"，不查"没前进"。两个合法状态都必须放行：发版之间 buildinfo 等于最新
+    # tag（这是常态，绝大多数提交都处在这里），而 `release.py` 跑 harness 的那一刻
+    # buildinfo 已经领先于最新 tag（tag 要等 harness 全绿才打）。要求严格大于会同时
+    # 拦下这两种情况，那是把门装反了。
+    if previous is not None and code < previous:
         raise ReleaseError(
-            f"代码里的版本 {code} 不高于已发布的 {previous}。"
-            "版本号只能前进：重发同一个号会让全球用户的 checksum 校验失败。"
+            f"代码里的版本 {code} 低于已发布的 {previous}。版本号只能前进："
+            "重发一个已经用过的号会让全球用户的 checksum 校验失败。"
         )
 
     print(

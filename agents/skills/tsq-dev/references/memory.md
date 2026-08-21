@@ -12,6 +12,42 @@
 
 ---
 
+## 2026-08-21 — `release-check` 只能查版本倒退，不能查"没前进"
+
+第一版写的是"代码里的版本必须严格大于最新 tag"，它把门装反了：合法状态有两个，
+这条规则两个都拦。
+
+- 发版之间：buildinfo 等于最新 tag。这是常态，绝大多数提交都处在这里。
+- `release.py` 跑 harness 的那一刻：buildinfo 已经领先于最新 tag，因为 tag 要等 harness
+  全绿才打。
+
+真正的错误状态只有一个：buildinfo **低于**最新 tag，也就是有人把版本号改回去了。
+"HEAD 上有 tag 时 tag 必须等于代码里的版本"那条单独守着重打 tag 的情况。
+
+## 2026-08-21 — 生成器不能带 `git describe` 的版本号，否则发版是死锁
+
+`make examples` 原本用 `make build` 产出的 `bin/tsq`，而 `build` 会用
+`-ldflags -X ...buildinfo.version=$(git describe --tags --always --dirty)` 注入版本号。
+于是**生成文件头记的是 git 描述出来的版本，不是即将发布的版本**。
+
+这在第一次真跑 `make release` 时立刻炸了：脚本把 buildinfo 改成 v4.4.2、跑
+`make examples`，生成物头部却还是 v4.4.1——因为 v4.4.2 这个 tag 那一刻还不存在，
+`git describe` 只能描述出上一个 tag。想让头部写对就得先打 tag，想打 tag 就得先过
+`release-check`，死锁。
+
+修法是 `make build-gen`：**故意不带 `$(LDFLAGS)`** 地编一个 `bin/tsq-gen`，它报告
+`internal/buildinfo` 里的字面量。`make examples` 和 `make gen-check` 都用它。附带的好处
+是生成结果只依赖源码，不再依赖工作区干不干净——在此之前，同一份源码在脏工作区和干净
+检出上会生成出不同的文件头，而 CI 的 "ensure generated examples are committed" 一直是靠
+运气才绿的。
+
+`bin/tsq`（带 ldflags）仍然是给人用的 CLI，`tsq version` 该报告 git 状态。两个二进制的
+分工不要合并。
+
+顺带记一笔：`.goreleaser.yaml` 的 ldflags 打的是 `github.com/tmoeish/tsq/v4.version`，
+而变量实际在 `internal/buildinfo` 里——所以 GoReleaser 产出的二进制其实报告的是源码字面量。
+结果恰好是对的，但那是巧合不是设计。改动那份配置之前先知道这件事。
+
 ## 2026-08-21 — 引入 harness 与 tsq-dev 技能
 
 本仓有两份技能，读者完全不同，之前只有一份：`skills/tsq`（随仓库发布，给**使用** TSQ 的

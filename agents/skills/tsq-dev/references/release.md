@@ -10,7 +10,7 @@
 | --- | --- | --- |
 | 代码里的 | `internal/buildinfo/buildinfo.go` 的 `var version` | `script/release.py` |
 | 变更日志 | `CHANGELOG.md` 置顶的 `## [X.Y.Z] - YYYY-MM-DD` | `script/release.py` |
-| 生成文件头 | `examples/academy/*.tsq.go` 首行、`tsq.json` 的 `version` | `make examples` 从 buildinfo 传导 |
+| 生成文件头 | `examples/academy/*.tsq.go` 首行、`tsq.json` 的 `version` | `make examples` 用 `bin/tsq-gen` 从 buildinfo 传导 |
 | git tag | `vX.Y.Z` | `script/release.py` |
 
 `make release-check` 校验四者一致，外加：主版本号必须和 go.mod 的模块路径匹配；
@@ -55,7 +55,10 @@ make release             # 真的发
 3. 确认 HEAD 上还没有 tag。
 4. 算出新版本号和 CHANGELOG 条目。
 5. 写 `internal/buildinfo/buildinfo.go` 和 `CHANGELOG.md`。
-6. `make examples`——让生成文件头带上新版本号。
+6. `make examples`——让生成文件头带上新版本号。它用的是 `make build-gen` 产出的
+   `bin/tsq-gen`，**故意不带 `$(LDFLAGS)`**：`bin/tsq` 的版本号来自 `git describe`，
+   而即将发布的 tag 那一刻还不存在，用它生成会让 `release-check` 永远失败（想写对头部
+   要先打 tag，想打 tag 要先过 release-check）。见 `memory.md` 2026-08-21 那条。
 7. `make harness`——全绿才继续。
 8. `git commit -m "chore: release vX.Y.Z"`，正文写清变更和验证方式。
 9. `git tag -a vX.Y.Z`。
