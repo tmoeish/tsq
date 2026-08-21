@@ -13,7 +13,7 @@ metadata:
 Use this skill for **using TSQ in another Go project**, not for developing the TSQ repository itself.
 
 If you are working inside the TSQ repository itself, load the `tsq-dev` skill there
-(`agents/skills/tsq-dev`) instead; it carries the architecture, code map and release
+(`.agents/skills/tsq-dev`) instead; it carries the architecture, code map and release
 process for the generator and library. This skill describes the contract, that one
 describes the implementation.
 

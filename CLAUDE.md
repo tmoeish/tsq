@@ -13,7 +13,7 @@ CLI 生成器在 `./cmd/tsq`，可运行示例在 `./examples`。
 如果该导入没有把文件带进上下文，请立即阅读 `AGENTS.md`——它是有约束力的规则集，下方没有
 任何内容可以替代它。
 
-然后调用 **`tsq-dev`** 技能（`agents/skills/`，从 `.claude/skills/` 符号链接而来）。
+然后调用 **`tsq-dev`** 技能（住在 `.agents/skills/tsq-dev`，由 `.claude/skills/tsq-dev` 符号链接暴露）。
 这是项目记录下来的上下文，任务可以从已知内容开始，而不是从源码里重新考古：
 
 | 文件 | 解答 |
@@ -31,7 +31,7 @@ CLI 生成器在 `./cmd/tsq`，可运行示例在 `./examples`。
 
 ## 两份技能，不要弄混
 
-- `agents/skills/tsq-dev` —— 给**开发本仓**的人和 agent。架构、代码地图、耦合清单、发版
+- `.agents/skills/tsq-dev` —— 给**开发本仓**的人和 agent。架构、代码地图、耦合清单、发版
   流程、项目内存。**你现在用的是这份。**
 - `skills/tsq`（仓库根，随发布分发）—— 给**在别的项目里使用 TSQ** 的人和他们的 agent。
   注解语法、CLI 用法、查询 API。改了使用者看得见的东西，这份必须跟着改。
@@ -51,7 +51,7 @@ CLI 生成器在 `./cmd/tsq`，可运行示例在 `./examples`。
 - 根包和 `dialect` 的导出符号是这个库的产品。`make api-check` 守着它的快照；它变了就回头看
   `skills/tsq`、`README.md`、`docs/` 还真不真实。
 - **代码注释、Go doc、README、`docs/`、`skills/tsq` 用英文**（使用者读）；`CHANGELOG.md`、
-  `AGENTS.md`、本文件和 `agents/skills/tsq-dev` 用中文（维护者读）。提交信息用英文
+  `AGENTS.md`、本文件和 `.agents/skills/tsq-dev` 用中文（维护者读）。提交信息用英文
   Conventional Commits。
 - 新机器先跑一次 `make hooks`。编辑时跑 `make fmt`，交接前跑 `make harness`——它的权威顺序
   只写在 `AGENTS.md` § 验证与交接。

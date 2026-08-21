@@ -123,7 +123,7 @@ commit-check: ## Require this wave's commit message to explain the change
 	@python3 script/check_change_log.py commit
 
 .PHONY: skill-check
-skill-check: ## Require skills/tsq and agents/skills/tsq-dev to track the code
+skill-check: ## Require skills/tsq and .agents/skills/tsq-dev to track the code
 	@python3 script/check_skills.py
 
 .PHONY: gen-check

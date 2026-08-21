@@ -2,13 +2,13 @@
 
 用于编码智能体和 IDE 助手的规范规则集；`CLAUDE.md` 是路由到此处的入口点。
 
-改代码之前，先读 `agents/skills/tsq-dev/SKILL.md` 以及它 `references/` 下覆盖你要碰的
+改代码之前，先读 `.agents/skills/tsq-dev/SKILL.md` 以及它 `references/` 下覆盖你要碰的
 领域的上下文文件。
 
 所有权的划分，没有什么是跨越它复制的：
 
 - **本文件包含规则** —— 必须对所有未来变更成立的约束。
-- `agents/skills/tsq-dev` 包含**开发本仓的工程上下文** —— `architecture.md`、
+- `.agents/skills/tsq-dev` 包含**开发本仓的工程上下文** —— `architecture.md`、
   `feature-map.md`、`codegen.md`、`change-impact.md`、`release.md`，以及
   `references/memory.md` 里带日期的事故与决策。
 - `skills/tsq`（仓库根，随发布分发）包含**给 TSQ 使用者的说明书**。它描述契约，不描述
@@ -65,7 +65,7 @@
 
 - **不要手改** `*.tsq.go`、`*.result.tsq.go`、`runtime.tsq.go`、`tsq.json`、
   `examples/academy/{mysql,postgres,sqlite}.sql`、
-  `agents/skills/tsq-dev/references/api-surface.txt`。改结构体、注解、模板或解析器，然后
+  `.agents/skills/tsq-dev/references/api-surface.txt`。改结构体、注解、模板或解析器，然后
   重新生成。唯一例外是显式调试生成输出的时候。
 - `examples/academy/mock.sql` 是**手写的** schema 真相源，和示例结构体必须保持一致。
 - 生成物是否同步不能用 `git diff` 判断——一波变更本来就可能合法地改动生成物。判据是
@@ -118,7 +118,7 @@
 - 注释只记录导出行为和不明显的约束。不要逐行叙述代码在做什么。
 - **代码注释、Go doc、README、`docs/` 和 `skills/tsq` 用英文**——这是一个公开的库，
   这些是使用者读的东西。`CHANGELOG.md`、`AGENTS.md`、`CLAUDE.md` 和
-  `agents/skills/tsq-dev` 用中文，它们的读者是维护者。
+  `.agents/skills/tsq-dev` 用中文，它们的读者是维护者。
 
 ## 语言与提交
 
@@ -157,9 +157,9 @@
 猜文件名再从源码重构设计开始。只有每一波都让技能比之前更真实，这才成立。
 
 - 改代码**之前**，读覆盖你要碰的领域的上下文文件，并对每个匹配的触发器处理
-  `agents/skills/tsq-dev/references/change-impact.md`。耦合的工作在同一波里做完。
+  `.agents/skills/tsq-dev/references/change-impact.md`。耦合的工作在同一波里做完。
 - 改代码**之后**，把这波教会你的东西路由到持久的地方——一个事实，一个归宿。路由表在
-  `agents/skills/tsq-dev/SKILL.md` § 维护这份技能。
+  `.agents/skills/tsq-dev/SKILL.md` § 维护这份技能。
 - 使用者看得见的变化（新 API、改掉的语义、新的注解键、改掉的 CLI flag）必须同时进
   `skills/tsq`、`README.md`、`docs/` 和 `CHANGELOG.md` 的未发布段。
 - 如果你必须读源码才能弄清楚技能本该告诉你的东西，那个空白就是缺陷的一部分。交接前补上。
@@ -172,7 +172,7 @@
 
 ## 项目内存
 
-`agents/skills/tsq-dev/references/memory.md` 被提交，所以每台机器和 agent 共享一份记忆。
+`.agents/skills/tsq-dev/references/memory.md` 被提交，所以每台机器和 agent 共享一份记忆。
 和它描述的代码在同一波里更新它。
 
 - 只写仓库讲不出来的东西：事故及其根本原因、决定及其推理、不明显的运行时行为、值得不再
@@ -232,9 +232,11 @@
   失败。发错了用 `go.mod` 的 `retract` 加一个新补丁版本，**不要删 tag 重打**。
 - 跨主版本（v4 → v5）不自动做：Go 的语义化导入版本要求先改 go.mod 模块路径和全部内部
   import，那是一次真实的代码变更。`release.py` 检测到会直接拒绝。
-- 完整流程、分支策略和踩过的坑见 `agents/skills/tsq-dev/references/release.md`。
+- 完整流程、分支策略和踩过的坑见 `.agents/skills/tsq-dev/references/release.md`。
 
 ## 本地文件（已 gitignore，不要提交）
 
 `bin/`、`dist/`、`coverage.out`、根目录的 `/tsq` 二进制、`.claude/settings*.json`、
-`.antigravitycli/`。`.claude/skills` 是被跟踪的符号链接，指向共享的技能目录。
+`.antigravitycli/`。`.claude/skills/` 下的两条符号链接被跟踪：`tsq-dev` 指向
+`.agents/skills/tsq-dev`，`tsq` 指向 `skills/tsq`。**两份技能各住各的目录**，
+`.claude/skills/` 只是让 Claude Code 同时发现它们的入口，不是它们的家。
