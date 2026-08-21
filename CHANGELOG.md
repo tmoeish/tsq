@@ -7,6 +7,16 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 项目遵循 [语义化版本控制](https://semver.org/lang/zh-CN/)。
 
+## [未发布]
+
+### 新增
+
+- **`tsq version` 输出完整构建信息**: 除版本号和构建时间外，还报告 commit、分支、Go 版本和平台；新增 `--short`（只打印版本号，便于脚本取用）和 `--json`（同样字段的 JSON 输出）。此前注入的 commit 与分支没有任何命令会显示。
+
+### 变更
+
+- **CLI 描述与输出统一为英文**: `tsq version` 的命令描述和输出标签此前是中文，与 `tsq fmt` / `tsq gen` 不一致；现已对齐。
+
 ## [4.4.3] - 2026-08-21
 
 ### 修复

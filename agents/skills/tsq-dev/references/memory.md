@@ -24,6 +24,19 @@
 真正的错误状态只有一个：buildinfo **低于**最新 tag，也就是有人把版本号改回去了。
 "HEAD 上有 tag 时 tag 必须等于代码里的版本"那条单独守着重打 tag 的情况。
 
+## 2026-08-21 — cobra 的互斥标志组按 `Changed` 位判定，测试里必须手动清
+
+`internal/cmd/version_test.go` 一开始只在每个用例前把 `versionShortFlag` /
+`versionJSONFlag` 两个 Go 变量置回 false，结果 `--json` 那个用例报"两个标志都设了"。
+
+原因是 `VersionCmd` 是包级单例，标志在 `init` 里绑定一次，**状态跨 `Execute()` 存活**。
+`MarkFlagsMutuallyExclusive` 判定用的不是变量值，而是每个 pflag 的 `Changed` 位——前一个
+用例传过的 `--short` 把它置上就再也没清过，于是下一个用例看起来像同时传了两个。
+
+清法不需要 import pflag：`VersionCmd.Flags().Lookup(name).Changed = false` 直接改返回的
+指针的字段就行，没提到类型名就不需要那个包。`go test -shuffle=on` 是发现这类用例间耦合的
+标准手段，`make harness` 里的 `test-race` 已经带上了 `-shuffle=on`。
+
 ## 2026-08-21 — `-X` 打错包路径是**静默**失败的
 
 `.goreleaser.yaml` 的 ldflags 一直打的是 `github.com/tmoeish/tsq/v4.version`，而这些变量

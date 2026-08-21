@@ -75,7 +75,7 @@
 | 关注点 | 文件 |
 | --- | --- |
 | CLI 入口、子命令注册 | `cmd/tsq/main.go` |
-| `tsq version` | `internal/cmd/version.go` |
+| `tsq version`（默认表格 / `--short` / `--json`） | `internal/cmd/version.go` |
 | `tsq fmt` | `internal/cmd/fmt.go` |
 | `tsq gen`（flag、校验、渲染、写盘） | `internal/cmd/gen.go` |
 | 模板 | `internal/cmd/tsq.go.tmpl`、`tsq_result.go.tmpl`、`tsq_runtime.go.tmpl` |
