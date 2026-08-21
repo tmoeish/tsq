@@ -93,7 +93,7 @@ jobs:
       run: make test-coverage
 
     - name: Refresh generated examples
-      run: make update-examples
+      run: make examples
 
     - name: Ensure generated examples are committed
       run: git diff --exit-code -- examples/academy

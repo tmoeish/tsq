@@ -7,6 +7,12 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 项目遵循 [语义化版本控制](https://semver.org/lang/zh-CN/)。
 
+## [4.4.1] - 2026-08-21
+
+### 修复
+
+- **CI 示例刷新**: coverage job 改用仓库已有的 `make examples` 目标，修复发布流水线因调用不存在的 `make update-examples` 而失败。
+
 ## [4.4.0] - 2026-08-21
 
 ### 变更
