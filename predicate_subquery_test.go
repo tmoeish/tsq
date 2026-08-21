@@ -18,7 +18,7 @@ func TestCondition_ExistsSubIsStandalonePredicate(t *testing.T) {
 
 func TestAsSubquery_UnbuiltQueryFailsFast(t *testing.T) {
 	col := newColForTable[Table, int](newMockTable("users"), "id", "id", nil)
-	if _, err := AsSubquery(&Query[Table]{}, col); err == nil {
+	if _, err := (&Query[Table]{}).AsSubquery(col); err == nil {
 		t.Fatal("expected unbuilt query to be rejected")
 	} else if !strings.Contains(err.Error(), "subquery is not built") {
 		t.Fatalf("expected unbuilt subquery error, got %v", err)
@@ -32,7 +32,7 @@ func TestAsSubquery_RejectsMultipleColumns(t *testing.T) {
 	orderID := newColForTable[Table, int](orders, "id", "id", nil)
 	orderUserID := newColForTable[Table, int](orders, "user_id", "user_id", nil)
 	query := mustBuild(Select(orderID, orderUserID).From(orders))
-	if _, err := AsSubquery(query, userID); err == nil {
+	if _, err := query.AsSubquery(userID); err == nil {
 		t.Fatal("expected typed subquery creation to reject multiple columns")
 	} else if !strings.Contains(err.Error(), "subquery must select exactly one column") {
 		t.Fatalf("unexpected error: %v", err)
@@ -64,7 +64,7 @@ func TestAsSubquery_RejectsMismatchedSelectedColumn(t *testing.T) {
 	orderID := newColForTable[Table, int](orders, "id", "id", nil)
 	orderUserID := newColForTable[Table, int](orders, "user_id", "user_id", nil)
 	query := mustBuild(Select(orderID).From(orders))
-	if _, err := AsSubquery(query, orderUserID); err == nil {
+	if _, err := query.AsSubquery(orderUserID); err == nil {
 		t.Fatal("expected mismatched selected column to be rejected")
 	} else if !strings.Contains(err.Error(), `subquery selected "orders"."id"`) {
 		t.Fatalf("unexpected error: %v", err)

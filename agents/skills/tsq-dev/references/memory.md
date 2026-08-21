@@ -24,6 +24,57 @@
 真正的错误状态只有一个：buildinfo **低于**最新 tag，也就是有人把版本号改回去了。
 "HEAD 上有 tag 时 tag 必须等于代码里的版本"那条单独守着重打 tag 的情况。
 
+## 2026-08-21 — 把并发写入者的改动误判成了工具的 bug
+
+本会话一度断定"`make fmt` 里的 `go fix ./...` 会把仓库改到编译不过"，并据此从 `make fmt`
+里删掉了它。**这个结论是错的，已经改回来。**
+
+当时的症状很有说服力：树验证过 `BUILD OK` → 只跑 `make fmt` → `tx.go` 被改 → 编译失败
+`undefined: withTxRuntime1`，而 `go fix` 自己在输出里打印了这个错误。看起来是闭环。
+
+真相是同一时刻有**另一个 claude 进程在同一个工作区里**做泛型重构，边跑边写文件。`go fix`
+打印的那行是它**遇到**的编译错误——树已经被并发写入弄成不一致了——不是它造成的。事后在
+HEAD 的干净副本里重跑 `go fix ./...`：空操作，build 照常通过，复现不出来。
+
+留下三条：
+
+- **"我改了 A，然后 B 坏了"在有并发写入者时什么都不能证明。** 排查前先确认自己是不是唯一
+  的写入者：`ps aux | grep claude` 加 `lsof -p <pid> -a -d cwd`。本会话在错误的嫌疑人上
+  绕了很多圈，代价是我几次 `git checkout -- '*.go'` 丢掉了对方未提交的工作（它自己重写
+  回来了，没有实际损失，但那是运气）。
+- **验证要在副本里做。** `git archive HEAD | tar x` 到临时目录再跑可疑命令，既能复现又不会
+  被别人的编辑干扰，也不会误伤别人。
+- `make fmt` 末尾的 `go build ./...` 守卫留下了，它独立成立：这个目标里每一步（`go fix`、
+  `golangci-lint fmt`、`run --fix`）都在改写源码，格式化绝不该交回一棵编不过的树。没有
+  守卫的话，坏改写要等到 `make lint` 才暴露，而那时报的是离成因很远的 typecheck 错误。
+
+## 2026-08-21 — 给 main 和 tag 加了 ruleset，发版随之改成 PR 流程
+
+`main`：禁直推/强推/删除，必须走 PR 且五个检查全绿。`refs/tags/v*`：禁删除/移动/强推。
+两条都**对仓库所有者生效**（`bypass_actors` 为空），实测 `git push origin main` 被
+`GH013` 拒绝。
+
+tag 那条比分支那条重要得多。单人仓的真实风险从来不是"别人推了坏代码"，是删掉或移动一个
+已发布的 tag——Go Proxy 永久缓存内容哈希，那是唯一不可恢复的操作。加上它之后，
+"不要删 tag 重打"从一条写在文档里的规则变成了服务端强制的约束。
+
+必需检查的选法有个坑：**不能放 matrix job**。`Test` 的检查名是
+`Test (ubuntu-latest, 1.27.0)`，升 Go 版本名字就变，而变了的名字永远不会出现在 PR 上，
+必需检查永远等不到，**所有 PR 从此合不进去**。选了 `Build` / `Docker Build` /
+`GoReleaser Check`，它们都 `needs: [test, lint, coverage]`，覆盖等价而名字稳定。
+同理不能放 `Release`——它只在 tag 上跑，在 PR 上永远不出现。
+
+`release.py` 因此改成 PR 流程，并且用 `gh pr merge --auto` 而不是"等 CI 再合"：PR 刚建
+出来的头几秒还没有任何 check 注册，`gh pr checks --watch` 在那一刻会以
+"no checks reported" 直接退出。交给 GitHub 自己在必需检查全绿时合并，脚本只轮询结果。
+
+tag 必须打在**合并之后**的 `main` HEAD 上：squash 产生新 SHA，打在 release 分支上的 tag
+会指向一个不在 `main` 历史里的 commit。打之前重新读一遍 `buildinfo` 确认版本对得上。
+
+验证这类服务端规则**不能用 `git push --dry-run`**——它只在本地模拟 ref 更新，根本不联
+服务端，看起来永远是成功的。要真推一次。测 tag 规则时用一个不合法 semver 的探针 tag
+（`v-ruleset-probe`）：它匹配 `v*` 所以受规则管，但 Go Proxy 会忽略它，不会污染版本列表。
+
 ## 2026-08-21 — 版本号是给使用者的，不是给每一次提交的
 
 v4.4.2 只改了 `Makefile`、`script/` 和 `agents/`——纯 harness 和技能，使用者拿到手里和

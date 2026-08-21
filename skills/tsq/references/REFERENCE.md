@@ -529,6 +529,7 @@ Useful rules:
 - use `Normalize()` only when compatibility-style fallback behavior is desired
 - use `Offset()` instead of hand-calculating offset
 - use `HasNext()` / `HasPrev()` for UI navigation logic
+- use `pageReq.Response(total, data)` when constructing a typed response outside `query.Page`; `NewPageResponse` is a deprecated compatibility wrapper
 
 `PageRequest.Keyword` is automatically escaped for LIKE wildcards when executing via `query.Page(...)`. For keyword values passed as variadic args to `query.List` or `query.Get`, the caller must escape `%` and `_` manually. Wildcard escaping is not SQL injection protection — that comes from parameter binding.
 
@@ -542,7 +543,10 @@ Execution is via methods on the built `*Query[O]`:
 - `query.Page(ctx, exec, pageReq, args...)` → `*PageResponse[O], error`
 - `query.Count(ctx, exec, args...)` → `int, error`
 - `query.Count64(ctx, exec, args...)` → `int64, error`
+- `query.Scalar(ctx, exec, selectedColumn, args...)` → the selected column's inferred Go type; the query must select exactly that one column
 - generated list/get/page helpers (wrap the above)
+
+The fixed-type `QueryInt`, `QueryFloat`, and `QueryString` methods are deprecated compatibility wrappers around the generic scalar execution path.
 
 All methods take an explicit `context.Context` and a `SQLExecutor`.
 
@@ -574,6 +578,16 @@ Use transaction helpers when:
 - several TSQ writes must be atomic
 - row-locking queries must share the same transaction
 - chunked helpers must be atomic as one unit
+
+When the callback returns a value, use the Go 1.27 generic method:
+
+```go
+result, err := runtime.WithTxResult(ctx, opts, func(ctx context.Context, txExec tsq.SQLExecutor) (*Result, error) {
+	return loadAndUpdate(ctx, txExec)
+})
+```
+
+Return a small result struct for multiple related values. `WithTx1`, `WithTx2`, and their package-level forms are deprecated compatibility wrappers.
 
 Useful rules:
 
@@ -613,6 +627,7 @@ TSQ supports more than simple list queries. Common advanced shapes include:
 Important subquery rule:
 
 - scalar RHS comparisons such as `EQ(subquery)`, `Between(subqueryA, subqueryB)`, and `In(subquery)`-style usage require subqueries that select exactly one column
+- after building, prefer `query.AsSubquery(selectedColumn)`; use `BuildSubquery(stage, selectedColumn)` while the builder is still exposed as a `QueryStage`
 
 ## 12. Dialect capability boundaries
 

@@ -47,11 +47,16 @@ mod-download: ## Download dependencies
 mod-tidy: ## Tidy dependencies
 	@$(GO) mod tidy
 
+# Every step here rewrites source. `go fix` and `--fix` apply semantic rewrites, not
+# just formatting, so the trailing `go build` is not ceremony: formatting must never
+# hand back a tree that does not compile, and without the guard a bad rewrite is only
+# noticed later by `make lint`, which reports it as a typecheck error far from its cause.
 .PHONY: fmt
 fmt: mod-tidy $(LINT_BIN) ## Format code
 	@$(GO) fix ./...
 	@$(LINT_BIN) fmt -c .golangci.yml
 	@$(LINT_BIN) run --fix --issues-exit-code=0 --enable-only $(FMT_FIX_LINTERS)
+	@$(GO) build ./...
 
 .PHONY: vet
 vet: ## Run go vet

@@ -368,10 +368,10 @@ func TestRuntimeWithTxRejectsInvalidRetryPolicy(t *testing.T) {
 	}
 }
 
-func TestRuntimeWithTx1ReturnsValue(t *testing.T) {
+func TestRuntimeWithTxResultReturnsValue(t *testing.T) {
 	db := newBatchMutationEngine(t)
 
-	got, err := db.WithTx1(context.Background(), nil, func(ctx context.Context, txExec SQLExecutor) (int, error) {
+	got, err := db.WithTxResult(context.Background(), nil, func(ctx context.Context, txExec SQLExecutor) (int, error) {
 		if err := Insert(ctx, txExec, &batchMutationUser{
 			Name:  "alice",
 			Email: "alice@example.com",
@@ -382,10 +382,10 @@ func TestRuntimeWithTx1ReturnsValue(t *testing.T) {
 		return 41, nil
 	})
 	if err != nil {
-		t.Fatalf("expected WithTx1 to succeed, got %v", err)
+		t.Fatalf("expected WithTxResult to succeed, got %v", err)
 	}
 	if got != 41 {
-		t.Fatalf("expected WithTx1 result 41, got %d", got)
+		t.Fatalf("expected WithTxResult result 41, got %d", got)
 	}
 }
 

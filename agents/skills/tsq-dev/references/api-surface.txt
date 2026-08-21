@@ -307,6 +307,7 @@ type PageRequest struct {
 func NewPageRequest(params url.Values) *PageRequest
 func (r *PageRequest) Normalize() error
 func (r *PageRequest) Offset() int
+func (r *PageRequest) Response[T any](total int64, data []*T) *PageResponse[T]
 func (r *PageRequest) ToQuery() url.Values
 func (r *PageRequest) Validate() error
 type PageResponse[T any] struct {
@@ -321,6 +322,7 @@ func (r *PageResponse[T]) HasPrev() bool
 func (r *PageResponse[T]) IsEmpty() bool
 type Query[O Owner] struct {
 }
+func (q *Query[O]) AsSubquery[T any](selected TypedColumn[O, T]) (Subquery[T], error)
 func (q *Query[O]) Count(
 	ctx context.Context,
 	tx SQLExecutor,
@@ -382,6 +384,12 @@ func (q *Query[O]) QueryString(
 	tx SQLExecutor,
 	args ...any,
 ) (string, error)
+func (q *Query[O]) Scalar[T any](
+	ctx context.Context,
+	tx SQLExecutor,
+	selected TypedColumn[O, T],
+	args ...any,
+) (T, error)
 type QueryStage[O Owner] interface {
 	Build() (*Query[O], error)
 	MustBuild() *Query[O]
@@ -442,6 +450,11 @@ func (r *Runtime) WithTx2[T1, T2 any](
 	options *TxOptions,
 	fn func(context.Context, SQLExecutor) (T1, T2, error),
 ) (T1, T2, error)
+func (r *Runtime) WithTxResult[T any](
+	ctx context.Context,
+	options *TxOptions,
+	fn func(context.Context, SQLExecutor) (T, error),
+) (T, error)
 type RuntimeOptions struct {
 	TablePolicy SchemaPolicy // TablePolicy chooses how TSQ manages declared tables and columns during NewRuntime.
 	IndexPolicy SchemaPolicy // IndexPolicy chooses how TSQ manages declared indexes during NewRuntime.

@@ -42,6 +42,8 @@ describes the implementation.
   `tsq.Select(...).From(...).Where(...).Build()`
 - Pass `runtime` directly where a `tsq.SQLExecutor` is needed.
 - Use `Runtime.WithTx(...)` when several TSQ operations must share one transaction.
+- Use `Runtime.WithTxResult(...)` when that transaction callback returns a typed value; prefer a small result struct over the deprecated arity-specific helpers.
+- Use `query.Scalar(ctx, exec, selectedColumn, args...)` for a typed single-column result and `query.AsSubquery(selectedColumn)` for a built typed subquery.
 - Do not assume this skill ships management scripts; install or upgrade TSQ with explicit `go install .../cmd/tsq@version` commands, and run `tsq fmt` / `tsq gen` directly against the chosen package.
 - The builder is stage-based: `Where(...)` and `Search(...)` each appear at most once per chain, enforced by the Go type system at compile time. Pass all filter conditions to the single `Where(...)` call; use `tsq.Or(...)` for OR groups. Both clauses can coexist in either order.
 - Remember that `InVar()` with an empty or nil slice means explicit no-match.

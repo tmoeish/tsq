@@ -12,10 +12,15 @@
 ### 新增
 
 - **`tsq version` 输出完整构建信息**: 除版本号和构建时间外，还报告 commit、分支、Go 版本和平台；新增 `--short`（只打印版本号，便于脚本取用）和 `--json`（同样字段的 JSON 输出）。此前注入的 commit 与分支没有任何命令会显示。
+- **Go 1.27 泛型方法补全**: 新增 `Query.Scalar`、`Query.AsSubquery`、`Runtime.WithTxResult` 和 `PageRequest.Response`，让标量查询、已构建子查询、带返回值事务和分页响应构造都归到拥有状态的 receiver 上；`QueryInt` / `QueryFloat` / `QueryString`、包级 `AsSubquery` / `NewPageResponse`，以及按返回值数量命名的 `WithTx1` / `WithTx2` 保留为弃用兼容包装。
 
 ### 变更
 
 - **CLI 描述与输出统一为英文**: `tsq version` 的命令描述和输出标签此前是中文，与 `tsq fmt` / `tsq gen` 不一致；现已对齐。
+
+### 修复
+
+- **Go 1.27 闭包身份兼容**: tracer 配置不再用函数代码指针去重。Go 1.27 允许不同闭包共享代码地址，旧实现会把捕获不同状态的 tracer 误判成同一个并静默丢弃。
 
 ## [4.4.3] - 2026-08-21
 

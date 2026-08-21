@@ -7,7 +7,7 @@ import (
 )
 
 // Subquery is an opaque typed handle for a built single-column subquery.
-// Construct it with BuildSubquery or AsSubquery.
+// Construct it with BuildSubquery or Query.AsSubquery.
 type Subquery[T any] interface {
 	rawSubquery
 	RHS[T]
@@ -60,14 +60,14 @@ func BuildSubquery[O Owner, T any](qb QueryStage[O], selected TypedColumn[O, T])
 		return nil, err
 	}
 
-	return AsSubquery(query, selected)
+	return query.AsSubquery(selected)
 }
 
-// AsSubquery validates that query is a built single-column query whose selected
+// AsSubquery validates that q is a built single-column query whose selected
 // column matches selected, then returns a typed subquery handle suitable for
 // RHS comparisons such as EQ/NE/GT/GTE/LT/LTE/Like/Between and for In/NIn.
-func AsSubquery[O Owner, T any](query *Query[O], selected TypedColumn[O, T]) (Subquery[T], error) {
-	if query == nil {
+func (q *Query[O]) AsSubquery[T any](selected TypedColumn[O, T]) (Subquery[T], error) {
+	if q == nil {
 		return nil, errors.New("subquery cannot be nil")
 	}
 
@@ -75,15 +75,15 @@ func AsSubquery[O Owner, T any](query *Query[O], selected TypedColumn[O, T]) (Su
 		return nil, errors.New("subquery selected column cannot be nil")
 	}
 
-	if strings.TrimSpace(query.subquerySQL()) == "" {
+	if strings.TrimSpace(q.subquerySQL()) == "" {
 		return nil, errors.New("subquery is not built")
 	}
 
-	if len(query.selectCols) != 1 {
-		return nil, fmt.Errorf("subquery must select exactly one column, got %d", len(query.selectCols))
+	if len(q.selectCols) != 1 {
+		return nil, fmt.Errorf("subquery must select exactly one column, got %d", len(q.selectCols))
 	}
 
-	actual, ok := query.selectCols[0].(typedColumnInternal[T])
+	actual, ok := q.selectCols[0].(typedColumnInternal[T])
 	if !ok {
 		return nil, errors.New("subquery selected column type does not match the expected column type")
 	}
@@ -96,7 +96,13 @@ func AsSubquery[O Owner, T any](query *Query[O], selected TypedColumn[O, T]) (Su
 		)
 	}
 
-	return &typedSubquery[O, T]{query: query}, nil
+	return &typedSubquery[O, T]{query: q}, nil
+}
+
+// AsSubquery validates a built single-column query and returns a typed subquery.
+// Deprecated: use Query.AsSubquery.
+func AsSubquery[O Owner, T any](query *Query[O], selected TypedColumn[O, T]) (Subquery[T], error) {
+	return query.AsSubquery(selected)
 }
 
 func sameSubqueryColumn(a, b SQLColumn) bool {

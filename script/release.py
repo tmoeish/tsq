@@ -6,6 +6,12 @@
 `retract` 加一个新补丁版本。所以这个脚本把顺序写死，并且在推送之前就把所有能在本地
 发现的问题拦下来——`make harness` 必须全绿才会有 tag。
 
+`main` 上有 ruleset：禁止直推，必须走 PR 且 CI 全绿。所以发版是这样的：切
+`release/vX.Y.Z` 分支 → 改版本号和 CHANGELOG → 重新生成 → 本地 harness → 提交 → 推分支
+→ 开 PR → 等 CI → squash 合并 → 回到 main 拉最新 → 在**合并后的 main HEAD** 上打 tag
+→ 推 tag。tag 必须打在合并之后的那个 commit 上：squash 会产生新的 SHA，打在分支上的
+tag 会指向一个不在 main 历史里的 commit。
+
 版本号从哪来，按优先级：
 1. 命令行显式给的 `--version vX.Y.Z`。
 2. `CHANGELOG.md` 里的 `## [未发布]` 段落——这是推荐路径：每波变更顺手把人话写进
@@ -23,6 +29,7 @@ import datetime as dt
 import re
 import subprocess
 import sys
+import time
 from collections.abc import Sequence
 from typing import Final
 
@@ -40,6 +47,8 @@ from version import (
 )
 
 RELEASE_BRANCH: Final = "main"
+MERGE_TIMEOUT_SECONDS: Final = 30 * 60
+MERGE_POLL_SECONDS: Final = 20
 UNRELEASED_HEADING: Final = re.compile(
     r"^## \[(?:未发布|Unreleased)\]\s*$", re.MULTILINE
 )
@@ -90,6 +99,36 @@ def run(command: Sequence[str], *, capture: bool = False) -> str:
         )
 
     return (completed.stdout or "") if capture else ""
+
+
+def wait_for_merge(url: str) -> None:
+    """等 PR 被自动合并；被关掉或超时都要停下来而不是继续往下打 tag。"""
+    deadline = time.monotonic() + MERGE_TIMEOUT_SECONDS
+    while True:
+        state = run(
+            ["gh", "pr", "view", url, "--json", "state", "--jq", ".state"],
+            capture=True,
+        ).strip()
+
+        if state == "MERGED":
+            print("  已合并。")
+
+            return
+
+        if state == "CLOSED":
+            raise ReleaseError(
+                f"{url} 被关闭而没有合并。工作还在 release 分支上；"
+                "查清楚原因再重来。"
+            )
+
+        if time.monotonic() > deadline:
+            raise ReleaseError(
+                f"等了 {MERGE_TIMEOUT_SECONDS // 60} 分钟，{url} 还没合并。"
+                "多半是某个必需检查红了或者卡住了。去看一眼；PR 上的自动合并还开着，"
+                "检查转绿后它会自己合，那之后重跑发版即可。"
+            )
+
+        time.sleep(MERGE_POLL_SECONDS)
 
 
 def current_branch() -> str:
@@ -294,7 +333,7 @@ def main(argv: Sequence[str]) -> int:
     parser.add_argument(
         "--no-push",
         action="store_true",
-        help="提交并打 tag，但不推送（tag 留在本地，可以删）",
+        help="在 release 分支上提交，但不推送、不开 PR、不打 tag",
     )
     parser.add_argument(
         "--allow-branch",
@@ -378,10 +417,14 @@ def main(argv: Sequence[str]) -> int:
 
         return 0
 
+    release_branch = f"release/{version}"
+    print(f"\n切到 {release_branch}……")
+    run(["git", "checkout", "-b", release_branch])
+
     write_buildinfo_version(version)
     write_changelog(version, body, today)
 
-    print("\n重新生成示例，让生成文件头带上新版本号……")
+    print("重新生成示例，让生成文件头带上新版本号……")
     run(["make", "--no-print-directory", "examples"])
 
     print("跑 make harness……")
@@ -390,23 +433,69 @@ def main(argv: Sequence[str]) -> int:
     message = commit_message(version, body)
     run(["git", "add", "-A"])
     run(["git", "commit", "-m", message])
-    run(["git", "tag", "-a", str(version), "-m", f"tsq {version}"])
 
     if namespace.no_push:
         print(
-            f"\n已在本地提交并打上 {version}。--no-push：没有推送。\n"
-            f"确认无误后：git push origin {branch} --follow-tags"
+            f"\n已在 {release_branch} 上提交。--no-push：没有推送，也没有开 PR。\n"
+            f"回到 {branch}：git checkout {branch} && git branch -D {release_branch}"
         )
 
         return 0
 
-    print(f"\n推送 {branch} 与 tag {version}……")
-    run(["git", "push", "origin", branch, "--follow-tags"])
+    print(f"推送 {release_branch}……")
+    run(["git", "push", "-u", "origin", release_branch])
+
+    subject, _, pr_body = message.partition("\n\n")
+    print("开 PR……")
+    url = run(
+        [
+            "gh", "pr", "create",
+            "--base", branch,
+            "--head", release_branch,
+            "--title", subject,
+            "--body", pr_body.strip(),
+        ],
+        capture=True,
+    ).strip()
+    print(f"  {url}")
+
+    # 用 --auto 而不是"等 CI 再合"：PR 刚建出来的头几秒还没有任何 check 注册，
+    # `gh pr checks --watch` 在那一刻会以"no checks reported"退出。交给 GitHub 自己
+    # 在必需检查全绿时合并，这里只负责等结果。
+    print("开启自动合并（CI 全绿即 squash 合入）……")
+    run(
+        [
+            "gh", "pr", "merge", url,
+            "--squash",
+            "--auto",
+            "--delete-branch",
+            "--subject", subject,
+            "--body", pr_body.strip(),
+        ]
+    )
+
+    print(f"等 CI 与合并……（最多 {MERGE_TIMEOUT_SECONDS // 60} 分钟）")
+    wait_for_merge(url)
+
+    print(f"回到 {branch} 并拉取合并结果……")
+    run(["git", "checkout", branch])
+    run(["git", "pull", "--ff-only", "origin", branch])
+
+    merged = git_output(["rev-parse", "HEAD"]).decode().strip()
+    if buildinfo_version() != version:
+        raise ReleaseError(
+            f"合并后的 {branch} 上版本号是 {buildinfo_version()}，不是 {version}。"
+            "tag 绝不能打在对不上的 commit 上——先查清楚 PR 合进去的是什么。"
+        )
+
+    print(f"在合并后的 {branch} HEAD（{merged[:8]}）上打 tag {version}……")
+    run(["git", "tag", "-a", str(version), "-m", f"tsq {version}"])
+    run(["git", "push", "origin", str(version)])
 
     print(
-        f"\n{version} 已推送。CI 的 release job 会由 tag 触发并跑 GoReleaser。\n"
+        f"\n{version} 已发布。CI 的 release job 会由 tag 触发并跑 GoReleaser。\n"
         "从现在起这个版本号在 Go Proxy 上不可撤销：发现问题用 go.mod 的 retract "
-        "加一个新补丁版本，不要删 tag 重打。"
+        "加一个新补丁版本，不要删 tag 重打（tag 的 ruleset 也会拦下删除和移动）。"
     )
 
     return 0

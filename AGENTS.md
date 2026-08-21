@@ -208,8 +208,19 @@
 - 平时把人话写进 `CHANGELOG.md` 的 `## [未发布]` 段，按 `### 新增` / `### 修复` /
   `### 破坏性变更` 分节。小节名决定版本递增级别。这个段落就是为"攒着"存在的：一波不值得
   单独发版的改动写进去，等下一波真需要发版时一起出去。
-- `make release-dry-run` 看一眼会发成什么；`make release` 真的发：定版本号 → 写 CHANGELOG →
-  重新生成示例 → `make harness` → 提交 → 打 tag → 推送。推送 tag 触发 CI 的 GoReleaser。
+- `make release-dry-run` 看一眼会发成什么；`make release` 真的发。
+- **`main` 上有 ruleset，禁止直推**：必须走 PR，且 `Lint`、`Coverage`、`Build`、
+  `Docker Build`、`GoReleaser Check` 五个检查全绿才能合。所以 `make release` 是这条路：
+  切 `release/vX.Y.Z` 分支 → 改版本号和 CHANGELOG → 重新生成 → 本地 `make harness` →
+  提交 → 推分支 → 开 PR → 开启自动合并 → CI 全绿后 squash 合入 → 回 `main` 拉最新 →
+  在**合并后的 HEAD** 上打 tag → 推 tag。推 tag 触发 CI 的 GoReleaser。
+- tag 必须打在合并**之后**的那个 commit 上：squash 会产生新的 SHA，打在 release 分支上的
+  tag 会指向一个不在 `main` 历史里的 commit。`release.py` 打 tag 前会重新读一遍
+  `buildinfo` 确认版本对得上。
+- **`v*` 的 tag 有 ruleset，禁止删除、禁止移动、禁止强推。**"不要删 tag 重打"从此不是
+  一条靠人记得的规则。真需要清理非发布用途的 `v*` tag，先把 ruleset 停用再操作，然后
+  立刻恢复。
+- 手写代码同样走 PR。日常改动可以攒着，见上面的表格判断要不要发版。
 - **tag 推送之后不可撤销**：Go Proxy 永久缓存内容哈希，删掉重打会让全球用户 checksum 校验
   失败。发错了用 `go.mod` 的 `retract` 加一个新补丁版本，**不要删 tag 重打**。
 - 跨主版本（v4 → v5）不自动做：Go 的语义化导入版本要求先改 go.mod 模块路径和全部内部
