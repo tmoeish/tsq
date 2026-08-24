@@ -9,7 +9,7 @@ require (
 	github.com/serenize/snaker v0.0.0-20201027110005-a7ad2135616e
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.12.1
-	golang.org/x/term v0.43.0
+	golang.org/x/term v0.45.0
 	golang.org/x/tools v0.49.0
 	gopkg.in/nullbio/null.v6 v6.0.0-20161116030900-40264a2e6b79
 	modernc.org/sqlite v1.57.0
