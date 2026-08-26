@@ -101,7 +101,9 @@ TSQ 由三件东西组成，它们共用一个仓库和一个版本号：
 
 ```bash
 make fmt              # go fix + golangci-lint fmt + 自动修复
-make lint             # golangci-lint run
+make lint             # golangci-lint run（含 `unused`：只被 `_test.go` 引用的
+                      # 未导出符号它看不见，那类死代码要靠 change-impact.md 里
+                      # "开关 + 若干消费点" 那条的 grep）
 make test             # go test ./...
 make test-race        # -race -shuffle=on
 make examples         # 重新生成 examples/academy 并编译三个示例程序

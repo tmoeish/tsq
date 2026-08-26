@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	_ "modernc.org/sqlite"
+
+	tsqdialect "github.com/tmoeish/tsq/v4/dialect"
 )
 
 func TestEngineInsertBatchesRows(t *testing.T) {
@@ -290,11 +292,11 @@ func TestChunkedInsertIgnoreErrorsSkipsSQLiteUniqueViolations(t *testing.T) {
 // returningDialect mimics PostgreSQL's key-return contract on top of SQLite
 // (which also understands RETURNING): no LastInsertId, keys come back as rows.
 type returningDialect struct {
-	SQLiteDialect
+	tsqdialect.SQLiteDialect
 }
 
 func (returningDialect) LastInsertIdReturningSuffix(_, col string) string {
-	return " RETURNING " + SQLiteDialect{}.QuoteField(col)
+	return " RETURNING " + tsqdialect.SQLiteDialect{}.QuoteField(col)
 }
 
 func (returningDialect) BatchInsertStartID(int64, int64) (int64, bool) {

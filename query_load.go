@@ -76,10 +76,8 @@ func pageFn[O Owner](
 	argsWithLimit = append(argsWithLimit, finalArgs...)
 	argsWithLimit = append(argsWithLimit, page.Size, page.Offset())
 
-	if ctx.Value(printSQL) != nil {
-		slog.Info("count", "sql", renderedCntSQL, "args", compactJSON(countArgs))
-		slog.Info("list", "sql", renderedListSQL, "args", compactJSON(argsWithLimit))
-	}
+	logSQLForExecutor(ctx, tx, "count", renderedCntSQL, countArgs)
+	logSQLForExecutor(ctx, tx, "list", renderedListSQL, argsWithLimit)
 
 	count, err := queryInt64(ctx, tx, renderedCntSQL, countArgs...)
 	if err != nil {
@@ -93,7 +91,7 @@ func pageFn[O Owner](
 
 	defer func() {
 		if closeErr := rows.Close(); closeErr != nil {
-			slog.Warn("Failed to close rows", "error", closeErr)
+			logForExecutor(ctx, tx, slog.LevelWarn, "failed to close rows", "error", closeErr)
 		}
 	}()
 
@@ -157,9 +155,7 @@ func listFn[O Owner](
 		return nil, err
 	}
 
-	if ctx.Value(printSQL) != nil {
-		slog.Info("list", "sql", sqlText, "args", compactJSON(finalArgs))
-	}
+	logSQLForExecutor(ctx, tx, "list", sqlText, finalArgs)
 
 	rows, err := tx.QueryContext(ctx, sqlText, finalArgs...)
 	if err != nil {
@@ -168,7 +164,7 @@ func listFn[O Owner](
 
 	defer func() {
 		if closeErr := rows.Close(); closeErr != nil {
-			slog.Warn("Failed to close rows", "error", closeErr)
+			logForExecutor(ctx, tx, slog.LevelWarn, "failed to close rows", "error", closeErr)
 		}
 	}()
 
@@ -228,9 +224,7 @@ func getOrErrFn[O Owner](
 
 	sqlText := renderSQLForExecutor(tx, resolvedSQL)
 
-	if ctx.Value(printSQL) != nil {
-		slog.Info("getOrErr", "sql", sqlText, "args", compactJSON(finalArgs))
-	}
+	logSQLForExecutor(ctx, tx, "getOrErr", sqlText, finalArgs)
 
 	r := new(O)
 
@@ -293,9 +287,7 @@ func (q *Query[O]) Load(
 
 		sqlText := renderSQLForExecutor(tx, resolvedSQL)
 
-		if ctx.Value(printSQL) != nil {
-			slog.Info("load", "sql", sqlText, "args", compactJSON(finalArgs))
-		}
+		logSQLForExecutor(ctx, tx, "load", sqlText, finalArgs)
 
 		dest, err := buildScanDest(q.selectCols, holder)
 		if err != nil {

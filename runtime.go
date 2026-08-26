@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 
 	tsqdialect "github.com/tmoeish/tsq/v4/dialect"
 )
@@ -22,6 +23,7 @@ type Runtime struct {
 	indexPolicy SchemaPolicy
 	logger      Logger
 	maxPageSize int
+	logSQL      bool
 }
 
 // NewRuntime opens a database connection, resolves the SQL dialect from driverName,
@@ -114,6 +116,7 @@ func NewRuntimeContext(
 		indexPolicy: indexPolicy,
 		logger:      resolveRuntimeLogger(opts),
 		maxPageSize: opts.MaxPageSize,
+		logSQL:      opts.LogSQL,
 	}
 
 	if identifierMode != IdentifierValidationSkip {
@@ -207,7 +210,7 @@ func (r *Runtime) QueryContext(ctx context.Context, query string, args ...any) (
 func (r *Runtime) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
 	db, err := r.sqlDB()
 	if err != nil {
-		return sql.OpenDB(runtimeErrorConnector{err: err}).QueryRowContext(ctx, query, args...)
+		return queryRowWithError(ctx, err, query, args...)
 	}
 
 	return db.QueryRowContext(ctx, query, args...)
@@ -249,24 +252,51 @@ func (r *Runtime) sqlDB() (*sql.DB, error) {
 	return r.db, nil
 }
 
-type runtimeErrorConnector struct {
-	err error
+// runtimeErrorKey carries the error that made a runtime unusable into the shared
+// error-only *sql.DB below.
+type runtimeErrorKey struct{}
+
+// errRuntimeUnusable is the fallback for connection attempts that reach the error-only
+// pool without a caller error attached, which database/sql can do from its background
+// connection opener.
+var errRuntimeUnusable = errors.New("tsq runtime is not usable")
+
+// errorDB is a single process-wide *sql.DB on which every connection attempt fails
+// with the error the caller placed in the context.
+//
+// QueryRowContext must return a *sql.Row and has no other channel for reporting that
+// the runtime is unusable, and a *sql.Row carrying an error cannot be constructed from
+// outside database/sql. Opening a throwaway pool per call used to be the answer, but
+// sql.OpenDB starts a connection-opener goroutine that only Close stops, so every call
+// against a nil or half-built runtime leaked a *sql.DB and a goroutine. One shared pool
+// costs one goroutine for the life of the process no matter how often callers hit it.
+var errorDB = sync.OnceValue(func() *sql.DB {
+	return sql.OpenDB(runtimeErrorConnector{})
+})
+
+// queryRowWithError returns a *sql.Row whose Scan reports err.
+func queryRowWithError(ctx context.Context, err error, query string, args ...any) *sql.Row {
+	return errorDB().QueryRowContext(context.WithValue(ctx, runtimeErrorKey{}, err), query, args...)
 }
 
-func (c runtimeErrorConnector) Connect(context.Context) (driver.Conn, error) {
-	return nil, c.err
+type runtimeErrorConnector struct{}
+
+func (runtimeErrorConnector) Connect(ctx context.Context) (driver.Conn, error) {
+	if err, ok := ctx.Value(runtimeErrorKey{}).(error); ok && err != nil {
+		return nil, err
+	}
+
+	return nil, errRuntimeUnusable
 }
 
 func (c runtimeErrorConnector) Driver() driver.Driver {
-	return runtimeErrorDriver(c)
+	return runtimeErrorDriver{}
 }
 
-type runtimeErrorDriver struct {
-	err error
-}
+type runtimeErrorDriver struct{}
 
-func (d runtimeErrorDriver) Open(string) (driver.Conn, error) {
-	return nil, d.err
+func (runtimeErrorDriver) Open(string) (driver.Conn, error) {
+	return nil, errRuntimeUnusable
 }
 
 // ValidateIdentifiersForDialect validates all configured table and column identifiers against the current database dialect.

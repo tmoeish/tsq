@@ -50,8 +50,9 @@ CLI 生成器在 `./cmd/tsq`，可运行示例在 `./examples`。
 - `InVar(nil)` 是显式不匹配，`NInVar(nil)` 是显式全匹配。两者都不会静默去掉过滤条件。
 - 根包和 `dialect` 的导出符号是这个库的产品。`make api-check` 守着它的快照；它变了就回头看
   `skills/tsq`、`README.md`、`docs/` 还真不真实。
-- **代码注释、Go doc、README、`docs/`、`skills/tsq` 用英文**（使用者读）；`CHANGELOG.md`、
-  `AGENTS.md`、本文件和 `.agents/skills/tsq-dev` 用中文（维护者读）。提交信息用英文
+- **代码注释、Go doc 和 `skills/tsq` 用英文**（读者是全世界，`make doc-check` 守着）；
+  README、`docs/`、`CHANGELOG.md`、`CONTRIBUTING.md`、`AGENTS.md`、本文件和
+  `.agents/skills/tsq-dev` 用中文（读者是这个项目的人）。提交信息用英文
   Conventional Commits。
 - 新机器先跑一次 `make hooks`。编辑时跑 `make fmt`，交接前跑 `make harness`——它的权威顺序
   只写在 `AGENTS.md` § 验证与交接。

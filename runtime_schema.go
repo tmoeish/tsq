@@ -3,6 +3,7 @@ package tsq
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -120,6 +121,37 @@ func logForExecutor(ctx context.Context, exec SQLExecutor, level slog.Level, msg
 	}
 
 	logWith(ctx, slog.Default(), level, msg, args...)
+}
+
+// logSQLForExecutor logs a rendered statement and its bound arguments when the
+// executor belongs to a runtime constructed with RuntimeOptions.LogSQL. Executors
+// that carry no runtime (a bare *sql.DB, a WrapExecutor result) have no place to
+// read the setting from, so they never log.
+//
+// Both guards run before compactJSON so that marshalling the arguments is only paid
+// for when the record is actually going to be emitted.
+func logSQLForExecutor(ctx context.Context, exec SQLExecutor, operation, sqlText string, args []any) {
+	rt := runtimeForExecutor(exec)
+	if rt == nil || !rt.logSQL || rt.logger == nil {
+		return
+	}
+
+	if !rt.logger.Enabled(ctx, slog.LevelDebug) {
+		return
+	}
+
+	rt.log(ctx, slog.LevelDebug, operation, "sql", sqlText, "args", compactJSON(args))
+}
+
+// compactJSON marshals a value to compact JSON, returning an empty string when the
+// value cannot be marshalled. It is used for diagnostics only, never for SQL.
+func compactJSON(obj any) string {
+	bs, err := json.Marshal(obj)
+	if err != nil {
+		return ""
+	}
+
+	return string(bs)
 }
 
 func (r *Runtime) applySchemaPolicies(ctx context.Context) error {

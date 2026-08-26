@@ -467,6 +467,14 @@ func assignMutationID(field reflect.Value, id int64) {
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		field.SetInt(id)
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		// LastInsertId is int64 and a driver reporting a negative id would wrap into a
+		// huge unsigned key here. Generated keys are positive, so a negative one means
+		// the driver could not report an id; leaving the field at its zero value says
+		// "unknown", which is what the caller can actually check for.
+		if id < 0 {
+			return
+		}
+
 		field.SetUint(uint64(id))
 	}
 }

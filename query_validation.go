@@ -42,17 +42,7 @@ func normalizePageReqWithLimit(page *PageRequest, maxSize int) *PageRequest {
 	}
 
 	normalized := *page
-	if normalized.Page <= 0 {
-		normalized.Page = 1
-	}
-
-	if normalized.Size <= 0 {
-		normalized.Size = defaultPageSize
-	}
-
-	if normalized.Size > maxSize {
-		normalized.Size = maxSize
-	}
+	_ = normalized.NormalizeWithLimit(maxSize)
 
 	return &normalized
 }
@@ -121,7 +111,10 @@ func quoteBuiltInIdentifier(name string) (string, error) {
 	}
 
 	if len(name) > 50 {
-		slog.Warn("identifier is unusually long", "identifier", name, "length", len(name))
+		// Identifiers are quoted while Build() renders SQL, which happens before any
+		// executor or runtime is in play, so there is no RuntimeOptions.Logger to route
+		// this to. Dialect-specific length limits are enforced later, at execution time.
+		slog.Default().Warn("identifier is unusually long", "identifier", name, "length", len(name))
 	}
 
 	return rawIdentifier(name), nil

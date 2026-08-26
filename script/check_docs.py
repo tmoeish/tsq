@@ -54,6 +54,14 @@ API_SECTION: Final = re.compile(r"^## (?P<name>\S+)$", re.MULTILINE)
 CJK: Final = re.compile(r"[\u4e00-\u9fff]")
 CJK_EXEMPT_DIRS: Final = (Path("examples"),)
 
+# `skills/tsq` 随发布分发给使用者，被别的项目安装进 `.agents/skills/`，读者是全世界的
+# 开发者和他们的 agent——所以它必须是英文。README、docs/、CHANGELOG.md、CONTRIBUTING.md
+# 面向的是本项目的中文读者，AGENTS.md § Go 代码风格 写明了这条分界，这里只守英文那一侧。
+#
+# 这道门存在的理由：分界线在 AGENTS.md 里写了几个月，而 README 和 docs/ 一直是中文，
+# 没有任何东西发现过。没有门的规则不是规则。
+ENGLISH_ONLY_DOC_DIRS: Final = (Path("skills/tsq"),)
+
 class DocsError(RuntimeError):
     """文档引用了不存在的 make 目标时抛出。"""
 
@@ -186,9 +194,43 @@ def check_go_source_language() -> list[str]:
     return lines
 
 
+def check_shipped_skill_language() -> list[str]:
+    documents = sorted(
+        path
+        for path in git_paths(["ls-files", "-z", "--cached", "--others", "--exclude-standard", "*.md"])
+        if path.suffix == ".md" and any(under(path, d) for d in ENGLISH_ONLY_DOC_DIRS)
+    )
+
+    offenders: list[str] = []
+    for path in documents:
+        for number, line in enumerate((PROJECT_ROOT / path).read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+            if CJK.search(line):
+                offenders.append(f"{path.as_posix()}:{number}: {line.strip()}")
+
+    if not offenders:
+        print(f"文档检查通过：{len(documents)} 个随发布分发的技能文件没有中文。")
+
+        return []
+
+    shown = offenders[:20]
+    lines = [
+        "随发布分发的技能里有中文（`skills/tsq` 装进别人的项目，读者是全世界的开发者，必须是英文）："
+    ]
+    lines.extend(f"  - {item}" for item in shown)
+    if len(offenders) > len(shown):
+        lines.append(f"  ……另外还有 {len(offenders) - len(shown)} 处")
+
+    return lines
+
+
 def main() -> int:
     failures: list[str] = []
-    for check in (check_make_targets, check_api_references, check_go_source_language):
+    for check in (
+        check_make_targets,
+        check_api_references,
+        check_go_source_language,
+        check_shipped_skill_language,
+    ):
         failures.extend(check())
 
     if not failures:

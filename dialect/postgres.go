@@ -103,20 +103,23 @@ func (d PostgresDialect) ValidateIdentifier(identifier string) error {
 	return validateDialectIdentifier(identifier, d.Name(), maxIdentifierLengthPostgreSQL)
 }
 
+// postgresCapabilities is PostgreSQL's position on every capability in
+// AllCapabilities. It supports all of them at every version TSQ targets, but the
+// entries are still spelled out one per line: a future capability must be an explicit
+// decision here too, not something PostgreSQL inherits by being the permissive one.
+var postgresCapabilities = map[Capability]bool{
+	CapabilityCTE:                 true,
+	CapabilityExcept:              true,
+	CapabilityFullOuterJoin:       true,
+	CapabilityIntersect:           true,
+	CapabilitySelectForUpdate:     true,
+	CapabilitySelectForShare:      true,
+	CapabilitySelectForNoWait:     true,
+	CapabilitySelectForSkipLocked: true,
+}
+
 func (d PostgresDialect) SupportsCapability(capability Capability) bool {
-	switch canonicalCapabilityName(string(capability)) {
-	case CapabilityCTE,
-		CapabilityExcept,
-		CapabilityFullOuterJoin,
-		CapabilityIntersect,
-		CapabilitySelectForUpdate,
-		CapabilitySelectForShare,
-		CapabilitySelectForNoWait,
-		CapabilitySelectForSkipLocked:
-		return true
-	default:
-		return false
-	}
+	return capabilitySupport(postgresCapabilities, capability)
 }
 
 func (d PostgresDialect) BatchInsertStartID(lastID, rowsAffected int64) (int64, bool) {

@@ -527,6 +527,8 @@ Useful rules:
 
 - prefer `Validate()` for external API input
 - use `Normalize()` only when compatibility-style fallback behavior is desired
+- `Validate()` and `Normalize()` check `Size` against `tsq.DefaultMaxPageSize` (1000), the absolute ceiling. A runtime built with `RuntimeOptions.MaxPageSize` clamps further at execution time, so a handler that wants both sides to agree should call `ValidateWithLimit(runtime.MaxPageSize())` or `NormalizeWithLimit(runtime.MaxPageSize())` instead
+- `Page` is capped at `tsq.MaxPageNumber` (1000000). `Validate()` rejects anything past it; `Offset()` clamps to the last valid page, so validate first if an out-of-range page should be an error rather than the last page
 - use `Offset()` instead of hand-calculating offset
 - use `HasNext()` / `HasPrev()` for UI navigation logic
 - use `pageReq.Response(total, data)` when constructing a typed response outside `query.Page`; `NewPageResponse` is a deprecated compatibility wrapper
@@ -566,6 +568,7 @@ All methods take an explicit `context.Context` and a `SQLExecutor`.
 - `RuntimeOptions.IdentifierValidationMode` is `tsq.IdentifierValidationStrict` by default (bootstrap fails on identifiers longer than the dialect allows); `IdentifierValidationWarn` logs instead, `IdentifierValidationSkip` disables the check
 - `RuntimeOptions.MaxPageSize` caps `PageRequest.Size` for paged queries on that runtime (default `tsq.DefaultMaxPageSize`, 1000)
 - `RuntimeOptions.Logger` receives bootstrap DDL and execution-time warnings (for example a skipped batch-insert ID assignment); it defaults to `slog.Default()`
+- `RuntimeOptions.LogSQL` logs every rendered statement and its bound arguments through `Logger` at debug level. It is off by default and logs arguments verbatim, so leave it off wherever query parameters carry secrets or personal data. Only executors that belong to a runtime log; a bare `*sql.DB` or a `WrapExecutor` result has no runtime to read the setting from
 
 ### Transactions
 
@@ -597,6 +600,7 @@ Useful rules:
 
 - transaction boundaries stay explicit
 - `ChunkedInsert`, `ChunkedUpdate`, and `ChunkedDelete` do not silently create outer transactions
+- `ChunkSize` (default 1000) is an upper bound on rows per statement, not an exact batch size. A batch statement binds roughly one placeholder per column per row and PostgreSQL caps a bound statement at 65535 parameters, so wide tables are chunked smaller automatically. Chunk sizes are never raised, and never fall below one row per statement
 - automatic optimistic-lock retries can be configured with `TxOptions`
 
 ## 10. Aliases, rebinding, and result mapping
@@ -657,6 +661,21 @@ Important examples:
 - CTEs, `INTERSECT`, and `EXCEPT` run on all three built-in dialects; TSQ does not probe server versions, so MySQL 5.7 (end of life) gets a database error instead of `ErrUnsupportedCapability`
 
 Do not claim that a query is portable just because it builds.
+
+### Checking support ahead of execution
+
+`dialect.AllCapabilities()` lists every capability TSQ knows about, and
+`runtime.SQLDialect().SupportsCapability(cap)` answers for one of them. Use them to
+gate a feature before building a query that will fail at execution:
+
+```go
+if runtime.SQLDialect().SupportsCapability(dialect.CapabilityFullOuterJoin) {
+	// build the FULL JOIN variant
+}
+```
+
+Every dialect takes an explicit position on every capability, so an unrecognized
+capability name is reported as unsupported rather than quietly allowed.
 
 ## 13. Optimistic locking
 

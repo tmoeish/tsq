@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	_ "modernc.org/sqlite"
+
+	tsqdialect "github.com/tmoeish/tsq/v4/dialect"
 )
 
 type queryOwner struct{}
@@ -141,7 +143,7 @@ func TestQueryBuilder_Build_FullJoinDefersDialectValidationToExecution(t *testin
 		t.Fatalf("expected FULL JOIN build to succeed, got %v", err)
 	}
 	db, _ := newSQLiteIndexTestEngine(t)
-	db.dialect = MySQLDialect{}
+	db.dialect = tsqdialect.MySQLDialect{}
 	err = validateOperationalExecutorForSQL(db, query.listSQL)
 	if err == nil {
 		t.Fatal("expected mysql dialect validation to reject FULL JOIN")
@@ -170,7 +172,7 @@ func TestQueryBuilder_Build_ForUpdateDefersDialectValidationToExecution(t *testi
 
 func TestQueryBuilder_Build_ForShareNoWaitDefersDialectValidationToExecution(t *testing.T) {
 	db := newInVarEngine(t)
-	db.dialect = MySQLDialect{}
+	db.dialect = tsqdialect.MySQLDialect{}
 	users := newMockTable("users")
 	userID := newColForTable[Table, string](users, "id", "id", nil)
 	query := mustBuild(Select(userID).From(userID.Table()).ForShare().NoWait())
@@ -249,10 +251,10 @@ func TestQueryBuilder_Build_CTEExecutionOnSQLite(t *testing.T) {
 // unsupported. All three built-in dialects now accept CTEs and set operations, so
 // the "validation is deferred to execution" tests need a dialect that still rejects them.
 type noCapabilityDialect struct {
-	MySQLDialect
+	tsqdialect.MySQLDialect
 }
 
-func (noCapabilityDialect) SupportsCapability(DialectCapability) bool { return false }
+func (noCapabilityDialect) SupportsCapability(tsqdialect.Capability) bool { return false }
 
 func TestQueryBuilder_Build_CTEDefersDialectValidationToExecution(t *testing.T) {
 	db := newInVarEngine(t)
@@ -441,7 +443,7 @@ func newScanValidationEngine(t *testing.T) *Runtime {
 	if _, err := db.Exec("CREATE TABLE users (name TEXT)"); err != nil {
 		t.Fatalf("failed to create users table: %v", err)
 	}
-	return newRuntimeWithDB(db, SQLiteDialect{})
+	return newRuntimeWithDB(db, tsqdialect.SQLiteDialect{})
 }
 
 func newInVarEngine(t *testing.T) *Runtime {
@@ -459,7 +461,7 @@ func newInVarEngine(t *testing.T) *Runtime {
 	`); err != nil {
 		t.Fatalf("failed to seed users table: %v", err)
 	}
-	return newRuntimeWithDB(db, SQLiteDialect{})
+	return newRuntimeWithDB(db, tsqdialect.SQLiteDialect{})
 }
 
 func newEngineWithoutDialect(t *testing.T) *sql.DB {

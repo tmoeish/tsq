@@ -42,7 +42,9 @@
 
 - **结构**校验（列属于哪张表、聚合合不合法）→ `query_validation.go` / `query_plan_validate.go`，
   在 `Build()` 时跑。
-- **方言能力**校验（CTE、FULL JOIN、行锁）→ `dialect_validation.go`，在**执行**时跑。
+- **方言能力**校验（CTE、FULL JOIN、行锁）→ `query_validation.go` 的
+  `detectSQLCapabilities` + `dialect.ValidateCapability`，在**执行**时跑。
+  （`dialect_validation.go` 只剩标识符校验。）
 
 把方言校验提前到 `Build()` 会断掉"一个 `*Query` 在多个方言上复用"这个用法。
 
@@ -67,6 +69,49 @@
   SQLite），和 `INSERT ... RETURNING` + 按顺序扫描（返回非空 `LastInsertIdReturningSuffix`
   的方言，即 PostgreSQL）。改任何一条要看 `TestEngineInsertAssignsIDsThroughReturningClause`
   和 `integration_test.go` 的 CRUD 用例。
+
+## 在执行路径上加了一个日志或诊断出口
+
+- 必须走 `logForExecutor` / `logSQLForExecutor`（`runtime_schema.go`），**不要直接调
+  `slog.*`**。使用者配了 `RuntimeOptions.Logger` 就是要所有执行期输出都进那个 Logger，
+  少接一处等于那一处对他不存在。
+- 加完 grep 一遍确认没漏（**只扫根包和 `dialect/`**——`internal/parser` 是生成器，
+  跑在 `tsq` CLI 里，那儿根本没有 runtime，用 `slog` 是对的）：
+
+  ```bash
+  grep -n 'slog\.\(Info\|Warn\|Error\|Debug\)' *.go dialect/*.go | grep -v _test
+  ```
+
+  **应该一条都不命中。** 确实拿不到执行器的地方（`Build()` 期、Runtime 还没组装完）
+  写成 `slog.Default().Warn(...)` 并在旁边注明理由——它不匹配上面这条 grep，所以
+  "无意中直调"和"有意的例外"在形式上就分得开。当前的两处例外是
+  `query_validation.go` 的 `quoteBuiltInIdentifier` 和 `trace.go` 的 `appendTracers`。
+- `logForExecutor` 引入时只接了三个调用点，读路径八处 SQL 日志和两处 rows.Close 告警
+  一直在直调 `slog.*`，规则在 `architecture.md` 里写了却没人执行。**"加了个统一出口"
+  不等于"接完了"，接完的判据是那条 grep。**
+
+## 新增了一个"开关 + 若干消费点"的特性
+
+- 开关必须从**导出的** `RuntimeOptions` 字段一路接到消费点。中途任何一段不可达，
+  那个特性在发布出去的库里就不存在，而源码看着像它能用。
+- 判据同"给 `Dialect` 接口加了钩子"那条：**grep 一遍调用方**。只被 `_test.go` 引用的
+  未导出符号是这类缺陷的典型形态——`unused` linter 看不见它（测试里的引用算使用），
+  所以 grep 时要显式排除 `_test.go`。
+- `printSQL` context key 加它的三个未导出 tracer 就是这样活了很久：八处
+  `ctx.Value(printSQL)` 在库里永远为假，唯一能设置它的 `printSQLTracer` 没导出。
+
+## 加了或改了 `Capability` 常量
+
+- `dialect/dialect.go` 的 `AllCapabilities()` 加一行，**三张方言表
+  （`mysqlCapabilities` / `postgresCapabilities` / `sqliteCapabilities`）各加一行**，
+  true/false 都要显式写出来。`[门禁: dialect/capability_test.go 的
+  TestDialectsCoverAllCapabilities]`
+- `SupportsCapability` 只做查表，**不要再引入 `default` 分支**——那正是这道门要挡的东西。
+- `displayCapabilityName` 和 `unsupportedCapabilityHint` 也要加分支，否则错误信息里
+  是原始的枚举串而不是使用者认得的 SQL 语法。
+- 别名（`FULL JOIN` → `FULL_OUTER_JOIN` 之类）加进 `canonicalCapabilityName`。
+  **根包不要复制这个函数**：曾经有过一份逐行副本，只被自己的测试撑着。
+- 其余按下面"新增或改动方言能力位"那条走完。
 
 ## 改了驱动错误分类（`*_errors.go`、`IsRetryable*`）
 
@@ -135,6 +180,17 @@
 - `skills/tsq` 和 `docs/` 里的代码片段是从示例抄的，示例变了片段要跟着变。
   `[门禁: skill-check examples]`
 - 三个示例程序各有 `main_test.go`，别只改 `main.go`。
+
+## 改了面向使用者的文档（README、`docs/`、`skills/tsq`）
+
+- **实质内容只有一个归宿**：`skills/tsq/references/` 是"怎么用这个库"的唯一来源，
+  `docs/` 只做索引指过去。`docs/concepts.md` 和 `docs/quickstart.md` 曾各自把同样的内容
+  重写了一遍，两份必然漂移，而漂移之后更糟的是看起来还对的那份。
+- 语言按**读者**划：`skills/tsq` 随发布装进别人的项目，必须英文；README、`docs/`、
+  `CHANGELOG.md`、`CONTRIBUTING.md` 面向本项目读者，中文。
+  `[门禁: doc-check 的 check_shipped_skill_language]`
+- 这条规则在 `AGENTS.md` 里写反了好几个月（要求 README 和 `docs/` 英文，而它们一直是
+  中文），没有任何东西发现过。**没有门的规则不是规则**——改语言规则就要同时改那道门。
 
 ## 改了 harness（`script/`、`Makefile`、CI）
 

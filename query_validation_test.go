@@ -6,13 +6,15 @@ import (
 	"testing"
 
 	_ "modernc.org/sqlite"
+
+	tsqdialect "github.com/tmoeish/tsq/v4/dialect"
 )
 
 func TestRenderSQLForDialectPostgres(t *testing.T) {
 	users := newMockTable("users")
 	userID := newColForTable[Table, int](users, "id", "id", nil)
 	query := mustBuild(Select(userID).From(userID.Table()).Where(userID.EQVar()))
-	got := renderSQLForDialect(query.listSQL, PostgresDialect{})
+	got := renderSQLForDialect(query.listSQL, tsqdialect.PostgresDialect{})
 	want := `SELECT "users"."id" FROM "users" WHERE "users"."id" = $1`
 	if got != want {
 		t.Fatalf("expected postgres SQL %q, got %q", want, got)
@@ -24,7 +26,7 @@ func TestRenderDeleteByIDsSQLForPostgres(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	got := renderSQLForDialect(sqlStr, PostgresDialect{})
+	got := renderSQLForDialect(sqlStr, tsqdialect.PostgresDialect{})
 	want := `DELETE FROM "users" WHERE "id" IN ($1,$2)`
 	if got != want {
 		t.Fatalf("expected postgres delete SQL %q, got %q", want, got)
@@ -66,9 +68,9 @@ func TestValidateIdentifierLength(t *testing.T) {
 	tests := []struct {
 		name       string
 		identifier string
-		dialect    Dialect
+		dialect    tsqdialect.Dialect
 		wantErr    bool
-	}{{name: "valid identifier - mysql", identifier: "users", dialect: MySQLDialect{}, wantErr: false}, {name: "valid identifier - postgres", identifier: "users", dialect: PostgresDialect{}, wantErr: false}, {name: "max length postgres (63)", identifier: "a" + strings.Repeat("b", 62), dialect: PostgresDialect{}, wantErr: false}, {name: "exceeds max postgres (64 > 63)", identifier: strings.Repeat("a", 64), dialect: PostgresDialect{}, wantErr: true}, {name: "max length mysql (64)", identifier: strings.Repeat("a", 64), dialect: MySQLDialect{}, wantErr: false}, {name: "exceeds max mysql (65 > 64)", identifier: strings.Repeat("a", 65), dialect: MySQLDialect{}, wantErr: true}, {name: "sqlite has no limit", identifier: strings.Repeat("a", 200), dialect: SQLiteDialect{}, wantErr: false}, {name: "empty identifier", identifier: "", dialect: MySQLDialect{}, wantErr: true}, {name: "nil dialect skips length validation", identifier: strings.Repeat("a", 100), dialect: nil, wantErr: false}}
+	}{{name: "valid identifier - mysql", identifier: "users", dialect: tsqdialect.MySQLDialect{}, wantErr: false}, {name: "valid identifier - postgres", identifier: "users", dialect: tsqdialect.PostgresDialect{}, wantErr: false}, {name: "max length postgres (63)", identifier: "a" + strings.Repeat("b", 62), dialect: tsqdialect.PostgresDialect{}, wantErr: false}, {name: "exceeds max postgres (64 > 63)", identifier: strings.Repeat("a", 64), dialect: tsqdialect.PostgresDialect{}, wantErr: true}, {name: "max length mysql (64)", identifier: strings.Repeat("a", 64), dialect: tsqdialect.MySQLDialect{}, wantErr: false}, {name: "exceeds max mysql (65 > 64)", identifier: strings.Repeat("a", 65), dialect: tsqdialect.MySQLDialect{}, wantErr: true}, {name: "sqlite has no limit", identifier: strings.Repeat("a", 200), dialect: tsqdialect.SQLiteDialect{}, wantErr: false}, {name: "empty identifier", identifier: "", dialect: tsqdialect.MySQLDialect{}, wantErr: true}, {name: "nil dialect skips length validation", identifier: strings.Repeat("a", 100), dialect: nil, wantErr: false}}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := validateIdentifierLength(tt.identifier, tt.dialect)
@@ -79,7 +81,7 @@ func TestValidateIdentifierLength(t *testing.T) {
 	}
 }
 
-func firstRejectedIdentifier(t *testing.T, dialect Dialect, ch string) string {
+func firstRejectedIdentifier(t *testing.T, dialect tsqdialect.Dialect, ch string) string {
 	t.Helper()
 
 	identifier := ch
@@ -99,10 +101,10 @@ func TestValidateIdentifierForDialect(t *testing.T) {
 	tests := []struct {
 		name       string
 		identifier string
-		dialect    Dialect
+		dialect    tsqdialect.Dialect
 		wantErr    bool
 		errContent string
-	}{{name: "valid identifier - mysql", identifier: "users", dialect: MySQLDialect{}, wantErr: false}, {name: "valid identifier - postgres", identifier: "users_table", dialect: PostgresDialect{}, wantErr: false}, {name: "starts with underscore", identifier: "_internal", dialect: MySQLDialect{}, wantErr: false}, {name: "invalid - starts with number", identifier: "123users", dialect: MySQLDialect{}, wantErr: true, errContent: "invalid SQL identifier"}, {name: "invalid - contains hyphen", identifier: "user-table", dialect: MySQLDialect{}, wantErr: true, errContent: "invalid SQL identifier"}, {name: "exceeds postgres limit", identifier: strings.Repeat("a", 64), dialect: PostgresDialect{}, wantErr: true, errContent: "exceeds"}, {name: "at mysql limit (64)", identifier: strings.Repeat("x", 64), dialect: MySQLDialect{}, wantErr: false}, {name: "empty identifier", identifier: "", dialect: MySQLDialect{}, wantErr: true, errContent: "cannot be empty"}}
+	}{{name: "valid identifier - mysql", identifier: "users", dialect: tsqdialect.MySQLDialect{}, wantErr: false}, {name: "valid identifier - postgres", identifier: "users_table", dialect: tsqdialect.PostgresDialect{}, wantErr: false}, {name: "starts with underscore", identifier: "_internal", dialect: tsqdialect.MySQLDialect{}, wantErr: false}, {name: "invalid - starts with number", identifier: "123users", dialect: tsqdialect.MySQLDialect{}, wantErr: true, errContent: "invalid SQL identifier"}, {name: "invalid - contains hyphen", identifier: "user-table", dialect: tsqdialect.MySQLDialect{}, wantErr: true, errContent: "invalid SQL identifier"}, {name: "exceeds postgres limit", identifier: strings.Repeat("a", 64), dialect: tsqdialect.PostgresDialect{}, wantErr: true, errContent: "exceeds"}, {name: "at mysql limit (64)", identifier: strings.Repeat("x", 64), dialect: tsqdialect.MySQLDialect{}, wantErr: false}, {name: "empty identifier", identifier: "", dialect: tsqdialect.MySQLDialect{}, wantErr: true, errContent: "cannot be empty"}}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := validateIdentifierForDialect(tt.identifier, tt.dialect)

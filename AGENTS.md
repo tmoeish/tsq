@@ -11,12 +11,18 @@
 - `.agents/skills/tsq-dev` 包含**开发本仓的工程上下文** —— `architecture.md`、
   `feature-map.md`、`codegen.md`、`change-impact.md`、`release.md`，以及
   `references/memory.md` 里带日期的事故与决策。
-- `skills/tsq`（仓库根，随发布分发）包含**给 TSQ 使用者的说明书**。它描述契约，不描述
-  实现。
-- `README.md`、`docs/`、`CHANGELOG.md` 是面向使用者的产品文档。
+- `skills/tsq`（仓库根，随发布分发）包含**给 TSQ 使用者的说明书**，是"怎么用这个库"的
+  **唯一实质来源**。它描述契约，不描述实现。
+- `README.md` 是入口和总览，`CHANGELOG.md` 是发布历史。
+- `docs/` 是**给浏览本仓库的人的索引**，不是第二份说明书。`docs/concepts.md` 和
+  `docs/quickstart.md` 指向 `skills/tsq/references/` 里对应的那份，`docs/skill.md` 讲
+  怎么安装那份技能。它们曾经各自展开写过一遍同样的内容，两边就此开始漂移——
+  **实质内容只许有一个归宿**。
 - `CONTRIBUTING.md` 是**给外部贡献者**的：从 fork 到 PR 合入需要知道的全部，不含项目内存、
   技能维护和发版这些只有维护者才做的事。它和本文件有意重叠的部分只有分支命名、提交规范和
   `make harness`——**其余一律交叉引用，不复制**。
+- `BEST_PRACTICES.md` 和 `MIGRATION_GUIDE.md` 属于面向使用者的产品文档，和 `README.md`
+  一起在"改了根包导出符号"那条触发器下更新（见 `change-impact.md`）。
 
 重复的语句是注定漂移的语句。交叉引用，不要复制。
 
@@ -119,9 +125,13 @@
 - 所有 DB 操作第一个参数是 `context.Context`。
 - 用 `%w` 包装错误。
 - 注释只记录导出行为和不明显的约束。不要逐行叙述代码在做什么。
-- **代码注释、Go doc、README、`docs/` 和 `skills/tsq` 用英文**——这是一个公开的库，
-  这些是使用者读的东西。`CHANGELOG.md`、`AGENTS.md`、`CLAUDE.md` 和
-  `.agents/skills/tsq-dev` 用中文，它们的读者是维护者。
+- **代码注释、Go doc 和 `skills/tsq` 用英文**——它们的读者是全世界。Go doc 出现在
+  pkg.go.dev 上，错误文案出现在使用者的日志里，`skills/tsq` 被 `gh skill install`
+  装进别人的项目。这一侧由 `make doc-check` 守着。
+- **README、`docs/`、`CHANGELOG.md`、`CONTRIBUTING.md`、`AGENTS.md`、`CLAUDE.md` 和
+  `.agents/skills/tsq-dev` 用中文**——它们的读者是这个项目的人。
+- 这条分界线按**读者**划，不按"对内/对外"划：`docs/` 是给浏览本仓库的人看的散文，
+  `skills/tsq` 是随发布分发出去的说明书，所以后者是英文而前者不是。
 
 ## 语言与提交
 

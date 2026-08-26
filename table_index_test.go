@@ -7,9 +7,11 @@ import (
 	"testing"
 
 	_ "modernc.org/sqlite"
+
+	tsqdialect "github.com/tmoeish/tsq/v4/dialect"
 )
 
-func inspectRegisteredIndex(t *testing.T, db *Runtime, table, idx string) (IndexDefinition, bool) {
+func inspectRegisteredIndex(t *testing.T, db *Runtime, table, idx string) (tsqdialect.IndexDefinition, bool) {
 	t.Helper()
 
 	definition, found, err := db.SQLDialect().InspectIndexDefinition(context.Background(), db, table, idx)
@@ -50,20 +52,20 @@ func newRegisteredIndexRuntime(
 }
 
 func TestUpsertIndexRejectsInvalidIdentifiers(t *testing.T) {
-	err := upsertIndex(context.Background(), nil, MySQLDialect{}, IndexInitUpsert, "users;drop", false, "idx_users_id", []string{"id"})
+	err := upsertIndex(context.Background(), nil, tsqdialect.MySQLDialect{}, IndexInitUpsert, "users;drop", false, "idx_users_id", []string{"id"})
 	if err == nil {
 		t.Fatal("expected nil db to return an error")
 	}
 	db, _ := newSQLiteIndexTestEngine(t)
-	err = upsertIndex(context.Background(), db.DB(), MySQLDialect{}, IndexInitUpsert, "users;drop", false, "idx_users_id", []string{"id"})
+	err = upsertIndex(context.Background(), db.DB(), tsqdialect.MySQLDialect{}, IndexInitUpsert, "users;drop", false, "idx_users_id", []string{"id"})
 	if err == nil {
 		t.Fatal("expected invalid table name to return an error")
 	}
-	err = upsertIndex(context.Background(), db.DB(), MySQLDialect{}, IndexInitUpsert, "users", false, "idx users id", []string{"id"})
+	err = upsertIndex(context.Background(), db.DB(), tsqdialect.MySQLDialect{}, IndexInitUpsert, "users", false, "idx users id", []string{"id"})
 	if err == nil {
 		t.Fatal("expected invalid index name to return an error")
 	}
-	err = upsertIndex(context.Background(), db.DB(), MySQLDialect{}, IndexInitUpsert, "users", false, "idx_users_id", []string{"id", "name desc"})
+	err = upsertIndex(context.Background(), db.DB(), tsqdialect.MySQLDialect{}, IndexInitUpsert, "users", false, "idx_users_id", []string{"id", "name desc"})
 	if err == nil {
 		t.Fatal("expected invalid field name to return an error")
 	}
@@ -71,14 +73,14 @@ func TestUpsertIndexRejectsInvalidIdentifiers(t *testing.T) {
 
 func TestUpsertIndexRejectsEmptyFields(t *testing.T) {
 	db, _ := newSQLiteIndexTestEngine(t)
-	err := upsertIndex(context.Background(), db.DB(), MySQLDialect{}, IndexInitUpsert, "users", false, "idx_users_id", nil)
+	err := upsertIndex(context.Background(), db.DB(), tsqdialect.MySQLDialect{}, IndexInitUpsert, "users", false, "idx_users_id", nil)
 	if err == nil {
 		t.Fatal("expected empty index fields to return an error")
 	}
 }
 
 func TestUpsertIndexRejectsNilDB(t *testing.T) {
-	err := upsertIndex(context.Background(), nil, MySQLDialect{}, IndexInitUpsert, "users", false, "idx_users_id", []string{"id"})
+	err := upsertIndex(context.Background(), nil, tsqdialect.MySQLDialect{}, IndexInitUpsert, "users", false, "idx_users_id", []string{"id"})
 	if err == nil {
 		t.Fatal("expected nil db to return an error")
 	}
@@ -231,7 +233,7 @@ func TestValidateIdentifiersForDialect(t *testing.T) {
 
 func TestValidateIdentifiersForDialectChecksTableColumns(t *testing.T) {
 	_, dsn := newSQLiteIndexTestEngine(t)
-	longColumnName := firstRejectedIdentifier(t, MySQLDialect{}, "c")
+	longColumnName := firstRejectedIdentifier(t, tsqdialect.MySQLDialect{}, "c")
 	table, _ := newStrictMockTable("users", longColumnName)
 
 	r, err := NewRuntime(
@@ -243,7 +245,7 @@ func TestValidateIdentifiersForDialectChecksTableColumns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRuntime() error = %v", err)
 	}
-	r.dialect = MySQLDialect{}
+	r.dialect = tsqdialect.MySQLDialect{}
 
 	err = r.ValidateIdentifiersForDialect()
 	if err == nil {
@@ -256,7 +258,7 @@ func TestValidateIdentifiersForDialectChecksTableColumns(t *testing.T) {
 
 func TestValidateIdentifiersForDialectChecksIndexNames(t *testing.T) {
 	_, dsn := newSQLiteIndexTestEngine(t)
-	longIndexName := firstRejectedIdentifier(t, MySQLDialect{}, "i")
+	longIndexName := firstRejectedIdentifier(t, tsqdialect.MySQLDialect{}, "i")
 	table, _ := newStrictMockTable("users", "id")
 
 	r, err := NewRuntime(
@@ -271,7 +273,7 @@ func TestValidateIdentifiersForDialectChecksIndexNames(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewRuntime() error = %v", err)
 	}
-	r.dialect = MySQLDialect{}
+	r.dialect = tsqdialect.MySQLDialect{}
 
 	err = r.ValidateIdentifiersForDialect()
 	if err == nil {

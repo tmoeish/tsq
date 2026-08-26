@@ -17,13 +17,6 @@ type querySpec[O Owner] struct {
 	SetOps        []setOperation[O] // SetOps stores UNION/INTERSECT/EXCEPT operations appended to the query.
 }
 
-func (spec querySpec[O]) selectCount() int        { return len(spec.Selects) }
-func (spec querySpec[O]) filterCount() int        { return len(spec.Filters) }
-func (spec querySpec[O]) joinCount() int          { return len(spec.Joins) }
-func (spec querySpec[O]) groupCount() int         { return len(spec.GroupBy) }
-func (spec querySpec[O]) havingCount() int        { return len(spec.Having) }
-func (spec querySpec[O]) keywordSearchCount() int { return len(spec.KeywordSearch) }
-
 type queryPlan struct {
 	cntSQL     string
 	listSQL    string

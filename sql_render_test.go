@@ -2,6 +2,8 @@ package tsq
 
 import (
 	"testing"
+
+	tsqdialect "github.com/tmoeish/tsq/v4/dialect"
 )
 
 func TestRenderCanonicalSQLPreservesIdentifierMarkersInsideStringLiterals(t *testing.T) {
@@ -22,7 +24,7 @@ func TestRenderSQLForDialectPreservesIdentifierMarkersInsideEscapedStringLiteral
 		" WHERE note = 'it''s __tsq_ident__(literal_name)?' AND " +
 		rawQualifiedIdentifier("users", "id") + " = ?"
 
-	got := renderSQLForDialect(raw, PostgresDialect{})
+	got := renderSQLForDialect(raw, tsqdialect.PostgresDialect{})
 	want := `SELECT "users"."name" WHERE note = 'it''s __tsq_ident__(literal_name)?' AND "users"."id" = $1`
 
 	if got != want {
@@ -50,7 +52,7 @@ func TestRenderSQLForDialectPreservesQuestionMarksInsideComments(t *testing.T) {
 		" WHERE " + rawQualifiedIdentifier("users", "id") + " = ?" +
 		" -- trailing ? __tsq_ident__(ignored_tail)\n"
 
-	got := renderSQLForDialect(raw, PostgresDialect{})
+	got := renderSQLForDialect(raw, tsqdialect.PostgresDialect{})
 	want := `SELECT "users"."name" /* comment ? __tsq_ident__(ignored_name) */ WHERE "users"."id" = $1 -- trailing ? __tsq_ident__(ignored_tail)` + "\n"
 
 	if got != want {
@@ -76,7 +78,7 @@ func TestRenderSQLForDialectPreservesQuestionMarksInsideDollarQuotedStrings(t *t
 		rawQualifiedIdentifier("users", "id") + " FROM " + rawIdentifier("users") +
 		" WHERE " + rawQualifiedIdentifier("users", "id") + " = ?"
 
-	got := renderSQLForDialect(raw, PostgresDialect{})
+	got := renderSQLForDialect(raw, tsqdialect.PostgresDialect{})
 	want := `SELECT $body$? __tsq_ident__(ignored_name)$body$ AS note, "users"."id" FROM "users" WHERE "users"."id" = $1`
 
 	if got != want {
@@ -101,7 +103,7 @@ func TestRenderSQLForDialectHandlesIdentifiersContainingMarkerSuffix(t *testing.
 		" FROM " + rawIdentifier("team)") +
 		" WHERE " + rawQualifiedIdentifier("team)", "id)") + " = ?"
 
-	got := renderSQLForDialect(raw, PostgresDialect{})
+	got := renderSQLForDialect(raw, tsqdialect.PostgresDialect{})
 	want := `SELECT "team)"."id)" FROM "team)" WHERE "team)"."id)" = $1`
 
 	if got != want {

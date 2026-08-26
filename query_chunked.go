@@ -10,7 +10,10 @@ import (
 
 // ChunkedOptions configures chunked update and delete helpers.
 type ChunkedOptions struct {
-	ChunkSize int // ChunkSize is the number of items per statement; zero means 1000.
+	// ChunkSize is the number of items per statement; zero means 1000. It is an upper
+	// bound, not an exact batch size: wide tables are chunked smaller so that a single
+	// statement stays within maxBindParamsPerStatement.
+	ChunkSize int
 }
 
 // DefaultChunkedOptions returns the default chunked execution options.
@@ -22,7 +25,10 @@ func DefaultChunkedOptions() *ChunkedOptions {
 
 // ChunkedInsertOptions configures ChunkedInsert.
 type ChunkedInsertOptions struct {
-	ChunkSize    int  // ChunkSize is the number of items per statement; zero means 1000.
+	// ChunkSize is the number of items per statement; zero means 1000. It is an upper
+	// bound, not an exact batch size: wide tables are chunked smaller so that a single
+	// statement stays within maxBindParamsPerStatement.
+	ChunkSize    int
 	IgnoreErrors bool // IgnoreErrors skips duplicate-key failures and continues with the remaining items.
 }
 
@@ -32,6 +38,42 @@ func DefaultChunkedInsertOptions() *ChunkedInsertOptions {
 		ChunkSize:    DefaultChunkedOptions().ChunkSize,
 		IgnoreErrors: false,
 	}
+}
+
+// maxBindParamsPerStatement is the tightest per-statement placeholder ceiling among
+// the supported databases: the PostgreSQL wire protocol encodes the parameter count as
+// an int16, capping a bound statement at 65535 parameters.
+//
+// A chunk size counts rows, but the database counts placeholders, and a batch
+// statement binds roughly one per column per row. A 1000-row chunk of a 70-column
+// table is 70000 placeholders and fails outright, so the row count alone is not a safe
+// unit to chunk by.
+const maxBindParamsPerStatement = 65535
+
+// effectiveChunkSize lowers a row-count chunk size so one statement stays inside
+// maxBindParamsPerStatement. It never raises the caller's chunk size and never returns
+// less than one row per statement.
+func effectiveChunkSize(chunkSize, paramsPerRow int) int {
+	if paramsPerRow <= 0 {
+		return chunkSize
+	}
+
+	return max(1, min(chunkSize, maxBindParamsPerStatement/paramsPerRow))
+}
+
+// paramsPerRow reports how many placeholders one row of items binds, sampling the
+// first non-nil item. Nil items are skipped rather than dereferenced; the per-item nil
+// check that rejects them belongs to the chunk functions, which run later.
+func paramsPerRow[T Table](items []T) int {
+	for _, item := range items {
+		if isNilValue(item) {
+			continue
+		}
+
+		return len(item.Cols())
+	}
+
+	return 0
 }
 
 // ChunkedInsert inserts items in chunks using the provided executor.
@@ -70,8 +112,10 @@ func chunkedInsertFn[T Table](
 		return err
 	}
 
-	for i := 0; i < len(items); i += opts.ChunkSize {
-		end := min(i+opts.ChunkSize, len(items))
+	chunkSize := effectiveChunkSize(opts.ChunkSize, paramsPerRow(items))
+
+	for i := 0; i < len(items); i += chunkSize {
+		end := min(i+chunkSize, len(items))
 
 		batch := items[i:end]
 		if err := chunkedInsertChunk(ctx, tx, batch, opts); err != nil {
@@ -159,8 +203,10 @@ func chunkedUpdateFn[T Table](
 		return err
 	}
 
-	for i := 0; i < len(items); i += opts.ChunkSize {
-		end := min(i+opts.ChunkSize, len(items))
+	chunkSize := effectiveChunkSize(opts.ChunkSize, paramsPerRow(items))
+
+	for i := 0; i < len(items); i += chunkSize {
+		end := min(i+chunkSize, len(items))
 
 		batch := items[i:end]
 		if err := chunkedUpdateChunk(ctx, tx, batch); err != nil {
@@ -232,8 +278,10 @@ func chunkedDeleteFn[T Table](
 		return err
 	}
 
-	for i := 0; i < len(items); i += opts.ChunkSize {
-		end := min(i+opts.ChunkSize, len(items))
+	chunkSize := effectiveChunkSize(opts.ChunkSize, paramsPerRow(items))
+
+	for i := 0; i < len(items); i += chunkSize {
+		end := min(i+chunkSize, len(items))
 
 		batch := items[i:end]
 		if err := chunkedDeleteChunk(ctx, tx, batch); err != nil {
@@ -317,8 +365,10 @@ func chunkedDeleteByPKsFn[O Table, T any](
 		return err
 	}
 
-	for i := 0; i < len(boxedIDs); i += opts.ChunkSize {
-		end := min(i+opts.ChunkSize, len(boxedIDs))
+	chunkSize := effectiveChunkSize(opts.ChunkSize, 1)
+
+	for i := 0; i < len(boxedIDs); i += chunkSize {
+		end := min(i+chunkSize, len(boxedIDs))
 
 		batch := boxedIDs[i:end]
 		if err := chunkedDeleteByPKsChunk(ctx, tx, tableName, pkColumn, batch); err != nil {

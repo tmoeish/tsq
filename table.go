@@ -136,6 +136,10 @@ type RuntimeOptions struct {
 	IndexPolicy SchemaPolicy // IndexPolicy chooses how TSQ manages declared indexes during NewRuntime.
 	Tracers     []Tracer     // Tracers configures the runtime's tracer chain during NewRuntime.
 	Logger      Logger       // Logger receives schema bootstrap decisions, executed DDL, and execution-time warnings.
+	// LogSQL logs every rendered statement and its bound arguments through Logger at
+	// debug level. Arguments are logged verbatim, so leave it off where query
+	// parameters carry secrets or personal data.
+	LogSQL bool
 	// IdentifierValidationMode controls how identifier length violations are handled.
 	// Empty means IdentifierValidationStrict; any other unknown value is rejected by NewRuntime.
 	IdentifierValidationMode IdentifierValidationMode

@@ -10,6 +10,10 @@ import (
 // defaultPageSize is the default number of rows returned per page.
 const defaultPageSize = 20
 
+// MaxPageNumber caps PageRequest.Page. Offset multiplies Size by Page-1, so with Size
+// capped at DefaultMaxPageSize the largest offset stays inside int on 32-bit builds.
+const MaxPageNumber = 1000000
+
 // PageRequest captures a page request, sort instructions, and optional keyword search.
 type PageRequest struct {
 	Size    int    `json:"size"     query:"size"`     // Size is the requested page size.
@@ -43,6 +47,10 @@ func NewPageRequest(params url.Values) *PageRequest {
 		if n, err := strconv.ParseInt(sizeStr, 10, 64); err == nil && n > 0 {
 			page.Size = min(int(n), DefaultMaxPageSize)
 		}
+	}
+
+	if page.Page > MaxPageNumber {
+		page.Page = MaxPageNumber
 	}
 
 	page.OrderBy = params.Get("order_by")
@@ -80,56 +88,99 @@ func (r *PageRequest) ToQuery() url.Values {
 	return v
 }
 
-// Offset calculates the offset value for SQL LIMIT clause.
-// Returns 0 if calculation would overflow; guaranteed safe for use in SQL.
+// Offset calculates the offset for the SQL LIMIT clause.
+//
+// Page is clamped to MaxPageNumber first. Callers who need an out-of-range page to be
+// rejected rather than clamped must call Validate before Offset: Offset alone cannot
+// report an error, and silently answering with page one would be worse than clamping.
 func (r *PageRequest) Offset() int {
 	r = normalizePageReq(r)
-
-	const maxSafe = 1000000
-	if r.Page > maxSafe || r.Size > maxSafe {
-		return 0
-	}
 
 	return r.Size * (r.Page - 1)
 }
 
-// Normalize applies default page values and clamps the requested page size.
+// Normalize applies default page values and clamps the requested page size to
+// DefaultMaxPageSize.
+//
+// DefaultMaxPageSize is the absolute ceiling, not necessarily the effective one: a
+// runtime built with RuntimeOptions.MaxPageSize clamps further when the query runs.
+// Use NormalizeWithLimit to apply that runtime's limit here instead.
+//
+// The error return is always nil. It is kept so that callers can treat Normalize like
+// Validate in a chain, and because dropping it would break every existing caller.
 func (r *PageRequest) Normalize() error {
+	return r.NormalizeWithLimit(DefaultMaxPageSize)
+}
+
+// NormalizeWithLimit is Normalize with an explicit page-size ceiling, so an HTTP
+// handler can apply the same limit its runtime will apply. A maxSize of zero or less
+// means DefaultMaxPageSize. The error return is always nil.
+func (r *PageRequest) NormalizeWithLimit(maxSize int) error {
 	if r == nil {
 		return nil
+	}
+
+	if maxSize <= 0 {
+		maxSize = DefaultMaxPageSize
 	}
 
 	if r.Page <= 0 {
 		r.Page = 1
 	}
 
+	if r.Page > MaxPageNumber {
+		r.Page = MaxPageNumber
+	}
+
 	if r.Size <= 0 {
 		r.Size = defaultPageSize
 	}
 
-	if r.Size > DefaultMaxPageSize {
-		r.Size = DefaultMaxPageSize
+	if r.Size > maxSize {
+		r.Size = maxSize
 	}
 
 	return nil
 }
 
 // Validate reports invalid paging or sorting input without mutating r.
+//
+// It checks Size against DefaultMaxPageSize, the absolute ceiling. A runtime built
+// with RuntimeOptions.MaxPageSize clamps further at execution time, so a request that
+// passes Validate may still come back with fewer rows than it asked for; use
+// ValidateWithLimit to check against that runtime's limit instead.
 func (r *PageRequest) Validate() error {
+	return r.ValidateWithLimit(DefaultMaxPageSize)
+}
+
+// ValidateWithLimit is Validate with an explicit page-size ceiling. A maxSize of zero
+// or less means DefaultMaxPageSize; a maxSize above DefaultMaxPageSize is capped to it,
+// because no runtime raises the absolute ceiling.
+func (r *PageRequest) ValidateWithLimit(maxSize int) error {
 	if r == nil {
 		return nil
+	}
+
+	if maxSize <= 0 || maxSize > DefaultMaxPageSize {
+		maxSize = DefaultMaxPageSize
 	}
 
 	if r.Page <= 0 {
 		return fmt.Errorf("page must be greater than 0, got %d", r.Page)
 	}
 
+	// Offset is Size*(Page-1) and has to stay well inside int on 32-bit builds, so an
+	// out-of-range page is rejected here rather than silently clamped by Offset.
+	if r.Page > MaxPageNumber {
+		return fmt.Errorf("page must be less than or equal to %d, got %d", MaxPageNumber, r.Page)
+	}
+
 	if r.Size <= 0 {
 		return fmt.Errorf("size must be greater than 0, got %d", r.Size)
 	}
 
-	if r.Size > DefaultMaxPageSize {
-		return fmt.Errorf("size must be less than or equal to %d, got %d", DefaultMaxPageSize, r.Size)
+	if r.Size > maxSize {
+		return fmt.Errorf("size must be less than or equal to %d, got %d", maxSize, r.Size)
 	}
 
 	if len(splitCommaValues(r.OrderBy)) == 0 && len(splitCommaValues(r.Order)) > 0 {

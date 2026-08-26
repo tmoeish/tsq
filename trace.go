@@ -2,11 +2,9 @@ package tsq
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"slices"
-	"time"
 )
 
 const maxTracers = 100
@@ -116,7 +114,10 @@ func appendTracers(existing []Tracer, newTracers ...Tracer) []Tracer {
 		}
 
 		if len(result) >= maxTracers {
-			slog.Warn("maximum tracer limit reached", "limit", maxTracers)
+			// appendTracers runs while NewRuntime is still assembling the Runtime, so
+			// RuntimeOptions.Logger is not reachable from here yet.
+			slog.Default().Warn("maximum tracer limit reached", "limit", maxTracers)
+
 			return result
 		}
 
@@ -124,52 +125,4 @@ func appendTracers(existing []Tracer, newTracers ...Tracer) []Tracer {
 	}
 
 	return result
-}
-
-func printCost(next func(ctx context.Context) error) func(ctx context.Context) error {
-	return func(ctx context.Context) error {
-		start := time.Now()
-		err := next(ctx)
-
-		duration := time.Since(start)
-		if err != nil {
-			slog.Info("cost", "duration", duration, "error", err)
-		} else {
-			slog.Info("cost", "duration", duration)
-		}
-
-		return err
-	}
-}
-
-func printError(next func(ctx context.Context) error) func(ctx context.Context) error {
-	return func(ctx context.Context) error {
-		err := next(ctx)
-		if err != nil {
-			slog.Error("error", "error", err)
-		}
-
-		return err
-	}
-}
-
-type contextKey string
-
-const (
-	printSQL contextKey = "printSQL"
-)
-
-func printSQLTracer(next func(ctx context.Context) error) func(ctx context.Context) error {
-	return func(ctx context.Context) error {
-		return next(context.WithValue(ctx, printSQL, true))
-	}
-}
-
-func compactJSON(obj any) string {
-	bs, err := json.Marshal(obj)
-	if err != nil {
-		return ""
-	}
-
-	return string(bs)
 }

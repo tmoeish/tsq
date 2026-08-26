@@ -3,6 +3,7 @@ package tsq
 import (
 	"net/url"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -612,5 +613,68 @@ func TestConstants(t *testing.T) {
 
 	if false {
 		t.Errorf("Expected DefaultMaxPageSize 1000, got %d", DefaultMaxPageSize)
+	}
+}
+
+// TestPageReq_ValidateRejectsOutOfRangePage covers the bound that Offset used to
+// swallow. Offset returned 0 for any page past its internal ceiling, so a request for
+// page 2000000 silently came back with the first page of rows -- a wrong answer
+// dressed up as a correct one. Validate now refuses the request instead.
+func TestPageReq_ValidateRejectsOutOfRangePage(t *testing.T) {
+	page := &PageRequest{Page: MaxPageNumber + 1, Size: 20}
+
+	err := page.Validate()
+	if err == nil {
+		t.Fatalf("expected page %d to be rejected", page.Page)
+	}
+
+	if !strings.Contains(err.Error(), "page must be less than or equal to") {
+		t.Fatalf("unexpected error for out-of-range page: %v", err)
+	}
+
+	if err := (&PageRequest{Page: MaxPageNumber, Size: 20}).Validate(); err != nil {
+		t.Fatalf("page %d is the last valid page, got %v", MaxPageNumber, err)
+	}
+}
+
+// TestPageReq_OffsetClampsOutOfRangePage documents what Offset does with a page that
+// Validate would have rejected: it clamps to the last representable page rather than
+// wrapping around to the first one.
+func TestPageReq_OffsetClampsOutOfRangePage(t *testing.T) {
+	page := &PageRequest{Page: MaxPageNumber * 10, Size: 20}
+
+	want := 20 * (MaxPageNumber - 1)
+	if got := page.Offset(); got != want {
+		t.Fatalf("Offset() = %d, want %d", got, want)
+	}
+}
+
+// TestPageReq_WithLimitAppliesRuntimeCeiling covers the gap between the absolute
+// ceiling and a runtime's own. RuntimeOptions.MaxPageSize used to apply only inside
+// query execution, so a handler calling Validate approved a size the runtime then
+// silently clamped. The *WithLimit variants let both sides check the same number.
+func TestPageReq_WithLimitAppliesRuntimeCeiling(t *testing.T) {
+	if err := (&PageRequest{Page: 1, Size: 500}).Validate(); err != nil {
+		t.Fatalf("500 is under the absolute ceiling, got %v", err)
+	}
+
+	err := (&PageRequest{Page: 1, Size: 500}).ValidateWithLimit(50)
+	if err == nil {
+		t.Fatal("expected size 500 to be rejected against a limit of 50")
+	}
+
+	page := &PageRequest{Page: 1, Size: 500}
+	if err := page.NormalizeWithLimit(50); err != nil {
+		t.Fatalf("NormalizeWithLimit() error = %v", err)
+	}
+
+	if page.Size != 50 {
+		t.Fatalf("NormalizeWithLimit(50) left Size = %d, want 50", page.Size)
+	}
+
+	// No runtime may raise the absolute ceiling.
+	err = (&PageRequest{Page: 1, Size: DefaultMaxPageSize + 1}).ValidateWithLimit(DefaultMaxPageSize * 10)
+	if err == nil {
+		t.Fatalf("expected size above DefaultMaxPageSize to be rejected regardless of the requested limit")
 	}
 }
