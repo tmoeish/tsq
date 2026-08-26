@@ -84,6 +84,22 @@ SQLite 3.39（2022）起支持 FULL JOIN，modernc 现在 bundle 3.53；MySQL 8.
 现在 commit 阶段只放行 `IsRetryableTransactionConflictError` 为真的错误；`io.EOF`、
 `driver.ErrBadConn` 之类在 commit 阶段仍不重试。
 
+## 2026-08-26 — 集成测试第一次跑就抓到：PostgreSQL 上 `Insert` 从来没回填过主键
+
+`Dialect.LastInsertIdReturningSuffix` 从有 PostgreSQL 方言那天起就在接口里，`postgres.go`
+也老老实实返回 ` RETURNING "id"`，但 `insertBatch` **从来没调用过它**——它只走
+`ExecContext` + `result.LastInsertId()`，而 pgx / lib/pq 的 `LastInsertId()` 返回
+"not supported"，`assignBatchInsertIDs` 把这个错误吞掉直接返回。结果：PG 上所有
+`Insert` 之后主键都是 0，v4 发了六个版本没人发现，因为唯一的自动化测试是 SQLite。
+一个接口里"有定义、有实现、没调用"的钩子，和没有它是一样的——`grep` 一下调用方是检查
+方言接口时的必做动作。现在 `insertBatchReturning` 接上了，单元测试用一个返回 RETURNING
+后缀的 SQLite 测试方言覆盖这条路径（SQLite 3.35+ 也支持 RETURNING）。
+
+**同一天的第二个教训**：`Integration` job 红着，PR #61 还是被 auto-merge 合进了 `main`——
+它不在 ruleset 必需检查里，而 auto-merge 只等必需检查。"先观察稳定性再提升"这个决定
+在它第一次跑就抓到真 bug 的事实面前站不住：一个能抓到 PG 六个版本没人发现的 bug 的门，
+不该是可选的。已提升为必需检查（job 名 `Integration` 不是 matrix，名字稳定）。
+
 ## 2026-08-26 — 集成测试为什么长这样，以及暂时不做的几件事
 
 `dialect/mysql.go` 和 `dialect/postgres.go` 在此之前覆盖率 0%——v4.2.0 那批标 "Critical"
@@ -100,7 +116,6 @@ SQLite 目标始终参与、套件本身每次 `go test` 都被编译执行。
 - **不替换 `gopkg.in/nullbio/null.v6` 和 `serenize/snaker`**。前者出现在生成代码里
   （`examples/academy/*.tsq.go` import 它），是使用者契约；后者只在生成器里做
   CamelToSnake，换实现等于改所有使用者的表名推导。
-- **`Integration` job 暂不进 ruleset 必需检查**，依赖 service 容器，先观察稳定性。
 
 ## 2026-08-21 — `release-check` 只能查版本倒退，不能查"没前进"
 

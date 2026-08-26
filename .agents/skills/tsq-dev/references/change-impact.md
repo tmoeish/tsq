@@ -58,6 +58,16 @@
   `[门禁: skill-check dialect]`
 - 能力位按版本基线表态（见 `architecture.md` § 方言），改基线要进 CHANGELOG 的 `### 变更`。
 
+## 给 `Dialect` 接口加了钩子，或改了写路径（`executor_mutation.go`）
+
+- 接口里的钩子必须有调用方：`grep -rn '<钩子名>(' --include='*.go' . | grep -v dialect/`
+  必须命中根包。`LastInsertIdReturningSuffix` 曾经"有定义、有实现、零调用"六个版本，
+  PostgreSQL 上 `Insert` 从来没回填过主键（2026-08-26 集成测试第一次跑就抓到）。
+- 主键回填有两条路：`ExecContext` + `LastInsertId()` + `BatchInsertStartID`（MySQL /
+  SQLite），和 `INSERT ... RETURNING` + 按顺序扫描（返回非空 `LastInsertIdReturningSuffix`
+  的方言，即 PostgreSQL）。改任何一条要看 `TestEngineInsertAssignsIDsThroughReturningClause`
+  和 `integration_test.go` 的 CRUD 用例。
+
 ## 改了驱动错误分类（`*_errors.go`、`IsRetryable*`）
 
 - 按接口匹配（`SQLState()` / `Code()`），**不要 `errors.AsType` 某个驱动的具体类型**：
