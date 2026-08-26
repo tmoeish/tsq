@@ -58,18 +58,38 @@ func writeVersionTable(out io.Writer, info *buildinfo.Info) error {
 		return err
 	}
 
-	table := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
-	for _, row := range [][2]string{
+	rows := [][2]string{
 		{"build time", info.BuildTime},
 		{"commit", info.GitCommit},
-		{"branch", info.GitBranch},
-		{"go", info.GoVersion},
-		{"platform", info.Platform + "/" + info.Arch},
-	} {
+	}
+
+	// Tag-triggered release builds check out a detached HEAD, so the branch the
+	// linker sees is literally "HEAD". That row carries no information; the commit
+	// above is the authoritative provenance. Only print a branch when it names one.
+	if branchIsInformative(info.GitBranch) {
+		rows = append(rows, [2]string{"branch", info.GitBranch})
+	}
+
+	rows = append(rows,
+		[2]string{"go", info.GoVersion},
+		[2]string{"platform", info.Platform + "/" + info.Arch},
+	)
+
+	table := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	for _, row := range rows {
 		if _, err := fmt.Fprintf(table, "  %s\t%s\n", row[0], row[1]); err != nil {
 			return err
 		}
 	}
 
 	return table.Flush()
+}
+
+func branchIsInformative(branch string) bool {
+	switch branch {
+	case "", "HEAD", "unknown":
+		return false
+	default:
+		return true
+	}
 }

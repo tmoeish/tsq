@@ -6,19 +6,19 @@ import (
 	"strings"
 )
 
-// ErrorType 表示错误类型
+// ErrorType classifies parser errors.
 type ErrorType int
 
 const (
-	// Package 相关错误
+	// Package errors
 	ErrorTypePackageImport ErrorType = iota
 
-	// Struct 相关错误
+	// Struct errors
 	ErrorTypeDuplicateField
 	ErrorTypeDuplicateEmbedded
 	ErrorTypeEmbeddedCycle
 
-	// DSL 相关错误
+	// DSL errors
 	ErrorTypeDSLTokenize
 	ErrorTypeDSLUnexpectedToken
 	ErrorTypeDSLUnexpectedValue
@@ -28,24 +28,24 @@ const (
 	ErrorTypeDSLMissingBrace
 	ErrorTypeDSLDuplicateKey
 
-	// Field 相关错误
+	// Field errors
 	ErrorTypeFieldUnsupportedType
 	ErrorTypeFieldInvalidSelector
 
-	// DSL 字段和索引校验
+	// DSL field and index validation
 	ErrorTypeDSLFieldNotFound
 	ErrorTypeDSLIndexFieldDuplicate
 	ErrorTypeDSLIndexDuplicate
 )
 
-// ParserError 表示解析器错误
+// ParserError is the error type returned by the parser.
 type ParserError struct {
 	Type    ErrorType
 	Message string
 	Context map[string]any
 }
 
-// Error 实现 error 接口
+// Error implements error.
 func (e *ParserError) Error() string {
 	if prefix := parserErrorLocationPrefix(e.Context); prefix != "" && !strings.HasPrefix(e.Message, prefix+": ") {
 		return prefix + ": " + e.Message
@@ -54,17 +54,17 @@ func (e *ParserError) Error() string {
 	return e.Message
 }
 
-// GetType 返回错误类型
+// GetType returns the error classification.
 func (e *ParserError) GetType() ErrorType {
 	return e.Type
 }
 
-// GetContext 返回错误上下文
+// GetContext returns the error context.
 func (e *ParserError) GetContext() map[string]any {
 	return e.Context
 }
 
-// newParserError 创建解析器错误
+// newParserError builds a ParserError.
 func newParserError(errorType ErrorType, message string, context map[string]any) *ParserError {
 	return &ParserError{
 		Type:    errorType,
@@ -91,9 +91,9 @@ func parserErrorLocationPrefix(context map[string]any) string {
 	return filename
 }
 
-// ===== 错误创建辅助函数 =====
+// ===== Error constructors =====
 
-// NewPackageImportError 创建包导入错误
+// NewPackageImportError reports a package that could not be imported.
 func NewPackageImportError(packagePath string, cause error) error {
 	msg := fmt.Sprintf("failed to import package: %s", packagePath)
 	err := newParserError(ErrorTypePackageImport, msg, map[string]any{
@@ -103,7 +103,7 @@ func NewPackageImportError(packagePath string, cause error) error {
 	return fmt.Errorf("%v"+": %w", cause, err)
 }
 
-// NewDuplicateFieldError 创建重复字段错误
+// NewDuplicateFieldError reports a field declared twice.
 func NewDuplicateFieldError(fieldName, structName string) error {
 	msg := fmt.Sprintf("duplicate field '%s' in struct '%s'", fieldName, structName)
 	err := newParserError(ErrorTypeDuplicateField, msg, map[string]any{
@@ -114,7 +114,7 @@ func NewDuplicateFieldError(fieldName, structName string) error {
 	return err
 }
 
-// NewDuplicateEmbeddedError 创建重复嵌入类型错误
+// NewDuplicateEmbeddedError reports an embedded type declared twice.
 func NewDuplicateEmbeddedError(typeName, structName string) error {
 	msg := fmt.Sprintf("duplicate embedded type '%s' in struct '%s'", typeName, structName)
 	err := newParserError(ErrorTypeDuplicateEmbedded, msg, map[string]any{
@@ -125,7 +125,7 @@ func NewDuplicateEmbeddedError(typeName, structName string) error {
 	return err
 }
 
-// NewEmbeddedCycleError 创建嵌入结构体循环引用错误
+// NewEmbeddedCycleError reports a cycle in embedded structs.
 func NewEmbeddedCycleError(structName string) error {
 	msg := fmt.Sprintf("cyclic embedded struct reference: '%s'", structName)
 	err := newParserError(ErrorTypeEmbeddedCycle, msg, map[string]any{
@@ -135,9 +135,9 @@ func NewEmbeddedCycleError(structName string) error {
 	return err
 }
 
-// ===== DSL 相关错误 =====
+// ===== DSL errors =====
 
-// NewDSLTokenizeError 创建 DSL 词法分析错误
+// NewDSLTokenizeError reports a DSL tokenization failure.
 func NewDSLTokenizeError(input string, position int, char byte) error {
 	highlightedSnippet := highlightDSLPosition(input, position)
 	msg := fmt.Sprintf(
@@ -154,7 +154,7 @@ func NewDSLTokenizeError(input string, position int, char byte) error {
 	return err
 }
 
-// NewDSLUnexpectedTokenError 创建 DSL 意外 token 错误
+// NewDSLUnexpectedTokenError reports an unexpected DSL token.
 func NewDSLUnexpectedTokenError(expected, actual string, position int) error {
 	msg := fmt.Sprintf(
 		"malformed DSL at position %d: expected %s, got %q",
@@ -359,7 +359,7 @@ func NewDSLEmptyArrayError(key string) error {
 	return err
 }
 
-// NewDSLUnclosedStringError 创建 DSL 未闭合字符串错误
+// NewDSLUnclosedStringError reports an unterminated DSL string.
 func NewDSLUnclosedStringError(input string, position int) error {
 	highlightedSnippet := highlightDSLPosition(input, position)
 	msg := fmt.Sprintf(
@@ -375,7 +375,7 @@ func NewDSLUnclosedStringError(input string, position int) error {
 	return err
 }
 
-// NewDSLInvalidNumberError 创建 DSL 无效数字错误
+// NewDSLInvalidNumberError reports a malformed DSL number.
 func NewDSLInvalidNumberError(numberStr string, position int) error {
 	msg := fmt.Sprintf(
 		"invalid number %q in DSL at position %d; only digits are supported here",
@@ -389,7 +389,7 @@ func NewDSLInvalidNumberError(numberStr string, position int) error {
 	return err
 }
 
-// NewDSLDuplicateKeyError 创建 DSL 重复 key 错误
+// NewDSLDuplicateKeyError reports a DSL key given twice.
 func NewDSLDuplicateKeyError(key string, position int) error {
 	msg := fmt.Sprintf("duplicate DSL key %q at position %d; each key can only appear once in the same object", key, position)
 	err := newParserError(ErrorTypeDSLDuplicateKey, msg, map[string]any{
@@ -466,9 +466,9 @@ func NewDSLInvalidPrimaryKeyError(value, reason string) error {
 	return err
 }
 
-// ===== Field 相关错误 =====
+// ===== Field errors =====
 
-// NewFieldUnsupportedTypeError 创建字段不支持类型错误
+// NewFieldUnsupportedTypeError reports a field type the generator cannot handle.
 func NewFieldUnsupportedTypeError(typeExpr any) error {
 	typeStr := fmt.Sprintf("%T", typeExpr)
 	msg := fmt.Sprintf("unsupported field type: %s", typeStr)
@@ -488,7 +488,7 @@ func NewFieldUnsupportedCompositionError(description string) error {
 	return err
 }
 
-// NewFieldInvalidSelectorError 创建字段无效选择器错误
+// NewFieldInvalidSelectorError reports an unsupported selector expression.
 func NewFieldInvalidSelectorError(selectorExpr any) error {
 	selStr := fmt.Sprintf("%T", selectorExpr)
 	msg := fmt.Sprintf("invalid selector expression: %s", selStr)
@@ -499,9 +499,9 @@ func NewFieldInvalidSelectorError(selectorExpr any) error {
 	return err
 }
 
-// ===== DSL 字段和索引校验 =====
+// ===== DSL field and index validation =====
 
-// NewDSLFieldNotFoundError 创建 DSL 字段不存在错误
+// NewDSLFieldNotFoundError reports a DSL reference to a field the struct lacks.
 func NewDSLFieldNotFoundError(field, structName string) error {
 	msg := fmt.Sprintf(
 		"DSL references unknown Go field '%s' in struct '%s' (use struct field names, not db column names)",
@@ -516,7 +516,7 @@ func NewDSLFieldNotFoundError(field, structName string) error {
 	return err
 }
 
-// NewDSLIndexFieldDuplicateError 创建索引字段重复错误
+// NewDSLIndexFieldDuplicateError reports a field listed twice in one index.
 func NewDSLIndexFieldDuplicateError(indexName, field string) error {
 	msg := fmt.Sprintf("index %q lists Go field %q more than once", indexName, field)
 	err := newParserError(ErrorTypeDSLIndexFieldDuplicate,
@@ -527,7 +527,7 @@ func NewDSLIndexFieldDuplicateError(indexName, field string) error {
 	return err
 }
 
-// NewDSLIndexDuplicateError 创建索引定义重复错误
+// NewDSLIndexDuplicateError reports two indexes with the same definition.
 func NewDSLIndexDuplicateError(indexName, fields string) error {
 	msg := fmt.Sprintf("index %q duplicates another index definition with the same fields [%s]", indexName, fields)
 	err := newParserError(ErrorTypeDSLIndexDuplicate,
@@ -538,9 +538,9 @@ func NewDSLIndexDuplicateError(indexName, fields string) error {
 	return err
 }
 
-// ===== 错误类型检查辅助函数 =====
+// ===== Error inspection helpers =====
 
-// GetParserError 获取解析器错误
+// GetParserError extracts the ParserError from err, if any.
 func GetParserError(err error) *ParserError {
 	if parserErr, ok := errors.AsType[*ParserError](err); ok {
 		return parserErr
@@ -549,7 +549,7 @@ func GetParserError(err error) *ParserError {
 	return nil
 }
 
-// IsErrorType 检查错误是否为指定类型
+// IsErrorType reports whether err is a ParserError of the given type.
 func IsErrorType(err error, errorType ErrorType) bool {
 	if parserErr := GetParserError(err); parserErr != nil {
 		return parserErr.Type == errorType

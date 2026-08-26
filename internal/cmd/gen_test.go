@@ -1000,7 +1000,7 @@ func (s *SkillItems) Scan(src any) error {
 // @TABLE(name="profile", pk="ID,true")
 type Profile struct {
 	ID         int64      `+"`db:\"id\"`"+`
-	SkillItems SkillItems `+"`db:\"skill_items,type:JSON\"`"+`
+	Skills     SkillItems `+"`db:\"skill_items,type:JSON\"`"+`
 }
 `)
 	chdirForGenTest(t, dir)

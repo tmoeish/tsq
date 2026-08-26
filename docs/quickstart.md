@@ -103,6 +103,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	defer runtime.Close()
 
 	if _, err := runtime.DB().Exec(`
 INSERT INTO user (name, email) VALUES

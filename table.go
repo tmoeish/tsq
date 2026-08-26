@@ -48,6 +48,23 @@ const (
 	IndexInitUpsert = SchemaPolicyCreateMissing
 )
 
+// IdentifierValidationMode controls how NewRuntime treats identifiers that exceed
+// the dialect's length limits.
+type IdentifierValidationMode string
+
+const (
+	// IdentifierValidationStrict fails runtime bootstrap on any oversized identifier.
+	// It is the default when RuntimeOptions.IdentifierValidationMode is empty.
+	IdentifierValidationStrict IdentifierValidationMode = "strict"
+	// IdentifierValidationWarn logs oversized identifiers and continues.
+	IdentifierValidationWarn IdentifierValidationMode = "warn"
+	// IdentifierValidationSkip performs no identifier length validation.
+	IdentifierValidationSkip IdentifierValidationMode = "skip"
+)
+
+// DefaultMaxPageSize caps PageRequest.Size when RuntimeOptions.MaxPageSize is zero.
+const DefaultMaxPageSize = 1000
+
 // TableIndex declares one physical index owned by a registered table.
 type TableIndex struct {
 	Name   string   // Name is the stable physical index name.
@@ -118,12 +135,13 @@ type RuntimeOptions struct {
 	TablePolicy SchemaPolicy // TablePolicy chooses how TSQ manages declared tables and columns during NewRuntime.
 	IndexPolicy SchemaPolicy // IndexPolicy chooses how TSQ manages declared indexes during NewRuntime.
 	Tracers     []Tracer     // Tracers configures the runtime's tracer chain during NewRuntime.
-	Logger      Logger       // Logger receives schema bootstrap decisions and executed DDL.
-	// IdentifierValidationMode controls how to handle identifier length violations:
-	// "strict" = fail if any identifier exceeds dialect limits (default for most dialects)
-	// "warn"   = log warnings but allow (for permissive databases)
-	// "skip"   = no validation (useful for dynamic schemas)
-	IdentifierValidationMode string
+	Logger      Logger       // Logger receives schema bootstrap decisions, executed DDL, and execution-time warnings.
+	// IdentifierValidationMode controls how identifier length violations are handled.
+	// Empty means IdentifierValidationStrict; any other unknown value is rejected by NewRuntime.
+	IdentifierValidationMode IdentifierValidationMode
+	// MaxPageSize caps PageRequest.Size for paged queries executed through this runtime.
+	// Zero means DefaultMaxPageSize.
+	MaxPageSize int
 }
 
 // Logger is the subset of slog.Logger used by runtime bootstrap.

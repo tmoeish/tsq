@@ -8,25 +8,25 @@ import (
 	"strings"
 )
 
-// ChunkedOptions 分块执行通用配置选项。
+// ChunkedOptions configures chunked update and delete helpers.
 type ChunkedOptions struct {
-	ChunkSize int // 每块处理的数量，默认 1000
+	ChunkSize int // ChunkSize is the number of items per statement; zero means 1000.
 }
 
-// DefaultChunkedOptions 返回默认的分块执行配置。
+// DefaultChunkedOptions returns the default chunked execution options.
 func DefaultChunkedOptions() *ChunkedOptions {
 	return &ChunkedOptions{
 		ChunkSize: 1000,
 	}
 }
 
-// ChunkedInsertOptions 分块插入配置选项。
+// ChunkedInsertOptions configures ChunkedInsert.
 type ChunkedInsertOptions struct {
-	ChunkSize    int  // 每块处理的数量，默认 1000
-	IgnoreErrors bool // 是否忽略重复键插入错误并继续处理后续数据
+	ChunkSize    int  // ChunkSize is the number of items per statement; zero means 1000.
+	IgnoreErrors bool // IgnoreErrors skips duplicate-key failures and continues with the remaining items.
 }
 
-// DefaultChunkedInsertOptions 返回默认的分块插入配置。
+// DefaultChunkedInsertOptions returns the default chunked insert options.
 func DefaultChunkedInsertOptions() *ChunkedInsertOptions {
 	return &ChunkedInsertOptions{
 		ChunkSize:    DefaultChunkedOptions().ChunkSize,
@@ -105,7 +105,7 @@ func chunkedInsertChunk[T Table](
 		for itemIdx, item := range batch {
 			if err := insertTables(ctx, tx, item); err != nil {
 				if isDuplicateKeyError(err) {
-					slog.Debug("Ignored duplicate key error in batch insert", "error", err)
+					logForExecutor(ctx, tx, slog.LevelDebug, "ignored duplicate key error in chunked insert", "error", err)
 					continue
 				}
 
@@ -372,12 +372,7 @@ func chunkedDeleteByPKsChunk(
 		return nil
 	}
 
-	placeholders := make([]string, len(ids))
-	for i := range placeholders {
-		placeholders[i] = "?"
-	}
-
-	sqlStr, err := buildDeleteByPKsSQL(tableName, pkColumn, len(placeholders))
+	sqlStr, err := buildDeleteByPKsSQL(tableName, pkColumn, len(ids))
 	if err != nil {
 		return err
 	}

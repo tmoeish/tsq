@@ -8,7 +8,7 @@ import (
 )
 
 // ================================================
-// 基础函数构建方法
+// Core function builders.
 // ================================================
 
 func (c columnImpl[Owner, T]) expr(format string) columnImpl[Owner, T] {
@@ -162,7 +162,7 @@ func mergeTableMaps(base, extras map[string]Table) map[string]Table {
 }
 
 // ================================================
-// 聚合函数 (Aggregate Functions)
+// Aggregate functions.
 // ================================================
 
 // Count wraps the column in COUNT and marks it as an aggregate expression.
@@ -214,7 +214,7 @@ func (c columnImpl[Owner, T]) Distinct() Column[Owner, T] {
 }
 
 // ================================================
-// 字符串函数 (String Functions)
+// String functions.
 // ================================================
 
 // Upper applies UPPER to the column.
@@ -250,7 +250,7 @@ func (c columnImpl[Owner, T]) Concat(_ string) Column[Owner, T] {
 }
 
 // ================================================
-// 日期和时间函数 (Date/Time Functions)
+// Date and time functions.
 // ================================================
 
 // Now replaces the receiver with the CURRENT_TIMESTAMP expression.
@@ -279,7 +279,7 @@ func (c columnImpl[Owner, T]) Day() Column[Owner, T] {
 }
 
 // ================================================
-// 数学函数 (Math Functions)
+// Math functions.
 // ================================================
 
 // Round applies ROUND(column, precision).
@@ -308,7 +308,7 @@ func (c columnImpl[Owner, T]) Abs() Column[Owner, T] {
 }
 
 // ================================================
-// 条件函数 (Conditional Functions)
+// Conditional functions.
 // ================================================
 
 // Coalesce applies COALESCE(column, value).

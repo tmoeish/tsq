@@ -28,7 +28,7 @@ func SQLColumns[O Owner](cols ...BoundColumn[O]) []SQLColumn {
 // BoundColumn is a selectable expression bound to a specific owner type.
 type BoundColumn[O Owner] interface {
 	SQLColumn
-	selectOwner(O) // 幻影方法，用于范型类型约束
+	selectOwner(O) // phantom method that pins the generic owner type
 }
 
 // TypedColumn is a selectable expression that also carries the scanned Go value type.

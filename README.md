@@ -150,6 +150,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	defer runtime.Close()
 
 	query, err := tsq.
 		Select(database.User__Cols...).
@@ -202,12 +203,13 @@ TSQ 当前内置的 `Dialect` 实现只有 **SQLite / MySQL / PostgreSQL**。下
 | `InVar()` / `NInVar()` 动态集合过滤 | ✅ | ✅ | ✅ | 执行时展开参数 |
 | `CASE` 表达式 | ✅ | ✅ | ✅ | 构建与执行都支持 |
 | 行锁读取（`FOR UPDATE` / `FOR SHARE`） | ❌ | ✅ | ✅ | 能否执行取决于运行时 dialect |
-| 非递归 CTE / `WITH` | ✅ | ❌ | ✅ | MySQL 会在执行前显式拒绝 |
-| `FULL JOIN` 执行 | ❌ | ❌ | ✅ | SQL 可构建，执行能力受方言限制 |
+| 非递归 CTE / `WITH` | ✅ | ✅ | ✅ | MySQL 基线为 8.0（5.7 已 EOL），5.7 上会收到数据库报错而不是 TSQ 的拒绝 |
+| `INTERSECT` / `EXCEPT` | ✅ | ✅ | ✅ | MySQL 需要 8.0.31+ |
+| `FULL JOIN` 执行 | ✅ | ❌ | ✅ | SQLite 需要 3.39+（内置的 modernc 驱动满足）；MySQL 会在执行前显式拒绝 |
 
 补充说明：
 
-- TSQ 现在只内置 **SQLite / MySQL / PostgreSQL** 三个完整闭环的 `Dialect` 实现。
+- TSQ 现在只内置 **SQLite / MySQL / PostgreSQL** 三个完整闭环的 `Dialect` 实现。能力位按 **MySQL 8.0、SQLite 3.39+、PostgreSQL** 当前版本表态，不做服务器版本探测。
 - 如果你要接入自定义数据库，需要实现完整 `Dialect` 合约，而不是依赖 TSQ 在接口外推断能力、DDL 或索引行为。
 
 ## 常见边界和注意事项
@@ -306,20 +308,23 @@ query, err := tsq.
 &tsq.TxOptions{Retry: tsq.IsOptimisticLockError}
 ```
 
-### 关键词搜索的“转义”不是 SQL 注入防护
+### 关键词搜索的 LIKE 通配符由 TSQ 自动转义，这不是 SQL 注入防护
 
 TSQ 的参数绑定本身负责避免把用户输入直接拼进 SQL。  
-`EscapeKeywordSearch` 的作用是**转义 LIKE 通配符**（如 `%`、`_`、`\`），避免用户输入改变搜索语义。
+关键词里的 LIKE 通配符（`%`、`_`、`\`）在执行时由 TSQ **自动转义**，用户输入不会改变搜索语义；
+没有也不需要公开的转义函数，`Keyword` 直接传原文即可。
 
 ```go
-pageReq := &tsq.PageReq{
+pageReq := &tsq.PageRequest{
 	Page:    1,
 	Size:    10,
 	OrderBy: "id",
 	Order:   "asc",
-	Keyword: tsq.EscapeKeywordSearch(request.Keyword),
+	Keyword: request.Keyword,
 }
 ```
+
+`Size` 会被夹到 `RuntimeOptions.MaxPageSize`（默认 `tsq.DefaultMaxPageSize` = 1000）以内。
 
 ### 普通值默认走 bind 参数，不提供 literal SQL 快捷入口
 
@@ -382,7 +387,7 @@ summary, err := runtime.WithTxResult(ctx, opts, func(ctx context.Context, tx tsq
 - Prefer `query.AsSubquery(selectedColumn)` after `Build()`. `BuildSubquery(stage, selectedColumn)` remains useful when the value is still exposed through the `QueryStage` interface, whose methods cannot declare type parameters.
 - `ExistsSub` / `NExistsSub` 只要求传入已 `Build()` 的子查询，不受返回列数限制。
 - 值比较推荐用 `EQVal/NEVal/GTVal/GTEVal/LTVal/LTEVal`，列和 typed 子查询则直接作为 `EQ/NE/GT/GTE/LT/LTE` 的 RHS 传入。
-- 结果投影统一使用包级 `tsq.Into(...)`，不要再写 `col.Into(...)`。
+- 结果投影统一使用包级 `tsq.MapInto[Target](source, fieldPointer, jsonName)`，不要再写 `col.Into(...)`。
 
 ## 示例入口
 

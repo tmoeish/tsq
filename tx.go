@@ -12,8 +12,6 @@ import (
 	"time"
 
 	"github.com/go-sql-driver/mysql"
-	"github.com/jackc/pgconn"
-	"github.com/lib/pq"
 )
 
 const (
@@ -107,25 +105,11 @@ func IsRetryableTransactionConflictError(err error) bool {
 		return mysqlErr.Number == 1205 || mysqlErr.Number == 1213
 	}
 
-	if pqErr, ok := errors.AsType[*pq.Error](err); ok {
-		switch string(pqErr.Code) {
-		case "40001", "40P01", "55P03":
-			return true
-		}
-	}
-
-	if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok {
-		switch pgErr.Code {
-		case "40001", "40P01", "55P03":
-			return true
-		}
-	}
-
-	if isSQLiteRetryableTransactionConflict(err) {
+	if isPostgresRetryableTransactionConflict(err) {
 		return true
 	}
 
-	return false
+	return isSQLiteRetryableTransactionConflict(err)
 }
 
 // IsCommonTransactionRetryableError reports whether err matches any built-in transaction retry helper.
@@ -223,13 +207,26 @@ func validateTxRuntime(r *Runtime) error {
 	return nil
 }
 
+// shouldRetryTx decides whether a failed attempt runs again. Commit-stage failures
+// are only retried when the database reported a definite transaction conflict
+// (serialization failure, deadlock, lock timeout): those codes guarantee the
+// transaction was rolled back, and PostgreSQL commonly raises 40001 at COMMIT.
+// Any other commit failure is ambiguous (the commit may have succeeded) and is
+// never replayed.
 func shouldRetryTx(err error, stage txRetryStage, options *normalizedTxOptions, attempt int) bool {
-	return options != nil &&
-		options.retry != nil &&
-		options.retryConfig != nil &&
-		attempt < options.retryConfig.MaxAttempts &&
-		stage != txRetryStageCommit &&
-		options.retry(err)
+	if options == nil || options.retry == nil || options.retryConfig == nil {
+		return false
+	}
+
+	if attempt >= options.retryConfig.MaxAttempts {
+		return false
+	}
+
+	if stage == txRetryStageCommit && !IsRetryableTransactionConflictError(err) {
+		return false
+	}
+
+	return options.retry(err)
 }
 
 func txRetryDelay(options *TxRetryConfig, attempt int) time.Duration {

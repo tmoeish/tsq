@@ -9,7 +9,7 @@ import (
 	"github.com/tmoeish/tsq/v4/internal/genmodel"
 )
 
-// parseNamedFields 解析具名字段
+// parseNamedFields parses the named (non-embedded) fields of a struct.
 func parseNamedFields(
 	packageAliases map[string]genmodel.PackageInfo,
 	currentPkg genmodel.PackageInfo,
@@ -18,15 +18,15 @@ func parseNamedFields(
 	fields := make(map[string]genmodel.FieldInfo)
 
 	for _, field := range structType.Fields.List {
-		// 跳过嵌入字段（没有名称）
+		// Skip embedded fields (no name).
 		if len(field.Names) == 0 {
 			continue
 		}
 
-		// 解析字段标签
+		// Parse field tags.
 		fieldTags := parseFieldTags(field.Tag)
 
-		// 跳过不需要的字段
+		// Skip fields that are not part of the table.
 		if shouldSkipField(fieldTags) {
 			continue
 		}
@@ -34,24 +34,24 @@ func parseNamedFields(
 		for _, name := range field.Names {
 			fieldName := name.Name
 
-			// 检查重复字段
+			// Reject duplicate fields.
 			if _, exists := fields[fieldName]; exists {
 				return nil, NewDuplicateFieldError(fieldName, "struct")
 			}
 
-			// 解析字段类型
+			// Parse the field type.
 			isPointer, isArray, packagePath, typeName, err := parseFieldType(field.Type)
 			if err != nil {
 				return nil, err
 			}
 
-			// 解析字段包信息
+			// Resolve the field's package.
 			typePackage, err := resolveFieldPackage(packagePath, typeName, packageAliases, currentPkg)
 			if err != nil {
 				return nil, err
 			}
 
-			// 创建字段对象
+			// Build the field.
 			field := genmodel.FieldInfo{
 				Name:      fieldName,
 				IsPointer: isPointer,
@@ -68,14 +68,14 @@ func parseNamedFields(
 	return fields, nil
 }
 
-// FieldTags 表示字段标签信息
+// FieldTags holds the parsed struct tags of one field.
 type FieldTags struct {
 	DB   string
 	TSQ  string
 	JSON string
 }
 
-// parseFieldTags 解析字段标签
+// parseFieldTags parses the struct tag of a field.
 func parseFieldTags(tagValue *ast.BasicLit) FieldTags {
 	if tagValue == nil {
 		return FieldTags{}
@@ -91,14 +91,14 @@ func parseFieldTags(tagValue *ast.BasicLit) FieldTags {
 	}
 }
 
-// shouldSkipField 判断是否应该跳过字段
+// shouldSkipField reports whether a field is excluded from the table.
 func shouldSkipField(tags FieldTags) bool {
-	// 跳过没有 db 和 tsq 标签的字段
+	// Skip fields with neither db nor tsq tags.
 	if len(tags.DB)+len(tags.TSQ) == 0 {
 		return true
 	}
 
-	// 跳过标记为忽略的字段
+	// Skip fields explicitly marked as ignored.
 	if tags.DB == TagIgnore || tags.TSQ == TagIgnore {
 		return true
 	}
@@ -106,13 +106,13 @@ func shouldSkipField(tags FieldTags) bool {
 	return false
 }
 
-// getColumnName 获取列名
+// getColumnName returns the column name of a field.
 func getColumnName(tags FieldTags) string {
 	if tags.TSQ != "" {
 		return tags.TSQ
 	}
 
-	// 从 db 标签中提取列名（去掉其他选项）
+	// Take the column name from the db tag, dropping the options.
 	dbTag := tags.DB
 	if idx := strings.Index(dbTag, ","); idx >= 0 {
 		dbTag = dbTag[:idx]
@@ -121,16 +121,16 @@ func getColumnName(tags FieldTags) string {
 	return dbTag
 }
 
-// getJsonTagName 获取 JSON 标签名
+// getJsonTagName returns the JSON name of a field.
 func getJsonTagName(tags FieldTags, fieldName string) string {
 	jsonTag := tags.JSON
 
-	// 提取 JSON 标签名（去掉其他选项）
+	// Take the name from the json tag, dropping the options.
 	if idx := strings.Index(jsonTag, ","); idx >= 0 {
 		jsonTag = jsonTag[:idx]
 	}
 
-	// 如果 JSON 标签为空，使用字段名（与 Go 的 json 标签保持一致）
+	// Fall back to the field name, matching encoding/json.
 	if jsonTag == "" {
 		jsonTag = fieldName
 	}
@@ -138,7 +138,7 @@ func getJsonTagName(tags FieldTags, fieldName string) string {
 	return jsonTag
 }
 
-// resolveFieldPackage 解析字段的包信息
+// resolveFieldPackage resolves the package a field type belongs to.
 func resolveFieldPackage(
 	packagePath string,
 	typeName string,
@@ -146,16 +146,16 @@ func resolveFieldPackage(
 	currentPkg genmodel.PackageInfo,
 ) (genmodel.PackageInfo, error) {
 	if packagePath == "" {
-		// 检查是否为原始类型
+		// Primitive type?
 		if _, isPrimitive := PrimitiveTypes[typeName]; !isPrimitive {
-			// 如果不是原始类型，则必须是当前包下的类型
+			// Not primitive, so it must live in the current package.
 			return currentPkg, nil
 		}
-		// 原始类型返回空包
+		// Primitive types have no package.
 		return genmodel.PackageInfo{}, nil
 	}
 
-	// 使用包别名解析
+	// Resolve through the import aliases.
 	pkg, ok := packageAliases[packagePath]
 	if !ok {
 		return genmodel.PackageInfo{}, fmt.Errorf(
@@ -168,7 +168,7 @@ func resolveFieldPackage(
 	return pkg, nil
 }
 
-// parseEmbeddedFields 解析嵌入字段
+// parseEmbeddedFields collects the embedded struct types of a struct.
 func parseEmbeddedFields(
 	packageAliases map[string]genmodel.PackageInfo,
 	currentPkg genmodel.PackageInfo,
@@ -177,12 +177,12 @@ func parseEmbeddedFields(
 	embeddedTypes := make(map[genmodel.TypeInfo]bool)
 
 	for _, field := range structType.Fields.List {
-		// 只处理嵌入字段（没有名称）
+		// Only embedded fields (no name).
 		if len(field.Names) != 0 {
 			continue
 		}
 
-		// 解析嵌入字段类型
+		// Parse the embedded type.
 		_, _, packagePath, typeName, err := parseFieldType(field.Type)
 		if err != nil {
 			return nil, err
@@ -201,7 +201,7 @@ func parseEmbeddedFields(
 			}
 		}
 
-		// 检查重复的嵌入类型
+		// Reject duplicate embedded types.
 		if _, exists := embeddedTypes[embeddedType]; exists {
 			return nil, NewDuplicateEmbeddedError(embeddedType.TypeName, "struct")
 		}
@@ -212,7 +212,7 @@ func parseEmbeddedFields(
 	return embeddedTypes, nil
 }
 
-// parseFieldType 解析字段类型表达式
+// parseFieldType parses a field type expression.
 func parseFieldType(
 	expr ast.Expr,
 ) (
@@ -224,16 +224,16 @@ func parseFieldType(
 ) {
 	switch t := expr.(type) {
 	case *ast.Ident:
-		// 简单标识符：int, string, CustomType
+		// Plain identifier: int, string, CustomType
 		return false, false, "", t.Name, nil
 
 	case *ast.SelectorExpr:
-		// 选择器表达式：pkg.Type
+		// Selector: pkg.Type
 		isPointer, isArray, packagePath, typeName, err := parseSelectorExpr(t)
 		return isPointer, isArray, packagePath, typeName, err
 
 	case *ast.ArrayType:
-		// 数组类型：[]Type
+		// Slice: []Type
 		if _, nestedArray := t.Elt.(*ast.ArrayType); nestedArray {
 			return false, false, "", "", NewFieldUnsupportedCompositionError("nested slices/arrays are not supported")
 		}
@@ -246,7 +246,7 @@ func parseFieldType(
 		return isPointer, true, packagePath, typeName, nil
 
 	case *ast.StarExpr:
-		// 指针类型：*Type
+		// Pointer: *Type
 		switch t.X.(type) {
 		case *ast.ArrayType:
 			return false, false, "", "", NewFieldUnsupportedCompositionError("pointer-to-slice fields are not supported")
@@ -270,7 +270,7 @@ func parseFieldType(
 	}
 }
 
-// parseSelectorExpr 解析选择器表达式
+// parseSelectorExpr parses a pkg.Type selector expression.
 func parseSelectorExpr(
 	selExpr *ast.SelectorExpr,
 ) (
@@ -284,7 +284,7 @@ func parseSelectorExpr(
 		return false, false, ident.Name, selExpr.Sel.Name, nil
 	}
 
-	// 如果不是简单的标识符，可能是嵌套的选择器表达式
-	// 目前不支持这种情况
+	// Anything but a plain identifier would be a nested selector,
+	// which is not supported.
 	return false, false, "", "", NewFieldInvalidSelectorError(selExpr.X)
 }

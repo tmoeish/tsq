@@ -559,9 +559,13 @@ All methods take an explicit `context.Context` and a `SQLExecutor`.
 - it implements `SQLExecutor` directly
 - use `tsq.NewRuntime("sqlite", dsn, database.TSQTables())` for one generated package
 - combine multiple generated packages by concatenating their `TSQTables()` slices before calling `NewRuntime`
-- `NewRuntime` opens the DB itself and resolves the dialect from `driverName`
+- `NewRuntime` opens the DB itself and resolves the dialect from `driverName`; `NewRuntimeContext(ctx, ...)` is the same with a context that bounds the ping and any bootstrap DDL
+- call `runtime.Close()` when the process is done with the database; it closes the pool `NewRuntime` opened
 - configure optional bootstrap behavior with `tsq.RuntimeOptions`, for example `&tsq.RuntimeOptions{TablePolicy: tsq.SchemaPolicyCreateMissing, IndexPolicy: tsq.SchemaPolicyCreateMissing}`
 - default policy is manual: TSQ logs a reminder but does not automatically reconcile missing tables or indexes
+- `RuntimeOptions.IdentifierValidationMode` is `tsq.IdentifierValidationStrict` by default (bootstrap fails on identifiers longer than the dialect allows); `IdentifierValidationWarn` logs instead, `IdentifierValidationSkip` disables the check
+- `RuntimeOptions.MaxPageSize` caps `PageRequest.Size` for paged queries on that runtime (default `tsq.DefaultMaxPageSize`, 1000)
+- `RuntimeOptions.Logger` receives bootstrap DDL and execution-time warnings (for example a skipped batch-insert ID assignment); it defaults to `slog.Default()`
 
 ### Transactions
 
@@ -605,13 +609,13 @@ Use `WithTable()` or the generated alias/rebinding support when a column must be
 - a self-join
 - a CTE
 
-### `Into(...)`
+### `MapInto(...)`
 
-Use package-level `tsq.Into(...)` for result projection mapping. Do not depend on older `col.Into(...)` style guidance.
+Use package-level `tsq.MapInto[Target](source, fieldPointer, jsonName)` for result projection mapping. Do not depend on older `col.Into(...)` style guidance.
 
 ### `@RESULT`
 
-Prefer `@RESULT` when the query result shape is stable and meaningful in the project. Use `Into(...)` when the result mapping is local and does not need a generated result model.
+Prefer `@RESULT` when the query result shape is stable and meaningful in the project. Use `MapInto(...)` when the result mapping is local and does not need a generated result model.
 
 ## 11. Advanced query features
 
@@ -620,8 +624,8 @@ TSQ supports more than simple list queries. Common advanced shapes include:
 - aggregate queries with `GroupBy(...)` and `Having(...)`
 - `CASE` expressions
 - subqueries such as `In(subquery)`, `ExistsSub`, and typed RHS comparisons like `EQ(subquery)` or `Like(subquery)`
-- non-recursive CTEs
-- set operations such as `UNION` and `EXCEPT`
+- non-recursive CTEs (all built-in dialects; MySQL baseline is 8.0)
+- set operations such as `UNION`, `INTERSECT`, and `EXCEPT` (all built-in dialects; MySQL needs 8.0.31+)
 - row-lock clauses such as `ForUpdate()` and `ForShare()`
 
 Important subquery rule:
@@ -648,9 +652,9 @@ Execution checks whether the actual dialect supports the feature.
 
 Important examples:
 
-- CTE execution is dialect-dependent
-- `FULL JOIN` can be rendered but execution is dialect-dependent
-- row locks are not universally supported
+- `FULL JOIN` builds everywhere but MySQL rejects it at execution (SQLite 3.39+ and PostgreSQL run it)
+- row locks (`ForUpdate` / `ForShare`) are rejected on SQLite
+- CTEs, `INTERSECT`, and `EXCEPT` run on all three built-in dialects; TSQ does not probe server versions, so MySQL 5.7 (end of life) gets a database error instead of `ErrUnsupportedCapability`
 
 Do not claim that a query is portable just because it builds.
 

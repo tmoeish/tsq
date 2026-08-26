@@ -59,6 +59,8 @@
 | `Owner` 约束 | `owner.go` |
 | 追踪钩子 | `trace.go` |
 | SQLite 错误映射 | `sqlite_errors.go` |
+| PostgreSQL 错误映射（`SQLState()` 接口，覆盖 pq / pgx v4 / pgx v5） | `postgres_errors.go` |
+| 真实 MySQL / PostgreSQL 集成测试 | `integration_test.go`（`package tsq_test`，env DSN 驱动） |
 | 命名转换（snake / camel） | `case.go` |
 
 ## 方言

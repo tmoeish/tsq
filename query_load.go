@@ -32,9 +32,9 @@ func pageFn[O Owner](
 		return nil, err
 	}
 
-	page = normalizePageReq(page)
+	page = normalizePageReqWithLimit(page, pageSizeLimitForExecutor(tx))
 
-	cntSQL, listSQL, err := q.buildPageSQLs(page)
+	cntSQL, listSQL, err := q.buildPageSQLsWithLimit(page, page.Size)
 	if err != nil {
 		return nil, err
 	}
@@ -316,11 +316,15 @@ func (q *Query[O]) Load(
 }
 
 func (q *Query[O]) buildPageSQLs(page *PageRequest) (string, string, error) {
+	return q.buildPageSQLsWithLimit(page, DefaultMaxPageSize)
+}
+
+func (q *Query[O]) buildPageSQLsWithLimit(page *PageRequest, maxSize int) (string, string, error) {
 	if err := validateQuery(q); err != nil {
 		return "", "", err
 	}
 
-	page = normalizePageReq(page)
+	page = normalizePageReqWithLimit(page, maxSize)
 
 	var cntQuery, listQuery string
 	if len(q.kwCols) > 0 && len(page.Keyword) > 0 {

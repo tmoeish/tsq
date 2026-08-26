@@ -27,7 +27,7 @@ const (
 	tableColumnAlter = "alter"
 )
 
-func openRuntimeDB(driverName, dsn string) (*sql.DB, tsqdialect.Dialect, error) {
+func openRuntimeDB(ctx context.Context, driverName, dsn string) (*sql.DB, tsqdialect.Dialect, error) {
 	dialect, err := resolveRuntimeDialect(driverName)
 	if err != nil {
 		return nil, nil, err
@@ -38,7 +38,7 @@ func openRuntimeDB(driverName, dsn string) (*sql.DB, tsqdialect.Dialect, error) 
 		return nil, nil, err
 	}
 
-	if err := db.Ping(); err != nil {
+	if err := db.PingContext(ctx); err != nil {
 		_ = db.Close()
 		return nil, nil, err
 	}
@@ -80,7 +80,11 @@ func (r *Runtime) log(ctx context.Context, level slog.Level, msg string, args ..
 		return
 	}
 
-	if !r.logger.Enabled(ctx, level) {
+	logWith(ctx, r.logger, level, msg, args...)
+}
+
+func logWith(ctx context.Context, logger Logger, level slog.Level, msg string, args ...any) {
+	if logger == nil || !logger.Enabled(ctx, level) {
 		return
 	}
 
@@ -94,7 +98,28 @@ func (r *Runtime) log(ctx context.Context, level slog.Level, msg string, args ..
 		attrs = append(attrs, slog.Any(key, args[i+1]))
 	}
 
-	r.logger.LogAttrs(ctx, level, msg, attrs...)
+	logger.LogAttrs(ctx, level, msg, attrs...)
+}
+
+// runtimeForExecutor returns the runtime an executor was derived from, or nil for
+// executors that carry no runtime (a bare *sql.DB, a WrapExecutor result).
+func runtimeForExecutor(exec SQLExecutor) *Runtime {
+	if provider, ok := exec.(traceProvider); ok {
+		return provider.tsqRuntime()
+	}
+
+	return nil
+}
+
+// logForExecutor routes execution-time diagnostics to the runtime's configured
+// Logger when the executor belongs to one, and to slog.Default() otherwise.
+func logForExecutor(ctx context.Context, exec SQLExecutor, level slog.Level, msg string, args ...any) {
+	if rt := runtimeForExecutor(exec); rt != nil && rt.logger != nil {
+		rt.log(ctx, level, msg, args...)
+		return
+	}
+
+	logWith(ctx, slog.Default(), level, msg, args...)
 }
 
 func (r *Runtime) applySchemaPolicies(ctx context.Context) error {

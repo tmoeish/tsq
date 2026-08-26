@@ -15,7 +15,7 @@ const (
 	TagIgnore = "-"
 )
 
-// 默认字段名常量
+// Default managed field names.
 const (
 	DefaultPKField        = "ID"
 	DefaultVersionField   = "Version"

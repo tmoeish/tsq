@@ -6,7 +6,7 @@ import (
 )
 
 // ================================================
-// 排序方向枚举
+// Sort direction values.
 // ================================================
 
 // Order represents a SQL ORDER BY direction.
@@ -20,7 +20,7 @@ const (
 )
 
 // ================================================
-// 排序结构体
+// OrderBy pairs a column with a sort direction.
 // ================================================
 
 // OrderBy represents an ORDER BY clause with its column and direction.
@@ -56,7 +56,7 @@ func (ob OrderBy) Order() Order {
 }
 
 // ================================================
-// 列排序方法
+// Column ordering helpers.
 // ================================================
 
 // Asc creates an ascending ORDER BY clause for this column.

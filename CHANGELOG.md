@@ -7,6 +7,32 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 项目遵循 [语义化版本控制](https://semver.org/lang/zh-CN/)。
 
+## [未发布]
+
+### 新增
+
+- **`NewRuntimeContext`**: `NewRuntime` 的带 `context.Context` 版本。启动阶段会 ping 数据库并按 `TablePolicy` / `IndexPolicy` 执行 DDL（含 SQLite 整表重建），此前跑在 `context.Background()` 上无法超时或取消。`NewRuntime` 等价于传 `context.Background()`。
+- **`Runtime.Close()`**: 关闭 `NewRuntime` 打开的连接池；nil 安全。此前只能 `rt.DB().Close()`，且文档没有提。
+- **`RuntimeOptions.MaxPageSize`**: 每个运行时可配置的分页上限，默认 `DefaultMaxPageSize`（1000，与此前硬编码值一致）。不带运行时的 `PageRequest.Normalize()` 仍用默认值。
+- **`IdentifierValidationMode` 类型化**: `RuntimeOptions.IdentifierValidationMode` 从 `string` 改为 `tsq.IdentifierValidationMode`，常量 `IdentifierValidationStrict` / `Warn` / `Skip`。现有的 `"skip"` 字面量仍能编译；未知值现在被 `NewRuntime` 拒绝。
+- **MySQL / PostgreSQL 集成测试**: `integration_test.go` 在设置 `TSQ_MYSQL_DSN` / `TSQ_POSTGRES_DSN` 时对真实服务器运行 schema 托管幂等性、reconcile 收敛、乐观锁、重复键忽略、锁冲突分类和能力位执行；CI 新增 `Integration` job（MySQL 8.0 + PostgreSQL 16）。此前 `dialect/mysql.go` 与 `dialect/postgres.go` 没有任何自动化覆盖。
+
+### 变更
+
+- **方言能力位按当前版本基线表态**: SQLite 现在声明支持 `FULL OUTER JOIN`（SQLite ≥ 3.39，内置的 modernc 驱动满足）；MySQL 现在声明支持 CTE、`INTERSECT`、`EXCEPT`（基线 MySQL 8.0，`INTERSECT`/`EXCEPT` 需 8.0.31+）。TSQ 不探测服务器版本：仍在使用已 EOL 的 MySQL 5.7 的项目，这些查询会在执行时收到数据库报错，而不再是 `ErrUnsupportedCapability`。
+- **根包不再硬依赖 `lib/pq` 和 `jackc/pgconn`**: PostgreSQL 错误改用驱动共有的 `SQLState()` 接口识别。使用者的 `go.sum` 会少掉这两个模块及其间接依赖。
+- **代码注释与生成器文案统一为英文**: 根包和 `internal/` 的中文注释（含 `ChunkedOptions` 等导出类型的 Go doc）全部改为英文；`make doc-check` 现在守着这条。
+- **`tsq version` 不再打印无信息量的 `branch`**: 值为 `HEAD`（tag 触发的分离头检出）或 `unknown` 时省略该行；`--json` 输出保留字段。
+
+### 修复
+
+- **pgx v5 的错误识别失效**: `IsRetryableTransactionConflictError` 和 `ChunkedInsert{IgnoreErrors}` 的重复键检测此前只匹配 `github.com/jackc/pgconn`（pgx v4）的错误类型，`jackc/pgx/v5` 返回的是另一个包里的 `PgError`，导致驱动名为 `pgx` 的运行时上这两条路径静默不命中。
+- **`IdentifierValidationMode` 默认值静默吞掉违规**: 空值既不是 `strict` 也不是 `warn`，超长标识符被收集后直接丢弃，既不报错也不告警；文档却写着默认 strict。现在空值就是 strict。
+- **commit 阶段的明确冲突码现在会重试**: 此前 `WithTx` 对 commit 阶段的任何错误都不重试，而 PostgreSQL 的 `40001` 序列化失败经常在 COMMIT 时才抛（事务已确定回滚，重试安全）。网络类等不确定错误在 commit 阶段仍不重试。
+- **执行期日志绕过了 `RuntimeOptions.Logger`**: 批量插入 ID 回填跳过的警告和 chunked insert 忽略重复键的调试日志此前直接写 `slog.Default()`，现在路由到运行时配置的 `Logger`（执行器不属于任何运行时时仍回退到 `slog.Default()`）。
+- **Docker 镜像的构建元数据**: `Dockerfile` 的 `-X` 打在不存在的包路径上（与 v4.4.3 修复的 `.goreleaser.yaml` 是同一个 bug 的另一个副本），镜像里 `tsq version` 报告 `unknown`。改为 `internal/buildinfo` 并补上 `-trimpath`；`make release-check` 现在核对三份构建配置里的每个 `-X` 目标。
+- **文档引用了不存在的 API**: README 的 `tsq.PageReq`、`tsq.EscapeKeywordSearch`（转义是自动的，没有公开函数）和三处 `tsq.Into`（实际是 `MapInto`）。`make doc-check` 现在把使用者文档里的 `tsq.*` 符号对照 API 快照。
+
 ## [4.5.0] - 2026-08-21
 
 ### 新增

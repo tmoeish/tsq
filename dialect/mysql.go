@@ -100,9 +100,14 @@ func (d MySQLDialect) ValidateIdentifier(identifier string) error {
 
 func (d MySQLDialect) SupportsCapability(capability Capability) bool {
 	switch canonicalCapabilityName(string(capability)) {
-	case CapabilityCTE, CapabilityExcept, CapabilityFullOuterJoin, CapabilityIntersect:
+	// Baseline is MySQL 8.0 (5.7 reached end of life in 2023-10): CTEs since 8.0,
+	// INTERSECT/EXCEPT since 8.0.31. FULL OUTER JOIN is still absent in MySQL 8.
+	case CapabilityFullOuterJoin:
 		return false
-	case CapabilitySelectForUpdate,
+	case CapabilityCTE,
+		CapabilityExcept,
+		CapabilityIntersect,
+		CapabilitySelectForUpdate,
 		CapabilitySelectForShare,
 		CapabilitySelectForNoWait,
 		CapabilitySelectForSkipLocked:

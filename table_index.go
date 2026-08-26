@@ -27,12 +27,13 @@ func validateSchemaPolicy(policy SchemaPolicy) error {
 }
 
 func inspectIndexDefinition(
+	ctx context.Context,
 	db *sql.DB,
 	sqlDialect tsqdialect.Dialect,
 	table string,
 	idx string,
 ) (tsqdialect.IndexDefinition, bool, error) {
-	return sqlDialect.InspectIndexDefinition(context.Background(), db, table, idx)
+	return sqlDialect.InspectIndexDefinition(ctx, db, table, idx)
 }
 
 func validateIndexDefinition(
@@ -111,6 +112,7 @@ func validateBuiltInIdentifier(name string) error {
 }
 
 func upsertIndex(
+	ctx context.Context,
 	db *sql.DB,
 	sqlDialect tsqdialect.Dialect,
 	policy SchemaPolicy,
@@ -136,7 +138,7 @@ func upsertIndex(
 		return nil
 	}
 
-	definition, found, err := inspectIndexDefinition(db, sqlDialect, table, idx)
+	definition, found, err := inspectIndexDefinition(ctx, db, sqlDialect, table, idx)
 	if err != nil {
 		return err
 	}
@@ -146,7 +148,7 @@ func upsertIndex(
 			return err
 		}
 
-		if _, err := db.ExecContext(context.Background(), sqlDialect.DDLDropIndex(table, idx)); err != nil {
+		if _, err := db.ExecContext(ctx, sqlDialect.DDLDropIndex(table, idx)); err != nil {
 			return err
 		}
 	}
@@ -160,7 +162,7 @@ func upsertIndex(
 		}
 	}
 
-	_, err = sqlDialect.EnsureIndex(context.Background(), db, table, unique, idx, fields)
+	_, err = sqlDialect.EnsureIndex(ctx, db, table, unique, idx, fields)
 
 	return err
 }

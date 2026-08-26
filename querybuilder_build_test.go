@@ -167,14 +167,14 @@ func TestQueryBuilder_Build_RejectsNilReceiver(t *testing.T) {
 			t.Fatalf("unexpected panic: %#v", recovered)
 		}
 	}()
-	qb.Build()
+	_, _ = qb.Build()
 }
 
 func TestQueryBuilder_Build_PreservesOwnerType(t *testing.T) {
 	users := newMockTable("users")
 	userID := newColForTable[Table, int](users, "id", "id", nil)
 	qb := Select(userID).From(users)
-	var build func() (*Query[Table], error) = qb.Build
+	build := qb.Build
 	query, err := build()
 	if err != nil {
 		t.Fatalf("expected typed build to succeed, got %v", err)
@@ -198,7 +198,7 @@ func TestQueryBuilder_MethodsHandleNilReceiverWithoutPanicking(t *testing.T) {
 			t.Fatalf("unexpected panic: %#v", recovered)
 		}
 	}()
-	qb.Search(userID).GroupBy(userID).Build()
+	_, _ = qb.Search(userID).GroupBy(userID).Build()
 }
 
 func TestQueryBuilder_BranchingDoesNotShareMutableState(t *testing.T) {
@@ -219,7 +219,7 @@ func TestQueryBuilder_BranchingDoesNotShareMutableState(t *testing.T) {
 	if len(right.listArgs) != 1 || right.listArgs[0] != 2 {
 		t.Fatalf("expected right branch args [2], got %#v", right.listArgs)
 	}
-	if len(base.queryBuilderCore.spec.Filters) != 0 {
-		t.Fatalf("expected base builder to remain unfiltered, got %#v", base.queryBuilderCore.spec.Filters)
+	if len(base.spec.Filters) != 0 {
+		t.Fatalf("expected base builder to remain unfiltered, got %#v", base.spec.Filters)
 	}
 }

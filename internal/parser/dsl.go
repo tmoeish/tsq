@@ -10,10 +10,10 @@ import (
 	"github.com/tmoeish/tsq/v4/internal/genmodel"
 )
 
-// ========== DSL AST 解析器实现 ========== //
+// ========== DSL AST parser ========== //
 
-// TokenType 表示 DSL 的 token 类型
-// 标识符、字符串、符号、数组、对象、逗号等
+// TokenType is the kind of a DSL token:
+// identifier, string, symbol, array, object, comma and friends.
 type TokenType int
 
 const (
@@ -37,7 +37,7 @@ type Token struct {
 	Pos   int
 }
 
-// ========== DSL AST 结构定义 ========== //
+// ========== DSL AST types ========== //
 type (
 	DSLNode   any
 	DSLObject map[string]DSLNode
@@ -47,7 +47,7 @@ type (
 	DSLNumber float64
 )
 
-// Tokenize 将 DSL 字符串分割为 Token 列表
+// Tokenize splits a DSL string into tokens.
 func Tokenize(input string) ([]Token, error) {
 	var tokens []Token
 
@@ -117,7 +117,7 @@ func Tokenize(input string) ([]Token, error) {
 		}
 
 		if c == '"' {
-			// 字符串
+			// String literal.
 			j := i + 1
 			for j < len(input) && input[j] != '"' {
 				if input[j] == '\\' && j+1 < len(input) {
@@ -144,7 +144,7 @@ func Tokenize(input string) ([]Token, error) {
 			continue
 		}
 
-		// 标识符/布尔/数字
+		// Identifier, boolean or number.
 		if isAlpha(c) {
 			j := i
 			for j < len(input) && (isAlphaNum(input[j]) || input[j] == '_') {
@@ -165,7 +165,7 @@ func Tokenize(input string) ([]Token, error) {
 			continue
 		}
 
-		// 数字
+		// Number.
 		if isDigit(c) {
 			j := i
 			for j < len(input) && isDigit(input[j]) {
@@ -180,7 +180,7 @@ func Tokenize(input string) ([]Token, error) {
 			continue
 		}
 
-		// 未知字符
+		// Unknown character.
 		return nil, NewDSLTokenizeError(input, i, c)
 	}
 
@@ -201,7 +201,7 @@ func isDigit(c byte) bool {
 	return c >= '0' && c <= '9'
 }
 
-// Parser 结构体
+// Parser consumes a token stream.
 type Parser struct {
 	tokens []Token
 	pos    int
@@ -243,7 +243,7 @@ func (p *Parser) expect(tt TokenType) (Token, error) {
 	return tok, nil
 }
 
-// ParseDSL 入口，解析为对象
+// ParseDSL parses a DSL string into an object node.
 func ParseDSL(tokens []Token) (DSLObject, error) {
 	p := NewParser(tokens)
 	obj := DSLObject{}
@@ -273,7 +273,7 @@ func ParseDSL(tokens []Token) (DSLObject, error) {
 	return obj, nil
 }
 
-// parseKeyValueOrIdent 解析 key=value 或单独 ident
+// parseKeyValueOrIdent parses either key=value or a bare identifier.
 func (p *Parser) parseKeyValueOrIdent() (string, DSLNode, error) {
 	tok := p.peek()
 	if tok.Type == TokenIdent {
@@ -289,7 +289,7 @@ func (p *Parser) parseKeyValueOrIdent() (string, DSLNode, error) {
 
 			return key, val, nil
 		}
-		// 简写 v/ct/mt/dt
+		// Shorthands v/ct/mt/dt.
 		return key, DSLBool(true), nil
 	}
 
@@ -314,7 +314,7 @@ func unexpectedDSLObjectTokenError(tok Token) error {
 	return NewDSLUnexpectedObjectTokenError(actual, tok.Pos)
 }
 
-// parseValue 解析 value
+// parseValue parses a value node.
 func (p *Parser) parseValue() (DSLNode, error) {
 	tok := p.peek()
 	switch tok.Type {
@@ -417,14 +417,14 @@ func (p *Parser) parseObject() (DSLObject, error) {
 }
 
 func parseNumber(s string) (float64, error) {
-	// 验证输入只包含数字
+	// Require digits only.
 	for i := 0; i < len(s); i++ {
 		if !isDigit(s[i]) {
 			return 0, NewDSLInvalidNumberError(s, i)
 		}
 	}
 
-	// 使用标准库解析，支持更多数字格式
+	// Parse with the standard library for full number syntax.
 	num, err := strconv.ParseFloat(s, 64)
 	if err != nil {
 		return 0, err
@@ -433,7 +433,7 @@ func parseNumber(s string) (float64, error) {
 	return num, nil
 }
 
-// getTokenTypeName 获取 token 类型名称
+// getTokenTypeName names a token type for error messages.
 func getTokenTypeName(tt TokenType) string {
 	switch tt {
 	case TokenEOF:
@@ -463,7 +463,7 @@ func getTokenTypeName(tt TokenType) string {
 	}
 }
 
-// genTableInfoFromAST 将 AST 映射到 genmodel.TableMeta
+// genTableInfoFromAST maps the DSL AST onto genmodel.TableMeta.
 func genTableInfoFromAST(
 	name string,
 	ast DSLObject,
@@ -477,7 +477,7 @@ func genTableInfoFromAST(
 	if isTable {
 		info.Table = snaker.CamelToSnake(name)
 	}
-	// 默认值
+	// Defaults.
 	if isTable {
 		info.PK = DefaultPKField
 		info.AI = true
@@ -659,7 +659,7 @@ func genTableInfoFromAST(
 	normalizeIndexNames(info.UxList, "ux", info.Table)
 	normalizeIndexNames(info.IdxList, "idx", info.Table)
 
-	// 新增：校验 DSL 字段和索引
+	// Validate DSL fields and indexes against the struct.
 	err := validateTableInfoAgainstStruct(info, structFields, name)
 	if err != nil {
 		return nil, err
@@ -692,9 +692,9 @@ func normalizeIndexNames(indexes []genmodel.IndexInfo, prefix, table string) {
 	}
 }
 
-// validateTableInfoAgainstStruct 校验 DSL 字段和索引
+// validateTableInfoAgainstStruct checks DSL fields and indexes against the struct fields.
 func validateTableInfoAgainstStruct(info *genmodel.TableMeta, structFields map[string]struct{}, structName string) error {
-	// 1. 字段存在性校验
+	// 1. Every referenced field must exist.
 	for _, field := range []string{info.PK, info.VersionField, info.CreatedAtField, info.UpdatedAtField, info.DeletedAtField} {
 		if field != "" && structFields != nil {
 			if _, ok := structFields[field]; !ok {
@@ -702,8 +702,8 @@ func validateTableInfoAgainstStruct(info *genmodel.TableMeta, structFields map[s
 			}
 		}
 	}
-	// 2. ux/idx 校验
-	seen := map[string]string{} // key: fields串, value: indexName
+	// 2. ux/idx validation.
+	seen := map[string]string{} // key: joined fields, value: index name
 
 	for _, idx := range append(info.UxList, info.IdxList...) {
 		fieldSet := map[string]struct{}{}
@@ -730,7 +730,7 @@ func validateTableInfoAgainstStruct(info *genmodel.TableMeta, structFields map[s
 		seen[key] = idx.Name
 	}
 
-	// 3. search 校验
+	// 3. search validation.
 	for _, field := range info.SearchColumns {
 		if _, ok := structFields[field]; !ok {
 			return NewDSLFieldNotFoundError(field, structName)

@@ -196,7 +196,7 @@ func insertBatch(ctx context.Context, exec SQLExecutor, records []mutationRecord
 		return err
 	}
 
-	assignBatchInsertIDs(exec, records, result, len(insertFields) != len(records[0].fields))
+	assignBatchInsertIDs(ctx, exec, records, result, len(insertFields) != len(records[0].fields))
 
 	return nil
 }
@@ -413,7 +413,7 @@ func assignMutationID(field reflect.Value, id int64) {
 	}
 }
 
-func assignBatchInsertIDs(exec SQLExecutor, records []mutationRecord, result sql.Result, omittedPrimaryKey bool) {
+func assignBatchInsertIDs(ctx context.Context, exec SQLExecutor, records []mutationRecord, result sql.Result, omittedPrimaryKey bool) {
 	if !omittedPrimaryKey || len(records) == 0 {
 		return
 	}
@@ -430,7 +430,7 @@ func assignBatchInsertIDs(exec SQLExecutor, records []mutationRecord, result sql
 
 	rowsAffected, err := result.RowsAffected()
 	if err != nil || rowsAffected != int64(len(records)) {
-		slog.Warn("batch insert ID assignment skipped: rows affected mismatch",
+		logForExecutor(ctx, exec, slog.LevelWarn, "batch insert ID assignment skipped: rows affected mismatch",
 			"expected", len(records),
 			"actual", rowsAffected,
 			"error", err,
