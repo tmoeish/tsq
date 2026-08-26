@@ -93,12 +93,24 @@ helper 因此继续作为包级函数。为了一点调用语法把这些接口�
 ## 运行时
 
 `Runtime`（`runtime.go`）是 `*sql.DB` 加方言加已注册表的组合，显式构造：
-`NewRuntime(driverName, dsn, tables, opts...)`。没有全局 `Init()`，没有包级单例——
-这是历史上被删掉的东西，不要以任何形式重新引入。
+`NewRuntimeContext(ctx, driverName, dsn, tables, opts...)`，`NewRuntime` 是它的
+`context.Background()` 版本。ctx 约束 ping、标识符校验和 schema 策略（可能执行 DDL）。
+`Close()` 关闭它自己打开的连接池。没有全局 `Init()`，没有包级单例——这是历史上被删掉的
+东西，不要以任何形式重新引入。
 
 - `Runtime` 自己实现 `SQLExecutor`，所以它可以直接传给需要执行器的地方。
+- `RuntimeOptions.IdentifierValidationMode` 是类型化枚举，空值 = `Strict`，未知值被拒绝；
+  `MaxPageSize` 是分页上限（`DefaultMaxPageSize` = 1000），通过 `pageSizeLimitForExecutor`
+  从执行器反查运行时取到。
+- 执行期日志走 `logForExecutor`（`runtime_schema.go`）：执行器属于某个运行时就用它的
+  `Logger`，否则回退 `slog.Default()`。不要在执行路径里直接调 `slog.*`。
 - `WithTx`（`tx.go`）是多操作事务的唯一入口，支持 `TxOptions.Retry`（配合
-  `IsOptimisticLockError` 做乐观锁重试）。
+  `IsOptimisticLockError` 做乐观锁重试）。commit 阶段只对明确的冲突码
+  （`IsRetryableTransactionConflictError`）重试，网络类错误在 commit 阶段永不重试——
+  commit 可能已经成功。
+- 驱动错误分类按**接口**匹配，不 import 驱动包：`sqlite_errors.go` 认 `Code() int`，
+  `postgres_errors.go` 认 `SQLState() string`（lib/pq、pgx v4、pgx v5 都实现）。MySQL 是
+  唯一被 import 的驱动，因为 `MySQLError.Number` 是字段。
 - `runtime_schema.go` 负责 schema 对账：`Options` 上的 `TablePolicy` 和 `IndexPolicy`
   各自取 `SchemaPolicy`（`Manual` / `Validate` / `CreateMissing` / `Reconcile` /
   `Managed`），决定 `NewRuntime` 是只校验还是补齐表、列与索引。`IndexInit*` 和
@@ -118,9 +130,22 @@ helper 因此继续作为包级函数。为了一点调用语法把这些接口�
 这比一句 "unsupported" 省掉一轮排查。
 
 - `mysql.go`、`postgres.go`、`sqlite.go` 是全部实现。
+- 能力位按**当前版本基线**表态，不探测服务器版本：MySQL 8.0（CTE、INTERSECT、EXCEPT 都
+  支持，FULL JOIN 不支持）、SQLite 3.39+（FULL JOIN 支持，行锁不支持）、PostgreSQL 全部
+  支持。改基线是使用者可见变更。
 - `ddl_reconcile_test.go` 覆盖运行期 schema 对账在三个方言上的行为。
 - **新增能力位必须三个方言都显式表态**，否则默认值会让不支持的方言悄悄放行——
   那是运行到生产库上才会炸的一类错误。
+
+## 测试矩阵
+
+- **单元测试**只用 SQLite（`modernc.org/sqlite`，无 cgo），`go test ./...` 本地零依赖。
+- **集成测试**（根目录 `integration_test.go`，`package tsq_test`）在设置 `TSQ_MYSQL_DSN` /
+  `TSQ_POSTGRES_DSN` 时对真实服务器跑：托管 schema 两次启动第二次零 DDL、reconcile 只改
+  变化的列且收敛、乐观锁、重复键忽略、锁冲突分类（pgx v5 驱动）、能力位真实执行。
+  SQLite 目标始终参与，所以套件本身每次 `go test` 都被执行。CI 的 `Integration` job
+  起 MySQL 8.0 和 PostgreSQL 16 两个 service。**这是 `dialect/mysql.go` 与
+  `dialect/postgres.go` 唯一的自动化覆盖**，改它们必须看这个 job 的结果。
 
 ## 追踪与错误
 

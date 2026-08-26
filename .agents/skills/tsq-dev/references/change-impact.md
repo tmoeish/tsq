@@ -50,8 +50,28 @@
 
 - `dialect/dialect.go` 加 `Capability` 常量，**三个方言（mysql / postgres / sqlite）都要
   显式表态**。漏掉一个，默认值会让不支持的方言悄悄放行——那是跑到生产库上才炸的一类错。
-- 执行期不支持要返回 `*ErrUnsupportedCapability`，带上能力名和方言名。
-- 更新 `skills/tsq` 里"哪条查询能在哪个库上跑"的说明。`[门禁: skill-check dialect]`
+- 执行期不支持要返回 `*ErrUnsupportedCapability`，带上能力名和方言名；
+  `unsupportedCapabilityHint` 里"去哪个方言跑"的提示要跟着改。
+- `integration_test.go` 的 `TestIntegrationCapabilitiesExecute` 对每个方言声明支持的
+  能力真跑一遍——声明了但跑不通，CI 的 `Integration` job 会红。
+- 更新 `skills/tsq` 里"哪条查询能在哪个库上跑"的说明和 `README.md` 的能力矩阵。
+  `[门禁: skill-check dialect]`
+- 能力位按版本基线表态（见 `architecture.md` § 方言），改基线要进 CHANGELOG 的 `### 变更`。
+
+## 改了驱动错误分类（`*_errors.go`、`IsRetryable*`）
+
+- 按接口匹配（`SQLState()` / `Code()`），**不要 `errors.AsType` 某个驱动的具体类型**：
+  同一个 SQLSTATE 在 pq、pgx v4、pgx v5 里是三个 Go 类型，只认一个就静默漏掉另外两个
+  （2026-08-26 之前 pgx v5 就是这样漏的）。
+- `integration_test.go` 的 `TestIntegrationLockConflictsAreRetryable` 用真实驱动验证。
+
+## 加了或改了 `-X` ldflags（`Makefile`、`.goreleaser.yaml`、`Dockerfile`）
+
+- 目标必须是 `github.com/tmoeish/tsq/v4/internal/buildinfo.<var>`，`<var>` 必须真的在
+  `internal/buildinfo/buildinfo.go` 里声明。链接器对找不到的符号**静默忽略**，二进制会
+  把 build time / commit / branch 报成 `unknown` 而没有任何报错。
+  `[门禁: release-check 核对三份配置里的每个 -X]`
+- 三份配置是三个副本，改变量名要一起改。
 
 ## 改了注解 DSL（`internal/parser/`）
 
@@ -124,6 +144,17 @@
 排查"某个工具改坏了我的文件"之前，先确认自己是不是唯一的写入者，并在 `git archive HEAD`
 出来的副本里复现——本仓有过一次把并发 agent 的编辑误判成 `go fix` bug 的教训，见
 `memory.md` 2026-08-21 那条。
+
+## 改了根包导出符号的名字，或在使用者文档里引用了 `tsq.X`
+
+`make doc-check` 把 `README.md`、`docs/`、`skills/tsq/` 里每个 `tsq.X`（围栏块和行内
+反引号都算）对照 `api-surface.txt` 的根包段落。改名先 `make api-snapshot`，再改文档，
+否则门会把新名字当成不存在。`[门禁: doc-check]`
+
+## 在非测试 Go 源码里写了中文
+
+不行：注释、Go doc、错误文案都是使用者读的。`make doc-check` 扫 `git ls-files` 里全部
+非测试、非生成、非 `examples/` 的 `.go` 文件。`[门禁: doc-check]`
 
 ## 改名或删除了一个 make 目标
 

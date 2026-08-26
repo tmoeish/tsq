@@ -19,7 +19,7 @@ const (
 	generatedTimeAlias    = "tsqtime"
 )
 
-// funcMap 返回模板中可用的函数映射
+// funcMap returns the helper functions available to the templates.
 func funcMap() template.FuncMap {
 	return template.FuncMap{
 		"ToUpper":                  strings.ToUpper,
@@ -51,7 +51,7 @@ func funcMap() template.FuncMap {
 	}
 }
 
-// upperInitial 将字符串首字母大写
+// upperInitial upper-cases the first letter of s.
 func upperInitial(s string) string {
 	if s == "" {
 		return s
@@ -63,7 +63,7 @@ func upperInitial(s string) string {
 	return string(runes)
 }
 
-// lowerInitial 将字符串首字母小写
+// lowerInitial lower-cases the first letter of s.
 func lowerInitial(s string) string {
 	if s == "" {
 		return s
@@ -120,7 +120,7 @@ func fieldSliceVarName(fieldName string) string {
 	return fieldVarName(fieldName) + "s"
 }
 
-// fieldType 返回字段的Go类型字符串
+// fieldType returns the Go type expression for a field.
 func fieldType(field genmodel.FieldInfo) string {
 	pkg := field.Type.Package
 	typeName := field.Type.TypeName
@@ -150,34 +150,34 @@ func fieldType(field genmodel.FieldInfo) string {
 	return fullTypeName
 }
 
-// pointerType 返回指针类型字符串
+// pointerType returns the pointer type expression.
 func pointerType(typeName string) string {
 	return fmt.Sprintf("*%s", typeName)
 }
 
-// listType 返回列表类型字符串
+// listType returns the slice type expression.
 func listType(typeName string) string {
 	return fmt.Sprintf("[]%s", typeName)
 }
 
-// pageRespType 返回分页响应类型字符串
+// pageRespType returns the page response type expression.
 func pageRespType(typeName string) string {
 	return fmt.Sprintf("tsq.PageResp[%s]", typeName)
 }
 
-// joinAnd 将字符串切片或字符串用 And 连接
+// joinAnd joins a string slice (or passes a string through) with "And".
 func joinAnd(v any) string {
 	switch vv := v.(type) {
 	case []string:
 		return strings.Join(vv, "And")
 	case string:
-		return vv // 已经是字符串直接返回
+		return vv // already a string
 	default:
 		return ""
 	}
 }
 
-// sub1 返回 n-1
+// sub1 returns n-1.
 func sub1(n int) int {
 	return n - 1
 }

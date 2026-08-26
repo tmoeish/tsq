@@ -1,7 +1,7 @@
 // internal/parser/table.go
 //
-// 负责从 Go AST 注释中解析表（@TABLE）和结果结构（@RESULT）元数据，生成 genmodel.TableMeta 结构体。
-// 支持自定义 DSL 解析、索引与查询生成、元数据排序等。
+// Parses @TABLE and @RESULT metadata out of Go AST comments into genmodel.TableMeta,
+// including DSL parsing, index and query derivation, and stable ordering of the metadata.
 
 package parser
 
@@ -14,7 +14,7 @@ import (
 	"github.com/tmoeish/tsq/v4/internal/genmodel"
 )
 
-// ParseTableInfo 从注释组中解析表元数据，返回 TableMeta 结构体
+// ParseTableInfo parses table metadata from a comment group.
 func ParseTableInfo(
 	structName string,
 	commentGroup []*ast.CommentGroup,
@@ -27,7 +27,7 @@ func ParseTableInfo(
 
 	locator := newCommentLocator(commentGroup, fileSet)
 
-	// 解析注解，填充 meta
+	// Parse annotations into meta.
 	info, err := parseDSL(structName, commentGroup, structFields)
 	if err != nil {
 		return nil, locator.attach(err)
@@ -37,10 +37,10 @@ func ParseTableInfo(
 		return nil, nil
 	}
 
-	// 生成查询索引列表
+	// Derive the query list.
 	generateQueryList(info)
 
-	// 排序所有列表
+	// Sort every list.
 	sortTableInfoLists(info)
 
 	return info, nil
@@ -332,7 +332,7 @@ func sliceCommentLinesByOffsets(lines []commentSourceLine, start, end int) []com
 	return result
 }
 
-// CleanCommentPrefix 去除一行注释的前缀和多余空白
+// CleanCommentPrefix strips the comment marker and surrounding whitespace from one line.
 func CleanCommentPrefix(line string) string {
 	line = strings.TrimLeft(line, " \t")
 	for _, prefix := range []string{"//", "/*", "*", "*/"} {
@@ -345,7 +345,7 @@ func CleanCommentPrefix(line string) string {
 	return line
 }
 
-// CleanBlockComment 去除块注释前缀和后缀
+// CleanBlockComment strips the block comment delimiters.
 func CleanBlockComment(text string) string {
 	text = strings.TrimSpace(text)
 	if after, ok := strings.CutPrefix(text, "//"); ok {
@@ -362,7 +362,7 @@ func CleanBlockComment(text string) string {
 	return text
 }
 
-// extractDSLContent 提取 @TABLE/@RESULT 后第一个括号内的内容，支持前置括号
+// extractDSLContent returns the content of the first parenthesized group after @TABLE/@RESULT.
 func extractDSLContent(text, keyword string) (string, error) {
 	text = CleanBlockComment(text)
 
@@ -503,14 +503,14 @@ func isAnnotationBoundary(ch byte) bool {
 	}
 }
 
-// parseDSL 解析所有注释中的注解（@TABLE/@RESULT），直接填充 info
+// parseDSL parses the @TABLE/@RESULT annotations of a comment group into info.
 func parseDSL(
 	structName string,
 	commentGroup []*ast.CommentGroup,
 	structFields map[string]struct{},
 ) (*genmodel.TableMeta, error) {
 	for _, comments := range commentGroup {
-		// 合并整个注释组，并健壮去除每行注释前缀
+		// Join the comment group, stripping each line's comment marker.
 		var lines []string
 		for _, comment := range comments.List {
 			lines = append(lines, CleanCommentPrefix(comment.Text))
@@ -529,13 +529,13 @@ func parseDSL(
 	return nil, nil
 }
 
-// parseTableDSL 解析 @TABLE DSL 并填充 meta
+// parseTableDSL parses a @TABLE DSL into meta.
 func parseTableDSL(
 	structName string,
 	text string,
 	structFields map[string]struct{},
 ) (*genmodel.TableMeta, error) {
-	// 去除注释前缀
+	// Strip comment markers.
 	text = CleanBlockComment(text)
 
 	content, err := extractDSLContent(text, "@TABLE")
@@ -564,13 +564,13 @@ func parseTableDSL(
 	return genTableInfoFromAST(structName, dsl, true, structFields)
 }
 
-// parseResultDSL 解析 @RESULT DSL 并填充 meta
+// parseResultDSL parses a @RESULT DSL into meta.
 func parseResultDSL(
 	structName string,
 	text string,
 	structFields map[string]struct{},
 ) (*genmodel.TableMeta, error) {
-	// 去除注释前缀
+	// Strip comment markers.
 	text = CleanBlockComment(text)
 
 	content, err := extractDSLContent(text, "@RESULT")
@@ -599,12 +599,12 @@ func parseResultDSL(
 	return genTableInfoFromAST(structName, dsl, false, structFields)
 }
 
-// generateQueryList 生成查询索引列表，支持普通、集合、前缀等多种组合
+// generateQueryList derives the query list: plain, set, and prefix lookups.
 func generateQueryList(meta *genmodel.TableMeta) {
 	queryMap := make(map[string]bool)
 
 	for _, idx := range meta.IdxList {
-		// 普通 query
+		// Plain query.
 		queryName := strings.Join(idx.Fields, "And")
 		if !queryMap[queryName] {
 			meta.QueryList = append(meta.QueryList, genmodel.IndexInfo{
@@ -628,7 +628,7 @@ func generateQueryList(meta *genmodel.TableMeta) {
 			queryMap[setName] = true
 		}
 
-		// 前缀索引
+		// Prefix lookups.
 		for j := len(idx.Fields); j > 0; j-- {
 			prefixQueryName := strings.Join(idx.Fields[:j], "And")
 			if !queryMap[prefixQueryName] {
@@ -681,7 +681,7 @@ func generateQueryList(meta *genmodel.TableMeta) {
 	}
 }
 
-// sortTableInfoLists 对元数据中的各种列表进行排序，保证输出有序
+// sortTableInfoLists sorts every list in the metadata for deterministic output.
 func sortTableInfoLists(meta *genmodel.TableMeta) {
 	sort.Slice(meta.UxList, func(i, j int) bool {
 		return meta.UxList[i].Name < meta.UxList[j].Name

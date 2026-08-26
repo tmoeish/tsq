@@ -20,13 +20,13 @@ import (
 	"github.com/tmoeish/tsq/v4/internal/genmodel"
 )
 
-// ParseResult 解析结果
+// ParseResult is the output of Parse.
 type ParseResult struct {
-	Structs   []*StructInfo // 解析到的结构体列表
-	Directory string        // 目标目录路径
+	Structs   []*StructInfo // annotated structs found
+	Directory string        // directory of the parsed package
 }
 
-// Parse 解析指定路径的包，返回所有带有表注解的结构体和目录路径
+// Parse parses the package at path and returns every annotated struct plus the package directory.
 func Parse(packagePath string) ([]*genmodel.StructInfo, string, error) {
 	result, err := parsePackage(packagePath)
 	if err != nil {
@@ -41,7 +41,7 @@ func Parse(packagePath string) ([]*genmodel.StructInfo, string, error) {
 	return infos, result.Directory, nil
 }
 
-// parsePackage 解析包的完整流程
+// parsePackage runs the full parse pipeline for a package.
 func parsePackage(packagePath string) (*ParseResult, error) {
 	parseState := &ParseState{
 		structMap:       make(map[genmodel.TypeInfo]*StructInfo),
@@ -80,11 +80,11 @@ func parsePackage(packagePath string) (*ParseResult, error) {
 	return result, nil
 }
 
-// ParseState 包含解析过程中的状态信息
+// ParseState carries the state shared across a parse run.
 type ParseState struct {
-	structMap       map[genmodel.TypeInfo]*StructInfo // 已解析的结构体映射
-	parsedPackages  map[genmodel.PackageInfo]bool     // 已解析的包集合
-	pendingPackages *list.List                        // 待解析的包队列
+	structMap       map[genmodel.TypeInfo]*StructInfo // structs parsed so far
+	parsedPackages  map[genmodel.PackageInfo]bool     // packages parsed so far
+	pendingPackages *list.List                        // packages still to parse
 	loader          *packageLoader
 }
 
@@ -121,7 +121,7 @@ type loadedPackage struct {
 	Imports    map[string]genmodel.PackageInfo
 }
 
-// parsePackagesRecursively 递归解析包
+// parsePackagesRecursively drains the pending package queue.
 func (ps *ParseState) parsePackagesRecursively(packagePath string) error {
 	ps.pendingPackages.PushBack(packagePath)
 
@@ -138,7 +138,7 @@ func (ps *ParseState) parsePackagesRecursively(packagePath string) error {
 	return nil
 }
 
-// resolveAllEmbeddedFields 解析所有结构体的嵌入字段
+// resolveAllEmbeddedFields resolves embedded fields for every parsed struct.
 func (ps *ParseState) resolveAllEmbeddedFields() error {
 	for _, structInfo := range ps.structMap {
 		if err := resolveEmbeddedFields(structInfo, ps.structMap); err != nil {
@@ -149,7 +149,7 @@ func (ps *ParseState) resolveAllEmbeddedFields() error {
 	return nil
 }
 
-// getPackageInfo 获取包信息
+// getPackageInfo describes the package at a directory.
 func (ps *ParseState) getPackageInfo(packagePath string) (genmodel.PackageInfo, error) {
 	buildPkg, err := ps.importBuildPackage(packagePath)
 	if err != nil {
@@ -162,7 +162,7 @@ func (ps *ParseState) getPackageInfo(packagePath string) (genmodel.PackageInfo, 
 	}, nil
 }
 
-// parseTableMetadata 解析表元数据
+// parseTableMetadata parses @TABLE / @RESULT metadata for every struct.
 func (ps *ParseState) parseTableMetadata(pkg genmodel.PackageInfo) error {
 	buildPkg, err := ps.importBuildPackage(pkg.Path)
 	if err != nil {
@@ -191,7 +191,7 @@ func (ps *ParseState) parseTableMetadata(pkg genmodel.PackageInfo) error {
 	return nil
 }
 
-// shouldSkipFile 判断是否应该跳过文件
+// shouldSkipFile reports whether a source file is excluded from parsing.
 func shouldSkipFile(filename string) bool {
 	if strings.HasSuffix(filename, TSQFileSuffix) {
 		return true
@@ -208,7 +208,7 @@ func shouldSkipFile(filename string) bool {
 	return false
 }
 
-// processFileComments 处理文件中的注释
+// processFileComments walks a file's declarations and their comments.
 func (ps *ParseState) processFileComments(
 	file *ast.File,
 	fileSet *token.FileSet,
@@ -234,7 +234,7 @@ func (ps *ParseState) processFileComments(
 	return nil
 }
 
-// processGenDecl 处理通用声明节点
+// processGenDecl handles a generic declaration node.
 func (ps *ParseState) processGenDecl(
 	genDecl *ast.GenDecl,
 	comments []*ast.CommentGroup,
@@ -259,7 +259,7 @@ func (ps *ParseState) processGenDecl(
 	return nil
 }
 
-// processTypeSpec 处理类型声明节点
+// processTypeSpec handles a type declaration.
 func (ps *ParseState) processTypeSpec(
 	typeSpec *ast.TypeSpec,
 	comments []*ast.CommentGroup,
@@ -273,7 +273,7 @@ func (ps *ParseState) processTypeSpec(
 	return ps.processStructTypeSpec(typeSpec, comments, fileSet, pkg)
 }
 
-// processStructTypeSpec 处理结构体类型声明
+// processStructTypeSpec handles a struct type declaration.
 func (ps *ParseState) processStructTypeSpec(
 	typeSpec *ast.TypeSpec,
 	comments []*ast.CommentGroup,
@@ -287,7 +287,7 @@ func (ps *ParseState) processStructTypeSpec(
 	if !exists {
 		return nil
 	}
-	// 构建字段集合
+	// Build the field set.
 	fields := make(map[string]struct{})
 	for name := range structInfo.FieldMap {
 		fields[name] = struct{}{}
@@ -305,13 +305,13 @@ func (ps *ParseState) processStructTypeSpec(
 	return nil
 }
 
-// isStructType 判断是否为结构体类型
+// isStructType reports whether a type spec declares a struct.
 func isStructType(typeExpr ast.Expr) bool {
 	_, ok := typeExpr.(*ast.StructType)
 	return ok
 }
 
-// filterAndProcessResults 过滤并处理解析结果
+// filterAndProcessResults keeps annotated structs and finalizes them.
 func (ps *ParseState) filterAndProcessResults(packagePath string) (*ParseResult, error) {
 	buildPkg, err := ps.importBuildPackage(packagePath)
 	if err != nil {
@@ -345,7 +345,7 @@ func (ps *ParseState) filterAndProcessResults(packagePath string) (*ParseResult,
 	}, nil
 }
 
-// parseSinglePackage 解析单个包
+// parseSinglePackage parses one package directory.
 func (ps *ParseState) parseSinglePackage(packagePath string) error {
 	buildPkg, err := ps.importBuildPackage(packagePath)
 	if err != nil {
@@ -388,7 +388,7 @@ func (ps *ParseState) parseSinglePackage(packagePath string) error {
 	return nil
 }
 
-// parseStructDeclarations 解析文件中的结构体声明
+// parseStructDeclarations parses the struct declarations of one file.
 func (ps *ParseState) parseStructDeclarations(
 	file *ast.File,
 	packageAliases map[string]genmodel.PackageInfo,
@@ -424,7 +424,7 @@ func (ps *ParseState) parseStructDeclarations(
 	return nil
 }
 
-// parsePackageAliases 解析文件中的包别名
+// parsePackageAliases maps import aliases of one file to packages.
 func parsePackageAliases(file *ast.File) (map[string]genmodel.PackageInfo, error) {
 	packageAliases := make(map[string]genmodel.PackageInfo)
 
@@ -453,7 +453,7 @@ func parsePackageAliases(file *ast.File) (map[string]genmodel.PackageInfo, error
 				)
 			}
 
-			// 显式别名
+			// Explicit alias.
 			packageAliases[importSpec.Name.Name] = pkg
 
 			continue
@@ -468,14 +468,14 @@ func parsePackageAliases(file *ast.File) (map[string]genmodel.PackageInfo, error
 			)
 		}
 
-		// 使用包名作为别名
+		// Default alias is the package name.
 		packageAliases[pkg.Name] = pkg
 	}
 
 	return packageAliases, nil
 }
 
-// getPackageInfo 根据导入路径获取包信息
+// getPackageInfo describes the package at an import path.
 func getPackageInfo(importPath string) (genmodel.PackageInfo, error) {
 	pkg, err := loadSinglePackage(importPath)
 	if err != nil {
@@ -488,7 +488,7 @@ func getPackageInfo(importPath string) (genmodel.PackageInfo, error) {
 	}, nil
 }
 
-// resolveEmbeddedFields 解析嵌入字段
+// resolveEmbeddedFields flattens embedded struct fields into the struct.
 func resolveEmbeddedFields(
 	structInfo *StructInfo,
 	allStructs map[genmodel.TypeInfo]*StructInfo,
@@ -711,7 +711,7 @@ func cloneLoadedPackage(pkg *loadedPackage) *loadedPackage {
 	return cloned
 }
 
-// copyEmbeddedFields 复制嵌入结构的字段
+// copyEmbeddedFields copies an embedded struct's fields into the target.
 func copyEmbeddedFields(targetStruct, embeddedStruct *StructInfo) error {
 	for fieldName, field := range embeddedStruct.FieldMap {
 		if _, exists := targetStruct.FieldMap[fieldName]; exists {

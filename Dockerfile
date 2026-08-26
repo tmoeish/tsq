@@ -26,10 +26,13 @@ ARG BUILD_TIME=unknown
 ARG GIT_COMMIT=unknown
 ARG GIT_BRANCH=unknown
 
-# Build the application
+# Build the application. The -X targets must name the package that declares the
+# variables (internal/buildinfo); the linker silently ignores unknown symbols, so a
+# wrong path here produces a binary reporting "unknown" with no build error.
+# `make release-check` verifies these paths.
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
-    -ldflags='-w -s -extldflags "-static" -X github.com/tmoeish/tsq.version=${VERSION} -X github.com/tmoeish/tsq.buildTime=${BUILD_TIME} -X github.com/tmoeish/tsq.gitCommit=${GIT_COMMIT} -X github.com/tmoeish/tsq.gitBranch=${GIT_BRANCH}' \
-    -a -installsuffix cgo \
+    -trimpath \
+    -ldflags="-w -s -X github.com/tmoeish/tsq/v4/internal/buildinfo.version=${VERSION} -X github.com/tmoeish/tsq/v4/internal/buildinfo.buildTime=${BUILD_TIME} -X github.com/tmoeish/tsq/v4/internal/buildinfo.gitCommit=${GIT_COMMIT} -X github.com/tmoeish/tsq/v4/internal/buildinfo.gitBranch=${GIT_BRANCH}" \
     -o tsq ./cmd/tsq
 
 # Final stage

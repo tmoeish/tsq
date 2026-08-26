@@ -8,8 +8,6 @@ import (
 	"strings"
 
 	"github.com/go-sql-driver/mysql"
-	"github.com/jackc/pgconn"
-	"github.com/lib/pq"
 
 	tsqdialect "github.com/tmoeish/tsq/v4/dialect"
 )
@@ -27,20 +25,20 @@ func isDuplicateKeyError(err error) bool {
 		return true
 	}
 
-	if pqErr, ok := errors.AsType[*pq.Error](err); ok {
-		return string(pqErr.Code) == "23505"
-	}
-
-	if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok {
-		return pgErr.Code == "23505"
-	}
-
-	return false
+	return isPostgresDuplicateKeyError(err)
 }
 
 func normalizePageReq(page *PageRequest) *PageRequest {
+	return normalizePageReqWithLimit(page, DefaultMaxPageSize)
+}
+
+func normalizePageReqWithLimit(page *PageRequest, maxSize int) *PageRequest {
 	if page == nil {
 		page = &PageRequest{}
+	}
+
+	if maxSize <= 0 {
+		maxSize = DefaultMaxPageSize
 	}
 
 	normalized := *page
@@ -52,11 +50,15 @@ func normalizePageReq(page *PageRequest) *PageRequest {
 		normalized.Size = defaultPageSize
 	}
 
-	if normalized.Size > maxPageSize {
-		normalized.Size = maxPageSize
+	if normalized.Size > maxSize {
+		normalized.Size = maxSize
 	}
 
 	return &normalized
+}
+
+func pageSizeLimitForExecutor(exec SQLExecutor) int {
+	return runtimeForExecutor(exec).MaxPageSize()
 }
 
 func normalizeChunkedInsertOptions(options ...*ChunkedInsertOptions) (*ChunkedInsertOptions, error) {

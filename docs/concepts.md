@@ -95,7 +95,7 @@ query, err := tsq.
 这里要特别区分两层校验：
 
 - `Build()` 负责 **结构正确性**：owner 绑定、子句顺序、投影列、子查询形状等
-- 真正执行时负责 **方言能力正确性**：例如 CTE、`FULL JOIN`、`INTERSECT` 是否被当前 executor dialect 支持
+- 真正执行时负责 **方言能力正确性**：例如 `FULL JOIN`（MySQL 没有）、行锁（SQLite 没有）是否被当前 executor dialect 支持；CTE、`INTERSECT`、`EXCEPT` 三个内置方言现在都支持（MySQL 以 8.0 为基线）
 
 之所以不把所有校验都放进 `Build()`，是因为同一个 `*tsq.Query` 可以被多个 runtime / registry / executor 复用，而这些执行入口未必共享同一种 dialect。
 
@@ -121,7 +121,7 @@ TSQ 现在把“谁负责承接扫描结果”和“谁是物理表”拆成了�
 - `Table` 才是 mutation target，并且会暴露稳定的 `Cols()/PrimaryKeys()` 这类表元数据
 - `Result` 不是物理表，不参与底层表 mutation
 
-这也是为什么 `tsq.Into(...)` 的目标仍然是 `Owner`：很多手写投影结果并不需要声明成 `@RESULT`，但依然是合法扫描目标。
+这也是为什么 `tsq.MapInto(...)` 的目标仍然是 `Owner`：很多手写投影结果并不需要声明成 `@RESULT`，但依然是合法扫描目标。
 
 ## 5. `Result`：把多表结果映射成一个单独 struct
 
@@ -156,7 +156,11 @@ rt, err := tsq.NewRuntime("sqlite", dsn, database.TSQTables())
 if err != nil {
 	panic(err)
 }
+defer rt.Close()
 ```
+
+启动阶段可能执行 DDL（取决于 `TablePolicy` / `IndexPolicy`），需要超时或取消时用
+`tsq.NewRuntimeContext(ctx, ...)`；`NewRuntime` 等价于传 `context.Background()`。
 
 它把这几件事绑在一起：
 

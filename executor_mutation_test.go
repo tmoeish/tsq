@@ -51,7 +51,7 @@ func TestEngineUpdateBatchesRows(t *testing.T) {
 	if err != nil {
 		t.Fatalf("query updated rows: %v", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var got []batchMutationUser
 	for rows.Next() {
 		var user batchMutationUser
@@ -59,6 +59,9 @@ func TestEngineUpdateBatchesRows(t *testing.T) {
 			t.Fatalf("scan updated row: %v", err)
 		}
 		got = append(got, user)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate updated rows: %v", err)
 	}
 	if len(got) != 2 || got[0].Name != "alice-updated" || got[1].Name != "bob-updated" {
 		t.Fatalf("unexpected updated rows: %#v", got)
@@ -118,7 +121,7 @@ func TestEngineUpdateUsesOptimisticLockVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("query versions: %v", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var got []optimisticMutationUser
 	for rows.Next() {
 		var user optimisticMutationUser
@@ -126,6 +129,9 @@ func TestEngineUpdateUsesOptimisticLockVersion(t *testing.T) {
 			t.Fatalf("scan version row: %v", err)
 		}
 		got = append(got, user)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate version rows: %v", err)
 	}
 	if len(got) != 2 || got[0].Version != 4 || got[1].Version != 8 {
 		t.Fatalf("unexpected stored versions: %#v", got)

@@ -110,8 +110,12 @@ make release             # 真的发
   gh api repos/tmoeish/tsq/rulesets/<id> -X PUT -f enforcement=active
   ```
 
+- `Integration`（真实 MySQL/PG）和 `Vulncheck`（govulncheck）两个 job **暂不在**必需检查里：
+  前者依赖 service 容器，先观察稳定性再提升；提升时同样要核对检查名是否稳定。
+
 推送 tag 会触发 `.github/workflows/go.yml` 的 `release` job，由 GoReleaser 构建三平台
-二进制并创建 GitHub Release。
+二进制并创建 GitHub Release。CI 的 `lint` job 跑的是 `make lint`（Makefile 钉的版本），
+`test` job 跑的是 `make test-race`——本地目标就是 CI 的定义，不要在 workflow 里另写一份。
 
 发布产物的版本信息由 `.goreleaser.yaml` 的 ldflags 注入进
 `github.com/tmoeish/tsq/v4/internal/buildinfo`。**改那几行的时候必须真的构建一次来验证**：

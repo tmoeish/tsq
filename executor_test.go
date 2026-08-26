@@ -5,12 +5,13 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"errors"
+	"fmt"
+	"io"
 	"net"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/jackc/pgconn"
 	_ "modernc.org/sqlite"
 )
 
@@ -163,8 +164,11 @@ func TestEngineQueryUsesContext(t *testing.T) {
 	exec := requireInitializedRuntime(t, db)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := exec.QueryContext(ctx, `SELECT id FROM users`)
+	rows, err := exec.QueryContext(ctx, `SELECT id FROM users`)
 	if err == nil {
+		_ = rows.Err()
+		_ = rows.Close()
+
 		t.Fatal("expected canceled context to fail query")
 	}
 	if !strings.Contains(err.Error(), context.Canceled.Error()) {
@@ -189,8 +193,11 @@ func TestEngineExecUsesContext(t *testing.T) {
 func TestRuntimeAsExecutorRequiresInitBeforeQuery(t *testing.T) {
 	db := &Runtime{}
 
-	_, err := db.QueryContext(context.Background(), `SELECT 1`)
+	rows, err := db.QueryContext(context.Background(), `SELECT 1`)
 	if err == nil {
+		_ = rows.Err()
+		_ = rows.Close()
+
 		t.Fatal("expected uninitialized runtime query to fail")
 	}
 	if !strings.Contains(err.Error(), "construct it with NewRuntime") {
@@ -469,7 +476,7 @@ func TestIsRetryableNetworkError(t *testing.T) {
 }
 
 func TestIsRetryableTransactionConflictError(t *testing.T) {
-	if !IsRetryableTransactionConflictError(&pgconn.PgError{Code: "40001"}) {
+	if !IsRetryableTransactionConflictError(fakeSQLStateError{state: "40001"}) {
 		t.Fatal("expected postgres serialization failure to be retryable")
 	}
 	if IsRetryableTransactionConflictError(errors.New("boom")) {
@@ -481,7 +488,7 @@ func TestRetryHelpersCanBeUsedAsPredicates(t *testing.T) {
 	if !IsRetryableNetworkError(driver.ErrBadConn) {
 		t.Fatal("expected network retry helper to accept driver bad connections")
 	}
-	if !IsRetryableTransactionConflictError(&pgconn.PgError{Code: "40P01"}) {
+	if !IsRetryableTransactionConflictError(fakeSQLStateError{state: "40P01"}) {
 		t.Fatal("expected transaction conflict helper to accept deadlocks")
 	}
 	if !IsCommonTransactionRetryableError(&ErrOptimisticLockConflict{}) {
@@ -489,16 +496,50 @@ func TestRetryHelpersCanBeUsedAsPredicates(t *testing.T) {
 	}
 }
 
-func TestShouldRetryTxSkipsCommitStage(t *testing.T) {
+// fakeSQLStateError mimics the SQLState() shape shared by lib/pq, pgx v4 and
+// pgx v5 error types without importing any driver.
+type fakeSQLStateError struct {
+	state string
+}
+
+func (e fakeSQLStateError) Error() string    { return "sqlstate " + e.state }
+func (e fakeSQLStateError) SQLState() string { return e.state }
+
+func TestPostgresErrorsMatchBySQLStateInterface(t *testing.T) {
+	wrapped := fmt.Errorf("insert: %w", fakeSQLStateError{state: "23505"})
+	if !isDuplicateKeyError(wrapped) {
+		t.Fatal("expected wrapped unique violation to be detected as duplicate key")
+	}
+	if isDuplicateKeyError(fakeSQLStateError{state: "40001"}) {
+		t.Fatal("expected serialization failure not to be a duplicate key error")
+	}
+	if !IsRetryableTransactionConflictError(fakeSQLStateError{state: "55P03"}) {
+		t.Fatal("expected lock-not-available to be a retryable conflict")
+	}
+	if IsRetryableTransactionConflictError(fakeSQLStateError{state: "23505"}) {
+		t.Fatal("expected unique violation not to be a retryable conflict")
+	}
+}
+
+func TestShouldRetryTxCommitStageOnlyRetriesDefiniteConflicts(t *testing.T) {
 	opts := &normalizedTxOptions{
-		retry:       IsRetryableNetworkError,
+		retry:       IsCommonTransactionRetryableError,
 		retryConfig: DefaultTxRetryConfig(),
 	}
 
 	if shouldRetryTx(driver.ErrBadConn, txRetryStageCommit, opts, 1) {
-		t.Fatal("expected commit-stage errors to stay non-retryable")
+		t.Fatal("expected ambiguous commit-stage network errors to stay non-retryable")
+	}
+	if shouldRetryTx(io.EOF, txRetryStageCommit, opts, 1) {
+		t.Fatal("expected commit-stage EOF to stay non-retryable")
+	}
+	if !shouldRetryTx(fakeSQLStateError{state: "40001"}, txRetryStageCommit, opts, 1) {
+		t.Fatal("expected commit-stage serialization failure to be retryable")
 	}
 	if !shouldRetryTx(driver.ErrBadConn, txRetryStageBody, opts, 1) {
 		t.Fatal("expected body-stage network errors to be retryable")
+	}
+	if shouldRetryTx(fakeSQLStateError{state: "40001"}, txRetryStageCommit, opts, opts.retryConfig.MaxAttempts) {
+		t.Fatal("expected attempt limit to apply at commit stage too")
 	}
 }

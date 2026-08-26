@@ -5,14 +5,14 @@ name: CI
 
 on:
   push:
-    branches: [ "main", "develop" ]
+    branches: [ "main" ]
     tags: [ "*" ]
   pull_request:
-    branches: [ "main", "develop" ]
+    branches: [ "main" ]
 
+# Least privilege by default; jobs that need more declare it themselves.
 permissions:
-  contents: write
-  security-events: write
+  contents: read
 
 env:
   GO_VERSION: '1.27.0'
@@ -35,14 +35,6 @@ jobs:
       with:
         go-version: ${{ matrix.go-version }}
 
-    - name: Cache Go modules
-      uses: actions/cache@v6
-      with:
-        path: ~/go/pkg/mod
-        key: ${{ runner.os }}-go-${{ matrix.go-version }}-${{ hashFiles('**/go.sum') }}
-        restore-keys: |
-          ${{ runner.os }}-go-${{ matrix.go-version }}-
-
     - name: Download dependencies
       run: go mod download
 
@@ -52,8 +44,60 @@ jobs:
     - name: Run tests
       run: make test
 
+    # Same flags as the local harness (-race -shuffle=on -count=1): shuffling is
+    # what surfaces order-dependent tests, so CI must not run a weaker variant.
     - name: Run tests with race detector
-      run: go test -race ./...
+      run: make test-race
+
+  # Real MySQL and PostgreSQL. The unit suite only ever touches SQLite, so this job
+  # is the only automated coverage of dialect/mysql.go and dialect/postgres.go.
+  # Not a ruleset-required check yet; promote it once it has run green for a while.
+  integration:
+    name: Integration
+    runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: tsq
+          MYSQL_DATABASE: tsq
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -ptsq"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: tsq
+          POSTGRES_PASSWORD: tsq
+          POSTGRES_DB: tsq
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tsq"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      TSQ_MYSQL_DSN: "root:tsq@tcp(127.0.0.1:3306)/tsq?parseTime=true&multiStatements=true"
+      TSQ_POSTGRES_DSN: "postgres://tsq:tsq@127.0.0.1:5432/tsq?sslmode=disable"
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v7
+
+    - name: Set up Go
+      uses: actions/setup-go@v7
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Run integration tests
+      run: go test -race -count=1 -run 'Integration' ./...
 
   lint:
     name: Lint
@@ -68,11 +112,10 @@ jobs:
       with:
         go-version: ${{ env.GO_VERSION }}
 
+    # `make lint` pins the golangci-lint version in the Makefile. Running the action
+    # with `version: latest` here made CI and the local harness two different truths.
     - name: golangci-lint
-      uses: golangci/golangci-lint-action@v9
-      with:
-        version: latest
-        args: --timeout=5m
+      run: make lint
 
   coverage:
     name: Coverage
@@ -92,11 +135,10 @@ jobs:
     - name: Run coverage
       run: make test-coverage
 
-    - name: Refresh generated examples
-      run: make examples
-
-    - name: Ensure generated examples are committed
-      run: git diff --exit-code -- examples/academy
+    # `tsq gen --check` re-renders from the current sources and compares; that is the
+    # authoritative "generated files are in sync" criterion, not `git diff`.
+    - name: Ensure generated examples are in sync
+      run: make gen-check
 
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v7
@@ -108,6 +150,9 @@ jobs:
   security:
     name: Security
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
 
     steps:
     - name: Checkout code
@@ -128,6 +173,25 @@ jobs:
       uses: github/codeql-action/upload-sarif@v4
       with:
         sarif_file: results.sarif
+
+  vulncheck:
+    name: Vulncheck
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v7
+
+    - name: Set up Go
+      uses: actions/setup-go@v7
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Install govulncheck
+      run: go install golang.org/x/vuln/cmd/govulncheck@latest
+
+    - name: Run govulncheck
+      run: ~/go/bin/govulncheck ./...
 
   build:
     name: Build
@@ -189,6 +253,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: [test, lint, coverage, build]
     if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
 
     steps:
     - name: Checkout code

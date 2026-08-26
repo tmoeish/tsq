@@ -115,12 +115,12 @@ func TestNewPageReq_InvalidSize(t *testing.T) {
 
 func TestNewPageReq_MaxSize(t *testing.T) {
 	params := url.Values{}
-	params.Set("size", strconv.Itoa(maxPageSize+100))
+	params.Set("size", strconv.Itoa(DefaultMaxPageSize+100))
 
 	page := NewPageRequest(params)
 
-	if page.Size != maxPageSize {
-		t.Errorf("Expected size to be capped at %d, got %d", maxPageSize, page.Size)
+	if page.Size != DefaultMaxPageSize {
+		t.Errorf("Expected size to be capped at %d, got %d", DefaultMaxPageSize, page.Size)
 	}
 }
 
@@ -318,10 +318,10 @@ func TestPageReq_Validate(t *testing.T) {
 			name: "size too large",
 			input: &PageRequest{
 				Page: 2,
-				Size: maxPageSize + 100,
+				Size: DefaultMaxPageSize + 100,
 			},
 			expectedPage: 2,
-			expectedSize: maxPageSize,
+			expectedSize: DefaultMaxPageSize,
 		},
 		{
 			name: "negative values",
@@ -611,6 +611,6 @@ func TestConstants(t *testing.T) {
 	}
 
 	if false {
-		t.Errorf("Expected maxPageSize 1000, got %d", maxPageSize)
+		t.Errorf("Expected DefaultMaxPageSize 1000, got %d", DefaultMaxPageSize)
 	}
 }

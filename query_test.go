@@ -141,9 +141,10 @@ func TestQueryBuilder_Build_FullJoinDefersDialectValidationToExecution(t *testin
 		t.Fatalf("expected FULL JOIN build to succeed, got %v", err)
 	}
 	db, _ := newSQLiteIndexTestEngine(t)
+	db.dialect = MySQLDialect{}
 	err = validateOperationalExecutorForSQL(db, query.listSQL)
 	if err == nil {
-		t.Fatal("expected sqlite dialect validation to reject FULL JOIN")
+		t.Fatal("expected mysql dialect validation to reject FULL JOIN")
 	}
 	if !strings.Contains(err.Error(), "FULL JOIN") {
 		t.Fatalf("expected FULL JOIN dialect error, got %v", err)
@@ -244,9 +245,18 @@ func TestQueryBuilder_Build_CTEExecutionOnSQLite(t *testing.T) {
 	}
 }
 
+// noCapabilityDialect is a MySQL dialect that reports every optional capability as
+// unsupported. All three built-in dialects now accept CTEs and set operations, so
+// the "validation is deferred to execution" tests need a dialect that still rejects them.
+type noCapabilityDialect struct {
+	MySQLDialect
+}
+
+func (noCapabilityDialect) SupportsCapability(DialectCapability) bool { return false }
+
 func TestQueryBuilder_Build_CTEDefersDialectValidationToExecution(t *testing.T) {
 	db := newInVarEngine(t)
-	db.dialect = MySQLDialect{}
+	db.dialect = noCapabilityDialect{}
 	users := newMockTable("users")
 	id := newColForTable[Table, int](users, "id", "id", nil)
 	filteredUsers := CTE("filtered_users", Select(id).From(id.Table()).Where(id.GTVal(1)))
@@ -254,7 +264,7 @@ func TestQueryBuilder_Build_CTEDefersDialectValidationToExecution(t *testing.T) 
 	query := mustBuild(Select(filteredUserID).From(filteredUsers))
 	err := validateOperationalExecutorForSQL(db, query.listSQL)
 	if err == nil {
-		t.Fatal("expected mysql dialect validation to reject CTE")
+		t.Fatal("expected capability-less dialect to reject CTE")
 	}
 	if !strings.Contains(err.Error(), "CTE") {
 		t.Fatalf("expected CTE dialect error, got %v", err)
@@ -263,13 +273,13 @@ func TestQueryBuilder_Build_CTEDefersDialectValidationToExecution(t *testing.T) 
 
 func TestQueryBuilder_Build_IntersectDefersDialectValidationToExecution(t *testing.T) {
 	db := newInVarEngine(t)
-	db.dialect = MySQLDialect{}
+	db.dialect = noCapabilityDialect{}
 	users := newMockTable("users")
 	id := newColForTable[Table, int](users, "id", "id", nil)
 	query := mustBuild(Select(id).From(id.Table()).Intersect(Select(id).From(id.Table())))
 	err := validateOperationalExecutorForSQL(db, query.listSQL)
 	if err == nil {
-		t.Fatal("expected mysql dialect validation to reject INTERSECT")
+		t.Fatal("expected capability-less dialect to reject INTERSECT")
 	}
 	if !strings.Contains(err.Error(), "INTERSECT") {
 		t.Fatalf("expected INTERSECT dialect error, got %v", err)
@@ -278,13 +288,13 @@ func TestQueryBuilder_Build_IntersectDefersDialectValidationToExecution(t *testi
 
 func TestQueryBuilder_Build_ExceptDefersDialectValidationToExecution(t *testing.T) {
 	db := newInVarEngine(t)
-	db.dialect = MySQLDialect{}
+	db.dialect = noCapabilityDialect{}
 	users := newMockTable("users")
 	id := newColForTable[Table, int](users, "id", "id", nil)
 	query := mustBuild(Select(id).From(id.Table()).Except(Select(id).From(id.Table())))
 	err := validateOperationalExecutorForSQL(db, query.listSQL)
 	if err == nil {
-		t.Fatal("expected mysql dialect validation to reject EXCEPT")
+		t.Fatal("expected capability-less dialect to reject EXCEPT")
 	}
 	if !strings.Contains(err.Error(), "EXCEPT") {
 		t.Fatalf("expected EXCEPT dialect error, got %v", err)
@@ -293,10 +303,10 @@ func TestQueryBuilder_Build_ExceptDefersDialectValidationToExecution(t *testing.
 
 func TestQueryBuilder_Build_MinusDefersDialectValidationToExecution(t *testing.T) {
 	db := newInVarEngine(t)
-	db.dialect = MySQLDialect{}
+	db.dialect = noCapabilityDialect{}
 	err := validateOperationalExecutorForSQL(db, "SELECT 1 MINUS SELECT 1")
 	if err == nil {
-		t.Fatal("expected mysql dialect validation to reject MINUS")
+		t.Fatal("expected capability-less dialect to reject MINUS")
 	}
 	if !strings.Contains(err.Error(), "EXCEPT") {
 		t.Fatalf("expected EXCEPT dialect error for MINUS, got %v", err)

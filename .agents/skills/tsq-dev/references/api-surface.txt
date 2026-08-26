@@ -9,6 +9,7 @@ const (
 	IndexInitValidate = SchemaPolicyValidate
 	IndexInitUpsert = SchemaPolicyCreateMissing
 )
+const DefaultMaxPageSize = 1000
 FUNCTIONS
 func AsSubquery[O Owner, T any](query *Query[O], selected TypedColumn[O, T]) (Subquery[T], error)
 func BuildSubquery[O Owner, T any](qb QueryStage[O], selected TypedColumn[O, T]) (Subquery[T], error)
@@ -57,6 +58,13 @@ func NewRuntime(
 	tables []TableRegistration,
 	options ...*RuntimeOptions,
 ) (*Runtime, error)
+func NewRuntimeContext(
+	ctx context.Context,
+	driverName string,
+	dsn string,
+	tables []TableRegistration,
+	options ...*RuntimeOptions,
+) (*Runtime, error)
 func Update[T Table](
 	ctx context.Context,
 	tx SQLExecutor,
@@ -85,12 +93,12 @@ type CaseStage[T any] interface {
 }
 func Case[T any]() CaseStage[T]
 type ChunkedInsertOptions struct {
-	ChunkSize    int  // 每块处理的数量，默认 1000
-	IgnoreErrors bool // 是否忽略重复键插入错误并继续处理后续数据
+	ChunkSize    int  // ChunkSize is the number of items per statement; zero means 1000.
+	IgnoreErrors bool // IgnoreErrors skips duplicate-key failures and continues with the remaining items.
 }
 func DefaultChunkedInsertOptions() *ChunkedInsertOptions
 type ChunkedOptions struct {
-	ChunkSize int // 每块处理的数量，默认 1000
+	ChunkSize int // ChunkSize is the number of items per statement; zero means 1000.
 }
 func DefaultChunkedOptions() *ChunkedOptions
 type Column[O Owner, T any] interface {
@@ -273,6 +281,12 @@ type HavingStage[O Owner] interface {
 	Except(other QueryStage[O]) CompoundStage[O]
 	ExceptAll(other QueryStage[O]) CompoundStage[O]
 }
+type IdentifierValidationMode string
+const (
+	IdentifierValidationStrict IdentifierValidationMode = "strict"
+	IdentifierValidationWarn IdentifierValidationMode = "warn"
+	IdentifierValidationSkip IdentifierValidationMode = "skip"
+)
 type IndexInitMode = SchemaPolicy
 type LockedStage[O Owner] interface {
 	QueryStage[O]
@@ -429,8 +443,10 @@ func MapInto[Target Owner, T any](
 ) ResultColumn[Target, T]
 type Runtime struct {
 }
+func (r *Runtime) Close() error
 func (r *Runtime) DB() *sql.DB
 func (r *Runtime) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+func (r *Runtime) MaxPageSize() int
 func (r *Runtime) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
 func (r *Runtime) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 func (r *Runtime) SQLDialect() tsqdialect.Dialect
@@ -459,8 +475,9 @@ type RuntimeOptions struct {
 	TablePolicy SchemaPolicy // TablePolicy chooses how TSQ manages declared tables and columns during NewRuntime.
 	IndexPolicy SchemaPolicy // IndexPolicy chooses how TSQ manages declared indexes during NewRuntime.
 	Tracers     []Tracer     // Tracers configures the runtime's tracer chain during NewRuntime.
-	Logger      Logger       // Logger receives schema bootstrap decisions and executed DDL.
-	IdentifierValidationMode string
+	Logger      Logger       // Logger receives schema bootstrap decisions, executed DDL, and execution-time warnings.
+	IdentifierValidationMode IdentifierValidationMode
+	MaxPageSize int
 }
 type SQLColumn interface {
 	SQLExpr() string       // SQLExpr returns the rendered expression, such as "users.name".

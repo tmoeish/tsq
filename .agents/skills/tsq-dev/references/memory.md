@@ -45,6 +45,63 @@
 
 ---
 
+## 2026-08-26 — 同一个 SQLSTATE 在三个驱动里是三个 Go 类型
+
+`IsRetryableTransactionConflictError` 和重复键检测曾 `errors.AsType[*pgconn.PgError]`，
+import 的是 `github.com/jackc/pgconn`——那是 pgx **v4** 的包。pgx v5 的 `PgError` 在
+`github.com/jackc/pgx/v5/pgconn`，是另一个类型，匹配静默失败；而 `resolveRuntimeDialect`
+明确接受 driver `"pgx"`，使用者按文档用 pgx v5 时重试和 `IgnoreErrors` 全部不生效，没有
+任何报错。单元测试用的 fixture 恰好也是 pgconn v1，所以一直绿。
+
+修法是匹配接口 `interface{ SQLState() string }`——pq、pgx v4、pgx v5 都实现——顺带把
+`lib/pq` 和 `pgconn` 从根包依赖里去掉了。**驱动错误分类永远按接口，不按具体类型**；
+`change-impact.md` 有对应条目，`integration_test.go` 用真实 pgx v5 守着。
+
+## 2026-08-26 — 字符串模式的空值落在所有分支之外
+
+`IdentifierValidationMode string` 的默认值 `""` 既不是 `"strict"`（返回错误）也不是
+`"warn"`（返回汇总错误让调用方记日志），违规被收集进切片然后**直接丢弃**。注释写着
+"strict 是默认"，测试只用过 `"skip"`。stringly-typed 的开关，每个分支都写 `== "x"`，
+空值就永远是那个没人写的第四分支。现在是类型化枚举 + `resolveIdentifierValidationMode`，
+空值显式映射到 Strict，未知值被 `NewRuntime` 拒绝。
+
+## 2026-08-26 — 决定：方言能力位按版本基线表态，否决"版本可配置"
+
+SQLite 的 FULL JOIN 位和 MySQL 的 CTE / INTERSECT / EXCEPT 位都是按 2018 年前的引擎写的：
+SQLite 3.39（2022）起支持 FULL JOIN，modernc 现在 bundle 3.53；MySQL 8.0 支持 CTE，
+8.0.31 支持 INTERSECT/EXCEPT，5.7 于 2023-10 EOL。README 的能力矩阵忠实复述了这些错误。
+
+考虑过给 `MySQLDialect` 加 `ServerVersion` 字段按版本判定，**否决**：API 面变大，而且
+`Build()` 之前根本不知道会连哪个库，版本只能在执行时探测——那就得每个 `Dialect` 值带状态，
+和"方言是无状态值类型"的现状冲突。改成按基线表态：MySQL 8.0、SQLite ≥3.39。代价是
+5.7 用户拿到数据库报错而不是 `ErrUnsupportedCapability`，CHANGELOG 写明。
+
+## 2026-08-26 — 决定：commit 阶段只对明确冲突码重试
+
+原来 `shouldRetryTx` 一刀切 `stage != commit`，理由是 commit 失败有歧义（可能已经提交）。
+但 PostgreSQL 的 `40001` 序列化失败**经常在 COMMIT 时才抛**，且这些码（40001 / 40P01 /
+55P03、MySQL 1205 / 1213）保证事务已回滚——这是 PG 最典型的重试场景，被一刀切排除了。
+现在 commit 阶段只放行 `IsRetryableTransactionConflictError` 为真的错误；`io.EOF`、
+`driver.ErrBadConn` 之类在 commit 阶段仍不重试。
+
+## 2026-08-26 — 集成测试为什么长这样，以及暂时不做的几件事
+
+`dialect/mysql.go` 和 `dialect/postgres.go` 在此之前覆盖率 0%——v4.2.0 那批标 "Critical"
+的 PG/MySQL reconcile 修复没有任何自动化回归。集成测试的核心断言是"托管 schema 第二次启动
+零 DDL"：v4.2.0 的每个事故都表现为它。用 env DSN + `t.Skip` 而不是 build tag，是为了让
+SQLite 目标始终参与、套件本身每次 `go test` 都被编译执行。
+
+已知决定不做（写在这里免得下一个人重新调查）：
+
+- **Docker 镜像不推送 registry**。`Docker Build` 是必需检查，但产物没人消费；推送要配
+  ghcr 权限和 tag 策略，等有真实使用者再说。
+- **`NewRuntime` 不改成 functional options**。`options ...*RuntimeOptions` 别扭，但改签名
+  是破坏性变更，留给 v5。
+- **不替换 `gopkg.in/nullbio/null.v6` 和 `serenize/snaker`**。前者出现在生成代码里
+  （`examples/academy/*.tsq.go` import 它），是使用者契约；后者只在生成器里做
+  CamelToSnake，换实现等于改所有使用者的表名推导。
+- **`Integration` job 暂不进 ruleset 必需检查**，依赖 service 容器，先观察稳定性。
+
 ## 2026-08-21 — `release-check` 只能查版本倒退，不能查"没前进"
 
 第一版写的是"代码里的版本必须严格大于最新 tag"，它把门装反了：合法状态有两个，
@@ -97,38 +154,12 @@ PR #59 合进 `main` 之后，`make harness` 立刻红了：
 信息（squash 追加 PR 号）、会改写 SHA（squash 造新 commit）、会改写历史形状（PR 的多个
 提交压成一个）。这三件事今天各绊了一次。
 
-## 2026-08-21 — 那个不存在的 `make update-examples` 在文档里又活了三个月
+## 2026-08-21 — 不存在的 `make update-examples` 在文档里又活了三个月
 
-v4.4.1 是为了修 CI 调用不存在的 `make update-examples` 而发的补丁版本。修的时候只改了
-`.github/workflows/go.yml`——**同一个幽灵还留在 `README.md` 和 `CONTRIBUTING.md` 的代码块
-里**，谁照着敲都会得到 `No rule to make target`，然后开始怀疑自己的环境，而没有任何东西
-会告诉他文档是错的。
-
-这就是"一个被修两次的问题是一个不彻底的修复"的样板：第一次只修了报错的那一处，没有问
-"同一个名字还写在哪"。
-
-`make doc-check` 现在守着这条。判据是"读者会不会把这一行复制去执行"：**只扫围栏代码块，
-不扫行内反引号**。这条界线让门不需要任何按文件的白名单——`memory.md` 记录事故经过时必须
-能写出这个已经不存在的名字，`CHANGELOG.md` 的历史条目同理，而它们都在散文里。
-
-它管不到 `.github/workflows/`（不是 Markdown），改 make 目标名时那里仍然要手动 grep。
-
-## 2026-08-21 — 已知未处理：发布二进制的 `gitBranch` 显示 `HEAD`
-
-`tsq version` 在 GitHub Release 的产物上显示 `branch  HEAD` 而不是 `main`。原因是 tag
-触发的 CI 是分离头指针检出，GoReleaser 的 `{{ .Branch }}` 只能解析到 `HEAD`。
-
-**现在不动它**：这不是错（那确实是分离头状态），而且提供不了信息的字段旁边就是权威来源——
-`gitCommit` 是完整哈希且确认无误（v4.5.0 上核对过等于发版提交 `9d35efb9`）。为一个纯装饰
-字段单独发一个版本，正是 `user_visible_changes` 那道门要拦的那种版本号噪音。
-
-**什么条件下该动**：下次有真正的使用者可见改动要发版时顺手带上。两种改法——从 `version`
-的输出里去掉 branch（tag 构建谈分支本来就没意义），或在 `.goreleaser.yaml` 里改成注入
-`{{ .Tag }}` 之类真正有信息量的东西。别为它单独跑一次发版。
-
-（这条本身就是"发现了但决定暂不处理"该怎么记的样例，见 `AGENTS.md` § 发版。这个判断
-一开始只写在了聊天记录里，那等于没写——下一个 agent 会重新调查一遍 `branch` 为什么是
-`HEAD`，然后重新得出同一个结论。）
+v4.4.1 修 CI 时只改了 workflow，`README.md` / `CONTRIBUTING.md` 里同一个幽灵没人问"这个
+名字还写在哪"。**一个被修两次的问题是一个不彻底的修复。** 现在由 `make doc-check` 守着
+围栏代码块里的 `make X`（散文有意不扫，历史叙述要能写出已不存在的名字）；它管不到
+`.github/workflows/`，改目标名那里仍要手动 grep。
 
 ## 2026-08-21 — 第一次真跑 PR 发版流程暴露的两件事
 
@@ -234,22 +265,13 @@ CLI 的全部行为都在那里面——`internal/parser` 改了解析规则，�
 
 ## 2026-08-21 — `-X` 打错包路径是**静默**失败的
 
-`.goreleaser.yaml` 的 ldflags 一直打的是 `github.com/tmoeish/tsq/v4.version`，而这些变量
-实际声明在 `github.com/tmoeish/tsq/v4/internal/buildinfo` 里。**Go 链接器找不到 `-X` 指定的
-符号时不报错，直接忽略。** 所以每一个 GoReleaser 发出去的二进制，`buildTime`、`gitCommit`、
-`gitBranch` 都是 `"unknown"`，而 `version` 悄悄退回源码字面量——恰好是对的，掩盖了另外三个
-是错的。构建日志、`goreleaser check`、CI 全绿，没有任何地方会提示你。
-
-验证方式只有一个：真的构建出来跑一遍。`goreleaser check` 只校验 YAML 结构，证明不了
-`-X` 有没有生效。`goreleaser build --snapshot --single-target` 之后看 `tsq version` 的
-构建时间是不是还写着 `unknown`——这是判断这类 bug 的唯一可靠信号。
-
-顺带钉死两件事：
-
-- 用 `{{ .Tag }}` 而不是 `{{ .Version }}`。后者会剥掉前导 `v`，而版本号的其他三个副本
-  （`internal/buildinfo` 的字面量、CHANGELOG 的标题、生成文件头）都带 `v`。
-- 加上 `-trimpath`。GoReleaser **不会**默认加它（`make build` 一直有），少了它发布的二进制
-  会嵌进 CI 机器的绝对路径。
+Go 链接器找不到 `-X` 指定的符号时不报错，直接忽略。`.goreleaser.yaml` 打在
+`github.com/tmoeish/tsq/v4.version` 上（变量实际在 `internal/buildinfo`），发出去的每个
+二进制 build time / commit / branch 都是 `unknown`，而 `version` 退回源码字面量恰好是对的，
+掩盖了另外三个。`goreleaser check` 只校验 YAML 结构，证明不了这件事；唯一可靠的验证是
+`goreleaser build --snapshot --single-target` 之后跑 `tsq version`。2026-08-26 发现
+`Dockerfile` 里还有第三个副本犯同样的错，现在 `make release-check` 核对三份配置里的每个
+`-X`。附带钉死：用 `{{ .Tag }}` 不用 `{{ .Version }}`（后者剥掉前导 `v`），加 `-trimpath`。
 
 ## 2026-08-21 — 生成器不能带 `git describe` 的版本号，否则发版是死锁
 

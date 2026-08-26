@@ -97,9 +97,10 @@ runtime, err := tsq.NewRuntime(
 if err != nil {
 	return err
 }
+defer runtime.Close()
 ```
 
-`NewRuntime` opens the DB itself and resolves the dialect from `driverName`. If the target project already has a DB bootstrap path, integrate TSQ there instead of creating a second runtime path. If the project manages schema by migrations, omit the policies and keep the default manual mode.
+`NewRuntime` opens the DB itself and resolves the dialect from `driverName`. Use `tsq.NewRuntimeContext(ctx, ...)` when bootstrap (which may run DDL) must honor a deadline. If the target project already has a DB bootstrap path, integrate TSQ there instead of creating a second runtime path. If the project manages schema by migrations, omit the policies and keep the default manual mode.
 
 ## 6. Run a first query
 

@@ -330,13 +330,13 @@ func displayDialectName(dialect Name) string {
 func unsupportedCapabilityHint(operation Capability, dialect Name) string {
 	switch canonicalCapabilityName(string(operation)) {
 	case CapabilityCTE:
-		return "use a subquery, split the query, or execute on sqlite/postgres"
+		return "use a subquery or split the query"
 	case CapabilityFullOuterJoin:
-		return "use LEFT/RIGHT JOIN with UNION, or execute on postgres"
+		return "use LEFT/RIGHT JOIN with UNION, or execute on sqlite/postgres"
 	case CapabilityIntersect:
-		return "use IN/EXISTS filtering, or execute on sqlite/postgres"
+		return "use IN/EXISTS filtering"
 	case CapabilityExcept:
-		return "use NOT EXISTS filtering, or execute on sqlite/postgres"
+		return "use NOT EXISTS filtering"
 	case CapabilitySelectForUpdate, CapabilitySelectForShare:
 		return "execute on a dialect that supports row-locking reads"
 	case CapabilitySelectForNoWait, CapabilitySelectForSkipLocked:

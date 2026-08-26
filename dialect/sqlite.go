@@ -96,10 +96,11 @@ func (d SQLiteDialect) ValidateIdentifier(identifier string) error {
 
 func (d SQLiteDialect) SupportsCapability(capability Capability) bool {
 	switch canonicalCapabilityName(string(capability)) {
-	case CapabilityCTE, CapabilityExcept, CapabilityIntersect:
+	// FULL OUTER JOIN requires SQLite 3.39 (2022-06); the bundled modernc.org/sqlite
+	// ships a newer engine, and system SQLite builds older than that are out of support.
+	case CapabilityCTE, CapabilityExcept, CapabilityIntersect, CapabilityFullOuterJoin:
 		return true
-	case CapabilityFullOuterJoin,
-		CapabilitySelectForUpdate,
+	case CapabilitySelectForUpdate,
 		CapabilitySelectForShare,
 		CapabilitySelectForNoWait,
 		CapabilitySelectForSkipLocked:

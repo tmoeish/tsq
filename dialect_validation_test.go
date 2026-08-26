@@ -35,10 +35,13 @@ func TestDialectCapabilities(t *testing.T) {
 		capability DialectCapability
 		want       bool
 	}{
-		{name: "sqlite lacks full join", dialect: SQLiteDialect{}, capability: DialectCapabilityFullOuterJoin, want: false},
+		{name: "sqlite supports full join", dialect: SQLiteDialect{}, capability: DialectCapabilityFullOuterJoin, want: true},
 		{name: "sqlite lacks for update", dialect: SQLiteDialect{}, capability: DialectCapabilitySelectForUpdate, want: false},
 		{name: "sqlite supports cte", dialect: SQLiteDialect{}, capability: DialectCapabilityCTE, want: true},
-		{name: "mysql lacks cte", dialect: MySQLDialect{}, capability: DialectCapabilityCTE, want: false},
+		{name: "mysql supports cte", dialect: MySQLDialect{}, capability: DialectCapabilityCTE, want: true},
+		{name: "mysql supports intersect", dialect: MySQLDialect{}, capability: DialectCapabilityIntersect, want: true},
+		{name: "mysql supports except", dialect: MySQLDialect{}, capability: DialectCapabilityExcept, want: true},
+		{name: "mysql lacks full join", dialect: MySQLDialect{}, capability: DialectCapabilityFullOuterJoin, want: false},
 		{name: "mysql supports skip locked", dialect: MySQLDialect{}, capability: DialectCapabilitySelectForSkipLocked, want: true},
 		{name: "postgres supports full join", dialect: PostgresDialect{}, capability: DialectCapabilityFullOuterJoin, want: true},
 		{name: "postgres supports for share", dialect: PostgresDialect{}, capability: DialectCapabilitySelectForShare, want: true},

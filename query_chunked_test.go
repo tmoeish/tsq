@@ -121,7 +121,7 @@ func TestNormalizeChunkedOptionsRejectsMultipleValues(t *testing.T) {
 }
 
 func TestChunkedUpdateChunkRejectsNilItems(t *testing.T) {
-	err := chunkedUpdateChunk[*mockTable](nil, nil, []*mockTable{nil})
+	err := chunkedUpdateChunk[*mockTable](context.Background(), nil, []*mockTable{nil})
 	if err == nil {
 		t.Fatal("expected nil batch update item to return an error")
 	}
@@ -131,7 +131,7 @@ func TestChunkedUpdateChunkRejectsNilItems(t *testing.T) {
 }
 
 func TestChunkedDeleteChunkRejectsNilItems(t *testing.T) {
-	err := chunkedDeleteChunk[*mockTable](nil, nil, []*mockTable{nil})
+	err := chunkedDeleteChunk[*mockTable](context.Background(), nil, []*mockTable{nil})
 	if err == nil {
 		t.Fatal("expected nil batch delete item to return an error")
 	}

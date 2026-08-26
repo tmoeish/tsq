@@ -22,24 +22,24 @@ var reservedImportAliases = map[string]struct{}{
 	"tsqtime": {},
 }
 
-// StructInfo 表示一个解析后的结构体信息
+// StructInfo is a parsed struct declaration plus its embedded-type resolution state.
 type StructInfo struct {
 	*genmodel.StructInfo
 
-	embeddedTypes     map[genmodel.TypeInfo]bool // 嵌入的结构体类型
-	embeddedResolving bool                       // 嵌入字段是否正在解析
-	embeddedResolved  bool                       // 嵌入字段是否已解析
+	embeddedTypes     map[genmodel.TypeInfo]bool // embedded struct types
+	embeddedResolving bool                       // embedded fields are being resolved (cycle guard)
+	embeddedResolved  bool                       // embedded fields have been resolved
 }
 
-// parseStructDeclaration 解析单个结构体定义
+// parseStructDeclaration parses one struct declaration.
 func parseStructDeclaration(
-	packageAliases map[string]genmodel.PackageInfo, // 包别名映射
-	currentPkg genmodel.PackageInfo, // 当前包信息
-	structName string, // 结构体名称
-	structType *ast.StructType, // AST 结构体类型
-	structMap map[genmodel.TypeInfo]*StructInfo, // 已解析的结构体映射
-	parsedPackages map[genmodel.PackageInfo]bool, // 已解析的包
-	pendingPackages *list.List, // 待解析的包列表
+	packageAliases map[string]genmodel.PackageInfo, // import alias -> package
+	currentPkg genmodel.PackageInfo, // package being parsed
+	structName string, // struct name
+	structType *ast.StructType, // struct AST node
+	structMap map[genmodel.TypeInfo]*StructInfo, // structs parsed so far
+	parsedPackages map[genmodel.PackageInfo]bool, // packages parsed so far
+	pendingPackages *list.List, // packages still to parse
 ) error {
 	typeInfo := genmodel.TypeInfo{
 		Package:  currentPkg,
@@ -48,13 +48,13 @@ func parseStructDeclaration(
 
 	slog.Debug("parsing struct", "typeInfo", typeInfo)
 
-	// 解析嵌入字段
+	// Parse embedded fields.
 	embeddedTypes, err := parseEmbeddedFields(packageAliases, currentPkg, structType)
 	if err != nil {
 		return err
 	}
 
-	// 将嵌入字段的包添加到待解析列表
+	// Queue the embedded fields' packages for parsing.
 	for embeddedType := range embeddedTypes {
 		if embeddedType.Package == currentPkg {
 			continue
@@ -67,43 +67,43 @@ func parseStructDeclaration(
 		}
 	}
 
-	// 解析具名字段
+	// Parse named fields.
 	fieldMap, err := parseNamedFields(packageAliases, currentPkg, structType)
 	if err != nil {
 		return err
 	}
 
-	// 创建结构体对象
+	// Build the struct info.
 	structMap[typeInfo] = &StructInfo{
-		StructInfo: &genmodel.StructInfo{ // 初始化表元数据
+		StructInfo: &genmodel.StructInfo{ // table metadata is filled in later
 			TypeInfo: typeInfo,
 			FieldMap: fieldMap,
 			Recv:     genRecv(structName),
 		},
 		embeddedTypes:    embeddedTypes,
-		embeddedResolved: len(embeddedTypes) == 0, // 没有嵌入字段则标记为已解析
+		embeddedResolved: len(embeddedTypes) == 0, // nothing to resolve without embedded fields
 	}
 
 	return nil
 }
 
-// resolveImportDependencies 解析结构体的导入依赖
+// resolveImportDependencies computes the imports a struct's fields need.
 func (s *StructInfo) resolveImportDependencies() {
-	// 收集所有需要导入的包
+	// Collect every package that must be imported.
 	requiredPackages := s.collectRequiredPackages()
 
-	// 处理包名冲突
+	// Resolve package name conflicts.
 	s.ImportMap = s.resolvePackageNameConflicts(requiredPackages)
 }
 
-// collectRequiredPackages 收集所有需要导入的包
+// collectRequiredPackages collects every package that must be imported.
 func (s *StructInfo) collectRequiredPackages() map[genmodel.PackageInfo]bool {
 	packages := make(map[genmodel.PackageInfo]bool)
 
 	for _, field := range s.FieldMap {
 		fieldPkg := field.Type.Package
 
-		// 跳过原始类型和当前包的类型
+		// Skip primitive types and types from the current package.
 		if fieldPkg.Path == "" || fieldPkg == s.TypeInfo.Package {
 			continue
 		}
@@ -114,17 +114,17 @@ func (s *StructInfo) collectRequiredPackages() map[genmodel.PackageInfo]bool {
 	return packages
 }
 
-// resolvePackageNameConflicts 解决包名冲突
+// resolvePackageNameConflicts assigns unique aliases to packages sharing a name.
 func (s *StructInfo) resolvePackageNameConflicts(
 	packages map[genmodel.PackageInfo]bool,
 ) map[string]string {
-	// 按包名分组
+	// Group by package name.
 	nameGroups := make(map[string][]string)
 	for pkg := range packages {
 		nameGroups[pkg.Name] = append(nameGroups[pkg.Name], pkg.Path)
 	}
 
-	// 生成最终的导入映射
+	// Produce the final import map.
 	imports := make(map[string]string)
 	usedAliases := cloneAliasSet(reservedImportAliases)
 
@@ -179,32 +179,32 @@ func nextAvailableImportAlias(base string, usedAliases map[string]struct{}) stri
 	}
 }
 
-// resolveFieldsInfo 解析字段信息，设置正确的包名并排序
+// resolveFieldsInfo finalizes field package names and sorts the field list.
 func (s *StructInfo) resolveFieldsInfo() {
-	// 更新字段的包名信息
+	// Update field package names.
 	s.updateFieldPackageNames()
 
-	// 从 FieldMap 构建 Fields
+	// Build Fields from FieldMap.
 	s.buildFieldList()
 
-	// 对字段列表进行排序
+	// Sort the field list.
 	s.sortFieldList()
 }
 
-// updateFieldPackageNames 更新字段的包名信息
+// updateFieldPackageNames rewrites field package names using the import map.
 func (s *StructInfo) updateFieldPackageNames() {
 	for fieldName, field := range s.FieldMap {
 		fieldPkg := &field.Type.Package
 
 		if fieldPkg.Path == "" || *fieldPkg == s.TypeInfo.Package {
-			// 原始类型或当前包的类型，清空包名
+			// Primitive or current-package type: no package qualifier.
 			fieldPkg.Name = ""
 		} else {
-			// 外部包的类型，使用导入映射中的包名
+			// External type: use the alias from the import map.
 			fieldPkg.Name = s.ImportMap[fieldPkg.Path]
 		}
 
-		// 更新 FieldMap 中的字段
+		// Write the updated field back into FieldMap.
 		s.FieldMap[fieldName] = field
 	}
 }
@@ -220,14 +220,14 @@ func (s *StructInfo) buildFieldList() {
 	s.Fields = fields
 }
 
-// sortFieldList 对字段列表进行排序
+// sortFieldList sorts fields into a stable output order.
 func (s *StructInfo) sortFieldList() {
 	sort.Slice(s.Fields, func(i, j int) bool {
 		return s.Fields[i].Name < s.Fields[j].Name
 	})
 }
 
-// genRecv 从类型名生成接收器名称，通过连接各部分的首字母
+// genRecv derives a receiver name from a type name by joining the initials of its words.
 func genRecv(typeName string) string {
 	parts := strings.Split(snaker.CamelToSnake(typeName), "_")
 	result := make([]rune, 0, len(parts))

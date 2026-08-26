@@ -103,13 +103,13 @@ func (e *ErrOrderCountMismatch) Is(target error) bool {
 // Query is the immutable, concurrency-safe result of Build, separating query
 // definition from execution.
 type Query[O Owner] struct {
-	// SQL 语句模板。
-	cntSQL    string // COUNT 查询
-	listSQL   string // 主 SELECT 查询
-	kwCntSQL  string // 关键词搜索 COUNT 查询
-	kwListSQL string // 关键词搜索 SELECT 查询
+	// SQL templates rendered at Build time.
+	cntSQL    string // COUNT query
+	listSQL   string // main SELECT query
+	kwCntSQL  string // COUNT query with keyword search
+	kwListSQL string // SELECT query with keyword search
 
-	// 基础参数列表。可能包含延迟绑定的标记（externalArgMarker 等）。
+	// Base argument lists. May contain deferred-binding markers (externalArgMarker and friends).
 	cntArgs    []any
 	listArgs   []any
 	kwCntArgs  []any
@@ -120,12 +120,12 @@ type Query[O Owner] struct {
 	kwCntArgState  queryArgState
 	kwListArgState queryArgState
 
-	// 元数据。
-	selectCols   []BoundColumn[O] // 选中的列，用于 Scan 映射。
-	selectTables map[string]Table // 查询涉及的所有表。
-	kwCols       []SearchColumn   // 关键词搜索涉及的列。
+	// Metadata.
+	selectCols   []BoundColumn[O] // selected columns, used for Scan mapping
+	selectTables map[string]Table // every table referenced by the query
+	kwCols       []SearchColumn   // columns participating in keyword search
 	kwTables     map[string]Table
-	hasSetOps    bool // 是否包含集合操作（UNION 等），影响别名处理。
+	hasSetOps    bool // whether set operations (UNION etc.) are present; affects alias handling
 }
 
 type (

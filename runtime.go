@@ -21,16 +21,35 @@ type Runtime struct {
 	tablePolicy SchemaPolicy
 	indexPolicy SchemaPolicy
 	logger      Logger
+	maxPageSize int
 }
 
 // NewRuntime opens a database connection, resolves the SQL dialect from driverName,
 // and constructs an initialized runtime for the provided table metadata.
+// It is NewRuntimeContext with context.Background(); prefer NewRuntimeContext when
+// schema bootstrap must honor a deadline or cancellation.
 func NewRuntime(
 	driverName string,
 	dsn string,
 	tables []TableRegistration,
 	options ...*RuntimeOptions,
 ) (*Runtime, error) {
+	return NewRuntimeContext(context.Background(), driverName, dsn, tables, options...)
+}
+
+// NewRuntimeContext is NewRuntime with a context that bounds the connection ping,
+// identifier validation, and schema policy application (which may execute DDL).
+func NewRuntimeContext(
+	ctx context.Context,
+	driverName string,
+	dsn string,
+	tables []TableRegistration,
+	options ...*RuntimeOptions,
+) (*Runtime, error) {
+	if ctx == nil {
+		return nil, errors.New("context cannot be nil")
+	}
+
 	if driverName == "" {
 		return nil, errors.New("driver name cannot be empty")
 	}
@@ -64,7 +83,16 @@ func NewRuntime(
 		return nil, err
 	}
 
-	db, sqlDialect, err := openRuntimeDB(driverName, dsn)
+	identifierMode, err := resolveIdentifierValidationMode(opts.IdentifierValidationMode)
+	if err != nil {
+		return nil, err
+	}
+
+	if opts.MaxPageSize < 0 {
+		return nil, fmt.Errorf("invalid max page size: %d", opts.MaxPageSize)
+	}
+
+	db, sqlDialect, err := openRuntimeDB(ctx, driverName, dsn)
 	if err != nil {
 		return nil, err
 	}
@@ -85,11 +113,12 @@ func NewRuntime(
 		tablePolicy: tablePolicy,
 		indexPolicy: indexPolicy,
 		logger:      resolveRuntimeLogger(opts),
+		maxPageSize: opts.MaxPageSize,
 	}
 
-	if opts.IdentifierValidationMode != "skip" {
-		if err := runtime.validateRegisteredTableIdentifiers(opts.IdentifierValidationMode); err != nil {
-			if opts.IdentifierValidationMode == "strict" {
+	if identifierMode != IdentifierValidationSkip {
+		if err := runtime.validateRegisteredTableIdentifiers(identifierMode); err != nil {
+			if identifierMode == IdentifierValidationStrict {
 				return nil, err
 			}
 
@@ -97,7 +126,7 @@ func NewRuntime(
 		}
 	}
 
-	if err := runtime.applySchemaPolicies(context.Background()); err != nil {
+	if err := runtime.applySchemaPolicies(ctx); err != nil {
 		return nil, err
 	}
 
@@ -107,6 +136,36 @@ func NewRuntime(
 }
 
 var _ SQLExecutor = (*Runtime)(nil)
+
+func resolveIdentifierValidationMode(mode IdentifierValidationMode) (IdentifierValidationMode, error) {
+	switch mode {
+	case "":
+		return IdentifierValidationStrict, nil
+	case IdentifierValidationStrict, IdentifierValidationWarn, IdentifierValidationSkip:
+		return mode, nil
+	default:
+		return "", fmt.Errorf("invalid identifier validation mode %q", mode)
+	}
+}
+
+// Close releases the underlying database connection pool. It is safe to call on a
+// nil runtime.
+func (r *Runtime) Close() error {
+	if r == nil || r.db == nil {
+		return nil
+	}
+
+	return r.db.Close()
+}
+
+// MaxPageSize returns the page-size cap applied to paged queries on this runtime.
+func (r *Runtime) MaxPageSize() int {
+	if r == nil || r.maxPageSize <= 0 {
+		return DefaultMaxPageSize
+	}
+
+	return r.maxPageSize
+}
 
 func (r *Runtime) tsqDialect() tsqdialect.Dialect {
 	return r.SQLDialect()
@@ -224,10 +283,10 @@ func (r *Runtime) ValidateIdentifiersForDialect() error {
 		return errors.New("unable to determine current database dialect")
 	}
 
-	return r.validateRegisteredTableIdentifiers("strict")
+	return r.validateRegisteredTableIdentifiers(IdentifierValidationStrict)
 }
 
-func (r *Runtime) validateRegisteredTableIdentifiers(mode string) error {
+func (r *Runtime) validateRegisteredTableIdentifiers(mode IdentifierValidationMode) error {
 	if r == nil {
 		return errors.New("runtime cannot be nil")
 	}
@@ -246,7 +305,7 @@ func (r *Runtime) validateRegisteredTableIdentifiers(mode string) error {
 
 		tableName := physicalTableName(table.Table)
 		if err := validateIdentifierLength(tableName, r.dialect); err != nil {
-			if mode == "strict" {
+			if mode == IdentifierValidationStrict {
 				return fmt.Errorf("table %s identifier validation failed: %w", tableName, err)
 			}
 
@@ -266,7 +325,7 @@ func (r *Runtime) validateRegisteredTableIdentifiers(mode string) error {
 		}
 	}
 
-	if len(validationErrors) > 0 && mode == "warn" {
+	if len(validationErrors) > 0 {
 		return errors.New("identifier validation warnings: " + strings.Join(validationErrors, "; "))
 	}
 
@@ -277,12 +336,12 @@ func validateIndexIdentifiersForDialect(
 	tableName string,
 	indexes []TableIndex,
 	dialect tsqdialect.Dialect,
-	mode string,
+	mode IdentifierValidationMode,
 	validationErrors *[]string,
 ) error {
 	for _, index := range indexes {
 		if err := validateIdentifierLength(index.Name, dialect); err != nil {
-			if mode == "strict" {
+			if mode == IdentifierValidationStrict {
 				return fmt.Errorf("index %s on table %s identifier validation failed: %w", index.Name, tableName, err)
 			}
 
@@ -297,7 +356,7 @@ func validateColumnIdentifiersForDialect(
 	tableName string,
 	cols []SQLColumn,
 	dialect tsqdialect.Dialect,
-	mode string,
+	mode IdentifierValidationMode,
 	validationErrors *[]string,
 ) error {
 	seen := make(map[string]struct{}, len(cols))
@@ -313,7 +372,7 @@ func validateColumnIdentifiersForDialect(
 		seen[colName] = struct{}{}
 
 		if err := validateIdentifierLength(colName, dialect); err != nil {
-			if mode == "strict" {
+			if mode == IdentifierValidationStrict {
 				return fmt.Errorf("column %s.%s identifier validation failed: %w", tableName, colName, err)
 			}
 
