@@ -286,7 +286,8 @@ Go 链接器找不到 `-X` 指定的符号时不报错，直接忽略。`.gorele
 掩盖了另外三个。`goreleaser check` 只校验 YAML 结构，证明不了这件事；唯一可靠的验证是
 `goreleaser build --snapshot --single-target` 之后跑 `tsq version`。2026-08-26 发现
 `Dockerfile` 里还有第三个副本犯同样的错，现在 `make release-check` 核对三份配置里的每个
-`-X`。附带钉死：用 `{{ .Tag }}` 不用 `{{ .Version }}`（后者剥掉前导 `v`），加 `-trimpath`。
+`-X`，CI 的 `Docker Build` job 还会 `docker run` 镜像跑一次 `version --json` 核对 commit
+真的进了二进制——静态检查证明路径对，跑产物证明值到了。附带钉死：用 `{{ .Tag }}` 不用 `{{ .Version }}`（后者剥掉前导 `v`），加 `-trimpath`。
 
 ## 2026-08-21 — 生成器不能带 `git describe` 的版本号，否则发版是死锁
 
