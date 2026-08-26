@@ -26,6 +26,7 @@
 
 ### 修复
 
+- **PostgreSQL 上 `Insert` 不回填自增主键**: `LastInsertIdReturningSuffix` 在方言里一直存在，但 `insertBatch` 从未使用它；PostgreSQL 驱动不支持 `LastInsertId()`，于是 `Insert` / `ChunkedInsert` 之后结构体的主键始终是 0（MySQL / SQLite 不受影响）。现在省略主键的插入在返回 RETURNING 后缀的方言上走 `INSERT ... RETURNING <pk>` 并按插入顺序回填。由新的集成测试在真实 PostgreSQL 上发现。
 - **pgx v5 的错误识别失效**: `IsRetryableTransactionConflictError` 和 `ChunkedInsert{IgnoreErrors}` 的重复键检测此前只匹配 `github.com/jackc/pgconn`（pgx v4）的错误类型，`jackc/pgx/v5` 返回的是另一个包里的 `PgError`，导致驱动名为 `pgx` 的运行时上这两条路径静默不命中。
 - **`IdentifierValidationMode` 默认值静默吞掉违规**: 空值既不是 `strict` 也不是 `warn`，超长标识符被收集后直接丢弃，既不报错也不告警；文档却写着默认 strict。现在空值就是 strict。
 - **commit 阶段的明确冲突码现在会重试**: 此前 `WithTx` 对 commit 阶段的任何错误都不重试，而 PostgreSQL 的 `40001` 序列化失败经常在 COMMIT 时才抛（事务已确定回滚，重试安全）。网络类等不确定错误在 commit 阶段仍不重试。

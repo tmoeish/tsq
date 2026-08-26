@@ -110,8 +110,9 @@ make release             # 真的发
   gh api repos/tmoeish/tsq/rulesets/<id> -X PUT -f enforcement=active
   ```
 
-- `Integration`（真实 MySQL/PG）和 `Vulncheck`（govulncheck）两个 job **暂不在**必需检查里：
-  前者依赖 service 容器，先观察稳定性再提升；提升时同样要核对检查名是否稳定。
+- `Integration`（真实 MySQL/PG）**在**必需检查里：它第一次跑就抓到了 PG 上六个版本没人
+  发现的 bug，而在它成为必需检查之前 auto-merge 曾在它红着的时候合入了 PR #61。
+  `Vulncheck` 不在必需检查里（上游漏洞库的新条目会让无关 PR 变红）。
 
 推送 tag 会触发 `.github/workflows/go.yml` 的 `release` job，由 GoReleaser 构建三平台
 二进制并创建 GitHub Release。CI 的 `lint` job 跑的是 `make lint`（Makefile 钉的版本），

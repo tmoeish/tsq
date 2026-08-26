@@ -286,3 +286,36 @@ func TestChunkedInsertIgnoreErrorsSkipsSQLiteUniqueViolations(t *testing.T) {
 		t.Fatalf("expected 2 rows after ignoring duplicate, got %d", count)
 	}
 }
+
+// returningDialect mimics PostgreSQL's key-return contract on top of SQLite
+// (which also understands RETURNING): no LastInsertId, keys come back as rows.
+type returningDialect struct {
+	SQLiteDialect
+}
+
+func (returningDialect) LastInsertIdReturningSuffix(_, col string) string {
+	return " RETURNING " + SQLiteDialect{}.QuoteField(col)
+}
+
+func (returningDialect) BatchInsertStartID(int64, int64) (int64, bool) {
+	return 0, false
+}
+
+func TestEngineInsertAssignsIDsThroughReturningClause(t *testing.T) {
+	db := newBatchMutationEngine(t)
+	db.dialect = returningDialect{}
+	exec := requireInitializedRuntime(t, db)
+
+	users := []*batchMutationUser{
+		{Name: "carol", Email: "carol@example.com"},
+		{Name: "dave", Email: "dave@example.com"},
+	}
+
+	if err := insertTables(context.Background(), exec, users[0], users[1]); err != nil {
+		t.Fatalf("insert via RETURNING: %v", err)
+	}
+
+	if users[0].ID <= 0 || users[1].ID != users[0].ID+1 {
+		t.Fatalf("expected consecutive generated IDs from RETURNING, got %d and %d", users[0].ID, users[1].ID)
+	}
+}

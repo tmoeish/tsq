@@ -191,12 +191,70 @@ func insertBatch(ctx context.Context, exec SQLExecutor, records []mutationRecord
 		strings.Join(valueClauses, ", "),
 	)
 
+	omittedPrimaryKey := len(insertFields) != len(records[0].fields)
+
+	// Dialects without LastInsertId (PostgreSQL) hand the generated keys back
+	// through a RETURNING clause instead; the suffix is empty everywhere else.
+	if omittedPrimaryKey {
+		if suffix := insertReturningSuffix(exec, records[0]); suffix != "" {
+			return insertBatchReturning(ctx, exec, query+suffix, args, records)
+		}
+	}
+
 	result, err := exec.ExecContext(ctx, query, args...)
 	if err != nil {
 		return err
 	}
 
-	assignBatchInsertIDs(ctx, exec, records, result, len(insertFields) != len(records[0].fields))
+	assignBatchInsertIDs(ctx, exec, records, result, omittedPrimaryKey)
+
+	return nil
+}
+
+func insertReturningSuffix(exec SQLExecutor, record mutationRecord) string {
+	dialect := dialectForExecutor(exec)
+	if dialect == nil || record.pkField.column == "" {
+		return ""
+	}
+
+	return dialect.LastInsertIdReturningSuffix(record.tableName, record.pkField.column)
+}
+
+// insertBatchReturning runs a multi-row INSERT ... RETURNING <pk> and assigns the
+// returned keys to the records in insertion order.
+func insertBatchReturning(ctx context.Context, exec SQLExecutor, query string, args []any, records []mutationRecord) error {
+	rows, err := exec.QueryContext(ctx, query, args...)
+	if err != nil {
+		return err
+	}
+
+	defer func() { _ = rows.Close() }()
+
+	assigned := 0
+
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return fmt.Errorf("scan returned primary key: %w", err)
+		}
+
+		if assigned < len(records) {
+			assignMutationID(records[assigned].pkField.value, id)
+		}
+
+		assigned++
+	}
+
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	if assigned != len(records) {
+		logForExecutor(ctx, exec, slog.LevelWarn, "batch insert returned an unexpected number of primary keys",
+			"expected", len(records),
+			"actual", assigned,
+		)
+	}
 
 	return nil
 }
