@@ -117,6 +117,8 @@ make release             # 真的发
 推送 tag 会触发 `.github/workflows/go.yml` 的 `release` job，由 GoReleaser 构建三平台
 二进制并创建 GitHub Release。CI 的 `lint` job 跑的是 `make lint`（Makefile 钉的版本），
 `test` job 跑的是 `make test-race`——本地目标就是 CI 的定义，不要在 workflow 里另写一份。
+`Docker Build` job 构建后会 `docker run` 镜像执行 `version --json` 并核对 commit：
+发版后想确认发布二进制的元数据，`gh release download` 下来跑一次 `tsq version` 即可。
 
 发布产物的版本信息由 `.goreleaser.yaml` 的 ldflags 注入进
 `github.com/tmoeish/tsq/v4/internal/buildinfo`。**改那几行的时候必须真的构建一次来验证**：
