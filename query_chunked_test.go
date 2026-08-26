@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	_ "modernc.org/sqlite"
+
+	tsqdialect "github.com/tmoeish/tsq/v4/dialect"
 )
 
 type pointerPKUser struct {
@@ -213,7 +215,7 @@ func TestChunkedDeleteByIDsRejectsExecutorWithoutDialectForRenderedSQL(t *testin
 }
 
 func TestChunkedDeleteByIDsRejectsNilIDs(t *testing.T) {
-	db := WrapExecutor(&sql.DB{}, SQLiteDialect{})
+	db := WrapExecutor(&sql.DB{}, tsqdialect.SQLiteDialect{})
 	err := ChunkedDeleteByPKs(
 		context.Background(),
 		db,
@@ -229,7 +231,7 @@ func TestChunkedDeleteByIDsRejectsNilIDs(t *testing.T) {
 }
 
 func TestChunkedDeleteByPKsRejectsNonPKField(t *testing.T) {
-	db := WrapExecutor(&sql.DB{}, SQLiteDialect{})
+	db := WrapExecutor(&sql.DB{}, tsqdialect.SQLiteDialect{})
 	nameField := batchMutationUserColumns()[1].(TypedColumn[batchMutationUser, string])
 	err := ChunkedDeleteByPKs(context.Background(), db, nameField, []string{"alice"})
 	if err == nil {
@@ -237,5 +239,52 @@ func TestChunkedDeleteByPKsRejectsNonPKField(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "is not the primary key") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// TestEffectiveChunkSizeStaysWithinBindParamLimit covers the reason chunking counts
+// placeholders rather than rows. A 1000-row chunk of a wide table binds far more than
+// 65535 parameters, which PostgreSQL rejects outright, so the row count alone is not a
+// safe unit; the caller's chunk size is an upper bound, never a floor.
+func TestEffectiveChunkSizeStaysWithinBindParamLimit(t *testing.T) {
+	tests := []struct {
+		name         string
+		chunkSize    int
+		paramsPerRow int
+		want         int
+	}{
+		{name: "narrow table keeps the requested size", chunkSize: 1000, paramsPerRow: 5, want: 1000},
+		{name: "wide table shrinks", chunkSize: 1000, paramsPerRow: 70, want: maxBindParamsPerStatement / 70},
+		{name: "very wide table still sends one row", chunkSize: 1000, paramsPerRow: maxBindParamsPerStatement + 1, want: 1},
+		{name: "unknown column count leaves the size alone", chunkSize: 1000, paramsPerRow: 0, want: 1000},
+		{name: "never raises the requested size", chunkSize: 10, paramsPerRow: 1, want: 10},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := effectiveChunkSize(tt.chunkSize, tt.paramsPerRow)
+			if got != tt.want {
+				t.Fatalf("effectiveChunkSize(%d, %d) = %d, want %d", tt.chunkSize, tt.paramsPerRow, got, tt.want)
+			}
+
+			if tt.paramsPerRow > 0 && got*tt.paramsPerRow > maxBindParamsPerStatement && got > 1 {
+				t.Fatalf("chunk of %d rows binds %d parameters, over the %d limit", got, got*tt.paramsPerRow, maxBindParamsPerStatement)
+			}
+		})
+	}
+}
+
+// TestParamsPerRowSkipsNilItems keeps the sampling safe: the per-item nil check belongs
+// to the chunk functions, which run after the chunk size has already been decided.
+func TestParamsPerRowSkipsNilItems(t *testing.T) {
+	items := []*batchMutationUser{nil, nil, {Name: "alice"}}
+
+	got := paramsPerRow(items)
+	if got != len(batchMutationUser{}.Cols()) {
+		t.Fatalf("paramsPerRow() = %d, want %d", got, len(batchMutationUser{}.Cols()))
+	}
+
+	if paramsPerRow([]*batchMutationUser{nil, nil}) != 0 {
+		t.Fatal("an all-nil slice has no sampleable column count")
 	}
 }

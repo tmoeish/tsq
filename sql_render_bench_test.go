@@ -2,6 +2,8 @@ package tsq
 
 import (
 	"testing"
+
+	tsqdialect "github.com/tmoeish/tsq/v4/dialect"
 )
 
 // BenchmarkRenderCanonicalSQL measures the performance of converting raw SQL with markers to canonical form
@@ -30,7 +32,7 @@ func BenchmarkRenderSQLForDialect_Postgres(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = renderSQLForDialect(raw, PostgresDialect{})
+		_ = renderSQLForDialect(raw, tsqdialect.PostgresDialect{})
 	}
 }
 
@@ -46,7 +48,7 @@ func BenchmarkRenderSQLForDialect_MySQL(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = renderSQLForDialect(raw, MySQLDialect{})
+		_ = renderSQLForDialect(raw, tsqdialect.MySQLDialect{})
 	}
 }
 
@@ -76,6 +78,6 @@ func BenchmarkComplexSQLRender(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = renderSQLForDialect(raw, PostgresDialect{})
+		_ = renderSQLForDialect(raw, tsqdialect.PostgresDialect{})
 	}
 }

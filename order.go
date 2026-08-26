@@ -27,7 +27,6 @@ const (
 type OrderBy struct {
 	field SQLColumn // The column to order by
 	order Order     // The sort direction (ASC/DESC)
-	err   error
 }
 
 // Expr returns the SQL expression for this ORDER BY clause.

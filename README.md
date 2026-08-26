@@ -128,6 +128,7 @@ package main
 import (
 	"context"
 	"log"
+	"log/slog"
 
 	_ "modernc.org/sqlite"
 
@@ -145,6 +146,11 @@ func main() {
 		&tsq.RuntimeOptions{
 			TablePolicy: tsq.SchemaPolicyCreateMissing,
 			IndexPolicy: tsq.SchemaPolicyCreateMissing,
+			// Logger 收 bootstrap DDL 和执行期告警；LogSQL 再打开的话，
+			// 每条渲染出来的 SQL 和它绑定的参数也会以 debug 级进同一个 Logger。
+			// 参数是原样打的，敏感数据别开。
+			Logger: slog.Default(),
+			LogSQL: false,
 		},
 	)
 	if err != nil {
@@ -183,8 +189,9 @@ func main() {
 
 | 文档 | 适合什么时候看 |
 | --- | --- |
-| [`docs/quickstart.md`](docs/quickstart.md) | 从空目录开始，5 分钟跑通 SQLite 示例 |
-| [`docs/concepts.md`](docs/concepts.md) | 想建立 Table 注解、生成文件、查询构建链路、Result、Runtime 的心智模型 |
+| [`skills/tsq/references/QUICKSTART.md`](skills/tsq/references/QUICKSTART.md) | 从空目录开始，跑通第一条 SQLite 查询（`docs/quickstart.md` 是它的索引页） |
+| [`skills/tsq/references/CONCEPTS.md`](skills/tsq/references/CONCEPTS.md) | 想建立 Table 注解、生成文件、查询构建链路、Result、Runtime 的心智模型（`docs/concepts.md` 是它的索引页） |
+| [`skills/tsq/references/REFERENCE.md`](skills/tsq/references/REFERENCE.md) | 完整的注解 DSL、查询 API、运行时与方言契约 |
 | [`docs/skill.md`](docs/skill.md) | 想把 TSQ 作为一个 agent skill 安装到 Copilot / Claude Code / Gemini CLI |
 | [`examples/README.md`](examples/README.md) | 想按 quickstart / cookbook / full-suite 找示例 |
 | [`BEST_PRACTICES.md`](BEST_PRACTICES.md) | 想看输入校验、分页、事务、排序和生产环境建议 |
@@ -325,6 +332,13 @@ pageReq := &tsq.PageRequest{
 ```
 
 `Size` 会被夹到 `RuntimeOptions.MaxPageSize`（默认 `tsq.DefaultMaxPageSize` = 1000）以内。
+
+`Validate()` 和 `Normalize()` 量的是**绝对上限** `tsq.DefaultMaxPageSize`，不是某个
+runtime 配的那个。想让 HTTP handler 和 runtime 量同一把尺子，用
+`ValidateWithLimit(runtime.MaxPageSize())` / `NormalizeWithLimit(runtime.MaxPageSize())`。
+
+`Page` 的上限是 `tsq.MaxPageNumber`（1000000）。`Validate()` 会直接拒绝超出的页码；
+`Offset()` 则夹到最后一页——想让越界翻页报错而不是返回最后一页，先 `Validate()`。
 
 ### 普通值默认走 bind 参数，不提供 literal SQL 快捷入口
 

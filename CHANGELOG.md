@@ -7,6 +7,32 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 项目遵循 [语义化版本控制](https://semver.org/lang/zh-CN/)。
 
+## [未发布]
+
+### 新增
+
+- **`RuntimeOptions.LogSQL`**: 打开后，每条渲染出来的 SQL 及其绑定参数会以 debug 级进 `RuntimeOptions.Logger`。此前读路径里的 SQL 日志挂在一个未导出的 context key 上，唯一能设置它的 tracer 也未导出——那些日志语句在发布出去的库里**永远不会执行**，源码里却看着像个能用的特性。参数是原样打的，含敏感数据时不要开。
+- **`tsq.MaxPageNumber`**: `PageRequest.Page` 的上限（1000000）。
+- **`PageRequest.NormalizeWithLimit` / `ValidateWithLimit`**: 带显式上限的分页校验，让 HTTP handler 能和 `RuntimeOptions.MaxPageSize` 量同一把尺子。无参版本仍按绝对上限 `DefaultMaxPageSize` 判断。
+- **`dialect.AllCapabilities()`**: 返回全部能力位，供使用者在构建查询前探测方言支持情况。
+
+### 修复
+
+- **执行期日志绕过 `RuntimeOptions.Logger`**: `query_load.go` / `query_scalar.go` / `query_validation.go` 的诊断日志直接调 `slog.*`，配了 `Logger` 的使用者只收得到批量插入的两条告警。现在统一走 `logForExecutor`。
+- **`Runtime.QueryRowContext` 在错误路径泄漏 `*sql.DB` 和 goroutine**: runtime 为 nil 或未初始化时，每次调用都 `sql.OpenDB` 一个新池且从不 `Close`，而 `sql.OpenDB` 会起一个只有 `Close` 能停的 goroutine。现在改用一个进程内共享的错误池。
+- **`PageRequest.Offset()` 对越界页码静默返回第一页**: `Page` 超过内部上限时返回 0，也就是**第一页的数据**，而 `Validate()` 不检查 `Page` 上界。现在 `Validate()` 拒绝越界页码，`Offset()` 夹到最后一页而不是回到第一页。
+- **`ChunkedInsert` / `ChunkedUpdate` / `ChunkedDelete` 按行数切块会超出参数上限**: 一条批量语句大约每行每列绑定一个占位符，而 PostgreSQL 每条语句最多 65535 个参数，宽表的 1000 行一批会被数据库直接拒绝。现在 `ChunkSize` 是上界，宽表自动切得更小（永不低于每条一行）。
+- **无符号主键在驱动返回负数 id 时回绕**: `LastInsertId()` 是 `int64`，负值转成 `uint64` 会变成一个巨大的主键。现在负值不回填，字段留在零值表示"未知"。
+
+### 变更
+
+- **删除未导出且不可达的 tracer**: `printCost` / `printError` / `printSQLTracer` 和 `printSQL` context key 全部删除，SQL 日志改由 `RuntimeOptions.LogSQL` 提供。这些符号不在对外 API 面上，使用者代码不受影响。
+- **方言能力位改成显式声明表**: 三个方言各持一张 `map[Capability]bool`，每个能力都要写明 true/false。此前是带 `default: return false` 的 switch，新增能力位漏掉某个方言时既不编译失败也不测试失败，只会静默变成"不支持"。新增的 `TestDialectsCoverAllCapabilities` 现在会拦住这种情况。
+- **`unused` linter 开启**: 随之删除九处死代码（`OrderBy.err` 字段、`querySpec` 的六个计数方法、`columnImpl.rawCondition`、一个测试 helper）。
+- **`gosec` 成为真正的门禁**: CI 里的 `gosec` 一直带着 `-no-fail`，对任何输入都报成功。现在 SARIF 上传那一趟保留 `-no-fail`，另加一趟会失败的检查（排除 G304 和 G201，理由写在 workflow 里）。`gosec` 与 `govulncheck` 的版本从 `@latest` 固定到具体 tag。
+- **`docs/` 瘦成索引**: `docs/concepts.md` 和 `docs/quickstart.md` 曾把 `skills/tsq/references/` 里的内容用中文重写了一遍，两份讲同一件事的文档必然漂移。现在它们只做索引，实质内容以 `skills/tsq/` 为唯一来源。
+- **文档语言规则按读者重划**: `AGENTS.md` 此前要求 README 和 `docs/` 用英文，而它们一直是中文，没有任何门禁发现过。现在规则是"Go 注释 / Go doc / `skills/tsq` 用英文，其余面向本项目读者的文档用中文"，并由 `make doc-check` 守着英文那一侧。
+
 ## [4.6.0] - 2026-08-26
 
 ### 新增

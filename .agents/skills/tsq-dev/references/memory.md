@@ -45,6 +45,61 @@
 
 ---
 
+## 2026-08-26 — 第三次了：只被自己的测试撑着的代码，在库里是不存在的
+
+一次审计同时抓到三处同一形状的东西：
+
+- `printSQL` context key 加 `printCost` / `printError` / `printSQLTracer`——全未导出，
+  唯一引用者是 `export_compat_test.go`。读路径里八处 `ctx.Value(printSQL)` 在发布出去的
+  库里**永远为假**，使用者也拼不出能设置它的 Tracer（key 未导出）。
+- `dialect_validation.go` 的 `validateOperationForDialect` 和 `canonicalDialectCapability`
+  ——后者是 `dialect/dialect.go` 里 `canonicalCapabilityName` 的逐行副本，前者在非测试
+  代码里零调用。真正的执行期校验一直走 `query_validation.go` 的类型化常量。
+- `export_compat_test.go` 本身：它在一个 `_test.go` 里定义了 `AddTracer` /
+  `ClearTracers` / `Trace1` 和一个包级 `var exportCompatRuntime = &Runtime{}`。
+  `AGENTS.md` 明令不许重新引入全局单例，而守着这条的 `api-check` 只看
+  `api-surface.txt`——`_test.go` 里的导出符号不进快照。**规则的门在哪，绕过它的路就在哪。**
+
+两条教训，都比"删掉了"值钱：
+
+1. **`unused` linter 看不见这类东西**：`_test.go` 里的引用算使用。它现在开着（顺手清了
+   九处真死代码），但它挡不住这一类。判据只能是**排除 `_test.go` 之后 grep 调用方**，
+   和 2026-08-26 那条 `LastInsertIdReturningSuffix` 用的是同一招。
+2. **一个只被自己的测试引用的符号，测试证明的是它自洽，不是它可达。** 绿色的测试在这里
+   是伪装，不是保障。
+
+`change-impact.md` 新增了"在执行路径上加了一个日志或诊断出口"和"新增了一个开关 + 若干
+消费点的特性"两条，各带一条可执行的 grep。
+
+## 2026-08-26 — 能力位的 `default` 分支是那道门自己的漏洞
+
+`AGENTS.md` 和 `architecture.md` 都写着"新增能力位三个方言都要显式表态"，但三个
+`SupportsCapability` 都是 `switch` 加 `default: return false`——漏掉一个方言不编译失败、
+不 lint 失败、不测试失败，只静默变成"不支持"。规则靠人记得，而人记不住。
+
+改成每方言一张 `map[Capability]bool` 加 `AllCapabilities()`，`SupportsCapability` 只查表，
+`dialect/capability_test.go` 遍历 `全部能力 × 三个方言` 断言无缺席。**验证过它真的会红**
+（临时删掉 mysql 表里一行，测试报出缺的是哪个能力）。
+
+引申，这条对所有"必须穷尽"的 switch 都成立：**`default` 分支把"忘了写"和"决定不支持"
+变成同一件事**，而这两件事需要不同的处理。要穷尽性，就别给它兜底分支——用表加一个
+遍历表的测试。这和 2026-08-26 `IdentifierValidationMode` 空值落在所有分支之外是同一类
+错误的第二次出现。
+
+## 2026-08-26 — 写在 AGENTS.md 里但没有门的规则，几个月都是假的
+
+`AGENTS.md` 要求 "README、`docs/`、`skills/tsq` 用英文"。实测：README.md 422 行里 150 行
+含中文，`docs/concepts.md` 261/103，`docs/quickstart.md` 209/63。**只有 `skills/tsq` 是
+对的。** 这条规则从写下那天起就没成立过，而 `make doc-check` 当时只检查 make 目标和
+`tsq.X` 符号引用，扫不到 Markdown 的语言。
+
+选择是改规则而不是翻译九百行：分界线按**读者**划才站得住——`skills/tsq` 被
+`gh skill install` 装进别人的项目、Go doc 上 pkg.go.dev，读者是全世界；README 和 `docs/`
+的读者是这个项目的人。然后给英文那一侧加了 `check_shipped_skill_language`。
+
+**留下的不是这次怎么改的，是判据：写规则的时候就问"谁来发现它被违反了"。** 答不出来
+的规则不要写进 `AGENTS.md`，写进去只会让下一个读到它的人相信一件假事。
+
 ## 2026-08-26 — 同一个 SQLSTATE 在三个驱动里是三个 Go 类型
 
 `IsRetryableTransactionConflictError` 和重复键检测曾 `errors.AsType[*pgconn.PgError]`，
@@ -84,21 +139,15 @@ SQLite 3.39（2022）起支持 FULL JOIN，modernc 现在 bundle 3.53；MySQL 8.
 现在 commit 阶段只放行 `IsRetryableTransactionConflictError` 为真的错误；`io.EOF`、
 `driver.ErrBadConn` 之类在 commit 阶段仍不重试。
 
-## 2026-08-26 — 集成测试第一次跑就抓到：PostgreSQL 上 `Insert` 从来没回填过主键
+## 2026-08-26 — 接口里"有定义、有实现、零调用"的钩子
 
-`Dialect.LastInsertIdReturningSuffix` 从有 PostgreSQL 方言那天起就在接口里，`postgres.go`
-也老老实实返回 ` RETURNING "id"`，但 `insertBatch` **从来没调用过它**——它只走
-`ExecContext` + `result.LastInsertId()`，而 pgx / lib/pq 的 `LastInsertId()` 返回
-"not supported"，`assignBatchInsertIDs` 把这个错误吞掉直接返回。结果：PG 上所有
-`Insert` 之后主键都是 0，v4 发了六个版本没人发现，因为唯一的自动化测试是 SQLite。
-一个接口里"有定义、有实现、没调用"的钩子，和没有它是一样的——`grep` 一下调用方是检查
-方言接口时的必做动作。现在 `insertBatchReturning` 接上了，单元测试用一个返回 RETURNING
-后缀的 SQLite 测试方言覆盖这条路径（SQLite 3.35+ 也支持 RETURNING）。
+`Dialect.LastInsertIdReturningSuffix` 六个版本没有任何调用方，PostgreSQL 上 `Insert`
+从来没回填过主键，而唯一的自动化测试是 SQLite 所以一直绿。现在由 `change-impact.md`
+§ 给 `Dialect` 接口加了钩子 的 grep 和 `integration_test.go` 挡着。
 
-**同一天的第二个教训**：`Integration` job 红着，PR #61 还是被 auto-merge 合进了 `main`——
-它不在 ruleset 必需检查里，而 auto-merge 只等必需检查。"先观察稳定性再提升"这个决定
-在它第一次跑就抓到真 bug 的事实面前站不住：一个能抓到 PG 六个版本没人发现的 bug 的门，
-不该是可选的。已提升为必需检查（job 名 `Integration` 不是 matrix，名字稳定）。
+**同一天的第二个教训**：`Integration` job 红着，PR #61 还是被 auto-merge 合进了 `main`
+——它当时不在 ruleset 必需检查里，而 auto-merge 只等必需检查。一个第一次跑就抓到真 bug
+的门不该是可选的，已提升为必需检查。
 
 ## 2026-08-26 — 集成测试为什么长这样，以及暂时不做的几件事
 
@@ -131,50 +180,35 @@ SQLite 目标始终参与、套件本身每次 `go test` 都被编译执行。
 
 ## 2026-08-21 — 两份技能必须各住各的目录，别为了少一个符号链接把它们并在一起
 
-开发者技能一开始放在 `agents/skills/tsq-dev`，然后为了让 `.claude/skills` 一个符号链接就
-同时暴露两份技能，往那个目录里又软链了一个 `agents/skills/tsq -> ../../skills/tsq`。
-**这是错的**：整套设计的核心就是"两份技能读者不同、所有权严格分开、内容不许互相复制"，
-而目录结构直接把这句话推翻了——布局是文档的一部分，看目录的人先看到的是"它俩是一伙的"。
+曾经为了让 `.claude/skills` 一个符号链接就暴露两份技能，把 `skills/tsq` 软链进了开发者
+技能目录。**这是错的**：整套设计的核心是"两份技能读者不同、所有权严格分开、内容不许
+互相复制"，而那个布局先告诉看目录的人"它俩是一伙的"——**布局是文档的一部分**。
 
-现在的布局，两个位置各自表达自己的归属：
+现在 `.agents/skills/tsq-dev` 是仓库的工具带（点开头，同 `.github/`），`skills/tsq` 在
+仓库根因为它**是**产品的一部分；`.claude/skills/` 只是两条符号链接组成的发现入口，
+不是它们的家。多一条符号链接换布局说真话，划算。
 
-- `.agents/skills/tsq-dev` —— 开发本仓的上下文，点开头，和 `.github/`、`.claude/` 一样是
-  仓库的工具带，不是产品。
-- `skills/tsq` —— 随发布分发给使用者的说明书，在仓库根，因为它**是**产品的一部分。
+改这类路径时 `git mv` 而不是删了重建（`git log --follow` 才追得到搬家之前），并且
+`grep -rn` 一遍——上次引用它的地方有 12 个文件。
 
-`.claude/skills/` 是一个**目录**，里面两条符号链接分别指过去。它只是让 Claude Code 同时
-发现两份技能的入口，不是它们的家——多一条符号链接换布局说真话，这个交换划算。
+## 2026-08-21 — 任何在合并前后各跑一次的检查，都要确认两次跑的是同一个输入
 
-改路径时 `git mv` 而不是删了重建：历史跟着走，`git log --follow` 还能追到搬家之前。
-引用这个路径的地方有 12 个文件（脚本常量、Makefile、`.gitignore`、三份文档、技能自身），
-`grep -rn` 一遍是唯一可靠的确认方式。
+`commit-msg` 钩子量的是作者写的主题，`commit-check` 在 `main` 上量的是 GitHub squash
+之后追加了 ` (#59)` 的那条——同一条信息在两道门里长度不同，作者过了钩子却让 `main` 变红，
+而写提交信息时 PR 号还不存在，**没有任何办法提前避免**。现在 `check_change_log.py` 量
+长度前剥掉 ` (#\d+)`。
 
-## 2026-08-21 — 钩子和 `commit-check` 校验的是两个不同的字符串
+合并会改写提交信息（squash 追加 PR 号）、改写 SHA（squash 造新 commit）、改写历史形状
+（多个提交压成一个）。这三件事同一天各绊了一次。
 
-PR #59 合进 `main` 之后，`make harness` 立刻红了：
+## 2026-08-21 — 文档里的 make 目标和 CI 里的是两条独立的真相
 
-```
-提交主题 77 字符，上限 72：
-'docs: rewrite CONTRIBUTING for contributors and gate stale make targets (#59)'
-```
+v4.4.1 是个纯修复版本：CI 调了一个不存在的 `make update-examples`，本地全绿流水线红。
+修 CI 时没人问"这个名字还写在哪"，于是同一个幽灵在 `README.md` / `CONTRIBUTING.md` 里
+又活了三个月——**一个被修两次的问题是一个不彻底的修复。**
 
-我写的主题是 71 字符，本地 `commit-msg` 钩子放行。**GitHub 的 squash 合并往末尾追加了
-` (#59)`**，于是同一条提交信息在两道门里长度不同：钩子看的是作者写的（合并前，无后缀），
-`commit-check` 看的是 GitHub 改过的（合并后，有后缀）。作者能过钩子，却让 `main` 上的门
-变红，而且**没有任何办法提前避免**——写提交信息的时候 PR 号还不存在。
-
-修法是量长度前剥掉 ` (#\d+)` 后缀：那不是作者写的东西，拿它去衡量作者是在量错的东西。
-
-引申：**任何在合并前后各跑一次的检查，都要确认两次跑的是同一个输入。** 合并会改写提交
-信息（squash 追加 PR 号）、会改写 SHA（squash 造新 commit）、会改写历史形状（PR 的多个
-提交压成一个）。这三件事今天各绊了一次。
-
-## 2026-08-21 — 不存在的 `make update-examples` 在文档里又活了三个月
-
-v4.4.1 修 CI 时只改了 workflow，`README.md` / `CONTRIBUTING.md` 里同一个幽灵没人问"这个
-名字还写在哪"。**一个被修两次的问题是一个不彻底的修复。** 现在由 `make doc-check` 守着
-围栏代码块里的 `make X`（散文有意不扫，历史叙述要能写出已不存在的名字）；它管不到
-`.github/workflows/`，改目标名那里仍要手动 grep。
+现在围栏代码块里的 `make X` 由 `make doc-check` 守着（散文有意不扫，历史叙述要能写出
+已不存在的名字）。**它管不到 `.github/workflows/`**，改目标名那里仍要手动 grep。
 
 ## 2026-08-21 — 第一次真跑 PR 发版流程暴露的两件事
 
@@ -270,24 +304,18 @@ CLI 的全部行为都在那里面——`internal/parser` 改了解析规则，�
 `internal/cmd/version_test.go` 一开始只在每个用例前把 `versionShortFlag` /
 `versionJSONFlag` 两个 Go 变量置回 false，结果 `--json` 那个用例报"两个标志都设了"。
 
-原因是 `VersionCmd` 是包级单例，标志在 `init` 里绑定一次，**状态跨 `Execute()` 存活**。
-`MarkFlagsMutuallyExclusive` 判定用的不是变量值，而是每个 pflag 的 `Changed` 位——前一个
-用例传过的 `--short` 把它置上就再也没清过，于是下一个用例看起来像同时传了两个。
-
-清法不需要 import pflag：`VersionCmd.Flags().Lookup(name).Changed = false` 直接改返回的
-指针的字段就行，没提到类型名就不需要那个包。`go test -shuffle=on` 是发现这类用例间耦合的
-标准手段，`make harness` 里的 `test-race` 已经带上了 `-shuffle=on`。
+原因是 `VersionCmd` 是包级单例，标志在 `init` 里绑定一次，**状态跨 `Execute()` 存活**，
+而 `MarkFlagsMutuallyExclusive` 判定用的是每个 pflag 的 `Changed` 位，不是变量值。
+清法：`VersionCmd.Flags().Lookup(name).Changed = false`（不需要 import pflag）。
+`go test -shuffle=on` 是发现这类用例间耦合的标准手段，`test-race` 已经带着它。
 
 ## 2026-08-21 — `-X` 打错包路径是**静默**失败的
 
-Go 链接器找不到 `-X` 指定的符号时不报错，直接忽略。`.goreleaser.yaml` 打在
-`github.com/tmoeish/tsq/v4.version` 上（变量实际在 `internal/buildinfo`），发出去的每个
-二进制 build time / commit / branch 都是 `unknown`，而 `version` 退回源码字面量恰好是对的，
-掩盖了另外三个。`goreleaser check` 只校验 YAML 结构，证明不了这件事；唯一可靠的验证是
-`goreleaser build --snapshot --single-target` 之后跑 `tsq version`。2026-08-26 发现
-`Dockerfile` 里还有第三个副本犯同样的错，现在 `make release-check` 核对三份配置里的每个
-`-X`，CI 的 `Docker Build` job 还会 `docker run` 镜像跑一次 `version --json` 核对 commit
-真的进了二进制——静态检查证明路径对，跑产物证明值到了。附带钉死：用 `{{ .Tag }}` 不用 `{{ .Version }}`（后者剥掉前导 `v`），加 `-trimpath`。
+Go 链接器找不到 `-X` 指定的符号时不报错，直接忽略，于是 build time / commit / branch
+全是 `unknown` 而没有任何提示。三份配置（`Makefile`、`.goreleaser.yaml`、`Dockerfile`）
+各有一份副本，都犯过。现在 `make release-check` 核对每个 `-X` 的目标路径，CI 的
+`Docker Build` 还会 `docker run` 镜像跑 `version --json` 核对值真的进了二进制——
+**静态检查证明路径对，跑产物证明值到了，两者缺一不可。**
 
 ## 2026-08-21 — 生成器不能带 `git describe` 的版本号，否则发版是死锁
 
@@ -313,10 +341,9 @@ Go 链接器找不到 `-X` 指定的符号时不报错，直接忽略。`.gorele
 
 ## 2026-08-21 — 引入 harness 与 tsq-dev 技能
 
-本仓有两份技能，读者完全不同，之前只有一份：`skills/tsq`（随仓库发布，给**使用** TSQ 的
-人和他们的 agent）和新增的 `.agents/skills/tsq-dev`（给**开发本仓**的人和 agent）。分开的
-理由不是篇幅，是所有权：前者描述契约，后者描述实现。同一份文件同时服务两拨读者时，
-写给使用者的部分会因为开发者觉得"这个细节太内部"而被删掉，反过来也一样。
+两份技能分开的理由不是篇幅，是所有权：`skills/tsq` 描述契约，`.agents/skills/tsq-dev`
+描述实现。同一份文件同时服务两拨读者时，写给使用者的部分会因为开发者觉得"这个细节太
+内部"而被删掉，反过来也一样。
 
 `make skill-check` 的触发表不是形式主义。每条触发器都是从"哪类改动会让哪份文档变假"倒推
 出来的，`hint` 里写着理由。确实判断过不需要动技能时用 `SKIP_SKILL_CHECK=<触发器名>` 豁免，
@@ -354,14 +381,6 @@ Go 链接器找不到 `-X` 指定的符号时不报错，直接忽略。`.gorele
 
 豁免写在 `check_change_log.py` 的 `RELEASE_ONLY_FILES`，是精确的白名单而不是开关：
 发版波多碰了任何一个别的文件，门就重新活过来。
-
-## 2026-08-21（追溯 v4.4.1） — 本地 make 目标和 CI 是两条独立的真相
-
-v4.4.1 是一个纯修复版本：CI 的 coverage job 调用了一个不存在的 `make update-examples`，
-仓库里的目标叫 `make examples`。本地全绿，流水线红。
-
-改本地目标名的时候 grep 一遍 `.github/workflows/`。`make -n all` 的冒烟测试挡不住这个——
-它只覆盖 `all` 这条链。
 
 ## 2026-08-21（追溯 v4.3.0） — 改生成文件后缀的真实代价
 

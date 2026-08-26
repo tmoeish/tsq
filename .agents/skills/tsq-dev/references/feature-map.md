@@ -40,7 +40,8 @@
 | SQL 文本拼装 | `query_plan_sql.go`、`sql_render.go` |
 | 参数绑定 | `query_args.go` |
 | 结构校验（`Build()` 时） | `query_validation.go`、`query_plan_validate.go`、`validation.go` |
-| 方言能力校验（执行时） | `dialect_validation.go` |
+| 方言能力校验（执行时） | `query_validation.go` 的 `detectSQLCapabilities`，经 `dialect.ValidateCapability` |
+| 标识符校验（长度与字符集） | `dialect_validation.go`（这个文件**只剩**标识符校验，能力校验不在这儿） |
 | 查询对象与执行（含泛型 `Query.Scalar`） | `query.go`、`query_load.go`、`query_scalar.go`、`query_scan.go` |
 | 执行器接口与包装 | `executor.go`、`executor_wrap.go`、`sql_executor.go` |
 | 写操作（Insert / Update / Delete / Upsert） | `executor_mutation.go`、`executor_mutation_meta.go` |
@@ -52,6 +53,7 @@
 | --- | --- |
 | `NewRuntime`、`Options`、`SQLExecutor` 实现 | `runtime.go` |
 | schema 对账（`TablePolicy` / `IndexPolicy`） | `runtime_schema.go` |
+| 执行期日志与 SQL 日志 | `runtime_schema.go` 的 `logForExecutor` / `logSQLForExecutor` / `compactJSON` |
 | 事务与重试（`WithTx`、`WithTxResult`、`TxOptions`、`TxRetryConfig`） | `tx.go` |
 | 表注册与元数据 | `table.go`、`table_registry.go` |
 | 索引元数据 | `table_index.go` |

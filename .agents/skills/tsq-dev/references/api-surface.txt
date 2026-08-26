@@ -10,6 +10,7 @@ const (
 	IndexInitUpsert = SchemaPolicyCreateMissing
 )
 const DefaultMaxPageSize = 1000
+const MaxPageNumber = 1000000
 FUNCTIONS
 func AsSubquery[O Owner, T any](query *Query[O], selected TypedColumn[O, T]) (Subquery[T], error)
 func BuildSubquery[O Owner, T any](qb QueryStage[O], selected TypedColumn[O, T]) (Subquery[T], error)
@@ -93,12 +94,12 @@ type CaseStage[T any] interface {
 }
 func Case[T any]() CaseStage[T]
 type ChunkedInsertOptions struct {
-	ChunkSize    int  // ChunkSize is the number of items per statement; zero means 1000.
+	ChunkSize    int
 	IgnoreErrors bool // IgnoreErrors skips duplicate-key failures and continues with the remaining items.
 }
 func DefaultChunkedInsertOptions() *ChunkedInsertOptions
 type ChunkedOptions struct {
-	ChunkSize int // ChunkSize is the number of items per statement; zero means 1000.
+	ChunkSize int
 }
 func DefaultChunkedOptions() *ChunkedOptions
 type Column[O Owner, T any] interface {
@@ -320,10 +321,12 @@ type PageRequest struct {
 }
 func NewPageRequest(params url.Values) *PageRequest
 func (r *PageRequest) Normalize() error
+func (r *PageRequest) NormalizeWithLimit(maxSize int) error
 func (r *PageRequest) Offset() int
 func (r *PageRequest) Response[T any](total int64, data []*T) *PageResponse[T]
 func (r *PageRequest) ToQuery() url.Values
 func (r *PageRequest) Validate() error
+func (r *PageRequest) ValidateWithLimit(maxSize int) error
 type PageResponse[T any] struct {
 	PageRequest
 	Total     int64 `json:"total"`      // Total is the full number of matching rows.
@@ -476,6 +479,7 @@ type RuntimeOptions struct {
 	IndexPolicy SchemaPolicy // IndexPolicy chooses how TSQ manages declared indexes during NewRuntime.
 	Tracers     []Tracer     // Tracers configures the runtime's tracer chain during NewRuntime.
 	Logger      Logger       // Logger receives schema bootstrap decisions, executed DDL, and execution-time warnings.
+	LogSQL bool
 	IdentifierValidationMode IdentifierValidationMode
 	MaxPageSize int
 }
@@ -604,6 +608,7 @@ const (
 	CapabilitySelectForNoWait     Capability = "SELECT_FOR_NOWAIT"
 	CapabilitySelectForSkipLocked Capability = "SELECT_FOR_SKIP_LOCKED"
 )
+func AllCapabilities() []Capability
 type DDLAlterColumnMode string
 const (
 	DDLAlterColumnDirect  DDLAlterColumnMode = "direct"

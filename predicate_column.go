@@ -287,18 +287,6 @@ func (c columnImpl[Owner, T]) Pred(format string, args ...any) Condition {
 	})
 }
 
-func (c columnImpl[Owner, T]) rawCondition(expr string) Condition {
-	table, err := validateColumnInput(c)
-	if err != nil {
-		return pred[Owner](conditionImpl{buildErr: err})
-	}
-
-	return pred[Owner](conditionImpl{
-		tables: map[string]Table{table.Table(): table},
-		expr:   expr,
-	})
-}
-
 func validatePredicateFormat(format string, placeholderCount int) error {
 	if strings.TrimSpace(format) == "" {
 		return fmt.Errorf("predicate format cannot be empty")

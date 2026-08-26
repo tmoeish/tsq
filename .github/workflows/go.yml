@@ -16,6 +16,12 @@ permissions:
 
 env:
   GO_VERSION: '1.27.0'
+  # Pinned like the Makefile pins golangci-lint. `@latest` made these two jobs change
+  # what they run without any commit in this repository, so a green pipeline could go
+  # red on a morning nobody touched the code, and a scanner regression could go
+  # unnoticed the same way.
+  GOSEC_VERSION: 'v2.28.0'
+  GOVULNCHECK_VERSION: 'v1.7.0'
 
 jobs:
   test:
@@ -164,15 +170,31 @@ jobs:
         go-version: ${{ env.GO_VERSION }}
 
     - name: Install Gosec
-      run: go install github.com/securego/gosec/v2/cmd/gosec@latest
+      run: go install github.com/securego/gosec/v2/cmd/gosec@${{ env.GOSEC_VERSION }}
 
+    # Two runs on purpose. The SARIF pass feeds code scanning and must upload its file
+    # even when findings exist, so it keeps `-no-fail`; the second pass is the gate.
+    # With only the first, this job reported success on every input it could possibly
+    # be given, which is indistinguishable from not running it.
     - name: Run Gosec Security Scanner
       run: ~/go/bin/gosec -no-fail -fmt sarif -out results.sarif ./...
 
     - name: Upload SARIF file
+      if: always()
       uses: github/codeql-action/upload-sarif@v4
       with:
         sarif_file: results.sarif
+
+    # G304 and G201 are excluded by rule, not by annotation, because both are
+    # inherent to what this repository is rather than to any one line of it:
+    #   G304 - the generator's job is reading Go files at paths the user names on the
+    #          command line; every os.ReadFile in internal/cmd and internal/parser is
+    #          that, and there are ten of them.
+    #   G201 - DDL cannot bind identifiers as parameters. Every site formats constants
+    #          through Dialect.QuoteField and binds the values with Dialect.BindVar.
+    # Anything else is a real finding and fails this job.
+    - name: Fail on Gosec findings
+      run: ~/go/bin/gosec -exclude=G201,G304 -fmt text ./...
 
   vulncheck:
     name: Vulncheck
@@ -188,7 +210,7 @@ jobs:
         go-version: ${{ env.GO_VERSION }}
 
     - name: Install govulncheck
-      run: go install golang.org/x/vuln/cmd/govulncheck@latest
+      run: go install golang.org/x/vuln/cmd/govulncheck@${{ env.GOVULNCHECK_VERSION }}
 
     - name: Run govulncheck
       run: ~/go/bin/govulncheck ./...

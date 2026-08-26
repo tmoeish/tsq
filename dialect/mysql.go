@@ -98,23 +98,22 @@ func (d MySQLDialect) ValidateIdentifier(identifier string) error {
 	return validateDialectIdentifier(identifier, d.Name(), maxIdentifierLengthMySQL)
 }
 
+// mysqlCapabilities is MySQL's position on every capability in AllCapabilities.
+// Baseline is MySQL 8.0 (5.7 reached end of life in 2023-10): CTEs since 8.0,
+// INTERSECT/EXCEPT since 8.0.31. FULL OUTER JOIN is still absent in MySQL 8.
+var mysqlCapabilities = map[Capability]bool{
+	CapabilityCTE:                 true,
+	CapabilityExcept:              true,
+	CapabilityFullOuterJoin:       false,
+	CapabilityIntersect:           true,
+	CapabilitySelectForUpdate:     true,
+	CapabilitySelectForShare:      true,
+	CapabilitySelectForNoWait:     true,
+	CapabilitySelectForSkipLocked: true,
+}
+
 func (d MySQLDialect) SupportsCapability(capability Capability) bool {
-	switch canonicalCapabilityName(string(capability)) {
-	// Baseline is MySQL 8.0 (5.7 reached end of life in 2023-10): CTEs since 8.0,
-	// INTERSECT/EXCEPT since 8.0.31. FULL OUTER JOIN is still absent in MySQL 8.
-	case CapabilityFullOuterJoin:
-		return false
-	case CapabilityCTE,
-		CapabilityExcept,
-		CapabilityIntersect,
-		CapabilitySelectForUpdate,
-		CapabilitySelectForShare,
-		CapabilitySelectForNoWait,
-		CapabilitySelectForSkipLocked:
-		return true
-	default:
-		return false
-	}
+	return capabilitySupport(mysqlCapabilities, capability)
 }
 
 func (d MySQLDialect) BatchInsertStartID(lastID, rowsAffected int64) (int64, bool) {

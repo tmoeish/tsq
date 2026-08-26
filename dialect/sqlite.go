@@ -94,20 +94,23 @@ func (d SQLiteDialect) ValidateIdentifier(identifier string) error {
 	return validateDialectIdentifier(identifier, d.Name(), 0)
 }
 
+// sqliteCapabilities is SQLite's position on every capability in AllCapabilities.
+// Baseline is SQLite 3.39 (2022-06), which is when FULL OUTER JOIN landed; the bundled
+// modernc.org/sqlite ships a newer engine, and system builds older than that are out of
+// support. SQLite has no row-level locking at all: it serializes writers instead.
+var sqliteCapabilities = map[Capability]bool{
+	CapabilityCTE:                 true,
+	CapabilityExcept:              true,
+	CapabilityFullOuterJoin:       true,
+	CapabilityIntersect:           true,
+	CapabilitySelectForUpdate:     false,
+	CapabilitySelectForShare:      false,
+	CapabilitySelectForNoWait:     false,
+	CapabilitySelectForSkipLocked: false,
+}
+
 func (d SQLiteDialect) SupportsCapability(capability Capability) bool {
-	switch canonicalCapabilityName(string(capability)) {
-	// FULL OUTER JOIN requires SQLite 3.39 (2022-06); the bundled modernc.org/sqlite
-	// ships a newer engine, and system SQLite builds older than that are out of support.
-	case CapabilityCTE, CapabilityExcept, CapabilityIntersect, CapabilityFullOuterJoin:
-		return true
-	case CapabilitySelectForUpdate,
-		CapabilitySelectForShare,
-		CapabilitySelectForNoWait,
-		CapabilitySelectForSkipLocked:
-		return false
-	default:
-		return false
-	}
+	return capabilitySupport(sqliteCapabilities, capability)
 }
 
 func (d SQLiteDialect) BatchInsertStartID(lastID, rowsAffected int64) (int64, bool) {

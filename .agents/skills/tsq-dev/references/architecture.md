@@ -103,7 +103,16 @@ helper 因此继续作为包级函数。为了一点调用语法把这些接口�
   `MaxPageSize` 是分页上限（`DefaultMaxPageSize` = 1000），通过 `pageSizeLimitForExecutor`
   从执行器反查运行时取到。
 - 执行期日志走 `logForExecutor`（`runtime_schema.go`）：执行器属于某个运行时就用它的
-  `Logger`，否则回退 `slog.Default()`。不要在执行路径里直接调 `slog.*`。
+  `Logger`，否则回退 `slog.Default()`。**不要在执行路径里直接调 `slog.*`。**
+  这条规则曾经只在这里写着而没人执行：`logForExecutor` 引入之后只接了三个调用点，
+  读路径的八处 SQL 日志和两处 rows.Close 告警一直在直调 `slog.*`。
+  例外只有两处，都在拿不到执行器的地方，且都在代码里注明了理由：
+  `quoteBuiltInIdentifier`（`Build()` 期，还没有 runtime）和 `appendTracers`
+  （`NewRuntime` 正在组装 Runtime，`Logger` 还没落位）。
+- SQL 文本与绑定参数由 `logSQLForExecutor`（`runtime_schema.go`）输出，开关是
+  `RuntimeOptions.LogSQL`，级别 debug。两道短路（`logSQL` 为假、`Logger.Enabled` 为假）
+  都在 `compactJSON` 之前，所以关着的时候不付序列化成本。**没有运行时的执行器
+  （裸 `*sql.DB`、`WrapExecutor` 的结果）永远不打**——它没地方读这个开关。
 - `WithTx`（`tx.go`）是多操作事务的唯一入口，支持 `TxOptions.Retry`（配合
   `IsOptimisticLockError` 做乐观锁重试）。commit 阶段只对明确的冲突码
   （`IsRetryableTransactionConflictError`）重试，网络类错误在 commit 阶段永不重试——
@@ -134,8 +143,19 @@ helper 因此继续作为包级函数。为了一点调用语法把这些接口�
   支持，FULL JOIN 不支持）、SQLite 3.39+（FULL JOIN 支持，行锁不支持）、PostgreSQL 全部
   支持。改基线是使用者可见变更。
 - `ddl_reconcile_test.go` 覆盖运行期 schema 对账在三个方言上的行为。
-- **新增能力位必须三个方言都显式表态**，否则默认值会让不支持的方言悄悄放行——
-  那是运行到生产库上才会炸的一类错误。
+- **新增能力位必须三个方言都显式表态。** 这不再靠人记得：每个方言持一张
+  `map[Capability]bool`（`mysqlCapabilities` / `postgresCapabilities` /
+  `sqliteCapabilities`），`SupportsCapability` 只做查表（`capabilitySupport`），
+  没有 `default` 分支。新增一个 `Capability` 常量就要往 `AllCapabilities()` 和三张表
+  各加一行，漏掉哪张 `dialect/capability_test.go` 的
+  `TestDialectsCoverAllCapabilities` 就会红。
+  之前是带 `default: return false` 的 switch，漏掉一个方言不编译失败、不 lint 失败、
+  不测试失败，只静默变成"不支持"。
+- 能力名的规范化（`canonicalCapabilityName`）接受 `FULL JOIN` 这类别名，未登记的名字
+  一律按"不支持"处理。**根包不要再复制一份规范化函数**：`dialect_validation.go` 里
+  曾经有一份逐行副本（`canonicalDialectCapability`）加一个零调用的入口
+  （`validateOperationForDialect`），只被自己的测试撑着。真正的执行期校验在
+  `query_validation.go`，直接传类型化常量。
 
 ## 测试矩阵
 
@@ -149,7 +169,10 @@ helper 因此继续作为包级函数。为了一点调用语法把这些接口�
 
 ## 追踪与错误
 
-- `trace.go` 提供轻量的执行追踪钩子，不依赖任何外部 tracing 库。
+- `trace.go` 提供轻量的执行追踪钩子，不依赖任何外部 tracing 库。`Tracer` 是
+  `RuntimeOptions.Tracers` 的元素类型，由使用者自己实现——**这里不再内置 tracer**。
+  曾经有三个（`printCost` / `printError` / `printSQLTracer`），全部未导出、
+  只被一个测试文件引用，使用者无从启用；SQL 日志现在归 `RuntimeOptions.LogSQL`。
 - `sqlite_errors.go` 把 SQLite 的错误字符串映射成可判别的错误——这类映射按方言分文件放，
   不要塞进通用错误处理里。
 - 乐观锁冲突是 `ErrOptimisticLockConflict`，它是**业务错误**，调用方必须处理。

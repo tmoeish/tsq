@@ -971,7 +971,7 @@ func writeDDLFile(filename string, src []byte) error {
 		return err
 	}
 
-	if err := os.MkdirAll(filepath.Dir(filename), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(filename), 0o750); err != nil {
 		return err
 	}
 

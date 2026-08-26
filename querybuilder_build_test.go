@@ -3,6 +3,8 @@ package tsq
 import (
 	"strings"
 	"testing"
+
+	tsqdialect "github.com/tmoeish/tsq/v4/dialect"
 )
 
 func TestQueryBuilder_GroupedCountUsesWrappedSubquery(t *testing.T) {
@@ -55,7 +57,7 @@ func TestQueryBuilder_HavingKeepsRawClauseForDialectRendering(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Build returned error: %v", err)
 	}
-	rendered := renderSQLForDialect(q.listSQL, MySQLDialect{})
+	rendered := renderSQLForDialect(q.listSQL, tsqdialect.MySQLDialect{})
 	if !strings.Contains(rendered, "HAVING `users`.`id` > ?") {
 		t.Fatalf("expected HAVING clause to use dialect identifiers, got %s", rendered)
 	}

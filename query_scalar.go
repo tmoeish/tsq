@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"log/slog"
 )
 
 // prepareQueryExecution handles common steps for all scalar query methods:
@@ -32,9 +31,7 @@ func (q *Query[O]) prepareQueryExecution(
 
 	sqlText := renderSQLForExecutor(tx, resolvedSQL)
 
-	if ctx.Value(printSQL) != nil {
-		slog.Info(methodName, "sql", sqlText, "args", compactJSON(finalArgs))
-	}
+	logSQLForExecutor(ctx, tx, methodName, sqlText, finalArgs)
 
 	return sqlText, finalArgs, nil
 }
@@ -204,9 +201,7 @@ func (q *Query[O]) count64(
 
 	sqlText := renderSQLForExecutor(tx, resolvedSQL)
 
-	if ctx.Value(printSQL) != nil {
-		slog.Info("count", "sql", sqlText, "args", compactJSON(finalArgs))
-	}
+	logSQLForExecutor(ctx, tx, "count", sqlText, finalArgs)
 
 	count, err := queryInt64(ctx, tx, sqlText, finalArgs...)
 	if err != nil {
@@ -247,9 +242,7 @@ func (q *Query[O]) exist(
 
 	sqlText := renderSQLForExecutor(tx, resolvedSQL)
 
-	if ctx.Value(printSQL) != nil {
-		slog.Info("exist", "sql", sqlText, "args", compactJSON(finalArgs))
-	}
+	logSQLForExecutor(ctx, tx, "exist", sqlText, finalArgs)
 
 	count, err := queryInt64(ctx, tx, sqlText, finalArgs...)
 	if err != nil {

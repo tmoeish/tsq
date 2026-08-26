@@ -77,6 +77,36 @@ const (
 	CapabilitySelectForSkipLocked Capability = "SELECT_FOR_SKIP_LOCKED"
 )
 
+// AllCapabilities returns every capability this package defines, in declaration order.
+//
+// Every dialect must take an explicit position on each of them: a capability missing
+// from a dialect's table would otherwise read as "unsupported" without anyone having
+// decided that. TestDialectsCoverAllCapabilities enumerates this list against each
+// dialect and fails when one is unaccounted for, so adding a constant here without
+// updating mysql.go, postgres.go and sqlite.go breaks the build's tests rather than
+// silently changing behavior.
+func AllCapabilities() []Capability {
+	return []Capability{
+		CapabilityCTE,
+		CapabilityExcept,
+		CapabilityFullOuterJoin,
+		CapabilityIntersect,
+		CapabilitySelectForUpdate,
+		CapabilitySelectForShare,
+		CapabilitySelectForNoWait,
+		CapabilitySelectForSkipLocked,
+	}
+}
+
+// capabilitySupport looks a capability up in a dialect's declaration table. A
+// capability absent from the table is reported as unsupported, which is what the
+// exhaustiveness test exists to prevent from ever happening silently.
+func capabilitySupport(table map[Capability]bool, capability Capability) bool {
+	supported, declared := table[canonicalCapabilityName(string(capability))]
+
+	return declared && supported
+}
+
 type DDLAlterColumnMode string
 
 const (

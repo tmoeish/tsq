@@ -8,11 +8,14 @@ import (
 	"fmt"
 	"io"
 	"net"
+	runtime2 "runtime"
 	"strings"
 	"testing"
 	"time"
 
 	_ "modernc.org/sqlite"
+
+	tsqdialect "github.com/tmoeish/tsq/v4/dialect"
 )
 
 type batchMutationUser struct {
@@ -103,7 +106,7 @@ func optimisticMutationUserColumns() []BoundColumn[optimisticMutationUser] {
 	})}
 }
 
-func newRuntimeWithDB(db *sql.DB, dialect Dialect) *Runtime {
+func newRuntimeWithDB(db *sql.DB, dialect tsqdialect.Dialect) *Runtime {
 	return &Runtime{
 		db:      db,
 		dialect: dialect,
@@ -136,7 +139,7 @@ func newBatchMutationEngine(t *testing.T) *Runtime {
 	)`); err != nil {
 		t.Fatalf("create users table: %v", err)
 	}
-	return newRuntimeWithDB(db, SQLiteDialect{})
+	return newRuntimeWithDB(db, tsqdialect.SQLiteDialect{})
 }
 
 func newOptimisticMutationEngine(t *testing.T) *Runtime {
@@ -156,7 +159,7 @@ func newOptimisticMutationEngine(t *testing.T) *Runtime {
 	)`); err != nil {
 		t.Fatalf("create users table: %v", err)
 	}
-	return newRuntimeWithDB(db, SQLiteDialect{})
+	return newRuntimeWithDB(db, tsqdialect.SQLiteDialect{})
 }
 
 func TestEngineQueryUsesContext(t *testing.T) {
@@ -542,4 +545,53 @@ func TestShouldRetryTxCommitStageOnlyRetriesDefiniteConflicts(t *testing.T) {
 	if shouldRetryTx(fakeSQLStateError{state: "40001"}, txRetryStageCommit, opts, opts.retryConfig.MaxAttempts) {
 		t.Fatal("expected attempt limit to apply at commit stage too")
 	}
+}
+
+// TestRuntimeQueryRowContextReusesOneErrorPool guards against a goroutine leak.
+// QueryRowContext must return a *sql.Row, and a *sql.Row carrying an error cannot be
+// built outside database/sql, so the error path goes through a failing *sql.DB. That
+// pool used to be opened per call and never closed, and sql.OpenDB starts a connection
+// opener goroutine that only Close stops -- one leaked goroutine per call on a broken
+// runtime. There is one shared pool now.
+func TestRuntimeQueryRowContextReusesOneErrorPool(t *testing.T) {
+	var runtime *Runtime
+
+	before := runtime_NumGoroutineStable()
+
+	for range 200 {
+		if err := runtime.QueryRowContext(context.Background(), "SELECT 1").Scan(new(int)); err == nil {
+			t.Fatal("expected an error from an uninitialized runtime")
+		}
+	}
+
+	if got := errorDB(); got != errorDB() {
+		t.Fatal("expected a single shared error pool")
+	}
+
+	after := runtime_NumGoroutineStable()
+	if after > before+5 {
+		t.Fatalf("goroutine count grew from %d to %d across 200 failed calls", before, after)
+	}
+}
+
+// runtime_NumGoroutineStable reads the goroutine count after giving the scheduler a
+// chance to retire finished ones, so the assertion above measures a leak rather than
+// timing noise.
+func runtime_NumGoroutineStable() int {
+	runtime2.GC()
+
+	last := runtime2.NumGoroutine()
+	for range 10 {
+		time.Sleep(time.Millisecond)
+		runtime2.GC()
+
+		current := runtime2.NumGoroutine()
+		if current == last {
+			return current
+		}
+
+		last = current
+	}
+
+	return last
 }

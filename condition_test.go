@@ -26,11 +26,6 @@ func (p *pointerValuer) Value() (driver.Value, error) {
 	return p.value, nil
 }
 
-//go:fix inline
-func stringPtr(s string) *string {
-	return new(s)
-}
-
 func TestConditionClauseRendersCanonicalSQL(t *testing.T) {
 	col := newColForTable[Table, int](newMockTable("users"), "id", "id", nil)
 	cond := col.EQVal(1)

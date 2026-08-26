@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	_ "modernc.org/sqlite"
+
+	tsqdialect "github.com/tmoeish/tsq/v4/dialect"
 )
 
 func TestBuildRegisteredTablesRejectsNilInputs(t *testing.T) {
@@ -101,7 +103,7 @@ func newSQLiteIndexTestEngine(t *testing.T) (*Runtime, string) {
 		_ = db.Close()
 	})
 
-	return newRuntimeWithDB(db, SQLiteDialect{}), dsn
+	return newRuntimeWithDB(db, tsqdialect.SQLiteDialect{}), dsn
 }
 
 func TestCurrentDialectDetection(t *testing.T) {
@@ -115,7 +117,7 @@ func TestCurrentDialectDetection(t *testing.T) {
 	if dialect == nil {
 		t.Errorf("expected non-nil dialect after NewRuntime with SQLite")
 	}
-	if dialect != nil && dialect.Name() != DialectSQLite {
+	if dialect != nil && dialect.Name() != tsqdialect.SQLite {
 		t.Logf("detected dialect: %s", dialect.Name())
 	}
 }
@@ -137,10 +139,10 @@ func TestRuntimeEngineAccess(t *testing.T) {
 }
 
 func TestNewRuntimeFailsOnStrictValidation(t *testing.T) {
-	longTableName := firstRejectedIdentifier(t, MySQLDialect{}, "u")
+	longTableName := firstRejectedIdentifier(t, tsqdialect.MySQLDialect{}, "u")
 	runtime := &Runtime{
 		db:      &sql.DB{},
-		dialect: MySQLDialect{},
+		dialect: tsqdialect.MySQLDialect{},
 		tables: []*registeredTable{{
 			Table: newMockTable(longTableName),
 		}},

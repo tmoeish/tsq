@@ -321,110 +321,23 @@ func rewriteBindVars(sql string, dialect tsqdialect.Dialect) string {
 		return sql
 	}
 
-	var (
-		builder        strings.Builder
-		bindIndex      int
-		inSingleStr    bool
-		inDoubleStr    bool
-		inLineComment  bool
-		inBlockComment bool
-		dollarQuoteTag string
-	)
+	var builder strings.Builder
 
 	builder.Grow(len(sql) + 8)
 
-	for i := 0; i < len(sql); i++ {
-		ch := sql[i]
+	bindIndex := 0
 
-		switch {
-		case inLineComment:
-			builder.WriteByte(ch)
-
-			if ch == '\n' {
-				inLineComment = false
-			}
-		case inBlockComment:
-			builder.WriteByte(ch)
-
-			if ch == '*' && i+1 < len(sql) && sql[i+1] == '/' {
-				builder.WriteByte(sql[i+1])
-
-				i++
-				inBlockComment = false
-			}
-		case inSingleStr:
-			builder.WriteByte(ch)
-
-			if ch == '\'' {
-				if i+1 < len(sql) && sql[i+1] == '\'' {
-					builder.WriteByte(sql[i+1])
-
-					i++
-				} else {
-					inSingleStr = false
-				}
-			}
-		case inDoubleStr:
-			builder.WriteByte(ch)
-
-			if ch == '"' {
-				if i+1 < len(sql) && sql[i+1] == '"' {
-					builder.WriteByte(sql[i+1])
-
-					i++
-				} else {
-					inDoubleStr = false
-				}
-			}
-		case dollarQuoteTag != "":
-			if strings.HasPrefix(sql[i:], dollarQuoteTag) {
-				builder.WriteString(dollarQuoteTag)
-				i += len(dollarQuoteTag) - 1
-				dollarQuoteTag = ""
-
-				continue
-			}
-
-			builder.WriteByte(ch)
-		default:
-			if tag, ok := matchDollarQuote(sql, i); ok {
-				builder.WriteString(tag)
-				dollarQuoteTag = tag
-				i += len(tag) - 1
-
-				continue
-			}
-
-			switch ch {
-			case '\'':
-				inSingleStr = true
-
-				builder.WriteByte(ch)
-			case '"':
-				inDoubleStr = true
-
-				builder.WriteByte(ch)
-			case '-':
-				if i+1 < len(sql) && sql[i+1] == '-' {
-					inLineComment = true
-				}
-
-				builder.WriteByte(ch)
-			case '/':
-				if i+1 < len(sql) && sql[i+1] == '*' {
-					inBlockComment = true
-				}
-
-				builder.WriteByte(ch)
-			case '?':
-				builder.WriteString(dialect.BindVar(bindIndex))
-
-				bindIndex++
-			default:
-				builder.WriteByte(ch)
-			}
+	walkSQL(sql, &builder, func(source string, i int, out *strings.Builder) (int, bool, bool) {
+		if source[i] != '?' {
+			return 0, false, false
 		}
-	}
+
+		out.WriteString(dialect.BindVar(bindIndex))
+
+		bindIndex++
+
+		return 1, true, false
+	})
 
 	return builder.String()
 }

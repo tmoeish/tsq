@@ -5,8 +5,11 @@ import (
 	"database/sql"
 	"errors"
 	"log/slog"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	tsqdialect "github.com/tmoeish/tsq/v4/dialect"
 )
 
 func TestResolveIdentifierValidationModeDefaultsToStrict(t *testing.T) {
@@ -59,10 +62,10 @@ func TestNewRuntimeRejectsUnknownIdentifierValidationMode(t *testing.T) {
 }
 
 func TestValidateRegisteredTableIdentifiersWarnModeReportsViolations(t *testing.T) {
-	longTableName := firstRejectedIdentifier(t, MySQLDialect{}, "u")
+	longTableName := firstRejectedIdentifier(t, tsqdialect.MySQLDialect{}, "u")
 	runtime := &Runtime{
 		db:      &sql.DB{},
-		dialect: MySQLDialect{},
+		dialect: tsqdialect.MySQLDialect{},
 		tables: []*registeredTable{{
 			Table: newMockTable(longTableName),
 		}},
@@ -183,5 +186,101 @@ func TestLogForExecutorRoutesToRuntimeLogger(t *testing.T) {
 
 	if logger.count("unrouted") != 0 {
 		t.Fatal("expected bare *sql.DB executor to bypass the runtime logger")
+	}
+}
+
+// TestLogSQLRoutesRenderedStatementsToRuntimeLogger is the end-to-end check on
+// RuntimeOptions.LogSQL.
+//
+// Before it existed, the read path logged SQL only behind an unexported context key
+// that no exported symbol could set, so every one of those log statements was
+// unreachable in the published library while looking, in the source, like a working
+// feature. The assertion that matters is that the record lands on the runtime's own
+// Logger rather than slog.Default().
+func TestLogSQLRoutesRenderedStatementsToRuntimeLogger(t *testing.T) {
+	dsn := filepath.Join(t.TempDir(), "logsql.db")
+
+	seed, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+
+	if _, err := seed.ExecContext(context.Background(), `CREATE TABLE users (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		name TEXT NOT NULL,
+		email TEXT NOT NULL UNIQUE
+	)`); err != nil {
+		t.Fatalf("create users table: %v", err)
+	}
+
+	if err := seed.Close(); err != nil {
+		t.Fatalf("close seed connection: %v", err)
+	}
+
+	logger := &recordingLogger{}
+
+	rt, err := NewRuntime("sqlite", dsn, nil, &RuntimeOptions{Logger: logger, LogSQL: true})
+	if err != nil {
+		t.Fatalf("NewRuntime() error = %v", err)
+	}
+
+	t.Cleanup(func() { _ = rt.Close() })
+
+	query, err := Select(batchMutationUserColumns()...).From(batchMutationUser{}).Build()
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+
+	if _, err := query.List(context.Background(), rt); err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+
+	if logger.count("list") != 1 {
+		t.Fatalf("expected the rendered list statement on the runtime logger, got %v", logger.messages)
+	}
+}
+
+// TestLogSQLDefaultsOff keeps query execution silent unless asked: SQL text and bound
+// arguments can carry secrets, so logging them must be something the caller opts into.
+func TestLogSQLDefaultsOff(t *testing.T) {
+	dsn := filepath.Join(t.TempDir(), "nologsql.db")
+
+	seed, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+
+	if _, err := seed.ExecContext(context.Background(), `CREATE TABLE users (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		name TEXT NOT NULL,
+		email TEXT NOT NULL UNIQUE
+	)`); err != nil {
+		t.Fatalf("create users table: %v", err)
+	}
+
+	if err := seed.Close(); err != nil {
+		t.Fatalf("close seed connection: %v", err)
+	}
+
+	logger := &recordingLogger{}
+
+	rt, err := NewRuntime("sqlite", dsn, nil, &RuntimeOptions{Logger: logger})
+	if err != nil {
+		t.Fatalf("NewRuntime() error = %v", err)
+	}
+
+	t.Cleanup(func() { _ = rt.Close() })
+
+	query, err := Select(batchMutationUserColumns()...).From(batchMutationUser{}).Build()
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+
+	if _, err := query.List(context.Background(), rt); err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+
+	if logger.count("list") != 0 {
+		t.Fatalf("expected no SQL on the logger with LogSQL off, got %v", logger.messages)
 	}
 }
