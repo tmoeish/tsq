@@ -311,3 +311,91 @@ func TestColumnsPerRowSkipsNilItems(t *testing.T) {
 		t.Fatal("an all-nil slice has no sampleable column count")
 	}
 }
+
+// TestIsTransactionalExecutorSeesThroughWrappers pins the detection that decides
+// whether the ignore-duplicates path brackets each row in a savepoint. WithTx hands the
+// callback a dialect wrapper rather than the *sql.Tx itself, so a check that only looks
+// at the outermost value answers "not a transaction" for the exact case that needs
+// savepoints.
+func TestIsTransactionalExecutorSeesThroughWrappers(t *testing.T) {
+	runtime := newBatchMutationEngine(t)
+
+	if isTransactionalExecutor(runtime) {
+		t.Fatal("a runtime is not a transaction")
+	}
+
+	if isTransactionalExecutor(nil) {
+		t.Fatal("a nil executor is not a transaction")
+	}
+
+	tx, err := runtime.DB().BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+
+	defer func() { _ = tx.Rollback() }()
+
+	if !isTransactionalExecutor(tx) {
+		t.Fatal("a *sql.Tx is a transaction")
+	}
+
+	if !isTransactionalExecutor(wrapExecutor(tx, runtime.SQLDialect(), runtime)) {
+		t.Fatal("a wrapped *sql.Tx is still a transaction")
+	}
+}
+
+// TestChunkedInsertIgnoreErrorsInsideTransaction covers the in-transaction path end to
+// end: the duplicate is skipped, the rows around it land, and the transaction is still
+// usable afterwards. On PostgreSQL the last part is the whole point, and the integration
+// suite runs this same shape against a real server.
+func TestChunkedInsertIgnoreErrorsInsideTransaction(t *testing.T) {
+	runtime := newBatchMutationEngine(t)
+	exec := requireInitializedRuntime(t, runtime)
+
+	items := []*batchMutationUser{
+		{Name: "alice", Email: "alice@example.com"},
+		{Name: "alice again", Email: "alice@example.com"},
+		{Name: "bob", Email: "bob@example.com"},
+	}
+
+	err := exec.WithTx(context.Background(), nil, func(ctx context.Context, txExec SQLExecutor) error {
+		if err := ChunkedInsert(ctx, txExec, items, &ChunkedInsertOptions{ChunkSize: 10, IgnoreErrors: true}); err != nil {
+			return err
+		}
+
+		// The transaction has to still be usable after an ignored duplicate.
+		var count int
+
+		return txExec.QueryRowContext(ctx, `SELECT COUNT(*) FROM users`).Scan(&count)
+	})
+	if err != nil {
+		t.Fatalf("chunked insert with IgnoreErrors inside a transaction: %v", err)
+	}
+
+	var count int
+	if err := runtime.DB().QueryRowContext(context.Background(), `SELECT COUNT(*) FROM users`).Scan(&count); err != nil {
+		t.Fatalf("count committed rows: %v", err)
+	}
+
+	if count != 2 {
+		t.Fatalf("expected the duplicate to be skipped and 2 rows committed, got %d", count)
+	}
+}
+
+// TestChunkedInsertIgnoreErrorsStillPropagatesOtherFailures keeps IgnoreErrors narrow:
+// it skips duplicate keys, not everything.
+func TestChunkedInsertIgnoreErrorsStillPropagatesOtherFailures(t *testing.T) {
+	runtime := newBatchMutationEngine(t)
+	exec := requireInitializedRuntime(t, runtime)
+
+	if _, err := runtime.DB().ExecContext(context.Background(), `DROP TABLE users`); err != nil {
+		t.Fatalf("drop users: %v", err)
+	}
+
+	items := []*batchMutationUser{{Name: "alice", Email: "alice@example.com"}}
+
+	err := ChunkedInsert(context.Background(), exec, items, &ChunkedInsertOptions{ChunkSize: 10, IgnoreErrors: true})
+	if err == nil {
+		t.Fatal("expected a missing table to fail even with IgnoreErrors")
+	}
+}

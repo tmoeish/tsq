@@ -626,6 +626,8 @@ Useful rules:
 - `ChunkSize` (default 1000) is an upper bound on rows per statement, not an exact batch size. Databases count placeholders rather than rows, so wide tables are chunked smaller automatically. Chunk sizes are never raised, and never fall below one row per statement
 - the ceiling is per dialect: MySQL and PostgreSQL accept 65535 bound parameters per statement, SQLite 32766. `dialect.MaxBindParams(d)` reports it; an executor with no dialect (a bare `*sql.DB` behind `WrapExecutor`) is chunked against the tightest of them
 - a batch `INSERT` binds about one placeholder per column per row, but a batch `UPDATE` binds about **two** (it renders `col = CASE pk WHEN ? THEN ? ... END`), so the same rows chunk roughly half as large for `ChunkedUpdate` as for `ChunkedInsert`
+- `ChunkedInsertOptions{IgnoreErrors: true}` skips rows that violate a unique or primary-key constraint and keeps going. It skips **duplicate keys only**; every other failure still aborts the call
+- inside a transaction, each row of an `IgnoreErrors` insert is bracketed by a savepoint, because PostgreSQL aborts the whole transaction on any failed statement and rejects everything after it until the transaction unwinds. Outside a transaction no savepoint is used, since each insert is already its own implicit transaction
 - automatic optimistic-lock retries can be configured with `TxOptions`
 
 ## 10. Aliases, rebinding, and result mapping

@@ -2,6 +2,7 @@ package tsq
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -174,22 +175,92 @@ func chunkedInsertChunk[T Table](
 	}
 
 	if opts.IgnoreErrors {
-		for itemIdx, item := range batch {
-			if err := insertTables(ctx, tx, item); err != nil {
-				if isDuplicateKeyError(err) {
-					logForExecutor(ctx, tx, slog.LevelDebug, "ignored duplicate key error in chunked insert", "error", err)
-					continue
-				}
-
-				return fmt.Errorf("chunked insert failed at item %d"+": %w", itemIdx, err)
-			}
-		}
-
-		return nil
+		return insertIgnoringDuplicateKeys(ctx, tx, batch)
 	}
 
 	if err := insertTables(ctx, tx, batch...); err != nil {
 		return fmt.Errorf("%s: %w", "chunked insert batch failed", err)
+	}
+
+	return nil
+}
+
+// TSQ names one savepoint and reuses it: each row releases or rolls back to it before
+// the next row creates it again, so the nesting never grows.
+const (
+	chunkedInsertSavepoint         = "tsq_chunked_insert"
+	chunkedInsertSavepointCreate   = "SAVEPOINT " + chunkedInsertSavepoint
+	chunkedInsertSavepointRelease  = "RELEASE SAVEPOINT " + chunkedInsertSavepoint
+	chunkedInsertSavepointRollback = "ROLLBACK TO SAVEPOINT " + chunkedInsertSavepoint
+)
+
+// maxExecutorUnwrapDepth bounds the walk in isTransactionalExecutor so a self-wrapping
+// executor cannot spin forever.
+const maxExecutorUnwrapDepth = 16
+
+// isTransactionalExecutor reports whether exec ultimately writes through a *sql.Tx,
+// unwrapping the dialect wrapper WithTx and WrapExecutor put around it.
+func isTransactionalExecutor(exec SQLExecutor) bool {
+	for range maxExecutorUnwrapDepth {
+		switch typed := exec.(type) {
+		case *sql.Tx:
+			return true
+		case wrappedExecutor:
+			exec = typed.SQLExecutor
+		default:
+			return false
+		}
+	}
+
+	return false
+}
+
+// insertIgnoringDuplicateKeys inserts one row at a time and skips duplicate-key
+// failures.
+//
+// Inside a transaction each attempt is bracketed by a savepoint. PostgreSQL puts a
+// transaction into an aborted state as soon as any statement fails and rejects
+// everything after it with 25P02 until the transaction unwinds, so "catch the error and
+// keep going" does not work there: the first ignored duplicate poisoned the rest of the
+// batch and the whole call failed with an error that is not a duplicate-key error.
+// Rolling back to a savepoint is the only portable way to undo just the failed
+// statement, and MySQL and SQLite accept the same three statements.
+//
+// Outside a transaction each insert is its own implicit transaction, so a failure
+// cannot poison anything and the savepoints are skipped: PostgreSQL rejects SAVEPOINT
+// outside a transaction block (25P01).
+func insertIgnoringDuplicateKeys(ctx context.Context, tx SQLExecutor, batch []Table) error {
+	useSavepoint := isTransactionalExecutor(tx)
+
+	for itemIdx, item := range batch {
+		if useSavepoint {
+			if _, err := tx.ExecContext(ctx, chunkedInsertSavepointCreate); err != nil {
+				return fmt.Errorf("chunked insert failed at item %d: %w", itemIdx, err)
+			}
+		}
+
+		err := insertTables(ctx, tx, item)
+		if err == nil {
+			if useSavepoint {
+				if _, releaseErr := tx.ExecContext(ctx, chunkedInsertSavepointRelease); releaseErr != nil {
+					return fmt.Errorf("chunked insert failed at item %d: %w", itemIdx, releaseErr)
+				}
+			}
+
+			continue
+		}
+
+		if !isDuplicateKeyError(err) {
+			return fmt.Errorf("chunked insert failed at item %d"+": %w", itemIdx, err)
+		}
+
+		if useSavepoint {
+			if _, rollbackErr := tx.ExecContext(ctx, chunkedInsertSavepointRollback); rollbackErr != nil {
+				return fmt.Errorf("chunked insert failed at item %d: %w", itemIdx, errors.Join(err, rollbackErr))
+			}
+		}
+
+		logForExecutor(ctx, tx, slog.LevelDebug, "ignored duplicate key error in chunked insert", "error", err)
 	}
 
 	return nil

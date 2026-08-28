@@ -75,6 +75,13 @@
     `insertBindParamsPerRow` / `updateBindParamsPerRow` / `deleteBindParamsPerRow`。
 - 方言未知（`WrapExecutor` 包一个裸 `*sql.DB`）时取**最紧**的上限：偏小只多几次往返，
   偏大是执行期直接失败。
+- **`IgnoreErrors` 的错误处理不可移植**：`ChunkedInsert{IgnoreErrors}` 事务内必须用
+  savepoint 括住每一行。PostgreSQL 一条语句失败就把事务置为 aborted，其后一律 `25P02`——
+  "抓住错误继续跑"只在 SQLite / MySQL 上成立。事务外**不能**发 savepoint（PG 用 `25P01`
+  拒绝事务外的 `SAVEPOINT`），判断走哪条路要穿过 `wrappedExecutor` 找 `*sql.Tx`。
+  别改成 `INSERT IGNORE` / 批量 `ON CONFLICT DO NOTHING`：前者在 MySQL 上会吞掉所有错误，
+  后者让 `RETURNING` 无法按位置回填主键。`TestIntegrationChunkedInsertIgnoresDuplicatesInsideTransaction`
+  是那道门，且**只有真实 PostgreSQL 上才有意义**。
 - `query_chunked_widetable_test.go` 是那道门——它真的插一张 40 列的表，纯粹比对算出来的
   chunk size 证明不了语句能被数据库接受。
 
