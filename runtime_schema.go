@@ -165,8 +165,11 @@ func (r *Runtime) applySchemaPolicies(ctx context.Context) error {
 		return errors.New("runtime cannot be nil")
 	}
 
+	// Manual is the default and the recommended production setup, so saying so is a
+	// statement of the configured mode, not a warning that something may be wrong.
+	// Logging it at warn level put two records in front of every user on every boot.
 	if r.tablePolicy == SchemaPolicyManual {
-		r.warn("tsq table management is disabled; create and reconcile tables in your migrations", "policy", r.tablePolicy)
+		r.info("tsq table management is disabled; create and reconcile tables in your migrations", "policy", r.tablePolicy)
 	} else {
 		if err := r.applyTablePolicy(ctx); err != nil {
 			return err
@@ -174,7 +177,7 @@ func (r *Runtime) applySchemaPolicies(ctx context.Context) error {
 	}
 
 	if r.indexPolicy == SchemaPolicyManual {
-		r.warn("tsq index management is disabled; create and reconcile indexes in your migrations", "policy", r.indexPolicy)
+		r.info("tsq index management is disabled; create and reconcile indexes in your migrations", "policy", r.indexPolicy)
 		return nil
 	}
 

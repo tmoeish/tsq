@@ -195,7 +195,9 @@ func (l *Learner) Insert(
 	ctx context.Context,
 	db tsq.SQLExecutor,
 ) error {
-	l.CreatedAt = null.TimeFrom(tsqtime.Now())
+	if !l.CreatedAt.Valid {
+		l.CreatedAt = null.TimeFrom(tsqtime.Now())
+	}
 	err := tsq.Insert(ctx, db, l)
 	if err != nil {
 		return fmt.Errorf("insert Learner: %s: %w", compactJSON(l), err)

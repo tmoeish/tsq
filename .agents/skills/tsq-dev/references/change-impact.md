@@ -41,6 +41,16 @@
 **不要改成"后者覆盖前者"**：猜调用方想要哪个比说不清更糟。
 `querybuilder_paging_test.go` 的 `TestPageRefusesToFightBuilderPaging` 是那道门。
 
+## 改了托管时间戳字段的生成代码（`tsq.go.tmpl` 的 Insert / Update）
+
+- 生成的 `Insert` 只在字段**还是零值**时才盖 `created_at` / `updated_at`
+  （`TimestampUnsetExpr`）。无条件盖会静默丢掉调用方导入历史数据时设的时间。
+  `Update` 相反，**必须**无条件刷新 `updated_at`——那正是它的语义。
+- `TimestampUnsetExpr` 必须覆盖 `validateTimestampField` 接受的**每一种**字段类型
+  （`time.Time` / `*time.Time` / `sql.NullTime` / `null.Time`），否则生成时 panic。
+  `template_helpers_test.go` 的 `TestTimestampUnsetExprCoversEveryManagedTimestampKind`
+  是那道门。
+
 ## 改了 SQL 渲染或参数绑定
 
 - `sql_render_test.go`、`query_args_test.go` 是黄金输出，改渲染必然改它们。改之前确认
@@ -82,6 +92,10 @@
   别改成 `INSERT IGNORE` / 批量 `ON CONFLICT DO NOTHING`：前者在 MySQL 上会吞掉所有错误，
   后者让 `RETURNING` 无法按位置回填主键。`TestIntegrationChunkedInsertIgnoresDuplicatesInsideTransaction`
   是那道门，且**只有真实 PostgreSQL 上才有意义**。
+- 宽表端到端用例**在 `-race` 下很贵**（一条批量 UPDATE 要绑几万个占位符）。行数取"刚好越过
+  错误估算下的上限"，不要为了保险随手加大——第一版用 1200 行，一个用例就占了 `test-race`
+  的四分之三时间。`TestSQLiteRejectsMoreBoundParametersThanItsCeiling` 用一条简单 INSERT
+  直接钉住 32766 这个数，比靠特定表形状去推便宜得多。
 - `query_chunked_widetable_test.go` 是那道门——它真的插一张 40 列的表，纯粹比对算出来的
   chunk size 证明不了语句能被数据库接受。
 

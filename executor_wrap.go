@@ -33,18 +33,16 @@ func wrapExecutor(exec SQLExecutor, sqlDialect dialect.Dialect, rt *Runtime) SQL
 		}
 	}
 
+	// Reuse the executor only when it already carries both the dialect and the runtime
+	// being asked for. A second copy of this condition used to follow, returning exec
+	// unwrapped whenever the dialect matched, which made the runtime attachment above
+	// unreachable: the wrapper was never applied to add a runtime to an executor that
+	// lacked one.
 	if provider, ok := exec.(dialectProvider); ok && provider.tsqDialect() == sqlDialect {
-		if rt == nil {
+		traceExec, carriesRuntime := exec.(traceProvider)
+		if rt == nil || (carriesRuntime && traceExec.tsqRuntime() == rt) {
 			return exec
 		}
-
-		if traceExec, ok := exec.(traceProvider); ok && traceExec.tsqRuntime() == rt {
-			return exec
-		}
-	}
-
-	if provider, ok := exec.(dialectProvider); ok && provider.tsqDialect() == sqlDialect {
-		return exec
 	}
 
 	return wrappedExecutor{

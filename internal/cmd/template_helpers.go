@@ -43,6 +43,7 @@ func funcMap() template.FuncMap {
 		"GeneratedSQLRef":          generatedSQLRef,
 		"GeneratedTimeRef":         generatedTimeRef,
 		"TimestampNowValue":        timestampNowValue,
+		"TimestampUnsetExpr":       timestampUnsetExpr,
 		"SoftDeleteParamType":      softDeleteParamType,
 		"SoftDeleteParamSetExpr":   softDeleteParamSetExpr,
 		"SoftDeleteNowValue":       softDeleteNowValue,
@@ -355,6 +356,26 @@ func validateManagedFields(data *genmodel.StructInfo) error {
 	}
 
 	return nil
+}
+
+// timestampUnsetExpr renders the test for "the caller did not supply this timestamp".
+//
+// Insert uses it so that a value the caller set survives. Stamping unconditionally
+// discards it, which silently rewrites history when rows are imported or backfilled,
+// and a created_at the caller cannot control is not much of a created_at.
+func timestampUnsetExpr(recv, fieldName string, field genmodel.FieldInfo) string {
+	target := recv + "." + fieldName
+
+	switch managedTimestampKind(field) {
+	case "time":
+		return target + ".IsZero()"
+	case "time_ptr":
+		return target + " == nil"
+	case "sql_null_time", "null_time":
+		return "!" + target + ".Valid"
+	default:
+		panic(fmt.Sprintf("unsupported timestamp field type: %s", fieldType(field)))
+	}
 }
 
 func timestampNowValue(field genmodel.FieldInfo) string {

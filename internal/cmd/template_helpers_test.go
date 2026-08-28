@@ -282,3 +282,43 @@ func TestTimestampNowValueUsesGeneratedAliases(t *testing.T) {
 		t.Fatalf("unexpected time pointer expression: %q", got)
 	}
 }
+
+// TestTimestampUnsetExprCoversEveryManagedTimestampKind pins the guard the generated
+// Insert wraps its timestamp stamping in. Every kind validateTimestampField accepts has
+// to have an "unset" test, or generation panics for a field type the parser allows.
+func TestTimestampUnsetExprCoversEveryManagedTimestampKind(t *testing.T) {
+	timeField := genmodel.FieldInfo{
+		Name: "CreatedAt",
+		Type: genmodel.TypeInfo{Package: genmodel.PackageInfo{Path: "time", Name: "time"}, TypeName: "Time"},
+	}
+	timePtrField := genmodel.FieldInfo{
+		Name:      "CreatedAt",
+		IsPointer: true,
+		Type:      genmodel.TypeInfo{Package: genmodel.PackageInfo{Path: "time", Name: "time"}, TypeName: "Time"},
+	}
+	sqlNullField := genmodel.FieldInfo{
+		Name: "UpdatedAt",
+		Type: genmodel.TypeInfo{Package: genmodel.PackageInfo{Path: "database/sql", Name: "sql"}, TypeName: "NullTime"},
+	}
+	nullField := genmodel.FieldInfo{
+		Name: "UpdatedAt",
+		Type: genmodel.TypeInfo{Package: genmodel.PackageInfo{Path: "gopkg.in/nullbio/null.v6", Name: "null"}, TypeName: "Time"},
+	}
+
+	for _, tc := range []struct {
+		name  string
+		field genmodel.FieldInfo
+		want  string
+	}{
+		{name: "time.Time", field: timeField, want: "u.CreatedAt.IsZero()"},
+		{name: "*time.Time", field: timePtrField, want: "u.CreatedAt == nil"},
+		{name: "sql.NullTime", field: sqlNullField, want: "!u.UpdatedAt.Valid"},
+		{name: "null.Time", field: nullField, want: "!u.UpdatedAt.Valid"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := timestampUnsetExpr("u", tc.field.Name, tc.field); got != tc.want {
+				t.Fatalf("timestampUnsetExpr() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

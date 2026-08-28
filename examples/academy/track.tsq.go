@@ -176,7 +176,9 @@ func (t *Track) Insert(
 	ctx context.Context,
 	db tsq.SQLExecutor,
 ) error {
-	t.CreatedAt = null.TimeFrom(tsqtime.Now())
+	if !t.CreatedAt.Valid {
+		t.CreatedAt = null.TimeFrom(tsqtime.Now())
+	}
 	err := tsq.Insert(ctx, db, t)
 	if err != nil {
 		return fmt.Errorf("insert Track: %s: %w", compactJSON(t), err)

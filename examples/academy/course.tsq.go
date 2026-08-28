@@ -242,7 +242,9 @@ func (c *Course) Insert(
 	ctx context.Context,
 	db tsq.SQLExecutor,
 ) error {
-	c.CreatedAt = null.TimeFrom(tsqtime.Now())
+	if !c.CreatedAt.Valid {
+		c.CreatedAt = null.TimeFrom(tsqtime.Now())
+	}
 	err := tsq.Insert(ctx, db, c)
 	if err != nil {
 		return fmt.Errorf("insert Course: %s: %w", compactJSON(c), err)
