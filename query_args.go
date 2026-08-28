@@ -7,14 +7,32 @@ import (
 	"strings"
 )
 
-// escapeKeywordSearch escapes LIKE wildcard characters (% and _) in a keyword string.
+// keywordEscapeChar is the LIKE escape character used by keyword search, and
+// keywordLikeEscapeClause is the clause that declares it to the database.
+//
+// Backslash cannot serve here even though two of the three dialects default to it:
+// SQLite has no default LIKE escape character at all, so a backslash-escaped pattern
+// matches nothing there, and MySQL cannot even spell ESCAPE '\' because a backslash
+// escapes the closing quote of a string literal. A tilde is inert inside string
+// literals in all three dialects and is written the same way in each, so one clause
+// emitted at Build time stays correct whichever dialect executes the query.
+const (
+	keywordEscapeChar       = "~"
+	keywordLikeEscapeClause = " ESCAPE '" + keywordEscapeChar + "'"
+)
+
+// escapeKeywordSearch escapes LIKE wildcard characters (% and _) in a keyword string,
+// using keywordEscapeChar. The rendered predicate carries a matching
+// keywordLikeEscapeClause; escaping the keyword without emitting that clause makes the
+// escape character a literal on SQLite and silently returns no rows.
+//
 // TSQ calls this automatically when executing a Page query via PageRequest.Keyword.
 // For keyword values passed as variadic args to List or Get, the caller is responsible
 // for escaping wildcards before passing them.
 func escapeKeywordSearch(keyword string) string {
-	s := strings.ReplaceAll(keyword, "\\", "\\\\")
-	s = strings.ReplaceAll(s, "%", "\\%")
-	s = strings.ReplaceAll(s, "_", "\\_")
+	s := strings.ReplaceAll(keyword, keywordEscapeChar, keywordEscapeChar+keywordEscapeChar)
+	s = strings.ReplaceAll(s, "%", keywordEscapeChar+"%")
+	s = strings.ReplaceAll(s, "_", keywordEscapeChar+"_")
 
 	return s
 }

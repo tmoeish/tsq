@@ -36,6 +36,20 @@
   在测热路径。渲染进热路径的字符串拼接要看一眼 bench。
 - 参数顺序变了 → `condition_ordering_test.go`。
 
+## 改了 LIKE 谓词的渲染，或改了关键字转义
+
+- **转义值和声明转义符必须一起改。** `escapeKeywordSearch`（`query_args.go`）和
+  `keywordLikeEscapeClause` 拼进谓词的那一处（`query_plan_sql.go` 的 `buildWhere`）是同一个
+  契约的两半：只转义值而不发 `ESCAPE`，在 SQLite 上转义符会变成普通字符，查询**静默返回
+  零行**（SQLite 没有默认 LIKE 转义符，MySQL / PostgreSQL 默认是反斜杠）。
+- 转义字符**不能是反斜杠**：MySQL 拼不出 `ESCAPE '\'`（反斜杠转义掉收尾引号）。三个方言
+  必须能用同一种写法，因为这个子句在 `Build()` 期就固定进 SQL 文本，那时还不知道方言。
+- 断言要落在**真跑一次数据库**上，不能只比对渲染出来的字符串——这个 bug 的两个副本
+  （值被转义了、子句没发）单看任何一边都是对的。`keyword_search_test.go` 守 SQLite，
+  `integration_test.go` 的 `TestIntegrationKeywordSearchEscapesWildcards` 守 MySQL 和
+  PostgreSQL：**一条固定进 SQL 文本的子句必须在三个方言上都能解析且语义一致**，只有真实
+  服务器证明得了。此前 `integration_test.go` 对关键字搜索零覆盖。
+
 ## 改了校验逻辑
 
 先确定它属于哪一边，这条边界是有意的（见 `architecture.md`）：

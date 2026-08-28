@@ -533,7 +533,9 @@ Useful rules:
 - use `HasNext()` / `HasPrev()` for UI navigation logic
 - use `pageReq.Response(total, data)` when constructing a typed response outside `query.Page`; `NewPageResponse` is a deprecated compatibility wrapper
 
-`PageRequest.Keyword` is automatically escaped for LIKE wildcards when executing via `query.Page(...)`. For keyword values passed as variadic args to `query.List` or `query.Get`, the caller must escape `%` and `_` manually. Wildcard escaping is not SQL injection protection — that comes from parameter binding.
+`PageRequest.Keyword` is automatically escaped for LIKE wildcards when executing via `query.Page(...)`, so `%`, `_` and the escape character itself are matched literally on every supported dialect; the keyword still matches as a substring. The generated predicate carries an explicit `ESCAPE '~'` clause, because SQLite has no default LIKE escape character. A backslash in a keyword is an ordinary character.
+
+For keyword values passed as variadic args to `query.List` or `query.Get`, and for the pattern helpers (`StartsWithVal`, `ContainsVal`, `EndsWithVal` and their `Var` forms), the caller must escape `%` and `_` manually; those build the pattern from the value as given. Wildcard escaping is not SQL injection protection — that comes from parameter binding.
 
 ## 8. Execution helpers
 

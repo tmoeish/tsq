@@ -7,6 +7,12 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 项目遵循 [语义化版本控制](https://semver.org/lang/zh-CN/)。
 
+## [未发布]
+
+### 修复
+
+- **关键字搜索的通配符转义在 SQLite 上完全失效**: `PageRequest.Keyword` 一直会被转义，但渲染出来的谓词是裸 `LIKE ?`，而 SQLite 没有默认的 LIKE 转义字符——于是转义字符变成普通字符，搜 `a_b` 在 SQLite 上返回**零行**（MySQL / PostgreSQL 因为默认转义字符是反斜杠而侥幸正确）。现在谓词带显式 `ESCAPE '~'`，转义字符从反斜杠改成 `~`（MySQL 根本拼不出 `ESCAPE '\'`，反斜杠会转义掉字符串字面量的收尾引号）。副作用：关键字里的反斜杠现在在三个方言上都是普通字符，此前在 MySQL / PostgreSQL 上会被当成转义前缀。
+
 ## [4.7.0] - 2026-08-26
 
 ### 新增

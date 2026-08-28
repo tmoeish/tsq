@@ -163,7 +163,7 @@ func TestEscapeKeywordSearch(t *testing.T) {
 		name     string
 		input    string
 		expected string
-	}{{name: "empty string", input: "", expected: ""}, {name: "no special chars", input: "hello world", expected: "hello world"}, {name: "percent wildcard", input: "100%", expected: "100\\%"}, {name: "underscore wildcard", input: "user_name", expected: "user\\_name"}, {name: "both wildcards", input: "%value_", expected: "\\%value\\_"}, {name: "backslash", input: "path\\file", expected: "path\\\\file"}, {name: "backslash before percent", input: "100\\% cotton", expected: "100\\\\\\% cotton"}, {name: "real world example", input: "50% off_sale", expected: "50\\% off\\_sale"}}
+	}{{name: "empty string", input: "", expected: ""}, {name: "no special chars", input: "hello world", expected: "hello world"}, {name: "percent wildcard", input: "100%", expected: "100~%"}, {name: "underscore wildcard", input: "user_name", expected: "user~_name"}, {name: "both wildcards", input: "%value_", expected: "~%value~_"}, {name: "escape char itself", input: "a~b", expected: "a~~b"}, {name: "escape char before percent", input: "100~% cotton", expected: "100~~~% cotton"}, {name: "backslash is literal", input: "path\\file", expected: "path\\file"}, {name: "real world example", input: "50% off_sale", expected: "50~% off~_sale"}}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := escapeKeywordSearch(tt.input)

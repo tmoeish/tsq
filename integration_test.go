@@ -457,3 +457,76 @@ func TestIntegrationCapabilitiesExecute(t *testing.T) {
 		})
 	}
 }
+
+// TestIntegrationKeywordSearchEscapesWildcards runs keyword search against every
+// configured server. The escape clause the keyword path emits is fixed into the SQL
+// at Build time, so one spelling has to parse and behave identically on all three
+// dialects; only a real server can prove that. It is also the regression gate for
+// the SQLite half of the bug: SQLite has no default LIKE escape character, so
+// escaping the keyword without declaring the escape character matched nothing.
+func TestIntegrationKeywordSearchEscapesWildcards(t *testing.T) {
+	for _, target := range integrationTargets(t) {
+		t.Run(target.name, func(t *testing.T) {
+			ctx := context.Background()
+
+			dropAcademyTables(t, target)
+			rt, _ := openManaged(t, target, academy.TSQTables(), tsq.SchemaPolicyManaged)
+
+			seed := []*academy.Learner{
+				{Name: "a_b", Email: "a_b@example.test", Company: "Literal Underscore"},
+				{Name: "axb", Email: "axb@example.test", Company: "Wildcard Bait"},
+				{Name: "100%", Email: "pct@example.test", Company: "Literal Percent"},
+				{Name: "100x", Email: "pctx@example.test", Company: "Wildcard Bait"},
+				{Name: "c~d", Email: "tilde@example.test", Company: "Literal Escape Char"},
+			}
+			for _, learner := range seed {
+				if err := learner.Insert(ctx, rt); err != nil {
+					t.Fatalf("insert learner %q: %v", learner.Name, err)
+				}
+			}
+
+			for _, tc := range []struct {
+				keyword string
+				want    string
+			}{
+				{keyword: "a_b", want: "a_b"},
+				{keyword: "100%", want: "100%"},
+				{keyword: "c~d", want: "c~d"},
+			} {
+				resp, err := academy.QueryLearner.Page(ctx, rt, &tsq.PageRequest{
+					Page:    1,
+					Size:    10,
+					Keyword: tc.keyword,
+				})
+				if err != nil {
+					t.Fatalf("keyword %q on %s: %v", tc.keyword, target.name, err)
+				}
+
+				if resp.Total != 1 {
+					names := make([]string, 0, len(resp.Data))
+					for _, row := range resp.Data {
+						names = append(names, row.Name)
+					}
+
+					t.Fatalf("keyword %q on %s matched %d rows, want 1: %v",
+						tc.keyword, target.name, resp.Total, names)
+				}
+
+				if resp.Data[0].Name != tc.want {
+					t.Fatalf("keyword %q on %s matched %q, want %q",
+						tc.keyword, target.name, resp.Data[0].Name, tc.want)
+				}
+			}
+
+			// Escaping must not turn substring search into equality.
+			resp, err := academy.QueryLearner.Page(ctx, rt, &tsq.PageRequest{Page: 1, Size: 10, Keyword: "Wildcard"})
+			if err != nil {
+				t.Fatalf("substring keyword on %s: %v", target.name, err)
+			}
+
+			if resp.Total != 2 {
+				t.Fatalf("substring keyword on %s matched %d rows, want 2", target.name, resp.Total)
+			}
+		})
+	}
+}

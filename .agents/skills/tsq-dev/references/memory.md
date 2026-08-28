@@ -45,20 +45,34 @@
 
 ---
 
+## 2026-08-28 — 转义值和声明转义符是同一件事的两半，只做前一半是静默错误
+
+`escapeKeywordSearch` 从一开始就在转义 `%` / `_`，但渲染出来的谓词是裸 `LIKE ?`。
+**SQLite 没有默认的 LIKE 转义字符**，于是转义前缀变成普通字符，搜 `a_b` 在 SQLite 上
+返回零行；MySQL / PostgreSQL 默认转义字符恰好是反斜杠，所以只在这两个方言上侥幸正确——
+而单元测试只跑 SQLite，端到端的关键字用例一条都没有，`integration_test.go` 对关键字搜索
+同样零覆盖，所以两边都没发现。**一条固定进 SQL 文本的子句要三个方言都验**，两道门补上了。
+
+转义字符选 `~` 不选反斜杠，两个理由都是硬约束：**MySQL 根本拼不出 `ESCAPE '\'`**
+（反斜杠会转义掉字符串字面量的收尾引号，要写 `ESCAPE '\\'`），而三方言写法必须一致，
+因为这个子句是 `Build()` 期就固定进 SQL 文本的，那时还不知道会在哪个方言上执行。
+
+**引申**：任何"我们对值做了预处理"的功能，都要问一句"数据库怎么知道我们做了预处理"。
+只有值被改了而契约没被声明时，行为由各方言的默认值决定，而默认值本来就是不一样的。
+
+已知未处理：`StartsWithVal` / `ContainsVal` / `EndsWithVal` 及其 `Var` 形式仍然直接把
+调用方的字符串拼进 pattern，值里的 `%` / `_` 是活的通配符。这是**有意的**（文档写明由调用方
+转义），但和 `Keyword` 的行为不一致，容易踩。要改就是破坏性语义变更，得配一对
+`*Literal` 系列或一个开关，值得单独一波做。
+
 ## 2026-08-26 — 第三次了：只被自己的测试撑着的代码，在库里是不存在的
 
-一次审计同时抓到三处同一形状的东西：
-
-- `printSQL` context key 加 `printCost` / `printError` / `printSQLTracer`——全未导出，
-  唯一引用者是 `export_compat_test.go`。读路径里八处 `ctx.Value(printSQL)` 在发布出去的
-  库里**永远为假**，使用者也拼不出能设置它的 Tracer（key 未导出）。
-- `dialect_validation.go` 的 `validateOperationForDialect` 和 `canonicalDialectCapability`
-  ——后者是 `dialect/dialect.go` 里 `canonicalCapabilityName` 的逐行副本，前者在非测试
-  代码里零调用。真正的执行期校验一直走 `query_validation.go` 的类型化常量。
-- `export_compat_test.go` 本身：它在一个 `_test.go` 里定义了 `AddTracer` /
-  `ClearTracers` / `Trace1` 和一个包级 `var exportCompatRuntime = &Runtime{}`。
-  `AGENTS.md` 明令不许重新引入全局单例，而守着这条的 `api-check` 只看
-  `api-surface.txt`——`_test.go` 里的导出符号不进快照。**规则的门在哪，绕过它的路就在哪。**
+一次审计同时抓到三处同一形状的东西：未导出的 `printSQL` context key 加三个 tracer（读路径
+八处 `ctx.Value` 在发布出去的库里**永远为假**）；`dialect_validation.go` 里
+`canonicalCapabilityName` 的逐行副本加一个零调用入口；以及 `export_compat_test.go` 自己在
+`_test.go` 里定义了 `AddTracer` / `Trace1` 和一个包级 `Runtime` 单例——`AGENTS.md` 明令禁止
+的东西，而守着它的 `api-check` 只看 `api-surface.txt`，`_test.go` 的导出符号不进快照。
+**规则的门在哪，绕过它的路就在哪。**
 
 两条教训，都比"删掉了"值钱：
 
@@ -234,27 +248,16 @@ origin/main`**，两秒钟的事，省掉一次 rebase。
 
 ## 2026-08-21 — 把并发写入者的改动误判成了工具的 bug
 
-本会话一度断定"`make fmt` 里的 `go fix ./...` 会把仓库改到编译不过"，并据此从 `make fmt`
-里删掉了它。**这个结论是错的，已经改回来。**
+曾断定"`make fmt` 里的 `go fix` 会把树改到编译不过"并删掉它。**结论是错的，已改回来**：
+真相是另一个 claude 进程在同一个工作区里边跑边写文件，`go fix` 打印的编译错误是它**遇到**
+的，不是它造成的。在 HEAD 的干净副本里复现不出来。
 
-当时的症状很有说服力：树验证过 `BUILD OK` → 只跑 `make fmt` → `tx.go` 被改 → 编译失败
-`undefined: withTxRuntime1`，而 `go fix` 自己在输出里打印了这个错误。看起来是闭环。
-
-真相是同一时刻有**另一个 claude 进程在同一个工作区里**做泛型重构，边跑边写文件。`go fix`
-打印的那行是它**遇到**的编译错误——树已经被并发写入弄成不一致了——不是它造成的。事后在
-HEAD 的干净副本里重跑 `go fix ./...`：空操作，build 照常通过，复现不出来。
-
-留下三条：
-
-- **"我改了 A，然后 B 坏了"在有并发写入者时什么都不能证明。** 排查前先确认自己是不是唯一
-  的写入者：`ps aux | grep claude` 加 `lsof -p <pid> -a -d cwd`。本会话在错误的嫌疑人上
-  绕了很多圈，代价是我几次 `git checkout -- '*.go'` 丢掉了对方未提交的工作（它自己重写
-  回来了，没有实际损失，但那是运气）。
-- **验证要在副本里做。** `git archive HEAD | tar x` 到临时目录再跑可疑命令，既能复现又不会
-  被别人的编辑干扰，也不会误伤别人。
-- `make fmt` 末尾的 `go build ./...` 守卫留下了，它独立成立：这个目标里每一步（`go fix`、
-  `golangci-lint fmt`、`run --fix`）都在改写源码，格式化绝不该交回一棵编不过的树。没有
-  守卫的话，坏改写要等到 `make lint` 才暴露，而那时报的是离成因很远的 typecheck 错误。
+- **"我改了 A，然后 B 坏了"在有并发写入者时什么都不能证明。** 先确认自己是不是唯一写入者：
+  `ps aux | grep claude` 加 `lsof -p <pid> -a -d cwd`。当时几次 `git checkout -- '*.go'`
+  丢掉了对方未提交的工作。
+- **验证要在副本里做**：`git archive HEAD | tar x` 到临时目录再跑可疑命令。
+- `make fmt` 末尾的 `go build ./...` 守卫独立成立：这个目标每一步都在改写源码，格式化绝不该
+  交回一棵编不过的树。
 
 ## 2026-08-21 — 给 main 和 tag 加了 ruleset，发版随之改成 PR 流程
 
@@ -339,15 +342,11 @@ Go 链接器找不到 `-X` 指定的符号时不报错，直接忽略，于是 b
 
 `.goreleaser.yaml` 曾经犯的是同一类错误的另一面，已于 2026-08-21 修好，见下一条。
 
-## 2026-08-21 — 引入 harness 与 tsq-dev 技能
+## 2026-08-21 — 决定：两份技能按所有权拆开，不按篇幅
 
-两份技能分开的理由不是篇幅，是所有权：`skills/tsq` 描述契约，`.agents/skills/tsq-dev`
-描述实现。同一份文件同时服务两拨读者时，写给使用者的部分会因为开发者觉得"这个细节太
-内部"而被删掉，反过来也一样。
-
-`make skill-check` 的触发表不是形式主义。每条触发器都是从"哪类改动会让哪份文档变假"倒推
-出来的，`hint` 里写着理由。确实判断过不需要动技能时用 `SKIP_SKILL_CHECK=<触发器名>` 豁免，
-并在提交正文里写清楚——无理由的总开关不提供，因为那等于没有门。
+理由不是篇幅是所有权。同一份文件同时服务两拨读者时，写给使用者的部分会因为开发者觉得
+"这个细节太内部"而被删掉，反过来也一样。`skill-check` 的每条触发器都是从"哪类改动会让哪份
+文档变假"倒推出来的，`hint` 里写着理由。
 
 ## 2026-08-21 — 生成物是否同步不能用 `git diff` 判断
 
