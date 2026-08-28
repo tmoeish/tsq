@@ -459,13 +459,11 @@ func (r *Runtime) loadManagedTableRegistry(ctx context.Context) ([]string, error
 		return nil, err
 	}
 
-	query := fmt.Sprintf("SELECT %s FROM %s WHERE %s = %s ORDER BY %s",
-		r.dialect.QuoteField(managedTablesRegistryTable),
-		r.dialect.QuoteField(managedTablesRegistryName),
-		r.dialect.QuoteField(managedTablesRegistryOwner),
-		r.dialect.BindVar(0),
-		r.dialect.QuoteField(managedTablesRegistryTable),
-	)
+	query := "SELECT " + r.dialect.QuoteField(managedTablesRegistryTable) +
+		" FROM " + r.dialect.QuoteField(managedTablesRegistryName) +
+		" WHERE " + r.dialect.QuoteField(managedTablesRegistryOwner) +
+		" = " + r.dialect.BindVar(0) +
+		" ORDER BY " + r.dialect.QuoteField(managedTablesRegistryTable)
 
 	rows, err := r.db.QueryContext(ctx, query, r.schemaOwner)
 	if err != nil {
@@ -501,11 +499,9 @@ func (r *Runtime) saveManagedTableRegistry(ctx context.Context, names []string) 
 	// Only this owner's rows are replaced. Deleting the whole table, as tsq used to,
 	// erased the bookkeeping of every other runtime sharing the database, which is
 	// what made them drop each other's tables on the next start.
-	deleteStatement := fmt.Sprintf("DELETE FROM %s WHERE %s = %s",
-		r.dialect.QuoteField(managedTablesRegistryName),
-		r.dialect.QuoteField(managedTablesRegistryOwner),
-		r.dialect.BindVar(0),
-	)
+	deleteStatement := "DELETE FROM " + r.dialect.QuoteField(managedTablesRegistryName) +
+		" WHERE " + r.dialect.QuoteField(managedTablesRegistryOwner) +
+		" = " + r.dialect.BindVar(0)
 	if _, err := r.db.ExecContext(ctx, deleteStatement, r.schemaOwner); err != nil {
 		return err
 	}
@@ -519,14 +515,10 @@ func (r *Runtime) saveManagedTableRegistry(ctx context.Context, names []string) 
 		}
 		seen[name] = struct{}{}
 
-		insertStatement := fmt.Sprintf(
-			"INSERT INTO %s (%s, %s) VALUES (%s, %s)",
-			r.dialect.QuoteField(managedTablesRegistryName),
-			r.dialect.QuoteField(managedTablesRegistryOwner),
-			r.dialect.QuoteField(managedTablesRegistryTable),
-			r.dialect.BindVar(0),
-			r.dialect.BindVar(1),
-		)
+		insertStatement := "INSERT INTO " + r.dialect.QuoteField(managedTablesRegistryName) +
+			" (" + r.dialect.QuoteField(managedTablesRegistryOwner) + ", " +
+			r.dialect.QuoteField(managedTablesRegistryTable) + ") VALUES (" +
+			r.dialect.BindVar(0) + ", " + r.dialect.BindVar(1) + ")"
 		if _, err := r.db.ExecContext(ctx, insertStatement, r.schemaOwner, name); err != nil {
 			return err
 		}
@@ -608,14 +600,10 @@ func (r *Runtime) migrateManagedTableRegistry(ctx context.Context) error {
 	}
 
 	for _, name := range legacyNames {
-		insertStatement := fmt.Sprintf(
-			"INSERT INTO %s (%s, %s) VALUES (%s, %s)",
-			r.dialect.QuoteField(managedTablesRegistryName),
-			r.dialect.QuoteField(managedTablesRegistryOwner),
-			r.dialect.QuoteField(managedTablesRegistryTable),
-			r.dialect.BindVar(0),
-			r.dialect.BindVar(1),
-		)
+		insertStatement := "INSERT INTO " + r.dialect.QuoteField(managedTablesRegistryName) +
+			" (" + r.dialect.QuoteField(managedTablesRegistryOwner) + ", " +
+			r.dialect.QuoteField(managedTablesRegistryTable) + ") VALUES (" +
+			r.dialect.BindVar(0) + ", " + r.dialect.BindVar(1) + ")"
 		if _, err := r.db.ExecContext(ctx, insertStatement, defaultSchemaOwner, name); err != nil {
 			return err
 		}
@@ -625,10 +613,8 @@ func (r *Runtime) migrateManagedTableRegistry(ctx context.Context) error {
 }
 
 func (r *Runtime) loadLegacyManagedTableNames(ctx context.Context) ([]string, error) {
-	query := fmt.Sprintf("SELECT %s FROM %s",
-		r.dialect.QuoteField(managedTablesRegistryTable),
-		r.dialect.QuoteField(managedTablesRegistryName),
-	)
+	query := "SELECT " + r.dialect.QuoteField(managedTablesRegistryTable) +
+		" FROM " + r.dialect.QuoteField(managedTablesRegistryName)
 
 	rows, err := r.db.QueryContext(ctx, query)
 	if err != nil {
