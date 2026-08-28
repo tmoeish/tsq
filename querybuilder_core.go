@@ -141,6 +141,14 @@ func (qb *compoundQueryBuilder[O]) core() *queryBuilderCore[O] {
 	return qb.queryBuilderCore
 }
 
+func (qb *pagedQueryBuilder[O]) core() *queryBuilderCore[O] {
+	if qb == nil {
+		panic(errQueryBuilderNil)
+	}
+
+	return qb.queryBuilderCore
+}
+
 func (qb *lockedQueryBuilder[O]) core() *queryBuilderCore[O] {
 	if qb == nil {
 		panic(errQueryBuilderNil)
@@ -381,6 +389,7 @@ func (core *queryBuilderCore[O]) isComplete() bool {
 		builderPhaseFiltered,
 		builderPhaseGrouped,
 		builderPhaseHaving,
+		builderPhasePaged,
 		builderPhaseLocked,
 		builderPhaseCompound:
 		return true
@@ -442,6 +451,83 @@ func (core *queryBuilderCore[O]) appendSetOperation(op setOperationType, other Q
 		spec: cloneQuerySpec(otherCore.spec),
 	})
 	core.phase = builderPhaseCompound
+}
+
+// setOrderBy records ORDER BY terms. Like Where and Search it replaces rather than
+// appends, so the stage can only be entered once per chain.
+func (core *queryBuilderCore[O]) setOrderBy(orders ...OrderBy) {
+	if core.buildErr != nil {
+		return
+	}
+
+	if !core.isComplete() {
+		core.failTransition("OrderBy()")
+		return
+	}
+
+	if len(orders) == 0 {
+		core.setBuildError(errors.New("order by requires at least one column"))
+		return
+	}
+
+	terms := make([]OrderBy, 0, len(orders))
+
+	for _, order := range orders {
+		if _, err := validateColumnInput(order.field); err != nil {
+			core.setBuildError(err)
+			return
+		}
+
+		switch order.order {
+		case ASC, DESC:
+		default:
+			core.setBuildError(fmt.Errorf("invalid order direction %q; use Asc() or Desc()", order.order))
+			return
+		}
+
+		terms = append(terms, order)
+	}
+
+	core.spec.OrderBys = terms
+	core.phase = builderPhasePaged
+}
+
+func (core *queryBuilderCore[O]) setLimit(limit int) {
+	if core.buildErr != nil {
+		return
+	}
+
+	if !core.isComplete() {
+		core.failTransition("Limit()")
+		return
+	}
+
+	if limit < 0 {
+		core.setBuildError(fmt.Errorf("invalid limit: %d", limit))
+		return
+	}
+
+	core.spec.Limit = &limit
+	core.phase = builderPhasePaged
+}
+
+func (core *queryBuilderCore[O]) setOffset(offset int) {
+	if core.buildErr != nil {
+		return
+	}
+
+	if !core.isComplete() {
+		core.failTransition("Offset()")
+		return
+	}
+
+	if offset < 0 {
+		core.setBuildError(fmt.Errorf("invalid offset: %d", offset))
+		return
+	}
+
+	core.spec.Offset = &offset
+	core.phase = builderPhasePaged
 }
 
 func (core *queryBuilderCore[O]) setLockStrength(strength queryLockStrength) {
@@ -512,6 +598,8 @@ func buildQuery[O Owner](core *queryBuilderCore[O]) (*Query[O], error) {
 		kwCols:       cloneSearchColumns(core.spec.KeywordSearch),
 		kwTables:     core.spec.keywordTables(),
 		hasSetOps:    len(core.spec.SetOps) > 0,
+		hasOrderBy:   len(core.spec.OrderBys) > 0,
+		hasLimit:     core.spec.Limit != nil || core.spec.Offset != nil,
 	}, nil
 }
 

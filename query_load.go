@@ -318,6 +318,20 @@ func (q *Query[O]) buildPageSQLsWithLimit(page *PageRequest, maxSize int) (strin
 
 	page = normalizePageReqWithLimit(page, maxSize)
 
+	// Page owns paging: it appends its own LIMIT/OFFSET and, when PageRequest.OrderBy
+	// is set, its own ORDER BY. A builder-level clause would be emitted a second time
+	// rather than replaced, producing SQL no dialect parses, so the conflict is an
+	// error instead of a silent guess about which one the caller meant.
+	if q.hasLimit {
+		return "", "", errors.New(
+			"query already sets Limit/Offset; Page controls paging, so drop them from the builder")
+	}
+
+	if q.hasOrderBy && len(page.OrderBy) != 0 {
+		return "", "", errors.New(
+			"query already sets OrderBy; either drop it from the builder or leave PageRequest.OrderBy empty")
+	}
+
 	var cntQuery, listQuery string
 	if len(q.kwCols) > 0 && len(page.Keyword) > 0 {
 		cntQuery = q.kwCntSQL

@@ -460,17 +460,38 @@ Typical stages include:
 
 - `Select(...)`
 - `From(...)`
-- `Join(...)`
+- `Join(...)` / `LeftJoin(...)` / `InnerJoin(...)` / `RightJoin(...)` / `FullJoin(...)` / `CrossJoin(...)`
 - `Where(...)`
 - `Search(...)`
 - `GroupBy(...)`
 - `Having(...)`
-- `OrderBy(...)`
-- `Limit(...)`
-- `Offset(...)`
+- `OrderBy(...)` / `Limit(...)` / `Offset(...)`
+- `ForUpdate()` / `ForShare()`, optionally followed by `NoWait()` / `SkipLocked()`
 - `Build()`
 
 Builder state can branch safely, but the main reusable object is the built query.
+
+### Ordering and slicing
+
+`OrderBy` takes terms built from typed columns with `Asc()` / `Desc()`:
+
+```go
+query, err := tsq.
+	Select(database.User__Cols...).
+	From(database.TableUser).
+	OrderBy(database.User_Name.Asc(), database.User_ID.Desc()).
+	Limit(20).
+	Offset(40).
+	Build()
+```
+
+Rules:
+
+- `OrderBy` / `Limit` / `Offset` are reachable from every complete stage (after `Where`, `Search`, `GroupBy`, `Having`, or a set operation). Only `ForUpdate()` / `ForShare()` may follow them, matching SQL clause order
+- `Offset` requires `Limit`. A bare `OFFSET` is a syntax error on MySQL and SQLite, so `Build()` rejects it rather than letting it fail on two dialects out of three
+- the ordered column must belong to a table the query already selects from or joins
+- the count query ignores `ORDER BY` / `LIMIT` / `OFFSET`: `Count()` reports how many rows match, which a limit does not change
+- **do not combine builder-level paging with `query.Page(...)`**. `Page` appends its own `LIMIT`/`OFFSET`, and its own `ORDER BY` when `PageRequest.OrderBy` is set, so a builder-level clause would be emitted a second time rather than replaced. `Page` returns an error instead of guessing. A builder `OrderBy` combined with an empty `PageRequest.OrderBy` is fine: the builder's ordering stands and `Page` only adds the window
 
 ## 6. Common condition and expression patterns
 

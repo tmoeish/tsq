@@ -41,6 +41,19 @@ func (spec querySpec[O]) validateSetOperations() error {
 	return nil
 }
 
+// validatePaging rejects paging shapes no supported dialect accepts.
+func (spec querySpec[O]) validatePaging() error {
+	// MySQL and SQLite both reject OFFSET without a preceding LIMIT, and PostgreSQL
+	// accepts it, so allowing it would produce a query that runs on one dialect and is
+	// a syntax error on the others. Build() is where that asymmetry is cheapest to
+	// catch: the alternative is a database error at execution time on two of three.
+	if spec.Offset != nil && spec.Limit == nil {
+		return errors.New("Offset requires Limit: a bare OFFSET is a syntax error on mysql and sqlite")
+	}
+
+	return nil
+}
+
 // validateJoinGraph validates that joins form a valid directed acyclic graph (DAG).
 func (spec querySpec[O]) validateJoinGraph() error {
 	if err := validateTableInput(spec.From, "from table"); err != nil {

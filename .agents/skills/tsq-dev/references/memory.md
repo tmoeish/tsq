@@ -45,6 +45,22 @@
 
 ---
 
+## 2026-08-28 — 文档描述了一个不存在的阶段，而两侧的门都看不见它
+
+`skills/tsq` 从很早就写着 `OrderBy(...)` / `Limit(...)` / `Offset(...)` 是查询阶段，还给了
+可复制的示例。**构建器上从来没有过这三个方法**：`List()` / `Get()` 无法排序，排序的唯一入口
+是 `Page()` 里基于字符串的 `PageRequest.OrderBy`；而导出的 `OrderBy` 类型加 `Asc()` / `Desc()`
+是一组**零消费方的死 API**（`unused` linter 看不见导出符号）。
+
+两侧的门各差一步，缺口正好在中间：`api-check` 只比对符号快照，`OrderBy` 类型确实在快照里；
+`doc-check` 只把文档里的 `tsq.X` 对照快照，而 `.OrderBy(` 是方法调用，不匹配那个模式。
+**"文档提到的每个符号都存在"不等于"文档描述的每个用法都成立"**，方法调用是这两者之间的盲区。
+
+修的是实现而不是文档：一个 SQL 构建器不能排序是功能缺失，不是文档错误。顺带救活了那组死 API。
+
+`Page()` 与构建器级分页的冲突选择**报错而不是覆盖**：`Page` 是追加自己的子句，不是替换，
+两个 ORDER BY 拼出来的 SQL 在任何方言上都不合法；而"猜调用方想要哪个"比说不清更糟。
+
 ## 2026-08-28 — "最紧的那个上限"是个断言，不是常识，要去量
 
 分块的参数上限写死 65535，注释称它是"支持的数据库里最紧的"。**不是**：SQLite 的
@@ -116,17 +132,12 @@
 
 ## 2026-08-26 — 写在 AGENTS.md 里但没有门的规则，几个月都是假的
 
-`AGENTS.md` 要求 "README、`docs/`、`skills/tsq` 用英文"。实测：README.md 422 行里 150 行
-含中文，`docs/concepts.md` 261/103，`docs/quickstart.md` 209/63。**只有 `skills/tsq` 是
-对的。** 这条规则从写下那天起就没成立过，而 `make doc-check` 当时只检查 make 目标和
-`tsq.X` 符号引用，扫不到 Markdown 的语言。
+`AGENTS.md` 要求 "README、`docs/`、`skills/tsq` 用英文"，而实测只有 `skills/tsq` 是对的——
+这条规则从写下那天起就没成立过，`doc-check` 当时扫不到 Markdown 的语言。
 
-选择是改规则而不是翻译九百行：分界线按**读者**划才站得住——`skills/tsq` 被
-`gh skill install` 装进别人的项目、Go doc 上 pkg.go.dev，读者是全世界；README 和 `docs/`
-的读者是这个项目的人。然后给英文那一侧加了 `check_shipped_skill_language`。
-
-**留下的不是这次怎么改的，是判据：写规则的时候就问"谁来发现它被违反了"。** 答不出来
-的规则不要写进 `AGENTS.md`，写进去只会让下一个读到它的人相信一件假事。
+选择是改规则而不是翻译九百行：分界线按**读者**划才站得住，然后给英文那一侧加了门。
+**留下的是判据：写规则的时候就问"谁来发现它被违反了"。** 答不出来的规则不要写进
+`AGENTS.md`，写进去只会让下一个读到它的人相信一件假事。
 
 ## 2026-08-26 — 同一个 SQLSTATE 在三个驱动里是三个 Go 类型
 
@@ -323,25 +334,13 @@ Go 链接器找不到 `-X` 指定的符号时不报错，直接忽略，于是 b
 
 ## 2026-08-21 — 生成器不能带 `git describe` 的版本号，否则发版是死锁
 
-`make examples` 原本用 `make build` 产出的 `bin/tsq`，而 `build` 会用
-`-ldflags -X ...buildinfo.version=$(git describe --tags --always --dirty)` 注入版本号。
-于是**生成文件头记的是 git 描述出来的版本，不是即将发布的版本**。
+生成器曾用带 `-X ...version=$(git describe)` 的 `bin/tsq`，于是**生成文件头记的是 git 描述
+出来的版本，不是即将发布的版本**。第一次真跑 `make release` 就死锁：想让头部写对得先打 tag，
+想打 tag 得先过 `release-check`。
 
-这在第一次真跑 `make release` 时立刻炸了：脚本把 buildinfo 改成 v4.4.2、跑
-`make examples`，生成物头部却还是 v4.4.1——因为 v4.4.2 这个 tag 那一刻还不存在，
-`git describe` 只能描述出上一个 tag。想让头部写对就得先打 tag，想打 tag 就得先过
-`release-check`，死锁。
-
-修法是 `make build-gen`：**故意不带 `$(LDFLAGS)`** 地编一个 `bin/tsq-gen`，它报告
-`internal/buildinfo` 里的字面量。`make examples` 和 `make gen-check` 都用它。附带的好处
-是生成结果只依赖源码，不再依赖工作区干不干净——在此之前，同一份源码在脏工作区和干净
-检出上会生成出不同的文件头，而 CI 的 "ensure generated examples are committed" 一直是靠
-运气才绿的。
-
-`bin/tsq`（带 ldflags）仍然是给人用的 CLI，`tsq version` 该报告 git 状态。两个二进制的
-分工不要合并。
-
-`.goreleaser.yaml` 曾经犯的是同一类错误的另一面，已于 2026-08-21 修好，见下一条。
+修法是 `make build-gen`：**故意不带 `$(LDFLAGS)`** 地编 `bin/tsq-gen`，它报告
+`internal/buildinfo` 的字面量。附带好处是生成结果只依赖源码，不再依赖工作区干不干净。
+`bin/tsq`（带 ldflags）仍是给人用的 CLI，两个二进制的分工不要合并。
 
 ## 2026-08-21 — 决定：两份技能按所有权拆开，不按篇幅
 

@@ -18,7 +18,10 @@ func (spec querySpec[O]) buildListSQL() (string, []any, error) {
 	bodySQL, bodyArgs := spec.buildListBodySQL(false)
 	args := append(slices.Clone(cteArgs), bodyArgs...)
 
-	return appendQueryLockClause(cteSQL+bodySQL, spec.Lock), args, nil
+	tailSQL, tailArgs := spec.buildQueryTail()
+	args = append(args, tailArgs...)
+
+	return appendQueryLockClause(cteSQL+bodySQL+tailSQL, spec.Lock), args, nil
 }
 
 func (spec querySpec[O]) buildSimpleListSQL(useKeyword bool) (string, []any) {
@@ -72,7 +75,10 @@ func (spec querySpec[O]) buildKwListSQL() (string, []any, error) {
 	bodySQL, bodyArgs := spec.buildListBodySQL(true)
 	args := append(slices.Clone(cteArgs), bodyArgs...)
 
-	return appendQueryLockClause(cteSQL+bodySQL, spec.Lock), args, nil
+	tailSQL, tailArgs := spec.buildQueryTail()
+	args = append(args, tailArgs...)
+
+	return appendQueryLockClause(cteSQL+bodySQL+tailSQL, spec.Lock), args, nil
 }
 
 func (spec querySpec[O]) buildListBodySQL(useKeyword bool) (string, []any) {
@@ -319,6 +325,9 @@ func cloneQuerySpec[O Owner](spec querySpec[O]) querySpec[O] {
 		Joins:         slices.Clone(spec.Joins),
 		GroupBy:       slices.Clone(spec.GroupBy),
 		Having:        slices.Clone(spec.Having),
+		OrderBys:      slices.Clone(spec.OrderBys),
+		Limit:         cloneIntPointer(spec.Limit),
+		Offset:        cloneIntPointer(spec.Offset),
 		Lock:          spec.Lock,
 		SetOps:        make([]setOperation[O], 0, len(spec.SetOps)),
 	}
@@ -331,6 +340,63 @@ func cloneQuerySpec[O Owner](spec querySpec[O]) querySpec[O] {
 	}
 
 	return cloned
+}
+
+// buildQueryTail renders ORDER BY, LIMIT and OFFSET.
+//
+// It is deliberately not part of buildListBodySQL: the body is also used as a set
+// operation operand and as a CTE body, and ORDER BY / LIMIT there would bind to the
+// operand rather than to the whole query. The tail is appended once, around the
+// finished body, and still before the row-lock clause, which SQL puts last.
+//
+// The count query never carries the tail. Count reports how many rows match, which a
+// LIMIT does not change, and ORDER BY in a counted subquery is pointless work.
+func (spec querySpec[O]) buildQueryTail() (string, []any) {
+	var (
+		builder strings.Builder
+		args    []any
+	)
+
+	if len(spec.OrderBys) > 0 {
+		terms := make([]string, 0, len(spec.OrderBys))
+
+		for _, order := range spec.OrderBys {
+			terms = append(terms, rawColumnQualifiedName(order.field)+" "+string(order.order))
+			args = append(args, expressionArgs(order.field)...)
+		}
+
+		builder.WriteString(" ORDER BY ")
+		builder.WriteString(strings.Join(terms, ", "))
+	}
+
+	// LIMIT is bound rather than inlined so the value travels the same path as every
+	// other argument and the dialect rewrites its placeholder like any other.
+	if spec.Limit != nil {
+		builder.WriteString(" LIMIT ?")
+
+		args = append(args, *spec.Limit)
+	}
+
+	if spec.Offset != nil {
+		// Every supported dialect requires a LIMIT before OFFSET; a bare OFFSET is a
+		// syntax error on MySQL and SQLite. Build() rejects that combination, so
+		// reaching here without a limit is not possible.
+		builder.WriteString(" OFFSET ?")
+
+		args = append(args, *spec.Offset)
+	}
+
+	return builder.String(), args
+}
+
+func cloneIntPointer(value *int) *int {
+	if value == nil {
+		return nil
+	}
+
+	cloned := *value
+
+	return &cloned
 }
 
 func appendQueryLockClause(sql string, lock queryLock) string {
