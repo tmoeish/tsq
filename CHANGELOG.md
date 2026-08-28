@@ -18,6 +18,12 @@
 - **关键字搜索的通配符转义在 SQLite 上完全失效**: `PageRequest.Keyword` 一直会被转义，但渲染出来的谓词是裸 `LIKE ?`，而 SQLite 没有默认的 LIKE 转义字符——于是转义字符变成普通字符，搜 `a_b` 在 SQLite 上返回**零行**（MySQL / PostgreSQL 因为默认转义字符是反斜杠而侥幸正确）。现在谓词带显式 `ESCAPE '~'`，转义字符从反斜杠改成 `~`（MySQL 根本拼不出 `ESCAPE '\'`，反斜杠会转义掉字符串字面量的收尾引号）。副作用：关键字里的反斜杠现在在三个方言上都是普通字符，此前在 MySQL / PostgreSQL 上会被当成转义前缀。
 - **分块用的参数上限对 SQLite 是错的，UPDATE 的估算还少了一半**: 上限此前是写死的 65535，注释称它是"支持的数据库里最紧的"——不是：**SQLite 是 32766**，于是 33 列以上的表按默认 `ChunkSize` 批量插入会被 SQLite 直接拒绝（`too many SQL variables`），而 SQLite 恰好是单元测试唯一跑的数据库。另外每行参数数按"每列一个"估算，只对 INSERT 成立：批量 UPDATE 渲染成 `col = CASE pk WHEN ? THEN ? ... END`，**每列每行绑两个**，宽表的 UPDATE 即使在正确的上限下也会超。现在上限按方言查表（`dialect.MaxBindParams`，方言未知时取最紧的那个），每行参数数按操作分别估算。
 
+## [未发布]
+
+### 新增
+
+- **查询构建器补上 `OrderBy` / `Limit` / `Offset`**: 此前构建器**根本没有**这三个阶段——排序的唯一入口是 `Page()` 里基于字符串的 `PageRequest.OrderBy`，`List()` / `Get()` 无法排序也无法限量，而导出的 `OrderBy` 类型和 `Column.Asc()` / `Desc()` 是一组**零消费方的死 API**。随发布的 `skills/tsq` 却一直把这三个阶段写在文档里，照着抄的使用者编译不过。现在它们从任何一个完整阶段都可达，只有 `ForUpdate()` / `ForShare()` 能跟在后面（与 SQL 的子句顺序一致）。`Offset` 必须配 `Limit`（裸 OFFSET 在 MySQL 和 SQLite 上是语法错误，`Build()` 直接拒绝）；`Count()` 忽略这三个子句；构建器级分页与 `query.Page(...)` 冲突时返回错误而不是拼出两个 ORDER BY。
+
 ## [4.7.0] - 2026-08-26
 
 ### 新增

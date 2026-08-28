@@ -27,6 +27,19 @@
   是阶段转移的清单。新增阶段两边都要加。
 - `querybuilder_multi_call_test.go` 覆盖 `Where` / `Search` 只能各调一次这条约束。
 - `builderPhase` 只影响错误信息，不是约束来源——别把类型约束改成运行期 if。
+- 新阶段要问"它能从哪些阶段进入"：SQL 允许在过滤、分组、集合操作之后出现的子句，就得在
+  **每一个**完整阶段上都可达，否则调用方得为了排序重排整条链。`PagedStage` 是这么加的。
+- **渲染位置**：查询体（`buildListBodySQL`）会被复用为集合操作的操作数和 CTE 体，所以
+  ORDER BY / LIMIT 这类作用于整个查询的子句必须在体**之外**拼（`buildQueryTail`），
+  又必须在行锁**之前**——SQL 把锁放最后。
+
+## 改了 `Page()` 或构建器级分页
+
+`Page()` 是**追加**自己的 `ORDER BY` / `LIMIT` / `OFFSET`，不是替换。所以构建器级分页和
+`Page()` 同时存在时会拼出两个 ORDER BY——在任何方言上都不合法。这条冲突由
+`Query.hasOrderBy` / `hasLimit` 在 `buildPageSQLsWithLimit` 里显式报错挡着，
+**不要改成"后者覆盖前者"**：猜调用方想要哪个比说不清更糟。
+`querybuilder_paging_test.go` 的 `TestPageRefusesToFightBuilderPaging` 是那道门。
 
 ## 改了 SQL 渲染或参数绑定
 

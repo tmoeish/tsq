@@ -126,6 +126,8 @@ type Query[O Owner] struct {
 	kwCols       []SearchColumn   // columns participating in keyword search
 	kwTables     map[string]Table
 	hasSetOps    bool // whether set operations (UNION etc.) are present; affects alias handling
+	hasOrderBy   bool // whether the builder attached an ORDER BY; Page must not add a second one
+	hasLimit     bool // whether the builder attached LIMIT/OFFSET; Page owns paging and refuses to fight it
 }
 
 type (

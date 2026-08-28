@@ -13,6 +13,9 @@ type querySpec[O Owner] struct {
 	Joins         []join            // Joins stores JOIN clauses in declaration order.
 	GroupBy       []SQLColumn       // GroupBy stores GROUP BY expressions.
 	Having        []Condition       // Having stores HAVING predicates.
+	OrderBys      []OrderBy         // OrderBys stores ORDER BY terms in declaration order.
+	Limit         *int              // Limit stores the optional LIMIT; nil means no limit.
+	Offset        *int              // Offset stores the optional OFFSET; nil means no offset.
 	Lock          queryLock         // Lock stores the optional row-lock clause.
 	SetOps        []setOperation[O] // SetOps stores UNION/INTERSECT/EXCEPT operations appended to the query.
 }
@@ -38,6 +41,10 @@ func buildQueryPlan[O Owner](spec querySpec[O]) (*queryPlan, error) {
 	}
 
 	if err := spec.validateSetOperations(); err != nil {
+		return nil, err
+	}
+
+	if err := spec.validatePaging(); err != nil {
 		return nil, err
 	}
 

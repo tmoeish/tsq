@@ -37,6 +37,15 @@ func (spec querySpec[O]) joinTables() map[string]Table {
 	return tables
 }
 
+func (spec querySpec[O]) orderTables() map[string]Table {
+	cols := make([]SQLColumn, 0, len(spec.OrderBys))
+	for _, order := range spec.OrderBys {
+		cols = append(cols, order.field)
+	}
+
+	return spec.tablesForColumns(cols)
+}
+
 func (spec querySpec[O]) keywordTables() map[string]Table {
 	cols := make([]SQLColumn, 0, len(spec.KeywordSearch))
 	for _, col := range spec.KeywordSearch {
@@ -53,6 +62,7 @@ func (spec querySpec[O]) listQueryTables() map[string]Table {
 	maps.Copy(tables, spec.joinTables())
 	maps.Copy(tables, spec.tablesForColumns(spec.GroupBy))
 	maps.Copy(tables, spec.tablesForConditions(spec.Having))
+	maps.Copy(tables, spec.orderTables())
 
 	return tables
 }

@@ -194,6 +194,9 @@ type Column[O Owner, T any] interface {
 func NewCol[O Table, T any](baseName, jsonFieldName string, fieldPointer func(*O) *T) Column[O, T]
 type CompoundStage[O Owner] interface {
 	QueryStage[O]
+	OrderBy(orders ...OrderBy) PagedStage[O]
+	Limit(limit int) PagedStage[O]
+	Offset(offset int) PagedStage[O]
 	ForUpdate() LockedStage[O]
 	ForShare() LockedStage[O]
 	Union(other QueryStage[O]) CompoundStage[O]
@@ -246,6 +249,9 @@ func BindSlice(values any) Expression
 type FilteredStage[O Owner] interface {
 	QueryStage[O]
 	GroupBy(cols ...SQLColumn) GroupedStage[O]
+	OrderBy(orders ...OrderBy) PagedStage[O]
+	Limit(limit int) PagedStage[O]
+	Offset(offset int) PagedStage[O]
 	ForUpdate() LockedStage[O]
 	ForShare() LockedStage[O]
 	Union(other QueryStage[O]) CompoundStage[O]
@@ -262,6 +268,9 @@ func From[O Owner](table Table) FromStage[O]
 type GroupedStage[O Owner] interface {
 	QueryStage[O]
 	Having(conds ...Condition) HavingStage[O]
+	OrderBy(orders ...OrderBy) PagedStage[O]
+	Limit(limit int) PagedStage[O]
+	Offset(offset int) PagedStage[O]
 	ForUpdate() LockedStage[O]
 	ForShare() LockedStage[O]
 	Union(other QueryStage[O]) CompoundStage[O]
@@ -273,6 +282,9 @@ type GroupedStage[O Owner] interface {
 }
 type HavingStage[O Owner] interface {
 	QueryStage[O]
+	OrderBy(orders ...OrderBy) PagedStage[O]
+	Limit(limit int) PagedStage[O]
+	Offset(offset int) PagedStage[O]
 	ForUpdate() LockedStage[O]
 	ForShare() LockedStage[O]
 	Union(other QueryStage[O]) CompoundStage[O]
@@ -337,6 +349,14 @@ func NewPageResponse[T any](r *PageRequest, total int64, data []*T) *PageRespons
 func (r *PageResponse[T]) HasNext() bool
 func (r *PageResponse[T]) HasPrev() bool
 func (r *PageResponse[T]) IsEmpty() bool
+type PagedStage[O Owner] interface {
+	QueryStage[O]
+	OrderBy(orders ...OrderBy) PagedStage[O]
+	Limit(limit int) PagedStage[O]
+	Offset(offset int) PagedStage[O]
+	ForUpdate() LockedStage[O]
+	ForShare() LockedStage[O]
+}
 type Query[O Owner] struct {
 }
 func (q *Query[O]) AsSubquery[T any](selected TypedColumn[O, T]) (Subquery[T], error)
@@ -515,6 +535,9 @@ type SearchStage[O Owner] interface {
 	QueryStage[O]
 	Where(conds ...Condition) FilteredStage[O]
 	GroupBy(cols ...SQLColumn) GroupedStage[O]
+	OrderBy(orders ...OrderBy) PagedStage[O]
+	Limit(limit int) PagedStage[O]
+	Offset(offset int) PagedStage[O]
 	ForUpdate() LockedStage[O]
 	ForShare() LockedStage[O]
 	Union(other QueryStage[O]) CompoundStage[O]
@@ -580,6 +603,9 @@ type WhereStage[O Owner] interface {
 	QueryStage[O]
 	Search(cols ...SearchColumn) FilteredStage[O]
 	GroupBy(cols ...SQLColumn) GroupedStage[O]
+	OrderBy(orders ...OrderBy) PagedStage[O]
+	Limit(limit int) PagedStage[O]
+	Offset(offset int) PagedStage[O]
 	ForUpdate() LockedStage[O]
 	ForShare() LockedStage[O]
 	Union(other QueryStage[O]) CompoundStage[O]

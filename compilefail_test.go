@@ -419,6 +419,43 @@ var _ = tsq.Select[userOwner](userID).
 			want: "Where undefined",
 		},
 		{
+			name: "paged_stage_rejects_where",
+			body: `
+var _ = tsq.Select[userOwner](userID).
+	From(userOwner{}).
+	OrderBy(userID.Asc()).
+	Where(userID.EQVal(1))
+`,
+			want: "Where undefined",
+		},
+		{
+			name: "paged_stage_rejects_group_by",
+			body: `
+var _ = tsq.Select[userOwner](userID).
+	From(userOwner{}).
+	Limit(10).
+	GroupBy(userID)
+`,
+			want: "GroupBy undefined",
+		},
+		{
+			name: "select_stage_rejects_order_by",
+			body: `
+var _ = tsq.Select[userOwner](userID).OrderBy(userID.Asc())
+`,
+			want: "OrderBy undefined",
+		},
+		{
+			name: "locked_stage_rejects_limit",
+			body: `
+var _ = tsq.Select[userOwner](userID).
+	From(userOwner{}).
+	ForUpdate().
+	Limit(10)
+`,
+			want: "Limit undefined",
+		},
+		{
 			name: "locked_stage_rejects_where",
 			body: `
 var _ = tsq.Select[userOwner](userID).

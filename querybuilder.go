@@ -70,6 +70,7 @@ const (
 	builderPhaseFiltered   builderPhase = "query-with-filters"
 	builderPhaseGrouped    builderPhase = "grouped-query"
 	builderPhaseHaving     builderPhase = "query-with-having"
+	builderPhasePaged      builderPhase = "ordered-query"
 	builderPhaseLocked     builderPhase = "query-with-lock"
 	builderPhaseCompound   builderPhase = "compound-query"
 )
@@ -106,6 +107,9 @@ type WhereStage[O Owner] interface {
 	QueryStage[O]
 	Search(cols ...SearchColumn) FilteredStage[O]
 	GroupBy(cols ...SQLColumn) GroupedStage[O]
+	OrderBy(orders ...OrderBy) PagedStage[O]
+	Limit(limit int) PagedStage[O]
+	Offset(offset int) PagedStage[O]
 	ForUpdate() LockedStage[O]
 	ForShare() LockedStage[O]
 	Union(other QueryStage[O]) CompoundStage[O]
@@ -121,6 +125,9 @@ type SearchStage[O Owner] interface {
 	QueryStage[O]
 	Where(conds ...Condition) FilteredStage[O]
 	GroupBy(cols ...SQLColumn) GroupedStage[O]
+	OrderBy(orders ...OrderBy) PagedStage[O]
+	Limit(limit int) PagedStage[O]
+	Offset(offset int) PagedStage[O]
 	ForUpdate() LockedStage[O]
 	ForShare() LockedStage[O]
 	Union(other QueryStage[O]) CompoundStage[O]
@@ -135,6 +142,9 @@ type SearchStage[O Owner] interface {
 type FilteredStage[O Owner] interface {
 	QueryStage[O]
 	GroupBy(cols ...SQLColumn) GroupedStage[O]
+	OrderBy(orders ...OrderBy) PagedStage[O]
+	Limit(limit int) PagedStage[O]
+	Offset(offset int) PagedStage[O]
 	ForUpdate() LockedStage[O]
 	ForShare() LockedStage[O]
 	Union(other QueryStage[O]) CompoundStage[O]
@@ -149,6 +159,9 @@ type FilteredStage[O Owner] interface {
 type GroupedStage[O Owner] interface {
 	QueryStage[O]
 	Having(conds ...Condition) HavingStage[O]
+	OrderBy(orders ...OrderBy) PagedStage[O]
+	Limit(limit int) PagedStage[O]
+	Offset(offset int) PagedStage[O]
 	ForUpdate() LockedStage[O]
 	ForShare() LockedStage[O]
 	Union(other QueryStage[O]) CompoundStage[O]
@@ -162,6 +175,9 @@ type GroupedStage[O Owner] interface {
 // HavingStage is the query state after Having(...).
 type HavingStage[O Owner] interface {
 	QueryStage[O]
+	OrderBy(orders ...OrderBy) PagedStage[O]
+	Limit(limit int) PagedStage[O]
+	Offset(offset int) PagedStage[O]
 	ForUpdate() LockedStage[O]
 	ForShare() LockedStage[O]
 	Union(other QueryStage[O]) CompoundStage[O]
@@ -175,6 +191,9 @@ type HavingStage[O Owner] interface {
 // CompoundStage is the query state after one or more set operations.
 type CompoundStage[O Owner] interface {
 	QueryStage[O]
+	OrderBy(orders ...OrderBy) PagedStage[O]
+	Limit(limit int) PagedStage[O]
+	Offset(offset int) PagedStage[O]
 	ForUpdate() LockedStage[O]
 	ForShare() LockedStage[O]
 	Union(other QueryStage[O]) CompoundStage[O]
@@ -183,6 +202,17 @@ type CompoundStage[O Owner] interface {
 	IntersectAll(other QueryStage[O]) CompoundStage[O]
 	Except(other QueryStage[O]) CompoundStage[O]
 	ExceptAll(other QueryStage[O]) CompoundStage[O]
+}
+
+// PagedStage is the query state after OrderBy/Limit/Offset. Only row locking may
+// follow, matching the order SQL puts these clauses in.
+type PagedStage[O Owner] interface {
+	QueryStage[O]
+	OrderBy(orders ...OrderBy) PagedStage[O]
+	Limit(limit int) PagedStage[O]
+	Offset(offset int) PagedStage[O]
+	ForUpdate() LockedStage[O]
+	ForShare() LockedStage[O]
 }
 
 // LockedStage is the query state after ForUpdate()/ForShare().
@@ -221,6 +251,10 @@ type havingQueryBuilder[O Owner] struct {
 }
 
 type compoundQueryBuilder[O Owner] struct {
+	*queryBuilderCore[O]
+}
+
+type pagedQueryBuilder[O Owner] struct {
 	*queryBuilderCore[O]
 }
 
