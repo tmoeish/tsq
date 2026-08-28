@@ -369,8 +369,12 @@ func (e *Enrollment) Insert(
 	ctx context.Context,
 	db tsq.SQLExecutor,
 ) error {
-	e.CreatedAt = tsqtime.Now()
-	e.UpdatedAt = null.TimeFrom(tsqtime.Now())
+	if e.CreatedAt.IsZero() {
+		e.CreatedAt = tsqtime.Now()
+	}
+	if !e.UpdatedAt.Valid {
+		e.UpdatedAt = null.TimeFrom(tsqtime.Now())
+	}
 	err := tsq.Insert(ctx, db, e)
 	if err != nil {
 		return fmt.Errorf("insert Enrollment: %s: %w", compactJSON(e), err)

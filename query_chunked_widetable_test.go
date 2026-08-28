@@ -117,7 +117,11 @@ func TestChunkedUpdateOnWideTableStaysUnderSQLiteVariableLimit(t *testing.T) {
 	runtime := newWideRowRuntime(t)
 	exec := requireInitializedRuntime(t, runtime)
 
-	const rows = 1200
+	// Just past the chunk the wrong (one-per-column) estimate would pick, so the batch
+	// still exceeds the ceiling when the estimate regresses, without paying for rows
+	// that prove nothing. A batch UPDATE of this shape binds tens of thousands of
+	// placeholders and is slow under -race, so the size is deliberately minimal.
+	const rows = 450
 
 	items := make([]*wideRow, 0, rows)
 	for range rows {
@@ -144,6 +148,47 @@ func TestChunkedUpdateOnWideTableStaysUnderSQLiteVariableLimit(t *testing.T) {
 
 	if updated != rows {
 		t.Fatalf("expected %d updated rows, got %d", rows, updated)
+	}
+}
+
+// TestSQLiteRejectsMoreBoundParametersThanItsCeiling pins the number the chunking math
+// is built on. tsq used to assume 65535 for every dialect; this asserts where SQLite
+// actually stops, cheaply and without depending on any particular table shape.
+func TestSQLiteRejectsMoreBoundParametersThanItsCeiling(t *testing.T) {
+	limit := tsqdialect.MaxBindParams(tsqdialect.SQLiteDialect{})
+
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+
+	t.Cleanup(func() { _ = db.Close() })
+
+	if _, err := db.ExecContext(context.Background(), `CREATE TABLE probe (a INT)`); err != nil {
+		t.Fatalf("create probe: %v", err)
+	}
+
+	bind := func(count int) error {
+		placeholders := make([]string, count)
+		args := make([]any, count)
+
+		for i := range placeholders {
+			placeholders[i] = "(?)"
+			args[i] = i
+		}
+
+		_, err := db.ExecContext(context.Background(),
+			"INSERT INTO probe VALUES "+strings.Join(placeholders, ","), args...)
+
+		return err
+	}
+
+	if err := bind(limit); err != nil {
+		t.Fatalf("sqlite rejected %d parameters, which the declared limit says it accepts: %v", limit, err)
+	}
+
+	if err := bind(limit + 1); err == nil {
+		t.Fatalf("sqlite accepted %d parameters, so the declared limit of %d is too low", limit+1, limit)
 	}
 }
 

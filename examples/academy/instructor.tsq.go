@@ -178,7 +178,9 @@ func (i *Instructor) Insert(
 	ctx context.Context,
 	db tsq.SQLExecutor,
 ) error {
-	i.CreatedAt = null.TimeFrom(tsqtime.Now())
+	if !i.CreatedAt.Valid {
+		i.CreatedAt = null.TimeFrom(tsqtime.Now())
+	}
 	err := tsq.Insert(ctx, db, i)
 	if err != nil {
 		return fmt.Errorf("insert Instructor: %s: %w", compactJSON(i), err)

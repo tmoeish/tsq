@@ -363,7 +363,7 @@ Do **not** declare it if you want plain last-write-wins behavior.
 
 Semantics:
 
-- generated insert helpers set it to the current time before insert
+- generated insert helpers set it to the current time before insert **only when the field is still unset** (`IsZero()`, `nil`, or not `Valid`), so a value the caller supplied survives. That is what makes importing or backfilling rows with their real creation time possible
 - DDL generation uses `CURRENT_TIMESTAMP` for compatible non-null time columns
 - the field should use a timestamp-compatible type supported by TSQ
 
@@ -396,8 +396,8 @@ Semantics:
   - `updated_at="UpdatedAt"`
   - `updated_at="MTime"`
 - string names the **Go struct field**, not the SQL column name
-- generated insert helpers set it to the current time
-- generated update helpers refresh it to the current time before update
+- generated insert helpers set it to the current time **only when the field is still unset**, matching `created_at`
+- generated update helpers refresh it to the current time before update, always: recording the last modification is the whole point
 - generated soft-delete helpers also refresh it
 - use it when the project wants an auto-maintained modification time
 
@@ -591,6 +591,7 @@ All methods take an explicit `context.Context` and a `SQLExecutor`.
 - `RuntimeOptions.IdentifierValidationMode` is `tsq.IdentifierValidationStrict` by default (bootstrap fails on identifiers longer than the dialect allows); `IdentifierValidationWarn` logs instead, `IdentifierValidationSkip` disables the check
 - `RuntimeOptions.MaxPageSize` caps `PageRequest.Size` for paged queries on that runtime (default `tsq.DefaultMaxPageSize`, 1000)
 - `RuntimeOptions.SchemaOwner` scopes the bookkeeping `SchemaPolicyManaged` uses to decide which tables it may drop; empty means `"default"`. **Set a distinct owner per runtime whenever more than one runtime manages tables in the same database.** TSQ records the tables it manages in `_tsq_managed_tables` and, under `SchemaPolicyManaged`, drops the tables it recorded and no longer declares. Two runtimes sharing one owner each see the other's tables as "recorded but no longer declared". The value must be a plain identifier
+- schema policies log the mode they are in at info level; `SchemaPolicyManual` (the default) is a normal production choice, not a warning
 - `RuntimeOptions.Logger` receives bootstrap DDL and execution-time warnings (for example a skipped batch-insert ID assignment); it defaults to `slog.Default()`
 - `RuntimeOptions.LogSQL` logs every rendered statement and its bound arguments through `Logger` at debug level. It is off by default and logs arguments verbatim, so leave it off wherever query parameters carry secrets or personal data. Only executors that belong to a runtime log; a bare `*sql.DB` or a `WrapExecutor` result has no runtime to read the setting from
 

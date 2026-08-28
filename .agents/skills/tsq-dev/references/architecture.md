@@ -102,6 +102,10 @@ helper 因此继续作为包级函数。为了一点调用语法把这些接口�
 - `RuntimeOptions.IdentifierValidationMode` 是类型化枚举，空值 = `Strict`，未知值被拒绝；
   `MaxPageSize` 是分页上限（`DefaultMaxPageSize` = 1000），通过 `pageSizeLimitForExecutor`
   从执行器反查运行时取到。
+- `wrapExecutor` 只在执行器**同时**已带上要求的方言和 runtime 时才原样返回；否则包一层。
+  曾经有两段同条件的 `if`，第二段在方言匹配时直接返回未包装的执行器，让"给没有 runtime 的
+  执行器附上 runtime"那条路永远不可达。
+- schema 策略为 `Manual` 时用 **info** 级记录当前模式：它是默认值也是推荐用法，不是警告。
 - 执行期日志走 `logForExecutor`（`runtime_schema.go`）：执行器属于某个运行时就用它的
   `Logger`，否则回退 `slog.Default()`。**不要在执行路径里直接调 `slog.*`。**
   这条规则曾经只在这里写着而没人执行：`logForExecutor` 引入之后只接了三个调用点，

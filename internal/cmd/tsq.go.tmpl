@@ -440,10 +440,14 @@ var {{$query}} = tsq.
 	db tsq.SQLExecutor,
 ) error {
 {{- if $dot.CreatedAtField }}
-	{{$dot.Recv}}.{{$dot.CreatedAtField}} = {{ TimestampNowValue (index $dot.FieldMap $dot.CreatedAtField) }}
+	if {{ TimestampUnsetExpr $dot.Recv $dot.CreatedAtField (index $dot.FieldMap $dot.CreatedAtField) }} {
+		{{$dot.Recv}}.{{$dot.CreatedAtField}} = {{ TimestampNowValue (index $dot.FieldMap $dot.CreatedAtField) }}
+	}
 {{- end }}
 {{- if $dot.UpdatedAtField }}
-	{{$dot.Recv}}.{{$dot.UpdatedAtField}} = {{ TimestampNowValue (index $dot.FieldMap $dot.UpdatedAtField) }}
+	if {{ TimestampUnsetExpr $dot.Recv $dot.UpdatedAtField (index $dot.FieldMap $dot.UpdatedAtField) }} {
+		{{$dot.Recv}}.{{$dot.UpdatedAtField}} = {{ TimestampNowValue (index $dot.FieldMap $dot.UpdatedAtField) }}
+	}
 {{- end }}
 	err := tsq.Insert(ctx, db, {{$dot.Recv}})
 	if err != nil {
