@@ -185,6 +185,11 @@ func main() {
 
 如果你希望 TSQ 进一步校验、重建不匹配对象，或清理 TSQ 托管范围内的多余对象，则使用 `SchemaPolicyValidate` / `SchemaPolicyReconcile` / `SchemaPolicyManaged`。
 
+> **多个 runtime 共用一个数据库时，必须给每个 runtime 设不同的 `SchemaOwner`。**
+> `SchemaPolicyManaged` 会把"我托管过、但现在不再声明"的表连同数据一起 `DROP`，而这份记账
+> （`_tsq_managed_tables`）是按 `RuntimeOptions.SchemaOwner` 分区的。两个 runtime 共用同一个
+> owner，就会各自把对方的表当成"记过但不再声明"删掉。默认 owner 是 `"default"`。
+
 ## 文档导航
 
 | 文档 | 适合什么时候看 |
@@ -241,6 +246,32 @@ query, err := tsq.
 	).
 	Build()
 ```
+
+### `OrderBy(...)` / `Limit(...)` / `Offset(...)` 与 `Page(...)` 二选一
+
+排序和限量从**任何一个完整阶段**都能进入（`Where` / `Search` / `GroupBy` / `Having` / 集合操作之后），
+之后只允许再接 `ForUpdate()` / `ForShare()`——和 SQL 的子句顺序一致。
+
+```go
+query, err := tsq.
+	Select(database.User__Cols...).
+	From(database.TableUser).
+	Where(database.User_OrgID.EQVal(1)).
+	OrderBy(database.User_Name.Asc(), database.User_ID.Desc()).
+	Limit(20).
+	Offset(40).
+	Build()
+```
+
+几条边界：
+
+- **`Offset` 必须配 `Limit`**。裸 `OFFSET` 在 MySQL 和 SQLite 上是语法错误，所以 `Build()` 直接拒绝，
+  而不是让它只在 PostgreSQL 上能跑
+- `Count()` 忽略这三个子句——`LIMIT` 不改变有多少行匹配
+- **不要同时用构建器级分页和 `query.Page(...)`**。`Page` 是**追加**自己的 `LIMIT`/`OFFSET`（以及
+  `PageRequest.OrderBy` 非空时的 `ORDER BY`），不是替换；两个 `ORDER BY` 拼出来在任何方言上都不合法。
+  遇到冲突 `Page` 返回错误而不是替你猜。构建器 `OrderBy` 配**空**的 `PageRequest.OrderBy` 是允许的：
+  排序保留，`Page` 只加窗口
 
 ### `InVar()` 的空切片 / nil 切片语义是“显式不匹配”
 
