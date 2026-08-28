@@ -45,6 +45,24 @@
 
 ---
 
+## 2026-08-28 — "抓住错误继续跑"在 PostgreSQL 的事务里不成立
+
+`ChunkedInsert{IgnoreErrors}` 逐条插入、抓到重复键就 `continue`。这在 SQLite 和 MySQL 上
+是对的，在 **PostgreSQL 上必然失败**：PG 在任何语句失败的那一刻就把事务置为 aborted，其后
+所有语句以 `25P02` 被拒。第一条被忽略的重复键毒掉整批，而调用方拿到的错误**不是重复键
+错误**，看不出源头。
+
+**判据**：错误处理策略的可移植性取决于"失败之后连接还剩下什么状态"，三个数据库答案不一样。
+凡是"捕获错误后继续用同一个连接"的代码，都要问一句 PG 上还能不能用。
+
+修法是事务内每行用 savepoint 括起来。选 savepoint 而不是 `ON CONFLICT DO NOTHING` /
+`INSERT IGNORE`：后者一条语句搞定且快得多，但 **MySQL 的 `INSERT IGNORE` 会把所有错误降级
+成警告**（比"忽略重复键"宽得多），而批量 `DO NOTHING` 配 `RETURNING` 无法按位置把生成的
+主键映射回原行，会悄悄破坏主键回填。savepoint 保住原有语义，代价是每行三条额外语句。
+
+事务外**不发** savepoint：PG 用 `25P01` 拒绝事务外的 `SAVEPOINT`，而那时每条插入本来就是
+自己的隐式事务。判断走哪条路要**穿过 `wrappedExecutor` 找 `*sql.Tx`**——`WithTx` 交给回调的
+是包装过的执行器，只看最外层那个值会对最需要 savepoint 的情形答"不在事务里"。
 ## 2026-08-28 — 文档描述了一个不存在的阶段，而两侧的门都看不见它
 
 `skills/tsq` 从很早就写着 `OrderBy(...)` / `Limit(...)` / `Offset(...)` 是查询阶段，还给了
@@ -153,11 +171,9 @@ import 的是 `github.com/jackc/pgconn`——那是 pgx **v4** 的包。pgx v5 �
 
 ## 2026-08-26 — 字符串模式的空值落在所有分支之外
 
-`IdentifierValidationMode string` 的默认值 `""` 既不是 `"strict"`（返回错误）也不是
-`"warn"`（返回汇总错误让调用方记日志），违规被收集进切片然后**直接丢弃**。注释写着
-"strict 是默认"，测试只用过 `"skip"`。stringly-typed 的开关，每个分支都写 `== "x"`，
-空值就永远是那个没人写的第四分支。现在是类型化枚举 + `resolveIdentifierValidationMode`，
-空值显式映射到 Strict，未知值被 `NewRuntime` 拒绝。
+`IdentifierValidationMode string` 的默认值 `""` 既不是 `strict` 也不是 `warn`，违规被收集
+后**直接丢弃**，而注释写着"strict 是默认"。stringly-typed 的开关每个分支都写 `== "x"`，
+空值永远是那个没人写的第四分支。现在是类型化枚举，空值显式映射到 Strict，未知值被拒绝。
 
 ## 2026-08-26 — 决定：方言能力位按版本基线表态，否决"版本可配置"
 
@@ -180,20 +196,18 @@ SQLite 3.39（2022）起支持 FULL JOIN，modernc 现在 bundle 3.53；MySQL 8.
 
 ## 2026-08-26 — 接口里"有定义、有实现、零调用"的钩子
 
-`Dialect.LastInsertIdReturningSuffix` 六个版本没有任何调用方，PostgreSQL 上 `Insert`
-从来没回填过主键，而唯一的自动化测试是 SQLite 所以一直绿。现在由 `change-impact.md`
-§ 给 `Dialect` 接口加了钩子 的 grep 和 `integration_test.go` 挡着。
+`Dialect.LastInsertIdReturningSuffix` 六个版本零调用，PostgreSQL 上 `Insert` 从来没回填过
+主键，而唯一的自动化测试是 SQLite 所以一直绿。现在由 `change-impact.md` 的 grep 和
+`integration_test.go` 挡着。
 
-**同一天的第二个教训**：`Integration` job 红着，PR #61 还是被 auto-merge 合进了 `main`
-——它当时不在 ruleset 必需检查里，而 auto-merge 只等必需检查。一个第一次跑就抓到真 bug
-的门不该是可选的，已提升为必需检查。
+**同一天的第二个教训**：`Integration` job 红着，PR #61 还是被 auto-merge 合进了 `main`——
+auto-merge 只等**必需**检查。第一次跑就抓到真 bug 的门不该是可选的，已提升为必需检查。
 
 ## 2026-08-26 — 集成测试为什么长这样，以及暂时不做的几件事
 
-`dialect/mysql.go` 和 `dialect/postgres.go` 在此之前覆盖率 0%——v4.2.0 那批标 "Critical"
-的 PG/MySQL reconcile 修复没有任何自动化回归。集成测试的核心断言是"托管 schema 第二次启动
-零 DDL"：v4.2.0 的每个事故都表现为它。用 env DSN + `t.Skip` 而不是 build tag，是为了让
-SQLite 目标始终参与、套件本身每次 `go test` 都被编译执行。
+`dialect/mysql.go` 和 `postgres.go` 此前覆盖率 0%。核心断言是"托管 schema 第二次启动零
+DDL"——v4.2.0 的每个 Critical 事故都表现为它。用 env DSN + `t.Skip` 而不是 build tag，
+是为了让 SQLite 目标始终参与、套件每次 `go test` 都被编译执行。
 
 已知决定不做（写在这里免得下一个人重新调查）：
 
@@ -207,25 +221,15 @@ SQLite 目标始终参与、套件本身每次 `go test` 都被编译执行。
 
 ## 2026-08-21 — `release-check` 只能查版本倒退，不能查"没前进"
 
-第一版写的是"代码里的版本必须严格大于最新 tag"，它把门装反了：合法状态有两个，
-这条规则两个都拦。
-
-- 发版之间：buildinfo 等于最新 tag。这是常态，绝大多数提交都处在这里。
-- `release.py` 跑 harness 的那一刻：buildinfo 已经领先于最新 tag，因为 tag 要等 harness
-  全绿才打。
-
-真正的错误状态只有一个：buildinfo **低于**最新 tag，也就是有人把版本号改回去了。
-"HEAD 上有 tag 时 tag 必须等于代码里的版本"那条单独守着重打 tag 的情况。
+第一版写的是"代码里的版本必须严格大于最新 tag"，把门装反了：合法状态有两个（发版之间
+buildinfo 等于最新 tag；`release.py` 跑 harness 时 buildinfo 领先于 tag，因为 tag 要等
+harness 全绿才打），这条规则两个都拦。真正的错误状态只有一个：buildinfo **低于**最新 tag。
 
 ## 2026-08-21 — 两份技能必须各住各的目录，别为了少一个符号链接把它们并在一起
 
-曾经为了让 `.claude/skills` 一个符号链接就暴露两份技能，把 `skills/tsq` 软链进了开发者
-技能目录。**这是错的**：整套设计的核心是"两份技能读者不同、所有权严格分开、内容不许
-互相复制"，而那个布局先告诉看目录的人"它俩是一伙的"——**布局是文档的一部分**。
-
-现在 `.agents/skills/tsq-dev` 是仓库的工具带（点开头，同 `.github/`），`skills/tsq` 在
-仓库根因为它**是**产品的一部分；`.claude/skills/` 只是两条符号链接组成的发现入口，
-不是它们的家。多一条符号链接换布局说真话，划算。
+曾把 `skills/tsq` 软链进开发者技能目录以省一条符号链接。**这是错的**：整套设计的核心是
+"两份技能读者不同、所有权严格分开"，而那个布局先告诉看目录的人"它俩是一伙的"——
+**布局是文档的一部分**。`.claude/skills/` 只是发现入口，不是它们的家。
 
 改这类路径用 `git mv` 而不是删了重建（`git log --follow` 才追得到），并 `grep -rn` 一遍。
 
@@ -240,12 +244,10 @@ SQLite 目标始终参与、套件本身每次 `go test` 都被编译执行。
 
 ## 2026-08-21 — 文档里的 make 目标和 CI 里的是两条独立的真相
 
-v4.4.1 是个纯修复版本：CI 调了一个不存在的 `make update-examples`，本地全绿流水线红。
-修 CI 时没人问"这个名字还写在哪"，于是同一个幽灵在 `README.md` / `CONTRIBUTING.md` 里
-又活了三个月——**一个被修两次的问题是一个不彻底的修复。**
-
-现在围栏代码块里的 `make X` 由 `make doc-check` 守着（散文有意不扫，历史叙述要能写出
-已不存在的名字）。**它管不到 `.github/workflows/`**，改目标名那里仍要手动 grep。
+CI 调了一个不存在的 `make update-examples`；修 CI 时没人问"这个名字还写在哪"，同一个幽灵
+在 `README.md` / `CONTRIBUTING.md` 里又活了三个月——**一个被修两次的问题是一个不彻底的
+修复。** 现在围栏块里的 `make X` 由 `doc-check` 守着（散文有意不扫），但它**管不到
+`.github/workflows/`**，改目标名那里仍要手动 grep。
 
 ## 2026-08-21 — 第一次真跑 PR 发版流程暴露的两件事
 
@@ -316,13 +318,10 @@ CLI 的全部行为都在那里面——`internal/parser` 改了解析规则，�
 
 ## 2026-08-21 — cobra 的互斥标志组按 `Changed` 位判定，测试里必须手动清
 
-`internal/cmd/version_test.go` 一开始只在每个用例前把 `versionShortFlag` /
-`versionJSONFlag` 两个 Go 变量置回 false，结果 `--json` 那个用例报"两个标志都设了"。
-
-原因是 `VersionCmd` 是包级单例，标志在 `init` 里绑定一次，**状态跨 `Execute()` 存活**，
-而 `MarkFlagsMutuallyExclusive` 判定用的是每个 pflag 的 `Changed` 位，不是变量值。
-清法：`VersionCmd.Flags().Lookup(name).Changed = false`（不需要 import pflag）。
-`go test -shuffle=on` 是发现这类用例间耦合的标准手段，`test-race` 已经带着它。
+`VersionCmd` 是包级单例，标志在 `init` 里绑定一次，**状态跨 `Execute()` 存活**，而
+`MarkFlagsMutuallyExclusive` 判定用的是每个 pflag 的 `Changed` 位，不是 Go 变量值。
+清法：`VersionCmd.Flags().Lookup(name).Changed = false`。`go test -shuffle=on` 是发现这类
+用例间耦合的标准手段，`test-race` 已经带着它。
 
 ## 2026-08-21 — `-X` 打错包路径是**静默**失败的
 
@@ -350,11 +349,9 @@ Go 链接器找不到 `-X` 指定的符号时不报错，直接忽略，于是 b
 
 ## 2026-08-21 — 生成物是否同步不能用 `git diff` 判断
 
-第一反应是 `git diff --exit-code -- examples/academy`，那是错的：一波变更本来就可能合法地
-改动生成物，而它们在提交之前一直处于未提交状态——这道门会对每一波正当改动都失败。
-
-判据只能是"拿当前源码重新渲染一遍，看结果一不一样"。`tsq gen --check` 正是为此存在，
-它在内存里渲染并与磁盘比对。`make gen-check` 用的就是它。
+`git diff --exit-code -- examples/academy` 是错的：一波变更本来就可能合法地改动生成物，
+这道门会对每一波正当改动都失败。判据只能是"拿当前源码重新渲染一遍看结果一不一样"，
+即 `tsq gen --check`（`make gen-check`）。
 
 ## 2026-08-21 — 版本号有四个副本，生成物那份最容易忘
 
@@ -374,12 +371,9 @@ Go 链接器找不到 `-X` 指定的符号时不报错，直接忽略，于是 b
 
 ## 2026-08-21 — 发版波必须从内存门禁里豁免
 
-`script/release.py` 会跑 `make harness`，而发版波唯一的非生成物改动是
-`internal/buildinfo/buildinfo.go`。不豁免的话，每次发版都会撞在 `memory-check` 上，
-而发版本身教不了项目任何东西——真正的知识在被发布的那些波里已经记过了。
-
-豁免写在 `check_change_log.py` 的 `RELEASE_ONLY_FILES`，是精确的白名单而不是开关：
-发版波多碰了任何一个别的文件，门就重新活过来。
+发版波唯一的非生成物改动是 `internal/buildinfo/buildinfo.go`，而发版本身教不了项目任何
+东西。豁免写在 `check_change_log.py` 的 `RELEASE_ONLY_FILES`，是**精确白名单而不是开关**：
+发版波多碰任何一个别的文件，门就重新活过来。
 
 ## 2026-08-21（追溯 v4.3.0） — 改生成文件后缀的真实代价
 

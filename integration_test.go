@@ -530,3 +530,59 @@ func TestIntegrationKeywordSearchEscapesWildcards(t *testing.T) {
 		})
 	}
 }
+
+// TestIntegrationChunkedInsertIgnoresDuplicatesInsideTransaction is the gate for the
+// in-transaction ignore-duplicates path, and it only means anything against a real
+// PostgreSQL server.
+//
+// PostgreSQL aborts a transaction as soon as any statement in it fails and rejects
+// every later statement with 25P02 until the transaction unwinds. "Catch the duplicate
+// and keep going" therefore fails on PostgreSQL alone: the ignored duplicate poisons
+// the rest of the batch, and the call comes back with an error that is not even a
+// duplicate-key error. SQLite and MySQL keep the transaction usable, so the unit suite
+// cannot see this.
+func TestIntegrationChunkedInsertIgnoresDuplicatesInsideTransaction(t *testing.T) {
+	for _, target := range integrationTargets(t) {
+		t.Run(target.name, func(t *testing.T) {
+			ctx := context.Background()
+
+			dropAcademyTables(t, target)
+			rt, _ := openManaged(t, target, academy.TSQTables(), tsq.SchemaPolicyManaged)
+
+			learners := []*academy.Learner{
+				{Name: "Ada", Email: "ada@example.test", Company: "Analytical"},
+				{Name: "Ada again", Email: "ada@example.test", Company: "Analytical"},
+				{Name: "Grace", Email: "grace@example.test", Company: "Navy"},
+			}
+
+			err := rt.WithTx(ctx, nil, func(ctx context.Context, txExec tsq.SQLExecutor) error {
+				if err := tsq.ChunkedInsert(ctx, txExec, learners, &tsq.ChunkedInsertOptions{
+					ChunkSize:    10,
+					IgnoreErrors: true,
+				}); err != nil {
+					return err
+				}
+
+				// The transaction must still be usable after an ignored duplicate;
+				// this is the statement PostgreSQL rejects with 25P02 when it is not.
+				_, err := tsq.Select(academy.Learner_ID).From(academy.TableLearner).
+					MustBuild().
+					Count(ctx, txExec)
+
+				return err
+			})
+			if err != nil {
+				t.Fatalf("chunked insert with IgnoreErrors inside a transaction on %s: %v", target.name, err)
+			}
+
+			count, err := tsq.Select(academy.Learner_ID).From(academy.TableLearner).MustBuild().Count(ctx, rt)
+			if err != nil {
+				t.Fatalf("count learners: %v", err)
+			}
+
+			if count != 2 {
+				t.Fatalf("expected the duplicate to be skipped and 2 rows committed on %s, got %d", target.name, count)
+			}
+		})
+	}
+}
