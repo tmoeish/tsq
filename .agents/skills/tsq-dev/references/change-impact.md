@@ -85,6 +85,18 @@
 - `query_chunked_widetable_test.go` 是那道门——它真的插一张 40 列的表，纯粹比对算出来的
   chunk size 证明不了语句能被数据库接受。
 
+## 改了 schema 托管（`runtime_schema.go`）或 `_tsq_managed_tables`
+
+- **记账表是全库共享的，而每个 runtime 只知道自己那份表集。** 读、删、写都必须按
+  `SchemaOwner` 划界；任何"整表覆盖"都会抹掉别的 runtime 的记账，下次启动它们就互删对方的
+  表**连同数据**。
+- 改记账表的形状要带**就地迁移**：老库里已经有一张旧结构的表，而 `CREATE TABLE IF NOT
+  EXISTS` 不会升级它。它是 TSQ 自己的记账、不含用户数据，所以整表重建是允许的。
+- **不要把 DROP 和记账更新包进一个事务**：MySQL 每条 DDL 都隐式提交，包起来只在
+  PG / SQLite 上成立，反而让人误以为它是原子的。
+- 门：`runtime_schema_ownership_test.go`（SQLite，含旧记账迁移）和
+  `integration_test.go` 的 `TestIntegrationManagedPolicyIsScopedToItsOwner`（三方言）。
+
 ## 改了校验逻辑
 
 先确定它属于哪一边，这条边界是有意的（见 `architecture.md`）：
