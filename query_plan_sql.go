@@ -200,7 +200,7 @@ func (spec querySpec[O]) buildWhere(useKeyword bool) (string, []any) {
 	if len(spec.KeywordSearch) > 0 {
 		kwClauses := make([]string, 0, len(spec.KeywordSearch))
 		for _, col := range spec.KeywordSearch {
-			kwClauses = append(kwClauses, rawColumnQualifiedName(col)+" LIKE ?")
+			kwClauses = append(kwClauses, rawColumnQualifiedName(col)+" LIKE ?"+keywordLikeEscapeClause)
 			args = append(args, keywordArgMarker)
 		}
 
