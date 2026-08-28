@@ -45,7 +45,7 @@
 | 查询对象与执行（含泛型 `Query.Scalar`） | `query.go`、`query_load.go`、`query_scalar.go`、`query_scan.go` |
 | 执行器接口与包装 | `executor.go`、`executor_wrap.go`、`sql_executor.go` |
 | 写操作（Insert / Update / Delete / Upsert） | `executor_mutation.go`、`executor_mutation_meta.go` |
-| 分批写（`ChunkedInsert` / `ChunkedUpdate` / `ChunkedDelete`） | `query_chunked.go` |
+| 分批写（`ChunkedInsert` / `ChunkedUpdate` / `ChunkedDelete`） | `query_chunked.go`（chunk 大小按方言的绑定参数上限换算，见 `change-impact.md`） |
 
 ## 根包：运行时
 

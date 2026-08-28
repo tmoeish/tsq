@@ -45,6 +45,20 @@
 
 ---
 
+## 2026-08-28 — "最紧的那个上限"是个断言，不是常识，要去量
+
+分块的参数上限写死 65535，注释称它是"支持的数据库里最紧的"。**不是**：SQLite 的
+`SQLITE_MAX_VARIABLE_NUMBER` 是 **32766**（3.32 起的默认值，实测 modernc 就是这个数），
+于是 33 列以上的表按默认 `ChunkSize` 会被 SQLite 拒绝——**而 SQLite 是单元测试唯一跑的库**。
+一个错误的常数配一句自信的注释，比没有注释更难被怀疑。
+
+同一波抓到第二个：每行参数数按 `len(Cols())` 估算，那只对 INSERT 成立。批量 UPDATE 渲染成
+`col = CASE pk WHEN ? THEN ? ... END`，**每列每行绑两个**，再加 WHERE 的 1~2 个。v4.7.0 那条
+"修复分块超参数上限"只修了一半，另一半在同一个函数里躺着。**修一类 bug 时要把这一类的所有
+实例都数一遍**——这里的"一类"是"把行数换算成参数数"，换算的两个因子都可能错。
+
+上限现在按方言查表（`dialect.MaxBindParams`），方言未知时取最紧的那个：**分块偏小只多几次
+往返，偏大是执行期直接失败**，不对称的代价决定了默认值往哪边倒。
 ## 2026-08-28 — 转义值和声明转义符是同一件事的两半，只做前一半是静默错误
 
 `escapeKeywordSearch` 从一开始就在转义 `%` / `_`，但渲染出来的谓词是裸 `LIKE ?`。
@@ -202,8 +216,7 @@ SQLite 目标始终参与、套件本身每次 `go test` 都被编译执行。
 仓库根因为它**是**产品的一部分；`.claude/skills/` 只是两条符号链接组成的发现入口，
 不是它们的家。多一条符号链接换布局说真话，划算。
 
-改这类路径时 `git mv` 而不是删了重建（`git log --follow` 才追得到搬家之前），并且
-`grep -rn` 一遍——上次引用它的地方有 12 个文件。
+改这类路径用 `git mv` 而不是删了重建（`git log --follow` 才追得到），并 `grep -rn` 一遍。
 
 ## 2026-08-21 — 任何在合并前后各跑一次的检查，都要确认两次跑的是同一个输入
 
@@ -212,8 +225,7 @@ SQLite 目标始终参与、套件本身每次 `go test` 都被编译执行。
 而写提交信息时 PR 号还不存在，**没有任何办法提前避免**。现在 `check_change_log.py` 量
 长度前剥掉 ` (#\d+)`。
 
-合并会改写提交信息（squash 追加 PR 号）、改写 SHA（squash 造新 commit）、改写历史形状
-（多个提交压成一个）。这三件事同一天各绊了一次。
+合并会改写提交信息、SHA 和历史形状三件事，同一天各绊了一次。
 
 ## 2026-08-21 — 文档里的 make 目标和 CI 里的是两条独立的真相
 
@@ -261,30 +273,19 @@ origin/main`**，两秒钟的事，省掉一次 rebase。
 
 ## 2026-08-21 — 给 main 和 tag 加了 ruleset，发版随之改成 PR 流程
 
-`main`：禁直推/强推/删除，必须走 PR 且五个检查全绿。`refs/tags/v*`：禁删除/移动/强推。
-两条都**对仓库所有者生效**（`bypass_actors` 为空），实测 `git push origin main` 被
-`GH013` 拒绝。
+`main` 禁直推、必须走 PR 且五个检查全绿；`refs/tags/v*` 禁删除/移动/强推。两条都对仓库
+所有者生效（`bypass_actors` 为空）。**tag 那条比分支那条重要得多**：单人仓的真实风险不是
+"别人推了坏代码"，是删掉或移动一个已发布的 tag——Go Proxy 永久缓存内容哈希，那是唯一
+不可恢复的操作。
 
-tag 那条比分支那条重要得多。单人仓的真实风险从来不是"别人推了坏代码"，是删掉或移动一个
-已发布的 tag——Go Proxy 永久缓存内容哈希，那是唯一不可恢复的操作。加上它之后，
-"不要删 tag 重打"从一条写在文档里的规则变成了服务端强制的约束。
-
-必需检查的选法有个坑：**不能放 matrix job**。`Test` 的检查名是
-`Test (ubuntu-latest, 1.27.0)`，升 Go 版本名字就变，而变了的名字永远不会出现在 PR 上，
-必需检查永远等不到，**所有 PR 从此合不进去**。选了 `Build` / `Docker Build` /
-`GoReleaser Check`，它们都 `needs: [test, lint, coverage]`，覆盖等价而名字稳定。
-同理不能放 `Release`——它只在 tag 上跑，在 PR 上永远不出现。
-
-`release.py` 因此改成 PR 流程，并且用 `gh pr merge --auto` 而不是"等 CI 再合"：PR 刚建
-出来的头几秒还没有任何 check 注册，`gh pr checks --watch` 在那一刻会以
-"no checks reported" 直接退出。交给 GitHub 自己在必需检查全绿时合并，脚本只轮询结果。
-
-tag 必须打在**合并之后**的 `main` HEAD 上：squash 产生新 SHA，打在 release 分支上的 tag
-会指向一个不在 `main` 历史里的 commit。打之前重新读一遍 `buildinfo` 确认版本对得上。
-
-验证这类服务端规则**不能用 `git push --dry-run`**——它只在本地模拟 ref 更新，根本不联
-服务端，看起来永远是成功的。要真推一次。测 tag 规则时用一个不合法 semver 的探针 tag
-（`v-ruleset-probe`）：它匹配 `v*` 所以受规则管，但 Go Proxy 会忽略它，不会污染版本列表。
+- **必需检查不能放 matrix job**：`Test` 的检查名是 `Test (ubuntu-latest, 1.27.0)`，升 Go
+  版本名字就变，变了的名字永远不出现在 PR 上，必需检查永远等不到，**所有 PR 从此合不进去**。
+  选了 `Build` / `Docker Build` / `GoReleaser Check`（都 `needs: [test, lint, coverage]`，
+  覆盖等价而名字稳定）。同理不能放只在 tag 上跑的 `Release`。
+- **用 `gh pr merge --auto`，不要"等 CI 再合"**：PR 刚建出来的头几秒没有任何 check 注册，
+  `gh pr checks --watch` 那一刻会以 "no checks reported" 直接退出。
+- **验证服务端规则不能用 `git push --dry-run`**——它不联服务端，看起来永远成功。要真推一次；
+  测 tag 规则用不合法 semver 的探针 tag（`v-ruleset-probe`），受 `v*` 规则管但 Go Proxy 忽略。
 
 ## 2026-08-21 — 版本号是给使用者的，不是给每一次提交的
 

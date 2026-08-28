@@ -50,6 +50,21 @@
   PostgreSQL：**一条固定进 SQL 文本的子句必须在三个方言上都能解析且语义一致**，只有真实
   服务器证明得了。此前 `integration_test.go` 对关键字搜索零覆盖。
 
+## 改了分块（`query_chunked.go`）或批量语句的形状（`executor_mutation.go`）
+
+- 分块的单位是**行**，数据库数的是**占位符**，两个换算因子都可能错：
+  - **上限按方言**（`dialect.MaxBindParams`）。MySQL / PostgreSQL 是 65535，**SQLite 是
+    32766**。曾经写死 65535 并注释成"最紧的那个"，宽表在 SQLite 上直接 `too many SQL
+    variables`——而 SQLite 是单元测试唯一跑的库。
+  - **每行占位符数按操作分别算**。INSERT 每列一个；**UPDATE 每列两个**
+    （`col = CASE pk WHEN ? THEN ? ... END`）再加 WHERE 的 1~2 个；DELETE 每行 1~2 个。
+    改了 `updateBatch` / `insertBatch` 的语句形状，就要回来核对
+    `insertBindParamsPerRow` / `updateBindParamsPerRow` / `deleteBindParamsPerRow`。
+- 方言未知（`WrapExecutor` 包一个裸 `*sql.DB`）时取**最紧**的上限：偏小只多几次往返，
+  偏大是执行期直接失败。
+- `query_chunked_widetable_test.go` 是那道门——它真的插一张 40 列的表，纯粹比对算出来的
+  chunk size 证明不了语句能被数据库接受。
+
 ## 改了校验逻辑
 
 先确定它属于哪一边，这条边界是有意的（见 `architecture.md`）：

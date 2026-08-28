@@ -6,13 +6,16 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+
+	tsqdialect "github.com/tmoeish/tsq/v4/dialect"
 )
 
 // ChunkedOptions configures chunked update and delete helpers.
 type ChunkedOptions struct {
 	// ChunkSize is the number of items per statement; zero means 1000. It is an upper
 	// bound, not an exact batch size: wide tables are chunked smaller so that a single
-	// statement stays within maxBindParamsPerStatement.
+	// statement stays within the executing dialect's bind parameter ceiling
+	// (dialect.MaxBindParams).
 	ChunkSize int
 }
 
@@ -27,7 +30,8 @@ func DefaultChunkedOptions() *ChunkedOptions {
 type ChunkedInsertOptions struct {
 	// ChunkSize is the number of items per statement; zero means 1000. It is an upper
 	// bound, not an exact batch size: wide tables are chunked smaller so that a single
-	// statement stays within maxBindParamsPerStatement.
+	// statement stays within the executing dialect's bind parameter ceiling
+	// (dialect.MaxBindParams).
 	ChunkSize    int
 	IgnoreErrors bool // IgnoreErrors skips duplicate-key failures and continues with the remaining items.
 }
@@ -40,31 +44,31 @@ func DefaultChunkedInsertOptions() *ChunkedInsertOptions {
 	}
 }
 
-// maxBindParamsPerStatement is the tightest per-statement placeholder ceiling among
-// the supported databases: the PostgreSQL wire protocol encodes the parameter count as
-// an int16, capping a bound statement at 65535 parameters.
-//
-// A chunk size counts rows, but the database counts placeholders, and a batch
-// statement binds roughly one per column per row. A 1000-row chunk of a 70-column
-// table is 70000 placeholders and fails outright, so the row count alone is not a safe
-// unit to chunk by.
-const maxBindParamsPerStatement = 65535
+// deleteBindParamsPerRow is the upper bound on placeholders one row contributes to a
+// batch DELETE: the primary key, plus the version column when one guards the row.
+const deleteBindParamsPerRow = 2
 
-// effectiveChunkSize lowers a row-count chunk size so one statement stays inside
-// maxBindParamsPerStatement. It never raises the caller's chunk size and never returns
-// less than one row per statement.
-func effectiveChunkSize(chunkSize, paramsPerRow int) int {
-	if paramsPerRow <= 0 {
+// effectiveChunkSize lowers a row-count chunk size so one statement stays inside the
+// dialect's bind parameter ceiling. It never raises the caller's chunk size and never
+// returns less than one row per statement.
+//
+// A chunk size counts rows, but the database counts placeholders, so the row count
+// alone is not a safe unit to chunk by; both halves of the conversion matter. The
+// ceiling is per dialect (see dialect.MaxBindParams), and the placeholders a row binds
+// depend on the statement, which is why callers pass a per-operation bindParamsPerRow
+// rather than a column count.
+func effectiveChunkSize(chunkSize, bindParamsPerRow, maxBindParams int) int {
+	if bindParamsPerRow <= 0 || maxBindParams <= 0 {
 		return chunkSize
 	}
 
-	return max(1, min(chunkSize, maxBindParamsPerStatement/paramsPerRow))
+	return max(1, min(chunkSize, maxBindParams/bindParamsPerRow))
 }
 
-// paramsPerRow reports how many placeholders one row of items binds, sampling the
-// first non-nil item. Nil items are skipped rather than dereferenced; the per-item nil
-// check that rejects them belongs to the chunk functions, which run later.
-func paramsPerRow[T Table](items []T) int {
+// columnsPerRow reports how many columns one row of items has, sampling the first
+// non-nil item. Nil items are skipped rather than dereferenced; the per-item nil check
+// that rejects them belongs to the chunk functions, which run later.
+func columnsPerRow[T Table](items []T) int {
 	for _, item := range items {
 		if isNilValue(item) {
 			continue
@@ -74,6 +78,30 @@ func paramsPerRow[T Table](items []T) int {
 	}
 
 	return 0
+}
+
+// insertBindParamsPerRow: a batch INSERT binds one placeholder per inserted column.
+// An omitted auto-increment primary key only lowers that, so the column count is an
+// upper bound.
+func insertBindParamsPerRow[T Table](items []T) int {
+	return columnsPerRow(items)
+}
+
+// updateBindParamsPerRow: a batch UPDATE is not one placeholder per column per row.
+// Every updatable column renders `col = CASE pk WHEN ? THEN ? ... END`, which binds
+// *two* per row, and the WHERE clause binds one more per row (two when a version
+// column guards it). Updatable columns are the column count minus the primary key,
+// minus the version column when present, so 2*columns is the upper bound either way.
+//
+// Sizing an UPDATE chunk with the INSERT estimate, as tsq used to, undercounts by
+// roughly half and lets a wide-table batch exceed the ceiling anyway.
+func updateBindParamsPerRow[T Table](items []T) int {
+	return 2 * columnsPerRow(items)
+}
+
+// chunkSizeForExecutor resolves the dialect's bind parameter ceiling for exec.
+func chunkSizeForExecutor(exec SQLExecutor, chunkSize, bindParamsPerRow int) int {
+	return effectiveChunkSize(chunkSize, bindParamsPerRow, tsqdialect.MaxBindParams(dialectForExecutor(exec)))
 }
 
 // ChunkedInsert inserts items in chunks using the provided executor.
@@ -112,7 +140,7 @@ func chunkedInsertFn[T Table](
 		return err
 	}
 
-	chunkSize := effectiveChunkSize(opts.ChunkSize, paramsPerRow(items))
+	chunkSize := chunkSizeForExecutor(tx, opts.ChunkSize, insertBindParamsPerRow(items))
 
 	for i := 0; i < len(items); i += chunkSize {
 		end := min(i+chunkSize, len(items))
@@ -203,7 +231,7 @@ func chunkedUpdateFn[T Table](
 		return err
 	}
 
-	chunkSize := effectiveChunkSize(opts.ChunkSize, paramsPerRow(items))
+	chunkSize := chunkSizeForExecutor(tx, opts.ChunkSize, updateBindParamsPerRow(items))
 
 	for i := 0; i < len(items); i += chunkSize {
 		end := min(i+chunkSize, len(items))
@@ -278,7 +306,7 @@ func chunkedDeleteFn[T Table](
 		return err
 	}
 
-	chunkSize := effectiveChunkSize(opts.ChunkSize, paramsPerRow(items))
+	chunkSize := chunkSizeForExecutor(tx, opts.ChunkSize, deleteBindParamsPerRow)
 
 	for i := 0; i < len(items); i += chunkSize {
 		end := min(i+chunkSize, len(items))
@@ -365,7 +393,7 @@ func chunkedDeleteByPKsFn[O Table, T any](
 		return err
 	}
 
-	chunkSize := effectiveChunkSize(opts.ChunkSize, 1)
+	chunkSize := chunkSizeForExecutor(tx, opts.ChunkSize, 1)
 
 	for i := 0; i < len(boxedIDs); i += chunkSize {
 		end := min(i+chunkSize, len(boxedIDs))

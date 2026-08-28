@@ -107,6 +107,57 @@ func capabilitySupport(table map[Capability]bool, capability Capability) bool {
 	return declared && supported
 }
 
+// maxBindParams is each dialect's ceiling on the number of bound parameters in one
+// statement. Like the capability tables, every dialect states its own value instead of
+// inheriting a default, so a dialect added later cannot silently pick up a limit that
+// is wrong for it.
+//
+//   - MySQL and PostgreSQL both encode the parameter count as an unsigned 16-bit
+//     integer in their wire protocols, capping a statement at 65535.
+//   - SQLite's SQLITE_MAX_VARIABLE_NUMBER has defaulted to 32766 since 3.32 (2020),
+//     and the bundled modernc.org/sqlite reports exactly that. Stating 65535 for every
+//     dialect, as tsq used to, made wide-table batches fail on SQLite alone.
+//
+// The values follow the same version baselines as the capability tables: an engine
+// older than the baseline reports a database error rather than an ErrUnsupportedCapability.
+var maxBindParams = map[Name]int{
+	MySQL:    65535,
+	Postgres: 65535,
+	SQLite:   32766,
+}
+
+// minBindParamsLimit is the tightest ceiling among the declared dialects. It is
+// derived from the table rather than written down twice, so adding a dialect with a
+// smaller limit also tightens the unknown-dialect fallback.
+var minBindParamsLimit = func() int {
+	smallest := 0
+	for _, limit := range maxBindParams {
+		if smallest == 0 || limit < smallest {
+			smallest = limit
+		}
+	}
+
+	return smallest
+}()
+
+// MaxBindParams reports how many bound parameters dialect accepts in a single
+// statement. Batch helpers use it to size a chunk by placeholders rather than by rows.
+//
+// A nil or unrecognized dialect answers the tightest limit among the supported
+// dialects: chunking smaller than necessary only costs round trips, while chunking
+// larger than the database allows is an outright failure at execution time.
+func MaxBindParams(dialect Dialect) int {
+	if dialect == nil {
+		return minBindParamsLimit
+	}
+
+	if limit, ok := maxBindParams[dialect.Name()]; ok {
+		return limit
+	}
+
+	return minBindParamsLimit
+}
+
 type DDLAlterColumnMode string
 
 const (
