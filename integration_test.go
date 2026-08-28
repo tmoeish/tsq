@@ -586,3 +586,57 @@ func TestIntegrationChunkedInsertIgnoresDuplicatesInsideTransaction(t *testing.T
 		})
 	}
 }
+
+// TestIntegrationManagedPolicyIsScopedToItsOwner runs the ownership rule against every
+// configured server. The registry is a real table with real DDL behind it, and the
+// migration from the ownerless shape rewrites it, so the dialect-specific halves
+// (inspection, DROP, re-create) only get exercised here.
+func TestIntegrationManagedPolicyIsScopedToItsOwner(t *testing.T) {
+	for _, target := range integrationTargets(t) {
+		t.Run(target.name, func(t *testing.T) {
+			ctx := context.Background()
+
+			dropAcademyTables(t, target)
+
+			// One runtime manages the academy tables under its own owner.
+			academyRT, err := tsq.NewRuntimeContext(ctx, target.driver, target.dsn, academy.TSQTables(),
+				&tsq.RuntimeOptions{
+					TablePolicy: tsq.SchemaPolicyManaged,
+					IndexPolicy: tsq.SchemaPolicyManaged,
+					SchemaOwner: "academy",
+				})
+			if err != nil {
+				t.Fatalf("bootstrap academy runtime on %s: %v", target.name, err)
+			}
+
+			t.Cleanup(func() { _ = academyRT.Close() })
+
+			// A second runtime manages nothing at all under a different owner. Before
+			// ownership existed this wiped every academy table on the way through.
+			otherRT, err := tsq.NewRuntimeContext(ctx, target.driver, target.dsn, nil,
+				&tsq.RuntimeOptions{
+					TablePolicy: tsq.SchemaPolicyManaged,
+					IndexPolicy: tsq.SchemaPolicyManaged,
+					SchemaOwner: "other_service",
+				})
+			if err != nil {
+				t.Fatalf("bootstrap second runtime on %s: %v", target.name, err)
+			}
+
+			if err := otherRT.Close(); err != nil {
+				t.Fatalf("close second runtime: %v", err)
+			}
+
+			for _, name := range []string{"learner", "course", "enrollment"} {
+				_, found, err := academyRT.SQLDialect().InspectTableColumns(ctx, academyRT.DB(), name)
+				if err != nil {
+					t.Fatalf("inspect %s on %s: %v", name, target.name, err)
+				}
+
+				if !found {
+					t.Fatalf("table %s was dropped by a runtime that does not own it on %s", name, target.name)
+				}
+			}
+		})
+	}
+}

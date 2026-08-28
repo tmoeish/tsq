@@ -146,6 +146,17 @@ type RuntimeOptions struct {
 	// MaxPageSize caps PageRequest.Size for paged queries executed through this runtime.
 	// Zero means DefaultMaxPageSize.
 	MaxPageSize int
+	// SchemaOwner scopes the bookkeeping SchemaPolicyManaged uses to decide which
+	// tables it may drop. Empty means "default".
+	//
+	// Set it whenever more than one runtime manages tables in the same database.
+	// TSQ records the tables it manages in _tsq_managed_tables and, under
+	// SchemaPolicyManaged, drops the recorded tables it no longer declares. Two
+	// runtimes sharing one owner each see the other's tables as "recorded but no
+	// longer declared" and drop them, taking the data with them.
+	//
+	// Must be a plain identifier ([A-Za-z_][A-Za-z0-9_]*).
+	SchemaOwner string
 }
 
 // Logger is the subset of slog.Logger used by runtime bootstrap.

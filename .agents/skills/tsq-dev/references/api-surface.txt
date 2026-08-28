@@ -502,6 +502,7 @@ type RuntimeOptions struct {
 	LogSQL bool
 	IdentifierValidationMode IdentifierValidationMode
 	MaxPageSize int
+	SchemaOwner string
 }
 type SQLColumn interface {
 	SQLExpr() string       // SQLExpr returns the rendered expression, such as "users.name".

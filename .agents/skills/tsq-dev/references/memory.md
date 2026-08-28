@@ -45,6 +45,24 @@
 
 ---
 
+## 2026-08-28 — 全库共享的记账表被每个 runtime 整个覆盖，于是它们互删对方的表
+
+`SchemaPolicyManaged` 靠 `_tsq_managed_tables` 记住"我托管过哪些表"，不在当前声明里的就
+DROP。但那张记账表是**全库共享**的，而每个 runtime 用**自己那份表集整个覆盖**它。两个服务
+共用一个库时来回摧毁对方的表和数据：A 记下 `{a1,a2}` → B 看到它们不在自己的声明里全删掉、
+记账改成 `{b1,b2}` → A 重启再删掉 B 的。
+
+**判据**：一份**全局**状态被一个只知道**局部**真相的写入者整个覆盖时，覆盖就是数据丢失。
+问题不在 DROP 那段逻辑（它按自己的记账是对的），在记账的**范围**和写入者的范围不一致。
+
+修法是给记账加 owner 维度（`RuntimeOptions.SchemaOwner`），读、删、写都按 owner 划界。
+旧的无 owner 记账在启动时就地迁移：它是 TSQ 自己的记账、不含用户数据，所以整表重建而不是
+`ADD COLUMN`——老表在 `table_name` 上有主键，加列留着它会让两个 owner 无法记录同名表。
+原有行归到 `default` owner，单 runtime 部署行为不变。
+
+**没做**：把 DROP 和记账更新包进一个事务。PG 和 SQLite 支持事务 DDL，**MySQL 每条 DDL 都
+隐式提交**，包起来只在三分之二的方言上成立，反而更容易让人误以为它是原子的。
+
 ## 2026-08-28 — "抓住错误继续跑"在 PostgreSQL 的事务里不成立
 
 `ChunkedInsert{IgnoreErrors}` 逐条插入、抓到重复键就 `continue`。这在 SQLite 和 MySQL 上
@@ -135,18 +153,12 @@
 
 ## 2026-08-26 — 能力位的 `default` 分支是那道门自己的漏洞
 
-`AGENTS.md` 和 `architecture.md` 都写着"新增能力位三个方言都要显式表态"，但三个
-`SupportsCapability` 都是 `switch` 加 `default: return false`——漏掉一个方言不编译失败、
-不 lint 失败、不测试失败，只静默变成"不支持"。规则靠人记得，而人记不住。
+规则写着"新增能力位三个方言都要显式表态"，但三个 `SupportsCapability` 都是 `switch` 加
+`default: return false`——漏掉一个方言不编译失败、不 lint 失败、不测试失败，只静默变成
+"不支持"。现在是每方言一张表加一个遍历表的测试。
 
-改成每方言一张 `map[Capability]bool` 加 `AllCapabilities()`，`SupportsCapability` 只查表，
-`dialect/capability_test.go` 遍历 `全部能力 × 三个方言` 断言无缺席。**验证过它真的会红**
-（临时删掉 mysql 表里一行，测试报出缺的是哪个能力）。
-
-引申，这条对所有"必须穷尽"的 switch 都成立：**`default` 分支把"忘了写"和"决定不支持"
-变成同一件事**，而这两件事需要不同的处理。要穷尽性，就别给它兜底分支——用表加一个
-遍历表的测试。这和 2026-08-26 `IdentifierValidationMode` 空值落在所有分支之外是同一类
-错误的第二次出现。
+**引申，对所有"必须穷尽"的 switch 都成立**：`default` 分支把"忘了写"和"决定不支持"变成
+同一件事，而这两件事需要不同的处理。要穷尽性就别给它兜底分支——用表加一个遍历表的测试。
 
 ## 2026-08-26 — 写在 AGENTS.md 里但没有门的规则，几个月都是假的
 
@@ -159,15 +171,12 @@
 
 ## 2026-08-26 — 同一个 SQLSTATE 在三个驱动里是三个 Go 类型
 
-`IsRetryableTransactionConflictError` 和重复键检测曾 `errors.AsType[*pgconn.PgError]`，
-import 的是 `github.com/jackc/pgconn`——那是 pgx **v4** 的包。pgx v5 的 `PgError` 在
-`github.com/jackc/pgx/v5/pgconn`，是另一个类型，匹配静默失败；而 `resolveRuntimeDialect`
-明确接受 driver `"pgx"`，使用者按文档用 pgx v5 时重试和 `IgnoreErrors` 全部不生效，没有
-任何报错。单元测试用的 fixture 恰好也是 pgconn v1，所以一直绿。
+曾 `errors.AsType[*pgconn.PgError]` 匹配 pgx **v4** 的包。pgx v5 的 `PgError` 是另一个包里的
+另一个类型，匹配静默失败，于是 driver 为 `"pgx"` 的运行时上重试和 `IgnoreErrors` 全都不生效
+且无任何报错——单元测试的 fixture 恰好也是 v4，所以一直绿。
 
-修法是匹配接口 `interface{ SQLState() string }`——pq、pgx v4、pgx v5 都实现——顺带把
-`lib/pq` 和 `pgconn` 从根包依赖里去掉了。**驱动错误分类永远按接口，不按具体类型**；
-`change-impact.md` 有对应条目，`integration_test.go` 用真实 pgx v5 守着。
+修法是匹配接口 `interface{ SQLState() string }`（pq / pgx v4 / pgx v5 都实现）。
+**驱动错误分类永远按接口，不按具体类型**；`integration_test.go` 用真实 pgx v5 守着。
 
 ## 2026-08-26 — 字符串模式的空值落在所有分支之外
 
@@ -177,22 +186,16 @@ import 的是 `github.com/jackc/pgconn`——那是 pgx **v4** 的包。pgx v5 �
 
 ## 2026-08-26 — 决定：方言能力位按版本基线表态，否决"版本可配置"
 
-SQLite 的 FULL JOIN 位和 MySQL 的 CTE / INTERSECT / EXCEPT 位都是按 2018 年前的引擎写的：
-SQLite 3.39（2022）起支持 FULL JOIN，modernc 现在 bundle 3.53；MySQL 8.0 支持 CTE，
-8.0.31 支持 INTERSECT/EXCEPT，5.7 于 2023-10 EOL。README 的能力矩阵忠实复述了这些错误。
-
-考虑过给 `MySQLDialect` 加 `ServerVersion` 字段按版本判定，**否决**：API 面变大，而且
-`Build()` 之前根本不知道会连哪个库，版本只能在执行时探测——那就得每个 `Dialect` 值带状态，
-和"方言是无状态值类型"的现状冲突。改成按基线表态：MySQL 8.0、SQLite ≥3.39。代价是
-5.7 用户拿到数据库报错而不是 `ErrUnsupportedCapability`，CHANGELOG 写明。
+能力位曾按 2018 年前的引擎写死，README 忠实复述了这些错误。考虑过给 `MySQLDialect` 加
+`ServerVersion` 字段，**否决**：`Build()` 之前根本不知道会连哪个库，版本只能执行时探测，
+那就得每个 `Dialect` 值带状态，和"方言是无状态值类型"冲突。改成按基线表态：MySQL 8.0、
+SQLite ≥3.39。代价是更老的引擎拿到数据库报错而不是 `ErrUnsupportedCapability`。
 
 ## 2026-08-26 — 决定：commit 阶段只对明确冲突码重试
 
-原来 `shouldRetryTx` 一刀切 `stage != commit`，理由是 commit 失败有歧义（可能已经提交）。
-但 PostgreSQL 的 `40001` 序列化失败**经常在 COMMIT 时才抛**，且这些码（40001 / 40P01 /
-55P03、MySQL 1205 / 1213）保证事务已回滚——这是 PG 最典型的重试场景，被一刀切排除了。
-现在 commit 阶段只放行 `IsRetryableTransactionConflictError` 为真的错误；`io.EOF`、
-`driver.ErrBadConn` 之类在 commit 阶段仍不重试。
+原来一刀切 `stage != commit`，理由是 commit 失败有歧义。但 PG 的 `40001` **经常在 COMMIT 时
+才抛**，且这些码（40001 / 40P01 / 55P03、MySQL 1205 / 1213）保证事务已回滚——PG 最典型的
+重试场景被一刀切排除了。现在 commit 阶段只放行明确冲突码，网络类错误仍不重试。
 
 ## 2026-08-26 — 接口里"有定义、有实现、零调用"的钩子
 
@@ -201,12 +204,14 @@ SQLite 3.39（2022）起支持 FULL JOIN，modernc 现在 bundle 3.53；MySQL 8.
 `integration_test.go` 挡着。
 
 **同一天的第二个教训**：`Integration` job 红着，PR #61 还是被 auto-merge 合进了 `main`——
+auto-merge 只等**必需**检查。已提升为必需检查。
 auto-merge 只等**必需**检查。第一次跑就抓到真 bug 的门不该是可选的，已提升为必需检查。
 
 ## 2026-08-26 — 集成测试为什么长这样，以及暂时不做的几件事
 
 `dialect/mysql.go` 和 `postgres.go` 此前覆盖率 0%。核心断言是"托管 schema 第二次启动零
 DDL"——v4.2.0 的每个 Critical 事故都表现为它。用 env DSN + `t.Skip` 而不是 build tag，
+是为了让 SQLite 目标始终参与。
 是为了让 SQLite 目标始终参与、套件每次 `go test` 都被编译执行。
 
 已知决定不做（写在这里免得下一个人重新调查）：

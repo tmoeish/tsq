@@ -22,6 +22,7 @@ type Runtime struct {
 	tablePolicy SchemaPolicy
 	indexPolicy SchemaPolicy
 	logger      Logger
+	schemaOwner string
 	maxPageSize int
 	logSQL      bool
 }
@@ -90,6 +91,11 @@ func NewRuntimeContext(
 		return nil, err
 	}
 
+	schemaOwner, err := resolveSchemaOwner(opts.SchemaOwner)
+	if err != nil {
+		return nil, err
+	}
+
 	if opts.MaxPageSize < 0 {
 		return nil, fmt.Errorf("invalid max page size: %d", opts.MaxPageSize)
 	}
@@ -115,6 +121,7 @@ func NewRuntimeContext(
 		tablePolicy: tablePolicy,
 		indexPolicy: indexPolicy,
 		logger:      resolveRuntimeLogger(opts),
+		schemaOwner: schemaOwner,
 		maxPageSize: opts.MaxPageSize,
 		logSQL:      opts.LogSQL,
 	}
@@ -139,6 +146,27 @@ func NewRuntimeContext(
 }
 
 var _ SQLExecutor = (*Runtime)(nil)
+
+// resolveSchemaOwner validates RuntimeOptions.SchemaOwner and applies the default.
+//
+// The owner is stored in the managed-table registry, so it has to be a plain
+// identifier: it travels through the same DDL and comparison paths as a table name.
+func resolveSchemaOwner(owner string) (string, error) {
+	owner = strings.TrimSpace(owner)
+	if owner == "" {
+		return defaultSchemaOwner, nil
+	}
+
+	if !builtInIdentifierPattern.MatchString(owner) {
+		return "", fmt.Errorf("invalid schema owner %q: must match [A-Za-z_][A-Za-z0-9_]*", owner)
+	}
+
+	if len(owner) > managedRegistryIdentifierSz {
+		return "", fmt.Errorf("schema owner %q exceeds %d characters", owner, managedRegistryIdentifierSz)
+	}
+
+	return owner, nil
+}
 
 func resolveIdentifierValidationMode(mode IdentifierValidationMode) (IdentifierValidationMode, error) {
 	switch mode {
