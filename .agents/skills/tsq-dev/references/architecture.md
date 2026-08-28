@@ -142,6 +142,9 @@ helper 因此继续作为包级函数。为了一点调用语法把这些接口�
 - 能力位按**当前版本基线**表态，不探测服务器版本：MySQL 8.0（CTE、INTERSECT、EXCEPT 都
   支持，FULL JOIN 不支持）、SQLite 3.39+（FULL JOIN 支持，行锁不支持）、PostgreSQL 全部
   支持。改基线是使用者可见变更。
+- 每个方言还声明**单条语句的绑定参数上限**（`maxBindParams`，由 `MaxBindParams()` 查表）：
+  MySQL / PostgreSQL 65535，**SQLite 32766**。分块写用它把行数换算成占位符数；方言未知时
+  取最紧的那个。和能力位一样是一张表加一个遍历表的测试，不是一个写死的常数。
 - `ddl_reconcile_test.go` 覆盖运行期 schema 对账在三个方言上的行为。
 - **新增能力位必须三个方言都显式表态。** 这不再靠人记得：每个方言持一张
   `map[Capability]bool`（`mysqlCapabilities` / `postgresCapabilities` /

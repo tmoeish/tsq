@@ -594,6 +594,7 @@ type WhereStage[O Owner] interface {
 package dialect // import "github.com/tmoeish/tsq/v4/dialect"
 FUNCTIONS
 func DDLColumnTypesEquivalent(dialect Dialect, left, right DDLColumnSpec) bool
+func MaxBindParams(dialect Dialect) int
 func ValidateCapability(dialect Dialect, capability Capability) error
 func ValidateIdentifierLength(identifier string, dialect Dialect) error
 TYPES

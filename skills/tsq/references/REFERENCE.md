@@ -602,7 +602,9 @@ Useful rules:
 
 - transaction boundaries stay explicit
 - `ChunkedInsert`, `ChunkedUpdate`, and `ChunkedDelete` do not silently create outer transactions
-- `ChunkSize` (default 1000) is an upper bound on rows per statement, not an exact batch size. A batch statement binds roughly one placeholder per column per row and PostgreSQL caps a bound statement at 65535 parameters, so wide tables are chunked smaller automatically. Chunk sizes are never raised, and never fall below one row per statement
+- `ChunkSize` (default 1000) is an upper bound on rows per statement, not an exact batch size. Databases count placeholders rather than rows, so wide tables are chunked smaller automatically. Chunk sizes are never raised, and never fall below one row per statement
+- the ceiling is per dialect: MySQL and PostgreSQL accept 65535 bound parameters per statement, SQLite 32766. `dialect.MaxBindParams(d)` reports it; an executor with no dialect (a bare `*sql.DB` behind `WrapExecutor`) is chunked against the tightest of them
+- a batch `INSERT` binds about one placeholder per column per row, but a batch `UPDATE` binds about **two** (it renders `col = CASE pk WHEN ? THEN ? ... END`), so the same rows chunk roughly half as large for `ChunkedUpdate` as for `ChunkedInsert`
 - automatic optimistic-lock retries can be configured with `TxOptions`
 
 ## 10. Aliases, rebinding, and result mapping
