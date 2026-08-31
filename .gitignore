@@ -4,6 +4,8 @@ dist/
 /tsq
 /coverage.out
 /.antigravitycli/
+__pycache__/
+*.pyc
 
 # 本机的智能体状态（权限模式引用真实命令，会积累凭证）；共享的智能体配置在
 # CLAUDE.md、AGENTS.md 和 .agents/skills/ 里。.claude/skills/ 下的两条符号链接被跟踪。

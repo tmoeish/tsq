@@ -47,21 +47,19 @@
 
 ## 2026-08-28 — 全库共享的记账表被每个 runtime 整个覆盖，于是它们互删对方的表
 
-`SchemaPolicyManaged` 靠 `_tsq_managed_tables` 记住"我托管过哪些表"，不在当前声明里的就
-DROP。但那张记账表是**全库共享**的，而每个 runtime 用**自己那份表集整个覆盖**它。两个服务
-共用一个库时来回摧毁对方的表和数据：A 记下 `{a1,a2}` → B 看到它们不在自己的声明里全删掉、
-记账改成 `{b1,b2}` → A 重启再删掉 B 的。
+`SchemaPolicyManaged` 的 `_tsq_managed_tables` 是全库共享的，每个 runtime 启动时整个覆盖，多 runtime
+共享数据库时互删对方的表。**判据**：全局状态被只知道局部真相的写入者整个覆盖就是数据丢失；问题不在
+DROP 逻辑，在范围不匹配。修法：按 `SchemaOwner` 分区（`RuntimeOptions.SchemaOwner`），旧记账迁移到
+`default`。**没做包进事务**：MySQL 每条 DDL 隐式提交，事务 DDL 仅在 PG/SQLite 成立。
 
-**判据**：一份**全局**状态被一个只知道**局部**真相的写入者整个覆盖时，覆盖就是数据丢失。
-问题不在 DROP 那段逻辑（它按自己的记账是对的），在记账的**范围**和写入者的范围不一致。
+## 2026-08-28 — gosec G201 对 fmt.Sprintf SQL 告警，即使参数是安全的
 
-修法是给记账加 owner 维度（`RuntimeOptions.SchemaOwner`），读、删、写都按 owner 划界。
-旧的无 owner 记账在启动时就地迁移：它是 TSQ 自己的记账、不含用户数据，所以整表重建而不是
-`ADD COLUMN`——老表在 `table_name` 上有主键，加列留着它会让两个 owner 无法记录同名表。
-原有行归到 `default` owner，单 runtime 部署行为不变。
+gosec G201 在任何 `fmt.Sprintf` 产出 SQL 的调用上告警，即使所有格式参数都是
+`dialect.QuoteField`/`BindVar` 的返回值——它静态分析格式动词，不追踪参数来源。
+修法：改用字符串拼接，语义不变，告警消失（`runtime_schema.go` 的 registry 查询，告警 #59–#63）。
+`script/__pycache__/` 未在 `.gitignore` 里时，`changeset.py` 把它当成未提交的功能性改动，导致
+`memory-check` 假阳性；已将 `__pycache__/` 和 `*.pyc` 加入 `.gitignore`。
 
-**没做**：把 DROP 和记账更新包进一个事务。PG 和 SQLite 支持事务 DDL，**MySQL 每条 DDL 都
-隐式提交**，包起来只在三分之二的方言上成立，反而更容易让人误以为它是原子的。
 ## 2026-08-28 — 生成的 `.sql` 文件头停在旧版本是**有意的**，别去"修"它
 
 `examples/academy/{mysql,postgres,sqlite}.sql` 的头写着 `tsq-v4.1.19`，而 `.tsq.go` 是当前
