@@ -39,7 +39,7 @@
 | CTE 排序与去重 | `query_plan_cte.go` |
 | SQL 文本拼装 | `query_plan_sql.go`、`sql_render.go` |
 | 参数绑定 | `query_args.go` |
-| 结构校验（`Build()` 时） | `query_validation.go`、`query_plan_validate.go`、`validation.go` |
+| 结构校验（`Build()` 时） | `query_validation.go`、`query_plan_validate.go`、`validation.go`（`validateColumnBelongsToTable` 还负责把"列切片尚未初始化"和"列真的不属于这张表"分开报错，见 `memory.md`） |
 | 方言能力校验（执行时） | `query_validation.go` 的 `detectSQLCapabilities`，经 `dialect.ValidateCapability` |
 | 标识符校验（长度与字符集） | `dialect_validation.go`（这个文件**只剩**标识符校验，能力校验不在这儿） |
 | 查询对象与执行（含泛型 `Query.Scalar`） | `query.go`、`query_load.go`、`query_scalar.go`、`query_scan.go` |
@@ -57,6 +57,7 @@
 | 执行期日志与 SQL 日志 | `runtime_schema.go` 的 `logForExecutor` / `logSQLForExecutor` / `compactJSON` |
 | 事务与重试（`WithTx`、`WithTxResult`、`TxOptions`、`TxRetryConfig`） | `tx.go` |
 | 表注册与元数据 | `table.go`、`table_registry.go` |
+| 表变量对列切片的初始化顺序锚点 | `table.go` 的 `TableWithCols`，由 `internal/cmd/tsq.go.tmpl` 生成进 `var TableXxx`；门是 `examples/academy/academyqueries.go` |
 | 索引元数据 | `table_index.go` |
 | 表别名 | `table_alias.go` |
 | `Owner` 约束 | `owner.go` |

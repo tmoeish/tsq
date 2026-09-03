@@ -577,6 +577,7 @@ type Table interface {
 }
 func AliasTable(table Table, alias string) Table
 func CTE[O Owner](name string, query QueryStage[O]) Table
+func TableWithCols[O Table](table O, cols []BoundColumn[O]) Table
 type TableColumn[O Table] interface {
 	BoundColumn[O]
 	SearchColumn

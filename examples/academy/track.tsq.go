@@ -18,7 +18,13 @@ import (
 // =============================================================================
 
 // TableTrack implements the tsq.Table interface for Track.
-var TableTrack tsq.Table = Track{}
+//
+// The Track__Cols argument is never read. It makes this variable depend on the
+// column slice so that Go initializes the slice first: Cols reaches it through an
+// interface method, which package initialization ordering cannot see. Without it a
+// package-level query variable in a file sorting before this one can observe
+// Track__Cols fully sized with nil elements.
+var TableTrack tsq.Table = tsq.TableWithCols(Track{}, Track__Cols)
 
 // TSQOwner marks Track as a TSQ owner.
 func (t Track) TSQOwner() {}

@@ -17,7 +17,13 @@ import (
 // =============================================================================
 
 // TableLearner implements the tsq.Table interface for Learner.
-var TableLearner tsq.Table = Learner{}
+//
+// The Learner__Cols argument is never read. It makes this variable depend on the
+// column slice so that Go initializes the slice first: Cols reaches it through an
+// interface method, which package initialization ordering cannot see. Without it a
+// package-level query variable in a file sorting before this one can observe
+// Learner__Cols fully sized with nil elements.
+var TableLearner tsq.Table = tsq.TableWithCols(Learner{}, Learner__Cols)
 
 // TSQOwner marks Learner as a TSQ owner.
 func (l Learner) TSQOwner() {}

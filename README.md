@@ -453,6 +453,38 @@ summary, err := runtime.WithTxResult(ctx, opts, func(ctx context.Context, tx tsq
 - 值比较推荐用 `EQVal/NEVal/GTVal/GTEVal/LTVal/LTEVal`，列和 typed 子查询则直接作为 `EQ/NE/GT/GTE/LT/LTE` 的 RHS 传入。
 - 结果投影统一使用包级 `tsq.MapInto[Target](source, fieldPointer, jsonName)`，不要再写 `col.Into(...)`。
 
+### 不支持相关子查询，并且不要用 join 去绕
+
+子查询不能引用外层查询的表：一个查询提到的每张表都必须在它自己的 `FROM`/`JOIN` 图里，
+否则 `Build()` 报 `table X is referenced but is not in this query's FROM/JOIN graph`。
+
+**不要靠把外层表 join 进子查询来消掉这个报错。** 那样能编译、能构建、也能跑，但子查询里
+的那张表会遮蔽外层的同名表，谓词随即不再相关——它对每一行外层数据取值都相同。写成
+`NOT EXISTS` 时的典型表现是要么返回全部行，要么一行不返回，而且没有任何报错。
+
+改写成成员判断：`NOT EXISTS (SELECT 1 FROM orders WHERE orders.user_id = users.id)`
+写成 `User_ID.NIn(sub)`，其中 `sub` 选的是 `Order_UserID`。**这个改写只在子查询那一列
+非空时等价**：SQL 三值逻辑下，结果集里只要出现一个 `NULL`，`NOT IN` 就返回零行，而相关的
+`NOT EXISTS` 会正常返回不匹配的行。列可空就在子查询里先把 `NULL` 滤掉。
+
+### 包级投影查询与初始化顺序
+
+生成的表变量是 `var TableXxx tsq.Table = tsq.TableWithCols(Xxx{}, Xxx__Cols)`。第二个参数
+从不被读取，它的作用是让表变量显式依赖列切片。
+
+Go 的包级初始化顺序只认初始化表达式里出现的引用，而 `Cols()` 是通过接口方法在运行期去取
+那个切片的，依赖分析看不见。只选部分列的**投影**查询变量从头到尾不会提到 `Xxx__Cols`，
+没有这个锚点它就可能先于列切片初始化——那时切片不是空的，而是长度已满、元素全是 `nil`
+（切片头是编译期静态数据，元素赋值在 init 里才发生），于是列校验一个都匹配不上。
+炸不炸取决于包内的文件名顺序，所以同样的写法会在一个文件里正常、换个文件就 panic。
+
+两个推论：
+
+- **升级 TSQ 之后要重新生成**，此前生成的代码里没有这个锚点，隐患还在。
+- 手写 `tsq.Table` 实现时照同样的方式声明：`var TableUser tsq.Table = tsq.TableWithCols(User{}, User__Cols)`。
+
+用 `Select(Xxx__Cols...)` 的常规查询从来不受影响——它自己就写出了列切片。
+
 ## 示例入口
 
 - **Quickstart**：[`examples/quickstart/README.md`](examples/quickstart/README.md)

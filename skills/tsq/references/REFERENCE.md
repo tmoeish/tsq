@@ -313,6 +313,23 @@ In projects that keep schema artifacts, TSQ may also generate:
 
 Do not hand-edit generated outputs in normal usage.
 
+### Package-level query variables and initialization order
+
+`TableXxx` is generated as `var TableXxx tsq.Table = tsq.TableWithCols(Xxx{}, Xxx__Cols)`. The second argument is never read; it makes the table variable depend on the column slice so that Go initializes the slice first.
+
+This matters because Go decides package-level initialization order from the references written in initialization expressions, and `Cols()` reaches the column slice through an interface method that the analysis cannot see. A package-level query variable that selects individual columns (a projection) never mentions `Xxx__Cols`, so without that anchor it can be initialized while every element of the slice is still nil, and `MustBuild()` panics at package initialization. Whether it happens depends on file name order within the package, so the same code works in one file and panics in another.
+
+Two consequences:
+
+- regenerate after upgrading TSQ; generated code from before this anchor existed still carries the hazard
+- if you write a `tsq.Table` implementation by hand, declare it the same way:
+
+```go
+var TableUser tsq.Table = tsq.TableWithCols(User{}, User__Cols)
+```
+
+Queries that select every column with `Select(Xxx__Cols...)` were never affected: they name the slice themselves.
+
 ## 4.1 Managed-field semantics
 
 These fields are important enough to remember separately because they change runtime behavior, not just metadata.
@@ -705,6 +722,25 @@ Important subquery rule:
 
 - scalar RHS comparisons such as `EQ(subquery)`, `Between(subqueryA, subqueryB)`, and `In(subquery)`-style usage require subqueries that select exactly one column
 - after building, prefer `query.AsSubquery(selectedColumn)`; use `BuildSubquery(stage, selectedColumn)` while the builder is still exposed as a `QueryStage`
+
+### Correlated subqueries are not supported
+
+A subquery cannot reference a column of an outer query's table. Building one fails with `table X is referenced but is not in this query's FROM/JOIN graph`, because every table a query mentions has to be in that query's own `FROM`/`JOIN` graph.
+
+Do not resolve that error by joining the outer table into the subquery. It compiles, builds, and runs, but the joined table shadows the outer one, so the predicate is no longer correlated: it evaluates to the same value for every outer row. `NOT EXISTS` written that way typically returns all rows or none.
+
+Rewrite the correlation as a membership test instead:
+
+```go
+// instead of: NOT EXISTS (SELECT 1 FROM orders WHERE orders.user_id = users.id)
+sub, err := tsq.BuildSubquery(
+	tsq.Select(database.Order_UserID).From(database.TableOrder),
+	database.Order_UserID,
+)
+// ... then: database.User_ID.NIn(sub)
+```
+
+That rewrite is equivalent only when the subquery column cannot be `NULL`. In SQL three-valued logic, `NOT IN` over a result set containing `NULL` returns no rows at all, while the correlated `NOT EXISTS` returns the non-matching rows. Filter the `NULL`s out in the subquery when the column is nullable.
 
 ## 12. Dialect capability boundaries
 

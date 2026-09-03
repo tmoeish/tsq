@@ -7,6 +7,18 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 项目遵循 [语义化版本控制](https://semver.org/lang/zh-CN/)。
 
+## [未发布]
+
+### 新增
+
+- **`tsq.TableWithCols(table, cols)`**: 原样返回 `table`，第二个参数从不被读取。它存在的唯一目的是让包级表变量对列切片留下一次**可见的引用**。生成代码现在把表变量声明成 `var TableXxx tsq.Table = tsq.TableWithCols(Xxx{}, Xxx__Cols)`。手写 `tsq.Table` 实现的使用者应照同样的方式声明。
+
+### 修复
+
+- **只选部分列的包级查询变量会在包初始化时 panic，报"列不属于本表"**: 现象是 `column deleted_at does not belong to table task` 指着一列明明存在的列。成因是 Go 的包级初始化顺序只认初始化表达式里出现的引用，而 `Cols()` 是通过接口方法在运行期去取 `Xxx__Cols` 的，依赖分析看不见——只选部分列的**投影**查询从头到尾不会提到那个切片，于是可以排在它前面初始化。此时切片不是空的（空会被当成"没有列信息"而放行），而是**长度已满、元素全是 `nil`**：切片头是编译期静态数据，元素赋值发生在 init 里。炸不炸取决于包内文件名顺序，所以同一种写法在一个文件里正常、换个文件就 panic，而报错内容完全不指向成因。修法是让依赖显式可见（见上面的 `TableWithCols`）。**使用者需要重新生成代码**：此前生成的表变量里没有这个锚点。用 `Select(Xxx__Cols...)` 的常规查询从来不受影响。
+- **列校验对"列切片尚未初始化"给出可诊断的报错**: 表报告了 N 列但每一列都是 `nil` 时，不再说"列不属于本表"，而是直接说明列切片正在被包初始化填好之前读取，并指向 `tsq.TableWithCols`。这条路径覆盖手写的 `tsq.Table` 实现和尚未重新生成的旧代码。
+- **join 图报错不再建议用 `CrossJoin` 绕过相关子查询**: 子查询引用外层表时，此前的报错是 `table X is referenced outside the join graph; use CrossJoin to include it explicitly`。照做能编译、能构建、也能跑，但子查询里的那张表会**遮蔽**外层同名表，谓词随即不再相关——对每一行外层数据取值都相同，`NOT EXISTS` 写法的典型表现是返回全部行或一行不返回，且没有任何报错。现在的报错说明这张表不在本查询的 `FROM`/`JOIN` 图里，并明确指出相关子查询不受支持、把那张表 join 进来会改变语义。TSQ 仍然不支持相关子查询，改写方式见 README 与 `skills/tsq`。
+
 ## [4.9.0] - 2026-09-03
 
 ### 新增

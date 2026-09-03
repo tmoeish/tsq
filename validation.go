@@ -113,14 +113,31 @@ func validateColumnBelongsToTable(col SQLColumn, table Table) error {
 			goto transformed
 		}
 
+		populated := 0
+
 		for _, candidate := range cols {
 			if isNilValue(candidate) {
 				continue
 			}
 
+			populated++
+
 			if candidate.Name() == source.columnName() {
 				return nil
 			}
+		}
+
+		// A sized column list whose entries are all nil is never a real table: it
+		// is a package-level column slice observed before its elements were
+		// assigned. See TableWithCols for why that happens and how to prevent it.
+		if populated == 0 {
+			return fmt.Errorf(
+				"table %s reported %d columns but every one of them is still nil, so column %s "+
+					"cannot be validated: the table's column slice is being read before package "+
+					"initialization filled it in. Declare the table variable with tsq.TableWithCols "+
+					"so that dependency is visible to Go, or regenerate with a tsq version that does",
+				table.Table(), len(cols), source.columnName(),
+			)
 		}
 
 		return fmt.Errorf("column %s does not belong to table %s", source.columnName(), table.Table())

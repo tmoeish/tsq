@@ -120,8 +120,16 @@ func (spec querySpec[O]) validateJoinGraph() error {
 			continue
 		}
 
+		// The advice deliberately stops short of recommending CrossJoin outright.
+		// When this query is being built as a subquery, the offending table is
+		// usually an outer table referenced by a correlated predicate, and joining
+		// it here shadows the outer table instead of correlating with it: the
+		// predicate silently becomes uncorrelated and the query still runs.
 		return fmt.Errorf(
-			"table %s is referenced outside the join graph; use CrossJoin to include it explicitly",
+			"table %s is referenced but is not in this query's FROM/JOIN graph; "+
+				"join it explicitly if it belongs to this query, "+
+				"but note that a correlated reference to an outer query's table is not supported "+
+				"and joining that table here would change the query's meaning",
 			tableName,
 		)
 	}

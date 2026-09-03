@@ -17,7 +17,13 @@ import (
 // =============================================================================
 
 // TableCourse implements the tsq.Table interface for Course.
-var TableCourse tsq.Table = Course{}
+//
+// The Course__Cols argument is never read. It makes this variable depend on the
+// column slice so that Go initializes the slice first: Cols reaches it through an
+// interface method, which package initialization ordering cannot see. Without it a
+// package-level query variable in a file sorting before this one can observe
+// Course__Cols fully sized with nil elements.
+var TableCourse tsq.Table = tsq.TableWithCols(Course{}, Course__Cols)
 
 // TSQOwner marks Course as a TSQ owner.
 func (c Course) TSQOwner() {}

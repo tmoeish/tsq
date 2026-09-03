@@ -177,3 +177,26 @@ type Table interface {
 	AutoIncrement() bool           // AutoIncrement reports whether inserts rely on generated primary keys.
 	VersionColumn() string         // VersionColumn returns the optimistic-lock column name, if any.
 }
+
+// TableWithCols returns table unchanged. The cols argument is never read: it
+// exists so that a package-level table variable records a visible dependency on
+// the column slice that the table's Cols method returns.
+//
+// Go orders package-level variable initialization by the references that appear
+// in initialization expressions. Cols reaches its column slice through an
+// interface method call, which that analysis cannot see, so a package-level
+// query variable that selects individual columns never mentions the slice and
+// may be initialized before it. The slice is not empty at that point but fully
+// sized with nil elements, because the compiler emits the slice header as static
+// data and fills the elements in later, so column validation finds no match and
+// reports that the column does not belong to the table. Whether it happens at
+// all depends on file name order within the package.
+//
+// Generated code uses this helper; declare hand-written tables the same way:
+//
+//	var TableUser tsq.Table = tsq.TableWithCols(User{}, User__Cols)
+func TableWithCols[O Table](table O, cols []BoundColumn[O]) Table {
+	_ = cols
+
+	return table
+}

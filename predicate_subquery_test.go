@@ -202,3 +202,28 @@ func TestUnsupportedSubqueryPredicatesDeferred(t *testing.T) {
 		})
 	}
 }
+
+// A subquery cannot reference an outer table: the join-graph check rejects it.
+// The message must not send the reader to CrossJoin, which builds instead a
+// query that runs and silently answers a different question, because the joined
+// table shadows the outer one and the predicate stops being correlated.
+func TestSubquery_CorrelatedReferenceIsRejectedWithoutRecommendingAJoin(t *testing.T) {
+	users := newMockTable("users")
+	orders := newMockTable("orders")
+	userID := newColForTable[Table, int](users, "id", "id", nil)
+	orderID := newColForTable[Table, int](orders, "id", "id", nil)
+	orderUserID := newColForTable[Table, int](orders, "user_id", "user_id", nil)
+
+	_, err := Select(orderID).From(orders).Where(orderUserID.EQ(userID)).Build()
+	if err == nil {
+		t.Fatal("expected a correlated reference to an outer table to be rejected")
+	}
+
+	if !strings.Contains(err.Error(), "correlated reference to an outer query's table is not supported") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if strings.Contains(err.Error(), "CrossJoin") {
+		t.Fatalf("error must not recommend CrossJoin for a correlated reference: %v", err)
+	}
+}

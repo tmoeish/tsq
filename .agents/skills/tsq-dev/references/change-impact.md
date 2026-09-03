@@ -236,6 +236,19 @@
 - `skills/tsq` 里凡是提到生成方法名的地方都要同步。`[门禁: skill-check templates]`
 - 模板里新用的辅助函数要加进 `template_helpers.go` 并配测试。
 
+## 改了生成的 `var TableXxx` 声明，或改了 `Cols()` 怎么拿到列切片
+
+- 表变量必须继续**在初始化表达式里写出** `Xxx__Cols`（现在靠 `tsq.TableWithCols` 的第二个
+  参数）。`Cols()` 是接口方法，Go 的包级初始化顺序分析看不见它；少了这次引用，只选部分列
+  的投影查询变量可以先于列切片初始化，那时切片长度已满而元素全 `nil`，`MustBuild()` 在包
+  初始化时 panic。**这个参数看起来没用，删了它报错不会立刻回来**——回来的是随文件名漂移的
+  panic，见 `memory.md`。
+- 门是 `examples/academy/academyqueries.go`：一个只选部分列、且**文件名排在 `course.tsq.go`
+  之前**的包级查询变量。给它改名或让它改用 `Select(Course__Cols...)` 都等于关掉这道门，
+  而 `gen-check` 和 `api-check` 都发现不了。它只在示例程序真的跑起来时才响
+  （`make examples` 之后的 `./bin/examples/full-suite`，harness 里的 `examples-run`）。
+- 使用者必须重新生成才能拿到这个锚点，所以这类改动要在 CHANGELOG 里明写"需要重新生成"。
+
 ## 改了 DDL 推导（`internal/cmd/ddl_render.go`）
 
 - 三个方言的 `.sql` 输出都会变，`tsq.json` 快照也会变。看 diff 确认是预期的。
