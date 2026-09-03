@@ -241,6 +241,24 @@ if err := tsq.Update(ctx, runtime, user); err != nil {
 
 如果你的写逻辑天然支持“重读后重算再提交”，也可以配合 `runtime.WithTx(..., &tsq.TxOptions{Retry: tsq.IsOptimisticLockError}, ...)` 把这类冲突交给事务 helper 重试。
 
+### 3.8 按条件批量改写用 `UpdateTable` / `DeleteFrom`，不要先查再逐行 `Update`
+
+“把满足条件的行都改掉”是一条 SQL 的事。先 `List` 再逐行 `Update(...)` 既多一次往返，又让每一行都走一遍乐观锁校验，而那正是这类需求不想要的：
+
+```go
+affected, err := tsq.
+	UpdateTable[database.Order]().
+	SetVal(database.Order_Status, "expired").
+	SetVal(database.Order_UpdatedAt, null.TimeFrom(time.Now())).
+	Where(database.Order_Status.EQVal("pending"), database.Order_CreatedAt.LTVar()).
+	Exec(ctx, runtime, cutoff)
+```
+
+- 这类语句不校验 `version`，但会自增它。批量改动之前加载的对象随后 `Update(...)` 会拿到 `ErrOptimisticLockConflict`，按 3.7 处理。
+- `updated_at` / `deleted_at` 需要就显式 `SetVal`，构建器不会替你盖时间戳。
+- `Where(...)` 必需。真要全表操作，写显式的 `tsq.And()`，让意图留在代码里。
+- 它是单条语句，不分块；`InVar` 传超大切片会撞方言的参数上限，那种场景用 `tsq.ChunkedDeleteByPKs` 或自己切片。
+
 ## 4. Field pointer 和 `Into(...)`
 
 ### 4.1 field pointer 要能安全处理 nil / 错误类型

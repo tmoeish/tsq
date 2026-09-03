@@ -46,6 +46,7 @@
 | 执行器接口与包装 | `executor.go`、`executor_wrap.go`、`sql_executor.go` |
 | 写操作（Insert / Update / Delete / Upsert） | `executor_mutation.go`、`executor_mutation_meta.go` |
 | 分批写（`ChunkedInsert` / `ChunkedUpdate` / `ChunkedDelete`） | `query_chunked.go`（chunk 大小按方言的绑定参数上限换算，见 `change-impact.md`） |
+| 按条件写（`UpdateTable` / `DeleteFrom`、`MutationStage`、`Mutation.Exec`） | `mutation.go`（`mutation_test.go` 守语句形状、参数顺序与 `version` 自增；`integration_test.go` 的 `TestIntegrationMutationsByCondition` 在三方言上真跑） |
 
 ## 根包：运行时
 

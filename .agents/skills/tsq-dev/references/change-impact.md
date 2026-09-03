@@ -33,6 +33,22 @@
   ORDER BY / LIMIT 这类作用于整个查询的子句必须在体**之外**拼（`buildQueryTail`），
   又必须在行锁**之前**——SQL 把锁放最后。
 
+## 改了按条件写语句（`mutation.go`）
+
+- **`version` 自增不校验是契约**，`mutation_test.go` 的
+  `TestUpdateTableIncrementsVersionWithoutCheckingIt` 守着两个方向：SET 里有 `+ 1`，WHERE 里
+  没有版本列。去掉自增会让并发的乐观锁静默失效，加上校验会让它退化成逐行更新。
+- **语句形状要在三个方言上真跑**：SET 左侧不带表限定、WHERE 带表限定，这个组合是靠
+  `integration_test.go` 的 `TestIntegrationMutationsByCondition` 证明的，不是靠字符串比对。
+  改渲染就要看 CI 的 `Integration` job，本地只有 SQLite。
+- `Set*` 是泛型方法，只能长在 `Where` 之前的具体类型上；想在 `Where` 之后加子句，那个阶段
+  就不能是接口，或者那个子句不能是泛型的。`compilefail_test.go` 里 `update_*` / `delete_*`
+  用例守着"`Where` 之后没有 `Set*` / `Where`、没有 `Where` 就没有 `Build`"。
+- 新增的赋值来源（新的 `Set*` 变体）要过 `validateColumnInput`——列值自带的构建错误
+  （错的 `Exprf`）在 `argumentToExpression` 里会被拍平成普通片段，只有按列校验才抓得到。
+- 使用者文档三处要同步：`skills/tsq/references/REFERENCE.md` §8 与 §13、`README.md`
+  "常见边界"、`BEST_PRACTICES.md` §3.8。
+
 ## 改了 `Page()` 或构建器级分页
 
 `Page()` 是**追加**自己的 `ORDER BY` / `LIMIT` / `OFFSET`，不是替换。所以构建器级分页和

@@ -62,6 +62,32 @@ From(...)    ──► FromStage    ──Select─► ├──► queryBuilder
 - `queryBuilderCore` 持有所有阶段共享的状态；具体 builder 只是它的类型化外壳。
 - `builderPhase` 用来在运行期给出更好的错误信息，它**不是**约束的来源，类型才是。
 
+### 写路径的阶段机（`mutation.go`）
+
+```
+UpdateTable[T]() ──► *updateBuilder ─Set/SetVal/SetVar─► *updateBuilder ─Where─► MutationStage
+DeleteFrom[T]()  ──► *deleteBuilder ──────────────────────────────────────Where─► MutationStage
+MutationStage ─Build──► *Mutation[T] ─Exec──► RowsAffected
+```
+
+- `Where(...)` 必需且只能一次：两个 builder 只有 `Where` 能到达 `MutationStage`，而
+  `MutationStage` 上只有 `Build` / `MustBuild` / `Exec`。
+- `Set` / `SetVal` / `SetVar` 是**泛型方法**（`func (b *updateBuilder[O]) SetVal[T any](col
+  TypedColumn[O, T], value T)`），列和值的类型在签名里钉死。接口方法不能带类型参数，所以
+  它们只能住在 `Where` 之前的未导出具体类型上，`Where` 之后才切到接口——这是
+  "`Set*` 在前、`Where` 在后"这个顺序的真正原因。
+- `T` 必须是生成的值类型（`Course`，不是 `*Course`）：目标表从 `var zero T` 取，指针零值
+  拿不到元数据，`Build()` 会拒绝。
+- 语句形状：SET 左侧是**不带表限定**的列名（PostgreSQL 不接受 `SET t.c = ...`），WHERE
+  里沿用查询的 `table.col` 标识符标记；三个方言都接受这个组合，由集成测试证明。
+- 有 `VersionColumn()` 的表自动追加 `version = version + 1`，WHERE **不**带版本。理由见
+  `memory.md`。显式 `Set` 版本列是构建错误。
+- 只允许引用目标表本身且不带别名；JOIN / `UPDATE ... FROM` / `LIMIT` / `RETURNING` 在三个
+  方言里写法各异，第一版不做。子查询谓词放行。
+- 执行路径和 `List` 对齐：`resolveQueryWithState` 绑参 → `validateOperationalExecutorForSQL`
+  → `renderSQLForExecutor` → `logSQLForExecutor("update"/"delete")` → `ExecContext`。
+  不分块，不新增方言能力位。
+
 ## 从构建到执行
 
 1. `Build()` → `*Query[O]`。这一步只做**结构**校验（`query_validation.go`、
@@ -84,6 +110,7 @@ Go 1.27 允许具体 receiver 的方法声明自己的类型参数，因此类�
 - `Query.AsSubquery(selected)` 在已构建查询上产出类型化子查询。
 - `Runtime.WithTxResult(...)` 执行带一个类型化返回值的事务；多个相关值用小结果结构体承载。
 - `PageRequest.Response(total, data)` 构造类型化分页响应。
+- `updateBuilder.Set` / `SetVal` / `SetVar` 在 `UPDATE` 构建器上按列推导值类型。
 
 没有把所有泛型函数机械地改成方法。`QueryStage`、`SQLExecutor`、`Column` / `ValueColumn` 都是
 接口，而 Go 1.27 仍禁止接口方法声明类型参数；`BuildSubquery`、`MapInto`、mutation/chunked

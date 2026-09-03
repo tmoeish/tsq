@@ -212,6 +212,7 @@ TSQ 当前内置的 `Dialect` 实现只有 **SQLite / MySQL / PostgreSQL**。下
 | 类型安全列与链式查询 | ✅ | ✅ | ✅ | `tsq.Select(...).From(table).Where(...).Build()` |
 | `@RESULT` 结果映射 | ✅ | ✅ | ✅ | 生成 `*.result.tsq.go` |
 | 自动乐观锁（`version`） | ✅ | ✅ | ✅ | `Update/Delete` 在执行时按 `VersionColumn()` 做版本校验 |
+| 按条件批量 `UPDATE` / `DELETE`（`tsq.UpdateTable` / `tsq.DeleteFrom`） | ✅ | ✅ | ✅ | 不校验 `version` 但会自增它；只引用目标表，不支持 JOIN / `LIMIT` / `RETURNING` |
 | `InVar()` / `NInVar()` 动态集合过滤 | ✅ | ✅ | ✅ | 执行时展开参数 |
 | `CASE` 表达式 | ✅ | ✅ | ✅ | 构建与执行都支持 |
 | 行锁读取（`FOR UPDATE` / `FOR SHARE`） | ❌ | ✅ | ✅ | 能否执行取决于运行时 dialect |
@@ -328,7 +329,25 @@ query, err := tsq.
 - 如果匹配行数少于预期，会返回 `ErrOptimisticLockConflict`
 
 这不是“仅提供版本元数据”的弱约定，而是默认生效的 mutation 语义。  
-如果你不想启用自动乐观锁，就不要给表声明 `version` 列。
+按条件的批量语句（下一节）有意绕开这道校验；如果连单行写入都不想要乐观锁，就不要给表声明 `version` 列。
+
+### `UpdateTable` / `DeleteFrom` 是按条件写，不校验乐观锁
+
+调用方手里没有行对象、只想“把满足条件的行都改掉”时，用阶段式的语句构建器，不要先查再逐行 `Update`：
+
+```go
+affected, err := tsq.
+	UpdateTable[academy.Enrollment]().
+	SetVal(academy.Enrollment_Status, academy.EnrollmentStatusCompleted).
+	Where(academy.Enrollment_CourseID.EQVar(), academy.Enrollment_DeletedAt.EQVal(0)).
+	Exec(ctx, runtime, courseID)
+```
+
+- `Set` / `SetVal` / `SetVar` 是泛型方法，列和值的类型在编译期对上。
+- `Where(...)` 必需且只能一次，由类型系统强制；全表操作要写显式恒真条件（如 `tsq.And()`）。
+- 不校验 `version`，但有 `version` 的表会自动 `version = version + 1`，让批量改动之前加载的对象在自己的 `Update(...)` 时拿到冲突。显式赋值版本列是构建错误。
+- `updated_at` / `deleted_at` 不自动处理，需要就显式 `SetVal`；软删表的活跃行过滤也要自己加。
+- 只能引用目标表本身，不支持 JOIN、别名、`LIMIT`、`RETURNING`；子查询条件可以用。
 
 ### Chunked helper 的事务边界由调用方控制
 

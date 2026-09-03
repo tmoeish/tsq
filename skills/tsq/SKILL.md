@@ -1,6 +1,6 @@
 ---
 name: tsq
-description: Use this skill when working in a Go project that wants to adopt TSQ, annotate structs with @TABLE or @RESULT, run tsq fmt or tsq gen, initialize tsq.Runtime, or build typed SQL queries, CRUD flows, pagination, search, subqueries, CASE, CTE, set operations, and transactions with TSQ.
+description: Use this skill when working in a Go project that wants to adopt TSQ, annotate structs with @TABLE or @RESULT, run tsq fmt or tsq gen, initialize tsq.Runtime, or build typed SQL queries, CRUD flows, bulk UPDATE / DELETE by condition, pagination, search, subqueries, CASE, CTE, set operations, and transactions with TSQ.
 license: MIT
 compatibility: Intended for GitHub Copilot, Claude Code, and Gemini CLI in Go repositories where the agent can inspect files and optionally run Go or tsq commands.
 metadata:
@@ -23,7 +23,7 @@ describes the implementation.
 - the task involves `@TABLE`, `@RESULT`, `tsq fmt`, or `tsq gen`
 - the task involves generated `*.tsq.go` files
 - the user wants typed query building instead of handwritten SQL helpers
-- the task involves TSQ paging, search, CRUD helpers, transactions, aliases, subqueries, `CASE`, CTEs, set operations, or optimistic locking
+- the task involves TSQ paging, search, CRUD helpers, bulk `UPDATE` / `DELETE` by condition, transactions, aliases, subqueries, `CASE`, CTEs, set operations, or optimistic locking
 
 ## Primary goals
 
@@ -44,6 +44,7 @@ describes the implementation.
 - Use `Runtime.WithTx(...)` when several TSQ operations must share one transaction.
 - Use `Runtime.WithTxResult(...)` when that transaction callback returns a typed value; prefer a small result struct over the deprecated arity-specific helpers.
 - Use `query.Scalar(ctx, exec, selectedColumn, args...)` for a typed single-column result and `query.AsSubquery(selectedColumn)` for a built typed subquery.
+- Use `tsq.UpdateTable[T]()` / `tsq.DeleteFrom[T]()` for `UPDATE ... WHERE` / `DELETE ... WHERE` over rows the caller does not hold. They skip the optimistic-lock check but still increment `version`, never touch `updated_at` / `deleted_at` on their own, and require exactly one `Where(...)`.
 - Do not assume this skill ships management scripts; install or upgrade TSQ with explicit `go install .../cmd/tsq@version` commands, and run `tsq fmt` / `tsq gen` directly against the chosen package.
 - The builder is stage-based: `Where(...)` and `Search(...)` each appear at most once per chain, enforced by the Go type system at compile time. Pass all filter conditions to the single `Where(...)` call; use `tsq.Or(...)` for OR groups. Both clauses can coexist in either order.
 - Remember that `InVar()` with an empty or nil slice means explicit no-match.
@@ -78,6 +79,7 @@ describes the implementation.
 - do not treat `NInVar(nil)` as “reject everything”
 - do not use legacy `kw`; use `search=[...]`
 - do not move transaction boundaries into hidden helper behavior
+- do not emulate `UPDATE ... WHERE` by listing rows and calling `Update(...)` per row; use `tsq.UpdateTable[T]()`
 
 ## Reference map
 

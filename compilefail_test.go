@@ -456,6 +456,86 @@ var _ = tsq.Select[userOwner](userID).
 			want: "Limit undefined",
 		},
 		{
+			name: "update_where_twice",
+			body: `
+var _ = tsq.UpdateTable[userOwner]().
+	SetVal(userID, 1).
+	Where(userID.EQVal(1)).
+	Where(userID.EQVal(2))
+`,
+			want: "Where undefined",
+		},
+		{
+			name: "update_build_requires_where",
+			body: `
+var _, _ = tsq.UpdateTable[userOwner]().SetVal(userID, 1).Build()
+`,
+			want: "Build undefined",
+		},
+		{
+			name: "update_set_after_where",
+			body: `
+var _ = tsq.UpdateTable[userOwner]().
+	SetVal(userID, 1).
+	Where(userID.EQVal(1)).
+	SetVal(userName, "x")
+`,
+			want: "SetVal undefined",
+		},
+		{
+			name: "update_set_rejects_wrong_owner",
+			body: `
+var _ = tsq.UpdateTable[userOwner]().SetVal(orderID, 1)
+`,
+			want: "type tsq.Column[orderOwner, int] of orderID does not match inferred type tsq.TypedColumn[userOwner, int]",
+		},
+		{
+			name: "update_set_rejects_wrong_value",
+			body: `
+var _ = tsq.UpdateTable[userOwner]().SetVal(userID, "one")
+`,
+			want: "cannot use \"one\"",
+		},
+		{
+			name: "update_set_rejects_wrong_rhs_value",
+			body: `
+var _ = tsq.UpdateTable[userOwner]().Set(userID, userName)
+`,
+			want: "type tsq.Column[userOwner, string] of userName does not match inferred type tsq.RHS[int]",
+		},
+		{
+			name: "update_table_rejects_non_table",
+			body: `
+type nonTableOwner struct{}
+
+var _ = tsq.UpdateTable[nonTableOwner]()
+`,
+			want: "nonTableOwner does not satisfy tsq.Table",
+		},
+		{
+			name: "delete_where_twice",
+			body: `
+var _ = tsq.DeleteFrom[userOwner]().
+	Where(userID.EQVal(1)).
+	Where(userID.EQVal(2))
+`,
+			want: "Where undefined",
+		},
+		{
+			name: "delete_build_requires_where",
+			body: `
+var _, _ = tsq.DeleteFrom[userOwner]().Build()
+`,
+			want: "Build undefined",
+		},
+		{
+			name: "mutation_builders_hidden",
+			body: `
+var _ tsq.UpdateBuilder[userOwner]
+`,
+			want: "undefined: tsq.UpdateBuilder",
+		},
+		{
 			name: "locked_stage_rejects_where",
 			body: `
 var _ = tsq.Select[userOwner](userID).
