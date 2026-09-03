@@ -7,6 +7,12 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 项目遵循 [语义化版本控制](https://semver.org/lang/zh-CN/)。
 
+## [未发布]
+
+### 新增
+
+- **按条件的批量 `UPDATE` / `DELETE`（`tsq.UpdateTable[T]()` / `tsq.DeleteFrom[T]()`）**: 此前“把满足条件的行都改掉”在 TSQ 里没有入口，只能先 `List` 再逐行 `Update`（每行都走乐观锁校验）或退回裸 SQL。现在是一个阶段式构建器：`Set` / `SetVal` / `SetVar` 是 Go 1.27 的泛型方法，列和值的类型在编译期对上；`Where(...)` 必需且只能一次，由类型系统强制；`Build()` 产出可复用的 `*tsq.Mutation[T]`，`Exec` 返回影响行数。这类语句**不校验** `version`，但有 `version` 的表会自动 `version = version + 1`，让批量改动之前加载的对象在自己的 `Update(...)` 时拿到 `ErrOptimisticLockConflict`；显式赋值版本列是构建错误。`updated_at` / `deleted_at` 不自动处理。只能引用目标表本身，不支持 JOIN、别名、`LIMIT`、`RETURNING`；子查询条件可以用。三个方言都经集成测试真跑验证。
+
 ## [4.8.0] - 2026-08-28
 
 ### 新增

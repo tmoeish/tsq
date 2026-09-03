@@ -471,6 +471,8 @@ Typical stages include:
 
 Builder state can branch safely, but the main reusable object is the built query.
 
+Writes by condition use the same staged style with `tsq.UpdateTable[T]()` / `tsq.DeleteFrom[T]()` (section 8).
+
 ### Ordering and slicing
 
 `OrderBy` takes terms built from typed columns with `Asc()` / `Desc()`:
@@ -574,6 +576,44 @@ Execution is via methods on the built `*Query[O]`:
 The fixed-type `QueryInt`, `QueryFloat`, and `QueryString` methods are deprecated compatibility wrappers around the generic scalar execution path.
 
 All methods take an explicit `context.Context` and a `SQLExecutor`.
+
+### Bulk `UPDATE` / `DELETE` by condition
+
+`Update(ctx, exec, item)` and `Delete(ctx, exec, item)` work on one loaded row and honor optimistic locking. When the caller does not hold the rows ("set these columns on every row matching this condition"), build a statement instead:
+
+```go
+var CompleteCourseEnrollments = tsq.
+	UpdateTable[database.Enrollment]().
+	SetVal(database.Enrollment_Status, database.EnrollmentStatusCompleted).
+	SetVar(database.Enrollment_Score).
+	Where(database.Enrollment_CourseID.EQVar(), database.Enrollment_DeletedAt.EQVal(0)).
+	MustBuild()
+
+affected, err := CompleteCourseEnrollments.Exec(ctx, runtime, int64(88), courseID)
+
+var PurgeEnrollments = tsq.
+	DeleteFrom[database.Enrollment]().
+	Where(database.Enrollment_UID.InVar()).
+	MustBuild()
+
+affected, err = PurgeEnrollments.Exec(ctx, runtime, uids)
+```
+
+Shape:
+
+- `tsq.UpdateTable[T]()` / `tsq.DeleteFrom[T]()` take the generated table type as an explicit type parameter: the value type (`Enrollment`), not `*Enrollment`
+- `Set(col, rhs)` takes a typed column or expression of the same value type, or a typed scalar subquery; `SetVal(col, value)` binds a Go value; `SetVar(col)` takes the value from `Exec` at execution time. Column and value types are matched at compile time
+- `Where(...)` is required and appears exactly once; the type system enforces both. Conditions are ANDed, use `tsq.Or(...)` for alternatives. A full-table statement needs an explicit always-true condition such as `tsq.And()`
+- `Build()` returns `*tsq.Mutation[T]`, immutable and safe to share; `MustBuild()` panics on a build error; `Exec(ctx, exec, args...)` returns the affected row count. `Exec` on the builder builds and runs in one step
+- `Exec` arguments fill placeholders in statement order: `SetVar` first, then the `*Var` predicates of `Where`
+
+Rules:
+
+- the statement never checks the `version` column. `UpdateTable` on a table that declares `version` still adds `version = version + 1`, so rows loaded before the bulk change fail their own `Update(...)` with `ErrOptimisticLockConflict`. Assigning the version column yourself is a build error
+- managed `updated_at` / `deleted_at` fields are not touched automatically. Set them explicitly (`SetVal(database.Enrollment_UpdatedAt, now)`) and add the active-row filter (`database.Enrollment_DeletedAt.EQVal(0)`) yourself on soft-delete-aware tables. A bulk soft delete is an `UpdateTable` that sets `deleted_at`
+- assignments and conditions may reference only the target table, unaliased. `JOIN`, `UPDATE ... FROM`, aliases, `LIMIT`, `ORDER BY`, and `RETURNING` are not supported; each dialect spells them differently. Subquery predicates (`In(subquery)`, `EQ(subquery)`) are fine. MySQL rejects a subquery that reads the table being modified (error 1093); that is a database rule, not a TSQ one
+- it is a single `UPDATE` / `DELETE` and is not chunked. A very large `InVar` slice can exceed the dialect's bind-parameter ceiling; use `ChunkedDeleteByPKs` or slice the input yourself
+- `Exec` needs an executor with a known dialect (a `Runtime`, a `WithTx` executor, or a `WrapExecutor` result); a bare `*sql.DB` is rejected
 
 ## 9. Runtime and transactions
 
@@ -714,8 +754,9 @@ If a table declares a `version` column:
 - successful updates increment the in-memory version
 - `Delete(...)` also checks version
 - conflicts return `ErrOptimisticLockConflict`
+- `UpdateTable[T]()` / `DeleteFrom[T]()` statements do **not** check the version; a bulk `UPDATE` still increments it so that rows loaded earlier conflict afterwards (see section 8)
 
-If the desired behavior is “no optimistic locking,” do not declare a managed `version` column.
+Bulk statements by condition skip the check by design. If even per-row writes should not use optimistic locking, do not declare a managed `version` column.
 
 ## 14. Important semantic edges
 

@@ -83,6 +83,8 @@ func WithTx2[T1, T2 any](
 	options *TxOptions,
 	fn func(context.Context, SQLExecutor) (T1, T2, error),
 ) (T1, T2, error)
+func DeleteFrom[O Table]() *deleteBuilder[O]
+func UpdateTable[O Table]() *updateBuilder[O]
 TYPES
 type BoundColumn[O Owner] interface {
 	SQLColumn
@@ -309,6 +311,15 @@ type LockedStage[O Owner] interface {
 type Logger interface {
 	Enabled(ctx context.Context, level slog.Level) bool
 	LogAttrs(ctx context.Context, level slog.Level, msg string, attrs ...slog.Attr)
+}
+type Mutation[O Table] struct {
+}
+func (m *Mutation[O]) Exec(ctx context.Context, tx SQLExecutor, args ...any) (int64, error)
+func (m *Mutation[O]) SQL() string
+type MutationStage[O Table] interface {
+	Build() (*Mutation[O], error)
+	MustBuild() *Mutation[O]
+	Exec(ctx context.Context, tx SQLExecutor, args ...any) (int64, error)
 }
 type Order string
 const (

@@ -82,6 +82,7 @@ All `Table` and `Result` values are `Owner`, but only `Table` is a mutation targ
 - it holds DB, dialect, registry, and tracer state
 - it implements `SQLExecutor` directly
 - it can be passed directly to query and CRUD helpers
+- it also executes `UpdateTable[T]()` / `DeleteFrom[T]()` statements, the staged builders for `UPDATE ... WHERE` / `DELETE ... WHERE` over rows the caller does not hold
 
 ## Query lifecycle
 

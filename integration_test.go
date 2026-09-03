@@ -640,3 +640,83 @@ func TestIntegrationManagedPolicyIsScopedToItsOwner(t *testing.T) {
 		})
 	}
 }
+
+// TestIntegrationMutationsByCondition runs UPDATE ... WHERE and DELETE ... WHERE on
+// every target. The statement keeps table-qualified column references in WHERE
+// and bare column names in SET, and that exact shape has to parse on all three
+// dialects; a rendered-string assertion cannot prove that.
+func TestIntegrationMutationsByCondition(t *testing.T) {
+	for _, target := range integrationTargets(t) {
+		t.Run(target.name, func(t *testing.T) {
+			ctx := context.Background()
+
+			dropAcademyTables(t, target)
+			rt, _ := openManaged(t, target, academy.TSQTables(), tsq.SchemaPolicyManaged)
+
+			rows := []*academy.Enrollment{
+				{LearnerID: 1, CourseID: 1, Status: academy.EnrollmentStatusActive},
+				{LearnerID: 2, CourseID: 1, Status: academy.EnrollmentStatusActive},
+				{LearnerID: 3, CourseID: 2, Status: academy.EnrollmentStatusActive},
+			}
+
+			for _, row := range rows {
+				if err := row.Insert(ctx, rt); err != nil {
+					t.Fatalf("insert enrollment: %v", err)
+				}
+			}
+
+			stale := *rows[0]
+
+			affected, err := tsq.UpdateTable[academy.Enrollment]().
+				SetVal(academy.Enrollment_Status, academy.EnrollmentStatusCompleted).
+				SetVar(academy.Enrollment_Score).
+				Where(academy.Enrollment_CourseID.EQVar(), academy.Enrollment_DeletedAt.EQVal(0)).
+				Exec(ctx, rt, int64(88), int64(1))
+			if err != nil {
+				t.Fatalf("bulk update: %v", err)
+			}
+
+			if affected != 2 {
+				t.Fatalf("expected 2 rows updated, got %d", affected)
+			}
+
+			reloaded, err := academy.QueryEnrollmentByUID.GetOrErr(ctx, rt, rows[0].UID)
+			if err != nil {
+				t.Fatalf("reload enrollment: %v", err)
+			}
+
+			if reloaded.Score != 88 || reloaded.Status != academy.EnrollmentStatusCompleted {
+				t.Fatalf("bulk update did not apply: %+v", reloaded)
+			}
+
+			if reloaded.Version != stale.Version+1 {
+				t.Fatalf("expected bulk update to advance version from %d, got %d", stale.Version, reloaded.Version)
+			}
+
+			stale.Score = 1
+			if err := stale.Update(ctx, rt); !tsq.IsOptimisticLockError(err) {
+				t.Fatalf("expected the pre-bulk row to conflict, got %v", err)
+			}
+
+			affected, err = tsq.DeleteFrom[academy.Enrollment]().
+				Where(academy.Enrollment_UID.InVar()).
+				Exec(ctx, rt, []int64{rows[1].UID, rows[2].UID})
+			if err != nil {
+				t.Fatalf("bulk delete: %v", err)
+			}
+
+			if affected != 2 {
+				t.Fatalf("expected 2 rows deleted, got %d", affected)
+			}
+
+			remaining, err := tsq.Select(academy.Enrollment_UID).From(academy.TableEnrollment).MustBuild().Count(ctx, rt)
+			if err != nil {
+				t.Fatalf("count enrollments: %v", err)
+			}
+
+			if remaining != 1 {
+				t.Fatalf("expected 1 enrollment left, got %d", remaining)
+			}
+		})
+	}
+}
