@@ -202,3 +202,116 @@ func TestUnsupportedSubqueryPredicatesDeferred(t *testing.T) {
 		})
 	}
 }
+
+// An outer-table reference that was not declared is still rejected, and the
+// message must not send the reader to a join: joining the outer table in makes
+// it shadow the outer one, so the predicate silently stops being correlated and
+// the query still runs.
+func TestSubquery_UndeclaredCorrelatedReferenceIsRejected(t *testing.T) {
+	users := newMockTable("users")
+	orders := newMockTable("orders")
+	userID := newColForTable[Table, int](users, "id", "id", nil)
+	orderID := newColForTable[Table, int](orders, "id", "id", nil)
+	orderUserID := newColForTable[Table, int](orders, "user_id", "user_id", nil)
+
+	_, err := Select(orderID).From(orders).Where(orderUserID.EQ(userID)).Build()
+	if err == nil {
+		t.Fatal("expected an undeclared correlated reference to be rejected")
+	}
+
+	if !strings.Contains(err.Error(), "declare it with Correlate(users)") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if strings.Contains(err.Error(), "CrossJoin") {
+		t.Fatalf("error must not recommend CrossJoin for a correlated reference: %v", err)
+	}
+}
+
+func TestSubquery_CorrelateRendersOuterReferenceWithoutJoiningIt(t *testing.T) {
+	users := newMockTable("users")
+	orders := newMockTable("orders")
+	userID := newColForTable[Table, int](users, "id", "id", nil)
+	orderID := newColForTable[Table, int](orders, "id", "id", nil)
+	orderUserID := newColForTable[Table, int](orders, "user_id", "user_id", nil)
+
+	sub, err := BuildSubquery(
+		Select(orderID).From(orders).Correlate(users).Where(orderUserID.EQ(userID)),
+		orderID,
+	)
+	if err != nil {
+		t.Fatalf("expected a correlated subquery to build, got %v", err)
+	}
+
+	outer := mustBuild(Select(userID).From(users).Where(userID.NExistsSub(sub)))
+
+	got := renderCanonicalSQL(outer.subquerySQL())
+	want := `SELECT "users"."id" FROM "users" WHERE NOT EXISTS ` +
+		`(SELECT "orders"."id" FROM "orders" WHERE "orders"."user_id" = "users"."id")`
+
+	if got != want {
+		t.Fatalf("expected correlated subquery SQL\n  %s\ngot\n  %s", want, got)
+	}
+}
+
+// Declaring a table as correlated and also joining it is the exact mistake the
+// old CrossJoin advice produced, so it has to be a build error rather than a
+// query that runs and answers a different question.
+func TestSubquery_CorrelateRejectsATableThisQueryAlsoJoins(t *testing.T) {
+	users := newMockTable("users")
+	orders := newMockTable("orders")
+	userID := newColForTable[Table, int](users, "id", "id", nil)
+	orderID := newColForTable[Table, int](orders, "id", "id", nil)
+	orderUserID := newColForTable[Table, int](orders, "user_id", "user_id", nil)
+
+	_, err := Select(orderID).From(orders).
+		Correlate(users).
+		CrossJoin(users).
+		Where(orderUserID.EQ(userID)).
+		Build()
+	if err == nil {
+		t.Fatal("expected a table that is both correlated and joined to be rejected")
+	}
+
+	if !strings.Contains(err.Error(), "would shadow the outer one") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestSubquery_CorrelateRejectsDuplicateAndMissingTables(t *testing.T) {
+	users := newMockTable("users")
+	orders := newMockTable("orders")
+	orderID := newColForTable[Table, int](orders, "id", "id", nil)
+
+	if _, err := Select(orderID).From(orders).Correlate().Build(); err == nil ||
+		!strings.Contains(err.Error(), "at least one outer table") {
+		t.Fatalf("expected Correlate with no table to be rejected, got %v", err)
+	}
+
+	if _, err := Select(orderID).From(orders).Correlate(users, users).Build(); err == nil ||
+		!strings.Contains(err.Error(), "already declared") {
+		t.Fatalf("expected a repeated correlated table to be rejected, got %v", err)
+	}
+}
+
+// A correlated query is not a runnable statement on its own. Refusing it in TSQ
+// names the cause; letting it through produces a database error about a table
+// the reader can plainly see in the SQL.
+func TestSubquery_CorrelatedQueryRefusesStandaloneExecution(t *testing.T) {
+	users := newMockTable("users")
+	orders := newMockTable("orders")
+	userID := newColForTable[Table, int](users, "id", "id", nil)
+	orderID := newColForTable[Table, int](orders, "id", "id", nil)
+	orderUserID := newColForTable[Table, int](orders, "user_id", "user_id", nil)
+
+	query := mustBuild(Select(orderID).From(orders).Correlate(users).Where(orderUserID.EQ(userID)))
+
+	_, err := query.List(t.Context(), nil)
+	if err == nil {
+		t.Fatal("expected a correlated query to refuse standalone execution")
+	}
+
+	if !strings.Contains(err.Error(), "can only be used as a subquery") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}

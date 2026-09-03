@@ -61,6 +61,31 @@ func (qb *queryBuilder[O]) CrossJoin(table Table) *queryBuilder[O] {
 	return &queryBuilder[O]{queryBuilderCore: core}
 }
 
+// Correlate declares outer-query tables that this query may reference without
+// joining them, which is how a correlated subquery is expressed.
+//
+// A query built with Correlate is only valid inside an enclosing query that
+// provides those tables; executing it on its own is refused, because its SQL
+// references a table its own FROM clause does not introduce.
+//
+//	sub, err := tsq.BuildSubquery(
+//		tsq.Select(Order_ID).From(TableOrder).
+//			Correlate(TableUser).
+//			Where(Order_UserID.EQ(User_ID)),
+//		Order_ID,
+//	)
+//	// ... then: tsq.Select(User_ID).From(TableUser).Where(User_ID.NExistsSub(sub))
+//
+// Declaring a table that this query also puts in its own FROM or JOIN clause is
+// a build error: the joined table would shadow the outer one and the predicate
+// would stop being correlated.
+func (qb *queryBuilder[O]) Correlate(tables ...Table) *queryBuilder[O] {
+	core := ensureQueryBuilderCore(qb.core(), builderPhaseBase)
+	core.addCorrelated(tables...)
+
+	return &queryBuilder[O]{queryBuilderCore: core}
+}
+
 // Where sets the WHERE clause for the query.
 func (qb *queryBuilder[O]) Where(conds ...Condition) WhereStage[O] {
 	core := ensureQueryBuilderCore(qb.core(), builderPhaseBase)

@@ -93,6 +93,25 @@ func TestQueryBuilder_CrossJoin(t *testing.T) {
 	}
 }
 
+// Correlate records outer tables without adding anything to the join graph:
+// the whole point is that the table is referenced but not introduced here.
+func TestQueryBuilder_Correlate(t *testing.T) {
+	orders := newMockTable("orders")
+	users := newMockTable("users")
+	orderID := newColForTable[Table, string](orders, "id", "id", nil)
+	qb := Select(orderID).From(orders).Correlate(users)
+	core := mustBuilderCore[Table](t, qb)
+	if len(core.spec.Correlated) != 1 {
+		t.Fatalf("Expected 1 correlated table, got %d", len(core.spec.Correlated))
+	}
+	if core.spec.Correlated[0].Table() != "users" {
+		t.Errorf("Expected correlated table 'users', got '%s'", core.spec.Correlated[0].Table())
+	}
+	if len(core.spec.Joins) != 0 {
+		t.Errorf("Expected Correlate to add no join, got %d", len(core.spec.Joins))
+	}
+}
+
 func TestQueryBuilder_GroupBy(t *testing.T) {
 	table1 := newMockTable("users")
 	col1 := newMockColumn(table1, "department")

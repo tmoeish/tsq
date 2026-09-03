@@ -18,6 +18,7 @@ type querySpec[O Owner] struct {
 	Offset        *int              // Offset stores the optional OFFSET; nil means no offset.
 	Lock          queryLock         // Lock stores the optional row-lock clause.
 	SetOps        []setOperation[O] // SetOps stores UNION/INTERSECT/EXCEPT operations appended to the query.
+	Correlated    []Table           // Correlated stores outer-query tables this query may reference without joining them.
 }
 
 type queryPlan struct {
@@ -36,7 +37,7 @@ func buildQueryPlan[O Owner](spec querySpec[O]) (*queryPlan, error) {
 		return nil, fmt.Errorf("empty select fields: %+v", spec)
 	}
 
-	if err := spec.validateJoinGraph(); err != nil {
+	if err := spec.validateJoinGraph(nil); err != nil {
 		return nil, err
 	}
 

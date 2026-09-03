@@ -37,7 +37,13 @@ import (
 // =============================================================================
 
 // {{$varTbl}} implements the tsq.Table interface for {{$type}}.
-var {{$varTbl}} tsq.Table = {{$type}}{}
+//
+// The {{$varTblCols}} argument is never read. It makes this variable depend on the
+// column slice so that Go initializes the slice first: Cols reaches it through an
+// interface method, which package initialization ordering cannot see. Without it a
+// package-level query variable in a file sorting before this one can observe
+// {{$varTblCols}} fully sized with nil elements.
+var {{$varTbl}} tsq.Table = tsq.TableWithCols({{$type}}{}, {{$varTblCols}})
 
 // TSQOwner marks {{$type}} as a TSQ owner.
 func ({{$dot.Recv}} {{$type}}) TSQOwner() {}

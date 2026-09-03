@@ -84,7 +84,7 @@ func TestColumnValidation_ResultColumnRequiresSourceTableInJoinGraph(t *testing.
 		t.Fatal("expected missing source table for Result column to fail join-graph validation")
 	}
 
-	if !strings.Contains(err.Error(), "table items is referenced outside the join graph") {
+	if !strings.Contains(err.Error(), "table items is referenced but is not in this query's FROM/JOIN graph") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -351,5 +351,35 @@ func TestJoinValidation_NonEqualityConditionSucceeds(t *testing.T) {
 	want := `SELECT "users"."score" FROM "users" INNER JOIN "orders" ON "users"."score" >= "orders"."minimum_score"`
 	if got := query.ListSQL(); got != want {
 		t.Fatalf("expected non-equality join SQL %q, got %q", want, got)
+	}
+}
+
+// A package-level column slice observed before its elements are assigned is
+// fully sized with nil entries, not empty. The message has to name that cause:
+// "column X does not belong to table Y" sends the reader looking at the schema.
+func TestColumnValidation_ReportsUninitializedColumnSlice(t *testing.T) {
+	users, cols := newStrictMockTable("users", "id", "name")
+	id := cols[0]
+	users.cols = make([]SQLColumn, len(users.cols))
+
+	_, err := Select(id).
+		From(users).
+		Build()
+	if err == nil {
+		t.Fatal("expected an all-nil column slice to be reported")
+	}
+
+	if !strings.Contains(err.Error(), "every one of them is still nil") ||
+		!strings.Contains(err.Error(), "tsq.TableWithCols") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestTableWithCols_ReturnsTableUnchanged(t *testing.T) {
+	users, cols := newStrictMockTable("users", "id")
+	bound := []BoundColumn[Table]{cols[0]}
+
+	if got := TableWithCols[Table](users, bound); got != Table(users) {
+		t.Fatalf("expected the table to be returned unchanged, got %#v", got)
 	}
 }

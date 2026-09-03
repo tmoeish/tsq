@@ -65,7 +65,7 @@ func TestQueryBuilder_CaseExpressionTracksConditionTables(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected CASE expression to surface orgs table into join validation")
 	}
-	if !strings.Contains(err.Error(), "use CrossJoin") {
+	if !strings.Contains(err.Error(), "table orgs is referenced but is not in this query's FROM/JOIN graph") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

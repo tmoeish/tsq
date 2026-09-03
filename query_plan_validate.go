@@ -29,7 +29,9 @@ func (spec querySpec[O]) validateSetOperations() error {
 			return errors.New("set operations do not support keyword search")
 		}
 
-		if err := op.spec.validateJoinGraph(); err != nil {
+		// Set-operation operands sit inside the same enclosing query, so they
+		// inherit the outer tables the left-hand side declared.
+		if err := op.spec.validateJoinGraph(spec.correlatedTables()); err != nil {
 			return err
 		}
 
@@ -54,8 +56,25 @@ func (spec querySpec[O]) validatePaging() error {
 	return nil
 }
 
+// correlatedTables returns the outer tables this query may reference without
+// joining them, keyed by table name.
+func (spec querySpec[O]) correlatedTables() map[string]struct{} {
+	tables := make(map[string]struct{}, len(spec.Correlated))
+	for _, table := range spec.Correlated {
+		if isNilValue(table) {
+			continue
+		}
+
+		tables[table.Table()] = struct{}{}
+	}
+
+	return tables
+}
+
 // validateJoinGraph validates that joins form a valid directed acyclic graph (DAG).
-func (spec querySpec[O]) validateJoinGraph() error {
+// Tables in outer are provided by an enclosing query and may be referenced without
+// being joined; they are additive to whatever this spec declares itself.
+func (spec querySpec[O]) validateJoinGraph(outer map[string]struct{}) error {
 	if err := validateTableInput(spec.From, "from table"); err != nil {
 		return err
 	}
@@ -64,6 +83,11 @@ func (spec querySpec[O]) validateJoinGraph() error {
 	introduced := make(map[string]struct{}, len(spec.Joins)+1)
 
 	introduced[spec.From.Table()] = struct{}{}
+
+	correlated := spec.correlatedTables()
+	for name := range outer {
+		correlated[name] = struct{}{}
+	}
 
 	for _, item := range spec.Joins {
 		if isNilValue(item.table) {
@@ -115,14 +139,38 @@ func (spec querySpec[O]) validateJoinGraph() error {
 		}
 	}
 
+	for tableName := range correlated {
+		if _, exists := introduced[tableName]; !exists {
+			continue
+		}
+
+		return fmt.Errorf(
+			"table %s is declared as a correlated outer table but this query also puts it in its own "+
+				"FROM/JOIN clause; the local table would shadow the outer one and the predicate would "+
+				"stop being correlated",
+			tableName,
+		)
+	}
+
 	for tableName := range allTables {
 		if _, exists := introduced[tableName]; exists {
 			continue
 		}
 
+		if _, exists := correlated[tableName]; exists {
+			continue
+		}
+
+		// The advice deliberately stops short of recommending a join outright.
+		// When this query is being built as a subquery, the offending table is
+		// usually an outer table referenced by a correlated predicate, and joining
+		// it here would shadow the outer table instead of correlating with it: the
+		// predicate silently becomes uncorrelated and the query still runs.
 		return fmt.Errorf(
-			"table %s is referenced outside the join graph; use CrossJoin to include it explicitly",
-			tableName,
+			"table %s is referenced but is not in this query's FROM/JOIN graph; "+
+				"join it explicitly if it belongs to this query, or, if it belongs to an enclosing "+
+				"query and this is a correlated reference, declare it with Correlate(%s)",
+			tableName, tableName,
 		)
 	}
 

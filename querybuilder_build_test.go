@@ -89,7 +89,7 @@ func TestQueryBuilder_Build_RejectsTablesReferencedOutsideJoinGraph(t *testing.T
 	if err == nil {
 		t.Fatal("expected unjoined table reference to return an error")
 	}
-	if !strings.Contains(err.Error(), "use CrossJoin") {
+	if !strings.Contains(err.Error(), "table items is referenced but is not in this query's FROM/JOIN graph") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

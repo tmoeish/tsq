@@ -117,7 +117,7 @@ func newCTEDefinition[O Owner](name string, spec querySpec[O]) cteDefinition {
 		keywordCount: len(cloned.KeywordSearch),
 		cols:         SQLColumns(cloned.Selects...),
 		validate: func() error {
-			if err := cloned.validateJoinGraph(); err != nil {
+			if err := cloned.validateJoinGraph(nil); err != nil {
 				return err
 			}
 
