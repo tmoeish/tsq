@@ -453,19 +453,37 @@ summary, err := runtime.WithTxResult(ctx, opts, func(ctx context.Context, tx tsq
 - 值比较推荐用 `EQVal/NEVal/GTVal/GTEVal/LTVal/LTEVal`，列和 typed 子查询则直接作为 `EQ/NE/GT/GTE/LT/LTE` 的 RHS 传入。
 - 结果投影统一使用包级 `tsq.MapInto[Target](source, fieldPointer, jsonName)`，不要再写 `col.Into(...)`。
 
-### 不支持相关子查询，并且不要用 join 去绕
+### 相关子查询要先 `Correlate(...)` 声明外层表
 
-子查询不能引用外层查询的表：一个查询提到的每张表都必须在它自己的 `FROM`/`JOIN` 图里，
-否则 `Build()` 报 `table X is referenced but is not in this query's FROM/JOIN graph`。
+子查询可以引用外层查询的列，但必须先声明那张表。没声明的话 `Build()` 报
+`table X is referenced but is not in this query's FROM/JOIN graph`——一个查询提到的每张表，
+默认都得在它自己的 `FROM`/`JOIN` 图里。
 
-**不要靠把外层表 join 进子查询来消掉这个报错。** 那样能编译、能构建、也能跑，但子查询里
-的那张表会遮蔽外层的同名表，谓词随即不再相关——它对每一行外层数据取值都相同。写成
-`NOT EXISTS` 时的典型表现是要么返回全部行，要么一行不返回，而且没有任何报错。
+```go
+sub, err := tsq.BuildSubquery(
+	tsq.Select(Order_ID).
+		From(TableOrder).
+		Correlate(TableUser).
+		Where(Order_UserID.EQ(User_ID)),
+	Order_ID,
+)
+// 然后：User_ID.NExistsSub(sub)
+// SELECT ... FROM users WHERE NOT EXISTS (
+//   SELECT orders.id FROM orders WHERE orders.user_id = users.id)
+```
 
-改写成成员判断：`NOT EXISTS (SELECT 1 FROM orders WHERE orders.user_id = users.id)`
-写成 `User_ID.NIn(sub)`，其中 `sub` 选的是 `Order_UserID`。**这个改写只在子查询那一列
-非空时等价**：SQL 三值逻辑下，结果集里只要出现一个 `NULL`，`NOT IN` 就返回零行，而相关的
-`NOT EXISTS` 会正常返回不匹配的行。列可空就在子查询里先把 `NULL` 滤掉。
+配套的几条规则：
+
+- `Correlate(...)` 在 `Where(...)` 之前，和 join 方法处在同一个阶段上。
+- **不要靠把外层表 join 进子查询来消掉那条报错**。子查询里的那张表会遮蔽外层的同名表，
+  谓词随即不再相关——它对每一行外层数据取值都相同，`NOT EXISTS` 的典型表现是返回全部行
+  或一行不返回，而且没有任何报错。同一张表既 `Correlate` 又 join 是构建错误。
+- 带 `Correlate(...)` 的查询**只能当子查询用**，单独执行（`List` / `Get` / `Count` /
+  `Exists` / `Page`）会被拒绝：它的 SQL 引用了自己的 `FROM` 没引入的表。
+
+老的改写方式——`NOT EXISTS` 写成 `NIn(sub)`——仍然可用，在 MySQL 上往往还更快。但它
+**只在子查询那一列非空时等价**：SQL 三值逻辑下，结果集里只要出现一个 `NULL`，`NOT IN` 就
+返回零行，而相关的 `NOT EXISTS` 会正常返回不匹配的行。列可空就在子查询里先把 `NULL` 滤掉。
 
 ### 包级投影查询与初始化顺序
 

@@ -134,6 +134,15 @@ func validateQuery[O Owner](q *Query[O]) error {
 		return errors.New("keyword query is not built")
 	}
 
+	// A correlated query references tables its own FROM clause does not introduce,
+	// so on its own it is not a runnable statement. Refusing here turns what would
+	// be an obscure database error into one that names the cause.
+	if q.correlated {
+		return errors.New(
+			"query declares correlated outer tables with Correlate and can only be used as a subquery, not executed on its own",
+		)
+	}
+
 	return nil
 }
 

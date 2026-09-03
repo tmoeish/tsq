@@ -49,6 +49,21 @@
 - 使用者文档三处要同步：`skills/tsq/references/REFERENCE.md` §8 与 §13、`README.md`
   "常见边界"、`BEST_PRACTICES.md` §3.8。
 
+## 改了相关子查询的作用域传递（`Correlate`、`validateJoinGraph`）
+
+- `validateJoinGraph(outer)` 的 `outer` 是**继承下来的**外层表集，集合操作的操作数从左侧
+  继承（`validateSetOperations`），CTE 体传 `nil`（它由自己的查询定义）。加新的嵌套查询
+  形态时要想清楚它继承谁的作用域——漏传等于把合法的相关引用判成错误，多传等于把打错的
+  表名放行。
+- **既 `Correlate` 又 join 同一张表必须继续是构建错误。** 那正是被删掉的 `CrossJoin` 建议
+  造出来的形状：本地表遮蔽外层表，谓词不再相关，而 SQL 完全合法。
+- 带 `Correlate` 的 `*Query` 由 `validateQuery` 拒绝单独执行。新增执行入口如果绕过
+  `validateQuery`，这道拒绝就在那条路上不存在了。
+- 断言必须落在**真跑一次数据库**上：相关版本和被遮蔽版本渲染出的 SQL 都合法，字符串比对
+  分不出对错。`correlated_subquery_test.go` 是那道门。
+- `Correlate` 长在具体类型 `*queryBuilder[O]` 上，所以 `api-check` 看不见它的增删改；
+  使用者文档（`skills/tsq`、README）只能靠这条清单提醒。
+
 ## 改了 `Page()` 或构建器级分页
 
 `Page()` 是**追加**自己的 `ORDER BY` / `LIMIT` / `OFFSET`，不是替换。所以构建器级分页和

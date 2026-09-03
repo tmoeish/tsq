@@ -62,8 +62,8 @@ MySQL / PostgreSQL 默认转义字符恰好是反斜杠才侥幸正确——而�
 
 转义字符选 `~` 不选反斜杠的硬约束见 `change-impact.md` § 改了 LIKE 谓词的渲染。
 
-**引申**：任何"我们对值做了预处理"的功能，都要问一句"数据库怎么知道我们做了预处理"。
-只有值被改了而契约没被声明时，行为由各方言的默认值决定，而默认值本来就是不一样的。
+**引申**：任何"我们对值做了预处理"的功能都要问一句"数据库怎么知道"——值被改了而契约没被
+声明时，行为由各方言的默认值决定，而默认值本来就不一样。
 
 已知未处理：`StartsWithVal` / `ContainsVal` / `EndsWithVal` 及其 `Var` 形式仍然直接把
 调用方的字符串拼进 pattern，值里的 `%` / `_` 是活的通配符。这是**有意的**（文档写明由调用方
@@ -160,15 +160,21 @@ DDL"——v4.2.0 的每个 Critical 事故都表现为它。用 env DSN + `t.Ski
   （`examples/academy/*.tsq.go` import 它），是使用者契约；后者只在生成器里做
   CamelToSnake，换实现等于改所有使用者的表名推导。
 
-### 决定：不支持相关子查询，报错也不再建议用 join 绕过 (2026-09-03)
+### 决定：相关子查询靠 `Correlate(...)` 显式声明，不靠推断 (2026-09-03)
 
-子查询引用外层表时 `validateJoinGraph` 拒绝它——它按"每张被提到的表都得在本查询的
-FROM/JOIN 图里"判定，而相关引用天生不满足。此前的报错建议 `use CrossJoin to include it
-explicitly`，**照做会静默改变语义**：join 进来的表遮蔽了外层同名表，谓词不再相关，对每行
-外层数据取值都相同（`NOT EXISTS` 写法要么返回全部行、要么零行），而且能编译、能跑、不报错。
-`predicate_subquery_test.go` 断言报错里不出现 `CrossJoin`。真正支持它要让 `querySpec` 带上
-外层作用域并改 `BuildSubquery` / `AsSubquery` 的签名，是对外契约变更，这一波没做；使用者的
-改写方式和 `NOT IN` 的 `NULL` 陷阱写在 README 与 `skills/tsq`。
+`validateJoinGraph` 按"每张被提到的表都得在本查询的 FROM/JOIN 图里"判定，相关引用天生不
+满足。此前的报错建议 `use CrossJoin to include it explicitly`，**照做会静默改变语义**：join
+进来的表遮蔽了外层同名表，谓词不再相关，对每行外层数据取值都相同（`NOT EXISTS` 要么返回
+全部行、要么零行），而且能编译、能跑、不报错。
+
+**否掉"自动放行未知表"**：那等于把打错的表名也一起放行，而拼错表名只会在数据库上炸、不会
+在 `Build()` 上炸。显式声明保住了 join 图校验的全部价值，代价只是多写一次表名。既
+`Correlate` 又 join 同一张表是构建错误（旧建议造出来的正是这个形状）；带 `Correlate` 的查询
+在 `validateQuery` 里被拒绝单独执行，它引用了自己 `FROM` 没引入的表，不是可运行语句。
+
+`Correlate` 长在具体类型 `*queryBuilder[O]` 上，`api-check` 因此看不见它（方法调用是快照的
+盲区，见上面"文档描述了一个不存在的阶段"）。语义由 `correlated_subquery_test.go` 真跑
+SQLite 守着：相关 `NOT EXISTS` 和被 join 遮蔽的那版渲染出的 SQL 都合法，只有结果集分得开。
 
 ### 决定：按条件写语句不校验 `version` 但自增它；`Set*` 是泛型方法 (2026-09-03)
 
@@ -311,8 +317,7 @@ harness 全绿才打），这条规则两个都拦。真正的错误状态只有
 - **别把新分支叠在还没合的 PR 分支上**：上游被 squash 后产生新 SHA，你那份原始提交立刻冲突。
   开新分支前先 `git checkout main && git fetch && git reset --hard origin/main`。
 
-三条是同一件事的三个面：**squash 的粒度是 PR，所以 PR 的粒度就是你能保留的历史粒度，
-而任何"基于未合并分支"的东西都会在合并那一刻失效。**
+三条是同一件事的三个面：**squash 的粒度是 PR，所以 PR 的粒度就是你能保留的历史粒度。**
 
 ### 把并发写入者的改动误判成了工具的 bug (2026-08-21)
 
@@ -347,12 +352,7 @@ v4.4.1 一模一样。它是一个不该存在的版本，发它是个错误。
 模块和 `tsq` 二进制。`script/release.py` 的 `user_visible_changes` 现在自己算这件事，
 没有可见改动就拒绝，`--allow-maintenance` 显式放行。
 
-一个反直觉的点：`internal/` **算**使用者可见。Go 的 import 规则让使用者引用不到它，但
-CLI 的全部行为都在那里面——`internal/parser` 改了解析规则，使用者手写的注解就换了含义。
-"internal 就是内部实现，不影响外部"这个直觉在有 CLI 的库上是错的。
-
-`## [未发布]` 段就是为"攒着"存在的：不值得单独发版的改动写进去，等下一次真需要发版时一起
-出去。这也是为什么 `release-check` 只查倒退不查前进（见上面那条）。
+判据的完整表格（含"`internal/` 算使用者可见"这个反直觉的点）在 `AGENTS.md` § 发版。
 
 ### `-X` 打错包路径是**静默**失败的 (2026-08-21)
 

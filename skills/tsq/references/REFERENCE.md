@@ -714,6 +714,7 @@ TSQ supports more than simple list queries. Common advanced shapes include:
 - aggregate queries with `GroupBy(...)` and `Having(...)`
 - `CASE` expressions
 - subqueries such as `In(subquery)`, `ExistsSub`, and typed RHS comparisons like `EQ(subquery)` or `Like(subquery)`
+- correlated subqueries, where the subquery declares the enclosing query's tables with `Correlate(...)`
 - non-recursive CTEs (all built-in dialects; MySQL baseline is 8.0)
 - set operations such as `UNION`, `INTERSECT`, and `EXCEPT` (all built-in dialects; MySQL needs 8.0.31+)
 - row-lock clauses such as `ForUpdate()` and `ForShare()`
@@ -723,24 +724,31 @@ Important subquery rule:
 - scalar RHS comparisons such as `EQ(subquery)`, `Between(subqueryA, subqueryB)`, and `In(subquery)`-style usage require subqueries that select exactly one column
 - after building, prefer `query.AsSubquery(selectedColumn)`; use `BuildSubquery(stage, selectedColumn)` while the builder is still exposed as a `QueryStage`
 
-### Correlated subqueries are not supported
+### Correlated subqueries
 
-A subquery cannot reference a column of an outer query's table. Building one fails with `table X is referenced but is not in this query's FROM/JOIN graph`, because every table a query mentions has to be in that query's own `FROM`/`JOIN` graph.
-
-Do not resolve that error by joining the outer table into the subquery. It compiles, builds, and runs, but the joined table shadows the outer one, so the predicate is no longer correlated: it evaluates to the same value for every outer row. `NOT EXISTS` written that way typically returns all rows or none.
-
-Rewrite the correlation as a membership test instead:
+A subquery may reference a column of an enclosing query's table, but it has to declare that table first with `Correlate(...)`. Without the declaration the build fails with `table X is referenced but is not in this query's FROM/JOIN graph`, because every table a query mentions must otherwise be in that query's own `FROM`/`JOIN` graph.
 
 ```go
-// instead of: NOT EXISTS (SELECT 1 FROM orders WHERE orders.user_id = users.id)
 sub, err := tsq.BuildSubquery(
-	tsq.Select(database.Order_UserID).From(database.TableOrder),
-	database.Order_UserID,
+	tsq.Select(database.Order_ID).
+		From(database.TableOrder).
+		Correlate(database.TableUser).
+		Where(database.Order_UserID.EQ(database.User_ID)),
+	database.Order_ID,
 )
-// ... then: database.User_ID.NIn(sub)
+// ... then: database.User_ID.NExistsSub(sub)
+// SELECT ... FROM users WHERE NOT EXISTS (
+//   SELECT orders.id FROM orders WHERE orders.user_id = users.id)
 ```
 
-That rewrite is equivalent only when the subquery column cannot be `NULL`. In SQL three-valued logic, `NOT IN` over a result set containing `NULL` returns no rows at all, while the correlated `NOT EXISTS` returns the non-matching rows. Filter the `NULL`s out in the subquery when the column is nullable.
+Rules that go with it:
+
+- `Correlate(...)` sits before `Where(...)`, on the same stage as the join methods
+- a table that this query also puts in its own `FROM`/`JOIN` clause cannot be correlated. That combination is a build error: the local table would shadow the outer one and the predicate would quietly stop being correlated, evaluating the same for every outer row. Do not resolve the join-graph error by joining the outer table in
+- a query built with `Correlate(...)` only makes sense inside an enclosing query. Executing it on its own (`List`, `Get`, `Count`, `Exists`, `Page`, ...) is refused, because its SQL references a table its own `FROM` clause does not introduce
+- the outer table must actually be in scope at the point where the subquery is used, which SQL, not TSQ, decides
+
+The older workaround, rewriting `NOT EXISTS` as `NIn(subquery)`, still works and is often the better plan on MySQL. It is equivalent only when the subquery column cannot be `NULL`: in SQL three-valued logic `NOT IN` over a result set containing `NULL` returns no rows at all, while the correlated `NOT EXISTS` returns the non-matching rows. Filter the `NULL`s out in the subquery when the column is nullable.
 
 ## 12. Dialect capability boundaries
 

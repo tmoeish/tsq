@@ -456,6 +456,16 @@ var _ = tsq.Select[userOwner](userID).
 			want: "Limit undefined",
 		},
 		{
+			name: "correlate_after_where",
+			body: `
+var _ = tsq.Select[userOwner](userID).
+	From(userOwner{}).
+	Where(userID.EQVal(1)).
+	Correlate(userOwner{})
+`,
+			want: "Correlate undefined",
+		},
+		{
 			name: "update_where_twice",
 			body: `
 var _ = tsq.UpdateTable[userOwner]().

@@ -39,6 +39,7 @@
 | CTE 排序与去重 | `query_plan_cte.go` |
 | SQL 文本拼装 | `query_plan_sql.go`、`sql_render.go` |
 | 参数绑定 | `query_args.go` |
+| 相关子查询（`Correlate`、外层作用域） | `querybuilder_stages.go` 的 `Correlate`、`querybuilder_core.go` 的 `addCorrelated`、`query_plan_validate.go` 的 `correlatedTables`；`query_validation.go` 拒绝单独执行 |
 | 结构校验（`Build()` 时） | `query_validation.go`、`query_plan_validate.go`、`validation.go`（`validateColumnBelongsToTable` 还负责把"列切片尚未初始化"和"列真的不属于这张表"分开报错，见 `memory.md`） |
 | 方言能力校验（执行时） | `query_validation.go` 的 `detectSQLCapabilities`，经 `dialect.ValidateCapability` |
 | 标识符校验（长度与字符集） | `dialect_validation.go`（这个文件**只剩**标识符校验，能力校验不在这儿） |

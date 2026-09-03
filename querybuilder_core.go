@@ -292,6 +292,41 @@ func (core *queryBuilderCore[O]) addCrossJoin(table Table) {
 	core.spec.Joins = append(core.spec.Joins, join{joinType: crossJoinType, table: table})
 }
 
+// addCorrelated declares outer-query tables this query may reference without
+// joining them, which is what makes a correlated subquery expressible.
+func (core *queryBuilderCore[O]) addCorrelated(tables ...Table) {
+	if core.buildErr != nil {
+		return
+	}
+
+	if core.phase != builderPhaseBase {
+		core.failTransition("Correlate()")
+		return
+	}
+
+	if len(tables) == 0 {
+		core.setBuildError(errors.New("Correlate requires at least one outer table"))
+		return
+	}
+
+	for _, table := range tables {
+		if err := validateTableInput(table, "correlated table"); err != nil {
+			core.setBuildError(err)
+			return
+		}
+
+		for _, existing := range core.spec.Correlated {
+			if existing.Table() == table.Table() {
+				core.setBuildError(fmt.Errorf("correlated table %s is already declared", table.Table()))
+
+				return
+			}
+		}
+
+		core.spec.Correlated = append(core.spec.Correlated, table)
+	}
+}
+
 func (core *queryBuilderCore[O]) setWhere(conds ...Condition) {
 	if core.buildErr != nil {
 		return
@@ -600,6 +635,7 @@ func buildQuery[O Owner](core *queryBuilderCore[O]) (*Query[O], error) {
 		hasSetOps:    len(core.spec.SetOps) > 0,
 		hasOrderBy:   len(core.spec.OrderBys) > 0,
 		hasLimit:     core.spec.Limit != nil || core.spec.Offset != nil,
+		correlated:   len(core.spec.Correlated) > 0,
 	}, nil
 }
 

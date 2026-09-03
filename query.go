@@ -128,6 +128,7 @@ type Query[O Owner] struct {
 	hasSetOps    bool // whether set operations (UNION etc.) are present; affects alias handling
 	hasOrderBy   bool // whether the builder attached an ORDER BY; Page must not add a second one
 	hasLimit     bool // whether the builder attached LIMIT/OFFSET; Page owns paging and refuses to fight it
+	correlated   bool // whether the builder declared outer tables; such a query only runs inside an enclosing one
 }
 
 type (

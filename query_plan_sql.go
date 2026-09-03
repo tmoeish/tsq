@@ -330,6 +330,7 @@ func cloneQuerySpec[O Owner](spec querySpec[O]) querySpec[O] {
 		Offset:        cloneIntPointer(spec.Offset),
 		Lock:          spec.Lock,
 		SetOps:        make([]setOperation[O], 0, len(spec.SetOps)),
+		Correlated:    slices.Clone(spec.Correlated),
 	}
 
 	for _, op := range spec.SetOps {
