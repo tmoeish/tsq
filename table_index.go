@@ -19,7 +19,7 @@ func resolveSchemaPolicy(policy SchemaPolicy) SchemaPolicy {
 
 func validateSchemaPolicy(policy SchemaPolicy) error {
 	switch policy {
-	case SchemaPolicyManual, SchemaPolicyValidate, SchemaPolicyCreateMissing, SchemaPolicyReconcile, SchemaPolicyManaged:
+	case SchemaPolicyManual, SchemaPolicyValidate, SchemaPolicyCreateMissing, SchemaPolicyReconcile:
 		return nil
 	default:
 		return fmt.Errorf("invalid schema policy %q", policy)

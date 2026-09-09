@@ -180,9 +180,10 @@ helper 因此继续作为包级函数。为了一点调用语法把这些接口�
 - 驱动错误分类按**接口**匹配，不 import 驱动包：`sqlite_errors.go` 认 `Code() int`，
   `postgres_errors.go` 认 `SQLState() string`（lib/pq、pgx v4、pgx v5 都实现）。MySQL 是
   唯一被 import 的驱动，因为 `MySQLError.Number` 是字段。
-- `runtime_schema.go` 负责 schema 对账：`Options` 上的 `TablePolicy` 和 `IndexPolicy`
-  各自取 `SchemaPolicy`（`Manual` / `Validate` / `CreateMissing` / `Reconcile` /
-  `Managed`），决定 `NewRuntime` 是只校验还是补齐表、列与索引。
+- `runtime_schema.go` 负责 schema 对账：`TablePolicy` 和 `IndexPolicy` 各取一个 `SchemaPolicy`
+  （`Manual` / `Validate` / `CreateMissing` / `Reconcile`），决定 `NewRuntime` 是只校验还是补齐
+  表、列与索引。**四档都只增不减**：没有任何一档会删除它没在当前声明里看到的对象，理由见
+  `memory.md`。
 - `table_registry.go` 保存表元数据，`table_index.go` 保存索引元数据；生成的
   `runtime.tsq.go` 通过 `TSQTables()` 把包内所有表交给 `NewRuntime`。
 

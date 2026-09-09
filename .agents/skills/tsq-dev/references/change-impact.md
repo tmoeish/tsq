@@ -163,17 +163,17 @@
 - `query_chunked_widetable_test.go` 是那道门——它真的插一张 40 列的表，纯粹比对算出来的
   chunk size 证明不了语句能被数据库接受。
 
-## 改了 schema 托管（`runtime_schema.go`）或 `_tsq_managed_tables`
+## 改了 schema 托管（`runtime_schema.go`）
 
-- **记账表是全库共享的，而每个 runtime 只知道自己那份表集。** 读、删、写都必须按
-  `SchemaOwner` 划界；任何"整表覆盖"都会抹掉别的 runtime 的记账，下次启动它们就互删对方的
-  表**连同数据**。
-- 改记账表的形状要带**就地迁移**：老库里已经有一张旧结构的表，而 `CREATE TABLE IF NOT
-  EXISTS` 不会升级它。它是 TSQ 自己的记账、不含用户数据，所以整表重建是允许的。
-- **不要把 DROP 和记账更新包进一个事务**：MySQL 每条 DDL 都隐式提交，包起来只在
-  PG / SQLite 上成立，反而让人误以为它是原子的。
-- 门：`runtime_schema_ownership_test.go`（SQLite，含旧记账迁移）和
-  `integration_test.go` 的 `TestIntegrationManagedPolicyIsScopedToItsOwner`（三方言）。
+- **不要重新引入任何"删掉不再声明的对象"的策略。** v4 的 `SchemaPolicyManaged` 靠一张全库共享
+  的记账表做这件事，两个共用数据库的服务因此互删对方的表连同数据。一个 runtime 只知道自己声明了
+  什么，分不清"这张表不该存在了"和"这张表是别人的"。理由见 `memory.md`。
+- **不要引入任何 TSQ 自己的记账表。** 一份全局状态被只知道局部真相的写入者覆盖，就是数据丢失。
+- 加新策略档要想清楚它是不是仍然"只增不减"，并且三个方言都要在集成测试里跑。
+- **不要把 DDL 包进事务**：MySQL 每条 DDL 都隐式提交，包起来只在 PG / SQLite 上成立，反而让人
+  误以为它是原子的。
+- 门：`runtime_schema_isolation_test.go`（SQLite）和 `integration_test.go` 的
+  `TestIntegrationSchemaPolicyNeverDropsUndeclaredTables`（三方言）。
 
 ## 改了校验逻辑
 

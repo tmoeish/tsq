@@ -124,7 +124,7 @@ func dropAcademyTables(t *testing.T, target integrationTarget) {
 	}
 }
 
-func openManaged(t *testing.T, target integrationTarget, tables []tsq.TableRegistration, policy tsq.SchemaPolicy) (*tsq.Runtime, *ddlRecorder) {
+func openWithPolicy(t *testing.T, target integrationTarget, tables []tsq.TableRegistration, policy tsq.SchemaPolicy) (*tsq.Runtime, *ddlRecorder) {
 	t.Helper()
 
 	recorder := &ddlRecorder{}
@@ -184,7 +184,7 @@ func TestIntegrationManagedSchemaBootstrapIsIdempotent(t *testing.T) {
 		t.Run(target.name, func(t *testing.T) {
 			dropAcademyTables(t, target)
 
-			_, first := openManaged(t, target, academy.TSQTables(), tsq.SchemaPolicyManaged)
+			_, first := openWithPolicy(t, target, academy.TSQTables(), tsq.SchemaPolicyReconcile)
 			if first.count() == 0 {
 				t.Fatal("expected first managed bootstrap to create tables and indexes")
 			}
@@ -192,7 +192,7 @@ func TestIntegrationManagedSchemaBootstrapIsIdempotent(t *testing.T) {
 			// The second bootstrap must find nothing to do. Any statement here is a
 			// type round-trip that does not close (v4.2.0 shipped several of those),
 			// and it would run on every process start forever.
-			_, second := openManaged(t, target, academy.TSQTables(), tsq.SchemaPolicyManaged)
+			_, second := openWithPolicy(t, target, academy.TSQTables(), tsq.SchemaPolicyReconcile)
 			if second.count() != 0 {
 				t.Fatalf("expected second managed bootstrap to apply no DDL, got:\n  %s",
 					strings.Join(second.statements(), "\n  "))
@@ -205,11 +205,11 @@ func TestIntegrationReconcileAltersOnlyTheChangedColumn(t *testing.T) {
 	for _, target := range integrationTargets(t) {
 		t.Run(target.name, func(t *testing.T) {
 			dropAcademyTables(t, target)
-			openManaged(t, target, academy.TSQTables(), tsq.SchemaPolicyManaged)
+			openWithPolicy(t, target, academy.TSQTables(), tsq.SchemaPolicyReconcile)
 
 			widened := widenLearnerCompany(t, academy.TSQTables(), 200)
 
-			rt, recorder := openManaged(t, target, widened, tsq.SchemaPolicyReconcile)
+			rt, recorder := openWithPolicy(t, target, widened, tsq.SchemaPolicyReconcile)
 			if rt.SQLDialect().DDLAlterColumnMode() != tsqdialect.DDLAlterColumnRebuild && recorder.count() != 1 {
 				t.Fatalf("expected exactly one ALTER for the widened column, got:\n  %s",
 					strings.Join(recorder.statements(), "\n  "))
@@ -226,7 +226,7 @@ func TestIntegrationReconcileAltersOnlyTheChangedColumn(t *testing.T) {
 				t.Fatalf("expected database-generated ID after reconcile, got %d", learner.ID)
 			}
 
-			_, converged := openManaged(t, target, widened, tsq.SchemaPolicyReconcile)
+			_, converged := openWithPolicy(t, target, widened, tsq.SchemaPolicyReconcile)
 			if converged.count() != 0 {
 				t.Fatalf("expected reconcile to converge, got repeated DDL:\n  %s",
 					strings.Join(converged.statements(), "\n  "))
@@ -241,7 +241,7 @@ func TestIntegrationCRUDOptimisticLockAndDuplicateKeys(t *testing.T) {
 			ctx := context.Background()
 
 			dropAcademyTables(t, target)
-			rt, _ := openManaged(t, target, academy.TSQTables(), tsq.SchemaPolicyManaged)
+			rt, _ := openWithPolicy(t, target, academy.TSQTables(), tsq.SchemaPolicyReconcile)
 
 			enrollment := &academy.Enrollment{LearnerID: 1, CourseID: 1, Status: academy.EnrollmentStatusActive}
 			if err := enrollment.Insert(ctx, rt); err != nil {
@@ -314,7 +314,7 @@ func TestIntegrationLockConflictsAreRetryable(t *testing.T) {
 			ctx := context.Background()
 
 			dropAcademyTables(t, target)
-			rt, _ := openManaged(t, target, academy.TSQTables(), tsq.SchemaPolicyManaged)
+			rt, _ := openWithPolicy(t, target, academy.TSQTables(), tsq.SchemaPolicyReconcile)
 
 			track := &academy.Track{Name: "locks", Description: "lock probe", SkillItems: []byte(`[]`)}
 			if err := track.Insert(ctx, rt); err != nil {
@@ -377,7 +377,7 @@ func TestIntegrationCapabilitiesExecute(t *testing.T) {
 			ctx := context.Background()
 
 			dropAcademyTables(t, target)
-			rt, _ := openManaged(t, target, academy.TSQTables(), tsq.SchemaPolicyManaged)
+			rt, _ := openWithPolicy(t, target, academy.TSQTables(), tsq.SchemaPolicyReconcile)
 
 			learner := &academy.Learner{Name: "Linus", Email: "linus@example.com", Company: "Kernel"}
 			if err := learner.Insert(ctx, rt); err != nil {
@@ -470,7 +470,7 @@ func TestIntegrationKeywordSearchEscapesWildcards(t *testing.T) {
 			ctx := context.Background()
 
 			dropAcademyTables(t, target)
-			rt, _ := openManaged(t, target, academy.TSQTables(), tsq.SchemaPolicyManaged)
+			rt, _ := openWithPolicy(t, target, academy.TSQTables(), tsq.SchemaPolicyReconcile)
 
 			seed := []*academy.Learner{
 				{Name: "a_b", Email: "a_b@example.test", Company: "Literal Underscore"},
@@ -547,7 +547,7 @@ func TestIntegrationChunkedInsertIgnoresDuplicatesInsideTransaction(t *testing.T
 			ctx := context.Background()
 
 			dropAcademyTables(t, target)
-			rt, _ := openManaged(t, target, academy.TSQTables(), tsq.SchemaPolicyManaged)
+			rt, _ := openWithPolicy(t, target, academy.TSQTables(), tsq.SchemaPolicyReconcile)
 
 			learners := []*academy.Learner{
 				{Name: "Ada", Email: "ada@example.test", Company: "Analytical"},
@@ -587,11 +587,11 @@ func TestIntegrationChunkedInsertIgnoresDuplicatesInsideTransaction(t *testing.T
 	}
 }
 
-// TestIntegrationManagedPolicyIsScopedToItsOwner runs the ownership rule against every
-// configured server. The registry is a real table with real DDL behind it, and the
-// migration from the ownerless shape rewrites it, so the dialect-specific halves
-// (inspection, DROP, re-create) only get exercised here.
-func TestIntegrationManagedPolicyIsScopedToItsOwner(t *testing.T) {
+// TestIntegrationSchemaPolicyNeverDropsUndeclaredTables runs the isolation rule
+// against every configured server. TSQ only ever adds, so a runtime that declares
+// nothing must leave every existing table alone; the SQLite unit test covers the
+// same property, but only a real server proves the inspection half of it.
+func TestIntegrationSchemaPolicyNeverDropsUndeclaredTables(t *testing.T) {
 	for _, target := range integrationTargets(t) {
 		t.Run(target.name, func(t *testing.T) {
 			ctx := context.Background()
@@ -601,9 +601,8 @@ func TestIntegrationManagedPolicyIsScopedToItsOwner(t *testing.T) {
 			// One runtime manages the academy tables under its own owner.
 			academyRT, err := tsq.NewRuntimeContext(ctx, target.driver, target.dsn, academy.TSQTables(),
 				&tsq.RuntimeOptions{
-					TablePolicy: tsq.SchemaPolicyManaged,
-					IndexPolicy: tsq.SchemaPolicyManaged,
-					SchemaOwner: "academy",
+					TablePolicy: tsq.SchemaPolicyReconcile,
+					IndexPolicy: tsq.SchemaPolicyReconcile,
 				})
 			if err != nil {
 				t.Fatalf("bootstrap academy runtime on %s: %v", target.name, err)
@@ -611,13 +610,13 @@ func TestIntegrationManagedPolicyIsScopedToItsOwner(t *testing.T) {
 
 			t.Cleanup(func() { _ = academyRT.Close() })
 
-			// A second runtime manages nothing at all under a different owner. Before
-			// ownership existed this wiped every academy table on the way through.
+			// A second runtime declares nothing at all. It used to wipe every academy
+			// table on the way through, because it recorded its own empty view into a
+			// registry shared by the whole database.
 			otherRT, err := tsq.NewRuntimeContext(ctx, target.driver, target.dsn, nil,
 				&tsq.RuntimeOptions{
-					TablePolicy: tsq.SchemaPolicyManaged,
-					IndexPolicy: tsq.SchemaPolicyManaged,
-					SchemaOwner: "other_service",
+					TablePolicy: tsq.SchemaPolicyReconcile,
+					IndexPolicy: tsq.SchemaPolicyReconcile,
 				})
 			if err != nil {
 				t.Fatalf("bootstrap second runtime on %s: %v", target.name, err)
@@ -634,7 +633,7 @@ func TestIntegrationManagedPolicyIsScopedToItsOwner(t *testing.T) {
 				}
 
 				if !found {
-					t.Fatalf("table %s was dropped by a runtime that does not own it on %s", name, target.name)
+					t.Fatalf("table %s was dropped by a runtime that never declared it on %s", name, target.name)
 				}
 			}
 		})
@@ -651,7 +650,7 @@ func TestIntegrationMutationsByCondition(t *testing.T) {
 			ctx := context.Background()
 
 			dropAcademyTables(t, target)
-			rt, _ := openManaged(t, target, academy.TSQTables(), tsq.SchemaPolicyManaged)
+			rt, _ := openWithPolicy(t, target, academy.TSQTables(), tsq.SchemaPolicyReconcile)
 
 			rows := []*academy.Enrollment{
 				{LearnerID: 1, CourseID: 1, Status: academy.EnrollmentStatusActive},

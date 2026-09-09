@@ -183,12 +183,19 @@ func main() {
 - `TablePolicy: tsq.SchemaPolicyCreateMissing`
 - `IndexPolicy: tsq.SchemaPolicyCreateMissing`
 
-如果你希望 TSQ 进一步校验、重建不匹配对象，或清理 TSQ 托管范围内的多余对象，则使用 `SchemaPolicyValidate` / `SchemaPolicyReconcile` / `SchemaPolicyManaged`。
+四档策略，从不做到做得最多：
 
-> **多个 runtime 共用一个数据库时，必须给每个 runtime 设不同的 `SchemaOwner`。**
-> `SchemaPolicyManaged` 会把"我托管过、但现在不再声明"的表连同数据一起 `DROP`，而这份记账
-> （`_tsq_managed_tables`）是按 `RuntimeOptions.SchemaOwner` 分区的。两个 runtime 共用同一个
-> owner，就会各自把对方的表当成"记过但不再声明"删掉。默认 owner 是 `"default"`。
+| 策略 | 做什么 |
+| --- | --- |
+| `SchemaPolicyManual`（默认） | 什么都不改，只记一条提醒日志。**生产用这个**，schema 交给迁移工具 |
+| `SchemaPolicyValidate` | 只校验，对不上就启动失败 |
+| `SchemaPolicyCreateMissing` | 建缺失的表、列和索引 |
+| `SchemaPolicyReconcile` | 再加上把漂移的列改回声明的样子。**开发和测试用这个**，改了结构直接重启就跟上了 |
+
+> **TSQ 只增不减。** 它不会删除一张它没在当前声明里看到的表——一个 runtime 只知道自己声明了
+> 什么，分不清"这张表不该存在了"和"这张表是别人的"。v4 有过一档会删表的 `SchemaPolicyManaged`，
+> 它靠一张全库共享的记账表工作，于是两个共用数据库的服务会在每次启动时互删对方的表和数据。
+> 那一档和那张记账表在 v5 里都没有了；不再需要的表由迁移脚本删。
 
 ## 文档导航
 

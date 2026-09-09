@@ -7,19 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"slices"
 	"sort"
 	"strings"
 
 	tsqdialect "github.com/tmoeish/tsq/v4/dialect"
-)
-
-const (
-	managedTablesRegistryName   = "_tsq_managed_tables"
-	managedTablesRegistryOwner  = "owner"
-	managedTablesRegistryTable  = "table_name"
-	defaultSchemaOwner          = "default"
-	managedRegistryIdentifierSz = 255
 )
 
 type tableColumnChange struct {
@@ -189,46 +180,14 @@ func (r *Runtime) applyTablePolicy(ctx context.Context) error {
 		return nil
 	}
 
-	registry, err := r.loadManagedTableRegistry(ctx)
-	if err != nil {
-		return err
-	}
-
-	desiredNames := make([]string, 0, len(r.tables))
+	// TSQ only ever adds: it creates what is declared and missing, and under
+	// Reconcile it alters columns that drifted. It never removes a table it no
+	// longer sees declared, because a runtime only knows its own declarations
+	// and cannot tell "no longer declared here" from "declared by someone else".
 	for _, table := range r.tables {
 		if err := r.applyTablePolicyForTable(ctx, table); err != nil {
 			return err
 		}
-		desiredNames = append(desiredNames, physicalTableName(table.Table))
-	}
-
-	if r.tablePolicy == SchemaPolicyManaged {
-		for _, tableName := range registry {
-			if containsString(desiredNames, tableName) {
-				continue
-			}
-
-			_, found, err := r.dialect.InspectTableColumns(ctx, r.db, tableName)
-			if err != nil {
-				return err
-			}
-
-			if !found {
-				continue
-			}
-
-			r.warn("schema policy drops a table this runtime no longer declares, and its data",
-				"table", tableName, "owner", r.schemaOwner, "policy", r.tablePolicy)
-
-			statement := fmt.Sprintf("DROP TABLE %s;", r.dialect.QuoteField(tableName))
-			if err := r.execDDL(ctx, statement); err != nil {
-				return fmt.Errorf("drop managed table %s: %w", tableName, err)
-			}
-		}
-	}
-
-	if err := r.saveManagedTableRegistry(ctx, desiredNames); err != nil {
-		return err
 	}
 
 	return nil
@@ -266,7 +225,7 @@ func (r *Runtime) applyTablePolicyForTable(ctx context.Context, table *registere
 	switch r.tablePolicy {
 	case SchemaPolicyValidate, SchemaPolicyCreateMissing:
 		return fmt.Errorf("table %s schema mismatch: %s", tableName, summarizeTableColumnChanges(changes))
-	case SchemaPolicyReconcile, SchemaPolicyManaged:
+	case SchemaPolicyReconcile:
 		for _, change := range changes {
 			if change.kind == tableColumnDrop {
 				r.warn("schema reconcile drops a column and its data",
@@ -423,19 +382,6 @@ func (r *Runtime) applyIndexPolicyForTable(ctx context.Context, table *registere
 		}
 	}
 
-	if r.indexPolicy == SchemaPolicyManaged {
-		for _, idx := range currentIndexes {
-			if _, ok := desiredByName[idx.Name]; ok || idx.PrimaryKey || idx.Constraint {
-				continue
-			}
-
-			statement := r.dialect.DDLDropIndex(tableName, idx.Name)
-			if err := r.execDDL(ctx, statement); err != nil {
-				return fmt.Errorf("drop unmanaged index %s on %s: %w", idx.Name, tableName, err)
-			}
-		}
-	}
-
 	return nil
 }
 
@@ -452,203 +398,6 @@ func (r *Runtime) execDDL(ctx context.Context, statement string) error {
 	}
 
 	return nil
-}
-
-func (r *Runtime) loadManagedTableRegistry(ctx context.Context) ([]string, error) {
-	if err := r.ensureManagedTableRegistry(ctx); err != nil {
-		return nil, err
-	}
-
-	query := fmt.Sprintf("SELECT %s FROM %s WHERE %s = %s ORDER BY %s",
-		r.dialect.QuoteField(managedTablesRegistryTable),
-		r.dialect.QuoteField(managedTablesRegistryName),
-		r.dialect.QuoteField(managedTablesRegistryOwner),
-		r.dialect.BindVar(0),
-		r.dialect.QuoteField(managedTablesRegistryTable),
-	)
-
-	rows, err := r.db.QueryContext(ctx, query, r.schemaOwner)
-	if err != nil {
-		return nil, err
-	}
-
-	defer func() {
-		_ = rows.Close()
-	}()
-
-	var names []string
-
-	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
-			return nil, err
-		}
-		names = append(names, name)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
-	return names, nil
-}
-
-func (r *Runtime) saveManagedTableRegistry(ctx context.Context, names []string) error {
-	if err := r.ensureManagedTableRegistry(ctx); err != nil {
-		return err
-	}
-
-	// Only this owner's rows are replaced. Deleting the whole table, as tsq used to,
-	// erased the bookkeeping of every other runtime sharing the database, which is
-	// what made them drop each other's tables on the next start.
-	deleteStatement := fmt.Sprintf("DELETE FROM %s WHERE %s = %s",
-		r.dialect.QuoteField(managedTablesRegistryName),
-		r.dialect.QuoteField(managedTablesRegistryOwner),
-		r.dialect.BindVar(0),
-	)
-	if _, err := r.db.ExecContext(ctx, deleteStatement, r.schemaOwner); err != nil {
-		return err
-	}
-
-	sort.Strings(names)
-
-	seen := make(map[string]struct{}, len(names))
-	for _, name := range names {
-		if _, ok := seen[name]; ok {
-			continue
-		}
-		seen[name] = struct{}{}
-
-		insertStatement := fmt.Sprintf(
-			"INSERT INTO %s (%s, %s) VALUES (%s, %s)",
-			r.dialect.QuoteField(managedTablesRegistryName),
-			r.dialect.QuoteField(managedTablesRegistryOwner),
-			r.dialect.QuoteField(managedTablesRegistryTable),
-			r.dialect.BindVar(0),
-			r.dialect.BindVar(1),
-		)
-		if _, err := r.db.ExecContext(ctx, insertStatement, r.schemaOwner, name); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-// managedRegistryColumns is the registry's shape. It deliberately has no primary key:
-// the same physical table may legitimately appear once per owner, and the writer
-// already de-duplicates within one owner.
-func managedRegistryColumns() []tsqdialect.DDLColumnSpec {
-	stringType := tsqdialect.DDLColumnType{
-		Kind: tsqdialect.DDLColumnKindString,
-		Size: managedRegistryIdentifierSz,
-	}
-
-	return []tsqdialect.DDLColumnSpec{
-		{Name: managedTablesRegistryOwner, Type: stringType},
-		{Name: managedTablesRegistryTable, Type: stringType},
-	}
-}
-
-func (r *Runtime) ensureManagedTableRegistry(ctx context.Context) error {
-	statement, err := renderCreateTableStatement(r.dialect, managedTablesRegistryName, managedRegistryColumns())
-	if err != nil {
-		return err
-	}
-
-	if _, err := r.db.ExecContext(ctx, statement); err != nil {
-		return err
-	}
-
-	return r.migrateManagedTableRegistry(ctx)
-}
-
-// migrateManagedTableRegistry upgrades a registry written before ownership existed.
-//
-// The pre-ownership shape is a single table_name column with a primary key on it, so
-// the owner column cannot simply be added: the old primary key would stop two owners
-// from ever recording the same table name. The registry is tsq's own bookkeeping and
-// holds no user data, so it is rewritten wholesale, with the existing rows attributed
-// to the default owner, which is what a single-runtime deployment already was.
-func (r *Runtime) migrateManagedTableRegistry(ctx context.Context) error {
-	current, found, err := r.dialect.InspectTableColumns(ctx, r.db, managedTablesRegistryName)
-	if err != nil {
-		return fmt.Errorf("inspect managed table registry: %w", err)
-	}
-
-	if !found {
-		return nil
-	}
-
-	for _, column := range current {
-		if column.Name == managedTablesRegistryOwner {
-			return nil
-		}
-	}
-
-	legacyNames, err := r.loadLegacyManagedTableNames(ctx)
-	if err != nil {
-		return err
-	}
-
-	r.warn("upgrading the tsq managed-table registry to owner-scoped bookkeeping",
-		"table", managedTablesRegistryName, "rows", len(legacyNames), "owner", r.schemaOwner)
-
-	if err := r.execDDL(ctx, fmt.Sprintf("DROP TABLE %s;", r.dialect.QuoteField(managedTablesRegistryName))); err != nil {
-		return fmt.Errorf("drop legacy managed table registry: %w", err)
-	}
-
-	statement, err := renderCreateTableStatement(r.dialect, managedTablesRegistryName, managedRegistryColumns())
-	if err != nil {
-		return err
-	}
-
-	if _, err := r.db.ExecContext(ctx, statement); err != nil {
-		return err
-	}
-
-	for _, name := range legacyNames {
-		insertStatement := fmt.Sprintf(
-			"INSERT INTO %s (%s, %s) VALUES (%s, %s)",
-			r.dialect.QuoteField(managedTablesRegistryName),
-			r.dialect.QuoteField(managedTablesRegistryOwner),
-			r.dialect.QuoteField(managedTablesRegistryTable),
-			r.dialect.BindVar(0),
-			r.dialect.BindVar(1),
-		)
-		if _, err := r.db.ExecContext(ctx, insertStatement, defaultSchemaOwner, name); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func (r *Runtime) loadLegacyManagedTableNames(ctx context.Context) ([]string, error) {
-	query := fmt.Sprintf("SELECT %s FROM %s",
-		r.dialect.QuoteField(managedTablesRegistryTable),
-		r.dialect.QuoteField(managedTablesRegistryName),
-	)
-
-	rows, err := r.db.QueryContext(ctx, query)
-	if err != nil {
-		return nil, err
-	}
-
-	defer func() { _ = rows.Close() }()
-
-	var names []string
-
-	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
-			return nil, err
-		}
-
-		names = append(names, name)
-	}
-
-	return names, rows.Err()
 }
 
 func diffTableColumns(
@@ -959,8 +708,4 @@ func sharedColumnNames(current, desired []tsqdialect.DDLColumnSpec) []string {
 	}
 
 	return shared
-}
-
-func containsString(items []string, target string) bool {
-	return slices.Contains(items, target)
 }

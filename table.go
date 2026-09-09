@@ -33,7 +33,6 @@ const (
 	// SchemaPolicyReconcile creates missing declared objects and reconciles mismatches.
 	SchemaPolicyReconcile SchemaPolicy = "reconcile"
 	// SchemaPolicyManaged reconciles declared objects and removes TSQ-managed extras.
-	SchemaPolicyManaged SchemaPolicy = "managed"
 )
 
 // IdentifierValidationMode controls how NewRuntime treats identifiers that exceed
@@ -144,7 +143,6 @@ type RuntimeOptions struct {
 	// longer declared" and drop them, taking the data with them.
 	//
 	// Must be a plain identifier ([A-Za-z_][A-Za-z0-9_]*).
-	SchemaOwner string
 }
 
 // Logger is the subset of slog.Logger used by runtime bootstrap.
