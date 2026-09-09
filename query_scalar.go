@@ -113,20 +113,7 @@ func (q *Query[O]) Scalar[T any](
 }
 
 // Count executes the count query and returns the number of matching records.
-// The result is truncated to int; use Count64 when an int64 is required.
 func (q *Query[O]) Count(
-	ctx context.Context,
-	tx SQLExecutor,
-	args ...any,
-) (int, error) {
-	return traceExecutor1(ctx, tx, func(ctx context.Context) (int, error) {
-		return q.count(ctx, tx, args...)
-	})
-}
-
-// Count64 executes the count query and returns the number of matching records as int64.
-// This avoids truncation on large result sets or 32-bit platforms.
-func (q *Query[O]) Count64(
 	ctx context.Context,
 	tx SQLExecutor,
 	args ...any,
@@ -134,15 +121,6 @@ func (q *Query[O]) Count64(
 	return traceExecutor1(ctx, tx, func(ctx context.Context) (int64, error) {
 		return q.count64(ctx, tx, args...)
 	})
-}
-
-func (q *Query[O]) count(
-	ctx context.Context,
-	tx SQLExecutor,
-	args ...any,
-) (int, error) {
-	n, err := q.count64(ctx, tx, args...)
-	return int(n), err
 }
 
 func (q *Query[O]) count64(
@@ -175,43 +153,20 @@ func (q *Query[O]) count64(
 	return count, nil
 }
 
-// Exists reports whether any records match the query conditions.
+// Exists reports whether any record matches the query conditions.
+//
+// It runs the same single-row read as Find rather than counting: COUNT made the
+// database visit every matching row to answer a question that the first row
+// settles.
 func (q *Query[O]) Exists(
 	ctx context.Context,
 	tx SQLExecutor,
 	args ...any,
 ) (bool, error) {
-	return traceExecutor1(ctx, tx, func(ctx context.Context) (bool, error) {
-		return q.exist(ctx, tx, args...)
-	})
-}
-
-func (q *Query[O]) exist(
-	ctx context.Context,
-	tx SQLExecutor,
-	args ...any,
-) (bool, error) {
-	if err := validateQuery(q); err != nil {
-		return false, err
-	}
-
-	resolvedSQL, finalArgs, err := resolveQueryWithState(q.cntSQL, q.cntArgs, args, "", q.cntArgState)
+	row, err := q.Find(ctx, tx, args...)
 	if err != nil {
 		return false, err
 	}
 
-	if err := validateOperationalExecutorForSQL(tx, resolvedSQL); err != nil {
-		return false, err
-	}
-
-	sqlText := renderSQLForExecutor(tx, resolvedSQL)
-
-	logSQLForExecutor(ctx, tx, "exist", sqlText, finalArgs)
-
-	count, err := queryInt64(ctx, tx, sqlText, finalArgs...)
-	if err != nil {
-		return false, fmt.Errorf("%s: %w", "failed to check record existence", err)
-	}
-
-	return count > 0, nil
+	return row != nil, nil
 }

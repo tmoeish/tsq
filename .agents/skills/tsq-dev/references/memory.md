@@ -177,6 +177,17 @@ join 图校验的全部价值，代价只是多写一次表名。既 `Correlate`
 操作要写显式 `And()`——"静默去掉过滤条件"在写路径同样不允许。`UpdateTable` 至今不碰任何托管
 字段；`DeletedAt` 是例外，理由见下条。
 
+### 决定：读单行只留两个入口，语义写在名字里 (2026-09-09，v5)
+
+`Get`（无行报 `sql.ErrNoRows`）和 `Find`（无行返回 `nil, nil`）。删掉的 `Load(holder)` 是第三种读
+单行的方式，也是唯一**没法在不比较错误的情况下表达"没查到"**的那种。`Count` 只留 `int64`：截断
+是静默的。
+
+两个正确性修复在同一波：`Get` / `Find` / `Exists` 现在给语句加 `LIMIT 1`，**加在行锁子句之前**
+（`splitTrailingQueryLockClause` 拆出来再拼回去，三个方言都要求这个顺序），构建器自己设了 `Limit`
+就不加；`Exists` 不再 `SELECT COUNT(1)`，改为执行同一条单行读取——**COUNT 要访问每个匹配行，去回答
+第一行就能定下来的问题**。子句顺序由 `query_singlerow_test.go` 的表格用例守着。
+
 ### 决定：v5 不留兼容别名，且"不用接收者的方法"要变成函数 (2026-09-09)
 
 v4 攒下九个 `Deprecated` 符号，没有任何门禁会提醒它们该走——**兼容包装只会积累**，删掉它们本身就是
@@ -402,9 +413,6 @@ goreleaser v2.18.1 一发布就要求 Go >= 1.27.1，CI 用 `GOTOOLCHAIN=local` 
 
 ### 本轮决定不做的几件事 (2026-08-28)
 
-- **`Exists()` 走 `SELECT COUNT(1)`**（大表全扫），**`Get()` 不加 `LIMIT 1`**（多行匹配时
-  返回哪一行不确定）。两者都要包一层 `listSQL`，而它现在可能自带 ORDER BY / LIMIT / 行锁，
-  正确写法要连这些一起处理。值得单独一波，别顺手改。
 - **没有 `NewRuntimeFromDB` 和连接池选项**：接了 otelsql / 自定义 connector 的人只能用
   `WrapExecutor`，随之失去 `LogSQL`、tracer 和 `MaxPageSize`。真实缺口，属于新特性。
 - **`detectSQLCapabilities` 靠字符串匹配**渲染好的 SQL：标识符 base64 编码避开了大部分误判，

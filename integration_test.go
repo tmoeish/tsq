@@ -680,7 +680,7 @@ func TestIntegrationMutationsByCondition(t *testing.T) {
 				t.Fatalf("expected 2 rows updated, got %d", affected)
 			}
 
-			reloaded, err := academy.QueryEnrollmentByUID.GetOrErr(ctx, rt, rows[0].UID)
+			reloaded, err := academy.QueryEnrollmentByUID.Get(ctx, rt, rows[0].UID)
 			if err != nil {
 				t.Fatalf("reload enrollment: %v", err)
 			}
@@ -698,7 +698,7 @@ func TestIntegrationMutationsByCondition(t *testing.T) {
 				t.Fatalf("expected the pre-bulk row to conflict, got %v", err)
 			}
 
-			beforeSoftDelete, err := academy.QueryEnrollmentByUID.GetOrErr(ctx, rt, rows[1].UID)
+			beforeSoftDelete, err := academy.QueryEnrollmentByUID.Get(ctx, rt, rows[1].UID)
 			if err != nil {
 				t.Fatalf("reload enrollment before soft delete: %v", err)
 			}
@@ -740,7 +740,7 @@ func TestIntegrationMutationsByCondition(t *testing.T) {
 				From(academy.TableEnrollment).
 				Where(academy.Enrollment_UID.EQVar()).
 				MustBuild().
-				GetOrErr(ctx, rt, rows[1].UID)
+				Get(ctx, rt, rows[1].UID)
 			if err != nil {
 				t.Fatalf("reload soft-deleted enrollment: %v", err)
 			}

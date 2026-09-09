@@ -192,7 +192,7 @@ if err := runtime.WithTx(ctx, nil, func(ctx context.Context, txExec tsq.SQLExecu
 		return err
 	}
 
-	user, err := query.GetOrErr(ctx, txExec)
+	user, err := query.Get(ctx, txExec)
 	if err != nil {
 		return err
 	}

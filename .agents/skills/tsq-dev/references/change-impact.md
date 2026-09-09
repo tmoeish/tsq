@@ -89,6 +89,14 @@
 - `Correlate` 长在具体类型 `*queryBuilder[O]` 上，所以 `api-check` 看不见它的增删改；
   使用者文档（`skills/tsq`、README）只能靠这条清单提醒。
 
+## 改了单行读取（`Get` / `Find` / `Exists`）或 `limitToSingleRow`
+
+- **`LIMIT 1` 必须排在行锁子句之前**，三个方言都这么要求。测试要同时覆盖带锁和不带锁两种形状，
+  只测无锁的那条会漏掉真正会炸的那种。`[门禁: query_singlerow_test.go]`
+- **构建器自己设了 `Limit` 时不要再补**：那会拼出两个 LIMIT。
+- `Exists` 复用 `Find` 的语句，所以给单行读取加的任何边界会同时改变 `Exists` 的行为——这是有意的，
+  但改之前要想清楚这一点。
+
 ## 改了 `Page()` 或构建器级分页
 
 `Page()` 是**追加**自己的 `ORDER BY` / `LIMIT` / `OFFSET`，不是替换。所以构建器级分页和

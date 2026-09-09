@@ -20,7 +20,7 @@ func (core *queryBuilderCore[O]) MustBuild() *Query[O] {
 	return query
 }
 
-// Get builds and executes the query, returning one row or nil when no row matches.
+// Get builds and executes the query, returning one row or sql.ErrNoRows.
 func (core *queryBuilderCore[O]) Get(ctx context.Context, tx SQLExecutor, args ...any) (*O, error) {
 	query, err := core.build()
 	if err != nil {
@@ -30,24 +30,14 @@ func (core *queryBuilderCore[O]) Get(ctx context.Context, tx SQLExecutor, args .
 	return query.Get(ctx, tx, args...)
 }
 
-// GetOrErr builds and executes the query, returning one row or sql.ErrNoRows.
-func (core *queryBuilderCore[O]) GetOrErr(ctx context.Context, tx SQLExecutor, args ...any) (*O, error) {
+// Find builds and executes the query, returning one row or nil.
+func (core *queryBuilderCore[O]) Find(ctx context.Context, tx SQLExecutor, args ...any) (*O, error) {
 	query, err := core.build()
 	if err != nil {
 		return nil, err
 	}
 
-	return query.GetOrErr(ctx, tx, args...)
-}
-
-// Load builds and executes the query, scanning one row into holder.
-func (core *queryBuilderCore[O]) Load(ctx context.Context, tx SQLExecutor, holder *O, args ...any) error {
-	query, err := core.build()
-	if err != nil {
-		return err
-	}
-
-	return query.Load(ctx, tx, holder, args...)
+	return query.Find(ctx, tx, args...)
 }
 
 // Exists builds and executes the query, reporting whether any rows match.
@@ -61,7 +51,7 @@ func (core *queryBuilderCore[O]) Exists(ctx context.Context, tx SQLExecutor, arg
 }
 
 // Count builds and executes the count query.
-func (core *queryBuilderCore[O]) Count(ctx context.Context, tx SQLExecutor, args ...any) (int, error) {
+func (core *queryBuilderCore[O]) Count(ctx context.Context, tx SQLExecutor, args ...any) (int64, error) {
 	query, err := core.build()
 	if err != nil {
 		return 0, err
