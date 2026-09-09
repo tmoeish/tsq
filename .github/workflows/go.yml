@@ -22,6 +22,11 @@ env:
   # unnoticed the same way.
   GOSEC_VERSION: 'v2.28.0'
   GOVULNCHECK_VERSION: 'v1.7.0'
+  # Pinned: goreleaser v2.18.1 requires Go >= 1.27.1, and CI pins GO_VERSION with
+  # GOTOOLCHAIN=local, so `@latest` stopped installing the moment it was published.
+  # The check job and the release job must also run the same goreleaser, or the
+  # check proves nothing about the release.
+  GORELEASER_VERSION: 'v2.18.0'
 
 jobs:
   test:
@@ -279,7 +284,7 @@ jobs:
         go-version: ${{ env.GO_VERSION }}
 
     - name: Install GoReleaser
-      run: go install github.com/goreleaser/goreleaser/v2@latest
+      run: go install github.com/goreleaser/goreleaser/v2@${{ env.GORELEASER_VERSION }}
 
     - name: Check GoReleaser config
       run: ~/go/bin/goreleaser check
@@ -307,7 +312,7 @@ jobs:
       uses: goreleaser/goreleaser-action@v6
       with:
         distribution: goreleaser
-        version: latest
+        version: ${{ env.GORELEASER_VERSION }}
         args: release --clean
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
