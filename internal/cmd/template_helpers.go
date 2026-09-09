@@ -32,7 +32,6 @@ func funcMap() template.FuncMap {
 		"FieldType":                fieldType,
 		"PointerType":              pointerType,
 		"ListType":                 listType,
-		"PageRespType":             pageRespType,
 		"JoinAnd":                  joinAnd,
 		"Sub1":                     sub1,
 		"FieldToCol":               fieldToCol,
@@ -159,11 +158,6 @@ func pointerType(typeName string) string {
 // listType returns the slice type expression.
 func listType(typeName string) string {
 	return fmt.Sprintf("[]%s", typeName)
-}
-
-// pageRespType returns the page response type expression.
-func pageRespType(typeName string) string {
-	return fmt.Sprintf("tsq.PageResp[%s]", typeName)
 }
 
 // joinAnd joins a string slice (or passes a string through) with "And".
@@ -383,7 +377,7 @@ func timestampNowValue(field genmodel.FieldInfo) string {
 	case "time":
 		return generatedTimeRef("Now()")
 	case "time_ptr":
-		return fmt.Sprintf("tsq.TimePtr(%s)", generatedTimeRef("Now()"))
+		return fmt.Sprintf("new(%s)", generatedTimeRef("Now()"))
 	case "sql_null_time":
 		return fmt.Sprintf("%s.NullTime{Time: %s, Valid: true}", generatedSQLAlias, generatedTimeRef("Now()"))
 	case "null_time":
@@ -419,7 +413,7 @@ func softDeleteNowValue(field genmodel.FieldInfo) string {
 
 		return generatedTimeRef("Now().UnixNano()")
 	case "time_ptr":
-		return fmt.Sprintf("tsq.TimePtr(%s)", generatedTimeRef("Now()"))
+		return fmt.Sprintf("new(%s)", generatedTimeRef("Now()"))
 	case "sql_null_time":
 		return fmt.Sprintf("%s.NullTime{Time: %s, Valid: true}", generatedSQLAlias, generatedTimeRef("Now()"))
 	case "null_time":

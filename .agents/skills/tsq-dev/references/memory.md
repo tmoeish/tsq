@@ -220,7 +220,7 @@ to table Y`：指着一列明明存在的列说它不属于明明就是它的表
 
 ## 验证与门禁系统
 
-### 第三次了：只被自己的测试撑着的代码，在库里是不存在的 (2026-08-26)
+### 又一次：只被自己的测试撑着的代码，在库里是不存在的 (2026-08-26，2026-09-09)
 
 一次审计同时抓到三处同一形状的东西：未导出的 `printSQL` context key 加三个 tracer（读路径
 八处 `ctx.Value` 在发布出去的库里**永远为假**）；`dialect_validation.go` 里
@@ -239,6 +239,13 @@ to table Y`：指着一列明明存在的列说它不属于明明就是它的表
 
 `change-impact.md` 新增了"在执行路径上加了一个日志或诊断出口"和"新增了一个开关 + 若干
 消费点的特性"两条，各带一条可执行的 grep。
+
+**2026-09-09 又一次，这次在代码生成侧**：模板 helper 发出 `tsq.TimePtr(...)`，根包没有这个符号，
+声明 `*time.Time` 托管字段的使用者拿到的是**自己工程里**的编译错误，而 `skills/tsq` 一直把它列为
+受支持；守着它的单元测试断言的正是那个字符串。**模板和 helper 里的字符串不参与本包的类型检查**，
+`api-check` 又只看根包快照，缝正好在"生成代码引用的符号存不存在"。门是
+`internal/cmd/generated_symbols_test.go`，它装上后立刻抓到第二个（`PageRespType` 渲染的
+`tsq.PageResp` 其实叫 `PageResponse`）。
 
 ### 写在 AGENTS.md 里但没有门的规则，几个月都是假的 (2026-08-26)
 
@@ -306,17 +313,11 @@ harness 全绿才打），这条规则两个都拦。真正的错误状态只有
 
 改这类路径用 `git mv` 而不是删了重建（`git log --follow` 才追得到），并 `grep -rn` 一遍。
 
-### 第一次真跑 PR 发版流程暴露的两件事 (2026-08-21)
+### squash 的粒度是 PR，所以 PR 的粒度就是你能保留的历史粒度 (2026-08-21)
 
-- **squash 之后不能 `git pull --ff-only`**：squash 在 origin 上造出**新** commit，本地的
-  原始提交不在它的历史里，必然报分叉。正确动作是 `git fetch` + `git reset --hard origin/main`。
-- **发版 PR 里只该有发版提交**：曾把三个没推的提交一起卷进发版 PR，squash 之后 `main` 上只剩
-  一句 `chore: release`，那三条提交信息从 `git log` 消失。`release.py` 现在检查
-  `origin/main..main` 为空，不空就拒绝。
-- **别把新分支叠在还没合的 PR 分支上**：上游被 squash 后产生新 SHA，你那份原始提交立刻冲突。
-  开新分支前先 `git checkout main && git fetch && git reset --hard origin/main`。
-
-三条是同一件事的三个面：**squash 的粒度是 PR，所以 PR 的粒度就是你能保留的历史粒度。**
+第一次真跑 PR 发版流程，同一天被这一件事绊了三次：`pull --ff-only` 报分叉、卷进发版 PR 的三条
+提交信息从 `git log` 消失、新分支叠在未合并分支上冲突。三个动作现在都是 `AGENTS.md` § 发版
+里的规则，`release.py` 还会拒绝 `origin/main..main` 不为空的发版。
 
 ### 把并发写入者的改动误判成了工具的 bug (2026-08-21)
 
@@ -356,8 +357,7 @@ goreleaser v2.18.1 一发布就要求 Go >= 1.27.1，CI 用 `GOTOOLCHAIN=local` 
 
 ### `-X` 打错包路径是**静默**失败的 (2026-08-21)
 
-链接器对找不到的 `-X` 符号直接忽略，三份配置各犯过一次。现在 `make release-check` 核对
-路径，CI 的 `Docker Build` 跑镜像核对值——**静态检查证明路径对，跑产物证明值到了，缺一不可。**
+链接器对找不到的 `-X` 符号直接忽略，三份配置各犯过一次。`release-check` 核对路径，CI 的 `Docker Build` 跑镜像核对值——**静态检查证明路径对，跑产物证明值到了，缺一不可。**
 
 ### 生成器不能带 `git describe` 的版本号，否则发版是死锁 (2026-08-21)
 

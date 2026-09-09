@@ -250,6 +250,9 @@
 - `make examples` 后看一眼 `examples/academy/*.tsq.go` 的 diff——那就是使用者会看到的变化。
 - `skills/tsq` 里凡是提到生成方法名的地方都要同步。`[门禁: skill-check templates]`
 - 模板里新用的辅助函数要加进 `template_helpers.go` 并配测试。
+- **生成代码里出现的 `tsq.X` / `tsqdialect.X` 必须是那两个包真实导出的符号。** 模板和 helper 里
+  的字符串不参与本包的类型检查，写错了要到使用者自己的工程里才炸；断言"发出了这个字符串"的
+  单元测试证明不了这一点。`[门禁: internal/cmd/generated_symbols_test.go]`
 
 ## 改了生成的 `var TableXxx` 声明，或改了 `Cols()` 怎么拿到列切片
 

@@ -454,6 +454,20 @@ Additional rule:
 
 Use `deleted_at` when the project wants soft-delete behavior rather than only hard deletes.
 
+### Pointer-typed managed fields
+
+A managed timestamp field declared as `*time.Time` needs an address, and the current time comes back
+from a call that has none. Generated code uses Go 1.27's `new(expr)`, which returns a pointer to a
+copy of the value:
+
+```go
+if u.CreatedAt == nil {
+	u.CreatedAt = new(time.Now())
+}
+```
+
+This requires the consuming module to declare `go 1.27.0` or newer, which TSQ already requires.
+
 ## 5. Query DSL overview
 
 The main query flow is:
