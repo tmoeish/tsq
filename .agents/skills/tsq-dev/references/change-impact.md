@@ -364,6 +364,17 @@ gh api repos/tmoeish/tsq/rulesets/<id> --jq '.rules[] | select(.type=="required_
 同理，**不要把 matrix job 加进必需检查**：`Test` 的检查名是
 `Test (ubuntu-latest, 1.27.0)`，升 Go 版本就会变成另一个名字。
 
+## 改了 CI 里安装的工具，或它的版本
+
+- **一律钉死版本，不要 `@latest`。** CI 用 `GOTOOLCHAIN=local` 钉着 `GO_VERSION`，工具一旦发布
+  要求更新 Go 的版本，`go install ...@latest` 当天就装不上，于是**每个 PR 都红**且与改动无关。
+  gosec、govulncheck、golangci-lint、goreleaser 各有自己的版本变量。
+- **`GoReleaser Check` 和 `Release` 必须用同一个 goreleaser**：前者跑在 PR 上，后者只在 tag
+  推送**之后**跑。版本不同时，前者证明不了后者会成功，而那一步不可撤销。
+  `[门禁: release-check]`
+- 换版本前先在本地按 CI 的方式装一次（`GOTOOLCHAIN=local go install ...@<版本>`），确认它
+  能在当前 `GO_VERSION` 下装上。
+
 ## 升级 Go 版本
 
 `go.mod`、`.github/workflows/go.yml` 的 `GO_VERSION` 与 matrix、`Dockerfile`、
