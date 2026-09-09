@@ -99,7 +99,7 @@ type CaseSummary struct {
 // CTESummary captures the common-table-expression demo result.
 type CTESummary struct {
 	Track  string   `json:"track"`  // Track is the track summarized by the CTE query.
-	Total  int      `json:"total"`  // Total is the number of returned titles.
+	Total  int64    `json:"total"`  // Total is the number of returned titles.
 	Titles []string `json:"titles"` // Titles lists the titles returned from the CTE query.
 }
 
@@ -114,8 +114,8 @@ type ChunkedSummary struct {
 	Inserted int64 `json:"inserted"` // Inserted is the number of rows inserted by the chunked demo.
 	Updated  int64 `json:"updated"`  // Updated is the number of rows updated by the chunked demo.
 	Deleted  int64 `json:"deleted"`  // Deleted is the number of rows deleted by the chunked demo.
-	Before   int   `json:"before"`   // Before is the number of rows loaded before the update step.
-	After    int   `json:"after"`    // After is the number of rows remaining after cleanup.
+	Before   int64 `json:"before"`   // Before is the number of rows loaded before the update step.
+	After    int64 `json:"after"`    // After is the number of rows remaining after cleanup.
 }
 
 // SoftDeleteSummary captures the soft-delete demo result.
@@ -340,7 +340,7 @@ func runTrackCRUDDemo(ctx context.Context, runtime *tsq.Runtime) (*CRUDSummary, 
 
 	// Look up the track to verify the update.
 	// Generated Query values can also load a single record by primary key:
-	//   updated, err := QueryTrackByID.GetOrErr(ctx, exec, inserted.ID)
+	//   updated, err := QueryTrackByID.Get(ctx, exec, inserted.ID)
 
 	query, err := tsq.
 		Select(Track__Cols...).
@@ -351,7 +351,7 @@ func runTrackCRUDDemo(ctx context.Context, runtime *tsq.Runtime) (*CRUDSummary, 
 		return nil, fmt.Errorf("%s: %w", "build track lookup", err)
 	}
 
-	updated, err := query.GetOrErr(ctx, exec)
+	updated, err := query.Get(ctx, exec)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "get updated track", err)
 	}
@@ -362,7 +362,7 @@ func runTrackCRUDDemo(ctx context.Context, runtime *tsq.Runtime) (*CRUDSummary, 
 	}
 
 	// Look up the track to verify the delete.
-	deleted, err := query.Get(ctx, exec)
+	deleted, err := query.Find(ctx, exec)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "verify deleted track", err)
 	}
@@ -468,7 +468,7 @@ func runAliasDemo(ctx context.Context, runtime *tsq.Runtime) (*AliasSummary, err
 		return nil, fmt.Errorf("%s: %w", "build alias query", err)
 	}
 
-	row, err := query.GetOrErr(ctx, exec)
+	row, err := query.Get(ctx, exec)
 	if err != nil {
 		return nil, err
 	}
@@ -947,7 +947,7 @@ func runSoftDeleteDemo(ctx context.Context, runtime *tsq.Runtime) (*SoftDeleteSu
 		return nil, fmt.Errorf("%s: %w", "insert enrollment", err)
 	}
 
-	visible, err := QueryEnrollmentByUID.Get(ctx, exec, row.UID)
+	visible, err := QueryEnrollmentByUID.Find(ctx, exec, row.UID)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "load enrollment before delete", err)
 	}
@@ -964,14 +964,14 @@ func runSoftDeleteDemo(ctx context.Context, runtime *tsq.Runtime) (*SoftDeleteSu
 
 	summary.ActiveAfter = row.Active()
 
-	visible, err = QueryEnrollmentByUID.Get(ctx, exec, row.UID)
+	visible, err = QueryEnrollmentByUID.Find(ctx, exec, row.UID)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "load enrollment after delete", err)
 	}
 
 	summary.VisibleAfter = visible != nil
 
-	stored, err := storedByUID.Get(ctx, exec, row.UID)
+	stored, err := storedByUID.Find(ctx, exec, row.UID)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "load stored enrollment after delete", err)
 	}
@@ -985,7 +985,7 @@ func runSoftDeleteDemo(ctx context.Context, runtime *tsq.Runtime) (*SoftDeleteSu
 		return nil, fmt.Errorf("%s: %w", "restore enrollment", err)
 	}
 
-	visible, err = QueryEnrollmentByUID.Get(ctx, exec, row.UID)
+	visible, err = QueryEnrollmentByUID.Find(ctx, exec, row.UID)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "load enrollment after restore", err)
 	}
@@ -996,7 +996,7 @@ func runSoftDeleteDemo(ctx context.Context, runtime *tsq.Runtime) (*SoftDeleteSu
 		return nil, fmt.Errorf("%s: %w", "hard-delete enrollment", err)
 	}
 
-	stored, err = storedByUID.Get(ctx, exec, row.UID)
+	stored, err = storedByUID.Find(ctx, exec, row.UID)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "load stored enrollment after hard delete", err)
 	}
@@ -1020,12 +1020,12 @@ func runOptimisticLockDemo(ctx context.Context, runtime *tsq.Runtime) (*Optimist
 		return nil, fmt.Errorf("%s: %w", "insert enrollment", err)
 	}
 
-	stale, err := QueryEnrollmentByUID.GetOrErr(ctx, exec, inserted.UID)
+	stale, err := QueryEnrollmentByUID.Get(ctx, exec, inserted.UID)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "load stale enrollment snapshot", err)
 	}
 
-	concurrent, err := QueryEnrollmentByUID.GetOrErr(ctx, exec, inserted.UID)
+	concurrent, err := QueryEnrollmentByUID.Get(ctx, exec, inserted.UID)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "load competing enrollment snapshot", err)
 	}
@@ -1052,7 +1052,7 @@ func runOptimisticLockDemo(ctx context.Context, runtime *tsq.Runtime) (*Optimist
 			return nil, fmt.Errorf("%s", "expected stale snapshot to trigger optimistic lock retry")
 		}
 
-		loaded, err := QueryEnrollmentByUID.GetOrErr(ctx, txExec, inserted.UID)
+		loaded, err := QueryEnrollmentByUID.Get(ctx, txExec, inserted.UID)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", "reload enrollment after retry", err)
 		}
@@ -1071,7 +1071,7 @@ func runOptimisticLockDemo(ctx context.Context, runtime *tsq.Runtime) (*Optimist
 			return nil, fmt.Errorf("%s: %w", "hard-delete fresh enrollment", err)
 		}
 
-		deleted, err := QueryEnrollmentByUID.Get(ctx, txExec, loaded.UID)
+		deleted, err := QueryEnrollmentByUID.Find(ctx, txExec, loaded.UID)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", "verify deleted enrollment", err)
 		}

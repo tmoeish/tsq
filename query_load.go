@@ -193,7 +193,7 @@ func listFn[O Owner](
 }
 
 // GetOrErr executes q and returns one row or sql.ErrNoRows.
-func (q *Query[O]) GetOrErr(
+func (q *Query[O]) Get(
 	ctx context.Context,
 	tx SQLExecutor,
 	args ...any,
@@ -217,6 +217,8 @@ func getOrErrFn[O Owner](
 	if err != nil {
 		return nil, err
 	}
+
+	resolvedSQL = limitToSingleRow(resolvedSQL, qb.hasLimit)
 
 	if err := validateOperationalExecutorForSQL(tx, resolvedSQL); err != nil {
 		return nil, err
@@ -247,12 +249,12 @@ func getOrErrFn[O Owner](
 }
 
 // Get executes q and returns one row or nil when no row matches.
-func (q *Query[O]) Get(
+func (q *Query[O]) Find(
 	ctx context.Context,
 	tx SQLExecutor,
 	args ...any,
 ) (*O, error) {
-	row, err := q.GetOrErr(ctx, tx, args...)
+	row, err := q.Get(ctx, tx, args...)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
@@ -262,49 +264,6 @@ func (q *Query[O]) Get(
 	}
 
 	return row, nil
-}
-
-// Load executes q and scans one row into holder.
-func (q *Query[O]) Load(
-	ctx context.Context,
-	tx SQLExecutor,
-	holder *O,
-	args ...any,
-) error {
-	return traceExecutor(ctx, tx, func(ctx context.Context) error {
-		if err := validateQuery(q); err != nil {
-			return err
-		}
-
-		resolvedSQL, finalArgs, err := resolveQueryWithState(q.listSQL, q.listArgs, args, "", q.listArgState)
-		if err != nil {
-			return err
-		}
-
-		if err := validateOperationalExecutorForSQL(tx, resolvedSQL); err != nil {
-			return err
-		}
-
-		sqlText := renderSQLForExecutor(tx, resolvedSQL)
-
-		logSQLForExecutor(ctx, tx, "load", sqlText, finalArgs)
-
-		dest, err := buildScanDest(q.selectCols, holder)
-		if err != nil {
-			return fmt.Errorf("%s: %w", "failed to execute select query", err)
-		}
-
-		row := tx.QueryRowContext(ctx, sqlText, finalArgs...)
-		if err := row.Scan(dest...); err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return sql.ErrNoRows
-			}
-
-			return fmt.Errorf("%s: %w", "failed to execute select query", err)
-		}
-
-		return nil
-	})
 }
 
 func (q *Query[O]) buildPageSQLs(page *PageRequest) (string, string, error) {
@@ -436,4 +395,24 @@ func splitCommaValues(value string) []string {
 	}
 
 	return result
+}
+
+// limitToSingleRow bounds a statement that feeds a single-row read.
+//
+// Without it a Get over a predicate that matches several rows returns whichever
+// row the database happened to produce first, and the database still has to
+// produce the rest. The clause goes before any row-lock clause, which is where
+// every supported dialect expects it; a query that already carries its own
+// LIMIT is left alone.
+func limitToSingleRow(sqlText string, hasLimit bool) string {
+	if hasLimit {
+		return sqlText
+	}
+
+	body, lock := splitTrailingQueryLockClause(sqlText)
+	if lock == "" {
+		return body + " LIMIT 1"
+	}
+
+	return body + " LIMIT 1 " + lock
 }

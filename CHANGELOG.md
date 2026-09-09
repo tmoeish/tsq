@@ -13,6 +13,11 @@
 
 - **软删除成为默认的删除语义**: `deleted_at` 的表上，`Delete` 现在打墓碑而不是物理删除，物理删除改名 `HardDelete`。判据是使用者的真实用法——软删除的行在业务上就是删掉了，只有审计才回头看它，而恢复它要人工改库。受影响的入口成对出现：`tsq.Delete` / `tsq.HardDelete`、`tsq.ChunkedDelete` / `tsq.ChunkedHardDelete`、`tsq.ChunkedDeleteByPKs` / `tsq.ChunkedHardDeleteByPKs`、`tsq.DeleteFrom` / `tsq.HardDeleteFrom`，生成的方法是 `Delete` / `HardDelete`。**没有声明 `deleted_at` 的表两者同义**，都是物理删除。软删除走的是 UPDATE，所以乐观锁校验和 `version` 自增照旧生效，`updated_at` 也会刷新。生成的 `SoftDelete(ctx, db, dt)` 被删除：想指定删除时间就先给字段赋值再调 `Delete`，和 `Insert` 不覆盖调用方已设的 `created_at` 是同一条规则。
 - **`QueryActive*` / `ListActive*` 改名为 `Query*` / `List*`，带软删除行的那套不再生成**: 过滤掉已删行是日常场景，名字不该更长；而"连已删的一起查"基本只在审计时用到，用查询构建器三行就能写出来，不值得为每张表每个索引各生成一个包级变量。`deleted_at` 的表上，全部生成查询现在都自带 active 过滤。示例里 `Enrollment` 的生成符号从 39 个降到 23 个。
+- **单行读取收敛为 `Get` / `Find`，语义按名字分开**: `Get` 现在在没有匹配行时返回 `sql.ErrNoRows`（原 `GetOrErr`），`Find` 返回 `nil, nil`（原 `Get`）。删除 `Load(ctx, tx, holder, args...)`——它是第三种读单行的方式，而且是唯一没法在不比较错误的情况下表达"没查到"的那种。
+- **`Get` / `Find` / `Exists` 现在给语句加 `LIMIT 1`**: 加在行锁子句**之前**（三个方言都要求这个顺序），构建器自己设了 `Limit` 时不加。此前一个匹配多行的谓词会让数据库把所有行都产出来，而结果只取第一行、且是哪一行不确定。
+- **`Exists` 不再走 `COUNT`**: 改为执行和 `Find` 相同的单行读取并看有没有行。`SELECT COUNT(1)` 要访问每一个匹配行，才能回答第一行就能定下来的问题。
+- **`Count` 只保留 `int64` 版本**: 删除 `Count64`，`Count` 的返回类型从 `int` 改为 `int64`。大结果集或 32 位平台上截断是静默的。
+
 - **删除全部标记 `Deprecated` 的符号**: 顶层 `AsSubquery`（用 `Query.AsSubquery`）、`NewPageResponse`（用 `PageRequest.Response`）、`Runtime.WithTx1` / `WithTx2` 及其包级形式（用 `Runtime.WithTxResult`，多个值用小结果结构体）、`Query.QueryInt` / `QueryFloat` / `QueryString`（用 `Query.Scalar`）、`IndexInitMode` 与 `IndexInitSkip` / `IndexInitValidate` / `IndexInitUpsert`（用 `SchemaPolicy` 那组常量）。
 - **`EXISTS` 从列方法改为包级函数**: `col.ExistsSub(sq)` / `col.NExistsSub(sq)` 改为 `tsq.Exists(sq)` / `tsq.NotExists(sq)`。它们从来不读那个列——EXISTS 问的是子查询有没有行，和任何一列都无关，旧写法逼着调用方随便挑一列。参数类型 `AnySubquery` 现在是导出的密封接口（方法未导出，包外无法实现），已 `Build()` 的 `*Query` 和类型化的 `Subquery[T]` 都满足它；此前它叫 `rawSubquery`，是个使用者**写不出名字**的参数类型。
 - **删除三个只会失败或忽略入参的列方法**: `Unique(...)` / `NUnique(...)` 一直只返回"内置方言不支持"的构建错误；`Concat(str)` 忽略它的参数并总是构建失败。需要这些语义时用 `Expr` / `Exprf` 写方言相关的表达式。

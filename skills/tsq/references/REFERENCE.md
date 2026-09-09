@@ -615,13 +615,17 @@ For keyword values passed as variadic args to `query.List` or `query.Get`, and f
 Execution is via methods on the built `*Query[O]`:
 
 - `query.List(ctx, exec, args...)` → `[]*O, error`
-- `query.Get(ctx, exec, args...)` → `*O, error` (nil when not found)
-- `query.GetOrErr(ctx, exec, args...)` → `*O, error` (error when not found)
+- `query.Get(ctx, exec, args...)` → `*O, error` (`sql.ErrNoRows` when not found)
+- `query.Find(ctx, exec, args...)` → `*O, error` (nil, nil when not found)
 - `query.Page(ctx, exec, pageReq, args...)` → `*PageResponse[O], error`
-- `query.Count(ctx, exec, args...)` → `int, error`
-- `query.Count64(ctx, exec, args...)` → `int64, error`
+- `query.Count(ctx, exec, args...)` → `int64, error`
 - `query.Scalar(ctx, exec, selectedColumn, args...)` → the selected column's inferred Go type; the query must select exactly that one column
 - generated list/get/page helpers (wrap the above)
+
+`Get`, `Find` and `Exists` append `LIMIT 1` to the statement (before any row-lock clause, and only
+when the builder did not set its own limit), so a predicate that matches many rows no longer makes
+the database produce all of them. `Exists` runs that same read instead of `COUNT`, which had to
+visit every matching row to answer a question the first row settles.
 
 All methods take an explicit `context.Context` and a `SQLExecutor`.
 

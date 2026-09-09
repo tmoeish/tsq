@@ -13,7 +13,7 @@
 | 集合运算 UNION / INTERSECT / EXCEPT | `querybuilder_setops.go` |
 | `ForUpdate` / `ForShare` / NOWAIT / SKIP LOCKED | `querybuilder_lock.go` |
 | CTE 声明 | `cte.go`、`query_plan_cte.go` |
-| 执行入口（`Load` / `List` / `Page` 的 builder 侧） | `querybuilder_exec.go` |
+| 执行入口（`Get` / `Find` / `List` / `Page` 的 builder 侧） | `querybuilder_exec.go` |
 
 ## 根包：列、条件、表达式
 
@@ -24,6 +24,7 @@
 | 条件与 `And` / `Or` | `condition.go` |
 | 列上的谓词（`EQ` / `GTE` / `StartsWith` / `InVar` …） | `predicate_column.go` |
 | 子查询谓词、`Subquery[T]`、`AnySubquery` 与包级 `Exists` / `NotExists` | `predicate_subquery.go`、`subquery.go` |
+| 单行读取的 `LIMIT 1` 与子句顺序 | `query_load.go` 的 `limitToSingleRow`（`query_singlerow_test.go` 守着它必须排在行锁之前） |
 | RHS 抽象（列 vs 字面量 vs 占位符 vs 子查询） | `rhs.go` |
 | SQL 函数、聚合、`CASE` | `function.go` |
 | 表达式与类型化表达式 | `expression.go` |

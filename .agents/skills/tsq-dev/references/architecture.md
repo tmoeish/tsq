@@ -186,6 +186,15 @@ helper 因此继续作为包级函数。为了一点调用语法把这些接口�
 - `table_registry.go` 保存表元数据，`table_index.go` 保存索引元数据；生成的
   `runtime.tsq.go` 通过 `TSQTables()` 把包内所有表交给 `NewRuntime`。
 
+### 单行读取
+
+`Get` 无行报 `sql.ErrNoRows`，`Find` 无行返回 `nil, nil`，`Exists` 就是 `Find` 加一次判空——三者
+共用一条语句，所以它们的边界只需要在一处维护。
+
+`limitToSingleRow` 给这条语句补 `LIMIT 1`：**必须排在行锁子句之前**（用
+`splitTrailingQueryLockClause` 拆开再拼回），构建器自己设了 `Limit` 时不动。忘了这个顺序，
+带 `ForUpdate()` 的查询会拼出三个方言都不接受的 SQL，而单元测试如果只看无锁的那条就发现不了。
+
 ## 方言
 
 `dialect/` 下每个方言实现 `Dialect` 接口：标识符引用、占位符、DDL 类型映射、DDL 语句

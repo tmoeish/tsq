@@ -26,7 +26,7 @@ tsq.Select(...).From(...).Where(...).Build()
        *tsq.Query[Owner]
             |
             v
-query.List/Get/GetOrErr/Page/Count(ctx, SQLExecutor, args...)
+query.List/Get/Find/Page/Count(ctx, SQLExecutor, args...)
 ```
 
 ## `@TABLE`

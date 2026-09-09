@@ -84,10 +84,9 @@ type QueryStage[O Owner] interface {
 	Build() (*Query[O], error)
 	MustBuild() *Query[O]
 	Get(ctx context.Context, tx SQLExecutor, args ...any) (*O, error)
-	GetOrErr(ctx context.Context, tx SQLExecutor, args ...any) (*O, error)
-	Load(ctx context.Context, tx SQLExecutor, holder *O, args ...any) error
+	Find(ctx context.Context, tx SQLExecutor, args ...any) (*O, error)
 	Exists(ctx context.Context, tx SQLExecutor, args ...any) (bool, error)
-	Count(ctx context.Context, tx SQLExecutor, args ...any) (int, error)
+	Count(ctx context.Context, tx SQLExecutor, args ...any) (int64, error)
 	List(ctx context.Context, tx SQLExecutor, args ...any) ([]*O, error)
 	Page(ctx context.Context, tx SQLExecutor, page *PageRequest, args ...any) (*PageResponse[O], error)
 }
