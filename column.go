@@ -163,13 +163,9 @@ type Column[O Owner, T any] interface {
 	NContainsVar() Condition
 
 	// ExistsSub returns an EXISTS predicate for the supplied subquery.
-	ExistsSub(sq rawSubquery) Condition
 	// NExistsSub returns a NOT EXISTS predicate for the supplied subquery.
-	NExistsSub(sq rawSubquery) Condition
 	// Unique returns a deferred portability error because UNIQUE subquery predicates are not supported.
-	Unique(sq rawSubquery) Condition
 	// NUnique returns a deferred portability error because NOT UNIQUE subquery predicates are not supported.
-	NUnique(sq rawSubquery) Condition
 
 	// Pred formats a custom predicate template around the receiver column.
 	// The format must contain one %s placeholder for the receiver column plus
@@ -231,13 +227,11 @@ type Column[O Owner, T any] interface {
 	// Substring wraps the column in SUBSTRING using start and length.
 	Substring(start, length int) Column[O, T]
 	// Length wraps the column in LENGTH.
-	Length() Column[O, T]
+	Length() Column[O, int64]
 	// Trim wraps the column in TRIM.
 	Trim() Column[O, T]
 	// Concat appends str to the column expression with CONCAT.
-	Concat(str string) Column[O, T]
 	// Now returns a NOW expression.
-	Now() Column[O, T]
 	// Date wraps the column in DATE.
 	Date() Column[O, T]
 	// Year wraps the column in YEAR.

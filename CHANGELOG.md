@@ -13,6 +13,12 @@
 
 - **软删除成为默认的删除语义**: `deleted_at` 的表上，`Delete` 现在打墓碑而不是物理删除，物理删除改名 `HardDelete`。判据是使用者的真实用法——软删除的行在业务上就是删掉了，只有审计才回头看它，而恢复它要人工改库。受影响的入口成对出现：`tsq.Delete` / `tsq.HardDelete`、`tsq.ChunkedDelete` / `tsq.ChunkedHardDelete`、`tsq.ChunkedDeleteByPKs` / `tsq.ChunkedHardDeleteByPKs`、`tsq.DeleteFrom` / `tsq.HardDeleteFrom`，生成的方法是 `Delete` / `HardDelete`。**没有声明 `deleted_at` 的表两者同义**，都是物理删除。软删除走的是 UPDATE，所以乐观锁校验和 `version` 自增照旧生效，`updated_at` 也会刷新。生成的 `SoftDelete(ctx, db, dt)` 被删除：想指定删除时间就先给字段赋值再调 `Delete`，和 `Insert` 不覆盖调用方已设的 `created_at` 是同一条规则。
 - **`QueryActive*` / `ListActive*` 改名为 `Query*` / `List*`，带软删除行的那套不再生成**: 过滤掉已删行是日常场景，名字不该更长；而"连已删的一起查"基本只在审计时用到，用查询构建器三行就能写出来，不值得为每张表每个索引各生成一个包级变量。`deleted_at` 的表上，全部生成查询现在都自带 active 过滤。示例里 `Enrollment` 的生成符号从 39 个降到 23 个。
+- **删除全部标记 `Deprecated` 的符号**: 顶层 `AsSubquery`（用 `Query.AsSubquery`）、`NewPageResponse`（用 `PageRequest.Response`）、`Runtime.WithTx1` / `WithTx2` 及其包级形式（用 `Runtime.WithTxResult`，多个值用小结果结构体）、`Query.QueryInt` / `QueryFloat` / `QueryString`（用 `Query.Scalar`）、`IndexInitMode` 与 `IndexInitSkip` / `IndexInitValidate` / `IndexInitUpsert`（用 `SchemaPolicy` 那组常量）。
+- **`EXISTS` 从列方法改为包级函数**: `col.ExistsSub(sq)` / `col.NExistsSub(sq)` 改为 `tsq.Exists(sq)` / `tsq.NotExists(sq)`。它们从来不读那个列——EXISTS 问的是子查询有没有行，和任何一列都无关，旧写法逼着调用方随便挑一列。参数类型 `AnySubquery` 现在是导出的密封接口（方法未导出，包外无法实现），已 `Build()` 的 `*Query` 和类型化的 `Subquery[T]` 都满足它；此前它叫 `rawSubquery`，是个使用者**写不出名字**的参数类型。
+- **删除三个只会失败或忽略入参的列方法**: `Unique(...)` / `NUnique(...)` 一直只返回"内置方言不支持"的构建错误；`Concat(str)` 忽略它的参数并总是构建失败。需要这些语义时用 `Expr` / `Exprf` 写方言相关的表达式。
+- **删除 `Column.Now()`**: 它把整个列表达式替换成 `CURRENT_TIMESTAMP`，也就是说它根本不看调用它的那一列，`User_Name.Now()` 和 `User_ID.Now()` 是同一个东西。用 `Expr("CURRENT_TIMESTAMP")`。
+- **`Column.Length()` 返回 `Column[O, int64]`**: `LENGTH(...)` 在三个方言里都返回整数，此前它返回的是接收者的类型，对字符串列就是 `Column[O, string]`。
+
 - **`tsq.Table` 接口收窄**: `PrimaryKeys() []string` 改为 `PrimaryKey() string`（生成器从来只产出单主键，DSL 也明确拒绝复合主键，那个切片一直在承诺不存在的能力）；`VersionColumn() string` 改为 `ManagedColumns() ManagedColumns`，一次返回 `Version` / `CreatedAt` / `UpdatedAt` / `DeletedAt` 四个列名。做成结构体是为了以后新增托管列时加字段，而不是再给每个手写实现加一个方法。**使用者需要重新生成代码**；手写 `tsq.Table` 实现要跟着改这两个方法。
 
 ### 修复

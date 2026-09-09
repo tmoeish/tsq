@@ -604,7 +604,7 @@ Useful rules:
 - `Page` is capped at `tsq.MaxPageNumber` (1000000). `Validate()` rejects anything past it; `Offset()` clamps to the last valid page, so validate first if an out-of-range page should be an error rather than the last page
 - use `Offset()` instead of hand-calculating offset
 - use `HasNext()` / `HasPrev()` for UI navigation logic
-- use `pageReq.Response(total, data)` when constructing a typed response outside `query.Page`; `NewPageResponse` is a deprecated compatibility wrapper
+- use `pageReq.Response(total, data)` when constructing a typed response outside `query.Page`
 
 `PageRequest.Keyword` is automatically escaped for LIKE wildcards when executing via `query.Page(...)`, so `%`, `_` and the escape character itself are matched literally on every supported dialect; the keyword still matches as a substring. The generated predicate carries an explicit `ESCAPE '~'` clause, because SQLite has no default LIKE escape character. A backslash in a keyword is an ordinary character.
 
@@ -622,8 +622,6 @@ Execution is via methods on the built `*Query[O]`:
 - `query.Count64(ctx, exec, args...)` → `int64, error`
 - `query.Scalar(ctx, exec, selectedColumn, args...)` → the selected column's inferred Go type; the query must select exactly that one column
 - generated list/get/page helpers (wrap the above)
-
-The fixed-type `QueryInt`, `QueryFloat`, and `QueryString` methods are deprecated compatibility wrappers around the generic scalar execution path.
 
 All methods take an explicit `context.Context` and a `SQLExecutor`.
 
@@ -729,7 +727,7 @@ result, err := runtime.WithTxResult(ctx, opts, func(ctx context.Context, txExec 
 })
 ```
 
-Return a small result struct for multiple related values. `WithTx1`, `WithTx2`, and their package-level forms are deprecated compatibility wrappers.
+Return a small result struct when several related values come back; `WithTxResult` is the only typed transaction helper.
 
 Useful rules:
 
@@ -766,7 +764,7 @@ TSQ supports more than simple list queries. Common advanced shapes include:
 
 - aggregate queries with `GroupBy(...)` and `Having(...)`
 - `CASE` expressions
-- subqueries such as `In(subquery)`, `ExistsSub`, and typed RHS comparisons like `EQ(subquery)` or `Like(subquery)`
+- subqueries such as `In(subquery)`, `tsq.Exists(subquery)`, and typed RHS comparisons like `EQ(subquery)` or `Like(subquery)`
 - correlated subqueries, where the subquery declares the enclosing query's tables with `Correlate(...)`
 - non-recursive CTEs (all built-in dialects; MySQL baseline is 8.0)
 - set operations such as `UNION`, `INTERSECT`, and `EXCEPT` (all built-in dialects; MySQL needs 8.0.31+)
@@ -789,7 +787,7 @@ sub, err := tsq.BuildSubquery(
 		Where(database.Order_UserID.EQ(database.User_ID)),
 	database.Order_ID,
 )
-// ... then: database.User_ID.NExistsSub(sub)
+// ... then: tsq.NotExists(sub)
 // SELECT ... FROM users WHERE NOT EXISTS (
 //   SELECT orders.id FROM orders WHERE orders.user_id = users.id)
 ```

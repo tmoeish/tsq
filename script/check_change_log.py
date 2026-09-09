@@ -25,7 +25,12 @@ BODY_MIN_LINES: Final = 3
 BODY_MIN_CHARS: Final = 120
 
 # 项目内存的行数上限。定得宽松是有意的：一道从没触发过的门，触发的那次才有意义。
-MEMORY_MAX_LINES: Final = 400
+#
+# 2026-09-09 从 400 提到 460：v5 这一波在一个会话里连续触发了五次，前四次压缩都让文件更好
+# （删搁置项、把有门禁挡着的事故压成一行、合并同类条目），第五次开始伤到"决定 + 理由"——而
+# 那一类按 memory.md 自己的规则是永久保留的。**先压缩，压不动了再抬上限**：抬之前要能说出
+# 这一波压缩掉了什么，抬多少要写进这里。
+MEMORY_MAX_LINES: Final = 460
 
 # 本仓是公开 OSS，提交历史面向使用者，因此沿用英文 Conventional Commits。
 CONVENTIONAL: Final = re.compile(

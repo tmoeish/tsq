@@ -112,42 +112,6 @@ func (q *Query[O]) Scalar[T any](
 	})
 }
 
-// QueryInt executes the query and returns a single integer result.
-// Deprecated: use Query.Scalar with an integer selected column.
-func (q *Query[O]) QueryInt(
-	ctx context.Context,
-	tx SQLExecutor,
-	args ...any,
-) (int64, error) {
-	return traceExecutor1(ctx, tx, func(ctx context.Context) (int64, error) {
-		return q.scalarValue[int64](ctx, tx, args...)
-	})
-}
-
-// QueryFloat executes the query and returns a single float result.
-// Deprecated: use Query.Scalar with a floating-point selected column.
-func (q *Query[O]) QueryFloat(
-	ctx context.Context,
-	tx SQLExecutor,
-	args ...any,
-) (float64, error) {
-	return traceExecutor1(ctx, tx, func(ctx context.Context) (float64, error) {
-		return q.scalarValue[float64](ctx, tx, args...)
-	})
-}
-
-// QueryString executes the query and returns a single string result.
-// Deprecated: use Query.Scalar with a string selected column.
-func (q *Query[O]) QueryString(
-	ctx context.Context,
-	tx SQLExecutor,
-	args ...any,
-) (string, error) {
-	return traceExecutor1(ctx, tx, func(ctx context.Context) (string, error) {
-		return q.scalarValue[string](ctx, tx, args...)
-	})
-}
-
 // Count executes the count query and returns the number of matching records.
 // The result is truncated to int; use Count64 when an int64 is required.
 func (q *Query[O]) Count(

@@ -446,7 +446,7 @@ summary, err := runtime.WithTxResult(ctx, opts, func(ctx context.Context, tx tsq
 })
 ```
 
-`Scalar` and `AsSubquery` validate that the supplied typed column is the query's only selected column. The column argument also lets Go infer the result type. `QueryInt`, `QueryFloat`, and `QueryString` remain deprecated wrappers. `WithTxResult` replaces the arity-named `WithTx1` / `WithTx2` APIs; those names also remain deprecated compatibility wrappers.
+`Scalar` 和 `AsSubquery` 会校验传入的类型化列就是这条查询唯一的选列；那个列参数同时让 Go 推导出结果类型。带类型的事务返回值统一走 `WithTxResult`，多个相关值用一个小结果结构体承载。
 
 查询写法请优先参考 `docs/quickstart.md`、`docs/concepts.md` 和 `examples/full-suite/main.go` 的当前示例。
 
@@ -474,7 +474,7 @@ summary, err := runtime.WithTxResult(ctx, opts, func(ctx context.Context, tx tsq
 - `Build()` 返回的是 `*tsq.Query[Owner]`，owner 类型会沿着 builder 保留下来。
 - 标量比较（如 `EQ(subquery)` / `GT(subquery)`）、`Between(subqueryA, subqueryB)`，以及 `In(subquery)` / `NIn(subquery)` 里的 typed 子查询 **必须只选择一列**。
 - Prefer `query.AsSubquery(selectedColumn)` after `Build()`. `BuildSubquery(stage, selectedColumn)` remains useful when the value is still exposed through the `QueryStage` interface, whose methods cannot declare type parameters.
-- `ExistsSub` / `NExistsSub` 只要求传入已 `Build()` 的子查询，不受返回列数限制。
+- `tsq.Exists(...)` / `tsq.NotExists(...)` 只要求传入已 `Build()` 的子查询，不受返回列数限制。它们是包级函数：EXISTS 问的是子查询有没有行，和任何一列都无关。
 - 值比较推荐用 `EQVal/NEVal/GTVal/GTEVal/LTVal/LTEVal`，列和 typed 子查询则直接作为 `EQ/NE/GT/GTE/LT/LTE` 的 RHS 传入。
 - 结果投影统一使用包级 `tsq.MapInto[Target](source, fieldPointer, jsonName)`，不要再写 `col.Into(...)`。
 
@@ -492,7 +492,7 @@ sub, err := tsq.BuildSubquery(
 		Where(Order_UserID.EQ(User_ID)),
 	Order_ID,
 )
-// 然后：User_ID.NExistsSub(sub)
+// 然后：tsq.NotExists(sub)
 // SELECT ... FROM users WHERE NOT EXISTS (
 //   SELECT orders.id FROM orders WHERE orders.user_id = users.id)
 ```

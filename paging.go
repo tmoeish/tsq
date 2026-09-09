@@ -225,12 +225,6 @@ func (r *PageRequest) Response[T any](total int64, data []*T) *PageResponse[T] {
 	return resp
 }
 
-// NewPageResponse creates a PageResponse from the request, total count, and data.
-// Deprecated: use PageRequest.Response.
-func NewPageResponse[T any](r *PageRequest, total int64, data []*T) *PageResponse[T] {
-	return r.Response(total, data)
-}
-
 // HasNext reports whether another page exists after the current one.
 func (r *PageResponse[T]) HasNext() bool {
 	if r == nil {

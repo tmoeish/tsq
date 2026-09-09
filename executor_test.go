@@ -399,10 +399,17 @@ func TestRuntimeWithTxResultReturnsValue(t *testing.T) {
 	}
 }
 
-func TestRuntimeWithTx2ReturnsValues(t *testing.T) {
+func TestRuntimeWithTxResultReturnsAStruct(t *testing.T) {
 	db := newBatchMutationEngine(t)
 
-	first, second, err := db.WithTx2(context.Background(), &TxOptions{
+	// WithTx2 is gone: several related values travel in a small result struct,
+	// which names them instead of relying on positional returns.
+	type result struct {
+		count int
+		state string
+	}
+
+	got, err := db.WithTxResult(context.Background(), &TxOptions{
 		Retry: IsOptimisticLockError,
 		RetryConfig: &TxRetryConfig{
 			MaxAttempts:       2,
@@ -410,21 +417,22 @@ func TestRuntimeWithTx2ReturnsValues(t *testing.T) {
 			MaxBackoff:        0,
 			BackoffMultiplier: 1,
 		},
-	}, func(ctx context.Context, txExec SQLExecutor) (int, string, error) {
+	}, func(ctx context.Context, txExec SQLExecutor) (result, error) {
 		if err := Insert(ctx, txExec, &batchMutationUser{
 			Name:  "alice",
 			Email: "alice@example.com",
 		}); err != nil {
-			return 0, "", err
+			return result{}, err
 		}
 
-		return 7, "ok", nil
+		return result{count: 7, state: "ok"}, nil
 	})
 	if err != nil {
-		t.Fatalf("expected WithTx2 to succeed, got %v", err)
+		t.Fatalf("expected WithTxResult to succeed, got %v", err)
 	}
-	if first != 7 || second != "ok" {
-		t.Fatalf("expected WithTx2 result (7, ok), got (%d, %q)", first, second)
+
+	if got.count != 7 || got.state != "ok" {
+		t.Fatalf("expected result (7, ok), got (%d, %q)", got.count, got.state)
 	}
 }
 

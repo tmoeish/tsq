@@ -9,7 +9,7 @@ import (
 // Subquery is an opaque typed handle for a built single-column subquery.
 // Construct it with BuildSubquery or Query.AsSubquery.
 type Subquery[T any] interface {
-	rawSubquery
+	AnySubquery
 	RHS[T]
 	subqueryValue(T)
 }
@@ -97,12 +97,6 @@ func (q *Query[O]) AsSubquery[T any](selected TypedColumn[O, T]) (Subquery[T], e
 	}
 
 	return &typedSubquery[O, T]{query: q}, nil
-}
-
-// AsSubquery validates a built single-column query and returns a typed subquery.
-// Deprecated: use Query.AsSubquery.
-func AsSubquery[O Owner, T any](query *Query[O], selected TypedColumn[O, T]) (Subquery[T], error) {
-	return query.AsSubquery(selected)
 }
 
 func sameSubqueryColumn(a, b SQLColumn) bool {

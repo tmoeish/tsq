@@ -4,15 +4,9 @@
 ## .
 package tsq // import "github.com/tmoeish/tsq/v4"
 CONSTANTS
-const (
-	IndexInitSkip = SchemaPolicyManual
-	IndexInitValidate = SchemaPolicyValidate
-	IndexInitUpsert = SchemaPolicyCreateMissing
-)
 const DefaultMaxPageSize = 1000
 const MaxPageNumber = 1000000
 FUNCTIONS
-func AsSubquery[O Owner, T any](query *Query[O], selected TypedColumn[O, T]) (Subquery[T], error)
 func BuildSubquery[O Owner, T any](qb QueryStage[O], selected TypedColumn[O, T]) (Subquery[T], error)
 func ChunkedDelete[T Table](
 	ctx context.Context,
@@ -89,22 +83,12 @@ func Update[T Table](
 	tx SQLExecutor,
 	item T,
 ) error
-func WithTx1[T any](
-	r *Runtime,
-	ctx context.Context,
-	options *TxOptions,
-	fn func(context.Context, SQLExecutor) (T, error),
-) (T, error)
-func WithTx2[T1, T2 any](
-	r *Runtime,
-	ctx context.Context,
-	options *TxOptions,
-	fn func(context.Context, SQLExecutor) (T1, T2, error),
-) (T1, T2, error)
 func DeleteFrom[O Table]() *deleteBuilder[O]
 func HardDeleteFrom[O Table]() *deleteBuilder[O]
 func UpdateTable[O Table]() *updateBuilder[O]
 TYPES
+type AnySubquery interface {
+}
 type BoundColumn[O Owner] interface {
 	SQLColumn
 }
@@ -179,10 +163,6 @@ type Column[O Owner, T any] interface {
 	NEndsWithVar() Condition
 	ContainsVar() Condition
 	NContainsVar() Condition
-	ExistsSub(sq rawSubquery) Condition
-	NExistsSub(sq rawSubquery) Condition
-	Unique(sq rawSubquery) Condition
-	NUnique(sq rawSubquery) Condition
 	Pred(format string, args ...any) Condition
 	Expr(format string) Column[O, T]
 	Exprf(format string, args ...any) Column[O, T]
@@ -195,10 +175,8 @@ type Column[O Owner, T any] interface {
 	Upper() Column[O, T]
 	Lower() Column[O, T]
 	Substring(start, length int) Column[O, T]
-	Length() Column[O, T]
+	Length() Column[O, int64]
 	Trim() Column[O, T]
-	Concat(str string) Column[O, T]
-	Now() Column[O, T]
 	Date() Column[O, T]
 	Year() Column[O, T]
 	Month() Column[O, T]
@@ -233,6 +211,8 @@ type Condition interface {
 	Args() []any              // Args returns the bind arguments captured by the predicate.
 }
 func And(conds ...Condition) Condition
+func Exists(sq AnySubquery) Condition
+func NotExists(sq AnySubquery) Condition
 func Or(conds ...Condition) Condition
 type ErrAmbiguousSortField struct {
 }
@@ -321,7 +301,6 @@ const (
 	IdentifierValidationWarn IdentifierValidationMode = "warn"
 	IdentifierValidationSkip IdentifierValidationMode = "skip"
 )
-type IndexInitMode = SchemaPolicy
 type LockedStage[O Owner] interface {
 	QueryStage[O]
 	NoWait() LockedStage[O]
@@ -381,7 +360,6 @@ type PageResponse[T any] struct {
 	TotalPage int64 `json:"total_page"` // TotalPage is the number of available pages after rounding up.
 	Data      []*T  `json:"data"`       // Data contains the rows for the current page.
 }
-func NewPageResponse[T any](r *PageRequest, total int64, data []*T) *PageResponse[T]
 func (r *PageResponse[T]) HasNext() bool
 func (r *PageResponse[T]) HasPrev() bool
 func (r *PageResponse[T]) IsEmpty() bool
@@ -442,21 +420,6 @@ func (q *Query[O]) Page(
 	page *PageRequest,
 	args ...any,
 ) (*PageResponse[O], error)
-func (q *Query[O]) QueryFloat(
-	ctx context.Context,
-	tx SQLExecutor,
-	args ...any,
-) (float64, error)
-func (q *Query[O]) QueryInt(
-	ctx context.Context,
-	tx SQLExecutor,
-	args ...any,
-) (int64, error)
-func (q *Query[O]) QueryString(
-	ctx context.Context,
-	tx SQLExecutor,
-	args ...any,
-) (string, error)
 func (q *Query[O]) Scalar[T any](
 	ctx context.Context,
 	tx SQLExecutor,
@@ -515,16 +478,6 @@ func (r *Runtime) WithTx(
 	options *TxOptions,
 	fn func(context.Context, SQLExecutor) error,
 ) error
-func (r *Runtime) WithTx1[T any](
-	ctx context.Context,
-	options *TxOptions,
-	fn func(context.Context, SQLExecutor) (T, error),
-) (T, error)
-func (r *Runtime) WithTx2[T1, T2 any](
-	ctx context.Context,
-	options *TxOptions,
-	fn func(context.Context, SQLExecutor) (T1, T2, error),
-) (T1, T2, error)
 func (r *Runtime) WithTxResult[T any](
 	ctx context.Context,
 	options *TxOptions,
@@ -589,6 +542,7 @@ type SelectStage[O Owner] interface {
 }
 func Select[O Owner](cols ...BoundColumn[O]) SelectStage[O]
 type Subquery[T any] interface {
+	AnySubquery
 	RHS[T]
 }
 type Table interface {

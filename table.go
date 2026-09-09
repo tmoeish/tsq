@@ -36,18 +36,6 @@ const (
 	SchemaPolicyManaged SchemaPolicy = "managed"
 )
 
-// IndexInitMode is kept as a deprecated alias for SchemaPolicy during the policy rename.
-type IndexInitMode = SchemaPolicy
-
-const (
-	// IndexInitSkip is deprecated; use SchemaPolicyManual.
-	IndexInitSkip = SchemaPolicyManual
-	// IndexInitValidate is deprecated; use SchemaPolicyValidate.
-	IndexInitValidate = SchemaPolicyValidate
-	// IndexInitUpsert is deprecated; use SchemaPolicyCreateMissing.
-	IndexInitUpsert = SchemaPolicyCreateMissing
-)
-
 // IdentifierValidationMode controls how NewRuntime treats identifiers that exceed
 // the dialect's length limits.
 type IdentifierValidationMode string

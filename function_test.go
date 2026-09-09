@@ -194,15 +194,6 @@ func TestCol_Trim(t *testing.T) {
 	}
 }
 
-func TestCol_Concat(t *testing.T) {
-	table := newMockTable("users")
-	col := newColForTable[Table, string](table, "first_name", "first_name", nil)
-
-	if _, err := validateColumnInput(col.Concat(" Smith")); err == nil {
-		t.Fatal("expected Concat to return a build error for non-portable SQL")
-	}
-}
-
 func TestCaseBuilder_End(t *testing.T) {
 	users := newMockTable("users")
 	orgID := newColForTable[Table, int](users, "org_id", "org_id", nil)
@@ -240,18 +231,6 @@ func TestCol_ExprfTracksReferencedTables(t *testing.T) {
 	refs := result.(interface{ referencedTables() map[string]Table }).referencedTables()
 	if len(refs) != 2 || refs["orgs"] == nil || refs["users"] == nil {
 		t.Fatalf("expected Exprf to track referenced tables, got %#v", refs)
-	}
-}
-
-func TestCol_Now(t *testing.T) {
-	table := newMockTable("users")
-	col := newColForTable[Table, string](table, "created_at", "created_at", nil)
-
-	result := col.Now()
-
-	actual := result.QualifiedName()
-	if actual != "CURRENT_TIMESTAMP" {
-		t.Errorf("Expected qualified name to be 'CURRENT_TIMESTAMP', got '%s'", actual)
 	}
 }
 

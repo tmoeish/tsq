@@ -23,7 +23,7 @@
 | 投影列（`Expr` / `Exprf` / 别名） | `column_projection.go` |
 | 条件与 `And` / `Or` | `condition.go` |
 | 列上的谓词（`EQ` / `GTE` / `StartsWith` / `InVar` …） | `predicate_column.go` |
-| 子查询谓词与 `Subquery[T]` | `predicate_subquery.go`、`subquery.go` |
+| 子查询谓词、`Subquery[T]`、`AnySubquery` 与包级 `Exists` / `NotExists` | `predicate_subquery.go`、`subquery.go` |
 | RHS 抽象（列 vs 字面量 vs 占位符 vs 子查询） | `rhs.go` |
 | SQL 函数、聚合、`CASE` | `function.go` |
 | 表达式与类型化表达式 | `expression.go` |

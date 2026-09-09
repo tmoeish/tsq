@@ -108,6 +108,15 @@ MutationStage ─Build──► *Mutation[T] ─Exec──► RowsAffected
   `tsq.HardDelete`。**软删除的语义住在库里，不在模板里**——模板里那份曾经是唯一实现，而它唯一的
   测试是字符串比对。
 
+### 导出面上的两条规矩（v5 起）
+
+- **不留 `Deprecated` 别名。** 兼容包装在一个每年发不了几次大版本的库里只会积累：v4 攒下九个，
+  没有任何门禁会告诉你它们该走了。删掉它们本身就是大版本存在的理由。
+- **参数类型必须是使用者写得出名字的类型。** `ExistsSub(sq rawSubquery)` 能调用，但没人能声明
+  一个 `rawSubquery` 变量或给它写 helper。现在是导出的密封接口 `AnySubquery`（方法未导出，
+  包外无法实现），而 EXISTS 本身根本不读那个列，于是它连方法都不该是——`tsq.Exists` /
+  `tsq.NotExists` 是包级函数。**"它不用接收者"就是"它不该是方法"的信号。**
+
 ## 从构建到执行
 
 1. `Build()` → `*Query[O]`。这一步只做**结构**校验（`query_validation.go`、
@@ -173,8 +182,7 @@ helper 因此继续作为包级函数。为了一点调用语法把这些接口�
   唯一被 import 的驱动，因为 `MySQLError.Number` 是字段。
 - `runtime_schema.go` 负责 schema 对账：`Options` 上的 `TablePolicy` 和 `IndexPolicy`
   各自取 `SchemaPolicy`（`Manual` / `Validate` / `CreateMissing` / `Reconcile` /
-  `Managed`），决定 `NewRuntime` 是只校验还是补齐表、列与索引。`IndexInit*` 和
-  `IndexInitMode` 是弃用别名，保留是为了不破坏使用者的代码。
+  `Managed`），决定 `NewRuntime` 是只校验还是补齐表、列与索引。
 - `table_registry.go` 保存表元数据，`table_index.go` 保存索引元数据；生成的
   `runtime.tsq.go` 通过 `TSQTables()` 把包内所有表交给 `NewRuntime`。
 

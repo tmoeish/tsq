@@ -237,7 +237,7 @@ var _ = userID.EQ(raw)
 		{
 			name: "eqsub_rejects_wrong_subquery_value",
 			body: `
-var nameSubquery, _ = tsq.AsSubquery(&tsq.Query[userOwner]{}, userName)
+var nameSubquery, _ = (&tsq.Query[userOwner]{}).AsSubquery(userName)
 var _ = userID.EQ(nameSubquery)
 `,
 			want: "cannot use nameSubquery",
@@ -245,7 +245,7 @@ var _ = userID.EQ(nameSubquery)
 		{
 			name: "as_subquery_rejects_wrong_owner",
 			body: `
-var _, _ = tsq.AsSubquery(&tsq.Query[userOwner]{}, orderID)
+var _, _ = (&tsq.Query[userOwner]{}).AsSubquery(orderID)
 `,
 			want: "type tsq.Column[orderOwner, int] of orderID does not match inferred type tsq.TypedColumn[userOwner, int]",
 		},
@@ -282,7 +282,7 @@ var _ = userName.StartsWithCol(userName)
 		{
 			name: "insub_removed",
 			body: `
-var nameSubquery, _ = tsq.AsSubquery(&tsq.Query[userOwner]{}, userName)
+var nameSubquery, _ = (&tsq.Query[userOwner]{}).AsSubquery(userName)
 var _ = userName.InSub(nameSubquery)
 `,
 			want: "userName.InSub undefined",
@@ -304,7 +304,7 @@ var _ = userID.In(1)
 		{
 			name: "likesub_removed",
 			body: `
-var nameSubquery, _ = tsq.AsSubquery(&tsq.Query[userOwner]{}, userName)
+var nameSubquery, _ = (&tsq.Query[userOwner]{}).AsSubquery(userName)
 var _ = userName.LikeSub(nameSubquery)
 `,
 			want: "userName.LikeSub undefined",
@@ -613,7 +613,7 @@ func (userOwner) Cols() []tsq.SQLColumn { return nil }
 func (userOwner) SearchColumns() []tsq.SearchColumn { return nil }
 func (userOwner) PrimaryKey() string { return "" }
 func (userOwner) AutoIncrement() bool { return false }
-func (userOwner) ManagedColumns() ManagedColumns { return ManagedColumns{} }
+func (userOwner) ManagedColumns() tsq.ManagedColumns { return tsq.ManagedColumns{} }
 
 func (orderOwner) TSQOwner() {}
 func (orderOwner) Table() string { return "orders" }
@@ -622,7 +622,7 @@ func (orderOwner) Cols() []tsq.SQLColumn { return nil }
 func (orderOwner) SearchColumns() []tsq.SearchColumn { return nil }
 func (orderOwner) PrimaryKey() string { return "" }
 func (orderOwner) AutoIncrement() bool { return false }
-func (orderOwner) ManagedColumns() ManagedColumns { return ManagedColumns{} }
+func (orderOwner) ManagedColumns() tsq.ManagedColumns { return tsq.ManagedColumns{} }
 
 func (productOwner) TSQOwner() {}
 func (productOwner) Table() string { return "products" }
@@ -631,7 +631,7 @@ func (productOwner) Cols() []tsq.SQLColumn { return nil }
 func (productOwner) SearchColumns() []tsq.SearchColumn { return nil }
 func (productOwner) PrimaryKey() string { return "" }
 func (productOwner) AutoIncrement() bool { return false }
-func (productOwner) ManagedColumns() ManagedColumns { return ManagedColumns{} }
+func (productOwner) ManagedColumns() tsq.ManagedColumns { return tsq.ManagedColumns{} }
 
 var userID = tsq.NewCol[userOwner, int]("id", "id", nil)
 var userName = tsq.NewCol[userOwner, string]("name", "name", nil)
