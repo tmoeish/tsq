@@ -41,6 +41,15 @@ LDFLAG_X: Final = re.compile(r"-X\s+'?(?P<pkg>[A-Za-z0-9_./$()-]+)\.(?P<var>[A-Z
 LDFLAG_ANY: Final = re.compile(r"-X\s+'?[^\s'=]+=")
 PACKAGE_VAR: Final = re.compile(r"^var\s+(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*=", re.MULTILINE)
 
+WORKFLOW: Final = ".github/workflows/go.yml"
+GORELEASER_REF: Final = "${{ env.GORELEASER_VERSION }}"
+GORELEASER_PIN: Final = re.compile(
+    r"^\s*GORELEASER_VERSION:\s*'(?P<version>v\d+\.\d+\.\d+)'\s*$", re.MULTILINE
+)
+GORELEASER_INSTALL: Final = re.compile(
+    r"go install github\.com/goreleaser/goreleaser/v2@(?P<ref>.+?)\s*$", re.MULTILINE
+)
+
 
 class ReleaseError(RuntimeError):
     """版本号不一致时抛出。"""
@@ -94,8 +103,57 @@ def check_ldflags_targets() -> int:
     return total
 
 
+def check_release_tooling_pinned() -> str:
+    """CI 安装的 goreleaser 必须钉死版本，且 check 与 release 用同一个。
+
+    两次都真实发生过。`@latest` 在 goreleaser v2.18.1 发布那天开始要求 Go >= 1.27.1，
+    而 CI 用 GOTOOLCHAIN=local 钉着 1.27.0，于是每个 PR 的 GoReleaser Check 都装不上
+    工具而变红——改动本身完全无关。更贵的是 release job 的 `version: latest`：它只在
+    **tag 推送之后**才跑，而 tag 一旦推出去就不能删了重打。
+
+    check 与 release 用不同版本时，check job 证明不了 release 会成功，那它就没有存在
+    的意义。
+    """
+    text = (PROJECT_ROOT / WORKFLOW).read_text(encoding="utf-8")
+
+    pin = GORELEASER_PIN.search(text)
+    if pin is None:
+        raise ReleaseError(
+            f"{WORKFLOW} 里没有 `GORELEASER_VERSION: 'vX.Y.Z'`。"
+            "发版工具链要和 gosec、govulncheck 一样钉死版本。"
+        )
+
+    problems: list[str] = []
+
+    installs = GORELEASER_INSTALL.findall(text)
+    if not installs:
+        problems.append("找不到安装 goreleaser 的步骤")
+
+    for ref in installs:
+        if ref != GORELEASER_REF:
+            problems.append(f"安装用的是 `@{ref}`，应该是 `@{GORELEASER_REF}`")
+
+    uses = text.count(GORELEASER_REF)
+    if uses < 2:
+        problems.append(
+            f"`{GORELEASER_REF}` 只被引用了 {uses} 次；check job 和 release job 都要用它"
+        )
+
+    for number, line in enumerate(text.splitlines(), start=1):
+        if "goreleaser" in line.lower() and "latest" in line:
+            problems.append(f"第 {number} 行仍然是 latest：{line.strip()}")
+
+    if problems:
+        raise ReleaseError(
+            "发版工具链没有钉死版本：\n  - " + "\n  - ".join(problems)
+        )
+
+    return pin.group("version")
+
+
 def main() -> int:
     ldflags = check_ldflags_targets()
+    goreleaser = check_release_tooling_pinned()
     code = buildinfo_version()
     changelog, date = changelog_version()
     generated = generated_version()
@@ -141,7 +199,8 @@ def main() -> int:
     print(
         f"版本一致性通过：{code}（CHANGELOG {date}，生成物 {generated}，"
         f"模块主版本 v{module_major()}，已发布最新 {previous or '无'}，"
-        f"{ldflags} 个 -X 目标全部指向 {BUILDINFO_SOURCE}）。"
+        f"{ldflags} 个 -X 目标全部指向 {BUILDINFO_SOURCE}，"
+        f"goreleaser 钉在 {goreleaser}）。"
     )
 
     return 0

@@ -14,7 +14,8 @@
 | git tag | `vX.Y.Z` | `script/release.py` |
 
 `make release-check` 校验四者一致，外加：主版本号必须和 go.mod 的模块路径匹配；
-版本号不能倒退；HEAD 上已有 tag 时 tag 必须等于代码里的版本。
+版本号不能倒退；HEAD 上已有 tag 时 tag 必须等于代码里的版本；发版工具链钉死了版本
+（见下面的*发版工具链*）。
 
 ## 什么时候**不**发版
 
@@ -119,6 +120,21 @@ make release             # 真的发
 `test` job 跑的是 `make test-race`——本地目标就是 CI 的定义，不要在 workflow 里另写一份。
 `Docker Build` job 构建后会 `docker run` 镜像执行 `version --json` 并核对 commit：
 发版后想确认发布二进制的元数据，`gh release download` 下来跑一次 `tsq version` 即可。
+
+### 发版工具链
+
+CI 的 `GoReleaser Check`（跑在每个 PR 上）和 `Release`（只在 tag 推送**之后**跑）必须用
+**同一个** goreleaser，版本写在 workflow 的 `GORELEASER_VERSION` 里。两条理由：
+
+- `@latest` 会在 goreleaser 发布一个要求更新 Go 的版本时当场失效——CI 用 `GOTOOLCHAIN=local`
+  钉着 `GO_VERSION`，于是每个 PR 都因为装不上工具而变红，和改动本身毫无关系。
+- 版本不同时，PR 上那个绿勾证明不了 tag 推送之后的发布会成功，而那一步不可撤销。
+
+`release-check` 守着这两条。换版本前先按 CI 的方式在本地装一次确认它能装上：
+
+```bash
+GOTOOLCHAIN=local go install github.com/goreleaser/goreleaser/v2@<版本>
+```
 
 发布产物的版本信息由 `.goreleaser.yaml` 的 ldflags 注入进
 `github.com/tmoeish/tsq/v4/internal/buildinfo`。**改那几行的时候必须真的构建一次来验证**：
