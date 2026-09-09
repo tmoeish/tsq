@@ -6,7 +6,13 @@ import (
 	"strings"
 )
 
-type rawSubquery interface {
+// AnySubquery is a subquery used where the selected columns do not matter, such
+// as EXISTS. A built *Query and a typed Subquery both satisfy it.
+//
+// Its methods are unexported, so it cannot be implemented outside this package.
+// It is exported anyway because a parameter type callers cannot name is a type
+// they cannot write a helper around.
+type AnySubquery interface {
 	subquerySQL() string
 	subqueryArgs() []any
 	subquerySelectCount() int
@@ -30,65 +36,20 @@ func (c columnImpl[Owner, T]) NIn(sq Subquery[T]) Condition {
 	return c.Pred(`%s NOT IN %s`, membershipSubquery(sq))
 }
 
-// ExistsSub returns an EXISTS predicate for the supplied subquery.
-func (c columnImpl[Owner, T]) ExistsSub(sq rawSubquery) Condition {
-	subquery, args, err := buildSubqueryExpression(sq, existsSubqueryUsage)
-	if err != nil {
-		return pred[Owner](conditionImpl{buildErr: err})
-	}
-
-	return pred[Owner](conditionImpl{
-		tables: map[string]Table{},
-		expr:   "EXISTS " + subquery,
-		args:   args,
-	})
-}
-
-// NExistsSub returns a NOT EXISTS predicate for the supplied subquery.
-func (c columnImpl[Owner, T]) NExistsSub(sq rawSubquery) Condition {
-	subquery, args, err := buildSubqueryExpression(sq, existsSubqueryUsage)
-	if err != nil {
-		return pred[Owner](conditionImpl{buildErr: err})
-	}
-
-	return pred[Owner](conditionImpl{
-		tables: map[string]Table{},
-		expr:   "NOT EXISTS " + subquery,
-		args:   args,
-	})
-}
-
-// Unique returns a deferred portability error because UNIQUE subquery predicates are not supported.
-func (c columnImpl[Owner, T]) Unique(_ rawSubquery) Condition {
-	return pred[Owner](unsupportedSubqueryPredicate("UNIQUE"))
-}
-
-// NUnique returns a deferred portability error because NOT UNIQUE subquery predicates are not supported.
-func (c columnImpl[Owner, T]) NUnique(_ rawSubquery) Condition {
-	return pred[Owner](unsupportedSubqueryPredicate("NOT UNIQUE"))
-}
-
-// unsupportedSubqueryPredicate returns a condition with a deferred error indicating
-// that this predicate uses subqueries, which are not supported by TSQ's built-in dialects.
-// The error will be returned when Build() is called, not immediately.
-func unsupportedSubqueryPredicate(name string) conditionImpl {
-	return conditionImpl{buildErr: fmt.Errorf("%s subquery predicate is not supported by TSQ's built-in dialects", name)}
-}
-
 type validatedSubquery struct {
-	query rawSubquery
+	query AnySubquery
 	usage subqueryUsage
 }
 
-func scalarSubquery(q rawSubquery) validatedSubquery {
+func scalarSubquery(q AnySubquery) validatedSubquery {
 	return validatedSubquery{query: q, usage: scalarSubqueryUsage}
 }
 
-func membershipSubquery(q rawSubquery) validatedSubquery {
+func membershipSubquery(q AnySubquery) validatedSubquery {
 	return validatedSubquery{query: q, usage: membershipSubqueryUsage}
 }
 
-func buildSubqueryExpression(q rawSubquery, usage subqueryUsage) (string, []any, error) {
+func buildSubqueryExpression(q AnySubquery, usage subqueryUsage) (string, []any, error) {
 	if q == nil {
 		return "", nil, errors.New("subquery cannot be nil")
 	}
@@ -118,4 +79,31 @@ func buildSubqueryExpression(q rawSubquery, usage subqueryUsage) (string, []any,
 	}
 
 	return fmt.Sprintf("(%s)", sqlText), q.subqueryArgs(), nil
+}
+
+// Exists builds an EXISTS (subquery) predicate.
+//
+// EXISTS asks whether the subquery returns any row at all, so it belongs to no
+// column. It used to be a method on every column, which forced the caller to
+// pick an arbitrary one and name a type they could not spell.
+func Exists(sq AnySubquery) Condition {
+	return existsCondition(sq, "EXISTS ")
+}
+
+// NotExists builds a NOT EXISTS (subquery) predicate.
+func NotExists(sq AnySubquery) Condition {
+	return existsCondition(sq, "NOT EXISTS ")
+}
+
+func existsCondition(sq AnySubquery, keyword string) Condition {
+	subquery, args, err := buildSubqueryExpression(sq, existsSubqueryUsage)
+	if err != nil {
+		return conditionImpl{buildErr: err}
+	}
+
+	return conditionImpl{
+		tables: map[string]Table{},
+		expr:   keyword + subquery,
+		args:   args,
+	}
 }

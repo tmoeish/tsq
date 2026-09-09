@@ -6,10 +6,9 @@ import (
 )
 
 func TestCondition_ExistsSubIsStandalonePredicate(t *testing.T) {
-	col := newColForTable[Table, int](newMockTable("users"), "id", "id", nil)
 	orderID := newColForTable[Table, int](newMockTable("orders"), "id", "id", nil)
 	subquery := mustBuild(Select(orderID).From(orderID.Table()))
-	got := renderCanonicalSQL(col.ExistsSub(subquery).Clause())
+	got := renderCanonicalSQL(Exists(subquery).Clause())
 	want := `EXISTS (SELECT "orders"."id" FROM "orders")`
 	if got != want {
 		t.Fatalf("expected exists clause %q, got %q", want, got)
@@ -40,13 +39,11 @@ func TestAsSubquery_RejectsMultipleColumns(t *testing.T) {
 }
 
 func TestCondition_ExistsSubAllowsMultipleColumnsAndKeepsArgs(t *testing.T) {
-	users := newMockTable("users")
 	orders := newMockTable("orders")
-	userID := newColForTable[Table, int](users, "id", "id", nil)
 	orderID := newColForTable[Table, int](orders, "id", "id", nil)
 	orderUserID := newColForTable[Table, int](orders, "user_id", "user_id", nil)
 	subquery := mustBuild(Select(orderID, orderUserID).From(orders).Where(orderUserID.EQVal(1)))
-	clause, _, args, err := validateConditionInput(userID.ExistsSub(subquery))
+	clause, _, args, err := validateConditionInput(Exists(subquery))
 	if err != nil {
 		t.Fatalf("expected EXISTS subquery to allow multiple columns, got %v", err)
 	}
@@ -173,36 +170,6 @@ func TestCondition_TypedSubqueryBuildsMembershipPredicate(t *testing.T) {
 	}
 }
 
-func TestCondition_UniqueSubqueryPredicatesFailFast(t *testing.T) {
-	col := newColForTable[Table, int](newMockTable("users"), "id", "id", nil)
-	subquery := &Query[queryOwner]{listSQL: "SELECT 1"}
-	if _, _, _, err := validateConditionInput(col.Unique(subquery)); err == nil {
-		t.Fatal("expected Unique to return a build error for unsupported predicate")
-	}
-}
-
-func TestUnsupportedSubqueryPredicatesDeferred(t *testing.T) {
-	col := newColForTable[Table, int](newMockTable("users"), "id", "id", nil)
-	query := &Query[queryOwner]{listSQL: "SELECT 1"}
-	tests := []struct // TestUnsupportedSubqueryPredicatesDeferred tests that unsupported subquery predicates
-	// return deferred errors at Build() time, not immediate panics.
-	{
-		name string
-		cond Condition
-	}{{"Unique", col.Unique(query)}, {"NUnique", col.NUnique(query)}}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			_, _, _, err := validateConditionInput(tt.cond)
-			if err == nil {
-				t.Fatalf("expected %s to have deferred error", tt.name)
-			}
-			if !strings.Contains(err.Error(), "subquery") {
-				t.Fatalf("expected error to mention subquery, got: %v", err)
-			}
-		})
-	}
-}
-
 // An outer-table reference that was not declared is still rejected, and the
 // message must not send the reader to a join: joining the outer table in makes
 // it shadow the outer one, so the predicate silently stops being correlated and
@@ -243,7 +210,7 @@ func TestSubquery_CorrelateRendersOuterReferenceWithoutJoiningIt(t *testing.T) {
 		t.Fatalf("expected a correlated subquery to build, got %v", err)
 	}
 
-	outer := mustBuild(Select(userID).From(users).Where(userID.NExistsSub(sub)))
+	outer := mustBuild(Select(userID).From(users).Where(NotExists(sub)))
 
 	got := renderCanonicalSQL(outer.subquerySQL())
 	want := `SELECT "users"."id" FROM "users" WHERE NOT EXISTS ` +

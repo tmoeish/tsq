@@ -442,7 +442,7 @@ func TestNewResponse_ExactDivision(t *testing.T) {
 		Size: 10,
 	}
 
-	resp := NewPageResponse(req, 20, []*string{})
+	resp := req.Response(20, []*string{})
 
 	expectedTotalPage := int64(2) // 20 / 10 = 2
 	if resp.TotalPage != expectedTotalPage {
@@ -456,7 +456,7 @@ func TestNewResponse_ZeroSize(t *testing.T) {
 		Size: 0,
 	}
 
-	resp := NewPageResponse(req, 20, []*string{})
+	resp := req.Response(20, []*string{})
 
 	if resp.Size != defaultPageSize {
 		t.Fatalf("expected normalized size %d, got %d", defaultPageSize, resp.Size)
@@ -592,7 +592,9 @@ func TestPageReq_RoundTrip(t *testing.T) {
 }
 
 func TestNewResponseNormalizesNilRequest(t *testing.T) {
-	resp := NewPageResponse[int](nil, 0, nil)
+	var nilRequest *PageRequest
+
+	resp := nilRequest.Response[int](0, nil)
 	if resp == nil {
 		t.Fatal("expected response to be non-nil")
 	}

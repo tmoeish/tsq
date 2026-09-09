@@ -111,7 +111,7 @@ make api-check        # 对外 Go 契约有没有偏离快照
 make api-snapshot     # 刷新快照
 make skill-check      # 技能有没有跟上代码
 make doc-check        # 文档里写的 make 目标是不是真的存在
-make memory-check     # 这波有没有留下项目内存，以及内存文件有没有超出行数上限
+make memory-check     # 这波有没有留下项目内存，以及内存文件有没有超出行数上限（460 行；先压缩，压不动了再抬，理由写进 check_change_log.py）
 make release-check    # 版本号四个副本一致，发版工具链钉死版本
 make harness          # 交接前的全部确定性门禁
 make release          # 发版（改版本号 → CHANGELOG → 重新生成 → harness → 提交 → tag → push）

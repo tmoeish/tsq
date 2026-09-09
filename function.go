@@ -48,40 +48,6 @@ func (c columnImpl[Owner, T]) Expr(format string) Column[Owner, T] {
 	return c.expr(format)
 }
 
-// rawExpr replaces the receiver SQL with a raw expression while preserving the
-// column's owner, scan metadata, and tracked tables.
-func (c columnImpl[Owner, T]) rawExpr(expr string) columnImpl[Owner, T] {
-	if strings.TrimSpace(expr) == "" {
-		c.buildErr = errors.New("expression cannot be empty")
-		return c
-	}
-
-	placeholderCount, err := countStringFormatPlaceholders(expr)
-	if err != nil {
-		c.buildErr = err
-		return c
-	}
-
-	if placeholderCount != 0 {
-		c.buildErr = errors.New("raw expression cannot contain format placeholders")
-		return c
-	}
-
-	return columnImpl[Owner, T]{
-		table:         c.table,
-		qualifiedName: expr,
-		name:          c.name,
-		fieldPointer:  c.fieldPointer,
-		jsonFieldName: c.jsonFieldName,
-		args:          append([]any(nil), c.args...),
-		tables:        cloneTableMap(c.tables),
-		aggregate:     c.aggregate,
-		distinct:      c.distinct,
-		transformed:   true,
-		buildErr:      c.buildErr,
-	}
-}
-
 // Exprf formats the receiver column plus extra SQL expressions into format.
 func (c columnImpl[Owner, T]) exprf(format string, args ...any) columnImpl[Owner, T] {
 	if strings.TrimSpace(format) == "" {
@@ -233,8 +199,8 @@ func (c columnImpl[Owner, T]) Substring(start, length int) Column[Owner, T] {
 }
 
 // Length applies LENGTH to the column.
-func (c columnImpl[Owner, T]) Length() Column[Owner, T] {
-	return c.expr("LENGTH(%s)")
+func (c columnImpl[Owner, T]) Length() Column[Owner, int64] {
+	return columnImpl[Owner, int64](c.expr("LENGTH(%s)"))
 }
 
 // Trim applies TRIM to the column.
@@ -242,21 +208,9 @@ func (c columnImpl[Owner, T]) Trim() Column[Owner, T] {
 	return c.expr("TRIM(%s)")
 }
 
-// Concat is intentionally unsupported because portable string concatenation
-// differs across TSQ's built-in dialects.
-func (c columnImpl[Owner, T]) Concat(_ string) Column[Owner, T] {
-	c.buildErr = errors.New("concat is not portable across TSQ's built-in dialects; use Expr with a dialect-specific expression instead")
-	return c
-}
-
 // ================================================
 // Date and time functions.
 // ================================================
-
-// Now replaces the receiver with the CURRENT_TIMESTAMP expression.
-func (c columnImpl[Owner, T]) Now() Column[Owner, T] {
-	return c.rawExpr("CURRENT_TIMESTAMP")
-}
 
 // Date extracts the date portion of the column with DATE(...).
 func (c columnImpl[Owner, T]) Date() Column[Owner, T] {

@@ -124,7 +124,7 @@ func TestCorrelatedSubquery_NotExistsSelectsRowsWithoutMatches(t *testing.T) {
 	query := mustBuild(
 		Select(correlatedUserID).
 			From(tableCorrelatedUser).
-			Where(correlatedUserID.NExistsSub(correlatedOrdersOfOuterUser(t))),
+			Where(NotExists(correlatedOrdersOfOuterUser(t))),
 	)
 
 	if got := listUserIDs(t, runtime, query); len(got) != 2 || got[0] != 2 || got[1] != 3 {
@@ -172,7 +172,7 @@ func TestCorrelatedSubquery_NotInRewriteBreaksOnNull(t *testing.T) {
 	correlatedQuery := mustBuild(
 		Select(correlatedUserID).
 			From(tableCorrelatedUser).
-			Where(correlatedUserID.NExistsSub(correlatedOrdersOfOuterUser(t))),
+			Where(NotExists(correlatedOrdersOfOuterUser(t))),
 	)
 	if got := listUserIDs(t, runtime, correlatedQuery); len(got) != 2 {
 		t.Fatalf("expected NOT EXISTS to stay correct with a NULL row, got %v", got)

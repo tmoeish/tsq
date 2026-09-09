@@ -52,20 +52,20 @@ func newRegisteredIndexRuntime(
 }
 
 func TestUpsertIndexRejectsInvalidIdentifiers(t *testing.T) {
-	err := upsertIndex(context.Background(), nil, tsqdialect.MySQLDialect{}, IndexInitUpsert, "users;drop", false, "idx_users_id", []string{"id"})
+	err := upsertIndex(context.Background(), nil, tsqdialect.MySQLDialect{}, SchemaPolicyCreateMissing, "users;drop", false, "idx_users_id", []string{"id"})
 	if err == nil {
 		t.Fatal("expected nil db to return an error")
 	}
 	db, _ := newSQLiteIndexTestEngine(t)
-	err = upsertIndex(context.Background(), db.DB(), tsqdialect.MySQLDialect{}, IndexInitUpsert, "users;drop", false, "idx_users_id", []string{"id"})
+	err = upsertIndex(context.Background(), db.DB(), tsqdialect.MySQLDialect{}, SchemaPolicyCreateMissing, "users;drop", false, "idx_users_id", []string{"id"})
 	if err == nil {
 		t.Fatal("expected invalid table name to return an error")
 	}
-	err = upsertIndex(context.Background(), db.DB(), tsqdialect.MySQLDialect{}, IndexInitUpsert, "users", false, "idx users id", []string{"id"})
+	err = upsertIndex(context.Background(), db.DB(), tsqdialect.MySQLDialect{}, SchemaPolicyCreateMissing, "users", false, "idx users id", []string{"id"})
 	if err == nil {
 		t.Fatal("expected invalid index name to return an error")
 	}
-	err = upsertIndex(context.Background(), db.DB(), tsqdialect.MySQLDialect{}, IndexInitUpsert, "users", false, "idx_users_id", []string{"id", "name desc"})
+	err = upsertIndex(context.Background(), db.DB(), tsqdialect.MySQLDialect{}, SchemaPolicyCreateMissing, "users", false, "idx_users_id", []string{"id", "name desc"})
 	if err == nil {
 		t.Fatal("expected invalid field name to return an error")
 	}
@@ -73,14 +73,14 @@ func TestUpsertIndexRejectsInvalidIdentifiers(t *testing.T) {
 
 func TestUpsertIndexRejectsEmptyFields(t *testing.T) {
 	db, _ := newSQLiteIndexTestEngine(t)
-	err := upsertIndex(context.Background(), db.DB(), tsqdialect.MySQLDialect{}, IndexInitUpsert, "users", false, "idx_users_id", nil)
+	err := upsertIndex(context.Background(), db.DB(), tsqdialect.MySQLDialect{}, SchemaPolicyCreateMissing, "users", false, "idx_users_id", nil)
 	if err == nil {
 		t.Fatal("expected empty index fields to return an error")
 	}
 }
 
 func TestUpsertIndexRejectsNilDB(t *testing.T) {
-	err := upsertIndex(context.Background(), nil, tsqdialect.MySQLDialect{}, IndexInitUpsert, "users", false, "idx_users_id", []string{"id"})
+	err := upsertIndex(context.Background(), nil, tsqdialect.MySQLDialect{}, SchemaPolicyCreateMissing, "users", false, "idx_users_id", []string{"id"})
 	if err == nil {
 		t.Fatal("expected nil db to return an error")
 	}
