@@ -12,13 +12,13 @@ type buildErrorTable struct {
 
 func (buildErrorTable) TSQOwner() {}
 
-func (t buildErrorTable) Table() string               { return t.name }
-func (buildErrorTable) Cols() []SQLColumn             { return nil }
-func (buildErrorTable) SearchColumns() []SearchColumn { return nil }
-func (buildErrorTable) PrimaryKeys() []string         { return nil }
-func (buildErrorTable) AutoIncrement() bool           { return false }
-func (buildErrorTable) VersionColumn() string         { return "" }
-func (t buildErrorTable) buildError() error           { return t.err }
+func (t buildErrorTable) Table() string                { return t.name }
+func (buildErrorTable) Cols() []SQLColumn              { return nil }
+func (buildErrorTable) SearchColumns() []SearchColumn  { return nil }
+func (buildErrorTable) PrimaryKey() string             { return "" }
+func (buildErrorTable) AutoIncrement() bool            { return false }
+func (buildErrorTable) ManagedColumns() ManagedColumns { return ManagedColumns{} }
+func (t buildErrorTable) buildError() error            { return t.err }
 
 type referencedTablesOnlyColumn struct {
 	refs map[string]Table

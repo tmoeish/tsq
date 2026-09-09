@@ -19,6 +19,7 @@ type mutationRecord struct {
 	fields       []mutationField
 	pkField      mutationField
 	versionField mutationField
+	managed      ManagedColumns
 	autoIncr     bool
 }
 

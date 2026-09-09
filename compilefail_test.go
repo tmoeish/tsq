@@ -611,27 +611,27 @@ func (userOwner) Table() string { return "users" }
 func (userOwner) Cols() []tsq.SQLColumn { return nil }
 
 func (userOwner) SearchColumns() []tsq.SearchColumn { return nil }
-func (userOwner) PrimaryKeys() []string { return nil }
+func (userOwner) PrimaryKey() string { return "" }
 func (userOwner) AutoIncrement() bool { return false }
-func (userOwner) VersionColumn() string { return "" }
+func (userOwner) ManagedColumns() ManagedColumns { return ManagedColumns{} }
 
 func (orderOwner) TSQOwner() {}
 func (orderOwner) Table() string { return "orders" }
 func (orderOwner) Cols() []tsq.SQLColumn { return nil }
 
 func (orderOwner) SearchColumns() []tsq.SearchColumn { return nil }
-func (orderOwner) PrimaryKeys() []string { return nil }
+func (orderOwner) PrimaryKey() string { return "" }
 func (orderOwner) AutoIncrement() bool { return false }
-func (orderOwner) VersionColumn() string { return "" }
+func (orderOwner) ManagedColumns() ManagedColumns { return ManagedColumns{} }
 
 func (productOwner) TSQOwner() {}
 func (productOwner) Table() string { return "products" }
 func (productOwner) Cols() []tsq.SQLColumn { return nil }
 
 func (productOwner) SearchColumns() []tsq.SearchColumn { return nil }
-func (productOwner) PrimaryKeys() []string { return nil }
+func (productOwner) PrimaryKey() string { return "" }
 func (productOwner) AutoIncrement() bool { return false }
-func (productOwner) VersionColumn() string { return "" }
+func (productOwner) ManagedColumns() ManagedColumns { return ManagedColumns{} }
 
 var userID = tsq.NewCol[userOwner, int]("id", "id", nil)
 var userName = tsq.NewCol[userOwner, string]("name", "name", nil)

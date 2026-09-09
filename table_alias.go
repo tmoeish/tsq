@@ -112,9 +112,9 @@ func (t aliasedTable) Cols() []SQLColumn {
 	return AliasColumns(t.base.Cols(), t)
 }
 
-// PrimaryKeys returns a defensive copy of the base table's primary key list.
-func (t aliasedTable) PrimaryKeys() []string {
-	return append([]string(nil), t.base.PrimaryKeys()...)
+// PrimaryKey returns the base table's primary-key column name.
+func (t aliasedTable) PrimaryKey() string {
+	return t.base.PrimaryKey()
 }
 
 // AutoIncrement reports whether inserts rely on database-generated IDs.
@@ -122,9 +122,9 @@ func (t aliasedTable) AutoIncrement() bool {
 	return t.base.AutoIncrement()
 }
 
-// VersionColumn returns the optimistic-lock version column name, if any.
-func (t aliasedTable) VersionColumn() string {
-	return t.base.VersionColumn()
+// ManagedColumns returns the base table's managed column names.
+func (t aliasedTable) ManagedColumns() ManagedColumns {
+	return t.base.ManagedColumns()
 }
 
 // Alias returns the SQL alias applied to the base table.

@@ -14,13 +14,13 @@ type correlatedUser struct {
 	ID int64
 }
 
-func (correlatedUser) TSQOwner()                     {}
-func (correlatedUser) Table() string                 { return "users" }
-func (correlatedUser) Cols() []SQLColumn             { return SQLColumns(correlatedUserCols()...) }
-func (correlatedUser) SearchColumns() []SearchColumn { return nil }
-func (correlatedUser) PrimaryKeys() []string         { return []string{"id"} }
-func (correlatedUser) AutoIncrement() bool           { return true }
-func (correlatedUser) VersionColumn() string         { return "" }
+func (correlatedUser) TSQOwner()                      {}
+func (correlatedUser) Table() string                  { return "users" }
+func (correlatedUser) Cols() []SQLColumn              { return SQLColumns(correlatedUserCols()...) }
+func (correlatedUser) SearchColumns() []SearchColumn  { return nil }
+func (correlatedUser) PrimaryKey() string             { return "id" }
+func (correlatedUser) AutoIncrement() bool            { return true }
+func (correlatedUser) ManagedColumns() ManagedColumns { return ManagedColumns{} }
 
 func correlatedUserCols() []BoundColumn[correlatedUser] {
 	return []BoundColumn[correlatedUser]{correlatedUserID}
@@ -31,13 +31,13 @@ type correlatedOrder struct {
 	UserID int64
 }
 
-func (correlatedOrder) TSQOwner()                     {}
-func (correlatedOrder) Table() string                 { return "orders" }
-func (correlatedOrder) Cols() []SQLColumn             { return SQLColumns(correlatedOrderCols()...) }
-func (correlatedOrder) SearchColumns() []SearchColumn { return nil }
-func (correlatedOrder) PrimaryKeys() []string         { return []string{"id"} }
-func (correlatedOrder) AutoIncrement() bool           { return true }
-func (correlatedOrder) VersionColumn() string         { return "" }
+func (correlatedOrder) TSQOwner()                      {}
+func (correlatedOrder) Table() string                  { return "orders" }
+func (correlatedOrder) Cols() []SQLColumn              { return SQLColumns(correlatedOrderCols()...) }
+func (correlatedOrder) SearchColumns() []SearchColumn  { return nil }
+func (correlatedOrder) PrimaryKey() string             { return "id" }
+func (correlatedOrder) AutoIncrement() bool            { return true }
+func (correlatedOrder) ManagedColumns() ManagedColumns { return ManagedColumns{} }
 
 func correlatedOrderCols() []BoundColumn[correlatedOrder] {
 	return []BoundColumn[correlatedOrder]{correlatedOrderID, correlatedOrderUserID}

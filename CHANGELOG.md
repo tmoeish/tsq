@@ -9,6 +9,12 @@
 
 ## [未发布]
 
+### 破坏性变更
+
+- **软删除成为默认的删除语义**: `deleted_at` 的表上，`Delete` 现在打墓碑而不是物理删除，物理删除改名 `HardDelete`。判据是使用者的真实用法——软删除的行在业务上就是删掉了，只有审计才回头看它，而恢复它要人工改库。受影响的入口成对出现：`tsq.Delete` / `tsq.HardDelete`、`tsq.ChunkedDelete` / `tsq.ChunkedHardDelete`、`tsq.ChunkedDeleteByPKs` / `tsq.ChunkedHardDeleteByPKs`、`tsq.DeleteFrom` / `tsq.HardDeleteFrom`，生成的方法是 `Delete` / `HardDelete`。**没有声明 `deleted_at` 的表两者同义**，都是物理删除。软删除走的是 UPDATE，所以乐观锁校验和 `version` 自增照旧生效，`updated_at` 也会刷新。生成的 `SoftDelete(ctx, db, dt)` 被删除：想指定删除时间就先给字段赋值再调 `Delete`，和 `Insert` 不覆盖调用方已设的 `created_at` 是同一条规则。
+- **`QueryActive*` / `ListActive*` 改名为 `Query*` / `List*`，带软删除行的那套不再生成**: 过滤掉已删行是日常场景，名字不该更长；而"连已删的一起查"基本只在审计时用到，用查询构建器三行就能写出来，不值得为每张表每个索引各生成一个包级变量。`deleted_at` 的表上，全部生成查询现在都自带 active 过滤。示例里 `Enrollment` 的生成符号从 39 个降到 23 个。
+- **`tsq.Table` 接口收窄**: `PrimaryKeys() []string` 改为 `PrimaryKey() string`（生成器从来只产出单主键，DSL 也明确拒绝复合主键，那个切片一直在承诺不存在的能力）；`VersionColumn() string` 改为 `ManagedColumns() ManagedColumns`，一次返回 `Version` / `CreatedAt` / `UpdatedAt` / `DeletedAt` 四个列名。做成结构体是为了以后新增托管列时加字段，而不是再给每个手写实现加一个方法。**使用者需要重新生成代码**；手写 `tsq.Table` 实现要跟着改这两个方法。
+
 ### 修复
 
 - **声明 `*time.Time` 托管时间戳字段的表，生成的代码编译不过**: 模板发出的是 `tsq.TimePtr(...)`，而根包从来没有过 `TimePtr` 这个符号，使用者拿到的是自己工程里的 `undefined: tsq.TimePtr`。`created_at`、`updated_at`、`deleted_at` 三个键都受影响，而 `skills/tsq` 一直把 `*time.Time` 列在支持的字段类型里。示例只用了 `time.Time` / `null.Time` / `int64`，这条路径因此没有任何东西走过；模板 helper 的单元测试断言的正是 `tsq.TimePtr(...)` 这个字符串，它证明的是 helper 和自己一致，不是这个符号存在。现在生成的是 Go 1.27 的 `new(tsqtime.Now())`，不需要任何 TSQ 侧的辅助函数。

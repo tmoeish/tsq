@@ -80,9 +80,9 @@ func (t cteTable) Cols() []SQLColumn {
 	return AliasColumns(t.def.cols, t)
 }
 
-// PrimaryKeys returns nil because CTE handles do not declare primary keys.
-func (cteTable) PrimaryKeys() []string {
-	return nil
+// PrimaryKey returns an empty string because CTE handles do not declare one.
+func (cteTable) PrimaryKey() string {
+	return ""
 }
 
 // AutoIncrement reports false because CTE handles are read-only query sources.
@@ -90,9 +90,10 @@ func (cteTable) AutoIncrement() bool {
 	return false
 }
 
-// VersionColumn returns an empty string because CTE handles do not expose version metadata.
-func (cteTable) VersionColumn() string {
-	return ""
+// ManagedColumns returns the zero value because CTE handles are read-only query
+// sources with no managed columns.
+func (cteTable) ManagedColumns() ManagedColumns {
+	return ManagedColumns{}
 }
 
 // PhysicalTable returns the CTE name because there is no separate underlying table.

@@ -80,13 +80,33 @@ MutationStage ─Build──► *Mutation[T] ─Exec──► RowsAffected
   拿不到元数据，`Build()` 会拒绝。
 - 语句形状：SET 左侧是**不带表限定**的列名（PostgreSQL 不接受 `SET t.c = ...`），WHERE
   里沿用查询的 `table.col` 标识符标记；三个方言都接受这个组合，由集成测试证明。
-- 有 `VersionColumn()` 的表自动追加 `version = version + 1`，WHERE **不**带版本。理由见
-  `memory.md`。显式 `Set` 版本列是构建错误。
+- 有 `version` 列（`ManagedColumns().Version`）的表自动追加 `version = version + 1`，WHERE **不**带
+  版本。理由见 `memory.md`。显式 `Set` 版本列是构建错误。
+- `DeleteFrom[O]()` 在 O 声明了 `deleted_at` 时**把 kind 切成 update** 并预置 `deleted_at` /
+  `updated_at` 两个赋值，于是软删除自动拿到上面那条 `version` 自增；`HardDeleteFrom[O]()` 永远
+  是 DELETE。
 - 只允许引用目标表本身且不带别名；JOIN / `UPDATE ... FROM` / `LIMIT` / `RETURNING` 在三个
   方言里写法各异，第一版不做。子查询谓词放行。
 - 执行路径和 `List` 对齐：`resolveQueryWithState` 绑参 → `validateOperationalExecutorForSQL`
   → `renderSQLForExecutor` → `logSQLForExecutor("update"/"delete")` → `ExecContext`。
   不分块，不新增方言能力位。
+
+### 软删除（`softdelete.go`）
+
+删除是物理删还是打墓碑，由 `Table.ManagedColumns().DeletedAt` 决定，不由调用点决定。
+
+- **软删除就是一次 update**：`markDeleted` 给 `deleted_at` 和 `updated_at` 落值，然后走
+  `updateTables` / `chunkedUpdateFn`。复用更新路径不是图省事——那条路上带着乐观锁校验和
+  `version` 自增，软删除必须一样有。
+- **墓碑值不能按具体类型写死**：`deleted_at` 是使用者的字段，文档承诺五种形态。`applyTombstone`
+  的顺序是：整数类 → `UnixNano()`；`time.Time` / `*time.Time` → 直接落值；其余交给
+  `sql.Scanner.Scan(now)`。最后那条同时覆盖 `sql.NullTime` 和 `null.Time`，**因此根包不必
+  import nullbio**。加新形态就是往这条链上加一环，`softdelete_test.go` 的表格用例守着。
+- **按主键批量软删除拿不到行对象**，所以 `softDeleteAssignments[O]` 用 `reflect.New` 造一个零值
+  `*O` 取字段类型。这也是 `O` 必须是生成的值类型的又一处依赖。
+- 生成代码只是转发：`item.Delete(...)` 调 `tsq.Delete`，`item.HardDelete(...)` 调
+  `tsq.HardDelete`。**软删除的语义住在库里，不在模板里**——模板里那份曾经是唯一实现，而它唯一的
+  测试是字符串比对。
 
 ## 从构建到执行
 

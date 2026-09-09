@@ -698,24 +698,80 @@ func TestIntegrationMutationsByCondition(t *testing.T) {
 				t.Fatalf("expected the pre-bulk row to conflict, got %v", err)
 			}
 
+			beforeSoftDelete, err := academy.QueryEnrollmentByUID.GetOrErr(ctx, rt, rows[1].UID)
+			if err != nil {
+				t.Fatalf("reload enrollment before soft delete: %v", err)
+			}
+
+			// Enrollment declares deleted_at, so DeleteFrom renders an UPDATE that
+			// stamps the tombstone. The rows stay in the table and leave every
+			// generated query.
 			affected, err = tsq.DeleteFrom[academy.Enrollment]().
 				Where(academy.Enrollment_UID.InVar()).
 				Exec(ctx, rt, []int64{rows[1].UID, rows[2].UID})
 			if err != nil {
-				t.Fatalf("bulk delete: %v", err)
+				t.Fatalf("bulk soft delete: %v", err)
 			}
 
 			if affected != 2 {
-				t.Fatalf("expected 2 rows deleted, got %d", affected)
+				t.Fatalf("expected 2 rows soft-deleted, got %d", affected)
 			}
 
-			remaining, err := tsq.Select(academy.Enrollment_UID).From(academy.TableEnrollment).MustBuild().Count(ctx, rt)
+			active, err := academy.QueryEnrollment.Count(ctx, rt)
 			if err != nil {
-				t.Fatalf("count enrollments: %v", err)
+				t.Fatalf("count active enrollments: %v", err)
 			}
 
-			if remaining != 1 {
-				t.Fatalf("expected 1 enrollment left, got %d", remaining)
+			if active != 1 {
+				t.Fatalf("expected 1 active enrollment left, got %d", active)
+			}
+
+			stored, err := tsq.Select(academy.Enrollment_UID).From(academy.TableEnrollment).MustBuild().Count(ctx, rt)
+			if err != nil {
+				t.Fatalf("count stored enrollments: %v", err)
+			}
+
+			if stored != 3 {
+				t.Fatalf("expected soft delete to keep all 3 rows stored, got %d", stored)
+			}
+
+			// The soft-deleted rows carry a tombstone and an advanced version.
+			tombstoned, err := tsq.Select(academy.Enrollment__Cols...).
+				From(academy.TableEnrollment).
+				Where(academy.Enrollment_UID.EQVar()).
+				MustBuild().
+				GetOrErr(ctx, rt, rows[1].UID)
+			if err != nil {
+				t.Fatalf("reload soft-deleted enrollment: %v", err)
+			}
+
+			if tombstoned.DeletedAt == 0 {
+				t.Fatal("expected soft delete to stamp deleted_at")
+			}
+
+			if tombstoned.Version != beforeSoftDelete.Version+1 {
+				t.Fatalf("expected soft delete to advance version from %d, got %d", beforeSoftDelete.Version, tombstoned.Version)
+			}
+
+			// HardDeleteFrom ignores deleted_at and removes the rows.
+			affected, err = tsq.HardDeleteFrom[academy.Enrollment]().
+				Where(academy.Enrollment_UID.InVar()).
+				Exec(ctx, rt, []int64{rows[1].UID, rows[2].UID})
+			if err != nil {
+				t.Fatalf("bulk hard delete: %v", err)
+			}
+
+			if affected != 2 {
+				t.Fatalf("expected 2 rows hard-deleted, got %d", affected)
+			}
+
+			stored, err = tsq.Select(academy.Enrollment_UID).From(academy.TableEnrollment).MustBuild().Count(ctx, rt)
+			if err != nil {
+				t.Fatalf("count stored enrollments: %v", err)
+			}
+
+			if stored != 1 {
+				t.Fatalf("expected 1 enrollment left after hard delete, got %d", stored)
 			}
 		})
 	}

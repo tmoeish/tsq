@@ -26,6 +26,7 @@ type AdvancedSummary struct {
 	CTE            CTESummary            `json:"cte"`                // CTE summarizes common-table-expression queries.
 	SetOps         SetOpsSummary         `json:"set_ops"`            // SetOps summarizes UNION and INTERSECT style queries.
 	Chunked        ChunkedSummary        `json:"chunked"`            // Chunked summarizes chunked write helpers.
+	SoftDelete     SoftDeleteSummary     `json:"soft_delete"`        // SoftDelete summarizes soft deletes, restores and hard deletes.
 	OptimisticLock OptimisticLockSummary `json:"optimistic_lock"`    // OptimisticLock summarizes version-guarded writes.
 }
 
@@ -115,6 +116,18 @@ type ChunkedSummary struct {
 	Deleted  int64 `json:"deleted"`  // Deleted is the number of rows deleted by the chunked demo.
 	Before   int   `json:"before"`   // Before is the number of rows loaded before the update step.
 	After    int   `json:"after"`    // After is the number of rows remaining after cleanup.
+}
+
+// SoftDeleteSummary captures the soft-delete demo result.
+type SoftDeleteSummary struct {
+	EnrollmentUID  int64 `json:"enrollment_uid"`   // EnrollmentUID is the row used for the demo.
+	ActiveBefore   bool  `json:"active_before"`    // ActiveBefore reports whether the row was active before the delete.
+	VisibleBefore  bool  `json:"visible_before"`   // VisibleBefore reports whether generated queries returned the row before the delete.
+	ActiveAfter    bool  `json:"active_after"`     // ActiveAfter reports whether the row was still active after the soft delete.
+	VisibleAfter   bool  `json:"visible_after"`    // VisibleAfter reports whether generated queries still returned the row.
+	StoredAfter    bool  `json:"stored_after"`     // StoredAfter reports whether the row was still stored in the table.
+	VisibleRestore bool  `json:"visible_restored"` // VisibleRestore reports whether clearing the tombstone brought the row back.
+	StoredFinal    bool  `json:"stored_final"`     // StoredFinal reports whether the row survived the closing hard delete.
 }
 
 // OptimisticLockSummary captures the optimistic-lock demo result.
@@ -219,6 +232,11 @@ func RunAdvanced(ctx context.Context, runtime *tsq.Runtime) (*AdvancedSummary, e
 		return nil, fmt.Errorf("%s: %w", "chunked demo", err)
 	}
 
+	softDelete, err := runSoftDeleteDemo(ctx, runtime)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", "soft delete demo", err)
+	}
+
 	optimisticLock, err := runOptimisticLockDemo(ctx, runtime)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "optimistic lock demo", err)
@@ -233,6 +251,7 @@ func RunAdvanced(ctx context.Context, runtime *tsq.Runtime) (*AdvancedSummary, e
 		CTE:            *cte,
 		SetOps:         *setOps,
 		Chunked:        *chunked,
+		SoftDelete:     *softDelete,
 		OptimisticLock: *optimisticLock,
 	}, nil
 }
@@ -900,6 +919,93 @@ func runChunkedDemo(ctx context.Context, runtime *tsq.Runtime) (*ChunkedSummary,
 // automatically retries and succeeds after reloading the fresh row version.
 // Row-lock reads are intentionally not executed here because the examples runtime
 // uses SQLite, which rejects FOR UPDATE / FOR SHARE at execution time.
+// runSoftDeleteDemo walks a row through the whole soft-delete lifecycle.
+//
+// Enrollment declares deleted_at, so Delete stamps a tombstone instead of
+// removing the row: it leaves every generated query while staying in the table,
+// clearing the tombstone brings it back, and HardDelete is what actually
+// removes it.
+func runSoftDeleteDemo(ctx context.Context, runtime *tsq.Runtime) (*SoftDeleteSummary, error) {
+	exec := runtime
+
+	// Every row of the table, tombstoned or not. Generated queries cannot show
+	// this, which is the point of the demo.
+	storedByUID := tsq.
+		Select(Enrollment__Cols...).
+		From(TableEnrollment).
+		Where(Enrollment_UID.EQVar()).
+		MustBuild()
+
+	row := &Enrollment{
+		LearnerID: 5,
+		CourseID:  1,
+		Status:    EnrollmentStatusActive,
+		Score:     70,
+		FeeCents:  90000,
+	}
+	if err := row.Insert(ctx, exec); err != nil {
+		return nil, fmt.Errorf("%s: %w", "insert enrollment", err)
+	}
+
+	visible, err := QueryEnrollmentByUID.Get(ctx, exec, row.UID)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", "load enrollment before delete", err)
+	}
+
+	summary := &SoftDeleteSummary{
+		EnrollmentUID: row.UID,
+		ActiveBefore:  row.Active(),
+		VisibleBefore: visible != nil,
+	}
+
+	if err := row.Delete(ctx, exec); err != nil {
+		return nil, fmt.Errorf("%s: %w", "soft-delete enrollment", err)
+	}
+
+	summary.ActiveAfter = row.Active()
+
+	visible, err = QueryEnrollmentByUID.Get(ctx, exec, row.UID)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", "load enrollment after delete", err)
+	}
+
+	summary.VisibleAfter = visible != nil
+
+	stored, err := storedByUID.Get(ctx, exec, row.UID)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", "load stored enrollment after delete", err)
+	}
+
+	summary.StoredAfter = stored != nil
+
+	// Restoring is clearing the tombstone. There is no generated helper for it:
+	// bringing a row back is a deliberate act, not a routine one.
+	stored.DeletedAt = 0
+	if err := stored.Update(ctx, exec); err != nil {
+		return nil, fmt.Errorf("%s: %w", "restore enrollment", err)
+	}
+
+	visible, err = QueryEnrollmentByUID.Get(ctx, exec, row.UID)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", "load enrollment after restore", err)
+	}
+
+	summary.VisibleRestore = visible != nil
+
+	if err := stored.HardDelete(ctx, exec); err != nil {
+		return nil, fmt.Errorf("%s: %w", "hard-delete enrollment", err)
+	}
+
+	stored, err = storedByUID.Get(ctx, exec, row.UID)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", "load stored enrollment after hard delete", err)
+	}
+
+	summary.StoredFinal = stored != nil
+
+	return summary, nil
+}
+
 func runOptimisticLockDemo(ctx context.Context, runtime *tsq.Runtime) (*OptimisticLockSummary, error) {
 	exec := runtime
 
@@ -959,8 +1065,10 @@ func runOptimisticLockDemo(ctx context.Context, runtime *tsq.Runtime) (*Optimist
 		}
 		finalVersion := loaded.Version
 
-		if err := loaded.Delete(ctx, txExec); err != nil {
-			return nil, fmt.Errorf("%s: %w", "delete fresh enrollment", err)
+		// HardDelete, not Delete: this is cleanup, and Enrollment declares
+		// deleted_at, so Delete would leave a tombstoned row behind.
+		if err := loaded.HardDelete(ctx, txExec); err != nil {
+			return nil, fmt.Errorf("%s: %w", "hard-delete fresh enrollment", err)
 		}
 
 		deleted, err := QueryEnrollmentByUID.Get(ctx, txExec, loaded.UID)

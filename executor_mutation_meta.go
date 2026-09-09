@@ -30,12 +30,14 @@ func mutationMetadata(dst Table) (mutationRecord, error) {
 		return mutationRecord{}, errMutationItemNoTaggedFields
 	}
 
-	pkField, err := primaryMutationField(dst.PrimaryKeys(), fields)
+	pkField, err := primaryMutationField(dst.PrimaryKey(), fields)
 	if err != nil {
 		return mutationRecord{}, err
 	}
 
-	versionField, err := optimisticLockMutationField(dst.VersionColumn(), fields)
+	managed := dst.ManagedColumns()
+
+	versionField, err := optimisticLockMutationField(managed.Version, fields)
 	if err != nil {
 		return mutationRecord{}, err
 	}
@@ -45,6 +47,7 @@ func mutationMetadata(dst Table) (mutationRecord, error) {
 		fields:       fields,
 		pkField:      pkField,
 		versionField: versionField,
+		managed:      managed,
 		autoIncr:     dst.AutoIncrement(),
 	}, nil
 }
@@ -204,18 +207,18 @@ func incrementMutationVersions(records []mutationRecord) {
 	}
 }
 
-func primaryMutationField(pkColumns []string, fields []mutationField) (mutationField, error) {
-	if len(pkColumns) != 1 {
-		return mutationField{}, errors.New("mutation item must define exactly one primary key column")
+func primaryMutationField(pkColumn string, fields []mutationField) (mutationField, error) {
+	if strings.TrimSpace(pkColumn) == "" {
+		return mutationField{}, errors.New("mutation item must define a primary key column")
 	}
 
 	for _, field := range fields {
-		if field.column == pkColumns[0] {
+		if field.column == pkColumn {
 			return field, nil
 		}
 	}
 
-	return mutationField{}, fmt.Errorf("mutation item is missing primary key column %s", pkColumns[0])
+	return mutationField{}, fmt.Errorf("mutation item is missing primary key column %s", pkColumn)
 }
 
 func mutationFieldPointer(col SQLColumn, holder Table) (any, error) {

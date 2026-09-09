@@ -45,17 +45,19 @@ func (i Instructor) SearchColumns() []tsq.SearchColumn {
 	}
 }
 
-// PrimaryKeys returns the primary key columns for Instructor.
-func (i Instructor) PrimaryKeys() []string {
-	return []string{"id"}
+// PrimaryKey returns the primary key column for Instructor.
+func (i Instructor) PrimaryKey() string {
+	return "id"
 }
 
 // AutoIncrement reports whether Instructor uses an auto-increment primary key.
 func (i Instructor) AutoIncrement() bool { return true }
 
-// VersionColumn returns the optimistic-lock version column for Instructor, if any.
-func (i Instructor) VersionColumn() string {
-	return ""
+// ManagedColumns returns the columns TSQ maintains for Instructor.
+func (i Instructor) ManagedColumns() tsq.ManagedColumns {
+	return tsq.ManagedColumns{
+		CreatedAt: "created_at",
+	}
 }
 
 // Column definitions for Instructor table.
@@ -85,14 +87,18 @@ var Instructor__Cols = []tsq.BoundColumn[Instructor]{
 var QueryInstructorByID = tsq.
 	Select(Instructor__Cols...).
 	From(TableInstructor).
-	Where(Instructor_ID.EQVar()).
+	Where(
+		Instructor_ID.EQVar(),
+	).
 	MustBuild()
 
 // QueryInstructorByIDIn stores the generated primary-key IN lookup query for Instructor.
 var QueryInstructorByIDIn = tsq.
 	Select(Instructor__Cols...).
 	From(TableInstructor).
-	Where(Instructor_ID.InVar()).
+	Where(
+		Instructor_ID.InVar(),
+	).
 	MustBuild()
 
 // ListInstructorByIDInOrErr retrieves multiple Instructor records by a set of primary key values.
@@ -206,7 +212,10 @@ func (i *Instructor) Update(
 	return nil
 }
 
-// Delete permanently removes a Instructor record.
+// Delete removes a Instructor record from the database.
+//
+// Instructor declares no deleted_at column, so Delete and HardDelete are the
+// same operation.
 func (i *Instructor) Delete(
 	ctx context.Context,
 	db tsq.SQLExecutor,
@@ -214,6 +223,18 @@ func (i *Instructor) Delete(
 	err := tsq.Delete(ctx, db, i)
 	if err != nil {
 		return fmt.Errorf("delete Instructor: %s: %w", compactJSON(i), err)
+	}
+	return nil
+}
+
+// HardDelete removes a Instructor record from the database.
+func (i *Instructor) HardDelete(
+	ctx context.Context,
+	db tsq.SQLExecutor,
+) error {
+	err := tsq.HardDelete(ctx, db, i)
+	if err != nil {
+		return fmt.Errorf("hard-delete Instructor: %s: %w", compactJSON(i), err)
 	}
 	return nil
 }

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	tsqdialect "github.com/tmoeish/tsq/v4/dialect"
 )
@@ -347,7 +348,30 @@ func chunkedUpdateChunk[T Table](
 // *sql.DB or non-transactional executor allows partial progress across chunks;
 // passing a *sql.Tx makes the whole chunked operation participate in that
 // transaction. TSQ does not open an implicit outer transaction for this helper.
+// ChunkedDelete soft-deletes items in chunks when the table declares a
+// deleted_at column, and deletes them physically otherwise. See Delete.
 func ChunkedDelete[T Table](
+	ctx context.Context,
+	tx SQLExecutor,
+	items []T,
+	options ...*ChunkedOptions,
+) error {
+	return traceExecutor(ctx, tx, func(ctx context.Context) error {
+		if len(items) > 0 && items[0].ManagedColumns().DeletedAt != "" {
+			return chunkedSoftDeleteFn(ctx, tx, items, options...)
+		}
+
+		return chunkedDeleteFn(ctx, tx, items, options...)
+	})
+}
+
+// ChunkedHardDelete deletes items in chunks, ignoring any deleted_at column.
+//
+// Transaction boundaries are intentionally caller-controlled. Passing a plain
+// *sql.DB or non-transactional executor allows partial progress across chunks;
+// passing a *sql.Tx makes the whole chunked operation participate in that
+// transaction. TSQ does not open an implicit outer transaction for this helper.
+func ChunkedHardDelete[T Table](
 	ctx context.Context,
 	tx SQLExecutor,
 	items []T,
@@ -356,6 +380,29 @@ func ChunkedDelete[T Table](
 	return traceExecutor(ctx, tx, func(ctx context.Context) error {
 		return chunkedDeleteFn(ctx, tx, items, options...)
 	})
+}
+
+// chunkedSoftDeleteFn stamps every item and routes the batch through the
+// chunked update path, which sizes chunks for the wider UPDATE statement.
+func chunkedSoftDeleteFn[T Table](
+	ctx context.Context,
+	tx SQLExecutor,
+	items []T,
+	options ...*ChunkedOptions,
+) error {
+	if len(items) == 0 {
+		return nil
+	}
+
+	at := time.Now()
+
+	for _, item := range items {
+		if err := markDeleted(item, at); err != nil {
+			return err
+		}
+	}
+
+	return chunkedUpdateFn(ctx, tx, items, options...)
 }
 
 func chunkedDeleteFn[T Table](
@@ -422,7 +469,33 @@ func chunkedDeleteChunk[T Table](
 // *sql.DB or non-transactional executor allows partial progress across chunks;
 // passing a *sql.Tx makes the whole chunked operation participate in that
 // transaction. TSQ does not open an implicit outer transaction for this helper.
+// ChunkedDeleteByPKs soft-deletes rows by primary-key value when the table
+// declares a deleted_at column, and deletes them physically otherwise.
+//
+// Transaction boundaries are intentionally caller-controlled. Passing a plain
+// *sql.DB or non-transactional executor allows partial progress across chunks;
+// passing a *sql.Tx makes the whole chunked operation participate in that
+// transaction. TSQ does not open an implicit outer transaction for this helper.
 func ChunkedDeleteByPKs[O Table, T any](
+	ctx context.Context,
+	tx SQLExecutor,
+	pkField TypedColumn[O, T],
+	pks []T,
+	options ...*ChunkedOptions,
+) error {
+	return traceExecutor(ctx, tx, func(ctx context.Context) error {
+		var zero O
+		if zero.ManagedColumns().DeletedAt != "" {
+			return chunkedSoftDeleteByPKsFn(ctx, tx, pkField, pks, options...)
+		}
+
+		return chunkedDeleteByPKsFn(ctx, tx, pkField, pks, options...)
+	})
+}
+
+// ChunkedHardDeleteByPKs deletes rows by primary-key value in chunks, ignoring
+// any deleted_at column.
+func ChunkedHardDeleteByPKs[O Table, T any](
 	ctx context.Context,
 	tx SQLExecutor,
 	pkField TypedColumn[O, T],
@@ -488,9 +561,9 @@ func resolveChunkedDeletePKField(col SQLColumn) (string, string, error) {
 		return "", "", errors.New("primary-key field must be a physical table column")
 	}
 
-	pkColumns := table.PrimaryKeys()
-	if len(pkColumns) != 1 {
-		return "", "", errors.New("chunked delete by PKs requires exactly one primary key column")
+	pkColumn := table.PrimaryKey()
+	if strings.TrimSpace(pkColumn) == "" {
+		return "", "", errors.New("chunked delete by PKs requires a primary key column")
 	}
 
 	columnName := strings.TrimSpace(col.Name())
@@ -498,7 +571,7 @@ func resolveChunkedDeletePKField(col SQLColumn) (string, string, error) {
 		return "", "", errors.New("primary-key field must be a physical table column")
 	}
 
-	if columnName != pkColumns[0] {
+	if columnName != pkColumn {
 		return "", "", fmt.Errorf("column %s is not the primary key of table %s", columnName, physicalTableName(table))
 	}
 
@@ -624,8 +697,47 @@ func updateFn[T Table](
 	return err
 }
 
-// Delete deletes item using the table metadata on T.
+// Delete removes item.
+//
+// When the table declares a deleted_at column the row is soft-deleted: the
+// tombstone and updated_at are stamped and the row is updated, so the
+// optimistic-lock check and the version increment still apply. Otherwise the
+// row is deleted physically, which makes Delete and HardDelete synonyms for
+// tables without soft deletes.
+//
+// Most rows are meant to disappear from the application's view, which is what
+// a soft delete does; reach for HardDelete only when the row must actually
+// leave the database.
 func Delete[T Table](
+	ctx context.Context,
+	tx SQLExecutor,
+	item T,
+) error {
+	return traceExecutor(ctx, tx, func(ctx context.Context) error {
+		if err := validateMutationItem(item); err != nil {
+			return err
+		}
+
+		if err := validateOperationalExecutor(tx); err != nil {
+			return err
+		}
+
+		if item.ManagedColumns().DeletedAt != "" {
+			return softDeleteItems(ctx, tx, []T{item})
+		}
+
+		_, err := deleteTables(ctx, tx, item)
+
+		return err
+	})
+}
+
+// HardDelete deletes item's row from the database, ignoring any deleted_at
+// column the table declares.
+//
+// The row is gone: a soft-deleted row can be brought back by clearing its
+// tombstone, one deleted this way cannot.
+func HardDelete[T Table](
 	ctx context.Context,
 	tx SQLExecutor,
 	item T,

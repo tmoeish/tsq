@@ -13,7 +13,7 @@
 | --- | --- | --- |
 | [`academy/`](academy/) | 共享 Academy 模型、seed 数据和场景实现 | `@TABLE`、`@RESULT`、生成代码、可复用 query logic |
 | [`quickstart/`](quickstart/) | 课程目录的最小日常操作 | CRUD helper、关键词搜索、基础查询构建链路 |
-| [`advanced/`](advanced/) | 把目录和报名数据做成分析型查询 | alias、聚合、`InVar`、subquery、`CASE`、CTE、set ops、chunked |
+| [`advanced/`](advanced/) | 把目录和报名数据做成分析型查询 | alias、聚合、`InVar`、subquery、`CASE`、CTE、set ops、chunked、软删除 |
 | [`full-suite/`](full-suite/) | 给学习后台做一个学习旅程看板 | joins、子查询、`@RESULT`、分页 |
 
 ## Academy ER 图
@@ -60,6 +60,7 @@ erDiagram
 | `runCTEDemo` | 先抽平台课程子集再继续查询 | non-recursive CTE |
 | `runSetOpsDemo` | 合并/排除课程集合 | `UNION`、`EXCEPT` |
 | `runChunkedDemo` | 在一个事务里批量处理报名记录 | `runtime.WithTx(...)`、`ChunkedInsert`、`ChunkedUpdate`、`ChunkedDelete` |
+| `runSoftDeleteDemo` | 走完报名记录的软删除生命周期 | `Delete`（打墓碑）、生成查询自动过滤、清墓碑恢复、`HardDelete` |
 | `runOptimisticLockDemo` | 先制造过期快照，再自动重试更新同一条报名记录 | `runtime.WithTxResult(...)`、`IsOptimisticLockError`、自动乐观锁重试 |
 | `runComprehensive` | 生成学习旅程看板 | joins、子查询、`@RESULT`、`query.Page(...)` |
 
@@ -98,6 +99,7 @@ tsq gen ./examples/academy
 这套示例运行时统一使用 **SQLite**，所以：
 
 - **自动乐观锁** 是可运行、可观察的，`runOptimisticLockDemo` 会演示“第一次因过期版本失败、随后自动重试成功”的完整流程
+- **软删除** 同样是可观察的：`runSoftDeleteDemo` 的输出里 `stored_after` 为真而 `visible_after` 为假，这就是“行还在库里、但已从所有生成查询消失”
 - **行锁 DSL**（`ForUpdate()` / `ForShare()` / `NoWait()` / `SkipLocked()`）不会在示例里执行，因为 SQLite 不支持这些语句
 
 如果你想演示行锁，请把同样的 query 放到 MySQL 或 PostgreSQL runtime 中执行，并放在显式事务里观察锁行为。

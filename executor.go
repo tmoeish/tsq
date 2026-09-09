@@ -17,6 +17,7 @@ var (
 	errMutationItemPointer         = errors.New("mutation item must be a non-nil pointer")
 	errMutationItemStructPointer   = errors.New("mutation item must point to a struct")
 	errMutationItemNoTaggedFields  = errors.New("mutation item has no db-tagged fields")
+	errSoftDeleteFieldReadOnly     = errors.New("managed column is not settable")
 )
 
 // ErrOptimisticLockConflict reports that a version-guarded mutation matched fewer

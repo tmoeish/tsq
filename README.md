@@ -211,7 +211,7 @@ TSQ 当前内置的 `Dialect` 实现只有 **SQLite / MySQL / PostgreSQL**。下
 | 生成 CRUD / 分页助手 | ✅ | ✅ | ✅ | 生成层支持一致 |
 | 类型安全列与链式查询 | ✅ | ✅ | ✅ | `tsq.Select(...).From(table).Where(...).Build()` |
 | `@RESULT` 结果映射 | ✅ | ✅ | ✅ | 生成 `*.result.tsq.go` |
-| 自动乐观锁（`version`） | ✅ | ✅ | ✅ | `Update/Delete` 在执行时按 `VersionColumn()` 做版本校验 |
+| 自动乐观锁（`version`） | ✅ | ✅ | ✅ | `Update/Delete` 在执行时按 `ManagedColumns().Version` 做版本校验 |
 | 按条件批量 `UPDATE` / `DELETE`（`tsq.UpdateTable` / `tsq.DeleteFrom`） | ✅ | ✅ | ✅ | 不校验 `version` 但会自增它；只引用目标表，不支持 JOIN / `LIMIT` / `RETURNING` |
 | `InVar()` / `NInVar()` 动态集合过滤 | ✅ | ✅ | ✅ | 执行时展开参数 |
 | `CASE` 表达式 | ✅ | ✅ | ✅ | 构建与执行都支持 |
@@ -321,15 +321,40 @@ query, err := tsq.
 
 ### `version` 字段现在是自动乐观锁语义
 
-如果表声明了 `VersionColumn()`：
+如果表声明了 `version` 列（`ManagedColumns().Version`）：
 
 - `Update(...)` 会自动把版本条件带进 `WHERE`
 - 更新成功后会把数据库里的 `version` 自增 1，并同步回内存对象
-- `Delete(...)` 会按主键 + version 做删除
+- `Delete(...)` / `HardDelete(...)` 会按主键 + version 做删除
 - 如果匹配行数少于预期，会返回 `ErrOptimisticLockConflict`
 
 这不是“仅提供版本元数据”的弱约定，而是默认生效的 mutation 语义。  
 按条件的批量语句（下一节）有意绕开这道校验；如果连单行写入都不想要乐观锁，就不要给表声明 `version` 列。
+
+### 声明了 `deleted_at` 的表，`Delete` 是软删除
+
+删除是物理删还是打墓碑，由**表**决定，不由调用点决定：
+
+| 表声明了 | `Delete` | `HardDelete` |
+| --- | --- | --- |
+| `deleted_at` | 打墓碑并刷新 `updated_at`，行留在库里 | 真正删掉 |
+| 没有 `deleted_at` | 真正删掉 | 真正删掉（两者同义） |
+
+- 软删除走的是 `UPDATE`，所以乐观锁校验和 `version` 自增照常生效。
+- 成对的入口：`tsq.Delete` / `tsq.HardDelete`、`tsq.ChunkedDelete` / `tsq.ChunkedHardDelete`、
+  `tsq.ChunkedDeleteByPKs` / `tsq.ChunkedHardDeleteByPKs`、`tsq.DeleteFrom` / `tsq.HardDeleteFrom`，
+  以及生成的 `item.Delete(...)` / `item.HardDelete(...)`。
+- **声明了 `deleted_at` 的表，全部生成查询都自带 active 过滤**，不再生成"连已删行一起查"的那一套。
+  审计要读已删行时，用查询构建器自己写：
+
+  ```go
+  var EveryEnrollment = tsq.
+      Select(academy.Enrollment__Cols...).
+      From(academy.TableEnrollment).
+      MustBuild()
+  ```
+
+- 恢复一行就是把 `deleted_at` 清零再 `Update(...)`，没有生成的 helper——恢复是个需要人明确决定的动作。
 
 ### `UpdateTable` / `DeleteFrom` 是按条件写，不校验乐观锁
 
@@ -351,7 +376,7 @@ affected, err := tsq.
 
 ### Chunked helper 的事务边界由调用方控制
 
-`ChunkedInsert`、`ChunkedUpdate`、`ChunkedDelete`、`ChunkedDeleteByIDs` 都接收 `SQLExecutor`，这是刻意设计：
+`ChunkedInsert`、`ChunkedUpdate`、`ChunkedDelete`、`ChunkedHardDelete`、`ChunkedDeleteByPKs` 都接收 `SQLExecutor`，这是刻意设计：
 
 - 传普通 `*sql.DB` / `runtime`：允许按 chunk 执行，前面成功的 chunk 不会因为后面失败自动回滚
 - 传 `runtime.WithTx(...)` 提供的事务 executor：整个 chunked 操作就运行在该事务里

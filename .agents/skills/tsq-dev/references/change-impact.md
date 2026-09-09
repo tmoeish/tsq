@@ -33,6 +33,22 @@
   ORDER BY / LIMIT 这类作用于整个查询的子句必须在体**之外**拼（`buildQueryTail`），
   又必须在行锁**之前**——SQL 把锁放最后。
 
+## 改了软删除（`softdelete.go`）或 `Table` 接口
+
+- **删除语义由表决定，不由调用点决定**：`ManagedColumns().DeletedAt` 非空 → `Delete` 打墓碑，
+  `HardDelete` 物理删；为空 → 两者同义。加一个删除入口就要同时加它的 `Hard*` 对偶，否则
+  使用者会失去"真的删掉"的能力。
+- **软删除必须继续走 update 路径**：乐观锁校验和 `version` 自增都在那条路上。另写一条
+  "打墓碑"的语句分支等于把这两件事复制一份，迟早只改一边。
+- **新增 `deleted_at` 字段形态**要同时加进 `applyTombstone` 的分派链和 `softdelete_test.go`
+  的表格用例，并更新 `skills/tsq` 里"Supported field types"那份清单。三处缺一，使用者拿到的是
+  自己工程里的运行期错误。
+- **改 `Table` 接口的方法集**会让所有手写实现编译失败，也会让 `aliasedTable`、`cteTable`、
+  模板和十几个 `_test.go` 一起改。加托管列优先往 `ManagedColumns` 结构体里加字段，那不是
+  破坏性变更。`[门禁: api-check]`
+- **软删除的端到端门是 `examples/academy` 的 `runSoftDeleteDemo`**（软删 → 生成查询查不到 →
+  仍在表里 → 清墓碑恢复 → `HardDelete` 真删）。删掉或简化它，这条路就回到零覆盖。
+
 ## 改了按条件写语句（`mutation.go`）
 
 - **`version` 自增不校验是契约**，`mutation_test.go` 的
