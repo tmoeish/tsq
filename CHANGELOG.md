@@ -7,6 +7,17 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 项目遵循 [语义化版本控制](https://semver.org/lang/zh-CN/)。
 
+## [未发布]
+
+### 修复
+
+- **声明 `*time.Time` 托管时间戳字段的表，生成的代码编译不过**: 模板发出的是 `tsq.TimePtr(...)`，而根包从来没有过 `TimePtr` 这个符号，使用者拿到的是自己工程里的 `undefined: tsq.TimePtr`。`created_at`、`updated_at`、`deleted_at` 三个键都受影响，而 `skills/tsq` 一直把 `*time.Time` 列在支持的字段类型里。示例只用了 `time.Time` / `null.Time` / `int64`，这条路径因此没有任何东西走过；模板 helper 的单元测试断言的正是 `tsq.TimePtr(...)` 这个字符串，它证明的是 helper 和自己一致，不是这个符号存在。现在生成的是 Go 1.27 的 `new(tsqtime.Now())`，不需要任何 TSQ 侧的辅助函数。
+- **删除只会发出不存在符号的 `PageRespType` 模板 helper**: 它渲染 `tsq.PageResp[T]`，而这个类型叫 `PageResponse`；内置模板没有任何地方调用它，只有 `--tpl` 传自定义模板的人会踩到。
+
+### 其他
+
+- 新增门禁：模板与模板 helper 里出现的每个 `tsq.X` / `tsqdialect.X` 都对照真实包的导出符号校验（`internal/cmd/generated_symbols_test.go`）。上面两条修复中的第二条就是这道门装上后立刻抓到的。
+
 ## [4.10.0] - 2026-09-03
 
 ### 新增

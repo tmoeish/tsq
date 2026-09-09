@@ -278,7 +278,7 @@ func TestTimestampNowValueUsesGeneratedAliases(t *testing.T) {
 		t.Fatalf("unexpected sql null time expression: %q", got)
 	}
 
-	if got := timestampNowValue(timePtrField); got != "tsq.TimePtr(tsqtime.Now())" {
+	if got := timestampNowValue(timePtrField); got != "new(tsqtime.Now())" {
 		t.Fatalf("unexpected time pointer expression: %q", got)
 	}
 }
