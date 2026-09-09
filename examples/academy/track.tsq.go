@@ -45,17 +45,19 @@ func (t Track) SearchColumns() []tsq.SearchColumn {
 	}
 }
 
-// PrimaryKeys returns the primary key columns for Track.
-func (t Track) PrimaryKeys() []string {
-	return []string{"id"}
+// PrimaryKey returns the primary key column for Track.
+func (t Track) PrimaryKey() string {
+	return "id"
 }
 
 // AutoIncrement reports whether Track uses an auto-increment primary key.
 func (t Track) AutoIncrement() bool { return true }
 
-// VersionColumn returns the optimistic-lock version column for Track, if any.
-func (t Track) VersionColumn() string {
-	return ""
+// ManagedColumns returns the columns TSQ maintains for Track.
+func (t Track) ManagedColumns() tsq.ManagedColumns {
+	return tsq.ManagedColumns{
+		CreatedAt: "created_at",
+	}
 }
 
 // Column definitions for Track table.
@@ -83,14 +85,18 @@ var Track__Cols = []tsq.BoundColumn[Track]{
 var QueryTrackByID = tsq.
 	Select(Track__Cols...).
 	From(TableTrack).
-	Where(Track_ID.EQVar()).
+	Where(
+		Track_ID.EQVar(),
+	).
 	MustBuild()
 
 // QueryTrackByIDIn stores the generated primary-key IN lookup query for Track.
 var QueryTrackByIDIn = tsq.
 	Select(Track__Cols...).
 	From(TableTrack).
-	Where(Track_ID.InVar()).
+	Where(
+		Track_ID.InVar(),
+	).
 	MustBuild()
 
 // ListTrackByIDInOrErr retrieves multiple Track records by a set of primary key values.
@@ -204,7 +210,10 @@ func (t *Track) Update(
 	return nil
 }
 
-// Delete permanently removes a Track record.
+// Delete removes a Track record from the database.
+//
+// Track declares no deleted_at column, so Delete and HardDelete are the
+// same operation.
 func (t *Track) Delete(
 	ctx context.Context,
 	db tsq.SQLExecutor,
@@ -212,6 +221,18 @@ func (t *Track) Delete(
 	err := tsq.Delete(ctx, db, t)
 	if err != nil {
 		return fmt.Errorf("delete Track: %s: %w", compactJSON(t), err)
+	}
+	return nil
+}
+
+// HardDelete removes a Track record from the database.
+func (t *Track) HardDelete(
+	ctx context.Context,
+	db tsq.SQLExecutor,
+) error {
+	err := tsq.HardDelete(ctx, db, t)
+	if err != nil {
+		return fmt.Errorf("hard-delete Track: %s: %w", compactJSON(t), err)
 	}
 	return nil
 }

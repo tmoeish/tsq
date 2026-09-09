@@ -27,11 +27,11 @@ func (pointerPKUser) Cols() []SQLColumn {
 
 func (pointerPKUser) SearchColumns() []SearchColumn { return nil }
 
-func (pointerPKUser) PrimaryKeys() []string { return []string{"id"} }
+func (pointerPKUser) PrimaryKey() string { return "id" }
 
 func (pointerPKUser) AutoIncrement() bool { return false }
 
-func (pointerPKUser) VersionColumn() string { return "" }
+func (pointerPKUser) ManagedColumns() ManagedColumns { return ManagedColumns{} }
 
 func TestDefaultChunkedInsertOptions(t *testing.T) {
 	opts := DefaultChunkedInsertOptions()

@@ -29,11 +29,11 @@ func (t ownedTable) Cols() []SQLColumn { return SQLColumns(ownedTableColumns(t.p
 
 func (ownedTable) SearchColumns() []SearchColumn { return nil }
 
-func (ownedTable) PrimaryKeys() []string { return []string{"id"} }
+func (ownedTable) PrimaryKey() string { return "id" }
 
 func (ownedTable) AutoIncrement() bool { return true }
 
-func (ownedTable) VersionColumn() string { return "" }
+func (ownedTable) ManagedColumns() ManagedColumns { return ManagedColumns{} }
 
 func ownedTableColumns(physical string) []BoundColumn[ownedTable] {
 	return []BoundColumn[ownedTable]{

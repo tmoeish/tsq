@@ -45,17 +45,19 @@ func (l Learner) SearchColumns() []tsq.SearchColumn {
 	}
 }
 
-// PrimaryKeys returns the primary key columns for Learner.
-func (l Learner) PrimaryKeys() []string {
-	return []string{"id"}
+// PrimaryKey returns the primary key column for Learner.
+func (l Learner) PrimaryKey() string {
+	return "id"
 }
 
 // AutoIncrement reports whether Learner uses an auto-increment primary key.
 func (l Learner) AutoIncrement() bool { return true }
 
-// VersionColumn returns the optimistic-lock version column for Learner, if any.
-func (l Learner) VersionColumn() string {
-	return ""
+// ManagedColumns returns the columns TSQ maintains for Learner.
+func (l Learner) ManagedColumns() tsq.ManagedColumns {
+	return tsq.ManagedColumns{
+		CreatedAt: "created_at",
+	}
 }
 
 // Column definitions for Learner table.
@@ -83,14 +85,18 @@ var Learner__Cols = []tsq.BoundColumn[Learner]{
 var QueryLearnerByID = tsq.
 	Select(Learner__Cols...).
 	From(TableLearner).
-	Where(Learner_ID.EQVar()).
+	Where(
+		Learner_ID.EQVar(),
+	).
 	MustBuild()
 
 // QueryLearnerByIDIn stores the generated primary-key IN lookup query for Learner.
 var QueryLearnerByIDIn = tsq.
 	Select(Learner__Cols...).
 	From(TableLearner).
-	Where(Learner_ID.InVar()).
+	Where(
+		Learner_ID.InVar(),
+	).
 	MustBuild()
 
 // ListLearnerByIDInOrErr retrieves multiple Learner records by a set of primary key values.
@@ -223,7 +229,10 @@ func (l *Learner) Update(
 	return nil
 }
 
-// Delete permanently removes a Learner record.
+// Delete removes a Learner record from the database.
+//
+// Learner declares no deleted_at column, so Delete and HardDelete are the
+// same operation.
 func (l *Learner) Delete(
 	ctx context.Context,
 	db tsq.SQLExecutor,
@@ -231,6 +240,18 @@ func (l *Learner) Delete(
 	err := tsq.Delete(ctx, db, l)
 	if err != nil {
 		return fmt.Errorf("delete Learner: %s: %w", compactJSON(l), err)
+	}
+	return nil
+}
+
+// HardDelete removes a Learner record from the database.
+func (l *Learner) HardDelete(
+	ctx context.Context,
+	db tsq.SQLExecutor,
+) error {
+	err := tsq.HardDelete(ctx, db, l)
+	if err != nil {
+		return fmt.Errorf("hard-delete Learner: %s: %w", compactJSON(l), err)
 	}
 	return nil
 }

@@ -6,9 +6,9 @@ type aliasTestTable struct {
 	name          string
 	cols          []SQLColumn
 	searchCols    []SearchColumn
-	primaryKeys   []string
+	primaryKey    string
 	autoIncrement bool
-	versionColumn string
+	managed       ManagedColumns
 }
 
 func (*aliasTestTable) TSQOwner() {}
@@ -23,13 +23,11 @@ func (t *aliasTestTable) SearchColumns() []SearchColumn {
 	return append([]SearchColumn(nil), t.searchCols...)
 }
 
-func (t *aliasTestTable) PrimaryKeys() []string {
-	return append([]string(nil), t.primaryKeys...)
-}
+func (t *aliasTestTable) PrimaryKey() string { return t.primaryKey }
 
 func (t *aliasTestTable) AutoIncrement() bool { return t.autoIncrement }
 
-func (t *aliasTestTable) VersionColumn() string { return t.versionColumn }
+func (t *aliasTestTable) ManagedColumns() ManagedColumns { return t.managed }
 
 type fixedSQLColumn struct {
 	table Table
@@ -65,9 +63,9 @@ func TestAliasTableReturnsOriginalForNilBlankOrSameAlias(t *testing.T) {
 func TestAliasTableRebindsColumnsAndPreservesMetadata(t *testing.T) {
 	base := &aliasTestTable{
 		name:          "users",
-		primaryKeys:   []string{"id"},
+		primaryKey:    "id",
 		autoIncrement: true,
-		versionColumn: "version",
+		managed:       ManagedColumns{Version: "version"},
 	}
 	id := newColForTable[Table, int](base, "id", "id", nil)
 	name := newColForTable[Table, string](base, "name", "name", nil)
@@ -110,17 +108,15 @@ func TestAliasTableRebindsColumnsAndPreservesMetadata(t *testing.T) {
 		t.Fatalf("expected aliased search column qualified name, got %q", got)
 	}
 
-	keys := aliased.PrimaryKeys()
-	keys[0] = "mutated"
-	if got := base.PrimaryKeys()[0]; got != "id" {
-		t.Fatalf("expected primary keys to be copied defensively, got %q", got)
+	if got := aliased.PrimaryKey(); got != "id" {
+		t.Fatalf("expected primary key to be preserved, got %q", got)
 	}
 
 	if !aliased.AutoIncrement() {
 		t.Fatal("expected autoincrement flag to be preserved")
 	}
 
-	if got := aliased.VersionColumn(); got != "version" {
+	if got := aliased.ManagedColumns().Version; got != "version" {
 		t.Fatalf("expected version column to be preserved, got %q", got)
 	}
 }

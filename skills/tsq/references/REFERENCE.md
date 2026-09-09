@@ -296,8 +296,20 @@ From table structs, TSQ commonly generates:
 - `TableXxx`
 - `Xxx__Cols`
 - typed columns like `Xxx_ID`, `Xxx_Name`
-- CRUD helpers
-- list/page/search helpers
+- CRUD helpers: `Insert`, `Update`, `Delete`, `HardDelete`, and `Active()` on soft-delete tables
+- query variables like `QueryXxx`, `QueryXxxByID`, `QueryXxxByIDIn`, and `ListXxxByIDInOrErr`
+
+On a table that declares `deleted_at`, every generated query filters tombstoned rows out. There is
+no generated query that returns them: reading deleted rows is an audit-time need, and the query
+builder expresses it directly.
+
+```go
+// Deleted rows included, written by hand when auditing needs them.
+var EveryEnrollment = tsq.
+	Select(database.Enrollment__Cols...).
+	From(database.TableEnrollment).
+	MustBuild()
+```
 
 From result structs, TSQ commonly generates:
 
@@ -329,6 +341,11 @@ var TableUser tsq.Table = tsq.TableWithCols(User{}, User__Cols)
 ```
 
 Queries that select every column with `Select(Xxx__Cols...)` were never affected: they name the slice themselves.
+
+A hand-written `tsq.Table` implements `TSQOwner()`, `Cols()`, `Table()`, `SearchColumns()`,
+`PrimaryKey() string`, `AutoIncrement() bool` and `ManagedColumns() tsq.ManagedColumns`. The last
+one returns the column names TSQ maintains (`Version`, `CreatedAt`, `UpdatedAt`, `DeletedAt`);
+leaving a name empty means the table does not declare that role.
 
 ## 4.1 Managed-field semantics
 
@@ -436,8 +453,8 @@ Semantics:
   - `deleted_at=true`
   - `deleted_at="DeletedAt"`
 - string names the **Go struct field**, not the SQL column name
-- generated `SoftDelete(...)` helpers set it to the provided delete timestamp or a current-time/tombstone value
-- generated list/get/page helpers automatically add the active-row filter for soft-delete-aware tables
+- declaring it changes what deletion means for the table: `Delete` stamps the tombstone instead of removing the row, and `HardDelete` is the way to remove it (see *Deleting rows* in section 8)
+- every generated query filters tombstoned rows out; there is no generated query that returns them
 - with unique indexes, portable behavior prefers an integer tombstone style rather than nullable-time semantics
 
 Supported field types:
@@ -452,7 +469,9 @@ Additional rule:
 
 - if the table also declares unique indexes, prefer `int64` or `uint64` tombstone semantics for `deleted_at`; nullable-time soft-delete fields are not portable there
 
-Use `deleted_at` when the project wants soft-delete behavior rather than only hard deletes.
+Use `deleted_at` when a deleted row should stay in the database for audit while disappearing from
+the application. Restoring one is a deliberate act with no generated helper: load it with a query
+you write yourself, clear the field, and `Update`.
 
 ### Pointer-typed managed fields
 
@@ -608,6 +627,24 @@ The fixed-type `QueryInt`, `QueryFloat`, and `QueryString` methods are deprecate
 
 All methods take an explicit `context.Context` and a `SQLExecutor`.
 
+### Deleting rows
+
+Whether `Delete` removes the row is decided by the table, not by the call site:
+
+| the table declares | `Delete` | `HardDelete` |
+| --- | --- | --- |
+| `deleted_at` | stamps the tombstone and `updated_at`, row stays | removes the row |
+| no `deleted_at` | removes the row | removes the row (same thing) |
+
+- a soft delete is an `UPDATE`, so it still checks the version and increments it, and a stale copy
+  of the row loaded earlier fails with `ErrOptimisticLockConflict`
+- the pairs are `tsq.Delete` / `tsq.HardDelete`, `tsq.ChunkedDelete` / `tsq.ChunkedHardDelete`,
+  `tsq.ChunkedDeleteByPKs` / `tsq.ChunkedHardDeleteByPKs`, `tsq.DeleteFrom` / `tsq.HardDeleteFrom`,
+  and the generated `item.Delete(...)` / `item.HardDelete(...)`
+- to record a delete time of your own, assign the field before calling `Delete`; it is only filled
+  in when the caller left it unset
+- `item.Active()` reports whether the loaded row is untombstoned
+
 ### Bulk `UPDATE` / `DELETE` by condition
 
 `Update(ctx, exec, item)` and `Delete(ctx, exec, item)` work on one loaded row and honor optimistic locking. When the caller does not hold the rows ("set these columns on every row matching this condition"), build a statement instead:
@@ -622,12 +659,14 @@ var CompleteCourseEnrollments = tsq.
 
 affected, err := CompleteCourseEnrollments.Exec(ctx, runtime, int64(88), courseID)
 
-var PurgeEnrollments = tsq.
+// Enrollment declares deleted_at, so this renders as an UPDATE that stamps the
+// tombstone. Use HardDeleteFrom to render a DELETE regardless.
+var CancelEnrollments = tsq.
 	DeleteFrom[database.Enrollment]().
 	Where(database.Enrollment_UID.InVar()).
 	MustBuild()
 
-affected, err = PurgeEnrollments.Exec(ctx, runtime, uids)
+affected, err = CancelEnrollments.Exec(ctx, runtime, uids)
 ```
 
 Shape:
@@ -641,7 +680,7 @@ Shape:
 Rules:
 
 - the statement never checks the `version` column. `UpdateTable` on a table that declares `version` still adds `version = version + 1`, so rows loaded before the bulk change fail their own `Update(...)` with `ErrOptimisticLockConflict`. Assigning the version column yourself is a build error
-- managed `updated_at` / `deleted_at` fields are not touched automatically. Set them explicitly (`SetVal(database.Enrollment_UpdatedAt, now)`) and add the active-row filter (`database.Enrollment_DeletedAt.EQVal(0)`) yourself on soft-delete-aware tables. A bulk soft delete is an `UpdateTable` that sets `deleted_at`
+- `UpdateTable` touches no managed field on its own: set `updated_at` explicitly (`SetVal(database.Enrollment_UpdatedAt, now)`) and add the active-row filter (`database.Enrollment_DeletedAt.EQVal(0)`) yourself. `DeleteFrom` is the exception, because a soft delete *is* the deletion: on a table declaring `deleted_at` it renders as an `UPDATE` that stamps the tombstone and `updated_at`
 - assignments and conditions may reference only the target table, unaliased. `JOIN`, `UPDATE ... FROM`, aliases, `LIMIT`, `ORDER BY`, and `RETURNING` are not supported; each dialect spells them differently. Subquery predicates (`In(subquery)`, `EQ(subquery)`) are fine. MySQL rejects a subquery that reads the table being modified (error 1093); that is a database rule, not a TSQ one
 - it is a single `UPDATE` / `DELETE` and is not chunked. A very large `InVar` slice can exceed the dialect's bind-parameter ceiling; use `ChunkedDeleteByPKs` or slice the input yourself
 - `Exec` needs an executor with a known dialect (a `Runtime`, a `WithTx` executor, or a `WrapExecutor` result); a bare `*sql.DB` is rejected
@@ -695,7 +734,7 @@ Return a small result struct for multiple related values. `WithTx1`, `WithTx2`, 
 Useful rules:
 
 - transaction boundaries stay explicit
-- `ChunkedInsert`, `ChunkedUpdate`, and `ChunkedDelete` do not silently create outer transactions
+- `ChunkedInsert`, `ChunkedUpdate`, `ChunkedDelete` and `ChunkedHardDelete` do not silently create outer transactions
 - `ChunkSize` (default 1000) is an upper bound on rows per statement, not an exact batch size. Databases count placeholders rather than rows, so wide tables are chunked smaller automatically. Chunk sizes are never raised, and never fall below one row per statement
 - the ceiling is per dialect: MySQL and PostgreSQL accept 65535 bound parameters per statement, SQLite 32766. `dialect.MaxBindParams(d)` reports it; an executor with no dialect (a bare `*sql.DB` behind `WrapExecutor`) is chunked against the tightest of them
 - a batch `INSERT` binds about one placeholder per column per row, but a batch `UPDATE` binds about **two** (it renders `col = CASE pk WHEN ? THEN ? ... END`), so the same rows chunk roughly half as large for `ChunkedUpdate` as for `ChunkedInsert`

@@ -48,16 +48,16 @@ func TestCTETableMetadataAndCols(t *testing.T) {
 		t.Fatalf("expected cte physical table active_users, got %q", got)
 	}
 
-	if got := activeUsers.PrimaryKeys(); got != nil {
-		t.Fatalf("expected cte primary keys to be nil, got %#v", got)
+	if got := activeUsers.PrimaryKey(); got != "" {
+		t.Fatalf("expected cte primary key to be empty, got %q", got)
 	}
 
 	if activeUsers.AutoIncrement() {
 		t.Fatal("expected cte table to be non-autoincrement")
 	}
 
-	if got := activeUsers.VersionColumn(); got != "" {
-		t.Fatalf("expected cte version column to be empty, got %q", got)
+	if got := activeUsers.ManagedColumns(); got != (ManagedColumns{}) {
+		t.Fatalf("expected cte managed columns to be empty, got %#v", got)
 	}
 
 	if got := activeUsers.SearchColumns(); got != nil {

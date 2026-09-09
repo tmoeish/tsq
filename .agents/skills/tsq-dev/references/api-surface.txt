@@ -27,6 +27,19 @@ func ChunkedDeleteByPKs[O Table, T any](
 	pks []T,
 	options ...*ChunkedOptions,
 ) error
+func ChunkedHardDelete[T Table](
+	ctx context.Context,
+	tx SQLExecutor,
+	items []T,
+	options ...*ChunkedOptions,
+) error
+func ChunkedHardDeleteByPKs[O Table, T any](
+	ctx context.Context,
+	tx SQLExecutor,
+	pkField TypedColumn[O, T],
+	pks []T,
+	options ...*ChunkedOptions,
+) error
 func ChunkedInsert[T Table](
 	ctx context.Context,
 	tx SQLExecutor,
@@ -40,6 +53,11 @@ func ChunkedUpdate[T Table](
 	options ...*ChunkedOptions,
 ) error
 func Delete[T Table](
+	ctx context.Context,
+	tx SQLExecutor,
+	item T,
+) error
+func HardDelete[T Table](
 	ctx context.Context,
 	tx SQLExecutor,
 	item T,
@@ -84,6 +102,7 @@ func WithTx2[T1, T2 any](
 	fn func(context.Context, SQLExecutor) (T1, T2, error),
 ) (T1, T2, error)
 func DeleteFrom[O Table]() *deleteBuilder[O]
+func HardDeleteFrom[O Table]() *deleteBuilder[O]
 func UpdateTable[O Table]() *updateBuilder[O]
 TYPES
 type BoundColumn[O Owner] interface {
@@ -311,6 +330,12 @@ type LockedStage[O Owner] interface {
 type Logger interface {
 	Enabled(ctx context.Context, level slog.Level) bool
 	LogAttrs(ctx context.Context, level slog.Level, msg string, attrs ...slog.Attr)
+}
+type ManagedColumns struct {
+	Version   string // Version is the optimistic-lock column.
+	CreatedAt string // CreatedAt is set once, when the row is inserted.
+	UpdatedAt string // UpdatedAt is refreshed by every update, including soft deletes.
+	DeletedAt string // DeletedAt carries the soft-delete tombstone; when set, Delete is a soft delete.
 }
 type Mutation[O Table] struct {
 }
@@ -568,12 +593,12 @@ type Subquery[T any] interface {
 }
 type Table interface {
 	Owner
-	Cols() []SQLColumn             // Cols returns the physical columns exposed by the table.
-	Table() string                 // Table returns the SQL identifier used in rendered queries.
-	SearchColumns() []SearchColumn // SearchColumns returns columns eligible for keyword-search helpers.
-	PrimaryKeys() []string         // PrimaryKeys returns the primary-key column names in declaration order.
-	AutoIncrement() bool           // AutoIncrement reports whether inserts rely on generated primary keys.
-	VersionColumn() string         // VersionColumn returns the optimistic-lock column name, if any.
+	Cols() []SQLColumn              // Cols returns the physical columns exposed by the table.
+	Table() string                  // Table returns the SQL identifier used in rendered queries.
+	SearchColumns() []SearchColumn  // SearchColumns returns columns eligible for keyword-search helpers.
+	PrimaryKey() string             // PrimaryKey returns the primary-key column name.
+	AutoIncrement() bool            // AutoIncrement reports whether inserts rely on generated primary keys.
+	ManagedColumns() ManagedColumns // ManagedColumns returns the columns TSQ maintains automatically.
 }
 func AliasTable(table Table, alias string) Table
 func CTE[O Owner](name string, query QueryStage[O]) Table

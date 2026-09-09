@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 )
 
 // mutationKind distinguishes the two statement shapes a Mutation can render.
@@ -73,11 +74,51 @@ func UpdateTable[O Table]() *updateBuilder[O] {
 	return &updateBuilder[O]{spec: newMutationSpec[O](mutationKindUpdate)}
 }
 
-// DeleteFrom starts a DELETE statement against the table represented by O.
+// DeleteFrom starts a delete against the table represented by O.
+//
+// When O declares a deleted_at column the statement renders as an UPDATE that
+// stamps the tombstone and updated_at and increments the version, matching what
+// Delete(ctx, tx, item) does for a single row. Otherwise it renders as a
+// DELETE. Use HardDeleteFrom to remove rows regardless.
 //
 // The statement becomes buildable only after Where(...). Use Delete(ctx, tx,
 // item) instead when the caller holds the row and wants optimistic locking.
 func DeleteFrom[O Table]() *deleteBuilder[O] {
+	spec := newMutationSpec[O](mutationKindDelete)
+	if spec.buildErr != nil {
+		return &deleteBuilder[O]{spec: spec}
+	}
+
+	if spec.table.ManagedColumns().DeletedAt == "" {
+		return &deleteBuilder[O]{spec: spec}
+	}
+
+	columns, values, _, err := softDeleteAssignments[O](time.Now())
+	if err != nil {
+		spec.buildErr = err
+		return &deleteBuilder[O]{spec: spec}
+	}
+
+	// A soft delete is an update, so the statement switches kind here and
+	// buildMutation appends the version increment on its own.
+	spec.kind = mutationKindUpdate
+
+	for i, column := range columns {
+		spec.assignments = append(spec.assignments, mutationAssignment{
+			column: column,
+			expr:   "?",
+			args:   []any{values[i]},
+		})
+	}
+
+	return &deleteBuilder[O]{spec: spec}
+}
+
+// HardDeleteFrom starts a DELETE statement against the table represented by O,
+// ignoring any deleted_at column it declares.
+//
+// The statement becomes buildable only after Where(...).
+func HardDeleteFrom[O Table]() *deleteBuilder[O] {
 	return &deleteBuilder[O]{spec: newMutationSpec[O](mutationKindDelete)}
 }
 
@@ -282,7 +323,7 @@ func (spec *mutationSpec[O]) assignableColumn(col SQLColumn) (string, error) {
 		return "", err
 	}
 
-	if version := strings.TrimSpace(spec.table.VersionColumn()); version != "" && name == version {
+	if version := strings.TrimSpace(spec.table.ManagedColumns().Version); version != "" && name == version {
 		return "", fmt.Errorf(
 			"column %s is the optimistic-lock version of table %s and is incremented automatically; it cannot be assigned",
 			name,
@@ -388,7 +429,7 @@ func buildMutation[O Table](spec mutationSpec[O]) (*Mutation[O], error) {
 			args = append(args, assignment.args...)
 		}
 
-		if version := strings.TrimSpace(spec.table.VersionColumn()); version != "" {
+		if version := strings.TrimSpace(spec.table.ManagedColumns().Version); version != "" {
 			versionSQL := rawIdentifier(version)
 
 			builder.WriteString(", ")

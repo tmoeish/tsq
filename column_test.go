@@ -25,16 +25,16 @@ func (newColOwner) SearchColumns() []SearchColumn {
 	return nil
 }
 
-func (newColOwner) PrimaryKeys() []string {
-	return nil
+func (newColOwner) PrimaryKey() string {
+	return ""
 }
 
 func (newColOwner) AutoIncrement() bool {
 	return false
 }
 
-func (newColOwner) VersionColumn() string {
-	return ""
+func (newColOwner) ManagedColumns() ManagedColumns {
+	return ManagedColumns{}
 }
 
 func TestNewCol(t *testing.T) {

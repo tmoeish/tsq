@@ -28,16 +28,16 @@ func (m mockTable) SearchColumns() []SearchColumn {
 	return nil
 }
 
-func (m mockTable) PrimaryKeys() []string {
-	return nil
+func (m mockTable) PrimaryKey() string {
+	return ""
 }
 
 func (m mockTable) AutoIncrement() bool {
 	return false
 }
 
-func (m mockTable) VersionColumn() string {
-	return ""
+func (m mockTable) ManagedColumns() ManagedColumns {
+	return ManagedColumns{}
 }
 
 func newMockTable(name string) Table {

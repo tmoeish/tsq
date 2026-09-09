@@ -165,17 +165,30 @@ type Logger interface {
 	LogAttrs(ctx context.Context, level slog.Level, msg string, attrs ...slog.Attr)
 }
 
+// ManagedColumns names the columns TSQ maintains on the caller's behalf. An
+// empty name means the table does not declare that role.
+//
+// It is a struct rather than one interface method per role so that a future
+// managed column is a new field here instead of a new method every hand-written
+// Table implementation has to grow.
+type ManagedColumns struct {
+	Version   string // Version is the optimistic-lock column.
+	CreatedAt string // CreatedAt is set once, when the row is inserted.
+	UpdatedAt string // UpdatedAt is refreshed by every update, including soft deletes.
+	DeletedAt string // DeletedAt carries the soft-delete tombstone; when set, Delete is a soft delete.
+}
+
 // Table defines a physical SQL table source.
 // Unlike Result, a Table is both a scan owner and a mutation target, and it
 // exposes stable column and primary-key metadata for metadata-driven execution.
 type Table interface {
 	Owner
-	Cols() []SQLColumn             // Cols returns the physical columns exposed by the table.
-	Table() string                 // Table returns the SQL identifier used in rendered queries.
-	SearchColumns() []SearchColumn // SearchColumns returns columns eligible for keyword-search helpers.
-	PrimaryKeys() []string         // PrimaryKeys returns the primary-key column names in declaration order.
-	AutoIncrement() bool           // AutoIncrement reports whether inserts rely on generated primary keys.
-	VersionColumn() string         // VersionColumn returns the optimistic-lock column name, if any.
+	Cols() []SQLColumn              // Cols returns the physical columns exposed by the table.
+	Table() string                  // Table returns the SQL identifier used in rendered queries.
+	SearchColumns() []SearchColumn  // SearchColumns returns columns eligible for keyword-search helpers.
+	PrimaryKey() string             // PrimaryKey returns the primary-key column name.
+	AutoIncrement() bool            // AutoIncrement reports whether inserts rely on generated primary keys.
+	ManagedColumns() ManagedColumns // ManagedColumns returns the columns TSQ maintains automatically.
 }
 
 // TableWithCols returns table unchanged. The cols argument is never read: it

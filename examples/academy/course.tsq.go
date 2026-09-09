@@ -44,17 +44,19 @@ func (c Course) SearchColumns() []tsq.SearchColumn {
 	}
 }
 
-// PrimaryKeys returns the primary key columns for Course.
-func (c Course) PrimaryKeys() []string {
-	return []string{"id"}
+// PrimaryKey returns the primary key column for Course.
+func (c Course) PrimaryKey() string {
+	return "id"
 }
 
 // AutoIncrement reports whether Course uses an auto-increment primary key.
 func (c Course) AutoIncrement() bool { return true }
 
-// VersionColumn returns the optimistic-lock version column for Course, if any.
-func (c Course) VersionColumn() string {
-	return ""
+// ManagedColumns returns the columns TSQ maintains for Course.
+func (c Course) ManagedColumns() tsq.ManagedColumns {
+	return tsq.ManagedColumns{
+		CreatedAt: "created_at",
+	}
 }
 
 // Column definitions for Course table.
@@ -92,14 +94,18 @@ var Course__Cols = []tsq.BoundColumn[Course]{
 var QueryCourseByID = tsq.
 	Select(Course__Cols...).
 	From(TableCourse).
-	Where(Course_ID.EQVar()).
+	Where(
+		Course_ID.EQVar(),
+	).
 	MustBuild()
 
 // QueryCourseByIDIn stores the generated primary-key IN lookup query for Course.
 var QueryCourseByIDIn = tsq.
 	Select(Course__Cols...).
 	From(TableCourse).
-	Where(Course_ID.InVar()).
+	Where(
+		Course_ID.InVar(),
+	).
 	MustBuild()
 
 // ListCourseByIDInOrErr retrieves multiple Course records by a set of primary key values.
@@ -270,7 +276,10 @@ func (c *Course) Update(
 	return nil
 }
 
-// Delete permanently removes a Course record.
+// Delete removes a Course record from the database.
+//
+// Course declares no deleted_at column, so Delete and HardDelete are the
+// same operation.
 func (c *Course) Delete(
 	ctx context.Context,
 	db tsq.SQLExecutor,
@@ -278,6 +287,18 @@ func (c *Course) Delete(
 	err := tsq.Delete(ctx, db, c)
 	if err != nil {
 		return fmt.Errorf("delete Course: %s: %w", compactJSON(c), err)
+	}
+	return nil
+}
+
+// HardDelete removes a Course record from the database.
+func (c *Course) HardDelete(
+	ctx context.Context,
+	db tsq.SQLExecutor,
+) error {
+	err := tsq.HardDelete(ctx, db, c)
+	if err != nil {
+		return fmt.Errorf("hard-delete Course: %s: %w", compactJSON(c), err)
 	}
 	return nil
 }

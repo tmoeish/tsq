@@ -43,9 +43,6 @@ func funcMap() template.FuncMap {
 		"GeneratedTimeRef":         generatedTimeRef,
 		"TimestampNowValue":        timestampNowValue,
 		"TimestampUnsetExpr":       timestampUnsetExpr,
-		"SoftDeleteParamType":      softDeleteParamType,
-		"SoftDeleteParamSetExpr":   softDeleteParamSetExpr,
-		"SoftDeleteNowValue":       softDeleteNowValue,
 		"SoftDeleteActiveExpr":     softDeleteActiveExpr,
 		"SoftDeleteActiveCond":     softDeleteActiveCond,
 	}
@@ -384,42 +381,6 @@ func timestampNowValue(field genmodel.FieldInfo) string {
 		return fmt.Sprintf("%s.TimeFrom(%s)", field.Type.Package.Name, generatedTimeRef("Now()"))
 	default:
 		panic(fmt.Sprintf("unsupported timestamp field type: %s", fieldType(field)))
-	}
-}
-
-func softDeleteParamType(field genmodel.FieldInfo) string {
-	return fieldType(field)
-}
-
-func softDeleteParamSetExpr(param string, field genmodel.FieldInfo) string {
-	switch softDeleteKind(field) {
-	case "integer":
-		return param + " != 0"
-	case "time_ptr":
-		return param + " != nil"
-	case "sql_null_time", "null_time":
-		return param + ".Valid"
-	default:
-		panic(fmt.Sprintf("unsupported deleted_at field type: %s", fieldType(field)))
-	}
-}
-
-func softDeleteNowValue(field genmodel.FieldInfo) string {
-	switch softDeleteKind(field) {
-	case "integer":
-		if field.Type.TypeName == "uint64" {
-			return fmt.Sprintf("uint64(%s)", generatedTimeRef("Now().UnixNano()"))
-		}
-
-		return generatedTimeRef("Now().UnixNano()")
-	case "time_ptr":
-		return fmt.Sprintf("new(%s)", generatedTimeRef("Now()"))
-	case "sql_null_time":
-		return fmt.Sprintf("%s.NullTime{Time: %s, Valid: true}", generatedSQLAlias, generatedTimeRef("Now()"))
-	case "null_time":
-		return fmt.Sprintf("%s.TimeFrom(%s)", field.Type.Package.Name, generatedTimeRef("Now()"))
-	default:
-		panic(fmt.Sprintf("unsupported deleted_at field type: %s", fieldType(field)))
 	}
 }
 

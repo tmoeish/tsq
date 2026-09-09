@@ -41,17 +41,22 @@ func (e Enrollment) SearchColumns() []tsq.SearchColumn {
 	return []tsq.SearchColumn{}
 }
 
-// PrimaryKeys returns the primary key columns for Enrollment.
-func (e Enrollment) PrimaryKeys() []string {
-	return []string{"uid"}
+// PrimaryKey returns the primary key column for Enrollment.
+func (e Enrollment) PrimaryKey() string {
+	return "uid"
 }
 
 // AutoIncrement reports whether Enrollment uses an auto-increment primary key.
 func (e Enrollment) AutoIncrement() bool { return true }
 
-// VersionColumn returns the optimistic-lock version column for Enrollment, if any.
-func (e Enrollment) VersionColumn() string {
-	return "version"
+// ManagedColumns returns the columns TSQ maintains for Enrollment.
+func (e Enrollment) ManagedColumns() tsq.ManagedColumns {
+	return tsq.ManagedColumns{
+		Version:   "version",
+		CreatedAt: "created_at",
+		UpdatedAt: "updated_at",
+		DeletedAt: "deleted_at",
+	}
 }
 
 // Active returns true if the Enrollment record is not soft-deleted.
@@ -94,14 +99,20 @@ var Enrollment__Cols = []tsq.BoundColumn[Enrollment]{
 var QueryEnrollmentByUID = tsq.
 	Select(Enrollment__Cols...).
 	From(TableEnrollment).
-	Where(Enrollment_UID.EQVar()).
+	Where(
+		Enrollment_DeletedAt.EQVal(0),
+		Enrollment_UID.EQVar(),
+	).
 	MustBuild()
 
 // QueryEnrollmentByUIDIn stores the generated primary-key IN lookup query for Enrollment.
 var QueryEnrollmentByUIDIn = tsq.
 	Select(Enrollment__Cols...).
 	From(TableEnrollment).
-	Where(Enrollment_UID.InVar()).
+	Where(
+		Enrollment_DeletedAt.EQVal(0),
+		Enrollment_UID.InVar(),
+	).
 	MustBuild()
 
 // ListEnrollmentByUIDInOrErr retrieves multiple Enrollment records by a set of primary key values.
@@ -126,53 +137,7 @@ func ListEnrollmentByUIDInOrErr(
 }
 
 // =============================================================================
-// Query Active Records by Primary Key
-// =============================================================================
-// QueryActiveEnrollmentByUID stores the generated active primary-key lookup query for Enrollment.
-var QueryActiveEnrollmentByUID = tsq.
-	Select(Enrollment__Cols...).
-	From(TableEnrollment).
-	Where(
-		Enrollment_DeletedAt.EQVal(0),
-		Enrollment_UID.EQVar(),
-	).
-	MustBuild()
-
-// QueryActiveEnrollmentByUIDIn stores the generated active primary-key IN lookup query for Enrollment.
-var QueryActiveEnrollmentByUIDIn = tsq.
-	Select(Enrollment__Cols...).
-	From(TableEnrollment).
-	Where(
-		Enrollment_DeletedAt.EQVal(0),
-		Enrollment_UID.InVar(),
-	).
-	MustBuild()
-
-// ListActiveEnrollmentByUIDInOrErr retrieves multiple active Enrollment records by a set of primary key values.
-// Returns an error if any of the specified active records are not found.
-func ListActiveEnrollmentByUIDInOrErr(
-	ctx context.Context,
-	db tsq.SQLExecutor,
-	uIDs ...int64,
-) ([]*Enrollment, error) {
-	list, err := QueryActiveEnrollmentByUIDIn.List(ctx, db, uIDs)
-	if err != nil {
-		return nil, err
-	}
-	ordered, missing := matchByInputOrder(uIDs, list, func(row *Enrollment) int64 {
-		return row.UID
-	})
-	if len(missing) > 0 {
-		return nil, fmt.Errorf("records not found: %v", missing)
-	}
-	return ordered, nil
-}
-
-// =============================================================================
 // Query by Unique Indexes
-// =============================================================================
-// =============================================================================
-// Query Active Records by Unique Indexes
 // =============================================================================
 
 // =============================================================================
@@ -184,6 +149,7 @@ var QueryEnrollmentByCourseID = tsq.
 	From(TableEnrollment).
 	Search(TableEnrollment.SearchColumns()...).
 	Where(
+		Enrollment_DeletedAt.EQVal(0),
 		Enrollment_CourseID.EQVar(),
 	).
 	MustBuild()
@@ -193,6 +159,7 @@ var QueryEnrollmentByCourseIDIn = tsq.
 	Select(Enrollment__Cols...).
 	From(TableEnrollment).
 	Where(
+		Enrollment_DeletedAt.EQVal(0),
 		Enrollment_CourseID.InVar(),
 	).
 	MustBuild()
@@ -203,6 +170,7 @@ var QueryEnrollmentByLearnerID = tsq.
 	From(TableEnrollment).
 	Search(TableEnrollment.SearchColumns()...).
 	Where(
+		Enrollment_DeletedAt.EQVal(0),
 		Enrollment_LearnerID.EQVar(),
 	).
 	MustBuild()
@@ -213,6 +181,7 @@ var QueryEnrollmentByLearnerIDAndCourseID = tsq.
 	From(TableEnrollment).
 	Search(TableEnrollment.SearchColumns()...).
 	Where(
+		Enrollment_DeletedAt.EQVal(0),
 		Enrollment_LearnerID.EQVar(),
 		Enrollment_CourseID.EQVar(),
 	).
@@ -223,6 +192,7 @@ var QueryEnrollmentByLearnerIDAndCourseIDIn = tsq.
 	Select(Enrollment__Cols...).
 	From(TableEnrollment).
 	Where(
+		Enrollment_DeletedAt.EQVal(0),
 		Enrollment_LearnerID.EQVar(),
 		Enrollment_CourseID.InVar(),
 	).
@@ -233,6 +203,7 @@ var QueryEnrollmentByLearnerIDIn = tsq.
 	Select(Enrollment__Cols...).
 	From(TableEnrollment).
 	Where(
+		Enrollment_DeletedAt.EQVal(0),
 		Enrollment_LearnerID.InVar(),
 	).
 	MustBuild()
@@ -243,100 +214,13 @@ var QueryEnrollmentByStatus = tsq.
 	From(TableEnrollment).
 	Search(TableEnrollment.SearchColumns()...).
 	Where(
+		Enrollment_DeletedAt.EQVal(0),
 		Enrollment_Status.EQVar(),
 	).
 	MustBuild()
 
 // QueryEnrollmentByStatusIn stores the generated index query for Enrollment.
 var QueryEnrollmentByStatusIn = tsq.
-	Select(Enrollment__Cols...).
-	From(TableEnrollment).
-	Where(
-		Enrollment_Status.InVar(),
-	).
-	MustBuild()
-
-// =============================================================================
-// Query Active Records by Indexes
-// =============================================================================
-// QueryActiveEnrollmentByCourseID stores the generated active index query for Enrollment.
-var QueryActiveEnrollmentByCourseID = tsq.
-	Select(Enrollment__Cols...).
-	From(TableEnrollment).
-	Search(TableEnrollment.SearchColumns()...).
-	Where(
-		Enrollment_DeletedAt.EQVal(0),
-		Enrollment_CourseID.EQVar(),
-	).
-	MustBuild()
-
-// QueryActiveEnrollmentByCourseIDIn stores the generated active index query for Enrollment.
-var QueryActiveEnrollmentByCourseIDIn = tsq.
-	Select(Enrollment__Cols...).
-	From(TableEnrollment).
-	Where(
-		Enrollment_DeletedAt.EQVal(0),
-		Enrollment_CourseID.InVar(),
-	).
-	MustBuild()
-
-// QueryActiveEnrollmentByLearnerID stores the generated active index query for Enrollment.
-var QueryActiveEnrollmentByLearnerID = tsq.
-	Select(Enrollment__Cols...).
-	From(TableEnrollment).
-	Search(TableEnrollment.SearchColumns()...).
-	Where(
-		Enrollment_DeletedAt.EQVal(0),
-		Enrollment_LearnerID.EQVar(),
-	).
-	MustBuild()
-
-// QueryActiveEnrollmentByLearnerIDAndCourseID stores the generated active index query for Enrollment.
-var QueryActiveEnrollmentByLearnerIDAndCourseID = tsq.
-	Select(Enrollment__Cols...).
-	From(TableEnrollment).
-	Search(TableEnrollment.SearchColumns()...).
-	Where(
-		Enrollment_DeletedAt.EQVal(0),
-		Enrollment_LearnerID.EQVar(),
-		Enrollment_CourseID.EQVar(),
-	).
-	MustBuild()
-
-// QueryActiveEnrollmentByLearnerIDAndCourseIDIn stores the generated active index query for Enrollment.
-var QueryActiveEnrollmentByLearnerIDAndCourseIDIn = tsq.
-	Select(Enrollment__Cols...).
-	From(TableEnrollment).
-	Where(
-		Enrollment_DeletedAt.EQVal(0),
-		Enrollment_LearnerID.EQVar(),
-		Enrollment_CourseID.InVar(),
-	).
-	MustBuild()
-
-// QueryActiveEnrollmentByLearnerIDIn stores the generated active index query for Enrollment.
-var QueryActiveEnrollmentByLearnerIDIn = tsq.
-	Select(Enrollment__Cols...).
-	From(TableEnrollment).
-	Where(
-		Enrollment_DeletedAt.EQVal(0),
-		Enrollment_LearnerID.InVar(),
-	).
-	MustBuild()
-
-// QueryActiveEnrollmentByStatus stores the generated active index query for Enrollment.
-var QueryActiveEnrollmentByStatus = tsq.
-	Select(Enrollment__Cols...).
-	From(TableEnrollment).
-	Search(TableEnrollment.SearchColumns()...).
-	Where(
-		Enrollment_DeletedAt.EQVal(0),
-		Enrollment_Status.EQVar(),
-	).
-	MustBuild()
-
-// QueryActiveEnrollmentByStatusIn stores the generated active index query for Enrollment.
-var QueryActiveEnrollmentByStatusIn = tsq.
 	Select(Enrollment__Cols...).
 	From(TableEnrollment).
 	Where(
@@ -350,16 +234,6 @@ var QueryActiveEnrollmentByStatusIn = tsq.
 // =============================================================================
 // QueryEnrollment stores the generated list-all query for Enrollment.
 var QueryEnrollment = tsq.
-	Select(Enrollment__Cols...).
-	From(TableEnrollment).
-	Search(TableEnrollment.SearchColumns()...).
-	MustBuild()
-
-// =============================================================================
-// List Active Records
-// =============================================================================
-// QueryActiveEnrollment stores the generated active list-all query for Enrollment.
-var QueryActiveEnrollment = tsq.
 	Select(Enrollment__Cols...).
 	From(TableEnrollment).
 	Search(TableEnrollment.SearchColumns()...).
@@ -401,7 +275,10 @@ func (e *Enrollment) Update(
 	return nil
 }
 
-// Delete permanently removes a Enrollment record.
+// Delete soft-deletes a Enrollment record by stamping DeletedAt.
+//
+// The row stays in the table and drops out of every generated query. Use
+// HardDelete to remove it from the database.
 func (e *Enrollment) Delete(
 	ctx context.Context,
 	db tsq.SQLExecutor,
@@ -413,21 +290,17 @@ func (e *Enrollment) Delete(
 	return nil
 }
 
-// SoftDelete marks a Enrollment record as deleted.
-func (e *Enrollment) SoftDelete(
+// HardDelete removes a Enrollment record from the database.
+//
+// This is not reversible: a soft-deleted row can be restored by clearing
+// DeletedAt, a hard-deleted one cannot.
+func (e *Enrollment) HardDelete(
 	ctx context.Context,
 	db tsq.SQLExecutor,
-	dt int64,
 ) error {
-	if dt != 0 {
-		e.DeletedAt = dt
-	} else {
-		e.DeletedAt = tsqtime.Now().UnixNano()
-	}
-	e.UpdatedAt = null.TimeFrom(tsqtime.Now())
-	err := tsq.Update(ctx, db, e)
+	err := tsq.HardDelete(ctx, db, e)
 	if err != nil {
-		return fmt.Errorf("soft-delete Enrollment: %s: %w", compactJSON(e), err)
+		return fmt.Errorf("hard-delete Enrollment: %s: %w", compactJSON(e), err)
 	}
 	return nil
 }

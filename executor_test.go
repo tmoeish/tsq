@@ -45,16 +45,16 @@ func (batchMutationUser) SearchColumns() []SearchColumn {
 	return nil
 }
 
-func (batchMutationUser) PrimaryKeys() []string {
-	return []string{"id"}
+func (batchMutationUser) PrimaryKey() string {
+	return "id"
 }
 
 func (batchMutationUser) AutoIncrement() bool {
 	return true
 }
 
-func (batchMutationUser) VersionColumn() string {
-	return ""
+func (batchMutationUser) ManagedColumns() ManagedColumns {
+	return ManagedColumns{}
 }
 
 func batchMutationUserColumns() []BoundColumn[batchMutationUser] {
@@ -82,16 +82,16 @@ func (optimisticMutationUser) SearchColumns() []SearchColumn {
 	return nil
 }
 
-func (optimisticMutationUser) PrimaryKeys() []string {
-	return []string{"id"}
+func (optimisticMutationUser) PrimaryKey() string {
+	return "id"
 }
 
 func (optimisticMutationUser) AutoIncrement() bool {
 	return true
 }
 
-func (optimisticMutationUser) VersionColumn() string {
-	return "version"
+func (optimisticMutationUser) ManagedColumns() ManagedColumns {
+	return ManagedColumns{Version: "version"}
 }
 
 func optimisticMutationUserColumns() []BoundColumn[optimisticMutationUser] {

@@ -29,11 +29,11 @@ func (wideRow) Table() string { return "wide_rows" }
 
 func (wideRow) SearchColumns() []SearchColumn { return nil }
 
-func (wideRow) PrimaryKeys() []string { return []string{"id"} }
+func (wideRow) PrimaryKey() string { return "id" }
 
 func (wideRow) AutoIncrement() bool { return true }
 
-func (wideRow) VersionColumn() string { return "" }
+func (wideRow) ManagedColumns() ManagedColumns { return ManagedColumns{} }
 
 func (wideRow) Cols() []SQLColumn { return SQLColumns(wideRowColumnList...) }
 
