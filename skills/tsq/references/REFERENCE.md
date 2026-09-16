@@ -600,7 +600,7 @@ Useful rules:
 
 - prefer `Validate()` for external API input
 - use `Normalize()` only when compatibility-style fallback behavior is desired
-- `Validate()` and `Normalize()` check `Size` against `tsq.DefaultMaxPageSize` (1000), the absolute ceiling. A runtime built with `RuntimeOptions.MaxPageSize` clamps further at execution time, so a handler that wants both sides to agree should call `ValidateWithLimit(runtime.MaxPageSize())` or `NormalizeWithLimit(runtime.MaxPageSize())` instead
+- `Validate()` and `Normalize()` check `Size` against `tsq.DefaultMaxPageSize` (1000), the absolute ceiling. A runtime built with `tsq.WithMaxPageSize(n)` clamps further at execution time, so a handler that wants both sides to agree should call `ValidateWithLimit(runtime.MaxPageSize())` or `NormalizeWithLimit(runtime.MaxPageSize())` instead
 - `Page` is capped at `tsq.MaxPageNumber` (1000000). `Validate()` rejects anything past it; `Offset()` clamps to the last valid page, so validate first if an out-of-range page should be an error rather than the last page
 - use `Offset()` instead of hand-calculating offset
 - use `HasNext()` / `HasPrev()` for UI navigation logic
@@ -694,19 +694,20 @@ Rules:
 `Runtime` is the TSQ-managed executor and runtime container.
 
 - it implements `SQLExecutor` directly
-- use `tsq.NewRuntime("sqlite", dsn, database.TSQTables())` for one generated package
+- use `tsq.NewRuntime(ctx, "sqlite", dsn, database.TSQTables())` for one generated package
 - combine multiple generated packages by concatenating their `TSQTables()` slices before calling `NewRuntime`
-- `NewRuntime` opens the DB itself and resolves the dialect from `driverName`; `NewRuntimeContext(ctx, ...)` is the same with a context that bounds the ping and any bootstrap DDL
-- call `runtime.Close()` when the process is done with the database; it closes the pool `NewRuntime` opened
-- configure optional bootstrap behavior with `tsq.RuntimeOptions`, for example `&tsq.RuntimeOptions{TablePolicy: tsq.SchemaPolicyCreateMissing, IndexPolicy: tsq.SchemaPolicyCreateMissing}`
+- `NewRuntime` opens the pool itself and resolves the dialect from `driverName`; the context bounds the ping and any bootstrap DDL
+- `tsq.NewRuntimeFromDB(ctx, db, dialect, tables, options...)` builds a runtime over a pool the caller already opened, which is how an instrumented or specially configured `*sql.DB` keeps working while still getting SQL logging, tracers and the page-size cap
+- call `runtime.Close()` when the process is done with the database. It closes **only** a pool `NewRuntime` opened; a pool passed to `NewRuntimeFromDB` belongs to its caller and stays open
+- configure both constructors with options: `tsq.WithSchemaPolicy(p)` sets the table and index policy together, `tsq.WithTablePolicy(p)` / `tsq.WithIndexPolicy(p)` set them apart for a schema whose tables come from migrations while its indexes do not, `tsq.WithLogger(l)`, `tsq.WithSQLLogging()`, `tsq.WithTracers(...)` and `tsq.WithMaxPageSize(n)`
 - the policies, from doing nothing to doing the most: `SchemaPolicyManual` (default: log the mode and change nothing), `SchemaPolicyValidate` (fail to start on a mismatch), `SchemaPolicyCreateMissing` (create missing tables, columns and indexes), `SchemaPolicyReconcile` (also alter columns back to what is declared). Production keeps `Manual` and owns its schema through migrations; development and test want `Reconcile`, where changing a struct and restarting is enough
 - default policy is manual: TSQ logs a reminder but does not automatically reconcile missing tables or indexes
-- `RuntimeOptions.IdentifierValidationMode` is `tsq.IdentifierValidationStrict` by default (bootstrap fails on identifiers longer than the dialect allows); `IdentifierValidationWarn` logs instead, `IdentifierValidationSkip` disables the check
-- `RuntimeOptions.MaxPageSize` caps `PageRequest.Size` for paged queries on that runtime (default `tsq.DefaultMaxPageSize`, 1000)
+- construction fails when a table, column or index name is longer than the connected dialect allows, and there is no way to turn that off. Such a name does not reach the server intact, so the objects TSQ creates stop matching the names its queries reference. Name the index explicitly (`ux=[{name="..."}]`) when a derived index name is what runs over the limit
+- `tsq.WithMaxPageSize(n)` caps `PageRequest.Size` for paged queries on that runtime (default `tsq.DefaultMaxPageSize`, 1000)
 - **TSQ only ever adds.** No policy drops a table, so several services can share one database and bring up their own tables independently. Removing a table that is no longer declared is a migration, not a boot-time decision: a runtime knows only its own declarations and cannot tell "this table is obsolete" from "this table belongs to someone else"
 - schema policies log the mode they are in at info level; `SchemaPolicyManual` (the default) is a normal production choice, not a warning
-- `RuntimeOptions.Logger` receives bootstrap DDL and execution-time warnings (for example a skipped batch-insert ID assignment); it defaults to `slog.Default()`
-- `RuntimeOptions.LogSQL` logs every rendered statement and its bound arguments through `Logger` at debug level. It is off by default and logs arguments verbatim, so leave it off wherever query parameters carry secrets or personal data. Only executors that belong to a runtime log; a bare `*sql.DB` or a `WrapExecutor` result has no runtime to read the setting from
+- `tsq.WithLogger(l)` receives bootstrap DDL and execution-time warnings (for example a skipped batch-insert ID assignment); it defaults to `slog.Default()`
+- `tsq.WithSQLLogging()` logs every rendered statement and its bound arguments through the logger at debug level. It is off by default and logs arguments verbatim, so leave it off wherever query parameters carry secrets or personal data. Only executors that belong to a runtime log; a bare `*sql.DB` or a `WrapExecutor` result has no runtime to read the setting from
 
 ### Transactions
 

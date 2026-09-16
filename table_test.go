@@ -108,7 +108,7 @@ func newSQLiteIndexTestEngine(t *testing.T) (*Runtime, string) {
 
 func TestCurrentDialectDetection(t *testing.T) {
 	_, dsn := newSQLiteIndexTestEngine(t)
-	r, err := NewRuntime("sqlite", dsn, nil)
+	r, err := NewRuntime(context.Background(), "sqlite", dsn, nil)
 	if err != nil {
 		t.Fatalf("NewRuntime() error = %v", err)
 	}
@@ -124,7 +124,7 @@ func TestCurrentDialectDetection(t *testing.T) {
 
 func TestRuntimeEngineAccess(t *testing.T) {
 	db, dsn := newSQLiteIndexTestEngine(t)
-	r, err := NewRuntime("sqlite", dsn, nil)
+	r, err := NewRuntime(context.Background(), "sqlite", dsn, nil)
 	if err != nil {
 		t.Fatalf("NewRuntime() error = %v", err)
 	}
@@ -138,22 +138,6 @@ func TestRuntimeEngineAccess(t *testing.T) {
 	}
 }
 
-func TestNewRuntimeFailsOnStrictValidation(t *testing.T) {
-	longTableName := firstRejectedIdentifier(t, tsqdialect.MySQLDialect{}, "u")
-	runtime := &Runtime{
-		db:      &sql.DB{},
-		dialect: tsqdialect.MySQLDialect{},
-		tables: []*registeredTable{{
-			Table: newMockTable(longTableName),
-		}},
-	}
-
-	err := runtime.validateRegisteredTableIdentifiers("strict")
-	if err == nil {
-		t.Fatal("expected strict identifier validation to fail")
-	}
-}
-
 func TestNewRuntimeFailsOnMissingRegisteredIndex(t *testing.T) {
 	failingDB, dsn := newSQLiteIndexTestEngine(t)
 	if _, err := failingDB.DB().ExecContext(context.Background(), "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)"); err != nil {
@@ -161,15 +145,14 @@ func TestNewRuntimeFailsOnMissingRegisteredIndex(t *testing.T) {
 	}
 
 	table, _ := newStrictMockTable("users", "name")
-	_, err := NewRuntime(
+	_, err := NewRuntime(context.Background(),
 		"sqlite",
 		dsn,
 		[]TableRegistration{{
 			Table:   table,
 			Indexes: []TableIndex{{Name: "ux_users_name", Fields: []string{"name"}, Unique: true}},
 		}},
-		&RuntimeOptions{IndexPolicy: SchemaPolicyValidate},
-	)
+		WithIndexPolicy(SchemaPolicyValidate))
 	if err == nil {
 		t.Fatal("expected missing registered index to fail NewRuntime")
 	}

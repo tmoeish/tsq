@@ -1,6 +1,8 @@
 package academy
 
 import (
+	"context"
+	"database/sql"
 	_ "embed"
 	"fmt"
 	"os"
@@ -9,6 +11,7 @@ import (
 	_ "modernc.org/sqlite"
 
 	"github.com/tmoeish/tsq/v4"
+	tsqdialect "github.com/tmoeish/tsq/v4/dialect"
 )
 
 //go:embed mock.sql
@@ -26,28 +29,39 @@ func OpenSQLiteExampleDB() (*tsq.Runtime, func(), error) {
 		_ = os.RemoveAll(dir)
 	}
 
-	db, err := tsq.NewRuntime("sqlite", dsn, nil)
+	// The pool is opened here because the schema is seeded before TSQ sees it,
+	// which is what NewRuntimeFromDB is for: the caller keeps the pool it set up
+	// and still gets tracers, SQL logging and the page-size cap.
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		baseCleanup()
+
 		return nil, nil, err
 	}
 
-	if _, err := db.DB().Exec(mockSQL); err != nil {
+	cleanup := func() {
+		_ = db.Close()
+
 		baseCleanup()
+	}
+
+	if _, err := db.ExecContext(context.Background(), mockSQL); err != nil {
+		cleanup()
+
 		return nil, nil, fmt.Errorf("%s: %w", "seed mock.sql", err)
 	}
-	_ = db.DB().Close()
 
-	runtime, err := tsq.NewRuntime("sqlite", dsn, TSQTables(), &tsq.RuntimeOptions{IndexPolicy: tsq.SchemaPolicyCreateMissing})
+	runtime, err := tsq.NewRuntimeFromDB(
+		context.Background(),
+		db,
+		tsqdialect.SQLiteDialect{},
+		TSQTables(),
+		tsq.WithIndexPolicy(tsq.SchemaPolicyCreateMissing),
+	)
 	if err != nil {
-		baseCleanup()
+		cleanup()
+
 		return nil, nil, fmt.Errorf("%s: %w", "init tsq runtime", err)
-	}
-
-	cleanup := func() {
-		_ = runtime.DB().Close()
-
-		baseCleanup()
 	}
 
 	return runtime, cleanup, nil

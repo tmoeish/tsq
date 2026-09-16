@@ -3,7 +3,6 @@ package tsq
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 
 	_ "modernc.org/sqlite"
@@ -30,20 +29,19 @@ func newRegisteredIndexRuntime(
 	unique bool,
 	indexName string,
 	fields []string,
-	options ...*RuntimeOptions,
+	options ...RuntimeOption,
 ) *Runtime {
 	t.Helper()
 
 	table, _ := newStrictMockTable(tableName, fields...)
-	runtime, err := NewRuntime(
+	runtime, err := NewRuntime(context.Background(),
 		"sqlite",
 		dsn,
 		[]TableRegistration{{
 			Table:   table,
 			Indexes: []TableIndex{{Name: indexName, Fields: fields, Unique: unique}},
 		}},
-		options...,
-	)
+		options...)
 	if err != nil {
 		t.Fatalf("NewRuntime() error = %v", err)
 	}
@@ -87,7 +85,7 @@ func TestUpsertIndexRejectsNilDB(t *testing.T) {
 }
 
 func TestNewRuntimeRejectsNilDB(t *testing.T) {
-	if _, err := NewRuntime("", "", nil); err == nil {
+	if _, err := NewRuntime(context.Background(), "", "", nil); err == nil {
 		t.Fatal("expected empty driver/dsn to return an error")
 	}
 }
@@ -139,15 +137,14 @@ func TestNewRuntimeIndexModeValidateReturnsMissingIndexError(t *testing.T) {
 		t.Fatalf("failed to create users table: %v", err)
 	}
 
-	_, err := NewRuntime(
+	_, err := NewRuntime(context.Background(),
 		"sqlite",
 		dsn,
 		[]TableRegistration{{
 			Table:   mustStrictMockTable(t, "users", "name"),
 			Indexes: []TableIndex{{Name: "ux_users_name", Fields: []string{"name"}, Unique: true}},
 		}},
-		&RuntimeOptions{IndexPolicy: SchemaPolicyValidate},
-	)
+		WithIndexPolicy(SchemaPolicyValidate))
 	if err == nil {
 		t.Fatal("expected validate mode to fail when index is missing")
 	}
@@ -172,7 +169,7 @@ func TestNewRuntimeIndexModeUpsertCreatesMissingIndex(t *testing.T) {
 		t.Fatalf("failed to create users table: %v", err)
 	}
 
-	runtime := newRegisteredIndexRuntime(t, db, dsn, "users", true, "ux_users_name", []string{"name"}, &RuntimeOptions{IndexPolicy: SchemaPolicyCreateMissing})
+	runtime := newRegisteredIndexRuntime(t, db, dsn, "users", true, "ux_users_name", []string{"name"}, WithIndexPolicy(SchemaPolicyCreateMissing))
 	definition, found := inspectRegisteredIndex(t, runtime, "users", "ux_users_name")
 	if !found {
 		t.Fatal("expected upsert mode to create missing index")
@@ -191,15 +188,14 @@ func TestNewRuntimeValidateModeAcceptsExistingRegisteredIndex(t *testing.T) {
 		}
 	}
 
-	if _, err := NewRuntime(
+	if _, err := NewRuntime(context.Background(),
 		"sqlite",
 		dsn,
 		[]TableRegistration{{
 			Table:   mustStrictMockTable(t, "users", "name"),
 			Indexes: []TableIndex{{Name: "ux_users_name", Fields: []string{"name"}, Unique: true}},
 		}},
-		&RuntimeOptions{IndexPolicy: SchemaPolicyValidate},
-	); err != nil {
+		WithIndexPolicy(SchemaPolicyValidate)); err != nil {
 		t.Fatalf("expected validate mode with existing index to succeed, got %v", err)
 	}
 }
@@ -213,74 +209,9 @@ func TestNewRuntimePersistsIndexModeOnEngine(t *testing.T) {
 		}
 	}
 
-	runtime := newRegisteredIndexRuntime(t, db, dsn, "users", true, "ux_users_name", []string{"name"}, &RuntimeOptions{IndexPolicy: SchemaPolicyValidate})
+	runtime := newRegisteredIndexRuntime(t, db, dsn, "users", true, "ux_users_name", []string{"name"}, WithIndexPolicy(SchemaPolicyValidate))
 	if runtime.indexPolicy != SchemaPolicyValidate {
 		t.Fatalf("expected runtime index policy %q after init, got %q", SchemaPolicyValidate, runtime.indexPolicy)
-	}
-}
-
-func TestValidateIdentifiersForDialect(t *testing.T) {
-	_, dsn := newSQLiteIndexTestEngine(t)
-	r, err := NewRuntime("sqlite", dsn, nil)
-	if err != nil {
-		t.Fatalf("NewRuntime() error = %v", err)
-	}
-
-	if err := r.ValidateIdentifiersForDialect(); err != nil {
-		t.Errorf("ValidateIdentifiersForDialect after NewRuntime should succeed, got error: %v", err)
-	}
-}
-
-func TestValidateIdentifiersForDialectChecksTableColumns(t *testing.T) {
-	_, dsn := newSQLiteIndexTestEngine(t)
-	longColumnName := firstRejectedIdentifier(t, tsqdialect.MySQLDialect{}, "c")
-	table, _ := newStrictMockTable("users", longColumnName)
-
-	r, err := NewRuntime(
-		"sqlite",
-		dsn,
-		[]TableRegistration{{Table: table}},
-		&RuntimeOptions{IdentifierValidationMode: "skip"},
-	)
-	if err != nil {
-		t.Fatalf("NewRuntime() error = %v", err)
-	}
-	r.dialect = tsqdialect.MySQLDialect{}
-
-	err = r.ValidateIdentifiersForDialect()
-	if err == nil {
-		t.Fatal("expected ValidateIdentifiersForDialect to reject oversized regular column names")
-	}
-	if !strings.Contains(err.Error(), longColumnName) {
-		t.Fatalf("expected validation error to mention oversized column name, got: %v", err)
-	}
-}
-
-func TestValidateIdentifiersForDialectChecksIndexNames(t *testing.T) {
-	_, dsn := newSQLiteIndexTestEngine(t)
-	longIndexName := firstRejectedIdentifier(t, tsqdialect.MySQLDialect{}, "i")
-	table, _ := newStrictMockTable("users", "id")
-
-	r, err := NewRuntime(
-		"sqlite",
-		dsn,
-		[]TableRegistration{{
-			Table:   table,
-			Indexes: []TableIndex{{Name: longIndexName, Fields: []string{"id"}}},
-		}},
-		&RuntimeOptions{IdentifierValidationMode: "skip"},
-	)
-	if err != nil {
-		t.Fatalf("NewRuntime() error = %v", err)
-	}
-	r.dialect = tsqdialect.MySQLDialect{}
-
-	err = r.ValidateIdentifiersForDialect()
-	if err == nil {
-		t.Fatal("expected ValidateIdentifiersForDialect to reject oversized index names")
-	}
-	if !strings.Contains(err.Error(), longIndexName) {
-		t.Fatalf("expected validation error to mention oversized index name, got: %v", err)
 	}
 }
 

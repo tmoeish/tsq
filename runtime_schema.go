@@ -2,7 +2,6 @@ package tsq
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -25,25 +24,6 @@ const (
 	tableColumnAlter = "alter"
 )
 
-func openRuntimeDB(ctx context.Context, driverName, dsn string) (*sql.DB, tsqdialect.Dialect, error) {
-	dialect, err := resolveRuntimeDialect(driverName)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	db, err := sql.Open(driverName, dsn)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	if err := db.PingContext(ctx); err != nil {
-		_ = db.Close()
-		return nil, nil, err
-	}
-
-	return db, dialect, nil
-}
-
 func resolveRuntimeDialect(driverName string) (tsqdialect.Dialect, error) {
 	switch strings.ToLower(strings.TrimSpace(driverName)) {
 	case "sqlite":
@@ -57,11 +37,7 @@ func resolveRuntimeDialect(driverName string) (tsqdialect.Dialect, error) {
 	}
 }
 
-func resolveRuntimeLogger(options *RuntimeOptions) Logger {
-	if options != nil && options.Logger != nil {
-		return options.Logger
-	}
-
+func defaultRuntimeLogger() Logger {
 	return slog.Default()
 }
 

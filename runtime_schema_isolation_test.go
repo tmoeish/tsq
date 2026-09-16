@@ -96,9 +96,9 @@ func TestSchemaPoliciesNeverDropAnotherRuntimesTables(t *testing.T) {
 			dsn := sharedSQLiteDSN(t)
 			ctx := context.Background()
 
-			first, err := NewRuntimeContext(ctx, "sqlite", dsn,
+			first, err := NewRuntime(ctx, "sqlite", dsn,
 				[]TableRegistration{ownedRegistration("service_a")},
-				&RuntimeOptions{TablePolicy: policy, IndexPolicy: policy})
+				WithTablePolicy(policy), WithIndexPolicy(policy))
 			if err != nil {
 				t.Fatalf("start first runtime: %v", err)
 			}
@@ -111,9 +111,9 @@ func TestSchemaPoliciesNeverDropAnotherRuntimesTables(t *testing.T) {
 				t.Fatal("expected the first runtime to create its own table")
 			}
 
-			second, err := NewRuntimeContext(ctx, "sqlite", dsn,
+			second, err := NewRuntime(ctx, "sqlite", dsn,
 				[]TableRegistration{ownedRegistration("service_b")},
-				&RuntimeOptions{TablePolicy: policy, IndexPolicy: policy})
+				WithTablePolicy(policy), WithIndexPolicy(policy))
 			if err != nil {
 				t.Fatalf("start second runtime: %v", err)
 			}
@@ -131,9 +131,9 @@ func TestSchemaPoliciesNeverDropAnotherRuntimesTables(t *testing.T) {
 			}
 
 			// Restarting the first one must not undo the second one either.
-			again, err := NewRuntimeContext(ctx, "sqlite", dsn,
+			again, err := NewRuntime(ctx, "sqlite", dsn,
 				[]TableRegistration{ownedRegistration("service_a")},
-				&RuntimeOptions{TablePolicy: policy, IndexPolicy: policy})
+				WithTablePolicy(policy), WithIndexPolicy(policy))
 			if err != nil {
 				t.Fatalf("restart first runtime: %v", err)
 			}
@@ -156,9 +156,9 @@ func TestSchemaPoliciesNeverDropAnotherRuntimesTables(t *testing.T) {
 func TestNoManagedRegistryTableIsCreated(t *testing.T) {
 	dsn := sharedSQLiteDSN(t)
 
-	runtime, err := NewRuntimeContext(context.Background(), "sqlite", dsn,
+	runtime, err := NewRuntime(context.Background(), "sqlite", dsn,
 		[]TableRegistration{ownedRegistration("service_a")},
-		&RuntimeOptions{TablePolicy: SchemaPolicyReconcile, IndexPolicy: SchemaPolicyReconcile})
+		WithTablePolicy(SchemaPolicyReconcile), WithIndexPolicy(SchemaPolicyReconcile))
 	if err != nil {
 		t.Fatalf("start runtime: %v", err)
 	}

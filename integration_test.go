@@ -129,13 +129,9 @@ func openWithPolicy(t *testing.T, target integrationTarget, tables []tsq.TableRe
 
 	recorder := &ddlRecorder{}
 
-	rt, err := tsq.NewRuntimeContext(context.Background(), target.driver, target.dsn, tables, &tsq.RuntimeOptions{
-		TablePolicy: policy,
-		IndexPolicy: policy,
-		Logger:      recorder,
-	})
+	rt, err := tsq.NewRuntime(context.Background(), target.driver, target.dsn, tables, tsq.WithTablePolicy(policy), tsq.WithIndexPolicy(policy), tsq.WithLogger(recorder))
 	if err != nil {
-		t.Fatalf("NewRuntimeContext(%s, %s) error = %v", target.name, policy, err)
+		t.Fatalf("NewRuntime(%s, %s) error = %v", target.name, policy, err)
 	}
 
 	t.Cleanup(func() { _ = rt.Close() })
@@ -599,11 +595,8 @@ func TestIntegrationSchemaPolicyNeverDropsUndeclaredTables(t *testing.T) {
 			dropAcademyTables(t, target)
 
 			// One runtime manages the academy tables under its own owner.
-			academyRT, err := tsq.NewRuntimeContext(ctx, target.driver, target.dsn, academy.TSQTables(),
-				&tsq.RuntimeOptions{
-					TablePolicy: tsq.SchemaPolicyReconcile,
-					IndexPolicy: tsq.SchemaPolicyReconcile,
-				})
+			academyRT, err := tsq.NewRuntime(ctx, target.driver, target.dsn, academy.TSQTables(),
+				tsq.WithTablePolicy(tsq.SchemaPolicyReconcile), tsq.WithIndexPolicy(tsq.SchemaPolicyReconcile))
 			if err != nil {
 				t.Fatalf("bootstrap academy runtime on %s: %v", target.name, err)
 			}
@@ -613,11 +606,8 @@ func TestIntegrationSchemaPolicyNeverDropsUndeclaredTables(t *testing.T) {
 			// A second runtime declares nothing at all. It used to wipe every academy
 			// table on the way through, because it recorded its own empty view into a
 			// registry shared by the whole database.
-			otherRT, err := tsq.NewRuntimeContext(ctx, target.driver, target.dsn, nil,
-				&tsq.RuntimeOptions{
-					TablePolicy: tsq.SchemaPolicyReconcile,
-					IndexPolicy: tsq.SchemaPolicyReconcile,
-				})
+			otherRT, err := tsq.NewRuntime(ctx, target.driver, target.dsn, nil,
+				tsq.WithTablePolicy(tsq.SchemaPolicyReconcile), tsq.WithIndexPolicy(tsq.SchemaPolicyReconcile))
 			if err != nil {
 				t.Fatalf("bootstrap second runtime on %s: %v", target.name, err)
 			}

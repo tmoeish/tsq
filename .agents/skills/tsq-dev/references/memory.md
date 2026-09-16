@@ -146,8 +146,6 @@ DDL"——v4.2.0 的每个 Critical 事故都表现为它。用 env DSN + `t.Ski
 
 - **Docker 镜像不推送 registry**。`Docker Build` 是必需检查，但产物没人消费；推送要配
   ghcr 权限和 tag 策略，等有真实使用者再说。
-- **`NewRuntime` 不改成 functional options**。`options ...*RuntimeOptions` 别扭，但改签名
-  是破坏性变更，留给 v5。
 - **不替换 `gopkg.in/nullbio/null.v6` 和 `serenize/snaker`**。前者出现在生成代码里
   （`examples/academy/*.tsq.go` import 它），是使用者契约；后者只在生成器里做
   CamelToSnake，换实现等于改所有使用者的表名推导。
@@ -177,6 +175,20 @@ join 图校验的全部价值，代价只是多写一次表名。既 `Correlate`
 只能住在 `Where` 之前的具体类型上（接口方法不能带类型参数）。`Where` 必需由类型强制，全表
 操作要写显式 `And()`——"静默去掉过滤条件"在写路径同样不允许。`UpdateTable` 至今不碰任何托管
 字段；`DeletedAt` 是例外，理由见下条。
+
+### 决定：Runtime 用函数式选项，并且不关别人的连接池 (2026-09-16，v5)
+
+`options ...*RuntimeOptions` 让"没传选项"和"传了一个选项值"是同一个签名，字段零值又兼任"没设置"。
+换成 `...RuntimeOption` 之后，`NewRuntime` 和 `NewRuntimeContext` 也合成一个——ctx 不再可选。
+
+**`NewRuntimeFromDB` 的关键约束是所有权**：`Runtime` 记 `ownsDB`，`Close()` 只关自己开的池。关掉
+调用方的池会打断它在 TSQ 之外的用途，而那正是这个构造器存在的理由。两条都有测试，**正反各一**：
+自己开的池 `Close()` 之后 ping 必须失败，传进来的池 ping 必须仍然成功。示例的 bootstrap 现在走
+这条路（先开池灌 `mock.sql` 再交给 TSQ），所以它是活的。
+
+标识符长度校验去掉了三档模式：超长的名字到不了服务端，建出来的对象和渲染的查询对不上，`warn` /
+`skip` 只是把失败推后。已知未处理：生成期还不校验长度，而**索引名是派生的**（`idx_表_列...`），
+最容易超限的正是它；生成器知道每个 `.sql` 文件的目标方言，那是该校验的地方。
 
 ### 决定：读单行只留两个入口，语义写在名字里 (2026-09-09，v5)
 
@@ -414,8 +426,6 @@ goreleaser v2.18.1 一发布就要求 Go >= 1.27.1，CI 用 `GOTOOLCHAIN=local` 
 
 ### 本轮决定不做的几件事 (2026-08-28)
 
-- **没有 `NewRuntimeFromDB` 和连接池选项**：接了 otelsql / 自定义 connector 的人只能用
-  `WrapExecutor`，随之失去 `LogSQL`、tracer 和 `MaxPageSize`。真实缺口，属于新特性。
 - **`detectSQLCapabilities` 靠字符串匹配**渲染好的 SQL：标识符 base64 编码避开了大部分误判，
   但 `Expr` / `Pred` 的字面量含 ` EXCEPT ` / ` FOR UPDATE` 会误报。正解是从 `querySpec` 导出。
 - **CLI 不拆子模块**：`x/tools` 和 `gofumpt` 只被 `internal/` 用却进了使用者的 `go.sum`。

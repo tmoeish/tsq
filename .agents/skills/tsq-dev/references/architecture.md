@@ -148,16 +148,20 @@ helper 因此继续作为包级函数。为了一点调用语法把这些接口�
 
 ## 运行时
 
-`Runtime`（`runtime.go`）是 `*sql.DB` 加方言加已注册表的组合，显式构造：
-`NewRuntimeContext(ctx, driverName, dsn, tables, opts...)`，`NewRuntime` 是它的
-`context.Background()` 版本。ctx 约束 ping、标识符校验和 schema 策略（可能执行 DDL）。
-`Close()` 关闭它自己打开的连接池。没有全局 `Init()`，没有包级单例——这是历史上被删掉的
-东西，不要以任何形式重新引入。
+`Runtime`（`runtime.go`）是 `*sql.DB` 加方言加已注册表的组合，两个构造器都要 ctx：
+`NewRuntime(ctx, driverName, dsn, tables, ...RuntimeOption)` 自己开池，
+`NewRuntimeFromDB(ctx, db, dialect, tables, ...RuntimeOption)` 接管调用方已有的池。ctx 约束
+ping、标识符校验和 schema 策略（可能执行 DDL）。没有全局 `Init()`，没有包级单例——这是历史上被
+删掉的东西，不要以任何形式重新引入。
 
-- `Runtime` 自己实现 `SQLExecutor`，所以它可以直接传给需要执行器的地方。
-- `RuntimeOptions.IdentifierValidationMode` 是类型化枚举，空值 = `Strict`，未知值被拒绝；
-  `MaxPageSize` 是分页上限（`DefaultMaxPageSize` = 1000），通过 `pageSizeLimitForExecutor`
-  从执行器反查运行时取到。
+- **连接池的所有权记在 `ownsDB` 上，`Close()` 只关自己开的那个。** 关掉调用方的池会打断它在
+  TSQ 之外的用途，而那正是 `NewRuntimeFromDB` 存在的理由。加新构造器时先决定它属于哪一边。
+- 选项是函数式的（`runtime_options.go`）：`newRuntimeConfig` 先按顺序应用完再统一校验，所以
+  非法值只从构造器报一次，不是每个 `With*` 各报各的。
+- `Runtime` 自己实现 `SQLExecutor`（它是 `dialect.Executor` 的别名），所以它可以直接传给需要
+  执行器的地方。
+- 标识符长度校验**没有开关**，在任何 DDL 之前跑；`MaxPageSize` 是分页上限
+  （`DefaultMaxPageSize` = 1000），通过 `pageSizeLimitForExecutor` 从执行器反查运行时取到。
 - `wrapExecutor` 只在执行器**同时**已带上要求的方言和 runtime 时才原样返回；否则包一层。
   曾经有两段同条件的 `if`，第二段在方言匹配时直接返回未包装的执行器，让"给没有 runtime 的
   执行器附上 runtime"那条路永远不可达。
@@ -170,7 +174,7 @@ helper 因此继续作为包级函数。为了一点调用语法把这些接口�
   `quoteBuiltInIdentifier`（`Build()` 期，还没有 runtime）和 `appendTracers`
   （`NewRuntime` 正在组装 Runtime，`Logger` 还没落位）。
 - SQL 文本与绑定参数由 `logSQLForExecutor`（`runtime_schema.go`）输出，开关是
-  `RuntimeOptions.LogSQL`，级别 debug。两道短路（`logSQL` 为假、`Logger.Enabled` 为假）
+  `WithSQLLogging()`，级别 debug。两道短路（`logSQL` 为假、`Logger.Enabled` 为假）
   都在 `compactJSON` 之前，所以关着的时候不付序列化成本。**没有运行时的执行器
   （裸 `*sql.DB`、`WrapExecutor` 的结果）永远不打**——它没地方读这个开关。
 - `WithTx`（`tx.go`）是多操作事务的唯一入口，支持 `TxOptions.Retry`（配合
@@ -242,9 +246,9 @@ helper 因此继续作为包级函数。为了一点调用语法把这些接口�
 ## 追踪与错误
 
 - `trace.go` 提供轻量的执行追踪钩子，不依赖任何外部 tracing 库。`Tracer` 是
-  `RuntimeOptions.Tracers` 的元素类型，由使用者自己实现——**这里不再内置 tracer**。
+  `WithTracers(...)` 的元素类型，由使用者自己实现——**这里不再内置 tracer**。
   曾经有三个（`printCost` / `printError` / `printSQLTracer`），全部未导出、
-  只被一个测试文件引用，使用者无从启用；SQL 日志现在归 `RuntimeOptions.LogSQL`。
+  只被一个测试文件引用，使用者无从启用；SQL 日志现在归 `WithSQLLogging()`。
 - `sqlite_errors.go` 把 SQLite 的错误字符串映射成可判别的错误——这类映射按方言分文件放，
   不要塞进通用错误处理里。
 - 乐观锁冲突是 `ErrOptimisticLockConflict`，它是**业务错误**，调用方必须处理。
