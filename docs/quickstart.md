@@ -8,8 +8,8 @@
 
 1. 把 TSQ 加进 module
 2. 选一个放数据库模型的包
-3. 写第一个带 `@TABLE` 注解的表结构
-4. `tsq fmt` 然后 `tsq gen`
+3. 写第一个带 `//tsq:table` 指令的表结构
+4. `tsq gen`
 5. 初始化 `tsq.Runtime`
 6. 跑通第一条查询
 7. 需要时加上事务

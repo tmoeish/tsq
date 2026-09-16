@@ -3,22 +3,14 @@ package academy
 import "database/sql/driver"
 
 // Course is the main catalog entity learners enroll into.
-// @TABLE(
 //
-//	name="course",
-//	pk="ID",
-//	created_at,
-//	ux=[
-//		{fields=["Title"]},
-//	],
-//	idx=[
-//		{fields=["TrackID"]},
-//		{fields=["InstructorID"]},
-//		{fields=["PrerequisiteID"]},
-//	],
-//	search=["Title", "Summary"],
-//
-// )
+//tsq:table name=course pk=ID
+//tsq:managed created_at
+//tsq:unique Title
+//tsq:index TrackID
+//tsq:index InstructorID
+//tsq:index PrerequisiteID
+//tsq:search Title,Summary
 type Course struct {
 	ImmutableTable
 

@@ -31,11 +31,11 @@ To upgrade the CLI later, run the same `go install ...@latest` command again, or
 ### Main generator commands
 
 ```bash
-tsq fmt ./database
 tsq gen ./database
 ```
 
-Run `tsq fmt` before `tsq gen`.
+There is no formatting step: `//tsq:` directives survive gofmt untouched. `tsq migrate` converts a
+package's v4 annotations once, and is not part of the normal workflow afterwards.
 
 `tsq gen` accepts:
 
@@ -73,44 +73,68 @@ Released binaries from GitHub Releases carry the real values.
 This skill intentionally does **not** bundle scripts for:
 
 - installing or upgrading the TSQ CLI
-- running `tsq fmt`
 - running `tsq gen`
 
 Reasons:
 
 - skill installation and updates are already handled by `gh skill install` / `gh skill update`
 - TSQ CLI installation is already a single `go install` command
-- `tsq fmt` and `tsq gen` need a **project-specific package path**, so a generic script is more likely to run in the wrong directory or mutate the wrong package than to help
+- `tsq gen` needs a **project-specific package path**, so a generic script is more likely to run in the wrong directory or mutate the wrong package than to help
 - pre-approving shell scripts in a skill increases risk for very little gain here
 
 For agents, the correct default is to run the explicit commands directly after inspecting the target project's package layout.
 
-## 3. Annotation DSL
+## 3. Annotations
 
-### `@TABLE`
-
-Use `@TABLE` on physical table structs.
-
-Example:
+TSQ reads `//tsq:` directive lines above a struct. They follow the `//go:` convention: no space
+after the slashes, one concern per line, and gofmt leaves them alone.
 
 ```go
-// @TABLE(
-//   search=["Name","Email"]
-// )
-type User struct {
-	ID    int64  `db:"id"`
-	Name  string `db:"name"`
-	Email string `db:"email"`
+//tsq:table name=course pk=ID
+//tsq:managed created_at
+//tsq:unique Title
+//tsq:index TrackID
+//tsq:search Title,Summary
+type Course struct {
+	ID      int64  `db:"id"`
+	TrackID int64  `db:"track_id"`
+	Title   string `db:"title,size:160"`
+	Summary string `db:"summary,size:4096"`
 }
 ```
 
-Important points:
+All field references are **Go struct field names**, not SQL column names. The SQL column still comes
+from the field's `db` tag.
 
-- use `search=[...]` for keyword-search columns
-- do not use legacy `kw`
-- the source struct plus annotation is the source-of-truth
+### The directives
 
-#### `db` tags and DDL string defaults
+| directive | purpose |
+| --- | --- |
+| `//tsq:table [name=X] [pk=Field] [assigned]` | declares a physical table. Required once per table struct |
+| `//tsq:result [name=X]` | declares a projection that is not a table. Required once per result struct |
+| `//tsq:managed role[=Field] ...` | enables managed columns: `version`, `created_at`, `updated_at`, `deleted_at` |
+| `//tsq:unique Fields[,Fields] [name=X]` | a unique index |
+| `//tsq:index Fields[,Fields] [name=X]` | a non-unique index |
+| `//tsq:search Fields[,Fields]` | the columns generated keyword search covers |
+
+Repeat `//tsq:unique` and `//tsq:index` for each index. `//tsq:managed` may be repeated or take
+several roles on one line.
+
+### `//tsq:table`
+
+- `name=` is the physical table name; it defaults to the struct name in snake_case
+- `pk=` is the primary-key **Go field**; it defaults to `ID`
+- one field only, composite primary keys are not supported
+- the primary key is auto-increment unless the line says `assigned`, which means the caller supplies
+  the value and a zero primary key is not filled in by the database
+
+```go
+//tsq:table                          // table "user", pk ID, auto-increment
+//tsq:table name=enrollment pk=UID   // table "enrollment", pk UID, auto-increment
+//tsq:table pk=Code assigned         // the application assigns Code
+```
+
+### `db` tags and DDL string defaults
 
 Examples:
 
@@ -131,163 +155,61 @@ Rules:
 - `type:` is emitted verbatim to generated dialect DDL, so only reuse the same value across dialects when that is actually correct
 - dialects may still choose a more suitable large-text type for oversized strings; for example, MySQL upgrades very large strings to `MEDIUMTEXT` / `LONGTEXT`
 
-#### Supported `@TABLE` keys
+### `//tsq:managed`
 
-The current table DSL recognizes these top-level keys:
-
-| key | type | purpose |
-| --- | --- | --- |
-| `name` | string | physical table name; default is the struct name converted to snake_case |
-| `pk` | string | primary-key Go field, optionally with auto-increment flag |
-| `version` | bool or string | optimistic-lock field |
-| `created_at` | bool or string | managed created timestamp field |
-| `updated_at` | bool or string | managed updated timestamp field |
-| `deleted_at` | bool or string | managed soft-delete field |
-| `ux` | array of objects | declared unique indexes |
-| `idx` | array of objects | declared non-unique indexes |
-| `search` | array of strings | Go field names used by generated keyword-search helpers |
-
-All field references in table DSL keys are **Go struct field names**, not SQL column names.
-
-#### `pk`
-
-`pk` uses the form:
-
-```txt
-pk="FieldName"
-pk="FieldName,true"
-pk="FieldName,false"
-```
-
-Rules:
-
-- default is `ID`
-- one field only; composite primary keys are not supported
-- omitted auto-increment flag means `true`
-- `true` means inserts may omit a zero-valued primary key and let the database generate it
-- `false` means the caller must provide the primary-key value explicitly
-
-#### Managed fields: `version`, `created_at`, `updated_at`, `deleted_at`
-
-These keys support two forms:
-
-```txt
-version
-version=true
-version="Version"
-
-created_at
-created_at=true
-created_at=false
-updated_at="MTime"
-deleted_at="DeletedAt"
-```
-
-Behavior:
-
-- plain `version`, `created_at`, `updated_at`, `deleted_at` are shorthand for boolean `true`
-- boolean `true` means “enable this managed role using the default Go field name”
-- boolean `false` means “do not set this managed role”; in practice, omitting the key is clearer
-- string means “use this exact **Go struct field name**”
-- the default Go field names are:
-  - `Version`
-  - `CreatedAt`
-  - `UpdatedAt`
-  - `DeletedAt`
-
-These names are **Go struct field names**, not SQL column names. The actual SQL column name still comes from the field's `db` tag or the generator's column rules.
-
-#### `ux` and `idx`
-
-Each item is an object:
-
-```txt
-ux=[{name="ux_user_email", fields=["Email"]}]
-idx=[{fields=["OrgID","Status"]}]
-```
-
-Supported keys inside each index object:
-
-| key | type | purpose |
-| --- | --- | --- |
-| `name` | string | physical index name; optional |
-| `fields` | array of strings | Go field names in index order; required |
-
-Rules:
-
-- omitted index names are auto-generated
-- field order is preserved
-- duplicated fields in one index are invalid
-- duplicated field combinations across indexes are invalid
-
-#### `search`
-
-Example:
-
-```txt
-search=["Name","Email"]
-```
-
-It declares which fields participate in generated keyword-search helpers.
-
-Use Go field names here, not SQL column names.
-
-### `@RESULT`
-
-Use `@RESULT` for query result shapes that are not physical tables.
-
-Example:
+Each word enables one managed role, optionally naming the Go field that carries it:
 
 ```go
-// @RESULT(name="UserOrder")
-type UserOrder struct {
-	UserID   int64  `tsq:"User.ID"`
-	UserName string `tsq:"User.Name"`
-	OrgName  string `tsq:"Org.Name"`
-}
+//tsq:managed version created_at updated_at deleted_at
+//tsq:managed updated_at=MTime
 ```
 
-Use `@RESULT` for:
+Default Go field names are `Version`, `CreatedAt`, `UpdatedAt` and `DeletedAt`. Omitting a role
+leaves it unset; there is no "off" spelling because omission is the off.
 
-- joined rows
-- aggregate rows
-- API-facing DTO-like result shapes
+What each role does to runtime behavior is in section 4.1.
 
-`@RESULT` fields themselves normally use `tsq:"Struct.Field"` tags to point at generated source columns:
+Supported field types:
+
+- `version`: an integer field
+- `created_at`, `updated_at`: `time.Time`, `*time.Time`, `sql.NullTime`, `null.Time`
+- `deleted_at`: `int64`, `uint64`, `*time.Time`, `sql.NullTime`, `null.Time`
+
+### `//tsq:unique` and `//tsq:index`
 
 ```go
-type UserOrder struct {
-	UserID   int64  `tsq:"User.ID"`
-	UserName string `tsq:"User.Name"`
-}
+//tsq:unique Email
+//tsq:unique Email name=ux_user_email
+//tsq:index OrgID,Status
 ```
 
-#### Practical `@RESULT` keys
+- the field list is comma-separated and its order is the index order
+- `name=` is optional; an omitted name is derived from the table and the fields
+- a field repeated inside one index is invalid, and so are two indexes over the same field list
+- on a table declaring `deleted_at`, prefer an integer tombstone when the table also has unique
+  indexes; nullable-time soft deletes are not portable there
 
-In normal usage, keep `@RESULT` simple:
+### `//tsq:search`
 
-| key | type | purpose |
-| --- | --- | --- |
-| `name` | string | generated result name |
-| `search` | array of strings | optional search fields for generated result helpers |
+```go
+//tsq:search Name,Email
+```
 
-`name` and `search` also use **Go-side names**, not SQL column names.
+It declares which fields the generated keyword-search helpers cover. It works on both a table and a
+result.
 
-#### Important `@RESULT` behavior
+### Migrating from the v4 annotation
 
-Even though the parser shares some table-DSL machinery, table-only keys such as `pk`, `version`, `created_at`, `updated_at`, `deleted_at`, `ux`, and `idx` do **not** provide normal table semantics for `@RESULT`.
+v4 used a parenthesised DSL inside the doc comment, which gofmt reflowed, so the generator shipped
+`tsq fmt` to put it back. Directives need no formatter, and `tsq fmt` is gone.
 
-Practical rule for agents:
+```bash
+tsq migrate ./internal/database
+```
 
-- for `@RESULT`, use only `name` and `search`
-- treat table-only keys on `@RESULT` as unsupported / no-op in normal usage
-- do not rely on them for validation, mutation behavior, indexes, or managed fields
-
-Important validation rules for result fields:
-
-- each `tsq:"Struct.Field"` reference must point to an existing generated source struct and field
-- result field types must be scan-compatible with the referenced source field
-- result references are normalized internally, so colliding projections should be avoided
+`tsq migrate` reads each legacy `@TABLE` / `@RESULT` annotation with the v4 parser and replaces it
+with directives, keeping the prose above it. Run it once per package, review the diff, and drop it
+from the workflow: `tsq gen` does not read the legacy syntax.
 
 ## 4. Generated outputs
 
@@ -358,9 +280,8 @@ These fields are important enough to remember separately because they change run
 Example:
 
 ```go
-// @TABLE(
-//   version
-// )
+//tsq:table
+//tsq:managed version
 type Enrollment struct {
 	ID      int64 `db:"id"`
 	Version int64 `db:"version"`
@@ -369,12 +290,10 @@ type Enrollment struct {
 
 Semantics:
 
-- DSL forms:
-  - `version`
-  - `version=true`
-  - `version="Version"`
-  - `version="CustomField"`
-- boolean `true` enables optimistic locking using the default Go field name `Version`
+- directive forms:
+  - `//tsq:managed version`
+  - `//tsq:managed version=CustomField`
+- the bare role uses the default Go field name `Version`
 - string names the **Go struct field**, not the SQL column name
 - boolean `false` disables it and is equivalent to not configuring `version`
 - the referenced field must exist on the Go struct
@@ -404,9 +323,8 @@ Semantics:
 Typical usage:
 
 ```go
-// @TABLE(
-//   created_at
-// )
+//tsq:table
+//tsq:managed created_at
 ```
 
 Supported field types:
@@ -424,12 +342,10 @@ Do not use string or integer fields for `created_at`.
 
 Semantics:
 
-- DSL forms:
-  - `updated_at`
-  - `updated_at=true`
-  - `updated_at="UpdatedAt"`
-  - `updated_at="MTime"`
-- string names the **Go struct field**, not the SQL column name
+- directive forms:
+  - `//tsq:managed updated_at`
+  - `//tsq:managed updated_at=MTime`
+- the value names the **Go struct field**, not the SQL column name
 - generated insert helpers set it to the current time **only when the field is still unset**, matching `created_at`
 - generated update helpers refresh it to the current time before update, always: recording the last modification is the whole point
 - generated soft-delete helpers also refresh it
@@ -448,11 +364,10 @@ Supported field types:
 
 Semantics:
 
-- DSL forms:
-  - `deleted_at`
-  - `deleted_at=true`
-  - `deleted_at="DeletedAt"`
-- string names the **Go struct field**, not the SQL column name
+- directive forms:
+  - `//tsq:managed deleted_at`
+  - `//tsq:managed deleted_at=RemovedAt`
+- the value names the **Go struct field**, not the SQL column name
 - declaring it changes what deletion means for the table: `Delete` stamps the tombstone instead of removing the row, and `HardDelete` is the way to remove it (see *Deleting rows* in section 8)
 - every generated query filters tombstoned rows out; there is no generated query that returns them
 - with unique indexes, portable behavior prefers an integer tombstone style rather than nullable-time semantics
@@ -766,9 +681,9 @@ Use `WithTable()` or the generated alias/rebinding support when a column must be
 
 Use package-level `tsq.MapInto[Target](source, fieldPointer, jsonName)` for result projection mapping. Do not depend on older `col.Into(...)` style guidance.
 
-### `@RESULT`
+### `//tsq:result`
 
-Prefer `@RESULT` when the query result shape is stable and meaningful in the project. Use `MapInto(...)` when the result mapping is local and does not need a generated result model.
+Prefer a generated result when the query result shape is stable and meaningful in the project. Use `MapInto(...)` when the result mapping is local and does not need a generated result model.
 
 ## 11. Advanced query features
 
@@ -894,7 +809,7 @@ When moving a project from handwritten SQL to TSQ:
 2. reuse the existing DB bootstrap path
 3. preserve existing package boundaries where possible
 4. use generated columns instead of handwritten string column names
-5. introduce `@RESULT` only where the result shape is stable and reused
+5. introduce `//tsq:result` only where the result shape is stable and reused
 
 ## 16. What this skill should not assume
 

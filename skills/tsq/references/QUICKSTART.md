@@ -36,9 +36,8 @@ Use the package that already owns table-shaped structs if one exists.
 ```go
 package database
 
-// @TABLE(
-//   search=["Name","Email"]
-// )
+//tsq:table
+//tsq:search Name,Email
 type User struct {
 	ID    int64  `db:"id" json:"id"`
 	Name  string `db:"name" json:"name"`
@@ -49,7 +48,7 @@ type User struct {
 Minimum requirements:
 
 - a normal Go struct
-- an `@TABLE` annotation
+- a `//tsq:table` directive above it
 - `db` tags on persisted fields
 
 If a field uses a custom Go type that TSQ cannot map directly to a SQL column type, keep the runtime codec on the Go type and add an explicit DDL override in the `db` tag:
@@ -65,7 +64,6 @@ type Track struct {
 ## 4. Generate TSQ files
 
 ```bash
-tsq fmt ./database
 tsq gen ./database
 ```
 

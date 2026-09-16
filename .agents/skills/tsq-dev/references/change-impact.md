@@ -276,15 +276,19 @@
   `[门禁: release-check 核对三份配置里的每个 -X]`
 - 三份配置是三个副本，改变量名要一起改。
 
-## 改了注解 DSL（`internal/parser/`）
+## 改了注解指令（`internal/parser/directive.go`）
 
 - 解析器接受或拒绝什么，就是使用者能写什么。`skills/tsq` 的注解说明必须同步。
   `[门禁: skill-check dsl]`
-- 改注解格式还要改 `internal/parser/format.go`（`tsq fmt` 的规范化）和
-  `tableinfo.go` 的 `commentLocator`（错误行号映射）。**报错指错行比不报行号更浪费时间。**
+- **新增或改名一个指令，`tsq migrate` 也要跟着改**（`internal/parser/migrate.go`）：它是 v4 注解
+  进入新语法的唯一通道，落后一步就意味着迁移出来的代码生成不出对应的东西。
+- **不要把指令写成跨行的形态。** 一行一个关注点是这套语法唯一的好处来源：gofmt 不碰它，错误可以
+  直接引用那一行，于是既不需要格式化器也不需要把偏移量映射回行号。
 - 改索引名推导（`normalizeIndexNames`）会让使用者已经建好的索引对不上。这是 schema 层面
   的破坏性变更，按破坏性变更处理。
 - `make examples` 重新生成，`./bin/examples/full-suite` 跑一遍。`[门禁: gen-check]`
+- 改完之后确认 `examples/academy/*.tsq.go` 的 diff 为空：指令和旧 DSL 表达同一件事时，生成物应当
+  逐字节相同。那是语义等价最直接的证据。
 
 ## 改了模板（`internal/cmd/*.go.tmpl`）
 

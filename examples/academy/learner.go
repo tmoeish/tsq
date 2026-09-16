@@ -1,20 +1,12 @@
 package academy
 
 // Learner is the student profile shown across reports.
-// @TABLE(
 //
-//	name="learner",
-//	pk="ID",
-//	created_at,
-//	ux=[
-//		{fields=["Email"]},
-//	],
-//	idx=[
-//		{fields=["Company"]},
-//	],
-//	search=["Name", "Email", "Company"],
-//
-// )
+//tsq:table name=learner pk=ID
+//tsq:managed created_at
+//tsq:unique Email
+//tsq:index Company
+//tsq:search Name,Email,Company
 type Learner struct {
 	ImmutableTable
 

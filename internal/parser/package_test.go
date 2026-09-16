@@ -68,11 +68,8 @@ import "example.invalid/missingpkg/v2"
 func TestParseTableInfoAttachesCommentLineToDSLFieldErrors(t *testing.T) {
 	src := `package p
 
-// @TABLE(
-//   ux=[
-//     {fields=["Name"]},
-//   ],
-// )
+//tsq:table
+//tsq:unique Name
 type User struct {
 // ignored
 	ID int64
@@ -87,26 +84,25 @@ type User struct {
 
 	_, err = ParseTableInfo("User", file.Comments, map[string]struct{}{"ID": {}}, fset)
 	if err == nil {
-		t.Fatal("expected ParseTableInfo to fail for unknown DSL field")
+		t.Fatal("expected ParseTableInfo to fail for an unknown Go field")
 	}
 
-	if got := err.Error(); !strings.Contains(got, "test.go:5") {
-		t.Fatalf("expected DSL error to include source line, got %q", got)
+	// The error must point at the directive that named the missing field, not at
+	// the struct or the first line of the comment block.
+	if got := err.Error(); !strings.Contains(got, "test.go:4") {
+		t.Fatalf("expected the error to name the offending directive line, got %q", got)
 	}
 }
 
-func TestParseTableInfoAttachesSyntaxErrorToLaterDSLLine(t *testing.T) {
+func TestParseTableInfoReportsTheOffendingDirective(t *testing.T) {
 	src := `package p
 
-// @TABLE(
-//   name="users",
-//   ux=[
-//     {fields=["Name"]},
-//   ],
-//   search={"Name", "Description"},
-// )
+//tsq:table name=users
+//tsq:unique Name
+//tsq:index
 type User struct {
-	ID int64
+	ID   int64
+	Name string
 }
 `
 
@@ -116,13 +112,18 @@ type User struct {
 		t.Fatalf("ParseFile() error = %v", err)
 	}
 
-	_, err = ParseTableInfo("User", file.Comments, map[string]struct{}{"ID": {}, "Name": {}, "Description": {}}, fset)
+	_, err = ParseTableInfo("User", file.Comments, map[string]struct{}{"ID": {}, "Name": {}}, fset)
 	if err == nil {
-		t.Fatal("expected ParseTableInfo to fail for malformed search object")
+		t.Fatal("expected an index directive with no fields to fail")
 	}
 
-	if got := err.Error(); !strings.Contains(got, "test.go:8") {
-		t.Fatalf("expected syntax error to include later DSL source line, got %q", got)
+	// A directive error quotes the line it came from, which is why the parser no
+	// longer maps byte offsets back to source lines.
+	got := err.Error()
+	for _, want := range []string{"//tsq:index", "needs at least one Go field name"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("expected the error to mention %q, got %q", want, got)
+		}
 	}
 }
 

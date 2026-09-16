@@ -3,17 +3,11 @@ package academy
 import "encoding/json"
 
 // Track groups courses into a learning path.
-// @TABLE(
 //
-//	name="track",
-//	pk="ID",
-//	created_at,
-//	ux=[
-//		{fields=["Name"]},
-//	],
-//	search=["Name", "Description"],
-//
-// )
+//tsq:table name=track pk=ID
+//tsq:managed created_at
+//tsq:unique Name
+//tsq:search Name,Description
 type Track struct {
 	ImmutableTable
 

@@ -181,8 +181,8 @@ Use the /tsq skill to add TSQ to this Go service.
 Tasks that should activate the skill include:
 
 - adding TSQ to a Go project;
-- adding `@TABLE` or `@RESULT` annotations to structs;
-- running `tsq fmt` or `tsq gen`;
+- adding `//tsq:table` or `//tsq:result` directives to structs;
+- running `tsq gen`;
 - initializing `tsq.Runtime`;
 - writing Build-based queries;
 - using CRUD, pagination, or search helpers; and
@@ -277,12 +277,12 @@ Their behavior is:
 For a table with a unique index, prefer `int64` or `uint64` tombstone semantics for `deleted_at`
 over nullable time semantics.
 
-### 4. `@RESULT` is different from `@TABLE`
+### 4. `//tsq:result` is different from `//tsq:table`
 
-Normally, `@RESULT` should use only:
+Normally, a result struct declares only:
 
-- `name`
-- `search`
+- `//tsq:result [name=X]`
+- `//tsq:search Fields`
 
 Declare projection sources using field tags:
 
@@ -290,14 +290,12 @@ Declare projection sources using field tags:
 tsq:"Struct.Field"
 ```
 
-The following table-only keys should not be used as part of a normal `@RESULT` design:
+The table-only directives are rejected on a result:
 
-- `pk`
-- `version`
-- `created_at`
-- `updated_at`
-- `deleted_at`
-- `ux`
+- `pk` and `assigned` on the declaration line
+- `//tsq:managed`
+- `//tsq:unique`
+- `//tsq:index`
 - `idx`
 
 Agents should treat them as unsupported or no-op in normal result-model usage and must not depend
@@ -328,8 +326,7 @@ In other words:
 
 The skill does not provide scripts that wrap:
 
-- TSQ CLI installation or upgrades;
-- `tsq fmt`; or
+- TSQ CLI installation or upgrades; or
 - `tsq gen`.
 
 This is intentional. Those operations depend on the target project's module layout and package
@@ -340,7 +337,6 @@ The agent should inspect the target project's package structure and then run exp
 
 ```bash
 go install github.com/tmoeish/tsq/v4/cmd/tsq@latest
-tsq fmt ./your/package
 tsq gen ./your/package
 ```
 

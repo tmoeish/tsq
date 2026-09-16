@@ -509,24 +509,7 @@ func parseDSL(
 	commentGroup []*ast.CommentGroup,
 	structFields map[string]struct{},
 ) (*genmodel.TableMeta, error) {
-	for _, comments := range commentGroup {
-		// Join the comment group, stripping each line's comment marker.
-		var lines []string
-		for _, comment := range comments.List {
-			lines = append(lines, CleanCommentPrefix(comment.Text))
-		}
-
-		text := strings.Join(lines, "\n")
-		text = strings.TrimSpace(text)
-
-		if _, ok := findAnnotationKeyword(text, "@TABLE"); ok {
-			return parseTableDSL(structName, text, structFields)
-		} else if _, ok := findAnnotationKeyword(text, "@RESULT"); ok {
-			return parseResultDSL(structName, text, structFields)
-		}
-	}
-
-	return nil, nil
+	return ParseDirectives(structName, commentGroup, structFields)
 }
 
 // parseTableDSL parses a @TABLE DSL into meta.

@@ -43,8 +43,8 @@ TSQ（Type-Safe Query）会把带注解的 Go 结构体生成为**表元数据�
 
 | 问题 | 最短答案 |
 | --- | --- |
-| **最小要写什么？** | 一个带 `@TABLE` 注解的 Go struct。 |
-| **生成后得到什么？** | 每个表生成一个 `*.tsq.go`；每个 `@RESULT` 生成一个 `*.result.tsq.go`。 |
+| **最小要写什么？** | 一个带 `//tsq:table` 指令的 Go struct。 |
+| **生成后得到什么？** | 每个表生成一个 `*.tsq.go`；每个 `//tsq:result` 生成一个 `*.result.tsq.go`。 |
 | **怎么跑第一条查询？** | `tsq gen ./db` → `runtime, err := tsq.NewRuntime("sqlite", dsn, database.TSQTables())` → `query, err := tsq.Select(...).From(table).Where(...).Build()` → `query.List(ctx, runtime, ...)`。 |
 
 ## 安装
@@ -80,9 +80,8 @@ gh skill install tmoeish/tsq tsq --agent github-copilot --scope user
 ```go
 package database
 
-// @TABLE(
-//   search=["Name","Email"]
-// )
+//tsq:table
+//tsq:search Name,Email
 type User struct {
 	ID    int64  `db:"id" json:"id"`
 	Name  string `db:"name" json:"name"`
@@ -93,7 +92,6 @@ type User struct {
 ### 2. 生成代码
 
 ```bash
-tsq fmt ./database
 tsq gen ./database
 ```
 
@@ -107,7 +105,7 @@ tsq gen ./database
 
 - `database/user.tsq.go`：`User` 表的列、CRUD、分页和查询助手
 - `database/runtime.tsq.go`：当前包全部表的 `TSQTables()` metadata 入口
-- `database/*.result.tsq.go`：只在你声明 `@RESULT` 时生成
+- `database/*.result.tsq.go`：只在你声明 `//tsq:result` 时生成
 - `database/sqlite.sql` / `database/mysql.sql` / `database/postgres.sql`：每种内置方言的 schema 文件；首次生成写入初始建表语句，后续变更会按时间顺序追加带日期注释的增量 DDL
 - `database/tsq.json`：最新 schema snapshot、初始 schema 文件内容与增量历史记录，用于后续 `tsq gen` 对账
 
@@ -214,7 +212,7 @@ TSQ 当前内置的 `Dialect` 实现只有 **SQLite / MySQL / PostgreSQL**。下
 | --- | --- | --- | --- | --- |
 | 生成 CRUD / 分页助手 | ✅ | ✅ | ✅ | 生成层支持一致 |
 | 类型安全列与链式查询 | ✅ | ✅ | ✅ | `tsq.Select(...).From(table).Where(...).Build()` |
-| `@RESULT` 结果映射 | ✅ | ✅ | ✅ | 生成 `*.result.tsq.go` |
+| `//tsq:result` 结果映射 | ✅ | ✅ | ✅ | 生成 `*.result.tsq.go` |
 | 自动乐观锁（`version`） | ✅ | ✅ | ✅ | `Update/Delete` 在执行时按 `ManagedColumns().Version` 做版本校验 |
 | 按条件批量 `UPDATE` / `DELETE`（`tsq.UpdateTable` / `tsq.DeleteFrom`） | ✅ | ✅ | ✅ | 不校验 `version` 但会自增它；只引用目标表，不支持 JOIN / `LIMIT` / `RETURNING` |
 | `InVar()` / `NInVar()` 动态集合过滤 | ✅ | ✅ | ✅ | 执行时展开参数 |
@@ -471,7 +469,7 @@ summary, err := runtime.WithTxResult(ctx, opts, func(ctx context.Context, tx tsq
 
 - 生成前后的模型/注解是否一致
 - 生成代码是否已重新运行
-- 当前查询涉及的列、索引、`@RESULT` 投影是否仍然合法
+- 当前查询涉及的列、索引、`//tsq:result` 投影是否仍然合法
 
 ### 子查询边界要显式遵守
 

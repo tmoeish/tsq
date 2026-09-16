@@ -6,10 +6,8 @@
 Go 源文件
   │  go/ast 解析、注解定位              internal/parser/tableinfo.go
   ▼
-注解正文（@TABLE(...) / @RESULT(...) 里的那段 DSL 文本）
-  │  词法 + 语法分析                     internal/parser/dsl.go
-  ▼
-DSL AST（DSLObject / DSLArray / DSLString / DSLBool / DSLNumber）
+`//tsq:` 指令行
+  │  逐行解析                           internal/parser/directive.go
   │  语义解析、字段解析、排序            internal/parser/{struct,field,package}.go
   ▼
 genmodel.StructInfo / TableMeta        internal/genmodel/model.go
@@ -22,8 +20,9 @@ genmodel.StructInfo / TableMeta        internal/genmodel/model.go
 
 ## 两个 CLI 子命令
 
-- `tsq fmt <package>`（`internal/cmd/fmt.go`）：规范化注解本身的排版。
-  **先 fmt 再 gen**——反过来的话，fmt 改动了注解文本，生成物立刻就过期了。
+- `tsq migrate <package>`（`internal/cmd/migrate.go`）：把 v4 的 `@TABLE(...)` 注解一次性改写成
+  `//tsq:` 指令。它是**唯一**还在读旧 DSL 的地方，`internal/parser/dsl.go` 因此保留——那个
+  词法/语法分析器没有别的消费者了，删它之前先确认迁移期已经过去。
 - `tsq gen <package>`（`internal/cmd/gen.go`）：生成全部产物。
   - `--dry-run`：在内存里渲染，打印哪些文件会变，不落盘。
   - `--check`：在内存里渲染，与磁盘比对，不一致就非零退出。**`make gen-check` 用的就是
@@ -31,32 +30,36 @@ genmodel.StructInfo / TableMeta        internal/genmodel/model.go
   - `--tpl` / `--resulttpl`：覆盖默认模板。
   - `-v`：打印每个生成文件路径。
 
-## 注解 DSL
+## 注解：`//tsq:` 指令
 
-`@TABLE` 接受的键（`internal/parser/dsl.go` 的 `parseTableDSL`）：
+一行一个关注点，`//go:` 那种形态。gofmt 不碰这类指令行——**这就是它取代旧 DSL 的原因**：旧的
+`@TABLE(...)` 写在 doc comment 里，gofmt 会重排缩进，于是生成器不得不自带一个 `tsq fmt` 去把它
+排回解析器要的样子。
 
-| 键 | 含义 |
+`internal/parser/directive.go` 认得这些：
+
+| 指令 | 含义 |
 | --- | --- |
-| `name` | 表名 |
-| `pk` | 主键字段名，默认 `ID` |
-| `version` | 乐观锁字段，默认字段名 `Version` |
-| `created_at` / `updated_at` / `deleted_at` | 受管理的时间字段，默认字段名 `CreatedAt` / `UpdatedAt` / `DeletedAt` |
-| `ux` | 唯一索引数组，元素是 `{name=..., fields=[...]}` |
-| `idx` | 普通索引数组，同上 |
-| `search` | 参与关键字搜索的字段列表 |
+| `//tsq:table [name=X] [pk=Field] [assigned]` | 声明物理表，每个表结构体一次 |
+| `//tsq:result [name=X]` | 声明投影结构体，每个 result 一次 |
+| `//tsq:managed role[=Field] ...` | `version` / `created_at` / `updated_at` / `deleted_at` |
+| `//tsq:unique 字段[,字段] [name=X]` | 唯一索引，可重复 |
+| `//tsq:index 字段[,字段] [name=X]` | 普通索引，可重复 |
+| `//tsq:search 字段[,字段]` | 参与关键字搜索的字段 |
 
-裸键（`created_at` 不带 `=`）表示"用默认字段名"；带 `=` 表示指定字段名。索引没写 `name`
-时由 `normalizeIndexNames` 按 `ux`/`idx` 前缀加表名推出来——**索引名是生成物的一部分，
-改这个推导规则会让使用者已经建好的索引对不上**。
+- 所有字段名都是 **Go 字段名**，不是 SQL 列名。
+- `pk` 默认 `ID` 且自增；`assigned` 关掉自增（调用方自己给值）。
+- 索引没写 `name=` 时由 `normalizeIndexNames` 按 `ux`/`idx` 前缀加表名推出来——**索引名是生成物的
+  一部分，改这个推导规则会让使用者已经建好的索引对不上**。
 
-`@RESULT` 走 `parseResultDSL`，产出投影结构体的列元数据。
-
-DSL 是使用者手写的，所以**解析器接受或拒绝什么，就是使用者能写什么**。改这里必须同步
+指令是使用者手写的，所以**解析器接受或拒绝什么，就是使用者能写什么**。改这里必须同步
 `skills/tsq`——`make skill-check` 的 `dsl` 触发器盯着这一条。
 
 ## 错误定位
 
-`internal/parser/tableinfo.go` 里的 `commentLocator` 把 DSL 解析错误映射回源文件的行号。
+`internal/parser/tableinfo.go` 里的 `commentLocator` 把解析错误映射回源文件的行号（它靠在注释里
+查找出错的标识符定位，所以对指令同样有效）。指令自身的错误还会带上出错的那一行原文——一行一个
+关注点之后，"哪一行"这件事不再需要算。
 注解写在注释里，`go/ast` 只给到注释组的位置，所以这层是自己算的。改注解格式（比如允许
 块注释、允许缩进）必须同时更新定位逻辑，否则报错会指到错的行——**报错指错行比不报行号
 更浪费时间**。
@@ -72,7 +75,7 @@ DSL 是使用者手写的，所以**解析器接受或拒绝什么，就是使�
 - `validateGeneratedFilenameCollisions`：两个结构体不会生成到同一个文件。
 - `validateIndexNameCollisions`：索引名在包内唯一。
 - `validateGeneratedSymbolCollisions`：生成的标识符不会互相覆盖。
-- `validateResultFields` / `isScanCompatible`：`@RESULT` 的字段能从来源列 scan 出来。
+- `validateResultFields` / `isScanCompatible`：`//tsq:result` 的字段能从来源列 scan 出来。
 
 ## DDL 推导
 
