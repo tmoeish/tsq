@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/tmoeish/tsq/v4/internal/genmodel"
+	"github.com/tmoeish/tsq/v5/internal/genmodel"
 )
 
 // parseNamedFields parses the named (non-embedded) fields of a struct.

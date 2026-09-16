@@ -10,7 +10,7 @@
 
 [![GitHub release (latest by date)][1]][2]
 [![Build Status][3]](https://github.com/tmoeish/tsq/actions)
-[![Go Reference](https://pkg.go.dev/badge/github.com/tmoeish/tsq/v4.svg)](https://pkg.go.dev/github.com/tmoeish/tsq/v4)
+[![Go Reference](https://pkg.go.dev/badge/github.com/tmoeish/tsq/v5.svg)](https://pkg.go.dev/github.com/tmoeish/tsq/v5)
 [![Go Report Card][4]][5]
 [![License: MIT][6]][7]
 
@@ -50,7 +50,7 @@ TSQ（Type-Safe Query）会把带注解的 Go 结构体生成为**表元数据�
 ## 安装
 
 ```bash
-go install github.com/tmoeish/tsq/v4/cmd/tsq@latest
+go install github.com/tmoeish/tsq/v5/cmd/tsq@latest
 ```
 
 TSQ 本身不附带数据库 driver；你的应用只需要安装自己实际使用的那个 driver。下面的 quickstart 默认用 `modernc.org/sqlite`，是因为它不依赖 CGO，最适合零配置上手。
@@ -130,7 +130,7 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"github.com/tmoeish/tsq/v4"
+	"github.com/tmoeish/tsq/v5"
 	"github.com/your/module/database"
 )
 
@@ -202,7 +202,7 @@ func main() {
 | [`docs/skill.md`](docs/skill.md) | 想把 TSQ 作为一个 agent skill 安装到 Copilot / Claude Code / Gemini CLI |
 | [`examples/README.md`](examples/README.md) | 想按 quickstart / cookbook / full-suite 找示例 |
 | [`BEST_PRACTICES.md`](BEST_PRACTICES.md) | 想看输入校验、分页、事务、排序和生产环境建议 |
-| [`MIGRATION_GUIDE.md`](MIGRATION_GUIDE.md) | 从旧 API 迁移到当前 Build-based API |
+| [`MIGRATION_GUIDE.md`](MIGRATION_GUIDE.md) | 从 v4 升到 v5：改了什么、哪些有工具、哪些要人读 |
 
 ## 能力矩阵（内置 Dialect）
 

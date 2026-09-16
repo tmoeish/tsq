@@ -1,7 +1,7 @@
 package tsq
 
 import (
-	tsqdialect "github.com/tmoeish/tsq/v4/dialect"
+	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 )
 
 // SQLExecutor is the shared query execution surface implemented by

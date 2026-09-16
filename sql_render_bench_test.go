@@ -3,7 +3,7 @@ package tsq
 import (
 	"testing"
 
-	tsqdialect "github.com/tmoeish/tsq/v4/dialect"
+	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 )
 
 // BenchmarkRenderCanonicalSQL measures the performance of converting raw SQL with markers to canonical form

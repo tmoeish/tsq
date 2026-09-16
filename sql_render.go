@@ -4,7 +4,7 @@ import (
 	"encoding/base64"
 	"strings"
 
-	tsqdialect "github.com/tmoeish/tsq/v4/dialect"
+	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 )
 
 const (

@@ -11,6 +11,9 @@
 
 ### 破坏性变更
 
+- **模块路径改为 `github.com/tmoeish/tsq/v5`**: Go 的语义化导入版本要求 v2+ 把 `/vN` 写进模块路径。使用者 `go get github.com/tmoeish/tsq/v5@latest`，CLI `go install github.com/tmoeish/tsq/v5/cmd/tsq@latest`。v4 和 v5 因此可以在同一个构建里共存，一个包一个包地迁移是可行的。
+- **`MIGRATION_GUIDE.md` 重写为 v4 → v5**: 按"你要动多少手"排序，注明哪些有工具（`tsq migrate`、重新生成）、哪些编译器能帮你、哪些**只能靠人读**（删除语义那条编译器不会报错，只会改变行为）。
+
 - **注解语法换成 `//tsq:` 指令行**: `@TABLE(...)` / `@RESULT(...)` 那套括号 DSL 没有了，改成 `//go:` 那种形态的指令，一行一个关注点：
 
   ```go

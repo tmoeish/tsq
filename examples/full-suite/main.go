@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/tmoeish/tsq/v4/examples/academy"
+	"github.com/tmoeish/tsq/v5/examples/academy"
 )
 
 // full-suite prints the entire teaching path and ends with the comprehensive

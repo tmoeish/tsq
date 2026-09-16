@@ -4,7 +4,7 @@ package academy
 import (
 	tsqtime "time"
 
-	"github.com/tmoeish/tsq/v4"
+	"github.com/tmoeish/tsq/v5"
 )
 
 // =============================================================================

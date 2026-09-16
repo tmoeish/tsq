@@ -137,7 +137,7 @@ GOTOOLCHAIN=local go install github.com/goreleaser/goreleaser/v2@<版本>
 ```
 
 发布产物的版本信息由 `.goreleaser.yaml` 的 ldflags 注入进
-`github.com/tmoeish/tsq/v4/internal/buildinfo`。**改那几行的时候必须真的构建一次来验证**：
+`github.com/tmoeish/tsq/v5/internal/buildinfo`。**改那几行的时候必须真的构建一次来验证**：
 `-X` 打错包路径时链接器不报错、直接忽略，`goreleaser check` 也只校验 YAML 结构——这个 bug
 在仓库里活了很久，谁都没看见。
 
@@ -154,7 +154,7 @@ goreleaser build --snapshot --clean --single-target
 
 Go 的语义化导入版本要求：
 
-1. `go.mod` 的 `module github.com/tmoeish/tsq/v4` 改成 `/v5`。
+1. `go.mod` 的 `module github.com/tmoeish/tsq/v5` 改成 `/v5`。
 2. 仓库内所有 import 路径跟着改。
 3. `README.md`、`docs/`、`skills/tsq`、`CHANGELOG.md` 的迁移说明全部更新。
 4. 然后才打 `v5.0.0`。

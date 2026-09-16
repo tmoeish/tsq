@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tmoeish/tsq/v4/internal/genmodel"
+	"github.com/tmoeish/tsq/v5/internal/genmodel"
 )
 
 func TestTokenize(t *testing.T) {

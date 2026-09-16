@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 
-	tsqdialect "github.com/tmoeish/tsq/v4/dialect"
+	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 )
 
 func resolveSchemaPolicy(policy SchemaPolicy) SchemaPolicy {

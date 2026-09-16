@@ -11,7 +11,7 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/tmoeish/tsq/v4/internal/genmodel"
+	"github.com/tmoeish/tsq/v5/internal/genmodel"
 )
 
 func TestGenArgsRejectsMissingOrExtraPackagePaths(t *testing.T) {
@@ -1916,8 +1916,8 @@ func genTestModuleFile(t *testing.T) string {
 
 	return "module example.com/gentest\n\n" +
 		"go 1.24.2\n\n" +
-		"require github.com/tmoeish/tsq/v4 v4.0.2\n\n" +
-		"replace github.com/tmoeish/tsq/v4 => " + wd + "\n"
+		"require github.com/tmoeish/tsq/v5 v5.0.0\n\n" +
+		"replace github.com/tmoeish/tsq/v5 => " + wd + "\n"
 }
 
 func tidyGenTestModule(t *testing.T) {

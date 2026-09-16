@@ -15,7 +15,7 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	tsqdialect "github.com/tmoeish/tsq/v4/dialect"
+	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 )
 
 type batchMutationUser struct {

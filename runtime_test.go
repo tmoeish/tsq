@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	tsqdialect "github.com/tmoeish/tsq/v4/dialect"
+	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 )
 
 // TestValidateRegisteredTableIdentifiersRejectsOversizedNames covers the three

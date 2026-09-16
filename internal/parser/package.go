@@ -17,7 +17,7 @@ import (
 
 	"golang.org/x/tools/go/packages"
 
-	"github.com/tmoeish/tsq/v4/internal/genmodel"
+	"github.com/tmoeish/tsq/v5/internal/genmodel"
 )
 
 // ParseResult is the output of Parse.

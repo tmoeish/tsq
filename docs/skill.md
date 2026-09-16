@@ -1,7 +1,7 @@
 # TSQ Agent Skill
 
 This repository publishes an installable agent skill in addition to the
-`github.com/tmoeish/tsq/v4` Go module:
+`github.com/tmoeish/tsq/v5` Go module:
 
 ```txt
 skills/
@@ -336,7 +336,7 @@ agent to execute it without inspecting the project first.
 The agent should inspect the target project's package structure and then run explicit commands:
 
 ```bash
-go install github.com/tmoeish/tsq/v4/cmd/tsq@latest
+go install github.com/tmoeish/tsq/v5/cmd/tsq@latest
 tsq gen ./your/package
 ```
 

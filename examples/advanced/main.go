@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/tmoeish/tsq/v4/examples/academy"
+	"github.com/tmoeish/tsq/v5/examples/academy"
 )
 
 // advanced prints the focused feature demos as JSON: each top-level field maps to

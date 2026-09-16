@@ -5,7 +5,7 @@ license: MIT
 compatibility: Intended for GitHub Copilot, Claude Code, and Gemini CLI in Go repositories where the agent can inspect files and optionally run Go or tsq commands.
 metadata:
   source-repository: github.com/tmoeish/tsq
-  module: github.com/tmoeish/tsq/v4
+  module: github.com/tmoeish/tsq/v5
 ---
 
 # TSQ skill

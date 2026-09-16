@@ -4,7 +4,7 @@ description: 开发 TSQ 仓库本身时加载：查询构建器、代码生成�
 license: MIT
 metadata:
   repository: github.com/tmoeish/tsq
-  module: github.com/tmoeish/tsq/v4
+  module: github.com/tmoeish/tsq/v5
 ---
 
 # tsq-dev

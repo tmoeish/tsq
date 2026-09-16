@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sort"
 
-	tsqdialect "github.com/tmoeish/tsq/v4/dialect"
+	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 )
 
 type registeredTable struct {

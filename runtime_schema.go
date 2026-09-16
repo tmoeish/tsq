@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	tsqdialect "github.com/tmoeish/tsq/v4/dialect"
+	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 )
 
 type tableColumnChange struct {

@@ -10,8 +10,8 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"github.com/tmoeish/tsq/v4"
-	tsqdialect "github.com/tmoeish/tsq/v4/dialect"
+	"github.com/tmoeish/tsq/v5"
+	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 )
 
 //go:embed mock.sql

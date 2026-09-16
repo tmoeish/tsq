@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/tmoeish/tsq/v4"
+	"github.com/tmoeish/tsq/v5"
 )
 
 // QuickstartSummary captures the three introductory Academy demo outcomes.

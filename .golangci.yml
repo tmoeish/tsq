@@ -98,7 +98,7 @@ formatters:
       no-inline-comments: true
       no-prefix-comments: true
     gofumpt:
-      module-path: github.com/tmoeish/tsq/v4
+      module-path: github.com/tmoeish/tsq/v5
       extra:
         group-params: true
   exclusions:

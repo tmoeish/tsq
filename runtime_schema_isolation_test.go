@@ -8,7 +8,7 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	tsqdialect "github.com/tmoeish/tsq/v4/dialect"
+	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 )
 
 // ownedTable is a minimal generated-shaped table whose physical name is chosen per

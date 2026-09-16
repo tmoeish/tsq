@@ -35,7 +35,7 @@
   类型化代码和 DDL。
 - **示例**：`./examples`，可运行的契约；`examples/academy` 的生成物被提交。
 
-环境：Go `1.27.x`（`go.mod` 写 `go 1.27.0`，CI 用 `1.27.0`），模块 `github.com/tmoeish/tsq/v4`，
+环境：Go `1.27.x`（`go.mod` 写 `go 1.27.0`，CI 用 `1.27.0`），模块 `github.com/tmoeish/tsq/v5`，
 任务运行器 `make`，本地 lint 二进制 `./bin/golangci-lint`。
 
 ## 分层

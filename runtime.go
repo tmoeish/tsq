@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"sync"
 
-	tsqdialect "github.com/tmoeish/tsq/v4/dialect"
+	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 )
 
 // Runtime owns the initialized TSQ process state used for execution, index setup,

@@ -5,7 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/tmoeish/tsq/v4/internal/parser"
+	"github.com/tmoeish/tsq/v5/internal/parser"
 )
 
 // MigrateCmd rewrites legacy @TABLE / @RESULT annotations as //tsq: directives.

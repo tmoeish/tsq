@@ -2,7 +2,7 @@
 # 它变了就说明使用者读的 skills/tsq 可能不再真实。
 
 ## .
-package tsq // import "github.com/tmoeish/tsq/v4"
+package tsq // import "github.com/tmoeish/tsq/v5"
 CONSTANTS
 const DefaultMaxPageSize = 1000
 const MaxPageNumber = 1000000
@@ -595,7 +595,7 @@ type WhereStage[O Owner] interface {
 }
 
 ## ./dialect
-package dialect // import "github.com/tmoeish/tsq/v4/dialect"
+package dialect // import "github.com/tmoeish/tsq/v5/dialect"
 FUNCTIONS
 func DDLColumnTypesEquivalent(dialect Dialect, left, right DDLColumnSpec) bool
 func MaxBindParams(dialect Dialect) int

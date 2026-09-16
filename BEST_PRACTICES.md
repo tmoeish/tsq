@@ -259,7 +259,7 @@ affected, err := tsq.
 - `Where(...)` 必需。真要全表操作，写显式的 `tsq.And()`，让意图留在代码里。
 - 它是单条语句，不分块；`InVar` 传超大切片会撞方言的参数上限，那种场景用 `tsq.ChunkedDeleteByPKs` 或自己切片。
 
-## 4. Field pointer 和 `Into(...)`
+## 4. Field pointer 和 `MapInto(...)`
 
 ### 4.1 field pointer 要能安全处理 nil / 错误类型
 
@@ -272,12 +272,13 @@ fp := func(u *User) *int64 {
 }
 ```
 
-### 4.2 用 `tsq.Into(...)` 做结果映射，而不是重复造列
+### 4.2 用 `tsq.MapInto(...)` 做结果映射，而不是重复造列
 
-使用泛型 `tsq.Into[Target]` 确保扫描目标在编译期校验。
+它让扫描目标在编译期被校验。（这一节此前教的是一个从来不存在的 `Into` 泛型函数，
+因为这份文档当时不在 `doc-check` 的扫描范围里，所以三个月没人发现。现在它在了。）
 
 ```go
-userName := tsq.Into[UserResult](database.User_Name, func(r *UserResult) *string {
+userName := tsq.MapInto(database.User_Name, func(r *UserResult) *string {
 	return &r.UserName
 }, "user_name")
 ```
