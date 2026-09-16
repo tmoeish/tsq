@@ -176,6 +176,20 @@ join 图校验的全部价值，代价只是多写一次表名。既 `Correlate`
 操作要写显式 `And()`——"静默去掉过滤条件"在写路径同样不允许。`UpdateTable` 至今不碰任何托管
 字段；`DeletedAt` 是例外，理由见下条。
 
+### 两个测试各自编码了相反的意图，代码同时满足它们 (2026-09-16)
+
+`DefaultMaxPageSize` 到底是默认值还是硬顶？`TestRuntimeMaxPageSizeDefaultsAndOverrides` 断言
+`WithMaxPageSize(5000)` 能放行 3000，`TestPageReq_WithLimitAppliesRuntimeCeiling` 断言"没有 runtime
+能抬高绝对上限"。两条都绿——因为 `Validate` 把上限夹到 1000 而 `Normalize` 不夹，于是同一个请求能
+通过一个、被另一个悄悄改小。
+
+**一对互相矛盾的断言可以同时为真，只要实现里有两条路径各满足一条。** 这类分歧不会被测试发现，它
+就藏在测试里。判据：同一个概念的两个入口，要有一个用例把它们放在一起比，而不是各测各的。现在是
+上限 × 尺寸的交叉用例，断言"`Validate` 拒绝的，恰好是 `Normalize` 会夹的"。
+
+定案取名字：`DefaultMaxPageSize` 是**默认**，`WithMaxPageSize(n)` 是这个 runtime 的上限，双向生效。
+把常量当硬顶会让 `WithMaxPageSize(5000)` 变成一句空话——库不该用一个编译期常量去否决调用方明确的选择。
+
 ### 决定：Runtime 用函数式选项，并且不关别人的连接池 (2026-09-16，v5)
 
 `options ...*RuntimeOptions` 让"没传选项"和"传了一个选项值"是同一个签名，字段零值又兼任"没设置"。

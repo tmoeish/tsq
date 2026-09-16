@@ -11,13 +11,37 @@ const maxTracers = 100
 
 // Tracer wraps a function call with tracing behavior.
 // Configure tracers via RuntimeOptions.Tracers when constructing a Runtime.
-type Tracer func(next func(ctx context.Context) error) func(ctx context.Context) error
+// TraceOp names the kind of work a traced call performs.
+type TraceOp string
+
+// The operations TSQ traces. They match the labels the SQL log uses.
+const (
+	TraceOpInsert TraceOp = "insert"
+	TraceOpUpdate TraceOp = "update"
+	TraceOpDelete TraceOp = "delete"
+	TraceOpGet    TraceOp = "get"
+	TraceOpList   TraceOp = "list"
+	TraceOpPage   TraceOp = "page"
+	TraceOpCount  TraceOp = "count"
+	TraceOpScalar TraceOp = "scalar"
+	TraceOpExec   TraceOp = "exec"
+	TraceOpTx     TraceOp = "tx"
+)
+
+// Tracer wraps one traced operation. Call next to run it, and return its error.
+//
+// op says what is being run, which is what makes a tracer useful: the previous
+// signature passed only the continuation, so a tracer could time a call without
+// being able to say what it had timed. The rendered SQL is not available here
+// because tracing brackets the whole operation, including argument binding and
+// dialect rendering; RuntimeOption WithSQLLogging reports statements instead.
+type Tracer func(ctx context.Context, op TraceOp, next func(ctx context.Context) error) error
 
 type traceProvider interface {
 	tsqRuntime() *Runtime
 }
 
-func (r *Runtime) trace(ctx context.Context, fn func(ctx context.Context) error) error {
+func (r *Runtime) trace(ctx context.Context, op TraceOp, fn func(ctx context.Context) error) error {
 	if fn == nil {
 		return errors.New("trace function cannot be nil")
 	}
@@ -28,14 +52,18 @@ func (r *Runtime) trace(ctx context.Context, fn func(ctx context.Context) error)
 
 	wrappedFn := fn
 
-	for _, v := range slices.Backward(r.tracers) {
-		wrappedFn = v(wrappedFn)
+	for _, tracer := range slices.Backward(r.tracers) {
+		next := wrappedFn
+
+		wrappedFn = func(ctx context.Context) error {
+			return tracer(ctx, op, next)
+		}
 	}
 
 	return wrappedFn(ctx)
 }
 
-func (r *Runtime) trace1[T any](ctx context.Context, fn func(ctx context.Context) (T, error)) (T, error) {
+func (r *Runtime) trace1[T any](ctx context.Context, op TraceOp, fn func(ctx context.Context) (T, error)) (T, error) {
 	if r == nil {
 		var zero T
 		return zero, errors.New("runtime cannot be nil")
@@ -64,16 +92,20 @@ func (r *Runtime) trace1[T any](ctx context.Context, fn func(ctx context.Context
 		return nil
 	}
 
-	for _, v := range slices.Backward(r.tracers) {
-		wrappedFn = v(wrappedFn)
+	for _, tracer := range slices.Backward(r.tracers) {
+		next := wrappedFn
+
+		wrappedFn = func(ctx context.Context) error {
+			return tracer(ctx, op, next)
+		}
 	}
 
 	return result, wrappedFn(ctx)
 }
 
-func traceExecutor(ctx context.Context, exec SQLExecutor, fn func(ctx context.Context) error) error {
+func traceExecutor(ctx context.Context, exec SQLExecutor, op TraceOp, fn func(ctx context.Context) error) error {
 	if provider, ok := exec.(traceProvider); ok && provider.tsqRuntime() != nil {
-		return provider.tsqRuntime().trace(ctx, fn)
+		return provider.tsqRuntime().trace(ctx, op, fn)
 	}
 
 	if fn == nil {
@@ -87,9 +119,9 @@ func traceExecutor(ctx context.Context, exec SQLExecutor, fn func(ctx context.Co
 	return fn(ctx)
 }
 
-func traceExecutor1[T any](ctx context.Context, exec SQLExecutor, fn func(ctx context.Context) (T, error)) (T, error) {
+func traceExecutor1[T any](ctx context.Context, exec SQLExecutor, op TraceOp, fn func(ctx context.Context) (T, error)) (T, error) {
 	if provider, ok := exec.(traceProvider); ok && provider.tsqRuntime() != nil {
-		return provider.tsqRuntime().trace1(ctx, fn)
+		return provider.tsqRuntime().trace1(ctx, op, fn)
 	}
 
 	if fn == nil {

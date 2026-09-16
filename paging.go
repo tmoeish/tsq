@@ -3,8 +3,6 @@ package tsq
 import (
 	"errors"
 	"fmt"
-	"net/url"
-	"strconv"
 )
 
 // defaultPageSize is the default number of rows returned per page.
@@ -21,71 +19,6 @@ type PageRequest struct {
 	OrderBy string `json:"order_by" query:"order_by"` // OrderBy lists sortable field names separated by commas.
 	Order   string `json:"order"    query:"order"`    // Order lists sort directions aligned with OrderBy.
 	Keyword string `json:"keyword"  query:"keyword"`  // Keyword carries the optional free-text search term.
-}
-
-// NewPageRequest creates *PageRequest from query parameters(e.g. page=1&size=20&order_by=id&order=DESC).
-func NewPageRequest(params url.Values) *PageRequest {
-	page := &PageRequest{
-		Page:    1,
-		Size:    defaultPageSize,
-		Order:   "",
-		OrderBy: "",
-		Keyword: "",
-	}
-
-	if params == nil {
-		return page
-	}
-
-	if pageStr := params.Get("page"); pageStr != "" {
-		if n, err := strconv.ParseInt(pageStr, 10, 64); err == nil && n > 0 {
-			page.Page = int(n)
-		}
-	}
-
-	if sizeStr := params.Get("size"); sizeStr != "" {
-		if n, err := strconv.ParseInt(sizeStr, 10, 64); err == nil && n > 0 {
-			page.Size = min(int(n), DefaultMaxPageSize)
-		}
-	}
-
-	if page.Page > MaxPageNumber {
-		page.Page = MaxPageNumber
-	}
-
-	page.OrderBy = params.Get("order_by")
-	if page.OrderBy == "" {
-		page.OrderBy = params.Get("sort")
-	}
-
-	page.Order = params.Get("order")
-
-	page.Keyword = params.Get("keyword")
-
-	return page
-}
-
-// ToQuery serializes the request back into URL query parameters.
-func (r *PageRequest) ToQuery() url.Values {
-	r = normalizePageReq(r)
-
-	v := url.Values{}
-	v.Set("size", strconv.Itoa(r.Size))
-	v.Set("page", strconv.Itoa(r.Page))
-
-	if r.OrderBy != "" {
-		v.Set("order_by", r.OrderBy)
-	}
-
-	if r.Order != "" {
-		v.Set("order", r.Order)
-	}
-
-	if r.Keyword != "" {
-		v.Set("keyword", r.Keyword)
-	}
-
-	return v
 }
 
 // Offset calculates the offset for the SQL LIMIT clause.
@@ -120,9 +53,7 @@ func (r *PageRequest) NormalizeWithLimit(maxSize int) error {
 		return nil
 	}
 
-	if maxSize <= 0 {
-		maxSize = DefaultMaxPageSize
-	}
+	maxSize = boundPageSize(maxSize)
 
 	if r.Page <= 0 {
 		r.Page = 1
@@ -161,9 +92,7 @@ func (r *PageRequest) ValidateWithLimit(maxSize int) error {
 		return nil
 	}
 
-	if maxSize <= 0 || maxSize > DefaultMaxPageSize {
-		maxSize = DefaultMaxPageSize
-	}
+	maxSize = boundPageSize(maxSize)
 
 	if r.Page <= 0 {
 		return fmt.Errorf("page must be greater than 0, got %d", r.Page)
@@ -250,4 +179,23 @@ func (r *PageResponse[T]) IsEmpty() bool {
 	}
 
 	return len(r.Data) == 0
+}
+
+// boundPageSize resolves a caller-supplied page-size limit.
+//
+// DefaultMaxPageSize is the default, not a ceiling: a runtime built with
+// WithMaxPageSize decides its own cap, in either direction. Treating the
+// constant as an absolute maximum would make WithMaxPageSize(5000) silently do
+// nothing, and the library would be overriding an explicit choice with a
+// compile-time constant.
+//
+// Validate and Normalize must resolve the limit the same way. They did not:
+// Validate clamped the limit to DefaultMaxPageSize and Normalize used it as
+// given, so the same request could pass one and fail the other.
+func boundPageSize(maxSize int) int {
+	if maxSize <= 0 {
+		return DefaultMaxPageSize
+	}
+
+	return maxSize
 }

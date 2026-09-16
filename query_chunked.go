@@ -118,7 +118,7 @@ func ChunkedInsert[T Table](
 	items []T,
 	options ...*ChunkedInsertOptions,
 ) error {
-	return traceExecutor(ctx, tx, func(ctx context.Context) error {
+	return traceExecutor(ctx, tx, TraceOpInsert, func(ctx context.Context) error {
 		return chunkedInsertFn(ctx, tx, items, options...)
 	})
 }
@@ -279,7 +279,7 @@ func ChunkedUpdate[T Table](
 	items []T,
 	options ...*ChunkedOptions,
 ) error {
-	return traceExecutor(ctx, tx, func(ctx context.Context) error {
+	return traceExecutor(ctx, tx, TraceOpUpdate, func(ctx context.Context) error {
 		return chunkedUpdateFn(ctx, tx, items, options...)
 	})
 }
@@ -356,7 +356,7 @@ func ChunkedDelete[T Table](
 	items []T,
 	options ...*ChunkedOptions,
 ) error {
-	return traceExecutor(ctx, tx, func(ctx context.Context) error {
+	return traceExecutor(ctx, tx, TraceOpDelete, func(ctx context.Context) error {
 		if len(items) > 0 && items[0].ManagedColumns().DeletedAt != "" {
 			return chunkedSoftDeleteFn(ctx, tx, items, options...)
 		}
@@ -377,7 +377,7 @@ func ChunkedHardDelete[T Table](
 	items []T,
 	options ...*ChunkedOptions,
 ) error {
-	return traceExecutor(ctx, tx, func(ctx context.Context) error {
+	return traceExecutor(ctx, tx, TraceOpDelete, func(ctx context.Context) error {
 		return chunkedDeleteFn(ctx, tx, items, options...)
 	})
 }
@@ -483,7 +483,7 @@ func ChunkedDeleteByPKs[O Table, T any](
 	pks []T,
 	options ...*ChunkedOptions,
 ) error {
-	return traceExecutor(ctx, tx, func(ctx context.Context) error {
+	return traceExecutor(ctx, tx, TraceOpDelete, func(ctx context.Context) error {
 		var zero O
 		if zero.ManagedColumns().DeletedAt != "" {
 			return chunkedSoftDeleteByPKsFn(ctx, tx, pkField, pks, options...)
@@ -502,7 +502,7 @@ func ChunkedHardDeleteByPKs[O Table, T any](
 	pks []T,
 	options ...*ChunkedOptions,
 ) error {
-	return traceExecutor(ctx, tx, func(ctx context.Context) error {
+	return traceExecutor(ctx, tx, TraceOpDelete, func(ctx context.Context) error {
 		return chunkedDeleteByPKsFn(ctx, tx, pkField, pks, options...)
 	})
 }
@@ -647,7 +647,7 @@ func Insert[T Table](
 	tx SQLExecutor,
 	item T,
 ) error {
-	return traceExecutor(ctx, tx, func(ctx context.Context) error {
+	return traceExecutor(ctx, tx, TraceOpInsert, func(ctx context.Context) error {
 		return insertFn(ctx, tx, item)
 	})
 }
@@ -674,7 +674,7 @@ func Update[T Table](
 	tx SQLExecutor,
 	item T,
 ) error {
-	return traceExecutor(ctx, tx, func(ctx context.Context) error {
+	return traceExecutor(ctx, tx, TraceOpUpdate, func(ctx context.Context) error {
 		return updateFn(ctx, tx, item)
 	})
 }
@@ -713,7 +713,7 @@ func Delete[T Table](
 	tx SQLExecutor,
 	item T,
 ) error {
-	return traceExecutor(ctx, tx, func(ctx context.Context) error {
+	return traceExecutor(ctx, tx, TraceOpDelete, func(ctx context.Context) error {
 		if err := validateMutationItem(item); err != nil {
 			return err
 		}
@@ -742,7 +742,7 @@ func HardDelete[T Table](
 	tx SQLExecutor,
 	item T,
 ) error {
-	return traceExecutor(ctx, tx, func(ctx context.Context) error {
+	return traceExecutor(ctx, tx, TraceOpDelete, func(ctx context.Context) error {
 		return deleteFn(ctx, tx, item)
 	})
 }

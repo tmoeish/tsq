@@ -354,11 +354,11 @@ func TestIntegrationLockConflictsAreRetryable(t *testing.T) {
 				t.Fatal("expected contended row lock to fail")
 			}
 
-			if !tsq.IsRetryableTransactionConflictError(err) {
+			if !tsq.IsTxConflictError(err) {
 				t.Fatalf("expected %T to be classified as a retryable conflict: %v", err, err)
 			}
 
-			if !tsq.IsCommonTransactionRetryableError(err) {
+			if !tsq.IsRetryableTxError(err) {
 				t.Fatalf("expected common retry predicate to accept lock conflict: %v", err)
 			}
 		})

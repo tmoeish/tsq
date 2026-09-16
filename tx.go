@@ -95,8 +95,11 @@ func IsRetryableNetworkError(err error) bool {
 	return errors.As(err, &netErr) && netErr.Timeout()
 }
 
-// IsRetryableTransactionConflictError reports whether err looks like a transient database concurrency failure.
-func IsRetryableTransactionConflictError(err error) bool {
+// IsTxConflictError reports whether err is a deadlock or serialization failure
+// the database has already rolled back, which is the only class TSQ retries
+// after a failed COMMIT: those codes guarantee the transaction is gone, while a
+// network failure at commit time leaves it unknown whether the commit landed.
+func IsTxConflictError(err error) bool {
 	if err == nil {
 		return false
 	}
@@ -112,11 +115,14 @@ func IsRetryableTransactionConflictError(err error) bool {
 	return isSQLiteRetryableTransactionConflict(err)
 }
 
-// IsCommonTransactionRetryableError reports whether err matches any built-in transaction retry helper.
-func IsCommonTransactionRetryableError(err error) bool {
+// IsRetryableTxError reports whether err is any of the conditions TSQ knows how
+// to retry: an optimistic-lock conflict, a retryable network failure, or a
+// transaction conflict. It is the predicate to pass to TxOptions.Retry unless
+// the caller wants a narrower rule.
+func IsRetryableTxError(err error) bool {
 	return IsOptimisticLockError(err) ||
 		IsRetryableNetworkError(err) ||
-		IsRetryableTransactionConflictError(err)
+		IsTxConflictError(err)
 }
 
 type normalizedTxOptions struct {
@@ -222,7 +228,7 @@ func shouldRetryTx(err error, stage txRetryStage, options *normalizedTxOptions, 
 		return false
 	}
 
-	if stage == txRetryStageCommit && !IsRetryableTransactionConflictError(err) {
+	if stage == txRetryStageCommit && !IsTxConflictError(err) {
 		return false
 	}
 
@@ -331,7 +337,7 @@ func (r *Runtime) withTxResult[T any](
 		return zero, err
 	}
 
-	return r.trace1(ctx, func(ctx context.Context) (T, error) {
+	return r.trace1(ctx, TraceOpTx, func(ctx context.Context) (T, error) {
 		for attempt := 1; ; attempt++ {
 			result, phase, err := r.executeTxAttempt(ctx, normalized, fn)
 			if err == nil {

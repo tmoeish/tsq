@@ -102,7 +102,7 @@ func (q *Query[O]) Scalar[T any](
 	selected TypedColumn[O, T],
 	args ...any,
 ) (T, error) {
-	return traceExecutor1(ctx, tx, func(ctx context.Context) (T, error) {
+	return traceExecutor1(ctx, tx, TraceOpScalar, func(ctx context.Context) (T, error) {
 		if err := q.validateScalarSelection(selected); err != nil {
 			var zero T
 			return zero, err
@@ -118,7 +118,7 @@ func (q *Query[O]) Count(
 	tx SQLExecutor,
 	args ...any,
 ) (int64, error) {
-	return traceExecutor1(ctx, tx, func(ctx context.Context) (int64, error) {
+	return traceExecutor1(ctx, tx, TraceOpCount, func(ctx context.Context) (int64, error) {
 		return q.count64(ctx, tx, args...)
 	})
 }

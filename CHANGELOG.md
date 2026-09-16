@@ -13,6 +13,11 @@
 
 - **软删除成为默认的删除语义**: `deleted_at` 的表上，`Delete` 现在打墓碑而不是物理删除，物理删除改名 `HardDelete`。判据是使用者的真实用法——软删除的行在业务上就是删掉了，只有审计才回头看它，而恢复它要人工改库。受影响的入口成对出现：`tsq.Delete` / `tsq.HardDelete`、`tsq.ChunkedDelete` / `tsq.ChunkedHardDelete`、`tsq.ChunkedDeleteByPKs` / `tsq.ChunkedHardDeleteByPKs`、`tsq.DeleteFrom` / `tsq.HardDeleteFrom`，生成的方法是 `Delete` / `HardDelete`。**没有声明 `deleted_at` 的表两者同义**，都是物理删除。软删除走的是 UPDATE，所以乐观锁校验和 `version` 自增照旧生效，`updated_at` 也会刷新。生成的 `SoftDelete(ctx, db, dt)` 被删除：想指定删除时间就先给字段赋值再调 `Delete`，和 `Insert` 不覆盖调用方已设的 `created_at` 是同一条规则。
 - **`QueryActive*` / `ListActive*` 改名为 `Query*` / `List*`，带软删除行的那套不再生成**: 过滤掉已删行是日常场景，名字不该更长；而"连已删的一起查"基本只在审计时用到，用查询构建器三行就能写出来，不值得为每张表每个索引各生成一个包级变量。`deleted_at` 的表上，全部生成查询现在都自带 active 过滤。示例里 `Enrollment` 的生成符号从 39 个降到 23 个。
+- **`Tracer` 现在能知道自己在追什么**: 签名从 `func(next) func(ctx) error` 改成 `func(ctx, op tsq.TraceOp, next) error`。此前它只拿得到一个续体，可以计时却说不出计的是什么。`TraceOp` 是 `insert` / `update` / `delete` / `get` / `list` / `page` / `count` / `scalar` / `exec` / `tx`。渲染后的 SQL 不在这里传——追踪包住的是整个操作（含绑参和方言渲染），语句由 `WithSQLLogging()` 输出。
+- **事务重试谓词改名**: `IsCommonTransactionRetryableError` → `IsRetryableTxError`（"Common" 说不出它包含什么），`IsRetryableTransactionConflictError` → `IsTxConflictError`。`IsOptimisticLockError` 和 `IsRetryableNetworkError` 不变。四个谓词都保留：想只重试死锁、不重试乐观锁冲突是合理需求。
+- **删除 `NewPageRequest(url.Values)` 和 `PageRequest.ToQuery()`**: 它们把一套特定的 HTTP 查询参数命名写进了一个 SQL 库。结构体上的 `query` tag 仍在，解析交给调用方的 binder。
+- **`DefaultMaxPageSize` 是默认值，不是硬顶**: `WithMaxPageSize(n)` 现在双向生效。此前 `Validate` 把上限夹到 1000 而 `Normalize` 不夹，于是 `WithMaxPageSize(5000)` 下同一个请求能通过一个、被另一个悄悄改小——两个测试各自编码了相反的意图。用一个上限 × 尺寸的交叉用例钉住"`Validate` 拒绝的尺寸，恰好就是 `Normalize` 会夹的尺寸"。
+
 - **`Runtime` 改用函数式选项，构造器合并成两个**: `NewRuntime(ctx, driver, dsn, tables, ...RuntimeOption)` 取代了 `NewRuntime` 加 `NewRuntimeContext` 两个入口（ctx 不再是可选的），`*RuntimeOptions` 结构体换成 `tsq.WithSchemaPolicy` / `WithTablePolicy` / `WithIndexPolicy` / `WithLogger` / `WithSQLLogging` / `WithTracers` / `WithMaxPageSize`。此前 `options ...*RuntimeOptions` 让"没传选项"和"传了一个选项值"是同一个签名，每个字段的零值又兼任"没设置"。
 - **新增 `tsq.NewRuntimeFromDB(ctx, db, dialect, tables, ...RuntimeOption)`**: 在调用方已经打开的连接池上建 runtime。此前接了 otelsql 或自定义 connector 的人只能用 `WrapExecutor`，随之失去 `LogSQL`、tracer 和分页上限。**`Close()` 不会关闭这样传进来的池**——谁开的谁负责关；`NewRuntime` 自己开的池仍然由 `Close()` 关闭。
 - **删除 `IdentifierValidationMode` 和 `Runtime.ValidateIdentifiersForDialect()`**: 标识符长度校验现在恒为严格，没有关闭开关。超出方言长度上限的名字到不了服务端，TSQ 建出来的对象就和它渲染的查询对不上，`warn` 和 `skip` 只是把失败推后。派生索引名过长时，用 `ux=[{name="..."}]` 显式命名。
@@ -128,7 +133,7 @@
 ### 修复
 
 - **PostgreSQL 上 `Insert` 不回填自增主键**: `LastInsertIdReturningSuffix` 在方言里一直存在，但 `insertBatch` 从未使用它；PostgreSQL 驱动不支持 `LastInsertId()`，于是 `Insert` / `ChunkedInsert` 之后结构体的主键始终是 0（MySQL / SQLite 不受影响）。现在省略主键的插入在返回 RETURNING 后缀的方言上走 `INSERT ... RETURNING <pk>` 并按插入顺序回填。由新的集成测试在真实 PostgreSQL 上发现。
-- **pgx v5 的错误识别失效**: `IsRetryableTransactionConflictError` 和 `ChunkedInsert{IgnoreErrors}` 的重复键检测此前只匹配 `github.com/jackc/pgconn`（pgx v4）的错误类型，`jackc/pgx/v5` 返回的是另一个包里的 `PgError`，导致驱动名为 `pgx` 的运行时上这两条路径静默不命中。
+- **pgx v5 的错误识别失效**: `IsTxConflictError` 和 `ChunkedInsert{IgnoreErrors}` 的重复键检测此前只匹配 `github.com/jackc/pgconn`（pgx v4）的错误类型，`jackc/pgx/v5` 返回的是另一个包里的 `PgError`，导致驱动名为 `pgx` 的运行时上这两条路径静默不命中。
 - **`IdentifierValidationMode` 默认值静默吞掉违规**: 空值既不是 `strict` 也不是 `warn`，超长标识符被收集后直接丢弃，既不报错也不告警；文档却写着默认 strict。现在空值就是 strict。
 - **commit 阶段的明确冲突码现在会重试**: 此前 `WithTx` 对 commit 阶段的任何错误都不重试，而 PostgreSQL 的 `40001` 序列化失败经常在 COMMIT 时才抛（事务已确定回滚，重试安全）。网络类等不确定错误在 commit 阶段仍不重试。
 - **执行期日志绕过了 `RuntimeOptions.Logger`**: 批量插入 ID 回填跳过的警告和 chunked insert 忽略重复键的调试日志此前直接写 `slog.Default()`，现在路由到运行时配置的 `Logger`（执行器不属于任何运行时时仍回退到 `slog.Default()`）。
