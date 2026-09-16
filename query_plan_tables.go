@@ -16,7 +16,7 @@ func (spec querySpec[O]) fromTables() map[string]Table {
 		return map[string]Table{}
 	}
 
-	return map[string]Table{spec.From.Table(): spec.From}
+	return map[string]Table{spec.From.TableName(): spec.From}
 }
 
 func (spec querySpec[O]) conditionTables() map[string]Table {
@@ -28,7 +28,7 @@ func (spec querySpec[O]) joinTables() map[string]Table {
 
 	for _, item := range spec.Joins {
 		if !isNilValue(item.table) {
-			tables[item.table.Table()] = item.table
+			tables[item.table.TableName()] = item.table
 		}
 
 		maps.Copy(tables, spec.tablesForConditions(item.on))
@@ -83,7 +83,7 @@ func (spec querySpec[O]) tablesForColumns(cols []SQLColumn) map[string]Table {
 			continue
 		}
 
-		tables[table.Table()] = table
+		tables[table.TableName()] = table
 		if refs, ok := col.(interface{ referencedTables() map[string]Table }); ok {
 			maps.Copy(tables, refs.referencedTables())
 		}

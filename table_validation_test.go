@@ -15,7 +15,7 @@ type strictResultRow struct{}
 func (strictResultRow) TSQOwner() {}
 
 func (t *strictMockTable) TSQOwner()                      {}
-func (t *strictMockTable) Table() string                  { return t.name }
+func (t *strictMockTable) TableName() string              { return t.name }
 func (t *strictMockTable) SearchColumns() []SearchColumn  { return nil }
 func (t *strictMockTable) Cols() []SQLColumn              { return t.cols }
 func (t *strictMockTable) PrimaryKey() string             { return "" }
@@ -370,7 +370,7 @@ func TestColumnValidation_ReportsUninitializedColumnSlice(t *testing.T) {
 	}
 
 	if !strings.Contains(err.Error(), "every one of them is still nil") ||
-		!strings.Contains(err.Error(), "tsq.TableWithCols") {
+		!strings.Contains(err.Error(), "tsq.DeclareTable") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -379,7 +379,7 @@ func TestTableWithCols_ReturnsTableUnchanged(t *testing.T) {
 	users, cols := newStrictMockTable("users", "id")
 	bound := []BoundColumn[Table]{cols[0]}
 
-	if got := TableWithCols[Table](users, bound); got != Table(users) {
+	if got := DeclareTable[Table](users, bound); got != Table(users) {
 		t.Fatalf("expected the table to be returned unchanged, got %#v", got)
 	}
 }

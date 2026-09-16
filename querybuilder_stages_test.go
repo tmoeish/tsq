@@ -19,8 +19,8 @@ func TestQueryBuilder_LeftJoin(t *testing.T) {
 	if join.joinType != leftJoinType {
 		t.Errorf("Expected LEFT JOIN, got %s", join.joinType)
 	}
-	if join.table.Table() != "orders" {
-		t.Errorf("Expected join table 'orders', got '%s'", join.table.Table())
+	if join.table.TableName() != "orders" {
+		t.Errorf("Expected join table 'orders', got '%s'", join.table.TableName())
 	}
 	if len(join.on) != 1 {
 		t.Errorf("Expected 1 join condition, got %d", len(join.on))
@@ -88,8 +88,8 @@ func TestQueryBuilder_CrossJoin(t *testing.T) {
 	if join.joinType != crossJoinType {
 		t.Errorf("Expected CROSS JOIN, got %s", join.joinType)
 	}
-	if join.table.Table() != "orders" {
-		t.Errorf("Expected table 'orders', got '%s'", join.table.Table())
+	if join.table.TableName() != "orders" {
+		t.Errorf("Expected table 'orders', got '%s'", join.table.TableName())
 	}
 }
 
@@ -104,8 +104,8 @@ func TestQueryBuilder_Correlate(t *testing.T) {
 	if len(core.spec.Correlated) != 1 {
 		t.Fatalf("Expected 1 correlated table, got %d", len(core.spec.Correlated))
 	}
-	if core.spec.Correlated[0].Table() != "users" {
-		t.Errorf("Expected correlated table 'users', got '%s'", core.spec.Correlated[0].Table())
+	if core.spec.Correlated[0].TableName() != "users" {
+		t.Errorf("Expected correlated table 'users', got '%s'", core.spec.Correlated[0].TableName())
 	}
 	if len(core.spec.Joins) != 0 {
 		t.Errorf("Expected Correlate to add no join, got %d", len(core.spec.Joins))

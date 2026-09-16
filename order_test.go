@@ -97,13 +97,13 @@ func TestOrderBy_Field(t *testing.T) {
 		order: ASC,
 	}
 
-	field := orderBy.Field()
+	field := orderBy.Column()
 	if field.Name() != "name" {
 		t.Errorf("Expected field name 'name', got '%s'", field.Name())
 	}
 
-	if field.Table().Table() != "users" {
-		t.Errorf("Expected table 'users', got '%s'", field.Table().Table())
+	if field.Table().TableName() != "users" {
+		t.Errorf("Expected table 'users', got '%s'", field.Table().TableName())
 	}
 }
 
@@ -141,8 +141,8 @@ func TestCol_Asc(t *testing.T) {
 
 	orderBy := col.Asc()
 
-	if orderBy.Field().Name() != "name" {
-		t.Errorf("Expected field name 'name', got '%s'", orderBy.Field().Name())
+	if orderBy.Column().Name() != "name" {
+		t.Errorf("Expected field name 'name', got '%s'", orderBy.Column().Name())
 	}
 
 	if orderBy.Order() != ASC {
@@ -161,8 +161,8 @@ func TestCol_Desc(t *testing.T) {
 
 	orderBy := col.Desc()
 
-	if orderBy.Field().Name() != "name" {
-		t.Errorf("Expected field name 'name', got '%s'", orderBy.Field().Name())
+	if orderBy.Column().Name() != "name" {
+		t.Errorf("Expected field name 'name', got '%s'", orderBy.Column().Name())
 	}
 
 	if orderBy.Order() != DESC {
@@ -223,7 +223,7 @@ func TestReverseOrder(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := ReverseOrder(tt.input)
+			result := tt.input.Reverse()
 			if result != tt.expected {
 				t.Errorf("Expected %s, got %s", tt.expected, result)
 			}
@@ -232,7 +232,7 @@ func TestReverseOrder(t *testing.T) {
 }
 
 func TestReverseOrderRejectsInvalidOrder(t *testing.T) {
-	if got := ReverseOrder("SIDEWAYS"); got != "" {
+	if got := Order("SIDEWAYS").Reverse(); got != "" {
 		t.Fatalf("expected invalid order to return empty order, got %q", got)
 	}
 }
@@ -280,7 +280,7 @@ func TestOrderBy_FieldAndOrderConsistency(t *testing.T) {
 
 	// Test that Asc() creates consistent OrderBy
 	ascOrderBy := col.Asc()
-	if ascOrderBy.Field().Name() != col.Name() || ascOrderBy.Field().Table().Table() != col.Table().Table() {
+	if ascOrderBy.Column().Name() != col.Name() || ascOrderBy.Column().Table().TableName() != col.Table().TableName() {
 		t.Error("Asc() should preserve the original column")
 	}
 
@@ -290,7 +290,7 @@ func TestOrderBy_FieldAndOrderConsistency(t *testing.T) {
 
 	// Test that Desc() creates consistent OrderBy
 	descOrderBy := col.Desc()
-	if descOrderBy.Field().Name() != col.Name() || descOrderBy.Field().Table().Table() != col.Table().Table() {
+	if descOrderBy.Column().Name() != col.Name() || descOrderBy.Column().Table().TableName() != col.Table().TableName() {
 		t.Error("Desc() should preserve the original column")
 	}
 

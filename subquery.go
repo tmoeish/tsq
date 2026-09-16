@@ -65,7 +65,7 @@ func BuildSubquery[O Owner, T any](qb QueryStage[O], selected TypedColumn[O, T])
 
 // AsSubquery validates that q is a built single-column query whose selected
 // column matches selected, then returns a typed subquery handle suitable for
-// RHS comparisons such as EQ/NE/GT/GTE/LT/LTE/Like/Between and for In/NIn.
+// RHS comparisons such as EQ/NE/GT/GTE/LT/LTE/Like/Between and for In/NotIn.
 func (q *Query[O]) AsSubquery[T any](selected TypedColumn[O, T]) (Subquery[T], error) {
 	if q == nil {
 		return nil, errors.New("subquery cannot be nil")

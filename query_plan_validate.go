@@ -65,7 +65,7 @@ func (spec querySpec[O]) correlatedTables() map[string]struct{} {
 			continue
 		}
 
-		tables[table.Table()] = struct{}{}
+		tables[table.TableName()] = struct{}{}
 	}
 
 	return tables
@@ -82,7 +82,7 @@ func (spec querySpec[O]) validateJoinGraph(outer map[string]struct{}) error {
 	allTables := spec.pageQueryTables()
 	introduced := make(map[string]struct{}, len(spec.Joins)+1)
 
-	introduced[spec.From.Table()] = struct{}{}
+	introduced[spec.From.TableName()] = struct{}{}
 
 	correlated := spec.correlatedTables()
 	for name := range outer {
@@ -96,14 +96,14 @@ func (spec querySpec[O]) validateJoinGraph(outer map[string]struct{}) error {
 
 		switch item.joinType {
 		case crossJoinType:
-			tableName := item.table.Table()
+			tableName := item.table.TableName()
 			if _, exists := introduced[tableName]; exists {
 				return fmt.Errorf("table %s is already present in join graph", tableName)
 			}
 
 			introduced[tableName] = struct{}{}
 		default:
-			tableName := item.table.Table()
+			tableName := item.table.TableName()
 			if _, exists := introduced[tableName]; exists {
 				return fmt.Errorf("join table %s is already present; aliases are required for repeated joins", tableName)
 			}

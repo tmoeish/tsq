@@ -7,11 +7,11 @@
 ### 1.1 尽早校验输入
 
 - 在构建查询前校验分页、排序和用户输入
-- 对外部输入优先使用 `Validate()`
+- 对外部输入优先使用 `Validate(maxSize)`
 - `Build()` 返回错误时立即处理
 
 ```go
-if err := pageReq.Validate(); err != nil {
+if err := pageReq.Validate(runtime.MaxPageSize()); err != nil {
 	return fmt.Errorf("invalid pagination: %w", err)
 }
 
@@ -54,7 +54,7 @@ if err != nil {
 ### 1.4 需要分支处理时用 `errors.Is` / `errors.As`
 
 ```go
-var unknownField *tsq.ErrUnknownSortField
+var unknownField *tsq.UnknownSortFieldError
 if errors.As(err, &unknownField) {
 	return fmt.Errorf("sort field %q not found", unknownField.Field)
 }
@@ -62,13 +62,13 @@ if errors.As(err, &unknownField) {
 
 ## 2. 分页
 
-### 2.1 对 API 输入优先使用 `Validate()`
+### 2.1 对 API 输入优先使用 `Validate`
 
-`Normalize()` 会把非法值归一化为安全默认值，适合兼容场景；  
-`Validate()` 会直接返回错误，更适合 HTTP API 和管理端输入。
+`Normalize(maxSize)` 会把非法值归一化为安全默认值；  
+`Validate(maxSize)` 会直接返回错误，更适合 HTTP API 和管理端输入。
 
 ```go
-if err := pageReq.Validate(); err != nil {
+if err := pageReq.Validate(runtime.MaxPageSize()); err != nil {
 	return nil, err
 }
 ```
@@ -127,7 +127,7 @@ return tx.Commit()
 ### 3.3 优先用 `runtime.WithTx(...)` 执行事务里的 TSQ 操作
 
 ```go
-if err := runtime.WithTx(ctx, nil, func(ctx context.Context, txExec tsq.SQLExecutor) error {
+if err := runtime.WithTx(ctx, nil, func(ctx context.Context, txExec tsq.Executor) error {
 	if err := order.Insert(ctx, txExec); err != nil {
 		return err
 	}
@@ -143,8 +143,8 @@ if err := runtime.WithTx(ctx, nil, func(ctx context.Context, txExec tsq.SQLExecu
 
 ```go
 if err := runtime.WithTx(ctx, &tsq.TxOptions{
-	Retry: tsq.IsOptimisticLockError,
-}, func(ctx context.Context, txExec tsq.SQLExecutor) error {
+	RetryIf: tsq.IsOptimisticLockError,
+}, func(ctx context.Context, txExec tsq.Executor) error {
 	// 在回调里重新读取、重新计算、重新写入。
 	return nil
 }); err != nil {
@@ -154,18 +154,18 @@ if err := runtime.WithTx(ctx, &tsq.TxOptions{
 
 注意：重试的是**整个回调**。如果你把旧对象在事务外先读好，再在回调里反复提交同一份过期数据，自动重试也不会帮你成功。
 
-### 3.4 `ChunkedInsert` / `ChunkedUpdate` / `ChunkedDelete` 不会自动开启事务
+### 3.4 `BatchInsert` / `BatchUpdate` / `BatchDelete` 不会自动开启事务
 
 这是刻意设计。
 
-这些 helper 接收的是 `SQLExecutor`，因此事务边界由调用方决定：
+这些 helper 接收的是 `Executor`，因此事务边界由调用方决定：
 
 - 传 `*sql.DB` / `runtime`：允许按 chunk 逐步提交
-- 通过 `runtime.WithTx(...)` 提供的事务 executor：让整个 chunked 操作参与同一个事务
+- 通过 `runtime.WithTx(...)` 提供的事务 executor：让整个批量操作参与同一个事务
 
 ```go
-if err := runtime.WithTx(ctx, nil, func(ctx context.Context, txExec tsq.SQLExecutor) error {
-	if err := tsq.ChunkedInsert(ctx, txExec, rows, &tsq.ChunkedInsertOptions{ChunkSize: 500}); err != nil {
+if err := runtime.WithTx(ctx, nil, func(ctx context.Context, txExec tsq.Executor) error {
+	if err := tsq.BatchInsert(ctx, txExec, rows, tsq.WithBatchSize(500)); err != nil {
 		return err
 	}
 
@@ -175,14 +175,14 @@ if err := runtime.WithTx(ctx, nil, func(ctx context.Context, txExec tsq.SQLExecu
 }
 ```
 
-不要假设 chunked helper 会替你包一层外部事务；如果你需要“全部成功或全部回滚”，请显式放进 `runtime.WithTx(...)` 或自己管理 `*sql.Tx`。
+不要假设 Batch* helper 会替你包一层外部事务；如果你需要“全部成功或全部回滚”，请显式放进 `runtime.WithTx(...)` 或自己管理 `*sql.Tx`。
 
 ### 3.5 行锁读取要显式放进事务
 
 `ForUpdate()` / `ForShare()` 适合表达“读取并锁定随后要修改的行”，但只有放在事务里才有实际意义。
 
 ```go
-if err := runtime.WithTx(ctx, nil, func(ctx context.Context, txExec tsq.SQLExecutor) error {
+if err := runtime.WithTx(ctx, nil, func(ctx context.Context, txExec tsq.Executor) error {
 	query, err := tsq.Select(database.User__Cols...).
 		From(database.TableUser).
 		Where(database.User_ID.EQ(userID)).
@@ -219,18 +219,18 @@ defer func() {
 	_ = tx.Rollback()
 }()
 
-txExec := tsq.WrapExecutor(tx, runtime.SQLDialect())
+txExec := tsq.WrapExecutor(tx, runtime.Dialect())
 _ = txExec
 ```
 
 ### 3.7 自动乐观锁冲突要按业务错误处理
 
 如果表声明了 `version` 列，`Update(...)` / `Delete(...)` 会自动做版本校验。  
-版本不匹配时，TSQ 会返回 `ErrOptimisticLockConflict`。
+版本不匹配时，TSQ 会返回 `OptimisticLockError`。
 
 ```go
 if err := tsq.Update(ctx, runtime, user); err != nil {
-	if errors.Is(err, &tsq.ErrOptimisticLockConflict{}) {
+	if errors.Is(err, &tsq.OptimisticLockError{}) {
 		return fmt.Errorf("record has been modified by another request: %w", err)
 	}
 	return err
@@ -239,7 +239,7 @@ if err := tsq.Update(ctx, runtime, user); err != nil {
 
 不要自己再手工拼一层 `WHERE version = ?`，也不要忽略这类冲突再继续覆盖写。
 
-如果你的写逻辑天然支持“重读后重算再提交”，也可以配合 `runtime.WithTx(..., &tsq.TxOptions{Retry: tsq.IsOptimisticLockError}, ...)` 把这类冲突交给事务 helper 重试。
+如果你的写逻辑天然支持“重读后重算再提交”，也可以配合 `runtime.WithTx(..., &tsq.TxOptions{RetryIf: tsq.IsOptimisticLockError}, ...)` 把这类冲突交给事务 helper 重试。
 
 ### 3.8 按条件批量改写用 `UpdateTable` / `DeleteFrom`，不要先查再逐行 `Update`
 
@@ -254,10 +254,10 @@ affected, err := tsq.
 	Exec(ctx, runtime, cutoff)
 ```
 
-- 这类语句不校验 `version`，但会自增它。批量改动之前加载的对象随后 `Update(...)` 会拿到 `ErrOptimisticLockConflict`，按 3.7 处理。
+- 这类语句不校验 `version`，但会自增它。批量改动之前加载的对象随后 `Update(...)` 会拿到 `OptimisticLockError`，按 3.7 处理。
 - `updated_at` / `deleted_at` 需要就显式 `SetVal`，构建器不会替你盖时间戳。
 - `Where(...)` 必需。真要全表操作，写显式的 `tsq.And()`，让意图留在代码里。
-- 它是单条语句，不分块；`InVar` 传超大切片会撞方言的参数上限，那种场景用 `tsq.ChunkedDeleteByPKs` 或自己切片。
+- 它是单条语句，不分块；`InVar` 传超大切片会撞方言的参数上限，那种场景用 `tsq.BatchDeleteByPK` 或自己切片。
 
 ## 4. Field pointer 和 `MapInto(...)`
 
@@ -288,7 +288,7 @@ userName := tsq.MapInto(database.User_Name, func(r *UserResult) *string {
 ### 5.1 排序字段必须可验证
 
 ```go
-var unknownField *tsq.ErrUnknownSortField
+var unknownField *tsq.UnknownSortFieldError
 if errors.As(err, &unknownField) {
 	return fmt.Errorf("unsupported sort field %q", unknownField.Field)
 }

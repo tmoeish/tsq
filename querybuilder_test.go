@@ -16,7 +16,7 @@ func (queryBuilderCaseRow) TSQOwner() {
 func (m mockTable) TSQOwner() {
 }
 
-func (m mockTable) Table() string {
+func (m mockTable) TableName() string {
 	return m.tableName
 }
 

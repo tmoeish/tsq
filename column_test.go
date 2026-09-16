@@ -13,7 +13,7 @@ func (colProjection) TSQOwner() {
 func (newColOwner) TSQOwner() {
 }
 
-func (newColOwner) Table() string {
+func (newColOwner) TableName() string {
 	return "users"
 }
 
@@ -38,12 +38,12 @@ func (newColOwner) ManagedColumns() ManagedColumns {
 }
 
 func TestNewCol(t *testing.T) {
-	col := NewCol[newColOwner, string]("name", "user_name", nil)
+	col := NewColumn[newColOwner, string]("name", "user_name", nil)
 	_ = col
 	var _ TypedColumn[newColOwner, string] = col
 	var _ SQLColumn = col
-	if col.Table().Table() != "users" {
-		t.Errorf("Expected table 'users', got '%s'", col.Table().Table())
+	if col.Table().TableName() != "users" {
+		t.Errorf("Expected table 'users', got '%s'", col.Table().TableName())
 	}
 	expectedQualified := `"users"."name"`
 	if col.QualifiedName() != expectedQualified {
@@ -62,8 +62,8 @@ func TestNewColWithExplicitTableInternal(t *testing.T) {
 	if col.Name() != "name" {
 		t.Errorf("Expected name 'name', got '%s'", col.Name())
 	}
-	if col.Table().Table() != "users" {
-		t.Errorf("Expected table 'users', got '%s'", col.Table().Table())
+	if col.Table().TableName() != "users" {
+		t.Errorf("Expected table 'users', got '%s'", col.Table().TableName())
 	}
 	expectedQualified := `"users"."name"`
 	if col.QualifiedName() != expectedQualified {
@@ -88,8 +88,8 @@ func TestCol_Table(t *testing.T) {
 	table := newMockTable("products")
 	col := newColForTable[Table, float64](table, "price", "price", nil)
 	resultTable := col.Table()
-	if resultTable.Table() != "products" {
-		t.Errorf("Expected table 'products', got '%s'", resultTable.Table())
+	if resultTable.TableName() != "products" {
+		t.Errorf("Expected table 'products', got '%s'", resultTable.TableName())
 	}
 }
 
@@ -156,8 +156,8 @@ func TestCol_TypeSafety(t *testing.T) {
 	boolCol := newColForTable[Table, bool](table, "active", "active", nil)
 	columns := []SQLColumn{stringCol, intCol, floatCol, boolCol}
 	for i, col := range columns {
-		if col.Table().Table() != "users" {
-			t.Errorf("column %d: expected table 'users', got '%s'", i, col.Table().Table())
+		if col.Table().TableName() != "users" {
+			t.Errorf("column %d: expected table 'users', got '%s'", i, col.Table().TableName())
 		}
 	}
 	expectedNames := []string{"name", "age", "score", "active"}
@@ -199,7 +199,7 @@ func TestCol_AsRebindsQualifiedName(t *testing.T) {
 	table := newMockTable("users")
 	col := newColForTable[Table, string](table, "name", "name", nil)
 	aliased := col.As("manager")
-	if got := aliased.Table().Table(); got != "manager" {
+	if got := aliased.Table().TableName(); got != "manager" {
 		t.Fatalf("expected aliased table name manager, got %q", got)
 	}
 	if got := aliased.QualifiedName(); got != `"manager"."name"` {

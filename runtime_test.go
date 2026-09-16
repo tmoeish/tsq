@@ -75,7 +75,7 @@ func TestNewRuntimeContextHonorsCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err := NewRuntime(ctx, "sqlite", dsn, nil)
+	_, err := Open(ctx, "sqlite", dsn, nil)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected cancelled context to abort bootstrap, got %v", err)
 	}
@@ -85,7 +85,7 @@ func TestNewRuntimeContextRejectsNilContext(t *testing.T) {
 	_, dsn := newSQLiteIndexTestEngine(t)
 
 	//nolint:staticcheck // passing nil on purpose to exercise the guard
-	if _, err := NewRuntime(nil, "sqlite", dsn, nil); err == nil {
+	if _, err := Open(nil, "sqlite", dsn, nil); err == nil {
 		t.Fatal("expected nil context to be rejected")
 	}
 }
@@ -93,7 +93,7 @@ func TestNewRuntimeContextRejectsNilContext(t *testing.T) {
 func TestRuntimeCloseReleasesDBAndIsNilSafe(t *testing.T) {
 	_, dsn := newSQLiteIndexTestEngine(t)
 
-	rt, err := NewRuntime(context.Background(), "sqlite", dsn, nil)
+	rt, err := Open(context.Background(), "sqlite", dsn, nil)
 	if err != nil {
 		t.Fatalf("NewRuntime() error = %v", err)
 	}
@@ -115,7 +115,7 @@ func TestRuntimeCloseReleasesDBAndIsNilSafe(t *testing.T) {
 func TestRuntimeMaxPageSizeDefaultsAndOverrides(t *testing.T) {
 	_, dsn := newSQLiteIndexTestEngine(t)
 
-	rt, err := NewRuntime(context.Background(), "sqlite", dsn, nil)
+	rt, err := Open(context.Background(), "sqlite", dsn, nil)
 	if err != nil {
 		t.Fatalf("NewRuntime() error = %v", err)
 	}
@@ -130,7 +130,7 @@ func TestRuntimeMaxPageSizeDefaultsAndOverrides(t *testing.T) {
 		t.Fatalf("expected nil runtime to report default max page size, got %d", got)
 	}
 
-	custom, err := NewRuntime(context.Background(), "sqlite", dsn, nil, WithMaxPageSize(5000))
+	custom, err := Open(context.Background(), "sqlite", dsn, nil, WithMaxPageSize(5000))
 	if err != nil {
 		t.Fatalf("NewRuntime() error = %v", err)
 	}
@@ -150,7 +150,7 @@ func TestRuntimeMaxPageSizeDefaultsAndOverrides(t *testing.T) {
 		t.Fatalf("expected bare *sql.DB to fall back to default cap, got %d", page.Size)
 	}
 
-	if _, err := NewRuntime(context.Background(), "sqlite", dsn, nil, WithMaxPageSize(-1)); err == nil {
+	if _, err := Open(context.Background(), "sqlite", dsn, nil, WithMaxPageSize(-1)); err == nil {
 		t.Fatal("expected negative max page size to be rejected")
 	}
 }
@@ -159,7 +159,7 @@ func TestLogForExecutorRoutesToRuntimeLogger(t *testing.T) {
 	_, dsn := newSQLiteIndexTestEngine(t)
 	logger := &recordingLogger{}
 
-	rt, err := NewRuntime(context.Background(), "sqlite", dsn, nil, WithLogger(logger))
+	rt, err := Open(context.Background(), "sqlite", dsn, nil, WithLogger(logger))
 	if err != nil {
 		t.Fatalf("NewRuntime() error = %v", err)
 	}
@@ -180,7 +180,7 @@ func TestLogForExecutorRoutesToRuntimeLogger(t *testing.T) {
 }
 
 // TestLogSQLRoutesRenderedStatementsToRuntimeLogger is the end-to-end check on
-// RuntimeOptions.LogSQL.
+// WithSQLLogging.
 //
 // Before it existed, the read path logged SQL only behind an unexported context key
 // that no exported symbol could set, so every one of those log statements was
@@ -209,7 +209,7 @@ func TestLogSQLRoutesRenderedStatementsToRuntimeLogger(t *testing.T) {
 
 	logger := &recordingLogger{}
 
-	rt, err := NewRuntime(context.Background(), "sqlite", dsn, nil, WithLogger(logger), WithSQLLogging())
+	rt, err := Open(context.Background(), "sqlite", dsn, nil, WithLogger(logger), WithSQLLogging())
 	if err != nil {
 		t.Fatalf("NewRuntime() error = %v", err)
 	}
@@ -254,7 +254,7 @@ func TestLogSQLDefaultsOff(t *testing.T) {
 
 	logger := &recordingLogger{}
 
-	rt, err := NewRuntime(context.Background(), "sqlite", dsn, nil, WithLogger(logger))
+	rt, err := Open(context.Background(), "sqlite", dsn, nil, WithLogger(logger))
 	if err != nil {
 		t.Fatalf("NewRuntime() error = %v", err)
 	}
@@ -289,9 +289,9 @@ func TestNewRuntimeFromDBLeavesTheCallersPoolOpen(t *testing.T) {
 
 	t.Cleanup(func() { _ = db.Close() })
 
-	runtime, err := NewRuntimeFromDB(context.Background(), db, tsqdialect.SQLiteDialect{}, nil)
+	runtime, err := NewRuntime(context.Background(), db, tsqdialect.SQLiteDialect{}, nil)
 	if err != nil {
-		t.Fatalf("NewRuntimeFromDB() error = %v", err)
+		t.Fatalf("NewRuntime() error = %v", err)
 	}
 
 	if err := runtime.Close(); err != nil {
@@ -313,11 +313,11 @@ func TestNewRuntimeFromDBRejectsMissingArguments(t *testing.T) {
 
 	t.Cleanup(func() { _ = db.Close() })
 
-	if _, err := NewRuntimeFromDB(context.Background(), nil, tsqdialect.SQLiteDialect{}, nil); err == nil {
+	if _, err := NewRuntime(context.Background(), nil, tsqdialect.SQLiteDialect{}, nil); err == nil {
 		t.Fatal("expected a nil pool to be rejected")
 	}
 
-	if _, err := NewRuntimeFromDB(context.Background(), db, nil, nil); err == nil {
+	if _, err := NewRuntime(context.Background(), db, nil, nil); err == nil {
 		t.Fatal("expected a nil dialect to be rejected")
 	}
 }
@@ -326,7 +326,7 @@ func TestNewRuntimeFromDBRejectsMissingArguments(t *testing.T) {
 func TestNewRuntimeClosesThePoolItOpened(t *testing.T) {
 	_, dsn := newSQLiteIndexTestEngine(t)
 
-	runtime, err := NewRuntime(context.Background(), "sqlite", dsn, nil)
+	runtime, err := Open(context.Background(), "sqlite", dsn, nil)
 	if err != nil {
 		t.Fatalf("NewRuntime() error = %v", err)
 	}

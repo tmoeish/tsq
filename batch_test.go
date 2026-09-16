@@ -17,10 +17,10 @@ type pointerPKUser struct {
 
 func (pointerPKUser) TSQOwner() {}
 
-func (pointerPKUser) Table() string { return "pointer_users" }
+func (pointerPKUser) TableName() string { return "pointer_users" }
 
 func (pointerPKUser) Cols() []SQLColumn {
-	return SQLColumns(NewCol[pointerPKUser, *int64]("id", "id", func(t *pointerPKUser) **int64 {
+	return SQLColumns(NewColumn[pointerPKUser, *int64]("id", "id", func(t *pointerPKUser) **int64 {
 		return &t.ID
 	}))
 }
@@ -33,38 +33,23 @@ func (pointerPKUser) AutoIncrement() bool { return false }
 
 func (pointerPKUser) ManagedColumns() ManagedColumns { return ManagedColumns{} }
 
-func TestDefaultChunkedInsertOptions(t *testing.T) {
-	opts := DefaultChunkedInsertOptions()
-	if opts == nil {
-		t.Fatal("Expected non-nil options")
+func TestNewBatchConfigDefaults(t *testing.T) {
+	config, err := newBatchConfig(nil, true)
+	if err != nil {
+		t.Fatalf("newBatchConfig() error = %v", err)
 	}
-	if opts.ChunkSize != 1000 {
-		t.Errorf("Expected ChunkSize 1000, got %d", opts.ChunkSize)
-	}
-	if opts.IgnoreErrors != false {
-		t.Errorf("Expected IgnoreErrors false, got %v", opts.IgnoreErrors)
+	if config.size != defaultBatchSize || config.skipDuplicates {
+		t.Fatalf("newBatchConfig() = %+v, want size %d without skipDuplicates", config, defaultBatchSize)
 	}
 }
 
-func TestDefaultChunkedOptions(t *testing.T) {
-	opts := DefaultChunkedOptions()
-	if opts == nil {
-		t.Fatal("expected non-nil options")
+func TestNewBatchConfigAppliesOptions(t *testing.T) {
+	config, err := newBatchConfig([]BatchOption{WithBatchSize(500), WithSkipDuplicates()}, true)
+	if err != nil {
+		t.Fatalf("newBatchConfig() error = %v", err)
 	}
-	if opts.ChunkSize != 1000 {
-		t.Fatalf("expected chunk size 1000, got %d", opts.ChunkSize)
-	}
-}
-
-func TestChunkedInsertOptions_Modification(t *testing.T) {
-	opts := DefaultChunkedInsertOptions()
-	opts.ChunkSize = 500
-	opts.IgnoreErrors = true
-	if opts.ChunkSize != 500 {
-		t.Errorf("Expected ChunkSize 500, got %d", opts.ChunkSize)
-	}
-	if opts.IgnoreErrors != true {
-		t.Errorf("Expected IgnoreErrors true, got %v", opts.IgnoreErrors)
+	if config.size != 500 || !config.skipDuplicates {
+		t.Fatalf("newBatchConfig() = %+v, want size 500 with skipDuplicates", config)
 	}
 }
 
@@ -90,40 +75,25 @@ func TestBuildDeleteByIDsSQLRejectsInvalidIdentifiers(t *testing.T) {
 	}
 }
 
-func TestNormalizeChunkedInsertOptionsValidatesInputs(t *testing.T) {
-	if _, err := normalizeChunkedInsertOptions(&ChunkedInsertOptions{ChunkSize: 0}); err == nil {
-		t.Fatal("expected zero chunk size to return an error")
+func TestWithBatchSizeRejectsNonPositiveSizes(t *testing.T) {
+	for _, size := range []int{0, -1} {
+		if _, err := newBatchConfig([]BatchOption{WithBatchSize(size)}, false); err == nil {
+			t.Fatalf("WithBatchSize(%d) was accepted", size)
+		}
 	}
 }
 
-func TestNormalizeChunkedInsertOptionsRejectsMultipleValues(t *testing.T) {
-	_, err := normalizeChunkedInsertOptions(&ChunkedInsertOptions{}, &ChunkedInsertOptions{})
-	if err == nil {
-		t.Fatal("expected multiple option values to return an error")
-	}
-	if !strings.Contains(err.Error(), "at most one") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestNormalizeChunkedOptionsValidatesInputs(t *testing.T) {
-	if _, err := normalizeChunkedOptions(&ChunkedOptions{ChunkSize: 0}); err == nil {
-		t.Fatal("expected zero chunk size to return an error")
+// TestWithSkipDuplicatesIsInsertOnly: an update or delete has no duplicate key to
+// skip, so accepting the option there would silently do nothing.
+func TestWithSkipDuplicatesIsInsertOnly(t *testing.T) {
+	_, err := newBatchConfig([]BatchOption{WithSkipDuplicates()}, false)
+	if err == nil || !strings.Contains(err.Error(), "only to BatchInsert") {
+		t.Fatalf("newBatchConfig() error = %v, want an insert-only rejection", err)
 	}
 }
 
-func TestNormalizeChunkedOptionsRejectsMultipleValues(t *testing.T) {
-	_, err := normalizeChunkedOptions(&ChunkedOptions{}, &ChunkedOptions{})
-	if err == nil {
-		t.Fatal("expected multiple option values to return an error")
-	}
-	if !strings.Contains(err.Error(), "at most one") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestChunkedUpdateChunkRejectsNilItems(t *testing.T) {
-	err := chunkedUpdateChunk[*mockTable](context.Background(), nil, []*mockTable{nil})
+func TestBatchUpdateChunkRejectsNilItems(t *testing.T) {
+	err := batchUpdateChunk[*mockTable](context.Background(), nil, []*mockTable{nil})
 	if err == nil {
 		t.Fatal("expected nil batch update item to return an error")
 	}
@@ -132,8 +102,8 @@ func TestChunkedUpdateChunkRejectsNilItems(t *testing.T) {
 	}
 }
 
-func TestChunkedDeleteChunkRejectsNilItems(t *testing.T) {
-	err := chunkedDeleteChunk[*mockTable](context.Background(), nil, []*mockTable{nil})
+func TestBatchDeleteChunkRejectsNilItems(t *testing.T) {
+	err := batchDeleteChunk[*mockTable](context.Background(), nil, []*mockTable{nil})
 	if err == nil {
 		t.Fatal("expected nil batch delete item to return an error")
 	}
@@ -190,10 +160,10 @@ func TestDeleteRejectsNilItem(t *testing.T) {
 	}
 }
 
-func TestChunkedInsertRejectsTypedNilExecutor(t *testing.T) {
+func TestBatchInsertRejectsTypedNilExecutor(t *testing.T) {
 	var db *sql.DB
 	row := mockTable{tableName: "users"}
-	err := ChunkedInsert(context.Background(), db, []*mockTable{&row})
+	err := BatchInsert(context.Background(), db, []*mockTable{&row})
 	if err == nil {
 		t.Fatal("expected typed-nil executor to return an error")
 	}
@@ -202,10 +172,10 @@ func TestChunkedInsertRejectsTypedNilExecutor(t *testing.T) {
 	}
 }
 
-func TestChunkedDeleteByIDsRejectsExecutorWithoutDialectForRenderedSQL(t *testing.T) {
+func TestBatchDeleteByIDsRejectsExecutorWithoutDialectForRenderedSQL(t *testing.T) {
 	db := newEngineWithoutDialect(t)
 	pkField := batchMutationUserColumns()[0].(TypedColumn[batchMutationUser, int64])
-	err := ChunkedDeleteByPKs(context.Background(), db, pkField, []int64{1})
+	err := BatchDeleteByPK(context.Background(), db, pkField, []int64{1})
 	if err == nil {
 		t.Fatal("expected executor without dialect to return an error")
 	}
@@ -214,12 +184,12 @@ func TestChunkedDeleteByIDsRejectsExecutorWithoutDialectForRenderedSQL(t *testin
 	}
 }
 
-func TestChunkedDeleteByIDsRejectsNilIDs(t *testing.T) {
+func TestBatchDeleteByIDsRejectsNilIDs(t *testing.T) {
 	db := WrapExecutor(&sql.DB{}, tsqdialect.SQLiteDialect{})
-	err := ChunkedDeleteByPKs(
+	err := BatchDeleteByPK(
 		context.Background(),
 		db,
-		NewCol[pointerPKUser, *int64]("id", "id", func(t *pointerPKUser) **int64 { return &t.ID }),
+		NewColumn[pointerPKUser, *int64]("id", "id", func(t *pointerPKUser) **int64 { return &t.ID }),
 		[]*int64{new(int64(1)), nil},
 	)
 	if err == nil {
@@ -230,10 +200,10 @@ func TestChunkedDeleteByIDsRejectsNilIDs(t *testing.T) {
 	}
 }
 
-func TestChunkedDeleteByPKsRejectsNonPKField(t *testing.T) {
+func TestBatchDeleteByPKsRejectsNonPKField(t *testing.T) {
 	db := WrapExecutor(&sql.DB{}, tsqdialect.SQLiteDialect{})
 	nameField := batchMutationUserColumns()[1].(TypedColumn[batchMutationUser, string])
-	err := ChunkedDeleteByPKs(context.Background(), db, nameField, []string{"alice"})
+	err := BatchDeleteByPK(context.Background(), db, nameField, []string{"alice"})
 	if err == nil {
 		t.Fatal("expected non-primary-key field to return an error")
 	}
@@ -339,16 +309,16 @@ func TestIsTransactionalExecutorSeesThroughWrappers(t *testing.T) {
 		t.Fatal("a *sql.Tx is a transaction")
 	}
 
-	if !isTransactionalExecutor(wrapExecutor(tx, runtime.SQLDialect(), runtime)) {
+	if !isTransactionalExecutor(wrapExecutor(tx, runtime.Dialect(), runtime)) {
 		t.Fatal("a wrapped *sql.Tx is still a transaction")
 	}
 }
 
-// TestChunkedInsertIgnoreErrorsInsideTransaction covers the in-transaction path end to
+// TestBatchInsertSkipDuplicatesInsideTransaction covers the in-transaction path end to
 // end: the duplicate is skipped, the rows around it land, and the transaction is still
 // usable afterwards. On PostgreSQL the last part is the whole point, and the integration
 // suite runs this same shape against a real server.
-func TestChunkedInsertIgnoreErrorsInsideTransaction(t *testing.T) {
+func TestBatchInsertSkipDuplicatesInsideTransaction(t *testing.T) {
 	runtime := newBatchMutationEngine(t)
 	exec := requireInitializedRuntime(t, runtime)
 
@@ -358,8 +328,8 @@ func TestChunkedInsertIgnoreErrorsInsideTransaction(t *testing.T) {
 		{Name: "bob", Email: "bob@example.com"},
 	}
 
-	err := exec.WithTx(context.Background(), nil, func(ctx context.Context, txExec SQLExecutor) error {
-		if err := ChunkedInsert(ctx, txExec, items, &ChunkedInsertOptions{ChunkSize: 10, IgnoreErrors: true}); err != nil {
+	err := exec.WithTx(context.Background(), nil, func(ctx context.Context, txExec Executor) error {
+		if err := BatchInsert(ctx, txExec, items, WithBatchSize(10), WithSkipDuplicates()); err != nil {
 			return err
 		}
 
@@ -369,7 +339,7 @@ func TestChunkedInsertIgnoreErrorsInsideTransaction(t *testing.T) {
 		return txExec.QueryRowContext(ctx, `SELECT COUNT(*) FROM users`).Scan(&count)
 	})
 	if err != nil {
-		t.Fatalf("chunked insert with IgnoreErrors inside a transaction: %v", err)
+		t.Fatalf("batch insert with WithSkipDuplicates inside a transaction: %v", err)
 	}
 
 	var count int
@@ -382,9 +352,9 @@ func TestChunkedInsertIgnoreErrorsInsideTransaction(t *testing.T) {
 	}
 }
 
-// TestChunkedInsertIgnoreErrorsStillPropagatesOtherFailures keeps IgnoreErrors narrow:
+// TestBatchInsertSkipDuplicatesStillPropagatesOtherFailures keeps WithSkipDuplicates narrow:
 // it skips duplicate keys, not everything.
-func TestChunkedInsertIgnoreErrorsStillPropagatesOtherFailures(t *testing.T) {
+func TestBatchInsertSkipDuplicatesStillPropagatesOtherFailures(t *testing.T) {
 	runtime := newBatchMutationEngine(t)
 	exec := requireInitializedRuntime(t, runtime)
 
@@ -394,8 +364,8 @@ func TestChunkedInsertIgnoreErrorsStillPropagatesOtherFailures(t *testing.T) {
 
 	items := []*batchMutationUser{{Name: "alice", Email: "alice@example.com"}}
 
-	err := ChunkedInsert(context.Background(), exec, items, &ChunkedInsertOptions{ChunkSize: 10, IgnoreErrors: true})
+	err := BatchInsert(context.Background(), exec, items, WithBatchSize(10), WithSkipDuplicates())
 	if err == nil {
-		t.Fatal("expected a missing table to fail even with IgnoreErrors")
+		t.Fatal("expected a missing table to fail even with WithSkipDuplicates")
 	}
 }

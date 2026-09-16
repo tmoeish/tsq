@@ -21,7 +21,7 @@ func (core *queryBuilderCore[O]) MustBuild() *Query[O] {
 }
 
 // Get builds and executes the query, returning one row or sql.ErrNoRows.
-func (core *queryBuilderCore[O]) Get(ctx context.Context, tx SQLExecutor, args ...any) (*O, error) {
+func (core *queryBuilderCore[O]) Get(ctx context.Context, tx Executor, args ...any) (*O, error) {
 	query, err := core.build()
 	if err != nil {
 		return nil, err
@@ -31,7 +31,7 @@ func (core *queryBuilderCore[O]) Get(ctx context.Context, tx SQLExecutor, args .
 }
 
 // Find builds and executes the query, returning one row or nil.
-func (core *queryBuilderCore[O]) Find(ctx context.Context, tx SQLExecutor, args ...any) (*O, error) {
+func (core *queryBuilderCore[O]) Find(ctx context.Context, tx Executor, args ...any) (*O, error) {
 	query, err := core.build()
 	if err != nil {
 		return nil, err
@@ -41,7 +41,7 @@ func (core *queryBuilderCore[O]) Find(ctx context.Context, tx SQLExecutor, args 
 }
 
 // Exists builds and executes the query, reporting whether any rows match.
-func (core *queryBuilderCore[O]) Exists(ctx context.Context, tx SQLExecutor, args ...any) (bool, error) {
+func (core *queryBuilderCore[O]) Exists(ctx context.Context, tx Executor, args ...any) (bool, error) {
 	query, err := core.build()
 	if err != nil {
 		return false, err
@@ -51,7 +51,7 @@ func (core *queryBuilderCore[O]) Exists(ctx context.Context, tx SQLExecutor, arg
 }
 
 // Count builds and executes the count query.
-func (core *queryBuilderCore[O]) Count(ctx context.Context, tx SQLExecutor, args ...any) (int64, error) {
+func (core *queryBuilderCore[O]) Count(ctx context.Context, tx Executor, args ...any) (int64, error) {
 	query, err := core.build()
 	if err != nil {
 		return 0, err
@@ -61,7 +61,7 @@ func (core *queryBuilderCore[O]) Count(ctx context.Context, tx SQLExecutor, args
 }
 
 // List builds and executes the list query.
-func (core *queryBuilderCore[O]) List(ctx context.Context, tx SQLExecutor, args ...any) ([]*O, error) {
+func (core *queryBuilderCore[O]) List(ctx context.Context, tx Executor, args ...any) ([]*O, error) {
 	query, err := core.build()
 	if err != nil {
 		return nil, err
@@ -73,7 +73,7 @@ func (core *queryBuilderCore[O]) List(ctx context.Context, tx SQLExecutor, args 
 // Page builds and executes the paginated query.
 func (core *queryBuilderCore[O]) Page(
 	ctx context.Context,
-	tx SQLExecutor,
+	tx Executor,
 	page *PageRequest,
 	args ...any,
 ) (*PageResponse[O], error) {

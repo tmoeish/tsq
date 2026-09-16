@@ -157,7 +157,7 @@ func TestEngineUpdateOptimisticLockConflict(t *testing.T) {
 	if affected != 0 {
 		t.Fatalf("expected 0 updated rows, got %d", affected)
 	}
-	if !errors.Is(err, &ErrOptimisticLockConflict{}) {
+	if !errors.Is(err, &OptimisticLockError{}) {
 		t.Fatalf("expected optimistic lock conflict error, got %v", err)
 	}
 	if user.Version != 2 {
@@ -200,17 +200,17 @@ func TestEngineDeleteOptimisticLockConflict(t *testing.T) {
 	if affected != 0 {
 		t.Fatalf("expected 0 deleted rows, got %d", affected)
 	}
-	if !errors.Is(err, &ErrOptimisticLockConflict{}) {
+	if !errors.Is(err, &OptimisticLockError{}) {
 		t.Fatalf("expected optimistic lock conflict error, got %v", err)
 	}
 }
 
-func TestChunkedInsertChunkUsesBatchInsert(t *testing.T) {
+func TestBatchInsertChunkUsesBatchInsert(t *testing.T) {
 	runtime := newBatchMutationEngine(t)
 	exec := requireInitializedRuntime(t, runtime)
 	items := []*batchMutationUser{{Name: "alice", Email: "alice@example.com"}, {Name: "bob", Email: "bob@example.com"}}
-	if err := chunkedInsertChunk(context.Background(), exec, items, &ChunkedInsertOptions{}); err != nil {
-		t.Fatalf("chunked insert chunk failed: %v", err)
+	if err := batchInsertChunk(context.Background(), exec, items, batchConfig{}); err != nil {
+		t.Fatalf("batch insert chunk failed: %v", err)
 	}
 	var count int
 	if err := runtime.DB().QueryRowContext(context.Background(), `SELECT COUNT(*) FROM users`).Scan(&count); err != nil {
@@ -221,7 +221,7 @@ func TestChunkedInsertChunkUsesBatchInsert(t *testing.T) {
 	}
 }
 
-func TestChunkedUpdateChunkUsesBatchUpdate(t *testing.T) {
+func TestBatchUpdateChunkUsesBatchUpdate(t *testing.T) {
 	runtime := newBatchMutationEngine(t)
 	exec := requireInitializedRuntime(t, runtime)
 	if _, err := runtime.DB().ExecContext(context.Background(), `
@@ -235,8 +235,8 @@ func TestChunkedUpdateChunkUsesBatchUpdate(t *testing.T) {
 		{ID: 1, Name: "alice-updated", Email: "alice+updated@example.com"},
 		{ID: 2, Name: "bob-updated", Email: "bob+updated@example.com"},
 	}
-	if err := chunkedUpdateChunk(context.Background(), exec, items); err != nil {
-		t.Fatalf("chunked update chunk failed: %v", err)
+	if err := batchUpdateChunk(context.Background(), exec, items); err != nil {
+		t.Fatalf("batch update chunk failed: %v", err)
 	}
 	var count int
 	if err := runtime.DB().QueryRowContext(context.Background(), `SELECT COUNT(*) FROM users WHERE name IN ('alice-updated', 'bob-updated')`).Scan(&count); err != nil {
@@ -247,7 +247,7 @@ func TestChunkedUpdateChunkUsesBatchUpdate(t *testing.T) {
 	}
 }
 
-func TestChunkedDeleteChunkUsesBatchDelete(t *testing.T) {
+func TestBatchDeleteChunkUsesBatchDelete(t *testing.T) {
 	runtime := newBatchMutationEngine(t)
 	exec := requireInitializedRuntime(t, runtime)
 	if _, err := runtime.DB().ExecContext(context.Background(), `
@@ -258,8 +258,8 @@ func TestChunkedDeleteChunkUsesBatchDelete(t *testing.T) {
 		t.Fatalf("seed rows: %v", err)
 	}
 	items := []*batchMutationUser{{ID: 1}, {ID: 2}}
-	if err := chunkedDeleteChunk(context.Background(), exec, items); err != nil {
-		t.Fatalf("chunked delete chunk failed: %v", err)
+	if err := batchDeleteChunk(context.Background(), exec, items); err != nil {
+		t.Fatalf("batch delete chunk failed: %v", err)
 	}
 	var count int
 	if err := runtime.DB().QueryRowContext(context.Background(), `SELECT COUNT(*) FROM users`).Scan(&count); err != nil {
@@ -270,15 +270,15 @@ func TestChunkedDeleteChunkUsesBatchDelete(t *testing.T) {
 	}
 }
 
-func TestChunkedInsertIgnoreErrorsSkipsSQLiteUniqueViolations(t *testing.T) {
+func TestBatchInsertSkipDuplicatesSkipsSQLiteUniqueViolations(t *testing.T) {
 	db := newBatchMutationEngine(t)
 	exec := requireInitializedRuntime(t, db)
 	if err := Insert(context.Background(), exec, &batchMutationUser{Name: "seed", Email: "alice@example.com"}); err != nil {
 		t.Fatalf("seed insert failed: %v", err)
 	}
 	items := []*batchMutationUser{{Name: "duplicate", Email: "alice@example.com"}, {Name: "fresh", Email: "bob@example.com"}}
-	if err := ChunkedInsert(context.Background(), exec, items, &ChunkedInsertOptions{ChunkSize: 2, IgnoreErrors: true}); err != nil {
-		t.Fatalf("chunked insert with ignore errors failed: %v", err)
+	if err := BatchInsert(context.Background(), exec, items, WithBatchSize(2), WithSkipDuplicates()); err != nil {
+		t.Fatalf("batch insert with ignore errors failed: %v", err)
 	}
 	var count int
 	if err := db.DB().QueryRowContext(context.Background(), `SELECT COUNT(*) FROM users`).Scan(&count); err != nil {

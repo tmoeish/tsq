@@ -83,7 +83,7 @@ Generated files are outputs. Change the source struct or annotation, then regene
 The shortest SQLite example:
 
 ```go
-runtime, err := tsq.NewRuntime(
+runtime, err := tsq.Open(
 	ctx,
 	"sqlite",
 	"file:app.db?cache=shared",
@@ -98,7 +98,7 @@ defer runtime.Close()
 
 `NewRuntime` opens the pool itself and resolves the dialect from `driverName`; the context bounds the
 ping and any bootstrap DDL. When the project already opens its own pool, for instance to wrap it with
-instrumentation, use `tsq.NewRuntimeFromDB(ctx, db, dialect, tables, options...)` instead and keep
+instrumentation, use `tsq.NewRuntime(ctx, db, dialect, tables, options...)` instead and keep
 that pool: TSQ will not close a pool it did not open. If the project manages schema by migrations,
 pass no policy and keep the default manual mode.
 
@@ -136,7 +136,7 @@ This is the main TSQ shape:
 If multiple TSQ operations must share one transaction:
 
 ```go
-if err := runtime.WithTx(ctx, nil, func(ctx context.Context, txExec tsq.SQLExecutor) error {
+if err := runtime.WithTx(ctx, nil, func(ctx context.Context, txExec tsq.Executor) error {
 	if err := tsq.Insert(ctx, txExec, user); err != nil {
 		return err
 	}

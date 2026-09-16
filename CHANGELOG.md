@@ -11,6 +11,14 @@
 
 ### 破坏性变更
 
+- **根包命名统一**：
+  - 构造器：`tsq.Open(ctx, driver, dsn, tables, ...)` 自己开池，`tsq.NewRuntime(ctx, db, dialect, tables, ...)` 用调用方的池（对应 `sql.Open`）。`Runtime.SQLDialect()` 改为 `Dialect()`，`SQLExecutor` 改为 `Executor`。
+  - 批量写：`Chunked*` 改为 `BatchInsert` / `BatchUpdate` / `BatchDelete` / `BatchHardDelete` / `BatchDeleteByPK` / `BatchHardDeleteByPK`，选项改为函数式的 `WithBatchSize(n)` 和只对插入有效的 `WithSkipDuplicates()`。
+  - 错误类型按 Go 惯例以 `Error` 结尾：`OptimisticLockError`、`UnknownSortFieldError`、`AmbiguousSortFieldError`、`OrderCountMismatchError`、`MissingIndexError`、`MissingTableError`；`RegistrationError` 的字段改为 `Kind` 和 `Table`。
+  - 事务：`TxOptions{RetryIf, RetryPolicy}`，`RetryPolicy` 和 `DefaultRetryPolicy()` 取代 `TxRetryConfig`。
+  - 分页：`PageRequest.Validate(maxSize)` / `Normalize(maxSize)` 取代原来的四个方法，`PageResponse.TotalPages`（JSON `total_pages`）。
+  - 否定谓词统一为 `Not*`（`NotIn`、`NotLike`、`NotBetween`、`NotStartsWithVal`……），和 `NotExists` 一致。
+  - 其余：`NewColumn`、`DeclareTable`、`Order.Reverse()`、`OrderBy.Column()`、`Query.SearchListSQL` / `SearchCountSQL`，`Table` 接口的 `Table()` 改为 `TableName()`。
 - **模块路径改为 `github.com/tmoeish/tsq/v5`**: Go 的语义化导入版本要求 v2+ 把 `/vN` 写进模块路径。使用者 `go get github.com/tmoeish/tsq/v5@latest`，CLI `go install github.com/tmoeish/tsq/v5/cmd/tsq@latest`。v4 和 v5 因此可以在同一个构建里共存，一个包一个包地迁移是可行的。
 - **`MIGRATION_GUIDE.md` 重写为 v4 → v5**: 按"你要动多少手"排序，注明哪些有工具（`tsq migrate`、重新生成）、哪些编译器能帮你、哪些**只能靠人读**（删除语义那条编译器不会报错，只会改变行为）。
 

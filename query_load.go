@@ -12,7 +12,7 @@ import (
 // Page executes a paginated query with the provided page parameters.
 func (q *Query[O]) Page(
 	ctx context.Context,
-	tx SQLExecutor,
+	tx Executor,
 	page *PageRequest,
 	args ...any,
 ) (*PageResponse[O], error) {
@@ -23,7 +23,7 @@ func (q *Query[O]) Page(
 
 func pageFn[O Owner](
 	ctx context.Context,
-	tx SQLExecutor,
+	tx Executor,
 	page *PageRequest,
 	q *Query[O],
 	args ...any,
@@ -122,7 +122,7 @@ func pageFn[O Owner](
 // List executes q and returns all matching rows.
 func (q *Query[O]) List(
 	ctx context.Context,
-	tx SQLExecutor,
+	tx Executor,
 	args ...any,
 ) ([]*O, error) {
 	return traceExecutor1(ctx, tx, TraceOpList, func(ctx context.Context) ([]*O, error) {
@@ -132,7 +132,7 @@ func (q *Query[O]) List(
 
 func listFn[O Owner](
 	ctx context.Context,
-	tx SQLExecutor,
+	tx Executor,
 	q *Query[O],
 	args ...any,
 ) ([]*O, error) {
@@ -195,7 +195,7 @@ func listFn[O Owner](
 // GetOrErr executes q and returns one row or sql.ErrNoRows.
 func (q *Query[O]) Get(
 	ctx context.Context,
-	tx SQLExecutor,
+	tx Executor,
 	args ...any,
 ) (*O, error) {
 	return traceExecutor1(ctx, tx, TraceOpGet, func(ctx context.Context) (*O, error) {
@@ -205,7 +205,7 @@ func (q *Query[O]) Get(
 
 func getOrErrFn[O Owner](
 	ctx context.Context,
-	tx SQLExecutor,
+	tx Executor,
 	qb *Query[O],
 	args ...any,
 ) (*O, error) {
@@ -251,7 +251,7 @@ func getOrErrFn[O Owner](
 // Get executes q and returns one row or nil when no row matches.
 func (q *Query[O]) Find(
 	ctx context.Context,
-	tx SQLExecutor,
+	tx Executor,
 	args ...any,
 ) (*O, error) {
 	row, err := q.Get(ctx, tx, args...)

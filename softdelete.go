@@ -105,7 +105,7 @@ func applyTimestamp(field reflect.Value, ts time.Time) error {
 }
 
 // softDeleteItems stamps every item and routes them through the update path.
-func softDeleteItems[T Table](ctx context.Context, tx SQLExecutor, items []T) error {
+func softDeleteItems[T Table](ctx context.Context, tx Executor, items []T) error {
 	at := time.Now()
 
 	for _, item := range items {
@@ -232,7 +232,7 @@ func buildSoftDeleteByPKsSQL(
 // softDeleteByPKsChunk tombstones one chunk of primary-key values.
 func softDeleteByPKsChunk(
 	ctx context.Context,
-	tx SQLExecutor,
+	tx Executor,
 	tableName string,
 	setColumns []string,
 	setValues []any,
@@ -260,19 +260,19 @@ func softDeleteByPKsChunk(
 	args = append(args, ids...)
 
 	if _, err := tx.ExecContext(ctx, sqlText, args...); err != nil {
-		return fmt.Errorf("chunked soft delete by primary keys failed: %s: %w", sqlText, err)
+		return fmt.Errorf("batch soft delete by primary keys failed: %s: %w", sqlText, err)
 	}
 
 	return nil
 }
 
-// chunkedSoftDeleteByPKsFn tombstones rows by primary-key value in chunks.
-func chunkedSoftDeleteByPKsFn[O Table, T any](
+// batchSoftDeleteByPKsFn tombstones rows by primary-key value in chunks.
+func batchSoftDeleteByPKsFn[O Table, T any](
 	ctx context.Context,
-	tx SQLExecutor,
+	tx Executor,
 	pkField TypedColumn[O, T],
 	ids []T,
-	options ...*ChunkedOptions,
+	options ...BatchOption,
 ) error {
 	if len(ids) == 0 {
 		return nil
@@ -282,7 +282,7 @@ func chunkedSoftDeleteByPKsFn[O Table, T any](
 		return err
 	}
 
-	tableName, pkColumn, err := resolveChunkedDeletePKField(pkField)
+	tableName, pkColumn, err := resolveBatchDeletePKField(pkField)
 	if err != nil {
 		return err
 	}
@@ -297,13 +297,13 @@ func chunkedSoftDeleteByPKsFn[O Table, T any](
 		return err
 	}
 
-	opts, err := normalizeChunkedOptions(options...)
+	config, err := newBatchConfig(options, false)
 	if err != nil {
 		return err
 	}
 
 	// One placeholder per id, plus the fixed SET values shared by every chunk.
-	chunkSize := chunkSizeForExecutor(tx, opts.ChunkSize, 1)
+	chunkSize := chunkSizeForExecutor(tx, config.size, 1)
 	if chunkSize > len(setValues) {
 		chunkSize -= len(setValues)
 	}
@@ -315,7 +315,7 @@ func chunkedSoftDeleteByPKsFn[O Table, T any](
 		if err := softDeleteByPKsChunk(
 			ctx, tx, tableName, setColumns, setValues, versionColumn, pkColumn, batch,
 		); err != nil {
-			return fmt.Errorf("chunked soft delete by primary keys failed at index %d: %w", i, err)
+			return fmt.Errorf("batch soft delete by primary keys failed at index %d: %w", i, err)
 		}
 	}
 

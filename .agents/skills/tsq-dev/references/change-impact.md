@@ -137,7 +137,7 @@
   PostgreSQL：**一条固定进 SQL 文本的子句必须在三个方言上都能解析且语义一致**，只有真实
   服务器证明得了。此前 `integration_test.go` 对关键字搜索零覆盖。
 
-## 改了分块（`query_chunked.go`）或批量语句的形状（`executor_mutation.go`）
+## 改了分块（`batch.go`）或批量语句的形状（`executor_mutation.go`）
 
 - 分块的单位是**行**，数据库数的是**占位符**，两个换算因子都可能错：
   - **上限按方言**（`dialect.MaxBindParams`）。MySQL / PostgreSQL 是 65535，**SQLite 是
@@ -149,25 +149,25 @@
     `insertBindParamsPerRow` / `updateBindParamsPerRow` / `deleteBindParamsPerRow`。
 - 方言未知（`WrapExecutor` 包一个裸 `*sql.DB`）时取**最紧**的上限：偏小只多几次往返，
   偏大是执行期直接失败。
-- **`IgnoreErrors` 的错误处理不可移植**：`ChunkedInsert{IgnoreErrors}` 事务内必须用
+- **`WithSkipDuplicates` 的错误处理不可移植**：`BatchInsert(..., WithSkipDuplicates())` 事务内必须用
   savepoint 括住每一行。PostgreSQL 一条语句失败就把事务置为 aborted，其后一律 `25P02`——
   "抓住错误继续跑"只在 SQLite / MySQL 上成立。事务外**不能**发 savepoint（PG 用 `25P01`
   拒绝事务外的 `SAVEPOINT`），判断走哪条路要穿过 `wrappedExecutor` 找 `*sql.Tx`。
   别改成 `INSERT IGNORE` / 批量 `ON CONFLICT DO NOTHING`：前者在 MySQL 上会吞掉所有错误，
-  后者让 `RETURNING` 无法按位置回填主键。`TestIntegrationChunkedInsertIgnoresDuplicatesInsideTransaction`
+  后者让 `RETURNING` 无法按位置回填主键。`TestIntegrationBatchInsertIgnoresDuplicatesInsideTransaction`
   是那道门，且**只有真实 PostgreSQL 上才有意义**。
 - 宽表端到端用例**在 `-race` 下很贵**（一条批量 UPDATE 要绑几万个占位符）。行数取"刚好越过
   错误估算下的上限"，不要为了保险随手加大——第一版用 1200 行，一个用例就占了 `test-race`
   的四分之三时间。`TestSQLiteRejectsMoreBoundParametersThanItsCeiling` 用一条简单 INSERT
   直接钉住 32766 这个数，比靠特定表形状去推便宜得多。
-- `query_chunked_widetable_test.go` 是那道门——它真的插一张 40 列的表，纯粹比对算出来的
+- `batch_widetable_test.go` 是那道门——它真的插一张 40 列的表，纯粹比对算出来的
   chunk size 证明不了语句能被数据库接受。
 
 ## 加了 Runtime 的构造器或选项
 
 - **先决定连接池的所有权**：`Runtime.ownsDB` 决定 `Close()` 关不关它。新构造器如果接管调用方的池，
   `ownsDB` 必须是 false，否则 `Close()` 会打断调用方在 TSQ 之外的用途。正反两侧都要测。
-  `[门禁: runtime_test.go 的 NewRuntimeFromDB/NewRuntimeCloses 两组]`
+  `[门禁: runtime_test.go 的 NewRuntime/NewRuntimeCloses 两组]`
 - **新选项写成 `With*` 函数**，值只存进 `runtimeConfig`，校验统一放在 `newRuntimeConfig` 末尾——
   非法值只从构造器报一次。
 - 选项加进 `skills/tsq` 的 Runtime 小节；它是使用者唯一能看到这份清单的地方。
@@ -309,7 +309,7 @@
 
 ## 改了生成的 `var TableXxx` 声明，或改了 `Cols()` 怎么拿到列切片
 
-- 表变量必须继续**在初始化表达式里写出** `Xxx__Cols`（现在靠 `tsq.TableWithCols` 的第二个
+- 表变量必须继续**在初始化表达式里写出** `Xxx__Cols`（现在靠 `tsq.DeclareTable` 的第二个
   参数）。`Cols()` 是接口方法，Go 的包级初始化顺序分析看不见它；少了这次引用，只选部分列
   的投影查询变量可以先于列切片初始化，那时切片长度已满而元素全 `nil`，`MustBuild()` 在包
   初始化时 panic。**这个参数看起来没用，删了它报错不会立刻回来**——回来的是随文件名漂移的

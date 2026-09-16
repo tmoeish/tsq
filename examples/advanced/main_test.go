@@ -47,8 +47,8 @@ func TestAdvanced(t *testing.T) {
 		t.Fatal("expected set ops demo to return rows")
 	}
 
-	if summary.Chunked.Before != summary.Chunked.After {
-		t.Fatalf("expected chunked demo to leave enrollment count unchanged, got before=%d after=%d",
-			summary.Chunked.Before, summary.Chunked.After)
+	if summary.Batch.Before != summary.Batch.After {
+		t.Fatalf("expected batch demo to leave enrollment count unchanged, got before=%d after=%d",
+			summary.Batch.Before, summary.Batch.After)
 	}
 }

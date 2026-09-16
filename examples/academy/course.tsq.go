@@ -23,13 +23,13 @@ import (
 // interface method, which package initialization ordering cannot see. Without it a
 // package-level query variable in a file sorting before this one can observe
 // Course__Cols fully sized with nil elements.
-var TableCourse tsq.Table = tsq.TableWithCols(Course{}, Course__Cols)
+var TableCourse tsq.Table = tsq.DeclareTable(Course{}, Course__Cols)
 
 // TSQOwner marks Course as a TSQ owner.
 func (c Course) TSQOwner() {}
 
-// Table returns the database table name for Course.
-func (c Course) Table() string { return "course" }
+// TableName returns the database table name for Course.
+func (c Course) TableName() string { return "course" }
 
 // Cols returns all generated columns for Course.
 func (c Course) Cols() []tsq.SQLColumn {
@@ -61,16 +61,16 @@ func (c Course) ManagedColumns() tsq.ManagedColumns {
 
 // Column definitions for Course table.
 var (
-	Course_CreatedAt      = tsq.NewCol("created_at", "created_at", func(t *Course) *null.Time { return &t.CreatedAt })
-	Course_ID             = tsq.NewCol("id", "id", func(t *Course) *int64 { return &t.ID })
-	Course_InstructorID   = tsq.NewCol("instructor_id", "instructor_id", func(t *Course) *int64 { return &t.InstructorID })
-	Course_Level          = tsq.NewCol("level", "level", func(t *Course) *CourseLevel { return &t.Level })
-	Course_ListPriceCents = tsq.NewCol("list_price_cents", "list_price_cents", func(t *Course) *int64 { return &t.ListPriceCents })
-	Course_PrerequisiteID = tsq.NewCol("prerequisite_id", "prerequisite_id", func(t *Course) *int64 { return &t.PrerequisiteID })
-	Course_Published      = tsq.NewCol("published", "published", func(t *Course) *bool { return &t.Published })
-	Course_Summary        = tsq.NewCol("summary", "summary", func(t *Course) *string { return &t.Summary })
-	Course_Title          = tsq.NewCol("title", "title", func(t *Course) *string { return &t.Title })
-	Course_TrackID        = tsq.NewCol("track_id", "track_id", func(t *Course) *int64 { return &t.TrackID })
+	Course_CreatedAt      = tsq.NewColumn("created_at", "created_at", func(t *Course) *null.Time { return &t.CreatedAt })
+	Course_ID             = tsq.NewColumn("id", "id", func(t *Course) *int64 { return &t.ID })
+	Course_InstructorID   = tsq.NewColumn("instructor_id", "instructor_id", func(t *Course) *int64 { return &t.InstructorID })
+	Course_Level          = tsq.NewColumn("level", "level", func(t *Course) *CourseLevel { return &t.Level })
+	Course_ListPriceCents = tsq.NewColumn("list_price_cents", "list_price_cents", func(t *Course) *int64 { return &t.ListPriceCents })
+	Course_PrerequisiteID = tsq.NewColumn("prerequisite_id", "prerequisite_id", func(t *Course) *int64 { return &t.PrerequisiteID })
+	Course_Published      = tsq.NewColumn("published", "published", func(t *Course) *bool { return &t.Published })
+	Course_Summary        = tsq.NewColumn("summary", "summary", func(t *Course) *string { return &t.Summary })
+	Course_Title          = tsq.NewColumn("title", "title", func(t *Course) *string { return &t.Title })
+	Course_TrackID        = tsq.NewColumn("track_id", "track_id", func(t *Course) *int64 { return &t.TrackID })
 )
 
 // Course__Cols is the list of all selectable columns for Course table.
@@ -112,7 +112,7 @@ var QueryCourseByIDIn = tsq.
 // Returns an error if any of the specified records are not found.
 func ListCourseByIDInOrErr(
 	ctx context.Context,
-	db tsq.SQLExecutor,
+	db tsq.Executor,
 	iDs ...int64,
 ) ([]*Course, error) {
 	list, err := QueryCourseByIDIn.List(ctx, db, iDs)
@@ -146,7 +146,7 @@ var QueryCourseByTitle = tsq.
 // Returns an error if any of the specified records are not found.
 func ListCourseByTitleInOrErr(
 	ctx context.Context,
-	db tsq.SQLExecutor,
+	db tsq.Executor,
 	titles ...string,
 ) ([]*Course, error) {
 	list, err := QueryCourseByTitleIn.List(ctx, db,
@@ -252,7 +252,7 @@ var QueryCourse = tsq.
 // Insert inserts a new Course record.
 func (c *Course) Insert(
 	ctx context.Context,
-	db tsq.SQLExecutor,
+	db tsq.Executor,
 ) error {
 	if !c.CreatedAt.Valid {
 		c.CreatedAt = null.TimeFrom(tsqtime.Now())
@@ -267,7 +267,7 @@ func (c *Course) Insert(
 // Update updates an existing Course record.
 func (c *Course) Update(
 	ctx context.Context,
-	db tsq.SQLExecutor,
+	db tsq.Executor,
 ) error {
 	err := tsq.Update(ctx, db, c)
 	if err != nil {
@@ -282,7 +282,7 @@ func (c *Course) Update(
 // same operation.
 func (c *Course) Delete(
 	ctx context.Context,
-	db tsq.SQLExecutor,
+	db tsq.Executor,
 ) error {
 	err := tsq.Delete(ctx, db, c)
 	if err != nil {
@@ -294,7 +294,7 @@ func (c *Course) Delete(
 // HardDelete removes a Course record from the database.
 func (c *Course) HardDelete(
 	ctx context.Context,
-	db tsq.SQLExecutor,
+	db tsq.Executor,
 ) error {
 	err := tsq.HardDelete(ctx, db, c)
 	if err != nil {

@@ -32,25 +32,13 @@ func (r *PageRequest) Offset() int {
 	return r.Size * (r.Page - 1)
 }
 
-// Normalize applies default page values and clamps the requested page size to
-// DefaultMaxPageSize.
-//
-// DefaultMaxPageSize is the absolute ceiling, not necessarily the effective one: a
-// runtime built with RuntimeOptions.MaxPageSize clamps further when the query runs.
-// Use NormalizeWithLimit to apply that runtime's limit here instead.
-//
-// The error return is always nil. It is kept so that callers can treat Normalize like
-// Validate in a chain, and because dropping it would break every existing caller.
-func (r *PageRequest) Normalize() error {
-	return r.NormalizeWithLimit(DefaultMaxPageSize)
-}
-
-// NormalizeWithLimit is Normalize with an explicit page-size ceiling, so an HTTP
-// handler can apply the same limit its runtime will apply. A maxSize of zero or less
-// means DefaultMaxPageSize. The error return is always nil.
-func (r *PageRequest) NormalizeWithLimit(maxSize int) error {
+// Normalize applies default page values and clamps Page to MaxPageNumber and Size to
+// maxSize. A maxSize of zero or less means DefaultMaxPageSize, and a maxSize above
+// DefaultMaxPageSize is capped to it. Pass the runtime's Runtime.MaxPageSize so that an
+// HTTP handler applies the same limit the query will.
+func (r *PageRequest) Normalize(maxSize int) {
 	if r == nil {
-		return nil
+		return
 	}
 
 	maxSize = boundPageSize(maxSize)
@@ -70,24 +58,11 @@ func (r *PageRequest) NormalizeWithLimit(maxSize int) error {
 	if r.Size > maxSize {
 		r.Size = maxSize
 	}
-
-	return nil
 }
 
-// Validate reports invalid paging or sorting input without mutating r.
-//
-// It checks Size against DefaultMaxPageSize, the absolute ceiling. A runtime built
-// with RuntimeOptions.MaxPageSize clamps further at execution time, so a request that
-// passes Validate may still come back with fewer rows than it asked for; use
-// ValidateWithLimit to check against that runtime's limit instead.
-func (r *PageRequest) Validate() error {
-	return r.ValidateWithLimit(DefaultMaxPageSize)
-}
-
-// ValidateWithLimit is Validate with an explicit page-size ceiling. A maxSize of zero
-// or less means DefaultMaxPageSize; a maxSize above DefaultMaxPageSize is capped to it,
-// because no runtime raises the absolute ceiling.
-func (r *PageRequest) ValidateWithLimit(maxSize int) error {
+// Validate reports invalid paging or sorting input without mutating r. maxSize is
+// resolved the same way Normalize resolves it.
+func (r *PageRequest) Validate(maxSize int) error {
 	if r == nil {
 		return nil
 	}
@@ -129,9 +104,9 @@ func (r *PageRequest) ValidateWithLimit(maxSize int) error {
 type PageResponse[T any] struct {
 	PageRequest
 
-	Total     int64 `json:"total"`      // Total is the full number of matching rows.
-	TotalPage int64 `json:"total_page"` // TotalPage is the number of available pages after rounding up.
-	Data      []*T  `json:"data"`       // Data contains the rows for the current page.
+	Total      int64 `json:"total"`       // Total is the full number of matching rows.
+	TotalPages int64 `json:"total_pages"` // TotalPage is the number of available pages after rounding up.
+	Data       []*T  `json:"data"`        // Data contains the rows for the current page.
 }
 
 // Response creates a typed page response from the request, total count, and data.
@@ -145,9 +120,9 @@ func (r *PageRequest) Response[T any](total int64, data []*T) *PageResponse[T] {
 	}
 
 	if r.Size > 0 {
-		resp.TotalPage = total / int64(r.Size)
+		resp.TotalPages = total / int64(r.Size)
 		if total%int64(r.Size) != 0 {
-			resp.TotalPage++
+			resp.TotalPages++
 		}
 	}
 
@@ -160,7 +135,7 @@ func (r *PageResponse[T]) HasNext() bool {
 		return false
 	}
 
-	return r.Page < int(r.TotalPage)
+	return r.Page < int(r.TotalPages)
 }
 
 // HasPrev reports whether a page exists before the current one.

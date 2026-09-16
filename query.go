@@ -7,26 +7,26 @@ import (
 	"slices"
 )
 
-// ErrUnknownSortField reports that a requested sort field is unknown.
-type ErrUnknownSortField struct {
+// UnknownSortFieldError reports that a requested sort field is unknown.
+type UnknownSortFieldError struct {
 	field string
 }
 
-// newErrUnknownSortField constructs an ErrUnknownSortField.
-func newErrUnknownSortField(field string) *ErrUnknownSortField {
-	return &ErrUnknownSortField{field: field}
+// newErrUnknownSortField constructs an UnknownSortFieldError.
+func newErrUnknownSortField(field string) *UnknownSortFieldError {
+	return &UnknownSortFieldError{field: field}
 }
 
 // Error implements error.
-func (e *ErrUnknownSortField) Error() string {
+func (e *UnknownSortFieldError) Error() string {
 	return fmt.Sprintf("unknown sort field: %s", e.field)
 }
 
-// Is reports whether target is an *ErrUnknownSortField for the same field.
-// An *ErrUnknownSortField with an empty field matches any ErrUnknownSortField,
+// Is reports whether target is an *UnknownSortFieldError for the same field.
+// An *UnknownSortFieldError with an empty field matches any UnknownSortFieldError,
 // enabling both type-level and value-level errors.Is checks.
-func (e *ErrUnknownSortField) Is(target error) bool {
-	var other *ErrUnknownSortField
+func (e *UnknownSortFieldError) Is(target error) bool {
+	var other *UnknownSortFieldError
 
 	ok := errors.As(target, &other)
 	if !ok {
@@ -36,26 +36,26 @@ func (e *ErrUnknownSortField) Is(target error) bool {
 	return other.field == "" || e.field == other.field
 }
 
-// ErrAmbiguousSortField reports that a sort field matches multiple selected columns.
-type ErrAmbiguousSortField struct {
+// AmbiguousSortFieldError reports that a sort field matches multiple selected columns.
+type AmbiguousSortFieldError struct {
 	field string
 }
 
-// newErrAmbiguousSortField constructs an ErrAmbiguousSortField.
-func newErrAmbiguousSortField(field string) *ErrAmbiguousSortField {
-	return &ErrAmbiguousSortField{field: field}
+// newErrAmbiguousSortField constructs an AmbiguousSortFieldError.
+func newErrAmbiguousSortField(field string) *AmbiguousSortFieldError {
+	return &AmbiguousSortFieldError{field: field}
 }
 
 // Error implements error.
-func (e *ErrAmbiguousSortField) Error() string {
+func (e *AmbiguousSortFieldError) Error() string {
 	return fmt.Sprintf("ambiguous sort field: %s", e.field)
 }
 
-// Is reports whether target is an *ErrAmbiguousSortField for the same field.
-// An *ErrAmbiguousSortField with an empty field matches any ErrAmbiguousSortField,
+// Is reports whether target is an *AmbiguousSortFieldError for the same field.
+// An *AmbiguousSortFieldError with an empty field matches any AmbiguousSortFieldError,
 // enabling both type-level and value-level errors.Is checks.
-func (e *ErrAmbiguousSortField) Is(target error) bool {
-	var other *ErrAmbiguousSortField
+func (e *AmbiguousSortFieldError) Is(target error) bool {
+	var other *AmbiguousSortFieldError
 
 	ok := errors.As(target, &other)
 	if !ok {
@@ -65,30 +65,30 @@ func (e *ErrAmbiguousSortField) Is(target error) bool {
 	return other.field == "" || e.field == other.field
 }
 
-// ErrOrderCountMismatch reports that the ORDER BY field and direction counts differ.
-type ErrOrderCountMismatch struct {
+// OrderCountMismatchError reports that the ORDER BY field and direction counts differ.
+type OrderCountMismatchError struct {
 	orderBys int
 	orders   int
 }
 
-// newErrOrderCountMismatch constructs an ErrOrderCountMismatch.
-func newErrOrderCountMismatch(orderbys, orders int) *ErrOrderCountMismatch {
-	return &ErrOrderCountMismatch{orderBys: orderbys, orders: orders}
+// newErrOrderCountMismatch constructs an OrderCountMismatchError.
+func newErrOrderCountMismatch(orderbys, orders int) *OrderCountMismatchError {
+	return &OrderCountMismatchError{orderBys: orderbys, orders: orders}
 }
 
 // Error implements error.
-func (e *ErrOrderCountMismatch) Error() string {
+func (e *OrderCountMismatchError) Error() string {
 	return fmt.Sprintf(
 		"ORDER BY fields count(%d) and ORDER directions count(%d) mismatch",
 		e.orderBys, e.orders,
 	)
 }
 
-// Is reports whether target is an *ErrOrderCountMismatch with the same counts.
-// An *ErrOrderCountMismatch with zero orderBys and zero orders matches any
-// ErrOrderCountMismatch, enabling type-level errors.Is checks.
-func (e *ErrOrderCountMismatch) Is(target error) bool {
-	var other *ErrOrderCountMismatch
+// Is reports whether target is an *OrderCountMismatchError with the same counts.
+// An *OrderCountMismatchError with zero orderBys and zero orders matches any
+// OrderCountMismatchError, enabling type-level errors.Is checks.
+func (e *OrderCountMismatchError) Is(target error) bool {
+	var other *OrderCountMismatchError
 
 	ok := errors.As(target, &other)
 	if !ok {
@@ -173,8 +173,8 @@ func (q *Query[O]) ListSQL() string {
 	return renderCanonicalSQL(q.listSQL)
 }
 
-// KeywordCountSQL returns the keyword-search COUNT query SQL statement.
-func (q *Query[O]) KeywordCountSQL() string {
+// SearchCountSQL returns the keyword-search COUNT query SQL statement.
+func (q *Query[O]) SearchCountSQL() string {
 	if q == nil {
 		return ""
 	}
@@ -182,8 +182,8 @@ func (q *Query[O]) KeywordCountSQL() string {
 	return renderCanonicalSQL(q.kwCntSQL)
 }
 
-// KeywordListSQL returns the keyword-search SELECT query SQL statement.
-func (q *Query[O]) KeywordListSQL() string {
+// SearchListSQL returns the keyword-search SELECT query SQL statement.
+func (q *Query[O]) SearchListSQL() string {
 	if q == nil {
 		return ""
 	}

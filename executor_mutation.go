@@ -23,7 +23,7 @@ type mutationRecord struct {
 	autoIncr     bool
 }
 
-func insertTables(ctx context.Context, exec SQLExecutor, dst ...Table) error {
+func insertTables(ctx context.Context, exec Executor, dst ...Table) error {
 	records, err := collectMutationRecords(dst)
 	if err != nil {
 		return err
@@ -38,7 +38,7 @@ func insertTables(ctx context.Context, exec SQLExecutor, dst ...Table) error {
 	return nil
 }
 
-func updateTables(ctx context.Context, exec SQLExecutor, dst ...Table) (int64, error) {
+func updateTables(ctx context.Context, exec Executor, dst ...Table) (int64, error) {
 	records, err := collectMutationRecords(dst)
 	if err != nil {
 		return 0, err
@@ -58,7 +58,7 @@ func updateTables(ctx context.Context, exec SQLExecutor, dst ...Table) (int64, e
 	return total, nil
 }
 
-func deleteTables(ctx context.Context, exec SQLExecutor, dst ...Table) (int64, error) {
+func deleteTables(ctx context.Context, exec Executor, dst ...Table) (int64, error) {
 	records, err := collectMutationRecords(dst)
 	if err != nil {
 		return 0, err
@@ -135,7 +135,7 @@ func groupMutationRecords(records []mutationRecord, keyFn func(mutationRecord) s
 	return groups
 }
 
-func insertBatch(ctx context.Context, exec SQLExecutor, records []mutationRecord) error {
+func insertBatch(ctx context.Context, exec Executor, records []mutationRecord) error {
 	if len(records) == 0 {
 		return nil
 	}
@@ -212,7 +212,7 @@ func insertBatch(ctx context.Context, exec SQLExecutor, records []mutationRecord
 	return nil
 }
 
-func insertReturningSuffix(exec SQLExecutor, record mutationRecord) string {
+func insertReturningSuffix(exec Executor, record mutationRecord) string {
 	dialect := dialectForExecutor(exec)
 	if dialect == nil || record.pkField.column == "" {
 		return ""
@@ -223,7 +223,7 @@ func insertReturningSuffix(exec SQLExecutor, record mutationRecord) string {
 
 // insertBatchReturning runs a multi-row INSERT ... RETURNING <pk> and assigns the
 // returned keys to the records in insertion order.
-func insertBatchReturning(ctx context.Context, exec SQLExecutor, query string, args []any, records []mutationRecord) error {
+func insertBatchReturning(ctx context.Context, exec Executor, query string, args []any, records []mutationRecord) error {
 	rows, err := exec.QueryContext(ctx, query, args...)
 	if err != nil {
 		return err
@@ -260,7 +260,7 @@ func insertBatchReturning(ctx context.Context, exec SQLExecutor, query string, a
 	return nil
 }
 
-func updateBatch(ctx context.Context, exec SQLExecutor, records []mutationRecord) (int64, error) {
+func updateBatch(ctx context.Context, exec Executor, records []mutationRecord) (int64, error) {
 	if len(records) == 0 {
 		return 0, nil
 	}
@@ -363,7 +363,7 @@ func updateBatch(ctx context.Context, exec SQLExecutor, records []mutationRecord
 	}
 
 	if hasOptimisticLock && rowsAffected != int64(len(records)) {
-		return rowsAffected, &ErrOptimisticLockConflict{
+		return rowsAffected, &OptimisticLockError{
 			table:    records[0].tableName,
 			expected: len(records),
 			actual:   rowsAffected,
@@ -377,7 +377,7 @@ func updateBatch(ctx context.Context, exec SQLExecutor, records []mutationRecord
 	return rowsAffected, nil
 }
 
-func deleteBatch(ctx context.Context, exec SQLExecutor, records []mutationRecord) (int64, error) {
+func deleteBatch(ctx context.Context, exec Executor, records []mutationRecord) (int64, error) {
 	if len(records) == 0 {
 		return 0, nil
 	}
@@ -417,7 +417,7 @@ func deleteBatch(ctx context.Context, exec SQLExecutor, records []mutationRecord
 	}
 
 	if hasOptimisticMutation(records[0]) && rowsAffected != int64(len(records)) {
-		return rowsAffected, &ErrOptimisticLockConflict{
+		return rowsAffected, &OptimisticLockError{
 			table:    records[0].tableName,
 			expected: len(records),
 			actual:   rowsAffected,
@@ -427,7 +427,7 @@ func deleteBatch(ctx context.Context, exec SQLExecutor, records []mutationRecord
 	return rowsAffected, nil
 }
 
-func quoteMutationIdentifier(exec SQLExecutor, name string) (string, error) {
+func quoteMutationIdentifier(exec Executor, name string) (string, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return "", fmt.Errorf("identifier cannot be empty")
@@ -444,7 +444,7 @@ func quoteMutationIdentifier(exec SQLExecutor, name string) (string, error) {
 	return name, nil
 }
 
-func bindVar(exec SQLExecutor, index int) string {
+func bindVar(exec Executor, index int) string {
 	if dialect := dialectForExecutor(exec); dialect != nil {
 		return dialect.BindVar(index)
 	}
@@ -456,7 +456,7 @@ func isZeroMutationValue(value reflect.Value) bool {
 	return value.IsZero()
 }
 
-func nextBindVar(exec SQLExecutor, index *int) string {
+func nextBindVar(exec Executor, index *int) string {
 	placeholder := bindVar(exec, *index)
 	*index++
 
@@ -480,7 +480,7 @@ func assignMutationID(field reflect.Value, id int64) {
 	}
 }
 
-func assignBatchInsertIDs(ctx context.Context, exec SQLExecutor, records []mutationRecord, result sql.Result, omittedPrimaryKey bool) {
+func assignBatchInsertIDs(ctx context.Context, exec Executor, records []mutationRecord, result sql.Result, omittedPrimaryKey bool) {
 	if !omittedPrimaryKey || len(records) == 0 {
 		return
 	}

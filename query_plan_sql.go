@@ -235,11 +235,11 @@ func (spec querySpec[O]) buildFrom() (string, []any) {
 	fromBuilder.WriteString(" FROM ")
 	fromBuilder.WriteString(rawTableIdentifier(spec.From))
 
-	includedTables[spec.From.Table()] = true
+	includedTables[spec.From.TableName()] = true
 
 	for _, item := range spec.Joins {
 		if item.joinType == crossJoinType {
-			if includedTables[item.table.Table()] {
+			if includedTables[item.table.TableName()] {
 				continue
 			}
 
@@ -248,12 +248,12 @@ func (spec querySpec[O]) buildFrom() (string, []any) {
 			fromBuilder.WriteString(" ")
 			fromBuilder.WriteString(rawTableIdentifier(item.table))
 
-			includedTables[item.table.Table()] = true
+			includedTables[item.table.TableName()] = true
 
 			continue
 		}
 
-		tableName := item.table.Table()
+		tableName := item.table.TableName()
 		if includedTables[tableName] {
 			continue
 		}

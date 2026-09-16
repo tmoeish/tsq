@@ -25,7 +25,7 @@ type wideRow struct {
 
 func (wideRow) TSQOwner() {}
 
-func (wideRow) Table() string { return "wide_rows" }
+func (wideRow) TableName() string { return "wide_rows" }
 
 func (wideRow) SearchColumns() []SearchColumn { return nil }
 
@@ -41,11 +41,11 @@ var wideRowColumnList = buildWideRowColumns()
 
 func buildWideRowColumns() []BoundColumn[wideRow] {
 	cols := make([]BoundColumn[wideRow], 0, wideRowColumns)
-	cols = append(cols, NewCol[wideRow, int64]("id", "id", func(t *wideRow) *int64 { return &t.ID }))
+	cols = append(cols, NewColumn[wideRow, int64]("id", "id", func(t *wideRow) *int64 { return &t.ID }))
 
 	for i := range wideRowColumns - 1 {
 		name := fmt.Sprintf("c%d", i)
-		cols = append(cols, NewCol[wideRow, int64](name, name, func(t *wideRow) *int64 { return &t.Values[i] }))
+		cols = append(cols, NewColumn[wideRow, int64](name, name, func(t *wideRow) *int64 { return &t.Values[i] }))
 	}
 
 	return cols
@@ -76,11 +76,11 @@ func newWideRowRuntime(t *testing.T) *Runtime {
 	return newRuntimeWithDB(db, tsqdialect.SQLiteDialect{})
 }
 
-// TestChunkedInsertOnWideTableStaysUnderSQLiteVariableLimit is the end-to-end gate for
+// TestBatchInsertOnWideTableStaysUnderSQLiteVariableLimit is the end-to-end gate for
 // the per-dialect bind parameter ceiling. SQLite's SQLITE_MAX_VARIABLE_NUMBER is 32766,
 // not the 65535 tsq assumed, so a wide-table batch at the default chunk size used to
 // fail with "too many SQL variables" on the one database the unit suite runs against.
-func TestChunkedInsertOnWideTableStaysUnderSQLiteVariableLimit(t *testing.T) {
+func TestBatchInsertOnWideTableStaysUnderSQLiteVariableLimit(t *testing.T) {
 	runtime := newWideRowRuntime(t)
 	exec := requireInitializedRuntime(t, runtime)
 
@@ -96,8 +96,8 @@ func TestChunkedInsertOnWideTableStaysUnderSQLiteVariableLimit(t *testing.T) {
 		items = append(items, row)
 	}
 
-	if err := ChunkedInsert(context.Background(), exec, items); err != nil {
-		t.Fatalf("chunked insert of a wide table: %v", err)
+	if err := BatchInsert(context.Background(), exec, items); err != nil {
+		t.Fatalf("batch insert of a wide table: %v", err)
 	}
 
 	var count int
@@ -110,10 +110,10 @@ func TestChunkedInsertOnWideTableStaysUnderSQLiteVariableLimit(t *testing.T) {
 	}
 }
 
-// TestChunkedUpdateOnWideTableStaysUnderSQLiteVariableLimit covers the other half: a
+// TestBatchUpdateOnWideTableStaysUnderSQLiteVariableLimit covers the other half: a
 // batch UPDATE binds about two placeholders per column per row, so sizing its chunk
 // with the INSERT estimate overshoots the ceiling even when the ceiling is right.
-func TestChunkedUpdateOnWideTableStaysUnderSQLiteVariableLimit(t *testing.T) {
+func TestBatchUpdateOnWideTableStaysUnderSQLiteVariableLimit(t *testing.T) {
 	runtime := newWideRowRuntime(t)
 	exec := requireInitializedRuntime(t, runtime)
 
@@ -128,7 +128,7 @@ func TestChunkedUpdateOnWideTableStaysUnderSQLiteVariableLimit(t *testing.T) {
 		items = append(items, &wideRow{})
 	}
 
-	if err := ChunkedInsert(context.Background(), exec, items); err != nil {
+	if err := BatchInsert(context.Background(), exec, items); err != nil {
 		t.Fatalf("seed wide rows: %v", err)
 	}
 
@@ -136,8 +136,8 @@ func TestChunkedUpdateOnWideTableStaysUnderSQLiteVariableLimit(t *testing.T) {
 		row.Values[0] = int64(i + 1)
 	}
 
-	if err := ChunkedUpdate(context.Background(), exec, items); err != nil {
-		t.Fatalf("chunked update of a wide table: %v", err)
+	if err := BatchUpdate(context.Background(), exec, items); err != nil {
+		t.Fatalf("batch update of a wide table: %v", err)
 	}
 
 	var updated int

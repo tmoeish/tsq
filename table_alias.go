@@ -86,8 +86,8 @@ func RebindColumn(col SQLColumn, table Table) SQLColumn {
 	}
 }
 
-// Table returns the SQL identifier that should be used after aliasing.
-func (t aliasedTable) Table() string {
+// TableName returns the SQL identifier that should be used after aliasing.
+func (t aliasedTable) TableName() string {
 	return t.alias
 }
 
@@ -151,7 +151,7 @@ func logicalTableName(table Table) string {
 		return ""
 	}
 
-	return strings.TrimSpace(table.Table())
+	return strings.TrimSpace(table.TableName())
 }
 
 func physicalTableName(table Table) string {
@@ -210,7 +210,7 @@ func (c reboundColumn) scanPointer() scanPointer {
 }
 
 func (c reboundColumn) referencedTables() map[string]Table {
-	return map[string]Table{c.table.Table(): c.table}
+	return map[string]Table{c.table.TableName(): c.table}
 }
 
 func (c reboundSearchColumn) searchColumn() {}

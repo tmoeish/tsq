@@ -12,7 +12,7 @@ type buildErrorTable struct {
 
 func (buildErrorTable) TSQOwner() {}
 
-func (t buildErrorTable) Table() string                { return t.name }
+func (t buildErrorTable) TableName() string            { return t.name }
 func (buildErrorTable) Cols() []SQLColumn              { return nil }
 func (buildErrorTable) SearchColumns() []SearchColumn  { return nil }
 func (buildErrorTable) PrimaryKey() string             { return "" }
@@ -72,7 +72,7 @@ func TestColumnPrimaryTableFallsBackToSortedReferencedTables(t *testing.T) {
 		t.Fatal("expected referenced tables fallback to return a table")
 	}
 
-	if got.Table() != "orgs" {
-		t.Fatalf("expected alphabetical fallback table orgs, got %q", got.Table())
+	if got.TableName() != "orgs" {
+		t.Fatalf("expected alphabetical fallback table orgs, got %q", got.TableName())
 	}
 }

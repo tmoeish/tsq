@@ -17,8 +17,8 @@ type columnImpl[O Owner, T any] struct {
 	buildErr      error
 }
 
-// NewCol creates a new typed column for the table represented by O.
-func NewCol[O Table, T any](baseName, jsonFieldName string, fieldPointer func(*O) *T) Column[O, T] {
+// NewColumn creates a new typed column for the table represented by O.
+func NewColumn[O Table, T any](baseName, jsonFieldName string, fieldPointer func(*O) *T) Column[O, T] {
 	var table O
 
 	return newColForTable[O, T](table, baseName, jsonFieldName, toScanPointer(fieldPointer))
@@ -50,7 +50,7 @@ func newColForTable[O Owner, T any](table Table, baseName, jsonFieldName string,
 		qualifiedName: rawQualifiedIdentifierForTable(table, baseName),
 		jsonFieldName: jsonFieldName,
 		fieldPointer:  fieldPointer,
-		tables:        map[string]Table{table.Table(): table},
+		tables:        map[string]Table{table.TableName(): table},
 	}
 }
 
@@ -134,9 +134,9 @@ func (c columnImpl[O, T]) withTable(table Table) columnImpl[O, T] {
 	}
 
 	if !isNilValue(c.table) {
-		delete(tables, c.table.Table())
+		delete(tables, c.table.TableName())
 	}
-	tables[table.Table()] = table
+	tables[table.TableName()] = table
 
 	return columnImpl[O, T]{
 		table:         table,

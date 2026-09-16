@@ -61,8 +61,8 @@ func CTE[O Owner](name string, query QueryStage[O]) Table {
 // TSQOwner marks cteTable as a valid tsq owner.
 func (cteTable) TSQOwner() {}
 
-// Table returns the CTE name used in the surrounding query.
-func (t cteTable) Table() string {
+// TableName returns the CTE name used in the surrounding query.
+func (t cteTable) TableName() string {
 	return t.name
 }
 

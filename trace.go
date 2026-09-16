@@ -10,7 +10,7 @@ import (
 const maxTracers = 100
 
 // Tracer wraps a function call with tracing behavior.
-// Configure tracers via RuntimeOptions.Tracers when constructing a Runtime.
+// Configure tracers via WithTracers when constructing a Runtime.
 // TraceOp names the kind of work a traced call performs.
 type TraceOp string
 
@@ -103,7 +103,7 @@ func (r *Runtime) trace1[T any](ctx context.Context, op TraceOp, fn func(ctx con
 	return result, wrappedFn(ctx)
 }
 
-func traceExecutor(ctx context.Context, exec SQLExecutor, op TraceOp, fn func(ctx context.Context) error) error {
+func traceExecutor(ctx context.Context, exec Executor, op TraceOp, fn func(ctx context.Context) error) error {
 	if provider, ok := exec.(traceProvider); ok && provider.tsqRuntime() != nil {
 		return provider.tsqRuntime().trace(ctx, op, fn)
 	}
@@ -119,7 +119,7 @@ func traceExecutor(ctx context.Context, exec SQLExecutor, op TraceOp, fn func(ct
 	return fn(ctx)
 }
 
-func traceExecutor1[T any](ctx context.Context, exec SQLExecutor, op TraceOp, fn func(ctx context.Context) (T, error)) (T, error) {
+func traceExecutor1[T any](ctx context.Context, exec Executor, op TraceOp, fn func(ctx context.Context) (T, error)) (T, error) {
 	if provider, ok := exec.(traceProvider); ok && provider.tsqRuntime() != nil {
 		return provider.tsqRuntime().trace1(ctx, op, fn)
 	}
@@ -147,7 +147,7 @@ func appendTracers(existing []Tracer, newTracers ...Tracer) []Tracer {
 
 		if len(result) >= maxTracers {
 			// appendTracers runs while NewRuntime is still assembling the Runtime, so
-			// RuntimeOptions.Logger is not reachable from here yet.
+			// WithLogger is not reachable from here yet.
 			slog.Default().Warn("maximum tracer limit reached", "limit", maxTracers)
 
 			return result

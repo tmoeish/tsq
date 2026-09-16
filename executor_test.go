@@ -33,7 +33,7 @@ type optimisticMutationUser struct {
 func (batchMutationUser) TSQOwner() {
 }
 
-func (batchMutationUser) Table() string {
+func (batchMutationUser) TableName() string {
 	return "users"
 }
 
@@ -58,11 +58,11 @@ func (batchMutationUser) ManagedColumns() ManagedColumns {
 }
 
 func batchMutationUserColumns() []BoundColumn[batchMutationUser] {
-	return []BoundColumn[batchMutationUser]{NewCol[batchMutationUser, int64]("id", "id", func(t *batchMutationUser) *int64 {
+	return []BoundColumn[batchMutationUser]{NewColumn[batchMutationUser, int64]("id", "id", func(t *batchMutationUser) *int64 {
 		return &t.ID
-	}), NewCol[batchMutationUser, string]("name", "name", func(t *batchMutationUser) *string {
+	}), NewColumn[batchMutationUser, string]("name", "name", func(t *batchMutationUser) *string {
 		return &t.Name
-	}), NewCol[batchMutationUser, string]("email", "email", func(t *batchMutationUser) *string {
+	}), NewColumn[batchMutationUser, string]("email", "email", func(t *batchMutationUser) *string {
 		return &t.Email
 	})}
 }
@@ -70,7 +70,7 @@ func batchMutationUserColumns() []BoundColumn[batchMutationUser] {
 func (optimisticMutationUser) TSQOwner() {
 }
 
-func (optimisticMutationUser) Table() string {
+func (optimisticMutationUser) TableName() string {
 	return "users"
 }
 
@@ -95,13 +95,13 @@ func (optimisticMutationUser) ManagedColumns() ManagedColumns {
 }
 
 func optimisticMutationUserColumns() []BoundColumn[optimisticMutationUser] {
-	return []BoundColumn[optimisticMutationUser]{NewCol[optimisticMutationUser, int64]("id", "id", func(t *optimisticMutationUser) *int64 {
+	return []BoundColumn[optimisticMutationUser]{NewColumn[optimisticMutationUser, int64]("id", "id", func(t *optimisticMutationUser) *int64 {
 		return &t.ID
-	}), NewCol[optimisticMutationUser, string]("name", "name", func(t *optimisticMutationUser) *string {
+	}), NewColumn[optimisticMutationUser, string]("name", "name", func(t *optimisticMutationUser) *string {
 		return &t.Name
-	}), NewCol[optimisticMutationUser, string]("email", "email", func(t *optimisticMutationUser) *string {
+	}), NewColumn[optimisticMutationUser, string]("email", "email", func(t *optimisticMutationUser) *string {
 		return &t.Email
-	}), NewCol[optimisticMutationUser, int64]("version", "version", func(t *optimisticMutationUser) *int64 {
+	}), NewColumn[optimisticMutationUser, int64]("version", "version", func(t *optimisticMutationUser) *int64 {
 		return &t.Version
 	})}
 }
@@ -236,7 +236,7 @@ func TestRuntimeQueryRowContextRequiresInit(t *testing.T) {
 func TestRuntimeWithTxCommitsAndCarriesDialect(t *testing.T) {
 	db := newBatchMutationEngine(t)
 
-	err := db.WithTx(context.Background(), nil, func(ctx context.Context, txExec SQLExecutor) error {
+	err := db.WithTx(context.Background(), nil, func(ctx context.Context, txExec Executor) error {
 		return Insert(ctx, txExec, &batchMutationUser{
 			Name:  "alice",
 			Email: "alice@example.com",
@@ -259,7 +259,7 @@ func TestRuntimeWithTxRollsBackOnCallbackError(t *testing.T) {
 	db := newBatchMutationEngine(t)
 	wantErr := errors.New("boom")
 
-	err := db.WithTx(context.Background(), nil, func(ctx context.Context, txExec SQLExecutor) error {
+	err := db.WithTx(context.Background(), nil, func(ctx context.Context, txExec Executor) error {
 		if err := Insert(ctx, txExec, &batchMutationUser{
 			Name:  "alice",
 			Email: "alice@example.com",
@@ -285,7 +285,7 @@ func TestRuntimeWithTxRollsBackOnCallbackError(t *testing.T) {
 func TestRuntimeWithTxRequiresInitializedRuntime(t *testing.T) {
 	runtime := &Runtime{}
 
-	err := runtime.WithTx(context.Background(), nil, func(context.Context, SQLExecutor) error {
+	err := runtime.WithTx(context.Background(), nil, func(context.Context, Executor) error {
 		return nil
 	})
 	if err == nil {
@@ -312,10 +312,10 @@ func TestRuntimeWithTxRetriesOptimisticLockWithDefaultPolicy(t *testing.T) {
 	db := newBatchMutationEngine(t)
 	attempts := 0
 
-	err := db.WithTx(context.Background(), &TxOptions{Retry: IsOptimisticLockError}, func(ctx context.Context, txExec SQLExecutor) error {
+	err := db.WithTx(context.Background(), &TxOptions{RetryIf: IsOptimisticLockError}, func(ctx context.Context, txExec Executor) error {
 		attempts++
 		if attempts < 3 {
-			return &ErrOptimisticLockConflict{}
+			return &OptimisticLockError{}
 		}
 
 		return Insert(ctx, txExec, &batchMutationUser{
@@ -334,17 +334,17 @@ func TestRuntimeWithTxRetriesOptimisticLockWithDefaultPolicy(t *testing.T) {
 func TestRuntimeWithTxOptimisticLockRetryHonorsCustomPolicy(t *testing.T) {
 	db := newBatchMutationEngine(t)
 	attempts := 0
-	wantErr := &ErrOptimisticLockConflict{}
+	wantErr := &OptimisticLockError{}
 
 	err := db.WithTx(context.Background(), &TxOptions{
-		Retry: IsOptimisticLockError,
-		RetryConfig: &TxRetryConfig{
-			MaxAttempts:       2,
-			InitialBackoff:    0,
-			MaxBackoff:        0,
-			BackoffMultiplier: 1,
+		RetryIf: IsOptimisticLockError,
+		RetryPolicy: &RetryPolicy{
+			MaxAttempts:    2,
+			InitialBackoff: 0,
+			MaxBackoff:     0,
+			Multiplier:     1,
 		},
-	}, func(context.Context, SQLExecutor) error {
+	}, func(context.Context, Executor) error {
 		attempts++
 		return wantErr
 	})
@@ -360,14 +360,14 @@ func TestRuntimeWithTxRejectsInvalidRetryPolicy(t *testing.T) {
 	db := newBatchMutationEngine(t)
 
 	err := db.WithTx(context.Background(), &TxOptions{
-		Retry: IsOptimisticLockError,
-		RetryConfig: &TxRetryConfig{
-			MaxAttempts:       0,
-			InitialBackoff:    0,
-			MaxBackoff:        0,
-			BackoffMultiplier: 1,
+		RetryIf: IsOptimisticLockError,
+		RetryPolicy: &RetryPolicy{
+			MaxAttempts:    0,
+			InitialBackoff: 0,
+			MaxBackoff:     0,
+			Multiplier:     1,
 		},
-	}, func(context.Context, SQLExecutor) error {
+	}, func(context.Context, Executor) error {
 		return nil
 	})
 	if err == nil {
@@ -381,7 +381,7 @@ func TestRuntimeWithTxRejectsInvalidRetryPolicy(t *testing.T) {
 func TestRuntimeWithTxResultReturnsValue(t *testing.T) {
 	db := newBatchMutationEngine(t)
 
-	got, err := db.WithTxResult(context.Background(), nil, func(ctx context.Context, txExec SQLExecutor) (int, error) {
+	got, err := db.WithTxResult(context.Background(), nil, func(ctx context.Context, txExec Executor) (int, error) {
 		if err := Insert(ctx, txExec, &batchMutationUser{
 			Name:  "alice",
 			Email: "alice@example.com",
@@ -410,14 +410,14 @@ func TestRuntimeWithTxResultReturnsAStruct(t *testing.T) {
 	}
 
 	got, err := db.WithTxResult(context.Background(), &TxOptions{
-		Retry: IsOptimisticLockError,
-		RetryConfig: &TxRetryConfig{
-			MaxAttempts:       2,
-			InitialBackoff:    0,
-			MaxBackoff:        0,
-			BackoffMultiplier: 1,
+		RetryIf: IsOptimisticLockError,
+		RetryPolicy: &RetryPolicy{
+			MaxAttempts:    2,
+			InitialBackoff: 0,
+			MaxBackoff:     0,
+			Multiplier:     1,
 		},
-	}, func(ctx context.Context, txExec SQLExecutor) (result, error) {
+	}, func(ctx context.Context, txExec Executor) (result, error) {
 		if err := Insert(ctx, txExec, &batchMutationUser{
 			Name:  "alice",
 			Email: "alice@example.com",
@@ -442,17 +442,17 @@ func TestRuntimeWithTxRetryRespectsContextCancellationBetweenAttempts(t *testing
 	attempts := 0
 
 	err := db.WithTx(ctx, &TxOptions{
-		Retry: IsOptimisticLockError,
-		RetryConfig: &TxRetryConfig{
-			MaxAttempts:       3,
-			InitialBackoff:    10 * time.Millisecond,
-			MaxBackoff:        10 * time.Millisecond,
-			BackoffMultiplier: 1,
+		RetryIf: IsOptimisticLockError,
+		RetryPolicy: &RetryPolicy{
+			MaxAttempts:    3,
+			InitialBackoff: 10 * time.Millisecond,
+			MaxBackoff:     10 * time.Millisecond,
+			Multiplier:     1,
 		},
-	}, func(context.Context, SQLExecutor) error {
+	}, func(context.Context, Executor) error {
 		attempts++
 		cancel()
-		return &ErrOptimisticLockConflict{}
+		return &OptimisticLockError{}
 	})
 	if err == nil {
 		t.Fatal("expected canceled context to stop retries")
@@ -466,7 +466,7 @@ func TestRuntimeWithTxRetryRespectsContextCancellationBetweenAttempts(t *testing
 }
 
 func TestIsOptimisticLockError(t *testing.T) {
-	if !IsOptimisticLockError(&ErrOptimisticLockConflict{}) {
+	if !IsOptimisticLockError(&OptimisticLockError{}) {
 		t.Fatal("expected optimistic lock conflict to be detected")
 	}
 	if IsOptimisticLockError(errors.New("boom")) {
@@ -502,7 +502,7 @@ func TestRetryHelpersCanBeUsedAsPredicates(t *testing.T) {
 	if !IsTxConflictError(fakeSQLStateError{state: "40P01"}) {
 		t.Fatal("expected transaction conflict helper to accept deadlocks")
 	}
-	if !IsRetryableTxError(&ErrOptimisticLockConflict{}) {
+	if !IsRetryableTxError(&OptimisticLockError{}) {
 		t.Fatal("expected combined helper to include optimistic lock conflicts")
 	}
 }
@@ -534,8 +534,8 @@ func TestPostgresErrorsMatchBySQLStateInterface(t *testing.T) {
 
 func TestShouldRetryTxCommitStageOnlyRetriesDefiniteConflicts(t *testing.T) {
 	opts := &normalizedTxOptions{
-		retry:       IsRetryableTxError,
-		retryConfig: DefaultTxRetryConfig(),
+		retryIf:     IsRetryableTxError,
+		retryPolicy: DefaultRetryPolicy(),
 	}
 
 	if shouldRetryTx(driver.ErrBadConn, txRetryStageCommit, opts, 1) {
@@ -550,7 +550,7 @@ func TestShouldRetryTxCommitStageOnlyRetriesDefiniteConflicts(t *testing.T) {
 	if !shouldRetryTx(driver.ErrBadConn, txRetryStageBody, opts, 1) {
 		t.Fatal("expected body-stage network errors to be retryable")
 	}
-	if shouldRetryTx(fakeSQLStateError{state: "40001"}, txRetryStageCommit, opts, opts.retryConfig.MaxAttempts) {
+	if shouldRetryTx(fakeSQLStateError{state: "40001"}, txRetryStageCommit, opts, opts.retryPolicy.MaxAttempts) {
 		t.Fatal("expected attempt limit to apply at commit stage too")
 	}
 }

@@ -14,10 +14,10 @@ func TestCondition_EmptyInShortCircuits(t *testing.T) {
 	if len(col.InVal().Tables()) != 0 {
 		t.Fatalf("expected empty IN short-circuit to avoid leaking source tables")
 	}
-	if got := col.NInVal().Clause(); got != "1 = 1" {
+	if got := col.NotInVal().Clause(); got != "1 = 1" {
 		t.Fatalf("expected empty NOT IN to short-circuit to true predicate, got %q", got)
 	}
-	if len(col.NInVal().Tables()) != 0 {
+	if len(col.NotInVal().Tables()) != 0 {
 		t.Fatalf("expected empty NOT IN short-circuit to avoid leaking source tables")
 	}
 }
@@ -39,7 +39,7 @@ func TestCondition_InVarDefersSliceBindingToExecution(t *testing.T) {
 
 func TestCondition_NInVarDefersSliceBindingToExecution(t *testing.T) {
 	col := newColForTable[Table, int](newMockTable("users"), "id", "id", nil)
-	cond := col.NInVar()
+	cond := col.NotInVar()
 	if got := cond.Clause(); got != `"users"."id" NOT IN (?)` {
 		t.Fatalf("expected NOT IN var clause template to keep a single placeholder, got %q", got)
 	}
@@ -74,11 +74,11 @@ func TestCondition_LikeSupportsValVarAndColumnRHS(t *testing.T) {
 		wantArg    any
 	}{
 		{name: "LikeVal", cond: nameCol.LikeVal("%alice%"), wantClause: `"users"."name" LIKE ?`, wantArg: "%alice%"},
-		{name: "NLikeVal", cond: nameCol.NLikeVal("%alice%"), wantClause: `"users"."name" NOT LIKE ?`, wantArg: "%alice%"},
+		{name: "NotLikeVal", cond: nameCol.NotLikeVal("%alice%"), wantClause: `"users"."name" NOT LIKE ?`, wantArg: "%alice%"},
 		{name: "LikeRHS", cond: nameCol.Like(patternCol), wantClause: `"users"."name" LIKE "users"."pattern"`},
-		{name: "NLikeRHS", cond: nameCol.NLike(patternCol), wantClause: `"users"."name" NOT LIKE "users"."pattern"`},
+		{name: "NLikeRHS", cond: nameCol.NotLike(patternCol), wantClause: `"users"."name" NOT LIKE "users"."pattern"`},
 		{name: "LikeVar", cond: nameCol.LikeVar(), wantClause: `"users"."name" LIKE ?`, wantArg: externalArgMarker},
-		{name: "NLikeVar", cond: nameCol.NLikeVar(), wantClause: `"users"."name" NOT LIKE ?`, wantArg: externalArgMarker},
+		{name: "NotLikeVar", cond: nameCol.NotLikeVar(), wantClause: `"users"."name" NOT LIKE ?`, wantArg: externalArgMarker},
 	}
 
 	for _, tt := range tests {
@@ -130,17 +130,17 @@ func TestCondition_StringPatternHelpersUseOpValAndOpVarForms(t *testing.T) {
 		wantArg    any
 	}{
 		{name: "StartsWithVal", cond: col.StartsWithVal("al"), wantClause: `"users"."name" LIKE ?`, wantArg: "al%"},
-		{name: "NStartsWithVal", cond: col.NStartsWithVal("al"), wantClause: `"users"."name" NOT LIKE ?`, wantArg: "al%"},
+		{name: "NotStartsWithVal", cond: col.NotStartsWithVal("al"), wantClause: `"users"."name" NOT LIKE ?`, wantArg: "al%"},
 		{name: "EndsWithVal", cond: col.EndsWithVal("ce"), wantClause: `"users"."name" LIKE ?`, wantArg: "%ce"},
-		{name: "NEndsWithVal", cond: col.NEndsWithVal("ce"), wantClause: `"users"."name" NOT LIKE ?`, wantArg: "%ce"},
+		{name: "NotEndsWithVal", cond: col.NotEndsWithVal("ce"), wantClause: `"users"."name" NOT LIKE ?`, wantArg: "%ce"},
 		{name: "ContainsVal", cond: col.ContainsVal("lic"), wantClause: `"users"."name" LIKE ?`, wantArg: "%lic%"},
-		{name: "NContainsVal", cond: col.NContainsVal("lic"), wantClause: `"users"."name" NOT LIKE ?`, wantArg: "%lic%"},
+		{name: "NotContainsVal", cond: col.NotContainsVal("lic"), wantClause: `"users"."name" NOT LIKE ?`, wantArg: "%lic%"},
 		{name: "StartsWithVar", cond: col.StartsWithVar(), wantClause: `"users"."name" LIKE ?`, wantArg: externalStartsWithMarker},
-		{name: "NStartsWithVar", cond: col.NStartsWithVar(), wantClause: `"users"."name" NOT LIKE ?`, wantArg: externalStartsWithMarker},
+		{name: "NotStartsWithVar", cond: col.NotStartsWithVar(), wantClause: `"users"."name" NOT LIKE ?`, wantArg: externalStartsWithMarker},
 		{name: "EndsWithVar", cond: col.EndsWithVar(), wantClause: `"users"."name" LIKE ?`, wantArg: externalEndsWithMarker},
-		{name: "NEndsWithVar", cond: col.NEndsWithVar(), wantClause: `"users"."name" NOT LIKE ?`, wantArg: externalEndsWithMarker},
+		{name: "NotEndsWithVar", cond: col.NotEndsWithVar(), wantClause: `"users"."name" NOT LIKE ?`, wantArg: externalEndsWithMarker},
 		{name: "ContainsVar", cond: col.ContainsVar(), wantClause: `"users"."name" LIKE ?`, wantArg: externalContainsMarker},
-		{name: "NContainsVar", cond: col.NContainsVar(), wantClause: `"users"."name" NOT LIKE ?`, wantArg: externalContainsMarker},
+		{name: "NotContainsVar", cond: col.NotContainsVar(), wantClause: `"users"."name" NOT LIKE ?`, wantArg: externalContainsMarker},
 	}
 
 	for _, tt := range tests {

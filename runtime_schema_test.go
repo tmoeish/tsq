@@ -43,7 +43,7 @@ func TestNewRuntimeTablePolicyCreateMissingCreatesTable(t *testing.T) {
 	db, dsn := newSQLiteIndexTestEngine(t)
 	table, _ := newStrictMockTable("users", "id", "name")
 
-	runtime, err := NewRuntime(context.Background(),
+	runtime, err := Open(context.Background(),
 		"sqlite",
 		dsn,
 		[]TableRegistration{{
@@ -66,7 +66,7 @@ func TestNewRuntimeTablePolicyCreateMissingCreatesTable(t *testing.T) {
 		t.Fatalf("NewRuntime() error = %v", err)
 	}
 
-	columns, found, err := runtime.SQLDialect().InspectTableColumns(context.Background(), db, "users")
+	columns, found, err := runtime.Dialect().InspectTableColumns(context.Background(), db, "users")
 	if err != nil {
 		t.Fatalf("InspectTableColumns() error = %v", err)
 	}
@@ -85,7 +85,7 @@ func TestNewRuntimeTablePolicyReconcileAddsMissingColumn(t *testing.T) {
 	}
 
 	table, _ := newStrictMockTable("users", "id", "name")
-	runtime, err := NewRuntime(context.Background(),
+	runtime, err := Open(context.Background(),
 		"sqlite",
 		dsn,
 		[]TableRegistration{{
@@ -108,7 +108,7 @@ func TestNewRuntimeTablePolicyReconcileAddsMissingColumn(t *testing.T) {
 		t.Fatalf("NewRuntime() error = %v", err)
 	}
 
-	columns, found, err := runtime.SQLDialect().InspectTableColumns(context.Background(), runtime, "users")
+	columns, found, err := runtime.Dialect().InspectTableColumns(context.Background(), runtime, "users")
 	if err != nil {
 		t.Fatalf("InspectTableColumns() error = %v", err)
 	}
@@ -168,7 +168,7 @@ func TestNewRuntimeReconcileRawTypeTextProducesNoDDL(t *testing.T) {
 	}
 
 	for restart := range 2 {
-		_, err := NewRuntime(context.Background(),
+		_, err := Open(context.Background(),
 			"sqlite",
 			dsn,
 			[]TableRegistration{registration},
@@ -218,7 +218,7 @@ func TestNewRuntimeReconcileRebuildPreservesDataAndIndexes(t *testing.T) {
 		},
 	}
 
-	runtime, err := NewRuntime(context.Background(),
+	runtime, err := Open(context.Background(),
 		"sqlite",
 		dsn,
 		[]TableRegistration{registration},
@@ -227,7 +227,7 @@ func TestNewRuntimeReconcileRebuildPreservesDataAndIndexes(t *testing.T) {
 		t.Fatalf("NewRuntime() error = %v", err)
 	}
 
-	columns, found, err := runtime.SQLDialect().InspectTableColumns(context.Background(), runtime, "users")
+	columns, found, err := runtime.Dialect().InspectTableColumns(context.Background(), runtime, "users")
 	if err != nil || !found {
 		t.Fatalf("InspectTableColumns() found=%v error = %v", found, err)
 	}
@@ -256,7 +256,7 @@ func TestNewRuntimeReconcileRebuildPreservesDataAndIndexes(t *testing.T) {
 
 	// A second bootstrap must be a no-op: the rebuilt schema now matches.
 	logger := &recordingLogger{}
-	if _, err := NewRuntime(context.Background(),
+	if _, err := Open(context.Background(),
 		"sqlite",
 		dsn,
 		[]TableRegistration{registration},

@@ -160,7 +160,7 @@ func argumentToExpression(arg any) Expression {
 		return rawExpression{expr: expr, args: args}
 	case AnySubquery:
 		return expressionError{err: errors.New(
-			"raw subqueries are not allowed in Pred; use EQ/NE/GT/GTE/LT/LTE/Like/NLike/Between with typed subqueries or use In/ExistsSub helpers",
+			"raw subqueries are not allowed in Pred; use EQ/NE/GT/GTE/LT/LTE/Like/NotLike/Between with typed subqueries or use In/ExistsSub helpers",
 		)}
 	default:
 		return Bind(v)

@@ -40,7 +40,7 @@ func TestCTETableMetadataAndCols(t *testing.T) {
 
 	activeUsers := CTE(" active_users ", Select(id, name).From(id.Table()))
 
-	if got := activeUsers.Table(); got != "active_users" {
+	if got := activeUsers.TableName(); got != "active_users" {
 		t.Fatalf("expected trimmed cte name active_users, got %q", got)
 	}
 

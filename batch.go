@@ -12,38 +12,61 @@ import (
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 )
 
-// ChunkedOptions configures chunked update and delete helpers.
-type ChunkedOptions struct {
-	// ChunkSize is the number of items per statement; zero means 1000. It is an upper
-	// bound, not an exact batch size: wide tables are chunked smaller so that a single
-	// statement stays within the executing dialect's bind parameter ceiling
-	// (dialect.MaxBindParams).
-	ChunkSize int
+// defaultBatchSize is the row count per statement when WithBatchSize is not given.
+const defaultBatchSize = 1000
+
+// BatchOption configures the Batch* helpers.
+type BatchOption func(*batchConfig)
+
+type batchConfig struct {
+	size           int
+	skipDuplicates bool
+	err            error
 }
 
-// DefaultChunkedOptions returns the default chunked execution options.
-func DefaultChunkedOptions() *ChunkedOptions {
-	return &ChunkedOptions{
-		ChunkSize: 1000,
+// WithBatchSize sets the number of rows per statement; the default is 1000. It is an
+// upper bound, not an exact size: wide tables are split further so that one statement
+// stays within the executing dialect's bind parameter ceiling (dialect.MaxBindParams).
+func WithBatchSize(size int) BatchOption {
+	return func(c *batchConfig) {
+		if size <= 0 {
+			c.err = fmt.Errorf("invalid batch size: %d", size)
+
+			return
+		}
+
+		c.size = size
 	}
 }
 
-// ChunkedInsertOptions configures ChunkedInsert.
-type ChunkedInsertOptions struct {
-	// ChunkSize is the number of items per statement; zero means 1000. It is an upper
-	// bound, not an exact batch size: wide tables are chunked smaller so that a single
-	// statement stays within the executing dialect's bind parameter ceiling
-	// (dialect.MaxBindParams).
-	ChunkSize    int
-	IgnoreErrors bool // IgnoreErrors skips duplicate-key failures and continues with the remaining items.
+// WithSkipDuplicates makes BatchInsert skip rows that fail with a duplicate-key error
+// and continue with the rest. Only BatchInsert accepts it.
+func WithSkipDuplicates() BatchOption {
+	return func(c *batchConfig) {
+		c.skipDuplicates = true
+	}
 }
 
-// DefaultChunkedInsertOptions returns the default chunked insert options.
-func DefaultChunkedInsertOptions() *ChunkedInsertOptions {
-	return &ChunkedInsertOptions{
-		ChunkSize:    DefaultChunkedOptions().ChunkSize,
-		IgnoreErrors: false,
+// newBatchConfig applies options over the defaults. insert reports whether the caller
+// is BatchInsert, the only helper that can honor WithSkipDuplicates.
+func newBatchConfig(options []BatchOption, insert bool) (batchConfig, error) {
+	config := batchConfig{size: defaultBatchSize}
+
+	for _, option := range options {
+		if option != nil {
+			option(&config)
+		}
 	}
+
+	if config.err != nil {
+		return batchConfig{}, config.err
+	}
+
+	if config.skipDuplicates && !insert {
+		return batchConfig{}, errors.New("WithSkipDuplicates applies only to BatchInsert")
+	}
+
+	return config, nil
 }
 
 // deleteBindParamsPerRow is the upper bound on placeholders one row contributes to a
@@ -102,32 +125,32 @@ func updateBindParamsPerRow[T Table](items []T) int {
 }
 
 // chunkSizeForExecutor resolves the dialect's bind parameter ceiling for exec.
-func chunkSizeForExecutor(exec SQLExecutor, chunkSize, bindParamsPerRow int) int {
+func chunkSizeForExecutor(exec Executor, chunkSize, bindParamsPerRow int) int {
 	return effectiveChunkSize(chunkSize, bindParamsPerRow, tsqdialect.MaxBindParams(dialectForExecutor(exec)))
 }
 
-// ChunkedInsert inserts items in chunks using the provided executor.
+// BatchInsert inserts items in chunks using the provided executor.
 //
 // Transaction boundaries are intentionally caller-controlled. Passing a plain
 // *sql.DB or non-transactional executor allows partial progress across chunks;
 // passing a *sql.Tx makes the whole chunked operation participate in that
 // transaction. TSQ does not open an implicit outer transaction for this helper.
-func ChunkedInsert[T Table](
+func BatchInsert[T Table](
 	ctx context.Context,
-	tx SQLExecutor,
+	tx Executor,
 	items []T,
-	options ...*ChunkedInsertOptions,
+	options ...BatchOption,
 ) error {
 	return traceExecutor(ctx, tx, TraceOpInsert, func(ctx context.Context) error {
-		return chunkedInsertFn(ctx, tx, items, options...)
+		return batchInsertFn(ctx, tx, items, options...)
 	})
 }
 
-func chunkedInsertFn[T Table](
+func batchInsertFn[T Table](
 	ctx context.Context,
-	tx SQLExecutor,
+	tx Executor,
 	items []T,
-	options ...*ChunkedInsertOptions,
+	options ...BatchOption,
 ) error {
 	if len(items) == 0 {
 		return nil
@@ -137,30 +160,30 @@ func chunkedInsertFn[T Table](
 		return err
 	}
 
-	opts, err := normalizeChunkedInsertOptions(options...)
+	config, err := newBatchConfig(options, true)
 	if err != nil {
 		return err
 	}
 
-	chunkSize := chunkSizeForExecutor(tx, opts.ChunkSize, insertBindParamsPerRow(items))
+	chunkSize := chunkSizeForExecutor(tx, config.size, insertBindParamsPerRow(items))
 
 	for i := 0; i < len(items); i += chunkSize {
 		end := min(i+chunkSize, len(items))
 
 		batch := items[i:end]
-		if err := chunkedInsertChunk(ctx, tx, batch, opts); err != nil {
-			return fmt.Errorf("chunked insert failed at index %d"+": %w", i, err)
+		if err := batchInsertChunk(ctx, tx, batch, config); err != nil {
+			return fmt.Errorf("batch insert failed at index %d"+": %w", i, err)
 		}
 	}
 
 	return nil
 }
 
-func chunkedInsertChunk[T Table](
+func batchInsertChunk[T Table](
 	ctx context.Context,
-	tx SQLExecutor,
+	tx Executor,
 	items []T,
-	opts *ChunkedInsertOptions,
+	config batchConfig,
 ) error {
 	if len(items) == 0 {
 		return nil
@@ -175,12 +198,12 @@ func chunkedInsertChunk[T Table](
 		batch = append(batch, item)
 	}
 
-	if opts.IgnoreErrors {
+	if config.skipDuplicates {
 		return insertIgnoringDuplicateKeys(ctx, tx, batch)
 	}
 
 	if err := insertTables(ctx, tx, batch...); err != nil {
-		return fmt.Errorf("%s: %w", "chunked insert batch failed", err)
+		return fmt.Errorf("%s: %w", "batch insert batch failed", err)
 	}
 
 	return nil
@@ -189,10 +212,10 @@ func chunkedInsertChunk[T Table](
 // TSQ names one savepoint and reuses it: each row releases or rolls back to it before
 // the next row creates it again, so the nesting never grows.
 const (
-	chunkedInsertSavepoint         = "tsq_chunked_insert"
-	chunkedInsertSavepointCreate   = "SAVEPOINT " + chunkedInsertSavepoint
-	chunkedInsertSavepointRelease  = "RELEASE SAVEPOINT " + chunkedInsertSavepoint
-	chunkedInsertSavepointRollback = "ROLLBACK TO SAVEPOINT " + chunkedInsertSavepoint
+	batchInsertSavepoint         = "tsq_batch_insert"
+	batchInsertSavepointCreate   = "SAVEPOINT " + batchInsertSavepoint
+	batchInsertSavepointRelease  = "RELEASE SAVEPOINT " + batchInsertSavepoint
+	batchInsertSavepointRollback = "ROLLBACK TO SAVEPOINT " + batchInsertSavepoint
 )
 
 // maxExecutorUnwrapDepth bounds the walk in isTransactionalExecutor so a self-wrapping
@@ -201,13 +224,13 @@ const maxExecutorUnwrapDepth = 16
 
 // isTransactionalExecutor reports whether exec ultimately writes through a *sql.Tx,
 // unwrapping the dialect wrapper WithTx and WrapExecutor put around it.
-func isTransactionalExecutor(exec SQLExecutor) bool {
+func isTransactionalExecutor(exec Executor) bool {
 	for range maxExecutorUnwrapDepth {
 		switch typed := exec.(type) {
 		case *sql.Tx:
 			return true
 		case wrappedExecutor:
-			exec = typed.SQLExecutor
+			exec = typed.Executor
 		default:
 			return false
 		}
@@ -230,21 +253,21 @@ func isTransactionalExecutor(exec SQLExecutor) bool {
 // Outside a transaction each insert is its own implicit transaction, so a failure
 // cannot poison anything and the savepoints are skipped: PostgreSQL rejects SAVEPOINT
 // outside a transaction block (25P01).
-func insertIgnoringDuplicateKeys(ctx context.Context, tx SQLExecutor, batch []Table) error {
+func insertIgnoringDuplicateKeys(ctx context.Context, tx Executor, batch []Table) error {
 	useSavepoint := isTransactionalExecutor(tx)
 
 	for itemIdx, item := range batch {
 		if useSavepoint {
-			if _, err := tx.ExecContext(ctx, chunkedInsertSavepointCreate); err != nil {
-				return fmt.Errorf("chunked insert failed at item %d: %w", itemIdx, err)
+			if _, err := tx.ExecContext(ctx, batchInsertSavepointCreate); err != nil {
+				return fmt.Errorf("batch insert failed at item %d: %w", itemIdx, err)
 			}
 		}
 
 		err := insertTables(ctx, tx, item)
 		if err == nil {
 			if useSavepoint {
-				if _, releaseErr := tx.ExecContext(ctx, chunkedInsertSavepointRelease); releaseErr != nil {
-					return fmt.Errorf("chunked insert failed at item %d: %w", itemIdx, releaseErr)
+				if _, releaseErr := tx.ExecContext(ctx, batchInsertSavepointRelease); releaseErr != nil {
+					return fmt.Errorf("batch insert failed at item %d: %w", itemIdx, releaseErr)
 				}
 			}
 
@@ -252,43 +275,43 @@ func insertIgnoringDuplicateKeys(ctx context.Context, tx SQLExecutor, batch []Ta
 		}
 
 		if !isDuplicateKeyError(err) {
-			return fmt.Errorf("chunked insert failed at item %d"+": %w", itemIdx, err)
+			return fmt.Errorf("batch insert failed at item %d"+": %w", itemIdx, err)
 		}
 
 		if useSavepoint {
-			if _, rollbackErr := tx.ExecContext(ctx, chunkedInsertSavepointRollback); rollbackErr != nil {
-				return fmt.Errorf("chunked insert failed at item %d: %w", itemIdx, errors.Join(err, rollbackErr))
+			if _, rollbackErr := tx.ExecContext(ctx, batchInsertSavepointRollback); rollbackErr != nil {
+				return fmt.Errorf("batch insert failed at item %d: %w", itemIdx, errors.Join(err, rollbackErr))
 			}
 		}
 
-		logForExecutor(ctx, tx, slog.LevelDebug, "ignored duplicate key error in chunked insert", "error", err)
+		logForExecutor(ctx, tx, slog.LevelDebug, "ignored duplicate key error in batch insert", "error", err)
 	}
 
 	return nil
 }
 
-// ChunkedUpdate updates items in chunks using the provided executor.
+// BatchUpdate updates items in chunks using the provided executor.
 //
 // Transaction boundaries are intentionally caller-controlled. Passing a plain
 // *sql.DB or non-transactional executor allows partial progress across chunks;
 // passing a *sql.Tx makes the whole chunked operation participate in that
 // transaction. TSQ does not open an implicit outer transaction for this helper.
-func ChunkedUpdate[T Table](
+func BatchUpdate[T Table](
 	ctx context.Context,
-	tx SQLExecutor,
+	tx Executor,
 	items []T,
-	options ...*ChunkedOptions,
+	options ...BatchOption,
 ) error {
 	return traceExecutor(ctx, tx, TraceOpUpdate, func(ctx context.Context) error {
-		return chunkedUpdateFn(ctx, tx, items, options...)
+		return batchUpdateFn(ctx, tx, items, options...)
 	})
 }
 
-func chunkedUpdateFn[T Table](
+func batchUpdateFn[T Table](
 	ctx context.Context,
-	tx SQLExecutor,
+	tx Executor,
 	items []T,
-	options ...*ChunkedOptions,
+	options ...BatchOption,
 ) error {
 	if len(items) == 0 {
 		return nil
@@ -298,28 +321,28 @@ func chunkedUpdateFn[T Table](
 		return err
 	}
 
-	opts, err := normalizeChunkedOptions(options...)
+	config, err := newBatchConfig(options, false)
 	if err != nil {
 		return err
 	}
 
-	chunkSize := chunkSizeForExecutor(tx, opts.ChunkSize, updateBindParamsPerRow(items))
+	chunkSize := chunkSizeForExecutor(tx, config.size, updateBindParamsPerRow(items))
 
 	for i := 0; i < len(items); i += chunkSize {
 		end := min(i+chunkSize, len(items))
 
 		batch := items[i:end]
-		if err := chunkedUpdateChunk(ctx, tx, batch); err != nil {
-			return fmt.Errorf("chunked update failed at index %d"+": %w", i, err)
+		if err := batchUpdateChunk(ctx, tx, batch); err != nil {
+			return fmt.Errorf("batch update failed at index %d"+": %w", i, err)
 		}
 	}
 
 	return nil
 }
 
-func chunkedUpdateChunk[T Table](
+func batchUpdateChunk[T Table](
 	ctx context.Context,
-	tx SQLExecutor,
+	tx Executor,
 	items []T,
 ) error {
 	batch := make([]Table, 0, len(items))
@@ -336,59 +359,58 @@ func chunkedUpdateChunk[T Table](
 	}
 
 	if _, err := updateTables(ctx, tx, batch...); err != nil {
-		return fmt.Errorf("%s: %w", "chunked update batch failed", err)
+		return fmt.Errorf("%s: %w", "batch update batch failed", err)
 	}
 
 	return nil
 }
 
-// ChunkedDelete deletes items in chunks using the provided executor.
+// BatchDelete soft-deletes items in chunks when the table declares a
+// deleted_at column, and deletes them physically otherwise. See Delete.
 //
 // Transaction boundaries are intentionally caller-controlled. Passing a plain
 // *sql.DB or non-transactional executor allows partial progress across chunks;
 // passing a *sql.Tx makes the whole chunked operation participate in that
 // transaction. TSQ does not open an implicit outer transaction for this helper.
-// ChunkedDelete soft-deletes items in chunks when the table declares a
-// deleted_at column, and deletes them physically otherwise. See Delete.
-func ChunkedDelete[T Table](
+func BatchDelete[T Table](
 	ctx context.Context,
-	tx SQLExecutor,
+	tx Executor,
 	items []T,
-	options ...*ChunkedOptions,
+	options ...BatchOption,
 ) error {
 	return traceExecutor(ctx, tx, TraceOpDelete, func(ctx context.Context) error {
 		if len(items) > 0 && items[0].ManagedColumns().DeletedAt != "" {
-			return chunkedSoftDeleteFn(ctx, tx, items, options...)
+			return batchSoftDeleteFn(ctx, tx, items, options...)
 		}
 
-		return chunkedDeleteFn(ctx, tx, items, options...)
+		return batchDeleteFn(ctx, tx, items, options...)
 	})
 }
 
-// ChunkedHardDelete deletes items in chunks, ignoring any deleted_at column.
+// BatchHardDelete deletes items in chunks, ignoring any deleted_at column.
 //
 // Transaction boundaries are intentionally caller-controlled. Passing a plain
 // *sql.DB or non-transactional executor allows partial progress across chunks;
 // passing a *sql.Tx makes the whole chunked operation participate in that
 // transaction. TSQ does not open an implicit outer transaction for this helper.
-func ChunkedHardDelete[T Table](
+func BatchHardDelete[T Table](
 	ctx context.Context,
-	tx SQLExecutor,
+	tx Executor,
 	items []T,
-	options ...*ChunkedOptions,
+	options ...BatchOption,
 ) error {
 	return traceExecutor(ctx, tx, TraceOpDelete, func(ctx context.Context) error {
-		return chunkedDeleteFn(ctx, tx, items, options...)
+		return batchDeleteFn(ctx, tx, items, options...)
 	})
 }
 
-// chunkedSoftDeleteFn stamps every item and routes the batch through the
+// batchSoftDeleteFn stamps every item and routes the batch through the
 // chunked update path, which sizes chunks for the wider UPDATE statement.
-func chunkedSoftDeleteFn[T Table](
+func batchSoftDeleteFn[T Table](
 	ctx context.Context,
-	tx SQLExecutor,
+	tx Executor,
 	items []T,
-	options ...*ChunkedOptions,
+	options ...BatchOption,
 ) error {
 	if len(items) == 0 {
 		return nil
@@ -402,14 +424,14 @@ func chunkedSoftDeleteFn[T Table](
 		}
 	}
 
-	return chunkedUpdateFn(ctx, tx, items, options...)
+	return batchUpdateFn(ctx, tx, items, options...)
 }
 
-func chunkedDeleteFn[T Table](
+func batchDeleteFn[T Table](
 	ctx context.Context,
-	tx SQLExecutor,
+	tx Executor,
 	items []T,
-	options ...*ChunkedOptions,
+	options ...BatchOption,
 ) error {
 	if len(items) == 0 {
 		return nil
@@ -419,28 +441,28 @@ func chunkedDeleteFn[T Table](
 		return err
 	}
 
-	opts, err := normalizeChunkedOptions(options...)
+	config, err := newBatchConfig(options, false)
 	if err != nil {
 		return err
 	}
 
-	chunkSize := chunkSizeForExecutor(tx, opts.ChunkSize, deleteBindParamsPerRow)
+	chunkSize := chunkSizeForExecutor(tx, config.size, deleteBindParamsPerRow)
 
 	for i := 0; i < len(items); i += chunkSize {
 		end := min(i+chunkSize, len(items))
 
 		batch := items[i:end]
-		if err := chunkedDeleteChunk(ctx, tx, batch); err != nil {
-			return fmt.Errorf("chunked delete failed at index %d"+": %w", i, err)
+		if err := batchDeleteChunk(ctx, tx, batch); err != nil {
+			return fmt.Errorf("batch delete failed at index %d"+": %w", i, err)
 		}
 	}
 
 	return nil
 }
 
-func chunkedDeleteChunk[T Table](
+func batchDeleteChunk[T Table](
 	ctx context.Context,
-	tx SQLExecutor,
+	tx Executor,
 	items []T,
 ) error {
 	batch := make([]Table, 0, len(items))
@@ -457,62 +479,56 @@ func chunkedDeleteChunk[T Table](
 	}
 
 	if _, err := deleteTables(ctx, tx, batch...); err != nil {
-		return fmt.Errorf("%s: %w", "chunked delete batch failed", err)
+		return fmt.Errorf("%s: %w", "batch delete batch failed", err)
 	}
 
 	return nil
 }
 
-// ChunkedDeleteByPKs deletes rows by primary-key values in chunks.
-//
-// Transaction boundaries are intentionally caller-controlled. Passing a plain
-// *sql.DB or non-transactional executor allows partial progress across chunks;
-// passing a *sql.Tx makes the whole chunked operation participate in that
-// transaction. TSQ does not open an implicit outer transaction for this helper.
-// ChunkedDeleteByPKs soft-deletes rows by primary-key value when the table
+// BatchDeleteByPK soft-deletes rows by primary-key value when the table
 // declares a deleted_at column, and deletes them physically otherwise.
 //
 // Transaction boundaries are intentionally caller-controlled. Passing a plain
 // *sql.DB or non-transactional executor allows partial progress across chunks;
 // passing a *sql.Tx makes the whole chunked operation participate in that
 // transaction. TSQ does not open an implicit outer transaction for this helper.
-func ChunkedDeleteByPKs[O Table, T any](
+func BatchDeleteByPK[O Table, T any](
 	ctx context.Context,
-	tx SQLExecutor,
+	tx Executor,
 	pkField TypedColumn[O, T],
 	pks []T,
-	options ...*ChunkedOptions,
+	options ...BatchOption,
 ) error {
 	return traceExecutor(ctx, tx, TraceOpDelete, func(ctx context.Context) error {
 		var zero O
 		if zero.ManagedColumns().DeletedAt != "" {
-			return chunkedSoftDeleteByPKsFn(ctx, tx, pkField, pks, options...)
+			return batchSoftDeleteByPKsFn(ctx, tx, pkField, pks, options...)
 		}
 
-		return chunkedDeleteByPKsFn(ctx, tx, pkField, pks, options...)
+		return batchDeleteByPKsFn(ctx, tx, pkField, pks, options...)
 	})
 }
 
-// ChunkedHardDeleteByPKs deletes rows by primary-key value in chunks, ignoring
+// BatchHardDeleteByPK deletes rows by primary-key value in chunks, ignoring
 // any deleted_at column.
-func ChunkedHardDeleteByPKs[O Table, T any](
+func BatchHardDeleteByPK[O Table, T any](
 	ctx context.Context,
-	tx SQLExecutor,
+	tx Executor,
 	pkField TypedColumn[O, T],
 	pks []T,
-	options ...*ChunkedOptions,
+	options ...BatchOption,
 ) error {
 	return traceExecutor(ctx, tx, TraceOpDelete, func(ctx context.Context) error {
-		return chunkedDeleteByPKsFn(ctx, tx, pkField, pks, options...)
+		return batchDeleteByPKsFn(ctx, tx, pkField, pks, options...)
 	})
 }
 
-func chunkedDeleteByPKsFn[O Table, T any](
+func batchDeleteByPKsFn[O Table, T any](
 	ctx context.Context,
-	tx SQLExecutor,
+	tx Executor,
 	pkField TypedColumn[O, T],
 	ids []T,
-	options ...*ChunkedOptions,
+	options ...BatchOption,
 ) error {
 	if len(ids) == 0 {
 		return nil
@@ -522,7 +538,7 @@ func chunkedDeleteByPKsFn[O Table, T any](
 		return err
 	}
 
-	tableName, pkColumn, err := resolveChunkedDeletePKField(pkField)
+	tableName, pkColumn, err := resolveBatchDeletePKField(pkField)
 	if err != nil {
 		return err
 	}
@@ -532,26 +548,26 @@ func chunkedDeleteByPKsFn[O Table, T any](
 		return err
 	}
 
-	opts, err := normalizeChunkedOptions(options...)
+	config, err := newBatchConfig(options, false)
 	if err != nil {
 		return err
 	}
 
-	chunkSize := chunkSizeForExecutor(tx, opts.ChunkSize, 1)
+	chunkSize := chunkSizeForExecutor(tx, config.size, 1)
 
 	for i := 0; i < len(boxedIDs); i += chunkSize {
 		end := min(i+chunkSize, len(boxedIDs))
 
 		batch := boxedIDs[i:end]
-		if err := chunkedDeleteByPKsChunk(ctx, tx, tableName, pkColumn, batch); err != nil {
-			return fmt.Errorf("chunked delete by primary keys failed at index %d: %w", i, err)
+		if err := batchDeleteByPKsChunk(ctx, tx, tableName, pkColumn, batch); err != nil {
+			return fmt.Errorf("batch delete by primary keys failed at index %d: %w", i, err)
 		}
 	}
 
 	return nil
 }
 
-func resolveChunkedDeletePKField(col SQLColumn) (string, string, error) {
+func resolveBatchDeletePKField(col SQLColumn) (string, string, error) {
 	table, err := validateColumnInput(col)
 	if err != nil {
 		return "", "", err
@@ -563,7 +579,7 @@ func resolveChunkedDeletePKField(col SQLColumn) (string, string, error) {
 
 	pkColumn := table.PrimaryKey()
 	if strings.TrimSpace(pkColumn) == "" {
-		return "", "", errors.New("chunked delete by PKs requires a primary key column")
+		return "", "", errors.New("batch delete by PKs requires a primary key column")
 	}
 
 	columnName := strings.TrimSpace(col.Name())
@@ -583,9 +599,9 @@ func resolveChunkedDeletePKField(col SQLColumn) (string, string, error) {
 	return tableName, columnName, nil
 }
 
-func chunkedDeleteByPKsChunk(
+func batchDeleteByPKsChunk(
 	ctx context.Context,
-	tx SQLExecutor,
+	tx Executor,
 	tableName string,
 	pkColumn string,
 	ids []any,
@@ -607,7 +623,7 @@ func chunkedDeleteByPKsChunk(
 
 	_, err = tx.ExecContext(ctx, sqlText, ids...)
 	if err != nil {
-		return fmt.Errorf("chunked delete by primary keys failed: %s: %w", sqlText, err)
+		return fmt.Errorf("batch delete by primary keys failed: %s: %w", sqlText, err)
 	}
 
 	return nil
@@ -644,7 +660,7 @@ func buildDeleteByPKsSQL(tableName, pkColumn string, placeholderCount int) (stri
 // Insert inserts item using the table metadata on T.
 func Insert[T Table](
 	ctx context.Context,
-	tx SQLExecutor,
+	tx Executor,
 	item T,
 ) error {
 	return traceExecutor(ctx, tx, TraceOpInsert, func(ctx context.Context) error {
@@ -654,7 +670,7 @@ func Insert[T Table](
 
 func insertFn[T Table](
 	ctx context.Context,
-	tx SQLExecutor,
+	tx Executor,
 	item T,
 ) error {
 	if err := validateMutationItem(item); err != nil {
@@ -671,7 +687,7 @@ func insertFn[T Table](
 // Update updates item using the table metadata on T.
 func Update[T Table](
 	ctx context.Context,
-	tx SQLExecutor,
+	tx Executor,
 	item T,
 ) error {
 	return traceExecutor(ctx, tx, TraceOpUpdate, func(ctx context.Context) error {
@@ -681,7 +697,7 @@ func Update[T Table](
 
 func updateFn[T Table](
 	ctx context.Context,
-	tx SQLExecutor,
+	tx Executor,
 	item T,
 ) error {
 	if err := validateMutationItem(item); err != nil {
@@ -710,7 +726,7 @@ func updateFn[T Table](
 // leave the database.
 func Delete[T Table](
 	ctx context.Context,
-	tx SQLExecutor,
+	tx Executor,
 	item T,
 ) error {
 	return traceExecutor(ctx, tx, TraceOpDelete, func(ctx context.Context) error {
@@ -739,7 +755,7 @@ func Delete[T Table](
 // tombstone, one deleted this way cannot.
 func HardDelete[T Table](
 	ctx context.Context,
-	tx SQLExecutor,
+	tx Executor,
 	item T,
 ) error {
 	return traceExecutor(ctx, tx, TraceOpDelete, func(ctx context.Context) error {
@@ -749,7 +765,7 @@ func HardDelete[T Table](
 
 func deleteFn[T Table](
 	ctx context.Context,
-	tx SQLExecutor,
+	tx Executor,
 	item T,
 ) error {
 	if err := validateMutationItem(item); err != nil {

@@ -39,7 +39,7 @@ type mutationSpec[O Table] struct {
 type MutationStage[O Table] interface {
 	Build() (*Mutation[O], error)
 	MustBuild() *Mutation[O]
-	Exec(ctx context.Context, tx SQLExecutor, args ...any) (int64, error)
+	Exec(ctx context.Context, tx Executor, args ...any) (int64, error)
 }
 
 // Mutation is a compiled UPDATE or DELETE statement scoped by a WHERE clause.
@@ -48,7 +48,7 @@ type MutationStage[O Table] interface {
 //
 // Mutations never check the optimistic-lock version column. An UPDATE on a
 // table that declares one still increments it, so that in-memory rows loaded
-// before the bulk change fail their own Update with ErrOptimisticLockConflict.
+// before the bulk change fail their own Update with OptimisticLockError.
 type Mutation[O Table] struct {
 	kind     mutationKind
 	table    string
@@ -245,7 +245,7 @@ func (s *mutationBuildStage[O]) MustBuild() *Mutation[O] {
 }
 
 // Exec builds and executes the statement, returning the affected row count.
-func (s *mutationBuildStage[O]) Exec(ctx context.Context, tx SQLExecutor, args ...any) (int64, error) {
+func (s *mutationBuildStage[O]) Exec(ctx context.Context, tx Executor, args ...any) (int64, error) {
 	mutation, err := s.Build()
 	if err != nil {
 		return 0, err
@@ -319,7 +319,7 @@ func (spec *mutationSpec[O]) assignableColumn(col SQLColumn) (string, error) {
 		return "", errors.New("assignment target must be a physical table column")
 	}
 
-	if err := spec.validateOwnTable(map[string]Table{table.Table(): table}, "assignment target "+name); err != nil {
+	if err := spec.validateOwnTable(map[string]Table{table.TableName(): table}, "assignment target "+name); err != nil {
 		return "", err
 	}
 
@@ -327,7 +327,7 @@ func (spec *mutationSpec[O]) assignableColumn(col SQLColumn) (string, error) {
 		return "", fmt.Errorf(
 			"column %s is the optimistic-lock version of table %s and is incremented automatically; it cannot be assigned",
 			name,
-			spec.table.Table(),
+			spec.table.TableName(),
 		)
 	}
 
@@ -382,9 +382,9 @@ func (spec *mutationSpec[O]) validateOwnTable(tables map[string]Table, what stri
 			return fmt.Errorf(
 				"%s references table %s but the %s statement targets %s",
 				what,
-				table.Table(),
+				table.TableName(),
 				spec.kind,
-				spec.table.Table(),
+				spec.table.TableName(),
 			)
 		}
 	}
@@ -453,7 +453,7 @@ func buildMutation[O Table](spec mutationSpec[O]) (*Mutation[O], error) {
 
 	return &Mutation[O]{
 		kind:     spec.kind,
-		table:    spec.table.Table(),
+		table:    spec.table.TableName(),
 		sql:      builder.String(),
 		args:     args,
 		argState: scanQueryArgState(args),
@@ -471,13 +471,13 @@ func (m *Mutation[O]) SQL() string {
 
 // Exec runs the statement and returns the number of affected rows. args fill
 // the SetVar and *Var placeholders in statement order: SET first, then WHERE.
-func (m *Mutation[O]) Exec(ctx context.Context, tx SQLExecutor, args ...any) (int64, error) {
+func (m *Mutation[O]) Exec(ctx context.Context, tx Executor, args ...any) (int64, error) {
 	return traceExecutor1(ctx, tx, TraceOpExec, func(ctx context.Context) (int64, error) {
 		return execMutationFn(ctx, tx, m, args...)
 	})
 }
 
-func execMutationFn[O Table](ctx context.Context, tx SQLExecutor, m *Mutation[O], args ...any) (int64, error) {
+func execMutationFn[O Table](ctx context.Context, tx Executor, m *Mutation[O], args ...any) (int64, error) {
 	if m == nil {
 		return 0, errors.New("mutation cannot be nil")
 	}

@@ -13,7 +13,7 @@
 | --- | --- | --- |
 | [`academy/`](academy/) | 共享 Academy 模型、seed 数据和场景实现 | `@TABLE`、`@RESULT`、生成代码、可复用 query logic |
 | [`quickstart/`](quickstart/) | 课程目录的最小日常操作 | CRUD helper、关键词搜索、基础查询构建链路 |
-| [`advanced/`](advanced/) | 把目录和报名数据做成分析型查询 | alias、聚合、`InVar`、subquery、`CASE`、CTE、set ops、chunked、软删除 |
+| [`advanced/`](advanced/) | 把目录和报名数据做成分析型查询 | alias、聚合、`InVar`、subquery、`CASE`、CTE、set ops、批量写、软删除 |
 | [`full-suite/`](full-suite/) | 给学习后台做一个学习旅程看板 | joins、子查询、`@RESULT`、分页 |
 
 ## Academy ER 图
@@ -59,7 +59,7 @@ erDiagram
 | `runCaseDemo` | 给学员报名打运营标签 | `CASE WHEN` |
 | `runCTEDemo` | 先抽平台课程子集再继续查询 | non-recursive CTE |
 | `runSetOpsDemo` | 合并/排除课程集合 | `UNION`、`EXCEPT` |
-| `runChunkedDemo` | 在一个事务里批量处理报名记录 | `runtime.WithTx(...)`、`ChunkedInsert`、`ChunkedUpdate`、`ChunkedDelete` |
+| `runBatchDemo` | 在一个事务里批量处理报名记录 | `runtime.WithTx(...)`、`BatchInsert`、`BatchUpdate`、`BatchDelete` |
 | `runSoftDeleteDemo` | 走完报名记录的软删除生命周期 | `Delete`（打墓碑）、生成查询自动过滤、清墓碑恢复、`HardDelete` |
 | `runOptimisticLockDemo` | 先制造过期快照，再自动重试更新同一条报名记录 | `runtime.WithTxResult(...)`、`IsOptimisticLockError`、自动乐观锁重试 |
 | `runComprehensive` | 生成学习旅程看板 | joins、子查询、`@RESULT`、`query.Page(...)` |

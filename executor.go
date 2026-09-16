@@ -20,16 +20,16 @@ var (
 	errSoftDeleteFieldReadOnly     = errors.New("managed column is not settable")
 )
 
-// ErrOptimisticLockConflict reports that a version-guarded mutation matched fewer
+// OptimisticLockError reports that a version-guarded mutation matched fewer
 // rows than expected.
-type ErrOptimisticLockConflict struct {
+type OptimisticLockError struct {
 	table    string
 	expected int
 	actual   int64
 }
 
 // Error implements error.
-func (e *ErrOptimisticLockConflict) Error() string {
+func (e *OptimisticLockError) Error() string {
 	if e == nil {
 		return "optimistic lock conflict"
 	}
@@ -51,8 +51,8 @@ func (e *ErrOptimisticLockConflict) Error() string {
 }
 
 // Is reports whether target is an optimistic lock conflict.
-func (e *ErrOptimisticLockConflict) Is(target error) bool {
-	var errOptimisticLockConflict *ErrOptimisticLockConflict
+func (e *OptimisticLockError) Is(target error) bool {
+	var errOptimisticLockConflict *OptimisticLockError
 	ok := errors.As(target, &errOptimisticLockConflict)
 
 	return ok

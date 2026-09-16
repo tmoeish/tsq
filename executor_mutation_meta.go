@@ -43,7 +43,7 @@ func mutationMetadata(dst Table) (mutationRecord, error) {
 	}
 
 	return mutationRecord{
-		tableName:    dst.Table(),
+		tableName:    dst.TableName(),
 		fields:       fields,
 		pkField:      pkField,
 		versionField: versionField,
@@ -151,7 +151,7 @@ func hasOptimisticMutation(record mutationRecord) bool {
 	return record.versionField.column != ""
 }
 
-func buildMutationWhereClause(exec SQLExecutor, records []mutationRecord, argIndex *int) (string, []any, error) {
+func buildMutationWhereClause(exec Executor, records []mutationRecord, argIndex *int) (string, []any, error) {
 	pkSQL, err := quoteMutationIdentifier(exec, records[0].pkField.column)
 	if err != nil {
 		return "", nil, err

@@ -42,57 +42,13 @@ func normalizePageReqWithLimit(page *PageRequest, maxSize int) *PageRequest {
 	}
 
 	normalized := *page
-	_ = normalized.NormalizeWithLimit(maxSize)
+	normalized.Normalize(maxSize)
 
 	return &normalized
 }
 
-func pageSizeLimitForExecutor(exec SQLExecutor) int {
+func pageSizeLimitForExecutor(exec Executor) int {
 	return runtimeForExecutor(exec).MaxPageSize()
-}
-
-func normalizeChunkedInsertOptions(options ...*ChunkedInsertOptions) (*ChunkedInsertOptions, error) {
-	if len(options) > 1 {
-		return nil, errors.New("expected at most one chunked insert options value")
-	}
-
-	opts := DefaultChunkedInsertOptions()
-
-	if len(options) > 0 && options[0] != nil {
-		opts = new(*options[0])
-	}
-
-	if err := validateChunkSize(opts.ChunkSize); err != nil {
-		return nil, err
-	}
-
-	return opts, nil
-}
-
-func normalizeChunkedOptions(options ...*ChunkedOptions) (*ChunkedOptions, error) {
-	if len(options) > 1 {
-		return nil, errors.New("expected at most one chunked options value")
-	}
-
-	opts := DefaultChunkedOptions()
-
-	if len(options) > 0 && options[0] != nil {
-		opts = new(*options[0])
-	}
-
-	if err := validateChunkSize(opts.ChunkSize); err != nil {
-		return nil, err
-	}
-
-	return opts, nil
-}
-
-func validateChunkSize(chunkSize int) error {
-	if chunkSize <= 0 {
-		return fmt.Errorf("invalid chunk size: %d", chunkSize)
-	}
-
-	return nil
 }
 
 func validateIDValues(ids []any) error {
@@ -112,7 +68,7 @@ func quoteBuiltInIdentifier(name string) (string, error) {
 
 	if len(name) > 50 {
 		// Identifiers are quoted while Build() renders SQL, which happens before any
-		// executor or runtime is in play, so there is no RuntimeOptions.Logger to route
+		// executor or runtime is in play, so there is no WithLogger to route
 		// this to. Dialect-specific length limits are enforced later, at execution time.
 		slog.Default().Warn("identifier is unusually long", "identifier", name, "length", len(name))
 	}
@@ -146,7 +102,7 @@ func validateQuery[O Owner](q *Query[O]) error {
 	return nil
 }
 
-func validateExecutor(tx SQLExecutor) error {
+func validateExecutor(tx Executor) error {
 	if tx == nil {
 		return errSQLExecutorNil
 	}
@@ -163,11 +119,11 @@ func validateExecutor(tx SQLExecutor) error {
 	return nil
 }
 
-func validateOperationalExecutor(tx SQLExecutor) error {
+func validateOperationalExecutor(tx Executor) error {
 	return validateExecutor(tx)
 }
 
-func validateExecutorForSQL(tx SQLExecutor, rawSQLs ...string) error {
+func validateExecutorForSQL(tx Executor, rawSQLs ...string) error {
 	if err := validateExecutor(tx); err != nil {
 		return err
 	}
@@ -266,7 +222,7 @@ func splitTrailingQueryLockClause(sql string) (string, string) {
 	return sql, ""
 }
 
-func validateOperationalExecutorForSQL(tx SQLExecutor, rawSQLs ...string) error {
+func validateOperationalExecutorForSQL(tx Executor, rawSQLs ...string) error {
 	if err := validateOperationalExecutor(tx); err != nil {
 		return err
 	}

@@ -12,7 +12,7 @@ import (
 // Returns (sqlText, finalArgs, error).
 func (q *Query[O]) prepareQueryExecution(
 	ctx context.Context,
-	tx SQLExecutor,
+	tx Executor,
 	methodName string,
 	args ...any,
 ) (string, []any, error) {
@@ -36,7 +36,7 @@ func (q *Query[O]) prepareQueryExecution(
 	return sqlText, finalArgs, nil
 }
 
-func queryScalar[T any](ctx context.Context, tx SQLExecutor, sqlText string, args ...any) (T, error) {
+func queryScalar[T any](ctx context.Context, tx Executor, sqlText string, args ...any) (T, error) {
 	var result sql.Null[T]
 	if err := tx.QueryRowContext(ctx, sqlText, args...).Scan(&result); err != nil {
 		var zero T
@@ -46,7 +46,7 @@ func queryScalar[T any](ctx context.Context, tx SQLExecutor, sqlText string, arg
 	return result.V, nil
 }
 
-func queryInt64(ctx context.Context, tx SQLExecutor, sqlText string, args ...any) (int64, error) {
+func queryInt64(ctx context.Context, tx Executor, sqlText string, args ...any) (int64, error) {
 	return queryScalar[int64](ctx, tx, sqlText, args...)
 }
 
@@ -79,7 +79,7 @@ func (q *Query[O]) validateScalarSelection[T any](selected TypedColumn[O, T]) er
 	return nil
 }
 
-func (q *Query[O]) scalarValue[T any](ctx context.Context, tx SQLExecutor, args ...any) (T, error) {
+func (q *Query[O]) scalarValue[T any](ctx context.Context, tx Executor, args ...any) (T, error) {
 	var zero T
 
 	sqlText, finalArgs, err := q.prepareQueryExecution(ctx, tx, "scalar", args...)
@@ -98,7 +98,7 @@ func (q *Query[O]) scalarValue[T any](ctx context.Context, tx SQLExecutor, args 
 // Scalar executes a single-column query and returns the selected column's Go type.
 func (q *Query[O]) Scalar[T any](
 	ctx context.Context,
-	tx SQLExecutor,
+	tx Executor,
 	selected TypedColumn[O, T],
 	args ...any,
 ) (T, error) {
@@ -115,7 +115,7 @@ func (q *Query[O]) Scalar[T any](
 // Count executes the count query and returns the number of matching records.
 func (q *Query[O]) Count(
 	ctx context.Context,
-	tx SQLExecutor,
+	tx Executor,
 	args ...any,
 ) (int64, error) {
 	return traceExecutor1(ctx, tx, TraceOpCount, func(ctx context.Context) (int64, error) {
@@ -125,7 +125,7 @@ func (q *Query[O]) Count(
 
 func (q *Query[O]) count64(
 	ctx context.Context,
-	tx SQLExecutor,
+	tx Executor,
 	args ...any,
 ) (int64, error) {
 	if err := validateQuery(q); err != nil {
@@ -160,7 +160,7 @@ func (q *Query[O]) count64(
 // settles.
 func (q *Query[O]) Exists(
 	ctx context.Context,
-	tx SQLExecutor,
+	tx Executor,
 	args ...any,
 ) (bool, error) {
 	row, err := q.Find(ctx, tx, args...)

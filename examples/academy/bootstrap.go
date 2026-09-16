@@ -30,7 +30,7 @@ func OpenSQLiteExampleDB() (*tsq.Runtime, func(), error) {
 	}
 
 	// The pool is opened here because the schema is seeded before TSQ sees it,
-	// which is what NewRuntimeFromDB is for: the caller keeps the pool it set up
+	// which is what NewRuntime is for: the caller keeps the pool it set up
 	// and still gets tracers, SQL logging and the page-size cap.
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
@@ -51,7 +51,7 @@ func OpenSQLiteExampleDB() (*tsq.Runtime, func(), error) {
 		return nil, nil, fmt.Errorf("%s: %w", "seed mock.sql", err)
 	}
 
-	runtime, err := tsq.NewRuntimeFromDB(
+	runtime, err := tsq.NewRuntime(
 		context.Background(),
 		db,
 		tsqdialect.SQLiteDialect{},

@@ -31,8 +31,8 @@ func (c columnImpl[Owner, T]) In(sq Subquery[T]) Condition {
 	return c.Pred(`%s IN %s`, membershipSubquery(sq))
 }
 
-// NIn compares the column to a membership subquery with NOT IN.
-func (c columnImpl[Owner, T]) NIn(sq Subquery[T]) Condition {
+// NotIn compares the column to a membership subquery with NOT IN.
+func (c columnImpl[Owner, T]) NotIn(sq Subquery[T]) Condition {
 	return c.Pred(`%s NOT IN %s`, membershipSubquery(sq))
 }
 
