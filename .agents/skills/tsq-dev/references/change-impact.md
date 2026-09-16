@@ -184,6 +184,15 @@
 - 门：`runtime_schema_isolation_test.go`（SQLite）和 `integration_test.go` 的
   `TestIntegrationSchemaPolicyNeverDropsUndeclaredTables`（三方言）。
 
+## 改了方言能力检测（`detectSQLCapabilities`）
+
+- **匹配必须跳过字符串字面量和注释**，用 `sqlContainsOutsideLiterals`（它走 `walkSQL`）。裸
+  `strings.Contains` 会把 `Where(Note.EQVal(" FOR UPDATE "))` 判成用了行锁，于是一条能跑的查询
+  在 SQLite 上被 `ErrUnsupportedCapability` 拒掉。`[门禁: query_capabilities_test.go]`
+- **不要改成"从 builder 结构导出"**：子查询是以 SQL 文本进入外层条件的，结构里看不见它，那样会
+  漏报——而漏报会让查询跑到数据库上才炸，正是这道检查要消灭的东西。
+- 新增一个 `Capability` 常量时，这里要加上识别它的关键字，否则它永远不会被校验。
+
 ## 改了校验逻辑
 
 先确定它属于哪一边，这条边界是有意的（见 `architecture.md`）：

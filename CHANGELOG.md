@@ -53,6 +53,9 @@
 
 ### 修复
 
+- **字符串字面量里出现 `FOR UPDATE` 之类的词，会让一条完全正常的查询被拒绝执行**: 方言能力检测在渲染好的 SQL 上做裸的子串匹配，不区分关键字和字面量。于是 `Where(Note.EQVal(" FOR UPDATE "))` 这样的查询在 SQLite 上得到 `ErrUnsupportedCapability`，而它根本没有用行锁。这道检查本来是要把"这个方言做不到"变成一句清楚的错误，结果反过来挡住了能跑的查询。现在匹配跳过字符串字面量和注释——`walkSQL` 早就会这件事，只是这一处没用它。
+
+
 - **声明 `*time.Time` 托管时间戳字段的表，生成的代码编译不过**: 模板发出的是 `tsq.TimePtr(...)`，而根包从来没有过 `TimePtr` 这个符号，使用者拿到的是自己工程里的 `undefined: tsq.TimePtr`。`created_at`、`updated_at`、`deleted_at` 三个键都受影响，而 `skills/tsq` 一直把 `*time.Time` 列在支持的字段类型里。示例只用了 `time.Time` / `null.Time` / `int64`，这条路径因此没有任何东西走过；模板 helper 的单元测试断言的正是 `tsq.TimePtr(...)` 这个字符串，它证明的是 helper 和自己一致，不是这个符号存在。现在生成的是 Go 1.27 的 `new(tsqtime.Now())`，不需要任何 TSQ 侧的辅助函数。
 - **删除只会发出不存在符号的 `PageRespType` 模板 helper**: 它渲染 `tsq.PageResp[T]`，而这个类型叫 `PageResponse`；内置模板没有任何地方调用它，只有 `--tpl` 传自定义模板的人会踩到。
 
