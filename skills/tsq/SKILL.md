@@ -1,6 +1,6 @@
 ---
 name: tsq
-description: Use this skill when working in a Go project that wants to adopt TSQ, annotate structs with @TABLE or @RESULT, run tsq fmt or tsq gen, initialize tsq.Runtime, or build typed SQL queries, CRUD flows, bulk UPDATE / DELETE by condition, pagination, search, subqueries, CASE, CTE, set operations, and transactions with TSQ.
+description: Use this skill when working in a Go project that wants to adopt TSQ, annotate structs with //tsq: directives, run tsq gen, initialize tsq.Runtime, or build typed SQL queries, CRUD flows, bulk UPDATE / DELETE by condition, pagination, search, subqueries, CASE, CTE, set operations, and transactions with TSQ.
 license: MIT
 compatibility: Intended for GitHub Copilot, Claude Code, and Gemini CLI in Go repositories where the agent can inspect files and optionally run Go or tsq commands.
 metadata:
@@ -20,7 +20,7 @@ describes the implementation.
 ## Activate this skill when
 
 - the user wants to add TSQ to a Go service or library
-- the task involves `@TABLE`, `@RESULT`, `tsq fmt`, or `tsq gen`
+- the task involves `//tsq:` directives or `tsq gen`
 - the task involves generated `*.tsq.go` files
 - the user wants typed query building instead of handwritten SQL helpers
 - the task involves TSQ paging, search, CRUD helpers, bulk `UPDATE` / `DELETE` by condition, transactions, aliases, subqueries, `CASE`, CTEs, set operations, or optimistic locking
@@ -29,14 +29,14 @@ describes the implementation.
 
 1. Put TSQ in the target project's normal model/query package layout.
 2. Keep source-of-truth in handwritten structs and annotations.
-3. Generate code with `tsq fmt` and `tsq gen`.
+3. Generate code with `tsq gen`.
 4. Use the current Build-based API and current runtime API.
 5. Preserve dialect correctness and transaction boundaries.
 
 ## Working rules
 
-- Prefer `@TABLE` / `@RESULT` annotations over handwritten metadata layers.
-- Run `tsq fmt` before `tsq gen`.
+- Prefer `//tsq:table` / `//tsq:result` directives over handwritten metadata layers.
+- There is no formatting step: `//tsq:` directives survive gofmt. Convert a v4 package once with `tsq migrate`.
 - Treat generated `*.tsq.go` and `*.result.tsq.go` as outputs; do not hand-edit them unless the user is explicitly debugging generation output.
 - Prefer the current Build-based query flow:
   `tsq.Select(...).From(...).Where(...).Build()`
@@ -46,7 +46,7 @@ describes the implementation.
 - Use `query.Scalar(ctx, exec, selectedColumn, args...)` for a typed single-column result and `query.AsSubquery(selectedColumn)` for a built typed subquery.
 - Use `tsq.UpdateTable[T]()` / `tsq.DeleteFrom[T]()` for `UPDATE ... WHERE` / `DELETE ... WHERE` over rows the caller does not hold. They skip the optimistic-lock check but still increment `version` and require exactly one `Where(...)`. `UpdateTable` touches no managed field on its own; `DeleteFrom` soft-deletes when the table declares `deleted_at`.
 - Remember that on a table declaring `deleted_at`, `Delete` stamps a tombstone and `HardDelete` removes the row, and every generated query already filters tombstoned rows out. Without `deleted_at` the two are the same operation.
-- Do not assume this skill ships management scripts; install or upgrade TSQ with explicit `go install .../cmd/tsq@version` commands, and run `tsq fmt` / `tsq gen` directly against the chosen package.
+- Do not assume this skill ships management scripts; install or upgrade TSQ with explicit `go install .../cmd/tsq@version` commands, and run `tsq gen` directly against the chosen package.
 - The builder is stage-based: `Where(...)` and `Search(...)` each appear at most once per chain, enforced by the Go type system at compile time. Pass all filter conditions to the single `Where(...)` call; use `tsq.Or(...)` for OR groups. Both clauses can coexist in either order.
 - Remember that `InVar()` with an empty or nil slice means explicit no-match.
 - Remember that `NInVar()` with an empty or nil slice means explicit match-all.
@@ -65,8 +65,8 @@ describes the implementation.
 ## Recommended operating sequence
 
 1. Choose the target package for table structs and result structs.
-2. Add or update `@TABLE` / `@RESULT`.
-3. Run `tsq fmt` and `tsq gen`.
+2. Add or update the `//tsq:` directives.
+3. Run `tsq gen`.
 4. Wire `tsq.NewRuntime(driverName, dsn, package.TSQTables(), opts...)` in the existing DB bootstrap path.
 5. Replace one query or CRUD path at a time.
 6. Keep the change aligned with the target project's existing tests and transaction model.

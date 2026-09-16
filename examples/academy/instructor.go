@@ -1,17 +1,11 @@
 package academy
 
 // Instructor stores the people teaching courses.
-// @TABLE(
 //
-//	name="instructor",
-//	pk="ID",
-//	created_at,
-//	ux=[
-//		{fields=["Email"]},
-//	],
-//	search=["Name", "Specialty", "Bio"],
-//
-// )
+//tsq:table name=instructor pk=ID
+//tsq:managed created_at
+//tsq:unique Email
+//tsq:search Name,Specialty,Bio
 type Instructor struct {
 	ImmutableTable
 

@@ -5,10 +5,7 @@ This file is the minimum mental model for understanding what TSQ generates and h
 ## Main flow
 
 ```txt
-Go struct + @TABLE / @RESULT
-            |
-            v
-        tsq fmt
+Go struct + //tsq: directives
             |
             v
         tsq gen
@@ -29,9 +26,9 @@ tsq.Select(...).From(...).Where(...).Build()
 query.List/Get/Find/Page/Count(ctx, SQLExecutor, args...)
 ```
 
-## `@TABLE`
+## `//tsq:table`
 
-`@TABLE` marks a Go struct as a physical table model for code generation.
+`//tsq:table` marks a Go struct as a physical table model for code generation.
 
 It drives:
 
@@ -40,9 +37,9 @@ It drives:
 - paging and search helpers
 - table registration metadata
 
-## `@RESULT`
+## `//tsq:result`
 
-`@RESULT` marks a Go struct as a query result model rather than a physical table.
+`//tsq:result` marks a Go struct as a query result model rather than a physical table.
 
 Use it for:
 

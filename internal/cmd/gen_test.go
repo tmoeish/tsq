@@ -82,7 +82,8 @@ func TestGenCmdGeneratesDDLArtifactsAndGuidance(t *testing.T) {
 
 import "time"
 
-// @TABLE(name="users", pk="PK,true", created_at)
+//tsq:table name=users pk=PK
+//tsq:managed created_at
 type User struct {
 	PK        int64     `+"`db:\"id\"`"+`
 	CreatedAt time.Time `+"`db:\"created_at\"`"+`
@@ -158,9 +159,8 @@ func TestGenCmdGeneratesRuntimeMetadataFile(t *testing.T) {
 	writeTestFile(t, filepath.Join(dir, "go.mod"), genTestModuleFile(t))
 	writeTestFile(t, filepath.Join(dir, "model.go"), `package gentest
 
-// @TABLE(
-//   ux=[{name="ux_users_email",fields=["Email"]}]
-// )
+//tsq:table
+//tsq:unique Email name=ux_users_email
 type User struct {
 	ID    int64  `+"`db:\"id\"`"+`
 	Email string `+"`db:\"email\"`"+`
@@ -207,11 +207,9 @@ func TestGenCmdKeepsDeletedAtInRuntimeAndDDLIndexes(t *testing.T) {
 	writeTestFile(t, filepath.Join(dir, "go.mod"), genTestModuleFile(t))
 	writeTestFile(t, filepath.Join(dir, "model.go"), `package gentest
 
-// @TABLE(
-//   name="orders",
-//   deleted_at,
-//   idx=[{fields=["Status"]}],
-// )
+//tsq:table name=orders
+//tsq:managed deleted_at
+//tsq:index Status
 type Order struct {
 	ID        int64 `+"`db:\"id\"`"+`
 	DeletedAt int64 `+"`db:\"deleted_at\"`"+`
@@ -267,7 +265,7 @@ func TestGenCmdAppendsDDLHistoryOnSubsequentRuns(t *testing.T) {
 	writeTestFile(t, filepath.Join(dir, "go.mod"), genTestModuleFile(t))
 	writeTestFile(t, modelPath, `package gentest
 
-// @TABLE(name="users")
+//tsq:table name=users
 type User struct {
 	ID int64 `+"`db:\"id\"`"+`
 }
@@ -284,7 +282,7 @@ type User struct {
 
 	writeTestFile(t, modelPath, `package gentest
 
-// @TABLE(name="users")
+//tsq:table name=users
 type User struct {
 	ID   int64  `+"`db:\"id\"`"+`
 	Name string `+"`db:\"name,size:128\"`"+`
@@ -520,7 +518,7 @@ func TestGenCmdAppendsSQLiteRebuildDDLForTypeChange(t *testing.T) {
 	writeTestFile(t, filepath.Join(dir, "go.mod"), genTestModuleFile(t))
 	writeTestFile(t, modelPath, `package gentest
 
-// @TABLE(name="users")
+//tsq:table name=users
 type User struct {
 	ID   int64 `+"`db:\"id\"`"+`
 	Name int64 `+"`db:\"name\"`"+`
@@ -538,7 +536,7 @@ type User struct {
 
 	writeTestFile(t, modelPath, `package gentest
 
-// @TABLE(name="users")
+//tsq:table name=users
 type User struct {
 	ID   int64  `+"`db:\"id\"`"+`
 	Name string `+"`db:\"name,size:128\"`"+`
@@ -588,7 +586,7 @@ func TestGenCmdMigratesLegacyDDLStateFile(t *testing.T) {
 	writeTestFile(t, filepath.Join(dir, "go.mod"), genTestModuleFile(t))
 	writeTestFile(t, modelPath, `package gentest
 
-// @TABLE(name="users")
+//tsq:table name=users
 type User struct {
 	ID int64 `+"`db:\"id\"`"+`
 }
@@ -605,7 +603,7 @@ type User struct {
 
 	writeTestFile(t, modelPath, `package gentest
 
-// @TABLE(name="users")
+//tsq:table name=users
 type User struct {
 	ID   int64  `+"`db:\"id\"`"+`
 	Name string `+"`db:\"name,size:128\"`"+`
@@ -708,11 +706,8 @@ func TestGenCmdGeneratesMySQLSafeDDLForLargeStringsAndIndexes(t *testing.T) {
 	writeTestFile(t, filepath.Join(dir, "go.mod"), genTestModuleFile(t))
 	writeTestFile(t, filepath.Join(dir, "model.go"), `package gentest
 
-// @TABLE(
-//   name="task",
-//   pk="ID,true",
-//   idx=[{fields=["State"]}],
-// )
+//tsq:table name=task pk=ID
+//tsq:index State
 type Task struct {
 	ID     int64  `+"`db:\"id\"`"+`
 	State  string `+"`db:\"state,size:32\"`"+`
@@ -775,7 +770,7 @@ type AliasBool = bool
 type AliasBytes = []byte
 type AliasTime = time.Time
 
-// @TABLE(name="artifacts", pk="ID,true")
+//tsq:table name=artifacts pk=ID
 type Artifact struct {
 	ID         int64           `+"`db:\"id\"`"+`
 	Name       string          `+"`db:\"name\"`"+`
@@ -997,7 +992,7 @@ func (s *SkillItems) Scan(src any) error {
 	}
 }
 
-// @TABLE(name="profile", pk="ID,true")
+//tsq:table name=profile pk=ID
 type Profile struct {
 	ID         int64      `+"`db:\"id\"`"+`
 	Skills     SkillItems `+"`db:\"skill_items,type:JSON\"`"+`
@@ -1076,12 +1071,8 @@ func TestGenCmdReportsDSLSourceLocation(t *testing.T) {
 	writeTestFile(t, filepath.Join(dir, "go.mod"), genTestModuleFile(t))
 	writeTestFile(t, filepath.Join(dir, "model.go"), `package gentest
 
-// @TABLE(
-//   name="users",
-//   ux=[
-//     {fields=["name"]},
-//   ],
-// )
+//tsq:table name=users
+//tsq:unique Nickname
 type User struct {
 	ID int64 `+"`db:\"id\"`"+`
 }
@@ -1099,8 +1090,8 @@ type User struct {
 	}
 
 	got := err.Error()
-	if !strings.Contains(got, "model.go:6") {
-		t.Fatalf("expected gen error to include file and line, got %q", got)
+	if !strings.Contains(got, "model.go:4") {
+		t.Fatalf("expected gen error to point at the offending directive line, got %q", got)
 	}
 	if !strings.Contains(got, "use struct field names, not db column names") {
 		t.Fatalf("expected gen error to keep field guidance, got %q", got)

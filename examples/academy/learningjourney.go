@@ -9,7 +9,8 @@ import (
 )
 
 // LearningJourney is the end-to-end Result projection used in the full suite.
-// @RESULT(name="LearningJourney")
+//
+//tsq:result
 type LearningJourney struct {
 	// LearnerID identifies the learner row joined into the projection.
 	LearnerID int64 `json:"learner_id" tsq:"Learner.ID"`

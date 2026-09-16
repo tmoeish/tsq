@@ -24,7 +24,7 @@ var rootCmd = &cobra.Command{
 }
 
 func init() {
-	rootCmd.AddCommand(cmd.FmtCmd)
+	rootCmd.AddCommand(cmd.MigrateCmd)
 	rootCmd.AddCommand(cmd.GenCmd)
 	rootCmd.AddCommand(cmd.VersionCmd)
 }

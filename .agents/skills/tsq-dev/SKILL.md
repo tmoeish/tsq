@@ -11,14 +11,14 @@ metadata:
 
 **这份技能是给开发 `github.com/tmoeish/tsq` 这个仓库的 agent 和开发者用的。**
 
-如果你要在**别的**项目里使用 TSQ——写 `@TABLE` 注解、跑 `tsq gen`、构建类型安全查询——
+如果你要在**别的**项目里使用 TSQ——写 `//tsq:` 指令、跑 `tsq gen`、构建类型安全查询——
 那是仓库根目录 `skills/tsq` 那份技能的事，不是这份。两份技能的读者不同，内容不许互相
 复制：`skills/tsq` 描述**契约**（使用者看得见的东西），本技能描述**实现**（怎么改它）。
 
 TSQ 由三件东西组成，它们共用一个仓库和一个版本号：
 
 - **库**：仓库根包 `tsq`，提供阶段式查询构建器、执行器、事务和运行时。
-- **生成器**：`./cmd/tsq` CLI，读结构体上的 `@TABLE` / `@RESULT` 注解，产出类型化的列
+- **生成器**：`./cmd/tsq` CLI，读结构体上的 `//tsq:` 指令，产出类型化的列
   元数据、CRUD helper 和 DDL。
 - **示例**：`./examples`，可运行的契约。`examples/academy` 的生成物是**被提交的**，
   它同时是回归测试和文档里代码片段的来源。
@@ -30,7 +30,7 @@ TSQ 由三件东西组成，它们共用一个仓库和一个版本号：
 | 任何改动 | `references/change-impact.md` — 耦合清单 |
 | "X 在哪实现的？" | `references/feature-map.md` |
 | 分层、查询阶段机、执行路径、方言 | `references/architecture.md` |
-| 注解 DSL、模板、生成物、DDL 推导 | `references/codegen.md` |
+| 注解指令、模板、生成物、DDL 推导 | `references/codegen.md` |
 | 发版、版本号、tag、Go Proxy | `references/release.md` |
 | "为什么是这样？"、过去的事故、死胡同 | `references/memory.md` |
 | 对外 Go 符号的当前全集 | `references/api-surface.txt`（生成物，`make api-snapshot` 重写） |
@@ -73,7 +73,7 @@ TSQ 由三件东西组成，它们共用一个仓库和一个版本号：
 | "改 A 也得改 B"——尤其是你靠弄坏它才发现的 | `references/change-impact.md` |
 | 新文件、新入口、职责搬家、新的 CLI 子命令或 flag | `references/feature-map.md` |
 | 新组件、新的阶段类型、新方言能力、新的执行路径 | `references/architecture.md` |
-| 注解 DSL 的新键、模板结构、生成文件命名、DDL 类型推导规则 | `references/codegen.md` |
+| 新的 `//tsq:` 指令、模板结构、生成文件命名、DDL 类型推导规则 | `references/codegen.md` |
 | 发版流程、版本号传导、tag 与 Go Proxy 的坑 | `references/release.md` |
 | 必须对所有未来变更成立的规则 | `AGENTS.md`（规则住那儿，别复制过来） |
 | 使用者需要知道的事 | `skills/tsq/`、`README.md`、`docs/`、`CHANGELOG.md` |

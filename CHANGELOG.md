@@ -11,6 +11,19 @@
 
 ### 破坏性变更
 
+- **注解语法换成 `//tsq:` 指令行**: `@TABLE(...)` / `@RESULT(...)` 那套括号 DSL 没有了，改成 `//go:` 那种形态的指令，一行一个关注点：
+
+  ```go
+  //tsq:table name=course pk=ID
+  //tsq:managed created_at
+  //tsq:unique Title
+  //tsq:index TrackID
+  //tsq:search Title,Summary
+  ```
+
+  旧 DSL 写在 doc comment 里，**gofmt 会重排它的缩进**，所以生成器不得不自带一个 `tsq fmt` 把它排回解析器要的样子，并且规定"先 fmt 再 gen"。指令行 gofmt 不碰，于是 **`tsq fmt` 整个命令被删除**，那条顺序规则也随之消失。`pk="UID,true"` 这种把两个意思塞进一个字符串的写法换成 `pk=UID`（自增，默认）和 `assigned`（调用方给值）。
+- **新增 `tsq migrate <package>`**: 一次性把 v4 注解改写成指令。它用 v4 的 DSL 解析器读旧注解，所以 v4 生成器能接受的都能原样转换；注解上方的散文保留，派生出来的索引名仍然留给推导。跑一次、看 diff、然后就可以忘掉它——`tsq gen` 不再读旧语法。
+
 - **软删除成为默认的删除语义**: `deleted_at` 的表上，`Delete` 现在打墓碑而不是物理删除，物理删除改名 `HardDelete`。判据是使用者的真实用法——软删除的行在业务上就是删掉了，只有审计才回头看它，而恢复它要人工改库。受影响的入口成对出现：`tsq.Delete` / `tsq.HardDelete`、`tsq.ChunkedDelete` / `tsq.ChunkedHardDelete`、`tsq.ChunkedDeleteByPKs` / `tsq.ChunkedHardDeleteByPKs`、`tsq.DeleteFrom` / `tsq.HardDeleteFrom`，生成的方法是 `Delete` / `HardDelete`。**没有声明 `deleted_at` 的表两者同义**，都是物理删除。软删除走的是 UPDATE，所以乐观锁校验和 `version` 自增照旧生效，`updated_at` 也会刷新。生成的 `SoftDelete(ctx, db, dt)` 被删除：想指定删除时间就先给字段赋值再调 `Delete`，和 `Insert` 不覆盖调用方已设的 `created_at` 是同一条规则。
 - **`QueryActive*` / `ListActive*` 改名为 `Query*` / `List*`，带软删除行的那套不再生成**: 过滤掉已删行是日常场景，名字不该更长；而"连已删的一起查"基本只在审计时用到，用查询构建器三行就能写出来，不值得为每张表每个索引各生成一个包级变量。`deleted_at` 的表上，全部生成查询现在都自带 active 过滤。示例里 `Enrollment` 的生成符号从 39 个降到 23 个。
 - **`Tracer` 现在能知道自己在追什么**: 签名从 `func(next) func(ctx) error` 改成 `func(ctx, op tsq.TraceOp, next) error`。此前它只拿得到一个续体，可以计时却说不出计的是什么。`TraceOp` 是 `insert` / `update` / `delete` / `get` / `list` / `page` / `count` / `scalar` / `exec` / `tx`。渲染后的 SQL 不在这里传——追踪包住的是整个操作（含绑参和方言渲染），语句由 `WithSQLLogging()` 输出。

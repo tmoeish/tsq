@@ -3,21 +3,12 @@ package academy
 import "database/sql/driver"
 
 // Enrollment records the learner's progress in a course.
-// @TABLE(
 //
-//	name="enrollment",
-//	pk="UID,true",
-//	version,
-//	created_at,
-//	updated_at,
-//	deleted_at,
-//	idx=[
-//		{fields=["LearnerID", "CourseID"]},
-//		{fields=["CourseID"]},
-//		{fields=["Status"]},
-//	],
-//
-// )
+//tsq:table name=enrollment pk=UID
+//tsq:managed version created_at updated_at deleted_at
+//tsq:index LearnerID,CourseID
+//tsq:index CourseID
+//tsq:index Status
 type Enrollment struct {
 	MutableTable
 
