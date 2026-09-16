@@ -99,7 +99,7 @@ install: build ## Install to GOPATH/bin
 
 .PHONY: examples
 examples: build-gen ## Regenerate and build examples programs
-	@rm -f ./examples/academy/*.tsq.go ./examples/academy/*.result.tsq.go ./examples/academy/mysql.sql ./examples/academy/postgres.sql ./examples/academy/sqlite.sql ./examples/academy/ddl.json
+	@rm -f ./examples/academy/*.tsq.go ./examples/academy/*.result.tsq.go ./examples/academy/mysql.sql ./examples/academy/postgres.sql ./examples/academy/sqlite.sql
 	@./bin/$(GEN_BINARY_NAME) gen -v $(MODULE)/examples/academy
 	@rm -rf ./bin/examples
 	@mkdir -p ./bin/examples

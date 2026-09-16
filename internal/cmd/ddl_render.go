@@ -940,7 +940,7 @@ func findStaleDDLFiles(dir string, plannedFiles map[string]struct{}) ([]string, 
 		}
 
 		name := entry.Name()
-		if !strings.HasSuffix(name, ".sql") && name != ddlStateFilename && name != legacyDDLStateFilename {
+		if !strings.HasSuffix(name, ".sql") && name != ddlStateFilename {
 			continue
 		}
 

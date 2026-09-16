@@ -6,8 +6,6 @@ import (
 	"text/template"
 	"unicode"
 
-	"github.com/serenize/snaker"
-
 	"github.com/tmoeish/tsq/v5/internal/genmodel"
 )
 
@@ -22,25 +20,15 @@ const (
 // funcMap returns the helper functions available to the templates.
 func funcMap() template.FuncMap {
 	return template.FuncMap{
-		"ToUpper":                  strings.ToUpper,
-		"ToLower":                  strings.ToLower,
 		"UpperInitial":             upperInitial,
-		"LowerInitial":             lowerInitial,
 		"FieldVarName":             fieldVarName,
 		"FieldSliceVarName":        fieldSliceVarName,
-		"CamelToSnake":             snaker.CamelToSnake,
 		"FieldType":                fieldType,
-		"PointerType":              pointerType,
-		"ListType":                 listType,
 		"JoinAnd":                  joinAnd,
 		"Sub1":                     sub1,
 		"FieldToCol":               fieldToCol,
-		"FieldsToCols":             fieldsToCols,
 		"IndexFieldsToCols":        indexFieldsToCols,
-		"HasImport":                hasImport,
 		"NeedsGeneratedTimeImport": needsGeneratedTimeImport,
-		"GeneratedSQLRef":          generatedSQLRef,
-		"GeneratedTimeRef":         generatedTimeRef,
 		"TimestampNowValue":        timestampNowValue,
 		"TimestampUnsetExpr":       timestampUnsetExpr,
 		"SoftDeleteActiveExpr":     softDeleteActiveExpr,
@@ -225,10 +213,6 @@ func needsGeneratedTimeImport(data *genmodel.StructInfo) bool {
 	}
 
 	return hasImport(data, importPathTime) || data.CreatedAtField != "" || data.UpdatedAtField != "" || data.DeletedAtField != ""
-}
-
-func generatedSQLRef(name string) string {
-	return generatedSQLAlias + "." + name
 }
 
 func generatedTimeRef(name string) string {

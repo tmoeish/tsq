@@ -31,18 +31,12 @@ type Dialect interface {
 	BindVar(i int) string
 	CreateTableSuffix() string
 	CreateIndexSuffix() string
-	DropIndexSuffix() string
-	TruncateClause() string
 	AutoIncrementClause() string
-	AutoIncrementBindValue() string
 	LastInsertIdReturningSuffix(table, col string) string
-	AllTablesQuery() string
 	CreateTableIfNotExistsSuffix() string
-	HasConstraintsQuery(string, string) string
 	ValidateIdentifier(identifier string) error
 	SupportsCapability(capability Capability) bool
 	BatchInsertStartID(lastID, rowsAffected int64) (int64, bool)
-	ListTables(ctx context.Context, db Executor) ([]string, error)
 	InspectTableColumns(ctx context.Context, db Executor, table string) ([]DDLColumnSpec, bool, error)
 	ListIndexes(ctx context.Context, db Executor, table string) ([]NamedIndexDefinition, error)
 	EnsureIndex(ctx context.Context, db Executor, table string, unique bool, idx string, fields []string) (string, error)

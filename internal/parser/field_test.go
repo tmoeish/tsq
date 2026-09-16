@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"errors"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -403,7 +404,7 @@ type Test struct {
 				t.Fatal("expected unsupported field type to return an error")
 			}
 
-			if !IsErrorType(err, ErrorTypeFieldUnsupportedType) {
+			if !errors.Is(err, ErrUnsupportedField) {
 				t.Fatalf("expected unsupported field type error, got %v", err)
 			}
 		})

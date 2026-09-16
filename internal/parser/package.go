@@ -184,7 +184,7 @@ func (ps *ParseState) parseTableMetadata(pkg genmodel.PackageInfo) error {
 		}
 
 		if err := ps.processFileComments(file, fileSet, pkg); err != nil {
-			return fmt.Errorf("%s: %w", "failed to parse @TABLE/@RESULT annotations", err)
+			return err
 		}
 	}
 
@@ -293,7 +293,7 @@ func (ps *ParseState) processStructTypeSpec(
 		fields[name] = struct{}{}
 	}
 
-	tableMeta, err := ParseTableInfo(structName, comments, fields, fileSet)
+	tableMeta, err := parseAnnotations(structName, comments, fields, fileSet)
 	if err != nil {
 		return err
 	}
@@ -479,7 +479,7 @@ func parsePackageAliases(file *ast.File) (map[string]genmodel.PackageInfo, error
 func getPackageInfo(importPath string) (genmodel.PackageInfo, error) {
 	pkg, err := loadSinglePackage(importPath)
 	if err != nil {
-		return genmodel.PackageInfo{}, NewPackageImportError(importPath, err)
+		return genmodel.PackageInfo{}, packageImportError(importPath, err)
 	}
 
 	return genmodel.PackageInfo{
@@ -498,7 +498,7 @@ func resolveEmbeddedFields(
 	}
 
 	if structInfo.embeddedResolving {
-		return NewEmbeddedCycleError(structInfo.TypeInfo.String())
+		return embeddedCycleError(structInfo.TypeInfo.String())
 	}
 
 	structInfo.embeddedResolving = true

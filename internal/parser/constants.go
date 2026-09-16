@@ -15,15 +15,6 @@ const (
 	TagIgnore = "-"
 )
 
-// Default managed field names.
-const (
-	DefaultPKField        = "ID"
-	DefaultVersionField   = "Version"
-	DefaultCreatedAtField = "CreatedAt"
-	DefaultUpdatedAtField = "UpdatedAt"
-	DefaultDeletedAtField = "DeletedAt"
-)
-
 var PrimitiveTypes = map[string]struct{}{
 	"bool":       {},
 	"string":     {},

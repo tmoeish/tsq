@@ -21,7 +21,7 @@
 - `CONTRIBUTING.md` 是**给外部贡献者**的：从 fork 到 PR 合入需要知道的全部，不含项目内存、
   技能维护和发版这些只有维护者才做的事。它和本文件有意重叠的部分只有分支命名、提交规范和
   `make harness`——**其余一律交叉引用，不复制**。
-- `BEST_PRACTICES.md` 和 `MIGRATION_GUIDE.md` 属于面向使用者的产品文档，和 `README.md`
+- `BEST_PRACTICES.md` 属于面向使用者的产品文档，和 `README.md`
   一起在"改了根包导出符号"那条触发器下更新（见 `change-impact.md`）。
 
 重复的语句是注定漂移的语句。交叉引用，不要复制。
