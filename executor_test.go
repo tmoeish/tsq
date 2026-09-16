@@ -486,11 +486,11 @@ func TestIsRetryableNetworkError(t *testing.T) {
 	}
 }
 
-func TestIsRetryableTransactionConflictError(t *testing.T) {
-	if !IsRetryableTransactionConflictError(fakeSQLStateError{state: "40001"}) {
+func TestIsTxConflictError(t *testing.T) {
+	if !IsTxConflictError(fakeSQLStateError{state: "40001"}) {
 		t.Fatal("expected postgres serialization failure to be retryable")
 	}
-	if IsRetryableTransactionConflictError(errors.New("boom")) {
+	if IsTxConflictError(errors.New("boom")) {
 		t.Fatal("expected generic error to stay non-retryable")
 	}
 }
@@ -499,10 +499,10 @@ func TestRetryHelpersCanBeUsedAsPredicates(t *testing.T) {
 	if !IsRetryableNetworkError(driver.ErrBadConn) {
 		t.Fatal("expected network retry helper to accept driver bad connections")
 	}
-	if !IsRetryableTransactionConflictError(fakeSQLStateError{state: "40P01"}) {
+	if !IsTxConflictError(fakeSQLStateError{state: "40P01"}) {
 		t.Fatal("expected transaction conflict helper to accept deadlocks")
 	}
-	if !IsCommonTransactionRetryableError(&ErrOptimisticLockConflict{}) {
+	if !IsRetryableTxError(&ErrOptimisticLockConflict{}) {
 		t.Fatal("expected combined helper to include optimistic lock conflicts")
 	}
 }
@@ -524,17 +524,17 @@ func TestPostgresErrorsMatchBySQLStateInterface(t *testing.T) {
 	if isDuplicateKeyError(fakeSQLStateError{state: "40001"}) {
 		t.Fatal("expected serialization failure not to be a duplicate key error")
 	}
-	if !IsRetryableTransactionConflictError(fakeSQLStateError{state: "55P03"}) {
+	if !IsTxConflictError(fakeSQLStateError{state: "55P03"}) {
 		t.Fatal("expected lock-not-available to be a retryable conflict")
 	}
-	if IsRetryableTransactionConflictError(fakeSQLStateError{state: "23505"}) {
+	if IsTxConflictError(fakeSQLStateError{state: "23505"}) {
 		t.Fatal("expected unique violation not to be a retryable conflict")
 	}
 }
 
 func TestShouldRetryTxCommitStageOnlyRetriesDefiniteConflicts(t *testing.T) {
 	opts := &normalizedTxOptions{
-		retry:       IsCommonTransactionRetryableError,
+		retry:       IsRetryableTxError,
 		retryConfig: DefaultTxRetryConfig(),
 	}
 

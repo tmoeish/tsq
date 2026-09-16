@@ -1,227 +1,12 @@
 package tsq
 
 import (
-	"net/url"
-	"strconv"
 	"strings"
 	"testing"
 )
 
-func TestNewPageReq_EmptyParams(t *testing.T) {
-	page := NewPageRequest(nil)
-
-	if page.Page != 1 {
-		t.Errorf("Expected default page 1, got %d", page.Page)
-	}
-
-	if page.Size != defaultPageSize {
-		t.Errorf("Expected default size %d, got %d", defaultPageSize, page.Size)
-	}
-
-	if page.Order != "" {
-		t.Errorf("Expected empty order, got '%s'", page.Order)
-	}
-
-	if page.OrderBy != "" {
-		t.Errorf("Expected empty order_by, got '%s'", page.OrderBy)
-	}
-
-	if page.Keyword != "" {
-		t.Errorf("Expected empty keyword, got '%s'", page.Keyword)
-	}
-}
-
-func TestNewPageReq_WithParams(t *testing.T) {
-	params := url.Values{}
-	params.Set("page", "2")
-	params.Set("size", "50")
-	params.Set("order_by", "name,age")
-	params.Set("order", "ASC,DESC")
-	params.Set("keyword", "test")
-
-	page := NewPageRequest(params)
-
-	if page.Page != 2 {
-		t.Errorf("Expected page 2, got %d", page.Page)
-	}
-
-	if page.Size != 50 {
-		t.Errorf("Expected size 50, got %d", page.Size)
-	}
-
-	if page.OrderBy != "name,age" {
-		t.Errorf("Expected order_by 'name,age', got '%s'", page.OrderBy)
-	}
-
-	if page.Order != "ASC,DESC" {
-		t.Errorf("Expected order 'ASC,DESC', got '%s'", page.Order)
-	}
-
-	if page.Keyword != "test" {
-		t.Errorf("Expected keyword 'test', got '%s'", page.Keyword)
-	}
-}
-
-func TestNewPageReq_InvalidPage(t *testing.T) {
-	tests := []struct {
-		name     string
-		pageStr  string
-		expected int
-	}{
-		{"negative page", "-1", 1},
-		{"zero page", "0", 1},
-		{"invalid string", "abc", 1},
-		{"empty string", "", 1},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			params := url.Values{}
-			params.Set("page", tt.pageStr)
-
-			page := NewPageRequest(params)
-
-			if page.Page != tt.expected {
-				t.Errorf("Expected page %d, got %d", tt.expected, page.Page)
-			}
-		})
-	}
-}
-
-func TestNewPageReq_InvalidSize(t *testing.T) {
-	tests := []struct {
-		name     string
-		sizeStr  string
-		expected int
-	}{
-		{"negative size", "-1", defaultPageSize},
-		{"zero size", "0", defaultPageSize},
-		{"invalid string", "abc", defaultPageSize},
-		{"empty string", "", defaultPageSize},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			params := url.Values{}
-			params.Set("size", tt.sizeStr)
-
-			page := NewPageRequest(params)
-
-			if page.Size != tt.expected {
-				t.Errorf("Expected size %d, got %d", tt.expected, page.Size)
-			}
-		})
-	}
-}
-
-func TestNewPageReq_MaxSize(t *testing.T) {
-	params := url.Values{}
-	params.Set("size", strconv.Itoa(DefaultMaxPageSize+100))
-
-	page := NewPageRequest(params)
-
-	if page.Size != DefaultMaxPageSize {
-		t.Errorf("Expected size to be capped at %d, got %d", DefaultMaxPageSize, page.Size)
-	}
-}
-
-func TestNewPageReq_AlternativeSortParam(t *testing.T) {
-	params := url.Values{}
-	params.Set("sort", "name")
-
-	page := NewPageRequest(params)
-
-	if page.OrderBy != "name" {
-		t.Errorf("Expected order_by 'name' from 'sort' param, got '%s'", page.OrderBy)
-	}
-}
-
-func TestNewPageReq_OrderByPriority(t *testing.T) {
-	// order_by should take priority over sort
-	params := url.Values{}
-	params.Set("order_by", "name")
-	params.Set("sort", "age")
-
-	page := NewPageRequest(params)
-
-	if page.OrderBy != "name" {
-		t.Errorf("Expected order_by 'name' to take priority, got '%s'", page.OrderBy)
-	}
-}
-
-func TestPageReq_ToQuery(t *testing.T) {
-	page := &PageRequest{
-		Page:    2,
-		Size:    50,
-		OrderBy: "name,age",
-		Order:   "ASC,DESC",
-		Keyword: "test",
-	}
-
-	query := page.ToQuery()
-
-	if query.Get("page") != "2" {
-		t.Errorf("Expected page '2', got '%s'", query.Get("page"))
-	}
-
-	if query.Get("size") != "50" {
-		t.Errorf("Expected size '50', got '%s'", query.Get("size"))
-	}
-
-	if query.Get("order_by") != "name,age" {
-		t.Errorf("Expected order_by 'name,age', got '%s'", query.Get("order_by"))
-	}
-
-	if query.Get("order") != "ASC,DESC" {
-		t.Errorf("Expected order 'ASC,DESC', got '%s'", query.Get("order"))
-	}
-
-	if query.Get("keyword") != "test" {
-		t.Errorf("Expected keyword 'test', got '%s'", query.Get("keyword"))
-	}
-}
-
-func TestPageReq_ToQuery_EmptyValues(t *testing.T) {
-	page := &PageRequest{
-		Page: 1,
-		Size: defaultPageSize,
-	}
-
-	query := page.ToQuery()
-
-	if query.Get("page") != "1" {
-		t.Errorf("Expected page '1', got '%s'", query.Get("page"))
-	}
-
-	if query.Get("size") != strconv.Itoa(defaultPageSize) {
-		t.Errorf("Expected size '%d', got '%s'", defaultPageSize, query.Get("size"))
-	}
-
-	// Empty values should not be set
-	if query.Get("order_by") != "" {
-		t.Errorf("Expected empty order_by, got '%s'", query.Get("order_by"))
-	}
-
-	if query.Get("order") != "" {
-		t.Errorf("Expected empty order, got '%s'", query.Get("order"))
-	}
-
-	if query.Get("keyword") != "" {
-		t.Errorf("Expected empty keyword, got '%s'", query.Get("keyword"))
-	}
-}
-
 func TestPageReq_NilHelpers(t *testing.T) {
 	var page *PageRequest
-
-	query := page.ToQuery()
-	if query.Get("page") != "1" {
-		t.Fatalf("expected default page for nil request, got %q", query.Get("page"))
-	}
-
-	if query.Get("size") != strconv.Itoa(defaultPageSize) {
-		t.Fatalf("expected default size for nil request, got %q", query.Get("size"))
-	}
 
 	if offset := page.Offset(); offset != 0 {
 		t.Fatalf("expected nil request offset 0, got %d", offset)
@@ -238,13 +23,16 @@ func TestPageReq_HelpersNormalizeInvalidValues(t *testing.T) {
 		Size: 0,
 	}
 
-	query := page.ToQuery()
-	if query.Get("page") != "1" {
-		t.Fatalf("expected normalized page 1, got %q", query.Get("page"))
+	if err := page.Normalize(); err != nil {
+		t.Fatalf("expected Normalize to succeed, got %v", err)
 	}
 
-	if query.Get("size") != strconv.Itoa(defaultPageSize) {
-		t.Fatalf("expected normalized size %d, got %q", defaultPageSize, query.Get("size"))
+	if page.Page != 1 {
+		t.Fatalf("expected normalized page 1, got %d", page.Page)
+	}
+
+	if page.Size != defaultPageSize {
+		t.Fatalf("expected normalized size %d, got %d", defaultPageSize, page.Size)
 	}
 
 	if offset := page.Offset(); offset != 0 {
@@ -557,40 +345,6 @@ func TestPageResp_IsEmpty(t *testing.T) {
 	}
 }
 
-func TestPageReq_RoundTrip(t *testing.T) {
-	// Test that ToQuery() and NewPageReq() are inverse operations
-	original := &PageRequest{
-		Page:    3,
-		Size:    25,
-		OrderBy: "name,created_at",
-		Order:   "ASC,DESC",
-		Keyword: "search term",
-	}
-
-	query := original.ToQuery()
-	reconstructed := NewPageRequest(query)
-
-	if reconstructed.Page != original.Page {
-		t.Errorf("Page mismatch: expected %d, got %d", original.Page, reconstructed.Page)
-	}
-
-	if reconstructed.Size != original.Size {
-		t.Errorf("Size mismatch: expected %d, got %d", original.Size, reconstructed.Size)
-	}
-
-	if reconstructed.OrderBy != original.OrderBy {
-		t.Errorf("OrderBy mismatch: expected '%s', got '%s'", original.OrderBy, reconstructed.OrderBy)
-	}
-
-	if reconstructed.Order != original.Order {
-		t.Errorf("Order mismatch: expected '%s', got '%s'", original.Order, reconstructed.Order)
-	}
-
-	if reconstructed.Keyword != original.Keyword {
-		t.Errorf("Keyword mismatch: expected '%s', got '%s'", original.Keyword, reconstructed.Keyword)
-	}
-}
-
 func TestNewResponseNormalizesNilRequest(t *testing.T) {
 	var nilRequest *PageRequest
 
@@ -674,9 +428,35 @@ func TestPageReq_WithLimitAppliesRuntimeCeiling(t *testing.T) {
 		t.Fatalf("NormalizeWithLimit(50) left Size = %d, want 50", page.Size)
 	}
 
-	// No runtime may raise the absolute ceiling.
-	err = (&PageRequest{Page: 1, Size: DefaultMaxPageSize + 1}).ValidateWithLimit(DefaultMaxPageSize * 10)
-	if err == nil {
-		t.Fatalf("expected size above DefaultMaxPageSize to be rejected regardless of the requested limit")
+	// A runtime sets its own cap in either direction: DefaultMaxPageSize is the
+	// default, and a limit passed explicitly is the one that applies.
+	if err := (&PageRequest{Page: 1, Size: DefaultMaxPageSize + 1}).ValidateWithLimit(DefaultMaxPageSize * 10); err != nil {
+		t.Fatalf("expected an explicitly raised limit to be honored, got %v", err)
+	}
+}
+
+// TestValidateAndNormalizeResolveTheSameLimit is the invariant the two used to
+// break: Validate clamped the supplied limit to DefaultMaxPageSize while
+// Normalize used it as given, so one request could pass validation and be
+// silently shrunk, or fail validation at a size normalization would have kept.
+func TestValidateAndNormalizeResolveTheSameLimit(t *testing.T) {
+	limits := []int{0, -1, 50, DefaultMaxPageSize, DefaultMaxPageSize * 10}
+	sizes := []int{1, 50, DefaultMaxPageSize, DefaultMaxPageSize * 2}
+
+	for _, limit := range limits {
+		for _, size := range sizes {
+			rejected := (&PageRequest{Page: 1, Size: size}).ValidateWithLimit(limit) != nil
+
+			page := &PageRequest{Page: 1, Size: size}
+			if err := page.NormalizeWithLimit(limit); err != nil {
+				t.Fatalf("NormalizeWithLimit(%d) error = %v", limit, err)
+			}
+
+			clamped := page.Size != size
+			if rejected != clamped {
+				t.Fatalf("limit %d size %d: Validate rejected=%v but Normalize clamped=%v",
+					limit, size, rejected, clamped)
+			}
+		}
 	}
 }

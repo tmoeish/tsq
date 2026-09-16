@@ -472,7 +472,7 @@ func (m *Mutation[O]) SQL() string {
 // Exec runs the statement and returns the number of affected rows. args fill
 // the SetVar and *Var placeholders in statement order: SET first, then WHERE.
 func (m *Mutation[O]) Exec(ctx context.Context, tx SQLExecutor, args ...any) (int64, error) {
-	return traceExecutor1(ctx, tx, func(ctx context.Context) (int64, error) {
+	return traceExecutor1(ctx, tx, TraceOpExec, func(ctx context.Context) (int64, error) {
 		return execMutationFn(ctx, tx, m, args...)
 	})
 }

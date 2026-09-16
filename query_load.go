@@ -16,7 +16,7 @@ func (q *Query[O]) Page(
 	page *PageRequest,
 	args ...any,
 ) (*PageResponse[O], error) {
-	return traceExecutor1(ctx, tx, func(ctx context.Context) (*PageResponse[O], error) {
+	return traceExecutor1(ctx, tx, TraceOpPage, func(ctx context.Context) (*PageResponse[O], error) {
 		return pageFn(ctx, tx, page, q, args...)
 	})
 }
@@ -125,7 +125,7 @@ func (q *Query[O]) List(
 	tx SQLExecutor,
 	args ...any,
 ) ([]*O, error) {
-	return traceExecutor1(ctx, tx, func(ctx context.Context) ([]*O, error) {
+	return traceExecutor1(ctx, tx, TraceOpList, func(ctx context.Context) ([]*O, error) {
 		return listFn(ctx, tx, q, args...)
 	})
 }
@@ -198,7 +198,7 @@ func (q *Query[O]) Get(
 	tx SQLExecutor,
 	args ...any,
 ) (*O, error) {
-	return traceExecutor1(ctx, tx, func(ctx context.Context) (*O, error) {
+	return traceExecutor1(ctx, tx, TraceOpGet, func(ctx context.Context) (*O, error) {
 		return getOrErrFn(ctx, tx, q, args...)
 	})
 }

@@ -179,7 +179,7 @@ ping、标识符校验和 schema 策略（可能执行 DDL）。没有全局 `In
   （裸 `*sql.DB`、`WrapExecutor` 的结果）永远不打**——它没地方读这个开关。
 - `WithTx`（`tx.go`）是多操作事务的唯一入口，支持 `TxOptions.Retry`（配合
   `IsOptimisticLockError` 做乐观锁重试）。commit 阶段只对明确的冲突码
-  （`IsRetryableTransactionConflictError`）重试，网络类错误在 commit 阶段永不重试——
+  （`IsTxConflictError`）重试，网络类错误在 commit 阶段永不重试——
   commit 可能已经成功。
 - 驱动错误分类按**接口**匹配，不 import 驱动包：`sqlite_errors.go` 认 `Code() int`，
   `postgres_errors.go` 认 `SQLState() string`（lib/pq、pgx v4、pgx v5 都实现）。MySQL 是
@@ -246,7 +246,10 @@ ping、标识符校验和 schema 策略（可能执行 DDL）。没有全局 `In
 ## 追踪与错误
 
 - `trace.go` 提供轻量的执行追踪钩子，不依赖任何外部 tracing 库。`Tracer` 是
-  `WithTracers(...)` 的元素类型，由使用者自己实现——**这里不再内置 tracer**。
+  `WithTracers(...)` 的元素类型，由使用者自己实现——**这里不再内置 tracer**。签名是
+  `func(ctx, op TraceOp, next) error`：**op 必须传**，否则 tracer 能计时却说不出计的是什么。
+  每个 `traceExecutor` / `traceExecutor1` 调用点都要带上自己的 `TraceOp`，新入口忘了带就会
+  编译不过（它是必填参数，不是可选的）。渲染后的 SQL 不在这里——追踪包住的是整个操作。
   曾经有三个（`printCost` / `printError` / `printSQLTracer`），全部未导出、
   只被一个测试文件引用，使用者无从启用；SQL 日志现在归 `WithSQLLogging()`。
 - `sqlite_errors.go` 把 SQLite 的错误字符串映射成可判别的错误——这类映射按方言分文件放，

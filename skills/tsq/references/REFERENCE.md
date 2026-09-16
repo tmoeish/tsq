@@ -600,11 +600,15 @@ Useful rules:
 
 - prefer `Validate()` for external API input
 - use `Normalize()` only when compatibility-style fallback behavior is desired
-- `Validate()` and `Normalize()` check `Size` against `tsq.DefaultMaxPageSize` (1000), the absolute ceiling. A runtime built with `tsq.WithMaxPageSize(n)` clamps further at execution time, so a handler that wants both sides to agree should call `ValidateWithLimit(runtime.MaxPageSize())` or `NormalizeWithLimit(runtime.MaxPageSize())` instead
+- `Validate()` and `Normalize()` check `Size` against `tsq.DefaultMaxPageSize` (1000). A runtime built with `tsq.WithMaxPageSize(n)` uses `n` at execution time, so a handler that wants both sides to agree should call `ValidateWithLimit(runtime.MaxPageSize())` or `NormalizeWithLimit(runtime.MaxPageSize())`. Both resolve a limit the same way: a size `Validate` rejects is exactly a size `Normalize` clamps
 - `Page` is capped at `tsq.MaxPageNumber` (1000000). `Validate()` rejects anything past it; `Offset()` clamps to the last valid page, so validate first if an out-of-range page should be an error rather than the last page
 - use `Offset()` instead of hand-calculating offset
 - use `HasNext()` / `HasPrev()` for UI navigation logic
 - use `pageReq.Response(total, data)` when constructing a typed response outside `query.Page`
+
+`PageRequest` carries only the request shape and its validation. Parsing it out of an HTTP query
+string is the caller's job: the struct's `query` tags cover the usual binders, and TSQ no longer
+ships `NewPageRequest(url.Values)` or `ToQuery()`, which encoded one particular parameter naming.
 
 `PageRequest.Keyword` is automatically escaped for LIKE wildcards when executing via `query.Page(...)`, so `%`, `_` and the escape character itself are matched literally on every supported dialect; the keyword still matches as a substring. The generated predicate carries an explicit `ESCAPE '~'` clause, because SQLite has no default LIKE escape character. A backslash in a keyword is an ordinary character.
 
@@ -703,7 +707,8 @@ Rules:
 - the policies, from doing nothing to doing the most: `SchemaPolicyManual` (default: log the mode and change nothing), `SchemaPolicyValidate` (fail to start on a mismatch), `SchemaPolicyCreateMissing` (create missing tables, columns and indexes), `SchemaPolicyReconcile` (also alter columns back to what is declared). Production keeps `Manual` and owns its schema through migrations; development and test want `Reconcile`, where changing a struct and restarting is enough
 - default policy is manual: TSQ logs a reminder but does not automatically reconcile missing tables or indexes
 - construction fails when a table, column or index name is longer than the connected dialect allows, and there is no way to turn that off. Such a name does not reach the server intact, so the objects TSQ creates stop matching the names its queries reference. Name the index explicitly (`ux=[{name="..."}]`) when a derived index name is what runs over the limit
-- `tsq.WithMaxPageSize(n)` caps `PageRequest.Size` for paged queries on that runtime (default `tsq.DefaultMaxPageSize`, 1000)
+- `tsq.WithMaxPageSize(n)` sets the page-size cap for paged queries on that runtime, in either direction. `tsq.DefaultMaxPageSize` (1000) is the default, not a ceiling
+- `tsq.WithTracers(t...)` wraps every traced operation. A tracer receives the context, a `tsq.TraceOp` naming the work (`insert`, `update`, `delete`, `get`, `list`, `page`, `count`, `scalar`, `exec`, `tx`) and the continuation, and must call the continuation and return its error. The rendered SQL is not passed: tracing brackets the whole operation, binding and dialect rendering included, so statements come from `WithSQLLogging()` instead
 - **TSQ only ever adds.** No policy drops a table, so several services can share one database and bring up their own tables independently. Removing a table that is no longer declared is a migration, not a boot-time decision: a runtime knows only its own declarations and cannot tell "this table is obsolete" from "this table belongs to someone else"
 - schema policies log the mode they are in at info level; `SchemaPolicyManual` (the default) is a normal production choice, not a warning
 - `tsq.WithLogger(l)` receives bootstrap DDL and execution-time warnings (for example a skipped batch-insert ID assignment); it defaults to `slog.Default()`
@@ -744,7 +749,8 @@ Useful rules:
 - a batch `INSERT` binds about one placeholder per column per row, but a batch `UPDATE` binds about **two** (it renders `col = CASE pk WHEN ? THEN ? ... END`), so the same rows chunk roughly half as large for `ChunkedUpdate` as for `ChunkedInsert`
 - `ChunkedInsertOptions{IgnoreErrors: true}` skips rows that violate a unique or primary-key constraint and keeps going. It skips **duplicate keys only**; every other failure still aborts the call
 - inside a transaction, each row of an `IgnoreErrors` insert is bracketed by a savepoint, because PostgreSQL aborts the whole transaction on any failed statement and rejects everything after it until the transaction unwinds. Outside a transaction no savepoint is used, since each insert is already its own implicit transaction
-- automatic optimistic-lock retries can be configured with `TxOptions`
+- `TxOptions.Retry` takes a predicate. `tsq.IsRetryableTxError` covers every condition TSQ knows how to retry; the narrower `tsq.IsOptimisticLockError`, `tsq.IsRetryableNetworkError` and `tsq.IsTxConflictError` are there when a caller wants one class and not the others
+- after a failed `COMMIT` only `tsq.IsTxConflictError` conditions are retried, whatever the predicate says: those codes guarantee the transaction was rolled back, while a network failure at commit time leaves it unknown whether the commit landed
 
 ## 10. Aliases, rebinding, and result mapping
 

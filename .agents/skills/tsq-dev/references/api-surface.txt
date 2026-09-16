@@ -61,10 +61,10 @@ func Insert[T Table](
 	tx SQLExecutor,
 	item T,
 ) error
-func IsCommonTransactionRetryableError(err error) bool
 func IsOptimisticLockError(err error) bool
 func IsRetryableNetworkError(err error) bool
-func IsRetryableTransactionConflictError(err error) bool
+func IsRetryableTxError(err error) bool
+func IsTxConflictError(err error) bool
 func NewRuntime(
 	ctx context.Context,
 	driverName string,
@@ -341,12 +341,10 @@ type PageRequest struct {
 	Order   string `json:"order"    query:"order"`    // Order lists sort directions aligned with OrderBy.
 	Keyword string `json:"keyword"  query:"keyword"`  // Keyword carries the optional free-text search term.
 }
-func NewPageRequest(params url.Values) *PageRequest
 func (r *PageRequest) Normalize() error
 func (r *PageRequest) NormalizeWithLimit(maxSize int) error
 func (r *PageRequest) Offset() int
 func (r *PageRequest) Response[T any](total int64, data []*T) *PageResponse[T]
-func (r *PageRequest) ToQuery() url.Values
 func (r *PageRequest) Validate() error
 func (r *PageRequest) ValidateWithLimit(maxSize int) error
 type PageResponse[T any] struct {
@@ -546,7 +544,20 @@ type TableRegistration struct {
 	Columns []tsqdialect.DDLColumnSpec // Columns declares the physical column schema owned by Table.
 	Indexes []TableIndex               // Indexes declares the indexes owned by Table.
 }
-type Tracer func(next func(ctx context.Context) error) func(ctx context.Context) error
+type TraceOp string
+const (
+	TraceOpInsert TraceOp = "insert"
+	TraceOpUpdate TraceOp = "update"
+	TraceOpDelete TraceOp = "delete"
+	TraceOpGet    TraceOp = "get"
+	TraceOpList   TraceOp = "list"
+	TraceOpPage   TraceOp = "page"
+	TraceOpCount  TraceOp = "count"
+	TraceOpScalar TraceOp = "scalar"
+	TraceOpExec   TraceOp = "exec"
+	TraceOpTx     TraceOp = "tx"
+)
+type Tracer func(ctx context.Context, op TraceOp, next func(ctx context.Context) error) error
 type TxOptions struct {
 	SQL *sql.TxOptions
 	Retry TxRetryPredicate
