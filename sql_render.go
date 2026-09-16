@@ -95,7 +95,7 @@ func renderCanonicalSQL(raw string) string {
 	return renderSQLWithIdentifierQuoter(raw, canonicalQuoteIdentifier)
 }
 
-func renderSQLForExecutor(exec SQLExecutor, raw string) string {
+func renderSQLForExecutor(exec Executor, raw string) string {
 	return renderSQLForDialect(raw, dialectForExecutor(exec))
 }
 
@@ -378,7 +378,7 @@ func isDollarQuoteTagChar(ch byte) bool {
 	return isDollarQuoteTagStart(ch) || ('0' <= ch && ch <= '9')
 }
 
-func dialectForExecutor(exec SQLExecutor) tsqdialect.Dialect {
+func dialectForExecutor(exec Executor) tsqdialect.Dialect {
 	switch tx := exec.(type) {
 	case dialectProvider:
 		return tx.tsqDialect()

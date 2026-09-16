@@ -13,7 +13,7 @@ type aliasTestTable struct {
 
 func (*aliasTestTable) TSQOwner() {}
 
-func (t *aliasTestTable) Table() string { return t.name }
+func (t *aliasTestTable) TableName() string { return t.name }
 
 func (t *aliasTestTable) Cols() []SQLColumn {
 	return append([]SQLColumn(nil), t.cols...)
@@ -41,7 +41,7 @@ func (*fixedSQLColumn) Name() string             { return "" }
 func (*fixedSQLColumn) QualifiedName() string    { return "1" }
 func (*fixedSQLColumn) scanPointer() scanPointer { return nil }
 func (c *fixedSQLColumn) referencedTables() map[string]Table {
-	return map[string]Table{c.table.Table(): c.table}
+	return map[string]Table{c.table.TableName(): c.table}
 }
 
 func TestAliasTableReturnsOriginalForNilBlankOrSameAlias(t *testing.T) {
@@ -74,7 +74,7 @@ func TestAliasTableRebindsColumnsAndPreservesMetadata(t *testing.T) {
 
 	aliased := AliasTable(base, " manager ")
 
-	if got := aliased.Table(); got != "manager" {
+	if got := aliased.TableName(); got != "manager" {
 		t.Fatalf("expected alias table name manager, got %q", got)
 	}
 

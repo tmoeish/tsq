@@ -84,7 +84,7 @@ func TestCondition_TypedSubqueryBuildsScalarPredicate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected typed scalar subquery to validate, got %v", err)
 	}
-	wantClause := `"` + users.Table() + `"."id" = (SELECT "orders"."user_id" FROM "orders" WHERE "orders"."user_id" = ?)`
+	wantClause := `"` + users.TableName() + `"."id" = (SELECT "orders"."user_id" FROM "orders" WHERE "orders"."user_id" = ?)`
 	if got := renderCanonicalSQL(clause); got != wantClause {
 		t.Fatalf("expected scalar clause %q, got %q", wantClause, got)
 	}

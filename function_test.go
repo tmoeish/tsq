@@ -15,8 +15,8 @@ func TestCol_Expr(t *testing.T) {
 		t.Errorf("Expected name 'name', got '%s'", result.Name())
 	}
 
-	if result.Table().Table() != "users" {
-		t.Errorf("Expected table 'users', got '%s'", result.Table().Table())
+	if result.Table().TableName() != "users" {
+		t.Errorf("Expected table 'users', got '%s'", result.Table().TableName())
 	}
 
 	expectedQualified := `UPPER("users"."name")`
@@ -459,8 +459,8 @@ func TestCol_FunctionPreservesMetadata(t *testing.T) {
 		t.Errorf("Expected JSON field name 'user_email', got '%s'", result.JSONFieldName())
 	}
 
-	if result.Table().Table() != "users" {
-		t.Errorf("Expected table 'users', got '%s'", result.Table().Table())
+	if result.Table().TableName() != "users" {
+		t.Errorf("Expected table 'users', got '%s'", result.Table().TableName())
 	}
 
 	// Check that function pointer is preserved (can't compare directly, but can check it's not nil)

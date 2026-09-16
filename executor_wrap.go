@@ -4,7 +4,7 @@ import "github.com/tmoeish/tsq/v5/dialect"
 
 // wrappedExecutor wraps a standard SQL executor with dialect information.
 type wrappedExecutor struct {
-	SQLExecutor
+	Executor
 	dialect dialect.Dialect
 	runtime *Runtime
 }
@@ -17,12 +17,12 @@ func (w wrappedExecutor) tsqRuntime() *Runtime {
 	return w.runtime
 }
 
-// WrapExecutor wraps a SQLExecutor with dialect information.
-func WrapExecutor(exec SQLExecutor, sqlDialect dialect.Dialect) SQLExecutor {
+// WrapExecutor wraps a Executor with dialect information.
+func WrapExecutor(exec Executor, sqlDialect dialect.Dialect) Executor {
 	return wrapExecutor(exec, sqlDialect, nil)
 }
 
-func wrapExecutor(exec SQLExecutor, sqlDialect dialect.Dialect, rt *Runtime) SQLExecutor {
+func wrapExecutor(exec Executor, sqlDialect dialect.Dialect, rt *Runtime) Executor {
 	if exec == nil {
 		return nil
 	}
@@ -46,8 +46,8 @@ func wrapExecutor(exec SQLExecutor, sqlDialect dialect.Dialect, rt *Runtime) SQL
 	}
 
 	return wrappedExecutor{
-		SQLExecutor: exec,
-		dialect:     sqlDialect,
-		runtime:     rt,
+		Executor: exec,
+		dialect:  sqlDialect,
+		runtime:  rt,
 	}
 }

@@ -26,12 +26,12 @@ type Runtime struct {
 	ownsDB      bool
 }
 
-// NewRuntime opens a database connection, resolves the SQL dialect from
+// Open opens a database connection, resolves the SQL dialect from
 // driverName, and constructs an initialized runtime for the provided tables.
 //
 // ctx bounds the connection ping and the schema policy application, which may
 // execute DDL. The runtime owns the pool it opened, so Close closes it.
-func NewRuntime(
+func Open(
 	ctx context.Context,
 	driverName string,
 	dsn string,
@@ -70,12 +70,12 @@ func NewRuntime(
 	return runtime, nil
 }
 
-// NewRuntimeFromDB constructs a runtime over a pool the caller already owns,
+// NewRuntime constructs a runtime over a pool the caller already owns,
 // which is the way to keep an instrumented or specially configured connection
 // while still getting SQL logging, tracers and the page-size cap.
 //
 // The pool is not closed by Close: whoever opened it decides when it goes away.
-func NewRuntimeFromDB(
+func NewRuntime(
 	ctx context.Context,
 	db *sql.DB,
 	sqlDialect tsqdialect.Dialect,
@@ -145,12 +145,12 @@ func newRuntime(
 	return runtime, nil
 }
 
-var _ SQLExecutor = (*Runtime)(nil)
+var _ Executor = (*Runtime)(nil)
 
 // Close releases the underlying database connection pool. It is safe to call on a
 // nil runtime.
 // Close releases the connection pool, but only the one this runtime opened.
-// A pool handed to NewRuntimeFromDB belongs to its caller.
+// A pool handed to NewRuntime belongs to its caller.
 func (r *Runtime) Close() error {
 	if r == nil || r.db == nil || !r.ownsDB {
 		return nil
@@ -169,7 +169,7 @@ func (r *Runtime) MaxPageSize() int {
 }
 
 func (r *Runtime) tsqDialect() tsqdialect.Dialect {
-	return r.SQLDialect()
+	return r.Dialect()
 }
 
 func (r *Runtime) tsqRuntime() *Runtime {
@@ -185,8 +185,8 @@ func (r *Runtime) DB() *sql.DB {
 	return r.db
 }
 
-// SQLDialect returns the concrete SQL dialect bound to this runtime.
-func (r *Runtime) SQLDialect() tsqdialect.Dialect {
+// Dialect returns the concrete SQL dialect bound to this runtime.
+func (r *Runtime) Dialect() tsqdialect.Dialect {
 	if r == nil {
 		return nil
 	}
@@ -229,13 +229,13 @@ func (r *Runtime) ExecContext(ctx context.Context, query string, args ...any) (s
 func (r *Runtime) WithTx(
 	ctx context.Context,
 	options *TxOptions,
-	fn func(context.Context, SQLExecutor) error,
+	fn func(context.Context, Executor) error,
 ) error {
 	if fn == nil {
 		return errors.New("transaction function cannot be nil")
 	}
 
-	_, err := r.withTxResult(ctx, options, func(ctx context.Context, txExec SQLExecutor) (struct{}, error) {
+	_, err := r.withTxResult(ctx, options, func(ctx context.Context, txExec Executor) (struct{}, error) {
 		return struct{}{}, fn(ctx, txExec)
 	})
 
@@ -302,7 +302,7 @@ func (r *Runtime) validateRegisteredTableIdentifiers() error {
 		return errors.New("runtime cannot be nil")
 	}
 
-	dialect := r.SQLDialect()
+	dialect := r.Dialect()
 	if dialect == nil {
 		return nil
 	}

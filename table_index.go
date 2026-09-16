@@ -154,7 +154,7 @@ func upsertIndex(
 	}
 
 	if !found && mode == SchemaPolicyValidate {
-		return &ErrIndexMissing{
+		return &MissingIndexError{
 			Table:  table,
 			Name:   idx,
 			Fields: append([]string(nil), fields...),

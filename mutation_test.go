@@ -10,13 +10,13 @@ import (
 )
 
 var (
-	mutationUserID    = NewCol[batchMutationUser, int64]("id", "id", func(t *batchMutationUser) *int64 { return &t.ID })
-	mutationUserName  = NewCol[batchMutationUser, string]("name", "name", func(t *batchMutationUser) *string { return &t.Name })
-	mutationUserEmail = NewCol[batchMutationUser, string]("email", "email", func(t *batchMutationUser) *string { return &t.Email })
+	mutationUserID    = NewColumn[batchMutationUser, int64]("id", "id", func(t *batchMutationUser) *int64 { return &t.ID })
+	mutationUserName  = NewColumn[batchMutationUser, string]("name", "name", func(t *batchMutationUser) *string { return &t.Name })
+	mutationUserEmail = NewColumn[batchMutationUser, string]("email", "email", func(t *batchMutationUser) *string { return &t.Email })
 
-	lockedUserID      = NewCol[optimisticMutationUser, int64]("id", "id", func(t *optimisticMutationUser) *int64 { return &t.ID })
-	lockedUserName    = NewCol[optimisticMutationUser, string]("name", "name", func(t *optimisticMutationUser) *string { return &t.Name })
-	lockedUserVersion = NewCol[optimisticMutationUser, int64]("version", "version", func(t *optimisticMutationUser) *int64 { return &t.Version })
+	lockedUserID      = NewColumn[optimisticMutationUser, int64]("id", "id", func(t *optimisticMutationUser) *int64 { return &t.ID })
+	lockedUserName    = NewColumn[optimisticMutationUser, string]("name", "name", func(t *optimisticMutationUser) *string { return &t.Name })
+	lockedUserVersion = NewColumn[optimisticMutationUser, int64]("version", "version", func(t *optimisticMutationUser) *int64 { return &t.Version })
 )
 
 func seedMutationUsers(t *testing.T, rt *Runtime, withVersion bool) {

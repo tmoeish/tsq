@@ -77,16 +77,16 @@ type Column[O Owner, T any] interface {
 	LTE(rhs RHS[T]) Condition
 	// Like compares the column to rhs with LIKE.
 	Like(rhs RHS[T]) Condition
-	// NLike compares the column to rhs with NOT LIKE.
-	NLike(rhs RHS[T]) Condition
+	// NotLike compares the column to rhs with NOT LIKE.
+	NotLike(rhs RHS[T]) Condition
 	// Between compares the column to an inclusive RHS range.
 	Between(start, end RHS[T]) Condition
-	// NBetween compares the column to values outside an inclusive RHS range.
-	NBetween(start, end RHS[T]) Condition
+	// NotBetween compares the column to values outside an inclusive RHS range.
+	NotBetween(start, end RHS[T]) Condition
 	// In compares the column to a typed membership subquery with IN.
 	In(rhs Subquery[T]) Condition
-	// NIn compares the column to a typed membership subquery with NOT IN.
-	NIn(rhs Subquery[T]) Condition
+	// NotIn compares the column to a typed membership subquery with NOT IN.
+	NotIn(rhs Subquery[T]) Condition
 
 	// EQVal compares the column to arg with =.
 	EQVal(arg T) Condition
@@ -102,28 +102,28 @@ type Column[O Owner, T any] interface {
 	LTEVal(arg T) Condition
 	// LikeVal compares the column to arg with LIKE.
 	LikeVal(arg T) Condition
-	// NLikeVal compares the column to arg with NOT LIKE.
-	NLikeVal(arg T) Condition
+	// NotLikeVal compares the column to arg with NOT LIKE.
+	NotLikeVal(arg T) Condition
 	// BetweenVal compares the column to an inclusive literal range.
 	BetweenVal(start, end T) Condition
-	// NBetweenVal compares the column to values outside an inclusive literal range.
-	NBetweenVal(start, end T) Condition
+	// NotBetweenVal compares the column to values outside an inclusive literal range.
+	NotBetweenVal(start, end T) Condition
 	// InVal compares the column to an explicit list of bound values.
 	InVal(args ...T) Condition
-	// NInVal compares the column to a negated list of bound values.
-	NInVal(args ...T) Condition
+	// NotInVal compares the column to a negated list of bound values.
+	NotInVal(args ...T) Condition
 	// StartsWithVal compares the column to a bound prefix pattern.
 	StartsWithVal(str string) Condition
-	// NStartsWithVal compares the column to a negated bound prefix pattern.
-	NStartsWithVal(str string) Condition
+	// NotStartsWithVal compares the column to a negated bound prefix pattern.
+	NotStartsWithVal(str string) Condition
 	// EndsWithVal compares the column to a bound suffix pattern.
 	EndsWithVal(str string) Condition
-	// NEndsWithVal compares the column to a negated bound suffix pattern.
-	NEndsWithVal(str string) Condition
+	// NotEndsWithVal compares the column to a negated bound suffix pattern.
+	NotEndsWithVal(str string) Condition
 	// ContainsVal compares the column to a bound contains pattern.
 	ContainsVal(str string) Condition
-	// NContainsVal compares the column to a negated bound contains pattern.
-	NContainsVal(str string) Condition
+	// NotContainsVal compares the column to a negated bound contains pattern.
+	NotContainsVal(str string) Condition
 
 	// EQVar compares the column to a runtime-bound value with =.
 	EQVar() Condition
@@ -139,33 +139,28 @@ type Column[O Owner, T any] interface {
 	LTEVar() Condition
 	// LikeVar compares the column to a runtime-bound pattern with LIKE.
 	LikeVar() Condition
-	// NLikeVar compares the column to a runtime-bound pattern with NOT LIKE.
-	NLikeVar() Condition
+	// NotLikeVar compares the column to a runtime-bound pattern with NOT LIKE.
+	NotLikeVar() Condition
 	// BetweenVar compares the column to two runtime-bound values with BETWEEN.
 	BetweenVar() Condition
-	// NBetweenVar compares the column to two runtime-bound values with NOT BETWEEN.
-	NBetweenVar() Condition
+	// NotBetweenVar compares the column to two runtime-bound values with NOT BETWEEN.
+	NotBetweenVar() Condition
 	// InVar binds a slice at execution time for IN predicates.
 	InVar() Condition
-	// NInVar binds a slice at execution time for NOT IN predicates.
-	NInVar() Condition
+	// NotInVar binds a slice at execution time for NOT IN predicates.
+	NotInVar() Condition
 	// StartsWithVar compares the column to a runtime-bound prefix pattern.
 	StartsWithVar() Condition
-	// NStartsWithVar compares the column to a negated runtime-bound prefix pattern.
-	NStartsWithVar() Condition
+	// NotStartsWithVar compares the column to a negated runtime-bound prefix pattern.
+	NotStartsWithVar() Condition
 	// EndsWithVar compares the column to a runtime-bound suffix pattern.
 	EndsWithVar() Condition
-	// NEndsWithVar compares the column to a negated runtime-bound suffix pattern.
-	NEndsWithVar() Condition
+	// NotEndsWithVar compares the column to a negated runtime-bound suffix pattern.
+	NotEndsWithVar() Condition
 	// ContainsVar compares the column to a runtime-bound contains pattern.
 	ContainsVar() Condition
-	// NContainsVar compares the column to a negated runtime-bound contains pattern.
-	NContainsVar() Condition
-
-	// ExistsSub returns an EXISTS predicate for the supplied subquery.
-	// NExistsSub returns a NOT EXISTS predicate for the supplied subquery.
-	// Unique returns a deferred portability error because UNIQUE subquery predicates are not supported.
-	// NUnique returns a deferred portability error because NOT UNIQUE subquery predicates are not supported.
+	// NotContainsVar compares the column to a negated runtime-bound contains pattern.
+	NotContainsVar() Condition
 
 	// Pred formats a custom predicate template around the receiver column.
 	// The format must contain one %s placeholder for the receiver column plus

@@ -40,13 +40,13 @@ import (
 // interface method, which package initialization ordering cannot see. Without it a
 // package-level query variable in a file sorting before this one can observe
 // {{$varTblCols}} fully sized with nil elements.
-var {{$varTbl}} tsq.Table = tsq.TableWithCols({{$type}}{}, {{$varTblCols}})
+var {{$varTbl}} tsq.Table = tsq.DeclareTable({{$type}}{}, {{$varTblCols}})
 
 // TSQOwner marks {{$type}} as a TSQ owner.
 func ({{$dot.Recv}} {{$type}}) TSQOwner() {}
 
-// Table returns the database table name for {{$type}}.
-func ({{$dot.Recv}} {{$type}}) Table() string { return "{{$dot.Table}}" }
+// TableName returns the database table name for {{$type}}.
+func ({{$dot.Recv}} {{$type}}) TableName() string { return "{{$dot.Table}}" }
 
 // Cols returns all generated columns for {{$type}}.
 func ({{$dot.Recv}} {{$type}}) Cols() []tsq.SQLColumn {
@@ -98,7 +98,7 @@ func ({{$dot.Recv}} {{$type}}) ManagedColumns() tsq.ManagedColumns {
 // Column definitions for {{$type}} table.
 var (
 {{- range $f := .Fields }}
-	{{$type}}_{{$f.Name}} = tsq.NewCol("{{$f.Column}}", "{{$f.JsonTag}}", func(t {{$ptype}}) *{{$f | FieldType}} { return &t.{{$f.Name}} })
+	{{$type}}_{{$f.Name}} = tsq.NewColumn("{{$f.Column}}", "{{$f.JsonTag}}", func(t {{$ptype}}) *{{$f | FieldType}} { return &t.{{$f.Name}} })
 {{- end }}
 )
 
@@ -150,7 +150,7 @@ var {{$query}} = tsq.
 // Returns an error if any of the specified records are not found.
 func {{$name}}(
 	ctx context.Context,
-	db tsq.SQLExecutor,
+	db tsq.Executor,
 	{{ FieldSliceVarName $dot.PK }} ...{{index $dot.FieldMap $dot.PK | FieldType}},
 ) ({{$list}}, error) {
 	list, err := {{ printf "%s%sIn" $QueryBy $dot.PK }}.List(ctx, db, {{ FieldSliceVarName $dot.PK }})
@@ -195,7 +195,7 @@ var {{$query}} = tsq.
 // Returns an error if any of the specified records are not found.
 func {{$name}}(
 	ctx context.Context,
-	db tsq.SQLExecutor,
+	db tsq.Executor,
 	{{- range $i, $f := $ux.Fields }}
 	{{- if eq $i (Sub1 (len $ux.Fields)) }}
 	{{ FieldSliceVarName $f }} ...{{ index $dot.FieldMap $f | FieldType }},
@@ -299,7 +299,7 @@ var {{$query}} = tsq.
 // Insert inserts a new {{$type}} record.
 {{$precv}}Insert(
 	ctx context.Context,
-	db tsq.SQLExecutor,
+	db tsq.Executor,
 ) error {
 {{- if $dot.CreatedAtField }}
 	if {{ TimestampUnsetExpr $dot.Recv $dot.CreatedAtField (index $dot.FieldMap $dot.CreatedAtField) }} {
@@ -321,7 +321,7 @@ var {{$query}} = tsq.
 // Update updates an existing {{$type}} record.
 {{$precv}}Update(
 	ctx context.Context,
-	db tsq.SQLExecutor,
+	db tsq.Executor,
 ) error {
 {{- if $dot.UpdatedAtField }}
 	{{$dot.Recv}}.{{$dot.UpdatedAtField}} = {{ TimestampNowValue (index $dot.FieldMap $dot.UpdatedAtField) }}
@@ -346,7 +346,7 @@ var {{$query}} = tsq.
 {{- end }}
 {{$precv}}Delete(
 	ctx context.Context,
-	db tsq.SQLExecutor,
+	db tsq.Executor,
 ) error {
 	err := tsq.Delete(ctx, db, {{$dot.Recv}})
 	if err != nil {
@@ -363,7 +363,7 @@ var {{$query}} = tsq.
 {{- end }}
 {{$precv}}HardDelete(
 	ctx context.Context,
-	db tsq.SQLExecutor,
+	db tsq.Executor,
 ) error {
 	err := tsq.HardDelete(ctx, db, {{$dot.Recv}})
 	if err != nil {

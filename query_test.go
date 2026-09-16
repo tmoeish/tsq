@@ -76,11 +76,11 @@ func TestQuery_SQLAccessors(t *testing.T) {
 	if query.ListSQL() != "SELECT * FROM users" {
 		t.Errorf("Expected ListSQL 'SELECT * FROM users', got '%s'", query.ListSQL())
 	}
-	if query.KeywordCountSQL() != "SELECT COUNT(*) FROM users WHERE name LIKE ?" {
-		t.Errorf("Expected KeywordCountSQL 'SELECT COUNT(*) FROM users WHERE name LIKE ?', got '%s'", query.KeywordCountSQL())
+	if query.SearchCountSQL() != "SELECT COUNT(*) FROM users WHERE name LIKE ?" {
+		t.Errorf("Expected SearchCountSQL 'SELECT COUNT(*) FROM users WHERE name LIKE ?', got '%s'", query.SearchCountSQL())
 	}
-	if query.KeywordListSQL() != "SELECT * FROM users WHERE name LIKE ?" {
-		t.Errorf("Expected KeywordListSQL 'SELECT * FROM users WHERE name LIKE ?', got '%s'", query.KeywordListSQL())
+	if query.SearchListSQL() != "SELECT * FROM users WHERE name LIKE ?" {
+		t.Errorf("Expected SearchListSQL 'SELECT * FROM users WHERE name LIKE ?', got '%s'", query.SearchListSQL())
 	}
 }
 
@@ -125,10 +125,10 @@ func TestQueryBuilder_Build_Success(t *testing.T) {
 	if query.ListSQL() == "" {
 		t.Error("Expected non-empty ListSQL")
 	}
-	if query.KeywordCountSQL() == "" {
+	if query.SearchCountSQL() == "" {
 		t.Error("Expected non-empty KwCntSQL")
 	}
-	if query.KeywordListSQL() == "" {
+	if query.SearchListSQL() == "" {
 		t.Error("Expected non-empty KwListSQL")
 	}
 }
@@ -374,8 +374,8 @@ func TestQuery_MetadataAccess(t *testing.T) {
 }
 
 func TestErrorTypes_Interfaces(t *testing.T) {
-	var _ error = &ErrUnknownSortField{}
-	var _ error = &ErrOrderCountMismatch{}
+	var _ error = &UnknownSortFieldError{}
+	var _ error = &OrderCountMismatchError{}
 	err1 := newErrUnknownSortField("test")
 	if err1 == nil {
 		t.Error("Expected non-nil error")
@@ -394,11 +394,11 @@ func TestQuery_EmptySQL(t *testing.T) {
 	if query.ListSQL() != "" {
 		t.Errorf("Expected empty ListSQL, got '%s'", query.ListSQL())
 	}
-	if query.KeywordCountSQL() != "" {
-		t.Errorf("Expected empty KeywordCountSQL, got '%s'", query.KeywordCountSQL())
+	if query.SearchCountSQL() != "" {
+		t.Errorf("Expected empty SearchCountSQL, got '%s'", query.SearchCountSQL())
 	}
-	if query.KeywordListSQL() != "" {
-		t.Errorf("Expected empty KeywordListSQL, got '%s'", query.KeywordListSQL())
+	if query.SearchListSQL() != "" {
+		t.Errorf("Expected empty SearchListSQL, got '%s'", query.SearchListSQL())
 	}
 }
 
@@ -410,11 +410,11 @@ func TestNilQuery_SQLAccessorsReturnEmptyStrings(t *testing.T) {
 	if query.ListSQL() != "" {
 		t.Errorf("Expected empty ListSQL for nil query, got %q", query.ListSQL())
 	}
-	if query.KeywordCountSQL() != "" {
-		t.Errorf("Expected empty KeywordCountSQL for nil query, got %q", query.KeywordCountSQL())
+	if query.SearchCountSQL() != "" {
+		t.Errorf("Expected empty SearchCountSQL for nil query, got %q", query.SearchCountSQL())
 	}
-	if query.KeywordListSQL() != "" {
-		t.Errorf("Expected empty KeywordListSQL for nil query, got %q", query.KeywordListSQL())
+	if query.SearchListSQL() != "" {
+		t.Errorf("Expected empty SearchListSQL for nil query, got %q", query.SearchListSQL())
 	}
 }
 

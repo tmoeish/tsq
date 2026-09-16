@@ -40,7 +40,7 @@ describes the implementation.
 - Treat generated `*.tsq.go` and `*.result.tsq.go` as outputs; do not hand-edit them unless the user is explicitly debugging generation output.
 - Prefer the current Build-based query flow:
   `tsq.Select(...).From(...).Where(...).Build()`
-- Pass `runtime` directly where a `tsq.SQLExecutor` is needed.
+- Pass `runtime` directly where a `tsq.Executor` is needed.
 - Use `Runtime.WithTx(...)` when several TSQ operations must share one transaction.
 - Use `Runtime.WithTxResult(...)` when that transaction callback returns a typed value; prefer a small result struct over the deprecated arity-specific helpers.
 - Use `query.Scalar(ctx, exec, selectedColumn, args...)` for a typed single-column result and `query.AsSubquery(selectedColumn)` for a built typed subquery.
@@ -49,7 +49,7 @@ describes the implementation.
 - Do not assume this skill ships management scripts; install or upgrade TSQ with explicit `go install .../cmd/tsq@version` commands, and run `tsq gen` directly against the chosen package.
 - The builder is stage-based: `Where(...)` and `Search(...)` each appear at most once per chain, enforced by the Go type system at compile time. Pass all filter conditions to the single `Where(...)` call; use `tsq.Or(...)` for OR groups. Both clauses can coexist in either order.
 - Remember that `InVar()` with an empty or nil slice means explicit no-match.
-- Remember that `NInVar()` with an empty or nil slice means explicit match-all.
+- Remember that `NotInVar()` with an empty or nil slice means explicit match-all.
 - Prefer the predicate naming split: RHS uses `Op(...)`, literal values use `OpVal(...)`, runtime placeholders use `OpVar()`, and pattern sugar uses `StartsWithVal/StartsWithVar`-style names while cross-column or subquery pattern matching goes through `Like(...)`.
 - Remember that `Build()` validates query structure, while execution validates dialect capabilities.
 - Do not assume a custom `driver.Valuer` / `sql.Scanner` type implies a DDL column type; use an explicit `db:"...,type:JSON"` / `type:TEXT` / `type:JSONB"` override when the Go type is not directly mappable.
@@ -67,7 +67,7 @@ describes the implementation.
 1. Choose the target package for table structs and result structs.
 2. Add or update the `//tsq:` directives.
 3. Run `tsq gen`.
-4. Wire `tsq.NewRuntime(driverName, dsn, package.TSQTables(), opts...)` in the existing DB bootstrap path.
+4. Wire `tsq.Open(ctx, driverName, dsn, package.TSQTables(), opts...)` (or `tsq.NewRuntime(ctx, db, dialect, ...)` over an existing pool) in the existing DB bootstrap path.
 5. Replace one query or CRUD path at a time.
 6. Keep the change aligned with the target project's existing tests and transaction model.
 
@@ -77,7 +77,7 @@ describes the implementation.
 - do not try to call `Where(...)` or `Search(...)` more than once per chain; the stage-based type system makes this a compile error — put all conditions in the single call
 - do not assume every built query runs on every dialect
 - do not treat `InVar(nil)` as “ignore this filter”
-- do not treat `NInVar(nil)` as “reject everything”
+- do not treat `NotInVar(nil)` as “reject everything”
 - do not move transaction boundaries into hidden helper behavior
 - do not emulate `UPDATE ... WHERE` by listing rows and calling `Update(...)` per row; use `tsq.UpdateTable[T]()`
 

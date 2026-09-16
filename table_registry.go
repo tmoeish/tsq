@@ -24,7 +24,7 @@ func buildRegisteredTables(registrations []TableRegistration) ([]*registeredTabl
 		table := registration.Table
 		if isNilValue(table) {
 			return nil, &RegistrationError{
-				Type:    RegistrationErrorNilTable,
+				Kind:    RegistrationErrorNilTable,
 				Message: "registered table cannot be nil",
 			}
 		}
@@ -40,9 +40,9 @@ func buildRegisteredTables(registrations []TableRegistration) ([]*registeredTabl
 		key := registeredTableKey(table)
 		if _, exists := tables[key]; exists {
 			return nil, &RegistrationError{
-				Type:      RegistrationErrorDuplicate,
-				TableName: key,
-				Message:   fmt.Sprintf("table %s is already registered", key),
+				Kind:    RegistrationErrorDuplicate,
+				Table:   key,
+				Message: fmt.Sprintf("table %s is already registered", key),
 			}
 		}
 
@@ -74,10 +74,10 @@ func registeredTableKey(table Table) string {
 	}
 
 	if schemaTable, ok := table.(schemaTabler); ok && schemaTable.Schema() != "" {
-		return schemaTable.Schema() + "." + table.Table()
+		return schemaTable.Schema() + "." + table.TableName()
 	}
 
-	return table.Table()
+	return table.TableName()
 }
 
 func validateRegisteredIndexes(table Table, indexes []TableIndex) error {
@@ -99,34 +99,34 @@ func validateRegisteredIndexes(table Table, indexes []TableIndex) error {
 	for _, index := range indexes {
 		if err := validateBuiltInIdentifier(index.Name); err != nil {
 			return &RegistrationError{
-				Type:      RegistrationErrorInvalidIndex,
-				TableName: tableName,
-				Message:   fmt.Sprintf("invalid index %q on table %s: %v", index.Name, tableName, err),
+				Kind:    RegistrationErrorInvalidIndex,
+				Table:   tableName,
+				Message: fmt.Sprintf("invalid index %q on table %s: %v", index.Name, tableName, err),
 			}
 		}
 
 		if len(index.Fields) == 0 {
 			return &RegistrationError{
-				Type:      RegistrationErrorInvalidIndex,
-				TableName: tableName,
-				Message:   fmt.Sprintf("index %q on table %s must declare at least one field", index.Name, tableName),
+				Kind:    RegistrationErrorInvalidIndex,
+				Table:   tableName,
+				Message: fmt.Sprintf("index %q on table %s must declare at least one field", index.Name, tableName),
 			}
 		}
 
 		for _, field := range index.Fields {
 			if err := validateBuiltInIdentifier(field); err != nil {
 				return &RegistrationError{
-					Type:      RegistrationErrorInvalidIndex,
-					TableName: tableName,
-					Message:   fmt.Sprintf("invalid field %q in index %q on table %s: %v", field, index.Name, tableName, err),
+					Kind:    RegistrationErrorInvalidIndex,
+					Table:   tableName,
+					Message: fmt.Sprintf("invalid field %q in index %q on table %s: %v", field, index.Name, tableName, err),
 				}
 			}
 
 			if _, ok := availableColumns[field]; !ok {
 				return &RegistrationError{
-					Type:      RegistrationErrorInvalidIndex,
-					TableName: tableName,
-					Message:   fmt.Sprintf("index %q on table %s references unknown field %q", index.Name, tableName, field),
+					Kind:    RegistrationErrorInvalidIndex,
+					Table:   tableName,
+					Message: fmt.Sprintf("index %q on table %s references unknown field %q", index.Name, tableName, field),
 				}
 			}
 		}
@@ -173,25 +173,25 @@ func validateRegisteredColumns(table Table, columns []tsqdialect.DDLColumnSpec) 
 	for _, column := range columns {
 		if err := validateBuiltInIdentifier(column.Name); err != nil {
 			return &RegistrationError{
-				Type:      RegistrationErrorInvalidIndex,
-				TableName: tableName,
-				Message:   fmt.Sprintf("invalid column %q on table %s: %v", column.Name, tableName, err),
+				Kind:    RegistrationErrorInvalidIndex,
+				Table:   tableName,
+				Message: fmt.Sprintf("invalid column %q on table %s: %v", column.Name, tableName, err),
 			}
 		}
 
 		if _, ok := availableColumns[column.Name]; !ok {
 			return &RegistrationError{
-				Type:      RegistrationErrorInvalidIndex,
-				TableName: tableName,
-				Message:   fmt.Sprintf("column %q on table %s is not exposed by Cols()", column.Name, tableName),
+				Kind:    RegistrationErrorInvalidIndex,
+				Table:   tableName,
+				Message: fmt.Sprintf("column %q on table %s is not exposed by Cols()", column.Name, tableName),
 			}
 		}
 
 		if _, ok := seen[column.Name]; ok {
 			return &RegistrationError{
-				Type:      RegistrationErrorInvalidIndex,
-				TableName: tableName,
-				Message:   fmt.Sprintf("column %q on table %s is declared more than once", column.Name, tableName),
+				Kind:    RegistrationErrorInvalidIndex,
+				Table:   tableName,
+				Message: fmt.Sprintf("column %q on table %s is declared more than once", column.Name, tableName),
 			}
 		}
 		seen[column.Name] = struct{}{}

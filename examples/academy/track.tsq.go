@@ -24,13 +24,13 @@ import (
 // interface method, which package initialization ordering cannot see. Without it a
 // package-level query variable in a file sorting before this one can observe
 // Track__Cols fully sized with nil elements.
-var TableTrack tsq.Table = tsq.TableWithCols(Track{}, Track__Cols)
+var TableTrack tsq.Table = tsq.DeclareTable(Track{}, Track__Cols)
 
 // TSQOwner marks Track as a TSQ owner.
 func (t Track) TSQOwner() {}
 
-// Table returns the database table name for Track.
-func (t Track) Table() string { return "track" }
+// TableName returns the database table name for Track.
+func (t Track) TableName() string { return "track" }
 
 // Cols returns all generated columns for Track.
 func (t Track) Cols() []tsq.SQLColumn {
@@ -62,11 +62,11 @@ func (t Track) ManagedColumns() tsq.ManagedColumns {
 
 // Column definitions for Track table.
 var (
-	Track_CreatedAt   = tsq.NewCol("created_at", "created_at", func(t *Track) *null.Time { return &t.CreatedAt })
-	Track_Description = tsq.NewCol("description", "description", func(t *Track) *string { return &t.Description })
-	Track_ID          = tsq.NewCol("id", "id", func(t *Track) *int64 { return &t.ID })
-	Track_Name        = tsq.NewCol("name", "name", func(t *Track) *string { return &t.Name })
-	Track_SkillItems  = tsq.NewCol("skill_items", "skill_items", func(t *Track) *json.RawMessage { return &t.SkillItems })
+	Track_CreatedAt   = tsq.NewColumn("created_at", "created_at", func(t *Track) *null.Time { return &t.CreatedAt })
+	Track_Description = tsq.NewColumn("description", "description", func(t *Track) *string { return &t.Description })
+	Track_ID          = tsq.NewColumn("id", "id", func(t *Track) *int64 { return &t.ID })
+	Track_Name        = tsq.NewColumn("name", "name", func(t *Track) *string { return &t.Name })
+	Track_SkillItems  = tsq.NewColumn("skill_items", "skill_items", func(t *Track) *json.RawMessage { return &t.SkillItems })
 )
 
 // Track__Cols is the list of all selectable columns for Track table.
@@ -103,7 +103,7 @@ var QueryTrackByIDIn = tsq.
 // Returns an error if any of the specified records are not found.
 func ListTrackByIDInOrErr(
 	ctx context.Context,
-	db tsq.SQLExecutor,
+	db tsq.Executor,
 	iDs ...int64,
 ) ([]*Track, error) {
 	list, err := QueryTrackByIDIn.List(ctx, db, iDs)
@@ -137,7 +137,7 @@ var QueryTrackByName = tsq.
 // Returns an error if any of the specified records are not found.
 func ListTrackByNameInOrErr(
 	ctx context.Context,
-	db tsq.SQLExecutor,
+	db tsq.Executor,
 	names ...string,
 ) ([]*Track, error) {
 	list, err := QueryTrackByNameIn.List(ctx, db,
@@ -186,7 +186,7 @@ var QueryTrack = tsq.
 // Insert inserts a new Track record.
 func (t *Track) Insert(
 	ctx context.Context,
-	db tsq.SQLExecutor,
+	db tsq.Executor,
 ) error {
 	if !t.CreatedAt.Valid {
 		t.CreatedAt = null.TimeFrom(tsqtime.Now())
@@ -201,7 +201,7 @@ func (t *Track) Insert(
 // Update updates an existing Track record.
 func (t *Track) Update(
 	ctx context.Context,
-	db tsq.SQLExecutor,
+	db tsq.Executor,
 ) error {
 	err := tsq.Update(ctx, db, t)
 	if err != nil {
@@ -216,7 +216,7 @@ func (t *Track) Update(
 // same operation.
 func (t *Track) Delete(
 	ctx context.Context,
-	db tsq.SQLExecutor,
+	db tsq.Executor,
 ) error {
 	err := tsq.Delete(ctx, db, t)
 	if err != nil {
@@ -228,7 +228,7 @@ func (t *Track) Delete(
 // HardDelete removes a Track record from the database.
 func (t *Track) HardDelete(
 	ctx context.Context,
-	db tsq.SQLExecutor,
+	db tsq.Executor,
 ) error {
 	err := tsq.HardDelete(ctx, db, t)
 	if err != nil {

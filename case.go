@@ -221,7 +221,7 @@ func columnTables(col SQLColumn) map[string]Table {
 		return nil
 	}
 
-	tables := map[string]Table{table.Table(): table}
+	tables := map[string]Table{table.TableName(): table}
 	if refs, ok := col.(interface{ referencedTables() map[string]Table }); ok {
 		maps.Copy(tables, refs.referencedTables())
 	}

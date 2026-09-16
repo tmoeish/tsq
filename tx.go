@@ -29,45 +29,42 @@ const (
 	txRetryStageCommit
 )
 
-// TxRetryPredicate reports whether err should retry the whole transaction callback.
-type TxRetryPredicate func(err error) bool
-
 // TxOptions configures Runtime.WithTx.
 type TxOptions struct {
 	// SQL passes through to database/sql BeginTx.
 	SQL *sql.TxOptions
-	// Retry decides whether a failed transaction attempt should be retried.
-	// When set, RetryConfig defaults are applied automatically unless overridden.
-	Retry TxRetryPredicate
-	// RetryConfig customizes retry timing and attempt limits when Retry is set.
-	RetryConfig *TxRetryConfig
+	// RetryIf decides whether a failed transaction attempt should be retried.
+	// When set, DefaultRetryPolicy applies unless RetryPolicy overrides it.
+	RetryIf func(err error) bool
+	// RetryPolicy customizes retry timing and attempt limits when RetryIf is set.
+	RetryPolicy *RetryPolicy
 }
 
-// TxRetryConfig configures retry timing and attempt limits for Runtime.WithTx.
-type TxRetryConfig struct {
+// RetryPolicy configures retry timing and attempt limits for Runtime.WithTx.
+type RetryPolicy struct {
 	// MaxAttempts is the total number of attempts, including the first try.
 	MaxAttempts int
 	// InitialBackoff is the delay after the first retryable failure.
 	InitialBackoff time.Duration
 	// MaxBackoff caps exponential backoff. Zero means no cap.
 	MaxBackoff time.Duration
-	// BackoffMultiplier grows the delay after each retryable failure.
-	BackoffMultiplier float64
+	// Multiplier grows the delay after each retryable failure.
+	Multiplier float64
 }
 
-// DefaultTxRetryConfig returns the default retry timing used when Retry is set.
-func DefaultTxRetryConfig() *TxRetryConfig {
-	return &TxRetryConfig{
-		MaxAttempts:       defaultTxRetryMaxAttempts,
-		InitialBackoff:    defaultTxRetryInitialBackoff,
-		MaxBackoff:        defaultTxRetryMaxBackoff,
-		BackoffMultiplier: defaultTxRetryBackoffMultiplier,
+// DefaultRetryPolicy returns the default retry timing used when RetryIf is set.
+func DefaultRetryPolicy() *RetryPolicy {
+	return &RetryPolicy{
+		MaxAttempts:    defaultTxRetryMaxAttempts,
+		InitialBackoff: defaultTxRetryInitialBackoff,
+		MaxBackoff:     defaultTxRetryMaxBackoff,
+		Multiplier:     defaultTxRetryBackoffMultiplier,
 	}
 }
 
-// IsOptimisticLockError reports whether err is an ErrOptimisticLockConflict.
+// IsOptimisticLockError reports whether err wraps an OptimisticLockError.
 func IsOptimisticLockError(err error) bool {
-	return errors.Is(err, &ErrOptimisticLockConflict{})
+	return errors.Is(err, &OptimisticLockError{})
 }
 
 // IsRetryableNetworkError reports whether err looks like a transient connection failure.
@@ -117,7 +114,7 @@ func IsTxConflictError(err error) bool {
 
 // IsRetryableTxError reports whether err is any of the conditions TSQ knows how
 // to retry: an optimistic-lock conflict, a retryable network failure, or a
-// transaction conflict. It is the predicate to pass to TxOptions.Retry unless
+// transaction conflict. It is the predicate to pass to TxOptions.RetryIf unless
 // the caller wants a narrower rule.
 func IsRetryableTxError(err error) bool {
 	return IsOptimisticLockError(err) ||
@@ -127,8 +124,8 @@ func IsRetryableTxError(err error) bool {
 
 type normalizedTxOptions struct {
 	sqlOptions  *sql.TxOptions
-	retry       TxRetryPredicate
-	retryConfig *TxRetryConfig
+	retryIf     func(err error) bool
+	retryPolicy *RetryPolicy
 }
 
 func normalizeTxOptions(options *TxOptions) (*normalizedTxOptions, error) {
@@ -141,35 +138,30 @@ func normalizeTxOptions(options *TxOptions) (*normalizedTxOptions, error) {
 		normalized.sqlOptions = new(*options.SQL)
 	}
 
-	if options.Retry == nil {
-		if options.RetryConfig != nil {
-			return nil, errors.New("transaction retry config requires a retry predicate")
+	if options.RetryIf == nil {
+		if options.RetryPolicy != nil {
+			return nil, errors.New("TxOptions.RetryPolicy requires TxOptions.RetryIf")
 		}
 
 		return normalized, nil
 	}
 
-	retryConfig := DefaultTxRetryConfig()
-	if options.RetryConfig != nil {
-		retryConfig = &TxRetryConfig{
-			MaxAttempts:       options.RetryConfig.MaxAttempts,
-			InitialBackoff:    options.RetryConfig.InitialBackoff,
-			MaxBackoff:        options.RetryConfig.MaxBackoff,
-			BackoffMultiplier: options.RetryConfig.BackoffMultiplier,
-		}
+	policy := DefaultRetryPolicy()
+	if options.RetryPolicy != nil {
+		policy = new(*options.RetryPolicy)
 	}
 
-	if err := validateTxRetryConfig(retryConfig); err != nil {
+	if err := validateRetryPolicy(policy); err != nil {
 		return nil, err
 	}
 
-	normalized.retry = options.Retry
-	normalized.retryConfig = retryConfig
+	normalized.retryIf = options.RetryIf
+	normalized.retryPolicy = policy
 
 	return normalized, nil
 }
 
-func validateTxRetryConfig(options *TxRetryConfig) error {
+func validateRetryPolicy(options *RetryPolicy) error {
 	if options == nil {
 		return nil
 	}
@@ -194,8 +186,8 @@ func validateTxRetryConfig(options *TxRetryConfig) error {
 		)
 	}
 
-	if options.BackoffMultiplier < 1 {
-		return fmt.Errorf("invalid transaction retry backoff multiplier: %v", options.BackoffMultiplier)
+	if options.Multiplier < 1 {
+		return fmt.Errorf("invalid transaction retry backoff multiplier: %v", options.Multiplier)
 	}
 
 	return nil
@@ -220,11 +212,11 @@ func validateTxRuntime(r *Runtime) error {
 // Any other commit failure is ambiguous (the commit may have succeeded) and is
 // never replayed.
 func shouldRetryTx(err error, stage txRetryStage, options *normalizedTxOptions, attempt int) bool {
-	if options == nil || options.retry == nil || options.retryConfig == nil {
+	if options == nil || options.retryIf == nil || options.retryPolicy == nil {
 		return false
 	}
 
-	if attempt >= options.retryConfig.MaxAttempts {
+	if attempt >= options.retryPolicy.MaxAttempts {
 		return false
 	}
 
@@ -232,17 +224,17 @@ func shouldRetryTx(err error, stage txRetryStage, options *normalizedTxOptions, 
 		return false
 	}
 
-	return options.retry(err)
+	return options.retryIf(err)
 }
 
-func txRetryDelay(options *TxRetryConfig, attempt int) time.Duration {
+func txRetryDelay(options *RetryPolicy, attempt int) time.Duration {
 	if options == nil || attempt < 1 {
 		return 0
 	}
 
 	delay := options.InitialBackoff
 	for i := 1; i < attempt; i++ {
-		delay = time.Duration(float64(delay) * options.BackoffMultiplier)
+		delay = time.Duration(float64(delay) * options.Multiplier)
 		if options.MaxBackoff > 0 && delay >= options.MaxBackoff {
 			return options.MaxBackoff
 		}
@@ -255,7 +247,7 @@ func txRetryDelay(options *TxRetryConfig, attempt int) time.Duration {
 	return delay
 }
 
-func waitTxRetry(ctx context.Context, options *TxRetryConfig, attempt int) error {
+func waitTxRetry(ctx context.Context, options *RetryPolicy, attempt int) error {
 	delay := txRetryDelay(options, attempt)
 	if delay <= 0 {
 		return nil
@@ -275,7 +267,7 @@ func waitTxRetry(ctx context.Context, options *TxRetryConfig, attempt int) error
 func (r *Runtime) executeTxAttempt[T any](
 	ctx context.Context,
 	options *normalizedTxOptions,
-	fn func(context.Context, SQLExecutor) (T, error),
+	fn func(context.Context, Executor) (T, error),
 ) (_ T, stage txRetryStage, err error) {
 	tx, err := r.db.BeginTx(ctx, options.sqlOptions)
 	if err != nil {
@@ -320,7 +312,7 @@ func (r *Runtime) executeTxAttempt[T any](
 func (r *Runtime) withTxResult[T any](
 	ctx context.Context,
 	options *TxOptions,
-	fn func(context.Context, SQLExecutor) (T, error),
+	fn func(context.Context, Executor) (T, error),
 ) (T, error) {
 	var zero T
 
@@ -348,7 +340,7 @@ func (r *Runtime) withTxResult[T any](
 				return zero, err
 			}
 
-			if waitErr := waitTxRetry(ctx, normalized.retryConfig, attempt); waitErr != nil {
+			if waitErr := waitTxRetry(ctx, normalized.retryPolicy, attempt); waitErr != nil {
 				return zero, errors.Join(err, waitErr)
 			}
 		}
@@ -359,7 +351,7 @@ func (r *Runtime) withTxResult[T any](
 func (r *Runtime) WithTxResult[T any](
 	ctx context.Context,
 	options *TxOptions,
-	fn func(context.Context, SQLExecutor) (T, error),
+	fn func(context.Context, Executor) (T, error),
 ) (T, error) {
 	return r.withTxResult(ctx, options, fn)
 }

@@ -3,7 +3,7 @@ package tsq
 import "errors"
 
 // RHS is a typed right-hand-side operand for scalar predicates such as
-// EQ/NE/GT/GTE/LT/LTE/Like/NLike.
+// EQ/NE/GT/GTE/LT/LTE/Like/NotLike.
 //
 // Supported RHS values are TSQ typed columns/expressions and typed Subquery
 // handles built with BuildSubquery or AsSubquery. Plain Go values intentionally

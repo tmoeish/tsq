@@ -316,8 +316,8 @@ func (core *queryBuilderCore[O]) addCorrelated(tables ...Table) {
 		}
 
 		for _, existing := range core.spec.Correlated {
-			if existing.Table() == table.Table() {
-				core.setBuildError(fmt.Errorf("correlated table %s is already declared", table.Table()))
+			if existing.TableName() == table.TableName() {
+				core.setBuildError(fmt.Errorf("correlated table %s is already declared", table.TableName()))
 
 				return
 			}

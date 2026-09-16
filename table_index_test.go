@@ -13,7 +13,7 @@ import (
 func inspectRegisteredIndex(t *testing.T, db *Runtime, table, idx string) (tsqdialect.IndexDefinition, bool) {
 	t.Helper()
 
-	definition, found, err := db.SQLDialect().InspectIndexDefinition(context.Background(), db, table, idx)
+	definition, found, err := db.Dialect().InspectIndexDefinition(context.Background(), db, table, idx)
 	if err != nil {
 		t.Fatalf("failed to inspect index %s on %s: %v", idx, table, err)
 	}
@@ -34,7 +34,7 @@ func newRegisteredIndexRuntime(
 	t.Helper()
 
 	table, _ := newStrictMockTable(tableName, fields...)
-	runtime, err := NewRuntime(context.Background(),
+	runtime, err := Open(context.Background(),
 		"sqlite",
 		dsn,
 		[]TableRegistration{{
@@ -85,7 +85,7 @@ func TestUpsertIndexRejectsNilDB(t *testing.T) {
 }
 
 func TestNewRuntimeRejectsNilDB(t *testing.T) {
-	if _, err := NewRuntime(context.Background(), "", "", nil); err == nil {
+	if _, err := Open(context.Background(), "", "", nil); err == nil {
 		t.Fatal("expected empty driver/dsn to return an error")
 	}
 }
@@ -98,7 +98,7 @@ func TestUpsertIndexSQLiteRejectsConflictingTableReuse(t *testing.T) {
 			t.Fatalf("failed to execute setup statement %q: %v", statement, err)
 		}
 	}
-	err := upsertIndex(context.Background(), db.DB(), db.SQLDialect(), SchemaPolicyCreateMissing, "orgs", true, "ux_name", []string{"name"})
+	err := upsertIndex(context.Background(), db.DB(), db.Dialect(), SchemaPolicyCreateMissing, "orgs", true, "ux_name", []string{"name"})
 	if err == nil {
 		t.Fatal("expected conflicting sqlite index name to return an error")
 	}
@@ -112,7 +112,7 @@ func TestUpsertIndexSQLiteRejectsDefinitionMismatch(t *testing.T) {
 			t.Fatalf("failed to execute setup statement %q: %v", statement, err)
 		}
 	}
-	err := upsertIndex(context.Background(), db.DB(), db.SQLDialect(), SchemaPolicyCreateMissing, "users", true, "ux_users_name", []string{"name"})
+	err := upsertIndex(context.Background(), db.DB(), db.Dialect(), SchemaPolicyCreateMissing, "users", true, "ux_users_name", []string{"name"})
 	if err == nil {
 		t.Fatal("expected mismatched sqlite index definition to return an error")
 	}
@@ -126,7 +126,7 @@ func TestUpsertIndexSQLiteAcceptsMatchingDefinition(t *testing.T) {
 			t.Fatalf("failed to execute setup statement %q: %v", statement, err)
 		}
 	}
-	if err := upsertIndex(context.Background(), db.DB(), db.SQLDialect(), SchemaPolicyCreateMissing, "users", true, "ux_users_name", []string{"name"}); err != nil {
+	if err := upsertIndex(context.Background(), db.DB(), db.Dialect(), SchemaPolicyCreateMissing, "users", true, "ux_users_name", []string{"name"}); err != nil {
 		t.Fatalf("expected matching sqlite index definition to pass, got %v", err)
 	}
 }
@@ -137,7 +137,7 @@ func TestNewRuntimeIndexModeValidateReturnsMissingIndexError(t *testing.T) {
 		t.Fatalf("failed to create users table: %v", err)
 	}
 
-	_, err := NewRuntime(context.Background(),
+	_, err := Open(context.Background(),
 		"sqlite",
 		dsn,
 		[]TableRegistration{{
@@ -149,9 +149,9 @@ func TestNewRuntimeIndexModeValidateReturnsMissingIndexError(t *testing.T) {
 		t.Fatal("expected validate mode to fail when index is missing")
 	}
 
-	var missing *ErrIndexMissing
+	var missing *MissingIndexError
 	if !errors.As(err, &missing) {
-		t.Fatalf("expected ErrIndexMissing, got %T (%v)", err, err)
+		t.Fatalf("expected MissingIndexError, got %T (%v)", err, err)
 	}
 	if missing.Name != "ux_users_name" || missing.Table != "users" {
 		t.Fatalf("unexpected missing index error: %#v", missing)
@@ -188,7 +188,7 @@ func TestNewRuntimeValidateModeAcceptsExistingRegisteredIndex(t *testing.T) {
 		}
 	}
 
-	if _, err := NewRuntime(context.Background(),
+	if _, err := Open(context.Background(),
 		"sqlite",
 		dsn,
 		[]TableRegistration{{

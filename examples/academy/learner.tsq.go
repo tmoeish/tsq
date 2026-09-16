@@ -23,13 +23,13 @@ import (
 // interface method, which package initialization ordering cannot see. Without it a
 // package-level query variable in a file sorting before this one can observe
 // Learner__Cols fully sized with nil elements.
-var TableLearner tsq.Table = tsq.TableWithCols(Learner{}, Learner__Cols)
+var TableLearner tsq.Table = tsq.DeclareTable(Learner{}, Learner__Cols)
 
 // TSQOwner marks Learner as a TSQ owner.
 func (l Learner) TSQOwner() {}
 
-// Table returns the database table name for Learner.
-func (l Learner) Table() string { return "learner" }
+// TableName returns the database table name for Learner.
+func (l Learner) TableName() string { return "learner" }
 
 // Cols returns all generated columns for Learner.
 func (l Learner) Cols() []tsq.SQLColumn {
@@ -62,11 +62,11 @@ func (l Learner) ManagedColumns() tsq.ManagedColumns {
 
 // Column definitions for Learner table.
 var (
-	Learner_Company   = tsq.NewCol("company", "company", func(t *Learner) *string { return &t.Company })
-	Learner_CreatedAt = tsq.NewCol("created_at", "created_at", func(t *Learner) *null.Time { return &t.CreatedAt })
-	Learner_Email     = tsq.NewCol("email", "email", func(t *Learner) *string { return &t.Email })
-	Learner_ID        = tsq.NewCol("id", "id", func(t *Learner) *int64 { return &t.ID })
-	Learner_Name      = tsq.NewCol("name", "name", func(t *Learner) *string { return &t.Name })
+	Learner_Company   = tsq.NewColumn("company", "company", func(t *Learner) *string { return &t.Company })
+	Learner_CreatedAt = tsq.NewColumn("created_at", "created_at", func(t *Learner) *null.Time { return &t.CreatedAt })
+	Learner_Email     = tsq.NewColumn("email", "email", func(t *Learner) *string { return &t.Email })
+	Learner_ID        = tsq.NewColumn("id", "id", func(t *Learner) *int64 { return &t.ID })
+	Learner_Name      = tsq.NewColumn("name", "name", func(t *Learner) *string { return &t.Name })
 )
 
 // Learner__Cols is the list of all selectable columns for Learner table.
@@ -103,7 +103,7 @@ var QueryLearnerByIDIn = tsq.
 // Returns an error if any of the specified records are not found.
 func ListLearnerByIDInOrErr(
 	ctx context.Context,
-	db tsq.SQLExecutor,
+	db tsq.Executor,
 	iDs ...int64,
 ) ([]*Learner, error) {
 	list, err := QueryLearnerByIDIn.List(ctx, db, iDs)
@@ -137,7 +137,7 @@ var QueryLearnerByEmail = tsq.
 // Returns an error if any of the specified records are not found.
 func ListLearnerByEmailInOrErr(
 	ctx context.Context,
-	db tsq.SQLExecutor,
+	db tsq.Executor,
 	emails ...string,
 ) ([]*Learner, error) {
 	list, err := QueryLearnerByEmailIn.List(ctx, db,
@@ -205,7 +205,7 @@ var QueryLearner = tsq.
 // Insert inserts a new Learner record.
 func (l *Learner) Insert(
 	ctx context.Context,
-	db tsq.SQLExecutor,
+	db tsq.Executor,
 ) error {
 	if !l.CreatedAt.Valid {
 		l.CreatedAt = null.TimeFrom(tsqtime.Now())
@@ -220,7 +220,7 @@ func (l *Learner) Insert(
 // Update updates an existing Learner record.
 func (l *Learner) Update(
 	ctx context.Context,
-	db tsq.SQLExecutor,
+	db tsq.Executor,
 ) error {
 	err := tsq.Update(ctx, db, l)
 	if err != nil {
@@ -235,7 +235,7 @@ func (l *Learner) Update(
 // same operation.
 func (l *Learner) Delete(
 	ctx context.Context,
-	db tsq.SQLExecutor,
+	db tsq.Executor,
 ) error {
 	err := tsq.Delete(ctx, db, l)
 	if err != nil {
@@ -247,7 +247,7 @@ func (l *Learner) Delete(
 // HardDelete removes a Learner record from the database.
 func (l *Learner) HardDelete(
 	ctx context.Context,
-	db tsq.SQLExecutor,
+	db tsq.Executor,
 ) error {
 	err := tsq.HardDelete(ctx, db, l)
 	if err != nil {

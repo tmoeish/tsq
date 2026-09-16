@@ -23,7 +23,7 @@ tsq.Select(...).From(...).Where(...).Build()
        *tsq.Query[Owner]
             |
             v
-query.List/Get/Find/Page/Count(ctx, SQLExecutor, args...)
+query.List/Get/Find/Page/Count(ctx, Executor, args...)
 ```
 
 ## `//tsq:table`
@@ -77,7 +77,7 @@ All `Table` and `Result` values are `Owner`, but only `Table` is a mutation targ
 `Runtime` is the normal TSQ-managed executor.
 
 - it holds DB, dialect, registry, and tracer state
-- it implements `SQLExecutor` directly
+- it implements `Executor` directly
 - it can be passed directly to query and CRUD helpers
 - it also executes `UpdateTable[T]()` / `DeleteFrom[T]()` statements, the staged builders for `UPDATE ... WHERE` / `DELETE ... WHERE` over rows the caller does not hold
 
@@ -85,7 +85,7 @@ All `Table` and `Result` values are `Owner`, but only `Table` is a mutation targ
 
 1. build a query with the fluent API
 2. call `Build()` to validate structure and produce a reusable query object
-3. execute that query through a `SQLExecutor`
+3. execute that query through a `Executor`
 
 Important split:
 
@@ -98,12 +98,12 @@ Important split:
 
 The builder is **stage-based**: each call returns a different concrete type that restricts what comes next. `Where(...)` and `Search(...)` each appear at most once per chain — enforced by the Go type system at compile time. Both can coexist in either order.
 
-### `InVar()` / `NInVar()`
+### `InVar()` / `NotInVar()`
 
 Empty or nil slices do not remove the filter:
 
 - `InVar()` means explicit no-match
-- `NInVar()` means explicit match-all
+- `NotInVar()` means explicit match-all
 
 ## Related files
 

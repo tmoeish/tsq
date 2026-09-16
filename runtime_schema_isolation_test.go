@@ -22,7 +22,7 @@ type ownedTable struct {
 
 func (t ownedTable) TSQOwner() {}
 
-func (t ownedTable) Table() string { return t.physical }
+func (t ownedTable) TableName() string { return t.physical }
 
 func (t ownedTable) Cols() []SQLColumn { return SQLColumns(ownedTableColumns(t.physical)...) }
 
@@ -42,7 +42,7 @@ func ownedTableColumns(physical string) []BoundColumn[ownedTable] {
 }
 
 // NewColForTableTest binds a column to a specific table value rather than the zero
-// value of the owner type, which the exported NewCol always uses.
+// value of the owner type, which the exported NewColumn always uses.
 func NewColForTableTest[O Table, T any](table O, name string, pointer func(*O) *T) Column[O, T] {
 	return newColForTable[O, T](table, name, name, toScanPointer(pointer))
 }
@@ -96,7 +96,7 @@ func TestSchemaPoliciesNeverDropAnotherRuntimesTables(t *testing.T) {
 			dsn := sharedSQLiteDSN(t)
 			ctx := context.Background()
 
-			first, err := NewRuntime(ctx, "sqlite", dsn,
+			first, err := Open(ctx, "sqlite", dsn,
 				[]TableRegistration{ownedRegistration("service_a")},
 				WithTablePolicy(policy), WithIndexPolicy(policy))
 			if err != nil {
@@ -111,7 +111,7 @@ func TestSchemaPoliciesNeverDropAnotherRuntimesTables(t *testing.T) {
 				t.Fatal("expected the first runtime to create its own table")
 			}
 
-			second, err := NewRuntime(ctx, "sqlite", dsn,
+			second, err := Open(ctx, "sqlite", dsn,
 				[]TableRegistration{ownedRegistration("service_b")},
 				WithTablePolicy(policy), WithIndexPolicy(policy))
 			if err != nil {
@@ -131,7 +131,7 @@ func TestSchemaPoliciesNeverDropAnotherRuntimesTables(t *testing.T) {
 			}
 
 			// Restarting the first one must not undo the second one either.
-			again, err := NewRuntime(ctx, "sqlite", dsn,
+			again, err := Open(ctx, "sqlite", dsn,
 				[]TableRegistration{ownedRegistration("service_a")},
 				WithTablePolicy(policy), WithIndexPolicy(policy))
 			if err != nil {
@@ -156,7 +156,7 @@ func TestSchemaPoliciesNeverDropAnotherRuntimesTables(t *testing.T) {
 func TestNoManagedRegistryTableIsCreated(t *testing.T) {
 	dsn := sharedSQLiteDSN(t)
 
-	runtime, err := NewRuntime(context.Background(), "sqlite", dsn,
+	runtime, err := Open(context.Background(), "sqlite", dsn,
 		[]TableRegistration{ownedRegistration("service_a")},
 		WithTablePolicy(SchemaPolicyReconcile), WithIndexPolicy(SchemaPolicyReconcile))
 	if err != nil {

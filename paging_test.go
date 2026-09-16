@@ -12,9 +12,7 @@ func TestPageReq_NilHelpers(t *testing.T) {
 		t.Fatalf("expected nil request offset 0, got %d", offset)
 	}
 
-	if err := page.Normalize(); err != nil {
-		t.Fatalf("expected nil request validation to be a no-op, got %v", err)
-	}
+	page.Normalize(0)
 }
 
 func TestPageReq_HelpersNormalizeInvalidValues(t *testing.T) {
@@ -23,9 +21,7 @@ func TestPageReq_HelpersNormalizeInvalidValues(t *testing.T) {
 		Size: 0,
 	}
 
-	if err := page.Normalize(); err != nil {
-		t.Fatalf("expected Normalize to succeed, got %v", err)
-	}
+	page.Normalize(0)
 
 	if page.Page != 1 {
 		t.Fatalf("expected normalized page 1, got %d", page.Page)
@@ -125,10 +121,7 @@ func TestPageReq_Validate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := tt.input.Normalize()
-			if err != nil {
-				t.Fatalf("Validate() should not return error, got %v", err)
-			}
+			tt.input.Normalize(0)
 
 			if tt.input.Page != tt.expectedPage {
 				t.Errorf("Expected page %d, got %d", tt.expectedPage, tt.input.Page)
@@ -177,7 +170,7 @@ func TestPageReq_ValidateStrict(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := tt.input.Validate()
+			err := tt.input.Validate(0)
 			if tt.wantError && err == nil {
 				t.Fatal("expected validation error")
 			}
@@ -215,8 +208,8 @@ func TestNewResponse(t *testing.T) {
 	}
 
 	expectedTotalPage := int64(3) // 25 / 10 = 2.5, rounded up to 3
-	if resp.TotalPage != expectedTotalPage {
-		t.Errorf("Expected total page %d, got %d", expectedTotalPage, resp.TotalPage)
+	if resp.TotalPages != expectedTotalPage {
+		t.Errorf("Expected total page %d, got %d", expectedTotalPage, resp.TotalPages)
 	}
 
 	if len(resp.Data) != 3 {
@@ -233,8 +226,8 @@ func TestNewResponse_ExactDivision(t *testing.T) {
 	resp := req.Response(20, []*string{})
 
 	expectedTotalPage := int64(2) // 20 / 10 = 2
-	if resp.TotalPage != expectedTotalPage {
-		t.Errorf("Expected total page %d, got %d", expectedTotalPage, resp.TotalPage)
+	if resp.TotalPages != expectedTotalPage {
+		t.Errorf("Expected total page %d, got %d", expectedTotalPage, resp.TotalPages)
 	}
 }
 
@@ -250,8 +243,8 @@ func TestNewResponse_ZeroSize(t *testing.T) {
 		t.Fatalf("expected normalized size %d, got %d", defaultPageSize, resp.Size)
 	}
 
-	if resp.TotalPage != 1 {
-		t.Errorf("Expected total page 1 when size is normalized, got %d", resp.TotalPage)
+	if resp.TotalPages != 1 {
+		t.Errorf("Expected total page 1 when size is normalized, got %d", resp.TotalPages)
 	}
 }
 
@@ -270,8 +263,8 @@ func TestPageResp_HasNext(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			resp := &PageResponse[string]{
-				Page:      tt.page,
-				TotalPage: tt.total,
+				Page:       tt.page,
+				TotalPages: tt.total,
 			}
 
 			if resp.HasNext() != tt.expected {
@@ -379,7 +372,7 @@ func TestConstants(t *testing.T) {
 func TestPageReq_ValidateRejectsOutOfRangePage(t *testing.T) {
 	page := &PageRequest{Page: MaxPageNumber + 1, Size: 20}
 
-	err := page.Validate()
+	err := page.Validate(0)
 	if err == nil {
 		t.Fatalf("expected page %d to be rejected", page.Page)
 	}
@@ -388,7 +381,7 @@ func TestPageReq_ValidateRejectsOutOfRangePage(t *testing.T) {
 		t.Fatalf("unexpected error for out-of-range page: %v", err)
 	}
 
-	if err := (&PageRequest{Page: MaxPageNumber, Size: 20}).Validate(); err != nil {
+	if err := (&PageRequest{Page: MaxPageNumber, Size: 20}).Validate(0); err != nil {
 		t.Fatalf("page %d is the last valid page, got %v", MaxPageNumber, err)
 	}
 }
@@ -406,31 +399,29 @@ func TestPageReq_OffsetClampsOutOfRangePage(t *testing.T) {
 }
 
 // TestPageReq_WithLimitAppliesRuntimeCeiling covers the gap between the absolute
-// ceiling and a runtime's own. RuntimeOptions.MaxPageSize used to apply only inside
+// ceiling and a runtime's own. WithMaxPageSize used to apply only inside
 // query execution, so a handler calling Validate approved a size the runtime then
 // silently clamped. The *WithLimit variants let both sides check the same number.
 func TestPageReq_WithLimitAppliesRuntimeCeiling(t *testing.T) {
-	if err := (&PageRequest{Page: 1, Size: 500}).Validate(); err != nil {
+	if err := (&PageRequest{Page: 1, Size: 500}).Validate(0); err != nil {
 		t.Fatalf("500 is under the absolute ceiling, got %v", err)
 	}
 
-	err := (&PageRequest{Page: 1, Size: 500}).ValidateWithLimit(50)
+	err := (&PageRequest{Page: 1, Size: 500}).Validate(50)
 	if err == nil {
 		t.Fatal("expected size 500 to be rejected against a limit of 50")
 	}
 
 	page := &PageRequest{Page: 1, Size: 500}
-	if err := page.NormalizeWithLimit(50); err != nil {
-		t.Fatalf("NormalizeWithLimit() error = %v", err)
-	}
+	page.Normalize(50)
 
 	if page.Size != 50 {
-		t.Fatalf("NormalizeWithLimit(50) left Size = %d, want 50", page.Size)
+		t.Fatalf("Normalize(50) left Size = %d, want 50", page.Size)
 	}
 
 	// A runtime sets its own cap in either direction: DefaultMaxPageSize is the
 	// default, and a limit passed explicitly is the one that applies.
-	if err := (&PageRequest{Page: 1, Size: DefaultMaxPageSize + 1}).ValidateWithLimit(DefaultMaxPageSize * 10); err != nil {
+	if err := (&PageRequest{Page: 1, Size: DefaultMaxPageSize + 1}).Validate(DefaultMaxPageSize * 10); err != nil {
 		t.Fatalf("expected an explicitly raised limit to be honored, got %v", err)
 	}
 }
@@ -445,12 +436,10 @@ func TestValidateAndNormalizeResolveTheSameLimit(t *testing.T) {
 
 	for _, limit := range limits {
 		for _, size := range sizes {
-			rejected := (&PageRequest{Page: 1, Size: size}).ValidateWithLimit(limit) != nil
+			rejected := (&PageRequest{Page: 1, Size: size}).Validate(limit) != nil
 
 			page := &PageRequest{Page: 1, Size: size}
-			if err := page.NormalizeWithLimit(limit); err != nil {
-				t.Fatalf("NormalizeWithLimit(%d) error = %v", limit, err)
-			}
+			page.Normalize(limit)
 
 			clamped := page.Size != size
 			if rejected != clamped {

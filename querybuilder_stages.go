@@ -74,7 +74,7 @@ func (qb *queryBuilder[O]) CrossJoin(table Table) *queryBuilder[O] {
 //			Where(Order_UserID.EQ(User_ID)),
 //		Order_ID,
 //	)
-//	// ... then: tsq.Select(User_ID).From(TableUser).Where(User_ID.NExistsSub(sub))
+//	// ... then: tsq.Select(User_ID).From(TableUser).Where(tsq.NotExists(sub))
 //
 // Declaring a table that this query also puts in its own FROM or JOIN clause is
 // a build error: the joined table would shadow the outer one and the predicate

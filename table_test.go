@@ -16,7 +16,7 @@ func TestBuildRegisteredTablesRejectsNilInputs(t *testing.T) {
 	tests := []struct {
 		name          string
 		registrations []TableRegistration
-		expectedError RegistrationErrorType
+		expectedError RegistrationErrorKind
 	}{
 		{
 			name:          "nil table",
@@ -44,8 +44,8 @@ func TestBuildRegisteredTablesRejectsNilInputs(t *testing.T) {
 			if !errors.As(err, &regErr) {
 				t.Fatalf("expected RegistrationError, got %T", err)
 			}
-			if regErr.Type != tt.expectedError {
-				t.Errorf("expected error type %v, got %v", tt.expectedError, regErr.Type)
+			if regErr.Kind != tt.expectedError {
+				t.Errorf("expected error type %v, got %v", tt.expectedError, regErr.Kind)
 			}
 		})
 	}
@@ -66,8 +66,8 @@ func TestBuildRegisteredTablesRejectsDuplicate(t *testing.T) {
 	if !errors.As(err, &regErr) {
 		t.Fatalf("expected RegistrationError, got %T", err)
 	}
-	if regErr.Type != RegistrationErrorDuplicate {
-		t.Errorf("expected error type %v, got %v", RegistrationErrorDuplicate, regErr.Type)
+	if regErr.Kind != RegistrationErrorDuplicate {
+		t.Errorf("expected error type %v, got %v", RegistrationErrorDuplicate, regErr.Kind)
 	}
 }
 
@@ -83,10 +83,10 @@ func TestBuildRegisteredTablesReturnsDeterministicOrder(t *testing.T) {
 	if len(snapshot) != 2 {
 		t.Fatalf("expected 2 registered tables, got %d", len(snapshot))
 	}
-	if got := snapshot[0].Table.Table(); got != "accounts" {
+	if got := snapshot[0].TableName(); got != "accounts" {
 		t.Fatalf("expected deterministic alphabetical order, got first table %q", got)
 	}
-	if got := snapshot[1].Table.Table(); got != "users" {
+	if got := snapshot[1].TableName(); got != "users" {
 		t.Fatalf("expected deterministic alphabetical order, got second table %q", got)
 	}
 }
@@ -108,12 +108,12 @@ func newSQLiteIndexTestEngine(t *testing.T) (*Runtime, string) {
 
 func TestCurrentDialectDetection(t *testing.T) {
 	_, dsn := newSQLiteIndexTestEngine(t)
-	r, err := NewRuntime(context.Background(), "sqlite", dsn, nil)
+	r, err := Open(context.Background(), "sqlite", dsn, nil)
 	if err != nil {
 		t.Fatalf("NewRuntime() error = %v", err)
 	}
 
-	dialect := r.SQLDialect()
+	dialect := r.Dialect()
 	if dialect == nil {
 		t.Errorf("expected non-nil dialect after NewRuntime with SQLite")
 	}
@@ -124,7 +124,7 @@ func TestCurrentDialectDetection(t *testing.T) {
 
 func TestRuntimeEngineAccess(t *testing.T) {
 	db, dsn := newSQLiteIndexTestEngine(t)
-	r, err := NewRuntime(context.Background(), "sqlite", dsn, nil)
+	r, err := Open(context.Background(), "sqlite", dsn, nil)
 	if err != nil {
 		t.Fatalf("NewRuntime() error = %v", err)
 	}
@@ -133,7 +133,7 @@ func TestRuntimeEngineAccess(t *testing.T) {
 	if currentDB == nil {
 		t.Errorf("expected non-nil DB after NewRuntime, got nil")
 	}
-	if r.SQLDialect() == nil || r.SQLDialect().Name() != db.SQLDialect().Name() {
+	if r.Dialect() == nil || r.Dialect().Name() != db.Dialect().Name() {
 		t.Errorf("expected runtime to resolve the same dialect")
 	}
 }
@@ -145,7 +145,7 @@ func TestNewRuntimeFailsOnMissingRegisteredIndex(t *testing.T) {
 	}
 
 	table, _ := newStrictMockTable("users", "name")
-	_, err := NewRuntime(context.Background(),
+	_, err := Open(context.Background(),
 		"sqlite",
 		dsn,
 		[]TableRegistration{{

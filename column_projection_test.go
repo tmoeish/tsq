@@ -21,8 +21,8 @@ func TestCol_MapInto(t *testing.T) {
 	if newCol.Name() != "name" {
 		t.Errorf("Expected name 'name', got '%s'", newCol.Name())
 	}
-	if newCol.Table().Table() != "users" {
-		t.Errorf("Expected table 'users', got '%s'", newCol.Table().Table())
+	if newCol.Table().TableName() != "users" {
+		t.Errorf("Expected table 'users', got '%s'", newCol.Table().TableName())
 	}
 	expectedQualified := `"users"."name"`
 	if newCol.QualifiedName() != expectedQualified {
@@ -59,7 +59,7 @@ func TestCol_MapIntoDoesNotMutateOriginal(t *testing.T) {
 	if originalCol.Name() != newCol.Name() {
 		t.Error("Both columns should have the same name")
 	}
-	if originalCol.Table().Table() != newCol.Table().Table() {
+	if originalCol.Table().TableName() != newCol.Table().TableName() {
 		t.Error("Both columns should belong to the same table")
 	}
 	if originalCol.QualifiedName() != newCol.QualifiedName() {

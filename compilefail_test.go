@@ -314,21 +314,21 @@ var _ = userName.LikeSub(nameSubquery)
 			body: `
 type nonTableOwner struct{}
 
-var _ = tsq.NewCol[nonTableOwner, int]("id", "id", nil)
+var _ = tsq.NewColumn[nonTableOwner, int]("id", "id", nil)
 `,
 			want: "nonTableOwner does not satisfy tsq.Table",
 		},
 		{
 			name: "new_col_rejects_wrong_field_pointer_owner",
 			body: `
-var _ = tsq.NewCol[userOwner, int]("id", "id", func(o *orderOwner) *int { return nil })
+var _ = tsq.NewColumn[userOwner, int]("id", "id", func(o *orderOwner) *int { return nil })
 `,
 			want: "cannot use func(o *orderOwner) *int",
 		},
 		{
 			name: "new_col_rejects_wrong_field_pointer_value",
 			body: `
-var _ = tsq.NewCol[userOwner, int]("id", "id", func(o *userOwner) *string { return nil })
+var _ = tsq.NewColumn[userOwner, int]("id", "id", func(o *userOwner) *string { return nil })
 `,
 			want: "cannot use func(o *userOwner) *string",
 		},
@@ -350,7 +350,7 @@ type nonTableOwner struct{}
 
 func (nonTableOwner) TSQOwner() {}
 
-var _ = tsq.ChunkedUpdate[nonTableOwner]
+var _ = tsq.BatchUpdate[nonTableOwner]
 `,
 			want: "nonTableOwner does not satisfy tsq.Table",
 		},
@@ -607,7 +607,7 @@ type orderOwner struct{}
 type productOwner struct{}
 
 func (userOwner) TSQOwner() {}
-func (userOwner) Table() string { return "users" }
+func (userOwner) TableName() string { return "users" }
 func (userOwner) Cols() []tsq.SQLColumn { return nil }
 
 func (userOwner) SearchColumns() []tsq.SearchColumn { return nil }
@@ -616,7 +616,7 @@ func (userOwner) AutoIncrement() bool { return false }
 func (userOwner) ManagedColumns() tsq.ManagedColumns { return tsq.ManagedColumns{} }
 
 func (orderOwner) TSQOwner() {}
-func (orderOwner) Table() string { return "orders" }
+func (orderOwner) TableName() string { return "orders" }
 func (orderOwner) Cols() []tsq.SQLColumn { return nil }
 
 func (orderOwner) SearchColumns() []tsq.SearchColumn { return nil }
@@ -625,7 +625,7 @@ func (orderOwner) AutoIncrement() bool { return false }
 func (orderOwner) ManagedColumns() tsq.ManagedColumns { return tsq.ManagedColumns{} }
 
 func (productOwner) TSQOwner() {}
-func (productOwner) Table() string { return "products" }
+func (productOwner) TableName() string { return "products" }
 func (productOwner) Cols() []tsq.SQLColumn { return nil }
 
 func (productOwner) SearchColumns() []tsq.SearchColumn { return nil }
@@ -633,10 +633,10 @@ func (productOwner) PrimaryKey() string { return "" }
 func (productOwner) AutoIncrement() bool { return false }
 func (productOwner) ManagedColumns() tsq.ManagedColumns { return tsq.ManagedColumns{} }
 
-var userID = tsq.NewCol[userOwner, int]("id", "id", nil)
-var userName = tsq.NewCol[userOwner, string]("name", "name", nil)
-var orderID = tsq.NewCol[orderOwner, int]("id", "id", nil)
-var productStatus = tsq.NewCol[productOwner, int]("status", "status", nil)
+var userID = tsq.NewColumn[userOwner, int]("id", "id", nil)
+var userName = tsq.NewColumn[userOwner, string]("name", "name", nil)
+var orderID = tsq.NewColumn[orderOwner, int]("id", "id", nil)
+var productStatus = tsq.NewColumn[productOwner, int]("status", "status", nil)
 ` + body
 }
 

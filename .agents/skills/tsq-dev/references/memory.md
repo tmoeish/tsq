@@ -35,7 +35,7 @@ v4 的补丁是给记账加 owner 维度（`SchemaOwner`）。**v5 把整档删�
 
 ### "抓住错误继续跑"在 PostgreSQL 的事务里不成立 (2026-08-28)
 
-`ChunkedInsert{IgnoreErrors}` 逐条插入、抓到重复键就 `continue`。这在 SQLite 和 MySQL 上
+`BatchInsert(..., WithSkipDuplicates())` 逐条插入、抓到重复键就 `continue`。这在 SQLite 和 MySQL 上
 是对的，在 **PostgreSQL 上必然失败**：PG 在任何语句失败的那一刻就把事务置为 aborted，其后
 所有语句以 `25P02` 被拒。第一条被忽略的重复键毒掉整批，而调用方拿到的错误**不是重复键
 错误**，看不出源头。
@@ -66,7 +66,7 @@ MySQL / PostgreSQL 默认转义字符恰好是反斜杠才侥幸正确——而�
 ### 同一个 SQLSTATE 在三个驱动里是三个 Go 类型 (2026-08-26)
 
 曾 `errors.AsType[*pgconn.PgError]` 匹配 pgx **v4** 的包。pgx v5 的 `PgError` 是另一个包里的
-另一个类型，匹配静默失败，于是 driver 为 `"pgx"` 的运行时上重试和 `IgnoreErrors` 全都不生效
+另一个类型，匹配静默失败，于是 driver 为 `"pgx"` 的运行时上重试和 `WithSkipDuplicates` 全都不生效
 且无任何报错——单元测试的 fixture 恰好也是 v4，所以一直绿。
 
 修法是匹配接口 `interface{ SQLState() string }`（pq / pgx v4 / pgx v5 都实现）。
@@ -112,7 +112,7 @@ SQLite ≥3.39。代价是更老的引擎拿到数据库报错而不是 `ErrUnsu
 ### "最紧的那个上限"是个断言，不是常识，要去量 (2026-08-28)
 
 分块的参数上限写死 65535，注释称它是"最紧的"。**不是**：SQLite 是 **32766**，于是 33 列以上的表
-按默认 `ChunkSize` 会被 SQLite 拒绝——而 SQLite 是单元测试唯一跑的库。**一个错误的常数配一句自信
+按默认批大小 会被 SQLite 拒绝——而 SQLite 是单元测试唯一跑的库。**一个错误的常数配一句自信
 的注释，比没有注释更难被怀疑。**
 
 同一波抓到第二个：每行参数数按 `len(Cols())` 估算只对 INSERT 成立，批量 UPDATE 渲染成
@@ -199,16 +199,27 @@ builder 结构会**漏掉**子查询里的 `FULL JOIN` 或 CTE；漏报比误报
 ### 决定：Runtime 用函数式选项，并且不关别人的连接池 (2026-09-16，v5)
 
 `options ...*RuntimeOptions` 让"没传选项"和"传了一个选项值"是同一个签名，字段零值又兼任"没设置"。
-换成 `...RuntimeOption` 之后，`NewRuntime` 和 `NewRuntimeContext` 也合成一个——ctx 不再可选。
-
-**`NewRuntimeFromDB` 的关键约束是所有权**：`Runtime` 记 `ownsDB`，`Close()` 只关自己开的池。关掉
-调用方的池会打断它在 TSQ 之外的用途，而那正是这个构造器存在的理由。两条都有测试，**正反各一**：
-自己开的池 `Close()` 之后 ping 必须失败，传进来的池 ping 必须仍然成功。示例的 bootstrap 现在走
-这条路（先开池灌 `mock.sql` 再交给 TSQ），所以它是活的。
+构造器是 `Open(ctx, driver, dsn, ...)`（自己开池）和 `NewRuntime(ctx, db, dialect, ...)`（用别人的池），
+照 `sql.Open` 的分工命名。**关键约束是所有权**：`Runtime` 记 `ownsDB`，`Close()` 只关自己开的池——
+关掉调用方的池会打断它在 TSQ 之外的用途。正反各有一个测试（ping 失败 / 仍然成功）；示例 bootstrap
+走 `NewRuntime`，所以它是活的。
 
 标识符长度校验去掉了三档模式：超长的名字到不了服务端，建出来的对象和渲染的查询对不上，`warn` /
 `skip` 只是把失败推后。已知未处理：生成期还不校验长度，而**索引名是派生的**（`idx_表_列...`），
 最容易超限的正是它；生成器知道每个 `.sql` 文件的目标方言，那是该校验的地方。
+
+### 决定：v5 的命名规则，改回去之前先读这里 (2026-09-16，v5)
+
+v5 不背兼容，一次把名字改到"最合理"。定下的几条规则，每条都是有意的：
+- 错误**类型**以 `Error` 结尾（`OptimisticLockError`），`Err` 前缀只留给哨兵变量——Go 标准库的惯例。
+- 否定一律 `Not*`（`NotIn`、`NotLikeVar`）。v4 的 `NIn` 和 `NotExists` 并存，同一个意思两种拼法。`NE` 保留，它是比较运算符。
+- 可选参数用函数式选项（`RuntimeOption`、`BatchOption`），不用 `...*XxxOptions`。只对插入有意义的
+  `WithSkipDuplicates` 传给别的 `Batch*` 会**报错**而不是被忽略：被静默忽略的选项就是 v4 的零值歧义。
+- 分页的上限是必传参数 `Validate(maxSize)`：v4 的无参版本量的是全局上限，和 runtime 的上限不一致，
+  `WithLimit` 版本才是对的——对的那个应该是唯一的那个。
+- `Table` 接口的方法生成在**使用者的结构体**上，会和字段名冲突，所以 `Cols()` 不改成 `Columns()`；
+  `Table()` 改成 `TableName()` 是因为 `SQLColumn.Table()` 返回 `Table`，同名不同义。
+- `BuildSubquery` 保留：它省掉一次 `Build` 的错误检查，24 处调用。
 
 ### 决定：读单行只留两个入口，语义写在名字里 (2026-09-09，v5)
 
@@ -274,18 +285,14 @@ v4 攒下九个 `Deprecated` 符号，没有任何门禁会提醒它们该走—
 "没有列信息"放行），而是长度已满、元素全 `nil`，于是报 `column X does not belong to table Y`
 ——指着一列存在的列说它不属于自己的表，而**炸不炸取决于包内文件名顺序**。
 
-修法是生成 `tsq.TableWithCols(Xxx{}, Xxx__Cols)`，第二个参数从不被读取，只为留下那次引用。
+修法是生成 `tsq.DeclareTable(Xxx{}, Xxx__Cols)`，第二个参数从不被读取，只为留下那次引用。
 **别把它当成多余参数删掉**：删了报错不会立刻回来，回来的是随文件名漂移的 panic。门是
 `examples/academy/academyqueries.go`，给它改名等于关掉这道门。
 
 ### 版本号有四个副本，生成物那份最容易忘 (2026-08-21)
 
-版本号传导进生成文件头和 `tsq.json`，**改版本号必须重新生成示例**——这让"tag 指向的代码"和"生成物
-声称的版本"不可能不一致，`release.py` 依赖这一点。
-
-### 改生成文件后缀的真实代价 (2026-08-21，追溯 v4.3.0)
-
-`_tsq.go` → `.tsq.go` 是对的，但所有使用者的 `.gitignore`、Makefile glob 和 CI 都得改。后缀常量来源是 `TSQFileSuffix`，认这个格式的还有 `changeset.py` 和 `check_release.py`。
+版本号传导进生成文件头和 `tsq.json`，**改版本号必须重新生成示例**，`release.py` 依赖这一点。生成文件
+后缀（`TSQFileSuffix`）还被 `changeset.py` 和 `check_release.py` 认着，改它要一起改。
 
 ## 验证与门禁系统
 
@@ -330,14 +337,12 @@ CI 调了一个不存在的 `make update-examples`，同一个幽灵在 README /
 
 ### cobra 的互斥标志组按 `Changed` 位判定，测试里必须手动清 (2026-08-21)
 
-`VersionCmd` 是包级单例，**状态跨 `Execute()` 存活**，互斥组看的是 pflag 的 `Changed` 位。
-清法：`VersionCmd.Flags().Lookup(name).Changed = false`。`test-race` 带着 `-shuffle=on`
-就是为了发现这类用例间耦合。
+`VersionCmd` 是包级单例，**状态跨 `Execute()` 存活**。清法：`Flags().Lookup(name).Changed = false`；
+`test-race` 带 `-shuffle=on` 就是为了发现这类用例间耦合。
 
 ### 发版波必须从内存门禁里豁免 (2026-08-21)
 
-发版本身教不了项目任何东西。豁免是 `check_change_log.py` 的 `RELEASE_ONLY_FILES`，
-**精确白名单而不是开关**：发版波多碰任何一个别的文件，门就重新活过来。
+豁免是 `check_change_log.py` 的 `RELEASE_ONLY_FILES`，**精确白名单而不是开关**：多碰一个别的文件门就活过来。
 
 ## 流程与工具
 

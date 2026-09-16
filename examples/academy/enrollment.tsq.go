@@ -23,13 +23,13 @@ import (
 // interface method, which package initialization ordering cannot see. Without it a
 // package-level query variable in a file sorting before this one can observe
 // Enrollment__Cols fully sized with nil elements.
-var TableEnrollment tsq.Table = tsq.TableWithCols(Enrollment{}, Enrollment__Cols)
+var TableEnrollment tsq.Table = tsq.DeclareTable(Enrollment{}, Enrollment__Cols)
 
 // TSQOwner marks Enrollment as a TSQ owner.
 func (e Enrollment) TSQOwner() {}
 
-// Table returns the database table name for Enrollment.
-func (e Enrollment) Table() string { return "enrollment" }
+// TableName returns the database table name for Enrollment.
+func (e Enrollment) TableName() string { return "enrollment" }
 
 // Cols returns all generated columns for Enrollment.
 func (e Enrollment) Cols() []tsq.SQLColumn {
@@ -66,16 +66,16 @@ func (e *Enrollment) Active() bool {
 
 // Column definitions for Enrollment table.
 var (
-	Enrollment_CourseID  = tsq.NewCol("course_id", "course_id", func(t *Enrollment) *int64 { return &t.CourseID })
-	Enrollment_CreatedAt = tsq.NewCol("created_at", "created_at", func(t *Enrollment) *tsqtime.Time { return &t.CreatedAt })
-	Enrollment_DeletedAt = tsq.NewCol("deleted_at", "deleted_at", func(t *Enrollment) *int64 { return &t.DeletedAt })
-	Enrollment_FeeCents  = tsq.NewCol("fee_cents", "fee_cents", func(t *Enrollment) *int64 { return &t.FeeCents })
-	Enrollment_LearnerID = tsq.NewCol("learner_id", "learner_id", func(t *Enrollment) *int64 { return &t.LearnerID })
-	Enrollment_Score     = tsq.NewCol("score", "score", func(t *Enrollment) *int64 { return &t.Score })
-	Enrollment_Status    = tsq.NewCol("status", "status", func(t *Enrollment) *EnrollmentStatus { return &t.Status })
-	Enrollment_UID       = tsq.NewCol("uid", "uid", func(t *Enrollment) *int64 { return &t.UID })
-	Enrollment_UpdatedAt = tsq.NewCol("updated_at", "updated_at", func(t *Enrollment) *null.Time { return &t.UpdatedAt })
-	Enrollment_Version   = tsq.NewCol("version", "version", func(t *Enrollment) *int64 { return &t.Version })
+	Enrollment_CourseID  = tsq.NewColumn("course_id", "course_id", func(t *Enrollment) *int64 { return &t.CourseID })
+	Enrollment_CreatedAt = tsq.NewColumn("created_at", "created_at", func(t *Enrollment) *tsqtime.Time { return &t.CreatedAt })
+	Enrollment_DeletedAt = tsq.NewColumn("deleted_at", "deleted_at", func(t *Enrollment) *int64 { return &t.DeletedAt })
+	Enrollment_FeeCents  = tsq.NewColumn("fee_cents", "fee_cents", func(t *Enrollment) *int64 { return &t.FeeCents })
+	Enrollment_LearnerID = tsq.NewColumn("learner_id", "learner_id", func(t *Enrollment) *int64 { return &t.LearnerID })
+	Enrollment_Score     = tsq.NewColumn("score", "score", func(t *Enrollment) *int64 { return &t.Score })
+	Enrollment_Status    = tsq.NewColumn("status", "status", func(t *Enrollment) *EnrollmentStatus { return &t.Status })
+	Enrollment_UID       = tsq.NewColumn("uid", "uid", func(t *Enrollment) *int64 { return &t.UID })
+	Enrollment_UpdatedAt = tsq.NewColumn("updated_at", "updated_at", func(t *Enrollment) *null.Time { return &t.UpdatedAt })
+	Enrollment_Version   = tsq.NewColumn("version", "version", func(t *Enrollment) *int64 { return &t.Version })
 )
 
 // Enrollment__Cols is the list of all selectable columns for Enrollment table.
@@ -119,7 +119,7 @@ var QueryEnrollmentByUIDIn = tsq.
 // Returns an error if any of the specified records are not found.
 func ListEnrollmentByUIDInOrErr(
 	ctx context.Context,
-	db tsq.SQLExecutor,
+	db tsq.Executor,
 	uIDs ...int64,
 ) ([]*Enrollment, error) {
 	list, err := QueryEnrollmentByUIDIn.List(ctx, db, uIDs)
@@ -247,7 +247,7 @@ var QueryEnrollment = tsq.
 // Insert inserts a new Enrollment record.
 func (e *Enrollment) Insert(
 	ctx context.Context,
-	db tsq.SQLExecutor,
+	db tsq.Executor,
 ) error {
 	if e.CreatedAt.IsZero() {
 		e.CreatedAt = tsqtime.Now()
@@ -265,7 +265,7 @@ func (e *Enrollment) Insert(
 // Update updates an existing Enrollment record.
 func (e *Enrollment) Update(
 	ctx context.Context,
-	db tsq.SQLExecutor,
+	db tsq.Executor,
 ) error {
 	e.UpdatedAt = null.TimeFrom(tsqtime.Now())
 	err := tsq.Update(ctx, db, e)
@@ -281,7 +281,7 @@ func (e *Enrollment) Update(
 // HardDelete to remove it from the database.
 func (e *Enrollment) Delete(
 	ctx context.Context,
-	db tsq.SQLExecutor,
+	db tsq.Executor,
 ) error {
 	err := tsq.Delete(ctx, db, e)
 	if err != nil {
@@ -296,7 +296,7 @@ func (e *Enrollment) Delete(
 // DeletedAt, a hard-deleted one cannot.
 func (e *Enrollment) HardDelete(
 	ctx context.Context,
-	db tsq.SQLExecutor,
+	db tsq.Executor,
 ) error {
 	err := tsq.HardDelete(ctx, db, e)
 	if err != nil {

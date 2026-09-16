@@ -129,7 +129,7 @@ func openWithPolicy(t *testing.T, target integrationTarget, tables []tsq.TableRe
 
 	recorder := &ddlRecorder{}
 
-	rt, err := tsq.NewRuntime(context.Background(), target.driver, target.dsn, tables, tsq.WithTablePolicy(policy), tsq.WithIndexPolicy(policy), tsq.WithLogger(recorder))
+	rt, err := tsq.Open(context.Background(), target.driver, target.dsn, tables, tsq.WithTablePolicy(policy), tsq.WithIndexPolicy(policy), tsq.WithLogger(recorder))
 	if err != nil {
 		t.Fatalf("NewRuntime(%s, %s) error = %v", target.name, policy, err)
 	}
@@ -157,7 +157,7 @@ func widenLearnerCompany(t *testing.T, tables []tsq.TableRegistration, size int)
 
 	cloned := cloneRegistrations(tables)
 	for i := range cloned {
-		if cloned[i].Table.Table() != "learner" {
+		if cloned[i].Table.TableName() != "learner" {
 			continue
 		}
 
@@ -206,7 +206,7 @@ func TestIntegrationReconcileAltersOnlyTheChangedColumn(t *testing.T) {
 			widened := widenLearnerCompany(t, academy.TSQTables(), 200)
 
 			rt, recorder := openWithPolicy(t, target, widened, tsq.SchemaPolicyReconcile)
-			if rt.SQLDialect().DDLAlterColumnMode() != tsqdialect.DDLAlterColumnRebuild && recorder.count() != 1 {
+			if rt.Dialect().DDLAlterColumnMode() != tsqdialect.DDLAlterColumnRebuild && recorder.count() != 1 {
 				t.Fatalf("expected exactly one ALTER for the widened column, got:\n  %s",
 					strings.Join(recorder.statements(), "\n  "))
 			}
@@ -266,14 +266,14 @@ func TestIntegrationCRUDOptimisticLockAndDuplicateKeys(t *testing.T) {
 				t.Fatalf("expected optimistic lock conflict for stale update, got %v", err)
 			}
 
-			// Duplicate-key detection is per driver error type; IgnoreErrors is the
+			// Duplicate-key detection is per driver error type; WithSkipDuplicates is the
 			// public path that depends on it.
 			learners := []*academy.Learner{
 				{Name: "Grace", Email: "grace@example.com", Company: "Navy"},
 				{Name: "Grace again", Email: "grace@example.com", Company: "Navy"},
 			}
 
-			err = tsq.ChunkedInsert(ctx, rt, learners, &tsq.ChunkedInsertOptions{ChunkSize: 1, IgnoreErrors: true})
+			err = tsq.BatchInsert(ctx, rt, learners, tsq.WithBatchSize(1), tsq.WithSkipDuplicates())
 			if err != nil {
 				t.Fatalf("expected duplicate key to be ignored, got %v", err)
 			}
@@ -323,7 +323,7 @@ func TestIntegrationLockConflictsAreRetryable(t *testing.T) {
 			}
 			defer holder.Rollback() //nolint:errcheck // best-effort cleanup
 
-			lockSQL := fmt.Sprintf("SELECT id FROM track WHERE id = %s FOR UPDATE", rt.SQLDialect().BindVar(0))
+			lockSQL := fmt.Sprintf("SELECT id FROM track WHERE id = %s FOR UPDATE", rt.Dialect().BindVar(0))
 			if _, err := holder.ExecContext(ctx, lockSQL, track.ID); err != nil {
 				t.Fatalf("hold row lock: %v", err)
 			}
@@ -380,7 +380,7 @@ func TestIntegrationCapabilitiesExecute(t *testing.T) {
 				t.Fatalf("insert learner: %v", err)
 			}
 
-			dialect := rt.SQLDialect()
+			dialect := rt.Dialect()
 
 			if dialect.SupportsCapability(tsqdialect.CapabilityCTE) {
 				recent := tsq.CTE("recent_learners",
@@ -527,7 +527,7 @@ func TestIntegrationKeywordSearchEscapesWildcards(t *testing.T) {
 	}
 }
 
-// TestIntegrationChunkedInsertIgnoresDuplicatesInsideTransaction is the gate for the
+// TestIntegrationBatchInsertIgnoresDuplicatesInsideTransaction is the gate for the
 // in-transaction ignore-duplicates path, and it only means anything against a real
 // PostgreSQL server.
 //
@@ -537,7 +537,7 @@ func TestIntegrationKeywordSearchEscapesWildcards(t *testing.T) {
 // the rest of the batch, and the call comes back with an error that is not even a
 // duplicate-key error. SQLite and MySQL keep the transaction usable, so the unit suite
 // cannot see this.
-func TestIntegrationChunkedInsertIgnoresDuplicatesInsideTransaction(t *testing.T) {
+func TestIntegrationBatchInsertIgnoresDuplicatesInsideTransaction(t *testing.T) {
 	for _, target := range integrationTargets(t) {
 		t.Run(target.name, func(t *testing.T) {
 			ctx := context.Background()
@@ -551,11 +551,8 @@ func TestIntegrationChunkedInsertIgnoresDuplicatesInsideTransaction(t *testing.T
 				{Name: "Grace", Email: "grace@example.test", Company: "Navy"},
 			}
 
-			err := rt.WithTx(ctx, nil, func(ctx context.Context, txExec tsq.SQLExecutor) error {
-				if err := tsq.ChunkedInsert(ctx, txExec, learners, &tsq.ChunkedInsertOptions{
-					ChunkSize:    10,
-					IgnoreErrors: true,
-				}); err != nil {
+			err := rt.WithTx(ctx, nil, func(ctx context.Context, txExec tsq.Executor) error {
+				if err := tsq.BatchInsert(ctx, txExec, learners, tsq.WithBatchSize(10), tsq.WithSkipDuplicates()); err != nil {
 					return err
 				}
 
@@ -568,7 +565,7 @@ func TestIntegrationChunkedInsertIgnoresDuplicatesInsideTransaction(t *testing.T
 				return err
 			})
 			if err != nil {
-				t.Fatalf("chunked insert with IgnoreErrors inside a transaction on %s: %v", target.name, err)
+				t.Fatalf("batch insert with WithSkipDuplicates inside a transaction on %s: %v", target.name, err)
 			}
 
 			count, err := tsq.Select(academy.Learner_ID).From(academy.TableLearner).MustBuild().Count(ctx, rt)
@@ -595,7 +592,7 @@ func TestIntegrationSchemaPolicyNeverDropsUndeclaredTables(t *testing.T) {
 			dropAcademyTables(t, target)
 
 			// One runtime manages the academy tables under its own owner.
-			academyRT, err := tsq.NewRuntime(ctx, target.driver, target.dsn, academy.TSQTables(),
+			academyRT, err := tsq.Open(ctx, target.driver, target.dsn, academy.TSQTables(),
 				tsq.WithTablePolicy(tsq.SchemaPolicyReconcile), tsq.WithIndexPolicy(tsq.SchemaPolicyReconcile))
 			if err != nil {
 				t.Fatalf("bootstrap academy runtime on %s: %v", target.name, err)
@@ -606,7 +603,7 @@ func TestIntegrationSchemaPolicyNeverDropsUndeclaredTables(t *testing.T) {
 			// A second runtime declares nothing at all. It used to wipe every academy
 			// table on the way through, because it recorded its own empty view into a
 			// registry shared by the whole database.
-			otherRT, err := tsq.NewRuntime(ctx, target.driver, target.dsn, nil,
+			otherRT, err := tsq.Open(ctx, target.driver, target.dsn, nil,
 				tsq.WithTablePolicy(tsq.SchemaPolicyReconcile), tsq.WithIndexPolicy(tsq.SchemaPolicyReconcile))
 			if err != nil {
 				t.Fatalf("bootstrap second runtime on %s: %v", target.name, err)
@@ -617,7 +614,7 @@ func TestIntegrationSchemaPolicyNeverDropsUndeclaredTables(t *testing.T) {
 			}
 
 			for _, name := range []string{"learner", "course", "enrollment"} {
-				_, found, err := academyRT.SQLDialect().InspectTableColumns(ctx, academyRT.DB(), name)
+				_, found, err := academyRT.Dialect().InspectTableColumns(ctx, academyRT.DB(), name)
 				if err != nil {
 					t.Fatalf("inspect %s on %s: %v", name, target.name, err)
 				}

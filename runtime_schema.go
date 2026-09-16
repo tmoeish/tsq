@@ -77,7 +77,7 @@ func logWith(ctx context.Context, logger Logger, level slog.Level, msg string, a
 
 // runtimeForExecutor returns the runtime an executor was derived from, or nil for
 // executors that carry no runtime (a bare *sql.DB, a WrapExecutor result).
-func runtimeForExecutor(exec SQLExecutor) *Runtime {
+func runtimeForExecutor(exec Executor) *Runtime {
 	if provider, ok := exec.(traceProvider); ok {
 		return provider.tsqRuntime()
 	}
@@ -87,7 +87,7 @@ func runtimeForExecutor(exec SQLExecutor) *Runtime {
 
 // logForExecutor routes execution-time diagnostics to the runtime's configured
 // Logger when the executor belongs to one, and to slog.Default() otherwise.
-func logForExecutor(ctx context.Context, exec SQLExecutor, level slog.Level, msg string, args ...any) {
+func logForExecutor(ctx context.Context, exec Executor, level slog.Level, msg string, args ...any) {
 	if rt := runtimeForExecutor(exec); rt != nil && rt.logger != nil {
 		rt.log(ctx, level, msg, args...)
 		return
@@ -97,13 +97,13 @@ func logForExecutor(ctx context.Context, exec SQLExecutor, level slog.Level, msg
 }
 
 // logSQLForExecutor logs a rendered statement and its bound arguments when the
-// executor belongs to a runtime constructed with RuntimeOptions.LogSQL. Executors
+// executor belongs to a runtime constructed with WithSQLLogging. Executors
 // that carry no runtime (a bare *sql.DB, a WrapExecutor result) have no place to
 // read the setting from, so they never log.
 //
 // Both guards run before compactJSON so that marshalling the arguments is only paid
 // for when the record is actually going to be emitted.
-func logSQLForExecutor(ctx context.Context, exec SQLExecutor, operation, sqlText string, args []any) {
+func logSQLForExecutor(ctx context.Context, exec Executor, operation, sqlText string, args []any) {
 	rt := runtimeForExecutor(exec)
 	if rt == nil || !rt.logSQL || rt.logger == nil {
 		return
@@ -182,7 +182,7 @@ func (r *Runtime) applyTablePolicyForTable(ctx context.Context, table *registere
 
 	if !found {
 		if r.tablePolicy == SchemaPolicyValidate {
-			return &ErrTableMissing{Name: tableName}
+			return &MissingTableError{Name: tableName}
 		}
 
 		statement, err := renderCreateTableStatement(r.dialect, tableName, table.Columns)
@@ -284,7 +284,7 @@ func (r *Runtime) applyIndexPolicyForTable(ctx context.Context, table *registere
 	if _, found, err := r.dialect.InspectTableColumns(ctx, r.db, tableName); err != nil {
 		return err
 	} else if !found {
-		return &ErrTableMissing{Name: tableName}
+		return &MissingTableError{Name: tableName}
 	}
 
 	currentIndexes, err := r.dialect.ListIndexes(ctx, r.db, tableName)
@@ -308,7 +308,7 @@ func (r *Runtime) applyIndexPolicyForTable(ctx context.Context, table *registere
 		existing, found := currentByName[idx.Name]
 		if !found {
 			if r.indexPolicy == SchemaPolicyValidate {
-				return &ErrIndexMissing{
+				return &MissingIndexError{
 					Table:  tableName,
 					Name:   idx.Name,
 					Fields: append([]string(nil), idx.Fields...),

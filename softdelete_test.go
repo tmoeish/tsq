@@ -23,7 +23,7 @@ type softDeleteRow struct {
 
 func (softDeleteRow) TSQOwner() {}
 
-func (softDeleteRow) Table() string { return "soft_rows" }
+func (softDeleteRow) TableName() string { return "soft_rows" }
 
 func (softDeleteRow) Cols() []SQLColumn { return SQLColumns(softDeleteRowColumns()...) }
 
@@ -43,11 +43,11 @@ func (softDeleteRow) ManagedColumns() ManagedColumns {
 
 func softDeleteRowColumns() []BoundColumn[softDeleteRow] {
 	return []BoundColumn[softDeleteRow]{
-		NewCol[softDeleteRow, int64]("id", "id", func(t *softDeleteRow) *int64 { return &t.ID }),
-		NewCol[softDeleteRow, string]("name", "name", func(t *softDeleteRow) *string { return &t.Name }),
-		NewCol[softDeleteRow, sql.NullTime]("updated_at", "updated_at", func(t *softDeleteRow) *sql.NullTime { return &t.UpdatedAt }),
-		NewCol[softDeleteRow, int64]("deleted_at", "deleted_at", func(t *softDeleteRow) *int64 { return &t.DeletedAt }),
-		NewCol[softDeleteRow, int64]("version", "version", func(t *softDeleteRow) *int64 { return &t.Version }),
+		NewColumn[softDeleteRow, int64]("id", "id", func(t *softDeleteRow) *int64 { return &t.ID }),
+		NewColumn[softDeleteRow, string]("name", "name", func(t *softDeleteRow) *string { return &t.Name }),
+		NewColumn[softDeleteRow, sql.NullTime]("updated_at", "updated_at", func(t *softDeleteRow) *sql.NullTime { return &t.UpdatedAt }),
+		NewColumn[softDeleteRow, int64]("deleted_at", "deleted_at", func(t *softDeleteRow) *int64 { return &t.DeletedAt }),
+		NewColumn[softDeleteRow, int64]("version", "version", func(t *softDeleteRow) *int64 { return &t.Version }),
 	}
 }
 

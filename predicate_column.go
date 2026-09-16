@@ -26,32 +26,32 @@ func (c columnImpl[Owner, T]) LTEVar() Condition { return c.Pred(`%s <= %s`, var
 // LikeVar compares the column to a runtime-bound pattern with LIKE.
 func (c columnImpl[Owner, T]) LikeVar() Condition { return c.Pred(`%s LIKE %s`, varMarker) }
 
-// NLikeVar compares the column to a runtime-bound pattern with NOT LIKE.
-func (c columnImpl[Owner, T]) NLikeVar() Condition { return c.Pred(`%s NOT LIKE %s`, varMarker) }
+// NotLikeVar compares the column to a runtime-bound pattern with NOT LIKE.
+func (c columnImpl[Owner, T]) NotLikeVar() Condition { return c.Pred(`%s NOT LIKE %s`, varMarker) }
 
 // StartsWithVar compares the column to a runtime-bound prefix pattern.
 func (c columnImpl[Owner, T]) StartsWithVar() Condition {
 	return c.Pred(`%s LIKE %s`, varStartsWithMarker)
 }
 
-// NStartsWithVar compares the column to a negated runtime-bound prefix pattern.
-func (c columnImpl[Owner, T]) NStartsWithVar() Condition {
+// NotStartsWithVar compares the column to a negated runtime-bound prefix pattern.
+func (c columnImpl[Owner, T]) NotStartsWithVar() Condition {
 	return c.Pred(`%s NOT LIKE %s`, varStartsWithMarker)
 }
 
 // EndsWithVar compares the column to a runtime-bound suffix pattern.
 func (c columnImpl[Owner, T]) EndsWithVar() Condition { return c.Pred(`%s LIKE %s`, varEndsWithMarker) }
 
-// NEndsWithVar compares the column to a negated runtime-bound suffix pattern.
-func (c columnImpl[Owner, T]) NEndsWithVar() Condition {
+// NotEndsWithVar compares the column to a negated runtime-bound suffix pattern.
+func (c columnImpl[Owner, T]) NotEndsWithVar() Condition {
 	return c.Pred(`%s NOT LIKE %s`, varEndsWithMarker)
 }
 
 // ContainsVar compares the column to a runtime-bound contains pattern.
 func (c columnImpl[Owner, T]) ContainsVar() Condition { return c.Pred(`%s LIKE %s`, varContainsMarker) }
 
-// NContainsVar compares the column to a negated runtime-bound contains pattern.
-func (c columnImpl[Owner, T]) NContainsVar() Condition {
+// NotContainsVar compares the column to a negated runtime-bound contains pattern.
+func (c columnImpl[Owner, T]) NotContainsVar() Condition {
 	return c.Pred(`%s NOT LIKE %s`, varContainsMarker)
 }
 
@@ -67,12 +67,12 @@ func (c columnImpl[Owner, T]) InVar() Condition {
 	return c.Pred(`%s IN (%s)`, varSliceMarker)
 }
 
-// NInVar binds a slice at execution time for NOT IN predicates.
+// NotInVar binds a slice at execution time for NOT IN predicates.
 //
 // For nil and empty slices, TSQ renders the empty-set form `NOT IN (SELECT 1
 // WHERE 1 = 0)`, which preserves the explicit "match everything" meaning of an
 // empty NOT IN list across the built-in dialects.
-func (c columnImpl[Owner, T]) NInVar() Condition {
+func (c columnImpl[Owner, T]) NotInVar() Condition {
 	return c.Pred(`%s NOT IN (%s)`, varNotInSliceMarker)
 }
 
@@ -81,8 +81,8 @@ func (c columnImpl[Owner, T]) BetweenVar() Condition {
 	return c.Pred(`%s BETWEEN %s AND %s`, varMarker, varMarker)
 }
 
-// NBetweenVar compares the column to two runtime-bound values with NOT BETWEEN.
-func (c columnImpl[Owner, T]) NBetweenVar() Condition {
+// NotBetweenVar compares the column to two runtime-bound values with NOT BETWEEN.
+func (c columnImpl[Owner, T]) NotBetweenVar() Condition {
 	return c.Pred(`%s NOT BETWEEN %s AND %s`, varMarker, varMarker)
 }
 
@@ -121,8 +121,8 @@ func (c columnImpl[Owner, T]) Like(rhs RHS[T]) Condition {
 	return c.Pred(`%s LIKE %s`, predicateRHSArg(rhs))
 }
 
-// NLike compares the column to rhs with NOT LIKE.
-func (c columnImpl[Owner, T]) NLike(rhs RHS[T]) Condition {
+// NotLike compares the column to rhs with NOT LIKE.
+func (c columnImpl[Owner, T]) NotLike(rhs RHS[T]) Condition {
 	return c.Pred(`%s NOT LIKE %s`, predicateRHSArg(rhs))
 }
 
@@ -131,8 +131,8 @@ func (c columnImpl[Owner, T]) Between(start, end RHS[T]) Condition {
 	return c.Pred(`%s BETWEEN %s AND %s`, predicateRHSArg(start), predicateRHSArg(end))
 }
 
-// NBetween compares the column to values outside an inclusive RHS range.
-func (c columnImpl[Owner, T]) NBetween(start, end RHS[T]) Condition {
+// NotBetween compares the column to values outside an inclusive RHS range.
+func (c columnImpl[Owner, T]) NotBetween(start, end RHS[T]) Condition {
 	return c.Pred(`%s NOT BETWEEN %s AND %s`, predicateRHSArg(start), predicateRHSArg(end))
 }
 
@@ -171,8 +171,8 @@ func (c columnImpl[Owner, T]) LikeVal(arg T) Condition {
 	return c.Pred(`%s LIKE %s`, Bind(arg))
 }
 
-// NLikeVal compares the column to arg with NOT LIKE.
-func (c columnImpl[Owner, T]) NLikeVal(arg T) Condition {
+// NotLikeVal compares the column to arg with NOT LIKE.
+func (c columnImpl[Owner, T]) NotLikeVal(arg T) Condition {
 	return c.Pred(`%s NOT LIKE %s`, Bind(arg))
 }
 
@@ -181,8 +181,8 @@ func (c columnImpl[Owner, T]) BetweenVal(start, end T) Condition {
 	return c.Pred(`%s BETWEEN %s AND %s`, Bind(start), Bind(end))
 }
 
-// NBetweenVal compares the column to values outside an inclusive literal range.
-func (c columnImpl[Owner, T]) NBetweenVal(start, end T) Condition {
+// NotBetweenVal compares the column to values outside an inclusive literal range.
+func (c columnImpl[Owner, T]) NotBetweenVal(start, end T) Condition {
 	return c.Pred(`%s NOT BETWEEN %s AND %s`, Bind(start), Bind(end))
 }
 
@@ -191,8 +191,8 @@ func (c columnImpl[Owner, T]) StartsWithVal(str string) Condition {
 	return c.Pred(`%s LIKE %s`, Bind(str+"%"))
 }
 
-// NStartsWithVal compares the column to a negated bound prefix pattern.
-func (c columnImpl[Owner, T]) NStartsWithVal(str string) Condition {
+// NotStartsWithVal compares the column to a negated bound prefix pattern.
+func (c columnImpl[Owner, T]) NotStartsWithVal(str string) Condition {
 	return c.Pred(`%s NOT LIKE %s`, Bind(str+"%"))
 }
 
@@ -201,8 +201,8 @@ func (c columnImpl[Owner, T]) EndsWithVal(str string) Condition {
 	return c.Pred(`%s LIKE %s`, Bind("%"+str))
 }
 
-// NEndsWithVal compares the column to a negated bound suffix pattern.
-func (c columnImpl[Owner, T]) NEndsWithVal(str string) Condition {
+// NotEndsWithVal compares the column to a negated bound suffix pattern.
+func (c columnImpl[Owner, T]) NotEndsWithVal(str string) Condition {
 	return c.Pred(`%s NOT LIKE %s`, Bind("%"+str))
 }
 
@@ -211,8 +211,8 @@ func (c columnImpl[Owner, T]) ContainsVal(str string) Condition {
 	return c.Pred(`%s LIKE %s`, Bind("%"+str+"%"))
 }
 
-// NContainsVal compares the column to a negated bound contains pattern.
-func (c columnImpl[Owner, T]) NContainsVal(str string) Condition {
+// NotContainsVal compares the column to a negated bound contains pattern.
+func (c columnImpl[Owner, T]) NotContainsVal(str string) Condition {
 	return c.Pred(`%s NOT LIKE %s`, Bind("%"+str+"%"))
 }
 
@@ -225,8 +225,8 @@ func (c columnImpl[Owner, T]) InVal(args ...T) Condition {
 	return c.Pred(`%s IN (%s)`, BindSlice(args))
 }
 
-// NInVal compares the column to a negated list of bound values.
-func (c columnImpl[Owner, T]) NInVal(args ...T) Condition {
+// NotInVal compares the column to a negated list of bound values.
+func (c columnImpl[Owner, T]) NotInVal(args ...T) Condition {
 	if len(args) == 0 {
 		return pred[Owner](rawCondition("1 = 1"))
 	}
@@ -255,7 +255,7 @@ func (c columnImpl[Owner, T]) Pred(format string, args ...any) Condition {
 		return pred[Owner](conditionImpl{buildErr: err})
 	}
 
-	tables := map[string]Table{baseTable.Table(): baseTable}
+	tables := map[string]Table{baseTable.TableName(): baseTable}
 
 	for _, arg := range args {
 		if col, ok := arg.(SQLColumn); ok {
@@ -264,7 +264,7 @@ func (c columnImpl[Owner, T]) Pred(format string, args ...any) Condition {
 				return pred[Owner](conditionImpl{buildErr: err})
 			}
 
-			tables[table.Table()] = table
+			tables[table.TableName()] = table
 		}
 	}
 

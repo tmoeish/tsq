@@ -111,12 +111,12 @@
 ## 语义陷阱（改动时不要"顺手修正"）
 
 - `InVar()` 传空或 nil 切片 = **显式不匹配**（渲染成 `IN (NULL)`）。
-- `NInVar()` 传空或 nil 切片 = **显式全匹配**。
+- `NotInVar()` 传空或 nil 切片 = **显式全匹配**。
 - 两者都不会静默地把过滤条件去掉。这是有意的：静默去掉过滤条件的查询会返回全表。
-- `ChunkedInsert` / `ChunkedUpdate` / `ChunkedDelete` **不自动开事务**，需要全有或全无时
+- `BatchInsert` / `BatchUpdate` / `BatchDelete` **不自动开事务**，需要全有或全无时
   由调用方用 `WithTx(...)` 包起来。
 - `ForUpdate()` / `ForShare()` 只在显式事务里有意义。
-- 乐观锁冲突 `ErrOptimisticLockConflict` 是**业务错误**，必须处理，不能忽略。
+- 乐观锁冲突 `OptimisticLockError` 是**业务错误**，必须处理，不能忽略。
 - `UpdateTable` / `DeleteFrom` **不校验** `version` 但会自增它。不要"顺手"加上版本校验，
   也不要去掉自增：前者让它变回逐行更新，后者让并发的乐观锁失效。
 - 自定义 codec 字段（`driver.Valuer` / `sql.Scanner`）推不出 DDL 列类型，使用者必须写显式的

@@ -25,7 +25,7 @@ type AdvancedSummary struct {
 	Case           CaseSummary           `json:"case_labels"`        // Case summarizes CASE-expression labeling.
 	CTE            CTESummary            `json:"cte"`                // CTE summarizes common-table-expression queries.
 	SetOps         SetOpsSummary         `json:"set_ops"`            // SetOps summarizes UNION and INTERSECT style queries.
-	Chunked        ChunkedSummary        `json:"chunked"`            // Chunked summarizes chunked write helpers.
+	Batch          BatchSummary          `json:"batch"`              // Batch summarizes batch write helpers.
 	SoftDelete     SoftDeleteSummary     `json:"soft_delete"`        // SoftDelete summarizes soft deletes, restores and hard deletes.
 	OptimisticLock OptimisticLockSummary `json:"optimistic_lock"`    // OptimisticLock summarizes version-guarded writes.
 }
@@ -109,11 +109,11 @@ type SetOpsSummary struct {
 	StarterTitles []string `json:"starter_titles"` // StarterTitles lists titles returned by the INTERSECT query.
 }
 
-// ChunkedSummary captures the chunked write demo result.
-type ChunkedSummary struct {
-	Inserted int64 `json:"inserted"` // Inserted is the number of rows inserted by the chunked demo.
-	Updated  int64 `json:"updated"`  // Updated is the number of rows updated by the chunked demo.
-	Deleted  int64 `json:"deleted"`  // Deleted is the number of rows deleted by the chunked demo.
+// BatchSummary captures the batch write demo result.
+type BatchSummary struct {
+	Inserted int64 `json:"inserted"` // Inserted is the number of rows inserted by the batch demo.
+	Updated  int64 `json:"updated"`  // Updated is the number of rows updated by the batch demo.
+	Deleted  int64 `json:"deleted"`  // Deleted is the number of rows deleted by the batch demo.
 	Before   int64 `json:"before"`   // Before is the number of rows loaded before the update step.
 	After    int64 `json:"after"`    // After is the number of rows remaining after cleanup.
 }
@@ -227,9 +227,9 @@ func RunAdvanced(ctx context.Context, runtime *tsq.Runtime) (*AdvancedSummary, e
 		return nil, fmt.Errorf("%s: %w", "set operations demo", err)
 	}
 
-	chunked, err := runChunkedDemo(ctx, runtime)
+	batch, err := runBatchDemo(ctx, runtime)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", "chunked demo", err)
+		return nil, fmt.Errorf("%s: %w", "batch demo", err)
 	}
 
 	softDelete, err := runSoftDeleteDemo(ctx, runtime)
@@ -250,7 +250,7 @@ func RunAdvanced(ctx context.Context, runtime *tsq.Runtime) (*AdvancedSummary, e
 		Case:           *caseExpr,
 		CTE:            *cte,
 		SetOps:         *setOps,
-		Chunked:        *chunked,
+		Batch:          *batch,
 		SoftDelete:     *softDelete,
 		OptimisticLock: *optimisticLock,
 	}, nil
@@ -294,7 +294,7 @@ func runComprehensive(ctx context.Context, runtime *tsq.Runtime) (*Comprehensive
 		OrderBy: "learner_id,enrollment_id",
 		Order:   "asc,asc",
 	}
-	if err := pageReq.Validate(); err != nil {
+	if err := pageReq.Validate(runtime.MaxPageSize()); err != nil {
 		return nil, err
 	}
 
@@ -387,7 +387,7 @@ func runCatalogSearchDemo(ctx context.Context, runtime *tsq.Runtime) (*SearchSum
 		Order:   "asc",
 		Keyword: "SQLite",
 	}
-	if err := pageReq.Validate(); err != nil {
+	if err := pageReq.Validate(runtime.MaxPageSize()); err != nil {
 		return nil, err
 	}
 
@@ -822,9 +822,9 @@ func runSetOpsDemo(ctx context.Context, runtime *tsq.Runtime) (*SetOpsSummary, e
 	}, nil
 }
 
-// runChunkedDemo simulates a batch enrollment workflow where records are inserted,
-// updated, and removed in bounded chunks inside one explicit transaction helper.
-func runChunkedDemo(ctx context.Context, runtime *tsq.Runtime) (*ChunkedSummary, error) {
+// runBatchDemo simulates a batch enrollment workflow where records are inserted,
+// updated, and removed in bounded batches inside one explicit transaction helper.
+func runBatchDemo(ctx context.Context, runtime *tsq.Runtime) (*BatchSummary, error) {
 	exec := runtime
 
 	before, err := QueryEnrollment.Count(ctx, exec)
@@ -856,8 +856,8 @@ func runChunkedDemo(ctx context.Context, runtime *tsq.Runtime) (*ChunkedSummary,
 		},
 	}
 
-	if err := runtime.WithTx(ctx, nil, func(ctx context.Context, txExec tsq.SQLExecutor) error {
-		if err := tsq.ChunkedInsert(ctx, txExec, enrollments, &tsq.ChunkedInsertOptions{ChunkSize: 2}); err != nil {
+	if err := runtime.WithTx(ctx, nil, func(ctx context.Context, txExec tsq.Executor) error {
+		if err := tsq.BatchInsert(ctx, txExec, enrollments, tsq.WithBatchSize(2)); err != nil {
 			return err
 		}
 
@@ -872,11 +872,11 @@ func runChunkedDemo(ctx context.Context, runtime *tsq.Runtime) (*ChunkedSummary,
 			enrollment.Score += 3
 		}
 
-		if err := tsq.ChunkedUpdate(ctx, txExec, enrollments, &tsq.ChunkedOptions{ChunkSize: 2}); err != nil {
+		if err := tsq.BatchUpdate(ctx, txExec, enrollments, tsq.WithBatchSize(2)); err != nil {
 			return err
 		}
 
-		if err := tsq.ChunkedDelete(ctx, txExec, enrollments[:1], &tsq.ChunkedOptions{ChunkSize: 1}); err != nil {
+		if err := tsq.BatchDelete(ctx, txExec, enrollments[:1], tsq.WithBatchSize(1)); err != nil {
 			return err
 		}
 
@@ -885,12 +885,12 @@ func runChunkedDemo(ctx context.Context, runtime *tsq.Runtime) (*ChunkedSummary,
 			remainingIDs = append(remainingIDs, enrollment.UID)
 		}
 
-		if err := tsq.ChunkedDeleteByPKs(
+		if err := tsq.BatchDeleteByPK(
 			ctx,
 			txExec,
 			Enrollment_UID,
 			remainingIDs,
-			&tsq.ChunkedOptions{ChunkSize: 2},
+			tsq.WithBatchSize(2),
 		); err != nil {
 			return err
 		}
@@ -905,7 +905,7 @@ func runChunkedDemo(ctx context.Context, runtime *tsq.Runtime) (*ChunkedSummary,
 		return nil, err
 	}
 
-	return &ChunkedSummary{
+	return &BatchSummary{
 		Inserted: int64(len(enrollments)),
 		Updated:  int64(len(enrollments)),
 		Deleted:  int64(len(enrollments)),
@@ -915,7 +915,7 @@ func runChunkedDemo(ctx context.Context, runtime *tsq.Runtime) (*ChunkedSummary,
 }
 
 // runOptimisticLockDemo demonstrates the SQLite-safe part of the new locking model:
-// a stale snapshot first fails with ErrOptimisticLockConflict, then Runtime.WithTxResult
+// a stale snapshot first fails with OptimisticLockError, then Runtime.WithTxResult
 // automatically retries and succeeds after reloading the fresh row version.
 // Row-lock reads are intentionally not executed here because the examples runtime
 // uses SQLite, which rejects FOR UPDATE / FOR SHARE at execution time.
@@ -1037,7 +1037,7 @@ func runOptimisticLockDemo(ctx context.Context, runtime *tsq.Runtime) (*Optimist
 
 	attempts := 0
 
-	summary, err := runtime.WithTxResult(ctx, &tsq.TxOptions{Retry: tsq.IsOptimisticLockError}, func(ctx context.Context, txExec tsq.SQLExecutor) (*OptimisticLockSummary, error) {
+	summary, err := runtime.WithTxResult(ctx, &tsq.TxOptions{RetryIf: tsq.IsOptimisticLockError}, func(ctx context.Context, txExec tsq.Executor) (*OptimisticLockSummary, error) {
 		attempts++
 
 		if attempts == 1 {

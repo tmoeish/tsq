@@ -119,7 +119,7 @@ func TestKeywordPredicateCarriesEscapeClause(t *testing.T) {
 		Search(keywordSearchColumn(t)).
 		MustBuild()
 
-	for _, sqlText := range []string{query.KeywordListSQL(), query.KeywordCountSQL()} {
+	for _, sqlText := range []string{query.SearchListSQL(), query.SearchCountSQL()} {
 		if !strings.Contains(sqlText, "LIKE ?"+keywordLikeEscapeClause) {
 			t.Fatalf("expected keyword predicate to declare its escape character, got %q", sqlText)
 		}

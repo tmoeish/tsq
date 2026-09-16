@@ -15,7 +15,7 @@ type correlatedUser struct {
 }
 
 func (correlatedUser) TSQOwner()                      {}
-func (correlatedUser) Table() string                  { return "users" }
+func (correlatedUser) TableName() string              { return "users" }
 func (correlatedUser) Cols() []SQLColumn              { return SQLColumns(correlatedUserCols()...) }
 func (correlatedUser) SearchColumns() []SearchColumn  { return nil }
 func (correlatedUser) PrimaryKey() string             { return "id" }
@@ -32,7 +32,7 @@ type correlatedOrder struct {
 }
 
 func (correlatedOrder) TSQOwner()                      {}
-func (correlatedOrder) Table() string                  { return "orders" }
+func (correlatedOrder) TableName() string              { return "orders" }
 func (correlatedOrder) Cols() []SQLColumn              { return SQLColumns(correlatedOrderCols()...) }
 func (correlatedOrder) SearchColumns() []SearchColumn  { return nil }
 func (correlatedOrder) PrimaryKey() string             { return "id" }
@@ -44,17 +44,17 @@ func correlatedOrderCols() []BoundColumn[correlatedOrder] {
 }
 
 var (
-	correlatedUserID = NewCol[correlatedUser, int64](
+	correlatedUserID = NewColumn[correlatedUser, int64](
 		"id", "id", func(t *correlatedUser) *int64 { return &t.ID },
 	)
-	correlatedOrderID = NewCol[correlatedOrder, int64](
+	correlatedOrderID = NewColumn[correlatedOrder, int64](
 		"id", "id", func(t *correlatedOrder) *int64 { return &t.ID },
 	)
-	correlatedOrderUserID = NewCol[correlatedOrder, int64](
+	correlatedOrderUserID = NewColumn[correlatedOrder, int64](
 		"user_id", "user_id", func(t *correlatedOrder) *int64 { return &t.UserID },
 	)
-	tableCorrelatedUser  Table = TableWithCols(correlatedUser{}, correlatedUserCols())
-	tableCorrelatedOrder Table = TableWithCols(correlatedOrder{}, correlatedOrderCols())
+	tableCorrelatedUser  Table = DeclareTable(correlatedUser{}, correlatedUserCols())
+	tableCorrelatedOrder Table = DeclareTable(correlatedOrder{}, correlatedOrderCols())
 )
 
 func newCorrelatedRuntime(t *testing.T, seed ...string) *Runtime {
@@ -189,7 +189,7 @@ func TestCorrelatedSubquery_NotInRewriteBreaksOnNull(t *testing.T) {
 	notInQuery := mustBuild(
 		Select(correlatedUserID).
 			From(tableCorrelatedUser).
-			Where(correlatedUserID.NIn(membership)),
+			Where(correlatedUserID.NotIn(membership)),
 	)
 	if got := listUserIDs(t, runtime, notInQuery); len(got) != 0 {
 		t.Fatalf("expected NOT IN over a NULL-containing set to return no rows, got %v", got)

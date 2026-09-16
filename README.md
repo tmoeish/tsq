@@ -32,12 +32,12 @@ TSQ（Type-Safe Query）会把带注解的 Go 结构体生成为**表元数据�
 - `Table`：物理表 owner，也是 mutation target，并暴露稳定的列/主键元数据
 - `Result`：投影 owner，只参与查询结果映射
 
-执行层也统一成了显式 context 语义：`SQLExecutor` / `Runtime` 的执行方法都把 `ctx context.Context` 放在第一个参数。
+执行层也统一成了显式 context 语义：`Executor` / `Runtime` 的执行方法都把 `ctx context.Context` 放在第一个参数。
 
 如果只记一件事，可以直接把运行时关系记成：
 
 - `Runtime`：表 metadata、索引声明、tracer，以及当前数据库上下文
-- `SQLExecutor`：最小执行接口，查询 / CRUD / chunked helper 都接这个
+- `Executor`：最小执行接口，查询 / CRUD / Batch* helper 都接这个
 
 ## 先回答三个上手问题
 
@@ -45,7 +45,7 @@ TSQ（Type-Safe Query）会把带注解的 Go 结构体生成为**表元数据�
 | --- | --- |
 | **最小要写什么？** | 一个带 `//tsq:table` 指令的 Go struct。 |
 | **生成后得到什么？** | 每个表生成一个 `*.tsq.go`；每个 `//tsq:result` 生成一个 `*.result.tsq.go`。 |
-| **怎么跑第一条查询？** | `tsq gen ./db` → `runtime, err := tsq.NewRuntime("sqlite", dsn, database.TSQTables())` → `query, err := tsq.Select(...).From(table).Where(...).Build()` → `query.List(ctx, runtime, ...)`。 |
+| **怎么跑第一条查询？** | `tsq gen ./db` → `runtime, err := tsq.Open(ctx, "sqlite", dsn, database.TSQTables())` → `query, err := tsq.Select(...).From(table).Where(...).Build()` → `query.List(ctx, runtime, ...)`。 |
 
 ## 安装
 
@@ -137,7 +137,7 @@ import (
 func main() {
 	ctx := context.Background()
 
-	runtime, err := tsq.NewRuntime(
+	runtime, err := tsq.Open(
 		ctx,
 		"sqlite",
 		"file:app.db?cache=shared",
@@ -214,7 +214,7 @@ TSQ 当前内置的 `Dialect` 实现只有 **SQLite / MySQL / PostgreSQL**。下
 | `//tsq:result` 结果映射 | ✅ | ✅ | ✅ | 生成 `*.result.tsq.go` |
 | 自动乐观锁（`version`） | ✅ | ✅ | ✅ | `Update/Delete` 在执行时按 `ManagedColumns().Version` 做版本校验 |
 | 按条件批量 `UPDATE` / `DELETE`（`tsq.UpdateTable` / `tsq.DeleteFrom`） | ✅ | ✅ | ✅ | 不校验 `version` 但会自增它；只引用目标表，不支持 JOIN / `LIMIT` / `RETURNING` |
-| `InVar()` / `NInVar()` 动态集合过滤 | ✅ | ✅ | ✅ | 执行时展开参数 |
+| `InVar()` / `NotInVar()` 动态集合过滤 | ✅ | ✅ | ✅ | 执行时展开参数 |
 | `CASE` 表达式 | ✅ | ✅ | ✅ | 构建与执行都支持 |
 | 行锁读取（`FOR UPDATE` / `FOR SHARE`） | ❌ | ✅ | ✅ | 能否执行取决于运行时 dialect |
 | 非递归 CTE / `WITH` | ✅ | ✅ | ✅ | MySQL 基线为 8.0（5.7 已 EOL），5.7 上会收到数据库报错而不是 TSQ 的拒绝 |
@@ -288,15 +288,15 @@ query, err := tsq.
 
 如果你的业务想表达“空列表时忽略这个筛选条件”，请在业务层显式分支，不要依赖 `InVar()` 自动跳过过滤。
 
-### `NInVar()` 的空切片 / nil 切片语义是“显式全匹配”
+### `NotInVar()` 的空切片 / nil 切片语义是“显式全匹配”
 
-`NInVar()` 用于把执行时传入的切片参数展开成 `NOT IN (...)`。  
+`NotInVar()` 用于把执行时传入的切片参数展开成 `NOT IN (...)`。  
 如果执行时传入的是空切片或 `nil`，TSQ 会把它渲染成一个空结果子查询，让 `NOT IN (...)` 保持合法 SQL，同时等价于**不过滤任何值**。
 
 这同样是刻意设计的 API 语义：
 
 - 适合表达“当前没有任何需要排除的 ID / 状态 / 分类”
-- 让 `NInVar()` 在 nil / empty / non-empty 三种输入下都保持统一调用方式
+- 让 `NotInVar()` 在 nil / empty / non-empty 三种输入下都保持统一调用方式
 
 如果你的业务想表达别的含义，请在业务层显式分支，而不是依赖 TSQ 猜测空切片语义。
 
@@ -327,7 +327,7 @@ query, err := tsq.
 - `Update(...)` 会自动把版本条件带进 `WHERE`
 - 更新成功后会把数据库里的 `version` 自增 1，并同步回内存对象
 - `Delete(...)` / `HardDelete(...)` 会按主键 + version 做删除
-- 如果匹配行数少于预期，会返回 `ErrOptimisticLockConflict`
+- 如果匹配行数少于预期，会返回 `OptimisticLockError`
 
 这不是“仅提供版本元数据”的弱约定，而是默认生效的 mutation 语义。  
 按条件的批量语句（下一节）有意绕开这道校验；如果连单行写入都不想要乐观锁，就不要给表声明 `version` 列。
@@ -342,8 +342,8 @@ query, err := tsq.
 | 没有 `deleted_at` | 真正删掉 | 真正删掉（两者同义） |
 
 - 软删除走的是 `UPDATE`，所以乐观锁校验和 `version` 自增照常生效。
-- 成对的入口：`tsq.Delete` / `tsq.HardDelete`、`tsq.ChunkedDelete` / `tsq.ChunkedHardDelete`、
-  `tsq.ChunkedDeleteByPKs` / `tsq.ChunkedHardDeleteByPKs`、`tsq.DeleteFrom` / `tsq.HardDeleteFrom`，
+- 成对的入口：`tsq.Delete` / `tsq.HardDelete`、`tsq.BatchDelete` / `tsq.BatchHardDelete`、
+  `tsq.BatchDeleteByPK` / `tsq.BatchHardDeleteByPK`、`tsq.DeleteFrom` / `tsq.HardDeleteFrom`，
   以及生成的 `item.Delete(...)` / `item.HardDelete(...)`。
 - **声明了 `deleted_at` 的表，全部生成查询都自带 active 过滤**，不再生成"连已删行一起查"的那一套。
   审计要读已删行时，用查询构建器自己写：
@@ -375,20 +375,20 @@ affected, err := tsq.
 - `updated_at` / `deleted_at` 不自动处理，需要就显式 `SetVal`；软删表的活跃行过滤也要自己加。
 - 只能引用目标表本身，不支持 JOIN、别名、`LIMIT`、`RETURNING`；子查询条件可以用。
 
-### Chunked helper 的事务边界由调用方控制
+### Batch* helper 的事务边界由调用方控制
 
-`ChunkedInsert`、`ChunkedUpdate`、`ChunkedDelete`、`ChunkedHardDelete`、`ChunkedDeleteByPKs` 都接收 `SQLExecutor`，这是刻意设计：
+`BatchInsert`、`BatchUpdate`、`BatchDelete`、`BatchHardDelete`、`BatchDeleteByPK` 都接收 `Executor`，这是刻意设计：
 
 - 传普通 `*sql.DB` / `runtime`：允许按 chunk 执行，前面成功的 chunk 不会因为后面失败自动回滚
-- 传 `runtime.WithTx(...)` 提供的事务 executor：整个 chunked 操作就运行在该事务里
+- 传 `runtime.WithTx(...)` 提供的事务 executor：整个批量操作就运行在该事务里
 
-换句话说，TSQ 不会在 chunked helper 里偷偷创建外层事务。  
+换句话说，TSQ 不会在 Batch* helper 里偷偷创建外层事务。  
 如果你的业务需要原子性，请显式用 `runtime.WithTx(...)`，或者自己管理 `*sql.Tx`。
 
 如果你想在 `version` 乐观锁冲突时自动重试整个事务回调，可以传：
 
 ```go
-&tsq.TxOptions{Retry: tsq.IsOptimisticLockError}
+&tsq.TxOptions{RetryIf: tsq.IsOptimisticLockError}
 ```
 
 ### 关键词搜索的 LIKE 通配符由 TSQ 自动转义，这不是 SQL 注入防护
@@ -409,12 +409,11 @@ pageReq := &tsq.PageRequest{
 
 `Size` 会被夹到 `tsq.WithMaxPageSize(...)` 设的上限（默认 `tsq.DefaultMaxPageSize` = 1000）以内。
 
-`Validate()` 和 `Normalize()` 量的是**绝对上限** `tsq.DefaultMaxPageSize`，不是某个
-runtime 配的那个。想让 HTTP handler 和 runtime 量同一把尺子，用
-`ValidateWithLimit(runtime.MaxPageSize())` / `NormalizeWithLimit(runtime.MaxPageSize())`。
+`Validate(maxSize)` 和 `Normalize(maxSize)` 都要显式给上限：传 `runtime.MaxPageSize()`，
+HTTP handler 和 runtime 就量同一把尺子；传 `0` 表示 `tsq.DefaultMaxPageSize`。
 
-`Page` 的上限是 `tsq.MaxPageNumber`（1000000）。`Validate()` 会直接拒绝超出的页码；
-`Offset()` 则夹到最后一页——想让越界翻页报错而不是返回最后一页，先 `Validate()`。
+`Page` 的上限是 `tsq.MaxPageNumber`（1000000）。`Validate` 会直接拒绝超出的页码；
+`Offset()` 则夹到最后一页——想让越界翻页报错而不是返回最后一页，先 `Validate`。
 
 ### 普通值默认走 bind 参数，不提供 literal SQL 快捷入口
 
@@ -441,7 +440,7 @@ Go 1.27 generic methods keep typed operations on the value that owns them:
 ```go
 title, err := query.Scalar(ctx, runtime, database.Course_Title)
 courseIDs, err := query.AsSubquery(database.Course_ID)
-summary, err := runtime.WithTxResult(ctx, opts, func(ctx context.Context, tx tsq.SQLExecutor) (*Summary, error) {
+summary, err := runtime.WithTxResult(ctx, opts, func(ctx context.Context, tx tsq.Executor) (*Summary, error) {
 	// Execute atomic work and return one typed result.
 	return buildSummary(ctx, tx)
 })
@@ -473,7 +472,7 @@ summary, err := runtime.WithTxResult(ctx, opts, func(ctx context.Context, tx tsq
 ### 子查询边界要显式遵守
 
 - `Build()` 返回的是 `*tsq.Query[Owner]`，owner 类型会沿着 builder 保留下来。
-- 标量比较（如 `EQ(subquery)` / `GT(subquery)`）、`Between(subqueryA, subqueryB)`，以及 `In(subquery)` / `NIn(subquery)` 里的 typed 子查询 **必须只选择一列**。
+- 标量比较（如 `EQ(subquery)` / `GT(subquery)`）、`Between(subqueryA, subqueryB)`，以及 `In(subquery)` / `NotIn(subquery)` 里的 typed 子查询 **必须只选择一列**。
 - Prefer `query.AsSubquery(selectedColumn)` after `Build()`. `BuildSubquery(stage, selectedColumn)` remains useful when the value is still exposed through the `QueryStage` interface, whose methods cannot declare type parameters.
 - `tsq.Exists(...)` / `tsq.NotExists(...)` 只要求传入已 `Build()` 的子查询，不受返回列数限制。它们是包级函数：EXISTS 问的是子查询有没有行，和任何一列都无关。
 - 值比较推荐用 `EQVal/NEVal/GTVal/GTEVal/LTVal/LTEVal`，列和 typed 子查询则直接作为 `EQ/NE/GT/GTE/LT/LTE` 的 RHS 传入。
@@ -507,13 +506,13 @@ sub, err := tsq.BuildSubquery(
 - 带 `Correlate(...)` 的查询**只能当子查询用**，单独执行（`List` / `Get` / `Count` /
   `Exists` / `Page`）会被拒绝：它的 SQL 引用了自己的 `FROM` 没引入的表。
 
-老的改写方式——`NOT EXISTS` 写成 `NIn(sub)`——仍然可用，在 MySQL 上往往还更快。但它
+老的改写方式——`NOT EXISTS` 写成 `NotIn(sub)`——仍然可用，在 MySQL 上往往还更快。但它
 **只在子查询那一列非空时等价**：SQL 三值逻辑下，结果集里只要出现一个 `NULL`，`NOT IN` 就
 返回零行，而相关的 `NOT EXISTS` 会正常返回不匹配的行。列可空就在子查询里先把 `NULL` 滤掉。
 
 ### 包级投影查询与初始化顺序
 
-生成的表变量是 `var TableXxx tsq.Table = tsq.TableWithCols(Xxx{}, Xxx__Cols)`。第二个参数
+生成的表变量是 `var TableXxx tsq.Table = tsq.DeclareTable(Xxx{}, Xxx__Cols)`。第二个参数
 从不被读取，它的作用是让表变量显式依赖列切片。
 
 Go 的包级初始化顺序只认初始化表达式里出现的引用，而 `Cols()` 是通过接口方法在运行期去取
@@ -525,7 +524,7 @@ Go 的包级初始化顺序只认初始化表达式里出现的引用，而 `Col
 两个推论：
 
 - **升级 TSQ 之后要重新生成**，此前生成的代码里没有这个锚点，隐患还在。
-- 手写 `tsq.Table` 实现时照同样的方式声明：`var TableUser tsq.Table = tsq.TableWithCols(User{}, User__Cols)`。
+- 手写 `tsq.Table` 实现时照同样的方式声明：`var TableUser tsq.Table = tsq.DeclareTable(User{}, User__Cols)`。
 
 用 `Select(Xxx__Cols...)` 的常规查询从来不受影响——它自己就写出了列切片。
 

@@ -96,7 +96,7 @@ MutationStage ─Build──► *Mutation[T] ─Exec──► RowsAffected
 删除是物理删还是打墓碑，由 `Table.ManagedColumns().DeletedAt` 决定，不由调用点决定。
 
 - **软删除就是一次 update**：`markDeleted` 给 `deleted_at` 和 `updated_at` 落值，然后走
-  `updateTables` / `chunkedUpdateFn`。复用更新路径不是图省事——那条路上带着乐观锁校验和
+  `updateTables` / `batchUpdateFn`。复用更新路径不是图省事——那条路上带着乐观锁校验和
   `version` 自增，软删除必须一样有。
 - **墓碑值不能按具体类型写死**：`deleted_at` 是使用者的字段，文档承诺五种形态。`applyTombstone`
   的顺序是：整数类 → `UnixNano()`；`time.Time` / `*time.Time` → 直接落值；其余交给
@@ -141,24 +141,24 @@ Go 1.27 允许具体 receiver 的方法声明自己的类型参数，因此类�
 - `PageRequest.Response(total, data)` 构造类型化分页响应。
 - `updateBuilder.Set` / `SetVal` / `SetVar` 在 `UPDATE` 构建器上按列推导值类型。
 
-没有把所有泛型函数机械地改成方法。`QueryStage`、`SQLExecutor`、`Column` / `ValueColumn` 都是
-接口，而 Go 1.27 仍禁止接口方法声明类型参数；`BuildSubquery`、`MapInto`、mutation/chunked
+没有把所有泛型函数机械地改成方法。`QueryStage`、`Executor`、`Column` / `ValueColumn` 都是
+接口，而 Go 1.27 仍禁止接口方法声明类型参数；`BuildSubquery`、`MapInto`、mutation/batch
 helper 因此继续作为包级函数。为了一点调用语法把这些接口改成公开具体类型，会破坏阶段机、
 事务 executor 通用性或列实现封装，收益不抵代价。
 
 ## 运行时
 
 `Runtime`（`runtime.go`）是 `*sql.DB` 加方言加已注册表的组合，两个构造器都要 ctx：
-`NewRuntime(ctx, driverName, dsn, tables, ...RuntimeOption)` 自己开池，
-`NewRuntimeFromDB(ctx, db, dialect, tables, ...RuntimeOption)` 接管调用方已有的池。ctx 约束
+`Open(ctx, driverName, dsn, tables, ...RuntimeOption)` 自己开池，
+`NewRuntime(ctx, db, dialect, tables, ...RuntimeOption)` 接管调用方已有的池。ctx 约束
 ping、标识符校验和 schema 策略（可能执行 DDL）。没有全局 `Init()`，没有包级单例——这是历史上被
 删掉的东西，不要以任何形式重新引入。
 
 - **连接池的所有权记在 `ownsDB` 上，`Close()` 只关自己开的那个。** 关掉调用方的池会打断它在
-  TSQ 之外的用途，而那正是 `NewRuntimeFromDB` 存在的理由。加新构造器时先决定它属于哪一边。
+  TSQ 之外的用途，而那正是 `NewRuntime` 存在的理由。加新构造器时先决定它属于哪一边。
 - 选项是函数式的（`runtime_options.go`）：`newRuntimeConfig` 先按顺序应用完再统一校验，所以
   非法值只从构造器报一次，不是每个 `With*` 各报各的。
-- `Runtime` 自己实现 `SQLExecutor`（它是 `dialect.Executor` 的别名），所以它可以直接传给需要
+- `Runtime` 自己实现 `Executor`（它是 `dialect.Executor` 的别名），所以它可以直接传给需要
   执行器的地方。
 - 标识符长度校验**没有开关**，在任何 DDL 之前跑；`MaxPageSize` 是分页上限
   （`DefaultMaxPageSize` = 1000），通过 `pageSizeLimitForExecutor` 从执行器反查运行时取到。
@@ -177,7 +177,7 @@ ping、标识符校验和 schema 策略（可能执行 DDL）。没有全局 `In
   `WithSQLLogging()`，级别 debug。两道短路（`logSQL` 为假、`Logger.Enabled` 为假）
   都在 `compactJSON` 之前，所以关着的时候不付序列化成本。**没有运行时的执行器
   （裸 `*sql.DB`、`WrapExecutor` 的结果）永远不打**——它没地方读这个开关。
-- `WithTx`（`tx.go`）是多操作事务的唯一入口，支持 `TxOptions.Retry`（配合
+- `WithTx`（`tx.go`）是多操作事务的唯一入口，支持 `TxOptions.RetryIf`（配合
   `IsOptimisticLockError` 做乐观锁重试）。commit 阶段只对明确的冲突码
   （`IsTxConflictError`）重试，网络类错误在 commit 阶段永不重试——
   commit 可能已经成功。
@@ -254,4 +254,4 @@ ping、标识符校验和 schema 策略（可能执行 DDL）。没有全局 `In
   只被一个测试文件引用，使用者无从启用；SQL 日志现在归 `WithSQLLogging()`。
 - `sqlite_errors.go` 把 SQLite 的错误字符串映射成可判别的错误——这类映射按方言分文件放，
   不要塞进通用错误处理里。
-- 乐观锁冲突是 `ErrOptimisticLockConflict`，它是**业务错误**，调用方必须处理。
+- 乐观锁冲突是 `OptimisticLockError`，它是**业务错误**，调用方必须处理。

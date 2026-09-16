@@ -8,16 +8,16 @@ import (
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 )
 
-// RegistrationErrorType identifies a table-registration failure category.
-type RegistrationErrorType string
+// RegistrationErrorKind identifies a table-registration failure category.
+type RegistrationErrorKind string
 
 const (
-	// RegistrationErrorNilTable means RegisterTable received a nil table.
-	RegistrationErrorNilTable RegistrationErrorType = "nil_table"
-	// RegistrationErrorInvalidIndex means RegisterTable received invalid index metadata.
-	RegistrationErrorInvalidIndex RegistrationErrorType = "invalid_index"
+	// RegistrationErrorNilTable means a TableRegistration carried a nil table.
+	RegistrationErrorNilTable RegistrationErrorKind = "nil_table"
+	// RegistrationErrorInvalidIndex means a TableRegistration carried invalid index metadata.
+	RegistrationErrorInvalidIndex RegistrationErrorKind = "invalid_index"
 	// RegistrationErrorDuplicate means the same table key was registered twice.
-	RegistrationErrorDuplicate RegistrationErrorType = "duplicate"
+	RegistrationErrorDuplicate RegistrationErrorKind = "duplicate"
 )
 
 // SchemaPolicy controls how TSQ manages declared schema objects during runtime bootstrap.
@@ -32,10 +32,9 @@ const (
 	SchemaPolicyCreateMissing SchemaPolicy = "create_missing"
 	// SchemaPolicyReconcile creates missing declared objects and reconciles mismatches.
 	SchemaPolicyReconcile SchemaPolicy = "reconcile"
-	// SchemaPolicyManaged reconciles declared objects and removes TSQ-managed extras.
 )
 
-// DefaultMaxPageSize caps PageRequest.Size when RuntimeOptions.MaxPageSize is zero.
+// DefaultMaxPageSize caps PageRequest.Size when WithMaxPageSize is zero.
 const DefaultMaxPageSize = 1000
 
 // TableIndex declares one physical index owned by a registered table.
@@ -52,8 +51,8 @@ type TableRegistration struct {
 	Indexes []TableIndex               // Indexes declares the indexes owned by Table.
 }
 
-// ErrIndexMissing reports that an expected index was not found.
-type ErrIndexMissing struct {
+// MissingIndexError reports that an expected index was not found.
+type MissingIndexError struct {
 	Table  string   // Table is the table that should contain the index.
 	Name   string   // Name is the expected index name.
 	Fields []string // Fields is the expected indexed column order.
@@ -61,7 +60,7 @@ type ErrIndexMissing struct {
 }
 
 // Error implements error.
-func (e *ErrIndexMissing) Error() string {
+func (e *MissingIndexError) Error() string {
 	if e == nil {
 		return ""
 	}
@@ -74,13 +73,13 @@ func (e *ErrIndexMissing) Error() string {
 	)
 }
 
-// ErrTableMissing reports that an expected table was not found.
-type ErrTableMissing struct {
+// MissingTableError reports that an expected table was not found.
+type MissingTableError struct {
 	Name string // Name is the expected physical table name.
 }
 
 // Error implements error.
-func (e *ErrTableMissing) Error() string {
+func (e *MissingTableError) Error() string {
 	if e == nil {
 		return ""
 	}
@@ -93,9 +92,9 @@ func (e *ErrTableMissing) Error() string {
 
 // RegistrationError reports a table-registration failure.
 type RegistrationError struct {
-	Type      RegistrationErrorType // Type classifies the registration failure.
-	TableName string                // TableName identifies the conflicting or invalid table entry.
-	Message   string                // Message contains the user-facing error text.
+	Kind    RegistrationErrorKind // Type classifies the registration failure.
+	Table   string                // TableName identifies the conflicting or invalid table entry.
+	Message string                // Message contains the user-facing error text.
 }
 
 // Error implements error.
@@ -128,14 +127,14 @@ type ManagedColumns struct {
 type Table interface {
 	Owner
 	Cols() []SQLColumn              // Cols returns the physical columns exposed by the table.
-	Table() string                  // Table returns the SQL identifier used in rendered queries.
+	TableName() string              // Table returns the SQL identifier used in rendered queries.
 	SearchColumns() []SearchColumn  // SearchColumns returns columns eligible for keyword-search helpers.
 	PrimaryKey() string             // PrimaryKey returns the primary-key column name.
 	AutoIncrement() bool            // AutoIncrement reports whether inserts rely on generated primary keys.
 	ManagedColumns() ManagedColumns // ManagedColumns returns the columns TSQ maintains automatically.
 }
 
-// TableWithCols returns table unchanged. The cols argument is never read: it
+// DeclareTable returns table unchanged. The cols argument is never read: it
 // exists so that a package-level table variable records a visible dependency on
 // the column slice that the table's Cols method returns.
 //
@@ -151,8 +150,8 @@ type Table interface {
 //
 // Generated code uses this helper; declare hand-written tables the same way:
 //
-//	var TableUser tsq.Table = tsq.TableWithCols(User{}, User__Cols)
-func TableWithCols[O Table](table O, cols []BoundColumn[O]) Table {
+//	var TableUser tsq.Table = tsq.DeclareTable(User{}, User__Cols)
+func DeclareTable[O Table](table O, cols []BoundColumn[O]) Table {
 	_ = cols
 
 	return table

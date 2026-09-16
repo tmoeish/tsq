@@ -44,8 +44,8 @@ func (ob OrderBy) Expr() string {
 	return ob.field.SQLExpr() + " " + string(ob.order)
 }
 
-// Field returns the ordered column.
-func (ob OrderBy) Field() SQLColumn {
+// Column returns the ordered column.
+func (ob OrderBy) Column() SQLColumn {
 	return ob.field
 }
 
@@ -74,9 +74,9 @@ func (c columnImpl[Owner, T]) Desc() OrderBy {
 	}
 }
 
-// ReverseOrder returns the opposite sort direction.
-func ReverseOrder(order Order) Order {
-	switch order {
+// Reverse returns the opposite sort direction. An unknown direction reverses to "".
+func (o Order) Reverse() Order {
+	switch o {
 	case ASC:
 		return DESC
 	case DESC:

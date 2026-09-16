@@ -186,7 +186,7 @@ Tasks that should activate the skill include:
 - initializing `tsq.Runtime`;
 - writing Build-based queries;
 - using CRUD, pagination, or search helpers; and
-- handling transactions and edge cases involving `InVar()`, `NInVar()`, CTEs, or `FULL JOIN`.
+- handling transactions and edge cases involving `InVar()`, `NotInVar()`, CTEs, or `FULL JOIN`.
 
 The installed technical references are:
 
@@ -248,7 +248,7 @@ The generated behavior is:
 
 - `Update(...)` and `Delete(...)` match by primary key and version;
 - the version is incremented automatically after a successful update; and
-- a conflict returns `ErrOptimisticLockConflict`.
+- a conflict returns `OptimisticLockError`.
 
 ### 3. `created_at`, `updated_at`, and `deleted_at` have type requirements
 

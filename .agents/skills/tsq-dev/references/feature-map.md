@@ -48,19 +48,19 @@
 | 执行器接口与包装 | `executor.go`、`executor_wrap.go`、`sql_executor.go` |
 | 写操作（Insert / Update / Delete / Upsert） | `executor_mutation.go`、`executor_mutation_meta.go` |
 | **软删除**（`Delete` 打墓碑、`HardDelete` 物理删、墓碑值按字段类型落笔） | `softdelete.go`（`softdelete_test.go` 覆盖全部五种 `deleted_at` 字段形态；`examples/academy` 的 `runSoftDeleteDemo` 是端到端的门） |
-| 分批写（`ChunkedInsert` / `ChunkedUpdate` / `ChunkedDelete` / `ChunkedHardDelete`） | `query_chunked.go`（chunk 大小按方言的绑定参数上限换算，见 `change-impact.md`） |
+| 分批写（`BatchInsert` / `BatchUpdate` / `BatchDelete` / `BatchHardDelete`） | `batch.go`（批大小按方言的绑定参数上限换算，见 `change-impact.md`） |
 | 按条件写（`UpdateTable` / `DeleteFrom`、`MutationStage`、`Mutation.Exec`） | `mutation.go`（`mutation_test.go` 守语句形状、参数顺序与 `version` 自增；`integration_test.go` 的 `TestIntegrationMutationsByCondition` 在三方言上真跑） |
 
 ## 根包：运行时
 
 | 关注点 | 文件 |
 | --- | --- |
-| `NewRuntime` / `NewRuntimeFromDB`、连接池所有权、`SQLExecutor` 实现 | `runtime.go`（选项在 `runtime_options.go`） |
+| `NewRuntime` / `NewRuntime`、连接池所有权、`Executor` 实现 | `runtime.go`（选项在 `runtime_options.go`） |
 | schema 对账（`TablePolicy` / `IndexPolicy`） | `runtime_schema.go` |
 | 执行期日志与 SQL 日志 | `runtime_schema.go` 的 `logForExecutor` / `logSQLForExecutor` / `compactJSON` |
-| 事务与重试（`WithTx`、`WithTxResult`、`TxOptions`、`TxRetryConfig`） | `tx.go` |
+| 事务与重试（`WithTx`、`WithTxResult`、`TxOptions`、`RetryPolicy`） | `tx.go` |
 | 表注册与元数据 | `table.go`、`table_registry.go` |
-| 表变量对列切片的初始化顺序锚点 | `table.go` 的 `TableWithCols`，由 `internal/cmd/tsq.go.tmpl` 生成进 `var TableXxx`；门是 `examples/academy/academyqueries.go` |
+| 表变量对列切片的初始化顺序锚点 | `table.go` 的 `DeclareTable`，由 `internal/cmd/tsq.go.tmpl` 生成进 `var TableXxx`；门是 `examples/academy/academyqueries.go` |
 | 索引元数据 | `table_index.go` |
 | 表别名 | `table_alias.go` |
 | `Owner` 约束 | `owner.go` |

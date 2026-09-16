@@ -116,8 +116,8 @@ func TestAPIContract_ColumnConditions(t *testing.T) {
 func TestAPIContract_TableAndColumn(t *testing.T) {
 	table := newMockTable("users")
 
-	if table.Table() != "users" {
-		t.Errorf("table name mismatch: got %s, want users", table.Table())
+	if table.TableName() != "users" {
+		t.Errorf("table name mismatch: got %s, want users", table.TableName())
 	}
 
 	col := newColForTable[Table, int](table, "id", "id", nil)
@@ -132,7 +132,7 @@ func TestAPIContract_TableAndColumn(t *testing.T) {
 	if aliasedCol.Name() != "id" {
 		t.Errorf("aliased column name changed: got %s, want id", aliasedCol.Name())
 	}
-	if got := aliasedCol.Table().Table(); got != "u" {
+	if got := aliasedCol.Table().TableName(); got != "u" {
 		t.Errorf("aliased column table mismatch: got %s, want u", got)
 	}
 	if got := aliasedCol.QualifiedName(); got != `"u"."id"` {
@@ -141,7 +141,7 @@ func TestAPIContract_TableAndColumn(t *testing.T) {
 
 	otherTable := newMockTable("orders")
 	reboundCol := col.WithTable(otherTable)
-	if reboundCol.Table().Table() != "orders" {
-		t.Errorf("rebind failed: got %s, want orders", reboundCol.Table().Table())
+	if reboundCol.Table().TableName() != "orders" {
+		t.Errorf("rebind failed: got %s, want orders", reboundCol.Table().TableName())
 	}
 }

@@ -83,12 +83,12 @@ type queryBuilder[O Owner] struct {
 type QueryStage[O Owner] interface {
 	Build() (*Query[O], error)
 	MustBuild() *Query[O]
-	Get(ctx context.Context, tx SQLExecutor, args ...any) (*O, error)
-	Find(ctx context.Context, tx SQLExecutor, args ...any) (*O, error)
-	Exists(ctx context.Context, tx SQLExecutor, args ...any) (bool, error)
-	Count(ctx context.Context, tx SQLExecutor, args ...any) (int64, error)
-	List(ctx context.Context, tx SQLExecutor, args ...any) ([]*O, error)
-	Page(ctx context.Context, tx SQLExecutor, page *PageRequest, args ...any) (*PageResponse[O], error)
+	Get(ctx context.Context, tx Executor, args ...any) (*O, error)
+	Find(ctx context.Context, tx Executor, args ...any) (*O, error)
+	Exists(ctx context.Context, tx Executor, args ...any) (bool, error)
+	Count(ctx context.Context, tx Executor, args ...any) (int64, error)
+	List(ctx context.Context, tx Executor, args ...any) ([]*O, error)
+	Page(ctx context.Context, tx Executor, page *PageRequest, args ...any) (*PageResponse[O], error)
 }
 
 // SelectStage is the result of Select(...) before From(...) is attached.

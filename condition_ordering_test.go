@@ -20,11 +20,11 @@ func TestConditionParameterOrdering_ConsistentPattern(t *testing.T) {
 
 	// Test range operations - Val parameters are (start, end)
 	_ = col.BetweenVal(1, 100)
-	_ = col.NBetweenVal(1, 100)
+	_ = col.NotBetweenVal(1, 100)
 
 	// Test membership - Val parameters are variable number of values
 	_ = col.InVal(1, 2, 3)
-	_ = col.NInVal(1, 2, 3)
+	_ = col.NotInVal(1, 2, 3)
 
 	// Test null checks - no parameters
 	_ = col.IsNull()
@@ -38,17 +38,17 @@ func TestConditionParameterOrdering_StringPatterns(t *testing.T) {
 
 	// Pattern matching - parameter is the pattern string
 	_ = nameCol.StartsWithVal("John")
-	_ = nameCol.NStartsWithVal("John")
+	_ = nameCol.NotStartsWithVal("John")
 	_ = nameCol.EndsWithVal("Smith")
-	_ = nameCol.NEndsWithVal("Smith")
+	_ = nameCol.NotEndsWithVal("Smith")
 	_ = nameCol.ContainsVal("test")
-	_ = nameCol.NContainsVal("test")
+	_ = nameCol.NotContainsVal("test")
 	_ = nameCol.StartsWithVar()
 	_ = nameCol.ContainsVar()
 
 	// LIKE with explicit pattern can use Val/Var/RHS forms directly
 	_ = nameCol.LikeVal("A%")
-	_ = nameCol.NLikeVal("%Z")
+	_ = nameCol.NotLikeVal("%Z")
 	_ = nameCol.LikeVar()
 }
 
@@ -134,11 +134,11 @@ func TestConditionParameterOrdering_ConsistencyAcrossOperators(t *testing.T) {
 		{"LTVal", col.LTVal(5)},
 		{"LTEVal", col.LTEVal(5)},
 		{"BetweenVal", col.BetweenVal(1, 10)},
-		{"NBetweenVal", col.NBetweenVal(1, 10)},
+		{"NotBetweenVal", col.NotBetweenVal(1, 10)},
 		{"InVal", col.InVal(1, 2, 3)},
-		{"NInVal", col.NInVal(1, 2, 3)},
+		{"NotInVal", col.NotInVal(1, 2, 3)},
 		{"InVar", col.InVar()},
-		{"NInVar", col.NInVar()},
+		{"NotInVar", col.NotInVar()},
 		{"IsNull", col.IsNull()},
 		{"IsNotNull", col.IsNotNull()},
 	}

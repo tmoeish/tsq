@@ -23,13 +23,13 @@ import (
 // interface method, which package initialization ordering cannot see. Without it a
 // package-level query variable in a file sorting before this one can observe
 // Instructor__Cols fully sized with nil elements.
-var TableInstructor tsq.Table = tsq.TableWithCols(Instructor{}, Instructor__Cols)
+var TableInstructor tsq.Table = tsq.DeclareTable(Instructor{}, Instructor__Cols)
 
 // TSQOwner marks Instructor as a TSQ owner.
 func (i Instructor) TSQOwner() {}
 
-// Table returns the database table name for Instructor.
-func (i Instructor) Table() string { return "instructor" }
+// TableName returns the database table name for Instructor.
+func (i Instructor) TableName() string { return "instructor" }
 
 // Cols returns all generated columns for Instructor.
 func (i Instructor) Cols() []tsq.SQLColumn {
@@ -62,12 +62,12 @@ func (i Instructor) ManagedColumns() tsq.ManagedColumns {
 
 // Column definitions for Instructor table.
 var (
-	Instructor_Bio       = tsq.NewCol("bio", "bio", func(t *Instructor) *string { return &t.Bio })
-	Instructor_CreatedAt = tsq.NewCol("created_at", "created_at", func(t *Instructor) *null.Time { return &t.CreatedAt })
-	Instructor_Email     = tsq.NewCol("email", "email", func(t *Instructor) *string { return &t.Email })
-	Instructor_ID        = tsq.NewCol("id", "id", func(t *Instructor) *int64 { return &t.ID })
-	Instructor_Name      = tsq.NewCol("name", "name", func(t *Instructor) *string { return &t.Name })
-	Instructor_Specialty = tsq.NewCol("specialty", "specialty", func(t *Instructor) *string { return &t.Specialty })
+	Instructor_Bio       = tsq.NewColumn("bio", "bio", func(t *Instructor) *string { return &t.Bio })
+	Instructor_CreatedAt = tsq.NewColumn("created_at", "created_at", func(t *Instructor) *null.Time { return &t.CreatedAt })
+	Instructor_Email     = tsq.NewColumn("email", "email", func(t *Instructor) *string { return &t.Email })
+	Instructor_ID        = tsq.NewColumn("id", "id", func(t *Instructor) *int64 { return &t.ID })
+	Instructor_Name      = tsq.NewColumn("name", "name", func(t *Instructor) *string { return &t.Name })
+	Instructor_Specialty = tsq.NewColumn("specialty", "specialty", func(t *Instructor) *string { return &t.Specialty })
 )
 
 // Instructor__Cols is the list of all selectable columns for Instructor table.
@@ -105,7 +105,7 @@ var QueryInstructorByIDIn = tsq.
 // Returns an error if any of the specified records are not found.
 func ListInstructorByIDInOrErr(
 	ctx context.Context,
-	db tsq.SQLExecutor,
+	db tsq.Executor,
 	iDs ...int64,
 ) ([]*Instructor, error) {
 	list, err := QueryInstructorByIDIn.List(ctx, db, iDs)
@@ -139,7 +139,7 @@ var QueryInstructorByEmail = tsq.
 // Returns an error if any of the specified records are not found.
 func ListInstructorByEmailInOrErr(
 	ctx context.Context,
-	db tsq.SQLExecutor,
+	db tsq.Executor,
 	emails ...string,
 ) ([]*Instructor, error) {
 	list, err := QueryInstructorByEmailIn.List(ctx, db,
@@ -188,7 +188,7 @@ var QueryInstructor = tsq.
 // Insert inserts a new Instructor record.
 func (i *Instructor) Insert(
 	ctx context.Context,
-	db tsq.SQLExecutor,
+	db tsq.Executor,
 ) error {
 	if !i.CreatedAt.Valid {
 		i.CreatedAt = null.TimeFrom(tsqtime.Now())
@@ -203,7 +203,7 @@ func (i *Instructor) Insert(
 // Update updates an existing Instructor record.
 func (i *Instructor) Update(
 	ctx context.Context,
-	db tsq.SQLExecutor,
+	db tsq.Executor,
 ) error {
 	err := tsq.Update(ctx, db, i)
 	if err != nil {
@@ -218,7 +218,7 @@ func (i *Instructor) Update(
 // same operation.
 func (i *Instructor) Delete(
 	ctx context.Context,
-	db tsq.SQLExecutor,
+	db tsq.Executor,
 ) error {
 	err := tsq.Delete(ctx, db, i)
 	if err != nil {
@@ -230,7 +230,7 @@ func (i *Instructor) Delete(
 // HardDelete removes a Instructor record from the database.
 func (i *Instructor) HardDelete(
 	ctx context.Context,
-	db tsq.SQLExecutor,
+	db tsq.Executor,
 ) error {
 	err := tsq.HardDelete(ctx, db, i)
 	if err != nil {

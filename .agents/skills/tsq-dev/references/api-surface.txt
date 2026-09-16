@@ -7,58 +7,58 @@ CONSTANTS
 const DefaultMaxPageSize = 1000
 const MaxPageNumber = 1000000
 FUNCTIONS
+func BatchDelete[T Table](
+	ctx context.Context,
+	tx Executor,
+	items []T,
+	options ...BatchOption,
+) error
+func BatchDeleteByPK[O Table, T any](
+	ctx context.Context,
+	tx Executor,
+	pkField TypedColumn[O, T],
+	pks []T,
+	options ...BatchOption,
+) error
+func BatchHardDelete[T Table](
+	ctx context.Context,
+	tx Executor,
+	items []T,
+	options ...BatchOption,
+) error
+func BatchHardDeleteByPK[O Table, T any](
+	ctx context.Context,
+	tx Executor,
+	pkField TypedColumn[O, T],
+	pks []T,
+	options ...BatchOption,
+) error
+func BatchInsert[T Table](
+	ctx context.Context,
+	tx Executor,
+	items []T,
+	options ...BatchOption,
+) error
+func BatchUpdate[T Table](
+	ctx context.Context,
+	tx Executor,
+	items []T,
+	options ...BatchOption,
+) error
 func BuildSubquery[O Owner, T any](qb QueryStage[O], selected TypedColumn[O, T]) (Subquery[T], error)
-func ChunkedDelete[T Table](
-	ctx context.Context,
-	tx SQLExecutor,
-	items []T,
-	options ...*ChunkedOptions,
-) error
-func ChunkedDeleteByPKs[O Table, T any](
-	ctx context.Context,
-	tx SQLExecutor,
-	pkField TypedColumn[O, T],
-	pks []T,
-	options ...*ChunkedOptions,
-) error
-func ChunkedHardDelete[T Table](
-	ctx context.Context,
-	tx SQLExecutor,
-	items []T,
-	options ...*ChunkedOptions,
-) error
-func ChunkedHardDeleteByPKs[O Table, T any](
-	ctx context.Context,
-	tx SQLExecutor,
-	pkField TypedColumn[O, T],
-	pks []T,
-	options ...*ChunkedOptions,
-) error
-func ChunkedInsert[T Table](
-	ctx context.Context,
-	tx SQLExecutor,
-	items []T,
-	options ...*ChunkedInsertOptions,
-) error
-func ChunkedUpdate[T Table](
-	ctx context.Context,
-	tx SQLExecutor,
-	items []T,
-	options ...*ChunkedOptions,
-) error
 func Delete[T Table](
 	ctx context.Context,
-	tx SQLExecutor,
+	tx Executor,
 	item T,
 ) error
 func HardDelete[T Table](
 	ctx context.Context,
-	tx SQLExecutor,
+	tx Executor,
 	item T,
 ) error
 func Insert[T Table](
 	ctx context.Context,
-	tx SQLExecutor,
+	tx Executor,
 	item T,
 ) error
 func IsOptimisticLockError(err error) bool
@@ -67,29 +67,36 @@ func IsRetryableTxError(err error) bool
 func IsTxConflictError(err error) bool
 func NewRuntime(
 	ctx context.Context,
-	driverName string,
-	dsn string,
-	tables []TableRegistration,
-	options ...RuntimeOption,
-) (*Runtime, error)
-func NewRuntimeFromDB(
-	ctx context.Context,
 	db *sql.DB,
 	sqlDialect tsqdialect.Dialect,
 	tables []TableRegistration,
 	options ...RuntimeOption,
 ) (*Runtime, error)
+func Open(
+	ctx context.Context,
+	driverName string,
+	dsn string,
+	tables []TableRegistration,
+	options ...RuntimeOption,
+) (*Runtime, error)
 func Update[T Table](
 	ctx context.Context,
-	tx SQLExecutor,
+	tx Executor,
 	item T,
 ) error
 func DeleteFrom[O Table]() *deleteBuilder[O]
 func HardDeleteFrom[O Table]() *deleteBuilder[O]
 func UpdateTable[O Table]() *updateBuilder[O]
 TYPES
+type AmbiguousSortFieldError struct {
+}
+func (e *AmbiguousSortFieldError) Error() string
+func (e *AmbiguousSortFieldError) Is(target error) bool
 type AnySubquery interface {
 }
+type BatchOption func(*batchConfig)
+func WithBatchSize(size int) BatchOption
+func WithSkipDuplicates() BatchOption
 type BoundColumn[O Owner] interface {
 	SQLColumn
 }
@@ -99,15 +106,6 @@ type CaseStage[T any] interface {
 	End() ValueColumn[T]
 }
 func Case[T any]() CaseStage[T]
-type ChunkedInsertOptions struct {
-	ChunkSize    int
-	IgnoreErrors bool // IgnoreErrors skips duplicate-key failures and continues with the remaining items.
-}
-func DefaultChunkedInsertOptions() *ChunkedInsertOptions
-type ChunkedOptions struct {
-	ChunkSize int
-}
-func DefaultChunkedOptions() *ChunkedOptions
 type Column[O Owner, T any] interface {
 	TypedColumn[O, T]
 	RHS[T]
@@ -123,11 +121,11 @@ type Column[O Owner, T any] interface {
 	LT(rhs RHS[T]) Condition
 	LTE(rhs RHS[T]) Condition
 	Like(rhs RHS[T]) Condition
-	NLike(rhs RHS[T]) Condition
+	NotLike(rhs RHS[T]) Condition
 	Between(start, end RHS[T]) Condition
-	NBetween(start, end RHS[T]) Condition
+	NotBetween(start, end RHS[T]) Condition
 	In(rhs Subquery[T]) Condition
-	NIn(rhs Subquery[T]) Condition
+	NotIn(rhs Subquery[T]) Condition
 	EQVal(arg T) Condition
 	NEVal(arg T) Condition
 	GTVal(arg T) Condition
@@ -135,17 +133,17 @@ type Column[O Owner, T any] interface {
 	LTVal(arg T) Condition
 	LTEVal(arg T) Condition
 	LikeVal(arg T) Condition
-	NLikeVal(arg T) Condition
+	NotLikeVal(arg T) Condition
 	BetweenVal(start, end T) Condition
-	NBetweenVal(start, end T) Condition
+	NotBetweenVal(start, end T) Condition
 	InVal(args ...T) Condition
-	NInVal(args ...T) Condition
+	NotInVal(args ...T) Condition
 	StartsWithVal(str string) Condition
-	NStartsWithVal(str string) Condition
+	NotStartsWithVal(str string) Condition
 	EndsWithVal(str string) Condition
-	NEndsWithVal(str string) Condition
+	NotEndsWithVal(str string) Condition
 	ContainsVal(str string) Condition
-	NContainsVal(str string) Condition
+	NotContainsVal(str string) Condition
 	EQVar() Condition
 	NEVar() Condition
 	GTVar() Condition
@@ -153,17 +151,17 @@ type Column[O Owner, T any] interface {
 	LTVar() Condition
 	LTEVar() Condition
 	LikeVar() Condition
-	NLikeVar() Condition
+	NotLikeVar() Condition
 	BetweenVar() Condition
-	NBetweenVar() Condition
+	NotBetweenVar() Condition
 	InVar() Condition
-	NInVar() Condition
+	NotInVar() Condition
 	StartsWithVar() Condition
-	NStartsWithVar() Condition
+	NotStartsWithVar() Condition
 	EndsWithVar() Condition
-	NEndsWithVar() Condition
+	NotEndsWithVar() Condition
 	ContainsVar() Condition
-	NContainsVar() Condition
+	NotContainsVar() Condition
 	Pred(format string, args ...any) Condition
 	Expr(format string) Column[O, T]
 	Exprf(format string, args ...any) Column[O, T]
@@ -191,7 +189,7 @@ type Column[O Owner, T any] interface {
 	Asc() OrderBy
 	Desc() OrderBy
 }
-func NewCol[O Table, T any](baseName, jsonFieldName string, fieldPointer func(*O) *T) Column[O, T]
+func NewColumn[O Table, T any](baseName, jsonFieldName string, fieldPointer func(*O) *T) Column[O, T]
 type CompoundStage[O Owner] interface {
 	QueryStage[O]
 	OrderBy(orders ...OrderBy) PagedStage[O]
@@ -215,33 +213,8 @@ func And(conds ...Condition) Condition
 func Exists(sq AnySubquery) Condition
 func NotExists(sq AnySubquery) Condition
 func Or(conds ...Condition) Condition
-type ErrAmbiguousSortField struct {
-}
-func (e *ErrAmbiguousSortField) Error() string
-func (e *ErrAmbiguousSortField) Is(target error) bool
-type ErrIndexMissing struct {
-	Table  string   // Table is the table that should contain the index.
-	Name   string   // Name is the expected index name.
-	Fields []string // Fields is the expected indexed column order.
-	Unique bool     // Unique reports whether the missing index should be unique.
-}
-func (e *ErrIndexMissing) Error() string
-type ErrOptimisticLockConflict struct {
-}
-func (e *ErrOptimisticLockConflict) Error() string
-func (e *ErrOptimisticLockConflict) Is(target error) bool
-type ErrOrderCountMismatch struct {
-}
-func (e *ErrOrderCountMismatch) Error() string
-func (e *ErrOrderCountMismatch) Is(target error) bool
-type ErrTableMissing struct {
-	Name string // Name is the expected physical table name.
-}
-func (e *ErrTableMissing) Error() string
-type ErrUnknownSortField struct {
-}
-func (e *ErrUnknownSortField) Error() string
-func (e *ErrUnknownSortField) Is(target error) bool
+type Executor = tsqdialect.Executor
+func WrapExecutor(exec Executor, sqlDialect dialect.Dialect) Executor
 type Expression interface {
 	Expr() string // Expr returns the SQL fragment text.
 	Args() []any  // Args returns the bind arguments referenced by Expr.
@@ -311,26 +284,45 @@ type ManagedColumns struct {
 	UpdatedAt string // UpdatedAt is refreshed by every update, including soft deletes.
 	DeletedAt string // DeletedAt carries the soft-delete tombstone; when set, Delete is a soft delete.
 }
+type MissingIndexError struct {
+	Table  string   // Table is the table that should contain the index.
+	Name   string   // Name is the expected index name.
+	Fields []string // Fields is the expected indexed column order.
+	Unique bool     // Unique reports whether the missing index should be unique.
+}
+func (e *MissingIndexError) Error() string
+type MissingTableError struct {
+	Name string // Name is the expected physical table name.
+}
+func (e *MissingTableError) Error() string
 type Mutation[O Table] struct {
 }
-func (m *Mutation[O]) Exec(ctx context.Context, tx SQLExecutor, args ...any) (int64, error)
+func (m *Mutation[O]) Exec(ctx context.Context, tx Executor, args ...any) (int64, error)
 func (m *Mutation[O]) SQL() string
 type MutationStage[O Table] interface {
 	Build() (*Mutation[O], error)
 	MustBuild() *Mutation[O]
-	Exec(ctx context.Context, tx SQLExecutor, args ...any) (int64, error)
+	Exec(ctx context.Context, tx Executor, args ...any) (int64, error)
 }
+type OptimisticLockError struct {
+}
+func (e *OptimisticLockError) Error() string
+func (e *OptimisticLockError) Is(target error) bool
 type Order string
 const (
 	ASC Order = "ASC" // Ascending order
 	DESC Order = "DESC" // Descending order
 )
-func ReverseOrder(order Order) Order
+func (o Order) Reverse() Order
 type OrderBy struct {
 }
+func (ob OrderBy) Column() SQLColumn
 func (ob OrderBy) Expr() string
-func (ob OrderBy) Field() SQLColumn
 func (ob OrderBy) Order() Order
+type OrderCountMismatchError struct {
+}
+func (e *OrderCountMismatchError) Error() string
+func (e *OrderCountMismatchError) Is(target error) bool
 type Owner interface {
 	TSQOwner()
 }
@@ -341,17 +333,15 @@ type PageRequest struct {
 	Order   string `json:"order"    query:"order"`    // Order lists sort directions aligned with OrderBy.
 	Keyword string `json:"keyword"  query:"keyword"`  // Keyword carries the optional free-text search term.
 }
-func (r *PageRequest) Normalize() error
-func (r *PageRequest) NormalizeWithLimit(maxSize int) error
+func (r *PageRequest) Normalize(maxSize int)
 func (r *PageRequest) Offset() int
 func (r *PageRequest) Response[T any](total int64, data []*T) *PageResponse[T]
-func (r *PageRequest) Validate() error
-func (r *PageRequest) ValidateWithLimit(maxSize int) error
+func (r *PageRequest) Validate(maxSize int) error
 type PageResponse[T any] struct {
 	PageRequest
-	Total     int64 `json:"total"`      // Total is the full number of matching rows.
-	TotalPage int64 `json:"total_page"` // TotalPage is the number of available pages after rounding up.
-	Data      []*T  `json:"data"`       // Data contains the rows for the current page.
+	Total      int64 `json:"total"`       // Total is the full number of matching rows.
+	TotalPages int64 `json:"total_pages"` // TotalPage is the number of available pages after rounding up.
+	Data       []*T  `json:"data"`        // Data contains the rows for the current page.
 }
 func (r *PageResponse[T]) HasNext() bool
 func (r *PageResponse[T]) HasPrev() bool
@@ -369,68 +359,68 @@ type Query[O Owner] struct {
 func (q *Query[O]) AsSubquery[T any](selected TypedColumn[O, T]) (Subquery[T], error)
 func (q *Query[O]) Count(
 	ctx context.Context,
-	tx SQLExecutor,
+	tx Executor,
 	args ...any,
 ) (int64, error)
 func (q *Query[O]) CountSQL() string
 func (q *Query[O]) Exists(
 	ctx context.Context,
-	tx SQLExecutor,
+	tx Executor,
 	args ...any,
 ) (bool, error)
 func (q *Query[O]) Find(
 	ctx context.Context,
-	tx SQLExecutor,
+	tx Executor,
 	args ...any,
 ) (*O, error)
 func (q *Query[O]) Get(
 	ctx context.Context,
-	tx SQLExecutor,
+	tx Executor,
 	args ...any,
 ) (*O, error)
-func (q *Query[O]) KeywordCountSQL() string
-func (q *Query[O]) KeywordListSQL() string
 func (q *Query[O]) List(
 	ctx context.Context,
-	tx SQLExecutor,
+	tx Executor,
 	args ...any,
 ) ([]*O, error)
 func (q *Query[O]) ListSQL() string
 func (q *Query[O]) Page(
 	ctx context.Context,
-	tx SQLExecutor,
+	tx Executor,
 	page *PageRequest,
 	args ...any,
 ) (*PageResponse[O], error)
 func (q *Query[O]) Scalar[T any](
 	ctx context.Context,
-	tx SQLExecutor,
+	tx Executor,
 	selected TypedColumn[O, T],
 	args ...any,
 ) (T, error)
+func (q *Query[O]) SearchCountSQL() string
+func (q *Query[O]) SearchListSQL() string
 type QueryStage[O Owner] interface {
 	Build() (*Query[O], error)
 	MustBuild() *Query[O]
-	Get(ctx context.Context, tx SQLExecutor, args ...any) (*O, error)
-	Find(ctx context.Context, tx SQLExecutor, args ...any) (*O, error)
-	Exists(ctx context.Context, tx SQLExecutor, args ...any) (bool, error)
-	Count(ctx context.Context, tx SQLExecutor, args ...any) (int64, error)
-	List(ctx context.Context, tx SQLExecutor, args ...any) ([]*O, error)
-	Page(ctx context.Context, tx SQLExecutor, page *PageRequest, args ...any) (*PageResponse[O], error)
+	Get(ctx context.Context, tx Executor, args ...any) (*O, error)
+	Find(ctx context.Context, tx Executor, args ...any) (*O, error)
+	Exists(ctx context.Context, tx Executor, args ...any) (bool, error)
+	Count(ctx context.Context, tx Executor, args ...any) (int64, error)
+	List(ctx context.Context, tx Executor, args ...any) ([]*O, error)
+	Page(ctx context.Context, tx Executor, page *PageRequest, args ...any) (*PageResponse[O], error)
 }
 type RHS[T any] interface {
 }
 type RegistrationError struct {
-	Type      RegistrationErrorType // Type classifies the registration failure.
-	TableName string                // TableName identifies the conflicting or invalid table entry.
-	Message   string                // Message contains the user-facing error text.
+	Kind    RegistrationErrorKind // Type classifies the registration failure.
+	Table   string                // TableName identifies the conflicting or invalid table entry.
+	Message string                // Message contains the user-facing error text.
 }
 func (e *RegistrationError) Error() string
-type RegistrationErrorType string
+type RegistrationErrorKind string
 const (
-	RegistrationErrorNilTable RegistrationErrorType = "nil_table"
-	RegistrationErrorInvalidIndex RegistrationErrorType = "invalid_index"
-	RegistrationErrorDuplicate RegistrationErrorType = "duplicate"
+	RegistrationErrorNilTable RegistrationErrorKind = "nil_table"
+	RegistrationErrorInvalidIndex RegistrationErrorKind = "invalid_index"
+	RegistrationErrorDuplicate RegistrationErrorKind = "duplicate"
 )
 type Result interface {
 	Owner
@@ -444,24 +434,31 @@ func MapInto[Target Owner, T any](
 	fieldPointer func(*Target) *T,
 	jsonFieldName string,
 ) ResultColumn[Target, T]
+type RetryPolicy struct {
+	MaxAttempts int
+	InitialBackoff time.Duration
+	MaxBackoff time.Duration
+	Multiplier float64
+}
+func DefaultRetryPolicy() *RetryPolicy
 type Runtime struct {
 }
 func (r *Runtime) Close() error
 func (r *Runtime) DB() *sql.DB
+func (r *Runtime) Dialect() tsqdialect.Dialect
 func (r *Runtime) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 func (r *Runtime) MaxPageSize() int
 func (r *Runtime) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
 func (r *Runtime) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
-func (r *Runtime) SQLDialect() tsqdialect.Dialect
 func (r *Runtime) WithTx(
 	ctx context.Context,
 	options *TxOptions,
-	fn func(context.Context, SQLExecutor) error,
+	fn func(context.Context, Executor) error,
 ) error
 func (r *Runtime) WithTxResult[T any](
 	ctx context.Context,
 	options *TxOptions,
-	fn func(context.Context, SQLExecutor) (T, error),
+	fn func(context.Context, Executor) (T, error),
 ) (T, error)
 type RuntimeOption func(*runtimeConfig)
 func WithIndexPolicy(policy SchemaPolicy) RuntimeOption
@@ -482,8 +479,6 @@ type SQLColumn interface {
 func AliasColumns(cols []SQLColumn, table Table) []SQLColumn
 func RebindColumn(col SQLColumn, table Table) SQLColumn
 func SQLColumns[O Owner](cols ...BoundColumn[O]) []SQLColumn
-type SQLExecutor = tsqdialect.Executor
-func WrapExecutor(exec SQLExecutor, sqlDialect dialect.Dialect) SQLExecutor
 type SchemaPolicy string
 const (
 	SchemaPolicyManual SchemaPolicy = "manual"
@@ -521,7 +516,7 @@ type Subquery[T any] interface {
 type Table interface {
 	Owner
 	Cols() []SQLColumn              // Cols returns the physical columns exposed by the table.
-	Table() string                  // Table returns the SQL identifier used in rendered queries.
+	TableName() string              // Table returns the SQL identifier used in rendered queries.
 	SearchColumns() []SearchColumn  // SearchColumns returns columns eligible for keyword-search helpers.
 	PrimaryKey() string             // PrimaryKey returns the primary-key column name.
 	AutoIncrement() bool            // AutoIncrement reports whether inserts rely on generated primary keys.
@@ -529,7 +524,7 @@ type Table interface {
 }
 func AliasTable(table Table, alias string) Table
 func CTE[O Owner](name string, query QueryStage[O]) Table
-func TableWithCols[O Table](table O, cols []BoundColumn[O]) Table
+func DeclareTable[O Table](table O, cols []BoundColumn[O]) Table
 type TableColumn[O Table] interface {
 	BoundColumn[O]
 	SearchColumn
@@ -560,20 +555,16 @@ const (
 type Tracer func(ctx context.Context, op TraceOp, next func(ctx context.Context) error) error
 type TxOptions struct {
 	SQL *sql.TxOptions
-	Retry TxRetryPredicate
-	RetryConfig *TxRetryConfig
+	RetryIf func(err error) bool
+	RetryPolicy *RetryPolicy
 }
-type TxRetryConfig struct {
-	MaxAttempts int
-	InitialBackoff time.Duration
-	MaxBackoff time.Duration
-	BackoffMultiplier float64
-}
-func DefaultTxRetryConfig() *TxRetryConfig
-type TxRetryPredicate func(err error) bool
 type TypedColumn[O Owner, T any] interface {
 	BoundColumn[O]
 }
+type UnknownSortFieldError struct {
+}
+func (e *UnknownSortFieldError) Error() string
+func (e *UnknownSortFieldError) Is(target error) bool
 type ValueColumn[T any] interface {
 	SQLColumn
 }

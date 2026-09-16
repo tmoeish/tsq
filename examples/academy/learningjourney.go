@@ -92,7 +92,7 @@ func init() {
 // PageLearningJourney pages the full-suite LearningJourney projection for selected learners and tracks.
 func PageLearningJourney(
 	ctx context.Context,
-	tx tsq.SQLExecutor,
+	tx tsq.Executor,
 	page *tsq.PageRequest,
 	learnerIDs []int64,
 	tracks ...string,

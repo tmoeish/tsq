@@ -88,7 +88,7 @@ func TestDetectSQLCapabilitiesIgnoresStringLiterals(t *testing.T) {
 func TestExecutorRejectsOnlyRealCapabilityUse(t *testing.T) {
 	_, dsn := newSQLiteIndexTestEngine(t)
 
-	runtime, err := NewRuntime(t.Context(), "sqlite", dsn, nil)
+	runtime, err := Open(t.Context(), "sqlite", dsn, nil)
 	if err != nil {
 		t.Fatalf("NewRuntime() error = %v", err)
 	}
