@@ -650,18 +650,12 @@ type Dialect interface {
 	BindVar(i int) string
 	CreateTableSuffix() string
 	CreateIndexSuffix() string
-	DropIndexSuffix() string
-	TruncateClause() string
 	AutoIncrementClause() string
-	AutoIncrementBindValue() string
 	LastInsertIdReturningSuffix(table, col string) string
-	AllTablesQuery() string
 	CreateTableIfNotExistsSuffix() string
-	HasConstraintsQuery(string, string) string
 	ValidateIdentifier(identifier string) error
 	SupportsCapability(capability Capability) bool
 	BatchInsertStartID(lastID, rowsAffected int64) (int64, bool)
-	ListTables(ctx context.Context, db Executor) ([]string, error)
 	InspectTableColumns(ctx context.Context, db Executor, table string) ([]DDLColumnSpec, bool, error)
 	ListIndexes(ctx context.Context, db Executor, table string) ([]NamedIndexDefinition, error)
 	EnsureIndex(ctx context.Context, db Executor, table string, unique bool, idx string, fields []string) (string, error)
@@ -687,8 +681,6 @@ type IndexDefinition struct {
 	Fields []string
 }
 type MySQLDialect struct{}
-func (d MySQLDialect) AllTablesQuery() string
-func (d MySQLDialect) AutoIncrementBindValue() string
 func (d MySQLDialect) AutoIncrementClause() string
 func (d MySQLDialect) BatchInsertStartID(lastID, rowsAffected int64) (int64, bool)
 func (d MySQLDialect) BindVar(i int) string
@@ -701,18 +693,14 @@ func (d MySQLDialect) DDLAutoIncrementPrimaryKey(quotedColumn string, desc DDLCo
 func (d MySQLDialect) DDLColumnType(desc DDLColumnType) string
 func (d MySQLDialect) DDLCreateIndex(table, idx string, fields []string, unique bool) string
 func (d MySQLDialect) DDLDropIndex(table, idx string) string
-func (d MySQLDialect) DropIndexSuffix() string
 func (d MySQLDialect) EnsureIndex(ctx context.Context, db Executor, table string, unique bool, idx string, fields []string) (string, error)
-func (d MySQLDialect) HasConstraintsQuery(table, column string) string
 func (d MySQLDialect) InspectIndexDefinition(ctx context.Context, db Executor, table, idx string) (IndexDefinition, bool, error)
 func (d MySQLDialect) InspectTableColumns(ctx context.Context, db Executor, table string) ([]DDLColumnSpec, bool, error)
 func (d MySQLDialect) LastInsertIdReturningSuffix(table, col string) string
 func (d MySQLDialect) ListIndexes(ctx context.Context, db Executor, table string) ([]NamedIndexDefinition, error)
-func (d MySQLDialect) ListTables(ctx context.Context, db Executor) ([]string, error)
 func (d MySQLDialect) Name() Name
 func (d MySQLDialect) QuoteField(f string) string
 func (d MySQLDialect) SupportsCapability(capability Capability) bool
-func (d MySQLDialect) TruncateClause() string
 func (d MySQLDialect) ValidateIdentifier(identifier string) error
 type Name string
 const (
@@ -730,8 +718,6 @@ type NamedIndexDefinition struct {
 	Constraint bool
 }
 type PostgresDialect struct{}
-func (d PostgresDialect) AllTablesQuery() string
-func (d PostgresDialect) AutoIncrementBindValue() string
 func (d PostgresDialect) AutoIncrementClause() string
 func (d PostgresDialect) BatchInsertStartID(lastID, rowsAffected int64) (int64, bool)
 func (d PostgresDialect) BindVar(i int) string
@@ -744,22 +730,16 @@ func (d PostgresDialect) DDLAutoIncrementPrimaryKey(quotedColumn string, desc DD
 func (d PostgresDialect) DDLColumnType(desc DDLColumnType) string
 func (d PostgresDialect) DDLCreateIndex(table, idx string, fields []string, unique bool) string
 func (d PostgresDialect) DDLDropIndex(table, idx string) string
-func (d PostgresDialect) DropIndexSuffix() string
 func (d PostgresDialect) EnsureIndex(ctx context.Context, db Executor, table string, unique bool, idx string, fields []string) (string, error)
-func (d PostgresDialect) HasConstraintsQuery(table, column string) string
 func (d PostgresDialect) InspectIndexDefinition(ctx context.Context, db Executor, table, idx string) (IndexDefinition, bool, error)
 func (d PostgresDialect) InspectTableColumns(ctx context.Context, db Executor, table string) ([]DDLColumnSpec, bool, error)
 func (d PostgresDialect) LastInsertIdReturningSuffix(table, col string) string
 func (d PostgresDialect) ListIndexes(ctx context.Context, db Executor, table string) ([]NamedIndexDefinition, error)
-func (d PostgresDialect) ListTables(ctx context.Context, db Executor) ([]string, error)
 func (d PostgresDialect) Name() Name
 func (d PostgresDialect) QuoteField(f string) string
 func (d PostgresDialect) SupportsCapability(capability Capability) bool
-func (d PostgresDialect) TruncateClause() string
 func (d PostgresDialect) ValidateIdentifier(identifier string) error
 type SQLiteDialect struct{}
-func (d SQLiteDialect) AllTablesQuery() string
-func (d SQLiteDialect) AutoIncrementBindValue() string
 func (d SQLiteDialect) AutoIncrementClause() string
 func (d SQLiteDialect) BatchInsertStartID(lastID, rowsAffected int64) (int64, bool)
 func (d SQLiteDialect) BindVar(i int) string
@@ -772,16 +752,12 @@ func (d SQLiteDialect) DDLAutoIncrementPrimaryKey(quotedColumn string, desc DDLC
 func (d SQLiteDialect) DDLColumnType(desc DDLColumnType) string
 func (d SQLiteDialect) DDLCreateIndex(table, idx string, fields []string, unique bool) string
 func (d SQLiteDialect) DDLDropIndex(table, idx string) string
-func (d SQLiteDialect) DropIndexSuffix() string
 func (d SQLiteDialect) EnsureIndex(ctx context.Context, db Executor, table string, unique bool, idx string, fields []string) (string, error)
-func (d SQLiteDialect) HasConstraintsQuery(table, column string) string
 func (d SQLiteDialect) InspectIndexDefinition(ctx context.Context, db Executor, table, idx string) (IndexDefinition, bool, error)
 func (d SQLiteDialect) InspectTableColumns(ctx context.Context, db Executor, table string) ([]DDLColumnSpec, bool, error)
 func (d SQLiteDialect) LastInsertIdReturningSuffix(table, col string) string
 func (d SQLiteDialect) ListIndexes(ctx context.Context, db Executor, table string) ([]NamedIndexDefinition, error)
-func (d SQLiteDialect) ListTables(ctx context.Context, db Executor) ([]string, error)
 func (d SQLiteDialect) Name() Name
 func (d SQLiteDialect) QuoteField(f string) string
 func (d SQLiteDialect) SupportsCapability(capability Capability) bool
-func (d SQLiteDialect) TruncateClause() string
 func (d SQLiteDialect) ValidateIdentifier(identifier string) error

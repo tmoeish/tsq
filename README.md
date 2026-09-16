@@ -202,7 +202,6 @@ func main() {
 | [`docs/skill.md`](docs/skill.md) | 想把 TSQ 作为一个 agent skill 安装到 Copilot / Claude Code / Gemini CLI |
 | [`examples/README.md`](examples/README.md) | 想按 quickstart / cookbook / full-suite 找示例 |
 | [`BEST_PRACTICES.md`](BEST_PRACTICES.md) | 想看输入校验、分页、事务、排序和生产环境建议 |
-| [`MIGRATION_GUIDE.md`](MIGRATION_GUIDE.md) | 从 v4 升到 v5：改了什么、哪些有工具、哪些要人读 |
 
 ## 能力矩阵（内置 Dialect）
 

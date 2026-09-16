@@ -31,63 +31,16 @@ func (d SQLiteDialect) CreateIndexSuffix() string {
 	return ";"
 }
 
-func (d SQLiteDialect) DropIndexSuffix() string {
-	return ""
-}
-
-func (d SQLiteDialect) TruncateClause() string {
-	return "DELETE FROM"
-}
-
 func (d SQLiteDialect) AutoIncrementClause() string {
 	return "AUTOINCREMENT"
-}
-
-func (d SQLiteDialect) AutoIncrementBindValue() string {
-	return "NULL"
 }
 
 func (d SQLiteDialect) LastInsertIdReturningSuffix(table, col string) string {
 	return ""
 }
 
-func (d SQLiteDialect) AllTablesQuery() string {
-	return "SELECT name FROM sqlite_master WHERE type='table'"
-}
-
-func (d SQLiteDialect) ListTables(ctx context.Context, db Executor) ([]string, error) {
-	rows, err := db.QueryContext(ctx, "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
-	if err != nil {
-		return nil, err
-	}
-
-	defer func() {
-		_ = rows.Close()
-	}()
-
-	var tables []string
-
-	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
-			return nil, err
-		}
-		tables = append(tables, name)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
-	return tables, nil
-}
-
 func (d SQLiteDialect) CreateTableIfNotExistsSuffix() string {
 	return "IF NOT EXISTS"
-}
-
-func (d SQLiteDialect) HasConstraintsQuery(table, column string) string {
-	return ""
 }
 
 func (d SQLiteDialect) ValidateIdentifier(identifier string) error {

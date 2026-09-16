@@ -85,7 +85,6 @@
 | --- | --- |
 | CLI 入口、子命令注册 | `cmd/tsq/main.go` |
 | `tsq version`（默认表格 / `--short` / `--json`） | `internal/cmd/version.go` |
-| `tsq migrate`（v4 注解 → `//tsq:` 指令） | `internal/cmd/migrate.go`、`internal/parser/migrate.go` |
 | `tsq gen`（flag、校验、渲染、写盘） | `internal/cmd/gen.go` |
 | 模板 | `internal/cmd/tsq.go.tmpl`、`tsq_result.go.tmpl`、`tsq_runtime.go.tmpl` |
 | 模板辅助函数 | `internal/cmd/template_helpers.go` |
@@ -101,9 +100,7 @@
 | 包级遍历、`ParseResult` | `internal/parser/package.go` |
 | 结构体解析、import 别名消歧 | `internal/parser/struct.go` |
 | 字段解析、tag 解析 | `internal/parser/field.go` |
-| 注解定位、错误行号映射 | `internal/parser/tableinfo.go` |
-| `//tsq:` 指令解析 | `internal/parser/directive.go` |
-| v4 DSL 词法与语法分析（**只剩 `tsq migrate` 用**） | `internal/parser/dsl.go` |
+| `//tsq:` 指令解析、索引命名、查询派生 | `internal/parser/annotation.go` |
 | 常量、默认字段名 | `internal/parser/constants.go` |
 | 解析错误类型 | `internal/parser/errors.go` |
 | 中立数据模型 | `internal/genmodel/model.go` |

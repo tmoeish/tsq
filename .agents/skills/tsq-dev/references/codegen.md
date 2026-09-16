@@ -4,11 +4,10 @@
 
 ```
 Go 源文件
-  │  go/ast 解析、注解定位              internal/parser/tableinfo.go
+  │  go/ast 解析、字段与嵌入解析          internal/parser/{package,struct,field}.go
   ▼
 `//tsq:` 指令行
-  │  逐行解析                           internal/parser/directive.go
-  │  语义解析、字段解析、排序            internal/parser/{struct,field,package}.go
+  │  逐行解析、索引命名、查询派生、排序    internal/parser/annotation.go
   ▼
 genmodel.StructInfo / TableMeta        internal/genmodel/model.go
   │  校验                               internal/cmd/gen.go
@@ -20,14 +19,10 @@ genmodel.StructInfo / TableMeta        internal/genmodel/model.go
 
 ## 两个 CLI 子命令
 
-- `tsq migrate <package>`（`internal/cmd/migrate.go`）：把 v4 的 `@TABLE(...)` 注解一次性改写成
-  `//tsq:` 指令。它是**唯一**还在读旧 DSL 的地方，`internal/parser/dsl.go` 因此保留——那个
-  词法/语法分析器没有别的消费者了，删它之前先确认迁移期已经过去。
 - `tsq gen <package>`（`internal/cmd/gen.go`）：生成全部产物。
   - `--dry-run`：在内存里渲染，打印哪些文件会变，不落盘。
   - `--check`：在内存里渲染，与磁盘比对，不一致就非零退出。**`make gen-check` 用的就是
     它**——不要退回到 `git diff` 判断生成物是否同步，那会对每一波正当改动都误报。
-  - `--tpl` / `--resulttpl`：覆盖默认模板。
   - `-v`：打印每个生成文件路径。
 
 ## 注解：`//tsq:` 指令
@@ -36,7 +31,7 @@ genmodel.StructInfo / TableMeta        internal/genmodel/model.go
 `@TABLE(...)` 写在 doc comment 里，gofmt 会重排缩进，于是生成器不得不自带一个 `tsq fmt` 去把它
 排回解析器要的样子。
 
-`internal/parser/directive.go` 认得这些：
+`internal/parser/annotation.go` 认得这些：
 
 | 指令 | 含义 |
 | --- | --- |
@@ -57,12 +52,9 @@ genmodel.StructInfo / TableMeta        internal/genmodel/model.go
 
 ## 错误定位
 
-`internal/parser/tableinfo.go` 里的 `commentLocator` 把解析错误映射回源文件的行号（它靠在注释里
-查找出错的标识符定位，所以对指令同样有效）。指令自身的错误还会带上出错的那一行原文——一行一个
-关注点之后，"哪一行"这件事不再需要算。
-注解写在注释里，`go/ast` 只给到注释组的位置，所以这层是自己算的。改注解格式（比如允许
-块注释、允许缩进）必须同时更新定位逻辑，否则报错会指到错的行——**报错指错行比不报行号
-更浪费时间**。
+每条指令在收集时就记下 `comment.Slash` 对应的 `token.Position`，出错时报成
+`文件:行:列: invalid //tsq: directive: <那一行原文>: <原因>`，并且 `errors.Is(err, parser.ErrInvalidDirective)`。
+一行一个关注点，所以"哪一行"不用再算——**不要把指令改成跨行的形态**，那会把定位问题带回来。
 
 ## 校验发生在渲染之前
 

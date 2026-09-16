@@ -34,8 +34,7 @@ To upgrade the CLI later, run the same `go install ...@latest` command again, or
 tsq gen ./database
 ```
 
-There is no formatting step: `//tsq:` directives survive gofmt untouched. `tsq migrate` converts a
-package's v4 annotations once, and is not part of the normal workflow afterwards.
+There is no formatting step: `//tsq:` directives survive gofmt untouched.
 
 `tsq gen` accepts:
 
@@ -197,19 +196,6 @@ Supported field types:
 
 It declares which fields the generated keyword-search helpers cover. It works on both a table and a
 result.
-
-### Migrating from the v4 annotation
-
-v4 used a parenthesised DSL inside the doc comment, which gofmt reflowed, so the generator shipped
-`tsq fmt` to put it back. Directives need no formatter, and `tsq fmt` is gone.
-
-```bash
-tsq migrate ./internal/database
-```
-
-`tsq migrate` reads each legacy `@TABLE` / `@RESULT` annotation with the v4 parser and replaces it
-with directives, keeping the prose above it. Run it once per package, review the diff, and drop it
-from the workflow: `tsq gen` does not read the legacy syntax.
 
 ## 4. Generated outputs
 
@@ -815,4 +801,3 @@ When moving a project from handwritten SQL to TSQ:
 
 - do not assume the target environment also has the TSQ repository checked out
 - do not reference repository `docs/` as required installed skill content
-- do not use removed or legacy repo vocabulary when current TSQ APIs already expose the preferred path

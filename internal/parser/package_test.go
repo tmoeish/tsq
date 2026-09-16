@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"errors"
 	"go/parser"
 	"go/token"
 	"log"
@@ -60,70 +61,8 @@ import "example.invalid/missingpkg/v2"
 		t.Fatal("expected unresolved import to return an error")
 	}
 
-	if !IsErrorType(err, ErrorTypePackageImport) {
+	if !errors.Is(err, ErrPackageImport) {
 		t.Fatalf("expected package import error, got %v", err)
-	}
-}
-
-func TestParseTableInfoAttachesCommentLineToDSLFieldErrors(t *testing.T) {
-	src := `package p
-
-//tsq:table
-//tsq:unique Name
-type User struct {
-// ignored
-	ID int64
-}
-`
-
-	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, "test.go", src, parser.ParseComments)
-	if err != nil {
-		t.Fatalf("ParseFile() error = %v", err)
-	}
-
-	_, err = ParseTableInfo("User", file.Comments, map[string]struct{}{"ID": {}}, fset)
-	if err == nil {
-		t.Fatal("expected ParseTableInfo to fail for an unknown Go field")
-	}
-
-	// The error must point at the directive that named the missing field, not at
-	// the struct or the first line of the comment block.
-	if got := err.Error(); !strings.Contains(got, "test.go:4") {
-		t.Fatalf("expected the error to name the offending directive line, got %q", got)
-	}
-}
-
-func TestParseTableInfoReportsTheOffendingDirective(t *testing.T) {
-	src := `package p
-
-//tsq:table name=users
-//tsq:unique Name
-//tsq:index
-type User struct {
-	ID   int64
-	Name string
-}
-`
-
-	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, "test.go", src, parser.ParseComments)
-	if err != nil {
-		t.Fatalf("ParseFile() error = %v", err)
-	}
-
-	_, err = ParseTableInfo("User", file.Comments, map[string]struct{}{"ID": {}, "Name": {}}, fset)
-	if err == nil {
-		t.Fatal("expected an index directive with no fields to fail")
-	}
-
-	// A directive error quotes the line it came from, which is why the parser no
-	// longer maps byte offsets back to source lines.
-	got := err.Error()
-	for _, want := range []string{"//tsq:index", "needs at least one Go field name"} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("expected the error to mention %q, got %q", want, got)
-		}
 	}
 }
 

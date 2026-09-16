@@ -35,63 +35,16 @@ func (d MySQLDialect) CreateIndexSuffix() string {
 	return ";"
 }
 
-func (d MySQLDialect) DropIndexSuffix() string {
-	return ""
-}
-
-func (d MySQLDialect) TruncateClause() string {
-	return "TRUNCATE TABLE"
-}
-
 func (d MySQLDialect) AutoIncrementClause() string {
 	return "AUTO_INCREMENT"
-}
-
-func (d MySQLDialect) AutoIncrementBindValue() string {
-	return "0"
 }
 
 func (d MySQLDialect) LastInsertIdReturningSuffix(table, col string) string {
 	return ""
 }
 
-func (d MySQLDialect) AllTablesQuery() string {
-	return "SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE()"
-}
-
-func (d MySQLDialect) ListTables(ctx context.Context, db Executor) ([]string, error) {
-	rows, err := db.QueryContext(ctx, "SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE() ORDER BY table_name")
-	if err != nil {
-		return nil, err
-	}
-
-	defer func() {
-		_ = rows.Close()
-	}()
-
-	var tables []string
-
-	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
-			return nil, err
-		}
-		tables = append(tables, name)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
-	return tables, nil
-}
-
 func (d MySQLDialect) CreateTableIfNotExistsSuffix() string {
 	return "IF NOT EXISTS"
-}
-
-func (d MySQLDialect) HasConstraintsQuery(table, column string) string {
-	return ""
 }
 
 func (d MySQLDialect) ValidateIdentifier(identifier string) error {

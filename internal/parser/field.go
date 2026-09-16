@@ -36,7 +36,7 @@ func parseNamedFields(
 
 			// Reject duplicate fields.
 			if _, exists := fields[fieldName]; exists {
-				return nil, NewDuplicateFieldError(fieldName, "struct")
+				return nil, duplicateFieldError(fieldName)
 			}
 
 			// Parse the field type.
@@ -203,7 +203,7 @@ func parseEmbeddedFields(
 
 		// Reject duplicate embedded types.
 		if _, exists := embeddedTypes[embeddedType]; exists {
-			return nil, NewDuplicateEmbeddedError(embeddedType.TypeName, "struct")
+			return nil, duplicateEmbeddedError(embeddedType.TypeName)
 		}
 
 		embeddedTypes[embeddedType] = true
@@ -235,7 +235,7 @@ func parseFieldType(
 	case *ast.ArrayType:
 		// Slice: []Type
 		if _, nestedArray := t.Elt.(*ast.ArrayType); nestedArray {
-			return false, false, "", "", NewFieldUnsupportedCompositionError("nested slices/arrays are not supported")
+			return false, false, "", "", unsupportedFieldError("nested slices/arrays are not supported")
 		}
 
 		isPointer, _, packagePath, typeName, err := parseFieldType(t.Elt)
@@ -249,9 +249,9 @@ func parseFieldType(
 		// Pointer: *Type
 		switch t.X.(type) {
 		case *ast.ArrayType:
-			return false, false, "", "", NewFieldUnsupportedCompositionError("pointer-to-slice fields are not supported")
+			return false, false, "", "", unsupportedFieldError("pointer-to-slice fields are not supported")
 		case *ast.StarExpr:
-			return false, false, "", "", NewFieldUnsupportedCompositionError("multi-level pointers are not supported")
+			return false, false, "", "", unsupportedFieldError("multi-level pointers are not supported")
 		}
 
 		_, isArray, packagePath, typeName, err := parseFieldType(t.X)
@@ -260,13 +260,13 @@ func parseFieldType(
 		}
 
 		if isArray {
-			return false, false, "", "", NewFieldUnsupportedCompositionError("pointer-to-slice fields are not supported")
+			return false, false, "", "", unsupportedFieldError("pointer-to-slice fields are not supported")
 		}
 
 		return true, false, packagePath, typeName, nil
 
 	default:
-		return false, false, "", "", NewFieldUnsupportedTypeError(t)
+		return false, false, "", "", unsupportedFieldError("%T", t)
 	}
 }
 
@@ -286,5 +286,5 @@ func parseSelectorExpr(
 
 	// Anything but a plain identifier would be a nested selector,
 	// which is not supported.
-	return false, false, "", "", NewFieldInvalidSelectorError(selExpr.X)
+	return false, false, "", "", unsupportedFieldError("selector on %T", selExpr.X)
 }

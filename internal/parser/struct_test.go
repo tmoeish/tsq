@@ -2,6 +2,7 @@ package parser
 
 import (
 	"container/list"
+	"errors"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -164,7 +165,7 @@ type User struct {
 	}
 
 	// 验证错误类型
-	if !IsErrorType(err, ErrorTypeDuplicateField) {
+	if !errors.Is(err, ErrDuplicateField) {
 		t.Errorf("Expected ErrorTypeDuplicateField, got different error: %v", err)
 	}
 }
@@ -258,7 +259,7 @@ func TestResolveEmbeddedFields_DetectsCycles(t *testing.T) {
 		t.Fatal("expected cyclic embedded structs to return an error")
 	}
 
-	if !IsErrorType(err, ErrorTypeEmbeddedCycle) {
+	if !errors.Is(err, ErrEmbeddedCycle) {
 		t.Fatalf("expected embedded cycle error, got %v", err)
 	}
 }

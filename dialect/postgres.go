@@ -31,72 +31,16 @@ func (d PostgresDialect) CreateIndexSuffix() string {
 	return ";"
 }
 
-func (d PostgresDialect) DropIndexSuffix() string {
-	return ""
-}
-
-func (d PostgresDialect) TruncateClause() string {
-	return "TRUNCATE TABLE"
-}
-
 func (d PostgresDialect) AutoIncrementClause() string {
 	return ""
-}
-
-func (d PostgresDialect) AutoIncrementBindValue() string {
-	return "DEFAULT"
 }
 
 func (d PostgresDialect) LastInsertIdReturningSuffix(table, col string) string {
 	return " RETURNING " + d.QuoteField(col)
 }
 
-func (d PostgresDialect) AllTablesQuery() string {
-	return "SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema()"
-}
-
-func (d PostgresDialect) ListTables(ctx context.Context, db Executor) ([]string, error) {
-	rows, err := db.QueryContext(ctx, `
-		SELECT table_name
-		FROM information_schema.tables
-		WHERE table_schema = current_schema() AND table_type = 'BASE TABLE'
-		ORDER BY table_name`)
-	if err != nil {
-		return nil, err
-	}
-
-	defer func() {
-		_ = rows.Close()
-	}()
-
-	var tables []string
-
-	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
-			return nil, err
-		}
-		tables = append(tables, name)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
-	return tables, nil
-}
-
 func (d PostgresDialect) CreateTableIfNotExistsSuffix() string {
 	return "IF NOT EXISTS"
-}
-
-func (d PostgresDialect) HasConstraintsQuery(table, column string) string {
-	return `
-		SELECT constraint_name
-		FROM information_schema.constraint_column_usage
-		WHERE table_schema = current_schema()
-			AND table_name = $1
-			AND column_name = $2`
 }
 
 func (d PostgresDialect) ValidateIdentifier(identifier string) error {

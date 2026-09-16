@@ -15,8 +15,7 @@ import (
 )
 
 const (
-	ddlStateFilename       = "tsq.json"
-	legacyDDLStateFilename = "ddl.json"
+	ddlStateFilename = "tsq.json"
 )
 
 type ddlStateFile struct {
@@ -192,35 +191,31 @@ func buildCurrentDDLTableSnapshot(
 }
 
 func loadDDLStateFile(outDir string) (*ddlStateFile, error) {
-	for _, name := range []string{ddlStateFilename, legacyDDLStateFilename} {
-		filename := filepath.Join(outDir, name)
+	filename := filepath.Join(outDir, ddlStateFilename)
 
-		content, err := os.ReadFile(filename)
-		if os.IsNotExist(err) {
-			continue
-		}
-
-		if err != nil {
-			return nil, err
-		}
-
-		if !isGeneratedDDLArtifact(content) {
-			return nil, fmt.Errorf("refusing to read non-generated DDL state file: %s", filename)
-		}
-
-		var state ddlStateFile
-		if err := json.Unmarshal(content, &state); err != nil {
-			return nil, fmt.Errorf("failed to parse DDL state file: %s"+": %w", filename, err)
-		}
-
-		if state.RenderedRecords > len(state.Records) {
-			state.RenderedRecords = len(state.Records)
-		}
-
-		return &state, nil
+	content, err := os.ReadFile(filename)
+	if os.IsNotExist(err) {
+		return nil, nil
 	}
 
-	return nil, nil
+	if err != nil {
+		return nil, err
+	}
+
+	if !isGeneratedDDLArtifact(content) {
+		return nil, fmt.Errorf("refusing to read non-generated DDL state file: %s", filename)
+	}
+
+	var state ddlStateFile
+	if err := json.Unmarshal(content, &state); err != nil {
+		return nil, fmt.Errorf("failed to parse DDL state file %s: %w", filename, err)
+	}
+
+	if state.RenderedRecords > len(state.Records) {
+		state.RenderedRecords = len(state.Records)
+	}
+
+	return &state, nil
 }
 
 func marshalDDLStateFile(

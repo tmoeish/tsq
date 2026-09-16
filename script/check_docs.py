@@ -41,9 +41,9 @@ NOT_TARGETS: Final = frozenset({"no-print-directory"})
 # MapInto），而 api-check 只守快照本身，守不住文档对快照的引用。行内反引号也扫：那条
 # `tsq.Into` 就写在散文里。CHANGELOG 和项目内存有意不扫，它们讲历史。
 API_SURFACE: Final = ".agents/skills/tsq-dev/references/api-surface.txt"
-# `BEST_PRACTICES.md` 和 `MIGRATION_GUIDE.md` 是后加进来的：前者教了三个月一个从来不存在的
+# `BEST_PRACTICES.md` 是后加进来的：它教了三个月一个从来不存在的
 # `tsq.Into[...]`，正因为它不在这份清单里。面向使用者的散文只要引用 `tsq.X`，就该被对照快照。
-USER_DOCS: Final = ("README.md", "BEST_PRACTICES.md", "MIGRATION_GUIDE.md", "docs", "skills/tsq")
+USER_DOCS: Final = ("README.md", "BEST_PRACTICES.md", "docs", "skills/tsq")
 TSQ_SYMBOL: Final = re.compile(r"\btsq\.([A-Z][A-Za-z0-9_]*)")
 API_TOP_LEVEL: Final = re.compile(
     r"^(?:func|type|var|const)\s+([A-Z][A-Za-z0-9_]*)|^\t([A-Z][A-Za-z0-9_]*)\b", re.MULTILINE
@@ -138,13 +138,9 @@ def check_make_targets() -> list[str]:
     return lines
 
 
-# 迁移指南的本职就是说出已经消失的符号名，所以它不参与这项检查（`make` 目标和语言那两项照旧）。
-SYMBOL_CHECK_EXEMPT: Final = frozenset({"MIGRATION_GUIDE.md"})
-
-
 def check_api_references() -> list[str]:
     symbols = api_symbols()
-    documents = [p for p in user_documents() if p.as_posix() not in SYMBOL_CHECK_EXEMPT]
+    documents = user_documents()
 
     missing: dict[str, set[str]] = {}
     for path in documents:

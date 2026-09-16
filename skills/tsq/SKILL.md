@@ -36,7 +36,7 @@ describes the implementation.
 ## Working rules
 
 - Prefer `//tsq:table` / `//tsq:result` directives over handwritten metadata layers.
-- There is no formatting step: `//tsq:` directives survive gofmt. Convert a v4 package once with `tsq migrate`.
+- There is no formatting step: `//tsq:` directives survive gofmt.
 - Treat generated `*.tsq.go` and `*.result.tsq.go` as outputs; do not hand-edit them unless the user is explicitly debugging generation output.
 - Prefer the current Build-based query flow:
   `tsq.Select(...).From(...).Where(...).Build()`
@@ -78,7 +78,6 @@ describes the implementation.
 - do not assume every built query runs on every dialect
 - do not treat `InVar(nil)` as “ignore this filter”
 - do not treat `NInVar(nil)` as “reject everything”
-- do not use legacy `kw`; use `search=[...]`
 - do not move transaction boundaries into hidden helper behavior
 - do not emulate `UPDATE ... WHERE` by listing rows and calling `Update(...)` per row; use `tsq.UpdateTable[T]()`
 
