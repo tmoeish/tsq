@@ -194,43 +194,59 @@ func validateExecutorForSQL(tx SQLExecutor, rawSQLs ...string) error {
 	return nil
 }
 
+// detectSQLCapabilities reports the dialect features a rendered statement needs.
+//
+// It reads the statement rather than the builder because the structure is no
+// longer available at this point: a subquery reaches the outer query as SQL text
+// inside a condition, so deriving capabilities from the builder alone would miss
+// a FULL JOIN or a CTE that lives in one. Under-reporting is the worse failure:
+// the query would run and fail on the server instead of being refused here with
+// the capability and dialect named.
+//
+// Matching skips string literals and comments. A literal containing the words
+// " FOR UPDATE " used to make a perfectly ordinary query unrunnable on SQLite.
 func detectSQLCapabilities(rawSQL string) []tsqdialect.Capability {
-	upperSQL := strings.ToUpper(strings.TrimSpace(rawSQL))
+	trimmed := strings.TrimSpace(rawSQL)
 	capabilities := make([]tsqdialect.Capability, 0, 8)
 
-	if strings.HasPrefix(upperSQL, "WITH ") {
+	if hasPrefixFold(trimmed, "WITH ") {
 		capabilities = append(capabilities, tsqdialect.CapabilityCTE)
 	}
 
-	if strings.Contains(upperSQL, " FULL JOIN ") {
-		capabilities = append(capabilities, tsqdialect.CapabilityFullOuterJoin)
-	}
-
-	if strings.Contains(upperSQL, " INTERSECT ") {
-		capabilities = append(capabilities, tsqdialect.CapabilityIntersect)
-	}
-
-	if strings.Contains(upperSQL, " EXCEPT ") || strings.Contains(upperSQL, " MINUS ") {
-		capabilities = append(capabilities, tsqdialect.CapabilityExcept)
-	}
-
-	if strings.Contains(upperSQL, " FOR UPDATE") {
-		capabilities = append(capabilities, tsqdialect.CapabilitySelectForUpdate)
-	}
-
-	if strings.Contains(upperSQL, " FOR SHARE") {
-		capabilities = append(capabilities, tsqdialect.CapabilitySelectForShare)
-	}
-
-	if strings.Contains(upperSQL, " NOWAIT") {
-		capabilities = append(capabilities, tsqdialect.CapabilitySelectForNoWait)
-	}
-
-	if strings.Contains(upperSQL, " SKIP LOCKED") {
-		capabilities = append(capabilities, tsqdialect.CapabilitySelectForSkipLocked)
+	for _, match := range []struct {
+		keyword    string
+		capability tsqdialect.Capability
+	}{
+		{" FULL JOIN ", tsqdialect.CapabilityFullOuterJoin},
+		{" INTERSECT ", tsqdialect.CapabilityIntersect},
+		{" EXCEPT ", tsqdialect.CapabilityExcept},
+		{" MINUS ", tsqdialect.CapabilityExcept},
+		{" FOR UPDATE", tsqdialect.CapabilitySelectForUpdate},
+		{" FOR SHARE", tsqdialect.CapabilitySelectForShare},
+		{" NOWAIT", tsqdialect.CapabilitySelectForNoWait},
+		{" SKIP LOCKED", tsqdialect.CapabilitySelectForSkipLocked},
+	} {
+		if sqlContainsOutsideLiterals(trimmed, match.keyword) {
+			capabilities = append(capabilities, match.capability)
+		}
 	}
 
 	return capabilities
+}
+
+// sqlContainsOutsideLiterals reports whether needle appears in raw as SQL rather
+// than inside a string literal or a comment.
+func sqlContainsOutsideLiterals(raw, needle string) bool {
+	return walkSQL(raw, nil, func(source string, i int, _ *strings.Builder) (int, bool, bool) {
+		match := hasPrefixFold(source[i:], needle)
+
+		return len(needle), match, match
+	})
+}
+
+// hasPrefixFold is strings.HasPrefix for the ASCII keywords TSQ matches on.
+func hasPrefixFold(s, prefix string) bool {
+	return len(s) >= len(prefix) && strings.EqualFold(s[:len(prefix)], prefix)
 }
 
 func splitTrailingQueryLockClause(sql string) (string, string) {
