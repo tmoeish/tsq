@@ -9,7 +9,7 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	tsqdialect "github.com/tmoeish/tsq/v4/dialect"
+	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 )
 
 // wideRowColumns is chosen so that the default 1000-row chunk exceeds SQLite's

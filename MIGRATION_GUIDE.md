@@ -1,123 +1,179 @@
-# TSQ v4 Migration Guide
+# TSQ v4 → v5 迁移指南
 
-TSQ v4 是一个重大的架构升级，旨在通过 Go 泛型提供更强的编译期类型安全、更清晰的查询语义以及更完善的结果映射机制。
+v5 是一次"一次性把该改的都改掉"的大版本。v2、v3、v4 发布在两周之内，那个节奏是个错误；
+这一版的目标是发完之后长时间不再破坏使用者。
 
-## 核心变更概览
+下面按"你要动多少手"从大到小排。**前两节几乎每个项目都要做，后面的按你用到了什么对照。**
 
-| 特性 | v3 (及更早) | v4 |
-| --- | --- | --- |
-| **列类型** | `Col[T]` | `Col[Owner, T]` (强绑定所属结构) |
-| **查询构建链路** | 弱类型，推导式 | Build-based owner 泛型链路（强绑定结果类型） |
-| **主表声明** | 隐式 (从 Select/Join 推导) | **显式** (必须调用 `From(table)`) |
-| **Join API** | `Join(t).On(l, r)` (两步) | `Join(t, conds...)` (一步) |
-| **结果映射** | `Col.Into(fp, json)` | `tsq.Into[Owner](source, fp, json)` |
-| **执行 API** | `WithContext(ctx)` | `Method(ctx, ...)` (显式 ctx 首参) |
-
----
-
-## 详细迁移步骤
-
-### 1. 显式声明主表
-
-在 v4 中，`From(table)` 不再是可选的。查询构建链路需要明确知道主表是谁以进行权限和列归属校验。
-
-**旧代码：**
-```go
-tsq.Select(User_Name).Where(User_ID.EQVal(1)).Build()
-```
-
-**新代码：**
-```go
-tsq.Select(User_Name).From(TableUser).Where(User_ID.EQVal(1)).Build()
-```
-
-### 2. 升级 Join API
-
-旧的 `.Join(...).On(...)` 链式调用被简化为单次 `Join(...)` 调用，且 ON 条件现在必须显式提供（`CROSS JOIN` 除外）。
-
-**旧代码：**
-```go
-tsq.Select(cols...).From(TableUser).LeftJoin(TableOrg).On(User_OrgID, Org_ID)
-```
-
-**新代码：**
-```go
-tsq.Select(cols...).From(TableUser).LeftJoin(TableOrg, User_OrgID.EQ(Org_ID))
-```
-
-### 3. 结果映射 `Into` 迁移
-
-`Into` 不再是列的方法，而是一个包级泛型函数。这确保了投影目标字段确实属于指定的 Result Owner。
-
-**旧代码：**
-```go
-userName := User_Name.Into(func(h any) any {
-    return &h.(*MyResult).Name
-}, "user_name")
-```
-
-**新代码：**
-```go
-userName := tsq.Into[MyResult](User_Name, func(r *MyResult) *string {
-    return &r.Name
-}, "user_name")
-```
-
-### 4. 执行 API 的 Context 处理
-
-移除了 `WithContext`，所有执行方法（`Query.List`, `Get`, `Insert`, `Update`, `Delete` 等）现在都要求 `context.Context` 作为第一个参数。
-
-**旧代码：**
-```go
-tsq.WithContext(ctx).List(db, query)
-user.WithContext(ctx).Insert(db)
-```
-
-**新代码：**
-```go
-query.List(ctx, db)
-user.Insert(ctx, db)
-```
-
-### 5. 生成代码的重新生成
-
-由于生成代码的符号形态已经变化（例如列集合使用 `User__Cols` 这类名称），你**必须**重新生成所有代码。
+## 0. 升级路径
 
 ```bash
-make examples  # 或者 tsq gen ./your/package
+go get github.com/tmoeish/tsq/v5@latest
+go install github.com/tmoeish/tsq/v5/cmd/tsq@latest
 ```
 
-重新生成后，生成查询 helper 的失败方式也要按当前行为理解：
+模块路径带上了 `/v5`，所以 v4 和 v5 可以在同一个构建里共存——一个包一个包地迁移是可行的。
+仓库内所有 import 都要从 `github.com/tmoeish/tsq/v4` 改成 `.../v5`。
 
-- 不会因为导入生成包就直接 `panic`
-- 如果内部静态查询准备失败，会在调用对应 helper 时返回错误
+## 1. 注解换成 `//tsq:` 指令（有工具）
 
-所以迁移后除了重新生成，也要把 `Get...` / `List...` / `Page...` helper 的错误继续向上传递，不要假设导入成功就代表生成查询一定可用。
+```bash
+tsq migrate ./internal/database   # 每个包跑一次，然后看 diff
+```
 
----
+`tsq migrate` 用 v4 的解析器读旧注解，所以 v4 生成器能接受的都能原样转换；注解上方的散文保留，
+v4 会派生的索引名仍然留给推导。
 
-## Breaking Changes 细节
+```go
+// v4
+// @TABLE(
+//
+//	name="course",
+//	pk="ID",
+//	created_at,
+//	ux=[{fields=["Title"]}],
+//	search=["Title", "Summary"],
+//
+// )
 
-### Owner 泛型约束
-`Select[Owner](cols...)` 接收的列必须满足 `Owner` 约束。这意味着你不能在一个 `Select[User]` 中直接混入 `Org_Name` 而不使用 `Into` 将其映射到 `User`（或者定义一个包含两者的 `Result` 结构）。
+// v5
+//tsq:table name=course pk=ID
+//tsq:managed created_at
+//tsq:unique Title
+//tsq:search Title,Summary
+```
 
-### 显式 Table 接口
-所有的 `Insert`, `Update`, `Delete` 现在只接受实现了 `tsq.Table` 的结构体。对于纯结果集（Result），请使用 `Query` 进行查询。
+**`tsq fmt` 没有了**，"先 fmt 再 gen"那条规则也没有了：指令行 gofmt 不碰。
 
-### 提前错误校验
-v4 的查询构建链路会在 `Build()` 阶段进行更严格的校验：
-- Join 条件必须引用已经 `From` 或 `Join` 引入的表。
-- 投影的列必须在查询涉及的表中。
+`pk="UID,true"` 这种把两个意思塞进一个字符串的写法换成 `pk=UID`（自增，默认）；要关掉自增写
+`assigned`（表示主键由调用方给值）。
 
----
+迁移完之后 **必须重新生成**：`tsq gen ./internal/database`。
 
-## 常见问题解答 (FAQ)
+## 2. 删除的语义变了（没有工具，要人读）
 
-**Q: 为什么我的 `tsq.Select(...)` 报错说类型不匹配？**
-A: 请确保你传入的所有列都属于同一个 Owner。如果是联表查询，请先定义一个 `@RESULT` 结构体，并使用生成或手写的 `Into` 投影到该结构体。
+这是整个 v5 里最需要你停下来想一想的一条。
 
-**Q: 我可以使用 v3 的生成代码配合 v4 的库吗？**
-A: 不可以。v4 的核心接口（`SQLColumn`, `BoundColumn`）已经改变，旧代码无法编译。
+| 表声明了 | `Delete` | `HardDelete` |
+| --- | --- | --- |
+| `deleted_at` | 打墓碑并刷新 `updated_at`，**行留在库里** | 真正删掉 |
+| 没有 `deleted_at` | 真正删掉 | 真正删掉（两者同义） |
 
-**Q: `WithContext` 真的没了吗？**
-A: 是的。为了符合 Go 的主流实践（Context 作为首参），我们彻底移除了 `WithContext` 链式调用。
+- v4 里 `Delete` 一律物理删，软删要显式调 `SoftDelete(ctx, db, dt)`。**v5 反过来了。**
+- 成对的入口：`tsq.Delete` / `tsq.HardDelete`、`tsq.ChunkedDelete` / `tsq.ChunkedHardDelete`、
+  `tsq.ChunkedDeleteByPKs` / `tsq.ChunkedHardDeleteByPKs`、`tsq.DeleteFrom` / `tsq.HardDeleteFrom`。
+- 生成的 `SoftDelete(ctx, db, dt)` 删除了。想指定删除时间就先给字段赋值再调 `Delete`。
+- 软删除走的是 `UPDATE`，所以乐观锁校验和 `version` 自增照常生效。
+
+**动手前先过一遍代码里所有的 `Delete` 调用**，确认每一处想要的到底是哪种。清理、GDPR 删除、
+测试夹具通常要的是 `HardDelete`。
+
+查询这一侧：`QueryActiveXxx` / `ListActiveXxx` 改名为 `QueryXxx` / `ListXxx`，而**带已删行的那套
+不再生成**。审计要读已删行时自己写：
+
+```go
+var EveryEnrollment = tsq.
+	Select(database.Enrollment__Cols...).
+	From(database.TableEnrollment).
+	MustBuild()
+```
+
+## 3. Runtime 的构造
+
+```go
+// v4
+rt, err := tsq.NewRuntime("sqlite", dsn, database.TSQTables(), &tsq.RuntimeOptions{
+	TablePolicy: tsq.SchemaPolicyCreateMissing,
+	IndexPolicy: tsq.SchemaPolicyCreateMissing,
+	Logger:      slog.Default(),
+})
+
+// v5
+rt, err := tsq.NewRuntime(ctx, "sqlite", dsn, database.TSQTables(),
+	tsq.WithSchemaPolicy(tsq.SchemaPolicyCreateMissing),
+	tsq.WithLogger(slog.Default()),
+)
+```
+
+- `NewRuntimeContext` 没有了，ctx 不再可选。
+- 选项：`WithSchemaPolicy` / `WithTablePolicy` / `WithIndexPolicy` / `WithLogger` /
+  `WithSQLLogging()` / `WithTracers(...)` / `WithMaxPageSize(n)`。
+- 已经自己开好连接池（otelsql、自定义 connector）的，用
+  `tsq.NewRuntimeFromDB(ctx, db, dialect, tables, opts...)`。**`Close()` 不会关这样传进来的池。**
+- `SchemaPolicyManaged` 和 `SchemaOwner` 删除了。**没有任何策略会删表**——不再声明的表交给迁移脚本。
+- `IdentifierValidationMode` 和 `ValidateIdentifiersForDialect()` 删除了，标识符长度恒为严格校验。
+  派生索引名过长时用 `//tsq:unique ... name=...` 显式命名。
+
+## 4. 读取与分页
+
+| v4 | v5 | 没查到时 |
+| --- | --- | --- |
+| `GetOrErr` | `Get` | `sql.ErrNoRows` |
+| `Get` | `Find` | `nil, nil` |
+| `Load(holder)` | 删除 | — |
+| `Count` (int) / `Count64` | `Count` | 只有 `int64` |
+
+**这是最容易静默出错的一条**：v4 的 `Get` 返回 nil 表示没查到，v5 的 `Get` 返回错误。凡是原来写
+`if row == nil` 的地方，要么改成 `Find`，要么改成判 `errors.Is(err, sql.ErrNoRows)`。
+
+其余：
+
+- `Get` / `Find` / `Exists` 现在给语句加 `LIMIT 1`；`Exists` 不再走 `COUNT`。
+- `NewPageRequest(url.Values)` 和 `PageRequest.ToQuery()` 删除，HTTP 解析交给调用方的 binder
+  （结构体上的 `query` tag 还在）。
+- `DefaultMaxPageSize` 是默认值而不是硬顶：`WithMaxPageSize(n)` 双向生效。
+
+## 5. 手写 `tsq.Table` 实现
+
+只有自己实现过这个接口的项目需要看。
+
+```go
+// v4
+func (t T) PrimaryKeys() []string { return []string{"id"} }
+func (t T) VersionColumn() string { return "version" }
+
+// v5
+func (t T) PrimaryKey() string { return "id" }
+func (t T) ManagedColumns() tsq.ManagedColumns {
+	return tsq.ManagedColumns{Version: "version", DeletedAt: "deleted_at"}
+}
+```
+
+生成的代码会自己带上这两个方法，**重新生成即可**。
+
+## 6. 零散改名与删除
+
+| v4 | v5 |
+| --- | --- |
+| `col.ExistsSub(sq)` / `col.NExistsSub(sq)` | `tsq.Exists(sq)` / `tsq.NotExists(sq)` |
+| `IsCommonTransactionRetryableError` | `IsRetryableTxError` |
+| `IsRetryableTransactionConflictError` | `IsTxConflictError` |
+| `Tracer func(next) func(ctx) error` | `Tracer func(ctx, tsq.TraceOp, next) error` |
+| `col.Length()` 返回 `Column[O, T]` | 返回 `Column[O, int64]` |
+| `col.Unique()` / `col.NUnique()` / `col.Concat()` / `col.Now()` | 删除，用 `Expr` / `Exprf` |
+
+`EXISTS` 从来不读它挂在哪一列上，所以它不该是方法；那三个列方法在 v4 里也只会返回构建错误，
+`Now()` 则把整个列表达式换成 `CURRENT_TIMESTAMP`（`User_Name.Now()` 和 `User_ID.Now()` 完全一样）。
+
+### v4 里标了 `Deprecated` 的，全部删除
+
+| v4 | v5 |
+| --- | --- |
+| `tsq.AsSubquery(q, col)` | `q.AsSubquery(col)` |
+| `tsq.NewPageResponse(req, total, data)` | `req.Response(total, data)` |
+| `WithTx1` / `WithTx2`（含包级形式） | `Runtime.WithTxResult`，多个值用一个小结果结构体 |
+| `QueryInt` / `QueryFloat` / `QueryString` | `query.Scalar(ctx, exec, col, args...)` |
+| `IndexInitMode`、`IndexInitSkip/Validate/Upsert` | `SchemaPolicy` 那组常量 |
+
+## 7. 顺带修掉的 bug（不需要你做什么）
+
+- 字符串字面量里含 ` FOR UPDATE ` / ` EXCEPT ` 之类的词，会让一条完全正常的查询被
+  `ErrUnsupportedCapability` 拒绝执行。
+- 声明 `*time.Time` 托管时间戳字段的表，**生成的代码编译不过**（模板发出了一个不存在的符号）。
+
+## 建议的迁移顺序
+
+1. `go get .../v5`，把 import 路径批量改掉，先让它编译失败。
+2. `tsq migrate ./...` 每个包跑一次，`tsq gen` 重新生成。
+3. 按编译错误逐个修——大部分是第 3、4、6 节的机械改名。
+4. **然后单独过一遍所有 `Delete` 调用**：这一条编译器帮不了你，它不会报错，只会改变行为。

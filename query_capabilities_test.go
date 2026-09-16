@@ -4,7 +4,7 @@ import (
 	"slices"
 	"testing"
 
-	tsqdialect "github.com/tmoeish/tsq/v4/dialect"
+	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 )
 
 // TestDetectSQLCapabilitiesIgnoresStringLiterals is the regression gate for a

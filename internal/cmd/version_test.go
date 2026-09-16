@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tmoeish/tsq/v4/internal/buildinfo"
+	"github.com/tmoeish/tsq/v5/internal/buildinfo"
 )
 
 // resetVersionFlags returns VersionCmd to its pre-parse state.

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/tmoeish/tsq/v4/internal/genmodel"
+	"github.com/tmoeish/tsq/v5/internal/genmodel"
 )
 
 // Test_parseNamedFields 测试解析具名字段

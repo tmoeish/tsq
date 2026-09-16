@@ -279,7 +279,7 @@
 
 ## 加了或改了 `-X` ldflags（`Makefile`、`.goreleaser.yaml`、`Dockerfile`）
 
-- 目标必须是 `github.com/tmoeish/tsq/v4/internal/buildinfo.<var>`，`<var>` 必须真的在
+- 目标必须是 `github.com/tmoeish/tsq/v5/internal/buildinfo.<var>`，`<var>` 必须真的在
   `internal/buildinfo/buildinfo.go` 里声明。链接器对找不到的符号**静默忽略**，二进制会
   把 build time / commit / branch 报成 `unknown` 而没有任何报错。
   `[门禁: release-check 核对三份配置里的每个 -X]`

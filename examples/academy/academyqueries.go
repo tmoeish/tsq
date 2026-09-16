@@ -1,7 +1,7 @@
 package academy
 
 import (
-	"github.com/tmoeish/tsq/v4"
+	"github.com/tmoeish/tsq/v5"
 )
 
 // 这个文件是初始化顺序的回归门，**文件名必须继续排在 `course.tsq.go` 之前**。

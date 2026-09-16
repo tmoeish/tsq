@@ -1,6 +1,6 @@
 package tsq
 
-import "github.com/tmoeish/tsq/v4/dialect"
+import "github.com/tmoeish/tsq/v5/dialect"
 
 // wrappedExecutor wraps a standard SQL executor with dialect information.
 type wrappedExecutor struct {

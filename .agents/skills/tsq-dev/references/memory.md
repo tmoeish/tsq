@@ -247,9 +247,7 @@ v4 攒下九个 `Deprecated` 符号，没有任何门禁会提醒它们该走—
   手写实现再长一个方法。同一波 `PrimaryKeys() []string` 收成 `PrimaryKey() string`，生成器从来
   只产出单主键。
 
-**这条路此前端到端零覆盖**：示例从没调用过 `SoftDelete` / `QueryActive*` / `Active()`。门是
-`runSoftDeleteDemo`（软删 → 查不到 → 仍在表里 → 清墓碑恢复 → `HardDelete` 真删）。和 `*time.Time`
-那个 bug 是同一个盲区。
+**这条路此前端到端零覆盖**（示例从没调用过 `SoftDelete` / `QueryActive*` / `Active()`），和 `*time.Time` 那个 bug 是同一个盲区。门是 `runSoftDeleteDemo`。
 
 ## 构建与代码生成
 
@@ -292,23 +290,14 @@ v4 攒下九个 `Deprecated` 符号，没有任何门禁会提醒它们该走—
 
 ### 又一次：只被自己的测试撑着的代码，在库里是不存在的 (2026-08-26，2026-09-09)
 
-一次审计同时抓到三处同一形状的东西：未导出的 `printSQL` context key 加三个 tracer（读路径
-八处 `ctx.Value` 在发布出去的库里**永远为假**）；`dialect_validation.go` 里
-`canonicalCapabilityName` 的逐行副本加一个零调用入口；以及 `export_compat_test.go` 自己在
-`_test.go` 里定义了 `AddTracer` / `Trace1` 和一个包级 `Runtime` 单例——`AGENTS.md` 明令禁止
-的东西，而守着它的 `api-check` 只看 `api-surface.txt`，`_test.go` 的导出符号不进快照。
-**规则的门在哪，绕过它的路就在哪。**
+一次审计同时抓到三处同一形状的东西：未导出的 `printSQL` key 加三个 tracer（读路径八处
+`ctx.Value` 在发布出去的库里**永远为假**）；`canonicalCapabilityName` 的逐行副本加一个零调用入口；
+以及 `_test.go` 里自己定义 `AGENTS.md` 明令禁止的包级 `Runtime` 单例——守着它的 `api-check` 只看
+快照，而 `_test.go` 的导出符号不进快照。**规则的门在哪，绕过它的路就在哪。**
 
-两条教训，都比"删掉了"值钱：
-
-1. **`unused` linter 看不见这类东西**：`_test.go` 里的引用算使用。它现在开着（顺手清了
-   九处真死代码），但它挡不住这一类。判据只能是**排除 `_test.go` 之后 grep 调用方**，
-   和 2026-08-26 那条 `LastInsertIdReturningSuffix` 用的是同一招。
-2. **一个只被自己的测试引用的符号，测试证明的是它自洽，不是它可达。** 绿色的测试在这里
-   是伪装，不是保障。
-
-`change-impact.md` 新增了"在执行路径上加了一个日志或诊断出口"和"新增了一个开关 + 若干
-消费点的特性"两条，各带一条可执行的 grep。
+两条教训比"删掉了"值钱：**`unused` linter 看不见这类东西**（`_test.go` 里的引用算使用，判据只能是
+排除 `_test.go` 之后 grep 调用方）；**一个只被自己的测试引用的符号，测试证明的是它自洽，不是它可达**
+——绿色的测试在这里是伪装。`change-impact.md` 为此加了两条带 grep 的触发器。
 
 **2026-09-09 又一次，这次在代码生成侧**：模板 helper 发出 `tsq.TimePtr(...)`，根包没有这个符号，
 声明 `*time.Time` 托管字段的使用者拿到的是**自己工程里**的编译错误，而 `skills/tsq` 一直把它列为
@@ -369,11 +358,16 @@ CI 调了一个不存在的 `make update-examples`，同一个幽灵在 README /
 **引申，对所有"必须穷尽"的 switch 都成立**：`default` 分支把"忘了写"和"决定不支持"变成
 同一件事，而这两件事需要不同的处理。要穷尽性就别给它兜底分支——用表加一个遍历表的测试。
 
-### `release-check` 只能查版本倒退，不能查"没前进" (2026-08-21)
+### `release-check` 两次装反：**先数清楚合法状态有几个** (2026-08-21，2026-09-16)
 
-第一版写的是"代码里的版本必须严格大于最新 tag"，把门装反了：合法状态有两个（发版之间 buildinfo
-等于最新 tag；`release.py` 跑 harness 时 buildinfo 领先于 tag），这条规则两个都拦。真正的错误
-状态只有一个：buildinfo **低于**最新 tag。
+**一道门要先问"合法状态有几个"，只有一个时才用等号。** 这里错了两次：
+
+- 版本号 vs 最新 tag：第一版要求"严格大于"，但合法状态有两个（发版之间 buildinfo 等于最新 tag；
+  `release.py` 跑 harness 时 buildinfo 领先于 tag），两个都被拦。真正的错误状态只有一个：
+  buildinfo **低于**最新 tag。
+- 版本号 vs 模块主版本：曾要求相等。跨主版本必须分两步（先一波正常变更把 `/vN` 和全部 import 改完，
+  再发首个 vN），两步之间模块路径已是 v5 而 buildinfo 还是 4.x——**严格相等把这个合法过渡态拦死，
+  于是迁移根本没法作为独立的一波合入**。现在只查 `module_major() < code.major`。
 
 ### 两份技能必须各住各的目录，别为了少一个符号链接把它们并在一起 (2026-08-21)
 
@@ -457,4 +451,4 @@ goreleaser v2.18.1 一发布就要求 Go >= 1.27.1，CI 用 `GOTOOLCHAIN=local` 
 
 ## 搁置项与决定不做的事
 
-已知未处理：**CLI 不拆子模块**——`x/tools` 和 `gofumpt` 只被 `internal/` 用却进了使用者的 `go.sum`。拆分要给子模块单独打 tag，发版随之变成两条版本线；先量一下模块图裁剪之后使用者到底会不会真的下载它们，再决定值不值。
+已知未处理：**CLI 不拆子模块**。2026-09-16 实测(一个只 import 根包的干净模块跑 `go mod tidy`)：`x/tools` 和 `nullbio` 在使用者的 `go.sum` 里是**完整条目**(源码会被下载)，`cobra` / `x/term` / `gofumpt` 则完全不出现——模块图裁剪挡住了后者，没挡住前者。所以拆分确实能去掉两个模块，但代价是给子模块单独打 tag、发版变成两条版本线，而 tag 不可撤销正是这个仓库最危险的地方。**不在 v5 这一波里同时承担这个风险。**

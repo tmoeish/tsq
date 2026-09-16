@@ -13,7 +13,7 @@ import (
 
 	"mvdan.cc/gofumpt/format"
 
-	"github.com/tmoeish/tsq/v4/internal/genmodel"
+	"github.com/tmoeish/tsq/v5/internal/genmodel"
 )
 
 type generationModel struct {

@@ -24,10 +24,10 @@ builds:
     # heading, the generated file headers) carries it.
     ldflags:
       - -s -w
-      - -X github.com/tmoeish/tsq/v4/internal/buildinfo.version={{ .Tag }}
-      - -X github.com/tmoeish/tsq/v4/internal/buildinfo.buildTime={{ .Date }}
-      - -X github.com/tmoeish/tsq/v4/internal/buildinfo.gitCommit={{ .Commit }}
-      - -X github.com/tmoeish/tsq/v4/internal/buildinfo.gitBranch={{ .Branch }}
+      - -X github.com/tmoeish/tsq/v5/internal/buildinfo.version={{ .Tag }}
+      - -X github.com/tmoeish/tsq/v5/internal/buildinfo.buildTime={{ .Date }}
+      - -X github.com/tmoeish/tsq/v5/internal/buildinfo.gitCommit={{ .Commit }}
+      - -X github.com/tmoeish/tsq/v5/internal/buildinfo.gitBranch={{ .Branch }}
     goos:
       - linux
       - windows

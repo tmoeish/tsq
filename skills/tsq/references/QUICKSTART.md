@@ -14,9 +14,9 @@ After this flow, the target project should have:
 ## 1. Add TSQ to the module
 
 ```bash
-go get github.com/tmoeish/tsq/v4@latest
+go get github.com/tmoeish/tsq/v5@latest
 go get modernc.org/sqlite@latest
-go install github.com/tmoeish/tsq/v4/cmd/tsq@latest
+go install github.com/tmoeish/tsq/v5/cmd/tsq@latest
 ```
 
 TSQ does not ship a database driver; the project only needs the driver it actually uses. This quickstart picks `modernc.org/sqlite` because it works without CGO.

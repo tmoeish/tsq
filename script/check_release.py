@@ -33,7 +33,7 @@ EXAMPLE_GENERATED: Final = "examples/academy/runtime.tsq.go"
 # 把 build time / commit / branch 全报成 "unknown"。这个错在 `.goreleaser.yaml` 和
 # `Dockerfile` 里各发生过一次（v4.4.3 修了前者，后者又活了三个月）。这里把三份构建配置里
 # 每一个 `-X pkg.var=` 都对着 `internal/buildinfo` 真实声明的变量核一遍。
-BUILDINFO_PACKAGE: Final = "github.com/tmoeish/tsq/v4/internal/buildinfo"
+BUILDINFO_PACKAGE: Final = "github.com/tmoeish/tsq/v5/internal/buildinfo"
 BUILDINFO_SOURCE: Final = "internal/buildinfo/buildinfo.go"
 LDFLAGS_FILES: Final = ("Makefile", ".goreleaser.yaml", "Dockerfile")
 # 包路径允许 Makefile 的 `$(MODULE)` 变量引用；`-X` 后面跟着 `something=` 的都算一个目标。
@@ -170,7 +170,15 @@ def main() -> int:
             f"{generated}。跑 `make examples` 让生成物带上新版本号。"
         )
 
-    if code.major != module_major():
+    # 只查"模块路径落后于版本号"，不查"超前"。跨主版本必须分两步走：先一波正常变更把
+    # `/vN` 写进模块路径并改完所有 import，再发第一个 vN 版本。那两步之间，模块路径已经
+    # 是 v5 而 buildinfo 还是 4.x，这是**合法的过渡态**，要求严格相等会把它拦死，于是这
+    # 次迁移根本没法作为独立的一波合入。和上面"只查倒退不查没前进"是同一个错误的两个面。
+    #
+    # 真正的错误状态只有一个：要发 v5 而模块路径还写着 /v4——那样打出去的 tag 会被 Go
+    # Proxy 判为非法版本，而 tag 不能删了重打。`release.py` 在打 tag 之前按严格相等再查
+    # 一次，那才是必须相等的时刻。
+    if module_major() < code.major:
         raise ReleaseError(
             f"版本号是 {code}，但 go.mod 的模块路径声明的是主版本 v{module_major()}。"
             "Go 的语义化导入版本要求 v2+ 把 `/vN` 写进模块路径，否则 Go Proxy 会判"
@@ -198,7 +206,8 @@ def main() -> int:
 
     print(
         f"版本一致性通过：{code}（CHANGELOG {date}，生成物 {generated}，"
-        f"模块主版本 v{module_major()}，已发布最新 {previous or '无'}，"
+        f"模块主版本 v{module_major()}{'（等待首个 v%d 版本）' % module_major() if module_major() > code.major else ''}，"
+        f"已发布最新 {previous or '无'}，"
         f"{ldflags} 个 -X 目标全部指向 {BUILDINFO_SOURCE}，"
         f"goreleaser 钉在 {goreleaser}）。"
     )

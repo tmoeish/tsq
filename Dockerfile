@@ -32,7 +32,7 @@ ARG GIT_BRANCH=unknown
 # `make release-check` verifies these paths.
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     -trimpath \
-    -ldflags="-w -s -X github.com/tmoeish/tsq/v4/internal/buildinfo.version=${VERSION} -X github.com/tmoeish/tsq/v4/internal/buildinfo.buildTime=${BUILD_TIME} -X github.com/tmoeish/tsq/v4/internal/buildinfo.gitCommit=${GIT_COMMIT} -X github.com/tmoeish/tsq/v4/internal/buildinfo.gitBranch=${GIT_BRANCH}" \
+    -ldflags="-w -s -X github.com/tmoeish/tsq/v5/internal/buildinfo.version=${VERSION} -X github.com/tmoeish/tsq/v5/internal/buildinfo.buildTime=${BUILD_TIME} -X github.com/tmoeish/tsq/v5/internal/buildinfo.gitCommit=${GIT_COMMIT} -X github.com/tmoeish/tsq/v5/internal/buildinfo.gitBranch=${GIT_BRANCH}" \
     -o tsq ./cmd/tsq
 
 # Final stage

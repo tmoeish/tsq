@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	tsqdialect "github.com/tmoeish/tsq/v4/dialect"
+	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 )
 
 // ChunkedOptions configures chunked update and delete helpers.

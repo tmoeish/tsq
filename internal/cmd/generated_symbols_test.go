@@ -13,8 +13,8 @@ import (
 // generatedPackageRefs maps the import alias that generated code uses to the
 // package the alias refers to.
 var generatedPackageRefs = map[string]string{
-	"tsq":        "github.com/tmoeish/tsq/v4",
-	"tsqdialect": "github.com/tmoeish/tsq/v4/dialect",
+	"tsq":        "github.com/tmoeish/tsq/v5",
+	"tsqdialect": "github.com/tmoeish/tsq/v5/dialect",
 }
 
 // TestGeneratedCodeReferencesOnlyRealSymbols checks every qualified symbol that

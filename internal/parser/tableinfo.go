@@ -11,7 +11,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/tmoeish/tsq/v4/internal/genmodel"
+	"github.com/tmoeish/tsq/v5/internal/genmodel"
 )
 
 // ParseTableInfo parses table metadata from a comment group.

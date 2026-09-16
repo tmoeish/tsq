@@ -10,8 +10,8 @@ import (
 	"sort"
 	"strings"
 
-	tsqdialect "github.com/tmoeish/tsq/v4/dialect"
-	"github.com/tmoeish/tsq/v4/internal/genmodel"
+	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
+	"github.com/tmoeish/tsq/v5/internal/genmodel"
 )
 
 const (

@@ -3,7 +3,7 @@ package cmd
 import (
 	"testing"
 
-	"github.com/tmoeish/tsq/v4/internal/genmodel"
+	"github.com/tmoeish/tsq/v5/internal/genmodel"
 )
 
 func TestFieldToColReturnsUnquotedIdentifier(t *testing.T) {

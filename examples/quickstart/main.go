@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/tmoeish/tsq/v4/examples/academy"
+	"github.com/tmoeish/tsq/v5/examples/academy"
 )
 
 // quickstart prints the three beginner Academy demos as JSON so the output can be

@@ -8,7 +8,7 @@ TSQ 是一个被 import 的库加一个 CLI 生成器，没有服务、没有进
 
 | 交付物 | 位置 | 使用者怎么拿到 |
 | --- | --- | --- |
-| 库 | 仓库根包 `tsq` | `go get github.com/tmoeish/tsq/v4` |
+| 库 | 仓库根包 `tsq` | `go get github.com/tmoeish/tsq/v5` |
 | 生成器 CLI | `./cmd/tsq`（实现在 `internal/cmd`） | `go install .../cmd/tsq@vX.Y.Z` 或 GoReleaser 的二进制 |
 | 示例 | `./examples` | 读源码、抄片段 |
 

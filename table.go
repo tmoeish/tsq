@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 
-	tsqdialect "github.com/tmoeish/tsq/v4/dialect"
+	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 )
 
 // RegistrationErrorType identifies a table-registration failure category.

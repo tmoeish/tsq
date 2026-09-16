@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/tmoeish/tsq/v4/examples/academy"
+	"github.com/tmoeish/tsq/v5/examples/academy"
 )
 
 func TestQuickstart(t *testing.T) {

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/tmoeish/tsq/v4"
+	"github.com/tmoeish/tsq/v5"
 )
 
 // LearningJourney is the end-to-end Result projection used in the full suite.

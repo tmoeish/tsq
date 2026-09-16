@@ -8,7 +8,7 @@ import (
 
 	"github.com/serenize/snaker"
 
-	"github.com/tmoeish/tsq/v4/internal/genmodel"
+	"github.com/tmoeish/tsq/v5/internal/genmodel"
 )
 
 const (

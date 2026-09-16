@@ -1,4 +1,4 @@
-module github.com/tmoeish/tsq/v4
+module github.com/tmoeish/tsq/v5
 
 go 1.27.0
 
