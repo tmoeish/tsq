@@ -50,6 +50,8 @@ func MigratePackage(packagePath string) ([]string, error) {
 
 // migrateSourceFile converts every legacy annotation in one file.
 func migrateSourceFile(filename string) (bool, error) {
+	// #nosec G304 -- filename comes from the Go package listing of the directory
+	// the user asked to migrate, not from external input.
 	src, err := os.ReadFile(filename)
 	if err != nil {
 		return false, err
