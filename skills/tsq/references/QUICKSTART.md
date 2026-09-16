@@ -86,13 +86,11 @@ The shortest SQLite example:
 
 ```go
 runtime, err := tsq.NewRuntime(
+	ctx,
 	"sqlite",
 	"file:app.db?cache=shared",
 	database.TSQTables(),
-	&tsq.RuntimeOptions{
-		TablePolicy: tsq.SchemaPolicyCreateMissing,
-		IndexPolicy: tsq.SchemaPolicyCreateMissing,
-	},
+	tsq.WithSchemaPolicy(tsq.SchemaPolicyCreateMissing),
 )
 if err != nil {
 	return err
@@ -100,7 +98,11 @@ if err != nil {
 defer runtime.Close()
 ```
 
-`NewRuntime` opens the DB itself and resolves the dialect from `driverName`. Use `tsq.NewRuntimeContext(ctx, ...)` when bootstrap (which may run DDL) must honor a deadline. If the target project already has a DB bootstrap path, integrate TSQ there instead of creating a second runtime path. If the project manages schema by migrations, omit the policies and keep the default manual mode.
+`NewRuntime` opens the pool itself and resolves the dialect from `driverName`; the context bounds the
+ping and any bootstrap DDL. When the project already opens its own pool, for instance to wrap it with
+instrumentation, use `tsq.NewRuntimeFromDB(ctx, db, dialect, tables, options...)` instead and keep
+that pool: TSQ will not close a pool it did not open. If the project manages schema by migrations,
+pass no policy and keep the default manual mode.
 
 ## 6. Run a first query
 

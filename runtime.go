@@ -6,7 +6,6 @@ import (
 	"database/sql/driver"
 	"errors"
 	"fmt"
-	"strings"
 	"sync"
 
 	tsqdialect "github.com/tmoeish/tsq/v4/dialect"
@@ -24,29 +23,20 @@ type Runtime struct {
 	logger      Logger
 	maxPageSize int
 	logSQL      bool
+	ownsDB      bool
 }
 
-// NewRuntime opens a database connection, resolves the SQL dialect from driverName,
-// and constructs an initialized runtime for the provided table metadata.
-// It is NewRuntimeContext with context.Background(); prefer NewRuntimeContext when
-// schema bootstrap must honor a deadline or cancellation.
+// NewRuntime opens a database connection, resolves the SQL dialect from
+// driverName, and constructs an initialized runtime for the provided tables.
+//
+// ctx bounds the connection ping and the schema policy application, which may
+// execute DDL. The runtime owns the pool it opened, so Close closes it.
 func NewRuntime(
-	driverName string,
-	dsn string,
-	tables []TableRegistration,
-	options ...*RuntimeOptions,
-) (*Runtime, error) {
-	return NewRuntimeContext(context.Background(), driverName, dsn, tables, options...)
-}
-
-// NewRuntimeContext is NewRuntime with a context that bounds the connection ping,
-// identifier validation, and schema policy application (which may execute DDL).
-func NewRuntimeContext(
 	ctx context.Context,
 	driverName string,
 	dsn string,
 	tables []TableRegistration,
-	options ...*RuntimeOptions,
+	options ...RuntimeOption,
 ) (*Runtime, error) {
 	if ctx == nil {
 		return nil, errors.New("context cannot be nil")
@@ -60,101 +50,109 @@ func NewRuntimeContext(
 		return nil, errors.New("dsn cannot be empty")
 	}
 
+	sqlDialect, err := resolveRuntimeDialect(driverName)
+	if err != nil {
+		return nil, err
+	}
+
+	db, err := sql.Open(driverName, dsn)
+	if err != nil {
+		return nil, err
+	}
+
+	runtime, err := newRuntime(ctx, db, sqlDialect, tables, true, options)
+	if err != nil {
+		_ = db.Close()
+
+		return nil, err
+	}
+
+	return runtime, nil
+}
+
+// NewRuntimeFromDB constructs a runtime over a pool the caller already owns,
+// which is the way to keep an instrumented or specially configured connection
+// while still getting SQL logging, tracers and the page-size cap.
+//
+// The pool is not closed by Close: whoever opened it decides when it goes away.
+func NewRuntimeFromDB(
+	ctx context.Context,
+	db *sql.DB,
+	sqlDialect tsqdialect.Dialect,
+	tables []TableRegistration,
+	options ...RuntimeOption,
+) (*Runtime, error) {
+	if ctx == nil {
+		return nil, errors.New("context cannot be nil")
+	}
+
+	if db == nil {
+		return nil, errors.New("db cannot be nil")
+	}
+
+	if sqlDialect == nil {
+		return nil, errors.New("dialect cannot be nil; pass one of the dialect package values")
+	}
+
+	return newRuntime(ctx, db, sqlDialect, tables, false, options)
+}
+
+func newRuntime(
+	ctx context.Context,
+	db *sql.DB,
+	sqlDialect tsqdialect.Dialect,
+	tables []TableRegistration,
+	ownsDB bool,
+	options []RuntimeOption,
+) (*Runtime, error) {
 	registeredTables, err := buildRegisteredTables(tables)
 	if err != nil {
 		return nil, err
 	}
 
-	var opts *RuntimeOptions
-	if len(options) > 0 {
-		opts = options[0]
-	}
-
-	if opts == nil {
-		opts = &RuntimeOptions{}
-	}
-
-	tablePolicy := resolveSchemaPolicy(opts.TablePolicy)
-	if err := validateSchemaPolicy(tablePolicy); err != nil {
-		return nil, err
-	}
-
-	indexPolicy := resolveSchemaPolicy(opts.IndexPolicy)
-
-	if err := validateSchemaPolicy(indexPolicy); err != nil {
-		return nil, err
-	}
-
-	identifierMode, err := resolveIdentifierValidationMode(opts.IdentifierValidationMode)
+	cfg, err := newRuntimeConfig(options)
 	if err != nil {
 		return nil, err
 	}
 
-	if opts.MaxPageSize < 0 {
-		return nil, fmt.Errorf("invalid max page size: %d", opts.MaxPageSize)
-	}
-
-	db, sqlDialect, err := openRuntimeDB(ctx, driverName, dsn)
-	if err != nil {
+	if err := db.PingContext(ctx); err != nil {
 		return nil, err
 	}
-
-	cleanup := true
-
-	defer func() {
-		if cleanup {
-			_ = db.Close()
-		}
-	}()
 
 	runtime := &Runtime{
 		tables:      registeredTables,
-		tracers:     appendTracers(nil, opts.Tracers...),
+		tracers:     cfg.tracers,
 		db:          db,
 		dialect:     sqlDialect,
-		tablePolicy: tablePolicy,
-		indexPolicy: indexPolicy,
-		logger:      resolveRuntimeLogger(opts),
-		maxPageSize: opts.MaxPageSize,
-		logSQL:      opts.LogSQL,
+		tablePolicy: cfg.tablePolicy,
+		indexPolicy: cfg.indexPolicy,
+		logger:      cfg.logger,
+		maxPageSize: cfg.maxPageSize,
+		logSQL:      cfg.logSQL,
+		ownsDB:      ownsDB,
 	}
 
-	if identifierMode != IdentifierValidationSkip {
-		if err := runtime.validateRegisteredTableIdentifiers(identifierMode); err != nil {
-			if identifierMode == IdentifierValidationStrict {
-				return nil, err
-			}
-
-			runtime.warn("identifier validation warning during runtime bootstrap", "error", err)
-		}
+	// Identifiers are checked before any DDL runs: a name the dialect will
+	// truncate produces objects that do not match what the queries reference.
+	if err := runtime.validateRegisteredTableIdentifiers(); err != nil {
+		return nil, err
 	}
 
 	if err := runtime.applySchemaPolicies(ctx); err != nil {
 		return nil, err
 	}
 
-	cleanup = false
-
 	return runtime, nil
 }
 
 var _ SQLExecutor = (*Runtime)(nil)
 
-func resolveIdentifierValidationMode(mode IdentifierValidationMode) (IdentifierValidationMode, error) {
-	switch mode {
-	case "":
-		return IdentifierValidationStrict, nil
-	case IdentifierValidationStrict, IdentifierValidationWarn, IdentifierValidationSkip:
-		return mode, nil
-	default:
-		return "", fmt.Errorf("invalid identifier validation mode %q", mode)
-	}
-}
-
 // Close releases the underlying database connection pool. It is safe to call on a
 // nil runtime.
+// Close releases the connection pool, but only the one this runtime opened.
+// A pool handed to NewRuntimeFromDB belongs to its caller.
 func (r *Runtime) Close() error {
-	if r == nil || r.db == nil {
+	if r == nil || r.db == nil || !r.ownsDB {
 		return nil
 	}
 
@@ -299,24 +297,7 @@ func (runtimeErrorDriver) Open(string) (driver.Conn, error) {
 	return nil, errRuntimeUnusable
 }
 
-// ValidateIdentifiersForDialect validates all configured table and column identifiers against the current database dialect.
-func (r *Runtime) ValidateIdentifiersForDialect() error {
-	if r == nil {
-		return errors.New("runtime cannot be nil")
-	}
-
-	if r.db == nil || r.dialect == nil {
-		return errors.New("runtime is not initialized; construct it with NewRuntime")
-	}
-
-	if r.SQLDialect() == nil {
-		return errors.New("unable to determine current database dialect")
-	}
-
-	return r.validateRegisteredTableIdentifiers(IdentifierValidationStrict)
-}
-
-func (r *Runtime) validateRegisteredTableIdentifiers(mode IdentifierValidationMode) error {
+func (r *Runtime) validateRegisteredTableIdentifiers() error {
 	if r == nil {
 		return errors.New("runtime cannot be nil")
 	}
@@ -326,8 +307,6 @@ func (r *Runtime) validateRegisteredTableIdentifiers(mode IdentifierValidationMo
 		return nil
 	}
 
-	var validationErrors []string
-
 	for _, table := range r.tables {
 		if table.Table == nil {
 			continue
@@ -335,28 +314,20 @@ func (r *Runtime) validateRegisteredTableIdentifiers(mode IdentifierValidationMo
 
 		tableName := physicalTableName(table.Table)
 		if err := validateIdentifierLength(tableName, r.dialect); err != nil {
-			if mode == IdentifierValidationStrict {
-				return fmt.Errorf("table %s identifier validation failed: %w", tableName, err)
-			}
-
-			validationErrors = append(validationErrors, err.Error())
+			return fmt.Errorf("table %s identifier validation failed: %w", tableName, err)
 		}
 
-		if err := validateColumnIdentifiersForDialect(tableName, table.Cols(), r.dialect, mode, &validationErrors); err != nil {
+		if err := validateColumnIdentifiersForDialect(tableName, table.Cols(), r.dialect); err != nil {
 			return err
 		}
 
-		if err := validateColumnIdentifiersForDialect(tableName, searchColumnsAsSQLColumns(table.SearchColumns()), r.dialect, mode, &validationErrors); err != nil {
+		if err := validateColumnIdentifiersForDialect(tableName, searchColumnsAsSQLColumns(table.SearchColumns()), r.dialect); err != nil {
 			return err
 		}
 
-		if err := validateIndexIdentifiersForDialect(tableName, table.Indexes, r.dialect, mode, &validationErrors); err != nil {
+		if err := validateIndexIdentifiersForDialect(tableName, table.Indexes, r.dialect); err != nil {
 			return err
 		}
-	}
-
-	if len(validationErrors) > 0 {
-		return errors.New("identifier validation warnings: " + strings.Join(validationErrors, "; "))
 	}
 
 	return nil
@@ -366,16 +337,10 @@ func validateIndexIdentifiersForDialect(
 	tableName string,
 	indexes []TableIndex,
 	dialect tsqdialect.Dialect,
-	mode IdentifierValidationMode,
-	validationErrors *[]string,
 ) error {
 	for _, index := range indexes {
 		if err := validateIdentifierLength(index.Name, dialect); err != nil {
-			if mode == IdentifierValidationStrict {
-				return fmt.Errorf("index %s on table %s identifier validation failed: %w", index.Name, tableName, err)
-			}
-
-			*validationErrors = append(*validationErrors, err.Error())
+			return fmt.Errorf("index %s on table %s identifier validation failed: %w", index.Name, tableName, err)
 		}
 	}
 
@@ -386,8 +351,6 @@ func validateColumnIdentifiersForDialect(
 	tableName string,
 	cols []SQLColumn,
 	dialect tsqdialect.Dialect,
-	mode IdentifierValidationMode,
-	validationErrors *[]string,
 ) error {
 	seen := make(map[string]struct{}, len(cols))
 	for _, col := range cols {
@@ -402,11 +365,7 @@ func validateColumnIdentifiersForDialect(
 		seen[colName] = struct{}{}
 
 		if err := validateIdentifierLength(colName, dialect); err != nil {
-			if mode == IdentifierValidationStrict {
-				return fmt.Errorf("column %s.%s identifier validation failed: %w", tableName, colName, err)
-			}
-
-			*validationErrors = append(*validationErrors, err.Error())
+			return fmt.Errorf("column %s.%s identifier validation failed: %w", tableName, colName, err)
 		}
 	}
 

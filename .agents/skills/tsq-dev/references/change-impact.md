@@ -163,6 +163,15 @@
 - `query_chunked_widetable_test.go` 是那道门——它真的插一张 40 列的表，纯粹比对算出来的
   chunk size 证明不了语句能被数据库接受。
 
+## 加了 Runtime 的构造器或选项
+
+- **先决定连接池的所有权**：`Runtime.ownsDB` 决定 `Close()` 关不关它。新构造器如果接管调用方的池，
+  `ownsDB` 必须是 false，否则 `Close()` 会打断调用方在 TSQ 之外的用途。正反两侧都要测。
+  `[门禁: runtime_test.go 的 NewRuntimeFromDB/NewRuntimeCloses 两组]`
+- **新选项写成 `With*` 函数**，值只存进 `runtimeConfig`，校验统一放在 `newRuntimeConfig` 末尾——
+  非法值只从构造器报一次。
+- 选项加进 `skills/tsq` 的 Runtime 小节；它是使用者唯一能看到这份清单的地方。
+
 ## 改了 schema 托管（`runtime_schema.go`）
 
 - **不要重新引入任何"删掉不再声明的对象"的策略。** v4 的 `SchemaPolicyManaged` 靠一张全库共享

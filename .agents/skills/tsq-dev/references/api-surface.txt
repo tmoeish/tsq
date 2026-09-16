@@ -66,17 +66,18 @@ func IsOptimisticLockError(err error) bool
 func IsRetryableNetworkError(err error) bool
 func IsRetryableTransactionConflictError(err error) bool
 func NewRuntime(
-	driverName string,
-	dsn string,
-	tables []TableRegistration,
-	options ...*RuntimeOptions,
-) (*Runtime, error)
-func NewRuntimeContext(
 	ctx context.Context,
 	driverName string,
 	dsn string,
 	tables []TableRegistration,
-	options ...*RuntimeOptions,
+	options ...RuntimeOption,
+) (*Runtime, error)
+func NewRuntimeFromDB(
+	ctx context.Context,
+	db *sql.DB,
+	sqlDialect tsqdialect.Dialect,
+	tables []TableRegistration,
+	options ...RuntimeOption,
 ) (*Runtime, error)
 func Update[T Table](
 	ctx context.Context,
@@ -295,12 +296,6 @@ type HavingStage[O Owner] interface {
 	Except(other QueryStage[O]) CompoundStage[O]
 	ExceptAll(other QueryStage[O]) CompoundStage[O]
 }
-type IdentifierValidationMode string
-const (
-	IdentifierValidationStrict IdentifierValidationMode = "strict"
-	IdentifierValidationWarn IdentifierValidationMode = "warn"
-	IdentifierValidationSkip IdentifierValidationMode = "skip"
-)
 type LockedStage[O Owner] interface {
 	QueryStage[O]
 	NoWait() LockedStage[O]
@@ -460,7 +455,6 @@ func (r *Runtime) MaxPageSize() int
 func (r *Runtime) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
 func (r *Runtime) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 func (r *Runtime) SQLDialect() tsqdialect.Dialect
-func (r *Runtime) ValidateIdentifiersForDialect() error
 func (r *Runtime) WithTx(
 	ctx context.Context,
 	options *TxOptions,
@@ -471,15 +465,14 @@ func (r *Runtime) WithTxResult[T any](
 	options *TxOptions,
 	fn func(context.Context, SQLExecutor) (T, error),
 ) (T, error)
-type RuntimeOptions struct {
-	TablePolicy SchemaPolicy // TablePolicy chooses how TSQ manages declared tables and columns during NewRuntime.
-	IndexPolicy SchemaPolicy // IndexPolicy chooses how TSQ manages declared indexes during NewRuntime.
-	Tracers     []Tracer     // Tracers configures the runtime's tracer chain during NewRuntime.
-	Logger      Logger       // Logger receives schema bootstrap decisions, executed DDL, and execution-time warnings.
-	LogSQL bool
-	IdentifierValidationMode IdentifierValidationMode
-	MaxPageSize int
-}
+type RuntimeOption func(*runtimeConfig)
+func WithIndexPolicy(policy SchemaPolicy) RuntimeOption
+func WithLogger(logger Logger) RuntimeOption
+func WithMaxPageSize(size int) RuntimeOption
+func WithSQLLogging() RuntimeOption
+func WithSchemaPolicy(policy SchemaPolicy) RuntimeOption
+func WithTablePolicy(policy SchemaPolicy) RuntimeOption
+func WithTracers(tracers ...Tracer) RuntimeOption
 type SQLColumn interface {
 	SQLExpr() string       // SQLExpr returns the rendered expression, such as "users.name".
 	OutputName() string    // OutputName returns the default scan alias for the expression.
@@ -491,11 +484,7 @@ type SQLColumn interface {
 func AliasColumns(cols []SQLColumn, table Table) []SQLColumn
 func RebindColumn(col SQLColumn, table Table) SQLColumn
 func SQLColumns[O Owner](cols ...BoundColumn[O]) []SQLColumn
-type SQLExecutor interface {
-	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
-	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
-	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
-}
+type SQLExecutor = tsqdialect.Executor
 func WrapExecutor(exec SQLExecutor, sqlDialect dialect.Dialect) SQLExecutor
 type SchemaPolicy string
 const (

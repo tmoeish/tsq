@@ -35,20 +35,6 @@ const (
 	// SchemaPolicyManaged reconciles declared objects and removes TSQ-managed extras.
 )
 
-// IdentifierValidationMode controls how NewRuntime treats identifiers that exceed
-// the dialect's length limits.
-type IdentifierValidationMode string
-
-const (
-	// IdentifierValidationStrict fails runtime bootstrap on any oversized identifier.
-	// It is the default when RuntimeOptions.IdentifierValidationMode is empty.
-	IdentifierValidationStrict IdentifierValidationMode = "strict"
-	// IdentifierValidationWarn logs oversized identifiers and continues.
-	IdentifierValidationWarn IdentifierValidationMode = "warn"
-	// IdentifierValidationSkip performs no identifier length validation.
-	IdentifierValidationSkip IdentifierValidationMode = "skip"
-)
-
 // DefaultMaxPageSize caps PageRequest.Size when RuntimeOptions.MaxPageSize is zero.
 const DefaultMaxPageSize = 1000
 
@@ -115,34 +101,6 @@ type RegistrationError struct {
 // Error implements error.
 func (e *RegistrationError) Error() string {
 	return e.Message
-}
-
-// RuntimeOptions controls runtime initialization behavior.
-type RuntimeOptions struct {
-	TablePolicy SchemaPolicy // TablePolicy chooses how TSQ manages declared tables and columns during NewRuntime.
-	IndexPolicy SchemaPolicy // IndexPolicy chooses how TSQ manages declared indexes during NewRuntime.
-	Tracers     []Tracer     // Tracers configures the runtime's tracer chain during NewRuntime.
-	Logger      Logger       // Logger receives schema bootstrap decisions, executed DDL, and execution-time warnings.
-	// LogSQL logs every rendered statement and its bound arguments through Logger at
-	// debug level. Arguments are logged verbatim, so leave it off where query
-	// parameters carry secrets or personal data.
-	LogSQL bool
-	// IdentifierValidationMode controls how identifier length violations are handled.
-	// Empty means IdentifierValidationStrict; any other unknown value is rejected by NewRuntime.
-	IdentifierValidationMode IdentifierValidationMode
-	// MaxPageSize caps PageRequest.Size for paged queries executed through this runtime.
-	// Zero means DefaultMaxPageSize.
-	MaxPageSize int
-	// SchemaOwner scopes the bookkeeping SchemaPolicyManaged uses to decide which
-	// tables it may drop. Empty means "default".
-	//
-	// Set it whenever more than one runtime manages tables in the same database.
-	// TSQ records the tables it manages in _tsq_managed_tables and, under
-	// SchemaPolicyManaged, drops the recorded tables it no longer declares. Two
-	// runtimes sharing one owner each see the other's tables as "recorded but no
-	// longer declared" and drop them, taking the data with them.
-	//
-	// Must be a plain identifier ([A-Za-z_][A-Za-z0-9_]*).
 }
 
 // Logger is the subset of slog.Logger used by runtime bootstrap.

@@ -43,7 +43,7 @@ func TestNewRuntimeTablePolicyCreateMissingCreatesTable(t *testing.T) {
 	db, dsn := newSQLiteIndexTestEngine(t)
 	table, _ := newStrictMockTable("users", "id", "name")
 
-	runtime, err := NewRuntime(
+	runtime, err := NewRuntime(context.Background(),
 		"sqlite",
 		dsn,
 		[]TableRegistration{{
@@ -61,8 +61,7 @@ func TestNewRuntimeTablePolicyCreateMissingCreatesTable(t *testing.T) {
 				},
 			},
 		}},
-		&RuntimeOptions{TablePolicy: SchemaPolicyCreateMissing},
-	)
+		WithTablePolicy(SchemaPolicyCreateMissing))
 	if err != nil {
 		t.Fatalf("NewRuntime() error = %v", err)
 	}
@@ -86,7 +85,7 @@ func TestNewRuntimeTablePolicyReconcileAddsMissingColumn(t *testing.T) {
 	}
 
 	table, _ := newStrictMockTable("users", "id", "name")
-	runtime, err := NewRuntime(
+	runtime, err := NewRuntime(context.Background(),
 		"sqlite",
 		dsn,
 		[]TableRegistration{{
@@ -104,8 +103,7 @@ func TestNewRuntimeTablePolicyReconcileAddsMissingColumn(t *testing.T) {
 				},
 			},
 		}},
-		&RuntimeOptions{TablePolicy: SchemaPolicyReconcile},
-	)
+		WithTablePolicy(SchemaPolicyReconcile))
 	if err != nil {
 		t.Fatalf("NewRuntime() error = %v", err)
 	}
@@ -170,12 +168,11 @@ func TestNewRuntimeReconcileRawTypeTextProducesNoDDL(t *testing.T) {
 	}
 
 	for restart := range 2 {
-		_, err := NewRuntime(
+		_, err := NewRuntime(context.Background(),
 			"sqlite",
 			dsn,
 			[]TableRegistration{registration},
-			&RuntimeOptions{TablePolicy: SchemaPolicyReconcile, Logger: logger},
-		)
+			WithTablePolicy(SchemaPolicyReconcile), WithLogger(logger))
 		if err != nil {
 			t.Fatalf("NewRuntime() restart %d error = %v", restart, err)
 		}
@@ -221,12 +218,11 @@ func TestNewRuntimeReconcileRebuildPreservesDataAndIndexes(t *testing.T) {
 		},
 	}
 
-	runtime, err := NewRuntime(
+	runtime, err := NewRuntime(context.Background(),
 		"sqlite",
 		dsn,
 		[]TableRegistration{registration},
-		&RuntimeOptions{TablePolicy: SchemaPolicyReconcile, IndexPolicy: SchemaPolicyManual},
-	)
+		WithTablePolicy(SchemaPolicyReconcile), WithIndexPolicy(SchemaPolicyManual))
 	if err != nil {
 		t.Fatalf("NewRuntime() error = %v", err)
 	}
@@ -260,12 +256,11 @@ func TestNewRuntimeReconcileRebuildPreservesDataAndIndexes(t *testing.T) {
 
 	// A second bootstrap must be a no-op: the rebuilt schema now matches.
 	logger := &recordingLogger{}
-	if _, err := NewRuntime(
+	if _, err := NewRuntime(context.Background(),
 		"sqlite",
 		dsn,
 		[]TableRegistration{registration},
-		&RuntimeOptions{TablePolicy: SchemaPolicyReconcile, IndexPolicy: SchemaPolicyManual, Logger: logger},
-	); err != nil {
+		WithTablePolicy(SchemaPolicyReconcile), WithIndexPolicy(SchemaPolicyManual), WithLogger(logger)); err != nil {
 		t.Fatalf("second NewRuntime() error = %v", err)
 	}
 	if ddl := logger.count("applied ddl"); ddl != 0 {

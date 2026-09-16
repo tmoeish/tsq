@@ -140,18 +140,15 @@ func main() {
 	ctx := context.Background()
 
 	runtime, err := tsq.NewRuntime(
+		ctx,
 		"sqlite",
 		"file:app.db?cache=shared",
 		database.TSQTables(),
-		&tsq.RuntimeOptions{
-			TablePolicy: tsq.SchemaPolicyCreateMissing,
-			IndexPolicy: tsq.SchemaPolicyCreateMissing,
-			// Logger 收 bootstrap DDL 和执行期告警；LogSQL 再打开的话，
-			// 每条渲染出来的 SQL 和它绑定的参数也会以 debug 级进同一个 Logger。
-			// 参数是原样打的，敏感数据别开。
-			Logger: slog.Default(),
-			LogSQL: false,
-		},
+		tsq.WithSchemaPolicy(tsq.SchemaPolicyCreateMissing),
+		// Logger 收 bootstrap DDL 和执行期告警。再加 tsq.WithSQLLogging()，
+		// 每条渲染出来的 SQL 和它绑定的参数也会以 debug 级进同一个 Logger；
+		// 参数是原样打的，敏感数据别开。
+		tsq.WithLogger(slog.Default()),
 	)
 	if err != nil {
 		log.Fatal(err)
@@ -413,7 +410,7 @@ pageReq := &tsq.PageRequest{
 }
 ```
 
-`Size` 会被夹到 `RuntimeOptions.MaxPageSize`（默认 `tsq.DefaultMaxPageSize` = 1000）以内。
+`Size` 会被夹到 `tsq.WithMaxPageSize(...)` 设的上限（默认 `tsq.DefaultMaxPageSize` = 1000）以内。
 
 `Validate()` 和 `Normalize()` 量的是**绝对上限** `tsq.DefaultMaxPageSize`，不是某个
 runtime 配的那个。想让 HTTP handler 和 runtime 量同一把尺子，用

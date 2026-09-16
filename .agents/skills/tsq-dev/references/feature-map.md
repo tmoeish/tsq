@@ -55,7 +55,7 @@
 
 | 关注点 | 文件 |
 | --- | --- |
-| `NewRuntime`、`Options`、`SQLExecutor` 实现 | `runtime.go` |
+| `NewRuntime` / `NewRuntimeFromDB`、连接池所有权、`SQLExecutor` 实现 | `runtime.go`（选项在 `runtime_options.go`） |
 | schema 对账（`TablePolicy` / `IndexPolicy`） | `runtime_schema.go` |
 | 执行期日志与 SQL 日志 | `runtime_schema.go` 的 `logForExecutor` / `logSQLForExecutor` / `compactJSON` |
 | 事务与重试（`WithTx`、`WithTxResult`、`TxOptions`、`TxRetryConfig`） | `tx.go` |
