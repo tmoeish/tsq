@@ -17,7 +17,7 @@
 | 包级类型约束函数（`Text` / `Number`、聚合、字符串、数值、日期、`Coalesce` / `NullIf`、`StartsWith` 等模式函数、`Searchable`） | `functions.go`（`compilefail_test.go` 守约束；`internal/integration` 的 `TestIntegrationColumnFunctionsArePortable` 三方言真跑） |
 | `Condition`、`And` / `Or` / `Not`、`Exists` / `NotExists`、`exprInfo` | `expr.go` |
 | `CASE` | `case.go` |
-| `ORDER BY` 方向解析 | `order.go` |
+| `ORDER BY` 方向解析、NULL 排序位置（`NullsFirst` / `NullsLast`、`orderTerm.render`） | `order.go`、`query_render.go`（`order_test.go`；三方言真跑在 `TestIntegrationNullOrderingAgrees`） |
 | 游标分页 `Keyset` / `KeysetPage` / `PageKeyset`、游标编解码与指纹、seek 条件 | `keyset.go`（`keyset_test.go`；时间值游标三方言真跑在 `TestIntegrationPageKeysetOverTimestamps`） |
 | 分页 `Paging` / `PageResponse`、HTTP 形态 `PageRequest`（`Validate` / `Normalize` / `Paging(sortable...)`）、排序字段错误类型 | `paging.go`（`exec_test.go` 的 `TestPageSearchesSortsAndCounts`） |
 | 软删除作用域（`WithDeleted`、`liveRows` / `liveSource`、JOIN 位置规则） | `table.go` + `query_render.go` 的 `writeFromWhere`（`exec_test.go` 的 `TestSoftDeleteScope`；`internal/integration` 的 `TestIntegrationSoftDeleteScopeJoins`） |

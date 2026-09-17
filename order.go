@@ -20,9 +20,46 @@ const (
 )
 
 // OrderBy is one ORDER BY term, made by Column.Asc and Column.Desc.
+//
+// Where the value can be NULL, NULLs sort as the smallest value on every dialect:
+// first when ascending, last when descending. That is what MySQL and SQLite do;
+// PostgreSQL is told so. NullsFirst and NullsLast choose otherwise.
 type OrderBy struct {
 	column    SQLColumn
 	direction Order
+	nulls     nullsOrder
+}
+
+type nullsOrder uint8
+
+const (
+	nullsSmallest nullsOrder = iota
+	nullsFirst
+	nullsLast
+)
+
+// NullsFirst sorts NULLs before every value, whatever the direction.
+func (ob OrderBy) NullsFirst() OrderBy {
+	ob.nulls = nullsFirst
+	return ob
+}
+
+// NullsLast sorts NULLs after every value, whatever the direction.
+func (ob OrderBy) NullsLast() OrderBy {
+	ob.nulls = nullsLast
+	return ob
+}
+
+// first reports whether NULLs go first for direction.
+func (n nullsOrder) first(direction Order) bool {
+	switch n {
+	case nullsFirst:
+		return true
+	case nullsLast:
+		return false
+	default:
+		return direction != DESC
+	}
 }
 
 // Column returns the ordered column.

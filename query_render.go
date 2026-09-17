@@ -125,6 +125,49 @@ type renderMode struct {
 type orderTerm struct {
 	expr      sqlExpr
 	direction Order
+	// nullable terms place NULLs explicitly; nullsFirst says where.
+	nullable   bool
+	nullsFirst bool
+	// compound terms order a set operation by output name.
+	compound bool
+}
+
+// render writes the term, placing NULLs where nullsFirst says. PostgreSQL and
+// SQLite spell it NULLS FIRST / LAST. MySQL has no such clause, but its own
+// placement (NULL is the smallest value) is right unless asked otherwise; then an
+// "expr IS NULL" key sorts first.
+func (t orderTerm) render() sqlExpr {
+	plain := sqlJoin(t.expr, sqlText(" "+string(t.direction)))
+	if !t.nullable {
+		return plain
+	}
+
+	clause := " NULLS LAST"
+	if t.nullsFirst {
+		clause = " NULLS FIRST"
+	}
+
+	spelled := map[tsqdialect.Name]sqlExpr{
+		tsqdialect.MySQL:    plain,
+		tsqdialect.Postgres: sqlJoin(plain, sqlText(clause)),
+		tsqdialect.SQLite:   sqlJoin(plain, sqlText(clause)),
+	}
+
+	if t.nullsFirst != (t.direction != DESC) {
+		key := " IS NULL ASC, "
+		if t.nullsFirst {
+			key = " IS NULL DESC, "
+		}
+
+		spelled[tsqdialect.MySQL] = sqlJoin(t.expr, sqlText(key), plain)
+
+		// MySQL orders a UNION by output columns only, not by expressions on them.
+		if t.compound {
+			delete(spelled, tsqdialect.MySQL)
+		}
+	}
+
+	return sqlByDialect("NULLS FIRST/LAST on a set operation", spelled)
 }
 
 // optionalTables returns the tables an outer join can fill with NULLs: the joined
@@ -391,11 +434,41 @@ func (s *querySpec[O]) writeFromWhere(r *renderer, m renderMode) {
 // orderTerm renders an ORDER BY term. A compound query can only be ordered by its
 // output column names, so the term drops its table there.
 func (s *querySpec[O]) orderTerm(ob OrderBy) orderTerm {
+	term := orderTerm{expr: columnInfo(ob.column).sql, direction: ob.direction, nullsFirst: ob.nulls.first(ob.direction)}
+	term.nullable, _ = s.canBeNull(columnInfo(ob.column).null)
+
 	if len(s.SetOps) > 0 && !isNilValue(ob.column) {
-		return orderTerm{expr: sqlIdent(ob.column.Name()), direction: ob.direction}
+		term.expr = sqlIdent(ob.column.Name())
+		term.nullable = s.outputCanBeNull(ob.column.Name())
+		term.compound = true
 	}
 
-	return orderTerm{expr: columnInfo(ob.column).sql, direction: ob.direction}
+	return term
+}
+
+// outputCanBeNull reports whether the named output column of a set operation can
+// be NULL in any of its operands.
+func (s *querySpec[O]) outputCanBeNull(name string) bool {
+	specs := []*querySpec[O]{s}
+	for i := range s.SetOps {
+		specs = append(specs, &s.SetOps[i].spec)
+	}
+
+	for i, col := range s.Selects {
+		if col.Name() != name {
+			continue
+		}
+
+		for _, spec := range specs {
+			if i < len(spec.Selects) {
+				if null, _ := spec.canBeNull(columnInfo(spec.Selects[i]).null); null {
+					return true
+				}
+			}
+		}
+	}
+
+	return false
 }
 
 func (s *querySpec[O]) writeTail(r *renderer, m renderMode) {
@@ -411,7 +484,7 @@ func (s *querySpec[O]) writeTail(r *renderer, m renderMode) {
 	if len(order) > 0 {
 		terms := make([]sqlExpr, 0, len(order))
 		for _, term := range order {
-			terms = append(terms, sqlJoin(term.expr, sqlText(" "+string(term.direction))))
+			terms = append(terms, term.render())
 		}
 
 		r.writeText(" ORDER BY ")

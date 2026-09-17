@@ -483,6 +483,11 @@ Rules:
 - the count query ignores `ORDER BY` / `LIMIT` / `OFFSET`: `Count()` reports how many rows match, which a limit does not change
 - **do not combine builder-level paging with `query.Page(...)`**. `Page` appends its own `LIMIT`/`OFFSET`, and its own `ORDER BY` when `Paging.OrderBy` is set, so a builder-level clause would be emitted a second time rather than replaced. `Page` returns an error instead of guessing. A builder `OrderBy` combined with an empty `Paging.OrderBy` is fine: the builder's ordering stands and `Page` only adds the window
 - on a set operation (`Union`, ...) an `OrderBy` term refers to the output column by name, which is the only form every dialect accepts there
+- where the ordered value can be NULL (a `NullColumn`, an outer-joined column, ...), NULLs sort as
+  the **smallest value on every dialect**: first when ascending, last when descending. MySQL and
+  SQLite do that already; PostgreSQL is told with `NULLS FIRST` / `NULLS LAST`. `col.Asc().NullsLast()`
+  and `col.Desc().NullsFirst()` choose otherwise (MySQL gets an `col IS NULL` key; on a MySQL set
+  operation that is refused). A value that is never NULL is ordered as written, so indexes stay usable
 
 ## 6. Common condition and expression patterns
 

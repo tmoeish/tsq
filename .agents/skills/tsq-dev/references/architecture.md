@@ -165,6 +165,9 @@ JoinStage ─Search► SearchStage ─Where─► FilteredStage
   判断有没有下一页。`writeBody` / `writeSimple` / `writeFromWhere` 因此接收 `renderMode`（集合操作数和 CTE
   传零值）。
 - `Iter` 和 `List` 共用 `each`（逐行扫描、回调返回 false 即停），`Iter` 的追踪区间覆盖整个循环。
+- 排序项由 `querySpec.orderTerm` 生成，`orderTerm.render` 按可空性决定 NULL 的位置：默认"NULL 最小"，
+  PG/SQLite 写 `NULLS FIRST/LAST`，MySQL 只在需要改变默认时加 `x IS NULL` 键（集合操作上不支持）。
+  不可空的值不加任何东西。
 - `SelectDistinct` 是 `querySpec.Distinct`，算作分组查询：`Count` 包一层子查询数去重后的行。
 
 ### 可空性（`expr.go` 的 `nullness`、`query_render.go` 的 `canBeNull` / `checkScanTargets`）

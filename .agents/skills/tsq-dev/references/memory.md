@@ -58,11 +58,8 @@ MySQL / PostgreSQL 默认转义字符恰好是反斜杠才侥幸正确——而�
 
 ### 同一个 SQLSTATE 在三个驱动里是三个 Go 类型 (2026-08-26)
 
-曾 `errors.AsType[*pgconn.PgError]` 匹配 pgx **v4** 的包。pgx v5 的 `PgError` 是另一个包里的
-另一个类型，匹配静默失败，于是 driver 为 `"pgx"` 的运行时上重试和 `WithSkipDuplicates` 全都不生效
-且无任何报错——单元测试的 fixture 恰好也是 v4，所以一直绿。
-
-修法是匹配接口 `interface{ SQLState() string }`（pq / pgx v4 / pgx v5 都实现）。
+曾匹配 pgx **v4** 的 `*pgconn.PgError`；v5 的是另一个类型，重试和 `WithSkipDuplicates` 静默失效，而
+单测 fixture 恰好也是 v4。修法是匹配接口 `interface{ SQLState() string }`（pq / pgx v4 / pgx v5 都实现）。
 **驱动错误分类永远按接口，不按具体类型**（MySQL 例外见 `change-impact.md`）；集成测试用真实 pgx v5 守着。
 
 ### 决定：方言能力位按版本基线表态，否决"版本可配置" (2026-08-26)
@@ -184,6 +181,8 @@ MySQL 的 `LENGTH` 数字节；PostgreSQL 没有 `round(double, int)`；modernc 
   不同类型，所以函数统一收 `Column`，结果的可空性记在 `exprInfo.null`；外连接、无 GROUP BY 的聚合本来就
   只在查询上下文里可知。检查在读行前而不在 `Build`（会拒掉合法的子查询和 CTE）。
   否决值类型包成 `Null[T]`：`RHS` 靠同名标记方法区分类型，一个值不能同时是两种 `RHS`。
+- **NULL 排序默认"最小值"**：MySQL 和 SQLite 本来如此，只需改 PostgreSQL，而且 MySQL 没有 `NULLS`
+  子句，选另一种默认就得给 MySQL 的每个可空排序加 `IS NULL` 键。
 - **时间在绑定出口统一转 UTC，而不是只让托管时间戳用 UTC**：SQLite 按文本存时间，调用方拿本地时间
   去比较 UTC 存的行，文本比较照样错（`TestIntegrationNullableColumns` 在只改托管时间戳时就这样挂了）。
 - **超长列表参数用显式的 `ListIn`，否决自动分块**：`a IN (list) OR b = 1` 分块会重复返回，`NOT IN`
