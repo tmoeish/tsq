@@ -114,22 +114,16 @@ type CompoundStage[O any] interface {
 type Condition interface {
 }
 func And(conds ...Condition) Condition
-func Contains[O any, S ~string](col Column[O, S], part S) Condition
-func ContainsParam[O any, S ~string](col Column[O, S], part Param[S]) Condition
-func EndsWith[O any, S ~string](col Column[O, S], suffix S) Condition
-func EndsWithParam[O any, S ~string](col Column[O, S], suffix Param[S]) Condition
+func Contains[O any, S ~string](col Column[O, S], part Pattern[S]) Condition
+func EndsWith[O any, S ~string](col Column[O, S], suffix Pattern[S]) Condition
 func Exists(sq AnySubquery) Condition
 func Not(cond Condition) Condition
-func NotContains[O any, S ~string](col Column[O, S], part S) Condition
-func NotContainsParam[O any, S ~string](col Column[O, S], part Param[S]) Condition
-func NotEndsWith[O any, S ~string](col Column[O, S], suffix S) Condition
-func NotEndsWithParam[O any, S ~string](col Column[O, S], suffix Param[S]) Condition
+func NotContains[O any, S ~string](col Column[O, S], part Pattern[S]) Condition
+func NotEndsWith[O any, S ~string](col Column[O, S], suffix Pattern[S]) Condition
 func NotExists(sq AnySubquery) Condition
-func NotStartsWith[O any, S ~string](col Column[O, S], prefix S) Condition
-func NotStartsWithParam[O any, S ~string](col Column[O, S], prefix Param[S]) Condition
+func NotStartsWith[O any, S ~string](col Column[O, S], prefix Pattern[S]) Condition
 func Or(conds ...Condition) Condition
-func StartsWith[O any, S ~string](col Column[O, S], prefix S) Condition
-func StartsWithParam[O any, S ~string](col Column[O, S], prefix Param[S]) Condition
+func StartsWith[O any, S ~string](col Column[O, S], prefix Pattern[S]) Condition
 type DeleteBuilder[R any] struct {
 }
 func DeleteFrom[R any](table *TableOf[R]) *DeleteBuilder[R]
@@ -283,6 +277,8 @@ type Param[T any] struct {
 func NewParam[T any](name string) Param[T]
 func (p Param[T]) Bind(value T) Arg
 func (p Param[T]) Name() string
+type Pattern[S ~string] interface {
+}
 type Query[O any] struct {
 }
 func (q *Query[O]) AsSubquery[T any](selected TypedColumn[O, T]) (Subquery[T], error)

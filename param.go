@@ -50,6 +50,8 @@ func (p Param[T]) operand() exprInfo {
 	return exprInfo{sql: sqlParam(p.spec)}
 }
 
+func (p Param[T]) patternText(T) {}
+
 func (p Param[T]) patternOperand(mode paramMode) exprInfo {
 	if p.spec == nil {
 		return exprInfo{err: errors.New("parameter is not initialized; use tsq.NewParam")}

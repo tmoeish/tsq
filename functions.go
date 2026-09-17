@@ -226,64 +226,49 @@ func patternValue(s string, mode paramMode) exprInfo {
 	return exprInfo{sql: sqlJoin(sqlValue(s), sqlText(likeEscapeClause))}
 }
 
-// StartsWith matches values of col beginning with prefix, taken literally.
-func StartsWith[O any, S ~string](col Column[O, S], prefix S) Condition {
-	return pattern(col, "LIKE", patternValue(string(prefix), paramPrefix))
+// Pattern is the text StartsWith, EndsWith and Contains match literally: a Val or
+// a Param of the column's type. Its % and _ are escaped, so they match themselves.
+type Pattern[S ~string] interface {
+	patternText(S)
+	patternOperand(mode paramMode) exprInfo
+}
+
+func patternMatch[O any, S ~string](col Column[O, S], op string, text Pattern[S], mode paramMode) Condition {
+	if isNilValue(text) {
+		return conditionError(errors.New("pattern cannot be nil"))
+	}
+
+	return pattern(col, op, text.patternOperand(mode))
+}
+
+// StartsWith matches values of col beginning with prefix.
+func StartsWith[O any, S ~string](col Column[O, S], prefix Pattern[S]) Condition {
+	return patternMatch(col, "LIKE", prefix, paramPrefix)
 }
 
 // NotStartsWith matches values of col not beginning with prefix.
-func NotStartsWith[O any, S ~string](col Column[O, S], prefix S) Condition {
-	return pattern(col, "NOT LIKE", patternValue(string(prefix), paramPrefix))
+func NotStartsWith[O any, S ~string](col Column[O, S], prefix Pattern[S]) Condition {
+	return patternMatch(col, "NOT LIKE", prefix, paramPrefix)
 }
 
-// EndsWith matches values of col ending with suffix, taken literally.
-func EndsWith[O any, S ~string](col Column[O, S], suffix S) Condition {
-	return pattern(col, "LIKE", patternValue(string(suffix), paramSuffix))
+// EndsWith matches values of col ending with suffix.
+func EndsWith[O any, S ~string](col Column[O, S], suffix Pattern[S]) Condition {
+	return patternMatch(col, "LIKE", suffix, paramSuffix)
 }
 
 // NotEndsWith matches values of col not ending with suffix.
-func NotEndsWith[O any, S ~string](col Column[O, S], suffix S) Condition {
-	return pattern(col, "NOT LIKE", patternValue(string(suffix), paramSuffix))
+func NotEndsWith[O any, S ~string](col Column[O, S], suffix Pattern[S]) Condition {
+	return patternMatch(col, "NOT LIKE", suffix, paramSuffix)
 }
 
-// Contains matches values of col containing part, taken literally.
-func Contains[O any, S ~string](col Column[O, S], part S) Condition {
-	return pattern(col, "LIKE", patternValue(string(part), paramContains))
+// Contains matches values of col containing part.
+func Contains[O any, S ~string](col Column[O, S], part Pattern[S]) Condition {
+	return patternMatch(col, "LIKE", part, paramContains)
 }
 
 // NotContains matches values of col not containing part.
-func NotContains[O any, S ~string](col Column[O, S], part S) Condition {
-	return pattern(col, "NOT LIKE", patternValue(string(part), paramContains))
-}
-
-// StartsWithParam is StartsWith with the prefix supplied at execution.
-func StartsWithParam[O any, S ~string](col Column[O, S], prefix Param[S]) Condition {
-	return pattern(col, "LIKE", prefix.patternOperand(paramPrefix))
-}
-
-// NotStartsWithParam is NotStartsWith with the prefix supplied at execution.
-func NotStartsWithParam[O any, S ~string](col Column[O, S], prefix Param[S]) Condition {
-	return pattern(col, "NOT LIKE", prefix.patternOperand(paramPrefix))
-}
-
-// EndsWithParam is EndsWith with the suffix supplied at execution.
-func EndsWithParam[O any, S ~string](col Column[O, S], suffix Param[S]) Condition {
-	return pattern(col, "LIKE", suffix.patternOperand(paramSuffix))
-}
-
-// NotEndsWithParam is NotEndsWith with the suffix supplied at execution.
-func NotEndsWithParam[O any, S ~string](col Column[O, S], suffix Param[S]) Condition {
-	return pattern(col, "NOT LIKE", suffix.patternOperand(paramSuffix))
-}
-
-// ContainsParam is Contains with the part supplied at execution.
-func ContainsParam[O any, S ~string](col Column[O, S], part Param[S]) Condition {
-	return pattern(col, "LIKE", part.patternOperand(paramContains))
-}
-
-// NotContainsParam is NotContains with the part supplied at execution.
-func NotContainsParam[O any, S ~string](col Column[O, S], part Param[S]) Condition {
-	return pattern(col, "NOT LIKE", part.patternOperand(paramContains))
+func NotContains[O any, S ~string](col Column[O, S], part Pattern[S]) Condition {
+	return patternMatch(col, "NOT LIKE", part, paramContains)
 }
 
 type searchColumn struct {

@@ -107,7 +107,7 @@
 - `Expr` / `Exprf` / `Pred` 用于自定义列表达式和谓词。
 - 谓词命名的分工：`Op(rhs)` 是唯一入口，右值是列、参数、子查询或 `tsq.Val(v)`（列表是
   `tsq.Vals(vs...)`），否定一律 `Not*`。**不要加回 `OpVal(v)` 方法**（理由见 `memory.md`）；
-  模式糖 `tsq.StartsWith(col, s)` / `tsq.StartsWithParam(col, p)` 会转义通配符，`Like` 按原样使用模式。
+  模式糖 `tsq.StartsWith(col, tsq.Val(s))` 或 `tsq.StartsWith(col, 参数)` 会转义通配符，`Like` 按原样使用模式。
 - 列函数是包级泛型函数（`tsq.Upper(col)`），用类型约束限定列类型；**不要加回列方法**——方法
   无法约束类型参数。
 - 表 DSL 的受管理字段名：`version`、`created_at`、`updated_at`、`deleted_at`。

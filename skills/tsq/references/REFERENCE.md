@@ -123,7 +123,9 @@ several roles on one line.
 
 - `name=` is the physical table name; it defaults to the struct name in snake_case
 - `pk=` is the primary-key **Go field**; it defaults to `ID`
-- one field only, composite primary keys are not supported
+- one field only: composite primary keys are not supported in v5, and `pk=A,B` is an error. Give
+  the table a single-column key (usually an auto-increment `ID`) and declare the natural key with
+  `//tsq:unique A,B`, which also generates `QueryXxxByAAndB` and `FetchXxxByAAndB`
 - the primary key is auto-increment unless the line says `assigned`, which means the caller supplies
   the value and a zero primary key is not filled in by the database
 
@@ -401,7 +403,7 @@ The main query flow is:
 query, err := tsq.
 	Select(database.User__Cols...).
 	From(database.TableUser).
-	Where(tsq.Contains(database.User_Name, "alice")).
+	Where(tsq.Contains(database.User_Name, tsq.Val("alice"))).
 	OrderBy(database.User_ID.Desc()).
 	Build()
 ```
@@ -480,7 +482,7 @@ Common examples:
 
 ```go
 database.User_ID.EQ(tsq.Val(int64(1)))
-tsq.Contains(database.User_Name, "alice")
+tsq.Contains(database.User_Name, tsq.Val("alice"))
 database.User_Email.Like(tsq.Val("%@example.com"))
 database.User_ManagerID.IsNull()
 ```
@@ -493,8 +495,8 @@ The builder is stage-based: `Where(...)` appears at most once per chain (the typ
 Where(
 	database.User_OrgID.EQ(tsq.Val(int64(1))),
 	tsq.Or(
-		tsq.Contains(database.User_Name, "alice"),
-		tsq.Contains(database.User_Email, "alice"),
+		tsq.Contains(database.User_Name, tsq.Val("alice")),
+		tsq.Contains(database.User_Email, tsq.Val("alice")),
 	),
 )
 ```
@@ -524,8 +526,9 @@ users, err := QueryUsersByOrg.List(ctx, runtime, database.User_OrgID.Bind(orgID)
   the arguments does not matter and a value of the wrong type does not compile
 - a missing value, a value for a parameter the statement does not use, and two values for one
   parameter are errors at execution
-- `tsq.StartsWithParam(col, p)` / `EndsWithParam` / `ContainsParam` (and their `Not` forms) take
-  a `Param` of the column's string type and match its value literally: `%` and `_` are escaped
+- `tsq.StartsWith(col, p)` / `tsq.EndsWith` / `tsq.Contains` (and their `Not` forms) take a
+  `Param` or a `tsq.Val` of the column's string type (`tsq.Pattern[S]`) and match it literally:
+  `%` and `_` are escaped
 - a parameter bound to `nil` is an error; use `IsNull()` / `IsNotNull()`
 
 ### Custom expressions and predicates
@@ -613,7 +616,7 @@ if err != nil {
 
 `Paging.Keyword` is automatically escaped for LIKE wildcards when executing via `query.Page(...)`, so `%`, `_` and the escape character itself are matched literally on every supported dialect; the keyword still matches as a substring. The generated predicate carries an explicit `ESCAPE '~'` clause, because SQLite has no default LIKE escape character. A backslash in a keyword is an ordinary character.
 
-The pattern functions (`tsq.StartsWith`, `tsq.EndsWith`, `tsq.Contains`, their `Not` forms, and the `...Param` forms) escape wildcards the same way. `Like` takes a pattern as written, wildcards included. Wildcard escaping is about matching the right rows, not SQL injection protection — that comes from parameter binding.
+The pattern functions (`tsq.StartsWith`, `tsq.EndsWith`, `tsq.Contains`, and their `Not` forms, with a `Val` or a `Param`) escape wildcards the same way. `Like` takes a pattern as written, wildcards included. Wildcard escaping is about matching the right rows, not SQL injection protection — that comes from parameter binding.
 
 ## 8. Execution helpers
 
@@ -825,7 +828,7 @@ does not fit does not compile:
 | `tsq.Length` | `tsq.Text` | `int64` |
 | `tsq.Date` | any column | `string` (`'YYYY-MM-DD'`) |
 | `tsq.Year`, `tsq.Month`, `tsq.Day` | any column | `int64` |
-| `tsq.StartsWith(col, s)`, `EndsWith`, `Contains` and `Not` forms | string-kind columns | a condition |
+| `tsq.StartsWith(col, pattern)`, `EndsWith`, `Contains` and `Not` forms, where `pattern` is `tsq.Val(s)` or a `Param` | string-kind columns | a condition |
 
 ```go
 tsq.Select(tsq.Upper(database.User_Name), tsq.Count(database.User_ID)).

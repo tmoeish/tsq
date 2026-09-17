@@ -108,7 +108,7 @@ pass no policy and keep the default manual mode.
 query, err := tsq.
 	Select(database.User__Cols...).
 	From(database.TableUser).
-	Where(tsq.Contains(database.User_Name, "alice")).
+	Where(tsq.Contains(database.User_Name, tsq.Val("alice"))).
 	Build()
 if err != nil {
 	return err
@@ -122,7 +122,7 @@ if err != nil {
 
 This is the main TSQ shape:
 
-- use `EQ(tsq.Val(...))` / `tsq.Contains(col, ...)` for values fixed in the code; a numeric constant takes the column's type, `tsq.Val(int64(1))`
+- use `EQ(tsq.Val(...))` / `tsq.Contains(col, tsq.Val(...))` for values fixed in the code; a numeric constant takes the column's type, `tsq.Val(int64(1))`
 - use `EQ(col.Param())` and pass `col.Bind(v)` when the value comes at execution time
 - use `EQ(otherCol)` when the right-hand side is another column or a typed subquery
 

@@ -121,6 +121,7 @@ func TestParseAnnotationsReportsTheLine(t *testing.T) {
 		{"two declarations", "//tsq:table\n//tsq:result\ntype User struct{}", "model.go:4", "already declares"},
 		{"unknown directive", "//tsq:table\n//tsq:kw Name\ntype User struct{}", "model.go:4", `unknown directive "kw"`},
 		{"unknown option", "//tsq:table oops=1\ntype User struct{}", "model.go:3", `unknown option "oops=1"`},
+		{"composite key", "//tsq:table pk=OrgID,Slug\ntype User struct{}", "model.go:3", "//tsq:unique OrgID,Slug"},
 		{"result option", "//tsq:result name=x\ntype User struct{}", "model.go:3", "a result takes no options"},
 		{"unknown role", "//tsq:table\n//tsq:managed touched_at\ntype User struct{}", "model.go:4", `unknown managed field "touched_at"`},
 		{"missing field", "//tsq:table\n//tsq:unique Nickname\ntype User struct{}", "model.go:4", "struct has no field Nickname"},

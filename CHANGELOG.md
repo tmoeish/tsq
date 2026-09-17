@@ -38,7 +38,7 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 - 执行期的值是**参数**，不再按位置传：`Course_ID.EQ(Course_ID.Param())` 写进查询，执行时传 `Course_ID.Bind(5)`；列表用 `In(col.ListParam())` 与 `col.BindList(ids...)`；一列需要两个值时用 `tsq.NewParam[T]("name")`。执行方法的变参类型是密封的 `tsq.Arg`，按参数身份匹配：缺值、多余的值、重复绑定都会报错，值的类型在编译期检查。
 - 所有 `*Var()` 谓词、`SetVar`、`Bind` / `BindSlice` / `Expression` 删除。
-- 模式匹配是包级函数：`tsq.StartsWith(col, "x")` / `EndsWith` / `Contains` 及 `Not` 形式，参数形式是 `tsq.StartsWithParam(col, p)` 等；只接受字符串类的列，都会转义通配符并声明 `ESCAPE`。`Like` 按原样使用模式。
+- 模式匹配是包级函数：`tsq.StartsWith(col, pattern)` / `EndsWith` / `Contains` 及 `Not` 形式，`pattern` 是 `tsq.Val("x")` 或参数（`tsq.Pattern[S]`），不再分值和参数两套函数；只接受字符串类的列，都会转义通配符并声明 `ESCAPE`。`Like` 按原样使用模式。
 - 固定值统一写成 `tsq.Val(v)`，列表写成 `tsq.Vals(vs...)`，放在任何接受同类型列的位置：`EQ` / `Between` / `Like` / `Set` / `Case().When` / `Coalesce`……`EQVal` / `InVal` / `BetweenVal` 等全部 `*Val` 方法，以及 `SetVal`、`WhenVal` / `ElseVal`、`CoalesceVal` / `NullIfVal` 删除。值的类型只由值本身推断，无类型数字常量是 `int`：`int64` 列上写 `tsq.Val(int64(90))`，写错时编译报 `does not implement tsq.RHS[int64]`。比较里的 `NULL` 报错，`Set` 里 nil 指针写入 `NULL`。
 
 **查询**

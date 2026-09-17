@@ -141,6 +141,8 @@ func applyDeclaration(meta *genmodel.TableMeta, d directive) error {
 			return d.errorf("a result takes no options, got %q", arg)
 		case key == "name" && hasValue && value != "":
 			meta.Table = value
+		case key == "pk" && hasValue && strings.Contains(value, ","):
+			return d.errorf("composite primary keys are not supported; add a single-column key and declare //tsq:unique %s", value)
 		case key == "pk" && hasValue && value != "":
 			meta.PrimaryKey = value
 		case key == "assigned" && !hasValue:

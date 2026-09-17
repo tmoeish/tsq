@@ -534,6 +534,29 @@ func TestIntegrationKeywordSearchEscapesWildcards(t *testing.T) {
 			if resp.Total != 2 {
 				t.Fatalf("substring keyword on %s matched %d rows, want 2", target.name, resp.Total)
 			}
+
+			// The pattern functions escape the same way, with a Val or a Param.
+			prefix := tsq.NewParam[string]("prefix")
+			for _, tc := range []struct {
+				name string
+				cond tsq.Condition
+				args []tsq.Arg
+			}{
+				{"StartsWith(Val)", tsq.StartsWith(academy.Learner_Name, tsq.Val("100%")), nil},
+				{"EndsWith(Val)", tsq.EndsWith(academy.Learner_Name, tsq.Val("_b")), nil},
+				{"Contains(Val)", tsq.Contains(academy.Learner_Name, tsq.Val("~")), nil},
+				{"StartsWith(Param)", tsq.StartsWith(academy.Learner_Name, prefix), []tsq.Arg{prefix.Bind("a_")}},
+			} {
+				n, err := tsq.Select(academy.Learner_ID).From(academy.TableLearner).Where(tc.cond).MustBuild().
+					Count(ctx, rt, tc.args...)
+				if err != nil {
+					t.Fatalf("%s on %s: %v", tc.name, target.name, err)
+				}
+
+				if n != 1 {
+					t.Errorf("%s on %s matched %d rows, want 1", tc.name, target.name, n)
+				}
+			}
 		})
 	}
 }
