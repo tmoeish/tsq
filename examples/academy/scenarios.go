@@ -426,6 +426,20 @@ func runCatalogSearchDemo(ctx context.Context, runtime *tsq.Runtime) (*SearchSum
 		titles = append(titles, course.Title)
 	}
 
+	// Keyset paging reads the same rows by position instead of offset; the order
+	// ends with the primary key so every position is unique.
+	keyset, err := QueryCourse.PageKeyset(ctx, exec, tsq.Keyset{
+		Size:    pageReq.Size,
+		OrderBy: []tsq.OrderBy{Course_ID.Asc()},
+	}, tsq.Keyword(pageReq.Keyword))
+	if err != nil {
+		return nil, err
+	}
+
+	if len(keyset.Data) != len(resp.Data) {
+		return nil, fmt.Errorf("keyset page has %d rows, offset page %d", len(keyset.Data), len(resp.Data))
+	}
+
 	return &SearchSummary{
 		Keyword: "SQLite",
 		Total:   resp.Total,

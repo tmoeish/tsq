@@ -14,6 +14,7 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 ### 新增
 
+- 新增游标分页 `Query.PageKeyset(ctx, db, tsq.Keyset{Size, OrderBy, After}, args...)`：按上一页最后一行的排序值翻页，深页不再越翻越慢、中途插入的行也不会让页面错位。排序列必须被查询选出且最后一列是主键；`Next` 是不透明字符串，换了排序会被拒绝。`PageRequest` 新增 `After` 字段和 `Keyset(sortable...)`。
 - 关键词搜索改为执行参数 `tsq.Keyword(term)`，所有读取方法都能用（此前只有 `Page` 通过 `Paging.Keyword` 支持，搜索结果没法 `Iter` 导出或单独 `Count`）；`Paging.Keyword` 删除。空关键词不搜索，对没有 `Search` 的查询传非空关键词报错。
 - 新增 `Query.ListIn(ctx, db, listParam, values, args...)`：列表参数超过方言绑定上限时按上限分块、在同一快照里读完再拼接，只接受分块不改变结果的查询。生成的 `FetchXxxBy...` 改用它，任意数量的键都能取（此前超过 SQLite 的 32766 个就报错）。
 - 新增 `TableXxx.Restore` / `BatchRestore` 和生成的 `row.Restore(ctx, db)`：恢复软删除的行，是清除 `deleted_at` 的唯一入口。

@@ -161,6 +161,9 @@ JoinStage ─Search► SearchStage ─Where─► FilteredStage
 - `Page` 的计数和列表语句经 `snapshotRead` 放进一个只读事务（PG/MySQL `REPEATABLE READ`，SQLite
   默认级别）：执行器已在事务里就直接用；`*Runtime` 走 `withTxResult`（追踪里是 `page` 套 `tx`）；
   `WrapExecutor` 包的句柄能 `BeginTx` 就自己开，否则退化为两条独立语句。
+- `PageKeyset` 走 `renderMode.seek`：seek 条件并进 WHERE，`paged` 模式下有 seek 就不写 OFFSET，多取一行
+  判断有没有下一页。`writeBody` / `writeSimple` / `writeFromWhere` 因此接收 `renderMode`（集合操作数和 CTE
+  传零值）。
 - `Iter` 和 `List` 共用 `each`（逐行扫描、回调返回 false 即停），`Iter` 的追踪区间覆盖整个循环。
 - `SelectDistinct` 是 `querySpec.Distinct`，算作分组查询：`Count` 包一层子查询数去重后的行。
 

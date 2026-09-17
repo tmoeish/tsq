@@ -948,6 +948,70 @@ func TestIntegrationUpsert(t *testing.T) {
 	}
 }
 
+// TestIntegrationPageKeysetOverTimestamps walks enrollments by created_at and key:
+// the cursor carries a time value, which each driver binds and compares its way.
+func TestIntegrationPageKeysetOverTimestamps(t *testing.T) {
+	for _, target := range integrationTargets(t) {
+		t.Run(target.name, func(t *testing.T) {
+			ctx := context.Background()
+
+			dropAcademyTables(t, target)
+			rt, _ := openWithPolicy(t, target, academy.TSQTables(), tsq.SchemaPolicyReconcile)
+
+			base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+
+			var rows []*academy.Enrollment
+
+			for i := range 7 {
+				e := &academy.Enrollment{LearnerID: int64(i), CourseID: 1}
+				// Three rows share a timestamp, so the key breaks ties.
+				e.CreatedAt = base.Add(time.Duration(min(i, 4)) * time.Hour)
+				rows = append(rows, e)
+			}
+
+			if err := academy.TableEnrollment.BatchInsert(ctx, rt, rows); err != nil {
+				t.Fatal(err)
+			}
+
+			order := []tsq.OrderBy{academy.Enrollment_CreatedAt.Desc(), academy.Enrollment_UID.Desc()}
+
+			want, err := tsq.Select(academy.Enrollment__Cols...).From(academy.TableEnrollment).OrderBy(order...).MustBuild().List(ctx, rt)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			var walked []*academy.Enrollment
+
+			k := tsq.Keyset{Size: 2, OrderBy: order}
+
+			for {
+				page, err := academy.QueryEnrollment.PageKeyset(ctx, rt, k)
+				if err != nil {
+					t.Fatal(err)
+				}
+
+				walked = append(walked, page.Data...)
+
+				if !page.HasNext() {
+					break
+				}
+
+				k.After = page.Next
+			}
+
+			if len(walked) != len(want) {
+				t.Fatalf("walked %d rows, want %d", len(walked), len(want))
+			}
+
+			for i := range want {
+				if walked[i].UID != want[i].UID {
+					t.Fatalf("row %d is %d, want %d", i, walked[i].UID, want[i].UID)
+				}
+			}
+		})
+	}
+}
+
 // writeBeforeList runs write once, when the runtime logs the list statement of a
 // Page: after the count has run and before the rows are read.
 type writeBeforeList struct {

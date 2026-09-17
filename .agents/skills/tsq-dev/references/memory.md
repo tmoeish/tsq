@@ -184,6 +184,8 @@ MySQL 的 `LENGTH` 数字节；PostgreSQL 没有 `round(double, int)`；modernc 
   批量不回读：多行 `RETURNING` 顺序无保证，MySQL 只报第一个 id。
 - **超长列表参数用显式的 `ListIn`，否决自动分块**：`a IN (list) OR b = 1` 分块会重复返回，`NOT IN`
   分块直接错，排序/聚合/LIMIT 分块后语义都变；只有调用方声明"这是按键取行"时才能拆。
+- **游标分页的条件展开成 `a < ? OR (a = ? AND b > ?)`，不用行值比较 `(a, b) < (?, ?)`**：后者只在所有列
+  同向时成立。最后一列必须是主键（位置唯一，否则同值行会被跳过或重复）；游标带排序指纹。
 - **关键词是执行参数 `tsq.Keyword`，不是 `Paging` 的字段**：放在 `Paging` 里时搜索结果只能分页读，
   没法 `Iter` 导出或单独 `Count`。空关键词在 `prepare` 里被丢掉，否则会报"参数未使用"。
 - **`Page` 的一致性靠只读快照事务，不靠 `COUNT(*) OVER()`**：窗口函数在 `DISTINCT` 之前求值（数错）、

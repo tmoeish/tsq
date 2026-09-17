@@ -17,6 +17,7 @@
 | `Condition`、`And` / `Or` / `Not`、`Exists` / `NotExists`、`exprInfo` | `expr.go` |
 | `CASE` | `case.go` |
 | `ORDER BY` 方向解析 | `order.go` |
+| 游标分页 `Keyset` / `KeysetPage` / `PageKeyset`、游标编解码与指纹、seek 条件 | `keyset.go`（`keyset_test.go`；时间值游标三方言真跑在 `TestIntegrationPageKeysetOverTimestamps`） |
 | 分页 `Paging` / `PageResponse`、HTTP 形态 `PageRequest`（`Validate` / `Normalize` / `Paging(sortable...)`）、排序字段错误类型 | `paging.go`（`exec_test.go` 的 `TestPageSearchesSortsAndCounts`） |
 | 软删除作用域（`WithDeleted`、`liveRows` / `liveSource`、JOIN 位置规则） | `table.go` + `query_render.go` 的 `writeFromWhere`（`exec_test.go` 的 `TestSoftDeleteScope`；`internal/integration` 的 `TestIntegrationSoftDeleteScopeJoins`） |
 

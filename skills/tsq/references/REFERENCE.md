@@ -617,6 +617,35 @@ if err != nil {
 - parsing the request out of a query string is the caller's job; the struct's `query` and `json`
   tags cover the usual binders
 
+### Keyset paging
+
+Offset paging reads and discards every row before the page, and a row inserted meanwhile shifts
+the pages. `query.PageKeyset` pages by position instead:
+
+```go
+k := tsq.Keyset{
+	Size:    50,
+	OrderBy: []tsq.OrderBy{database.Post_CreatedAt.Desc(), database.Post_ID.Desc()},
+	After:   req.After, // the previous page's Next; empty for the first page
+}
+
+page, err := QueryPost.PageKeyset(ctx, runtime, k, tsq.Keyword(req.Keyword))
+// page.Data, page.Next, page.HasNext()
+```
+
+- `OrderBy` is required, every column in it must be selected by the query, and the **last one
+  must be a primary key** so that every position is unique. An index on the order columns is what
+  makes it fast
+- the query must not set its own `OrderBy`, `Limit` or `Offset`, and must not group, aggregate,
+  use `DISTINCT` or set operations
+- `Next` is an opaque string carrying the last row's order values; it is refused for a different
+  `OrderBy`. An order column that is `NULL` in that row is an error, so order by columns that are
+  never `NULL`
+- there is no `Total`: not counting is the point. Use `Count` if the endpoint needs one
+- mixed directions work; the condition is spelled `a < ? OR (a = ? AND b > ?)`
+- over HTTP, `PageRequest` carries `after`, and `req.Keyset(sortable...)` resolves it like
+  `Paging`; append the primary key to the resolved `OrderBy` yourself
+
 ### Keyword search
 
 A query built with `Search(cols...)` is searched by passing `tsq.Keyword(term)` with the other
@@ -645,6 +674,7 @@ Reads are methods on the built `*Query[O]`; `args` are the `tsq.Arg` values made
 - `query.Exists(ctx, db, args...)` → `bool, error`
 - `query.Count(ctx, db, args...)` → `int64, error`
 - `query.Page(ctx, db, paging, args...)` → `*PageResponse[O], error`
+- `query.PageKeyset(ctx, db, keyset, args...)` → `*KeysetPage[O], error` (section 7)
 - `query.Scalar(ctx, db, selectedColumn, args...)` → the column's Go type; the query must select exactly that column
 - `query.SQL(dialect, args...)` → the SQL and arguments the query would run with, for logging and tests
 
