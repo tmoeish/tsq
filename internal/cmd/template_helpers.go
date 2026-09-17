@@ -17,10 +17,33 @@ const (
 	generatedTimeAlias    = "tsqtime"
 )
 
+// columnKindRefs spells out each dialect.ColumnKind constant in full, so that
+// TestGeneratedCodeReferencesOnlyRealSymbols checks every name generated code can
+// reference; a prefix concatenated in the template would hide a renamed constant.
+var columnKindRefs = map[string]string{
+	"bool":   "tsqdialect.KindBool",
+	"bytes":  "tsqdialect.KindBytes",
+	"float":  "tsqdialect.KindFloat",
+	"int":    "tsqdialect.KindInt",
+	"string": "tsqdialect.KindString",
+	"time":   "tsqdialect.KindTime",
+}
+
+// columnKindRef returns the qualified dialect constant for a column kind.
+func columnKindRef(kind string) (string, error) {
+	ref, ok := columnKindRefs[kind]
+	if !ok {
+		return "", fmt.Errorf("unknown column kind %q", kind)
+	}
+
+	return ref, nil
+}
+
 // funcMap returns the helper functions available to the templates.
 func funcMap() template.FuncMap {
 	return template.FuncMap{
 		"UpperInitial":             upperInitial,
+		"ColumnKindRef":            columnKindRef,
 		"FieldVarName":             fieldVarName,
 		"FieldSliceVarName":        fieldSliceVarName,
 		"FieldType":                fieldType,

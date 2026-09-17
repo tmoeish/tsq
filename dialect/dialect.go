@@ -24,31 +24,50 @@ type Executor interface {
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 }
 
-// Dialect defines the operations tsq needs from a SQL dialect.
+// Dialect is everything TSQ needs to know about one SQL engine: how to spell
+// identifiers and placeholders, which optional features exist, how to inspect a live
+// schema, and how to render the DDL that changes it.
 type Dialect interface {
+	// Name identifies the dialect.
 	Name() Name
-	QuoteField(field string) string
-	BindVar(i int) string
-	CreateTableSuffix() string
-	CreateIndexSuffix() string
-	AutoIncrementClause() string
-	LastInsertIdReturningSuffix(table, col string) string
-	CreateTableIfNotExistsSuffix() string
+	// QuoteIdent quotes an identifier the way the dialect expects.
+	QuoteIdent(ident string) string
+	// Placeholder renders the i-th (1-based) bind placeholder.
+	Placeholder(i int) string
+	// ReturningClause renders the clause that returns the generated key column after an
+	// INSERT, or "" when the key comes from LastInsertId instead.
+	ReturningClause(col string) string
+	// ValidateIdentifier reports whether identifier is valid and within the length limit.
 	ValidateIdentifier(identifier string) error
+	// SupportsCapability reports whether the dialect supports capability.
 	SupportsCapability(capability Capability) bool
+	// BatchInsertStartID derives the first generated key of a multi-row INSERT from
+	// LastInsertId, reporting false when the engine does not make that possible.
 	BatchInsertStartID(lastID, rowsAffected int64) (int64, bool)
-	InspectTableColumns(ctx context.Context, db Executor, table string) ([]DDLColumnSpec, bool, error)
-	ListIndexes(ctx context.Context, db Executor, table string) ([]NamedIndexDefinition, error)
-	EnsureIndex(ctx context.Context, db Executor, table string, unique bool, idx string, fields []string) (string, error)
-	InspectIndexDefinition(ctx context.Context, db Executor, table, idx string) (IndexDefinition, bool, error)
-	DDLColumnType(desc DDLColumnType) string
-	DDLAutoIncrementPrimaryKey(quotedColumn string, desc DDLColumnType) (string, error)
-	DDLCreateIndex(table, idx string, fields []string, unique bool) string
-	DDLDropIndex(table, idx string) string
-	DDLAlterColumnMode() DDLAlterColumnMode
-	DDLAlterColumnStatements(table string, before, after DDLColumnSpec) []string
+	// InspectColumns reports the live columns of table, and false when it does not exist.
+	InspectColumns(ctx context.Context, db Executor, table string) ([]ColumnSpec, bool, error)
+	// ListIndexes reports the live indexes of table.
+	ListIndexes(ctx context.Context, db Executor, table string) ([]Index, error)
+	// EnsureIndex creates an index and returns the statement it ran. An existing index
+	// with the same definition is not an error, and the returned statement is then "".
+	EnsureIndex(ctx context.Context, db Executor, table, idx string, fields []string, unique bool) (string, error)
+	// InspectIndex reports one live index, and false when it does not exist.
+	InspectIndex(ctx context.Context, db Executor, table, idx string) (Index, bool, error)
+	// ColumnTypeSQL renders a column type.
+	ColumnTypeSQL(t ColumnType) string
+	// AutoIncrementColumnSQL renders the definition of an auto-increment primary key.
+	AutoIncrementColumnSQL(quotedColumn string, t ColumnType) (string, error)
+	// CreateIndexSQL renders a CREATE INDEX statement over already-quoted fields.
+	CreateIndexSQL(table, idx string, quotedFields []string, unique bool) string
+	// DropIndexSQL renders a DROP INDEX statement.
+	DropIndexSQL(table, idx string) string
+	// AlterMode says whether a column type change is an ALTER or a table rebuild.
+	AlterMode() AlterMode
+	// AlterColumnSQL renders the statements that turn column before into after.
+	AlterColumnSQL(table string, before, after ColumnSpec) []string
 }
 
+// Name identifies a dialect.
 type Name string
 
 const (
@@ -58,6 +77,7 @@ const (
 	Unknown  Name = "unknown"
 )
 
+// Capability is an optional SQL feature a dialect may or may not support.
 type Capability string
 
 const (
@@ -113,7 +133,7 @@ func capabilitySupport(table map[Capability]bool, capability Capability) bool {
 //     dialect, as tsq used to, made wide-table batches fail on SQLite alone.
 //
 // The values follow the same version baselines as the capability tables: an engine
-// older than the baseline reports a database error rather than an ErrUnsupportedCapability.
+// older than the baseline reports a database error rather than an UnsupportedCapabilityError.
 var maxBindParams = map[Name]int{
 	MySQL:    65535,
 	Postgres: 65535,
@@ -152,26 +172,32 @@ func MaxBindParams(dialect Dialect) int {
 	return minBindParamsLimit
 }
 
-type DDLAlterColumnMode string
+// AlterMode says how a dialect changes an existing column's type: in place with
+// ALTER TABLE, or by rebuilding the table (SQLite).
+type AlterMode string
 
 const (
-	DDLAlterColumnDirect  DDLAlterColumnMode = "direct"
-	DDLAlterColumnRebuild DDLAlterColumnMode = "rebuild"
+	AlterInPlace AlterMode = "direct"
+	AlterRebuild AlterMode = "rebuild"
 )
 
-type DDLColumnKind string
+// ColumnKind is the portable family of a column type; each dialect maps it, with
+// ColumnType's size and sign details, to its own SQL type.
+type ColumnKind string
 
 const (
-	DDLColumnKindBool   DDLColumnKind = "bool"
-	DDLColumnKindBytes  DDLColumnKind = "bytes"
-	DDLColumnKindFloat  DDLColumnKind = "float"
-	DDLColumnKindInt    DDLColumnKind = "int"
-	DDLColumnKindString DDLColumnKind = "string"
-	DDLColumnKindTime   DDLColumnKind = "time"
+	KindBool   ColumnKind = "bool"
+	KindBytes  ColumnKind = "bytes"
+	KindFloat  ColumnKind = "float"
+	KindInt    ColumnKind = "int"
+	KindString ColumnKind = "string"
+	KindTime   ColumnKind = "time"
 )
 
-type DDLColumnType struct {
-	Kind     DDLColumnKind
+// ColumnType describes a column type independently of any dialect. RawType, when
+// set, is used verbatim instead of the mapping from Kind.
+type ColumnType struct {
+	Kind     ColumnKind
 	Bits     int
 	Unsigned bool
 	Nullable bool
@@ -179,24 +205,22 @@ type DDLColumnType struct {
 	RawType  string
 }
 
-type DDLColumnSpec struct {
+// ColumnSpec describes one table column, either as declared by generated code or as
+// reported by InspectColumns.
+type ColumnSpec struct {
 	Name          string
-	Type          DDLColumnType
+	Type          ColumnType
 	PrimaryKey    bool
 	AutoIncrement bool
 	Default       string
 	// NativeType is the column type exactly as reported by the database.
-	// It is populated by InspectTableColumns and is empty on declared specs.
+	// It is populated by InspectColumns and is empty on declared specs.
 	NativeType string
 }
 
-type IndexDefinition struct {
-	Table  string
-	Unique bool
-	Fields []string
-}
-
-type NamedIndexDefinition struct {
+// Index describes a table index, either as declared or as reported by the database.
+// PrimaryKey and Constraint are only set on inspected indexes.
+type Index struct {
 	Name       string
 	Table      string
 	Unique     bool
@@ -205,22 +229,22 @@ type NamedIndexDefinition struct {
 	Constraint bool
 }
 
-// ErrUnsupportedCapability reports that a dialect cannot perform a requested capability.
-type ErrUnsupportedCapability struct {
+// UnsupportedCapabilityError reports that a dialect cannot perform a requested capability.
+type UnsupportedCapabilityError struct {
 	operation Capability
 	dialect   Name
 	reason    string
 }
 
-func newErrUnsupportedCapability(operation Capability, dialect Name, reason string) *ErrUnsupportedCapability {
-	return &ErrUnsupportedCapability{
+func newUnsupportedCapabilityError(operation Capability, dialect Name, reason string) *UnsupportedCapabilityError {
+	return &UnsupportedCapabilityError{
 		operation: canonicalCapabilityName(string(operation)),
 		dialect:   dialect,
 		reason:    reason,
 	}
 }
 
-func (e *ErrUnsupportedCapability) Error() string {
+func (e *UnsupportedCapabilityError) Error() string {
 	if e.reason != "" {
 		return fmt.Sprintf(
 			"operation %s is not supported by %s dialect; %s",
@@ -243,14 +267,16 @@ func ValidateCapability(dialect Dialect, capability Capability) error {
 		return nil
 	}
 
-	return newErrUnsupportedCapability(
+	return newUnsupportedCapabilityError(
 		capability,
 		dialect.Name(),
 		unsupportedCapabilityHint(capability, dialect.Name()),
 	)
 }
 
-func ValidateIdentifierLength(identifier string, dialect Dialect) error {
+// ValidateIdentifier reports whether identifier is a plain SQL identifier that fits
+// dialect's length limit. A nil dialect checks only that identifier is not empty.
+func ValidateIdentifier(dialect Dialect, identifier string) error {
 	if identifier == "" {
 		return errors.New("identifier cannot be empty")
 	}
@@ -297,16 +323,16 @@ var ddlNativeTypeAliases = map[string]string{
 	"TIMESTAMP WITH TIME ZONE":    "TIMESTAMPTZ",
 }
 
-// DDLColumnTypesEquivalent reports whether two column specs resolve to the same
+// SameColumnType reports whether two column specs resolve to the same
 // database type under the dialect. Besides comparing rendered DDL types, it
 // matches a declared raw type override against the type the database reported
 // during inspection. Without that second check, types that inspection collapses
 // into a canonical kind (TEXT, DECIMAL(n,m), CHAR(n), ...) would be flagged as
 // drift on every reconcile and produce repeated, never-converging ALTERs.
-func DDLColumnTypesEquivalent(dialect Dialect, left, right DDLColumnSpec) bool {
+func SameColumnType(dialect Dialect, left, right ColumnSpec) bool {
 	if strings.EqualFold(
-		strings.TrimSpace(dialect.DDLColumnType(left.Type)),
-		strings.TrimSpace(dialect.DDLColumnType(right.Type)),
+		strings.TrimSpace(dialect.ColumnTypeSQL(left.Type)),
+		strings.TrimSpace(dialect.ColumnTypeSQL(right.Type)),
 	) {
 		return true
 	}
@@ -314,7 +340,7 @@ func DDLColumnTypesEquivalent(dialect Dialect, left, right DDLColumnSpec) bool {
 	return nativeDDLTypeMatchesDeclared(left, right) || nativeDDLTypeMatchesDeclared(right, left)
 }
 
-func nativeDDLTypeMatchesDeclared(inspected, declared DDLColumnSpec) bool {
+func nativeDDLTypeMatchesDeclared(inspected, declared ColumnSpec) bool {
 	if inspected.NativeType == "" || declared.Type.RawType == "" {
 		return false
 	}
@@ -347,7 +373,7 @@ func normalizeDDLDefault(value sql.NullString) string {
 	return strings.TrimSpace(value.String)
 }
 
-func withDDLNullable(desc DDLColumnType, nullable bool) DDLColumnType {
+func withDDLNullable(desc ColumnType, nullable bool) ColumnType {
 	desc.Nullable = nullable
 	return desc
 }
@@ -421,7 +447,7 @@ func unsupportedCapabilityHint(operation Capability, dialect Name) string {
 	}
 }
 
-func ddlSerialType(desc DDLColumnType) string {
+func ddlSerialType(desc ColumnType) string {
 	switch {
 	case desc.Bits <= 16:
 		return "SMALLSERIAL PRIMARY KEY"
@@ -440,12 +466,12 @@ func validateBuiltInIdentifier(name string) error {
 	return nil
 }
 
-func validateIndexDefinition(
+func validateIndex(
 	table string,
 	unique bool,
 	idx string,
 	fields []string,
-	existing IndexDefinition,
+	existing Index,
 ) error {
 	if existing.Table != table {
 		return fmt.Errorf(
@@ -510,7 +536,7 @@ func quoteDialectIdentifier(dialect Dialect, name string) (string, error) {
 		return "", err
 	}
 
-	return dialect.QuoteField(name), nil
+	return dialect.QuoteIdent(name), nil
 }
 
 func quoteDialectIdentifiers(dialect Dialect, names []string) ([]string, error) {

@@ -15,32 +15,16 @@ func (d SQLiteDialect) Name() Name {
 	return SQLite
 }
 
-func (d SQLiteDialect) QuoteField(f string) string {
+func (d SQLiteDialect) QuoteIdent(f string) string {
 	return `"` + f + `"`
 }
 
-func (d SQLiteDialect) BindVar(i int) string {
+func (d SQLiteDialect) Placeholder(i int) string {
 	return "?"
 }
 
-func (d SQLiteDialect) CreateTableSuffix() string {
-	return ";"
-}
-
-func (d SQLiteDialect) CreateIndexSuffix() string {
-	return ";"
-}
-
-func (d SQLiteDialect) AutoIncrementClause() string {
-	return "AUTOINCREMENT"
-}
-
-func (d SQLiteDialect) LastInsertIdReturningSuffix(table, col string) string {
+func (d SQLiteDialect) ReturningClause(col string) string {
 	return ""
-}
-
-func (d SQLiteDialect) CreateTableIfNotExistsSuffix() string {
-	return "IF NOT EXISTS"
 }
 
 func (d SQLiteDialect) ValidateIdentifier(identifier string) error {
@@ -74,7 +58,7 @@ func (d SQLiteDialect) BatchInsertStartID(lastID, rowsAffected int64) (int64, bo
 	return lastID - rowsAffected + 1, true
 }
 
-func (d SQLiteDialect) InspectTableColumns(ctx context.Context, db Executor, table string) ([]DDLColumnSpec, bool, error) {
+func (d SQLiteDialect) InspectColumns(ctx context.Context, db Executor, table string) ([]ColumnSpec, bool, error) {
 	quotedTable, err := quoteDialectIdentifier(d, table)
 	if err != nil {
 		return nil, false, err
@@ -113,7 +97,7 @@ func (d SQLiteDialect) InspectTableColumns(ctx context.Context, db Executor, tab
 		PrimaryKey int
 	}
 
-	columns := make([]DDLColumnSpec, 0)
+	columns := make([]ColumnSpec, 0)
 	createStmtUpper := strings.ToUpper(createSQL.String)
 
 	for rows.Next() {
@@ -122,7 +106,7 @@ func (d SQLiteDialect) InspectTableColumns(ctx context.Context, db Executor, tab
 			return nil, false, err
 		}
 
-		colType, err := parseSQLiteDDLColumnType(row.Type)
+		colType, err := parseSQLiteColumnType(row.Type)
 		if err != nil {
 			return nil, false, fmt.Errorf("inspect sqlite column %s.%s: %w", table, row.Name, err)
 		}
@@ -130,7 +114,7 @@ func (d SQLiteDialect) InspectTableColumns(ctx context.Context, db Executor, tab
 		autoincrement := row.PrimaryKey > 0 &&
 			sqliteCreateSQLDeclaresAutoincrement(createStmtUpper, row.Name)
 
-		columns = append(columns, DDLColumnSpec{
+		columns = append(columns, ColumnSpec{
 			Name:          row.Name,
 			Type:          withDDLNullable(colType, row.NotNull == 0 && row.PrimaryKey == 0),
 			PrimaryKey:    row.PrimaryKey > 0,
@@ -147,7 +131,7 @@ func (d SQLiteDialect) InspectTableColumns(ctx context.Context, db Executor, tab
 	return columns, true, nil
 }
 
-func (d SQLiteDialect) ListIndexes(ctx context.Context, db Executor, table string) ([]NamedIndexDefinition, error) {
+func (d SQLiteDialect) ListIndexes(ctx context.Context, db Executor, table string) ([]Index, error) {
 	quotedTable, err := quoteDialectIdentifier(d, table)
 	if err != nil {
 		return nil, err
@@ -170,7 +154,7 @@ func (d SQLiteDialect) ListIndexes(ctx context.Context, db Executor, table strin
 		Partial int
 	}
 
-	indexes := make([]NamedIndexDefinition, 0)
+	indexes := make([]Index, 0)
 
 	for rows.Next() {
 		var row sqliteIndexListRow
@@ -183,7 +167,7 @@ func (d SQLiteDialect) ListIndexes(ctx context.Context, db Executor, table strin
 			return nil, err
 		}
 
-		indexes = append(indexes, NamedIndexDefinition{
+		indexes = append(indexes, Index{
 			Name:       row.Name,
 			Table:      table,
 			Unique:     row.Unique == 1,
@@ -200,7 +184,7 @@ func (d SQLiteDialect) ListIndexes(ctx context.Context, db Executor, table strin
 	return indexes, nil
 }
 
-func (d SQLiteDialect) EnsureIndex(ctx context.Context, db Executor, table string, unique bool, idx string, fields []string) (string, error) {
+func (d SQLiteDialect) EnsureIndex(ctx context.Context, db Executor, table, idx string, fields []string, unique bool) (string, error) {
 	quotedFields, err := quoteDialectIdentifiers(d, fields)
 	if err != nil {
 		return "", err
@@ -228,8 +212,8 @@ func (d SQLiteDialect) EnsureIndex(ctx context.Context, db Executor, table strin
 
 	_, err = db.ExecContext(ctx, query)
 	if err != nil {
-		definition, found, inspectErr := d.InspectIndexDefinition(ctx, db, table, idx)
-		if inspectErr == nil && found && validateIndexDefinition(table, unique, idx, fields, definition) == nil {
+		definition, found, inspectErr := d.InspectIndex(ctx, db, table, idx)
+		if inspectErr == nil && found && validateIndex(table, unique, idx, fields, definition) == nil {
 			return "", nil
 		}
 
@@ -239,7 +223,7 @@ func (d SQLiteDialect) EnsureIndex(ctx context.Context, db Executor, table strin
 	return query, nil
 }
 
-func (d SQLiteDialect) InspectIndexDefinition(ctx context.Context, db Executor, table, idx string) (IndexDefinition, bool, error) {
+func (d SQLiteDialect) InspectIndex(ctx context.Context, db Executor, table, idx string) (Index, bool, error) {
 	type sqliteMasterRow struct {
 		Table string `db:"tbl_name"`
 	}
@@ -261,30 +245,30 @@ func (d SQLiteDialect) InspectIndexDefinition(ctx context.Context, db Executor, 
 	).Scan(&master.Table)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return IndexDefinition{}, false, nil
+			return Index{}, false, nil
 		}
 
-		return IndexDefinition{}, false, err
+		return Index{}, false, err
 	}
 
 	quotedTable, err := quoteDialectIdentifier(d, master.Table)
 	if err != nil {
-		return IndexDefinition{}, false, err
+		return Index{}, false, err
 	}
 
 	rows, err := db.QueryContext(ctx, fmt.Sprintf("PRAGMA index_list(%s)", quotedTable))
 	if err != nil {
-		return IndexDefinition{}, false, err
+		return Index{}, false, err
 	}
 
-	definition := IndexDefinition{Table: master.Table}
+	definition := Index{Table: master.Table}
 	found := false
 
 	for rows.Next() {
 		var row sqliteIndexListRow
 		if err := rows.Scan(&row.Seq, &row.Name, &row.Unique, &row.Origin, &row.Partial); err != nil {
 			_ = rows.Close()
-			return IndexDefinition{}, false, err
+			return Index{}, false, err
 		}
 
 		if row.Name == idx {
@@ -297,17 +281,17 @@ func (d SQLiteDialect) InspectIndexDefinition(ctx context.Context, db Executor, 
 
 	if err := rows.Err(); err != nil {
 		_ = rows.Close()
-		return IndexDefinition{}, false, err
+		return Index{}, false, err
 	}
 	_ = rows.Close()
 
 	if !found {
-		return IndexDefinition{}, false, nil
+		return Index{}, false, nil
 	}
 
 	cols, err := d.inspectSQLiteIndexColumns(ctx, db, idx)
 	if err != nil {
-		return IndexDefinition{}, false, err
+		return Index{}, false, err
 	}
 	definition.Fields = cols
 
@@ -382,7 +366,7 @@ func isSQLIdentifierChar(c byte) bool {
 		(c >= 'a' && c <= 'z')
 }
 
-func parseSQLiteDDLColumnType(raw string) (DDLColumnType, error) {
+func parseSQLiteColumnType(raw string) (ColumnType, error) {
 	rawType := strings.TrimSpace(raw)
 	upper := strings.ToUpper(rawType)
 
@@ -397,58 +381,58 @@ func parseSQLiteDDLColumnType(raw string) (DDLColumnType, error) {
 			}
 		}
 
-		return DDLColumnType{Kind: DDLColumnKindString, Size: size}, nil
+		return ColumnType{Kind: KindString, Size: size}, nil
 	case strings.Contains(upper, "BOOLEAN"):
-		return DDLColumnType{Kind: DDLColumnKindBool}, nil
+		return ColumnType{Kind: KindBool}, nil
 	case strings.Contains(upper, "BLOB"):
-		return DDLColumnType{Kind: DDLColumnKindBytes}, nil
+		return ColumnType{Kind: KindBytes}, nil
 	case strings.Contains(upper, "REAL"), strings.Contains(upper, "FLOA"), strings.Contains(upper, "DOUB"):
-		return DDLColumnType{Kind: DDLColumnKindFloat, Bits: 64}, nil
+		return ColumnType{Kind: KindFloat, Bits: 64}, nil
 	case strings.Contains(upper, "TIMESTAMP"), strings.Contains(upper, "DATETIME"), strings.Contains(upper, "DATE"):
-		return DDLColumnType{Kind: DDLColumnKindTime}, nil
+		return ColumnType{Kind: KindTime}, nil
 	case strings.Contains(upper, "INT"):
-		return DDLColumnType{Kind: DDLColumnKindInt, Bits: 64}, nil
+		return ColumnType{Kind: KindInt, Bits: 64}, nil
 	default:
-		return DDLColumnType{RawType: rawType}, nil
+		return ColumnType{RawType: rawType}, nil
 	}
 }
 
-func (d SQLiteDialect) DDLColumnType(desc DDLColumnType) string {
+func (d SQLiteDialect) ColumnTypeSQL(desc ColumnType) string {
 	if desc.RawType != "" {
 		return desc.RawType
 	}
 
 	switch desc.Kind {
-	case DDLColumnKindBool:
+	case KindBool:
 		return "BOOLEAN"
-	case DDLColumnKindBytes:
+	case KindBytes:
 		return "BLOB"
-	case DDLColumnKindFloat:
+	case KindFloat:
 		return "REAL"
-	case DDLColumnKindInt:
+	case KindInt:
 		return "INTEGER"
-	case DDLColumnKindString:
+	case KindString:
 		if desc.Size <= 0 {
 			return fmt.Sprintf("VARCHAR(%d)", defaultDDLStringSize)
 		}
 
 		return fmt.Sprintf("VARCHAR(%d)", desc.Size)
-	case DDLColumnKindTime:
+	case KindTime:
 		return "TIMESTAMP"
 	default:
 		return "TEXT"
 	}
 }
 
-func (d SQLiteDialect) DDLAutoIncrementPrimaryKey(quotedColumn string, desc DDLColumnType) (string, error) {
-	if desc.Kind != DDLColumnKindInt {
+func (d SQLiteDialect) AutoIncrementColumnSQL(quotedColumn string, desc ColumnType) (string, error) {
+	if desc.Kind != KindInt {
 		return "", errors.New("auto-increment primary key requires an integer field")
 	}
 
-	return quotedColumn + " INTEGER PRIMARY KEY " + d.AutoIncrementClause(), nil
+	return quotedColumn + " INTEGER PRIMARY KEY AUTOINCREMENT", nil
 }
 
-func (d SQLiteDialect) DDLCreateIndex(table, idx string, fields []string, unique bool) string {
+func (d SQLiteDialect) CreateIndexSQL(table, idx string, fields []string, unique bool) string {
 	uniqueClause := ""
 	if unique {
 		uniqueClause = "UNIQUE "
@@ -457,21 +441,21 @@ func (d SQLiteDialect) DDLCreateIndex(table, idx string, fields []string, unique
 	return fmt.Sprintf(
 		"CREATE %sINDEX %s ON %s(%s)%s",
 		uniqueClause,
-		d.QuoteField(idx),
-		d.QuoteField(table),
+		d.QuoteIdent(idx),
+		d.QuoteIdent(table),
 		strings.Join(fields, ", "),
-		d.CreateIndexSuffix(),
+		";",
 	)
 }
 
-func (d SQLiteDialect) DDLDropIndex(table, idx string) string {
-	return fmt.Sprintf("DROP INDEX %s;", d.QuoteField(idx))
+func (d SQLiteDialect) DropIndexSQL(table, idx string) string {
+	return fmt.Sprintf("DROP INDEX %s;", d.QuoteIdent(idx))
 }
 
-func (d SQLiteDialect) DDLAlterColumnMode() DDLAlterColumnMode {
-	return DDLAlterColumnRebuild
+func (d SQLiteDialect) AlterMode() AlterMode {
+	return AlterRebuild
 }
 
-func (d SQLiteDialect) DDLAlterColumnStatements(table string, before, after DDLColumnSpec) []string {
+func (d SQLiteDialect) AlterColumnSQL(table string, before, after ColumnSpec) []string {
 	return nil
 }

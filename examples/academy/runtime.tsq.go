@@ -14,11 +14,11 @@ func TSQTables() []tsq.TableRegistration {
 	return []tsq.TableRegistration{
 		{
 			Table: TableCourse,
-			Columns: []tsqdialect.DDLColumnSpec{
+			Columns: []tsqdialect.ColumnSpec{
 				{
 					Name: "id",
-					Type: tsqdialect.DDLColumnType{
-						Kind: tsqdialect.DDLColumnKindInt,
+					Type: tsqdialect.ColumnType{
+						Kind: tsqdialect.KindInt,
 						Bits: 64,
 					},
 					PrimaryKey:    true,
@@ -26,63 +26,63 @@ func TSQTables() []tsq.TableRegistration {
 				},
 				{
 					Name: "created_at",
-					Type: tsqdialect.DDLColumnType{
-						Kind:     tsqdialect.DDLColumnKindTime,
+					Type: tsqdialect.ColumnType{
+						Kind:     tsqdialect.KindTime,
 						Nullable: true,
 					},
 				},
 				{
 					Name: "instructor_id",
-					Type: tsqdialect.DDLColumnType{
-						Kind: tsqdialect.DDLColumnKindInt,
+					Type: tsqdialect.ColumnType{
+						Kind: tsqdialect.KindInt,
 						Bits: 64,
 					},
 				},
 				{
 					Name: "level",
-					Type: tsqdialect.DDLColumnType{
-						Kind: tsqdialect.DDLColumnKindInt,
+					Type: tsqdialect.ColumnType{
+						Kind: tsqdialect.KindInt,
 						Bits: 32,
 					},
 				},
 				{
 					Name: "list_price_cents",
-					Type: tsqdialect.DDLColumnType{
-						Kind: tsqdialect.DDLColumnKindInt,
+					Type: tsqdialect.ColumnType{
+						Kind: tsqdialect.KindInt,
 						Bits: 64,
 					},
 				},
 				{
 					Name: "prerequisite_id",
-					Type: tsqdialect.DDLColumnType{
-						Kind: tsqdialect.DDLColumnKindInt,
+					Type: tsqdialect.ColumnType{
+						Kind: tsqdialect.KindInt,
 						Bits: 64,
 					},
 				},
 				{
 					Name: "published",
-					Type: tsqdialect.DDLColumnType{
-						Kind: tsqdialect.DDLColumnKindBool,
+					Type: tsqdialect.ColumnType{
+						Kind: tsqdialect.KindBool,
 					},
 				},
 				{
 					Name: "summary",
-					Type: tsqdialect.DDLColumnType{
-						Kind: tsqdialect.DDLColumnKindString,
+					Type: tsqdialect.ColumnType{
+						Kind: tsqdialect.KindString,
 						Size: 4096,
 					},
 				},
 				{
 					Name: "title",
-					Type: tsqdialect.DDLColumnType{
-						Kind: tsqdialect.DDLColumnKindString,
+					Type: tsqdialect.ColumnType{
+						Kind: tsqdialect.KindString,
 						Size: 160,
 					},
 				},
 				{
 					Name: "track_id",
-					Type: tsqdialect.DDLColumnType{
-						Kind: tsqdialect.DDLColumnKindInt,
+					Type: tsqdialect.ColumnType{
+						Kind: tsqdialect.KindInt,
 						Bits: 64,
 					},
 				},
@@ -98,11 +98,11 @@ func TSQTables() []tsq.TableRegistration {
 		},
 		{
 			Table: TableEnrollment,
-			Columns: []tsqdialect.DDLColumnSpec{
+			Columns: []tsqdialect.ColumnSpec{
 				{
 					Name: "uid",
-					Type: tsqdialect.DDLColumnType{
-						Kind: tsqdialect.DDLColumnKindInt,
+					Type: tsqdialect.ColumnType{
+						Kind: tsqdialect.KindInt,
 						Bits: 64,
 					},
 					PrimaryKey:    true,
@@ -110,66 +110,66 @@ func TSQTables() []tsq.TableRegistration {
 				},
 				{
 					Name: "created_at",
-					Type: tsqdialect.DDLColumnType{
-						Kind: tsqdialect.DDLColumnKindTime,
+					Type: tsqdialect.ColumnType{
+						Kind: tsqdialect.KindTime,
 					},
 					Default: "CURRENT_TIMESTAMP",
 				},
 				{
 					Name: "updated_at",
-					Type: tsqdialect.DDLColumnType{
-						Kind:     tsqdialect.DDLColumnKindTime,
+					Type: tsqdialect.ColumnType{
+						Kind:     tsqdialect.KindTime,
 						Nullable: true,
 					},
 				},
 				{
 					Name: "deleted_at",
-					Type: tsqdialect.DDLColumnType{
-						Kind: tsqdialect.DDLColumnKindInt,
+					Type: tsqdialect.ColumnType{
+						Kind: tsqdialect.KindInt,
 						Bits: 64,
 					},
 					Default: "0",
 				},
 				{
 					Name: "version",
-					Type: tsqdialect.DDLColumnType{
-						Kind: tsqdialect.DDLColumnKindInt,
+					Type: tsqdialect.ColumnType{
+						Kind: tsqdialect.KindInt,
 						Bits: 64,
 					},
 					Default: "1",
 				},
 				{
 					Name: "course_id",
-					Type: tsqdialect.DDLColumnType{
-						Kind: tsqdialect.DDLColumnKindInt,
+					Type: tsqdialect.ColumnType{
+						Kind: tsqdialect.KindInt,
 						Bits: 64,
 					},
 				},
 				{
 					Name: "fee_cents",
-					Type: tsqdialect.DDLColumnType{
-						Kind: tsqdialect.DDLColumnKindInt,
+					Type: tsqdialect.ColumnType{
+						Kind: tsqdialect.KindInt,
 						Bits: 64,
 					},
 				},
 				{
 					Name: "learner_id",
-					Type: tsqdialect.DDLColumnType{
-						Kind: tsqdialect.DDLColumnKindInt,
+					Type: tsqdialect.ColumnType{
+						Kind: tsqdialect.KindInt,
 						Bits: 64,
 					},
 				},
 				{
 					Name: "score",
-					Type: tsqdialect.DDLColumnType{
-						Kind: tsqdialect.DDLColumnKindInt,
+					Type: tsqdialect.ColumnType{
+						Kind: tsqdialect.KindInt,
 						Bits: 64,
 					},
 				},
 				{
 					Name: "status",
-					Type: tsqdialect.DDLColumnType{
-						Kind: tsqdialect.DDLColumnKindInt,
+					Type: tsqdialect.ColumnType{
+						Kind: tsqdialect.KindInt,
 						Bits: 32,
 					},
 				},
@@ -183,11 +183,11 @@ func TSQTables() []tsq.TableRegistration {
 		},
 		{
 			Table: TableInstructor,
-			Columns: []tsqdialect.DDLColumnSpec{
+			Columns: []tsqdialect.ColumnSpec{
 				{
 					Name: "id",
-					Type: tsqdialect.DDLColumnType{
-						Kind: tsqdialect.DDLColumnKindInt,
+					Type: tsqdialect.ColumnType{
+						Kind: tsqdialect.KindInt,
 						Bits: 64,
 					},
 					PrimaryKey:    true,
@@ -195,36 +195,36 @@ func TSQTables() []tsq.TableRegistration {
 				},
 				{
 					Name: "created_at",
-					Type: tsqdialect.DDLColumnType{
-						Kind:     tsqdialect.DDLColumnKindTime,
+					Type: tsqdialect.ColumnType{
+						Kind:     tsqdialect.KindTime,
 						Nullable: true,
 					},
 				},
 				{
 					Name: "bio",
-					Type: tsqdialect.DDLColumnType{
-						Kind: tsqdialect.DDLColumnKindString,
+					Type: tsqdialect.ColumnType{
+						Kind: tsqdialect.KindString,
 						Size: 2048,
 					},
 				},
 				{
 					Name: "email",
-					Type: tsqdialect.DDLColumnType{
-						Kind: tsqdialect.DDLColumnKindString,
+					Type: tsqdialect.ColumnType{
+						Kind: tsqdialect.KindString,
 						Size: 160,
 					},
 				},
 				{
 					Name: "name",
-					Type: tsqdialect.DDLColumnType{
-						Kind: tsqdialect.DDLColumnKindString,
+					Type: tsqdialect.ColumnType{
+						Kind: tsqdialect.KindString,
 						Size: 120,
 					},
 				},
 				{
 					Name: "specialty",
-					Type: tsqdialect.DDLColumnType{
-						Kind: tsqdialect.DDLColumnKindString,
+					Type: tsqdialect.ColumnType{
+						Kind: tsqdialect.KindString,
 						Size: 160,
 					},
 				},
@@ -236,11 +236,11 @@ func TSQTables() []tsq.TableRegistration {
 		},
 		{
 			Table: TableLearner,
-			Columns: []tsqdialect.DDLColumnSpec{
+			Columns: []tsqdialect.ColumnSpec{
 				{
 					Name: "id",
-					Type: tsqdialect.DDLColumnType{
-						Kind: tsqdialect.DDLColumnKindInt,
+					Type: tsqdialect.ColumnType{
+						Kind: tsqdialect.KindInt,
 						Bits: 64,
 					},
 					PrimaryKey:    true,
@@ -248,29 +248,29 @@ func TSQTables() []tsq.TableRegistration {
 				},
 				{
 					Name: "created_at",
-					Type: tsqdialect.DDLColumnType{
-						Kind:     tsqdialect.DDLColumnKindTime,
+					Type: tsqdialect.ColumnType{
+						Kind:     tsqdialect.KindTime,
 						Nullable: true,
 					},
 				},
 				{
 					Name: "company",
-					Type: tsqdialect.DDLColumnType{
-						Kind: tsqdialect.DDLColumnKindString,
+					Type: tsqdialect.ColumnType{
+						Kind: tsqdialect.KindString,
 						Size: 160,
 					},
 				},
 				{
 					Name: "email",
-					Type: tsqdialect.DDLColumnType{
-						Kind: tsqdialect.DDLColumnKindString,
+					Type: tsqdialect.ColumnType{
+						Kind: tsqdialect.KindString,
 						Size: 160,
 					},
 				},
 				{
 					Name: "name",
-					Type: tsqdialect.DDLColumnType{
-						Kind: tsqdialect.DDLColumnKindString,
+					Type: tsqdialect.ColumnType{
+						Kind: tsqdialect.KindString,
 						Size: 120,
 					},
 				},
@@ -284,11 +284,11 @@ func TSQTables() []tsq.TableRegistration {
 		},
 		{
 			Table: TableTrack,
-			Columns: []tsqdialect.DDLColumnSpec{
+			Columns: []tsqdialect.ColumnSpec{
 				{
 					Name: "id",
-					Type: tsqdialect.DDLColumnType{
-						Kind: tsqdialect.DDLColumnKindInt,
+					Type: tsqdialect.ColumnType{
+						Kind: tsqdialect.KindInt,
 						Bits: 64,
 					},
 					PrimaryKey:    true,
@@ -296,30 +296,30 @@ func TSQTables() []tsq.TableRegistration {
 				},
 				{
 					Name: "created_at",
-					Type: tsqdialect.DDLColumnType{
-						Kind:     tsqdialect.DDLColumnKindTime,
+					Type: tsqdialect.ColumnType{
+						Kind:     tsqdialect.KindTime,
 						Nullable: true,
 					},
 				},
 				{
 					Name: "description",
-					Type: tsqdialect.DDLColumnType{
-						Kind: tsqdialect.DDLColumnKindString,
+					Type: tsqdialect.ColumnType{
+						Kind: tsqdialect.KindString,
 						Size: 1024,
 					},
 				},
 				{
 					Name: "name",
-					Type: tsqdialect.DDLColumnType{
-						Kind: tsqdialect.DDLColumnKindString,
+					Type: tsqdialect.ColumnType{
+						Kind: tsqdialect.KindString,
 						Size: 120,
 					},
 				},
 				{
 					Name: "skill_items",
-					Type: tsqdialect.DDLColumnType{
+					Type: tsqdialect.ColumnType{
 						RawType: "JSON",
-						Kind:    tsqdialect.DDLColumnKindBytes,
+						Kind:    tsqdialect.KindBytes,
 					},
 				},
 			},

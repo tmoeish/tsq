@@ -105,7 +105,7 @@ func renderSQLForDialect(raw string, sqlDialect tsqdialect.Dialect) string {
 			return canonicalQuoteIdentifier(name)
 		}
 
-		return sqlDialect.QuoteField(name)
+		return sqlDialect.QuoteIdent(name)
 	})
 
 	if sqlDialect == nil {
@@ -317,7 +317,7 @@ func rewriteBindVars(sql string, dialect tsqdialect.Dialect) string {
 		return sql
 	}
 
-	if dialect.BindVar(0) == "?" {
+	if dialect.Placeholder(0) == "?" {
 		return sql
 	}
 
@@ -332,7 +332,7 @@ func rewriteBindVars(sql string, dialect tsqdialect.Dialect) string {
 			return 0, false, false
 		}
 
-		out.WriteString(dialect.BindVar(bindIndex))
+		out.WriteString(dialect.Placeholder(bindIndex))
 
 		bindIndex++
 

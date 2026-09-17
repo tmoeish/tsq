@@ -206,7 +206,7 @@ func TestIntegrationReconcileAltersOnlyTheChangedColumn(t *testing.T) {
 			widened := widenLearnerCompany(t, academy.TSQTables(), 200)
 
 			rt, recorder := openWithPolicy(t, target, widened, tsq.SchemaPolicyReconcile)
-			if rt.Dialect().DDLAlterColumnMode() != tsqdialect.DDLAlterColumnRebuild && recorder.count() != 1 {
+			if rt.Dialect().AlterMode() != tsqdialect.AlterRebuild && recorder.count() != 1 {
 				t.Fatalf("expected exactly one ALTER for the widened column, got:\n  %s",
 					strings.Join(recorder.statements(), "\n  "))
 			}
@@ -323,7 +323,7 @@ func TestIntegrationLockConflictsAreRetryable(t *testing.T) {
 			}
 			defer holder.Rollback() //nolint:errcheck // best-effort cleanup
 
-			lockSQL := fmt.Sprintf("SELECT id FROM track WHERE id = %s FOR UPDATE", rt.Dialect().BindVar(0))
+			lockSQL := fmt.Sprintf("SELECT id FROM track WHERE id = %s FOR UPDATE", rt.Dialect().Placeholder(0))
 			if _, err := holder.ExecContext(ctx, lockSQL, track.ID); err != nil {
 				t.Fatalf("hold row lock: %v", err)
 			}
@@ -446,8 +446,8 @@ func TestIntegrationCapabilitiesExecute(t *testing.T) {
 					MustBuild()
 
 				_, err := query.List(ctx, rt)
-				if _, ok := errors.AsType[*tsqdialect.ErrUnsupportedCapability](err); !ok {
-					t.Fatalf("expected ErrUnsupportedCapability for FULL JOIN on %s, got %v", target.name, err)
+				if _, ok := errors.AsType[*tsqdialect.UnsupportedCapabilityError](err); !ok {
+					t.Fatalf("expected UnsupportedCapabilityError for FULL JOIN on %s, got %v", target.name, err)
 				}
 			}
 		})
@@ -614,7 +614,7 @@ func TestIntegrationSchemaPolicyNeverDropsUndeclaredTables(t *testing.T) {
 			}
 
 			for _, name := range []string{"learner", "course", "enrollment"} {
-				_, found, err := academyRT.Dialect().InspectTableColumns(ctx, academyRT.DB(), name)
+				_, found, err := academyRT.Dialect().InspectColumns(ctx, academyRT.DB(), name)
 				if err != nil {
 					t.Fatalf("inspect %s on %s: %v", name, target.name, err)
 				}

@@ -74,7 +74,7 @@
 
 | 关注点 | 文件 |
 | --- | --- |
-| `Dialect` 接口、`Capability` 枚举、`ErrUnsupportedCapability` | `dialect/dialect.go` |
+| `Dialect` 接口、`Capability` 枚举、`UnsupportedCapabilityError` | `dialect/dialect.go` |
 | MySQL | `dialect/mysql.go` |
 | PostgreSQL | `dialect/postgres.go` |
 | SQLite | `dialect/sqlite.go` |

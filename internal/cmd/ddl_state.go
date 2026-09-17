@@ -689,18 +689,11 @@ func renderDDLSnapshotCreateTable(table ddlSnapshotTable, dialect ddlDialectSpec
 	}
 
 	var buf strings.Builder
-	buf.WriteString("CREATE TABLE ")
-
-	if clause := dialect.dialect.CreateTableIfNotExistsSuffix(); clause != "" {
-		buf.WriteString(clause)
-		buf.WriteByte(' ')
-	}
-
-	buf.WriteString(dialect.dialect.QuoteField(table.Name))
+	buf.WriteString("CREATE TABLE IF NOT EXISTS ")
+	buf.WriteString(dialect.dialect.QuoteIdent(table.Name))
 	buf.WriteString(" (\n")
 	buf.WriteString(strings.Join(lines, ",\n"))
-	buf.WriteString("\n)")
-	buf.WriteString(dialect.dialect.CreateTableSuffix())
+	buf.WriteString("\n);")
 
 	return buf.String()
 }
@@ -726,10 +719,10 @@ func renderDDLSnapshotIndexStatements(table ddlSnapshotTable, dialect ddlDialect
 func renderDDLIndexCreateStatement(tableName string, idx ddlSnapshotIndex, dialect ddlDialectSpec) string {
 	quotedFields := make([]string, 0, len(idx.Fields))
 	for _, field := range idx.Fields {
-		quotedFields = append(quotedFields, dialect.dialect.QuoteField(field))
+		quotedFields = append(quotedFields, dialect.dialect.QuoteIdent(field))
 	}
 
-	return dialect.dialect.DDLCreateIndex(tableName, idx.Name, quotedFields, idx.Unique)
+	return dialect.dialect.CreateIndexSQL(tableName, idx.Name, quotedFields, idx.Unique)
 }
 
 func renderDDLIncrementalArtifact(dialect ddlDialectSpec, changes ddlChangeSet) (ddlStateDialectDiff, error) {
@@ -772,7 +765,7 @@ func renderDDLIncrementalTableBody(
 		return "", false
 	}
 
-	if dialect.dialect.DDLAlterColumnMode() == tsqdialect.DDLAlterColumnRebuild && ddlChangesRequireTableRebuild(ops) {
+	if dialect.dialect.AlterMode() == tsqdialect.AlterRebuild && ddlChangesRequireTableRebuild(ops) {
 		body, ok := renderSQLiteRebuildTableBody(dialect, tableName, ops)
 		if ok {
 			return body, true
@@ -828,8 +821,8 @@ func renderSQLiteRebuildTableBody(dialect ddlDialectSpec, tableName string, ops 
 		"BEGIN TRANSACTION;",
 		fmt.Sprintf(
 			"ALTER TABLE %s RENAME TO %s;",
-			dialect.dialect.QuoteField(tableName),
-			dialect.dialect.QuoteField(tempTable),
+			dialect.dialect.QuoteIdent(tableName),
+			dialect.dialect.QuoteIdent(tempTable),
 		),
 		renderDDLSnapshotCreateTable(*after, dialect),
 	}
@@ -839,14 +832,14 @@ func renderSQLiteRebuildTableBody(dialect ddlDialectSpec, tableName string, ops 
 		quotedColumns := quoteDDLColumns(commonColumns, dialect)
 		statements = append(statements, fmt.Sprintf(
 			"INSERT INTO %s (%s) SELECT %s FROM %s;",
-			dialect.dialect.QuoteField(tableName),
+			dialect.dialect.QuoteIdent(tableName),
 			strings.Join(quotedColumns, ", "),
 			strings.Join(quotedColumns, ", "),
-			dialect.dialect.QuoteField(tempTable),
+			dialect.dialect.QuoteIdent(tempTable),
 		))
 	}
 
-	statements = append(statements, fmt.Sprintf("DROP TABLE %s;", dialect.dialect.QuoteField(tempTable)))
+	statements = append(statements, fmt.Sprintf("DROP TABLE %s;", dialect.dialect.QuoteIdent(tempTable)))
 	statements = append(statements, renderDDLSnapshotIndexStatements(*after, dialect)...)
 
 	statements = append(statements, "COMMIT;")
@@ -873,7 +866,7 @@ func sharedDDLSnapshotColumns(before, after ddlSnapshotTable) []string {
 func quoteDDLColumns(columns []string, dialect ddlDialectSpec) []string {
 	quoted := make([]string, 0, len(columns))
 	for _, column := range columns {
-		quoted = append(quoted, dialect.dialect.QuoteField(column))
+		quoted = append(quoted, dialect.dialect.QuoteIdent(column))
 	}
 
 	return quoted
@@ -884,7 +877,7 @@ func renderDDLChangeOperation(dialect ddlDialectSpec, op ddlChange) []string {
 	case ddlChangeCreateTable:
 		return []string{renderDDLSnapshotTableBlock(*op.newTable, dialect)}
 	case ddlChangeDropTable:
-		return []string{fmt.Sprintf("DROP TABLE %s;", dialect.dialect.QuoteField(op.oldTable.Name))}
+		return []string{fmt.Sprintf("DROP TABLE %s;", dialect.dialect.QuoteIdent(op.oldTable.Name))}
 	case ddlChangeAddColumn:
 		if op.newColumn.PrimaryKey || op.newColumn.AutoIncrement {
 			return []string{renderDDLManualComment(op.table, fmt.Sprintf("manual change required to add primary key column %s", op.newColumn.Name))}
@@ -892,14 +885,14 @@ func renderDDLChangeOperation(dialect ddlDialectSpec, op ddlChange) []string {
 
 		return []string{fmt.Sprintf(
 			"ALTER TABLE %s ADD COLUMN %s;",
-			dialect.dialect.QuoteField(op.table),
+			dialect.dialect.QuoteIdent(op.table),
 			renderDDLSnapshotColumnDefinition(*op.newColumn, dialect),
 		)}
 	case ddlChangeDropColumn:
 		return []string{fmt.Sprintf(
 			"ALTER TABLE %s DROP COLUMN %s;",
-			dialect.dialect.QuoteField(op.table),
-			dialect.dialect.QuoteField(op.oldColumn.Name),
+			dialect.dialect.QuoteIdent(op.table),
+			dialect.dialect.QuoteIdent(op.oldColumn.Name),
 		)}
 	case ddlChangeAlterColumn:
 		return renderDDLAlterColumnStatements(dialect, op.table, *op.oldColumn, *op.newColumn)
@@ -922,11 +915,11 @@ func renderDDLAlterColumnStatements(
 		return []string{renderDDLManualComment(tableName, fmt.Sprintf("manual change required for primary key column %s", after.Name))}
 	}
 
-	if dialect.dialect.DDLAlterColumnMode() != tsqdialect.DDLAlterColumnDirect {
+	if dialect.dialect.AlterMode() != tsqdialect.AlterInPlace {
 		return []string{renderDDLManualComment(tableName, fmt.Sprintf("manual change required for column %s on %s", after.Name, ddlDialectName(dialect)))}
 	}
 
-	statements := dialect.dialect.DDLAlterColumnStatements(tableName, ddlColumnSpecFromSnapshot(before), ddlColumnSpecFromSnapshot(after))
+	statements := dialect.dialect.AlterColumnSQL(tableName, ddlColumnSpecFromSnapshot(before), ddlColumnSpecFromSnapshot(after))
 	if len(statements) == 0 {
 		return []string{renderDDLManualComment(tableName, fmt.Sprintf("manual change required for column %s", after.Name))}
 	}
@@ -943,7 +936,7 @@ func ddlColumnTypeChanged(before, after ddlSnapshotColumn) bool {
 }
 
 func renderDDLDropIndexStatement(tableName string, idx ddlSnapshotIndex, dialect ddlDialectSpec) string {
-	return dialect.dialect.DDLDropIndex(tableName, idx.Name)
+	return dialect.dialect.DropIndexSQL(tableName, idx.Name)
 }
 
 func renderDDLManualComment(tableName, message string) string {

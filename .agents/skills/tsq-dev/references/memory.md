@@ -77,7 +77,7 @@ MySQL / PostgreSQL 默认转义字符恰好是反斜杠才侥幸正确——而�
 能力位曾按 2018 年前的引擎写死，README 忠实复述了这些错误。考虑过给 `MySQLDialect` 加
 `ServerVersion` 字段，**否决**：`Build()` 之前根本不知道会连哪个库，版本只能执行时探测，
 那就得每个 `Dialect` 值带状态，和"方言是无状态值类型"冲突。改成按基线表态：MySQL 8.0、
-SQLite ≥3.39。代价是更老的引擎拿到数据库报错而不是 `ErrUnsupportedCapability`。
+SQLite ≥3.39。代价是更老的引擎拿到数据库报错而不是 `UnsupportedCapabilityError`。
 
 ### 决定：commit 阶段只对明确冲突码重试 (2026-08-26)
 
@@ -130,7 +130,7 @@ SQLite ≥3.39。代价是更老的引擎拿到数据库报错而不是 `ErrUnsu
 
 ### 接口里"有定义、有实现、零调用"的钩子 (2026-08-26)
 
-`Dialect.LastInsertIdReturningSuffix` 六个版本零调用，PostgreSQL 上 `Insert` 从来没回填过主键，
+`Dialect.ReturningClause` 六个版本零调用，PostgreSQL 上 `Insert` 从来没回填过主键，
 而唯一的自动化测试是 SQLite 所以一直绿。现在由 `change-impact.md` 的 grep 和 `integration_test.go`
 挡着。**同一天第二个教训**：`Integration` 红着 PR #61 仍被 auto-merge 合进 `main`——auto-merge 只等
 **必需**检查，第一次跑就抓到真 bug 的门不该是可选的。
@@ -220,6 +220,9 @@ v5 不背兼容，一次把名字改到"最合理"。定下的几条规则，每
 - `Table` 接口的方法生成在**使用者的结构体**上，会和字段名冲突，所以 `Cols()` 不改成 `Columns()`；
   `Table()` 改成 `TableName()` 是因为 `SQLColumn.Table()` 返回 `Table`，同名不同义。
 - `BuildSubquery` 保留：它省掉一次 `Build` 的错误检查，24 处调用。
+- `dialect` 包里不加 `DDL` 前缀（包名已经说明语境）；`Dialect` 接口只收**各方言确实不同**的方法，
+  三家返回同一常量的方法内联掉。模板不许拼接常量名（`Kind{{ .Kind }}`）：符号门禁只认完整的
+  `tsqdialect.X`，拼出来的名字改名后照样"通过"，所以由 `columnKindRef` 显式列出。
 
 ### 决定：读单行只留两个入口，语义写在名字里 (2026-09-09，v5)
 
@@ -325,15 +328,12 @@ v4 攒下九个 `Deprecated` 符号，没有任何门禁会提醒它们该走—
 
 ### 任何在合并前后各跑一次的检查，都要确认两次跑的是同一个输入 (2026-08-21)
 
-`commit-msg` 钩子量作者写的主题，`commit-check` 在 `main` 上量的是 squash 追加了 ` (#59)`
-的那条，作者过了钩子却让 `main` 变红。现在 `check_change_log.py` 量长度前剥掉 ` (#\d+)`。
-合并会改写提交信息、SHA 和历史形状三件事，同一天各绊了一次。
+squash 会改写提交信息（追加 ` (#59)`）、SHA 和历史形状，同一天各绊了一次；`check_change_log.py` 量长度前剥掉 ` (#\d+)`。
 
 ### 文档里的 make 目标和 CI 里的是两条独立的真相 (2026-08-21)
 
-CI 调了一个不存在的 `make update-examples`，同一个幽灵在 README / CONTRIBUTING 里又活了
-三个月——**一个被修两次的问题是一个不彻底的修复。** 围栏块里的 `make X` 现在由 `doc-check`
-守着，但它**管不到 `.github/workflows/`**，改目标名那里仍要手动 grep。
+CI 调过不存在的 `make update-examples`，README 里同一个幽灵又活了三个月。`doc-check` 守着文档里的
+`make X`，但**管不到 `.github/workflows/`**，改目标名那里仍要手动 grep。
 
 ### cobra 的互斥标志组按 `Changed` 位判定，测试里必须手动清 (2026-08-21)
 

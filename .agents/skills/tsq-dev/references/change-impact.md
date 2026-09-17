@@ -188,7 +188,7 @@
 
 - **匹配必须跳过字符串字面量和注释**，用 `sqlContainsOutsideLiterals`（它走 `walkSQL`）。裸
   `strings.Contains` 会把 `Where(Note.EQVal(" FOR UPDATE "))` 判成用了行锁，于是一条能跑的查询
-  在 SQLite 上被 `ErrUnsupportedCapability` 拒掉。`[门禁: query_capabilities_test.go]`
+  在 SQLite 上被 `UnsupportedCapabilityError` 拒掉。`[门禁: query_capabilities_test.go]`
 - **不要改成"从 builder 结构导出"**：子查询是以 SQL 文本进入外层条件的，结构里看不见它，那样会
   漏报——而漏报会让查询跑到数据库上才炸，正是这道检查要消灭的东西。
 - 新增一个 `Capability` 常量时，这里要加上识别它的关键字，否则它永远不会被校验。
@@ -209,7 +209,7 @@
 
 - `dialect/dialect.go` 加 `Capability` 常量，**三个方言（mysql / postgres / sqlite）都要
   显式表态**。漏掉一个，默认值会让不支持的方言悄悄放行——那是跑到生产库上才炸的一类错。
-- 执行期不支持要返回 `*ErrUnsupportedCapability`，带上能力名和方言名；
+- 执行期不支持要返回 `*UnsupportedCapabilityError`，带上能力名和方言名；
   `unsupportedCapabilityHint` 里"去哪个方言跑"的提示要跟着改。
 - `integration_test.go` 的 `TestIntegrationCapabilitiesExecute` 对每个方言声明支持的
   能力真跑一遍——声明了但跑不通，CI 的 `Integration` job 会红。
@@ -220,10 +220,10 @@
 ## 给 `Dialect` 接口加了钩子，或改了写路径（`executor_mutation.go`）
 
 - 接口里的钩子必须有调用方：`grep -rn '<钩子名>(' --include='*.go' . | grep -v dialect/`
-  必须命中根包。`LastInsertIdReturningSuffix` 曾经"有定义、有实现、零调用"六个版本，
+  必须命中根包。`ReturningClause` 曾经"有定义、有实现、零调用"六个版本，
   PostgreSQL 上 `Insert` 从来没回填过主键（2026-08-26 集成测试第一次跑就抓到）。
 - 主键回填有两条路：`ExecContext` + `LastInsertId()` + `BatchInsertStartID`（MySQL /
-  SQLite），和 `INSERT ... RETURNING` + 按顺序扫描（返回非空 `LastInsertIdReturningSuffix`
+  SQLite），和 `INSERT ... RETURNING` + 按顺序扫描（返回非空 `ReturningClause`
   的方言，即 PostgreSQL）。改任何一条要看 `TestEngineInsertAssignsIDsThroughReturningClause`
   和 `integration_test.go` 的 CRUD 用例。
 

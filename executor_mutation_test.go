@@ -295,8 +295,8 @@ type returningDialect struct {
 	tsqdialect.SQLiteDialect
 }
 
-func (returningDialect) LastInsertIdReturningSuffix(_, col string) string {
-	return " RETURNING " + tsqdialect.SQLiteDialect{}.QuoteField(col)
+func (returningDialect) ReturningClause(col string) string {
+	return " RETURNING " + tsqdialect.SQLiteDialect{}.QuoteIdent(col)
 }
 
 func (returningDialect) BatchInsertStartID(int64, int64) (int64, bool) {

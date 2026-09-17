@@ -179,9 +179,9 @@ var _ tsq.SQLiteDialect
 		{
 			name: "ddl_column_type_hidden",
 			body: `
-var _ tsq.DDLColumnType
+var _ tsq.ColumnType
 `,
-			want: "undefined: tsq.DDLColumnType",
+			want: "undefined: tsq.ColumnType",
 		},
 		{
 			name: "table_column_rejects_result_col",

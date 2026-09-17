@@ -66,7 +66,7 @@
 ## 校验分两边，边界是有意的
 
 - `Build()` 只校验**结构**：列属不属于查询涉及的表、聚合和 GROUP BY 合不合法、有没有选列。
-- **方言能力**（CTE、`FULL JOIN`、行锁）在**执行**时才校验，返回 `*ErrUnsupportedCapability`，
+- **方言能力**（CTE、`FULL JOIN`、行锁）在**执行**时才校验，返回 `*UnsupportedCapabilityError`，
   错误里必须带能力名和方言名。
 - 把方言校验提前到 `Build()` 会断掉"一个 `*Query` 在多个方言上复用"这个用法。改校验之前
   先确定它属于哪一边。

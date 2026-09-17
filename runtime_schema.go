@@ -14,8 +14,8 @@ import (
 
 type tableColumnChange struct {
 	kind   string
-	before *tsqdialect.DDLColumnSpec
-	after  *tsqdialect.DDLColumnSpec
+	before *tsqdialect.ColumnSpec
+	after  *tsqdialect.ColumnSpec
 }
 
 const (
@@ -175,7 +175,7 @@ func (r *Runtime) applyTablePolicyForTable(ctx context.Context, table *registere
 		return fmt.Errorf("table %s does not include runtime schema columns; regenerate TSQ code before using table management", tableName)
 	}
 
-	current, found, err := r.dialect.InspectTableColumns(ctx, r.db, tableName)
+	current, found, err := r.dialect.InspectColumns(ctx, r.db, tableName)
 	if err != nil {
 		return fmt.Errorf("inspect table %s: %w", tableName, err)
 	}
@@ -209,7 +209,7 @@ func (r *Runtime) applyTablePolicyForTable(ctx context.Context, table *registere
 			}
 		}
 
-		if r.dialect.DDLAlterColumnMode() == tsqdialect.DDLAlterColumnRebuild && hasAlterColumnChange(changes) {
+		if r.dialect.AlterMode() == tsqdialect.AlterRebuild && hasAlterColumnChange(changes) {
 			if err := r.rebuildTable(ctx, tableName, current, table.Columns); err != nil {
 				return fmt.Errorf("reconcile table %s: %w", tableName, err)
 			}
@@ -239,8 +239,8 @@ func (r *Runtime) applyTablePolicyForTable(ctx context.Context, table *registere
 func (r *Runtime) rebuildTable(
 	ctx context.Context,
 	tableName string,
-	current []tsqdialect.DDLColumnSpec,
-	desired []tsqdialect.DDLColumnSpec,
+	current []tsqdialect.ColumnSpec,
+	desired []tsqdialect.ColumnSpec,
 ) error {
 	existingIndexes, err := r.dialect.ListIndexes(ctx, r.db, tableName)
 	if err != nil {
@@ -281,7 +281,7 @@ func (r *Runtime) applyIndexPolicy(ctx context.Context) error {
 
 func (r *Runtime) applyIndexPolicyForTable(ctx context.Context, table *registeredTable) error {
 	tableName := physicalTableName(table.Table)
-	if _, found, err := r.dialect.InspectTableColumns(ctx, r.db, tableName); err != nil {
+	if _, found, err := r.dialect.InspectColumns(ctx, r.db, tableName); err != nil {
 		return err
 	} else if !found {
 		return &MissingTableError{Name: tableName}
@@ -292,7 +292,7 @@ func (r *Runtime) applyIndexPolicyForTable(ctx context.Context, table *registere
 		return fmt.Errorf("list indexes for %s: %w", tableName, err)
 	}
 
-	currentByName := make(map[string]tsqdialect.NamedIndexDefinition, len(currentIndexes))
+	currentByName := make(map[string]tsqdialect.Index, len(currentIndexes))
 	for _, idx := range currentIndexes {
 		currentByName[idx.Name] = idx
 	}
@@ -316,7 +316,7 @@ func (r *Runtime) applyIndexPolicyForTable(ctx context.Context, table *registere
 				}
 			}
 
-			statement, err := r.dialect.EnsureIndex(ctx, r.db, tableName, idx.Unique, idx.Name, idx.Fields)
+			statement, err := r.dialect.EnsureIndex(ctx, r.db, tableName, idx.Name, idx.Fields, idx.Unique)
 			if err != nil {
 				return fmt.Errorf("create index %s on %s: %w", idx.Name, tableName, err)
 			}
@@ -328,12 +328,12 @@ func (r *Runtime) applyIndexPolicyForTable(ctx context.Context, table *registere
 			continue
 		}
 
-		definition := tsqdialect.IndexDefinition{
+		definition := tsqdialect.Index{
 			Table:  existing.Table,
 			Unique: existing.Unique,
 			Fields: existing.Fields,
 		}
-		if err := validateIndexDefinition(tableName, idx.Unique, idx.Name, idx.Fields, definition); err != nil {
+		if err := validateIndex(tableName, idx.Unique, idx.Name, idx.Fields, definition); err != nil {
 			if r.indexPolicy == SchemaPolicyValidate || r.indexPolicy == SchemaPolicyCreateMissing {
 				return err
 			}
@@ -342,12 +342,12 @@ func (r *Runtime) applyIndexPolicyForTable(ctx context.Context, table *registere
 				return fmt.Errorf("cannot rebuild index %s on table %s because it is backed by a primary key or constraint", idx.Name, tableName)
 			}
 
-			dropStatement := r.dialect.DDLDropIndex(tableName, idx.Name)
+			dropStatement := r.dialect.DropIndexSQL(tableName, idx.Name)
 			if err := r.execDDL(ctx, dropStatement); err != nil {
 				return err
 			}
 
-			createStatement, err := r.dialect.EnsureIndex(ctx, r.db, tableName, idx.Unique, idx.Name, idx.Fields)
+			createStatement, err := r.dialect.EnsureIndex(ctx, r.db, tableName, idx.Name, idx.Fields, idx.Unique)
 			if err != nil {
 				return fmt.Errorf("recreate index %s on %s: %w", idx.Name, tableName, err)
 			}
@@ -378,15 +378,15 @@ func (r *Runtime) execDDL(ctx context.Context, statement string) error {
 
 func diffTableColumns(
 	dialect tsqdialect.Dialect,
-	current []tsqdialect.DDLColumnSpec,
-	desired []tsqdialect.DDLColumnSpec,
+	current []tsqdialect.ColumnSpec,
+	desired []tsqdialect.ColumnSpec,
 ) []tableColumnChange {
-	currentByName := make(map[string]tsqdialect.DDLColumnSpec, len(current))
+	currentByName := make(map[string]tsqdialect.ColumnSpec, len(current))
 	for _, column := range current {
 		currentByName[column.Name] = column
 	}
 
-	desiredByName := make(map[string]tsqdialect.DDLColumnSpec, len(desired))
+	desiredByName := make(map[string]tsqdialect.ColumnSpec, len(desired))
 	for _, column := range desired {
 		desiredByName[column.Name] = column
 	}
@@ -436,8 +436,8 @@ func diffTableColumns(
 	return changes
 }
 
-func columnsEqual(dialect tsqdialect.Dialect, left, right tsqdialect.DDLColumnSpec) bool {
-	if !tsqdialect.DDLColumnTypesEquivalent(dialect, left, right) ||
+func columnsEqual(dialect tsqdialect.Dialect, left, right tsqdialect.ColumnSpec) bool {
+	if !tsqdialect.SameColumnType(dialect, left, right) ||
 		left.PrimaryKey != right.PrimaryKey ||
 		left.AutoIncrement != right.AutoIncrement ||
 		left.Type.Nullable != right.Type.Nullable {
@@ -484,7 +484,7 @@ func summarizeTableColumnChanges(changes []tableColumnChange) string {
 func renderCreateTableStatement(
 	dialect tsqdialect.Dialect,
 	tableName string,
-	columns []tsqdialect.DDLColumnSpec,
+	columns []tsqdialect.ColumnSpec,
 ) (string, error) {
 	lines := make([]string, 0, len(columns))
 	for _, column := range columns {
@@ -497,29 +497,22 @@ func renderCreateTableStatement(
 	}
 
 	var buf strings.Builder
-	buf.WriteString("CREATE TABLE ")
-
-	if clause := dialect.CreateTableIfNotExistsSuffix(); clause != "" {
-		buf.WriteString(clause)
-		buf.WriteByte(' ')
-	}
-
-	buf.WriteString(dialect.QuoteField(tableName))
+	buf.WriteString("CREATE TABLE IF NOT EXISTS ")
+	buf.WriteString(dialect.QuoteIdent(tableName))
 	buf.WriteString(" (\n")
 	buf.WriteString(strings.Join(lines, ",\n"))
-	buf.WriteString("\n)")
-	buf.WriteString(dialect.CreateTableSuffix())
+	buf.WriteString("\n);")
 
 	return buf.String(), nil
 }
 
-func renderRuntimeDDLColumnSpec(dialect tsqdialect.Dialect, column tsqdialect.DDLColumnSpec) (string, error) {
-	quotedColumn := dialect.QuoteField(column.Name)
+func renderRuntimeDDLColumnSpec(dialect tsqdialect.Dialect, column tsqdialect.ColumnSpec) (string, error) {
+	quotedColumn := dialect.QuoteIdent(column.Name)
 	if column.PrimaryKey && column.AutoIncrement {
-		return dialect.DDLAutoIncrementPrimaryKey(quotedColumn, column.Type)
+		return dialect.AutoIncrementColumnSQL(quotedColumn, column.Type)
 	}
 
-	parts := []string{quotedColumn, dialect.DDLColumnType(column.Type)}
+	parts := []string{quotedColumn, dialect.ColumnTypeSQL(column.Type)}
 	if column.PrimaryKey {
 		parts = append(parts, "PRIMARY KEY")
 	} else if !column.Type.Nullable {
@@ -549,17 +542,17 @@ func renderTableColumnChanges(
 
 			statements = append(statements, fmt.Sprintf(
 				"ALTER TABLE %s ADD COLUMN %s;",
-				dialect.QuoteField(tableName),
+				dialect.QuoteIdent(tableName),
 				rendered,
 			))
 		case tableColumnDrop:
 			statements = append(statements, fmt.Sprintf(
 				"ALTER TABLE %s DROP COLUMN %s;",
-				dialect.QuoteField(tableName),
-				dialect.QuoteField(change.before.Name),
+				dialect.QuoteIdent(tableName),
+				dialect.QuoteIdent(change.before.Name),
 			))
 		case tableColumnAlter:
-			rendered := dialect.DDLAlterColumnStatements(tableName, *change.before, *change.after)
+			rendered := dialect.AlterColumnSQL(tableName, *change.before, *change.after)
 			if len(rendered) == 0 {
 				return nil, fmt.Errorf("manual change required for column %s", change.after.Name)
 			}
@@ -583,9 +576,9 @@ func hasAlterColumnChange(changes []tableColumnChange) bool {
 func renderRebuildTableStatements(
 	dialect tsqdialect.Dialect,
 	tableName string,
-	current []tsqdialect.DDLColumnSpec,
-	desired []tsqdialect.DDLColumnSpec,
-	existingIndexes []tsqdialect.NamedIndexDefinition,
+	current []tsqdialect.ColumnSpec,
+	desired []tsqdialect.ColumnSpec,
+	existingIndexes []tsqdialect.Index,
 ) ([]string, error) {
 	tempTable := "__tsq_rebuild_" + tableName
 
@@ -598,8 +591,8 @@ func renderRebuildTableStatements(
 	statements := []string{
 		fmt.Sprintf(
 			"ALTER TABLE %s RENAME TO %s;",
-			dialect.QuoteField(tableName),
-			dialect.QuoteField(tempTable),
+			dialect.QuoteIdent(tableName),
+			dialect.QuoteIdent(tempTable),
 		),
 		createStatement,
 	}
@@ -607,19 +600,19 @@ func renderRebuildTableStatements(
 	if len(shared) > 0 {
 		quotedColumns := make([]string, 0, len(shared))
 		for _, name := range shared {
-			quotedColumns = append(quotedColumns, dialect.QuoteField(name))
+			quotedColumns = append(quotedColumns, dialect.QuoteIdent(name))
 		}
 
 		statements = append(statements, fmt.Sprintf(
 			"INSERT INTO %s (%s) SELECT %s FROM %s;",
-			dialect.QuoteField(tableName),
+			dialect.QuoteIdent(tableName),
 			strings.Join(quotedColumns, ", "),
 			strings.Join(quotedColumns, ", "),
-			dialect.QuoteField(tempTable),
+			dialect.QuoteIdent(tempTable),
 		))
 	}
 
-	statements = append(statements, fmt.Sprintf("DROP TABLE %s;", dialect.QuoteField(tempTable)))
+	statements = append(statements, fmt.Sprintf("DROP TABLE %s;", dialect.QuoteIdent(tempTable)))
 
 	// Dropping the old table also drops its indexes; restore every secondary
 	// index that still applies, regardless of the index policy in effect.
@@ -631,8 +624,8 @@ func renderRebuildTableStatements(
 func renderRebuildIndexStatements(
 	dialect tsqdialect.Dialect,
 	tableName string,
-	desired []tsqdialect.DDLColumnSpec,
-	existingIndexes []tsqdialect.NamedIndexDefinition,
+	desired []tsqdialect.ColumnSpec,
+	existingIndexes []tsqdialect.Index,
 ) []string {
 	desiredNames := make(map[string]struct{}, len(desired))
 	for _, column := range desired {
@@ -657,20 +650,20 @@ func renderRebuildIndexStatements(
 				break
 			}
 
-			quotedFields = append(quotedFields, dialect.QuoteField(field))
+			quotedFields = append(quotedFields, dialect.QuoteIdent(field))
 		}
 
 		if !applicable {
 			continue
 		}
 
-		statements = append(statements, dialect.DDLCreateIndex(tableName, idx.Name, quotedFields, idx.Unique))
+		statements = append(statements, dialect.CreateIndexSQL(tableName, idx.Name, quotedFields, idx.Unique))
 	}
 
 	return statements
 }
 
-func sharedColumnNames(current, desired []tsqdialect.DDLColumnSpec) []string {
+func sharedColumnNames(current, desired []tsqdialect.ColumnSpec) []string {
 	currentByName := make(map[string]struct{}, len(current))
 	for _, column := range current {
 		currentByName[column.Name] = struct{}{}
