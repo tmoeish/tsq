@@ -13,12 +13,12 @@
 | 参数：`Param` / `ListParam` / `Arg`、绑定校验、空列表渲染、LIKE 转义 | `param.go`（`build_test.go` 守绑定规则） |
 | 列接口与实现、谓词、`Expr` / `Pred`、`MapInto` | `column.go` |
 | 固定值 `Val` / `Vals`（比较里拒绝 NULL、`Set` 里允许；`Value` 和 `Param` 共同实现模式函数的 `Pattern[S]`） | `values.go`、`param.go`（`values_test.go`；模式转义三方言真跑在 `TestIntegrationKeywordSearchEscapesWildcards`） |
-| 包级类型约束函数（`Text` / `Number`、聚合、字符串、数值、日期、`Coalesce` / `NullIf`、`StartsWith` 等模式函数、`Searchable`） | `functions.go`（`compilefail_test.go` 守约束；`integration_test.go` 的 `TestIntegrationColumnFunctionsArePortable` 三方言真跑） |
+| 包级类型约束函数（`Text` / `Number`、聚合、字符串、数值、日期、`Coalesce` / `NullIf`、`StartsWith` 等模式函数、`Searchable`） | `functions.go`（`compilefail_test.go` 守约束；`internal/integration` 的 `TestIntegrationColumnFunctionsArePortable` 三方言真跑） |
 | `Condition`、`And` / `Or` / `Not`、`Exists` / `NotExists`、`exprInfo` | `expr.go` |
 | `CASE` | `case.go` |
 | `ORDER BY` 方向解析 | `order.go` |
 | 分页 `Paging` / `PageResponse`、HTTP 形态 `PageRequest`（`Validate` / `Normalize` / `Paging(sortable...)`）、排序字段错误类型 | `paging.go`（`exec_test.go` 的 `TestPageSearchesSortsAndCounts`） |
-| 软删除作用域（`WithDeleted`、`liveRows` / `liveSource`、JOIN 位置规则） | `table.go` + `query_render.go` 的 `writeFromWhere`（`exec_test.go` 的 `TestSoftDeleteScope`；`integration_test.go` 的 `TestIntegrationSoftDeleteScopeJoins`） |
+| 软删除作用域（`WithDeleted`、`liveRows` / `liveSource`、JOIN 位置规则） | `table.go` + `query_render.go` 的 `writeFromWhere`（`exec_test.go` 的 `TestSoftDeleteScope`；`internal/integration` 的 `TestIntegrationSoftDeleteScopeJoins`） |
 
 ## 根包：表与写入
 
@@ -26,8 +26,8 @@
 | --- | --- |
 | `TableOf` / `NewTable` / `Define`、`Table` 接口、别名、CTE、`debugSQL` | `table.go` |
 | 行写入与批量写、托管时间戳、软删除、`TableOf.BatchDeleteByPK`、`WithSkipDuplicates` | `rows.go`（`exec_test.go` 端到端；`batch_test.go` 宽表分批；`timestamps_test.go` 托管字段类型） |
-| Upsert（`TableOf.Upsert` / `BatchUpsert`、键解析、MySQL 多唯一键拒绝、主键回读） | `upsert.go`（`exec_test.go` 的 `TestUpsertMatchesLiveRowsOfASoftDeletedUniqueIndex`；`integration_test.go` 的 `TestIntegrationUpsert` 三方言真跑） |
-| 按条件写（`UpdateTable` / `DeleteFrom` / `HardDeleteFrom`、`Mutation`） | `mutation.go`（`exec_test.go`；`integration_test.go` 的 `TestIntegrationMutationsByCondition` 三方言真跑） |
+| Upsert（`TableOf.Upsert` / `BatchUpsert`、键解析、MySQL 多唯一键拒绝、主键回读） | `upsert.go`（`exec_test.go` 的 `TestUpsertMatchesLiveRowsOfASoftDeletedUniqueIndex`；`internal/integration` 的 `TestIntegrationUpsert` 三方言真跑） |
+| 按条件写（`UpdateTable` / `DeleteFrom` / `HardDeleteFrom`、`Mutation`） | `mutation.go`（`exec_test.go`；`internal/integration` 的 `TestIntegrationMutationsByCondition` 三方言真跑） |
 | 错误类型 `OptimisticLockError` | `errors.go` |
 | 表注册、`SchemaPolicy`、`MissingTableError` / `MissingIndexError`、`Logger` | `schema.go` |
 | 索引策略执行 | `table_index.go` |
@@ -41,9 +41,9 @@
 | schema 对账、执行期日志与 SQL 日志 | `runtime_schema.go` |
 | 事务与重试（`WithTx`、`WithTxResult`、`TxOptions`、`RetryPolicy`、错误谓词） | `tx.go`（`tx_test.go`） |
 | 追踪钩子 | `trace.go` |
-| SQLite / PostgreSQL 错误映射 | `sqlite_errors.go`、`postgres_errors.go` |
+| SQLite / PostgreSQL / MySQL 错误映射 | `sqlite_errors.go`、`postgres_errors.go`、`mysql_errors.go`（反射读 `*mysql.MySQLError`，不 import 驱动） |
 | 杂项（`isNilValue`、标识符校验、重复键判断、谓词值校验） | `util.go` |
-| 真实 MySQL / PostgreSQL 集成测试 | `integration_test.go`（`package tsq_test`，env DSN 驱动） |
+| 真实 MySQL / PostgreSQL 集成测试、MySQL 错误分类 | `internal/integration/integration_test.go`（只用导出 API，env DSN 驱动；放在根包外是为了不把驱动和 nullbio 带进使用者的 `go.sum`） |
 | 测试夹具（`Users` / `Orders` 表、`newSQLite`、`wideTable`） | `fixtures_test.go` |
 
 ## 方言

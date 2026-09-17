@@ -251,7 +251,7 @@ schema 探查，以及 `SupportsCapability(Capability)`。接口只收**各方�
   （一次编译、每行一个"必须编译失败"的用例）。
 - 在 SQLite 里耗时的单 goroutine 测试在 `-race` 下跳过（`raceEnabled`）：转译的 SQLite 在竞态
   检测下慢约四十倍，而它们没有并发可查。
-- **集成测试**（根目录 `integration_test.go`，`package tsq_test`）在设置 `TSQ_MYSQL_DSN` /
+- **集成测试**（`internal/integration`，只用导出 API）在设置 `TSQ_MYSQL_DSN` /
   `TSQ_POSTGRES_DSN` 时对真实服务器跑，SQLite 目标始终参与。**这是 `dialect/mysql.go` 与
   `dialect/postgres.go` 唯一的自动化覆盖**，改它们必须看 CI `Integration` job 的结果。
 

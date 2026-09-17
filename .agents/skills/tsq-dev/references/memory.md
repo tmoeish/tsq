@@ -70,7 +70,7 @@ MySQL / PostgreSQL 默认转义字符恰好是反斜杠才侥幸正确——而�
 且无任何报错——单元测试的 fixture 恰好也是 v4，所以一直绿。
 
 修法是匹配接口 `interface{ SQLState() string }`（pq / pgx v4 / pgx v5 都实现）。
-**驱动错误分类永远按接口，不按具体类型**；`integration_test.go` 用真实 pgx v5 守着。
+**驱动错误分类永远按接口，不按具体类型**（MySQL 例外见 `change-impact.md`）；集成测试用真实 pgx v5 守着。
 
 ### 决定：方言能力位按版本基线表态，否决"版本可配置" (2026-08-26)
 
@@ -110,7 +110,7 @@ UPDATE 每行每列绑两个参数，只修 INSERT 是修一半——**修一类
 ### 接口里"有定义、有实现、零调用"的钩子 (2026-08-26)
 
 `Dialect.ReturningClause` 零调用，PG 上 `Insert` 从没回填过主键，只跑 SQLite 的测试一直绿；现在由
-`integration_test.go` 挡着。`Integration` 红着的 PR #61 仍被 auto-merge 合入：**auto-merge 只等必需
+集成测试挡着。`Integration` 红着的 PR #61 仍被 auto-merge 合入：**auto-merge 只等必需
 检查**，而 `Integration` 至今不是必需检查，合并前要亲眼看它绿。
 
 ### 集成测试为什么长这样，以及暂时不做的几件事 (2026-08-26)
@@ -185,14 +185,13 @@ MySQL 的 `LENGTH` 数字节；PostgreSQL 没有 `round(double, int)`；modernc 
 - **只为主键和唯一索引生成查询**：普通索引和前缀的查询要排序、限量，生成器猜不到，生成的"查全部
   匹配行"被照抄就是全表量级的读取。
 - **Upsert 在 MySQL 上遇到"别的唯一键也可能冲突"就拒绝**：`ON DUPLICATE KEY UPDATE` 没有冲突目标，
-  会静默更新一条和指定键无关的行；PG/SQLite 在同样情况下报重复键。批量里同键两行一律报错（PG 不许
-  一条语句改同一行两次）。批量不回读：多行 `RETURNING` 的顺序没有保证，MySQL 只报第一个 id。
+  会静默更新无关的行（PG/SQLite 报重复键）。批量里同键两行一律报错（PG 不许一条语句改一行两次）；
+  批量不回读：多行 `RETURNING` 顺序无保证，MySQL 只报第一个 id。
 - **`Page` 的一致性靠只读快照事务，不靠 `COUNT(*) OVER()`**：窗口函数在 `DISTINCT` 之前求值（数错）、
   PG 不允许和 `FOR UPDATE` 同用、页码越界时没有行可带回总数。代价是每次 `Page` 多一对 BEGIN/COMMIT。
 - `BatchDeleteByPK` 挪到 `TableOf` 上，吃主键的 `BindList`：包级版本要再校验"列是不是主键"。
-- **v5 明确不支持复合主键**（维护者定案）。`TableSpec.PrimaryKey` 是单列，`pk=A,B` 在解析时报错并
-  指向"单列代理键 + `//tsq:unique A,B`"。要支持就是 v6：主键字段、`FetchXxxByID`、`BatchDeleteByPK`
-  和乐观锁 WHERE 全都要变形状。
+- **v5 明确不支持复合主键**（维护者定案）：`pk=A,B` 解析时报错，指向"单列代理键 + `//tsq:unique A,B`"。
+  要支持就是 v6：主键字段、`FetchXxxByID`、`BatchDeleteByPK` 和乐观锁 WHERE 都要变形状。
 
 ### 两个测试各自编码了相反的意图，代码同时满足它们 (2026-09-16)
 
@@ -359,12 +358,9 @@ squash 会改写提交信息（追加 ` (#59)`）、SHA 和历史形状，同一
 
 ### 生成的 `.sql` 文件头停在旧版本是**有意的**，别去"修"它 (2026-08-28)
 
-`examples/academy/{mysql,postgres,sqlite}.sql` 的头写着 `tsq-v4.1.19`，而 `.tsq.go` 是当前
-版本。看起来像"改版本号忘了重新生成"，**不是**：`tsq.json` 保存着首次建 schema 时的原始
-`.sql` 内容，聚合文件由它重建、后续变更以带日期的迁移段追加。**文件头记的是这份 schema 的
-出身，不是最近一次生成的版本**，所以它就该停在那儿，`gen-check` 也因此是绿的。
-
-留下这条是为了下一个人别再查一遍、更别"修"成当前版本——那会让每次发版都重写三个 DDL 文件的头，把真正的 schema 变更淹掉。
+`examples/academy/*.sql` 的头写着 `tsq-v4.1.19` 不是忘了重新生成：`tsq.json` 保存首次建 schema 时的
+原始 `.sql`，后续变更以带日期的迁移段追加，**文件头记的是 schema 的出身**。"修"成当前版本会让每次
+发版都重写三个 DDL 文件头，把真正的 schema 变更淹掉。
 
 ### 能力位的 `default` 分支是那道门自己的漏洞 (2026-08-26)
 
@@ -388,8 +384,7 @@ squash 会改写提交信息（追加 ` (#59)`）、SHA 和历史形状，同一
 
 ### 两份技能必须各住各的目录，别为了少一个符号链接把它们并在一起 (2026-08-21)
 
-曾把 `skills/tsq` 软链进开发者技能目录。**布局是文档的一部分**：它告诉看目录的人"它俩是一伙的"，
-而两份技能读者不同、所有权分开。改这类路径用 `git mv`（`log --follow` 才追得到），并 `grep -rn` 一遍。
+**布局是文档的一部分**：软链在一起就是在说"它俩是一伙的"。改路径用 `git mv` 并 `grep -rn` 一遍。
 
 ### squash 的粒度是 PR，所以 PR 的粒度就是你能保留的历史粒度 (2026-08-21)
 
@@ -457,4 +452,9 @@ tag，想打 tag 得先过 `release-check`。所以 `make build-gen` **故意不
 
 ## 搁置项与决定不做的事
 
-已知未处理：**CLI 不拆子模块**。2026-09-16 实测(一个只 import 根包的干净模块跑 `go mod tidy`)：`x/tools` 和 `nullbio` 在使用者的 `go.sum` 里是**完整条目**(源码会被下载)，`cobra` / `x/term` / `gofumpt` 则完全不出现——模块图裁剪挡住了后者，没挡住前者。所以拆分确实能去掉两个模块，但代价是给子模块单独打 tag、发版变成两条版本线，而 tag 不可撤销正是这个仓库最危险的地方。**不在 v5 这一波里同时承担这个风险。**
+决定：**CLI 不拆子模块，改为收紧根包自己的依赖**（2026-09-17 重测后定案）。一个只 import 根包的
+模块 `go mod tidy` 后，`x/tools` / `cobra` 等 CLI 依赖早已不在其 `go.sum`（模块图裁剪挡住了），拆分
+不会改变任何东西；真正进去的是根包自己的非测试 import（MySQL 驱动，连 `go.mod` 都进）和**根包测试**
+的 import（pgx、nullbio）——tidy 会记录依赖包测试的依赖。修法：MySQL 错误改反射读取、集成测试挪进
+`internal/integration`、时间戳测试用本地同形类型，门是 `TestRootPackageImportsNoDriver`。剩下只有
+SQLite 驱动（根包单测离不开它）。复测：临时模块 `replace` 到本仓，tidy 后看 `go.sum`。
