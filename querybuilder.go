@@ -198,6 +198,15 @@ func Select[O any](cols ...BoundColumn[O]) SelectStage[O] {
 	return selectBuilder[O]{b}
 }
 
+// SelectDistinct starts a SELECT DISTINCT query with its columns.
+func SelectDistinct[O any](cols ...BoundColumn[O]) SelectStage[O] {
+	b := &builder[O]{}
+	b.spec.Distinct = true
+	b.setSelect(cols)
+
+	return selectBuilder[O]{b}
+}
+
 // From starts a query with its FROM table.
 func From[O any](table Table) FromStage[O] {
 	b := &builder[O]{}

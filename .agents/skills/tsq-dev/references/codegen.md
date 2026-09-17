@@ -82,6 +82,8 @@ genmodel.StructInfo / TableMeta        internal/genmodel/model.go
 - `validateIndexNameCollisions`：索引名在包内唯一。
 - `validateGeneratedSymbolCollisions`：生成的标识符不会互相覆盖。
 - `validateResultFields` / `isScanCompatible`：`//tsq:result` 的字段能从来源列 scan 出来。
+- `validateIdentifierLengths`：表名、列名、索引名对三个方言都不超长。派生索引名最容易超，报错直接给出
+  `//tsq:index ... name=` 的写法；运行时构造时还会再查一遍，但那时已经是部署之后。
 
 这些校验看的都是**解析结果**，没有一条看生成出来的 Go 能不能编译。那一层由两道测试守着：
 `generated_symbols_test.go` 核对模板里每个 `tsq.X` / `tsqdialect.X` 真实存在，

@@ -13,7 +13,6 @@ type exprInfo struct {
 	// the query uses for them (the alias when there is one).
 	tables    map[string]Table
 	aggregate bool
-	distinct  bool
 	err       error
 }
 
@@ -36,7 +35,6 @@ func (e exprInfo) merge(other exprInfo) exprInfo {
 	}
 
 	e.aggregate = e.aggregate || other.aggregate
-	e.distinct = e.distinct || other.distinct
 
 	return e
 }

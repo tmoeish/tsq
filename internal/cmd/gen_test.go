@@ -1849,3 +1849,55 @@ type UserNickname struct {
 		t.Fatalf("generated code does not compile: %v\n%s", err, output)
 	}
 }
+
+// TestGenCmdRejectsIdentifiersADialectWouldTruncate catches a derived index name
+// longer than PostgreSQL's 63 characters at generation time, where the fix is one
+// name= on the directive, instead of when a runtime starts.
+func TestGenCmdRejectsIdentifiersADialectWouldTruncate(t *testing.T) {
+	t.Cleanup(func() {
+		dryRunFlag = false
+		checkFlag = false
+		v = false
+		GenCmd.SetArgs(nil)
+	})
+
+	dir := t.TempDir()
+	writeTestFile(t, filepath.Join(dir, "go.mod"), genTestModuleFile(t))
+	writeTestFile(t, filepath.Join(dir, "model.go"), `package gentest
+
+//tsq:table name=subscription_renewal_attempts
+//tsq:index CustomerAccountID,BillingPeriodStart
+type Attempt struct {
+	ID                 int64 `+"`db:\"id\"`"+`
+	CustomerAccountID  int64 `+"`db:\"customer_account_id\"`"+`
+	BillingPeriodStart int64 `+"`db:\"billing_period_start\"`"+`
+}
+`)
+	chdirForGenTest(t, dir)
+	tidyGenTestModule(t)
+
+	GenCmd.SetOut(new(bytes.Buffer))
+	GenCmd.SetErr(new(bytes.Buffer))
+	GenCmd.SetArgs([]string{"."})
+
+	err := GenCmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "name it explicitly: //tsq:index CustomerAccountID,BillingPeriodStart name=") {
+		t.Fatalf("GenCmd.Execute() error = %v, want the long derived index name reported with its fix", err)
+	}
+
+	// Naming the index is the fix.
+	writeTestFile(t, filepath.Join(dir, "model.go"), `package gentest
+
+//tsq:table name=subscription_renewal_attempts
+//tsq:index CustomerAccountID,BillingPeriodStart name=idx_renewal_customer_period
+type Attempt struct {
+	ID                 int64 `+"`db:\"id\"`"+`
+	CustomerAccountID  int64 `+"`db:\"customer_account_id\"`"+`
+	BillingPeriodStart int64 `+"`db:\"billing_period_start\"`"+`
+}
+`)
+
+	if err := GenCmd.Execute(); err != nil {
+		t.Fatalf("GenCmd.Execute() with an explicit index name error = %v", err)
+	}
+}

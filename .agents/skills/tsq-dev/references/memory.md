@@ -170,6 +170,10 @@ join 图校验的全部价值，代价只是多写一次表名。既 `Correlate`
   `TableOf[R]` 描述符，行类型上没有接口；三步声明让包初始化顺序自己排对（见下一条）。
 - **`Executor` 就是 database/sql 的三个方法**：裸 `*sql.DB` 能编译，方言到运行期才发现未知。
   现在是封闭接口。
+列函数的可移植性要**在三个方言上真跑**才知道（`TestIntegrationColumnFunctionsArePortable`）：
+MySQL 的 `LENGTH` 数字节；PostgreSQL 没有 `round(double, int)`；modernc 默认按 Go 的 `String()`
+格式存时间，SQLite 的日期函数读不了（取前 19 个字符再算）；SQLite 的 `UPPER` 只认 ASCII（只能写进
+文档）。列上的 `Distinct()` 放在选择列表中间是非法 SQL，所以换成 `CountDistinct` 和 `SelectDistinct`。
 顺带修掉：`DeleteFrom` 的墓碑时间在构建时求值（包级语句永远写进程启动时间）；`Year()` 返回列
 自身类型且得到文本；`StartsWithVal` 不转义通配符；分组后仍能 `ForUpdate`。
 

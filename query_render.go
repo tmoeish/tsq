@@ -74,6 +74,7 @@ type setOperation[O any] struct {
 // querySpec is the complete, dialect-independent description of a SELECT.
 type querySpec[O any] struct {
 	From          Table
+	Distinct      bool
 	Selects       []BoundColumn[O]
 	Filters       []Condition
 	KeywordSearch []SearchColumn
@@ -125,13 +126,13 @@ type orderTerm struct {
 }
 
 func (s *querySpec[O]) grouped() bool {
-	if len(s.SetOps) > 0 || len(s.GroupBy) > 0 || len(s.Having) > 0 {
+	if s.Distinct || len(s.SetOps) > 0 || len(s.GroupBy) > 0 || len(s.Having) > 0 {
 		return true
 	}
 
 	for _, col := range s.Selects {
 		info := columnInfo(col)
-		if info.aggregate || info.distinct {
+		if info.aggregate {
 			return true
 		}
 	}
@@ -190,6 +191,11 @@ func (s *querySpec[O]) writeSimple(r *renderer, keyword bool) {
 	}
 
 	r.writeText("SELECT ")
+
+	if s.Distinct {
+		r.writeText("DISTINCT ")
+	}
+
 	r.write(sqlList(", ", cols))
 	s.writeFromWhere(r, keyword)
 

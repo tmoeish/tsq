@@ -657,7 +657,7 @@ Rules:
 - configure both constructors with options: `tsq.WithSchemaPolicy(p)` sets the table and index policy together, `tsq.WithTablePolicy(p)` / `tsq.WithIndexPolicy(p)` set them apart for a schema whose tables come from migrations while its indexes do not, `tsq.WithLogger(l)`, `tsq.WithSQLLogging()`, `tsq.WithTracers(...)` and `tsq.WithMaxPageSize(n)`
 - the policies, from doing nothing to doing the most: `SchemaPolicyManual` (default: log the mode and change nothing), `SchemaPolicyValidate` (fail to start on a mismatch), `SchemaPolicyCreateMissing` (create missing tables, columns and indexes), `SchemaPolicyReconcile` (also alter columns back to what is declared). Production keeps `Manual` and owns its schema through migrations; development and test want `Reconcile`, where changing a struct and restarting is enough
 - default policy is manual: TSQ logs a reminder but does not automatically reconcile missing tables or indexes
-- construction fails when a table, column or index name is longer than the connected dialect allows, and there is no way to turn that off. Such a name does not reach the server intact, so the objects TSQ creates stop matching the names its queries reference. Name the index explicitly (`//tsq:unique Email name=ux_short`) when a derived index name is what runs over the limit
+- `tsq gen` refuses a table, column or index name longer than any built-in dialect allows, and suggests the directive that fixes it (usually `name=` on the index). A runtime checks again at construction, and there is no way to turn that off. Such a name does not reach the server intact, so the objects TSQ creates stop matching the names its queries reference. Name the index explicitly (`//tsq:unique Email name=ux_short`) when a derived index name is what runs over the limit
 - `tsq.WithMaxPageSize(n)` sets the page-size cap for paged queries on that runtime, in either direction. `tsq.DefaultMaxPageSize` (1000) is the default, not a ceiling
 - `tsq.WithTracers(t...)` wraps every traced operation. A tracer receives the context, a `tsq.TraceOp` naming the work (`insert`, `update`, `delete`, `get`, `list`, `page`, `count`, `scalar`, `exec`, `tx`) and the continuation, and must call the continuation and return its error. The rendered SQL is not passed: tracing brackets the whole operation, binding and dialect rendering included, so statements come from `WithSQLLogging()` instead
 - **TSQ only ever adds.** No policy drops a table, so several services can share one database and bring up their own tables independently. Removing a table that is no longer declared is a migration, not a boot-time decision: a runtime knows only its own declarations and cannot tell "this table is obsolete" from "this table belongs to someone else"
@@ -739,7 +739,25 @@ TSQ supports more than simple list queries. Common advanced shapes include:
 - subqueries such as `In(subquery)`, `tsq.Exists(subquery)`, and typed RHS comparisons like `EQ(subquery)` or `Like(subquery)`
 - correlated subqueries, where the subquery declares the enclosing query's tables with `Correlate(...)`
 - non-recursive CTEs: `cte := tsq.CTE("big_orders", stage)`, then join `cte` and reference its columns with `col.WithTable(cte)` (all built-in dialects; MySQL baseline is 8.0)
-- date parts: `col.Year()`, `col.Month()`, `col.Day()` return integers and are spelled per dialect
+- `SelectDistinct(cols...)` for `SELECT DISTINCT`, and `col.CountDistinct()` for `COUNT(DISTINCT col)`
+
+### Column functions across dialects
+
+Every column function runs on all three dialects and returns the same value; TSQ spells it per
+dialect where they differ:
+
+- `Year()`, `Month()`, `Day()` return `int64`; `Date()` returns the date as `'YYYY-MM-DD'` text
+- `Length()` counts characters (MySQL's `LENGTH` counts bytes, so it is `CHAR_LENGTH` there)
+- `Substring(start, length)` uses a 1-based start
+- `Round(n)` works on floating-point columns on PostgreSQL too (it rounds through `NUMERIC`)
+- `Avg()` returns `float64`; `Count()` and `CountDistinct()` return `int64`
+
+Two SQLite limits to know:
+
+- SQLite's `UPPER` / `LOWER` change ASCII letters only
+- the `modernc.org/sqlite` driver stores `time.Time` as text in Go's `String()` format unless the
+  DSN sets `_time_format=sqlite`. The date functions above read either format; hand-written SQL
+  over those columns should use `_time_format=sqlite`
 - set operations such as `UNION`, `INTERSECT`, and `EXCEPT` (all built-in dialects; MySQL needs 8.0.31+)
 - row-lock clauses such as `ForUpdate()` and `ForShare()`
 

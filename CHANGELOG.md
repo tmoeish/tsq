@@ -45,7 +45,9 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 - SQL 在执行时按方言从表达式树渲染并按方言缓存，`Condition` / `SQLColumn` 不再暴露 `Clause()` / `SQLExpr()` 字符串；要看 SQL 用 `Query.SQL(dialect, args...)` 或 `String()`，`ListSQL` / `CountSQL` 等删除。方言能力（`FULL JOIN`、行锁、CTE、`INTERSECT` / `EXCEPT`）由渲染该构造的代码检查，不再扫描 SQL 文本。
 - 阶段接口去掉了 SQL 不允许的转移：分组、`HAVING`、集合操作之后不能加行锁，带搜索的查询不能做集合操作。构建器的具体类型不再出现在签名里，`Select(...).From(...)` 返回 `JoinStage`。
 - `Case[T]()` 的结果有类型：`When(cond, rhs)` / `WhenVal(cond, value)` / `Else` / `ElseVal`。
-- `Year()` / `Month()` / `Day()` 返回 `int64`，按方言写成 `YEAR()` / `EXTRACT` / `strftime`（此前返回列自身类型且得到文本）。
+- 列函数在三个方言上返回相同的值：`Year()` / `Month()` / `Day()` 返回 `int64`（此前返回列自身类型且得到文本）；`Date()` 返回 `'YYYY-MM-DD'` 文本；`Length()` 数字符（MySQL 上是 `CHAR_LENGTH`，此前数字节）；`Round(n)` 在 PostgreSQL 的浮点列上也能用；`Substring` 的边界直接写进 SQL，避免 PostgreSQL 选错重载。SQLite 上的日期函数同时认 modernc 驱动默认的 Go 时间文本格式（此前返回 NULL）。
+- 列方法 `Distinct()` 删除（放在选择列表中间会生成非法 SQL），改为 `CountDistinct()` 和查询级的 `tsq.SelectDistinct(...)`。
+- `tsq gen` 在生成时拒绝超过任一方言长度上限的表名、列名和索引名，并给出修改方法（通常是给索引写 `name=`）；此前要到运行时启动才报错。
 - 相关子查询的外层表会传给外层查询校验：外层没有提供该表时构建失败。
 - 新增 `tsq.Not(cond)`；`GroupBy` 只能调用一次。
 

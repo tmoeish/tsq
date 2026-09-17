@@ -96,6 +96,13 @@ var TableCourse = tsqCourseTable.Define(tsq.TableSpec[Course]{ // 初始化表�
   字符串——看 SQL 用 `Query.SQL(dialect, args...)` 或 `String()`。
 - 列的核心是不可变的 `*columnCore`，派生列（函数、聚合、`Exprf`）复制一份再改；`plain`
   标记"直接引用 table.name"，只有它能 `WithTable` / `As` 换表。
+- 方言写法不同的列函数（`Length`、`Round`、`Date`、`Year/Month/Day`）用 `sqlByDialect` 分叉；
+  程序给出的整数（`Substring` 边界、`Round` 精度）直接写进文本，避免 PostgreSQL 为未知类型的
+  参数选错重载。SQLite 上的日期函数先取时间文本的前 19 个字符（`sqliteTimeText`），因为
+  modernc 默认按 Go 的 `String()` 格式存时间。三方言的实际返回值由集成测试
+  `TestIntegrationColumnFunctionsArePortable` 核对。
+- `DISTINCT` 只有两种形态：查询级的 `SelectDistinct` 和聚合里的 `CountDistinct`；列上没有
+  `Distinct()`，因为它放在选择列表中间是非法 SQL。
 - 模式匹配（`StartsWith*` / `EndsWith*` / `Contains*`、关键词搜索）一律转义通配符并写
   `ESCAPE '~'`：SQLite 没有默认转义符，MySQL 写不出 `ESCAPE '\'`。
 

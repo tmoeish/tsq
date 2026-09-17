@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
+	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 	"github.com/tmoeish/tsq/v5/internal/buildinfo"
 	"github.com/tmoeish/tsq/v5/internal/genmodel"
 	"github.com/tmoeish/tsq/v5/internal/parser"
@@ -412,7 +413,58 @@ func validateStructForGeneration(
 		return err
 	}
 
+	if err := validateIdentifierLengths(data); err != nil {
+		return err
+	}
+
 	return validateManagedFields(data)
+}
+
+// generatedDialects are the dialects tsq gen writes DDL for; every identifier must
+// fit all of them.
+var generatedDialects = []tsqdialect.Dialect{
+	tsqdialect.MySQLDialect{},
+	tsqdialect.PostgresDialect{},
+	tsqdialect.SQLiteDialect{},
+}
+
+// validateIdentifierLengths rejects names a dialect would truncate. The runtime
+// rejects them too, but only when it starts; derived index names are the usual
+// culprit and are cheapest to fix here, where the directive can name them.
+func validateIdentifierLengths(data *genmodel.StructInfo) error {
+	check := func(kind, name, fix string) error {
+		for _, d := range generatedDialects {
+			if err := tsqdialect.ValidateIdentifier(d, name); err != nil {
+				return fmt.Errorf("%s %s of %s: %w; %s", kind, name, data.TypeInfo.TypeName, err, fix)
+			}
+		}
+
+		return nil
+	}
+
+	if err := check("table", data.Table, "set a shorter name with //tsq:table name=..."); err != nil {
+		return err
+	}
+
+	for _, field := range data.Fields {
+		if err := check("column", field.Column, "shorten the db tag of field "+field.Name); err != nil {
+			return err
+		}
+	}
+
+	for _, group := range []struct {
+		directive string
+		indexes   []genmodel.IndexInfo
+	}{{"unique", data.Uniques}, {"index", data.Indexes}} {
+		for _, index := range group.indexes {
+			fix := fmt.Sprintf("name it explicitly: //tsq:%s %s name=...", group.directive, strings.Join(index.Fields, ","))
+			if err := check("index", index.Name, fix); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
 
 func validateResultFields(
