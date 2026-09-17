@@ -292,7 +292,7 @@ func (s *statement) assemble(d tsqdialect.Dialect, bound argSet) (string, []any,
 	)
 
 	placeholder := func(v any) {
-		args = append(args, v)
+		args = append(args, bindValue(v))
 		sql.WriteString(d.Placeholder(len(args) - 1))
 	}
 

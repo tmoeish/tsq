@@ -6,14 +6,14 @@ import (
 	"fmt"
 	"slices"
 	"sync"
-	"time"
 
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 )
 
 // UpdateTable starts an UPDATE of every row of table that matches Where. On a table
 // with a deleted_at column, deleted rows are left alone; pass table.WithDeleted() to
-// include them.
+// include them. updated_at is refreshed when the statement runs, unless Set assigns
+// it.
 //
 // It does not check the version column, but it increments it, so a row loaded
 // before the update fails its own Update with OptimisticLockError. Use
@@ -249,6 +249,10 @@ func (m *Mutation[R]) render(r *renderer) {
 			sets = append(sets, sqlJoin(sqlIdent(a.column), sqlText(" = "), a.value.sql))
 		}
 
+		if m.m.kind == mutationUpdate && m.stampsUpdatedAt() {
+			sets = append(sets, sqlJoin(sqlIdent(def.managed.UpdatedAt), sqlText(" = "), sqlParam(updatedAtParam)))
+		}
+
 		if m.m.kind == mutationSoftDelete {
 			sets = append(sets, sqlJoin(sqlIdent(def.managed.DeletedAt), sqlText(" = "), sqlParam(deletedAtParam)))
 
@@ -273,6 +277,14 @@ func (m *Mutation[R]) render(r *renderer) {
 	}
 
 	r.write(where)
+}
+
+// stampsUpdatedAt reports that an UPDATE refreshes updated_at itself: the table has
+// one and the caller did not assign it.
+func (m *Mutation[R]) stampsUpdatedAt() bool {
+	name := m.m.table.def.managed.UpdatedAt
+
+	return name != "" && !slices.ContainsFunc(m.m.assigns, func(a assignment) bool { return a.column == name })
 }
 
 func (m *Mutation[R]) statement(d tsqdialect.Dialect) (*statement, error) {
@@ -320,8 +332,17 @@ func (m *Mutation[R]) prepare(db Executor, args []Arg) (string, []any, error) {
 
 	var builtin map[*paramSpec]any
 
+	if m.m.kind == mutationUpdate && m.stampsUpdatedAt() {
+		stamp, err := m.m.table.updatedAtValue(stampTime())
+		if err != nil {
+			return "", nil, err
+		}
+
+		builtin = map[*paramSpec]any{updatedAtParam: stamp}
+	}
+
 	if m.m.kind == mutationSoftDelete {
-		stamp, err := m.m.table.tombstoneValues(time.Now())
+		stamp, err := m.m.table.tombstoneValues(stampTime())
 		if err != nil {
 			return "", nil, err
 		}

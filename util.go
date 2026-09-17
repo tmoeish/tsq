@@ -1,6 +1,7 @@
 package tsq
 
 import (
+	"database/sql/driver"
 	"errors"
 	"fmt"
 	"reflect"
@@ -100,4 +101,28 @@ func validatePredicateValue(arg any) error {
 	default:
 		return nil
 	}
+}
+
+// bindValue is the value TSQ passes to the driver for v. Times go in UTC, whatever
+// zone the caller's value is in: SQLite keeps a time as the text of the value, and
+// text in two zones does not sort or compare the way the times do.
+func bindValue(v any) any {
+	if isNilValue(v) {
+		return v
+	}
+
+	switch x := v.(type) {
+	case time.Time:
+		return x.UTC()
+	case *time.Time:
+		return x.UTC()
+	case driver.Valuer:
+		if value, err := x.Value(); err == nil {
+			if t, ok := value.(time.Time); ok {
+				return t.UTC()
+			}
+		}
+	}
+
+	return v
 }
