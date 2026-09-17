@@ -270,7 +270,7 @@ The generated behavior is:
 Their behavior is:
 
 - generated insert helpers set `created_at` to the current time;
-- generated insert, update, and soft-delete helpers refresh `updated_at`; and
+- inserts, updates, `UpdateTable`, upserts, soft deletes and restores refresh `updated_at`, in UTC; and
 - `deleted_at` enables soft deletion, and every query and conditional write on the table
   (joins included) skips deleted rows unless it names `TableXxx.WithDeleted()`.
 

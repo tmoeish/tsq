@@ -357,8 +357,15 @@ Semantics:
 - the value names the **Go struct field**, not the SQL column name
 - `Insert` sets it to the current time **only when the field is still unset**, matching `created_at`
 - `Update` refreshes it to the current time, always: recording the last modification is the whole point
-- a soft delete and a restore refresh it too
+- a soft delete, a restore, an upsert and `tsq.UpdateTable` refresh it too; `UpdateTable` keeps a
+  value you `Set` yourself
 - use it when the project wants an auto-maintained modification time
+
+TSQ stamps `created_at`, `updated_at` and time tombstones in **UTC**, and binds every `time.Time`
+it sends to the database in UTC, whatever zone the value was in. SQLite keeps a time as the text of
+the value, and text in two zones does not sort the way the times do; UTC everywhere makes rows
+written by processes in different zones, or across a daylight-saving change, compare correctly.
+Times read back are in UTC (or in the zone the driver is configured for).
 
 Supported field types:
 
@@ -832,7 +839,7 @@ Shape:
 Rules:
 
 - the statement never checks the `version` column. `UpdateTable` on a table that declares `version` still adds `version = version + 1`, so rows loaded before the bulk change fail their own `Update(...)` with `OptimisticLockError`. Assigning the version column yourself is a build error
-- `UpdateTable` sets no managed field besides `version`: set `updated_at` explicitly. It skips deleted rows like every query does; `tsq.UpdateTable(table.WithDeleted())` reaches them. `DeleteFrom` is the exception, because a soft delete *is* the deletion: on a table declaring `deleted_at` it renders as an `UPDATE` that stamps the tombstone and `updated_at` **at execution time**, so a package-level statement does not reuse the time the program started
+- `UpdateTable` increments `version` and refreshes `updated_at` at execution time (unless you `Set` it). It skips deleted rows like every query does; `tsq.UpdateTable(table.WithDeleted())` reaches them. `DeleteFrom` is the exception, because a soft delete *is* the deletion: on a table declaring `deleted_at` it renders as an `UPDATE` that stamps the tombstone and `updated_at` **at execution time**, so a package-level statement does not reuse the time the program started
 - assignments and conditions may reference only the target table, unaliased. `JOIN`, `UPDATE ... FROM`, aliases, `LIMIT`, `ORDER BY`, and `RETURNING` are not supported; each dialect spells them differently. Subquery predicates (`In(subquery)`, `EQ(subquery)`) are fine. MySQL rejects a subquery that reads the table being modified (error 1093); that is a database rule, not a TSQ one
 - it is a single `UPDATE` / `DELETE` and is not chunked. A very large list parameter can exceed the dialect's bind-parameter ceiling; use `table.BatchDeleteByPK` or slice the input yourself. For reads, `query.ListIn` does the splitting
 

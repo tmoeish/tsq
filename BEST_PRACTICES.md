@@ -269,7 +269,7 @@ affected, err := tsq.
 ```
 
 - 这类语句不校验 `version`，但会自增它。批量改动之前加载的对象随后 `Update(...)` 会拿到 `OptimisticLockError`，按 3.7 处理。
-- `UpdateTable` 不替你盖 `updated_at`，需要就显式 `Set(col, tsq.Val(...))`；它和查询一样跳过已删行，不需要自己加 `deleted_at` 过滤。`DeleteFrom` 在有 `deleted_at` 的表上是软删除，时间戳在**执行时**盖。
+- `UpdateTable` 在执行时自动刷新 `updated_at`（显式 `Set` 了就用你的值）；它和查询一样跳过已删行，不需要自己加 `deleted_at` 过滤。`DeleteFrom` 在有 `deleted_at` 的表上是软删除，时间戳在**执行时**盖。
 - `Where(...)` 必需。真要全表操作，写显式的 `tsq.And()`，让意图留在代码里。
 - 它是单条语句，不分块；列表参数传超大切片会撞方言的参数上限，那种场景用 `TableXxx.BatchDeleteByPK` 或自己切片。
 

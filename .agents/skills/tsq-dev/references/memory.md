@@ -35,10 +35,8 @@ v4 的补丁是给记账加 owner 维度（`SchemaOwner`）。**v5 把整档删�
 
 ### "抓住错误继续跑"在 PostgreSQL 的事务里不成立 (2026-08-28)
 
-`BatchInsert(..., WithSkipDuplicates())` 逐条插入、抓到重复键就 `continue`。这在 SQLite 和 MySQL 上
-是对的，在 **PostgreSQL 上必然失败**：PG 在任何语句失败的那一刻就把事务置为 aborted，其后
-所有语句以 `25P02` 被拒。第一条被忽略的重复键毒掉整批，而调用方拿到的错误**不是重复键
-错误**，看不出源头。
+`WithSkipDuplicates` 抓到重复键就 `continue`，在 **PostgreSQL 事务里必然失败**：任何语句失败后事务
+即 aborted，其后语句都报 `25P02`，调用方拿到的错误还不是重复键错误。
 
 **判据**：错误处理策略的可移植性取决于"失败之后连接还剩下什么状态"，三个数据库答案不一样。
 凡是"捕获错误后继续用同一个连接"的代码，都要问一句 PG 上还能不能用。
@@ -186,6 +184,8 @@ MySQL 的 `LENGTH` 数字节；PostgreSQL 没有 `round(double, int)`；modernc 
   不同类型，所以函数统一收 `Column`，结果的可空性记在 `exprInfo.null`；外连接、无 GROUP BY 的聚合本来就
   只在查询上下文里可知。检查在读行前而不在 `Build`（会拒掉合法的子查询和 CTE）。
   否决值类型包成 `Null[T]`：`RHS` 靠同名标记方法区分类型，一个值不能同时是两种 `RHS`。
+- **时间在绑定出口统一转 UTC，而不是只让托管时间戳用 UTC**：SQLite 按文本存时间，调用方拿本地时间
+  去比较 UTC 存的行，文本比较照样错（`TestIntegrationNullableColumns` 在只改托管时间戳时就这样挂了）。
 - **超长列表参数用显式的 `ListIn`，否决自动分块**：`a IN (list) OR b = 1` 分块会重复返回，`NOT IN`
   分块直接错，排序/聚合/LIMIT 分块后语义都变；只有调用方声明"这是按键取行"时才能拆。
 - **游标分页的条件展开成 `a < ? OR (a = ? AND b > ?)`，不用行值比较 `(a, b) < (?, ?)`**：后者只在所有列

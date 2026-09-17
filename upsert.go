@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-	"time"
 
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 )
@@ -68,7 +67,7 @@ func (t *TableOf[R]) upsert(ctx context.Context, db Executor, rows []*R, key []B
 		return fmt.Errorf("upsert into %s: %w", def.name, err)
 	}
 
-	now := time.Now()
+	now := stampTime()
 
 	for _, row := range rows {
 		if col := def.column(def.managed.CreatedAt); col != nil && isUnset(field(row, col)) {

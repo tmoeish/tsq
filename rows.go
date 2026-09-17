@@ -26,6 +26,23 @@ import (
 // Batch writes do not open a transaction. Run them inside Runtime.WithTx when the
 // batch has to succeed or fail as a whole.
 
+// stampTime is the time TSQ writes into managed timestamps. It is UTC, so rows
+// stamped by processes in different zones, or on both sides of a daylight-saving
+// change, still sort by time where the database keeps the time as text (SQLite).
+func stampTime() time.Time { return time.Now().UTC() }
+
+// updatedAtValue returns now as the table's updated_at field type holds it.
+func (t *TableOf[R]) updatedAtValue(now time.Time) (any, error) {
+	col := t.def.column(t.def.managed.UpdatedAt)
+	v := reflect.New(field(new(R), col).Type()).Elem()
+
+	if err := applyTimestamp(v, now); err != nil {
+		return nil, fmt.Errorf("table %s: %w", t.def.name, err)
+	}
+
+	return v.Interface(), nil
+}
+
 // BatchOption configures the Batch* operations.
 type BatchOption func(*batchConfig)
 
@@ -121,7 +138,7 @@ func (t *TableOf[R]) BatchInsert(ctx context.Context, db Executor, rows []*R, op
 // primary key and, when the table has one, the version.
 func (t *TableOf[R]) Update(ctx context.Context, db Executor, row *R) error {
 	return traceExecutor(ctx, db, TraceOpUpdate, func(ctx context.Context) error {
-		return t.update(ctx, db, []*R{row}, batchConfig{size: 1}, time.Now())
+		return t.update(ctx, db, []*R{row}, batchConfig{size: 1}, stampTime())
 	})
 }
 
@@ -133,7 +150,7 @@ func (t *TableOf[R]) BatchUpdate(ctx context.Context, db Executor, rows []*R, op
 			return err
 		}
 
-		return t.update(ctx, db, rows, config, time.Now())
+		return t.update(ctx, db, rows, config, stampTime())
 	})
 }
 
@@ -205,7 +222,7 @@ func (t *TableOf[R]) setTombstone(ctx context.Context, db Executor, rows []*R, c
 		return err
 	}
 
-	now := time.Now()
+	now := stampTime()
 
 	stamp := map[string]any{}
 	if deleted {
@@ -347,7 +364,7 @@ func (w *writeStmt) ident(name string) *writeStmt {
 }
 
 func (w *writeStmt) arg(v any) *writeStmt {
-	w.args = append(w.args, v)
+	w.args = append(w.args, bindValue(v))
 	w.sql.WriteString(w.d.Placeholder(len(w.args) - 1))
 
 	return w
@@ -401,7 +418,7 @@ func (t *TableOf[R]) insert(ctx context.Context, db Executor, rows []*R, config 
 		return err
 	}
 
-	now := time.Now()
+	now := stampTime()
 
 	for _, row := range rows {
 		for _, name := range []string{def.managed.CreatedAt, def.managed.UpdatedAt} {
@@ -990,7 +1007,7 @@ func (t *TableOf[R]) deleteByPK(ctx context.Context, db Executor, keys Arg, opti
 
 		var stamp map[string]any
 		if soft {
-			if stamp, err = t.tombstoneValues(time.Now()); err != nil {
+			if stamp, err = t.tombstoneValues(stampTime()); err != nil {
 				return err
 			}
 		}
