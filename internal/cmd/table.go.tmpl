@@ -138,14 +138,15 @@ var {{$QueryBy}}{{.PrimaryKey}}In = tsq.
 	MustBuild()
 
 // {{$FetchBy}}{{.PrimaryKey}} returns the {{$type}} rows with the given primary keys,
-// in the order given. It fails with an error wrapping sql.ErrNoRows when any of
+// in the order given. Any number of keys works: they are split to fit the
+// dialect's bind parameter limit. It fails with an error wrapping sql.ErrNoRows when any of
 // them is missing.
 func {{$FetchBy}}{{.PrimaryKey}}(
 	ctx context.Context,
 	db tsq.Executor,
 	{{ FieldSliceVarName $dot.PrimaryKey }} ...{{index $dot.FieldsByName $dot.PrimaryKey | FieldType}},
 ) ({{$list}}, error) {
-	list, err := {{$QueryBy}}{{.PrimaryKey}}In.List(ctx, db, {{$pk}}.BindList({{ FieldSliceVarName $dot.PrimaryKey }}...))
+	list, err := {{$QueryBy}}{{.PrimaryKey}}In.ListIn(ctx, db, {{$pk}}.ListParam(), {{ FieldSliceVarName $dot.PrimaryKey }})
 	if err != nil {
 		return nil, err
 	}
@@ -204,11 +205,9 @@ func {{$FetchBy}}{{$name}}(
 	{{- end }}
 	{{- end }}
 ) ({{$list}}, error) {
-	list, err := {{$QueryBy}}{{$name}}In.List(ctx, db,
+	list, err := {{$QueryBy}}{{$name}}In.ListIn(ctx, db, {{$type}}_{{$last}}.ListParam(), {{ FieldSliceVarName $last }},
 		{{- range $f := $ux.Fields }}
-		{{- if eq $f $last }}
-		{{$type}}_{{$f}}.BindList({{ FieldSliceVarName $f }}...),
-		{{- else }}
+		{{- if ne $f $last }}
 		{{$type}}_{{$f}}.Bind({{ FieldVarName $f }}),
 		{{- end }}
 		{{- end }}

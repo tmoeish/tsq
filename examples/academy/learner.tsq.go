@@ -109,14 +109,15 @@ var QueryLearnerByIDIn = tsq.
 	MustBuild()
 
 // FetchLearnerByID returns the Learner rows with the given primary keys,
-// in the order given. It fails with an error wrapping sql.ErrNoRows when any of
+// in the order given. Any number of keys works: they are split to fit the
+// dialect's bind parameter limit. It fails with an error wrapping sql.ErrNoRows when any of
 // them is missing.
 func FetchLearnerByID(
 	ctx context.Context,
 	db tsq.Executor,
 	iDs ...int64,
 ) ([]*Learner, error) {
-	list, err := QueryLearnerByIDIn.List(ctx, db, Learner_ID.BindList(iDs...))
+	list, err := QueryLearnerByIDIn.ListIn(ctx, db, Learner_ID.ListParam(), iDs)
 	if err != nil {
 		return nil, err
 	}
@@ -158,9 +159,7 @@ func FetchLearnerByEmail(
 	db tsq.Executor,
 	emails ...string,
 ) ([]*Learner, error) {
-	list, err := QueryLearnerByEmailIn.List(ctx, db,
-		Learner_Email.BindList(emails...),
-	)
+	list, err := QueryLearnerByEmailIn.ListIn(ctx, db, Learner_Email.ListParam(), emails)
 	if err != nil {
 		return nil, err
 	}

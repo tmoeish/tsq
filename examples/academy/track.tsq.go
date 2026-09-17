@@ -108,14 +108,15 @@ var QueryTrackByIDIn = tsq.
 	MustBuild()
 
 // FetchTrackByID returns the Track rows with the given primary keys,
-// in the order given. It fails with an error wrapping sql.ErrNoRows when any of
+// in the order given. Any number of keys works: they are split to fit the
+// dialect's bind parameter limit. It fails with an error wrapping sql.ErrNoRows when any of
 // them is missing.
 func FetchTrackByID(
 	ctx context.Context,
 	db tsq.Executor,
 	iDs ...int64,
 ) ([]*Track, error) {
-	list, err := QueryTrackByIDIn.List(ctx, db, Track_ID.BindList(iDs...))
+	list, err := QueryTrackByIDIn.ListIn(ctx, db, Track_ID.ListParam(), iDs)
 	if err != nil {
 		return nil, err
 	}
@@ -157,9 +158,7 @@ func FetchTrackByName(
 	db tsq.Executor,
 	names ...string,
 ) ([]*Track, error) {
-	list, err := QueryTrackByNameIn.List(ctx, db,
-		Track_Name.BindList(names...),
-	)
+	list, err := QueryTrackByNameIn.ListIn(ctx, db, Track_Name.ListParam(), names)
 	if err != nil {
 		return nil, err
 	}

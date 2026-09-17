@@ -154,14 +154,15 @@ var QueryCourseByIDIn = tsq.
 	MustBuild()
 
 // FetchCourseByID returns the Course rows with the given primary keys,
-// in the order given. It fails with an error wrapping sql.ErrNoRows when any of
+// in the order given. Any number of keys works: they are split to fit the
+// dialect's bind parameter limit. It fails with an error wrapping sql.ErrNoRows when any of
 // them is missing.
 func FetchCourseByID(
 	ctx context.Context,
 	db tsq.Executor,
 	iDs ...int64,
 ) ([]*Course, error) {
-	list, err := QueryCourseByIDIn.List(ctx, db, Course_ID.BindList(iDs...))
+	list, err := QueryCourseByIDIn.ListIn(ctx, db, Course_ID.ListParam(), iDs)
 	if err != nil {
 		return nil, err
 	}
@@ -203,9 +204,7 @@ func FetchCourseByTitle(
 	db tsq.Executor,
 	titles ...string,
 ) ([]*Course, error) {
-	list, err := QueryCourseByTitleIn.List(ctx, db,
-		Course_Title.BindList(titles...),
-	)
+	list, err := QueryCourseByTitleIn.ListIn(ctx, db, Course_Title.ListParam(), titles)
 	if err != nil {
 		return nil, err
 	}

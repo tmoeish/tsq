@@ -346,7 +346,11 @@ func (c columnImpl[O, T]) membership(op string, set SetRHS[T], negated bool) Con
 		return conditionError(errors.New("IN operand cannot be nil"))
 	}
 
-	return c.compare(op, set.setOperand(negated))
+	operand := set.setOperand(negated)
+	cond := c.compare(op, operand).condition()
+	cond.inList = operand.inList
+
+	return newCondition(cond)
 }
 
 // Pred builds a custom condition around the column.

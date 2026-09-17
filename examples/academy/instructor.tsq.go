@@ -117,14 +117,15 @@ var QueryInstructorByIDIn = tsq.
 	MustBuild()
 
 // FetchInstructorByID returns the Instructor rows with the given primary keys,
-// in the order given. It fails with an error wrapping sql.ErrNoRows when any of
+// in the order given. Any number of keys works: they are split to fit the
+// dialect's bind parameter limit. It fails with an error wrapping sql.ErrNoRows when any of
 // them is missing.
 func FetchInstructorByID(
 	ctx context.Context,
 	db tsq.Executor,
 	iDs ...int64,
 ) ([]*Instructor, error) {
-	list, err := QueryInstructorByIDIn.List(ctx, db, Instructor_ID.BindList(iDs...))
+	list, err := QueryInstructorByIDIn.ListIn(ctx, db, Instructor_ID.ListParam(), iDs)
 	if err != nil {
 		return nil, err
 	}
@@ -166,9 +167,7 @@ func FetchInstructorByEmail(
 	db tsq.Executor,
 	emails ...string,
 ) ([]*Instructor, error) {
-	list, err := QueryInstructorByEmailIn.List(ctx, db,
-		Instructor_Email.BindList(emails...),
-	)
+	list, err := QueryInstructorByEmailIn.ListIn(ctx, db, Instructor_Email.ListParam(), emails)
 	if err != nil {
 		return nil, err
 	}

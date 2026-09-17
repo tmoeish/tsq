@@ -187,6 +187,8 @@ MySQL 的 `LENGTH` 数字节；PostgreSQL 没有 `round(double, int)`；modernc 
 - **Upsert 在 MySQL 上遇到"别的唯一键也可能冲突"就拒绝**：`ON DUPLICATE KEY UPDATE` 没有冲突目标，
   会静默更新无关的行（PG/SQLite 报重复键）。批量里同键两行一律报错（PG 不许一条语句改一行两次）；
   批量不回读：多行 `RETURNING` 顺序无保证，MySQL 只报第一个 id。
+- **超长列表参数用显式的 `ListIn`，否决自动分块**：`a IN (list) OR b = 1` 分块会重复返回，`NOT IN`
+  分块直接错，排序/聚合/LIMIT 分块后语义都变；只有调用方声明"这是按键取行"时才能拆。
 - **`Page` 的一致性靠只读快照事务，不靠 `COUNT(*) OVER()`**：窗口函数在 `DISTINCT` 之前求值（数错）、
   PG 不允许和 `FOR UPDATE` 同用、页码越界时没有行可带回总数。代价是每次 `Page` 多一对 BEGIN/COMMIT。
 - `BatchDeleteByPK` 挪到 `TableOf` 上，吃主键的 `BindList`：包级版本要再校验"列是不是主键"。
@@ -249,10 +251,9 @@ v5 不背兼容，一次把名字改到"最合理"。定下的几条规则，每
 v4 攒下九个 `Deprecated` 符号，没有任何门禁会提醒它们该走——**兼容包装只会积累**，删掉它们本身就是
 大版本存在的理由。同一波删掉 `Unique` / `NUnique` / `Concat`（只会返回构建错误）和 `Column.Now()`。
 
-`Now()` 和 `ExistsSub()` 是同一个信号：**方法体里不出现 `c.`，就说明它不该是方法**。`Now()` 把整个
-列表达式换成 `CURRENT_TIMESTAMP`，`User_Name.Now()` 和 `User_ID.Now()` 完全一样；`ExistsSub` 逼着
-调用方随便挑一列去问"子查询有没有行"。后者还有第二个毛病：参数类型 `rawSubquery` 未导出，**调用能
-编译，但使用者写不出这个类型名**，也就写不了 helper。现在是导出的密封接口 `AnySubquery`。
+**方法体里不出现 `c.`，就说明它不该是方法**：`User_Name.Now()` 和 `User_ID.Now()` 完全一样，
+`ExistsSub` 逼调用方随便挑一列。后者的参数类型还未导出——**调用能编译，但使用者写不出类型名**，
+也就写不了 helper；现在是导出的密封接口 `AnySubquery`。
 
 ### 决定：软删除是默认的删除语义，物理删除要显式说 (2026-09-09，v5)
 
@@ -452,9 +453,8 @@ tag，想打 tag 得先过 `release-check`。所以 `make build-gen` **故意不
 
 ## 搁置项与决定不做的事
 
-决定：**CLI 不拆子模块，改为收紧根包自己的依赖**（2026-09-17 重测后定案）。一个只 import 根包的
-模块 `go mod tidy` 后，`x/tools` / `cobra` 等 CLI 依赖早已不在其 `go.sum`（模块图裁剪挡住了），拆分
-不会改变任何东西；真正进去的是根包自己的非测试 import（MySQL 驱动，连 `go.mod` 都进）和**根包测试**
+决定：**CLI 不拆子模块，改为收紧根包自己的依赖**（2026-09-17 重测）。只 import 根包的模块 tidy 后，
+`x/tools` / `cobra` 早已不在其 `go.sum`，拆分不改变任何东西；真正进去的是根包自己的非测试 import（MySQL 驱动，连 `go.mod` 都进）和**根包测试**
 的 import（pgx、nullbio）——tidy 会记录依赖包测试的依赖。修法：MySQL 错误改反射读取、集成测试挪进
 `internal/integration`、时间戳测试用本地同形类型，门是 `TestRootPackageImportsNoDriver`。剩下只有
 SQLite 驱动（根包单测离不开它）。复测：临时模块 `replace` 到本仓，tidy 后看 `go.sum`。

@@ -386,6 +386,63 @@ func TestUpsertMatchesLiveRowsOfASoftDeletedUniqueIndex(t *testing.T) {
 	}
 }
 
+func TestListInSplitsListsBeyondTheBindLimit(t *testing.T) {
+	if raceEnabled {
+		t.Skip("binds 40000 values on SQLite, which is slow under the race detector")
+	}
+
+	ctx := context.Background()
+	rt := newSQLite(t)
+	rows := seedUsers(t, rt, "a", "b", "c")
+
+	// More values than SQLite binds in one statement, with duplicates and misses.
+	ids := make([]int64, 0, 40002)
+	for i := range int64(40000) {
+		ids = append(ids, 1000+i)
+	}
+
+	ids = append(ids, rows[2].ID, rows[0].ID, rows[0].ID)
+
+	byID := Select(User__Cols...).From(Users).Where(User_ID.In(User_ID.ListParam())).MustBuild()
+
+	got, err := byID.ListIn(ctx, rt, User_ID.ListParam(), ids)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(got) != 2 {
+		t.Fatalf("got %d rows, want 2", len(got))
+	}
+
+	// Other parameters are bound in every statement.
+	name := NewParam[string]("name")
+	filtered := Select(User__Cols...).From(Users).Where(User_ID.In(User_ID.ListParam()), User_Name.EQ(name)).MustBuild()
+
+	got, err = filtered.ListIn(ctx, rt, User_ID.ListParam(), ids, name.Bind("c"))
+	if err != nil || len(got) != 1 || got[0].Name != "c" {
+		t.Fatalf("filtered = %v, %v", got, err)
+	}
+
+	if got, err := byID.ListIn(ctx, rt, User_ID.ListParam(), nil); err != nil || len(got) != 0 {
+		t.Fatalf("no values = %v, %v", got, err)
+	}
+
+	list := User_ID.ListParam()
+	refused := map[string]*Query[user]{
+		"ordered":    Select(User__Cols...).From(Users).Where(User_ID.In(list)).OrderBy(User_ID.Asc()).MustBuild(),
+		"not in":     Select(User__Cols...).From(Users).Where(User_ID.NotIn(list)).MustBuild(),
+		"under or":   Select(User__Cols...).From(Users).Where(Or(User_ID.In(list), User_Name.EQ(Val("a")))).MustBuild(),
+		"used twice": Select(User__Cols...).From(Users).Where(User_ID.In(list), User_Version.In(Vals[int64]()), User_ID.NotIn(list)).MustBuild(),
+		"distinct":   SelectDistinct(User__Cols...).From(Users).Where(User_ID.In(list)).MustBuild(),
+	}
+
+	for name, q := range refused {
+		if _, err := q.ListIn(ctx, rt, list, ids); err == nil {
+			t.Errorf("%s: expected ListIn to refuse the query", name)
+		}
+	}
+}
+
 func TestIterStreamsRowsAndStops(t *testing.T) {
 	ctx := context.Background()
 	rt := newSQLite(t)

@@ -846,6 +846,24 @@ func TestIntegrationUpsert(t *testing.T) {
 				t.Fatalf("stored = %+v, %v", stored, err)
 			}
 
+			// Fetch splits a key list larger than the server binds in one statement.
+			// SQLite is covered by the unit suite, where it is not this slow.
+			if target.driver != "sqlite" {
+				keys := make([]int64, 0, 70001)
+				for i := range int64(70000) {
+					keys = append(keys, 1_000_000+i)
+				}
+
+				if _, err := academy.FetchLearnerByID(ctx, rt, append(keys, first.ID)...); !errors.Is(err, sql.ErrNoRows) {
+					t.Fatalf("fetch with missing keys = %v; want sql.ErrNoRows", err)
+				}
+
+				found, err := academy.QueryLearnerByIDIn.ListIn(ctx, rt, academy.Learner_ID.ListParam(), append(keys, first.ID))
+				if err != nil || len(found) != 1 || found[0].ID != first.ID {
+					t.Fatalf("ListIn over 70001 keys = %d rows, %v", len(found), err)
+				}
+			}
+
 			// A known primary key could hit a second unique key; only MySQL cares.
 			explicit := &academy.Learner{Name: "Ada", Email: "ada@example.test"}
 			explicit.ID = first.ID

@@ -157,14 +157,15 @@ var QueryEnrollmentByUIDIn = tsq.
 	MustBuild()
 
 // FetchEnrollmentByUID returns the Enrollment rows with the given primary keys,
-// in the order given. It fails with an error wrapping sql.ErrNoRows when any of
+// in the order given. Any number of keys works: they are split to fit the
+// dialect's bind parameter limit. It fails with an error wrapping sql.ErrNoRows when any of
 // them is missing.
 func FetchEnrollmentByUID(
 	ctx context.Context,
 	db tsq.Executor,
 	uIDs ...int64,
 ) ([]*Enrollment, error) {
-	list, err := QueryEnrollmentByUIDIn.List(ctx, db, Enrollment_UID.BindList(uIDs...))
+	list, err := QueryEnrollmentByUIDIn.ListIn(ctx, db, Enrollment_UID.ListParam(), uIDs)
 	if err != nil {
 		return nil, err
 	}
