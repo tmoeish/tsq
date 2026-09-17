@@ -19,32 +19,16 @@ func (d MySQLDialect) Name() Name {
 	return MySQL
 }
 
-func (d MySQLDialect) QuoteField(f string) string {
+func (d MySQLDialect) QuoteIdent(f string) string {
 	return "`" + f + "`"
 }
 
-func (d MySQLDialect) BindVar(i int) string {
+func (d MySQLDialect) Placeholder(i int) string {
 	return "?"
 }
 
-func (d MySQLDialect) CreateTableSuffix() string {
-	return ";"
-}
-
-func (d MySQLDialect) CreateIndexSuffix() string {
-	return ";"
-}
-
-func (d MySQLDialect) AutoIncrementClause() string {
-	return "AUTO_INCREMENT"
-}
-
-func (d MySQLDialect) LastInsertIdReturningSuffix(table, col string) string {
+func (d MySQLDialect) ReturningClause(col string) string {
 	return ""
-}
-
-func (d MySQLDialect) CreateTableIfNotExistsSuffix() string {
-	return "IF NOT EXISTS"
 }
 
 func (d MySQLDialect) ValidateIdentifier(identifier string) error {
@@ -77,7 +61,7 @@ func (d MySQLDialect) BatchInsertStartID(lastID, rowsAffected int64) (int64, boo
 	return lastID, true
 }
 
-func (d MySQLDialect) InspectTableColumns(ctx context.Context, db Executor, table string) ([]DDLColumnSpec, bool, error) {
+func (d MySQLDialect) InspectColumns(ctx context.Context, db Executor, table string) ([]ColumnSpec, bool, error) {
 	rows, err := db.QueryContext(ctx, `
 		SELECT
 			column_name,
@@ -112,7 +96,7 @@ func (d MySQLDialect) InspectTableColumns(ctx context.Context, db Executor, tabl
 		Size    sql.NullInt64
 	}
 
-	columns := make([]DDLColumnSpec, 0)
+	columns := make([]ColumnSpec, 0)
 
 	for rows.Next() {
 		var item row
@@ -120,13 +104,13 @@ func (d MySQLDialect) InspectTableColumns(ctx context.Context, db Executor, tabl
 			return nil, false, err
 		}
 
-		desc, err := parseMySQLDDLColumnType(item.Data, item.Type, item.Size)
+		desc, err := parseMySQLColumnType(item.Data, item.Type, item.Size)
 		if err != nil {
 			return nil, false, fmt.Errorf("inspect mysql column %s.%s: %w", table, item.Name, err)
 		}
 
 		nullable := strings.EqualFold(item.Null, "YES")
-		columns = append(columns, DDLColumnSpec{
+		columns = append(columns, ColumnSpec{
 			Name:          item.Name,
 			Type:          withDDLNullable(desc, nullable && item.Key != "PRI"),
 			PrimaryKey:    item.Key == "PRI",
@@ -147,7 +131,7 @@ func (d MySQLDialect) InspectTableColumns(ctx context.Context, db Executor, tabl
 	return columns, true, nil
 }
 
-func (d MySQLDialect) ListIndexes(ctx context.Context, db Executor, table string) ([]NamedIndexDefinition, error) {
+func (d MySQLDialect) ListIndexes(ctx context.Context, db Executor, table string) ([]Index, error) {
 	rows, err := db.QueryContext(ctx, `
 		SELECT
 			index_name,
@@ -167,7 +151,7 @@ func (d MySQLDialect) ListIndexes(ctx context.Context, db Executor, table string
 		_ = rows.Close()
 	}()
 
-	indexes := make([]NamedIndexDefinition, 0)
+	indexes := make([]Index, 0)
 
 	for rows.Next() {
 		var name string
@@ -178,7 +162,7 @@ func (d MySQLDialect) ListIndexes(ctx context.Context, db Executor, table string
 			return nil, err
 		}
 
-		indexes = append(indexes, NamedIndexDefinition{
+		indexes = append(indexes, Index{
 			Name:       name,
 			Table:      table,
 			Unique:     unique == 1,
@@ -194,7 +178,7 @@ func (d MySQLDialect) ListIndexes(ctx context.Context, db Executor, table string
 	return indexes, nil
 }
 
-func (d MySQLDialect) EnsureIndex(ctx context.Context, db Executor, table string, unique bool, idx string, fields []string) (string, error) {
+func (d MySQLDialect) EnsureIndex(ctx context.Context, db Executor, table, idx string, fields []string, unique bool) (string, error) {
 	quotedFields, err := quoteDialectIdentifiers(d, fields)
 	if err != nil {
 		return "", err
@@ -222,8 +206,8 @@ func (d MySQLDialect) EnsureIndex(ctx context.Context, db Executor, table string
 
 	_, err = db.ExecContext(ctx, query)
 	if err != nil {
-		definition, found, inspectErr := d.InspectIndexDefinition(ctx, db, table, idx)
-		if inspectErr == nil && found && validateIndexDefinition(table, unique, idx, fields, definition) == nil {
+		definition, found, inspectErr := d.InspectIndex(ctx, db, table, idx)
+		if inspectErr == nil && found && validateIndex(table, unique, idx, fields, definition) == nil {
 			return "", nil
 		}
 
@@ -233,7 +217,7 @@ func (d MySQLDialect) EnsureIndex(ctx context.Context, db Executor, table string
 	return query, nil
 }
 
-func (d MySQLDialect) InspectIndexDefinition(ctx context.Context, db Executor, table, idx string) (IndexDefinition, bool, error) {
+func (d MySQLDialect) InspectIndex(ctx context.Context, db Executor, table, idx string) (Index, bool, error) {
 	type row struct {
 		Table   string         `db:"table_name"`
 		Unique  int            `db:"is_unique"`
@@ -257,20 +241,20 @@ func (d MySQLDialect) InspectIndexDefinition(ctx context.Context, db Executor, t
 	).Scan(&existing.Table, &existing.Unique, &existing.Columns)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return IndexDefinition{}, false, nil
+			return Index{}, false, nil
 		}
 
-		return IndexDefinition{}, false, err
+		return Index{}, false, err
 	}
 
-	return IndexDefinition{
+	return Index{
 		Table:  existing.Table,
 		Unique: existing.Unique == 1,
 		Fields: parseColumnsCSV(existing.Columns.String),
 	}, true, nil
 }
 
-func parseMySQLDDLColumnType(dataType, columnType string, size sql.NullInt64) (DDLColumnType, error) {
+func parseMySQLColumnType(dataType, columnType string, size sql.NullInt64) (ColumnType, error) {
 	data := strings.ToLower(strings.TrimSpace(dataType))
 	rawColumnType := strings.TrimSpace(columnType)
 	colType := strings.ToLower(rawColumnType)
@@ -278,66 +262,66 @@ func parseMySQLDDLColumnType(dataType, columnType string, size sql.NullInt64) (D
 
 	switch data {
 	case "bool", "boolean":
-		return DDLColumnType{Kind: DDLColumnKindBool}, nil
+		return ColumnType{Kind: KindBool}, nil
 	case "tinyint":
 		if strings.HasPrefix(colType, "tinyint(1)") {
-			return DDLColumnType{Kind: DDLColumnKindBool}, nil
+			return ColumnType{Kind: KindBool}, nil
 		}
 
-		return DDLColumnType{Kind: DDLColumnKindInt, Bits: 8, Unsigned: unsigned}, nil
+		return ColumnType{Kind: KindInt, Bits: 8, Unsigned: unsigned}, nil
 	case "smallint":
-		return DDLColumnType{Kind: DDLColumnKindInt, Bits: 16, Unsigned: unsigned}, nil
+		return ColumnType{Kind: KindInt, Bits: 16, Unsigned: unsigned}, nil
 	case "int", "integer", "mediumint":
-		return DDLColumnType{Kind: DDLColumnKindInt, Bits: 32, Unsigned: unsigned}, nil
+		return ColumnType{Kind: KindInt, Bits: 32, Unsigned: unsigned}, nil
 	case "bigint":
-		return DDLColumnType{Kind: DDLColumnKindInt, Bits: 64, Unsigned: unsigned}, nil
+		return ColumnType{Kind: KindInt, Bits: 64, Unsigned: unsigned}, nil
 	case "float":
-		return DDLColumnType{Kind: DDLColumnKindFloat, Bits: 32}, nil
+		return ColumnType{Kind: KindFloat, Bits: 32}, nil
 	case "double", "double precision", "decimal", "numeric":
-		return DDLColumnType{Kind: DDLColumnKindFloat, Bits: 64}, nil
+		return ColumnType{Kind: KindFloat, Bits: 64}, nil
 	case "blob", "tinyblob", "mediumblob", "longblob":
-		return DDLColumnType{Kind: DDLColumnKindBytes}, nil
+		return ColumnType{Kind: KindBytes}, nil
 	case "varchar", "char":
-		result := DDLColumnType{Kind: DDLColumnKindString}
+		result := ColumnType{Kind: KindString}
 		if size.Valid && size.Int64 > 0 {
 			result.Size = int(size.Int64)
 		}
 
 		return result, nil
 	case "text", "tinytext":
-		return DDLColumnType{Kind: DDLColumnKindString, Size: mysqlMaxVarcharChars + 1}, nil
+		return ColumnType{Kind: KindString, Size: mysqlMaxVarcharChars + 1}, nil
 	case "mediumtext":
-		return DDLColumnType{Kind: DDLColumnKindString, Size: mysqlMaxVarcharChars + 1}, nil
+		return ColumnType{Kind: KindString, Size: mysqlMaxVarcharChars + 1}, nil
 	case "longtext":
-		return DDLColumnType{Kind: DDLColumnKindString, Size: mysqlMaxMediumTextChars + 1}, nil
+		return ColumnType{Kind: KindString, Size: mysqlMaxMediumTextChars + 1}, nil
 	case "datetime", "timestamp", "date":
-		return DDLColumnType{Kind: DDLColumnKindTime}, nil
+		return ColumnType{Kind: KindTime}, nil
 	default:
 		if rawColumnType == "" {
 			rawColumnType = strings.TrimSpace(dataType)
 		}
 
-		return DDLColumnType{RawType: rawColumnType}, nil
+		return ColumnType{RawType: rawColumnType}, nil
 	}
 }
 
-func (d MySQLDialect) DDLColumnType(desc DDLColumnType) string {
+func (d MySQLDialect) ColumnTypeSQL(desc ColumnType) string {
 	if desc.RawType != "" {
 		return desc.RawType
 	}
 
 	switch desc.Kind {
-	case DDLColumnKindBool:
+	case KindBool:
 		return "BOOLEAN"
-	case DDLColumnKindBytes:
+	case KindBytes:
 		return "BLOB"
-	case DDLColumnKindFloat:
+	case KindFloat:
 		if desc.Bits <= 32 {
 			return "FLOAT"
 		}
 
 		return "DOUBLE"
-	case DDLColumnKindInt:
+	case KindInt:
 		switch {
 		case desc.Bits <= 8:
 			if desc.Unsigned {
@@ -365,7 +349,7 @@ func (d MySQLDialect) DDLColumnType(desc DDLColumnType) string {
 			return "BIGINT"
 		}
 
-	case DDLColumnKindString:
+	case KindString:
 		switch {
 		case desc.Size <= 0:
 			return fmt.Sprintf("VARCHAR(%d)", defaultDDLStringSize)
@@ -376,27 +360,27 @@ func (d MySQLDialect) DDLColumnType(desc DDLColumnType) string {
 		default:
 			return "LONGTEXT"
 		}
-	case DDLColumnKindTime:
+	case KindTime:
 		return "DATETIME"
 	default:
 		return "TEXT"
 	}
 }
 
-func (d MySQLDialect) DDLAutoIncrementPrimaryKey(quotedColumn string, desc DDLColumnType) (string, error) {
-	if desc.Kind != DDLColumnKindInt {
+func (d MySQLDialect) AutoIncrementColumnSQL(quotedColumn string, desc ColumnType) (string, error) {
+	if desc.Kind != KindInt {
 		return "", errors.New("auto-increment primary key requires an integer field")
 	}
 
 	return strings.Join([]string{
 		quotedColumn,
-		d.DDLColumnType(desc),
+		d.ColumnTypeSQL(desc),
 		"PRIMARY KEY",
-		d.AutoIncrementClause(),
+		"AUTO_INCREMENT",
 	}, " "), nil
 }
 
-func (d MySQLDialect) DDLCreateIndex(table, idx string, fields []string, unique bool) string {
+func (d MySQLDialect) CreateIndexSQL(table, idx string, fields []string, unique bool) string {
 	uniqueClause := ""
 	if unique {
 		uniqueClause = "UNIQUE "
@@ -404,30 +388,30 @@ func (d MySQLDialect) DDLCreateIndex(table, idx string, fields []string, unique 
 
 	return fmt.Sprintf(
 		"ALTER TABLE %s ADD %sINDEX %s(%s)%s",
-		d.QuoteField(table),
+		d.QuoteIdent(table),
 		uniqueClause,
-		d.QuoteField(idx),
+		d.QuoteIdent(idx),
 		strings.Join(fields, ", "),
-		d.CreateIndexSuffix(),
+		";",
 	)
 }
 
-func (d MySQLDialect) DDLDropIndex(table, idx string) string {
+func (d MySQLDialect) DropIndexSQL(table, idx string) string {
 	return fmt.Sprintf(
 		"DROP INDEX %s ON %s;",
-		d.QuoteField(idx),
-		d.QuoteField(table),
+		d.QuoteIdent(idx),
+		d.QuoteIdent(table),
 	)
 }
 
-func (d MySQLDialect) DDLAlterColumnMode() DDLAlterColumnMode {
-	return DDLAlterColumnDirect
+func (d MySQLDialect) AlterMode() AlterMode {
+	return AlterInPlace
 }
 
-func (d MySQLDialect) DDLAlterColumnStatements(table string, before, after DDLColumnSpec) []string {
+func (d MySQLDialect) AlterColumnSQL(table string, before, after ColumnSpec) []string {
 	return []string{fmt.Sprintf(
 		"ALTER TABLE %s MODIFY COLUMN %s;",
-		d.QuoteField(table),
+		d.QuoteIdent(table),
 		d.renderModifyColumnDefinition(after),
 	)}
 }
@@ -436,15 +420,15 @@ func (d MySQLDialect) DDLAlterColumnStatements(table string, before, after DDLCo
 // It must not repeat PRIMARY KEY: MySQL rejects MODIFY COLUMN ... PRIMARY KEY
 // on a column that already is the primary key (error 1068 "Multiple primary
 // key defined"). AUTO_INCREMENT, however, must be restated or it gets dropped.
-func (d MySQLDialect) renderModifyColumnDefinition(column DDLColumnSpec) string {
-	parts := []string{d.QuoteField(column.Name), d.DDLColumnType(column.Type)}
+func (d MySQLDialect) renderModifyColumnDefinition(column ColumnSpec) string {
+	parts := []string{d.QuoteIdent(column.Name), d.ColumnTypeSQL(column.Type)}
 
 	if column.PrimaryKey || !column.Type.Nullable {
 		parts = append(parts, "NOT NULL")
 	}
 
 	if column.AutoIncrement {
-		parts = append(parts, d.AutoIncrementClause())
+		parts = append(parts, "AUTO_INCREMENT")
 	} else if column.Default != "" {
 		parts = append(parts, "DEFAULT "+column.Default)
 	}

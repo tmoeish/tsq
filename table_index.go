@@ -32,16 +32,16 @@ func inspectIndexDefinition(
 	sqlDialect tsqdialect.Dialect,
 	table string,
 	idx string,
-) (tsqdialect.IndexDefinition, bool, error) {
-	return sqlDialect.InspectIndexDefinition(ctx, db, table, idx)
+) (tsqdialect.Index, bool, error) {
+	return sqlDialect.InspectIndex(ctx, db, table, idx)
 }
 
-func validateIndexDefinition(
+func validateIndex(
 	table string,
 	unique bool,
 	idx string,
 	fields []string,
-	existing tsqdialect.IndexDefinition,
+	existing tsqdialect.Index,
 ) error {
 	if existing.Table != table {
 		return fmt.Errorf(
@@ -144,11 +144,11 @@ func upsertIndex(
 	}
 
 	if found {
-		if err := validateIndexDefinition(table, unique, idx, fields, definition); err == nil || mode == SchemaPolicyValidate || mode == SchemaPolicyCreateMissing {
+		if err := validateIndex(table, unique, idx, fields, definition); err == nil || mode == SchemaPolicyValidate || mode == SchemaPolicyCreateMissing {
 			return err
 		}
 
-		if _, err := db.ExecContext(ctx, sqlDialect.DDLDropIndex(table, idx)); err != nil {
+		if _, err := db.ExecContext(ctx, sqlDialect.DropIndexSQL(table, idx)); err != nil {
 			return err
 		}
 	}
@@ -162,7 +162,7 @@ func upsertIndex(
 		}
 	}
 
-	_, err = sqlDialect.EnsureIndex(ctx, db, table, unique, idx, fields)
+	_, err = sqlDialect.EnsureIndex(ctx, db, table, idx, fields, unique)
 
 	return err
 }

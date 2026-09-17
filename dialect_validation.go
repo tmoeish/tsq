@@ -20,5 +20,5 @@ func validateIdentifierForDialect(identifier string, sqlDialect tsqdialect.Diale
 }
 
 func validateIdentifierLength(identifier string, sqlDialect tsqdialect.Dialect) error {
-	return tsqdialect.ValidateIdentifierLength(identifier, sqlDialect)
+	return tsqdialect.ValidateIdentifier(sqlDialect, identifier)
 }

@@ -16,16 +16,16 @@ func TSQTables() []tsq.TableRegistration {
 	{{- $table := .StructInfo }}
 		{
 			Table: Table{{.TypeInfo.TypeName}},
-			Columns: []tsqdialect.DDLColumnSpec{
+			Columns: []tsqdialect.ColumnSpec{
 	{{- range .SchemaColumns }}
 				{
 					Name: "{{ .Name }}",
-					Type: tsqdialect.DDLColumnType{
+					Type: tsqdialect.ColumnType{
 			{{- if .RawType }}
 						RawType: {{ printf "%q" .RawType }},
 			{{- end }}
 			{{- if .Kind }}
-						Kind: tsqdialect.DDLColumnKind{{ UpperInitial .Kind }},
+						Kind: {{ ColumnKindRef .Kind }},
 			{{- end }}
 			{{- if .Bits }}
 						Bits: {{ .Bits }},

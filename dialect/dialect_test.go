@@ -24,15 +24,15 @@ func TestBatchInsertStartID(t *testing.T) {
 
 // TestOnlyPostgresReturnsInsertIDsThroughReturning pairs with the test above: the two
 // backfill paths are chosen by whether this suffix is empty, and a dialect must be on
-// exactly one of them. LastInsertIdReturningSuffix sat in the interface, implemented
+// exactly one of them. ReturningClause (then ReturningClause) sat in the interface, implemented
 // and never called, for six releases; asserting the split keeps both paths honest.
 func TestOnlyPostgresReturnsInsertIDsThroughReturning(t *testing.T) {
-	if suffix := (PostgresDialect{}).LastInsertIdReturningSuffix("users", "id"); suffix == "" {
+	if suffix := (PostgresDialect{}).ReturningClause("id"); suffix == "" {
 		t.Fatal("postgres should backfill primary keys through a RETURNING clause")
 	}
 
 	for name, dialect := range map[Name]Dialect{MySQL: MySQLDialect{}, SQLite: SQLiteDialect{}} {
-		if suffix := dialect.LastInsertIdReturningSuffix("users", "id"); suffix != "" {
+		if suffix := dialect.ReturningClause("id"); suffix != "" {
 			t.Errorf("dialect %s returned RETURNING suffix %q; it backfills through LastInsertId", name, suffix)
 		}
 	}

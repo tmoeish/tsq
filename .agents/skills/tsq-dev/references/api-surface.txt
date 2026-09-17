@@ -535,9 +535,9 @@ type TableIndex struct {
 	Unique bool     // Unique reports whether the index enforces uniqueness.
 }
 type TableRegistration struct {
-	Table   Table                      // Table is the physical table metadata.
-	Columns []tsqdialect.DDLColumnSpec // Columns declares the physical column schema owned by Table.
-	Indexes []TableIndex               // Indexes declares the indexes owned by Table.
+	Table   Table                   // Table is the physical table metadata.
+	Columns []tsqdialect.ColumnSpec // Columns declares the physical column schema owned by Table.
+	Indexes []TableIndex            // Indexes declares the indexes owned by Table.
 }
 type TraceOp string
 const (
@@ -588,11 +588,16 @@ type WhereStage[O Owner] interface {
 ## ./dialect
 package dialect // import "github.com/tmoeish/tsq/v5/dialect"
 FUNCTIONS
-func DDLColumnTypesEquivalent(dialect Dialect, left, right DDLColumnSpec) bool
 func MaxBindParams(dialect Dialect) int
+func SameColumnType(dialect Dialect, left, right ColumnSpec) bool
 func ValidateCapability(dialect Dialect, capability Capability) error
-func ValidateIdentifierLength(identifier string, dialect Dialect) error
+func ValidateIdentifier(dialect Dialect, identifier string) error
 TYPES
+type AlterMode string
+const (
+	AlterInPlace AlterMode = "direct"
+	AlterRebuild AlterMode = "rebuild"
+)
 type Capability string
 const (
 	CapabilityCTE                 Capability = "CTE"
@@ -605,30 +610,25 @@ const (
 	CapabilitySelectForSkipLocked Capability = "SELECT_FOR_SKIP_LOCKED"
 )
 func AllCapabilities() []Capability
-type DDLAlterColumnMode string
+type ColumnKind string
 const (
-	DDLAlterColumnDirect  DDLAlterColumnMode = "direct"
-	DDLAlterColumnRebuild DDLAlterColumnMode = "rebuild"
+	KindBool   ColumnKind = "bool"
+	KindBytes  ColumnKind = "bytes"
+	KindFloat  ColumnKind = "float"
+	KindInt    ColumnKind = "int"
+	KindString ColumnKind = "string"
+	KindTime   ColumnKind = "time"
 )
-type DDLColumnKind string
-const (
-	DDLColumnKindBool   DDLColumnKind = "bool"
-	DDLColumnKindBytes  DDLColumnKind = "bytes"
-	DDLColumnKindFloat  DDLColumnKind = "float"
-	DDLColumnKindInt    DDLColumnKind = "int"
-	DDLColumnKindString DDLColumnKind = "string"
-	DDLColumnKindTime   DDLColumnKind = "time"
-)
-type DDLColumnSpec struct {
+type ColumnSpec struct {
 	Name          string
-	Type          DDLColumnType
+	Type          ColumnType
 	PrimaryKey    bool
 	AutoIncrement bool
 	Default       string
 	NativeType string
 }
-type DDLColumnType struct {
-	Kind     DDLColumnKind
+type ColumnType struct {
+	Kind     ColumnKind
 	Bits     int
 	Unsigned bool
 	Nullable bool
@@ -637,60 +637,52 @@ type DDLColumnType struct {
 }
 type Dialect interface {
 	Name() Name
-	QuoteField(field string) string
-	BindVar(i int) string
-	CreateTableSuffix() string
-	CreateIndexSuffix() string
-	AutoIncrementClause() string
-	LastInsertIdReturningSuffix(table, col string) string
-	CreateTableIfNotExistsSuffix() string
+	QuoteIdent(ident string) string
+	Placeholder(i int) string
+	ReturningClause(col string) string
 	ValidateIdentifier(identifier string) error
 	SupportsCapability(capability Capability) bool
 	BatchInsertStartID(lastID, rowsAffected int64) (int64, bool)
-	InspectTableColumns(ctx context.Context, db Executor, table string) ([]DDLColumnSpec, bool, error)
-	ListIndexes(ctx context.Context, db Executor, table string) ([]NamedIndexDefinition, error)
-	EnsureIndex(ctx context.Context, db Executor, table string, unique bool, idx string, fields []string) (string, error)
-	InspectIndexDefinition(ctx context.Context, db Executor, table, idx string) (IndexDefinition, bool, error)
-	DDLColumnType(desc DDLColumnType) string
-	DDLAutoIncrementPrimaryKey(quotedColumn string, desc DDLColumnType) (string, error)
-	DDLCreateIndex(table, idx string, fields []string, unique bool) string
-	DDLDropIndex(table, idx string) string
-	DDLAlterColumnMode() DDLAlterColumnMode
-	DDLAlterColumnStatements(table string, before, after DDLColumnSpec) []string
+	InspectColumns(ctx context.Context, db Executor, table string) ([]ColumnSpec, bool, error)
+	ListIndexes(ctx context.Context, db Executor, table string) ([]Index, error)
+	EnsureIndex(ctx context.Context, db Executor, table, idx string, fields []string, unique bool) (string, error)
+	InspectIndex(ctx context.Context, db Executor, table, idx string) (Index, bool, error)
+	ColumnTypeSQL(t ColumnType) string
+	AutoIncrementColumnSQL(quotedColumn string, t ColumnType) (string, error)
+	CreateIndexSQL(table, idx string, quotedFields []string, unique bool) string
+	DropIndexSQL(table, idx string) string
+	AlterMode() AlterMode
+	AlterColumnSQL(table string, before, after ColumnSpec) []string
 }
-type ErrUnsupportedCapability struct {
-}
-func (e *ErrUnsupportedCapability) Error() string
 type Executor interface {
 	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 }
-type IndexDefinition struct {
-	Table  string
-	Unique bool
-	Fields []string
+type Index struct {
+	Name       string
+	Table      string
+	Unique     bool
+	Fields     []string
+	PrimaryKey bool
+	Constraint bool
 }
 type MySQLDialect struct{}
-func (d MySQLDialect) AutoIncrementClause() string
+func (d MySQLDialect) AlterColumnSQL(table string, before, after ColumnSpec) []string
+func (d MySQLDialect) AlterMode() AlterMode
+func (d MySQLDialect) AutoIncrementColumnSQL(quotedColumn string, desc ColumnType) (string, error)
 func (d MySQLDialect) BatchInsertStartID(lastID, rowsAffected int64) (int64, bool)
-func (d MySQLDialect) BindVar(i int) string
-func (d MySQLDialect) CreateIndexSuffix() string
-func (d MySQLDialect) CreateTableIfNotExistsSuffix() string
-func (d MySQLDialect) CreateTableSuffix() string
-func (d MySQLDialect) DDLAlterColumnMode() DDLAlterColumnMode
-func (d MySQLDialect) DDLAlterColumnStatements(table string, before, after DDLColumnSpec) []string
-func (d MySQLDialect) DDLAutoIncrementPrimaryKey(quotedColumn string, desc DDLColumnType) (string, error)
-func (d MySQLDialect) DDLColumnType(desc DDLColumnType) string
-func (d MySQLDialect) DDLCreateIndex(table, idx string, fields []string, unique bool) string
-func (d MySQLDialect) DDLDropIndex(table, idx string) string
-func (d MySQLDialect) EnsureIndex(ctx context.Context, db Executor, table string, unique bool, idx string, fields []string) (string, error)
-func (d MySQLDialect) InspectIndexDefinition(ctx context.Context, db Executor, table, idx string) (IndexDefinition, bool, error)
-func (d MySQLDialect) InspectTableColumns(ctx context.Context, db Executor, table string) ([]DDLColumnSpec, bool, error)
-func (d MySQLDialect) LastInsertIdReturningSuffix(table, col string) string
-func (d MySQLDialect) ListIndexes(ctx context.Context, db Executor, table string) ([]NamedIndexDefinition, error)
+func (d MySQLDialect) ColumnTypeSQL(desc ColumnType) string
+func (d MySQLDialect) CreateIndexSQL(table, idx string, fields []string, unique bool) string
+func (d MySQLDialect) DropIndexSQL(table, idx string) string
+func (d MySQLDialect) EnsureIndex(ctx context.Context, db Executor, table, idx string, fields []string, unique bool) (string, error)
+func (d MySQLDialect) InspectColumns(ctx context.Context, db Executor, table string) ([]ColumnSpec, bool, error)
+func (d MySQLDialect) InspectIndex(ctx context.Context, db Executor, table, idx string) (Index, bool, error)
+func (d MySQLDialect) ListIndexes(ctx context.Context, db Executor, table string) ([]Index, error)
 func (d MySQLDialect) Name() Name
-func (d MySQLDialect) QuoteField(f string) string
+func (d MySQLDialect) Placeholder(i int) string
+func (d MySQLDialect) QuoteIdent(f string) string
+func (d MySQLDialect) ReturningClause(col string) string
 func (d MySQLDialect) SupportsCapability(capability Capability) bool
 func (d MySQLDialect) ValidateIdentifier(identifier string) error
 type Name string
@@ -700,55 +692,42 @@ const (
 	SQLite   Name = "sqlite"
 	Unknown  Name = "unknown"
 )
-type NamedIndexDefinition struct {
-	Name       string
-	Table      string
-	Unique     bool
-	Fields     []string
-	PrimaryKey bool
-	Constraint bool
-}
 type PostgresDialect struct{}
-func (d PostgresDialect) AutoIncrementClause() string
+func (d PostgresDialect) AlterColumnSQL(table string, before, after ColumnSpec) []string
+func (d PostgresDialect) AlterMode() AlterMode
+func (d PostgresDialect) AutoIncrementColumnSQL(quotedColumn string, desc ColumnType) (string, error)
 func (d PostgresDialect) BatchInsertStartID(lastID, rowsAffected int64) (int64, bool)
-func (d PostgresDialect) BindVar(i int) string
-func (d PostgresDialect) CreateIndexSuffix() string
-func (d PostgresDialect) CreateTableIfNotExistsSuffix() string
-func (d PostgresDialect) CreateTableSuffix() string
-func (d PostgresDialect) DDLAlterColumnMode() DDLAlterColumnMode
-func (d PostgresDialect) DDLAlterColumnStatements(table string, before, after DDLColumnSpec) []string
-func (d PostgresDialect) DDLAutoIncrementPrimaryKey(quotedColumn string, desc DDLColumnType) (string, error)
-func (d PostgresDialect) DDLColumnType(desc DDLColumnType) string
-func (d PostgresDialect) DDLCreateIndex(table, idx string, fields []string, unique bool) string
-func (d PostgresDialect) DDLDropIndex(table, idx string) string
-func (d PostgresDialect) EnsureIndex(ctx context.Context, db Executor, table string, unique bool, idx string, fields []string) (string, error)
-func (d PostgresDialect) InspectIndexDefinition(ctx context.Context, db Executor, table, idx string) (IndexDefinition, bool, error)
-func (d PostgresDialect) InspectTableColumns(ctx context.Context, db Executor, table string) ([]DDLColumnSpec, bool, error)
-func (d PostgresDialect) LastInsertIdReturningSuffix(table, col string) string
-func (d PostgresDialect) ListIndexes(ctx context.Context, db Executor, table string) ([]NamedIndexDefinition, error)
+func (d PostgresDialect) ColumnTypeSQL(desc ColumnType) string
+func (d PostgresDialect) CreateIndexSQL(table, idx string, fields []string, unique bool) string
+func (d PostgresDialect) DropIndexSQL(table, idx string) string
+func (d PostgresDialect) EnsureIndex(ctx context.Context, db Executor, table, idx string, fields []string, unique bool) (string, error)
+func (d PostgresDialect) InspectColumns(ctx context.Context, db Executor, table string) ([]ColumnSpec, bool, error)
+func (d PostgresDialect) InspectIndex(ctx context.Context, db Executor, table, idx string) (Index, bool, error)
+func (d PostgresDialect) ListIndexes(ctx context.Context, db Executor, table string) ([]Index, error)
 func (d PostgresDialect) Name() Name
-func (d PostgresDialect) QuoteField(f string) string
+func (d PostgresDialect) Placeholder(i int) string
+func (d PostgresDialect) QuoteIdent(f string) string
+func (d PostgresDialect) ReturningClause(col string) string
 func (d PostgresDialect) SupportsCapability(capability Capability) bool
 func (d PostgresDialect) ValidateIdentifier(identifier string) error
 type SQLiteDialect struct{}
-func (d SQLiteDialect) AutoIncrementClause() string
+func (d SQLiteDialect) AlterColumnSQL(table string, before, after ColumnSpec) []string
+func (d SQLiteDialect) AlterMode() AlterMode
+func (d SQLiteDialect) AutoIncrementColumnSQL(quotedColumn string, desc ColumnType) (string, error)
 func (d SQLiteDialect) BatchInsertStartID(lastID, rowsAffected int64) (int64, bool)
-func (d SQLiteDialect) BindVar(i int) string
-func (d SQLiteDialect) CreateIndexSuffix() string
-func (d SQLiteDialect) CreateTableIfNotExistsSuffix() string
-func (d SQLiteDialect) CreateTableSuffix() string
-func (d SQLiteDialect) DDLAlterColumnMode() DDLAlterColumnMode
-func (d SQLiteDialect) DDLAlterColumnStatements(table string, before, after DDLColumnSpec) []string
-func (d SQLiteDialect) DDLAutoIncrementPrimaryKey(quotedColumn string, desc DDLColumnType) (string, error)
-func (d SQLiteDialect) DDLColumnType(desc DDLColumnType) string
-func (d SQLiteDialect) DDLCreateIndex(table, idx string, fields []string, unique bool) string
-func (d SQLiteDialect) DDLDropIndex(table, idx string) string
-func (d SQLiteDialect) EnsureIndex(ctx context.Context, db Executor, table string, unique bool, idx string, fields []string) (string, error)
-func (d SQLiteDialect) InspectIndexDefinition(ctx context.Context, db Executor, table, idx string) (IndexDefinition, bool, error)
-func (d SQLiteDialect) InspectTableColumns(ctx context.Context, db Executor, table string) ([]DDLColumnSpec, bool, error)
-func (d SQLiteDialect) LastInsertIdReturningSuffix(table, col string) string
-func (d SQLiteDialect) ListIndexes(ctx context.Context, db Executor, table string) ([]NamedIndexDefinition, error)
+func (d SQLiteDialect) ColumnTypeSQL(desc ColumnType) string
+func (d SQLiteDialect) CreateIndexSQL(table, idx string, fields []string, unique bool) string
+func (d SQLiteDialect) DropIndexSQL(table, idx string) string
+func (d SQLiteDialect) EnsureIndex(ctx context.Context, db Executor, table, idx string, fields []string, unique bool) (string, error)
+func (d SQLiteDialect) InspectColumns(ctx context.Context, db Executor, table string) ([]ColumnSpec, bool, error)
+func (d SQLiteDialect) InspectIndex(ctx context.Context, db Executor, table, idx string) (Index, bool, error)
+func (d SQLiteDialect) ListIndexes(ctx context.Context, db Executor, table string) ([]Index, error)
 func (d SQLiteDialect) Name() Name
-func (d SQLiteDialect) QuoteField(f string) string
+func (d SQLiteDialect) Placeholder(i int) string
+func (d SQLiteDialect) QuoteIdent(f string) string
+func (d SQLiteDialect) ReturningClause(col string) string
 func (d SQLiteDialect) SupportsCapability(capability Capability) bool
 func (d SQLiteDialect) ValidateIdentifier(identifier string) error
+type UnsupportedCapabilityError struct {
+}
+func (e *UnsupportedCapabilityError) Error() string

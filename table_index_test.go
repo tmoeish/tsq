@@ -10,10 +10,10 @@ import (
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 )
 
-func inspectRegisteredIndex(t *testing.T, db *Runtime, table, idx string) (tsqdialect.IndexDefinition, bool) {
+func inspectRegisteredIndex(t *testing.T, db *Runtime, table, idx string) (tsqdialect.Index, bool) {
 	t.Helper()
 
-	definition, found, err := db.Dialect().InspectIndexDefinition(context.Background(), db, table, idx)
+	definition, found, err := db.Dialect().InspectIndex(context.Background(), db, table, idx)
 	if err != nil {
 		t.Fatalf("failed to inspect index %s on %s: %v", idx, table, err)
 	}

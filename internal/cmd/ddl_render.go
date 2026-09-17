@@ -305,11 +305,11 @@ func ddlDialectName(dialect ddlDialectSpec) string {
 	return string(dialect.dialect.Name())
 }
 
-func ddlColumnSpecFromSnapshot(column ddlSnapshotColumn) tsqdialect.DDLColumnSpec {
-	return tsqdialect.DDLColumnSpec{
+func ddlColumnSpecFromSnapshot(column ddlSnapshotColumn) tsqdialect.ColumnSpec {
+	return tsqdialect.ColumnSpec{
 		Name: column.Name,
-		Type: tsqdialect.DDLColumnType{
-			Kind:     tsqdialect.DDLColumnKind(column.Kind),
+		Type: tsqdialect.ColumnType{
+			Kind:     tsqdialect.ColumnKind(column.Kind),
 			Bits:     column.Bits,
 			Unsigned: column.Unsigned,
 			Nullable: column.Nullable,
@@ -322,13 +322,13 @@ func ddlColumnSpecFromSnapshot(column ddlSnapshotColumn) tsqdialect.DDLColumnSpe
 	}
 }
 
-func renderDDLColumnSpec(dialect tsqdialect.Dialect, column tsqdialect.DDLColumnSpec) (string, error) {
-	quotedColumn := dialect.QuoteField(column.Name)
+func renderDDLColumnSpec(dialect tsqdialect.Dialect, column tsqdialect.ColumnSpec) (string, error) {
+	quotedColumn := dialect.QuoteIdent(column.Name)
 	if column.PrimaryKey && column.AutoIncrement {
-		return dialect.DDLAutoIncrementPrimaryKey(quotedColumn, column.Type)
+		return dialect.AutoIncrementColumnSQL(quotedColumn, column.Type)
 	}
 
-	parts := []string{quotedColumn, dialect.DDLColumnType(column.Type)}
+	parts := []string{quotedColumn, dialect.ColumnTypeSQL(column.Type)}
 	if column.PrimaryKey {
 		parts = append(parts, "PRIMARY KEY")
 	} else if !column.Type.Nullable {

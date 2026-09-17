@@ -107,7 +107,7 @@ func TestUnknownCapabilityIsUnsupported(t *testing.T) {
 }
 
 // TestDialectNamesAreLowercase keeps error text stable: the dialect name is half of
-// every ErrUnsupportedCapability message.
+// every UnsupportedCapabilityError message.
 func TestDialectNamesAreLowercase(t *testing.T) {
 	for _, dialect := range []Dialect{SQLiteDialect{}, MySQLDialect{}, PostgresDialect{}} {
 		name := string(dialect.Name())

@@ -50,9 +50,9 @@ func NewColForTableTest[O Table, T any](table O, name string, pointer func(*O) *
 func ownedRegistration(physical string) TableRegistration {
 	return TableRegistration{
 		Table: ownedTable{physical: physical},
-		Columns: []tsqdialect.DDLColumnSpec{
-			{Name: "id", Type: tsqdialect.DDLColumnType{Kind: tsqdialect.DDLColumnKindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
-			{Name: "name", Type: tsqdialect.DDLColumnType{Kind: tsqdialect.DDLColumnKindString, Size: 64}},
+		Columns: []tsqdialect.ColumnSpec{
+			{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
+			{Name: "name", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 64}},
 		},
 	}
 }
@@ -73,7 +73,7 @@ func tableExists(t *testing.T, dsn, name string) bool {
 
 	defer func() { _ = db.Close() }()
 
-	_, found, err := tsqdialect.SQLiteDialect{}.InspectTableColumns(context.Background(), db, name)
+	_, found, err := tsqdialect.SQLiteDialect{}.InspectColumns(context.Background(), db, name)
 	if err != nil {
 		t.Fatalf("inspect %s: %v", name, err)
 	}

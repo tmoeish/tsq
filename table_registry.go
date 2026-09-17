@@ -9,7 +9,7 @@ import (
 
 type registeredTable struct {
 	Table
-	Columns []tsqdialect.DDLColumnSpec
+	Columns []tsqdialect.ColumnSpec
 	Indexes []TableIndex
 }
 
@@ -153,7 +153,7 @@ func cloneTableIndexes(indexes []TableIndex) []TableIndex {
 	return result
 }
 
-func validateRegisteredColumns(table Table, columns []tsqdialect.DDLColumnSpec) error {
+func validateRegisteredColumns(table Table, columns []tsqdialect.ColumnSpec) error {
 	if len(columns) == 0 {
 		return nil
 	}
@@ -200,12 +200,12 @@ func validateRegisteredColumns(table Table, columns []tsqdialect.DDLColumnSpec) 
 	return nil
 }
 
-func cloneDDLColumnSpecs(columns []tsqdialect.DDLColumnSpec) []tsqdialect.DDLColumnSpec {
+func cloneDDLColumnSpecs(columns []tsqdialect.ColumnSpec) []tsqdialect.ColumnSpec {
 	if len(columns) == 0 {
 		return nil
 	}
 
-	result := make([]tsqdialect.DDLColumnSpec, 0, len(columns))
+	result := make([]tsqdialect.ColumnSpec, 0, len(columns))
 
 	return append(result, columns...)
 }

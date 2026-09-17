@@ -27,8 +27,8 @@ func TestMySQLDialectDDLColumnTypeUsesTextFamilyForLargeStrings(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := dialect.DDLColumnType(DDLColumnType{
-				Kind: DDLColumnKindString,
+			got := dialect.ColumnTypeSQL(ColumnType{
+				Kind: KindString,
 				Size: tt.size,
 			})
 			if got != tt.want {
@@ -55,7 +55,7 @@ func TestDDLColumnTypeUsesVarcharForDefaultStrings(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := tt.dialect.DDLColumnType(DDLColumnType{Kind: DDLColumnKindString})
+			got := tt.dialect.ColumnTypeSQL(ColumnType{Kind: KindString})
 			if got != tt.want {
 				t.Fatalf("DDLColumnType() = %q, want %q", got, tt.want)
 			}
@@ -79,9 +79,9 @@ func TestDDLCreateIndexTerminatesStatements(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := tt.dialect.DDLCreateIndex("task", "idx_task_state", []string{tt.dialect.QuoteField("state")}, false)
+			got := tt.dialect.CreateIndexSQL("task", "idx_task_state", []string{tt.dialect.QuoteIdent("state")}, false)
 			if !strings.HasSuffix(got, ";") {
-				t.Fatalf("DDLCreateIndex() = %q, want statement terminator", got)
+				t.Fatalf("CreateIndexSQL() = %q, want statement terminator", got)
 			}
 		})
 	}
@@ -104,8 +104,8 @@ func TestDDLColumnTypeUsesRawTypeOverride(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := tt.dialect.DDLColumnType(DDLColumnType{
-				Kind:    DDLColumnKindString,
+			got := tt.dialect.ColumnTypeSQL(ColumnType{
+				Kind:    KindString,
 				RawType: tt.rawType,
 				Size:    255,
 			})
@@ -119,27 +119,27 @@ func TestDDLColumnTypeUsesRawTypeOverride(t *testing.T) {
 func TestDDLColumnParsersPreserveUnknownTypes(t *testing.T) {
 	t.Parallel()
 
-	mysqlDesc, err := parseMySQLDDLColumnType("json", "json", sql.NullInt64{})
+	mysqlDesc, err := parseMySQLColumnType("json", "json", sql.NullInt64{})
 	if err != nil {
-		t.Fatalf("parseMySQLDDLColumnType() error = %v", err)
+		t.Fatalf("parseMySQLColumnType() error = %v", err)
 	}
 	if mysqlDesc.RawType != "json" {
-		t.Fatalf("parseMySQLDDLColumnType() raw = %q, want %q", mysqlDesc.RawType, "json")
+		t.Fatalf("parseMySQLColumnType() raw = %q, want %q", mysqlDesc.RawType, "json")
 	}
 
-	postgresDesc, err := parsePostgresDDLColumnType("USER-DEFINED", "jsonb", "jsonb", sql.NullInt64{})
+	postgresDesc, err := parsePostgresColumnType("USER-DEFINED", "jsonb", "jsonb", sql.NullInt64{})
 	if err != nil {
-		t.Fatalf("parsePostgresDDLColumnType() error = %v", err)
+		t.Fatalf("parsePostgresColumnType() error = %v", err)
 	}
 	if postgresDesc.RawType != "jsonb" {
-		t.Fatalf("parsePostgresDDLColumnType() raw = %q, want %q", postgresDesc.RawType, "jsonb")
+		t.Fatalf("parsePostgresColumnType() raw = %q, want %q", postgresDesc.RawType, "jsonb")
 	}
 
-	sqliteDesc, err := parseSQLiteDDLColumnType("JSON")
+	sqliteDesc, err := parseSQLiteColumnType("JSON")
 	if err != nil {
-		t.Fatalf("parseSQLiteDDLColumnType() error = %v", err)
+		t.Fatalf("parseSQLiteColumnType() error = %v", err)
 	}
 	if sqliteDesc.RawType != "JSON" {
-		t.Fatalf("parseSQLiteDDLColumnType() raw = %q, want %q", sqliteDesc.RawType, "JSON")
+		t.Fatalf("parseSQLiteColumnType() raw = %q, want %q", sqliteDesc.RawType, "JSON")
 	}
 }

@@ -218,7 +218,7 @@ func insertReturningSuffix(exec Executor, record mutationRecord) string {
 		return ""
 	}
 
-	return dialect.LastInsertIdReturningSuffix(record.tableName, record.pkField.column)
+	return dialect.ReturningClause(record.pkField.column)
 }
 
 // insertBatchReturning runs a multi-row INSERT ... RETURNING <pk> and assigns the
@@ -438,7 +438,7 @@ func quoteMutationIdentifier(exec Executor, name string) (string, error) {
 	}
 
 	if dialect := dialectForExecutor(exec); dialect != nil {
-		return dialect.QuoteField(name), nil
+		return dialect.QuoteIdent(name), nil
 	}
 
 	return name, nil
@@ -446,7 +446,7 @@ func quoteMutationIdentifier(exec Executor, name string) (string, error) {
 
 func bindVar(exec Executor, index int) string {
 	if dialect := dialectForExecutor(exec); dialect != nil {
-		return dialect.BindVar(index)
+		return dialect.Placeholder(index)
 	}
 
 	return "?"

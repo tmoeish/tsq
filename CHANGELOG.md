@@ -19,6 +19,7 @@
   - 分页：`PageRequest.Validate(maxSize)` / `Normalize(maxSize)` 取代原来的四个方法，`PageResponse.TotalPages`（JSON `total_pages`）。
   - 否定谓词统一为 `Not*`（`NotIn`、`NotLike`、`NotBetween`、`NotStartsWithVal`……），和 `NotExists` 一致。
   - 其余：`NewColumn`、`DeclareTable`、`Order.Reverse()`、`OrderBy.Column()`、`Query.SearchListSQL` / `SearchCountSQL`，`Table` 接口的 `Table()` 改为 `TableName()`。
+- **`dialect` 包命名收拢**：去掉类型上多余的 `DDL` 前缀（`ColumnSpec`、`ColumnType`、`ColumnKind` 及 `KindInt` 等常量、`AlterMode` 及 `AlterInPlace` / `AlterRebuild`），`IndexDefinition` 与 `NamedIndexDefinition` 合并为 `Index`，`ErrUnsupportedCapability` 改为 `UnsupportedCapabilityError`，`DDLColumnTypesEquivalent` 改为 `SameColumnType`，`ValidateIdentifierLength(id, d)` 改为 `ValidateIdentifier(d, id)`。`Dialect` 接口方法：`QuoteIdent`、`Placeholder`、`ReturningClause(col)`、`InspectColumns`、`InspectIndex`、`ColumnTypeSQL`、`AutoIncrementColumnSQL`、`CreateIndexSQL`、`DropIndexSQL`、`AlterMode`、`AlterColumnSQL`，`EnsureIndex` 的参数顺序和 `CreateIndexSQL` 一致；三个方言返回同一常量的 `CreateTableSuffix`、`CreateTableIfNotExistsSuffix`，以及只在包内用到的 `CreateIndexSuffix`、`AutoIncrementClause` 从接口删除。
 - **模块路径改为 `github.com/tmoeish/tsq/v5`**: Go 的语义化导入版本要求 v2+ 把 `/vN` 写进模块路径。使用者 `go get github.com/tmoeish/tsq/v5@latest`，CLI `go install github.com/tmoeish/tsq/v5/cmd/tsq@latest`。v4 和 v5 因此可以在同一个构建里共存，一个包一个包地迁移是可行的。
 - **`MIGRATION_GUIDE.md` 重写为 v4 → v5**: 按"你要动多少手"排序，注明哪些有工具（`tsq migrate`、重新生成）、哪些编译器能帮你、哪些**只能靠人读**（删除语义那条编译器不会报错，只会改变行为）。
 

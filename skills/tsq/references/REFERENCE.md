@@ -736,7 +736,7 @@ Important examples:
 
 - `FULL JOIN` builds everywhere but MySQL rejects it at execution (SQLite 3.39+ and PostgreSQL run it)
 - row locks (`ForUpdate` / `ForShare`) are rejected on SQLite
-- CTEs, `INTERSECT`, and `EXCEPT` run on all three built-in dialects; TSQ does not probe server versions, so MySQL 5.7 (end of life) gets a database error instead of `ErrUnsupportedCapability`
+- CTEs, `INTERSECT`, and `EXCEPT` run on all three built-in dialects; TSQ does not probe server versions, so MySQL 5.7 (end of life) gets a database error instead of `UnsupportedCapabilityError`
 
 Do not claim that a query is portable just because it builds.
 

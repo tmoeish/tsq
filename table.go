@@ -46,9 +46,9 @@ type TableIndex struct {
 
 // TableRegistration describes one table plus its declared indexes for runtime bootstrap.
 type TableRegistration struct {
-	Table   Table                      // Table is the physical table metadata.
-	Columns []tsqdialect.DDLColumnSpec // Columns declares the physical column schema owned by Table.
-	Indexes []TableIndex               // Indexes declares the indexes owned by Table.
+	Table   Table                   // Table is the physical table metadata.
+	Columns []tsqdialect.ColumnSpec // Columns declares the physical column schema owned by Table.
+	Indexes []TableIndex            // Indexes declares the indexes owned by Table.
 }
 
 // MissingIndexError reports that an expected index was not found.

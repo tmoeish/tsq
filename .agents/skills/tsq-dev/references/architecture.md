@@ -208,7 +208,7 @@ ping、标识符校验和 schema 策略（可能执行 DDL）。没有全局 `In
 能力位是一份显式枚举：`CapabilityCTE`、`CapabilityExcept`、`CapabilityIntersect`、
 `CapabilityFullOuterJoin`、`CapabilitySelectForUpdate`、`CapabilitySelectForShare`、
 `CapabilitySelectForNoWait`、`CapabilitySelectForSkipLocked`。执行期不支持时返回
-`*ErrUnsupportedCapability`，它带着能力名和方言名——错误信息里必须能看出"谁不支持什么"，
+`*UnsupportedCapabilityError`，它带着能力名和方言名——错误信息里必须能看出"谁不支持什么"，
 这比一句 "unsupported" 省掉一轮排查。
 
 - `mysql.go`、`postgres.go`、`sqlite.go` 是全部实现。

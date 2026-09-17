@@ -48,16 +48,16 @@ func TestNewRuntimeTablePolicyCreateMissingCreatesTable(t *testing.T) {
 		dsn,
 		[]TableRegistration{{
 			Table: table,
-			Columns: []tsqdialect.DDLColumnSpec{
+			Columns: []tsqdialect.ColumnSpec{
 				{
 					Name:          "id",
-					Type:          tsqdialect.DDLColumnType{Kind: tsqdialect.DDLColumnKindInt, Bits: 64},
+					Type:          tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64},
 					PrimaryKey:    true,
 					AutoIncrement: true,
 				},
 				{
 					Name: "name",
-					Type: tsqdialect.DDLColumnType{Kind: tsqdialect.DDLColumnKindString, Size: 120},
+					Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 120},
 				},
 			},
 		}},
@@ -66,9 +66,9 @@ func TestNewRuntimeTablePolicyCreateMissingCreatesTable(t *testing.T) {
 		t.Fatalf("NewRuntime() error = %v", err)
 	}
 
-	columns, found, err := runtime.Dialect().InspectTableColumns(context.Background(), db, "users")
+	columns, found, err := runtime.Dialect().InspectColumns(context.Background(), db, "users")
 	if err != nil {
-		t.Fatalf("InspectTableColumns() error = %v", err)
+		t.Fatalf("InspectColumns() error = %v", err)
 	}
 	if !found {
 		t.Fatal("expected users table to be created")
@@ -90,16 +90,16 @@ func TestNewRuntimeTablePolicyReconcileAddsMissingColumn(t *testing.T) {
 		dsn,
 		[]TableRegistration{{
 			Table: table,
-			Columns: []tsqdialect.DDLColumnSpec{
+			Columns: []tsqdialect.ColumnSpec{
 				{
 					Name:          "id",
-					Type:          tsqdialect.DDLColumnType{Kind: tsqdialect.DDLColumnKindInt, Bits: 64},
+					Type:          tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64},
 					PrimaryKey:    true,
 					AutoIncrement: true,
 				},
 				{
 					Name: "name",
-					Type: tsqdialect.DDLColumnType{Kind: tsqdialect.DDLColumnKindString, Size: 120},
+					Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 120},
 				},
 			},
 		}},
@@ -108,9 +108,9 @@ func TestNewRuntimeTablePolicyReconcileAddsMissingColumn(t *testing.T) {
 		t.Fatalf("NewRuntime() error = %v", err)
 	}
 
-	columns, found, err := runtime.Dialect().InspectTableColumns(context.Background(), runtime, "users")
+	columns, found, err := runtime.Dialect().InspectColumns(context.Background(), runtime, "users")
 	if err != nil {
-		t.Fatalf("InspectTableColumns() error = %v", err)
+		t.Fatalf("InspectColumns() error = %v", err)
 	}
 	if !found {
 		t.Fatal("expected users table to exist")
@@ -122,17 +122,17 @@ func TestNewRuntimeTablePolicyReconcileAddsMissingColumn(t *testing.T) {
 
 func TestColumnsEqualIgnoresAutoIncrementSequenceDefault(t *testing.T) {
 	dialect := tsqdialect.PostgresDialect{}
-	inspected := tsqdialect.DDLColumnSpec{
+	inspected := tsqdialect.ColumnSpec{
 		Name:          "id",
-		Type:          tsqdialect.DDLColumnType{Kind: tsqdialect.DDLColumnKindInt, Bits: 64},
+		Type:          tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64},
 		PrimaryKey:    true,
 		AutoIncrement: true,
 		Default:       "nextval('users_id_seq'::regclass)",
 		NativeType:    "bigint",
 	}
-	declared := tsqdialect.DDLColumnSpec{
+	declared := tsqdialect.ColumnSpec{
 		Name:          "id",
-		Type:          tsqdialect.DDLColumnType{Kind: tsqdialect.DDLColumnKindInt, Bits: 64},
+		Type:          tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64},
 		PrimaryKey:    true,
 		AutoIncrement: true,
 	}
@@ -153,16 +153,16 @@ func TestNewRuntimeReconcileRawTypeTextProducesNoDDL(t *testing.T) {
 	table, _ := newStrictMockTable("notes", "id", "body")
 	registration := TableRegistration{
 		Table: table,
-		Columns: []tsqdialect.DDLColumnSpec{
+		Columns: []tsqdialect.ColumnSpec{
 			{
 				Name:          "id",
-				Type:          tsqdialect.DDLColumnType{Kind: tsqdialect.DDLColumnKindInt, Bits: 64},
+				Type:          tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64},
 				PrimaryKey:    true,
 				AutoIncrement: true,
 			},
 			{
 				Name: "body",
-				Type: tsqdialect.DDLColumnType{RawType: "TEXT", Nullable: true},
+				Type: tsqdialect.ColumnType{RawType: "TEXT", Nullable: true},
 			},
 		},
 	}
@@ -199,21 +199,21 @@ func TestNewRuntimeReconcileRebuildPreservesDataAndIndexes(t *testing.T) {
 	table, _ := newStrictMockTable("users", "id", "age", "name")
 	registration := TableRegistration{
 		Table: table,
-		Columns: []tsqdialect.DDLColumnSpec{
+		Columns: []tsqdialect.ColumnSpec{
 			{
 				Name:          "id",
-				Type:          tsqdialect.DDLColumnType{Kind: tsqdialect.DDLColumnKindInt, Bits: 64},
+				Type:          tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64},
 				PrimaryKey:    true,
 				AutoIncrement: true,
 			},
 			{
 				// INTEGER -> VARCHAR drift forces the SQLite rebuild path.
 				Name: "age",
-				Type: tsqdialect.DDLColumnType{Kind: tsqdialect.DDLColumnKindString, Size: 60, Nullable: true},
+				Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 60, Nullable: true},
 			},
 			{
 				Name: "name",
-				Type: tsqdialect.DDLColumnType{Kind: tsqdialect.DDLColumnKindString, Size: 120, Nullable: true},
+				Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 120, Nullable: true},
 			},
 		},
 	}
@@ -227,14 +227,14 @@ func TestNewRuntimeReconcileRebuildPreservesDataAndIndexes(t *testing.T) {
 		t.Fatalf("NewRuntime() error = %v", err)
 	}
 
-	columns, found, err := runtime.Dialect().InspectTableColumns(context.Background(), runtime, "users")
+	columns, found, err := runtime.Dialect().InspectColumns(context.Background(), runtime, "users")
 	if err != nil || !found {
-		t.Fatalf("InspectTableColumns() found=%v error = %v", found, err)
+		t.Fatalf("InspectColumns() found=%v error = %v", found, err)
 	}
 
 	rebuilt := false
 	for _, column := range columns {
-		if column.Name == "age" && column.Type.Kind == tsqdialect.DDLColumnKindString {
+		if column.Name == "age" && column.Type.Kind == tsqdialect.KindString {
 			rebuilt = true
 		}
 	}

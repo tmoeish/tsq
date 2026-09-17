@@ -15,32 +15,16 @@ func (d PostgresDialect) Name() Name {
 	return Postgres
 }
 
-func (d PostgresDialect) QuoteField(f string) string {
+func (d PostgresDialect) QuoteIdent(f string) string {
 	return `"` + f + `"`
 }
 
-func (d PostgresDialect) BindVar(i int) string {
+func (d PostgresDialect) Placeholder(i int) string {
 	return "$" + strconv.Itoa(i+1)
 }
 
-func (d PostgresDialect) CreateTableSuffix() string {
-	return ";"
-}
-
-func (d PostgresDialect) CreateIndexSuffix() string {
-	return ";"
-}
-
-func (d PostgresDialect) AutoIncrementClause() string {
-	return ""
-}
-
-func (d PostgresDialect) LastInsertIdReturningSuffix(table, col string) string {
-	return " RETURNING " + d.QuoteField(col)
-}
-
-func (d PostgresDialect) CreateTableIfNotExistsSuffix() string {
-	return "IF NOT EXISTS"
+func (d PostgresDialect) ReturningClause(col string) string {
+	return " RETURNING " + d.QuoteIdent(col)
 }
 
 func (d PostgresDialect) ValidateIdentifier(identifier string) error {
@@ -70,7 +54,7 @@ func (d PostgresDialect) BatchInsertStartID(lastID, rowsAffected int64) (int64, 
 	return 0, false
 }
 
-func (d PostgresDialect) InspectTableColumns(ctx context.Context, db Executor, table string) ([]DDLColumnSpec, bool, error) {
+func (d PostgresDialect) InspectColumns(ctx context.Context, db Executor, table string) ([]ColumnSpec, bool, error) {
 	rows, err := db.QueryContext(ctx, `
 		SELECT
 			c.column_name,
@@ -128,7 +112,7 @@ func (d PostgresDialect) InspectTableColumns(ctx context.Context, db Executor, t
 		Primary  bool
 	}
 
-	columns := make([]DDLColumnSpec, 0)
+	columns := make([]ColumnSpec, 0)
 
 	for rows.Next() {
 		var item row
@@ -136,7 +120,7 @@ func (d PostgresDialect) InspectTableColumns(ctx context.Context, db Executor, t
 			return nil, false, err
 		}
 
-		desc, err := parsePostgresDDLColumnType(item.Data, item.UDT, item.Format, item.Size)
+		desc, err := parsePostgresColumnType(item.Data, item.UDT, item.Format, item.Size)
 		if err != nil {
 			return nil, false, fmt.Errorf("inspect postgres column %s.%s: %w", table, item.Name, err)
 		}
@@ -147,7 +131,7 @@ func (d PostgresDialect) InspectTableColumns(ctx context.Context, db Executor, t
 		// is_identity. Both are database-managed auto-increment mechanisms.
 		autoIncrement := strings.HasPrefix(defaultValue, "nextval(") ||
 			strings.EqualFold(strings.TrimSpace(item.Identity.String), "YES")
-		columns = append(columns, DDLColumnSpec{
+		columns = append(columns, ColumnSpec{
 			Name:          item.Name,
 			Type:          withDDLNullable(desc, strings.EqualFold(item.Null, "YES") && !item.Primary),
 			PrimaryKey:    item.Primary,
@@ -168,7 +152,7 @@ func (d PostgresDialect) InspectTableColumns(ctx context.Context, db Executor, t
 	return columns, true, nil
 }
 
-func (d PostgresDialect) ListIndexes(ctx context.Context, db Executor, table string) ([]NamedIndexDefinition, error) {
+func (d PostgresDialect) ListIndexes(ctx context.Context, db Executor, table string) ([]Index, error) {
 	rows, err := db.QueryContext(ctx, `
 		SELECT
 			idx.relname AS index_name,
@@ -196,10 +180,10 @@ func (d PostgresDialect) ListIndexes(ctx context.Context, db Executor, table str
 		_ = rows.Close()
 	}()
 
-	indexes := make([]NamedIndexDefinition, 0)
+	indexes := make([]Index, 0)
 
 	for rows.Next() {
-		var item NamedIndexDefinition
+		var item Index
 
 		var columns sql.NullString
 		if err := rows.Scan(&item.Name, &item.Unique, &item.PrimaryKey, &item.Constraint, &columns); err != nil {
@@ -217,7 +201,7 @@ func (d PostgresDialect) ListIndexes(ctx context.Context, db Executor, table str
 	return indexes, nil
 }
 
-func (d PostgresDialect) EnsureIndex(ctx context.Context, db Executor, table string, unique bool, idx string, fields []string) (string, error) {
+func (d PostgresDialect) EnsureIndex(ctx context.Context, db Executor, table, idx string, fields []string, unique bool) (string, error) {
 	quotedFields, err := quoteDialectIdentifiers(d, fields)
 	if err != nil {
 		return "", err
@@ -245,8 +229,8 @@ func (d PostgresDialect) EnsureIndex(ctx context.Context, db Executor, table str
 
 	_, err = db.ExecContext(ctx, query)
 	if err != nil {
-		definition, found, inspectErr := d.InspectIndexDefinition(ctx, db, table, idx)
-		if inspectErr == nil && found && validateIndexDefinition(table, unique, idx, fields, definition) == nil {
+		definition, found, inspectErr := d.InspectIndex(ctx, db, table, idx)
+		if inspectErr == nil && found && validateIndex(table, unique, idx, fields, definition) == nil {
 			return "", nil
 		}
 
@@ -256,7 +240,7 @@ func (d PostgresDialect) EnsureIndex(ctx context.Context, db Executor, table str
 	return query, nil
 }
 
-func (d PostgresDialect) InspectIndexDefinition(ctx context.Context, db Executor, table, idx string) (IndexDefinition, bool, error) {
+func (d PostgresDialect) InspectIndex(ctx context.Context, db Executor, table, idx string) (Index, bool, error) {
 	type row struct {
 		Table   string         `db:"table_name"`
 		Unique  bool           `db:"is_unique"`
@@ -283,40 +267,40 @@ func (d PostgresDialect) InspectIndexDefinition(ctx context.Context, db Executor
 	).Scan(&existing.Table, &existing.Unique, &existing.Columns)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return IndexDefinition{}, false, nil
+			return Index{}, false, nil
 		}
 
-		return IndexDefinition{}, false, err
+		return Index{}, false, err
 	}
 
-	return IndexDefinition{
+	return Index{
 		Table:  existing.Table,
 		Unique: existing.Unique,
 		Fields: parseColumnsCSV(existing.Columns.String),
 	}, true, nil
 }
 
-func parsePostgresDDLColumnType(dataType, udtName, formattedType string, size sql.NullInt64) (DDLColumnType, error) {
+func parsePostgresColumnType(dataType, udtName, formattedType string, size sql.NullInt64) (ColumnType, error) {
 	data := strings.ToLower(strings.TrimSpace(dataType))
 	udt := strings.ToLower(strings.TrimSpace(udtName))
 
 	switch data {
 	case "boolean":
-		return DDLColumnType{Kind: DDLColumnKindBool}, nil
+		return ColumnType{Kind: KindBool}, nil
 	case "smallint":
-		return DDLColumnType{Kind: DDLColumnKindInt, Bits: 16}, nil
+		return ColumnType{Kind: KindInt, Bits: 16}, nil
 	case "integer":
-		return DDLColumnType{Kind: DDLColumnKindInt, Bits: 32}, nil
+		return ColumnType{Kind: KindInt, Bits: 32}, nil
 	case "bigint":
-		return DDLColumnType{Kind: DDLColumnKindInt, Bits: 64}, nil
+		return ColumnType{Kind: KindInt, Bits: 64}, nil
 	case "real":
-		return DDLColumnType{Kind: DDLColumnKindFloat, Bits: 32}, nil
+		return ColumnType{Kind: KindFloat, Bits: 32}, nil
 	case "double precision", "numeric":
-		return DDLColumnType{Kind: DDLColumnKindFloat, Bits: 64}, nil
+		return ColumnType{Kind: KindFloat, Bits: 64}, nil
 	case "bytea":
-		return DDLColumnType{Kind: DDLColumnKindBytes}, nil
+		return ColumnType{Kind: KindBytes}, nil
 	case "character varying", "character":
-		desc := DDLColumnType{Kind: DDLColumnKindString}
+		desc := ColumnType{Kind: KindString}
 		if size.Valid && size.Int64 > 0 {
 			desc.Size = int(size.Int64)
 		}
@@ -326,64 +310,64 @@ func parsePostgresDDLColumnType(dataType, udtName, formattedType string, size sq
 		// Keep TEXT as a raw type so it round-trips; mapping it to the string
 		// kind would render as VARCHAR(n) and produce spurious ALTERs on every
 		// reconcile of columns declared as TEXT.
-		return DDLColumnType{RawType: "TEXT"}, nil
+		return ColumnType{RawType: "TEXT"}, nil
 	case "timestamp without time zone", "timestamp with time zone", "date":
-		return DDLColumnType{Kind: DDLColumnKindTime}, nil
+		return ColumnType{Kind: KindTime}, nil
 	}
 
 	switch udt {
 	case "bool":
-		return DDLColumnType{Kind: DDLColumnKindBool}, nil
+		return ColumnType{Kind: KindBool}, nil
 	case "bytea":
-		return DDLColumnType{Kind: DDLColumnKindBytes}, nil
+		return ColumnType{Kind: KindBytes}, nil
 	case "int2":
-		return DDLColumnType{Kind: DDLColumnKindInt, Bits: 16}, nil
+		return ColumnType{Kind: KindInt, Bits: 16}, nil
 	case "int4":
-		return DDLColumnType{Kind: DDLColumnKindInt, Bits: 32}, nil
+		return ColumnType{Kind: KindInt, Bits: 32}, nil
 	case "int8":
-		return DDLColumnType{Kind: DDLColumnKindInt, Bits: 64}, nil
+		return ColumnType{Kind: KindInt, Bits: 64}, nil
 	case "float4":
-		return DDLColumnType{Kind: DDLColumnKindFloat, Bits: 32}, nil
+		return ColumnType{Kind: KindFloat, Bits: 32}, nil
 	case "float8":
-		return DDLColumnType{Kind: DDLColumnKindFloat, Bits: 64}, nil
+		return ColumnType{Kind: KindFloat, Bits: 64}, nil
 	case "varchar":
-		desc := DDLColumnType{Kind: DDLColumnKindString}
+		desc := ColumnType{Kind: KindString}
 		if size.Valid && size.Int64 > 0 {
 			desc.Size = int(size.Int64)
 		}
 
 		return desc, nil
 	case "text":
-		return DDLColumnType{RawType: "TEXT"}, nil
+		return ColumnType{RawType: "TEXT"}, nil
 	case "timestamp", "timestamptz", "date":
-		return DDLColumnType{Kind: DDLColumnKindTime}, nil
+		return ColumnType{Kind: KindTime}, nil
 	default:
 		rawType := strings.TrimSpace(formattedType)
 		if rawType == "" {
 			rawType = strings.TrimSpace(dataType)
 		}
 
-		return DDLColumnType{RawType: rawType}, nil
+		return ColumnType{RawType: rawType}, nil
 	}
 }
 
-func (d PostgresDialect) DDLColumnType(desc DDLColumnType) string {
+func (d PostgresDialect) ColumnTypeSQL(desc ColumnType) string {
 	if desc.RawType != "" {
 		return desc.RawType
 	}
 
 	switch desc.Kind {
-	case DDLColumnKindBool:
+	case KindBool:
 		return "BOOLEAN"
-	case DDLColumnKindBytes:
+	case KindBytes:
 		return "BYTEA"
-	case DDLColumnKindFloat:
+	case KindFloat:
 		if desc.Bits <= 32 {
 			return "REAL"
 		}
 
 		return "DOUBLE PRECISION"
-	case DDLColumnKindInt:
+	case KindInt:
 		switch {
 		case desc.Bits <= 16:
 			return "SMALLINT"
@@ -392,28 +376,28 @@ func (d PostgresDialect) DDLColumnType(desc DDLColumnType) string {
 		default:
 			return "BIGINT"
 		}
-	case DDLColumnKindString:
+	case KindString:
 		if desc.Size <= 0 {
 			return fmt.Sprintf("VARCHAR(%d)", defaultDDLStringSize)
 		}
 
 		return fmt.Sprintf("VARCHAR(%d)", desc.Size)
-	case DDLColumnKindTime:
+	case KindTime:
 		return "TIMESTAMP"
 	default:
 		return "TEXT"
 	}
 }
 
-func (d PostgresDialect) DDLAutoIncrementPrimaryKey(quotedColumn string, desc DDLColumnType) (string, error) {
-	if desc.Kind != DDLColumnKindInt {
+func (d PostgresDialect) AutoIncrementColumnSQL(quotedColumn string, desc ColumnType) (string, error) {
+	if desc.Kind != KindInt {
 		return "", errors.New("auto-increment primary key requires an integer field")
 	}
 
 	return quotedColumn + " " + ddlSerialType(desc), nil
 }
 
-func (d PostgresDialect) DDLCreateIndex(table, idx string, fields []string, unique bool) string {
+func (d PostgresDialect) CreateIndexSQL(table, idx string, fields []string, unique bool) string {
 	uniqueClause := ""
 	if unique {
 		uniqueClause = "UNIQUE "
@@ -422,35 +406,35 @@ func (d PostgresDialect) DDLCreateIndex(table, idx string, fields []string, uniq
 	return fmt.Sprintf(
 		"CREATE %sINDEX %s ON %s(%s)%s",
 		uniqueClause,
-		d.QuoteField(idx),
-		d.QuoteField(table),
+		d.QuoteIdent(idx),
+		d.QuoteIdent(table),
 		strings.Join(fields, ", "),
-		d.CreateIndexSuffix(),
+		";",
 	)
 }
 
-func (d PostgresDialect) DDLDropIndex(table, idx string) string {
-	return fmt.Sprintf("DROP INDEX %s;", d.QuoteField(idx))
+func (d PostgresDialect) DropIndexSQL(table, idx string) string {
+	return fmt.Sprintf("DROP INDEX %s;", d.QuoteIdent(idx))
 }
 
-func (d PostgresDialect) DDLAlterColumnMode() DDLAlterColumnMode {
-	return DDLAlterColumnDirect
+func (d PostgresDialect) AlterMode() AlterMode {
+	return AlterInPlace
 }
 
-func (d PostgresDialect) DDLAlterColumnStatements(table string, before, after DDLColumnSpec) []string {
+func (d PostgresDialect) AlterColumnSQL(table string, before, after ColumnSpec) []string {
 	statements := make([]string, 0, 3)
-	quotedTable := d.QuoteField(table)
-	quotedColumn := d.QuoteField(after.Name)
+	quotedTable := d.QuoteIdent(table)
+	quotedColumn := d.QuoteIdent(after.Name)
 
 	// Compare resolved types instead of raw struct equality: nullability lives
 	// inside DDLColumnType, and a nullability-only drift must not trigger a
 	// table-rewriting ALTER TYPE.
-	if !DDLColumnTypesEquivalent(d, before, after) {
+	if !SameColumnType(d, before, after) {
 		statements = append(statements, fmt.Sprintf(
 			"ALTER TABLE %s ALTER COLUMN %s TYPE %s;",
 			quotedTable,
 			quotedColumn,
-			d.DDLColumnType(after.Type),
+			d.ColumnTypeSQL(after.Type),
 		))
 	}
 
