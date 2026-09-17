@@ -94,12 +94,11 @@ func (p ListParam[T]) setOperand(negated bool) exprInfo {
 		return exprInfo{err: errors.New("list parameter is not initialized; use tsq.NewListParam")}
 	}
 
-	spec := p.spec
 	if negated {
-		spec = spec.derive(paramNotInList)
+		return exprInfo{sql: sqlJoin(sqlText("("), sqlParam(p.spec.derive(paramNotInList)), sqlText(")"))}
 	}
 
-	return exprInfo{sql: sqlJoin(sqlText("("), sqlParam(spec), sqlText(")"))}
+	return exprInfo{sql: sqlJoin(sqlText("("), sqlParam(p.spec), sqlText(")")), inList: p.spec}
 }
 
 // Arg is one parameter value for one execution, made by Param.Bind,

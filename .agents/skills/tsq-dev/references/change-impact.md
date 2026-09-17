@@ -115,6 +115,14 @@
 - **计数和列表必须在同一个快照里**（`snapshotRead`）。给 `Page` 加第三条语句也要放进去；不要为了
   省一次 BEGIN 把它拆开——`TestIntegrationPageReadsOneSnapshot` 会在两条语句之间插入一行。
 
+## 改了 `ListIn` 或列表参数
+
+- 分块只在"结果是各块并集"时成立：参数只用一次、是 `Where` 顶层的 `col.In(param)`、查询逐行过滤。
+  `exprInfo.inList` 只由 `ListParam.setOperand`（非 NOT IN）设置，并且**故意不在 `merge` 里传递**——
+  被 `And` / `Or` / `Not` 包住的 IN 不能拆。给 `exprInfo` 加字段时别顺手把它加进 `merge`。
+- `TestListInSplitsListsBeyondTheBindLimit` 在 `-race` 下跳过（SQLite 绑 4 万个参数太慢），MySQL/PG
+  的大列表由 `TestIntegrationUpsert` 覆盖。
+
 ## 改了 SQL 渲染、中间表示或参数绑定（`sqlexpr.go`、`param.go`、`query_render.go`）
 
 - `render_test.go` 按三方言断言完整 SQL，改渲染必然改它；改之前确认新输出是**更对**而不只是

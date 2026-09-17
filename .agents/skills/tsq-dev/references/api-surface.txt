@@ -288,6 +288,7 @@ func (q *Query[O]) Find(ctx context.Context, db Executor, args ...Arg) (*O, erro
 func (q *Query[O]) Get(ctx context.Context, db Executor, args ...Arg) (*O, error)
 func (q *Query[O]) Iter(ctx context.Context, db Executor, args ...Arg) iter.Seq2[*O, error]
 func (q *Query[O]) List(ctx context.Context, db Executor, args ...Arg) ([]*O, error)
+func (q *Query[O]) ListIn[T comparable](ctx context.Context, db Executor, param ListParam[T], values []T, args ...Arg) ([]*O, error)
 func (q *Query[O]) Page(ctx context.Context, db Executor, p Paging, args ...Arg) (*PageResponse[O], error)
 func (q *Query[O]) SQL(dialect tsqdialect.Dialect, args ...Arg) (string, []any, error)
 func (q *Query[O]) Scalar[T any](ctx context.Context, db Executor, selected TypedColumn[O, T], args ...Arg) (T, error)

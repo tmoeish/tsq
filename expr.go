@@ -13,7 +13,11 @@ type exprInfo struct {
 	// the query uses for them (the alias when there is one).
 	tables    map[string]Table
 	aggregate bool
-	err       error
+	// inList is the list parameter of a col IN (list) condition, for ListIn. It is
+	// deliberately not merged: under AND, OR or NOT the condition is no longer one
+	// a query can be split on.
+	inList *paramSpec
+	err    error
 }
 
 func (e exprInfo) withSQL(sql sqlExpr) exprInfo {

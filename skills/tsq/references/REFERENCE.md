@@ -208,7 +208,7 @@ From table structs, TSQ commonly generates:
 - typed columns like `Xxx_ID`, `Xxx_Name`
 - CRUD helpers: `Insert`, `Update`, `Delete`, `HardDelete`, and `Restore()` / `Active()` on soft-delete tables
 - query variables for the lookups that identify rows: `QueryXxx` (every row, with the declared search columns), `QueryXxxByID` / `QueryXxxByIDIn`, and `QueryXxxByEmail` / `QueryXxxByEmailIn` per unique index. A plain `//tsq:index` is a schema object only; a query on it has an ordering, a limit and a page size the generator cannot guess, so write it with the builder
-- `FetchXxxByID(ctx, db, ids...)` and, per unique index, `FetchXxxByEmail(...)`: the rows for the given keys, in the order given. A missing key fails the call with an error wrapping `sql.ErrNoRows`, so `errors.Is(err, sql.ErrNoRows)` tells "not there" from a database failure
+- `FetchXxxByID(ctx, db, ids...)` and, per unique index, `FetchXxxByEmail(...)`: the rows for the given keys, in the order given, for any number of keys (they are split to fit the bind parameter limit). A missing key fails the call with an error wrapping `sql.ErrNoRows`, so `errors.Is(err, sql.ErrNoRows)` tells "not there" from a database failure
 - the errors returned by `Update`, `Delete` and `HardDelete` name the row by its primary key; they never serialize the row, so column values do not leak into logs
 
 On a table that declares `deleted_at`, deleted rows are out of scope for **every** query and
@@ -628,6 +628,7 @@ The pattern functions (`tsq.StartsWith`, `tsq.EndsWith`, `tsq.Contains`, and the
 Reads are methods on the built `*Query[O]`; `args` are the `tsq.Arg` values made by `Bind`:
 
 - `query.List(ctx, db, args...)` → `[]*O, error`
+- `query.ListIn(ctx, db, listParam, values, args...)` → `[]*O, error`: `List` for a list parameter that may hold more values than one statement can bind (65535 on MySQL and PostgreSQL, 32766 on SQLite). Values are deduplicated, split, read in one snapshot and concatenated in no particular order. The query must use the parameter once, as `col.In(param)` passed directly to `Where`, and have no `GROUP BY`, aggregate, `DISTINCT`, set operation, `ORDER BY` or `LIMIT`; anything else is refused, because splitting would change the result. The generated `FetchXxxBy...` use it
 - `query.Iter(ctx, db, args...)` → `iter.Seq2[*O, error]`: `for row, err := range query.Iter(ctx, db) { ... }` scans one row at a time, so exports and batch jobs do not hold the whole result in memory. `break` stops the query; a failure is yielded once with a nil row. The rows hold a connection until the loop ends, so inside a transaction finish the loop before running another statement on it
 - `query.Get(ctx, db, args...)` → `*O, error` (an error wrapping `sql.ErrNoRows` when not found)
 - `query.Find(ctx, db, args...)` → `*O, error` (`nil, nil` when not found)
@@ -752,7 +753,7 @@ Rules:
 - the statement never checks the `version` column. `UpdateTable` on a table that declares `version` still adds `version = version + 1`, so rows loaded before the bulk change fail their own `Update(...)` with `OptimisticLockError`. Assigning the version column yourself is a build error
 - `UpdateTable` sets no managed field besides `version`: set `updated_at` explicitly. It skips deleted rows like every query does; `tsq.UpdateTable(table.WithDeleted())` reaches them. `DeleteFrom` is the exception, because a soft delete *is* the deletion: on a table declaring `deleted_at` it renders as an `UPDATE` that stamps the tombstone and `updated_at` **at execution time**, so a package-level statement does not reuse the time the program started
 - assignments and conditions may reference only the target table, unaliased. `JOIN`, `UPDATE ... FROM`, aliases, `LIMIT`, `ORDER BY`, and `RETURNING` are not supported; each dialect spells them differently. Subquery predicates (`In(subquery)`, `EQ(subquery)`) are fine. MySQL rejects a subquery that reads the table being modified (error 1093); that is a database rule, not a TSQ one
-- it is a single `UPDATE` / `DELETE` and is not chunked. A very large list parameter can exceed the dialect's bind-parameter ceiling; use `table.BatchDeleteByPK` or slice the input yourself
+- it is a single `UPDATE` / `DELETE` and is not chunked. A very large list parameter can exceed the dialect's bind-parameter ceiling; use `table.BatchDeleteByPK` or slice the input yourself. For reads, `query.ListIn` does the splitting
 
 ## 9. Runtime and transactions
 

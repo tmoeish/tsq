@@ -8,7 +8,7 @@
 | --- | --- |
 | 阶段接口、`builder`、`Select` / `From`、`Build`、builder 上的执行入口 | `querybuilder.go`（类型约束由 `compilefail_test.go` 守） |
 | `querySpec`：结构校验、FROM/JOIN 图、`Correlate`、集合操作、CTE 收集与排序、按方言渲染 | `query_render.go` |
-| `Query`：渲染缓存、绑参、`List` / `Iter` / `Get` / `Find` / `Exists` / `Count` / `Scalar` / `Page`（`snapshotRead`）、`SQL()`、子查询 | `query.go`（`exec_test.go` 的 `TestIterStreamsRowsAndStops`、`TestPageInsideATransactionUsesIt`；快照一致性三方言真跑在 `TestIntegrationPageReadsOneSnapshot`） |
+| `Query`：渲染缓存、绑参、`List` / `ListIn`（`checkSplittable`、`exprInfo.inList`）/ `Iter` / `Get` / `Find` / `Exists` / `Count` / `Scalar` / `Page`（`snapshotRead`）、`SQL()`、子查询 | `query.go`（`exec_test.go` 的 `TestIterStreamsRowsAndStops`、`TestPageInsideATransactionUsesIt`；快照一致性三方言真跑在 `TestIntegrationPageReadsOneSnapshot`） |
 | 中间表示：片段、`renderer`、`statement`、`assemble`、按方言分叉的片段 | `sqlexpr.go`（`render_test.go` 按三方言断言输出） |
 | 参数：`Param` / `ListParam` / `Arg`、绑定校验、空列表渲染、LIKE 转义 | `param.go`（`build_test.go` 守绑定规则） |
 | 列接口与实现、谓词、`Expr` / `Pred`、`MapInto` | `column.go` |

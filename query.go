@@ -8,6 +8,7 @@ import (
 	"iter"
 	"log/slog"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 
@@ -202,6 +203,115 @@ func (q *Query[O]) each(ctx context.Context, db Executor, op string, stmt prepar
 
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("%s query: %w", op, err)
+	}
+
+	return nil
+}
+
+// ListIn is List for a list parameter that may hold more values than one statement
+// can bind, such as a lookup by thousands of keys. values are deduplicated, split
+// into statements that fit the dialect's bind parameter limit, and read in one
+// snapshot; the rows are concatenated in no particular order. args bind the other
+// parameters.
+//
+// Splitting only preserves the result of a query that filters row by row, so the
+// query must use param exactly once, as col.In(param) passed directly to Where,
+// and have no GROUP BY, aggregate, DISTINCT, set operation, ORDER BY or LIMIT.
+func (q *Query[O]) ListIn[T comparable](ctx context.Context, db Executor, param ListParam[T], values []T, args ...Arg) ([]*O, error) {
+	return traceExecutor1(ctx, db, TraceOpList, func(ctx context.Context) ([]*O, error) {
+		if err := q.checkSplittable(param.spec); err != nil {
+			return nil, err
+		}
+
+		scope, empty, err := q.prepare(db, append(slices.Clone(args), param.Bind()), nil, renderMode{})
+		if err != nil {
+			return nil, err
+		}
+
+		stmt, err := q.statement(scope.dialect, renderMode{})
+		if err != nil {
+			return nil, err
+		}
+
+		uses := 0
+
+		for _, c := range stmt.chunks {
+			if c.param != nil && c.param.root() == param.spec {
+				uses++
+			}
+		}
+
+		if uses != 1 {
+			return nil, fmt.Errorf("list in: %s is used %d times; it must be used once", param.spec.label(), uses)
+		}
+
+		// An empty list renders without placeholders, so this is what the rest of
+		// the statement binds.
+		room := tsqdialect.MaxBindParams(scope.dialect) - len(empty[0].args)
+		if room < 1 {
+			return nil, errors.New("list in: the other arguments already fill the bind parameter limit")
+		}
+
+		unique := make([]T, 0, len(values))
+		seen := make(map[T]bool, len(values))
+
+		for _, v := range values {
+			if !seen[v] {
+				seen[v] = true
+				unique = append(unique, v)
+			}
+		}
+
+		if len(unique) == 0 {
+			return q.query(ctx, db, "list", empty[0])
+		}
+
+		return snapshotRead(ctx, db, func(ctx context.Context, db Executor) ([]*O, error) {
+			var rows []*O
+
+			for _, part := range chunks(unique, room) {
+				_, stmts, err := q.prepare(db, append(slices.Clone(args), param.Bind(part...)), nil, renderMode{})
+				if err != nil {
+					return nil, err
+				}
+
+				list, err := q.query(ctx, db, "list", stmts[0])
+				if err != nil {
+					return nil, err
+				}
+
+				rows = append(rows, list...)
+			}
+
+			return rows, nil
+		})
+	})
+}
+
+func (q *Query[O]) checkSplittable(spec *paramSpec) error {
+	if q == nil {
+		return errors.New("query cannot be nil")
+	}
+
+	if spec == nil {
+		return errors.New("list parameter is not initialized; use tsq.NewListParam")
+	}
+
+	s := &q.spec
+	if s.grouped() || len(s.OrderBys) > 0 || s.Limit != nil {
+		return errors.New("list in: the query must filter row by row, without GROUP BY, aggregates, DISTINCT, set operations, ORDER BY or LIMIT")
+	}
+
+	top := 0
+
+	for _, c := range s.Filters {
+		if conditionInfo(c).inList == spec {
+			top++
+		}
+	}
+
+	if top != 1 {
+		return fmt.Errorf("list in: %s must be used as col.In(%s) passed directly to Where", spec.label(), spec.label())
 	}
 
 	return nil

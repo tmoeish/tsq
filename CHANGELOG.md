@@ -14,6 +14,7 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 ### 新增
 
+- 新增 `Query.ListIn(ctx, db, listParam, values, args...)`：列表参数超过方言绑定上限时按上限分块、在同一快照里读完再拼接，只接受分块不改变结果的查询。生成的 `FetchXxxBy...` 改用它，任意数量的键都能取（此前超过 SQLite 的 32766 个就报错）。
 - 新增 `TableXxx.Restore` / `BatchRestore` 和生成的 `row.Restore(ctx, db)`：恢复软删除的行，是清除 `deleted_at` 的唯一入口。
 - 根包不再 import 任何数据库驱动（MySQL 错误改为反射识别），根包测试也不再 import 驱动和 nullbio：只用库的项目 `go mod tidy` 之后 `go.mod` 不会多出间接依赖，`go.sum` 里只剩 SQLite 驱动（根包单测需要）。
 - `TableXxx.Upsert(ctx, db, &row, key...)` 和 `BatchUpsert(ctx, db, rows, key, options...)`：按主键或某个唯一索引插入或更新，PostgreSQL / SQLite 渲染成 `ON CONFLICT ... DO UPDATE`，MySQL 渲染成 `ON DUPLICATE KEY UPDATE`。更新时 `version` 自增不校验、`updated_at` 刷新、`created_at` 保留；单行版本回读主键、`version` 和 `created_at`。MySQL 会匹配所有唯一键，因此行可能撞上别的唯一键时直接拒绝。追踪操作名为 `upsert`。
