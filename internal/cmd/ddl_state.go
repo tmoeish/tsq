@@ -128,7 +128,7 @@ func buildCurrentDDLTableSnapshot(
 	result := ddlSnapshotTable{
 		Name:    table.Table,
 		Columns: make([]ddlSnapshotColumn, 0, len(table.Fields)),
-		Indexes: make([]ddlSnapshotIndex, 0, len(table.UxList)+len(table.IdxList)),
+		Indexes: make([]ddlSnapshotIndex, 0, len(table.Uniques)+len(table.Indexes)),
 	}
 
 	for _, field := range orderedDDLFields(table) {
@@ -145,8 +145,8 @@ func buildCurrentDDLTableSnapshot(
 			Nullable:      desc.nullable,
 			Size:          desc.size,
 			RawType:       desc.rawType,
-			PrimaryKey:    field.Name == table.PK,
-			AutoIncrement: field.Name == table.PK && table.AI,
+			PrimaryKey:    field.Name == table.PrimaryKey,
+			AutoIncrement: field.Name == table.PrimaryKey && table.AutoIncrement,
 			Default:       ddlManagedDefaultClause(table, field, desc),
 		})
 	}
@@ -157,7 +157,7 @@ func buildCurrentDDLTableSnapshot(
 
 			fields := make([]string, 0, len(fieldNames))
 			for _, fieldName := range fieldNames {
-				field, ok := table.FieldMap[fieldName]
+				field, ok := table.FieldsByName[fieldName]
 				if !ok {
 					return fmt.Errorf("index %s references unknown field %s", idx.Name, fieldName)
 				}
@@ -175,11 +175,11 @@ func buildCurrentDDLTableSnapshot(
 		return nil
 	}
 
-	if err := appendIndexes(table.UxList, true); err != nil {
+	if err := appendIndexes(table.Uniques, true); err != nil {
 		return ddlSnapshotTable{}, err
 	}
 
-	if err := appendIndexes(table.IdxList, false); err != nil {
+	if err := appendIndexes(table.Indexes, false); err != nil {
 		return ddlSnapshotTable{}, err
 	}
 

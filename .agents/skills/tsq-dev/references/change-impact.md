@@ -105,14 +105,14 @@
 **不要改成"后者覆盖前者"**：猜调用方想要哪个比说不清更糟。
 `querybuilder_paging_test.go` 的 `TestPageRefusesToFightBuilderPaging` 是那道门。
 
-## 改了托管时间戳字段的生成代码（`tsq.go.tmpl` 的 Insert / Update）
+## 改了托管时间戳字段的生成代码（`table.go.tmpl` 的 Insert / Update）
 
 - 生成的 `Insert` 只在字段**还是零值**时才盖 `created_at` / `updated_at`
   （`TimestampUnsetExpr`）。无条件盖会静默丢掉调用方导入历史数据时设的时间。
   `Update` 相反，**必须**无条件刷新 `updated_at`——那正是它的语义。
 - `TimestampUnsetExpr` 必须覆盖 `validateTimestampField` 接受的**每一种**字段类型
   （`time.Time` / `*time.Time` / `sql.NullTime` / `null.Time`），否则生成时 panic。
-  `template_helpers_test.go` 的 `TestTimestampUnsetExprCoversEveryManagedTimestampKind`
+  `template_funcs_test.go` 的 `TestTimestampUnsetExprCoversEveryManagedTimestampKind`
   是那道门。
 
 ## 改了 SQL 渲染或参数绑定
@@ -285,7 +285,7 @@
   `[门禁: release-check 核对三份配置里的每个 -X]`
 - 三份配置是三个副本，改变量名要一起改。
 
-## 改了注解指令（`internal/parser/annotation.go`）
+## 改了注解指令（`internal/parser/directive.go`）
 
 - 解析器接受或拒绝什么，就是使用者能写什么。`skills/tsq` 的注解说明必须同步。
   `[门禁: skill-check dsl]`
@@ -302,7 +302,7 @@
 - 模板决定生成代码长什么样，也就决定了使用者能调用哪些方法。**改模板等于改 API。**
 - `make examples` 后看一眼 `examples/academy/*.tsq.go` 的 diff——那就是使用者会看到的变化。
 - `skills/tsq` 里凡是提到生成方法名的地方都要同步。`[门禁: skill-check templates]`
-- 模板里新用的辅助函数要加进 `template_helpers.go` 并配测试。
+- 模板里新用的辅助函数要加进 `template_funcs.go` 并配测试。
 - **生成代码里出现的 `tsq.X` / `tsqdialect.X` 必须是那两个包真实导出的符号。** 模板和 helper 里
   的字符串不参与本包的类型检查，写错了要到使用者自己的工程里才炸；断言"发出了这个字符串"的
   单元测试证明不了这一点。`[门禁: internal/cmd/generated_symbols_test.go]`

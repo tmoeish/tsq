@@ -21,13 +21,13 @@ import (
 )
 
 var (
-	//go:embed tsq.go.tmpl
+	//go:embed table.go.tmpl
 	defaultTableTpl string
 
-	//go:embed tsq_result.go.tmpl
+	//go:embed result.go.tmpl
 	defaultResultTpl string
 
-	//go:embed tsq_runtime.go.tmpl
+	//go:embed runtime.go.tmpl
 	defaultRuntimeTpl string
 
 	dryRunFlag bool
@@ -138,17 +138,17 @@ Overwrite behavior:
 			list[i].SetTSQVersion(stableVersion(buildinfo.Version()))
 		}
 
-		tpl, err := template.New("tsq.go.tmpl").Funcs(funcMap()).Parse(tableTpl)
+		tpl, err := template.New("table.go.tmpl").Funcs(funcMap()).Parse(tableTpl)
 		if err != nil {
 			return fmt.Errorf("%s: %w", "failed to parse table template", err)
 		}
 
-		resultTplParsed, err := template.New("tsq_result.go.tmpl").Funcs(funcMap()).Parse(resultTpl)
+		resultTplParsed, err := template.New("result.go.tmpl").Funcs(funcMap()).Parse(resultTpl)
 		if err != nil {
 			return fmt.Errorf("%s: %w", "failed to parse Result template", err)
 		}
 
-		runtimeTplParsed, err := template.New("tsq_runtime.go.tmpl").Funcs(funcMap()).Parse(runtimeTplText)
+		runtimeTplParsed, err := template.New("runtime.go.tmpl").Funcs(funcMap()).Parse(runtimeTplText)
 		if err != nil {
 			return fmt.Errorf("%s: %w", "failed to parse runtime template", err)
 		}
@@ -470,7 +470,7 @@ func validateResultFields(
 			)
 		}
 
-		sourceField, ok := targetStruct.FieldMap[parts[1]]
+		sourceField, ok := targetStruct.FieldsByName[parts[1]]
 		if !ok {
 			return fmt.Errorf(
 				"result field %s references unknown field %s.%s",
@@ -498,7 +498,7 @@ func validateResultFields(
 func isScanCompatible(dst, src genmodel.FieldInfo) bool {
 	return dst.Type == src.Type &&
 		dst.IsPointer == src.IsPointer &&
-		dst.IsArray == src.IsArray
+		dst.IsSlice == src.IsSlice
 }
 
 func normalizeResultColumns(data *genmodel.StructInfo) {
@@ -506,9 +506,9 @@ func normalizeResultColumns(data *genmodel.StructInfo) {
 		field.Column = strings.ReplaceAll(field.Column, ".", "_")
 		data.Fields[i] = field
 
-		mapped := data.FieldMap[field.Name]
+		mapped := data.FieldsByName[field.Name]
 		mapped.Column = field.Column
-		data.FieldMap[field.Name] = mapped
+		data.FieldsByName[field.Name] = mapped
 	}
 }
 
@@ -554,8 +554,8 @@ func validateIndexNameCollisions(list []*genmodel.StructInfo) error {
 			unique bool
 			items  []genmodel.IndexInfo
 		}{
-			{unique: true, items: data.UxList},
-			{unique: false, items: data.IdxList},
+			{unique: true, items: data.Uniques},
+			{unique: false, items: data.Indexes},
 		} {
 			for _, idx := range group.items {
 				current := definition{
@@ -616,76 +616,36 @@ func validateGeneratedSymbolCollisions(list []*genmodel.StructInfo) error {
 		}
 
 		typeName := data.TypeInfo.TypeName
-		baseSymbols := []string{
-			"Table" + typeName,
-			"Table" + typeName + "Cols",
-			"Query" + typeName,
-			"Query" + typeName + "By" + data.PK,
-			"Query" + typeName + "By" + data.PK + "In",
-			"List" + typeName + "By" + data.PK + "InOrErr",
-		}
-
-		if data.IsResult {
-			baseSymbols = append(baseSymbols, "Result"+typeName)
-		}
-
-		if data.DeletedAtField != "" {
-			baseSymbols = append(baseSymbols,
-				"QueryActive"+typeName,
-				"QueryActive"+typeName+"By"+data.PK,
-				"QueryActive"+typeName+"By"+data.PK+"In",
-				"ListActive"+typeName+"By"+data.PK+"InOrErr",
-			)
-		}
-
-		for _, symbol := range baseSymbols {
-			if err := register(symbol, typeName); err != nil {
-				return err
-			}
-		}
+		symbols := []string{typeName + "__Cols"}
 
 		for _, field := range data.Fields {
-			if err := register(typeName+"_"+field.Name, typeName); err != nil {
-				return err
+			symbols = append(symbols, typeName+"_"+field.Name)
+		}
+
+		if !data.IsResult {
+			symbols = append(symbols,
+				"Table"+typeName,
+				"Query"+typeName,
+				"Query"+typeName+"By"+data.PrimaryKey,
+				"Query"+typeName+"By"+data.PrimaryKey+"In",
+				"Fetch"+typeName+"By"+data.PrimaryKey,
+			)
+
+			for _, idx := range data.Queries {
+				symbols = append(symbols, "Query"+typeName+"By"+idx.Name)
+			}
+
+			for _, ux := range data.Uniques {
+				symbols = append(symbols,
+					"Query"+typeName+"By"+joinAnd(ux.Fields),
+					"Fetch"+typeName+"By"+joinAnd(ux.Fields),
+				)
 			}
 		}
 
-		for _, idx := range data.QueryList {
-			if err := register("Query"+typeName+"By"+idx.Name, typeName); err != nil {
+		for _, symbol := range symbols {
+			if err := register(symbol, typeName); err != nil {
 				return err
-			}
-
-			if data.DeletedAtField == "" {
-				continue
-			}
-
-			if err := register("QueryActive"+typeName+"By"+idx.Name, typeName); err != nil {
-				return err
-			}
-		}
-
-		for _, ux := range data.UxList {
-			queryName := joinAnd(ux.Fields)
-			for _, symbol := range []string{
-				"Query" + typeName + "By" + queryName,
-				"List" + typeName + "By" + queryName + "InOrErr",
-			} {
-				if err := register(symbol, typeName); err != nil {
-					return err
-				}
-			}
-
-			if data.DeletedAtField == "" {
-				continue
-			}
-
-			for _, symbol := range []string{
-				"QueryActive" + typeName + "By" + queryName,
-				"ListActive" + typeName + "By" + queryName + "InOrErr",
-			} {
-				if err := register(symbol, typeName); err != nil {
-					return err
-				}
 			}
 		}
 	}
@@ -703,19 +663,19 @@ func generatedFilename(data *genmodel.StructInfo) string {
 }
 
 func validatePrimaryKeyField(data *genmodel.StructInfo) error {
-	if data == nil || data.TableMeta == nil || data.PK == "" {
+	if data == nil || data.TableMeta == nil || data.PrimaryKey == "" {
 		return nil
 	}
 
-	field, ok := data.FieldMap[data.PK]
+	field, ok := data.FieldsByName[data.PrimaryKey]
 	if !ok {
-		return fmt.Errorf("id field %s not found in %s", data.PK, data.TypeInfo.TypeName)
+		return fmt.Errorf("id field %s not found in %s", data.PrimaryKey, data.TypeInfo.TypeName)
 	}
 
-	if field.IsPointer || field.IsArray {
+	if field.IsPointer || field.IsSlice {
 		return fmt.Errorf(
 			"id field %s in %s cannot be a pointer or slice/array type",
-			data.PK,
+			data.PrimaryKey,
 			data.TypeInfo.TypeName,
 		)
 	}
@@ -728,12 +688,12 @@ func validateVersionField(data *genmodel.StructInfo) error {
 		return nil
 	}
 
-	field, ok := data.FieldMap[data.VersionField]
+	field, ok := data.FieldsByName[data.VersionField]
 	if !ok {
 		return fmt.Errorf("version field %s not found in %s", data.VersionField, data.TypeInfo.TypeName)
 	}
 
-	if !isIntegerFieldType(field) || field.IsPointer || field.IsArray {
+	if !isIntegerFieldType(field) || field.IsPointer || field.IsSlice {
 		return fmt.Errorf("version field %s in %s must be a non-pointer integer type", data.VersionField, data.TypeInfo.TypeName)
 	}
 
@@ -767,7 +727,7 @@ func validateFieldDatabaseType(field genmodel.FieldInfo, keywordFields map[strin
 		}
 	}
 
-	if field.IsArray {
+	if field.IsSlice {
 		if field.Type.Package.Path != "" || field.Type.TypeName != primitiveByte {
 			return errors.New("slice/array columns must use []byte")
 		}
@@ -778,7 +738,7 @@ func validateFieldDatabaseType(field genmodel.FieldInfo, keywordFields map[strin
 			return errors.New("keyword fields cannot be pointers")
 		}
 
-		if field.IsArray {
+		if field.IsSlice {
 			if field.Type.Package.Path == "" && field.Type.TypeName == primitiveByte {
 				return nil
 			}

@@ -60,7 +60,7 @@
 | 执行期日志与 SQL 日志 | `runtime_schema.go` 的 `logForExecutor` / `logSQLForExecutor` / `compactJSON` |
 | 事务与重试（`WithTx`、`WithTxResult`、`TxOptions`、`RetryPolicy`） | `tx.go` |
 | 表注册与元数据 | `table.go`、`table_registry.go` |
-| 表变量对列切片的初始化顺序锚点 | `table.go` 的 `DeclareTable`，由 `internal/cmd/tsq.go.tmpl` 生成进 `var TableXxx`；门是 `examples/academy/academyqueries.go` |
+| 表变量对列切片的初始化顺序锚点 | `table.go` 的 `DeclareTable`，由 `internal/cmd/table.go.tmpl` 生成进 `var TableXxx`；门是 `examples/academy/academyqueries.go` |
 | 索引元数据 | `table_index.go` |
 | 表别名 | `table_alias.go` |
 | `Owner` 约束 | `owner.go` |
@@ -86,9 +86,9 @@
 | CLI 入口、子命令注册 | `cmd/tsq/main.go` |
 | `tsq version`（默认表格 / `--short` / `--json`） | `internal/cmd/version.go` |
 | `tsq gen`（flag、校验、渲染、写盘） | `internal/cmd/gen.go` |
-| 模板 | `internal/cmd/tsq.go.tmpl`、`tsq_result.go.tmpl`、`tsq_runtime.go.tmpl` |
-| 模板辅助函数 | `internal/cmd/template_helpers.go` |
-| 渲染用的数据结构 | `internal/cmd/generation_model.go` |
+| 模板 | `internal/cmd/table.go.tmpl`、`result.go.tmpl`、`runtime.go.tmpl` |
+| 模板辅助函数 | `internal/cmd/template_funcs.go` |
+| 生成文件清单与增量写盘计划 | `internal/cmd/generation_plan.go` |
 | DDL 类型推导与渲染 | `internal/cmd/ddl_render.go` |
 | DDL 快照（`tsq.json`） | `internal/cmd/ddl_state.go` |
 | 版本号 | `internal/buildinfo/buildinfo.go` |
@@ -100,7 +100,7 @@
 | 包级遍历、`ParseResult` | `internal/parser/package.go` |
 | 结构体解析、import 别名消歧 | `internal/parser/struct.go` |
 | 字段解析、tag 解析 | `internal/parser/field.go` |
-| `//tsq:` 指令解析、索引命名、查询派生 | `internal/parser/annotation.go` |
+| `//tsq:` 指令解析、索引命名、查询派生 | `internal/parser/directive.go` |
 | 常量、默认字段名 | `internal/parser/constants.go` |
 | 解析错误类型 | `internal/parser/errors.go` |
 | 中立数据模型 | `internal/genmodel/model.go` |

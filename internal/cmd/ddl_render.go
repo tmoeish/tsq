@@ -249,7 +249,7 @@ func orderedDDLFields(table *genmodel.StructInfo) []genmodel.FieldInfo {
 
 	rank := func(name string) int {
 		switch name {
-		case table.PK:
+		case table.PrimaryKey:
 			return 0
 		case table.CreatedAtField:
 			return 1

@@ -76,9 +76,9 @@ func parseStructDeclaration(
 	// Build the struct info.
 	structMap[typeInfo] = &StructInfo{
 		StructInfo: &genmodel.StructInfo{ // table metadata is filled in later
-			TypeInfo: typeInfo,
-			FieldMap: fieldMap,
-			Recv:     genRecv(structName),
+			TypeInfo:     typeInfo,
+			FieldsByName: fieldMap,
+			Receiver:     genRecv(structName),
 		},
 		embeddedTypes:    embeddedTypes,
 		embeddedResolved: len(embeddedTypes) == 0, // nothing to resolve without embedded fields
@@ -93,14 +93,14 @@ func (s *StructInfo) resolveImportDependencies() {
 	requiredPackages := s.collectRequiredPackages()
 
 	// Resolve package name conflicts.
-	s.ImportMap = s.resolvePackageNameConflicts(requiredPackages)
+	s.Imports = s.resolvePackageNameConflicts(requiredPackages)
 }
 
 // collectRequiredPackages collects every package that must be imported.
 func (s *StructInfo) collectRequiredPackages() map[genmodel.PackageInfo]bool {
 	packages := make(map[genmodel.PackageInfo]bool)
 
-	for _, field := range s.FieldMap {
+	for _, field := range s.FieldsByName {
 		fieldPkg := field.Type.Package
 
 		// Skip primitive types and types from the current package.
@@ -193,7 +193,7 @@ func (s *StructInfo) resolveFieldsInfo() {
 
 // updateFieldPackageNames rewrites field package names using the import map.
 func (s *StructInfo) updateFieldPackageNames() {
-	for fieldName, field := range s.FieldMap {
+	for fieldName, field := range s.FieldsByName {
 		fieldPkg := &field.Type.Package
 
 		if fieldPkg.Path == "" || *fieldPkg == s.TypeInfo.Package {
@@ -201,19 +201,19 @@ func (s *StructInfo) updateFieldPackageNames() {
 			fieldPkg.Name = ""
 		} else {
 			// External type: use the alias from the import map.
-			fieldPkg.Name = s.ImportMap[fieldPkg.Path]
+			fieldPkg.Name = s.Imports[fieldPkg.Path]
 		}
 
 		// Write the updated field back into FieldMap.
-		s.FieldMap[fieldName] = field
+		s.FieldsByName[fieldName] = field
 	}
 }
 
 // buildFieldList rebuilds Fields from FieldMap using a fresh slice.
 func (s *StructInfo) buildFieldList() {
-	fields := make([]genmodel.FieldInfo, 0, len(s.FieldMap))
+	fields := make([]genmodel.FieldInfo, 0, len(s.FieldsByName))
 
-	for _, field := range s.FieldMap {
+	for _, field := range s.FieldsByName {
 		fields = append(fields, field)
 	}
 

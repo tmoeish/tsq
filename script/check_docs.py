@@ -171,6 +171,8 @@ def check_go_source_language() -> list[str]:
         path
         for path in git_paths(["ls-files", "-z", "--cached", "--others", "--exclude-standard", "*.go"])
         if path.suffix == ".go"
+        # --cached still lists a file deleted in the worktree but not yet staged.
+        and (PROJECT_ROOT / path).exists()
         and not path.name.endswith("_test.go")
         and not is_generated(path)
         and not any(under(path, d) for d in CJK_EXEMPT_DIRS)

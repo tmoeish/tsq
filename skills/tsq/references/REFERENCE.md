@@ -205,7 +205,9 @@ From table structs, TSQ commonly generates:
 - `Xxx__Cols`
 - typed columns like `Xxx_ID`, `Xxx_Name`
 - CRUD helpers: `Insert`, `Update`, `Delete`, `HardDelete`, and `Active()` on soft-delete tables
-- query variables like `QueryXxx`, `QueryXxxByID`, `QueryXxxByIDIn`, and `ListXxxByIDInOrErr`
+- query variables like `QueryXxx`, `QueryXxxByID`, `QueryXxxByIDIn`, and one per declared index
+- `FetchXxxByID(ctx, db, ids...)` and, per unique index, `FetchXxxByEmail(...)`: the rows for the given keys, in the order given. A missing key fails the call with an error wrapping `sql.ErrNoRows`, so `errors.Is(err, sql.ErrNoRows)` tells "not there" from a database failure
+- the errors returned by `Update`, `Delete` and `HardDelete` name the row by its primary key; they never serialize the row, so column values do not leak into logs
 
 On a table that declares `deleted_at`, every generated query filters tombstoned rows out. There is
 no generated query that returns them: reading deleted rows is an audit-time need, and the query
@@ -222,7 +224,8 @@ var EveryEnrollment = tsq.
 From result structs, TSQ commonly generates:
 
 - `*.result.tsq.go`
-- helpers that return the result owner
+- `Xxx__Cols`, the result's columns, for `tsq.Select(Xxx__Cols...)`
+- typed result columns like `Xxx_LearnerName`, each mapped onto its source column
 
 In projects that keep schema artifacts, TSQ may also generate:
 

@@ -73,12 +73,12 @@ type User struct {
 	}
 
 	// 验证字段
-	if len(structInfo.FieldMap) != 2 {
-		t.Errorf("Expected 2 fields, got %d", len(structInfo.FieldMap))
+	if len(structInfo.FieldsByName) != 2 {
+		t.Errorf("Expected 2 fields, got %d", len(structInfo.FieldsByName))
 	}
 
 	// 验证 PK 字段
-	if field, exists := structInfo.FieldMap["PK"]; !exists {
+	if field, exists := structInfo.FieldsByName["PK"]; !exists {
 		t.Errorf("PK field not found")
 	} else {
 		if field.Name != "PK" || field.Type.TypeName != "int64" || field.Column != "id" {
@@ -87,7 +87,7 @@ type User struct {
 	}
 
 	// 验证 Name 字段
-	if field, exists := structInfo.FieldMap["Name"]; !exists {
+	if field, exists := structInfo.FieldsByName["Name"]; !exists {
 		t.Errorf("Name field not found")
 	} else {
 		if field.Name != "Name" || field.Type.TypeName != "string" || field.Column != "name" {
@@ -106,8 +106,8 @@ type User struct {
 	}
 
 	// 验证接收器名称
-	if structInfo.Recv != "u" {
-		t.Errorf("Expected receiver 'u', got '%s'", structInfo.Recv)
+	if structInfo.Receiver != "u" {
+		t.Errorf("Expected receiver 'u', got '%s'", structInfo.Receiver)
 	}
 }
 
@@ -238,15 +238,15 @@ func TestResolveEmbeddedFields_DetectsCycles(t *testing.T) {
 
 	structA := &StructInfo{
 		StructInfo: &genmodel.StructInfo{
-			TypeInfo: typeA,
-			FieldMap: map[string]genmodel.FieldInfo{},
+			TypeInfo:     typeA,
+			FieldsByName: map[string]genmodel.FieldInfo{},
 		},
 		embeddedTypes: map[genmodel.TypeInfo]bool{typeB: true},
 	}
 	structB := &StructInfo{
 		StructInfo: &genmodel.StructInfo{
-			TypeInfo: typeB,
-			FieldMap: map[string]genmodel.FieldInfo{},
+			TypeInfo:     typeB,
+			FieldsByName: map[string]genmodel.FieldInfo{},
 		},
 		embeddedTypes: map[genmodel.TypeInfo]bool{typeA: true},
 	}

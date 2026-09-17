@@ -5,12 +5,12 @@ import "strings"
 type StructInfo struct {
 	*TableMeta
 
-	TypeInfo  TypeInfo
-	ImportMap map[string]string
-	Fields    []FieldInfo
-	FieldMap  map[string]FieldInfo
+	TypeInfo     TypeInfo
+	Imports      map[string]string
+	Fields       []FieldInfo
+	FieldsByName map[string]FieldInfo
 
-	Recv       string
+	Receiver   string
 	TSQVersion string
 }
 
@@ -36,9 +36,9 @@ type FieldInfo struct {
 	Name      string
 	Type      TypeInfo
 	Column    string
-	JsonTag   string
+	JSONTag   string
 	Tags      []string
-	IsArray   bool
+	IsSlice   bool
 	IsPointer bool
 }
 
@@ -47,7 +47,7 @@ func (f FieldInfo) String() string {
 	sb.WriteString(f.Name)
 	sb.WriteString(" ")
 
-	if f.IsArray {
+	if f.IsSlice {
 		sb.WriteString("[]")
 	}
 
@@ -61,19 +61,10 @@ func (f FieldInfo) String() string {
 }
 
 type IndexInfo struct {
-	Name       string
-	SourceName string
-	Fields     []string
-	IsSet      bool
-}
-
-type IndexFuncNames struct {
-	Name              string
-	Fields            []string
-	ListSetFunc       string
-	PageSetFunc       string
-	ListActiveSetFunc string
-	PageActiveSetFunc string
+	Name        string
+	IndexName   string
+	Fields      []string
+	LastFieldIn bool
 }
 
 func (s *StructInfo) SetTSQVersion(version string) {
@@ -87,18 +78,14 @@ func (s *StructInfo) SetTSQVersion(version string) {
 type TableMeta struct {
 	IsResult       bool
 	Table          string
-	AI             bool
-	PK             string
+	AutoIncrement  bool
+	PrimaryKey     string
 	VersionField   string
 	CreatedAtField string
 	UpdatedAtField string
 	DeletedAtField string
 	SearchColumns  []string
-	UxList         UxList
-	IdxList        IdxList
-	QueryList      IdxList
+	Uniques        []IndexInfo
+	Indexes        []IndexInfo
+	Queries        []IndexInfo
 }
-
-type UxList []IndexInfo
-
-type IdxList []IndexInfo

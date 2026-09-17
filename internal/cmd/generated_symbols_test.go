@@ -39,7 +39,7 @@ func TestGeneratedCodeReferencesOnlyRealSymbols(t *testing.T) {
 
 	// Helpers build generated code as string literals, so they emit symbols the
 	// templates never spell out.
-	sources = append(sources, "template_helpers.go")
+	sources = append(sources, "template_funcs.go")
 
 	refs := make(map[string]map[string][]string) // alias -> symbol -> source files
 	for _, source := range sources {

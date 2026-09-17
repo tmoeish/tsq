@@ -8,7 +8,7 @@ import (
 
 func TestFieldToColReturnsUnquotedIdentifier(t *testing.T) {
 	info := &genmodel.StructInfo{
-		FieldMap: map[string]genmodel.FieldInfo{
+		FieldsByName: map[string]genmodel.FieldInfo{
 			"Name": {Column: "name"},
 		},
 	}
@@ -20,7 +20,7 @@ func TestFieldToColReturnsUnquotedIdentifier(t *testing.T) {
 
 func TestFieldsToColsReturnsCommaSeparatedIdentifiers(t *testing.T) {
 	info := &genmodel.StructInfo{
-		FieldMap: map[string]genmodel.FieldInfo{
+		FieldsByName: map[string]genmodel.FieldInfo{
 			"Name":      {Column: "name"},
 			"DeletedAt": {Column: "deleted_at"},
 		},
@@ -36,7 +36,7 @@ func TestIndexFieldsToColsPrependsDeletedAt(t *testing.T) {
 		TableMeta: &genmodel.TableMeta{
 			DeletedAtField: "DeletedAt",
 		},
-		FieldMap: map[string]genmodel.FieldInfo{
+		FieldsByName: map[string]genmodel.FieldInfo{
 			"DeletedAt": {Column: "deleted_at"},
 			"Name":      {Column: "name"},
 		},
@@ -54,7 +54,7 @@ func TestValidateManagedFieldsSupportsPointerAndNullTypes(t *testing.T) {
 			UpdatedAtField: "UpdatedAt",
 			DeletedAtField: "DeletedAt",
 		},
-		FieldMap: map[string]genmodel.FieldInfo{
+		FieldsByName: map[string]genmodel.FieldInfo{
 			"CreatedAt": {
 				Name:      "CreatedAt",
 				Type:      genmodel.TypeInfo{Package: genmodel.PackageInfo{Path: "time", Name: "time"}, TypeName: "Time"},
@@ -81,7 +81,7 @@ func TestValidateManagedFieldsRejectsUnsupportedSoftDeleteType(t *testing.T) {
 		TableMeta: &genmodel.TableMeta{
 			DeletedAtField: "DeletedAt",
 		},
-		FieldMap: map[string]genmodel.FieldInfo{
+		FieldsByName: map[string]genmodel.FieldInfo{
 			"DeletedAt": {
 				Name: "DeletedAt",
 				Type: genmodel.TypeInfo{Package: genmodel.PackageInfo{Path: "time", Name: "time"}, TypeName: "Time"},
@@ -99,7 +99,7 @@ func TestValidateManagedFieldsRejectsNarrowIntegerSoftDeleteType(t *testing.T) {
 		TableMeta: &genmodel.TableMeta{
 			DeletedAtField: "DeletedAt",
 		},
-		FieldMap: map[string]genmodel.FieldInfo{
+		FieldsByName: map[string]genmodel.FieldInfo{
 			"DeletedAt": {
 				Name: "DeletedAt",
 				Type: genmodel.TypeInfo{TypeName: "int8"},
@@ -116,10 +116,10 @@ func TestValidateManagedFieldsRejectsNullableSoftDeleteUniqueIndexes(t *testing.
 	info := &genmodel.StructInfo{
 		TableMeta: &genmodel.TableMeta{
 			DeletedAtField: "DeletedAt",
-			UxList:         []genmodel.IndexInfo{{Name: "ux_name", Fields: []string{"Name"}}},
+			Uniques:        []genmodel.IndexInfo{{Name: "ux_name", Fields: []string{"Name"}}},
 		},
 		TypeInfo: genmodel.TypeInfo{TypeName: "User"},
-		FieldMap: map[string]genmodel.FieldInfo{
+		FieldsByName: map[string]genmodel.FieldInfo{
 			"DeletedAt": {
 				Name:      "DeletedAt",
 				IsPointer: true,
@@ -144,10 +144,10 @@ func TestValidateManagedFieldsAllowsIntegerSoftDeleteUniqueIndexes(t *testing.T)
 	info := &genmodel.StructInfo{
 		TableMeta: &genmodel.TableMeta{
 			DeletedAtField: "DeletedAt",
-			UxList:         []genmodel.IndexInfo{{Name: "ux_name", Fields: []string{"Name"}}},
+			Uniques:        []genmodel.IndexInfo{{Name: "ux_name", Fields: []string{"Name"}}},
 		},
 		TypeInfo: genmodel.TypeInfo{TypeName: "User"},
-		FieldMap: map[string]genmodel.FieldInfo{
+		FieldsByName: map[string]genmodel.FieldInfo{
 			"DeletedAt": {
 				Name: "DeletedAt",
 				Type: genmodel.TypeInfo{TypeName: "int64"},
@@ -196,13 +196,13 @@ func TestFieldTypePreservesPointerAndSliceModifiers(t *testing.T) {
 		},
 	}
 	sliceField := genmodel.FieldInfo{
-		IsArray: true,
+		IsSlice: true,
 		Type: genmodel.TypeInfo{
 			TypeName: "int64",
 		},
 	}
 	slicePtrField := genmodel.FieldInfo{
-		IsArray:   true,
+		IsSlice:   true,
 		IsPointer: true,
 		Type: genmodel.TypeInfo{
 			Package:  genmodel.PackageInfo{Path: "example.com/pkg", Name: "pkg"},

@@ -72,7 +72,7 @@ func init() {
 	}
 
 	pageLearningJourneyQuery, err = tsq.
-		Select(ResultLearningJourney.Cols()...).
+		Select(LearningJourney__Cols...).
 		From(TableEnrollment).
 		LeftJoin(TableLearner, Enrollment_LearnerID.EQ(Learner_ID)).
 		LeftJoin(TableCourse, Enrollment_CourseID.EQ(Course_ID)).

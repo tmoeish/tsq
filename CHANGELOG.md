@@ -19,6 +19,7 @@
   - 分页：`PageRequest.Validate(maxSize)` / `Normalize(maxSize)` 取代原来的四个方法，`PageResponse.TotalPages`（JSON `total_pages`）。
   - 否定谓词统一为 `Not*`（`NotIn`、`NotLike`、`NotBetween`、`NotStartsWithVal`……），和 `NotExists` 一致。
   - 其余：`NewColumn`、`DeclareTable`、`Order.Reverse()`、`OrderBy.Column()`、`Query.SearchListSQL` / `SearchCountSQL`，`Table` 接口的 `Table()` 改为 `TableName()`。
+- **生成代码命名**：`ListXxxByYyyInOrErr` 改为 `FetchXxxByYyy`，缺行时返回的错误包装 `sql.ErrNoRows`（此前是一句无法判定的 `records not found`）；唯一索引的等值查询不再附带 `Search(...)`。`Update` / `Delete` / `HardDelete` 的错误只带主键，不再把整行序列化进错误文案——那会让列值进日志。Result 不再生成 `ResultXxx` 变量和 `Cols()` 方法，改为和表一致的 `Xxx__Cols`：`tsq.Select(LearningJourney__Cols...)`。
 - **`dialect` 包命名收拢**：去掉类型上多余的 `DDL` 前缀（`ColumnSpec`、`ColumnType`、`ColumnKind` 及 `KindInt` 等常量、`AlterMode` 及 `AlterInPlace` / `AlterRebuild`），`IndexDefinition` 与 `NamedIndexDefinition` 合并为 `Index`，`ErrUnsupportedCapability` 改为 `UnsupportedCapabilityError`，`DDLColumnTypesEquivalent` 改为 `SameColumnType`，`ValidateIdentifierLength(id, d)` 改为 `ValidateIdentifier(d, id)`。`Dialect` 接口方法：`QuoteIdent`、`Placeholder`、`ReturningClause(col)`、`InspectColumns`、`InspectIndex`、`ColumnTypeSQL`、`AutoIncrementColumnSQL`、`CreateIndexSQL`、`DropIndexSQL`、`AlterMode`、`AlterColumnSQL`，`EnsureIndex` 的参数顺序和 `CreateIndexSQL` 一致；三个方言返回同一常量的 `CreateTableSuffix`、`CreateTableIfNotExistsSuffix`，以及只在包内用到的 `CreateIndexSuffix`、`AutoIncrementClause` 从接口删除。
 - **模块路径改为 `github.com/tmoeish/tsq/v5`**: Go 的语义化导入版本要求 v2+ 把 `/vN` 写进模块路径。使用者 `go get github.com/tmoeish/tsq/v5@latest`，CLI `go install github.com/tmoeish/tsq/v5/cmd/tsq@latest`。v4 和 v5 因此可以在同一个构建里共存，一个包一个包地迁移是可行的。
 - **`MIGRATION_GUIDE.md` 重写为 v4 → v5**: 按"你要动多少手"排序，注明哪些有工具（`tsq migrate`、重新生成）、哪些编译器能帮你、哪些**只能靠人读**（删除语义那条编译器不会报错，只会改变行为）。
@@ -65,6 +66,7 @@
 
 ### 修复
 
+- **字段类型来自 `database/sql`（如 `sql.NullString`）时，生成代码编译不过**：模板把类型写成 `tsqsql.NullString`，却从未导入 `tsqsql`。示例里没有这种字段，生成器测试的临时模块又把 `replace` 指到了 `internal/cmd` 而非仓库根，从没真正编译过生成物。现在表模板总是导入它，Result 按需导入，并新增一个真正 `go build` 生成物的测试。
 - **字符串字面量里出现 `FOR UPDATE` 之类的词，会让一条完全正常的查询被拒绝执行**: 方言能力检测在渲染好的 SQL 上做裸的子串匹配，不区分关键字和字面量。于是 `Where(Note.EQVal(" FOR UPDATE "))` 这样的查询在 SQLite 上得到 `ErrUnsupportedCapability`，而它根本没有用行锁。这道检查本来是要把"这个方言做不到"变成一句清楚的错误，结果反过来挡住了能跑的查询。现在匹配跳过字符串字面量和注释——`walkSQL` 早就会这件事，只是这一处没用它。
 
 
