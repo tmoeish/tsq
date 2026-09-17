@@ -107,13 +107,13 @@ type Column[O, T any] interface {
 	Avg() Column[O, float64]
 	Max() Column[O, T]
 	Min() Column[O, T]
-	Distinct() Column[O, T]
+	CountDistinct() Column[O, int64]
 	Upper() Column[O, T]
 	Lower() Column[O, T]
 	Substring(start, length int) Column[O, T]
 	Length() Column[O, int64]
 	Trim() Column[O, T]
-	Date() Column[O, T]
+	Date() Column[O, string]
 	Year() Column[O, int64]
 	Month() Column[O, int64]
 	Day() Column[O, int64]
@@ -399,6 +399,7 @@ type SelectStage[O any] interface {
 	From(table Table) JoinStage[O]
 }
 func Select[O any](cols ...BoundColumn[O]) SelectStage[O]
+func SelectDistinct[O any](cols ...BoundColumn[O]) SelectStage[O]
 type SetRHS[T any] interface {
 }
 type Subquery[T any] interface {

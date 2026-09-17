@@ -151,7 +151,9 @@ type Column[O, T any] interface {
 	Avg() Column[O, float64]
 	Max() Column[O, T]
 	Min() Column[O, T]
-	Distinct() Column[O, T]
+	// CountDistinct counts the distinct non-NULL values of the column. For a whole
+	// DISTINCT query use SelectDistinct.
+	CountDistinct() Column[O, int64]
 
 	Upper() Column[O, T]
 	Lower() Column[O, T]
@@ -159,7 +161,8 @@ type Column[O, T any] interface {
 	Length() Column[O, int64]
 	Trim() Column[O, T]
 
-	Date() Column[O, T]
+	// Date formats the date part as 'YYYY-MM-DD' on every dialect.
+	Date() Column[O, string]
 	// Year, Month and Day extract a date part as an integer, spelled per dialect.
 	Year() Column[O, int64]
 	Month() Column[O, int64]
@@ -611,12 +614,9 @@ func (c columnImpl[O, T]) Max() Column[O, T] { return aggregate[O, T](c.wrap("MA
 // Min wraps the column in MIN.
 func (c columnImpl[O, T]) Min() Column[O, T] { return aggregate[O, T](c.wrap("MIN(")) }
 
-// Distinct selects distinct values of the column.
-func (c columnImpl[O, T]) Distinct() Column[O, T] {
-	core := c.derive(c.c.info.withSQL(sqlJoin(sqlText("DISTINCT "), c.c.info.sql)))
-	core.info.distinct = true
-
-	return columnImpl[O, T]{c: core}
+// CountDistinct counts distinct values of the column.
+func (c columnImpl[O, T]) CountDistinct() Column[O, int64] {
+	return aggregate[O, int64](c.wrap("COUNT(DISTINCT "))
 }
 
 // Upper applies UPPER.
@@ -631,19 +631,40 @@ func (c columnImpl[O, T]) Substring(start, length int) Column[O, T] {
 		return columnImpl[O, T]{c: c.derive(exprInfo{err: fmt.Errorf("invalid substring range start=%d length=%d", start, length)})}
 	}
 
-	return c.Exprf("SUBSTRING(%s, %s, %s)", start, length)
+	// The bounds are integers from the program, so they are written into the SQL:
+	// bound, PostgreSQL cannot always pick a substring overload for them.
+	return columnImpl[O, T]{c: c.derive(c.c.info.withSQL(sqlJoin(
+		sqlText("SUBSTR("), c.c.info.sql, sqlText(fmt.Sprintf(", %d, %d)", start, length)),
+	)))}
 }
 
-// Length applies LENGTH.
+// Length counts characters: MySQL's LENGTH counts bytes, so it is CHAR_LENGTH there.
 func (c columnImpl[O, T]) Length() Column[O, int64] {
-	return columnImpl[O, int64]{c: c.wrap("LENGTH(")}
+	x := c.c.info.sql
+	sql := sqlByDialect("length", map[tsqdialect.Name]sqlExpr{
+		tsqdialect.MySQL:    sqlJoin(sqlText("CHAR_LENGTH("), x, sqlText(")")),
+		tsqdialect.Postgres: sqlJoin(sqlText("LENGTH("), x, sqlText(")")),
+		tsqdialect.SQLite:   sqlJoin(sqlText("LENGTH("), x, sqlText(")")),
+	})
+
+	return columnImpl[O, int64]{c: c.derive(c.c.info.withSQL(sql))}
 }
 
 // Trim applies TRIM.
 func (c columnImpl[O, T]) Trim() Column[O, T] { return columnImpl[O, T]{c: c.wrap("TRIM(")} }
 
-// Date applies DATE.
-func (c columnImpl[O, T]) Date() Column[O, T] { return columnImpl[O, T]{c: c.wrap("DATE(")} }
+// Date formats the date part as text; a DATE value scans differently on every
+// driver, a string does not.
+func (c columnImpl[O, T]) Date() Column[O, string] {
+	x := c.c.info.sql
+	sql := sqlByDialect("date", map[tsqdialect.Name]sqlExpr{
+		tsqdialect.MySQL:    sqlJoin(sqlText("DATE_FORMAT("), x, sqlText(", '%Y-%m-%d')")),
+		tsqdialect.Postgres: sqlJoin(sqlText("TO_CHAR("), x, sqlText(", 'YYYY-MM-DD')")),
+		tsqdialect.SQLite:   sqlJoin(sqlText("DATE("), sqliteTimeText(x), sqlText(")")),
+	})
+
+	return columnImpl[O, string]{c: c.derive(c.c.info.withSQL(sql))}
+}
 
 // Year extracts the year.
 func (c columnImpl[O, T]) Year() Column[O, int64] { return c.datePart("year", "YEAR", "%Y") }
@@ -659,10 +680,18 @@ func (c columnImpl[O, T]) datePart(part, sqlPart, strftime string) Column[O, int
 	sql := sqlByDialect(part+" extraction", map[tsqdialect.Name]sqlExpr{
 		tsqdialect.MySQL:    sqlJoin(sqlText(sqlPart+"("), x, sqlText(")")),
 		tsqdialect.Postgres: sqlJoin(sqlText("CAST(EXTRACT("+sqlPart+" FROM "), x, sqlText(") AS BIGINT)")),
-		tsqdialect.SQLite:   sqlJoin(sqlText("CAST(strftime('"+strftime+"', "), x, sqlText(") AS INTEGER)")),
+		tsqdialect.SQLite:   sqlJoin(sqlText("CAST(strftime('"+strftime+"', "), sqliteTimeText(x), sqlText(") AS INTEGER)")),
 	})
 
 	return columnImpl[O, int64]{c: c.derive(c.c.info.withSQL(sql))}
+}
+
+// sqliteTimeText keeps the "YYYY-MM-DD HH:MM:SS" prefix of a stored time. The
+// modernc driver writes time.Time in Go's String format by default
+// ("2026-03-04 05:06:07 +0000 UTC"), which SQLite's date functions reject; its
+// "sqlite" format and ISO text share the same prefix, so this reads all of them.
+func sqliteTimeText(x sqlExpr) sqlExpr {
+	return sqlJoin(sqlText("SUBSTR("), x, sqlText(", 1, 19)"))
 }
 
 // Round applies ROUND(column, precision).
@@ -671,7 +700,16 @@ func (c columnImpl[O, T]) Round(precision int) Column[O, T] {
 		return columnImpl[O, T]{c: c.derive(exprInfo{err: errors.New("round precision cannot be negative")})}
 	}
 
-	return c.Exprf("ROUND(%s, %s)", precision)
+	// PostgreSQL has ROUND(x, n) only for NUMERIC.
+	x := c.c.info.sql
+	n := sqlText(fmt.Sprintf(", %d)", precision))
+	sql := sqlByDialect("round", map[tsqdialect.Name]sqlExpr{
+		tsqdialect.MySQL:    sqlJoin(sqlText("ROUND("), x, n),
+		tsqdialect.Postgres: sqlJoin(sqlText("ROUND(CAST("), x, sqlText(" AS NUMERIC)"), n),
+		tsqdialect.SQLite:   sqlJoin(sqlText("ROUND("), x, n),
+	})
+
+	return columnImpl[O, T]{c: c.derive(c.c.info.withSQL(sql))}
 }
 
 // Ceil applies CEIL.

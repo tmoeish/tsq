@@ -109,7 +109,7 @@ func TestDatePartsAreSpelledPerDialect(t *testing.T) {
 	for d, want := range map[tsqdialect.Dialect]string{
 		onMySQL:    "YEAR(`users`.`created_at`)",
 		onPostgres: `CAST(EXTRACT(YEAR FROM "users"."created_at") AS BIGINT)`,
-		onSQLite:   `CAST(strftime('%Y', "users"."created_at") AS INTEGER)`,
+		onSQLite:   `CAST(strftime('%Y', SUBSTR("users"."created_at", 1, 19)) AS INTEGER)`,
 	} {
 		if sql, _ := sqlOf(t, q, d); !strings.Contains(sql, want) {
 			t.Fatalf("%s: %s does not contain %s", d.Name(), sql, want)

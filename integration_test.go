@@ -21,6 +21,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -770,6 +771,103 @@ func TestIntegrationMutationsByCondition(t *testing.T) {
 
 			if stored != 1 {
 				t.Fatalf("expected 1 enrollment left after hard delete, got %d", stored)
+			}
+		})
+	}
+}
+
+// TestIntegrationColumnFunctionsArePortable runs every column function on every
+// target and checks the value. Functions are spelled differently per dialect (MySQL's
+// LENGTH counts bytes, PostgreSQL rounds only NUMERIC, SQLite has no YEAR), so a
+// rendered-string assertion proves nothing here.
+func TestIntegrationColumnFunctionsArePortable(t *testing.T) {
+	for _, target := range integrationTargets(t) {
+		t.Run(target.name, func(t *testing.T) {
+			ctx := context.Background()
+
+			dropAcademyTables(t, target)
+			rt, _ := openWithPolicy(t, target, academy.TSQTables(), tsq.SchemaPolicyReconcile)
+
+			learner := &academy.Learner{Name: "  Ünïcödé  ", Email: "u@example.com", Company: "ACME"}
+			if err := learner.Insert(ctx, rt); err != nil {
+				t.Fatal(err)
+			}
+
+			at := time.Date(2026, 3, 4, 5, 6, 7, 0, time.UTC)
+			for _, score := range []int64{-7, 3, 3, 10} {
+				e := &academy.Enrollment{LearnerID: learner.ID, CourseID: 1, Score: score}
+				e.CreatedAt = at
+				if err := e.Insert(ctx, rt); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			name := academy.Learner_Name
+			str := func(col tsq.Column[academy.Learner, string], want string) {
+				t.Helper()
+
+				got, err := tsq.Select(col).From(academy.TableLearner).MustBuild().Scalar(ctx, rt, col)
+				if err != nil || got != want {
+					t.Errorf("%v = %q, %v; want %q", col, got, err, want)
+				}
+			}
+
+			str(name.Trim(), "Ünïcödé")
+			// SQLite's UPPER and LOWER fold ASCII only, so they are checked on ASCII text.
+			str(academy.Learner_Company.Lower(), "acme")
+			str(academy.Learner_Company.Lower().Upper(), "ACME")
+			str(name.Trim().Substring(2, 3), "nïc")
+			str(name.NullIf("x"), "  Ünïcödé  ")
+			str(academy.Learner_Company.Coalesce("none"), "ACME")
+
+			length := name.Trim().Length()
+			if n, err := tsq.Select(length).From(academy.TableLearner).MustBuild().Scalar(ctx, rt, length); err != nil || n != 7 {
+				t.Errorf("Length() = %d, %v; want 7 characters", n, err)
+			}
+
+			score := academy.Enrollment_Score
+			num := func(col tsq.Column[academy.Enrollment, int64], want int64) {
+				t.Helper()
+
+				got, err := tsq.Select(col).From(academy.TableEnrollment).MustBuild().Scalar(ctx, rt, col)
+				if err != nil || got != want {
+					t.Errorf("%v = %d, %v; want %d", col, got, err, want)
+				}
+			}
+
+			created := academy.Enrollment_CreatedAt
+			num(score.Sum(), 9)
+			num(score.Max(), 10)
+			num(score.Min(), -7)
+			num(score.Count(), 4)
+			num(score.CountDistinct(), 3)
+			num(created.Year().Max(), 2026)
+			num(created.Month().Max(), 3)
+			num(created.Day().Max(), 4)
+			num(score.Min().Abs(), 7)
+
+			dec := func(col tsq.Column[academy.Enrollment, float64], want float64) {
+				t.Helper()
+
+				got, err := tsq.Select(col).From(academy.TableEnrollment).MustBuild().Scalar(ctx, rt, col)
+				if err != nil || got != want {
+					t.Errorf("%v = %v, %v; want %v", col, got, err, want)
+				}
+			}
+
+			dec(score.Avg(), 2.25)
+			dec(score.Avg().Round(1), 2.3)
+			dec(score.Avg().Ceil(), 3)
+			dec(score.Avg().Floor(), 2)
+
+			day := created.Date().Max()
+			if got, err := tsq.Select(day).From(academy.TableEnrollment).MustBuild().Scalar(ctx, rt, day); err != nil || got != "2026-03-04" {
+				t.Errorf("Date() = %q, %v", got, err)
+			}
+
+			distinct, err := tsq.SelectDistinct(score).From(academy.TableEnrollment).MustBuild().Count(ctx, rt)
+			if err != nil || distinct != 3 {
+				t.Errorf("SelectDistinct count = %d, %v; want 3", distinct, err)
 			}
 		})
 	}
