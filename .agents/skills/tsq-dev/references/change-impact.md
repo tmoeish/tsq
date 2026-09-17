@@ -391,7 +391,7 @@
 ## 改了 CI 的 job 名字
 
 `main` 的 ruleset 按**检查名**要求 `Lint`、`Coverage`、`Build`、`Docker Build`、
-`GoReleaser Check` 全绿。改掉其中任何一个 job 的 `name:`，那个必需检查就再也不会出现在
+`GoReleaser Check`、`Integration` 全绿。改掉其中任何一个 job 的 `name:`，那个必需检查就再也不会出现在
 PR 上，而"等不到的检查"等于**所有 PR 永久合不进去**，包括发版 PR。
 
 改 job 名必须同步 ruleset：

@@ -110,8 +110,8 @@ UPDATE 每行每列绑两个参数，只修 INSERT 是修一半——**修一类
 ### 接口里"有定义、有实现、零调用"的钩子 (2026-08-26)
 
 `Dialect.ReturningClause` 零调用，PG 上 `Insert` 从没回填过主键，只跑 SQLite 的测试一直绿；现在由
-集成测试挡着。`Integration` 红着的 PR #61 仍被 auto-merge 合入：**auto-merge 只等必需
-检查**，而 `Integration` 至今不是必需检查，合并前要亲眼看它绿。
+集成测试挡着。`Integration` 红着的 PR #61 被 auto-merge 合入（**auto-merge 只等必需检查**），此后它
+成了必需检查。**说"某检查是不是必需"之前先查 ruleset**（`gh api repos/tmoeish/tsq/rulesets/<id>`）。
 
 ### 集成测试为什么长这样，以及暂时不做的几件事 (2026-08-26)
 
@@ -403,10 +403,10 @@ squash 会改写提交信息（追加 ` (#59)`）、SHA 和历史形状，同一
 
 ### 给 main 和 tag 加了 ruleset，发版随之改成 PR 流程 (2026-08-21)
 
-`main` 禁直推、必须走 PR 且五个检查全绿；`refs/tags/v*` 禁删除/移动/强推。两条都对仓库
+`main` 禁直推、必须走 PR 且六个必需检查全绿；`refs/tags/v*` 禁删除/移动/强推。两条都对仓库
 所有者生效。**tag 那条更重要**：删掉或移动已发布的 tag 是唯一不可恢复的操作（Go Proxy 永久缓存）。
 
-- **必需检查不能放 matrix job**（名字带 Go 版本，升版本就永远等不到）；理由和当前选的五个
+- **必需检查不能放 matrix job**（名字带 Go 版本，升版本就永远等不到）；理由和当前选的六个
   检查见 `change-impact.md` § 改了 CI 的 job 名字。
 - **用 `gh pr merge --auto`，不要"等 CI 再合"**：PR 刚建出来的头几秒没有任何 check 注册，
   `gh pr checks --watch` 那一刻会以 "no checks reported" 直接退出。
