@@ -249,6 +249,8 @@ func (o Order) Reverse() Order
 type OrderBy struct {
 }
 func (ob OrderBy) Column() SQLColumn
+func (ob OrderBy) NullsFirst() OrderBy
+func (ob OrderBy) NullsLast() OrderBy
 func (ob OrderBy) Order() Order
 type OrderCountMismatchError struct {
 	Fields     int

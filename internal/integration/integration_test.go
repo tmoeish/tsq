@@ -1063,6 +1063,60 @@ func TestIntegrationNullableColumns(t *testing.T) {
 	}
 }
 
+// TestIntegrationNullOrderingAgrees sorts a nullable column on every dialect: the
+// default and each explicit placement must give the same order everywhere.
+func TestIntegrationNullOrderingAgrees(t *testing.T) {
+	for _, target := range integrationTargets(t) {
+		t.Run(target.name, func(t *testing.T) {
+			ctx := context.Background()
+
+			dropAcademyTables(t, target)
+			rt, _ := openWithPolicy(t, target, academy.TSQTables(), tsq.SchemaPolicyReconcile)
+
+			rows := []*academy.Enrollment{{LearnerID: 1, CourseID: 1}, {LearnerID: 2, CourseID: 1}, {LearnerID: 3, CourseID: 1}}
+			if err := academy.TableEnrollment.BatchInsert(ctx, rt, rows); err != nil {
+				t.Fatal(err)
+			}
+
+			// rows[1] has no updated_at; rows[0] is older than rows[2].
+			base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+			for i, at := range map[int]time.Time{0: base, 2: base.Add(time.Hour)} {
+				if _, err := tsq.UpdateTable(academy.TableEnrollment).Set(academy.Enrollment_UpdatedAt, tsq.Val(at)).
+					Where(academy.Enrollment_UID.EQ(tsq.Val(rows[i].UID))).Exec(ctx, rt); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			if _, err := tsq.UpdateTable(academy.TableEnrollment).SetNull(academy.Enrollment_UpdatedAt).
+				Where(academy.Enrollment_UID.EQ(tsq.Val(rows[1].UID))).Exec(ctx, rt); err != nil {
+				t.Fatal(err)
+			}
+
+			updated := academy.Enrollment_UpdatedAt
+			for name, tc := range map[string]struct {
+				order tsq.OrderBy
+				want  []int
+			}{
+				"asc":              {updated.Asc(), []int{1, 0, 2}},
+				"desc":             {updated.Desc(), []int{2, 0, 1}},
+				"asc nulls last":   {updated.Asc().NullsLast(), []int{0, 2, 1}},
+				"desc nulls first": {updated.Desc().NullsFirst(), []int{1, 2, 0}},
+			} {
+				got, err := academy.QueryEnrollment.Page(ctx, rt, tsq.Paging{Size: 10, OrderBy: []tsq.OrderBy{tc.order}})
+				if err != nil {
+					t.Fatalf("%s: %v", name, err)
+				}
+
+				for i, idx := range tc.want {
+					if got.Data[i].UID != rows[idx].UID {
+						t.Errorf("%s on %s: position %d is %d, want %d", name, target.name, i, got.Data[i].UID, rows[idx].UID)
+					}
+				}
+			}
+		})
+	}
+}
+
 // writeBeforeList runs write once, when the runtime logs the list statement of a
 // Page: after the count has run and before the rows are read.
 type writeBeforeList struct {

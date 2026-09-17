@@ -86,6 +86,7 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 - 在声明了 `deleted_at` 的表上，`Delete` 是软删除，物理删除是 `HardDelete`；没有 `deleted_at` 的表两者同义。
 - **已删行是表的默认作用域**：引用这张表的每个查询（包括手写查询、JOIN 里的表、子查询和 CTE 里的表）以及 `UpdateTable` / 软 `DeleteFrom` 都看不到已删行。LEFT JOIN 的条件并进 `ON`；有 RIGHT / FULL JOIN 时表按活行派生表读取。`TableXxx.WithDeleted()` 是包含已删行的同一张表；`HardDeleteFrom` 作用于所有行，重复的软删除不会重写墓碑时间。软删除走 UPDATE，乐观锁校验、`version` 自增和 `updated_at` 刷新照常生效。`DeleteFrom` 的软删除时间戳**在执行时**计算（此前在构建时计算，包级语句会一直写入进程启动的时间）。
+- **可空值的排序在三个方言上一致**：NULL 一律当作最小值（升序在前、降序在后），PostgreSQL 显式写 `NULLS FIRST/LAST`；`OrderBy.NullsFirst()` / `NullsLast()` 可改，MySQL 用 `IS NULL` 排序键模拟（集合操作上拒绝）。此前 PostgreSQL 与另两个方言的顺序相反。
 - **时间统一用 UTC**：托管时间戳以 UTC 写入，绑定到 SQL 的所有 `time.Time`（含 `*time.Time`、`sql.NullTime`、`null.Time`）也先转成 UTC。SQLite 按文本存时间，不同时区写入的行此前按文本比较和排序会出错。`tsq.UpdateTable` 在执行时自动刷新 `updated_at`（显式 `Set` 的值优先），与 `Update`、软删除、`Upsert` 一致。
 - **行级写入不越权改托管列**：`Update` 不再写 `created_at` 和 `deleted_at`，并且在软删除表上只匹配未删除的行——手工构造的行不会把 `created_at` 清零，删除之前读出的旧副本也不会把行复活。软删除只写 `deleted_at` / `updated_at` / `version`，不顺带保存行上其他改动；删除已删除的行在有 `version` 的表上报 `OptimisticLockError`。恢复用 `Restore`。`Upsert` 写入的行总是未删除状态。
 - 读单行只有两个入口：`Get` 在没有行时返回包装 `sql.ErrNoRows` 的错误，`Find` 返回 `nil, nil`。`Get` / `Find` / `Exists` / `Scalar` 最多读一行，`Exists` 不再走 `COUNT`。`Count` 返回 `int64`。

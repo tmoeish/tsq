@@ -121,6 +121,7 @@
   成立；**不成立的要自己设**（`COUNT` 永不为 NULL、`COALESCE` 取与、聚合在无 GROUP BY 时为 NULL）。
   漏设的后果是读行前的检查放过了一个会扫描失败的查询，或者冤枉一个正确的查询。
 - 新的 JOIN 种类要在 `optionalTables` 里表态哪边会被填 NULL。
+- 可空性也决定排序怎么写（`orderTerm.render`），推导错了三个方言的顺序会不一致；`TestIntegrationNullOrderingAgrees` 守着。
 - 检查放在读行路径而不是 `Build`：`Build` 拒绝会把合法的子查询 / CTE 一起拒掉。
 - `nullable_test.go` 覆盖拒绝与放行两张表；`TestIntegrationNullableColumns` 真跑三方言。
 
