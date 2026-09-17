@@ -312,14 +312,10 @@ func (t *TableOf[R]) upsertChunk(ctx context.Context, db Executor, scope execSco
 		proposed(col.name)
 	}
 
+	// The existing row is named by the table: on MySQL a bare column is ambiguous
+	// with the proposed row's alias.
 	if v := def.managed.Version; v != "" {
-		set(v)
-
-		if !mysql {
-			w.ident(def.name).text(".")
-		}
-
-		w.ident(v).text(" + 1")
+		set(v).ident(def.name).text(".").ident(v).text(" + 1")
 	}
 
 	returnKey := single && def.autoIncrement
@@ -328,7 +324,7 @@ func (t *TableOf[R]) upsertChunk(ctx context.Context, db Executor, scope execSco
 	case mysql && returnKey:
 		// LAST_INSERT_ID(expr) makes an update report the existing key too.
 		pk := def.primaryKey.name
-		set(pk).text("LAST_INSERT_ID(").ident(pk).text(")")
+		set(pk).text("LAST_INSERT_ID(").ident(def.name).text(".").ident(pk).text(")")
 	case sets == 0:
 		set(target[0])
 		proposed(target[0])
