@@ -92,7 +92,7 @@ make release             # 真的发
 ## `main` 和 tag 都有 ruleset
 
 - **`main`**：禁止直推、禁止强推、禁止删除；必须走 PR，且 `Lint`、`Coverage`、`Build`、
-  `Docker Build`、`GoReleaser Check` 五个检查全绿。规则对仓库所有者也生效（没有配
+  `Docker Build`、`GoReleaser Check`、`Integration` 六个检查全绿。规则对仓库所有者也生效（没有配
   bypass actor），所以 `git push origin main` 一定会被拒——这就是发版走 PR 的原因。
 - **`refs/tags/v*`**：禁止删除、禁止移动、禁止强推。这条比分支保护重要得多：Go Proxy
   永久缓存每个 tag 的内容哈希，删掉重打会让全球用户 checksum 校验失败。**"不要删 tag

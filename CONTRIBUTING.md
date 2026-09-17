@@ -157,7 +157,7 @@ examples/academy/{mysql,postgres,sqlite}.sql
 ## Pull Request
 
 `main` 受保护：**必须走 PR**，且 `Lint`、`Coverage`、`Build`、`Docker Build`、
-`GoReleaser Check` 五个检查全绿才能合入。合并方式是 squash——所以一个 PR 就是 `main` 上的
+`GoReleaser Check`、`Integration` 六个检查全绿才能合入。合并方式是 squash——所以一个 PR 就是 `main` 上的
 一个提交，PR 的粒度决定了历史的粒度。
 
 提交 PR 前请确认：
