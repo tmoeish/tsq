@@ -187,7 +187,9 @@ JoinStage ─Search► SearchStage ─Where─► FilteredStage
   `applyTimestamp` / `applyTombstone` 覆盖 `time.Time`、`*time.Time`，整数墓碑，以及实现
   `sql.Scanner` 的可空包装（`sql.NullTime`、`null.Time`，根包因此不 import nullbio）。
   `timestamps_test.go` 逐个类型守着。
-- 软删除就是一次 update，复用 `update` 路径，所以带着版本校验和 `version` 自增。
+- 软删除 / 恢复走 `setTombstone`：只写 `deleted_at`、`updated_at`、`version`，按主键（和版本）匹配，
+  并要求行当前是活的 / 已删的。`Update` 跳过主键、`version`、`created_at`、`deleted_at`，软删除表上
+  追加活行条件（`WithDeleted()` 不追加）。
 - 批量写按占位符数分批（`effectiveChunkSize` × `dialect.MaxBindParams`）：INSERT 每行约一个
   占位符每列，UPDATE 约两个（`CASE pk WHEN ? THEN ?`）。单行 UPDATE 直接 `SET c = ?`。
 - `WithSkipDuplicates` 逐行插入，事务内用同一个 savepoint 包住每一行（PostgreSQL 的失败语句

@@ -267,6 +267,11 @@ var Query{{$type}} = tsq.
 }
 {{- if .DeletedAtField }}
 
+// Restore clears the row's tombstone; see tsq.TableOf.Restore.
+{{$precv}}Restore(ctx context.Context, db tsq.Executor) error {
+	return {{$varTbl}}.Restore(ctx, db, {{$dot.Receiver}})
+}
+
 // Active reports whether the row is not soft-deleted.
 {{$precv}}Active() bool {
 	return {{ SoftDeleteActiveExpr $dot.Receiver $dot.DeletedAtField (index $dot.FieldsByName $dot.DeletedAtField) }}

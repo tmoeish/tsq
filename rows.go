@@ -18,9 +18,10 @@ import (
 // Generated code adds the same operations as methods on the row type.
 //
 // Managed columns are maintained here, not in generated code: Insert fills
-// created_at and updated_at when they are unset, Update refreshes updated_at,
-// Delete on a table with deleted_at stamps the tombstone, and a version column is
-// checked and incremented by every row write.
+// created_at and updated_at when they are unset, Update refreshes updated_at and
+// never writes created_at or deleted_at, Delete on a table with deleted_at stamps
+// the tombstone and Restore clears it, and a version column is checked and
+// incremented by every row write.
 //
 // Batch writes do not open a transaction. Run them inside Runtime.WithTx when the
 // batch has to succeed or fail as a whole.
@@ -151,24 +152,153 @@ func (t *TableOf[R]) BatchDelete(ctx context.Context, db Executor, rows []*R, op
 			return err
 		}
 
-		if t.def.managed.DeletedAt == "" {
+		if !t.softDeleted() {
 			return t.hardDelete(ctx, db, rows, config)
 		}
 
-		now := time.Now()
+		return t.setTombstone(ctx, db, rows, config, true)
+	})
+}
 
-		for _, row := range rows {
-			if row == nil {
-				continue
-			}
+// Restore clears the tombstone of a soft-deleted row, refreshing updated_at and
+// incrementing version. Only a deleted row matches; on a table with a version
+// column a row that is not deleted, or changed since it was loaded, fails with
+// OptimisticLockError.
+func (t *TableOf[R]) Restore(ctx context.Context, db Executor, row *R) error {
+	return t.BatchRestore(ctx, db, []*R{row}, WithBatchSize(1))
+}
 
-			if err := t.stampDeleted(row, now); err != nil {
-				return err
-			}
+// BatchRestore restores rows in as few statements as the batch size allows.
+func (t *TableOf[R]) BatchRestore(ctx context.Context, db Executor, rows []*R, options ...BatchOption) error {
+	return traceExecutor(ctx, db, TraceOpUpdate, func(ctx context.Context) error {
+		config, err := newBatchConfig(options, false)
+		if err != nil {
+			return err
 		}
 
-		return t.update(ctx, db, rows, config, now)
+		if t.def.managed.DeletedAt == "" {
+			return fmt.Errorf("restore %s: the table has no deleted_at column", t.Name())
+		}
+
+		return t.setTombstone(ctx, db, rows, config, false)
 	})
+}
+
+// setTombstone soft-deletes live rows (deleted is true) or restores deleted ones.
+// It writes only the managed columns: a delete is not a way to save other changes.
+func (t *TableOf[R]) setTombstone(ctx context.Context, db Executor, rows []*R, config batchConfig, deleted bool) error {
+	if len(rows) == 0 {
+		return nil
+	}
+
+	def, scope, err := t.prepareWrite(db, rows)
+	if err != nil {
+		return err
+	}
+
+	op := "delete"
+	if !deleted {
+		op = "restore"
+	}
+
+	if err := checkKeys(def, rows, op); err != nil {
+		return err
+	}
+
+	now := time.Now()
+
+	stamp := map[string]any{}
+	if deleted {
+		if stamp, err = t.tombstoneValues(now); err != nil {
+			return err
+		}
+	} else if col := def.column(def.managed.UpdatedAt); col != nil {
+		v := reflect.New(field(new(R), col).Type()).Elem()
+		if err := applyTimestamp(v, now); err != nil {
+			return fmt.Errorf("table %s: %w", def.name, err)
+		}
+
+		stamp[def.managed.UpdatedAt] = v.Interface()
+	}
+
+	version := def.column(def.managed.Version)
+	size := effectiveChunkSize(config.size, 2, tsqdialect.MaxBindParams(scope.dialect))
+
+	for _, chunk := range chunks(rows, size) {
+		w := &writeStmt{d: scope.dialect}
+		w.text("UPDATE ").ident(def.name).text(" SET ").ident(def.managed.DeletedAt).text(" = ")
+
+		switch {
+		case deleted:
+			w.arg(stamp[def.managed.DeletedAt])
+		case def.tombstoneIsZero:
+			w.text("0")
+		default:
+			w.text("NULL")
+		}
+
+		if name := def.managed.UpdatedAt; name != "" {
+			w.text(", ").ident(name).text(" = ").arg(stamp[name])
+		}
+
+		if version != nil {
+			w.text(", ").ident(version.name).text(" = ").ident(version.name).text(" + 1")
+		}
+
+		w.text(" WHERE ")
+		writeKeyMatch(w, def, chunk)
+		writeTombstoneFilter(w, def, !deleted)
+
+		if err := t.execCounted(ctx, db, w, def, op, chunk, version != nil); err != nil {
+			return err
+		}
+
+		for _, row := range chunk {
+			tombstone := field(row, def.column(def.managed.DeletedAt))
+			if deleted {
+				if err := applyTombstone(tombstone, now); err != nil {
+					return fmt.Errorf("table %s: %w", def.name, err)
+				}
+			} else {
+				tombstone.SetZero()
+			}
+
+			if col := def.column(def.managed.UpdatedAt); col != nil {
+				field(row, col).Set(reflect.ValueOf(stamp[col.name]))
+			}
+
+			if version != nil {
+				incrementVersion(field(row, version))
+			}
+		}
+	}
+
+	return nil
+}
+
+// writeTombstoneFilter appends the condition that a row is deleted (true) or live.
+func writeTombstoneFilter(w *writeStmt, def *tableDef, deleted bool) {
+	w.text(" AND ").ident(def.managed.DeletedAt)
+
+	switch {
+	case def.tombstoneIsZero && deleted:
+		w.text(" <> 0")
+	case def.tombstoneIsZero:
+		w.text(" = 0")
+	case deleted:
+		w.text(" IS NOT NULL")
+	default:
+		w.text(" IS NULL")
+	}
+}
+
+func incrementVersion(v reflect.Value) {
+	switch v.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		v.SetInt(v.Int() + 1)
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		v.SetUint(v.Uint() + 1)
+	}
 }
 
 // HardDelete removes row from the table, ignoring any deleted_at column.
@@ -591,9 +721,16 @@ func (t *TableOf[R]) update(ctx context.Context, db Executor, rows []*R, config 
 
 	version := def.column(def.managed.Version)
 
+	// created_at is written once, and deleted_at only by Delete and Restore: a row
+	// built by hand, or loaded before a concurrent delete, must not overwrite them.
 	cols := make([]*columnCore, 0, len(def.columns))
 	for _, col := range def.columns {
-		if col != def.primaryKey && col != version {
+		switch col.name {
+		case def.primaryKey.name, def.managed.CreatedAt, def.managed.DeletedAt:
+			continue
+		}
+
+		if col != version {
 			cols = append(cols, col)
 		}
 	}
@@ -652,20 +789,17 @@ func (t *TableOf[R]) updateChunk(ctx context.Context, db Executor, scope execSco
 	w.text(" WHERE ")
 	writeKeyMatch(w, def, rows)
 
+	if t.softDeleted() {
+		writeTombstoneFilter(w, def, false)
+	}
+
 	if err := t.execCounted(ctx, db, w, def, "update", rows, version != nil); err != nil {
 		return err
 	}
 
 	if version != nil {
 		for _, row := range rows {
-			v := field(row, version)
-
-			switch v.Kind() {
-			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-				v.SetInt(v.Int() + 1)
-			case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-				v.SetUint(v.Uint() + 1)
-			}
+			incrementVersion(field(row, version))
 		}
 	}
 

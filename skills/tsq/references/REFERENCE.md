@@ -206,7 +206,7 @@ From table structs, TSQ commonly generates:
 - `TableXxx`
 - `Xxx__Cols`
 - typed columns like `Xxx_ID`, `Xxx_Name`
-- CRUD helpers: `Insert`, `Update`, `Delete`, `HardDelete`, and `Active()` on soft-delete tables
+- CRUD helpers: `Insert`, `Update`, `Delete`, `HardDelete`, and `Restore()` / `Active()` on soft-delete tables
 - query variables for the lookups that identify rows: `QueryXxx` (every row, with the declared search columns), `QueryXxxByID` / `QueryXxxByIDIn`, and `QueryXxxByEmail` / `QueryXxxByEmailIn` per unique index. A plain `//tsq:index` is a schema object only; a query on it has an ordering, a limit and a page size the generator cannot guess, so write it with the builder
 - `FetchXxxByID(ctx, db, ids...)` and, per unique index, `FetchXxxByEmail(...)`: the rows for the given keys, in the order given. A missing key fails the call with an error wrapping `sql.ErrNoRows`, so `errors.Is(err, sql.ErrNoRows)` tells "not there" from a database failure
 - the errors returned by `Update`, `Delete` and `HardDelete` name the row by its primary key; they never serialize the row, so column values do not leak into logs
@@ -324,6 +324,7 @@ Do **not** declare it if you want plain last-write-wins behavior.
 Semantics:
 
 - `Insert` sets it to the current time **only when the field is still unset** (zero, `nil`, or not `Valid`), so a value the caller supplied survives. That is what makes importing or backfilling rows with their real creation time possible
+- `Update` never writes it, so a row built by hand cannot wipe it
 - DDL generation uses `CURRENT_TIMESTAMP` for compatible non-null time columns
 - the field should use a timestamp-compatible type supported by TSQ
 
@@ -355,7 +356,7 @@ Semantics:
 - the value names the **Go struct field**, not the SQL column name
 - `Insert` sets it to the current time **only when the field is still unset**, matching `created_at`
 - `Update` refreshes it to the current time, always: recording the last modification is the whole point
-- a soft delete refreshes it too
+- a soft delete and a restore refresh it too
 - use it when the project wants an auto-maintained modification time
 
 Supported field types:
@@ -392,8 +393,9 @@ Additional rule:
 - if the table also declares unique indexes, prefer `int64` or `uint64` tombstone semantics for `deleted_at`; nullable-time soft-delete fields are not portable there
 
 Use `deleted_at` when a deleted row should stay in the database for audit while disappearing from
-the application. Restoring one is a deliberate act with no generated helper: load it through
-`TableXxx.WithDeleted()`, clear the field, and `Update`.
+the application. `Update` never writes `deleted_at`: only `Delete` stamps it and `Restore` clears
+it, so a copy of a row loaded before someone deleted it cannot bring it back. Load a deleted row
+through `TableXxx.WithDeleted()` and call `row.Restore(ctx, db)`.
 
 ## 5. Query DSL overview
 
@@ -667,13 +669,18 @@ Whether `Delete` removes the row is decided by the table, not by the call site:
 | `deleted_at` | stamps the tombstone and `updated_at`, row stays | removes the row |
 | no `deleted_at` | removes the row | removes the row (same thing) |
 
-- a soft delete is an `UPDATE`, so it still checks the version and increments it, and a stale copy
-  of the row loaded earlier fails with `OptimisticLockError`
+- a soft delete writes **only** `deleted_at`, `updated_at` and `version`; other fields changed on
+  the row are not saved. It checks and increments the version, so a stale copy fails with
+  `OptimisticLockError`, and it matches live rows only: deleting a deleted row fails the same way
+  on a table with `version` and does nothing without one
+- `Restore` / `BatchRestore` (and the generated `item.Restore(...)`) clear the tombstone of a
+  deleted row, refresh `updated_at` and increment `version`; a live row does not match
+- `Update` on a table with `deleted_at` matches live rows only and never writes `deleted_at` or
+  `created_at`. `TableXxx.WithDeleted().Update(...)` edits a deleted row and leaves it deleted
+- `TableXxx.WithDeleted()` turns `Delete` into a hard delete, as it does for `tsq.DeleteFrom`
 - the pairs are `Delete` / `HardDelete` and `BatchDelete` / `BatchHardDelete` on the table,
   `BatchDeleteByPK` / `BatchHardDeleteByPK`, `tsq.DeleteFrom` / `tsq.HardDeleteFrom`,
   and the generated `item.Delete(...)` / `item.HardDelete(...)`
-- to record a delete time of your own, assign the field before calling `Delete`; it is only filled
-  in when the caller left it unset
 - `item.Active()` reports whether the loaded row is untombstoned
 
 ### Upserting rows
@@ -693,8 +700,8 @@ err = database.TableLearner.BatchUpsert(ctx, runtime, learners,
   other columns and matches live rows only; with a nullable `deleted_at` it never matches, so
   that is an error
 - an update writes every column except the key, the primary key and `created_at`, refreshes
-  `updated_at`, and increments `version` **without checking it**. `deleted_at` is written like any
-  column: upserting a deleted row by primary key with `DeletedAt` zero restores it
+  `updated_at`, and increments `version` **without checking it**. The row written is always live:
+  `deleted_at` is cleared, so upserting a deleted row by primary key restores it
 - `Upsert` reads back the primary key (also of an updated row), `version` and `created_at`, so the
   row can go straight into `Update`. `BatchUpsert` reads nothing back
 - two rows with the same key in one `BatchUpsert` are an error on every dialect (PostgreSQL
