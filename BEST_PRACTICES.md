@@ -160,12 +160,12 @@ if err := runtime.WithTx(ctx, &tsq.TxOptions{
 
 这些 helper 接收的是 `Executor`，因此事务边界由调用方决定：
 
-- 传 `*sql.DB` / `runtime`：允许按 chunk 逐步提交
+- 传 `runtime`（或 `tsq.WrapExecutor(db, dialect)`）：每条语句各自提交，允许部分成功
 - 通过 `runtime.WithTx(...)` 提供的事务 executor：让整个批量操作参与同一个事务
 
 ```go
 if err := runtime.WithTx(ctx, nil, func(ctx context.Context, txExec tsq.Executor) error {
-	if err := tsq.BatchInsert(ctx, txExec, rows, tsq.WithBatchSize(500)); err != nil {
+	if err := database.TableOrder.BatchInsert(ctx, txExec, rows, tsq.WithBatchSize(500)); err != nil {
 		return err
 	}
 
@@ -229,8 +229,8 @@ _ = txExec
 版本不匹配时，TSQ 会返回 `OptimisticLockError`。
 
 ```go
-if err := tsq.Update(ctx, runtime, user); err != nil {
-	if errors.Is(err, &tsq.OptimisticLockError{}) {
+if err := user.Update(ctx, runtime); err != nil {
+	if tsq.IsOptimisticLockError(err) {
 		return fmt.Errorf("record has been modified by another request: %w", err)
 	}
 	return err
@@ -247,17 +247,17 @@ if err := tsq.Update(ctx, runtime, user); err != nil {
 
 ```go
 affected, err := tsq.
-	UpdateTable[database.Order]().
+	UpdateTable(database.TableOrder).
 	SetVal(database.Order_Status, "expired").
 	SetVal(database.Order_UpdatedAt, null.TimeFrom(time.Now())).
-	Where(database.Order_Status.EQVal("pending"), database.Order_CreatedAt.LTVar()).
-	Exec(ctx, runtime, cutoff)
+	Where(database.Order_Status.EQVal("pending"), database.Order_CreatedAt.LT(database.Order_CreatedAt.Param())).
+	Exec(ctx, runtime, database.Order_CreatedAt.Bind(cutoff))
 ```
 
 - 这类语句不校验 `version`，但会自增它。批量改动之前加载的对象随后 `Update(...)` 会拿到 `OptimisticLockError`，按 3.7 处理。
-- `updated_at` / `deleted_at` 需要就显式 `SetVal`，构建器不会替你盖时间戳。
+- `UpdateTable` 不替你盖 `updated_at`，需要就显式 `SetVal`；`DeleteFrom` 在有 `deleted_at` 的表上是软删除，时间戳在**执行时**盖。
 - `Where(...)` 必需。真要全表操作，写显式的 `tsq.And()`，让意图留在代码里。
-- 它是单条语句，不分块；`InVar` 传超大切片会撞方言的参数上限，那种场景用 `tsq.BatchDeleteByPK` 或自己切片。
+- 它是单条语句，不分块；列表参数传超大切片会撞方言的参数上限，那种场景用 `tsq.BatchDeleteByPK` 或自己切片。
 
 ## 4. Field pointer 和 `MapInto(...)`
 
@@ -324,7 +324,7 @@ query, err := tsq.Select(User_ID, User_Name).
 - 可以从同一个中间 builder 派生两个不同查询
 - 不需要再担心“后一个分支把前一个分支的条件改掉”
 
-但如果查询形状已经稳定，仍然优先缓存 `Build()` 后的 `*tsq.Query[Owner]`，而不是在热路径里反复从 builder 往下走。
+但如果查询形状已经稳定，仍然优先缓存 `Build()` 后的 `*tsq.Query[Row]`，而不是在热路径里反复从 builder 往下走：`*tsq.Query` 在第一次跑某个方言时渲染并缓存 SQL。
 
 ### 6.4 把生成 helper 的初始化失败当普通错误处理
 
@@ -370,33 +370,35 @@ Builder 采用**阶段型类型系统**：每次调用都会返回不同的具�
 ### 8.2 关键词转义规则
 
 - `Page(ctx, exec, pageReq)` 会自动对 `pageReq.Keyword` 转义 LIKE 通配符（`%` 和 `_`）。
-- 通过可变参数传给 `query.List` / `query.Get` 的关键词**不会**自动转义，调用方需自行处理。
+- `StartsWith` / `EndsWith` / `Contains`（及其 `Val` 和 `Not` 形式）同样自动转义；`Like` / `LikeVal` 的模式按原样使用，通配符由调用方负责。
 - SQL 注入防护来自参数绑定本身，LIKE 通配符转义只防止意外的模糊匹配，两者不能互替。
 
-### 8.3 `InVar()` 的空切片 / nil 切片不是异常，而是“查不到任何结果”
+### 8.3 空的列表参数不是异常，而是“查不到任何结果”
 
-`InVar()` 适合执行时才知道筛选集合的场景：
+列表参数适合执行时才知道筛选集合的场景：
 
 ```go
 query, err := tsq.
 	Select(database.Course_ID, database.Course_Title).
 	From(database.TableCourse).
-	Where(database.Course_ID.InVar()).
+	Where(database.Course_ID.In(database.Course_ID.ListParam())).
 	Build()
+
+courses, err := query.List(ctx, runtime, database.Course_ID.BindList(ids...))
 ```
 
 执行时：
 
-- 传入非空切片：正常展开成 `IN (?, ?, ...)`
-- 传入空切片：TSQ 会渲染成 `IN (NULL)`
-- 传入 `nil`：语义与空切片一致，同样返回空结果
+- 非空列表：展开成 `IN (?, ?, ...)`
+- 空列表或 nil：渲染成 `IN (NULL)`，返回空结果
+- `NotIn` 的空列表渲染成匹配全部的形状
 
 这套行为是刻意设计的，目的是把“当前没有任何允许值 / 选中值”的情况表达成**显式不匹配**，而不是偷偷跳过过滤条件。
 
 因此：
 
 - 想表达“没有任何候选值，所以结果应为空”时，直接传空切片 / `nil`
-- 想表达“没有筛选值，所以不要加这个过滤条件”时，应该在业务层自己分支，不要把这个职责交给 `InVar()`
+- 想表达“没有筛选值，所以不要加这个过滤条件”时，应该在业务层自己分支，不要把这个职责交给列表参数
 
 ### 8.4 普通值不要试图手工转成 SQL literal
 

@@ -6,111 +6,119 @@ import (
 	"context"
 	tsqsql "database/sql"
 	"fmt"
-	tsqtime "time"
-
-	null "gopkg.in/nullbio/null.v6"
 
 	"github.com/tmoeish/tsq/v5"
+	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
+	null "gopkg.in/nullbio/null.v6"
 )
 
-// =============================================================================
-// Table Interface Implementation
-// =============================================================================
+// tsqLearnerTable is TableLearner before its definition; columns are declared on it.
+var tsqLearnerTable = tsq.NewTable[Learner]("learner")
 
-// TableLearner implements the tsq.Table interface for Learner.
-//
-// The Learner__Cols argument is never read. It makes this variable depend on the
-// column slice so that Go initializes the slice first: Cols reaches it through an
-// interface method, which package initialization ordering cannot see. Without it a
-// package-level query variable in a file sorting before this one can observe
-// Learner__Cols fully sized with nil elements.
-var TableLearner tsq.Table = tsq.DeclareTable(Learner{}, Learner__Cols)
+// Columns of Learner.
+var (
+	Learner_Company   = tsq.NewColumn(tsqLearnerTable, "company", "company", func(r *Learner) *string { return &r.Company })
+	Learner_CreatedAt = tsq.NewColumn(tsqLearnerTable, "created_at", "created_at", func(r *Learner) *null.Time { return &r.CreatedAt })
+	Learner_Email     = tsq.NewColumn(tsqLearnerTable, "email", "email", func(r *Learner) *string { return &r.Email })
+	Learner_ID        = tsq.NewColumn(tsqLearnerTable, "id", "id", func(r *Learner) *int64 { return &r.ID })
+	Learner_Name      = tsq.NewColumn(tsqLearnerTable, "name", "name", func(r *Learner) *string { return &r.Name })
+)
 
-// TSQOwner marks Learner as a TSQ owner.
-func (l Learner) TSQOwner() {}
-
-// TableName returns the database table name for Learner.
-func (l Learner) TableName() string { return "learner" }
-
-// Cols returns all generated columns for Learner.
-func (l Learner) Cols() []tsq.SQLColumn {
-	return tsq.SQLColumns(Learner__Cols...)
-}
-
-// SearchColumns returns columns that support keyword search for Learner.
-func (l Learner) SearchColumns() []tsq.SearchColumn {
-	return []tsq.SearchColumn{
+// TableLearner is the table descriptor of Learner. It depends on every column, so
+// package initialization completes the table before any query uses it.
+var TableLearner = tsqLearnerTable.Define(tsq.TableSpec[Learner]{
+	Columns: []tsq.BoundColumn[Learner]{
+		Learner_Company,
+		Learner_CreatedAt,
+		Learner_Email,
+		Learner_ID,
+		Learner_Name,
+	},
+	PrimaryKey:    Learner_ID,
+	AutoIncrement: true,
+	CreatedAt:     Learner_CreatedAt,
+	Search: []tsq.SearchColumn{
 		Learner_Name,
 		Learner_Email,
 		Learner_Company,
-	}
-}
+	},
+	Schema: []tsqdialect.ColumnSpec{
+		{
+			Name: "id",
+			Type: tsqdialect.ColumnType{
+				Kind: tsqdialect.KindInt,
+				Bits: 64,
+			},
+			PrimaryKey:    true,
+			AutoIncrement: true,
+		},
+		{
+			Name: "created_at",
+			Type: tsqdialect.ColumnType{
+				Kind:     tsqdialect.KindTime,
+				Nullable: true,
+			},
+		},
+		{
+			Name: "company",
+			Type: tsqdialect.ColumnType{
+				Kind: tsqdialect.KindString,
+				Size: 160,
+			},
+		},
+		{
+			Name: "email",
+			Type: tsqdialect.ColumnType{
+				Kind: tsqdialect.KindString,
+				Size: 160,
+			},
+		},
+		{
+			Name: "name",
+			Type: tsqdialect.ColumnType{
+				Kind: tsqdialect.KindString,
+				Size: 120,
+			},
+		},
+	},
+	Indexes: []tsq.TableIndex{
+		{Name: "ux_learner_email", Unique: true, Fields: []string{"email"}},
+		{Name: "idx_learner_company", Fields: []string{"company"}},
+	},
+})
 
-// PrimaryKey returns the primary key column for Learner.
-func (l Learner) PrimaryKey() string {
-	return "id"
-}
+// Learner__Cols lists every column of Learner, for Select.
+var Learner__Cols = TableLearner.Columns()
 
-// AutoIncrement reports whether Learner uses an auto-increment primary key.
-func (l Learner) AutoIncrement() bool { return true }
-
-// ManagedColumns returns the columns TSQ maintains for Learner.
-func (l Learner) ManagedColumns() tsq.ManagedColumns {
-	return tsq.ManagedColumns{
-		CreatedAt: "created_at",
-	}
-}
-
-// Column definitions for Learner table.
-var (
-	Learner_Company   = tsq.NewColumn("company", "company", func(t *Learner) *string { return &t.Company })
-	Learner_CreatedAt = tsq.NewColumn("created_at", "created_at", func(t *Learner) *null.Time { return &t.CreatedAt })
-	Learner_Email     = tsq.NewColumn("email", "email", func(t *Learner) *string { return &t.Email })
-	Learner_ID        = tsq.NewColumn("id", "id", func(t *Learner) *int64 { return &t.ID })
-	Learner_Name      = tsq.NewColumn("name", "name", func(t *Learner) *string { return &t.Name })
-)
-
-// Learner__Cols is the list of all selectable columns for Learner table.
-var Learner__Cols = []tsq.BoundColumn[Learner]{
-	Learner_Company,
-	Learner_CreatedAt,
-	Learner_Email,
-	Learner_ID,
-	Learner_Name,
-}
-
-// =============================================================================
-// Query by Primary Key
-// =============================================================================
-// QueryLearnerByID stores the generated primary-key lookup query for Learner.
+// QueryLearnerByID reads one Learner by primary key; bind Learner_ID.
 var QueryLearnerByID = tsq.
 	Select(Learner__Cols...).
 	From(TableLearner).
 	Where(
-		Learner_ID.EQVar(),
+		Learner_ID.EQ(Learner_ID.Param()),
 	).
 	MustBuild()
 
-// QueryLearnerByIDIn stores the generated primary-key IN lookup query for Learner.
+// QueryLearnerByIDIn reads Learner rows by a list of primary keys; bind Learner_ID with BindList.
 var QueryLearnerByIDIn = tsq.
 	Select(Learner__Cols...).
 	From(TableLearner).
 	Where(
-		Learner_ID.InVar(),
+		Learner_ID.In(Learner_ID.ListParam()),
 	).
 	MustBuild()
 
-// FetchLearnerByID returns the Learner rows whose ID is one of the given
-// values, in the order given. It fails with an error wrapping sql.ErrNoRows when
-// any of them is missing.
+// FetchLearnerByID returns the Learner rows with the given primary keys,
+// in the order given. It fails with an error wrapping sql.ErrNoRows when any of
+// them is missing.
 func FetchLearnerByID(
 	ctx context.Context,
 	db tsq.Executor,
 	iDs ...int64,
 ) ([]*Learner, error) {
-	list, err := QueryLearnerByIDIn.List(ctx, db, iDs)
+	list, err := QueryLearnerByIDIn.List(ctx, db, Learner_ID.BindList(iDs...))
 	if err != nil {
-		return nil, fmt.Errorf("fetch Learner by ID: %w", err)
+		return nil, err
 	}
 
 	ordered, missing := matchByInputOrder(iDs, list, func(row *Learner) int64 {
@@ -119,23 +127,21 @@ func FetchLearnerByID(
 	if len(missing) > 0 {
 		return nil, fmt.Errorf("fetch Learner by ID %v: %w", missing, tsqsql.ErrNoRows)
 	}
+
 	return ordered, nil
 }
 
-// =============================================================================
-// Query by Unique Indexes
-// =============================================================================
-// QueryLearnerByEmail stores the generated unique-index lookup query for Learner.
+// QueryLearnerByEmail reads one Learner by unique index ux_learner_email.
 var QueryLearnerByEmail = tsq.
 	Select(Learner__Cols...).
 	From(TableLearner).
 	Where(
-		Learner_Email.EQVar(),
+		Learner_Email.EQ(Learner_Email.Param()),
 	).
 	MustBuild()
 
-// FetchLearnerByEmail returns the Learner rows matching unique index ux_learner_email, one per
-// Email value, in the order given. It fails with an error wrapping
+// FetchLearnerByEmail returns the Learner rows matching unique index ux_learner_email,
+// one per Email value, in the order given. It fails with an error wrapping
 // sql.ErrNoRows when any of them is missing.
 func FetchLearnerByEmail(
 	ctx context.Context,
@@ -143,10 +149,10 @@ func FetchLearnerByEmail(
 	emails ...string,
 ) ([]*Learner, error) {
 	list, err := QueryLearnerByEmailIn.List(ctx, db,
-		emails,
+		Learner_Email.BindList(emails...),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("fetch Learner by Email: %w", err)
+		return nil, err
 	}
 
 	ordered, missing := matchByInputOrderKey(emails, list,
@@ -156,104 +162,61 @@ func FetchLearnerByEmail(
 	if len(missing) > 0 {
 		return nil, fmt.Errorf("fetch Learner by Email %v: %w", missing, tsqsql.ErrNoRows)
 	}
+
 	return ordered, nil
 }
 
-// =============================================================================
-// Query by Indexes
-// =============================================================================
-// QueryLearnerByCompany stores the generated index query for Learner.
+// QueryLearnerByCompany reads Learner rows by index idx_learner_company.
 var QueryLearnerByCompany = tsq.
 	Select(Learner__Cols...).
 	From(TableLearner).
-	Search(TableLearner.SearchColumns()...).
 	Where(
-		Learner_Company.EQVar(),
+		Learner_Company.EQ(Learner_Company.Param()),
 	).
 	MustBuild()
 
-// QueryLearnerByCompanyIn stores the generated index query for Learner.
+// QueryLearnerByCompanyIn reads Learner rows by index idx_learner_company.
 var QueryLearnerByCompanyIn = tsq.
 	Select(Learner__Cols...).
 	From(TableLearner).
 	Where(
-		Learner_Company.InVar(),
+		Learner_Company.In(Learner_Company.ListParam()),
 	).
 	MustBuild()
 
-// QueryLearnerByEmailIn stores the generated index query for Learner.
+// QueryLearnerByEmailIn reads Learner rows by index ux_learner_email.
 var QueryLearnerByEmailIn = tsq.
 	Select(Learner__Cols...).
 	From(TableLearner).
 	Where(
-		Learner_Email.InVar(),
+		Learner_Email.In(Learner_Email.ListParam()),
 	).
 	MustBuild()
 
-// =============================================================================
-// List All Records
-// =============================================================================
-// QueryLearner stores the generated list-all query for Learner.
+// QueryLearner reads every Learner row; Page matches its search columns.
 var QueryLearner = tsq.
 	Select(Learner__Cols...).
 	From(TableLearner).
 	Search(TableLearner.SearchColumns()...).
 	MustBuild()
 
-// =============================================================================
-// CRUD Operations
-// =============================================================================
-
-// Insert inserts a new Learner record.
-func (l *Learner) Insert(
-	ctx context.Context,
-	db tsq.Executor,
-) error {
-	if !l.CreatedAt.Valid {
-		l.CreatedAt = null.TimeFrom(tsqtime.Now())
-	}
-	err := tsq.Insert(ctx, db, l)
-	if err != nil {
-		return fmt.Errorf("insert Learner: %w", err)
-	}
-	return nil
+// Insert inserts the row; see tsq.TableOf.Insert.
+func (l *Learner) Insert(ctx context.Context, db tsq.Executor) error {
+	return TableLearner.Insert(ctx, db, l)
 }
 
-// Update updates an existing Learner record.
-func (l *Learner) Update(
-	ctx context.Context,
-	db tsq.Executor,
-) error {
-	err := tsq.Update(ctx, db, l)
-	if err != nil {
-		return fmt.Errorf("update Learner ID=%v: %w", l.ID, err)
-	}
-	return nil
+// Update updates the row; see tsq.TableOf.Update.
+func (l *Learner) Update(ctx context.Context, db tsq.Executor) error {
+	return TableLearner.Update(ctx, db, l)
 }
 
-// Delete removes a Learner record from the database.
-//
-// Learner declares no deleted_at column, so Delete and HardDelete are the
-// same operation.
-func (l *Learner) Delete(
-	ctx context.Context,
-	db tsq.Executor,
-) error {
-	err := tsq.Delete(ctx, db, l)
-	if err != nil {
-		return fmt.Errorf("delete Learner ID=%v: %w", l.ID, err)
-	}
-	return nil
+// Delete removes the row. Learner has no deleted_at column, so Delete and
+// HardDelete are the same.
+func (l *Learner) Delete(ctx context.Context, db tsq.Executor) error {
+	return TableLearner.Delete(ctx, db, l)
 }
 
-// HardDelete removes a Learner record from the database.
-func (l *Learner) HardDelete(
-	ctx context.Context,
-	db tsq.Executor,
-) error {
-	err := tsq.HardDelete(ctx, db, l)
-	if err != nil {
-		return fmt.Errorf("hard-delete Learner ID=%v: %w", l.ID, err)
-	}
-	return nil
+// HardDelete removes the row from the table.
+func (l *Learner) HardDelete(ctx context.Context, db tsq.Executor) error {
+	return TableLearner.HardDelete(ctx, db, l)
 }

@@ -24,234 +24,208 @@ cmd/tsq  ──► internal/cmd ──► internal/parser ──► internal/gen
 ```
 
 - `internal/genmodel` 是**中立的数据模型**：`StructInfo`、`FieldInfo`、`TableMeta`、
-  `IndexInfo`、`PackageInfo`。解析器往里填，模板从里读。它不 import 解析器也不 import
-  命令层——这是让"解析"和"渲染"能各自被测试的原因。
-- `internal/parser` 只负责 Go 源码 → `genmodel`。它做 AST 遍历、注解定位、DSL 词法/语法
-  分析、字段解析和排序。
+  `IndexInfo`、`SchemaColumn`。解析器往里填，生成器补上需要类型信息的 `Schema`，模板从里读。
+- `internal/parser` 只负责 Go 源码 → `genmodel`（`directive.go` 解析 `//tsq:` 指令）。
 - `internal/cmd` 只负责 `genmodel` → 磁盘：模板渲染、校验、DDL 推导与渲染、文件写入。
-- `dialect` 同时被库和生成器用：它既定义运行期的 SQL 方言能力，又定义生成期的 DDL 类型
-  映射。这不是巧合——两边说的是同一件事（这个库支持什么），拆开必然漂移。
+- `dialect` 同时被库和生成器用：运行期的方言能力和生成期的 DDL 类型映射说的是同一件事。
 - 根包 `tsq` 不 import 任何 `internal/` 包。生成的代码只依赖根包和 `dialect`。
 
-## 查询构建器：阶段式类型状态机
-
-这是这个库最容易被误改的部分。`querybuilder.go` 定义了一串接口，
-`querybuilder_stages.go` 定义了每个具体 builder 能返回什么：
+## 根包的四块
 
 ```
-Select(...)  ──► SelectStage  ──From──►  ┐
-From(...)    ──► FromStage    ──Select─► ├──► queryBuilder
-                                          │      │
-                        ┌─────────────────┘      ├─Where──►  WhereStage
-                        │                        ├─Search─►  SearchStage
-                        │                        └─GroupBy─► GroupedStage
-    WhereStage  ─Search─┐
-    SearchStage ─Where──┴──► FilteredStage ─GroupBy─► GroupedStage ─Having─► HavingStage
-    setops ─────────────────► CompoundStage
-    ForUpdate/ForShare ─────► LockedStage
+表描述符  table.go            TableOf[R] / NewTable / Define / AliasTable / CTE
+表达式    column.go expr.go   Column / Condition / Case，内部是 exprInfo
+          case.go param.go    Param / ListParam / Arg
+中间表示  sqlexpr.go          sqlExpr（片段）→ renderer → statement（模板）→ assemble
+查询      querybuilder.go     阶段接口 + builder
+          query_render.go     querySpec：结构校验 + 按方言渲染
+          query.go            Query：缓存、绑参、执行、Page、子查询
+写入      rows.go             TableOf 上的行写入与批量写
+          mutation.go         UpdateTable / DeleteFrom 按条件写
+执行      executor.go         封闭的 Executor、WrapExecutor
+          runtime*.go tx.go trace.go schema.go table_index.go
 ```
 
-**`Where(...)` 和 `Search(...)` 每条链上最多各出现一次，这由 Go 类型系统在编译期强制**：
-调用过 `Where` 之后拿到的是 `WhereStage`，它上面根本没有 `Where` 方法。这不是运行期校验，
-不能靠加 if 来"改进"。
+### 表描述符（`table.go`）
 
-改这里的时候：
+表是一个值：`*TableOf[R]`，持有名字、列、主键、自增、托管列、搜索列、物理 schema 和索引。
+**行类型 R 上不需要任何方法**——v5 之前表元数据是使用者结构体上的七个方法，会和字段重名，
+还逼出了 `DeclareTable` 那个初始化顺序补丁。
 
-- 新增一个阶段就是新增一个接口加一个具体 builder 类型。返回值类型写错，编译期的约束就
-  静悄悄地松了——`querybuilder_stages_test.go` 和 `compilefail_test.go` 是防线。
-- `queryBuilderCore` 持有所有阶段共享的状态；具体 builder 只是它的类型化外壳。
-- `builderPhase` 用来在运行期给出更好的错误信息，它**不是**约束的来源，类型才是。
+生成代码分三步声明，让 Go 的包初始化顺序自己排对：
 
-### 写路径的阶段机（`mutation.go`）
-
-```
-UpdateTable[T]() ──► *updateBuilder ─Set/SetVal/SetVar─► *updateBuilder ─Where─► MutationStage
-DeleteFrom[T]()  ──► *deleteBuilder ──────────────────────────────────────Where─► MutationStage
-MutationStage ─Build──► *Mutation[T] ─Exec──► RowsAffected
+```go
+var tsqCourseTable = tsq.NewTable[Course]("course")          // 句柄，未定义
+var Course_ID = tsq.NewColumn(tsqCourseTable, "id", ...)       // 列挂在句柄上
+var TableCourse = tsqCourseTable.Define(tsq.TableSpec[Course]{ // 初始化表达式列出全部列
+	Columns: []tsq.BoundColumn[Course]{Course_ID, ...}, ...})
 ```
 
-- `Where(...)` 必需且只能一次：两个 builder 只有 `Where` 能到达 `MutationStage`，而
-  `MutationStage` 上只有 `Build` / `MustBuild` / `Exec`。
-- `Set` / `SetVal` / `SetVar` 是**泛型方法**（`func (b *updateBuilder[O]) SetVal[T any](col
-  TypedColumn[O, T], value T)`），列和值的类型在签名里钉死。接口方法不能带类型参数，所以
-  它们只能住在 `Where` 之前的未导出具体类型上，`Where` 之后才切到接口——这是
-  "`Set*` 在前、`Where` 在后"这个顺序的真正原因。
-- `T` 必须是生成的值类型（`Course`，不是 `*Course`）：目标表从 `var zero T` 取，指针零值
-  拿不到元数据，`Build()` 会拒绝。
-- 语句形状：SET 左侧是**不带表限定**的列名（PostgreSQL 不接受 `SET t.c = ...`），WHERE
-  里沿用查询的 `table.col` 标识符标记；三个方言都接受这个组合，由集成测试证明。
-- 有 `version` 列（`ManagedColumns().Version`）的表自动追加 `version = version + 1`，WHERE **不**带
-  版本。理由见 `memory.md`。显式 `Set` 版本列是构建错误。
-- `DeleteFrom[O]()` 在 O 声明了 `deleted_at` 时**把 kind 切成 update** 并预置 `deleted_at` /
-  `updated_at` 两个赋值，于是软删除自动拿到上面那条 `version` 自增；`HardDeleteFrom[O]()` 永远
-  是 DELETE。
-- 只允许引用目标表本身且不带别名；JOIN / `UPDATE ... FROM` / `LIMIT` / `RETURNING` 在三个
-  方言里写法各异，第一版不做。子查询谓词放行。
-- 执行路径和 `List` 对齐：`resolveQueryWithState` 绑参 → `validateOperationalExecutorForSQL`
-  → `renderSQLForExecutor` → `logSQLForExecutor("update"/"delete")` → `ExecContext`。
-  不分块，不新增方言能力位。
+查询只引用 `TableCourse`，而 `TableCourse` 依赖每一列，所以任何查询都在表定义完成后才初始化。
+用到未 `Define` 的句柄会得到 "used before Define"，而不是一个半空的列表。
 
-### 软删除（`softdelete.go`）
+- `Define` 做全部定义期校验（主键、托管列、搜索列必须是本表的列，schema 与索引引用的列存在，
+  不能 Define 两次），错误记在表上，由每个用到它的查询和写入报告，`Err()` 可以直接读。
+- 表的身份：`Define` 的"是不是本表的列"按**指针**比；查询里的表按**引用名**（别名或表名）比，
+  所以 `AliasTable` 得到的是另一个名字。
+- `Table` 接口是封闭的：`*TableOf[R]`、`aliasTable`、`cteTable` 三个实现。
 
-删除是物理删还是打墓碑，由 `Table.ManagedColumns().DeletedAt` 决定，不由调用点决定。
+### 表达式与中间表示（`column.go`、`expr.go`、`sqlexpr.go`）
 
-- **软删除就是一次 update**：`markDeleted` 给 `deleted_at` 和 `updated_at` 落值，然后走
-  `updateTables` / `batchUpdateFn`。复用更新路径不是图省事——那条路上带着乐观锁校验和
-  `version` 自增，软删除必须一样有。
-- **墓碑值不能按具体类型写死**：`deleted_at` 是使用者的字段，文档承诺五种形态。`applyTombstone`
-  的顺序是：整数类 → `UnixNano()`；`time.Time` / `*time.Time` → 直接落值；其余交给
-  `sql.Scanner.Scan(now)`。最后那条同时覆盖 `sql.NullTime` 和 `null.Time`，**因此根包不必
-  import nullbio**。加新形态就是往这条链上加一环，`softdelete_test.go` 的表格用例守着。
-- **按主键批量软删除拿不到行对象**，所以 `softDeleteAssignments[O]` 用 `reflect.New` 造一个零值
-  `*O` 取字段类型。这也是 `O` 必须是生成的值类型的又一处依赖。
-- 生成代码只是转发：`item.Delete(...)` 调 `tsq.Delete`，`item.HardDelete(...)` 调
-  `tsq.HardDelete`。**软删除的语义住在库里，不在模板里**——模板里那份曾经是唯一实现，而它唯一的
-  测试是字符串比对。
+**SQL 不再是字符串。** 每个列、条件、CASE 都是一个 `exprInfo`：一段 `sqlExpr` 加上它引用的表、
+聚合/去重标记和延迟报告的构建错误。`sqlExpr` 是一串片段：
 
-### 导出面上的两条规矩（v5 起）
+| 片段 | 渲染时 |
+| --- | --- |
+| text | 原样输出（包括使用者 `Pred` / `Exprf` 的格式文本） |
+| ident | 由方言校验长度并加引号 |
+| value | 绑定值，变成占位符 |
+| param | 参数，执行时按绑定的值展开 |
+| query | 子查询，就地渲染自己（同一个 renderer，所以它的参数和能力需求一并收集） |
+| byDialect | 方言写法不同的构造（`Year()` 等），按方言挑一份，缺席即报错 |
 
-- **不留 `Deprecated` 别名。** 兼容包装在一个每年发不了几次大版本的库里只会积累：v4 攒下九个，
-  没有任何门禁会告诉你它们该走了。删掉它们本身就是大版本存在的理由。
-- **参数类型必须是使用者写得出名字的类型。** `ExistsSub(sq rawSubquery)` 能调用，但没人能声明
-  一个 `rawSubquery` 变量或给它写 helper。现在是导出的密封接口 `AnySubquery`（方法未导出，
-  包外无法实现），而 EXISTS 本身根本不读那个列，于是它连方法都不该是——`tsq.Exists` /
-  `tsq.NotExists` 是包级函数。**"它不用接收者"就是"它不该是方法"的信号。**
+`renderer` 为一个方言把片段走一遍，产出 `statement`：方言相关的文本加上**尚未编号**的占位符
+槽。`assemble` 在执行时按绑定的参数值填槽（列表参数按个数展开，PostgreSQL 的 `$n` 在这里编号）。
 
-## 从构建到执行
+这一层替掉的是 v4 的做法：标识符编码成 base64 标记塞进字符串，执行前再扫描文本替换
+`?`、判断方言能力、处理 IN 列表。那套做法的直接后果是"字符串字面量里出现 `FOR UPDATE`
+会被当成行锁拒绝"这一类 bug；现在能力需求由**渲染那个构造的代码**调用 `r.require(...)`
+报告，使用者的原样文本从不被扫描。
 
-1. `Build()` → `*Query[O]`。这一步只做**结构**校验（`query_validation.go`、
-   `query_plan_validate.go`）：列属不属于查询涉及的表、聚合和 GROUP BY 合不合法、
-   有没有选任何列。
-2. `query_plan*.go` 把构建结果变成执行计划：涉及哪些表（`query_plan_tables.go`）、
-   CTE 怎么排（`query_plan_cte.go`）、SQL 怎么拼（`query_plan_sql.go`）。
-3. `sql_render.go` 渲染 SQL 文本，`query_args.go` 绑定参数。
-4. 执行期（`executor*.go`、`query_load.go`、`query_scalar.go`、`query_scan.go`）才校验
-   **方言能力**：CTE、`FULL JOIN`、行锁在这个方言上能不能跑（`dialect_validation.go`）。
+- `Condition`、`AnySubquery`、`SQLColumn` 都是封闭接口，没有导出的 `Clause()` / `SQLExpr()`
+  字符串——看 SQL 用 `Query.SQL(dialect, args...)` 或 `String()`。
+- 列的核心是不可变的 `*columnCore`，派生列（函数、聚合、`Exprf`）复制一份再改；`plain`
+  标记"直接引用 table.name"，只有它能 `WithTable` / `As` 换表。
+- 模式匹配（`StartsWith*` / `EndsWith*` / `Contains*`、关键词搜索）一律转义通配符并写
+  `ESCAPE '~'`：SQLite 没有默认转义符，MySQL 写不出 `ESCAPE '\'`。
 
-**这条分界线是有意的**：同一个 `*Query` 可以在多个方言上复用，把方言校验提前到 `Build()`
-就断了这个用法。改校验时先想清楚它属于哪一边。
+### 参数（`param.go`）
 
-### Go 1.27 泛型方法的落点
+执行期才知道的值是**参数**：`Param[T]` 是 `RHS[T]`，`ListParam[T]` 是 `SetRHS[T]`，
+`Bind` 只收 `T` 并产出密封的 `Arg`。每一列自带一对参数（`col.Param()` / `col.ListParam()`），
+复制和换表都共享同一个指针，所以 `col.Bind(v)` 总能找到它。
 
-Go 1.27 允许具体 receiver 的方法声明自己的类型参数，因此类型化操作归回拥有状态的对象：
+- 绑定按**参数身份**匹配，不按位置。缺值、多余的值（语句没用到）、同一参数绑两次都是错误。
+  `Page` 的计数语句和列表语句合在一起判断"用没用到"。
+- 派生规格（模式参数、`NOT IN` 形式）共享根参数的值，渲染方式不同。
+- 空列表：`IN` 渲染 `IN (NULL)`，`NOT IN` 渲染 `NOT IN (SELECT 1 WHERE 1 = 0)`，都不丢过滤条件。
+- 内置参数：`keywordParam`（`Page` 的关键词）、`deletedAtParam` / `updatedAtParam`
+  （按条件软删除的时间戳，执行时计算）。
 
-- `Query.Scalar(selected)` 从 `selected` 推导结果类型，并校验它就是查询唯一的选列。
-- `Query.AsSubquery(selected)` 在已构建查询上产出类型化子查询。
-- `Runtime.WithTxResult(...)` 执行带一个类型化返回值的事务；多个相关值用小结果结构体承载。
-- `PageRequest.Response(total, data)` 构造类型化分页响应。
-- `updateBuilder.Set` / `SetVal` / `SetVar` 在 `UPDATE` 构建器上按列推导值类型。
+v4 的 `EQVar()` 往参数列表里塞标记，值从 `List(ctx, db, args ...any)` 按位置取——个数、类型、
+顺序错了要么运行期报错、要么静默查错。这是"类型安全"里最大的洞，不要以任何形式加回来。
 
-没有把所有泛型函数机械地改成方法。`QueryStage`、`Executor`、`Column` / `ValueColumn` 都是
-接口，而 Go 1.27 仍禁止接口方法声明类型参数；`BuildSubquery`、`MapInto`、mutation/batch
-helper 因此继续作为包级函数。为了一点调用语法把这些接口改成公开具体类型，会破坏阶段机、
-事务 executor 通用性或列实现封装，收益不抵代价。
+### 查询构建器：阶段接口
+
+约束来自**接口的返回类型**。一个具体 `builder[O]` 实现所有公共方法；只有 `Where` / `Search`
+在不同阶段返回不同接口，由 `joinBuilder` / `whereBuilder` / `searchBuilder` 三个薄包装提供。
+
+```
+Select ─► SelectStage ─From──┐
+From   ─► FromStage   ─Select┴► JoinStage ─Join/Correlate─► JoinStage
+JoinStage ─Where─► WhereStage ─Search─► FilteredStage
+JoinStage ─Search► SearchStage ─Where─► FilteredStage
+(Join/Where/Search/Filtered) ─GroupBy─► GroupedStage ─Having─► HavingStage
+(Join/Where/Grouped/Having/Compound) ─Union...─► CompoundStage
+(大多数阶段) ─OrderBy/Limit/Offset─► PagedStage ─ForUpdate/ForShare─► LockedStage
+```
+
+- 分组、HAVING、集合操作之后**没有**行锁（PostgreSQL 拒绝，这里在类型上就拒绝）；带搜索的
+  阶段没有集合操作（关键词搜索不能跨集合）。
+- `builder` 里的 `stagePhase` 序号只挡住"把接口断言回来再调"的人，不是约束来源。
+- `Build()` 调 `querySpec.validate`，只做**结构**校验：FROM/JOIN 图、`Correlate`（包括
+  子查询透出的外层表必须在外层查询里）、集合操作列数、`Offset` 需要 `Limit`、CTE 环、
+  以及所有表达式延迟下来的错误。
+
+### 渲染与执行（`query_render.go`、`query.go`）
+
+- `Query` 持有校验过的 `querySpec`，按 `(方言, 计数?, 关键词?, 单行?)` 缓存渲染结果；
+  `Page` 的自定义排序不缓存。
+- **方言能力在渲染时检查**，所以同一个 `*Query` 能在多个方言上复用，而不支持的方言在
+  第一次执行时就拿到 `*dialect.UnsupportedCapabilityError`。这条"构建只看结构、执行才看方言"
+  的边界是有意的。
+- CTE 在渲染时从 FROM/JOIN（含集合操作数和 CTE 自身的来源）收集、按依赖排序后提到最前。
+- `Get` / `Find` / `Exists` / `Scalar` 渲染带 `LIMIT 1` 的变体（构建器自己设了 limit 时不加），
+  所以 `LIMIT` 天然在行锁子句之前。
+- `Page` 拒绝自带 `Limit` 的查询；`PageRequest.OrderBy` 按列名或 JSON 名解析，集合操作查询按
+  输出列名排序。
+
+### 写入（`rows.go`、`mutation.go`）
+
+- **行写入住在表描述符上**：`TableOf.Insert/Update/Delete/HardDelete` 和 `Batch*`。生成的行
+  方法只是转发。字段通过列的访问器取地址再反射取值，表的列清单决定写哪些列。
+- **托管列在库里维护，不在模板里**：`Insert` 只在未设置时填 `created_at` / `updated_at`
+  （`isUnset`：零值或 `Valuer` 返回 nil），`Update` 总是刷新 `updated_at`，软删除写墓碑。
+  `applyTimestamp` / `applyTombstone` 覆盖 `time.Time`、`*time.Time`，整数墓碑，以及实现
+  `sql.Scanner` 的可空包装（`sql.NullTime`、`null.Time`，根包因此不 import nullbio）。
+  `timestamps_test.go` 逐个类型守着。
+- 软删除就是一次 update，复用 `update` 路径，所以带着版本校验和 `version` 自增。
+- 批量写按占位符数分批（`effectiveChunkSize` × `dialect.MaxBindParams`）：INSERT 每行约一个
+  占位符每列，UPDATE 约两个（`CASE pk WHEN ? THEN ?`）。单行 UPDATE 直接 `SET c = ?`。
+- `WithSkipDuplicates` 逐行插入，事务内用同一个 savepoint 包住每一行（PostgreSQL 的失败语句
+  会毒化整个事务），事务外不用（PostgreSQL 拒绝事务外的 SAVEPOINT）。事务与否由执行器的
+  `execScope.tx` 说明。
+- 按条件写：`UpdateTable(table)` / `DeleteFrom(table)` / `HardDeleteFrom(table)`。
+  `Set` / `SetVal` 是泛型方法，所以 `UpdateBuilder` 是导出的具体类型；`Where` 之后切到
+  `MutationStage` 接口。语句只能引用目标表本身（按表指针判断，别名也不行）。有 `version`
+  的表追加 `version = version + 1` 但不校验版本（理由见 `memory.md`）。`DeleteFrom` 在有
+  `deleted_at` 的表上渲染成 UPDATE，墓碑值**执行时**才算——v4 在构建时算，包级语句会
+  永远盖进程启动的时间。
+
+### 执行器（`executor.go`）
+
+`Executor` 是 database/sql 的三个方法加一个未导出的 `scope()`，因此是**封闭的**：
+`*Runtime`、`WithTx` 的回调执行器、`WrapExecutor(handle, dialect)` 的结果。裸 `*sql.DB`
+编译不过——库必须知道方言才能渲染，v4 允许传裸池，结果是运行期才发现方言未知。
+
+`execScope` 带方言、所属 runtime（日志、追踪、分页上限从这里取）和是否在事务里。
 
 ## 运行时
 
-`Runtime`（`runtime.go`）是 `*sql.DB` 加方言加已注册表的组合，两个构造器都要 ctx：
+`Runtime`（`runtime.go`）是 `*sql.DB` 加方言加已注册表：
 `Open(ctx, driverName, dsn, tables, ...RuntimeOption)` 自己开池，
-`NewRuntime(ctx, db, dialect, tables, ...RuntimeOption)` 接管调用方已有的池。ctx 约束
-ping、标识符校验和 schema 策略（可能执行 DDL）。没有全局 `Init()`，没有包级单例——这是历史上被
-删掉的东西，不要以任何形式重新引入。
+`NewRuntime(ctx, db, dialect, tables, ...RuntimeOption)` 接管调用方已有的池。`tables` 是
+`[]Table`（生成的 `TSQTables()`），`schema.go` 的 `registerTables` 从描述符取 schema 与索引。
+没有全局 `Init()`，没有包级单例——不要以任何形式重新引入。
 
-- **连接池的所有权记在 `ownsDB` 上，`Close()` 只关自己开的那个。** 关掉调用方的池会打断它在
-  TSQ 之外的用途，而那正是 `NewRuntime` 存在的理由。加新构造器时先决定它属于哪一边。
-- 选项是函数式的（`runtime_options.go`）：`newRuntimeConfig` 先按顺序应用完再统一校验，所以
-  非法值只从构造器报一次，不是每个 `With*` 各报各的。
-- `Runtime` 自己实现 `Executor`（它是 `dialect.Executor` 的别名），所以它可以直接传给需要
-  执行器的地方。
-- 标识符长度校验**没有开关**，在任何 DDL 之前跑；`MaxPageSize` 是分页上限
-  （`DefaultMaxPageSize` = 1000），通过 `pageSizeLimitForExecutor` 从执行器反查运行时取到。
-- `wrapExecutor` 只在执行器**同时**已带上要求的方言和 runtime 时才原样返回；否则包一层。
-  曾经有两段同条件的 `if`，第二段在方言匹配时直接返回未包装的执行器，让"给没有 runtime 的
-  执行器附上 runtime"那条路永远不可达。
-- schema 策略为 `Manual` 时用 **info** 级记录当前模式：它是默认值也是推荐用法，不是警告。
-- 执行期日志走 `logForExecutor`（`runtime_schema.go`）：执行器属于某个运行时就用它的
-  `Logger`，否则回退 `slog.Default()`。**不要在执行路径里直接调 `slog.*`。**
-  这条规则曾经只在这里写着而没人执行：`logForExecutor` 引入之后只接了三个调用点，
-  读路径的八处 SQL 日志和两处 rows.Close 告警一直在直调 `slog.*`。
-  例外只有两处，都在拿不到执行器的地方，且都在代码里注明了理由：
-  `quoteBuiltInIdentifier`（`Build()` 期，还没有 runtime）和 `appendTracers`
-  （`NewRuntime` 正在组装 Runtime，`Logger` 还没落位）。
-- SQL 文本与绑定参数由 `logSQLForExecutor`（`runtime_schema.go`）输出，开关是
-  `WithSQLLogging()`，级别 debug。两道短路（`logSQL` 为假、`Logger.Enabled` 为假）
-  都在 `compactJSON` 之前，所以关着的时候不付序列化成本。**没有运行时的执行器
-  （裸 `*sql.DB`、`WrapExecutor` 的结果）永远不打**——它没地方读这个开关。
-- `WithTx`（`tx.go`）是多操作事务的唯一入口，支持 `TxOptions.RetryIf`（配合
-  `IsOptimisticLockError` 做乐观锁重试）。commit 阶段只对明确的冲突码
-  （`IsTxConflictError`）重试，网络类错误在 commit 阶段永不重试——
-  commit 可能已经成功。
-- 驱动错误分类按**接口**匹配，不 import 驱动包：`sqlite_errors.go` 认 `Code() int`，
-  `postgres_errors.go` 认 `SQLState() string`（lib/pq、pgx v4、pgx v5 都实现）。MySQL 是
-  唯一被 import 的驱动，因为 `MySQLError.Number` 是字段。
-- `runtime_schema.go` 负责 schema 对账：`TablePolicy` 和 `IndexPolicy` 各取一个 `SchemaPolicy`
-  （`Manual` / `Validate` / `CreateMissing` / `Reconcile`），决定 `NewRuntime` 是只校验还是补齐
-  表、列与索引。**四档都只增不减**：没有任何一档会删除它没在当前声明里看到的对象，理由见
-  `memory.md`。
-- `table_registry.go` 保存表元数据，`table_index.go` 保存索引元数据；生成的
-  `runtime.tsq.go` 通过 `TSQTables()` 把包内所有表交给 `NewRuntime`。
-
-### 单行读取
-
-`Get` 无行报 `sql.ErrNoRows`，`Find` 无行返回 `nil, nil`，`Exists` 就是 `Find` 加一次判空——三者
-共用一条语句，所以它们的边界只需要在一处维护。
-
-`limitToSingleRow` 给这条语句补 `LIMIT 1`：**必须排在行锁子句之前**（用
-`splitTrailingQueryLockClause` 拆开再拼回），构建器自己设了 `Limit` 时不动。忘了这个顺序，
-带 `ForUpdate()` 的查询会拼出三个方言都不接受的 SQL，而单元测试如果只看无锁的那条就发现不了。
+- **连接池的所有权记在 `ownsDB` 上，`Close()` 只关自己开的那个。**
+- 选项是函数式的（`runtime_options.go`），先全部应用再统一校验。
+- 标识符长度校验**没有开关**，在任何 DDL 之前跑；渲染时每个标识符也按方言再校验一次。
+- 执行期日志走 `logForExecutor` / `logSQLForExecutor`（`runtime_schema.go`），不要在执行路径
+  里直接调 `slog.*`。SQL 日志的开关是 `WithSQLLogging()`；`WrapExecutor` 的结果没有 runtime，
+  不打。
+- `WithTx`（`tx.go`）是多操作事务的唯一入口，支持 `TxOptions.RetryIf` / `RetryPolicy`。
+  commit 阶段只对明确的冲突码（`IsTxConflictError`）重试。
+- 驱动错误分类按**接口**匹配：`sqlite_errors.go` 认 `Code() int`，`postgres_errors.go` 认
+  `SQLState() string`。MySQL 是唯一被 import 的驱动，因为 `MySQLError.Number` 是字段。
+- `runtime_schema.go` 负责 schema 对账，`TablePolicy` / `IndexPolicy` 各取一档
+  （`Manual` / `Validate` / `CreateMissing` / `Reconcile`）。**四档都只增不减**，理由见 `memory.md`。
 
 ## 方言
 
-`dialect/` 下每个方言实现 `Dialect` 接口：标识符引用、占位符、DDL 类型映射、DDL 语句
-渲染，以及 `SupportsCapability(Capability)`。
+`dialect/` 下每个方言实现 `Dialect` 接口：标识符引用、占位符、DDL 类型映射、DDL 语句、
+schema 探查，以及 `SupportsCapability(Capability)`。接口只收**各方言确实不同**的方法。
 
-能力位是一份显式枚举：`CapabilityCTE`、`CapabilityExcept`、`CapabilityIntersect`、
-`CapabilityFullOuterJoin`、`CapabilitySelectForUpdate`、`CapabilitySelectForShare`、
-`CapabilitySelectForNoWait`、`CapabilitySelectForSkipLocked`。执行期不支持时返回
-`*UnsupportedCapabilityError`，它带着能力名和方言名——错误信息里必须能看出"谁不支持什么"，
-这比一句 "unsupported" 省掉一轮排查。
-
-- `mysql.go`、`postgres.go`、`sqlite.go` 是全部实现。
-- 能力位按**当前版本基线**表态，不探测服务器版本：MySQL 8.0（CTE、INTERSECT、EXCEPT 都
-  支持，FULL JOIN 不支持）、SQLite 3.39+（FULL JOIN 支持，行锁不支持）、PostgreSQL 全部
-  支持。改基线是使用者可见变更。
-- 每个方言还声明**单条语句的绑定参数上限**（`maxBindParams`，由 `MaxBindParams()` 查表）：
-  MySQL / PostgreSQL 65535，**SQLite 32766**。分块写用它把行数换算成占位符数；方言未知时
-  取最紧的那个。和能力位一样是一张表加一个遍历表的测试，不是一个写死的常数。
-- `ddl_reconcile_test.go` 覆盖运行期 schema 对账在三个方言上的行为。
-- **新增能力位必须三个方言都显式表态。** 这不再靠人记得：每个方言持一张
-  `map[Capability]bool`（`mysqlCapabilities` / `postgresCapabilities` /
-  `sqliteCapabilities`），`SupportsCapability` 只做查表（`capabilitySupport`），
-  没有 `default` 分支。新增一个 `Capability` 常量就要往 `AllCapabilities()` 和三张表
-  各加一行，漏掉哪张 `dialect/capability_test.go` 的
-  `TestDialectsCoverAllCapabilities` 就会红。
-  之前是带 `default: return false` 的 switch，漏掉一个方言不编译失败、不 lint 失败、
-  不测试失败，只静默变成"不支持"。
-- 能力名的规范化（`canonicalCapabilityName`）接受 `FULL JOIN` 这类别名，未登记的名字
-  一律按"不支持"处理。**根包不要再复制一份规范化函数**：`dialect_validation.go` 里
-  曾经有一份逐行副本（`canonicalDialectCapability`）加一个零调用的入口
-  （`validateOperationForDialect`），只被自己的测试撑着。真正的执行期校验在
-  `query_validation.go`，直接传类型化常量。
+- 能力位按**当前版本基线**表态，不探测服务器版本：MySQL 8.0（FULL JOIN 不支持）、
+  SQLite 3.39+（行锁不支持）、PostgreSQL 全部支持。
+- 每个方言持一张 `map[Capability]bool`，`SupportsCapability` 只查表、没有 `default` 分支；
+  新增能力位要往 `AllCapabilities()` 和三张表各加一行，`TestDialectsCoverAllCapabilities` 守着。
+- 绑定参数上限（`MaxBindParams`）：MySQL / PostgreSQL 65535，**SQLite 32766**。
 
 ## 测试矩阵
 
-- **单元测试**只用 SQLite（`modernc.org/sqlite`，无 cgo），`go test ./...` 本地零依赖。
+- **单元测试**只用 SQLite（`modernc.org/sqlite`，无 cgo）：`render_test.go`（三方言渲染）、
+  `build_test.go`（绑参与结构校验）、`exec_test.go`（SQLite 端到端）、`compilefail_test.go`
+  （一次编译、每行一个"必须编译失败"的用例）。
+- 在 SQLite 里耗时的单 goroutine 测试在 `-race` 下跳过（`raceEnabled`）：转译的 SQLite 在竞态
+  检测下慢约四十倍，而它们没有并发可查。
 - **集成测试**（根目录 `integration_test.go`，`package tsq_test`）在设置 `TSQ_MYSQL_DSN` /
-  `TSQ_POSTGRES_DSN` 时对真实服务器跑：托管 schema 两次启动第二次零 DDL、reconcile 只改
-  变化的列且收敛、乐观锁、重复键忽略、锁冲突分类（pgx v5 驱动）、能力位真实执行。
-  SQLite 目标始终参与，所以套件本身每次 `go test` 都被执行。CI 的 `Integration` job
-  起 MySQL 8.0 和 PostgreSQL 16 两个 service。**这是 `dialect/mysql.go` 与
-  `dialect/postgres.go` 唯一的自动化覆盖**，改它们必须看这个 job 的结果。
+  `TSQ_POSTGRES_DSN` 时对真实服务器跑，SQLite 目标始终参与。**这是 `dialect/mysql.go` 与
+  `dialect/postgres.go` 唯一的自动化覆盖**，改它们必须看 CI `Integration` job 的结果。
 
 ## 追踪与错误
 
-- `trace.go` 提供轻量的执行追踪钩子，不依赖任何外部 tracing 库。`Tracer` 是
-  `WithTracers(...)` 的元素类型，由使用者自己实现——**这里不再内置 tracer**。签名是
-  `func(ctx, op TraceOp, next) error`：**op 必须传**，否则 tracer 能计时却说不出计的是什么。
-  每个 `traceExecutor` / `traceExecutor1` 调用点都要带上自己的 `TraceOp`，新入口忘了带就会
-  编译不过（它是必填参数，不是可选的）。渲染后的 SQL 不在这里——追踪包住的是整个操作。
-  曾经有三个（`printCost` / `printError` / `printSQLTracer`），全部未导出、
-  只被一个测试文件引用，使用者无从启用；SQL 日志现在归 `WithSQLLogging()`。
-- `sqlite_errors.go` 把 SQLite 的错误字符串映射成可判别的错误——这类映射按方言分文件放，
-  不要塞进通用错误处理里。
-- 乐观锁冲突是 `OptimisticLockError`，它是**业务错误**，调用方必须处理。
+- `trace.go`：`Tracer` 是 `func(ctx, op TraceOp, next) error`，每个入口带上自己的 `TraceOp`。
+  渲染后的 SQL 不在这里，归 `WithSQLLogging()`。
+- 错误类型以 `Error` 结尾（`OptimisticLockError`、`MissingIndexError`……），字段导出，用
+  `errors.AsType` 取。乐观锁冲突是**业务错误**，调用方必须处理。

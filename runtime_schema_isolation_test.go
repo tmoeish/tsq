@@ -11,52 +11,6 @@ import (
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 )
 
-// ownedTable is a minimal generated-shaped table whose physical name is chosen per
-// test, so one test can stand up two runtimes that manage disjoint tables.
-type ownedTable struct {
-	ID   int64
-	Name string
-
-	physical string
-}
-
-func (t ownedTable) TSQOwner() {}
-
-func (t ownedTable) TableName() string { return t.physical }
-
-func (t ownedTable) Cols() []SQLColumn { return SQLColumns(ownedTableColumns(t.physical)...) }
-
-func (ownedTable) SearchColumns() []SearchColumn { return nil }
-
-func (ownedTable) PrimaryKey() string { return "id" }
-
-func (ownedTable) AutoIncrement() bool { return true }
-
-func (ownedTable) ManagedColumns() ManagedColumns { return ManagedColumns{} }
-
-func ownedTableColumns(physical string) []BoundColumn[ownedTable] {
-	return []BoundColumn[ownedTable]{
-		NewColForTableTest[ownedTable, int64](ownedTable{physical: physical}, "id", func(t *ownedTable) *int64 { return &t.ID }),
-		NewColForTableTest[ownedTable, string](ownedTable{physical: physical}, "name", func(t *ownedTable) *string { return &t.Name }),
-	}
-}
-
-// NewColForTableTest binds a column to a specific table value rather than the zero
-// value of the owner type, which the exported NewColumn always uses.
-func NewColForTableTest[O Table, T any](table O, name string, pointer func(*O) *T) Column[O, T] {
-	return newColForTable[O, T](table, name, name, toScanPointer(pointer))
-}
-
-func ownedRegistration(physical string) TableRegistration {
-	return TableRegistration{
-		Table: ownedTable{physical: physical},
-		Columns: []tsqdialect.ColumnSpec{
-			{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
-			{Name: "name", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 64}},
-		},
-	}
-}
-
 func sharedSQLiteDSN(t *testing.T) string {
 	t.Helper()
 
@@ -97,7 +51,7 @@ func TestSchemaPoliciesNeverDropAnotherRuntimesTables(t *testing.T) {
 			ctx := context.Background()
 
 			first, err := Open(ctx, "sqlite", dsn,
-				[]TableRegistration{ownedRegistration("service_a")},
+				[]Table{namedTable("service_a")},
 				WithTablePolicy(policy), WithIndexPolicy(policy))
 			if err != nil {
 				t.Fatalf("start first runtime: %v", err)
@@ -112,7 +66,7 @@ func TestSchemaPoliciesNeverDropAnotherRuntimesTables(t *testing.T) {
 			}
 
 			second, err := Open(ctx, "sqlite", dsn,
-				[]TableRegistration{ownedRegistration("service_b")},
+				[]Table{namedTable("service_b")},
 				WithTablePolicy(policy), WithIndexPolicy(policy))
 			if err != nil {
 				t.Fatalf("start second runtime: %v", err)
@@ -132,7 +86,7 @@ func TestSchemaPoliciesNeverDropAnotherRuntimesTables(t *testing.T) {
 
 			// Restarting the first one must not undo the second one either.
 			again, err := Open(ctx, "sqlite", dsn,
-				[]TableRegistration{ownedRegistration("service_a")},
+				[]Table{namedTable("service_a")},
 				WithTablePolicy(policy), WithIndexPolicy(policy))
 			if err != nil {
 				t.Fatalf("restart first runtime: %v", err)
@@ -157,7 +111,7 @@ func TestNoManagedRegistryTableIsCreated(t *testing.T) {
 	dsn := sharedSQLiteDSN(t)
 
 	runtime, err := Open(context.Background(), "sqlite", dsn,
-		[]TableRegistration{ownedRegistration("service_a")},
+		[]Table{namedTable("service_a")},
 		WithTablePolicy(SchemaPolicyReconcile), WithIndexPolicy(SchemaPolicyReconcile))
 	if err != nil {
 		t.Fatalf("start runtime: %v", err)

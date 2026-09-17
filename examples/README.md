@@ -13,7 +13,7 @@
 | --- | --- | --- |
 | [`academy/`](academy/) | 共享 Academy 模型、seed 数据和场景实现 | `@TABLE`、`@RESULT`、生成代码、可复用 query logic |
 | [`quickstart/`](quickstart/) | 课程目录的最小日常操作 | CRUD helper、关键词搜索、基础查询构建链路 |
-| [`advanced/`](advanced/) | 把目录和报名数据做成分析型查询 | alias、聚合、`InVar`、subquery、`CASE`、CTE、set ops、批量写、软删除 |
+| [`advanced/`](advanced/) | 把目录和报名数据做成分析型查询 | alias、聚合、列表参数、subquery、`CASE`、CTE、set ops、批量写、软删除 |
 | [`full-suite/`](full-suite/) | 给学习后台做一个学习旅程看板 | joins、子查询、`@RESULT`、分页 |
 
 ## Academy ER 图
@@ -54,7 +54,7 @@ erDiagram
 | `runBackendCatalogDemo` | 查某条学习路径下的已发布课程 | `Select` / `From` / `Join` / `Where` / `List` |
 | `runAliasDemo` | 查课程及其前置课标题 | alias / rebinding |
 | `runAggregateDemo` | 按路径汇总报名人数与平均得分 | aggregate、`GroupBy`、`Having` |
-| `runInVarDemo` | 用一组动态课程 ID 过滤目录 | `InVar()` |
+| `runListParamDemo` | 用一组动态课程 ID 过滤目录 | `In(col.ListParam())` + `BindList` |
 | `runSubqueryDemo` | 用子查询筛学员和课程 | `In(subquery)`、标量子查询 |
 | `runCaseDemo` | 给学员报名打运营标签 | `CASE WHEN` |
 | `runCTEDemo` | 先抽平台课程子集再继续查询 | non-recursive CTE |

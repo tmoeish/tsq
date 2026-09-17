@@ -6,9 +6,9 @@ This is the main reference for the installed TSQ skill. It covers the current TS
 
 TSQ is a Go code generator and typed query DSL for:
 
-- generating table metadata from Go structs
-- generating CRUD, paging, and search helpers
-- building SQL through typed column and condition APIs instead of handwritten string concatenation
+- generating table descriptors, typed columns and CRUD helpers from Go structs
+- building SQL through typed columns, conditions and named parameters instead of strings
+- rendering one query for SQLite, MySQL or PostgreSQL at execution time
 - keeping runtime execution explicit through `context.Context`, `Executor`, and `Runtime`
 
 Built-in dialects:
@@ -236,27 +236,43 @@ In projects that keep schema artifacts, TSQ may also generate:
 
 Do not hand-edit generated outputs in normal usage.
 
-### Package-level query variables and initialization order
-
-`TableXxx` is generated as `var TableXxx tsq.Table = tsq.DeclareTable(Xxx{}, Xxx__Cols)`. The second argument is never read; it makes the table variable depend on the column slice so that Go initializes the slice first.
-
-This matters because Go decides package-level initialization order from the references written in initialization expressions, and `Cols()` reaches the column slice through an interface method that the analysis cannot see. A package-level query variable that selects individual columns (a projection) never mentions `Xxx__Cols`, so without that anchor it can be initialized while every element of the slice is still nil, and `MustBuild()` panics at package initialization. Whether it happens depends on file name order within the package, so the same code works in one file and panics in another.
-
-Two consequences:
-
-- regenerate after upgrading TSQ; generated code from before this anchor existed still carries the hazard
-- if you write a `tsq.Table` implementation by hand, declare it the same way:
+### What a generated table looks like
 
 ```go
-var TableUser tsq.Table = tsq.DeclareTable(User{}, User__Cols)
+var tsqCourseTable = tsq.NewTable[Course]("course")
+
+var (
+	Course_ID    = tsq.NewColumn(tsqCourseTable, "id", "id", func(r *Course) *int64 { return &r.ID })
+	Course_Title = tsq.NewColumn(tsqCourseTable, "title", "title", func(r *Course) *string { return &r.Title })
+)
+
+var TableCourse = tsqCourseTable.Define(tsq.TableSpec[Course]{
+	Columns:       []tsq.BoundColumn[Course]{Course_ID, Course_Title},
+	PrimaryKey:    Course_ID,
+	AutoIncrement: true,
+	Search:        []tsq.SearchColumn{Course_Title},
+	Schema:        []dialect.ColumnSpec{ /* ... */ },
+	Indexes:       []tsq.TableIndex{ /* ... */ },
+})
+
+var Course__Cols = TableCourse.Columns()
 ```
 
-Queries that select every column with `Select(Xxx__Cols...)` were never affected: they name the slice themselves.
+`TableCourse` is a `*tsq.TableOf[Course]`: the table's name, columns, key, managed columns,
+search columns, physical schema and indexes in one value. The row struct itself carries no TSQ
+methods besides the generated `Insert` / `Update` / `Delete` / `HardDelete` (and `Active`), which
+delegate to the table.
 
-A hand-written `tsq.Table` implements `TSQOwner()`, `Cols()`, `TableName()`, `SearchColumns()`,
-`PrimaryKey() string`, `AutoIncrement() bool` and `ManagedColumns() tsq.ManagedColumns`. The last
-one returns the column names TSQ maintains (`Version`, `CreatedAt`, `UpdatedAt`, `DeletedAt`);
-leaving a name empty means the table does not declare that role.
+The declaration happens in three steps on purpose. Columns are declared on the unexported handle,
+and `TableCourse` is defined from all of them, so every query that uses `TableCourse` is
+initialized after the table is complete. Go orders package-level initialization by the references it
+can see, and this shape makes the dependency visible. A table written by hand follows the same
+three steps; using the handle in a query instead of the defined table fails with "used before
+Define".
+
+`TableOf` also exposes `Name()`, `Columns()`, `SearchColumns()`, `Schema()`, `Indexes()`,
+`As(alias)` and `Err()`, which reports a definition error such as a primary key that is not one of
+the columns.
 
 ## 4.1 Managed-field semantics
 
@@ -305,7 +321,7 @@ Do **not** declare it if you want plain last-write-wins behavior.
 
 Semantics:
 
-- generated insert helpers set it to the current time before insert **only when the field is still unset** (`IsZero()`, `nil`, or not `Valid`), so a value the caller supplied survives. That is what makes importing or backfilling rows with their real creation time possible
+- `Insert` sets it to the current time **only when the field is still unset** (zero, `nil`, or not `Valid`), so a value the caller supplied survives. That is what makes importing or backfilling rows with their real creation time possible
 - DDL generation uses `CURRENT_TIMESTAMP` for compatible non-null time columns
 - the field should use a timestamp-compatible type supported by TSQ
 
@@ -335,9 +351,9 @@ Semantics:
   - `//tsq:managed updated_at`
   - `//tsq:managed updated_at=MTime`
 - the value names the **Go struct field**, not the SQL column name
-- generated insert helpers set it to the current time **only when the field is still unset**, matching `created_at`
-- generated update helpers refresh it to the current time before update, always: recording the last modification is the whole point
-- generated soft-delete helpers also refresh it
+- `Insert` sets it to the current time **only when the field is still unset**, matching `created_at`
+- `Update` refreshes it to the current time, always: recording the last modification is the whole point
+- a soft delete refreshes it too
 - use it when the project wants an auto-maintained modification time
 
 Supported field types:
@@ -377,20 +393,6 @@ Use `deleted_at` when a deleted row should stay in the database for audit while 
 the application. Restoring one is a deliberate act with no generated helper: load it with a query
 you write yourself, clear the field, and `Update`.
 
-### Pointer-typed managed fields
-
-A managed timestamp field declared as `*time.Time` needs an address, and the current time comes back
-from a call that has none. Generated code uses Go 1.27's `new(expr)`, which returns a pointer to a
-copy of the value:
-
-```go
-if u.CreatedAt == nil {
-	u.CreatedAt = new(time.Now())
-}
-```
-
-This requires the consuming module to declare `go 1.27.0` or newer, which TSQ already requires.
-
 ## 5. Query DSL overview
 
 The main query flow is:
@@ -425,7 +427,7 @@ Typical stages include:
 
 Builder state can branch safely, but the main reusable object is the built query.
 
-Writes by condition use the same staged style with `tsq.UpdateTable[T]()` / `tsq.DeleteFrom[T]()` (section 8).
+Writes by condition use the same staged style with `tsq.UpdateTable(table)` / `tsq.DeleteFrom(table)` (section 8).
 
 ### Ordering and slicing
 
@@ -476,19 +478,49 @@ Where(
 )
 ```
 
+### Parameters
+
+A value that is only known when the query runs is a **parameter**. Every generated column has one:
+
+```go
+var QueryUsersByOrg = tsq.
+	Select(database.User__Cols...).
+	From(database.TableUser).
+	Where(database.User_OrgID.EQ(database.User_OrgID.Param())).
+	MustBuild()
+
+users, err := QueryUsersByOrg.List(ctx, runtime, database.User_OrgID.Bind(orgID))
+```
+
+- `col.Param()` is the column's parameter and `col.Bind(v)` supplies it; `col.ListParam()` and
+  `col.BindList(vs...)` are the list form for `In` / `NotIn`
+- a query that compares one column to two values declares its own:
+  `low, high := tsq.NewParam[int64]("low"), tsq.NewParam[int64]("high")`, then
+  `Where(col.Between(low, high))` and `List(ctx, db, low.Bind(1), high.Bind(9))`
+- a `Param[T]` is an RHS, so it goes wherever a column of the same type could: `EQ`, `GT`, `Like`,
+  `Between`, `Set`, `Case().When`. A `ListParam[T]` goes to `In` / `NotIn`
+- values are matched **by parameter, not by position**, and `Bind` only accepts a `T`: the order of
+  the arguments does not matter and a value of the wrong type does not compile
+- a missing value, a value for a parameter the statement does not use, and two values for one
+  parameter are errors at execution
+- `StartsWith(p)` / `EndsWith(p)` / `Contains(p)` (and their `Not` forms) take a `Param[string]`
+  and match its value literally: `%` and `_` are escaped for you
+- a parameter bound to `nil` is an error; use `IsNull()` / `IsNotNull()`
+
 ### Custom expressions and predicates
 
-Use the current escape hatches:
+Use the escape hatches deliberately, not as a replacement for typed columns:
 
-- `Expr(...)`
-- `Exprf(...)`
-- `Pred(...)`
-
-Use them for deliberate custom SQL expressions, not as a replacement for normal typed columns.
+- `col.Pred(format, args...)` builds a condition. The first `%s` is the column; each further `%s`
+  takes the next argument, which may be a column, a `Param`, a typed subquery or a plain value
+  (bound). `%%` is a literal percent sign
+- `col.Expr(format)` / `col.Exprf(format, args...)` build a derived column the same way
+- the format text is emitted verbatim for every dialect; it is yours to keep portable
 
 ### Ordinary values are bound parameters
 
-TSQ normally binds values as parameters instead of inlining SQL literals. If the task needs a database function, column reference, or subquery, use an expression object explicitly instead of pretending a plain string is SQL.
+`EQVal(v)`, `InVal(vs...)`, `SetVal(col, v)` and plain values passed to `Pred` / `Exprf` / `Case`
+are always bound, never inlined into the SQL text.
 
 ## 7. Pagination and keyword search
 
@@ -516,26 +548,40 @@ ships `NewPageRequest(url.Values)` or `ToQuery()`, which encoded one particular 
 
 `PageRequest.Keyword` is automatically escaped for LIKE wildcards when executing via `query.Page(...)`, so `%`, `_` and the escape character itself are matched literally on every supported dialect; the keyword still matches as a substring. The generated predicate carries an explicit `ESCAPE '~'` clause, because SQLite has no default LIKE escape character. A backslash in a keyword is an ordinary character.
 
-For keyword values passed as variadic args to `query.List` or `query.Get`, and for the pattern helpers (`StartsWithVal`, `ContainsVal`, `EndsWithVal` and their `Var` forms), the caller must escape `%` and `_` manually; those build the pattern from the value as given. Wildcard escaping is not SQL injection protection — that comes from parameter binding.
+The pattern helpers (`StartsWithVal`, `EndsWithVal`, `ContainsVal`, their `Not` forms, and the `Param` forms) escape wildcards the same way. `Like` / `LikeVal` take a pattern as written, wildcards included. Wildcard escaping is about matching the right rows, not SQL injection protection — that comes from parameter binding.
 
 ## 8. Execution helpers
 
-Execution is via methods on the built `*Query[O]`:
+Reads are methods on the built `*Query[O]`; `args` are the `tsq.Arg` values made by `Bind`:
 
-- `query.List(ctx, exec, args...)` → `[]*O, error`
-- `query.Get(ctx, exec, args...)` → `*O, error` (`sql.ErrNoRows` when not found)
-- `query.Find(ctx, exec, args...)` → `*O, error` (nil, nil when not found)
-- `query.Page(ctx, exec, pageReq, args...)` → `*PageResponse[O], error`
-- `query.Count(ctx, exec, args...)` → `int64, error`
-- `query.Scalar(ctx, exec, selectedColumn, args...)` → the selected column's inferred Go type; the query must select exactly that one column
-- generated list/get/page helpers (wrap the above)
+- `query.List(ctx, db, args...)` → `[]*O, error`
+- `query.Get(ctx, db, args...)` → `*O, error` (an error wrapping `sql.ErrNoRows` when not found)
+- `query.Find(ctx, db, args...)` → `*O, error` (`nil, nil` when not found)
+- `query.Exists(ctx, db, args...)` → `bool, error`
+- `query.Count(ctx, db, args...)` → `int64, error`
+- `query.Page(ctx, db, pageReq, args...)` → `*PageResponse[O], error`
+- `query.Scalar(ctx, db, selectedColumn, args...)` → the column's Go type; the query must select exactly that column
+- `query.SQL(dialect, args...)` → the SQL and arguments the query would run with, for logging and tests
 
-`Get`, `Find` and `Exists` append `LIMIT 1` to the statement (before any row-lock clause, and only
-when the builder did not set its own limit), so a predicate that matches many rows no longer makes
-the database produce all of them. `Exists` runs that same read instead of `COUNT`, which had to
-visit every matching row to answer a question the first row settles.
+`Get`, `Find`, `Exists` and `Scalar` read at most one row: they add `LIMIT 1` unless the builder
+set its own limit. `Exists` does not count.
 
-All methods take an explicit `context.Context` and a `Executor`.
+A query is rendered for a dialect the first time it runs on one, and the rendering is cached.
+Build package-level queries once and reuse them.
+
+Row writes are methods on the table descriptor, and the generated row methods call them:
+
+- `TableCourse.Insert(ctx, db, &row)` / `row.Insert(ctx, db)`; a zero auto-increment key is
+  generated by the database and written back
+- `Update`, `Delete`, `HardDelete` the same way
+- `TableCourse.BatchInsert(ctx, db, rows, options...)`, and `BatchUpdate`, `BatchDelete`,
+  `BatchHardDelete`
+- `tsq.BatchDeleteByPK(ctx, db, Course_ID, ids, options...)` and `tsq.BatchHardDeleteByPK`
+  delete by key without loading the rows; the column must be the table's primary key
+
+The executor `db` is a `*tsq.Runtime`, the executor `WithTx` passes to its callback, or
+`tsq.WrapExecutor(handle, dialect)` around a `*sql.DB` / `*sql.Tx` opened elsewhere. A bare
+`*sql.DB` does not compile: TSQ has to know the dialect to render a statement.
 
 ### Deleting rows
 
@@ -548,7 +594,7 @@ Whether `Delete` removes the row is decided by the table, not by the call site:
 
 - a soft delete is an `UPDATE`, so it still checks the version and increments it, and a stale copy
   of the row loaded earlier fails with `OptimisticLockError`
-- the pairs are `tsq.Delete` / `tsq.HardDelete`, `tsq.BatchDelete` / `tsq.BatchHardDelete`,
+- the pairs are `Delete` / `HardDelete` and `BatchDelete` / `BatchHardDelete` on the table,
   `tsq.BatchDeleteByPK` / `tsq.BatchHardDeleteByPK`, `tsq.DeleteFrom` / `tsq.HardDeleteFrom`,
   and the generated `item.Delete(...)` / `item.HardDelete(...)`
 - to record a delete time of your own, assign the field before calling `Delete`; it is only filled
@@ -557,43 +603,44 @@ Whether `Delete` removes the row is decided by the table, not by the call site:
 
 ### Bulk `UPDATE` / `DELETE` by condition
 
-`Update(ctx, exec, item)` and `Delete(ctx, exec, item)` work on one loaded row and honor optimistic locking. When the caller does not hold the rows ("set these columns on every row matching this condition"), build a statement instead:
+`Update` and `Delete` work on one loaded row and honor optimistic locking. When the caller does not hold the rows ("set these columns on every row matching this condition"), build a statement instead:
 
 ```go
+var score = tsq.NewParam[int64]("score")
+
 var CompleteCourseEnrollments = tsq.
-	UpdateTable[database.Enrollment]().
+	UpdateTable(database.TableEnrollment).
 	SetVal(database.Enrollment_Status, database.EnrollmentStatusCompleted).
-	SetVar(database.Enrollment_Score).
-	Where(database.Enrollment_CourseID.EQVar(), database.Enrollment_DeletedAt.EQVal(0)).
+	Set(database.Enrollment_Score, score).
+	Where(database.Enrollment_CourseID.EQ(database.Enrollment_CourseID.Param())).
 	MustBuild()
 
-affected, err := CompleteCourseEnrollments.Exec(ctx, runtime, int64(88), courseID)
+affected, err := CompleteCourseEnrollments.Exec(ctx, runtime,
+	score.Bind(88), database.Enrollment_CourseID.Bind(courseID))
 
 // Enrollment declares deleted_at, so this renders as an UPDATE that stamps the
-// tombstone. Use HardDeleteFrom to render a DELETE regardless.
+// tombstone when it runs. Use HardDeleteFrom to render a DELETE regardless.
 var CancelEnrollments = tsq.
-	DeleteFrom[database.Enrollment]().
-	Where(database.Enrollment_UID.InVar()).
+	DeleteFrom(database.TableEnrollment).
+	Where(database.Enrollment_UID.In(database.Enrollment_UID.ListParam())).
 	MustBuild()
 
-affected, err = CancelEnrollments.Exec(ctx, runtime, uids)
+affected, err = CancelEnrollments.Exec(ctx, runtime, database.Enrollment_UID.BindList(uids...))
 ```
 
 Shape:
 
-- `tsq.UpdateTable[T]()` / `tsq.DeleteFrom[T]()` take the generated table type as an explicit type parameter: the value type (`Enrollment`), not `*Enrollment`
-- `Set(col, rhs)` takes a typed column or expression of the same value type, or a typed scalar subquery; `SetVal(col, value)` binds a Go value; `SetVar(col)` takes the value from `Exec` at execution time. Column and value types are matched at compile time
-- `Where(...)` is required and appears exactly once; the type system enforces both. Conditions are ANDed, use `tsq.Or(...)` for alternatives. A full-table statement needs an explicit always-true condition such as `tsq.And()`
-- `Build()` returns `*tsq.Mutation[T]`, immutable and safe to share; `MustBuild()` panics on a build error; `Exec(ctx, exec, args...)` returns the affected row count. `Exec` on the builder builds and runs in one step
-- `Exec` arguments fill placeholders in statement order: `SetVar` first, then the `*Var` predicates of `Where`
+- `tsq.UpdateTable(table)` / `tsq.DeleteFrom(table)` / `tsq.HardDeleteFrom(table)` take the table descriptor
+- `Set(col, rhs)` takes a column, `Param` or typed scalar subquery of the column's type; `SetVal(col, value)` binds a value (`nil` sets `NULL`). Types are matched at compile time
+- `Where(...)` is required and appears exactly once; the type system enforces both. Conditions are ANDed; a full-table statement says so with `tsq.And()`
+- `Build()` returns an immutable `*tsq.Mutation[R]`; `Exec(ctx, db, args...)` returns the affected row count; `mutation.SQL(dialect, args...)` shows what would run
 
 Rules:
 
 - the statement never checks the `version` column. `UpdateTable` on a table that declares `version` still adds `version = version + 1`, so rows loaded before the bulk change fail their own `Update(...)` with `OptimisticLockError`. Assigning the version column yourself is a build error
-- `UpdateTable` touches no managed field on its own: set `updated_at` explicitly (`SetVal(database.Enrollment_UpdatedAt, now)`) and add the active-row filter (`database.Enrollment_DeletedAt.EQVal(0)`) yourself. `DeleteFrom` is the exception, because a soft delete *is* the deletion: on a table declaring `deleted_at` it renders as an `UPDATE` that stamps the tombstone and `updated_at`
+- `UpdateTable` touches no managed field on its own: set `updated_at` explicitly and add the active-row filter (`database.Enrollment_DeletedAt.EQVal(0)`) yourself. `DeleteFrom` is the exception, because a soft delete *is* the deletion: on a table declaring `deleted_at` it renders as an `UPDATE` that stamps the tombstone and `updated_at` **at execution time**, so a package-level statement does not reuse the time the program started
 - assignments and conditions may reference only the target table, unaliased. `JOIN`, `UPDATE ... FROM`, aliases, `LIMIT`, `ORDER BY`, and `RETURNING` are not supported; each dialect spells them differently. Subquery predicates (`In(subquery)`, `EQ(subquery)`) are fine. MySQL rejects a subquery that reads the table being modified (error 1093); that is a database rule, not a TSQ one
-- it is a single `UPDATE` / `DELETE` and is not chunked. A very large `InVar` slice can exceed the dialect's bind-parameter ceiling; use `BatchDeleteByPK` or slice the input yourself
-- `Exec` needs an executor with a known dialect (a `Runtime`, a `WithTx` executor, or a `WrapExecutor` result); a bare `*sql.DB` is rejected
+- it is a single `UPDATE` / `DELETE` and is not chunked. A very large list parameter can exceed the dialect's bind-parameter ceiling; use `BatchDeleteByPK` or slice the input yourself
 
 ## 9. Runtime and transactions
 
@@ -602,7 +649,7 @@ Rules:
 `Runtime` is the TSQ-managed executor and runtime container.
 
 - it implements `Executor` directly
-- use `tsq.Open(ctx, "sqlite", dsn, database.TSQTables())` for one generated package
+- use `tsq.Open(ctx, "sqlite", dsn, database.TSQTables())` for one generated package; `TSQTables()` returns the package's `[]tsq.Table`
 - combine multiple generated packages by concatenating their `TSQTables()` slices before calling `Open` or `NewRuntime`
 - `Open` opens the pool itself and resolves the dialect from `driverName`; the context bounds the ping and any bootstrap DDL
 - `tsq.NewRuntime(ctx, db, dialect, tables, options...)` builds a runtime over a pool the caller already opened, which is how an instrumented or specially configured `*sql.DB` keeps working while still getting SQL logging, tracers and the page-size cap
@@ -610,13 +657,13 @@ Rules:
 - configure both constructors with options: `tsq.WithSchemaPolicy(p)` sets the table and index policy together, `tsq.WithTablePolicy(p)` / `tsq.WithIndexPolicy(p)` set them apart for a schema whose tables come from migrations while its indexes do not, `tsq.WithLogger(l)`, `tsq.WithSQLLogging()`, `tsq.WithTracers(...)` and `tsq.WithMaxPageSize(n)`
 - the policies, from doing nothing to doing the most: `SchemaPolicyManual` (default: log the mode and change nothing), `SchemaPolicyValidate` (fail to start on a mismatch), `SchemaPolicyCreateMissing` (create missing tables, columns and indexes), `SchemaPolicyReconcile` (also alter columns back to what is declared). Production keeps `Manual` and owns its schema through migrations; development and test want `Reconcile`, where changing a struct and restarting is enough
 - default policy is manual: TSQ logs a reminder but does not automatically reconcile missing tables or indexes
-- construction fails when a table, column or index name is longer than the connected dialect allows, and there is no way to turn that off. Such a name does not reach the server intact, so the objects TSQ creates stop matching the names its queries reference. Name the index explicitly (`ux=[{name="..."}]`) when a derived index name is what runs over the limit
+- construction fails when a table, column or index name is longer than the connected dialect allows, and there is no way to turn that off. Such a name does not reach the server intact, so the objects TSQ creates stop matching the names its queries reference. Name the index explicitly (`//tsq:unique Email name=ux_short`) when a derived index name is what runs over the limit
 - `tsq.WithMaxPageSize(n)` sets the page-size cap for paged queries on that runtime, in either direction. `tsq.DefaultMaxPageSize` (1000) is the default, not a ceiling
 - `tsq.WithTracers(t...)` wraps every traced operation. A tracer receives the context, a `tsq.TraceOp` naming the work (`insert`, `update`, `delete`, `get`, `list`, `page`, `count`, `scalar`, `exec`, `tx`) and the continuation, and must call the continuation and return its error. The rendered SQL is not passed: tracing brackets the whole operation, binding and dialect rendering included, so statements come from `WithSQLLogging()` instead
 - **TSQ only ever adds.** No policy drops a table, so several services can share one database and bring up their own tables independently. Removing a table that is no longer declared is a migration, not a boot-time decision: a runtime knows only its own declarations and cannot tell "this table is obsolete" from "this table belongs to someone else"
 - schema policies log the mode they are in at info level; `SchemaPolicyManual` (the default) is a normal production choice, not a warning
 - `tsq.WithLogger(l)` receives bootstrap DDL and execution-time warnings (for example a skipped batch-insert ID assignment); it defaults to `slog.Default()`
-- `tsq.WithSQLLogging()` logs every rendered statement and its bound arguments through the logger at debug level. It is off by default and logs arguments verbatim, so leave it off wherever query parameters carry secrets or personal data. Only executors that belong to a runtime log; a bare `*sql.DB` or a `WrapExecutor` result has no runtime to read the setting from
+- `tsq.WithSQLLogging()` logs every rendered statement and its bound arguments through the logger at debug level. It is off by default and logs arguments verbatim, so leave it off wherever query parameters carry secrets or personal data. Only executors that belong to a runtime log; a `WrapExecutor` result has no runtime to read the setting from
 
 ### Transactions
 
@@ -647,10 +694,10 @@ Return a small result struct when several related values come back; `WithTxResul
 Useful rules:
 
 - transaction boundaries stay explicit
-- `BatchInsert`, `BatchUpdate`, `BatchDelete` and `BatchHardDelete` do not silently create outer transactions
+- the `Batch*` writes do not silently create outer transactions
 - the helpers take functional options: `tsq.WithBatchSize(n)` and, for `BatchInsert` only, `tsq.WithSkipDuplicates()`. Passing `WithSkipDuplicates` to any other helper is an error
 - the batch size (default 1000) is an upper bound on rows per statement, not an exact size. Databases count placeholders rather than rows, so wide tables are split smaller automatically. The size is never raised, and never falls below one row per statement
-- the ceiling is per dialect: MySQL and PostgreSQL accept 65535 bound parameters per statement, SQLite 32766. `dialect.MaxBindParams(d)` reports it; an executor with no dialect (a bare `*sql.DB` behind `WrapExecutor`) is split against the tightest of them
+- the ceiling is per dialect: MySQL and PostgreSQL accept 65535 bound parameters per statement, SQLite 32766. `dialect.MaxBindParams(d)` reports it
 - a batch `INSERT` binds about one placeholder per column per row, but a batch `UPDATE` binds about **two** (it renders `col = CASE pk WHEN ? THEN ? ... END`), so the same rows split roughly half as large for `BatchUpdate` as for `BatchInsert`
 - `tsq.WithSkipDuplicates()` skips rows that violate a unique or primary-key constraint and keeps going. It skips **duplicate keys only**; every other failure still aborts the call
 - inside a transaction, each row of a `WithSkipDuplicates` insert is bracketed by a savepoint, because PostgreSQL aborts the whole transaction on any failed statement and rejects everything after it until the transaction unwinds. Outside a transaction no savepoint is used, since each insert is already its own implicit transaction
@@ -659,17 +706,25 @@ Useful rules:
 
 ## 10. Aliases, rebinding, and result mapping
 
-### `WithTable()`
+### Aliases
 
-Use `WithTable()` or the generated alias/rebinding support when a column must be rebound onto:
+`table.As("alias")` (or `tsq.AliasTable(table, "alias")`) names a second reference to a table, and
+`col.As("alias")` rebinds a column to it:
 
-- an aliased table
-- a self-join
-- a CTE
+```go
+manager := database.TableUser.As("manager")
+query := tsq.Select(database.User_ID).
+	From(database.TableUser).
+	Join(manager, database.User_ManagerID.EQ(database.User_ID.As("manager")))
+```
+
+`col.WithTable(source)` rebinds a column to any source that has a column of the same name, such as
+a CTE. A derived expression cannot be rebound; rebind the column first, then apply functions.
 
 ### `MapInto(...)`
 
-Use package-level `tsq.MapInto[Target](source, fieldPointer, jsonName)` for result projection mapping. Do not depend on older `col.Into(...)` style guidance.
+`tsq.MapInto(source, fieldPointer, jsonName)` projects any expression into a field of a result
+type. Generated result code is made of these.
 
 ### `//tsq:result`
 
@@ -680,10 +735,11 @@ Prefer a generated result when the query result shape is stable and meaningful i
 TSQ supports more than simple list queries. Common advanced shapes include:
 
 - aggregate queries with `GroupBy(...)` and `Having(...)`
-- `CASE` expressions
+- `CASE` expressions: `tsq.Case[string]().When(cond, col).WhenVal(cond, "x").ElseVal("y").End()`; results are typed, so a branch of another type does not compile
 - subqueries such as `In(subquery)`, `tsq.Exists(subquery)`, and typed RHS comparisons like `EQ(subquery)` or `Like(subquery)`
 - correlated subqueries, where the subquery declares the enclosing query's tables with `Correlate(...)`
-- non-recursive CTEs (all built-in dialects; MySQL baseline is 8.0)
+- non-recursive CTEs: `cte := tsq.CTE("big_orders", stage)`, then join `cte` and reference its columns with `col.WithTable(cte)` (all built-in dialects; MySQL baseline is 8.0)
+- date parts: `col.Year()`, `col.Month()`, `col.Day()` return integers and are spelled per dialect
 - set operations such as `UNION`, `INTERSECT`, and `EXCEPT` (all built-in dialects; MySQL needs 8.0.31+)
 - row-lock clauses such as `ForUpdate()` and `ForShare()`
 
@@ -766,7 +822,7 @@ If a table declares a `version` column:
 - successful updates increment the in-memory version
 - `Delete(...)` also checks version
 - conflicts return `OptimisticLockError`
-- `UpdateTable[T]()` / `DeleteFrom[T]()` statements do **not** check the version; a bulk `UPDATE` still increments it so that rows loaded earlier conflict afterwards (see section 8)
+- `UpdateTable(table)` / `DeleteFrom(table)` statements do **not** check the version; a bulk `UPDATE` still increments it so that rows loaded earlier conflict afterwards (see section 8)
 
 Bulk statements by condition skip the check by design. If even per-row writes should not use optimistic locking, do not declare a managed `version` column.
 
@@ -776,12 +832,12 @@ Bulk statements by condition skip the check by design. If even per-row writes sh
 
 The builder is **stage-based**: each call returns a different concrete type that restricts what can be called next. `Where(...)` and `Search(...)` each appear **at most once** per chain — the Go type system enforces this at compile time. Both clauses can coexist in either order: `Where(...).Search(...)` or `Search(...).Where(...)`.
 
-### `InVar()` / `NotInVar()`
+### Empty lists
 
-If the runtime slice is empty or nil, TSQ keeps the filter explicit instead of silently dropping it:
+An empty or nil list never drops the filter:
 
-- `InVar()` renders an explicit no-match shape
-- `NotInVar()` renders an explicit match-all shape
+- `In(listParam)` bound to no values matches nothing; so does `InVal()`
+- `NotIn(listParam)` bound to no values matches everything; so does `NotInVal()`
 
 ### Generated query variables
 

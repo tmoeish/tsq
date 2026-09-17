@@ -47,7 +47,7 @@ CLI 生成器在 `./cmd/tsq`，可运行示例在 `./examples`。
 - 生成物（`*.tsq.go`、`tsq.json`、`*.sql`）不是源码，不要手改。改结构体、注解、模板或
   解析器，然后 `make examples`。生成物是否同步用 `make gen-check`，不要用 `git diff`。
 - 生成文件头印着版本号，所以**改版本号必须重新生成示例**。
-- `InVar(nil)` 是显式不匹配，`NotInVar(nil)` 是显式全匹配。两者都不会静默去掉过滤条件。
+- 空的列表参数：`In` 是显式不匹配，`NotIn` 是显式全匹配。两者都不会静默去掉过滤条件。
 - 根包和 `dialect` 的导出符号是这个库的产品。`make api-check` 守着它的快照；它变了就回头看
   `skills/tsq`、`README.md`、`docs/` 还真不真实。
 - **代码注释、Go doc 和 `skills/tsq` 用英文**（读者是全世界，`make doc-check` 守着）；

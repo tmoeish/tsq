@@ -1,649 +1,171 @@
 package tsq
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
 
-func TestTypedAPIDoesNotCompileForInvalidResultInputs(t *testing.T) {
-	rootDir, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("get workspace dir: %v", err)
-	}
-
-	cases := []struct {
-		name string
-		body string
-		want string
-	}{
-		{
-			name: "col_into_removed",
-			body: `
-var resultCol = userID.MapInto(func(any) any { return nil }, "user_id")
-var _ = resultCol
-`,
-			want: "userID.MapInto undefined",
-		},
-		{
-			name: "result_col_predicate",
-			body: `
-var resultCol = tsq.MapInto[userOwner](userID, func(holder *userOwner) *int { return nil }, "user_id")
-var _ = resultCol.EQVar()
-`,
-			want: "resultCol.EQVar undefined",
-		},
-		{
-			name: "column_impl_hidden",
-			body: `
-var _ tsq.ColumnImpl[userOwner, int]
-`,
-			want: "undefined: tsq.ColumnImpl",
-		},
-		{
-			name: "projected_column_hidden",
-			body: `
-var _ tsq.ProjectedColumn[userOwner, int]
-`,
-			want: "undefined: tsq.ProjectedColumn",
-		},
-		{
-			name: "cond_hidden",
-			body: `
-var _ tsq.Cond
-`,
-			want: "undefined: tsq.Cond",
-		},
-		{
-			name: "predicate_hidden",
-			body: `
-var _ tsq.Predicate[userOwner]
-`,
-			want: "undefined: tsq.Predicate",
-		},
-		{
-			name: "query_builder_hidden",
-			body: `
-var _ tsq.QueryBuilder[userOwner]
-`,
-			want: "undefined: tsq.QueryBuilder",
-		},
-		{
-			name: "input_order_match_hidden",
-			body: `
-var _ tsq.InputOrderMatch[userOwner, int]
-`,
-			want: "undefined: tsq.InputOrderMatch",
-		},
-		{
-			name: "default_page_size_hidden",
-			body: `
-var _ = tsq.DefaultPageSize
-`,
-			want: "undefined: tsq.DefaultPageSize",
-		},
-		{
-			name: "max_page_size_hidden",
-			body: `
-var _ = tsq.MaxPageSize
-`,
-			want: "undefined: tsq.MaxPageSize",
-		},
-		{
-			name: "pretty_json_hidden",
-			body: `
-var _ = tsq.PrettyJSON
-`,
-			want: "undefined: tsq.PrettyJSON",
-		},
-		{
-			name: "compact_json_hidden",
-			body: `
-var _ = tsq.CompactJSON
-`,
-			want: "undefined: tsq.CompactJSON",
-		},
-		{
-			name: "version_hidden",
-			body: `
-var _ = tsq.GetVersion()
-`,
-			want: "undefined: tsq.GetVersion",
-		},
-		{
-			name: "version_info_hidden",
-			body: `
-var _ tsq.VersionInfo
-`,
-			want: "undefined: tsq.VersionInfo",
-		},
-		{
-			name: "trace_hidden",
-			body: `
-var _ = tsq.Trace
-`,
-			want: "undefined: tsq.Trace",
-		},
-		{
-			name: "trace1_hidden",
-			body: `
-var _ = tsq.Trace1[int]
-`,
-			want: "undefined: tsq.Trace1",
-		},
-		{
-			name: "trace_fn_hidden",
-			body: `
-var _ tsq.TraceFn
-`,
-			want: "undefined: tsq.TraceFn",
-		},
-		{
-			name: "add_tracer_hidden",
-			body: `
-var _ = tsq.AddTracer
-`,
-			want: "undefined: tsq.AddTracer",
-		},
-		{
-			name: "runtime_trace_hidden",
-			body: `
-var rt *tsq.Runtime
-var _ = rt.Trace
-`,
-			want: "rt.Trace undefined",
-		},
-		{
-			name: "print_sql_hidden",
-			body: `
-var _ = tsq.PrintSQL
-`,
-			want: "undefined: tsq.PrintSQL",
-		},
-		{
-			name: "dialect_hidden",
-			body: `
-var _ tsq.Dialect
-`,
-			want: "undefined: tsq.Dialect",
-		},
-		{
-			name: "sqlite_dialect_hidden",
-			body: `
-var _ tsq.SQLiteDialect
-`,
-			want: "undefined: tsq.SQLiteDialect",
-		},
-		{
-			name: "ddl_column_type_hidden",
-			body: `
-var _ tsq.ColumnType
-`,
-			want: "undefined: tsq.ColumnType",
-		},
-		{
-			name: "table_column_rejects_result_col",
-			body: `
-var resultCol = tsq.MapInto[userOwner](userID, func(holder *userOwner) *int { return nil }, "user_id")
-var _ tsq.TableColumn[userOwner] = resultCol
-`,
-			want: "does not implement tsq.TableColumn",
-		},
-		{
-			name: "table_column_rejects_wrong_owner",
-			body: `
-var _ tsq.TableColumn[userOwner] = orderID
-`,
-			want: "cannot use orderID",
-		},
-		{
-			name: "column_rejects_wrong_owner",
-			body: `
-var _ tsq.TypedColumn[userOwner, int] = orderID
-`,
-			want: "cannot use orderID",
-		},
-		{
-			name: "column_rejects_wrong_value",
-			body: `
-var _ tsq.TypedColumn[userOwner, string] = userID
-`,
-			want: "cannot use userID",
-		},
-		{
-			name: "select_rejects_wrong_owner",
-			body: `
-var _ = tsq.Select[userOwner](orderID)
-`,
-			want: "cannot use orderID",
-		},
-		{
-			name: "select_rejects_mixed_owners",
-			body: `
-var _ = tsq.Select[userOwner](userID, orderID)
-`,
-			want: "cannot use orderID",
-		},
-		{
-			name: "eqsub_rejects_raw_query",
-			body: `
-var raw = &tsq.Query[userOwner]{}
-var _ = userID.EQ(raw)
-`,
-			want: "cannot use raw",
-		},
-		{
-			name: "eqsub_rejects_wrong_subquery_value",
-			body: `
-var nameSubquery, _ = (&tsq.Query[userOwner]{}).AsSubquery(userName)
-var _ = userID.EQ(nameSubquery)
-`,
-			want: "cannot use nameSubquery",
-		},
-		{
-			name: "as_subquery_rejects_wrong_owner",
-			body: `
-var _, _ = (&tsq.Query[userOwner]{}).AsSubquery(orderID)
-`,
-			want: "type tsq.Column[orderOwner, int] of orderID does not match inferred type tsq.TypedColumn[userOwner, int]",
-		},
-		{
-			name: "query_as_subquery_rejects_wrong_owner",
-			body: `
-var query *tsq.Query[userOwner]
-var _, _ = query.AsSubquery(orderID)
-`,
-			want: "type tsq.Column[orderOwner, int] of orderID does not match inferred type tsq.TypedColumn[userOwner, int]",
-		},
-		{
-			name: "query_scalar_rejects_wrong_owner",
-			body: `
-var query *tsq.Query[userOwner]
-var _, _ = query.Scalar(nil, nil, orderID)
-`,
-			want: "type tsq.Column[orderOwner, int] of orderID does not match inferred type tsq.TypedColumn[userOwner, int]",
-		},
-		{
-			name: "startswith_removed",
-			body: `
-var _ = userName.StartsWith("abc")
-`,
-			want: "userName.StartsWith undefined",
-		},
-		{
-			name: "startswith_col_removed",
-			body: `
-var _ = userName.StartsWithCol(userName)
-`,
-			want: "userName.StartsWithCol undefined",
-		},
-		{
-			name: "insub_removed",
-			body: `
-var nameSubquery, _ = (&tsq.Query[userOwner]{}).AsSubquery(userName)
-var _ = userName.InSub(nameSubquery)
-`,
-			want: "userName.InSub undefined",
-		},
-		{
-			name: "between_literal_requires_val_suffix",
-			body: `
-var _ = userID.Between(1, 2)
-`,
-			want: "cannot use 1",
-		},
-		{
-			name: "in_literal_requires_val_suffix",
-			body: `
-var _ = userID.In(1)
-`,
-			want: "cannot use 1",
-		},
-		{
-			name: "likesub_removed",
-			body: `
-var nameSubquery, _ = (&tsq.Query[userOwner]{}).AsSubquery(userName)
-var _ = userName.LikeSub(nameSubquery)
-`,
-			want: "userName.LikeSub undefined",
-		},
-		{
-			name: "new_col_rejects_non_table_owner",
-			body: `
-type nonTableOwner struct{}
-
-var _ = tsq.NewColumn[nonTableOwner, int]("id", "id", nil)
-`,
-			want: "nonTableOwner does not satisfy tsq.Table",
-		},
-		{
-			name: "new_col_rejects_wrong_field_pointer_owner",
-			body: `
-var _ = tsq.NewColumn[userOwner, int]("id", "id", func(o *orderOwner) *int { return nil })
-`,
-			want: "cannot use func(o *orderOwner) *int",
-		},
-		{
-			name: "new_col_rejects_wrong_field_pointer_value",
-			body: `
-var _ = tsq.NewColumn[userOwner, int]("id", "id", func(o *userOwner) *string { return nil })
-`,
-			want: "cannot use func(o *userOwner) *string",
-		},
-		{
-			name: "insert_rejects_non_table_owner",
-			body: `
-type nonTableOwner struct{}
-
-func (nonTableOwner) TSQOwner() {}
-
-var _ = tsq.Insert[nonTableOwner]
-`,
-			want: "nonTableOwner does not satisfy tsq.Table",
-		},
-		{
-			name: "chunked_update_rejects_non_table_owner",
-			body: `
-type nonTableOwner struct{}
-
-func (nonTableOwner) TSQOwner() {}
-
-var _ = tsq.BatchUpdate[nonTableOwner]
-`,
-			want: "nonTableOwner does not satisfy tsq.Table",
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			assertCompileFails(t, rootDir, tc.body, tc.want)
-		})
-	}
+// compileFailCases are programs the type system must reject. Each is the body of
+// its own function in one generated package, compiled once; every case must
+// produce an error on one of its own lines that contains want.
+var compileFailCases = []struct {
+	name string
+	body string
+	want string
+}{
+	{"where twice", `tsq.Select(UserID).From(Users).Where(UserID.EQVal(1)).Where(UserID.EQVal(2))`, "Where undefined"},
+	{"search twice", `tsq.Select(UserID).From(Users).Search(UserName).Search(UserName)`, "Search undefined"},
+	{"having without group by", `tsq.Select(UserID).From(Users).Having(UserID.EQVal(1))`, "Having undefined"},
+	{"join after where", `tsq.Select(UserID).From(Users).Where(UserID.EQVal(1)).Join(Users)`, "Join undefined"},
+	{"lock after group by", `tsq.Select(UserID).From(Users).GroupBy(UserID).ForUpdate()`, "ForUpdate undefined"},
+	{"set operation after search", `tsq.Select(UserID).From(Users).Search(UserName).Union(tsq.Select(UserID).From(Users))`, "Union undefined"},
+	{"where after order by", `tsq.Select(UserID).From(Users).OrderBy(UserID.Asc()).Where(UserID.EQVal(1))`, "Where undefined"},
+	{"wait mode without lock", `tsq.Select(UserID).From(Users).NoWait()`, "NoWait undefined"},
+	{"columns of two owners", `tsq.Select(UserID, OrderID)`, "OrderID"},
+	{"select before from twice", `tsq.Select(UserID).From(Users).From(Users)`, "From undefined"},
+	{"sql.DB is not an executor", `var db *sql.DB; _, _ = tsq.Select(UserID).From(Users).List(context.Background(), db)`, "does not implement tsq.Executor"},
+	{"plain values are not args", `_, _ = tsq.Select(UserID).From(Users).List(context.Background(), nil, 1)`, "cannot use 1"},
+	{"param of another type", `tsq.Select(UserID).From(Users).Where(UserID.EQ(tsq.NewParam[string]("x")))`, "does not implement tsq.RHS[int64]"},
+	{"bind of another type", `_ = UserID.Bind("x")`, `cannot use "x"`},
+	{"value of another type", `_ = UserID.EQVal("x")`, `cannot use "x"`},
+	{"list param as scalar", `_ = UserID.EQ(UserID.ListParam())`, "does not implement tsq.RHS[int64]"},
+	{"scalar param as list", `_ = UserID.In(UserID.Param())`, "does not implement tsq.SetRHS[int64]"},
+	{"column of another type", `_ = UserID.EQ(UserName)`, "does not implement tsq.RHS[int64]"},
+	{"set of another owner", `_ = tsq.UpdateTable(Users).Set(OrderID, UserID)`, "OrderID"},
+	{"mutation after where", `_ = tsq.UpdateTable(Users).SetVal(UserName, "x").Where(tsq.And()).Where(tsq.And())`, "Where undefined"},
+	{"set after where", `_ = tsq.UpdateTable(Users).SetVal(UserName, "x").Where(tsq.And()).SetVal(UserName, "y")`, "SetVal undefined"},
+	{"result column predicate", `_ = tsq.MapInto(UserID, func(r *Label) *int64 { return nil }, "id").EQVal(1)`, "EQVal undefined"},
+	{"conditions are sealed", `var _ tsq.Condition = fakeCondition{}`, "does not implement tsq.Condition"},
+	{"tables are sealed", `var _ tsq.Table = fakeTable{}`, "does not implement tsq.Table"},
+	{"executors are sealed", `var _ tsq.Executor = fakeExecutor{}`, "does not implement tsq.Executor"},
+	{"case result of another type", `_ = tsq.Case[string]().When(UserID.EQVal(1), UserID)`, "does not implement tsq.RHS[string]"},
+	{"case value of another type", `_ = tsq.Case[string]().WhenVal(UserID.EQVal(1), 3)`, "cannot use 3"},
 }
 
-func TestStagedQueryBuilderDoesNotCompileForInvalidClauseOrder(t *testing.T) {
-	rootDir, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("get workspace dir: %v", err)
-	}
+const compileFailPrelude = `package compilefail
 
-	cases := []struct {
-		name string
-		body string
-		want string
-	}{
-		{
-			name: "select_stage_rejects_having",
-			body: `
-var _ = tsq.Select[userOwner](userID).Having(userID.EQVal(1))
-`,
-			want: "Having undefined",
-		},
-		{
-			name: "from_stage_rejects_where",
-			body: `
-var _ = tsq.From[userOwner](userOwner{}).Where(userID.EQVal(1))
-`,
-			want: "Where undefined",
-		},
-		{
-			name: "grouped_stage_rejects_where",
-			body: `
-var _ = tsq.Select[userOwner](userID).
-	From(userOwner{}).
-	GroupBy(userID).
-	Where(userID.EQVal(1))
-`,
-			want: "Where undefined",
-		},
-		{
-			name: "where_stage_rejects_join",
-			body: `
-var _ = tsq.Select[userOwner](userID).
-	From(userOwner{}).
-	Where(userID.EQVal(1)).
-	LeftJoin(orderOwner{}, userID.EQ(orderID))
-`,
-			want: "LeftJoin undefined",
-		},
-		{
-			name: "compound_stage_rejects_where",
-			body: `
-var _ = tsq.Select[userOwner](userID).
-	From(userOwner{}).
-	Union(tsq.Select[userOwner](userID).From(userOwner{})).
-	Where(userID.EQVal(1))
-`,
-			want: "Where undefined",
-		},
-		{
-			name: "paged_stage_rejects_where",
-			body: `
-var _ = tsq.Select[userOwner](userID).
-	From(userOwner{}).
-	OrderBy(userID.Asc()).
-	Where(userID.EQVal(1))
-`,
-			want: "Where undefined",
-		},
-		{
-			name: "paged_stage_rejects_group_by",
-			body: `
-var _ = tsq.Select[userOwner](userID).
-	From(userOwner{}).
-	Limit(10).
-	GroupBy(userID)
-`,
-			want: "GroupBy undefined",
-		},
-		{
-			name: "select_stage_rejects_order_by",
-			body: `
-var _ = tsq.Select[userOwner](userID).OrderBy(userID.Asc())
-`,
-			want: "OrderBy undefined",
-		},
-		{
-			name: "locked_stage_rejects_limit",
-			body: `
-var _ = tsq.Select[userOwner](userID).
-	From(userOwner{}).
-	ForUpdate().
-	Limit(10)
-`,
-			want: "Limit undefined",
-		},
-		{
-			name: "correlate_after_where",
-			body: `
-var _ = tsq.Select[userOwner](userID).
-	From(userOwner{}).
-	Where(userID.EQVal(1)).
-	Correlate(userOwner{})
-`,
-			want: "Correlate undefined",
-		},
-		{
-			name: "update_where_twice",
-			body: `
-var _ = tsq.UpdateTable[userOwner]().
-	SetVal(userID, 1).
-	Where(userID.EQVal(1)).
-	Where(userID.EQVal(2))
-`,
-			want: "Where undefined",
-		},
-		{
-			name: "update_build_requires_where",
-			body: `
-var _, _ = tsq.UpdateTable[userOwner]().SetVal(userID, 1).Build()
-`,
-			want: "Build undefined",
-		},
-		{
-			name: "update_set_after_where",
-			body: `
-var _ = tsq.UpdateTable[userOwner]().
-	SetVal(userID, 1).
-	Where(userID.EQVal(1)).
-	SetVal(userName, "x")
-`,
-			want: "SetVal undefined",
-		},
-		{
-			name: "update_set_rejects_wrong_owner",
-			body: `
-var _ = tsq.UpdateTable[userOwner]().SetVal(orderID, 1)
-`,
-			want: "type tsq.Column[orderOwner, int] of orderID does not match inferred type tsq.TypedColumn[userOwner, int]",
-		},
-		{
-			name: "update_set_rejects_wrong_value",
-			body: `
-var _ = tsq.UpdateTable[userOwner]().SetVal(userID, "one")
-`,
-			want: "cannot use \"one\"",
-		},
-		{
-			name: "update_set_rejects_wrong_rhs_value",
-			body: `
-var _ = tsq.UpdateTable[userOwner]().Set(userID, userName)
-`,
-			want: "type tsq.Column[userOwner, string] of userName does not match inferred type tsq.RHS[int]",
-		},
-		{
-			name: "update_table_rejects_non_table",
-			body: `
-type nonTableOwner struct{}
+import (
+	"context"
+	"database/sql"
 
-var _ = tsq.UpdateTable[nonTableOwner]()
-`,
-			want: "nonTableOwner does not satisfy tsq.Table",
-		},
-		{
-			name: "delete_where_twice",
-			body: `
-var _ = tsq.DeleteFrom[userOwner]().
-	Where(userID.EQVal(1)).
-	Where(userID.EQVal(2))
-`,
-			want: "Where undefined",
-		},
-		{
-			name: "delete_build_requires_where",
-			body: `
-var _, _ = tsq.DeleteFrom[userOwner]().Build()
-`,
-			want: "Build undefined",
-		},
-		{
-			name: "mutation_builders_hidden",
-			body: `
-var _ tsq.UpdateBuilder[userOwner]
-`,
-			want: "undefined: tsq.UpdateBuilder",
-		},
-		{
-			name: "locked_stage_rejects_where",
-			body: `
-var _ = tsq.Select[userOwner](userID).
-	From(userOwner{}).
-	ForUpdate().
-	Where(userID.EQVal(1))
-`,
-			want: "Where undefined",
-		},
-	}
+	"github.com/tmoeish/tsq/v5"
+)
 
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			assertCompileFails(t, rootDir, tc.body, tc.want)
-		})
-	}
+type User struct {
+	ID   int64
+	Name string
 }
 
-func assertCompileFails(t *testing.T, rootDir, body, want string) {
-	t.Helper()
+type Order struct{ ID int64 }
 
-	assertCompileFailsSource(t, rootDir, compileFailSource(body), want)
-}
+type Label struct{ ID int64 }
 
-func assertCompileFailsSource(t *testing.T, rootDir, source, want string) {
-	t.Helper()
+var usersHandle = tsq.NewTable[User]("users")
 
-	dir, err := os.MkdirTemp(rootDir, "compilefail_")
-	if err != nil {
-		t.Fatalf("create compile-fail package: %v", err)
+var (
+	UserID   = tsq.NewColumn(usersHandle, "id", "id", func(r *User) *int64 { return &r.ID })
+	UserName = tsq.NewColumn(usersHandle, "name", "name", func(r *User) *string { return &r.Name })
+)
+
+var Users = usersHandle.Define(tsq.TableSpec[User]{Columns: []tsq.BoundColumn[User]{UserID, UserName}, PrimaryKey: UserID})
+
+var ordersHandle = tsq.NewTable[Order]("orders")
+
+var OrderID = tsq.NewColumn(ordersHandle, "id", "id", func(r *Order) *int64 { return &r.ID })
+
+type fakeCondition struct{}
+
+func (fakeCondition) Clause() string { return "1 = 1" }
+
+type fakeTable struct{}
+
+func (fakeTable) Name() string { return "fake" }
+
+type fakeExecutor struct{ *sql.DB }
+
+var (
+	_ = context.Background
+	_ = Users
+	_ = OrderID
+)
+`
+
+var compileErrorLine = regexp.MustCompile(`main\.go:(\d+):\d+: (.*)`)
+
+func TestTypeSystemRejectsInvalidPrograms(t *testing.T) {
+	if testing.Short() {
+		t.Skip("compiles a package")
 	}
-	t.Cleanup(func() {
-		if err := os.RemoveAll(dir); err != nil {
-			t.Fatalf("remove compile-fail package: %v", err)
+
+	root, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var src strings.Builder
+
+	src.WriteString(compileFailPrelude)
+
+	lines := strings.Count(compileFailPrelude, "\n")
+	caseLine := make([]int, len(compileFailCases))
+
+	for i, c := range compileFailCases {
+		fmt.Fprintf(&src, "\nfunc case%d() {\n", i)
+		lines += 2
+		caseLine[i] = lines + 1
+
+		src.WriteString(c.body + "\n}\n")
+		lines += 2
+	}
+
+	dir, err := os.MkdirTemp(root, "compilefail_")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte(src.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := exec.Command("go", "vet", "./"+filepath.Base(dir))
+	cmd.Dir = root
+	output, _ := cmd.CombinedOutput()
+
+	cmd = exec.Command("go", "build", "-gcflags=-e", "./"+filepath.Base(dir))
+	cmd.Dir = root
+	build, _ := cmd.CombinedOutput()
+	output = append(output, build...)
+
+	errorsByLine := map[int][]string{}
+	for _, m := range compileErrorLine.FindAllStringSubmatch(string(output), -1) {
+		line, _ := strconv.Atoi(m[1])
+		errorsByLine[line] = append(errorsByLine[line], m[2])
+	}
+
+	for line, msgs := range errorsByLine {
+		if line <= strings.Count(compileFailPrelude, "\n") {
+			t.Fatalf("the prelude must compile; line %d: %v", line, msgs)
 		}
-	})
-
-	writeCompileFailFile(t, filepath.Join(dir, "main.go"), source)
-
-	cmd := exec.Command("go", "test", "./"+filepath.Base(dir))
-	cmd.Dir = rootDir
-	output, err := cmd.CombinedOutput()
-	if err == nil {
-		t.Fatalf("expected compile failure, got success:\n%s", output)
 	}
 
-	if !strings.Contains(string(output), want) {
-		t.Fatalf("compile error did not contain %q:\n%s", want, output)
-	}
-}
+	for i, c := range compileFailCases {
+		t.Run(c.name, func(t *testing.T) {
+			msgs := errorsByLine[caseLine[i]]
+			for _, msg := range msgs {
+				if strings.Contains(msg, c.want) {
+					return
+				}
+			}
 
-func compileFailSource(body string) string {
-	return `package compilefail
-
-import "github.com/tmoeish/tsq/v5"
-
-type userOwner struct{}
-type orderOwner struct{}
-type productOwner struct{}
-
-func (userOwner) TSQOwner() {}
-func (userOwner) TableName() string { return "users" }
-func (userOwner) Cols() []tsq.SQLColumn { return nil }
-
-func (userOwner) SearchColumns() []tsq.SearchColumn { return nil }
-func (userOwner) PrimaryKey() string { return "" }
-func (userOwner) AutoIncrement() bool { return false }
-func (userOwner) ManagedColumns() tsq.ManagedColumns { return tsq.ManagedColumns{} }
-
-func (orderOwner) TSQOwner() {}
-func (orderOwner) TableName() string { return "orders" }
-func (orderOwner) Cols() []tsq.SQLColumn { return nil }
-
-func (orderOwner) SearchColumns() []tsq.SearchColumn { return nil }
-func (orderOwner) PrimaryKey() string { return "" }
-func (orderOwner) AutoIncrement() bool { return false }
-func (orderOwner) ManagedColumns() tsq.ManagedColumns { return tsq.ManagedColumns{} }
-
-func (productOwner) TSQOwner() {}
-func (productOwner) TableName() string { return "products" }
-func (productOwner) Cols() []tsq.SQLColumn { return nil }
-
-func (productOwner) SearchColumns() []tsq.SearchColumn { return nil }
-func (productOwner) PrimaryKey() string { return "" }
-func (productOwner) AutoIncrement() bool { return false }
-func (productOwner) ManagedColumns() tsq.ManagedColumns { return tsq.ManagedColumns{} }
-
-var userID = tsq.NewColumn[userOwner, int]("id", "id", nil)
-var userName = tsq.NewColumn[userOwner, string]("name", "name", nil)
-var orderID = tsq.NewColumn[orderOwner, int]("id", "id", nil)
-var productStatus = tsq.NewColumn[productOwner, int]("status", "status", nil)
-` + body
-}
-
-func writeCompileFailFile(t *testing.T, path, contents string) {
-	t.Helper()
-
-	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
-		t.Fatalf("write %s: %v", path, err)
+			t.Fatalf("line %d (%s) compiled or failed differently: %v", caseLine[i], c.body, msgs)
+		})
 	}
 }

@@ -19,60 +19,17 @@ const (
 	DESC Order = "DESC" // Descending order
 )
 
-// ================================================
-// OrderBy pairs a column with a sort direction.
-// ================================================
-
-// OrderBy represents an ORDER BY clause with its column and direction.
+// OrderBy is one ORDER BY term, made by Column.Asc and Column.Desc.
 type OrderBy struct {
-	field SQLColumn // The column to order by
-	order Order     // The sort direction (ASC/DESC)
-}
-
-// Expr returns the SQL expression for this ORDER BY clause.
-func (ob OrderBy) Expr() string {
-	if _, err := validateColumnInput(ob.field); err != nil {
-		return ""
-	}
-
-	switch ob.order {
-	case ASC, DESC:
-	default:
-		return ""
-	}
-
-	return ob.field.SQLExpr() + " " + string(ob.order)
+	column    SQLColumn
+	direction Order
 }
 
 // Column returns the ordered column.
-func (ob OrderBy) Column() SQLColumn {
-	return ob.field
-}
+func (ob OrderBy) Column() SQLColumn { return ob.column }
 
 // Order returns the sort direction.
-func (ob OrderBy) Order() Order {
-	return ob.order
-}
-
-// ================================================
-// Column ordering helpers.
-// ================================================
-
-// Asc creates an ascending ORDER BY clause for this column.
-func (c columnImpl[Owner, T]) Asc() OrderBy {
-	return OrderBy{
-		field: c,
-		order: ASC,
-	}
-}
-
-// Desc creates a descending ORDER BY clause for this column.
-func (c columnImpl[Owner, T]) Desc() OrderBy {
-	return OrderBy{
-		field: c,
-		order: DESC,
-	}
-}
+func (ob OrderBy) Order() Order { return ob.direction }
 
 // Reverse returns the opposite sort direction. An unknown direction reverses to "".
 func (o Order) Reverse() Order {
@@ -107,7 +64,7 @@ func normalizeSortOrders(values []string, expected int) ([]Order, error) {
 	}
 
 	if len(values) != expected {
-		return nil, newErrOrderCountMismatch(expected, len(values))
+		return nil, &OrderCountMismatchError{Fields: expected, Directions: len(values)}
 	}
 
 	orders := make([]Order, 0, len(values))

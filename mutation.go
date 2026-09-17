@@ -4,510 +4,343 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
+	"slices"
+	"sync"
 	"time"
+
+	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 )
 
-// mutationKind distinguishes the two statement shapes a Mutation can render.
-type mutationKind string
+// UpdateTable starts an UPDATE of every row of table that matches Where.
+//
+// It does not check the version column, but it increments it, so a row loaded
+// before the update fails its own Update with OptimisticLockError. Use
+// TableOf.Update to write one row under the version check.
+func UpdateTable[R any](table *TableOf[R]) *UpdateBuilder[R] {
+	return &UpdateBuilder[R]{m: mutationSpec[R]{table: table, kind: mutationUpdate}}
+}
+
+// DeleteFrom starts a delete of every row of table that matches Where. On a table
+// with a deleted_at column it is a soft delete, stamped when the statement runs.
+func DeleteFrom[R any](table *TableOf[R]) *DeleteBuilder[R] {
+	kind := mutationDelete
+	if table != nil && table.def.managed.DeletedAt != "" {
+		kind = mutationSoftDelete
+	}
+
+	return &DeleteBuilder[R]{m: mutationSpec[R]{table: table, kind: kind}}
+}
+
+// HardDeleteFrom starts a DELETE of every row of table that matches Where,
+// ignoring any deleted_at column.
+func HardDeleteFrom[R any](table *TableOf[R]) *DeleteBuilder[R] {
+	return &DeleteBuilder[R]{m: mutationSpec[R]{table: table, kind: mutationDelete}}
+}
+
+type mutationKind uint8
 
 const (
-	mutationKindUpdate mutationKind = "update"
-	mutationKindDelete mutationKind = "delete"
+	mutationUpdate mutationKind = iota
+	mutationDelete
+	mutationSoftDelete
 )
 
-// mutationAssignment is one rendered SET item: an unqualified column identifier
-// (PostgreSQL rejects table-qualified targets in SET) and its value expression.
-type mutationAssignment struct {
+type assignment struct {
 	column string
-	expr   string
-	args   []any
+	value  exprInfo
 }
 
-// mutationSpec accumulates the state shared by the update and delete builders.
-type mutationSpec[O Table] struct {
-	kind        mutationKind
-	table       Table
-	assignments []mutationAssignment
-	filters     []Condition
-	buildErr    error
+type mutationSpec[R any] struct {
+	table   *TableOf[R]
+	kind    mutationKind
+	assigns []assignment
+	filters []Condition
+	err     error
 }
 
-// MutationStage is the buildable state of an UPDATE or DELETE statement after
-// Where(...). It deliberately exposes no further clause methods: a statement
-// gets exactly one WHERE, and it is the type system that says so.
-type MutationStage[O Table] interface {
-	Build() (*Mutation[O], error)
-	MustBuild() *Mutation[O]
-	Exec(ctx context.Context, tx Executor, args ...any) (int64, error)
+func (m mutationSpec[R]) clone() mutationSpec[R] {
+	m.assigns = slices.Clone(m.assigns)
+	m.filters = slices.Clone(m.filters)
+
+	return m
 }
 
-// Mutation is a compiled UPDATE or DELETE statement scoped by a WHERE clause.
-// Like Query, it is immutable and safe to share across goroutines, and it is
-// rendered for the concrete dialect only at execution time.
-//
-// Mutations never check the optimistic-lock version column. An UPDATE on a
-// table that declares one still increments it, so that in-memory rows loaded
-// before the bulk change fail their own Update with OptimisticLockError.
-type Mutation[O Table] struct {
-	kind     mutationKind
-	table    string
-	sql      string
-	args     []any
-	argState queryArgState
-}
-
-type updateBuilder[O Table] struct {
-	spec mutationSpec[O]
-}
-
-type deleteBuilder[O Table] struct {
-	spec mutationSpec[O]
-}
-
-// UpdateTable starts an UPDATE statement against the table represented by O.
-//
-// Assignments are added with Set, SetVal, and SetVar; the statement becomes
-// buildable only after Where(...). Use Update(ctx, tx, item) instead when the
-// caller holds the row and wants optimistic locking.
-func UpdateTable[O Table]() *updateBuilder[O] {
-	return &updateBuilder[O]{spec: newMutationSpec[O](mutationKindUpdate)}
-}
-
-// DeleteFrom starts a delete against the table represented by O.
-//
-// When O declares a deleted_at column the statement renders as an UPDATE that
-// stamps the tombstone and updated_at and increments the version, matching what
-// Delete(ctx, tx, item) does for a single row. Otherwise it renders as a
-// DELETE. Use HardDeleteFrom to remove rows regardless.
-//
-// The statement becomes buildable only after Where(...). Use Delete(ctx, tx,
-// item) instead when the caller holds the row and wants optimistic locking.
-func DeleteFrom[O Table]() *deleteBuilder[O] {
-	spec := newMutationSpec[O](mutationKindDelete)
-	if spec.buildErr != nil {
-		return &deleteBuilder[O]{spec: spec}
-	}
-
-	if spec.table.ManagedColumns().DeletedAt == "" {
-		return &deleteBuilder[O]{spec: spec}
-	}
-
-	columns, values, _, err := softDeleteAssignments[O](time.Now())
-	if err != nil {
-		spec.buildErr = err
-		return &deleteBuilder[O]{spec: spec}
-	}
-
-	// A soft delete is an update, so the statement switches kind here and
-	// buildMutation appends the version increment on its own.
-	spec.kind = mutationKindUpdate
-
-	for i, column := range columns {
-		spec.assignments = append(spec.assignments, mutationAssignment{
-			column: column,
-			expr:   "?",
-			args:   []any{values[i]},
-		})
-	}
-
-	return &deleteBuilder[O]{spec: spec}
-}
-
-// HardDeleteFrom starts a DELETE statement against the table represented by O,
-// ignoring any deleted_at column it declares.
-//
-// The statement becomes buildable only after Where(...).
-func HardDeleteFrom[O Table]() *deleteBuilder[O] {
-	return &deleteBuilder[O]{spec: newMutationSpec[O](mutationKindDelete)}
-}
-
-func newMutationSpec[O Table](kind mutationKind) mutationSpec[O] {
-	var table O
-
-	spec := mutationSpec[O]{kind: kind}
-
-	// O is expected to be the generated value type (Course, not *Course): a
-	// pointer owner is a nil pointer here and its metadata is unreachable.
-	if isNilValue(table) {
-		spec.buildErr = errors.New("mutation owner must be a table value type, not a pointer")
-		return spec
-	}
-
-	if err := validateTableInput(table, "mutation table"); err != nil {
-		spec.buildErr = err
-		return spec
-	}
-
-	spec.table = table
-
-	return spec
-}
-
-func (spec mutationSpec[O]) clone() mutationSpec[O] {
-	spec.assignments = append([]mutationAssignment(nil), spec.assignments...)
-	spec.filters = append([]Condition(nil), spec.filters...)
-
-	return spec
-}
-
-func (spec *mutationSpec[O]) setBuildError(err error) {
-	if spec.buildErr == nil && err != nil {
-		spec.buildErr = err
+func (m *mutationSpec[R]) fail(err error) {
+	if m.err == nil {
+		m.err = err
 	}
 }
 
-// Set assigns rhs to col. rhs follows the same contract as the comparison
-// predicates: a typed column or expression of the same value type, or a typed
-// scalar subquery. Plain Go values go through SetVal, runtime placeholders
-// through SetVar.
-func (b *updateBuilder[O]) Set[T any](col TypedColumn[O, T], rhs RHS[T]) *updateBuilder[O] {
-	next := b.cloneBuilder()
-	next.spec.addAssignment(col, predicateRHSArg(rhs))
-
-	return next
+// UpdateBuilder collects the assignments of an UPDATE. Its Set methods are generic,
+// which interface methods cannot be, so it is a concrete type.
+type UpdateBuilder[R any] struct {
+	m mutationSpec[R]
 }
 
-// SetVal assigns a bound Go value to col.
-func (b *updateBuilder[O]) SetVal[T any](col TypedColumn[O, T], value T) *updateBuilder[O] {
-	next := b.cloneBuilder()
-	next.spec.addAssignment(col, Bind(value))
+func (b *UpdateBuilder[R]) assign(col SQLColumn, value exprInfo) *UpdateBuilder[R] {
+	n := &UpdateBuilder[R]{m: b.m.clone()}
 
-	return next
-}
-
-// SetVar assigns a value supplied to Exec at execution time. SET placeholders
-// are bound before WHERE placeholders, in the order the assignments were added.
-func (b *updateBuilder[O]) SetVar[T any](col TypedColumn[O, T]) *updateBuilder[O] {
-	next := b.cloneBuilder()
-	next.spec.addAssignment(col, varMarker)
-
-	return next
-}
-
-// Where scopes the UPDATE. Every condition is ANDed; use Or(...) for
-// alternatives. A full-table update needs an explicit always-true condition
-// such as And(); a WHERE-less statement is not expressible on purpose.
-func (b *updateBuilder[O]) Where(conds ...Condition) MutationStage[O] {
-	next := b.cloneBuilder()
-	next.spec.setWhere(conds...)
-
-	return &mutationBuildStage[O]{spec: next.spec}
-}
-
-func (b *updateBuilder[O]) cloneBuilder() *updateBuilder[O] {
-	if b == nil {
-		panic(errQueryBuilderNil)
+	core := col.core()
+	switch {
+	case core.err() != nil:
+		n.m.fail(core.err())
+	case core.table != Table(b.m.table) || !core.plain:
+		n.m.fail(fmt.Errorf("assignment target %s must be a column of %s", core.name, b.m.table.Name()))
+	case core.name == b.m.table.def.managed.Version:
+		n.m.fail(fmt.Errorf("column %s is the version column; it is incremented automatically", core.name))
 	}
 
-	return &updateBuilder[O]{spec: b.spec.clone()}
-}
-
-// Where scopes the DELETE. Every condition is ANDed; use Or(...) for
-// alternatives. A full-table delete needs an explicit always-true condition
-// such as And(); a WHERE-less statement is not expressible on purpose.
-func (b *deleteBuilder[O]) Where(conds ...Condition) MutationStage[O] {
-	if b == nil {
-		panic(errQueryBuilderNil)
+	for _, a := range n.m.assigns {
+		if a.column == core.name {
+			n.m.fail(fmt.Errorf("column %s is assigned twice", core.name))
+		}
 	}
 
-	spec := b.spec.clone()
-	spec.setWhere(conds...)
+	n.m.assigns = append(n.m.assigns, assignment{column: core.name, value: value})
 
-	return &mutationBuildStage[O]{spec: spec}
+	return n
 }
 
-type mutationBuildStage[O Table] struct {
-	spec mutationSpec[O]
+// Set assigns rhs, a column, Param or typed subquery, to col.
+func (b *UpdateBuilder[R]) Set[T any](col TypedColumn[R, T], rhs RHS[T]) *UpdateBuilder[R] {
+	return b.assign(col, rhsInfo(rhs))
 }
 
-// Build compiles the statement or returns the first validation error.
-func (s *mutationBuildStage[O]) Build() (*Mutation[O], error) {
-	if s == nil {
-		return nil, errQueryBuilderNil
+// SetVal assigns a bound value to col.
+func (b *UpdateBuilder[R]) SetVal[T any](col TypedColumn[R, T], value T) *UpdateBuilder[R] {
+	return b.assign(col, exprInfo{sql: sqlValue(value)})
+}
+
+// Where limits the update. A statement has exactly one WHERE; to update every row,
+// say so with Where(tsq.And()).
+func (b *UpdateBuilder[R]) Where(conds ...Condition) MutationStage[R] {
+	return where(b.m, conds)
+}
+
+// DeleteBuilder is a delete waiting for its WHERE clause.
+type DeleteBuilder[R any] struct {
+	m mutationSpec[R]
+}
+
+// Where limits the delete. To delete every row, say so with Where(tsq.And()).
+func (b *DeleteBuilder[R]) Where(conds ...Condition) MutationStage[R] {
+	return where(b.m, conds)
+}
+
+func where[R any](m mutationSpec[R], conds []Condition) MutationStage[R] {
+	m = m.clone()
+	if len(conds) == 0 {
+		m.fail(errors.New("where requires at least one condition; use And() to match every row"))
 	}
 
-	return buildMutation(s.spec)
+	m.filters = append(m.filters, conds...)
+
+	return mutationStage[R]{m: m}
 }
 
-// MustBuild compiles the statement or panics if validation fails.
-//
-// MustBuild is intended for package-level statement variables whose shape is
-// fixed at compile time. Statements assembled from user input should call Build
-// and check the returned error.
-func (s *mutationBuildStage[O]) MustBuild() *Mutation[O] {
-	mutation, err := s.Build()
+// MutationStage is an UPDATE or DELETE ready to build or run.
+type MutationStage[R any] interface {
+	Build() (*Mutation[R], error)
+	MustBuild() *Mutation[R]
+	Exec(ctx context.Context, db Executor, args ...Arg) (int64, error)
+}
+
+type mutationStage[R any] struct {
+	m mutationSpec[R]
+}
+
+func (s mutationStage[R]) Build() (*Mutation[R], error) {
+	m := s.m
+	if m.err != nil {
+		return nil, m.err
+	}
+
+	if m.table == nil {
+		return nil, errors.New("mutation table cannot be nil")
+	}
+
+	if err := m.table.Err(); err != nil {
+		return nil, err
+	}
+
+	if m.kind == mutationUpdate && len(m.assigns) == 0 {
+		return nil, errors.New("update requires at least one assignment")
+	}
+
+	infos := make([]exprInfo, 0, len(m.assigns)+len(m.filters))
+	for _, a := range m.assigns {
+		infos = append(infos, a.value)
+	}
+
+	for _, c := range m.filters {
+		infos = append(infos, conditionInfo(c))
+	}
+
+	// UPDATE ... FROM and multi-table DELETE are spelled differently on every
+	// dialect, so a statement may only reference its own table.
+	for _, info := range infos {
+		if info.err != nil {
+			return nil, info.err
+		}
+
+		for name, t := range info.allTables() {
+			if t != Table(m.table) {
+				return nil, fmt.Errorf("the statement on %s cannot reference %s", m.table.Name(), name)
+			}
+		}
+	}
+
+	return &Mutation[R]{m: m}, nil
+}
+
+func (s mutationStage[R]) MustBuild() *Mutation[R] {
+	m, err := s.Build()
 	if err != nil {
 		panic(err)
 	}
 
-	return mutation
+	return m
 }
 
-// Exec builds and executes the statement, returning the affected row count.
-func (s *mutationBuildStage[O]) Exec(ctx context.Context, tx Executor, args ...any) (int64, error) {
-	mutation, err := s.Build()
+func (s mutationStage[R]) Exec(ctx context.Context, db Executor, args ...Arg) (int64, error) {
+	m, err := s.Build()
 	if err != nil {
 		return 0, err
 	}
 
-	return mutation.Exec(ctx, tx, args...)
+	return m.Exec(ctx, db, args...)
 }
 
-func (spec *mutationSpec[O]) addAssignment(col SQLColumn, value any) {
-	if spec.buildErr != nil {
-		return
-	}
-
-	column, err := spec.assignableColumn(col)
-	if err != nil {
-		spec.setBuildError(err)
-		return
-	}
-
-	for _, existing := range spec.assignments {
-		if existing.column == column {
-			spec.setBuildError(fmt.Errorf("column %s is assigned more than once", column))
-			return
-		}
-	}
-
-	// A column value carries its own build error (a malformed Exprf, say) and
-	// argumentToExpression would flatten it into a plain fragment, so it is
-	// validated as a column before it is rendered.
-	if valueCol, ok := value.(SQLColumn); ok {
-		if _, err := validateColumnInput(valueCol); err != nil {
-			spec.setBuildError(err)
-			return
-		}
-
-		if err := spec.validateOwnTable(valueCol.referencedTables(), "assignment value"); err != nil {
-			spec.setBuildError(err)
-			return
-		}
-	}
-
-	expr := argumentToExpression(value)
-	if err := expressionBuildError(expr); err != nil {
-		spec.setBuildError(err)
-		return
-	}
-
-	spec.assignments = append(spec.assignments, mutationAssignment{
-		column: column,
-		expr:   expr.Expr(),
-		args:   expr.Args(),
-	})
+// Mutation is a built UPDATE or DELETE. It is immutable and safe for concurrent use.
+type Mutation[R any] struct {
+	m     mutationSpec[R]
+	cache sync.Map // dialect name -> *statement
 }
 
-// assignableColumn checks that col is a physical column of the target table and
-// returns its bare name. Expressions built with Expr/Exprf and columns rebound
-// onto another table or alias are rejected: the left side of SET must be a
-// column of the table being updated.
-func (spec *mutationSpec[O]) assignableColumn(col SQLColumn) (string, error) {
-	table, err := validateColumnInput(col)
-	if err != nil {
-		return "", err
-	}
+// deletedAtParam and updatedAtParam carry the soft-delete stamp, bound when the
+// statement runs rather than when it is built, so a package-level statement does
+// not stamp every row with the time the program started.
+var (
+	deletedAtParam = newParamSpec("deleted_at", paramScalar)
+	updatedAtParam = newParamSpec("updated_at", paramScalar)
+)
 
-	if transformed, ok := col.(transformedColumn); ok && transformed.isTransformedExpression() {
-		return "", fmt.Errorf("assignment target %s must be a physical table column", col.OutputName())
-	}
+func (m *Mutation[R]) render(r *renderer) {
+	def := &m.m.table.def
 
-	name := strings.TrimSpace(col.Name())
-	if name == "" {
-		return "", errors.New("assignment target must be a physical table column")
-	}
-
-	if err := spec.validateOwnTable(map[string]Table{table.TableName(): table}, "assignment target "+name); err != nil {
-		return "", err
-	}
-
-	if version := strings.TrimSpace(spec.table.ManagedColumns().Version); version != "" && name == version {
-		return "", fmt.Errorf(
-			"column %s is the optimistic-lock version of table %s and is incremented automatically; it cannot be assigned",
-			name,
-			spec.table.TableName(),
-		)
-	}
-
-	return name, nil
-}
-
-func (spec *mutationSpec[O]) setWhere(conds ...Condition) {
-	if spec.buildErr != nil {
-		return
-	}
-
-	if len(conds) == 0 {
-		spec.setBuildError(errors.New("Where() requires at least one condition; use And() for an explicit full-table statement"))
-		return
-	}
-
-	filters := make([]Condition, 0, len(conds))
-
-	for _, cond := range conds {
-		_, tables, _, err := validateConditionInput(cond)
-		if err != nil {
-			spec.setBuildError(err)
-			return
-		}
-
-		if err := spec.validateOwnTable(tables, "condition"); err != nil {
-			spec.setBuildError(err)
-			return
-		}
-
-		filters = append(filters, cond)
-	}
-
-	spec.filters = filters
-}
-
-// validateOwnTable rejects references to any table other than the unaliased
-// target. UPDATE ... FROM / multi-table DELETE and aliased targets are spelled
-// differently on every built-in dialect, so a single statement shape cannot be
-// fixed at Build() time for them.
-func (spec *mutationSpec[O]) validateOwnTable(tables map[string]Table, what string) error {
-	for _, table := range tables {
-		if isNilValue(table) {
-			continue
-		}
-
-		if alias := tableAliasName(table); alias != "" {
-			return fmt.Errorf("%s references alias %s; %s statements target the unaliased table", what, alias, spec.kind)
-		}
-
-		if physicalTableName(table) != physicalTableName(spec.table) {
-			return fmt.Errorf(
-				"%s references table %s but the %s statement targets %s",
-				what,
-				table.TableName(),
-				spec.kind,
-				spec.table.TableName(),
-			)
-		}
-	}
-
-	return nil
-}
-
-func buildMutation[O Table](spec mutationSpec[O]) (*Mutation[O], error) {
-	if spec.buildErr != nil {
-		return nil, spec.buildErr
-	}
-
-	if len(spec.filters) == 0 {
-		return nil, errors.New("mutation requires a WHERE clause")
-	}
-
-	var (
-		builder strings.Builder
-		args    []any
-	)
-
-	tableSQL := rawTableSourceIdentifier(spec.table)
-
-	switch spec.kind {
-	case mutationKindUpdate:
-		if len(spec.assignments) == 0 {
-			return nil, errors.New("update requires at least one assignment")
-		}
-
-		builder.WriteString("UPDATE ")
-		builder.WriteString(tableSQL)
-		builder.WriteString(" SET ")
-
-		for i, assignment := range spec.assignments {
-			if i > 0 {
-				builder.WriteString(", ")
-			}
-
-			builder.WriteString(rawIdentifier(assignment.column))
-			builder.WriteString(" = ")
-			builder.WriteString(assignment.expr)
-			args = append(args, assignment.args...)
-		}
-
-		if version := strings.TrimSpace(spec.table.ManagedColumns().Version); version != "" {
-			versionSQL := rawIdentifier(version)
-
-			builder.WriteString(", ")
-			builder.WriteString(versionSQL)
-			builder.WriteString(" = ")
-			builder.WriteString(versionSQL)
-			builder.WriteString(" + 1")
-		}
-
-	case mutationKindDelete:
-		builder.WriteString("DELETE FROM ")
-		builder.WriteString(tableSQL)
+	switch m.m.kind {
+	case mutationDelete:
+		r.writeText("DELETE FROM ")
+		r.writeIdent(def.name)
 	default:
-		return nil, fmt.Errorf("unsupported mutation kind %q", spec.kind)
+		r.writeText("UPDATE ")
+		r.writeIdent(def.name)
+		r.writeText(" SET ")
+
+		sets := make([]sqlExpr, 0, len(m.m.assigns)+3)
+		for _, a := range m.m.assigns {
+			sets = append(sets, sqlJoin(sqlIdent(a.column), sqlText(" = "), a.value.sql))
+		}
+
+		if m.m.kind == mutationSoftDelete {
+			sets = append(sets, sqlJoin(sqlIdent(def.managed.DeletedAt), sqlText(" = "), sqlParam(deletedAtParam)))
+
+			if def.managed.UpdatedAt != "" {
+				sets = append(sets, sqlJoin(sqlIdent(def.managed.UpdatedAt), sqlText(" = "), sqlParam(updatedAtParam)))
+			}
+		}
+
+		if v := def.managed.Version; v != "" {
+			sets = append(sets, sqlJoin(sqlIdent(v), sqlText(" = "), sqlIdent(v), sqlText(" + 1")))
+		}
+
+		r.write(sqlList(", ", sets))
 	}
 
-	whereSQL, whereArgs := buildConditionSQL(" WHERE ", spec.filters)
-	builder.WriteString(whereSQL)
-
-	args = append(args, whereArgs...)
-
-	return &Mutation[O]{
-		kind:     spec.kind,
-		table:    spec.table.TableName(),
-		sql:      builder.String(),
-		args:     args,
-		argState: scanQueryArgState(args),
-	}, nil
+	r.writeText(" WHERE ")
+	r.write(andAll(m.m.filters).sql)
 }
 
-// SQL returns the statement in canonical form, before dialect rendering.
-func (m *Mutation[O]) SQL() string {
+func (m *Mutation[R]) statement(d tsqdialect.Dialect) (*statement, error) {
+	if cached, ok := m.cache.Load(d.Name()); ok {
+		return cached.(*statement), nil
+	}
+
+	r := newRenderer(d)
+	m.render(r)
+
+	stmt, err := r.finish()
+	if err != nil {
+		return nil, err
+	}
+
+	m.cache.Store(d.Name(), stmt)
+
+	return stmt, nil
+}
+
+// SQL renders the statement for dialect with args bound, as it would run. A soft
+// delete is rendered with the current time.
+func (m *Mutation[R]) SQL(dialect tsqdialect.Dialect, args ...Arg) (string, []any, error) {
+	if isNilValue(dialect) {
+		return "", nil, errors.New("dialect cannot be nil")
+	}
+
+	return m.prepare(WrapExecutor(noopExecutor{}, dialect), args)
+}
+
+func (m *Mutation[R]) prepare(db Executor, args []Arg) (string, []any, error) {
 	if m == nil {
-		return ""
+		return "", nil, errors.New("mutation cannot be nil")
 	}
 
-	return renderCanonicalSQL(m.sql)
+	scope, err := executorScope(db)
+	if err != nil {
+		return "", nil, err
+	}
+
+	stmt, err := m.statement(scope.dialect)
+	if err != nil {
+		return "", nil, err
+	}
+
+	var builtin map[*paramSpec]any
+
+	if m.m.kind == mutationSoftDelete {
+		stamp, err := m.m.table.tombstoneValues(time.Now())
+		if err != nil {
+			return "", nil, err
+		}
+
+		builtin = map[*paramSpec]any{deletedAtParam: stamp[m.m.table.def.managed.DeletedAt]}
+		if name := m.m.table.def.managed.UpdatedAt; name != "" {
+			builtin[updatedAtParam] = stamp[name]
+		}
+	}
+
+	bound, err := bindArgs(stmt.params(), args, builtin)
+	if err != nil {
+		return "", nil, err
+	}
+
+	return stmt.assemble(scope.dialect, bound)
 }
 
-// Exec runs the statement and returns the number of affected rows. args fill
-// the SetVar and *Var placeholders in statement order: SET first, then WHERE.
-func (m *Mutation[O]) Exec(ctx context.Context, tx Executor, args ...any) (int64, error) {
-	return traceExecutor1(ctx, tx, TraceOpExec, func(ctx context.Context) (int64, error) {
-		return execMutationFn(ctx, tx, m, args...)
+// Exec runs the statement and returns the number of rows it changed.
+func (m *Mutation[R]) Exec(ctx context.Context, db Executor, args ...Arg) (int64, error) {
+	return traceExecutor1(ctx, db, TraceOpExec, func(ctx context.Context) (int64, error) {
+		sqlText, sqlArgs, err := m.prepare(db, args)
+		if err != nil {
+			return 0, err
+		}
+
+		logSQLForExecutor(ctx, db, "exec", sqlText, sqlArgs)
+
+		result, err := db.ExecContext(ctx, sqlText, sqlArgs...)
+		if err != nil {
+			return 0, fmt.Errorf("exec on %s: %w", m.m.table.Name(), err)
+		}
+
+		return result.RowsAffected()
 	})
-}
-
-func execMutationFn[O Table](ctx context.Context, tx Executor, m *Mutation[O], args ...any) (int64, error) {
-	if m == nil {
-		return 0, errors.New("mutation cannot be nil")
-	}
-
-	if m.sql == "" {
-		return 0, errors.New("mutation is not built")
-	}
-
-	resolvedSQL, finalArgs, err := resolveQueryWithState(m.sql, m.args, args, "", m.argState)
-	if err != nil {
-		return 0, err
-	}
-
-	if err := validateOperationalExecutorForSQL(tx, resolvedSQL); err != nil {
-		return 0, err
-	}
-
-	sqlText := renderSQLForExecutor(tx, resolvedSQL)
-
-	logSQLForExecutor(ctx, tx, string(m.kind), sqlText, finalArgs)
-
-	result, err := tx.ExecContext(ctx, sqlText, finalArgs...)
-	if err != nil {
-		return 0, fmt.Errorf("failed to execute %s on %s: %w", m.kind, m.table, err)
-	}
-
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return 0, fmt.Errorf("failed to read rows affected by %s on %s: %w", m.kind, m.table, err)
-	}
-
-	return affected, nil
 }

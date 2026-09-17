@@ -6,69 +6,14 @@ import (
 	"encoding/json"
 
 	"github.com/tmoeish/tsq/v5"
-	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 )
 
-// TSQTables returns all generated table registrations for this package.
-func TSQTables() []tsq.TableRegistration {
-	return []tsq.TableRegistration{
+// TSQTables returns every table declared in this package, for tsq.Open and
+// tsq.NewRuntime.
+func TSQTables() []tsq.Table {
+	return []tsq.Table{
 {{- range .Tables }}
-	{{- $table := .StructInfo }}
-		{
-			Table: Table{{.TypeInfo.TypeName}},
-			Columns: []tsqdialect.ColumnSpec{
-	{{- range .SchemaColumns }}
-				{
-					Name: "{{ .Name }}",
-					Type: tsqdialect.ColumnType{
-			{{- if .RawType }}
-						RawType: {{ printf "%q" .RawType }},
-			{{- end }}
-			{{- if .Kind }}
-						Kind: {{ ColumnKindRef .Kind }},
-			{{- end }}
-			{{- if .Bits }}
-						Bits: {{ .Bits }},
-			{{- end }}
-			{{- if .Unsigned }}
-						Unsigned: true,
-			{{- end }}
-			{{- if .Nullable }}
-						Nullable: true,
-			{{- end }}
-			{{- if .Size }}
-						Size: {{ .Size }},
-			{{- end }}
-					},
-			{{- if .PrimaryKey }}
-					PrimaryKey: true,
-			{{- end }}
-			{{- if .AutoIncrement }}
-					AutoIncrement: true,
-			{{- end }}
-			{{- if .Default }}
-					Default: {{ printf "%q" .Default }},
-			{{- end }}
-				},
-	{{- end }}
-			},
-{{- if or .Uniques .Indexes }}
-			Indexes: []tsq.TableIndex{
-	{{- if .Uniques }}
-				// Declared unique indexes.
-		{{- range $name, $idx := .Uniques }}
-				{Name: "{{$idx.Name}}", Unique: true, Fields: []string{{"{"}}{{ IndexFieldsToCols $table $idx.Fields }}{{"}"}}},
-		{{- end }}
-	{{- end }}
-	{{- if .Indexes }}
-				// Declared non-unique indexes.
-		{{- range $name, $idx := .Indexes }}
-				{Name: "{{$idx.Name}}", Fields: []string{{"{"}}{{ IndexFieldsToCols $table $idx.Fields }}{{"}"}}},
-		{{- end }}
-	{{- end }}
-			},
-{{- end }}
-		},
+		Table{{.TypeInfo.TypeName}},
 {{- end }}
 	}
 }

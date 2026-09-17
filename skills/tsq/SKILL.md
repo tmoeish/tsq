@@ -40,17 +40,18 @@ describes the implementation.
 - Treat generated `*.tsq.go` and `*.result.tsq.go` as outputs; do not hand-edit them unless the user is explicitly debugging generation output.
 - Prefer the current Build-based query flow:
   `tsq.Select(...).From(...).Where(...).Build()`
-- Pass `runtime` directly where a `tsq.Executor` is needed.
+- Pass `runtime` (or the `WithTx` executor) where a `tsq.Executor` is needed; wrap a pool TSQ did not open with `tsq.WrapExecutor(db, dialect)`.
+- Values known only at execution are parameters: `col.EQ(col.Param())` in the query and `col.Bind(v)` when running it, or `tsq.NewParam[T]("name")` when a column needs two values. Arguments are `tsq.Arg` values matched by parameter, never positional.
+- Row writes go through the generated row methods (`row.Insert(ctx, db)`) or the table descriptor (`TableXxx.BatchInsert(ctx, db, rows)`).
 - Use `Runtime.WithTx(...)` when several TSQ operations must share one transaction.
-- Use `Runtime.WithTxResult(...)` when that transaction callback returns a typed value; prefer a small result struct over the deprecated arity-specific helpers.
+- Use `Runtime.WithTxResult(...)` when that transaction callback returns a typed value; return a small struct when several values come back.
 - Use `query.Scalar(ctx, exec, selectedColumn, args...)` for a typed single-column result and `query.AsSubquery(selectedColumn)` for a built typed subquery.
-- Use `tsq.UpdateTable[T]()` / `tsq.DeleteFrom[T]()` for `UPDATE ... WHERE` / `DELETE ... WHERE` over rows the caller does not hold. They skip the optimistic-lock check but still increment `version` and require exactly one `Where(...)`. `UpdateTable` touches no managed field on its own; `DeleteFrom` soft-deletes when the table declares `deleted_at`.
+- Use `tsq.UpdateTable(TableXxx)` / `tsq.DeleteFrom(TableXxx)` for `UPDATE ... WHERE` / `DELETE ... WHERE` over rows the caller does not hold. They skip the optimistic-lock check but still increment `version` and require exactly one `Where(...)`. `UpdateTable` touches no managed field on its own; `DeleteFrom` soft-deletes when the table declares `deleted_at`.
 - Remember that on a table declaring `deleted_at`, `Delete` stamps a tombstone and `HardDelete` removes the row, and every generated query already filters tombstoned rows out. Without `deleted_at` the two are the same operation.
 - Do not assume this skill ships management scripts; install or upgrade TSQ with explicit `go install .../cmd/tsq@version` commands, and run `tsq gen` directly against the chosen package.
 - The builder is stage-based: `Where(...)` and `Search(...)` each appear at most once per chain, enforced by the Go type system at compile time. Pass all filter conditions to the single `Where(...)` call; use `tsq.Or(...)` for OR groups. Both clauses can coexist in either order.
-- Remember that `InVar()` with an empty or nil slice means explicit no-match.
-- Remember that `NotInVar()` with an empty or nil slice means explicit match-all.
-- Prefer the predicate naming split: RHS uses `Op(...)`, literal values use `OpVal(...)`, runtime placeholders use `OpVar()`, and pattern sugar uses `StartsWithVal/StartsWithVar`-style names while cross-column or subquery pattern matching goes through `Like(...)`.
+- Remember that `In` over an empty list parameter matches nothing and `NotIn` matches everything; the filter is never dropped.
+- Predicate naming: `Op(rhs)` takes a column, `Param` or subquery; `OpVal(v)` takes a value; negations are `Not*` (`NotIn`, `NotLike`); pattern sugar is `StartsWith(param)` / `StartsWithVal(s)` and escapes wildcards, while `Like` takes a pattern as written.
 - Remember that `Build()` validates query structure, while execution validates dialect capabilities.
 - Do not assume a custom `driver.Valuer` / `sql.Scanner` type implies a DDL column type; use an explicit `db:"...,type:JSON"` / `type:TEXT` / `type:JSONB"` override when the Go type is not directly mappable.
 
@@ -76,13 +77,13 @@ describes the implementation.
 - do not hand-maintain generated column metadata or CRUD helpers
 - do not try to call `Where(...)` or `Search(...)` more than once per chain; the stage-based type system makes this a compile error — put all conditions in the single call
 - do not assume every built query runs on every dialect
-- do not treat `InVar(nil)` as “ignore this filter”
-- do not treat `NotInVar(nil)` as “reject everything”
+- do not treat an empty list parameter as “ignore this filter”
+- do not pass values positionally to `List` / `Get` / `Exec`; bind them to parameters
 - do not move transaction boundaries into hidden helper behavior
-- do not emulate `UPDATE ... WHERE` by listing rows and calling `Update(...)` per row; use `tsq.UpdateTable[T]()`
+- do not emulate `UPDATE ... WHERE` by listing rows and calling `Update(...)` per row; use `tsq.UpdateTable(TableXxx)`
 
 ## Reference map
 
 - `references/QUICKSTART.md` — shortest end-to-end setup in a fresh Go project
-- `references/CONCEPTS.md` — mental model for annotations, generated files, owners, runtime, and execution
+- `references/CONCEPTS.md` — mental model for annotations, generated files, tables and rows, parameters, runtime, and execution
 - `references/REFERENCE.md` — TSQ DSL, features, query patterns, runtime patterns, and important edge cases

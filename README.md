@@ -25,7 +25,9 @@
 TSQ（Type-Safe Query）把带 `//tsq:` 指令的 Go 结构体生成为**表元数据、CRUD 助手和类型安全的列**，让你用 Go API 组合 SQL，而不是在业务代码里拼字符串。
 
 - **查询构建器是阶段式的**：`Where` 之后拿到的类型上没有 `Where`，约束来自编译器而不是运行期检查。
-- **三种 owner**：`Owner` 是任何可扫描目标，`Table` 是物理表（也是写操作的目标），`Result` 是联表投影。
+- **表是描述符**：生成的 `TableXxx`（`*tsq.TableOf[Xxx]`）持有列、主键、托管列、索引和物理 schema；你的结构体上不需要实现任何接口。
+- **参数按名字绑定、有类型**：`Course_ID.EQ(Course_ID.Param())` 写进查询，执行时传 `Course_ID.Bind(5)`；参数错位、类型不对都编译不过或当场报错。
+- **SQL 在执行时按方言渲染**：查询是一棵表达式树，第一次在某个方言上执行时渲染并缓存；方言能力（`FULL JOIN`、行锁、CTE）在渲染时按结构检查。
 - **显式运行时**：`Runtime` 持有表声明、方言、日志和 tracer；所有执行方法第一个参数是 `context.Context`，第二个是 `tsq.Executor`（`*Runtime`、事务或任何 `*sql.DB`）。
 
 ## 先回答三个上手问题
@@ -198,9 +200,9 @@ TSQ 当前内置的 `Dialect` 实现只有 **SQLite / MySQL / PostgreSQL**。下
 | 生成 CRUD / 分页助手 | ✅ | ✅ | ✅ | 生成层支持一致 |
 | 类型安全列与链式查询 | ✅ | ✅ | ✅ | `tsq.Select(...).From(table).Where(...).Build()` |
 | `//tsq:result` 结果映射 | ✅ | ✅ | ✅ | 生成 `*.result.tsq.go` |
-| 自动乐观锁（`version`） | ✅ | ✅ | ✅ | `Update/Delete` 在执行时按 `ManagedColumns().Version` 做版本校验 |
+| 自动乐观锁（`version`） | ✅ | ✅ | ✅ | `Update/Delete` 在执行时按声明的 `version` 列做版本校验 |
 | 按条件批量 `UPDATE` / `DELETE`（`tsq.UpdateTable` / `tsq.DeleteFrom`） | ✅ | ✅ | ✅ | 不校验 `version` 但会自增它；只引用目标表，不支持 JOIN / `LIMIT` / `RETURNING` |
-| `InVar()` / `NotInVar()` 动态集合过滤 | ✅ | ✅ | ✅ | 执行时展开参数 |
+| 列表参数 `In(col.ListParam())` / `NotIn(...)` | ✅ | ✅ | ✅ | 执行时按值个数展开 |
 | `CASE` 表达式 | ✅ | ✅ | ✅ | 构建与执行都支持 |
 | 行锁读取（`FOR UPDATE` / `FOR SHARE`） | ❌ | ✅ | ✅ | 能否执行取决于运行时 dialect |
 | 非递归 CTE / `WITH` | ✅ | ✅ | ✅ | MySQL 基线为 8.0（5.7 已 EOL），5.7 上会收到数据库报错而不是 TSQ 的拒绝 |
@@ -218,7 +220,9 @@ TSQ 当前内置的 `Dialect` 实现只有 **SQLite / MySQL / PostgreSQL**。下
 
 - **`Where(...)` / `Search(...)` 每条链最多各一次**，编译期强制。多个参数是 AND，OR 用 `tsq.Or(...)`。
 - **`OrderBy` / `Limit` / `Offset` 和 `Page(...)` 二选一**：`Page` 自己决定排序和分页。
-- **`InVar(nil)` 是显式不匹配，`NotInVar(nil)` 是显式全匹配**，都不会悄悄去掉过滤条件。
+- **空的列表参数不会去掉过滤条件**：`In` 匹配不到任何行，`NotIn` 匹配全部。
+- **执行期的值都走参数**：`List` / `Get` / `Exec` 只接受 `Bind` 出来的 `tsq.Arg`，按参数匹配而不是按位置。
+- **执行器必须知道方言**：`*tsq.Runtime`、`WithTx` 给的执行器，或 `tsq.WrapExecutor(db, dialect)`；裸 `*sql.DB` 编译不过。
 - **`Build()` 成功不代表所有方言都能执行**：CTE、`FULL JOIN`、行锁在执行时按方言校验，不支持时返回 `*dialect.UnsupportedCapabilityError`。
 - **`version` 字段是自动乐观锁**：`Update` / `Delete` 冲突时返回 `*tsq.OptimisticLockError`，这是业务错误，必须处理。`TxOptions{RetryIf: tsq.IsOptimisticLockError}` 可以整段重试。
 - **声明了 `deleted_at` 的表，`Delete` 是软删除**，生成的查询都会滤掉已删行；物理删除要写 `HardDelete`。没有 `deleted_at` 的表两者同义。

@@ -103,14 +103,6 @@ func validateIndexIdentifiers(table, idx string, fields []string) error {
 	return nil
 }
 
-func validateBuiltInIdentifier(name string) error {
-	if !builtInIdentifierPattern.MatchString(name) {
-		return fmt.Errorf("invalid SQL identifier: %s", name)
-	}
-
-	return nil
-}
-
 func upsertIndex(
 	ctx context.Context,
 	db *sql.DB,

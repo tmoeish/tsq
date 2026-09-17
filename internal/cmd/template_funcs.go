@@ -53,8 +53,6 @@ func funcMap() template.FuncMap {
 		"IndexFieldsToCols":        indexFieldsToCols,
 		"NeedsGeneratedTimeImport": needsGeneratedTimeImport,
 		"NeedsGeneratedSQLImport":  needsGeneratedSQLImport,
-		"TimestampNowValue":        timestampNowValue,
-		"TimestampUnsetExpr":       timestampUnsetExpr,
 		"SoftDeleteActiveExpr":     softDeleteActiveExpr,
 		"SoftDeleteActiveCond":     softDeleteActiveCond,
 	}
@@ -221,32 +219,29 @@ func indexFieldsToCols(data *genmodel.StructInfo, fields []string) string {
 	return fieldsToCols(data, indexFieldNames(data, fields))
 }
 
-func hasImport(data *genmodel.StructInfo, importPath string) bool {
-	if data == nil {
-		return false
-	}
-
-	_, ok := data.Imports[importPath]
-
-	return ok
-}
-
 func needsGeneratedTimeImport(data *genmodel.StructInfo) bool {
 	if data == nil {
 		return false
 	}
 
-	return hasImport(data, importPathTime) || data.CreatedAtField != "" || data.UpdatedAtField != "" || data.DeletedAtField != ""
+	return fieldsUse(data, importPathTime)
+}
+
+// fieldsUse reports whether a field type of data comes from importPath.
+func fieldsUse(data *genmodel.StructInfo, importPath string) bool {
+	for _, f := range data.Fields {
+		if f.Type.Package.Path == importPath {
+			return true
+		}
+	}
+
+	return false
 }
 
 // needsGeneratedSQLImport reports whether a result's field types render with the
 // tsqsql alias. The table template imports it unconditionally for sql.ErrNoRows.
 func needsGeneratedSQLImport(data *genmodel.StructInfo) bool {
-	return data != nil && hasImport(data, importPathDatabaseSQL)
-}
-
-func generatedTimeRef(name string) string {
-	return generatedTimeAlias + "." + name
+	return data != nil && fieldsUse(data, importPathDatabaseSQL)
 }
 
 func managedTimestampKind(field genmodel.FieldInfo) string {
@@ -361,41 +356,6 @@ func validateManagedFields(data *genmodel.StructInfo) error {
 	}
 
 	return nil
-}
-
-// timestampUnsetExpr renders the test for "the caller did not supply this timestamp".
-//
-// Insert uses it so that a value the caller set survives. Stamping unconditionally
-// discards it, which silently rewrites history when rows are imported or backfilled,
-// and a created_at the caller cannot control is not much of a created_at.
-func timestampUnsetExpr(recv, fieldName string, field genmodel.FieldInfo) string {
-	target := recv + "." + fieldName
-
-	switch managedTimestampKind(field) {
-	case "time":
-		return target + ".IsZero()"
-	case "time_ptr":
-		return target + " == nil"
-	case "sql_null_time", "null_time":
-		return "!" + target + ".Valid"
-	default:
-		panic(fmt.Sprintf("unsupported timestamp field type: %s", fieldType(field)))
-	}
-}
-
-func timestampNowValue(field genmodel.FieldInfo) string {
-	switch managedTimestampKind(field) {
-	case "time":
-		return generatedTimeRef("Now()")
-	case "time_ptr":
-		return fmt.Sprintf("new(%s)", generatedTimeRef("Now()"))
-	case "sql_null_time":
-		return fmt.Sprintf("%s.NullTime{Time: %s, Valid: true}", generatedSQLAlias, generatedTimeRef("Now()"))
-	case "null_time":
-		return fmt.Sprintf("%s.TimeFrom(%s)", field.Type.Package.Name, generatedTimeRef("Now()"))
-	default:
-		panic(fmt.Sprintf("unsupported timestamp field type: %s", fieldType(field)))
-	}
 }
 
 func softDeleteActiveExpr(recv, fieldName string, field genmodel.FieldInfo) string {

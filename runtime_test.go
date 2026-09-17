@@ -21,52 +21,47 @@ import (
 // does not match what the rendered queries reference, so it fails construction.
 func TestValidateRegisteredTableIdentifiersRejectsOversizedNames(t *testing.T) {
 	mysql := tsqdialect.MySQLDialect{}
+	long := firstRejectedIdentifier(t, mysql)
 
-	tests := []struct {
-		name  string
-		build func(string) *Runtime
-	}{
-		{
-			name: "table name",
-			build: func(long string) *Runtime {
-				return &Runtime{db: &sql.DB{}, dialect: mysql, tables: []*registeredTable{{
-					Table: newMockTable(long),
-				}}}
-			},
-		},
-		{
-			name: "column name",
-			build: func(long string) *Runtime {
-				table, _ := newStrictMockTable("users", long)
-
-				return &Runtime{db: &sql.DB{}, dialect: mysql, tables: []*registeredTable{{
-					Table: table,
-				}}}
-			},
-		},
-		{
-			name: "index name",
-			build: func(long string) *Runtime {
-				table, _ := newStrictMockTable("users", "id")
-
-				return &Runtime{db: &sql.DB{}, dialect: mysql, tables: []*registeredTable{{
-					Table:   table,
-					Indexes: []TableIndex{{Name: long, Fields: []string{"id"}}},
-				}}}
-			},
-		},
+	tests := map[string]Table{
+		"table name":  wideTable(long, []string{"name"}, nil, nil),
+		"column name": wideTable("users", []string{long}, nil, nil),
+		"index name":  wideTable("users", []string{"name"}, nil, []TableIndex{{Name: long, Fields: []string{"name"}}}),
 	}
 
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			long := firstRejectedIdentifier(t, mysql, "x")
+	for name, table := range tests {
+		t.Run(name, func(t *testing.T) {
+			registered, err := registerTables([]Table{table})
+			if err != nil {
+				t.Fatalf("registerTables() error = %v", err)
+			}
 
-			err := test.build(long).validateRegisteredTableIdentifiers()
+			rt := &Runtime{db: &sql.DB{}, dialect: mysql, tables: registered}
+
+			err = rt.validateRegisteredTableIdentifiers()
 			if err == nil || !strings.Contains(err.Error(), long) {
 				t.Fatalf("expected the oversized identifier to be reported, got %v", err)
 			}
 		})
 	}
+}
+
+// firstRejectedIdentifier returns the shortest identifier dialect rejects as too long.
+func firstRejectedIdentifier(t *testing.T, dialect tsqdialect.Dialect) string {
+	t.Helper()
+
+	identifier := "x"
+	for range 1024 {
+		if err := tsqdialect.ValidateIdentifier(dialect, identifier); err != nil {
+			return identifier
+		}
+
+		identifier += "x"
+	}
+
+	t.Fatalf("no identifier is too long for %s", dialect.Name())
+
+	return ""
 }
 
 func TestNewRuntimeContextHonorsCancellation(t *testing.T) {
@@ -140,14 +135,16 @@ func TestRuntimeMaxPageSizeDefaultsAndOverrides(t *testing.T) {
 		t.Fatalf("expected custom max page size 5000, got %d", got)
 	}
 
-	page := normalizePageReqWithLimit(&PageRequest{Size: 3000}, pageSizeLimitForExecutor(custom))
+	page := normalizePageReqWithLimit(&PageRequest{Size: 3000}, runtimeForExecutor(custom).MaxPageSize())
 	if page.Size != 3000 {
 		t.Fatalf("expected runtime limit to allow size 3000, got %d", page.Size)
 	}
 
-	page = normalizePageReqWithLimit(&PageRequest{Size: 3000}, pageSizeLimitForExecutor(custom.DB()))
+	wrapped := WrapExecutor(custom.DB(), onSQLite)
+
+	page = normalizePageReqWithLimit(&PageRequest{Size: 3000}, runtimeForExecutor(wrapped).MaxPageSize())
 	if page.Size != DefaultMaxPageSize {
-		t.Fatalf("expected bare *sql.DB to fall back to default cap, got %d", page.Size)
+		t.Fatalf("expected a wrapped pool to fall back to the default cap, got %d", page.Size)
 	}
 
 	if _, err := Open(context.Background(), "sqlite", dsn, nil, WithMaxPageSize(-1)); err == nil {
@@ -172,7 +169,7 @@ func TestLogForExecutorRoutesToRuntimeLogger(t *testing.T) {
 	}
 
 	// An executor without a runtime must not panic and must not reach the runtime logger.
-	logForExecutor(context.Background(), rt.DB(), slog.LevelDebug, "unrouted")
+	logForExecutor(context.Background(), WrapExecutor(rt.DB(), onSQLite), slog.LevelDebug, "unrouted")
 
 	if logger.count("unrouted") != 0 {
 		t.Fatal("expected bare *sql.DB executor to bypass the runtime logger")
@@ -216,7 +213,9 @@ func TestLogSQLRoutesRenderedStatementsToRuntimeLogger(t *testing.T) {
 
 	t.Cleanup(func() { _ = rt.Close() })
 
-	query, err := Select(batchMutationUserColumns()...).From(batchMutationUser{}).Build()
+	named := namedTable("users")
+
+	query, err := Select(named.Columns()...).From(named).Build()
 	if err != nil {
 		t.Fatalf("Build() error = %v", err)
 	}
@@ -261,7 +260,9 @@ func TestLogSQLDefaultsOff(t *testing.T) {
 
 	t.Cleanup(func() { _ = rt.Close() })
 
-	query, err := Select(batchMutationUserColumns()...).From(batchMutationUser{}).Build()
+	named := namedTable("users")
+
+	query, err := Select(named.Columns()...).From(named).Build()
 	if err != nil {
 		t.Fatalf("Build() error = %v", err)
 	}

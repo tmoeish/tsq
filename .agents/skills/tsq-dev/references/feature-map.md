@@ -2,79 +2,51 @@
 
 "X 在哪实现的？" 先查这里，再去 grep。
 
-## 根包：查询构建
+## 根包：查询与表达式
 
 | 关注点 | 文件 |
 | --- | --- |
-| 阶段接口、具体 builder 类型、`Select` / `From` 入口 | `querybuilder.go` |
-| 每个阶段能返回什么（阶段转移表） | `querybuilder_stages.go` |
-| 共享状态、join、条件累积 | `querybuilder_core.go` |
-| `Build()` 的各阶段实现 | `querybuilder_stages.go`（末尾） |
-| 集合运算 UNION / INTERSECT / EXCEPT | `querybuilder_setops.go` |
-| `ForUpdate` / `ForShare` / NOWAIT / SKIP LOCKED | `querybuilder_lock.go` |
-| CTE 声明 | `cte.go`、`query_plan_cte.go` |
-| 执行入口（`Get` / `Find` / `List` / `Page` 的 builder 侧） | `querybuilder_exec.go` |
+| 阶段接口、`builder`、`Select` / `From`、`Build`、builder 上的执行入口 | `querybuilder.go`（类型约束由 `compilefail_test.go` 守） |
+| `querySpec`：结构校验、FROM/JOIN 图、`Correlate`、集合操作、CTE 收集与排序、按方言渲染 | `query_render.go` |
+| `Query`：渲染缓存、绑参、`List` / `Get` / `Find` / `Exists` / `Count` / `Scalar` / `Page`、`SQL()`、子查询 | `query.go` |
+| 中间表示：片段、`renderer`、`statement`、`assemble`、按方言分叉的片段 | `sqlexpr.go`（`render_test.go` 按三方言断言输出） |
+| 参数：`Param` / `ListParam` / `Arg`、绑定校验、空列表渲染、LIKE 转义 | `param.go`（`build_test.go` 守绑定规则） |
+| 列接口与实现、谓词、函数、聚合、`Year/Month/Day`、`MapInto` | `column.go` |
+| `Condition`、`And` / `Or` / `Not`、`Exists` / `NotExists`、`exprInfo` | `expr.go` |
+| `CASE` | `case.go` |
+| `ORDER BY` 方向与 `PageRequest.Order` 解析 | `order.go` |
+| 分页 `PageRequest` / `Validate` / `Normalize` / `Offset` / `Response` | `paging.go` |
 
-## 根包：列、条件、表达式
-
-| 关注点 | 文件 |
-| --- | --- |
-| 列接口与绑定列 | `column.go`、`column_impl.go` |
-| 投影列（`Expr` / `Exprf` / 别名） | `column_projection.go` |
-| 条件与 `And` / `Or` | `condition.go` |
-| 列上的谓词（`EQ` / `GTE` / `StartsWith` / `InVar` …） | `predicate_column.go` |
-| 子查询谓词、`Subquery[T]`、`AnySubquery` 与包级 `Exists` / `NotExists` | `predicate_subquery.go`、`subquery.go` |
-| 单行读取的 `LIMIT 1` 与子句顺序 | `query_load.go` 的 `limitToSingleRow`（`query_singlerow_test.go` 守着它必须排在行锁之前） |
-| RHS 抽象（列 vs 字面量 vs 占位符 vs 子查询） | `rhs.go` |
-| SQL 函数、聚合、`CASE` | `function.go` |
-| 表达式与类型化表达式 | `expression.go` |
-| `ORDER BY` | `order.go` |
-| 分页 `PageRequest` / `Validate` / `Offset` | `paging.go` |
-
-## 根包：计划、渲染、执行
+## 根包：表与写入
 
 | 关注点 | 文件 |
 | --- | --- |
-| 执行计划结构 | `query_plan.go` |
-| 计划涉及哪些表 | `query_plan_tables.go` |
-| CTE 排序与去重 | `query_plan_cte.go` |
-| SQL 文本拼装 | `query_plan_sql.go`、`sql_render.go` |
-| 参数绑定 | `query_args.go` |
-| 相关子查询（`Correlate`、外层作用域） | `querybuilder_stages.go` 的 `Correlate`、`querybuilder_core.go` 的 `addCorrelated`、`query_plan_validate.go` 的 `correlatedTables`；`query_validation.go` 拒绝单独执行 |
-| 结构校验（`Build()` 时） | `query_validation.go`、`query_plan_validate.go`、`validation.go`（`validateColumnBelongsToTable` 还负责把"列切片尚未初始化"和"列真的不属于这张表"分开报错，见 `memory.md`） |
-| 方言能力校验（执行时） | `query_validation.go` 的 `detectSQLCapabilities`，经 `dialect.ValidateCapability` |
-| 标识符校验（长度与字符集） | `dialect_validation.go`（这个文件**只剩**标识符校验，能力校验不在这儿） |
-| 查询对象与执行（含泛型 `Query.Scalar`） | `query.go`、`query_load.go`、`query_scalar.go`、`query_scan.go` |
-| 执行器接口与包装 | `executor.go`、`executor_wrap.go`、`sql_executor.go` |
-| 写操作（Insert / Update / Delete / Upsert） | `executor_mutation.go`、`executor_mutation_meta.go` |
-| **软删除**（`Delete` 打墓碑、`HardDelete` 物理删、墓碑值按字段类型落笔） | `softdelete.go`（`softdelete_test.go` 覆盖全部五种 `deleted_at` 字段形态；`examples/academy` 的 `runSoftDeleteDemo` 是端到端的门） |
-| 分批写（`BatchInsert` / `BatchUpdate` / `BatchDelete` / `BatchHardDelete`） | `batch.go`（批大小按方言的绑定参数上限换算，见 `change-impact.md`） |
-| 按条件写（`UpdateTable` / `DeleteFrom`、`MutationStage`、`Mutation.Exec`） | `mutation.go`（`mutation_test.go` 守语句形状、参数顺序与 `version` 自增；`integration_test.go` 的 `TestIntegrationMutationsByCondition` 在三方言上真跑） |
+| `TableOf` / `NewTable` / `Define`、`Table` 接口、别名、CTE、`debugSQL` | `table.go` |
+| 行写入与批量写、托管时间戳、软删除、`BatchDeleteByPK`、`WithSkipDuplicates` | `rows.go`（`exec_test.go` 端到端；`batch_test.go` 宽表分批；`timestamps_test.go` 托管字段类型） |
+| 按条件写（`UpdateTable` / `DeleteFrom` / `HardDeleteFrom`、`Mutation`） | `mutation.go`（`exec_test.go`；`integration_test.go` 的 `TestIntegrationMutationsByCondition` 三方言真跑） |
+| 错误类型 `OptimisticLockError` | `errors.go` |
+| 表注册、`SchemaPolicy`、`MissingTableError` / `MissingIndexError`、`Logger` | `schema.go` |
+| 索引策略执行 | `table_index.go` |
 
-## 根包：运行时
+## 根包：运行时与执行器
 
 | 关注点 | 文件 |
 | --- | --- |
-| `NewRuntime` / `NewRuntime`、连接池所有权、`Executor` 实现 | `runtime.go`（选项在 `runtime_options.go`） |
-| schema 对账（`TablePolicy` / `IndexPolicy`） | `runtime_schema.go` |
-| 执行期日志与 SQL 日志 | `runtime_schema.go` 的 `logForExecutor` / `logSQLForExecutor` / `compactJSON` |
-| 事务与重试（`WithTx`、`WithTxResult`、`TxOptions`、`RetryPolicy`） | `tx.go` |
-| 表注册与元数据 | `table.go`、`table_registry.go` |
-| 表变量对列切片的初始化顺序锚点 | `table.go` 的 `DeclareTable`，由 `internal/cmd/table.go.tmpl` 生成进 `var TableXxx`；门是 `examples/academy/academyqueries.go` |
-| 索引元数据 | `table_index.go` |
-| 表别名 | `table_alias.go` |
-| `Owner` 约束 | `owner.go` |
+| 封闭的 `Executor`、`execScope`、`WrapExecutor` | `executor.go` |
+| `Open` / `NewRuntime`、连接池所有权、标识符校验 | `runtime.go`（选项在 `runtime_options.go`） |
+| schema 对账、执行期日志与 SQL 日志 | `runtime_schema.go` |
+| 事务与重试（`WithTx`、`WithTxResult`、`TxOptions`、`RetryPolicy`、错误谓词） | `tx.go`（`tx_test.go`） |
 | 追踪钩子 | `trace.go` |
-| SQLite 错误映射 | `sqlite_errors.go` |
-| PostgreSQL 错误映射（`SQLState()` 接口，覆盖 pq / pgx v4 / pgx v5） | `postgres_errors.go` |
+| SQLite / PostgreSQL 错误映射 | `sqlite_errors.go`、`postgres_errors.go` |
+| 杂项（`isNilValue`、标识符校验、重复键判断、谓词值校验） | `util.go` |
 | 真实 MySQL / PostgreSQL 集成测试 | `integration_test.go`（`package tsq_test`，env DSN 驱动） |
-| 命名转换（snake / camel） | `case.go` |
+| 测试夹具（`Users` / `Orders` 表、`newSQLite`、`wideTable`） | `fixtures_test.go` |
 
 ## 方言
 
 | 关注点 | 文件 |
 | --- | --- |
-| `Dialect` 接口、`Capability` 枚举、`UnsupportedCapabilityError` | `dialect/dialect.go` |
+| `Dialect` 接口、`Capability` 枚举、`UnsupportedCapabilityError`、`Index`、`ColumnSpec` | `dialect/dialect.go` |
 | MySQL | `dialect/mysql.go` |
 | PostgreSQL | `dialect/postgres.go` |
 | SQLite | `dialect/sqlite.go` |
@@ -115,6 +87,7 @@
 | 嵌入基表（`ImmutableTable` 等） | `examples/academy/base.go` |
 | 运行时装配 | `examples/academy/bootstrap.go` |
 | 可复用场景 | `examples/academy/scenarios.go` |
+| 初始化顺序回归门（文件名必须排在 `course.tsq.go` 之前） | `examples/academy/academyqueries.go` |
 | 三个可运行程序 | `examples/{quickstart,advanced,full-suite}/main.go` |
 
 ## harness

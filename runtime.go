@@ -35,7 +35,7 @@ func Open(
 	ctx context.Context,
 	driverName string,
 	dsn string,
-	tables []TableRegistration,
+	tables []Table,
 	options ...RuntimeOption,
 ) (*Runtime, error) {
 	if ctx == nil {
@@ -79,7 +79,7 @@ func NewRuntime(
 	ctx context.Context,
 	db *sql.DB,
 	sqlDialect tsqdialect.Dialect,
-	tables []TableRegistration,
+	tables []Table,
 	options ...RuntimeOption,
 ) (*Runtime, error) {
 	if ctx == nil {
@@ -101,11 +101,11 @@ func newRuntime(
 	ctx context.Context,
 	db *sql.DB,
 	sqlDialect tsqdialect.Dialect,
-	tables []TableRegistration,
+	tables []Table,
 	ownsDB bool,
 	options []RuntimeOption,
 ) (*Runtime, error) {
-	registeredTables, err := buildRegisteredTables(tables)
+	registeredTables, err := registerTables(tables)
 	if err != nil {
 		return nil, err
 	}
@@ -168,12 +168,12 @@ func (r *Runtime) MaxPageSize() int {
 	return r.maxPageSize
 }
 
-func (r *Runtime) tsqDialect() tsqdialect.Dialect {
-	return r.Dialect()
-}
+func (r *Runtime) scope() execScope {
+	if r == nil {
+		return execScope{}
+	}
 
-func (r *Runtime) tsqRuntime() *Runtime {
-	return r
+	return execScope{dialect: r.dialect, runtime: r}
 }
 
 // DB returns the current *sql.DB.
@@ -298,85 +298,23 @@ func (runtimeErrorDriver) Open(string) (driver.Conn, error) {
 }
 
 func (r *Runtime) validateRegisteredTableIdentifiers() error {
-	if r == nil {
-		return errors.New("runtime cannot be nil")
-	}
-
-	dialect := r.Dialect()
-	if dialect == nil {
-		return nil
-	}
-
 	for _, table := range r.tables {
-		if table.Table == nil {
-			continue
+		if err := validateIdentifierForDialect(table.name, r.dialect); err != nil {
+			return fmt.Errorf("table %s: %w", table.name, err)
 		}
 
-		tableName := physicalTableName(table.Table)
-		if err := validateIdentifierLength(tableName, r.dialect); err != nil {
-			return fmt.Errorf("table %s identifier validation failed: %w", tableName, err)
+		for _, col := range table.columns {
+			if err := validateIdentifierForDialect(col.name, r.dialect); err != nil {
+				return fmt.Errorf("column %s.%s: %w", table.name, col.name, err)
+			}
 		}
 
-		if err := validateColumnIdentifiersForDialect(tableName, table.Cols(), r.dialect); err != nil {
-			return err
-		}
-
-		if err := validateColumnIdentifiersForDialect(tableName, searchColumnsAsSQLColumns(table.SearchColumns()), r.dialect); err != nil {
-			return err
-		}
-
-		if err := validateIndexIdentifiersForDialect(tableName, table.Indexes, r.dialect); err != nil {
-			return err
+		for _, index := range table.Indexes {
+			if err := validateIdentifierForDialect(index.Name, r.dialect); err != nil {
+				return fmt.Errorf("index %s on %s: %w", index.Name, table.name, err)
+			}
 		}
 	}
 
 	return nil
-}
-
-func validateIndexIdentifiersForDialect(
-	tableName string,
-	indexes []TableIndex,
-	dialect tsqdialect.Dialect,
-) error {
-	for _, index := range indexes {
-		if err := validateIdentifierLength(index.Name, dialect); err != nil {
-			return fmt.Errorf("index %s on table %s identifier validation failed: %w", index.Name, tableName, err)
-		}
-	}
-
-	return nil
-}
-
-func validateColumnIdentifiersForDialect(
-	tableName string,
-	cols []SQLColumn,
-	dialect tsqdialect.Dialect,
-) error {
-	seen := make(map[string]struct{}, len(cols))
-	for _, col := range cols {
-		if col == nil {
-			continue
-		}
-
-		colName := col.OutputName()
-		if _, ok := seen[colName]; ok {
-			continue
-		}
-		seen[colName] = struct{}{}
-
-		if err := validateIdentifierLength(colName, dialect); err != nil {
-			return fmt.Errorf("column %s.%s identifier validation failed: %w", tableName, colName, err)
-		}
-	}
-
-	return nil
-}
-
-func searchColumnsAsSQLColumns(cols []SearchColumn) []SQLColumn {
-	result := make([]SQLColumn, 0, len(cols))
-	for _, col := range cols {
-		result = append(result, col)
-	}
-
-	return result
 }

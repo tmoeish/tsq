@@ -11,122 +11,164 @@ import (
 	null "gopkg.in/nullbio/null.v6"
 
 	"github.com/tmoeish/tsq/v5"
+	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 )
 
-// =============================================================================
-// Table Interface Implementation
-// =============================================================================
+// tsqEnrollmentTable is TableEnrollment before its definition; columns are declared on it.
+var tsqEnrollmentTable = tsq.NewTable[Enrollment]("enrollment")
 
-// TableEnrollment implements the tsq.Table interface for Enrollment.
-//
-// The Enrollment__Cols argument is never read. It makes this variable depend on the
-// column slice so that Go initializes the slice first: Cols reaches it through an
-// interface method, which package initialization ordering cannot see. Without it a
-// package-level query variable in a file sorting before this one can observe
-// Enrollment__Cols fully sized with nil elements.
-var TableEnrollment tsq.Table = tsq.DeclareTable(Enrollment{}, Enrollment__Cols)
-
-// TSQOwner marks Enrollment as a TSQ owner.
-func (e Enrollment) TSQOwner() {}
-
-// TableName returns the database table name for Enrollment.
-func (e Enrollment) TableName() string { return "enrollment" }
-
-// Cols returns all generated columns for Enrollment.
-func (e Enrollment) Cols() []tsq.SQLColumn {
-	return tsq.SQLColumns(Enrollment__Cols...)
-}
-
-// SearchColumns returns columns that support keyword search for Enrollment.
-func (e Enrollment) SearchColumns() []tsq.SearchColumn {
-	return []tsq.SearchColumn{}
-}
-
-// PrimaryKey returns the primary key column for Enrollment.
-func (e Enrollment) PrimaryKey() string {
-	return "uid"
-}
-
-// AutoIncrement reports whether Enrollment uses an auto-increment primary key.
-func (e Enrollment) AutoIncrement() bool { return true }
-
-// ManagedColumns returns the columns TSQ maintains for Enrollment.
-func (e Enrollment) ManagedColumns() tsq.ManagedColumns {
-	return tsq.ManagedColumns{
-		Version:   "version",
-		CreatedAt: "created_at",
-		UpdatedAt: "updated_at",
-		DeletedAt: "deleted_at",
-	}
-}
-
-// Active returns true if the Enrollment record is not soft-deleted.
-func (e *Enrollment) Active() bool {
-	return e.DeletedAt == 0
-}
-
-// Column definitions for Enrollment table.
+// Columns of Enrollment.
 var (
-	Enrollment_CourseID  = tsq.NewColumn("course_id", "course_id", func(t *Enrollment) *int64 { return &t.CourseID })
-	Enrollment_CreatedAt = tsq.NewColumn("created_at", "created_at", func(t *Enrollment) *tsqtime.Time { return &t.CreatedAt })
-	Enrollment_DeletedAt = tsq.NewColumn("deleted_at", "deleted_at", func(t *Enrollment) *int64 { return &t.DeletedAt })
-	Enrollment_FeeCents  = tsq.NewColumn("fee_cents", "fee_cents", func(t *Enrollment) *int64 { return &t.FeeCents })
-	Enrollment_LearnerID = tsq.NewColumn("learner_id", "learner_id", func(t *Enrollment) *int64 { return &t.LearnerID })
-	Enrollment_Score     = tsq.NewColumn("score", "score", func(t *Enrollment) *int64 { return &t.Score })
-	Enrollment_Status    = tsq.NewColumn("status", "status", func(t *Enrollment) *EnrollmentStatus { return &t.Status })
-	Enrollment_UID       = tsq.NewColumn("uid", "uid", func(t *Enrollment) *int64 { return &t.UID })
-	Enrollment_UpdatedAt = tsq.NewColumn("updated_at", "updated_at", func(t *Enrollment) *null.Time { return &t.UpdatedAt })
-	Enrollment_Version   = tsq.NewColumn("version", "version", func(t *Enrollment) *int64 { return &t.Version })
+	Enrollment_CourseID  = tsq.NewColumn(tsqEnrollmentTable, "course_id", "course_id", func(r *Enrollment) *int64 { return &r.CourseID })
+	Enrollment_CreatedAt = tsq.NewColumn(tsqEnrollmentTable, "created_at", "created_at", func(r *Enrollment) *tsqtime.Time { return &r.CreatedAt })
+	Enrollment_DeletedAt = tsq.NewColumn(tsqEnrollmentTable, "deleted_at", "deleted_at", func(r *Enrollment) *int64 { return &r.DeletedAt })
+	Enrollment_FeeCents  = tsq.NewColumn(tsqEnrollmentTable, "fee_cents", "fee_cents", func(r *Enrollment) *int64 { return &r.FeeCents })
+	Enrollment_LearnerID = tsq.NewColumn(tsqEnrollmentTable, "learner_id", "learner_id", func(r *Enrollment) *int64 { return &r.LearnerID })
+	Enrollment_Score     = tsq.NewColumn(tsqEnrollmentTable, "score", "score", func(r *Enrollment) *int64 { return &r.Score })
+	Enrollment_Status    = tsq.NewColumn(tsqEnrollmentTable, "status", "status", func(r *Enrollment) *EnrollmentStatus { return &r.Status })
+	Enrollment_UID       = tsq.NewColumn(tsqEnrollmentTable, "uid", "uid", func(r *Enrollment) *int64 { return &r.UID })
+	Enrollment_UpdatedAt = tsq.NewColumn(tsqEnrollmentTable, "updated_at", "updated_at", func(r *Enrollment) *null.Time { return &r.UpdatedAt })
+	Enrollment_Version   = tsq.NewColumn(tsqEnrollmentTable, "version", "version", func(r *Enrollment) *int64 { return &r.Version })
 )
 
-// Enrollment__Cols is the list of all selectable columns for Enrollment table.
-var Enrollment__Cols = []tsq.BoundColumn[Enrollment]{
-	Enrollment_CourseID,
-	Enrollment_CreatedAt,
-	Enrollment_DeletedAt,
-	Enrollment_FeeCents,
-	Enrollment_LearnerID,
-	Enrollment_Score,
-	Enrollment_Status,
-	Enrollment_UID,
-	Enrollment_UpdatedAt,
-	Enrollment_Version,
-}
+// TableEnrollment is the table descriptor of Enrollment. It depends on every column, so
+// package initialization completes the table before any query uses it.
+var TableEnrollment = tsqEnrollmentTable.Define(tsq.TableSpec[Enrollment]{
+	Columns: []tsq.BoundColumn[Enrollment]{
+		Enrollment_CourseID,
+		Enrollment_CreatedAt,
+		Enrollment_DeletedAt,
+		Enrollment_FeeCents,
+		Enrollment_LearnerID,
+		Enrollment_Score,
+		Enrollment_Status,
+		Enrollment_UID,
+		Enrollment_UpdatedAt,
+		Enrollment_Version,
+	},
+	PrimaryKey:    Enrollment_UID,
+	AutoIncrement: true,
+	Version:       Enrollment_Version,
+	CreatedAt:     Enrollment_CreatedAt,
+	UpdatedAt:     Enrollment_UpdatedAt,
+	DeletedAt:     Enrollment_DeletedAt,
+	Schema: []tsqdialect.ColumnSpec{
+		{
+			Name: "uid",
+			Type: tsqdialect.ColumnType{
+				Kind: tsqdialect.KindInt,
+				Bits: 64,
+			},
+			PrimaryKey:    true,
+			AutoIncrement: true,
+		},
+		{
+			Name: "created_at",
+			Type: tsqdialect.ColumnType{
+				Kind: tsqdialect.KindTime,
+			},
+			Default: "CURRENT_TIMESTAMP",
+		},
+		{
+			Name: "updated_at",
+			Type: tsqdialect.ColumnType{
+				Kind:     tsqdialect.KindTime,
+				Nullable: true,
+			},
+		},
+		{
+			Name: "deleted_at",
+			Type: tsqdialect.ColumnType{
+				Kind: tsqdialect.KindInt,
+				Bits: 64,
+			},
+			Default: "0",
+		},
+		{
+			Name: "version",
+			Type: tsqdialect.ColumnType{
+				Kind: tsqdialect.KindInt,
+				Bits: 64,
+			},
+			Default: "1",
+		},
+		{
+			Name: "course_id",
+			Type: tsqdialect.ColumnType{
+				Kind: tsqdialect.KindInt,
+				Bits: 64,
+			},
+		},
+		{
+			Name: "fee_cents",
+			Type: tsqdialect.ColumnType{
+				Kind: tsqdialect.KindInt,
+				Bits: 64,
+			},
+		},
+		{
+			Name: "learner_id",
+			Type: tsqdialect.ColumnType{
+				Kind: tsqdialect.KindInt,
+				Bits: 64,
+			},
+		},
+		{
+			Name: "score",
+			Type: tsqdialect.ColumnType{
+				Kind: tsqdialect.KindInt,
+				Bits: 64,
+			},
+		},
+		{
+			Name: "status",
+			Type: tsqdialect.ColumnType{
+				Kind: tsqdialect.KindInt,
+				Bits: 32,
+			},
+		},
+	},
+	Indexes: []tsq.TableIndex{
+		{Name: "idx_enrollment_course_id", Fields: []string{"deleted_at", "course_id"}},
+		{Name: "idx_enrollment_learner_id_course_id", Fields: []string{"deleted_at", "learner_id", "course_id"}},
+		{Name: "idx_enrollment_status", Fields: []string{"deleted_at", "status"}},
+	},
+})
 
-// =============================================================================
-// Query by Primary Key
-// =============================================================================
-// QueryEnrollmentByUID stores the generated primary-key lookup query for Enrollment.
+// Enrollment__Cols lists every column of Enrollment, for Select.
+var Enrollment__Cols = TableEnrollment.Columns()
+
+// QueryEnrollmentByUID reads one Enrollment by primary key; bind Enrollment_UID.
 var QueryEnrollmentByUID = tsq.
 	Select(Enrollment__Cols...).
 	From(TableEnrollment).
 	Where(
 		Enrollment_DeletedAt.EQVal(0),
-		Enrollment_UID.EQVar(),
+		Enrollment_UID.EQ(Enrollment_UID.Param()),
 	).
 	MustBuild()
 
-// QueryEnrollmentByUIDIn stores the generated primary-key IN lookup query for Enrollment.
+// QueryEnrollmentByUIDIn reads Enrollment rows by a list of primary keys; bind Enrollment_UID with BindList.
 var QueryEnrollmentByUIDIn = tsq.
 	Select(Enrollment__Cols...).
 	From(TableEnrollment).
 	Where(
 		Enrollment_DeletedAt.EQVal(0),
-		Enrollment_UID.InVar(),
+		Enrollment_UID.In(Enrollment_UID.ListParam()),
 	).
 	MustBuild()
 
-// FetchEnrollmentByUID returns the Enrollment rows whose UID is one of the given
-// values, in the order given. It fails with an error wrapping sql.ErrNoRows when
-// any of them is missing.
+// FetchEnrollmentByUID returns the Enrollment rows with the given primary keys,
+// in the order given. It fails with an error wrapping sql.ErrNoRows when any of
+// them is missing.
 func FetchEnrollmentByUID(
 	ctx context.Context,
 	db tsq.Executor,
 	uIDs ...int64,
 ) ([]*Enrollment, error) {
-	list, err := QueryEnrollmentByUIDIn.List(ctx, db, uIDs)
+	list, err := QueryEnrollmentByUIDIn.List(ctx, db, Enrollment_UID.BindList(uIDs...))
 	if err != nil {
-		return nil, fmt.Errorf("fetch Enrollment by UID: %w", err)
+		return nil, err
 	}
 
 	ordered, missing := matchByInputOrder(uIDs, list, func(row *Enrollment) int64 {
@@ -135,174 +177,121 @@ func FetchEnrollmentByUID(
 	if len(missing) > 0 {
 		return nil, fmt.Errorf("fetch Enrollment by UID %v: %w", missing, tsqsql.ErrNoRows)
 	}
+
 	return ordered, nil
 }
 
-// =============================================================================
-// Query by Unique Indexes
-// =============================================================================
-
-// =============================================================================
-// Query by Indexes
-// =============================================================================
-// QueryEnrollmentByCourseID stores the generated index query for Enrollment.
+// QueryEnrollmentByCourseID reads Enrollment rows by index idx_enrollment_course_id.
 var QueryEnrollmentByCourseID = tsq.
 	Select(Enrollment__Cols...).
 	From(TableEnrollment).
-	Search(TableEnrollment.SearchColumns()...).
 	Where(
 		Enrollment_DeletedAt.EQVal(0),
-		Enrollment_CourseID.EQVar(),
+		Enrollment_CourseID.EQ(Enrollment_CourseID.Param()),
 	).
 	MustBuild()
 
-// QueryEnrollmentByCourseIDIn stores the generated index query for Enrollment.
+// QueryEnrollmentByCourseIDIn reads Enrollment rows by index idx_enrollment_course_id.
 var QueryEnrollmentByCourseIDIn = tsq.
 	Select(Enrollment__Cols...).
 	From(TableEnrollment).
 	Where(
 		Enrollment_DeletedAt.EQVal(0),
-		Enrollment_CourseID.InVar(),
+		Enrollment_CourseID.In(Enrollment_CourseID.ListParam()),
 	).
 	MustBuild()
 
-// QueryEnrollmentByLearnerID stores the generated index query for Enrollment.
+// QueryEnrollmentByLearnerID reads Enrollment rows by index idx_enrollment_learner_id_course_id.
 var QueryEnrollmentByLearnerID = tsq.
 	Select(Enrollment__Cols...).
 	From(TableEnrollment).
-	Search(TableEnrollment.SearchColumns()...).
 	Where(
 		Enrollment_DeletedAt.EQVal(0),
-		Enrollment_LearnerID.EQVar(),
+		Enrollment_LearnerID.EQ(Enrollment_LearnerID.Param()),
 	).
 	MustBuild()
 
-// QueryEnrollmentByLearnerIDAndCourseID stores the generated index query for Enrollment.
+// QueryEnrollmentByLearnerIDAndCourseID reads Enrollment rows by index idx_enrollment_learner_id_course_id.
 var QueryEnrollmentByLearnerIDAndCourseID = tsq.
 	Select(Enrollment__Cols...).
 	From(TableEnrollment).
-	Search(TableEnrollment.SearchColumns()...).
 	Where(
 		Enrollment_DeletedAt.EQVal(0),
-		Enrollment_LearnerID.EQVar(),
-		Enrollment_CourseID.EQVar(),
+		Enrollment_LearnerID.EQ(Enrollment_LearnerID.Param()),
+		Enrollment_CourseID.EQ(Enrollment_CourseID.Param()),
 	).
 	MustBuild()
 
-// QueryEnrollmentByLearnerIDAndCourseIDIn stores the generated index query for Enrollment.
+// QueryEnrollmentByLearnerIDAndCourseIDIn reads Enrollment rows by index idx_enrollment_learner_id_course_id.
 var QueryEnrollmentByLearnerIDAndCourseIDIn = tsq.
 	Select(Enrollment__Cols...).
 	From(TableEnrollment).
 	Where(
 		Enrollment_DeletedAt.EQVal(0),
-		Enrollment_LearnerID.EQVar(),
-		Enrollment_CourseID.InVar(),
+		Enrollment_LearnerID.EQ(Enrollment_LearnerID.Param()),
+		Enrollment_CourseID.In(Enrollment_CourseID.ListParam()),
 	).
 	MustBuild()
 
-// QueryEnrollmentByLearnerIDIn stores the generated index query for Enrollment.
+// QueryEnrollmentByLearnerIDIn reads Enrollment rows by index idx_enrollment_learner_id_course_id.
 var QueryEnrollmentByLearnerIDIn = tsq.
 	Select(Enrollment__Cols...).
 	From(TableEnrollment).
 	Where(
 		Enrollment_DeletedAt.EQVal(0),
-		Enrollment_LearnerID.InVar(),
+		Enrollment_LearnerID.In(Enrollment_LearnerID.ListParam()),
 	).
 	MustBuild()
 
-// QueryEnrollmentByStatus stores the generated index query for Enrollment.
+// QueryEnrollmentByStatus reads Enrollment rows by index idx_enrollment_status.
 var QueryEnrollmentByStatus = tsq.
 	Select(Enrollment__Cols...).
 	From(TableEnrollment).
-	Search(TableEnrollment.SearchColumns()...).
 	Where(
 		Enrollment_DeletedAt.EQVal(0),
-		Enrollment_Status.EQVar(),
+		Enrollment_Status.EQ(Enrollment_Status.Param()),
 	).
 	MustBuild()
 
-// QueryEnrollmentByStatusIn stores the generated index query for Enrollment.
+// QueryEnrollmentByStatusIn reads Enrollment rows by index idx_enrollment_status.
 var QueryEnrollmentByStatusIn = tsq.
 	Select(Enrollment__Cols...).
 	From(TableEnrollment).
 	Where(
 		Enrollment_DeletedAt.EQVal(0),
-		Enrollment_Status.InVar(),
+		Enrollment_Status.In(Enrollment_Status.ListParam()),
 	).
 	MustBuild()
 
-// =============================================================================
-// List All Records
-// =============================================================================
-// QueryEnrollment stores the generated list-all query for Enrollment.
+// QueryEnrollment reads every Enrollment row that is not deleted; Page matches its search columns.
 var QueryEnrollment = tsq.
 	Select(Enrollment__Cols...).
 	From(TableEnrollment).
-	Search(TableEnrollment.SearchColumns()...).
 	Where(Enrollment_DeletedAt.EQVal(0)).
 	MustBuild()
 
-// =============================================================================
-// CRUD Operations
-// =============================================================================
-
-// Insert inserts a new Enrollment record.
-func (e *Enrollment) Insert(
-	ctx context.Context,
-	db tsq.Executor,
-) error {
-	if e.CreatedAt.IsZero() {
-		e.CreatedAt = tsqtime.Now()
-	}
-	if !e.UpdatedAt.Valid {
-		e.UpdatedAt = null.TimeFrom(tsqtime.Now())
-	}
-	err := tsq.Insert(ctx, db, e)
-	if err != nil {
-		return fmt.Errorf("insert Enrollment: %w", err)
-	}
-	return nil
+// Insert inserts the row; see tsq.TableOf.Insert.
+func (e *Enrollment) Insert(ctx context.Context, db tsq.Executor) error {
+	return TableEnrollment.Insert(ctx, db, e)
 }
 
-// Update updates an existing Enrollment record.
-func (e *Enrollment) Update(
-	ctx context.Context,
-	db tsq.Executor,
-) error {
-	e.UpdatedAt = null.TimeFrom(tsqtime.Now())
-	err := tsq.Update(ctx, db, e)
-	if err != nil {
-		return fmt.Errorf("update Enrollment UID=%v: %w", e.UID, err)
-	}
-	return nil
+// Update updates the row; see tsq.TableOf.Update.
+func (e *Enrollment) Update(ctx context.Context, db tsq.Executor) error {
+	return TableEnrollment.Update(ctx, db, e)
 }
 
-// Delete soft-deletes a Enrollment record by stamping DeletedAt.
-//
-// The row stays in the table and drops out of every generated query. Use
-// HardDelete to remove it from the database.
-func (e *Enrollment) Delete(
-	ctx context.Context,
-	db tsq.Executor,
-) error {
-	err := tsq.Delete(ctx, db, e)
-	if err != nil {
-		return fmt.Errorf("delete Enrollment UID=%v: %w", e.UID, err)
-	}
-	return nil
+// Delete soft-deletes the row by stamping DeletedAt; it drops out of every
+// generated query. See tsq.TableOf.Delete.
+func (e *Enrollment) Delete(ctx context.Context, db tsq.Executor) error {
+	return TableEnrollment.Delete(ctx, db, e)
 }
 
-// HardDelete removes a Enrollment record from the database.
-//
-// This is not reversible: a soft-deleted row can be restored by clearing
-// DeletedAt, a hard-deleted one cannot.
-func (e *Enrollment) HardDelete(
-	ctx context.Context,
-	db tsq.Executor,
-) error {
-	err := tsq.HardDelete(ctx, db, e)
-	if err != nil {
-		return fmt.Errorf("hard-delete Enrollment UID=%v: %w", e.UID, err)
-	}
-	return nil
+// HardDelete removes the row from the table. Unlike a soft delete, it cannot be undone.
+func (e *Enrollment) HardDelete(ctx context.Context, db tsq.Executor) error {
+	return TableEnrollment.HardDelete(ctx, db, e)
+}
+
+// Active reports whether the row is not soft-deleted.
+func (e *Enrollment) Active() bool {
+	return e.DeletedAt == 0
 }

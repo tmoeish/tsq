@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | `runAliasDemo` | 查课程和它的前置课 | alias / rebinding |
 | `runAggregateDemo` | 统计每条学习路径的报名数和平均分 | aggregate、`GroupBy`、`Having` |
-| `runInVarDemo` | 前端传入一组课程 ID，后台批量查询 | `InVar()` |
+| `runListParamDemo` | 前端传入一组课程 ID，后台批量查询 | `In(col.ListParam())` + `BindList` |
 | `runSubqueryDemo` | 用“先查路径，再查报名，再查学员”的方式筛数据 | `In(subquery)`、标量子查询 |
 | `runCaseDemo` | 按报名状态和分数打标签 | `CASE` |
 | `runCTEDemo` | 先定义一组平台课程，再继续查询 | non-recursive CTE |
@@ -28,7 +28,7 @@
 
 - `alias_prerequisite`
 - `track_metrics`
-- `dynamic_in`
+- `list_param`
 - `subquery`
 - `case_labels`
 - `cte`

@@ -7,16 +7,6 @@ import (
 	"github.com/tmoeish/tsq/v5"
 )
 
-// =============================================================================
-// Result Definition
-// =============================================================================
-
-// TSQOwner marks LearningJourney as a TSQ owner.
-func (lj LearningJourney) TSQOwner() {}
-
-// TSQResult marks LearningJourney as a TSQ result.
-func (lj LearningJourney) TSQResult() {}
-
 // LearningJourney__Cols lists every generated result column of LearningJourney, for Select.
 var LearningJourney__Cols = []tsq.BoundColumn[LearningJourney]{
 	LearningJourney_CourseID,

@@ -96,7 +96,7 @@ if err != nil {
 defer runtime.Close()
 ```
 
-`NewRuntime` opens the pool itself and resolves the dialect from `driverName`; the context bounds the
+`Open` opens the pool itself and resolves the dialect from `driverName`; the context bounds the
 ping and any bootstrap DDL. When the project already opens its own pool, for instance to wrap it with
 instrumentation, use `tsq.NewRuntime(ctx, db, dialect, tables, options...)` instead and keep
 that pool: TSQ will not close a pool it did not open. If the project manages schema by migrations,
@@ -122,8 +122,18 @@ if err != nil {
 
 This is the main TSQ shape:
 
-- use value helpers such as `EQVal(...)` / `LikeVal(...)` for concrete literals
-- use `EQ(...)` / `Like(...)` when the RHS is another typed column or typed subquery
+- use value helpers such as `EQVal(...)` / `ContainsVal(...)` for values fixed in the code
+- use `EQ(col.Param())` and pass `col.Bind(v)` when the value comes at execution time
+- use `EQ(otherCol)` when the right-hand side is another column or a typed subquery
+
+```go
+byName := tsq.Select(database.User__Cols...).
+	From(database.TableUser).
+	Where(database.User_Name.EQ(database.User_Name.Param())).
+	MustBuild()
+
+amy, err := byName.Get(ctx, runtime, database.User_Name.Bind("amy"))
+```
 
 1. choose columns
 2. choose source table
@@ -137,10 +147,10 @@ If multiple TSQ operations must share one transaction:
 
 ```go
 if err := runtime.WithTx(ctx, nil, func(ctx context.Context, txExec tsq.Executor) error {
-	if err := tsq.Insert(ctx, txExec, user); err != nil {
+	if err := user.Insert(ctx, txExec); err != nil {
 		return err
 	}
-	return tsq.Update(ctx, txExec, profile)
+	return profile.Update(ctx, txExec)
 }); err != nil {
 	return err
 }
@@ -154,9 +164,10 @@ if err := runtime.WithTx(ctx, nil, func(ctx context.Context, txExec tsq.Executor
 - make sure the package contains at least one `.go` file
 - make sure `go.mod` exists
 
-### generated helper returns an initialization error
+### the package panics while it is imported
 
-Usually the source struct changed but generated files were not refreshed. Regenerate first.
+Generated queries are built at package initialization. Usually the source struct changed but the
+generated files were not refreshed. Regenerate first.
 
 ### query builds but execution fails on dialect support
 

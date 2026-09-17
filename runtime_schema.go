@@ -75,16 +75,6 @@ func logWith(ctx context.Context, logger Logger, level slog.Level, msg string, a
 	logger.LogAttrs(ctx, level, msg, attrs...)
 }
 
-// runtimeForExecutor returns the runtime an executor was derived from, or nil for
-// executors that carry no runtime (a bare *sql.DB, a WrapExecutor result).
-func runtimeForExecutor(exec Executor) *Runtime {
-	if provider, ok := exec.(traceProvider); ok {
-		return provider.tsqRuntime()
-	}
-
-	return nil
-}
-
 // logForExecutor routes execution-time diagnostics to the runtime's configured
 // Logger when the executor belongs to one, and to slog.Default() otherwise.
 func logForExecutor(ctx context.Context, exec Executor, level slog.Level, msg string, args ...any) {
@@ -170,7 +160,7 @@ func (r *Runtime) applyTablePolicy(ctx context.Context) error {
 }
 
 func (r *Runtime) applyTablePolicyForTable(ctx context.Context, table *registeredTable) error {
-	tableName := physicalTableName(table.Table)
+	tableName := table.name
 	if len(table.Columns) == 0 {
 		return fmt.Errorf("table %s does not include runtime schema columns; regenerate TSQ code before using table management", tableName)
 	}
@@ -280,7 +270,7 @@ func (r *Runtime) applyIndexPolicy(ctx context.Context) error {
 }
 
 func (r *Runtime) applyIndexPolicyForTable(ctx context.Context, table *registeredTable) error {
-	tableName := physicalTableName(table.Table)
+	tableName := table.name
 	if _, found, err := r.dialect.InspectColumns(ctx, r.db, tableName); err != nil {
 		return err
 	} else if !found {

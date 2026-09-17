@@ -20,7 +20,7 @@ type QuickstartSummary struct {
 type AdvancedSummary struct {
 	Alias          AliasSummary          `json:"alias_prerequisite"` // Alias summarizes table aliasing over prerequisite joins.
 	Aggregate      []AggregateSummary    `json:"track_metrics"`      // Aggregate summarizes grouped track metrics.
-	InVar          InVarSummary          `json:"dynamic_in"`         // InVar summarizes runtime slice binding.
+	ListParam      ListParamSummary      `json:"list_param"`         // ListParam summarizes list parameter binding.
 	Subquery       SubquerySummary       `json:"subquery"`           // Subquery summarizes scalar and membership subquery usage.
 	Case           CaseSummary           `json:"case_labels"`        // Case summarizes CASE-expression labeling.
 	CTE            CTESummary            `json:"cte"`                // CTE summarizes common-table-expression queries.
@@ -79,8 +79,8 @@ type AggregateSummary struct {
 	AverageScore    float64 `json:"average_score"`    // AverageScore is the average score within the group.
 }
 
-// InVarSummary captures the runtime slice binding demo result.
-type InVarSummary struct {
+// ListParamSummary captures the list parameter demo result.
+type ListParamSummary struct {
 	CourseIDs []int64  `json:"course_ids"` // CourseIDs is the input ID slice bound at execution time.
 	Titles    []string `json:"titles"`     // Titles lists the matched course titles.
 }
@@ -202,7 +202,7 @@ func RunAdvanced(ctx context.Context, runtime *tsq.Runtime) (*AdvancedSummary, e
 		return nil, fmt.Errorf("%s: %w", "aggregate demo", err)
 	}
 
-	inVar, err := runInVarDemo(ctx, runtime)
+	listParam, err := runListParamDemo(ctx, runtime)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "dynamic in demo", err)
 	}
@@ -245,7 +245,7 @@ func RunAdvanced(ctx context.Context, runtime *tsq.Runtime) (*AdvancedSummary, e
 	return &AdvancedSummary{
 		Alias:          *alias,
 		Aggregate:      aggregate,
-		InVar:          *inVar,
+		ListParam:      *listParam,
 		Subquery:       *subquery,
 		Case:           *caseExpr,
 		CTE:            *cte,
@@ -530,15 +530,15 @@ func runAggregateDemo(ctx context.Context, runtime *tsq.Runtime) ([]AggregateSum
 	return summaries, nil
 }
 
-// runInVarDemo demonstrates the dynamic IN placeholder flow used when callers
+// runListParamDemo demonstrates an IN list bound at execution used when callers
 // provide a runtime-sized list of course IDs.
-func runInVarDemo(ctx context.Context, runtime *tsq.Runtime) (*InVarSummary, error) {
+func runListParamDemo(ctx context.Context, runtime *tsq.Runtime) (*ListParamSummary, error) {
 	exec := runtime
 
 	query, err := tsq.
 		Select(Course__Cols...).
 		From(TableCourse).
-		Where(Course_ID.InVar()).
+		Where(Course_ID.In(Course_ID.ListParam())).
 		Build()
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "build dynamic in query", err)
@@ -546,7 +546,7 @@ func runInVarDemo(ctx context.Context, runtime *tsq.Runtime) (*InVarSummary, err
 
 	courseIDs := []int64{1, 4, 6}
 
-	courses, err := query.List(ctx, exec, courseIDs)
+	courses, err := query.List(ctx, exec, Course_ID.BindList(courseIDs...))
 	if err != nil {
 		return nil, err
 	}
@@ -558,7 +558,7 @@ func runInVarDemo(ctx context.Context, runtime *tsq.Runtime) (*InVarSummary, err
 
 	sort.Strings(titles)
 
-	return &InVarSummary{
+	return &ListParamSummary{
 		CourseIDs: courseIDs,
 		Titles:    titles,
 	}, nil
@@ -656,22 +656,22 @@ func runCaseDemo(ctx context.Context, runtime *tsq.Runtime) (*CaseSummary, error
 	exec := runtime
 	labelExpr := tsq.
 		Case[string]().
-		When(
+		WhenVal(
 			tsq.And(
 				Enrollment_Status.EQVal(EnrollmentStatusCompleted),
 				Enrollment_Score.GTEVal(90),
 			),
 			"excellent",
 		).
-		When(
+		WhenVal(
 			tsq.And(
 				Enrollment_Status.EQVal(EnrollmentStatusActive),
 				Enrollment_Score.GTEVal(80),
 			),
 			"on_track",
 		).
-		When(Enrollment_Status.EQVal(EnrollmentStatusWaitlisted), "waitlist").
-		Else("watchlist").
+		WhenVal(Enrollment_Status.EQVal(EnrollmentStatusWaitlisted), "waitlist").
+		ElseVal("watchlist").
 		End()
 
 	label := tsq.MapInto(labelExpr, func(holder *namedRow) *string {
@@ -857,7 +857,7 @@ func runBatchDemo(ctx context.Context, runtime *tsq.Runtime) (*BatchSummary, err
 	}
 
 	if err := runtime.WithTx(ctx, nil, func(ctx context.Context, txExec tsq.Executor) error {
-		if err := tsq.BatchInsert(ctx, txExec, enrollments, tsq.WithBatchSize(2)); err != nil {
+		if err := TableEnrollment.BatchInsert(ctx, txExec, enrollments, tsq.WithBatchSize(2)); err != nil {
 			return err
 		}
 
@@ -872,11 +872,11 @@ func runBatchDemo(ctx context.Context, runtime *tsq.Runtime) (*BatchSummary, err
 			enrollment.Score += 3
 		}
 
-		if err := tsq.BatchUpdate(ctx, txExec, enrollments, tsq.WithBatchSize(2)); err != nil {
+		if err := TableEnrollment.BatchUpdate(ctx, txExec, enrollments, tsq.WithBatchSize(2)); err != nil {
 			return err
 		}
 
-		if err := tsq.BatchDelete(ctx, txExec, enrollments[:1], tsq.WithBatchSize(1)); err != nil {
+		if err := TableEnrollment.BatchDelete(ctx, txExec, enrollments[:1], tsq.WithBatchSize(1)); err != nil {
 			return err
 		}
 
@@ -933,7 +933,7 @@ func runSoftDeleteDemo(ctx context.Context, runtime *tsq.Runtime) (*SoftDeleteSu
 	storedByUID := tsq.
 		Select(Enrollment__Cols...).
 		From(TableEnrollment).
-		Where(Enrollment_UID.EQVar()).
+		Where(Enrollment_UID.EQ(Enrollment_UID.Param())).
 		MustBuild()
 
 	row := &Enrollment{
@@ -947,7 +947,7 @@ func runSoftDeleteDemo(ctx context.Context, runtime *tsq.Runtime) (*SoftDeleteSu
 		return nil, fmt.Errorf("%s: %w", "insert enrollment", err)
 	}
 
-	visible, err := QueryEnrollmentByUID.Find(ctx, exec, row.UID)
+	visible, err := QueryEnrollmentByUID.Find(ctx, exec, Enrollment_UID.Bind(row.UID))
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "load enrollment before delete", err)
 	}
@@ -964,14 +964,14 @@ func runSoftDeleteDemo(ctx context.Context, runtime *tsq.Runtime) (*SoftDeleteSu
 
 	summary.ActiveAfter = row.Active()
 
-	visible, err = QueryEnrollmentByUID.Find(ctx, exec, row.UID)
+	visible, err = QueryEnrollmentByUID.Find(ctx, exec, Enrollment_UID.Bind(row.UID))
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "load enrollment after delete", err)
 	}
 
 	summary.VisibleAfter = visible != nil
 
-	stored, err := storedByUID.Find(ctx, exec, row.UID)
+	stored, err := storedByUID.Find(ctx, exec, Enrollment_UID.Bind(row.UID))
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "load stored enrollment after delete", err)
 	}
@@ -985,7 +985,7 @@ func runSoftDeleteDemo(ctx context.Context, runtime *tsq.Runtime) (*SoftDeleteSu
 		return nil, fmt.Errorf("%s: %w", "restore enrollment", err)
 	}
 
-	visible, err = QueryEnrollmentByUID.Find(ctx, exec, row.UID)
+	visible, err = QueryEnrollmentByUID.Find(ctx, exec, Enrollment_UID.Bind(row.UID))
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "load enrollment after restore", err)
 	}
@@ -996,7 +996,7 @@ func runSoftDeleteDemo(ctx context.Context, runtime *tsq.Runtime) (*SoftDeleteSu
 		return nil, fmt.Errorf("%s: %w", "hard-delete enrollment", err)
 	}
 
-	stored, err = storedByUID.Find(ctx, exec, row.UID)
+	stored, err = storedByUID.Find(ctx, exec, Enrollment_UID.Bind(row.UID))
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "load stored enrollment after hard delete", err)
 	}
@@ -1020,12 +1020,12 @@ func runOptimisticLockDemo(ctx context.Context, runtime *tsq.Runtime) (*Optimist
 		return nil, fmt.Errorf("%s: %w", "insert enrollment", err)
 	}
 
-	stale, err := QueryEnrollmentByUID.Get(ctx, exec, inserted.UID)
+	stale, err := QueryEnrollmentByUID.Get(ctx, exec, Enrollment_UID.Bind(inserted.UID))
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "load stale enrollment snapshot", err)
 	}
 
-	concurrent, err := QueryEnrollmentByUID.Get(ctx, exec, inserted.UID)
+	concurrent, err := QueryEnrollmentByUID.Get(ctx, exec, Enrollment_UID.Bind(inserted.UID))
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "load competing enrollment snapshot", err)
 	}
@@ -1052,7 +1052,7 @@ func runOptimisticLockDemo(ctx context.Context, runtime *tsq.Runtime) (*Optimist
 			return nil, fmt.Errorf("%s", "expected stale snapshot to trigger optimistic lock retry")
 		}
 
-		loaded, err := QueryEnrollmentByUID.Get(ctx, txExec, inserted.UID)
+		loaded, err := QueryEnrollmentByUID.Get(ctx, txExec, Enrollment_UID.Bind(inserted.UID))
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", "reload enrollment after retry", err)
 		}
@@ -1071,7 +1071,7 @@ func runOptimisticLockDemo(ctx context.Context, runtime *tsq.Runtime) (*Optimist
 			return nil, fmt.Errorf("%s: %w", "hard-delete fresh enrollment", err)
 		}
 
-		deleted, err := QueryEnrollmentByUID.Find(ctx, txExec, loaded.UID)
+		deleted, err := QueryEnrollmentByUID.Find(ctx, txExec, Enrollment_UID.Bind(loaded.UID))
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", "verify deleted enrollment", err)
 		}

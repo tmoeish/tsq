@@ -60,26 +60,8 @@ func init() {
 
 type packageRuntimeTemplateData struct {
 	Package    genmodel.PackageInfo
-	Tables     []runtimeTableTemplateData
+	Tables     []*genmodel.StructInfo
 	TSQVersion string
-}
-
-type runtimeTableTemplateData struct {
-	*genmodel.StructInfo
-	SchemaColumns []runtimeColumnTemplateData
-}
-
-type runtimeColumnTemplateData struct {
-	Name          string
-	Kind          string
-	Bits          int
-	Unsigned      bool
-	Nullable      bool
-	Size          int
-	RawType       string
-	PrimaryKey    bool
-	AutoIncrement bool
-	Default       string
 }
 
 // GenCmd generates tsq table, result, and DDL artifacts for a package.
@@ -624,6 +606,7 @@ func validateGeneratedSymbolCollisions(list []*genmodel.StructInfo) error {
 
 		if !data.IsResult {
 			symbols = append(symbols,
+				"tsq"+typeName+"Table",
 				"Table"+typeName,
 				"Query"+typeName,
 				"Query"+typeName+"By"+data.PrimaryKey,

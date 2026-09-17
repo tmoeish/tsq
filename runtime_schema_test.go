@@ -46,21 +46,18 @@ func TestNewRuntimeTablePolicyCreateMissingCreatesTable(t *testing.T) {
 	runtime, err := Open(context.Background(),
 		"sqlite",
 		dsn,
-		[]TableRegistration{{
-			Table: table,
-			Columns: []tsqdialect.ColumnSpec{
-				{
-					Name:          "id",
-					Type:          tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64},
-					PrimaryKey:    true,
-					AutoIncrement: true,
-				},
-				{
-					Name: "name",
-					Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 120},
-				},
+		[]Table{registered(table, []tsqdialect.ColumnSpec{
+			{
+				Name:          "id",
+				Type:          tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64},
+				PrimaryKey:    true,
+				AutoIncrement: true,
 			},
-		}},
+			{
+				Name: "name",
+				Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 120},
+			},
+		})},
 		WithTablePolicy(SchemaPolicyCreateMissing))
 	if err != nil {
 		t.Fatalf("NewRuntime() error = %v", err)
@@ -88,21 +85,18 @@ func TestNewRuntimeTablePolicyReconcileAddsMissingColumn(t *testing.T) {
 	runtime, err := Open(context.Background(),
 		"sqlite",
 		dsn,
-		[]TableRegistration{{
-			Table: table,
-			Columns: []tsqdialect.ColumnSpec{
-				{
-					Name:          "id",
-					Type:          tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64},
-					PrimaryKey:    true,
-					AutoIncrement: true,
-				},
-				{
-					Name: "name",
-					Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 120},
-				},
+		[]Table{registered(table, []tsqdialect.ColumnSpec{
+			{
+				Name:          "id",
+				Type:          tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64},
+				PrimaryKey:    true,
+				AutoIncrement: true,
 			},
-		}},
+			{
+				Name: "name",
+				Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 120},
+			},
+		})},
 		WithTablePolicy(SchemaPolicyReconcile))
 	if err != nil {
 		t.Fatalf("NewRuntime() error = %v", err)
@@ -151,27 +145,24 @@ func TestNewRuntimeReconcileRawTypeTextProducesNoDDL(t *testing.T) {
 
 	logger := &recordingLogger{}
 	table, _ := newStrictMockTable("notes", "id", "body")
-	registration := TableRegistration{
-		Table: table,
-		Columns: []tsqdialect.ColumnSpec{
-			{
-				Name:          "id",
-				Type:          tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64},
-				PrimaryKey:    true,
-				AutoIncrement: true,
-			},
-			{
-				Name: "body",
-				Type: tsqdialect.ColumnType{RawType: "TEXT", Nullable: true},
-			},
+	registration := registered(table, []tsqdialect.ColumnSpec{
+		{
+			Name:          "id",
+			Type:          tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64},
+			PrimaryKey:    true,
+			AutoIncrement: true,
 		},
-	}
+		{
+			Name: "body",
+			Type: tsqdialect.ColumnType{RawType: "TEXT", Nullable: true},
+		},
+	})
 
 	for restart := range 2 {
 		_, err := Open(context.Background(),
 			"sqlite",
 			dsn,
-			[]TableRegistration{registration},
+			[]Table{registration},
 			WithTablePolicy(SchemaPolicyReconcile), WithLogger(logger))
 		if err != nil {
 			t.Fatalf("NewRuntime() restart %d error = %v", restart, err)
@@ -197,31 +188,28 @@ func TestNewRuntimeReconcileRebuildPreservesDataAndIndexes(t *testing.T) {
 	}
 
 	table, _ := newStrictMockTable("users", "id", "age", "name")
-	registration := TableRegistration{
-		Table: table,
-		Columns: []tsqdialect.ColumnSpec{
-			{
-				Name:          "id",
-				Type:          tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64},
-				PrimaryKey:    true,
-				AutoIncrement: true,
-			},
-			{
-				// INTEGER -> VARCHAR drift forces the SQLite rebuild path.
-				Name: "age",
-				Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 60, Nullable: true},
-			},
-			{
-				Name: "name",
-				Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 120, Nullable: true},
-			},
+	registration := registered(table, []tsqdialect.ColumnSpec{
+		{
+			Name:          "id",
+			Type:          tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64},
+			PrimaryKey:    true,
+			AutoIncrement: true,
 		},
-	}
+		{
+			// INTEGER -> VARCHAR drift forces the SQLite rebuild path.
+			Name: "age",
+			Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 60, Nullable: true},
+		},
+		{
+			Name: "name",
+			Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 120, Nullable: true},
+		},
+	})
 
 	runtime, err := Open(context.Background(),
 		"sqlite",
 		dsn,
-		[]TableRegistration{registration},
+		[]Table{registration},
 		WithTablePolicy(SchemaPolicyReconcile), WithIndexPolicy(SchemaPolicyManual))
 	if err != nil {
 		t.Fatalf("NewRuntime() error = %v", err)
@@ -259,7 +247,7 @@ func TestNewRuntimeReconcileRebuildPreservesDataAndIndexes(t *testing.T) {
 	if _, err := Open(context.Background(),
 		"sqlite",
 		dsn,
-		[]TableRegistration{registration},
+		[]Table{registration},
 		WithTablePolicy(SchemaPolicyReconcile), WithIndexPolicy(SchemaPolicyManual), WithLogger(logger)); err != nil {
 		t.Fatalf("second NewRuntime() error = %v", err)
 	}

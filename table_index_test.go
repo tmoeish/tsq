@@ -37,10 +37,7 @@ func newRegisteredIndexRuntime(
 	runtime, err := Open(context.Background(),
 		"sqlite",
 		dsn,
-		[]TableRegistration{{
-			Table:   table,
-			Indexes: []TableIndex{{Name: indexName, Fields: fields, Unique: unique}},
-		}},
+		[]Table{registered(table, nil, []TableIndex{{Name: indexName, Fields: fields, Unique: unique}}...)},
 		options...)
 	if err != nil {
 		t.Fatalf("NewRuntime() error = %v", err)
@@ -140,10 +137,7 @@ func TestNewRuntimeIndexModeValidateReturnsMissingIndexError(t *testing.T) {
 	_, err := Open(context.Background(),
 		"sqlite",
 		dsn,
-		[]TableRegistration{{
-			Table:   mustStrictMockTable(t, "users", "name"),
-			Indexes: []TableIndex{{Name: "ux_users_name", Fields: []string{"name"}, Unique: true}},
-		}},
+		[]Table{registered(mustStrictMockTable(t, "users", "name"), nil, []TableIndex{{Name: "ux_users_name", Fields: []string{"name"}, Unique: true}}...)},
 		WithIndexPolicy(SchemaPolicyValidate))
 	if err == nil {
 		t.Fatal("expected validate mode to fail when index is missing")
@@ -191,10 +185,7 @@ func TestNewRuntimeValidateModeAcceptsExistingRegisteredIndex(t *testing.T) {
 	if _, err := Open(context.Background(),
 		"sqlite",
 		dsn,
-		[]TableRegistration{{
-			Table:   mustStrictMockTable(t, "users", "name"),
-			Indexes: []TableIndex{{Name: "ux_users_name", Fields: []string{"name"}, Unique: true}},
-		}},
+		[]Table{registered(mustStrictMockTable(t, "users", "name"), nil, []TableIndex{{Name: "ux_users_name", Fields: []string{"name"}, Unique: true}}...)},
 		WithIndexPolicy(SchemaPolicyValidate)); err != nil {
 		t.Fatalf("expected validate mode with existing index to succeed, got %v", err)
 	}
@@ -213,11 +204,4 @@ func TestNewRuntimePersistsIndexModeOnEngine(t *testing.T) {
 	if runtime.indexPolicy != SchemaPolicyValidate {
 		t.Fatalf("expected runtime index policy %q after init, got %q", SchemaPolicyValidate, runtime.indexPolicy)
 	}
-}
-
-func mustStrictMockTable(t *testing.T, tableName string, fields ...string) Table {
-	t.Helper()
-
-	table, _ := newStrictMockTable(tableName, fields...)
-	return table
 }

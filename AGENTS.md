@@ -55,11 +55,14 @@
   调用过 `Where` 之后拿到的 `WhereStage` 上根本没有 `Where` 方法。所有过滤条件传给唯一的
   那次 `Where(...)`（多参数是 AND），OR 组用 `tsq.Or(...)`，复合子条件用 `tsq.And(...)`。
   两个子句可以共存，顺序任意。
-- **不要把编译期约束改成运行期检查。** `builderPhase` 只用于改善错误信息，不是约束来源。
-- 新增阶段就是新增一个接口加一个具体 builder 类型。返回值类型写错，约束会静悄悄地松掉，
-  而测试不看类型发现不了——`compilefail_test.go` 和 `querybuilder_stages_test.go` 是防线，
-  新增阶段两边都要加。
-- 写路径的 `UpdateTable[T]()` / `DeleteFrom[T]()` 同样是阶段式的：`Where(...)` 必需且只能一次，
+- **不要把编译期约束改成运行期检查。** 约束来自阶段接口的返回类型；`builder` 里的阶段序号
+  只挡住有人把接口断言回具体类型的情况，不是约束来源。
+- 新增阶段就是新增一个接口。返回值类型写错，约束会静悄悄地松掉，而测试不看类型发现不了——
+  `compilefail_test.go` 是防线，新增阶段要加用例。
+- 执行期的值只走参数（`Param` / `ListParam` / 列自带的参数），按参数身份绑定、带类型。
+  **不要重新引入按位置传 `args ...any` 的占位符**：那是 v5 之前"类型安全"里最大的洞。
+- `Executor` 是封闭接口：库必须知道方言才能渲染。不要让 `*sql.DB` 重新满足它。
+- 写路径的 `UpdateTable(table)` / `DeleteFrom(table)` 同样是阶段式的：`Where(...)` 必需且只能一次，
   `Where` 之后拿到的 `MutationStage` 上没有 `Set*` 也没有 `Where`。`Set*` 是泛型方法，所以它们
   住在 `Where` 之前的具体类型上——接口方法不能声明类型参数，这是语言限制不是风格选择。
 
@@ -102,18 +105,18 @@
 - `GTE` / `LTE`，不是 `GreaterOrEqual`。
 - `StartsWith` / `EndsWith`。
 - `Expr` / `Exprf` / `Pred` 用于自定义列表达式和谓词。
-- 谓词命名的分工：RHS 用 `Op(...)`，字面量用 `OpVal(...)`，运行期占位符用 `OpVar()`，
-  模式糖用 `StartsWithVal` / `StartsWithVar` 这类名字，跨列或子查询的模式匹配走 `Like(...)`。
+- 谓词命名的分工：`Op(rhs)` 接列、参数或子查询，`OpVal(v)` 接值，否定一律 `Not*`；
+  模式糖 `StartsWith(param)` / `StartsWithVal(s)` 会转义通配符，`Like` 按原样使用模式。
 - 表 DSL 的受管理字段名：`version`、`created_at`、`updated_at`、`deleted_at`。
 - 测试文件名要么对应一个特性，要么对应一个被测文件，没有第三种。按"待办批次"命名的文件
   会从 `feature-map.md` 的清单里掉出去，因为没有哪个特性认领得了那个名字。
 
 ## 语义陷阱（改动时不要"顺手修正"）
 
-- `InVar()` 传空或 nil 切片 = **显式不匹配**（渲染成 `IN (NULL)`）。
-- `NotInVar()` 传空或 nil 切片 = **显式全匹配**。
+- `In(列表参数)` 绑定空列表 = **显式不匹配**（渲染成 `IN (NULL)`）。
+- `NotIn(列表参数)` 绑定空列表 = **显式全匹配**。
 - 两者都不会静默地把过滤条件去掉。这是有意的：静默去掉过滤条件的查询会返回全表。
-- `BatchInsert` / `BatchUpdate` / `BatchDelete` **不自动开事务**，需要全有或全无时
+- `TableOf` 上的 `Batch*` 写入**不自动开事务**，需要全有或全无时
   由调用方用 `WithTx(...)` 包起来。
 - `ForUpdate()` / `ForShare()` 只在显式事务里有意义。
 - 乐观锁冲突 `OptimisticLockError` 是**业务错误**，必须处理，不能忽略。
