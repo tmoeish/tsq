@@ -53,7 +53,10 @@ var compileFailCases = []struct {
 	{"text function on a number", `_ = tsq.Upper(UserID)`, "does not satisfy tsq.Text"},
 	{"numeric function on text", `_ = tsq.Sum(UserName)`, "does not satisfy tsq.Number"},
 	{"search on a number", `_ = tsq.Searchable(UserID)`, "does not satisfy ~string"},
-	{"pattern of another type", `_ = tsq.Contains(UserName, 3)`, "cannot use 3"},
+	{"pattern of another type", `_ = tsq.Contains(UserName, tsq.Val(3))`, "tsq.Value[int]"},
+	{"pattern of a number column", `_ = tsq.Contains(UserID, tsq.Val(int64(3)))`, "does not satisfy ~string"},
+	{"pattern as a plain string", `_ = tsq.Contains(UserName, "x")`, "does not implement tsq.Pattern[string]"},
+	{"pattern param variants are gone", `_ = tsq.ContainsParam(UserName, UserName.Param())`, "undefined: tsq.ContainsParam"},
 	{"functions are not column methods", `_ = UserName.Upper()`, "Upper undefined"},
 }
 

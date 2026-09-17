@@ -60,7 +60,7 @@ func TestListParamExpandsAndKeepsEmptyListsExplicit(t *testing.T) {
 
 func TestPatternsEscapeWildcards(t *testing.T) {
 	prefix := NewParam[string]("prefix")
-	q := Select(User_ID).From(Users).Where(StartsWithParam(User_Name, prefix), Contains(User_Email, "50%_off")).MustBuild()
+	q := Select(User_ID).From(Users).Where(StartsWith(User_Name, prefix), Contains(User_Email, Val("50%_off"))).MustBuild()
 
 	sql, args := sqlOf(t, q, onSQLite, prefix.Bind("a~b"))
 	if strings.Count(sql, "ESCAPE '~'") != 2 {

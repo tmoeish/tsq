@@ -117,9 +117,8 @@ SQLite ≥3.39。代价是更老的引擎拿到数据库报错而不是 `Unsuppo
 
 ### 集成测试为什么长这样，以及暂时不做的几件事 (2026-08-26)
 
-`dialect/mysql.go` 和 `postgres.go` 此前覆盖率 0%。核心断言是"托管 schema 第二次启动零
-DDL"——v4.2.0 的每个 Critical 事故都表现为它。用 env DSN + `t.Skip` 而不是 build tag，
-是为了让 SQLite 目标始终参与、套件每次 `go test` 都被编译执行。
+核心断言"托管 schema 第二次启动零 DDL"（v4.2.0 的 Critical 事故都表现为它）。用 env DSN 而不是
+build tag，SQLite 目标因此每次 `go test` 都跑。
 
 - **Docker 镜像不推送 registry**。`Docker Build` 是必需检查，但产物没人消费；推送要配
   ghcr 权限和 tag 策略，等有真实使用者再说。
@@ -188,6 +187,9 @@ MySQL 的 `LENGTH` 数字节；PostgreSQL 没有 `round(double, int)`；modernc 
 - **只为主键和唯一索引生成查询**：普通索引和前缀的查询要排序、限量，生成器猜不到，生成的"查全部
   匹配行"被照抄就是全表量级的读取。
 - `BatchDeleteByPK` 挪到 `TableOf` 上，吃主键的 `BindList`：包级版本要再校验"列是不是主键"。
+- **v5 明确不支持复合主键**（维护者定案）。`TableSpec.PrimaryKey` 是单列，`pk=A,B` 在解析时报错并
+  指向"单列代理键 + `//tsq:unique A,B`"。要支持就是 v6：主键字段、`FetchXxxByID`、`BatchDeleteByPK`
+  和乐观锁 WHERE 全都要变形状。
 
 ### 两个测试各自编码了相反的意图，代码同时满足它们 (2026-09-16)
 
@@ -407,9 +409,7 @@ squash 会改写提交信息（追加 ` (#59)`）、SHA 和历史形状，同一
 ### 给 main 和 tag 加了 ruleset，发版随之改成 PR 流程 (2026-08-21)
 
 `main` 禁直推、必须走 PR 且五个检查全绿；`refs/tags/v*` 禁删除/移动/强推。两条都对仓库
-所有者生效（`bypass_actors` 为空）。**tag 那条比分支那条重要得多**：单人仓的真实风险不是
-"别人推了坏代码"，是删掉或移动一个已发布的 tag——Go Proxy 永久缓存内容哈希，那是唯一
-不可恢复的操作。
+所有者生效。**tag 那条更重要**：删掉或移动已发布的 tag 是唯一不可恢复的操作（Go Proxy 永久缓存）。
 
 - **必需检查不能放 matrix job**（名字带 Go 版本，升版本就永远等不到）；理由和当前选的五个
   检查见 `change-impact.md` § 改了 CI 的 job 名字。

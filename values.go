@@ -1,6 +1,9 @@
 package tsq
 
-import "fmt"
+import (
+	"fmt"
+	"reflect"
+)
 
 // Value is a Go value used as an expression of type T. It is always bound as a
 // parameter, never written into the SQL text. Build one with Val.
@@ -9,7 +12,8 @@ type Value[T any] struct {
 }
 
 // Val wraps a Go value so it can stand wherever a column of the same type could:
-// EQ, Between, Like, Set, Case().When, Coalesce.
+// EQ, Between, Like, Set, Case().When, Coalesce, and the pattern of StartsWith,
+// EndsWith and Contains.
 //
 // T is inferred from v alone, so an untyped constant gets its default type:
 // Val(90) is a Value[int]. Against an int64 column write Val(int64(90)); the
@@ -39,6 +43,17 @@ func (v Value[T]) assignment() exprInfo {
 	}
 
 	return exprInfo{sql: sqlValue(v.v)}
+}
+
+func (Value[T]) patternText(T) {}
+
+func (v Value[T]) patternOperand(mode paramMode) exprInfo {
+	rv := reflect.ValueOf(v.v)
+	if rv.Kind() != reflect.String {
+		return exprInfo{err: fmt.Errorf("pattern must be text, got %T", v.v)}
+	}
+
+	return patternValue(rv.String(), mode)
 }
 
 func valueError(v any) error {
