@@ -298,7 +298,13 @@ func runComprehensive(ctx context.Context, runtime *tsq.Runtime) (*Comprehensive
 		return nil, err
 	}
 
-	resp, err := PageLearningJourney(ctx, exec, pageReq, learnerIDs, tracks...)
+	// A handler turns the request into a Paging, naming the columns clients may sort by.
+	paging, err := pageReq.Paging(LearningJourney_LearnerID, LearningJourney_EnrollmentID)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := PageLearningJourney(ctx, exec, paging, learnerIDs, tracks...)
 	if err != nil {
 		return nil, err
 	}
@@ -391,7 +397,12 @@ func runCatalogSearchDemo(ctx context.Context, runtime *tsq.Runtime) (*SearchSum
 		return nil, err
 	}
 
-	resp, err := QueryCourse.Page(ctx, exec, pageReq)
+	paging, err := pageReq.Paging(Course_ID, Course_Title)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := QueryCourse.Page(ctx, exec, paging)
 	if err != nil {
 		return nil, err
 	}
@@ -486,10 +497,10 @@ func runAggregateDemo(ctx context.Context, runtime *tsq.Runtime) ([]AggregateSum
 	trackName := tsq.MapInto(Track_Name, func(holder *trackMetricRow) *string {
 		return &holder.Track
 	}, "track")
-	enrollmentCount := tsq.MapInto(Enrollment_UID.Count(), func(holder *trackMetricRow) *int64 {
+	enrollmentCount := tsq.MapInto(tsq.Count(Enrollment_UID), func(holder *trackMetricRow) *int64 {
 		return &holder.EnrollmentCount
 	}, "enrollment_count")
-	averageScore := tsq.MapInto(Enrollment_Score.Avg(), func(holder *trackMetricRow) *float64 {
+	averageScore := tsq.MapInto(tsq.Avg(Enrollment_Score), func(holder *trackMetricRow) *float64 {
 		return &holder.AverageScore
 	}, "average_score")
 
@@ -503,7 +514,7 @@ func runAggregateDemo(ctx context.Context, runtime *tsq.Runtime) ([]AggregateSum
 			Enrollment_Status.EQVal(EnrollmentStatusCompleted),
 		)).
 		GroupBy(Track_Name).
-		Having(Enrollment_UID.Count().GTVal(0)).
+		Having(tsq.Count(Enrollment_UID).GTVal(0)).
 		Build()
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "build aggregate query", err)
@@ -885,11 +896,10 @@ func runBatchDemo(ctx context.Context, runtime *tsq.Runtime) (*BatchSummary, err
 			remainingIDs = append(remainingIDs, enrollment.UID)
 		}
 
-		if err := tsq.BatchDeleteByPK(
+		if err := TableEnrollment.BatchDeleteByPK(
 			ctx,
 			txExec,
-			Enrollment_UID,
-			remainingIDs,
+			Enrollment_UID.BindList(remainingIDs...),
 			tsq.WithBatchSize(2),
 		); err != nil {
 			return err
@@ -914,25 +924,20 @@ func runBatchDemo(ctx context.Context, runtime *tsq.Runtime) (*BatchSummary, err
 	}, nil
 }
 
-// runOptimisticLockDemo demonstrates the SQLite-safe part of the new locking model:
-// a stale snapshot first fails with OptimisticLockError, then Runtime.WithTxResult
-// automatically retries and succeeds after reloading the fresh row version.
-// Row-lock reads are intentionally not executed here because the examples runtime
-// uses SQLite, which rejects FOR UPDATE / FOR SHARE at execution time.
 // runSoftDeleteDemo walks a row through the whole soft-delete lifecycle.
 //
 // Enrollment declares deleted_at, so Delete stamps a tombstone instead of
-// removing the row: it leaves every generated query while staying in the table,
+// removing the row: it leaves every query while staying in the table,
 // clearing the tombstone brings it back, and HardDelete is what actually
 // removes it.
 func runSoftDeleteDemo(ctx context.Context, runtime *tsq.Runtime) (*SoftDeleteSummary, error) {
 	exec := runtime
 
-	// Every row of the table, tombstoned or not. Generated queries cannot show
-	// this, which is the point of the demo.
+	// Every row of the table, tombstoned or not. A soft-delete table leaves deleted
+	// rows out of every query unless the query says WithDeleted.
 	storedByUID := tsq.
 		Select(Enrollment__Cols...).
-		From(TableEnrollment).
+		From(TableEnrollment.WithDeleted()).
 		Where(Enrollment_UID.EQ(Enrollment_UID.Param())).
 		MustBuild()
 
@@ -1006,6 +1011,9 @@ func runSoftDeleteDemo(ctx context.Context, runtime *tsq.Runtime) (*SoftDeleteSu
 	return summary, nil
 }
 
+// runOptimisticLockDemo shows a stale snapshot failing with OptimisticLockError,
+// then Runtime.WithTxResult retrying and succeeding after reloading the row. Row-lock
+// reads are not run because the examples use SQLite, which has no FOR UPDATE.
 func runOptimisticLockDemo(ctx context.Context, runtime *tsq.Runtime) (*OptimisticLockSummary, error) {
 	exec := runtime
 

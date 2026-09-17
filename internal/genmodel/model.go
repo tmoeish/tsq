@@ -78,11 +78,10 @@ func (f FieldInfo) String() string {
 	return sb.String()
 }
 
+// IndexInfo is a declared index: its physical name and Go field names in order.
 type IndexInfo struct {
-	Name        string
-	IndexName   string
-	Fields      []string
-	LastFieldIn bool
+	Name   string
+	Fields []string
 }
 
 func (s *StructInfo) SetTSQVersion(version string) {
@@ -105,5 +104,4 @@ type TableMeta struct {
 	SearchColumns  []string
 	Uniques        []IndexInfo
 	Indexes        []IndexInfo
-	Queries        []IndexInfo
 }

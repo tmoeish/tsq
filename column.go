@@ -4,8 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-
-	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 )
 
 // SQLColumn is any selectable expression: a table column, an expression derived
@@ -47,15 +45,15 @@ type ResultColumn[O, T any] interface {
 	TypedColumn[O, T]
 }
 
-// SearchColumn is a column keyword search may match against.
+// SearchColumn is a text column keyword search may match against; make one with
+// Searchable.
 type SearchColumn interface {
 	SQLColumn
 	searchable()
 }
 
 // RHS is the right-hand side of a comparison against a T: a column or expression
-// holding a T, a Param[T], or a typed scalar Subquery[T]. Plain Go values use the
-// *Val methods instead.
+// holding a T, a Param[T], or a typed scalar Subquery[T]. Values use the *Val methods.
 type RHS[T any] interface {
 	rhsValue(T)
 	operand() exprInfo
@@ -68,11 +66,13 @@ type SetRHS[T any] interface {
 	setOperand(negated bool) exprInfo
 }
 
-// Column is the typed column API of generated code.
+// Column is the typed column API of generated code. Its methods are the ones that
+// make sense for every T; functions that need a particular kind of value (Upper
+// needs text, Sum needs numbers) are package-level functions with a constraint on
+// T, so applying them to the wrong column does not compile.
 type Column[O, T any] interface {
 	TypedColumn[O, T]
 	RHS[T]
-	SearchColumn
 
 	// WithTable returns the column rebound to another source with the same column,
 	// such as a CTE or an alias of its table.
@@ -83,7 +83,7 @@ type Column[O, T any] interface {
 	// Param returns the column's own parameter, for queries that compare the column
 	// to a value supplied at execution. Every call returns the same parameter.
 	Param() Param[T]
-	// ListParam returns the column's own list parameter, for IN and NOT IN.
+	// ListParam returns the column's own list parameter, for In and NotIn.
 	ListParam() ListParam[T]
 	// Bind supplies a value for Param.
 	Bind(value T) Arg
@@ -93,29 +93,27 @@ type Column[O, T any] interface {
 	IsNull() Condition
 	IsNotNull() Condition
 
+	// EQ and the other comparisons take a column, a Param or a typed subquery.
 	EQ(rhs RHS[T]) Condition
 	NE(rhs RHS[T]) Condition
 	GT(rhs RHS[T]) Condition
 	GTE(rhs RHS[T]) Condition
 	LT(rhs RHS[T]) Condition
 	LTE(rhs RHS[T]) Condition
-	// Like matches the column against a pattern; the pattern's wildcards are the
-	// caller's.
+	// Like matches a pattern as written, wildcards included. StartsWith, EndsWith
+	// and Contains match literally.
 	Like(rhs RHS[T]) Condition
 	NotLike(rhs RHS[T]) Condition
 	Between(start, end RHS[T]) Condition
 	NotBetween(start, end RHS[T]) Condition
+	// In takes a ListParam or a typed subquery. An empty list matches nothing, and
+	// NotIn over an empty list matches everything.
 	In(set SetRHS[T]) Condition
 	NotIn(set SetRHS[T]) Condition
-	// StartsWith matches values beginning with the parameter's value; wildcards in
-	// the value match literally.
-	StartsWith(prefix Param[string]) Condition
-	NotStartsWith(prefix Param[string]) Condition
-	EndsWith(suffix Param[string]) Condition
-	NotEndsWith(suffix Param[string]) Condition
-	Contains(part Param[string]) Condition
-	NotContains(part Param[string]) Condition
 
+	// The *Val forms take a Go value, bound as a parameter. They exist because the
+	// value's type comes from the column, so an untyped constant fits any numeric
+	// column: Price.GTVal(10) works on an int64 column.
 	EQVal(value T) Condition
 	NEVal(value T) Condition
 	GTVal(value T) Condition
@@ -130,12 +128,6 @@ type Column[O, T any] interface {
 	InVal(values ...T) Condition
 	// NotInVal matches none of values; no values matches everything.
 	NotInVal(values ...T) Condition
-	StartsWithVal(prefix string) Condition
-	NotStartsWithVal(prefix string) Condition
-	EndsWithVal(suffix string) Condition
-	NotEndsWithVal(suffix string) Condition
-	ContainsVal(part string) Condition
-	NotContainsVal(part string) Condition
 
 	// Pred builds a custom condition. The first %s is the column and each further %s
 	// takes the next argument, which may be a column, a Param, a typed subquery or a
@@ -145,36 +137,6 @@ type Column[O, T any] interface {
 	Expr(format string) Column[O, T]
 	// Exprf is Expr with further arguments, as in Pred.
 	Exprf(format string, args ...any) Column[O, T]
-
-	Count() Column[O, int64]
-	Sum() Column[O, T]
-	Avg() Column[O, float64]
-	Max() Column[O, T]
-	Min() Column[O, T]
-	// CountDistinct counts the distinct non-NULL values of the column. For a whole
-	// DISTINCT query use SelectDistinct.
-	CountDistinct() Column[O, int64]
-
-	Upper() Column[O, T]
-	Lower() Column[O, T]
-	Substring(start, length int) Column[O, T]
-	Length() Column[O, int64]
-	Trim() Column[O, T]
-
-	// Date formats the date part as 'YYYY-MM-DD' on every dialect.
-	Date() Column[O, string]
-	// Year, Month and Day extract a date part as an integer, spelled per dialect.
-	Year() Column[O, int64]
-	Month() Column[O, int64]
-	Day() Column[O, int64]
-
-	Round(precision int) Column[O, T]
-	Ceil() Column[O, T]
-	Floor() Column[O, T]
-	Abs() Column[O, T]
-
-	Coalesce(value any) Column[O, T]
-	NullIf(value any) Column[O, T]
 
 	Asc() OrderBy
 	Desc() OrderBy
@@ -263,10 +225,9 @@ func (c columnImpl[O, T]) JSONFieldName() string { return c.c.json }
 // String renders the column for debugging, in SQLite syntax.
 func (c columnImpl[O, T]) String() string { return debugSQL(c.c.info.sql) }
 
-func (columnImpl[O, T]) boundTo(O)   {}
-func (columnImpl[O, T]) valueOf(T)   {}
-func (columnImpl[O, T]) rhsValue(T)  {}
-func (columnImpl[O, T]) searchable() {}
+func (columnImpl[O, T]) boundTo(O)  {}
+func (columnImpl[O, T]) valueOf(T)  {}
+func (columnImpl[O, T]) rhsValue(T) {}
 
 func (c columnImpl[O, T]) operand() exprInfo { return c.c.info }
 
@@ -406,44 +367,6 @@ func (c columnImpl[O, T]) membership(op string, set SetRHS[T], negated bool) Con
 	return c.compare(op, set.setOperand(negated))
 }
 
-// StartsWith matches values beginning with prefix.
-func (c columnImpl[O, T]) StartsWith(prefix Param[string]) Condition {
-	return c.pattern("LIKE", prefix, paramPrefix)
-}
-
-// NotStartsWith matches values not beginning with prefix.
-func (c columnImpl[O, T]) NotStartsWith(prefix Param[string]) Condition {
-	return c.pattern("NOT LIKE", prefix, paramPrefix)
-}
-
-// EndsWith matches values ending with suffix.
-func (c columnImpl[O, T]) EndsWith(suffix Param[string]) Condition {
-	return c.pattern("LIKE", suffix, paramSuffix)
-}
-
-// NotEndsWith matches values not ending with suffix.
-func (c columnImpl[O, T]) NotEndsWith(suffix Param[string]) Condition {
-	return c.pattern("NOT LIKE", suffix, paramSuffix)
-}
-
-// Contains matches values containing part.
-func (c columnImpl[O, T]) Contains(part Param[string]) Condition {
-	return c.pattern("LIKE", part, paramContains)
-}
-
-// NotContains matches values not containing part.
-func (c columnImpl[O, T]) NotContains(part Param[string]) Condition {
-	return c.pattern("NOT LIKE", part, paramContains)
-}
-
-func (c columnImpl[O, T]) pattern(op string, p Param[string], mode paramMode) Condition {
-	if p.spec == nil {
-		return conditionError(errors.New("pattern parameter is not initialized; use tsq.NewParam"))
-	}
-
-	return c.compare(op, exprInfo{sql: sqlJoin(sqlParam(p.spec.derive(mode)), sqlText(likeEscapeClause))})
-}
-
 // EQVal compares with = to a bound value.
 func (c columnImpl[O, T]) EQVal(value T) Condition { return c.compare("=", operandOf(value)) }
 
@@ -507,40 +430,6 @@ func (c columnImpl[O, T]) valueList(op, empty string, values []T) Condition {
 	return c.compare(op, info.withSQL(sqlJoin(sqlText("("), sqlList(", ", items), sqlText(")"))))
 }
 
-// StartsWithVal matches values beginning with prefix, which matches literally.
-func (c columnImpl[O, T]) StartsWithVal(prefix string) Condition {
-	return c.patternVal("LIKE", escapeLikePattern(prefix)+"%")
-}
-
-// NotStartsWithVal matches values not beginning with prefix.
-func (c columnImpl[O, T]) NotStartsWithVal(prefix string) Condition {
-	return c.patternVal("NOT LIKE", escapeLikePattern(prefix)+"%")
-}
-
-// EndsWithVal matches values ending with suffix.
-func (c columnImpl[O, T]) EndsWithVal(suffix string) Condition {
-	return c.patternVal("LIKE", "%"+escapeLikePattern(suffix))
-}
-
-// NotEndsWithVal matches values not ending with suffix.
-func (c columnImpl[O, T]) NotEndsWithVal(suffix string) Condition {
-	return c.patternVal("NOT LIKE", "%"+escapeLikePattern(suffix))
-}
-
-// ContainsVal matches values containing part.
-func (c columnImpl[O, T]) ContainsVal(part string) Condition {
-	return c.patternVal("LIKE", "%"+escapeLikePattern(part)+"%")
-}
-
-// NotContainsVal matches values not containing part.
-func (c columnImpl[O, T]) NotContainsVal(part string) Condition {
-	return c.patternVal("NOT LIKE", "%"+escapeLikePattern(part)+"%")
-}
-
-func (c columnImpl[O, T]) patternVal(op, pattern string) Condition {
-	return c.compare(op, exprInfo{sql: sqlJoin(sqlValue(pattern), sqlText(likeEscapeClause))})
-}
-
 // Pred builds a custom condition around the column.
 func (c columnImpl[O, T]) Pred(format string, args ...any) Condition {
 	info, err := c.format(format, args)
@@ -587,148 +476,6 @@ func (c columnImpl[O, T]) Exprf(format string, args ...any) Column[O, T] {
 	}
 
 	return columnImpl[O, T]{c: c.derive(info)}
-}
-
-func (c columnImpl[O, T]) wrap(open string) *columnCore {
-	return c.derive(c.c.info.withSQL(sqlJoin(sqlText(open), c.c.info.sql, sqlText(")"))))
-}
-
-func aggregate[O, T any](core *columnCore) Column[O, T] {
-	core.info.aggregate = true
-
-	return columnImpl[O, T]{c: core}
-}
-
-// Count wraps the column in COUNT.
-func (c columnImpl[O, T]) Count() Column[O, int64] { return aggregate[O, int64](c.wrap("COUNT(")) }
-
-// Sum wraps the column in SUM.
-func (c columnImpl[O, T]) Sum() Column[O, T] { return aggregate[O, T](c.wrap("SUM(")) }
-
-// Avg wraps the column in AVG.
-func (c columnImpl[O, T]) Avg() Column[O, float64] { return aggregate[O, float64](c.wrap("AVG(")) }
-
-// Max wraps the column in MAX.
-func (c columnImpl[O, T]) Max() Column[O, T] { return aggregate[O, T](c.wrap("MAX(")) }
-
-// Min wraps the column in MIN.
-func (c columnImpl[O, T]) Min() Column[O, T] { return aggregate[O, T](c.wrap("MIN(")) }
-
-// CountDistinct counts distinct values of the column.
-func (c columnImpl[O, T]) CountDistinct() Column[O, int64] {
-	return aggregate[O, int64](c.wrap("COUNT(DISTINCT "))
-}
-
-// Upper applies UPPER.
-func (c columnImpl[O, T]) Upper() Column[O, T] { return columnImpl[O, T]{c: c.wrap("UPPER(")} }
-
-// Lower applies LOWER.
-func (c columnImpl[O, T]) Lower() Column[O, T] { return columnImpl[O, T]{c: c.wrap("LOWER(")} }
-
-// Substring applies SUBSTRING(column, start, length) with a 1-based start.
-func (c columnImpl[O, T]) Substring(start, length int) Column[O, T] {
-	if start < 1 || length < 0 {
-		return columnImpl[O, T]{c: c.derive(exprInfo{err: fmt.Errorf("invalid substring range start=%d length=%d", start, length)})}
-	}
-
-	// The bounds are integers from the program, so they are written into the SQL:
-	// bound, PostgreSQL cannot always pick a substring overload for them.
-	return columnImpl[O, T]{c: c.derive(c.c.info.withSQL(sqlJoin(
-		sqlText("SUBSTR("), c.c.info.sql, sqlText(fmt.Sprintf(", %d, %d)", start, length)),
-	)))}
-}
-
-// Length counts characters: MySQL's LENGTH counts bytes, so it is CHAR_LENGTH there.
-func (c columnImpl[O, T]) Length() Column[O, int64] {
-	x := c.c.info.sql
-	sql := sqlByDialect("length", map[tsqdialect.Name]sqlExpr{
-		tsqdialect.MySQL:    sqlJoin(sqlText("CHAR_LENGTH("), x, sqlText(")")),
-		tsqdialect.Postgres: sqlJoin(sqlText("LENGTH("), x, sqlText(")")),
-		tsqdialect.SQLite:   sqlJoin(sqlText("LENGTH("), x, sqlText(")")),
-	})
-
-	return columnImpl[O, int64]{c: c.derive(c.c.info.withSQL(sql))}
-}
-
-// Trim applies TRIM.
-func (c columnImpl[O, T]) Trim() Column[O, T] { return columnImpl[O, T]{c: c.wrap("TRIM(")} }
-
-// Date formats the date part as text; a DATE value scans differently on every
-// driver, a string does not.
-func (c columnImpl[O, T]) Date() Column[O, string] {
-	x := c.c.info.sql
-	sql := sqlByDialect("date", map[tsqdialect.Name]sqlExpr{
-		tsqdialect.MySQL:    sqlJoin(sqlText("DATE_FORMAT("), x, sqlText(", '%Y-%m-%d')")),
-		tsqdialect.Postgres: sqlJoin(sqlText("TO_CHAR("), x, sqlText(", 'YYYY-MM-DD')")),
-		tsqdialect.SQLite:   sqlJoin(sqlText("DATE("), sqliteTimeText(x), sqlText(")")),
-	})
-
-	return columnImpl[O, string]{c: c.derive(c.c.info.withSQL(sql))}
-}
-
-// Year extracts the year.
-func (c columnImpl[O, T]) Year() Column[O, int64] { return c.datePart("year", "YEAR", "%Y") }
-
-// Month extracts the month.
-func (c columnImpl[O, T]) Month() Column[O, int64] { return c.datePart("month", "MONTH", "%m") }
-
-// Day extracts the day of the month.
-func (c columnImpl[O, T]) Day() Column[O, int64] { return c.datePart("day", "DAY", "%d") }
-
-func (c columnImpl[O, T]) datePart(part, sqlPart, strftime string) Column[O, int64] {
-	x := c.c.info.sql
-	sql := sqlByDialect(part+" extraction", map[tsqdialect.Name]sqlExpr{
-		tsqdialect.MySQL:    sqlJoin(sqlText(sqlPart+"("), x, sqlText(")")),
-		tsqdialect.Postgres: sqlJoin(sqlText("CAST(EXTRACT("+sqlPart+" FROM "), x, sqlText(") AS BIGINT)")),
-		tsqdialect.SQLite:   sqlJoin(sqlText("CAST(strftime('"+strftime+"', "), sqliteTimeText(x), sqlText(") AS INTEGER)")),
-	})
-
-	return columnImpl[O, int64]{c: c.derive(c.c.info.withSQL(sql))}
-}
-
-// sqliteTimeText keeps the "YYYY-MM-DD HH:MM:SS" prefix of a stored time. The
-// modernc driver writes time.Time in Go's String format by default
-// ("2026-03-04 05:06:07 +0000 UTC"), which SQLite's date functions reject; its
-// "sqlite" format and ISO text share the same prefix, so this reads all of them.
-func sqliteTimeText(x sqlExpr) sqlExpr {
-	return sqlJoin(sqlText("SUBSTR("), x, sqlText(", 1, 19)"))
-}
-
-// Round applies ROUND(column, precision).
-func (c columnImpl[O, T]) Round(precision int) Column[O, T] {
-	if precision < 0 {
-		return columnImpl[O, T]{c: c.derive(exprInfo{err: errors.New("round precision cannot be negative")})}
-	}
-
-	// PostgreSQL has ROUND(x, n) only for NUMERIC.
-	x := c.c.info.sql
-	n := sqlText(fmt.Sprintf(", %d)", precision))
-	sql := sqlByDialect("round", map[tsqdialect.Name]sqlExpr{
-		tsqdialect.MySQL:    sqlJoin(sqlText("ROUND("), x, n),
-		tsqdialect.Postgres: sqlJoin(sqlText("ROUND(CAST("), x, sqlText(" AS NUMERIC)"), n),
-		tsqdialect.SQLite:   sqlJoin(sqlText("ROUND("), x, n),
-	})
-
-	return columnImpl[O, T]{c: c.derive(c.c.info.withSQL(sql))}
-}
-
-// Ceil applies CEIL.
-func (c columnImpl[O, T]) Ceil() Column[O, T] { return columnImpl[O, T]{c: c.wrap("CEIL(")} }
-
-// Floor applies FLOOR.
-func (c columnImpl[O, T]) Floor() Column[O, T] { return columnImpl[O, T]{c: c.wrap("FLOOR(")} }
-
-// Abs applies ABS.
-func (c columnImpl[O, T]) Abs() Column[O, T] { return columnImpl[O, T]{c: c.wrap("ABS(")} }
-
-// Coalesce applies COALESCE(column, value); value may be a column or a plain value.
-func (c columnImpl[O, T]) Coalesce(value any) Column[O, T] {
-	return c.Exprf("COALESCE(%s, %s)", value)
-}
-
-// NullIf applies NULLIF(column, value); value may be a column or a plain value.
-func (c columnImpl[O, T]) NullIf(value any) Column[O, T] {
-	return c.Exprf("NULLIF(%s, %s)", value)
 }
 
 // Asc orders by the column ascending.

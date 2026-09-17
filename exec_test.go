@@ -129,7 +129,7 @@ func TestDeleteIsSoftWhenTheTableHasDeletedAt(t *testing.T) {
 		t.Fatalf("soft delete must stamp the row and bump its version: %+v", rows[0])
 	}
 
-	if err := BatchDeleteByPK(ctx, rt, User_ID, []int64{rows[1].ID}); err != nil {
+	if err := Users.BatchDeleteByPK(ctx, rt, User_ID.BindList(rows[1].ID)); err != nil {
 		t.Fatalf("BatchDeleteByPK() error = %v", err)
 	}
 
@@ -137,7 +137,7 @@ func TestDeleteIsSoftWhenTheTableHasDeletedAt(t *testing.T) {
 		t.Fatalf("HardDelete() error = %v", err)
 	}
 
-	if err := BatchHardDeleteByPK(ctx, rt, User_ID, []int64{rows[3].ID}); err != nil {
+	if err := Users.BatchHardDeleteByPK(ctx, rt, User_ID.BindList(rows[3].ID)); err != nil {
 		t.Fatalf("BatchHardDeleteByPK() error = %v", err)
 	}
 
@@ -146,7 +146,7 @@ func TestDeleteIsSoftWhenTheTableHasDeletedAt(t *testing.T) {
 		DeletedAt int64
 	}
 
-	all, err := Select(User__Cols...).From(Users).OrderBy(User_ID.Asc()).List(ctx, rt)
+	all, err := Select(User__Cols...).From(Users.WithDeleted()).OrderBy(User_ID.Asc()).List(ctx, rt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,12 +160,12 @@ func TestDeleteIsSoftWhenTheTableHasDeletedAt(t *testing.T) {
 		t.Fatalf("expected two tombstoned rows and two removed ones, got %+v", got)
 	}
 
-	if err := BatchDeleteByPK(ctx, rt, User_ID.As("u"), []int64{1}); err == nil {
-		t.Fatal("expected an aliased key column to be refused")
+	if n, err := Select(User_ID).From(Users).Count(ctx, rt); err != nil || n != 0 {
+		t.Fatalf("queries must leave deleted rows out: %d, %v", n, err)
 	}
 
-	if err := BatchDeleteByPK(ctx, rt, User_Version, []int64{1}); err == nil {
-		t.Fatal("expected a non-key column to be refused")
+	if err := Users.BatchDeleteByPK(ctx, rt, User_Version.BindList(1)); err == nil {
+		t.Fatal("expected keys bound on a non-key column to be refused")
 	}
 }
 
@@ -261,8 +261,8 @@ func TestReadsAgainstSQLite(t *testing.T) {
 		t.Fatalf("Scalar() = %d, %v", total, err)
 	}
 
-	sum := Select(Order_Amount.Sum()).From(Orders).MustBuild()
-	if v, err := sum.Scalar(ctx, rt, Order_Amount.Sum()); err != nil || v != 500 {
+	sum := Select(Sum(Order_Amount)).From(Orders).MustBuild()
+	if v, err := sum.Scalar(ctx, rt, Sum(Order_Amount)); err != nil || v != 500 {
 		t.Fatalf("Scalar(SUM) = %d, %v", v, err)
 	}
 
@@ -293,7 +293,7 @@ func TestPageSearchesSortsAndCounts(t *testing.T) {
 	q := Select(User__Cols...).From(Users).Search(Users.SearchColumns()...).MustBuild()
 
 	// "_" is a LIKE wildcard; the keyword must match it literally.
-	page, err := q.Page(ctx, rt, &PageRequest{Size: 10, Keyword: "_", OrderBy: "name", Order: "desc"})
+	page, err := q.Page(ctx, rt, Paging{Size: 10, Keyword: "_", OrderBy: []OrderBy{User_Name.Desc()}})
 	if err != nil {
 		t.Fatalf("Page() error = %v", err)
 	}
@@ -302,22 +302,155 @@ func TestPageSearchesSortsAndCounts(t *testing.T) {
 		t.Fatalf("page = total %d %+v", page.Total, page.Data)
 	}
 
-	page, err = q.Page(ctx, rt, &PageRequest{Size: 3, Page: 2, OrderBy: "id"})
-	if err != nil || page.Total != 4 || len(page.Data) != 1 || page.TotalPages != 2 {
+	request := &PageRequest{Size: 3, Page: 2, OrderBy: "id"}
+
+	paging, err := request.Paging(User_ID, User_Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	page, err = q.Page(ctx, rt, paging)
+	if err != nil || page.Total != 4 || len(page.Data) != 1 || page.TotalPages != 2 || !page.HasPrev() || page.HasNext() {
 		t.Fatalf("second page = %+v, %v", page, err)
 	}
 
-	if _, err := q.Page(ctx, rt, &PageRequest{OrderBy: "nope"}); !isErr[*UnknownSortFieldError](err) {
+	// Only the columns the endpoint names are sortable, whatever the query selects.
+	if _, err := (&PageRequest{OrderBy: "email"}).Paging(User_ID, User_Name); !isErr[*UnknownSortFieldError](err) {
 		t.Fatalf("unknown sort field error = %v", err)
 	}
 
-	if _, err := q.Page(ctx, rt, &PageRequest{OrderBy: "id,name", Order: "asc"}); !isErr[*OrderCountMismatchError](err) {
+	if _, err := (&PageRequest{OrderBy: "id,name", Order: "asc"}).Paging(User_ID, User_Name); !isErr[*OrderCountMismatchError](err) {
 		t.Fatalf("order count mismatch error = %v", err)
 	}
 
+	if _, err := (&PageRequest{OrderBy: "id"}).Paging(User_ID, Order_ID); !isErr[*AmbiguousSortFieldError](err) {
+		t.Fatalf("ambiguous sort field error = %v", err)
+	}
+
 	limited := Select(User_ID).From(Users).Limit(1).MustBuild()
-	if _, err := limited.Page(ctx, rt, nil); err == nil {
+	if _, err := limited.Page(ctx, rt, Paging{}); err == nil {
 		t.Fatal("expected Page to refuse a query with its own Limit")
+	}
+
+	ordered := Select(User_ID).From(Users).OrderBy(User_ID.Asc()).MustBuild()
+	if _, err := ordered.Page(ctx, rt, Paging{OrderBy: []OrderBy{User_Name.Asc()}}); err == nil {
+		t.Fatal("expected Page to refuse a second ordering")
+	}
+
+	empty, err := Select(User_ID).From(Users).Where(User_ID.EQVal(-1)).MustBuild().Page(ctx, rt, Paging{})
+	if err != nil || empty.Data == nil || !empty.IsEmpty() || empty.Size != 20 || empty.Page != 1 {
+		t.Fatalf("empty page = %+v, %v", empty, err)
+	}
+}
+
+func TestPageOrdersCompoundQueriesByOutputName(t *testing.T) {
+	ctx := context.Background()
+	rt := newSQLite(t)
+	seedUsers(t, rt, "b", "a", "c")
+
+	q := Select(User_Name).From(Users).Where(User_Name.LTVal("c")).
+		Union(Select(User_Name).From(Users).Where(User_Name.EQVal("c"))).
+		MustBuild()
+
+	page, err := q.Page(ctx, rt, Paging{Size: 2, OrderBy: []OrderBy{User_Name.Desc()}})
+	if err != nil {
+		t.Fatalf("Page() error = %v", err)
+	}
+
+	if page.Total != 3 || len(page.Data) != 2 || page.Data[0].Name != "c" || page.Data[1].Name != "b" {
+		t.Fatalf("page = total %d %+v", page.Total, page.Data)
+	}
+
+	// SELECT DISTINCT is a grouped query: Count counts distinct rows.
+	for _, name := range []string{"a", "b"} {
+		dup := &user{Name: name, Email: name + "2@example.com"}
+		if err := Users.Insert(ctx, rt, dup); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	distinct := SelectDistinct(User_Name).From(Users).MustBuild()
+	if n, err := distinct.Count(ctx, rt); err != nil || n != 3 {
+		t.Fatalf("SelectDistinct count = %d, %v; want 3", n, err)
+	}
+
+	if n, err := Select(CountDistinct(User_Name)).From(Users).MustBuild().Count(ctx, rt); err != nil || n != 1 {
+		t.Fatalf("aggregate count = %d, %v; want one row", n, err)
+	}
+}
+
+// TestSoftDeleteScope checks that deleted rows stay out of every place a query
+// can put a table, and come back with WithDeleted.
+func TestSoftDeleteScope(t *testing.T) {
+	ctx := context.Background()
+	rt := newSQLite(t)
+	rows := seedUsers(t, rt, "live", "gone")
+
+	if err := Orders.BatchInsert(ctx, rt, []*order{{UserID: rows[0].ID, Amount: 1}, {UserID: rows[1].ID, Amount: 2}}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Users.Delete(ctx, rt, rows[1]); err != nil {
+		t.Fatal(err)
+	}
+
+	count := func(stage QueryStage[order]) int64 {
+		t.Helper()
+
+		n, err := stage.Count(ctx, rt)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		return n
+	}
+
+	// INNER JOIN: the order of the deleted user disappears.
+	if n := count(Select(Order_ID).From(Orders).Join(Users, User_ID.EQ(Order_UserID))); n != 1 {
+		t.Errorf("inner join = %d, want 1", n)
+	}
+
+	// LEFT JOIN: both orders stay, but the deleted user does not match.
+	left := Select(Order_ID).From(Orders).LeftJoin(Users, User_ID.EQ(Order_UserID)).Where(User_ID.IsNull())
+	if n := count(left); n != 1 {
+		t.Errorf("left join rows without a live user = %d, want 1", n)
+	}
+
+	// RIGHT JOIN: the deleted user is not a preserved row.
+	right := Select(Order_ID).From(Orders).RightJoin(Users, User_ID.EQ(Order_UserID))
+	if n := count(right); n != 1 {
+		t.Errorf("right join = %d, want 1", n)
+	}
+
+	withDeleted := Select(Order_ID).From(Orders).Join(Users.WithDeleted(), User_ID.EQ(Order_UserID))
+	if n := count(withDeleted); n != 2 {
+		t.Errorf("inner join WithDeleted = %d, want 2", n)
+	}
+
+	// UpdateTable leaves deleted rows alone unless told otherwise.
+	rename := UpdateTable(Users).SetVal(User_Name, "renamed").Where(And())
+	if n, err := rename.Exec(ctx, rt); err != nil || n != 1 {
+		t.Fatalf("UpdateTable = %d, %v; want 1", n, err)
+	}
+
+	all := UpdateTable(Users.WithDeleted()).SetVal(User_Name, "renamed").Where(And())
+	if n, err := all.Exec(ctx, rt); err != nil || n != 2 {
+		t.Fatalf("UpdateTable WithDeleted = %d, %v; want 2", n, err)
+	}
+
+	// A second soft delete does not restamp the row.
+	before, err := Select(User__Cols...).From(Users.WithDeleted()).Where(User_ID.EQVal(rows[1].ID)).Get(ctx, rt)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if n, err := DeleteFrom(Users).Where(And()).Exec(ctx, rt); err != nil || n != 1 {
+		t.Fatalf("DeleteFrom = %d, %v; want only the live row", n, err)
+	}
+
+	after, err := Select(User__Cols...).From(Users.WithDeleted()).Where(User_ID.EQVal(rows[1].ID)).Get(ctx, rt)
+	if err != nil || after.DeletedAt != before.DeletedAt {
+		t.Fatalf("tombstone changed from %d to %d, %v", before.DeletedAt, after.DeletedAt, err)
 	}
 }
 
@@ -356,9 +489,14 @@ func TestConditionalWrites(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	stored, err := QueryByID.Get(ctx, rt, User_ID.Bind(rows[1].ID))
-	if err != nil || stored.DeletedAt < before {
-		t.Fatalf("tombstone %d is older than the execution (%d): %v", stored.DeletedAt, before, err)
+	stored, err := Select(User__Cols...).From(Users.WithDeleted()).Where(User_ID.EQ(User_ID.Param())).MustBuild().
+		Get(ctx, rt, User_ID.Bind(rows[1].ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if stored.DeletedAt < before {
+		t.Fatalf("tombstone %d is older than the execution (%d)", stored.DeletedAt, before)
 	}
 
 	if n, err := HardDeleteFrom(Users).Where(And()).Exec(ctx, rt); err != nil || n != 3 {

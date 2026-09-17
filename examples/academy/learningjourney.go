@@ -64,7 +64,7 @@ func init() {
 			From(TableEnrollment).
 			Where(Enrollment_Status.NEVal(EnrollmentStatusCancelled)).
 			GroupBy(Enrollment_CourseID).
-			Having(Enrollment_UID.Count().GTEVal(2)),
+			Having(tsq.Count(Enrollment_UID).GTEVal(2)),
 		courseID,
 	)
 	if err != nil {
@@ -93,7 +93,7 @@ func init() {
 func PageLearningJourney(
 	ctx context.Context,
 	tx tsq.Executor,
-	page *tsq.PageRequest,
+	page tsq.Paging,
 	learnerIDs []int64,
 	tracks ...string,
 ) (*tsq.PageResponse[LearningJourney], error) {

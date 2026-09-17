@@ -22,7 +22,36 @@ type QueryStage[O any] interface {
 	Exists(ctx context.Context, db Executor, args ...Arg) (bool, error)
 	Count(ctx context.Context, db Executor, args ...Arg) (int64, error)
 	List(ctx context.Context, db Executor, args ...Arg) ([]*O, error)
-	Page(ctx context.Context, db Executor, page *PageRequest, args ...Arg) (*PageResponse[O], error)
+	Page(ctx context.Context, db Executor, p Paging, args ...Arg) (*PageResponse[O], error)
+}
+
+// Sortable is the part of a stage that can order and slice the result.
+type Sortable[O any] interface {
+	OrderBy(orders ...OrderBy) PagedStage[O]
+	Limit(limit int) PagedStage[O]
+	Offset(offset int) PagedStage[O]
+}
+
+// Lockable is the part of a stage that can lock the rows it reads. Row locks only
+// mean something inside a transaction.
+type Lockable[O any] interface {
+	ForUpdate() LockedStage[O]
+	ForShare() LockedStage[O]
+}
+
+// Combinable is the part of a stage that can be combined with another query.
+type Combinable[O any] interface {
+	Union(other QueryStage[O]) CompoundStage[O]
+	UnionAll(other QueryStage[O]) CompoundStage[O]
+	Intersect(other QueryStage[O]) CompoundStage[O]
+	IntersectAll(other QueryStage[O]) CompoundStage[O]
+	Except(other QueryStage[O]) CompoundStage[O]
+	ExceptAll(other QueryStage[O]) CompoundStage[O]
+}
+
+// Groupable is the part of a stage that can group rows.
+type Groupable[O any] interface {
+	GroupBy(cols ...SQLColumn) GroupedStage[O]
 }
 
 // SelectStage is a query with columns but no FROM table yet.
@@ -38,6 +67,10 @@ type FromStage[O any] interface {
 // JoinStage is a query that can still take joins.
 type JoinStage[O any] interface {
 	QueryStage[O]
+	Groupable[O]
+	Sortable[O]
+	Lockable[O]
+	Combinable[O]
 	Join(table Table, on ...Condition) JoinStage[O]
 	InnerJoin(table Table, on ...Condition) JoinStage[O]
 	LeftJoin(table Table, on ...Condition) JoinStage[O]
@@ -50,118 +83,68 @@ type JoinStage[O any] interface {
 	Correlate(tables ...Table) JoinStage[O]
 	// Where sets the WHERE clause; its conditions are ANDed.
 	Where(conds ...Condition) WhereStage[O]
-	// Search sets the columns Page matches PageRequest.Keyword against.
+	// Search sets the columns Page matches Paging.Keyword against.
 	Search(cols ...SearchColumn) SearchStage[O]
-	GroupBy(cols ...SQLColumn) GroupedStage[O]
-	OrderBy(orders ...OrderBy) PagedStage[O]
-	Limit(limit int) PagedStage[O]
-	Offset(offset int) PagedStage[O]
-	ForUpdate() LockedStage[O]
-	ForShare() LockedStage[O]
-	Union(other QueryStage[O]) CompoundStage[O]
-	UnionAll(other QueryStage[O]) CompoundStage[O]
-	Intersect(other QueryStage[O]) CompoundStage[O]
-	IntersectAll(other QueryStage[O]) CompoundStage[O]
-	Except(other QueryStage[O]) CompoundStage[O]
-	ExceptAll(other QueryStage[O]) CompoundStage[O]
 }
 
 // WhereStage is a query with a WHERE clause.
 type WhereStage[O any] interface {
 	QueryStage[O]
+	Groupable[O]
+	Sortable[O]
+	Lockable[O]
+	Combinable[O]
 	Search(cols ...SearchColumn) FilteredStage[O]
-	GroupBy(cols ...SQLColumn) GroupedStage[O]
-	OrderBy(orders ...OrderBy) PagedStage[O]
-	Limit(limit int) PagedStage[O]
-	Offset(offset int) PagedStage[O]
-	ForUpdate() LockedStage[O]
-	ForShare() LockedStage[O]
-	Union(other QueryStage[O]) CompoundStage[O]
-	UnionAll(other QueryStage[O]) CompoundStage[O]
-	Intersect(other QueryStage[O]) CompoundStage[O]
-	IntersectAll(other QueryStage[O]) CompoundStage[O]
-	Except(other QueryStage[O]) CompoundStage[O]
-	ExceptAll(other QueryStage[O]) CompoundStage[O]
 }
 
-// SearchStage is a query with search columns.
+// SearchStage is a query with search columns. Keyword search does not combine with
+// set operations.
 type SearchStage[O any] interface {
 	QueryStage[O]
+	Groupable[O]
+	Sortable[O]
+	Lockable[O]
 	Where(conds ...Condition) FilteredStage[O]
-	GroupBy(cols ...SQLColumn) GroupedStage[O]
-	OrderBy(orders ...OrderBy) PagedStage[O]
-	Limit(limit int) PagedStage[O]
-	Offset(offset int) PagedStage[O]
-	ForUpdate() LockedStage[O]
-	ForShare() LockedStage[O]
 }
 
 // FilteredStage is a query with both WHERE and search columns.
 type FilteredStage[O any] interface {
 	QueryStage[O]
-	GroupBy(cols ...SQLColumn) GroupedStage[O]
-	OrderBy(orders ...OrderBy) PagedStage[O]
-	Limit(limit int) PagedStage[O]
-	Offset(offset int) PagedStage[O]
-	ForUpdate() LockedStage[O]
-	ForShare() LockedStage[O]
+	Groupable[O]
+	Sortable[O]
+	Lockable[O]
 }
 
-// GroupedStage is a query with GROUP BY.
+// GroupedStage is a query with GROUP BY. Grouped rows cannot be locked.
 type GroupedStage[O any] interface {
 	QueryStage[O]
+	Sortable[O]
+	Combinable[O]
 	Having(conds ...Condition) HavingStage[O]
-	OrderBy(orders ...OrderBy) PagedStage[O]
-	Limit(limit int) PagedStage[O]
-	Offset(offset int) PagedStage[O]
-	Union(other QueryStage[O]) CompoundStage[O]
-	UnionAll(other QueryStage[O]) CompoundStage[O]
-	Intersect(other QueryStage[O]) CompoundStage[O]
-	IntersectAll(other QueryStage[O]) CompoundStage[O]
-	Except(other QueryStage[O]) CompoundStage[O]
-	ExceptAll(other QueryStage[O]) CompoundStage[O]
 }
 
 // HavingStage is a grouped query with HAVING.
 type HavingStage[O any] interface {
 	QueryStage[O]
-	OrderBy(orders ...OrderBy) PagedStage[O]
-	Limit(limit int) PagedStage[O]
-	Offset(offset int) PagedStage[O]
-	Union(other QueryStage[O]) CompoundStage[O]
-	UnionAll(other QueryStage[O]) CompoundStage[O]
-	Intersect(other QueryStage[O]) CompoundStage[O]
-	IntersectAll(other QueryStage[O]) CompoundStage[O]
-	Except(other QueryStage[O]) CompoundStage[O]
-	ExceptAll(other QueryStage[O]) CompoundStage[O]
+	Sortable[O]
+	Combinable[O]
 }
 
 // CompoundStage is a query combined with others by set operations.
 type CompoundStage[O any] interface {
 	QueryStage[O]
-	OrderBy(orders ...OrderBy) PagedStage[O]
-	Limit(limit int) PagedStage[O]
-	Offset(offset int) PagedStage[O]
-	Union(other QueryStage[O]) CompoundStage[O]
-	UnionAll(other QueryStage[O]) CompoundStage[O]
-	Intersect(other QueryStage[O]) CompoundStage[O]
-	IntersectAll(other QueryStage[O]) CompoundStage[O]
-	Except(other QueryStage[O]) CompoundStage[O]
-	ExceptAll(other QueryStage[O]) CompoundStage[O]
+	Sortable[O]
+	Combinable[O]
 }
 
 // PagedStage is a query with ORDER BY, LIMIT or OFFSET.
 type PagedStage[O any] interface {
 	QueryStage[O]
-	OrderBy(orders ...OrderBy) PagedStage[O]
-	Limit(limit int) PagedStage[O]
-	Offset(offset int) PagedStage[O]
-	ForUpdate() LockedStage[O]
-	ForShare() LockedStage[O]
+	Sortable[O]
+	Lockable[O]
 }
 
-// LockedStage is a query that locks the rows it reads. Row locks only mean
-// something inside a transaction.
+// LockedStage is a query that locks the rows it reads.
 type LockedStage[O any] interface {
 	QueryStage[O]
 	NoWait() LockedStage[O]
@@ -633,11 +616,11 @@ func (b *builder[O]) List(ctx context.Context, db Executor, args ...Arg) ([]*O, 
 	return q.List(ctx, db, args...)
 }
 
-func (b *builder[O]) Page(ctx context.Context, db Executor, page *PageRequest, args ...Arg) (*PageResponse[O], error) {
+func (b *builder[O]) Page(ctx context.Context, db Executor, p Paging, args ...Arg) (*PageResponse[O], error) {
 	q, err := b.Build()
 	if err != nil {
 		return nil, err
 	}
 
-	return q.Page(ctx, db, page, args...)
+	return q.Page(ctx, db, p, args...)
 }

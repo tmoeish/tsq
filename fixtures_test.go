@@ -43,7 +43,7 @@ var Users = usersHandle.Define(TableSpec[user]{
 	CreatedAt:     User_CreatedAt,
 	UpdatedAt:     User_UpdatedAt,
 	DeletedAt:     User_DeletedAt,
-	Search:        []SearchColumn{User_Name, User_Email},
+	Search:        []SearchColumn{Searchable(User_Name), Searchable(User_Email)},
 	Schema: []tsqdialect.ColumnSpec{
 		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
 		{Name: "name", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 64}},

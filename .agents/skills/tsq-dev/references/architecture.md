@@ -154,8 +154,25 @@ JoinStage ─Search► SearchStage ─Where─► FilteredStage
 - CTE 在渲染时从 FROM/JOIN（含集合操作数和 CTE 自身的来源）收集、按依赖排序后提到最前。
 - `Get` / `Find` / `Exists` / `Scalar` 渲染带 `LIMIT 1` 的变体（构建器自己设了 limit 时不加），
   所以 `LIMIT` 天然在行锁子句之前。
-- `Page` 拒绝自带 `Limit` 的查询；`PageRequest.OrderBy` 按列名或 JSON 名解析，集合操作查询按
-  输出列名排序。
+- `Page` 吃类型化的 `Paging`，拒绝自带 `Limit` 的查询，也拒绝"构建器有 `OrderBy` 且
+  `Paging.OrderBy` 非空"。排序项经 `querySpec.orderTerm` 渲染：集合操作查询按输出列名排序
+  （三个方言里唯一都接受的写法），普通查询按列表达式。`PageRequest`（HTTP 字符串形态）只在
+  `PageRequest.Paging(sortable...)` 里按列名或 JSON 名解析成 `Paging`，排序白名单由调用方给。
+- `SelectDistinct` 是 `querySpec.Distinct`，算作分组查询：`Count` 包一层子查询数去重后的行。
+
+### 软删除作用域（`query_render.go` 的 `writeFromWhere`、`table.go` 的 `liveRows` / `liveSource`）
+
+声明了 `deleted_at` 的 `TableOf` 默认 `softDeleted()`；`WithDeleted()` 返回共享同一个
+`tableDef`、`includeDeleted = true` 的副本，别名委托给底层表，CTE 永远是 false。渲染时：
+
+- 查询里有 RIGHT / FULL JOIN：每张作用域表都渲染成 `(SELECT * FROM t WHERE 活行) AS t`。
+  这时 WHERE 过滤会把被保留侧的 NULL 行滤掉，ON 过滤又挡不住被保留侧自己的已删行，只有
+  派生表两头都对。
+- 否则 FROM 表和 INNER / CROSS JOIN 表的条件并进 WHERE，LEFT JOIN 表的条件并进它的 ON
+  （放进 WHERE 会把 LEFT JOIN 变成 INNER JOIN）。
+- `UpdateTable` 和软 `DeleteFrom` 在 WHERE 后追加活行条件，所以二次软删除不会重盖墓碑；
+  `HardDeleteFrom` 与 `DeleteFrom(t.WithDeleted())` 都是物理删除。
+- 列按 `definition()` 与名字归属表，所以 `Users` 的列可以直接用在 `Users.WithDeleted()` 上。
 
 ### 写入（`rows.go`、`mutation.go`）
 
@@ -174,7 +191,7 @@ JoinStage ─Search► SearchStage ─Where─► FilteredStage
   `execScope.tx` 说明。
 - 按条件写：`UpdateTable(table)` / `DeleteFrom(table)` / `HardDeleteFrom(table)`。
   `Set` / `SetVal` 是泛型方法，所以 `UpdateBuilder` 是导出的具体类型；`Where` 之后切到
-  `MutationStage` 接口。语句只能引用目标表本身（按表指针判断，别名也不行）。有 `version`
+  `MutationStage` 接口。语句只能引用目标表本身（按 `tableDef` 指针加表名判断，别名不行，`WithDeleted()` 行）。有 `version`
   的表追加 `version = version + 1` 但不校验版本（理由见 `memory.md`）。`DeleteFrom` 在有
   `deleted_at` 的表上渲染成 UPDATE，墓碑值**执行时**才算——v4 在构建时算，包级语句会
   永远盖进程启动的时间。

@@ -143,7 +143,6 @@ var QueryEnrollmentByUID = tsq.
 	Select(Enrollment__Cols...).
 	From(TableEnrollment).
 	Where(
-		Enrollment_DeletedAt.EQVal(0),
 		Enrollment_UID.EQ(Enrollment_UID.Param()),
 	).
 	MustBuild()
@@ -153,7 +152,6 @@ var QueryEnrollmentByUIDIn = tsq.
 	Select(Enrollment__Cols...).
 	From(TableEnrollment).
 	Where(
-		Enrollment_DeletedAt.EQVal(0),
 		Enrollment_UID.In(Enrollment_UID.ListParam()),
 	).
 	MustBuild()
@@ -181,93 +179,10 @@ func FetchEnrollmentByUID(
 	return ordered, nil
 }
 
-// QueryEnrollmentByCourseID reads Enrollment rows by index idx_enrollment_course_id.
-var QueryEnrollmentByCourseID = tsq.
-	Select(Enrollment__Cols...).
-	From(TableEnrollment).
-	Where(
-		Enrollment_DeletedAt.EQVal(0),
-		Enrollment_CourseID.EQ(Enrollment_CourseID.Param()),
-	).
-	MustBuild()
-
-// QueryEnrollmentByCourseIDIn reads Enrollment rows by index idx_enrollment_course_id.
-var QueryEnrollmentByCourseIDIn = tsq.
-	Select(Enrollment__Cols...).
-	From(TableEnrollment).
-	Where(
-		Enrollment_DeletedAt.EQVal(0),
-		Enrollment_CourseID.In(Enrollment_CourseID.ListParam()),
-	).
-	MustBuild()
-
-// QueryEnrollmentByLearnerID reads Enrollment rows by index idx_enrollment_learner_id_course_id.
-var QueryEnrollmentByLearnerID = tsq.
-	Select(Enrollment__Cols...).
-	From(TableEnrollment).
-	Where(
-		Enrollment_DeletedAt.EQVal(0),
-		Enrollment_LearnerID.EQ(Enrollment_LearnerID.Param()),
-	).
-	MustBuild()
-
-// QueryEnrollmentByLearnerIDAndCourseID reads Enrollment rows by index idx_enrollment_learner_id_course_id.
-var QueryEnrollmentByLearnerIDAndCourseID = tsq.
-	Select(Enrollment__Cols...).
-	From(TableEnrollment).
-	Where(
-		Enrollment_DeletedAt.EQVal(0),
-		Enrollment_LearnerID.EQ(Enrollment_LearnerID.Param()),
-		Enrollment_CourseID.EQ(Enrollment_CourseID.Param()),
-	).
-	MustBuild()
-
-// QueryEnrollmentByLearnerIDAndCourseIDIn reads Enrollment rows by index idx_enrollment_learner_id_course_id.
-var QueryEnrollmentByLearnerIDAndCourseIDIn = tsq.
-	Select(Enrollment__Cols...).
-	From(TableEnrollment).
-	Where(
-		Enrollment_DeletedAt.EQVal(0),
-		Enrollment_LearnerID.EQ(Enrollment_LearnerID.Param()),
-		Enrollment_CourseID.In(Enrollment_CourseID.ListParam()),
-	).
-	MustBuild()
-
-// QueryEnrollmentByLearnerIDIn reads Enrollment rows by index idx_enrollment_learner_id_course_id.
-var QueryEnrollmentByLearnerIDIn = tsq.
-	Select(Enrollment__Cols...).
-	From(TableEnrollment).
-	Where(
-		Enrollment_DeletedAt.EQVal(0),
-		Enrollment_LearnerID.In(Enrollment_LearnerID.ListParam()),
-	).
-	MustBuild()
-
-// QueryEnrollmentByStatus reads Enrollment rows by index idx_enrollment_status.
-var QueryEnrollmentByStatus = tsq.
-	Select(Enrollment__Cols...).
-	From(TableEnrollment).
-	Where(
-		Enrollment_DeletedAt.EQVal(0),
-		Enrollment_Status.EQ(Enrollment_Status.Param()),
-	).
-	MustBuild()
-
-// QueryEnrollmentByStatusIn reads Enrollment rows by index idx_enrollment_status.
-var QueryEnrollmentByStatusIn = tsq.
-	Select(Enrollment__Cols...).
-	From(TableEnrollment).
-	Where(
-		Enrollment_DeletedAt.EQVal(0),
-		Enrollment_Status.In(Enrollment_Status.ListParam()),
-	).
-	MustBuild()
-
 // QueryEnrollment reads every Enrollment row that is not deleted; Page matches its search columns.
 var QueryEnrollment = tsq.
 	Select(Enrollment__Cols...).
 	From(TableEnrollment).
-	Where(Enrollment_DeletedAt.EQVal(0)).
 	MustBuild()
 
 // Insert inserts the row; see tsq.TableOf.Insert.

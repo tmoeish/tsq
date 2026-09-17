@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"reflect"
 	"strings"
 )
 
@@ -47,6 +48,14 @@ func (p Param[T]) operand() exprInfo {
 	}
 
 	return exprInfo{sql: sqlParam(p.spec)}
+}
+
+func (p Param[T]) patternOperand(mode paramMode) exprInfo {
+	if p.spec == nil {
+		return exprInfo{err: errors.New("parameter is not initialized; use tsq.NewParam")}
+	}
+
+	return exprInfo{sql: sqlJoin(sqlParam(p.spec.derive(mode)), sqlText(likeEscapeClause))}
 }
 
 // ListParam is a named, typed placeholder for the right-hand side of IN and NOT IN.
@@ -171,12 +180,12 @@ func (p *paramSpec) write(value any, placeholder func(any), sql *strings.Builder
 	case paramScalar:
 		placeholder(value)
 	case paramPrefix, paramSuffix, paramContains:
-		s, ok := value.(string)
-		if !ok {
+		rv := reflect.ValueOf(value)
+		if rv.Kind() != reflect.String {
 			return fmt.Errorf("parameter %s: pattern value must be a string, got %T", p.label(), value)
 		}
 
-		s = escapeLikePattern(s)
+		s := escapeLikePattern(rv.String())
 
 		switch p.mode {
 		case paramPrefix:

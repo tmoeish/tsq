@@ -39,8 +39,8 @@ var TableTrack = tsqTrackTable.Define(tsq.TableSpec[Track]{
 	AutoIncrement: true,
 	CreatedAt:     Track_CreatedAt,
 	Search: []tsq.SearchColumn{
-		Track_Name,
-		Track_Description,
+		tsq.Searchable(Track_Name),
+		tsq.Searchable(Track_Description),
 	},
 	Schema: []tsqdialect.ColumnSpec{
 		{
@@ -139,6 +139,16 @@ var QueryTrackByName = tsq.
 	).
 	MustBuild()
 
+// QueryTrackByNameIn reads Track rows by unique index ux_track_name, one per
+// Name value; bind Track_Name with BindList.
+var QueryTrackByNameIn = tsq.
+	Select(Track__Cols...).
+	From(TableTrack).
+	Where(
+		Track_Name.In(Track_Name.ListParam()),
+	).
+	MustBuild()
+
 // FetchTrackByName returns the Track rows matching unique index ux_track_name,
 // one per Name value, in the order given. It fails with an error wrapping
 // sql.ErrNoRows when any of them is missing.
@@ -164,15 +174,6 @@ func FetchTrackByName(
 
 	return ordered, nil
 }
-
-// QueryTrackByNameIn reads Track rows by index ux_track_name.
-var QueryTrackByNameIn = tsq.
-	Select(Track__Cols...).
-	From(TableTrack).
-	Where(
-		Track_Name.In(Track_Name.ListParam()),
-	).
-	MustBuild()
 
 // QueryTrack reads every Track row; Page matches its search columns.
 var QueryTrack = tsq.

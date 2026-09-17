@@ -19,9 +19,9 @@ func TestRenderQuotesAndNumbersPerDialect(t *testing.T) {
 		dialect tsqdialect.Dialect
 		want    string
 	}{
-		{onSQLite, `SELECT "users"."id", "users"."name" FROM "users" WHERE ("users"."name" = ? AND "users"."version" > ?)`},
-		{onMySQL, "SELECT `users`.`id`, `users`.`name` FROM `users` WHERE (`users`.`name` = ? AND `users`.`version` > ?)"},
-		{onPostgres, `SELECT "users"."id", "users"."name" FROM "users" WHERE ("users"."name" = $1 AND "users"."version" > $2)`},
+		{onSQLite, `SELECT "users"."id", "users"."name" FROM "users" WHERE ("users"."name" = ? AND "users"."version" > ? AND "users"."deleted_at" = 0)`},
+		{onMySQL, "SELECT `users`.`id`, `users`.`name` FROM `users` WHERE (`users`.`name` = ? AND `users`.`version` > ? AND `users`.`deleted_at` = 0)"},
+		{onPostgres, `SELECT "users"."id", "users"."name" FROM "users" WHERE ("users"."name" = $1 AND "users"."version" > $2 AND "users"."deleted_at" = 0)`},
 	}
 
 	for _, tt := range tests {
@@ -39,8 +39,8 @@ func TestRenderQuotesAndNumbersPerDialect(t *testing.T) {
 }
 
 func TestListParamExpandsAndKeepsEmptyListsExplicit(t *testing.T) {
-	in := Select(User_ID).From(Users).Where(User_ID.In(User_ID.ListParam())).MustBuild()
-	notIn := Select(User_ID).From(Users).Where(User_ID.NotIn(User_ID.ListParam())).MustBuild()
+	in := Select(User_ID).From(Users.WithDeleted()).Where(User_ID.In(User_ID.ListParam())).MustBuild()
+	notIn := Select(User_ID).From(Users.WithDeleted()).Where(User_ID.NotIn(User_ID.ListParam())).MustBuild()
 
 	sql, args := sqlOf(t, in, onPostgres, User_ID.BindList(4, 5))
 	if !strings.HasSuffix(sql, `"users"."id" IN ($1, $2)`) || len(args) != 2 {
@@ -60,7 +60,7 @@ func TestListParamExpandsAndKeepsEmptyListsExplicit(t *testing.T) {
 
 func TestPatternsEscapeWildcards(t *testing.T) {
 	prefix := NewParam[string]("prefix")
-	q := Select(User_ID).From(Users).Where(User_Name.StartsWith(prefix), User_Email.ContainsVal("50%_off")).MustBuild()
+	q := Select(User_ID).From(Users).Where(StartsWithParam(User_Name, prefix), Contains(User_Email, "50%_off")).MustBuild()
 
 	sql, args := sqlOf(t, q, onSQLite, prefix.Bind("a~b"))
 	if strings.Count(sql, "ESCAPE '~'") != 2 {
@@ -103,7 +103,7 @@ func isUnsupported(err error) bool {
 }
 
 func TestDatePartsAreSpelledPerDialect(t *testing.T) {
-	q := Select(MapInto(User_CreatedAt.Year(), func(r *namedRow) *int64 { return &r.ID }, "year")).
+	q := Select(MapInto(Year(User_CreatedAt), func(r *namedRow) *int64 { return &r.ID }, "year")).
 		From(Users).MustBuild()
 
 	for d, want := range map[tsqdialect.Dialect]string{
@@ -136,9 +136,9 @@ func TestSetOperationsCTEAndSubqueries(t *testing.T) {
 	cte := CTE("big_orders", big)
 	bigUser := Order_UserID.WithTable(cte)
 
-	q := Select(User_ID).From(Users).
+	q := Select(User_ID).From(Users.WithDeleted()).
 		Join(cte, bigUser.EQ(User_ID)).
-		Union(Select(User_ID).From(Users).Where(User_Name.EQVal("root"))).
+		Union(Select(User_ID).From(Users.WithDeleted()).Where(User_Name.EQVal("root"))).
 		MustBuild()
 
 	sql, args := sqlOf(t, q, onSQLite)
@@ -201,7 +201,7 @@ func TestCaseRendersBranchesInOrder(t *testing.T) {
 		ElseVal("cold").
 		End()
 
-	q := Select(MapInto(label, func(r *namedRow) *string { return &r.Name }, "label")).From(Users).MustBuild()
+	q := Select(MapInto(label, func(r *namedRow) *string { return &r.Name }, "label")).From(Users.WithDeleted()).MustBuild()
 
 	sql, args := sqlOf(t, q, onSQLite)
 	want := `SELECT CASE WHEN "users"."version" > ? THEN ? WHEN "users"."name" IS NULL THEN "users"."email" ELSE ? END FROM "users"`

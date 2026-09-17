@@ -11,7 +11,9 @@ import (
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 )
 
-// UpdateTable starts an UPDATE of every row of table that matches Where.
+// UpdateTable starts an UPDATE of every row of table that matches Where. On a table
+// with a deleted_at column, deleted rows are left alone; pass table.WithDeleted() to
+// include them.
 //
 // It does not check the version column, but it increments it, so a row loaded
 // before the update fails its own Update with OptimisticLockError. Use
@@ -21,10 +23,11 @@ func UpdateTable[R any](table *TableOf[R]) *UpdateBuilder[R] {
 }
 
 // DeleteFrom starts a delete of every row of table that matches Where. On a table
-// with a deleted_at column it is a soft delete, stamped when the statement runs.
+// with a deleted_at column it is a soft delete, stamped when the statement runs, of
+// rows not already deleted.
 func DeleteFrom[R any](table *TableOf[R]) *DeleteBuilder[R] {
 	kind := mutationDelete
-	if table != nil && table.def.managed.DeletedAt != "" {
+	if table != nil && table.def.managed.DeletedAt != "" && !table.includeDeleted {
 		kind = mutationSoftDelete
 	}
 
@@ -32,7 +35,7 @@ func DeleteFrom[R any](table *TableOf[R]) *DeleteBuilder[R] {
 }
 
 // HardDeleteFrom starts a DELETE of every row of table that matches Where,
-// ignoring any deleted_at column.
+// deleted rows included.
 func HardDeleteFrom[R any](table *TableOf[R]) *DeleteBuilder[R] {
 	return &DeleteBuilder[R]{m: mutationSpec[R]{table: table, kind: mutationDelete}}
 }
@@ -84,7 +87,7 @@ func (b *UpdateBuilder[R]) assign(col SQLColumn, value exprInfo) *UpdateBuilder[
 	switch {
 	case core.err() != nil:
 		n.m.fail(core.err())
-	case core.table != Table(b.m.table) || !core.plain:
+	case isNilValue(core.table) || core.table.definition() != b.m.table.def || core.table.Name() != b.m.table.Name() || !core.plain:
 		n.m.fail(fmt.Errorf("assignment target %s must be a column of %s", core.name, b.m.table.Name()))
 	case core.name == b.m.table.def.managed.Version:
 		n.m.fail(fmt.Errorf("column %s is the version column; it is incremented automatically", core.name))
@@ -106,7 +109,7 @@ func (b *UpdateBuilder[R]) Set[T any](col TypedColumn[R, T], rhs RHS[T]) *Update
 	return b.assign(col, rhsInfo(rhs))
 }
 
-// SetVal assigns a bound value to col.
+// SetVal assigns a bound value to col; a nil value assigns NULL.
 func (b *UpdateBuilder[R]) SetVal[T any](col TypedColumn[R, T], value T) *UpdateBuilder[R] {
 	return b.assign(col, exprInfo{sql: sqlValue(value)})
 }
@@ -184,7 +187,7 @@ func (s mutationStage[R]) Build() (*Mutation[R], error) {
 		}
 
 		for name, t := range info.allTables() {
-			if t != Table(m.table) {
+			if t.definition() != m.table.def || name != m.table.Name() {
 				return nil, fmt.Errorf("the statement on %s cannot reference %s", m.table.Name(), name)
 			}
 		}
@@ -226,7 +229,7 @@ var (
 )
 
 func (m *Mutation[R]) render(r *renderer) {
-	def := &m.m.table.def
+	def := m.m.table.def
 
 	switch m.m.kind {
 	case mutationDelete:
@@ -258,7 +261,14 @@ func (m *Mutation[R]) render(r *renderer) {
 	}
 
 	r.writeText(" WHERE ")
-	r.write(andAll(m.m.filters).sql)
+
+	where := andAll(m.m.filters).sql
+	if m.m.kind != mutationDelete && m.m.table.softDeleted() {
+		// UpdateTable and a soft DeleteFrom leave deleted rows alone, like queries do.
+		where = sqlJoin(sqlText("("), where, sqlText(") AND "), liveRows(m.m.table))
+	}
+
+	r.write(where)
 }
 
 func (m *Mutation[R]) statement(d tsqdialect.Dialect) (*statement, error) {

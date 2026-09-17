@@ -38,9 +38,9 @@ var TableLearner = tsqLearnerTable.Define(tsq.TableSpec[Learner]{
 	AutoIncrement: true,
 	CreatedAt:     Learner_CreatedAt,
 	Search: []tsq.SearchColumn{
-		Learner_Name,
-		Learner_Email,
-		Learner_Company,
+		tsq.Searchable(Learner_Name),
+		tsq.Searchable(Learner_Email),
+		tsq.Searchable(Learner_Company),
 	},
 	Schema: []tsqdialect.ColumnSpec{
 		{
@@ -140,6 +140,16 @@ var QueryLearnerByEmail = tsq.
 	).
 	MustBuild()
 
+// QueryLearnerByEmailIn reads Learner rows by unique index ux_learner_email, one per
+// Email value; bind Learner_Email with BindList.
+var QueryLearnerByEmailIn = tsq.
+	Select(Learner__Cols...).
+	From(TableLearner).
+	Where(
+		Learner_Email.In(Learner_Email.ListParam()),
+	).
+	MustBuild()
+
 // FetchLearnerByEmail returns the Learner rows matching unique index ux_learner_email,
 // one per Email value, in the order given. It fails with an error wrapping
 // sql.ErrNoRows when any of them is missing.
@@ -165,33 +175,6 @@ func FetchLearnerByEmail(
 
 	return ordered, nil
 }
-
-// QueryLearnerByCompany reads Learner rows by index idx_learner_company.
-var QueryLearnerByCompany = tsq.
-	Select(Learner__Cols...).
-	From(TableLearner).
-	Where(
-		Learner_Company.EQ(Learner_Company.Param()),
-	).
-	MustBuild()
-
-// QueryLearnerByCompanyIn reads Learner rows by index idx_learner_company.
-var QueryLearnerByCompanyIn = tsq.
-	Select(Learner__Cols...).
-	From(TableLearner).
-	Where(
-		Learner_Company.In(Learner_Company.ListParam()),
-	).
-	MustBuild()
-
-// QueryLearnerByEmailIn reads Learner rows by index ux_learner_email.
-var QueryLearnerByEmailIn = tsq.
-	Select(Learner__Cols...).
-	From(TableLearner).
-	Where(
-		Learner_Email.In(Learner_Email.ListParam()),
-	).
-	MustBuild()
 
 // QueryLearner reads every Learner row; Page matches its search columns.
 var QueryLearner = tsq.

@@ -15,32 +15,6 @@ import (
 
 var builtInIdentifierPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
-// UnknownSortFieldError reports a PageRequest.OrderBy field the query does not select.
-type UnknownSortFieldError struct {
-	Field string
-}
-
-func (e *UnknownSortFieldError) Error() string { return "unknown sort field: " + e.Field }
-
-// AmbiguousSortFieldError reports a PageRequest.OrderBy field that names more than
-// one selected column.
-type AmbiguousSortFieldError struct {
-	Field string
-}
-
-func (e *AmbiguousSortFieldError) Error() string { return "ambiguous sort field: " + e.Field }
-
-// OrderCountMismatchError reports a PageRequest whose OrderBy and Order lists have
-// different lengths.
-type OrderCountMismatchError struct {
-	Fields     int
-	Directions int
-}
-
-func (e *OrderCountMismatchError) Error() string {
-	return fmt.Sprintf("order_by lists %d fields but order lists %d directions", e.Fields, e.Directions)
-}
-
 // Query is a built SELECT. It is immutable and safe for concurrent use; build it
 // once and reuse it. It is rendered for a dialect when it first runs on one, and the
 // rendering is cached.
@@ -346,36 +320,44 @@ func (q *Query[O]) checkSingleSelect(selected SQLColumn) error {
 	return nil
 }
 
-// Page runs the query for one page of page, plus a count of all matching rows.
-// Page owns ORDER BY and LIMIT: a query that sets Limit or Offset is refused, and so
-// is a PageRequest.OrderBy on a query that already orders.
-func (q *Query[O]) Page(ctx context.Context, db Executor, page *PageRequest, args ...Arg) (*PageResponse[O], error) {
+// Page runs the query for one page, plus a count of all matching rows. The query
+// must not set Limit or Offset, and it must not order itself when p.OrderBy is set:
+// Page owns those clauses.
+func (q *Query[O]) Page(ctx context.Context, db Executor, p Paging, args ...Arg) (*PageResponse[O], error) {
 	return traceExecutor1(ctx, db, TraceOpPage, func(ctx context.Context) (*PageResponse[O], error) {
 		if q == nil {
 			return nil, errors.New("query cannot be nil")
 		}
 
-		page = normalizePageReqWithLimit(page, runtimeForExecutor(db).MaxPageSize())
+		p = p.normalized(runtimeForExecutor(db).MaxPageSize())
 
 		if q.spec.Limit != nil {
 			return nil, errors.New("query sets Limit/Offset; Page controls paging, so drop them from the builder")
 		}
 
-		order, err := q.pageOrder(page)
-		if err != nil {
-			return nil, err
+		if len(p.OrderBy) > 0 && len(q.spec.OrderBys) > 0 {
+			return nil, errors.New("query already sets OrderBy; drop it from the builder or leave Paging.OrderBy empty")
 		}
 
-		keyword := len(q.spec.KeywordSearch) > 0 && page.Keyword != ""
+		order := make([]orderTerm, 0, len(p.OrderBy))
+		for _, ob := range p.OrderBy {
+			if ob.direction != ASC && ob.direction != DESC {
+				return nil, fmt.Errorf("invalid order direction %q", ob.direction)
+			}
+
+			order = append(order, q.spec.orderTerm(ob))
+		}
+
+		keyword := len(q.spec.KeywordSearch) > 0 && p.Keyword != ""
 
 		var builtin map[*paramSpec]any
 		if keyword {
-			builtin = map[*paramSpec]any{keywordParam: page.Keyword}
+			builtin = map[*paramSpec]any{keywordParam: p.Keyword}
 		}
 
 		_, stmts, err := q.prepare(db, args, builtin,
 			renderMode{count: true, keyword: keyword},
-			renderMode{keyword: keyword, paged: true, order: order, limit: page.Size, offset: page.Offset()},
+			renderMode{keyword: keyword, paged: true, order: order, limit: p.Size, offset: p.Size * (p.Page - 1)},
 		)
 		if err != nil {
 			return nil, err
@@ -391,87 +373,8 @@ func (q *Query[O]) Page(ctx context.Context, db Executor, page *PageRequest, arg
 			return nil, err
 		}
 
-		if rows == nil {
-			rows = make([]*O, 0)
-		}
-
-		return page.Response(total, rows), nil
+		return newPageResponse(p, total, rows), nil
 	})
-}
-
-// pageOrder resolves PageRequest.OrderBy against the selected columns, matching
-// either a column's name or its JSON field name.
-func (q *Query[O]) pageOrder(page *PageRequest) ([]orderTerm, error) {
-	fields := splitCommaValues(page.OrderBy)
-	if len(fields) == 0 {
-		if len(splitCommaValues(page.Order)) > 0 {
-			return nil, errors.New("order requires order_by")
-		}
-
-		return nil, nil
-	}
-
-	if len(q.spec.OrderBys) > 0 {
-		return nil, errors.New("query already sets OrderBy; drop it from the builder or leave PageRequest.OrderBy empty")
-	}
-
-	directions, err := normalizeSortOrders(splitCommaValues(page.Order), len(fields))
-	if err != nil {
-		return nil, err
-	}
-
-	setOps := len(q.spec.SetOps) > 0
-	byKey := make(map[string][]sqlExpr)
-
-	register := func(key string, expr sqlExpr) {
-		if key == "" || key == "-" {
-			return
-		}
-
-		byKey[key] = append(byKey[key], expr)
-	}
-
-	for _, col := range q.spec.Selects {
-		expr := columnInfo(col).sql
-		if setOps {
-			// A compound query can only be ordered by output column names.
-			expr = sqlIdent(col.Name())
-		}
-
-		register(col.Name(), expr)
-
-		if col.JSONFieldName() != col.Name() {
-			register(col.JSONFieldName(), expr)
-		}
-	}
-
-	terms := make([]orderTerm, 0, len(fields))
-
-	for i, field := range fields {
-		exprs := byKey[field]
-
-		switch {
-		case len(exprs) == 0:
-			return nil, &UnknownSortFieldError{Field: field}
-		case len(exprs) > 1 && !sameExprs(exprs):
-			return nil, &AmbiguousSortFieldError{Field: field}
-		}
-
-		terms = append(terms, orderTerm{expr: exprs[0], direction: directions[i]})
-	}
-
-	return terms, nil
-}
-
-func sameExprs(exprs []sqlExpr) bool {
-	first := debugSQL(exprs[0])
-	for _, e := range exprs[1:] {
-		if debugSQL(e) != first {
-			return false
-		}
-	}
-
-	return true
 }
 
 func splitCommaValues(value string) []string {

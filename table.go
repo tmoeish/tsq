@@ -3,6 +3,7 @@ package tsq
 import (
 	"errors"
 	"fmt"
+	"reflect"
 	"slices"
 	"strings"
 
@@ -24,6 +25,8 @@ type Table interface {
 	cteBody() cteQuery
 	// hasColumn reports whether the source exposes a column of that name.
 	hasColumn(name string) bool
+	// softDeleted reports whether queries must leave out the source's deleted rows.
+	softDeleted() bool
 }
 
 // managedColumns names the columns TSQ maintains on the caller's behalf. An empty
@@ -53,8 +56,11 @@ type tableDef struct {
 	search        []SearchColumn
 	schema        []tsqdialect.ColumnSpec
 	indexes       []TableIndex
-	defined       bool
-	err           error
+	// tombstoneIsZero says a live row has deleted_at = 0 (integer tombstones)
+	// rather than deleted_at IS NULL.
+	tombstoneIsZero bool
+	defined         bool
+	err             error
 }
 
 func (d *tableDef) column(name string) *columnCore {
@@ -77,7 +83,8 @@ func (d *tableDef) column(name string) *columnCore {
 // Queries use TableCourse, which depends on every column, so no query can be
 // initialized before the table is complete.
 type TableOf[R any] struct {
-	def tableDef
+	def            *tableDef
+	includeDeleted bool
 }
 
 // TableSpec is the definition of a table.
@@ -104,7 +111,7 @@ type TableSpec[R any] struct {
 // NewTable starts the declaration of a table named name. The table is unusable
 // until Define completes it.
 func NewTable[R any](name string) *TableOf[R] {
-	t := &TableOf[R]{def: tableDef{name: name}}
+	t := &TableOf[R]{def: &tableDef{name: name}}
 	if err := validateBuiltInIdentifier(name); err != nil {
 		t.def.err = fmt.Errorf("table name: %w", err)
 	}
@@ -115,7 +122,7 @@ func NewTable[R any](name string) *TableOf[R] {
 // Define completes the table and returns it. A definition error is reported by
 // every query and write that uses the table.
 func (t *TableOf[R]) Define(spec TableSpec[R]) *TableOf[R] {
-	d := &t.def
+	d := t.def
 	if d.defined {
 		d.err = errors.Join(d.err, fmt.Errorf("table %s is defined twice", d.name))
 		return t
@@ -139,7 +146,7 @@ func (t *TableOf[R]) Define(spec TableSpec[R]) *TableOf[R] {
 			return nil
 		}
 
-		if core.table != Table(t) || !core.plain {
+		if isNilValue(core.table) || core.table.definition() != d || !core.plain {
 			fail("%s %s is not a column of this table", role, core.name)
 			return nil
 		}
@@ -187,6 +194,15 @@ func (t *TableOf[R]) Define(spec TableSpec[R]) *TableOf[R] {
 	}
 
 	d.autoIncrement = spec.AutoIncrement
+
+	if col := spec.DeletedAt; !isNilValue(col) && col.core().scan != nil {
+		switch reflect.ValueOf(col.core().scan(new(R))).Elem().Kind() {
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+			reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+			d.tombstoneIsZero = true
+		}
+	}
+
 	d.managed = managedColumns{
 		Version:   registered("version column", spec.Version),
 		CreatedAt: registered("created_at column", spec.CreatedAt),
@@ -265,6 +281,14 @@ func (t *TableOf[R]) Indexes() []TableIndex {
 	return result
 }
 
+// WithDeleted returns the table without its soft-delete scope. A table with a
+// deleted_at column leaves deleted rows out of every query and of UpdateTable and
+// DeleteFrom; select from, join or update WithDeleted() to include them. Its
+// columns are the table's columns.
+func (t *TableOf[R]) WithDeleted() *TableOf[R] {
+	return &TableOf[R]{def: t.def, includeDeleted: true}
+}
+
 // As returns the table under an alias, for joining it more than once.
 func (t *TableOf[R]) As(alias string) Table { return AliasTable(t, alias) }
 
@@ -278,9 +302,12 @@ func (t *TableOf[R]) Err() error {
 }
 
 func (t *TableOf[R]) source() sqlExpr         { return sqlIdent(t.def.name) }
-func (t *TableOf[R]) definition() *tableDef   { return &t.def }
+func (t *TableOf[R]) definition() *tableDef   { return t.def }
 func (t *TableOf[R]) cteBody() cteQuery       { return nil }
 func (t *TableOf[R]) hasColumn(n string) bool { return t.def.byName[n] != nil }
+func (t *TableOf[R]) softDeleted() bool {
+	return !t.includeDeleted && t.def.managed.DeletedAt != ""
+}
 
 // ready returns the definition or the reason it cannot be used.
 func (t *TableOf[R]) ready() (*tableDef, error) {
@@ -288,7 +315,7 @@ func (t *TableOf[R]) ready() (*tableDef, error) {
 		return nil, err
 	}
 
-	return &t.def, nil
+	return t.def, nil
 }
 
 type aliasTable struct {
@@ -320,6 +347,32 @@ func (a aliasTable) source() sqlExpr {
 func (a aliasTable) definition() *tableDef   { return a.base.definition() }
 func (a aliasTable) cteBody() cteQuery       { return a.base.cteBody() }
 func (a aliasTable) hasColumn(n string) bool { return a.base.hasColumn(n) }
+func (a aliasTable) softDeleted() bool       { return a.base.softDeleted() }
+
+// liveRows renders the condition that keeps table's live rows, for a table that
+// is softDeleted.
+func liveRows(table Table) sqlExpr {
+	def := table.definition()
+	op := " IS NULL"
+
+	if def.tombstoneIsZero {
+		op = " = 0"
+	}
+
+	return sqlJoin(columnRef(table, def.managed.DeletedAt), sqlText(op))
+}
+
+// liveSource renders table as a derived table holding only its live rows, for
+// joins where a condition in WHERE or ON would not filter the right rows.
+func liveSource(table Table) sqlExpr {
+	def := table.definition()
+	inner := &TableOf[struct{}]{def: def}
+
+	return sqlJoin(
+		sqlText("(SELECT * FROM "), sqlIdent(def.name), sqlText(" WHERE "), liveRows(inner),
+		sqlText(") AS "), sqlIdent(table.Name()),
+	)
+}
 
 // tableRef renders the name a query uses for table.
 func tableRef(table Table) sqlExpr { return sqlIdent(table.Name()) }
@@ -383,6 +436,7 @@ func (c cteTable) Name() string          { return c.name }
 func (c cteTable) source() sqlExpr       { return sqlIdent(c.name) }
 func (c cteTable) definition() *tableDef { return nil }
 func (c cteTable) cteBody() cteQuery     { return c.body }
+func (c cteTable) softDeleted() bool     { return false }
 
 func (c cteTable) hasColumn(n string) bool {
 	return slices.Contains(c.body.outputNames(), n)

@@ -215,9 +215,41 @@ func (s *querySpec[O]) writeSimple(r *renderer, keyword bool) {
 	}
 }
 
+// writeFromWhere writes FROM, the joins and WHERE, keeping the deleted rows of
+// soft-delete tables out. Where that filter goes depends on the join: in WHERE for
+// the FROM table and inner joins, in ON for a LEFT JOIN (in WHERE it would drop the
+// preserved row). With a RIGHT or FULL JOIN in the query, a table can be on the
+// preserved side of one join and the optional side of another, so every
+// soft-delete table becomes a derived table of its live rows instead.
 func (s *querySpec[O]) writeFromWhere(r *renderer, keyword bool) {
+	outer := false
+
+	for _, j := range s.Joins {
+		if j.kind == rightJoinType || j.kind == fullJoinType {
+			outer = true
+		}
+	}
+
+	var live []Condition
+
+	source := func(t Table) sqlExpr {
+		if !t.softDeleted() {
+			return t.source()
+		}
+
+		if outer {
+			return liveSource(t)
+		}
+
+		return t.source()
+	}
+
 	r.writeText(" FROM ")
-	r.write(s.From.source())
+	r.write(source(s.From))
+
+	if s.From.softDeleted() && !outer {
+		live = append(live, newCondition(exprInfo{sql: liveRows(s.From)}))
+	}
 
 	for _, j := range s.Joins {
 		if j.kind == fullJoinType {
@@ -225,11 +257,22 @@ func (s *querySpec[O]) writeFromWhere(r *renderer, keyword bool) {
 		}
 
 		r.writeText(" " + string(j.kind) + " ")
-		r.write(j.table.source())
+		r.write(source(j.table))
 
-		if len(j.on) > 0 {
+		on := j.on
+
+		if j.table.softDeleted() && !outer {
+			filter := newCondition(exprInfo{sql: liveRows(j.table)})
+			if j.kind == leftJoinType {
+				on = append(slices.Clone(on), filter)
+			} else {
+				live = append(live, filter)
+			}
+		}
+
+		if len(on) > 0 {
 			r.writeText(" ON ")
-			r.write(andAll(j.on).sql)
+			r.write(andAll(on).sql)
 		}
 	}
 
@@ -237,15 +280,17 @@ func (s *querySpec[O]) writeFromWhere(r *renderer, keyword bool) {
 
 	if keyword && len(s.KeywordSearch) > 0 {
 		terms := make([]Condition, 0, len(s.KeywordSearch))
-		pattern := exprInfo{sql: sqlJoin(sqlParam(keywordParam.derive(paramContains)), sqlText(likeEscapeClause))}
+		pattern := sqlJoin(sqlParam(keywordParam.derive(paramContains)), sqlText(likeEscapeClause))
 
 		for _, col := range s.KeywordSearch {
 			info := columnInfo(col)
-			terms = append(terms, newCondition(info.withSQL(sqlJoin(info.sql, sqlText(" LIKE "), pattern.sql))))
+			terms = append(terms, newCondition(info.withSQL(sqlJoin(info.sql, sqlText(" LIKE "), pattern))))
 		}
 
 		conds = append(conds, Or(terms...))
 	}
+
+	conds = append(conds, live...)
 
 	if len(conds) > 0 {
 		r.writeText(" WHERE ")
@@ -253,10 +298,20 @@ func (s *querySpec[O]) writeFromWhere(r *renderer, keyword bool) {
 	}
 }
 
+// orderTerm renders an ORDER BY term. A compound query can only be ordered by its
+// output column names, so the term drops its table there.
+func (s *querySpec[O]) orderTerm(ob OrderBy) orderTerm {
+	if len(s.SetOps) > 0 && !isNilValue(ob.column) {
+		return orderTerm{expr: sqlIdent(ob.column.Name()), direction: ob.direction}
+	}
+
+	return orderTerm{expr: columnInfo(ob.column).sql, direction: ob.direction}
+}
+
 func (s *querySpec[O]) writeTail(r *renderer, m renderMode) {
 	order := make([]orderTerm, 0, len(s.OrderBys))
 	for _, ob := range s.OrderBys {
-		order = append(order, orderTerm{expr: columnInfo(ob.column).sql, direction: ob.direction})
+		order = append(order, s.orderTerm(ob))
 	}
 
 	if m.paged && len(m.order) > 0 {

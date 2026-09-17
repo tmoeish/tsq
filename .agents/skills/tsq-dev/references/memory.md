@@ -95,9 +95,8 @@ SQLite ≥3.39。代价是更老的引擎拿到数据库报错而不是 `Unsuppo
 
 ### 文档描述了一个不存在的阶段，而两侧的门都看不见它 (2026-08-28)
 
-`skills/tsq` 早就写着 `OrderBy` / `Limit` / `Offset` 阶段，构建器上却从来没有这三个方法。`api-check`
-只比对符号（`OrderBy` 类型确实存在），`doc-check` 只认 `tsq.X`（方法调用不匹配）：**"文档提到的符号
-都存在"不等于"文档描述的用法都成立"**。修的是实现：一个 SQL 构建器不能排序是功能缺失。
+文档写着 `OrderBy` / `Limit` / `Offset`，构建器上没有；`api-check` 和 `doc-check` 都只看符号。
+**"文档提到的符号都存在"不等于"文档描述的用法都成立"**。
 
 ### "最紧的那个上限"是个断言，不是常识，要去量 (2026-08-28)
 
@@ -107,8 +106,7 @@ SQLite ≥3.39。代价是更老的引擎拿到数据库报错而不是 `Unsuppo
 
 ### 字符串模式的空值落在所有分支之外 (2026-08-26)
 
-`string` 类型的模式开关默认值 `""` 不属于任何分支，违规被静默丢弃。**stringly-typed 的开关，空值
-永远是那个没人写的分支**；要么用类型化枚举显式映射空值，要么像现在这样干脆不留开关。
+**stringly-typed 的开关，空值 `""` 永远是那个没人写的分支**，违规被静默丢弃。用类型化枚举或不留开关。
 
 ### 接口里"有定义、有实现、零调用"的钩子 (2026-08-26)
 
@@ -177,6 +175,20 @@ MySQL 的 `LENGTH` 数字节；PostgreSQL 没有 `round(double, int)`；modernc 
 顺带修掉：`DeleteFrom` 的墓碑时间在构建时求值（包级语句永远写进程启动时间）；`Year()` 返回列
 自身类型且得到文本；`StartsWithVal` 不转义通配符；分组后仍能 `ForUpdate`。
 
+### 决定：v5 设计收尾——函数是包级泛型、分页类型化、少生成查询 (2026-09-17)
+
+- **列函数是包级泛型函数**（`tsq.Upper(col)`），用 `Text` / `Number` 约束：方法没法再约束类型参数，
+  `User_ID.Upper()` 永远能编译。搜索列只能是 `string`（PostgreSQL 的整数没有 `LIKE`）。
+- **否决 `tsq.Val(v)` 作为 RHS、删掉 `*Val` 方法**：实现过又撤回。Go 只按调用本身推断类型参数，
+  `tsq.Val(90)` 是 `Val[int]`，放不进 `RHS[int64]`；而 `EQVal(90)` 的参数类型来自列，常量能转换。
+  整数列上每处都要写 `tsq.Val(int64(90))`，比多一组方法更糟。
+- **`Page` 吃 `Paging`**（`[]OrderBy` 由列构成），字符串形态的 `PageRequest` 只在 HTTP 边界存在，
+  `Paging(sortable...)` 要求调用方列出可排序列：v4 按"选出来的列"放行排序，未建索引的列也能被
+  客户端拿来排序。
+- **只为主键和唯一索引生成查询**：普通索引和前缀的查询要排序、限量，生成器猜不到，生成的"查全部
+  匹配行"被照抄就是全表量级的读取。
+- `BatchDeleteByPK` 挪到 `TableOf` 上，吃主键的 `BindList`：包级版本要再校验"列是不是主键"。
+
 ### 两个测试各自编码了相反的意图，代码同时满足它们 (2026-09-16)
 
 `DefaultMaxPageSize` 到底是默认值还是硬顶？`TestRuntimeMaxPageSizeDefaultsAndOverrides` 断言
@@ -241,14 +253,16 @@ v4 攒下九个 `Deprecated` 符号，没有任何门禁会提醒它们该走—
 调用方随便挑一列去问"子查询有没有行"。后者还有第二个毛病：参数类型 `rawSubquery` 未导出，**调用能
 编译，但使用者写不出这个类型名**，也就写不了 helper。现在是导出的密封接口 `AnySubquery`。
 
-已知未处理：`Year` / `Month` / `Day` 渲染成 `SUBSTR(DATE(x), ...)`，产出**文本**而非数字，而三个方言
-的日期函数写法各异；`Substring` / `Date` 同样可疑。要做一次列函数的可移植性审计，别在改签名时顺手做。
-
 ### 决定：软删除是默认的删除语义，物理删除要显式说 (2026-09-09，v5)
 
 判据是真实用法：软删除的行在业务上就是删掉了，只有审计才回头看。声明 `deleted_at` 的表上
-`Delete` 打墓碑、`HardDelete` 物理删，没声明的表两者同义；`QueryActive*` 随之改名 `Query*`，
-"连已删行一起查"的那套不再生成——构建器三行能写出来，不值得每表每索引一个包级变量。
+`Delete` 打墓碑、`HardDelete` 物理删，没声明的表两者同义。
+
+**已删行不可见是表的默认作用域，不是生成查询里的过滤条件**（2026-09-17）。之前模板往生成的查询里
+加 `deleted_at = 0`，手写查询和 JOIN 里的软删除表全都漏掉——每个调用点都要记得，就等于没有。
+作用域放 WHERE 会把 LEFT JOIN 变成 INNER JOIN，放 ON 挡不住 RIGHT JOIN 被保留侧的已删行，
+所以有 RIGHT / FULL JOIN 时整张表改成活行派生表（位置规则在 `architecture.md`）。
+`WithDeleted()` 是唯一的出口，`UpdateTable` / 软 `DeleteFrom` 同样受作用域约束。
 
 - **软删除复用 update 路径**，不另写 DELETE 分支：更新路径带着乐观锁校验和 `version` 自增，
   软删除必须一样有，分开写两条迟早只改一边。
@@ -329,13 +343,11 @@ squash 会改写提交信息（追加 ` (#59)`）、SHA 和历史形状，同一
 
 ### 文档里的 make 目标和 CI 里的是两条独立的真相 (2026-08-21)
 
-CI 调过不存在的 `make update-examples`，README 里同一个幽灵又活了三个月。`doc-check` 守着文档里的
-`make X`，但**管不到 `.github/workflows/`**，改目标名那里仍要手动 grep。
+`doc-check` 守着文档里的 `make X`，但**管不到 `.github/workflows/`**（CI 调过不存在的目标），改名时手动 grep。
 
 ### cobra 的互斥标志组按 `Changed` 位判定，测试里必须手动清 (2026-08-21)
 
-`VersionCmd` 是包级单例，**状态跨 `Execute()` 存活**。清法：`Flags().Lookup(name).Changed = false`；
-`test-race` 带 `-shuffle=on` 就是为了发现这类用例间耦合。
+`VersionCmd` 是包级单例，状态跨 `Execute()` 存活：`Flags().Lookup(name).Changed = false`；`-shuffle=on` 为此而开。
 
 ### 发版波必须从内存门禁里豁免 (2026-08-21)
 
@@ -385,9 +397,8 @@ CI 调过不存在的 `make update-examples`，README 里同一个幽灵又活�
 
 ### 把并发写入者的改动误判成了工具的 bug (2026-08-21)
 
-曾断定"`make fmt` 里的 `go fix` 会把树改到编译不过"并删掉它。**结论是错的，已改回来**：
-真相是另一个 claude 进程在同一个工作区里边跑边写文件，`go fix` 打印的编译错误是它**遇到**
-的，不是它造成的。在 HEAD 的干净副本里复现不出来。
+曾断定 `make fmt` 里的 `go fix` 会把树改坏并删掉它——**错的，已改回**：另一个 claude 进程在同一
+工作区边跑边写，`go fix` 报的编译错误是它遇到的，不是它造成的。
 
 - **"我改了 A，然后 B 坏了"在有并发写入者时什么都不能证明。** 先确认自己是不是唯一写入者
   （`ps aux | grep claude` 加 `lsof -p <pid> -a -d cwd`），再在 `git archive HEAD` 的副本里
@@ -409,9 +420,8 @@ CI 调过不存在的 `make update-examples`，README 里同一个幽灵又活�
 
 ### 版本号是给使用者的，不是给每一次提交的 (2026-08-21)
 
-v4.4.2 只改了 `Makefile`、`script/` 和 `agents/`，使用者拿到手里和 v4.4.1 一模一样，那是个
-不该存在的版本。判据不是"这波重不重要"，是"使用者拿到的东西变了没有"——`release.py` 的
-`user_visible_changes` 现在自己算，完整表格（含"`internal/` 算使用者可见"）在 `AGENTS.md` § 发版。
+v4.4.2 使用者拿到的和 v4.4.1 一模一样。判据是"使用者拿到的东西变了没有"，`release.py` 的
+`user_visible_changes` 自己算，表格在 `AGENTS.md` § 发版。
 
 ### CI 里用 `@latest` 装的工具，会在它发新版本的那天让每个 PR 变红 (2026-09-09)
 
@@ -425,13 +435,9 @@ goreleaser v2.18.1 一发布就要求 Go >= 1.27.1，CI 用 `GOTOOLCHAIN=local` 
 
 ### 生成器不能带 `git describe` 的版本号，否则发版是死锁 (2026-08-21)
 
-生成器曾用带 `-X ...version=$(git describe)` 的 `bin/tsq`，于是**生成文件头记的是 git 描述
-出来的版本，不是即将发布的版本**。第一次真跑 `make release` 就死锁：想让头部写对得先打 tag，
-想打 tag 得先过 `release-check`。
-
-修法是 `make build-gen`：**故意不带 `$(LDFLAGS)`** 地编 `bin/tsq-gen`，它报告
-`internal/buildinfo` 的字面量。附带好处是生成结果只依赖源码，不再依赖工作区干不干净。
-`bin/tsq`（带 ldflags）仍是给人用的 CLI，两个二进制的分工不要合并。
+用带 `-X version=$(git describe)` 的 `bin/tsq` 生成，文件头记的是 git 描述的版本：想写对头部得先打
+tag，想打 tag 得先过 `release-check`。所以 `make build-gen` **故意不带 `$(LDFLAGS)`** 编 `bin/tsq-gen`
+（报告 `internal/buildinfo` 字面量）；`bin/tsq` 是给人用的 CLI，两个二进制的分工不要合并。
 
 ### 决定：两份技能按所有权拆开，不按篇幅 (2026-08-21)
 

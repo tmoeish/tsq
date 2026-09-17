@@ -271,8 +271,8 @@ Their behavior is:
 
 - generated insert helpers set `created_at` to the current time;
 - generated insert, update, and soft-delete helpers refresh `updated_at`; and
-- `deleted_at` enables soft deletion, and list, get, and page helpers automatically filter for
-  active rows.
+- `deleted_at` enables soft deletion, and every query and conditional write on the table
+  (joins included) skips deleted rows unless it names `TableXxx.WithDeleted()`.
 
 For a table with a unique index, prefer `int64` or `uint64` tombstone semantics for `deleted_at`
 over nullable time semantics.

@@ -147,7 +147,7 @@ func main() {
 	query, err := tsq.
 		Select(database.User__Cols...).
 		From(database.TableUser).
-		Where(database.User_Name.ContainsVal("alice")).
+		Where(tsq.Contains(database.User_Name, "alice")).
 		Build()
 	if err != nil {
 		log.Fatal(err)
@@ -225,7 +225,9 @@ TSQ 当前内置的 `Dialect` 实现只有 **SQLite / MySQL / PostgreSQL**。下
 - **执行器必须知道方言**：`*tsq.Runtime`、`WithTx` 给的执行器，或 `tsq.WrapExecutor(db, dialect)`；裸 `*sql.DB` 编译不过。
 - **`Build()` 成功不代表所有方言都能执行**：CTE、`FULL JOIN`、行锁在执行时按方言校验，不支持时返回 `*dialect.UnsupportedCapabilityError`。
 - **`version` 字段是自动乐观锁**：`Update` / `Delete` 冲突时返回 `*tsq.OptimisticLockError`，这是业务错误，必须处理。`TxOptions{RetryIf: tsq.IsOptimisticLockError}` 可以整段重试。
-- **声明了 `deleted_at` 的表，`Delete` 是软删除**，生成的查询都会滤掉已删行；物理删除要写 `HardDelete`。没有 `deleted_at` 的表两者同义。
+- **声明了 `deleted_at` 的表，`Delete` 是软删除**，而且已删行对**所有**引用这张表的查询和按条件写都不可见（JOIN 里也是）；要看已删行用 `TableXxx.WithDeleted()`，物理删除写 `HardDelete`。没有 `deleted_at` 的表两者同义。
+- **列函数是包级泛型函数**：`tsq.Upper(col)`、`tsq.Sum(col)`、`tsq.Contains(col, "x")`，套在类型不合的列上编译不过。
+- **`Page` 吃类型化的 `tsq.Paging`**：HTTP 进来的 `tsq.PageRequest` 先 `Validate`，再用 `req.Paging(允许排序的列...)` 转换。
 - **`UpdateTable` / `DeleteFrom` 按条件写**：不校验 `version` 但会自增它。
 - **`Batch*` 不自动开事务**：要全有或全无，放进 `runtime.WithTx(...)`。
 - **关键词搜索会转义 LIKE 通配符**，这是语义正确性，不是 SQL 注入防护——普通值本来就走绑定参数。

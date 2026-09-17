@@ -205,19 +205,19 @@ From table structs, TSQ commonly generates:
 - `Xxx__Cols`
 - typed columns like `Xxx_ID`, `Xxx_Name`
 - CRUD helpers: `Insert`, `Update`, `Delete`, `HardDelete`, and `Active()` on soft-delete tables
-- query variables like `QueryXxx`, `QueryXxxByID`, `QueryXxxByIDIn`, and one per declared index
+- query variables for the lookups that identify rows: `QueryXxx` (every row, with the declared search columns), `QueryXxxByID` / `QueryXxxByIDIn`, and `QueryXxxByEmail` / `QueryXxxByEmailIn` per unique index. A plain `//tsq:index` is a schema object only; a query on it has an ordering, a limit and a page size the generator cannot guess, so write it with the builder
 - `FetchXxxByID(ctx, db, ids...)` and, per unique index, `FetchXxxByEmail(...)`: the rows for the given keys, in the order given. A missing key fails the call with an error wrapping `sql.ErrNoRows`, so `errors.Is(err, sql.ErrNoRows)` tells "not there" from a database failure
 - the errors returned by `Update`, `Delete` and `HardDelete` name the row by its primary key; they never serialize the row, so column values do not leak into logs
 
-On a table that declares `deleted_at`, every generated query filters tombstoned rows out. There is
-no generated query that returns them: reading deleted rows is an audit-time need, and the query
-builder expresses it directly.
+On a table that declares `deleted_at`, deleted rows are out of scope for **every** query and
+statement that names the table, generated or hand-written (see "Soft-delete scope" in section 5).
+Reading them is an audit-time need, and `WithDeleted()` says so:
 
 ```go
-// Deleted rows included, written by hand when auditing needs them.
+// Deleted rows included.
 var EveryEnrollment = tsq.
 	Select(database.Enrollment__Cols...).
-	From(database.TableEnrollment).
+	From(database.TableEnrollment.WithDeleted()).
 	MustBuild()
 ```
 
@@ -250,7 +250,7 @@ var TableCourse = tsqCourseTable.Define(tsq.TableSpec[Course]{
 	Columns:       []tsq.BoundColumn[Course]{Course_ID, Course_Title},
 	PrimaryKey:    Course_ID,
 	AutoIncrement: true,
-	Search:        []tsq.SearchColumn{Course_Title},
+	Search:        []tsq.SearchColumn{tsq.Searchable(Course_Title)},
 	Schema:        []dialect.ColumnSpec{ /* ... */ },
 	Indexes:       []tsq.TableIndex{ /* ... */ },
 })
@@ -271,7 +271,7 @@ three steps; using the handle in a query instead of the defined table fails with
 Define".
 
 `TableOf` also exposes `Name()`, `Columns()`, `SearchColumns()`, `Schema()`, `Indexes()`,
-`As(alias)` and `Err()`, which reports a definition error such as a primary key that is not one of
+`As(alias)`, `WithDeleted()` and `Err()`, which reports a definition error such as a primary key that is not one of
 the columns.
 
 ## 4.1 Managed-field semantics
@@ -390,8 +390,8 @@ Additional rule:
 - if the table also declares unique indexes, prefer `int64` or `uint64` tombstone semantics for `deleted_at`; nullable-time soft-delete fields are not portable there
 
 Use `deleted_at` when a deleted row should stay in the database for audit while disappearing from
-the application. Restoring one is a deliberate act with no generated helper: load it with a query
-you write yourself, clear the field, and `Update`.
+the application. Restoring one is a deliberate act with no generated helper: load it through
+`TableXxx.WithDeleted()`, clear the field, and `Update`.
 
 ## 5. Query DSL overview
 
@@ -401,7 +401,7 @@ The main query flow is:
 query, err := tsq.
 	Select(database.User__Cols...).
 	From(database.TableUser).
-	Where(database.User_Name.ContainsVal("alice")).
+	Where(tsq.Contains(database.User_Name, "alice")).
 	OrderBy(database.User_ID.Desc()).
 	Build()
 ```
@@ -429,6 +429,26 @@ Builder state can branch safely, but the main reusable object is the built query
 
 Writes by condition use the same staged style with `tsq.UpdateTable(table)` / `tsq.DeleteFrom(table)` (section 8).
 
+The stage interfaces are named after where a chain is (`JoinStage`, `WhereStage`, `GroupedStage`,
+...), and are composed from four capability interfaces a helper can accept instead:
+`tsq.Sortable[O]` (`OrderBy` / `Limit` / `Offset`), `tsq.Lockable[O]` (`ForUpdate` / `ForShare`),
+`tsq.Combinable[O]` (`Union` / `Intersect` / `Except`) and `tsq.Groupable[O]` (`GroupBy`).
+
+### Soft-delete scope
+
+A table that declares `deleted_at` is scoped to live rows wherever it appears, so a query cannot
+forget the filter:
+
+- as the `FROM` table or in an `INNER` / `CROSS` join, `deleted_at` is checked in `WHERE`
+- in a `LEFT JOIN`, the check joins the `ON` condition, so a deleted row does not match and the
+  left row is kept with `NULL`s
+- when the query has a `RIGHT` or `FULL` join, every scoped table is read through a derived table
+  of its live rows, so a deleted row is never a preserved row
+- `UpdateTable` and a soft `DeleteFrom` skip deleted rows (a second soft delete does not restamp);
+  `HardDeleteFrom` reaches every row
+- `table.WithDeleted()` is the same table without the scope, in any of those positions
+- a CTE and a subquery are scoped by the tables inside them
+
 ### Ordering and slicing
 
 `OrderBy` takes terms built from typed columns with `Asc()` / `Desc()`:
@@ -449,7 +469,8 @@ Rules:
 - `Offset` requires `Limit`. A bare `OFFSET` is a syntax error on MySQL and SQLite, so `Build()` rejects it rather than letting it fail on two dialects out of three
 - the ordered column must belong to a table the query already selects from or joins
 - the count query ignores `ORDER BY` / `LIMIT` / `OFFSET`: `Count()` reports how many rows match, which a limit does not change
-- **do not combine builder-level paging with `query.Page(...)`**. `Page` appends its own `LIMIT`/`OFFSET`, and its own `ORDER BY` when `PageRequest.OrderBy` is set, so a builder-level clause would be emitted a second time rather than replaced. `Page` returns an error instead of guessing. A builder `OrderBy` combined with an empty `PageRequest.OrderBy` is fine: the builder's ordering stands and `Page` only adds the window
+- **do not combine builder-level paging with `query.Page(...)`**. `Page` appends its own `LIMIT`/`OFFSET`, and its own `ORDER BY` when `Paging.OrderBy` is set, so a builder-level clause would be emitted a second time rather than replaced. `Page` returns an error instead of guessing. A builder `OrderBy` combined with an empty `Paging.OrderBy` is fine: the builder's ordering stands and `Page` only adds the window
+- on a set operation (`Union`, ...) an `OrderBy` term refers to the output column by name, which is the only form every dialect accepts there
 
 ## 6. Common condition and expression patterns
 
@@ -459,9 +480,9 @@ Common examples:
 
 ```go
 database.User_ID.EQVal(1)
-database.User_Name.ContainsVal("alice")
+tsq.Contains(database.User_Name, "alice")
 database.User_Email.LikeVal("%@example.com")
-database.User_DeletedAt.IsNull()
+database.User_ManagerID.IsNull()
 ```
 
 ### Combine conditions
@@ -472,8 +493,8 @@ The builder is stage-based: `Where(...)` appears at most once per chain (the typ
 Where(
 	database.User_OrgID.EQVal(1),
 	tsq.Or(
-		database.User_Name.ContainsVal("alice"),
-		database.User_Email.ContainsVal("alice"),
+		tsq.Contains(database.User_Name, "alice"),
+		tsq.Contains(database.User_Email, "alice"),
 	),
 )
 ```
@@ -503,8 +524,8 @@ users, err := QueryUsersByOrg.List(ctx, runtime, database.User_OrgID.Bind(orgID)
   the arguments does not matter and a value of the wrong type does not compile
 - a missing value, a value for a parameter the statement does not use, and two values for one
   parameter are errors at execution
-- `StartsWith(p)` / `EndsWith(p)` / `Contains(p)` (and their `Not` forms) take a `Param[string]`
-  and match its value literally: `%` and `_` are escaped for you
+- `tsq.StartsWithParam(col, p)` / `EndsWithParam` / `ContainsParam` (and their `Not` forms) take
+  a `Param` of the column's string type and match its value literally: `%` and `_` are escaped
 - a parameter bound to `nil` is an error; use `IsNull()` / `IsNotNull()`
 
 ### Custom expressions and predicates
@@ -522,33 +543,58 @@ Use the escape hatches deliberately, not as a replacement for typed columns:
 `EQVal(v)`, `InVal(vs...)`, `SetVal(col, v)` and plain values passed to `Pred` / `Exprf` / `Case`
 are always bound, never inlined into the SQL text.
 
+Values have their own `Val` methods rather than a generic value wrapper usable as an RHS, on
+purpose: Go infers an untyped constant's type from the wrapper call alone, so a wrapped `90` would
+be an `int` and not fit an `int64` column. `EQVal(90)` takes the column's type and the constant
+converts.
+
 ## 7. Pagination and keyword search
 
-Use `PageRequest` for list endpoints that need:
+`query.Page(ctx, db, paging, args...)` takes a typed `tsq.Paging`:
 
-- page number
-- page size
-- order field
-- order direction
-- keyword search
+```go
+page, err := QueryUser.Page(ctx, runtime, tsq.Paging{
+	Page:    2,
+	Size:    50,
+	OrderBy: []tsq.OrderBy{database.User_Name.Asc()},
+	Keyword: "alice",
+})
+```
 
-Useful rules:
+- `Page` below 1 means 1 and is capped at `tsq.MaxPageNumber`; `Size` 0 means 20 and is capped
+  by the runtime's `WithMaxPageSize`
+- `OrderBy` is built from columns, so a sort field that does not exist does not compile
+- `Keyword` matches the query's `Search(...)` columns; empty means no search
+- the result is a `*tsq.PageResponse[O]` with `Page`, `Size`, `Total`, `TotalPages` and `Data`
+  (never nil), plus `HasNext()` / `HasPrev()` / `IsEmpty()`
 
-- prefer `Validate(maxSize)` for external API input; it reports errors and does not mutate the request
-- use `Normalize(maxSize)` when out-of-range values should fall back to safe defaults instead
-- both take the page-size ceiling to check against. Pass `runtime.MaxPageSize()` so the handler and the query agree; `0` means `tsq.DefaultMaxPageSize` (1000), and a larger value is capped to it. A size `Validate` rejects is exactly a size `Normalize` clamps
-- `Page` is capped at `tsq.MaxPageNumber` (1000000). `Validate` rejects anything past it; `Offset()` clamps to the last valid page, so validate first if an out-of-range page should be an error rather than the last page
-- use `Offset()` instead of hand-calculating offset
-- use `HasNext()` / `HasPrev()` for UI navigation logic
-- use `pageReq.Response(total, data)` when constructing a typed response outside `query.Page`
+An HTTP endpoint receives strings. `tsq.PageRequest` is that shape (`page`, `size`, `order_by`,
+`order`, `keyword`), and `Paging(sortable...)` turns it into a `Paging` against the columns the
+endpoint allows to sort by:
 
-`PageRequest` carries only the request shape and its validation. Parsing it out of an HTTP query
-string is the caller's job: the struct's `query` tags cover the usual binders, and TSQ no longer
-ships `NewPageRequest(url.Values)` or `ToQuery()`, which encoded one particular parameter naming.
+```go
+if err := req.Validate(runtime.MaxPageSize()); err != nil {
+	return err // 400
+}
 
-`PageRequest.Keyword` is automatically escaped for LIKE wildcards when executing via `query.Page(...)`, so `%`, `_` and the escape character itself are matched literally on every supported dialect; the keyword still matches as a substring. The generated predicate carries an explicit `ESCAPE '~'` clause, because SQLite has no default LIKE escape character. A backslash in a keyword is an ordinary character.
+paging, err := req.Paging(database.User_Name, database.User_CreatedAt)
+if err != nil {
+	return err // 400: *UnknownSortFieldError, *AmbiguousSortFieldError, *OrderCountMismatchError
+}
+```
 
-The pattern helpers (`StartsWithVal`, `EndsWithVal`, `ContainsVal`, their `Not` forms, and the `Param` forms) escape wildcards the same way. `Like` / `LikeVal` take a pattern as written, wildcards included. Wildcard escaping is about matching the right rows, not SQL injection protection — that comes from parameter binding.
+- `order_by` is a comma-separated list of column or JSON names; `order` is `asc` / `desc`, one
+  per field or one for all
+- the sortable list is explicit: selecting a column does not make it sortable, since sorting
+  on an unindexed column is a cost the endpoint decides to pay
+- prefer `Validate(maxSize)` for external input; `Normalize(maxSize)` clamps instead. Pass
+  `runtime.MaxPageSize()` so the handler and the query agree
+- parsing the request out of a query string is the caller's job; the struct's `query` and `json`
+  tags cover the usual binders
+
+`Paging.Keyword` is automatically escaped for LIKE wildcards when executing via `query.Page(...)`, so `%`, `_` and the escape character itself are matched literally on every supported dialect; the keyword still matches as a substring. The generated predicate carries an explicit `ESCAPE '~'` clause, because SQLite has no default LIKE escape character. A backslash in a keyword is an ordinary character.
+
+The pattern functions (`tsq.StartsWith`, `tsq.EndsWith`, `tsq.Contains`, their `Not` forms, and the `...Param` forms) escape wildcards the same way. `Like` / `LikeVal` take a pattern as written, wildcards included. Wildcard escaping is about matching the right rows, not SQL injection protection — that comes from parameter binding.
 
 ## 8. Execution helpers
 
@@ -559,7 +605,7 @@ Reads are methods on the built `*Query[O]`; `args` are the `tsq.Arg` values made
 - `query.Find(ctx, db, args...)` → `*O, error` (`nil, nil` when not found)
 - `query.Exists(ctx, db, args...)` → `bool, error`
 - `query.Count(ctx, db, args...)` → `int64, error`
-- `query.Page(ctx, db, pageReq, args...)` → `*PageResponse[O], error`
+- `query.Page(ctx, db, paging, args...)` → `*PageResponse[O], error`
 - `query.Scalar(ctx, db, selectedColumn, args...)` → the column's Go type; the query must select exactly that column
 - `query.SQL(dialect, args...)` → the SQL and arguments the query would run with, for logging and tests
 
@@ -576,8 +622,9 @@ Row writes are methods on the table descriptor, and the generated row methods ca
 - `Update`, `Delete`, `HardDelete` the same way
 - `TableCourse.BatchInsert(ctx, db, rows, options...)`, and `BatchUpdate`, `BatchDelete`,
   `BatchHardDelete`
-- `tsq.BatchDeleteByPK(ctx, db, Course_ID, ids, options...)` and `tsq.BatchHardDeleteByPK`
-  delete by key without loading the rows; the column must be the table's primary key
+- `TableCourse.BatchDeleteByPK(ctx, db, Course_ID.BindList(ids...), options...)` and
+  `BatchHardDeleteByPK` delete by key without loading the rows; the list must be the primary
+  key's `BindList`
 
 The executor `db` is a `*tsq.Runtime`, the executor `WithTx` passes to its callback, or
 `tsq.WrapExecutor(handle, dialect)` around a `*sql.DB` / `*sql.Tx` opened elsewhere. A bare
@@ -595,7 +642,7 @@ Whether `Delete` removes the row is decided by the table, not by the call site:
 - a soft delete is an `UPDATE`, so it still checks the version and increments it, and a stale copy
   of the row loaded earlier fails with `OptimisticLockError`
 - the pairs are `Delete` / `HardDelete` and `BatchDelete` / `BatchHardDelete` on the table,
-  `tsq.BatchDeleteByPK` / `tsq.BatchHardDeleteByPK`, `tsq.DeleteFrom` / `tsq.HardDeleteFrom`,
+  `BatchDeleteByPK` / `BatchHardDeleteByPK`, `tsq.DeleteFrom` / `tsq.HardDeleteFrom`,
   and the generated `item.Delete(...)` / `item.HardDelete(...)`
 - to record a delete time of your own, assign the field before calling `Delete`; it is only filled
   in when the caller left it unset
@@ -638,9 +685,9 @@ Shape:
 Rules:
 
 - the statement never checks the `version` column. `UpdateTable` on a table that declares `version` still adds `version = version + 1`, so rows loaded before the bulk change fail their own `Update(...)` with `OptimisticLockError`. Assigning the version column yourself is a build error
-- `UpdateTable` touches no managed field on its own: set `updated_at` explicitly and add the active-row filter (`database.Enrollment_DeletedAt.EQVal(0)`) yourself. `DeleteFrom` is the exception, because a soft delete *is* the deletion: on a table declaring `deleted_at` it renders as an `UPDATE` that stamps the tombstone and `updated_at` **at execution time**, so a package-level statement does not reuse the time the program started
+- `UpdateTable` sets no managed field besides `version`: set `updated_at` explicitly. It skips deleted rows like every query does; `tsq.UpdateTable(table.WithDeleted())` reaches them. `DeleteFrom` is the exception, because a soft delete *is* the deletion: on a table declaring `deleted_at` it renders as an `UPDATE` that stamps the tombstone and `updated_at` **at execution time**, so a package-level statement does not reuse the time the program started
 - assignments and conditions may reference only the target table, unaliased. `JOIN`, `UPDATE ... FROM`, aliases, `LIMIT`, `ORDER BY`, and `RETURNING` are not supported; each dialect spells them differently. Subquery predicates (`In(subquery)`, `EQ(subquery)`) are fine. MySQL rejects a subquery that reads the table being modified (error 1093); that is a database rule, not a TSQ one
-- it is a single `UPDATE` / `DELETE` and is not chunked. A very large list parameter can exceed the dialect's bind-parameter ceiling; use `BatchDeleteByPK` or slice the input yourself
+- it is a single `UPDATE` / `DELETE` and is not chunked. A very large list parameter can exceed the dialect's bind-parameter ceiling; use `table.BatchDeleteByPK` or slice the input yourself
 
 ## 9. Runtime and transactions
 
@@ -736,21 +783,46 @@ TSQ supports more than simple list queries. Common advanced shapes include:
 
 - aggregate queries with `GroupBy(...)` and `Having(...)`
 - `CASE` expressions: `tsq.Case[string]().When(cond, col).WhenVal(cond, "x").ElseVal("y").End()`; results are typed, so a branch of another type does not compile
+- `tsq.Coalesce(col, rhs)` / `tsq.CoalesceVal(col, v)` and `tsq.NullIf` / `tsq.NullIfVal`
 - subqueries such as `In(subquery)`, `tsq.Exists(subquery)`, and typed RHS comparisons like `EQ(subquery)` or `Like(subquery)`
 - correlated subqueries, where the subquery declares the enclosing query's tables with `Correlate(...)`
 - non-recursive CTEs: `cte := tsq.CTE("big_orders", stage)`, then join `cte` and reference its columns with `col.WithTable(cte)` (all built-in dialects; MySQL baseline is 8.0)
-- `SelectDistinct(cols...)` for `SELECT DISTINCT`, and `col.CountDistinct()` for `COUNT(DISTINCT col)`
+- `tsq.SelectDistinct(cols...)` for `SELECT DISTINCT` (its `Count()` counts distinct rows), and `tsq.CountDistinct(col)` for `COUNT(DISTINCT col)`
+- set operations such as `UNION`, `INTERSECT`, and `EXCEPT` (all built-in dialects; MySQL needs 8.0.31+)
+- row-lock clauses such as `ForUpdate()` and `ForShare()`
 
-### Column functions across dialects
+### Column functions
 
-Every column function runs on all three dialects and returns the same value; TSQ spells it per
-dialect where they differ:
+Functions are package-level and constrained by the column's Go type, so applying one to a column it
+does not fit does not compile:
 
-- `Year()`, `Month()`, `Day()` return `int64`; `Date()` returns the date as `'YYYY-MM-DD'` text
-- `Length()` counts characters (MySQL's `LENGTH` counts bytes, so it is `CHAR_LENGTH` there)
-- `Substring(start, length)` uses a 1-based start
-- `Round(n)` works on floating-point columns on PostgreSQL too (it rounds through `NUMERIC`)
-- `Avg()` returns `float64`; `Count()` and `CountDistinct()` return `int64`
+| function | accepts | returns |
+| --- | --- | --- |
+| `tsq.Count`, `tsq.CountDistinct` | any column | `int64` |
+| `tsq.Max`, `tsq.Min` | any column | the column's type |
+| `tsq.Sum`, `tsq.Ceil`, `tsq.Floor`, `tsq.Abs`, `tsq.Round(col, digits)` | `tsq.Number`: integer and float kinds, `sql.NullInt*`, `sql.NullFloat64` | the column's type |
+| `tsq.Avg` | `tsq.Number` | `float64` |
+| `tsq.Upper`, `tsq.Lower`, `tsq.Trim`, `tsq.Substring(col, start, length)` | `tsq.Text`: string kinds and `sql.NullString` | the column's type |
+| `tsq.Length` | `tsq.Text` | `int64` |
+| `tsq.Date` | any column | `string` (`'YYYY-MM-DD'`) |
+| `tsq.Year`, `tsq.Month`, `tsq.Day` | any column | `int64` |
+| `tsq.StartsWith(col, s)`, `EndsWith`, `Contains` and `Not` forms | string-kind columns | a condition |
+
+```go
+tsq.Select(tsq.Upper(database.User_Name), tsq.Count(database.User_ID)).
+	From(database.TableUser).
+	GroupBy(tsq.Upper(database.User_Name))
+```
+
+Each runs on all three dialects and returns the same value; TSQ spells it per dialect where they
+differ:
+
+- `Length` counts characters (MySQL's `LENGTH` counts bytes, so it is `CHAR_LENGTH` there)
+- `Substring` uses a 1-based start
+- `Round` works on floating-point columns on PostgreSQL too (it rounds through `NUMERIC`)
+
+A table's search columns must be string-kind: `tsq.Searchable(col)` is how a `TableSpec` lists
+them, and `//tsq:search` accepts only `string` fields.
 
 Two SQLite limits to know:
 
@@ -758,8 +830,6 @@ Two SQLite limits to know:
 - the `modernc.org/sqlite` driver stores `time.Time` as text in Go's `String()` format unless the
   DSN sets `_time_format=sqlite`. The date functions above read either format; hand-written SQL
   over those columns should use `_time_format=sqlite`
-- set operations such as `UNION`, `INTERSECT`, and `EXCEPT` (all built-in dialects; MySQL needs 8.0.31+)
-- row-lock clauses such as `ForUpdate()` and `ForShare()`
 
 Important subquery rule:
 
