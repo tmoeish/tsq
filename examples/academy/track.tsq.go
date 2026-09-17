@@ -7,10 +7,12 @@ import (
 	tsqsql "database/sql"
 	json "encoding/json"
 	"fmt"
+	tsqtime "time"
+
+	null "gopkg.in/nullbio/null.v6"
 
 	"github.com/tmoeish/tsq/v5"
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
-	null "gopkg.in/nullbio/null.v6"
 )
 
 // tsqTrackTable is TableTrack before its definition; columns are declared on it.
@@ -18,7 +20,7 @@ var tsqTrackTable = tsq.NewTable[Track]("track")
 
 // Columns of Track.
 var (
-	Track_CreatedAt   = tsq.NewColumn(tsqTrackTable, "created_at", "created_at", func(r *Track) *null.Time { return &r.CreatedAt })
+	Track_CreatedAt   = tsq.NewNullColumn[tsqtime.Time](tsqTrackTable, "created_at", "created_at", func(r *Track) *null.Time { return &r.CreatedAt })
 	Track_Description = tsq.NewColumn(tsqTrackTable, "description", "description", func(r *Track) *string { return &r.Description })
 	Track_ID          = tsq.NewColumn(tsqTrackTable, "id", "id", func(r *Track) *int64 { return &r.ID })
 	Track_Name        = tsq.NewColumn(tsqTrackTable, "name", "name", func(r *Track) *string { return &r.Name })

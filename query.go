@@ -21,8 +21,12 @@ var builtInIdentifierPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 // once and reuse it. It is rendered for a dialect when it first runs on one, and the
 // rendering is cached.
 type Query[O any] struct {
-	spec  querySpec[O]
-	cache sync.Map // renderKey -> *statement
+	spec querySpec[O]
+	// scanErr is why the rows cannot be read into O: a value that can be NULL
+	// mapped into a field that cannot hold it. It does not fail Build, because a
+	// query used as a subquery or CTE is never read.
+	scanErr error
+	cache   sync.Map // renderKey -> *statement
 }
 
 type renderKey struct {
@@ -186,6 +190,10 @@ func (q *Query[O]) query(ctx context.Context, db Executor, op string, stmt prepa
 
 // each scans the rows of stmt one at a time until fn returns false.
 func (q *Query[O]) each(ctx context.Context, db Executor, op string, stmt prepared, fn func(*O) bool) error {
+	if q.scanErr != nil {
+		return q.scanErr
+	}
+
 	logSQLForExecutor(ctx, db, op, stmt.sql, stmt.args)
 
 	rows, err := db.QueryContext(ctx, stmt.sql, stmt.args...)
@@ -384,6 +392,10 @@ func (q *Query[O]) Get(ctx context.Context, db Executor, args ...Arg) (*O, error
 }
 
 func (q *Query[O]) get(ctx context.Context, db Executor, args []Arg) (*O, error) {
+	if q.scanErr != nil {
+		return nil, q.scanErr
+	}
+
 	_, stmts, err := q.prepare(db, args, nil, renderMode{single: true})
 	if err != nil {
 		return nil, err
@@ -462,25 +474,47 @@ func (q *Query[O]) Scalar[T any](ctx context.Context, db Executor, selected Type
 			return zero, err
 		}
 
-		_, stmts, err := q.prepare(db, args, nil, renderMode{single: true})
-		if err != nil {
-			return zero, err
+		if null, why := q.spec.canBeNull(columnInfo(selected).null); null {
+			return zero, fmt.Errorf("%s can be NULL here (%s); use ScalarNull", selected.Name(), why)
 		}
 
-		stmt := stmts[0]
-		logSQLForExecutor(ctx, db, "scalar", stmt.sql, stmt.args)
+		value, err := q.scalar(ctx, db, selected, args)
 
-		var value sql.Null[T]
-		if err := db.QueryRowContext(ctx, stmt.sql, stmt.args...).Scan(&value); err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return zero, err
-			}
-
-			return zero, fmt.Errorf("scalar query: %w", err)
-		}
-
-		return value.V, nil
+		return value.V, err
 	})
+}
+
+// ScalarNull is Scalar for a value that can be NULL, such as MAX over no rows or a
+// nullable column; Valid is false for NULL.
+func (q *Query[O]) ScalarNull[T any](ctx context.Context, db Executor, selected TypedColumn[O, T], args ...Arg) (sql.Null[T], error) {
+	return traceExecutor1(ctx, db, TraceOpScalar, func(ctx context.Context) (sql.Null[T], error) {
+		if err := q.checkSingleSelect(selected); err != nil {
+			return sql.Null[T]{}, err
+		}
+
+		return q.scalar(ctx, db, selected, args)
+	})
+}
+
+func (q *Query[O]) scalar[T any](ctx context.Context, db Executor, _ TypedColumn[O, T], args []Arg) (sql.Null[T], error) {
+	_, stmts, err := q.prepare(db, args, nil, renderMode{single: true})
+	if err != nil {
+		return sql.Null[T]{}, err
+	}
+
+	stmt := stmts[0]
+	logSQLForExecutor(ctx, db, "scalar", stmt.sql, stmt.args)
+
+	var value sql.Null[T]
+	if err := db.QueryRowContext(ctx, stmt.sql, stmt.args...).Scan(&value); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return sql.Null[T]{}, err
+		}
+
+		return sql.Null[T]{}, fmt.Errorf("scalar query: %w", err)
+	}
+
+	return value, nil
 }
 
 // checkSingleSelect verifies that the query selects exactly the given column.
@@ -669,10 +703,16 @@ type typedSubquery[O, T any] struct {
 }
 
 func (s typedSubquery[O, T]) subquery() exprInfo               { return s.q.subquery() }
-func (s typedSubquery[O, T]) operand() exprInfo                { return s.q.subquery() }
+func (s typedSubquery[O, T]) operand() exprInfo                { return nullWhenEmpty(s.q.subquery()) }
 func (s typedSubquery[O, T]) setOperand(negated bool) exprInfo { return s.q.subquery() }
 func (typedSubquery[O, T]) rhsValue(T)                         {}
 func (typedSubquery[O, T]) setValue(T)                         {}
+
+// nullWhenEmpty marks a scalar subquery, which is NULL when it returns no row.
+func nullWhenEmpty(info exprInfo) exprInfo {
+	info.null = nullness{always: true}
+	return info
+}
 
 // AsSubquery returns the query as a typed subquery. It must select exactly selected.
 func (q *Query[O]) AsSubquery[T any](selected TypedColumn[O, T]) (Subquery[T], error) {

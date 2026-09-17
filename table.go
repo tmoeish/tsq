@@ -408,6 +408,8 @@ type cteQuery interface {
 	err() error
 	outputNames() []string
 	sources() []Table
+	// nullableOutput reports whether the named output column can be NULL.
+	nullableOutput(name string) bool
 }
 
 type cteTable struct {

@@ -28,6 +28,7 @@ type caseBuilder[T any] struct {
 
 func (b caseBuilder[T]) branch(cond Condition, result exprInfo) CaseStage[T] {
 	ci := conditionInfo(cond)
+	ci.null = nullness{} // a condition decides the branch; only results make the CASE NULL
 	b.info = b.info.merge(ci).merge(result)
 	b.branches = append(slices.Clone(b.branches),
 		sqlJoin(sqlText(" WHEN "), ci.sql, sqlText(" THEN "), result.sql))
@@ -66,6 +67,11 @@ func (b caseBuilder[T]) End() ValueColumn[T] {
 
 	parts = append(parts, sqlText(" END"))
 	info.sql = sqlJoin(parts...)
+
+	// Without ELSE, a row no branch matches is NULL.
+	if b.elseExpr == nil {
+		info.null.always = true
+	}
 
 	core := &columnCore{name: "case", info: info}
 

@@ -6,10 +6,12 @@ import (
 	"context"
 	tsqsql "database/sql"
 	"fmt"
+	tsqtime "time"
+
+	null "gopkg.in/nullbio/null.v6"
 
 	"github.com/tmoeish/tsq/v5"
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
-	null "gopkg.in/nullbio/null.v6"
 )
 
 // tsqCourseTable is TableCourse before its definition; columns are declared on it.
@@ -17,7 +19,7 @@ var tsqCourseTable = tsq.NewTable[Course]("course")
 
 // Columns of Course.
 var (
-	Course_CreatedAt      = tsq.NewColumn(tsqCourseTable, "created_at", "created_at", func(r *Course) *null.Time { return &r.CreatedAt })
+	Course_CreatedAt      = tsq.NewNullColumn[tsqtime.Time](tsqCourseTable, "created_at", "created_at", func(r *Course) *null.Time { return &r.CreatedAt })
 	Course_ID             = tsq.NewColumn(tsqCourseTable, "id", "id", func(r *Course) *int64 { return &r.ID })
 	Course_InstructorID   = tsq.NewColumn(tsqCourseTable, "instructor_id", "instructor_id", func(r *Course) *int64 { return &r.InstructorID })
 	Course_Level          = tsq.NewColumn(tsqCourseTable, "level", "level", func(r *Course) *CourseLevel { return &r.Level })

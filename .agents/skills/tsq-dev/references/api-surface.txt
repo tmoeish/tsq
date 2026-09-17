@@ -225,11 +225,14 @@ type MutationStage[R any] interface {
 	MustBuild() *Mutation[R]
 	Exec(ctx context.Context, db Executor, args ...Arg) (int64, error)
 }
+type NullColumn[O, T any] interface {
+	Column[O, T]
+}
+func NewNullColumn[T, O, F any](table *TableOf[O], name, jsonName string, field func(*O) *F) NullColumn[O, T]
 type Number interface {
 	~int | ~int8 | ~int16 | ~int32 | ~int64 |
 		~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 |
-		~float32 | ~float64 |
-		sql.NullInt16 | sql.NullInt32 | sql.NullInt64 | sql.NullByte | sql.NullFloat64
+		~float32 | ~float64
 }
 type OptimisticLockError struct {
 	Table    string
@@ -306,6 +309,7 @@ func (q *Query[O]) Page(ctx context.Context, db Executor, p Paging, args ...Arg)
 func (q *Query[O]) PageKeyset(ctx context.Context, db Executor, k Keyset, args ...Arg) (*KeysetPage[O], error)
 func (q *Query[O]) SQL(dialect tsqdialect.Dialect, args ...Arg) (string, []any, error)
 func (q *Query[O]) Scalar[T any](ctx context.Context, db Executor, selected TypedColumn[O, T], args ...Arg) (T, error)
+func (q *Query[O]) ScalarNull[T any](ctx context.Context, db Executor, selected TypedColumn[O, T], args ...Arg) (sql.Null[T], error)
 func (q *Query[O]) String() string
 type QueryStage[O any] interface {
 	Build() (*Query[O], error)
@@ -323,6 +327,7 @@ type ResultColumn[O, T any] interface {
 	TypedColumn[O, T]
 }
 func MapInto[Target, T any](source ValueColumn[T], field func(*Target) *T, jsonName string) ResultColumn[Target, T]
+func MapIntoNull[Target, T, F any](source ValueColumn[T], field func(*Target) *F, jsonName string) ResultColumn[Target, T]
 type RetryPolicy struct {
 	MaxAttempts int
 	InitialBackoff time.Duration
@@ -447,7 +452,7 @@ type TableSpec[R any] struct {
 	Indexes []TableIndex
 }
 type Text interface {
-	~string | sql.NullString
+	~string
 }
 type TraceOp string
 const (
@@ -481,6 +486,7 @@ type UpdateBuilder[R any] struct {
 }
 func UpdateTable[R any](table *TableOf[R]) *UpdateBuilder[R]
 func (b *UpdateBuilder[R]) Set[T any](col TypedColumn[R, T], rhs RHS[T]) *UpdateBuilder[R]
+func (b *UpdateBuilder[R]) SetNull[T any](col NullColumn[R, T]) *UpdateBuilder[R]
 func (b *UpdateBuilder[R]) Where(conds ...Condition) MutationStage[R]
 type Value[T any] struct {
 }

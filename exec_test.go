@@ -264,8 +264,8 @@ func TestReadsAgainstSQLite(t *testing.T) {
 	}
 
 	sum := Select(Sum(Order_Amount)).From(Orders).MustBuild()
-	if v, err := sum.Scalar(ctx, rt, Sum(Order_Amount)); err != nil || v != 500 {
-		t.Fatalf("Scalar(SUM) = %d, %v", v, err)
+	if v, err := sum.ScalarNull(ctx, rt, Sum(Order_Amount)); err != nil || !v.Valid || v.V != 500 {
+		t.Fatalf("ScalarNull(SUM) = %v, %v", v, err)
 	}
 
 	big, err := BuildSubquery(

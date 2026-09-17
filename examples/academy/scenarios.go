@@ -2,6 +2,7 @@ package academy
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -142,12 +143,10 @@ type OptimisticLockSummary struct {
 }
 
 type prerequisiteRow struct {
-	CourseTitle       string
-	PrerequisiteTitle string
+	CourseTitle string
+	// PrerequisiteTitle comes from a LEFT JOIN, so it can be NULL.
+	PrerequisiteTitle sql.NullString
 }
-
-// TSQOwner marks prerequisiteRow as an internal projection owner.
-func (prerequisiteRow) TSQOwner() {}
 
 type trackMetricRow struct {
 	Track           string
@@ -155,15 +154,9 @@ type trackMetricRow struct {
 	AverageScore    float64
 }
 
-// TSQOwner marks trackMetricRow as an internal projection owner.
-func (trackMetricRow) TSQOwner() {}
-
 type namedRow struct {
 	Name string
 }
-
-// TSQOwner marks namedRow as an internal projection owner.
-func (namedRow) TSQOwner() {}
 
 // RunQuickstart bundles the three smallest day-to-day Academy demos:
 // generated CRUD helpers, keyword search with paging, and a basic joined list query.
@@ -493,7 +486,7 @@ func runAliasDemo(ctx context.Context, runtime *tsq.Runtime) (*AliasSummary, err
 	courseTitle := tsq.MapInto(Course_Title, func(holder *prerequisiteRow) *string {
 		return &holder.CourseTitle
 	}, "course_title")
-	prerequisiteTitle := tsq.MapInto(Course_Title.As(prerequisiteAlias), func(holder *prerequisiteRow) *string {
+	prerequisiteTitle := tsq.MapIntoNull(Course_Title.As(prerequisiteAlias), func(holder *prerequisiteRow) *sql.NullString {
 		return &holder.PrerequisiteTitle
 	}, "prerequisite_title")
 
@@ -514,7 +507,7 @@ func runAliasDemo(ctx context.Context, runtime *tsq.Runtime) (*AliasSummary, err
 
 	return &AliasSummary{
 		CourseTitle:       row.CourseTitle,
-		PrerequisiteTitle: row.PrerequisiteTitle,
+		PrerequisiteTitle: row.PrerequisiteTitle.String,
 	}, nil
 }
 
@@ -535,8 +528,10 @@ func runAggregateDemo(ctx context.Context, runtime *tsq.Runtime) ([]AggregateSum
 	query, err := tsq.
 		Select(trackName, enrollmentCount, averageScore).
 		From(TableTrack).
-		LeftJoin(TableCourse, Track_ID.EQ(Course_TrackID)).
-		LeftJoin(TableEnrollment, Course_ID.EQ(Enrollment_CourseID)).
+		// The WHERE on enrollment status drops the rows a LEFT JOIN would add, and
+		// the averaged score would read them as NULL; say INNER JOIN outright.
+		Join(TableCourse, Track_ID.EQ(Course_TrackID)).
+		Join(TableEnrollment, Course_ID.EQ(Enrollment_CourseID)).
 		Where(tsq.Or(
 			Enrollment_Status.EQ(tsq.Val(EnrollmentStatusActive)),
 			Enrollment_Status.EQ(tsq.Val(EnrollmentStatusCompleted)),

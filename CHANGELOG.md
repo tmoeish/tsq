@@ -53,6 +53,7 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 **查询**
 
+- **类型系统区分可空列**：可为 NULL 的字段（指针、`sql.NullX`、`sql.Null[T]`、nullbio 类型）生成为 `tsq.NullColumn[X, T]`（`tsq.NewNullColumn[T]`），按值类型 `T` 比较（`Nickname.EQ(tsq.Val("x"))`），`UpdateTable(...).SetNull(col)` 只接受它。查询在读行之前检查：可空列、外连接可选侧的表、无 `GROUP BY` 的 `SUM`/`AVG`/`MAX`/`MIN`、`NullIf`、无 `Else` 的 `CASE`、标量子查询，读进不能存 NULL 的字段一律报错（此前要等数据里真有 NULL 才在扫描时失败）；`tsq.MapIntoNull` 映射进可空字段，`Coalesce` 消除可空性，`Query.ScalarNull` 返回 `sql.Null[T]`（`Scalar` 此前把 NULL 静默读成零值，现在拒绝）。`Set` 往 NOT NULL 列赋可能为 NULL 的值时报错。`tsq.Text` / `tsq.Number` 不再包含 `sql.NullX`。`NewColumn` 用在可空字段类型上是定义错误。
 - SQL 在执行时按方言从表达式树渲染并按方言缓存，`Condition` / `SQLColumn` 不再暴露 `Clause()` / `SQLExpr()` 字符串；要看 SQL 用 `Query.SQL(dialect, args...)` 或 `String()`，`ListSQL` / `CountSQL` 等删除。方言能力（`FULL JOIN`、行锁、CTE、`INTERSECT` / `EXCEPT`）由渲染该构造的代码检查，不再扫描 SQL 文本。
 - 阶段接口去掉了 SQL 不允许的转移：分组、`HAVING`、集合操作之后不能加行锁，带搜索的查询不能做集合操作。构建器的具体类型不再出现在签名里，`Select(...).From(...)` 返回 `JoinStage`。
 - `Case[T]()` 的结果有类型：`When(cond, rhs)` / `Else(rhs)`。

@@ -127,6 +127,88 @@ type orderTerm struct {
 	direction Order
 }
 
+// optionalTables returns the tables an outer join can fill with NULLs: the joined
+// table of a LEFT JOIN, everything before a RIGHT JOIN, and both sides of a FULL
+// JOIN.
+func (s *querySpec[O]) optionalTables() map[string]bool {
+	optional := map[string]bool{}
+	before := []string{s.From.Name()}
+
+	for _, j := range s.Joins {
+		name := j.table.Name()
+
+		switch j.kind {
+		case leftJoinType:
+			optional[name] = true
+		case rightJoinType, fullJoinType:
+			for _, t := range before {
+				optional[t] = true
+			}
+
+			if j.kind == fullJoinType {
+				optional[name] = true
+			}
+		}
+
+		before = append(before, name)
+	}
+
+	return optional
+}
+
+// canBeNull reports whether an expression with nullness n can be NULL in this
+// query, and why.
+func (s *querySpec[O]) canBeNull(n nullness) (bool, string) {
+	switch {
+	case n.always:
+		return true, "it is nullable"
+	case n.emptyGroup && len(s.GroupBy) == 0:
+		return true, "an aggregate without GROUP BY is NULL over no rows"
+	}
+
+	if len(n.tables) > 0 && !isNilValue(s.From) {
+		optional := s.optionalTables()
+		for t := range n.tables {
+			if optional[t] {
+				return true, "table " + t + " is outer-joined"
+			}
+		}
+	}
+
+	return false, ""
+}
+
+// checkScanTargets refuses to read a value that can be NULL into a field that
+// cannot hold it. It runs before rows are read rather than in Build, because a
+// query used as a subquery or CTE never scans.
+func (s *querySpec[O]) checkScanTargets() error {
+	// Every operand of a set operation is read through the first one's columns.
+	specs := []*querySpec[O]{s}
+	for i := range s.SetOps {
+		specs = append(specs, &s.SetOps[i].spec)
+	}
+
+	for i, col := range s.Selects {
+		target := col.core()
+		if target == nil || target.nullable {
+			continue
+		}
+
+		for _, spec := range specs {
+			if i >= len(spec.Selects) {
+				continue
+			}
+
+			if null, why := spec.canBeNull(columnInfo(spec.Selects[i]).null); null {
+				return fmt.Errorf("%s can be NULL here (%s) but is read into a field that cannot hold NULL; "+
+					"use MapIntoNull with a nullable field, or Coalesce", target.name, why)
+			}
+		}
+	}
+
+	return nil
+}
+
 func (s *querySpec[O]) grouped() bool {
 	if s.Distinct || len(s.SetOps) > 0 || len(s.GroupBy) > 0 || len(s.Having) > 0 {
 		return true
@@ -688,6 +770,17 @@ func (c *cteSpec[O]) renderQuery(r *renderer) {
 func (c *cteSpec[O]) correlatedTables() map[string]Table { return nil }
 
 func (c *cteSpec[O]) sources() []Table { return c.spec.sources() }
+
+func (c *cteSpec[O]) nullableOutput(name string) bool {
+	for _, col := range c.spec.Selects {
+		if col.Name() == name {
+			null, _ := c.spec.canBeNull(columnInfo(col).null)
+			return null
+		}
+	}
+
+	return false
+}
 
 func (c *cteSpec[O]) outputNames() []string {
 	names := make([]string, 0, len(c.spec.Selects))

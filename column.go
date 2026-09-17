@@ -1,8 +1,10 @@
 package tsq
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 )
 
@@ -138,6 +140,9 @@ type columnCore struct {
 	// another source and sorted by name.
 	plain bool
 	scan  scanPointer
+	// nullable reports that the scan target holds NULL: a NullColumn, or a
+	// MapIntoNull projection. A value that can be NULL may only be read into one.
+	nullable bool
 	// param and list are the column's own parameters, shared by every copy and
 	// rebinding of the column so that Bind finds them.
 	param *paramSpec
@@ -161,9 +166,95 @@ type columnImpl[O, T any] struct {
 	c *columnCore
 }
 
-// NewColumn declares a column of table. Generated code calls it; see TableOf for
-// the declaration order it expects.
+// NullColumn is a column that can hold NULL. Its value type T is what it holds
+// when it is not NULL, so it compares with a T like any column: Nickname.EQ(
+// tsq.Val("x")). NULL is matched with IsNull and written with SetNull.
+type NullColumn[O, T any] interface {
+	Column[O, T]
+	nullColumn()
+}
+
+type nullColumnImpl[O, T any] struct {
+	columnImpl[O, T]
+}
+
+func (nullColumnImpl[O, T]) nullColumn() {}
+
+// NewColumn declares a NOT NULL column of table. Generated code calls it; see
+// TableOf for the declaration order it expects. A field that can hold NULL (a
+// pointer, sql.NullString, sql.Null[T], null.String, ...) is a NewNullColumn.
 func NewColumn[O, T any](table *TableOf[O], name, jsonName string, field func(*O) *T) Column[O, T] {
+	c := newColumn(table, name, jsonName, field)
+	if _, ok := nullableValueType(reflect.TypeFor[T]()); ok && c.c.info.err == nil {
+		c.c.info.err = fmt.Errorf("column %s is held in %v, which can be NULL; declare it with NewNullColumn[%v]",
+			name, reflect.TypeFor[T](), valueTypeName[T]())
+	}
+
+	return c
+}
+
+// NewNullColumn declares a column of table that can hold NULL. T is the value
+// type and F the field type, a nullable form of T: *T, sql.Null[T], or a struct
+// with a Valid bool and one field of type T, such as sql.NullString or
+// null.String. Only T is written: tsq.NewNullColumn[string](h, "nick", ...).
+func NewNullColumn[T, O, F any](table *TableOf[O], name, jsonName string, field func(*O) *F) NullColumn[O, T] {
+	c := newColumn(table, name, jsonName, field)
+	c.c.nullable = true
+	c.c.info.null.always = true
+
+	if value, ok := nullableValueType(reflect.TypeFor[F]()); (!ok || value != reflect.TypeFor[T]()) && c.c.info.err == nil {
+		c.c.info.err = fmt.Errorf("column %s: %v is not a nullable form of %v", name, reflect.TypeFor[F](), reflect.TypeFor[T]())
+	}
+
+	return nullColumnImpl[O, T]{c: c.c}
+}
+
+var scannerType = reflect.TypeFor[sql.Scanner]()
+
+// nullableValueType returns the value type of a nullable form: the element of a
+// pointer, or the single data field of a scannable struct with a Valid bool.
+func nullableValueType(t reflect.Type) (reflect.Type, bool) {
+	switch t.Kind() {
+	case reflect.Pointer:
+		return t.Elem(), true
+	case reflect.Struct:
+	default:
+		return nil, false
+	}
+
+	if !reflect.PointerTo(t).Implements(scannerType) {
+		return nil, false
+	}
+
+	var (
+		valid bool
+		value reflect.Type
+		n     int
+	)
+
+	for _, f := range reflect.VisibleFields(t) {
+		switch {
+		case f.Anonymous || !f.IsExported():
+		case f.Name == "Valid" && f.Type.Kind() == reflect.Bool:
+			valid = true
+		default:
+			value = f.Type
+			n++
+		}
+	}
+
+	return value, valid && n == 1
+}
+
+func valueTypeName[T any]() string {
+	if value, ok := nullableValueType(reflect.TypeFor[T]()); ok {
+		return value.String()
+	}
+
+	return reflect.TypeFor[T]().String()
+}
+
+func newColumn[O, T any](table *TableOf[O], name, jsonName string, field func(*O) *T) columnImpl[O, T] {
 	core := &columnCore{
 		name:  name,
 		json:  jsonName,
@@ -181,7 +272,7 @@ func NewColumn[O, T any](table *TableOf[O], name, jsonName string, field func(*O
 		core.info.err = fmt.Errorf("column name %q is not a plain SQL identifier", name)
 	default:
 		core.table = table
-		core.info = exprInfo{sql: columnRef(table, name), tables: map[string]Table{table.Name(): table}}
+		core.info = exprInfo{sql: columnRef(table, name), tables: map[string]Table{table.Name(): table}, null: nullableIn(table.Name())}
 		core.scan = func(holder any) any { return field(holder.(*O)) }
 	}
 
@@ -247,7 +338,12 @@ func rebind(c *columnCore, table Table) *columnCore {
 		next.info = exprInfo{err: fmt.Errorf("column %s does not exist on %s", c.name, table.Name())}
 	default:
 		next.table = table
-		next.info = exprInfo{sql: columnRef(table, c.name), tables: map[string]Table{table.Name(): table}}
+		next.info = exprInfo{sql: columnRef(table, c.name), tables: map[string]Table{table.Name(): table}, null: nullableIn(table.Name())}
+		next.info.null.always = c.info.null.always
+
+		if body := table.cteBody(); body != nil && body.nullableOutput(c.name) {
+			next.info.null.always = true
+		}
 	}
 
 	return &next
@@ -418,8 +514,27 @@ func SQLColumns[O any](cols ...BoundColumn[O]) []SQLColumn {
 }
 
 // MapInto projects source into a field of a result type. Generated result code
-// calls it; the result's json name is what PageRequest.OrderBy sorts by.
+// calls it; the result's json name is what PageRequest.OrderBy sorts by. The field
+// cannot hold NULL, so a query where source can be NULL (a nullable column, an
+// outer-joined table, an aggregate without GROUP BY) refuses to read it: use
+// MapIntoNull, or Coalesce.
 func MapInto[Target, T any](source ValueColumn[T], field func(*Target) *T, jsonName string) ResultColumn[Target, T] {
+	return mapInto[Target, T](source, field, jsonName, false)
+}
+
+// MapIntoNull projects source into a field that can hold NULL: F is a nullable
+// form of T, as NewNullColumn describes.
+func MapIntoNull[Target, T, F any](source ValueColumn[T], field func(*Target) *F, jsonName string) ResultColumn[Target, T] {
+	c := mapInto[Target, T](source, field, jsonName, true)
+
+	if value, ok := nullableValueType(reflect.TypeFor[F]()); (!ok || value != reflect.TypeFor[T]()) && c.c.info.err == nil {
+		c.c.info.err = fmt.Errorf("projection %s: %v is not a nullable form of %v", jsonName, reflect.TypeFor[F](), reflect.TypeFor[T]())
+	}
+
+	return c
+}
+
+func mapInto[Target, T, F any](source ValueColumn[T], field func(*Target) *F, jsonName string, nullable bool) columnImpl[Target, T] {
 	if isNilValue(source) {
 		return columnImpl[Target, T]{c: &columnCore{json: jsonName, info: exprInfo{err: errors.New("projection source cannot be nil")}}}
 	}
@@ -427,6 +542,7 @@ func MapInto[Target, T any](source ValueColumn[T], field func(*Target) *T, jsonN
 	next := *source.core()
 	next.json = jsonName
 	next.plain = false
+	next.nullable = nullable
 
 	if field == nil {
 		next.info = exprInfo{err: fmt.Errorf("projection of %s has a nil field accessor", next.name)}

@@ -25,7 +25,7 @@ var {{$type}}__Cols = []tsq.BoundColumn[{{$type}}]{
 // Column definitions for {{$type}} result fields.
 var (
 {{- range $f := .Fields }}
-	{{$type}}_{{$f.Name}} = tsq.MapInto({{$f.Column}}, func(holder {{$ptype}}) *{{$f | FieldType}} {
+	{{$type}}_{{$f.Name}} = {{ if $f.NullValue }}tsq.MapIntoNull{{ else }}tsq.MapInto{{ end }}({{$f.Column}}, func(holder {{$ptype}}) *{{$f | FieldType}} {
 		return &holder.{{$f.Name}}
 	}, "{{$f.JSONTag}}")
 {{- end }}

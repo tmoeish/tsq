@@ -58,6 +58,9 @@ type FieldInfo struct {
 	Tags      []string
 	IsSlice   bool
 	IsPointer bool
+	// NullValue is the Go type, as generated code spells it, of the value a field
+	// that can hold NULL holds when it is not NULL; empty for a NOT NULL field.
+	NullValue string
 }
 
 func (f FieldInfo) String() string {

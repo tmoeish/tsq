@@ -27,7 +27,7 @@ var (
 	Enrollment_Score     = tsq.NewColumn(tsqEnrollmentTable, "score", "score", func(r *Enrollment) *int64 { return &r.Score })
 	Enrollment_Status    = tsq.NewColumn(tsqEnrollmentTable, "status", "status", func(r *Enrollment) *EnrollmentStatus { return &r.Status })
 	Enrollment_UID       = tsq.NewColumn(tsqEnrollmentTable, "uid", "uid", func(r *Enrollment) *int64 { return &r.UID })
-	Enrollment_UpdatedAt = tsq.NewColumn(tsqEnrollmentTable, "updated_at", "updated_at", func(r *Enrollment) *null.Time { return &r.UpdatedAt })
+	Enrollment_UpdatedAt = tsq.NewNullColumn[tsqtime.Time](tsqEnrollmentTable, "updated_at", "updated_at", func(r *Enrollment) *null.Time { return &r.UpdatedAt })
 	Enrollment_Version   = tsq.NewColumn(tsqEnrollmentTable, "version", "version", func(r *Enrollment) *int64 { return &r.Version })
 )
 

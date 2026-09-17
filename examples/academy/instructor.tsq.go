@@ -6,10 +6,12 @@ import (
 	"context"
 	tsqsql "database/sql"
 	"fmt"
+	tsqtime "time"
+
+	null "gopkg.in/nullbio/null.v6"
 
 	"github.com/tmoeish/tsq/v5"
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
-	null "gopkg.in/nullbio/null.v6"
 )
 
 // tsqInstructorTable is TableInstructor before its definition; columns are declared on it.
@@ -18,7 +20,7 @@ var tsqInstructorTable = tsq.NewTable[Instructor]("instructor")
 // Columns of Instructor.
 var (
 	Instructor_Bio       = tsq.NewColumn(tsqInstructorTable, "bio", "bio", func(r *Instructor) *string { return &r.Bio })
-	Instructor_CreatedAt = tsq.NewColumn(tsqInstructorTable, "created_at", "created_at", func(r *Instructor) *null.Time { return &r.CreatedAt })
+	Instructor_CreatedAt = tsq.NewNullColumn[tsqtime.Time](tsqInstructorTable, "created_at", "created_at", func(r *Instructor) *null.Time { return &r.CreatedAt })
 	Instructor_Email     = tsq.NewColumn(tsqInstructorTable, "email", "email", func(r *Instructor) *string { return &r.Email })
 	Instructor_ID        = tsq.NewColumn(tsqInstructorTable, "id", "id", func(r *Instructor) *int64 { return &r.ID })
 	Instructor_Name      = tsq.NewColumn(tsqInstructorTable, "name", "name", func(r *Instructor) *string { return &r.Name })

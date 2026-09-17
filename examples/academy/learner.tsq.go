@@ -6,10 +6,12 @@ import (
 	"context"
 	tsqsql "database/sql"
 	"fmt"
+	tsqtime "time"
+
+	null "gopkg.in/nullbio/null.v6"
 
 	"github.com/tmoeish/tsq/v5"
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
-	null "gopkg.in/nullbio/null.v6"
 )
 
 // tsqLearnerTable is TableLearner before its definition; columns are declared on it.
@@ -18,7 +20,7 @@ var tsqLearnerTable = tsq.NewTable[Learner]("learner")
 // Columns of Learner.
 var (
 	Learner_Company   = tsq.NewColumn(tsqLearnerTable, "company", "company", func(r *Learner) *string { return &r.Company })
-	Learner_CreatedAt = tsq.NewColumn(tsqLearnerTable, "created_at", "created_at", func(r *Learner) *null.Time { return &r.CreatedAt })
+	Learner_CreatedAt = tsq.NewNullColumn[tsqtime.Time](tsqLearnerTable, "created_at", "created_at", func(r *Learner) *null.Time { return &r.CreatedAt })
 	Learner_Email     = tsq.NewColumn(tsqLearnerTable, "email", "email", func(r *Learner) *string { return &r.Email })
 	Learner_ID        = tsq.NewColumn(tsqLearnerTable, "id", "id", func(r *Learner) *int64 { return &r.ID })
 	Learner_Name      = tsq.NewColumn(tsqLearnerTable, "name", "name", func(r *Learner) *string { return &r.Name })

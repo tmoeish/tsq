@@ -1,24 +1,23 @@
 package tsq
 
 import (
-	"database/sql"
 	"errors"
 	"fmt"
 
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 )
 
-// Text is the set of column value types the text functions accept.
+// Text is the set of column value types the text functions accept. A nullable
+// column's value type is its non-NULL type, so NullColumn[O, string] is text too.
 type Text interface {
-	~string | sql.NullString
+	~string
 }
 
 // Number is the set of column value types the numeric functions accept.
 type Number interface {
 	~int | ~int8 | ~int16 | ~int32 | ~int64 |
 		~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 |
-		~float32 | ~float64 |
-		sql.NullInt16 | sql.NullInt32 | sql.NullInt64 | sql.NullByte | sql.NullFloat64
+		~float32 | ~float64
 }
 
 func derived[O, T any](col SQLColumn, info exprInfo) Column[O, T] {
@@ -38,7 +37,19 @@ func wrapped[O, T any](col SQLColumn, open, close string, aggregate bool) Column
 	info = info.withSQL(sqlJoin(sqlText(open), info.sql, sqlText(close)))
 	info.aggregate = info.aggregate || aggregate
 
+	// SUM, AVG, MAX and MIN are NULL over no rows; COUNT is 0.
+	info.null.emptyGroup = info.null.emptyGroup || aggregate
+
 	return derived[O, T](col, info)
+}
+
+func counted[O any](col SQLColumn, open string) Column[O, int64] {
+	info := columnInfo(col)
+	info = info.withSQL(sqlJoin(sqlText(open), info.sql, sqlText(")")))
+	info.aggregate = true
+	info.null = nullness{}
+
+	return derived[O, int64](col, info)
 }
 
 func byDialect[O, T any](col SQLColumn, feature string, spell func(x sqlExpr) map[tsqdialect.Name]sqlExpr) Column[O, T] {
@@ -49,13 +60,13 @@ func byDialect[O, T any](col SQLColumn, feature string, spell func(x sqlExpr) ma
 
 // Count counts the non-NULL values of col.
 func Count[O, T any](col Column[O, T]) Column[O, int64] {
-	return wrapped[O, int64](col, "COUNT(", ")", true)
+	return counted[O](col, "COUNT(")
 }
 
 // CountDistinct counts the distinct non-NULL values of col. For a whole DISTINCT
 // query use SelectDistinct.
 func CountDistinct[O, T any](col Column[O, T]) Column[O, int64] {
-	return wrapped[O, int64](col, "COUNT(DISTINCT ", ")", true)
+	return counted[O](col, "COUNT(DISTINCT ")
 }
 
 // Max is the largest value of col.
@@ -185,22 +196,33 @@ func datePart[O, T any](col Column[O, T], part, sqlPart, strftime string) Column
 }
 
 // Coalesce is col, or fallback where col is NULL: a column, Param, Val or subquery.
+// It is NULL only if both can be, so Coalesce(col, tsq.Val(x)) reads into a field
+// that cannot hold NULL.
 func Coalesce[O, T any](col Column[O, T], fallback RHS[T]) Column[O, T] {
-	return combined[O, T](col, "COALESCE(", fallback)
+	return combined[O, T](col, "COALESCE(", fallback, func(left, right nullness) nullness {
+		if left.never() || right.never() {
+			return nullness{}
+		}
+
+		return left.or(right)
+	})
 }
 
 // NullIf is col, or NULL where col equals value.
 func NullIf[O, T any](col Column[O, T], value RHS[T]) Column[O, T] {
-	return combined[O, T](col, "NULLIF(", value)
+	return combined[O, T](col, "NULLIF(", value, func(left, right nullness) nullness {
+		n := left.or(right)
+		n.always = true
+
+		return n
+	})
 }
 
-func combined[O, T any](col Column[O, T], open string, rhs RHS[T]) Column[O, T] {
-	return combinedInfo[O, T](col, open, rhsInfo(rhs))
-}
-
-func combinedInfo[O, T any](col Column[O, T], open string, right exprInfo) Column[O, T] {
+func combined[O, T any](col Column[O, T], open string, rhs RHS[T], null func(left, right nullness) nullness) Column[O, T] {
 	left := columnInfo(col)
+	right := rhsInfo(rhs)
 	info := left.merge(right).withSQL(sqlJoin(sqlText(open), left.sql, sqlText(", "), right.sql, sqlText(")")))
+	info.null = null(left.null, right.null)
 
 	return derived[O, T](col, info)
 }

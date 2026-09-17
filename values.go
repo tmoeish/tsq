@@ -35,16 +35,6 @@ func (v Value[T]) operand() exprInfo {
 	return exprInfo{sql: sqlValue(v.v)}
 }
 
-// assignment renders the value for SET, where a nil pointer or a null Valuer
-// writes NULL.
-func (v Value[T]) assignment() exprInfo {
-	if err := valueError(v.v); err != nil {
-		return exprInfo{err: err}
-	}
-
-	return exprInfo{sql: sqlValue(v.v)}
-}
-
 func (Value[T]) patternText(T) {}
 
 func (v Value[T]) patternOperand(mode paramMode) exprInfo {

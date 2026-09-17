@@ -56,6 +56,9 @@ var compileFailCases = []struct {
 	{"pattern of another type", `_ = tsq.Contains(UserName, tsq.Val(3))`, "tsq.Value[int]"},
 	{"pattern of a number column", `_ = tsq.Contains(UserID, tsq.Val(int64(3)))`, "does not satisfy ~string"},
 	{"pattern as a plain string", `_ = tsq.Contains(UserName, "x")`, "does not implement tsq.Pattern[string]"},
+	{"null value for a string column", `_ = UserName.EQ(tsq.Val[*string](nil))`, "does not implement tsq.RHS[string]"},
+	{"set null on a NOT NULL column", `_ = tsq.UpdateTable(Users).SetNull(UserName)`, "does not implement tsq.NullColumn"},
+	{"nullable column value type", `_ = NickName.EQ(tsq.Val(sql.NullString{}))`, "does not implement tsq.RHS[string]"},
 	{"upsert key of another table", `_ = Users.Upsert(context.Background(), nil, &User{}, OrderID)`, "does not implement tsq.BoundColumn[User]"},
 	{"pattern param variants are gone", `_ = tsq.ContainsParam(UserName, UserName.Param())`, "undefined: tsq.ContainsParam"},
 	{"functions are not column methods", `_ = UserName.Upper()`, "Upper undefined"},
@@ -73,6 +76,7 @@ import (
 type User struct {
 	ID   int64
 	Name string
+	Nick sql.NullString
 }
 
 type Order struct{ ID int64 }
@@ -84,6 +88,7 @@ var usersHandle = tsq.NewTable[User]("users")
 var (
 	UserID   = tsq.NewColumn(usersHandle, "id", "id", func(r *User) *int64 { return &r.ID })
 	UserName = tsq.NewColumn(usersHandle, "name", "name", func(r *User) *string { return &r.Name })
+	NickName = tsq.NewNullColumn[string](usersHandle, "nick", "nick", func(r *User) *sql.NullString { return &r.Nick })
 )
 
 var Users = usersHandle.Define(tsq.TableSpec[User]{Columns: []tsq.BoundColumn[User]{UserID, UserName}, PrimaryKey: UserID})
@@ -106,6 +111,7 @@ var (
 	_ = context.Background
 	_ = Users
 	_ = OrderID
+	_ = NickName
 )
 `
 
