@@ -17,6 +17,7 @@ type TraceOp string
 // The operations TSQ traces. They match the labels the SQL log uses.
 const (
 	TraceOpInsert TraceOp = "insert"
+	TraceOpUpsert TraceOp = "upsert"
 	TraceOpUpdate TraceOp = "update"
 	TraceOpDelete TraceOp = "delete"
 	TraceOpGet    TraceOp = "get"

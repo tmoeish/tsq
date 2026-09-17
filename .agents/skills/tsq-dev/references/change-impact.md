@@ -61,6 +61,16 @@
   `TestSoftDeleteScope` 和 `TestIntegrationSoftDeleteScopeJoins` 里各加一条。给 `Table` 接口加实现
   也要实现 `softDeleted()`。
 
+## 改了 upsert（`upsert.go`）
+
+- **MySQL 的 `ON DUPLICATE KEY UPDATE` 匹配所有唯一键**，`checkUpsertRows` 因此在行可能撞上别的唯一键
+  时拒绝。放宽它之前先想清楚：那一行会静默地更新一条和指定键无关的行。
+- 三个方言的语句形状只有 `TestIntegrationUpsert` 能证明，包括"值没变时 MySQL 仍报出主键"。本地没有
+  MySQL 时，SQLite 绿不代表什么：第一版的 `version = version + 1` 在 MySQL 上和行别名 `tsq_new` 的同名列
+  冲突（1052 ambiguous），**引用已有行的列一律带表名**。
+- 更新时的列清单（不写键、主键、`created_at`，`version` 自增）和 `UpdateTable` 的语义保持一致；
+  改一边要看另一边。
+
 ## 改了按条件写语句（`mutation.go`）
 
 - **`version` 自增不校验是契约**。去掉自增会让并发的乐观锁静默失效，加上校验会让它退化成

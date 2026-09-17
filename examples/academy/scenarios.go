@@ -50,6 +50,7 @@ type CRUDSummary struct {
 	InsertedID          int64           `json:"inserted_id"`          // InsertedID is the generated ID returned by the insert demo.
 	UpdatedDescription  string          `json:"updated_description"`  // UpdatedDescription is the description after the update demo.
 	UpdatedSkillItems   json.RawMessage `json:"updated_skill_items"`  // UpdatedSkillItems shows explicit JSON db-type override data round-tripping through generated CRUD helpers.
+	UpsertedSameRow     bool            `json:"upserted_same_row"`    // UpsertedSameRow reports whether an upsert by name updated the inserted row.
 	DeletedSuccessfully bool            `json:"deleted_successfully"` // DeletedSuccessfully reports whether the delete demo removed the row.
 }
 
@@ -344,9 +345,20 @@ func runTrackCRUDDemo(ctx context.Context, runtime *tsq.Runtime) (*CRUDSummary, 
 		return nil, fmt.Errorf("%s: %w", "update track", err)
 	}
 
+	// Upsert by the unique name: the existing track is updated, and its ID is
+	// read back into the new value.
+	upserted := &Track{
+		Name:        inserted.Name,
+		Description: "Updated through an upsert by name.",
+		SkillItems:  inserted.SkillItems,
+	}
+	if err := TableTrack.Upsert(ctx, exec, upserted, Track_Name); err != nil {
+		return nil, fmt.Errorf("%s: %w", "upsert track", err)
+	}
+
 	// Look up the track to verify the update.
 	// Generated Query values can also load a single record by primary key:
-	//   updated, err := QueryTrackByID.Get(ctx, exec, inserted.ID)
+	//   updated, err := QueryTrackByID.Get(ctx, exec, Track_ID.Bind(inserted.ID))
 
 	query, err := tsq.
 		Select(Track__Cols...).
@@ -375,6 +387,7 @@ func runTrackCRUDDemo(ctx context.Context, runtime *tsq.Runtime) (*CRUDSummary, 
 
 	return &CRUDSummary{
 		InsertedID:          inserted.ID,
+		UpsertedSameRow:     upserted.ID == inserted.ID && updated.Description == upserted.Description,
 		UpdatedDescription:  updated.Description,
 		UpdatedSkillItems:   updated.SkillItems,
 		DeletedSuccessfully: deleted == nil,

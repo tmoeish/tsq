@@ -345,6 +345,47 @@ func TestPageSearchesSortsAndCounts(t *testing.T) {
 	}
 }
 
+func TestUpsertMatchesLiveRowsOfASoftDeletedUniqueIndex(t *testing.T) {
+	ctx := context.Background()
+	rt := newSQLite(t)
+
+	gone := &user{Name: "old", Email: "same@example.com"}
+	if err := Users.Upsert(ctx, rt, gone, User_Email); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Users.Delete(ctx, rt, gone); err != nil {
+		t.Fatal(err)
+	}
+
+	// The unique index is (email, deleted_at); the deleted row does not match.
+	live := &user{Name: "new", Email: "same@example.com"}
+	if err := Users.Upsert(ctx, rt, live, User_Email); err != nil {
+		t.Fatal(err)
+	}
+
+	if live.ID == gone.ID {
+		t.Fatal("expected a new row next to the deleted one")
+	}
+
+	if err := Users.Upsert(ctx, rt, &user{Name: "renamed", Email: "same@example.com"}, User_Email); err != nil {
+		t.Fatal(err)
+	}
+
+	stored, err := QueryByID.Get(ctx, rt, User_ID.Bind(live.ID))
+	if err != nil || stored.Name != "renamed" || stored.Version != live.Version+1 {
+		t.Fatalf("stored = %+v, %v", stored, err)
+	}
+
+	if err := Users.Upsert(ctx, rt, &user{}, User_Name); err == nil {
+		t.Fatal("expected a key that is not unique to be refused")
+	}
+
+	if err := Users.Upsert(ctx, rt, &user{}, User_Email.As("u")); err == nil {
+		t.Fatal("expected an aliased key column to be refused")
+	}
+}
+
 func TestIterStreamsRowsAndStops(t *testing.T) {
 	ctx := context.Background()
 	rt := newSQLite(t)

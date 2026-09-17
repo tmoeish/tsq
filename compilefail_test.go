@@ -56,6 +56,7 @@ var compileFailCases = []struct {
 	{"pattern of another type", `_ = tsq.Contains(UserName, tsq.Val(3))`, "tsq.Value[int]"},
 	{"pattern of a number column", `_ = tsq.Contains(UserID, tsq.Val(int64(3)))`, "does not satisfy ~string"},
 	{"pattern as a plain string", `_ = tsq.Contains(UserName, "x")`, "does not implement tsq.Pattern[string]"},
+	{"upsert key of another table", `_ = Users.Upsert(context.Background(), nil, &User{}, OrderID)`, "does not implement tsq.BoundColumn[User]"},
 	{"pattern param variants are gone", `_ = tsq.ContainsParam(UserName, UserName.Param())`, "undefined: tsq.ContainsParam"},
 	{"functions are not column methods", `_ = UserName.Upper()`, "Upper undefined"},
 }
