@@ -589,6 +589,9 @@ page, err := QueryUser.Page(ctx, runtime, tsq.Paging{
 - `Keyword` matches the query's `Search(...)` columns; empty means no search
 - the result is a `*tsq.PageResponse[O]` with `Page`, `Size`, `Total`, `TotalPages` and `Data`
   (never nil), plus `HasNext()` / `HasPrev()` / `IsEmpty()`
+- `Total` and `Data` come from one snapshot: `Page` runs its count and its rows in a read-only
+  transaction (`REPEATABLE READ` on MySQL and PostgreSQL), so a concurrent write cannot make them
+  disagree. Called with a transaction executor, it uses that transaction and its isolation
 
 An HTTP endpoint receives strings. `tsq.PageRequest` is that shape (`page`, `size`, `order_by`,
 `order`, `keyword`), and `Paging(sortable...)` turns it into a `Paging` against the columns the
@@ -623,6 +626,7 @@ The pattern functions (`tsq.StartsWith`, `tsq.EndsWith`, `tsq.Contains`, and the
 Reads are methods on the built `*Query[O]`; `args` are the `tsq.Arg` values made by `Bind`:
 
 - `query.List(ctx, db, args...)` → `[]*O, error`
+- `query.Iter(ctx, db, args...)` → `iter.Seq2[*O, error]`: `for row, err := range query.Iter(ctx, db) { ... }` scans one row at a time, so exports and batch jobs do not hold the whole result in memory. `break` stops the query; a failure is yielded once with a nil row. The rows hold a connection until the loop ends, so inside a transaction finish the loop before running another statement on it
 - `query.Get(ctx, db, args...)` → `*O, error` (an error wrapping `sql.ErrNoRows` when not found)
 - `query.Find(ctx, db, args...)` → `*O, error` (`nil, nil` when not found)
 - `query.Exists(ctx, db, args...)` → `bool, error`
@@ -728,7 +732,7 @@ Rules:
 - default policy is manual: TSQ logs a reminder but does not automatically reconcile missing tables or indexes
 - `tsq gen` refuses a table, column or index name longer than any built-in dialect allows, and suggests the directive that fixes it (usually `name=` on the index). A runtime checks again at construction, and there is no way to turn that off. Such a name does not reach the server intact, so the objects TSQ creates stop matching the names its queries reference. Name the index explicitly (`//tsq:unique Email name=ux_short`) when a derived index name is what runs over the limit
 - `tsq.WithMaxPageSize(n)` sets the page-size cap for paged queries on that runtime, in either direction. `tsq.DefaultMaxPageSize` (1000) is the default, not a ceiling
-- `tsq.WithTracers(t...)` wraps every traced operation. A tracer receives the context, a `tsq.TraceOp` naming the work (`insert`, `update`, `delete`, `get`, `list`, `page`, `count`, `scalar`, `exec`, `tx`) and the continuation, and must call the continuation and return its error. The rendered SQL is not passed: tracing brackets the whole operation, binding and dialect rendering included, so statements come from `WithSQLLogging()` instead
+- `tsq.WithTracers(t...)` wraps every traced operation. A tracer receives the context, a `tsq.TraceOp` naming the work (`insert`, `update`, `delete`, `get`, `list`, `iter`, `page`, `count`, `scalar`, `exec`, `tx`) and the continuation, and must call the continuation and return its error. The rendered SQL is not passed: tracing brackets the whole operation, binding and dialect rendering included, so statements come from `WithSQLLogging()` instead
 - **TSQ only ever adds.** No policy drops a table, so several services can share one database and bring up their own tables independently. Removing a table that is no longer declared is a migration, not a boot-time decision: a runtime knows only its own declarations and cannot tell "this table is obsolete" from "this table belongs to someone else"
 - schema policies log the mode they are in at info level; `SchemaPolicyManual` (the default) is a normal production choice, not a warning
 - `tsq.WithLogger(l)` receives bootstrap DDL and execution-time warnings (for example a skipped batch-insert ID assignment); it defaults to `slog.Default()`

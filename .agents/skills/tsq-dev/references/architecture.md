@@ -158,6 +158,10 @@ JoinStage ─Search► SearchStage ─Where─► FilteredStage
   `Paging.OrderBy` 非空"。排序项经 `querySpec.orderTerm` 渲染：集合操作查询按输出列名排序
   （三个方言里唯一都接受的写法），普通查询按列表达式。`PageRequest`（HTTP 字符串形态）只在
   `PageRequest.Paging(sortable...)` 里按列名或 JSON 名解析成 `Paging`，排序白名单由调用方给。
+- `Page` 的计数和列表语句经 `snapshotRead` 放进一个只读事务（PG/MySQL `REPEATABLE READ`，SQLite
+  默认级别）：执行器已在事务里就直接用；`*Runtime` 走 `withTxResult`（追踪里是 `page` 套 `tx`）；
+  `WrapExecutor` 包的句柄能 `BeginTx` 就自己开，否则退化为两条独立语句。
+- `Iter` 和 `List` 共用 `each`（逐行扫描、回调返回 false 即停），`Iter` 的追踪区间覆盖整个循环。
 - `SelectDistinct` 是 `querySpec.Distinct`，算作分组查询：`Count` 包一层子查询数去重后的行。
 
 ### 软删除作用域（`query_render.go` 的 `writeFromWhere`、`table.go` 的 `liveRows` / `liveSource`）

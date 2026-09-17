@@ -135,7 +135,7 @@ build tag，SQLite 目标因此每次 `go test` 都跑。
 **否掉"自动放行未知表"**：那等于把打错的表名一起放行，而拼错表名只会在数据库上炸。显式声明保住
 join 图校验的全部价值，代价只是多写一次表名。既 `Correlate` 又 join 同一张表是构建错误；带
 `Correlate` 的查询不能单独执行。它长在具体类型上，`api-check` 看不见（方法调用是快照的盲区），
-语义由 `correlated_subquery_test.go` 真跑 SQLite 守着。
+语义由 `render_test.go` 的 `TestCorrelatedSubqueryCarriesItsParameters` 守着。
 
 ### 决定：按条件写语句不校验 `version` 但自增它；`Set*` 是泛型方法 (2026-09-03)
 
@@ -186,6 +186,8 @@ MySQL 的 `LENGTH` 数字节；PostgreSQL 没有 `round(double, int)`；modernc 
   客户端拿来排序。
 - **只为主键和唯一索引生成查询**：普通索引和前缀的查询要排序、限量，生成器猜不到，生成的"查全部
   匹配行"被照抄就是全表量级的读取。
+- **`Page` 的一致性靠只读快照事务，不靠 `COUNT(*) OVER()`**：窗口函数在 `DISTINCT` 之前求值（数错）、
+  PG 不允许和 `FOR UPDATE` 同用、页码越界时没有行可带回总数。代价是每次 `Page` 多一对 BEGIN/COMMIT。
 - `BatchDeleteByPK` 挪到 `TableOf` 上，吃主键的 `BindList`：包级版本要再校验"列是不是主键"。
 - **v5 明确不支持复合主键**（维护者定案）。`TableSpec.PrimaryKey` 是单列，`pk=A,B` 在解析时报错并
   指向"单列代理键 + `//tsq:unique A,B`"。要支持就是 v6：主键字段、`FetchXxxByID`、`BatchDeleteByPK`
@@ -194,13 +196,13 @@ MySQL 的 `LENGTH` 数字节；PostgreSQL 没有 `round(double, int)`；modernc 
 ### 两个测试各自编码了相反的意图，代码同时满足它们 (2026-09-16)
 
 `DefaultMaxPageSize` 到底是默认值还是硬顶？`TestRuntimeMaxPageSizeDefaultsAndOverrides` 断言
-`WithMaxPageSize(5000)` 能放行 3000，`TestPageReq_WithLimitAppliesRuntimeCeiling` 断言"没有 runtime
+`WithMaxPageSize(5000)` 能放行 3000，当时另一条测试断言"没有 runtime
 能抬高绝对上限"。两条都绿——因为 `Validate` 把上限夹到 1000 而 `Normalize` 不夹，于是同一个请求能
 通过一个、被另一个悄悄改小。
 
 **一对互相矛盾的断言可以同时为真，只要实现里有两条路径各满足一条。** 这类分歧不会被测试发现，它
 就藏在测试里。判据：同一个概念的两个入口，要有一个用例把它们放在一起比，而不是各测各的。现在是
-上限 × 尺寸的交叉用例，断言"`Validate` 拒绝的，恰好是 `Normalize` 会夹的"。
+`TestValidateAndNormalizeResolveTheSameLimit`：`Validate` 拒绝的，恰好是 `Normalize` 会夹的。
 
 定案取名字：`DefaultMaxPageSize` 是**默认**，`WithMaxPageSize(n)` 是这个 runtime 的上限，双向生效。
 把常量当硬顶会让 `WithMaxPageSize(5000)` 变成一句空话——库不该用一个编译期常量去否决调用方明确的选择。
@@ -237,13 +239,10 @@ v5 不背兼容，一次把名字改到"最合理"。定下的几条规则，每
 
 ### 决定：读单行只留两个入口，语义写在名字里 (2026-09-09，v5)
 
-`Get`（无行报 `sql.ErrNoRows`）和 `Find`（无行返回 `nil, nil`）。删掉的 `Load(holder)` 是第三种读
-单行的方式，也是唯一**没法在不比较错误的情况下表达"没查到"**的那种。`Count` 只留 `int64`：截断
-是静默的。
-
-同一波的两个正确性修复：`Get` / `Find` / `Exists` 加 `LIMIT 1`，**必须在行锁子句之前**（三个方言都
-要求，由 `query_singlerow_test.go` 守着）；`Exists` 不再 `SELECT COUNT(1)`——**COUNT 要访问每个匹配
-行，去回答第一行就能定下来的问题**。
+`Get`（无行报 `sql.ErrNoRows`）和 `Find`（`nil, nil`）；删掉的 `Load(holder)` 没法不比较错误就表达
+"没查到"。`Count` 只留 `int64`（截断是静默的）。单行读取加 `LIMIT 1`，**必须在行锁之前**——这道门
+在 v5 核心重写时随旧测试文件一起丢过，现在是 `TestSingleRowReadsLimitBeforeTheLock`。`Exists` 不用
+`COUNT`：它要访问每个匹配行，去回答第一行就能定的问题。
 
 ### 决定：v5 不留兼容别名，且"不用接收者的方法"要变成函数 (2026-09-09)
 

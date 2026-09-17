@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"iter"
 	"log/slog"
 	"regexp"
 	"strings"
@@ -160,11 +161,26 @@ func (q *Query[O]) List(ctx context.Context, db Executor, args ...Arg) ([]*O, er
 }
 
 func (q *Query[O]) query(ctx context.Context, db Executor, op string, stmt prepared) ([]*O, error) {
+	var list []*O
+
+	err := q.each(ctx, db, op, stmt, func(row *O) bool {
+		list = append(list, row)
+		return true
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return list, nil
+}
+
+// each scans the rows of stmt one at a time until fn returns false.
+func (q *Query[O]) each(ctx context.Context, db Executor, op string, stmt prepared, fn func(*O) bool) error {
 	logSQLForExecutor(ctx, db, op, stmt.sql, stmt.args)
 
 	rows, err := db.QueryContext(ctx, stmt.sql, stmt.args...)
 	if err != nil {
-		return nil, fmt.Errorf("%s query: %w", op, err)
+		return fmt.Errorf("%s query: %w", op, err)
 	}
 
 	defer func() {
@@ -173,22 +189,53 @@ func (q *Query[O]) query(ctx context.Context, db Executor, op string, stmt prepa
 		}
 	}()
 
-	var list []*O
-
 	for rows.Next() {
 		row, err := q.scan(rows)
 		if err != nil {
-			return nil, fmt.Errorf("%s query: %w", op, err)
+			return fmt.Errorf("%s query: %w", op, err)
 		}
 
-		list = append(list, row)
+		if !fn(row) {
+			return nil
+		}
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("%s query: %w", op, err)
+		return fmt.Errorf("%s query: %w", op, err)
 	}
 
-	return list, nil
+	return nil
+}
+
+// Iter streams the matching rows, scanning one at a time, so a large result never
+// sits in memory. Breaking out of the loop stops the query. A failure is yielded
+// once, with a nil row, and ends the sequence.
+//
+// The rows hold a connection until the loop ends, so do not run other statements
+// on a single-connection executor, such as a transaction, from inside the loop.
+func (q *Query[O]) Iter(ctx context.Context, db Executor, args ...Arg) iter.Seq2[*O, error] {
+	return func(yield func(*O, error) bool) {
+		stopped := false
+
+		err := traceExecutor(ctx, db, TraceOpIter, func(ctx context.Context) error {
+			if q == nil {
+				return errors.New("query cannot be nil")
+			}
+
+			_, stmts, err := q.prepare(db, args, nil, renderMode{})
+			if err != nil {
+				return err
+			}
+
+			return q.each(ctx, db, "iter", stmts[0], func(row *O) bool {
+				stopped = !yield(row, nil)
+				return !stopped
+			})
+		})
+		if err != nil && !stopped {
+			yield(nil, err)
+		}
+	}
 }
 
 // Get returns the first matching row, or an error wrapping sql.ErrNoRows.
@@ -363,18 +410,85 @@ func (q *Query[O]) Page(ctx context.Context, db Executor, p Paging, args ...Arg)
 			return nil, err
 		}
 
-		total, err := queryCount(ctx, db, stmts[0])
-		if err != nil {
-			return nil, err
-		}
+		// The count and the rows are read from one snapshot; otherwise a write
+		// between them makes Total disagree with Data.
+		return snapshotRead(ctx, db, func(ctx context.Context, db Executor) (*PageResponse[O], error) {
+			total, err := queryCount(ctx, db, stmts[0])
+			if err != nil {
+				return nil, err
+			}
 
-		rows, err := q.query(ctx, db, "page", stmts[1])
-		if err != nil {
-			return nil, err
-		}
+			rows, err := q.query(ctx, db, "page", stmts[1])
+			if err != nil {
+				return nil, err
+			}
 
-		return newPageResponse(p, total, rows), nil
+			return newPageResponse(p, total, rows), nil
+		})
 	})
+}
+
+// snapshotRead runs fn in one read-only transaction, so the statements it runs see
+// the same data. An executor that is already a transaction is used as it is, with
+// whatever isolation its caller chose.
+func snapshotRead[T any](ctx context.Context, db Executor, fn func(context.Context, Executor) (T, error)) (T, error) {
+	var zero T
+
+	s, err := executorScope(db)
+	if err != nil {
+		return zero, err
+	}
+
+	if s.tx {
+		return fn(ctx, db)
+	}
+
+	// READ COMMITTED, PostgreSQL's default, takes a snapshot per statement. SQLite
+	// transactions are serializable already and some drivers reject a level.
+	opts := &sql.TxOptions{ReadOnly: true, Isolation: sql.LevelRepeatableRead}
+	if s.dialect.Name() == tsqdialect.SQLite {
+		opts.Isolation = sql.LevelDefault
+	}
+
+	if s.runtime != nil {
+		return s.runtime.withTxResult(ctx, &TxOptions{SQL: opts}, fn)
+	}
+
+	bound, ok := db.(boundExecutor)
+	if !ok {
+		return fn(ctx, db)
+	}
+
+	beginner, ok := bound.Executor.(interface {
+		BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error)
+	})
+	if !ok {
+		return fn(ctx, db)
+	}
+
+	tx, err := beginner.BeginTx(ctx, opts)
+	if err != nil {
+		return zero, fmt.Errorf("begin snapshot read: %w", err)
+	}
+
+	result, err := fn(ctx, WrapExecutor(tx, s.dialect))
+	if err != nil {
+		return zero, errors.Join(err, ignoreTxDone(tx.Rollback()))
+	}
+
+	if err := tx.Commit(); err != nil {
+		return zero, fmt.Errorf("commit snapshot read: %w", err)
+	}
+
+	return result, nil
+}
+
+func ignoreTxDone(err error) error {
+	if errors.Is(err, sql.ErrTxDone) {
+		return nil
+	}
+
+	return err
 }
 
 func splitCommaValues(value string) []string {

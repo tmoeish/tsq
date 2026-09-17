@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -340,6 +342,99 @@ func TestPageSearchesSortsAndCounts(t *testing.T) {
 	empty, err := Select(User_ID).From(Users).Where(User_ID.EQ(Val(int64(-1)))).MustBuild().Page(ctx, rt, Paging{})
 	if err != nil || empty.Data == nil || !empty.IsEmpty() || empty.Size != 20 || empty.Page != 1 {
 		t.Fatalf("empty page = %+v, %v", empty, err)
+	}
+}
+
+func TestIterStreamsRowsAndStops(t *testing.T) {
+	ctx := context.Background()
+	rt := newSQLite(t)
+	seedUsers(t, rt, "a", "b", "c")
+
+	q := Select(User__Cols...).From(Users).OrderBy(User_Name.Asc()).MustBuild()
+
+	var names []string
+
+	for row, err := range q.Iter(ctx, rt) {
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		names = append(names, row.Name)
+	}
+
+	if !slices.Equal(names, []string{"a", "b", "c"}) {
+		t.Fatalf("names = %v", names)
+	}
+
+	// Breaking out closes the rows; the connection is usable afterwards.
+	for row, err := range q.Iter(ctx, rt) {
+		if err != nil || row.Name != "a" {
+			t.Fatalf("first row = %v, %v", row, err)
+		}
+
+		break
+	}
+
+	if n, err := q.Count(ctx, rt); err != nil || n != 3 {
+		t.Fatalf("Count after break = %d, %v", n, err)
+	}
+
+	// A failure is yielded once with a nil row.
+	calls := 0
+
+	for row, err := range q.Iter(ctx, rt, User_ID.Bind(1)) {
+		calls++
+
+		if row != nil || err == nil {
+			t.Fatalf("got %v, %v; want the unused argument reported", row, err)
+		}
+	}
+
+	if calls != 1 {
+		t.Fatalf("yielded %d times, want 1", calls)
+	}
+}
+
+func TestPageInsideATransactionUsesIt(t *testing.T) {
+	ctx := context.Background()
+
+	var ops []TraceOp
+
+	rt := newSQLite(t, WithTracers(func(ctx context.Context, op TraceOp, next func(context.Context) error) error {
+		ops = append(ops, op)
+		return next(ctx)
+	}))
+
+	q := Select(User__Cols...).From(Users).MustBuild()
+
+	if _, err := q.Page(ctx, rt, Paging{}); err != nil {
+		t.Fatal(err)
+	}
+
+	if !slices.Equal(ops, []TraceOp{TraceOpPage, TraceOpTx}) {
+		t.Fatalf("Page ops = %v; want the read in its own transaction", ops)
+	}
+
+	ops = nil
+
+	err := rt.WithTx(ctx, nil, func(ctx context.Context, tx Executor) error {
+		if err := Users.Insert(ctx, tx, &user{Name: "pending", Email: "p@example.com"}); err != nil {
+			return err
+		}
+
+		page, err := q.Page(ctx, tx, Paging{})
+		if err == nil && page.Total != 1 {
+			err = fmt.Errorf("Total = %d; want the uncommitted row", page.Total)
+		}
+
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !slices.Equal(ops, []TraceOp{TraceOpTx, TraceOpInsert, TraceOpPage}) {
+		t.Fatalf("ops = %v; want no nested transaction", ops)
 	}
 }
 
