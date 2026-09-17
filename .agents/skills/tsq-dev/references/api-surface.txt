@@ -286,6 +286,7 @@ func (q *Query[O]) Count(ctx context.Context, db Executor, args ...Arg) (int64, 
 func (q *Query[O]) Exists(ctx context.Context, db Executor, args ...Arg) (bool, error)
 func (q *Query[O]) Find(ctx context.Context, db Executor, args ...Arg) (*O, error)
 func (q *Query[O]) Get(ctx context.Context, db Executor, args ...Arg) (*O, error)
+func (q *Query[O]) Iter(ctx context.Context, db Executor, args ...Arg) iter.Seq2[*O, error]
 func (q *Query[O]) List(ctx context.Context, db Executor, args ...Arg) ([]*O, error)
 func (q *Query[O]) Page(ctx context.Context, db Executor, p Paging, args ...Arg) (*PageResponse[O], error)
 func (q *Query[O]) SQL(dialect tsqdialect.Dialect, args ...Arg) (string, []any, error)
@@ -436,6 +437,7 @@ const (
 	TraceOpDelete TraceOp = "delete"
 	TraceOpGet    TraceOp = "get"
 	TraceOpList   TraceOp = "list"
+	TraceOpIter   TraceOp = "iter"
 	TraceOpPage   TraceOp = "page"
 	TraceOpCount  TraceOp = "count"
 	TraceOpScalar TraceOp = "scalar"

@@ -2,6 +2,7 @@ package tsq
 
 import (
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -232,5 +233,38 @@ func TestQueryRenderingIsCachedPerDialect(t *testing.T) {
 
 	if first == other {
 		t.Fatal("expected each dialect to render separately")
+	}
+}
+
+// TestSingleRowReadsLimitBeforeTheLock guards the clause order Get, Find, Exists
+// and Scalar rely on: every dialect wants LIMIT before FOR UPDATE / FOR SHARE.
+func TestSingleRowReadsLimitBeforeTheLock(t *testing.T) {
+	single := func(q *Query[user], d tsqdialect.Dialect) (string, []any) {
+		t.Helper()
+
+		stmt, err := q.statement(d, renderMode{single: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		sql, args, err := stmt.assemble(d, argSet{})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		return sql, args
+	}
+
+	locked := Select(User_ID).From(Users.WithDeleted()).ForUpdate().MustBuild()
+	for _, d := range []tsqdialect.Dialect{onMySQL, onPostgres} {
+		if sql, _ := single(locked, d); !strings.HasSuffix(sql, " LIMIT 1 FOR UPDATE") {
+			t.Errorf("%s: %s", d.Name(), sql)
+		}
+	}
+
+	// A limit the builder set is kept rather than replaced.
+	limited := Select(User_ID).From(Users.WithDeleted()).Limit(5).MustBuild()
+	if sql, args := single(limited, onSQLite); !strings.HasSuffix(sql, " LIMIT ?") || len(args) != 1 || fmt.Sprint(args[0]) != "5" {
+		t.Errorf("builder limit: %s %v", sql, args)
 	}
 }

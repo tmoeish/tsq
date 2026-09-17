@@ -101,6 +101,8 @@
 - 计数语句和列表语句**合在一起**判断参数是否被用到（`prepare` 的多模式），否则只出现在列表
   语句里的参数会被误报成"未使用"。
 - 排序字段按列名或 JSON 名解析；集合操作查询只能按输出列名排序。
+- **计数和列表必须在同一个快照里**（`snapshotRead`）。给 `Page` 加第三条语句也要放进去；不要为了
+  省一次 BEGIN 把它拆开——`TestIntegrationPageReadsOneSnapshot` 会在两条语句之间插入一行。
 
 ## 改了 SQL 渲染、中间表示或参数绑定（`sqlexpr.go`、`param.go`、`query_render.go`）
 

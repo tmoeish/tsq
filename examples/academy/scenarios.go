@@ -520,13 +520,14 @@ func runAggregateDemo(ctx context.Context, runtime *tsq.Runtime) ([]AggregateSum
 		return nil, fmt.Errorf("%s: %w", "build aggregate query", err)
 	}
 
-	rows, err := query.List(ctx, exec)
-	if err != nil {
-		return nil, err
-	}
+	// Iter scans one row at a time instead of loading the whole result first.
+	var summaries []AggregateSummary
 
-	summaries := make([]AggregateSummary, 0, len(rows))
-	for _, row := range rows {
+	for row, err := range query.Iter(ctx, exec) {
+		if err != nil {
+			return nil, err
+		}
+
 		summaries = append(summaries, AggregateSummary{
 			Track:           row.Track,
 			EnrollmentCount: row.EnrollmentCount,

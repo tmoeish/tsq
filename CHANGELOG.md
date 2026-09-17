@@ -12,6 +12,10 @@
 v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别名、没有迁移命令、没有旧注解语法的读取器。
 模块路径是 `github.com/tmoeish/tsq/v5`，CLI 用 `go install github.com/tmoeish/tsq/v5/cmd/tsq@latest` 安装。
 
+### 新增
+
+- `Query.Iter(ctx, db, args...)` 返回 `iter.Seq2[*O, error]`，逐行扫描，大结果集不必整体读进内存；`break` 会结束查询。追踪操作名为 `iter`。
+
 ### 破坏性变更
 
 **注解**
@@ -78,7 +82,7 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 - 读单行只有两个入口：`Get` 在没有行时返回包装 `sql.ErrNoRows` 的错误，`Find` 返回 `nil, nil`。`Get` / `Find` / `Exists` / `Scalar` 最多读一行，`Exists` 不再走 `COUNT`。`Count` 返回 `int64`。
 - 批量写的选项是 `WithBatchSize(n)` 和只对插入有效的 `WithSkipDuplicates()`（传给其他入口会报错）。
 - 事务：`TxOptions{SQL, RetryIf, RetryPolicy}`，`DefaultRetryPolicy()`。重试谓词：`IsRetryableTxError`、`IsOptimisticLockError`、`IsRetryableNetworkError`、`IsTxConflictError`。
-- 分页：`Query.Page(ctx, db, tsq.Paging{Page, Size, OrderBy, Keyword}, args...)`，排序项是 `[]tsq.OrderBy`，写错列名编译不过。HTTP 形态的 `tsq.PageRequest` 用 `Validate(maxSize)` / `Normalize(maxSize)` 校验，再用 `req.Paging(可排序列...)` 转换，排序白名单由端点给出；传 `runtime.MaxPageSize()` 让 handler 和查询用同一个上限。`PageResponse` 有 `Page` / `Size` / `Total` / `TotalPages` / `Data`（从不为 nil），`PageRequest.Offset()` / `Response()` 改为 `Paging.Offset()` 与库内部构造。HTTP 参数解析交给调用方的 binder。
+- 分页：`Query.Page(ctx, db, tsq.Paging{Page, Size, OrderBy, Keyword}, args...)`，排序项是 `[]tsq.OrderBy`，写错列名编译不过。HTTP 形态的 `tsq.PageRequest` 用 `Validate(maxSize)` / `Normalize(maxSize)` 校验，再用 `req.Paging(可排序列...)` 转换，排序白名单由端点给出；传 `runtime.MaxPageSize()` 让 handler 和查询用同一个上限。`Page` 的计数和数据在同一个只读事务里读取（MySQL / PostgreSQL 用 `REPEATABLE READ`），并发写入不会让 `Total` 和 `Data` 对不上；传入事务执行器时直接使用该事务。`PageResponse` 有 `Page` / `Size` / `Total` / `TotalPages` / `Data`（从不为 nil），`PageRequest.Offset()` / `Response()` 改为 `Paging.Offset()` 与库内部构造。HTTP 参数解析交给调用方的 binder。
 
 **查询 API 命名**
 

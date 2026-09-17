@@ -21,6 +21,7 @@ const (
 	TraceOpDelete TraceOp = "delete"
 	TraceOpGet    TraceOp = "get"
 	TraceOpList   TraceOp = "list"
+	TraceOpIter   TraceOp = "iter"
 	TraceOpPage   TraceOp = "page"
 	TraceOpCount  TraceOp = "count"
 	TraceOpScalar TraceOp = "scalar"

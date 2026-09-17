@@ -799,6 +799,86 @@ func TestIntegrationMutationsByCondition(t *testing.T) {
 	}
 }
 
+// writeBeforeList runs write once, when the runtime logs the list statement of a
+// Page: after the count has run and before the rows are read.
+type writeBeforeList struct {
+	once  sync.Once
+	write func()
+}
+
+func (l *writeBeforeList) Enabled(context.Context, slog.Level) bool { return true }
+
+func (l *writeBeforeList) LogAttrs(_ context.Context, _ slog.Level, msg string, _ ...slog.Attr) {
+	if msg == "page" {
+		l.once.Do(l.write)
+	}
+}
+
+// TestIntegrationPageReadsOneSnapshot inserts a row from another connection
+// between the count and the list statement of a Page. Both must still describe
+// the same rows.
+func TestIntegrationPageReadsOneSnapshot(t *testing.T) {
+	for _, target := range integrationTargets(t) {
+		t.Run(target.name, func(t *testing.T) {
+			ctx := context.Background()
+
+			dropAcademyTables(t, target)
+			setup, _ := openWithPolicy(t, target, academy.TSQTables(), tsq.SchemaPolicyReconcile)
+
+			other, err := sql.Open(target.driver, target.dsn)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			t.Cleanup(func() { _ = other.Close() })
+
+			if target.driver == "sqlite" {
+				// Without WAL a writer cannot commit while a reader holds the file.
+				if _, err := other.ExecContext(ctx, "PRAGMA journal_mode=WAL"); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			for _, name := range []string{"a", "b"} {
+				if err := (&academy.Learner{Name: name, Email: name + "@example.test"}).Insert(ctx, setup); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			var writeErr error
+
+			hook := &writeBeforeList{write: func() {
+				late := &academy.Learner{Name: "late", Email: "late@example.test"}
+				writeErr = academy.TableLearner.Insert(ctx, tsq.WrapExecutor(other, setup.Dialect()), late)
+			}}
+
+			rt, err := tsq.Open(ctx, target.driver, target.dsn, academy.TSQTables(), tsq.WithLogger(hook), tsq.WithSQLLogging())
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			t.Cleanup(func() { _ = rt.Close() })
+
+			page, err := academy.QueryLearner.Page(ctx, rt, tsq.Paging{Size: 10})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if writeErr != nil {
+				t.Fatalf("concurrent insert: %v", writeErr)
+			}
+
+			if page.Total != int64(len(page.Data)) || page.Total != 2 {
+				t.Fatalf("Total = %d with %d rows; want both 2 from the snapshot", page.Total, len(page.Data))
+			}
+
+			if n, err := academy.QueryLearner.Count(ctx, rt); err != nil || n != 3 {
+				t.Fatalf("count after the page = %d, %v; want the concurrent insert visible", n, err)
+			}
+		})
+	}
+}
+
 // TestIntegrationSoftDeleteScopeJoins checks the soft-delete scope in every join
 // position on real engines. A RIGHT or FULL JOIN renders the scoped table as a
 // derived table, which is the spelling most likely to differ between dialects.
