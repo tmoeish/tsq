@@ -799,6 +799,123 @@ func TestIntegrationMutationsByCondition(t *testing.T) {
 	}
 }
 
+// TestIntegrationUpsert runs Upsert and BatchUpsert on every dialect: the three
+// spell it differently, and MySQL reports the key of an updated row only through
+// LAST_INSERT_ID(expr).
+func TestIntegrationUpsert(t *testing.T) {
+	for _, target := range integrationTargets(t) {
+		t.Run(target.name, func(t *testing.T) {
+			ctx := context.Background()
+
+			dropAcademyTables(t, target)
+			rt, _ := openWithPolicy(t, target, academy.TSQTables(), tsq.SchemaPolicyReconcile)
+			mysql := rt.Dialect().Name() == tsqdialect.MySQL
+
+			// By a unique index: insert, then update the same learner.
+			first := &academy.Learner{Name: "Ada", Email: "ada@example.test", Company: "A"}
+			if err := academy.TableLearner.Upsert(ctx, rt, first, academy.Learner_Email); err != nil {
+				t.Fatal(err)
+			}
+
+			if first.ID == 0 {
+				t.Fatal("expected the generated key to be written back")
+			}
+
+			// created_at is kept on update and read back over the value passed in.
+			ancient := time.Date(2001, 1, 1, 0, 0, 0, 0, time.UTC)
+			again := &academy.Learner{Name: "Ada L.", Email: "ada@example.test", Company: "B"}
+			again.CreatedAt = null.TimeFrom(ancient)
+
+			if err := academy.TableLearner.Upsert(ctx, rt, again, academy.Learner_Email); err != nil {
+				t.Fatal(err)
+			}
+
+			if again.ID != first.ID || !again.CreatedAt.Valid || again.CreatedAt.Time.Year() == 2001 {
+				t.Fatalf("updated row reads back id %d created %v; want id %d and the original time", again.ID, again.CreatedAt, first.ID)
+			}
+
+			// Unchanged values still report the key.
+			same := *again
+			same.ID = 0
+			if err := academy.TableLearner.Upsert(ctx, rt, &same, academy.Learner_Email); err != nil || same.ID != first.ID {
+				t.Fatalf("no-op upsert = id %d, %v; want %d", same.ID, err, first.ID)
+			}
+
+			stored, err := academy.QueryLearnerByID.Get(ctx, rt, academy.Learner_ID.Bind(first.ID))
+			if err != nil || stored.Name != "Ada L." || stored.Company != "B" {
+				t.Fatalf("stored = %+v, %v", stored, err)
+			}
+
+			// A known primary key could hit a second unique key; only MySQL cares.
+			explicit := &academy.Learner{Name: "Ada", Email: "ada@example.test"}
+			explicit.ID = first.ID
+			err = academy.TableLearner.Upsert(ctx, rt, explicit, academy.Learner_Email)
+			if mysql != (err != nil) {
+				t.Fatalf("upsert with a key set on %s: %v", target.name, err)
+			}
+
+			// BatchUpsert: one existing, one new.
+			batch := []*academy.Learner{
+				{Name: "Ada 3", Email: "ada@example.test"},
+				{Name: "Bob", Email: "bob@example.test"},
+			}
+			if err := academy.TableLearner.BatchUpsert(ctx, rt, batch, []tsq.BoundColumn[academy.Learner]{academy.Learner_Email}); err != nil {
+				t.Fatal(err)
+			}
+
+			if n, err := academy.QueryLearner.Count(ctx, rt); err != nil || n != 2 {
+				t.Fatalf("learners = %d, %v; want 2", n, err)
+			}
+
+			dup := []*academy.Learner{{Email: "x@example.test"}, {Email: "x@example.test"}}
+			if err := academy.TableLearner.BatchUpsert(ctx, rt, dup, []tsq.BoundColumn[academy.Learner]{academy.Learner_Email}); err == nil {
+				t.Fatal("expected two rows with one key to be refused")
+			}
+
+			if err := academy.TableLearner.Upsert(ctx, rt, &academy.Learner{Email: "y@example.test"}, academy.Learner_Company); err == nil {
+				t.Fatal("expected a non-unique key to be refused")
+			}
+
+			// By primary key on a managed table: version and timestamps follow.
+			enrollment := &academy.Enrollment{LearnerID: first.ID, CourseID: 1, Score: 10}
+			if err := academy.TableEnrollment.Upsert(ctx, rt, enrollment); err != nil {
+				t.Fatal(err)
+			}
+
+			version := enrollment.Version
+			enrollment.Score = 20
+
+			if err := academy.TableEnrollment.Upsert(ctx, rt, enrollment); err != nil {
+				t.Fatal(err)
+			}
+
+			if enrollment.Version != version+1 {
+				t.Fatalf("version = %d after an update from %d", enrollment.Version, version)
+			}
+
+			enrollment.Score = 30
+			if err := enrollment.Update(ctx, rt); err != nil {
+				t.Fatalf("Update after upsert: %v", err)
+			}
+
+			// Writing deleted_at back to zero restores a deleted row.
+			if err := enrollment.Delete(ctx, rt); err != nil {
+				t.Fatal(err)
+			}
+
+			enrollment.DeletedAt = 0
+			if err := academy.TableEnrollment.Upsert(ctx, rt, enrollment); err != nil {
+				t.Fatal(err)
+			}
+
+			restored, err := academy.QueryEnrollmentByUID.Get(ctx, rt, academy.Enrollment_UID.Bind(enrollment.UID))
+			if err != nil || restored.Score != 30 {
+				t.Fatalf("restored = %+v, %v", restored, err)
+			}
+		})
+	}
+}
+
 // writeBeforeList runs write once, when the runtime logs the list statement of a
 // Page: after the count has run and before the rows are read.
 type writeBeforeList struct {

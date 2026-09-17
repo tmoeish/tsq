@@ -100,9 +100,8 @@ SQLite ≥3.39。代价是更老的引擎拿到数据库报错而不是 `Unsuppo
 
 ### "最紧的那个上限"是个断言，不是常识，要去量 (2026-08-28)
 
-参数上限写死 65535 并注释为"最紧的"，而 SQLite 是 **32766**，宽表在唯一跑单测的库上直接失败。
-**一个错误的常数配一句自信的注释，比没有注释更难被怀疑。** 同一波还发现批量 UPDATE 每列每行绑
-**两个**参数，按 INSERT 估算只修了一半：**修一类 bug 要把这一类的所有实例都数一遍**。
+上限写死 65535 注释"最紧的"，SQLite 其实是 32766。**错误常数配自信注释比没注释更难被怀疑**；批量
+UPDATE 每行每列绑两个参数，只修 INSERT 是修一半——**修一类 bug 要把这一类的实例都数一遍**。
 
 ### 字符串模式的空值落在所有分支之外 (2026-08-26)
 
@@ -110,10 +109,9 @@ SQLite ≥3.39。代价是更老的引擎拿到数据库报错而不是 `Unsuppo
 
 ### 接口里"有定义、有实现、零调用"的钩子 (2026-08-26)
 
-`Dialect.ReturningClause` 六个版本零调用，PostgreSQL 上 `Insert` 从来没回填过主键，
-而唯一的自动化测试是 SQLite 所以一直绿。现在由 `change-impact.md` 的 grep 和 `integration_test.go`
-挡着。**同一天第二个教训**：`Integration` 红着 PR #61 仍被 auto-merge 合进 `main`——auto-merge 只等
-**必需**检查，第一次跑就抓到真 bug 的门不该是可选的。
+`Dialect.ReturningClause` 零调用，PG 上 `Insert` 从没回填过主键，只跑 SQLite 的测试一直绿；现在由
+`integration_test.go` 挡着。`Integration` 红着的 PR #61 仍被 auto-merge 合入：**auto-merge 只等必需
+检查**，而 `Integration` 至今不是必需检查，合并前要亲眼看它绿。
 
 ### 集成测试为什么长这样，以及暂时不做的几件事 (2026-08-26)
 
@@ -186,6 +184,9 @@ MySQL 的 `LENGTH` 数字节；PostgreSQL 没有 `round(double, int)`；modernc 
   客户端拿来排序。
 - **只为主键和唯一索引生成查询**：普通索引和前缀的查询要排序、限量，生成器猜不到，生成的"查全部
   匹配行"被照抄就是全表量级的读取。
+- **Upsert 在 MySQL 上遇到"别的唯一键也可能冲突"就拒绝**：`ON DUPLICATE KEY UPDATE` 没有冲突目标，
+  会静默更新一条和指定键无关的行；PG/SQLite 在同样情况下报重复键。批量里同键两行一律报错（PG 不许
+  一条语句改同一行两次）。批量不回读：多行 `RETURNING` 的顺序没有保证，MySQL 只报第一个 id。
 - **`Page` 的一致性靠只读快照事务，不靠 `COUNT(*) OVER()`**：窗口函数在 `DISTINCT` 之前求值（数错）、
   PG 不允许和 `FOR UPDATE` 同用、页码越界时没有行可带回总数。代价是每次 `Page` 多一对 BEGIN/COMMIT。
 - `BatchDeleteByPK` 挪到 `TableOf` 上，吃主键的 `BindList`：包级版本要再校验"列是不是主键"。

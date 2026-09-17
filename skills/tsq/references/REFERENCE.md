@@ -648,6 +648,8 @@ Row writes are methods on the table descriptor, and the generated row methods ca
 - `Update`, `Delete`, `HardDelete` the same way
 - `TableCourse.BatchInsert(ctx, db, rows, options...)`, and `BatchUpdate`, `BatchDelete`,
   `BatchHardDelete`
+- `TableCourse.Upsert(ctx, db, &row, key...)` and `BatchUpsert(ctx, db, rows, key, options...)`
+  insert or update by a key (see "Upserting rows" below)
 - `TableCourse.BatchDeleteByPK(ctx, db, Course_ID.BindList(ids...), options...)` and
   `BatchHardDeleteByPK` delete by key without loading the rows; the list must be the primary
   key's `BindList`
@@ -673,6 +675,36 @@ Whether `Delete` removes the row is decided by the table, not by the call site:
 - to record a delete time of your own, assign the field before calling `Delete`; it is only filled
   in when the caller left it unset
 - `item.Active()` reports whether the loaded row is untombstoned
+
+### Upserting rows
+
+`Upsert` inserts the row, or updates the row that already has the same key, in one statement:
+
+```go
+learner := &database.Learner{Name: "Ada", Email: "ada@example.com"}
+err := database.TableLearner.Upsert(ctx, runtime, learner, database.Learner_Email)
+
+err = database.TableLearner.BatchUpsert(ctx, runtime, learners,
+	[]tsq.BoundColumn[database.Learner]{database.Learner_Email}, tsq.WithBatchSize(500))
+```
+
+- the key is the primary key when omitted, otherwise exactly the columns of one unique index. On a
+  table with an integer `deleted_at`, a unique index that includes `deleted_at` is named by its
+  other columns and matches live rows only; with a nullable `deleted_at` it never matches, so
+  that is an error
+- an update writes every column except the key, the primary key and `created_at`, refreshes
+  `updated_at`, and increments `version` **without checking it**. `deleted_at` is written like any
+  column: upserting a deleted row by primary key with `DeletedAt` zero restores it
+- `Upsert` reads back the primary key (also of an updated row), `version` and `created_at`, so the
+  row can go straight into `Update`. `BatchUpsert` reads nothing back
+- two rows with the same key in one `BatchUpsert` are an error on every dialect (PostgreSQL
+  cannot update one row twice in a statement)
+- **MySQL** matches the proposed row against every unique key, not only the one you named. TSQ
+  refuses an upsert there while the row could hit another unique key: another unique index, or a
+  primary key that is set (a zero auto-increment key cannot collide). Other dialects raise the
+  duplicate-key error for such a row instead
+- it is `INSERT ... ON CONFLICT (...) DO UPDATE` on PostgreSQL and SQLite and
+  `INSERT ... AS new ON DUPLICATE KEY UPDATE` on MySQL (8.0.19+)
 
 ### Bulk `UPDATE` / `DELETE` by condition
 
@@ -732,7 +764,7 @@ Rules:
 - default policy is manual: TSQ logs a reminder but does not automatically reconcile missing tables or indexes
 - `tsq gen` refuses a table, column or index name longer than any built-in dialect allows, and suggests the directive that fixes it (usually `name=` on the index). A runtime checks again at construction, and there is no way to turn that off. Such a name does not reach the server intact, so the objects TSQ creates stop matching the names its queries reference. Name the index explicitly (`//tsq:unique Email name=ux_short`) when a derived index name is what runs over the limit
 - `tsq.WithMaxPageSize(n)` sets the page-size cap for paged queries on that runtime, in either direction. `tsq.DefaultMaxPageSize` (1000) is the default, not a ceiling
-- `tsq.WithTracers(t...)` wraps every traced operation. A tracer receives the context, a `tsq.TraceOp` naming the work (`insert`, `update`, `delete`, `get`, `list`, `iter`, `page`, `count`, `scalar`, `exec`, `tx`) and the continuation, and must call the continuation and return its error. The rendered SQL is not passed: tracing brackets the whole operation, binding and dialect rendering included, so statements come from `WithSQLLogging()` instead
+- `tsq.WithTracers(t...)` wraps every traced operation. A tracer receives the context, a `tsq.TraceOp` naming the work (`insert`, `upsert`, `update`, `delete`, `get`, `list`, `iter`, `page`, `count`, `scalar`, `exec`, `tx`) and the continuation, and must call the continuation and return its error. The rendered SQL is not passed: tracing brackets the whole operation, binding and dialect rendering included, so statements come from `WithSQLLogging()` instead
 - **TSQ only ever adds.** No policy drops a table, so several services can share one database and bring up their own tables independently. Removing a table that is no longer declared is a migration, not a boot-time decision: a runtime knows only its own declarations and cannot tell "this table is obsolete" from "this table belongs to someone else"
 - schema policies log the mode they are in at info level; `SchemaPolicyManual` (the default) is a normal production choice, not a warning
 - `tsq.WithLogger(l)` receives bootstrap DDL and execution-time warnings (for example a skipped batch-insert ID assignment); it defaults to `slog.Default()`

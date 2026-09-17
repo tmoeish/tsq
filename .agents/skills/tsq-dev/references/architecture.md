@@ -193,6 +193,10 @@ JoinStage ─Search► SearchStage ─Where─► FilteredStage
 - `WithSkipDuplicates` 逐行插入，事务内用同一个 savepoint 包住每一行（PostgreSQL 的失败语句
   会毒化整个事务），事务外不用（PostgreSQL 拒绝事务外的 SAVEPOINT）。事务与否由执行器的
   `execScope.tx` 说明。
+- Upsert（`upsert.go`）走 `writeStmt`，方言分叉写在代码里：PG/SQLite `ON CONFLICT (目标列) DO UPDATE
+  SET c = excluded.c`，MySQL `AS tsq_new ON DUPLICATE KEY UPDATE c = tsq_new.c`。单行时 PG/SQLite 用
+  `RETURNING pk`，MySQL 用 `pk = LAST_INSERT_ID(pk)` 让更新也报出主键，随后按主键回读
+  `version` / `created_at`。
 - 按条件写：`UpdateTable(table)` / `DeleteFrom(table)` / `HardDeleteFrom(table)`。
   `Set` 是泛型方法，所以 `UpdateBuilder` 是导出的具体类型；`Where` 之后切到
   `MutationStage` 接口。语句只能引用目标表本身（按 `tableDef` 指针加表名判断，别名不行，`WithDeleted()` 行）。有 `version`

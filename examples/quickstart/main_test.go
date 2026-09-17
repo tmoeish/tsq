@@ -19,6 +19,10 @@ func TestQuickstart(t *testing.T) {
 		t.Fatalf("run quickstart: %v", err)
 	}
 
+	if !summary.TrackCRUD.UpsertedSameRow {
+		t.Fatalf("expected the upsert by name to update the inserted track: %+v", summary.TrackCRUD)
+	}
+
 	if !summary.TrackCRUD.DeletedSuccessfully {
 		t.Fatal("expected CRUD demo to delete the inserted track")
 	}

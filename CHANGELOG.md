@@ -14,6 +14,7 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 ### 新增
 
+- `TableXxx.Upsert(ctx, db, &row, key...)` 和 `BatchUpsert(ctx, db, rows, key, options...)`：按主键或某个唯一索引插入或更新，PostgreSQL / SQLite 渲染成 `ON CONFLICT ... DO UPDATE`，MySQL 渲染成 `ON DUPLICATE KEY UPDATE`。更新时 `version` 自增不校验、`updated_at` 刷新、`created_at` 保留；单行版本回读主键、`version` 和 `created_at`。MySQL 会匹配所有唯一键，因此行可能撞上别的唯一键时直接拒绝。追踪操作名为 `upsert`。
 - `Query.Iter(ctx, db, args...)` 返回 `iter.Seq2[*O, error]`，逐行扫描，大结果集不必整体读进内存；`break` 会结束查询。追踪操作名为 `iter`。
 
 ### 破坏性变更
