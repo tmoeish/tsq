@@ -205,7 +205,8 @@ From table structs, TSQ commonly generates:
 
 - `TableXxx`
 - `Xxx__Cols`
-- typed columns like `Xxx_ID`, `Xxx_Name`
+- typed columns like `Xxx_ID`, `Xxx_Name`: a `tsq.Column[Xxx, T]` for a NOT NULL field, and a
+  `tsq.NullColumn[Xxx, T]` for a field that can hold NULL (see "Nullable columns" in section 6)
 - CRUD helpers: `Insert`, `Update`, `Delete`, `HardDelete`, and `Restore()` / `Active()` on soft-delete tables
 - query variables for the lookups that identify rows: `QueryXxx` (every row, with the declared search columns), `QueryXxxByID` / `QueryXxxByIDIn`, and `QueryXxxByEmail` / `QueryXxxByEmailIn` per unique index. A plain `//tsq:index` is a schema object only; a query on it has an ordering, a limit and a page size the generator cannot guess, so write it with the builder
 - `FetchXxxByID(ctx, db, ids...)` and, per unique index, `FetchXxxByEmail(...)`: the rows for the given keys, in the order given, for any number of keys (they are split to fit the bind parameter limit). A missing key fails the call with an error wrapping `sql.ErrNoRows`, so `errors.Is(err, sql.ErrNoRows)` tells "not there" from a database failure
@@ -533,6 +534,46 @@ users, err := QueryUsersByOrg.List(ctx, runtime, database.User_OrgID.Bind(orgID)
   `%` and `_` are escaped
 - a parameter bound to `nil` is an error; use `IsNull()` / `IsNotNull()`
 
+### Nullable columns
+
+A field that can hold NULL — a pointer, `sql.NullString` and the other `sql.NullX`,
+`sql.Null[T]`, `null.String` and the other nullbio types — is generated as a
+`tsq.NullColumn[Xxx, T]`, where `T` is the value it holds when it is not NULL:
+
+```go
+var User_Nickname = tsq.NewNullColumn[string](tsqUserTable, "nickname", "nickname",
+	func(r *User) *sql.NullString { return &r.Nickname })
+```
+
+- it compares with its value type like any column: `User_Nickname.EQ(tsq.Val("ada"))`,
+  `tsq.Upper(User_Nickname)`, `tsq.Contains(User_Nickname, tsq.Val("a"))`. NULL rows never match a
+  comparison; `IsNull()` / `IsNotNull()` find them
+- `tsq.UpdateTable(t).SetNull(col)` writes NULL and only takes a `NullColumn`. `Set` on a NOT NULL
+  column refuses a value that can be NULL (a nullable column, a scalar subquery); wrap it in
+  `tsq.Coalesce`
+- a hand-written `tsq.NewColumn` over a nullable field type is a definition error that names the
+  `NewNullColumn[T]` to use instead
+
+**Reading a value that can be NULL needs a field that can hold it.** A query knows when a
+selected value can be NULL:
+
+- a `NullColumn`
+- any column of a table on the optional side of an outer join: the joined table of a `LEFT JOIN`,
+  everything before a `RIGHT JOIN`, both sides of a `FULL JOIN`
+- `SUM`, `AVG`, `MAX`, `MIN` without `GROUP BY` (they are NULL over no rows); `COUNT` never is
+- `NullIf`, a `CASE` without `Else`, a scalar subquery, and any function of a value that can be NULL.
+  `tsq.Coalesce(x, y)` is NULL only if both can be
+
+Reading such a value into a field that cannot hold NULL (`MapInto`, or a NOT NULL table column)
+fails with an error naming the column and the reason, **before** the query runs, rather than with a
+scan error on the first NULL row. The fixes are, in order of preference: an inner join where the
+row always exists, `tsq.Coalesce(x, tsq.Val(...))`, or a nullable field with
+`tsq.MapIntoNull(source, func(r *R) *sql.NullString { ... }, "name")`. Building such a query is
+fine, since a subquery or CTE never reads its rows.
+
+`query.Scalar` refuses a value that can be NULL the same way; `query.ScalarNull` returns a
+`sql.Null[T]` instead.
+
 ### Custom expressions and predicates
 
 Use the escape hatches deliberately, not as a replacement for typed columns:
@@ -567,8 +608,8 @@ tsq.Value[int] does not implement tsq.RHS[int64] (wrong type for method rhsValue
 String constants, typed constants (`tsq.Val(StatusActive)`) and typed variables need no
 conversion.
 
-- a `NULL` comparison is refused (use `IsNull()` / `IsNotNull()`); in `Set`, a `Val` of a nil
-  pointer or of a null `Valuer` writes `NULL`
+- a `NULL` comparison is refused (use `IsNull()` / `IsNotNull()`); `NULL` is written with
+  `SetNull`
 - `tsq.Val` takes a Go value; passing a column or condition to it is an error, pass the
   expression itself
 
@@ -639,8 +680,7 @@ page, err := QueryPost.PageKeyset(ctx, runtime, k, tsq.Keyword(req.Keyword))
 - the query must not set its own `OrderBy`, `Limit` or `Offset`, and must not group, aggregate,
   use `DISTINCT` or set operations
 - `Next` is an opaque string carrying the last row's order values; it is refused for a different
-  `OrderBy`. An order column that is `NULL` in that row is an error, so order by columns that are
-  never `NULL`
+  `OrderBy`. Order columns must never be NULL (a `NullColumn` or an outer-joined column is refused)
 - there is no `Total`: not counting is the point. Use `Count` if the endpoint needs one
 - mixed directions work; the condition is spelled `a < ? OR (a = ? AND b > ?)`
 - over HTTP, `PageRequest` carries `after`, and `req.Keyset(sortable...)` resolves it like
@@ -675,7 +715,8 @@ Reads are methods on the built `*Query[O]`; `args` are the `tsq.Arg` values made
 - `query.Count(ctx, db, args...)` → `int64, error`
 - `query.Page(ctx, db, paging, args...)` → `*PageResponse[O], error`
 - `query.PageKeyset(ctx, db, keyset, args...)` → `*KeysetPage[O], error` (section 7)
-- `query.Scalar(ctx, db, selectedColumn, args...)` → the column's Go type; the query must select exactly that column
+- `query.Scalar(ctx, db, selectedColumn, args...)` → the column's Go type; the query must select exactly that column, and the value must never be NULL
+- `query.ScalarNull(ctx, db, selectedColumn, args...)` → `sql.Null[T]`, for a value that can be NULL such as `MAX` over no rows
 - `query.SQL(dialect, args...)` → the SQL and arguments the query would run with, for logging and tests
 
 `Get`, `Find`, `Exists` and `Scalar` read at most one row: they add `LIMIT 1` unless the builder
@@ -784,7 +825,7 @@ affected, err = CancelEnrollments.Exec(ctx, runtime, database.Enrollment_UID.Bin
 Shape:
 
 - `tsq.UpdateTable(table)` / `tsq.DeleteFrom(table)` / `tsq.HardDeleteFrom(table)` take the table descriptor
-- `Set(col, rhs)` takes a column, `Param`, `tsq.Val` or typed scalar subquery of the column's type; `tsq.Val` of a nil pointer sets `NULL`. Types are matched at compile time
+- `Set(col, rhs)` takes a column, `Param`, `tsq.Val` or typed scalar subquery of the column's type; `SetNull(col)` writes NULL into a `NullColumn`. Types are matched at compile time, and a NOT NULL column refuses a value that can be NULL
 - `Where(...)` is required and appears exactly once; the type system enforces both. Conditions are ANDed; a full-table statement says so with `tsq.And()`
 - `Build()` returns an immutable `*tsq.Mutation[R]`; `Exec(ctx, db, args...)` returns the affected row count; `mutation.SQL(dialect, args...)` shows what would run
 
@@ -877,7 +918,9 @@ a CTE. A derived expression cannot be rebound; rebind the column first, then app
 ### `MapInto(...)`
 
 `tsq.MapInto(source, fieldPointer, jsonName)` projects any expression into a field of a result
-type. Generated result code is made of these.
+type, and `tsq.MapIntoNull(source, fieldPointer, jsonName)` into a field that can hold NULL (a
+nullable form of the source's value type). Generated result code is made of these, chosen by the
+field type.
 
 ### `//tsq:result`
 
@@ -906,9 +949,9 @@ does not fit does not compile:
 | --- | --- | --- |
 | `tsq.Count`, `tsq.CountDistinct` | any column | `int64` |
 | `tsq.Max`, `tsq.Min` | any column | the column's type |
-| `tsq.Sum`, `tsq.Ceil`, `tsq.Floor`, `tsq.Abs`, `tsq.Round(col, digits)` | `tsq.Number`: integer and float kinds, `sql.NullInt*`, `sql.NullFloat64` | the column's type |
+| `tsq.Sum`, `tsq.Ceil`, `tsq.Floor`, `tsq.Abs`, `tsq.Round(col, digits)` | `tsq.Number`: integer and float kinds (a `NullColumn[O, int64]` is numeric too) | the column's type |
 | `tsq.Avg` | `tsq.Number` | `float64` |
-| `tsq.Upper`, `tsq.Lower`, `tsq.Trim`, `tsq.Substring(col, start, length)` | `tsq.Text`: string kinds and `sql.NullString` | the column's type |
+| `tsq.Upper`, `tsq.Lower`, `tsq.Trim`, `tsq.Substring(col, start, length)` | `tsq.Text`: string kinds, nullable ones included | the column's type |
 | `tsq.Length` | `tsq.Text` | `int64` |
 | `tsq.Date` | any column | `string` (`'YYYY-MM-DD'`) |
 | `tsq.Year`, `tsq.Month`, `tsq.Day` | any column | `int64` |

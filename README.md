@@ -227,6 +227,7 @@ TSQ 当前内置的 `Dialect` 实现只有 **SQLite / MySQL / PostgreSQL**。下
 - **`version` 字段是自动乐观锁**：`Update` / `Delete` 冲突时返回 `*tsq.OptimisticLockError`，这是业务错误，必须处理。`TxOptions{RetryIf: tsq.IsOptimisticLockError}` 可以整段重试。
 - **声明了 `deleted_at` 的表，`Delete` 是软删除**，而且已删行对**所有**引用这张表的查询和按条件写都不可见（JOIN 里也是）；要看已删行用 `TableXxx.WithDeleted()`，物理删除写 `HardDelete`。没有 `deleted_at` 的表两者同义。
 - **列函数是包级泛型函数**：`tsq.Upper(col)`、`tsq.Sum(col)`、`tsq.Contains(col, tsq.Val("x"))`，套在类型不合的列上编译不过。
+- **可空列是 `tsq.NullColumn[X, T]`**：按值类型比较，`SetNull` 写 NULL；可能读到 NULL 的值（可空列、外连接的表、没有 GROUP BY 的聚合）只能读进可空字段，否则查询在执行前就报错，而不是等到数据里真有 NULL 才炸。
 - **`Page` 吃类型化的 `tsq.Paging`**：HTTP 进来的 `tsq.PageRequest` 先 `Validate`，再用 `req.Paging(允许排序的列...)` 转换。
 - **`UpdateTable` / `DeleteFrom` 按条件写**：不校验 `version` 但会自增它。
 - **`Batch*` 不自动开事务**：要全有或全无，放进 `runtime.WithTx(...)`。

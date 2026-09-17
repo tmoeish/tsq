@@ -1830,6 +1830,8 @@ type User struct {
 	ID       int64          `+"`db:\"id\"`"+`
 	Email    string         `+"`db:\"email,size:128\"`"+`
 	Nickname sql.NullString `+"`db:\"nickname,size:64\"`"+`
+	Bio      *string        `+"`db:\"bio,size:256\"`"+`
+	SeenAt   sql.NullTime   `+"`db:\"seen_at\"`"+`
 }
 
 //tsq:result
@@ -1855,6 +1857,35 @@ type UserNickname struct {
 	output, err := exec.Command("go", "build", "./...").CombinedOutput()
 	if err != nil {
 		t.Fatalf("generated code does not compile: %v\n%s", err, output)
+	}
+
+	// Nullable fields become NullColumns of their value type, and a nullable
+	// result field is mapped with MapIntoNull; time is imported for the value type
+	// even though no field is a time.Time.
+	table, _ := os.ReadFile("user.tsq.go")
+
+	results, _ := filepath.Glob("*.result.tsq.go")
+	if len(results) != 1 {
+		t.Fatalf("result files = %v", results)
+	}
+
+	result, _ := os.ReadFile(results[0])
+
+	for file, want := range map[string]string{
+		"table nickname": "tsq.NewNullColumn[string](tsqUserTable, \"nickname\"",
+		"table bio":      "tsq.NewNullColumn[string](tsqUserTable, \"bio\"",
+		"table seen_at":  "tsq.NewNullColumn[tsqtime.Time](tsqUserTable, \"seen_at\"",
+		"table id":       "tsq.NewColumn(tsqUserTable, \"id\"",
+		"result":         "tsq.MapIntoNull(User_Nickname",
+	} {
+		source := table
+		if file == "result" {
+			source = result
+		}
+
+		if !strings.Contains(string(source), want) {
+			t.Errorf("%s: generated code lacks %q", file, want)
+		}
 	}
 }
 

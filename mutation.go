@@ -91,6 +91,8 @@ func (b *UpdateBuilder[R]) assign(col SQLColumn, value exprInfo) *UpdateBuilder[
 		n.m.fail(fmt.Errorf("assignment target %s must be a column of %s", core.name, b.m.table.Name()))
 	case core.name == b.m.table.def.managed.Version:
 		n.m.fail(fmt.Errorf("column %s is the version column; it is incremented automatically", core.name))
+	case !core.nullable && value.null.always:
+		n.m.fail(fmt.Errorf("column %s is NOT NULL, but the value assigned to it can be NULL", core.name))
 	}
 
 	for _, a := range n.m.assigns {
@@ -104,14 +106,16 @@ func (b *UpdateBuilder[R]) assign(col SQLColumn, value exprInfo) *UpdateBuilder[
 	return n
 }
 
-// Set assigns rhs, a column, Param, Val or typed subquery, to col. A Val of a nil
-// pointer, or of a Valuer that returns nil, assigns NULL.
+// Set assigns rhs, a column, Param, Val or typed subquery, to col. A NOT NULL
+// column refuses a value that can be NULL, such as a nullable column or a
+// subquery; wrap it in Coalesce.
 func (b *UpdateBuilder[R]) Set[T any](col TypedColumn[R, T], rhs RHS[T]) *UpdateBuilder[R] {
-	if v, ok := rhs.(Value[T]); ok {
-		return b.assign(col, v.assignment())
-	}
-
 	return b.assign(col, rhsInfo(rhs))
+}
+
+// SetNull assigns NULL to col, which must be a NullColumn.
+func (b *UpdateBuilder[R]) SetNull[T any](col NullColumn[R, T]) *UpdateBuilder[R] {
+	return b.assign(col, exprInfo{sql: sqlText("NULL"), null: nullness{always: true}})
 }
 
 // Where limits the update. A statement has exactly one WHERE; to update every row,

@@ -35,7 +35,7 @@ var {{$handle}} = tsq.NewTable[{{$type}}]("{{.Table}}")
 // Columns of {{$type}}.
 var (
 {{- range $f := .Fields }}
-	{{$type}}_{{$f.Name}} = tsq.NewColumn({{$handle}}, "{{$f.Column}}", "{{$f.JSONTag}}", func(r *{{$type}}) *{{$f | FieldType}} { return &r.{{$f.Name}} })
+	{{$type}}_{{$f.Name}} = {{ if $f.NullValue }}tsq.NewNullColumn[{{$f.NullValue}}]{{ else }}tsq.NewColumn{{ end }}({{$handle}}, "{{$f.Column}}", "{{$f.JSONTag}}", func(r *{{$type}}) *{{$f | FieldType}} { return &r.{{$f.Name}} })
 {{- end }}
 )
 

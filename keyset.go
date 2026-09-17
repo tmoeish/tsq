@@ -18,8 +18,8 @@ type Keyset struct {
 	// Size is the page size; 0 means 20, and the runtime's WithMaxPageSize caps it.
 	Size int
 	// OrderBy orders the rows and defines the position. It is required, every column
-	// must be selected by the query, and the last must be a primary key, which
-	// makes the position unique.
+	// must be selected by the query and never NULL, and the last must be a primary
+	// key, which makes the position unique.
 	OrderBy []OrderBy
 	// After is KeysetPage.Next of the previous page; empty starts at the first row.
 	After string
@@ -139,6 +139,10 @@ func (q *Query[O]) keysetColumns(orderBy []OrderBy) ([]keysetColumn[O], error) {
 
 		if selected == nil {
 			return nil, fmt.Errorf("Keyset.OrderBy column %s must be selected by the query", ob.column.Name())
+		}
+
+		if null, why := s.canBeNull(columnInfo(ob.column).null); null {
+			return nil, fmt.Errorf("Keyset.OrderBy column %s can be NULL (%s); a position needs values", ob.column.Name(), why)
 		}
 
 		keys = append(keys, keysetColumn[O]{term: orderTerm{expr: columnInfo(ob.column).sql, direction: ob.direction}, selected: selected})

@@ -46,9 +46,6 @@ type engagedCourseRow struct {
 	CourseID int64
 }
 
-// TSQOwner marks engagedCourseRow as an internal projection owner.
-func (engagedCourseRow) TSQOwner() {}
-
 var pageLearningJourneyQuery *tsq.Query[LearningJourney]
 
 func init() {
@@ -74,10 +71,13 @@ func init() {
 	pageLearningJourneyQuery, err = tsq.
 		Select(LearningJourney__Cols...).
 		From(TableEnrollment).
-		LeftJoin(TableLearner, Enrollment_LearnerID.EQ(Learner_ID)).
-		LeftJoin(TableCourse, Enrollment_CourseID.EQ(Course_ID)).
-		LeftJoin(TableTrack, Course_TrackID.EQ(Track_ID)).
-		LeftJoin(TableInstructor, Course_InstructorID.EQ(Instructor_ID)).
+		// Every enrollment has a learner and a course, and every course a track and
+		// an instructor, so these are inner joins; a LEFT JOIN would make the
+		// projected fields nullable.
+		Join(TableLearner, Enrollment_LearnerID.EQ(Learner_ID)).
+		Join(TableCourse, Enrollment_CourseID.EQ(Course_ID)).
+		Join(TableTrack, Course_TrackID.EQ(Track_ID)).
+		Join(TableInstructor, Course_InstructorID.EQ(Instructor_ID)).
 		Where(
 			Learner_ID.In(Learner_ID.ListParam()),
 			Track_Name.In(Track_Name.ListParam()),

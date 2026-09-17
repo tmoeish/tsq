@@ -167,6 +167,18 @@ JoinStage ─Search► SearchStage ─Where─► FilteredStage
 - `Iter` 和 `List` 共用 `each`（逐行扫描、回调返回 false 即停），`Iter` 的追踪区间覆盖整个循环。
 - `SelectDistinct` 是 `querySpec.Distinct`，算作分组查询：`Count` 包一层子查询数去重后的行。
 
+### 可空性（`expr.go` 的 `nullness`、`query_render.go` 的 `canBeNull` / `checkScanTargets`）
+
+类型上分两种表列：`Column[O, T]`（NOT NULL）和 `NullColumn[O, T]`（`T` 是非 NULL 时的值类型，扫描目标是
+它的可空形态）。表达式另带运行期的 `nullness`：`always`（可空列、`NULLIF`、无 ELSE 的 CASE、标量子查询）、
+`emptyGroup`（SUM/AVG/MAX/MIN，没有 GROUP BY 时为 NULL）、`tables`（这些表在外连接可选侧时为 NULL）。
+`merge` 按"或"合并；`COUNT`、`COALESCE`、`NULLIF`、`CASE` 自己设置；CASE 的条件不参与。
+
+可选表由 JOIN 决定：LEFT 的右表、RIGHT 之前的所有表、FULL 两边。`columnCore.nullable` 表示扫描目标能存
+NULL（`NullColumn`、`MapIntoNull`）。`Build` 时算出 `Query.scanErr`，**读行的路径**（`each` / `get`）才
+返回它——子查询和 CTE 不读行，不能在 `Build` 里拒绝。`Scalar` 自己检查所选列，`ScalarNull` 不检查。
+CTE 的输出列可空时，`WithTable(cte)` 重绑的列标成 `always`。
+
 ### 软删除作用域（`query_render.go` 的 `writeFromWhere`、`table.go` 的 `liveRows` / `liveSource`）
 
 声明了 `deleted_at` 的 `TableOf` 默认 `softDeleted()`；`WithDeleted()` 返回共享同一个

@@ -63,7 +63,11 @@ genmodel.StructInfo / TableMeta        internal/genmodel/model.go
   `QueryXxx`（带搜索列）、主键和**每个唯一索引**各一对 `QueryXxxBy<字段>` / `...In`（参数用列自带的
   `Param()` / `ListParam()`）、`FetchXxxBy...`，以及转发到表描述符的行方法。普通索引和唯一索引的
   前缀**不生成查询**（理由见 `memory.md`）；模板里没有软删除过滤，作用域在库里。三步声明的理由见 `architecture.md` § 表描述符。
-- `<result>.result.tsq.go`：`Xxx__Cols` 与 `tsq.MapInto` 列。
+- 可空字段（指针、`sql.NullX`、nullbio，即"可扫描、带 `Valid bool` 和唯一数据字段"的结构体）生成
+  `tsq.NewNullColumn[值类型]`；值类型由 `generation_plan.go` 的 `resolveNullValues` 用 `go/types` 算出，
+  按生成文件的导入别名写进 `FieldInfo.NullValue`（`time.Time` → `tsqtime.Time`，因此
+  `NeedsGeneratedTimeImport` 也看 `NullValue`）。库里的 `nullableValueType` 是同一条规则的反射版，两边要一起改。
+- `<result>.result.tsq.go`：`Xxx__Cols` 与 `tsq.MapInto` 列；可空字段用 `tsq.MapIntoNull`。
 - `runtime.tsq.go`：`TSQTables() []tsq.Table` 和两个取行排序的小工具。
 - 物理 schema（`genmodel.SchemaColumn`）需要 `go/types` 的真实类型，所以不由解析器填，而是
   `generation_plan.go` 在渲染表之前用 `ddlTypeResolver` 补进 `StructInfo.Schema`。

@@ -115,6 +115,15 @@
 - **计数和列表必须在同一个快照里**（`snapshotRead`）。给 `Page` 加第三条语句也要放进去；不要为了
   省一次 BEGIN 把它拆开——`TestIntegrationPageReadsOneSnapshot` 会在两条语句之间插入一行。
 
+## 改了可空性推导或加了新的表达式构造
+
+- 新的函数 / 表达式要想清楚它的 `nullness`：默认 `merge` 是"任一操作数可空则可空"，这对大多数 SQL 函数
+  成立；**不成立的要自己设**（`COUNT` 永不为 NULL、`COALESCE` 取与、聚合在无 GROUP BY 时为 NULL）。
+  漏设的后果是读行前的检查放过了一个会扫描失败的查询，或者冤枉一个正确的查询。
+- 新的 JOIN 种类要在 `optionalTables` 里表态哪边会被填 NULL。
+- 检查放在读行路径而不是 `Build`：`Build` 拒绝会把合法的子查询 / CTE 一起拒掉。
+- `nullable_test.go` 覆盖拒绝与放行两张表；`TestIntegrationNullableColumns` 真跑三方言。
+
 ## 改了 `ListIn` 或列表参数
 
 - 分块只在"结果是各块并集"时成立：参数只用一次、是 `Where` 顶层的 `col.In(param)`、查询逐行过滤。

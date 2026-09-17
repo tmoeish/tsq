@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"go/types"
 	"io"
 	"os"
 	"path/filepath"
@@ -86,21 +87,25 @@ func buildGenerationModels(
 			Filename: filepath.Join(dir, generatedFilename(s)),
 		}
 
+		if resolver == nil {
+			r, err := newDDLTypeResolver(s.TypeInfo.Package.Path, dir)
+			if err != nil {
+				return nil, err
+			}
+
+			resolver = r
+		}
+
+		if err := resolveNullValues(s, resolver); err != nil {
+			return nil, fmt.Errorf("resolve nullable fields of %s: %w", s.TypeInfo.TypeName, err)
+		}
+
 		if s.IsResult {
 			normalizeResultColumns(s)
 
 			model.Template = resultTpl
 			model.ErrorLabel = "Result template rendering failed"
 		} else {
-			if resolver == nil {
-				r, err := newDDLTypeResolver(s.TypeInfo.Package.Path, dir)
-				if err != nil {
-					return nil, err
-				}
-
-				resolver = r
-			}
-
 			schema, err := buildSchemaColumns(s, resolver)
 			if err != nil {
 				return nil, fmt.Errorf("build schema columns for %s: %w", s.TypeInfo.TypeName, err)
@@ -166,6 +171,93 @@ func buildPackageRuntimeModel(
 		Filename:   filepath.Join(dir, "runtime.tsq.go"),
 		ErrorLabel: "runtime template rendering failed",
 	}, nil
+}
+
+// resolveNullValues fills FieldInfo.NullValue for the fields that can hold NULL.
+func resolveNullValues(s *genmodel.StructInfo, resolver *ddlTypeResolver) error {
+	named, pkg, err := resolver.lookupNamedStruct(s.TypeInfo)
+	if err != nil {
+		return err
+	}
+
+	qualifier := func(p *types.Package) string {
+		switch p.Path() {
+		case pkg.Path():
+			return ""
+		case importPathTime:
+			return generatedTimeAlias
+		case importPathDatabaseSQL:
+			return generatedSQLAlias
+		default:
+			return p.Name()
+		}
+	}
+
+	for i, field := range s.Fields {
+		obj, _, err := lookupDDLField(named, pkg, field.Name)
+		if err != nil {
+			return err
+		}
+
+		if value, ok := nullableValueType(obj.Type()); ok {
+			field.NullValue = types.TypeString(value, qualifier)
+			s.Fields[i] = field
+
+			if mapped, ok := s.FieldsByName[field.Name]; ok {
+				mapped.NullValue = field.NullValue
+				s.FieldsByName[field.Name] = mapped
+			}
+		}
+	}
+
+	return nil
+}
+
+// nullableValueType mirrors the library's rule for a nullable form: the element of
+// a pointer, or the single data field of a scannable struct with a Valid bool.
+func nullableValueType(t types.Type) (types.Type, bool) {
+	t = types.Unalias(t)
+
+	if ptr, ok := t.(*types.Pointer); ok {
+		return ptr.Elem(), true
+	}
+
+	st, ok := t.Underlying().(*types.Struct)
+	if !ok {
+		return nil, false
+	}
+
+	if scan, _, _ := types.LookupFieldOrMethod(types.NewPointer(t), true, nil, "Scan"); scan == nil {
+		return nil, false
+	}
+
+	var (
+		valid bool
+		value types.Type
+		n     int
+	)
+
+	var walk func(st *types.Struct)
+	walk = func(st *types.Struct) {
+		for f := range st.Fields() {
+			switch {
+			case f.Embedded():
+				if inner, ok := f.Type().Underlying().(*types.Struct); ok {
+					walk(inner)
+				}
+			case !f.Exported():
+			case f.Name() == "Valid" && types.Identical(f.Type(), types.Typ[types.Bool]):
+				valid = true
+			default:
+				value = f.Type()
+				n++
+			}
+		}
+	}
+
+	walk(st)
+
+	return value, valid && n == 1
 }
 
 func buildSchemaColumns(

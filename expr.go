@@ -13,6 +13,8 @@ type exprInfo struct {
 	// the query uses for them (the alias when there is one).
 	tables    map[string]Table
 	aggregate bool
+	// null says when the value can be NULL.
+	null nullness
 	// inList is the list parameter of a col IN (list) condition, for ListIn. It is
 	// deliberately not merged: under AND, OR or NOT the condition is no longer one
 	// a query can be split on.
@@ -39,8 +41,41 @@ func (e exprInfo) merge(other exprInfo) exprInfo {
 	}
 
 	e.aggregate = e.aggregate || other.aggregate
+	e.null = e.null.or(other.null)
 
 	return e
+}
+
+// nullness says when an expression can be NULL. Most SQL operations are NULL when
+// an operand is, so combining expressions ORs their nullness; the exceptions
+// (COUNT, COALESCE, NULLIF, CASE) set it themselves.
+type nullness struct {
+	// always: NULL whatever the query, as a nullable column or NULLIF can be.
+	always bool
+	// emptyGroup: an aggregate, NULL over no rows, which only a GROUP BY rules out.
+	emptyGroup bool
+	// tables: NULL when one of these tables is on the optional side of an outer join.
+	tables map[string]struct{}
+}
+
+func (n nullness) never() bool { return !n.always && !n.emptyGroup && len(n.tables) == 0 }
+
+func (n nullness) or(other nullness) nullness {
+	n.always = n.always || other.always
+	n.emptyGroup = n.emptyGroup || other.emptyGroup
+
+	if len(other.tables) > 0 {
+		tables := make(map[string]struct{}, len(n.tables)+len(other.tables))
+		maps.Copy(tables, n.tables)
+		maps.Copy(tables, other.tables)
+		n.tables = tables
+	}
+
+	return n
+}
+
+func nullableIn(table string) nullness {
+	return nullness{tables: map[string]struct{}{table: {}}}
 }
 
 // allTables returns the directly referenced tables plus the outer tables of any

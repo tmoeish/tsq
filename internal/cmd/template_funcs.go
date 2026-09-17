@@ -228,8 +228,10 @@ func needsGeneratedTimeImport(data *genmodel.StructInfo) bool {
 
 // fieldsUse reports whether a field type of data comes from importPath.
 func fieldsUse(data *genmodel.StructInfo, importPath string) bool {
+	alias := map[string]string{importPathTime: generatedTimeAlias, importPathDatabaseSQL: generatedSQLAlias}[importPath]
+
 	for _, f := range data.Fields {
-		if f.Type.Package.Path == importPath {
+		if f.Type.Package.Path == importPath || (alias != "" && strings.Contains(f.NullValue, alias+".")) {
 			return true
 		}
 	}
