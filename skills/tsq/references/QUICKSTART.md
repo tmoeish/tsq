@@ -122,7 +122,7 @@ if err != nil {
 
 This is the main TSQ shape:
 
-- use value helpers such as `EQVal(...)` / `tsq.Contains(col, ...)` for values fixed in the code
+- use `EQ(tsq.Val(...))` / `tsq.Contains(col, ...)` for values fixed in the code; a numeric constant takes the column's type, `tsq.Val(int64(1))`
 - use `EQ(col.Param())` and pass `col.Bind(v)` when the value comes at execution time
 - use `EQ(otherCol)` when the right-hand side is another column or a typed subquery
 

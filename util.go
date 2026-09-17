@@ -90,7 +90,7 @@ func validatePredicateValue(arg any) error {
 			return nil
 		}
 
-		return fmt.Errorf("%v is a collection; use InVal or a ListParam", v.Type())
+		return fmt.Errorf("%v is a collection; use In with Vals or a ListParam", v.Type())
 	case reflect.Map:
 		return fmt.Errorf("%v is not a comparable SQL value", v.Type())
 	case reflect.Struct:

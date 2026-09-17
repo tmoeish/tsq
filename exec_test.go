@@ -267,7 +267,7 @@ func TestReadsAgainstSQLite(t *testing.T) {
 	}
 
 	big, err := BuildSubquery(
-		Select(Order_ID).From(Orders).Correlate(Users).Where(Order_UserID.EQ(User_ID), Order_Amount.GTVal(100)),
+		Select(Order_ID).From(Orders).Correlate(Users).Where(Order_UserID.EQ(User_ID), Order_Amount.GT(Val(int64(100)))),
 		Order_ID,
 	)
 	if err != nil {
@@ -337,7 +337,7 @@ func TestPageSearchesSortsAndCounts(t *testing.T) {
 		t.Fatal("expected Page to refuse a second ordering")
 	}
 
-	empty, err := Select(User_ID).From(Users).Where(User_ID.EQVal(-1)).MustBuild().Page(ctx, rt, Paging{})
+	empty, err := Select(User_ID).From(Users).Where(User_ID.EQ(Val(int64(-1)))).MustBuild().Page(ctx, rt, Paging{})
 	if err != nil || empty.Data == nil || !empty.IsEmpty() || empty.Size != 20 || empty.Page != 1 {
 		t.Fatalf("empty page = %+v, %v", empty, err)
 	}
@@ -348,8 +348,8 @@ func TestPageOrdersCompoundQueriesByOutputName(t *testing.T) {
 	rt := newSQLite(t)
 	seedUsers(t, rt, "b", "a", "c")
 
-	q := Select(User_Name).From(Users).Where(User_Name.LTVal("c")).
-		Union(Select(User_Name).From(Users).Where(User_Name.EQVal("c"))).
+	q := Select(User_Name).From(Users).Where(User_Name.LT(Val("c"))).
+		Union(Select(User_Name).From(Users).Where(User_Name.EQ(Val("c")))).
 		MustBuild()
 
 	page, err := q.Page(ctx, rt, Paging{Size: 2, OrderBy: []OrderBy{User_Name.Desc()}})
@@ -428,18 +428,18 @@ func TestSoftDeleteScope(t *testing.T) {
 	}
 
 	// UpdateTable leaves deleted rows alone unless told otherwise.
-	rename := UpdateTable(Users).SetVal(User_Name, "renamed").Where(And())
+	rename := UpdateTable(Users).Set(User_Name, Val("renamed")).Where(And())
 	if n, err := rename.Exec(ctx, rt); err != nil || n != 1 {
 		t.Fatalf("UpdateTable = %d, %v; want 1", n, err)
 	}
 
-	all := UpdateTable(Users.WithDeleted()).SetVal(User_Name, "renamed").Where(And())
+	all := UpdateTable(Users.WithDeleted()).Set(User_Name, Val("renamed")).Where(And())
 	if n, err := all.Exec(ctx, rt); err != nil || n != 2 {
 		t.Fatalf("UpdateTable WithDeleted = %d, %v; want 2", n, err)
 	}
 
 	// A second soft delete does not restamp the row.
-	before, err := Select(User__Cols...).From(Users.WithDeleted()).Where(User_ID.EQVal(rows[1].ID)).Get(ctx, rt)
+	before, err := Select(User__Cols...).From(Users.WithDeleted()).Where(User_ID.EQ(Val(rows[1].ID))).Get(ctx, rt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -448,7 +448,7 @@ func TestSoftDeleteScope(t *testing.T) {
 		t.Fatalf("DeleteFrom = %d, %v; want only the live row", n, err)
 	}
 
-	after, err := Select(User__Cols...).From(Users.WithDeleted()).Where(User_ID.EQVal(rows[1].ID)).Get(ctx, rt)
+	after, err := Select(User__Cols...).From(Users.WithDeleted()).Where(User_ID.EQ(Val(rows[1].ID))).Get(ctx, rt)
 	if err != nil || after.DeletedAt != before.DeletedAt {
 		t.Fatalf("tombstone changed from %d to %d, %v", before.DeletedAt, after.DeletedAt, err)
 	}
@@ -504,12 +504,12 @@ func TestConditionalWrites(t *testing.T) {
 	}
 
 	bad := map[string]MutationStage[user]{
-		"foreign table":  UpdateTable(Users).SetVal(User_Name, "x").Where(Order_Amount.GTVal(1)),
-		"version target": UpdateTable(Users).SetVal(User_Version, 1).Where(And()),
-		"no where":       UpdateTable(Users).SetVal(User_Name, "x").Where(),
+		"foreign table":  UpdateTable(Users).Set(User_Name, Val("x")).Where(Order_Amount.GT(Val(int64(1)))),
+		"version target": UpdateTable(Users).Set(User_Version, Val(int64(1))).Where(And()),
+		"no where":       UpdateTable(Users).Set(User_Name, Val("x")).Where(),
 		"no assignment":  UpdateTable(Users).Where(And()),
-		"aliased target": UpdateTable(Users).SetVal(User_Name.As("u"), "x").Where(And()),
-		"assigned twice": UpdateTable(Users).SetVal(User_Name, "x").SetVal(User_Name, "y").Where(And()),
+		"aliased target": UpdateTable(Users).Set(User_Name.As("u"), Val("x")).Where(And()),
+		"assigned twice": UpdateTable(Users).Set(User_Name, Val("x")).Set(User_Name, Val("y")).Where(And()),
 	}
 
 	for name, stage := range bad {

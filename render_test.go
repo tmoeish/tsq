@@ -12,7 +12,7 @@ import (
 func TestRenderQuotesAndNumbersPerDialect(t *testing.T) {
 	name := NewParam[string]("name")
 	q := Select(User_ID, User_Name).From(Users).
-		Where(User_Name.EQ(name), User_Version.GTVal(2)).
+		Where(User_Name.EQ(name), User_Version.GT(Val(int64(2)))).
 		MustBuild()
 
 	tests := []struct {
@@ -90,7 +90,7 @@ func TestDialectCapabilitiesAreCheckedWhenRendered(t *testing.T) {
 	}
 
 	// A literal that merely contains the words is not a row lock.
-	literal := Select(User_ID).From(Users).Where(User_Name.EQVal(" FOR UPDATE ")).MustBuild()
+	literal := Select(User_ID).From(Users).Where(User_Name.EQ(Val(" FOR UPDATE "))).MustBuild()
 	if _, _, err := literal.SQL(onSQLite); err != nil {
 		t.Fatalf("a string literal was mistaken for a capability: %v", err)
 	}
@@ -132,13 +132,13 @@ func TestIdentifiersAreValidatedForTheDialect(t *testing.T) {
 }
 
 func TestSetOperationsCTEAndSubqueries(t *testing.T) {
-	big := Select(Order_UserID).From(Orders).Where(Order_Amount.GTVal(100))
+	big := Select(Order_UserID).From(Orders).Where(Order_Amount.GT(Val(int64(100))))
 	cte := CTE("big_orders", big)
 	bigUser := Order_UserID.WithTable(cte)
 
 	q := Select(User_ID).From(Users.WithDeleted()).
 		Join(cte, bigUser.EQ(User_ID)).
-		Union(Select(User_ID).From(Users.WithDeleted()).Where(User_Name.EQVal("root"))).
+		Union(Select(User_ID).From(Users.WithDeleted()).Where(User_Name.EQ(Val("root")))).
 		MustBuild()
 
 	sql, args := sqlOf(t, q, onSQLite)
@@ -154,7 +154,7 @@ func TestSetOperationsCTEAndSubqueries(t *testing.T) {
 		t.Fatalf("args = %#v", args)
 	}
 
-	intersect := Select(User_ID).From(Users).Intersect(Select(User_ID).From(Users).Where(User_Version.GTVal(1))).MustBuild()
+	intersect := Select(User_ID).From(Users).Intersect(Select(User_ID).From(Users).Where(User_Version.GT(Val(int64(1))))).MustBuild()
 	if _, _, err := intersect.SQL(onSQLite); err != nil {
 		t.Fatalf("sqlite supports INTERSECT: %v", err)
 	}
@@ -196,9 +196,9 @@ func TestCorrelatedSubqueryCarriesItsParameters(t *testing.T) {
 
 func TestCaseRendersBranchesInOrder(t *testing.T) {
 	label := Case[string]().
-		WhenVal(User_Version.GTVal(10), "hot").
+		When(User_Version.GT(Val(int64(10))), Val("hot")).
 		When(User_Name.IsNull(), User_Email).
-		ElseVal("cold").
+		Else(Val("cold")).
 		End()
 
 	q := Select(MapInto(label, func(r *namedRow) *string { return &r.Name }, "label")).From(Users.WithDeleted()).MustBuild()

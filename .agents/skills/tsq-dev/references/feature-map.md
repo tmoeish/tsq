@@ -11,7 +11,8 @@
 | `Query`：渲染缓存、绑参、`List` / `Get` / `Find` / `Exists` / `Count` / `Scalar` / `Page`、`SQL()`、子查询 | `query.go` |
 | 中间表示：片段、`renderer`、`statement`、`assemble`、按方言分叉的片段 | `sqlexpr.go`（`render_test.go` 按三方言断言输出） |
 | 参数：`Param` / `ListParam` / `Arg`、绑定校验、空列表渲染、LIKE 转义 | `param.go`（`build_test.go` 守绑定规则） |
-| 列接口与实现、谓词、`*Val` 方法、`Expr` / `Pred`、`MapInto` | `column.go` |
+| 列接口与实现、谓词、`Expr` / `Pred`、`MapInto` | `column.go` |
+| 固定值 `Val` / `Vals`（比较里拒绝 NULL、`Set` 里允许） | `values.go`（`values_test.go`） |
 | 包级类型约束函数（`Text` / `Number`、聚合、字符串、数值、日期、`Coalesce` / `NullIf`、`StartsWith` 等模式函数、`Searchable`） | `functions.go`（`compilefail_test.go` 守约束；`integration_test.go` 的 `TestIntegrationColumnFunctionsArePortable` 三方言真跑） |
 | `Condition`、`And` / `Or` / `Not`、`Exists` / `NotExists`、`exprInfo` | `expr.go` |
 | `CASE` | `case.go` |

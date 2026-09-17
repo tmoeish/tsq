@@ -7,14 +7,10 @@ import (
 
 // CaseStage builds a searched CASE expression holding a T.
 type CaseStage[T any] interface {
-	// When adds WHEN cond THEN result: a column, Param or subquery.
+	// When adds WHEN cond THEN result: a column, Param, Val or subquery.
 	When(cond Condition, result RHS[T]) CaseStage[T]
-	// WhenVal adds WHEN cond THEN value, with value bound.
-	WhenVal(cond Condition, value T) CaseStage[T]
 	// Else sets the ELSE result.
 	Else(result RHS[T]) CaseStage[T]
-	// ElseVal sets the ELSE result to a bound value.
-	ElseVal(value T) CaseStage[T]
 	// End finishes the expression. Project it into a result with MapInto.
 	End() ValueColumn[T]
 }
@@ -42,12 +38,6 @@ func (b caseBuilder[T]) branch(cond Condition, result exprInfo) CaseStage[T] {
 func (b caseBuilder[T]) When(cond Condition, result RHS[T]) CaseStage[T] {
 	return b.branch(cond, rhsInfo(result))
 }
-
-func (b caseBuilder[T]) WhenVal(cond Condition, value T) CaseStage[T] {
-	return b.branch(cond, operandOf(value))
-}
-
-func (b caseBuilder[T]) ElseVal(value T) CaseStage[T] { return b.otherwise(operandOf(value)) }
 
 func (b caseBuilder[T]) otherwise(result exprInfo) CaseStage[T] {
 	if b.elseExpr != nil {
