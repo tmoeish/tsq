@@ -783,13 +783,14 @@ If the runtime slice is empty or nil, TSQ keeps the filter explicit instead of s
 - `InVar()` renders an explicit no-match shape
 - `NotInVar()` renders an explicit match-all shape
 
-### Generated helpers
+### Generated query variables
 
-If a generated helper reports an initialization error, usually:
+Generated query variables are built with `MustBuild()` during package initialization, so a
+generated file that no longer matches its struct panics when the package is imported. The usual
+causes:
 
-- annotations changed
-- generated files are stale
-- the query shape is no longer valid for the current source model
+- directives or fields changed and `tsq gen` was not rerun
+- the TSQ version changed and the generated files were not regenerated
 
 ## 15. Migration advice
 

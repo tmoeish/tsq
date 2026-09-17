@@ -9,22 +9,14 @@
 
 ## [未发布]
 
+v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别名、没有迁移命令、没有旧注解语法的读取器。
+模块路径是 `github.com/tmoeish/tsq/v5`，CLI 用 `go install github.com/tmoeish/tsq/v5/cmd/tsq@latest` 安装。
+
 ### 破坏性变更
 
-- **根包命名统一**：
-  - 构造器：`tsq.Open(ctx, driver, dsn, tables, ...)` 自己开池，`tsq.NewRuntime(ctx, db, dialect, tables, ...)` 用调用方的池（对应 `sql.Open`）。`Runtime.SQLDialect()` 改为 `Dialect()`，`SQLExecutor` 改为 `Executor`。
-  - 批量写：`Chunked*` 改为 `BatchInsert` / `BatchUpdate` / `BatchDelete` / `BatchHardDelete` / `BatchDeleteByPK` / `BatchHardDeleteByPK`，选项改为函数式的 `WithBatchSize(n)` 和只对插入有效的 `WithSkipDuplicates()`。
-  - 错误类型按 Go 惯例以 `Error` 结尾：`OptimisticLockError`、`UnknownSortFieldError`、`AmbiguousSortFieldError`、`OrderCountMismatchError`、`MissingIndexError`、`MissingTableError`；`RegistrationError` 的字段改为 `Kind` 和 `Table`。
-  - 事务：`TxOptions{RetryIf, RetryPolicy}`，`RetryPolicy` 和 `DefaultRetryPolicy()` 取代 `TxRetryConfig`。
-  - 分页：`PageRequest.Validate(maxSize)` / `Normalize(maxSize)` 取代原来的四个方法，`PageResponse.TotalPages`（JSON `total_pages`）。
-  - 否定谓词统一为 `Not*`（`NotIn`、`NotLike`、`NotBetween`、`NotStartsWithVal`……），和 `NotExists` 一致。
-  - 其余：`NewColumn`、`DeclareTable`、`Order.Reverse()`、`OrderBy.Column()`、`Query.SearchListSQL` / `SearchCountSQL`，`Table` 接口的 `Table()` 改为 `TableName()`。
-- **生成代码命名**：`ListXxxByYyyInOrErr` 改为 `FetchXxxByYyy`，缺行时返回的错误包装 `sql.ErrNoRows`（此前是一句无法判定的 `records not found`）；唯一索引的等值查询不再附带 `Search(...)`。`Update` / `Delete` / `HardDelete` 的错误只带主键，不再把整行序列化进错误文案——那会让列值进日志。Result 不再生成 `ResultXxx` 变量和 `Cols()` 方法，改为和表一致的 `Xxx__Cols`：`tsq.Select(LearningJourney__Cols...)`。
-- **`dialect` 包命名收拢**：去掉类型上多余的 `DDL` 前缀（`ColumnSpec`、`ColumnType`、`ColumnKind` 及 `KindInt` 等常量、`AlterMode` 及 `AlterInPlace` / `AlterRebuild`），`IndexDefinition` 与 `NamedIndexDefinition` 合并为 `Index`，`ErrUnsupportedCapability` 改为 `UnsupportedCapabilityError`，`DDLColumnTypesEquivalent` 改为 `SameColumnType`，`ValidateIdentifierLength(id, d)` 改为 `ValidateIdentifier(d, id)`。`Dialect` 接口方法：`QuoteIdent`、`Placeholder`、`ReturningClause(col)`、`InspectColumns`、`InspectIndex`、`ColumnTypeSQL`、`AutoIncrementColumnSQL`、`CreateIndexSQL`、`DropIndexSQL`、`AlterMode`、`AlterColumnSQL`，`EnsureIndex` 的参数顺序和 `CreateIndexSQL` 一致；三个方言返回同一常量的 `CreateTableSuffix`、`CreateTableIfNotExistsSuffix`，以及只在包内用到的 `CreateIndexSuffix`、`AutoIncrementClause` 从接口删除。
-- **模块路径改为 `github.com/tmoeish/tsq/v5`**: Go 的语义化导入版本要求 v2+ 把 `/vN` 写进模块路径。使用者 `go get github.com/tmoeish/tsq/v5@latest`，CLI `go install github.com/tmoeish/tsq/v5/cmd/tsq@latest`。v4 和 v5 因此可以在同一个构建里共存，一个包一个包地迁移是可行的。
-- **`MIGRATION_GUIDE.md` 重写为 v4 → v5**: 按"你要动多少手"排序，注明哪些有工具（`tsq migrate`、重新生成）、哪些编译器能帮你、哪些**只能靠人读**（删除语义那条编译器不会报错，只会改变行为）。
+**注解**
 
-- **注解语法换成 `//tsq:` 指令行**: `@TABLE(...)` / `@RESULT(...)` 那套括号 DSL 没有了，改成 `//go:` 那种形态的指令，一行一个关注点：
+- 注解是 `//tsq:` 指令行（`//go:` 的形态），一行一个关注点，gofmt 不会改动它们，所以没有 `tsq fmt`：
 
   ```go
   //tsq:table name=course pk=ID
@@ -34,48 +26,57 @@
   //tsq:search Title,Summary
   ```
 
-  旧 DSL 写在 doc comment 里，**gofmt 会重排它的缩进**，所以生成器不得不自带一个 `tsq fmt` 把它排回解析器要的样子，并且规定"先 fmt 再 gen"。指令行 gofmt 不碰，于是 **`tsq fmt` 整个命令被删除**，那条顺序规则也随之消失。`pk="UID,true"` 这种把两个意思塞进一个字符串的写法换成 `pk=UID`（自增，默认）和 `assigned`（调用方给值）。
-- **新增 `tsq migrate <package>`**: 一次性把 v4 注解改写成指令。它用 v4 的 DSL 解析器读旧注解，所以 v4 生成器能接受的都能原样转换；注解上方的散文保留，派生出来的索引名仍然留给推导。跑一次、看 diff、然后就可以忘掉它——`tsq gen` 不再读旧语法。
+  `pk=` 默认自增，`assigned` 表示由调用方给值；索引没写 `name=` 时按 `ux_` / `idx_` 加表名和字段推导。指令写错时，报错带文件名和行号。
 
-- **软删除成为默认的删除语义**: `deleted_at` 的表上，`Delete` 现在打墓碑而不是物理删除，物理删除改名 `HardDelete`。判据是使用者的真实用法——软删除的行在业务上就是删掉了，只有审计才回头看它，而恢复它要人工改库。受影响的入口成对出现：`tsq.Delete` / `tsq.HardDelete`、`tsq.ChunkedDelete` / `tsq.ChunkedHardDelete`、`tsq.ChunkedDeleteByPKs` / `tsq.ChunkedHardDeleteByPKs`、`tsq.DeleteFrom` / `tsq.HardDeleteFrom`，生成的方法是 `Delete` / `HardDelete`。**没有声明 `deleted_at` 的表两者同义**，都是物理删除。软删除走的是 UPDATE，所以乐观锁校验和 `version` 自增照旧生效，`updated_at` 也会刷新。生成的 `SoftDelete(ctx, db, dt)` 被删除：想指定删除时间就先给字段赋值再调 `Delete`，和 `Insert` 不覆盖调用方已设的 `created_at` 是同一条规则。
-- **`QueryActive*` / `ListActive*` 改名为 `Query*` / `List*`，带软删除行的那套不再生成**: 过滤掉已删行是日常场景，名字不该更长；而"连已删的一起查"基本只在审计时用到，用查询构建器三行就能写出来，不值得为每张表每个索引各生成一个包级变量。`deleted_at` 的表上，全部生成查询现在都自带 active 过滤。示例里 `Enrollment` 的生成符号从 39 个降到 23 个。
-- **`Tracer` 现在能知道自己在追什么**: 签名从 `func(next) func(ctx) error` 改成 `func(ctx, op tsq.TraceOp, next) error`。此前它只拿得到一个续体，可以计时却说不出计的是什么。`TraceOp` 是 `insert` / `update` / `delete` / `get` / `list` / `page` / `count` / `scalar` / `exec` / `tx`。渲染后的 SQL 不在这里传——追踪包住的是整个操作（含绑参和方言渲染），语句由 `WithSQLLogging()` 输出。
-- **事务重试谓词改名**: `IsCommonTransactionRetryableError` → `IsRetryableTxError`（"Common" 说不出它包含什么），`IsRetryableTransactionConflictError` → `IsTxConflictError`。`IsOptimisticLockError` 和 `IsRetryableNetworkError` 不变。四个谓词都保留：想只重试死锁、不重试乐观锁冲突是合理需求。
-- **删除 `NewPageRequest(url.Values)` 和 `PageRequest.ToQuery()`**: 它们把一套特定的 HTTP 查询参数命名写进了一个 SQL 库。结构体上的 `query` tag 仍在，解析交给调用方的 binder。
-- **`DefaultMaxPageSize` 是默认值，不是硬顶**: `WithMaxPageSize(n)` 现在双向生效。此前 `Validate` 把上限夹到 1000 而 `Normalize` 不夹，于是 `WithMaxPageSize(5000)` 下同一个请求能通过一个、被另一个悄悄改小——两个测试各自编码了相反的意图。用一个上限 × 尺寸的交叉用例钉住"`Validate` 拒绝的尺寸，恰好就是 `Normalize` 会夹的尺寸"。
+**运行时**
 
-- **`Runtime` 改用函数式选项，构造器合并成两个**: `NewRuntime(ctx, driver, dsn, tables, ...RuntimeOption)` 取代了 `NewRuntime` 加 `NewRuntimeContext` 两个入口（ctx 不再是可选的），`*RuntimeOptions` 结构体换成 `tsq.WithSchemaPolicy` / `WithTablePolicy` / `WithIndexPolicy` / `WithLogger` / `WithSQLLogging` / `WithTracers` / `WithMaxPageSize`。此前 `options ...*RuntimeOptions` 让"没传选项"和"传了一个选项值"是同一个签名，每个字段的零值又兼任"没设置"。
-- **新增 `tsq.NewRuntimeFromDB(ctx, db, dialect, tables, ...RuntimeOption)`**: 在调用方已经打开的连接池上建 runtime。此前接了 otelsql 或自定义 connector 的人只能用 `WrapExecutor`，随之失去 `LogSQL`、tracer 和分页上限。**`Close()` 不会关闭这样传进来的池**——谁开的谁负责关；`NewRuntime` 自己开的池仍然由 `Close()` 关闭。
-- **删除 `IdentifierValidationMode` 和 `Runtime.ValidateIdentifiersForDialect()`**: 标识符长度校验现在恒为严格，没有关闭开关。超出方言长度上限的名字到不了服务端，TSQ 建出来的对象就和它渲染的查询对不上，`warn` 和 `skip` 只是把失败推后。派生索引名过长时，用 `ux=[{name="..."}]` 显式命名。
-- **`tsq.SQLExecutor` 成为 `dialect.Executor` 的类型别名**: 两份逐字相同的接口声明只在其中一份长出新方法之前保持可互换。
+- `tsq.Open(ctx, driver, dsn, tables, ...)` 自己开连接池；`tsq.NewRuntime(ctx, db, dialect, tables, ...)` 用调用方已有的池，`Close()` 只关闭自己开的池。选项是函数式的：`WithSchemaPolicy` / `WithTablePolicy` / `WithIndexPolicy` / `WithLogger` / `WithSQLLogging` / `WithTracers` / `WithMaxPageSize`。
+- Schema 策略四档：`Manual`（默认，生产用）、`Validate`、`CreateMissing`、`Reconcile`（开发和测试用，改了结构重启就跟上）。**TSQ 只增不减**：不删表、不删未声明的索引，也不建任何记账表。
+- 标识符长度校验恒为严格，没有关闭开关。
+- `Tracer` 的签名是 `func(ctx, op tsq.TraceOp, next) error`，能知道自己包住的是哪种操作。
+- `Runtime.Dialect()`；执行接口叫 `tsq.Executor`（`dialect.Executor` 的别名）。
 
-- **删除 `SchemaPolicyManaged` 和 `RuntimeOptions.SchemaOwner`**: 那一档会把"我托管过、但现在不再声明"的表连同数据一起 `DROP`，靠的是一张**全库共享**的记账表 `_tsq_managed_tables`——而每个 runtime 只用自己那份表集去覆盖它。两个共用数据库的服务因此会在每次启动时互删对方的表，这在 v4.2.0 是个真实事故，`SchemaOwner` 是当时的补丁。v5 把它从根上去掉：**TSQ 只增不减**。一个 runtime 只知道自己声明了什么，分不清"这张表不该存在了"和"这张表是别人的"，所以删表不该是启动期的决定。记账表也不再创建。保留的四档是 `Manual`（默认，生产用）、`Validate`、`CreateMissing`、`Reconcile`（开发和测试用，改了结构重启就跟上）。索引侧同样不再删除未声明的索引。
+**读写语义**
 
-- **单行读取收敛为 `Get` / `Find`，语义按名字分开**: `Get` 现在在没有匹配行时返回 `sql.ErrNoRows`（原 `GetOrErr`），`Find` 返回 `nil, nil`（原 `Get`）。删除 `Load(ctx, tx, holder, args...)`——它是第三种读单行的方式，而且是唯一没法在不比较错误的情况下表达"没查到"的那种。
-- **`Get` / `Find` / `Exists` 现在给语句加 `LIMIT 1`**: 加在行锁子句**之前**（三个方言都要求这个顺序），构建器自己设了 `Limit` 时不加。此前一个匹配多行的谓词会让数据库把所有行都产出来，而结果只取第一行、且是哪一行不确定。
-- **`Exists` 不再走 `COUNT`**: 改为执行和 `Find` 相同的单行读取并看有没有行。`SELECT COUNT(1)` 要访问每一个匹配行，才能回答第一行就能定下来的问题。
-- **`Count` 只保留 `int64` 版本**: 删除 `Count64`，`Count` 的返回类型从 `int` 改为 `int64`。大结果集或 32 位平台上截断是静默的。
+- 在声明了 `deleted_at` 的表上，`Delete` 是软删除，物理删除是 `HardDelete`；没有 `deleted_at` 的表两者同义。软删除走 UPDATE，乐观锁校验、`version` 自增和 `updated_at` 刷新照常生效。成对的入口：`Delete` / `HardDelete`、`BatchDelete` / `BatchHardDelete`、`BatchDeleteByPK` / `BatchHardDeleteByPK`、`DeleteFrom` / `HardDeleteFrom`。
+- 读单行只有两个入口：`Get` 在没有行时返回 `sql.ErrNoRows`，`Find` 返回 `nil, nil`。`Get` / `Find` / `Exists` 自动加 `LIMIT 1`（位于行锁子句之前），`Exists` 不再走 `COUNT`。`Count` 返回 `int64`。
+- 批量写是 `BatchInsert` / `BatchUpdate` / `BatchDelete` / `BatchHardDelete` / `BatchDeleteByPK` / `BatchHardDeleteByPK`，选项是 `WithBatchSize(n)` 和只对插入有效的 `WithSkipDuplicates()`（传给其他入口会报错）。
+- 事务：`TxOptions{SQL, RetryIf, RetryPolicy}`，`DefaultRetryPolicy()`。重试谓词：`IsRetryableTxError`（全部可重试情形）、`IsOptimisticLockError`、`IsRetryableNetworkError`、`IsTxConflictError`。
+- 分页：`PageRequest.Validate(maxSize)` 和 `Normalize(maxSize)`，传 `runtime.MaxPageSize()` 让 handler 和查询用同一个上限，传 `0` 表示 `DefaultMaxPageSize`；`Validate` 拒绝的尺寸恰好是 `Normalize` 会夹紧的尺寸。`PageResponse.TotalPages`（JSON `total_pages`）。HTTP 参数解析交给调用方的 binder，不再有 `NewPageRequest(url.Values)` / `ToQuery()`。
 
-- **删除全部标记 `Deprecated` 的符号**: 顶层 `AsSubquery`（用 `Query.AsSubquery`）、`NewPageResponse`（用 `PageRequest.Response`）、`Runtime.WithTx1` / `WithTx2` 及其包级形式（用 `Runtime.WithTxResult`，多个值用小结果结构体）、`Query.QueryInt` / `QueryFloat` / `QueryString`（用 `Query.Scalar`）、`IndexInitMode` 与 `IndexInitSkip` / `IndexInitValidate` / `IndexInitUpsert`（用 `SchemaPolicy` 那组常量）。
-- **`EXISTS` 从列方法改为包级函数**: `col.ExistsSub(sq)` / `col.NExistsSub(sq)` 改为 `tsq.Exists(sq)` / `tsq.NotExists(sq)`。它们从来不读那个列——EXISTS 问的是子查询有没有行，和任何一列都无关，旧写法逼着调用方随便挑一列。参数类型 `AnySubquery` 现在是导出的密封接口（方法未导出，包外无法实现），已 `Build()` 的 `*Query` 和类型化的 `Subquery[T]` 都满足它；此前它叫 `rawSubquery`，是个使用者**写不出名字**的参数类型。
-- **删除三个只会失败或忽略入参的列方法**: `Unique(...)` / `NUnique(...)` 一直只返回"内置方言不支持"的构建错误；`Concat(str)` 忽略它的参数并总是构建失败。需要这些语义时用 `Expr` / `Exprf` 写方言相关的表达式。
-- **删除 `Column.Now()`**: 它把整个列表达式替换成 `CURRENT_TIMESTAMP`，也就是说它根本不看调用它的那一列，`User_Name.Now()` 和 `User_ID.Now()` 是同一个东西。用 `Expr("CURRENT_TIMESTAMP")`。
-- **`Column.Length()` 返回 `Column[O, int64]`**: `LENGTH(...)` 在三个方言里都返回整数，此前它返回的是接收者的类型，对字符串列就是 `Column[O, string]`。
+**查询 API**
 
-- **`tsq.Table` 接口收窄**: `PrimaryKeys() []string` 改为 `PrimaryKey() string`（生成器从来只产出单主键，DSL 也明确拒绝复合主键，那个切片一直在承诺不存在的能力）；`VersionColumn() string` 改为 `ManagedColumns() ManagedColumns`，一次返回 `Version` / `CreatedAt` / `UpdatedAt` / `DeletedAt` 四个列名。做成结构体是为了以后新增托管列时加字段，而不是再给每个手写实现加一个方法。**使用者需要重新生成代码**；手写 `tsq.Table` 实现要跟着改这两个方法。
+- 否定谓词统一写作 `Not*`：`NotIn`、`NotLike`、`NotBetween`、`NotStartsWithVal`、`NotInVar`……
+- `tsq.Exists(sq)` / `tsq.NotExists(sq)` 是包级函数，参数类型是导出的密封接口 `AnySubquery`。
+- `Column.Length()` 返回 `Column[O, int64]`。没有 `Unique` / `NUnique` / `Concat` / `Now()` 这类不读接收者或只会失败的列方法，需要时用 `Expr` / `Exprf`。
+- 错误类型以 `Error` 结尾：`OptimisticLockError`、`UnknownSortFieldError`、`AmbiguousSortFieldError`、`OrderCountMismatchError`、`MissingIndexError`、`MissingTableError`，以及 `dialect.UnsupportedCapabilityError`。`RegistrationError` 的字段是 `Kind` 和 `Table`。
+- 其余命名：`NewColumn`、`DeclareTable`、`Order.Reverse()`、`OrderBy.Column()`、`Query.SearchListSQL` / `SearchCountSQL`、`Query.Scalar[T]`、`Query.AsSubquery[T]`、`Runtime.WithTxResult[T]`。
+
+**`tsq.Table` 接口**
+
+- `TableName() string`、`PrimaryKey() string`（单主键）、`ManagedColumns() ManagedColumns`（一次返回 `Version` / `CreatedAt` / `UpdatedAt` / `DeletedAt` 四个列名）。手写实现照此实现，生成代码自动满足。
+
+**生成代码**
+
+- 表：`TableXxx`、`Xxx__Cols`、`Xxx_Field`、`QueryXxx`、`QueryXxxByID` / `QueryXxxByIDIn`、每个索引一个 `QueryXxxBy...`，以及 `FetchXxxByID` 和每个唯一索引的 `FetchXxxBy...`——按给定顺序返回行，缺行时错误包装 `sql.ErrNoRows`。`deleted_at` 表上的所有生成查询都滤掉已删行，不生成"包含已删行"的变体。
+- 方法：`Insert` / `Update` / `Delete` / `HardDelete`，软删除表另有 `Active()`。错误只带主键，不序列化整行。想指定删除时间就先给 `deleted_at` 字段赋值再调 `Delete`。
+- Result：`Xxx__Cols` 和 `Xxx_Field`，用法是 `tsq.Select(Xxx__Cols...)`。
+- 生成文件、`tsq.json` 和 `sqlite.sql` / `mysql.sql` / `postgres.sql` 由 `tsq gen` 维护；不再有 `--tpl` / `--resulttpl`。
+
+**`dialect` 包**
+
+- 类型：`ColumnSpec`、`ColumnType`、`ColumnKind`（`KindBool` … `KindTime`）、`AlterMode`（`AlterInPlace` / `AlterRebuild`）、`Index`。函数：`SameColumnType`、`ValidateIdentifier(d, id)`、`ValidateCapability`、`MaxBindParams`、`AllCapabilities`。
+- `Dialect` 接口只保留各方言确实不同的方法，每个都有文档：`QuoteIdent`、`Placeholder`、`ReturningClause`、`ValidateIdentifier`、`SupportsCapability`、`BatchInsertStartID`、`InspectColumns`、`ListIndexes`、`EnsureIndex`、`InspectIndex`、`ColumnTypeSQL`、`AutoIncrementColumnSQL`、`CreateIndexSQL`、`DropIndexSQL`、`AlterMode`、`AlterColumnSQL`。
 
 ### 修复
 
-- **字段类型来自 `database/sql`（如 `sql.NullString`）时，生成代码编译不过**：模板把类型写成 `tsqsql.NullString`，却从未导入 `tsqsql`。示例里没有这种字段，生成器测试的临时模块又把 `replace` 指到了 `internal/cmd` 而非仓库根，从没真正编译过生成物。现在表模板总是导入它，Result 按需导入，并新增一个真正 `go build` 生成物的测试。
-- **字符串字面量里出现 `FOR UPDATE` 之类的词，会让一条完全正常的查询被拒绝执行**: 方言能力检测在渲染好的 SQL 上做裸的子串匹配，不区分关键字和字面量。于是 `Where(Note.EQVal(" FOR UPDATE "))` 这样的查询在 SQLite 上得到 `ErrUnsupportedCapability`，而它根本没有用行锁。这道检查本来是要把"这个方言做不到"变成一句清楚的错误，结果反过来挡住了能跑的查询。现在匹配跳过字符串字面量和注释——`walkSQL` 早就会这件事，只是这一处没用它。
-
-
-- **声明 `*time.Time` 托管时间戳字段的表，生成的代码编译不过**: 模板发出的是 `tsq.TimePtr(...)`，而根包从来没有过 `TimePtr` 这个符号，使用者拿到的是自己工程里的 `undefined: tsq.TimePtr`。`created_at`、`updated_at`、`deleted_at` 三个键都受影响，而 `skills/tsq` 一直把 `*time.Time` 列在支持的字段类型里。示例只用了 `time.Time` / `null.Time` / `int64`，这条路径因此没有任何东西走过；模板 helper 的单元测试断言的正是 `tsq.TimePtr(...)` 这个字符串，它证明的是 helper 和自己一致，不是这个符号存在。现在生成的是 Go 1.27 的 `new(tsqtime.Now())`，不需要任何 TSQ 侧的辅助函数。
-- **删除只会发出不存在符号的 `PageRespType` 模板 helper**: 它渲染 `tsq.PageResp[T]`，而这个类型叫 `PageResponse`；内置模板没有任何地方调用它，只有 `--tpl` 传自定义模板的人会踩到。
+- **字段类型来自 `database/sql`（如 `sql.NullString`）时，生成代码编译不过**：模板写出 `tsqsql.NullString`，却从未导入 `tsqsql`。现在有一个真正 `go build` 生成物的测试守着。
+- **声明 `*time.Time` 托管时间戳字段时，生成代码引用了不存在的 `tsq.TimePtr`**：现在生成 `new(tsqtime.Now())`。
+- **字符串字面量里出现 `FOR UPDATE` 之类的词，会让正常查询被当成使用了不支持的能力而拒绝执行**：能力检测现在跳过字符串字面量和注释。
 
 ### 其他
 
-- 新增门禁：模板与模板 helper 里出现的每个 `tsq.X` / `tsqdialect.X` 都对照真实包的导出符号校验（`internal/cmd/generated_symbols_test.go`）。上面两条修复中的第二条就是这道门装上后立刻抓到的。
+- 模板与模板 helper 里出现的每个 `tsq.X` / `tsqdialect.X` 都对照真实包的导出符号校验（`internal/cmd/generated_symbols_test.go`）。
 
 ## [4.10.0] - 2026-09-03
 
