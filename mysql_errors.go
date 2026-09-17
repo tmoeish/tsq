@@ -44,9 +44,9 @@ func mysqlNumber(e error) (uint16, bool) {
 	}
 
 	n := v.Elem().FieldByName("Number")
-	if n.Kind() != reflect.Uint16 {
+	if !n.IsValid() {
 		return 0, false
 	}
 
-	return uint16(n.Uint()), true
+	return reflect.TypeAssert[uint16](n)
 }
