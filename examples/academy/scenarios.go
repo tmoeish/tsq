@@ -415,7 +415,8 @@ func runCatalogSearchDemo(ctx context.Context, runtime *tsq.Runtime) (*SearchSum
 		return nil, err
 	}
 
-	resp, err := QueryCourse.Page(ctx, exec, paging)
+	// The search term is an argument like any other; an empty one searches nothing.
+	resp, err := QueryCourse.Page(ctx, exec, paging, tsq.Keyword(pageReq.Keyword))
 	if err != nil {
 		return nil, err
 	}

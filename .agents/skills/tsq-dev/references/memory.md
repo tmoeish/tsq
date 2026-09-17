@@ -58,11 +58,6 @@ MySQL / PostgreSQL 默认转义字符恰好是反斜杠才侥幸正确——而�
 **引申**：任何"我们对值做了预处理"的功能都要问一句"数据库怎么知道"——值被改了而契约没被
 声明时，行为由各方言的默认值决定，而默认值本来就不一样。
 
-已知未处理：`StartsWithVal` / `ContainsVal` / `EndsWithVal` 及其 `Var` 形式仍然直接把
-调用方的字符串拼进 pattern，值里的 `%` / `_` 是活的通配符。这是**有意的**（文档写明由调用方
-转义），但和 `Keyword` 的行为不一致，容易踩。要改就是破坏性语义变更，得配一对
-`*Literal` 系列或一个开关，值得单独一波做。
-
 ### 同一个 SQLSTATE 在三个驱动里是三个 Go 类型 (2026-08-26)
 
 曾 `errors.AsType[*pgconn.PgError]` 匹配 pgx **v4** 的包。pgx v5 的 `PgError` 是另一个包里的
@@ -189,6 +184,8 @@ MySQL 的 `LENGTH` 数字节；PostgreSQL 没有 `round(double, int)`；modernc 
   批量不回读：多行 `RETURNING` 顺序无保证，MySQL 只报第一个 id。
 - **超长列表参数用显式的 `ListIn`，否决自动分块**：`a IN (list) OR b = 1` 分块会重复返回，`NOT IN`
   分块直接错，排序/聚合/LIMIT 分块后语义都变；只有调用方声明"这是按键取行"时才能拆。
+- **关键词是执行参数 `tsq.Keyword`，不是 `Paging` 的字段**：放在 `Paging` 里时搜索结果只能分页读，
+  没法 `Iter` 导出或单独 `Count`。空关键词在 `prepare` 里被丢掉，否则会报"参数未使用"。
 - **`Page` 的一致性靠只读快照事务，不靠 `COUNT(*) OVER()`**：窗口函数在 `DISTINCT` 之前求值（数错）、
   PG 不允许和 `FOR UPDATE` 同用、页码越界时没有行可带回总数。代价是每次 `Page` 多一对 BEGIN/COMMIT。
 - `BatchDeleteByPK` 挪到 `TableOf` 上，吃主键的 `BindList`：包级版本要再校验"列是不是主键"。

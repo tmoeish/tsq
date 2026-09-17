@@ -228,7 +228,7 @@ func {{$FetchBy}}{{$name}}(
 }
 {{- end }}
 
-// Query{{$type}} reads every {{$type}} row{{ if .DeletedAtField }} that is not deleted{{ end }}; Page matches its search columns.
+// Query{{$type}} reads every {{$type}} row{{ if .DeletedAtField }} that is not deleted{{ end }}{{ if .SearchColumns }}; pass tsq.Keyword to search it{{ end }}.
 var Query{{$type}} = tsq.
 	Select({{$varTblCols}}...).
 	From({{$varTbl}}).

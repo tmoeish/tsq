@@ -35,6 +35,7 @@ type AnySubquery interface {
 }
 type Arg struct {
 }
+func Keyword(term string) Arg
 type BatchOption func(*batchConfig)
 func WithBatchSize(size int) BatchOption
 func WithSkipDuplicates() BatchOption
@@ -269,7 +270,6 @@ type Paging struct {
 	Page int
 	Size int
 	OrderBy []OrderBy
-	Keyword string
 }
 func (p Paging) Offset() int
 type Param[T any] struct {

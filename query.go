@@ -78,6 +78,15 @@ func (q *Query[O]) prepare(exec Executor, args []Arg, builtin map[*paramSpec]any
 		return execScope{}, nil, errors.New("a query with Correlate(...) can only run as a subquery of a query that provides those tables")
 	}
 
+	keyword, args, err := q.keywordArgs(args)
+	if err != nil {
+		return execScope{}, nil, err
+	}
+
+	for i := range modes {
+		modes[i].keyword = keyword
+	}
+
 	stmts := make([]*statement, 0, len(modes))
 
 	var used []*paramSpec
@@ -206,6 +215,25 @@ func (q *Query[O]) each(ctx context.Context, db Executor, op string, stmt prepar
 	}
 
 	return nil
+}
+
+// keywordArgs reports whether args search, dropping an empty Keyword: it renders
+// no predicate, so its value would otherwise be reported as unused.
+func (q *Query[O]) keywordArgs(args []Arg) (bool, []Arg, error) {
+	idx := slices.IndexFunc(args, func(a Arg) bool { return a.spec == keywordParam })
+	if idx < 0 {
+		return false, args, nil
+	}
+
+	if term, _ := args[idx].value.(string); term == "" {
+		return false, slices.Delete(slices.Clone(args), idx, idx+1), nil
+	}
+
+	if len(q.spec.KeywordSearch) == 0 {
+		return false, nil, errors.New("Keyword needs a query built with Search")
+	}
+
+	return true, args, nil
 }
 
 // ListIn is List for a list parameter that may hold more values than one statement
@@ -505,16 +533,9 @@ func (q *Query[O]) Page(ctx context.Context, db Executor, p Paging, args ...Arg)
 			order = append(order, q.spec.orderTerm(ob))
 		}
 
-		keyword := len(q.spec.KeywordSearch) > 0 && p.Keyword != ""
-
-		var builtin map[*paramSpec]any
-		if keyword {
-			builtin = map[*paramSpec]any{keywordParam: p.Keyword}
-		}
-
-		_, stmts, err := q.prepare(db, args, builtin,
-			renderMode{count: true, keyword: keyword},
-			renderMode{keyword: keyword, paged: true, order: order, limit: p.Size, offset: p.Size * (p.Page - 1)},
+		_, stmts, err := q.prepare(db, args, nil,
+			renderMode{count: true},
+			renderMode{paged: true, order: order, limit: p.Size, offset: p.Size * (p.Page - 1)},
 		)
 		if err != nil {
 			return nil, err

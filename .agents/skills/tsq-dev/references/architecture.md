@@ -116,7 +116,7 @@ var TableCourse = tsqCourseTable.Define(tsq.TableSpec[Course]{ // 初始化表�
   `Page` 的计数语句和列表语句合在一起判断"用没用到"。
 - 派生规格（模式参数、`NOT IN` 形式）共享根参数的值，渲染方式不同。
 - 空列表：`IN` 渲染 `IN (NULL)`，`NOT IN` 渲染 `NOT IN (SELECT 1 WHERE 1 = 0)`，都不丢过滤条件。
-- 内置参数：`keywordParam`（`Page` 的关键词）、`deletedAtParam` / `updatedAtParam`
+- 内置参数：`keywordParam`（`tsq.Keyword` 绑定它；`prepare` 据此决定是否渲染搜索谓词，空关键词被丢掉）、`deletedAtParam` / `updatedAtParam`
   （按条件软删除的时间戳，执行时计算）。
 
 v4 的 `EQVar()` 往参数列表里塞标记，值从 `List(ctx, db, args ...any)` 按位置取——个数、类型、

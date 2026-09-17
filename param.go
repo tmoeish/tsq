@@ -246,8 +246,14 @@ func escapeLikePattern(s string) string {
 	return strings.ReplaceAll(s, "_", likeEscapeChar+"_")
 }
 
-// keywordParam is the search term of Page; it is bound from PageRequest.Keyword.
+// keywordParam is the search term bound by Keyword.
 var keywordParam = newParamSpec("keyword", paramScalar)
+
+// Keyword is the search term of a query built with Search: a row matches when any
+// search column contains term, taken literally. It is an argument like any other,
+// so it works with List, Iter, Count, Page and the rest. An empty term searches
+// nothing, so a search box can pass its value as it is.
+func Keyword(term string) Arg { return Arg{spec: keywordParam, value: term} }
 
 // argSet resolves parameter values for one execution.
 type argSet struct {

@@ -383,7 +383,7 @@ Builder 采用**阶段型类型系统**：每次调用都会返回不同的具�
 
 ### 8.2 关键词转义规则
 
-- `Page(ctx, exec, paging)` 会自动对 `paging.Keyword` 转义 LIKE 通配符（`%` 和 `_`）。
+- `tsq.Keyword(term)` 作为参数传给任何读取方法（`List` / `Iter` / `Count` / `Page` ……），会自动转义 LIKE 通配符（`%` 和 `_`）。
 - `tsq.StartsWith` / `tsq.EndsWith` / `tsq.Contains`（及其 `Param` 和 `Not` 形式）同样自动转义；`Like` 的模式按原样使用，通配符由调用方负责。
 - SQL 注入防护来自参数绑定本身，LIKE 通配符转义只防止意外的模糊匹配，两者不能互替。
 

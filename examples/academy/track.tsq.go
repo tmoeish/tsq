@@ -174,7 +174,7 @@ func FetchTrackByName(
 	return ordered, nil
 }
 
-// QueryTrack reads every Track row; Page matches its search columns.
+// QueryTrack reads every Track row; pass tsq.Keyword to search it.
 var QueryTrack = tsq.
 	Select(Track__Cols...).
 	From(TableTrack).

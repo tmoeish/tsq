@@ -581,14 +581,12 @@ page, err := QueryUser.Page(ctx, runtime, tsq.Paging{
 	Page:    2,
 	Size:    50,
 	OrderBy: []tsq.OrderBy{database.User_Name.Asc()},
-	Keyword: "alice",
-})
+}, tsq.Keyword("alice"))
 ```
 
 - `Page` below 1 means 1 and is capped at `tsq.MaxPageNumber`; `Size` 0 means 20 and is capped
   by the runtime's `WithMaxPageSize`
 - `OrderBy` is built from columns, so a sort field that does not exist does not compile
-- `Keyword` matches the query's `Search(...)` columns; empty means no search
 - the result is a `*tsq.PageResponse[O]` with `Page`, `Size`, `Total`, `TotalPages` and `Data`
   (never nil), plus `HasNext()` / `HasPrev()` / `IsEmpty()`
 - `Total` and `Data` come from one snapshot: `Page` runs its count and its rows in a read-only
@@ -597,7 +595,7 @@ page, err := QueryUser.Page(ctx, runtime, tsq.Paging{
 
 An HTTP endpoint receives strings. `tsq.PageRequest` is that shape (`page`, `size`, `order_by`,
 `order`, `keyword`), and `Paging(sortable...)` turns it into a `Paging` against the columns the
-endpoint allows to sort by:
+endpoint allows to sort by; the keyword goes in as `tsq.Keyword(req.Keyword)`:
 
 ```go
 if err := req.Validate(runtime.MaxPageSize()); err != nil {
@@ -619,7 +617,19 @@ if err != nil {
 - parsing the request out of a query string is the caller's job; the struct's `query` and `json`
   tags cover the usual binders
 
-`Paging.Keyword` is automatically escaped for LIKE wildcards when executing via `query.Page(...)`, so `%`, `_` and the escape character itself are matched literally on every supported dialect; the keyword still matches as a substring. The generated predicate carries an explicit `ESCAPE '~'` clause, because SQLite has no default LIKE escape character. A backslash in a keyword is an ordinary character.
+### Keyword search
+
+A query built with `Search(cols...)` is searched by passing `tsq.Keyword(term)` with the other
+arguments, to any read: `List`, `Iter`, `Count`, `Page`, `ListIn`, `Get`. A row matches when any of
+the search columns contains the term. An empty term searches nothing, so a search box can pass its
+value as it is; a non-empty term on a query without `Search` is an error.
+
+```go
+rows, err := QueryUser.List(ctx, runtime, tsq.Keyword("alice"))
+for row, err := range QueryUser.Iter(ctx, runtime, tsq.Keyword(term)) { ... }
+```
+
+The term is escaped for LIKE wildcards, so `%`, `_` and the escape character itself are matched literally on every supported dialect; the keyword still matches as a substring. The generated predicate carries an explicit `ESCAPE '~'` clause, because SQLite has no default LIKE escape character. A backslash in a keyword is an ordinary character.
 
 The pattern functions (`tsq.StartsWith`, `tsq.EndsWith`, `tsq.Contains`, and their `Not` forms, with a `Val` or a `Param`) escape wildcards the same way. `Like` takes a pattern as written, wildcards included. Wildcard escaping is about matching the right rows, not SQL injection protection — that comes from parameter binding.
 

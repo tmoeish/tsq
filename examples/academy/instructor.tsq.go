@@ -183,7 +183,7 @@ func FetchInstructorByEmail(
 	return ordered, nil
 }
 
-// QueryInstructor reads every Instructor row; Page matches its search columns.
+// QueryInstructor reads every Instructor row; pass tsq.Keyword to search it.
 var QueryInstructor = tsq.
 	Select(Instructor__Cols...).
 	From(TableInstructor).

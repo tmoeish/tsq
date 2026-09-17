@@ -500,11 +500,7 @@ func TestIntegrationKeywordSearchEscapesWildcards(t *testing.T) {
 				{keyword: "100%", want: "100%"},
 				{keyword: "c~d", want: "c~d"},
 			} {
-				resp, err := academy.QueryLearner.Page(ctx, rt, tsq.Paging{
-					Page:    1,
-					Size:    10,
-					Keyword: tc.keyword,
-				})
+				resp, err := academy.QueryLearner.Page(ctx, rt, tsq.Paging{Page: 1, Size: 10}, tsq.Keyword(tc.keyword))
 				if err != nil {
 					t.Fatalf("keyword %q on %s: %v", tc.keyword, target.name, err)
 				}
@@ -526,7 +522,7 @@ func TestIntegrationKeywordSearchEscapesWildcards(t *testing.T) {
 			}
 
 			// Escaping must not turn substring search into equality.
-			resp, err := academy.QueryLearner.Page(ctx, rt, tsq.Paging{Page: 1, Size: 10, Keyword: "Wildcard"})
+			resp, err := academy.QueryLearner.Page(ctx, rt, tsq.Paging{Page: 1, Size: 10}, tsq.Keyword("Wildcard"))
 			if err != nil {
 				t.Fatalf("substring keyword on %s: %v", target.name, err)
 			}

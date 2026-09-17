@@ -20,8 +20,6 @@ type Paging struct {
 	Size int
 	// OrderBy orders the rows. It must be empty when the query orders itself.
 	OrderBy []OrderBy
-	// Keyword is matched against the query's Search columns; empty means no search.
-	Keyword string
 }
 
 func (p Paging) normalized(maxSize int) Paging {
@@ -96,7 +94,7 @@ func (r *PageRequest) Paging(sortable ...SQLColumn) (Paging, error) {
 		return Paging{}, nil
 	}
 
-	p := Paging{Page: r.Page, Size: r.Size, Keyword: r.Keyword}
+	p := Paging{Page: r.Page, Size: r.Size}
 
 	fields := splitCommaValues(r.OrderBy)
 	if len(fields) == 0 {

@@ -175,7 +175,7 @@ func FetchLearnerByEmail(
 	return ordered, nil
 }
 
-// QueryLearner reads every Learner row; Page matches its search columns.
+// QueryLearner reads every Learner row; pass tsq.Keyword to search it.
 var QueryLearner = tsq.
 	Select(Learner__Cols...).
 	From(TableLearner).
