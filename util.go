@@ -6,8 +6,6 @@ import (
 	"reflect"
 	"time"
 
-	"github.com/go-sql-driver/mysql"
-
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 )
 
@@ -46,8 +44,8 @@ func isDuplicateKeyError(err error) bool {
 		return false
 	}
 
-	if mysqlErr, ok := errors.AsType[*mysql.MySQLError](err); ok {
-		return mysqlErr.Number == 1062
+	if number, ok := mysqlErrorNumber(err); ok {
+		return number == 1062
 	}
 
 	return isSQLiteDuplicateKeyError(err) || isPostgresDuplicateKeyError(err)

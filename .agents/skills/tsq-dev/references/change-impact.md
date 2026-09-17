@@ -78,7 +78,7 @@
 - **软删除的时间戳是执行时绑定的内置参数**（`deletedAtParam` / `updatedAtParam`）。改成构建时
   求值，包级语句就会永远写进程启动时间——v4 就是这么错的。
 - **语句形状要在三个方言上真跑**：SET 左侧不带表限定、WHERE 带表限定，靠
-  `integration_test.go` 的 `TestIntegrationMutationsByCondition` 证明。
+  `internal/integration` 的 `TestIntegrationMutationsByCondition` 证明。
 - 只能引用目标表本身：`Build` 按 `tableDef` 指针加表名比较 `allTables()`，别名会被拒，
   `WithDeleted()` 视为同一张表。放开这一点要先为
   三个方言各设计一种 `UPDATE ... FROM` 写法。
@@ -136,7 +136,7 @@
   模式参数、模式值、关键词搜索三处都这么写。
 - 转义字符**不能是反斜杠**：MySQL 拼不出 `ESCAPE '\'`。
 - 断言要落在**真跑一次数据库**上：`exec_test.go` 的 `TestPageSearchesSortsAndCounts` 守 SQLite，
-  `integration_test.go` 的 `TestIntegrationKeywordSearchEscapesWildcards` 守另外两个方言。
+  `internal/integration` 的 `TestIntegrationKeywordSearchEscapesWildcards` 守另外两个方言。
 
 ## 改了批量写（`rows.go`）
 
@@ -171,7 +171,7 @@
 - 加新策略档要想清楚它是不是仍然"只增不减"，并且三个方言都要在集成测试里跑。
 - **不要把 DDL 包进事务**：MySQL 每条 DDL 都隐式提交，包起来只在 PG / SQLite 上成立，反而让人
   误以为它是原子的。
-- 门：`runtime_schema_isolation_test.go`（SQLite）和 `integration_test.go` 的
+- 门：`runtime_schema_isolation_test.go`（SQLite）和 `internal/integration` 的
   `TestIntegrationSchemaPolicyNeverDropsUndeclaredTables`（三方言）。
 
 ## 给查询加了需要方言能力的构造
@@ -197,7 +197,7 @@
   显式表态**。漏掉一个，默认值会让不支持的方言悄悄放行——那是跑到生产库上才炸的一类错。
 - 执行期不支持要返回 `*UnsupportedCapabilityError`，带上能力名和方言名；
   `unsupportedCapabilityHint` 里"去哪个方言跑"的提示要跟着改。
-- `integration_test.go` 的 `TestIntegrationCapabilitiesExecute` 对每个方言声明支持的
+- `internal/integration` 的 `TestIntegrationCapabilitiesExecute` 对每个方言声明支持的
   能力真跑一遍——声明了但跑不通，CI 的 `Integration` job 会红。
 - 更新 `skills/tsq` 里"哪条查询能在哪个库上跑"的说明和 `README.md` 的能力矩阵。
   `[门禁: skill-check dialect]`
@@ -210,7 +210,7 @@
   `Insert` 从来没回填过主键。
 - `ReturningClause(col)` 接**未加引号**的列名，方言自己加引号。
 - 主键回填有两条路：`LastInsertId()` + `BatchInsertStartID`（MySQL / SQLite），和
-  `INSERT ... RETURNING`（PostgreSQL）。改任何一条要看 `integration_test.go` 的 CRUD 用例。
+  `INSERT ... RETURNING`（PostgreSQL）。改任何一条要看 `internal/integration` 的 CRUD 用例。
 
 ## 在执行路径上加了一个日志或诊断出口
 
@@ -258,8 +258,12 @@
 
 - 按接口匹配（`SQLState()` / `Code()`），**不要 `errors.AsType` 某个驱动的具体类型**：
   同一个 SQLSTATE 在 pq、pgx v4、pgx v5 里是三个 Go 类型，只认一个就静默漏掉另外两个
-  （2026-08-26 之前 pgx v5 就是这样漏的）。
-- `integration_test.go` 的 `TestIntegrationLockConflictsAreRetryable` 用真实驱动验证。
+  （2026-08-26 之前 pgx v5 就是这样漏的）。MySQL 是唯一例外：`*mysql.MySQLError` 没有可匹配的方法，
+  `mysql_errors.go` 按类型名和包路径反射读 `Number`，**根包不许 import 任何驱动**（会进使用者的
+  `go.mod`）。`TestMySQLErrorsAreClassifiedWithoutImportingTheDriver` 用真实类型守着这段反射。
+- **根包的测试也不许 import 驱动或 nullbio**：`go mod tidy` 会把依赖包测试的依赖记进使用者的
+  `go.sum`。需要真实驱动的测试放 `internal/integration`；根包测试只允许 SQLite。
+- `internal/integration` 的 `TestIntegrationLockConflictsAreRetryable` 用真实驱动验证。
 
 ## 加了或改了 `-X` ldflags（`Makefile`、`.goreleaser.yaml`、`Dockerfile`）
 

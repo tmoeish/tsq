@@ -10,8 +10,6 @@ import (
 	"net"
 	"syscall"
 	"time"
-
-	"github.com/go-sql-driver/mysql"
 )
 
 const (
@@ -103,8 +101,8 @@ func IsTxConflictError(err error) bool {
 		return false
 	}
 
-	if mysqlErr, ok := errors.AsType[*mysql.MySQLError](err); ok {
-		return mysqlErr.Number == 1205 || mysqlErr.Number == 1213
+	if number, ok := mysqlErrorNumber(err); ok {
+		return number == 1205 || number == 1213
 	}
 
 	if isPostgresRetryableTransactionConflict(err) {

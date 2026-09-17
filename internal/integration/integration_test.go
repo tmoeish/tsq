@@ -1,4 +1,4 @@
-package tsq_test
+package integration_test
 
 // Integration tests against real MySQL and PostgreSQL servers.
 //
@@ -23,7 +23,7 @@ import (
 	"testing"
 	"time"
 
-	_ "github.com/go-sql-driver/mysql"
+	"github.com/go-sql-driver/mysql"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	null "gopkg.in/nullbio/null.v6"
 	_ "modernc.org/sqlite"
@@ -1153,5 +1153,24 @@ func TestIntegrationColumnFunctionsArePortable(t *testing.T) {
 				t.Errorf("SelectDistinct count = %d, %v; want 3", distinct, err)
 			}
 		})
+	}
+}
+
+// TestMySQLErrorsAreClassifiedWithoutImportingTheDriver checks the reflection the
+// root package uses to read *mysql.MySQLError, which it cannot import without
+// adding the driver to every user's module graph.
+func TestMySQLErrorsAreClassifiedWithoutImportingTheDriver(t *testing.T) {
+	deadlock := fmt.Errorf("commit: %w", &mysql.MySQLError{Number: 1213, Message: "deadlock"})
+	if !tsq.IsTxConflictError(deadlock) || !tsq.IsRetryableTxError(deadlock) {
+		t.Fatal("expected a wrapped deadlock to be a transaction conflict")
+	}
+
+	joined := errors.Join(errors.New("other"), &mysql.MySQLError{Number: 1205})
+	if !tsq.IsTxConflictError(joined) {
+		t.Fatal("expected a lock wait timeout inside errors.Join to be a transaction conflict")
+	}
+
+	if tsq.IsTxConflictError(&mysql.MySQLError{Number: 1062}) {
+		t.Fatal("a duplicate key is not a transaction conflict")
 	}
 }
