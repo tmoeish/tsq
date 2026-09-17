@@ -83,7 +83,7 @@ type JoinStage[O any] interface {
 	Correlate(tables ...Table) JoinStage[O]
 	// Where sets the WHERE clause; its conditions are ANDed.
 	Where(conds ...Condition) WhereStage[O]
-	// Search sets the columns Page matches Paging.Keyword against.
+	// Search sets the columns a Keyword argument is matched against.
 	Search(cols ...SearchColumn) SearchStage[O]
 }
 

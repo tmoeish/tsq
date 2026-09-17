@@ -220,7 +220,7 @@ func FetchCourseByTitle(
 	return ordered, nil
 }
 
-// QueryCourse reads every Course row; Page matches its search columns.
+// QueryCourse reads every Course row; pass tsq.Keyword to search it.
 var QueryCourse = tsq.
 	Select(Course__Cols...).
 	From(TableCourse).

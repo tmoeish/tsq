@@ -295,7 +295,7 @@ func TestPageSearchesSortsAndCounts(t *testing.T) {
 	q := Select(User__Cols...).From(Users).Search(Users.SearchColumns()...).MustBuild()
 
 	// "_" is a LIKE wildcard; the keyword must match it literally.
-	page, err := q.Page(ctx, rt, Paging{Size: 10, Keyword: "_", OrderBy: []OrderBy{User_Name.Desc()}})
+	page, err := q.Page(ctx, rt, Paging{Size: 10, OrderBy: []OrderBy{User_Name.Desc()}}, Keyword("_"))
 	if err != nil {
 		t.Fatalf("Page() error = %v", err)
 	}
@@ -383,6 +383,55 @@ func TestUpsertMatchesLiveRowsOfASoftDeletedUniqueIndex(t *testing.T) {
 
 	if err := Users.Upsert(ctx, rt, &user{}, User_Email.As("u")); err == nil {
 		t.Fatal("expected an aliased key column to be refused")
+	}
+}
+
+func TestKeywordIsAnArgumentForEveryRead(t *testing.T) {
+	ctx := context.Background()
+	rt := newSQLite(t)
+	seedUsers(t, rt, "alice", "alfred", "bob")
+
+	q := Select(User__Cols...).From(Users).Search(Searchable(User_Name)).MustBuild()
+
+	if n, err := q.Count(ctx, rt, Keyword("al")); err != nil || n != 2 {
+		t.Fatalf("Count = %d, %v", n, err)
+	}
+
+	names := 0
+
+	for row, err := range q.Iter(ctx, rt, Keyword("bo")) {
+		if err != nil || row.Name != "bob" {
+			t.Fatalf("Iter = %v, %v", row, err)
+		}
+
+		names++
+	}
+
+	if names != 1 {
+		t.Fatalf("Iter yielded %d rows", names)
+	}
+
+	// An empty term searches nothing, whatever the query.
+	if list, err := q.List(ctx, rt, Keyword("")); err != nil || len(list) != 3 {
+		t.Fatalf("empty keyword = %d rows, %v", len(list), err)
+	}
+
+	plain := Select(User__Cols...).From(Users).MustBuild()
+	if _, err := plain.List(ctx, rt, Keyword("")); err != nil {
+		t.Fatalf("empty keyword without Search = %v", err)
+	}
+
+	if _, err := plain.List(ctx, rt, Keyword("al")); err == nil {
+		t.Fatal("expected a keyword on a query without Search to be refused")
+	}
+
+	if _, err := q.List(ctx, rt, Keyword("al"), Keyword("bo")); err == nil {
+		t.Fatal("expected two keywords to be refused")
+	}
+
+	sql, args, err := q.SQL(onSQLite, Keyword("50%"))
+	if err != nil || !strings.Contains(sql, `"users"."name" LIKE ? ESCAPE`) || len(args) != 1 || args[0] != "%50~%%" {
+		t.Fatalf("SQL = %s %v, %v", sql, args, err)
 	}
 }
 

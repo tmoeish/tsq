@@ -180,7 +180,7 @@ func FetchEnrollmentByUID(
 	return ordered, nil
 }
 
-// QueryEnrollment reads every Enrollment row that is not deleted; Page matches its search columns.
+// QueryEnrollment reads every Enrollment row that is not deleted.
 var QueryEnrollment = tsq.
 	Select(Enrollment__Cols...).
 	From(TableEnrollment).
