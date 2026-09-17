@@ -21,9 +21,10 @@ const upsertAlias = "tsq_new"
 // other columns and matches live rows only.
 //
 // An update writes every column except the key, the primary key and created_at,
-// increments version without checking it, and refreshes updated_at. deleted_at is
-// written like any column, so an upsert by primary key restores a deleted row. A
-// generated primary key, version and created_at are read back into row.
+// increments version without checking it, and refreshes updated_at. The row
+// written is always live: deleted_at is cleared, so an upsert by primary key
+// restores a deleted row. A generated primary key, version and created_at are read
+// back into row.
 //
 // MySQL matches the proposed row against every unique key, not just key, so there
 // an upsert is refused while the table has another unique key the row could hit.
@@ -80,6 +81,10 @@ func (t *TableOf[R]) upsert(ctx context.Context, db Executor, rows []*R, key []B
 			if err := applyTimestamp(field(row, col), now); err != nil {
 				return fmt.Errorf("table %s: %w", def.name, err)
 			}
+		}
+
+		if col := def.column(def.managed.DeletedAt); col != nil {
+			field(row, col).SetZero()
 		}
 	}
 

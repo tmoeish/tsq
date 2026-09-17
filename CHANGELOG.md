@@ -14,6 +14,7 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 ### 新增
 
+- 新增 `TableXxx.Restore` / `BatchRestore` 和生成的 `row.Restore(ctx, db)`：恢复软删除的行，是清除 `deleted_at` 的唯一入口。
 - 根包不再 import 任何数据库驱动（MySQL 错误改为反射识别），根包测试也不再 import 驱动和 nullbio：只用库的项目 `go mod tidy` 之后 `go.mod` 不会多出间接依赖，`go.sum` 里只剩 SQLite 驱动（根包单测需要）。
 - `TableXxx.Upsert(ctx, db, &row, key...)` 和 `BatchUpsert(ctx, db, rows, key, options...)`：按主键或某个唯一索引插入或更新，PostgreSQL / SQLite 渲染成 `ON CONFLICT ... DO UPDATE`，MySQL 渲染成 `ON DUPLICATE KEY UPDATE`。更新时 `version` 自增不校验、`updated_at` 刷新、`created_at` 保留；单行版本回读主键、`version` 和 `created_at`。MySQL 会匹配所有唯一键，因此行可能撞上别的唯一键时直接拒绝。追踪操作名为 `upsert`。
 - `Query.Iter(ctx, db, args...)` 返回 `iter.Seq2[*O, error]`，逐行扫描，大结果集不必整体读进内存；`break` 会结束查询。追踪操作名为 `iter`。
@@ -81,6 +82,7 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 - 在声明了 `deleted_at` 的表上，`Delete` 是软删除，物理删除是 `HardDelete`；没有 `deleted_at` 的表两者同义。
 - **已删行是表的默认作用域**：引用这张表的每个查询（包括手写查询、JOIN 里的表、子查询和 CTE 里的表）以及 `UpdateTable` / 软 `DeleteFrom` 都看不到已删行。LEFT JOIN 的条件并进 `ON`；有 RIGHT / FULL JOIN 时表按活行派生表读取。`TableXxx.WithDeleted()` 是包含已删行的同一张表；`HardDeleteFrom` 作用于所有行，重复的软删除不会重写墓碑时间。软删除走 UPDATE，乐观锁校验、`version` 自增和 `updated_at` 刷新照常生效。`DeleteFrom` 的软删除时间戳**在执行时**计算（此前在构建时计算，包级语句会一直写入进程启动的时间）。
+- **行级写入不越权改托管列**：`Update` 不再写 `created_at` 和 `deleted_at`，并且在软删除表上只匹配未删除的行——手工构造的行不会把 `created_at` 清零，删除之前读出的旧副本也不会把行复活。软删除只写 `deleted_at` / `updated_at` / `version`，不顺带保存行上其他改动；删除已删除的行在有 `version` 的表上报 `OptimisticLockError`。恢复用 `Restore`。`Upsert` 写入的行总是未删除状态。
 - 读单行只有两个入口：`Get` 在没有行时返回包装 `sql.ErrNoRows` 的错误，`Find` 返回 `nil, nil`。`Get` / `Find` / `Exists` / `Scalar` 最多读一行，`Exists` 不再走 `COUNT`。`Count` 返回 `int64`。
 - 批量写的选项是 `WithBatchSize(n)` 和只对插入有效的 `WithSkipDuplicates()`（传给其他入口会报错）。
 - 事务：`TxOptions{SQL, RetryIf, RetryPolicy}`，`DefaultRetryPolicy()`。重试谓词：`IsRetryableTxError`、`IsOptimisticLockError`、`IsRetryableNetworkError`、`IsTxConflictError`。

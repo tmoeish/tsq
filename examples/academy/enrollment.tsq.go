@@ -206,6 +206,11 @@ func (e *Enrollment) HardDelete(ctx context.Context, db tsq.Executor) error {
 	return TableEnrollment.HardDelete(ctx, db, e)
 }
 
+// Restore clears the row's tombstone; see tsq.TableOf.Restore.
+func (e *Enrollment) Restore(ctx context.Context, db tsq.Executor) error {
+	return TableEnrollment.Restore(ctx, db, e)
+}
+
 // Active reports whether the row is not soft-deleted.
 func (e *Enrollment) Active() bool {
 	return e.DeletedAt == 0

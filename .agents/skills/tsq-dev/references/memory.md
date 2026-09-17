@@ -265,14 +265,14 @@ v4 攒下九个 `Deprecated` 符号，没有任何门禁会提醒它们该走—
 所以有 RIGHT / FULL JOIN 时整张表改成活行派生表（位置规则在 `architecture.md`）。
 `WithDeleted()` 是唯一的出口，`UpdateTable` / 软 `DeleteFrom` 同样受作用域约束。
 
-- **软删除复用 update 路径**，不另写 DELETE 分支：更新路径带着乐观锁校验和 `version` 自增，
-  软删除必须一样有，分开写两条迟早只改一边。
+- **软删除不再复用 update 路径**（2026-09-17 改）：复用时 `Update` 要写 `deleted_at`，于是没有
+  `version` 的表上，删除前读出的旧副本一次 `Update` 就把行复活，手工构造的行还会清零 `created_at`。
+  现在 `Update` 不碰这两列，`Delete` / `Restore` 只写托管列，各自带版本校验。
 - **墓碑值靠 `applyTombstone` 按字段形态分派**，最后一环 `sql.Scanner.Scan(now)` 同时吃下
   `sql.NullTime` 和 `null.Time`，**根包因此不必 import nullbio**。
-- **托管列是 `TableSpec` 上的字段**：以后加托管列是加字段。主键只有一个（`TableSpec.PrimaryKey`），
-  生成器从来只产出单主键。
+- **托管列是 `TableSpec` 上的字段**：以后加托管列是加字段。
 
-**这条路此前端到端零覆盖**（示例从没调用过 `SoftDelete` / `QueryActive*` / `Active()`），和 `*time.Time` 那个 bug 是同一个盲区。门是 `runSoftDeleteDemo`。
+此前端到端零覆盖（和 `*time.Time` 那个 bug 同一盲区），门是 `runSoftDeleteDemo`。
 
 ## 构建与代码生成
 

@@ -991,10 +991,9 @@ func runSoftDeleteDemo(ctx context.Context, runtime *tsq.Runtime) (*SoftDeleteSu
 
 	summary.StoredAfter = stored != nil
 
-	// Restoring is clearing the tombstone. There is no generated helper for it:
-	// bringing a row back is a deliberate act, not a routine one.
-	stored.DeletedAt = 0
-	if err := stored.Update(ctx, exec); err != nil {
+	// Update never writes deleted_at, so a deleted row comes back only through
+	// Restore.
+	if err := stored.Restore(ctx, exec); err != nil {
 		return nil, fmt.Errorf("%s: %w", "restore enrollment", err)
 	}
 

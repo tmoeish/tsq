@@ -903,7 +903,6 @@ func TestIntegrationUpsert(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			enrollment.DeletedAt = 0
 			if err := academy.TableEnrollment.Upsert(ctx, rt, enrollment); err != nil {
 				t.Fatal(err)
 			}
@@ -911,6 +910,25 @@ func TestIntegrationUpsert(t *testing.T) {
 			restored, err := academy.QueryEnrollmentByUID.Get(ctx, rt, academy.Enrollment_UID.Bind(enrollment.UID))
 			if err != nil || restored.Score != 30 {
 				t.Fatalf("restored = %+v, %v", restored, err)
+			}
+
+			// Delete and Restore write only the managed columns.
+			restored.Score = 99
+			if err := restored.Delete(ctx, rt); err != nil {
+				t.Fatal(err)
+			}
+
+			if err := restored.Restore(ctx, rt); err != nil {
+				t.Fatal(err)
+			}
+
+			if err := restored.Restore(ctx, rt); !tsq.IsOptimisticLockError(err) {
+				t.Fatalf("restoring a live row = %v", err)
+			}
+
+			back, err := academy.QueryEnrollmentByUID.Get(ctx, rt, academy.Enrollment_UID.Bind(enrollment.UID))
+			if err != nil || back.Score != 30 || back.Version != restored.Version {
+				t.Fatalf("after delete and restore = %+v, %v; want score 30 and version %d", back, err, restored.Version)
 			}
 		})
 	}

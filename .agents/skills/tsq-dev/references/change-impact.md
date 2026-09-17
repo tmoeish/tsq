@@ -46,7 +46,8 @@
 
 - **删除语义由表决定，不由调用点决定**：`TableSpec.DeletedAt` 非空 → `Delete` 打墓碑，
   `HardDelete` 物理删；为空 → 两者同义。加一个删除入口就要同时加它的 `Hard*` 对偶。
-- **软删除必须继续走 update 路径**：乐观锁校验和 `version` 自增都在那条路上。
+- **软删除和恢复只写托管列**（`setTombstone`），自带版本校验和自增；`Update` 永远不写 `created_at` /
+  `deleted_at` 且只匹配活行。`softdelete_test.go` 用一张没有 `version` 的表守着"旧副本复活已删行"。
 - **托管时间戳和墓碑在库里维护**（`applyTimestamp` / `applyTombstone` / `isUnset`）。新增一种
   字段形态要同时加进这三个函数、`timestamps_test.go` 的类型表、生成器的
   `validateTimestampField` / `validateSoftDeleteField`，以及 `skills/tsq` 的"Supported field
