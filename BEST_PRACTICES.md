@@ -262,14 +262,14 @@ if err := user.Update(ctx, runtime); err != nil {
 ```go
 affected, err := tsq.
 	UpdateTable(database.TableOrder).
-	SetVal(database.Order_Status, "expired").
-	SetVal(database.Order_UpdatedAt, null.TimeFrom(time.Now())).
-	Where(database.Order_Status.EQVal("pending"), database.Order_CreatedAt.LT(database.Order_CreatedAt.Param())).
+	Set(database.Order_Status, tsq.Val("expired")).
+	Set(database.Order_UpdatedAt, tsq.Val(null.TimeFrom(time.Now()))).
+	Where(database.Order_Status.EQ(tsq.Val("pending")), database.Order_CreatedAt.LT(database.Order_CreatedAt.Param())).
 	Exec(ctx, runtime, database.Order_CreatedAt.Bind(cutoff))
 ```
 
 - 这类语句不校验 `version`，但会自增它。批量改动之前加载的对象随后 `Update(...)` 会拿到 `OptimisticLockError`，按 3.7 处理。
-- `UpdateTable` 不替你盖 `updated_at`，需要就显式 `SetVal`；它和查询一样跳过已删行，不需要自己加 `deleted_at` 过滤。`DeleteFrom` 在有 `deleted_at` 的表上是软删除，时间戳在**执行时**盖。
+- `UpdateTable` 不替你盖 `updated_at`，需要就显式 `Set(col, tsq.Val(...))`；它和查询一样跳过已删行，不需要自己加 `deleted_at` 过滤。`DeleteFrom` 在有 `deleted_at` 的表上是软删除，时间戳在**执行时**盖。
 - `Where(...)` 必需。真要全表操作，写显式的 `tsq.And()`，让意图留在代码里。
 - 它是单条语句，不分块；列表参数传超大切片会撞方言的参数上限，那种场景用 `TableXxx.BatchDeleteByPK` 或自己切片。
 
@@ -384,7 +384,7 @@ Builder 采用**阶段型类型系统**：每次调用都会返回不同的具�
 ### 8.2 关键词转义规则
 
 - `Page(ctx, exec, paging)` 会自动对 `paging.Keyword` 转义 LIKE 通配符（`%` 和 `_`）。
-- `tsq.StartsWith` / `tsq.EndsWith` / `tsq.Contains`（及其 `Param` 和 `Not` 形式）同样自动转义；`Like` / `LikeVal` 的模式按原样使用，通配符由调用方负责。
+- `tsq.StartsWith` / `tsq.EndsWith` / `tsq.Contains`（及其 `Param` 和 `Not` 形式）同样自动转义；`Like` 的模式按原样使用，通配符由调用方负责。
 - SQL 注入防护来自参数绑定本身，LIKE 通配符转义只防止意外的模糊匹配，两者不能互替。
 
 ### 8.3 空的列表参数不是异常，而是“查不到任何结果”

@@ -395,7 +395,7 @@ func TestIntegrationCapabilitiesExecute(t *testing.T) {
 
 			if dialect.SupportsCapability(tsqdialect.CapabilityCTE) {
 				recent := tsq.CTE("recent_learners",
-					tsq.Select(academy.Learner_ID).From(academy.TableLearner).Where(academy.Learner_ID.GTVal(0)))
+					tsq.Select(academy.Learner_ID).From(academy.TableLearner).Where(academy.Learner_ID.GT(tsq.Val(int64(0)))))
 				recentID := academy.Learner_ID.WithTable(recent)
 
 				rows, err := tsq.Select(recentID).From(recent).MustBuild().List(ctx, rt)
@@ -667,7 +667,7 @@ func TestIntegrationMutationsByCondition(t *testing.T) {
 			score := tsq.NewParam[int64]("score")
 
 			affected, err := tsq.UpdateTable(academy.TableEnrollment).
-				SetVal(academy.Enrollment_Status, academy.EnrollmentStatusCompleted).
+				Set(academy.Enrollment_Status, tsq.Val(academy.EnrollmentStatusCompleted)).
 				Set(academy.Enrollment_Score, score).
 				Where(academy.Enrollment_CourseID.EQ(academy.Enrollment_CourseID.Param())).
 				Exec(ctx, rt, score.Bind(88), academy.Enrollment_CourseID.Bind(1))
@@ -880,8 +880,8 @@ func TestIntegrationColumnFunctionsArePortable(t *testing.T) {
 			str(tsq.Lower(academy.Learner_Company), "acme")
 			str(tsq.Upper(tsq.Lower(academy.Learner_Company)), "ACME")
 			str(tsq.Substring(tsq.Trim(name), 2, 3), "nïc")
-			str(tsq.NullIfVal(name, "x"), "  Ünïcödé  ")
-			str(tsq.CoalesceVal(academy.Learner_Company, "none"), "ACME")
+			str(tsq.NullIf(name, tsq.Val("x")), "  Ünïcödé  ")
+			str(tsq.Coalesce(academy.Learner_Company, tsq.Val("none")), "ACME")
 
 			length := tsq.Length(tsq.Trim(name))
 			if n, err := tsq.Select(length).From(academy.TableLearner).MustBuild().Scalar(ctx, rt, length); err != nil || n != 7 {

@@ -190,7 +190,7 @@ JoinStage ─Search► SearchStage ─Where─► FilteredStage
   会毒化整个事务），事务外不用（PostgreSQL 拒绝事务外的 SAVEPOINT）。事务与否由执行器的
   `execScope.tx` 说明。
 - 按条件写：`UpdateTable(table)` / `DeleteFrom(table)` / `HardDeleteFrom(table)`。
-  `Set` / `SetVal` 是泛型方法，所以 `UpdateBuilder` 是导出的具体类型；`Where` 之后切到
+  `Set` 是泛型方法，所以 `UpdateBuilder` 是导出的具体类型；`Where` 之后切到
   `MutationStage` 接口。语句只能引用目标表本身（按 `tableDef` 指针加表名判断，别名不行，`WithDeleted()` 行）。有 `version`
   的表追加 `version = version + 1` 但不校验版本（理由见 `memory.md`）。`DeleteFrom` 在有
   `deleted_at` 的表上渲染成 UPDATE，墓碑值**执行时**才算——v4 在构建时算，包级语句会

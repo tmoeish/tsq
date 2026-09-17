@@ -104,14 +104,14 @@ func (b *UpdateBuilder[R]) assign(col SQLColumn, value exprInfo) *UpdateBuilder[
 	return n
 }
 
-// Set assigns rhs, a column, Param or typed subquery, to col.
+// Set assigns rhs, a column, Param, Val or typed subquery, to col. A Val of a nil
+// pointer, or of a Valuer that returns nil, assigns NULL.
 func (b *UpdateBuilder[R]) Set[T any](col TypedColumn[R, T], rhs RHS[T]) *UpdateBuilder[R] {
-	return b.assign(col, rhsInfo(rhs))
-}
+	if v, ok := rhs.(Value[T]); ok {
+		return b.assign(col, v.assignment())
+	}
 
-// SetVal assigns a bound value to col; a nil value assigns NULL.
-func (b *UpdateBuilder[R]) SetVal[T any](col TypedColumn[R, T], value T) *UpdateBuilder[R] {
-	return b.assign(col, exprInfo{sql: sqlValue(value)})
+	return b.assign(col, rhsInfo(rhs))
 }
 
 // Where limits the update. A statement has exactly one WHERE; to update every row,

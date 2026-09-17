@@ -43,9 +43,7 @@ type BoundColumn[O any] interface {
 }
 type CaseStage[T any] interface {
 	When(cond Condition, result RHS[T]) CaseStage[T]
-	WhenVal(cond Condition, value T) CaseStage[T]
 	Else(result RHS[T]) CaseStage[T]
-	ElseVal(value T) CaseStage[T]
 	End() ValueColumn[T]
 }
 func Case[T any]() CaseStage[T]
@@ -72,18 +70,6 @@ type Column[O, T any] interface {
 	NotBetween(start, end RHS[T]) Condition
 	In(set SetRHS[T]) Condition
 	NotIn(set SetRHS[T]) Condition
-	EQVal(value T) Condition
-	NEVal(value T) Condition
-	GTVal(value T) Condition
-	GTEVal(value T) Condition
-	LTVal(value T) Condition
-	LTEVal(value T) Condition
-	LikeVal(pattern T) Condition
-	NotLikeVal(pattern T) Condition
-	BetweenVal(start, end T) Condition
-	NotBetweenVal(start, end T) Condition
-	InVal(values ...T) Condition
-	NotInVal(values ...T) Condition
 	Pred(format string, args ...any) Condition
 	Expr(format string) Column[O, T]
 	Exprf(format string, args ...any) Column[O, T]
@@ -94,7 +80,6 @@ func Abs[O any, N Number](col Column[O, N]) Column[O, N]
 func Avg[O any, N Number](col Column[O, N]) Column[O, float64]
 func Ceil[O any, N Number](col Column[O, N]) Column[O, N]
 func Coalesce[O, T any](col Column[O, T], fallback RHS[T]) Column[O, T]
-func CoalesceVal[O, T any](col Column[O, T], fallback T) Column[O, T]
 func Count[O, T any](col Column[O, T]) Column[O, int64]
 func CountDistinct[O, T any](col Column[O, T]) Column[O, int64]
 func Date[O, T any](col Column[O, T]) Column[O, string]
@@ -107,7 +92,6 @@ func Min[O, T any](col Column[O, T]) Column[O, T]
 func Month[O, T any](col Column[O, T]) Column[O, int64]
 func NewColumn[O, T any](table *TableOf[O], name, jsonName string, field func(*O) *T) Column[O, T]
 func NullIf[O, T any](col Column[O, T], value RHS[T]) Column[O, T]
-func NullIfVal[O, T any](col Column[O, T], value T) Column[O, T]
 func Round[O any, N Number](col Column[O, N], precision int) Column[O, N]
 func Substring[O any, S Text](col Column[O, S], start, length int) Column[O, S]
 func Sum[O any, N Number](col Column[O, N]) Column[O, N]
@@ -479,11 +463,16 @@ type UpdateBuilder[R any] struct {
 }
 func UpdateTable[R any](table *TableOf[R]) *UpdateBuilder[R]
 func (b *UpdateBuilder[R]) Set[T any](col TypedColumn[R, T], rhs RHS[T]) *UpdateBuilder[R]
-func (b *UpdateBuilder[R]) SetVal[T any](col TypedColumn[R, T], value T) *UpdateBuilder[R]
 func (b *UpdateBuilder[R]) Where(conds ...Condition) MutationStage[R]
+type Value[T any] struct {
+}
+func Val[T any](v T) Value[T]
 type ValueColumn[T any] interface {
 	SQLColumn
 }
+type ValueList[T any] struct {
+}
+func Vals[T any](values ...T) ValueList[T]
 type WhereStage[O any] interface {
 	QueryStage[O]
 	Groupable[O]

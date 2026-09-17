@@ -184,24 +184,14 @@ func datePart[O, T any](col Column[O, T], part, sqlPart, strftime string) Column
 	})
 }
 
-// Coalesce is col, or fallback where col is NULL.
+// Coalesce is col, or fallback where col is NULL: a column, Param, Val or subquery.
 func Coalesce[O, T any](col Column[O, T], fallback RHS[T]) Column[O, T] {
 	return combined[O, T](col, "COALESCE(", fallback)
-}
-
-// CoalesceVal is col, or the bound fallback where col is NULL.
-func CoalesceVal[O, T any](col Column[O, T], fallback T) Column[O, T] {
-	return combinedInfo[O, T](col, "COALESCE(", operandOf(fallback))
 }
 
 // NullIf is col, or NULL where col equals value.
 func NullIf[O, T any](col Column[O, T], value RHS[T]) Column[O, T] {
 	return combined[O, T](col, "NULLIF(", value)
-}
-
-// NullIfVal is col, or NULL where col equals the bound value.
-func NullIfVal[O, T any](col Column[O, T], value T) Column[O, T] {
-	return combinedInfo[O, T](col, "NULLIF(", operandOf(value))
 }
 
 func combined[O, T any](col Column[O, T], open string, rhs RHS[T]) Column[O, T] {

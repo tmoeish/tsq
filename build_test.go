@@ -55,11 +55,11 @@ func TestBuildRejectsInvalidStructure(t *testing.T) {
 		want  string
 	}{
 		"table not in query": {
-			stage: Select(User_ID).From(Users).Where(Order_Amount.GTVal(1)),
+			stage: Select(User_ID).From(Users).Where(Order_Amount.GT(Val(int64(1)))),
 			want:  "orders is referenced",
 		},
 		"join without reference": {
-			stage: Select(User_ID).From(Users).Join(Orders, User_Name.EQVal("x")),
+			stage: Select(User_ID).From(Users).Join(Orders, User_Name.EQ(Val("x"))),
 			want:  "must reference orders",
 		},
 		"join twice": {
@@ -119,7 +119,7 @@ func TestPhaseChecksCatchAssertedStages(t *testing.T) {
 		Where(...Condition) FilteredStage[user]
 	})
 	if ok {
-		if _, err := where.Where(User_ID.EQVal(1)).Build(); err == nil {
+		if _, err := where.Where(User_ID.EQ(Val(int64(1)))).Build(); err == nil {
 			t.Fatal("expected Where after GroupBy to fail")
 		}
 	}

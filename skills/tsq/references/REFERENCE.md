@@ -479,9 +479,9 @@ Rules:
 Common examples:
 
 ```go
-database.User_ID.EQVal(1)
+database.User_ID.EQ(tsq.Val(int64(1)))
 tsq.Contains(database.User_Name, "alice")
-database.User_Email.LikeVal("%@example.com")
+database.User_Email.Like(tsq.Val("%@example.com"))
 database.User_ManagerID.IsNull()
 ```
 
@@ -491,7 +491,7 @@ The builder is stage-based: `Where(...)` appears at most once per chain (the typ
 
 ```go
 Where(
-	database.User_OrgID.EQVal(1),
+	database.User_OrgID.EQ(tsq.Val(int64(1))),
 	tsq.Or(
 		tsq.Contains(database.User_Name, "alice"),
 		tsq.Contains(database.User_Email, "alice"),
@@ -538,15 +538,34 @@ Use the escape hatches deliberately, not as a replacement for typed columns:
 - `col.Expr(format)` / `col.Exprf(format, args...)` build a derived column the same way
 - the format text is emitted verbatim for every dialect; it is yours to keep portable
 
-### Ordinary values are bound parameters
+### Values fixed in the code
 
-`EQVal(v)`, `InVal(vs...)`, `SetVal(col, v)` and plain values passed to `Pred` / `Exprf` / `Case`
-are always bound, never inlined into the SQL text.
+`tsq.Val(v)` is a Go value that stands wherever a column of the same type could: `EQ`, `GT`,
+`Like`, `Between`, `Set`, `Case().When` / `Else`, `tsq.Coalesce`, `tsq.NullIf`. `tsq.Vals(vs...)`
+is the list form for `In` / `NotIn`. Both are always bound, never inlined into the SQL text, and so
+are plain values passed to `Pred` / `Exprf`.
 
-Values have their own `Val` methods rather than a generic value wrapper usable as an RHS, on
-purpose: Go infers an untyped constant's type from the wrapper call alone, so a wrapped `90` would
-be an `int` and not fit an `int64` column. `EQVal(90)` takes the column's type and the constant
-converts.
+```go
+database.User_Name.EQ(tsq.Val("alice"))
+database.User_ID.In(tsq.Vals(ids...))            // ids is []int64
+database.User_Age.Between(tsq.Val(int64(18)), tsq.Val(int64(65)))
+```
+
+The value's type is inferred from the value alone, so an **untyped constant takes its default
+type**: `tsq.Val(90)` is a `Value[int]`. Against an `int64` column write `tsq.Val(int64(90))`
+(or `tsq.Val[int64](90)`); the mismatch does not compile:
+
+```
+tsq.Value[int] does not implement tsq.RHS[int64] (wrong type for method rhsValue)
+```
+
+String constants, typed constants (`tsq.Val(StatusActive)`) and typed variables need no
+conversion.
+
+- a `NULL` comparison is refused (use `IsNull()` / `IsNotNull()`); in `Set`, a `Val` of a nil
+  pointer or of a null `Valuer` writes `NULL`
+- `tsq.Val` takes a Go value; passing a column or condition to it is an error, pass the
+  expression itself
 
 ## 7. Pagination and keyword search
 
@@ -594,7 +613,7 @@ if err != nil {
 
 `Paging.Keyword` is automatically escaped for LIKE wildcards when executing via `query.Page(...)`, so `%`, `_` and the escape character itself are matched literally on every supported dialect; the keyword still matches as a substring. The generated predicate carries an explicit `ESCAPE '~'` clause, because SQLite has no default LIKE escape character. A backslash in a keyword is an ordinary character.
 
-The pattern functions (`tsq.StartsWith`, `tsq.EndsWith`, `tsq.Contains`, their `Not` forms, and the `...Param` forms) escape wildcards the same way. `Like` / `LikeVal` take a pattern as written, wildcards included. Wildcard escaping is about matching the right rows, not SQL injection protection — that comes from parameter binding.
+The pattern functions (`tsq.StartsWith`, `tsq.EndsWith`, `tsq.Contains`, their `Not` forms, and the `...Param` forms) escape wildcards the same way. `Like` takes a pattern as written, wildcards included. Wildcard escaping is about matching the right rows, not SQL injection protection — that comes from parameter binding.
 
 ## 8. Execution helpers
 
@@ -657,7 +676,7 @@ var score = tsq.NewParam[int64]("score")
 
 var CompleteCourseEnrollments = tsq.
 	UpdateTable(database.TableEnrollment).
-	SetVal(database.Enrollment_Status, database.EnrollmentStatusCompleted).
+	Set(database.Enrollment_Status, tsq.Val(database.EnrollmentStatusCompleted)).
 	Set(database.Enrollment_Score, score).
 	Where(database.Enrollment_CourseID.EQ(database.Enrollment_CourseID.Param())).
 	MustBuild()
@@ -678,7 +697,7 @@ affected, err = CancelEnrollments.Exec(ctx, runtime, database.Enrollment_UID.Bin
 Shape:
 
 - `tsq.UpdateTable(table)` / `tsq.DeleteFrom(table)` / `tsq.HardDeleteFrom(table)` take the table descriptor
-- `Set(col, rhs)` takes a column, `Param` or typed scalar subquery of the column's type; `SetVal(col, value)` binds a value (`nil` sets `NULL`). Types are matched at compile time
+- `Set(col, rhs)` takes a column, `Param`, `tsq.Val` or typed scalar subquery of the column's type; `tsq.Val` of a nil pointer sets `NULL`. Types are matched at compile time
 - `Where(...)` is required and appears exactly once; the type system enforces both. Conditions are ANDed; a full-table statement says so with `tsq.And()`
 - `Build()` returns an immutable `*tsq.Mutation[R]`; `Exec(ctx, db, args...)` returns the affected row count; `mutation.SQL(dialect, args...)` shows what would run
 
@@ -782,8 +801,8 @@ Prefer a generated result when the query result shape is stable and meaningful i
 TSQ supports more than simple list queries. Common advanced shapes include:
 
 - aggregate queries with `GroupBy(...)` and `Having(...)`
-- `CASE` expressions: `tsq.Case[string]().When(cond, col).WhenVal(cond, "x").ElseVal("y").End()`; results are typed, so a branch of another type does not compile
-- `tsq.Coalesce(col, rhs)` / `tsq.CoalesceVal(col, v)` and `tsq.NullIf` / `tsq.NullIfVal`
+- `CASE` expressions: `tsq.Case[string]().When(cond, col).When(cond, tsq.Val("x")).Else(tsq.Val("y")).End()`; results are typed, so a branch of another type does not compile
+- `tsq.Coalesce(col, rhs)` and `tsq.NullIf(col, rhs)`, with `tsq.Val` for a fixed value
 - subqueries such as `In(subquery)`, `tsq.Exists(subquery)`, and typed RHS comparisons like `EQ(subquery)` or `Like(subquery)`
 - correlated subqueries, where the subquery declares the enclosing query's tables with `Correlate(...)`
 - non-recursive CTEs: `cte := tsq.CTE("big_orders", stage)`, then join `cte` and reference its columns with `col.WithTable(cte)` (all built-in dialects; MySQL baseline is 8.0)
@@ -924,8 +943,8 @@ The builder is **stage-based**: each call returns a different concrete type that
 
 An empty or nil list never drops the filter:
 
-- `In(listParam)` bound to no values matches nothing; so does `InVal()`
-- `NotIn(listParam)` bound to no values matches everything; so does `NotInVal()`
+- `In(listParam)` bound to no values matches nothing; so does `In(tsq.Vals[int64]())`
+- `NotIn(listParam)` bound to no values matches everything; so does `NotIn(tsq.Vals[int64]())`
 
 ### Generated query variables
 

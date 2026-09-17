@@ -53,14 +53,14 @@ type SearchColumn interface {
 }
 
 // RHS is the right-hand side of a comparison against a T: a column or expression
-// holding a T, a Param[T], or a typed scalar Subquery[T]. Values use the *Val methods.
+// holding a T, a Param[T], a Value[T] from Val, or a typed scalar Subquery[T].
 type RHS[T any] interface {
 	rhsValue(T)
 	operand() exprInfo
 }
 
-// SetRHS is the right-hand side of IN and NOT IN over T: a ListParam[T] or a typed
-// Subquery[T]. Literal lists use InVal and NotInVal.
+// SetRHS is the right-hand side of IN and NOT IN over T: a ListParam[T], a
+// ValueList[T] from Vals, or a typed Subquery[T].
 type SetRHS[T any] interface {
 	setValue(T)
 	setOperand(negated bool) exprInfo
@@ -93,7 +93,7 @@ type Column[O, T any] interface {
 	IsNull() Condition
 	IsNotNull() Condition
 
-	// EQ and the other comparisons take a column, a Param or a typed subquery.
+	// EQ and the other comparisons take a column, a Param, a Val or a typed subquery.
 	EQ(rhs RHS[T]) Condition
 	NE(rhs RHS[T]) Condition
 	GT(rhs RHS[T]) Condition
@@ -106,28 +106,10 @@ type Column[O, T any] interface {
 	NotLike(rhs RHS[T]) Condition
 	Between(start, end RHS[T]) Condition
 	NotBetween(start, end RHS[T]) Condition
-	// In takes a ListParam or a typed subquery. An empty list matches nothing, and
+	// In takes a ListParam, Vals or a typed subquery. An empty list matches nothing, and
 	// NotIn over an empty list matches everything.
 	In(set SetRHS[T]) Condition
 	NotIn(set SetRHS[T]) Condition
-
-	// The *Val forms take a Go value, bound as a parameter. They exist because the
-	// value's type comes from the column, so an untyped constant fits any numeric
-	// column: Price.GTVal(10) works on an int64 column.
-	EQVal(value T) Condition
-	NEVal(value T) Condition
-	GTVal(value T) Condition
-	GTEVal(value T) Condition
-	LTVal(value T) Condition
-	LTEVal(value T) Condition
-	LikeVal(pattern T) Condition
-	NotLikeVal(pattern T) Condition
-	BetweenVal(start, end T) Condition
-	NotBetweenVal(start, end T) Condition
-	// InVal matches any of values; no values matches nothing.
-	InVal(values ...T) Condition
-	// NotInVal matches none of values; no values matches everything.
-	NotInVal(values ...T) Condition
 
 	// Pred builds a custom condition. The first %s is the column and each further %s
 	// takes the next argument, which may be a column, a Param, a typed subquery or a
@@ -365,69 +347,6 @@ func (c columnImpl[O, T]) membership(op string, set SetRHS[T], negated bool) Con
 	}
 
 	return c.compare(op, set.setOperand(negated))
-}
-
-// EQVal compares with = to a bound value.
-func (c columnImpl[O, T]) EQVal(value T) Condition { return c.compare("=", operandOf(value)) }
-
-// NEVal compares with <> to a bound value.
-func (c columnImpl[O, T]) NEVal(value T) Condition { return c.compare("<>", operandOf(value)) }
-
-// GTVal compares with > to a bound value.
-func (c columnImpl[O, T]) GTVal(value T) Condition { return c.compare(">", operandOf(value)) }
-
-// GTEVal compares with >= to a bound value.
-func (c columnImpl[O, T]) GTEVal(value T) Condition { return c.compare(">=", operandOf(value)) }
-
-// LTVal compares with < to a bound value.
-func (c columnImpl[O, T]) LTVal(value T) Condition { return c.compare("<", operandOf(value)) }
-
-// LTEVal compares with <= to a bound value.
-func (c columnImpl[O, T]) LTEVal(value T) Condition { return c.compare("<=", operandOf(value)) }
-
-// LikeVal matches with LIKE against a bound pattern.
-func (c columnImpl[O, T]) LikeVal(pattern T) Condition {
-	return c.compare("LIKE", operandOf(pattern))
-}
-
-// NotLikeVal matches with NOT LIKE against a bound pattern.
-func (c columnImpl[O, T]) NotLikeVal(pattern T) Condition {
-	return c.compare("NOT LIKE", operandOf(pattern))
-}
-
-// BetweenVal matches the inclusive range of bound values.
-func (c columnImpl[O, T]) BetweenVal(start, end T) Condition {
-	return c.between("BETWEEN", operandOf(start), operandOf(end))
-}
-
-// NotBetweenVal matches outside the inclusive range of bound values.
-func (c columnImpl[O, T]) NotBetweenVal(start, end T) Condition {
-	return c.between("NOT BETWEEN", operandOf(start), operandOf(end))
-}
-
-// InVal matches any of values.
-func (c columnImpl[O, T]) InVal(values ...T) Condition { return c.valueList("IN", "1 = 0", values) }
-
-// NotInVal matches none of values.
-func (c columnImpl[O, T]) NotInVal(values ...T) Condition {
-	return c.valueList("NOT IN", "1 = 1", values)
-}
-
-func (c columnImpl[O, T]) valueList(op, empty string, values []T) Condition {
-	if len(values) == 0 {
-		return newCondition(c.c.info.withSQL(sqlText(empty)))
-	}
-
-	info := exprInfo{}
-	items := make([]sqlExpr, 0, len(values))
-
-	for _, v := range values {
-		item := operandOf(v)
-		info = info.merge(item)
-		items = append(items, item.sql)
-	}
-
-	return c.compare(op, info.withSQL(sqlJoin(sqlText("("), sqlList(", ", items), sqlText(")"))))
 }
 
 // Pred builds a custom condition around the column.

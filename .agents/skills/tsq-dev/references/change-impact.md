@@ -72,7 +72,7 @@
 - 只能引用目标表本身：`Build` 按 `tableDef` 指针加表名比较 `allTables()`，别名会被拒，
   `WithDeleted()` 视为同一张表。放开这一点要先为
   三个方言各设计一种 `UPDATE ... FROM` 写法。
-- `Set` / `SetVal` 是泛型方法，所以 `UpdateBuilder` 必须是具体类型；`Where` 之后才是接口。
+- `Set` 是泛型方法，所以 `UpdateBuilder` 必须是具体类型；`Where` 之后才是接口。
 - 使用者文档三处要同步：`skills/tsq/references/REFERENCE.md` §8 与 §13、`README.md`
   "常见边界"、`BEST_PRACTICES.md` §3.8。
 
@@ -121,7 +121,7 @@
 
 - **转义值和声明转义符必须一起出现。** `escapeLikePattern` 和 `likeEscapeClause` 是同一个契约
   的两半：只转义值而不发 `ESCAPE`，在 SQLite 上查询**静默返回零行**（SQLite 没有默认转义符）。
-  模式参数、`*Val` 模式、关键词搜索三处都这么写。
+  模式参数、模式值、关键词搜索三处都这么写。
 - 转义字符**不能是反斜杠**：MySQL 拼不出 `ESCAPE '\'`。
 - 断言要落在**真跑一次数据库**上：`exec_test.go` 的 `TestPageSearchesSortsAndCounts` 守 SQLite，
   `integration_test.go` 的 `TestIntegrationKeywordSearchEscapesWildcards` 守另外两个方言。

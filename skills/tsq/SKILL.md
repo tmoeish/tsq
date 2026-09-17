@@ -54,7 +54,7 @@ describes the implementation.
 - Do not assume this skill ships management scripts; install or upgrade TSQ with explicit `go install .../cmd/tsq@version` commands, and run `tsq gen` directly against the chosen package.
 - The builder is stage-based: `Where(...)` and `Search(...)` each appear at most once per chain, enforced by the Go type system at compile time. Pass all filter conditions to the single `Where(...)` call; use `tsq.Or(...)` for OR groups. Both clauses can coexist in either order.
 - Remember that `In` over an empty list parameter matches nothing and `NotIn` matches everything; the filter is never dropped.
-- Predicate naming: `Op(rhs)` takes a column, `Param` or subquery; `OpVal(v)` takes a value; negations are `Not*` (`NotIn`, `NotLike`); pattern sugar is `tsq.StartsWith(col, s)` / `tsq.StartsWithParam(col, p)` and escapes wildcards, while `Like` takes a pattern as written.
+- Predicate naming: `Op(rhs)` takes a column, `Param`, `tsq.Val(v)` or subquery (`tsq.Vals(vs...)` for `In`); an untyped numeric constant needs its column's type, `tsq.Val(int64(90))`; negations are `Not*` (`NotIn`, `NotLike`); pattern sugar is `tsq.StartsWith(col, s)` / `tsq.StartsWithParam(col, p)` and escapes wildcards, while `Like` takes a pattern as written.
 - Remember that `Build()` validates query structure, while execution validates dialect capabilities.
 - Do not assume a custom `driver.Valuer` / `sql.Scanner` type implies a DDL column type; use an explicit `db:"...,type:JSON"` / `type:TEXT` / `type:JSONB"` override when the Go type is not directly mappable.
 

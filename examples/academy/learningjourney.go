@@ -62,9 +62,9 @@ func init() {
 		tsq.
 			Select(courseID).
 			From(TableEnrollment).
-			Where(Enrollment_Status.NEVal(EnrollmentStatusCancelled)).
+			Where(Enrollment_Status.NE(tsq.Val(EnrollmentStatusCancelled))).
 			GroupBy(Enrollment_CourseID).
-			Having(tsq.Count(Enrollment_UID).GTEVal(2)),
+			Having(tsq.Count(Enrollment_UID).GTE(tsq.Val(int64(2)))),
 		courseID,
 	)
 	if err != nil {

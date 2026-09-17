@@ -179,9 +179,9 @@ MySQL 的 `LENGTH` 数字节；PostgreSQL 没有 `round(double, int)`；modernc 
 
 - **列函数是包级泛型函数**（`tsq.Upper(col)`），用 `Text` / `Number` 约束：方法没法再约束类型参数，
   `User_ID.Upper()` 永远能编译。搜索列只能是 `string`（PostgreSQL 的整数没有 `LIKE`）。
-- **否决 `tsq.Val(v)` 作为 RHS、删掉 `*Val` 方法**：实现过又撤回。Go 只按调用本身推断类型参数，
-  `tsq.Val(90)` 是 `Val[int]`，放不进 `RHS[int64]`；而 `EQVal(90)` 的参数类型来自列，常量能转换。
-  整数列上每处都要写 `tsq.Val(int64(90))`，比多一组方法更糟。
+- **固定值是 `tsq.Val(v)` 右值，`*Val` 方法全删**（一度否决，后由维护者拍板）。代价已知：类型只由
+  值推断，`tsq.Val(90)` 是 `Value[int]`，`int64` 列上要写 `int64(90)`；编译错误
+  `does not implement tsq.RHS[int64]` 足够清楚，换来一个入口、少二十个方法。别因为"要写转换"改回去。
 - **`Page` 吃 `Paging`**（`[]OrderBy` 由列构成），字符串形态的 `PageRequest` 只在 HTTP 边界存在，
   `Paging(sortable...)` 要求调用方列出可排序列：v4 按"选出来的列"放行排序，未建索引的列也能被
   客户端拿来排序。

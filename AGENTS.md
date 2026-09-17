@@ -105,10 +105,11 @@
 - `GTE` / `LTE`，不是 `GreaterOrEqual`。
 - `StartsWith` / `EndsWith`。
 - `Expr` / `Exprf` / `Pred` 用于自定义列表达式和谓词。
-- 谓词命名的分工：`Op(rhs)` 接列、参数或子查询，`OpVal(v)` 接值，否定一律 `Not*`；
+- 谓词命名的分工：`Op(rhs)` 是唯一入口，右值是列、参数、子查询或 `tsq.Val(v)`（列表是
+  `tsq.Vals(vs...)`），否定一律 `Not*`。**不要加回 `OpVal(v)` 方法**（理由见 `memory.md`）；
   模式糖 `tsq.StartsWith(col, s)` / `tsq.StartsWithParam(col, p)` 会转义通配符，`Like` 按原样使用模式。
 - 列函数是包级泛型函数（`tsq.Upper(col)`），用类型约束限定列类型；**不要加回列方法**——方法
-  无法约束类型参数。值走 `OpVal(v)` 方法，不要换成 `tsq.Val(v)` 形式的 RHS（理由见 `memory.md`）。
+  无法约束类型参数。
 - 表 DSL 的受管理字段名：`version`、`created_at`、`updated_at`、`deleted_at`。
 - 测试文件名要么对应一个特性，要么对应一个被测文件，没有第三种。按"待办批次"命名的文件
   会从 `feature-map.md` 的清单里掉出去，因为没有哪个特性认领得了那个名字。

@@ -38,14 +38,15 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 - 执行期的值是**参数**，不再按位置传：`Course_ID.EQ(Course_ID.Param())` 写进查询，执行时传 `Course_ID.Bind(5)`；列表用 `In(col.ListParam())` 与 `col.BindList(ids...)`；一列需要两个值时用 `tsq.NewParam[T]("name")`。执行方法的变参类型是密封的 `tsq.Arg`，按参数身份匹配：缺值、多余的值、重复绑定都会报错，值的类型在编译期检查。
 - 所有 `*Var()` 谓词、`SetVar`、`Bind` / `BindSlice` / `Expression` 删除。
-- 模式匹配是包级函数：`tsq.StartsWith(col, "x")` / `EndsWith` / `Contains` 及 `Not` 形式，参数形式是 `tsq.StartsWithParam(col, p)` 等；只接受字符串类的列，都会转义通配符并声明 `ESCAPE`。`Like` / `LikeVal` 按原样使用模式。
+- 模式匹配是包级函数：`tsq.StartsWith(col, "x")` / `EndsWith` / `Contains` 及 `Not` 形式，参数形式是 `tsq.StartsWithParam(col, p)` 等；只接受字符串类的列，都会转义通配符并声明 `ESCAPE`。`Like` 按原样使用模式。
+- 固定值统一写成 `tsq.Val(v)`，列表写成 `tsq.Vals(vs...)`，放在任何接受同类型列的位置：`EQ` / `Between` / `Like` / `Set` / `Case().When` / `Coalesce`……`EQVal` / `InVal` / `BetweenVal` 等全部 `*Val` 方法，以及 `SetVal`、`WhenVal` / `ElseVal`、`CoalesceVal` / `NullIfVal` 删除。值的类型只由值本身推断，无类型数字常量是 `int`：`int64` 列上写 `tsq.Val(int64(90))`，写错时编译报 `does not implement tsq.RHS[int64]`。比较里的 `NULL` 报错，`Set` 里 nil 指针写入 `NULL`。
 
 **查询**
 
 - SQL 在执行时按方言从表达式树渲染并按方言缓存，`Condition` / `SQLColumn` 不再暴露 `Clause()` / `SQLExpr()` 字符串；要看 SQL 用 `Query.SQL(dialect, args...)` 或 `String()`，`ListSQL` / `CountSQL` 等删除。方言能力（`FULL JOIN`、行锁、CTE、`INTERSECT` / `EXCEPT`）由渲染该构造的代码检查，不再扫描 SQL 文本。
 - 阶段接口去掉了 SQL 不允许的转移：分组、`HAVING`、集合操作之后不能加行锁，带搜索的查询不能做集合操作。构建器的具体类型不再出现在签名里，`Select(...).From(...)` 返回 `JoinStage`。
-- `Case[T]()` 的结果有类型：`When(cond, rhs)` / `WhenVal(cond, value)` / `Else` / `ElseVal`。
-- 列函数从列方法改为**包级泛型函数**，并按列类型约束：`tsq.Upper(col)` / `Lower` / `Trim` / `Length` / `Substring` 只接受字符串类的列（`tsq.Text`），`tsq.Sum` / `Avg` / `Round` / `Ceil` / `Floor` / `Abs` 只接受数值列（`tsq.Number`），`tsq.Count` / `CountDistinct` / `Max` / `Min` / `Date` / `Year` / `Month` / `Day` / `Coalesce` / `CoalesceVal` / `NullIf` / `NullIfVal` 接受任意列。套在类型不合的列上编译不过。
+- `Case[T]()` 的结果有类型：`When(cond, rhs)` / `Else(rhs)`。
+- 列函数从列方法改为**包级泛型函数**，并按列类型约束：`tsq.Upper(col)` / `Lower` / `Trim` / `Length` / `Substring` 只接受字符串类的列（`tsq.Text`），`tsq.Sum` / `Avg` / `Round` / `Ceil` / `Floor` / `Abs` 只接受数值列（`tsq.Number`），`tsq.Count` / `CountDistinct` / `Max` / `Min` / `Date` / `Year` / `Month` / `Day` / `Coalesce` / `NullIf` 接受任意列。套在类型不合的列上编译不过。
 - 列函数在三个方言上返回相同的值：`Year` / `Month` / `Day` 返回 `int64`（此前返回列自身类型且得到文本）；`Date` 返回 `'YYYY-MM-DD'` 文本；`Length` 数字符（MySQL 上是 `CHAR_LENGTH`，此前数字节）；`Round` 在 PostgreSQL 的浮点列上也能用；`Substring` 的边界直接写进 SQL，避免 PostgreSQL 选错重载。SQLite 上的日期函数同时认 modernc 驱动默认的 Go 时间文本格式（此前返回 NULL）。
 - 列方法 `Distinct()` 删除（放在选择列表中间会生成非法 SQL），改为 `tsq.CountDistinct(col)` 和查询级的 `tsq.SelectDistinct(...)`。
 - 搜索列由 `tsq.Searchable(col)` 声明，只接受字符串类的列；`//tsq:search` 只接受 `string` 字段。
@@ -59,7 +60,7 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 - 行写入在表描述符上：`TableXxx.Insert/Update/Delete/HardDelete(ctx, db, &row)` 与 `BatchInsert/BatchUpdate/BatchDelete/BatchHardDelete(ctx, db, rows, options...)`；生成的行方法转发给它们。包级的 `tsq.Insert` / `tsq.Update` / `tsq.Delete` / `tsq.Batch*` 删除，按主键删除是 `TableXxx.BatchDeleteByPK(ctx, db, Xxx_ID.BindList(ids...), options...)` 和 `BatchHardDeleteByPK`。
 - 托管列由库维护，不再由生成代码维护：`Insert` 只在未设置时填 `created_at` / `updated_at`，`Update` 总是刷新 `updated_at`。单行写入的错误带主键（`users id=5`），乐观锁冲突以 `*OptimisticLockError`（字段导出）包装返回。
-- 按条件写：`tsq.UpdateTable(TableXxx)` / `tsq.DeleteFrom(TableXxx)` / `tsq.HardDeleteFrom(TableXxx)`，返回导出的 `*UpdateBuilder[R]` / `*DeleteBuilder[R]`；`Set` 接受列、参数或子查询，`SetVal(col, nil)` 可写 `NULL`。`Mutation.SQL()` 改为 `SQL(dialect, args...)`。
+- 按条件写：`tsq.UpdateTable(TableXxx)` / `tsq.DeleteFrom(TableXxx)` / `tsq.HardDeleteFrom(TableXxx)`，返回导出的 `*UpdateBuilder[R]` / `*DeleteBuilder[R]`；`Set` 接受列、参数、`tsq.Val` 或子查询，`tsq.Val` 包 nil 指针可写 `NULL`。`Mutation.SQL()` 改为 `SQL(dialect, args...)`。
 
 **执行器与运行时**
 
@@ -104,7 +105,7 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 - **字段类型来自 `database/sql`（如 `sql.NullString`）时，生成代码编译不过**：模板写出 `tsqsql.NullString`，却从未导入 `tsqsql`。现在有一个真正 `go build` 生成物的测试守着。
 - **声明 `*time.Time` 托管时间戳字段时，生成代码引用了不存在的 `tsq.TimePtr`**：托管时间戳现在由库维护，生成代码不再涉及。
 - **字符串字面量里出现 `FOR UPDATE` 之类的词，会让正常查询被当成使用了不支持的能力而拒绝执行**：能力检测不再扫描 SQL 文本，而是由渲染对应构造的代码报告。
-- **`StartsWithVal` / `EndsWithVal` / `ContainsVal` 不转义通配符**：`ContainsVal("50%")` 会匹配 `50` 开头的任何内容。现在与关键词搜索一样转义并声明 `ESCAPE`。
+- **v4 的 `ContainsVal` 等模式方法不转义通配符**：`ContainsVal("50%")` 会匹配 `50` 开头的任何内容。现在与关键词搜索一样转义并声明 `ESCAPE`。
 - **相关子查询的外层表没有被外层查询校验**：外层没 join 那张表时构建成功、执行时才由数据库报错。
 
 ### 其他
