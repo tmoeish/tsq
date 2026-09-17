@@ -79,8 +79,8 @@ func init() {
 		LeftJoin(TableTrack, Course_TrackID.EQ(Track_ID)).
 		LeftJoin(TableInstructor, Course_InstructorID.EQ(Instructor_ID)).
 		Where(
-			Learner_ID.InVar(),
-			Track_Name.InVar(),
+			Learner_ID.In(Learner_ID.ListParam()),
+			Track_Name.In(Track_Name.ListParam()),
 			Enrollment_CourseID.In(engagedCourseIDs),
 		).
 		Build()
@@ -97,5 +97,8 @@ func PageLearningJourney(
 	learnerIDs []int64,
 	tracks ...string,
 ) (*tsq.PageResponse[LearningJourney], error) {
-	return pageLearningJourneyQuery.Page(ctx, tx, page, learnerIDs, tracks)
+	return pageLearningJourneyQuery.Page(ctx, tx, page,
+		Learner_ID.BindList(learnerIDs...),
+		Track_Name.BindList(tracks...),
+	)
 }

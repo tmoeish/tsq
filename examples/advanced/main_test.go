@@ -27,7 +27,7 @@ func TestAdvanced(t *testing.T) {
 		t.Fatal("expected aggregate demo to return metrics")
 	}
 
-	if len(summary.InVar.Titles) == 0 {
+	if len(summary.ListParam.Titles) == 0 {
 		t.Fatal("expected dynamic IN demo to return titles")
 	}
 

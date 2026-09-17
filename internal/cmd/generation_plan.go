@@ -70,6 +70,8 @@ func buildGenerationModels(
 
 	models := make([]generationModel, 0, len(list))
 
+	var resolver *ddlTypeResolver
+
 	for _, s := range list {
 		if s.TableMeta == nil || len(s.Fields) == 0 {
 			continue
@@ -90,6 +92,21 @@ func buildGenerationModels(
 			model.Template = resultTpl
 			model.ErrorLabel = "Result template rendering failed"
 		} else {
+			if resolver == nil {
+				r, err := newDDLTypeResolver(s.TypeInfo.Package.Path, dir)
+				if err != nil {
+					return nil, err
+				}
+
+				resolver = r
+			}
+
+			schema, err := buildSchemaColumns(s, resolver)
+			if err != nil {
+				return nil, fmt.Errorf("build schema columns for %s: %w", s.TypeInfo.TypeName, err)
+			}
+
+			s.Schema = schema
 			model.Template = tableTpl
 			model.ErrorLabel = "template rendering failed"
 		}
@@ -139,28 +156,10 @@ func buildPackageRuntimeModel(
 		return tables[i].Table < tables[j].Table
 	})
 
-	resolver, err := newDDLTypeResolver(tables[0].TypeInfo.Package.Path, dir)
-	if err != nil {
-		return nil, err
-	}
-
-	templateTables := make([]runtimeTableTemplateData, 0, len(tables))
-	for _, table := range tables {
-		schemaColumns, err := buildRuntimeSchemaColumns(table, resolver)
-		if err != nil {
-			return nil, fmt.Errorf("build runtime schema columns for %s: %w", table.TypeInfo.TypeName, err)
-		}
-
-		templateTables = append(templateTables, runtimeTableTemplateData{
-			StructInfo:    table,
-			SchemaColumns: schemaColumns,
-		})
-	}
-
 	return &generationModel{
 		Data: packageRuntimeTemplateData{
 			Package:    tables[0].TypeInfo.Package,
-			Tables:     templateTables,
+			Tables:     tables,
 			TSQVersion: tables[0].TSQVersion,
 		},
 		Template:   runtimeTpl,
@@ -169,18 +168,18 @@ func buildPackageRuntimeModel(
 	}, nil
 }
 
-func buildRuntimeSchemaColumns(
+func buildSchemaColumns(
 	table *genmodel.StructInfo,
 	resolver *ddlTypeResolver,
-) ([]runtimeColumnTemplateData, error) {
-	columns := make([]runtimeColumnTemplateData, 0, len(table.Fields))
+) ([]genmodel.SchemaColumn, error) {
+	columns := make([]genmodel.SchemaColumn, 0, len(table.Fields))
 	for _, field := range orderedDDLFields(table) {
 		desc, err := resolver.describeField(table, field)
 		if err != nil {
 			return nil, err
 		}
 
-		columns = append(columns, runtimeColumnTemplateData{
+		columns = append(columns, genmodel.SchemaColumn{
 			Name:          field.Column,
 			Kind:          string(desc.kind),
 			Bits:          desc.bits,

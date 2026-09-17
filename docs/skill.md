@@ -186,7 +186,7 @@ Tasks that should activate the skill include:
 - initializing `tsq.Runtime`;
 - writing Build-based queries;
 - using CRUD, pagination, or search helpers; and
-- handling transactions and edge cases involving `InVar()`, `NotInVar()`, CTEs, or `FULL JOIN`.
+- handling transactions and edge cases involving empty list parameters, CTEs, or `FULL JOIN`.
 
 The installed technical references are:
 

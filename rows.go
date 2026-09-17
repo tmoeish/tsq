@@ -1,0 +1,914 @@
+package tsq
+
+import (
+	"context"
+	"database/sql"
+	"database/sql/driver"
+	"errors"
+	"fmt"
+	"log/slog"
+	"reflect"
+	"strings"
+	"time"
+
+	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
+)
+
+// Row writes live on the table descriptor: TableCourse.Insert(ctx, db, &course).
+// Generated code adds the same operations as methods on the row type.
+//
+// Managed columns are maintained here, not in generated code: Insert fills
+// created_at and updated_at when they are unset, Update refreshes updated_at,
+// Delete on a table with deleted_at stamps the tombstone, and a version column is
+// checked and incremented by every row write.
+//
+// Batch writes do not open a transaction. Run them inside Runtime.WithTx when the
+// batch has to succeed or fail as a whole.
+
+// BatchOption configures the Batch* operations.
+type BatchOption func(*batchConfig)
+
+type batchConfig struct {
+	size           int
+	skipDuplicates bool
+	err            error
+}
+
+const defaultBatchSize = 1000
+
+// WithBatchSize sets the number of rows per statement; the default is 1000. It is an
+// upper bound: wide tables are split further so that one statement stays within
+// the dialect's bind parameter limit (dialect.MaxBindParams).
+func WithBatchSize(size int) BatchOption {
+	return func(c *batchConfig) {
+		if size <= 0 {
+			c.err = fmt.Errorf("invalid batch size: %d", size)
+			return
+		}
+
+		c.size = size
+	}
+}
+
+// WithSkipDuplicates makes BatchInsert skip rows that fail with a duplicate-key
+// error and continue with the rest. Only BatchInsert accepts it.
+func WithSkipDuplicates() BatchOption {
+	return func(c *batchConfig) { c.skipDuplicates = true }
+}
+
+func newBatchConfig(options []BatchOption, insert bool) (batchConfig, error) {
+	config := batchConfig{size: defaultBatchSize}
+
+	for _, option := range options {
+		if option != nil {
+			option(&config)
+		}
+	}
+
+	if config.err != nil {
+		return batchConfig{}, config.err
+	}
+
+	if config.skipDuplicates && !insert {
+		return batchConfig{}, errors.New("WithSkipDuplicates applies only to BatchInsert")
+	}
+
+	return config, nil
+}
+
+// effectiveChunkSize lowers a row count so one statement binds at most
+// maxBindParams placeholders, never going below one row.
+func effectiveChunkSize(chunkSize, bindParamsPerRow, maxBindParams int) int {
+	if bindParamsPerRow <= 0 || maxBindParams <= 0 {
+		return chunkSize
+	}
+
+	return max(1, min(chunkSize, maxBindParams/bindParamsPerRow))
+}
+
+func chunks[T any](items []T, size int) [][]T {
+	var result [][]T
+
+	for start := 0; start < len(items); start += size {
+		result = append(result, items[start:min(start+size, len(items))])
+	}
+
+	return result
+}
+
+// Insert inserts row. A zero auto-increment primary key is left to the database
+// and written back to row.
+func (t *TableOf[R]) Insert(ctx context.Context, db Executor, row *R) error {
+	return traceExecutor(ctx, db, TraceOpInsert, func(ctx context.Context) error {
+		return t.insert(ctx, db, []*R{row}, batchConfig{size: 1})
+	})
+}
+
+// BatchInsert inserts rows in as few statements as the batch size allows.
+func (t *TableOf[R]) BatchInsert(ctx context.Context, db Executor, rows []*R, options ...BatchOption) error {
+	return traceExecutor(ctx, db, TraceOpInsert, func(ctx context.Context) error {
+		config, err := newBatchConfig(options, true)
+		if err != nil {
+			return err
+		}
+
+		return t.insert(ctx, db, rows, config)
+	})
+}
+
+// Update writes every column of row except the primary key, matching on the
+// primary key and, when the table has one, the version.
+func (t *TableOf[R]) Update(ctx context.Context, db Executor, row *R) error {
+	return traceExecutor(ctx, db, TraceOpUpdate, func(ctx context.Context) error {
+		return t.update(ctx, db, []*R{row}, batchConfig{size: 1}, time.Now())
+	})
+}
+
+// BatchUpdate updates rows in as few statements as the batch size allows.
+func (t *TableOf[R]) BatchUpdate(ctx context.Context, db Executor, rows []*R, options ...BatchOption) error {
+	return traceExecutor(ctx, db, TraceOpUpdate, func(ctx context.Context) error {
+		config, err := newBatchConfig(options, false)
+		if err != nil {
+			return err
+		}
+
+		return t.update(ctx, db, rows, config, time.Now())
+	})
+}
+
+// Delete deletes row. On a table with a deleted_at column it is a soft delete: an
+// update that stamps the tombstone, so the version check applies. Otherwise it is
+// HardDelete.
+func (t *TableOf[R]) Delete(ctx context.Context, db Executor, row *R) error {
+	return t.BatchDelete(ctx, db, []*R{row}, WithBatchSize(1))
+}
+
+// BatchDelete deletes rows as Delete does.
+func (t *TableOf[R]) BatchDelete(ctx context.Context, db Executor, rows []*R, options ...BatchOption) error {
+	return traceExecutor(ctx, db, TraceOpDelete, func(ctx context.Context) error {
+		config, err := newBatchConfig(options, false)
+		if err != nil {
+			return err
+		}
+
+		if t.def.managed.DeletedAt == "" {
+			return t.hardDelete(ctx, db, rows, config)
+		}
+
+		now := time.Now()
+
+		for _, row := range rows {
+			if row == nil {
+				continue
+			}
+
+			if err := t.stampDeleted(row, now); err != nil {
+				return err
+			}
+		}
+
+		return t.update(ctx, db, rows, config, now)
+	})
+}
+
+// HardDelete removes row from the table, ignoring any deleted_at column.
+func (t *TableOf[R]) HardDelete(ctx context.Context, db Executor, row *R) error {
+	return t.BatchHardDelete(ctx, db, []*R{row}, WithBatchSize(1))
+}
+
+// BatchHardDelete removes rows from the table, ignoring any deleted_at column.
+func (t *TableOf[R]) BatchHardDelete(ctx context.Context, db Executor, rows []*R, options ...BatchOption) error {
+	return traceExecutor(ctx, db, TraceOpDelete, func(ctx context.Context) error {
+		config, err := newBatchConfig(options, false)
+		if err != nil {
+			return err
+		}
+
+		return t.hardDelete(ctx, db, rows, config)
+	})
+}
+
+// field returns the addressable field of row behind column.
+func field[R any](row *R, col *columnCore) reflect.Value {
+	return reflect.ValueOf(col.scan(row)).Elem()
+}
+
+// writeStmt builds one statement for a known dialect.
+type writeStmt struct {
+	d    tsqdialect.Dialect
+	sql  strings.Builder
+	args []any
+	err  error
+}
+
+func (w *writeStmt) text(s string) *writeStmt {
+	w.sql.WriteString(s)
+	return w
+}
+
+func (w *writeStmt) ident(name string) *writeStmt {
+	if err := validateIdentifierForDialect(name, w.d); err != nil && w.err == nil {
+		w.err = err
+	}
+
+	w.sql.WriteString(w.d.QuoteIdent(name))
+
+	return w
+}
+
+func (w *writeStmt) arg(v any) *writeStmt {
+	w.args = append(w.args, v)
+	w.sql.WriteString(w.d.Placeholder(len(w.args) - 1))
+
+	return w
+}
+
+func (t *TableOf[R]) prepareWrite(db Executor, rows []*R) (*tableDef, execScope, error) {
+	def, err := t.ready()
+	if err != nil {
+		return nil, execScope{}, err
+	}
+
+	scope, err := executorScope(db)
+	if err != nil {
+		return nil, execScope{}, err
+	}
+
+	for i, row := range rows {
+		if row == nil {
+			return nil, execScope{}, fmt.Errorf("row %d is nil", i)
+		}
+	}
+
+	if def.primaryKey == nil {
+		return nil, execScope{}, fmt.Errorf("table %s has no primary key", def.name)
+	}
+
+	return def, scope, nil
+}
+
+// isUnset reports whether a managed timestamp field holds no value yet.
+func isUnset(v reflect.Value) bool {
+	if v.IsZero() {
+		return true
+	}
+
+	if valuer, ok := reflect.TypeAssert[driver.Valuer](v); ok {
+		value, err := valuer.Value()
+		return err == nil && value == nil
+	}
+
+	return false
+}
+
+func (t *TableOf[R]) insert(ctx context.Context, db Executor, rows []*R, config batchConfig) error {
+	if len(rows) == 0 {
+		return nil
+	}
+
+	def, scope, err := t.prepareWrite(db, rows)
+	if err != nil {
+		return err
+	}
+
+	now := time.Now()
+
+	for _, row := range rows {
+		for _, name := range []string{def.managed.CreatedAt, def.managed.UpdatedAt} {
+			if col := def.column(name); col != nil && isUnset(field(row, col)) {
+				if err := applyTimestamp(field(row, col), now); err != nil {
+					return fmt.Errorf("table %s: %w", def.name, err)
+				}
+			}
+		}
+	}
+
+	// Rows whose generated key is still zero omit the key column, so the two kinds
+	// are inserted separately.
+	var generated, explicit []*R
+
+	for _, row := range rows {
+		if def.autoIncrement && field(row, def.primaryKey).IsZero() {
+			generated = append(generated, row)
+		} else {
+			explicit = append(explicit, row)
+		}
+	}
+
+	for _, group := range [][]*R{explicit, generated} {
+		if len(group) == 0 {
+			continue
+		}
+
+		omitKey := len(group) > 0 && def.autoIncrement && field(group[0], def.primaryKey).IsZero()
+
+		cols := make([]*columnCore, 0, len(def.columns))
+		for _, col := range def.columns {
+			if omitKey && col == def.primaryKey {
+				continue
+			}
+
+			cols = append(cols, col)
+		}
+
+		if config.skipDuplicates {
+			if err := t.insertSkippingDuplicates(ctx, db, scope, def, cols, group, omitKey); err != nil {
+				return err
+			}
+
+			continue
+		}
+
+		size := effectiveChunkSize(config.size, len(cols), tsqdialect.MaxBindParams(scope.dialect))
+		for _, chunk := range chunks(group, size) {
+			if err := t.insertChunk(ctx, db, scope, def, cols, chunk, omitKey); err != nil {
+				return fmt.Errorf("insert into %s: %w", def.name, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+func (t *TableOf[R]) insertChunk(ctx context.Context, db Executor, scope execScope, def *tableDef, cols []*columnCore, rows []*R, omitKey bool) error {
+	w := &writeStmt{d: scope.dialect}
+	w.text("INSERT INTO ").ident(def.name).text(" (")
+
+	for i, col := range cols {
+		if i > 0 {
+			w.text(", ")
+		}
+
+		w.ident(col.name)
+	}
+
+	w.text(") VALUES ")
+
+	for i, row := range rows {
+		if i > 0 {
+			w.text(", ")
+		}
+
+		w.text("(")
+
+		for j, col := range cols {
+			if j > 0 {
+				w.text(", ")
+			}
+
+			w.arg(field(row, col).Interface())
+		}
+
+		w.text(")")
+	}
+
+	returning := ""
+	if omitKey {
+		returning = scope.dialect.ReturningClause(def.primaryKey.name)
+	}
+
+	w.text(returning)
+
+	if w.err != nil {
+		return w.err
+	}
+
+	logSQLForExecutor(ctx, db, "insert", w.sql.String(), w.args)
+
+	if returning != "" {
+		return t.insertReturning(ctx, db, def, w, rows)
+	}
+
+	result, err := db.ExecContext(ctx, w.sql.String(), w.args...)
+	if err != nil {
+		return err
+	}
+
+	if omitKey {
+		assignInsertIDs(ctx, db, scope.dialect, def, rows, result)
+	}
+
+	return nil
+}
+
+func (t *TableOf[R]) insertReturning(ctx context.Context, db Executor, def *tableDef, w *writeStmt, rows []*R) error {
+	result, err := db.QueryContext(ctx, w.sql.String(), w.args...)
+	if err != nil {
+		return err
+	}
+
+	defer func() { _ = result.Close() }()
+
+	i := 0
+
+	for result.Next() {
+		var id int64
+		if err := result.Scan(&id); err != nil {
+			return fmt.Errorf("scan generated key: %w", err)
+		}
+
+		if i < len(rows) {
+			setID(field(rows[i], def.primaryKey), id)
+		}
+
+		i++
+	}
+
+	if err := result.Err(); err != nil {
+		return err
+	}
+
+	if i != len(rows) {
+		logForExecutor(ctx, db, slog.LevelWarn, "insert returned an unexpected number of keys",
+			"table", def.name, "expected", len(rows), "actual", i)
+	}
+
+	return nil
+}
+
+func assignInsertIDs[R any](ctx context.Context, db Executor, d tsqdialect.Dialect, def *tableDef, rows []*R, result sql.Result) {
+	lastID, err := result.LastInsertId()
+	if err != nil {
+		return
+	}
+
+	if len(rows) == 1 {
+		setID(field(rows[0], def.primaryKey), lastID)
+		return
+	}
+
+	affected, err := result.RowsAffected()
+	if err != nil || affected != int64(len(rows)) {
+		logForExecutor(ctx, db, slog.LevelWarn, "generated keys not assigned: rows affected mismatch",
+			"table", def.name, "expected", len(rows), "actual", affected, "error", err)
+
+		return
+	}
+
+	start, ok := d.BatchInsertStartID(lastID, affected)
+	if !ok {
+		return
+	}
+
+	for i, row := range rows {
+		setID(field(row, def.primaryKey), start+int64(i))
+	}
+}
+
+func setID(v reflect.Value, id int64) {
+	switch v.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		v.SetInt(id)
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		// A negative id means the driver could not report one; zero says "unknown".
+		if id >= 0 {
+			v.SetUint(uint64(id))
+		}
+	}
+}
+
+// Every attempt reuses one savepoint, released or rolled back before the next row.
+const (
+	insertSavepoint         = "tsq_batch_insert"
+	insertSavepointCreate   = "SAVEPOINT " + insertSavepoint
+	insertSavepointRelease  = "RELEASE SAVEPOINT " + insertSavepoint
+	insertSavepointRollback = "ROLLBACK TO SAVEPOINT " + insertSavepoint
+)
+
+// insertSkippingDuplicates inserts one row at a time and skips duplicate-key
+// failures.
+//
+// Inside a transaction each row is bracketed by a savepoint: PostgreSQL aborts
+// the whole transaction on any failed statement, so catching the error and moving
+// on does not work there. Outside a transaction every insert is its own
+// transaction and PostgreSQL rejects SAVEPOINT, so none is used.
+func (t *TableOf[R]) insertSkippingDuplicates(ctx context.Context, db Executor, scope execScope, def *tableDef, cols []*columnCore, rows []*R, omitKey bool) error {
+	for i, row := range rows {
+		if scope.tx {
+			if _, err := db.ExecContext(ctx, insertSavepointCreate); err != nil {
+				return fmt.Errorf("insert into %s, row %d: %w", def.name, i, err)
+			}
+		}
+
+		err := t.insertChunk(ctx, db, scope, def, cols, []*R{row}, omitKey)
+		if err == nil {
+			if scope.tx {
+				if _, err := db.ExecContext(ctx, insertSavepointRelease); err != nil {
+					return fmt.Errorf("insert into %s, row %d: %w", def.name, i, err)
+				}
+			}
+
+			continue
+		}
+
+		if !isDuplicateKeyError(err) {
+			return fmt.Errorf("insert into %s, row %d: %w", def.name, i, err)
+		}
+
+		if scope.tx {
+			if _, rollbackErr := db.ExecContext(ctx, insertSavepointRollback); rollbackErr != nil {
+				return fmt.Errorf("insert into %s, row %d: %w", def.name, i, errors.Join(err, rollbackErr))
+			}
+		}
+
+		logForExecutor(ctx, db, slog.LevelDebug, "skipped duplicate row", "table", def.name, "error", err)
+	}
+
+	return nil
+}
+
+// writeKeyMatch writes the WHERE clause selecting rows by key, and by version when
+// the table has one.
+func writeKeyMatch[R any](w *writeStmt, def *tableDef, rows []*R) {
+	version := def.column(def.managed.Version)
+	pk := def.primaryKey
+
+	if version == nil {
+		w.ident(pk.name).text(" IN (")
+
+		for i, row := range rows {
+			if i > 0 {
+				w.text(", ")
+			}
+
+			w.arg(field(row, pk).Interface())
+		}
+
+		w.text(")")
+
+		return
+	}
+
+	if len(rows) > 1 {
+		w.text("(")
+	}
+
+	for i, row := range rows {
+		if i > 0 {
+			w.text(" OR ")
+		}
+
+		w.text("(").ident(pk.name).text(" = ").arg(field(row, pk).Interface())
+		w.text(" AND ").ident(version.name).text(" = ").arg(field(row, version).Interface()).text(")")
+	}
+
+	if len(rows) > 1 {
+		w.text(")")
+	}
+}
+
+func checkKeys[R any](def *tableDef, rows []*R, op string) error {
+	for i, row := range rows {
+		if field(row, def.primaryKey).IsZero() {
+			return fmt.Errorf("%s %s: row %d has a zero primary key", op, def.name, i)
+		}
+	}
+
+	return nil
+}
+
+func (t *TableOf[R]) update(ctx context.Context, db Executor, rows []*R, config batchConfig, now time.Time) error {
+	if len(rows) == 0 {
+		return nil
+	}
+
+	def, scope, err := t.prepareWrite(db, rows)
+	if err != nil {
+		return err
+	}
+
+	if err := checkKeys(def, rows, "update"); err != nil {
+		return err
+	}
+
+	if col := def.column(def.managed.UpdatedAt); col != nil {
+		for _, row := range rows {
+			if err := applyTimestamp(field(row, col), now); err != nil {
+				return fmt.Errorf("table %s: %w", def.name, err)
+			}
+		}
+	}
+
+	version := def.column(def.managed.Version)
+
+	cols := make([]*columnCore, 0, len(def.columns))
+	for _, col := range def.columns {
+		if col != def.primaryKey && col != version {
+			cols = append(cols, col)
+		}
+	}
+
+	if len(cols) == 0 && version == nil {
+		return fmt.Errorf("update %s: the table has no column to update", def.name)
+	}
+
+	// Each column binds a key and a value per row, and the WHERE clause one or two
+	// more per row.
+	size := effectiveChunkSize(config.size, 2*len(cols)+2, tsqdialect.MaxBindParams(scope.dialect))
+
+	for _, chunk := range chunks(rows, size) {
+		if err := t.updateChunk(ctx, db, scope, def, cols, version, chunk); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (t *TableOf[R]) updateChunk(ctx context.Context, db Executor, scope execScope, def *tableDef, cols []*columnCore, version *columnCore, rows []*R) error {
+	w := &writeStmt{d: scope.dialect}
+	w.text("UPDATE ").ident(def.name).text(" SET ")
+
+	for i, col := range cols {
+		if i > 0 {
+			w.text(", ")
+		}
+
+		w.ident(col.name).text(" = ")
+
+		if len(rows) == 1 {
+			w.arg(field(rows[0], col).Interface())
+			continue
+		}
+
+		w.text("CASE ").ident(def.primaryKey.name)
+
+		for _, row := range rows {
+			w.text(" WHEN ").arg(field(row, def.primaryKey).Interface())
+			w.text(" THEN ").arg(field(row, col).Interface())
+		}
+
+		w.text(" ELSE ").ident(col.name).text(" END")
+	}
+
+	if version != nil {
+		if len(cols) > 0 {
+			w.text(", ")
+		}
+
+		w.ident(version.name).text(" = ").ident(version.name).text(" + 1")
+	}
+
+	w.text(" WHERE ")
+	writeKeyMatch(w, def, rows)
+
+	if err := t.execCounted(ctx, db, w, def, "update", rows, version != nil); err != nil {
+		return err
+	}
+
+	if version != nil {
+		for _, row := range rows {
+			v := field(row, version)
+
+			switch v.Kind() {
+			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+				v.SetInt(v.Int() + 1)
+			case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+				v.SetUint(v.Uint() + 1)
+			}
+		}
+	}
+
+	return nil
+}
+
+// execCounted runs w and, when the rows are version-guarded, reports an
+// OptimisticLockError unless every row matched.
+func (t *TableOf[R]) execCounted(ctx context.Context, db Executor, w *writeStmt, def *tableDef, op string, rows []*R, guarded bool) error {
+	if w.err != nil {
+		return w.err
+	}
+
+	logSQLForExecutor(ctx, db, op, w.sql.String(), w.args)
+
+	// A single row is named by its key so the error says which one; the row itself is
+	// never printed, because its columns may carry data that must not reach logs.
+	target := def.name
+	if len(rows) == 1 {
+		target = fmt.Sprintf("%s %s=%v", def.name, def.primaryKey.name, field(rows[0], def.primaryKey).Interface())
+	}
+
+	result, err := db.ExecContext(ctx, w.sql.String(), w.args...)
+	if err != nil {
+		return fmt.Errorf("%s %s: %w", op, target, err)
+	}
+
+	if !guarded {
+		return nil
+	}
+
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("%s %s: %w", op, target, err)
+	}
+
+	if affected != int64(len(rows)) {
+		return fmt.Errorf("%s %s: %w", op, target, &OptimisticLockError{Table: def.name, Expected: len(rows), Actual: affected})
+	}
+
+	return nil
+}
+
+func (t *TableOf[R]) hardDelete(ctx context.Context, db Executor, rows []*R, config batchConfig) error {
+	if len(rows) == 0 {
+		return nil
+	}
+
+	def, scope, err := t.prepareWrite(db, rows)
+	if err != nil {
+		return err
+	}
+
+	if err := checkKeys(def, rows, "delete"); err != nil {
+		return err
+	}
+
+	version := def.column(def.managed.Version)
+	size := effectiveChunkSize(config.size, 2, tsqdialect.MaxBindParams(scope.dialect))
+
+	for _, chunk := range chunks(rows, size) {
+		w := &writeStmt{d: scope.dialect}
+		w.text("DELETE FROM ").ident(def.name).text(" WHERE ")
+		writeKeyMatch(w, def, chunk)
+
+		if err := t.execCounted(ctx, db, w, def, "delete", chunk, version != nil); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// stampDeleted writes the tombstone and updated_at into row.
+func (t *TableOf[R]) stampDeleted(row *R, now time.Time) error {
+	def := &t.def
+
+	if err := applyTombstone(field(row, def.column(def.managed.DeletedAt)), now); err != nil {
+		return fmt.Errorf("table %s: %w", def.name, err)
+	}
+
+	if col := def.column(def.managed.UpdatedAt); col != nil {
+		if err := applyTimestamp(field(row, col), now); err != nil {
+			return fmt.Errorf("table %s: %w", def.name, err)
+		}
+	}
+
+	return nil
+}
+
+// tombstoneValues returns the values a soft delete at now writes, per column, for
+// statements that hold no row.
+func (t *TableOf[R]) tombstoneValues(now time.Time) (map[string]any, error) {
+	row := new(R)
+	if err := t.stampDeleted(row, now); err != nil {
+		return nil, err
+	}
+
+	values := map[string]any{}
+
+	for _, name := range []string{t.def.managed.DeletedAt, t.def.managed.UpdatedAt} {
+		if col := t.def.column(name); col != nil {
+			values[name] = field(row, col).Interface()
+		}
+	}
+
+	return values, nil
+}
+
+// applyTombstone marks a deleted_at field. Integer columns hold Unix nanoseconds;
+// time-shaped columns hold the instant.
+func applyTombstone(v reflect.Value, ts time.Time) error {
+	switch v.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		v.SetInt(ts.UnixNano())
+		return nil
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		v.SetUint(uint64(ts.UnixNano()))
+		return nil
+	}
+
+	return applyTimestamp(v, ts)
+}
+
+// applyTimestamp writes ts into a time.Time, *time.Time or a nullable time wrapper
+// that implements sql.Scanner (sql.NullTime, null.Time).
+func applyTimestamp(v reflect.Value, ts time.Time) error {
+	switch v.Type() {
+	case reflect.TypeFor[time.Time]():
+		v.Set(reflect.ValueOf(ts))
+		return nil
+	case reflect.TypeFor[*time.Time]():
+		v.Set(reflect.ValueOf(&ts))
+		return nil
+	}
+
+	if scanner, ok := reflect.TypeAssert[sql.Scanner](v.Addr()); ok {
+		if err := scanner.Scan(ts); err != nil {
+			return fmt.Errorf("set managed time column: %w", err)
+		}
+
+		return nil
+	}
+
+	return fmt.Errorf("managed time column has unsupported type %s", v.Type())
+}
+
+// BatchDeleteByPK deletes the rows whose primary key is in ids, as Delete would:
+// a soft delete on a table with deleted_at, otherwise a hard delete. It does not
+// check versions, but a soft delete increments them.
+func BatchDeleteByPK[R, K any](ctx context.Context, db Executor, pk TypedColumn[R, K], ids []K, options ...BatchOption) error {
+	return deleteByPK(ctx, db, pk, ids, options, true)
+}
+
+// BatchHardDeleteByPK removes the rows whose primary key is in ids, ignoring any
+// deleted_at column.
+func BatchHardDeleteByPK[R, K any](ctx context.Context, db Executor, pk TypedColumn[R, K], ids []K, options ...BatchOption) error {
+	return deleteByPK(ctx, db, pk, ids, options, false)
+}
+
+func deleteByPK[R, K any](ctx context.Context, db Executor, pk TypedColumn[R, K], ids []K, options []BatchOption, soft bool) error {
+	return traceExecutor(ctx, db, TraceOpDelete, func(ctx context.Context) error {
+		config, err := newBatchConfig(options, false)
+		if err != nil {
+			return err
+		}
+
+		if isNilValue(pk) {
+			return errors.New("primary-key column cannot be nil")
+		}
+
+		table, ok := pk.Table().(*TableOf[R])
+		if !ok {
+			return fmt.Errorf("column %s must be a column of its declared table, not of an alias", pk.Name())
+		}
+
+		def, scope, err := table.prepareWrite(db, nil)
+		if err != nil {
+			return err
+		}
+
+		if pk.core() != def.primaryKey {
+			return fmt.Errorf("column %s is not the primary key of %s", pk.Name(), def.name)
+		}
+
+		if len(ids) == 0 {
+			return nil
+		}
+
+		soft = soft && def.managed.DeletedAt != ""
+
+		var stamp map[string]any
+		if soft {
+			if stamp, err = table.tombstoneValues(time.Now()); err != nil {
+				return err
+			}
+		}
+
+		size := effectiveChunkSize(config.size, 1, tsqdialect.MaxBindParams(scope.dialect)-len(stamp))
+
+		for _, chunk := range chunks(ids, size) {
+			w := &writeStmt{d: scope.dialect}
+
+			if soft {
+				w.text("UPDATE ").ident(def.name).text(" SET ")
+				writeTombstoneSet(w, def, stamp)
+			} else {
+				w.text("DELETE FROM ").ident(def.name)
+			}
+
+			w.text(" WHERE ").ident(def.primaryKey.name).text(" IN (")
+
+			for i, id := range chunk {
+				if err := validatePredicateValue(id); err != nil {
+					return fmt.Errorf("primary key %d: %w", i, err)
+				}
+
+				if i > 0 {
+					w.text(", ")
+				}
+
+				w.arg(id)
+			}
+
+			w.text(")")
+
+			if err := table.execCounted(ctx, db, w, def, "delete", nil, false); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+}
+
+func writeTombstoneSet(w *writeStmt, def *tableDef, stamp map[string]any) {
+	w.ident(def.managed.DeletedAt).text(" = ").arg(stamp[def.managed.DeletedAt])
+
+	if def.managed.UpdatedAt != "" {
+		w.text(", ").ident(def.managed.UpdatedAt).text(" = ").arg(stamp[def.managed.UpdatedAt])
+	}
+
+	if def.managed.Version != "" {
+		w.text(", ").ident(def.managed.Version).text(" = ").ident(def.managed.Version).text(" + 1")
+	}
+}

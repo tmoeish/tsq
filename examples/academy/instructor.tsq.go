@@ -6,113 +6,127 @@ import (
 	"context"
 	tsqsql "database/sql"
 	"fmt"
-	tsqtime "time"
-
-	null "gopkg.in/nullbio/null.v6"
 
 	"github.com/tmoeish/tsq/v5"
+	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
+	null "gopkg.in/nullbio/null.v6"
 )
 
-// =============================================================================
-// Table Interface Implementation
-// =============================================================================
+// tsqInstructorTable is TableInstructor before its definition; columns are declared on it.
+var tsqInstructorTable = tsq.NewTable[Instructor]("instructor")
 
-// TableInstructor implements the tsq.Table interface for Instructor.
-//
-// The Instructor__Cols argument is never read. It makes this variable depend on the
-// column slice so that Go initializes the slice first: Cols reaches it through an
-// interface method, which package initialization ordering cannot see. Without it a
-// package-level query variable in a file sorting before this one can observe
-// Instructor__Cols fully sized with nil elements.
-var TableInstructor tsq.Table = tsq.DeclareTable(Instructor{}, Instructor__Cols)
+// Columns of Instructor.
+var (
+	Instructor_Bio       = tsq.NewColumn(tsqInstructorTable, "bio", "bio", func(r *Instructor) *string { return &r.Bio })
+	Instructor_CreatedAt = tsq.NewColumn(tsqInstructorTable, "created_at", "created_at", func(r *Instructor) *null.Time { return &r.CreatedAt })
+	Instructor_Email     = tsq.NewColumn(tsqInstructorTable, "email", "email", func(r *Instructor) *string { return &r.Email })
+	Instructor_ID        = tsq.NewColumn(tsqInstructorTable, "id", "id", func(r *Instructor) *int64 { return &r.ID })
+	Instructor_Name      = tsq.NewColumn(tsqInstructorTable, "name", "name", func(r *Instructor) *string { return &r.Name })
+	Instructor_Specialty = tsq.NewColumn(tsqInstructorTable, "specialty", "specialty", func(r *Instructor) *string { return &r.Specialty })
+)
 
-// TSQOwner marks Instructor as a TSQ owner.
-func (i Instructor) TSQOwner() {}
-
-// TableName returns the database table name for Instructor.
-func (i Instructor) TableName() string { return "instructor" }
-
-// Cols returns all generated columns for Instructor.
-func (i Instructor) Cols() []tsq.SQLColumn {
-	return tsq.SQLColumns(Instructor__Cols...)
-}
-
-// SearchColumns returns columns that support keyword search for Instructor.
-func (i Instructor) SearchColumns() []tsq.SearchColumn {
-	return []tsq.SearchColumn{
+// TableInstructor is the table descriptor of Instructor. It depends on every column, so
+// package initialization completes the table before any query uses it.
+var TableInstructor = tsqInstructorTable.Define(tsq.TableSpec[Instructor]{
+	Columns: []tsq.BoundColumn[Instructor]{
+		Instructor_Bio,
+		Instructor_CreatedAt,
+		Instructor_Email,
+		Instructor_ID,
+		Instructor_Name,
+		Instructor_Specialty,
+	},
+	PrimaryKey:    Instructor_ID,
+	AutoIncrement: true,
+	CreatedAt:     Instructor_CreatedAt,
+	Search: []tsq.SearchColumn{
 		Instructor_Name,
 		Instructor_Specialty,
 		Instructor_Bio,
-	}
-}
+	},
+	Schema: []tsqdialect.ColumnSpec{
+		{
+			Name: "id",
+			Type: tsqdialect.ColumnType{
+				Kind: tsqdialect.KindInt,
+				Bits: 64,
+			},
+			PrimaryKey:    true,
+			AutoIncrement: true,
+		},
+		{
+			Name: "created_at",
+			Type: tsqdialect.ColumnType{
+				Kind:     tsqdialect.KindTime,
+				Nullable: true,
+			},
+		},
+		{
+			Name: "bio",
+			Type: tsqdialect.ColumnType{
+				Kind: tsqdialect.KindString,
+				Size: 2048,
+			},
+		},
+		{
+			Name: "email",
+			Type: tsqdialect.ColumnType{
+				Kind: tsqdialect.KindString,
+				Size: 160,
+			},
+		},
+		{
+			Name: "name",
+			Type: tsqdialect.ColumnType{
+				Kind: tsqdialect.KindString,
+				Size: 120,
+			},
+		},
+		{
+			Name: "specialty",
+			Type: tsqdialect.ColumnType{
+				Kind: tsqdialect.KindString,
+				Size: 160,
+			},
+		},
+	},
+	Indexes: []tsq.TableIndex{
+		{Name: "ux_instructor_email", Unique: true, Fields: []string{"email"}},
+	},
+})
 
-// PrimaryKey returns the primary key column for Instructor.
-func (i Instructor) PrimaryKey() string {
-	return "id"
-}
+// Instructor__Cols lists every column of Instructor, for Select.
+var Instructor__Cols = TableInstructor.Columns()
 
-// AutoIncrement reports whether Instructor uses an auto-increment primary key.
-func (i Instructor) AutoIncrement() bool { return true }
-
-// ManagedColumns returns the columns TSQ maintains for Instructor.
-func (i Instructor) ManagedColumns() tsq.ManagedColumns {
-	return tsq.ManagedColumns{
-		CreatedAt: "created_at",
-	}
-}
-
-// Column definitions for Instructor table.
-var (
-	Instructor_Bio       = tsq.NewColumn("bio", "bio", func(t *Instructor) *string { return &t.Bio })
-	Instructor_CreatedAt = tsq.NewColumn("created_at", "created_at", func(t *Instructor) *null.Time { return &t.CreatedAt })
-	Instructor_Email     = tsq.NewColumn("email", "email", func(t *Instructor) *string { return &t.Email })
-	Instructor_ID        = tsq.NewColumn("id", "id", func(t *Instructor) *int64 { return &t.ID })
-	Instructor_Name      = tsq.NewColumn("name", "name", func(t *Instructor) *string { return &t.Name })
-	Instructor_Specialty = tsq.NewColumn("specialty", "specialty", func(t *Instructor) *string { return &t.Specialty })
-)
-
-// Instructor__Cols is the list of all selectable columns for Instructor table.
-var Instructor__Cols = []tsq.BoundColumn[Instructor]{
-	Instructor_Bio,
-	Instructor_CreatedAt,
-	Instructor_Email,
-	Instructor_ID,
-	Instructor_Name,
-	Instructor_Specialty,
-}
-
-// =============================================================================
-// Query by Primary Key
-// =============================================================================
-// QueryInstructorByID stores the generated primary-key lookup query for Instructor.
+// QueryInstructorByID reads one Instructor by primary key; bind Instructor_ID.
 var QueryInstructorByID = tsq.
 	Select(Instructor__Cols...).
 	From(TableInstructor).
 	Where(
-		Instructor_ID.EQVar(),
+		Instructor_ID.EQ(Instructor_ID.Param()),
 	).
 	MustBuild()
 
-// QueryInstructorByIDIn stores the generated primary-key IN lookup query for Instructor.
+// QueryInstructorByIDIn reads Instructor rows by a list of primary keys; bind Instructor_ID with BindList.
 var QueryInstructorByIDIn = tsq.
 	Select(Instructor__Cols...).
 	From(TableInstructor).
 	Where(
-		Instructor_ID.InVar(),
+		Instructor_ID.In(Instructor_ID.ListParam()),
 	).
 	MustBuild()
 
-// FetchInstructorByID returns the Instructor rows whose ID is one of the given
-// values, in the order given. It fails with an error wrapping sql.ErrNoRows when
-// any of them is missing.
+// FetchInstructorByID returns the Instructor rows with the given primary keys,
+// in the order given. It fails with an error wrapping sql.ErrNoRows when any of
+// them is missing.
 func FetchInstructorByID(
 	ctx context.Context,
 	db tsq.Executor,
 	iDs ...int64,
 ) ([]*Instructor, error) {
-	list, err := QueryInstructorByIDIn.List(ctx, db, iDs)
+	list, err := QueryInstructorByIDIn.List(ctx, db, Instructor_ID.BindList(iDs...))
 	if err != nil {
-		return nil, fmt.Errorf("fetch Instructor by ID: %w", err)
+		return nil, err
 	}
 
 	ordered, missing := matchByInputOrder(iDs, list, func(row *Instructor) int64 {
@@ -121,23 +135,21 @@ func FetchInstructorByID(
 	if len(missing) > 0 {
 		return nil, fmt.Errorf("fetch Instructor by ID %v: %w", missing, tsqsql.ErrNoRows)
 	}
+
 	return ordered, nil
 }
 
-// =============================================================================
-// Query by Unique Indexes
-// =============================================================================
-// QueryInstructorByEmail stores the generated unique-index lookup query for Instructor.
+// QueryInstructorByEmail reads one Instructor by unique index ux_instructor_email.
 var QueryInstructorByEmail = tsq.
 	Select(Instructor__Cols...).
 	From(TableInstructor).
 	Where(
-		Instructor_Email.EQVar(),
+		Instructor_Email.EQ(Instructor_Email.Param()),
 	).
 	MustBuild()
 
-// FetchInstructorByEmail returns the Instructor rows matching unique index ux_instructor_email, one per
-// Email value, in the order given. It fails with an error wrapping
+// FetchInstructorByEmail returns the Instructor rows matching unique index ux_instructor_email,
+// one per Email value, in the order given. It fails with an error wrapping
 // sql.ErrNoRows when any of them is missing.
 func FetchInstructorByEmail(
 	ctx context.Context,
@@ -145,10 +157,10 @@ func FetchInstructorByEmail(
 	emails ...string,
 ) ([]*Instructor, error) {
 	list, err := QueryInstructorByEmailIn.List(ctx, db,
-		emails,
+		Instructor_Email.BindList(emails...),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("fetch Instructor by Email: %w", err)
+		return nil, err
 	}
 
 	ordered, missing := matchByInputOrderKey(emails, list,
@@ -158,85 +170,43 @@ func FetchInstructorByEmail(
 	if len(missing) > 0 {
 		return nil, fmt.Errorf("fetch Instructor by Email %v: %w", missing, tsqsql.ErrNoRows)
 	}
+
 	return ordered, nil
 }
 
-// =============================================================================
-// Query by Indexes
-// =============================================================================
-// QueryInstructorByEmailIn stores the generated index query for Instructor.
+// QueryInstructorByEmailIn reads Instructor rows by index ux_instructor_email.
 var QueryInstructorByEmailIn = tsq.
 	Select(Instructor__Cols...).
 	From(TableInstructor).
 	Where(
-		Instructor_Email.InVar(),
+		Instructor_Email.In(Instructor_Email.ListParam()),
 	).
 	MustBuild()
 
-// =============================================================================
-// List All Records
-// =============================================================================
-// QueryInstructor stores the generated list-all query for Instructor.
+// QueryInstructor reads every Instructor row; Page matches its search columns.
 var QueryInstructor = tsq.
 	Select(Instructor__Cols...).
 	From(TableInstructor).
 	Search(TableInstructor.SearchColumns()...).
 	MustBuild()
 
-// =============================================================================
-// CRUD Operations
-// =============================================================================
-
-// Insert inserts a new Instructor record.
-func (i *Instructor) Insert(
-	ctx context.Context,
-	db tsq.Executor,
-) error {
-	if !i.CreatedAt.Valid {
-		i.CreatedAt = null.TimeFrom(tsqtime.Now())
-	}
-	err := tsq.Insert(ctx, db, i)
-	if err != nil {
-		return fmt.Errorf("insert Instructor: %w", err)
-	}
-	return nil
+// Insert inserts the row; see tsq.TableOf.Insert.
+func (i *Instructor) Insert(ctx context.Context, db tsq.Executor) error {
+	return TableInstructor.Insert(ctx, db, i)
 }
 
-// Update updates an existing Instructor record.
-func (i *Instructor) Update(
-	ctx context.Context,
-	db tsq.Executor,
-) error {
-	err := tsq.Update(ctx, db, i)
-	if err != nil {
-		return fmt.Errorf("update Instructor ID=%v: %w", i.ID, err)
-	}
-	return nil
+// Update updates the row; see tsq.TableOf.Update.
+func (i *Instructor) Update(ctx context.Context, db tsq.Executor) error {
+	return TableInstructor.Update(ctx, db, i)
 }
 
-// Delete removes a Instructor record from the database.
-//
-// Instructor declares no deleted_at column, so Delete and HardDelete are the
-// same operation.
-func (i *Instructor) Delete(
-	ctx context.Context,
-	db tsq.Executor,
-) error {
-	err := tsq.Delete(ctx, db, i)
-	if err != nil {
-		return fmt.Errorf("delete Instructor ID=%v: %w", i.ID, err)
-	}
-	return nil
+// Delete removes the row. Instructor has no deleted_at column, so Delete and
+// HardDelete are the same.
+func (i *Instructor) Delete(ctx context.Context, db tsq.Executor) error {
+	return TableInstructor.Delete(ctx, db, i)
 }
 
-// HardDelete removes a Instructor record from the database.
-func (i *Instructor) HardDelete(
-	ctx context.Context,
-	db tsq.Executor,
-) error {
-	err := tsq.HardDelete(ctx, db, i)
-	if err != nil {
-		return fmt.Errorf("hard-delete Instructor ID=%v: %w", i.ID, err)
-	}
-	return nil
+// HardDelete removes the row from the table.
+func (i *Instructor) HardDelete(ctx context.Context, db tsq.Executor) error {
+	return TableInstructor.HardDelete(ctx, db, i)
 }

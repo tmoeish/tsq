@@ -6,120 +6,164 @@ import (
 	"context"
 	tsqsql "database/sql"
 	"fmt"
-	tsqtime "time"
-
-	null "gopkg.in/nullbio/null.v6"
 
 	"github.com/tmoeish/tsq/v5"
+	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
+	null "gopkg.in/nullbio/null.v6"
 )
 
-// =============================================================================
-// Table Interface Implementation
-// =============================================================================
+// tsqCourseTable is TableCourse before its definition; columns are declared on it.
+var tsqCourseTable = tsq.NewTable[Course]("course")
 
-// TableCourse implements the tsq.Table interface for Course.
-//
-// The Course__Cols argument is never read. It makes this variable depend on the
-// column slice so that Go initializes the slice first: Cols reaches it through an
-// interface method, which package initialization ordering cannot see. Without it a
-// package-level query variable in a file sorting before this one can observe
-// Course__Cols fully sized with nil elements.
-var TableCourse tsq.Table = tsq.DeclareTable(Course{}, Course__Cols)
+// Columns of Course.
+var (
+	Course_CreatedAt      = tsq.NewColumn(tsqCourseTable, "created_at", "created_at", func(r *Course) *null.Time { return &r.CreatedAt })
+	Course_ID             = tsq.NewColumn(tsqCourseTable, "id", "id", func(r *Course) *int64 { return &r.ID })
+	Course_InstructorID   = tsq.NewColumn(tsqCourseTable, "instructor_id", "instructor_id", func(r *Course) *int64 { return &r.InstructorID })
+	Course_Level          = tsq.NewColumn(tsqCourseTable, "level", "level", func(r *Course) *CourseLevel { return &r.Level })
+	Course_ListPriceCents = tsq.NewColumn(tsqCourseTable, "list_price_cents", "list_price_cents", func(r *Course) *int64 { return &r.ListPriceCents })
+	Course_PrerequisiteID = tsq.NewColumn(tsqCourseTable, "prerequisite_id", "prerequisite_id", func(r *Course) *int64 { return &r.PrerequisiteID })
+	Course_Published      = tsq.NewColumn(tsqCourseTable, "published", "published", func(r *Course) *bool { return &r.Published })
+	Course_Summary        = tsq.NewColumn(tsqCourseTable, "summary", "summary", func(r *Course) *string { return &r.Summary })
+	Course_Title          = tsq.NewColumn(tsqCourseTable, "title", "title", func(r *Course) *string { return &r.Title })
+	Course_TrackID        = tsq.NewColumn(tsqCourseTable, "track_id", "track_id", func(r *Course) *int64 { return &r.TrackID })
+)
 
-// TSQOwner marks Course as a TSQ owner.
-func (c Course) TSQOwner() {}
-
-// TableName returns the database table name for Course.
-func (c Course) TableName() string { return "course" }
-
-// Cols returns all generated columns for Course.
-func (c Course) Cols() []tsq.SQLColumn {
-	return tsq.SQLColumns(Course__Cols...)
-}
-
-// SearchColumns returns columns that support keyword search for Course.
-func (c Course) SearchColumns() []tsq.SearchColumn {
-	return []tsq.SearchColumn{
+// TableCourse is the table descriptor of Course. It depends on every column, so
+// package initialization completes the table before any query uses it.
+var TableCourse = tsqCourseTable.Define(tsq.TableSpec[Course]{
+	Columns: []tsq.BoundColumn[Course]{
+		Course_CreatedAt,
+		Course_ID,
+		Course_InstructorID,
+		Course_Level,
+		Course_ListPriceCents,
+		Course_PrerequisiteID,
+		Course_Published,
+		Course_Summary,
+		Course_Title,
+		Course_TrackID,
+	},
+	PrimaryKey:    Course_ID,
+	AutoIncrement: true,
+	CreatedAt:     Course_CreatedAt,
+	Search: []tsq.SearchColumn{
 		Course_Title,
 		Course_Summary,
-	}
-}
+	},
+	Schema: []tsqdialect.ColumnSpec{
+		{
+			Name: "id",
+			Type: tsqdialect.ColumnType{
+				Kind: tsqdialect.KindInt,
+				Bits: 64,
+			},
+			PrimaryKey:    true,
+			AutoIncrement: true,
+		},
+		{
+			Name: "created_at",
+			Type: tsqdialect.ColumnType{
+				Kind:     tsqdialect.KindTime,
+				Nullable: true,
+			},
+		},
+		{
+			Name: "instructor_id",
+			Type: tsqdialect.ColumnType{
+				Kind: tsqdialect.KindInt,
+				Bits: 64,
+			},
+		},
+		{
+			Name: "level",
+			Type: tsqdialect.ColumnType{
+				Kind: tsqdialect.KindInt,
+				Bits: 32,
+			},
+		},
+		{
+			Name: "list_price_cents",
+			Type: tsqdialect.ColumnType{
+				Kind: tsqdialect.KindInt,
+				Bits: 64,
+			},
+		},
+		{
+			Name: "prerequisite_id",
+			Type: tsqdialect.ColumnType{
+				Kind: tsqdialect.KindInt,
+				Bits: 64,
+			},
+		},
+		{
+			Name: "published",
+			Type: tsqdialect.ColumnType{
+				Kind: tsqdialect.KindBool,
+			},
+		},
+		{
+			Name: "summary",
+			Type: tsqdialect.ColumnType{
+				Kind: tsqdialect.KindString,
+				Size: 4096,
+			},
+		},
+		{
+			Name: "title",
+			Type: tsqdialect.ColumnType{
+				Kind: tsqdialect.KindString,
+				Size: 160,
+			},
+		},
+		{
+			Name: "track_id",
+			Type: tsqdialect.ColumnType{
+				Kind: tsqdialect.KindInt,
+				Bits: 64,
+			},
+		},
+	},
+	Indexes: []tsq.TableIndex{
+		{Name: "ux_course_title", Unique: true, Fields: []string{"title"}},
+		{Name: "idx_course_instructor_id", Fields: []string{"instructor_id"}},
+		{Name: "idx_course_prerequisite_id", Fields: []string{"prerequisite_id"}},
+		{Name: "idx_course_track_id", Fields: []string{"track_id"}},
+	},
+})
 
-// PrimaryKey returns the primary key column for Course.
-func (c Course) PrimaryKey() string {
-	return "id"
-}
+// Course__Cols lists every column of Course, for Select.
+var Course__Cols = TableCourse.Columns()
 
-// AutoIncrement reports whether Course uses an auto-increment primary key.
-func (c Course) AutoIncrement() bool { return true }
-
-// ManagedColumns returns the columns TSQ maintains for Course.
-func (c Course) ManagedColumns() tsq.ManagedColumns {
-	return tsq.ManagedColumns{
-		CreatedAt: "created_at",
-	}
-}
-
-// Column definitions for Course table.
-var (
-	Course_CreatedAt      = tsq.NewColumn("created_at", "created_at", func(t *Course) *null.Time { return &t.CreatedAt })
-	Course_ID             = tsq.NewColumn("id", "id", func(t *Course) *int64 { return &t.ID })
-	Course_InstructorID   = tsq.NewColumn("instructor_id", "instructor_id", func(t *Course) *int64 { return &t.InstructorID })
-	Course_Level          = tsq.NewColumn("level", "level", func(t *Course) *CourseLevel { return &t.Level })
-	Course_ListPriceCents = tsq.NewColumn("list_price_cents", "list_price_cents", func(t *Course) *int64 { return &t.ListPriceCents })
-	Course_PrerequisiteID = tsq.NewColumn("prerequisite_id", "prerequisite_id", func(t *Course) *int64 { return &t.PrerequisiteID })
-	Course_Published      = tsq.NewColumn("published", "published", func(t *Course) *bool { return &t.Published })
-	Course_Summary        = tsq.NewColumn("summary", "summary", func(t *Course) *string { return &t.Summary })
-	Course_Title          = tsq.NewColumn("title", "title", func(t *Course) *string { return &t.Title })
-	Course_TrackID        = tsq.NewColumn("track_id", "track_id", func(t *Course) *int64 { return &t.TrackID })
-)
-
-// Course__Cols is the list of all selectable columns for Course table.
-var Course__Cols = []tsq.BoundColumn[Course]{
-	Course_CreatedAt,
-	Course_ID,
-	Course_InstructorID,
-	Course_Level,
-	Course_ListPriceCents,
-	Course_PrerequisiteID,
-	Course_Published,
-	Course_Summary,
-	Course_Title,
-	Course_TrackID,
-}
-
-// =============================================================================
-// Query by Primary Key
-// =============================================================================
-// QueryCourseByID stores the generated primary-key lookup query for Course.
+// QueryCourseByID reads one Course by primary key; bind Course_ID.
 var QueryCourseByID = tsq.
 	Select(Course__Cols...).
 	From(TableCourse).
 	Where(
-		Course_ID.EQVar(),
+		Course_ID.EQ(Course_ID.Param()),
 	).
 	MustBuild()
 
-// QueryCourseByIDIn stores the generated primary-key IN lookup query for Course.
+// QueryCourseByIDIn reads Course rows by a list of primary keys; bind Course_ID with BindList.
 var QueryCourseByIDIn = tsq.
 	Select(Course__Cols...).
 	From(TableCourse).
 	Where(
-		Course_ID.InVar(),
+		Course_ID.In(Course_ID.ListParam()),
 	).
 	MustBuild()
 
-// FetchCourseByID returns the Course rows whose ID is one of the given
-// values, in the order given. It fails with an error wrapping sql.ErrNoRows when
-// any of them is missing.
+// FetchCourseByID returns the Course rows with the given primary keys,
+// in the order given. It fails with an error wrapping sql.ErrNoRows when any of
+// them is missing.
 func FetchCourseByID(
 	ctx context.Context,
 	db tsq.Executor,
 	iDs ...int64,
 ) ([]*Course, error) {
-	list, err := QueryCourseByIDIn.List(ctx, db, iDs)
+	list, err := QueryCourseByIDIn.List(ctx, db, Course_ID.BindList(iDs...))
 	if err != nil {
-		return nil, fmt.Errorf("fetch Course by ID: %w", err)
+		return nil, err
 	}
 
 	ordered, missing := matchByInputOrder(iDs, list, func(row *Course) int64 {
@@ -128,23 +172,21 @@ func FetchCourseByID(
 	if len(missing) > 0 {
 		return nil, fmt.Errorf("fetch Course by ID %v: %w", missing, tsqsql.ErrNoRows)
 	}
+
 	return ordered, nil
 }
 
-// =============================================================================
-// Query by Unique Indexes
-// =============================================================================
-// QueryCourseByTitle stores the generated unique-index lookup query for Course.
+// QueryCourseByTitle reads one Course by unique index ux_course_title.
 var QueryCourseByTitle = tsq.
 	Select(Course__Cols...).
 	From(TableCourse).
 	Where(
-		Course_Title.EQVar(),
+		Course_Title.EQ(Course_Title.Param()),
 	).
 	MustBuild()
 
-// FetchCourseByTitle returns the Course rows matching unique index ux_course_title, one per
-// Title value, in the order given. It fails with an error wrapping
+// FetchCourseByTitle returns the Course rows matching unique index ux_course_title,
+// one per Title value, in the order given. It fails with an error wrapping
 // sql.ErrNoRows when any of them is missing.
 func FetchCourseByTitle(
 	ctx context.Context,
@@ -152,10 +194,10 @@ func FetchCourseByTitle(
 	titles ...string,
 ) ([]*Course, error) {
 	list, err := QueryCourseByTitleIn.List(ctx, db,
-		titles,
+		Course_Title.BindList(titles...),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("fetch Course by Title: %w", err)
+		return nil, err
 	}
 
 	ordered, missing := matchByInputOrderKey(titles, list,
@@ -165,142 +207,97 @@ func FetchCourseByTitle(
 	if len(missing) > 0 {
 		return nil, fmt.Errorf("fetch Course by Title %v: %w", missing, tsqsql.ErrNoRows)
 	}
+
 	return ordered, nil
 }
 
-// =============================================================================
-// Query by Indexes
-// =============================================================================
-// QueryCourseByInstructorID stores the generated index query for Course.
+// QueryCourseByInstructorID reads Course rows by index idx_course_instructor_id.
 var QueryCourseByInstructorID = tsq.
 	Select(Course__Cols...).
 	From(TableCourse).
-	Search(TableCourse.SearchColumns()...).
 	Where(
-		Course_InstructorID.EQVar(),
+		Course_InstructorID.EQ(Course_InstructorID.Param()),
 	).
 	MustBuild()
 
-// QueryCourseByInstructorIDIn stores the generated index query for Course.
+// QueryCourseByInstructorIDIn reads Course rows by index idx_course_instructor_id.
 var QueryCourseByInstructorIDIn = tsq.
 	Select(Course__Cols...).
 	From(TableCourse).
 	Where(
-		Course_InstructorID.InVar(),
+		Course_InstructorID.In(Course_InstructorID.ListParam()),
 	).
 	MustBuild()
 
-// QueryCourseByPrerequisiteID stores the generated index query for Course.
+// QueryCourseByPrerequisiteID reads Course rows by index idx_course_prerequisite_id.
 var QueryCourseByPrerequisiteID = tsq.
 	Select(Course__Cols...).
 	From(TableCourse).
-	Search(TableCourse.SearchColumns()...).
 	Where(
-		Course_PrerequisiteID.EQVar(),
+		Course_PrerequisiteID.EQ(Course_PrerequisiteID.Param()),
 	).
 	MustBuild()
 
-// QueryCourseByPrerequisiteIDIn stores the generated index query for Course.
+// QueryCourseByPrerequisiteIDIn reads Course rows by index idx_course_prerequisite_id.
 var QueryCourseByPrerequisiteIDIn = tsq.
 	Select(Course__Cols...).
 	From(TableCourse).
 	Where(
-		Course_PrerequisiteID.InVar(),
+		Course_PrerequisiteID.In(Course_PrerequisiteID.ListParam()),
 	).
 	MustBuild()
 
-// QueryCourseByTitleIn stores the generated index query for Course.
+// QueryCourseByTitleIn reads Course rows by index ux_course_title.
 var QueryCourseByTitleIn = tsq.
 	Select(Course__Cols...).
 	From(TableCourse).
 	Where(
-		Course_Title.InVar(),
+		Course_Title.In(Course_Title.ListParam()),
 	).
 	MustBuild()
 
-// QueryCourseByTrackID stores the generated index query for Course.
+// QueryCourseByTrackID reads Course rows by index idx_course_track_id.
 var QueryCourseByTrackID = tsq.
 	Select(Course__Cols...).
 	From(TableCourse).
-	Search(TableCourse.SearchColumns()...).
 	Where(
-		Course_TrackID.EQVar(),
+		Course_TrackID.EQ(Course_TrackID.Param()),
 	).
 	MustBuild()
 
-// QueryCourseByTrackIDIn stores the generated index query for Course.
+// QueryCourseByTrackIDIn reads Course rows by index idx_course_track_id.
 var QueryCourseByTrackIDIn = tsq.
 	Select(Course__Cols...).
 	From(TableCourse).
 	Where(
-		Course_TrackID.InVar(),
+		Course_TrackID.In(Course_TrackID.ListParam()),
 	).
 	MustBuild()
 
-// =============================================================================
-// List All Records
-// =============================================================================
-// QueryCourse stores the generated list-all query for Course.
+// QueryCourse reads every Course row; Page matches its search columns.
 var QueryCourse = tsq.
 	Select(Course__Cols...).
 	From(TableCourse).
 	Search(TableCourse.SearchColumns()...).
 	MustBuild()
 
-// =============================================================================
-// CRUD Operations
-// =============================================================================
-
-// Insert inserts a new Course record.
-func (c *Course) Insert(
-	ctx context.Context,
-	db tsq.Executor,
-) error {
-	if !c.CreatedAt.Valid {
-		c.CreatedAt = null.TimeFrom(tsqtime.Now())
-	}
-	err := tsq.Insert(ctx, db, c)
-	if err != nil {
-		return fmt.Errorf("insert Course: %w", err)
-	}
-	return nil
+// Insert inserts the row; see tsq.TableOf.Insert.
+func (c *Course) Insert(ctx context.Context, db tsq.Executor) error {
+	return TableCourse.Insert(ctx, db, c)
 }
 
-// Update updates an existing Course record.
-func (c *Course) Update(
-	ctx context.Context,
-	db tsq.Executor,
-) error {
-	err := tsq.Update(ctx, db, c)
-	if err != nil {
-		return fmt.Errorf("update Course ID=%v: %w", c.ID, err)
-	}
-	return nil
+// Update updates the row; see tsq.TableOf.Update.
+func (c *Course) Update(ctx context.Context, db tsq.Executor) error {
+	return TableCourse.Update(ctx, db, c)
 }
 
-// Delete removes a Course record from the database.
-//
-// Course declares no deleted_at column, so Delete and HardDelete are the
-// same operation.
-func (c *Course) Delete(
-	ctx context.Context,
-	db tsq.Executor,
-) error {
-	err := tsq.Delete(ctx, db, c)
-	if err != nil {
-		return fmt.Errorf("delete Course ID=%v: %w", c.ID, err)
-	}
-	return nil
+// Delete removes the row. Course has no deleted_at column, so Delete and
+// HardDelete are the same.
+func (c *Course) Delete(ctx context.Context, db tsq.Executor) error {
+	return TableCourse.Delete(ctx, db, c)
 }
 
-// HardDelete removes a Course record from the database.
-func (c *Course) HardDelete(
-	ctx context.Context,
-	db tsq.Executor,
-) error {
-	err := tsq.HardDelete(ctx, db, c)
-	if err != nil {
-		return fmt.Errorf("hard-delete Course ID=%v: %w", c.ID, err)
-	}
-	return nil
+// HardDelete removes the row from the table.
+func (c *Course) HardDelete(ctx context.Context, db tsq.Executor) error {
+	return TableCourse.HardDelete(ctx, db, c)
 }

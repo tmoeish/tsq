@@ -141,8 +141,8 @@ examples/academy/{mysql,postgres,sqlite}.sql
 - 跨切面的运行时、查询或并发改动，`make test-race` 是必需的而不是可选的：这个库没有集成
   环境兜底，测试是它唯一的安全网。
 - 查询构建器是**阶段式**的，约束由 Go 类型系统在编译期强制。新增阶段时
-  `compilefail_test.go`（"这些调用必须编译失败"）和 `querybuilder_stages_test.go`
-  两边都要加——返回值类型写错，约束会静悄悄地松掉，而普通测试发现不了。
+  `compilefail_test.go`（"这些调用必须编译失败"）要加上对应用例——返回值类型写错，
+  约束会静悄悄地松掉，而普通测试发现不了。
 
 ## 使用者可见的改动
 

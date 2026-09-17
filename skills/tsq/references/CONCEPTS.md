@@ -14,28 +14,25 @@ Go struct + //tsq: directives
 generated *.tsq.go / *.result.tsq.go
             |
             v
-generated columns + CRUD helpers + paging/search helpers
+table descriptor TableXxx + typed columns Xxx_Field + row methods
             |
             v
-tsq.Select(...).From(...).Where(...).Build()
+tsq.Select(...).From(TableXxx).Where(Xxx_Field.EQ(Xxx_Field.Param())).Build()
             |
             v
-       *tsq.Query[Owner]
+       *tsq.Query[Row]   (rendered per dialect when it runs, cached)
             |
             v
-query.List/Get/Find/Page/Count(ctx, Executor, args...)
+query.List/Get/Find/Page/Count(ctx, executor, Xxx_Field.Bind(value))
 ```
 
 ## `//tsq:table`
 
 `//tsq:table` marks a Go struct as a physical table model for code generation.
 
-It drives:
-
-- generated table and column metadata
-- CRUD helpers
-- paging and search helpers
-- table registration metadata
+It drives the generated table descriptor `TableXxx` (a `*tsq.TableOf[Xxx]` holding columns,
+key, managed columns, search columns, schema and indexes), the typed columns, the row methods
+and the generated queries.
 
 ## `//tsq:result`
 
@@ -62,30 +59,37 @@ When a field uses a custom Go codec type, keep two responsibilities separate:
 - `driver.Valuer` / `sql.Scanner` handle runtime read/write conversion
 - `db:"...,type:SQL_TYPE"` handles DDL type override when TSQ cannot infer a column type from the Go type
 
-## Owner model
+## Rows, tables and results
 
-TSQ separates several concepts:
+- a **row type** is your struct; TSQ adds no interface to it
+- a **table** is a `*tsq.TableOf[Row]` descriptor; it is what queries select from and what row
+  writes go through
+- a **result** is any struct a query scans into through `MapInto` columns; only tables can be
+  written
 
-- `Owner`: anything that can receive scanned results
-- `Table`: a physical table owner
-- `Result`: a projection owner
+A column `Column[Row, T]` knows both: the row it scans into and the Go type it holds. Mixing columns
+of two rows in one `Select`, or comparing a column with a value of another type, does not compile.
 
-All `Table` and `Result` values are `Owner`, but only `Table` is a mutation target.
+## Parameters
+
+A value known only when a query runs is a parameter: `col.Param()` in the query, `col.Bind(v)` at
+execution (or `tsq.NewParam[T]("name")` when one column needs two values). Arguments are matched by
+parameter, not position, and have the parameter's type.
 
 ## Runtime and execution
 
 `Runtime` is the normal TSQ-managed executor.
 
-- it holds DB, dialect, registry, and tracer state
-- it implements `Executor` directly
-- it can be passed directly to query and CRUD helpers
-- it also executes `UpdateTable[T]()` / `DeleteFrom[T]()` statements, the staged builders for `UPDATE ... WHERE` / `DELETE ... WHERE` over rows the caller does not hold
+- it holds the pool, dialect, registered tables, logger and tracers
+- it is a `tsq.Executor`, as is the executor `WithTx` passes to its callback and the result of
+  `tsq.WrapExecutor(handle, dialect)`; a bare `*sql.DB` is not, because TSQ must know the dialect
+- it runs queries, row writes, and `UpdateTable(table)` / `DeleteFrom(table)` statements
 
 ## Query lifecycle
 
 1. build a query with the fluent API
 2. call `Build()` to validate structure and produce a reusable query object
-3. execute that query through a `Executor`
+3. execute that query through an `Executor`
 
 Important split:
 
@@ -98,12 +102,10 @@ Important split:
 
 The builder is **stage-based**: each call returns a different concrete type that restricts what comes next. `Where(...)` and `Search(...)` each appear at most once per chain — enforced by the Go type system at compile time. Both can coexist in either order.
 
-### `InVar()` / `NotInVar()`
+### Empty lists
 
-Empty or nil slices do not remove the filter:
-
-- `InVar()` means explicit no-match
-- `NotInVar()` means explicit match-all
+An empty list never removes the filter: `In` over an empty list parameter matches nothing, and
+`NotIn` matches everything.
 
 ## Related files
 

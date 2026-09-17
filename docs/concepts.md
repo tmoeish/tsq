@@ -12,10 +12,10 @@ TSQ 的核心心智模型——注解 DSL、代码生成、查询构建、运行
 | Main flow | 从 Go struct 到可执行查询，中间经过哪些步骤 |
 | `//tsq:table` / `//tsq:result` | 两种指令各自声明什么 |
 | Generated files | `*.tsq.go`、`*.result.tsq.go`、`runtime.tsq.go` 各是什么 |
-| Owner model | `Owner` / `Table` / `Result` 三层语义的分工 |
+| Rows, tables and results | 行类型、表描述符 `TableOf` 和结果投影的分工 |
 | Runtime and execution | `tsq.Runtime` 与 `Executor` 的边界 |
 | Query lifecycle | `Build()` 校验什么，执行期才校验什么 |
-| Two boundaries to remember | `Where` / `Search` 不是 append；`InVar(nil)` 不是"忽略" |
+| Two boundaries to remember | `Where` / `Search` 不是 append；空的列表参数不是"忽略" |
 
 ## 为什么这里只有一个链接
 

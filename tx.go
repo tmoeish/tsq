@@ -64,7 +64,9 @@ func DefaultRetryPolicy() *RetryPolicy {
 
 // IsOptimisticLockError reports whether err wraps an OptimisticLockError.
 func IsOptimisticLockError(err error) bool {
-	return errors.Is(err, &OptimisticLockError{})
+	_, ok := errors.AsType[*OptimisticLockError](err)
+
+	return ok
 }
 
 // IsRetryableNetworkError reports whether err looks like a transient connection failure.
@@ -293,7 +295,7 @@ func (r *Runtime) executeTxAttempt[T any](
 		}
 	}()
 
-	result, err := fn(ctx, wrapExecutor(tx, r.dialect, r))
+	result, err := fn(ctx, boundExecutor{Executor: tx, s: execScope{dialect: r.dialect, runtime: r, tx: true}})
 	if err != nil {
 		var zero T
 		return zero, txRetryStageBody, err

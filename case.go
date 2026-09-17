@@ -2,229 +2,95 @@ package tsq
 
 import (
 	"errors"
-	"maps"
-	"sort"
-	"strings"
+	"slices"
 )
 
-type caseBranch struct {
-	cond   Condition
-	result Expression
-}
-
-type expressionOwner struct{}
-
-// TSQOwner marks expressionOwner as the synthetic owner for CASE projections.
-func (expressionOwner) TSQOwner() {}
-
-// CaseStage builds a searched CASE expression.
+// CaseStage builds a searched CASE expression holding a T.
 type CaseStage[T any] interface {
-	When(cond Condition, result any) CaseStage[T]
-	Else(result any) CaseStage[T]
+	// When adds WHEN cond THEN result, where result is a column, Param or subquery.
+	When(cond Condition, result RHS[T]) CaseStage[T]
+	// WhenVal adds WHEN cond THEN value, with value bound.
+	WhenVal(cond Condition, value T) CaseStage[T]
+	// Else sets the ELSE result.
+	Else(result RHS[T]) CaseStage[T]
+	// ElseVal sets the ELSE result to a bound value.
+	ElseVal(value T) CaseStage[T]
+	// End finishes the expression. Project it into a result with MapInto.
 	End() ValueColumn[T]
 }
 
-type caseBuilder[T any] struct {
-	whens     []caseBranch
-	elseExpr  Expression
-	hasElse   bool
-	tables    map[string]Table
-	aggregate bool
-	distinct  bool
-	buildErr  error
-}
-
-// Case creates a searched CASE expression builder.
+// Case starts a searched CASE expression.
 func Case[T any]() CaseStage[T] {
-	return &caseBuilder[T]{
-		whens:  make([]caseBranch, 0),
-		tables: make(map[string]Table),
-	}
+	return caseBuilder[T]{}
 }
 
-// When appends a WHEN ... THEN ... branch to the CASE expression.
-func (b *caseBuilder[T]) When(cond Condition, result any) CaseStage[T] {
-	if b == nil {
-		return &caseBuilder[T]{buildErr: errors.New("case builder cannot be nil")}
-	}
+type caseBuilder[T any] struct {
+	info     exprInfo
+	branches []sqlExpr
+	elseExpr *sqlExpr
+}
 
-	if b.buildErr != nil {
-		return b
-	}
-
-	clause, condTables, _, err := validateConditionInput(cond)
-	if err != nil {
-		b.buildErr = err
-		return b
-	}
-
-	if strings.TrimSpace(clause) == "" {
-		b.buildErr = errors.New("case condition cannot be empty")
-		return b
-	}
-
-	expr := argumentToExpression(result)
-	if err := expressionBuildError(expr); err != nil {
-		b.buildErr = err
-		return b
-	}
-
-	b.whens = append(b.whens, caseBranch{cond: cond, result: expr})
-	maps.Copy(b.tables, condTables)
-	maps.Copy(b.tables, expressionTables(result))
-
-	agg, distinct := expressionFlags(result)
-	b.aggregate = b.aggregate || agg
-	b.distinct = b.distinct || distinct
+func (b caseBuilder[T]) branch(cond Condition, result exprInfo) CaseStage[T] {
+	ci := conditionInfo(cond)
+	b.info = b.info.merge(ci).merge(result)
+	b.branches = append(slices.Clone(b.branches),
+		sqlJoin(sqlText(" WHEN "), ci.sql, sqlText(" THEN "), result.sql))
 
 	return b
 }
 
-// Else sets the ELSE branch for the CASE expression.
-func (b *caseBuilder[T]) Else(result any) CaseStage[T] {
-	if b == nil {
-		return &caseBuilder[T]{buildErr: errors.New("case builder cannot be nil")}
-	}
+func (b caseBuilder[T]) When(cond Condition, result RHS[T]) CaseStage[T] {
+	return b.branch(cond, rhsInfo(result))
+}
 
-	if b.buildErr != nil {
+func (b caseBuilder[T]) WhenVal(cond Condition, value T) CaseStage[T] {
+	return b.branch(cond, operandOf(value))
+}
+
+func (b caseBuilder[T]) otherwise(result exprInfo) CaseStage[T] {
+	if b.elseExpr != nil {
+		b.info.err = errors.Join(b.info.err, errors.New("case expression has two ELSE results"))
 		return b
 	}
 
-	expr := argumentToExpression(result)
-	if err := expressionBuildError(expr); err != nil {
-		b.buildErr = err
-		return b
-	}
-
-	b.elseExpr = expr
-	b.hasElse = true
-	maps.Copy(b.tables, expressionTables(result))
-
-	agg, distinct := expressionFlags(result)
-	b.aggregate = b.aggregate || agg
-	b.distinct = b.distinct || distinct
+	b.info = b.info.merge(result)
+	b.elseExpr = &result.sql
 
 	return b
 }
 
-// End finalizes the CASE expression into a selectable column.
-func (b *caseBuilder[T]) End() ValueColumn[T] {
-	if b == nil {
-		return columnImpl[expressionOwner, T]{buildErr: errors.New("case builder cannot be nil")}
+func (b caseBuilder[T]) Else(result RHS[T]) CaseStage[T] { return b.otherwise(rhsInfo(result)) }
+
+func (b caseBuilder[T]) ElseVal(value T) CaseStage[T] { return b.otherwise(operandOf(value)) }
+
+func (b caseBuilder[T]) End() ValueColumn[T] {
+	info := b.info
+	if len(b.branches) == 0 {
+		info.err = errors.Join(info.err, errors.New("case expression needs at least one WHEN"))
 	}
 
-	if b.buildErr != nil {
-		return columnImpl[expressionOwner, T]{buildErr: b.buildErr}
+	parts := append([]sqlExpr{sqlText("CASE")}, b.branches...)
+	if b.elseExpr != nil {
+		parts = append(parts, sqlText(" ELSE "), *b.elseExpr)
 	}
 
-	if len(b.whens) == 0 {
-		return columnImpl[expressionOwner, T]{buildErr: errors.New("case expression requires at least one WHEN branch")}
+	parts = append(parts, sqlText(" END"))
+	info.sql = sqlJoin(parts...)
+
+	core := &columnCore{name: "case", info: info}
+
+	// The expression belongs to the first table it references, in name order, so
+	// that the choice does not depend on map iteration.
+	names := make([]string, 0, len(info.tables))
+	for name := range info.tables {
+		names = append(names, name)
 	}
 
-	if len(b.tables) == 0 {
-		return columnImpl[expressionOwner, T]{buildErr: errors.New("case expression must reference at least one table")}
+	slices.Sort(names)
+
+	if len(names) > 0 {
+		core.table = info.tables[names[0]]
 	}
 
-	tableNames := make([]string, 0, len(b.tables))
-	for name := range b.tables {
-		tableNames = append(tableNames, name)
-	}
-
-	sort.Strings(tableNames)
-
-	baseName := tableNames[0]
-	baseTable := b.tables[baseName]
-
-	otherTables := cloneTableMap(b.tables)
-	delete(otherTables, baseName)
-
-	var sqlBuilder strings.Builder
-	sqlBuilder.WriteString("CASE")
-
-	args := make([]any, 0)
-
-	for _, branch := range b.whens {
-		sqlBuilder.WriteString(" WHEN ")
-		sqlBuilder.WriteString(conditionClause(branch.cond))
-		sqlBuilder.WriteString(" THEN ")
-		sqlBuilder.WriteString(branch.result.Expr())
-		args = append(args, branch.cond.Args()...)
-		args = append(args, branch.result.Args()...)
-	}
-
-	if b.hasElse {
-		sqlBuilder.WriteString(" ELSE ")
-		sqlBuilder.WriteString(b.elseExpr.Expr())
-		args = append(args, b.elseExpr.Args()...)
-	}
-
-	sqlBuilder.WriteString(" END")
-
-	return columnImpl[expressionOwner, T]{
-		table:         baseTable,
-		name:          "case",
-		qualifiedName: sqlBuilder.String(),
-		jsonFieldName: "case",
-		args:          args,
-		aggregate:     b.aggregate,
-		distinct:      b.distinct,
-		transformed:   true,
-		tables:        otherTables,
-	}
-}
-
-func cloneTableMap(src map[string]Table) map[string]Table {
-	if len(src) == 0 {
-		return nil
-	}
-
-	dst := make(map[string]Table, len(src))
-	maps.Copy(dst, src)
-
-	return dst
-}
-
-func expressionTables(arg any) map[string]Table {
-	switch v := arg.(type) {
-	case SQLColumn:
-		return columnTables(v)
-	default:
-		return nil
-	}
-}
-
-func expressionFlags(arg any) (aggregate, distinct bool) {
-	switch v := arg.(type) {
-	case interface{ isAggregateExpression() bool }:
-		aggregate = v.isAggregateExpression()
-	case SQLColumn:
-		if agg, ok := v.(interface{ isAggregateExpression() bool }); ok {
-			aggregate = agg.isAggregateExpression()
-		}
-	}
-
-	switch v := arg.(type) {
-	case interface{ isDistinctExpression() bool }:
-		distinct = v.isDistinctExpression()
-	case SQLColumn:
-		if d, ok := v.(interface{ isDistinctExpression() bool }); ok {
-			distinct = d.isDistinctExpression()
-		}
-	}
-
-	return aggregate, distinct
-}
-
-func columnTables(col SQLColumn) map[string]Table {
-	table, err := validateColumnInput(col)
-	if err != nil {
-		return nil
-	}
-
-	tables := map[string]Table{table.TableName(): table}
-	if refs, ok := col.(interface{ referencedTables() map[string]Table }); ok {
-		maps.Copy(tables, refs.referencedTables())
-	}
-
-	return tables
+	return columnImpl[struct{}, T]{c: core}
 }

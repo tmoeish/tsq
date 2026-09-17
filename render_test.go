@@ -1,0 +1,236 @@
+package tsq
+
+import (
+	"errors"
+	"reflect"
+	"strings"
+	"testing"
+
+	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
+)
+
+func TestRenderQuotesAndNumbersPerDialect(t *testing.T) {
+	name := NewParam[string]("name")
+	q := Select(User_ID, User_Name).From(Users).
+		Where(User_Name.EQ(name), User_Version.GTVal(2)).
+		MustBuild()
+
+	tests := []struct {
+		dialect tsqdialect.Dialect
+		want    string
+	}{
+		{onSQLite, `SELECT "users"."id", "users"."name" FROM "users" WHERE ("users"."name" = ? AND "users"."version" > ?)`},
+		{onMySQL, "SELECT `users`.`id`, `users`.`name` FROM `users` WHERE (`users`.`name` = ? AND `users`.`version` > ?)"},
+		{onPostgres, `SELECT "users"."id", "users"."name" FROM "users" WHERE ("users"."name" = $1 AND "users"."version" > $2)`},
+	}
+
+	for _, tt := range tests {
+		t.Run(string(tt.dialect.Name()), func(t *testing.T) {
+			sql, args := sqlOf(t, q, tt.dialect, name.Bind("amy"))
+			if sql != tt.want {
+				t.Fatalf("SQL =\n%s\nwant\n%s", sql, tt.want)
+			}
+
+			if !reflect.DeepEqual(args, []any{"amy", int64(2)}) {
+				t.Fatalf("args = %#v", args)
+			}
+		})
+	}
+}
+
+func TestListParamExpandsAndKeepsEmptyListsExplicit(t *testing.T) {
+	in := Select(User_ID).From(Users).Where(User_ID.In(User_ID.ListParam())).MustBuild()
+	notIn := Select(User_ID).From(Users).Where(User_ID.NotIn(User_ID.ListParam())).MustBuild()
+
+	sql, args := sqlOf(t, in, onPostgres, User_ID.BindList(4, 5))
+	if !strings.HasSuffix(sql, `"users"."id" IN ($1, $2)`) || len(args) != 2 {
+		t.Fatalf("IN list rendered %s %v", sql, args)
+	}
+
+	// An empty IN matches nothing and an empty NOT IN matches everything; neither
+	// drops the predicate.
+	if sql, _ := sqlOf(t, in, onSQLite, User_ID.BindList()); !strings.HasSuffix(sql, `IN (NULL)`) {
+		t.Fatalf("empty IN rendered %s", sql)
+	}
+
+	if sql, _ := sqlOf(t, notIn, onSQLite, User_ID.BindList()); !strings.HasSuffix(sql, `NOT IN (SELECT 1 WHERE 1 = 0)`) {
+		t.Fatalf("empty NOT IN rendered %s", sql)
+	}
+}
+
+func TestPatternsEscapeWildcards(t *testing.T) {
+	prefix := NewParam[string]("prefix")
+	q := Select(User_ID).From(Users).Where(User_Name.StartsWith(prefix), User_Email.ContainsVal("50%_off")).MustBuild()
+
+	sql, args := sqlOf(t, q, onSQLite, prefix.Bind("a~b"))
+	if strings.Count(sql, "ESCAPE '~'") != 2 {
+		t.Fatalf("every pattern must declare its escape character: %s", sql)
+	}
+
+	want := []any{"a~~b%", "%50~%~_off%"}
+	if !reflect.DeepEqual(args, want) {
+		t.Fatalf("args = %#v, want %#v", args, want)
+	}
+}
+
+func TestDialectCapabilitiesAreCheckedWhenRendered(t *testing.T) {
+	full := Select(User_ID).From(Users).FullJoin(Orders, Order_UserID.EQ(User_ID)).MustBuild()
+
+	if _, _, err := full.SQL(onMySQL); !isUnsupported(err) {
+		t.Fatalf("mysql FULL JOIN error = %v", err)
+	}
+
+	if _, _, err := full.SQL(onPostgres); err != nil {
+		t.Fatalf("postgres FULL JOIN error = %v", err)
+	}
+
+	locked := Select(User_ID).From(Users).ForUpdate().MustBuild()
+	if _, _, err := locked.SQL(onSQLite); !isUnsupported(err) {
+		t.Fatalf("sqlite FOR UPDATE error = %v", err)
+	}
+
+	// A literal that merely contains the words is not a row lock.
+	literal := Select(User_ID).From(Users).Where(User_Name.EQVal(" FOR UPDATE ")).MustBuild()
+	if _, _, err := literal.SQL(onSQLite); err != nil {
+		t.Fatalf("a string literal was mistaken for a capability: %v", err)
+	}
+}
+
+func isUnsupported(err error) bool {
+	_, ok := errors.AsType[*tsqdialect.UnsupportedCapabilityError](err)
+
+	return ok
+}
+
+func TestDatePartsAreSpelledPerDialect(t *testing.T) {
+	q := Select(MapInto(User_CreatedAt.Year(), func(r *namedRow) *int64 { return &r.ID }, "year")).
+		From(Users).MustBuild()
+
+	for d, want := range map[tsqdialect.Dialect]string{
+		onMySQL:    "YEAR(`users`.`created_at`)",
+		onPostgres: `CAST(EXTRACT(YEAR FROM "users"."created_at") AS BIGINT)`,
+		onSQLite:   `CAST(strftime('%Y', "users"."created_at") AS INTEGER)`,
+	} {
+		if sql, _ := sqlOf(t, q, d); !strings.Contains(sql, want) {
+			t.Fatalf("%s: %s does not contain %s", d.Name(), sql, want)
+		}
+	}
+}
+
+func TestIdentifiersAreValidatedForTheDialect(t *testing.T) {
+	long := firstRejectedIdentifier(t, onPostgres)
+	table := namedTable(long)
+
+	q := Select(table.Columns()...).From(table).MustBuild()
+	if _, _, err := q.SQL(onPostgres); err == nil {
+		t.Fatal("expected an identifier longer than postgres allows to be rejected")
+	}
+
+	if _, _, err := q.SQL(onMySQL); err != nil {
+		t.Fatalf("mysql accepts %d characters: %v", len(long), err)
+	}
+}
+
+func TestSetOperationsCTEAndSubqueries(t *testing.T) {
+	big := Select(Order_UserID).From(Orders).Where(Order_Amount.GTVal(100))
+	cte := CTE("big_orders", big)
+	bigUser := Order_UserID.WithTable(cte)
+
+	q := Select(User_ID).From(Users).
+		Join(cte, bigUser.EQ(User_ID)).
+		Union(Select(User_ID).From(Users).Where(User_Name.EQVal("root"))).
+		MustBuild()
+
+	sql, args := sqlOf(t, q, onSQLite)
+	want := `WITH "big_orders" AS (SELECT "orders"."user_id" FROM "orders" WHERE "orders"."amount" > ?) ` +
+		`SELECT "users"."id" FROM "users" INNER JOIN "big_orders" ON "big_orders"."user_id" = "users"."id" ` +
+		`UNION SELECT "users"."id" FROM "users" WHERE "users"."name" = ?`
+
+	if sql != want {
+		t.Fatalf("SQL =\n%s\nwant\n%s", sql, want)
+	}
+
+	if !reflect.DeepEqual(args, []any{int64(100), "root"}) {
+		t.Fatalf("args = %#v", args)
+	}
+
+	intersect := Select(User_ID).From(Users).Intersect(Select(User_ID).From(Users).Where(User_Version.GTVal(1))).MustBuild()
+	if _, _, err := intersect.SQL(onSQLite); err != nil {
+		t.Fatalf("sqlite supports INTERSECT: %v", err)
+	}
+}
+
+func TestCorrelatedSubqueryCarriesItsParameters(t *testing.T) {
+	min := NewParam[int64]("min")
+	sub, err := BuildSubquery(
+		Select(Order_ID).From(Orders).Correlate(Users).Where(Order_UserID.EQ(User_ID), Order_Amount.GTE(min)),
+		Order_ID,
+	)
+	if err != nil {
+		t.Fatalf("BuildSubquery() error = %v", err)
+	}
+
+	q := Select(User_ID).From(Users).Where(Exists(sub)).MustBuild()
+
+	sql, args := sqlOf(t, q, onPostgres, min.Bind(10))
+	if !strings.Contains(sql, `EXISTS (SELECT "orders"."id" FROM "orders" WHERE ("orders"."user_id" = "users"."id" AND "orders"."amount" >= $1))`) {
+		t.Fatalf("SQL = %s", sql)
+	}
+
+	if !reflect.DeepEqual(args, []any{int64(10)}) {
+		t.Fatalf("args = %#v", args)
+	}
+
+	// The outer query must provide the correlated table.
+	orphan := Select(Order_ID).From(Orders).Where(Exists(sub))
+	if _, err := orphan.Build(); err == nil || !strings.Contains(err.Error(), "users") {
+		t.Fatalf("expected the missing outer table to be reported, got %v", err)
+	}
+
+	// And a correlated query cannot run on its own.
+	inner := Select(Order_ID).From(Orders).Correlate(Users).Where(Order_UserID.EQ(User_ID)).MustBuild()
+	if _, _, err := inner.SQL(onSQLite); err == nil {
+		t.Fatal("expected a correlated query to be refused outside a subquery")
+	}
+}
+
+func TestCaseRendersBranchesInOrder(t *testing.T) {
+	label := Case[string]().
+		WhenVal(User_Version.GTVal(10), "hot").
+		When(User_Name.IsNull(), User_Email).
+		ElseVal("cold").
+		End()
+
+	q := Select(MapInto(label, func(r *namedRow) *string { return &r.Name }, "label")).From(Users).MustBuild()
+
+	sql, args := sqlOf(t, q, onSQLite)
+	want := `SELECT CASE WHEN "users"."version" > ? THEN ? WHEN "users"."name" IS NULL THEN "users"."email" ELSE ? END FROM "users"`
+
+	if sql != want {
+		t.Fatalf("SQL =\n%s\nwant\n%s", sql, want)
+	}
+
+	if !reflect.DeepEqual(args, []any{int64(10), "hot", "cold"}) {
+		t.Fatalf("args = %#v", args)
+	}
+}
+
+func TestQueryRenderingIsCachedPerDialect(t *testing.T) {
+	q := Select(User_ID).From(Users).MustBuild()
+
+	first, err := q.statement(onSQLite, renderMode{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	second, _ := q.statement(onSQLite, renderMode{})
+	other, _ := q.statement(onMySQL, renderMode{})
+
+	if first != second {
+		t.Fatal("expected the second render for the same dialect to hit the cache")
+	}
+
+	if first == other {
+		t.Fatal("expected each dialect to render separately")
+	}
+}

@@ -1,216 +1,563 @@
 package tsq
 
 import (
+	"context"
+	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 	"regexp"
-	"slices"
+	"strings"
+	"sync"
+
+	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 )
-
-// UnknownSortFieldError reports that a requested sort field is unknown.
-type UnknownSortFieldError struct {
-	field string
-}
-
-// newErrUnknownSortField constructs an UnknownSortFieldError.
-func newErrUnknownSortField(field string) *UnknownSortFieldError {
-	return &UnknownSortFieldError{field: field}
-}
-
-// Error implements error.
-func (e *UnknownSortFieldError) Error() string {
-	return fmt.Sprintf("unknown sort field: %s", e.field)
-}
-
-// Is reports whether target is an *UnknownSortFieldError for the same field.
-// An *UnknownSortFieldError with an empty field matches any UnknownSortFieldError,
-// enabling both type-level and value-level errors.Is checks.
-func (e *UnknownSortFieldError) Is(target error) bool {
-	var other *UnknownSortFieldError
-
-	ok := errors.As(target, &other)
-	if !ok {
-		return false
-	}
-
-	return other.field == "" || e.field == other.field
-}
-
-// AmbiguousSortFieldError reports that a sort field matches multiple selected columns.
-type AmbiguousSortFieldError struct {
-	field string
-}
-
-// newErrAmbiguousSortField constructs an AmbiguousSortFieldError.
-func newErrAmbiguousSortField(field string) *AmbiguousSortFieldError {
-	return &AmbiguousSortFieldError{field: field}
-}
-
-// Error implements error.
-func (e *AmbiguousSortFieldError) Error() string {
-	return fmt.Sprintf("ambiguous sort field: %s", e.field)
-}
-
-// Is reports whether target is an *AmbiguousSortFieldError for the same field.
-// An *AmbiguousSortFieldError with an empty field matches any AmbiguousSortFieldError,
-// enabling both type-level and value-level errors.Is checks.
-func (e *AmbiguousSortFieldError) Is(target error) bool {
-	var other *AmbiguousSortFieldError
-
-	ok := errors.As(target, &other)
-	if !ok {
-		return false
-	}
-
-	return other.field == "" || e.field == other.field
-}
-
-// OrderCountMismatchError reports that the ORDER BY field and direction counts differ.
-type OrderCountMismatchError struct {
-	orderBys int
-	orders   int
-}
-
-// newErrOrderCountMismatch constructs an OrderCountMismatchError.
-func newErrOrderCountMismatch(orderbys, orders int) *OrderCountMismatchError {
-	return &OrderCountMismatchError{orderBys: orderbys, orders: orders}
-}
-
-// Error implements error.
-func (e *OrderCountMismatchError) Error() string {
-	return fmt.Sprintf(
-		"ORDER BY fields count(%d) and ORDER directions count(%d) mismatch",
-		e.orderBys, e.orders,
-	)
-}
-
-// Is reports whether target is an *OrderCountMismatchError with the same counts.
-// An *OrderCountMismatchError with zero orderBys and zero orders matches any
-// OrderCountMismatchError, enabling type-level errors.Is checks.
-func (e *OrderCountMismatchError) Is(target error) bool {
-	var other *OrderCountMismatchError
-
-	ok := errors.As(target, &other)
-	if !ok {
-		return false
-	}
-
-	return (other.orderBys == 0 && other.orders == 0) ||
-		(e.orderBys == other.orderBys && e.orders == other.orders)
-}
-
-// Query is a compiled SQL query with count, list, and keyword-search variants.
-// Query is the immutable, concurrency-safe result of Build, separating query
-// definition from execution.
-type Query[O Owner] struct {
-	// SQL templates rendered at Build time.
-	cntSQL    string // COUNT query
-	listSQL   string // main SELECT query
-	kwCntSQL  string // COUNT query with keyword search
-	kwListSQL string // SELECT query with keyword search
-
-	// Base argument lists. May contain deferred-binding markers (externalArgMarker and friends).
-	cntArgs    []any
-	listArgs   []any
-	kwCntArgs  []any
-	kwListArgs []any
-
-	cntArgState    queryArgState
-	listArgState   queryArgState
-	kwCntArgState  queryArgState
-	kwListArgState queryArgState
-
-	// Metadata.
-	selectCols   []BoundColumn[O] // selected columns, used for Scan mapping
-	selectTables map[string]Table // every table referenced by the query
-	kwCols       []SearchColumn   // columns participating in keyword search
-	kwTables     map[string]Table
-	hasSetOps    bool // whether set operations (UNION etc.) are present; affects alias handling
-	hasOrderBy   bool // whether the builder attached an ORDER BY; Page must not add a second one
-	hasLimit     bool // whether the builder attached LIMIT/OFFSET; Page owns paging and refuses to fight it
-	correlated   bool // whether the builder declared outer tables; such a query only runs inside an enclosing one
-}
-
-type (
-	externalSliceArgMarker      struct{}
-	externalNotInSliceArgMarker struct{}
-)
-
-type queryArgState struct {
-	initialized         bool
-	hasExternalArg      bool
-	hasExternalSliceArg bool
-	hasKeywordArg       bool
-}
-
-func (s queryArgState) hasDeferredArgs() bool {
-	return s.hasExternalArg || s.hasExternalSliceArg || s.hasKeywordArg
-}
-
-const slicePlaceholderCacheMax = 128
-
-var slicePlaceholderCache = buildSlicePlaceholderCache(slicePlaceholderCacheMax)
 
 var builtInIdentifierPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
-// Build once and reuse Query values on hot paths instead of rebuilding the same shape.
-
-// CountSQL returns the COUNT query SQL statement.
-func (q *Query[O]) CountSQL() string {
-	if q == nil {
-		return ""
-	}
-
-	return renderCanonicalSQL(q.cntSQL)
+// UnknownSortFieldError reports a PageRequest.OrderBy field the query does not select.
+type UnknownSortFieldError struct {
+	Field string
 }
 
-// ListSQL returns the main SELECT query SQL statement.
-func (q *Query[O]) ListSQL() string {
-	if q == nil {
-		return ""
-	}
+func (e *UnknownSortFieldError) Error() string { return "unknown sort field: " + e.Field }
 
-	return renderCanonicalSQL(q.listSQL)
+// AmbiguousSortFieldError reports a PageRequest.OrderBy field that names more than
+// one selected column.
+type AmbiguousSortFieldError struct {
+	Field string
 }
 
-// SearchCountSQL returns the keyword-search COUNT query SQL statement.
-func (q *Query[O]) SearchCountSQL() string {
-	if q == nil {
-		return ""
-	}
+func (e *AmbiguousSortFieldError) Error() string { return "ambiguous sort field: " + e.Field }
 
-	return renderCanonicalSQL(q.kwCntSQL)
+// OrderCountMismatchError reports a PageRequest whose OrderBy and Order lists have
+// different lengths.
+type OrderCountMismatchError struct {
+	Fields     int
+	Directions int
 }
 
-// SearchListSQL returns the keyword-search SELECT query SQL statement.
-func (q *Query[O]) SearchListSQL() string {
-	if q == nil {
-		return ""
-	}
-
-	return renderCanonicalSQL(q.kwListSQL)
+func (e *OrderCountMismatchError) Error() string {
+	return fmt.Sprintf("order_by lists %d fields but order lists %d directions", e.Fields, e.Directions)
 }
 
-func (q *Query[O]) subquerySQL() string {
-	if q == nil {
-		return ""
-	}
-
-	return q.listSQL
+// Query is a built SELECT. It is immutable and safe for concurrent use; build it
+// once and reuse it. It is rendered for a dialect when it first runs on one, and the
+// rendering is cached.
+type Query[O any] struct {
+	spec  querySpec[O]
+	cache sync.Map // renderKey -> *statement
 }
 
-func (q *Query[O]) subqueryArgs() []any {
-	if q == nil {
-		return nil
-	}
-
-	return slices.Clone(q.listArgs)
+type renderKey struct {
+	dialect tsqdialect.Name
+	count   bool
+	keyword bool
+	single  bool
 }
 
-func (q *Query[O]) subquerySelectCount() int {
-	if q == nil {
-		return 0
+// statement returns the template for mode on d.
+func (q *Query[O]) statement(d tsqdialect.Dialect, m renderMode) (*statement, error) {
+	key := renderKey{dialect: d.Name(), count: m.count, keyword: m.keyword, single: m.single}
+	if !m.paged {
+		if cached, ok := q.cache.Load(key); ok {
+			return cached.(*statement), nil
+		}
 	}
 
-	return len(q.selectCols)
+	r := newRenderer(d)
+	q.spec.render(r, m)
+
+	stmt, err := r.finish()
+	if err != nil {
+		return nil, err
+	}
+
+	if !m.paged {
+		q.cache.Store(key, stmt)
+	}
+
+	return stmt, nil
+}
+
+// prepared is one statement ready to run.
+type prepared struct {
+	sql  string
+	args []any
+}
+
+// prepare renders every mode and binds args across all of them: a parameter is
+// unused only if none of the statements uses it.
+func (q *Query[O]) prepare(exec Executor, args []Arg, builtin map[*paramSpec]any, modes ...renderMode) (execScope, []prepared, error) {
+	if q == nil {
+		return execScope{}, nil, errors.New("query cannot be nil")
+	}
+
+	scope, err := executorScope(exec)
+	if err != nil {
+		return execScope{}, nil, err
+	}
+
+	if len(q.spec.Correlated) > 0 {
+		return execScope{}, nil, errors.New("a query with Correlate(...) can only run as a subquery of a query that provides those tables")
+	}
+
+	stmts := make([]*statement, 0, len(modes))
+
+	var used []*paramSpec
+
+	for _, m := range modes {
+		stmt, err := q.statement(scope.dialect, m)
+		if err != nil {
+			return execScope{}, nil, err
+		}
+
+		stmts = append(stmts, stmt)
+		used = append(used, stmt.params()...)
+	}
+
+	bound, err := bindArgs(used, args, builtin)
+	if err != nil {
+		return execScope{}, nil, err
+	}
+
+	result := make([]prepared, 0, len(stmts))
+
+	for _, stmt := range stmts {
+		sqlText, sqlArgs, err := stmt.assemble(scope.dialect, bound)
+		if err != nil {
+			return execScope{}, nil, err
+		}
+
+		result = append(result, prepared{sql: sqlText, args: sqlArgs})
+	}
+
+	return scope, result, nil
+}
+
+// SQL renders the query for dialect with args bound, as it would run.
+func (q *Query[O]) SQL(dialect tsqdialect.Dialect, args ...Arg) (string, []any, error) {
+	if isNilValue(dialect) {
+		return "", nil, errors.New("dialect cannot be nil")
+	}
+
+	_, stmts, err := q.prepare(WrapExecutor(noopExecutor{}, dialect), args, nil, renderMode{})
+	if err != nil {
+		return "", nil, err
+	}
+
+	return stmts[0].sql, stmts[0].args, nil
+}
+
+// String renders the query for debugging, in SQLite syntax, with parameters shown
+// by name.
+func (q *Query[O]) String() string {
+	r := newRenderer(tsqdialect.SQLiteDialect{})
+	q.spec.render(r, renderMode{})
+
+	return debugStatement(r)
+}
+
+func (q *Query[O]) scan(rows interface{ Scan(...any) error }) (*O, error) {
+	row := new(O)
+
+	dest := make([]any, len(q.spec.Selects))
+	for i, col := range q.spec.Selects {
+		dest[i] = col.core().scan(row)
+	}
+
+	if err := rows.Scan(dest...); err != nil {
+		return nil, err
+	}
+
+	return row, nil
+}
+
+// List returns every matching row.
+func (q *Query[O]) List(ctx context.Context, db Executor, args ...Arg) ([]*O, error) {
+	return traceExecutor1(ctx, db, TraceOpList, func(ctx context.Context) ([]*O, error) {
+		_, stmts, err := q.prepare(db, args, nil, renderMode{})
+		if err != nil {
+			return nil, err
+		}
+
+		return q.query(ctx, db, "list", stmts[0])
+	})
+}
+
+func (q *Query[O]) query(ctx context.Context, db Executor, op string, stmt prepared) ([]*O, error) {
+	logSQLForExecutor(ctx, db, op, stmt.sql, stmt.args)
+
+	rows, err := db.QueryContext(ctx, stmt.sql, stmt.args...)
+	if err != nil {
+		return nil, fmt.Errorf("%s query: %w", op, err)
+	}
+
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			logForExecutor(ctx, db, slog.LevelWarn, "failed to close rows", "error", closeErr)
+		}
+	}()
+
+	var list []*O
+
+	for rows.Next() {
+		row, err := q.scan(rows)
+		if err != nil {
+			return nil, fmt.Errorf("%s query: %w", op, err)
+		}
+
+		list = append(list, row)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("%s query: %w", op, err)
+	}
+
+	return list, nil
+}
+
+// Get returns the first matching row, or an error wrapping sql.ErrNoRows.
+func (q *Query[O]) Get(ctx context.Context, db Executor, args ...Arg) (*O, error) {
+	return traceExecutor1(ctx, db, TraceOpGet, func(ctx context.Context) (*O, error) {
+		return q.get(ctx, db, args)
+	})
+}
+
+func (q *Query[O]) get(ctx context.Context, db Executor, args []Arg) (*O, error) {
+	_, stmts, err := q.prepare(db, args, nil, renderMode{single: true})
+	if err != nil {
+		return nil, err
+	}
+
+	stmt := stmts[0]
+	logSQLForExecutor(ctx, db, "get", stmt.sql, stmt.args)
+
+	row, err := q.scan(db.QueryRowContext(ctx, stmt.sql, stmt.args...))
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, err
+		}
+
+		return nil, fmt.Errorf("get query: %w", err)
+	}
+
+	return row, nil
+}
+
+// Find returns the first matching row, or nil when there is none.
+func (q *Query[O]) Find(ctx context.Context, db Executor, args ...Arg) (*O, error) {
+	return traceExecutor1(ctx, db, TraceOpGet, func(ctx context.Context) (*O, error) {
+		row, err := q.get(ctx, db, args)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+
+		return row, err
+	})
+}
+
+// Exists reports whether any row matches. It reads at most one row rather than
+// counting them all.
+func (q *Query[O]) Exists(ctx context.Context, db Executor, args ...Arg) (bool, error) {
+	return traceExecutor1(ctx, db, TraceOpGet, func(ctx context.Context) (bool, error) {
+		row, err := q.get(ctx, db, args)
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+
+		return row != nil, err
+	})
+}
+
+// Count returns the number of matching rows.
+func (q *Query[O]) Count(ctx context.Context, db Executor, args ...Arg) (int64, error) {
+	return traceExecutor1(ctx, db, TraceOpCount, func(ctx context.Context) (int64, error) {
+		_, stmts, err := q.prepare(db, args, nil, renderMode{count: true})
+		if err != nil {
+			return 0, err
+		}
+
+		return queryCount(ctx, db, stmts[0])
+	})
+}
+
+func queryCount(ctx context.Context, db Executor, stmt prepared) (int64, error) {
+	logSQLForExecutor(ctx, db, "count", stmt.sql, stmt.args)
+
+	var n int64
+	if err := db.QueryRowContext(ctx, stmt.sql, stmt.args...).Scan(&n); err != nil {
+		return 0, fmt.Errorf("count query: %w", err)
+	}
+
+	return n, nil
+}
+
+// Scalar runs a query that selects exactly selected and returns its value from the
+// first row, or an error wrapping sql.ErrNoRows. A NULL reads as the zero value.
+func (q *Query[O]) Scalar[T any](ctx context.Context, db Executor, selected TypedColumn[O, T], args ...Arg) (T, error) {
+	return traceExecutor1(ctx, db, TraceOpScalar, func(ctx context.Context) (T, error) {
+		var zero T
+
+		if err := q.checkSingleSelect(selected); err != nil {
+			return zero, err
+		}
+
+		_, stmts, err := q.prepare(db, args, nil, renderMode{single: true})
+		if err != nil {
+			return zero, err
+		}
+
+		stmt := stmts[0]
+		logSQLForExecutor(ctx, db, "scalar", stmt.sql, stmt.args)
+
+		var value sql.Null[T]
+		if err := db.QueryRowContext(ctx, stmt.sql, stmt.args...).Scan(&value); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return zero, err
+			}
+
+			return zero, fmt.Errorf("scalar query: %w", err)
+		}
+
+		return value.V, nil
+	})
+}
+
+// checkSingleSelect verifies that the query selects exactly the given column.
+func (q *Query[O]) checkSingleSelect(selected SQLColumn) error {
+	if q == nil {
+		return errors.New("query cannot be nil")
+	}
+
+	if isNilValue(selected) {
+		return errors.New("selected column cannot be nil")
+	}
+
+	if len(q.spec.Selects) != 1 {
+		return fmt.Errorf("query must select exactly one column, got %d", len(q.spec.Selects))
+	}
+
+	want := debugSQL(columnInfo(selected).sql)
+	if got := debugSQL(columnInfo(q.spec.Selects[0]).sql); got != want {
+		return fmt.Errorf("query selects %s, not %s", got, want)
+	}
+
+	return nil
+}
+
+// Page runs the query for one page of page, plus a count of all matching rows.
+// Page owns ORDER BY and LIMIT: a query that sets Limit or Offset is refused, and so
+// is a PageRequest.OrderBy on a query that already orders.
+func (q *Query[O]) Page(ctx context.Context, db Executor, page *PageRequest, args ...Arg) (*PageResponse[O], error) {
+	return traceExecutor1(ctx, db, TraceOpPage, func(ctx context.Context) (*PageResponse[O], error) {
+		if q == nil {
+			return nil, errors.New("query cannot be nil")
+		}
+
+		page = normalizePageReqWithLimit(page, runtimeForExecutor(db).MaxPageSize())
+
+		if q.spec.Limit != nil {
+			return nil, errors.New("query sets Limit/Offset; Page controls paging, so drop them from the builder")
+		}
+
+		order, err := q.pageOrder(page)
+		if err != nil {
+			return nil, err
+		}
+
+		keyword := len(q.spec.KeywordSearch) > 0 && page.Keyword != ""
+
+		var builtin map[*paramSpec]any
+		if keyword {
+			builtin = map[*paramSpec]any{keywordParam: page.Keyword}
+		}
+
+		_, stmts, err := q.prepare(db, args, builtin,
+			renderMode{count: true, keyword: keyword},
+			renderMode{keyword: keyword, paged: true, order: order, limit: page.Size, offset: page.Offset()},
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		total, err := queryCount(ctx, db, stmts[0])
+		if err != nil {
+			return nil, err
+		}
+
+		rows, err := q.query(ctx, db, "page", stmts[1])
+		if err != nil {
+			return nil, err
+		}
+
+		if rows == nil {
+			rows = make([]*O, 0)
+		}
+
+		return page.Response(total, rows), nil
+	})
+}
+
+// pageOrder resolves PageRequest.OrderBy against the selected columns, matching
+// either a column's name or its JSON field name.
+func (q *Query[O]) pageOrder(page *PageRequest) ([]orderTerm, error) {
+	fields := splitCommaValues(page.OrderBy)
+	if len(fields) == 0 {
+		if len(splitCommaValues(page.Order)) > 0 {
+			return nil, errors.New("order requires order_by")
+		}
+
+		return nil, nil
+	}
+
+	if len(q.spec.OrderBys) > 0 {
+		return nil, errors.New("query already sets OrderBy; drop it from the builder or leave PageRequest.OrderBy empty")
+	}
+
+	directions, err := normalizeSortOrders(splitCommaValues(page.Order), len(fields))
+	if err != nil {
+		return nil, err
+	}
+
+	setOps := len(q.spec.SetOps) > 0
+	byKey := make(map[string][]sqlExpr)
+
+	register := func(key string, expr sqlExpr) {
+		if key == "" || key == "-" {
+			return
+		}
+
+		byKey[key] = append(byKey[key], expr)
+	}
+
+	for _, col := range q.spec.Selects {
+		expr := columnInfo(col).sql
+		if setOps {
+			// A compound query can only be ordered by output column names.
+			expr = sqlIdent(col.Name())
+		}
+
+		register(col.Name(), expr)
+
+		if col.JSONFieldName() != col.Name() {
+			register(col.JSONFieldName(), expr)
+		}
+	}
+
+	terms := make([]orderTerm, 0, len(fields))
+
+	for i, field := range fields {
+		exprs := byKey[field]
+
+		switch {
+		case len(exprs) == 0:
+			return nil, &UnknownSortFieldError{Field: field}
+		case len(exprs) > 1 && !sameExprs(exprs):
+			return nil, &AmbiguousSortFieldError{Field: field}
+		}
+
+		terms = append(terms, orderTerm{expr: exprs[0], direction: directions[i]})
+	}
+
+	return terms, nil
+}
+
+func sameExprs(exprs []sqlExpr) bool {
+	first := debugSQL(exprs[0])
+	for _, e := range exprs[1:] {
+		if debugSQL(e) != first {
+			return false
+		}
+	}
+
+	return true
+}
+
+func splitCommaValues(value string) []string {
+	var result []string
+
+	for part := range strings.SplitSeq(value, ",") {
+		if part = strings.TrimSpace(part); part != "" {
+			result = append(result, part)
+		}
+	}
+
+	return result
+}
+
+// AnySubquery is a built query used as a subquery where its columns do not matter,
+// as in Exists. A *Query and a Subquery both satisfy it; only TSQ implements it.
+type AnySubquery interface {
+	subquery() exprInfo
+}
+
+// Subquery is a built single-column query holding a T, usable as the right-hand
+// side of a comparison or of IN. Make one with AsSubquery or BuildSubquery.
+type Subquery[T any] interface {
+	AnySubquery
+	RHS[T]
+	SetRHS[T]
+}
+
+func (q *Query[O]) subquery() exprInfo {
+	if q == nil {
+		return exprInfo{err: errors.New("subquery cannot be nil")}
+	}
+
+	return exprInfo{sql: sqlQuery(q)}
+}
+
+func (q *Query[O]) renderQuery(r *renderer) {
+	r.writeText("(")
+	q.spec.render(r, renderMode{})
+	r.writeText(")")
+}
+
+func (q *Query[O]) correlatedTables() map[string]Table { return q.spec.correlatedNames() }
+
+type typedSubquery[O, T any] struct {
+	q *Query[O]
+}
+
+func (s typedSubquery[O, T]) subquery() exprInfo               { return s.q.subquery() }
+func (s typedSubquery[O, T]) operand() exprInfo                { return s.q.subquery() }
+func (s typedSubquery[O, T]) setOperand(negated bool) exprInfo { return s.q.subquery() }
+func (typedSubquery[O, T]) rhsValue(T)                         {}
+func (typedSubquery[O, T]) setValue(T)                         {}
+
+// AsSubquery returns the query as a typed subquery. It must select exactly selected.
+func (q *Query[O]) AsSubquery[T any](selected TypedColumn[O, T]) (Subquery[T], error) {
+	if err := q.checkSingleSelect(selected); err != nil {
+		return nil, fmt.Errorf("subquery: %w", err)
+	}
+
+	return typedSubquery[O, T]{q: q}, nil
+}
+
+// BuildSubquery builds stage and returns it as a typed subquery selecting selected.
+func BuildSubquery[O, T any](stage QueryStage[O], selected TypedColumn[O, T]) (Subquery[T], error) {
+	if isNilValue(stage) {
+		return nil, errors.New("subquery builder cannot be nil")
+	}
+
+	q, err := stage.Build()
+	if err != nil {
+		return nil, err
+	}
+
+	return q.AsSubquery(selected)
+}
+
+// noopExecutor lets Query.SQL render without a database.
+type noopExecutor struct{}
+
+func (noopExecutor) QueryContext(context.Context, string, ...any) (*sql.Rows, error) {
+	return nil, errors.New("no database")
+}
+
+func (noopExecutor) QueryRowContext(context.Context, string, ...any) *sql.Row { return nil }
+
+func (noopExecutor) ExecContext(context.Context, string, ...any) (sql.Result, error) {
+	return nil, errors.New("no database")
 }

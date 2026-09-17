@@ -7,110 +7,117 @@ import (
 	tsqsql "database/sql"
 	json "encoding/json"
 	"fmt"
-	tsqtime "time"
-
-	null "gopkg.in/nullbio/null.v6"
 
 	"github.com/tmoeish/tsq/v5"
+	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
+	null "gopkg.in/nullbio/null.v6"
 )
 
-// =============================================================================
-// Table Interface Implementation
-// =============================================================================
+// tsqTrackTable is TableTrack before its definition; columns are declared on it.
+var tsqTrackTable = tsq.NewTable[Track]("track")
 
-// TableTrack implements the tsq.Table interface for Track.
-//
-// The Track__Cols argument is never read. It makes this variable depend on the
-// column slice so that Go initializes the slice first: Cols reaches it through an
-// interface method, which package initialization ordering cannot see. Without it a
-// package-level query variable in a file sorting before this one can observe
-// Track__Cols fully sized with nil elements.
-var TableTrack tsq.Table = tsq.DeclareTable(Track{}, Track__Cols)
+// Columns of Track.
+var (
+	Track_CreatedAt   = tsq.NewColumn(tsqTrackTable, "created_at", "created_at", func(r *Track) *null.Time { return &r.CreatedAt })
+	Track_Description = tsq.NewColumn(tsqTrackTable, "description", "description", func(r *Track) *string { return &r.Description })
+	Track_ID          = tsq.NewColumn(tsqTrackTable, "id", "id", func(r *Track) *int64 { return &r.ID })
+	Track_Name        = tsq.NewColumn(tsqTrackTable, "name", "name", func(r *Track) *string { return &r.Name })
+	Track_SkillItems  = tsq.NewColumn(tsqTrackTable, "skill_items", "skill_items", func(r *Track) *json.RawMessage { return &r.SkillItems })
+)
 
-// TSQOwner marks Track as a TSQ owner.
-func (t Track) TSQOwner() {}
-
-// TableName returns the database table name for Track.
-func (t Track) TableName() string { return "track" }
-
-// Cols returns all generated columns for Track.
-func (t Track) Cols() []tsq.SQLColumn {
-	return tsq.SQLColumns(Track__Cols...)
-}
-
-// SearchColumns returns columns that support keyword search for Track.
-func (t Track) SearchColumns() []tsq.SearchColumn {
-	return []tsq.SearchColumn{
+// TableTrack is the table descriptor of Track. It depends on every column, so
+// package initialization completes the table before any query uses it.
+var TableTrack = tsqTrackTable.Define(tsq.TableSpec[Track]{
+	Columns: []tsq.BoundColumn[Track]{
+		Track_CreatedAt,
+		Track_Description,
+		Track_ID,
+		Track_Name,
+		Track_SkillItems,
+	},
+	PrimaryKey:    Track_ID,
+	AutoIncrement: true,
+	CreatedAt:     Track_CreatedAt,
+	Search: []tsq.SearchColumn{
 		Track_Name,
 		Track_Description,
-	}
-}
+	},
+	Schema: []tsqdialect.ColumnSpec{
+		{
+			Name: "id",
+			Type: tsqdialect.ColumnType{
+				Kind: tsqdialect.KindInt,
+				Bits: 64,
+			},
+			PrimaryKey:    true,
+			AutoIncrement: true,
+		},
+		{
+			Name: "created_at",
+			Type: tsqdialect.ColumnType{
+				Kind:     tsqdialect.KindTime,
+				Nullable: true,
+			},
+		},
+		{
+			Name: "description",
+			Type: tsqdialect.ColumnType{
+				Kind: tsqdialect.KindString,
+				Size: 1024,
+			},
+		},
+		{
+			Name: "name",
+			Type: tsqdialect.ColumnType{
+				Kind: tsqdialect.KindString,
+				Size: 120,
+			},
+		},
+		{
+			Name: "skill_items",
+			Type: tsqdialect.ColumnType{
+				RawType: "JSON",
+				Kind:    tsqdialect.KindBytes,
+			},
+		},
+	},
+	Indexes: []tsq.TableIndex{
+		{Name: "ux_track_name", Unique: true, Fields: []string{"name"}},
+	},
+})
 
-// PrimaryKey returns the primary key column for Track.
-func (t Track) PrimaryKey() string {
-	return "id"
-}
+// Track__Cols lists every column of Track, for Select.
+var Track__Cols = TableTrack.Columns()
 
-// AutoIncrement reports whether Track uses an auto-increment primary key.
-func (t Track) AutoIncrement() bool { return true }
-
-// ManagedColumns returns the columns TSQ maintains for Track.
-func (t Track) ManagedColumns() tsq.ManagedColumns {
-	return tsq.ManagedColumns{
-		CreatedAt: "created_at",
-	}
-}
-
-// Column definitions for Track table.
-var (
-	Track_CreatedAt   = tsq.NewColumn("created_at", "created_at", func(t *Track) *null.Time { return &t.CreatedAt })
-	Track_Description = tsq.NewColumn("description", "description", func(t *Track) *string { return &t.Description })
-	Track_ID          = tsq.NewColumn("id", "id", func(t *Track) *int64 { return &t.ID })
-	Track_Name        = tsq.NewColumn("name", "name", func(t *Track) *string { return &t.Name })
-	Track_SkillItems  = tsq.NewColumn("skill_items", "skill_items", func(t *Track) *json.RawMessage { return &t.SkillItems })
-)
-
-// Track__Cols is the list of all selectable columns for Track table.
-var Track__Cols = []tsq.BoundColumn[Track]{
-	Track_CreatedAt,
-	Track_Description,
-	Track_ID,
-	Track_Name,
-	Track_SkillItems,
-}
-
-// =============================================================================
-// Query by Primary Key
-// =============================================================================
-// QueryTrackByID stores the generated primary-key lookup query for Track.
+// QueryTrackByID reads one Track by primary key; bind Track_ID.
 var QueryTrackByID = tsq.
 	Select(Track__Cols...).
 	From(TableTrack).
 	Where(
-		Track_ID.EQVar(),
+		Track_ID.EQ(Track_ID.Param()),
 	).
 	MustBuild()
 
-// QueryTrackByIDIn stores the generated primary-key IN lookup query for Track.
+// QueryTrackByIDIn reads Track rows by a list of primary keys; bind Track_ID with BindList.
 var QueryTrackByIDIn = tsq.
 	Select(Track__Cols...).
 	From(TableTrack).
 	Where(
-		Track_ID.InVar(),
+		Track_ID.In(Track_ID.ListParam()),
 	).
 	MustBuild()
 
-// FetchTrackByID returns the Track rows whose ID is one of the given
-// values, in the order given. It fails with an error wrapping sql.ErrNoRows when
-// any of them is missing.
+// FetchTrackByID returns the Track rows with the given primary keys,
+// in the order given. It fails with an error wrapping sql.ErrNoRows when any of
+// them is missing.
 func FetchTrackByID(
 	ctx context.Context,
 	db tsq.Executor,
 	iDs ...int64,
 ) ([]*Track, error) {
-	list, err := QueryTrackByIDIn.List(ctx, db, iDs)
+	list, err := QueryTrackByIDIn.List(ctx, db, Track_ID.BindList(iDs...))
 	if err != nil {
-		return nil, fmt.Errorf("fetch Track by ID: %w", err)
+		return nil, err
 	}
 
 	ordered, missing := matchByInputOrder(iDs, list, func(row *Track) int64 {
@@ -119,23 +126,21 @@ func FetchTrackByID(
 	if len(missing) > 0 {
 		return nil, fmt.Errorf("fetch Track by ID %v: %w", missing, tsqsql.ErrNoRows)
 	}
+
 	return ordered, nil
 }
 
-// =============================================================================
-// Query by Unique Indexes
-// =============================================================================
-// QueryTrackByName stores the generated unique-index lookup query for Track.
+// QueryTrackByName reads one Track by unique index ux_track_name.
 var QueryTrackByName = tsq.
 	Select(Track__Cols...).
 	From(TableTrack).
 	Where(
-		Track_Name.EQVar(),
+		Track_Name.EQ(Track_Name.Param()),
 	).
 	MustBuild()
 
-// FetchTrackByName returns the Track rows matching unique index ux_track_name, one per
-// Name value, in the order given. It fails with an error wrapping
+// FetchTrackByName returns the Track rows matching unique index ux_track_name,
+// one per Name value, in the order given. It fails with an error wrapping
 // sql.ErrNoRows when any of them is missing.
 func FetchTrackByName(
 	ctx context.Context,
@@ -143,10 +148,10 @@ func FetchTrackByName(
 	names ...string,
 ) ([]*Track, error) {
 	list, err := QueryTrackByNameIn.List(ctx, db,
-		names,
+		Track_Name.BindList(names...),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("fetch Track by Name: %w", err)
+		return nil, err
 	}
 
 	ordered, missing := matchByInputOrderKey(names, list,
@@ -156,85 +161,43 @@ func FetchTrackByName(
 	if len(missing) > 0 {
 		return nil, fmt.Errorf("fetch Track by Name %v: %w", missing, tsqsql.ErrNoRows)
 	}
+
 	return ordered, nil
 }
 
-// =============================================================================
-// Query by Indexes
-// =============================================================================
-// QueryTrackByNameIn stores the generated index query for Track.
+// QueryTrackByNameIn reads Track rows by index ux_track_name.
 var QueryTrackByNameIn = tsq.
 	Select(Track__Cols...).
 	From(TableTrack).
 	Where(
-		Track_Name.InVar(),
+		Track_Name.In(Track_Name.ListParam()),
 	).
 	MustBuild()
 
-// =============================================================================
-// List All Records
-// =============================================================================
-// QueryTrack stores the generated list-all query for Track.
+// QueryTrack reads every Track row; Page matches its search columns.
 var QueryTrack = tsq.
 	Select(Track__Cols...).
 	From(TableTrack).
 	Search(TableTrack.SearchColumns()...).
 	MustBuild()
 
-// =============================================================================
-// CRUD Operations
-// =============================================================================
-
-// Insert inserts a new Track record.
-func (t *Track) Insert(
-	ctx context.Context,
-	db tsq.Executor,
-) error {
-	if !t.CreatedAt.Valid {
-		t.CreatedAt = null.TimeFrom(tsqtime.Now())
-	}
-	err := tsq.Insert(ctx, db, t)
-	if err != nil {
-		return fmt.Errorf("insert Track: %w", err)
-	}
-	return nil
+// Insert inserts the row; see tsq.TableOf.Insert.
+func (t *Track) Insert(ctx context.Context, db tsq.Executor) error {
+	return TableTrack.Insert(ctx, db, t)
 }
 
-// Update updates an existing Track record.
-func (t *Track) Update(
-	ctx context.Context,
-	db tsq.Executor,
-) error {
-	err := tsq.Update(ctx, db, t)
-	if err != nil {
-		return fmt.Errorf("update Track ID=%v: %w", t.ID, err)
-	}
-	return nil
+// Update updates the row; see tsq.TableOf.Update.
+func (t *Track) Update(ctx context.Context, db tsq.Executor) error {
+	return TableTrack.Update(ctx, db, t)
 }
 
-// Delete removes a Track record from the database.
-//
-// Track declares no deleted_at column, so Delete and HardDelete are the
-// same operation.
-func (t *Track) Delete(
-	ctx context.Context,
-	db tsq.Executor,
-) error {
-	err := tsq.Delete(ctx, db, t)
-	if err != nil {
-		return fmt.Errorf("delete Track ID=%v: %w", t.ID, err)
-	}
-	return nil
+// Delete removes the row. Track has no deleted_at column, so Delete and
+// HardDelete are the same.
+func (t *Track) Delete(ctx context.Context, db tsq.Executor) error {
+	return TableTrack.Delete(ctx, db, t)
 }
 
-// HardDelete removes a Track record from the database.
-func (t *Track) HardDelete(
-	ctx context.Context,
-	db tsq.Executor,
-) error {
-	err := tsq.HardDelete(ctx, db, t)
-	if err != nil {
-		return fmt.Errorf("hard-delete Track ID=%v: %w", t.ID, err)
-	}
-	return nil
+// HardDelete removes the row from the table.
+func (t *Track) HardDelete(ctx context.Context, db tsq.Executor) error {
+	return TableTrack.HardDelete(ctx, db, t)
 }

@@ -12,6 +12,24 @@ type StructInfo struct {
 
 	Receiver   string
 	TSQVersion string
+
+	// Schema is the physical column definition of a table, filled in by the
+	// generator after parsing because it needs type information.
+	Schema []SchemaColumn
+}
+
+// SchemaColumn is one physical column of a table.
+type SchemaColumn struct {
+	Name          string
+	Kind          string
+	Bits          int
+	Unsigned      bool
+	Nullable      bool
+	Size          int
+	RawType       string
+	PrimaryKey    bool
+	AutoIncrement bool
+	Default       string
 }
 
 type TypeInfo struct {

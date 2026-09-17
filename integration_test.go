@@ -24,6 +24,7 @@ import (
 
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/jackc/pgx/v5/stdlib"
+	null "gopkg.in/nullbio/null.v6"
 	_ "modernc.org/sqlite"
 
 	"github.com/tmoeish/tsq/v5"
@@ -124,7 +125,7 @@ func dropAcademyTables(t *testing.T, target integrationTarget) {
 	}
 }
 
-func openWithPolicy(t *testing.T, target integrationTarget, tables []tsq.TableRegistration, policy tsq.SchemaPolicy) (*tsq.Runtime, *ddlRecorder) {
+func openWithPolicy(t *testing.T, target integrationTarget, tables []tsq.Table, policy tsq.SchemaPolicy) (*tsq.Runtime, *ddlRecorder) {
 	t.Helper()
 
 	recorder := &ddlRecorder{}
@@ -139,40 +140,49 @@ func openWithPolicy(t *testing.T, target integrationTarget, tables []tsq.TableRe
 	return rt, recorder
 }
 
-// cloneRegistrations deep-copies the column specs so a test can mutate one
-// declaration without touching the package-level metadata.
-func cloneRegistrations(tables []tsq.TableRegistration) []tsq.TableRegistration {
-	cloned := make([]tsq.TableRegistration, len(tables))
-	for i, table := range tables {
-		cloned[i] = table
-		cloned[i].Columns = slices.Clone(table.Columns)
-		cloned[i].Indexes = slices.Clone(table.Indexes)
-	}
-
-	return cloned
-}
-
-func widenLearnerCompany(t *testing.T, tables []tsq.TableRegistration, size int) []tsq.TableRegistration {
+// widenedLearner redeclares the learner table with company widened to size, the
+// way a changed struct tag would.
+func widenedLearner(t *testing.T, size int) []tsq.Table {
 	t.Helper()
 
-	cloned := cloneRegistrations(tables)
-	for i := range cloned {
-		if cloned[i].Table.TableName() != "learner" {
-			continue
-		}
+	schema := academy.TableLearner.Schema()
+	widened := false
 
-		for j := range cloned[i].Columns {
-			if cloned[i].Columns[j].Name == "company" {
-				cloned[i].Columns[j].Type.Size = size
-
-				return cloned
-			}
+	for i := range schema {
+		if schema[i].Name == "company" {
+			schema[i].Type.Size = size
+			widened = true
 		}
 	}
 
-	t.Fatal("learner.company column not found in academy registrations")
+	if !widened {
+		t.Fatal("learner.company column not found")
+	}
 
-	return nil
+	h := tsq.NewTable[academy.Learner]("learner")
+	id := tsq.NewColumn(h, "id", "id", func(r *academy.Learner) *int64 { return &r.ID })
+	created := tsq.NewColumn(h, "created_at", "created_at", func(r *academy.Learner) *null.Time { return &r.CreatedAt })
+	name := tsq.NewColumn(h, "name", "name", func(r *academy.Learner) *string { return &r.Name })
+	email := tsq.NewColumn(h, "email", "email", func(r *academy.Learner) *string { return &r.Email })
+	company := tsq.NewColumn(h, "company", "company", func(r *academy.Learner) *string { return &r.Company })
+
+	learner := h.Define(tsq.TableSpec[academy.Learner]{
+		Columns:       []tsq.BoundColumn[academy.Learner]{id, created, name, email, company},
+		PrimaryKey:    id,
+		AutoIncrement: true,
+		CreatedAt:     created,
+		Schema:        schema,
+		Indexes:       academy.TableLearner.Indexes(),
+	})
+
+	tables := []tsq.Table{learner}
+	for _, table := range academy.TSQTables() {
+		if table.Name() != "learner" {
+			tables = append(tables, table)
+		}
+	}
+
+	return tables
 }
 
 func TestIntegrationManagedSchemaBootstrapIsIdempotent(t *testing.T) {
@@ -203,7 +213,7 @@ func TestIntegrationReconcileAltersOnlyTheChangedColumn(t *testing.T) {
 			dropAcademyTables(t, target)
 			openWithPolicy(t, target, academy.TSQTables(), tsq.SchemaPolicyReconcile)
 
-			widened := widenLearnerCompany(t, academy.TSQTables(), 200)
+			widened := widenedLearner(t, 200)
 
 			rt, recorder := openWithPolicy(t, target, widened, tsq.SchemaPolicyReconcile)
 			if rt.Dialect().AlterMode() != tsqdialect.AlterRebuild && recorder.count() != 1 {
@@ -273,7 +283,7 @@ func TestIntegrationCRUDOptimisticLockAndDuplicateKeys(t *testing.T) {
 				{Name: "Grace again", Email: "grace@example.com", Company: "Navy"},
 			}
 
-			err = tsq.BatchInsert(ctx, rt, learners, tsq.WithBatchSize(1), tsq.WithSkipDuplicates())
+			err = academy.TableLearner.BatchInsert(ctx, rt, learners, tsq.WithBatchSize(1), tsq.WithSkipDuplicates())
 			if err != nil {
 				t.Fatalf("expected duplicate key to be ignored, got %v", err)
 			}
@@ -552,7 +562,7 @@ func TestIntegrationBatchInsertIgnoresDuplicatesInsideTransaction(t *testing.T) 
 			}
 
 			err := rt.WithTx(ctx, nil, func(ctx context.Context, txExec tsq.Executor) error {
-				if err := tsq.BatchInsert(ctx, txExec, learners, tsq.WithBatchSize(10), tsq.WithSkipDuplicates()); err != nil {
+				if err := academy.TableLearner.BatchInsert(ctx, txExec, learners, tsq.WithBatchSize(10), tsq.WithSkipDuplicates()); err != nil {
 					return err
 				}
 
@@ -653,11 +663,13 @@ func TestIntegrationMutationsByCondition(t *testing.T) {
 
 			stale := *rows[0]
 
-			affected, err := tsq.UpdateTable[academy.Enrollment]().
+			score := tsq.NewParam[int64]("score")
+
+			affected, err := tsq.UpdateTable(academy.TableEnrollment).
 				SetVal(academy.Enrollment_Status, academy.EnrollmentStatusCompleted).
-				SetVar(academy.Enrollment_Score).
-				Where(academy.Enrollment_CourseID.EQVar(), academy.Enrollment_DeletedAt.EQVal(0)).
-				Exec(ctx, rt, int64(88), int64(1))
+				Set(academy.Enrollment_Score, score).
+				Where(academy.Enrollment_CourseID.EQ(academy.Enrollment_CourseID.Param()), academy.Enrollment_DeletedAt.EQVal(0)).
+				Exec(ctx, rt, score.Bind(88), academy.Enrollment_CourseID.Bind(1))
 			if err != nil {
 				t.Fatalf("bulk update: %v", err)
 			}
@@ -666,7 +678,7 @@ func TestIntegrationMutationsByCondition(t *testing.T) {
 				t.Fatalf("expected 2 rows updated, got %d", affected)
 			}
 
-			reloaded, err := academy.QueryEnrollmentByUID.Get(ctx, rt, rows[0].UID)
+			reloaded, err := academy.QueryEnrollmentByUID.Get(ctx, rt, academy.Enrollment_UID.Bind(rows[0].UID))
 			if err != nil {
 				t.Fatalf("reload enrollment: %v", err)
 			}
@@ -684,7 +696,7 @@ func TestIntegrationMutationsByCondition(t *testing.T) {
 				t.Fatalf("expected the pre-bulk row to conflict, got %v", err)
 			}
 
-			beforeSoftDelete, err := academy.QueryEnrollmentByUID.Get(ctx, rt, rows[1].UID)
+			beforeSoftDelete, err := academy.QueryEnrollmentByUID.Get(ctx, rt, academy.Enrollment_UID.Bind(rows[1].UID))
 			if err != nil {
 				t.Fatalf("reload enrollment before soft delete: %v", err)
 			}
@@ -692,9 +704,9 @@ func TestIntegrationMutationsByCondition(t *testing.T) {
 			// Enrollment declares deleted_at, so DeleteFrom renders an UPDATE that
 			// stamps the tombstone. The rows stay in the table and leave every
 			// generated query.
-			affected, err = tsq.DeleteFrom[academy.Enrollment]().
-				Where(academy.Enrollment_UID.InVar()).
-				Exec(ctx, rt, []int64{rows[1].UID, rows[2].UID})
+			affected, err = tsq.DeleteFrom(academy.TableEnrollment).
+				Where(academy.Enrollment_UID.In(academy.Enrollment_UID.ListParam())).
+				Exec(ctx, rt, academy.Enrollment_UID.BindList(rows[1].UID, rows[2].UID))
 			if err != nil {
 				t.Fatalf("bulk soft delete: %v", err)
 			}
@@ -724,9 +736,9 @@ func TestIntegrationMutationsByCondition(t *testing.T) {
 			// The soft-deleted rows carry a tombstone and an advanced version.
 			tombstoned, err := tsq.Select(academy.Enrollment__Cols...).
 				From(academy.TableEnrollment).
-				Where(academy.Enrollment_UID.EQVar()).
+				Where(academy.Enrollment_UID.EQ(academy.Enrollment_UID.Param())).
 				MustBuild().
-				Get(ctx, rt, rows[1].UID)
+				Get(ctx, rt, academy.Enrollment_UID.Bind(rows[1].UID))
 			if err != nil {
 				t.Fatalf("reload soft-deleted enrollment: %v", err)
 			}
@@ -740,9 +752,9 @@ func TestIntegrationMutationsByCondition(t *testing.T) {
 			}
 
 			// HardDeleteFrom ignores deleted_at and removes the rows.
-			affected, err = tsq.HardDeleteFrom[academy.Enrollment]().
-				Where(academy.Enrollment_UID.InVar()).
-				Exec(ctx, rt, []int64{rows[1].UID, rows[2].UID})
+			affected, err = tsq.HardDeleteFrom(academy.TableEnrollment).
+				Where(academy.Enrollment_UID.In(academy.Enrollment_UID.ListParam())).
+				Exec(ctx, rt, academy.Enrollment_UID.BindList(rows[1].UID, rows[2].UID))
 			if err != nil {
 				t.Fatalf("bulk hard delete: %v", err)
 			}

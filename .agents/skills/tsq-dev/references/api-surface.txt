@@ -7,60 +7,9 @@ CONSTANTS
 const DefaultMaxPageSize = 1000
 const MaxPageNumber = 1000000
 FUNCTIONS
-func BatchDelete[T Table](
-	ctx context.Context,
-	tx Executor,
-	items []T,
-	options ...BatchOption,
-) error
-func BatchDeleteByPK[O Table, T any](
-	ctx context.Context,
-	tx Executor,
-	pkField TypedColumn[O, T],
-	pks []T,
-	options ...BatchOption,
-) error
-func BatchHardDelete[T Table](
-	ctx context.Context,
-	tx Executor,
-	items []T,
-	options ...BatchOption,
-) error
-func BatchHardDeleteByPK[O Table, T any](
-	ctx context.Context,
-	tx Executor,
-	pkField TypedColumn[O, T],
-	pks []T,
-	options ...BatchOption,
-) error
-func BatchInsert[T Table](
-	ctx context.Context,
-	tx Executor,
-	items []T,
-	options ...BatchOption,
-) error
-func BatchUpdate[T Table](
-	ctx context.Context,
-	tx Executor,
-	items []T,
-	options ...BatchOption,
-) error
-func BuildSubquery[O Owner, T any](qb QueryStage[O], selected TypedColumn[O, T]) (Subquery[T], error)
-func Delete[T Table](
-	ctx context.Context,
-	tx Executor,
-	item T,
-) error
-func HardDelete[T Table](
-	ctx context.Context,
-	tx Executor,
-	item T,
-) error
-func Insert[T Table](
-	ctx context.Context,
-	tx Executor,
-	item T,
-) error
+func BatchDeleteByPK[R, K any](ctx context.Context, db Executor, pk TypedColumn[R, K], ids []K, options ...BatchOption) error
+func BatchHardDeleteByPK[R, K any](ctx context.Context, db Executor, pk TypedColumn[R, K], ids []K, options ...BatchOption) error
+func BuildSubquery[O, T any](stage QueryStage[O], selected TypedColumn[O, T]) (Subquery[T], error)
 func IsOptimisticLockError(err error) bool
 func IsRetryableNetworkError(err error) bool
 func IsRetryableTxError(err error) bool
@@ -69,49 +18,49 @@ func NewRuntime(
 	ctx context.Context,
 	db *sql.DB,
 	sqlDialect tsqdialect.Dialect,
-	tables []TableRegistration,
+	tables []Table,
 	options ...RuntimeOption,
 ) (*Runtime, error)
 func Open(
 	ctx context.Context,
 	driverName string,
 	dsn string,
-	tables []TableRegistration,
+	tables []Table,
 	options ...RuntimeOption,
 ) (*Runtime, error)
-func Update[T Table](
-	ctx context.Context,
-	tx Executor,
-	item T,
-) error
-func DeleteFrom[O Table]() *deleteBuilder[O]
-func HardDeleteFrom[O Table]() *deleteBuilder[O]
-func UpdateTable[O Table]() *updateBuilder[O]
 TYPES
 type AmbiguousSortFieldError struct {
+	Field string
 }
 func (e *AmbiguousSortFieldError) Error() string
-func (e *AmbiguousSortFieldError) Is(target error) bool
 type AnySubquery interface {
+}
+type Arg struct {
 }
 type BatchOption func(*batchConfig)
 func WithBatchSize(size int) BatchOption
 func WithSkipDuplicates() BatchOption
-type BoundColumn[O Owner] interface {
+type BoundColumn[O any] interface {
 	SQLColumn
 }
 type CaseStage[T any] interface {
-	When(cond Condition, result any) CaseStage[T]
-	Else(result any) CaseStage[T]
+	When(cond Condition, result RHS[T]) CaseStage[T]
+	WhenVal(cond Condition, value T) CaseStage[T]
+	Else(result RHS[T]) CaseStage[T]
+	ElseVal(value T) CaseStage[T]
 	End() ValueColumn[T]
 }
 func Case[T any]() CaseStage[T]
-type Column[O Owner, T any] interface {
+type Column[O, T any] interface {
 	TypedColumn[O, T]
 	RHS[T]
 	SearchColumn
 	WithTable(table Table) Column[O, T]
 	As(alias string) Column[O, T]
+	Param() Param[T]
+	ListParam() ListParam[T]
+	Bind(value T) Arg
+	BindList(values ...T) Arg
 	IsNull() Condition
 	IsNotNull() Condition
 	EQ(rhs RHS[T]) Condition
@@ -124,44 +73,32 @@ type Column[O Owner, T any] interface {
 	NotLike(rhs RHS[T]) Condition
 	Between(start, end RHS[T]) Condition
 	NotBetween(start, end RHS[T]) Condition
-	In(rhs Subquery[T]) Condition
-	NotIn(rhs Subquery[T]) Condition
-	EQVal(arg T) Condition
-	NEVal(arg T) Condition
-	GTVal(arg T) Condition
-	GTEVal(arg T) Condition
-	LTVal(arg T) Condition
-	LTEVal(arg T) Condition
-	LikeVal(arg T) Condition
-	NotLikeVal(arg T) Condition
+	In(set SetRHS[T]) Condition
+	NotIn(set SetRHS[T]) Condition
+	StartsWith(prefix Param[string]) Condition
+	NotStartsWith(prefix Param[string]) Condition
+	EndsWith(suffix Param[string]) Condition
+	NotEndsWith(suffix Param[string]) Condition
+	Contains(part Param[string]) Condition
+	NotContains(part Param[string]) Condition
+	EQVal(value T) Condition
+	NEVal(value T) Condition
+	GTVal(value T) Condition
+	GTEVal(value T) Condition
+	LTVal(value T) Condition
+	LTEVal(value T) Condition
+	LikeVal(pattern T) Condition
+	NotLikeVal(pattern T) Condition
 	BetweenVal(start, end T) Condition
 	NotBetweenVal(start, end T) Condition
-	InVal(args ...T) Condition
-	NotInVal(args ...T) Condition
-	StartsWithVal(str string) Condition
-	NotStartsWithVal(str string) Condition
-	EndsWithVal(str string) Condition
-	NotEndsWithVal(str string) Condition
-	ContainsVal(str string) Condition
-	NotContainsVal(str string) Condition
-	EQVar() Condition
-	NEVar() Condition
-	GTVar() Condition
-	GTEVar() Condition
-	LTVar() Condition
-	LTEVar() Condition
-	LikeVar() Condition
-	NotLikeVar() Condition
-	BetweenVar() Condition
-	NotBetweenVar() Condition
-	InVar() Condition
-	NotInVar() Condition
-	StartsWithVar() Condition
-	NotStartsWithVar() Condition
-	EndsWithVar() Condition
-	NotEndsWithVar() Condition
-	ContainsVar() Condition
-	NotContainsVar() Condition
+	InVal(values ...T) Condition
+	NotInVal(values ...T) Condition
+	StartsWithVal(prefix string) Condition
+	NotStartsWithVal(prefix string) Condition
+	EndsWithVal(suffix string) Condition
+	NotEndsWithVal(suffix string) Condition
+	ContainsVal(part string) Condition
+	NotContainsVal(part string) Condition
 	Pred(format string, args ...any) Condition
 	Expr(format string) Column[O, T]
 	Exprf(format string, args ...any) Column[O, T]
@@ -177,9 +114,9 @@ type Column[O Owner, T any] interface {
 	Length() Column[O, int64]
 	Trim() Column[O, T]
 	Date() Column[O, T]
-	Year() Column[O, T]
-	Month() Column[O, T]
-	Day() Column[O, T]
+	Year() Column[O, int64]
+	Month() Column[O, int64]
+	Day() Column[O, int64]
 	Round(precision int) Column[O, T]
 	Ceil() Column[O, T]
 	Floor() Column[O, T]
@@ -189,14 +126,12 @@ type Column[O Owner, T any] interface {
 	Asc() OrderBy
 	Desc() OrderBy
 }
-func NewColumn[O Table, T any](baseName, jsonFieldName string, fieldPointer func(*O) *T) Column[O, T]
-type CompoundStage[O Owner] interface {
+func NewColumn[O, T any](table *TableOf[O], name, jsonName string, field func(*O) *T) Column[O, T]
+type CompoundStage[O any] interface {
 	QueryStage[O]
 	OrderBy(orders ...OrderBy) PagedStage[O]
 	Limit(limit int) PagedStage[O]
 	Offset(offset int) PagedStage[O]
-	ForUpdate() LockedStage[O]
-	ForShare() LockedStage[O]
 	Union(other QueryStage[O]) CompoundStage[O]
 	UnionAll(other QueryStage[O]) CompoundStage[O]
 	Intersect(other QueryStage[O]) CompoundStage[O]
@@ -205,24 +140,72 @@ type CompoundStage[O Owner] interface {
 	ExceptAll(other QueryStage[O]) CompoundStage[O]
 }
 type Condition interface {
-	Tables() map[string]Table // Tables returns the tables referenced by the predicate.
-	Clause() string           // Clause returns the predicate SQL in canonical form.
-	Args() []any              // Args returns the bind arguments captured by the predicate.
 }
 func And(conds ...Condition) Condition
 func Exists(sq AnySubquery) Condition
+func Not(cond Condition) Condition
 func NotExists(sq AnySubquery) Condition
 func Or(conds ...Condition) Condition
-type Executor = tsqdialect.Executor
-func WrapExecutor(exec Executor, sqlDialect dialect.Dialect) Executor
-type Expression interface {
-	Expr() string // Expr returns the SQL fragment text.
-	Args() []any  // Args returns the bind arguments referenced by Expr.
+type DeleteBuilder[R any] struct {
 }
-func Bind(value any) Expression
-func BindSlice(values any) Expression
-type FilteredStage[O Owner] interface {
+func DeleteFrom[R any](table *TableOf[R]) *DeleteBuilder[R]
+func HardDeleteFrom[R any](table *TableOf[R]) *DeleteBuilder[R]
+func (b *DeleteBuilder[R]) Where(conds ...Condition) MutationStage[R]
+type Executor interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+func WrapExecutor(exec tsqdialect.Executor, dialect tsqdialect.Dialect) Executor
+type FilteredStage[O any] interface {
 	QueryStage[O]
+	GroupBy(cols ...SQLColumn) GroupedStage[O]
+	OrderBy(orders ...OrderBy) PagedStage[O]
+	Limit(limit int) PagedStage[O]
+	Offset(offset int) PagedStage[O]
+	ForUpdate() LockedStage[O]
+	ForShare() LockedStage[O]
+}
+type FromStage[O any] interface {
+	Select(cols ...BoundColumn[O]) JoinStage[O]
+}
+func From[O any](table Table) FromStage[O]
+type GroupedStage[O any] interface {
+	QueryStage[O]
+	Having(conds ...Condition) HavingStage[O]
+	OrderBy(orders ...OrderBy) PagedStage[O]
+	Limit(limit int) PagedStage[O]
+	Offset(offset int) PagedStage[O]
+	Union(other QueryStage[O]) CompoundStage[O]
+	UnionAll(other QueryStage[O]) CompoundStage[O]
+	Intersect(other QueryStage[O]) CompoundStage[O]
+	IntersectAll(other QueryStage[O]) CompoundStage[O]
+	Except(other QueryStage[O]) CompoundStage[O]
+	ExceptAll(other QueryStage[O]) CompoundStage[O]
+}
+type HavingStage[O any] interface {
+	QueryStage[O]
+	OrderBy(orders ...OrderBy) PagedStage[O]
+	Limit(limit int) PagedStage[O]
+	Offset(offset int) PagedStage[O]
+	Union(other QueryStage[O]) CompoundStage[O]
+	UnionAll(other QueryStage[O]) CompoundStage[O]
+	Intersect(other QueryStage[O]) CompoundStage[O]
+	IntersectAll(other QueryStage[O]) CompoundStage[O]
+	Except(other QueryStage[O]) CompoundStage[O]
+	ExceptAll(other QueryStage[O]) CompoundStage[O]
+}
+type JoinStage[O any] interface {
+	QueryStage[O]
+	Join(table Table, on ...Condition) JoinStage[O]
+	InnerJoin(table Table, on ...Condition) JoinStage[O]
+	LeftJoin(table Table, on ...Condition) JoinStage[O]
+	RightJoin(table Table, on ...Condition) JoinStage[O]
+	FullJoin(table Table, on ...Condition) JoinStage[O]
+	CrossJoin(table Table) JoinStage[O]
+	Correlate(tables ...Table) JoinStage[O]
+	Where(conds ...Condition) WhereStage[O]
+	Search(cols ...SearchColumn) SearchStage[O]
 	GroupBy(cols ...SQLColumn) GroupedStage[O]
 	OrderBy(orders ...OrderBy) PagedStage[O]
 	Limit(limit int) PagedStage[O]
@@ -236,40 +219,12 @@ type FilteredStage[O Owner] interface {
 	Except(other QueryStage[O]) CompoundStage[O]
 	ExceptAll(other QueryStage[O]) CompoundStage[O]
 }
-type FromStage[O Owner] interface {
-	Select(cols ...BoundColumn[O]) *queryBuilder[O]
+type ListParam[T any] struct {
 }
-func From[O Owner](table Table) FromStage[O]
-type GroupedStage[O Owner] interface {
-	QueryStage[O]
-	Having(conds ...Condition) HavingStage[O]
-	OrderBy(orders ...OrderBy) PagedStage[O]
-	Limit(limit int) PagedStage[O]
-	Offset(offset int) PagedStage[O]
-	ForUpdate() LockedStage[O]
-	ForShare() LockedStage[O]
-	Union(other QueryStage[O]) CompoundStage[O]
-	UnionAll(other QueryStage[O]) CompoundStage[O]
-	Intersect(other QueryStage[O]) CompoundStage[O]
-	IntersectAll(other QueryStage[O]) CompoundStage[O]
-	Except(other QueryStage[O]) CompoundStage[O]
-	ExceptAll(other QueryStage[O]) CompoundStage[O]
-}
-type HavingStage[O Owner] interface {
-	QueryStage[O]
-	OrderBy(orders ...OrderBy) PagedStage[O]
-	Limit(limit int) PagedStage[O]
-	Offset(offset int) PagedStage[O]
-	ForUpdate() LockedStage[O]
-	ForShare() LockedStage[O]
-	Union(other QueryStage[O]) CompoundStage[O]
-	UnionAll(other QueryStage[O]) CompoundStage[O]
-	Intersect(other QueryStage[O]) CompoundStage[O]
-	IntersectAll(other QueryStage[O]) CompoundStage[O]
-	Except(other QueryStage[O]) CompoundStage[O]
-	ExceptAll(other QueryStage[O]) CompoundStage[O]
-}
-type LockedStage[O Owner] interface {
+func NewListParam[T any](name string) ListParam[T]
+func (p ListParam[T]) Bind(values ...T) Arg
+func (p ListParam[T]) Name() string
+type LockedStage[O any] interface {
 	QueryStage[O]
 	NoWait() LockedStage[O]
 	SkipLocked() LockedStage[O]
@@ -278,36 +233,32 @@ type Logger interface {
 	Enabled(ctx context.Context, level slog.Level) bool
 	LogAttrs(ctx context.Context, level slog.Level, msg string, attrs ...slog.Attr)
 }
-type ManagedColumns struct {
-	Version   string // Version is the optimistic-lock column.
-	CreatedAt string // CreatedAt is set once, when the row is inserted.
-	UpdatedAt string // UpdatedAt is refreshed by every update, including soft deletes.
-	DeletedAt string // DeletedAt carries the soft-delete tombstone; when set, Delete is a soft delete.
-}
 type MissingIndexError struct {
-	Table  string   // Table is the table that should contain the index.
-	Name   string   // Name is the expected index name.
-	Fields []string // Fields is the expected indexed column order.
-	Unique bool     // Unique reports whether the missing index should be unique.
+	Table  string
+	Name   string
+	Fields []string
+	Unique bool
 }
 func (e *MissingIndexError) Error() string
 type MissingTableError struct {
-	Name string // Name is the expected physical table name.
+	Name string
 }
 func (e *MissingTableError) Error() string
-type Mutation[O Table] struct {
+type Mutation[R any] struct {
 }
-func (m *Mutation[O]) Exec(ctx context.Context, tx Executor, args ...any) (int64, error)
-func (m *Mutation[O]) SQL() string
-type MutationStage[O Table] interface {
-	Build() (*Mutation[O], error)
-	MustBuild() *Mutation[O]
-	Exec(ctx context.Context, tx Executor, args ...any) (int64, error)
+func (m *Mutation[R]) Exec(ctx context.Context, db Executor, args ...Arg) (int64, error)
+func (m *Mutation[R]) SQL(dialect tsqdialect.Dialect, args ...Arg) (string, []any, error)
+type MutationStage[R any] interface {
+	Build() (*Mutation[R], error)
+	MustBuild() *Mutation[R]
+	Exec(ctx context.Context, db Executor, args ...Arg) (int64, error)
 }
 type OptimisticLockError struct {
+	Table    string
+	Expected int
+	Actual   int64
 }
 func (e *OptimisticLockError) Error() string
-func (e *OptimisticLockError) Is(target error) bool
 type Order string
 const (
 	ASC Order = "ASC" // Ascending order
@@ -317,15 +268,12 @@ func (o Order) Reverse() Order
 type OrderBy struct {
 }
 func (ob OrderBy) Column() SQLColumn
-func (ob OrderBy) Expr() string
 func (ob OrderBy) Order() Order
 type OrderCountMismatchError struct {
+	Fields     int
+	Directions int
 }
 func (e *OrderCountMismatchError) Error() string
-func (e *OrderCountMismatchError) Is(target error) bool
-type Owner interface {
-	TSQOwner()
-}
 type PageRequest struct {
 	Size    int    `json:"size"     query:"size"`     // Size is the requested page size.
 	Page    int    `json:"page"     query:"page"`     // Page is the 1-based page number.
@@ -346,7 +294,7 @@ type PageResponse[T any] struct {
 func (r *PageResponse[T]) HasNext() bool
 func (r *PageResponse[T]) HasPrev() bool
 func (r *PageResponse[T]) IsEmpty() bool
-type PagedStage[O Owner] interface {
+type PagedStage[O any] interface {
 	QueryStage[O]
 	OrderBy(orders ...OrderBy) PagedStage[O]
 	Limit(limit int) PagedStage[O]
@@ -354,86 +302,39 @@ type PagedStage[O Owner] interface {
 	ForUpdate() LockedStage[O]
 	ForShare() LockedStage[O]
 }
-type Query[O Owner] struct {
+type Param[T any] struct {
+}
+func NewParam[T any](name string) Param[T]
+func (p Param[T]) Bind(value T) Arg
+func (p Param[T]) Name() string
+type Query[O any] struct {
 }
 func (q *Query[O]) AsSubquery[T any](selected TypedColumn[O, T]) (Subquery[T], error)
-func (q *Query[O]) Count(
-	ctx context.Context,
-	tx Executor,
-	args ...any,
-) (int64, error)
-func (q *Query[O]) CountSQL() string
-func (q *Query[O]) Exists(
-	ctx context.Context,
-	tx Executor,
-	args ...any,
-) (bool, error)
-func (q *Query[O]) Find(
-	ctx context.Context,
-	tx Executor,
-	args ...any,
-) (*O, error)
-func (q *Query[O]) Get(
-	ctx context.Context,
-	tx Executor,
-	args ...any,
-) (*O, error)
-func (q *Query[O]) List(
-	ctx context.Context,
-	tx Executor,
-	args ...any,
-) ([]*O, error)
-func (q *Query[O]) ListSQL() string
-func (q *Query[O]) Page(
-	ctx context.Context,
-	tx Executor,
-	page *PageRequest,
-	args ...any,
-) (*PageResponse[O], error)
-func (q *Query[O]) Scalar[T any](
-	ctx context.Context,
-	tx Executor,
-	selected TypedColumn[O, T],
-	args ...any,
-) (T, error)
-func (q *Query[O]) SearchCountSQL() string
-func (q *Query[O]) SearchListSQL() string
-type QueryStage[O Owner] interface {
+func (q *Query[O]) Count(ctx context.Context, db Executor, args ...Arg) (int64, error)
+func (q *Query[O]) Exists(ctx context.Context, db Executor, args ...Arg) (bool, error)
+func (q *Query[O]) Find(ctx context.Context, db Executor, args ...Arg) (*O, error)
+func (q *Query[O]) Get(ctx context.Context, db Executor, args ...Arg) (*O, error)
+func (q *Query[O]) List(ctx context.Context, db Executor, args ...Arg) ([]*O, error)
+func (q *Query[O]) Page(ctx context.Context, db Executor, page *PageRequest, args ...Arg) (*PageResponse[O], error)
+func (q *Query[O]) SQL(dialect tsqdialect.Dialect, args ...Arg) (string, []any, error)
+func (q *Query[O]) Scalar[T any](ctx context.Context, db Executor, selected TypedColumn[O, T], args ...Arg) (T, error)
+func (q *Query[O]) String() string
+type QueryStage[O any] interface {
 	Build() (*Query[O], error)
 	MustBuild() *Query[O]
-	Get(ctx context.Context, tx Executor, args ...any) (*O, error)
-	Find(ctx context.Context, tx Executor, args ...any) (*O, error)
-	Exists(ctx context.Context, tx Executor, args ...any) (bool, error)
-	Count(ctx context.Context, tx Executor, args ...any) (int64, error)
-	List(ctx context.Context, tx Executor, args ...any) ([]*O, error)
-	Page(ctx context.Context, tx Executor, page *PageRequest, args ...any) (*PageResponse[O], error)
+	Get(ctx context.Context, db Executor, args ...Arg) (*O, error)
+	Find(ctx context.Context, db Executor, args ...Arg) (*O, error)
+	Exists(ctx context.Context, db Executor, args ...Arg) (bool, error)
+	Count(ctx context.Context, db Executor, args ...Arg) (int64, error)
+	List(ctx context.Context, db Executor, args ...Arg) ([]*O, error)
+	Page(ctx context.Context, db Executor, page *PageRequest, args ...Arg) (*PageResponse[O], error)
 }
 type RHS[T any] interface {
 }
-type RegistrationError struct {
-	Kind    RegistrationErrorKind // Type classifies the registration failure.
-	Table   string                // TableName identifies the conflicting or invalid table entry.
-	Message string                // Message contains the user-facing error text.
-}
-func (e *RegistrationError) Error() string
-type RegistrationErrorKind string
-const (
-	RegistrationErrorNilTable RegistrationErrorKind = "nil_table"
-	RegistrationErrorInvalidIndex RegistrationErrorKind = "invalid_index"
-	RegistrationErrorDuplicate RegistrationErrorKind = "duplicate"
-)
-type Result interface {
-	Owner
-	TSQResult()
-}
-type ResultColumn[O Owner, T any] interface {
+type ResultColumn[O, T any] interface {
 	TypedColumn[O, T]
 }
-func MapInto[Target Owner, T any](
-	source ValueColumn[T],
-	fieldPointer func(*Target) *T,
-	jsonFieldName string,
-) ResultColumn[Target, T]
+func MapInto[Target, T any](source ValueColumn[T], field func(*Target) *T, jsonName string) ResultColumn[Target, T]
 type RetryPolicy struct {
 	MaxAttempts int
 	InitialBackoff time.Duration
@@ -469,16 +370,11 @@ func WithSchemaPolicy(policy SchemaPolicy) RuntimeOption
 func WithTablePolicy(policy SchemaPolicy) RuntimeOption
 func WithTracers(tracers ...Tracer) RuntimeOption
 type SQLColumn interface {
-	SQLExpr() string       // SQLExpr returns the rendered expression, such as "users.name".
-	OutputName() string    // OutputName returns the default scan alias for the expression.
-	JSONFieldName() string // JSONFieldName returns the stable field name used by JSON-facing helpers.
-	Table() Table          // Table returns the primary table that owns the expression.
-	Name() string          // Name returns the physical column name when the expression comes from a table column.
-	QualifiedName() string // QualifiedName returns the expression with its table qualifier or transformation applied.
+	Name() string
+	Table() Table
+	JSONFieldName() string
 }
-func AliasColumns(cols []SQLColumn, table Table) []SQLColumn
-func RebindColumn(col SQLColumn, table Table) SQLColumn
-func SQLColumns[O Owner](cols ...BoundColumn[O]) []SQLColumn
+func SQLColumns[O any](cols ...BoundColumn[O]) []SQLColumn
 type SchemaPolicy string
 const (
 	SchemaPolicyManual SchemaPolicy = "manual"
@@ -489,7 +385,7 @@ const (
 type SearchColumn interface {
 	SQLColumn
 }
-type SearchStage[O Owner] interface {
+type SearchStage[O any] interface {
 	QueryStage[O]
 	Where(conds ...Condition) FilteredStage[O]
 	GroupBy(cols ...SQLColumn) GroupedStage[O]
@@ -498,46 +394,58 @@ type SearchStage[O Owner] interface {
 	Offset(offset int) PagedStage[O]
 	ForUpdate() LockedStage[O]
 	ForShare() LockedStage[O]
-	Union(other QueryStage[O]) CompoundStage[O]
-	UnionAll(other QueryStage[O]) CompoundStage[O]
-	Intersect(other QueryStage[O]) CompoundStage[O]
-	IntersectAll(other QueryStage[O]) CompoundStage[O]
-	Except(other QueryStage[O]) CompoundStage[O]
-	ExceptAll(other QueryStage[O]) CompoundStage[O]
 }
-type SelectStage[O Owner] interface {
-	From(table Table) *queryBuilder[O]
+type SelectStage[O any] interface {
+	From(table Table) JoinStage[O]
 }
-func Select[O Owner](cols ...BoundColumn[O]) SelectStage[O]
+func Select[O any](cols ...BoundColumn[O]) SelectStage[O]
+type SetRHS[T any] interface {
+}
 type Subquery[T any] interface {
 	AnySubquery
 	RHS[T]
+	SetRHS[T]
 }
 type Table interface {
-	Owner
-	Cols() []SQLColumn              // Cols returns the physical columns exposed by the table.
-	TableName() string              // Table returns the SQL identifier used in rendered queries.
-	SearchColumns() []SearchColumn  // SearchColumns returns columns eligible for keyword-search helpers.
-	PrimaryKey() string             // PrimaryKey returns the primary-key column name.
-	AutoIncrement() bool            // AutoIncrement reports whether inserts rely on generated primary keys.
-	ManagedColumns() ManagedColumns // ManagedColumns returns the columns TSQ maintains automatically.
+	Name() string
 }
 func AliasTable(table Table, alias string) Table
-func CTE[O Owner](name string, query QueryStage[O]) Table
-func DeclareTable[O Table](table O, cols []BoundColumn[O]) Table
-type TableColumn[O Table] interface {
-	BoundColumn[O]
-	SearchColumn
-}
+func CTE[O any](name string, query QueryStage[O]) Table
 type TableIndex struct {
-	Name   string   // Name is the stable physical index name.
-	Fields []string // Fields preserves the indexed column order.
+	Name   string   // Name is the physical index name.
+	Fields []string // Fields lists the indexed column names in order.
 	Unique bool     // Unique reports whether the index enforces uniqueness.
 }
-type TableRegistration struct {
-	Table   Table                   // Table is the physical table metadata.
-	Columns []tsqdialect.ColumnSpec // Columns declares the physical column schema owned by Table.
-	Indexes []TableIndex            // Indexes declares the indexes owned by Table.
+type TableOf[R any] struct {
+}
+func NewTable[R any](name string) *TableOf[R]
+func (t *TableOf[R]) As(alias string) Table
+func (t *TableOf[R]) BatchDelete(ctx context.Context, db Executor, rows []*R, options ...BatchOption) error
+func (t *TableOf[R]) BatchHardDelete(ctx context.Context, db Executor, rows []*R, options ...BatchOption) error
+func (t *TableOf[R]) BatchInsert(ctx context.Context, db Executor, rows []*R, options ...BatchOption) error
+func (t *TableOf[R]) BatchUpdate(ctx context.Context, db Executor, rows []*R, options ...BatchOption) error
+func (t *TableOf[R]) Columns() []BoundColumn[R]
+func (t *TableOf[R]) Define(spec TableSpec[R]) *TableOf[R]
+func (t *TableOf[R]) Delete(ctx context.Context, db Executor, row *R) error
+func (t *TableOf[R]) Err() error
+func (t *TableOf[R]) HardDelete(ctx context.Context, db Executor, row *R) error
+func (t *TableOf[R]) Indexes() []TableIndex
+func (t *TableOf[R]) Insert(ctx context.Context, db Executor, row *R) error
+func (t *TableOf[R]) Name() string
+func (t *TableOf[R]) Schema() []tsqdialect.ColumnSpec
+func (t *TableOf[R]) SearchColumns() []SearchColumn
+func (t *TableOf[R]) Update(ctx context.Context, db Executor, row *R) error
+type TableSpec[R any] struct {
+	Columns []BoundColumn[R]
+	PrimaryKey BoundColumn[R]
+	AutoIncrement bool
+	Version   BoundColumn[R]
+	CreatedAt BoundColumn[R]
+	UpdatedAt BoundColumn[R]
+	DeletedAt BoundColumn[R]
+	Search []SearchColumn
+	Schema []tsqdialect.ColumnSpec
+	Indexes []TableIndex
 }
 type TraceOp string
 const (
@@ -558,17 +466,23 @@ type TxOptions struct {
 	RetryIf func(err error) bool
 	RetryPolicy *RetryPolicy
 }
-type TypedColumn[O Owner, T any] interface {
+type TypedColumn[O, T any] interface {
 	BoundColumn[O]
 }
 type UnknownSortFieldError struct {
+	Field string
 }
 func (e *UnknownSortFieldError) Error() string
-func (e *UnknownSortFieldError) Is(target error) bool
+type UpdateBuilder[R any] struct {
+}
+func UpdateTable[R any](table *TableOf[R]) *UpdateBuilder[R]
+func (b *UpdateBuilder[R]) Set[T any](col TypedColumn[R, T], rhs RHS[T]) *UpdateBuilder[R]
+func (b *UpdateBuilder[R]) SetVal[T any](col TypedColumn[R, T], value T) *UpdateBuilder[R]
+func (b *UpdateBuilder[R]) Where(conds ...Condition) MutationStage[R]
 type ValueColumn[T any] interface {
 	SQLColumn
 }
-type WhereStage[O Owner] interface {
+type WhereStage[O any] interface {
 	QueryStage[O]
 	Search(cols ...SearchColumn) FilteredStage[O]
 	GroupBy(cols ...SQLColumn) GroupedStage[O]

@@ -15,16 +15,6 @@ import (
 	"github.com/tmoeish/tsq/v5"
 )
 
-// =============================================================================
-// Result Definition
-// =============================================================================
-
-// TSQOwner marks {{$type}} as a TSQ owner.
-func ({{$dot.Receiver}} {{$type}}) TSQOwner() {}
-
-// TSQResult marks {{$type}} as a TSQ result.
-func ({{$dot.Receiver}} {{$type}}) TSQResult() {}
-
 // {{$type}}__Cols lists every generated result column of {{$type}}, for Select.
 var {{$type}}__Cols = []tsq.BoundColumn[{{$type}}]{
 {{- range $f := .Fields }}

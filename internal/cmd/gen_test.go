@@ -184,13 +184,25 @@ type User struct {
 
 	rendered := string(runtimeFile)
 	for _, want := range []string{
-		"func TSQTables() []tsq.TableRegistration",
-		"Table: TableUser",
-		`Name: "ux_users_email"`,
-		`Fields: []string{"email"}`,
+		"func TSQTables() []tsq.Table",
+		"TableUser,",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("expected runtime.tsq.go to contain %q, got:\n%s", want, rendered)
+		}
+	}
+
+	tableFile, err := os.ReadFile(filepath.Join(dir, "user.tsq.go"))
+	if err != nil {
+		t.Fatalf("failed to read user.tsq.go: %v", err)
+	}
+
+	for _, want := range []string{
+		`Name: "ux_users_email"`,
+		`Fields: []string{"email"}`,
+	} {
+		if !strings.Contains(string(tableFile), want) {
+			t.Fatalf("expected user.tsq.go to declare %q, got:\n%s", want, tableFile)
 		}
 	}
 }
@@ -226,12 +238,12 @@ type Order struct {
 		t.Fatalf("GenCmd.Execute() error = %v", err)
 	}
 
-	runtimeFile, err := os.ReadFile(filepath.Join(dir, "runtime.tsq.go"))
+	tableFile, err := os.ReadFile(filepath.Join(dir, "order.tsq.go"))
 	if err != nil {
-		t.Fatalf("failed to read runtime.tsq.go: %v", err)
+		t.Fatalf("failed to read order.tsq.go: %v", err)
 	}
-	if got := string(runtimeFile); !strings.Contains(got, `Fields: []string{"deleted_at", "status"}`) {
-		t.Fatalf("expected runtime index fields to include deleted_at prefix, got:\n%s", got)
+	if got := string(tableFile); !strings.Contains(got, `Fields: []string{"deleted_at", "status"}`) {
+		t.Fatalf("expected declared index fields to include deleted_at prefix, got:\n%s", got)
 	}
 
 	for _, tt := range []struct {
@@ -897,12 +909,12 @@ type Profile struct {
 		}
 	}
 
-	runtimeSource, err := os.ReadFile(filepath.Join(dir, "runtime.tsq.go"))
+	tableSource, err := os.ReadFile(filepath.Join(dir, "profile.tsq.go"))
 	if err != nil {
-		t.Fatalf("failed to read runtime.tsq.go: %v", err)
+		t.Fatalf("failed to read profile.tsq.go: %v", err)
 	}
-	if !strings.Contains(string(runtimeSource), `RawType: "JSON"`) {
-		t.Fatalf("expected runtime.tsq.go to keep explicit raw type, got:\n%s", string(runtimeSource))
+	if !strings.Contains(string(tableSource), `RawType: "JSON"`) {
+		t.Fatalf("expected profile.tsq.go to keep explicit raw type, got:\n%s", string(tableSource))
 	}
 
 	stateBytes, err := os.ReadFile(filepath.Join(dir, ddlStateFilename))
@@ -1284,7 +1296,6 @@ func TestResultTemplateGeneratesProjectionOnlyResultFile(t *testing.T) {
 
 	rendered := string(contents)
 	for _, want := range []string{
-		"func (uo UserOrder) TSQResult() {}",
 		"var UserOrder__Cols = []tsq.BoundColumn[UserOrder]{",
 		"UserOrder_UserID = tsq.MapInto",
 	} {
@@ -1489,7 +1500,7 @@ func TestTableTemplateGeneratesQueryListBuilders(t *testing.T) {
 	for _, want := range []string{
 		"var QueryOrderByOrgIDAndItemID = tsq.",
 		"var QueryOrderByOrgIDAndItemIDIn = tsq.",
-		"Order_ItemID.InVar()",
+		"Order_ItemID.In(Order_ItemID.ListParam())",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("expected generated query list code to mention %q, got:\n%s", want, rendered)
@@ -1554,7 +1565,7 @@ func TestTableTemplateGeneratesFullUniqueIndexInHelpers(t *testing.T) {
 		"emails,",
 		"var QueryUserByOrgIDAndSlugIn = tsq.",
 		"func FetchUserByOrgIDAndSlug(",
-		"User_Slug.InVar()",
+		"User_Slug.In(User_Slug.ListParam())",
 		"slugs,",
 	} {
 		if !strings.Contains(rendered, want) {

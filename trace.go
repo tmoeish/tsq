@@ -37,10 +37,6 @@ const (
 // dialect rendering; RuntimeOption WithSQLLogging reports statements instead.
 type Tracer func(ctx context.Context, op TraceOp, next func(ctx context.Context) error) error
 
-type traceProvider interface {
-	tsqRuntime() *Runtime
-}
-
 func (r *Runtime) trace(ctx context.Context, op TraceOp, fn func(ctx context.Context) error) error {
 	if fn == nil {
 		return errors.New("trace function cannot be nil")
@@ -104,8 +100,8 @@ func (r *Runtime) trace1[T any](ctx context.Context, op TraceOp, fn func(ctx con
 }
 
 func traceExecutor(ctx context.Context, exec Executor, op TraceOp, fn func(ctx context.Context) error) error {
-	if provider, ok := exec.(traceProvider); ok && provider.tsqRuntime() != nil {
-		return provider.tsqRuntime().trace(ctx, op, fn)
+	if rt := runtimeForExecutor(exec); rt != nil {
+		return rt.trace(ctx, op, fn)
 	}
 
 	if fn == nil {
@@ -120,8 +116,8 @@ func traceExecutor(ctx context.Context, exec Executor, op TraceOp, fn func(ctx c
 }
 
 func traceExecutor1[T any](ctx context.Context, exec Executor, op TraceOp, fn func(ctx context.Context) (T, error)) (T, error) {
-	if provider, ok := exec.(traceProvider); ok && provider.tsqRuntime() != nil {
-		return provider.tsqRuntime().trace1(ctx, op, fn)
+	if rt := runtimeForExecutor(exec); rt != nil {
+		return rt.trace1(ctx, op, fn)
 	}
 
 	if fn == nil {

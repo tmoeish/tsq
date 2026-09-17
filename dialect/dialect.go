@@ -32,7 +32,7 @@ type Dialect interface {
 	Name() Name
 	// QuoteIdent quotes an identifier the way the dialect expects.
 	QuoteIdent(ident string) string
-	// Placeholder renders the i-th (1-based) bind placeholder.
+	// Placeholder renders the bind placeholder for the argument at zero-based index i.
 	Placeholder(i int) string
 	// ReturningClause renders the clause that returns the generated key column after an
 	// INSERT, or "" when the key comes from LastInsertId instead.

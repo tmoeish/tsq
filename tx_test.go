@@ -1,0 +1,466 @@
+package tsq
+
+import (
+	"context"
+	"database/sql/driver"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	runtime2 "runtime"
+	"strings"
+	"testing"
+	"time"
+)
+
+func TestEngineQueryUsesContext(t *testing.T) {
+	db := newSQLite(t)
+	exec := requireInitializedRuntime(t, db)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	rows, err := exec.QueryContext(ctx, `SELECT id FROM users`)
+	if err == nil {
+		_ = rows.Err()
+		_ = rows.Close()
+
+		t.Fatal("expected canceled context to fail query")
+	}
+	if !strings.Contains(err.Error(), context.Canceled.Error()) {
+		t.Fatalf("expected query to surface context cancellation, got %v", err)
+	}
+}
+
+func TestEngineExecUsesContext(t *testing.T) {
+	db := newSQLite(t)
+	exec := requireInitializedRuntime(t, db)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := exec.ExecContext(ctx, `INSERT INTO users (name, email) VALUES ('alice', 'alice@example.com')`)
+	if err == nil {
+		t.Fatal("expected canceled context to fail exec")
+	}
+	if !strings.Contains(err.Error(), context.Canceled.Error()) {
+		t.Fatalf("expected exec to surface context cancellation, got %v", err)
+	}
+}
+
+func TestRuntimeAsExecutorRequiresInitBeforeQuery(t *testing.T) {
+	db := &Runtime{}
+
+	rows, err := db.QueryContext(context.Background(), `SELECT 1`)
+	if err == nil {
+		_ = rows.Err()
+		_ = rows.Close()
+
+		t.Fatal("expected uninitialized runtime query to fail")
+	}
+	if !strings.Contains(err.Error(), "construct it with NewRuntime") {
+		t.Fatalf("expected initialization guidance, got %v", err)
+	}
+}
+
+func TestNilRuntimeAsExecutorRequiresInit(t *testing.T) {
+	var db *Runtime
+
+	_, err := db.ExecContext(context.Background(), `SELECT 1`)
+	if err == nil {
+		t.Fatal("expected nil runtime exec to fail")
+	}
+	if !strings.Contains(err.Error(), "runtime cannot be nil") {
+		t.Fatalf("expected nil runtime guidance, got %v", err)
+	}
+}
+
+func TestRuntimeQueryRowContextRequiresInit(t *testing.T) {
+	db := &Runtime{}
+
+	var count int
+	err := db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM users`).Scan(&count)
+	if err == nil {
+		t.Fatal("expected uninitialized runtime query row to fail")
+	}
+	if !strings.Contains(err.Error(), "construct it with NewRuntime") {
+		t.Fatalf("expected initialization guidance, got %v", err)
+	}
+}
+
+func TestRuntimeWithTxCommitsAndCarriesDialect(t *testing.T) {
+	db := newSQLite(t)
+
+	err := db.WithTx(context.Background(), nil, func(ctx context.Context, txExec Executor) error {
+		return Users.Insert(ctx, txExec, &user{
+			Name:  "alice",
+			Email: "alice@example.com",
+		})
+	})
+	if err != nil {
+		t.Fatalf("expected transaction to commit, got %v", err)
+	}
+
+	var count int
+	if err := db.DB().QueryRowContext(context.Background(), `SELECT COUNT(*) FROM users`).Scan(&count); err != nil {
+		t.Fatalf("count committed rows: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected one committed row, got %d", count)
+	}
+}
+
+func TestRuntimeWithTxRollsBackOnCallbackError(t *testing.T) {
+	db := newSQLite(t)
+	wantErr := errors.New("boom")
+
+	err := db.WithTx(context.Background(), nil, func(ctx context.Context, txExec Executor) error {
+		if err := Users.Insert(ctx, txExec, &user{
+			Name:  "alice",
+			Email: "alice@example.com",
+		}); err != nil {
+			return err
+		}
+
+		return wantErr
+	})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("expected callback error, got %v", err)
+	}
+
+	var count int
+	if err := db.DB().QueryRowContext(context.Background(), `SELECT COUNT(*) FROM users`).Scan(&count); err != nil {
+		t.Fatalf("count rolled back rows: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("expected rollback to leave zero rows, got %d", count)
+	}
+}
+
+func TestRuntimeWithTxRequiresInitializedRuntime(t *testing.T) {
+	runtime := &Runtime{}
+
+	err := runtime.WithTx(context.Background(), nil, func(context.Context, Executor) error {
+		return nil
+	})
+	if err == nil {
+		t.Fatal("expected uninitialized runtime to fail")
+	}
+	if !strings.Contains(err.Error(), "construct it with NewRuntime") {
+		t.Fatalf("expected initialization guidance, got %v", err)
+	}
+}
+
+func TestRuntimeWithTxRejectsNilCallback(t *testing.T) {
+	db := newSQLite(t)
+
+	err := db.WithTx(context.Background(), nil, nil)
+	if err == nil {
+		t.Fatal("expected nil callback to fail")
+	}
+	if !strings.Contains(err.Error(), "transaction function cannot be nil") {
+		t.Fatalf("unexpected nil callback error: %v", err)
+	}
+}
+
+func TestRuntimeWithTxRetriesOptimisticLockWithDefaultPolicy(t *testing.T) {
+	db := newSQLite(t)
+	attempts := 0
+
+	err := db.WithTx(context.Background(), &TxOptions{RetryIf: IsOptimisticLockError}, func(ctx context.Context, txExec Executor) error {
+		attempts++
+		if attempts < 3 {
+			return &OptimisticLockError{}
+		}
+
+		return Users.Insert(ctx, txExec, &user{
+			Name:  "alice",
+			Email: "alice@example.com",
+		})
+	})
+	if err != nil {
+		t.Fatalf("expected optimistic lock retry to succeed, got %v", err)
+	}
+	if attempts != 3 {
+		t.Fatalf("expected 3 attempts, got %d", attempts)
+	}
+}
+
+func TestRuntimeWithTxOptimisticLockRetryHonorsCustomPolicy(t *testing.T) {
+	db := newSQLite(t)
+	attempts := 0
+	wantErr := &OptimisticLockError{}
+
+	err := db.WithTx(context.Background(), &TxOptions{
+		RetryIf: IsOptimisticLockError,
+		RetryPolicy: &RetryPolicy{
+			MaxAttempts:    2,
+			InitialBackoff: 0,
+			MaxBackoff:     0,
+			Multiplier:     1,
+		},
+	}, func(context.Context, Executor) error {
+		attempts++
+		return wantErr
+	})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("expected optimistic lock conflict, got %v", err)
+	}
+	if attempts != 2 {
+		t.Fatalf("expected custom retry policy to stop after 2 attempts, got %d", attempts)
+	}
+}
+
+func TestRuntimeWithTxRejectsInvalidRetryPolicy(t *testing.T) {
+	db := newSQLite(t)
+
+	err := db.WithTx(context.Background(), &TxOptions{
+		RetryIf: IsOptimisticLockError,
+		RetryPolicy: &RetryPolicy{
+			MaxAttempts:    0,
+			InitialBackoff: 0,
+			MaxBackoff:     0,
+			Multiplier:     1,
+		},
+	}, func(context.Context, Executor) error {
+		return nil
+	})
+	if err == nil {
+		t.Fatal("expected invalid retry policy to fail")
+	}
+	if !strings.Contains(err.Error(), "max attempts") {
+		t.Fatalf("unexpected invalid retry policy error: %v", err)
+	}
+}
+
+func TestRuntimeWithTxResultReturnsValue(t *testing.T) {
+	db := newSQLite(t)
+
+	got, err := db.WithTxResult(context.Background(), nil, func(ctx context.Context, txExec Executor) (int, error) {
+		if err := Users.Insert(ctx, txExec, &user{
+			Name:  "alice",
+			Email: "alice@example.com",
+		}); err != nil {
+			return 0, err
+		}
+
+		return 41, nil
+	})
+	if err != nil {
+		t.Fatalf("expected WithTxResult to succeed, got %v", err)
+	}
+	if got != 41 {
+		t.Fatalf("expected WithTxResult result 41, got %d", got)
+	}
+}
+
+func TestRuntimeWithTxResultReturnsAStruct(t *testing.T) {
+	db := newSQLite(t)
+
+	// WithTx2 is gone: several related values travel in a small result struct,
+	// which names them instead of relying on positional returns.
+	type result struct {
+		count int
+		state string
+	}
+
+	got, err := db.WithTxResult(context.Background(), &TxOptions{
+		RetryIf: IsOptimisticLockError,
+		RetryPolicy: &RetryPolicy{
+			MaxAttempts:    2,
+			InitialBackoff: 0,
+			MaxBackoff:     0,
+			Multiplier:     1,
+		},
+	}, func(ctx context.Context, txExec Executor) (result, error) {
+		if err := Users.Insert(ctx, txExec, &user{
+			Name:  "alice",
+			Email: "alice@example.com",
+		}); err != nil {
+			return result{}, err
+		}
+
+		return result{count: 7, state: "ok"}, nil
+	})
+	if err != nil {
+		t.Fatalf("expected WithTxResult to succeed, got %v", err)
+	}
+
+	if got.count != 7 || got.state != "ok" {
+		t.Fatalf("expected result (7, ok), got (%d, %q)", got.count, got.state)
+	}
+}
+
+func TestRuntimeWithTxRetryRespectsContextCancellationBetweenAttempts(t *testing.T) {
+	db := newSQLite(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	attempts := 0
+
+	err := db.WithTx(ctx, &TxOptions{
+		RetryIf: IsOptimisticLockError,
+		RetryPolicy: &RetryPolicy{
+			MaxAttempts:    3,
+			InitialBackoff: 10 * time.Millisecond,
+			MaxBackoff:     10 * time.Millisecond,
+			Multiplier:     1,
+		},
+	}, func(context.Context, Executor) error {
+		attempts++
+		cancel()
+		return &OptimisticLockError{}
+	})
+	if err == nil {
+		t.Fatal("expected canceled context to stop retries")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context cancellation, got %v", err)
+	}
+	if attempts != 1 {
+		t.Fatalf("expected cancellation to stop after first attempt, got %d attempts", attempts)
+	}
+}
+
+func TestIsOptimisticLockError(t *testing.T) {
+	if !IsOptimisticLockError(&OptimisticLockError{}) {
+		t.Fatal("expected optimistic lock conflict to be detected")
+	}
+	if IsOptimisticLockError(errors.New("boom")) {
+		t.Fatal("expected non optimistic lock error to be ignored")
+	}
+}
+
+func TestIsRetryableNetworkError(t *testing.T) {
+	if !IsRetryableNetworkError(driver.ErrBadConn) {
+		t.Fatal("expected driver.ErrBadConn to be retryable")
+	}
+	if !IsRetryableNetworkError(&net.DNSError{IsTimeout: true}) {
+		t.Fatal("expected timeout network error to be retryable")
+	}
+	if IsRetryableNetworkError(context.Canceled) {
+		t.Fatal("expected context cancellation to stay non-retryable")
+	}
+}
+
+func TestIsTxConflictError(t *testing.T) {
+	if !IsTxConflictError(fakeSQLStateError{state: "40001"}) {
+		t.Fatal("expected postgres serialization failure to be retryable")
+	}
+	if IsTxConflictError(errors.New("boom")) {
+		t.Fatal("expected generic error to stay non-retryable")
+	}
+}
+
+func TestRetryHelpersCanBeUsedAsPredicates(t *testing.T) {
+	if !IsRetryableNetworkError(driver.ErrBadConn) {
+		t.Fatal("expected network retry helper to accept driver bad connections")
+	}
+	if !IsTxConflictError(fakeSQLStateError{state: "40P01"}) {
+		t.Fatal("expected transaction conflict helper to accept deadlocks")
+	}
+	if !IsRetryableTxError(&OptimisticLockError{}) {
+		t.Fatal("expected combined helper to include optimistic lock conflicts")
+	}
+}
+
+// fakeSQLStateError mimics the SQLState() shape shared by lib/pq, pgx v4 and
+// pgx v5 error types without importing any driver.
+type fakeSQLStateError struct {
+	state string
+}
+
+func (e fakeSQLStateError) Error() string    { return "sqlstate " + e.state }
+func (e fakeSQLStateError) SQLState() string { return e.state }
+
+func TestPostgresErrorsMatchBySQLStateInterface(t *testing.T) {
+	wrapped := fmt.Errorf("insert: %w", fakeSQLStateError{state: "23505"})
+	if !isDuplicateKeyError(wrapped) {
+		t.Fatal("expected wrapped unique violation to be detected as duplicate key")
+	}
+	if isDuplicateKeyError(fakeSQLStateError{state: "40001"}) {
+		t.Fatal("expected serialization failure not to be a duplicate key error")
+	}
+	if !IsTxConflictError(fakeSQLStateError{state: "55P03"}) {
+		t.Fatal("expected lock-not-available to be a retryable conflict")
+	}
+	if IsTxConflictError(fakeSQLStateError{state: "23505"}) {
+		t.Fatal("expected unique violation not to be a retryable conflict")
+	}
+}
+
+func TestShouldRetryTxCommitStageOnlyRetriesDefiniteConflicts(t *testing.T) {
+	opts := &normalizedTxOptions{
+		retryIf:     IsRetryableTxError,
+		retryPolicy: DefaultRetryPolicy(),
+	}
+
+	if shouldRetryTx(driver.ErrBadConn, txRetryStageCommit, opts, 1) {
+		t.Fatal("expected ambiguous commit-stage network errors to stay non-retryable")
+	}
+	if shouldRetryTx(io.EOF, txRetryStageCommit, opts, 1) {
+		t.Fatal("expected commit-stage EOF to stay non-retryable")
+	}
+	if !shouldRetryTx(fakeSQLStateError{state: "40001"}, txRetryStageCommit, opts, 1) {
+		t.Fatal("expected commit-stage serialization failure to be retryable")
+	}
+	if !shouldRetryTx(driver.ErrBadConn, txRetryStageBody, opts, 1) {
+		t.Fatal("expected body-stage network errors to be retryable")
+	}
+	if shouldRetryTx(fakeSQLStateError{state: "40001"}, txRetryStageCommit, opts, opts.retryPolicy.MaxAttempts) {
+		t.Fatal("expected attempt limit to apply at commit stage too")
+	}
+}
+
+// TestRuntimeQueryRowContextReusesOneErrorPool guards against a goroutine leak.
+// QueryRowContext must return a *sql.Row, and a *sql.Row carrying an error cannot be
+// built outside database/sql, so the error path goes through a failing *sql.DB. That
+// pool used to be opened per call and never closed, and sql.OpenDB starts a connection
+// opener goroutine that only Close stops -- one leaked goroutine per call on a broken
+// runtime. There is one shared pool now.
+func TestRuntimeQueryRowContextReusesOneErrorPool(t *testing.T) {
+	var runtime *Runtime
+
+	before := runtime_NumGoroutineStable()
+
+	for range 200 {
+		if err := runtime.QueryRowContext(context.Background(), "SELECT 1").Scan(new(int)); err == nil {
+			t.Fatal("expected an error from an uninitialized runtime")
+		}
+	}
+
+	if got := errorDB(); got != errorDB() {
+		t.Fatal("expected a single shared error pool")
+	}
+
+	after := runtime_NumGoroutineStable()
+	if after > before+5 {
+		t.Fatalf("goroutine count grew from %d to %d across 200 failed calls", before, after)
+	}
+}
+
+// runtime_NumGoroutineStable reads the goroutine count after giving the scheduler a
+// chance to retire finished ones, so the assertion above measures a leak rather than
+// timing noise.
+func runtime_NumGoroutineStable() int {
+	runtime2.GC()
+
+	last := runtime2.NumGoroutine()
+	for range 10 {
+		time.Sleep(time.Millisecond)
+		runtime2.GC()
+
+		current := runtime2.NumGoroutine()
+		if current == last {
+			return current
+		}
+
+		last = current
+	}
+
+	return last
+}
+
+func requireInitializedRuntime(t *testing.T, runtime *Runtime) *Runtime {
+	t.Helper()
+
+	if err := validateTxRuntime(runtime); err != nil {
+		t.Fatalf("expected initialized runtime, got %v", err)
+	}
+
+	return runtime
+}

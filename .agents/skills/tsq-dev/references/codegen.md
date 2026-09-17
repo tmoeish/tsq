@@ -56,6 +56,20 @@ genmodel.StructInfo / TableMeta        internal/genmodel/model.go
 `文件:行:列: invalid //tsq: directive: <那一行原文>: <原因>`，并且 `errors.Is(err, parser.ErrInvalidDirective)`。
 一行一个关注点，所以"哪一行"不用再算——**不要把指令改成跨行的形态**，那会把定位问题带回来。
 
+## 生成物的形态
+
+- `<struct>.tsq.go`：句柄 `tsqXxxTable`、列 `Xxx_Field`（`tsq.NewColumn(句柄, ...)`）、表描述符
+  `TableXxx = 句柄.Define(tsq.TableSpec{...})`（含 `Schema` 与 `Indexes`）、`Xxx__Cols`、派生查询
+  `QueryXxx...`（参数用列自带的 `Param()` / `ListParam()`）、`FetchXxxBy...`，以及转发到表描述符的
+  行方法。三步声明的理由见 `architecture.md` § 表描述符。
+- `<result>.result.tsq.go`：`Xxx__Cols` 与 `tsq.MapInto` 列。
+- `runtime.tsq.go`：`TSQTables() []tsq.Table` 和两个取行排序的小工具。
+- 物理 schema（`genmodel.SchemaColumn`）需要 `go/types` 的真实类型，所以不由解析器填，而是
+  `generation_plan.go` 在渲染表之前用 `ddlTypeResolver` 补进 `StructInfo.Schema`。
+- 托管列的"什么时候盖时间戳"不在模板里，在库的 `rows.go`：模板只声明哪一列扮演哪个角色。
+- 模板不许拼接符号名（`tsqdialect.Kind{{ .Kind }}`）；`columnKindRef` 这类 helper 写出完整
+  名字，`generated_symbols_test.go` 才能核对它真的存在。
+
 ## 校验发生在渲染之前
 
 `gen.go` 在渲染前跑一串校验，每一条都是为了让错误在生成期爆掉而不是在使用者的编译期或
