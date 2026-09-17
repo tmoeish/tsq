@@ -114,7 +114,9 @@ type renderMode struct {
 	keyword bool // include the keyword-search predicate
 	single  bool // bound the result to one row
 	// paged replaces ORDER BY with order and appends LIMIT/OFFSET.
-	paged  bool
+	paged bool
+	// seek, for keyset paging, is ANDed into WHERE and drops the OFFSET.
+	seek   *sqlExpr
 	order  []orderTerm
 	limit  int
 	offset int
@@ -147,25 +149,27 @@ func (s *querySpec[O]) render(r *renderer, m renderMode) {
 	if m.count {
 		if s.grouped() {
 			r.writeText("SELECT COUNT(1) FROM (")
-			s.writeBody(r, m.keyword)
+			s.writeBody(r, m)
 			r.writeText(") AS _tsq_cnt")
 
 			return
 		}
 
 		r.writeText("SELECT COUNT(1)")
-		s.writeFromWhere(r, m.keyword)
+		s.writeFromWhere(r, m)
 
 		return
 	}
 
-	s.writeBody(r, m.keyword)
+	s.writeBody(r, m)
 	s.writeTail(r, m)
 	s.writeLock(r)
 }
 
-func (s *querySpec[O]) writeBody(r *renderer, keyword bool) {
-	s.writeSimple(r, keyword)
+// writeBody writes the query without ORDER BY, LIMIT and locks. Only the keyword
+// and seek parts of m apply, and only to the first operand of a set operation.
+func (s *querySpec[O]) writeBody(r *renderer, m renderMode) {
+	s.writeSimple(r, m)
 
 	for _, op := range s.SetOps {
 		if c := op.op.capability(); c != "" {
@@ -176,15 +180,15 @@ func (s *querySpec[O]) writeBody(r *renderer, keyword bool) {
 
 		if len(op.spec.SetOps) > 0 {
 			r.writeText("(")
-			op.spec.writeBody(r, false)
+			op.spec.writeBody(r, renderMode{})
 			r.writeText(")")
 		} else {
-			op.spec.writeSimple(r, false)
+			op.spec.writeSimple(r, renderMode{})
 		}
 	}
 }
 
-func (s *querySpec[O]) writeSimple(r *renderer, keyword bool) {
+func (s *querySpec[O]) writeSimple(r *renderer, m renderMode) {
 	cols := make([]sqlExpr, 0, len(s.Selects))
 	for _, col := range s.Selects {
 		cols = append(cols, columnInfo(col).sql)
@@ -197,7 +201,7 @@ func (s *querySpec[O]) writeSimple(r *renderer, keyword bool) {
 	}
 
 	r.write(sqlList(", ", cols))
-	s.writeFromWhere(r, keyword)
+	s.writeFromWhere(r, m)
 
 	if len(s.GroupBy) > 0 {
 		groups := make([]sqlExpr, 0, len(s.GroupBy))
@@ -221,7 +225,7 @@ func (s *querySpec[O]) writeSimple(r *renderer, keyword bool) {
 // preserved row). With a RIGHT or FULL JOIN in the query, a table can be on the
 // preserved side of one join and the optional side of another, so every
 // soft-delete table becomes a derived table of its live rows instead.
-func (s *querySpec[O]) writeFromWhere(r *renderer, keyword bool) {
+func (s *querySpec[O]) writeFromWhere(r *renderer, m renderMode) {
 	outer := false
 
 	for _, j := range s.Joins {
@@ -278,7 +282,7 @@ func (s *querySpec[O]) writeFromWhere(r *renderer, keyword bool) {
 
 	conds := slices.Clone(s.Filters)
 
-	if keyword && len(s.KeywordSearch) > 0 {
+	if m.keyword && len(s.KeywordSearch) > 0 {
 		terms := make([]Condition, 0, len(s.KeywordSearch))
 		pattern := sqlJoin(sqlParam(keywordParam.derive(paramContains)), sqlText(likeEscapeClause))
 
@@ -291,6 +295,10 @@ func (s *querySpec[O]) writeFromWhere(r *renderer, keyword bool) {
 	}
 
 	conds = append(conds, live...)
+
+	if m.seek != nil {
+		conds = append(conds, newCondition(exprInfo{sql: *m.seek}))
+	}
 
 	if len(conds) > 0 {
 		r.writeText(" WHERE ")
@@ -332,8 +340,11 @@ func (s *querySpec[O]) writeTail(r *renderer, m renderMode) {
 	case m.paged:
 		r.writeText(" LIMIT ")
 		r.writeValue(m.limit)
-		r.writeText(" OFFSET ")
-		r.writeValue(m.offset)
+
+		if m.seek == nil {
+			r.writeText(" OFFSET ")
+			r.writeValue(m.offset)
+		}
 	case s.Limit != nil:
 		r.writeText(" LIMIT ")
 		r.writeValue(*s.Limit)
@@ -670,7 +681,7 @@ func (c *cteSpec[O]) err() error {
 }
 
 func (c *cteSpec[O]) renderQuery(r *renderer) {
-	c.spec.writeBody(r, false)
+	c.spec.writeBody(r, renderMode{})
 	c.spec.writeTail(r, renderMode{})
 }
 

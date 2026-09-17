@@ -176,6 +176,17 @@ type JoinStage[O any] interface {
 	Where(conds ...Condition) WhereStage[O]
 	Search(cols ...SearchColumn) SearchStage[O]
 }
+type Keyset struct {
+	Size int
+	OrderBy []OrderBy
+	After string
+}
+type KeysetPage[T any] struct {
+	Size int    `json:"size"` // Size is the page size served.
+	Data []*T   `json:"data"` // Data holds the rows of the page, never nil.
+	Next string `json:"next"` // Next is the Keyset.After of the following page; empty on the last.
+}
+func (p *KeysetPage[T]) HasNext() bool
 type ListParam[T any] struct {
 }
 func NewListParam[T any](name string) ListParam[T]
@@ -247,7 +258,9 @@ type PageRequest struct {
 	OrderBy string `json:"order_by" query:"order_by"` // OrderBy lists sort fields separated by commas.
 	Order   string `json:"order"    query:"order"`    // Order lists asc/desc aligned with OrderBy.
 	Keyword string `json:"keyword"  query:"keyword"`  // Keyword is the optional search term.
+	After   string `json:"after"    query:"after"`    // After is the cursor of a keyset page.
 }
+func (r *PageRequest) Keyset(sortable ...SQLColumn) (Keyset, error)
 func (r *PageRequest) Normalize(maxSize int)
 func (r *PageRequest) Paging(sortable ...SQLColumn) (Paging, error)
 func (r *PageRequest) Validate(maxSize int) error
@@ -290,6 +303,7 @@ func (q *Query[O]) Iter(ctx context.Context, db Executor, args ...Arg) iter.Seq2
 func (q *Query[O]) List(ctx context.Context, db Executor, args ...Arg) ([]*O, error)
 func (q *Query[O]) ListIn[T comparable](ctx context.Context, db Executor, param ListParam[T], values []T, args ...Arg) ([]*O, error)
 func (q *Query[O]) Page(ctx context.Context, db Executor, p Paging, args ...Arg) (*PageResponse[O], error)
+func (q *Query[O]) PageKeyset(ctx context.Context, db Executor, k Keyset, args ...Arg) (*KeysetPage[O], error)
 func (q *Query[O]) SQL(dialect tsqdialect.Dialect, args ...Arg) (string, []any, error)
 func (q *Query[O]) Scalar[T any](ctx context.Context, db Executor, selected TypedColumn[O, T], args ...Arg) (T, error)
 func (q *Query[O]) String() string

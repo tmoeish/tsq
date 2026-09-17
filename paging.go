@@ -84,6 +84,7 @@ type PageRequest struct {
 	OrderBy string `json:"order_by" query:"order_by"` // OrderBy lists sort fields separated by commas.
 	Order   string `json:"order"    query:"order"`    // Order lists asc/desc aligned with OrderBy.
 	Keyword string `json:"keyword"  query:"keyword"`  // Keyword is the optional search term.
+	After   string `json:"after"    query:"after"`    // After is the cursor of a keyset page.
 }
 
 // Paging resolves the request against the columns it may sort by. A sort field
@@ -94,21 +95,46 @@ func (r *PageRequest) Paging(sortable ...SQLColumn) (Paging, error) {
 		return Paging{}, nil
 	}
 
-	p := Paging{Page: r.Page, Size: r.Size}
+	order, err := r.orderBy(sortable)
+	if err != nil {
+		return Paging{}, err
+	}
 
+	return Paging{Page: r.Page, Size: r.Size, OrderBy: order}, nil
+}
+
+// Keyset resolves the request as a keyset page: Size, the sort fields as Paging
+// resolves them, and After. Page is ignored. The last sort field must be the
+// primary key, which the endpoint can append rather than leave to the client.
+func (r *PageRequest) Keyset(sortable ...SQLColumn) (Keyset, error) {
+	if r == nil {
+		return Keyset{}, nil
+	}
+
+	order, err := r.orderBy(sortable)
+	if err != nil {
+		return Keyset{}, err
+	}
+
+	return Keyset{Size: r.Size, OrderBy: order, After: r.After}, nil
+}
+
+func (r *PageRequest) orderBy(sortable []SQLColumn) ([]OrderBy, error) {
 	fields := splitCommaValues(r.OrderBy)
 	if len(fields) == 0 {
 		if len(splitCommaValues(r.Order)) > 0 {
-			return Paging{}, errors.New("order requires order_by")
+			return nil, errors.New("order requires order_by")
 		}
 
-		return p, nil
+		return nil, nil
 	}
 
 	directions, err := normalizeSortOrders(splitCommaValues(r.Order), len(fields))
 	if err != nil {
-		return Paging{}, err
+		return nil, err
 	}
+
+	var order []OrderBy
 
 	byName := make(map[string][]SQLColumn)
 
@@ -129,15 +155,15 @@ func (r *PageRequest) Paging(sortable ...SQLColumn) (Paging, error) {
 
 		switch {
 		case len(matches) == 0:
-			return Paging{}, &UnknownSortFieldError{Field: field}
+			return nil, &UnknownSortFieldError{Field: field}
 		case len(matches) > 1:
-			return Paging{}, &AmbiguousSortFieldError{Field: field}
+			return nil, &AmbiguousSortFieldError{Field: field}
 		}
 
-		p.OrderBy = append(p.OrderBy, OrderBy{column: matches[0], direction: directions[i]})
+		order = append(order, OrderBy{column: matches[0], direction: directions[i]})
 	}
 
-	return p, nil
+	return order, nil
 }
 
 // UnknownSortFieldError reports a sort field the endpoint does not allow.
