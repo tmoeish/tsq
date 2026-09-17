@@ -40,9 +40,9 @@ var TableInstructor = tsqInstructorTable.Define(tsq.TableSpec[Instructor]{
 	AutoIncrement: true,
 	CreatedAt:     Instructor_CreatedAt,
 	Search: []tsq.SearchColumn{
-		Instructor_Name,
-		Instructor_Specialty,
-		Instructor_Bio,
+		tsq.Searchable(Instructor_Name),
+		tsq.Searchable(Instructor_Specialty),
+		tsq.Searchable(Instructor_Bio),
 	},
 	Schema: []tsqdialect.ColumnSpec{
 		{
@@ -148,6 +148,16 @@ var QueryInstructorByEmail = tsq.
 	).
 	MustBuild()
 
+// QueryInstructorByEmailIn reads Instructor rows by unique index ux_instructor_email, one per
+// Email value; bind Instructor_Email with BindList.
+var QueryInstructorByEmailIn = tsq.
+	Select(Instructor__Cols...).
+	From(TableInstructor).
+	Where(
+		Instructor_Email.In(Instructor_Email.ListParam()),
+	).
+	MustBuild()
+
 // FetchInstructorByEmail returns the Instructor rows matching unique index ux_instructor_email,
 // one per Email value, in the order given. It fails with an error wrapping
 // sql.ErrNoRows when any of them is missing.
@@ -173,15 +183,6 @@ func FetchInstructorByEmail(
 
 	return ordered, nil
 }
-
-// QueryInstructorByEmailIn reads Instructor rows by index ux_instructor_email.
-var QueryInstructorByEmailIn = tsq.
-	Select(Instructor__Cols...).
-	From(TableInstructor).
-	Where(
-		Instructor_Email.In(Instructor_Email.ListParam()),
-	).
-	MustBuild()
 
 // QueryInstructor reads every Instructor row; Page matches its search columns.
 var QueryInstructor = tsq.

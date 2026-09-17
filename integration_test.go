@@ -500,7 +500,7 @@ func TestIntegrationKeywordSearchEscapesWildcards(t *testing.T) {
 				{keyword: "100%", want: "100%"},
 				{keyword: "c~d", want: "c~d"},
 			} {
-				resp, err := academy.QueryLearner.Page(ctx, rt, &tsq.PageRequest{
+				resp, err := academy.QueryLearner.Page(ctx, rt, tsq.Paging{
 					Page:    1,
 					Size:    10,
 					Keyword: tc.keyword,
@@ -526,7 +526,7 @@ func TestIntegrationKeywordSearchEscapesWildcards(t *testing.T) {
 			}
 
 			// Escaping must not turn substring search into equality.
-			resp, err := academy.QueryLearner.Page(ctx, rt, &tsq.PageRequest{Page: 1, Size: 10, Keyword: "Wildcard"})
+			resp, err := academy.QueryLearner.Page(ctx, rt, tsq.Paging{Page: 1, Size: 10, Keyword: "Wildcard"})
 			if err != nil {
 				t.Fatalf("substring keyword on %s: %v", target.name, err)
 			}
@@ -669,7 +669,7 @@ func TestIntegrationMutationsByCondition(t *testing.T) {
 			affected, err := tsq.UpdateTable(academy.TableEnrollment).
 				SetVal(academy.Enrollment_Status, academy.EnrollmentStatusCompleted).
 				Set(academy.Enrollment_Score, score).
-				Where(academy.Enrollment_CourseID.EQ(academy.Enrollment_CourseID.Param()), academy.Enrollment_DeletedAt.EQVal(0)).
+				Where(academy.Enrollment_CourseID.EQ(academy.Enrollment_CourseID.Param())).
 				Exec(ctx, rt, score.Bind(88), academy.Enrollment_CourseID.Bind(1))
 			if err != nil {
 				t.Fatalf("bulk update: %v", err)
@@ -725,7 +725,7 @@ func TestIntegrationMutationsByCondition(t *testing.T) {
 				t.Fatalf("expected 1 active enrollment left, got %d", active)
 			}
 
-			stored, err := tsq.Select(academy.Enrollment_UID).From(academy.TableEnrollment).MustBuild().Count(ctx, rt)
+			stored, err := tsq.Select(academy.Enrollment_UID).From(academy.TableEnrollment.WithDeleted()).MustBuild().Count(ctx, rt)
 			if err != nil {
 				t.Fatalf("count stored enrollments: %v", err)
 			}
@@ -736,7 +736,7 @@ func TestIntegrationMutationsByCondition(t *testing.T) {
 
 			// The soft-deleted rows carry a tombstone and an advanced version.
 			tombstoned, err := tsq.Select(academy.Enrollment__Cols...).
-				From(academy.TableEnrollment).
+				From(academy.TableEnrollment.WithDeleted()).
 				Where(academy.Enrollment_UID.EQ(academy.Enrollment_UID.Param())).
 				MustBuild().
 				Get(ctx, rt, academy.Enrollment_UID.Bind(rows[1].UID))
@@ -764,13 +764,76 @@ func TestIntegrationMutationsByCondition(t *testing.T) {
 				t.Fatalf("expected 2 rows hard-deleted, got %d", affected)
 			}
 
-			stored, err = tsq.Select(academy.Enrollment_UID).From(academy.TableEnrollment).MustBuild().Count(ctx, rt)
+			stored, err = tsq.Select(academy.Enrollment_UID).From(academy.TableEnrollment.WithDeleted()).MustBuild().Count(ctx, rt)
 			if err != nil {
 				t.Fatalf("count stored enrollments: %v", err)
 			}
 
 			if stored != 1 {
 				t.Fatalf("expected 1 enrollment left after hard delete, got %d", stored)
+			}
+		})
+	}
+}
+
+// TestIntegrationSoftDeleteScopeJoins checks the soft-delete scope in every join
+// position on real engines. A RIGHT or FULL JOIN renders the scoped table as a
+// derived table, which is the spelling most likely to differ between dialects.
+func TestIntegrationSoftDeleteScopeJoins(t *testing.T) {
+	for _, target := range integrationTargets(t) {
+		t.Run(target.name, func(t *testing.T) {
+			ctx := context.Background()
+
+			dropAcademyTables(t, target)
+			rt, _ := openWithPolicy(t, target, academy.TSQTables(), tsq.SchemaPolicyReconcile)
+
+			learners := []*academy.Learner{
+				{Name: "Live", Email: "live@example.com"},
+				{Name: "Gone", Email: "gone@example.com"},
+			}
+			if err := academy.TableLearner.BatchInsert(ctx, rt, learners); err != nil {
+				t.Fatal(err)
+			}
+
+			enrollments := []*academy.Enrollment{
+				{LearnerID: learners[0].ID, CourseID: 1},
+				{LearnerID: learners[1].ID, CourseID: 1},
+			}
+			for _, e := range enrollments {
+				if err := e.Insert(ctx, rt); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			if err := enrollments[1].Delete(ctx, rt); err != nil {
+				t.Fatal(err)
+			}
+
+			on := academy.Enrollment_LearnerID.EQ(academy.Learner_ID)
+			count := func(name string, stage tsq.QueryStage[academy.Learner], want int64) {
+				t.Helper()
+
+				n, err := stage.Count(ctx, rt)
+				if err != nil {
+					t.Fatalf("%s: %v", name, err)
+				}
+
+				if n != want {
+					t.Errorf("%s = %d, want %d", name, n, want)
+				}
+			}
+
+			from := func() tsq.JoinStage[academy.Learner] {
+				return tsq.Select(academy.Learner_ID).From(academy.TableLearner)
+			}
+
+			count("inner join", from().Join(academy.TableEnrollment, on), 1)
+			count("left join without a live enrollment", from().LeftJoin(academy.TableEnrollment, on).Where(academy.Enrollment_UID.IsNull()), 1)
+			count("right join", from().RightJoin(academy.TableEnrollment, on), 1)
+			count("inner join with deleted", from().Join(academy.TableEnrollment.WithDeleted(), on), 2)
+
+			if rt.Dialect().SupportsCapability(tsqdialect.CapabilityFullOuterJoin) {
+				count("full join", from().FullJoin(academy.TableEnrollment, on), 2)
 			}
 		})
 	}
@@ -812,15 +875,15 @@ func TestIntegrationColumnFunctionsArePortable(t *testing.T) {
 				}
 			}
 
-			str(name.Trim(), "Ünïcödé")
+			str(tsq.Trim(name), "Ünïcödé")
 			// SQLite's UPPER and LOWER fold ASCII only, so they are checked on ASCII text.
-			str(academy.Learner_Company.Lower(), "acme")
-			str(academy.Learner_Company.Lower().Upper(), "ACME")
-			str(name.Trim().Substring(2, 3), "nïc")
-			str(name.NullIf("x"), "  Ünïcödé  ")
-			str(academy.Learner_Company.Coalesce("none"), "ACME")
+			str(tsq.Lower(academy.Learner_Company), "acme")
+			str(tsq.Upper(tsq.Lower(academy.Learner_Company)), "ACME")
+			str(tsq.Substring(tsq.Trim(name), 2, 3), "nïc")
+			str(tsq.NullIfVal(name, "x"), "  Ünïcödé  ")
+			str(tsq.CoalesceVal(academy.Learner_Company, "none"), "ACME")
 
-			length := name.Trim().Length()
+			length := tsq.Length(tsq.Trim(name))
 			if n, err := tsq.Select(length).From(academy.TableLearner).MustBuild().Scalar(ctx, rt, length); err != nil || n != 7 {
 				t.Errorf("Length() = %d, %v; want 7 characters", n, err)
 			}
@@ -836,15 +899,15 @@ func TestIntegrationColumnFunctionsArePortable(t *testing.T) {
 			}
 
 			created := academy.Enrollment_CreatedAt
-			num(score.Sum(), 9)
-			num(score.Max(), 10)
-			num(score.Min(), -7)
-			num(score.Count(), 4)
-			num(score.CountDistinct(), 3)
-			num(created.Year().Max(), 2026)
-			num(created.Month().Max(), 3)
-			num(created.Day().Max(), 4)
-			num(score.Min().Abs(), 7)
+			num(tsq.Sum(score), 9)
+			num(tsq.Max(score), 10)
+			num(tsq.Min(score), -7)
+			num(tsq.Count(score), 4)
+			num(tsq.CountDistinct(score), 3)
+			num(tsq.Max(tsq.Year(created)), 2026)
+			num(tsq.Max(tsq.Month(created)), 3)
+			num(tsq.Max(tsq.Day(created)), 4)
+			num(tsq.Abs(tsq.Min(score)), 7)
 
 			dec := func(col tsq.Column[academy.Enrollment, float64], want float64) {
 				t.Helper()
@@ -855,12 +918,12 @@ func TestIntegrationColumnFunctionsArePortable(t *testing.T) {
 				}
 			}
 
-			dec(score.Avg(), 2.25)
-			dec(score.Avg().Round(1), 2.3)
-			dec(score.Avg().Ceil(), 3)
-			dec(score.Avg().Floor(), 2)
+			dec(tsq.Avg(score), 2.25)
+			dec(tsq.Round(tsq.Avg(score), 1), 2.3)
+			dec(tsq.Ceil(tsq.Avg(score)), 3)
+			dec(tsq.Floor(tsq.Avg(score)), 2)
 
-			day := created.Date().Max()
+			day := tsq.Max(tsq.Date(created))
 			if got, err := tsq.Select(day).From(academy.TableEnrollment).MustBuild().Scalar(ctx, rt, day); err != nil || got != "2026-03-04" {
 				t.Errorf("Date() = %q, %v", got, err)
 			}

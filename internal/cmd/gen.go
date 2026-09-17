@@ -666,13 +666,10 @@ func validateGeneratedSymbolCollisions(list []*genmodel.StructInfo) error {
 				"Fetch"+typeName+"By"+data.PrimaryKey,
 			)
 
-			for _, idx := range data.Queries {
-				symbols = append(symbols, "Query"+typeName+"By"+idx.Name)
-			}
-
 			for _, ux := range data.Uniques {
 				symbols = append(symbols,
 					"Query"+typeName+"By"+joinAnd(ux.Fields),
+					"Query"+typeName+"By"+joinAnd(ux.Fields)+"In",
 					"Fetch"+typeName+"By"+joinAnd(ux.Fields),
 				)
 			}
@@ -774,15 +771,13 @@ func validateFieldDatabaseType(field genmodel.FieldInfo, keywordFields map[strin
 		}
 
 		if field.IsSlice {
-			if field.Type.Package.Path == "" && field.Type.TypeName == primitiveByte {
-				return nil
-			}
-
-			return errors.New("keyword fields must use textual types")
+			return errors.New("search fields must be of type string")
 		}
 
-		if field.Type.Package.Path != "" || (field.Type.TypeName != "string" && field.Type.TypeName != "rune" && field.Type.TypeName != "byte") {
-			return errors.New("keyword fields must use textual types")
+		// tsq.Searchable accepts ~string columns, and LIKE on anything else is not
+		// portable (PostgreSQL has no LIKE for integers).
+		if field.Type.Package.Path != "" || field.Type.TypeName != "string" {
+			return errors.New("search fields must be of type string")
 		}
 	}
 

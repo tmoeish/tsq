@@ -5,37 +5,170 @@ import (
 	"fmt"
 )
 
-// defaultPageSize is the default number of rows returned per page.
+// defaultPageSize is the page size of a Paging that sets none.
 const defaultPageSize = 20
 
-// MaxPageNumber caps PageRequest.Page. Offset multiplies Size by Page-1, so with Size
+// MaxPageNumber caps the page number. The offset is Size*(Page-1), and with Size
 // capped at DefaultMaxPageSize the largest offset stays inside int on 32-bit builds.
 const MaxPageNumber = 1000000
 
-// PageRequest captures a page request, sort instructions, and optional keyword search.
+// Paging selects one page of a query for Query.Page.
+type Paging struct {
+	// Page is the 1-based page number; below 1 means 1.
+	Page int
+	// Size is the page size; 0 means 20, and the runtime's WithMaxPageSize caps it.
+	Size int
+	// OrderBy orders the rows. It must be empty when the query orders itself.
+	OrderBy []OrderBy
+	// Keyword is matched against the query's Search columns; empty means no search.
+	Keyword string
+}
+
+func (p Paging) normalized(maxSize int) Paging {
+	maxSize = boundPageSize(maxSize)
+	p.Page = min(max(p.Page, 1), MaxPageNumber)
+
+	if p.Size <= 0 {
+		p.Size = defaultPageSize
+	}
+
+	p.Size = min(p.Size, maxSize)
+
+	return p
+}
+
+// Offset is the number of rows before the page, after the same normalization Page
+// applies (without a runtime's size cap).
+func (p Paging) Offset() int {
+	p = p.normalized(DefaultMaxPageSize)
+
+	return p.Size * (p.Page - 1)
+}
+
+// PageResponse is one page of rows plus the total count.
+type PageResponse[T any] struct {
+	Page       int   `json:"page"`        // Page is the 1-based page number served.
+	Size       int   `json:"size"`        // Size is the page size served.
+	Total      int64 `json:"total"`       // Total is the number of matching rows.
+	TotalPages int64 `json:"total_pages"` // TotalPages is Total divided by Size, rounded up.
+	Data       []*T  `json:"data"`        // Data holds the rows of the page, never nil.
+}
+
+func newPageResponse[T any](p Paging, total int64, data []*T) *PageResponse[T] {
+	if data == nil {
+		data = make([]*T, 0)
+	}
+
+	return &PageResponse[T]{
+		Page:       p.Page,
+		Size:       p.Size,
+		Total:      total,
+		TotalPages: (total + int64(p.Size) - 1) / int64(p.Size),
+		Data:       data,
+	}
+}
+
+// HasNext reports whether another page follows.
+func (r *PageResponse[T]) HasNext() bool { return r != nil && int64(r.Page) < r.TotalPages }
+
+// HasPrev reports whether a page precedes.
+func (r *PageResponse[T]) HasPrev() bool { return r != nil && r.Page > 1 }
+
+// IsEmpty reports whether the page holds no rows.
+func (r *PageResponse[T]) IsEmpty() bool { return r == nil || len(r.Data) == 0 }
+
+// PageRequest is the HTTP shape of a page request: strings as a client sends them.
+// Validate or Normalize it, then turn it into a Paging with the columns the
+// endpoint allows sorting by.
 type PageRequest struct {
 	Size    int    `json:"size"     query:"size"`     // Size is the requested page size.
 	Page    int    `json:"page"     query:"page"`     // Page is the 1-based page number.
-	OrderBy string `json:"order_by" query:"order_by"` // OrderBy lists sortable field names separated by commas.
-	Order   string `json:"order"    query:"order"`    // Order lists sort directions aligned with OrderBy.
-	Keyword string `json:"keyword"  query:"keyword"`  // Keyword carries the optional free-text search term.
+	OrderBy string `json:"order_by" query:"order_by"` // OrderBy lists sort fields separated by commas.
+	Order   string `json:"order"    query:"order"`    // Order lists asc/desc aligned with OrderBy.
+	Keyword string `json:"keyword"  query:"keyword"`  // Keyword is the optional search term.
 }
 
-// Offset calculates the offset for the SQL LIMIT clause.
-//
-// Page is clamped to MaxPageNumber first. Callers who need an out-of-range page to be
-// rejected rather than clamped must call Validate before Offset: Offset alone cannot
-// report an error, and silently answering with page one would be worse than clamping.
-func (r *PageRequest) Offset() int {
-	r = normalizePageReq(r)
+// Paging resolves the request against the columns it may sort by. A sort field
+// names a column by its JSON field name or its column name; any other name is an
+// UnknownSortFieldError, so a client can only sort by what the endpoint allows.
+func (r *PageRequest) Paging(sortable ...SQLColumn) (Paging, error) {
+	if r == nil {
+		return Paging{}, nil
+	}
 
-	return r.Size * (r.Page - 1)
+	p := Paging{Page: r.Page, Size: r.Size, Keyword: r.Keyword}
+
+	fields := splitCommaValues(r.OrderBy)
+	if len(fields) == 0 {
+		if len(splitCommaValues(r.Order)) > 0 {
+			return Paging{}, errors.New("order requires order_by")
+		}
+
+		return p, nil
+	}
+
+	directions, err := normalizeSortOrders(splitCommaValues(r.Order), len(fields))
+	if err != nil {
+		return Paging{}, err
+	}
+
+	byName := make(map[string][]SQLColumn)
+
+	for _, col := range sortable {
+		if isNilValue(col) {
+			continue
+		}
+
+		byName[col.Name()] = append(byName[col.Name()], col)
+
+		if json := col.JSONFieldName(); json != "" && json != "-" && json != col.Name() {
+			byName[json] = append(byName[json], col)
+		}
+	}
+
+	for i, field := range fields {
+		matches := byName[field]
+
+		switch {
+		case len(matches) == 0:
+			return Paging{}, &UnknownSortFieldError{Field: field}
+		case len(matches) > 1:
+			return Paging{}, &AmbiguousSortFieldError{Field: field}
+		}
+
+		p.OrderBy = append(p.OrderBy, OrderBy{column: matches[0], direction: directions[i]})
+	}
+
+	return p, nil
+}
+
+// UnknownSortFieldError reports a sort field the endpoint does not allow.
+type UnknownSortFieldError struct {
+	Field string
+}
+
+func (e *UnknownSortFieldError) Error() string { return "unknown sort field: " + e.Field }
+
+// AmbiguousSortFieldError reports a sort field that names more than one column.
+type AmbiguousSortFieldError struct {
+	Field string
+}
+
+func (e *AmbiguousSortFieldError) Error() string { return "ambiguous sort field: " + e.Field }
+
+// OrderCountMismatchError reports order_by and order lists of different lengths.
+type OrderCountMismatchError struct {
+	Fields     int
+	Directions int
+}
+
+func (e *OrderCountMismatchError) Error() string {
+	return fmt.Sprintf("order_by lists %d fields but order lists %d directions", e.Fields, e.Directions)
 }
 
 // Normalize applies default page values and clamps Page to MaxPageNumber and Size to
-// maxSize. A maxSize of zero or less means DefaultMaxPageSize, and a maxSize above
-// DefaultMaxPageSize is capped to it. Pass the runtime's Runtime.MaxPageSize so that an
-// HTTP handler applies the same limit the query will.
+// maxSize. A maxSize of zero or less means DefaultMaxPageSize. Pass the runtime's
+// Runtime.MaxPageSize so that a handler applies the same limit the query will.
 func (r *PageRequest) Normalize(maxSize int) {
 	if r == nil {
 		return
@@ -98,62 +231,6 @@ func (r *PageRequest) Validate(maxSize int) error {
 	}
 
 	return nil
-}
-
-// PageResponse wraps paginated data with request and count metadata.
-type PageResponse[T any] struct {
-	PageRequest
-
-	Total      int64 `json:"total"`       // Total is the full number of matching rows.
-	TotalPages int64 `json:"total_pages"` // TotalPage is the number of available pages after rounding up.
-	Data       []*T  `json:"data"`        // Data contains the rows for the current page.
-}
-
-// Response creates a typed page response from the request, total count, and data.
-func (r *PageRequest) Response[T any](total int64, data []*T) *PageResponse[T] {
-	r = normalizePageReq(r)
-
-	resp := &PageResponse[T]{
-		PageRequest: *r,
-		Total:       total,
-		Data:        data,
-	}
-
-	if r.Size > 0 {
-		resp.TotalPages = total / int64(r.Size)
-		if total%int64(r.Size) != 0 {
-			resp.TotalPages++
-		}
-	}
-
-	return resp
-}
-
-// HasNext reports whether another page exists after the current one.
-func (r *PageResponse[T]) HasNext() bool {
-	if r == nil {
-		return false
-	}
-
-	return r.Page < int(r.TotalPages)
-}
-
-// HasPrev reports whether a page exists before the current one.
-func (r *PageResponse[T]) HasPrev() bool {
-	if r == nil {
-		return false
-	}
-
-	return r.Page > 1
-}
-
-// IsEmpty reports whether the current page contains any rows.
-func (r *PageResponse[T]) IsEmpty() bool {
-	if r == nil {
-		return true
-	}
-
-	return len(r.Data) == 0
 }
 
 // boundPageSize resolves a caller-supplied page-size limit.

@@ -94,7 +94,6 @@ type User struct{}`,
 				t.Fatalf("parseAnnotations() error = %v", err)
 			}
 
-			got.Queries = nil
 			if !reflect.DeepEqual(*got, test.want) {
 				t.Fatalf("got  %+v\nwant %+v", *got, test.want)
 			}
@@ -149,24 +148,5 @@ func TestParseAnnotationsReportsTheLine(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-func TestDeriveQueriesSkipsTheFullUniqueEqualityLookup(t *testing.T) {
-	meta := &genmodel.TableMeta{Uniques: []genmodel.IndexInfo{
-		{Name: "ux_user_email", Fields: []string{"Email"}},
-		{Name: "ux_user_org_slug", Fields: []string{"OrgID", "Slug"}},
-	}}
-
-	deriveQueries(meta)
-
-	got := map[string]bool{}
-	for _, query := range meta.Queries {
-		got[query.Name] = query.LastFieldIn
-	}
-
-	want := map[string]bool{"EmailIn": true, "OrgID": false, "OrgIDIn": true, "OrgIDAndSlugIn": true}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("got %v, want %v", got, want)
 	}
 }

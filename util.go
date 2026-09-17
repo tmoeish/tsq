@@ -53,21 +53,6 @@ func isDuplicateKeyError(err error) bool {
 	return isSQLiteDuplicateKeyError(err) || isPostgresDuplicateKeyError(err)
 }
 
-func normalizePageReq(page *PageRequest) *PageRequest {
-	return normalizePageReqWithLimit(page, DefaultMaxPageSize)
-}
-
-func normalizePageReqWithLimit(page *PageRequest, maxSize int) *PageRequest {
-	if page == nil {
-		page = &PageRequest{}
-	}
-
-	normalized := *page
-	normalized.Normalize(maxSize)
-
-	return &normalized
-}
-
 // validatePredicateValue rejects values that cannot be compared with = in SQL: NULL
 // needs IS NULL, and collections need IN.
 func validatePredicateValue(arg any) error {

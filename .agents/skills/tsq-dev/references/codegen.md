@@ -7,7 +7,7 @@ Go 源文件
   │  go/ast 解析、字段与嵌入解析          internal/parser/{package,struct,field}.go
   ▼
 `//tsq:` 指令行
-  │  逐行解析、索引命名、查询派生、排序    internal/parser/directive.go
+  │  逐行解析、索引命名、排序    internal/parser/directive.go
   ▼
 genmodel.StructInfo / TableMeta        internal/genmodel/model.go
   │  校验                               internal/cmd/gen.go
@@ -59,9 +59,10 @@ genmodel.StructInfo / TableMeta        internal/genmodel/model.go
 ## 生成物的形态
 
 - `<struct>.tsq.go`：句柄 `tsqXxxTable`、列 `Xxx_Field`（`tsq.NewColumn(句柄, ...)`）、表描述符
-  `TableXxx = 句柄.Define(tsq.TableSpec{...})`（含 `Schema` 与 `Indexes`）、`Xxx__Cols`、派生查询
-  `QueryXxx...`（参数用列自带的 `Param()` / `ListParam()`）、`FetchXxxBy...`，以及转发到表描述符的
-  行方法。三步声明的理由见 `architecture.md` § 表描述符。
+  `TableXxx = 句柄.Define(tsq.TableSpec{...})`（含 `Schema` 与 `Indexes`）、`Xxx__Cols`、查询
+  `QueryXxx`（带搜索列）、主键和**每个唯一索引**各一对 `QueryXxxBy<字段>` / `...In`（参数用列自带的
+  `Param()` / `ListParam()`）、`FetchXxxBy...`，以及转发到表描述符的行方法。普通索引和唯一索引的
+  前缀**不生成查询**（理由见 `memory.md`）；模板里没有软删除过滤，作用域在库里。三步声明的理由见 `architecture.md` § 表描述符。
 - `<result>.result.tsq.go`：`Xxx__Cols` 与 `tsq.MapInto` 列。
 - `runtime.tsq.go`：`TSQTables() []tsq.Table` 和两个取行排序的小工具。
 - 物理 schema（`genmodel.SchemaColumn`）需要 `go/types` 的真实类型，所以不由解析器填，而是

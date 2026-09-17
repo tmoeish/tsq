@@ -64,7 +64,7 @@ var {{$varTbl}} = {{$handle}}.Define(tsq.TableSpec[{{$type}}]{
 {{- if .SearchColumns }}
 	Search: []tsq.SearchColumn{
 	{{- range $f := .SearchColumns }}
-		{{$type}}_{{$f}},
+		tsq.Searchable({{$type}}_{{$f}}),
 	{{- end }}
 	},
 {{- end }}
@@ -119,19 +119,11 @@ var {{$varTbl}} = {{$handle}}.Define(tsq.TableSpec[{{$type}}]{
 // {{$varTblCols}} lists every column of {{$type}}, for Select.
 var {{$varTblCols}} = {{$varTbl}}.Columns()
 
-{{- $active := "" }}
-{{- if .DeletedAtField }}
-	{{- $active = SoftDeleteActiveCond $type $dot.DeletedAtField (index $dot.FieldsByName $dot.DeletedAtField) }}
-{{- end }}
-
 // {{$QueryBy}}{{.PrimaryKey}} reads one {{$type}} by primary key; bind {{$pk}}.
 var {{$QueryBy}}{{.PrimaryKey}} = tsq.
 	Select({{$varTblCols}}...).
 	From({{$varTbl}}).
 	Where(
-		{{- if $active }}
-		{{$active}},
-		{{- end }}
 		{{$pk}}.EQ({{$pk}}.Param()),
 	).
 	MustBuild()
@@ -141,9 +133,6 @@ var {{$QueryBy}}{{.PrimaryKey}}In = tsq.
 	Select({{$varTblCols}}...).
 	From({{$varTbl}}).
 	Where(
-		{{- if $active }}
-		{{$active}},
-		{{- end }}
 		{{$pk}}.In({{$pk}}.ListParam()),
 	).
 	MustBuild()
@@ -179,11 +168,24 @@ var {{$QueryBy}}{{$name}} = tsq.
 	Select({{$varTblCols}}...).
 	From({{$varTbl}}).
 	Where(
-		{{- if $active }}
-		{{$active}},
-		{{- end }}
 		{{- range $f := $ux.Fields }}
 		{{$type}}_{{$f}}.EQ({{$type}}_{{$f}}.Param()),
+		{{- end }}
+	).
+	MustBuild()
+
+// {{$QueryBy}}{{$name}}In reads {{$type}} rows by unique index {{$ux.Name}}, one per
+// {{$last}} value; bind {{$type}}_{{$last}} with BindList.
+var {{$QueryBy}}{{$name}}In = tsq.
+	Select({{$varTblCols}}...).
+	From({{$varTbl}}).
+	Where(
+		{{- range $f := $ux.Fields }}
+		{{- if eq $f $last }}
+		{{$type}}_{{$f}}.In({{$type}}_{{$f}}.ListParam()),
+		{{- else }}
+		{{$type}}_{{$f}}.EQ({{$type}}_{{$f}}.Param()),
+		{{- end }}
 		{{- end }}
 	).
 	MustBuild()
@@ -226,34 +228,11 @@ func {{$FetchBy}}{{$name}}(
 	return ordered, nil
 }
 {{- end }}
-{{- range $idx := .Queries }}
 
-// {{$QueryBy}}{{$idx.Name}} reads {{$type}} rows by index {{$idx.IndexName}}.
-var {{$QueryBy}}{{$idx.Name}} = tsq.
-	Select({{$varTblCols}}...).
-	From({{$varTbl}}).
-	Where(
-		{{- if $active }}
-		{{$active}},
-		{{- end }}
-	{{- range $i, $f := $idx.Fields }}
-		{{- if and $idx.LastFieldIn (eq $i (Sub1 (len $idx.Fields))) }}
-		{{$type}}_{{$f}}.In({{$type}}_{{$f}}.ListParam()),
-		{{- else }}
-		{{$type}}_{{$f}}.EQ({{$type}}_{{$f}}.Param()),
-		{{- end }}
-	{{- end }}
-	).
-	MustBuild()
-{{- end }}
-
-// Query{{$type}} reads every {{$type}} row{{ if $active }} that is not deleted{{ end }}; Page matches its search columns.
+// Query{{$type}} reads every {{$type}} row{{ if .DeletedAtField }} that is not deleted{{ end }}; Page matches its search columns.
 var Query{{$type}} = tsq.
 	Select({{$varTblCols}}...).
 	From({{$varTbl}}).
-{{- if $active }}
-	Where({{$active}}).
-{{- end }}
 {{- if .SearchColumns }}
 	Search({{$varTbl}}.SearchColumns()...).
 {{- end }}

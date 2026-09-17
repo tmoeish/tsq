@@ -205,7 +205,7 @@ func TestRebindRequiresTheColumnOnTheTarget(t *testing.T) {
 		t.Fatalf("Build() error = %v", err)
 	}
 
-	derived := Select(User_ID).From(Users).Where(User_Name.Upper().WithTable(Users.As("u")).IsNull())
+	derived := Select(User_ID).From(Users).Where(Upper(User_Name).WithTable(Users.As("u")).IsNull())
 	if _, err := derived.Build(); err == nil || !strings.Contains(err.Error(), "rebind the column before") {
 		t.Fatalf("Build() error = %v", err)
 	}

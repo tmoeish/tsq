@@ -135,14 +135,14 @@ func TestRuntimeMaxPageSizeDefaultsAndOverrides(t *testing.T) {
 		t.Fatalf("expected custom max page size 5000, got %d", got)
 	}
 
-	page := normalizePageReqWithLimit(&PageRequest{Size: 3000}, runtimeForExecutor(custom).MaxPageSize())
+	page := Paging{Size: 3000}.normalized(runtimeForExecutor(custom).MaxPageSize())
 	if page.Size != 3000 {
 		t.Fatalf("expected runtime limit to allow size 3000, got %d", page.Size)
 	}
 
 	wrapped := WrapExecutor(custom.DB(), onSQLite)
 
-	page = normalizePageReqWithLimit(&PageRequest{Size: 3000}, runtimeForExecutor(wrapped).MaxPageSize())
+	page = Paging{Size: 3000}.normalized(runtimeForExecutor(wrapped).MaxPageSize())
 	if page.Size != DefaultMaxPageSize {
 		t.Fatalf("expected a wrapped pool to fall back to the default cap, got %d", page.Size)
 	}

@@ -741,7 +741,7 @@ func (t *TableOf[R]) hardDelete(ctx context.Context, db Executor, rows []*R, con
 
 // stampDeleted writes the tombstone and updated_at into row.
 func (t *TableOf[R]) stampDeleted(row *R, now time.Time) error {
-	def := &t.def
+	def := t.def
 
 	if err := applyTombstone(field(row, def.column(def.managed.DeletedAt)), now); err != nil {
 		return fmt.Errorf("table %s: %w", def.name, err)
@@ -813,53 +813,50 @@ func applyTimestamp(v reflect.Value, ts time.Time) error {
 	return fmt.Errorf("managed time column has unsupported type %s", v.Type())
 }
 
-// BatchDeleteByPK deletes the rows whose primary key is in ids, as Delete would:
-// a soft delete on a table with deleted_at, otherwise a hard delete. It does not
-// check versions, but a soft delete increments them.
-func BatchDeleteByPK[R, K any](ctx context.Context, db Executor, pk TypedColumn[R, K], ids []K, options ...BatchOption) error {
-	return deleteByPK(ctx, db, pk, ids, options, true)
+// BatchDeleteByPK deletes the rows whose primary key is in keys, as Delete would:
+// a soft delete on a table with deleted_at (rows already deleted keep their
+// tombstone), otherwise a hard delete.
+// keys comes from the key column: TableCourse.BatchDeleteByPK(ctx, db,
+// Course_ID.BindList(ids...)). It does not check versions, but a soft delete
+// increments them.
+func (t *TableOf[R]) BatchDeleteByPK(ctx context.Context, db Executor, keys Arg, options ...BatchOption) error {
+	return t.deleteByPK(ctx, db, keys, options, t.def.managed.DeletedAt != "")
 }
 
-// BatchHardDeleteByPK removes the rows whose primary key is in ids, ignoring any
-// deleted_at column.
-func BatchHardDeleteByPK[R, K any](ctx context.Context, db Executor, pk TypedColumn[R, K], ids []K, options ...BatchOption) error {
-	return deleteByPK(ctx, db, pk, ids, options, false)
+// BatchHardDeleteByPK removes the rows whose primary key is in keys, deleted rows
+// included.
+func (t *TableOf[R]) BatchHardDeleteByPK(ctx context.Context, db Executor, keys Arg, options ...BatchOption) error {
+	return t.deleteByPK(ctx, db, keys, options, false)
 }
 
-func deleteByPK[R, K any](ctx context.Context, db Executor, pk TypedColumn[R, K], ids []K, options []BatchOption, soft bool) error {
+func (t *TableOf[R]) deleteByPK(ctx context.Context, db Executor, keys Arg, options []BatchOption, soft bool) error {
 	return traceExecutor(ctx, db, TraceOpDelete, func(ctx context.Context) error {
 		config, err := newBatchConfig(options, false)
 		if err != nil {
 			return err
 		}
 
-		if isNilValue(pk) {
-			return errors.New("primary-key column cannot be nil")
-		}
-
-		table, ok := pk.Table().(*TableOf[R])
-		if !ok {
-			return fmt.Errorf("column %s must be a column of its declared table, not of an alias", pk.Name())
-		}
-
-		def, scope, err := table.prepareWrite(db, nil)
+		def, scope, err := t.prepareWrite(db, nil)
 		if err != nil {
 			return err
 		}
 
-		if pk.core() != def.primaryKey {
-			return fmt.Errorf("column %s is not the primary key of %s", pk.Name(), def.name)
+		if keys.err != nil {
+			return keys.err
 		}
 
+		if keys.spec == nil || keys.spec != def.primaryKey.list {
+			return fmt.Errorf("delete from %s: keys must be bound with the primary key's BindList (%s)", def.name, def.primaryKey.name)
+		}
+
+		ids, _ := keys.value.([]any)
 		if len(ids) == 0 {
 			return nil
 		}
 
-		soft = soft && def.managed.DeletedAt != ""
-
 		var stamp map[string]any
 		if soft {
-			if stamp, err = table.tombstoneValues(time.Now()); err != nil {
+			if stamp, err = t.tombstoneValues(time.Now()); err != nil {
 				return err
 			}
 		}
@@ -879,10 +876,6 @@ func deleteByPK[R, K any](ctx context.Context, db Executor, pk TypedColumn[R, K]
 			w.text(" WHERE ").ident(def.primaryKey.name).text(" IN (")
 
 			for i, id := range chunk {
-				if err := validatePredicateValue(id); err != nil {
-					return fmt.Errorf("primary key %d: %w", i, err)
-				}
-
 				if i > 0 {
 					w.text(", ")
 				}
@@ -892,7 +885,18 @@ func deleteByPK[R, K any](ctx context.Context, db Executor, pk TypedColumn[R, K]
 
 			w.text(")")
 
-			if err := table.execCounted(ctx, db, w, def, "delete", nil, false); err != nil {
+			if soft {
+				// A row that is already deleted keeps its original tombstone.
+				w.text(" AND ").ident(def.managed.DeletedAt)
+
+				if def.tombstoneIsZero {
+					w.text(" = 0")
+				} else {
+					w.text(" IS NULL")
+				}
+			}
+
+			if err := t.execCounted(ctx, db, w, def, "delete", nil, false); err != nil {
 				return err
 			}
 		}

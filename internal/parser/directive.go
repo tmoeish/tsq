@@ -74,12 +74,9 @@ func parseAnnotations(
 		return nil, err
 	}
 
-	deriveQueries(meta)
-
 	byName := func(a, b genmodel.IndexInfo) int { return strings.Compare(a.Name, b.Name) }
 	slices.SortFunc(meta.Uniques, byName)
 	slices.SortFunc(meta.Indexes, byName)
-	slices.SortFunc(meta.Queries, byName)
 
 	return meta, nil
 }
@@ -318,47 +315,4 @@ func derivedIndexName(prefix, table string, fields []string) string {
 	}
 
 	return strings.Join(parts, "_")
-}
-
-// deriveQueries lists the lookups generated for the table's indexes: every
-// prefix of an index as an equality query and as an IN query, and every proper
-// prefix of a unique index, whose full key is served by the unique lookup.
-func deriveQueries(meta *genmodel.TableMeta) {
-	seen := make(map[string]bool)
-
-	add := func(source string, fields []string, set bool) {
-		name := strings.Join(fields, "And")
-		if set {
-			name += "In"
-		}
-
-		if seen[name] {
-			return
-		}
-
-		seen[name] = true
-		meta.Queries = append(meta.Queries, genmodel.IndexInfo{
-			Name:        name,
-			IndexName:   source,
-			Fields:      fields,
-			LastFieldIn: set,
-		})
-	}
-
-	for _, index := range meta.Indexes {
-		for n := len(index.Fields); n > 0; n-- {
-			add(index.Name, index.Fields[:n], false)
-			add(index.Name, index.Fields[:n], true)
-		}
-	}
-
-	for _, index := range meta.Uniques {
-		for n := len(index.Fields); n > 0; n-- {
-			if n < len(index.Fields) {
-				add(index.Name, index.Fields[:n], false)
-			}
-
-			add(index.Name, index.Fields[:n], true)
-		}
-	}
 }

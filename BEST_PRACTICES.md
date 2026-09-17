@@ -73,12 +73,26 @@ if err := pageReq.Validate(runtime.MaxPageSize()); err != nil {
 }
 ```
 
-### 2.2 不要自己手算 offset
+### 2.2 排序字段白名单由端点给出
 
-`PageRequest.Offset()` 已经处理了溢出保护。
+`PageRequest` 是 HTTP 进来的字符串形态，`Page` 只吃类型化的 `tsq.Paging`。转换时显式列出
+允许排序的列：选出来的列不等于可以排序的列，在没索引的列上排序是端点要主动承担的代价。
 
 ```go
-offset := pageReq.Offset()
+paging, err := pageReq.Paging(database.User_Name, database.User_CreatedAt)
+if err != nil {
+	return nil, err // 400
+}
+
+page, err := QueryUser.Page(ctx, runtime, paging)
+```
+
+### 2.3 不要自己手算 offset
+
+`Paging.Offset()` 已经处理了归一化和溢出保护。
+
+```go
+offset := paging.Offset()
 ```
 
 避免：
@@ -87,7 +101,7 @@ offset := pageReq.Offset()
 offset := page * size
 ```
 
-### 2.3 UI 逻辑优先用 `HasNext()` / `HasPrev()`
+### 2.4 UI 逻辑优先用 `HasNext()` / `HasPrev()`
 
 ```go
 if resp.HasNext() {
@@ -255,9 +269,9 @@ affected, err := tsq.
 ```
 
 - 这类语句不校验 `version`，但会自增它。批量改动之前加载的对象随后 `Update(...)` 会拿到 `OptimisticLockError`，按 3.7 处理。
-- `UpdateTable` 不替你盖 `updated_at`，需要就显式 `SetVal`；`DeleteFrom` 在有 `deleted_at` 的表上是软删除，时间戳在**执行时**盖。
+- `UpdateTable` 不替你盖 `updated_at`，需要就显式 `SetVal`；它和查询一样跳过已删行，不需要自己加 `deleted_at` 过滤。`DeleteFrom` 在有 `deleted_at` 的表上是软删除，时间戳在**执行时**盖。
 - `Where(...)` 必需。真要全表操作，写显式的 `tsq.And()`，让意图留在代码里。
-- 它是单条语句，不分块；列表参数传超大切片会撞方言的参数上限，那种场景用 `tsq.BatchDeleteByPK` 或自己切片。
+- 它是单条语句，不分块；列表参数传超大切片会撞方言的参数上限，那种场景用 `TableXxx.BatchDeleteByPK` 或自己切片。
 
 ## 4. Field pointer 和 `MapInto(...)`
 
@@ -369,8 +383,8 @@ Builder 采用**阶段型类型系统**：每次调用都会返回不同的具�
 
 ### 8.2 关键词转义规则
 
-- `Page(ctx, exec, pageReq)` 会自动对 `pageReq.Keyword` 转义 LIKE 通配符（`%` 和 `_`）。
-- `StartsWith` / `EndsWith` / `Contains`（及其 `Val` 和 `Not` 形式）同样自动转义；`Like` / `LikeVal` 的模式按原样使用，通配符由调用方负责。
+- `Page(ctx, exec, paging)` 会自动对 `paging.Keyword` 转义 LIKE 通配符（`%` 和 `_`）。
+- `tsq.StartsWith` / `tsq.EndsWith` / `tsq.Contains`（及其 `Param` 和 `Not` 形式）同样自动转义；`Like` / `LikeVal` 的模式按原样使用，通配符由调用方负责。
 - SQL 注入防护来自参数绑定本身，LIKE 通配符转义只防止意外的模糊匹配，两者不能互替。
 
 ### 8.3 空的列表参数不是异常，而是“查不到任何结果”

@@ -11,18 +11,20 @@
 | `Query`：渲染缓存、绑参、`List` / `Get` / `Find` / `Exists` / `Count` / `Scalar` / `Page`、`SQL()`、子查询 | `query.go` |
 | 中间表示：片段、`renderer`、`statement`、`assemble`、按方言分叉的片段 | `sqlexpr.go`（`render_test.go` 按三方言断言输出） |
 | 参数：`Param` / `ListParam` / `Arg`、绑定校验、空列表渲染、LIKE 转义 | `param.go`（`build_test.go` 守绑定规则） |
-| 列接口与实现、谓词、函数、聚合、`Year/Month/Day`、`MapInto` | `column.go` |
+| 列接口与实现、谓词、`*Val` 方法、`Expr` / `Pred`、`MapInto` | `column.go` |
+| 包级类型约束函数（`Text` / `Number`、聚合、字符串、数值、日期、`Coalesce` / `NullIf`、`StartsWith` 等模式函数、`Searchable`） | `functions.go`（`compilefail_test.go` 守约束；`integration_test.go` 的 `TestIntegrationColumnFunctionsArePortable` 三方言真跑） |
 | `Condition`、`And` / `Or` / `Not`、`Exists` / `NotExists`、`exprInfo` | `expr.go` |
 | `CASE` | `case.go` |
-| `ORDER BY` 方向与 `PageRequest.Order` 解析 | `order.go` |
-| 分页 `PageRequest` / `Validate` / `Normalize` / `Offset` / `Response` | `paging.go` |
+| `ORDER BY` 方向解析 | `order.go` |
+| 分页 `Paging` / `PageResponse`、HTTP 形态 `PageRequest`（`Validate` / `Normalize` / `Paging(sortable...)`）、排序字段错误类型 | `paging.go`（`exec_test.go` 的 `TestPageSearchesSortsAndCounts`） |
+| 软删除作用域（`WithDeleted`、`liveRows` / `liveSource`、JOIN 位置规则） | `table.go` + `query_render.go` 的 `writeFromWhere`（`exec_test.go` 的 `TestSoftDeleteScope`；`integration_test.go` 的 `TestIntegrationSoftDeleteScopeJoins`） |
 
 ## 根包：表与写入
 
 | 关注点 | 文件 |
 | --- | --- |
 | `TableOf` / `NewTable` / `Define`、`Table` 接口、别名、CTE、`debugSQL` | `table.go` |
-| 行写入与批量写、托管时间戳、软删除、`BatchDeleteByPK`、`WithSkipDuplicates` | `rows.go`（`exec_test.go` 端到端；`batch_test.go` 宽表分批；`timestamps_test.go` 托管字段类型） |
+| 行写入与批量写、托管时间戳、软删除、`TableOf.BatchDeleteByPK`、`WithSkipDuplicates` | `rows.go`（`exec_test.go` 端到端；`batch_test.go` 宽表分批；`timestamps_test.go` 托管字段类型） |
 | 按条件写（`UpdateTable` / `DeleteFrom` / `HardDeleteFrom`、`Mutation`） | `mutation.go`（`exec_test.go`；`integration_test.go` 的 `TestIntegrationMutationsByCondition` 三方言真跑） |
 | 错误类型 `OptimisticLockError` | `errors.go` |
 | 表注册、`SchemaPolicy`、`MissingTableError` / `MissingIndexError`、`Logger` | `schema.go` |

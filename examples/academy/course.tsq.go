@@ -48,8 +48,8 @@ var TableCourse = tsqCourseTable.Define(tsq.TableSpec[Course]{
 	AutoIncrement: true,
 	CreatedAt:     Course_CreatedAt,
 	Search: []tsq.SearchColumn{
-		Course_Title,
-		Course_Summary,
+		tsq.Searchable(Course_Title),
+		tsq.Searchable(Course_Summary),
 	},
 	Schema: []tsqdialect.ColumnSpec{
 		{
@@ -185,6 +185,16 @@ var QueryCourseByTitle = tsq.
 	).
 	MustBuild()
 
+// QueryCourseByTitleIn reads Course rows by unique index ux_course_title, one per
+// Title value; bind Course_Title with BindList.
+var QueryCourseByTitleIn = tsq.
+	Select(Course__Cols...).
+	From(TableCourse).
+	Where(
+		Course_Title.In(Course_Title.ListParam()),
+	).
+	MustBuild()
+
 // FetchCourseByTitle returns the Course rows matching unique index ux_course_title,
 // one per Title value, in the order given. It fails with an error wrapping
 // sql.ErrNoRows when any of them is missing.
@@ -210,69 +220,6 @@ func FetchCourseByTitle(
 
 	return ordered, nil
 }
-
-// QueryCourseByInstructorID reads Course rows by index idx_course_instructor_id.
-var QueryCourseByInstructorID = tsq.
-	Select(Course__Cols...).
-	From(TableCourse).
-	Where(
-		Course_InstructorID.EQ(Course_InstructorID.Param()),
-	).
-	MustBuild()
-
-// QueryCourseByInstructorIDIn reads Course rows by index idx_course_instructor_id.
-var QueryCourseByInstructorIDIn = tsq.
-	Select(Course__Cols...).
-	From(TableCourse).
-	Where(
-		Course_InstructorID.In(Course_InstructorID.ListParam()),
-	).
-	MustBuild()
-
-// QueryCourseByPrerequisiteID reads Course rows by index idx_course_prerequisite_id.
-var QueryCourseByPrerequisiteID = tsq.
-	Select(Course__Cols...).
-	From(TableCourse).
-	Where(
-		Course_PrerequisiteID.EQ(Course_PrerequisiteID.Param()),
-	).
-	MustBuild()
-
-// QueryCourseByPrerequisiteIDIn reads Course rows by index idx_course_prerequisite_id.
-var QueryCourseByPrerequisiteIDIn = tsq.
-	Select(Course__Cols...).
-	From(TableCourse).
-	Where(
-		Course_PrerequisiteID.In(Course_PrerequisiteID.ListParam()),
-	).
-	MustBuild()
-
-// QueryCourseByTitleIn reads Course rows by index ux_course_title.
-var QueryCourseByTitleIn = tsq.
-	Select(Course__Cols...).
-	From(TableCourse).
-	Where(
-		Course_Title.In(Course_Title.ListParam()),
-	).
-	MustBuild()
-
-// QueryCourseByTrackID reads Course rows by index idx_course_track_id.
-var QueryCourseByTrackID = tsq.
-	Select(Course__Cols...).
-	From(TableCourse).
-	Where(
-		Course_TrackID.EQ(Course_TrackID.Param()),
-	).
-	MustBuild()
-
-// QueryCourseByTrackIDIn reads Course rows by index idx_course_track_id.
-var QueryCourseByTrackIDIn = tsq.
-	Select(Course__Cols...).
-	From(TableCourse).
-	Where(
-		Course_TrackID.In(Course_TrackID.ListParam()),
-	).
-	MustBuild()
 
 // QueryCourse reads every Course row; Page matches its search columns.
 var QueryCourse = tsq.

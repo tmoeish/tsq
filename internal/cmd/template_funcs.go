@@ -54,7 +54,6 @@ func funcMap() template.FuncMap {
 		"NeedsGeneratedTimeImport": needsGeneratedTimeImport,
 		"NeedsGeneratedSQLImport":  needsGeneratedSQLImport,
 		"SoftDeleteActiveExpr":     softDeleteActiveExpr,
-		"SoftDeleteActiveCond":     softDeleteActiveCond,
 	}
 }
 
@@ -368,19 +367,6 @@ func softDeleteActiveExpr(recv, fieldName string, field genmodel.FieldInfo) stri
 		return target + " == nil"
 	case "sql_null_time", "null_time":
 		return "!" + target + ".Valid"
-	default:
-		panic(fmt.Sprintf("unsupported deleted_at field type: %s", fieldType(field)))
-	}
-}
-
-func softDeleteActiveCond(typeName, fieldName string, field genmodel.FieldInfo) string {
-	col := fmt.Sprintf("%s_%s", typeName, fieldName)
-
-	switch softDeleteKind(field) {
-	case "integer":
-		return col + ".EQVal(0)"
-	case "time_ptr", "sql_null_time", "null_time":
-		return col + ".IsNull()"
 	default:
 		panic(fmt.Sprintf("unsupported deleted_at field type: %s", fieldType(field)))
 	}

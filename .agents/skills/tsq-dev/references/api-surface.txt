@@ -7,8 +7,6 @@ CONSTANTS
 const DefaultMaxPageSize = 1000
 const MaxPageNumber = 1000000
 FUNCTIONS
-func BatchDeleteByPK[R, K any](ctx context.Context, db Executor, pk TypedColumn[R, K], ids []K, options ...BatchOption) error
-func BatchHardDeleteByPK[R, K any](ctx context.Context, db Executor, pk TypedColumn[R, K], ids []K, options ...BatchOption) error
 func BuildSubquery[O, T any](stage QueryStage[O], selected TypedColumn[O, T]) (Subquery[T], error)
 func IsOptimisticLockError(err error) bool
 func IsRetryableNetworkError(err error) bool
@@ -54,7 +52,6 @@ func Case[T any]() CaseStage[T]
 type Column[O, T any] interface {
 	TypedColumn[O, T]
 	RHS[T]
-	SearchColumn
 	WithTable(table Table) Column[O, T]
 	As(alias string) Column[O, T]
 	Param() Param[T]
@@ -75,12 +72,6 @@ type Column[O, T any] interface {
 	NotBetween(start, end RHS[T]) Condition
 	In(set SetRHS[T]) Condition
 	NotIn(set SetRHS[T]) Condition
-	StartsWith(prefix Param[string]) Condition
-	NotStartsWith(prefix Param[string]) Condition
-	EndsWith(suffix Param[string]) Condition
-	NotEndsWith(suffix Param[string]) Condition
-	Contains(part Param[string]) Condition
-	NotContains(part Param[string]) Condition
 	EQVal(value T) Condition
 	NEVal(value T) Condition
 	GTVal(value T) Condition
@@ -93,45 +84,37 @@ type Column[O, T any] interface {
 	NotBetweenVal(start, end T) Condition
 	InVal(values ...T) Condition
 	NotInVal(values ...T) Condition
-	StartsWithVal(prefix string) Condition
-	NotStartsWithVal(prefix string) Condition
-	EndsWithVal(suffix string) Condition
-	NotEndsWithVal(suffix string) Condition
-	ContainsVal(part string) Condition
-	NotContainsVal(part string) Condition
 	Pred(format string, args ...any) Condition
 	Expr(format string) Column[O, T]
 	Exprf(format string, args ...any) Column[O, T]
-	Count() Column[O, int64]
-	Sum() Column[O, T]
-	Avg() Column[O, float64]
-	Max() Column[O, T]
-	Min() Column[O, T]
-	CountDistinct() Column[O, int64]
-	Upper() Column[O, T]
-	Lower() Column[O, T]
-	Substring(start, length int) Column[O, T]
-	Length() Column[O, int64]
-	Trim() Column[O, T]
-	Date() Column[O, string]
-	Year() Column[O, int64]
-	Month() Column[O, int64]
-	Day() Column[O, int64]
-	Round(precision int) Column[O, T]
-	Ceil() Column[O, T]
-	Floor() Column[O, T]
-	Abs() Column[O, T]
-	Coalesce(value any) Column[O, T]
-	NullIf(value any) Column[O, T]
 	Asc() OrderBy
 	Desc() OrderBy
 }
+func Abs[O any, N Number](col Column[O, N]) Column[O, N]
+func Avg[O any, N Number](col Column[O, N]) Column[O, float64]
+func Ceil[O any, N Number](col Column[O, N]) Column[O, N]
+func Coalesce[O, T any](col Column[O, T], fallback RHS[T]) Column[O, T]
+func CoalesceVal[O, T any](col Column[O, T], fallback T) Column[O, T]
+func Count[O, T any](col Column[O, T]) Column[O, int64]
+func CountDistinct[O, T any](col Column[O, T]) Column[O, int64]
+func Date[O, T any](col Column[O, T]) Column[O, string]
+func Day[O, T any](col Column[O, T]) Column[O, int64]
+func Floor[O any, N Number](col Column[O, N]) Column[O, N]
+func Length[O any, S Text](col Column[O, S]) Column[O, int64]
+func Lower[O any, S Text](col Column[O, S]) Column[O, S]
+func Max[O, T any](col Column[O, T]) Column[O, T]
+func Min[O, T any](col Column[O, T]) Column[O, T]
+func Month[O, T any](col Column[O, T]) Column[O, int64]
 func NewColumn[O, T any](table *TableOf[O], name, jsonName string, field func(*O) *T) Column[O, T]
-type CompoundStage[O any] interface {
-	QueryStage[O]
-	OrderBy(orders ...OrderBy) PagedStage[O]
-	Limit(limit int) PagedStage[O]
-	Offset(offset int) PagedStage[O]
+func NullIf[O, T any](col Column[O, T], value RHS[T]) Column[O, T]
+func NullIfVal[O, T any](col Column[O, T], value T) Column[O, T]
+func Round[O any, N Number](col Column[O, N], precision int) Column[O, N]
+func Substring[O any, S Text](col Column[O, S], start, length int) Column[O, S]
+func Sum[O any, N Number](col Column[O, N]) Column[O, N]
+func Trim[O any, S Text](col Column[O, S]) Column[O, S]
+func Upper[O any, S Text](col Column[O, S]) Column[O, S]
+func Year[O, T any](col Column[O, T]) Column[O, int64]
+type Combinable[O any] interface {
 	Union(other QueryStage[O]) CompoundStage[O]
 	UnionAll(other QueryStage[O]) CompoundStage[O]
 	Intersect(other QueryStage[O]) CompoundStage[O]
@@ -139,13 +122,30 @@ type CompoundStage[O any] interface {
 	Except(other QueryStage[O]) CompoundStage[O]
 	ExceptAll(other QueryStage[O]) CompoundStage[O]
 }
+type CompoundStage[O any] interface {
+	QueryStage[O]
+	Sortable[O]
+	Combinable[O]
+}
 type Condition interface {
 }
 func And(conds ...Condition) Condition
+func Contains[O any, S ~string](col Column[O, S], part S) Condition
+func ContainsParam[O any, S ~string](col Column[O, S], part Param[S]) Condition
+func EndsWith[O any, S ~string](col Column[O, S], suffix S) Condition
+func EndsWithParam[O any, S ~string](col Column[O, S], suffix Param[S]) Condition
 func Exists(sq AnySubquery) Condition
 func Not(cond Condition) Condition
+func NotContains[O any, S ~string](col Column[O, S], part S) Condition
+func NotContainsParam[O any, S ~string](col Column[O, S], part Param[S]) Condition
+func NotEndsWith[O any, S ~string](col Column[O, S], suffix S) Condition
+func NotEndsWithParam[O any, S ~string](col Column[O, S], suffix Param[S]) Condition
 func NotExists(sq AnySubquery) Condition
+func NotStartsWith[O any, S ~string](col Column[O, S], prefix S) Condition
+func NotStartsWithParam[O any, S ~string](col Column[O, S], prefix Param[S]) Condition
 func Or(conds ...Condition) Condition
+func StartsWith[O any, S ~string](col Column[O, S], prefix S) Condition
+func StartsWithParam[O any, S ~string](col Column[O, S], prefix Param[S]) Condition
 type DeleteBuilder[R any] struct {
 }
 func DeleteFrom[R any](table *TableOf[R]) *DeleteBuilder[R]
@@ -159,44 +159,34 @@ type Executor interface {
 func WrapExecutor(exec tsqdialect.Executor, dialect tsqdialect.Dialect) Executor
 type FilteredStage[O any] interface {
 	QueryStage[O]
-	GroupBy(cols ...SQLColumn) GroupedStage[O]
-	OrderBy(orders ...OrderBy) PagedStage[O]
-	Limit(limit int) PagedStage[O]
-	Offset(offset int) PagedStage[O]
-	ForUpdate() LockedStage[O]
-	ForShare() LockedStage[O]
+	Groupable[O]
+	Sortable[O]
+	Lockable[O]
 }
 type FromStage[O any] interface {
 	Select(cols ...BoundColumn[O]) JoinStage[O]
 }
 func From[O any](table Table) FromStage[O]
+type Groupable[O any] interface {
+	GroupBy(cols ...SQLColumn) GroupedStage[O]
+}
 type GroupedStage[O any] interface {
 	QueryStage[O]
+	Sortable[O]
+	Combinable[O]
 	Having(conds ...Condition) HavingStage[O]
-	OrderBy(orders ...OrderBy) PagedStage[O]
-	Limit(limit int) PagedStage[O]
-	Offset(offset int) PagedStage[O]
-	Union(other QueryStage[O]) CompoundStage[O]
-	UnionAll(other QueryStage[O]) CompoundStage[O]
-	Intersect(other QueryStage[O]) CompoundStage[O]
-	IntersectAll(other QueryStage[O]) CompoundStage[O]
-	Except(other QueryStage[O]) CompoundStage[O]
-	ExceptAll(other QueryStage[O]) CompoundStage[O]
 }
 type HavingStage[O any] interface {
 	QueryStage[O]
-	OrderBy(orders ...OrderBy) PagedStage[O]
-	Limit(limit int) PagedStage[O]
-	Offset(offset int) PagedStage[O]
-	Union(other QueryStage[O]) CompoundStage[O]
-	UnionAll(other QueryStage[O]) CompoundStage[O]
-	Intersect(other QueryStage[O]) CompoundStage[O]
-	IntersectAll(other QueryStage[O]) CompoundStage[O]
-	Except(other QueryStage[O]) CompoundStage[O]
-	ExceptAll(other QueryStage[O]) CompoundStage[O]
+	Sortable[O]
+	Combinable[O]
 }
 type JoinStage[O any] interface {
 	QueryStage[O]
+	Groupable[O]
+	Sortable[O]
+	Lockable[O]
+	Combinable[O]
 	Join(table Table, on ...Condition) JoinStage[O]
 	InnerJoin(table Table, on ...Condition) JoinStage[O]
 	LeftJoin(table Table, on ...Condition) JoinStage[O]
@@ -206,24 +196,16 @@ type JoinStage[O any] interface {
 	Correlate(tables ...Table) JoinStage[O]
 	Where(conds ...Condition) WhereStage[O]
 	Search(cols ...SearchColumn) SearchStage[O]
-	GroupBy(cols ...SQLColumn) GroupedStage[O]
-	OrderBy(orders ...OrderBy) PagedStage[O]
-	Limit(limit int) PagedStage[O]
-	Offset(offset int) PagedStage[O]
-	ForUpdate() LockedStage[O]
-	ForShare() LockedStage[O]
-	Union(other QueryStage[O]) CompoundStage[O]
-	UnionAll(other QueryStage[O]) CompoundStage[O]
-	Intersect(other QueryStage[O]) CompoundStage[O]
-	IntersectAll(other QueryStage[O]) CompoundStage[O]
-	Except(other QueryStage[O]) CompoundStage[O]
-	ExceptAll(other QueryStage[O]) CompoundStage[O]
 }
 type ListParam[T any] struct {
 }
 func NewListParam[T any](name string) ListParam[T]
 func (p ListParam[T]) Bind(values ...T) Arg
 func (p ListParam[T]) Name() string
+type Lockable[O any] interface {
+	ForUpdate() LockedStage[O]
+	ForShare() LockedStage[O]
+}
 type LockedStage[O any] interface {
 	QueryStage[O]
 	NoWait() LockedStage[O]
@@ -253,6 +235,12 @@ type MutationStage[R any] interface {
 	MustBuild() *Mutation[R]
 	Exec(ctx context.Context, db Executor, args ...Arg) (int64, error)
 }
+type Number interface {
+	~int | ~int8 | ~int16 | ~int32 | ~int64 |
+		~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 |
+		~float32 | ~float64 |
+		sql.NullInt16 | sql.NullInt32 | sql.NullInt64 | sql.NullByte | sql.NullFloat64
+}
 type OptimisticLockError struct {
 	Table    string
 	Expected int
@@ -277,31 +265,35 @@ func (e *OrderCountMismatchError) Error() string
 type PageRequest struct {
 	Size    int    `json:"size"     query:"size"`     // Size is the requested page size.
 	Page    int    `json:"page"     query:"page"`     // Page is the 1-based page number.
-	OrderBy string `json:"order_by" query:"order_by"` // OrderBy lists sortable field names separated by commas.
-	Order   string `json:"order"    query:"order"`    // Order lists sort directions aligned with OrderBy.
-	Keyword string `json:"keyword"  query:"keyword"`  // Keyword carries the optional free-text search term.
+	OrderBy string `json:"order_by" query:"order_by"` // OrderBy lists sort fields separated by commas.
+	Order   string `json:"order"    query:"order"`    // Order lists asc/desc aligned with OrderBy.
+	Keyword string `json:"keyword"  query:"keyword"`  // Keyword is the optional search term.
 }
 func (r *PageRequest) Normalize(maxSize int)
-func (r *PageRequest) Offset() int
-func (r *PageRequest) Response[T any](total int64, data []*T) *PageResponse[T]
+func (r *PageRequest) Paging(sortable ...SQLColumn) (Paging, error)
 func (r *PageRequest) Validate(maxSize int) error
 type PageResponse[T any] struct {
-	PageRequest
-	Total      int64 `json:"total"`       // Total is the full number of matching rows.
-	TotalPages int64 `json:"total_pages"` // TotalPage is the number of available pages after rounding up.
-	Data       []*T  `json:"data"`        // Data contains the rows for the current page.
+	Page       int   `json:"page"`        // Page is the 1-based page number served.
+	Size       int   `json:"size"`        // Size is the page size served.
+	Total      int64 `json:"total"`       // Total is the number of matching rows.
+	TotalPages int64 `json:"total_pages"` // TotalPages is Total divided by Size, rounded up.
+	Data       []*T  `json:"data"`        // Data holds the rows of the page, never nil.
 }
 func (r *PageResponse[T]) HasNext() bool
 func (r *PageResponse[T]) HasPrev() bool
 func (r *PageResponse[T]) IsEmpty() bool
 type PagedStage[O any] interface {
 	QueryStage[O]
-	OrderBy(orders ...OrderBy) PagedStage[O]
-	Limit(limit int) PagedStage[O]
-	Offset(offset int) PagedStage[O]
-	ForUpdate() LockedStage[O]
-	ForShare() LockedStage[O]
+	Sortable[O]
+	Lockable[O]
 }
+type Paging struct {
+	Page int
+	Size int
+	OrderBy []OrderBy
+	Keyword string
+}
+func (p Paging) Offset() int
 type Param[T any] struct {
 }
 func NewParam[T any](name string) Param[T]
@@ -315,7 +307,7 @@ func (q *Query[O]) Exists(ctx context.Context, db Executor, args ...Arg) (bool, 
 func (q *Query[O]) Find(ctx context.Context, db Executor, args ...Arg) (*O, error)
 func (q *Query[O]) Get(ctx context.Context, db Executor, args ...Arg) (*O, error)
 func (q *Query[O]) List(ctx context.Context, db Executor, args ...Arg) ([]*O, error)
-func (q *Query[O]) Page(ctx context.Context, db Executor, page *PageRequest, args ...Arg) (*PageResponse[O], error)
+func (q *Query[O]) Page(ctx context.Context, db Executor, p Paging, args ...Arg) (*PageResponse[O], error)
 func (q *Query[O]) SQL(dialect tsqdialect.Dialect, args ...Arg) (string, []any, error)
 func (q *Query[O]) Scalar[T any](ctx context.Context, db Executor, selected TypedColumn[O, T], args ...Arg) (T, error)
 func (q *Query[O]) String() string
@@ -327,7 +319,7 @@ type QueryStage[O any] interface {
 	Exists(ctx context.Context, db Executor, args ...Arg) (bool, error)
 	Count(ctx context.Context, db Executor, args ...Arg) (int64, error)
 	List(ctx context.Context, db Executor, args ...Arg) ([]*O, error)
-	Page(ctx context.Context, db Executor, page *PageRequest, args ...Arg) (*PageResponse[O], error)
+	Page(ctx context.Context, db Executor, p Paging, args ...Arg) (*PageResponse[O], error)
 }
 type RHS[T any] interface {
 }
@@ -385,15 +377,13 @@ const (
 type SearchColumn interface {
 	SQLColumn
 }
+func Searchable[O any, S ~string](col Column[O, S]) SearchColumn
 type SearchStage[O any] interface {
 	QueryStage[O]
+	Groupable[O]
+	Sortable[O]
+	Lockable[O]
 	Where(conds ...Condition) FilteredStage[O]
-	GroupBy(cols ...SQLColumn) GroupedStage[O]
-	OrderBy(orders ...OrderBy) PagedStage[O]
-	Limit(limit int) PagedStage[O]
-	Offset(offset int) PagedStage[O]
-	ForUpdate() LockedStage[O]
-	ForShare() LockedStage[O]
 }
 type SelectStage[O any] interface {
 	From(table Table) JoinStage[O]
@@ -401,6 +391,11 @@ type SelectStage[O any] interface {
 func Select[O any](cols ...BoundColumn[O]) SelectStage[O]
 func SelectDistinct[O any](cols ...BoundColumn[O]) SelectStage[O]
 type SetRHS[T any] interface {
+}
+type Sortable[O any] interface {
+	OrderBy(orders ...OrderBy) PagedStage[O]
+	Limit(limit int) PagedStage[O]
+	Offset(offset int) PagedStage[O]
 }
 type Subquery[T any] interface {
 	AnySubquery
@@ -422,7 +417,9 @@ type TableOf[R any] struct {
 func NewTable[R any](name string) *TableOf[R]
 func (t *TableOf[R]) As(alias string) Table
 func (t *TableOf[R]) BatchDelete(ctx context.Context, db Executor, rows []*R, options ...BatchOption) error
+func (t *TableOf[R]) BatchDeleteByPK(ctx context.Context, db Executor, keys Arg, options ...BatchOption) error
 func (t *TableOf[R]) BatchHardDelete(ctx context.Context, db Executor, rows []*R, options ...BatchOption) error
+func (t *TableOf[R]) BatchHardDeleteByPK(ctx context.Context, db Executor, keys Arg, options ...BatchOption) error
 func (t *TableOf[R]) BatchInsert(ctx context.Context, db Executor, rows []*R, options ...BatchOption) error
 func (t *TableOf[R]) BatchUpdate(ctx context.Context, db Executor, rows []*R, options ...BatchOption) error
 func (t *TableOf[R]) Columns() []BoundColumn[R]
@@ -436,6 +433,7 @@ func (t *TableOf[R]) Name() string
 func (t *TableOf[R]) Schema() []tsqdialect.ColumnSpec
 func (t *TableOf[R]) SearchColumns() []SearchColumn
 func (t *TableOf[R]) Update(ctx context.Context, db Executor, row *R) error
+func (t *TableOf[R]) WithDeleted() *TableOf[R]
 type TableSpec[R any] struct {
 	Columns []BoundColumn[R]
 	PrimaryKey BoundColumn[R]
@@ -447,6 +445,9 @@ type TableSpec[R any] struct {
 	Search []SearchColumn
 	Schema []tsqdialect.ColumnSpec
 	Indexes []TableIndex
+}
+type Text interface {
+	~string | sql.NullString
 }
 type TraceOp string
 const (
@@ -485,19 +486,11 @@ type ValueColumn[T any] interface {
 }
 type WhereStage[O any] interface {
 	QueryStage[O]
+	Groupable[O]
+	Sortable[O]
+	Lockable[O]
+	Combinable[O]
 	Search(cols ...SearchColumn) FilteredStage[O]
-	GroupBy(cols ...SQLColumn) GroupedStage[O]
-	OrderBy(orders ...OrderBy) PagedStage[O]
-	Limit(limit int) PagedStage[O]
-	Offset(offset int) PagedStage[O]
-	ForUpdate() LockedStage[O]
-	ForShare() LockedStage[O]
-	Union(other QueryStage[O]) CompoundStage[O]
-	UnionAll(other QueryStage[O]) CompoundStage[O]
-	Intersect(other QueryStage[O]) CompoundStage[O]
-	IntersectAll(other QueryStage[O]) CompoundStage[O]
-	Except(other QueryStage[O]) CompoundStage[O]
-	ExceptAll(other QueryStage[O]) CompoundStage[O]
 }
 
 ## ./dialect

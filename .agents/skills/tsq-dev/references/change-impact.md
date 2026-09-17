@@ -56,6 +56,10 @@
 - 给 `TableSpec` 加字段不是破坏性变更；给 `Table` 接口加方法也不影响使用者（它是封闭的），但
   三个实现（`TableOf`、`aliasTable`、`cteTable`）都要跟上。`[门禁: api-check]`
 - 软删除的端到端门是 `examples/academy` 的 `runSoftDeleteDemo`。
+- **软删除作用域在渲染里，不在调用点**：新增一种表出现的位置（新的 JOIN 类型、`UPDATE ... FROM`、
+  新的集合形态）必须在 `writeFromWhere` 里表态它的作用域放 WHERE、ON 还是派生表，并在
+  `TestSoftDeleteScope` 和 `TestIntegrationSoftDeleteScopeJoins` 里各加一条。给 `Table` 接口加实现
+  也要实现 `softDeleted()`。
 
 ## 改了按条件写语句（`mutation.go`）
 
@@ -65,7 +69,8 @@
   求值，包级语句就会永远写进程启动时间——v4 就是这么错的。
 - **语句形状要在三个方言上真跑**：SET 左侧不带表限定、WHERE 带表限定，靠
   `integration_test.go` 的 `TestIntegrationMutationsByCondition` 证明。
-- 只能引用目标表本身：`Build` 按**表指针**比较 `allTables()`，别名也会被拒。放开这一点要先为
+- 只能引用目标表本身：`Build` 按 `tableDef` 指针加表名比较 `allTables()`，别名会被拒，
+  `WithDeleted()` 视为同一张表。放开这一点要先为
   三个方言各设计一种 `UPDATE ... FROM` 写法。
 - `Set` / `SetVal` 是泛型方法，所以 `UpdateBuilder` 必须是具体类型；`Where` 之后才是接口。
 - 使用者文档三处要同步：`skills/tsq/references/REFERENCE.md` §8 与 §13、`README.md`

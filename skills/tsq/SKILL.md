@@ -46,12 +46,15 @@ describes the implementation.
 - Use `Runtime.WithTx(...)` when several TSQ operations must share one transaction.
 - Use `Runtime.WithTxResult(...)` when that transaction callback returns a typed value; return a small struct when several values come back.
 - Use `query.Scalar(ctx, exec, selectedColumn, args...)` for a typed single-column result and `query.AsSubquery(selectedColumn)` for a built typed subquery.
-- Use `tsq.UpdateTable(TableXxx)` / `tsq.DeleteFrom(TableXxx)` for `UPDATE ... WHERE` / `DELETE ... WHERE` over rows the caller does not hold. They skip the optimistic-lock check but still increment `version` and require exactly one `Where(...)`. `UpdateTable` touches no managed field on its own; `DeleteFrom` soft-deletes when the table declares `deleted_at`.
-- Remember that on a table declaring `deleted_at`, `Delete` stamps a tombstone and `HardDelete` removes the row, and every generated query already filters tombstoned rows out. Without `deleted_at` the two are the same operation.
+- Use `tsq.UpdateTable(TableXxx)` / `tsq.DeleteFrom(TableXxx)` for `UPDATE ... WHERE` / `DELETE ... WHERE` over rows the caller does not hold. They skip the optimistic-lock check but still increment `version` and require exactly one `Where(...)`. `UpdateTable` sets no managed field besides `version`; `DeleteFrom` soft-deletes when the table declares `deleted_at`.
+- Remember that on a table declaring `deleted_at`, `Delete` stamps a tombstone and `HardDelete` removes the row, and deleted rows are out of scope for every query and `UpdateTable` / `DeleteFrom` naming the table, joins included; never add a `deleted_at` filter by hand. `TableXxx.WithDeleted()` includes them. Without `deleted_at` the two deletes are the same operation.
+- Column functions are package-level and type-constrained: `tsq.Upper(col)`, `tsq.Sum(col)`, `tsq.Count(col)`. Do not look for them as column methods.
+- `query.Page` takes a typed `tsq.Paging`; convert an HTTP `tsq.PageRequest` with `req.Paging(sortableCols...)` after `Validate`.
+- Generated queries cover only the primary key and unique indexes; write lookups on plain indexes with the builder.
 - Do not assume this skill ships management scripts; install or upgrade TSQ with explicit `go install .../cmd/tsq@version` commands, and run `tsq gen` directly against the chosen package.
 - The builder is stage-based: `Where(...)` and `Search(...)` each appear at most once per chain, enforced by the Go type system at compile time. Pass all filter conditions to the single `Where(...)` call; use `tsq.Or(...)` for OR groups. Both clauses can coexist in either order.
 - Remember that `In` over an empty list parameter matches nothing and `NotIn` matches everything; the filter is never dropped.
-- Predicate naming: `Op(rhs)` takes a column, `Param` or subquery; `OpVal(v)` takes a value; negations are `Not*` (`NotIn`, `NotLike`); pattern sugar is `StartsWith(param)` / `StartsWithVal(s)` and escapes wildcards, while `Like` takes a pattern as written.
+- Predicate naming: `Op(rhs)` takes a column, `Param` or subquery; `OpVal(v)` takes a value; negations are `Not*` (`NotIn`, `NotLike`); pattern sugar is `tsq.StartsWith(col, s)` / `tsq.StartsWithParam(col, p)` and escapes wildcards, while `Like` takes a pattern as written.
 - Remember that `Build()` validates query structure, while execution validates dialect capabilities.
 - Do not assume a custom `driver.Valuer` / `sql.Scanner` type implies a DDL column type; use an explicit `db:"...,type:JSON"` / `type:TEXT` / `type:JSONB"` override when the Go type is not directly mappable.
 

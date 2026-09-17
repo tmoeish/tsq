@@ -46,6 +46,11 @@ var compileFailCases = []struct {
 	{"executors are sealed", `var _ tsq.Executor = fakeExecutor{}`, "does not implement tsq.Executor"},
 	{"case result of another type", `_ = tsq.Case[string]().When(UserID.EQVal(1), UserID)`, "does not implement tsq.RHS[string]"},
 	{"case value of another type", `_ = tsq.Case[string]().WhenVal(UserID.EQVal(1), 3)`, "cannot use 3"},
+	{"text function on a number", `_ = tsq.Upper(UserID)`, "does not satisfy tsq.Text"},
+	{"numeric function on text", `_ = tsq.Sum(UserName)`, "does not satisfy tsq.Number"},
+	{"search on a number", `_ = tsq.Searchable(UserID)`, "does not satisfy ~string"},
+	{"pattern of another type", `_ = tsq.Contains(UserName, 3)`, "cannot use 3"},
+	{"functions are not column methods", `_ = UserName.Upper()`, "Upper undefined"},
 }
 
 const compileFailPrelude = `package compilefail

@@ -8,11 +8,11 @@ import (
 func TestPageReq_NilHelpers(t *testing.T) {
 	var page *PageRequest
 
-	if offset := page.Offset(); offset != 0 {
-		t.Fatalf("expected nil request offset 0, got %d", offset)
-	}
-
 	page.Normalize(0)
+
+	if paging, err := page.Paging(); err != nil || paging.Offset() != 0 {
+		t.Fatalf("nil request = %+v, %v", paging, err)
+	}
 }
 
 func TestPageReq_HelpersNormalizeInvalidValues(t *testing.T) {
@@ -31,7 +31,7 @@ func TestPageReq_HelpersNormalizeInvalidValues(t *testing.T) {
 		t.Fatalf("expected normalized size %d, got %d", defaultPageSize, page.Size)
 	}
 
-	if offset := page.Offset(); offset != 0 {
+	if offset := (Paging{Page: page.Page, Size: page.Size}).Offset(); offset != 0 {
 		t.Fatalf("expected normalized offset 0, got %d", offset)
 	}
 }
@@ -52,12 +52,7 @@ func TestPageReq_Offset(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			page := &PageRequest{
-				Page: tt.page,
-				Size: tt.size,
-			}
-
-			offset := page.Offset()
+			offset := Paging{Page: tt.page, Size: tt.size}.Offset()
 			if offset != tt.expected {
 				t.Errorf("Expected offset %d, got %d", tt.expected, offset)
 			}
@@ -182,10 +177,7 @@ func TestPageReq_ValidateStrict(t *testing.T) {
 }
 
 func TestNewResponse(t *testing.T) {
-	req := &PageRequest{
-		Page: 2,
-		Size: 10,
-	}
+	req := Paging{Page: 2, Size: 10}
 
 	data := []*string{
 		new("item1"),
@@ -193,7 +185,7 @@ func TestNewResponse(t *testing.T) {
 		new("item3"),
 	}
 
-	resp := req.Response(25, data)
+	resp := newPageResponse(req, 25, data)
 
 	if resp.Page != 2 {
 		t.Errorf("Expected page 2, got %d", resp.Page)
@@ -218,12 +210,7 @@ func TestNewResponse(t *testing.T) {
 }
 
 func TestNewResponse_ExactDivision(t *testing.T) {
-	req := &PageRequest{
-		Page: 1,
-		Size: 10,
-	}
-
-	resp := req.Response(20, []*string{})
+	resp := newPageResponse(Paging{Page: 1, Size: 10}, 20, []*string{})
 
 	expectedTotalPage := int64(2) // 20 / 10 = 2
 	if resp.TotalPages != expectedTotalPage {
@@ -232,19 +219,10 @@ func TestNewResponse_ExactDivision(t *testing.T) {
 }
 
 func TestNewResponse_ZeroSize(t *testing.T) {
-	req := &PageRequest{
-		Page: 1,
-		Size: 0,
-	}
+	resp := newPageResponse(Paging{}.normalized(0), 20, []*string(nil))
 
-	resp := req.Response(20, []*string{})
-
-	if resp.Size != defaultPageSize {
-		t.Fatalf("expected normalized size %d, got %d", defaultPageSize, resp.Size)
-	}
-
-	if resp.TotalPages != 1 {
-		t.Errorf("Expected total page 1 when size is normalized, got %d", resp.TotalPages)
+	if resp.Size != defaultPageSize || resp.TotalPages != 1 || resp.Data == nil {
+		t.Fatalf("response over a normalized empty Paging = %+v", resp)
 	}
 }
 
@@ -338,23 +316,6 @@ func TestPageResp_IsEmpty(t *testing.T) {
 	}
 }
 
-func TestNewResponseNormalizesNilRequest(t *testing.T) {
-	var nilRequest *PageRequest
-
-	resp := nilRequest.Response[int](0, nil)
-	if resp == nil {
-		t.Fatal("expected response to be non-nil")
-	}
-
-	if resp.Page != 1 {
-		t.Fatalf("expected default page 1, got %d", resp.Page)
-	}
-
-	if resp.Size != defaultPageSize {
-		t.Fatalf("expected default size %d, got %d", defaultPageSize, resp.Size)
-	}
-}
-
 func TestConstants(t *testing.T) {
 	if false {
 		t.Errorf("Expected defaultPageSize 20, got %d", defaultPageSize)
@@ -390,7 +351,7 @@ func TestPageReq_ValidateRejectsOutOfRangePage(t *testing.T) {
 // Validate would have rejected: it clamps to the last representable page rather than
 // wrapping around to the first one.
 func TestPageReq_OffsetClampsOutOfRangePage(t *testing.T) {
-	page := &PageRequest{Page: MaxPageNumber * 10, Size: 20}
+	page := Paging{Page: MaxPageNumber * 10, Size: 20}
 
 	want := 20 * (MaxPageNumber - 1)
 	if got := page.Offset(); got != want {

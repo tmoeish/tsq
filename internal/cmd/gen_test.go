@@ -1340,6 +1340,28 @@ func TestValidateGeneratedFilenameCollisionsRejectsCaseConflicts(t *testing.T) {
 	}
 }
 
+func TestValidateFieldDatabaseTypeRequiresStringSearchFields(t *testing.T) {
+	search := map[string]struct{}{"F": {}}
+	tests := []struct {
+		name  string
+		field genmodel.FieldInfo
+		ok    bool
+	}{
+		{"string", genmodel.FieldInfo{Name: "F", Type: genmodel.TypeInfo{TypeName: "string"}}, true},
+		{"int", genmodel.FieldInfo{Name: "F", Type: genmodel.TypeInfo{TypeName: "int64"}}, false},
+		{"null string", genmodel.FieldInfo{Name: "F", Type: genmodel.TypeInfo{TypeName: "NullString", Package: genmodel.PackageInfo{Path: "database/sql"}}}, false},
+		{"pointer", genmodel.FieldInfo{Name: "F", IsPointer: true, Type: genmodel.TypeInfo{TypeName: "string"}}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := validateFieldDatabaseType(tt.field, search); (err == nil) != tt.ok {
+				t.Fatalf("validateFieldDatabaseType() = %v, want ok=%v", err, tt.ok)
+			}
+		})
+	}
+}
+
 func TestValidateIndexNameCollisionsRejectsCrossTableReuse(t *testing.T) {
 	list := []*genmodel.StructInfo{
 		{
@@ -1446,7 +1468,7 @@ func TestTableTemplateAvoidsKeywordParameterNames(t *testing.T) {
 	}
 }
 
-func TestTableTemplateGeneratesQueryListBuilders(t *testing.T) {
+func TestTableTemplateGeneratesNoQueriesForPlainIndexes(t *testing.T) {
 	dir := t.TempDir()
 
 	tpl, err := template.New("table.go.tmpl").Funcs(funcMap()).Parse(defaultTableTpl)
@@ -1462,18 +1484,8 @@ func TestTableTemplateGeneratesQueryListBuilders(t *testing.T) {
 		TableMeta: &genmodel.TableMeta{
 			Table:      "order",
 			PrimaryKey: "PK",
-			Queries: []genmodel.IndexInfo{
-				{
-					Name:      "OrgIDAndItemID",
-					IndexName: "idx_order_org_item",
-					Fields:    []string{"OrgID", "ItemID"},
-				},
-				{
-					Name:        "OrgIDAndItemIDIn",
-					IndexName:   "idx_order_org_item",
-					Fields:      []string{"OrgID", "ItemID"},
-					LastFieldIn: true,
-				},
+			Indexes: []genmodel.IndexInfo{
+				{Name: "idx_order_org_item", Fields: []string{"OrgID", "ItemID"}},
 			},
 		},
 		TypeInfo: genmodel.TypeInfo{Package: genmodel.PackageInfo{Name: "example"}, TypeName: "Order"},
@@ -1496,15 +1508,14 @@ func TestTableTemplateGeneratesQueryListBuilders(t *testing.T) {
 		t.Fatalf("failed to read generated file: %v", err)
 	}
 
+	// A plain index is a schema object only: lookups on it are written by hand.
 	rendered := string(contents)
-	for _, want := range []string{
-		"var QueryOrderByOrgIDAndItemID = tsq.",
-		"var QueryOrderByOrgIDAndItemIDIn = tsq.",
-		"Order_ItemID.In(Order_ItemID.ListParam())",
-	} {
-		if !strings.Contains(rendered, want) {
-			t.Fatalf("expected generated query list code to mention %q, got:\n%s", want, rendered)
-		}
+	if strings.Contains(rendered, "QueryOrderByOrgID") {
+		t.Fatalf("did not expect a query for a plain index, got:\n%s", rendered)
+	}
+
+	if !strings.Contains(rendered, `{Name: "idx_order_org_item", Fields: []string{"org_id", "item_id"}}`) {
+		t.Fatalf("expected the index in the table spec, got:\n%s", rendered)
 	}
 }
 
@@ -1528,12 +1539,6 @@ func TestTableTemplateGeneratesFullUniqueIndexInHelpers(t *testing.T) {
 			Uniques: []genmodel.IndexInfo{
 				{Name: "ux_user_email", Fields: []string{"Email"}},
 				{Name: "ux_user_org_slug", Fields: []string{"OrgID", "Slug"}},
-			},
-			Queries: []genmodel.IndexInfo{
-				{Name: "EmailIn", IndexName: "ux_user_email", Fields: []string{"Email"}, LastFieldIn: true},
-				{Name: "OrgID", IndexName: "ux_user_org_slug", Fields: []string{"OrgID"}},
-				{Name: "OrgIDIn", IndexName: "ux_user_org_slug", Fields: []string{"OrgID"}, LastFieldIn: true},
-				{Name: "OrgIDAndSlugIn", IndexName: "ux_user_org_slug", Fields: []string{"OrgID", "Slug"}, LastFieldIn: true},
 			},
 		},
 		TypeInfo: genmodel.TypeInfo{Package: genmodel.PackageInfo{Name: "example"}, TypeName: "User"},
@@ -1559,7 +1564,9 @@ func TestTableTemplateGeneratesFullUniqueIndexInHelpers(t *testing.T) {
 
 	rendered := string(contents)
 	for _, want := range []string{
+		"var QueryUserByEmail = tsq.",
 		"var QueryUserByEmailIn = tsq.",
+		"var QueryUserByOrgIDAndSlug = tsq.",
 		"func FetchUserByEmail(",
 		"ordered, missing := matchByInputOrderKey(",
 		"emails,",
@@ -1573,8 +1580,9 @@ func TestTableTemplateGeneratesFullUniqueIndexInHelpers(t *testing.T) {
 		}
 	}
 
-	if strings.Contains(rendered, "func ListUserByEmail(") {
-		t.Fatalf("did not expect exact list helper for full unique index, got:\n%s", rendered)
+	// Index prefixes do not identify a row, so they get no generated query.
+	if strings.Contains(rendered, "QueryUserByOrgID ") || strings.Contains(rendered, "QueryUserByOrgIDIn ") {
+		t.Fatalf("did not expect a query on a unique index prefix, got:\n%s", rendered)
 	}
 }
 
