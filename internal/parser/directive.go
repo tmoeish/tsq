@@ -52,8 +52,8 @@ func parseAnnotations(
 	meta := &genmodel.TableMeta{IsResult: declaration.name == "result"}
 	if !meta.IsResult {
 		meta.Table = snaker.CamelToSnake(structName)
-		meta.PK = defaultPrimaryKeyField
-		meta.AI = true
+		meta.PrimaryKey = defaultPrimaryKeyField
+		meta.AutoIncrement = true
 	}
 
 	if err := applyDeclaration(meta, declaration); err != nil {
@@ -77,9 +77,9 @@ func parseAnnotations(
 	deriveQueries(meta)
 
 	byName := func(a, b genmodel.IndexInfo) int { return strings.Compare(a.Name, b.Name) }
-	slices.SortFunc(meta.UxList, byName)
-	slices.SortFunc(meta.IdxList, byName)
-	slices.SortFunc(meta.QueryList, byName)
+	slices.SortFunc(meta.Uniques, byName)
+	slices.SortFunc(meta.Indexes, byName)
+	slices.SortFunc(meta.Queries, byName)
 
 	return meta, nil
 }
@@ -145,9 +145,9 @@ func applyDeclaration(meta *genmodel.TableMeta, d directive) error {
 		case key == "name" && hasValue && value != "":
 			meta.Table = value
 		case key == "pk" && hasValue && value != "":
-			meta.PK = value
+			meta.PrimaryKey = value
 		case key == "assigned" && !hasValue:
-			meta.AI = false
+			meta.AutoIncrement = false
 		default:
 			return d.errorf("unknown option %q", arg)
 		}
@@ -231,7 +231,7 @@ func applyDirective(meta *genmodel.TableMeta, d directive, fields map[string]str
 			name = derivedIndexName(prefix, meta.Table, list)
 		}
 
-		for _, existing := range slices.Concat([]genmodel.IndexInfo(meta.UxList), []genmodel.IndexInfo(meta.IdxList)) {
+		for _, existing := range slices.Concat(meta.Uniques, meta.Indexes) {
 			if slices.Equal(existing.Fields, list) {
 				return d.errorf("index %s already covers %s", existing.Name, strings.Join(list, ","))
 			}
@@ -243,9 +243,9 @@ func applyDirective(meta *genmodel.TableMeta, d directive, fields map[string]str
 
 		index := genmodel.IndexInfo{Name: name, Fields: list}
 		if d.name == "unique" {
-			meta.UxList = append(meta.UxList, index)
+			meta.Uniques = append(meta.Uniques, index)
 		} else {
-			meta.IdxList = append(meta.IdxList, index)
+			meta.Indexes = append(meta.Indexes, index)
 		}
 
 		return nil
@@ -298,7 +298,7 @@ func checkReferencedFields(meta *genmodel.TableMeta, fields map[string]struct{},
 		return nil
 	}
 
-	for _, field := range []string{meta.PK, meta.VersionField, meta.CreatedAtField, meta.UpdatedAtField, meta.DeletedAtField} {
+	for _, field := range []string{meta.PrimaryKey, meta.VersionField, meta.CreatedAtField, meta.UpdatedAtField, meta.DeletedAtField} {
 		if field == "" {
 			continue
 		}
@@ -337,22 +337,22 @@ func deriveQueries(meta *genmodel.TableMeta) {
 		}
 
 		seen[name] = true
-		meta.QueryList = append(meta.QueryList, genmodel.IndexInfo{
-			Name:       name,
-			SourceName: source,
-			Fields:     fields,
-			IsSet:      set,
+		meta.Queries = append(meta.Queries, genmodel.IndexInfo{
+			Name:        name,
+			IndexName:   source,
+			Fields:      fields,
+			LastFieldIn: set,
 		})
 	}
 
-	for _, index := range meta.IdxList {
+	for _, index := range meta.Indexes {
 		for n := len(index.Fields); n > 0; n-- {
 			add(index.Name, index.Fields[:n], false)
 			add(index.Name, index.Fields[:n], true)
 		}
 	}
 
-	for _, index := range meta.UxList {
+	for _, index := range meta.Uniques {
 		for n := len(index.Fields); n > 0; n-- {
 			if n < len(index.Fields) {
 				add(index.Name, index.Fields[:n], false)

@@ -4,6 +4,7 @@ package academy
 
 import (
 	"context"
+	tsqsql "database/sql"
 	"fmt"
 	tsqtime "time"
 
@@ -115,23 +116,24 @@ var QueryEnrollmentByUIDIn = tsq.
 	).
 	MustBuild()
 
-// ListEnrollmentByUIDInOrErr retrieves multiple Enrollment records by a set of primary key values.
-// Returns an error if any of the specified records are not found.
-func ListEnrollmentByUIDInOrErr(
+// FetchEnrollmentByUID returns the Enrollment rows whose UID is one of the given
+// values, in the order given. It fails with an error wrapping sql.ErrNoRows when
+// any of them is missing.
+func FetchEnrollmentByUID(
 	ctx context.Context,
 	db tsq.Executor,
 	uIDs ...int64,
 ) ([]*Enrollment, error) {
 	list, err := QueryEnrollmentByUIDIn.List(ctx, db, uIDs)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("fetch Enrollment by UID: %w", err)
 	}
 
 	ordered, missing := matchByInputOrder(uIDs, list, func(row *Enrollment) int64 {
 		return row.UID
 	})
 	if len(missing) > 0 {
-		return nil, fmt.Errorf("records not found: %v", missing)
+		return nil, fmt.Errorf("fetch Enrollment by UID %v: %w", missing, tsqsql.ErrNoRows)
 	}
 	return ordered, nil
 }
@@ -257,7 +259,7 @@ func (e *Enrollment) Insert(
 	}
 	err := tsq.Insert(ctx, db, e)
 	if err != nil {
-		return fmt.Errorf("insert Enrollment: %s: %w", compactJSON(e), err)
+		return fmt.Errorf("insert Enrollment: %w", err)
 	}
 	return nil
 }
@@ -270,7 +272,7 @@ func (e *Enrollment) Update(
 	e.UpdatedAt = null.TimeFrom(tsqtime.Now())
 	err := tsq.Update(ctx, db, e)
 	if err != nil {
-		return fmt.Errorf("update Enrollment: %s: %w", compactJSON(e), err)
+		return fmt.Errorf("update Enrollment UID=%v: %w", e.UID, err)
 	}
 	return nil
 }
@@ -285,7 +287,7 @@ func (e *Enrollment) Delete(
 ) error {
 	err := tsq.Delete(ctx, db, e)
 	if err != nil {
-		return fmt.Errorf("delete Enrollment: %s: %w", compactJSON(e), err)
+		return fmt.Errorf("delete Enrollment UID=%v: %w", e.UID, err)
 	}
 	return nil
 }
@@ -300,7 +302,7 @@ func (e *Enrollment) HardDelete(
 ) error {
 	err := tsq.HardDelete(ctx, db, e)
 	if err != nil {
-		return fmt.Errorf("hard-delete Enrollment: %s: %w", compactJSON(e), err)
+		return fmt.Errorf("hard-delete Enrollment UID=%v: %w", e.UID, err)
 	}
 	return nil
 }

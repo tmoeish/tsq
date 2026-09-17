@@ -4,6 +4,7 @@ package academy
 
 import (
 	"context"
+	tsqsql "database/sql"
 	json "encoding/json"
 	"fmt"
 	tsqtime "time"
@@ -99,23 +100,24 @@ var QueryTrackByIDIn = tsq.
 	).
 	MustBuild()
 
-// ListTrackByIDInOrErr retrieves multiple Track records by a set of primary key values.
-// Returns an error if any of the specified records are not found.
-func ListTrackByIDInOrErr(
+// FetchTrackByID returns the Track rows whose ID is one of the given
+// values, in the order given. It fails with an error wrapping sql.ErrNoRows when
+// any of them is missing.
+func FetchTrackByID(
 	ctx context.Context,
 	db tsq.Executor,
 	iDs ...int64,
 ) ([]*Track, error) {
 	list, err := QueryTrackByIDIn.List(ctx, db, iDs)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("fetch Track by ID: %w", err)
 	}
 
 	ordered, missing := matchByInputOrder(iDs, list, func(row *Track) int64 {
 		return row.ID
 	})
 	if len(missing) > 0 {
-		return nil, fmt.Errorf("records not found: %v", missing)
+		return nil, fmt.Errorf("fetch Track by ID %v: %w", missing, tsqsql.ErrNoRows)
 	}
 	return ordered, nil
 }
@@ -127,15 +129,15 @@ func ListTrackByIDInOrErr(
 var QueryTrackByName = tsq.
 	Select(Track__Cols...).
 	From(TableTrack).
-	Search(TableTrack.SearchColumns()...).
 	Where(
 		Track_Name.EQVar(),
 	).
 	MustBuild()
 
-// ListTrackByNameInOrErr retrieves multiple Track records by unique index ux_track_name using an IN clause.
-// Returns an error if any of the specified records are not found.
-func ListTrackByNameInOrErr(
+// FetchTrackByName returns the Track rows matching unique index ux_track_name, one per
+// Name value, in the order given. It fails with an error wrapping
+// sql.ErrNoRows when any of them is missing.
+func FetchTrackByName(
 	ctx context.Context,
 	db tsq.Executor,
 	names ...string,
@@ -144,15 +146,15 @@ func ListTrackByNameInOrErr(
 		names,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", "query by unique index ux_track_name", err)
+		return nil, fmt.Errorf("fetch Track by Name: %w", err)
 	}
 
 	ordered, missing := matchByInputOrderKey(names, list,
-		func(row *Track) string { return compactJSON(row.Name) },
-		func(input string) string { return compactJSON(input) },
+		func(row *Track) string { return lookupKey(row.Name) },
+		func(input string) string { return lookupKey(input) },
 	)
 	if len(missing) > 0 {
-		return nil, fmt.Errorf("records not found: %v", missing)
+		return nil, fmt.Errorf("fetch Track by Name %v: %w", missing, tsqsql.ErrNoRows)
 	}
 	return ordered, nil
 }
@@ -193,7 +195,7 @@ func (t *Track) Insert(
 	}
 	err := tsq.Insert(ctx, db, t)
 	if err != nil {
-		return fmt.Errorf("insert Track: %s: %w", compactJSON(t), err)
+		return fmt.Errorf("insert Track: %w", err)
 	}
 	return nil
 }
@@ -205,7 +207,7 @@ func (t *Track) Update(
 ) error {
 	err := tsq.Update(ctx, db, t)
 	if err != nil {
-		return fmt.Errorf("update Track: %s: %w", compactJSON(t), err)
+		return fmt.Errorf("update Track ID=%v: %w", t.ID, err)
 	}
 	return nil
 }
@@ -220,7 +222,7 @@ func (t *Track) Delete(
 ) error {
 	err := tsq.Delete(ctx, db, t)
 	if err != nil {
-		return fmt.Errorf("delete Track: %s: %w", compactJSON(t), err)
+		return fmt.Errorf("delete Track ID=%v: %w", t.ID, err)
 	}
 	return nil
 }
@@ -232,7 +234,7 @@ func (t *Track) HardDelete(
 ) error {
 	err := tsq.HardDelete(ctx, db, t)
 	if err != nil {
-		return fmt.Errorf("hard-delete Track: %s: %w", compactJSON(t), err)
+		return fmt.Errorf("hard-delete Track ID=%v: %w", t.ID, err)
 	}
 	return nil
 }

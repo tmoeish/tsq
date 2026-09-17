@@ -289,7 +289,7 @@ func (ps *ParseState) processStructTypeSpec(
 	}
 	// Build the field set.
 	fields := make(map[string]struct{})
-	for name := range structInfo.FieldMap {
+	for name := range structInfo.FieldsByName {
 		fields[name] = struct{}{}
 	}
 
@@ -713,12 +713,12 @@ func cloneLoadedPackage(pkg *loadedPackage) *loadedPackage {
 
 // copyEmbeddedFields copies an embedded struct's fields into the target.
 func copyEmbeddedFields(targetStruct, embeddedStruct *StructInfo) error {
-	for fieldName, field := range embeddedStruct.FieldMap {
-		if _, exists := targetStruct.FieldMap[fieldName]; exists {
+	for fieldName, field := range embeddedStruct.FieldsByName {
+		if _, exists := targetStruct.FieldsByName[fieldName]; exists {
 			return fmt.Errorf("field %s already exists in struct %v", fieldName, targetStruct.TypeInfo)
 		}
 
-		targetStruct.FieldMap[fieldName] = field
+		targetStruct.FieldsByName[fieldName] = field
 	}
 
 	return nil

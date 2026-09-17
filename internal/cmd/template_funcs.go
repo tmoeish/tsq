@@ -52,6 +52,7 @@ func funcMap() template.FuncMap {
 		"FieldToCol":               fieldToCol,
 		"IndexFieldsToCols":        indexFieldsToCols,
 		"NeedsGeneratedTimeImport": needsGeneratedTimeImport,
+		"NeedsGeneratedSQLImport":  needsGeneratedSQLImport,
 		"TimestampNowValue":        timestampNowValue,
 		"TimestampUnsetExpr":       timestampUnsetExpr,
 		"SoftDeleteActiveExpr":     softDeleteActiveExpr,
@@ -151,7 +152,7 @@ func fieldType(field genmodel.FieldInfo) string {
 		fullTypeName = pointerType(fullTypeName)
 	}
 
-	if field.IsArray {
+	if field.IsSlice {
 		fullTypeName = listType(fullTypeName)
 	}
 
@@ -186,7 +187,7 @@ func sub1(n int) int {
 }
 
 func fieldToCol(data *genmodel.StructInfo, field string) string {
-	return fmt.Sprintf("%q", data.FieldMap[field].Column)
+	return fmt.Sprintf("%q", data.FieldsByName[field].Column)
 }
 
 func fieldsToCols(data *genmodel.StructInfo, fields []string) string {
@@ -225,7 +226,7 @@ func hasImport(data *genmodel.StructInfo, importPath string) bool {
 		return false
 	}
 
-	_, ok := data.ImportMap[importPath]
+	_, ok := data.Imports[importPath]
 
 	return ok
 }
@@ -238,12 +239,18 @@ func needsGeneratedTimeImport(data *genmodel.StructInfo) bool {
 	return hasImport(data, importPathTime) || data.CreatedAtField != "" || data.UpdatedAtField != "" || data.DeletedAtField != ""
 }
 
+// needsGeneratedSQLImport reports whether a result's field types render with the
+// tsqsql alias. The table template imports it unconditionally for sql.ErrNoRows.
+func needsGeneratedSQLImport(data *genmodel.StructInfo) bool {
+	return data != nil && hasImport(data, importPathDatabaseSQL)
+}
+
 func generatedTimeRef(name string) string {
 	return generatedTimeAlias + "." + name
 }
 
 func managedTimestampKind(field genmodel.FieldInfo) string {
-	if field.IsArray {
+	if field.IsSlice {
 		return ""
 	}
 
@@ -269,7 +276,7 @@ func softDeleteKind(field genmodel.FieldInfo) string {
 		return managedTimestampKind(field)
 	}
 
-	if field.IsArray || field.IsPointer || field.Type.Package.Path != "" {
+	if field.IsSlice || field.IsPointer || field.Type.Package.Path != "" {
 		return ""
 	}
 
@@ -322,7 +329,7 @@ func validateManagedFields(data *genmodel.StructInfo) error {
 			continue
 		}
 
-		field, ok := data.FieldMap[item.name]
+		field, ok := data.FieldsByName[item.name]
 		if !ok {
 			return fmt.Errorf("%s field %s not found in %s", item.role, item.name, data.TypeInfo.TypeName)
 		}
@@ -336,7 +343,7 @@ func validateManagedFields(data *genmodel.StructInfo) error {
 		return nil
 	}
 
-	field, ok := data.FieldMap[data.DeletedAtField]
+	field, ok := data.FieldsByName[data.DeletedAtField]
 	if !ok {
 		return fmt.Errorf("deleted_at field %s not found in %s", data.DeletedAtField, data.TypeInfo.TypeName)
 	}
@@ -345,7 +352,7 @@ func validateManagedFields(data *genmodel.StructInfo) error {
 		return err
 	}
 
-	if len(data.UxList) > 0 && softDeleteKind(field) != "integer" {
+	if len(data.Uniques) > 0 && softDeleteKind(field) != "integer" {
 		return fmt.Errorf(
 			"deleted_at field %s in %s cannot use nullable time semantics with unique indexes; use int64 or uint64 tombstones for portable uniqueness",
 			data.DeletedAtField,

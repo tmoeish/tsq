@@ -333,8 +333,9 @@ func TSQTables() []tsq.TableRegistration {
 
 //// Helper functions
 
-// compactJSON marshals a value to JSON and returns it as a string, or an empty string if marshaling fails.
-func compactJSON(v any) string {
+// lookupKey renders a unique-key value as a comparable map key for values whose type
+// is not comparable itself; it returns "" when the value cannot be marshaled.
+func lookupKey(v any) string {
 	bs, err := json.Marshal(v)
 	if err != nil {
 		return ""

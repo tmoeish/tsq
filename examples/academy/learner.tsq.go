@@ -4,6 +4,7 @@ package academy
 
 import (
 	"context"
+	tsqsql "database/sql"
 	"fmt"
 	tsqtime "time"
 
@@ -99,23 +100,24 @@ var QueryLearnerByIDIn = tsq.
 	).
 	MustBuild()
 
-// ListLearnerByIDInOrErr retrieves multiple Learner records by a set of primary key values.
-// Returns an error if any of the specified records are not found.
-func ListLearnerByIDInOrErr(
+// FetchLearnerByID returns the Learner rows whose ID is one of the given
+// values, in the order given. It fails with an error wrapping sql.ErrNoRows when
+// any of them is missing.
+func FetchLearnerByID(
 	ctx context.Context,
 	db tsq.Executor,
 	iDs ...int64,
 ) ([]*Learner, error) {
 	list, err := QueryLearnerByIDIn.List(ctx, db, iDs)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("fetch Learner by ID: %w", err)
 	}
 
 	ordered, missing := matchByInputOrder(iDs, list, func(row *Learner) int64 {
 		return row.ID
 	})
 	if len(missing) > 0 {
-		return nil, fmt.Errorf("records not found: %v", missing)
+		return nil, fmt.Errorf("fetch Learner by ID %v: %w", missing, tsqsql.ErrNoRows)
 	}
 	return ordered, nil
 }
@@ -127,15 +129,15 @@ func ListLearnerByIDInOrErr(
 var QueryLearnerByEmail = tsq.
 	Select(Learner__Cols...).
 	From(TableLearner).
-	Search(TableLearner.SearchColumns()...).
 	Where(
 		Learner_Email.EQVar(),
 	).
 	MustBuild()
 
-// ListLearnerByEmailInOrErr retrieves multiple Learner records by unique index ux_learner_email using an IN clause.
-// Returns an error if any of the specified records are not found.
-func ListLearnerByEmailInOrErr(
+// FetchLearnerByEmail returns the Learner rows matching unique index ux_learner_email, one per
+// Email value, in the order given. It fails with an error wrapping
+// sql.ErrNoRows when any of them is missing.
+func FetchLearnerByEmail(
 	ctx context.Context,
 	db tsq.Executor,
 	emails ...string,
@@ -144,15 +146,15 @@ func ListLearnerByEmailInOrErr(
 		emails,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", "query by unique index ux_learner_email", err)
+		return nil, fmt.Errorf("fetch Learner by Email: %w", err)
 	}
 
 	ordered, missing := matchByInputOrderKey(emails, list,
-		func(row *Learner) string { return compactJSON(row.Email) },
-		func(input string) string { return compactJSON(input) },
+		func(row *Learner) string { return lookupKey(row.Email) },
+		func(input string) string { return lookupKey(input) },
 	)
 	if len(missing) > 0 {
-		return nil, fmt.Errorf("records not found: %v", missing)
+		return nil, fmt.Errorf("fetch Learner by Email %v: %w", missing, tsqsql.ErrNoRows)
 	}
 	return ordered, nil
 }
@@ -212,7 +214,7 @@ func (l *Learner) Insert(
 	}
 	err := tsq.Insert(ctx, db, l)
 	if err != nil {
-		return fmt.Errorf("insert Learner: %s: %w", compactJSON(l), err)
+		return fmt.Errorf("insert Learner: %w", err)
 	}
 	return nil
 }
@@ -224,7 +226,7 @@ func (l *Learner) Update(
 ) error {
 	err := tsq.Update(ctx, db, l)
 	if err != nil {
-		return fmt.Errorf("update Learner: %s: %w", compactJSON(l), err)
+		return fmt.Errorf("update Learner ID=%v: %w", l.ID, err)
 	}
 	return nil
 }
@@ -239,7 +241,7 @@ func (l *Learner) Delete(
 ) error {
 	err := tsq.Delete(ctx, db, l)
 	if err != nil {
-		return fmt.Errorf("delete Learner: %s: %w", compactJSON(l), err)
+		return fmt.Errorf("delete Learner ID=%v: %w", l.ID, err)
 	}
 	return nil
 }
@@ -251,7 +253,7 @@ func (l *Learner) HardDelete(
 ) error {
 	err := tsq.HardDelete(ctx, db, l)
 	if err != nil {
-		return fmt.Errorf("hard-delete Learner: %s: %w", compactJSON(l), err)
+		return fmt.Errorf("hard-delete Learner ID=%v: %w", l.ID, err)
 	}
 	return nil
 }

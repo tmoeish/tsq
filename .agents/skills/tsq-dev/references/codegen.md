@@ -7,7 +7,7 @@ Go 源文件
   │  go/ast 解析、字段与嵌入解析          internal/parser/{package,struct,field}.go
   ▼
 `//tsq:` 指令行
-  │  逐行解析、索引命名、查询派生、排序    internal/parser/annotation.go
+  │  逐行解析、索引命名、查询派生、排序    internal/parser/directive.go
   ▼
 genmodel.StructInfo / TableMeta        internal/genmodel/model.go
   │  校验                               internal/cmd/gen.go
@@ -31,7 +31,7 @@ genmodel.StructInfo / TableMeta        internal/genmodel/model.go
 `@TABLE(...)` 写在 doc comment 里，gofmt 会重排缩进，于是生成器不得不自带一个 `tsq fmt` 去把它
 排回解析器要的样子。
 
-`internal/parser/annotation.go` 认得这些：
+`internal/parser/directive.go` 认得这些：
 
 | 指令 | 含义 |
 | --- | --- |
@@ -44,7 +44,7 @@ genmodel.StructInfo / TableMeta        internal/genmodel/model.go
 
 - 所有字段名都是 **Go 字段名**，不是 SQL 列名。
 - `pk` 默认 `ID` 且自增；`assigned` 关掉自增（调用方自己给值）。
-- 索引没写 `name=` 时由 `normalizeIndexNames` 按 `ux`/`idx` 前缀加表名推出来——**索引名是生成物的
+- 索引没写 `name=` 时由 `derivedIndexName` 按 `ux`/`idx` 前缀加表名推出来——**索引名是生成物的
   一部分，改这个推导规则会让使用者已经建好的索引对不上**。
 
 指令是使用者手写的，所以**解析器接受或拒绝什么，就是使用者能写什么**。改这里必须同步
@@ -68,6 +68,12 @@ genmodel.StructInfo / TableMeta        internal/genmodel/model.go
 - `validateIndexNameCollisions`：索引名在包内唯一。
 - `validateGeneratedSymbolCollisions`：生成的标识符不会互相覆盖。
 - `validateResultFields` / `isScanCompatible`：`//tsq:result` 的字段能从来源列 scan 出来。
+
+这些校验看的都是**解析结果**，没有一条看生成出来的 Go 能不能编译。那一层由两道测试守着：
+`generated_symbols_test.go` 核对模板里每个 `tsq.X` / `tsqdialect.X` 真实存在，
+`TestGeneratedCodeWithDatabaseSQLFieldsCompiles` 在临时模块里真的 `go build`。生成器测试的临时模块
+用 `genTestModuleFile` 把 `replace` 指到**仓库根**——它曾经指到 `internal/cmd`，那时候没有任何测试
+真正编译过生成物。新增一种字段类型或导入别名，就往后一个测试的模型里加一个字段。
 
 ## DDL 推导
 

@@ -4,6 +4,7 @@ package academy
 
 import (
 	"context"
+	tsqsql "database/sql"
 	"fmt"
 	tsqtime "time"
 
@@ -101,23 +102,24 @@ var QueryInstructorByIDIn = tsq.
 	).
 	MustBuild()
 
-// ListInstructorByIDInOrErr retrieves multiple Instructor records by a set of primary key values.
-// Returns an error if any of the specified records are not found.
-func ListInstructorByIDInOrErr(
+// FetchInstructorByID returns the Instructor rows whose ID is one of the given
+// values, in the order given. It fails with an error wrapping sql.ErrNoRows when
+// any of them is missing.
+func FetchInstructorByID(
 	ctx context.Context,
 	db tsq.Executor,
 	iDs ...int64,
 ) ([]*Instructor, error) {
 	list, err := QueryInstructorByIDIn.List(ctx, db, iDs)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("fetch Instructor by ID: %w", err)
 	}
 
 	ordered, missing := matchByInputOrder(iDs, list, func(row *Instructor) int64 {
 		return row.ID
 	})
 	if len(missing) > 0 {
-		return nil, fmt.Errorf("records not found: %v", missing)
+		return nil, fmt.Errorf("fetch Instructor by ID %v: %w", missing, tsqsql.ErrNoRows)
 	}
 	return ordered, nil
 }
@@ -129,15 +131,15 @@ func ListInstructorByIDInOrErr(
 var QueryInstructorByEmail = tsq.
 	Select(Instructor__Cols...).
 	From(TableInstructor).
-	Search(TableInstructor.SearchColumns()...).
 	Where(
 		Instructor_Email.EQVar(),
 	).
 	MustBuild()
 
-// ListInstructorByEmailInOrErr retrieves multiple Instructor records by unique index ux_instructor_email using an IN clause.
-// Returns an error if any of the specified records are not found.
-func ListInstructorByEmailInOrErr(
+// FetchInstructorByEmail returns the Instructor rows matching unique index ux_instructor_email, one per
+// Email value, in the order given. It fails with an error wrapping
+// sql.ErrNoRows when any of them is missing.
+func FetchInstructorByEmail(
 	ctx context.Context,
 	db tsq.Executor,
 	emails ...string,
@@ -146,15 +148,15 @@ func ListInstructorByEmailInOrErr(
 		emails,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", "query by unique index ux_instructor_email", err)
+		return nil, fmt.Errorf("fetch Instructor by Email: %w", err)
 	}
 
 	ordered, missing := matchByInputOrderKey(emails, list,
-		func(row *Instructor) string { return compactJSON(row.Email) },
-		func(input string) string { return compactJSON(input) },
+		func(row *Instructor) string { return lookupKey(row.Email) },
+		func(input string) string { return lookupKey(input) },
 	)
 	if len(missing) > 0 {
-		return nil, fmt.Errorf("records not found: %v", missing)
+		return nil, fmt.Errorf("fetch Instructor by Email %v: %w", missing, tsqsql.ErrNoRows)
 	}
 	return ordered, nil
 }
@@ -195,7 +197,7 @@ func (i *Instructor) Insert(
 	}
 	err := tsq.Insert(ctx, db, i)
 	if err != nil {
-		return fmt.Errorf("insert Instructor: %s: %w", compactJSON(i), err)
+		return fmt.Errorf("insert Instructor: %w", err)
 	}
 	return nil
 }
@@ -207,7 +209,7 @@ func (i *Instructor) Update(
 ) error {
 	err := tsq.Update(ctx, db, i)
 	if err != nil {
-		return fmt.Errorf("update Instructor: %s: %w", compactJSON(i), err)
+		return fmt.Errorf("update Instructor ID=%v: %w", i.ID, err)
 	}
 	return nil
 }
@@ -222,7 +224,7 @@ func (i *Instructor) Delete(
 ) error {
 	err := tsq.Delete(ctx, db, i)
 	if err != nil {
-		return fmt.Errorf("delete Instructor: %s: %w", compactJSON(i), err)
+		return fmt.Errorf("delete Instructor ID=%v: %w", i.ID, err)
 	}
 	return nil
 }
@@ -234,7 +236,7 @@ func (i *Instructor) HardDelete(
 ) error {
 	err := tsq.HardDelete(ctx, db, i)
 	if err != nil {
-		return fmt.Errorf("hard-delete Instructor: %s: %w", compactJSON(i), err)
+		return fmt.Errorf("hard-delete Instructor ID=%v: %w", i.ID, err)
 	}
 	return nil
 }

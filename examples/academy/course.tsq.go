@@ -4,6 +4,7 @@ package academy
 
 import (
 	"context"
+	tsqsql "database/sql"
 	"fmt"
 	tsqtime "time"
 
@@ -108,23 +109,24 @@ var QueryCourseByIDIn = tsq.
 	).
 	MustBuild()
 
-// ListCourseByIDInOrErr retrieves multiple Course records by a set of primary key values.
-// Returns an error if any of the specified records are not found.
-func ListCourseByIDInOrErr(
+// FetchCourseByID returns the Course rows whose ID is one of the given
+// values, in the order given. It fails with an error wrapping sql.ErrNoRows when
+// any of them is missing.
+func FetchCourseByID(
 	ctx context.Context,
 	db tsq.Executor,
 	iDs ...int64,
 ) ([]*Course, error) {
 	list, err := QueryCourseByIDIn.List(ctx, db, iDs)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("fetch Course by ID: %w", err)
 	}
 
 	ordered, missing := matchByInputOrder(iDs, list, func(row *Course) int64 {
 		return row.ID
 	})
 	if len(missing) > 0 {
-		return nil, fmt.Errorf("records not found: %v", missing)
+		return nil, fmt.Errorf("fetch Course by ID %v: %w", missing, tsqsql.ErrNoRows)
 	}
 	return ordered, nil
 }
@@ -136,15 +138,15 @@ func ListCourseByIDInOrErr(
 var QueryCourseByTitle = tsq.
 	Select(Course__Cols...).
 	From(TableCourse).
-	Search(TableCourse.SearchColumns()...).
 	Where(
 		Course_Title.EQVar(),
 	).
 	MustBuild()
 
-// ListCourseByTitleInOrErr retrieves multiple Course records by unique index ux_course_title using an IN clause.
-// Returns an error if any of the specified records are not found.
-func ListCourseByTitleInOrErr(
+// FetchCourseByTitle returns the Course rows matching unique index ux_course_title, one per
+// Title value, in the order given. It fails with an error wrapping
+// sql.ErrNoRows when any of them is missing.
+func FetchCourseByTitle(
 	ctx context.Context,
 	db tsq.Executor,
 	titles ...string,
@@ -153,15 +155,15 @@ func ListCourseByTitleInOrErr(
 		titles,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", "query by unique index ux_course_title", err)
+		return nil, fmt.Errorf("fetch Course by Title: %w", err)
 	}
 
 	ordered, missing := matchByInputOrderKey(titles, list,
-		func(row *Course) string { return compactJSON(row.Title) },
-		func(input string) string { return compactJSON(input) },
+		func(row *Course) string { return lookupKey(row.Title) },
+		func(input string) string { return lookupKey(input) },
 	)
 	if len(missing) > 0 {
-		return nil, fmt.Errorf("records not found: %v", missing)
+		return nil, fmt.Errorf("fetch Course by Title %v: %w", missing, tsqsql.ErrNoRows)
 	}
 	return ordered, nil
 }
@@ -259,7 +261,7 @@ func (c *Course) Insert(
 	}
 	err := tsq.Insert(ctx, db, c)
 	if err != nil {
-		return fmt.Errorf("insert Course: %s: %w", compactJSON(c), err)
+		return fmt.Errorf("insert Course: %w", err)
 	}
 	return nil
 }
@@ -271,7 +273,7 @@ func (c *Course) Update(
 ) error {
 	err := tsq.Update(ctx, db, c)
 	if err != nil {
-		return fmt.Errorf("update Course: %s: %w", compactJSON(c), err)
+		return fmt.Errorf("update Course ID=%v: %w", c.ID, err)
 	}
 	return nil
 }
@@ -286,7 +288,7 @@ func (c *Course) Delete(
 ) error {
 	err := tsq.Delete(ctx, db, c)
 	if err != nil {
-		return fmt.Errorf("delete Course: %s: %w", compactJSON(c), err)
+		return fmt.Errorf("delete Course ID=%v: %w", c.ID, err)
 	}
 	return nil
 }
@@ -298,7 +300,7 @@ func (c *Course) HardDelete(
 ) error {
 	err := tsq.HardDelete(ctx, db, c)
 	if err != nil {
-		return fmt.Errorf("hard-delete Course: %s: %w", compactJSON(c), err)
+		return fmt.Errorf("hard-delete Course ID=%v: %w", c.ID, err)
 	}
 	return nil
 }

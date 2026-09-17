@@ -11,32 +11,27 @@ import (
 // Result Definition
 // =============================================================================
 
-// ResultLearningJourney is the result descriptor for LearningJourney.
-var ResultLearningJourney = LearningJourney{}
-
 // TSQOwner marks LearningJourney as a TSQ owner.
 func (lj LearningJourney) TSQOwner() {}
 
 // TSQResult marks LearningJourney as a TSQ result.
 func (lj LearningJourney) TSQResult() {}
 
-// Cols returns the generated result columns for LearningJourney.
-func (lj LearningJourney) Cols() []tsq.BoundColumn[LearningJourney] {
-	return []tsq.BoundColumn[LearningJourney]{
-		LearningJourney_CourseID,
-		LearningJourney_CourseLevel,
-		LearningJourney_CourseTitle,
-		LearningJourney_EnrolledAt,
-		LearningJourney_EnrollmentFee,
-		LearningJourney_EnrollmentID,
-		LearningJourney_EnrollmentScore,
-		LearningJourney_EnrollmentStatus,
-		LearningJourney_InstructorName,
-		LearningJourney_LearnerCompany,
-		LearningJourney_LearnerID,
-		LearningJourney_LearnerName,
-		LearningJourney_TrackName,
-	}
+// LearningJourney__Cols lists every generated result column of LearningJourney, for Select.
+var LearningJourney__Cols = []tsq.BoundColumn[LearningJourney]{
+	LearningJourney_CourseID,
+	LearningJourney_CourseLevel,
+	LearningJourney_CourseTitle,
+	LearningJourney_EnrolledAt,
+	LearningJourney_EnrollmentFee,
+	LearningJourney_EnrollmentID,
+	LearningJourney_EnrollmentScore,
+	LearningJourney_EnrollmentStatus,
+	LearningJourney_InstructorName,
+	LearningJourney_LearnerCompany,
+	LearningJourney_LearnerID,
+	LearningJourney_LearnerName,
+	LearningJourney_TrackName,
 }
 
 // Column definitions for LearningJourney result fields.

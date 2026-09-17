@@ -50,17 +50,17 @@ type User struct{}`,
 			fields: []string{"Key", "Version", "CreatedAt", "MTime", "DeletedAt", "F1", "F2", "F3", "F4", "F5", "F6"},
 			want: genmodel.TableMeta{
 				Table:          "account",
-				PK:             "Key",
-				AI:             true,
+				PrimaryKey:     "Key",
+				AutoIncrement:  true,
 				VersionField:   "Version",
 				CreatedAtField: "CreatedAt",
 				UpdatedAtField: "MTime",
 				DeletedAtField: "DeletedAt",
-				UxList: []genmodel.IndexInfo{
+				Uniques: []genmodel.IndexInfo{
 					{Name: "u1", Fields: []string{"F1", "F2"}},
 					{Name: "ux_account_f3", Fields: []string{"F3"}},
 				},
-				IdxList: []genmodel.IndexInfo{
+				Indexes: []genmodel.IndexInfo{
 					{Name: "i1", Fields: []string{"F4"}},
 					{Name: "idx_account_f5_f6", Fields: []string{"F5", "F6"}},
 				},
@@ -71,13 +71,13 @@ type User struct{}`,
 			name:   "defaults",
 			src:    "//tsq:table\ntype User struct{}",
 			fields: []string{"ID"},
-			want:   genmodel.TableMeta{Table: "user", PK: "ID", AI: true},
+			want:   genmodel.TableMeta{Table: "user", PrimaryKey: "ID", AutoIncrement: true},
 		},
 		{
 			name:   "assigned primary key",
 			src:    "//tsq:table pk=Code assigned\ntype User struct{}",
 			fields: []string{"Code"},
-			want:   genmodel.TableMeta{Table: "user", PK: "Code"},
+			want:   genmodel.TableMeta{Table: "user", PrimaryKey: "Code"},
 		},
 		{
 			name:   "result",
@@ -94,7 +94,7 @@ type User struct{}`,
 				t.Fatalf("parseAnnotations() error = %v", err)
 			}
 
-			got.QueryList = nil
+			got.Queries = nil
 			if !reflect.DeepEqual(*got, test.want) {
 				t.Fatalf("got  %+v\nwant %+v", *got, test.want)
 			}
@@ -153,7 +153,7 @@ func TestParseAnnotationsReportsTheLine(t *testing.T) {
 }
 
 func TestDeriveQueriesSkipsTheFullUniqueEqualityLookup(t *testing.T) {
-	meta := &genmodel.TableMeta{UxList: []genmodel.IndexInfo{
+	meta := &genmodel.TableMeta{Uniques: []genmodel.IndexInfo{
 		{Name: "ux_user_email", Fields: []string{"Email"}},
 		{Name: "ux_user_org_slug", Fields: []string{"OrgID", "Slug"}},
 	}}
@@ -161,8 +161,8 @@ func TestDeriveQueriesSkipsTheFullUniqueEqualityLookup(t *testing.T) {
 	deriveQueries(meta)
 
 	got := map[string]bool{}
-	for _, query := range meta.QueryList {
-		got[query.Name] = query.IsSet
+	for _, query := range meta.Queries {
+		got[query.Name] = query.LastFieldIn
 	}
 
 	want := map[string]bool{"EmailIn": true, "OrgID": false, "OrgIDIn": true, "OrgIDAndSlugIn": true}

@@ -180,20 +180,20 @@ func TestFilterAndProcessResultsOnlyReturnsTargetPackageStructs(t *testing.T) {
 				StructInfo: &genmodel.StructInfo{
 					TableMeta: &genmodel.TableMeta{Table: "targets"},
 					TypeInfo:  targetType,
-					FieldMap: map[string]genmodel.FieldInfo{
+					FieldsByName: map[string]genmodel.FieldInfo{
 						"PK": {Name: "PK", Type: genmodel.TypeInfo{TypeName: "int64"}},
 					},
-					Recv: "t",
+					Receiver: "t",
 				},
 			},
 			dependencyType: {
 				StructInfo: &genmodel.StructInfo{
 					TableMeta: &genmodel.TableMeta{Table: "dependencies"},
 					TypeInfo:  dependencyType,
-					FieldMap: map[string]genmodel.FieldInfo{
+					FieldsByName: map[string]genmodel.FieldInfo{
 						"PK": {Name: "PK", Type: genmodel.TypeInfo{TypeName: "int64"}},
 					},
-					Recv: "d",
+					Receiver: "d",
 				},
 			},
 		},

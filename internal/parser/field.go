@@ -55,10 +55,10 @@ func parseNamedFields(
 			field := genmodel.FieldInfo{
 				Name:      fieldName,
 				IsPointer: isPointer,
-				IsArray:   isArray,
+				IsSlice:   isArray,
 				Type:      genmodel.TypeInfo{Package: typePackage, TypeName: typeName},
 				Column:    getColumnName(fieldTags),
-				JsonTag:   getJsonTagName(fieldTags, fieldName),
+				JSONTag:   getJsonTagName(fieldTags, fieldName),
 			}
 
 			fields[fieldName] = field
