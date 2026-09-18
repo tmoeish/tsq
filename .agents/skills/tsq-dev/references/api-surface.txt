@@ -7,6 +7,26 @@ CONSTANTS
 const DefaultMaxPageSize = 1000
 const MaxPageNumber = 1000000
 FUNCTIONS
+func AttachMany[P, C any, K comparable](
+	ctx context.Context,
+	db Executor,
+	parents []*P,
+	parentKey TypedColumn[P, K],
+	children *Query[C],
+	childKey Column[C, K],
+	assign func(parent *P, children []*C),
+	args ...Arg,
+) error
+func AttachOne[P, C any, K comparable](
+	ctx context.Context,
+	db Executor,
+	parents []*P,
+	parentKey TypedColumn[P, K],
+	children *Query[C],
+	childKey Column[C, K],
+	assign func(parent *P, child *C),
+	args ...Arg,
+) error
 func BuildSubquery[O, T any](stage QueryStage[O], selected ValueColumn[T]) (Subquery[T], error)
 func IsOptimisticLockError(err error) bool
 func IsRetryableNetworkError(err error) bool

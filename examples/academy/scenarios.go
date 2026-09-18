@@ -32,6 +32,14 @@ type AdvancedSummary struct {
 	OptimisticLock OptimisticLockSummary `json:"optimistic_lock"`    // OptimisticLock summarizes version-guarded writes.
 	DatabaseFilled DatabaseFilledSummary `json:"database_filled"`    // DatabaseFilled summarizes columns the database provides.
 	FullText       FullTextSummary       `json:"full_text"`          // FullText summarizes full-text search over the catalog.
+	Attach         AttachSummary         `json:"attach"`             // Attach summarizes eager loading without N+1 queries.
+}
+
+// AttachSummary captures the eager-loading demo.
+type AttachSummary struct {
+	Learners    int            `json:"learners"`    // Learners is the number of parents read.
+	Enrollments map[string]int `json:"enrollments"` // Enrollments counts the enrollments attached per learner.
+	Instructors map[string]int `json:"instructors"` // Instructors counts the courses attached to each instructor name.
 }
 
 // FullTextSummary captures the full-text search demo.
@@ -262,6 +270,11 @@ func RunAdvanced(ctx context.Context, runtime *tsq.Runtime) (*AdvancedSummary, e
 		return nil, fmt.Errorf("%s: %w", "full text demo", err)
 	}
 
+	attach, err := runAttachDemo(ctx, runtime)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", "attach demo", err)
+	}
+
 	return &AdvancedSummary{
 		Alias:          *alias,
 		Aggregate:      aggregate,
@@ -275,7 +288,67 @@ func RunAdvanced(ctx context.Context, runtime *tsq.Runtime) (*AdvancedSummary, e
 		OptimisticLock: *optimisticLock,
 		DatabaseFilled: *databaseFilled,
 		FullText:       *fullText,
+		Attach:         *attach,
 	}, nil
+}
+
+// runAttachDemo loads learners and their enrollments without a query per learner,
+// and gives every course its instructor the same way.
+func runAttachDemo(ctx context.Context, runtime *tsq.Runtime) (*AttachSummary, error) {
+	exec := runtime
+
+	learners, err := QueryLearner.List(ctx, exec)
+	if err != nil {
+		return nil, err
+	}
+
+	// The child query decides which children count; its list parameter is the key.
+	enrollmentsOfLearners, err := tsq.
+		Select(Enrollment__Cols...).
+		From(TableEnrollment).
+		Where(Enrollment_LearnerID.In(Enrollment_LearnerID.ListParam())).
+		Build()
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", "build enrollments query", err)
+	}
+
+	perLearner := map[string]int{}
+
+	err = tsq.AttachMany(ctx, exec, learners, Learner_ID, enrollmentsOfLearners, Enrollment_LearnerID,
+		func(learner *Learner, enrollments []*Enrollment) {
+			if len(enrollments) > 0 {
+				perLearner[learner.Name] = len(enrollments)
+			}
+		})
+	if err != nil {
+		return nil, err
+	}
+
+	courses, err := QueryCourse.List(ctx, exec)
+	if err != nil {
+		return nil, err
+	}
+
+	instructorsByID, err := tsq.
+		Select(Instructor__Cols...).
+		From(TableInstructor).
+		Where(Instructor_ID.In(Instructor_ID.ListParam())).
+		Build()
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", "build instructors query", err)
+	}
+
+	perInstructor := map[string]int{}
+
+	err = tsq.AttachOne(ctx, exec, courses, Course_InstructorID, instructorsByID, Instructor_ID,
+		func(_ *Course, instructor *Instructor) {
+			perInstructor[instructor.Name]++
+		})
+	if err != nil {
+		return nil, err
+	}
+
+	return &AttachSummary{Learners: len(learners), Enrollments: perLearner, Instructors: perInstructor}, nil
 }
 
 // runFullTextDemo searches the course catalog through the declared full-text index.

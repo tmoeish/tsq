@@ -174,8 +174,10 @@ MySQL 的 `LENGTH` 数字节；PostgreSQL 没有 `round(double, int)`；modernc 
 - **可空性：类型区分表列，表达式在运行期推导**（`exprInfo.null`）。外连接和无 GROUP BY 的聚合只在查询
   上下文里可知，检查因此在读行前而不在 `Build`（会拒掉合法子查询）。否决值类型包成 `Null[T]`：一个值不能
   同时是两种 `RHS`。
-- **PG 的索引自省曾看不见表达式索引**：`pg_index.indkey` 里表达式的列号是 0，内连接 `pg_attribute` 会把整行
-  丢掉，于是 GIN 全文索引每次启动都被当成缺失、重建报 42P07。现在是 `LEFT JOIN`（列名为空）。
+- **PG 索引自省曾看不见表达式索引**：表达式在 `indkey` 里的列号是 0，内连接 `pg_attribute` 丢掉整行，GIN 全文
+  索引每次启动都被当成缺失（42P07）。现在 `LEFT JOIN`。
+- **关联装配不引入关系 DSL**：`AttachMany` 只做收键、一次查询、按键分组；子查询由调用方给出，过滤和作用域
+  仍是查询自己的语义。
 - **全文检索三个方言不是一回事**：MySQL `MATCH ... AGAINST`、PG `to_tsvector @@ plainto_tsquery`、SQLite
   退化成子串匹配（FTS5 要影子表和触发器）。排序和操作符不可移植，只有 `Capability` 说得清拿到哪一种。
   `TableIndex` 加字段记得 `cloneTableIndex`：曾逐字段复制，`FullText` 标记就在那里丢过。
