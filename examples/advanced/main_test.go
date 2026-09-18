@@ -51,6 +51,10 @@ func TestAdvanced(t *testing.T) {
 		t.Fatalf("expected the database to fill currency and slug, got %+v", summary.DatabaseFilled)
 	}
 
+	if len(summary.FullText.Titles) == 0 {
+		t.Fatalf("expected the full-text demo to find courses, got %+v", summary.FullText)
+	}
+
 	if summary.Batch.Before != summary.Batch.After {
 		t.Fatalf("expected batch demo to leave enrollment count unchanged, got before=%d after=%d",
 			summary.Batch.Before, summary.Batch.After)

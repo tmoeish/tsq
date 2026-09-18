@@ -43,6 +43,18 @@ type TableIndex struct {
 	Name   string   // Name is the physical index name.
 	Fields []string // Fields lists the indexed column names in order.
 	Unique bool     // Unique reports whether the index enforces uniqueness.
+	// FullText marks a full-text index, which tsq.Matches searches. Where the
+	// dialect has none (SQLite), nothing is created and Matches falls back to a
+	// substring match.
+	FullText bool
+}
+
+// cloneTableIndex copies an index, fields included, so that adding a field to
+// TableIndex cannot be forgotten here.
+func cloneTableIndex(index TableIndex) TableIndex {
+	index.Fields = slices.Clone(index.Fields)
+
+	return index
 }
 
 // tableDef is the untyped description of a physical table.
@@ -253,7 +265,7 @@ func (t *TableOf[R]) Define(spec TableSpec[R]) *TableOf[R] {
 			}
 		}
 
-		d.indexes = append(d.indexes, TableIndex{Name: index.Name, Fields: slices.Clone(index.Fields), Unique: index.Unique})
+		d.indexes = append(d.indexes, cloneTableIndex(index))
 	}
 
 	return t
@@ -272,6 +284,33 @@ func (t *TableOf[R]) Columns() []BoundColumn[R] {
 	return result
 }
 
+// FullText returns the table's full-text index, or the one named. Pass it to
+// tsq.Matches to search it.
+func (t *TableOf[R]) FullText(name ...string) FullTextIndex {
+	if err := t.Err(); err != nil {
+		return FullTextIndex{err: err}
+	}
+
+	var found []TableIndex
+
+	for _, index := range t.def.indexes {
+		if index.FullText && (len(name) == 0 || index.Name == name[0]) {
+			found = append(found, index)
+		}
+	}
+
+	switch {
+	case len(found) == 0 && len(name) > 0:
+		return FullTextIndex{err: fmt.Errorf("table %s has no full-text index named %s", t.Name(), name[0])}
+	case len(found) == 0:
+		return FullTextIndex{err: fmt.Errorf("table %s declares no full-text index; add //tsq:fulltext", t.Name())}
+	case len(found) > 1:
+		return FullTextIndex{err: fmt.Errorf("table %s has %d full-text indexes; name the one to search", t.Name(), len(found))}
+	}
+
+	return FullTextIndex{table: t, index: found[0]}
+}
+
 // SearchColumns returns the columns keyword search matches against.
 func (t *TableOf[R]) SearchColumns() []SearchColumn { return slices.Clone(t.def.search) }
 
@@ -282,7 +321,7 @@ func (t *TableOf[R]) Schema() []tsqdialect.ColumnSpec { return slices.Clone(t.de
 func (t *TableOf[R]) Indexes() []TableIndex {
 	result := make([]TableIndex, 0, len(t.def.indexes))
 	for _, index := range t.def.indexes {
-		result = append(result, TableIndex{Name: index.Name, Fields: slices.Clone(index.Fields), Unique: index.Unique})
+		result = append(result, cloneTableIndex(index))
 	}
 
 	return result

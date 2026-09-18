@@ -162,33 +162,33 @@ MySQL 的 `LENGTH` 数字节；PostgreSQL 没有 `round(double, int)`；modernc 
 
 ### 决定：v5 设计收尾——函数是包级泛型、分页类型化、少生成查询 (2026-09-17)
 
-- **列函数是包级泛型函数**（`tsq.Upper(col)`），用 `Text` / `Number` 约束：方法没法再约束类型参数，
-  `User_ID.Upper()` 永远能编译。搜索列只能是 `string`（PostgreSQL 的整数没有 `LIKE`）。
+- **列函数是包级泛型函数**（`tsq.Upper(col)`），用 `Text` / `Number` 约束（方法不能约束类型参数）；搜索列
+  只能是 `string`。
 - **固定值是 `tsq.Val(v)` 右值，`*Val` 方法全删**（一度否决，后由维护者拍板）。类型只由值推断，
   `int64` 列上要写 `tsq.Val(int64(90))`；换来一个入口、少二十个方法，别因为要写转换改回去。
 - **`Page` 吃 `Paging`**，字符串形态的 `PageRequest` 只在 HTTP 边界；`Paging(sortable...)` 要求列出可排序
   列，v4 按选出来的列放行，未建索引的列也能被客户端拿来排序。
-- **只为主键和唯一索引生成查询**：普通索引和前缀的查询要排序、限量，生成器猜不到，生成的"查全部
-  匹配行"被照抄就是全表量级的读取。
-- **Upsert 在 MySQL 上遇到别的唯一键也可能冲突就拒绝**：`ON DUPLICATE KEY UPDATE` 没有冲突目标，会静默
-  更新无关的行。批量里同键两行一律报错（PG 不许一条语句改一行两次），批量不回读（多行 `RETURNING`
-  顺序无保证）。
+- **只为主键和唯一索引生成查询**：普通索引和前缀的查询要排序、限量，生成器猜不到，照抄就是全表读取。
+- **Upsert 在 MySQL 上遇到别的唯一键也可能冲突就拒绝**：`ON DUPLICATE KEY UPDATE` 没有冲突目标，会静默更新
+  无关的行。批量同键两行报错（PG 不许一条语句改一行两次），批量不回读。
 - **可空性：类型区分表列，表达式在运行期推导**（`exprInfo.null`）。外连接和无 GROUP BY 的聚合只在查询
   上下文里可知，检查因此在读行前而不在 `Build`（会拒掉合法子查询）。否决值类型包成 `Null[T]`：一个值不能
   同时是两种 `RHS`。
-- **生成列不能参与 schema 对账**：SQLite 的 `PRAGMA table_info` 不列生成列，于是每次启动都会再 ADD 一次
-  （实测报 duplicate column）。库只在建表时写它，之后不比较。
-- **没匹配到行分两种错误**：版本不符是 `OptimisticLockError`（可重试），状态不符（删已删、恢复未删）是
-  `RowStateError`（重试无用，合成一种会让调用方白重试）。
-- **派生表达式不是列**：`derived` 不留扫描目标，`Select(tsq.Date(时间列))` 这种"值类型和字段类型不一致"
-  在编译期就写不出来（以前运行期扫描失败）；单值查询走 `SelectValue`，`Scalar` / `ScalarNull` 因此删除。
-- **Go 1.27 允许组合字面量用提升字段作键**（`outer{c: 1}`，`c` 来自嵌入字段）：拆结构体时旧字面量照样
-  编译，别把"编译通过"当成改完了。
-- **NULL 排序默认"最小值"**：MySQL 和 SQLite 本来如此，只需改 PostgreSQL，而且 MySQL 没有 `NULLS`
-  子句，选另一种默认就得给 MySQL 的每个可空排序加 `IS NULL` 键。
-- **时间在绑定出口统一转 UTC，不只是托管时间戳**：SQLite 按文本存时间，调用方拿本地时间比较 UTC 存的行
-  照样错（只改托管时间戳时 `TestIntegrationNullableColumns` 就这样挂了）。
-- **超长列表参数用显式的 `ListIn`，否决自动分块**：`OR`、`NOT IN`、排序、聚合、LIMIT 分块后语义都变。
+- **PG 的索引自省曾看不见表达式索引**：`pg_index.indkey` 里表达式的列号是 0，内连接 `pg_attribute` 会把整行
+  丢掉，于是 GIN 全文索引每次启动都被当成缺失、重建报 42P07。现在是 `LEFT JOIN`（列名为空）。
+- **全文检索三个方言不是一回事**：MySQL `MATCH ... AGAINST`、PG `to_tsvector @@ plainto_tsquery`、SQLite
+  退化成子串匹配（FTS5 要影子表和触发器）。排序和操作符不可移植，只有 `Capability` 说得清拿到哪一种。
+  `TableIndex` 加字段记得 `cloneTableIndex`：曾逐字段复制，`FullText` 标记就在那里丢过。
+- **生成列不能参与 schema 对账**：SQLite 的 `table_info` 不列它，每次启动都会再 ADD 一次（实测 duplicate
+  column）；库只在建表时写它。
+- **没匹配到行分两种错误**：版本不符 `OptimisticLockError`（可重试），状态不符 `RowStateError`（重试无用）。
+- **派生表达式不是列**：`derived` 不留扫描目标，`Select(tsq.Date(时间列))` 在编译期就写不出来（以前运行期
+  扫描失败）；单值查询走 `SelectValue`。
+- **Go 1.27 允许组合字面量用提升字段作键**（`outer{c: 1}`）：拆结构体时旧字面量照样编译，别当成改完了。
+- **NULL 排序默认最小值**：MySQL/SQLite 本来如此，只需改 PG；MySQL 没有 `NULLS` 子句，换默认就得给每个
+  可空排序加 `IS NULL` 键。
+- **时间在绑定出口统一转 UTC，不只是托管时间戳**：SQLite 按文本存时间，本地时间和 UTC 行按文本比较会错。
+- **超长列表参数用显式 `ListIn`，否决自动分块**：`OR`、`NOT IN`、排序、聚合、LIMIT 分块后语义都变。
 - **游标分页展开成 `a < ? OR (a = ? AND b > ?)`，不用行值比较**：后者只在所有列同向时成立。最后一列必须
   是主键（否则同值行会被跳过或重复）；游标带排序指纹。
 - **关键词是执行参数 `tsq.Keyword`**：放在 `Paging` 里时搜索结果只能分页读，没法 `Iter` 或单独 `Count`；
@@ -262,11 +262,9 @@ v4 攒下九个 `Deprecated` 符号，没有任何门禁会提醒它们该走—
 判据是真实用法：软删除的行在业务上就是删掉了，只有审计才回头看。声明 `deleted_at` 的表上
 `Delete` 打墓碑、`HardDelete` 物理删，没声明的表两者同义。
 
-**已删行不可见是表的默认作用域，不是生成查询里的过滤条件**（2026-09-17）。之前模板往生成的查询里
-加 `deleted_at = 0`，手写查询和 JOIN 里的软删除表全都漏掉——每个调用点都要记得，就等于没有。
-作用域放 WHERE 会把 LEFT JOIN 变成 INNER JOIN，放 ON 挡不住 RIGHT JOIN 被保留侧的已删行，
-所以有 RIGHT / FULL JOIN 时整张表改成活行派生表（位置规则在 `architecture.md`）。
-`WithDeleted()` 是唯一的出口，`UpdateTable` / 软 `DeleteFrom` 同样受作用域约束。
+**已删行不可见是表的默认作用域，不是生成查询里的过滤条件**（2026-09-17）。模板加 `deleted_at = 0` 时，
+手写查询和 JOIN 里的软删除表全都漏掉。作用域放 WHERE 会把 LEFT JOIN 变成 INNER JOIN，放 ON 挡不住
+RIGHT JOIN 被保留侧的已删行，所以有 RIGHT / FULL JOIN 时整张表改成活行派生表；`WithDeleted()` 是唯一出口。
 
 - **软删除不再复用 update 路径**（2026-09-17 改）：复用时 `Update` 要写 `deleted_at`，于是没有
   `version` 的表上，删除前读出的旧副本一次 `Update` 就把行复活，手工构造的行还会清零 `created_at`。

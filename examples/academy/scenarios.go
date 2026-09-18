@@ -8,6 +8,7 @@ import (
 	"sort"
 
 	"github.com/tmoeish/tsq/v5"
+	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 )
 
 // QuickstartSummary captures the three introductory Academy demo outcomes.
@@ -30,6 +31,14 @@ type AdvancedSummary struct {
 	SoftDelete     SoftDeleteSummary     `json:"soft_delete"`        // SoftDelete summarizes soft deletes, restores and hard deletes.
 	OptimisticLock OptimisticLockSummary `json:"optimistic_lock"`    // OptimisticLock summarizes version-guarded writes.
 	DatabaseFilled DatabaseFilledSummary `json:"database_filled"`    // DatabaseFilled summarizes columns the database provides.
+	FullText       FullTextSummary       `json:"full_text"`          // FullText summarizes full-text search over the catalog.
+}
+
+// FullTextSummary captures the full-text search demo.
+type FullTextSummary struct {
+	Term   string   `json:"term"`   // Term is the searched term.
+	Titles []string `json:"titles"` // Titles are the matching course titles.
+	Native bool     `json:"native"` // Native reports whether the dialect searched a full-text index.
 }
 
 // DatabaseFilledSummary captures the demo of columns the database fills.
@@ -248,6 +257,11 @@ func RunAdvanced(ctx context.Context, runtime *tsq.Runtime) (*AdvancedSummary, e
 		return nil, fmt.Errorf("%s: %w", "database filled demo", err)
 	}
 
+	fullText, err := runFullTextDemo(ctx, runtime)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", "full text demo", err)
+	}
+
 	return &AdvancedSummary{
 		Alias:          *alias,
 		Aggregate:      aggregate,
@@ -260,6 +274,41 @@ func RunAdvanced(ctx context.Context, runtime *tsq.Runtime) (*AdvancedSummary, e
 		SoftDelete:     *softDelete,
 		OptimisticLock: *optimisticLock,
 		DatabaseFilled: *databaseFilled,
+		FullText:       *fullText,
+	}, nil
+}
+
+// runFullTextDemo searches the course catalog through the declared full-text index.
+// MySQL runs MATCH ... AGAINST and PostgreSQL to_tsvector @@ plainto_tsquery; SQLite
+// has no index TSQ manages, so the same predicate matches the term as a substring.
+func runFullTextDemo(ctx context.Context, runtime *tsq.Runtime) (*FullTextSummary, error) {
+	exec := runtime
+	term := "sqlite"
+
+	query, err := tsq.
+		Select(Course__Cols...).
+		From(TableCourse).
+		Where(tsq.Matches(TableCourse.FullText(), tsq.Val(term))).
+		OrderBy(Course_Title.Asc()).
+		Build()
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", "build full text query", err)
+	}
+
+	courses, err := query.List(ctx, exec)
+	if err != nil {
+		return nil, err
+	}
+
+	titles := make([]string, 0, len(courses))
+	for _, course := range courses {
+		titles = append(titles, course.Title)
+	}
+
+	return &FullTextSummary{
+		Term:   term,
+		Titles: titles,
+		Native: runtime.Dialect().SupportsCapability(tsqdialect.CapabilityFullTextSearch),
 	}, nil
 }
 

@@ -44,6 +44,7 @@ var postgresCapabilities = map[Capability]bool{
 	CapabilitySelectForShare:      true,
 	CapabilitySelectForNoWait:     true,
 	CapabilitySelectForSkipLocked: true,
+	CapabilityFullTextSearch:      true,
 }
 
 func (d PostgresDialect) SupportsCapability(capability Capability) bool {
@@ -165,7 +166,10 @@ func (d PostgresDialect) ListIndexes(ctx context.Context, db Executor, table str
 		JOIN pg_index i ON i.indrelid = t.oid
 		JOIN pg_class idx ON idx.oid = i.indexrelid
 		JOIN UNNEST(i.indkey) WITH ORDINALITY AS ord(attnum, ord) ON TRUE
-		JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ord.attnum
+		-- LEFT JOIN, because an expression index has attnum 0 and no pg_attribute
+		-- row: an inner join would hide the index instead of reporting it with no
+		-- columns, and TSQ would try to create it again on every boot.
+		LEFT JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ord.attnum
 		LEFT JOIN pg_constraint c ON c.conindid = idx.oid
 		WHERE ns.nspname = current_schema() AND t.relname = $1
 		GROUP BY idx.relname, i.indisunique, i.indisprimary, c.oid
@@ -259,7 +263,10 @@ func (d PostgresDialect) InspectIndex(ctx context.Context, db Executor, table, i
 		JOIN pg_index i ON i.indexrelid = idx.oid
 		JOIN pg_class t ON t.oid = i.indrelid
 		JOIN UNNEST(i.indkey) WITH ORDINALITY AS ord(attnum, ord) ON TRUE
-		JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ord.attnum
+		-- LEFT JOIN, because an expression index has attnum 0 and no pg_attribute
+		-- row: an inner join would hide the index instead of reporting it with no
+		-- columns, and TSQ would try to create it again on every boot.
+		LEFT JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ord.attnum
 		WHERE ns.nspname = current_schema()
 			AND idx.relname = $1
 		GROUP BY t.relname, i.indisunique`,
@@ -395,6 +402,27 @@ func (d PostgresDialect) AutoIncrementColumnSQL(quotedColumn string, desc Column
 	}
 
 	return quotedColumn + " " + ddlSerialType(desc), nil
+}
+
+// FullTextIndexSQL indexes the same expression the predicate repeats, which is what
+// lets PostgreSQL use the index.
+func (d PostgresDialect) FullTextIndexSQL(table, idx string, quotedFields []string) string {
+	return fmt.Sprintf(
+		"CREATE INDEX %s ON %s USING GIN (%s);",
+		d.QuoteIdent(idx), d.QuoteIdent(table), d.FullTextVectorSQL(quotedFields),
+	)
+}
+
+// FullTextVectorSQL builds the tsvector of the fields. The 'simple' configuration
+// only folds case, so the same term finds the same rows whatever the server's
+// default_text_search_config is.
+func (d PostgresDialect) FullTextVectorSQL(quotedFields []string) string {
+	parts := make([]string, 0, len(quotedFields))
+	for _, field := range quotedFields {
+		parts = append(parts, fmt.Sprintf("coalesce(%s, '')", field))
+	}
+
+	return fmt.Sprintf("to_tsvector('simple', %s)", strings.Join(parts, " || ' ' || "))
 }
 
 func (d PostgresDialect) CreateIndexSQL(table, idx string, fields []string, unique bool) string {

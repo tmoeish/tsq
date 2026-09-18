@@ -73,9 +73,10 @@ type ddlSnapshotColumn struct {
 }
 
 type ddlSnapshotIndex struct {
-	Name   string   `json:"name"`
-	Fields []string `json:"fields"`
-	Unique bool     `json:"unique"`
+	Name     string   `json:"name"`
+	Fields   []string `json:"fields"`
+	Unique   bool     `json:"unique"`
+	FullText bool     `json:"full_text,omitempty"`
 }
 
 type ddlChangeSet struct {
@@ -155,7 +156,7 @@ func buildCurrentDDLTableSnapshot(
 		})
 	}
 
-	appendIndexes := func(items []genmodel.IndexInfo, unique bool) error {
+	appendIndexes := func(items []genmodel.IndexInfo, unique, fullText bool) error {
 		for _, idx := range items {
 			fieldNames := indexFieldNames(table, idx.Fields)
 
@@ -170,20 +171,25 @@ func buildCurrentDDLTableSnapshot(
 			}
 
 			result.Indexes = append(result.Indexes, ddlSnapshotIndex{
-				Name:   idx.Name,
-				Fields: fields,
-				Unique: unique,
+				Name:     idx.Name,
+				Fields:   fields,
+				Unique:   unique,
+				FullText: fullText,
 			})
 		}
 
 		return nil
 	}
 
-	if err := appendIndexes(table.Uniques, true); err != nil {
+	if err := appendIndexes(table.Uniques, true, false); err != nil {
 		return ddlSnapshotTable{}, err
 	}
 
-	if err := appendIndexes(table.Indexes, false); err != nil {
+	if err := appendIndexes(table.Indexes, false, false); err != nil {
+		return ddlSnapshotTable{}, err
+	}
+
+	if err := appendIndexes(table.FullTexts, false, true); err != nil {
 		return ddlSnapshotTable{}, err
 	}
 
@@ -713,8 +719,12 @@ func renderDDLSnapshotColumnDefinition(column ddlSnapshotColumn, dialect ddlDial
 
 func renderDDLSnapshotIndexStatements(table ddlSnapshotTable, dialect ddlDialectSpec) []string {
 	statements := make([]string, 0, len(table.Indexes))
+
 	for _, idx := range table.Indexes {
-		statements = append(statements, renderDDLIndexCreateStatement(table.Name, idx, dialect))
+		// A dialect without a full-text index of its own has nothing to write.
+		if statement := renderDDLIndexCreateStatement(table.Name, idx, dialect); statement != "" {
+			statements = append(statements, statement)
+		}
 	}
 
 	return statements
@@ -724,6 +734,11 @@ func renderDDLIndexCreateStatement(tableName string, idx ddlSnapshotIndex, diale
 	quotedFields := make([]string, 0, len(idx.Fields))
 	for _, field := range idx.Fields {
 		quotedFields = append(quotedFields, dialect.dialect.QuoteIdent(field))
+	}
+
+	if idx.FullText {
+		// SQLite has no full-text index TSQ manages, so there is nothing to write.
+		return dialect.dialect.FullTextIndexSQL(tableName, idx.Name, quotedFields)
 	}
 
 	return dialect.dialect.CreateIndexSQL(tableName, idx.Name, quotedFields, idx.Unique)
@@ -901,7 +916,11 @@ func renderDDLChangeOperation(dialect ddlDialectSpec, op ddlChange) []string {
 	case ddlChangeAlterColumn:
 		return renderDDLAlterColumnStatements(dialect, op.table, *op.oldColumn, *op.newColumn)
 	case ddlChangeAddIndex:
-		return []string{renderDDLIndexCreateStatement(op.table, *op.newIndex, dialect)}
+		if statement := renderDDLIndexCreateStatement(op.table, *op.newIndex, dialect); statement != "" {
+			return []string{statement}
+		}
+
+		return nil
 	case ddlChangeDropIndex:
 		return []string{renderDDLDropIndexStatement(op.table, *op.oldIndex, dialect)}
 	default:

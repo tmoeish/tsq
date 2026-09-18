@@ -297,6 +297,19 @@ func (r *Runtime) applyIndexPolicyForTable(ctx context.Context, table *registere
 		}
 
 		existing, found := currentByName[idx.Name]
+
+		// A full-text index is compared by name only: PostgreSQL indexes an
+		// expression rather than columns, MySQL reports a different index type, and
+		// SQLite has none at all, so a field comparison would ask to rebuild it on
+		// every boot.
+		if idx.FullText {
+			if err := r.ensureFullTextIndex(ctx, tableName, idx, found); err != nil {
+				return err
+			}
+
+			continue
+		}
+
 		if !found {
 			if r.indexPolicy == SchemaPolicyValidate {
 				return &MissingIndexError{
@@ -504,6 +517,34 @@ func summarizeTableColumnChanges(changes []tableColumnChange) string {
 	}
 
 	return strings.Join(lines, ", ")
+}
+
+// ensureFullTextIndex creates the full-text index when it is missing and the
+// dialect has one to create.
+func (r *Runtime) ensureFullTextIndex(ctx context.Context, tableName string, idx TableIndex, found bool) error {
+	if found {
+		return nil
+	}
+
+	quoted := make([]string, 0, len(idx.Fields))
+	for _, field := range idx.Fields {
+		quoted = append(quoted, r.dialect.QuoteIdent(field))
+	}
+
+	statement := r.dialect.FullTextIndexSQL(tableName, idx.Name, quoted)
+	if statement == "" {
+		return nil
+	}
+
+	if r.indexPolicy == SchemaPolicyValidate {
+		return &MissingIndexError{Table: tableName, Name: idx.Name, Fields: append([]string(nil), idx.Fields...)}
+	}
+
+	if err := r.execDDL(ctx, statement); err != nil {
+		return fmt.Errorf("create full-text index %s on %s: %w", idx.Name, tableName, err)
+	}
+
+	return nil
 }
 
 func renderCreateTableStatement(
