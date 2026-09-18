@@ -32,6 +32,7 @@
 | Upsert（`TableOf.Upsert` / `BatchUpsert`、键解析、MySQL 多唯一键拒绝、主键回读） | `upsert.go`（`exec_test.go` 的 `TestUpsertMatchesLiveRowsOfASoftDeletedUniqueIndex`；`internal/integration` 的 `TestIntegrationUpsert` 三方言真跑） |
 | 按条件写（`UpdateTable` / `DeleteFrom` / `HardDeleteFrom`、`Mutation`） | `mutation.go`（`exec_test.go`；`internal/integration` 的 `TestIntegrationMutationsByCondition` 三方言真跑） |
 | 错误类型 `OptimisticLockError` | `errors.go` |
+| 关联装配 `AttachMany` / `AttachOne`（父键收集、按键分组、走 `ListIn`） | `attach.go`（`attach_test.go`；三方言真跑在 `TestIntegrationAttachLoadsChildrenInOneQuery`） |
 | 全文检索（`//tsq:fulltext`、`TableOf.FullText`、`Matches`、三方言渲染） | `fulltext.go` + `dialect/*.go` 的 `FullTextIndexSQL` / `FullTextVectorSQL`（`fulltext_test.go`；三方言真跑在 `TestIntegrationFullTextSearch`） |
 | 表注册、`SchemaPolicy`、`MissingTableError` / `MissingIndexError`、`Logger` | `schema.go` |
 | 索引策略执行 | `table_index.go` |

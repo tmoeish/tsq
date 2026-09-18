@@ -743,6 +743,30 @@ page, err := QueryPost.PageKeyset(ctx, runtime, k, tsq.Keyword(req.Keyword))
 - over HTTP, `PageRequest` carries `after`, and `req.Keyset(sortable...)` resolves it like
   `Paging`; append the primary key to the resolved `OrderBy` yourself
 
+### Loading children without N+1
+
+TSQ has no relation DSL: a join or a `//tsq:result` says what a query returns. What it does have is a
+way to give a list of parents their children in **one** extra query instead of one per parent:
+
+```go
+children := tsq.Select(database.Enrollment__Cols...).
+	From(database.TableEnrollment).
+	Where(database.Enrollment_LearnerID.In(database.Enrollment_LearnerID.ListParam())).
+	MustBuild()
+
+err := tsq.AttachMany(ctx, db, learners, database.Learner_ID, children, database.Enrollment_LearnerID,
+	func(l *database.Learner, es []*database.Enrollment) { l.Enrollments = es })
+```
+
+- the child query is yours: its `Where`, `OrderBy` and soft-delete scope decide which children
+  count, and further `args` bind its other parameters. Its only list parameter is the child key
+- the parents' keys are collected, deduplicated and read through `ListIn`, so any number of parents
+  works; within one statement the children keep the child query's order, and a key list long enough
+  to be split has no overall order
+- `tsq.AttachOne` is the same for a single child, such as the row a foreign key points at: the first
+  match in the child query's order wins, and a parent without one is left alone
+- no parents means no query at all
+
 ### Full-text search
 
 `//tsq:fulltext Title,Summary` declares a full-text index; `tsq.Matches` searches it:

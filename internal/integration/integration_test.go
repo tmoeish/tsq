@@ -1261,6 +1261,80 @@ func TestIntegrationFullTextSearch(t *testing.T) {
 	}
 }
 
+// TestIntegrationAttachLoadsChildrenInOneQuery checks eager loading on every
+// dialect: the children come back in one statement, grouped by the key.
+func TestIntegrationAttachLoadsChildrenInOneQuery(t *testing.T) {
+	for _, target := range integrationTargets(t) {
+		t.Run(target.name, func(t *testing.T) {
+			ctx := context.Background()
+
+			dropAcademyTables(t, target)
+			rt, _ := openWithPolicy(t, target, academy.TSQTables(), tsq.SchemaPolicyReconcile)
+
+			learners := []*academy.Learner{
+				{Name: "One", Email: "one@example.test"},
+				{Name: "Two", Email: "two@example.test"},
+				{Name: "None", Email: "none@example.test"},
+			}
+			if err := academy.TableLearner.BatchInsert(ctx, rt, learners); err != nil {
+				t.Fatal(err)
+			}
+
+			enrollments := []*academy.Enrollment{
+				{LearnerID: learners[0].ID, CourseID: 1},
+				{LearnerID: learners[0].ID, CourseID: 2},
+				{LearnerID: learners[1].ID, CourseID: 1},
+			}
+			for _, e := range enrollments {
+				if err := e.Insert(ctx, rt); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			// A deleted enrollment is out of scope for the child query too.
+			if err := enrollments[1].Delete(ctx, rt); err != nil {
+				t.Fatal(err)
+			}
+
+			children := tsq.Select(academy.Enrollment__Cols...).From(academy.TableEnrollment).
+				Where(academy.Enrollment_LearnerID.In(academy.Enrollment_LearnerID.ListParam())).MustBuild()
+
+			counts := map[string]int{}
+
+			err := tsq.AttachMany(ctx, rt, learners, academy.Learner_ID, children, academy.Enrollment_LearnerID,
+				func(l *academy.Learner, es []*academy.Enrollment) { counts[l.Name] = len(es) })
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if counts["One"] != 1 || counts["Two"] != 1 || counts["None"] != 0 {
+				t.Fatalf("counts on %s = %v", target.name, counts)
+			}
+
+			// AttachOne follows a foreign key back to its row.
+			parents := tsq.Select(academy.Learner__Cols...).From(academy.TableLearner).
+				Where(academy.Learner_ID.In(academy.Learner_ID.ListParam())).MustBuild()
+
+			live, err := academy.QueryEnrollment.List(ctx, rt)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			names := map[int64]string{}
+
+			err = tsq.AttachOne(ctx, rt, live, academy.Enrollment_LearnerID, parents, academy.Learner_ID,
+				func(e *academy.Enrollment, l *academy.Learner) { names[e.UID] = l.Name })
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if len(names) != 2 {
+				t.Fatalf("attached parents = %v", names)
+			}
+		})
+	}
+}
+
 // writeBeforeList runs write once, when the runtime logs the list statement of a
 // Page: after the count has run and before the rows are read.
 type writeBeforeList struct {

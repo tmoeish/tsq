@@ -55,6 +55,10 @@ func TestAdvanced(t *testing.T) {
 		t.Fatalf("expected the full-text demo to find courses, got %+v", summary.FullText)
 	}
 
+	if summary.Attach.Learners == 0 || len(summary.Attach.Enrollments) == 0 || len(summary.Attach.Instructors) == 0 {
+		t.Fatalf("expected the attach demo to load children, got %+v", summary.Attach)
+	}
+
 	if summary.Batch.Before != summary.Batch.After {
 		t.Fatalf("expected batch demo to leave enrollment count unchanged, got before=%d after=%d",
 			summary.Batch.Before, summary.Batch.After)
