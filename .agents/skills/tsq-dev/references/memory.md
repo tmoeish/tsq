@@ -170,12 +170,14 @@ MySQL 的 `LENGTH` 数字节；PostgreSQL 没有 `round(double, int)`；modernc 
   列，v4 按选出来的列放行，未建索引的列也能被客户端拿来排序。
 - **只为主键和唯一索引生成查询**：普通索引和前缀的查询要排序、限量，生成器猜不到，生成的"查全部
   匹配行"被照抄就是全表量级的读取。
-- **Upsert 在 MySQL 上遇到"别的唯一键也可能冲突"就拒绝**：`ON DUPLICATE KEY UPDATE` 没有冲突目标，
-  会静默更新无关的行（PG/SQLite 报重复键）。批量里同键两行一律报错（PG 不许一条语句改一行两次）；
-  批量不回读：多行 `RETURNING` 顺序无保证，MySQL 只报第一个 id。
-- **可空性：类型区分表列，表达式在运行期推导**。Go 泛型不能按输入种类返回不同类型，所以可空性记在
-  `exprInfo.null`；外连接和无 GROUP BY 的聚合只在查询上下文里可知，检查因此在读行前而不在 `Build`
-  （会拒掉合法的子查询和 CTE）。否决值类型包成 `Null[T]`：一个值不能同时是两种 `RHS`。
+- **Upsert 在 MySQL 上遇到别的唯一键也可能冲突就拒绝**：`ON DUPLICATE KEY UPDATE` 没有冲突目标，会静默
+  更新无关的行。批量里同键两行一律报错（PG 不许一条语句改一行两次），批量不回读（多行 `RETURNING`
+  顺序无保证）。
+- **可空性：类型区分表列，表达式在运行期推导**（`exprInfo.null`）。外连接和无 GROUP BY 的聚合只在查询
+  上下文里可知，检查因此在读行前而不在 `Build`（会拒掉合法子查询）。否决值类型包成 `Null[T]`：一个值不能
+  同时是两种 `RHS`。
+- **生成列不能参与 schema 对账**：SQLite 的 `PRAGMA table_info` 不列生成列，于是每次启动都会再 ADD 一次
+  （实测报 duplicate column）。库只在建表时写它，之后不比较。
 - **没匹配到行分两种错误**：版本不符是 `OptimisticLockError`（可重试），状态不符（删已删、恢复未删）是
   `RowStateError`（重试无用，合成一种会让调用方白重试）。
 - **派生表达式不是列**：`derived` 不留扫描目标，`Select(tsq.Date(时间列))` 这种"值类型和字段类型不一致"
@@ -186,18 +188,16 @@ MySQL 的 `LENGTH` 数字节；PostgreSQL 没有 `round(double, int)`；modernc 
   子句，选另一种默认就得给 MySQL 的每个可空排序加 `IS NULL` 键。
 - **时间在绑定出口统一转 UTC，不只是托管时间戳**：SQLite 按文本存时间，调用方拿本地时间比较 UTC 存的行
   照样错（只改托管时间戳时 `TestIntegrationNullableColumns` 就这样挂了）。
-- **超长列表参数用显式的 `ListIn`，否决自动分块**：`a IN (list) OR b = 1` 分块会重复返回，`NOT IN`
-  分块直接错，排序/聚合/LIMIT 分块后语义都变。
-- **游标分页的条件展开成 `a < ? OR (a = ? AND b > ?)`，不用行值比较 `(a, b) < (?, ?)`**：后者只在所有列
-  同向时成立。最后一列必须是主键（位置唯一，否则同值行会被跳过或重复）；游标带排序指纹。
-- **关键词是执行参数 `tsq.Keyword`，不是 `Paging` 的字段**：放在 `Paging` 里时搜索结果只能分页读，
-  没法 `Iter` 导出或单独 `Count`。空关键词在 `prepare` 里被丢掉，否则会报"参数未使用"。
-- **`Page` 的一致性靠只读快照事务，不靠 `COUNT(*) OVER()`**：窗口函数在 `DISTINCT` 之前求值（数错）、
-  PG 不允许和 `FOR UPDATE` 同用、越界页没有行可带回总数。代价是一对 BEGIN/COMMIT（只发一条语句的
-  `ListIn` 因此不开事务）。
+- **超长列表参数用显式的 `ListIn`，否决自动分块**：`OR`、`NOT IN`、排序、聚合、LIMIT 分块后语义都变。
+- **游标分页展开成 `a < ? OR (a = ? AND b > ?)`，不用行值比较**：后者只在所有列同向时成立。最后一列必须
+  是主键（否则同值行会被跳过或重复）；游标带排序指纹。
+- **关键词是执行参数 `tsq.Keyword`**：放在 `Paging` 里时搜索结果只能分页读，没法 `Iter` 或单独 `Count`；
+  空关键词在 `prepare` 里丢掉，否则报参数未使用。
+- **`Page` 的一致性靠只读快照事务，不靠 `COUNT(*) OVER()`**：窗口函数在 `DISTINCT` 前求值、PG 不能和
+  `FOR UPDATE` 同用、越界页没有行带回总数。代价是一对 BEGIN/COMMIT（单语句的 `ListIn` 因此不开事务）。
 - `BatchDeleteByPK` 挪到 `TableOf` 上，吃主键的 `BindList`：包级版本要再校验"列是不是主键"。
-- **v5 明确不支持复合主键**（维护者定案）：`pk=A,B` 解析时报错，指向"单列代理键 + `//tsq:unique A,B`"。
-  要支持就是 v6：主键字段、`FetchXxxByID`、`BatchDeleteByPK` 和乐观锁 WHERE 都要变形状。
+- **v5 明确不支持复合主键**（维护者定案）：`pk=A,B` 报错并指向单列代理键 + `//tsq:unique A,B`；要支持
+  就是 v6（主键字段、`FetchXxxByID`、`BatchDeleteByPK`、乐观锁 WHERE 全要变形状）。
 
 ### 两个测试各自编码了相反的意图，代码同时满足它们 (2026-09-16)
 

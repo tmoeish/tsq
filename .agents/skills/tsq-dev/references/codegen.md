@@ -72,6 +72,9 @@ genmodel.StructInfo / TableMeta        internal/genmodel/model.go
 - 物理 schema（`genmodel.SchemaColumn`）需要 `go/types` 的真实类型，所以不由解析器填，而是
   `generation_plan.go` 在渲染表之前用 `ddlTypeResolver` 补进 `StructInfo.Schema`。
 - 托管列的"什么时候盖时间戳"不在模板里，在库的 `rows.go`：模板只声明哪一列扮演哪个角色。
+- `db` 标签的 `default:` / `generated:` 变成 `SchemaColumn.Fill` / `Generated`，模板写进 `TableSpec.Schema`
+  （`FillRef` 输出完整的 `tsqdialect.Fill*` 常量名）；库在 `Define` 时按它设置 `columnCore.fill`，写入路径据此
+  跳过列。列定义的 DDL 只有 `dialect.ColumnDefinitionSQL` 一份，生成器和运行时共用。
 - 模板不许拼接符号名（`tsqdialect.Kind{{ .Kind }}`）；`columnKindRef` 这类 helper 写出完整
   名字，`generated_symbols_test.go` 才能核对它真的存在。
 

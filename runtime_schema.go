@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sort"
 	"strings"
 
@@ -371,6 +372,14 @@ func diffTableColumns(
 	current []tsqdialect.ColumnSpec,
 	desired []tsqdialect.ColumnSpec,
 ) []tableColumnChange {
+	// A generated column is created with the table and never altered afterwards:
+	// every dialect reports it differently (SQLite's table_info omits it), so a
+	// comparison would ask for the same change on every boot. Adding one to a table
+	// that exists is a migration.
+	desired = slices.DeleteFunc(slices.Clone(desired), func(c tsqdialect.ColumnSpec) bool {
+		return c.Fill == tsqdialect.FillGenerated
+	})
+
 	currentByName := make(map[string]tsqdialect.ColumnSpec, len(current))
 	for _, column := range current {
 		currentByName[column.Name] = column
@@ -497,23 +506,7 @@ func renderCreateTableStatement(
 }
 
 func renderRuntimeDDLColumnSpec(dialect tsqdialect.Dialect, column tsqdialect.ColumnSpec) (string, error) {
-	quotedColumn := dialect.QuoteIdent(column.Name)
-	if column.PrimaryKey && column.AutoIncrement {
-		return dialect.AutoIncrementColumnSQL(quotedColumn, column.Type)
-	}
-
-	parts := []string{quotedColumn, dialect.ColumnTypeSQL(column.Type)}
-	if column.PrimaryKey {
-		parts = append(parts, "PRIMARY KEY")
-	} else if !column.Type.Nullable {
-		parts = append(parts, "NOT NULL")
-	}
-
-	if column.Default != "" {
-		parts = append(parts, "DEFAULT "+column.Default)
-	}
-
-	return strings.Join(parts, " "), nil
+	return tsqdialect.ColumnDefinitionSQL(dialect, column)
 }
 
 func renderTableColumnChanges(

@@ -2,7 +2,6 @@ package tsq
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"slices"
@@ -120,7 +119,7 @@ func (t *TableOf[R]) upsert(ctx context.Context, db Executor, rows []*R, key []B
 	}
 
 	if single {
-		return t.reloadManaged(ctx, db, scope, def, rows[0])
+		return t.reloadColumns(ctx, db, scope, def, rows[0], t.upsertReadBack(def))
 	}
 
 	return nil
@@ -230,6 +229,27 @@ func checkUpsertRows[R any](def *tableDef, target []string, rows []*R, d tsqdial
 	}
 
 	return nil
+}
+
+// upsertReadBack are the columns an upsert may have left different from the row:
+// the version of an updated row, its original created_at, and anything the
+// database fills.
+func (t *TableOf[R]) upsertReadBack(def *tableDef) []*columnCore {
+	var cols []*columnCore
+
+	for _, name := range []string{def.managed.Version, def.managed.CreatedAt} {
+		if col := def.column(name); col != nil {
+			cols = append(cols, col)
+		}
+	}
+
+	for _, col := range def.columns {
+		if col.fill == tsqdialect.FillGenerated && !slices.Contains(cols, col) {
+			cols = append(cols, col)
+		}
+	}
+
+	return cols
 }
 
 func (t *TableOf[R]) upsertChunk(ctx context.Context, db Executor, scope execScope, def *tableDef, cols []*columnCore, target []string, rows []*R, single bool) error {
@@ -364,55 +384,6 @@ func (t *TableOf[R]) upsertChunk(ctx context.Context, db Executor, scope execSco
 		if id, err := result.LastInsertId(); err == nil && id > 0 {
 			setID(field(rows[0], def.primaryKey), id)
 		}
-	}
-
-	return nil
-}
-
-// reloadManaged reads back the managed columns an upsert may have left different
-// from row: the version of an updated row and its original created_at.
-func (t *TableOf[R]) reloadManaged(ctx context.Context, db Executor, scope execScope, def *tableDef, row *R) error {
-	var cols []*columnCore
-
-	for _, name := range []string{def.managed.Version, def.managed.CreatedAt} {
-		if col := def.column(name); col != nil {
-			cols = append(cols, col)
-		}
-	}
-
-	pk := field(row, def.primaryKey)
-	if len(cols) == 0 || pk.IsZero() {
-		return nil
-	}
-
-	w := &writeStmt{d: scope.dialect}
-	w.text("SELECT ")
-
-	dest := make([]any, 0, len(cols))
-	for i, col := range cols {
-		if i > 0 {
-			w.text(", ")
-		}
-
-		w.ident(col.name)
-
-		dest = append(dest, col.scan(row))
-	}
-
-	w.text(" FROM ").ident(def.name).text(" WHERE ").ident(def.primaryKey.name).text(" = ").arg(pk.Interface())
-
-	if w.err != nil {
-		return w.err
-	}
-
-	logSQLForExecutor(ctx, db, "upsert", w.sql.String(), w.args)
-
-	if err := db.QueryRowContext(ctx, w.sql.String(), w.args...).Scan(dest...); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("reload %s %s=%v after upsert: %w", def.name, def.primaryKey.name, pk.Interface(), err)
-		}
-
-		return fmt.Errorf("reload %s after upsert: %w", def.name, err)
 	}
 
 	return nil

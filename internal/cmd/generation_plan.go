@@ -112,6 +112,11 @@ func buildGenerationModels(
 			}
 
 			s.Schema = schema
+
+			if err := validateDatabaseFilledFields(s); err != nil {
+				return nil, fmt.Errorf("validate %s: %w", s.TypeInfo.TypeName, err)
+			}
+
 			model.Template = tableTpl
 			model.ErrorLabel = "template rendering failed"
 		}
@@ -281,7 +286,9 @@ func buildSchemaColumns(
 			RawType:       desc.rawType,
 			PrimaryKey:    field.Name == table.PrimaryKey,
 			AutoIncrement: field.Name == table.PrimaryKey && table.AutoIncrement,
-			Default:       ddlManagedDefaultClause(table, field, desc),
+			Default:       ddlColumnDefault(table, field, desc),
+			Fill:          desc.fill,
+			Generated:     desc.generatedSQL,
 		})
 	}
 

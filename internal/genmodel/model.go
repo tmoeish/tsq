@@ -30,6 +30,11 @@ type SchemaColumn struct {
 	PrimaryKey    bool
 	AutoIncrement bool
 	Default       string
+	// Fill is "default" when the database applies Default to an unset field, or
+	// "generated" for a column the database computes and TSQ never writes.
+	Fill string
+	// Generated is the expression of a generated column.
+	Generated string
 }
 
 type TypeInfo struct {

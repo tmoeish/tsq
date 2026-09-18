@@ -100,6 +100,13 @@ func (l *ddlRecorder) count() int {
 	return len(l.applied)
 }
 
+func (l *ddlRecorder) reset() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	l.applied = nil
+}
+
 func (l *ddlRecorder) statements() []string {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -1112,6 +1119,79 @@ func TestIntegrationNullOrderingAgrees(t *testing.T) {
 						t.Errorf("%s on %s: position %d is %d, want %d", name, target.name, i, got.Data[i].UID, rows[idx].UID)
 					}
 				}
+			}
+		})
+	}
+}
+
+// TestIntegrationDatabaseFilledColumns covers a column with a DEFAULT and a
+// generated column on every dialect: the three spell generated columns the same
+// way but reject writes to them differently, and the values come back from the
+// database.
+func TestIntegrationDatabaseFilledColumns(t *testing.T) {
+	for _, target := range integrationTargets(t) {
+		t.Run(target.name, func(t *testing.T) {
+			ctx := context.Background()
+
+			dropAcademyTables(t, target)
+			rt, recorder := openWithPolicy(t, target, academy.TSQTables(), tsq.SchemaPolicyReconcile)
+
+			course := &academy.Course{TrackID: 1, InstructorID: 1, Title: "Filled", Summary: "s", ListPriceCents: 1}
+			if err := course.Insert(ctx, rt); err != nil {
+				t.Fatal(err)
+			}
+
+			if course.Currency != "USD" || course.Slug != "filled" {
+				t.Fatalf("inserted course = %+v; want the database values read back", course)
+			}
+
+			// An explicit value wins over the DEFAULT.
+			explicit := &academy.Course{TrackID: 1, InstructorID: 1, Title: "Euro", Summary: "s", Currency: "EUR"}
+			if err := explicit.Insert(ctx, rt); err != nil {
+				t.Fatal(err)
+			}
+
+			if explicit.Currency != "EUR" || explicit.Slug != "euro" {
+				t.Fatalf("explicit currency = %+v", explicit)
+			}
+
+			// Update never writes the generated column, whatever the struct holds.
+			course.Title = "Renamed"
+			course.Slug = "ignored"
+
+			if err := course.Update(ctx, rt); err != nil {
+				t.Fatal(err)
+			}
+
+			stored, err := academy.QueryCourseByID.Get(ctx, rt, academy.Course_ID.Bind(course.ID))
+			if err != nil || stored.Slug != "renamed" {
+				t.Fatalf("stored = %+v, %v; want the slug recomputed", stored, err)
+			}
+
+			// A batch insert leaves the columns to the database without reading back.
+			batch := []*academy.Course{
+				{TrackID: 1, InstructorID: 1, Title: "Batch A", Summary: "s"},
+				{TrackID: 1, InstructorID: 1, Title: "Batch B", Summary: "s", Currency: "GBP"},
+			}
+			if err := academy.TableCourse.BatchInsert(ctx, rt, batch); err != nil {
+				t.Fatal(err)
+			}
+
+			rows, err := academy.FetchCourseByID(ctx, rt, batch[0].ID, batch[1].ID)
+			if err != nil || rows[0].Currency != "USD" || rows[1].Currency != "GBP" || rows[0].Slug != "batch a" {
+				t.Fatalf("batch rows = %+v, %v", rows, err)
+			}
+
+			// Reconcile must not keep altering the generated column.
+			recorder.reset()
+
+			if _, err := tsq.Open(ctx, target.driver, target.dsn, academy.TSQTables(),
+				tsq.WithSchemaPolicy(tsq.SchemaPolicyReconcile), tsq.WithLogger(recorder)); err != nil {
+				t.Fatal(err)
+			}
+
+			if applied := recorder.statements(); len(applied) != 0 {
+				t.Fatalf("second boot applied %d statements: %v", len(applied), applied)
 			}
 		})
 	}

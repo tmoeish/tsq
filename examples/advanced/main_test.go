@@ -47,6 +47,10 @@ func TestAdvanced(t *testing.T) {
 		t.Fatal("expected set ops demo to return rows")
 	}
 
+	if summary.DatabaseFilled.Currency != "USD" || summary.DatabaseFilled.Slug != "database filled columns v2" {
+		t.Fatalf("expected the database to fill currency and slug, got %+v", summary.DatabaseFilled)
+	}
+
 	if summary.Batch.Before != summary.Batch.After {
 		t.Fatalf("expected batch demo to leave enrollment count unchanged, got before=%d after=%d",
 			summary.Batch.Before, summary.Batch.After)

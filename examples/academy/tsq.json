@@ -19,6 +19,13 @@
             "nullable": true
           },
           {
+            "name": "currency",
+            "kind": "string",
+            "size": 3,
+            "default": "'USD'",
+            "fill": "default"
+          },
+          {
             "name": "instructor_id",
             "kind": "int",
             "bits": 64
@@ -41,6 +48,13 @@
           {
             "name": "published",
             "kind": "bool"
+          },
+          {
+            "name": "slug",
+            "kind": "string",
+            "size": 160,
+            "fill": "generated",
+            "generated": "LOWER(title)"
           },
           {
             "name": "summary",
@@ -343,6 +357,29 @@
         },
         "sqlite": {
           "aggregate_sql": "-- Table: track\n\nALTER TABLE \"track\" ADD COLUMN \"skill_items\" JSON NOT NULL;"
+        }
+      }
+    },
+    {
+      "sequence": "2026-09-18 13:12:47",
+      "tables": [
+        {
+          "table": "course",
+          "columns": [
+            "add column currency",
+            "add column slug"
+          ]
+        }
+      ],
+      "dialects": {
+        "mysql": {
+          "aggregate_sql": "-- Table: course\n\nALTER TABLE `course` ADD COLUMN `currency` VARCHAR(3) NOT NULL DEFAULT 'USD';\n\nALTER TABLE `course` ADD COLUMN `slug` VARCHAR(160) GENERATED ALWAYS AS (LOWER(title)) STORED;"
+        },
+        "postgres": {
+          "aggregate_sql": "-- Table: course\n\nALTER TABLE \"course\" ADD COLUMN \"currency\" VARCHAR(3) NOT NULL DEFAULT 'USD';\n\nALTER TABLE \"course\" ADD COLUMN \"slug\" VARCHAR(160) GENERATED ALWAYS AS (LOWER(title)) STORED;"
+        },
+        "sqlite": {
+          "aggregate_sql": "-- Table: course\n\nALTER TABLE \"course\" ADD COLUMN \"currency\" VARCHAR(3) NOT NULL DEFAULT 'USD';\n\nALTER TABLE \"course\" ADD COLUMN \"slug\" VARCHAR(160) GENERATED ALWAYS AS (LOWER(title)) STORED;"
         }
       }
     }
