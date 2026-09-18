@@ -154,6 +154,9 @@ type columnCore struct {
 	// another source and sorted by name.
 	plain bool
 	scan  scanPointer
+	// get reads the value the row holds, without reflection: the write path binds
+	// one value per column per row, which is where reflection cost shows up.
+	get func(holder any) any
 	// fill says who provides the value: the caller, or the database through a
 	// DEFAULT or a generated expression. It comes from TableSpec.Schema.
 	fill tsqdialect.Fill
@@ -296,6 +299,7 @@ func newColumn[O, T any](table *TableOf[O], name, jsonName string, field func(*O
 		core.table = table
 		core.info = exprInfo{sql: columnRef(table, name), tables: map[string]Table{table.Name(): table}, null: nullableIn(table.Name())}
 		core.scan = func(holder any) any { return field(holder.(*O)) }
+		core.get = func(holder any) any { return *field(holder.(*O)) }
 	}
 
 	if table != nil {

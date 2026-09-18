@@ -94,6 +94,8 @@
 
 - **`version` 自增不校验是契约**。去掉自增会让并发的乐观锁静默失效，加上校验会让它退化成
   逐行更新。`exec_test.go` 的 `TestConditionalWrites` 守着"之前加载的行随后冲突"。
+- 读列值用 `value(row, col)`（走 `columnCore.get`），不要回到 `field(row, col).Interface()`：那是反射路径，
+  批量写会按列×行付成本。`write_bench_test.go` 是量它的地方。
 - **托管时间戳是执行时绑定的内置参数**（`deletedAtParam` / `updatedAtParam`；`UpdateTable` 在调用方没 `Set` 时也刷新 `updated_at`）。改成构建时
   求值，包级语句就会永远写进程启动时间——v4 就是这么错的。
 - **语句形状要在三个方言上真跑**：SET 左侧不带表限定、WHERE 带表限定，靠

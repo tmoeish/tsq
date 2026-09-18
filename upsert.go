@@ -198,7 +198,7 @@ func checkUpsertRows[R any](def *tableDef, target []string, rows []*R, d tsqdial
 
 		parts := make([]string, 0, len(target))
 		for _, name := range target {
-			parts = append(parts, fmt.Sprintf("%#v", field(row, def.column(name)).Interface()))
+			parts = append(parts, fmt.Sprintf("%#v", value(row, def.column(name))))
 		}
 
 		key := strings.Join(parts, "\x00")
@@ -281,7 +281,7 @@ func (t *TableOf[R]) upsertChunk(ctx context.Context, db Executor, scope execSco
 				w.text(", ")
 			}
 
-			w.arg(field(row, col).Interface())
+			w.arg(value(row, col))
 		}
 
 		w.text(")")

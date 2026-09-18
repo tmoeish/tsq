@@ -340,6 +340,16 @@ func (t *TableOf[R]) BatchHardDelete(ctx context.Context, db Executor, rows []*R
 	})
 }
 
+// value reads what row holds in col, through the column's typed accessor rather
+// than reflection: a batch write binds one of these per column per row.
+func value[R any](row *R, col *columnCore) any {
+	if col == nil || col.get == nil {
+		return field(row, col).Interface()
+	}
+
+	return col.get(row)
+}
+
 // field returns the addressable field of row behind column.
 func field[R any](row *R, col *columnCore) reflect.Value {
 	return reflect.ValueOf(col.scan(row)).Elem()
@@ -560,7 +570,7 @@ func (t *TableOf[R]) insertChunk(ctx context.Context, db Executor, scope execSco
 				w.text(", ")
 			}
 
-			w.arg(field(row, col).Interface())
+			w.arg(value(row, col))
 		}
 
 		w.text(")")
@@ -735,7 +745,7 @@ func writeKeyMatch[R any](w *writeStmt, def *tableDef, rows []*R) {
 				w.text(", ")
 			}
 
-			w.arg(field(row, pk).Interface())
+			w.arg(value(row, pk))
 		}
 
 		w.text(")")
@@ -752,8 +762,8 @@ func writeKeyMatch[R any](w *writeStmt, def *tableDef, rows []*R) {
 			w.text(" OR ")
 		}
 
-		w.text("(").ident(pk.name).text(" = ").arg(field(row, pk).Interface())
-		w.text(" AND ").ident(version.name).text(" = ").arg(field(row, version).Interface()).text(")")
+		w.text("(").ident(pk.name).text(" = ").arg(value(row, pk))
+		w.text(" AND ").ident(version.name).text(" = ").arg(value(row, version)).text(")")
 	}
 
 	if len(rows) > 1 {
@@ -839,15 +849,15 @@ func (t *TableOf[R]) updateChunk(ctx context.Context, db Executor, scope execSco
 		w.ident(col.name).text(" = ")
 
 		if len(rows) == 1 {
-			w.arg(field(rows[0], col).Interface())
+			w.arg(value(rows[0], col))
 			continue
 		}
 
 		w.text("CASE ").ident(def.primaryKey.name)
 
 		for _, row := range rows {
-			w.text(" WHEN ").arg(field(row, def.primaryKey).Interface())
-			w.text(" THEN ").arg(field(row, col).Interface())
+			w.text(" WHEN ").arg(value(row, def.primaryKey))
+			w.text(" THEN ").arg(value(row, col))
 		}
 
 		w.text(" ELSE ").ident(col.name).text(" END")
@@ -896,7 +906,7 @@ func (t *TableOf[R]) execCounted(ctx context.Context, db Executor, w *writeStmt,
 	// never printed, because its columns may carry data that must not reach logs.
 	target := def.name
 	if len(rows) == 1 {
-		target = fmt.Sprintf("%s %s=%v", def.name, def.primaryKey.name, field(rows[0], def.primaryKey).Interface())
+		target = fmt.Sprintf("%s %s=%v", def.name, def.primaryKey.name, value(rows[0], def.primaryKey))
 	}
 
 	result, err := db.ExecContext(ctx, w.sql.String(), w.args...)
