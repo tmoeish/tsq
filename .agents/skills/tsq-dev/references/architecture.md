@@ -209,6 +209,9 @@ CTE 的输出列可空时，`WithTable(cte)` 重绑的列标成 `always`。
 
 - **行写入住在表描述符上**：`TableOf.Insert/Update/Delete/HardDelete` 和 `Batch*`。生成的行
   方法只是转发。字段通过列的访问器取地址再反射取值，表的列清单决定写哪些列。
+- **写入路径读值不走反射**：`columnCore.get` 由 `NewColumn` 的类型化访问器构成（`value(row, col)`），
+  批量写每列每行绑一个值，这是反射成本最集中的地方；零值判断和盖时间戳仍用反射（每表几列，一次）。
+  基准在 `write_bench_test.go`。
 - **所有绑定值经 `bindValue`**（`assemble` 和 `writeStmt.arg` 两个出口）：时间转 UTC，含 `Valuer` 产出的时间；
   托管时间戳取 `stampTime()`（UTC）。新增绑定出口必须也走它。
 - **托管列在库里维护，不在模板里**：`Insert` 只在未设置时填 `created_at` / `updated_at`

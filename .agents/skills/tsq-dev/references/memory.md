@@ -164,8 +164,8 @@ MySQL 的 `LENGTH` 数字节；PostgreSQL 没有 `round(double, int)`；modernc 
 
 - **列函数是包级泛型函数**（`tsq.Upper(col)`），用 `Text` / `Number` 约束（方法不能约束类型参数）；搜索列
   只能是 `string`。
-- **固定值是 `tsq.Val(v)` 右值，`*Val` 方法全删**（一度否决，后由维护者拍板）。类型只由值推断，
-  `int64` 列上要写 `tsq.Val(int64(90))`；换来一个入口、少二十个方法，别因为要写转换改回去。
+- **固定值是 `tsq.Val(v)` 右值，`*Val` 方法全删**（一度否决，后由维护者拍板）：类型只由值推断，`int64` 列上
+  写 `tsq.Val(int64(90))`，别因为要写转换改回去。
 - **`Page` 吃 `Paging`**，字符串形态的 `PageRequest` 只在 HTTP 边界；`Paging(sortable...)` 要求列出可排序
   列，v4 按选出来的列放行，未建索引的列也能被客户端拿来排序。
 - **只为主键和唯一索引生成查询**：普通索引和前缀的查询要排序、限量，生成器猜不到，照抄就是全表读取。
@@ -176,6 +176,8 @@ MySQL 的 `LENGTH` 数字节；PostgreSQL 没有 `round(double, int)`；modernc 
   同时是两种 `RHS`。
 - **PG 索引自省曾看不见表达式索引**：表达式在 `indkey` 里的列号是 0，内连接 `pg_attribute` 丢掉整行，GIN 全文
   索引每次启动都被当成缺失（42P07）。现在 `LEFT JOIN`。
+- **写入热路径的反射成本在"每列每行一个值"上**：改用列自带的类型化取值函数后，100 行批量 INSERT 快约
+  19%、UPDATE 约 28%（`write_bench_test.go`）。零值判断和盖时间戳仍用反射，那是每表几列一次。
 - **关联装配不引入关系 DSL**：`AttachMany` 只做收键、一次查询、按键分组；子查询由调用方给出，过滤和作用域
   仍是查询自己的语义。
 - **全文检索三个方言不是一回事**：MySQL `MATCH ... AGAINST`、PG `to_tsvector @@ plainto_tsquery`、SQLite
@@ -268,12 +270,10 @@ v4 攒下九个 `Deprecated` 符号，没有任何门禁会提醒它们该走—
 手写查询和 JOIN 里的软删除表全都漏掉。作用域放 WHERE 会把 LEFT JOIN 变成 INNER JOIN，放 ON 挡不住
 RIGHT JOIN 被保留侧的已删行，所以有 RIGHT / FULL JOIN 时整张表改成活行派生表；`WithDeleted()` 是唯一出口。
 
-- **软删除不再复用 update 路径**（2026-09-17 改）：复用时 `Update` 要写 `deleted_at`，于是没有
-  `version` 的表上，删除前读出的旧副本一次 `Update` 就把行复活，手工构造的行还会清零 `created_at`。
-  现在 `Update` 不碰这两列，`Delete` / `Restore` 只写托管列，各自带版本校验。
+- **软删除不再复用 update 路径**：复用时 `Update` 要写 `deleted_at`，没有 `version` 的表上旧副本一次 `Update`
+  就把行复活，手工构造的行还会清零 `created_at`。现在 `Update` 不碰这两列，`Delete` / `Restore` 只写托管列。
 - **墓碑值靠 `applyTombstone` 按字段形态分派**，最后一环 `sql.Scanner.Scan(now)` 同时吃下
   `sql.NullTime` 和 `null.Time`，**根包因此不必 import nullbio**。
-- **托管列是 `TableSpec` 上的字段**：以后加托管列是加字段。
 
 此前端到端零覆盖（和 `*time.Time` 那个 bug 同一盲区），门是 `runSoftDeleteDemo`。
 
