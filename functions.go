@@ -20,19 +20,24 @@ type Number interface {
 		~float32 | ~float64
 }
 
-func derived[O, T any](col SQLColumn, info exprInfo) Column[O, T] {
+// derived builds the expression that wraps col. It keeps no scan target: what the
+// expression holds is not what col's field holds, so it is not selectable on its
+// own (MapInto or SelectValue says where it goes).
+func derived[T any](col SQLColumn, info exprInfo) Expression[T] {
 	if isNilValue(col) || col.core() == nil {
-		return columnImpl[O, T]{c: &columnCore{info: exprInfo{err: errors.New("column cannot be nil")}}}
+		return exprImpl[T]{c: &columnCore{info: exprInfo{err: errors.New("column cannot be nil")}}}
 	}
 
 	next := *col.core()
 	next.info = info
 	next.plain = false
+	next.scan = nil
+	next.nullable = false
 
-	return columnImpl[O, T]{c: &next}
+	return exprImpl[T]{c: &next}
 }
 
-func wrapped[O, T any](col SQLColumn, open, close string, aggregate bool) Column[O, T] {
+func wrapped[T any](col SQLColumn, open, close string, aggregate bool) Expression[T] {
 	info := columnInfo(col)
 	info = info.withSQL(sqlJoin(sqlText(open), info.sql, sqlText(close)))
 	info.aggregate = info.aggregate || aggregate
@@ -40,60 +45,60 @@ func wrapped[O, T any](col SQLColumn, open, close string, aggregate bool) Column
 	// SUM, AVG, MAX and MIN are NULL over no rows; COUNT is 0.
 	info.null.emptyGroup = info.null.emptyGroup || aggregate
 
-	return derived[O, T](col, info)
+	return derived[T](col, info)
 }
 
-func counted[O any](col SQLColumn, open string) Column[O, int64] {
+func counted[T any](col SQLColumn, open string) Expression[int64] {
 	info := columnInfo(col)
 	info = info.withSQL(sqlJoin(sqlText(open), info.sql, sqlText(")")))
 	info.aggregate = true
 	info.null = nullness{}
 
-	return derived[O, int64](col, info)
+	return derived[int64](col, info)
 }
 
-func byDialect[O, T any](col SQLColumn, feature string, spell func(x sqlExpr) map[tsqdialect.Name]sqlExpr) Column[O, T] {
+func byDialect[T any](col SQLColumn, feature string, spell func(x sqlExpr) map[tsqdialect.Name]sqlExpr) Expression[T] {
 	info := columnInfo(col)
 
-	return derived[O, T](col, info.withSQL(sqlByDialect(feature, spell(info.sql))))
+	return derived[T](col, info.withSQL(sqlByDialect(feature, spell(info.sql))))
 }
 
 // Count counts the non-NULL values of col.
-func Count[O, T any](col Column[O, T]) Column[O, int64] {
-	return counted[O](col, "COUNT(")
+func Count[T any](col Expression[T]) Expression[int64] {
+	return counted[T](col, "COUNT(")
 }
 
 // CountDistinct counts the distinct non-NULL values of col. For a whole DISTINCT
 // query use SelectDistinct.
-func CountDistinct[O, T any](col Column[O, T]) Column[O, int64] {
-	return counted[O](col, "COUNT(DISTINCT ")
+func CountDistinct[T any](col Expression[T]) Expression[int64] {
+	return counted[T](col, "COUNT(DISTINCT ")
 }
 
 // Max is the largest value of col.
-func Max[O, T any](col Column[O, T]) Column[O, T] { return wrapped[O, T](col, "MAX(", ")", true) }
+func Max[T any](col Expression[T]) Expression[T] { return wrapped[T](col, "MAX(", ")", true) }
 
 // Min is the smallest value of col.
-func Min[O, T any](col Column[O, T]) Column[O, T] { return wrapped[O, T](col, "MIN(", ")", true) }
+func Min[T any](col Expression[T]) Expression[T] { return wrapped[T](col, "MIN(", ")", true) }
 
 // Sum adds up col.
-func Sum[O any, N Number](col Column[O, N]) Column[O, N] {
-	return wrapped[O, N](col, "SUM(", ")", true)
+func Sum[N Number](col Expression[N]) Expression[N] {
+	return wrapped[N](col, "SUM(", ")", true)
 }
 
 // Avg is the mean of col.
-func Avg[O any, N Number](col Column[O, N]) Column[O, float64] {
-	return wrapped[O, float64](col, "AVG(", ")", true)
+func Avg[N Number](col Expression[N]) Expression[float64] {
+	return wrapped[float64](col, "AVG(", ")", true)
 }
 
 // Round rounds col to precision decimal places; PostgreSQL rounds through NUMERIC.
-func Round[O any, N Number](col Column[O, N], precision int) Column[O, N] {
+func Round[N Number](col Expression[N], precision int) Expression[N] {
 	if precision < 0 {
-		return derived[O, N](col, exprInfo{err: errors.New("round precision cannot be negative")})
+		return derived[N](col, exprInfo{err: errors.New("round precision cannot be negative")})
 	}
 
 	n := sqlText(fmt.Sprintf(", %d)", precision))
 
-	return byDialect[O, N](col, "round", func(x sqlExpr) map[tsqdialect.Name]sqlExpr {
+	return byDialect[N](col, "round", func(x sqlExpr) map[tsqdialect.Name]sqlExpr {
 		return map[tsqdialect.Name]sqlExpr{
 			tsqdialect.MySQL:    sqlJoin(sqlText("ROUND("), x, n),
 			tsqdialect.Postgres: sqlJoin(sqlText("ROUND(CAST("), x, sqlText(" AS NUMERIC)"), n),
@@ -103,39 +108,39 @@ func Round[O any, N Number](col Column[O, N], precision int) Column[O, N] {
 }
 
 // Ceil rounds col up.
-func Ceil[O any, N Number](col Column[O, N]) Column[O, N] {
-	return wrapped[O, N](col, "CEIL(", ")", false)
+func Ceil[N Number](col Expression[N]) Expression[N] {
+	return wrapped[N](col, "CEIL(", ")", false)
 }
 
 // Floor rounds col down.
-func Floor[O any, N Number](col Column[O, N]) Column[O, N] {
-	return wrapped[O, N](col, "FLOOR(", ")", false)
+func Floor[N Number](col Expression[N]) Expression[N] {
+	return wrapped[N](col, "FLOOR(", ")", false)
 }
 
 // Abs is the absolute value of col.
-func Abs[O any, N Number](col Column[O, N]) Column[O, N] {
-	return wrapped[O, N](col, "ABS(", ")", false)
+func Abs[N Number](col Expression[N]) Expression[N] {
+	return wrapped[N](col, "ABS(", ")", false)
 }
 
 // Upper upper-cases col. SQLite changes ASCII letters only.
-func Upper[O any, S Text](col Column[O, S]) Column[O, S] {
-	return wrapped[O, S](col, "UPPER(", ")", false)
+func Upper[S Text](col Expression[S]) Expression[S] {
+	return wrapped[S](col, "UPPER(", ")", false)
 }
 
 // Lower lower-cases col. SQLite changes ASCII letters only.
-func Lower[O any, S Text](col Column[O, S]) Column[O, S] {
-	return wrapped[O, S](col, "LOWER(", ")", false)
+func Lower[S Text](col Expression[S]) Expression[S] {
+	return wrapped[S](col, "LOWER(", ")", false)
 }
 
 // Trim removes leading and trailing spaces from col.
-func Trim[O any, S Text](col Column[O, S]) Column[O, S] {
-	return wrapped[O, S](col, "TRIM(", ")", false)
+func Trim[S Text](col Expression[S]) Expression[S] {
+	return wrapped[S](col, "TRIM(", ")", false)
 }
 
 // Length counts the characters of col (CHAR_LENGTH on MySQL, where LENGTH counts
 // bytes).
-func Length[O any, S Text](col Column[O, S]) Column[O, int64] {
-	return byDialect[O, int64](col, "length", func(x sqlExpr) map[tsqdialect.Name]sqlExpr {
+func Length[S Text](col Expression[S]) Expression[int64] {
+	return byDialect[int64](col, "length", func(x sqlExpr) map[tsqdialect.Name]sqlExpr {
 		return map[tsqdialect.Name]sqlExpr{
 			tsqdialect.MySQL:    sqlJoin(sqlText("CHAR_LENGTH("), x, sqlText(")")),
 			tsqdialect.Postgres: sqlJoin(sqlText("LENGTH("), x, sqlText(")")),
@@ -145,14 +150,14 @@ func Length[O any, S Text](col Column[O, S]) Column[O, int64] {
 }
 
 // Substring takes length characters of col from the 1-based start.
-func Substring[O any, S Text](col Column[O, S], start, length int) Column[O, S] {
+func Substring[S Text](col Expression[S], start, length int) Expression[S] {
 	if start < 1 || length < 0 {
-		return derived[O, S](col, exprInfo{err: fmt.Errorf("invalid substring range start=%d length=%d", start, length)})
+		return derived[S](col, exprInfo{err: fmt.Errorf("invalid substring range start=%d length=%d", start, length)})
 	}
 
 	// The bounds come from the program, so they are written into the SQL: bound,
 	// PostgreSQL cannot always pick a substring overload for them.
-	return wrapped[O, S](col, "SUBSTR(", fmt.Sprintf(", %d, %d)", start, length), false)
+	return wrapped[S](col, "SUBSTR(", fmt.Sprintf(", %d, %d)", start, length), false)
 }
 
 // sqliteTimeText keeps the "YYYY-MM-DD HH:MM:SS" prefix of a stored time. The
@@ -164,8 +169,8 @@ func sqliteTimeText(x sqlExpr) sqlExpr {
 }
 
 // Date formats the date part of col as 'YYYY-MM-DD' on every dialect.
-func Date[O, T any](col Column[O, T]) Column[O, string] {
-	return byDialect[O, string](col, "date", func(x sqlExpr) map[tsqdialect.Name]sqlExpr {
+func Date[T any](col Expression[T]) Expression[string] {
+	return byDialect[string](col, "date", func(x sqlExpr) map[tsqdialect.Name]sqlExpr {
 		return map[tsqdialect.Name]sqlExpr{
 			tsqdialect.MySQL:    sqlJoin(sqlText("DATE_FORMAT("), x, sqlText(", '%Y-%m-%d')")),
 			tsqdialect.Postgres: sqlJoin(sqlText("TO_CHAR("), x, sqlText(", 'YYYY-MM-DD')")),
@@ -175,18 +180,18 @@ func Date[O, T any](col Column[O, T]) Column[O, string] {
 }
 
 // Year extracts the year of col as an integer.
-func Year[O, T any](col Column[O, T]) Column[O, int64] { return datePart(col, "year", "YEAR", "%Y") }
+func Year[T any](col Expression[T]) Expression[int64] { return datePart(col, "year", "YEAR", "%Y") }
 
 // Month extracts the month of col as an integer.
-func Month[O, T any](col Column[O, T]) Column[O, int64] {
+func Month[T any](col Expression[T]) Expression[int64] {
 	return datePart(col, "month", "MONTH", "%m")
 }
 
 // Day extracts the day of the month of col as an integer.
-func Day[O, T any](col Column[O, T]) Column[O, int64] { return datePart(col, "day", "DAY", "%d") }
+func Day[T any](col Expression[T]) Expression[int64] { return datePart(col, "day", "DAY", "%d") }
 
-func datePart[O, T any](col Column[O, T], part, sqlPart, strftime string) Column[O, int64] {
-	return byDialect[O, int64](col, part+" extraction", func(x sqlExpr) map[tsqdialect.Name]sqlExpr {
+func datePart[T any](col Expression[T], part, sqlPart, strftime string) Expression[int64] {
+	return byDialect[int64](col, part+" extraction", func(x sqlExpr) map[tsqdialect.Name]sqlExpr {
 		return map[tsqdialect.Name]sqlExpr{
 			tsqdialect.MySQL:    sqlJoin(sqlText(sqlPart+"("), x, sqlText(")")),
 			tsqdialect.Postgres: sqlJoin(sqlText("CAST(EXTRACT("+sqlPart+" FROM "), x, sqlText(") AS BIGINT)")),
@@ -198,8 +203,8 @@ func datePart[O, T any](col Column[O, T], part, sqlPart, strftime string) Column
 // Coalesce is col, or fallback where col is NULL: a column, Param, Val or subquery.
 // It is NULL only if both can be, so Coalesce(col, tsq.Val(x)) reads into a field
 // that cannot hold NULL.
-func Coalesce[O, T any](col Column[O, T], fallback RHS[T]) Column[O, T] {
-	return combined[O, T](col, "COALESCE(", fallback, func(left, right nullness) nullness {
+func Coalesce[T any](col Expression[T], fallback RHS[T]) Expression[T] {
+	return combined[T](col, "COALESCE(", fallback, func(left, right nullness) nullness {
 		if left.never() || right.never() {
 			return nullness{}
 		}
@@ -209,8 +214,8 @@ func Coalesce[O, T any](col Column[O, T], fallback RHS[T]) Column[O, T] {
 }
 
 // NullIf is col, or NULL where col equals value.
-func NullIf[O, T any](col Column[O, T], value RHS[T]) Column[O, T] {
-	return combined[O, T](col, "NULLIF(", value, func(left, right nullness) nullness {
+func NullIf[T any](col Expression[T], value RHS[T]) Expression[T] {
+	return combined[T](col, "NULLIF(", value, func(left, right nullness) nullness {
 		n := left.or(right)
 		n.always = true
 
@@ -218,16 +223,16 @@ func NullIf[O, T any](col Column[O, T], value RHS[T]) Column[O, T] {
 	})
 }
 
-func combined[O, T any](col Column[O, T], open string, rhs RHS[T], null func(left, right nullness) nullness) Column[O, T] {
+func combined[T any](col Expression[T], open string, rhs RHS[T], null func(left, right nullness) nullness) Expression[T] {
 	left := columnInfo(col)
 	right := rhsInfo(rhs)
 	info := left.merge(right).withSQL(sqlJoin(sqlText(open), left.sql, sqlText(", "), right.sql, sqlText(")")))
 	info.null = null(left.null, right.null)
 
-	return derived[O, T](col, info)
+	return derived[T](col, info)
 }
 
-func pattern[O any, S ~string](col Column[O, S], op string, right exprInfo) Condition {
+func pattern[S ~string](col Expression[S], op string, right exprInfo) Condition {
 	left := columnInfo(col)
 
 	return newCondition(left.merge(right).withSQL(sqlJoin(left.sql, sqlText(" "+op+" "), right.sql)))
@@ -255,7 +260,7 @@ type Pattern[S ~string] interface {
 	patternOperand(mode paramMode) exprInfo
 }
 
-func patternMatch[O any, S ~string](col Column[O, S], op string, text Pattern[S], mode paramMode) Condition {
+func patternMatch[S ~string](col Expression[S], op string, text Pattern[S], mode paramMode) Condition {
 	if isNilValue(text) {
 		return conditionError(errors.New("pattern cannot be nil"))
 	}
@@ -264,32 +269,32 @@ func patternMatch[O any, S ~string](col Column[O, S], op string, text Pattern[S]
 }
 
 // StartsWith matches values of col beginning with prefix.
-func StartsWith[O any, S ~string](col Column[O, S], prefix Pattern[S]) Condition {
+func StartsWith[S ~string](col Expression[S], prefix Pattern[S]) Condition {
 	return patternMatch(col, "LIKE", prefix, paramPrefix)
 }
 
 // NotStartsWith matches values of col not beginning with prefix.
-func NotStartsWith[O any, S ~string](col Column[O, S], prefix Pattern[S]) Condition {
+func NotStartsWith[S ~string](col Expression[S], prefix Pattern[S]) Condition {
 	return patternMatch(col, "NOT LIKE", prefix, paramPrefix)
 }
 
 // EndsWith matches values of col ending with suffix.
-func EndsWith[O any, S ~string](col Column[O, S], suffix Pattern[S]) Condition {
+func EndsWith[S ~string](col Expression[S], suffix Pattern[S]) Condition {
 	return patternMatch(col, "LIKE", suffix, paramSuffix)
 }
 
 // NotEndsWith matches values of col not ending with suffix.
-func NotEndsWith[O any, S ~string](col Column[O, S], suffix Pattern[S]) Condition {
+func NotEndsWith[S ~string](col Expression[S], suffix Pattern[S]) Condition {
 	return patternMatch(col, "NOT LIKE", suffix, paramSuffix)
 }
 
 // Contains matches values of col containing part.
-func Contains[O any, S ~string](col Column[O, S], part Pattern[S]) Condition {
+func Contains[S ~string](col Expression[S], part Pattern[S]) Condition {
 	return patternMatch(col, "LIKE", part, paramContains)
 }
 
 // NotContains matches values of col not containing part.
-func NotContains[O any, S ~string](col Column[O, S], part Pattern[S]) Condition {
+func NotContains[S ~string](col Expression[S], part Pattern[S]) Condition {
 	return patternMatch(col, "NOT LIKE", part, paramContains)
 }
 

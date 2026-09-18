@@ -136,23 +136,22 @@ func TestNullColumnsCompareAndWriteTheirValueType(t *testing.T) {
 		t.Fatalf("after SetNull = %+v, %v", stored, err)
 	}
 
-	// ScalarNull reads NULL; Scalar refuses a value that can be NULL.
-	maxRating := Select(Max(Note_Rating)).From(Notes).MustBuild()
-	if _, err := maxRating.Scalar(ctx, rt, Max(Note_Rating)); err == nil {
-		t.Fatal("expected Scalar to refuse a nullable value")
+	// SelectNullValue reads NULL; SelectValue refuses a value that can be NULL.
+	if _, err := SelectValue(Max(Note_Rating)).From(Notes).MustBuild().Get(ctx, rt); err == nil {
+		t.Fatal("expected SelectValue to refuse a nullable value")
 	}
 
-	if v, err := maxRating.ScalarNull(ctx, rt, Max(Note_Rating)); err != nil || !v.Valid || v.V != 5 {
-		t.Fatalf("ScalarNull = %v, %v", v, err)
+	if v, err := SelectNullValue(Max(Note_Rating)).From(Notes).MustBuild().Get(ctx, rt); err != nil || !v.Valid || v.V != 5 {
+		t.Fatalf("SelectNullValue = %v, %v", v, err)
 	}
 
 	if _, err := Select(Notes.Columns()...).From(Notes).MustBuild().PageKeyset(ctx, rt, Keyset{OrderBy: []OrderBy{Note_Rating.Asc(), Note_ID.Asc()}}); err == nil {
 		t.Fatal("expected a nullable keyset column to be refused")
 	}
 
-	empty := Select(Max(Note_Rating)).From(Notes).Where(Note_ID.LT(Val(int64(0)))).MustBuild()
-	if v, err := empty.ScalarNull(ctx, rt, Max(Note_Rating)); err != nil || v.Valid {
-		t.Fatalf("ScalarNull over no rows = %v, %v", v, err)
+	empty := SelectNullValue(Max(Note_Rating)).From(Notes).Where(Note_ID.LT(Val(int64(0)))).MustBuild()
+	if v, err := empty.Get(ctx, rt); err != nil || v.Valid {
+		t.Fatalf("SelectNullValue over no rows = %v, %v", v, err)
 	}
 }
 

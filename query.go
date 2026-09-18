@@ -464,60 +464,6 @@ func queryCount(ctx context.Context, db Executor, stmt prepared) (int64, error) 
 	return n, nil
 }
 
-// Scalar runs a query that selects exactly selected and returns its value from the
-// first row, or an error wrapping sql.ErrNoRows. A NULL reads as the zero value.
-func (q *Query[O]) Scalar[T any](ctx context.Context, db Executor, selected TypedColumn[O, T], args ...Arg) (T, error) {
-	return traceExecutor1(ctx, db, TraceOpScalar, func(ctx context.Context) (T, error) {
-		var zero T
-
-		if err := q.checkSingleSelect(selected); err != nil {
-			return zero, err
-		}
-
-		if null, why := q.spec.canBeNull(columnInfo(selected).null); null {
-			return zero, fmt.Errorf("%s can be NULL here (%s); use ScalarNull", selected.Name(), why)
-		}
-
-		value, err := q.scalar(ctx, db, selected, args)
-
-		return value.V, err
-	})
-}
-
-// ScalarNull is Scalar for a value that can be NULL, such as MAX over no rows or a
-// nullable column; Valid is false for NULL.
-func (q *Query[O]) ScalarNull[T any](ctx context.Context, db Executor, selected TypedColumn[O, T], args ...Arg) (sql.Null[T], error) {
-	return traceExecutor1(ctx, db, TraceOpScalar, func(ctx context.Context) (sql.Null[T], error) {
-		if err := q.checkSingleSelect(selected); err != nil {
-			return sql.Null[T]{}, err
-		}
-
-		return q.scalar(ctx, db, selected, args)
-	})
-}
-
-func (q *Query[O]) scalar[T any](ctx context.Context, db Executor, _ TypedColumn[O, T], args []Arg) (sql.Null[T], error) {
-	_, stmts, err := q.prepare(db, args, nil, renderMode{single: true})
-	if err != nil {
-		return sql.Null[T]{}, err
-	}
-
-	stmt := stmts[0]
-	logSQLForExecutor(ctx, db, "scalar", stmt.sql, stmt.args)
-
-	var value sql.Null[T]
-	if err := db.QueryRowContext(ctx, stmt.sql, stmt.args...).Scan(&value); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return sql.Null[T]{}, err
-		}
-
-		return sql.Null[T]{}, fmt.Errorf("scalar query: %w", err)
-	}
-
-	return value, nil
-}
-
-// checkSingleSelect verifies that the query selects exactly the given column.
 func (q *Query[O]) checkSingleSelect(selected SQLColumn) error {
 	if q == nil {
 		return errors.New("query cannot be nil")
@@ -715,7 +661,7 @@ func nullWhenEmpty(info exprInfo) exprInfo {
 }
 
 // AsSubquery returns the query as a typed subquery. It must select exactly selected.
-func (q *Query[O]) AsSubquery[T any](selected TypedColumn[O, T]) (Subquery[T], error) {
+func (q *Query[O]) AsSubquery[T any](selected ValueColumn[T]) (Subquery[T], error) {
 	if err := q.checkSingleSelect(selected); err != nil {
 		return nil, fmt.Errorf("subquery: %w", err)
 	}
@@ -724,7 +670,7 @@ func (q *Query[O]) AsSubquery[T any](selected TypedColumn[O, T]) (Subquery[T], e
 }
 
 // BuildSubquery builds stage and returns it as a typed subquery selecting selected.
-func BuildSubquery[O, T any](stage QueryStage[O], selected TypedColumn[O, T]) (Subquery[T], error) {
+func BuildSubquery[O, T any](stage QueryStage[O], selected ValueColumn[T]) (Subquery[T], error) {
 	if isNilValue(stage) {
 		return nil, errors.New("subquery builder cannot be nil")
 	}

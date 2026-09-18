@@ -546,6 +546,36 @@ users, err := QueryUsersByOrg.List(ctx, runtime, database.User_OrgID.Bind(orgID)
   `%` and `_` are escaped
 - a parameter bound to `nil` is an error; use `IsNull()` / `IsNotNull()`
 
+### Expressions and columns
+
+A **column** (`tsq.Column[O, T]`, or `tsq.NullColumn[O, T]`) belongs to a row type: it knows which
+field of `O` it scans into, which is what `Select` needs. Everything built from one — a function, a
+`CASE`, `Expr`/`Exprf` — is an **expression** (`tsq.Expression[T]`), which has the same predicates,
+`Asc`/`Desc` and `Pred`, but no row of its own:
+
+```go
+tsq.Upper(database.User_Name)                 // tsq.Expression[string]
+tsq.Count(database.Order_ID)                  // tsq.Expression[int64]
+tsq.Case[string]()./* ... */.End()            // tsq.Expression[string]
+```
+
+An expression cannot be passed to `Select`, because what it holds has nothing to do with the field
+its source column scans into: `tsq.Date(User_CreatedAt)` holds text while `CreatedAt` is a
+`time.Time`, and selecting it used to compile and then fail scanning. Say where the value goes:
+
+```go
+// Into a field of a result type.
+tsq.Select(tsq.MapInto(tsq.Upper(database.User_Name), func(r *Row) *string { return &r.Name }, "name"))
+
+// Or on its own, when the value is the whole row.
+total, err := tsq.SelectValue(tsq.Sum(database.Order_Amount)).From(database.TableOrder).MustBuild().Get(ctx, db)
+// total is *int64; SelectNullValue reads a *sql.Null[int64] where the value can be NULL
+```
+
+`SelectValue` / `SelectNullValue` build ordinary queries: `Where`, `OrderBy`, `Page`, `List`,
+`BuildSubquery` and the rest work as usual, with the value as the row type. Only columns have
+`WithTable`, `As`, `Param` and `Bind`; rebind a column before applying functions to it.
+
 ### Nullable columns
 
 A field that can hold NULL — a pointer, `sql.NullString` and the other `sql.NullX`,
@@ -583,8 +613,8 @@ row always exists, `tsq.Coalesce(x, tsq.Val(...))`, or a nullable field with
 `tsq.MapIntoNull(source, func(r *R) *sql.NullString { ... }, "name")`. Building such a query is
 fine, since a subquery or CTE never reads its rows.
 
-`query.Scalar` refuses a value that can be NULL the same way; `query.ScalarNull` returns a
-`sql.Null[T]` instead.
+`tsq.SelectValue` refuses a value that can be NULL the same way; `tsq.SelectNullValue` reads it as
+a `sql.Null[T]`.
 
 ### Custom expressions and predicates
 
@@ -727,11 +757,9 @@ Reads are methods on the built `*Query[O]`; `args` are the `tsq.Arg` values made
 - `query.Count(ctx, db, args...)` → `int64, error`
 - `query.Page(ctx, db, paging, args...)` → `*PageResponse[O], error`
 - `query.PageKeyset(ctx, db, keyset, args...)` → `*KeysetPage[O], error` (section 7)
-- `query.Scalar(ctx, db, selectedColumn, args...)` → the column's Go type; the query must select exactly that column, and the value must never be NULL
-- `query.ScalarNull(ctx, db, selectedColumn, args...)` → `sql.Null[T]`, for a value that can be NULL such as `MAX` over no rows
 - `query.SQL(dialect, args...)` → the SQL and arguments the query would run with, for logging and tests
 
-`Get`, `Find`, `Exists` and `Scalar` read at most one row: they add `LIMIT 1` unless the builder
+`Get`, `Find` and `Exists` read at most one row: they add `LIMIT 1` unless the builder
 set its own limit. `Exists` does not count.
 
 A query is rendered for a dialect the first time it runs on one, and the rendering is cached.

@@ -68,29 +68,16 @@ type SetRHS[T any] interface {
 	setOperand(negated bool) exprInfo
 }
 
-// Column is the typed column API of generated code. Its methods are the ones that
-// make sense for every T; functions that need a particular kind of value (Upper
-// needs text, Sum needs numbers) are package-level functions with a constraint on
-// T, so applying them to the wrong column does not compile.
-type Column[O, T any] interface {
-	TypedColumn[O, T]
+// Expression is a typed SQL expression: a column, a function of one, a CASE, or
+// custom SQL. Its value type is T, and it can be compared, ordered and grouped by.
+//
+// An expression is not tied to a row type, so it cannot be passed to Select: what
+// it holds may have nothing to do with the field its source column scans into
+// (tsq.Date of a time column holds text). Project it into a field with MapInto, or
+// select it on its own with SelectValue.
+type Expression[T any] interface {
+	ValueColumn[T]
 	RHS[T]
-
-	// WithTable returns the column rebound to another source with the same column,
-	// such as a CTE or an alias of its table.
-	WithTable(table Table) Column[O, T]
-	// As returns the column rebound to an alias of its table.
-	As(alias string) Column[O, T]
-
-	// Param returns the column's own parameter, for queries that compare the column
-	// to a value supplied at execution. Every call returns the same parameter.
-	Param() Param[T]
-	// ListParam returns the column's own list parameter, for In and NotIn.
-	ListParam() ListParam[T]
-	// Bind supplies a value for Param.
-	Bind(value T) Arg
-	// BindList supplies values for ListParam.
-	BindList(values ...T) Arg
 
 	IsNull() Condition
 	IsNotNull() Condition
@@ -113,17 +100,42 @@ type Column[O, T any] interface {
 	In(set SetRHS[T]) Condition
 	NotIn(set SetRHS[T]) Condition
 
-	// Pred builds a custom condition. The first %s is the column and each further %s
-	// takes the next argument, which may be a column, a Param, a typed subquery or a
-	// plain value (bound). %% is a literal percent sign.
+	// Pred builds a custom condition. The first %s is the expression and each further
+	// %s takes the next argument, which may be a column, a Param, a typed subquery or
+	// a plain value (bound). %% is a literal percent sign.
 	Pred(format string, args ...any) Condition
-	// Expr wraps the column in custom SQL; format has exactly one %s.
-	Expr(format string) Column[O, T]
+	// Expr wraps the expression in custom SQL; format has exactly one %s.
+	Expr(format string) Expression[T]
 	// Exprf is Expr with further arguments, as in Pred.
-	Exprf(format string, args ...any) Column[O, T]
+	Exprf(format string, args ...any) Expression[T]
 
 	Asc() OrderBy
 	Desc() OrderBy
+}
+
+// Column is the typed column API of generated code: an Expression that also scans
+// into a field of O, which is what Select needs. Functions that need a particular
+// kind of value (Upper needs text, Sum needs numbers) are package-level functions
+// with a constraint on T, so applying them to the wrong column does not compile.
+type Column[O, T any] interface {
+	Expression[T]
+	TypedColumn[O, T]
+
+	// WithTable returns the column rebound to another source with the same column,
+	// such as a CTE or an alias of its table.
+	WithTable(table Table) Column[O, T]
+	// As returns the column rebound to an alias of its table.
+	As(alias string) Column[O, T]
+
+	// Param returns the column's own parameter, for queries that compare the column
+	// to a value supplied at execution. Every call returns the same parameter.
+	Param() Param[T]
+	// ListParam returns the column's own list parameter, for In and NotIn.
+	ListParam() ListParam[T]
+	// Bind supplies a value for Param.
+	Bind(value T) Arg
+	// BindList supplies values for ListParam.
+	BindList(values ...T) Arg
 }
 
 // scanPointer returns the address a selected value scans into.
@@ -162,8 +174,13 @@ func columnRef(table Table, name string) sqlExpr {
 	return sqlJoin(tableRef(table), sqlText("."), sqlIdent(name))
 }
 
-type columnImpl[O, T any] struct {
+// exprImpl implements Expression[T]; columnImpl adds what only a column has.
+type exprImpl[T any] struct {
 	c *columnCore
+}
+
+type columnImpl[O, T any] struct {
+	exprImpl[T]
 }
 
 // NullColumn is a column that can hold NULL. Its value type T is what it holds
@@ -281,32 +298,32 @@ func newColumn[O, T any](table *TableOf[O], name, jsonName string, field func(*O
 		core.list.name = table.Name() + "." + name
 	}
 
-	return columnImpl[O, T]{c: core}
+	return columnImpl[O, T]{exprImpl[T]{c: core}}
 }
 
-func (c columnImpl[O, T]) core() *columnCore { return c.c }
+func (c exprImpl[T]) core() *columnCore { return c.c }
 
 // Name returns the physical column name.
-func (c columnImpl[O, T]) Name() string { return c.c.name }
+func (c exprImpl[T]) Name() string { return c.c.name }
 
 // Table returns the table the column belongs to.
-func (c columnImpl[O, T]) Table() Table { return c.c.table }
+func (c exprImpl[T]) Table() Table { return c.c.table }
 
 // JSONFieldName returns the JSON field name of the column.
-func (c columnImpl[O, T]) JSONFieldName() string { return c.c.json }
+func (c exprImpl[T]) JSONFieldName() string { return c.c.json }
 
 // String renders the column for debugging, in SQLite syntax.
-func (c columnImpl[O, T]) String() string { return debugSQL(c.c.info.sql) }
+func (c exprImpl[T]) String() string { return debugSQL(c.c.info.sql) }
 
-func (columnImpl[O, T]) boundTo(O)  {}
-func (columnImpl[O, T]) valueOf(T)  {}
-func (columnImpl[O, T]) rhsValue(T) {}
+func (columnImpl[O, T]) boundTo(O) {}
+func (exprImpl[T]) valueOf(T)      {}
+func (exprImpl[T]) rhsValue(T)     {}
 
-func (c columnImpl[O, T]) operand() exprInfo { return c.c.info }
+func (c exprImpl[T]) operand() exprInfo { return c.c.info }
 
 // derive returns a column whose SQL is sql, keeping the scan target, name and
 // parameters of c.
-func (c columnImpl[O, T]) derive(info exprInfo) *columnCore {
+func (c exprImpl[T]) derive(info exprInfo) *columnCore {
 	next := *c.c
 	next.info = info
 	next.plain = false
@@ -316,7 +333,7 @@ func (c columnImpl[O, T]) derive(info exprInfo) *columnCore {
 
 // WithTable rebinds the column to table.
 func (c columnImpl[O, T]) WithTable(table Table) Column[O, T] {
-	return columnImpl[O, T]{c: rebind(c.c, table)}
+	return columnImpl[O, T]{exprImpl[T]{c: rebind(c.c, table)}}
 }
 
 // As rebinds the column to alias.
@@ -361,7 +378,7 @@ func (c columnImpl[O, T]) Bind(value T) Arg { return c.Param().Bind(value) }
 // BindList supplies values for the column's list parameter.
 func (c columnImpl[O, T]) BindList(values ...T) Arg { return c.ListParam().Bind(values...) }
 
-func (c columnImpl[O, T]) compare(op string, rhs exprInfo) Condition {
+func (c exprImpl[T]) compare(op string, rhs exprInfo) Condition {
 	info := c.c.info.merge(rhs)
 
 	return newCondition(info.withSQL(sqlJoin(c.c.info.sql, sqlText(" "+op+" "), rhs.sql)))
@@ -376,52 +393,52 @@ func rhsInfo[T any](rhs RHS[T]) exprInfo {
 }
 
 // IsNull matches NULL.
-func (c columnImpl[O, T]) IsNull() Condition {
+func (c exprImpl[T]) IsNull() Condition {
 	return newCondition(c.c.info.withSQL(sqlJoin(c.c.info.sql, sqlText(" IS NULL"))))
 }
 
 // IsNotNull matches anything but NULL.
-func (c columnImpl[O, T]) IsNotNull() Condition {
+func (c exprImpl[T]) IsNotNull() Condition {
 	return newCondition(c.c.info.withSQL(sqlJoin(c.c.info.sql, sqlText(" IS NOT NULL"))))
 }
 
 // EQ compares with =.
-func (c columnImpl[O, T]) EQ(rhs RHS[T]) Condition { return c.compare("=", rhsInfo(rhs)) }
+func (c exprImpl[T]) EQ(rhs RHS[T]) Condition { return c.compare("=", rhsInfo(rhs)) }
 
 // NE compares with <>.
-func (c columnImpl[O, T]) NE(rhs RHS[T]) Condition { return c.compare("<>", rhsInfo(rhs)) }
+func (c exprImpl[T]) NE(rhs RHS[T]) Condition { return c.compare("<>", rhsInfo(rhs)) }
 
 // GT compares with >.
-func (c columnImpl[O, T]) GT(rhs RHS[T]) Condition { return c.compare(">", rhsInfo(rhs)) }
+func (c exprImpl[T]) GT(rhs RHS[T]) Condition { return c.compare(">", rhsInfo(rhs)) }
 
 // GTE compares with >=.
-func (c columnImpl[O, T]) GTE(rhs RHS[T]) Condition { return c.compare(">=", rhsInfo(rhs)) }
+func (c exprImpl[T]) GTE(rhs RHS[T]) Condition { return c.compare(">=", rhsInfo(rhs)) }
 
 // LT compares with <.
-func (c columnImpl[O, T]) LT(rhs RHS[T]) Condition { return c.compare("<", rhsInfo(rhs)) }
+func (c exprImpl[T]) LT(rhs RHS[T]) Condition { return c.compare("<", rhsInfo(rhs)) }
 
 // LTE compares with <=.
-func (c columnImpl[O, T]) LTE(rhs RHS[T]) Condition { return c.compare("<=", rhsInfo(rhs)) }
+func (c exprImpl[T]) LTE(rhs RHS[T]) Condition { return c.compare("<=", rhsInfo(rhs)) }
 
 // Like matches with LIKE.
-func (c columnImpl[O, T]) Like(rhs RHS[T]) Condition { return c.compare("LIKE", rhsInfo(rhs)) }
+func (c exprImpl[T]) Like(rhs RHS[T]) Condition { return c.compare("LIKE", rhsInfo(rhs)) }
 
 // NotLike matches with NOT LIKE.
-func (c columnImpl[O, T]) NotLike(rhs RHS[T]) Condition {
+func (c exprImpl[T]) NotLike(rhs RHS[T]) Condition {
 	return c.compare("NOT LIKE", rhsInfo(rhs))
 }
 
 // Between matches the inclusive range.
-func (c columnImpl[O, T]) Between(start, end RHS[T]) Condition {
+func (c exprImpl[T]) Between(start, end RHS[T]) Condition {
 	return c.between("BETWEEN", rhsInfo(start), rhsInfo(end))
 }
 
 // NotBetween matches outside the inclusive range.
-func (c columnImpl[O, T]) NotBetween(start, end RHS[T]) Condition {
+func (c exprImpl[T]) NotBetween(start, end RHS[T]) Condition {
 	return c.between("NOT BETWEEN", rhsInfo(start), rhsInfo(end))
 }
 
-func (c columnImpl[O, T]) between(op string, start, end exprInfo) Condition {
+func (c exprImpl[T]) between(op string, start, end exprInfo) Condition {
 	info := c.c.info.merge(start).merge(end)
 
 	return newCondition(info.withSQL(sqlJoin(
@@ -430,14 +447,14 @@ func (c columnImpl[O, T]) between(op string, start, end exprInfo) Condition {
 }
 
 // In matches values in set.
-func (c columnImpl[O, T]) In(set SetRHS[T]) Condition { return c.membership("IN", set, false) }
+func (c exprImpl[T]) In(set SetRHS[T]) Condition { return c.membership("IN", set, false) }
 
 // NotIn matches values not in set.
-func (c columnImpl[O, T]) NotIn(set SetRHS[T]) Condition {
+func (c exprImpl[T]) NotIn(set SetRHS[T]) Condition {
 	return c.membership("NOT IN", set, true)
 }
 
-func (c columnImpl[O, T]) membership(op string, set SetRHS[T], negated bool) Condition {
+func (c exprImpl[T]) membership(op string, set SetRHS[T], negated bool) Condition {
 	if isNilValue(set) {
 		return conditionError(errors.New("IN operand cannot be nil"))
 	}
@@ -450,7 +467,7 @@ func (c columnImpl[O, T]) membership(op string, set SetRHS[T], negated bool) Con
 }
 
 // Pred builds a custom condition around the column.
-func (c columnImpl[O, T]) Pred(format string, args ...any) Condition {
+func (c exprImpl[T]) Pred(format string, args ...any) Condition {
 	info, err := c.format(format, args)
 	if err != nil {
 		return conditionError(err)
@@ -459,7 +476,7 @@ func (c columnImpl[O, T]) Pred(format string, args ...any) Condition {
 	return newCondition(info)
 }
 
-func (c columnImpl[O, T]) format(format string, args []any) (exprInfo, error) {
+func (c exprImpl[T]) format(format string, args []any) (exprInfo, error) {
 	if strings.TrimSpace(format) == "" {
 		return exprInfo{}, errors.New("format cannot be empty")
 	}
@@ -483,25 +500,25 @@ func (c columnImpl[O, T]) format(format string, args []any) (exprInfo, error) {
 }
 
 // Expr wraps the column in custom SQL.
-func (c columnImpl[O, T]) Expr(format string) Column[O, T] {
+func (c exprImpl[T]) Expr(format string) Expression[T] {
 	return c.Exprf(format)
 }
 
 // Exprf wraps the column and further arguments in custom SQL.
-func (c columnImpl[O, T]) Exprf(format string, args ...any) Column[O, T] {
+func (c exprImpl[T]) Exprf(format string, args ...any) Expression[T] {
 	info, err := c.format(format, args)
 	if err != nil {
 		info = exprInfo{err: err}
 	}
 
-	return columnImpl[O, T]{c: c.derive(info)}
+	return exprImpl[T]{c: c.derive(info)}
 }
 
 // Asc orders by the column ascending.
-func (c columnImpl[O, T]) Asc() OrderBy { return OrderBy{column: c, direction: ASC} }
+func (c exprImpl[T]) Asc() OrderBy { return OrderBy{column: c, direction: ASC} }
 
 // Desc orders by the column descending.
-func (c columnImpl[O, T]) Desc() OrderBy { return OrderBy{column: c, direction: DESC} }
+func (c exprImpl[T]) Desc() OrderBy { return OrderBy{column: c, direction: DESC} }
 
 // SQLColumns converts typed columns into a slice of SQLColumn.
 func SQLColumns[O any](cols ...BoundColumn[O]) []SQLColumn {
@@ -536,7 +553,7 @@ func MapIntoNull[Target, T, F any](source ValueColumn[T], field func(*Target) *F
 
 func mapInto[Target, T, F any](source ValueColumn[T], field func(*Target) *F, jsonName string, nullable bool) columnImpl[Target, T] {
 	if isNilValue(source) {
-		return columnImpl[Target, T]{c: &columnCore{json: jsonName, info: exprInfo{err: errors.New("projection source cannot be nil")}}}
+		return columnImpl[Target, T]{exprImpl[T]{c: &columnCore{json: jsonName, info: exprInfo{err: errors.New("projection source cannot be nil")}}}}
 	}
 
 	next := *source.core()
@@ -550,7 +567,7 @@ func mapInto[Target, T, F any](source ValueColumn[T], field func(*Target) *F, js
 		next.scan = func(holder any) any { return field(holder.(*Target)) }
 	}
 
-	return columnImpl[Target, T]{c: &next}
+	return columnImpl[Target, T]{exprImpl[T]{c: &next}}
 }
 
 // columnInfo reads a column that may be nil.

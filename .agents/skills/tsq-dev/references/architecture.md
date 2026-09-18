@@ -152,7 +152,7 @@ JoinStage ─Search► SearchStage ─Where─► FilteredStage
   第一次执行时就拿到 `*dialect.UnsupportedCapabilityError`。这条"构建只看结构、执行才看方言"
   的边界是有意的。
 - CTE 在渲染时从 FROM/JOIN（含集合操作数和 CTE 自身的来源）收集、按依赖排序后提到最前。
-- `Get` / `Find` / `Exists` / `Scalar` 渲染带 `LIMIT 1` 的变体（构建器自己设了 limit 时不加），
+- `Get` / `Find` / `Exists` 渲染带 `LIMIT 1` 的变体（构建器自己设了 limit 时不加），
   所以 `LIMIT` 天然在行锁子句之前。
 - `Page` 吃类型化的 `Paging`，拒绝自带 `Limit` 的查询，也拒绝"构建器有 `OrderBy` 且
   `Paging.OrderBy` 非空"。排序项经 `querySpec.orderTerm` 渲染：集合操作查询按输出列名排序
@@ -170,6 +170,14 @@ JoinStage ─Search► SearchStage ─Where─► FilteredStage
   不可空的值不加任何东西。
 - `SelectDistinct` 是 `querySpec.Distinct`，算作分组查询：`Count` 包一层子查询数去重后的行。
 
+### 表达式与列（`column.go`）
+
+`exprImpl[T]` 实现 `Expression[T]`（谓词、`Asc`/`Desc`、`Pred`、`Expr`/`Exprf`）；`columnImpl[O, T]`
+嵌入它再加上 `boundTo(O)`、`WithTable` / `As` / `Param` / `Bind`。**派生表达式不带扫描目标**
+（`derived` 清掉 `scan` 和 `nullable`）：它的值类型和源列字段无关，所以进不了 `Select`。
+`MapInto` / `MapIntoNull` 给它一个字段，`SelectValue` / `SelectNullValue` 让值本身当行
+（内部就是 `Select(MapInto(expr, 恒等访问器))`）。
+
 ### 可空性（`expr.go` 的 `nullness`、`query_render.go` 的 `canBeNull` / `checkScanTargets`）
 
 类型上分两种表列：`Column[O, T]`（NOT NULL）和 `NullColumn[O, T]`（`T` 是非 NULL 时的值类型，扫描目标是
@@ -179,7 +187,8 @@ JoinStage ─Search► SearchStage ─Where─► FilteredStage
 
 可选表由 JOIN 决定：LEFT 的右表、RIGHT 之前的所有表、FULL 两边。`columnCore.nullable` 表示扫描目标能存
 NULL（`NullColumn`、`MapIntoNull`）。`Build` 时算出 `Query.scanErr`，**读行的路径**（`each` / `get`）才
-返回它——子查询和 CTE 不读行，不能在 `Build` 里拒绝。`Scalar` 自己检查所选列，`ScalarNull` 不检查。
+返回它——子查询和 CTE 不读行，不能在 `Build` 里拒绝。`SelectValue` 的投影不可空、`SelectNullValue` 的可空，
+所以同一道检查也管住了它们。
 CTE 的输出列可空时，`WithTable(cte)` 重绑的列标成 `always`。
 
 ### 软删除作用域（`query_render.go` 的 `writeFromWhere`、`table.go` 的 `liveRows` / `liveSource`）

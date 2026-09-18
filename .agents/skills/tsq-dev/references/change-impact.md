@@ -99,7 +99,7 @@
 - 断言要落在**真跑一次数据库**上（`exec_test.go` 的相关 `EXISTS`）：相关版本和被遮蔽版本渲染
   出的 SQL 都合法。
 
-## 改了单行读取（`Get` / `Find` / `Exists` / `Scalar`）
+## 改了单行读取（`Get` / `Find` / `Exists`）
 
 - 它们渲染 `renderMode{single: true}`，由 `writeTail` 加 `LIMIT 1`——位置天然在行锁之前。
   构建器自己设了 `Limit` 时不再补。
