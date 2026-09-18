@@ -103,6 +103,24 @@ func TestUpdateNeverWritesCreatedAtOrDeletedAt(t *testing.T) {
 		t.Fatalf("after delete = %+v, %v; want only the tombstone written", again, err)
 	}
 
+	// Without a version column the state is still checked: a second delete and a
+	// restore of a live row report it instead of doing nothing.
+	if err := Memos.Delete(ctx, rt, again); !IsRowStateError(err) {
+		t.Fatalf("second Delete without version = %v", err)
+	}
+
+	if err := Memos.Restore(ctx, rt, again); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Memos.Restore(ctx, rt, again); !IsRowStateError(err) {
+		t.Fatalf("second Restore = %v", err)
+	}
+
+	if err := Memos.Delete(ctx, rt, again); err != nil {
+		t.Fatal(err)
+	}
+
 	// WithDeleted updates deleted rows, still without touching the tombstone.
 	again.Body = "audited"
 	if err := Memos.WithDeleted().Update(ctx, rt, again); err != nil {
@@ -122,8 +140,8 @@ func TestRestoreAndDeleteMatchOnlyTheRightState(t *testing.T) {
 	row := rows[0]
 
 	// Restoring a live row matches nothing.
-	if err := Users.Restore(ctx, rt, row); !IsOptimisticLockError(err) {
-		t.Fatalf("Restore of a live row = %v", err)
+	if err := Users.Restore(ctx, rt, row); !IsRowStateError(err) || IsOptimisticLockError(err) {
+		t.Fatalf("Restore of a live row = %v; want a RowStateError", err)
 	}
 
 	if err := Users.Delete(ctx, rt, row); err != nil {
@@ -132,7 +150,7 @@ func TestRestoreAndDeleteMatchOnlyTheRightState(t *testing.T) {
 
 	// Deleting it twice matches nothing and keeps the first tombstone.
 	stamp := row.DeletedAt
-	if err := Users.Delete(ctx, rt, row); !IsOptimisticLockError(err) || row.DeletedAt != stamp {
+	if err := Users.Delete(ctx, rt, row); !IsRowStateError(err) || row.DeletedAt != stamp {
 		t.Fatalf("second Delete = %v, tombstone %d -> %d", err, stamp, row.DeletedAt)
 	}
 

@@ -302,10 +302,22 @@ func (q *Query[O]) ListIn[T comparable](ctx context.Context, db Executor, param 
 			return q.query(ctx, db, "list", empty[0])
 		}
 
+		parts := chunks(unique, room)
+
+		// One statement needs no snapshot: there is nothing to be consistent with.
+		if len(parts) == 1 {
+			_, stmts, err := q.prepare(db, append(slices.Clone(args), param.Bind(parts[0]...)), nil, renderMode{})
+			if err != nil {
+				return nil, err
+			}
+
+			return q.query(ctx, db, "list", stmts[0])
+		}
+
 		return snapshotRead(ctx, db, func(ctx context.Context, db Executor) ([]*O, error) {
 			var rows []*O
 
-			for _, part := range chunks(unique, room) {
+			for _, part := range parts {
 				_, stmts, err := q.prepare(db, append(slices.Clone(args), param.Bind(part...)), nil, renderMode{})
 				if err != nil {
 					return nil, err

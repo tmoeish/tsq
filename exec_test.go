@@ -476,6 +476,25 @@ func TestListInSplitsListsBeyondTheBindLimit(t *testing.T) {
 		t.Fatalf("no values = %v, %v", got, err)
 	}
 
+	// One statement is not worth a transaction; several share one snapshot.
+	var ops []TraceOp
+
+	traced := newSQLite(t, WithTracers(func(ctx context.Context, op TraceOp, next func(context.Context) error) error {
+		ops = append(ops, op)
+		return next(ctx)
+	}))
+
+	seedUsers(t, traced, "a")
+
+	small := Select(User__Cols...).From(Users).Where(User_ID.In(User_ID.ListParam())).MustBuild()
+	if _, err := small.ListIn(ctx, traced, User_ID.ListParam(), []int64{1, 2}); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(ops) != 2 || ops[1] != TraceOpList {
+		t.Fatalf("ops = %v; want the insert and one list without a transaction", ops)
+	}
+
 	list := User_ID.ListParam()
 	refused := map[string]*Query[user]{
 		"ordered":    Select(User__Cols...).From(Users).Where(User_ID.In(list)).OrderBy(User_ID.Asc()).MustBuild(),
