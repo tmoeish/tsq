@@ -211,7 +211,7 @@ func applyDirective(meta *genmodel.TableMeta, d directive, fields map[string]str
 		meta.SearchColumns = append(meta.SearchColumns, list...)
 
 		return nil
-	case "unique", "index":
+	case "unique", "index", "fulltext":
 		if meta.IsResult {
 			return d.errorf("indexes belong to a table")
 		}
@@ -222,15 +222,19 @@ func applyDirective(meta *genmodel.TableMeta, d directive, fields map[string]str
 		}
 
 		prefix := "idx"
-		if d.name == "unique" {
+
+		switch d.name {
+		case "unique":
 			prefix = "ux"
+		case "fulltext":
+			prefix = "ft"
 		}
 
 		if name == "" {
 			name = derivedIndexName(prefix, meta.Table, list)
 		}
 
-		for _, existing := range slices.Concat(meta.Uniques, meta.Indexes) {
+		for _, existing := range slices.Concat(meta.Uniques, meta.Indexes, meta.FullTexts) {
 			if slices.Equal(existing.Fields, list) {
 				return d.errorf("index %s already covers %s", existing.Name, strings.Join(list, ","))
 			}
@@ -241,9 +245,13 @@ func applyDirective(meta *genmodel.TableMeta, d directive, fields map[string]str
 		}
 
 		index := genmodel.IndexInfo{Name: name, Fields: list}
-		if d.name == "unique" {
+
+		switch d.name {
+		case "unique":
 			meta.Uniques = append(meta.Uniques, index)
-		} else {
+		case "fulltext":
+			meta.FullTexts = append(meta.FullTexts, index)
+		default:
 			meta.Indexes = append(meta.Indexes, index)
 		}
 

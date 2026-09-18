@@ -44,6 +44,7 @@ var sqliteCapabilities = map[Capability]bool{
 	CapabilitySelectForShare:      false,
 	CapabilitySelectForNoWait:     false,
 	CapabilitySelectForSkipLocked: false,
+	CapabilityFullTextSearch:      false,
 }
 
 func (d SQLiteDialect) SupportsCapability(capability Capability) bool {
@@ -431,6 +432,14 @@ func (d SQLiteDialect) AutoIncrementColumnSQL(quotedColumn string, desc ColumnTy
 
 	return quotedColumn + " INTEGER PRIMARY KEY AUTOINCREMENT", nil
 }
+
+// FullTextIndexSQL is empty: SQLite's full-text search lives in an FTS5 virtual
+// table with its own triggers, which TSQ does not manage, so there is no index to
+// create and the predicate matches substrings instead.
+func (d SQLiteDialect) FullTextIndexSQL(table, idx string, quotedFields []string) string { return "" }
+
+// FullTextVectorSQL is empty: the substring predicate names the columns itself.
+func (d SQLiteDialect) FullTextVectorSQL(quotedFields []string) string { return "" }
 
 func (d SQLiteDialect) CreateIndexSQL(table, idx string, fields []string, unique bool) string {
 	uniqueClause := ""

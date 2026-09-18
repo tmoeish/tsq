@@ -1,0 +1,94 @@
+package tsq
+
+import (
+	"errors"
+
+	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
+)
+
+// FullTextIndex is a table's declared full-text index, from TableOf.FullText.
+type FullTextIndex struct {
+	table Table
+	index TableIndex
+	err   error
+}
+
+// SearchTerm is the term Matches looks for: a Val or a Param of a string.
+type SearchTerm interface {
+	Pattern[string]
+	RHS[string]
+}
+
+// Matches is the full-text predicate of index: rows whose indexed columns match
+// term.
+//
+// What "match" means is the dialect's own: MySQL runs MATCH ... AGAINST in natural
+// language mode, PostgreSQL compares to_tsvector against plainto_tsquery (every
+// word must appear), and SQLite, which has no full-text index TSQ can manage,
+// matches term as a substring of any indexed column. Ranking and operator syntax
+// are not portable; dialect.CapabilityFullTextSearch reports which kind a runtime
+// gets.
+func Matches(index FullTextIndex, term SearchTerm) Condition {
+	switch {
+	case index.err != nil:
+		return conditionError(index.err)
+	case isNilValue(index.table):
+		return conditionError(errors.New("full-text index cannot be nil"))
+	case isNilValue(term):
+		return conditionError(errors.New("search term cannot be nil"))
+	}
+
+	info := exprInfo{tables: map[string]Table{index.table.Name(): index.table}}
+	raw := term.operand()
+	like := term.patternOperand(paramContains)
+
+	if raw.err != nil || like.err != nil {
+		return conditionError(errors.Join(raw.err, like.err))
+	}
+
+	return newCondition(info.merge(raw).merge(like).withSQL(sqlByDialect("full-text search",
+		map[tsqdialect.Name]sqlExpr{
+			tsqdialect.MySQL:    matchAgainst(index, raw.sql),
+			tsqdialect.Postgres: textSearchMatch(index, raw.sql),
+			tsqdialect.SQLite:   substringMatch(index, like.sql),
+		})))
+}
+
+// matchAgainst is MySQL's MATCH(cols) AGAINST (term), which needs the FULLTEXT
+// index over exactly those columns.
+func matchAgainst(index FullTextIndex, term sqlExpr) sqlExpr {
+	cols := make([]sqlExpr, 0, len(index.index.Fields))
+	for _, name := range index.index.Fields {
+		cols = append(cols, columnRef(index.table, name))
+	}
+
+	return sqlJoin(sqlText("MATCH("), sqlList(", ", cols), sqlText(") AGAINST ("), term, sqlText(" IN NATURAL LANGUAGE MODE)"))
+}
+
+// textSearchMatch repeats the expression the GIN index holds, which is what lets
+// PostgreSQL use it.
+func textSearchMatch(index FullTextIndex, term sqlExpr) sqlExpr {
+	quoted := make([]string, 0, len(index.index.Fields))
+	for _, name := range index.index.Fields {
+		quoted = append(quoted, tsqdialect.PostgresDialect{}.QuoteIdent(index.table.Name())+"."+tsqdialect.PostgresDialect{}.QuoteIdent(name))
+	}
+
+	vector := tsqdialect.PostgresDialect{}.FullTextVectorSQL(quoted)
+
+	return sqlJoin(sqlText(vector+" @@ plainto_tsquery('simple', "), term, sqlText(")"))
+}
+
+// substringMatch is the fallback where the dialect has no full-text index: the term
+// has to appear in one of the columns, wildcards escaped.
+func substringMatch(index FullTextIndex, pattern sqlExpr) sqlExpr {
+	terms := make([]sqlExpr, 0, len(index.index.Fields))
+	for _, name := range index.index.Fields {
+		terms = append(terms, sqlJoin(columnRef(index.table, name), sqlText(" LIKE "), pattern))
+	}
+
+	if len(terms) == 1 {
+		return terms[0]
+	}
+
+	return sqlJoin(sqlText("("), sqlList(" OR ", terms), sqlText(")"))
+}

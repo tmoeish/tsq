@@ -113,6 +113,10 @@ func buildGenerationModels(
 
 			s.Schema = schema
 
+			if err := validateFullTextFields(s); err != nil {
+				return nil, fmt.Errorf("validate %s: %w", s.TypeInfo.TypeName, err)
+			}
+
 			if err := validateDatabaseFilledFields(s); err != nil {
 				return nil, fmt.Errorf("validate %s: %w", s.TypeInfo.TypeName, err)
 			}

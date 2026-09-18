@@ -74,6 +74,15 @@
         ],
         "indexes": [
           {
+            "name": "ft_course_title_summary",
+            "fields": [
+              "title",
+              "summary"
+            ],
+            "unique": false,
+            "full_text": true
+          },
+          {
             "name": "idx_course_instructor_id",
             "fields": [
               "instructor_id"
@@ -380,6 +389,28 @@
         },
         "sqlite": {
           "aggregate_sql": "-- Table: course\n\nALTER TABLE \"course\" ADD COLUMN \"currency\" VARCHAR(3) NOT NULL DEFAULT 'USD';\n\nALTER TABLE \"course\" ADD COLUMN \"slug\" VARCHAR(160) GENERATED ALWAYS AS (LOWER(title)) STORED;"
+        }
+      }
+    },
+    {
+      "sequence": "2026-09-18 13:26:33",
+      "tables": [
+        {
+          "table": "course",
+          "indexes": [
+            "add index ft_course_title_summary"
+          ]
+        }
+      ],
+      "dialects": {
+        "mysql": {
+          "aggregate_sql": "-- Table: course\n\nALTER TABLE `course` ADD FULLTEXT INDEX `ft_course_title_summary`(`title`, `summary`);"
+        },
+        "postgres": {
+          "aggregate_sql": "-- Table: course\n\nCREATE INDEX \"ft_course_title_summary\" ON \"course\" USING GIN (to_tsvector('simple', coalesce(\"title\", '') || ' ' || coalesce(\"summary\", '')));"
+        },
+        "sqlite": {
+          "aggregate_sql": "-- Table: course\n\n-- No schema changes for table: course"
         }
       }
     }

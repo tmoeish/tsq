@@ -47,6 +47,7 @@ var mysqlCapabilities = map[Capability]bool{
 	CapabilitySelectForShare:      true,
 	CapabilitySelectForNoWait:     true,
 	CapabilitySelectForSkipLocked: true,
+	CapabilityFullTextSearch:      true,
 }
 
 func (d MySQLDialect) SupportsCapability(capability Capability) bool {
@@ -379,6 +380,17 @@ func (d MySQLDialect) AutoIncrementColumnSQL(quotedColumn string, desc ColumnTyp
 		"AUTO_INCREMENT",
 	}, " "), nil
 }
+
+// FullTextIndexSQL renders MySQL's FULLTEXT index, which MATCH ... AGAINST needs.
+func (d MySQLDialect) FullTextIndexSQL(table, idx string, quotedFields []string) string {
+	return fmt.Sprintf(
+		"ALTER TABLE %s ADD FULLTEXT INDEX %s(%s);",
+		d.QuoteIdent(table), d.QuoteIdent(idx), strings.Join(quotedFields, ", "),
+	)
+}
+
+// FullTextVectorSQL is empty: MySQL's predicate names the columns itself.
+func (d MySQLDialect) FullTextVectorSQL(quotedFields []string) string { return "" }
 
 func (d MySQLDialect) CreateIndexSQL(table, idx string, fields []string, unique bool) string {
 	uniqueClause := ""

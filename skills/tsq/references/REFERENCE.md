@@ -112,6 +112,7 @@ from the field's `db` tag.
 | `//tsq:table [name=X] [pk=Field] [assigned]` | declares a physical table. Required once per table struct |
 | `//tsq:result [name=X]` | declares a projection that is not a table. Required once per result struct |
 | `//tsq:managed role[=Field] ...` | enables managed columns: `version`, `created_at`, `updated_at`, `deleted_at` |
+| `//tsq:fulltext Field[,Field] [name=X]` | a full-text index over string fields, searched with `tsq.Matches` |
 | `//tsq:unique Fields[,Fields] [name=X]` | a unique index |
 | `//tsq:index Fields[,Fields] [name=X]` | a non-unique index |
 | `//tsq:search Fields[,Fields]` | the columns generated keyword search covers |
@@ -741,6 +742,29 @@ page, err := QueryPost.PageKeyset(ctx, runtime, k, tsq.Keyword(req.Keyword))
 - mixed directions work; the condition is spelled `a < ? OR (a = ? AND b > ?)`
 - over HTTP, `PageRequest` carries `after`, and `req.Keyset(sortable...)` resolves it like
   `Paging`; append the primary key to the resolved `OrderBy` yourself
+
+### Full-text search
+
+`//tsq:fulltext Title,Summary` declares a full-text index; `tsq.Matches` searches it:
+
+```go
+tsq.Select(database.Course__Cols...).
+	From(database.TableCourse).
+	Where(tsq.Matches(database.TableCourse.FullText(), tsq.Val(term)))   // or a Param
+```
+
+- `TableXxx.FullText()` returns the table's index, or `FullText("name")` when it declares several
+- the term is a `tsq.Val` or a `Param` of a string, bound like any value
+- the index is created by the schema policies, and compared **by name only**: PostgreSQL indexes an
+  expression, MySQL reports another index type, and SQLite has none, so comparing columns would ask
+  to rebuild it on every boot
+- **what "match" means is the dialect's own**: MySQL runs `MATCH ... AGAINST` in natural language
+  mode, PostgreSQL compares `to_tsvector('simple', ...)` against `plainto_tsquery` (every word must
+  appear), and SQLite, which has no index TSQ manages, matches the term as a **substring** of any
+  indexed column. Ranking and operator syntax are not portable.
+  `runtime.Dialect().SupportsCapability(dialect.CapabilityFullTextSearch)` says which kind a
+  deployment gets, so a test on SQLite can still exercise the query path
+- the fields must be plain `string` columns
 
 ### Keyword search
 

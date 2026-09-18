@@ -79,6 +79,7 @@ func And(conds ...Condition) Condition
 func Contains[S ~string](col Expression[S], part Pattern[S]) Condition
 func EndsWith[S ~string](col Expression[S], suffix Pattern[S]) Condition
 func Exists(sq AnySubquery) Condition
+func Matches(index FullTextIndex, term SearchTerm) Condition
 func Not(cond Condition) Condition
 func NotContains[S ~string](col Expression[S], part Pattern[S]) Condition
 func NotEndsWith[S ~string](col Expression[S], suffix Pattern[S]) Condition
@@ -151,6 +152,8 @@ type FromStage[O any] interface {
 	Select(cols ...BoundColumn[O]) JoinStage[O]
 }
 func From[O any](table Table) FromStage[O]
+type FullTextIndex struct {
+}
 type Groupable[O any] interface {
 	GroupBy(cols ...SQLColumn) GroupedStage[O]
 }
@@ -399,6 +402,10 @@ type SearchStage[O any] interface {
 	Lockable[O]
 	Where(conds ...Condition) FilteredStage[O]
 }
+type SearchTerm interface {
+	Pattern[string]
+	RHS[string]
+}
 type SelectStage[O any] interface {
 	From(table Table) JoinStage[O]
 }
@@ -427,6 +434,7 @@ type TableIndex struct {
 	Name   string   // Name is the physical index name.
 	Fields []string // Fields lists the indexed column names in order.
 	Unique bool     // Unique reports whether the index enforces uniqueness.
+	FullText bool
 }
 type TableOf[R any] struct {
 }
@@ -444,6 +452,7 @@ func (t *TableOf[R]) Columns() []BoundColumn[R]
 func (t *TableOf[R]) Define(spec TableSpec[R]) *TableOf[R]
 func (t *TableOf[R]) Delete(ctx context.Context, db Executor, row *R) error
 func (t *TableOf[R]) Err() error
+func (t *TableOf[R]) FullText(name ...string) FullTextIndex
 func (t *TableOf[R]) HardDelete(ctx context.Context, db Executor, row *R) error
 func (t *TableOf[R]) Indexes() []TableIndex
 func (t *TableOf[R]) Insert(ctx context.Context, db Executor, row *R) error
@@ -545,6 +554,7 @@ const (
 	CapabilitySelectForShare      Capability = "SELECT_FOR_SHARE"
 	CapabilitySelectForNoWait     Capability = "SELECT_FOR_NOWAIT"
 	CapabilitySelectForSkipLocked Capability = "SELECT_FOR_SKIP_LOCKED"
+	CapabilityFullTextSearch Capability = "FULL_TEXT_SEARCH"
 )
 func AllCapabilities() []Capability
 type ColumnKind string
@@ -589,6 +599,8 @@ type Dialect interface {
 	ColumnTypeSQL(t ColumnType) string
 	AutoIncrementColumnSQL(quotedColumn string, t ColumnType) (string, error)
 	CreateIndexSQL(table, idx string, quotedFields []string, unique bool) string
+	FullTextIndexSQL(table, idx string, quotedFields []string) string
+	FullTextVectorSQL(quotedFields []string) string
 	DropIndexSQL(table, idx string) string
 	AlterMode() AlterMode
 	AlterColumnSQL(table string, before, after ColumnSpec) []string
@@ -621,6 +633,8 @@ func (d MySQLDialect) ColumnTypeSQL(desc ColumnType) string
 func (d MySQLDialect) CreateIndexSQL(table, idx string, fields []string, unique bool) string
 func (d MySQLDialect) DropIndexSQL(table, idx string) string
 func (d MySQLDialect) EnsureIndex(ctx context.Context, db Executor, table, idx string, fields []string, unique bool) (string, error)
+func (d MySQLDialect) FullTextIndexSQL(table, idx string, quotedFields []string) string
+func (d MySQLDialect) FullTextVectorSQL(quotedFields []string) string
 func (d MySQLDialect) InspectColumns(ctx context.Context, db Executor, table string) ([]ColumnSpec, bool, error)
 func (d MySQLDialect) InspectIndex(ctx context.Context, db Executor, table, idx string) (Index, bool, error)
 func (d MySQLDialect) ListIndexes(ctx context.Context, db Executor, table string) ([]Index, error)
@@ -646,6 +660,8 @@ func (d PostgresDialect) ColumnTypeSQL(desc ColumnType) string
 func (d PostgresDialect) CreateIndexSQL(table, idx string, fields []string, unique bool) string
 func (d PostgresDialect) DropIndexSQL(table, idx string) string
 func (d PostgresDialect) EnsureIndex(ctx context.Context, db Executor, table, idx string, fields []string, unique bool) (string, error)
+func (d PostgresDialect) FullTextIndexSQL(table, idx string, quotedFields []string) string
+func (d PostgresDialect) FullTextVectorSQL(quotedFields []string) string
 func (d PostgresDialect) InspectColumns(ctx context.Context, db Executor, table string) ([]ColumnSpec, bool, error)
 func (d PostgresDialect) InspectIndex(ctx context.Context, db Executor, table, idx string) (Index, bool, error)
 func (d PostgresDialect) ListIndexes(ctx context.Context, db Executor, table string) ([]Index, error)
@@ -664,6 +680,8 @@ func (d SQLiteDialect) ColumnTypeSQL(desc ColumnType) string
 func (d SQLiteDialect) CreateIndexSQL(table, idx string, fields []string, unique bool) string
 func (d SQLiteDialect) DropIndexSQL(table, idx string) string
 func (d SQLiteDialect) EnsureIndex(ctx context.Context, db Executor, table, idx string, fields []string, unique bool) (string, error)
+func (d SQLiteDialect) FullTextIndexSQL(table, idx string, quotedFields []string) string
+func (d SQLiteDialect) FullTextVectorSQL(quotedFields []string) string
 func (d SQLiteDialect) InspectColumns(ctx context.Context, db Executor, table string) ([]ColumnSpec, bool, error)
 func (d SQLiteDialect) InspectIndex(ctx context.Context, db Executor, table, idx string) (Index, bool, error)
 func (d SQLiteDialect) ListIndexes(ctx context.Context, db Executor, table string) ([]Index, error)

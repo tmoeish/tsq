@@ -101,3 +101,9 @@ ALTER TABLE "track" ADD COLUMN "skill_items" JSON NOT NULL;
 ALTER TABLE "course" ADD COLUMN "currency" VARCHAR(3) NOT NULL DEFAULT 'USD';
 
 ALTER TABLE "course" ADD COLUMN "slug" VARCHAR(160) GENERATED ALWAYS AS (LOWER(title)) STORED;
+
+-- Migration: 2026-09-18 13:26:33
+
+-- Table: course
+
+CREATE INDEX "ft_course_title_summary" ON "course" USING GIN (to_tsvector('simple', coalesce("title", '') || ' ' || coalesce("summary", '')));

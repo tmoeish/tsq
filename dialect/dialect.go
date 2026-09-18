@@ -59,6 +59,13 @@ type Dialect interface {
 	AutoIncrementColumnSQL(quotedColumn string, t ColumnType) (string, error)
 	// CreateIndexSQL renders a CREATE INDEX statement over already-quoted fields.
 	CreateIndexSQL(table, idx string, quotedFields []string, unique bool) string
+	// FullTextIndexSQL renders the statement that creates a full-text index over the
+	// already-quoted fields, and "" where the dialect has no full-text index.
+	FullTextIndexSQL(table, idx string, quotedFields []string) string
+	// FullTextVectorSQL is the indexed expression a full-text predicate repeats over
+	// the already-quoted fields, and "" where the predicate names the columns
+	// directly (MySQL) or matches substrings instead (SQLite).
+	FullTextVectorSQL(quotedFields []string) string
 	// DropIndexSQL renders a DROP INDEX statement.
 	DropIndexSQL(table, idx string) string
 	// AlterMode says whether a column type change is an ALTER or a table rebuild.
@@ -89,6 +96,10 @@ const (
 	CapabilitySelectForShare      Capability = "SELECT_FOR_SHARE"
 	CapabilitySelectForNoWait     Capability = "SELECT_FOR_NOWAIT"
 	CapabilitySelectForSkipLocked Capability = "SELECT_FOR_SKIP_LOCKED"
+	// CapabilityFullTextSearch reports a full-text index and a matching predicate.
+	// Where it is missing, TSQ matches the term as a substring instead, which finds
+	// different rows: no stemming, no ranking, and no word boundaries.
+	CapabilityFullTextSearch Capability = "FULL_TEXT_SEARCH"
 )
 
 // AllCapabilities returns every capability this package defines, in declaration order.
@@ -109,6 +120,7 @@ func AllCapabilities() []Capability {
 		CapabilitySelectForShare,
 		CapabilitySelectForNoWait,
 		CapabilitySelectForSkipLocked,
+		CapabilityFullTextSearch,
 	}
 }
 

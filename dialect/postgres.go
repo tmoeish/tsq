@@ -44,6 +44,7 @@ var postgresCapabilities = map[Capability]bool{
 	CapabilitySelectForShare:      true,
 	CapabilitySelectForNoWait:     true,
 	CapabilitySelectForSkipLocked: true,
+	CapabilityFullTextSearch:      true,
 }
 
 func (d PostgresDialect) SupportsCapability(capability Capability) bool {
@@ -395,6 +396,27 @@ func (d PostgresDialect) AutoIncrementColumnSQL(quotedColumn string, desc Column
 	}
 
 	return quotedColumn + " " + ddlSerialType(desc), nil
+}
+
+// FullTextIndexSQL indexes the same expression the predicate repeats, which is what
+// lets PostgreSQL use the index.
+func (d PostgresDialect) FullTextIndexSQL(table, idx string, quotedFields []string) string {
+	return fmt.Sprintf(
+		"CREATE INDEX %s ON %s USING GIN (%s);",
+		d.QuoteIdent(idx), d.QuoteIdent(table), d.FullTextVectorSQL(quotedFields),
+	)
+}
+
+// FullTextVectorSQL builds the tsvector of the fields. The 'simple' configuration
+// only folds case, so the same term finds the same rows whatever the server's
+// default_text_search_config is.
+func (d PostgresDialect) FullTextVectorSQL(quotedFields []string) string {
+	parts := make([]string, 0, len(quotedFields))
+	for _, field := range quotedFields {
+		parts = append(parts, fmt.Sprintf("coalesce(%s, '')", field))
+	}
+
+	return fmt.Sprintf("to_tsvector('simple', %s)", strings.Join(parts, " || ' ' || "))
 }
 
 func (d PostgresDialect) CreateIndexSQL(table, idx string, fields []string, unique bool) string {

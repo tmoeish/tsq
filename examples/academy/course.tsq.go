@@ -153,6 +153,7 @@ var TableCourse = tsqCourseTable.Define(tsq.TableSpec[Course]{
 		{Name: "idx_course_instructor_id", Fields: []string{"instructor_id"}},
 		{Name: "idx_course_prerequisite_id", Fields: []string{"prerequisite_id"}},
 		{Name: "idx_course_track_id", Fields: []string{"track_id"}},
+		{Name: "ft_course_title_summary", FullText: true, Fields: []string{"title", "summary"}},
 	},
 })
 

@@ -455,7 +455,7 @@ func validateIdentifierLengths(data *genmodel.StructInfo) error {
 	for _, group := range []struct {
 		directive string
 		indexes   []genmodel.IndexInfo
-	}{{"unique", data.Uniques}, {"index", data.Indexes}} {
+	}{{"unique", data.Uniques}, {"index", data.Indexes}, {"fulltext", data.FullTexts}} {
 		for _, index := range group.indexes {
 			fix := fmt.Sprintf("name it explicitly: //tsq:%s %s name=...", group.directive, strings.Join(index.Fields, ","))
 			if err := check("index", index.Name, fix); err != nil {
@@ -590,6 +590,7 @@ func validateIndexNameCollisions(list []*genmodel.StructInfo) error {
 		}{
 			{unique: true, items: data.Uniques},
 			{unique: false, items: data.Indexes},
+			{unique: false, items: data.FullTexts},
 		} {
 			for _, idx := range group.items {
 				current := definition{
@@ -745,6 +746,25 @@ func validateFieldDatabaseCompatibility(data *genmodel.StructInfo) error {
 	for _, field := range data.Fields {
 		if err := validateFieldDatabaseType(field, keywordFields); err != nil {
 			return fmt.Errorf("field %s in %s"+": %w", field.Name, data.TypeInfo.TypeName, err)
+		}
+	}
+
+	return nil
+}
+
+// validateFullTextFields refuses a full-text index over a column that is not text:
+// MATCH, to_tsvector and LIKE all need one.
+func validateFullTextFields(data *genmodel.StructInfo) error {
+	for _, index := range data.FullTexts {
+		for _, name := range index.Fields {
+			field, ok := data.FieldsByName[name]
+			if !ok {
+				return fmt.Errorf("full-text index %s references unknown field %s", index.Name, name)
+			}
+
+			if field.IsSlice || field.IsPointer || field.Type.Package.Path != "" || field.Type.TypeName != "string" {
+				return fmt.Errorf("full-text index %s covers %s, which is not a string", index.Name, name)
+			}
 		}
 	}
 

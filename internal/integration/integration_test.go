@@ -1197,6 +1197,70 @@ func TestIntegrationDatabaseFilledColumns(t *testing.T) {
 	}
 }
 
+// TestIntegrationFullTextSearch searches the declared full-text index on every
+// dialect. MySQL and PostgreSQL use their own index; SQLite has none TSQ manages,
+// so the same predicate matches substrings, which is why the assertions only cover
+// what all three agree on.
+func TestIntegrationFullTextSearch(t *testing.T) {
+	for _, target := range integrationTargets(t) {
+		t.Run(target.name, func(t *testing.T) {
+			ctx := context.Background()
+
+			dropAcademyTables(t, target)
+			rt, _ := openWithPolicy(t, target, academy.TSQTables(), tsq.SchemaPolicyReconcile)
+
+			courses := []*academy.Course{
+				{TrackID: 1, InstructorID: 1, Title: "Query Planning", Summary: "sqlite explains its plans"},
+				{TrackID: 1, InstructorID: 1, Title: "Sqlite Internals", Summary: "pages and journals"},
+				{TrackID: 1, InstructorID: 1, Title: "Kafka Streams", Summary: "topics and partitions"},
+			}
+			if err := academy.TableCourse.BatchInsert(ctx, rt, courses); err != nil {
+				t.Fatal(err)
+			}
+
+			term := tsq.NewParam[string]("term")
+			search := tsq.Select(academy.Course__Cols...).From(academy.TableCourse).
+				Where(tsq.Matches(academy.TableCourse.FullText(), term)).
+				OrderBy(academy.Course_Title.Asc()).MustBuild()
+
+			found, err := search.List(ctx, rt, term.Bind("sqlite"))
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			titles := make([]string, 0, len(found))
+			for _, course := range found {
+				titles = append(titles, course.Title)
+			}
+
+			if !slices.Equal(titles, []string{"Query Planning", "Sqlite Internals"}) {
+				t.Fatalf("matches on %s = %v", target.name, titles)
+			}
+
+			if n, err := search.Count(ctx, rt, term.Bind("kafka")); err != nil || n != 1 {
+				t.Fatalf("count = %d, %v", n, err)
+			}
+
+			if n, err := search.Count(ctx, rt, term.Bind("cassandra")); err != nil || n != 0 {
+				t.Fatalf("no match = %d, %v", n, err)
+			}
+
+			// A Val term works the same way, and the index is only created once.
+			byValue := tsq.Select(academy.Course_ID).From(academy.TableCourse).
+				Where(tsq.Matches(academy.TableCourse.FullText(), tsq.Val("journals"))).MustBuild()
+
+			if n, err := byValue.Count(ctx, rt); err != nil || n != 1 {
+				t.Fatalf("value term = %d, %v", n, err)
+			}
+
+			native := rt.Dialect().SupportsCapability(tsqdialect.CapabilityFullTextSearch)
+			if native != (target.driver != "sqlite") {
+				t.Fatalf("%s reports full-text support %v", target.name, native)
+			}
+		})
+	}
+}
+
 // writeBeforeList runs write once, when the runtime logs the list statement of a
 // Page: after the count has run and before the rows are read.
 type writeBeforeList struct {

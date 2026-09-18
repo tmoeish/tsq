@@ -112,4 +112,5 @@ type TableMeta struct {
 	SearchColumns  []string
 	Uniques        []IndexInfo
 	Indexes        []IndexInfo
+	FullTexts      []IndexInfo
 }

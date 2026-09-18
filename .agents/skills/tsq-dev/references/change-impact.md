@@ -42,6 +42,14 @@
 - ORDER BY / LIMIT 作用于整个查询，由 `writeTail` 在查询体**之外**、行锁**之前**写；查询体
   （`writeBody`）会被复用为集合操作数和 CTE 体。
 
+## 改了全文检索
+
+- PostgreSQL 的索引表达式和谓词表达式必须**逐字相同**，否则索引用不上：两边都走
+  `PostgresDialect.FullTextVectorSQL`，不要在谓词里另写一份。
+- 全文索引只按名字对账（`ensureFullTextIndex`）：字段比较会因为三个方言的自省差异每次启动都想重建。
+- SQLite 是**按子串匹配的退化实现**，语义和另两个不同。改 `Matches` 的渲染要同时想清楚三种行为，
+  `TestIntegrationFullTextSearch` 只断言三者都同意的部分。
+
 ## 改了数据库填值的列（`Fill`、`default:` / `generated:`）
 
 - 三条路径都要一致：插入的列清单（`insertColumns`，按行分组，因为"未设置"是逐行的）、`Update` /

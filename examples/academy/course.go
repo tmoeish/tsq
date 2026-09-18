@@ -11,6 +11,7 @@ import "database/sql/driver"
 //tsq:index InstructorID
 //tsq:index PrerequisiteID
 //tsq:search Title,Summary
+//tsq:fulltext Title,Summary
 type Course struct {
 	ImmutableTable
 
