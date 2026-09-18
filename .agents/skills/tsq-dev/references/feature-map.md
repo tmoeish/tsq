@@ -11,8 +11,9 @@
 | `Query`：渲染缓存、绑参、`List` / `ListIn`（`checkSplittable`、`exprInfo.inList`）/ `Iter` / `Get` / `Find` / `Exists` / `Count` / `Scalar` / `Page`（`snapshotRead`）、`SQL()`、子查询 | `query.go`（`exec_test.go` 的 `TestIterStreamsRowsAndStops`、`TestPageInsideATransactionUsesIt`；快照一致性三方言真跑在 `TestIntegrationPageReadsOneSnapshot`） |
 | 中间表示：片段、`renderer`、`statement`、`assemble`、按方言分叉的片段 | `sqlexpr.go`（`render_test.go` 按三方言断言输出） |
 | 参数：`Param` / `ListParam` / `Arg` / `Keyword`、绑定校验、空列表渲染、LIKE 转义 | `param.go`（`build_test.go` 守绑定规则） |
-| 列接口与实现、谓词、`Expr` / `Pred`、`NullColumn` / `NewNullColumn`、`MapInto` / `MapIntoNull`、可空形态识别（`nullableValueType`） | `column.go`（`nullable_test.go`） |
-| 可空性推导（`exprInfo.null` / `nullness`）、外连接可选表、读行前检查（`checkScanTargets`）、`Scalar` / `ScalarNull` | `expr.go`、`query_render.go`、`query.go`（`nullable_test.go`；三方言真跑在 `TestIntegrationNullableColumns`） |
+| `Expression` / `Column` / `NullColumn` 的接口与实现、谓词、`Expr` / `Pred`、`NewNullColumn`、`MapInto` / `MapIntoNull`、可空形态识别 | `column.go`（`nullable_test.go`、`compilefail_test.go`） |
+| 单值查询 `SelectValue` / `SelectNullValue` | `querybuilder.go`（`exec_test.go` 的 `TestSelectValueReadsOneExpression`） |
+| 可空性推导（`exprInfo.null` / `nullness`）、外连接可选表、读行前检查（`checkScanTargets`） | `expr.go`、`query_render.go`、`query.go`（`nullable_test.go`；三方言真跑在 `TestIntegrationNullableColumns`） |
 | 固定值 `Val` / `Vals`（从不为 NULL，NULL 用 `SetNull` 写；`Value` 和 `Param` 共同实现模式函数的 `Pattern[S]`） | `values.go`、`param.go`（`values_test.go`；模式转义三方言真跑在 `TestIntegrationKeywordSearchEscapesWildcards`） |
 | 包级类型约束函数（`Text` / `Number`、聚合、字符串、数值、日期、`Coalesce` / `NullIf`、`StartsWith` 等模式函数、`Searchable`） | `functions.go`（`compilefail_test.go` 守约束；`internal/integration` 的 `TestIntegrationColumnFunctionsArePortable` 三方言真跑） |
 | `Condition`、`And` / `Or` / `Not`、`Exists` / `NotExists`、`exprInfo` | `expr.go` |

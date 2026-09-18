@@ -116,14 +116,12 @@ build tag，SQLite 目标因此每次 `go test` 都跑。
 
 ### 决定：相关子查询靠 `Correlate(...)` 显式声明，不靠推断 (2026-09-03)
 
-`validateJoinGraph` 要求每张被提到的表都在本查询的 FROM/JOIN 图里，相关引用天生不满足。旧报错
-建议 `use CrossJoin to include it explicitly`，**照做会静默改变语义**：join 进来的表遮蔽外层同名
-表，谓词不再相关（`NOT EXISTS` 要么全返回要么零行），而且能编译、能跑、不报错。
+`validateJoinGraph` 要求每张被提到的表都在 FROM/JOIN 图里，相关引用天生不满足。旧报错建议
+`use CrossJoin`，**照做会静默改变语义**：join 进来的表遮蔽外层同名表，谓词不再相关，而且不报错。
 
-**否掉"自动放行未知表"**：那等于把打错的表名一起放行，而拼错表名只会在数据库上炸。显式声明保住
-join 图校验的全部价值，代价只是多写一次表名。既 `Correlate` 又 join 同一张表是构建错误；带
-`Correlate` 的查询不能单独执行。它长在具体类型上，`api-check` 看不见（方法调用是快照的盲区），
-语义由 `render_test.go` 的 `TestCorrelatedSubqueryCarriesItsParameters` 守着。
+**否掉"自动放行未知表"**：那等于把打错的表名一起放行。既 `Correlate` 又 join 同一张表是构建错误；带
+`Correlate` 的查询不能单独执行。`api-check` 看不见方法调用，语义由
+`TestCorrelatedSubqueryCarriesItsParameters` 守着。
 
 ### 决定：按条件写语句不校验 `version` 但自增它；`Set*` 是泛型方法 (2026-09-03)
 
@@ -181,6 +179,10 @@ MySQL 的 `LENGTH` 数字节；PostgreSQL 没有 `round(double, int)`；modernc 
   不同类型，所以函数统一收 `Column`，结果的可空性记在 `exprInfo.null`；外连接、无 GROUP BY 的聚合本来就
   只在查询上下文里可知。检查在读行前而不在 `Build`（会拒掉合法的子查询和 CTE）。
   否决值类型包成 `Null[T]`：`RHS` 靠同名标记方法区分类型，一个值不能同时是两种 `RHS`。
+- **派生表达式不是列**：`derived` 不留扫描目标，`Select(tsq.Date(时间列))` 这种"值类型和字段类型不一致"
+  在编译期就写不出来（以前运行期扫描失败）；单值查询走 `SelectValue`，`Scalar` / `ScalarNull` 因此删除。
+- **Go 1.27 允许组合字面量用提升字段作键**（`outer{c: 1}`，`c` 来自嵌入字段）：拆结构体时旧字面量照样
+  编译，别把"编译通过"当成改完了。
 - **NULL 排序默认"最小值"**：MySQL 和 SQLite 本来如此，只需改 PostgreSQL，而且 MySQL 没有 `NULLS`
   子句，选另一种默认就得给 MySQL 的每个可空排序加 `IS NULL` 键。
 - **时间在绑定出口统一转 UTC，而不是只让托管时间戳用 UTC**：SQLite 按文本存时间，调用方拿本地时间

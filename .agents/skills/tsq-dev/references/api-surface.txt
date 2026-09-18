@@ -7,7 +7,7 @@ CONSTANTS
 const DefaultMaxPageSize = 1000
 const MaxPageNumber = 1000000
 FUNCTIONS
-func BuildSubquery[O, T any](stage QueryStage[O], selected TypedColumn[O, T]) (Subquery[T], error)
+func BuildSubquery[O, T any](stage QueryStage[O], selected ValueColumn[T]) (Subquery[T], error)
 func IsOptimisticLockError(err error) bool
 func IsRetryableNetworkError(err error) bool
 func IsRetryableTxError(err error) bool
@@ -45,60 +45,20 @@ type BoundColumn[O any] interface {
 type CaseStage[T any] interface {
 	When(cond Condition, result RHS[T]) CaseStage[T]
 	Else(result RHS[T]) CaseStage[T]
-	End() ValueColumn[T]
+	End() Expression[T]
 }
 func Case[T any]() CaseStage[T]
 type Column[O, T any] interface {
+	Expression[T]
 	TypedColumn[O, T]
-	RHS[T]
 	WithTable(table Table) Column[O, T]
 	As(alias string) Column[O, T]
 	Param() Param[T]
 	ListParam() ListParam[T]
 	Bind(value T) Arg
 	BindList(values ...T) Arg
-	IsNull() Condition
-	IsNotNull() Condition
-	EQ(rhs RHS[T]) Condition
-	NE(rhs RHS[T]) Condition
-	GT(rhs RHS[T]) Condition
-	GTE(rhs RHS[T]) Condition
-	LT(rhs RHS[T]) Condition
-	LTE(rhs RHS[T]) Condition
-	Like(rhs RHS[T]) Condition
-	NotLike(rhs RHS[T]) Condition
-	Between(start, end RHS[T]) Condition
-	NotBetween(start, end RHS[T]) Condition
-	In(set SetRHS[T]) Condition
-	NotIn(set SetRHS[T]) Condition
-	Pred(format string, args ...any) Condition
-	Expr(format string) Column[O, T]
-	Exprf(format string, args ...any) Column[O, T]
-	Asc() OrderBy
-	Desc() OrderBy
 }
-func Abs[O any, N Number](col Column[O, N]) Column[O, N]
-func Avg[O any, N Number](col Column[O, N]) Column[O, float64]
-func Ceil[O any, N Number](col Column[O, N]) Column[O, N]
-func Coalesce[O, T any](col Column[O, T], fallback RHS[T]) Column[O, T]
-func Count[O, T any](col Column[O, T]) Column[O, int64]
-func CountDistinct[O, T any](col Column[O, T]) Column[O, int64]
-func Date[O, T any](col Column[O, T]) Column[O, string]
-func Day[O, T any](col Column[O, T]) Column[O, int64]
-func Floor[O any, N Number](col Column[O, N]) Column[O, N]
-func Length[O any, S Text](col Column[O, S]) Column[O, int64]
-func Lower[O any, S Text](col Column[O, S]) Column[O, S]
-func Max[O, T any](col Column[O, T]) Column[O, T]
-func Min[O, T any](col Column[O, T]) Column[O, T]
-func Month[O, T any](col Column[O, T]) Column[O, int64]
 func NewColumn[O, T any](table *TableOf[O], name, jsonName string, field func(*O) *T) Column[O, T]
-func NullIf[O, T any](col Column[O, T], value RHS[T]) Column[O, T]
-func Round[O any, N Number](col Column[O, N], precision int) Column[O, N]
-func Substring[O any, S Text](col Column[O, S], start, length int) Column[O, S]
-func Sum[O any, N Number](col Column[O, N]) Column[O, N]
-func Trim[O any, S Text](col Column[O, S]) Column[O, S]
-func Upper[O any, S Text](col Column[O, S]) Column[O, S]
-func Year[O, T any](col Column[O, T]) Column[O, int64]
 type Combinable[O any] interface {
 	Union(other QueryStage[O]) CompoundStage[O]
 	UnionAll(other QueryStage[O]) CompoundStage[O]
@@ -115,16 +75,16 @@ type CompoundStage[O any] interface {
 type Condition interface {
 }
 func And(conds ...Condition) Condition
-func Contains[O any, S ~string](col Column[O, S], part Pattern[S]) Condition
-func EndsWith[O any, S ~string](col Column[O, S], suffix Pattern[S]) Condition
+func Contains[S ~string](col Expression[S], part Pattern[S]) Condition
+func EndsWith[S ~string](col Expression[S], suffix Pattern[S]) Condition
 func Exists(sq AnySubquery) Condition
 func Not(cond Condition) Condition
-func NotContains[O any, S ~string](col Column[O, S], part Pattern[S]) Condition
-func NotEndsWith[O any, S ~string](col Column[O, S], suffix Pattern[S]) Condition
+func NotContains[S ~string](col Expression[S], part Pattern[S]) Condition
+func NotEndsWith[S ~string](col Expression[S], suffix Pattern[S]) Condition
 func NotExists(sq AnySubquery) Condition
-func NotStartsWith[O any, S ~string](col Column[O, S], prefix Pattern[S]) Condition
+func NotStartsWith[S ~string](col Expression[S], prefix Pattern[S]) Condition
 func Or(conds ...Condition) Condition
-func StartsWith[O any, S ~string](col Column[O, S], prefix Pattern[S]) Condition
+func StartsWith[S ~string](col Expression[S], prefix Pattern[S]) Condition
 type DeleteBuilder[R any] struct {
 }
 func DeleteFrom[R any](table *TableOf[R]) *DeleteBuilder[R]
@@ -136,6 +96,50 @@ type Executor interface {
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 }
 func WrapExecutor(exec tsqdialect.Executor, dialect tsqdialect.Dialect) Executor
+type Expression[T any] interface {
+	ValueColumn[T]
+	RHS[T]
+	IsNull() Condition
+	IsNotNull() Condition
+	EQ(rhs RHS[T]) Condition
+	NE(rhs RHS[T]) Condition
+	GT(rhs RHS[T]) Condition
+	GTE(rhs RHS[T]) Condition
+	LT(rhs RHS[T]) Condition
+	LTE(rhs RHS[T]) Condition
+	Like(rhs RHS[T]) Condition
+	NotLike(rhs RHS[T]) Condition
+	Between(start, end RHS[T]) Condition
+	NotBetween(start, end RHS[T]) Condition
+	In(set SetRHS[T]) Condition
+	NotIn(set SetRHS[T]) Condition
+	Pred(format string, args ...any) Condition
+	Expr(format string) Expression[T]
+	Exprf(format string, args ...any) Expression[T]
+	Asc() OrderBy
+	Desc() OrderBy
+}
+func Abs[N Number](col Expression[N]) Expression[N]
+func Avg[N Number](col Expression[N]) Expression[float64]
+func Ceil[N Number](col Expression[N]) Expression[N]
+func Coalesce[T any](col Expression[T], fallback RHS[T]) Expression[T]
+func Count[T any](col Expression[T]) Expression[int64]
+func CountDistinct[T any](col Expression[T]) Expression[int64]
+func Date[T any](col Expression[T]) Expression[string]
+func Day[T any](col Expression[T]) Expression[int64]
+func Floor[N Number](col Expression[N]) Expression[N]
+func Length[S Text](col Expression[S]) Expression[int64]
+func Lower[S Text](col Expression[S]) Expression[S]
+func Max[T any](col Expression[T]) Expression[T]
+func Min[T any](col Expression[T]) Expression[T]
+func Month[T any](col Expression[T]) Expression[int64]
+func NullIf[T any](col Expression[T], value RHS[T]) Expression[T]
+func Round[N Number](col Expression[N], precision int) Expression[N]
+func Substring[S Text](col Expression[S], start, length int) Expression[S]
+func Sum[N Number](col Expression[N]) Expression[N]
+func Trim[S Text](col Expression[S]) Expression[S]
+func Upper[S Text](col Expression[S]) Expression[S]
+func Year[T any](col Expression[T]) Expression[int64]
 type FilteredStage[O any] interface {
 	QueryStage[O]
 	Groupable[O]
@@ -299,7 +303,7 @@ type Pattern[S ~string] interface {
 }
 type Query[O any] struct {
 }
-func (q *Query[O]) AsSubquery[T any](selected TypedColumn[O, T]) (Subquery[T], error)
+func (q *Query[O]) AsSubquery[T any](selected ValueColumn[T]) (Subquery[T], error)
 func (q *Query[O]) Count(ctx context.Context, db Executor, args ...Arg) (int64, error)
 func (q *Query[O]) Exists(ctx context.Context, db Executor, args ...Arg) (bool, error)
 func (q *Query[O]) Find(ctx context.Context, db Executor, args ...Arg) (*O, error)
@@ -310,8 +314,6 @@ func (q *Query[O]) ListIn[T comparable](ctx context.Context, db Executor, param 
 func (q *Query[O]) Page(ctx context.Context, db Executor, p Paging, args ...Arg) (*PageResponse[O], error)
 func (q *Query[O]) PageKeyset(ctx context.Context, db Executor, k Keyset, args ...Arg) (*KeysetPage[O], error)
 func (q *Query[O]) SQL(dialect tsqdialect.Dialect, args ...Arg) (string, []any, error)
-func (q *Query[O]) Scalar[T any](ctx context.Context, db Executor, selected TypedColumn[O, T], args ...Arg) (T, error)
-func (q *Query[O]) ScalarNull[T any](ctx context.Context, db Executor, selected TypedColumn[O, T], args ...Arg) (sql.Null[T], error)
 func (q *Query[O]) String() string
 type QueryStage[O any] interface {
 	Build() (*Query[O], error)
@@ -393,6 +395,8 @@ type SelectStage[O any] interface {
 }
 func Select[O any](cols ...BoundColumn[O]) SelectStage[O]
 func SelectDistinct[O any](cols ...BoundColumn[O]) SelectStage[O]
+func SelectNullValue[T any](expr ValueColumn[T]) SelectStage[sql.Null[T]]
+func SelectValue[T any](expr ValueColumn[T]) SelectStage[T]
 type SetRHS[T any] interface {
 }
 type Sortable[O any] interface {

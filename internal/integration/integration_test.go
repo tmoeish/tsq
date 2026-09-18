@@ -440,7 +440,7 @@ func TestIntegrationCapabilitiesExecute(t *testing.T) {
 
 			if dialect.SupportsCapability(tsqdialect.CapabilityFullOuterJoin) {
 				// Both sides of a FULL JOIN can be NULL, so the key is coalesced.
-				query := tsq.Select(tsq.Coalesce(academy.Learner_ID, tsq.Val(int64(0)))).From(academy.TableLearner).
+				query := tsq.SelectValue(tsq.Coalesce(academy.Learner_ID, tsq.Val(int64(0)))).From(academy.TableLearner).
 					FullJoin(academy.TableEnrollment, academy.Learner_ID.EQ(academy.Enrollment_LearnerID)).
 					MustBuild()
 
@@ -454,7 +454,7 @@ func TestIntegrationCapabilitiesExecute(t *testing.T) {
 				}
 			} else {
 				// Both sides of a FULL JOIN can be NULL, so the key is coalesced.
-				query := tsq.Select(tsq.Coalesce(academy.Learner_ID, tsq.Val(int64(0)))).From(academy.TableLearner).
+				query := tsq.SelectValue(tsq.Coalesce(academy.Learner_ID, tsq.Val(int64(0)))).From(academy.TableLearner).
 					FullJoin(academy.TableEnrollment, academy.Learner_ID.EQ(academy.Enrollment_LearnerID)).
 					MustBuild()
 
@@ -1054,8 +1054,8 @@ func TestIntegrationNullableColumns(t *testing.T) {
 			}
 
 			latest := tsq.Max(updated)
-			none, err := tsq.Select(latest).From(academy.TableEnrollment).
-				Where(academy.Enrollment_UID.LT(tsq.Val(int64(0)))).MustBuild().ScalarNull(ctx, rt, latest)
+			none, err := tsq.SelectNullValue(latest).From(academy.TableEnrollment).
+				Where(academy.Enrollment_UID.LT(tsq.Val(int64(0)))).MustBuild().Get(ctx, rt)
 			if err != nil || none.Valid {
 				t.Fatalf("MAX over no rows = %v, %v", none, err)
 			}
@@ -1287,10 +1287,10 @@ func TestIntegrationColumnFunctionsArePortable(t *testing.T) {
 			}
 
 			name := academy.Learner_Name
-			str := func(col tsq.Column[academy.Learner, string], want string) {
+			str := func(col tsq.Expression[string], want string) {
 				t.Helper()
 
-				got, err := tsq.Select(col).From(academy.TableLearner).MustBuild().ScalarNull(ctx, rt, col)
+				got, err := tsq.SelectNullValue(col).From(academy.TableLearner).MustBuild().Get(ctx, rt)
 				if err != nil || !got.Valid || got.V != want {
 					t.Errorf("%v = %v, %v; want %q", col, got, err, want)
 				}
@@ -1305,15 +1305,15 @@ func TestIntegrationColumnFunctionsArePortable(t *testing.T) {
 			str(tsq.Coalesce(academy.Learner_Company, tsq.Val("none")), "ACME")
 
 			length := tsq.Length(tsq.Trim(name))
-			if n, err := tsq.Select(length).From(academy.TableLearner).MustBuild().Scalar(ctx, rt, length); err != nil || n != 7 {
-				t.Errorf("Length() = %d, %v; want 7 characters", n, err)
+			if n, err := tsq.SelectValue(length).From(academy.TableLearner).MustBuild().Get(ctx, rt); err != nil || *n != 7 {
+				t.Errorf("Length() = %v, %v; want 7 characters", n, err)
 			}
 
 			score := academy.Enrollment_Score
-			num := func(col tsq.Column[academy.Enrollment, int64], want int64) {
+			num := func(col tsq.Expression[int64], want int64) {
 				t.Helper()
 
-				got, err := tsq.Select(col).From(academy.TableEnrollment).MustBuild().ScalarNull(ctx, rt, col)
+				got, err := tsq.SelectNullValue(col).From(academy.TableEnrollment).MustBuild().Get(ctx, rt)
 				if err != nil || !got.Valid || got.V != want {
 					t.Errorf("%v = %v, %v; want %d", col, got, err, want)
 				}
@@ -1330,10 +1330,10 @@ func TestIntegrationColumnFunctionsArePortable(t *testing.T) {
 			num(tsq.Max(tsq.Day(created)), 4)
 			num(tsq.Abs(tsq.Min(score)), 7)
 
-			dec := func(col tsq.Column[academy.Enrollment, float64], want float64) {
+			dec := func(col tsq.Expression[float64], want float64) {
 				t.Helper()
 
-				got, err := tsq.Select(col).From(academy.TableEnrollment).MustBuild().ScalarNull(ctx, rt, col)
+				got, err := tsq.SelectNullValue(col).From(academy.TableEnrollment).MustBuild().Get(ctx, rt)
 				if err != nil || !got.Valid || got.V != want {
 					t.Errorf("%v = %v, %v; want %v", col, got, err, want)
 				}
@@ -1345,13 +1345,13 @@ func TestIntegrationColumnFunctionsArePortable(t *testing.T) {
 			dec(tsq.Floor(tsq.Avg(score)), 2)
 
 			day := tsq.Max(tsq.Date(created))
-			if got, err := tsq.Select(day).From(academy.TableEnrollment).MustBuild().ScalarNull(ctx, rt, day); err != nil || got.V != "2026-03-04" {
+			if got, err := tsq.SelectNullValue(day).From(academy.TableEnrollment).MustBuild().Get(ctx, rt); err != nil || got.V != "2026-03-04" {
 				t.Errorf("Date() = %v, %v", got, err)
 			}
 
-			// Scalar refuses what ScalarNull reads.
-			if _, err := tsq.Select(day).From(academy.TableEnrollment).MustBuild().Scalar(ctx, rt, day); err == nil {
-				t.Error("expected Scalar to refuse an aggregate without GROUP BY")
+			// SelectValue refuses what SelectNullValue reads.
+			if _, err := tsq.SelectValue(day).From(academy.TableEnrollment).MustBuild().Get(ctx, rt); err == nil {
+				t.Error("expected SelectValue to refuse an aggregate without GROUP BY")
 			}
 
 			distinct, err := tsq.SelectDistinct(score).From(academy.TableEnrollment).MustBuild().Count(ctx, rt)

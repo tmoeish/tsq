@@ -259,7 +259,7 @@ func (t *TableOf[R]) Name() string { return t.def.name }
 func (t *TableOf[R]) Columns() []BoundColumn[R] {
 	result := make([]BoundColumn[R], 0, len(t.def.columns))
 	for _, core := range t.def.columns {
-		result = append(result, columnImpl[R, any]{c: core})
+		result = append(result, columnImpl[R, any]{exprImpl[any]{c: core}})
 	}
 
 	return result

@@ -12,7 +12,7 @@ type CaseStage[T any] interface {
 	// Else sets the ELSE result.
 	Else(result RHS[T]) CaseStage[T]
 	// End finishes the expression. Project it into a result with MapInto.
-	End() ValueColumn[T]
+	End() Expression[T]
 }
 
 // Case starts a searched CASE expression.
@@ -54,7 +54,7 @@ func (b caseBuilder[T]) otherwise(result exprInfo) CaseStage[T] {
 
 func (b caseBuilder[T]) Else(result RHS[T]) CaseStage[T] { return b.otherwise(rhsInfo(result)) }
 
-func (b caseBuilder[T]) End() ValueColumn[T] {
+func (b caseBuilder[T]) End() Expression[T] {
 	info := b.info
 	if len(b.branches) == 0 {
 		info.err = errors.Join(info.err, errors.New("case expression needs at least one WHEN"))
@@ -88,5 +88,5 @@ func (b caseBuilder[T]) End() ValueColumn[T] {
 		core.table = info.tables[names[0]]
 	}
 
-	return columnImpl[struct{}, T]{c: core}
+	return exprImpl[T]{c: core}
 }

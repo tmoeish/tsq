@@ -258,14 +258,14 @@ func TestReadsAgainstSQLite(t *testing.T) {
 		t.Fatalf("Exists() = %v, %v", ok, err)
 	}
 
-	total, err := Select(Order_Amount).From(Orders).MustBuild().Scalar(ctx, rt, Order_Amount)
-	if err != nil || total != 50 {
-		t.Fatalf("Scalar() = %d, %v", total, err)
+	total, err := SelectValue(Order_Amount).From(Orders).MustBuild().Get(ctx, rt)
+	if err != nil || *total != 50 {
+		t.Fatalf("SelectValue() = %v, %v", total, err)
 	}
 
-	sum := Select(Sum(Order_Amount)).From(Orders).MustBuild()
-	if v, err := sum.ScalarNull(ctx, rt, Sum(Order_Amount)); err != nil || !v.Valid || v.V != 500 {
-		t.Fatalf("ScalarNull(SUM) = %v, %v", v, err)
+	sum := SelectNullValue(Sum(Order_Amount)).From(Orders).MustBuild()
+	if v, err := sum.Get(ctx, rt); err != nil || !v.Valid || v.V != 500 {
+		t.Fatalf("SelectNullValue(SUM) = %v, %v", v, err)
 	}
 
 	big, err := BuildSubquery(
@@ -492,6 +492,36 @@ func TestListInSplitsListsBeyondTheBindLimit(t *testing.T) {
 	}
 }
 
+func TestSelectValueReadsOneExpression(t *testing.T) {
+	ctx := context.Background()
+	rt := newSQLite(t)
+	seedUsers(t, rt, "a", "b", "c")
+
+	// The rows are the values themselves, and the query is a query like any other.
+	names, err := SelectValue(Upper(User_Name)).From(Users).Where(User_Name.NE(Val("b"))).
+		OrderBy(User_Name.Desc()).MustBuild().List(ctx, rt)
+	if err != nil || len(names) != 2 || *names[0] != "C" || *names[1] != "A" {
+		t.Fatalf("List = %v, %v", names, err)
+	}
+
+	page, err := SelectValue(User_Name).From(Users).MustBuild().
+		Page(ctx, rt, Paging{Size: 2, OrderBy: []OrderBy{User_Name.Asc()}})
+	if err != nil || page.Total != 3 || len(page.Data) != 2 || *page.Data[0] != "a" {
+		t.Fatalf("Page = %+v, %v", page, err)
+	}
+
+	// It is a subquery like any other, too.
+	sub, err := BuildSubquery(SelectValue(Max(User_ID)).From(Users), Max(User_ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	last, err := Select(User__Cols...).From(Users).Where(User_ID.EQ(sub)).MustBuild().Get(ctx, rt)
+	if err != nil || last.Name != "c" {
+		t.Fatalf("subquery = %+v, %v", last, err)
+	}
+}
+
 func TestIterStreamsRowsAndStops(t *testing.T) {
 	ctx := context.Background()
 	rt := newSQLite(t)
@@ -616,8 +646,8 @@ func TestPageOrdersCompoundQueriesByOutputName(t *testing.T) {
 		t.Fatalf("SelectDistinct count = %d, %v; want 3", n, err)
 	}
 
-	if n, err := Select(CountDistinct(User_Name)).From(Users).MustBuild().Count(ctx, rt); err != nil || n != 1 {
-		t.Fatalf("aggregate count = %d, %v; want one row", n, err)
+	if n, err := SelectValue(CountDistinct(User_Name)).From(Users).MustBuild().Get(ctx, rt); err != nil || *n != 3 {
+		t.Fatalf("COUNT(DISTINCT) = %v, %v; want 3", n, err)
 	}
 }
 

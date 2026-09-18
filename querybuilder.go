@@ -2,6 +2,7 @@ package tsq
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 )
@@ -188,6 +189,37 @@ func SelectDistinct[O any](cols ...BoundColumn[O]) SelectStage[O] {
 	b.setSelect(cols)
 
 	return selectBuilder[O]{b}
+}
+
+// SelectValue starts a query that reads one expression, such as an aggregate:
+// its rows are the values themselves.
+//
+//	total, err := tsq.SelectValue(tsq.Sum(Order_Amount)).From(Orders).MustBuild().Get(ctx, db)
+//
+// The value must never be NULL; use SelectNullValue where it can be, for example
+// for SUM over no rows.
+func SelectValue[T any](expr ValueColumn[T]) SelectStage[T] {
+	return Select(MapInto(expr, func(v *T) *T { return v }, valueJSONName(expr)))
+}
+
+// SelectNullValue is SelectValue for an expression that can be NULL; its rows are
+// sql.Null[T].
+func SelectNullValue[T any](expr ValueColumn[T]) SelectStage[sql.Null[T]] {
+	return Select(MapIntoNull(expr, func(v *sql.Null[T]) *sql.Null[T] { return v }, valueJSONName(expr)))
+}
+
+// valueJSONName is the json name of a one-value projection: the source column's,
+// so PageRequest.OrderBy can name it.
+func valueJSONName(expr SQLColumn) string {
+	if isNilValue(expr) {
+		return "value"
+	}
+
+	if name := expr.JSONFieldName(); name != "" {
+		return name
+	}
+
+	return expr.Name()
 }
 
 // From starts a query with its FROM table.
