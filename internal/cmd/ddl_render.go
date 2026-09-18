@@ -58,6 +58,18 @@ const (
 	ddlColumnTime   ddlColumnKind = "time"
 )
 
+// fill translates the tag options into who provides the column's value.
+func (o ddlTagOptions) fill() string {
+	switch {
+	case o.generated:
+		return "generated"
+	case o.defaultExpr != "":
+		return "default"
+	default:
+		return ""
+	}
+}
+
 type ddlColumnDescriptor struct {
 	kind     ddlColumnKind
 	bits     int
@@ -65,6 +77,10 @@ type ddlColumnDescriptor struct {
 	nullable bool
 	size     int
 	rawType  string
+	// fill and generated come from the db tag: who provides the value.
+	fill         string
+	defaultExpr  string
+	generatedSQL string
 }
 
 var ddlDialects = []ddlDialectSpec{
@@ -282,6 +298,16 @@ func orderedDDLFields(table *genmodel.StructInfo) []genmodel.FieldInfo {
 	return fields
 }
 
+// ddlColumnDefault is the DEFAULT clause of the column: the one the db tag asks
+// for, or the one a managed column gets.
+func ddlColumnDefault(table *genmodel.StructInfo, field genmodel.FieldInfo, desc ddlColumnDescriptor) string {
+	if desc.defaultExpr != "" {
+		return desc.defaultExpr
+	}
+
+	return ddlManagedDefaultClause(table, field, desc)
+}
+
 func ddlManagedDefaultClause(table *genmodel.StructInfo, field genmodel.FieldInfo, desc ddlColumnDescriptor) string {
 	switch field.Name {
 	case table.CreatedAtField:
@@ -319,27 +345,25 @@ func ddlColumnSpecFromSnapshot(column ddlSnapshotColumn) tsqdialect.ColumnSpec {
 		PrimaryKey:    column.PrimaryKey,
 		AutoIncrement: column.AutoIncrement,
 		Default:       column.Default,
+		Fill:          ddlFillOf(column.Fill),
+		Generated:     column.Generated,
+	}
+}
+
+// ddlFillOf maps the generated model's fill name onto the dialect value.
+func ddlFillOf(fill string) tsqdialect.Fill {
+	switch fill {
+	case "default":
+		return tsqdialect.FillDefault
+	case "generated":
+		return tsqdialect.FillGenerated
+	default:
+		return tsqdialect.FillCaller
 	}
 }
 
 func renderDDLColumnSpec(dialect tsqdialect.Dialect, column tsqdialect.ColumnSpec) (string, error) {
-	quotedColumn := dialect.QuoteIdent(column.Name)
-	if column.PrimaryKey && column.AutoIncrement {
-		return dialect.AutoIncrementColumnSQL(quotedColumn, column.Type)
-	}
-
-	parts := []string{quotedColumn, dialect.ColumnTypeSQL(column.Type)}
-	if column.PrimaryKey {
-		parts = append(parts, "PRIMARY KEY")
-	} else if !column.Type.Nullable {
-		parts = append(parts, "NOT NULL")
-	}
-
-	if column.Default != "" {
-		parts = append(parts, "DEFAULT "+column.Default)
-	}
-
-	return strings.Join(parts, " "), nil
+	return tsqdialect.ColumnDefinitionSQL(dialect, column)
 }
 
 func newDDLTypeResolver(packagePath, dir string) (*ddlTypeResolver, error) {
@@ -634,6 +658,9 @@ func classifyDDLColumnType(t types.Type, rawTag string) (ddlColumnDescriptor, er
 	}
 
 	desc.rawType = opts.rawType
+	desc.fill = opts.fill()
+	desc.defaultExpr = opts.defaultExpr
+	desc.generatedSQL = opts.generatedSQL
 
 	return desc, nil
 }
@@ -777,8 +804,11 @@ func ddlBasicIntegerDescriptor(basic *types.Basic, nullable bool) ddlColumnDescr
 }
 
 type ddlTagOptions struct {
-	size    int
-	rawType string
+	size         int
+	rawType      string
+	defaultExpr  string
+	generated    bool
+	generatedSQL string
 }
 
 func parseDDLTagOptions(dbTag string) ddlTagOptions {
@@ -790,11 +820,18 @@ func parseDDLTagOptions(dbTag string) ddlTagOptions {
 	parts := splitDDLTagParts(dbTag)
 	for _, part := range parts[1:] {
 		key, value, ok := strings.Cut(strings.TrimSpace(part), ":")
+
+		key = strings.TrimSpace(key)
 		if !ok {
+			// generated without an expression: the database computes the column,
+			// and the schema it lives in is not TSQ's to write.
+			if key == "generated" {
+				opts.generated = true
+			}
+
 			continue
 		}
 
-		key = strings.TrimSpace(key)
 		value = strings.TrimSpace(value)
 
 		switch key {
@@ -811,6 +848,19 @@ func parseDDLTagOptions(dbTag string) ddlTagOptions {
 			}
 
 			opts.rawType = value
+		case "default":
+			if value == "" {
+				continue
+			}
+
+			opts.defaultExpr = value
+		case "generated":
+			if value == "" {
+				continue
+			}
+
+			opts.generated = true
+			opts.generatedSQL = value
 		}
 	}
 

@@ -435,32 +435,28 @@ func (t *TableOf[R]) insert(ctx context.Context, db Executor, rows []*R, config 
 		}
 	}
 
-	// Rows whose generated key is still zero omit the key column, so the two kinds
-	// are inserted separately.
-	var generated, explicit []*R
+	// Rows that leave a column to the database (a generated key, an unset column
+	// with a DEFAULT) omit it from the statement, so rows are grouped by what they
+	// write and each group gets its own INSERT.
+	groups := map[string][]*R{}
+	order := []string{}
 
 	for _, row := range rows {
-		if def.autoIncrement && field(row, def.primaryKey).IsZero() {
-			generated = append(generated, row)
-		} else {
-			explicit = append(explicit, row)
+		key := t.insertColumnKey(def, row)
+		if _, seen := groups[key]; !seen {
+			order = append(order, key)
 		}
+
+		groups[key] = append(groups[key], row)
 	}
 
-	for _, group := range [][]*R{explicit, generated} {
-		if len(group) == 0 {
-			continue
-		}
+	for _, key := range order {
+		group := groups[key]
+		omitKey := def.autoIncrement && field(group[0], def.primaryKey).IsZero()
+		cols := t.insertColumns(def, group[0])
 
-		omitKey := len(group) > 0 && def.autoIncrement && field(group[0], def.primaryKey).IsZero()
-
-		cols := make([]*columnCore, 0, len(def.columns))
-		for _, col := range def.columns {
-			if omitKey && col == def.primaryKey {
-				continue
-			}
-
-			cols = append(cols, col)
+		if len(cols) == 0 {
+			return fmt.Errorf("insert into %s: every column is left to the database", def.name)
 		}
 
 		if config.skipDuplicates {
@@ -479,7 +475,63 @@ func (t *TableOf[R]) insert(ctx context.Context, db Executor, rows []*R, config 
 		}
 	}
 
+	// One row reads back what the database filled in. A batch does not: that would
+	// be one query per row, and the caller asked for as few statements as possible.
+	if len(rows) == 1 {
+		if filled := t.databaseFilled(def, rows[0]); len(filled) > 0 {
+			return t.reloadColumns(ctx, db, scope, def, rows[0], filled)
+		}
+	}
+
 	return nil
+}
+
+// insertColumns are the columns an INSERT of row writes: not a zero generated key,
+// not a generated column, and not an unset column the database defaults.
+func (t *TableOf[R]) insertColumns(def *tableDef, row *R) []*columnCore {
+	cols := make([]*columnCore, 0, len(def.columns))
+
+	for _, col := range def.columns {
+		switch {
+		case col == def.primaryKey && def.autoIncrement && field(row, col).IsZero():
+		case col.fill == tsqdialect.FillGenerated:
+		case col.fill == tsqdialect.FillDefault && isUnset(field(row, col)):
+		default:
+			cols = append(cols, col)
+		}
+	}
+
+	return cols
+}
+
+// insertColumnKey groups rows that write the same columns.
+func (t *TableOf[R]) insertColumnKey(def *tableDef, row *R) string {
+	var key strings.Builder
+
+	for _, col := range t.insertColumns(def, row) {
+		key.WriteString(col.name)
+		key.WriteByte(0)
+	}
+
+	return key.String()
+}
+
+// databaseFilled are the columns of row the database provided, which an insert of
+// one row reads back.
+func (t *TableOf[R]) databaseFilled(def *tableDef, row *R) []*columnCore {
+	var cols []*columnCore
+
+	for _, col := range def.columns {
+		if col == def.primaryKey {
+			continue
+		}
+
+		if col.fill == tsqdialect.FillGenerated || (col.fill == tsqdialect.FillDefault && isUnset(field(row, col))) {
+			cols = append(cols, col)
+		}
+	}
+
+	return cols
 }
 
 func (t *TableOf[R]) insertChunk(ctx context.Context, db Executor, scope execScope, def *tableDef, cols []*columnCore, rows []*R, omitKey bool) error {
@@ -752,7 +804,8 @@ func (t *TableOf[R]) update(ctx context.Context, db Executor, rows []*R, config 
 			continue
 		}
 
-		if col != version {
+		// A generated column is the database's to compute, never ours to write.
+		if col != version && col.fill != tsqdialect.FillGenerated {
 			cols = append(cols, col)
 		}
 	}
@@ -1097,4 +1150,42 @@ func writeTombstoneSet(w *writeStmt, def *tableDef, stamp map[string]any) {
 	if def.managed.Version != "" {
 		w.text(", ").ident(def.managed.Version).text(" = ").ident(def.managed.Version).text(" + 1")
 	}
+}
+
+// reloadColumns reads cols of row back from the database, for values the database
+// provided: a DEFAULT, a generated expression, or a version an upsert advanced.
+func (t *TableOf[R]) reloadColumns(ctx context.Context, db Executor, scope execScope, def *tableDef, row *R, cols []*columnCore) error {
+	pk := field(row, def.primaryKey)
+	if len(cols) == 0 || pk.IsZero() {
+		return nil
+	}
+
+	w := &writeStmt{d: scope.dialect}
+	w.text("SELECT ")
+
+	dest := make([]any, 0, len(cols))
+
+	for i, col := range cols {
+		if i > 0 {
+			w.text(", ")
+		}
+
+		w.ident(col.name)
+
+		dest = append(dest, col.scan(row))
+	}
+
+	w.text(" FROM ").ident(def.name).text(" WHERE ").ident(def.primaryKey.name).text(" = ").arg(pk.Interface())
+
+	if w.err != nil {
+		return w.err
+	}
+
+	logSQLForExecutor(ctx, db, "reload", w.sql.String(), w.args)
+
+	if err := db.QueryRowContext(ctx, w.sql.String(), w.args...).Scan(dest...); err != nil {
+		return fmt.Errorf("reload %s %s=%v: %w", def.name, def.primaryKey.name, pk.Interface(), err)
+	}
+
+	return nil
 }

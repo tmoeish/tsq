@@ -154,11 +154,18 @@ func (t *TableOf[R]) Define(spec TableSpec[R]) *TableOf[R] {
 		return core
 	}
 
+	fill := make(map[string]tsqdialect.Fill, len(spec.Schema))
+	for _, column := range spec.Schema {
+		fill[column.Name] = column.Fill
+	}
+
 	for _, col := range spec.Columns {
 		core := own("column", col)
 		if core == nil {
 			continue
 		}
+
+		core.fill = fill[core.name]
 
 		if _, dup := d.byName[core.name]; dup {
 			fail("column %s is declared twice", core.name)

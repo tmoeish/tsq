@@ -86,6 +86,8 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 - 在声明了 `deleted_at` 的表上，`Delete` 是软删除，物理删除是 `HardDelete`；没有 `deleted_at` 的表两者同义。
 - **已删行是表的默认作用域**：引用这张表的每个查询（包括手写查询、JOIN 里的表、子查询和 CTE 里的表）以及 `UpdateTable` / 软 `DeleteFrom` 都看不到已删行。LEFT JOIN 的条件并进 `ON`；有 RIGHT / FULL JOIN 时表按活行派生表读取。`TableXxx.WithDeleted()` 是包含已删行的同一张表；`HardDeleteFrom` 作用于所有行，重复的软删除不会重写墓碑时间。软删除走 UPDATE，乐观锁校验、`version` 自增和 `updated_at` 刷新照常生效。`DeleteFrom` 的软删除时间戳**在执行时**计算（此前在构建时计算，包级语句会一直写入进程启动的时间）。
+- **数据库填值的列**：`db:"col,default:SQL"` 让列有 DDL 默认值，并且字段未设置时插入语句直接不写这一列（由数据库填），单行 `Insert` 之后把值读回；`db:"col,generated:SQL"` 声明生成列（`GENERATED ALWAYS AS (SQL) STORED`），`Insert` / `Update` / `Upsert` 永不写它，单行插入后读回。托管列和主键不允许这样标注，`tsq gen` 会拒绝。生成列由建表语句创建，之后 schema 策略不再比较它（三个方言的自省结果不一致）。
+- 列定义的 DDL 渲染统一到 `dialect.ColumnDefinitionSQL`，库和生成器不再各写一份。
 - 新增 `*tsq.RowStateError` 和 `tsq.IsRowStateError`：删除一个已删除的行、恢复一个未删除的行，报的是行的状态不对，而不是乐观锁冲突（那种重试没用），没有 `version` 列的表也会报。
 - `Query.ListIn` 在列表一条语句装得下时不再开事务。
 - **派生表达式不再能直接 `Select`**：列（`Column` / `NullColumn`）知道自己扫描进哪个字段，函数、`CASE`、`Expr` / `Exprf` 产出的是 `tsq.Expression[T]`，没有行归属。此前 `Select(tsq.Date(时间列))` 能编译、执行时才报扫描错误。现在用 `tsq.MapInto` 指定字段，或用新增的 `tsq.SelectValue` / `tsq.SelectNullValue` 让值本身成为行（`Query.Scalar` / `ScalarNull` 因此删除）。`WithTable` / `As` / `Param` / `Bind` 只在列上；`AsSubquery` / `BuildSubquery` 改收 `ValueColumn[T]`。

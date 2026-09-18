@@ -42,6 +42,15 @@
 - ORDER BY / LIMIT 作用于整个查询，由 `writeTail` 在查询体**之外**、行锁**之前**写；查询体
   （`writeBody`）会被复用为集合操作数和 CTE 体。
 
+## 改了数据库填值的列（`Fill`、`default:` / `generated:`）
+
+- 三条路径都要一致：插入的列清单（`insertColumns`，按行分组，因为"未设置"是逐行的）、`Update` /
+  `Upsert` 的 SET 清单、单行写入后的回读（`reloadColumns`）。漏一处就会写进一个数据库该自己算的列。
+- **生成列不参与 schema 对账**（`diffTableColumns` 里过滤）：SQLite 的 `table_info` 根本不列它，
+  MySQL/PG 报的类型和默认值也和声明不同，比较的结果是每次启动都想改一次。
+- 端到端的门是 `examples/academy` 的 `runDatabaseFilledDemo` 和 `TestIntegrationDatabaseFilledColumns`
+  （后者还断言第二次启动零 DDL）。
+
 ## 改了删除语义或托管列（`rows.go`、`TableSpec`）
 
 - **删除语义由表决定，不由调用点决定**：`TableSpec.DeletedAt` 非空 → `Delete` 打墓碑，

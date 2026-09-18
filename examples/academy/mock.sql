@@ -26,6 +26,8 @@ CREATE TABLE IF NOT EXISTS "learner" (
 CREATE TABLE IF NOT EXISTS "course" (
     "id" INTEGER PRIMARY KEY AUTOINCREMENT,
     "created_at" TIMESTAMP,
+    "currency" TEXT NOT NULL DEFAULT 'USD',
+    "slug" TEXT GENERATED ALWAYS AS (LOWER(title)) STORED,
     "instructor_id" INTEGER NOT NULL,
     "level" INTEGER NOT NULL,
     "list_price_cents" INTEGER NOT NULL,

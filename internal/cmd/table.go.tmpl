@@ -101,6 +101,12 @@ var {{$varTbl}} = {{$handle}}.Define(tsq.TableSpec[{{$type}}]{
 	{{- if .Default }}
 			Default: {{ printf "%q" .Default }},
 	{{- end }}
+	{{- if .Fill }}
+			Fill: {{ FillRef .Fill }},
+	{{- end }}
+	{{- if .Generated }}
+			Generated: {{ printf "%q" .Generated }},
+	{{- end }}
 		},
 {{- end }}
 	},

@@ -31,6 +31,11 @@ type Course struct {
 	ListPriceCents int64 `db:"list_price_cents" json:"list_price_cents"`
 	// Published 表示课程是否已发布到目录。
 	Published bool `db:"published" json:"published"`
+
+	// Currency 是标价货币，未设置时由数据库的默认值填上。
+	Currency string `db:"currency,size:3,default:'USD'" json:"currency"`
+	// Slug 由数据库从标题算出，TSQ 从不写它。
+	Slug string `db:"slug,size:160,generated:LOWER(title)" json:"slug"`
 }
 
 // CourseLevel classifies how advanced a course is within the catalog.

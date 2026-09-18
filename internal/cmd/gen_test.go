@@ -11,6 +11,7 @@ import (
 	"text/template"
 	"time"
 
+	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 	"github.com/tmoeish/tsq/v5/internal/genmodel"
 )
 
@@ -1337,6 +1338,53 @@ func TestValidateGeneratedFilenameCollisionsRejectsCaseConflicts(t *testing.T) {
 
 	if err := validateGeneratedFilenameCollisions(list); err == nil {
 		t.Fatal("expected case-insensitive filename collision to return an error")
+	}
+}
+
+func TestValidateDatabaseFilledFieldsRefusesManagedColumns(t *testing.T) {
+	data := &genmodel.StructInfo{
+		TableMeta: &genmodel.TableMeta{
+			Table:          "user",
+			PrimaryKey:     "ID",
+			CreatedAtField: "CreatedAt",
+		},
+		Schema: []genmodel.SchemaColumn{
+			{Name: "id", Fill: "generated"},
+		},
+		Fields: []genmodel.FieldInfo{
+			{Name: "ID", Column: "id"},
+			{Name: "CreatedAt", Column: "created_at"},
+		},
+	}
+
+	if err := validateDatabaseFilledFields(data); err == nil || !strings.Contains(err.Error(), "primary key") {
+		t.Fatalf("generated primary key = %v", err)
+	}
+
+	data.Schema = []genmodel.SchemaColumn{{Name: "created_at", Fill: "default"}}
+	if err := validateDatabaseFilledFields(data); err == nil || !strings.Contains(err.Error(), "created_at") {
+		t.Fatalf("defaulted created_at = %v", err)
+	}
+
+	data.Schema = []genmodel.SchemaColumn{{Name: "nickname", Fill: "default"}}
+	if err := validateDatabaseFilledFields(data); err != nil {
+		t.Fatalf("an ordinary column = %v", err)
+	}
+}
+
+func TestGeneratedColumnRendersTheSameOnEveryDialect(t *testing.T) {
+	column := tsqdialect.ColumnSpec{
+		Name:      "slug",
+		Type:      tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 160},
+		Fill:      tsqdialect.FillGenerated,
+		Generated: "LOWER(title)",
+	}
+
+	for _, spec := range ddlDialects {
+		got, err := renderDDLColumnSpec(spec.dialect, column)
+		if err != nil || !strings.HasSuffix(got, "GENERATED ALWAYS AS (LOWER(title)) STORED") || strings.Contains(got, "NOT NULL") {
+			t.Errorf("%s: %q, %v", spec.dialect.Name(), got, err)
+		}
 	}
 }
 

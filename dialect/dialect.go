@@ -213,10 +213,58 @@ type ColumnSpec struct {
 	PrimaryKey    bool
 	AutoIncrement bool
 	Default       string
+	// Fill says who provides the value of the column.
+	Fill Fill
+	// Generated is the expression of a generated column, empty otherwise.
+	Generated string
 	// NativeType is the column type exactly as reported by the database.
 	// It is populated by InspectColumns and is empty on declared specs.
 	NativeType string
 }
+
+// ColumnDefinitionSQL renders the column as a CREATE TABLE or ADD COLUMN clause.
+// The library and the generator share it, so a declared column reads the same in a
+// generated .sql file and in the DDL a runtime applies.
+func ColumnDefinitionSQL(dialect Dialect, column ColumnSpec) (string, error) {
+	quoted := dialect.QuoteIdent(column.Name)
+
+	if column.PrimaryKey && column.AutoIncrement {
+		return dialect.AutoIncrementColumnSQL(quoted, column.Type)
+	}
+
+	// A generated column takes neither NOT NULL nor DEFAULT, and STORED is the one
+	// form MySQL 5.7+, PostgreSQL 12+ and SQLite 3.31+ all accept.
+	if column.Generated != "" {
+		return fmt.Sprintf("%s %s GENERATED ALWAYS AS (%s) STORED", quoted, dialect.ColumnTypeSQL(column.Type), column.Generated), nil
+	}
+
+	parts := []string{quoted, dialect.ColumnTypeSQL(column.Type)}
+
+	switch {
+	case column.PrimaryKey:
+		parts = append(parts, "PRIMARY KEY")
+	case !column.Type.Nullable:
+		parts = append(parts, "NOT NULL")
+	}
+
+	if column.Default != "" {
+		parts = append(parts, "DEFAULT "+column.Default)
+	}
+
+	return strings.Join(parts, " "), nil
+}
+
+// Fill says who provides a column's value.
+type Fill uint8
+
+const (
+	// FillCaller is the default: the value comes from the row being written.
+	FillCaller Fill = iota
+	// FillDefault lets the database apply its DEFAULT when the field is unset.
+	FillDefault
+	// FillGenerated is a column the database computes; it is never written.
+	FillGenerated
+)
 
 // Index describes a table index, either as declared or as reported by the database.
 // PrimaryKey and Constraint are only set on inspected indexes.

@@ -751,6 +751,36 @@ func validateFieldDatabaseCompatibility(data *genmodel.StructInfo) error {
 	return nil
 }
 
+// validateDatabaseFilledFields refuses a column the database fills where TSQ has
+// to write the value itself.
+func validateDatabaseFilledFields(data *genmodel.StructInfo) error {
+	managed := map[string]string{
+		data.PrimaryKey:     "the primary key",
+		data.VersionField:   "the version column",
+		data.CreatedAtField: "created_at",
+		data.UpdatedAtField: "updated_at",
+		data.DeletedAtField: "deleted_at",
+	}
+
+	for _, column := range data.Schema {
+		if column.Fill == "" {
+			continue
+		}
+
+		for _, field := range data.Fields {
+			if field.Column != column.Name {
+				continue
+			}
+
+			if role, ok := managed[field.Name]; ok && role != "" {
+				return fmt.Errorf("field %s is %s, which TSQ writes itself; it cannot be %s", field.Name, role, column.Fill)
+			}
+		}
+	}
+
+	return nil
+}
+
 func validateFieldDatabaseType(field genmodel.FieldInfo, keywordFields map[string]struct{}) error {
 	if field.Type.Package.Path == "" {
 		switch field.Type.TypeName {

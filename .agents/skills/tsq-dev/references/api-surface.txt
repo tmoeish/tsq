@@ -524,6 +524,7 @@ type WhereStage[O any] interface {
 ## ./dialect
 package dialect // import "github.com/tmoeish/tsq/v5/dialect"
 FUNCTIONS
+func ColumnDefinitionSQL(dialect Dialect, column ColumnSpec) (string, error)
 func MaxBindParams(dialect Dialect) int
 func SameColumnType(dialect Dialect, left, right ColumnSpec) bool
 func ValidateCapability(dialect Dialect, capability Capability) error
@@ -561,6 +562,8 @@ type ColumnSpec struct {
 	PrimaryKey    bool
 	AutoIncrement bool
 	Default       string
+	Fill Fill
+	Generated string
 	NativeType string
 }
 type ColumnType struct {
@@ -595,6 +598,12 @@ type Executor interface {
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 }
+type Fill uint8
+const (
+	FillCaller Fill = iota
+	FillDefault
+	FillGenerated
+)
 type Index struct {
 	Name       string
 	Table      string

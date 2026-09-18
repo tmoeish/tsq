@@ -20,12 +20,14 @@ var tsqCourseTable = tsq.NewTable[Course]("course")
 // Columns of Course.
 var (
 	Course_CreatedAt      = tsq.NewNullColumn[tsqtime.Time](tsqCourseTable, "created_at", "created_at", func(r *Course) *null.Time { return &r.CreatedAt })
+	Course_Currency       = tsq.NewColumn(tsqCourseTable, "currency", "currency", func(r *Course) *string { return &r.Currency })
 	Course_ID             = tsq.NewColumn(tsqCourseTable, "id", "id", func(r *Course) *int64 { return &r.ID })
 	Course_InstructorID   = tsq.NewColumn(tsqCourseTable, "instructor_id", "instructor_id", func(r *Course) *int64 { return &r.InstructorID })
 	Course_Level          = tsq.NewColumn(tsqCourseTable, "level", "level", func(r *Course) *CourseLevel { return &r.Level })
 	Course_ListPriceCents = tsq.NewColumn(tsqCourseTable, "list_price_cents", "list_price_cents", func(r *Course) *int64 { return &r.ListPriceCents })
 	Course_PrerequisiteID = tsq.NewColumn(tsqCourseTable, "prerequisite_id", "prerequisite_id", func(r *Course) *int64 { return &r.PrerequisiteID })
 	Course_Published      = tsq.NewColumn(tsqCourseTable, "published", "published", func(r *Course) *bool { return &r.Published })
+	Course_Slug           = tsq.NewColumn(tsqCourseTable, "slug", "slug", func(r *Course) *string { return &r.Slug })
 	Course_Summary        = tsq.NewColumn(tsqCourseTable, "summary", "summary", func(r *Course) *string { return &r.Summary })
 	Course_Title          = tsq.NewColumn(tsqCourseTable, "title", "title", func(r *Course) *string { return &r.Title })
 	Course_TrackID        = tsq.NewColumn(tsqCourseTable, "track_id", "track_id", func(r *Course) *int64 { return &r.TrackID })
@@ -36,12 +38,14 @@ var (
 var TableCourse = tsqCourseTable.Define(tsq.TableSpec[Course]{
 	Columns: []tsq.BoundColumn[Course]{
 		Course_CreatedAt,
+		Course_Currency,
 		Course_ID,
 		Course_InstructorID,
 		Course_Level,
 		Course_ListPriceCents,
 		Course_PrerequisiteID,
 		Course_Published,
+		Course_Slug,
 		Course_Summary,
 		Course_Title,
 		Course_TrackID,
@@ -69,6 +73,15 @@ var TableCourse = tsqCourseTable.Define(tsq.TableSpec[Course]{
 				Kind:     tsqdialect.KindTime,
 				Nullable: true,
 			},
+		},
+		{
+			Name: "currency",
+			Type: tsqdialect.ColumnType{
+				Kind: tsqdialect.KindString,
+				Size: 3,
+			},
+			Default: "'USD'",
+			Fill:    tsqdialect.FillDefault,
 		},
 		{
 			Name: "instructor_id",
@@ -103,6 +116,15 @@ var TableCourse = tsqCourseTable.Define(tsq.TableSpec[Course]{
 			Type: tsqdialect.ColumnType{
 				Kind: tsqdialect.KindBool,
 			},
+		},
+		{
+			Name: "slug",
+			Type: tsqdialect.ColumnType{
+				Kind: tsqdialect.KindString,
+				Size: 160,
+			},
+			Fill:      tsqdialect.FillGenerated,
+			Generated: "LOWER(title)",
 		},
 		{
 			Name: "summary",

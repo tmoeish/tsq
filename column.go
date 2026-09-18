@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+
+	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 )
 
 // SQLColumn is any selectable expression: a table column, an expression derived
@@ -152,6 +154,9 @@ type columnCore struct {
 	// another source and sorted by name.
 	plain bool
 	scan  scanPointer
+	// fill says who provides the value: the caller, or the database through a
+	// DEFAULT or a generated expression. It comes from TableSpec.Schema.
+	fill tsqdialect.Fill
 	// nullable reports that the scan target holds NULL: a NullColumn, or a
 	// MapIntoNull projection. A value that can be NULL may only be read into one.
 	nullable bool

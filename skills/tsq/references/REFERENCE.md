@@ -152,6 +152,20 @@ Rules:
 - `int`, `uint`, and enum-like custom types built on them default to regular integer width; `int64` / `uint64` map to big-integer types
 - `db:"col,size:N"` sets an explicit string width
 - `db:"col,type:SQL_TYPE"` sets an explicit raw SQL type override for DDL generation and runtime schema metadata
+- `db:"col,default:SQL"` gives the column a DDL `DEFAULT SQL` **and** leaves it to the database when
+  the field is unset: an `INSERT` of such a row omits the column, and a single-row `Insert` reads the
+  value back into the field. A field the caller did set is written as usual
+- `db:"col,generated:SQL"` declares a column the database computes:
+  `GENERATED ALWAYS AS (SQL) STORED` in the DDL, never written by `Insert`, `Update` or `Upsert`, and
+  read back after a single-row `Insert`. `db:"col,generated"` without an expression says the same
+  about a column whose schema comes from migrations
+- a database-filled column cannot be the primary key or a managed column (`version`, `created_at`,
+  `updated_at`, `deleted_at`): those are TSQ's to write, and `tsq gen` refuses it
+- a batch insert does not read database-filled values back; that would be one query per row. Reload
+  the rows when the values matter
+- a generated column is created with the table and never altered afterwards: every dialect reports
+  it differently, so the schema policies leave it alone. Adding one to a table that already exists
+  is a migration
 - use `type:` for custom Go types such as JSON slices that implement `driver.Valuer` / `sql.Scanner`; those runtime interfaces do not tell TSQ whether the column should be `JSON`, `TEXT`, `JSONB`, or another SQL type
 - `type:` is emitted verbatim to generated dialect DDL, so only reuse the same value across dialects when that is actually correct
 - dialects may still choose a more suitable large-text type for oversized strings; for example, MySQL upgrades very large strings to `MEDIUMTEXT` / `LONGTEXT`

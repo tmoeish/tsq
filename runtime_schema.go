@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sort"
 	"strings"
 
@@ -371,6 +372,23 @@ func diffTableColumns(
 	current []tsqdialect.ColumnSpec,
 	desired []tsqdialect.ColumnSpec,
 ) []tableColumnChange {
+	// A generated column is created with the table and never touched afterwards:
+	// every dialect reports it differently (SQLite's table_info omits it entirely),
+	// so comparing would ask for the same change on every boot. It leaves both sides
+	// of the comparison, or the live column would look undeclared and be dropped.
+	// Adding one to a table that exists is a migration.
+	generated := map[string]bool{}
+
+	for _, column := range desired {
+		if column.Fill == tsqdialect.FillGenerated {
+			generated[column.Name] = true
+		}
+	}
+
+	skipGenerated := func(c tsqdialect.ColumnSpec) bool { return generated[c.Name] }
+	desired = slices.DeleteFunc(slices.Clone(desired), skipGenerated)
+	current = slices.DeleteFunc(slices.Clone(current), skipGenerated)
+
 	currentByName := make(map[string]tsqdialect.ColumnSpec, len(current))
 	for _, column := range current {
 		currentByName[column.Name] = column
@@ -441,7 +459,24 @@ func columnsEqual(dialect tsqdialect.Dialect, left, right tsqdialect.ColumnSpec)
 		return true
 	}
 
-	return strings.EqualFold(strings.TrimSpace(left.Default), strings.TrimSpace(right.Default))
+	return normalizeDefaultLiteral(left.Default) == normalizeDefaultLiteral(right.Default)
+}
+
+// normalizeDefaultLiteral makes two spellings of the same default comparable: a
+// declared 'USD' reads back as USD on MySQL and as 'USD'::character varying on
+// PostgreSQL, and comparing those verbatim asks to set the default on every boot.
+func normalizeDefaultLiteral(value string) string {
+	value = strings.TrimSpace(value)
+
+	if cast := strings.Index(value, "::"); cast >= 0 {
+		value = strings.TrimSpace(value[:cast])
+	}
+
+	if len(value) >= 2 && strings.HasPrefix(value, "'") && strings.HasSuffix(value, "'") {
+		value = value[1 : len(value)-1]
+	}
+
+	return strings.ToLower(value)
 }
 
 func ddlColumnChangeName(change tableColumnChange) string {
@@ -497,23 +532,7 @@ func renderCreateTableStatement(
 }
 
 func renderRuntimeDDLColumnSpec(dialect tsqdialect.Dialect, column tsqdialect.ColumnSpec) (string, error) {
-	quotedColumn := dialect.QuoteIdent(column.Name)
-	if column.PrimaryKey && column.AutoIncrement {
-		return dialect.AutoIncrementColumnSQL(quotedColumn, column.Type)
-	}
-
-	parts := []string{quotedColumn, dialect.ColumnTypeSQL(column.Type)}
-	if column.PrimaryKey {
-		parts = append(parts, "PRIMARY KEY")
-	} else if !column.Type.Nullable {
-		parts = append(parts, "NOT NULL")
-	}
-
-	if column.Default != "" {
-		parts = append(parts, "DEFAULT "+column.Default)
-	}
-
-	return strings.Join(parts, " "), nil
+	return tsqdialect.ColumnDefinitionSQL(dialect, column)
 }
 
 func renderTableColumnChanges(

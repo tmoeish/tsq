@@ -43,6 +43,7 @@ func columnKindRef(kind string) (string, error) {
 func funcMap() template.FuncMap {
 	return template.FuncMap{
 		"UpperInitial":             upperInitial,
+		"FillRef":                  fillRef,
 		"ColumnKindRef":            columnKindRef,
 		"FieldVarName":             fieldVarName,
 		"FieldSliceVarName":        fieldSliceVarName,
@@ -371,5 +372,18 @@ func softDeleteActiveExpr(recv, fieldName string, field genmodel.FieldInfo) stri
 		return "!" + target + ".Valid"
 	default:
 		panic(fmt.Sprintf("unsupported deleted_at field type: %s", fieldType(field)))
+	}
+}
+
+// fillRef writes the tsqdialect.Fill constant for a schema column's fill, spelled
+// out so generated_symbols_test.go can check it exists.
+func fillRef(fill string) string {
+	switch fill {
+	case "default":
+		return "tsqdialect.FillDefault"
+	case "generated":
+		return "tsqdialect.FillGenerated"
+	default:
+		return "tsqdialect.FillCaller"
 	}
 }
