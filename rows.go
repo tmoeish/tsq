@@ -266,7 +266,12 @@ func (t *TableOf[R]) setTombstone(ctx context.Context, db Executor, rows []*R, c
 		writeKeyMatch(w, def, chunk)
 		writeTombstoneFilter(w, def, !deleted)
 
-		if err := t.execCounted(ctx, db, w, def, op, chunk, version != nil); err != nil {
+		need := "a live row"
+		if !deleted {
+			need = "a deleted row"
+		}
+
+		if err := t.execCounted(ctx, db, w, def, op, chunk, wrongRowState(def.name, op, need)); err != nil {
 			return err
 		}
 
@@ -810,7 +815,7 @@ func (t *TableOf[R]) updateChunk(ctx context.Context, db Executor, scope execSco
 		writeTombstoneFilter(w, def, false)
 	}
 
-	if err := t.execCounted(ctx, db, w, def, "update", rows, version != nil); err != nil {
+	if err := t.execCounted(ctx, db, w, def, "update", rows, versionGuard(def, version)); err != nil {
 		return err
 	}
 
@@ -825,7 +830,9 @@ func (t *TableOf[R]) updateChunk(ctx context.Context, db Executor, scope execSco
 
 // execCounted runs w and, when the rows are version-guarded, reports an
 // OptimisticLockError unless every row matched.
-func (t *TableOf[R]) execCounted(ctx context.Context, db Executor, w *writeStmt, def *tableDef, op string, rows []*R, guarded bool) error {
+// execCounted runs the statement. When mismatch is set, it checks that the
+// statement matched every row and turns a shortfall into that error.
+func (t *TableOf[R]) execCounted(ctx context.Context, db Executor, w *writeStmt, def *tableDef, op string, rows []*R, mismatch func(expected int, actual int64) error) error {
 	if w.err != nil {
 		return w.err
 	}
@@ -844,7 +851,7 @@ func (t *TableOf[R]) execCounted(ctx context.Context, db Executor, w *writeStmt,
 		return fmt.Errorf("%s %s: %w", op, target, err)
 	}
 
-	if !guarded {
+	if mismatch == nil {
 		return nil
 	}
 
@@ -854,10 +861,34 @@ func (t *TableOf[R]) execCounted(ctx context.Context, db Executor, w *writeStmt,
 	}
 
 	if affected != int64(len(rows)) {
-		return fmt.Errorf("%s %s: %w", op, target, &OptimisticLockError{Table: def.name, Expected: len(rows), Actual: affected})
+		return fmt.Errorf("%s %s: %w", op, target, mismatch(len(rows), affected))
 	}
 
 	return nil
+}
+
+// versionGuard checks the row count only when the table has a version column: it
+// is what makes a mismatch mean "someone else changed it".
+func versionGuard(def *tableDef, version *columnCore) func(int, int64) error {
+	if version == nil {
+		return nil
+	}
+
+	return versionConflict(def.name)
+}
+
+// versionConflict is the mismatch error of a version-guarded write.
+func versionConflict(table string) func(int, int64) error {
+	return func(expected int, actual int64) error {
+		return &OptimisticLockError{Table: table, Expected: expected, Actual: actual}
+	}
+}
+
+// wrongRowState is the mismatch error of a write that needs the row in one state.
+func wrongRowState(table, op, need string) func(int, int64) error {
+	return func(expected int, actual int64) error {
+		return &RowStateError{Table: table, Op: op, Need: need, Expected: expected, Actual: actual}
+	}
 }
 
 func (t *TableOf[R]) hardDelete(ctx context.Context, db Executor, rows []*R, config batchConfig) error {
@@ -882,7 +913,7 @@ func (t *TableOf[R]) hardDelete(ctx context.Context, db Executor, rows []*R, con
 		w.text("DELETE FROM ").ident(def.name).text(" WHERE ")
 		writeKeyMatch(w, def, chunk)
 
-		if err := t.execCounted(ctx, db, w, def, "delete", chunk, version != nil); err != nil {
+		if err := t.execCounted(ctx, db, w, def, "delete", chunk, versionGuard(def, version)); err != nil {
 			return err
 		}
 	}
@@ -1047,7 +1078,7 @@ func (t *TableOf[R]) deleteByPK(ctx context.Context, db Executor, keys Arg, opti
 				}
 			}
 
-			if err := t.execCounted(ctx, db, w, def, "delete", nil, false); err != nil {
+			if err := t.execCounted(ctx, db, w, def, "delete", nil, nil); err != nil {
 				return err
 			}
 		}

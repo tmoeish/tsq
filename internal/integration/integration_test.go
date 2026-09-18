@@ -938,7 +938,7 @@ func TestIntegrationUpsert(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			if err := restored.Restore(ctx, rt); !tsq.IsOptimisticLockError(err) {
+			if err := restored.Restore(ctx, rt); !tsq.IsRowStateError(err) {
 				t.Fatalf("restoring a live row = %v", err)
 			}
 

@@ -749,7 +749,7 @@ The pattern functions (`tsq.StartsWith`, `tsq.EndsWith`, `tsq.Contains`, and the
 Reads are methods on the built `*Query[O]`; `args` are the `tsq.Arg` values made by `Bind`:
 
 - `query.List(ctx, db, args...)` → `[]*O, error`
-- `query.ListIn(ctx, db, listParam, values, args...)` → `[]*O, error`: `List` for a list parameter that may hold more values than one statement can bind (65535 on MySQL and PostgreSQL, 32766 on SQLite). Values are deduplicated, split, read in one snapshot and concatenated in no particular order. The query must use the parameter once, as `col.In(param)` passed directly to `Where`, and have no `GROUP BY`, aggregate, `DISTINCT`, set operation, `ORDER BY` or `LIMIT`; anything else is refused, because splitting would change the result. The generated `FetchXxxBy...` use it
+- `query.ListIn(ctx, db, listParam, values, args...)` → `[]*O, error`: `List` for a list parameter that may hold more values than one statement can bind (65535 on MySQL and PostgreSQL, 32766 on SQLite). Values are deduplicated, split and concatenated in no particular order; a list that fits in one statement runs as one, and several parts share one snapshot. The query must use the parameter once, as `col.In(param)` passed directly to `Where`, and have no `GROUP BY`, aggregate, `DISTINCT`, set operation, `ORDER BY` or `LIMIT`; anything else is refused, because splitting would change the result. The generated `FetchXxxBy...` use it
 - `query.Iter(ctx, db, args...)` → `iter.Seq2[*O, error]`: `for row, err := range query.Iter(ctx, db) { ... }` scans one row at a time, so exports and batch jobs do not hold the whole result in memory. `break` stops the query; a failure is yielded once with a nil row. The rows hold a connection until the loop ends, so inside a transaction finish the loop before running another statement on it
 - `query.Get(ctx, db, args...)` → `*O, error` (an error wrapping `sql.ErrNoRows` when not found)
 - `query.Find(ctx, db, args...)` → `*O, error` (`nil, nil` when not found)
@@ -793,8 +793,9 @@ Whether `Delete` removes the row is decided by the table, not by the call site:
 
 - a soft delete writes **only** `deleted_at`, `updated_at` and `version`; other fields changed on
   the row are not saved. It checks and increments the version, so a stale copy fails with
-  `OptimisticLockError`, and it matches live rows only: deleting a deleted row fails the same way
-  on a table with `version` and does nothing without one
+  `OptimisticLockError`, and it matches live rows only: deleting a row that is already deleted, or
+  restoring one that is not, fails with `*RowStateError` (`tsq.IsRowStateError`) whether or not the
+  table has a `version` column. That is not a concurrency conflict, so retrying it cannot help
 - `Restore` / `BatchRestore` (and the generated `item.Restore(...)`) clear the tombstone of a
   deleted row, refresh `updated_at` and increment `version`; a live row does not match
 - `Update` on a table with `deleted_at` matches live rows only and never writes `deleted_at` or

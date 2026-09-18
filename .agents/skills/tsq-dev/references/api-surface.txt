@@ -11,6 +11,7 @@ func BuildSubquery[O, T any](stage QueryStage[O], selected ValueColumn[T]) (Subq
 func IsOptimisticLockError(err error) bool
 func IsRetryableNetworkError(err error) bool
 func IsRetryableTxError(err error) bool
+func IsRowStateError(err error) bool
 func IsTxConflictError(err error) bool
 func NewRuntime(
 	ctx context.Context,
@@ -339,6 +340,14 @@ type RetryPolicy struct {
 	Multiplier float64
 }
 func DefaultRetryPolicy() *RetryPolicy
+type RowStateError struct {
+	Table    string
+	Op       string
+	Need     string
+	Expected int
+	Actual   int64
+}
+func (e *RowStateError) Error() string
 type Runtime struct {
 }
 func (r *Runtime) Close() error
