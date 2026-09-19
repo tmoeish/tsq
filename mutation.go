@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"sync"
+	"time"
 
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 	sqld "github.com/tmoeish/tsq/v5/internal/sqldialect"
@@ -19,26 +20,26 @@ import (
 // It does not check the version column, but it increments it, so a row loaded
 // before the update fails its own Update with OptimisticLockError. Use
 // TableOf.Update to write one row under the version check.
-func UpdateTable[R any](table *TableOf[R]) *UpdateBuilder[R] {
-	return &UpdateBuilder[R]{m: mutationSpec[R]{table: table, kind: mutationUpdate}}
+func UpdateTable[R any](table RowTable[R]) *UpdateBuilder[R] {
+	return &UpdateBuilder[R]{m: newMutationSpec(table, mutationUpdate)}
 }
 
 // DeleteFrom starts a delete of every row of table that matches Where. On a table
 // with a deleted_at column it is a soft delete, stamped when the statement runs, of
 // rows not already deleted.
-func DeleteFrom[R any](table *TableOf[R]) *DeleteBuilder[R] {
+func DeleteFrom[R any](table RowTable[R]) *DeleteBuilder[R] {
 	kind := mutationDelete
-	if table != nil && table.def.managed.DeletedAt != "" && !table.includeDeleted {
+	if !isNilValue(table) && table.softDeleted() {
 		kind = mutationSoftDelete
 	}
 
-	return &DeleteBuilder[R]{m: mutationSpec[R]{table: table, kind: kind}}
+	return &DeleteBuilder[R]{m: newMutationSpec(table, kind)}
 }
 
 // HardDeleteFrom starts a DELETE of every row of table that matches Where,
 // deleted rows included.
-func HardDeleteFrom[R any](table *TableOf[R]) *DeleteBuilder[R] {
-	return &DeleteBuilder[R]{m: mutationSpec[R]{table: table, kind: mutationDelete}}
+func HardDeleteFrom[R any](table RowTable[R]) *DeleteBuilder[R] {
+	return &DeleteBuilder[R]{m: newMutationSpec(table, mutationDelete)}
 }
 
 type mutationKind uint8
@@ -54,12 +55,43 @@ type assignment struct {
 	value  exprInfo
 }
 
+// RowTable is a table whose rows are R: a *TableOf, or a generated table struct,
+// which embeds one. Only TSQ implements it.
+type RowTable[R any] interface {
+	writeTarget
+	rowType(R)
+}
+
+// writeTarget is what a statement by condition needs from its table, without the
+// key type, which UpdateBuilder and DeleteBuilder do not carry.
+type writeTarget interface {
+	Table
+	Err() error
+	updatedAtValue(now time.Time) (any, error)
+	tombstoneValues(now time.Time) (map[string]any, error)
+	aliased() bool
+}
+
 type mutationSpec[R any] struct {
-	table   *TableOf[R]
+	table   writeTarget
+	def     *tableDef
 	kind    mutationKind
 	assigns []assignment
 	filters []Condition
 	err     error
+}
+
+func newMutationSpec[R any](table RowTable[R], kind mutationKind) mutationSpec[R] {
+	if isNilValue(table) {
+		return mutationSpec[R]{kind: kind, err: errors.New("table cannot be nil")}
+	}
+
+	m := mutationSpec[R]{table: table, def: table.definition(), kind: kind}
+	if table.aliased() {
+		m.err = fmt.Errorf("a statement by condition writes %s itself, not an alias of it", m.def.name)
+	}
+
+	return m
 }
 
 func (m mutationSpec[R]) clone() mutationSpec[R] {
@@ -88,9 +120,9 @@ func (b *UpdateBuilder[R]) assign(col SQLColumn, value exprInfo) *UpdateBuilder[
 	switch {
 	case core.err() != nil:
 		n.m.fail(core.err())
-	case isNilValue(core.table) || core.table.definition() != b.m.table.def || core.table.Name() != b.m.table.Name() || !core.plain:
-		n.m.fail(fmt.Errorf("assignment target %s must be a column of %s", core.name, b.m.table.Name()))
-	case core.name == b.m.table.def.managed.Version:
+	case isNilValue(core.table) || core.table.definition() != b.m.def || core.table.TableName() != b.m.table.TableName() || !core.plain:
+		n.m.fail(fmt.Errorf("assignment target %s must be a column of %s", core.name, b.m.table.TableName()))
+	case core.name == b.m.def.managed.Version:
 		n.m.fail(fmt.Errorf("column %s is the version column; it is incremented automatically", core.name))
 	case !core.nullable && value.null.always:
 		n.m.fail(fmt.Errorf("column %s is NOT NULL, but the value assigned to it can be NULL", core.name))
@@ -192,8 +224,8 @@ func (s mutationStage[R]) Build() (*Mutation[R], error) {
 		}
 
 		for name, t := range info.allTables() {
-			if t.definition() != m.table.def || name != m.table.Name() {
-				return nil, fmt.Errorf("the statement on %s cannot reference %s", m.table.Name(), name)
+			if t.definition() != m.def || name != m.table.TableName() {
+				return nil, fmt.Errorf("the statement on %s cannot reference %s", m.table.TableName(), name)
 			}
 		}
 	}
@@ -234,7 +266,7 @@ var (
 )
 
 func (m *Mutation[R]) render(r *renderer) {
-	def := m.m.table.def
+	def := m.m.def
 
 	switch m.m.kind {
 	case mutationDelete:
@@ -283,7 +315,7 @@ func (m *Mutation[R]) render(r *renderer) {
 // stampsUpdatedAt reports that an UPDATE refreshes updated_at itself: the table has
 // one and the caller did not assign it.
 func (m *Mutation[R]) stampsUpdatedAt() bool {
-	name := m.m.table.def.managed.UpdatedAt
+	name := m.m.def.managed.UpdatedAt
 
 	return name != "" && !slices.ContainsFunc(m.m.assigns, func(a assignment) bool { return a.column == name })
 }
@@ -349,8 +381,8 @@ func (m *Mutation[R]) prepare(db Executor, args []Arg) (string, []any, error) {
 			return "", nil, err
 		}
 
-		builtin = map[*paramSpec]any{deletedAtParam: stamp[m.m.table.def.managed.DeletedAt]}
-		if name := m.m.table.def.managed.UpdatedAt; name != "" {
+		builtin = map[*paramSpec]any{deletedAtParam: stamp[m.m.def.managed.DeletedAt]}
+		if name := m.m.def.managed.UpdatedAt; name != "" {
 			builtin[updatedAtParam] = stamp[name]
 		}
 	}
@@ -375,7 +407,7 @@ func (m *Mutation[R]) Exec(ctx context.Context, db Executor, args ...Arg) (int64
 
 		result, err := db.ExecContext(ctx, sqlText, sqlArgs...)
 		if err != nil {
-			return 0, fmt.Errorf("exec on %s: %w", m.m.table.Name(), err)
+			return 0, fmt.Errorf("exec on %s: %w", m.m.table.TableName(), err)
 		}
 
 		return result.RowsAffected()

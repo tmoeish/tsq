@@ -16,9 +16,9 @@ if err := pageReq.Validate(runtime.MaxPageSize()); err != nil {
 }
 
 query, err := tsq.
-	Select(database.User__Cols...).
+	Select(database.TableUser.Columns()...).
 	From(database.TableUser).
-	Where(database.User_ID.EQ(1)).
+	Where(database.TableUser.ID.EQ(1)).
 	Build()
 if err != nil {
 	return fmt.Errorf("build query: %w", err)
@@ -79,12 +79,12 @@ if err := pageReq.Validate(runtime.MaxPageSize()); err != nil {
 允许排序的列：选出来的列不等于可以排序的列，在没索引的列上排序是端点要主动承担的代价。
 
 ```go
-paging, err := pageReq.Paging(database.User_Name, database.User_CreatedAt)
+paging, err := pageReq.Paging(database.TableUser.Name, database.TableUser.CreatedAt)
 if err != nil {
 	return nil, err // 400
 }
 
-page, err := QueryUser.Page(ctx, runtime, paging)
+page, err := database.TableUser.Query().Page(ctx, runtime, paging)
 ```
 
 ### 2.3 不要自己手算 offset
@@ -197,9 +197,9 @@ if err := runtime.WithTx(ctx, nil, func(ctx context.Context, txExec tsq.Executor
 
 ```go
 if err := runtime.WithTx(ctx, nil, func(ctx context.Context, txExec tsq.Executor) error {
-	query, err := tsq.Select(database.User__Cols...).
+	query, err := tsq.Select(database.TableUser.Columns()...).
 		From(database.TableUser).
-		Where(database.User_ID.EQ(userID)).
+		Where(database.TableUser.ID.EQ(userID)).
 		ForUpdate().
 		Build()
 	if err != nil {
@@ -262,10 +262,10 @@ if err := user.Update(ctx, runtime); err != nil {
 ```go
 affected, err := tsq.
 	UpdateTable(database.TableOrder).
-	Set(database.Order_Status, tsq.Val("expired")).
-	Set(database.Order_UpdatedAt, tsq.Val(null.TimeFrom(time.Now()))).
-	Where(database.Order_Status.EQ(tsq.Val("pending")), database.Order_CreatedAt.LT(database.Order_CreatedAt.Param())).
-	Exec(ctx, runtime, database.Order_CreatedAt.Bind(cutoff))
+	Set(database.TableOrder.Status, tsq.Val("expired")).
+	Set(database.TableOrder.UpdatedAt, tsq.Val(null.TimeFrom(time.Now()))).
+	Where(database.TableOrder.Status.EQ(tsq.Val("pending")), database.TableOrder.CreatedAt.LT(database.TableOrder.CreatedAt.Param())).
+	Exec(ctx, runtime, database.TableOrder.CreatedAt.Bind(cutoff))
 ```
 
 - 这类语句不校验 `version`，但会自增它。批量改动之前加载的对象随后 `Update(...)` 会拿到 `OptimisticLockError`，按 3.7 处理。
@@ -292,7 +292,7 @@ fp := func(u *User) *int64 {
 因为这份文档当时不在 `doc-check` 的扫描范围里，所以三个月没人发现。现在它在了。）
 
 ```go
-userName := tsq.MapInto(database.User_Name, func(r *UserResult) *string {
+userName := tsq.MapInto(database.TableUser.Name, func(r *UserResult) *string {
 	return &r.UserName
 }, "user_name")
 ```
@@ -321,9 +321,9 @@ if errors.As(err, &unknownField) {
 ### 6.1 高频场景优先复用已构建的 `Query`
 
 ```go
-query, err := tsq.Select(User_ID, User_Name).
+query, err := tsq.Select(TableUser.ID, TableUser.Name).
 	From(TableUser).
-	Where(User_Status.EQ("active")).
+	Where(TableUser.Status.EQ("active")).
 	Build()
 ```
 
@@ -393,12 +393,12 @@ Builder 采用**阶段型类型系统**：每次调用都会返回不同的具�
 
 ```go
 query, err := tsq.
-	Select(database.Course_ID, database.Course_Title).
+	Select(database.TableCourse.ID, database.TableCourse.Title).
 	From(database.TableCourse).
-	Where(database.Course_ID.In(database.Course_ID.ListParam())).
+	Where(database.TableCourse.ID.In(database.TableCourse.ID.ListParam())).
 	Build()
 
-courses, err := query.List(ctx, runtime, database.Course_ID.BindList(ids...))
+courses, err := query.List(ctx, runtime, database.TableCourse.ID.BindList(ids...))
 ```
 
 执行时：

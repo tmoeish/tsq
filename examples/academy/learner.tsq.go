@@ -4,8 +4,6 @@ package academy
 
 import (
 	"context"
-	tsqsql "database/sql"
-	"fmt"
 	tsqtime "time"
 
 	null "gopkg.in/nullbio/null.v6"
@@ -14,175 +12,142 @@ import (
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 )
 
-// tsqLearnerTable is TableLearner before its definition; columns are declared on it.
-var tsqLearnerTable = tsq.NewTable[Learner]("learner")
+// LearnerTable is the learner table: the descriptor of Learner rows, with one field
+// per column.
+type LearnerTable struct {
+	*tsq.TableOf[Learner, int64]
 
-// Columns of Learner.
-var (
-	Learner_Company   = tsq.NewColumn(tsqLearnerTable, "company", "company", func(r *Learner) *string { return &r.Company })
-	Learner_CreatedAt = tsq.NewNullColumn[tsqtime.Time](tsqLearnerTable, "created_at", "created_at", func(r *Learner) *null.Time { return &r.CreatedAt })
-	Learner_Email     = tsq.NewColumn(tsqLearnerTable, "email", "email", func(r *Learner) *string { return &r.Email })
-	Learner_ID        = tsq.NewColumn(tsqLearnerTable, "id", "id", func(r *Learner) *int64 { return &r.ID })
-	Learner_Name      = tsq.NewColumn(tsqLearnerTable, "name", "name", func(r *Learner) *string { return &r.Name })
-)
-
-// TableLearner is the table descriptor of Learner. It depends on every column, so
-// package initialization completes the table before any query uses it.
-var TableLearner = tsqLearnerTable.Define(tsq.TableSpec[Learner]{
-	Columns: []tsq.BoundColumn[Learner]{
-		Learner_Company,
-		Learner_CreatedAt,
-		Learner_Email,
-		Learner_ID,
-		Learner_Name,
-	},
-	PrimaryKey:    Learner_ID,
-	AutoIncrement: true,
-	CreatedAt:     Learner_CreatedAt,
-	Search: []tsq.SearchColumn{
-		tsq.Searchable(Learner_Name),
-		tsq.Searchable(Learner_Email),
-		tsq.Searchable(Learner_Company),
-	},
-	Schema: []tsqdialect.ColumnSpec{
-		{
-			Name: "id",
-			Type: tsqdialect.ColumnType{
-				Kind: tsqdialect.KindInt,
-				Bits: 64,
-			},
-			PrimaryKey:    true,
-			AutoIncrement: true,
-		},
-		{
-			Name: "created_at",
-			Type: tsqdialect.ColumnType{
-				Kind:     tsqdialect.KindTime,
-				Nullable: true,
-			},
-		},
-		{
-			Name: "company",
-			Type: tsqdialect.ColumnType{
-				Kind: tsqdialect.KindString,
-				Size: 160,
-			},
-		},
-		{
-			Name: "email",
-			Type: tsqdialect.ColumnType{
-				Kind: tsqdialect.KindString,
-				Size: 160,
-			},
-		},
-		{
-			Name: "name",
-			Type: tsqdialect.ColumnType{
-				Kind: tsqdialect.KindString,
-				Size: 120,
-			},
-		},
-	},
-	Indexes: []tsq.TableIndex{
-		{Name: "ux_learner_email", Unique: true, Fields: []string{"email"}},
-		{Name: "idx_learner_company", Fields: []string{"company"}},
-	},
-})
-
-// Learner__Cols lists every column of Learner, for Select.
-var Learner__Cols = TableLearner.Columns()
-
-// QueryLearnerByID reads one Learner by primary key; bind Learner_ID.
-var QueryLearnerByID = tsq.
-	Select(Learner__Cols...).
-	From(TableLearner).
-	Where(
-		Learner_ID.EQ(Learner_ID.Param()),
-	).
-	MustBuild()
-
-// QueryLearnerByIDIn reads Learner rows by a list of primary keys; bind Learner_ID with BindList.
-var QueryLearnerByIDIn = tsq.
-	Select(Learner__Cols...).
-	From(TableLearner).
-	Where(
-		Learner_ID.In(Learner_ID.ListParam()),
-	).
-	MustBuild()
-
-// FetchLearnerByID returns the Learner rows with the given primary keys,
-// in the order given. Any number of keys works: they are split to fit the
-// dialect's bind parameter limit. It fails with an error wrapping sql.ErrNoRows when any of
-// them is missing.
-func FetchLearnerByID(
-	ctx context.Context,
-	db tsq.Executor,
-	iDs ...int64,
-) ([]*Learner, error) {
-	list, err := QueryLearnerByIDIn.ListIn(ctx, db, Learner_ID.ListParam(), iDs)
-	if err != nil {
-		return nil, err
-	}
-
-	ordered, missing := matchByInputOrder(iDs, list, func(row *Learner) int64 {
-		return row.ID
-	})
-	if len(missing) > 0 {
-		return nil, fmt.Errorf("fetch Learner by ID %v: %w", missing, tsqsql.ErrNoRows)
-	}
-
-	return ordered, nil
+	Company   tsq.Column[Learner, string]
+	CreatedAt tsq.NullColumn[Learner, tsqtime.Time]
+	Email     tsq.Column[Learner, string]
+	ID        tsq.Column[Learner, int64]
+	Name      tsq.Column[Learner, string]
 }
 
-// QueryLearnerByEmail reads one Learner by unique index ux_learner_email.
-var QueryLearnerByEmail = tsq.
-	Select(Learner__Cols...).
-	From(TableLearner).
-	Where(
-		Learner_Email.EQ(Learner_Email.Param()),
-	).
-	MustBuild()
+// TableLearner is the learner table.
+var TableLearner = newLearnerTable()
 
-// QueryLearnerByEmailIn reads Learner rows by unique index ux_learner_email, one per
-// Email value; bind Learner_Email with BindList.
-var QueryLearnerByEmailIn = tsq.
-	Select(Learner__Cols...).
-	From(TableLearner).
-	Where(
-		Learner_Email.In(Learner_Email.ListParam()),
-	).
-	MustBuild()
+// newLearnerTable declares the table, its columns, then its definition, so that
+// anything naming TableLearner is initialized after the table is complete.
+func newLearnerTable() LearnerTable {
+	t := tsq.NewTable[Learner, int64]("learner")
+	c := LearnerTable{
+		TableOf:   t,
+		Company:   tsq.NewColumn(t, "company", "company", func(r *Learner) *string { return &r.Company }),
+		CreatedAt: tsq.NewNullColumn[tsqtime.Time](t, "created_at", "created_at", func(r *Learner) *null.Time { return &r.CreatedAt }),
+		Email:     tsq.NewColumn(t, "email", "email", func(r *Learner) *string { return &r.Email }),
+		ID:        tsq.NewColumn(t, "id", "id", func(r *Learner) *int64 { return &r.ID }),
+		Name:      tsq.NewColumn(t, "name", "name", func(r *Learner) *string { return &r.Name }),
+	}
 
-// FetchLearnerByEmail returns the Learner rows matching unique index ux_learner_email,
-// one per Email value, in the order given. It fails with an error wrapping
-// sql.ErrNoRows when any of them is missing.
-func FetchLearnerByEmail(
+	t.Define(tsq.TableSpec[Learner, int64]{
+		Columns: []tsq.BoundColumn[Learner]{
+			c.Company,
+			c.CreatedAt,
+			c.Email,
+			c.ID,
+			c.Name,
+		},
+		PrimaryKey:    c.ID,
+		AutoIncrement: true,
+		CreatedAt:     c.CreatedAt,
+		Search: []tsq.SearchColumn{
+			tsq.Searchable(c.Name),
+			tsq.Searchable(c.Email),
+			tsq.Searchable(c.Company),
+		},
+		Schema: []tsqdialect.ColumnSpec{
+			{
+				Name: "id",
+				Type: tsqdialect.ColumnType{
+					Kind: tsqdialect.KindInt,
+					Bits: 64,
+				},
+				PrimaryKey:    true,
+				AutoIncrement: true,
+			},
+			{
+				Name: "created_at",
+				Type: tsqdialect.ColumnType{
+					Kind:     tsqdialect.KindTime,
+					Nullable: true,
+				},
+			},
+			{
+				Name: "company",
+				Type: tsqdialect.ColumnType{
+					Kind: tsqdialect.KindString,
+					Size: 160,
+				},
+			},
+			{
+				Name: "email",
+				Type: tsqdialect.ColumnType{
+					Kind: tsqdialect.KindString,
+					Size: 160,
+				},
+			},
+			{
+				Name: "name",
+				Type: tsqdialect.ColumnType{
+					Kind: tsqdialect.KindString,
+					Size: 120,
+				},
+			},
+		},
+		Indexes: []tsq.TableIndex{
+			{Name: "ux_learner_email", Unique: true, Fields: []string{"email"}},
+			{Name: "idx_learner_company", Fields: []string{"company"}},
+		},
+	})
+
+	return c
+}
+
+// As returns the table under alias, with every column bound to the alias, for
+// joining the table more than once.
+func (t LearnerTable) As(alias string) LearnerTable {
+	a := t.TableOf.As(alias)
+
+	return LearnerTable{
+		TableOf:   a,
+		Company:   t.Company.WithTable(a),
+		CreatedAt: t.CreatedAt.WithTable(a).(tsq.NullColumn[Learner, tsqtime.Time]),
+		Email:     t.Email.WithTable(a),
+		ID:        t.ID.WithTable(a),
+		Name:      t.Name.WithTable(a),
+	}
+}
+
+// WithDeleted returns the table without its soft-delete scope; see
+// tsq.TableOf.WithDeleted.
+func (t LearnerTable) WithDeleted() LearnerTable {
+	t.TableOf = t.TableOf.WithDeleted()
+
+	return t
+}
+
+// GetByEmail reads the Learner matching unique index ux_learner_email, and fails with an
+// error wrapping sql.ErrNoRows when there is none.
+func (t LearnerTable) GetByEmail(
+	ctx context.Context,
+	db tsq.Executor,
+	email string,
+) (*Learner, error) {
+	return tsq.Select(t.Columns()...).From(t).Where(
+		t.Email.EQ(tsq.Val(email)),
+	).Get(ctx, db)
+}
+
+// FetchByEmail reads the Learner rows matching unique index ux_learner_email, one per
+// Email value, in the order given; see tsq.TableOf.FetchBy.
+func (t LearnerTable) FetchByEmail(
 	ctx context.Context,
 	db tsq.Executor,
 	emails ...string,
 ) ([]*Learner, error) {
-	list, err := QueryLearnerByEmailIn.ListIn(ctx, db, Learner_Email.ListParam(), emails)
-	if err != nil {
-		return nil, err
-	}
-
-	ordered, missing := matchByInputOrderKey(emails, list,
-		func(row *Learner) string { return lookupKey(row.Email) },
-		func(input string) string { return lookupKey(input) },
-	)
-	if len(missing) > 0 {
-		return nil, fmt.Errorf("fetch Learner by Email %v: %w", missing, tsqsql.ErrNoRows)
-	}
-
-	return ordered, nil
+	return t.FetchBy(ctx, db, t.Email, emails)
 }
-
-// QueryLearner reads every Learner row; pass tsq.Keyword to search it.
-var QueryLearner = tsq.
-	Select(Learner__Cols...).
-	From(TableLearner).
-	Search(TableLearner.SearchColumns()...).
-	MustBuild()
 
 // Insert inserts the row; see tsq.TableOf.Insert.
 func (l *Learner) Insert(ctx context.Context, db tsq.Executor) error {

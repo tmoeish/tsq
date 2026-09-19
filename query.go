@@ -27,7 +27,10 @@ type Query[O any] struct {
 	// mapped into a field that cannot hold it. It does not fail Build, because a
 	// query used as a subquery or CTE is never read.
 	scanErr error
-	cache   sync.Map // renderKey -> *statement
+	// err is why the query could not be built, for a query a table hands out
+	// ready-made (TableOf.Query); every execution reports it.
+	err   error
+	cache sync.Map // renderKey -> *statement
 }
 
 type renderKey struct {
@@ -72,6 +75,10 @@ type prepared struct {
 func (q *Query[O]) prepare(exec Executor, args []Arg, builtin map[*paramSpec]any, modes ...renderMode) (execScope, []prepared, error) {
 	if q == nil {
 		return execScope{}, nil, errors.New("query cannot be nil")
+	}
+
+	if q.err != nil {
+		return execScope{}, nil, q.err
 	}
 
 	scope, err := executorScope(exec)
@@ -257,6 +264,10 @@ func (q *Query[O]) keywordArgs(args []Arg) (bool, []Arg, error) {
 // and have no GROUP BY, aggregate, DISTINCT, set operation, ORDER BY or LIMIT.
 func (q *Query[O]) ListIn[T comparable](ctx context.Context, db Executor, param ListParam[T], values []T, args ...Arg) ([]*O, error) {
 	return traceExecutor1(ctx, db, TraceOpList, func(ctx context.Context) ([]*O, error) {
+		if q != nil && q.err != nil {
+			return nil, q.err
+		}
+
 		if err := q.checkSplittable(param.spec); err != nil {
 			return nil, err
 		}

@@ -46,6 +46,9 @@ func funcMap() template.FuncMap {
 		"FillRef":                  fillRef,
 		"ColumnKindRef":            columnKindRef,
 		"FieldVarName":             fieldVarName,
+		"ColumnType":               columnType,
+		"ValueType":                valueType,
+		"Fetchable":                fetchable,
 		"FieldSliceVarName":        fieldSliceVarName,
 		"FieldType":                fieldType,
 		"JoinAnd":                  joinAnd,
@@ -70,14 +73,25 @@ func upperInitial(s string) string {
 	return string(runes)
 }
 
-// lowerInitial lower-cases the first letter of s.
+// lowerInitial lower-cases the leading word of an exported Go name, treating a run
+// of capitals as one initialism: ID -> id, UID -> uid, URLPath -> urlPath,
+// Title -> title.
 func lowerInitial(s string) string {
-	if s == "" {
-		return s
+	runes := []rune(s)
+
+	n := 0
+	for n < len(runes) && unicode.IsUpper(runes[n]) {
+		n++
 	}
 
-	runes := []rune(s)
-	runes[0] = unicode.ToLower(runes[0])
+	// In URLPath the P starts the next word, so it stays upper case.
+	if n > 1 && n < len(runes) && unicode.IsLower(runes[n]) {
+		n--
+	}
+
+	for i := range n {
+		runes[i] = unicode.ToLower(runes[i])
+	}
 
 	return string(runes)
 }
@@ -121,6 +135,32 @@ func fieldVarName(fieldName string) string {
 	}
 
 	return name
+}
+
+// columnType is the Go type of the generated column field for f on table type
+// owner.
+func columnType(owner string, f genmodel.FieldInfo) string {
+	if f.NullValue != "" {
+		return fmt.Sprintf("tsq.NullColumn[%s, %s]", owner, f.NullValue)
+	}
+
+	return fmt.Sprintf("tsq.Column[%s, %s]", owner, fieldType(f))
+}
+
+// valueType is the type a query compares f with: its value type when it can be
+// NULL, otherwise the field type.
+func valueType(f genmodel.FieldInfo) string {
+	if f.NullValue != "" {
+		return f.NullValue
+	}
+
+	return fieldType(f)
+}
+
+// fetchable reports whether TableOf.FetchBy can read by f: a NOT NULL field of a
+// comparable type.
+func fetchable(f genmodel.FieldInfo) bool {
+	return f.NullValue == "" && !f.IsSlice
 }
 
 func fieldSliceVarName(fieldName string) string {

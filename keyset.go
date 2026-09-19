@@ -45,6 +45,10 @@ func (q *Query[O]) PageKeyset(ctx context.Context, db Executor, k Keyset, args .
 			return nil, errors.New("query cannot be nil")
 		}
 
+		if q.err != nil {
+			return nil, q.err
+		}
+
 		size := Paging{Size: k.Size}.normalized(runtimeForExecutor(db).MaxPageSize()).Size
 
 		keys, err := q.keysetColumns(k.OrderBy)

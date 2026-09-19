@@ -16,7 +16,7 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 - 新增游标分页 `Query.PageKeyset(ctx, db, tsq.Keyset{Size, OrderBy, After}, args...)`：按上一页最后一行的排序值翻页，深页不再越翻越慢、中途插入的行也不会让页面错位。排序列必须被查询选出且最后一列是主键；`Next` 是不透明字符串，换了排序会被拒绝。`PageRequest` 新增 `After` 字段和 `Keyset(sortable...)`。
 - 关键词搜索改为执行参数 `tsq.Keyword(term)`，所有读取方法都能用（此前只有 `Page` 通过 `Paging.Keyword` 支持，搜索结果没法 `Iter` 导出或单独 `Count`）；`Paging.Keyword` 删除。空关键词不搜索，对没有 `Search` 的查询传非空关键词报错。
-- 新增 `Query.ListIn(ctx, db, listParam, values, args...)`：列表参数超过方言绑定上限时按上限分块、在同一快照里读完再拼接，只接受分块不改变结果的查询。生成的 `FetchXxxBy...` 改用它，任意数量的键都能取（此前超过 SQLite 的 32766 个就报错）。
+- 新增 `Query.ListIn(ctx, db, listParam, values, args...)`：列表参数超过方言绑定上限时按上限分块、在同一快照里读完再拼接，只接受分块不改变结果的查询。`TableXxx.Fetch` / `FetchBy` 用它，任意数量的键都能取（此前超过 SQLite 的 32766 个就报错）。
 - 新增 `TableXxx.Restore` / `BatchRestore` 和生成的 `row.Restore(ctx, db)`：恢复软删除的行，是清除 `deleted_at` 的唯一入口。
 - 根包不再 import 任何数据库驱动（MySQL 错误改为反射识别），根包测试也不再 import 驱动和 nullbio：只用库的项目 `go mod tidy` 之后 `go.mod` 不会多出间接依赖，`go.sum` 里只剩 SQLite 驱动（根包单测需要）。
 - `TableXxx.Upsert(ctx, db, &row, key...)` 和 `BatchUpsert(ctx, db, rows, key, options...)`：按主键或某个唯一索引插入或更新，PostgreSQL / SQLite 渲染成 `ON CONFLICT ... DO UPDATE`，MySQL 渲染成 `ON DUPLICATE KEY UPDATE`。更新时 `version` 自增不校验、`updated_at` 刷新、`created_at` 保留；单行版本回读主键、`version` 和 `created_at`。MySQL 会匹配所有唯一键，因此行可能撞上别的唯一键时直接拒绝。追踪操作名为 `upsert`。
@@ -40,13 +40,16 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 **表描述符**
 
-- 生成的 `TableXxx` 是 `*tsq.TableOf[Xxx]`：表名、列、主键、自增、托管列、搜索列、物理 schema 与索引都在这一个值上。**行结构体不再实现任何接口**（没有 `TSQOwner` / `Cols` / `TableName` 这些方法，也就不会和字段重名），`Owner` / `Result` 标记接口删除。
-- 生成代码按"句柄 → 列 → `Define`"三步声明，包初始化顺序由可见的依赖保证，`DeclareTable` 删除。手写表同样用 `tsq.NewTable` / `tsq.NewColumn` / `Define`，定义错误由 `Err()` 和每个用到它的查询报告。
+- 生成的表是一个结构体 `XxxTable`：内嵌 `*tsq.TableOf[Xxx, K]`（K 是主键类型），**每列一个字段**——`TableCourse.Title` 而不是包级变量 `Course_Title`，`TableCourse.Columns()` 而不是 `Course__Cols`。表名、列、主键、自增、托管列、搜索列、物理 schema 与索引都在这一个值上。**行结构体不再实现任何接口**，`Owner` / `Result` 标记接口删除。
+- 一个构造函数依次建表、建列、`Define`，引用 `TableXxx` 的东西天然在表完成之后初始化，没有声明顺序要记，`DeclareTable` 删除。手写表同样用 `tsq.NewTable[R, K]` / `tsq.NewColumn` / `Define`，定义错误由 `Err()` 和每个用到它的查询报告。
+- 按主键读写都有类型：`TableXxx.Get(ctx, db, id)`（没有时包装 `sql.ErrNoRows`）、`Find`（没有时 `nil, nil`）、`Fetch(ctx, db, ids...)`（按给定顺序、任意数量），`BatchDeleteByPK` / `BatchHardDeleteByPK` 收 `[]K`——传错类型编译不过（此前收任意 `Arg`，运行时才检查）。`TableXxx.FetchBy(ctx, db, col, values, conds...)` 按其他唯一列取，`TableXxx.Query()` 是读全表（带声明的搜索列）的查询。
+- 别名是表的方法：`pre := TableCourse.As("pre")` 返回的表上每列都已绑到别名（`pre.ID`）；`Column.As` 和 `tsq.AliasTable` 删除，单列改绑用 `col.WithTable(source)`。`Table` 接口的 `Name()` 改名为 `TableName()`，列字段因此可以叫 `Name`。
+- `tsq.UpdateTable` / `DeleteFrom` / `HardDeleteFrom` 收 `tsq.RowTable[R]`，生成的表结构体和 `*tsq.TableOf` 都满足；对别名执行会被拒绝。
 - `TSQTables()` 返回 `[]tsq.Table`，`TableRegistration` 删除；schema 与索引从描述符读取，`Schema()` / `Indexes()` 可供工具使用。
 
 **参数**
 
-- 执行期的值是**参数**，不再按位置传：`Course_ID.EQ(Course_ID.Param())` 写进查询，执行时传 `Course_ID.Bind(5)`；列表用 `In(col.ListParam())` 与 `col.BindList(ids...)`；一列需要两个值时用 `tsq.NewParam[T]("name")`。执行方法的变参类型是密封的 `tsq.Arg`，按参数身份匹配：缺值、多余的值、重复绑定都会报错，值的类型在编译期检查。
+- 执行期的值是**参数**，不再按位置传：`TableCourse.ID.EQ(TableCourse.ID.Param())` 写进查询，执行时传 `TableCourse.ID.Bind(5)`；列表用 `In(col.ListParam())` 与 `col.BindList(ids...)`；一列需要两个值时用 `tsq.NewParam[T]("name")`。执行方法的变参类型是密封的 `tsq.Arg`，按参数身份匹配：缺值、多余的值、重复绑定都会报错，值的类型在编译期检查。
 - 所有 `*Var()` 谓词、`SetVar`、`Bind` / `BindSlice` / `Expression` 删除。
 - 模式匹配是包级函数：`tsq.StartsWith(col, pattern)` / `EndsWith` / `Contains` 及 `Not` 形式，`pattern` 是 `tsq.Val("x")` 或参数（`tsq.Pattern[S]`），不再分值和参数两套函数；只接受字符串类的列，都会转义通配符并声明 `ESCAPE`。`Like` 按原样使用模式。
 - 固定值统一写成 `tsq.Val(v)`，列表写成 `tsq.Vals(vs...)`，放在任何接受同类型列的位置：`EQ` / `Between` / `Like` / `Set` / `Case().When` / `Coalesce`……`EQVal` / `InVal` / `BetweenVal` 等全部 `*Val` 方法，以及 `SetVal`、`WhenVal` / `ElseVal`、`CoalesceVal` / `NullIfVal` 删除。值的类型只由值本身推断，无类型数字常量是 `int`：`int64` 列上写 `tsq.Val(int64(90))`，写错时编译报 `does not implement tsq.RHS[int64]`。比较里的 `NULL` 报错，`Set` 里 nil 指针写入 `NULL`。
@@ -69,7 +72,7 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 **写入**
 
-- 行写入在表描述符上：`TableXxx.Insert/Update/Delete/HardDelete(ctx, db, &row)` 与 `BatchInsert/BatchUpdate/BatchDelete/BatchHardDelete(ctx, db, rows, options...)`；生成的行方法转发给它们。包级的 `tsq.Insert` / `tsq.Update` / `tsq.Delete` / `tsq.Batch*` 删除，按主键删除是 `TableXxx.BatchDeleteByPK(ctx, db, Xxx_ID.BindList(ids...), options...)` 和 `BatchHardDeleteByPK`。
+- 行写入在表描述符上：`TableXxx.Insert/Update/Delete/HardDelete(ctx, db, &row)` 与 `BatchInsert/BatchUpdate/BatchDelete/BatchHardDelete(ctx, db, rows, options...)`；生成的行方法转发给它们。包级的 `tsq.Insert` / `tsq.Update` / `tsq.Delete` / `tsq.Batch*` 删除，按主键删除是 `TableXxx.BatchDeleteByPK(ctx, db, ids, options...)` 和 `BatchHardDeleteByPK`。
 - 托管列由库维护，不再由生成代码维护：`Insert` 只在未设置时填 `created_at` / `updated_at`，`Update` 总是刷新 `updated_at`。单行写入的错误带主键（`users id=5`），乐观锁冲突以 `*OptimisticLockError`（字段导出）包装返回。
 - 按条件写：`tsq.UpdateTable(TableXxx)` / `tsq.DeleteFrom(TableXxx)` / `tsq.HardDeleteFrom(TableXxx)`，返回导出的 `*UpdateBuilder[R]` / `*DeleteBuilder[R]`；`Set` 接受列、参数、`tsq.Val` 或子查询，`tsq.Val` 包 nil 指针可写 `NULL`。`Mutation.SQL()` 改为 `SQL(dialect, args...)`。
 
@@ -97,7 +100,7 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 - 列定义的 DDL 渲染库和生成器共用一份实现，不再各写一份。
 - 新增 `*tsq.RowStateError` 和 `tsq.IsRowStateError`：删除一个已删除的行、恢复一个未删除的行，报的是行的状态不对，而不是乐观锁冲突（那种重试没用），没有 `version` 列的表也会报。
 - `Query.ListIn` 在列表一条语句装得下时不再开事务。
-- **派生表达式不再能直接 `Select`**：列（`Column` / `NullColumn`）知道自己扫描进哪个字段，函数、`CASE`、`Expr` / `Exprf` 产出的是 `tsq.Expression[T]`，没有行归属。此前 `Select(tsq.Date(时间列))` 能编译、执行时才报扫描错误。现在用 `tsq.MapInto` 指定字段，或用新增的 `tsq.SelectValue` / `tsq.SelectNullValue` 让值本身成为行（`Query.Scalar` / `ScalarNull` 因此删除）。`WithTable` / `As` / `Param` / `Bind` 只在列上；`AsSubquery` / `BuildSubquery` 改收 `ValueColumn[T]`。
+- **派生表达式不再能直接 `Select`**：列（`Column` / `NullColumn`）知道自己扫描进哪个字段，函数、`CASE`、`Expr` / `Exprf` 产出的是 `tsq.Expression[T]`，没有行归属。此前 `Select(tsq.Date(时间列))` 能编译、执行时才报扫描错误。现在用 `tsq.MapInto` 指定字段，或用新增的 `tsq.SelectValue` / `tsq.SelectNullValue` 让值本身成为行（`Query.Scalar` / `ScalarNull` 因此删除）。`WithTable` / `Param` / `Bind` 只在列上；`AsSubquery` / `BuildSubquery` 改收 `ValueColumn[T]`。
 - **可空值的排序在三个方言上一致**：NULL 一律当作最小值（升序在前、降序在后），PostgreSQL 显式写 `NULLS FIRST/LAST`；`OrderBy.NullsFirst()` / `NullsLast()` 可改，MySQL 用 `IS NULL` 排序键模拟（集合操作上拒绝）。此前 PostgreSQL 与另两个方言的顺序相反。
 - **时间统一用 UTC**：托管时间戳以 UTC 写入，绑定到 SQL 的所有 `time.Time`（含 `*time.Time`、`sql.NullTime`、`null.Time`）也先转成 UTC。SQLite 按文本存时间，不同时区写入的行此前按文本比较和排序会出错。`tsq.UpdateTable` 在执行时自动刷新 `updated_at`（显式 `Set` 的值优先），与 `Update`、软删除、`Upsert` 一致。
 - **行级写入不越权改托管列**：`Update` 不再写 `created_at` 和 `deleted_at`，并且在软删除表上只匹配未删除的行——手工构造的行不会把 `created_at` 清零，删除之前读出的旧副本也不会把行复活。软删除只写 `deleted_at` / `updated_at` / `version`，不顺带保存行上其他改动；删除已删除的行在有 `version` 的表上报 `OptimisticLockError`。恢复用 `Restore`。`Upsert` 写入的行总是未删除状态。
@@ -116,9 +119,11 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 **生成代码**
 
-- 表文件：`tsqXxxTable` 句柄、`Xxx_Field` 列、`TableXxx` 描述符、`Xxx__Cols`、`QueryXxx`、`QueryXxxByID` / `QueryXxxByIDIn`、每个唯一索引一对 `QueryXxxBy...` / `QueryXxxBy...In`（参数用列自带的参数），以及 `FetchXxxByID` 和每个唯一索引的 `FetchXxxBy...`——按给定顺序返回行，缺行时错误包装 `sql.ErrNoRows`。**普通索引和唯一索引前缀不再生成查询**：这类查询需要排序和限量，用构建器写。
-- 行方法：`Insert` / `Update` / `Delete` / `HardDelete`，软删除表另有 `Active()`。
-- Result：`Xxx__Cols` 和 `Xxx_Field`，用法是 `tsq.Select(Xxx__Cols...)`。
+- 表文件：`XxxTable` 结构体与 `TableXxx` 值，外加 `As(alias)` / `WithDeleted()`（返回同样的结构体，列一起改绑），以及每个唯一索引的 `GetByEmail(ctx, db, email)` 和 `FetchByEmail(ctx, db, emails...)`（复合索引 `A,B` 是 `GetByAAndB(ctx, db, a, b)` / `FetchByAAndB(ctx, db, a, bs...)`）。主键查询在 `TableOf` 上，不再生成 `QueryXxx*` / `FetchXxxByID` 变量和函数。**普通索引和唯一索引前缀不生成查询**：这类查询需要排序和限量，用构建器写。
+- 列字段与表的方法重名（`Update`、`Query`、`Columns`、`As`……）时 `tsq gen` 报错并指出字段，改 Go 字段名即可（`db` tag 保留列名）。
+- 生成的参数名按缩写词整体小写（`ids`、`uid`），不再出现 `iDs`。
+- 行方法：`Insert` / `Update` / `Delete` / `HardDelete`，软删除表另有 `Restore()` / `Active()`。
+- Result：`XxxResult` 结构体（每个结果字段一个 `ResultColumn`）与 `ResultXxx` 值，用法是 `tsq.Select(ResultXxx.Columns()...)`。
 - `runtime.tsq.go` 只剩 `TSQTables()`；生成文件、`tsq.json` 和各方言 `.sql` 由 `tsq gen` 维护，不再有 `--tpl` / `--resulttpl`。
 
 **`dialect` 包**
@@ -127,6 +132,8 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 - `Dialect` 接口、`MySQLDialect` / `PostgresDialect` / `SQLiteDialect`、schema 探查、DDL 渲染和绑定上限都是内部实现，不再导出：它们从来不是扩展点，导出只会让每次内部调整都变成破坏性变更。`tsq.NewRuntime`、`tsq.WrapExecutor`、`Query.SQL`、`Mutation.SQL` 收 `dialect.Name`。
 
 ### 修复
+
+- **按唯一字符串键批量读取，在不区分大小写的排序规则下会误报"不存在"**：MySQL 默认的 `utf8mb4_0900_ai_ci` 让 `'intro to go'` 匹配到 `'Intro to Go'`，旧的生成代码却逐字节比对返回的行，于是报 `sql.ErrNoRows`。现在对 Go 里对不上的字符串逐个再问一次数据库，以数据库的判断为准，遇到第一个确实不存在的键就停止。
 
 - **字段类型来自 `database/sql`（如 `sql.NullString`）时，生成代码编译不过**：模板写出 `tsqsql.NullString`，却从未导入 `tsqsql`。现在有一个真正 `go build` 生成物的测试守着。
 - **声明 `*time.Time` 托管时间戳字段时，生成代码引用了不存在的 `tsq.TimePtr`**：托管时间戳现在由库维护，生成代码不再涉及。

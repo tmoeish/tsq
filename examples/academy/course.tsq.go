@@ -4,8 +4,6 @@ package academy
 
 import (
 	"context"
-	tsqsql "database/sql"
-	"fmt"
 	tsqtime "time"
 
 	null "gopkg.in/nullbio/null.v6"
@@ -14,243 +12,224 @@ import (
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 )
 
-// tsqCourseTable is TableCourse before its definition; columns are declared on it.
-var tsqCourseTable = tsq.NewTable[Course]("course")
+// CourseTable is the course table: the descriptor of Course rows, with one field
+// per column.
+type CourseTable struct {
+	*tsq.TableOf[Course, int64]
 
-// Columns of Course.
-var (
-	Course_CreatedAt      = tsq.NewNullColumn[tsqtime.Time](tsqCourseTable, "created_at", "created_at", func(r *Course) *null.Time { return &r.CreatedAt })
-	Course_Currency       = tsq.NewColumn(tsqCourseTable, "currency", "currency", func(r *Course) *string { return &r.Currency })
-	Course_ID             = tsq.NewColumn(tsqCourseTable, "id", "id", func(r *Course) *int64 { return &r.ID })
-	Course_InstructorID   = tsq.NewColumn(tsqCourseTable, "instructor_id", "instructor_id", func(r *Course) *int64 { return &r.InstructorID })
-	Course_Level          = tsq.NewColumn(tsqCourseTable, "level", "level", func(r *Course) *CourseLevel { return &r.Level })
-	Course_ListPriceCents = tsq.NewColumn(tsqCourseTable, "list_price_cents", "list_price_cents", func(r *Course) *int64 { return &r.ListPriceCents })
-	Course_PrerequisiteID = tsq.NewColumn(tsqCourseTable, "prerequisite_id", "prerequisite_id", func(r *Course) *int64 { return &r.PrerequisiteID })
-	Course_Published      = tsq.NewColumn(tsqCourseTable, "published", "published", func(r *Course) *bool { return &r.Published })
-	Course_Slug           = tsq.NewColumn(tsqCourseTable, "slug", "slug", func(r *Course) *string { return &r.Slug })
-	Course_Summary        = tsq.NewColumn(tsqCourseTable, "summary", "summary", func(r *Course) *string { return &r.Summary })
-	Course_Title          = tsq.NewColumn(tsqCourseTable, "title", "title", func(r *Course) *string { return &r.Title })
-	Course_TrackID        = tsq.NewColumn(tsqCourseTable, "track_id", "track_id", func(r *Course) *int64 { return &r.TrackID })
-)
-
-// TableCourse is the table descriptor of Course. It depends on every column, so
-// package initialization completes the table before any query uses it.
-var TableCourse = tsqCourseTable.Define(tsq.TableSpec[Course]{
-	Columns: []tsq.BoundColumn[Course]{
-		Course_CreatedAt,
-		Course_Currency,
-		Course_ID,
-		Course_InstructorID,
-		Course_Level,
-		Course_ListPriceCents,
-		Course_PrerequisiteID,
-		Course_Published,
-		Course_Slug,
-		Course_Summary,
-		Course_Title,
-		Course_TrackID,
-	},
-	PrimaryKey:    Course_ID,
-	AutoIncrement: true,
-	CreatedAt:     Course_CreatedAt,
-	Search: []tsq.SearchColumn{
-		tsq.Searchable(Course_Title),
-		tsq.Searchable(Course_Summary),
-	},
-	Schema: []tsqdialect.ColumnSpec{
-		{
-			Name: "id",
-			Type: tsqdialect.ColumnType{
-				Kind: tsqdialect.KindInt,
-				Bits: 64,
-			},
-			PrimaryKey:    true,
-			AutoIncrement: true,
-		},
-		{
-			Name: "created_at",
-			Type: tsqdialect.ColumnType{
-				Kind:     tsqdialect.KindTime,
-				Nullable: true,
-			},
-		},
-		{
-			Name: "currency",
-			Type: tsqdialect.ColumnType{
-				Kind: tsqdialect.KindString,
-				Size: 3,
-			},
-			Default: "'USD'",
-			Fill:    tsqdialect.FillDefault,
-		},
-		{
-			Name: "instructor_id",
-			Type: tsqdialect.ColumnType{
-				Kind: tsqdialect.KindInt,
-				Bits: 64,
-			},
-		},
-		{
-			Name: "level",
-			Type: tsqdialect.ColumnType{
-				Kind: tsqdialect.KindInt,
-				Bits: 32,
-			},
-		},
-		{
-			Name: "list_price_cents",
-			Type: tsqdialect.ColumnType{
-				Kind: tsqdialect.KindInt,
-				Bits: 64,
-			},
-		},
-		{
-			Name: "prerequisite_id",
-			Type: tsqdialect.ColumnType{
-				Kind: tsqdialect.KindInt,
-				Bits: 64,
-			},
-		},
-		{
-			Name: "published",
-			Type: tsqdialect.ColumnType{
-				Kind: tsqdialect.KindBool,
-			},
-		},
-		{
-			Name: "slug",
-			Type: tsqdialect.ColumnType{
-				Kind: tsqdialect.KindString,
-				Size: 160,
-			},
-			Fill:      tsqdialect.FillGenerated,
-			Generated: "LOWER(title)",
-		},
-		{
-			Name: "summary",
-			Type: tsqdialect.ColumnType{
-				Kind: tsqdialect.KindString,
-				Size: 4096,
-			},
-		},
-		{
-			Name: "title",
-			Type: tsqdialect.ColumnType{
-				Kind: tsqdialect.KindString,
-				Size: 160,
-			},
-		},
-		{
-			Name: "track_id",
-			Type: tsqdialect.ColumnType{
-				Kind: tsqdialect.KindInt,
-				Bits: 64,
-			},
-		},
-	},
-	Indexes: []tsq.TableIndex{
-		{Name: "ux_course_title", Unique: true, Fields: []string{"title"}},
-		{Name: "idx_course_instructor_id", Fields: []string{"instructor_id"}},
-		{Name: "idx_course_prerequisite_id", Fields: []string{"prerequisite_id"}},
-		{Name: "idx_course_track_id", Fields: []string{"track_id"}},
-		{Name: "ft_course_title_summary", FullText: true, Fields: []string{"title", "summary"}},
-	},
-})
-
-// Course__Cols lists every column of Course, for Select.
-var Course__Cols = TableCourse.Columns()
-
-// QueryCourseByID reads one Course by primary key; bind Course_ID.
-var QueryCourseByID = tsq.
-	Select(Course__Cols...).
-	From(TableCourse).
-	Where(
-		Course_ID.EQ(Course_ID.Param()),
-	).
-	MustBuild()
-
-// QueryCourseByIDIn reads Course rows by a list of primary keys; bind Course_ID with BindList.
-var QueryCourseByIDIn = tsq.
-	Select(Course__Cols...).
-	From(TableCourse).
-	Where(
-		Course_ID.In(Course_ID.ListParam()),
-	).
-	MustBuild()
-
-// FetchCourseByID returns the Course rows with the given primary keys,
-// in the order given. Any number of keys works: they are split to fit the
-// dialect's bind parameter limit. It fails with an error wrapping sql.ErrNoRows when any of
-// them is missing.
-func FetchCourseByID(
-	ctx context.Context,
-	db tsq.Executor,
-	iDs ...int64,
-) ([]*Course, error) {
-	list, err := QueryCourseByIDIn.ListIn(ctx, db, Course_ID.ListParam(), iDs)
-	if err != nil {
-		return nil, err
-	}
-
-	ordered, missing := matchByInputOrder(iDs, list, func(row *Course) int64 {
-		return row.ID
-	})
-	if len(missing) > 0 {
-		return nil, fmt.Errorf("fetch Course by ID %v: %w", missing, tsqsql.ErrNoRows)
-	}
-
-	return ordered, nil
+	CreatedAt      tsq.NullColumn[Course, tsqtime.Time]
+	Currency       tsq.Column[Course, string]
+	ID             tsq.Column[Course, int64]
+	InstructorID   tsq.Column[Course, int64]
+	Level          tsq.Column[Course, CourseLevel]
+	ListPriceCents tsq.Column[Course, int64]
+	PrerequisiteID tsq.Column[Course, int64]
+	Published      tsq.Column[Course, bool]
+	Slug           tsq.Column[Course, string]
+	Summary        tsq.Column[Course, string]
+	Title          tsq.Column[Course, string]
+	TrackID        tsq.Column[Course, int64]
 }
 
-// QueryCourseByTitle reads one Course by unique index ux_course_title.
-var QueryCourseByTitle = tsq.
-	Select(Course__Cols...).
-	From(TableCourse).
-	Where(
-		Course_Title.EQ(Course_Title.Param()),
-	).
-	MustBuild()
+// TableCourse is the course table.
+var TableCourse = newCourseTable()
 
-// QueryCourseByTitleIn reads Course rows by unique index ux_course_title, one per
-// Title value; bind Course_Title with BindList.
-var QueryCourseByTitleIn = tsq.
-	Select(Course__Cols...).
-	From(TableCourse).
-	Where(
-		Course_Title.In(Course_Title.ListParam()),
-	).
-	MustBuild()
+// newCourseTable declares the table, its columns, then its definition, so that
+// anything naming TableCourse is initialized after the table is complete.
+func newCourseTable() CourseTable {
+	t := tsq.NewTable[Course, int64]("course")
+	c := CourseTable{
+		TableOf:        t,
+		CreatedAt:      tsq.NewNullColumn[tsqtime.Time](t, "created_at", "created_at", func(r *Course) *null.Time { return &r.CreatedAt }),
+		Currency:       tsq.NewColumn(t, "currency", "currency", func(r *Course) *string { return &r.Currency }),
+		ID:             tsq.NewColumn(t, "id", "id", func(r *Course) *int64 { return &r.ID }),
+		InstructorID:   tsq.NewColumn(t, "instructor_id", "instructor_id", func(r *Course) *int64 { return &r.InstructorID }),
+		Level:          tsq.NewColumn(t, "level", "level", func(r *Course) *CourseLevel { return &r.Level }),
+		ListPriceCents: tsq.NewColumn(t, "list_price_cents", "list_price_cents", func(r *Course) *int64 { return &r.ListPriceCents }),
+		PrerequisiteID: tsq.NewColumn(t, "prerequisite_id", "prerequisite_id", func(r *Course) *int64 { return &r.PrerequisiteID }),
+		Published:      tsq.NewColumn(t, "published", "published", func(r *Course) *bool { return &r.Published }),
+		Slug:           tsq.NewColumn(t, "slug", "slug", func(r *Course) *string { return &r.Slug }),
+		Summary:        tsq.NewColumn(t, "summary", "summary", func(r *Course) *string { return &r.Summary }),
+		Title:          tsq.NewColumn(t, "title", "title", func(r *Course) *string { return &r.Title }),
+		TrackID:        tsq.NewColumn(t, "track_id", "track_id", func(r *Course) *int64 { return &r.TrackID }),
+	}
 
-// FetchCourseByTitle returns the Course rows matching unique index ux_course_title,
-// one per Title value, in the order given. It fails with an error wrapping
-// sql.ErrNoRows when any of them is missing.
-func FetchCourseByTitle(
+	t.Define(tsq.TableSpec[Course, int64]{
+		Columns: []tsq.BoundColumn[Course]{
+			c.CreatedAt,
+			c.Currency,
+			c.ID,
+			c.InstructorID,
+			c.Level,
+			c.ListPriceCents,
+			c.PrerequisiteID,
+			c.Published,
+			c.Slug,
+			c.Summary,
+			c.Title,
+			c.TrackID,
+		},
+		PrimaryKey:    c.ID,
+		AutoIncrement: true,
+		CreatedAt:     c.CreatedAt,
+		Search: []tsq.SearchColumn{
+			tsq.Searchable(c.Title),
+			tsq.Searchable(c.Summary),
+		},
+		Schema: []tsqdialect.ColumnSpec{
+			{
+				Name: "id",
+				Type: tsqdialect.ColumnType{
+					Kind: tsqdialect.KindInt,
+					Bits: 64,
+				},
+				PrimaryKey:    true,
+				AutoIncrement: true,
+			},
+			{
+				Name: "created_at",
+				Type: tsqdialect.ColumnType{
+					Kind:     tsqdialect.KindTime,
+					Nullable: true,
+				},
+			},
+			{
+				Name: "currency",
+				Type: tsqdialect.ColumnType{
+					Kind: tsqdialect.KindString,
+					Size: 3,
+				},
+				Default: "'USD'",
+				Fill:    tsqdialect.FillDefault,
+			},
+			{
+				Name: "instructor_id",
+				Type: tsqdialect.ColumnType{
+					Kind: tsqdialect.KindInt,
+					Bits: 64,
+				},
+			},
+			{
+				Name: "level",
+				Type: tsqdialect.ColumnType{
+					Kind: tsqdialect.KindInt,
+					Bits: 32,
+				},
+			},
+			{
+				Name: "list_price_cents",
+				Type: tsqdialect.ColumnType{
+					Kind: tsqdialect.KindInt,
+					Bits: 64,
+				},
+			},
+			{
+				Name: "prerequisite_id",
+				Type: tsqdialect.ColumnType{
+					Kind: tsqdialect.KindInt,
+					Bits: 64,
+				},
+			},
+			{
+				Name: "published",
+				Type: tsqdialect.ColumnType{
+					Kind: tsqdialect.KindBool,
+				},
+			},
+			{
+				Name: "slug",
+				Type: tsqdialect.ColumnType{
+					Kind: tsqdialect.KindString,
+					Size: 160,
+				},
+				Fill:      tsqdialect.FillGenerated,
+				Generated: "LOWER(title)",
+			},
+			{
+				Name: "summary",
+				Type: tsqdialect.ColumnType{
+					Kind: tsqdialect.KindString,
+					Size: 4096,
+				},
+			},
+			{
+				Name: "title",
+				Type: tsqdialect.ColumnType{
+					Kind: tsqdialect.KindString,
+					Size: 160,
+				},
+			},
+			{
+				Name: "track_id",
+				Type: tsqdialect.ColumnType{
+					Kind: tsqdialect.KindInt,
+					Bits: 64,
+				},
+			},
+		},
+		Indexes: []tsq.TableIndex{
+			{Name: "ux_course_title", Unique: true, Fields: []string{"title"}},
+			{Name: "idx_course_instructor_id", Fields: []string{"instructor_id"}},
+			{Name: "idx_course_prerequisite_id", Fields: []string{"prerequisite_id"}},
+			{Name: "idx_course_track_id", Fields: []string{"track_id"}},
+			{Name: "ft_course_title_summary", FullText: true, Fields: []string{"title", "summary"}},
+		},
+	})
+
+	return c
+}
+
+// As returns the table under alias, with every column bound to the alias, for
+// joining the table more than once.
+func (t CourseTable) As(alias string) CourseTable {
+	a := t.TableOf.As(alias)
+
+	return CourseTable{
+		TableOf:        a,
+		CreatedAt:      t.CreatedAt.WithTable(a).(tsq.NullColumn[Course, tsqtime.Time]),
+		Currency:       t.Currency.WithTable(a),
+		ID:             t.ID.WithTable(a),
+		InstructorID:   t.InstructorID.WithTable(a),
+		Level:          t.Level.WithTable(a),
+		ListPriceCents: t.ListPriceCents.WithTable(a),
+		PrerequisiteID: t.PrerequisiteID.WithTable(a),
+		Published:      t.Published.WithTable(a),
+		Slug:           t.Slug.WithTable(a),
+		Summary:        t.Summary.WithTable(a),
+		Title:          t.Title.WithTable(a),
+		TrackID:        t.TrackID.WithTable(a),
+	}
+}
+
+// WithDeleted returns the table without its soft-delete scope; see
+// tsq.TableOf.WithDeleted.
+func (t CourseTable) WithDeleted() CourseTable {
+	t.TableOf = t.TableOf.WithDeleted()
+
+	return t
+}
+
+// GetByTitle reads the Course matching unique index ux_course_title, and fails with an
+// error wrapping sql.ErrNoRows when there is none.
+func (t CourseTable) GetByTitle(
+	ctx context.Context,
+	db tsq.Executor,
+	title string,
+) (*Course, error) {
+	return tsq.Select(t.Columns()...).From(t).Where(
+		t.Title.EQ(tsq.Val(title)),
+	).Get(ctx, db)
+}
+
+// FetchByTitle reads the Course rows matching unique index ux_course_title, one per
+// Title value, in the order given; see tsq.TableOf.FetchBy.
+func (t CourseTable) FetchByTitle(
 	ctx context.Context,
 	db tsq.Executor,
 	titles ...string,
 ) ([]*Course, error) {
-	list, err := QueryCourseByTitleIn.ListIn(ctx, db, Course_Title.ListParam(), titles)
-	if err != nil {
-		return nil, err
-	}
-
-	ordered, missing := matchByInputOrderKey(titles, list,
-		func(row *Course) string { return lookupKey(row.Title) },
-		func(input string) string { return lookupKey(input) },
-	)
-	if len(missing) > 0 {
-		return nil, fmt.Errorf("fetch Course by Title %v: %w", missing, tsqsql.ErrNoRows)
-	}
-
-	return ordered, nil
+	return t.FetchBy(ctx, db, t.Title, titles)
 }
-
-// QueryCourse reads every Course row; pass tsq.Keyword to search it.
-var QueryCourse = tsq.
-	Select(Course__Cols...).
-	From(TableCourse).
-	Search(TableCourse.SearchColumns()...).
-	MustBuild()
 
 // Insert inserts the row; see tsq.TableOf.Insert.
 func (c *Course) Insert(ctx context.Context, db tsq.Executor) error {

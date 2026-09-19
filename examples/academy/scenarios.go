@@ -297,16 +297,16 @@ func RunAdvanced(ctx context.Context, runtime *tsq.Runtime) (*AdvancedSummary, e
 func runAttachDemo(ctx context.Context, runtime *tsq.Runtime) (*AttachSummary, error) {
 	exec := runtime
 
-	learners, err := QueryLearner.List(ctx, exec)
+	learners, err := TableLearner.Query().List(ctx, exec)
 	if err != nil {
 		return nil, err
 	}
 
 	// The child query decides which children count; its list parameter is the key.
 	enrollmentsOfLearners, err := tsq.
-		Select(Enrollment__Cols...).
+		Select(TableEnrollment.Columns()...).
 		From(TableEnrollment).
-		Where(Enrollment_LearnerID.In(Enrollment_LearnerID.ListParam())).
+		Where(TableEnrollment.LearnerID.In(TableEnrollment.LearnerID.ListParam())).
 		Build()
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "build enrollments query", err)
@@ -314,7 +314,7 @@ func runAttachDemo(ctx context.Context, runtime *tsq.Runtime) (*AttachSummary, e
 
 	perLearner := map[string]int{}
 
-	err = tsq.AttachMany(ctx, exec, learners, Learner_ID, enrollmentsOfLearners, Enrollment_LearnerID,
+	err = tsq.AttachMany(ctx, exec, learners, TableLearner.ID, enrollmentsOfLearners, TableEnrollment.LearnerID,
 		func(learner *Learner, enrollments []*Enrollment) {
 			if len(enrollments) > 0 {
 				perLearner[learner.Name] = len(enrollments)
@@ -324,15 +324,15 @@ func runAttachDemo(ctx context.Context, runtime *tsq.Runtime) (*AttachSummary, e
 		return nil, err
 	}
 
-	courses, err := QueryCourse.List(ctx, exec)
+	courses, err := TableCourse.Query().List(ctx, exec)
 	if err != nil {
 		return nil, err
 	}
 
 	instructorsByID, err := tsq.
-		Select(Instructor__Cols...).
+		Select(TableInstructor.Columns()...).
 		From(TableInstructor).
-		Where(Instructor_ID.In(Instructor_ID.ListParam())).
+		Where(TableInstructor.ID.In(TableInstructor.ID.ListParam())).
 		Build()
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "build instructors query", err)
@@ -340,7 +340,7 @@ func runAttachDemo(ctx context.Context, runtime *tsq.Runtime) (*AttachSummary, e
 
 	perInstructor := map[string]int{}
 
-	err = tsq.AttachOne(ctx, exec, courses, Course_InstructorID, instructorsByID, Instructor_ID,
+	err = tsq.AttachOne(ctx, exec, courses, TableCourse.InstructorID, instructorsByID, TableInstructor.ID,
 		func(_ *Course, instructor *Instructor) {
 			perInstructor[instructor.Name]++
 		})
@@ -359,10 +359,10 @@ func runFullTextDemo(ctx context.Context, runtime *tsq.Runtime) (*FullTextSummar
 	term := "sqlite"
 
 	query, err := tsq.
-		Select(Course__Cols...).
+		Select(TableCourse.Columns()...).
 		From(TableCourse).
 		Where(tsq.Matches(TableCourse.FullText(), tsq.Val(term))).
-		OrderBy(Course_Title.Asc()).
+		OrderBy(TableCourse.Title.Asc()).
 		Build()
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "build full text query", err)
@@ -409,7 +409,7 @@ func runDatabaseFilledDemo(ctx context.Context, runtime *tsq.Runtime) (*Database
 		return nil, fmt.Errorf("%s: %w", "update course", err)
 	}
 
-	stored, err := QueryCourseByID.Get(ctx, exec, Course_ID.Bind(course.ID))
+	stored, err := TableCourse.Get(ctx, exec, course.ID)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "reload course", err)
 	}
@@ -464,7 +464,7 @@ func runComprehensive(ctx context.Context, runtime *tsq.Runtime) (*Comprehensive
 	}
 
 	// A handler turns the request into a Paging, naming the columns clients may sort by.
-	paging, err := pageReq.Paging(LearningJourney_LearnerID, LearningJourney_EnrollmentID)
+	paging, err := pageReq.Paging(ResultLearningJourney.LearnerID, ResultLearningJourney.EnrollmentID)
 	if err != nil {
 		return nil, err
 	}
@@ -516,18 +516,18 @@ func runTrackCRUDDemo(ctx context.Context, runtime *tsq.Runtime) (*CRUDSummary, 
 		Description: "Updated through an upsert by name.",
 		SkillItems:  inserted.SkillItems,
 	}
-	if err := TableTrack.Upsert(ctx, exec, upserted, Track_Name); err != nil {
+	if err := TableTrack.Upsert(ctx, exec, upserted, TableTrack.Name); err != nil {
 		return nil, fmt.Errorf("%s: %w", "upsert track", err)
 	}
 
 	// Look up the track to verify the update.
 	// Generated Query values can also load a single record by primary key:
-	//   updated, err := QueryTrackByID.Get(ctx, exec, Track_ID.Bind(inserted.ID))
+	//   updated, err := TableTrack.Get(ctx, exec, inserted.ID)
 
 	query, err := tsq.
-		Select(Track__Cols...).
+		Select(TableTrack.Columns()...).
 		From(TableTrack).
-		Where(Track_ID.EQ(tsq.Val(inserted.ID))).
+		Where(TableTrack.ID.EQ(tsq.Val(inserted.ID))).
 		Build()
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "build track lookup", err)
@@ -574,13 +574,13 @@ func runCatalogSearchDemo(ctx context.Context, runtime *tsq.Runtime) (*SearchSum
 		return nil, err
 	}
 
-	paging, err := pageReq.Paging(Course_ID, Course_Title)
+	paging, err := pageReq.Paging(TableCourse.ID, TableCourse.Title)
 	if err != nil {
 		return nil, err
 	}
 
 	// The search term is an argument like any other; an empty one searches nothing.
-	resp, err := QueryCourse.Page(ctx, exec, paging, tsq.Keyword(pageReq.Keyword))
+	resp, err := TableCourse.Query().Page(ctx, exec, paging, tsq.Keyword(pageReq.Keyword))
 	if err != nil {
 		return nil, err
 	}
@@ -592,9 +592,9 @@ func runCatalogSearchDemo(ctx context.Context, runtime *tsq.Runtime) (*SearchSum
 
 	// Keyset paging reads the same rows by position instead of offset; the order
 	// ends with the primary key so every position is unique.
-	keyset, err := QueryCourse.PageKeyset(ctx, exec, tsq.Keyset{
+	keyset, err := TableCourse.Query().PageKeyset(ctx, exec, tsq.Keyset{
 		Size:    pageReq.Size,
-		OrderBy: []tsq.OrderBy{Course_ID.Asc()},
+		OrderBy: []tsq.OrderBy{TableCourse.ID.Asc()},
 	}, tsq.Keyword(pageReq.Keyword))
 	if err != nil {
 		return nil, err
@@ -617,12 +617,12 @@ func runBackendCatalogDemo(ctx context.Context, runtime *tsq.Runtime) (*CatalogS
 	exec := runtime
 
 	query, err := tsq.
-		Select(Course__Cols...).
+		Select(TableCourse.Columns()...).
 		From(TableCourse).
-		LeftJoin(TableTrack, Course_TrackID.EQ(Track_ID)).
+		LeftJoin(TableTrack, TableCourse.TrackID.EQ(TableTrack.ID)).
 		Where(
-			Track_Name.EQ(tsq.Val("Backend Engineering")),
-			Course_Published.EQ(tsq.Val(true)),
+			TableTrack.Name.EQ(tsq.Val("Backend Engineering")),
+			TableCourse.Published.EQ(tsq.Val(true)),
 		).
 		Build()
 	if err != nil {
@@ -651,21 +651,20 @@ func runBackendCatalogDemo(ctx context.Context, runtime *tsq.Runtime) (*CatalogS
 // course and its prerequisite title.
 func runAliasDemo(ctx context.Context, runtime *tsq.Runtime) (*AliasSummary, error) {
 	exec := runtime
-	prerequisiteAlias := "prerequisite_course"
-	prerequisiteID := Course_ID.As(prerequisiteAlias)
+	prerequisite := TableCourse.As("prerequisite_course")
 
-	courseTitle := tsq.MapInto(Course_Title, func(holder *prerequisiteRow) *string {
+	courseTitle := tsq.MapInto(TableCourse.Title, func(holder *prerequisiteRow) *string {
 		return &holder.CourseTitle
 	}, "course_title")
-	prerequisiteTitle := tsq.MapIntoNull(Course_Title.As(prerequisiteAlias), func(holder *prerequisiteRow) *sql.NullString {
+	prerequisiteTitle := tsq.MapIntoNull(prerequisite.Title, func(holder *prerequisiteRow) *sql.NullString {
 		return &holder.PrerequisiteTitle
 	}, "prerequisite_title")
 
 	query, err := tsq.
 		Select(courseTitle, prerequisiteTitle).
 		From(TableCourse).
-		LeftJoin(prerequisiteID.Table(), Course_PrerequisiteID.EQ(prerequisiteID)).
-		Where(Course_Title.EQ(tsq.Val("API Design Workshop"))).
+		LeftJoin(prerequisite, TableCourse.PrerequisiteID.EQ(prerequisite.ID)).
+		Where(TableCourse.Title.EQ(tsq.Val("API Design Workshop"))).
 		Build()
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "build alias query", err)
@@ -686,13 +685,13 @@ func runAliasDemo(ctx context.Context, runtime *tsq.Runtime) (*AliasSummary, err
 // aggregate functions, GroupBy, and Having.
 func runAggregateDemo(ctx context.Context, runtime *tsq.Runtime) ([]AggregateSummary, error) {
 	exec := runtime
-	trackName := tsq.MapInto(Track_Name, func(holder *trackMetricRow) *string {
+	trackName := tsq.MapInto(TableTrack.Name, func(holder *trackMetricRow) *string {
 		return &holder.Track
 	}, "track")
-	enrollmentCount := tsq.MapInto(tsq.Count(Enrollment_UID), func(holder *trackMetricRow) *int64 {
+	enrollmentCount := tsq.MapInto(tsq.Count(TableEnrollment.UID), func(holder *trackMetricRow) *int64 {
 		return &holder.EnrollmentCount
 	}, "enrollment_count")
-	averageScore := tsq.MapInto(tsq.Avg(Enrollment_Score), func(holder *trackMetricRow) *float64 {
+	averageScore := tsq.MapInto(tsq.Avg(TableEnrollment.Score), func(holder *trackMetricRow) *float64 {
 		return &holder.AverageScore
 	}, "average_score")
 
@@ -701,14 +700,14 @@ func runAggregateDemo(ctx context.Context, runtime *tsq.Runtime) ([]AggregateSum
 		From(TableTrack).
 		// The WHERE on enrollment status drops the rows a LEFT JOIN would add, and
 		// the averaged score would read them as NULL; say INNER JOIN outright.
-		Join(TableCourse, Track_ID.EQ(Course_TrackID)).
-		Join(TableEnrollment, Course_ID.EQ(Enrollment_CourseID)).
+		Join(TableCourse, TableTrack.ID.EQ(TableCourse.TrackID)).
+		Join(TableEnrollment, TableCourse.ID.EQ(TableEnrollment.CourseID)).
 		Where(tsq.Or(
-			Enrollment_Status.EQ(tsq.Val(EnrollmentStatusActive)),
-			Enrollment_Status.EQ(tsq.Val(EnrollmentStatusCompleted)),
+			TableEnrollment.Status.EQ(tsq.Val(EnrollmentStatusActive)),
+			TableEnrollment.Status.EQ(tsq.Val(EnrollmentStatusCompleted)),
 		)).
-		GroupBy(Track_Name).
-		Having(tsq.Count(Enrollment_UID).GT(tsq.Val(int64(0)))).
+		GroupBy(TableTrack.Name).
+		Having(tsq.Count(TableEnrollment.UID).GT(tsq.Val(int64(0)))).
 		Build()
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "build aggregate query", err)
@@ -742,9 +741,9 @@ func runListParamDemo(ctx context.Context, runtime *tsq.Runtime) (*ListParamSumm
 	exec := runtime
 
 	query, err := tsq.
-		Select(Course__Cols...).
+		Select(TableCourse.Columns()...).
 		From(TableCourse).
-		Where(Course_ID.In(Course_ID.ListParam())).
+		Where(TableCourse.ID.In(TableCourse.ID.ListParam())).
 		Build()
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "build dynamic in query", err)
@@ -752,7 +751,7 @@ func runListParamDemo(ctx context.Context, runtime *tsq.Runtime) (*ListParamSumm
 
 	courseIDs := []int64{1, 4, 6}
 
-	courses, err := query.List(ctx, exec, Course_ID.BindList(courseIDs...))
+	courses, err := query.List(ctx, exec, TableCourse.ID.BindList(courseIDs...))
 	if err != nil {
 		return nil, err
 	}
@@ -777,10 +776,10 @@ func runSubqueryDemo(ctx context.Context, runtime *tsq.Runtime) (*SubquerySummar
 
 	dataTrackIDSubquery, err := tsq.BuildSubquery(
 		tsq.
-			Select(Track_ID).
+			Select(TableTrack.ID).
 			From(TableTrack).
-			Where(Track_Name.EQ(tsq.Val("Data & AI"))),
-		Track_ID,
+			Where(TableTrack.Name.EQ(tsq.Val("Data & AI"))),
+		TableTrack.ID,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "build data track id subquery", err)
@@ -788,20 +787,20 @@ func runSubqueryDemo(ctx context.Context, runtime *tsq.Runtime) (*SubquerySummar
 
 	dataTrackLearnerIDs, err := tsq.BuildSubquery(
 		tsq.
-			Select(Enrollment_LearnerID).
+			Select(TableEnrollment.LearnerID).
 			From(TableEnrollment).
-			LeftJoin(TableCourse, Enrollment_CourseID.EQ(Course_ID)).
-			Where(Course_TrackID.In(dataTrackIDSubquery)),
-		Enrollment_LearnerID,
+			LeftJoin(TableCourse, TableEnrollment.CourseID.EQ(TableCourse.ID)).
+			Where(TableCourse.TrackID.In(dataTrackIDSubquery)),
+		TableEnrollment.LearnerID,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "build learner ids in data track subquery", err)
 	}
 
 	learnersInDataTrackQuery, err := tsq.
-		Select(Learner__Cols...).
+		Select(TableLearner.Columns()...).
 		From(TableLearner).
-		Where(Learner_ID.In(dataTrackLearnerIDs)).
+		Where(TableLearner.ID.In(dataTrackLearnerIDs)).
 		Build()
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "build learners in data track query", err)
@@ -814,19 +813,19 @@ func runSubqueryDemo(ctx context.Context, runtime *tsq.Runtime) (*SubquerySummar
 
 	anchorPriceSubquery, err := tsq.BuildSubquery(
 		tsq.
-			Select(Course_ListPriceCents).
+			Select(TableCourse.ListPriceCents).
 			From(TableCourse).
-			Where(Course_Title.EQ(tsq.Val("Retrieval Systems with SQLite"))),
-		Course_ListPriceCents,
+			Where(TableCourse.Title.EQ(tsq.Val("Retrieval Systems with SQLite"))),
+		TableCourse.ListPriceCents,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "build anchor price subquery", err)
 	}
 
 	coursesCheaperThanAnchorQuery, err := tsq.
-		Select(Course__Cols...).
+		Select(TableCourse.Columns()...).
 		From(TableCourse).
-		Where(Course_ListPriceCents.LT(anchorPriceSubquery)).
+		Where(TableCourse.ListPriceCents.LT(anchorPriceSubquery)).
 		Build()
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "build cheaper courses query", err)
@@ -863,14 +862,14 @@ func runCaseDemo(ctx context.Context, runtime *tsq.Runtime) (*CaseSummary, error
 	labelExpr := tsq.
 		Case[string]().
 		When(tsq.And(
-			Enrollment_Status.EQ(tsq.Val(EnrollmentStatusCompleted)),
-			Enrollment_Score.GTE(tsq.Val(int64(90))),
+			TableEnrollment.Status.EQ(tsq.Val(EnrollmentStatusCompleted)),
+			TableEnrollment.Score.GTE(tsq.Val(int64(90))),
 		), tsq.Val("excellent")).
 		When(tsq.And(
-			Enrollment_Status.EQ(tsq.Val(EnrollmentStatusActive)),
-			Enrollment_Score.GTE(tsq.Val(int64(80))),
+			TableEnrollment.Status.EQ(tsq.Val(EnrollmentStatusActive)),
+			TableEnrollment.Score.GTE(tsq.Val(int64(80))),
 		), tsq.Val("on_track")).
-		When(Enrollment_Status.EQ(tsq.Val(EnrollmentStatusWaitlisted)), tsq.Val("waitlist")).
+		When(TableEnrollment.Status.EQ(tsq.Val(EnrollmentStatusWaitlisted)), tsq.Val("waitlist")).
 		Else(tsq.Val("watchlist")).
 		End()
 
@@ -881,7 +880,7 @@ func runCaseDemo(ctx context.Context, runtime *tsq.Runtime) (*CaseSummary, error
 	query, err := tsq.
 		Select(label).
 		From(TableEnrollment).
-		Where(Enrollment_LearnerID.EQ(tsq.Val(int64(1)))).
+		Where(TableEnrollment.LearnerID.EQ(tsq.Val(int64(1)))).
 		Build()
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "build case query", err)
@@ -908,17 +907,17 @@ func runCTEDemo(ctx context.Context, runtime *tsq.Runtime) (*CTESummary, error) 
 	exec := runtime
 	platformCatalog := tsq.CTE(
 		"platform_catalog",
-		tsq.Select(Course_ID, Course_Title).
+		tsq.Select(TableCourse.ID, TableCourse.Title).
 			From(TableCourse).
-			LeftJoin(TableTrack, Course_TrackID.EQ(Track_ID)).
+			LeftJoin(TableTrack, TableCourse.TrackID.EQ(TableTrack.ID)).
 			Where(
-				Track_Name.EQ(tsq.Val("Platform Reliability")),
-				Course_Published.EQ(tsq.Val(true)),
+				TableTrack.Name.EQ(tsq.Val("Platform Reliability")),
+				TableCourse.Published.EQ(tsq.Val(true)),
 			),
 	)
 
-	platformCourseID := Course_ID.WithTable(platformCatalog)
-	platformCourseTitle := tsq.MapInto(Course_Title.WithTable(platformCatalog), func(holder *namedRow) *string {
+	platformCourseID := TableCourse.ID.WithTable(platformCatalog)
+	platformCourseTitle := tsq.MapInto(TableCourse.Title.WithTable(platformCatalog), func(holder *namedRow) *string {
 		return &holder.Name
 	}, "name")
 
@@ -959,20 +958,20 @@ func runCTEDemo(ctx context.Context, runtime *tsq.Runtime) (*CTESummary, error) 
 // union two tracks, then exclude courses that require prerequisites.
 func runSetOpsDemo(ctx context.Context, runtime *tsq.Runtime) (*SetOpsSummary, error) {
 	exec := runtime
-	courseTitle := tsq.MapInto(Course_Title, func(holder *namedRow) *string {
+	courseTitle := tsq.MapInto(TableCourse.Title, func(holder *namedRow) *string {
 		return &holder.Name
 	}, "name")
 
 	unionQuery, err := tsq.
 		Select(courseTitle).
 		From(TableCourse).
-		LeftJoin(TableTrack, Course_TrackID.EQ(Track_ID)).
-		Where(Track_Name.EQ(tsq.Val("Backend Engineering"))).
+		LeftJoin(TableTrack, TableCourse.TrackID.EQ(TableTrack.ID)).
+		Where(TableTrack.Name.EQ(tsq.Val("Backend Engineering"))).
 		Union(
 			tsq.Select(courseTitle).
 				From(TableCourse).
-				LeftJoin(TableTrack, Course_TrackID.EQ(Track_ID)).
-				Where(Track_Name.EQ(tsq.Val("Platform Reliability"))),
+				LeftJoin(TableTrack, TableCourse.TrackID.EQ(TableTrack.ID)).
+				Where(TableTrack.Name.EQ(tsq.Val("Platform Reliability"))),
 		).
 		Build()
 	if err != nil {
@@ -990,7 +989,7 @@ func runSetOpsDemo(ctx context.Context, runtime *tsq.Runtime) (*SetOpsSummary, e
 		Except(
 			tsq.Select(courseTitle).
 				From(TableCourse).
-				Where(Course_PrerequisiteID.GT(tsq.Val(int64(0)))),
+				Where(TableCourse.PrerequisiteID.GT(tsq.Val(int64(0)))),
 		).
 		Build()
 	if err != nil {
@@ -1027,7 +1026,7 @@ func runSetOpsDemo(ctx context.Context, runtime *tsq.Runtime) (*SetOpsSummary, e
 func runBatchDemo(ctx context.Context, runtime *tsq.Runtime) (*BatchSummary, error) {
 	exec := runtime
 
-	before, err := QueryEnrollment.Count(ctx, exec)
+	before, err := TableEnrollment.Query().Count(ctx, exec)
 	if err != nil {
 		return nil, err
 	}
@@ -1088,7 +1087,7 @@ func runBatchDemo(ctx context.Context, runtime *tsq.Runtime) (*BatchSummary, err
 		if err := TableEnrollment.BatchDeleteByPK(
 			ctx,
 			txExec,
-			Enrollment_UID.BindList(remainingIDs...),
+			remainingIDs,
 			tsq.WithBatchSize(2),
 		); err != nil {
 			return err
@@ -1099,7 +1098,7 @@ func runBatchDemo(ctx context.Context, runtime *tsq.Runtime) (*BatchSummary, err
 		return nil, err
 	}
 
-	after, err := QueryEnrollment.Count(ctx, exec)
+	after, err := TableEnrollment.Query().Count(ctx, exec)
 	if err != nil {
 		return nil, err
 	}
@@ -1125,9 +1124,9 @@ func runSoftDeleteDemo(ctx context.Context, runtime *tsq.Runtime) (*SoftDeleteSu
 	// Every row of the table, tombstoned or not. A soft-delete table leaves deleted
 	// rows out of every query unless the query says WithDeleted.
 	storedByUID := tsq.
-		Select(Enrollment__Cols...).
+		Select(TableEnrollment.Columns()...).
 		From(TableEnrollment.WithDeleted()).
-		Where(Enrollment_UID.EQ(Enrollment_UID.Param())).
+		Where(TableEnrollment.UID.EQ(TableEnrollment.UID.Param())).
 		MustBuild()
 
 	row := &Enrollment{
@@ -1141,7 +1140,7 @@ func runSoftDeleteDemo(ctx context.Context, runtime *tsq.Runtime) (*SoftDeleteSu
 		return nil, fmt.Errorf("%s: %w", "insert enrollment", err)
 	}
 
-	visible, err := QueryEnrollmentByUID.Find(ctx, exec, Enrollment_UID.Bind(row.UID))
+	visible, err := TableEnrollment.Find(ctx, exec, row.UID)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "load enrollment before delete", err)
 	}
@@ -1158,14 +1157,14 @@ func runSoftDeleteDemo(ctx context.Context, runtime *tsq.Runtime) (*SoftDeleteSu
 
 	summary.ActiveAfter = row.Active()
 
-	visible, err = QueryEnrollmentByUID.Find(ctx, exec, Enrollment_UID.Bind(row.UID))
+	visible, err = TableEnrollment.Find(ctx, exec, row.UID)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "load enrollment after delete", err)
 	}
 
 	summary.VisibleAfter = visible != nil
 
-	stored, err := storedByUID.Find(ctx, exec, Enrollment_UID.Bind(row.UID))
+	stored, err := storedByUID.Find(ctx, exec, TableEnrollment.UID.Bind(row.UID))
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "load stored enrollment after delete", err)
 	}
@@ -1178,7 +1177,7 @@ func runSoftDeleteDemo(ctx context.Context, runtime *tsq.Runtime) (*SoftDeleteSu
 		return nil, fmt.Errorf("%s: %w", "restore enrollment", err)
 	}
 
-	visible, err = QueryEnrollmentByUID.Find(ctx, exec, Enrollment_UID.Bind(row.UID))
+	visible, err = TableEnrollment.Find(ctx, exec, row.UID)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "load enrollment after restore", err)
 	}
@@ -1189,7 +1188,7 @@ func runSoftDeleteDemo(ctx context.Context, runtime *tsq.Runtime) (*SoftDeleteSu
 		return nil, fmt.Errorf("%s: %w", "hard-delete enrollment", err)
 	}
 
-	stored, err = storedByUID.Find(ctx, exec, Enrollment_UID.Bind(row.UID))
+	stored, err = storedByUID.Find(ctx, exec, TableEnrollment.UID.Bind(row.UID))
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "load stored enrollment after hard delete", err)
 	}
@@ -1216,12 +1215,12 @@ func runOptimisticLockDemo(ctx context.Context, runtime *tsq.Runtime) (*Optimist
 		return nil, fmt.Errorf("%s: %w", "insert enrollment", err)
 	}
 
-	stale, err := QueryEnrollmentByUID.Get(ctx, exec, Enrollment_UID.Bind(inserted.UID))
+	stale, err := TableEnrollment.Get(ctx, exec, inserted.UID)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "load stale enrollment snapshot", err)
 	}
 
-	concurrent, err := QueryEnrollmentByUID.Get(ctx, exec, Enrollment_UID.Bind(inserted.UID))
+	concurrent, err := TableEnrollment.Get(ctx, exec, inserted.UID)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "load competing enrollment snapshot", err)
 	}
@@ -1248,7 +1247,7 @@ func runOptimisticLockDemo(ctx context.Context, runtime *tsq.Runtime) (*Optimist
 			return nil, fmt.Errorf("%s", "expected stale snapshot to trigger optimistic lock retry")
 		}
 
-		loaded, err := QueryEnrollmentByUID.Get(ctx, txExec, Enrollment_UID.Bind(inserted.UID))
+		loaded, err := TableEnrollment.Get(ctx, txExec, inserted.UID)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", "reload enrollment after retry", err)
 		}
@@ -1267,7 +1266,7 @@ func runOptimisticLockDemo(ctx context.Context, runtime *tsq.Runtime) (*Optimist
 			return nil, fmt.Errorf("%s: %w", "hard-delete fresh enrollment", err)
 		}
 
-		deleted, err := QueryEnrollmentByUID.Find(ctx, txExec, Enrollment_UID.Bind(loaded.UID))
+		deleted, err := TableEnrollment.Find(ctx, txExec, loaded.UID)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", "verify deleted enrollment", err)
 		}

@@ -58,17 +58,19 @@ genmodel.StructInfo / TableMeta        internal/genmodel/model.go
 
 ## 生成物的形态
 
-- `<struct>.tsq.go`：句柄 `tsqXxxTable`、列 `Xxx_Field`（`tsq.NewColumn(句柄, ...)`）、表描述符
-  `TableXxx = 句柄.Define(tsq.TableSpec{...})`（含 `Schema` 与 `Indexes`）、`Xxx__Cols`、查询
-  `QueryXxx`（带搜索列）、主键和**每个唯一索引**各一对 `QueryXxxBy<字段>` / `...In`（参数用列自带的
-  `Param()` / `ListParam()`）、`FetchXxxBy...`，以及转发到表描述符的行方法。普通索引和唯一索引的
-  前缀**不生成查询**（理由见 `memory.md`）；模板里没有软删除过滤，作用域在库里。三步声明的理由见 `architecture.md` § 表描述符。
+- `<struct>.tsq.go`：结构体 `XxxTable`（内嵌 `*tsq.TableOf[Xxx, 主键类型]`，每列一个字段）、构造函数
+  `newXxxTable()`（`NewTable` → 列 → `Define`，含 `Schema` 与 `Indexes`）、变量 `TableXxx`、改绑全部列的
+  `As` / `WithDeleted`、**每个唯一索引**的 `GetBy<字段>` 与 `FetchBy<字段>`（后者转发 `TableOf.FetchBy`；
+  可空或切片类型的末字段不生成），以及转发到表的行方法。主键查询在库里（`TableOf.Get/Find/Fetch/Query`），
+  不生成。普通索引和唯一索引的前缀**不生成查询**（理由见 `memory.md`）；模板里没有软删除过滤，作用域在库里。
+  列字段名的保留字见 `architecture.md` § 表描述符。
 - 可空字段（指针、`sql.NullX`、nullbio，即"可扫描、带 `Valid bool` 和唯一数据字段"的结构体）生成
   `tsq.NewNullColumn[值类型]`；值类型由 `generation_plan.go` 的 `resolveNullValues` 用 `go/types` 算出，
   按生成文件的导入别名写进 `FieldInfo.NullValue`（`time.Time` → `tsqtime.Time`，因此
   `NeedsGeneratedTimeImport` 也看 `NullValue`）。库里的 `nullableValueType` 是同一条规则的反射版，两边要一起改。
-- `<result>.result.tsq.go`：`Xxx__Cols` 与 `tsq.MapInto` 列；可空字段用 `tsq.MapIntoNull`。
-- `runtime.tsq.go`：`TSQTables() []tsq.Table` 和两个取行排序的小工具。
+- `<result>.result.tsq.go`：结构体 `XxxResult`（每字段一个 `tsq.ResultColumn`）、变量 `ResultXxx` 与它的
+  `Columns()`；源列写成 `TableYyy.Field`（`normalizeResultColumns`），可空字段用 `tsq.MapIntoNull`。
+- `runtime.tsq.go`：只有 `TSQTables() []tsq.Table`。
 - 物理 schema（`genmodel.SchemaColumn`）需要 `go/types` 的真实类型，所以不由解析器填，而是
   `generation_plan.go` 在渲染表之前用 `ddlTypeResolver` 补进 `StructInfo.Schema`。
 - 托管列的"什么时候盖时间戳"不在模板里，在库的 `rows.go`：模板只声明哪一列扮演哪个角色。

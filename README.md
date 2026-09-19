@@ -25,8 +25,8 @@
 TSQ（Type-Safe Query）把带 `//tsq:` 指令的 Go 结构体生成为**表元数据、CRUD 助手和类型安全的列**，让你用 Go API 组合 SQL，而不是在业务代码里拼字符串。
 
 - **查询构建器是阶段式的**：`Where` 之后拿到的类型上没有 `Where`，约束来自编译器而不是运行期检查。
-- **表是描述符**：生成的 `TableXxx`（`*tsq.TableOf[Xxx]`）持有列、主键、托管列、索引和物理 schema；你的结构体上不需要实现任何接口。
-- **参数按名字绑定、有类型**：`Course_ID.EQ(Course_ID.Param())` 写进查询，执行时传 `Course_ID.Bind(5)`；参数错位、类型不对都编译不过或当场报错。
+- **表是一个值**：生成的 `TableXxx` 内嵌 `*tsq.TableOf[Xxx, 主键类型]`，每列一个字段（`TableXxx.Title`），持有列、主键、托管列、索引和物理 schema；按主键读是 `TableXxx.Get(ctx, db, id)`。你的结构体上不需要实现任何接口。
+- **参数按名字绑定、有类型**：`TableCourse.ID.EQ(TableCourse.ID.Param())` 写进查询，执行时传 `TableCourse.ID.Bind(5)`；参数错位、类型不对都编译不过或当场报错。
 - **SQL 在执行时按方言渲染**：查询是一棵表达式树，第一次在某个方言上执行时渲染并缓存；方言能力（`FULL JOIN`、行锁、CTE）在渲染时按结构检查。
 - **显式运行时**：`Runtime` 持有表声明、方言、日志和 tracer；所有执行方法第一个参数是 `context.Context`，第二个是 `tsq.Executor`（`*Runtime`、事务或任何 `*sql.DB`）。
 
@@ -145,9 +145,9 @@ func main() {
 	defer runtime.Close()
 
 	query, err := tsq.
-		Select(database.User__Cols...).
+		Select(database.TableUser.Columns()...).
 		From(database.TableUser).
-		Where(tsq.Contains(database.User_Name, tsq.Val("alice"))).
+		Where(tsq.Contains(database.TableUser.Name, tsq.Val("alice"))).
 		Build()
 	if err != nil {
 		log.Fatal(err)

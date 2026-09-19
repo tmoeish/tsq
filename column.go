@@ -124,10 +124,8 @@ type Column[O, T any] interface {
 	TypedColumn[O, T]
 
 	// WithTable returns the column rebound to another source with the same column,
-	// such as a CTE or an alias of its table.
+	// such as a CTE or an alias of its table. A NullColumn stays a NullColumn.
 	WithTable(table Table) Column[O, T]
-	// As returns the column rebound to an alias of its table.
-	As(alias string) Column[O, T]
 
 	// Param returns the column's own parameter, for queries that compare the column
 	// to a value supplied at execution. Every call returns the same parameter.
@@ -208,7 +206,7 @@ func (nullColumnImpl[O, T]) nullColumn() {}
 // NewColumn declares a NOT NULL column of table. Generated code calls it; see
 // TableOf for the declaration order it expects. A field that can hold NULL (a
 // pointer, sql.NullString, sql.Null[T], null.String, ...) is a NewNullColumn.
-func NewColumn[O, T any](table *TableOf[O], name, jsonName string, field func(*O) *T) Column[O, T] {
+func NewColumn[O, T any, K comparable](table *TableOf[O, K], name, jsonName string, field func(*O) *T) Column[O, T] {
 	c := newColumn(table, name, jsonName, field)
 	if _, ok := nullableValueType(reflect.TypeFor[T]()); ok && c.c.info.err == nil {
 		c.c.info.err = fmt.Errorf("column %s is held in %v, which can be NULL; declare it with NewNullColumn[%v]",
@@ -222,7 +220,9 @@ func NewColumn[O, T any](table *TableOf[O], name, jsonName string, field func(*O
 // type and F the field type, a nullable form of T: *T, sql.Null[T], or a struct
 // with a Valid bool and one field of type T, such as sql.NullString or
 // null.String. Only T is written: tsq.NewNullColumn[string](h, "nick", ...).
-func NewNullColumn[T, O, F any](table *TableOf[O], name, jsonName string, field func(*O) *F) NullColumn[O, T] {
+// T comes first because it is the one type argument Go cannot infer, and explicit
+// type arguments can only be a prefix of the list.
+func NewNullColumn[T, O, F any, K comparable](table *TableOf[O, K], name, jsonName string, field func(*O) *F) NullColumn[O, T] {
 	c := newColumn(table, name, jsonName, field)
 	c.c.nullable = true
 	c.c.info.null.always = true
@@ -279,7 +279,7 @@ func valueTypeName[T any]() string {
 	return reflect.TypeFor[T]().String()
 }
 
-func newColumn[O, T any](table *TableOf[O], name, jsonName string, field func(*O) *T) columnImpl[O, T] {
+func newColumn[O, T any, K comparable](table *TableOf[O, K], name, jsonName string, field func(*O) *T) columnImpl[O, T] {
 	core := &columnCore{
 		name:  name,
 		json:  jsonName,
@@ -297,14 +297,14 @@ func newColumn[O, T any](table *TableOf[O], name, jsonName string, field func(*O
 		core.info.err = fmt.Errorf("column name %q is not a plain SQL identifier", name)
 	default:
 		core.table = table
-		core.info = exprInfo{sql: columnRef(table, name), tables: map[string]Table{table.Name(): table}, null: nullableIn(table.Name())}
+		core.info = exprInfo{sql: columnRef(table, name), tables: map[string]Table{table.TableName(): table}, null: nullableIn(table.TableName())}
 		core.scan = func(holder any) any { return field(holder.(*O)) }
 		core.get = func(holder any) any { return *field(holder.(*O)) }
 	}
 
 	if table != nil {
-		core.param.name = table.Name() + "." + name
-		core.list.name = table.Name() + "." + name
+		core.param.name = table.TableName() + "." + name
+		core.list.name = table.TableName() + "." + name
 	}
 
 	return columnImpl[O, T]{exprImpl[T]{c: core}}
@@ -345,9 +345,9 @@ func (c columnImpl[O, T]) WithTable(table Table) Column[O, T] {
 	return columnImpl[O, T]{exprImpl[T]{c: rebind(c.c, table)}}
 }
 
-// As rebinds the column to alias.
-func (c columnImpl[O, T]) As(alias string) Column[O, T] {
-	return c.WithTable(AliasTable(c.c.table, alias))
+// WithTable rebinds the column to table; the result is still a NullColumn.
+func (c nullColumnImpl[O, T]) WithTable(table Table) Column[O, T] {
+	return nullColumnImpl[O, T]{columnImpl[O, T]{exprImpl[T]{c: rebind(c.c, table)}}}
 }
 
 func rebind(c *columnCore, table Table) *columnCore {
@@ -361,10 +361,10 @@ func rebind(c *columnCore, table Table) *columnCore {
 	case !c.plain:
 		next.info = exprInfo{err: fmt.Errorf("cannot rebind the expression on %s; rebind the column before applying functions", c.name)}
 	case !tableHasColumn(table, c.name):
-		next.info = exprInfo{err: fmt.Errorf("column %s does not exist on %s", c.name, table.Name())}
+		next.info = exprInfo{err: fmt.Errorf("column %s does not exist on %s", c.name, table.TableName())}
 	default:
 		next.table = table
-		next.info = exprInfo{sql: columnRef(table, c.name), tables: map[string]Table{table.Name(): table}, null: nullableIn(table.Name())}
+		next.info = exprInfo{sql: columnRef(table, c.name), tables: map[string]Table{table.TableName(): table}, null: nullableIn(table.TableName())}
 		next.info.null.always = c.info.null.always
 
 		if body := table.cteBody(); body != nil && body.nullableOutput(c.name) {

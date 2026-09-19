@@ -39,7 +39,7 @@ func Matches(index FullTextIndex, term SearchTerm) Condition {
 		return conditionError(errors.New("search term cannot be nil"))
 	}
 
-	info := exprInfo{tables: map[string]Table{index.table.Name(): index.table}}
+	info := exprInfo{tables: map[string]Table{index.table.TableName(): index.table}}
 	raw := term.operand()
 	like := term.patternOperand(paramContains)
 
@@ -80,7 +80,7 @@ func matchAgainst(index FullTextIndex, term sqlExpr) sqlExpr {
 func textSearchMatch(d sqld.Dialect, index FullTextIndex, term sqlExpr) sqlExpr {
 	quoted := make([]string, 0, len(index.index.Fields))
 	for _, name := range index.index.Fields {
-		quoted = append(quoted, d.QuoteIdent(index.table.Name())+"."+d.QuoteIdent(name))
+		quoted = append(quoted, d.QuoteIdent(index.table.TableName())+"."+d.QuoteIdent(name))
 	}
 
 	return sqlJoin(sqlText(d.FullTextVectorSQL(quoted)+" @@ plainto_tsquery('simple', "), term, sqlText(")"))

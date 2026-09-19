@@ -106,9 +106,9 @@ pass no policy and keep the default manual mode.
 
 ```go
 query, err := tsq.
-	Select(database.User__Cols...).
+	Select(database.TableUser.Columns()...).
 	From(database.TableUser).
-	Where(tsq.Contains(database.User_Name, tsq.Val("alice"))).
+	Where(tsq.Contains(database.TableUser.Name, tsq.Val("alice"))).
 	Build()
 if err != nil {
 	return err
@@ -127,19 +127,27 @@ This is the main TSQ shape:
 - use `EQ(otherCol)` when the right-hand side is another column or a typed subquery
 
 ```go
-byName := tsq.Select(database.User__Cols...).
+byName := tsq.Select(database.TableUser.Columns()...).
 	From(database.TableUser).
-	Where(database.User_Name.EQ(database.User_Name.Param())).
+	Where(database.TableUser.Name.EQ(database.TableUser.Name.Param())).
 	MustBuild()
 
-amy, err := byName.Get(ctx, runtime, database.User_Name.Bind("amy"))
+amy, err := byName.Get(ctx, runtime, database.TableUser.Name.Bind("amy"))
 ```
 
 1. choose columns
 2. choose source table
 3. add predicates
 4. `Build()`
-5. execute via methods on the built query: `query.List(ctx, exec)`, `query.Get(ctx, exec)`, `query.Find(ctx, exec)`, `query.Page(ctx, exec, paging)`, `query.Count(ctx, exec)`, or generated helpers
+5. execute via methods on the built query: `query.List(ctx, exec)`, `query.Get(ctx, exec)`, `query.Find(ctx, exec)`, `query.Page(ctx, exec, paging)`, `query.Count(ctx, exec)`
+
+Lookups by key need no query at all:
+
+```go
+user, err := database.TableUser.Get(ctx, runtime, 42)                 // sql.ErrNoRows when missing
+users, err := database.TableUser.Fetch(ctx, runtime, 3, 1, 2)          // in this order
+all, err := database.TableUser.Query().List(ctx, runtime, tsq.Keyword("ali"))
+```
 
 ## 7. Add a transaction when needed
 
@@ -164,10 +172,11 @@ if err := runtime.WithTx(ctx, nil, func(ctx context.Context, txExec tsq.Executor
 - make sure the package contains at least one `.go` file
 - make sure `go.mod` exists
 
-### the package panics while it is imported
+### a generated table reports a definition error
 
-Generated queries are built at package initialization. Usually the source struct changed but the
-generated files were not refreshed. Regenerate first.
+A table whose definition is invalid does not panic; every query and write that uses it returns the
+reason (`TableXxx.Err()` reports it directly). Usually the source struct changed but the generated
+files were not refreshed. Regenerate first.
 
 ### query builds but execution fails on dialect support
 

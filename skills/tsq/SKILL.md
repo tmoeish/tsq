@@ -52,7 +52,8 @@ describes the implementation.
 - Nullable fields are `tsq.NullColumn[Xxx, T]` compared by their value type; write NULL with `SetNull`. A query refuses to read a value that can be NULL (nullable column, outer-joined table, aggregate without GROUP BY) into a non-nullable field: prefer an inner join or `tsq.Coalesce`, else `tsq.MapIntoNull` into a nullable field; use `ScalarNull` for a scalar that can be NULL.
 - Column functions are package-level and type-constrained: `tsq.Upper(col)`, `tsq.Sum(col)`, `tsq.Count(col)`. Do not look for them as column methods.
 - `query.Page` takes a typed `tsq.Paging`; convert an HTTP `tsq.PageRequest` with `req.Paging(sortableCols...)` after `Validate`.
-- Generated queries cover only the primary key and unique indexes; write lookups on plain indexes with the builder.
+- Columns are fields of the generated table: `TableXxx.Name`, and `TableXxx.Columns()` for `Select`. An alias is `TableXxx.As("x")`, whose fields are the columns bound to it.
+- Read by primary key with `TableXxx.Get(ctx, db, id)` / `Find` / `Fetch(ctx, db, ids...)`, and by a unique index with the generated `TableXxx.GetByEmail` / `FetchByEmail`. Write lookups on plain indexes with the builder.
 - Do not assume this skill ships management scripts; install or upgrade TSQ with explicit `go install .../cmd/tsq@version` commands, and run `tsq gen` directly against the chosen package.
 - The builder is stage-based: `Where(...)` and `Search(...)` each appear at most once per chain, enforced by the Go type system at compile time. Pass all filter conditions to the single `Where(...)` call; use `tsq.Or(...)` for OR groups. Both clauses can coexist in either order.
 - Remember that `In` over an empty list parameter matches nothing and `NotIn` matches everything; the filter is never dropped.

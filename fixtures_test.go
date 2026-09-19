@@ -23,7 +23,7 @@ type user struct {
 	DeletedAt int64
 }
 
-var usersHandle = NewTable[user]("users")
+var usersHandle = NewTable[user, int64]("users")
 
 var (
 	User_ID        = NewColumn(usersHandle, "id", "id", func(r *user) *int64 { return &r.ID })
@@ -35,7 +35,7 @@ var (
 	User_DeletedAt = NewColumn(usersHandle, "deleted_at", "deleted_at", func(r *user) *int64 { return &r.DeletedAt })
 )
 
-var Users = usersHandle.Define(TableSpec[user]{
+var Users = usersHandle.Define(TableSpec[user, int64]{
 	Columns:       []BoundColumn[user]{User_ID, User_Name, User_Email, User_Version, User_CreatedAt, User_UpdatedAt, User_DeletedAt},
 	PrimaryKey:    User_ID,
 	AutoIncrement: true,
@@ -65,7 +65,7 @@ type order struct {
 	Note   string
 }
 
-var ordersHandle = NewTable[order]("orders")
+var ordersHandle = NewTable[order, int64]("orders")
 
 var (
 	Order_ID     = NewColumn(ordersHandle, "id", "id", func(r *order) *int64 { return &r.ID })
@@ -74,7 +74,7 @@ var (
 	Order_Note   = NewColumn(ordersHandle, "note", "note", func(r *order) *string { return &r.Note })
 )
 
-var Orders = ordersHandle.Define(TableSpec[order]{
+var Orders = ordersHandle.Define(TableSpec[order, int64]{
 	Columns:       []BoundColumn[order]{Order_ID, Order_UserID, Order_Amount, Order_Note},
 	PrimaryKey:    Order_ID,
 	AutoIncrement: true,
@@ -93,12 +93,12 @@ type namedRow struct {
 	Name string
 }
 
-func namedTable(name string) *TableOf[namedRow] {
-	h := NewTable[namedRow](name)
+func namedTable(name string) *TableOf[namedRow, int64] {
+	h := NewTable[namedRow, int64](name)
 	id := NewColumn(h, "id", "id", func(r *namedRow) *int64 { return &r.ID })
 	label := NewColumn(h, "name", "name", func(r *namedRow) *string { return &r.Name })
 
-	return h.Define(TableSpec[namedRow]{
+	return h.Define(TableSpec[namedRow, int64]{
 		Columns:       []BoundColumn[namedRow]{id, label},
 		PrimaryKey:    id,
 		AutoIncrement: true,
@@ -150,8 +150,8 @@ type wideRow struct {
 }
 
 // wideTable declares a table whose columns are names plus fields of schema.
-func wideTable(name string, names []string, schema []tsqdialect.ColumnSpec, indexes []TableIndex) *TableOf[wideRow] {
-	h := NewTable[wideRow](name)
+func wideTable(name string, names []string, schema []tsqdialect.ColumnSpec, indexes []TableIndex) *TableOf[wideRow, any] {
+	h := NewTable[wideRow, any](name)
 
 	seen := map[string]bool{}
 	all := []string{}
@@ -169,7 +169,7 @@ func wideTable(name string, names []string, schema []tsqdialect.ColumnSpec, inde
 
 	cols := make([]BoundColumn[wideRow], 0, len(all))
 
-	var pk BoundColumn[wideRow]
+	var pk Column[wideRow, any]
 
 	for i, n := range all {
 		c := NewColumn(h, n, n, func(r *wideRow) *any { return &r.Fields[i] })
@@ -188,7 +188,7 @@ func wideTable(name string, names []string, schema []tsqdialect.ColumnSpec, inde
 		}
 	}
 
-	return h.Define(TableSpec[wideRow]{Columns: cols, PrimaryKey: pk, AutoIncrement: auto, Schema: schema, Indexes: indexes})
+	return h.Define(TableSpec[wideRow, any]{Columns: cols, PrimaryKey: pk, AutoIncrement: auto, Schema: schema, Indexes: indexes})
 }
 
 func specNames(schema []tsqdialect.ColumnSpec) []string {
@@ -201,11 +201,11 @@ func specNames(schema []tsqdialect.ColumnSpec) []string {
 }
 
 // newStrictMockTable declares a schema-less table with the given columns.
-func newStrictMockTable(name string, fields ...string) (*TableOf[wideRow], []string) {
+func newStrictMockTable(name string, fields ...string) (*TableOf[wideRow, any], []string) {
 	return wideTable(name, fields, nil, nil), fields
 }
 
-func mustStrictMockTable(t *testing.T, name string, fields ...string) *TableOf[wideRow] {
+func mustStrictMockTable(t *testing.T, name string, fields ...string) *TableOf[wideRow, any] {
 	t.Helper()
 
 	table, _ := newStrictMockTable(name, fields...)
@@ -214,13 +214,13 @@ func mustStrictMockTable(t *testing.T, name string, fields ...string) *TableOf[w
 }
 
 // registered redeclares table with a schema and indexes.
-func registered(table *TableOf[wideRow], schema []tsqdialect.ColumnSpec, indexes ...TableIndex) Table {
+func registered(table *TableOf[wideRow, any], schema []tsqdialect.ColumnSpec, indexes ...TableIndex) Table {
 	names := make([]string, 0, len(table.def.columns))
 	for _, c := range table.def.columns {
 		names = append(names, c.name)
 	}
 
-	return wideTable(table.Name(), names, schema, indexes)
+	return wideTable(table.TableName(), names, schema, indexes)
 }
 
 func newSQLiteIndexTestEngine(t *testing.T) (*Runtime, string) {

@@ -131,7 +131,7 @@ func TestDeleteIsSoftWhenTheTableHasDeletedAt(t *testing.T) {
 		t.Fatalf("soft delete must stamp the row and bump its version: %+v", rows[0])
 	}
 
-	if err := Users.BatchDeleteByPK(ctx, rt, User_ID.BindList(rows[1].ID)); err != nil {
+	if err := Users.BatchDeleteByPK(ctx, rt, []int64{rows[1].ID}); err != nil {
 		t.Fatalf("BatchDeleteByPK() error = %v", err)
 	}
 
@@ -139,7 +139,7 @@ func TestDeleteIsSoftWhenTheTableHasDeletedAt(t *testing.T) {
 		t.Fatalf("HardDelete() error = %v", err)
 	}
 
-	if err := Users.BatchHardDeleteByPK(ctx, rt, User_ID.BindList(rows[3].ID)); err != nil {
+	if err := Users.BatchHardDeleteByPK(ctx, rt, []int64{rows[3].ID}); err != nil {
 		t.Fatalf("BatchHardDeleteByPK() error = %v", err)
 	}
 
@@ -166,8 +166,8 @@ func TestDeleteIsSoftWhenTheTableHasDeletedAt(t *testing.T) {
 		t.Fatalf("queries must leave deleted rows out: %d, %v", n, err)
 	}
 
-	if err := Users.BatchDeleteByPK(ctx, rt, User_Version.BindList(1)); err == nil {
-		t.Fatal("expected keys bound on a non-key column to be refused")
+	if err := Users.BatchDeleteByPK(ctx, rt, nil); err != nil {
+		t.Fatalf("no keys must delete nothing: %v", err)
 	}
 }
 
@@ -381,7 +381,7 @@ func TestUpsertMatchesLiveRowsOfASoftDeletedUniqueIndex(t *testing.T) {
 		t.Fatal("expected a key that is not unique to be refused")
 	}
 
-	if err := Users.Upsert(ctx, rt, &user{}, User_Email.As("u")); err == nil {
+	if err := Users.Upsert(ctx, rt, &user{}, User_Email.WithTable(Users.As("u"))); err == nil {
 		t.Fatal("expected an aliased key column to be refused")
 	}
 }
@@ -799,7 +799,7 @@ func TestConditionalWrites(t *testing.T) {
 		"version target": UpdateTable(Users).Set(User_Version, Val(int64(1))).Where(And()),
 		"no where":       UpdateTable(Users).Set(User_Name, Val("x")).Where(),
 		"no assignment":  UpdateTable(Users).Where(And()),
-		"aliased target": UpdateTable(Users).Set(User_Name.As("u"), Val("x")).Where(And()),
+		"aliased target": UpdateTable(Users).Set(User_Name.WithTable(Users.As("u")), Val("x")).Where(And()),
 		"assigned twice": UpdateTable(Users).Set(User_Name, Val("x")).Set(User_Name, Val("y")).Where(And()),
 	}
 

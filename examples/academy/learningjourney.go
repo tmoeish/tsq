@@ -51,7 +51,7 @@ var pageLearningJourneyQuery *tsq.Query[LearningJourney]
 func init() {
 	var err error
 
-	courseID := tsq.MapInto(Enrollment_CourseID, func(holder *engagedCourseRow) *int64 {
+	courseID := tsq.MapInto(TableEnrollment.CourseID, func(holder *engagedCourseRow) *int64 {
 		return &holder.CourseID
 	}, "course_id")
 
@@ -59,9 +59,9 @@ func init() {
 		tsq.
 			Select(courseID).
 			From(TableEnrollment).
-			Where(Enrollment_Status.NE(tsq.Val(EnrollmentStatusCancelled))).
-			GroupBy(Enrollment_CourseID).
-			Having(tsq.Count(Enrollment_UID).GTE(tsq.Val(int64(2)))),
+			Where(TableEnrollment.Status.NE(tsq.Val(EnrollmentStatusCancelled))).
+			GroupBy(TableEnrollment.CourseID).
+			Having(tsq.Count(TableEnrollment.UID).GTE(tsq.Val(int64(2)))),
 		courseID,
 	)
 	if err != nil {
@@ -69,19 +69,19 @@ func init() {
 	}
 
 	pageLearningJourneyQuery, err = tsq.
-		Select(LearningJourney__Cols...).
+		Select(ResultLearningJourney.Columns()...).
 		From(TableEnrollment).
 		// Every enrollment has a learner and a course, and every course a track and
 		// an instructor, so these are inner joins; a LEFT JOIN would make the
 		// projected fields nullable.
-		Join(TableLearner, Enrollment_LearnerID.EQ(Learner_ID)).
-		Join(TableCourse, Enrollment_CourseID.EQ(Course_ID)).
-		Join(TableTrack, Course_TrackID.EQ(Track_ID)).
-		Join(TableInstructor, Course_InstructorID.EQ(Instructor_ID)).
+		Join(TableLearner, TableEnrollment.LearnerID.EQ(TableLearner.ID)).
+		Join(TableCourse, TableEnrollment.CourseID.EQ(TableCourse.ID)).
+		Join(TableTrack, TableCourse.TrackID.EQ(TableTrack.ID)).
+		Join(TableInstructor, TableCourse.InstructorID.EQ(TableInstructor.ID)).
 		Where(
-			Learner_ID.In(Learner_ID.ListParam()),
-			Track_Name.In(Track_Name.ListParam()),
-			Enrollment_CourseID.In(engagedCourseIDs),
+			TableLearner.ID.In(TableLearner.ID.ListParam()),
+			TableTrack.Name.In(TableTrack.Name.ListParam()),
+			TableEnrollment.CourseID.In(engagedCourseIDs),
 		).
 		Build()
 	if err != nil {
@@ -98,7 +98,7 @@ func PageLearningJourney(
 	tracks ...string,
 ) (*tsq.PageResponse[LearningJourney], error) {
 	return pageLearningJourneyQuery.Page(ctx, tx, page,
-		Learner_ID.BindList(learnerIDs...),
-		Track_Name.BindList(tracks...),
+		TableLearner.ID.BindList(learnerIDs...),
+		TableTrack.Name.BindList(tracks...),
 	)
 }

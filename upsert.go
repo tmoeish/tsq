@@ -28,7 +28,7 @@ const upsertAlias = "tsq_new"
 // MySQL matches the proposed row against every unique key, not just key, so there
 // an upsert is refused while the table has another unique key the row could hit.
 // A zero auto-increment primary key cannot hit anything.
-func (t *TableOf[R]) Upsert(ctx context.Context, db Executor, row *R, key ...BoundColumn[R]) error {
+func (t *TableOf[R, K]) Upsert(ctx context.Context, db Executor, row *R, key ...BoundColumn[R]) error {
 	return traceExecutor(ctx, db, TraceOpUpsert, func(ctx context.Context) error {
 		return t.upsert(ctx, db, []*R{row}, key, batchConfig{size: 1}, true)
 	})
@@ -37,7 +37,7 @@ func (t *TableOf[R]) Upsert(ctx context.Context, db Executor, row *R, key ...Bou
 // BatchUpsert is Upsert for many rows, in as few statements as the batch size
 // allows. It reads nothing back into rows, and two rows with the same key are an
 // error, because PostgreSQL refuses to update one row twice in a statement.
-func (t *TableOf[R]) BatchUpsert(ctx context.Context, db Executor, rows []*R, key []BoundColumn[R], options ...BatchOption) error {
+func (t *TableOf[R, K]) BatchUpsert(ctx context.Context, db Executor, rows []*R, key []BoundColumn[R], options ...BatchOption) error {
 	return traceExecutor(ctx, db, TraceOpUpsert, func(ctx context.Context) error {
 		config, err := newBatchConfig(options, false)
 		if err != nil {
@@ -48,7 +48,7 @@ func (t *TableOf[R]) BatchUpsert(ctx context.Context, db Executor, rows []*R, ke
 	})
 }
 
-func (t *TableOf[R]) upsert(ctx context.Context, db Executor, rows []*R, key []BoundColumn[R], config batchConfig, single bool) error {
+func (t *TableOf[R, K]) upsert(ctx context.Context, db Executor, rows []*R, key []BoundColumn[R], config batchConfig, single bool) error {
 	if len(rows) == 0 {
 		return nil
 	}
@@ -145,7 +145,7 @@ func upsertTarget[R any](def *tableDef, key []BoundColumn[R]) ([]string, error) 
 			return nil, err
 		}
 
-		if isNilValue(core.table) || core.table.definition() != def || core.table.Name() != def.name || !core.plain {
+		if isNilValue(core.table) || core.table.definition() != def || core.table.TableName() != def.name || !core.plain {
 			return nil, fmt.Errorf("upsert key %s must be a column of %s", core.name, def.name)
 		}
 
@@ -235,7 +235,7 @@ func checkUpsertRows[R any](def *tableDef, target []string, rows []*R, d sqld.Di
 // upsertReadBack are the columns an upsert may have left different from the row:
 // the version of an updated row, its original created_at, and anything the
 // database fills.
-func (t *TableOf[R]) upsertReadBack(def *tableDef) []*columnCore {
+func (t *TableOf[R, K]) upsertReadBack(def *tableDef) []*columnCore {
 	var cols []*columnCore
 
 	for _, name := range []string{def.managed.Version, def.managed.CreatedAt} {
@@ -253,7 +253,7 @@ func (t *TableOf[R]) upsertReadBack(def *tableDef) []*columnCore {
 	return cols
 }
 
-func (t *TableOf[R]) upsertChunk(ctx context.Context, db Executor, scope execScope, def *tableDef, cols []*columnCore, target []string, rows []*R, single bool) error {
+func (t *TableOf[R, K]) upsertChunk(ctx context.Context, db Executor, scope execScope, def *tableDef, cols []*columnCore, target []string, rows []*R, single bool) error {
 	d := scope.dialect
 	mysql := d.Name() == tsqdialect.MySQL
 

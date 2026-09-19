@@ -256,3 +256,22 @@ func TestFieldVarNameAvoidsGoKeywords(t *testing.T) {
 		t.Fatalf("expected non-keyword field name to keep lower initial form, got %q", got)
 	}
 }
+
+func TestLowerInitialTreatsInitialismsAsOneWord(t *testing.T) {
+	for in, want := range map[string]string{
+		"ID":         "id",
+		"UID":        "uid",
+		"URLPath":    "urlPath",
+		"HTTPServer": "httpServer",
+		"Title":      "title",
+		"OrgID":      "orgID",
+	} {
+		if got := lowerInitial(in); got != want {
+			t.Errorf("lowerInitial(%q) = %q, want %q", in, got, want)
+		}
+	}
+
+	if got := fieldSliceVarName("ID"); got != "ids" {
+		t.Errorf("fieldSliceVarName(ID) = %q, want ids", got)
+	}
+}

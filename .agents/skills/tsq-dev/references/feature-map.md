@@ -28,6 +28,7 @@
 | 关注点 | 文件 |
 | --- | --- |
 | `TableOf` / `NewTable` / `Define`、`Table` 接口、别名、CTE、`debugSQL` | `table.go` |
+| 按主键 / 唯一列读取（`Get` / `Find` / `Fetch` / `FetchBy` / `Query()`、排序规则兜底） | `lookup.go`（`lookup_test.go`；`RowTable` 推断也在那里测） |
 | 写入路径基准（批量 INSERT / UPDATE 的语句构建） | `write_bench_test.go` |
 | 行写入与批量写、托管时间戳、数据库填值列（`Fill`、`insertColumns`、`reloadColumns`）、软删除与 `Restore`（`setTombstone`）、`TableOf.BatchDeleteByPK`、`WithSkipDuplicates` | `rows.go`（`exec_test.go` 端到端；`batch_test.go` 宽表分批；`timestamps_test.go` 托管字段类型；`softdelete_test.go` 行级软删除与恢复） |
 | Upsert（`TableOf.Upsert` / `BatchUpsert`、键解析、MySQL 多唯一键拒绝、主键回读） | `upsert.go`（`exec_test.go` 的 `TestUpsertMatchesLiveRowsOfASoftDeletedUniqueIndex`；`internal/integration` 的 `TestIntegrationUpsert` 三方言真跑） |
@@ -71,6 +72,7 @@
 | `tsq version`（默认表格 / `--short` / `--json`） | `internal/cmd/version.go` |
 | `tsq gen`（flag、校验、渲染、写盘） | `internal/cmd/gen.go` |
 | 模板 | `internal/cmd/table.go.tmpl`、`result.go.tmpl`、`runtime.go.tmpl` |
+| 生成结构体的保留字段名（与 `TableOf` 方法撞名的检查） | `internal/cmd/reserved.go`（`reserved_test.go`） |
 | 模板辅助函数 | `internal/cmd/template_funcs.go` |
 | 生成文件清单与增量写盘计划 | `internal/cmd/generation_plan.go` |
 | DDL 类型推导与渲染 | `internal/cmd/ddl_render.go` |
@@ -99,7 +101,6 @@
 | 嵌入基表（`ImmutableTable` 等） | `examples/academy/base.go` |
 | 运行时装配 | `examples/academy/bootstrap.go` |
 | 可复用场景 | `examples/academy/scenarios.go` |
-| 初始化顺序回归门（文件名必须排在 `course.tsq.go` 之前） | `examples/academy/academyqueries.go` |
 | 三个可运行程序 | `examples/{quickstart,advanced,full-suite}/main.go` |
 
 ## harness
