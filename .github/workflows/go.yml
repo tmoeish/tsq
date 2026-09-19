@@ -237,37 +237,20 @@ jobs:
     - name: Build
       run: make build
 
+    # `make release-check` proves the -X targets name real symbols; running the
+    # binary proves the values reach it. A wrong ldflag is silent at build time,
+    # so running the artifact is the only check that cannot lie.
+    - name: Verify build metadata reaches the binary
+      run: |
+        ./bin/tsq version --json | tee version.json
+        grep -q "\"git_commit\": \"$(git rev-parse --short HEAD)\"" version.json
+        grep -q "\"version\": \"$(git describe --tags --always --dirty)\"" version.json
+
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
         name: tsq-binary
         path: bin/tsq
-
-  docker-build:
-    name: Docker Build
-    runs-on: ubuntu-latest
-    needs: [test, lint, coverage]
-
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v7
-
-    - name: Build Docker image
-      run: >-
-        docker build
-        --build-arg VERSION=ci-${{ github.sha }}
-        --build-arg GIT_COMMIT=${{ github.sha }}
-        --build-arg BUILD_TIME=ci
-        -t tsq:ci .
-
-    # `make release-check` proves the -X targets name real symbols; this proves the
-    # values actually reach the binary inside the image. A wrong ldflag is silent at
-    # build time, so running the artifact is the only check that cannot lie.
-    - name: Verify build metadata reaches the image binary
-      run: |
-        docker run --rm tsq:ci version --json | tee version.json
-        grep -q '"git_commit": "${{ github.sha }}"' version.json
-        grep -q '"version": "ci-${{ github.sha }}"' version.json
 
   goreleaser-check:
     name: GoReleaser Check

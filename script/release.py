@@ -73,7 +73,7 @@ BREAKING_SECTION: Final = "破坏性变更"
 # 都在那里面——`internal/parser` 改了解析规则，使用者手写的注解就换了含义。
 USER_VISIBLE_SUFFIXES: Final = (".go", ".tmpl")
 USER_VISIBLE_FILES: Final = frozenset(
-    {"go.mod", "go.sum", ".goreleaser.yaml", "Dockerfile"}
+    {"go.mod", "go.sum", ".goreleaser.yaml"}
 )
 # 这些只服务维护者，改它们不会让任何使用者拿到不同的东西。
 MAINTAINER_ONLY_PREFIXES: Final = ("agents/", "script/", ".github/", "skills/", "docs/")
@@ -393,7 +393,7 @@ def main(argv: Sequence[str]) -> int:
         raise ReleaseError(
             f"{previous or 'HEAD'} 之后没有任何使用者可见的改动，这波不该发版。\n"
             "使用者拿得到的只有 `go get` 的模块和 `tsq` 二进制，它们的内容由 *.go、"
-            "*.tmpl、go.mod/go.sum、.goreleaser.yaml 和 Dockerfile 决定；"
+            "*.tmpl、go.mod/go.sum 和 .goreleaser.yaml 决定；"
             "agents/、script/、skills/、docs/、.github/ 和 *_test.go 不算。\n"
             "把这波攒在 CHANGELOG 的 `## [未发布]` 段里，等下次真有使用者可见的改动一起"
             "发。确实要发一个纯维护版本（比如只为了让 .goreleaser.yaml 的修复生效），"

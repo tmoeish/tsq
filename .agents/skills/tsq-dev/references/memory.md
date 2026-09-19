@@ -347,9 +347,10 @@ RIGHT JOIN 被保留侧的已删行，所以有 RIGHT / FULL JOIN 时整张表�
 squash 会改写提交信息（追加 ` (#59)`）、SHA 和历史形状；`check_change_log.py` 量长度前剥掉 ` (#\d+)`。
 `doc-check` 守着文档里的 `make X`，但**管不到 `.github/workflows/`**（CI 调过不存在的目标），改名时手动 grep。
 
-### cobra 的互斥标志组按 `Changed` 位判定，测试里必须手动清 (2026-08-21)
+### 决定：CLI 用标准库 `flag`，不用 cobra (2026-09-19)
 
-`VersionCmd` 是包级单例，状态跨 `Execute()` 存活：`Flags().Lookup(name).Changed = false`；`-shuffle=on` 为此而开。
+三个子命令用不上 cobra；`internal/cmd/command.go` 保留测试依赖的 `SetArgs` / `Execute` / `Help`，每次运行重新声明
+flag（cobra 时代包级单例的 `Changed` 位跨测试残留过），并支持参数后的 flag（`tsq gen ./pkg --check`）。
 
 ### 发版波必须从内存门禁里豁免 (2026-08-21)
 
@@ -404,10 +405,10 @@ squash 会改写提交信息（追加 ` (#59)`）、SHA 和历史形状；`check
 
 ### 给 main 和 tag 加了 ruleset，发版随之改成 PR 流程 (2026-08-21)
 
-`main` 禁直推、必须走 PR 且六个必需检查全绿；`refs/tags/v*` 禁删除/移动/强推。两条都对仓库
+`main` 禁直推、必须走 PR 且五个必需检查全绿；`refs/tags/v*` 禁删除/移动/强推。两条都对仓库
 所有者生效。**tag 那条更重要**：删掉或移动已发布的 tag 是唯一不可恢复的操作（Go Proxy 永久缓存）。
 
-- **必需检查不能放 matrix job**（名字带 Go 版本，升版本就永远等不到）；理由和当前选的六个
+- **必需检查不能放 matrix job**（名字带 Go 版本，升版本就永远等不到）；理由和当前选的五个
   检查见 `change-impact.md` § 改了 CI 的 job 名字。
 - **用 `gh pr merge --auto`，不要"等 CI 再合"**：PR 刚建出来的头几秒没有任何 check 注册，
   `gh pr checks --watch` 那一刻会以 "no checks reported" 直接退出。
@@ -427,7 +428,7 @@ goreleaser v2.18.1 一发布就要求 Go >= 1.27.1，CI 用 `GOTOOLCHAIN=local` 
 
 ### `-X` 打错包路径是**静默**失败的 (2026-08-21)
 
-链接器对找不到的 `-X` 符号直接忽略，三份配置各犯过一次。`release-check` 核对路径，CI 的 `Docker Build` 跑镜像核对值——**静态检查证明路径对，跑产物证明值到了，缺一不可。**
+链接器对找不到的 `-X` 符号直接忽略，三份配置（含已删的 Dockerfile）各犯过一次。`release-check` 核对路径，CI 的 `Build` 运行二进制核对值——**静态检查证明路径对，跑产物证明值到了，缺一不可。**
 
 ### 生成器不能带 `git describe` 的版本号，否则发版是死锁 (2026-08-21)
 
@@ -454,7 +455,7 @@ tag，想打 tag 得先过 `release-check`。所以 `make build-gen` **故意不
 ## 搁置项与决定不做的事
 
 决定：**CLI 不拆子模块，改为收紧根包自己的依赖**（2026-09-17 重测）。只 import 根包的模块 tidy 后，
-`x/tools` / `cobra` 早已不在其 `go.sum`，拆分不改变任何东西；真正进去的是根包自己的非测试 import（MySQL 驱动，连 `go.mod` 都进）和**根包测试**
+`x/tools` 早已不在其 `go.sum`（cobra 已换成标准库 `flag`），拆分不改变任何东西；真正进去的是根包自己的非测试 import（MySQL 驱动，连 `go.mod` 都进）和**根包测试**
 的 import（pgx、nullbio）——tidy 会记录依赖包测试的依赖。修法：MySQL 错误改反射读取、集成测试挪进
 `internal/integration`、时间戳测试用本地同形类型，门是 `TestRootPackageImportsNoDriver`。剩下只有
 SQLite 驱动（根包单测离不开它）。复测：临时模块 `replace` 到本仓，tidy 后看 `go.sum`。

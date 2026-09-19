@@ -30,7 +30,7 @@ func TestGenArgsRejectsMissingOrExtraPackagePaths(t *testing.T) {
 		{name: "extra", args: []string{"./a", "./b"}, want: "tsq gen expects exactly one package path, got 2"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			err := exactOnePackageArg(nil, tc.args)
+			err := exactOnePackageArg(tc.args)
 			if err == nil {
 				t.Fatal("expected exact arg validation to fail")
 			}
@@ -303,10 +303,9 @@ type User struct {
 `)
 
 	stderr := new(bytes.Buffer)
-	v = true
 	GenCmd.SetOut(new(bytes.Buffer))
 	GenCmd.SetErr(stderr)
-	GenCmd.SetArgs([]string{"."})
+	GenCmd.SetArgs([]string{".", "-v"})
 	if err := GenCmd.Execute(); err != nil {
 		t.Fatalf("second GenCmd.Execute() error = %v", err)
 	}
@@ -364,7 +363,7 @@ type User struct {
 	stderr.Reset()
 	GenCmd.SetOut(new(bytes.Buffer))
 	GenCmd.SetErr(stderr)
-	GenCmd.SetArgs([]string{"."})
+	GenCmd.SetArgs([]string{"-v", "."})
 	if err := GenCmd.Execute(); err != nil {
 		t.Fatalf("third GenCmd.Execute() error = %v", err)
 	}

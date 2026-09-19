@@ -2,11 +2,11 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"text/tabwriter"
-
-	"github.com/spf13/cobra"
 
 	"github.com/tmoeish/tsq/v5/internal/buildinfo"
 )
@@ -16,23 +16,29 @@ var (
 	versionJSONFlag  bool
 )
 
-func init() {
-	VersionCmd.Flags().BoolVar(&versionShortFlag, "short", false, "print only the version string")
-	VersionCmd.Flags().BoolVar(&versionJSONFlag, "json", false, "print build information as JSON")
-	VersionCmd.MarkFlagsMutuallyExclusive("short", "json")
-}
-
 // VersionCmd reports the version and build provenance of this tsq binary.
-var VersionCmd = &cobra.Command{
-	Use:   "version",
+var VersionCmd = &Command{
+	Name:  "version",
+	Usage: "version [--short | --json]",
 	Short: "Show tsq version and build information",
 	Long: `Show the version and build provenance of this tsq binary.
 
 Build time, commit and branch are injected at link time. A binary built without
 them - "go install", "go run", or a plain "go build" - reports "unknown" for the
 three, and falls back to the version compiled into the sources.`,
-	Args: cobra.NoArgs,
-	RunE: func(cmd *cobra.Command, _ []string) error {
+	flags: func(fs *flag.FlagSet) {
+		fs.BoolVar(&versionShortFlag, "short", false, "print only the version string")
+		fs.BoolVar(&versionJSONFlag, "json", false, "print build information as JSON")
+	},
+	run: func(cmd *Command, args []string) error {
+		if len(args) > 0 {
+			return fmt.Errorf("tsq version takes no arguments, got %q", args)
+		}
+
+		if versionShortFlag && versionJSONFlag {
+			return errors.New("--short and --json cannot be used together")
+		}
+
 		info := buildinfo.Current()
 		out := cmd.OutOrStdout()
 

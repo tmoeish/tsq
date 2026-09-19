@@ -26,7 +26,7 @@
 
 | 改了什么 | 发版？ |
 | --- | --- |
-| `*.go`（非测试）、`*.tmpl`、`go.mod`/`go.sum`、`.goreleaser.yaml`、`Dockerfile` | 是 |
+| `*.go`（非测试）、`*.tmpl`、`go.mod`/`go.sum`、`.goreleaser.yaml` | 是 |
 | `agents/`、`script/`、`skills/`、`docs/`、`.github/`、`Makefile`、`*.md`、`*_test.go` | 否 |
 
 `internal/` 算使用者可见（CLI 的全部行为都在那里），但 `internal/` 里**纯粹的**重构不值得
@@ -92,14 +92,14 @@ make release             # 真的发
 ## `main` 和 tag 都有 ruleset
 
 - **`main`**：禁止直推、禁止强推、禁止删除；必须走 PR，且 `Lint`、`Coverage`、`Build`、
-  `Docker Build`、`GoReleaser Check`、`Integration` 六个检查全绿。规则对仓库所有者也生效（没有配
+  `GoReleaser Check`、`Integration` 五个检查全绿。规则对仓库所有者也生效（没有配
   bypass actor），所以 `git push origin main` 一定会被拒——这就是发版走 PR 的原因。
 - **`refs/tags/v*`**：禁止删除、禁止移动、禁止强推。这条比分支保护重要得多：Go Proxy
   永久缓存每个 tag 的内容哈希，删掉重打会让全球用户 checksum 校验失败。**"不要删 tag
   重打"从此是被强制的，不是靠人记得的。**
 - 必需检查里**故意不包含** `Test`：它是 matrix job，检查名叫
   `Test (ubuntu-latest, 1.27.0)`，升 Go 版本时名字会变，而变了的名字永远不会出现在 PR 上，
-  必需检查就永远等不到——PR 从此合不进去。`Build` / `Docker Build` / `GoReleaser Check`
+  必需检查就永远等不到——PR 从此合不进去。`Build` / `GoReleaser Check`
   都 `needs: [test, lint, coverage]`，测试挂了它们就不会绿，覆盖是等价的且名字稳定。
 - 必需检查里也**不包含** `Release`：它 `if: startsWith(github.ref, 'refs/tags/')`，
   在 PR 上永远不会跑。要求一个永不出现的检查就是把 PR 永久卡死。
@@ -118,8 +118,9 @@ make release             # 真的发
 推送 tag 会触发 `.github/workflows/go.yml` 的 `release` job，由 GoReleaser 构建三平台
 二进制并创建 GitHub Release。CI 的 `lint` job 跑的是 `make lint`（Makefile 钉的版本），
 `test` job 跑的是 `make test-race`——本地目标就是 CI 的定义，不要在 workflow 里另写一份。
-`Docker Build` job 构建后会 `docker run` 镜像执行 `version --json` 并核对 commit：
-发版后想确认发布二进制的元数据，`gh release download` 下来跑一次 `tsq version` 即可。
+`Build` job 构建后会运行 `bin/tsq version --json` 并核对 commit 和 version（Docker 镜像删掉之前
+这一步在 `Docker Build` 里）：发版后想确认发布二进制的元数据，`gh release download` 下来跑一次
+`tsq version` 即可。
 
 ### 发版工具链
 

@@ -3,27 +3,17 @@ package cmd
 import (
 	"bytes"
 	"encoding/json"
+	"flag"
 	"strings"
 	"testing"
 
 	"github.com/tmoeish/tsq/v5/internal/buildinfo"
 )
 
-// resetVersionFlags returns VersionCmd to its pre-parse state.
-//
-// VersionCmd is a package-level singleton whose flags are bound once in init, so
-// state survives Execute. Clearing the Go variables is not enough: the mutually
-// exclusive group is enforced from each flag's Changed bit, so a --short left set
-// by an earlier case makes the next case fail as if both flags had been passed.
+// resetVersionFlags clears the arguments of VersionCmd. Its flags are declared
+// afresh on every Execute, so no parse state survives between runs.
 func resetVersionFlags(t *testing.T) {
 	t.Helper()
-
-	versionShortFlag = false
-	versionJSONFlag = false
-
-	for _, name := range []string{"short", "json"} {
-		VersionCmd.Flags().Lookup(name).Changed = false
-	}
 
 	VersionCmd.SetArgs(nil)
 }
@@ -97,5 +87,18 @@ func TestVersionRejectsShortWithJSON(t *testing.T) {
 
 	if err := VersionCmd.Execute(); err == nil {
 		t.Fatal("version --short --json should be rejected; the two pick different formats")
+	}
+}
+
+// TestFlagsMayFollowArguments keeps "tsq gen ./pkg --check" working as it did
+// under cobra: the standard flag package alone stops at the first argument.
+func TestFlagsMayFollowArguments(t *testing.T) {
+	fs := flag.NewFlagSet("t", flag.ContinueOnError)
+	check := fs.Bool("check", false, "")
+	verbose := fs.Bool("v", false, "")
+
+	args, err := parseInterspersed(fs, []string{"./pkg", "--check", "-v", "--", "-literal"})
+	if err != nil || !*check || !*verbose || strings.Join(args, " ") != "./pkg -literal" {
+		t.Fatalf("parseInterspersed = %q, check=%v v=%v, %v", args, *check, *verbose, err)
 	}
 }

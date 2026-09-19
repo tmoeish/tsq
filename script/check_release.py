@@ -31,11 +31,11 @@ EXAMPLE_GENERATED: Final = "examples/academy/runtime.tsq.go"
 
 # `-X` 的目标包路径打错是**静默**失败的：链接器找不到符号时不报错，直接忽略，产出的二进制
 # 把 build time / commit / branch 全报成 "unknown"。这个错在 `.goreleaser.yaml` 和
-# `Dockerfile` 里各发生过一次（v4.4.3 修了前者，后者又活了三个月）。这里把三份构建配置里
+# `Dockerfile` 里各发生过一次（v4.4.3 修了前者，后者又活了三个月）。这里把两份构建配置（Dockerfile 已删）里
 # 每一个 `-X pkg.var=` 都对着 `internal/buildinfo` 真实声明的变量核一遍。
 BUILDINFO_PACKAGE: Final = "github.com/tmoeish/tsq/v5/internal/buildinfo"
 BUILDINFO_SOURCE: Final = "internal/buildinfo/buildinfo.go"
-LDFLAGS_FILES: Final = ("Makefile", ".goreleaser.yaml", "Dockerfile")
+LDFLAGS_FILES: Final = ("Makefile", ".goreleaser.yaml")
 # 包路径允许 Makefile 的 `$(MODULE)` 变量引用；`-X` 后面跟着 `something=` 的都算一个目标。
 LDFLAG_X: Final = re.compile(r"-X\s+'?(?P<pkg>[A-Za-z0-9_./$()-]+)\.(?P<var>[A-Za-z_][A-Za-z0-9_]*)=")
 LDFLAG_ANY: Final = re.compile(r"-X\s+'?[^\s'=]+=")

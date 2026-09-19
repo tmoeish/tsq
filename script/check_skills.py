@@ -137,7 +137,7 @@ TRIGGERS: Final = (
         matches=either(
             prefix("script/", ".github/workflows/"),
             lambda path: path.as_posix()
-            in {"Makefile", ".goreleaser.yaml", ".golangci.yml", "Dockerfile"},
+            in {"Makefile", ".goreleaser.yaml", ".golangci.yml"},
         ),
         required=(DEV_SKILL_DIR / "SKILL.md", DEV_RELEASE),
         hint=(
