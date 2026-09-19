@@ -355,6 +355,78 @@ func TestIntegrationFetchByFollowsTheCollation(t *testing.T) {
 	}
 }
 
+// TestIntegrationPredicatesMatchTheSameRows runs every predicate family on each
+// engine and checks the rows matched, not the SQL text: the unit suite renders
+// them, but only SQLite had ever executed the negations, the custom expressions
+// or the empty-list forms. An empty NotIn renders NOT IN (SELECT 1 WHERE 1 = 0),
+// a FROM-less subquery whose acceptance is an engine's to decide.
+func TestIntegrationPredicatesMatchTheSameRows(t *testing.T) {
+	for _, target := range integrationTargets(t) {
+		t.Run(target.name, func(t *testing.T) {
+			ctx := context.Background()
+
+			dropAcademyTables(t, target)
+			rt, _ := openWithPolicy(t, target, academy.TSQTables(), tsq.SchemaPolicyReconcile)
+
+			learners := []*academy.Learner{
+				{Name: "Ada", Email: "ada@x.test", Company: "A_Co"},
+				{Name: "Bob", Email: "bob@x.test", Company: "AbCo"},
+				{Name: "Cyd", Email: "cyd@x.test", Company: "50%"},
+			}
+			if err := academy.TableLearner.BatchInsert(ctx, rt, learners); err != nil {
+				t.Fatalf("insert learners: %v", err)
+			}
+
+			enrolled := &academy.Enrollment{LearnerID: learners[0].ID, CourseID: 1, Status: academy.EnrollmentStatusActive}
+			if err := enrolled.Insert(ctx, rt); err != nil {
+				t.Fatalf("insert enrollment: %v", err)
+			}
+
+			l := academy.TableLearner
+			e := academy.TableEnrollment
+			first, last := learners[0].ID, learners[2].ID
+
+			for _, tt := range []struct {
+				name string
+				cond tsq.Condition
+				args []tsq.Arg
+				want []string
+			}{
+				{"In over no values", l.ID.In(tsq.Vals[int64]()), nil, nil},
+				{"NotIn over no values", l.ID.NotIn(tsq.Vals[int64]()), nil, []string{"Ada", "Bob", "Cyd"}},
+				{"In over an empty list param", l.ID.In(l.ID.ListParam()), []tsq.Arg{l.ID.BindList()}, nil},
+				{"NotIn over an empty list param", l.ID.NotIn(l.ID.ListParam()), []tsq.Arg{l.ID.BindList()}, []string{"Ada", "Bob", "Cyd"}},
+				{"LTE", l.ID.LTE(tsq.Val(first)), nil, []string{"Ada"}},
+				{"NotBetween", l.ID.NotBetween(tsq.Val(first), tsq.Val(first)), nil, []string{"Bob", "Cyd"}},
+				{"Like as written", l.Name.Like(tsq.Val("_d_")), nil, []string{"Ada"}},
+				{"NotLike", l.Name.NotLike(tsq.Val("B%")), nil, []string{"Ada", "Cyd"}},
+				{"NotStartsWith escapes _", tsq.NotStartsWith(l.Company, tsq.Val("A_")), nil, []string{"Bob", "Cyd"}},
+				{"NotEndsWith escapes %", tsq.NotEndsWith(l.Company, tsq.Val("0%")), nil, []string{"Ada", "Bob"}},
+				{"NotContains", tsq.NotContains(l.Name, tsq.Val("o")), nil, []string{"Ada", "Cyd"}},
+				{"Not", tsq.Not(l.Name.EQ(tsq.Val("Bob"))), nil, []string{"Ada", "Cyd"}},
+				{"Expr", l.Name.Expr("LOWER(%s)").EQ(tsq.Val("cyd")), nil, []string{"Cyd"}},
+				{"Exprf", l.ID.Exprf("%s + %s", tsq.Val(int64(1))).GT(tsq.Val(last)), nil, []string{"Cyd"}},
+				{"NotExists", tsq.NotExists(tsq.SelectValue(e.UID).From(e).Correlate(l).Where(e.LearnerID.EQ(l.ID))), nil, []string{"Bob", "Cyd"}},
+			} {
+				names, err := tsq.SelectValue(l.Name).From(l).Where(tt.cond).OrderBy(l.Name.Asc()).List(ctx, rt, tt.args...)
+				if err != nil {
+					t.Errorf("%s: %v", tt.name, err)
+					continue
+				}
+
+				got := make([]string, 0, len(names))
+				for _, name := range names {
+					got = append(got, *name)
+				}
+
+				if strings.Join(got, ",") != strings.Join(tt.want, ",") {
+					t.Errorf("%s matched %v, want %v", tt.name, got, tt.want)
+				}
+			}
+		})
+	}
+}
+
 func TestIntegrationLockConflictsAreRetryable(t *testing.T) {
 	targets := integrationTargets(t)
 	requireExternalTargets(t, targets)

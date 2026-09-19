@@ -98,7 +98,7 @@ TRIGGERS: Final = (
         matches=either(prefix("cmd/tsq/"), prefix("internal/cmd/")),
         required=(USER_SKILL_DIR, DEV_FEATURE_MAP),
         hint=(
-            "`tsq fmt` / `tsq gen` 的子命令、flag 和生成物文件名是使用者每天敲的"
+            "`tsq gen` / `tsq version` 的子命令、flag 和生成物文件名是使用者每天敲的"
             "命令，也是他们 CI 里写死的东西。"
         ),
     ),

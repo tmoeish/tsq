@@ -102,8 +102,8 @@ SQLite ≥3.39。代价是更老的引擎拿到数据库报错而不是 `Unsuppo
 
 ### 集成测试为什么长这样，以及暂时不做的几件事 (2026-08-26)
 
-核心断言"托管 schema 第二次启动零 DDL"（v4.2.0 的 Critical 事故都表现为它）。用 env DSN 而不是
-build tag，SQLite 目标因此每次 `go test` 都跑。**不换 `serenize/snaker`**：它做 CamelToSnake，换实现等于改
+核心断言"托管 schema 第二次启动零 DDL"（v4.2.0 的 Critical 事故都表现为它），谓词按匹配到的行断言。
+用 env DSN 而不是 build tag，SQLite 目标因此每次 `go test` 都跑。**不换 `serenize/snaker`**：它做 CamelToSnake，换实现等于改
 所有使用者的表名推导。nullbio 只按类型路径识别，模块不依赖它（2026-09-19）。
 
 ### 决定：相关子查询靠 `Correlate(...)` 显式声明，不靠推断 (2026-09-03)
@@ -454,8 +454,7 @@ tag，想打 tag 得先过 `release-check`。所以 `make build-gen` **故意不
 
 ## 搁置项与决定不做的事
 
-决定：**CLI 不拆子模块，改为收紧根包自己的依赖**（2026-09-17 重测）。只 import 根包的模块 tidy 后，
-`x/tools` 早已不在其 `go.sum`（cobra 已换成标准库 `flag`），拆分不改变任何东西；真正进去的是根包自己的非测试 import（MySQL 驱动，连 `go.mod` 都进）和**根包测试**
-的 import（pgx、nullbio）——tidy 会记录依赖包测试的依赖。修法：MySQL 错误改反射读取、集成测试挪进
-`internal/integration`、时间戳测试用本地同形类型，门是 `TestRootPackageImportsNoDriver`。剩下只有
-SQLite 驱动（根包单测离不开它）。复测：临时模块 `replace` 到本仓，tidy 后看 `go.sum`。
+决定：**CLI 不拆子模块，收紧根包自己的依赖**（2026-09-17 重测）。只 import 根包的模块 tidy 后，生成器的依赖本就
+不在其 `go.sum`；进去的是根包的非测试 import 和**根包测试**的 import（tidy 记录依赖包测试的依赖）。修法：MySQL
+错误改反射读取、集成测试挪进 `internal/integration`，门是 `TestRootPackageImportsNoDriver`，只剩 SQLite 驱动（根包
+单测离不开它）。复测：临时模块 `replace` 到本仓，tidy 后看 `go.sum`。

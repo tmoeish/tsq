@@ -1998,3 +1998,88 @@ type Attempt struct {
 		t.Fatalf("GenCmd.Execute() with an explicit index name error = %v", err)
 	}
 }
+
+// TestGenCmdMigrationDropsIndexesAndFlagsManualChanges covers the migration
+// outputs no other test reached: dropping an index that left the struct, SQLite's
+// table rebuild, and the "manual change required" comment for a primary key
+// that stops being auto-increment, which no dialect can ALTER safely.
+func TestGenCmdMigrationDropsIndexesAndFlagsManualChanges(t *testing.T) {
+	t.Cleanup(func() { GenCmd.SetArgs(nil) })
+
+	dir := t.TempDir()
+	modelPath := filepath.Join(dir, "model.go")
+	writeTestFile(t, filepath.Join(dir, "go.mod"), genTestModuleFile(t))
+	writeTestFile(t, modelPath, `package gentest
+
+//tsq:table name=users
+//tsq:index Name
+type User struct {
+	ID   int64  `+"`db:\"id\"`"+`
+	Name string `+"`db:\"name,size:64\"`"+`
+}
+`)
+	chdirForGenTest(t, dir)
+	tidyGenTestModule(t)
+
+	run := func(stage string) {
+		t.Helper()
+		GenCmd.SetOut(new(bytes.Buffer))
+		GenCmd.SetErr(new(bytes.Buffer))
+		GenCmd.SetArgs([]string{"."})
+
+		if err := GenCmd.Execute(); err != nil {
+			t.Fatalf("%s GenCmd.Execute() error = %v", stage, err)
+		}
+	}
+
+	run("initial")
+
+	writeTestFile(t, modelPath, `package gentest
+
+//tsq:table name=users
+type User struct {
+	ID   int64  `+"`db:\"id\"`"+`
+	Name string `+"`db:\"name,size:128\"`"+`
+}
+`)
+	run("second")
+
+	for file, wants := range map[string][]string{
+		"postgres.sql": {`DROP INDEX "idx_users_name";`, `ALTER TABLE "users" ALTER COLUMN "name" TYPE VARCHAR(128);`},
+		"mysql.sql":    {"DROP INDEX `idx_users_name` ON `users`;", "MODIFY COLUMN `name`"},
+		// SQLite cannot ALTER a column type, so it rebuilds the table, which takes
+		// the dropped index with it.
+		"sqlite.sql": {`ALTER TABLE "users" RENAME TO "__tsq_rebuild_users";`, `"name" VARCHAR(128) NOT NULL`},
+	} {
+		content, err := os.ReadFile(filepath.Join(dir, file))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		for _, want := range wants {
+			if !strings.Contains(string(content), want) {
+				t.Errorf("%s lacks %q:\n%s", file, want, content)
+			}
+		}
+	}
+	writeTestFile(t, modelPath, `package gentest
+
+//tsq:table name=users pk=ID assigned
+type User struct {
+	ID   int64  `+"`db:\"id\"`"+`
+	Name string `+"`db:\"name,size:128\"`"+`
+}
+`)
+	run("third")
+
+	for _, file := range []string{"postgres.sql", "mysql.sql"} {
+		content, err := os.ReadFile(filepath.Join(dir, file))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if want := "-- users: manual change required for primary key column id"; !strings.Contains(string(content), want) {
+			t.Errorf("%s lacks %q:\n%s", file, want, content)
+		}
+	}
+}
