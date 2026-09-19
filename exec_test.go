@@ -5,10 +5,12 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
 	"time"
+	"weak"
 )
 
 func seedUsers(t *testing.T, rt *Runtime, names ...string) []*user {
@@ -874,4 +876,100 @@ func TestUpdateWritesOnlyTheNamedColumns(t *testing.T) {
 			t.Errorf("Update(%s) was accepted", name)
 		}
 	}
+}
+
+// TestPartialRowsRefuseAFullUpdate is the partial-Select hazard closed: a row read
+// with some columns cannot be saved whole, only with the columns it holds.
+func TestPartialRowsRefuseAFullUpdate(t *testing.T) {
+	ctx := context.Background()
+	rt := newSQLite(t)
+
+	row := &user{Name: "ada", Email: "ada@x"}
+	if err := Users.Insert(ctx, rt, row); err != nil {
+		t.Fatal(err)
+	}
+
+	partial, err := Select(User_ID, User_Name, User_Version).From(Users).Where(User_ID.EQ(Val(row.ID))).Get(ctx, rt)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	partial.Name = "Ada"
+
+	err = Users.Update(ctx, rt, partial)
+	if err == nil || !strings.Contains(err.Error(), "read with only id, name, version") {
+		t.Fatalf("full Update of a partial row = %v, want a refusal naming the columns read", err)
+	}
+
+	if err := Users.BatchUpdate(ctx, rt, []*user{partial}); err == nil {
+		t.Fatal("expected BatchUpdate of a partial row to be refused")
+	}
+
+	if err := Users.Upsert(ctx, rt, partial); err == nil {
+		t.Fatal("expected Upsert of a partial row to be refused")
+	}
+
+	if err := Users.Update(ctx, rt, partial, User_Name); err != nil {
+		t.Fatalf("Update naming the columns = %v", err)
+	}
+
+	// Rows read whole, and projections into other types, are not partial.
+	full, err := Users.Get(ctx, rt, row.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	full.Email = "ada@y"
+	if err := Users.Update(ctx, rt, full); err != nil || full.Name != "Ada" {
+		t.Fatalf("full Update of a full row = %v (name %q)", err, full.Name)
+	}
+}
+
+// TestPartialRowsAreForgotten keeps the registry from growing without bound: a
+// partial row that is no longer referenced leaves it after a collection.
+func TestPartialRowsAreForgotten(t *testing.T) {
+	ctx := context.Background()
+	rt := newSQLite(t)
+	seedUsers(t, rt, "a", "b", "c")
+
+	rows, err := Select(User_ID, User_Name).From(Users).List(ctx, rt)
+	if err != nil || len(rows) != 3 {
+		t.Fatalf("List = %d rows, %v", len(rows), err)
+	}
+
+	keys := make([]weak.Pointer[user], 0, len(rows))
+	for _, row := range rows {
+		keys = append(keys, weak.Make(row))
+	}
+
+	remembered := func() int {
+		n := 0
+
+		for _, key := range keys {
+			if _, ok := partialRows.Load(key); ok {
+				n++
+			}
+		}
+
+		return n
+	}
+
+	if remembered() != 3 {
+		t.Fatalf("registry holds %d of the rows, want 3", remembered())
+	}
+
+	rows = nil
+	_ = rows
+
+	for range 50 {
+		runtime.GC()
+
+		if remembered() == 0 {
+			return
+		}
+
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	t.Fatalf("registry still holds %d of the rows after collection", remembered())
 }

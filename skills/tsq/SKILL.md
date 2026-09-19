@@ -42,7 +42,7 @@ describes the implementation.
   `tsq.Select(...).From(...).Where(...).Build()`
 - Pass `runtime` (or the `WithTx` executor) where a `tsq.Executor` is needed; wrap a pool TSQ did not open with `tsq.WrapExecutor(db, dialect.MySQL)` (the `dialect` package names the three engines).
 - Values known only at execution are parameters: `col.EQ(col.Param())` in the query and `col.Bind(v)` when running it, or `tsq.NewParam[T]("name")` when a column needs two values. Arguments are `tsq.Arg` values matched by parameter, never positional.
-- Row writes go through the generated row methods (`row.Insert(ctx, db)`) or the table descriptor (`TableXxx.BatchInsert(ctx, db, rows)`). A row read with a partial `Select` is saved with the columns it holds, `row.Update(ctx, db, TableXxx.Title)`; a plain `Update` writes every column and would zero the unread ones.
+- Row writes go through the generated row methods (`row.Insert(ctx, db)`) or the table descriptor (`TableXxx.BatchInsert(ctx, db, rows)`). A row read with a partial `Select` is saved with the columns it holds, `row.Update(ctx, db, TableXxx.Title)`; a plain `Update` of it is refused, since it would zero the unread columns.
 - Use `TableXxx.Upsert(ctx, db, &row, key...)` / `BatchUpsert` for insert-or-update by the primary key or a unique index; on MySQL it is refused while the row could hit another unique key.
 - Use `Runtime.WithTx(...)` when several TSQ operations must share one transaction.
 - Use `Runtime.WithTxResult(...)` when that transaction callback returns a typed value; return a small struct when several values come back.

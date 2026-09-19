@@ -168,10 +168,8 @@ MySQL 的 `LENGTH` 数字节；PostgreSQL 没有 `round(double, int)`；modernc 
   同时是两种 `RHS`。
 - **`Dialect` 不是扩展点**（定案）：按方言分叉的拼写（日期、`ROUND`、NULL 排序、全文检索）按方言名写在
   库里，第四种方言会在这些构造上报错。否决把它们搬进接口：那等于把没有测试的代码放进公开契约。
-- **PG 索引自省曾看不见表达式索引**：表达式的列号是 0，内连接 `pg_attribute` 丢掉整行，GIN 索引每次启动都被
-  当成缺失（42P07）；现在 `LEFT JOIN`。
-- **写入热路径的反射成本在每列每行一个值上**：改用列自带的类型化取值函数后，100 行批量 INSERT 快约 19%、
-  UPDATE 约 28%（`write_bench_test.go`）；零值判断和盖时间戳仍用反射。
+- **PG 索引自省曾看不见表达式索引**（列号 0，内连接 `pg_attribute` 丢行，GIN 每次启动报 42P07）；现在 `LEFT JOIN`。
+- **写入热路径用列自带的类型化取值函数**，不用反射：100 行批量 INSERT 快约 19%、UPDATE 约 28%（`write_bench_test.go`）。
 - **关联装配不引入关系 DSL**：`AttachMany` 只做收键、一次查询、按键分组，子查询仍由调用方给出。
 - **全文检索三个方言不是一回事**：MySQL `MATCH ... AGAINST`、PG `to_tsvector @@ plainto_tsquery`、SQLite
   退化成子串匹配（FTS5 要影子表和触发器）。排序和操作符不可移植，只有 `Capability` 说得清拿到哪一种。
@@ -181,17 +179,15 @@ MySQL 的 `LENGTH` 数字节；PostgreSQL 没有 `round(double, int)`；modernc 
 - **派生表达式不是列**：`derived` 不留扫描目标，`Select(tsq.Date(时间列))` 在编译期就写不出来（以前运行期
   扫描失败）；单值查询走 `SelectValue`。
 - **Go 1.27 允许组合字面量用提升字段作键**（`outer{c: 1}`）：拆结构体时旧字面量照样编译，别当成改完了。
-- **NULL 排序默认最小值**：MySQL/SQLite 本来如此，只需改 PG；MySQL 没有 `NULLS` 子句，换默认就得给每个
-  可空排序加 `IS NULL` 键。
+- **NULL 排序默认最小值**：MySQL/SQLite 本来如此只需改 PG；换默认就得给 MySQL 每个可空排序加 `IS NULL` 键。
 - **时间在绑定出口统一转 UTC，不只是托管时间戳**：SQLite 按文本存时间，本地时间和 UTC 行按文本比较会错。
 - **超长列表参数用显式 `ListIn`，否决自动分块**：`OR`、`NOT IN`、排序、聚合、LIMIT 分块后语义都变。
 - **游标分页展开成 `a < ? OR (a = ? AND b > ?)`，不用行值比较**：后者只在所有列同向时成立。最后一列必须
   是主键（否则同值行会被跳过或重复）；游标带排序指纹。
-- **关键词是执行参数 `tsq.Keyword`**：放在 `Paging` 里时搜索结果只能分页读，没法 `Iter` 或单独 `Count`；
-  空关键词在 `prepare` 里丢掉，否则报参数未使用。
+- **关键词是执行参数 `tsq.Keyword`**（放在 `Paging` 里就没法 `Iter` / `Count`），但 `PageRequest.Paging` 把请求的关键词
+  带进未导出字段，由 `Page` 补上：否则忘传就悄悄返回不搜索的结果。
 - **`Page` 的一致性靠只读快照事务，不靠 `COUNT(*) OVER()`**：窗口函数在 `DISTINCT` 前求值、PG 不能和
   `FOR UPDATE` 同用、越界页没有行带回总数。代价是一对 BEGIN/COMMIT（单语句的 `ListIn` 因此不开事务）。
-- `BatchDeleteByPK` 挪到 `TableOf` 上，吃主键的 `BindList`：包级版本要再校验"列是不是主键"。
 - **v5 明确不支持复合主键**（维护者定案）：`pk=A,B` 报错并指向单列代理键 + `//tsq:unique A,B`；要支持
   就是 v6（`TableOf` 的 K、`Get` / `Fetch`、`BatchDeleteByPK`、乐观锁 WHERE 全要变形状）。
 
@@ -300,6 +296,11 @@ RIGHT JOIN 被保留侧的已删行，所以有 RIGHT / FULL JOIN 时整张表�
 ### 文档承诺的类型，要有一个真的用它的示例 (2026-09-19)
 
 文档说可空字段可用 `sql.Null[T]`，解析器却不认泛型（`*ast.IndexExpr`），示例换过去才暴露；门是 `gen_test.go` 的 `TestGeneratedCodeWithDatabaseSQLFieldsCompiles`。
+
+### 决定：部分列读出的行不许整行写回，靠弱引用记住它们 (2026-09-19)
+
+`partial.go`：查询只选某表的部分列、读进该表行类型时，每行以 `weak.Pointer` 为键登记，`runtime.AddCleanup`
+在行被回收时删掉；不带列的 `Update` / `BatchUpdate` / `Upsert` 查到就报错。否决过"禁止部分列读进表行类型"（最常见的轻查询会变啰嗦）。
 
 ### 按字符串批量取数要以数据库的判等为准 (2026-09-19)
 
