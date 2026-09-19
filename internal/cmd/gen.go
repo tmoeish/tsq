@@ -397,6 +397,10 @@ func validateStructForGeneration(
 		return nil
 	}
 
+	if err := validateFieldNames(data); err != nil {
+		return err
+	}
+
 	if data.IsResult {
 		return validateResultFields(data, structsByName)
 	}
@@ -535,9 +539,11 @@ func isScanCompatible(dst, src genmodel.FieldInfo) bool {
 		dst.IsSlice == src.IsSlice
 }
 
+// normalizeResultColumns turns each Struct.Field reference into the generated
+// column it names, TableStruct.Field.
 func normalizeResultColumns(data *genmodel.StructInfo) {
 	for i, field := range data.Fields {
-		field.Column = strings.ReplaceAll(field.Column, ".", "_")
+		field.Column = "Table" + field.Column
 		data.Fields[i] = field
 
 		mapped := data.FieldsByName[field.Name]
@@ -651,29 +657,10 @@ func validateGeneratedSymbolCollisions(list []*genmodel.StructInfo) error {
 		}
 
 		typeName := data.TypeInfo.TypeName
-		symbols := []string{typeName + "__Cols"}
 
-		for _, field := range data.Fields {
-			symbols = append(symbols, typeName+"_"+field.Name)
-		}
-
-		if !data.IsResult {
-			symbols = append(symbols,
-				"tsq"+typeName+"Table",
-				"Table"+typeName,
-				"Query"+typeName,
-				"Query"+typeName+"By"+data.PrimaryKey,
-				"Query"+typeName+"By"+data.PrimaryKey+"In",
-				"Fetch"+typeName+"By"+data.PrimaryKey,
-			)
-
-			for _, ux := range data.Uniques {
-				symbols = append(symbols,
-					"Query"+typeName+"By"+joinAnd(ux.Fields),
-					"Query"+typeName+"By"+joinAnd(ux.Fields)+"In",
-					"Fetch"+typeName+"By"+joinAnd(ux.Fields),
-				)
-			}
+		symbols := []string{"Table" + typeName, typeName + "Table", "new" + typeName + "Table"}
+		if data.IsResult {
+			symbols = []string{"Result" + typeName, typeName + "Result"}
 		}
 
 		for _, symbol := range symbols {

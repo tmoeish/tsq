@@ -14,9 +14,10 @@ import (
 // Table is a query source: a table declared with NewTable, an alias of one, or a
 // CTE. Only TSQ implements it.
 type Table interface {
-	// Name returns the name queries use to refer to the source: the alias of an
-	// aliased table, otherwise its own name.
-	Name() string
+	// TableName returns the name queries use to refer to the source: the alias of
+	// an aliased table, otherwise its own name. It is not called Name so that a
+	// generated table struct can have a column field called Name.
+	TableName() string
 
 	// source renders the FROM/JOIN item.
 	source() sqlExpr
@@ -84,28 +85,44 @@ func (d *tableDef) column(name string) *columnCore {
 	return d.byName[name]
 }
 
-// TableOf is the descriptor of a table whose rows are R.
+// TableOf is the descriptor of a table whose rows are R and whose primary key is
+// a K.
 //
-// Generated code declares a table in three steps so that Go's package
-// initialization order follows the dependencies it can see:
+// Generated code wraps it in a struct with one field per column, built by one
+// function that creates the table, then its columns, then defines it:
 //
-//	var courseTable = tsq.NewTable[Course]("course")
-//	var Course_ID = tsq.NewColumn(courseTable, "id", "id", func(r *Course) *int64 { return &r.ID })
-//	var TableCourse = courseTable.Define(tsq.TableSpec[Course]{Columns: ..., PrimaryKey: Course_ID})
+//	type CourseTable struct {
+//		*tsq.TableOf[Course, int64]
+//		ID    tsq.Column[Course, int64]
+//		Title tsq.Column[Course, string]
+//	}
 //
-// Queries use TableCourse, which depends on every column, so no query can be
-// initialized before the table is complete.
-type TableOf[R any] struct {
+//	var TableCourse = newCourseTable()
+//
+// Every query that names TableCourse.Title depends on TableCourse, so package
+// initialization completes the table before any query uses it.
+type TableOf[R any, K comparable] struct {
 	def            *tableDef
+	keys           *tableKeys[R, K]
 	includeDeleted bool
+	alias          string
+}
+
+// tableKeys is the typed state every copy of a table shares: the primary key and
+// the queries built from it.
+type tableKeys[R any, K comparable] struct {
+	pk   Column[R, K]
+	get  [2]lazyQuery[R]
+	all  [2]lazyQuery[R]
+	list [2]lazyQuery[R]
 }
 
 // TableSpec is the definition of a table.
-type TableSpec[R any] struct {
+type TableSpec[R any, K comparable] struct {
 	// Columns lists every column of the table, in declaration order.
 	Columns []BoundColumn[R]
 	// PrimaryKey is the single primary-key column.
-	PrimaryKey BoundColumn[R]
+	PrimaryKey Column[R, K]
 	// AutoIncrement reports whether the database generates the primary key.
 	AutoIncrement bool
 	// Version, CreatedAt, UpdatedAt and DeletedAt are the managed columns, or nil.
@@ -123,8 +140,8 @@ type TableSpec[R any] struct {
 
 // NewTable starts the declaration of a table named name. The table is unusable
 // until Define completes it.
-func NewTable[R any](name string) *TableOf[R] {
-	t := &TableOf[R]{def: &tableDef{name: name}}
+func NewTable[R any, K comparable](name string) *TableOf[R, K] {
+	t := &TableOf[R, K]{def: &tableDef{name: name}, keys: &tableKeys[R, K]{}}
 	if err := validateBuiltInIdentifier(name); err != nil {
 		t.def.err = fmt.Errorf("table name: %w", err)
 	}
@@ -134,7 +151,7 @@ func NewTable[R any](name string) *TableOf[R] {
 
 // Define completes the table and returns it. A definition error is reported by
 // every query and write that uses the table.
-func (t *TableOf[R]) Define(spec TableSpec[R]) *TableOf[R] {
+func (t *TableOf[R, K]) Define(spec TableSpec[R, K]) *TableOf[R, K] {
 	d := t.def
 	if d.defined {
 		d.err = errors.Join(d.err, fmt.Errorf("table %s is defined twice", d.name))
@@ -211,6 +228,7 @@ func (t *TableOf[R]) Define(spec TableSpec[R]) *TableOf[R] {
 		fail("no primary key")
 	} else if name := registered("primary key", spec.PrimaryKey); name != "" {
 		d.primaryKey = d.byName[name]
+		t.keys.pk = spec.PrimaryKey
 	}
 
 	d.autoIncrement = spec.AutoIncrement
@@ -272,13 +290,25 @@ func (t *TableOf[R]) Define(spec TableSpec[R]) *TableOf[R] {
 	return t
 }
 
-// Name returns the table name.
-func (t *TableOf[R]) Name() string { return t.def.name }
+// TableName returns the name queries use for the table: its alias, if it has
+// one, otherwise its own name.
+func (t *TableOf[R, K]) TableName() string {
+	if t.alias != "" {
+		return t.alias
+	}
 
-// Columns returns every column of the table, in declaration order.
-func (t *TableOf[R]) Columns() []BoundColumn[R] {
+	return t.def.name
+}
+
+// Columns returns every column of the table, in declaration order, bound to
+// this table (to its alias, for an aliased table).
+func (t *TableOf[R, K]) Columns() []BoundColumn[R] {
 	result := make([]BoundColumn[R], 0, len(t.def.columns))
 	for _, core := range t.def.columns {
+		if t.alias != "" {
+			core = rebind(core, t)
+		}
+
 		result = append(result, columnImpl[R, any]{exprImpl[any]{c: core}})
 	}
 
@@ -287,7 +317,7 @@ func (t *TableOf[R]) Columns() []BoundColumn[R] {
 
 // FullText returns the table's full-text index, or the one named. Pass it to
 // tsq.Matches to search it.
-func (t *TableOf[R]) FullText(name ...string) FullTextIndex {
+func (t *TableOf[R, K]) FullText(name ...string) FullTextIndex {
 	if err := t.Err(); err != nil {
 		return FullTextIndex{err: err}
 	}
@@ -302,24 +332,24 @@ func (t *TableOf[R]) FullText(name ...string) FullTextIndex {
 
 	switch {
 	case len(found) == 0 && len(name) > 0:
-		return FullTextIndex{err: fmt.Errorf("table %s has no full-text index named %s", t.Name(), name[0])}
+		return FullTextIndex{err: fmt.Errorf("table %s has no full-text index named %s", t.def.name, name[0])}
 	case len(found) == 0:
-		return FullTextIndex{err: fmt.Errorf("table %s declares no full-text index; add //tsq:fulltext", t.Name())}
+		return FullTextIndex{err: fmt.Errorf("table %s declares no full-text index; add //tsq:fulltext", t.def.name)}
 	case len(found) > 1:
-		return FullTextIndex{err: fmt.Errorf("table %s has %d full-text indexes; name the one to search", t.Name(), len(found))}
+		return FullTextIndex{err: fmt.Errorf("table %s has %d full-text indexes; name the one to search", t.def.name, len(found))}
 	}
 
 	return FullTextIndex{table: t, index: found[0]}
 }
 
 // SearchColumns returns the columns keyword search matches against.
-func (t *TableOf[R]) SearchColumns() []SearchColumn { return slices.Clone(t.def.search) }
+func (t *TableOf[R, K]) SearchColumns() []SearchColumn { return slices.Clone(t.def.search) }
 
 // Schema returns the declared physical columns.
-func (t *TableOf[R]) Schema() []tsqdialect.ColumnSpec { return slices.Clone(t.def.schema) }
+func (t *TableOf[R, K]) Schema() []tsqdialect.ColumnSpec { return slices.Clone(t.def.schema) }
 
 // Indexes returns the declared indexes.
-func (t *TableOf[R]) Indexes() []TableIndex {
+func (t *TableOf[R, K]) Indexes() []TableIndex {
 	result := make([]TableIndex, 0, len(t.def.indexes))
 	for _, index := range t.def.indexes {
 		result = append(result, cloneTableIndex(index))
@@ -332,15 +362,29 @@ func (t *TableOf[R]) Indexes() []TableIndex {
 // deleted_at column leaves deleted rows out of every query and of UpdateTable and
 // DeleteFrom; select from, join or update WithDeleted() to include them. Its
 // columns are the table's columns.
-func (t *TableOf[R]) WithDeleted() *TableOf[R] {
-	return &TableOf[R]{def: t.def, includeDeleted: true}
+func (t *TableOf[R, K]) WithDeleted() *TableOf[R, K] {
+	next := *t
+	next.includeDeleted = true
+
+	return &next
 }
 
-// As returns the table under an alias, for joining it more than once.
-func (t *TableOf[R]) As(alias string) Table { return AliasTable(t, alias) }
+// As returns the table under an alias, for joining it more than once. Its
+// Columns are bound to the alias; bind a single column with Column.WithTable.
+// An empty alias, or the table's own name, returns the table unaliased.
+func (t *TableOf[R, K]) As(alias string) *TableOf[R, K] {
+	next := *t
+
+	next.alias = strings.TrimSpace(alias)
+	if next.alias == t.def.name {
+		next.alias = ""
+	}
+
+	return &next
+}
 
 // Err reports why the table definition is invalid, or nil.
-func (t *TableOf[R]) Err() error {
+func (t *TableOf[R, K]) Err() error {
 	if !t.def.defined {
 		return errors.Join(t.def.err, fmt.Errorf("table %s is used before Define", t.def.name))
 	}
@@ -348,53 +392,31 @@ func (t *TableOf[R]) Err() error {
 	return t.def.err
 }
 
-func (t *TableOf[R]) source() sqlExpr         { return sqlIdent(t.def.name) }
-func (t *TableOf[R]) definition() *tableDef   { return t.def }
-func (t *TableOf[R]) cteBody() cteQuery       { return nil }
-func (t *TableOf[R]) hasColumn(n string) bool { return t.def.byName[n] != nil }
-func (t *TableOf[R]) softDeleted() bool {
+func (t *TableOf[R, K]) source() sqlExpr {
+	if t.alias != "" {
+		return sqlJoin(sqlIdent(t.def.name), sqlText(" AS "), sqlIdent(t.alias))
+	}
+
+	return sqlIdent(t.def.name)
+}
+
+func (t *TableOf[R, K]) aliased() bool           { return t.alias != "" }
+func (t *TableOf[R, K]) rowType(R)               {}
+func (t *TableOf[R, K]) definition() *tableDef   { return t.def }
+func (t *TableOf[R, K]) cteBody() cteQuery       { return nil }
+func (t *TableOf[R, K]) hasColumn(n string) bool { return t.def.byName[n] != nil }
+func (t *TableOf[R, K]) softDeleted() bool {
 	return !t.includeDeleted && t.def.managed.DeletedAt != ""
 }
 
 // ready returns the definition or the reason it cannot be used.
-func (t *TableOf[R]) ready() (*tableDef, error) {
+func (t *TableOf[R, K]) ready() (*tableDef, error) {
 	if err := t.Err(); err != nil {
 		return nil, err
 	}
 
 	return t.def, nil
 }
-
-type aliasTable struct {
-	base  Table
-	alias string
-}
-
-// AliasTable returns table under alias. Columns follow with Column.As or
-// Column.WithTable.
-func AliasTable(table Table, alias string) Table {
-	alias = strings.TrimSpace(alias)
-	if isNilValue(table) || alias == "" || alias == table.Name() {
-		return table
-	}
-
-	if a, ok := table.(aliasTable); ok {
-		table = a.base
-	}
-
-	return aliasTable{base: table, alias: alias}
-}
-
-func (a aliasTable) Name() string { return a.alias }
-
-func (a aliasTable) source() sqlExpr {
-	return sqlJoin(a.base.source(), sqlText(" AS "), sqlIdent(a.alias))
-}
-
-func (a aliasTable) definition() *tableDef   { return a.base.definition() }
-func (a aliasTable) cteBody() cteQuery       { return a.base.cteBody() }
-func (a aliasTable) hasColumn(n string) bool { return a.base.hasColumn(n) }
-func (a aliasTable) softDeleted() bool       { return a.base.softDeleted() }
 
 // liveRows renders the condition that keeps table's live rows, for a table that
 // is softDeleted.
@@ -413,16 +435,16 @@ func liveRows(table Table) sqlExpr {
 // joins where a condition in WHERE or ON would not filter the right rows.
 func liveSource(table Table) sqlExpr {
 	def := table.definition()
-	inner := &TableOf[struct{}]{def: def}
+	inner := &TableOf[struct{}, int]{def: def}
 
 	return sqlJoin(
 		sqlText("(SELECT * FROM "), sqlIdent(def.name), sqlText(" WHERE "), liveRows(inner),
-		sqlText(") AS "), sqlIdent(table.Name()),
+		sqlText(") AS "), sqlIdent(table.TableName()),
 	)
 }
 
 // tableRef renders the name a query uses for table.
-func tableRef(table Table) sqlExpr { return sqlIdent(table.Name()) }
+func tableRef(table Table) sqlExpr { return sqlIdent(table.TableName()) }
 
 func tableHasColumn(table Table, name string) bool {
 	return !isNilValue(table) && table.hasColumn(name)
@@ -481,7 +503,7 @@ func CTE[O any](name string, query QueryStage[O]) Table {
 	return cteTable{name: name, body: &cteSpec[O]{spec: spec, buildErr: err}}
 }
 
-func (c cteTable) Name() string          { return c.name }
+func (c cteTable) TableName() string     { return c.name }
 func (c cteTable) source() sqlExpr       { return sqlIdent(c.name) }
 func (c cteTable) definition() *tableDef { return nil }
 func (c cteTable) cteBody() cteQuery     { return c.body }

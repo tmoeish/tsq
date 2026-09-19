@@ -18,7 +18,7 @@ type memo struct {
 	DeletedAt int64
 }
 
-var memosHandle = NewTable[memo]("memos")
+var memosHandle = NewTable[memo, int64]("memos")
 
 var (
 	Memo_ID        = NewColumn(memosHandle, "id", "id", func(r *memo) *int64 { return &r.ID })
@@ -27,7 +27,7 @@ var (
 	Memo_DeletedAt = NewColumn(memosHandle, "deleted_at", "deleted_at", func(r *memo) *int64 { return &r.DeletedAt })
 )
 
-var Memos = memosHandle.Define(TableSpec[memo]{
+var Memos = memosHandle.Define(TableSpec[memo, int64]{
 	Columns:       []BoundColumn[memo]{Memo_ID, Memo_Body, Memo_CreatedAt, Memo_DeletedAt},
 	PrimaryKey:    Memo_ID,
 	AutoIncrement: true,

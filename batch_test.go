@@ -22,8 +22,8 @@ type wide struct {
 
 // bindLimitTable is a table wide enough that a batch at the default size would exceed
 // SQLite's bind parameter limit if statements were sized by rows.
-var bindLimitTable = func() *TableOf[wide] {
-	h := NewTable[wide]("wide_rows")
+var bindLimitTable = func() *TableOf[wide, int64] {
+	h := NewTable[wide, int64]("wide_rows")
 	id := NewColumn(h, "id", "id", func(r *wide) *int64 { return &r.ID })
 	cols := []BoundColumn[wide]{id}
 	schema := []tsqdialect.ColumnSpec{{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true}}
@@ -34,7 +34,7 @@ var bindLimitTable = func() *TableOf[wide] {
 		schema = append(schema, tsqdialect.ColumnSpec{Name: name, Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}})
 	}
 
-	return h.Define(TableSpec[wide]{Columns: cols, PrimaryKey: id, AutoIncrement: true, Schema: schema})
+	return h.Define(TableSpec[wide, int64]{Columns: cols, PrimaryKey: id, AutoIncrement: true, Schema: schema})
 }()
 
 func newWideRuntime(t *testing.T) *Runtime {

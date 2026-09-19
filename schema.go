@@ -80,11 +80,11 @@ func registerTables(tables []Table) ([]*registeredTable, error) {
 
 		def := table.definition()
 		if def == nil {
-			return nil, fmt.Errorf("%s is not a declared table; register tables, not CTEs", table.Name())
+			return nil, fmt.Errorf("%s is not a declared table; register tables, not CTEs", table.TableName())
 		}
 
-		if table.Name() != def.name {
-			return nil, fmt.Errorf("register table %s itself, not its alias %s", def.name, table.Name())
+		if table.TableName() != def.name {
+			return nil, fmt.Errorf("register table %s itself, not its alias %s", def.name, table.TableName())
 		}
 
 		if err := tableErr(table); err != nil {

@@ -4,8 +4,6 @@ package academy
 
 import (
 	"context"
-	tsqsql "database/sql"
-	"fmt"
 	tsqtime "time"
 
 	null "gopkg.in/nullbio/null.v6"
@@ -14,183 +12,152 @@ import (
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 )
 
-// tsqInstructorTable is TableInstructor before its definition; columns are declared on it.
-var tsqInstructorTable = tsq.NewTable[Instructor]("instructor")
+// InstructorTable is the instructor table: the descriptor of Instructor rows, with one field
+// per column.
+type InstructorTable struct {
+	*tsq.TableOf[Instructor, int64]
 
-// Columns of Instructor.
-var (
-	Instructor_Bio       = tsq.NewColumn(tsqInstructorTable, "bio", "bio", func(r *Instructor) *string { return &r.Bio })
-	Instructor_CreatedAt = tsq.NewNullColumn[tsqtime.Time](tsqInstructorTable, "created_at", "created_at", func(r *Instructor) *null.Time { return &r.CreatedAt })
-	Instructor_Email     = tsq.NewColumn(tsqInstructorTable, "email", "email", func(r *Instructor) *string { return &r.Email })
-	Instructor_ID        = tsq.NewColumn(tsqInstructorTable, "id", "id", func(r *Instructor) *int64 { return &r.ID })
-	Instructor_Name      = tsq.NewColumn(tsqInstructorTable, "name", "name", func(r *Instructor) *string { return &r.Name })
-	Instructor_Specialty = tsq.NewColumn(tsqInstructorTable, "specialty", "specialty", func(r *Instructor) *string { return &r.Specialty })
-)
-
-// TableInstructor is the table descriptor of Instructor. It depends on every column, so
-// package initialization completes the table before any query uses it.
-var TableInstructor = tsqInstructorTable.Define(tsq.TableSpec[Instructor]{
-	Columns: []tsq.BoundColumn[Instructor]{
-		Instructor_Bio,
-		Instructor_CreatedAt,
-		Instructor_Email,
-		Instructor_ID,
-		Instructor_Name,
-		Instructor_Specialty,
-	},
-	PrimaryKey:    Instructor_ID,
-	AutoIncrement: true,
-	CreatedAt:     Instructor_CreatedAt,
-	Search: []tsq.SearchColumn{
-		tsq.Searchable(Instructor_Name),
-		tsq.Searchable(Instructor_Specialty),
-		tsq.Searchable(Instructor_Bio),
-	},
-	Schema: []tsqdialect.ColumnSpec{
-		{
-			Name: "id",
-			Type: tsqdialect.ColumnType{
-				Kind: tsqdialect.KindInt,
-				Bits: 64,
-			},
-			PrimaryKey:    true,
-			AutoIncrement: true,
-		},
-		{
-			Name: "created_at",
-			Type: tsqdialect.ColumnType{
-				Kind:     tsqdialect.KindTime,
-				Nullable: true,
-			},
-		},
-		{
-			Name: "bio",
-			Type: tsqdialect.ColumnType{
-				Kind: tsqdialect.KindString,
-				Size: 2048,
-			},
-		},
-		{
-			Name: "email",
-			Type: tsqdialect.ColumnType{
-				Kind: tsqdialect.KindString,
-				Size: 160,
-			},
-		},
-		{
-			Name: "name",
-			Type: tsqdialect.ColumnType{
-				Kind: tsqdialect.KindString,
-				Size: 120,
-			},
-		},
-		{
-			Name: "specialty",
-			Type: tsqdialect.ColumnType{
-				Kind: tsqdialect.KindString,
-				Size: 160,
-			},
-		},
-	},
-	Indexes: []tsq.TableIndex{
-		{Name: "ux_instructor_email", Unique: true, Fields: []string{"email"}},
-	},
-})
-
-// Instructor__Cols lists every column of Instructor, for Select.
-var Instructor__Cols = TableInstructor.Columns()
-
-// QueryInstructorByID reads one Instructor by primary key; bind Instructor_ID.
-var QueryInstructorByID = tsq.
-	Select(Instructor__Cols...).
-	From(TableInstructor).
-	Where(
-		Instructor_ID.EQ(Instructor_ID.Param()),
-	).
-	MustBuild()
-
-// QueryInstructorByIDIn reads Instructor rows by a list of primary keys; bind Instructor_ID with BindList.
-var QueryInstructorByIDIn = tsq.
-	Select(Instructor__Cols...).
-	From(TableInstructor).
-	Where(
-		Instructor_ID.In(Instructor_ID.ListParam()),
-	).
-	MustBuild()
-
-// FetchInstructorByID returns the Instructor rows with the given primary keys,
-// in the order given. Any number of keys works: they are split to fit the
-// dialect's bind parameter limit. It fails with an error wrapping sql.ErrNoRows when any of
-// them is missing.
-func FetchInstructorByID(
-	ctx context.Context,
-	db tsq.Executor,
-	iDs ...int64,
-) ([]*Instructor, error) {
-	list, err := QueryInstructorByIDIn.ListIn(ctx, db, Instructor_ID.ListParam(), iDs)
-	if err != nil {
-		return nil, err
-	}
-
-	ordered, missing := matchByInputOrder(iDs, list, func(row *Instructor) int64 {
-		return row.ID
-	})
-	if len(missing) > 0 {
-		return nil, fmt.Errorf("fetch Instructor by ID %v: %w", missing, tsqsql.ErrNoRows)
-	}
-
-	return ordered, nil
+	Bio       tsq.Column[Instructor, string]
+	CreatedAt tsq.NullColumn[Instructor, tsqtime.Time]
+	Email     tsq.Column[Instructor, string]
+	ID        tsq.Column[Instructor, int64]
+	Name      tsq.Column[Instructor, string]
+	Specialty tsq.Column[Instructor, string]
 }
 
-// QueryInstructorByEmail reads one Instructor by unique index ux_instructor_email.
-var QueryInstructorByEmail = tsq.
-	Select(Instructor__Cols...).
-	From(TableInstructor).
-	Where(
-		Instructor_Email.EQ(Instructor_Email.Param()),
-	).
-	MustBuild()
+// TableInstructor is the instructor table.
+var TableInstructor = newInstructorTable()
 
-// QueryInstructorByEmailIn reads Instructor rows by unique index ux_instructor_email, one per
-// Email value; bind Instructor_Email with BindList.
-var QueryInstructorByEmailIn = tsq.
-	Select(Instructor__Cols...).
-	From(TableInstructor).
-	Where(
-		Instructor_Email.In(Instructor_Email.ListParam()),
-	).
-	MustBuild()
+// newInstructorTable declares the table, its columns, then its definition, so that
+// anything naming TableInstructor is initialized after the table is complete.
+func newInstructorTable() InstructorTable {
+	t := tsq.NewTable[Instructor, int64]("instructor")
+	c := InstructorTable{
+		TableOf:   t,
+		Bio:       tsq.NewColumn(t, "bio", "bio", func(r *Instructor) *string { return &r.Bio }),
+		CreatedAt: tsq.NewNullColumn[tsqtime.Time](t, "created_at", "created_at", func(r *Instructor) *null.Time { return &r.CreatedAt }),
+		Email:     tsq.NewColumn(t, "email", "email", func(r *Instructor) *string { return &r.Email }),
+		ID:        tsq.NewColumn(t, "id", "id", func(r *Instructor) *int64 { return &r.ID }),
+		Name:      tsq.NewColumn(t, "name", "name", func(r *Instructor) *string { return &r.Name }),
+		Specialty: tsq.NewColumn(t, "specialty", "specialty", func(r *Instructor) *string { return &r.Specialty }),
+	}
 
-// FetchInstructorByEmail returns the Instructor rows matching unique index ux_instructor_email,
-// one per Email value, in the order given. It fails with an error wrapping
-// sql.ErrNoRows when any of them is missing.
-func FetchInstructorByEmail(
+	t.Define(tsq.TableSpec[Instructor, int64]{
+		Columns: []tsq.BoundColumn[Instructor]{
+			c.Bio,
+			c.CreatedAt,
+			c.Email,
+			c.ID,
+			c.Name,
+			c.Specialty,
+		},
+		PrimaryKey:    c.ID,
+		AutoIncrement: true,
+		CreatedAt:     c.CreatedAt,
+		Search: []tsq.SearchColumn{
+			tsq.Searchable(c.Name),
+			tsq.Searchable(c.Specialty),
+			tsq.Searchable(c.Bio),
+		},
+		Schema: []tsqdialect.ColumnSpec{
+			{
+				Name: "id",
+				Type: tsqdialect.ColumnType{
+					Kind: tsqdialect.KindInt,
+					Bits: 64,
+				},
+				PrimaryKey:    true,
+				AutoIncrement: true,
+			},
+			{
+				Name: "created_at",
+				Type: tsqdialect.ColumnType{
+					Kind:     tsqdialect.KindTime,
+					Nullable: true,
+				},
+			},
+			{
+				Name: "bio",
+				Type: tsqdialect.ColumnType{
+					Kind: tsqdialect.KindString,
+					Size: 2048,
+				},
+			},
+			{
+				Name: "email",
+				Type: tsqdialect.ColumnType{
+					Kind: tsqdialect.KindString,
+					Size: 160,
+				},
+			},
+			{
+				Name: "name",
+				Type: tsqdialect.ColumnType{
+					Kind: tsqdialect.KindString,
+					Size: 120,
+				},
+			},
+			{
+				Name: "specialty",
+				Type: tsqdialect.ColumnType{
+					Kind: tsqdialect.KindString,
+					Size: 160,
+				},
+			},
+		},
+		Indexes: []tsq.TableIndex{
+			{Name: "ux_instructor_email", Unique: true, Fields: []string{"email"}},
+		},
+	})
+
+	return c
+}
+
+// As returns the table under alias, with every column bound to the alias, for
+// joining the table more than once.
+func (t InstructorTable) As(alias string) InstructorTable {
+	a := t.TableOf.As(alias)
+
+	return InstructorTable{
+		TableOf:   a,
+		Bio:       t.Bio.WithTable(a),
+		CreatedAt: t.CreatedAt.WithTable(a).(tsq.NullColumn[Instructor, tsqtime.Time]),
+		Email:     t.Email.WithTable(a),
+		ID:        t.ID.WithTable(a),
+		Name:      t.Name.WithTable(a),
+		Specialty: t.Specialty.WithTable(a),
+	}
+}
+
+// WithDeleted returns the table without its soft-delete scope; see
+// tsq.TableOf.WithDeleted.
+func (t InstructorTable) WithDeleted() InstructorTable {
+	t.TableOf = t.TableOf.WithDeleted()
+
+	return t
+}
+
+// GetByEmail reads the Instructor matching unique index ux_instructor_email, and fails with an
+// error wrapping sql.ErrNoRows when there is none.
+func (t InstructorTable) GetByEmail(
+	ctx context.Context,
+	db tsq.Executor,
+	email string,
+) (*Instructor, error) {
+	return tsq.Select(t.Columns()...).From(t).Where(
+		t.Email.EQ(tsq.Val(email)),
+	).Get(ctx, db)
+}
+
+// FetchByEmail reads the Instructor rows matching unique index ux_instructor_email, one per
+// Email value, in the order given; see tsq.TableOf.FetchBy.
+func (t InstructorTable) FetchByEmail(
 	ctx context.Context,
 	db tsq.Executor,
 	emails ...string,
 ) ([]*Instructor, error) {
-	list, err := QueryInstructorByEmailIn.ListIn(ctx, db, Instructor_Email.ListParam(), emails)
-	if err != nil {
-		return nil, err
-	}
-
-	ordered, missing := matchByInputOrderKey(emails, list,
-		func(row *Instructor) string { return lookupKey(row.Email) },
-		func(input string) string { return lookupKey(input) },
-	)
-	if len(missing) > 0 {
-		return nil, fmt.Errorf("fetch Instructor by Email %v: %w", missing, tsqsql.ErrNoRows)
-	}
-
-	return ordered, nil
+	return t.FetchBy(ctx, db, t.Email, emails)
 }
-
-// QueryInstructor reads every Instructor row; pass tsq.Keyword to search it.
-var QueryInstructor = tsq.
-	Select(Instructor__Cols...).
-	From(TableInstructor).
-	Search(TableInstructor.SearchColumns()...).
-	MustBuild()
 
 // Insert inserts the row; see tsq.TableOf.Insert.
 func (i *Instructor) Insert(ctx context.Context, db tsq.Executor) error {

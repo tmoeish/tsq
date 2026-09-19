@@ -167,14 +167,14 @@ func widenedLearner(t *testing.T, size int) []tsq.Table {
 		t.Fatal("learner.company column not found")
 	}
 
-	h := tsq.NewTable[academy.Learner]("learner")
+	h := tsq.NewTable[academy.Learner, int64]("learner")
 	id := tsq.NewColumn(h, "id", "id", func(r *academy.Learner) *int64 { return &r.ID })
 	created := tsq.NewNullColumn[time.Time](h, "created_at", "created_at", func(r *academy.Learner) *null.Time { return &r.CreatedAt })
 	name := tsq.NewColumn(h, "name", "name", func(r *academy.Learner) *string { return &r.Name })
 	email := tsq.NewColumn(h, "email", "email", func(r *academy.Learner) *string { return &r.Email })
 	company := tsq.NewColumn(h, "company", "company", func(r *academy.Learner) *string { return &r.Company })
 
-	learner := h.Define(tsq.TableSpec[academy.Learner]{
+	learner := h.Define(tsq.TableSpec[academy.Learner, int64]{
 		Columns:       []tsq.BoundColumn[academy.Learner]{id, created, name, email, company},
 		PrimaryKey:    id,
 		AutoIncrement: true,
@@ -185,7 +185,7 @@ func widenedLearner(t *testing.T, size int) []tsq.Table {
 
 	tables := []tsq.Table{learner}
 	for _, table := range academy.TSQTables() {
-		if table.Name() != "learner" {
+		if table.TableName() != "learner" {
 			tables = append(tables, table)
 		}
 	}
@@ -297,7 +297,7 @@ func TestIntegrationCRUDOptimisticLockAndDuplicateKeys(t *testing.T) {
 				t.Fatalf("expected duplicate key to be ignored, got %v", err)
 			}
 
-			count, err := tsq.Select(academy.Learner_ID).From(academy.TableLearner).MustBuild().Count(ctx, rt)
+			count, err := tsq.Select(academy.TableLearner.ID).From(academy.TableLearner).MustBuild().Count(ctx, rt)
 			if err != nil {
 				t.Fatalf("count learners: %v", err)
 			}
@@ -401,8 +401,8 @@ func TestIntegrationCapabilitiesExecute(t *testing.T) {
 
 			if tsqdialect.Supports(rt.Dialect(), tsqdialect.CapabilityCTE) {
 				recent := tsq.CTE("recent_learners",
-					tsq.Select(academy.Learner_ID).From(academy.TableLearner).Where(academy.Learner_ID.GT(tsq.Val(int64(0)))))
-				recentID := academy.Learner_ID.WithTable(recent)
+					tsq.Select(academy.TableLearner.ID).From(academy.TableLearner).Where(academy.TableLearner.ID.GT(tsq.Val(int64(0)))))
+				recentID := academy.TableLearner.ID.WithTable(recent)
 
 				rows, err := tsq.Select(recentID).From(recent).MustBuild().List(ctx, rt)
 				if err != nil {
@@ -415,8 +415,8 @@ func TestIntegrationCapabilitiesExecute(t *testing.T) {
 			}
 
 			if tsqdialect.Supports(rt.Dialect(), tsqdialect.CapabilityIntersect) {
-				query := tsq.Select(academy.Learner_ID).From(academy.TableLearner).
-					Intersect(tsq.Select(academy.Learner_ID).From(academy.TableLearner)).
+				query := tsq.Select(academy.TableLearner.ID).From(academy.TableLearner).
+					Intersect(tsq.Select(academy.TableLearner.ID).From(academy.TableLearner)).
 					MustBuild()
 
 				rows, err := query.List(ctx, rt)
@@ -430,8 +430,8 @@ func TestIntegrationCapabilitiesExecute(t *testing.T) {
 			}
 
 			if tsqdialect.Supports(rt.Dialect(), tsqdialect.CapabilityExcept) {
-				query := tsq.Select(academy.Learner_ID).From(academy.TableLearner).
-					Except(tsq.Select(academy.Learner_ID).From(academy.TableLearner)).
+				query := tsq.Select(academy.TableLearner.ID).From(academy.TableLearner).
+					Except(tsq.Select(academy.TableLearner.ID).From(academy.TableLearner)).
 					MustBuild()
 
 				rows, err := query.List(ctx, rt)
@@ -446,8 +446,8 @@ func TestIntegrationCapabilitiesExecute(t *testing.T) {
 
 			if tsqdialect.Supports(rt.Dialect(), tsqdialect.CapabilityFullOuterJoin) {
 				// Both sides of a FULL JOIN can be NULL, so the key is coalesced.
-				query := tsq.SelectValue(tsq.Coalesce(academy.Learner_ID, tsq.Val(int64(0)))).From(academy.TableLearner).
-					FullJoin(academy.TableEnrollment, academy.Learner_ID.EQ(academy.Enrollment_LearnerID)).
+				query := tsq.SelectValue(tsq.Coalesce(academy.TableLearner.ID, tsq.Val(int64(0)))).From(academy.TableLearner).
+					FullJoin(academy.TableEnrollment, academy.TableLearner.ID.EQ(academy.TableEnrollment.LearnerID)).
 					MustBuild()
 
 				rows, err := query.List(ctx, rt)
@@ -460,8 +460,8 @@ func TestIntegrationCapabilitiesExecute(t *testing.T) {
 				}
 			} else {
 				// Both sides of a FULL JOIN can be NULL, so the key is coalesced.
-				query := tsq.SelectValue(tsq.Coalesce(academy.Learner_ID, tsq.Val(int64(0)))).From(academy.TableLearner).
-					FullJoin(academy.TableEnrollment, academy.Learner_ID.EQ(academy.Enrollment_LearnerID)).
+				query := tsq.SelectValue(tsq.Coalesce(academy.TableLearner.ID, tsq.Val(int64(0)))).From(academy.TableLearner).
+					FullJoin(academy.TableEnrollment, academy.TableLearner.ID.EQ(academy.TableEnrollment.LearnerID)).
 					MustBuild()
 
 				_, err := query.List(ctx, rt)
@@ -508,7 +508,7 @@ func TestIntegrationKeywordSearchEscapesWildcards(t *testing.T) {
 				{keyword: "100%", want: "100%"},
 				{keyword: "c~d", want: "c~d"},
 			} {
-				resp, err := academy.QueryLearner.Page(ctx, rt, tsq.Paging{Page: 1, Size: 10}, tsq.Keyword(tc.keyword))
+				resp, err := academy.TableLearner.Query().Page(ctx, rt, tsq.Paging{Page: 1, Size: 10}, tsq.Keyword(tc.keyword))
 				if err != nil {
 					t.Fatalf("keyword %q on %s: %v", tc.keyword, target.name, err)
 				}
@@ -530,7 +530,7 @@ func TestIntegrationKeywordSearchEscapesWildcards(t *testing.T) {
 			}
 
 			// Escaping must not turn substring search into equality.
-			resp, err := academy.QueryLearner.Page(ctx, rt, tsq.Paging{Page: 1, Size: 10}, tsq.Keyword("Wildcard"))
+			resp, err := academy.TableLearner.Query().Page(ctx, rt, tsq.Paging{Page: 1, Size: 10}, tsq.Keyword("Wildcard"))
 			if err != nil {
 				t.Fatalf("substring keyword on %s: %v", target.name, err)
 			}
@@ -546,12 +546,12 @@ func TestIntegrationKeywordSearchEscapesWildcards(t *testing.T) {
 				cond tsq.Condition
 				args []tsq.Arg
 			}{
-				{"StartsWith(Val)", tsq.StartsWith(academy.Learner_Name, tsq.Val("100%")), nil},
-				{"EndsWith(Val)", tsq.EndsWith(academy.Learner_Name, tsq.Val("_b")), nil},
-				{"Contains(Val)", tsq.Contains(academy.Learner_Name, tsq.Val("~")), nil},
-				{"StartsWith(Param)", tsq.StartsWith(academy.Learner_Name, prefix), []tsq.Arg{prefix.Bind("a_")}},
+				{"StartsWith(Val)", tsq.StartsWith(academy.TableLearner.Name, tsq.Val("100%")), nil},
+				{"EndsWith(Val)", tsq.EndsWith(academy.TableLearner.Name, tsq.Val("_b")), nil},
+				{"Contains(Val)", tsq.Contains(academy.TableLearner.Name, tsq.Val("~")), nil},
+				{"StartsWith(Param)", tsq.StartsWith(academy.TableLearner.Name, prefix), []tsq.Arg{prefix.Bind("a_")}},
 			} {
-				n, err := tsq.Select(academy.Learner_ID).From(academy.TableLearner).Where(tc.cond).MustBuild().
+				n, err := tsq.Select(academy.TableLearner.ID).From(academy.TableLearner).Where(tc.cond).MustBuild().
 					Count(ctx, rt, tc.args...)
 				if err != nil {
 					t.Fatalf("%s on %s: %v", tc.name, target.name, err)
@@ -596,7 +596,7 @@ func TestIntegrationBatchInsertIgnoresDuplicatesInsideTransaction(t *testing.T) 
 
 				// The transaction must still be usable after an ignored duplicate;
 				// this is the statement PostgreSQL rejects with 25P02 when it is not.
-				_, err := tsq.Select(academy.Learner_ID).From(academy.TableLearner).
+				_, err := tsq.Select(academy.TableLearner.ID).From(academy.TableLearner).
 					MustBuild().
 					Count(ctx, txExec)
 
@@ -606,7 +606,7 @@ func TestIntegrationBatchInsertIgnoresDuplicatesInsideTransaction(t *testing.T) 
 				t.Fatalf("batch insert with WithSkipDuplicates inside a transaction on %s: %v", target.name, err)
 			}
 
-			count, err := tsq.Select(academy.Learner_ID).From(academy.TableLearner).MustBuild().Count(ctx, rt)
+			count, err := tsq.Select(academy.TableLearner.ID).From(academy.TableLearner).MustBuild().Count(ctx, rt)
 			if err != nil {
 				t.Fatalf("count learners: %v", err)
 			}
@@ -691,10 +691,10 @@ func TestIntegrationMutationsByCondition(t *testing.T) {
 			score := tsq.NewParam[int64]("score")
 
 			affected, err := tsq.UpdateTable(academy.TableEnrollment).
-				Set(academy.Enrollment_Status, tsq.Val(academy.EnrollmentStatusCompleted)).
-				Set(academy.Enrollment_Score, score).
-				Where(academy.Enrollment_CourseID.EQ(academy.Enrollment_CourseID.Param())).
-				Exec(ctx, rt, score.Bind(88), academy.Enrollment_CourseID.Bind(1))
+				Set(academy.TableEnrollment.Status, tsq.Val(academy.EnrollmentStatusCompleted)).
+				Set(academy.TableEnrollment.Score, score).
+				Where(academy.TableEnrollment.CourseID.EQ(academy.TableEnrollment.CourseID.Param())).
+				Exec(ctx, rt, score.Bind(88), academy.TableEnrollment.CourseID.Bind(1))
 			if err != nil {
 				t.Fatalf("bulk update: %v", err)
 			}
@@ -703,7 +703,7 @@ func TestIntegrationMutationsByCondition(t *testing.T) {
 				t.Fatalf("expected 2 rows updated, got %d", affected)
 			}
 
-			reloaded, err := academy.QueryEnrollmentByUID.Get(ctx, rt, academy.Enrollment_UID.Bind(rows[0].UID))
+			reloaded, err := academy.TableEnrollment.Get(ctx, rt, rows[0].UID)
 			if err != nil {
 				t.Fatalf("reload enrollment: %v", err)
 			}
@@ -721,7 +721,7 @@ func TestIntegrationMutationsByCondition(t *testing.T) {
 				t.Fatalf("expected the pre-bulk row to conflict, got %v", err)
 			}
 
-			beforeSoftDelete, err := academy.QueryEnrollmentByUID.Get(ctx, rt, academy.Enrollment_UID.Bind(rows[1].UID))
+			beforeSoftDelete, err := academy.TableEnrollment.Get(ctx, rt, rows[1].UID)
 			if err != nil {
 				t.Fatalf("reload enrollment before soft delete: %v", err)
 			}
@@ -730,8 +730,8 @@ func TestIntegrationMutationsByCondition(t *testing.T) {
 			// stamps the tombstone. The rows stay in the table and leave every
 			// generated query.
 			affected, err = tsq.DeleteFrom(academy.TableEnrollment).
-				Where(academy.Enrollment_UID.In(academy.Enrollment_UID.ListParam())).
-				Exec(ctx, rt, academy.Enrollment_UID.BindList(rows[1].UID, rows[2].UID))
+				Where(academy.TableEnrollment.UID.In(academy.TableEnrollment.UID.ListParam())).
+				Exec(ctx, rt, academy.TableEnrollment.UID.BindList(rows[1].UID, rows[2].UID))
 			if err != nil {
 				t.Fatalf("bulk soft delete: %v", err)
 			}
@@ -740,7 +740,7 @@ func TestIntegrationMutationsByCondition(t *testing.T) {
 				t.Fatalf("expected 2 rows soft-deleted, got %d", affected)
 			}
 
-			active, err := academy.QueryEnrollment.Count(ctx, rt)
+			active, err := academy.TableEnrollment.Query().Count(ctx, rt)
 			if err != nil {
 				t.Fatalf("count active enrollments: %v", err)
 			}
@@ -749,7 +749,7 @@ func TestIntegrationMutationsByCondition(t *testing.T) {
 				t.Fatalf("expected 1 active enrollment left, got %d", active)
 			}
 
-			stored, err := tsq.Select(academy.Enrollment_UID).From(academy.TableEnrollment.WithDeleted()).MustBuild().Count(ctx, rt)
+			stored, err := tsq.Select(academy.TableEnrollment.UID).From(academy.TableEnrollment.WithDeleted()).MustBuild().Count(ctx, rt)
 			if err != nil {
 				t.Fatalf("count stored enrollments: %v", err)
 			}
@@ -759,11 +759,11 @@ func TestIntegrationMutationsByCondition(t *testing.T) {
 			}
 
 			// The soft-deleted rows carry a tombstone and an advanced version.
-			tombstoned, err := tsq.Select(academy.Enrollment__Cols...).
+			tombstoned, err := tsq.Select(academy.TableEnrollment.Columns()...).
 				From(academy.TableEnrollment.WithDeleted()).
-				Where(academy.Enrollment_UID.EQ(academy.Enrollment_UID.Param())).
+				Where(academy.TableEnrollment.UID.EQ(academy.TableEnrollment.UID.Param())).
 				MustBuild().
-				Get(ctx, rt, academy.Enrollment_UID.Bind(rows[1].UID))
+				Get(ctx, rt, academy.TableEnrollment.UID.Bind(rows[1].UID))
 			if err != nil {
 				t.Fatalf("reload soft-deleted enrollment: %v", err)
 			}
@@ -778,8 +778,8 @@ func TestIntegrationMutationsByCondition(t *testing.T) {
 
 			// HardDeleteFrom ignores deleted_at and removes the rows.
 			affected, err = tsq.HardDeleteFrom(academy.TableEnrollment).
-				Where(academy.Enrollment_UID.In(academy.Enrollment_UID.ListParam())).
-				Exec(ctx, rt, academy.Enrollment_UID.BindList(rows[1].UID, rows[2].UID))
+				Where(academy.TableEnrollment.UID.In(academy.TableEnrollment.UID.ListParam())).
+				Exec(ctx, rt, academy.TableEnrollment.UID.BindList(rows[1].UID, rows[2].UID))
 			if err != nil {
 				t.Fatalf("bulk hard delete: %v", err)
 			}
@@ -788,7 +788,7 @@ func TestIntegrationMutationsByCondition(t *testing.T) {
 				t.Fatalf("expected 2 rows hard-deleted, got %d", affected)
 			}
 
-			stored, err = tsq.Select(academy.Enrollment_UID).From(academy.TableEnrollment.WithDeleted()).MustBuild().Count(ctx, rt)
+			stored, err = tsq.Select(academy.TableEnrollment.UID).From(academy.TableEnrollment.WithDeleted()).MustBuild().Count(ctx, rt)
 			if err != nil {
 				t.Fatalf("count stored enrollments: %v", err)
 			}
@@ -814,7 +814,7 @@ func TestIntegrationUpsert(t *testing.T) {
 
 			// By a unique index: insert, then update the same learner.
 			first := &academy.Learner{Name: "Ada", Email: "ada@example.test", Company: "A"}
-			if err := academy.TableLearner.Upsert(ctx, rt, first, academy.Learner_Email); err != nil {
+			if err := academy.TableLearner.Upsert(ctx, rt, first, academy.TableLearner.Email); err != nil {
 				t.Fatal(err)
 			}
 
@@ -827,7 +827,7 @@ func TestIntegrationUpsert(t *testing.T) {
 			again := &academy.Learner{Name: "Ada L.", Email: "ada@example.test", Company: "B"}
 			again.CreatedAt = null.TimeFrom(ancient)
 
-			if err := academy.TableLearner.Upsert(ctx, rt, again, academy.Learner_Email); err != nil {
+			if err := academy.TableLearner.Upsert(ctx, rt, again, academy.TableLearner.Email); err != nil {
 				t.Fatal(err)
 			}
 
@@ -838,11 +838,11 @@ func TestIntegrationUpsert(t *testing.T) {
 			// Unchanged values still report the key.
 			same := *again
 			same.ID = 0
-			if err := academy.TableLearner.Upsert(ctx, rt, &same, academy.Learner_Email); err != nil || same.ID != first.ID {
+			if err := academy.TableLearner.Upsert(ctx, rt, &same, academy.TableLearner.Email); err != nil || same.ID != first.ID {
 				t.Fatalf("no-op upsert = id %d, %v; want %d", same.ID, err, first.ID)
 			}
 
-			stored, err := academy.QueryLearnerByID.Get(ctx, rt, academy.Learner_ID.Bind(first.ID))
+			stored, err := academy.TableLearner.Get(ctx, rt, first.ID)
 			if err != nil || stored.Name != "Ada L." || stored.Company != "B" {
 				t.Fatalf("stored = %+v, %v", stored, err)
 			}
@@ -855,11 +855,14 @@ func TestIntegrationUpsert(t *testing.T) {
 					keys = append(keys, 1_000_000+i)
 				}
 
-				if _, err := academy.FetchLearnerByID(ctx, rt, append(keys, first.ID)...); !errors.Is(err, sql.ErrNoRows) {
+				if _, err := academy.TableLearner.Fetch(ctx, rt, append(keys, first.ID)...); !errors.Is(err, sql.ErrNoRows) {
 					t.Fatalf("fetch with missing keys = %v; want sql.ErrNoRows", err)
 				}
 
-				found, err := academy.QueryLearnerByIDIn.ListIn(ctx, rt, academy.Learner_ID.ListParam(), append(keys, first.ID))
+				byID := tsq.Select(academy.TableLearner.Columns()...).From(academy.TableLearner).
+					Where(academy.TableLearner.ID.In(academy.TableLearner.ID.ListParam())).MustBuild()
+
+				found, err := byID.ListIn(ctx, rt, academy.TableLearner.ID.ListParam(), append(keys, first.ID))
 				if err != nil || len(found) != 1 || found[0].ID != first.ID {
 					t.Fatalf("ListIn over 70001 keys = %d rows, %v", len(found), err)
 				}
@@ -868,7 +871,7 @@ func TestIntegrationUpsert(t *testing.T) {
 			// A known primary key could hit a second unique key; only MySQL cares.
 			explicit := &academy.Learner{Name: "Ada", Email: "ada@example.test"}
 			explicit.ID = first.ID
-			err = academy.TableLearner.Upsert(ctx, rt, explicit, academy.Learner_Email)
+			err = academy.TableLearner.Upsert(ctx, rt, explicit, academy.TableLearner.Email)
 			if mysql != (err != nil) {
 				t.Fatalf("upsert with a key set on %s: %v", target.name, err)
 			}
@@ -878,20 +881,20 @@ func TestIntegrationUpsert(t *testing.T) {
 				{Name: "Ada 3", Email: "ada@example.test"},
 				{Name: "Bob", Email: "bob@example.test"},
 			}
-			if err := academy.TableLearner.BatchUpsert(ctx, rt, batch, []tsq.BoundColumn[academy.Learner]{academy.Learner_Email}); err != nil {
+			if err := academy.TableLearner.BatchUpsert(ctx, rt, batch, []tsq.BoundColumn[academy.Learner]{academy.TableLearner.Email}); err != nil {
 				t.Fatal(err)
 			}
 
-			if n, err := academy.QueryLearner.Count(ctx, rt); err != nil || n != 2 {
+			if n, err := academy.TableLearner.Query().Count(ctx, rt); err != nil || n != 2 {
 				t.Fatalf("learners = %d, %v; want 2", n, err)
 			}
 
 			dup := []*academy.Learner{{Email: "x@example.test"}, {Email: "x@example.test"}}
-			if err := academy.TableLearner.BatchUpsert(ctx, rt, dup, []tsq.BoundColumn[academy.Learner]{academy.Learner_Email}); err == nil {
+			if err := academy.TableLearner.BatchUpsert(ctx, rt, dup, []tsq.BoundColumn[academy.Learner]{academy.TableLearner.Email}); err == nil {
 				t.Fatal("expected two rows with one key to be refused")
 			}
 
-			if err := academy.TableLearner.Upsert(ctx, rt, &academy.Learner{Email: "y@example.test"}, academy.Learner_Company); err == nil {
+			if err := academy.TableLearner.Upsert(ctx, rt, &academy.Learner{Email: "y@example.test"}, academy.TableLearner.Company); err == nil {
 				t.Fatal("expected a non-unique key to be refused")
 			}
 
@@ -926,7 +929,7 @@ func TestIntegrationUpsert(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			restored, err := academy.QueryEnrollmentByUID.Get(ctx, rt, academy.Enrollment_UID.Bind(enrollment.UID))
+			restored, err := academy.TableEnrollment.Get(ctx, rt, enrollment.UID)
 			if err != nil || restored.Score != 30 {
 				t.Fatalf("restored = %+v, %v", restored, err)
 			}
@@ -945,7 +948,7 @@ func TestIntegrationUpsert(t *testing.T) {
 				t.Fatalf("restoring a live row = %v", err)
 			}
 
-			back, err := academy.QueryEnrollmentByUID.Get(ctx, rt, academy.Enrollment_UID.Bind(enrollment.UID))
+			back, err := academy.TableEnrollment.Get(ctx, rt, enrollment.UID)
 			if err != nil || back.Score != 30 || back.Version != restored.Version {
 				t.Fatalf("after delete and restore = %+v, %v; want score 30 and version %d", back, err, restored.Version)
 			}
@@ -978,9 +981,9 @@ func TestIntegrationPageKeysetOverTimestamps(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			order := []tsq.OrderBy{academy.Enrollment_CreatedAt.Desc(), academy.Enrollment_UID.Desc()}
+			order := []tsq.OrderBy{academy.TableEnrollment.CreatedAt.Desc(), academy.TableEnrollment.UID.Desc()}
 
-			want, err := tsq.Select(academy.Enrollment__Cols...).From(academy.TableEnrollment).OrderBy(order...).MustBuild().List(ctx, rt)
+			want, err := tsq.Select(academy.TableEnrollment.Columns()...).From(academy.TableEnrollment).OrderBy(order...).MustBuild().List(ctx, rt)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -990,7 +993,7 @@ func TestIntegrationPageKeysetOverTimestamps(t *testing.T) {
 			k := tsq.Keyset{Size: 2, OrderBy: order}
 
 			for {
-				page, err := academy.QueryEnrollment.PageKeyset(ctx, rt, k)
+				page, err := academy.TableEnrollment.Query().PageKeyset(ctx, rt, k)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -1033,14 +1036,14 @@ func TestIntegrationNullableColumns(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			updated := academy.Enrollment_UpdatedAt
+			updated := academy.TableEnrollment.UpdatedAt
 			cleared, err := tsq.UpdateTable(academy.TableEnrollment).SetNull(updated).
-				Where(academy.Enrollment_UID.EQ(tsq.Val(rows[0].UID))).Exec(ctx, rt)
+				Where(academy.TableEnrollment.UID.EQ(tsq.Val(rows[0].UID))).Exec(ctx, rt)
 			if err != nil || cleared != 1 {
 				t.Fatalf("SetNull = %d, %v", cleared, err)
 			}
 
-			base := tsq.Select(academy.Enrollment_UID).From(academy.TableEnrollment)
+			base := tsq.Select(academy.TableEnrollment.UID).From(academy.TableEnrollment)
 
 			if n, err := base.Where(updated.IsNull()).MustBuild().Count(ctx, rt); err != nil || n != 1 {
 				t.Fatalf("IsNull = %d, %v", n, err)
@@ -1051,14 +1054,14 @@ func TestIntegrationNullableColumns(t *testing.T) {
 				t.Fatalf("comparison with a time value = %d, %v", n, err)
 			}
 
-			stored, err := academy.QueryEnrollmentByUID.Get(ctx, rt, academy.Enrollment_UID.Bind(rows[0].UID))
+			stored, err := academy.TableEnrollment.Get(ctx, rt, rows[0].UID)
 			if err != nil || stored.UpdatedAt.Valid {
 				t.Fatalf("stored = %+v, %v; want a NULL updated_at", stored, err)
 			}
 
 			latest := tsq.Max(updated)
 			none, err := tsq.SelectNullValue(latest).From(academy.TableEnrollment).
-				Where(academy.Enrollment_UID.LT(tsq.Val(int64(0)))).MustBuild().Get(ctx, rt)
+				Where(academy.TableEnrollment.UID.LT(tsq.Val(int64(0)))).MustBuild().Get(ctx, rt)
 			if err != nil || none.Valid {
 				t.Fatalf("MAX over no rows = %v, %v", none, err)
 			}
@@ -1084,18 +1087,18 @@ func TestIntegrationNullOrderingAgrees(t *testing.T) {
 			// rows[1] has no updated_at; rows[0] is older than rows[2].
 			base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 			for i, at := range map[int]time.Time{0: base, 2: base.Add(time.Hour)} {
-				if _, err := tsq.UpdateTable(academy.TableEnrollment).Set(academy.Enrollment_UpdatedAt, tsq.Val(at)).
-					Where(academy.Enrollment_UID.EQ(tsq.Val(rows[i].UID))).Exec(ctx, rt); err != nil {
+				if _, err := tsq.UpdateTable(academy.TableEnrollment).Set(academy.TableEnrollment.UpdatedAt, tsq.Val(at)).
+					Where(academy.TableEnrollment.UID.EQ(tsq.Val(rows[i].UID))).Exec(ctx, rt); err != nil {
 					t.Fatal(err)
 				}
 			}
 
-			if _, err := tsq.UpdateTable(academy.TableEnrollment).SetNull(academy.Enrollment_UpdatedAt).
-				Where(academy.Enrollment_UID.EQ(tsq.Val(rows[1].UID))).Exec(ctx, rt); err != nil {
+			if _, err := tsq.UpdateTable(academy.TableEnrollment).SetNull(academy.TableEnrollment.UpdatedAt).
+				Where(academy.TableEnrollment.UID.EQ(tsq.Val(rows[1].UID))).Exec(ctx, rt); err != nil {
 				t.Fatal(err)
 			}
 
-			updated := academy.Enrollment_UpdatedAt
+			updated := academy.TableEnrollment.UpdatedAt
 			for name, tc := range map[string]struct {
 				order tsq.OrderBy
 				want  []int
@@ -1105,7 +1108,7 @@ func TestIntegrationNullOrderingAgrees(t *testing.T) {
 				"asc nulls last":   {updated.Asc().NullsLast(), []int{0, 2, 1}},
 				"desc nulls first": {updated.Desc().NullsFirst(), []int{1, 2, 0}},
 			} {
-				got, err := academy.QueryEnrollment.Page(ctx, rt, tsq.Paging{Size: 10, OrderBy: []tsq.OrderBy{tc.order}})
+				got, err := academy.TableEnrollment.Query().Page(ctx, rt, tsq.Paging{Size: 10, OrderBy: []tsq.OrderBy{tc.order}})
 				if err != nil {
 					t.Fatalf("%s: %v", name, err)
 				}
@@ -1159,7 +1162,7 @@ func TestIntegrationDatabaseFilledColumns(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			stored, err := academy.QueryCourseByID.Get(ctx, rt, academy.Course_ID.Bind(course.ID))
+			stored, err := academy.TableCourse.Get(ctx, rt, course.ID)
 			if err != nil || stored.Slug != "renamed" {
 				t.Fatalf("stored = %+v, %v; want the slug recomputed", stored, err)
 			}
@@ -1173,7 +1176,7 @@ func TestIntegrationDatabaseFilledColumns(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			rows, err := academy.FetchCourseByID(ctx, rt, batch[0].ID, batch[1].ID)
+			rows, err := academy.TableCourse.Fetch(ctx, rt, batch[0].ID, batch[1].ID)
 			if err != nil || rows[0].Currency != "USD" || rows[1].Currency != "GBP" || rows[0].Slug != "batch a" {
 				t.Fatalf("batch rows = %+v, %v", rows, err)
 			}
@@ -1215,9 +1218,9 @@ func TestIntegrationFullTextSearch(t *testing.T) {
 			}
 
 			term := tsq.NewParam[string]("term")
-			search := tsq.Select(academy.Course__Cols...).From(academy.TableCourse).
+			search := tsq.Select(academy.TableCourse.Columns()...).From(academy.TableCourse).
 				Where(tsq.Matches(academy.TableCourse.FullText(), term)).
-				OrderBy(academy.Course_Title.Asc()).MustBuild()
+				OrderBy(academy.TableCourse.Title.Asc()).MustBuild()
 
 			found, err := search.List(ctx, rt, term.Bind("sqlite"))
 			if err != nil {
@@ -1242,7 +1245,7 @@ func TestIntegrationFullTextSearch(t *testing.T) {
 			}
 
 			// A Val term works the same way, and the index is only created once.
-			byValue := tsq.Select(academy.Course_ID).From(academy.TableCourse).
+			byValue := tsq.Select(academy.TableCourse.ID).From(academy.TableCourse).
 				Where(tsq.Matches(academy.TableCourse.FullText(), tsq.Val("journals"))).MustBuild()
 
 			if n, err := byValue.Count(ctx, rt); err != nil || n != 1 {
@@ -1292,12 +1295,12 @@ func TestIntegrationAttachLoadsChildrenInOneQuery(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			children := tsq.Select(academy.Enrollment__Cols...).From(academy.TableEnrollment).
-				Where(academy.Enrollment_LearnerID.In(academy.Enrollment_LearnerID.ListParam())).MustBuild()
+			children := tsq.Select(academy.TableEnrollment.Columns()...).From(academy.TableEnrollment).
+				Where(academy.TableEnrollment.LearnerID.In(academy.TableEnrollment.LearnerID.ListParam())).MustBuild()
 
 			counts := map[string]int{}
 
-			err := tsq.AttachMany(ctx, rt, learners, academy.Learner_ID, children, academy.Enrollment_LearnerID,
+			err := tsq.AttachMany(ctx, rt, learners, academy.TableLearner.ID, children, academy.TableEnrollment.LearnerID,
 				func(l *academy.Learner, es []*academy.Enrollment) { counts[l.Name] = len(es) })
 			if err != nil {
 				t.Fatal(err)
@@ -1308,17 +1311,17 @@ func TestIntegrationAttachLoadsChildrenInOneQuery(t *testing.T) {
 			}
 
 			// AttachOne follows a foreign key back to its row.
-			parents := tsq.Select(academy.Learner__Cols...).From(academy.TableLearner).
-				Where(academy.Learner_ID.In(academy.Learner_ID.ListParam())).MustBuild()
+			parents := tsq.Select(academy.TableLearner.Columns()...).From(academy.TableLearner).
+				Where(academy.TableLearner.ID.In(academy.TableLearner.ID.ListParam())).MustBuild()
 
-			live, err := academy.QueryEnrollment.List(ctx, rt)
+			live, err := academy.TableEnrollment.Query().List(ctx, rt)
 			if err != nil {
 				t.Fatal(err)
 			}
 
 			names := map[int64]string{}
 
-			err = tsq.AttachOne(ctx, rt, live, academy.Enrollment_LearnerID, parents, academy.Learner_ID,
+			err = tsq.AttachOne(ctx, rt, live, academy.TableEnrollment.LearnerID, parents, academy.TableLearner.ID,
 				func(e *academy.Enrollment, l *academy.Learner) { names[e.UID] = l.Name })
 			if err != nil {
 				t.Fatal(err)
@@ -1391,7 +1394,7 @@ func TestIntegrationPageReadsOneSnapshot(t *testing.T) {
 
 			t.Cleanup(func() { _ = rt.Close() })
 
-			page, err := academy.QueryLearner.Page(ctx, rt, tsq.Paging{Size: 10})
+			page, err := academy.TableLearner.Query().Page(ctx, rt, tsq.Paging{Size: 10})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1404,7 +1407,7 @@ func TestIntegrationPageReadsOneSnapshot(t *testing.T) {
 				t.Fatalf("Total = %d with %d rows; want both 2 from the snapshot", page.Total, len(page.Data))
 			}
 
-			if n, err := academy.QueryLearner.Count(ctx, rt); err != nil || n != 3 {
+			if n, err := academy.TableLearner.Query().Count(ctx, rt); err != nil || n != 3 {
 				t.Fatalf("count after the page = %d, %v; want the concurrent insert visible", n, err)
 			}
 		})
@@ -1444,7 +1447,7 @@ func TestIntegrationSoftDeleteScopeJoins(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			on := academy.Enrollment_LearnerID.EQ(academy.Learner_ID)
+			on := academy.TableEnrollment.LearnerID.EQ(academy.TableLearner.ID)
 			count := func(name string, stage tsq.QueryStage[academy.Learner], want int64) {
 				t.Helper()
 
@@ -1459,11 +1462,11 @@ func TestIntegrationSoftDeleteScopeJoins(t *testing.T) {
 			}
 
 			from := func() tsq.JoinStage[academy.Learner] {
-				return tsq.Select(academy.Learner_ID).From(academy.TableLearner)
+				return tsq.Select(academy.TableLearner.ID).From(academy.TableLearner)
 			}
 
 			count("inner join", from().Join(academy.TableEnrollment, on), 1)
-			count("left join without a live enrollment", from().LeftJoin(academy.TableEnrollment, on).Where(academy.Enrollment_UID.IsNull()), 1)
+			count("left join without a live enrollment", from().LeftJoin(academy.TableEnrollment, on).Where(academy.TableEnrollment.UID.IsNull()), 1)
 			count("right join", from().RightJoin(academy.TableEnrollment, on), 1)
 			count("inner join with deleted", from().Join(academy.TableEnrollment.WithDeleted(), on), 2)
 
@@ -1500,7 +1503,7 @@ func TestIntegrationColumnFunctionsArePortable(t *testing.T) {
 				}
 			}
 
-			name := academy.Learner_Name
+			name := academy.TableLearner.Name
 			str := func(col tsq.Expression[string], want string) {
 				t.Helper()
 
@@ -1512,18 +1515,18 @@ func TestIntegrationColumnFunctionsArePortable(t *testing.T) {
 
 			str(tsq.Trim(name), "Ünïcödé")
 			// SQLite's UPPER and LOWER fold ASCII only, so they are checked on ASCII text.
-			str(tsq.Lower(academy.Learner_Company), "acme")
-			str(tsq.Upper(tsq.Lower(academy.Learner_Company)), "ACME")
+			str(tsq.Lower(academy.TableLearner.Company), "acme")
+			str(tsq.Upper(tsq.Lower(academy.TableLearner.Company)), "ACME")
 			str(tsq.Substring(tsq.Trim(name), 2, 3), "nïc")
 			str(tsq.NullIf(name, tsq.Val("x")), "  Ünïcödé  ")
-			str(tsq.Coalesce(academy.Learner_Company, tsq.Val("none")), "ACME")
+			str(tsq.Coalesce(academy.TableLearner.Company, tsq.Val("none")), "ACME")
 
 			length := tsq.Length(tsq.Trim(name))
 			if n, err := tsq.SelectValue(length).From(academy.TableLearner).MustBuild().Get(ctx, rt); err != nil || *n != 7 {
 				t.Errorf("Length() = %v, %v; want 7 characters", n, err)
 			}
 
-			score := academy.Enrollment_Score
+			score := academy.TableEnrollment.Score
 			num := func(col tsq.Expression[int64], want int64) {
 				t.Helper()
 
@@ -1533,7 +1536,7 @@ func TestIntegrationColumnFunctionsArePortable(t *testing.T) {
 				}
 			}
 
-			created := academy.Enrollment_CreatedAt
+			created := academy.TableEnrollment.CreatedAt
 			num(tsq.Sum(score), 9)
 			num(tsq.Max(score), 10)
 			num(tsq.Min(score), -7)

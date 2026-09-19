@@ -340,12 +340,13 @@
 
 ## 改了生成的表声明（`table.go.tmpl`、`TableOf.Define`）
 
-- 生成代码必须保持三步：句柄 `tsqXxxTable` → 列挂在句柄上 → `TableXxx = 句柄.Define(...)`
-  且初始化表达式**列出全部列**。查询只能引用 `TableXxx`。这是包初始化顺序正确的唯一原因：
-  少了这层依赖，只选部分列的查询可能先于表定义初始化。
-- 门是 `examples/academy/academyqueries.go`：一个只选部分列、且**文件名排在 `course.tsq.go`
-  之前**的包级查询。改名或让它改用 `Select(Course__Cols...)` 都等于关掉这道门。它只在示例
-  程序真的跑起来时才响（harness 里的 `examples-run`）。
+- 列只能是 `TableXxx` 的字段：**不要重新生成包级列变量**，也不要把建表挪进 `init()`。初始化顺序
+  正确的唯一原因是"取列必经 `TableXxx`"。
+- 给 `TableOf` 加导出方法，或给模板加生成方法：同名的列字段从此非法。普通方法反射自动覆盖；
+  **泛型方法要加进 `reserved.go` 的 `genericTableMethods`**，生成方法加进 `reservedTableFields`。
+  `[门禁: internal/cmd/reserved_test.go 的 TestReservedTableNamesCoverTableOf]`
+- 生成的方法名、参数名进 `validateGeneratedSymbolCollisions` 的清单和 `gen_test.go` 的断言；
+  改了形状要 `make examples` 并看 `examples/academy/*.tsq.go` 的 diff。
 
 ## 改了 DDL 推导（`internal/cmd/ddl_render.go`）
 

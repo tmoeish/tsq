@@ -1257,11 +1257,11 @@ func TestNormalizeResultColumnsUpdatesFieldMap(t *testing.T) {
 
 	normalizeResultColumns(dto)
 
-	if got := dto.Fields[0].Column; got != "User_ID" {
+	if got := dto.Fields[0].Column; got != "TableUser.ID" {
 		t.Fatalf("expected Result field column to be normalized, got %q", got)
 	}
 
-	if got := dto.FieldsByName["UserID"].Column; got != "User_ID" {
+	if got := dto.FieldsByName["UserID"].Column; got != "TableUser.ID" {
 		t.Fatalf("expected Result field map column to be normalized, got %q", got)
 	}
 }
@@ -1297,8 +1297,10 @@ func TestResultTemplateGeneratesProjectionOnlyResultFile(t *testing.T) {
 
 	rendered := string(contents)
 	for _, want := range []string{
-		"var UserOrder__Cols = []tsq.BoundColumn[UserOrder]{",
-		"UserOrder_UserID = tsq.MapInto",
+		"type UserOrderResult struct {",
+		"var ResultUserOrder = UserOrderResult{",
+		"UserID: tsq.MapInto(",
+		"func (r UserOrderResult) Columns() []tsq.BoundColumn[UserOrder] {",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("expected generated Result file to contain %q, got:\n%s", want, rendered)
@@ -1306,7 +1308,7 @@ func TestResultTemplateGeneratesProjectionOnlyResultFile(t *testing.T) {
 	}
 
 	for _, blocked := range []string{
-		"var ResultUserOrder",
+		"UserOrder__Cols",
 		"LeftJoinOrder(",
 		"SelectUserOrder(",
 		"WhereUser(",
@@ -1487,6 +1489,7 @@ func TestTableTemplateAvoidsKeywordParameterNames(t *testing.T) {
 			Table:         "keyworded",
 			PrimaryKey:    "Type",
 			AutoIncrement: true,
+			Uniques:       []genmodel.IndexInfo{{Name: "ux_keyworded_type", Fields: []string{"Type"}}},
 		},
 		TypeInfo: genmodel.TypeInfo{Package: genmodel.PackageInfo{Name: "example"}, TypeName: "Keyworded"},
 		Fields:   []genmodel.FieldInfo{field},
@@ -1507,7 +1510,7 @@ func TestTableTemplateAvoidsKeywordParameterNames(t *testing.T) {
 	}
 
 	rendered := string(contents)
-	if !strings.Contains(rendered, "type_s ...int64") {
+	if !strings.Contains(rendered, "type_s ...int64") || !strings.Contains(rendered, "type_ int64") {
 		t.Fatalf("expected generated parameter to avoid Go keyword, got:\n%s", rendered)
 	}
 
@@ -1612,16 +1615,13 @@ func TestTableTemplateGeneratesFullUniqueIndexInHelpers(t *testing.T) {
 
 	rendered := string(contents)
 	for _, want := range []string{
-		"var QueryUserByEmail = tsq.",
-		"var QueryUserByEmailIn = tsq.",
-		"var QueryUserByOrgIDAndSlug = tsq.",
-		"func FetchUserByEmail(",
-		"ordered, missing := matchByInputOrderKey(",
-		"emails,",
-		"var QueryUserByOrgIDAndSlugIn = tsq.",
-		"func FetchUserByOrgIDAndSlug(",
-		"User_Slug.In(User_Slug.ListParam())",
-		"slugs,",
+		"func (t UserTable) GetByEmail(",
+		"func (t UserTable) FetchByEmail(",
+		"return t.FetchBy(ctx, db, t.Email, emails)",
+		"func (t UserTable) GetByOrgIDAndSlug(",
+		"orgID int64,",
+		"func (t UserTable) FetchByOrgIDAndSlug(",
+		"return t.FetchBy(ctx, db, t.Slug, slugs, t.OrgID.EQ(tsq.Val(orgID)))",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("expected generated unique index IN code to mention %q, got:\n%s", want, rendered)
@@ -1629,7 +1629,7 @@ func TestTableTemplateGeneratesFullUniqueIndexInHelpers(t *testing.T) {
 	}
 
 	// Index prefixes do not identify a row, so they get no generated query.
-	if strings.Contains(rendered, "QueryUserByOrgID ") || strings.Contains(rendered, "QueryUserByOrgIDIn ") {
+	if strings.Contains(rendered, "GetByOrgID(") || strings.Contains(rendered, "FetchByOrgID(") {
 		t.Fatalf("did not expect a query on a unique index prefix, got:\n%s", rendered)
 	}
 }
@@ -1920,11 +1920,12 @@ type UserNickname struct {
 	result, _ := os.ReadFile(results[0])
 
 	for file, want := range map[string]string{
-		"table nickname": "tsq.NewNullColumn[string](tsqUserTable, \"nickname\"",
-		"table bio":      "tsq.NewNullColumn[string](tsqUserTable, \"bio\"",
-		"table seen_at":  "tsq.NewNullColumn[tsqtime.Time](tsqUserTable, \"seen_at\"",
-		"table id":       "tsq.NewColumn(tsqUserTable, \"id\"",
-		"result":         "tsq.MapIntoNull(User_Nickname",
+		"table nickname": "Nickname: tsq.NewNullColumn[string](t, \"nickname\"",
+		"table bio":      "Bio:      tsq.NewNullColumn[string](t, \"bio\"",
+		"table seen_at":  "tsq.NewNullColumn[tsqtime.Time](t, \"seen_at\"",
+		"table id":       "tsq.NewColumn(t, \"id\"",
+		"table field":    "Nickname tsq.NullColumn[User, string]",
+		"result":         "tsq.MapIntoNull(TableUser.Nickname",
 	} {
 		source := table
 		if file == "result" {

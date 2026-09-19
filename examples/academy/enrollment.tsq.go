@@ -4,8 +4,6 @@ package academy
 
 import (
 	"context"
-	tsqsql "database/sql"
-	"fmt"
 	tsqtime "time"
 
 	null "gopkg.in/nullbio/null.v6"
@@ -14,177 +12,176 @@ import (
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 )
 
-// tsqEnrollmentTable is TableEnrollment before its definition; columns are declared on it.
-var tsqEnrollmentTable = tsq.NewTable[Enrollment]("enrollment")
+// EnrollmentTable is the enrollment table: the descriptor of Enrollment rows, with one field
+// per column.
+type EnrollmentTable struct {
+	*tsq.TableOf[Enrollment, int64]
 
-// Columns of Enrollment.
-var (
-	Enrollment_CourseID  = tsq.NewColumn(tsqEnrollmentTable, "course_id", "course_id", func(r *Enrollment) *int64 { return &r.CourseID })
-	Enrollment_CreatedAt = tsq.NewColumn(tsqEnrollmentTable, "created_at", "created_at", func(r *Enrollment) *tsqtime.Time { return &r.CreatedAt })
-	Enrollment_DeletedAt = tsq.NewColumn(tsqEnrollmentTable, "deleted_at", "deleted_at", func(r *Enrollment) *int64 { return &r.DeletedAt })
-	Enrollment_FeeCents  = tsq.NewColumn(tsqEnrollmentTable, "fee_cents", "fee_cents", func(r *Enrollment) *int64 { return &r.FeeCents })
-	Enrollment_LearnerID = tsq.NewColumn(tsqEnrollmentTable, "learner_id", "learner_id", func(r *Enrollment) *int64 { return &r.LearnerID })
-	Enrollment_Score     = tsq.NewColumn(tsqEnrollmentTable, "score", "score", func(r *Enrollment) *int64 { return &r.Score })
-	Enrollment_Status    = tsq.NewColumn(tsqEnrollmentTable, "status", "status", func(r *Enrollment) *EnrollmentStatus { return &r.Status })
-	Enrollment_UID       = tsq.NewColumn(tsqEnrollmentTable, "uid", "uid", func(r *Enrollment) *int64 { return &r.UID })
-	Enrollment_UpdatedAt = tsq.NewNullColumn[tsqtime.Time](tsqEnrollmentTable, "updated_at", "updated_at", func(r *Enrollment) *null.Time { return &r.UpdatedAt })
-	Enrollment_Version   = tsq.NewColumn(tsqEnrollmentTable, "version", "version", func(r *Enrollment) *int64 { return &r.Version })
-)
-
-// TableEnrollment is the table descriptor of Enrollment. It depends on every column, so
-// package initialization completes the table before any query uses it.
-var TableEnrollment = tsqEnrollmentTable.Define(tsq.TableSpec[Enrollment]{
-	Columns: []tsq.BoundColumn[Enrollment]{
-		Enrollment_CourseID,
-		Enrollment_CreatedAt,
-		Enrollment_DeletedAt,
-		Enrollment_FeeCents,
-		Enrollment_LearnerID,
-		Enrollment_Score,
-		Enrollment_Status,
-		Enrollment_UID,
-		Enrollment_UpdatedAt,
-		Enrollment_Version,
-	},
-	PrimaryKey:    Enrollment_UID,
-	AutoIncrement: true,
-	Version:       Enrollment_Version,
-	CreatedAt:     Enrollment_CreatedAt,
-	UpdatedAt:     Enrollment_UpdatedAt,
-	DeletedAt:     Enrollment_DeletedAt,
-	Schema: []tsqdialect.ColumnSpec{
-		{
-			Name: "uid",
-			Type: tsqdialect.ColumnType{
-				Kind: tsqdialect.KindInt,
-				Bits: 64,
-			},
-			PrimaryKey:    true,
-			AutoIncrement: true,
-		},
-		{
-			Name: "created_at",
-			Type: tsqdialect.ColumnType{
-				Kind: tsqdialect.KindTime,
-			},
-			Default: "CURRENT_TIMESTAMP",
-		},
-		{
-			Name: "updated_at",
-			Type: tsqdialect.ColumnType{
-				Kind:     tsqdialect.KindTime,
-				Nullable: true,
-			},
-		},
-		{
-			Name: "deleted_at",
-			Type: tsqdialect.ColumnType{
-				Kind: tsqdialect.KindInt,
-				Bits: 64,
-			},
-			Default: "0",
-		},
-		{
-			Name: "version",
-			Type: tsqdialect.ColumnType{
-				Kind: tsqdialect.KindInt,
-				Bits: 64,
-			},
-			Default: "1",
-		},
-		{
-			Name: "course_id",
-			Type: tsqdialect.ColumnType{
-				Kind: tsqdialect.KindInt,
-				Bits: 64,
-			},
-		},
-		{
-			Name: "fee_cents",
-			Type: tsqdialect.ColumnType{
-				Kind: tsqdialect.KindInt,
-				Bits: 64,
-			},
-		},
-		{
-			Name: "learner_id",
-			Type: tsqdialect.ColumnType{
-				Kind: tsqdialect.KindInt,
-				Bits: 64,
-			},
-		},
-		{
-			Name: "score",
-			Type: tsqdialect.ColumnType{
-				Kind: tsqdialect.KindInt,
-				Bits: 64,
-			},
-		},
-		{
-			Name: "status",
-			Type: tsqdialect.ColumnType{
-				Kind: tsqdialect.KindInt,
-				Bits: 32,
-			},
-		},
-	},
-	Indexes: []tsq.TableIndex{
-		{Name: "idx_enrollment_course_id", Fields: []string{"deleted_at", "course_id"}},
-		{Name: "idx_enrollment_learner_id_course_id", Fields: []string{"deleted_at", "learner_id", "course_id"}},
-		{Name: "idx_enrollment_status", Fields: []string{"deleted_at", "status"}},
-	},
-})
-
-// Enrollment__Cols lists every column of Enrollment, for Select.
-var Enrollment__Cols = TableEnrollment.Columns()
-
-// QueryEnrollmentByUID reads one Enrollment by primary key; bind Enrollment_UID.
-var QueryEnrollmentByUID = tsq.
-	Select(Enrollment__Cols...).
-	From(TableEnrollment).
-	Where(
-		Enrollment_UID.EQ(Enrollment_UID.Param()),
-	).
-	MustBuild()
-
-// QueryEnrollmentByUIDIn reads Enrollment rows by a list of primary keys; bind Enrollment_UID with BindList.
-var QueryEnrollmentByUIDIn = tsq.
-	Select(Enrollment__Cols...).
-	From(TableEnrollment).
-	Where(
-		Enrollment_UID.In(Enrollment_UID.ListParam()),
-	).
-	MustBuild()
-
-// FetchEnrollmentByUID returns the Enrollment rows with the given primary keys,
-// in the order given. Any number of keys works: they are split to fit the
-// dialect's bind parameter limit. It fails with an error wrapping sql.ErrNoRows when any of
-// them is missing.
-func FetchEnrollmentByUID(
-	ctx context.Context,
-	db tsq.Executor,
-	uIDs ...int64,
-) ([]*Enrollment, error) {
-	list, err := QueryEnrollmentByUIDIn.ListIn(ctx, db, Enrollment_UID.ListParam(), uIDs)
-	if err != nil {
-		return nil, err
-	}
-
-	ordered, missing := matchByInputOrder(uIDs, list, func(row *Enrollment) int64 {
-		return row.UID
-	})
-	if len(missing) > 0 {
-		return nil, fmt.Errorf("fetch Enrollment by UID %v: %w", missing, tsqsql.ErrNoRows)
-	}
-
-	return ordered, nil
+	CourseID  tsq.Column[Enrollment, int64]
+	CreatedAt tsq.Column[Enrollment, tsqtime.Time]
+	DeletedAt tsq.Column[Enrollment, int64]
+	FeeCents  tsq.Column[Enrollment, int64]
+	LearnerID tsq.Column[Enrollment, int64]
+	Score     tsq.Column[Enrollment, int64]
+	Status    tsq.Column[Enrollment, EnrollmentStatus]
+	UID       tsq.Column[Enrollment, int64]
+	UpdatedAt tsq.NullColumn[Enrollment, tsqtime.Time]
+	Version   tsq.Column[Enrollment, int64]
 }
 
-// QueryEnrollment reads every Enrollment row that is not deleted.
-var QueryEnrollment = tsq.
-	Select(Enrollment__Cols...).
-	From(TableEnrollment).
-	MustBuild()
+// TableEnrollment is the enrollment table.
+var TableEnrollment = newEnrollmentTable()
+
+// newEnrollmentTable declares the table, its columns, then its definition, so that
+// anything naming TableEnrollment is initialized after the table is complete.
+func newEnrollmentTable() EnrollmentTable {
+	t := tsq.NewTable[Enrollment, int64]("enrollment")
+	c := EnrollmentTable{
+		TableOf:   t,
+		CourseID:  tsq.NewColumn(t, "course_id", "course_id", func(r *Enrollment) *int64 { return &r.CourseID }),
+		CreatedAt: tsq.NewColumn(t, "created_at", "created_at", func(r *Enrollment) *tsqtime.Time { return &r.CreatedAt }),
+		DeletedAt: tsq.NewColumn(t, "deleted_at", "deleted_at", func(r *Enrollment) *int64 { return &r.DeletedAt }),
+		FeeCents:  tsq.NewColumn(t, "fee_cents", "fee_cents", func(r *Enrollment) *int64 { return &r.FeeCents }),
+		LearnerID: tsq.NewColumn(t, "learner_id", "learner_id", func(r *Enrollment) *int64 { return &r.LearnerID }),
+		Score:     tsq.NewColumn(t, "score", "score", func(r *Enrollment) *int64 { return &r.Score }),
+		Status:    tsq.NewColumn(t, "status", "status", func(r *Enrollment) *EnrollmentStatus { return &r.Status }),
+		UID:       tsq.NewColumn(t, "uid", "uid", func(r *Enrollment) *int64 { return &r.UID }),
+		UpdatedAt: tsq.NewNullColumn[tsqtime.Time](t, "updated_at", "updated_at", func(r *Enrollment) *null.Time { return &r.UpdatedAt }),
+		Version:   tsq.NewColumn(t, "version", "version", func(r *Enrollment) *int64 { return &r.Version }),
+	}
+
+	t.Define(tsq.TableSpec[Enrollment, int64]{
+		Columns: []tsq.BoundColumn[Enrollment]{
+			c.CourseID,
+			c.CreatedAt,
+			c.DeletedAt,
+			c.FeeCents,
+			c.LearnerID,
+			c.Score,
+			c.Status,
+			c.UID,
+			c.UpdatedAt,
+			c.Version,
+		},
+		PrimaryKey:    c.UID,
+		AutoIncrement: true,
+		Version:       c.Version,
+		CreatedAt:     c.CreatedAt,
+		UpdatedAt:     c.UpdatedAt,
+		DeletedAt:     c.DeletedAt,
+		Schema: []tsqdialect.ColumnSpec{
+			{
+				Name: "uid",
+				Type: tsqdialect.ColumnType{
+					Kind: tsqdialect.KindInt,
+					Bits: 64,
+				},
+				PrimaryKey:    true,
+				AutoIncrement: true,
+			},
+			{
+				Name: "created_at",
+				Type: tsqdialect.ColumnType{
+					Kind: tsqdialect.KindTime,
+				},
+				Default: "CURRENT_TIMESTAMP",
+			},
+			{
+				Name: "updated_at",
+				Type: tsqdialect.ColumnType{
+					Kind:     tsqdialect.KindTime,
+					Nullable: true,
+				},
+			},
+			{
+				Name: "deleted_at",
+				Type: tsqdialect.ColumnType{
+					Kind: tsqdialect.KindInt,
+					Bits: 64,
+				},
+				Default: "0",
+			},
+			{
+				Name: "version",
+				Type: tsqdialect.ColumnType{
+					Kind: tsqdialect.KindInt,
+					Bits: 64,
+				},
+				Default: "1",
+			},
+			{
+				Name: "course_id",
+				Type: tsqdialect.ColumnType{
+					Kind: tsqdialect.KindInt,
+					Bits: 64,
+				},
+			},
+			{
+				Name: "fee_cents",
+				Type: tsqdialect.ColumnType{
+					Kind: tsqdialect.KindInt,
+					Bits: 64,
+				},
+			},
+			{
+				Name: "learner_id",
+				Type: tsqdialect.ColumnType{
+					Kind: tsqdialect.KindInt,
+					Bits: 64,
+				},
+			},
+			{
+				Name: "score",
+				Type: tsqdialect.ColumnType{
+					Kind: tsqdialect.KindInt,
+					Bits: 64,
+				},
+			},
+			{
+				Name: "status",
+				Type: tsqdialect.ColumnType{
+					Kind: tsqdialect.KindInt,
+					Bits: 32,
+				},
+			},
+		},
+		Indexes: []tsq.TableIndex{
+			{Name: "idx_enrollment_course_id", Fields: []string{"deleted_at", "course_id"}},
+			{Name: "idx_enrollment_learner_id_course_id", Fields: []string{"deleted_at", "learner_id", "course_id"}},
+			{Name: "idx_enrollment_status", Fields: []string{"deleted_at", "status"}},
+		},
+	})
+
+	return c
+}
+
+// As returns the table under alias, with every column bound to the alias, for
+// joining the table more than once.
+func (t EnrollmentTable) As(alias string) EnrollmentTable {
+	a := t.TableOf.As(alias)
+
+	return EnrollmentTable{
+		TableOf:   a,
+		CourseID:  t.CourseID.WithTable(a),
+		CreatedAt: t.CreatedAt.WithTable(a),
+		DeletedAt: t.DeletedAt.WithTable(a),
+		FeeCents:  t.FeeCents.WithTable(a),
+		LearnerID: t.LearnerID.WithTable(a),
+		Score:     t.Score.WithTable(a),
+		Status:    t.Status.WithTable(a),
+		UID:       t.UID.WithTable(a),
+		UpdatedAt: t.UpdatedAt.WithTable(a).(tsq.NullColumn[Enrollment, tsqtime.Time]),
+		Version:   t.Version.WithTable(a),
+	}
+}
+
+// WithDeleted returns the table without its soft-delete scope; see
+// tsq.TableOf.WithDeleted.
+func (t EnrollmentTable) WithDeleted() EnrollmentTable {
+	t.TableOf = t.TableOf.WithDeleted()
+
+	return t
+}
 
 // Insert inserts the row; see tsq.TableOf.Insert.
 func (e *Enrollment) Insert(ctx context.Context, db tsq.Executor) error {
@@ -196,8 +193,8 @@ func (e *Enrollment) Update(ctx context.Context, db tsq.Executor) error {
 	return TableEnrollment.Update(ctx, db, e)
 }
 
-// Delete soft-deletes the row by stamping DeletedAt; it drops out of every
-// generated query. See tsq.TableOf.Delete.
+// Delete soft-deletes the row by stamping DeletedAt; queries naming the
+// table leave it out from then on. See tsq.TableOf.Delete.
 func (e *Enrollment) Delete(ctx context.Context, db tsq.Executor) error {
 	return TableEnrollment.Delete(ctx, db, e)
 }

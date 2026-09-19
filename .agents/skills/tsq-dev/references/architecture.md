@@ -36,7 +36,7 @@ cmd/tsq  ──► internal/cmd ──► internal/parser ──► internal/gen
 ## 根包的四块
 
 ```
-表描述符  table.go            TableOf[R] / NewTable / Define / AliasTable / CTE
+表描述符  table.go lookup.go   TableOf[R, K] / NewTable / Define / As / CTE；Get / Find / Fetch / FetchBy / Query
 表达式    column.go expr.go   Column / Condition / Case，内部是 exprInfo
           case.go param.go    Param / ListParam / Arg
 中间表示  sqlexpr.go          sqlExpr（片段）→ renderer → statement（模板）→ assemble
@@ -51,27 +51,42 @@ cmd/tsq  ──► internal/cmd ──► internal/parser ──► internal/gen
 
 ### 表描述符（`table.go`）
 
-表是一个值：`*TableOf[R]`，持有名字、列、主键、自增、托管列、搜索列、物理 schema 和索引。
-**行类型 R 上不需要任何方法**——v5 之前表元数据是使用者结构体上的七个方法，会和字段重名，
-还逼出了 `DeclareTable` 那个初始化顺序补丁。
+表是一个值：`*TableOf[R, K]`（K 是主键类型），持有名字、列、主键、自增、托管列、搜索列、物理
+schema 和索引。**行类型 R 上不需要任何方法**——v5 之前表元数据是使用者结构体上的七个方法，会和
+字段重名，还逼出了 `DeclareTable` 那个初始化顺序补丁。
 
-生成代码分三步声明，让 Go 的包初始化顺序自己排对：
+生成代码是一个内嵌 `*TableOf` 的结构体，**每列一个字段**，由一个构造函数建成：
 
 ```go
-var tsqCourseTable = tsq.NewTable[Course]("course")          // 句柄，未定义
-var Course_ID = tsq.NewColumn(tsqCourseTable, "id", ...)       // 列挂在句柄上
-var TableCourse = tsqCourseTable.Define(tsq.TableSpec[Course]{ // 初始化表达式列出全部列
-	Columns: []tsq.BoundColumn[Course]{Course_ID, ...}, ...})
+type CourseTable struct {
+	*tsq.TableOf[Course, int64]
+	ID tsq.Column[Course, int64]
+}
+
+var TableCourse = newCourseTable() // 函数里：NewTable → 各列 → Define，返回结构体
 ```
 
-查询只引用 `TableCourse`，而 `TableCourse` 依赖每一列，所以任何查询都在表定义完成后才初始化。
-用到未 `Define` 的句柄会得到 "used before Define"，而不是一个半空的列表。
+任何列都只能经 `TableCourse.X` 取到，所以引用列的东西都依赖 `TableCourse` 这个变量，初始化
+顺序由 Go 自己保证，没有要维护的声明形状。
+
+- 生成的结构体靠内嵌满足 `Table`（未导出方法也会被提升），所以 `From(TableCourse)` 直接可用；
+  `UpdateTable` / `DeleteFrom` 收 `RowTable[R]`，R 由 Go 1.21 起的"按方法推断类型实参"从结构体上
+  推出来——`TableOf[R, K]` 的 K 因此不进 `UpdateBuilder`。
+- 生成的 `As(alias)` / `WithDeleted()` 返回同一个结构体，列用 `WithTable` 改绑；`NullColumn` 的
+  `WithTable` 返回的动态类型仍是 `NullColumn`，生成代码断言回去。
+- 列字段名不能和 `*TableOf` 的方法、`TableOf`、生成的 `As` / `WithDeleted` / `GetByX` / `FetchByX`
+  重名：`internal/cmd/reserved.go` 用反射取方法集（泛型方法反射看不见，单独列出），
+  `TestReservedTableNamesCoverTableOf` 扫源码核对。**给 `TableOf` 加导出方法等于让某个列名从此非法**。
+- 主键查询（`lookup.go`）：`Get` / `Find` / `Fetch` / `Query()` 各自懒建一条查询，按软删除作用域
+  缓存两份（`tableKeys` 被 `As` / `WithDeleted` 的副本共享）；`FetchBy` 每次现建。按字符串取时，
+  Go 里对不上的值再单行问一次数据库（排序规则可能判等），遇到第一个真不存在的就停。
 
 - `Define` 做全部定义期校验（主键、托管列、搜索列必须是本表的列，schema 与索引引用的列存在，
   不能 Define 两次），错误记在表上，由每个用到它的查询和写入报告，`Err()` 可以直接读。
 - 表的身份：`Define` 的"是不是本表的列"按**指针**比；查询里的表按**引用名**（别名或表名）比，
-  所以 `AliasTable` 得到的是另一个名字。
-- `Table` 接口是封闭的：`*TableOf[R]`、`aliasTable`、`cteTable` 三个实现。
+  所以 `As` 得到的是另一个名字。别名就是带 `alias` 字段的 `TableOf` 副本；按条件写的语句拒绝别名。
+- `Table` 接口是封闭的：`*TableOf[R, K]`（及内嵌它的生成结构体）和 `cteTable`。接口方法叫
+  `TableName()` 而不是 `Name()`，因为列字段常叫 `Name`。
 
 ### 表达式与中间表示（`column.go`、`expr.go`、`sqlexpr.go`）
 

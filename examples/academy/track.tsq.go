@@ -4,9 +4,7 @@ package academy
 
 import (
 	"context"
-	tsqsql "database/sql"
 	json "encoding/json"
-	"fmt"
 	tsqtime "time"
 
 	null "gopkg.in/nullbio/null.v6"
@@ -15,173 +13,140 @@ import (
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 )
 
-// tsqTrackTable is TableTrack before its definition; columns are declared on it.
-var tsqTrackTable = tsq.NewTable[Track]("track")
+// TrackTable is the track table: the descriptor of Track rows, with one field
+// per column.
+type TrackTable struct {
+	*tsq.TableOf[Track, int64]
 
-// Columns of Track.
-var (
-	Track_CreatedAt   = tsq.NewNullColumn[tsqtime.Time](tsqTrackTable, "created_at", "created_at", func(r *Track) *null.Time { return &r.CreatedAt })
-	Track_Description = tsq.NewColumn(tsqTrackTable, "description", "description", func(r *Track) *string { return &r.Description })
-	Track_ID          = tsq.NewColumn(tsqTrackTable, "id", "id", func(r *Track) *int64 { return &r.ID })
-	Track_Name        = tsq.NewColumn(tsqTrackTable, "name", "name", func(r *Track) *string { return &r.Name })
-	Track_SkillItems  = tsq.NewColumn(tsqTrackTable, "skill_items", "skill_items", func(r *Track) *json.RawMessage { return &r.SkillItems })
-)
-
-// TableTrack is the table descriptor of Track. It depends on every column, so
-// package initialization completes the table before any query uses it.
-var TableTrack = tsqTrackTable.Define(tsq.TableSpec[Track]{
-	Columns: []tsq.BoundColumn[Track]{
-		Track_CreatedAt,
-		Track_Description,
-		Track_ID,
-		Track_Name,
-		Track_SkillItems,
-	},
-	PrimaryKey:    Track_ID,
-	AutoIncrement: true,
-	CreatedAt:     Track_CreatedAt,
-	Search: []tsq.SearchColumn{
-		tsq.Searchable(Track_Name),
-		tsq.Searchable(Track_Description),
-	},
-	Schema: []tsqdialect.ColumnSpec{
-		{
-			Name: "id",
-			Type: tsqdialect.ColumnType{
-				Kind: tsqdialect.KindInt,
-				Bits: 64,
-			},
-			PrimaryKey:    true,
-			AutoIncrement: true,
-		},
-		{
-			Name: "created_at",
-			Type: tsqdialect.ColumnType{
-				Kind:     tsqdialect.KindTime,
-				Nullable: true,
-			},
-		},
-		{
-			Name: "description",
-			Type: tsqdialect.ColumnType{
-				Kind: tsqdialect.KindString,
-				Size: 1024,
-			},
-		},
-		{
-			Name: "name",
-			Type: tsqdialect.ColumnType{
-				Kind: tsqdialect.KindString,
-				Size: 120,
-			},
-		},
-		{
-			Name: "skill_items",
-			Type: tsqdialect.ColumnType{
-				RawType: "JSON",
-				Kind:    tsqdialect.KindBytes,
-			},
-		},
-	},
-	Indexes: []tsq.TableIndex{
-		{Name: "ux_track_name", Unique: true, Fields: []string{"name"}},
-	},
-})
-
-// Track__Cols lists every column of Track, for Select.
-var Track__Cols = TableTrack.Columns()
-
-// QueryTrackByID reads one Track by primary key; bind Track_ID.
-var QueryTrackByID = tsq.
-	Select(Track__Cols...).
-	From(TableTrack).
-	Where(
-		Track_ID.EQ(Track_ID.Param()),
-	).
-	MustBuild()
-
-// QueryTrackByIDIn reads Track rows by a list of primary keys; bind Track_ID with BindList.
-var QueryTrackByIDIn = tsq.
-	Select(Track__Cols...).
-	From(TableTrack).
-	Where(
-		Track_ID.In(Track_ID.ListParam()),
-	).
-	MustBuild()
-
-// FetchTrackByID returns the Track rows with the given primary keys,
-// in the order given. Any number of keys works: they are split to fit the
-// dialect's bind parameter limit. It fails with an error wrapping sql.ErrNoRows when any of
-// them is missing.
-func FetchTrackByID(
-	ctx context.Context,
-	db tsq.Executor,
-	iDs ...int64,
-) ([]*Track, error) {
-	list, err := QueryTrackByIDIn.ListIn(ctx, db, Track_ID.ListParam(), iDs)
-	if err != nil {
-		return nil, err
-	}
-
-	ordered, missing := matchByInputOrder(iDs, list, func(row *Track) int64 {
-		return row.ID
-	})
-	if len(missing) > 0 {
-		return nil, fmt.Errorf("fetch Track by ID %v: %w", missing, tsqsql.ErrNoRows)
-	}
-
-	return ordered, nil
+	CreatedAt   tsq.NullColumn[Track, tsqtime.Time]
+	Description tsq.Column[Track, string]
+	ID          tsq.Column[Track, int64]
+	Name        tsq.Column[Track, string]
+	SkillItems  tsq.Column[Track, json.RawMessage]
 }
 
-// QueryTrackByName reads one Track by unique index ux_track_name.
-var QueryTrackByName = tsq.
-	Select(Track__Cols...).
-	From(TableTrack).
-	Where(
-		Track_Name.EQ(Track_Name.Param()),
-	).
-	MustBuild()
+// TableTrack is the track table.
+var TableTrack = newTrackTable()
 
-// QueryTrackByNameIn reads Track rows by unique index ux_track_name, one per
-// Name value; bind Track_Name with BindList.
-var QueryTrackByNameIn = tsq.
-	Select(Track__Cols...).
-	From(TableTrack).
-	Where(
-		Track_Name.In(Track_Name.ListParam()),
-	).
-	MustBuild()
+// newTrackTable declares the table, its columns, then its definition, so that
+// anything naming TableTrack is initialized after the table is complete.
+func newTrackTable() TrackTable {
+	t := tsq.NewTable[Track, int64]("track")
+	c := TrackTable{
+		TableOf:     t,
+		CreatedAt:   tsq.NewNullColumn[tsqtime.Time](t, "created_at", "created_at", func(r *Track) *null.Time { return &r.CreatedAt }),
+		Description: tsq.NewColumn(t, "description", "description", func(r *Track) *string { return &r.Description }),
+		ID:          tsq.NewColumn(t, "id", "id", func(r *Track) *int64 { return &r.ID }),
+		Name:        tsq.NewColumn(t, "name", "name", func(r *Track) *string { return &r.Name }),
+		SkillItems:  tsq.NewColumn(t, "skill_items", "skill_items", func(r *Track) *json.RawMessage { return &r.SkillItems }),
+	}
 
-// FetchTrackByName returns the Track rows matching unique index ux_track_name,
-// one per Name value, in the order given. It fails with an error wrapping
-// sql.ErrNoRows when any of them is missing.
-func FetchTrackByName(
+	t.Define(tsq.TableSpec[Track, int64]{
+		Columns: []tsq.BoundColumn[Track]{
+			c.CreatedAt,
+			c.Description,
+			c.ID,
+			c.Name,
+			c.SkillItems,
+		},
+		PrimaryKey:    c.ID,
+		AutoIncrement: true,
+		CreatedAt:     c.CreatedAt,
+		Search: []tsq.SearchColumn{
+			tsq.Searchable(c.Name),
+			tsq.Searchable(c.Description),
+		},
+		Schema: []tsqdialect.ColumnSpec{
+			{
+				Name: "id",
+				Type: tsqdialect.ColumnType{
+					Kind: tsqdialect.KindInt,
+					Bits: 64,
+				},
+				PrimaryKey:    true,
+				AutoIncrement: true,
+			},
+			{
+				Name: "created_at",
+				Type: tsqdialect.ColumnType{
+					Kind:     tsqdialect.KindTime,
+					Nullable: true,
+				},
+			},
+			{
+				Name: "description",
+				Type: tsqdialect.ColumnType{
+					Kind: tsqdialect.KindString,
+					Size: 1024,
+				},
+			},
+			{
+				Name: "name",
+				Type: tsqdialect.ColumnType{
+					Kind: tsqdialect.KindString,
+					Size: 120,
+				},
+			},
+			{
+				Name: "skill_items",
+				Type: tsqdialect.ColumnType{
+					RawType: "JSON",
+					Kind:    tsqdialect.KindBytes,
+				},
+			},
+		},
+		Indexes: []tsq.TableIndex{
+			{Name: "ux_track_name", Unique: true, Fields: []string{"name"}},
+		},
+	})
+
+	return c
+}
+
+// As returns the table under alias, with every column bound to the alias, for
+// joining the table more than once.
+func (t TrackTable) As(alias string) TrackTable {
+	a := t.TableOf.As(alias)
+
+	return TrackTable{
+		TableOf:     a,
+		CreatedAt:   t.CreatedAt.WithTable(a).(tsq.NullColumn[Track, tsqtime.Time]),
+		Description: t.Description.WithTable(a),
+		ID:          t.ID.WithTable(a),
+		Name:        t.Name.WithTable(a),
+		SkillItems:  t.SkillItems.WithTable(a),
+	}
+}
+
+// WithDeleted returns the table without its soft-delete scope; see
+// tsq.TableOf.WithDeleted.
+func (t TrackTable) WithDeleted() TrackTable {
+	t.TableOf = t.TableOf.WithDeleted()
+
+	return t
+}
+
+// GetByName reads the Track matching unique index ux_track_name, and fails with an
+// error wrapping sql.ErrNoRows when there is none.
+func (t TrackTable) GetByName(
+	ctx context.Context,
+	db tsq.Executor,
+	name string,
+) (*Track, error) {
+	return tsq.Select(t.Columns()...).From(t).Where(
+		t.Name.EQ(tsq.Val(name)),
+	).Get(ctx, db)
+}
+
+// FetchByName reads the Track rows matching unique index ux_track_name, one per
+// Name value, in the order given; see tsq.TableOf.FetchBy.
+func (t TrackTable) FetchByName(
 	ctx context.Context,
 	db tsq.Executor,
 	names ...string,
 ) ([]*Track, error) {
-	list, err := QueryTrackByNameIn.ListIn(ctx, db, Track_Name.ListParam(), names)
-	if err != nil {
-		return nil, err
-	}
-
-	ordered, missing := matchByInputOrderKey(names, list,
-		func(row *Track) string { return lookupKey(row.Name) },
-		func(input string) string { return lookupKey(input) },
-	)
-	if len(missing) > 0 {
-		return nil, fmt.Errorf("fetch Track by Name %v: %w", missing, tsqsql.ErrNoRows)
-	}
-
-	return ordered, nil
+	return t.FetchBy(ctx, db, t.Name, names)
 }
-
-// QueryTrack reads every Track row; pass tsq.Keyword to search it.
-var QueryTrack = tsq.
-	Select(Track__Cols...).
-	From(TableTrack).
-	Search(TableTrack.SearchColumns()...).
-	MustBuild()
 
 // Insert inserts the row; see tsq.TableOf.Insert.
 func (t *Track) Insert(ctx context.Context, db tsq.Executor) error {

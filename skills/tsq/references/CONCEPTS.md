@@ -14,23 +14,23 @@ Go struct + //tsq: directives
 generated *.tsq.go / *.result.tsq.go
             |
             v
-table descriptor TableXxx + typed columns Xxx_Field + row methods
+table TableXxx with a column field per struct field (TableXxx.Field) + row methods
             |
             v
-tsq.Select(...).From(TableXxx).Where(Xxx_Field.EQ(Xxx_Field.Param())).Build()
+tsq.Select(...).From(TableXxx).Where(TableXxx.Field.EQ(TableXxx.Field.Param())).Build()
             |
             v
        *tsq.Query[Row]   (rendered per dialect when it runs, cached)
             |
             v
-query.List/Get/Find/Page/Count(ctx, executor, Xxx_Field.Bind(value))
+query.List/Get/Find/Page/Count(ctx, executor, TableXxx.Field.Bind(value))
 ```
 
 ## `//tsq:table`
 
 `//tsq:table` marks a Go struct as a physical table model for code generation.
 
-It drives the generated table descriptor `TableXxx` (a `*tsq.TableOf[Xxx]` holding columns,
+It drives the generated table `TableXxx` (an `XxxTable` struct that embeds `*tsq.TableOf[Xxx, K]` and has one field per column, holding columns,
 key, managed columns, search columns, schema and indexes), the typed columns, the row methods
 and the generated queries.
 
@@ -62,7 +62,7 @@ When a field uses a custom Go codec type, keep two responsibilities separate:
 ## Rows, tables and results
 
 - a **row type** is your struct; TSQ adds no interface to it
-- a **table** is a `*tsq.TableOf[Row]` descriptor; it is what queries select from and what row
+- a **table** is a `*tsq.TableOf[Row, Key]` descriptor, which the generated `TableXxx` embeds; it is what queries select from and what row
   writes go through
 - a **result** is any struct a query scans into through `MapInto` columns; only tables can be
   written

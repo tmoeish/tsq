@@ -175,10 +175,10 @@ func (t orderTerm) render() sqlExpr {
 // JOIN.
 func (s *querySpec[O]) optionalTables() map[string]bool {
 	optional := map[string]bool{}
-	before := []string{s.From.Name()}
+	before := []string{s.From.TableName()}
 
 	for _, j := range s.Joins {
-		name := j.table.Name()
+		name := j.table.TableName()
 
 		switch j.kind {
 		case leftJoinType:
@@ -548,10 +548,6 @@ func (s *querySpec[O]) writeWith(r *renderer) {
 	var visit func(sources []Table)
 	visit = func(sources []Table) {
 		for _, t := range sources {
-			if a, ok := t.(aliasTable); ok {
-				t = a.base
-			}
-
 			cte, ok := t.(cteTable)
 			if !ok || seen[cte.name] {
 				continue
@@ -694,20 +690,20 @@ func (s *querySpec[O]) validate(outer map[string]Table) error {
 func (s *querySpec[O]) correlatedNames() map[string]Table {
 	tables := make(map[string]Table, len(s.Correlated))
 	for _, t := range s.Correlated {
-		tables[t.Name()] = t
+		tables[t.TableName()] = t
 	}
 
 	return tables
 }
 
 func (s *querySpec[O]) validateJoinGraph(outer map[string]Table) error {
-	introduced := map[string]bool{s.From.Name(): true}
+	introduced := map[string]bool{s.From.TableName(): true}
 
 	correlated := s.correlatedNames()
 	maps.Copy(correlated, outer)
 
 	for _, j := range s.Joins {
-		name := j.table.Name()
+		name := j.table.TableName()
 		if introduced[name] {
 			return fmt.Errorf("table %s is already in the query; alias it to join it again", name)
 		}
@@ -780,10 +776,6 @@ func (s *querySpec[O]) validateCTEs() error {
 	var visit func(sources []Table) error
 	visit = func(sources []Table) error {
 		for _, t := range sources {
-			if a, ok := t.(aliasTable); ok {
-				t = a.base
-			}
-
 			cte, ok := t.(cteTable)
 			if !ok || done[cte.name] {
 				continue

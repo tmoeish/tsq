@@ -126,7 +126,7 @@ several roles on one line.
 - `pk=` is the primary-key **Go field**; it defaults to `ID`
 - one field only: composite primary keys are not supported in v5, and `pk=A,B` is an error. Give
   the table a single-column key (usually an auto-increment `ID`) and declare the natural key with
-  `//tsq:unique A,B`, which also generates `QueryXxxByAAndB` and `FetchXxxByAAndB`
+  `//tsq:unique A,B`, which also generates `TableXxx.GetByAAndB` and `TableXxx.FetchByAAndB`
 - the primary key is auto-increment unless the line says `assigned`, which means the caller supplies
   the value and a zero primary key is not filled in by the database
 
@@ -218,14 +218,28 @@ result.
 
 From table structs, TSQ commonly generates:
 
-- `TableXxx`
-- `Xxx__Cols`
-- typed columns like `Xxx_ID`, `Xxx_Name`: a `tsq.Column[Xxx, T]` for a NOT NULL field, and a
-  `tsq.NullColumn[Xxx, T]` for a field that can hold NULL (see "Nullable columns" in section 6)
-- CRUD helpers: `Insert`, `Update`, `Delete`, `HardDelete`, and `Restore()` / `Active()` on soft-delete tables
-- query variables for the lookups that identify rows: `QueryXxx` (every row, with the declared search columns), `QueryXxxByID` / `QueryXxxByIDIn`, and `QueryXxxByEmail` / `QueryXxxByEmailIn` per unique index. A plain `//tsq:index` is a schema object only; a query on it has an ordering, a limit and a page size the generator cannot guess, so write it with the builder
-- `FetchXxxByID(ctx, db, ids...)` and, per unique index, `FetchXxxByEmail(...)`: the rows for the given keys, in the order given, for any number of keys (they are split to fit the bind parameter limit). A missing key fails the call with an error wrapping `sql.ErrNoRows`, so `errors.Is(err, sql.ErrNoRows)` tells "not there" from a database failure
-- the errors returned by `Update`, `Delete` and `HardDelete` name the row by its primary key; they never serialize the row, so column values do not leak into logs
+- `XxxTable`, a struct that embeds `*tsq.TableOf[Xxx, K]` (K is the primary key's type) and has one
+  field per column: `TableXxx.ID`, `TableXxx.Name`. A NOT NULL field is a `tsq.Column[Xxx, T]` and a
+  field that can hold NULL a `tsq.NullColumn[Xxx, T]` (see "Nullable columns" in section 6)
+- `TableXxx`, the table value. `TableXxx.Columns()` lists every column, for `tsq.Select`
+- `TableXxx.As(alias)` and `TableXxx.WithDeleted()`, which return an `XxxTable` with every column
+  bound to the alias or scope
+- per unique index, `TableXxx.GetByEmail(ctx, db, email)` (one row, `sql.ErrNoRows` when there is
+  none) and `TableXxx.FetchByEmail(ctx, db, emails...)`; a composite index `A,B` gives
+  `GetByAAndB(ctx, db, a, b)` and `FetchByAAndB(ctx, db, a, bs...)`. A plain `//tsq:index` is a
+  schema object only; a query on it has an ordering, a limit and a page size the generator cannot
+  guess, so write it with the builder
+- row methods: `Insert`, `Update`, `Delete`, `HardDelete`, and `Restore()` / `Active()` on
+  soft-delete tables
+- the errors returned by `Update`, `Delete` and `HardDelete` name the row by its primary key; they
+  never serialize the row, so column values do not leak into logs
+
+The primary-key lookups are on the table itself, typed by the key:
+
+- `TableXxx.Get(ctx, db, id)` reads one row and fails with an error wrapping `sql.ErrNoRows` when there is none; `Find` returns `nil, nil` instead
+- `TableXxx.Fetch(ctx, db, ids...)` reads rows in the order given, for any number of keys (they are split to fit the bind parameter limit). A missing key fails the call with an error wrapping `sql.ErrNoRows`, so `errors.Is(err, sql.ErrNoRows)` tells "not there" from a database failure
+- `TableXxx.FetchBy(ctx, db, col, values, conds...)` does the same for another unique column. Matching follows the database: on a case-insensitive column `"ADA"` finds the row holding `"Ada"`
+- `TableXxx.Query()` is the query over every row, with keyword search over the declared search columns: `TableXxx.Query().Page(ctx, db, paging, tsq.Keyword(q))`
 
 On a table that declares `deleted_at`, deleted rows are out of scope for **every** query and
 statement that names the table, generated or hand-written (see "Soft-delete scope" in section 5).
@@ -234,7 +248,7 @@ Reading them is an audit-time need, and `WithDeleted()` says so:
 ```go
 // Deleted rows included.
 var EveryEnrollment = tsq.
-	Select(database.Enrollment__Cols...).
+	Select(database.TableEnrollment.Columns()...).
 	From(database.TableEnrollment.WithDeleted()).
 	MustBuild()
 ```
@@ -242,8 +256,9 @@ var EveryEnrollment = tsq.
 From result structs, TSQ commonly generates:
 
 - `*.result.tsq.go`
-- `Xxx__Cols`, the result's columns, for `tsq.Select(Xxx__Cols...)`
-- typed result columns like `Xxx_LearnerName`, each mapped onto its source column
+- `XxxResult`, a struct with one `tsq.ResultColumn` field per result field, each mapped onto its
+  source column (`ResultXxx.LearnerName`)
+- `ResultXxx`, the projection value; select it with `tsq.Select(ResultXxx.Columns()...)`
 
 In projects that keep schema artifacts, TSQ may also generate:
 
@@ -257,38 +272,51 @@ Do not hand-edit generated outputs in normal usage.
 ### What a generated table looks like
 
 ```go
-var tsqCourseTable = tsq.NewTable[Course]("course")
+type CourseTable struct {
+	*tsq.TableOf[Course, int64]
 
-var (
-	Course_ID    = tsq.NewColumn(tsqCourseTable, "id", "id", func(r *Course) *int64 { return &r.ID })
-	Course_Title = tsq.NewColumn(tsqCourseTable, "title", "title", func(r *Course) *string { return &r.Title })
-)
+	ID    tsq.Column[Course, int64]
+	Title tsq.Column[Course, string]
+}
 
-var TableCourse = tsqCourseTable.Define(tsq.TableSpec[Course]{
-	Columns:       []tsq.BoundColumn[Course]{Course_ID, Course_Title},
-	PrimaryKey:    Course_ID,
-	AutoIncrement: true,
-	Search:        []tsq.SearchColumn{tsq.Searchable(Course_Title)},
-	Schema:        []dialect.ColumnSpec{ /* ... */ },
-	Indexes:       []tsq.TableIndex{ /* ... */ },
-})
+var TableCourse = newCourseTable()
 
-var Course__Cols = TableCourse.Columns()
+func newCourseTable() CourseTable {
+	t := tsq.NewTable[Course, int64]("course")
+	c := CourseTable{
+		TableOf: t,
+		ID:      tsq.NewColumn(t, "id", "id", func(r *Course) *int64 { return &r.ID }),
+		Title:   tsq.NewColumn(t, "title", "title", func(r *Course) *string { return &r.Title }),
+	}
+
+	t.Define(tsq.TableSpec[Course, int64]{
+		Columns:       []tsq.BoundColumn[Course]{c.ID, c.Title},
+		PrimaryKey:    c.ID,
+		AutoIncrement: true,
+		Search:        []tsq.SearchColumn{tsq.Searchable(c.Title)},
+		Schema:        []dialect.ColumnSpec{ /* ... */ },
+		Indexes:       []tsq.TableIndex{ /* ... */ },
+	})
+
+	return c
+}
 ```
 
-`TableCourse` is a `*tsq.TableOf[Course]`: the table's name, columns, key, managed columns,
-search columns, physical schema and indexes in one value. The row struct itself carries no TSQ
-methods besides the generated `Insert` / `Update` / `Delete` / `HardDelete` (and `Active`), which
-delegate to the table.
+`TableCourse` is the table's name, columns, key, managed columns, search columns, physical
+schema and indexes in one value, and it is what queries select from (`From(TableCourse)`) and
+statements write (`tsq.UpdateTable(TableCourse)`). The row struct itself carries no TSQ methods
+besides the generated `Insert` / `Update` / `Delete` / `HardDelete` (and `Restore` / `Active`),
+which delegate to the table.
 
-The declaration happens in three steps on purpose. Columns are declared on the unexported handle,
-and `TableCourse` is defined from all of them, so every query that uses `TableCourse` is
-initialized after the table is complete. Go orders package-level initialization by the references it
-can see, and this shape makes the dependency visible. A table written by hand follows the same
-three steps; using the handle in a query instead of the defined table fails with "used before
-Define".
+One function creates the table, its columns and its definition, so anything that names
+`TableCourse` is initialized after the table is complete; there is no declaration order to get
+right. A table written by hand follows the same shape.
 
-`TableOf` also exposes `Name()`, `Columns()`, `SearchColumns()`, `Schema()`, `Indexes()`,
+A column field cannot share a name with a method of the table (`Update`, `Query`, `Columns`,
+`As`, ...): `tsq gen` refuses it and names the field. Rename the Go field; the `db` tag keeps the
+column name.
+
+`TableOf` also exposes `TableName()`, `Columns()`, `SearchColumns()`, `Schema()`, `Indexes()`,
 `As(alias)`, `WithDeleted()` and `Err()`, which reports a definition error such as a primary key that is not one of
 the columns.
 
@@ -426,10 +454,10 @@ The main query flow is:
 
 ```go
 query, err := tsq.
-	Select(database.User__Cols...).
+	Select(database.TableUser.Columns()...).
 	From(database.TableUser).
-	Where(tsq.Contains(database.User_Name, tsq.Val("alice"))).
-	OrderBy(database.User_ID.Desc()).
+	Where(tsq.Contains(database.TableUser.Name, tsq.Val("alice"))).
+	OrderBy(database.TableUser.ID.Desc()).
 	Build()
 ```
 
@@ -482,9 +510,9 @@ forget the filter:
 
 ```go
 query, err := tsq.
-	Select(database.User__Cols...).
+	Select(database.TableUser.Columns()...).
 	From(database.TableUser).
-	OrderBy(database.User_Name.Asc(), database.User_ID.Desc()).
+	OrderBy(database.TableUser.Name.Asc(), database.TableUser.ID.Desc()).
 	Limit(20).
 	Offset(40).
 	Build()
@@ -511,10 +539,10 @@ Rules:
 Common examples:
 
 ```go
-database.User_ID.EQ(tsq.Val(int64(1)))
-tsq.Contains(database.User_Name, tsq.Val("alice"))
-database.User_Email.Like(tsq.Val("%@example.com"))
-database.User_ManagerID.IsNull()
+database.TableUser.ID.EQ(tsq.Val(int64(1)))
+tsq.Contains(database.TableUser.Name, tsq.Val("alice"))
+database.TableUser.Email.Like(tsq.Val("%@example.com"))
+database.TableUser.ManagerID.IsNull()
 ```
 
 ### Combine conditions
@@ -523,10 +551,10 @@ The builder is stage-based: `Where(...)` appears at most once per chain (the typ
 
 ```go
 Where(
-	database.User_OrgID.EQ(tsq.Val(int64(1))),
+	database.TableUser.OrgID.EQ(tsq.Val(int64(1))),
 	tsq.Or(
-		tsq.Contains(database.User_Name, tsq.Val("alice")),
-		tsq.Contains(database.User_Email, tsq.Val("alice")),
+		tsq.Contains(database.TableUser.Name, tsq.Val("alice")),
+		tsq.Contains(database.TableUser.Email, tsq.Val("alice")),
 	),
 )
 ```
@@ -537,12 +565,12 @@ A value that is only known when the query runs is a **parameter**. Every generat
 
 ```go
 var QueryUsersByOrg = tsq.
-	Select(database.User__Cols...).
+	Select(database.TableUser.Columns()...).
 	From(database.TableUser).
-	Where(database.User_OrgID.EQ(database.User_OrgID.Param())).
+	Where(database.TableUser.OrgID.EQ(database.TableUser.OrgID.Param())).
 	MustBuild()
 
-users, err := QueryUsersByOrg.List(ctx, runtime, database.User_OrgID.Bind(orgID))
+users, err := QueryUsersByOrg.List(ctx, runtime, database.TableUser.OrgID.Bind(orgID))
 ```
 
 - `col.Param()` is the column's parameter and `col.Bind(v)` supplies it; `col.ListParam()` and
@@ -569,21 +597,21 @@ field of `O` it scans into, which is what `Select` needs. Everything built from 
 `Asc`/`Desc` and `Pred`, but no row of its own:
 
 ```go
-tsq.Upper(database.User_Name)                 // tsq.Expression[string]
-tsq.Count(database.Order_ID)                  // tsq.Expression[int64]
+tsq.Upper(database.TableUser.Name)                 // tsq.Expression[string]
+tsq.Count(database.TableOrder.ID)                  // tsq.Expression[int64]
 tsq.Case[string]()./* ... */.End()            // tsq.Expression[string]
 ```
 
 An expression cannot be passed to `Select`, because what it holds has nothing to do with the field
-its source column scans into: `tsq.Date(User_CreatedAt)` holds text while `CreatedAt` is a
+its source column scans into: `tsq.Date(TableUser.CreatedAt)` holds text while `CreatedAt` is a
 `time.Time`, and selecting it used to compile and then fail scanning. Say where the value goes:
 
 ```go
 // Into a field of a result type.
-tsq.Select(tsq.MapInto(tsq.Upper(database.User_Name), func(r *Row) *string { return &r.Name }, "name"))
+tsq.Select(tsq.MapInto(tsq.Upper(database.TableUser.Name), func(r *Row) *string { return &r.Name }, "name"))
 
 // Or on its own, when the value is the whole row.
-total, err := tsq.SelectValue(tsq.Sum(database.Order_Amount)).From(database.TableOrder).MustBuild().Get(ctx, db)
+total, err := tsq.SelectValue(tsq.Sum(database.TableOrder.Amount)).From(database.TableOrder).MustBuild().Get(ctx, db)
 // total is *int64; SelectNullValue reads a *sql.Null[int64] where the value can be NULL
 ```
 
@@ -598,12 +626,12 @@ A field that can hold NULL — a pointer, `sql.NullString` and the other `sql.Nu
 `tsq.NullColumn[Xxx, T]`, where `T` is the value it holds when it is not NULL:
 
 ```go
-var User_Nickname = tsq.NewNullColumn[string](tsqUserTable, "nickname", "nickname",
+var TableUser.Nickname = tsq.NewNullColumn[string](tsqUserTable, "nickname", "nickname",
 	func(r *User) *sql.NullString { return &r.Nickname })
 ```
 
-- it compares with its value type like any column: `User_Nickname.EQ(tsq.Val("ada"))`,
-  `tsq.Upper(User_Nickname)`, `tsq.Contains(User_Nickname, tsq.Val("a"))`. NULL rows never match a
+- it compares with its value type like any column: `TableUser.Nickname.EQ(tsq.Val("ada"))`,
+  `tsq.Upper(TableUser.Nickname)`, `tsq.Contains(TableUser.Nickname, tsq.Val("a"))`. NULL rows never match a
   comparison; `IsNull()` / `IsNotNull()` find them
 - `tsq.UpdateTable(t).SetNull(col)` writes NULL and only takes a `NullColumn`. `Set` on a NOT NULL
   column refuses a value that can be NULL (a nullable column, a scalar subquery); wrap it in
@@ -649,9 +677,9 @@ is the list form for `In` / `NotIn`. Both are always bound, never inlined into t
 are plain values passed to `Pred` / `Exprf`.
 
 ```go
-database.User_Name.EQ(tsq.Val("alice"))
-database.User_ID.In(tsq.Vals(ids...))            // ids is []int64
-database.User_Age.Between(tsq.Val(int64(18)), tsq.Val(int64(65)))
+database.TableUser.Name.EQ(tsq.Val("alice"))
+database.TableUser.ID.In(tsq.Vals(ids...))            // ids is []int64
+database.TableUser.Age.Between(tsq.Val(int64(18)), tsq.Val(int64(65)))
 ```
 
 The value's type is inferred from the value alone, so an **untyped constant takes its default
@@ -675,10 +703,10 @@ conversion.
 `query.Page(ctx, db, paging, args...)` takes a typed `tsq.Paging`:
 
 ```go
-page, err := QueryUser.Page(ctx, runtime, tsq.Paging{
+page, err := database.TableUser.Query().Page(ctx, runtime, tsq.Paging{
 	Page:    2,
 	Size:    50,
-	OrderBy: []tsq.OrderBy{database.User_Name.Asc()},
+	OrderBy: []tsq.OrderBy{database.TableUser.Name.Asc()},
 }, tsq.Keyword("alice"))
 ```
 
@@ -700,7 +728,7 @@ if err := req.Validate(runtime.MaxPageSize()); err != nil {
 	return err // 400
 }
 
-paging, err := req.Paging(database.User_Name, database.User_CreatedAt)
+paging, err := req.Paging(database.TableUser.Name, database.TableUser.CreatedAt)
 if err != nil {
 	return err // 400: *UnknownSortFieldError, *AmbiguousSortFieldError, *OrderCountMismatchError
 }
@@ -723,7 +751,7 @@ the pages. `query.PageKeyset` pages by position instead:
 ```go
 k := tsq.Keyset{
 	Size:    50,
-	OrderBy: []tsq.OrderBy{database.Post_CreatedAt.Desc(), database.Post_ID.Desc()},
+	OrderBy: []tsq.OrderBy{database.TablePost.CreatedAt.Desc(), database.TablePost.ID.Desc()},
 	After:   req.After, // the previous page's Next; empty for the first page
 }
 
@@ -749,12 +777,12 @@ TSQ has no relation DSL: a join or a `//tsq:result` says what a query returns. W
 way to give a list of parents their children in **one** extra query instead of one per parent:
 
 ```go
-children := tsq.Select(database.Enrollment__Cols...).
+children := tsq.Select(database.TableEnrollment.Columns()...).
 	From(database.TableEnrollment).
-	Where(database.Enrollment_LearnerID.In(database.Enrollment_LearnerID.ListParam())).
+	Where(database.TableEnrollment.LearnerID.In(database.TableEnrollment.LearnerID.ListParam())).
 	MustBuild()
 
-err := tsq.AttachMany(ctx, db, learners, database.Learner_ID, children, database.Enrollment_LearnerID,
+err := tsq.AttachMany(ctx, db, learners, database.TableLearner.ID, children, database.TableEnrollment.LearnerID,
 	func(l *database.Learner, es []*database.Enrollment) { l.Enrollments = es })
 ```
 
@@ -772,7 +800,7 @@ err := tsq.AttachMany(ctx, db, learners, database.Learner_ID, children, database
 `//tsq:fulltext Title,Summary` declares a full-text index; `tsq.Matches` searches it:
 
 ```go
-tsq.Select(database.Course__Cols...).
+tsq.Select(database.TableCourse.Columns()...).
 	From(database.TableCourse).
 	Where(tsq.Matches(database.TableCourse.FullText(), tsq.Val(term)))   // or a Param
 ```
@@ -798,8 +826,8 @@ the search columns contains the term. An empty term searches nothing, so a searc
 value as it is; a non-empty term on a query without `Search` is an error.
 
 ```go
-rows, err := QueryUser.List(ctx, runtime, tsq.Keyword("alice"))
-for row, err := range QueryUser.Iter(ctx, runtime, tsq.Keyword(term)) { ... }
+rows, err := database.TableUser.Query().List(ctx, runtime, tsq.Keyword("alice"))
+for row, err := range database.TableUser.Query().Iter(ctx, runtime, tsq.Keyword(term)) { ... }
 ```
 
 The term is escaped for LIKE wildcards, so `%`, `_` and the escape character itself are matched literally on every supported dialect; the keyword still matches as a substring. The generated predicate carries an explicit `ESCAPE '~'` clause, because SQLite has no default LIKE escape character. A backslash in a keyword is an ordinary character.
@@ -811,7 +839,7 @@ The pattern functions (`tsq.StartsWith`, `tsq.EndsWith`, `tsq.Contains`, and the
 Reads are methods on the built `*Query[O]`; `args` are the `tsq.Arg` values made by `Bind`:
 
 - `query.List(ctx, db, args...)` → `[]*O, error`
-- `query.ListIn(ctx, db, listParam, values, args...)` → `[]*O, error`: `List` for a list parameter that may hold more values than one statement can bind (65535 on MySQL and PostgreSQL, 32766 on SQLite). Values are deduplicated, split and concatenated in no particular order; a list that fits in one statement runs as one, and several parts share one snapshot. The query must use the parameter once, as `col.In(param)` passed directly to `Where`, and have no `GROUP BY`, aggregate, `DISTINCT`, set operation, `ORDER BY` or `LIMIT`; anything else is refused, because splitting would change the result. The generated `FetchXxxBy...` use it
+- `query.ListIn(ctx, db, listParam, values, args...)` → `[]*O, error`: `List` for a list parameter that may hold more values than one statement can bind (65535 on MySQL and PostgreSQL, 32766 on SQLite). Values are deduplicated, split and concatenated in no particular order; a list that fits in one statement runs as one, and several parts share one snapshot. The query must use the parameter once, as `col.In(param)` passed directly to `Where`, and have no `GROUP BY`, aggregate, `DISTINCT`, set operation, `ORDER BY` or `LIMIT`; anything else is refused, because splitting would change the result. `TableXxx.Fetch` and `FetchBy` use it
 - `query.Iter(ctx, db, args...)` → `iter.Seq2[*O, error]`: `for row, err := range query.Iter(ctx, db) { ... }` scans one row at a time, so exports and batch jobs do not hold the whole result in memory. `break` stops the query; a failure is yielded once with a nil row. The rows hold a connection until the loop ends, so inside a transaction finish the loop before running another statement on it
 - `query.Get(ctx, db, args...)` → `*O, error` (an error wrapping `sql.ErrNoRows` when not found)
 - `query.Find(ctx, db, args...)` → `*O, error` (`nil, nil` when not found)
@@ -836,7 +864,7 @@ Row writes are methods on the table descriptor, and the generated row methods ca
   `BatchHardDelete`
 - `TableCourse.Upsert(ctx, db, &row, key...)` and `BatchUpsert(ctx, db, rows, key, options...)`
   insert or update by a key (see "Upserting rows" below)
-- `TableCourse.BatchDeleteByPK(ctx, db, Course_ID.BindList(ids...), options...)` and
+- `TableCourse.BatchDeleteByPK(ctx, db, TableCourse.ID.BindList(ids...), options...)` and
   `BatchHardDeleteByPK` delete by key without loading the rows; the list must be the primary
   key's `BindList`
 
@@ -874,10 +902,10 @@ Whether `Delete` removes the row is decided by the table, not by the call site:
 
 ```go
 learner := &database.Learner{Name: "Ada", Email: "ada@example.com"}
-err := database.TableLearner.Upsert(ctx, runtime, learner, database.Learner_Email)
+err := database.TableLearner.Upsert(ctx, runtime, learner, database.TableLearner.Email)
 
 err = database.TableLearner.BatchUpsert(ctx, runtime, learners,
-	[]tsq.BoundColumn[database.Learner]{database.Learner_Email}, tsq.WithBatchSize(500))
+	[]tsq.BoundColumn[database.Learner]{database.TableLearner.Email}, tsq.WithBatchSize(500))
 ```
 
 - the key is the primary key when omitted, otherwise exactly the columns of one unique index. On a
@@ -907,22 +935,22 @@ var score = tsq.NewParam[int64]("score")
 
 var CompleteCourseEnrollments = tsq.
 	UpdateTable(database.TableEnrollment).
-	Set(database.Enrollment_Status, tsq.Val(database.EnrollmentStatusCompleted)).
-	Set(database.Enrollment_Score, score).
-	Where(database.Enrollment_CourseID.EQ(database.Enrollment_CourseID.Param())).
+	Set(database.TableEnrollment.Status, tsq.Val(database.EnrollmentStatusCompleted)).
+	Set(database.TableEnrollment.Score, score).
+	Where(database.TableEnrollment.CourseID.EQ(database.TableEnrollment.CourseID.Param())).
 	MustBuild()
 
 affected, err := CompleteCourseEnrollments.Exec(ctx, runtime,
-	score.Bind(88), database.Enrollment_CourseID.Bind(courseID))
+	score.Bind(88), database.TableEnrollment.CourseID.Bind(courseID))
 
 // Enrollment declares deleted_at, so this renders as an UPDATE that stamps the
 // tombstone when it runs. Use HardDeleteFrom to render a DELETE regardless.
 var CancelEnrollments = tsq.
 	DeleteFrom(database.TableEnrollment).
-	Where(database.Enrollment_UID.In(database.Enrollment_UID.ListParam())).
+	Where(database.TableEnrollment.UID.In(database.TableEnrollment.UID.ListParam())).
 	MustBuild()
 
-affected, err = CancelEnrollments.Exec(ctx, runtime, database.Enrollment_UID.BindList(uids...))
+affected, err = CancelEnrollments.Exec(ctx, runtime, database.TableEnrollment.UID.BindList(uids...))
 ```
 
 Shape:
@@ -1005,15 +1033,17 @@ Useful rules:
 
 ### Aliases
 
-`table.As("alias")` (or `tsq.AliasTable(table, "alias")`) names a second reference to a table, and
-`col.As("alias")` rebinds a column to it:
+`TableXxx.As("alias")` names a second reference to a table, with every column bound to it:
 
 ```go
 manager := database.TableUser.As("manager")
-query := tsq.Select(database.User_ID).
+query := tsq.Select(database.TableUser.ID).
 	From(database.TableUser).
-	Join(manager, database.User_ManagerID.EQ(database.User_ID.As("manager")))
+	Join(manager, database.TableUser.ManagerID.EQ(manager.ID))
 ```
+
+A statement by condition (`UpdateTable`, `DeleteFrom`) writes the table itself and refuses an
+alias.
 
 `col.WithTable(source)` rebinds a column to any source that has a column of the same name, such as
 a CTE. A derived expression cannot be rebound; rebind the column first, then apply functions.
@@ -1061,9 +1091,9 @@ does not fit does not compile:
 | `tsq.StartsWith(col, pattern)`, `EndsWith`, `Contains` and `Not` forms, where `pattern` is `tsq.Val(s)` or a `Param` | string-kind columns | a condition |
 
 ```go
-tsq.Select(tsq.Upper(database.User_Name), tsq.Count(database.User_ID)).
+tsq.Select(tsq.Upper(database.TableUser.Name), tsq.Count(database.TableUser.ID)).
 	From(database.TableUser).
-	GroupBy(tsq.Upper(database.User_Name))
+	GroupBy(tsq.Upper(database.TableUser.Name))
 ```
 
 Each runs on all three dialects and returns the same value; TSQ spells it per dialect where they
@@ -1094,11 +1124,11 @@ A subquery may reference a column of an enclosing query's table, but it has to d
 
 ```go
 sub, err := tsq.BuildSubquery(
-	tsq.Select(database.Order_ID).
+	tsq.Select(database.TableOrder.ID).
 		From(database.TableOrder).
 		Correlate(database.TableUser).
-		Where(database.Order_UserID.EQ(database.User_ID)),
-	database.Order_ID,
+		Where(database.TableOrder.UserID.EQ(database.TableUser.ID)),
+	database.TableOrder.ID,
 )
 // ... then: tsq.NotExists(sub)
 // SELECT ... FROM users WHERE NOT EXISTS (
@@ -1195,11 +1225,11 @@ An empty or nil list never drops the filter:
 - `In(listParam)` bound to no values matches nothing; so does `In(tsq.Vals[int64]())`
 - `NotIn(listParam)` bound to no values matches everything; so does `NotIn(tsq.Vals[int64]())`
 
-### Generated query variables
+### Stale generated files
 
-Generated query variables are built with `MustBuild()` during package initialization, so a
-generated file that no longer matches its struct panics when the package is imported. The usual
-causes:
+Generated code builds no query at package initialization, so a generated file that no longer
+matches its struct fails to compile, or reports a definition error from every query and write
+that uses the table (`TableXxx.Err()`), instead of panicking on import. The usual causes:
 
 - directives or fields changed and `tsq gen` was not rerun
 - the TSQ version changed and the generated files were not regenerated

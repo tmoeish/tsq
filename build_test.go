@@ -37,7 +37,7 @@ func TestArgumentsAreMatchedByParameter(t *testing.T) {
 }
 
 func TestColumnParametersSurviveRebinding(t *testing.T) {
-	alias := User_ID.As("u2")
+	alias := User_ID.WithTable(Users.As("u2"))
 	q := Select(User_ID).From(Users).
 		Join(Users.As("u2"), alias.EQ(User_ID)).
 		Where(alias.EQ(alias.Param())).
@@ -107,7 +107,7 @@ func TestBuildRejectsInvalidStructure(t *testing.T) {
 }
 
 var (
-	undefinedTable  = NewTable[user]("never_defined")
+	undefinedTable  = NewTable[user, int64]("never_defined")
 	undefinedColumn = NewColumn(undefinedTable, "id", "id", func(r *user) *int64 { return &r.ID })
 )
 
@@ -141,48 +141,48 @@ func TestDefineReportsInvalidTables(t *testing.T) {
 
 	tests := map[string]func() error{
 		"no primary key": func() error {
-			h := NewTable[row]("t1")
+			h := NewTable[row, int64]("t1")
 			id := NewColumn(h, "id", "id", func(r *row) *int64 { return &r.ID })
 
-			return h.Define(TableSpec[row]{Columns: []BoundColumn[row]{id}}).Err()
+			return h.Define(TableSpec[row, int64]{Columns: []BoundColumn[row]{id}}).Err()
 		},
 		"primary key not listed": func() error {
-			h := NewTable[row]("t2")
+			h := NewTable[row, int64]("t2")
 			id := NewColumn(h, "id", "id", func(r *row) *int64 { return &r.ID })
 			other := NewColumn(h, "other", "other", func(r *row) *int64 { return &r.Other })
 
-			return h.Define(TableSpec[row]{Columns: []BoundColumn[row]{other}, PrimaryKey: id}).Err()
+			return h.Define(TableSpec[row, int64]{Columns: []BoundColumn[row]{other}, PrimaryKey: id}).Err()
 		},
 		"foreign column": func() error {
-			h := NewTable[row]("t3")
-			h2 := NewTable[row]("t4")
+			h := NewTable[row, int64]("t3")
+			h2 := NewTable[row, int64]("t4")
 			id := NewColumn(h2, "id", "id", func(r *row) *int64 { return &r.ID })
 
-			return h.Define(TableSpec[row]{Columns: []BoundColumn[row]{id}, PrimaryKey: id}).Err()
+			return h.Define(TableSpec[row, int64]{Columns: []BoundColumn[row]{id}, PrimaryKey: id}).Err()
 		},
 		"unknown index field": func() error {
-			h := NewTable[row]("t5")
+			h := NewTable[row, int64]("t5")
 			id := NewColumn(h, "id", "id", func(r *row) *int64 { return &r.ID })
 
-			return h.Define(TableSpec[row]{
+			return h.Define(TableSpec[row, int64]{
 				Columns:    []BoundColumn[row]{id},
 				PrimaryKey: id,
 				Indexes:    []TableIndex{{Name: "idx_t5_x", Fields: []string{"x"}}},
 			}).Err()
 		},
 		"defined twice": func() error {
-			h := NewTable[row]("t6")
+			h := NewTable[row, int64]("t6")
 			id := NewColumn(h, "id", "id", func(r *row) *int64 { return &r.ID })
-			spec := TableSpec[row]{Columns: []BoundColumn[row]{id}, PrimaryKey: id}
+			spec := TableSpec[row, int64]{Columns: []BoundColumn[row]{id}, PrimaryKey: id}
 			h.Define(spec)
 
 			return h.Define(spec).Err()
 		},
 		"bad name": func() error {
-			h := NewTable[row]("bad name")
+			h := NewTable[row, int64]("bad name")
 			id := NewColumn(h, "id", "id", func(r *row) *int64 { return &r.ID })
 
-			return h.Define(TableSpec[row]{Columns: []BoundColumn[row]{id}, PrimaryKey: id}).Err()
+			return h.Define(TableSpec[row, int64]{Columns: []BoundColumn[row]{id}, PrimaryKey: id}).Err()
 		},
 	}
 
@@ -206,8 +206,8 @@ func TestRebindRequiresTheColumnOnTheTarget(t *testing.T) {
 	}
 
 	// A derived expression has no WithTable to call; rebind the column first.
-	rebound := Select(User_ID).From(Users).Join(Users.As("u"), User_ID.EQ(User_ID.As("u"))).
-		Where(Upper(User_Name.As("u")).IsNull())
+	rebound := Select(User_ID).From(Users).Join(Users.As("u"), User_ID.EQ(User_ID.WithTable(Users.As("u")))).
+		Where(Upper(User_Name.WithTable(Users.As("u"))).IsNull())
 	if _, err := rebound.Build(); err != nil {
 		t.Fatalf("Build() error = %v", err)
 	}

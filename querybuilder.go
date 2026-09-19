@@ -339,8 +339,8 @@ func (b *builder[O]) Correlate(tables ...Table) JoinStage[O] {
 		}
 
 		for _, existing := range n.spec.Correlated {
-			if existing.Name() == t.Name() {
-				n.fail(fmt.Errorf("correlated table %s is declared twice", t.Name()))
+			if existing.TableName() == t.TableName() {
+				n.fail(fmt.Errorf("correlated table %s is declared twice", t.TableName()))
 			}
 		}
 

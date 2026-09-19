@@ -3,8 +3,6 @@
 package {{.Package.Name}}
 
 import (
-	"encoding/json"
-
 	"github.com/tmoeish/tsq/v5"
 )
 
@@ -16,87 +14,4 @@ func TSQTables() []tsq.Table {
 		Table{{.TypeInfo.TypeName}},
 {{- end }}
 	}
-}
-
-//// Helper functions
-
-// lookupKey renders a unique-key value as a comparable map key for values whose type
-// is not comparable itself; it returns "" when the value cannot be marshaled.
-func lookupKey(v any) string {
-	bs, err := json.Marshal(v)
-	if err != nil {
-		return ""
-	}
-
-	return string(bs)
-}
-
-// matchByInputOrder reorders rows to match inputs and reports which keys were missing.
-func matchByInputOrder[T any, K comparable](inputs []K, rows []*T, key func(*T) K) ([]*T, []K) {
-	index := make(map[K]*T, len(rows))
-
-	for _, row := range rows {
-		if row == nil {
-			continue
-		}
-
-		index[key(row)] = row
-	}
-
-	ordered := make([]*T, 0, len(inputs))
-	missing := make([]K, 0)
-	seenMissing := make(map[K]struct{})
-
-	for _, input := range inputs {
-		row, ok := index[input]
-		if ok {
-			ordered = append(ordered, row)
-			continue
-		}
-
-		if _, exists := seenMissing[input]; exists {
-			continue
-		}
-
-		seenMissing[input] = struct{}{}
-
-		missing = append(missing, input)
-	}
-
-	return ordered, missing
-}
-
-// matchByInputOrderKey reorders rows to match inputs using derived string keys and reports which keys were missing.
-func matchByInputOrderKey[T any, K any](inputs []K, rows []*T, rowKey func(*T) string, inputKey func(K) string) ([]*T, []K) {
-	index := make(map[string]*T, len(rows))
-
-	for _, row := range rows {
-		if row == nil {
-			continue
-		}
-
-		index[rowKey(row)] = row
-	}
-
-	ordered := make([]*T, 0, len(inputs))
-	missing := make([]K, 0)
-	seenMissing := make(map[string]struct{})
-
-	for _, input := range inputs {
-		k := inputKey(input)
-		row, ok := index[k]
-		if ok {
-			ordered = append(ordered, row)
-			continue
-		}
-
-		if _, exists := seenMissing[k]; exists {
-			continue
-		}
-
-		seenMissing[k] = struct{}{}
-		missing = append(missing, input)
-	}
-
-	return ordered, missing
 }

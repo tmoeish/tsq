@@ -33,7 +33,7 @@ import (
 func stampTime() time.Time { return time.Now().UTC() }
 
 // updatedAtValue returns now as the table's updated_at field type holds it.
-func (t *TableOf[R]) updatedAtValue(now time.Time) (any, error) {
+func (t *TableOf[R, K]) updatedAtValue(now time.Time) (any, error) {
 	col := t.def.column(t.def.managed.UpdatedAt)
 	v := reflect.New(field(new(R), col).Type()).Elem()
 
@@ -117,14 +117,14 @@ func chunks[T any](items []T, size int) [][]T {
 
 // Insert inserts row. A zero auto-increment primary key is left to the database
 // and written back to row.
-func (t *TableOf[R]) Insert(ctx context.Context, db Executor, row *R) error {
+func (t *TableOf[R, K]) Insert(ctx context.Context, db Executor, row *R) error {
 	return traceExecutor(ctx, db, TraceOpInsert, func(ctx context.Context) error {
 		return t.insert(ctx, db, []*R{row}, batchConfig{size: 1})
 	})
 }
 
 // BatchInsert inserts rows in as few statements as the batch size allows.
-func (t *TableOf[R]) BatchInsert(ctx context.Context, db Executor, rows []*R, options ...BatchOption) error {
+func (t *TableOf[R, K]) BatchInsert(ctx context.Context, db Executor, rows []*R, options ...BatchOption) error {
 	return traceExecutor(ctx, db, TraceOpInsert, func(ctx context.Context) error {
 		config, err := newBatchConfig(options, true)
 		if err != nil {
@@ -137,14 +137,14 @@ func (t *TableOf[R]) BatchInsert(ctx context.Context, db Executor, rows []*R, op
 
 // Update writes every column of row except the primary key, matching on the
 // primary key and, when the table has one, the version.
-func (t *TableOf[R]) Update(ctx context.Context, db Executor, row *R) error {
+func (t *TableOf[R, K]) Update(ctx context.Context, db Executor, row *R) error {
 	return traceExecutor(ctx, db, TraceOpUpdate, func(ctx context.Context) error {
 		return t.update(ctx, db, []*R{row}, batchConfig{size: 1}, stampTime())
 	})
 }
 
 // BatchUpdate updates rows in as few statements as the batch size allows.
-func (t *TableOf[R]) BatchUpdate(ctx context.Context, db Executor, rows []*R, options ...BatchOption) error {
+func (t *TableOf[R, K]) BatchUpdate(ctx context.Context, db Executor, rows []*R, options ...BatchOption) error {
 	return traceExecutor(ctx, db, TraceOpUpdate, func(ctx context.Context) error {
 		config, err := newBatchConfig(options, false)
 		if err != nil {
@@ -158,12 +158,12 @@ func (t *TableOf[R]) BatchUpdate(ctx context.Context, db Executor, rows []*R, op
 // Delete deletes row. On a table with a deleted_at column it is a soft delete: an
 // update that stamps the tombstone, so the version check applies. Otherwise it is
 // HardDelete.
-func (t *TableOf[R]) Delete(ctx context.Context, db Executor, row *R) error {
+func (t *TableOf[R, K]) Delete(ctx context.Context, db Executor, row *R) error {
 	return t.BatchDelete(ctx, db, []*R{row}, WithBatchSize(1))
 }
 
 // BatchDelete deletes rows as Delete does.
-func (t *TableOf[R]) BatchDelete(ctx context.Context, db Executor, rows []*R, options ...BatchOption) error {
+func (t *TableOf[R, K]) BatchDelete(ctx context.Context, db Executor, rows []*R, options ...BatchOption) error {
 	return traceExecutor(ctx, db, TraceOpDelete, func(ctx context.Context) error {
 		config, err := newBatchConfig(options, false)
 		if err != nil {
@@ -182,12 +182,12 @@ func (t *TableOf[R]) BatchDelete(ctx context.Context, db Executor, rows []*R, op
 // incrementing version. Only a deleted row matches; on a table with a version
 // column a row that is not deleted, or changed since it was loaded, fails with
 // OptimisticLockError.
-func (t *TableOf[R]) Restore(ctx context.Context, db Executor, row *R) error {
+func (t *TableOf[R, K]) Restore(ctx context.Context, db Executor, row *R) error {
 	return t.BatchRestore(ctx, db, []*R{row}, WithBatchSize(1))
 }
 
 // BatchRestore restores rows in as few statements as the batch size allows.
-func (t *TableOf[R]) BatchRestore(ctx context.Context, db Executor, rows []*R, options ...BatchOption) error {
+func (t *TableOf[R, K]) BatchRestore(ctx context.Context, db Executor, rows []*R, options ...BatchOption) error {
 	return traceExecutor(ctx, db, TraceOpUpdate, func(ctx context.Context) error {
 		config, err := newBatchConfig(options, false)
 		if err != nil {
@@ -195,7 +195,7 @@ func (t *TableOf[R]) BatchRestore(ctx context.Context, db Executor, rows []*R, o
 		}
 
 		if t.def.managed.DeletedAt == "" {
-			return fmt.Errorf("restore %s: the table has no deleted_at column", t.Name())
+			return fmt.Errorf("restore %s: the table has no deleted_at column", t.TableName())
 		}
 
 		return t.setTombstone(ctx, db, rows, config, false)
@@ -204,7 +204,7 @@ func (t *TableOf[R]) BatchRestore(ctx context.Context, db Executor, rows []*R, o
 
 // setTombstone soft-deletes live rows (deleted is true) or restores deleted ones.
 // It writes only the managed columns: a delete is not a way to save other changes.
-func (t *TableOf[R]) setTombstone(ctx context.Context, db Executor, rows []*R, config batchConfig, deleted bool) error {
+func (t *TableOf[R, K]) setTombstone(ctx context.Context, db Executor, rows []*R, config batchConfig, deleted bool) error {
 	if len(rows) == 0 {
 		return nil
 	}
@@ -325,12 +325,12 @@ func incrementVersion(v reflect.Value) {
 }
 
 // HardDelete removes row from the table, ignoring any deleted_at column.
-func (t *TableOf[R]) HardDelete(ctx context.Context, db Executor, row *R) error {
+func (t *TableOf[R, K]) HardDelete(ctx context.Context, db Executor, row *R) error {
 	return t.BatchHardDelete(ctx, db, []*R{row}, WithBatchSize(1))
 }
 
 // BatchHardDelete removes rows from the table, ignoring any deleted_at column.
-func (t *TableOf[R]) BatchHardDelete(ctx context.Context, db Executor, rows []*R, options ...BatchOption) error {
+func (t *TableOf[R, K]) BatchHardDelete(ctx context.Context, db Executor, rows []*R, options ...BatchOption) error {
 	return traceExecutor(ctx, db, TraceOpDelete, func(ctx context.Context) error {
 		config, err := newBatchConfig(options, false)
 		if err != nil {
@@ -386,7 +386,7 @@ func (w *writeStmt) arg(v any) *writeStmt {
 	return w
 }
 
-func (t *TableOf[R]) prepareWrite(db Executor, rows []*R) (*tableDef, execScope, error) {
+func (t *TableOf[R, K]) prepareWrite(db Executor, rows []*R) (*tableDef, execScope, error) {
 	def, err := t.ready()
 	if err != nil {
 		return nil, execScope{}, err
@@ -424,7 +424,7 @@ func isUnset(v reflect.Value) bool {
 	return false
 }
 
-func (t *TableOf[R]) insert(ctx context.Context, db Executor, rows []*R, config batchConfig) error {
+func (t *TableOf[R, K]) insert(ctx context.Context, db Executor, rows []*R, config batchConfig) error {
 	if len(rows) == 0 {
 		return nil
 	}
@@ -499,7 +499,7 @@ func (t *TableOf[R]) insert(ctx context.Context, db Executor, rows []*R, config 
 
 // insertColumns are the columns an INSERT of row writes: not a zero generated key,
 // not a generated column, and not an unset column the database defaults.
-func (t *TableOf[R]) insertColumns(def *tableDef, row *R) []*columnCore {
+func (t *TableOf[R, K]) insertColumns(def *tableDef, row *R) []*columnCore {
 	cols := make([]*columnCore, 0, len(def.columns))
 
 	for _, col := range def.columns {
@@ -516,7 +516,7 @@ func (t *TableOf[R]) insertColumns(def *tableDef, row *R) []*columnCore {
 }
 
 // insertColumnKey groups rows that write the same columns.
-func (t *TableOf[R]) insertColumnKey(def *tableDef, row *R) string {
+func (t *TableOf[R, K]) insertColumnKey(def *tableDef, row *R) string {
 	var key strings.Builder
 
 	for _, col := range t.insertColumns(def, row) {
@@ -529,7 +529,7 @@ func (t *TableOf[R]) insertColumnKey(def *tableDef, row *R) string {
 
 // databaseFilled are the columns of row the database provided, which an insert of
 // one row reads back.
-func (t *TableOf[R]) databaseFilled(def *tableDef, row *R) []*columnCore {
+func (t *TableOf[R, K]) databaseFilled(def *tableDef, row *R) []*columnCore {
 	var cols []*columnCore
 
 	for _, col := range def.columns {
@@ -545,7 +545,7 @@ func (t *TableOf[R]) databaseFilled(def *tableDef, row *R) []*columnCore {
 	return cols
 }
 
-func (t *TableOf[R]) insertChunk(ctx context.Context, db Executor, scope execScope, def *tableDef, cols []*columnCore, rows []*R, omitKey bool) error {
+func (t *TableOf[R, K]) insertChunk(ctx context.Context, db Executor, scope execScope, def *tableDef, cols []*columnCore, rows []*R, omitKey bool) error {
 	w := &writeStmt{d: scope.dialect}
 	w.text("INSERT INTO ").ident(def.name).text(" (")
 
@@ -606,7 +606,7 @@ func (t *TableOf[R]) insertChunk(ctx context.Context, db Executor, scope execSco
 	return nil
 }
 
-func (t *TableOf[R]) insertReturning(ctx context.Context, db Executor, def *tableDef, w *writeStmt, rows []*R) error {
+func (t *TableOf[R, K]) insertReturning(ctx context.Context, db Executor, def *tableDef, w *writeStmt, rows []*R) error {
 	result, err := db.QueryContext(ctx, w.sql.String(), w.args...)
 	if err != nil {
 		return err
@@ -697,7 +697,7 @@ const (
 // the whole transaction on any failed statement, so catching the error and moving
 // on does not work there. Outside a transaction every insert is its own
 // transaction and PostgreSQL rejects SAVEPOINT, so none is used.
-func (t *TableOf[R]) insertSkippingDuplicates(ctx context.Context, db Executor, scope execScope, def *tableDef, cols []*columnCore, rows []*R, omitKey bool) error {
+func (t *TableOf[R, K]) insertSkippingDuplicates(ctx context.Context, db Executor, scope execScope, def *tableDef, cols []*columnCore, rows []*R, omitKey bool) error {
 	for i, row := range rows {
 		if scope.tx {
 			if _, err := db.ExecContext(ctx, insertSavepointCreate); err != nil {
@@ -782,7 +782,7 @@ func checkKeys[R any](def *tableDef, rows []*R, op string) error {
 	return nil
 }
 
-func (t *TableOf[R]) update(ctx context.Context, db Executor, rows []*R, config batchConfig, now time.Time) error {
+func (t *TableOf[R, K]) update(ctx context.Context, db Executor, rows []*R, config batchConfig, now time.Time) error {
 	if len(rows) == 0 {
 		return nil
 	}
@@ -838,7 +838,7 @@ func (t *TableOf[R]) update(ctx context.Context, db Executor, rows []*R, config 
 	return nil
 }
 
-func (t *TableOf[R]) updateChunk(ctx context.Context, db Executor, scope execScope, def *tableDef, cols []*columnCore, version *columnCore, rows []*R) error {
+func (t *TableOf[R, K]) updateChunk(ctx context.Context, db Executor, scope execScope, def *tableDef, cols []*columnCore, version *columnCore, rows []*R) error {
 	w := &writeStmt{d: scope.dialect}
 	w.text("UPDATE ").ident(def.name).text(" SET ")
 
@@ -896,7 +896,7 @@ func (t *TableOf[R]) updateChunk(ctx context.Context, db Executor, scope execSco
 // OptimisticLockError unless every row matched.
 // execCounted runs the statement. When mismatch is set, it checks that the
 // statement matched every row and turns a shortfall into that error.
-func (t *TableOf[R]) execCounted(ctx context.Context, db Executor, w *writeStmt, def *tableDef, op string, rows []*R, mismatch func(expected int, actual int64) error) error {
+func (t *TableOf[R, K]) execCounted(ctx context.Context, db Executor, w *writeStmt, def *tableDef, op string, rows []*R, mismatch func(expected int, actual int64) error) error {
 	if w.err != nil {
 		return w.err
 	}
@@ -955,7 +955,7 @@ func wrongRowState(table, op, need string) func(int, int64) error {
 	}
 }
 
-func (t *TableOf[R]) hardDelete(ctx context.Context, db Executor, rows []*R, config batchConfig) error {
+func (t *TableOf[R, K]) hardDelete(ctx context.Context, db Executor, rows []*R, config batchConfig) error {
 	if len(rows) == 0 {
 		return nil
 	}
@@ -986,7 +986,7 @@ func (t *TableOf[R]) hardDelete(ctx context.Context, db Executor, rows []*R, con
 }
 
 // stampDeleted writes the tombstone and updated_at into row.
-func (t *TableOf[R]) stampDeleted(row *R, now time.Time) error {
+func (t *TableOf[R, K]) stampDeleted(row *R, now time.Time) error {
 	def := t.def
 
 	if err := applyTombstone(field(row, def.column(def.managed.DeletedAt)), now); err != nil {
@@ -1004,7 +1004,7 @@ func (t *TableOf[R]) stampDeleted(row *R, now time.Time) error {
 
 // tombstoneValues returns the values a soft delete at now writes, per column, for
 // statements that hold no row.
-func (t *TableOf[R]) tombstoneValues(now time.Time) (map[string]any, error) {
+func (t *TableOf[R, K]) tombstoneValues(now time.Time) (map[string]any, error) {
 	row := new(R)
 	if err := t.stampDeleted(row, now); err != nil {
 		return nil, err
@@ -1061,21 +1061,19 @@ func applyTimestamp(v reflect.Value, ts time.Time) error {
 
 // BatchDeleteByPK deletes the rows whose primary key is in keys, as Delete would:
 // a soft delete on a table with deleted_at (rows already deleted keep their
-// tombstone), otherwise a hard delete.
-// keys comes from the key column: TableCourse.BatchDeleteByPK(ctx, db,
-// Course_ID.BindList(ids...)). It does not check versions, but a soft delete
-// increments them.
-func (t *TableOf[R]) BatchDeleteByPK(ctx context.Context, db Executor, keys Arg, options ...BatchOption) error {
+// tombstone), otherwise a hard delete. It does not check versions, but a soft
+// delete increments them.
+func (t *TableOf[R, K]) BatchDeleteByPK(ctx context.Context, db Executor, keys []K, options ...BatchOption) error {
 	return t.deleteByPK(ctx, db, keys, options, t.def.managed.DeletedAt != "")
 }
 
 // BatchHardDeleteByPK removes the rows whose primary key is in keys, deleted rows
 // included.
-func (t *TableOf[R]) BatchHardDeleteByPK(ctx context.Context, db Executor, keys Arg, options ...BatchOption) error {
+func (t *TableOf[R, K]) BatchHardDeleteByPK(ctx context.Context, db Executor, keys []K, options ...BatchOption) error {
 	return t.deleteByPK(ctx, db, keys, options, false)
 }
 
-func (t *TableOf[R]) deleteByPK(ctx context.Context, db Executor, keys Arg, options []BatchOption, soft bool) error {
+func (t *TableOf[R, K]) deleteByPK(ctx context.Context, db Executor, keys []K, options []BatchOption, soft bool) error {
 	return traceExecutor(ctx, db, TraceOpDelete, func(ctx context.Context) error {
 		config, err := newBatchConfig(options, false)
 		if err != nil {
@@ -1087,17 +1085,13 @@ func (t *TableOf[R]) deleteByPK(ctx context.Context, db Executor, keys Arg, opti
 			return err
 		}
 
-		if keys.err != nil {
-			return keys.err
-		}
-
-		if keys.spec == nil || keys.spec != def.primaryKey.list {
-			return fmt.Errorf("delete from %s: keys must be bound with the primary key's BindList (%s)", def.name, def.primaryKey.name)
-		}
-
-		ids, _ := keys.value.([]any)
-		if len(ids) == 0 {
+		if len(keys) == 0 {
 			return nil
+		}
+
+		ids := make([]any, len(keys))
+		for i, key := range keys {
+			ids[i] = key
 		}
 
 		var stamp map[string]any
@@ -1165,7 +1159,7 @@ func writeTombstoneSet(w *writeStmt, def *tableDef, stamp map[string]any) {
 
 // reloadColumns reads cols of row back from the database, for values the database
 // provided: a DEFAULT, a generated expression, or a version an upsert advanced.
-func (t *TableOf[R]) reloadColumns(ctx context.Context, db Executor, scope execScope, def *tableDef, row *R, cols []*columnCore) error {
+func (t *TableOf[R, K]) reloadColumns(ctx context.Context, db Executor, scope execScope, def *tableDef, row *R, cols []*columnCore) error {
 	pk := field(row, def.primaryKey)
 	if len(cols) == 0 || pk.IsZero() {
 		return nil

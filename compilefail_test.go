@@ -65,6 +65,10 @@ var compileFailCases = []struct {
 	{"upsert key of another table", `_ = Users.Upsert(context.Background(), nil, &User{}, OrderID)`, "does not implement tsq.BoundColumn[User]"},
 	{"pattern param variants are gone", `_ = tsq.ContainsParam(UserName, UserName.Param())`, "undefined: tsq.ContainsParam"},
 	{"functions are not column methods", `_ = UserName.Upper()`, "Upper undefined"},
+	{"key of another type", `_, _ = Users.Get(context.Background(), nil, "x")`, `cannot use "x"`},
+	{"delete keys of another type", `_ = Users.BatchDeleteByPK(context.Background(), nil, []string{"x"})`, "cannot use []string"},
+	{"columns rebind through the table", `_ = UserID.As("u")`, "As undefined"},
+	{"fetch by a column of another table", `_, _ = Users.FetchBy(context.Background(), nil, OrderID, []int64{1})`, "OrderID"},
 }
 
 const compileFailPrelude = `package compilefail
@@ -86,7 +90,7 @@ type Order struct{ ID int64 }
 
 type Label struct{ ID int64 }
 
-var usersHandle = tsq.NewTable[User]("users")
+var usersHandle = tsq.NewTable[User, int64]("users")
 
 var (
 	UserID   = tsq.NewColumn(usersHandle, "id", "id", func(r *User) *int64 { return &r.ID })
@@ -94,9 +98,9 @@ var (
 	NickName = tsq.NewNullColumn[string](usersHandle, "nick", "nick", func(r *User) *sql.NullString { return &r.Nick })
 )
 
-var Users = usersHandle.Define(tsq.TableSpec[User]{Columns: []tsq.BoundColumn[User]{UserID, UserName}, PrimaryKey: UserID})
+var Users = usersHandle.Define(tsq.TableSpec[User, int64]{Columns: []tsq.BoundColumn[User]{UserID, UserName}, PrimaryKey: UserID})
 
-var ordersHandle = tsq.NewTable[Order]("orders")
+var ordersHandle = tsq.NewTable[Order, int64]("orders")
 
 var OrderID = tsq.NewColumn(ordersHandle, "id", "id", func(r *Order) *int64 { return &r.ID })
 
@@ -106,7 +110,7 @@ func (fakeCondition) Clause() string { return "1 = 1" }
 
 type fakeTable struct{}
 
-func (fakeTable) Name() string { return "fake" }
+func (fakeTable) TableName() string { return "fake" }
 
 type fakeExecutor struct{ *sql.DB }
 

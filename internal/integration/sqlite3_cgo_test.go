@@ -52,17 +52,17 @@ func TestSQLite3DriverIsSupported(t *testing.T) {
 		t.Fatalf("skip duplicates on the cgo driver: %v", err)
 	}
 
-	rows, err := academy.QueryLearner.Count(ctx, rt)
+	rows, err := academy.TableLearner.Query().Count(ctx, rt)
 	if err != nil || rows != 2 {
 		t.Fatalf("learners = %d, %v; want the duplicate skipped", rows, err)
 	}
 
-	stored, err := academy.FetchLearnerByEmail(ctx, rt, "cgo@example.test")
+	stored, err := academy.TableLearner.FetchByEmail(ctx, rt, "cgo@example.test")
 	if err != nil || len(stored) != 1 || !stored[0].CreatedAt.Valid {
 		t.Fatalf("stored = %+v, %v", stored, err)
 	}
 
-	if _, err := academy.QueryLearnerByEmail.Get(ctx, rt, academy.Learner_Email.Bind("missing@example.test")); !errors.Is(err, sql.ErrNoRows) {
+	if _, err := academy.TableLearner.GetByEmail(ctx, rt, "missing@example.test"); !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("missing row = %v", err)
 	}
 }

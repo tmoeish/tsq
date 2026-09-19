@@ -18,7 +18,7 @@ type note struct {
 	Rating sql.Null[int64]
 }
 
-var notesHandle = NewTable[note]("notes")
+var notesHandle = NewTable[note, int64]("notes")
 
 var (
 	Note_ID     = NewColumn(notesHandle, "id", "id", func(r *note) *int64 { return &r.ID })
@@ -27,7 +27,7 @@ var (
 	Note_Rating = NewNullColumn[int64](notesHandle, "rating", "rating", func(r *note) *sql.Null[int64] { return &r.Rating })
 )
 
-var Notes = notesHandle.Define(TableSpec[note]{
+var Notes = notesHandle.Define(TableSpec[note, int64]{
 	Columns:       []BoundColumn[note]{Note_ID, Note_Body, Note_Title, Note_Rating},
 	PrimaryKey:    Note_ID,
 	AutoIncrement: true,
@@ -54,7 +54,7 @@ func TestColumnsDeclareWhetherTheyHoldNull(t *testing.T) {
 		Text string
 	}
 
-	h := NewTable[row]("declared")
+	h := NewTable[row, int64]("declared")
 
 	cases := map[string]error{
 		"pointer as NOT NULL":      NewColumn(h, "a", "a", func(r *row) **int64 { return &r.Ptr }).core().err(),
