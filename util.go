@@ -40,6 +40,13 @@ func validateIdentifierForDialect(identifier string, d tsqdialect.Dialect) error
 	return tsqdialect.ValidateIdentifier(d, identifier)
 }
 
+// IsDuplicateKeyError reports whether err is the database refusing a row because a
+// primary key or unique index already holds its value. Each driver reports it its
+// own way, which is what this hides: on MySQL an error number, on PostgreSQL a
+// SQLSTATE, on SQLite a result code that one driver exposes as a method and another
+// as a struct field.
+func IsDuplicateKeyError(err error) bool { return isDuplicateKeyError(err) }
+
 func isDuplicateKeyError(err error) bool {
 	if err == nil {
 		return false

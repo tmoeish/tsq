@@ -295,6 +295,10 @@
 
 ## 改了驱动错误分类（`*_errors.go`、`IsRetryable*`）
 
+- 两个 SQLite 驱动都要认：modernc 有 `Code() int` 方法，mattn 把码放在 `Error` 结构体字段里
+  （`mattnSQLiteErrorCode` 按类型名和包路径反射读）。只认接口时，mattn 上的重复键和 busy 全部静默漏掉，
+  `internal/integration` 里带 `cgo` 标签的 `TestSQLite3DriverIsSupported` 守着这条。
+
 - 按接口匹配（`SQLState()` / `Code()`），**不要 `errors.AsType` 某个驱动的具体类型**：
   同一个 SQLSTATE 在 pq、pgx v4、pgx v5 里是三个 Go 类型，只认一个就静默漏掉另外两个
   （2026-08-26 之前 pgx v5 就是这样漏的）。MySQL 是唯一例外：`*mysql.MySQLError` 没有可匹配的方法，

@@ -174,17 +174,17 @@ MySQL 的 `LENGTH` 数字节；PostgreSQL 没有 `round(double, int)`；modernc 
 - **可空性：类型区分表列，表达式在运行期推导**（`exprInfo.null`）。外连接和无 GROUP BY 的聚合只在查询
   上下文里可知，检查因此在读行前而不在 `Build`（会拒掉合法子查询）。否决值类型包成 `Null[T]`：一个值不能
   同时是两种 `RHS`。
-- **PG 索引自省曾看不见表达式索引**：表达式在 `indkey` 里的列号是 0，内连接 `pg_attribute` 丢掉整行，GIN 全文
-  索引每次启动都被当成缺失（42P07）。现在 `LEFT JOIN`。
-- **写入热路径的反射成本在"每列每行一个值"上**：改用列自带的类型化取值函数后，100 行批量 INSERT 快约
-  19%、UPDATE 约 28%（`write_bench_test.go`）。零值判断和盖时间戳仍用反射，那是每表几列一次。
-- **关联装配不引入关系 DSL**：`AttachMany` 只做收键、一次查询、按键分组；子查询由调用方给出，过滤和作用域
-  仍是查询自己的语义。
+- **`Dialect` 不是扩展点**（定案）：按方言分叉的拼写（日期、`ROUND`、NULL 排序、全文检索）按方言名写在
+  库里，第四种方言会在这些构造上报错。否决把它们搬进接口：那等于把没有测试的代码放进公开契约。
+- **PG 索引自省曾看不见表达式索引**：表达式的列号是 0，内连接 `pg_attribute` 丢掉整行，GIN 索引每次启动都被
+  当成缺失（42P07）；现在 `LEFT JOIN`。
+- **写入热路径的反射成本在每列每行一个值上**：改用列自带的类型化取值函数后，100 行批量 INSERT 快约 19%、
+  UPDATE 约 28%（`write_bench_test.go`）；零值判断和盖时间戳仍用反射。
+- **关联装配不引入关系 DSL**：`AttachMany` 只做收键、一次查询、按键分组，子查询仍由调用方给出。
 - **全文检索三个方言不是一回事**：MySQL `MATCH ... AGAINST`、PG `to_tsvector @@ plainto_tsquery`、SQLite
   退化成子串匹配（FTS5 要影子表和触发器）。排序和操作符不可移植，只有 `Capability` 说得清拿到哪一种。
   `TableIndex` 加字段记得 `cloneTableIndex`：曾逐字段复制，`FullText` 标记就在那里丢过。
-- **生成列不能参与 schema 对账**：SQLite 的 `table_info` 不列它，每次启动都会再 ADD 一次（实测 duplicate
-  column）；库只在建表时写它。
+- **生成列不参与 schema 对账**：SQLite 的 `table_info` 不列它，每次启动都会再 ADD（duplicate column）。
 - **没匹配到行分两种错误**：版本不符 `OptimisticLockError`（可重试），状态不符 `RowStateError`（重试无用）。
 - **派生表达式不是列**：`derived` 不留扫描目标，`Select(tsq.Date(时间列))` 在编译期就写不出来（以前运行期
   扫描失败）；单值查询走 `SelectValue`。

@@ -46,11 +46,20 @@ func Matches(index FullTextIndex, term SearchTerm) Condition {
 		return conditionError(errors.Join(raw.err, like.err))
 	}
 
-	return newCondition(info.merge(raw).merge(like).withSQL(sqlByDialect("full-text search",
-		map[tsqdialect.Name]sqlExpr{
-			tsqdialect.MySQL:    matchAgainst(index, raw.sql),
-			tsqdialect.Postgres: textSearchMatch(index, raw.sql),
-			tsqdialect.SQLite:   substringMatch(index, like.sql),
+	// The spelling is built with the dialect in use, so the quoting and the indexed
+	// expression come from it rather than from a dialect this package picked.
+	return newCondition(info.merge(raw).merge(like).withSQL(
+		sqlForDialect("full-text search", func(d tsqdialect.Dialect) (sqlExpr, bool) {
+			switch d.Name() {
+			case tsqdialect.MySQL:
+				return matchAgainst(index, raw.sql), true
+			case tsqdialect.Postgres:
+				return textSearchMatch(d, index, raw.sql), true
+			case tsqdialect.SQLite:
+				return substringMatch(index, like.sql), true
+			default:
+				return sqlExpr{}, false
+			}
 		})))
 }
 
@@ -67,15 +76,13 @@ func matchAgainst(index FullTextIndex, term sqlExpr) sqlExpr {
 
 // textSearchMatch repeats the expression the GIN index holds, which is what lets
 // PostgreSQL use it.
-func textSearchMatch(index FullTextIndex, term sqlExpr) sqlExpr {
+func textSearchMatch(d tsqdialect.Dialect, index FullTextIndex, term sqlExpr) sqlExpr {
 	quoted := make([]string, 0, len(index.index.Fields))
 	for _, name := range index.index.Fields {
-		quoted = append(quoted, tsqdialect.PostgresDialect{}.QuoteIdent(index.table.Name())+"."+tsqdialect.PostgresDialect{}.QuoteIdent(name))
+		quoted = append(quoted, d.QuoteIdent(index.table.Name())+"."+d.QuoteIdent(name))
 	}
 
-	vector := tsqdialect.PostgresDialect{}.FullTextVectorSQL(quoted)
-
-	return sqlJoin(sqlText(vector+" @@ plainto_tsquery('simple', "), term, sqlText(")"))
+	return sqlJoin(sqlText(d.FullTextVectorSQL(quoted)+" @@ plainto_tsquery('simple', "), term, sqlText(")"))
 }
 
 // substringMatch is the fallback where the dialect has no full-text index: the term

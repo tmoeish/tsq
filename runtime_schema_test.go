@@ -256,12 +256,21 @@ func TestNewRuntimeReconcileRebuildPreservesDataAndIndexes(t *testing.T) {
 	}
 }
 
-func TestResolveRuntimeDialectRejectsLegacySQLite3DriverName(t *testing.T) {
-	_, err := resolveRuntimeDialect("sqlite3")
-	if err == nil {
-		t.Fatal("expected sqlite3 driver name to be rejected")
+// TestResolveRuntimeDialectAcceptsEverySQLiteDriverName covers both registered
+// names: modernc.org/sqlite is "sqlite" and mattn/go-sqlite3 is "sqlite3". The
+// latter used to be refused, from the days when TSQ shipped with the CGO driver
+// and dropped it; the SQL is the same, and the CGO driver's error type is now
+// classified too (see mattnSQLiteErrorCode).
+func TestResolveRuntimeDialectAcceptsEverySQLiteDriverName(t *testing.T) {
+	for _, name := range []string{"sqlite", "sqlite3", "SQLite3"} {
+		d, err := resolveRuntimeDialect(name)
+		if err != nil || d.Name() != tsqdialect.SQLite {
+			t.Errorf("resolveRuntimeDialect(%q) = %v, %v", name, d, err)
+		}
 	}
-	if !strings.Contains(err.Error(), "expected sqlite, mysql, postgres, pgx, or pq") {
-		t.Fatalf("unexpected error: %v", err)
+
+	_, err := resolveRuntimeDialect("oracle")
+	if err == nil || !strings.Contains(err.Error(), "expected sqlite, sqlite3, mysql") {
+		t.Fatalf("unknown driver = %v", err)
 	}
 }
