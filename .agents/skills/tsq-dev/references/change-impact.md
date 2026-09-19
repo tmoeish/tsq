@@ -167,6 +167,9 @@
   让"查询拿到了别的值"变成静默行为。
 - 渲染缓存的键是 `(方言, 计数, 关键词, 单行)`。加新的渲染模式要么进键，要么像 `Page` 的排序
   一样不缓存。
+- 新增或改了一个谓词、否定形式或空列表写法：加进 `internal/integration` 的
+  `TestIntegrationPredicatesMatchTheSameRows`，按**匹配到的行**断言。只核对 SQL 文本证明不了引擎接受它
+  （空 `NotIn` 的 `SELECT 1 WHERE 1 = 0` 不带 `FROM`，能不能跑是引擎说了算）。
 
 ## 改了 LIKE 谓词的渲染，或改了关键字转义
 

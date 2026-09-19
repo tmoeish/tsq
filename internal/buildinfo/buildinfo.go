@@ -1,9 +1,6 @@
 package buildinfo
 
-import (
-	"fmt"
-	"runtime"
-)
+import "runtime"
 
 // version is injected at build time via ldflags.
 var version = "v4.10.0"
@@ -28,22 +25,12 @@ type Info struct {
 	Arch      string `json:"arch"`
 }
 
+// Version is the version this binary was built as.
 func Version() string {
 	return version
 }
 
-func BuildTime() string {
-	return buildTime
-}
-
-func GitCommit() string {
-	return gitCommit
-}
-
-func GitBranch() string {
-	return gitBranch
-}
-
+// Current returns the build and runtime metadata of this binary.
 func Current() *Info {
 	return &Info{
 		Version:   version,
@@ -54,26 +41,4 @@ func Current() *Info {
 		Platform:  runtime.GOOS,
 		Arch:      runtime.GOARCH,
 	}
-}
-
-func (v *Info) String() string {
-	if v == nil {
-		return "TSQ unknown"
-	}
-
-	commit := v.GitCommit
-	if len(commit) > 8 {
-		commit = commit[:8]
-	}
-
-	return fmt.Sprintf("TSQ %s (built %s from %s@%s with %s on %s/%s)",
-		v.Version, v.BuildTime, v.GitBranch, commit, v.GoVersion, v.Platform, v.Arch)
-}
-
-func (v *Info) ShortString() string {
-	if v == nil {
-		return "TSQ unknown"
-	}
-
-	return fmt.Sprintf("TSQ %s", v.Version)
 }
