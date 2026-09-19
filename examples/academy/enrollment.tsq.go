@@ -188,9 +188,9 @@ func (e *Enrollment) Insert(ctx context.Context, db tsq.Executor) error {
 	return TableEnrollment.Insert(ctx, db, e)
 }
 
-// Update updates the row; see tsq.TableOf.Update.
-func (e *Enrollment) Update(ctx context.Context, db tsq.Executor) error {
-	return TableEnrollment.Update(ctx, db, e)
+// Update writes the row, or only cols when given; see tsq.TableOf.Update.
+func (e *Enrollment) Update(ctx context.Context, db tsq.Executor, cols ...tsq.BoundColumn[Enrollment]) error {
+	return TableEnrollment.Update(ctx, db, e, cols...)
 }
 
 // Delete soft-deletes the row by stamping DeletedAt; queries naming the

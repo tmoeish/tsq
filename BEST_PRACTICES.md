@@ -292,9 +292,11 @@ fp := func(u *User) *int64 {
 因为这份文档当时不在 `doc-check` 的扫描范围里，所以三个月没人发现。现在它在了。）
 
 ```go
+// The JSON name clients sort by is the source column's ("name"); rename it to
+// match the result's field.
 userName := tsq.MapInto(database.TableUser.Name, func(r *UserResult) *string {
 	return &r.UserName
-}, "user_name")
+}).Named("user_name")
 ```
 
 ## 5. 排序

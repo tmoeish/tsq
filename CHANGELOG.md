@@ -59,6 +59,10 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 - **类型系统区分可空列**：可为 NULL 的字段（指针、`sql.NullX`、`sql.Null[T]`、nullbio 类型）生成为 `tsq.NullColumn[X, T]`（`tsq.NewNullColumn[T]`），按值类型 `T` 比较（`Nickname.EQ(tsq.Val("x"))`），`UpdateTable(...).SetNull(col)` 只接受它。查询在读行之前检查：可空列、外连接可选侧的表、无 `GROUP BY` 的 `SUM`/`AVG`/`MAX`/`MIN`、`NullIf`、无 `Else` 的 `CASE`、标量子查询，读进不能存 NULL 的字段一律报错（此前要等数据里真有 NULL 才在扫描时失败）；`tsq.MapIntoNull` 映射进可空字段，`Coalesce` 消除可空性，`Query.ScalarNull` 返回 `sql.Null[T]`（`Scalar` 此前把 NULL 静默读成零值，现在拒绝）。`Set` 往 NOT NULL 列赋可能为 NULL 的值时报错。`tsq.Text` / `tsq.Number` 不再包含 `sql.NullX`。`NewColumn` 用在可空字段类型上是定义错误。
 - SQL 在执行时按方言从表达式树渲染并按方言缓存，`Condition` / `SQLColumn` 不再暴露 `Clause()` / `SQLExpr()` 字符串；要看 SQL 用 `Query.SQL(dialect, args...)` 或 `String()`，`ListSQL` / `CountSQL` 等删除。方言能力（`FULL JOIN`、行锁、CTE、`INTERSECT` / `EXCEPT`）由渲染该构造的代码检查，不再扫描 SQL 文本。
 - 阶段接口去掉了 SQL 不允许的转移：分组、`HAVING`、集合操作之后不能加行锁，带搜索的查询不能做集合操作。构建器的具体类型不再出现在签名里，`Select(...).From(...)` 返回 `JoinStage`。
+- **查询阶段本身就是子查询**：`tsq.SelectValue(col).From(t).Where(...)` 直接放在比较、`In`、`Set` 的右边，不用先 `Build`，错误由外层 `Build` 报告；任何阶段都能传给 `Exists`。`tsq.BuildSubquery` 和 `Query.AsSubquery` 删除（它们要把选出的列再写一遍，每个子查询多一段错误处理）。
+- `tsq.MapInto(source, field)` / `MapIntoNull(source, field)` 不再要求 JSON 名，默认取源列的；需要时 `.Named("x")`。
+- 查询只有一个入口 `tsq.Select(...).From(...)`，`tsq.From[O](t).Select(...)` 删除。
+- `TableXxx.Update(ctx, db, &row, cols...)` 和生成的 `row.Update(ctx, db, cols...)` 可以只写指定的列（`updated_at`、`version` 照常维护）：部分 `Select` 读出的行用它保存，不会把没读的列写成零值。
 - `Case[T]()` 的结果有类型：`When(cond, rhs)` / `Else(rhs)`。
 - 列函数从列方法改为**包级泛型函数**，并按列类型约束：`tsq.Upper(col)` / `Lower` / `Trim` / `Length` / `Substring` 只接受字符串类的列（`tsq.Text`），`tsq.Sum` / `Avg` / `Round` / `Ceil` / `Floor` / `Abs` 只接受数值列（`tsq.Number`），`tsq.Count` / `CountDistinct` / `Max` / `Min` / `Date` / `Year` / `Month` / `Day` / `Coalesce` / `NullIf` 接受任意列。套在类型不合的列上编译不过。
 - 列函数在三个方言上返回相同的值：`Year` / `Month` / `Day` 返回 `int64`（此前返回列自身类型且得到文本）；`Date` 返回 `'YYYY-MM-DD'` 文本；`Length` 数字符（MySQL 上是 `CHAR_LENGTH`，此前数字节）；`Round` 在 PostgreSQL 的浮点列上也能用；`Substring` 的边界直接写进 SQL，避免 PostgreSQL 选错重载。SQLite 上的日期函数同时认 modernc 驱动默认的 Go 时间文本格式（此前返回 NULL）。
@@ -100,7 +104,7 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 - 列定义的 DDL 渲染库和生成器共用一份实现，不再各写一份。
 - 新增 `*tsq.RowStateError` 和 `tsq.IsRowStateError`：删除一个已删除的行、恢复一个未删除的行，报的是行的状态不对，而不是乐观锁冲突（那种重试没用），没有 `version` 列的表也会报。
 - `Query.ListIn` 在列表一条语句装得下时不再开事务。
-- **派生表达式不再能直接 `Select`**：列（`Column` / `NullColumn`）知道自己扫描进哪个字段，函数、`CASE`、`Expr` / `Exprf` 产出的是 `tsq.Expression[T]`，没有行归属。此前 `Select(tsq.Date(时间列))` 能编译、执行时才报扫描错误。现在用 `tsq.MapInto` 指定字段，或用新增的 `tsq.SelectValue` / `tsq.SelectNullValue` 让值本身成为行（`Query.Scalar` / `ScalarNull` 因此删除）。`WithTable` / `Param` / `Bind` 只在列上；`AsSubquery` / `BuildSubquery` 改收 `ValueColumn[T]`。
+- **派生表达式不再能直接 `Select`**：列（`Column` / `NullColumn`）知道自己扫描进哪个字段，函数、`CASE`、`Expr` / `Exprf` 产出的是 `tsq.Expression[T]`，没有行归属。此前 `Select(tsq.Date(时间列))` 能编译、执行时才报扫描错误。现在用 `tsq.MapInto` 指定字段，或用新增的 `tsq.SelectValue` / `tsq.SelectNullValue` 让值本身成为行（`Query.Scalar` / `ScalarNull` 因此删除）。`WithTable` / `Param` / `Bind` 只在列上。
 - **可空值的排序在三个方言上一致**：NULL 一律当作最小值（升序在前、降序在后），PostgreSQL 显式写 `NULLS FIRST/LAST`；`OrderBy.NullsFirst()` / `NullsLast()` 可改，MySQL 用 `IS NULL` 排序键模拟（集合操作上拒绝）。此前 PostgreSQL 与另两个方言的顺序相反。
 - **时间统一用 UTC**：托管时间戳以 UTC 写入，绑定到 SQL 的所有 `time.Time`（含 `*time.Time`、`sql.NullTime`、`null.Time`）也先转成 UTC。SQLite 按文本存时间，不同时区写入的行此前按文本比较和排序会出错。`tsq.UpdateTable` 在执行时自动刷新 `updated_at`（显式 `Set` 的值优先），与 `Update`、软删除、`Upsert` 一致。
 - **行级写入不越权改托管列**：`Update` 不再写 `created_at` 和 `deleted_at`，并且在软删除表上只匹配未删除的行——手工构造的行不会把 `created_at` 清零，删除之前读出的旧副本也不会把行复活。软删除只写 `deleted_at` / `updated_at` / `version`，不顺带保存行上其他改动；删除已删除的行在有 `version` 的表上报 `OptimisticLockError`。恢复用 `Restore`。`Upsert` 写入的行总是未删除状态。
@@ -115,7 +119,7 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 - `tsq.Exists(sq)` / `tsq.NotExists(sq)` 是包级函数，参数类型是密封接口 `AnySubquery`。
 - 没有 `Unique` / `NUnique` / `Concat` / `Now()` 这类不读接收者或只会失败的列方法，需要时用 `Expr` / `Exprf`。
 - 错误类型以 `Error` 结尾且字段导出：`OptimisticLockError`、`UnknownSortFieldError`、`AmbiguousSortFieldError`、`OrderCountMismatchError`、`MissingIndexError`、`MissingTableError`，以及 `dialect.UnsupportedCapabilityError`。`RegistrationError` 删除，注册错误由 `Define` 报告。
-- 其余命名：`NewColumn`、`Order.Reverse()`、`OrderBy.Column()`、`Query.Scalar[T]`、`Query.AsSubquery[T]`、`Runtime.WithTxResult[T]`。
+- 其余命名：`NewColumn`、`Order.Reverse()`、`OrderBy.Column()`、`Runtime.WithTxResult[T]`。
 
 **生成代码**
 

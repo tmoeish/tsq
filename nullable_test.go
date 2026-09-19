@@ -61,8 +61,8 @@ func TestColumnsDeclareWhetherTheyHoldNull(t *testing.T) {
 		"NullInt64 as NOT NULL":    NewColumn(h, "b", "b", func(r *row) *sql.NullInt64 { return &r.Null }).core().err(),
 		"wrong value type":         NewNullColumn[string](h, "c", "c", func(r *row) *sql.NullInt64 { return &r.Null }).core().err(),
 		"not a nullable form":      NewNullColumn[string](h, "d", "d", func(r *row) *string { return &r.Text }).core().err(),
-		"mapped into wrong":        MapIntoNull(User_Name, func(r *labelRow) *sql.Null[int64] { return nil }, "x").core().err(),
-		"mapped into plain string": MapIntoNull(User_Name, func(r *labelRow) *string { return nil }, "x").core().err(),
+		"mapped into wrong":        MapIntoNull(User_Name, func(r *labelRow) *sql.Null[int64] { return nil }).Named("x").core().err(),
+		"mapped into plain string": MapIntoNull(User_Name, func(r *labelRow) *string { return nil }).Named("x").core().err(),
 	}
 
 	for name, err := range cases {
@@ -161,13 +161,13 @@ func TestReadingAValueThatCanBeNullNeedsANullableField(t *testing.T) {
 	rt := newSQLite(t)
 	seedUsers(t, rt, "a", "b")
 
-	name := MapInto(User_Name, func(r *labelRow) *string { return &r.Name }, "name")
-	count := MapInto(Count(Order_ID), func(r *labelRow) *int64 { return &r.Count }, "count")
+	name := MapInto(User_Name, func(r *labelRow) *string { return &r.Name }).Named("name")
+	count := MapInto(Count(Order_ID), func(r *labelRow) *int64 { return &r.Count }).Named("count")
 	label := func(src ValueColumn[string]) ResultColumn[labelRow, string] {
-		return MapInto(src, func(r *labelRow) *string { return &r.Name }, "label")
+		return MapInto(src, func(r *labelRow) *string { return &r.Name }).Named("label")
 	}
 	nullLabel := func(src ValueColumn[string]) ResultColumn[labelRow, string] {
-		return MapIntoNull(src, func(r *labelRow) *sql.NullString { return &r.Label }, "label")
+		return MapIntoNull(src, func(r *labelRow) *sql.NullString { return &r.Label }).Named("label")
 	}
 
 	orderNote := Order_Note

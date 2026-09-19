@@ -105,8 +105,6 @@ func operandOf(v any) exprInfo {
 		return x.operand()
 	case Condition:
 		return x.condition()
-	case AnySubquery:
-		return exprInfo{err: errors.New("a subquery used as a value must be typed; build it with AsSubquery or BuildSubquery")}
 	case Arg:
 		return exprInfo{err: errors.New("an Arg is a value for execution, not an expression; pass the Param instead")}
 	}

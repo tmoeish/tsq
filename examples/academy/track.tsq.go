@@ -153,9 +153,9 @@ func (t *Track) Insert(ctx context.Context, db tsq.Executor) error {
 	return TableTrack.Insert(ctx, db, t)
 }
 
-// Update updates the row; see tsq.TableOf.Update.
-func (t *Track) Update(ctx context.Context, db tsq.Executor) error {
-	return TableTrack.Update(ctx, db, t)
+// Update writes the row, or only cols when given; see tsq.TableOf.Update.
+func (t *Track) Update(ctx context.Context, db tsq.Executor, cols ...tsq.BoundColumn[Track]) error {
+	return TableTrack.Update(ctx, db, t, cols...)
 }
 
 // Delete removes the row. Track has no deleted_at column, so Delete and

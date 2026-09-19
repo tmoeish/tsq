@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"reflect"
+	"slices"
 	"strings"
 	"time"
 
@@ -51,6 +52,8 @@ type batchConfig struct {
 	size           int
 	skipDuplicates bool
 	err            error
+	// only restricts an Update to these columns.
+	only []SQLColumn
 }
 
 const defaultBatchSize = 1000
@@ -135,11 +138,20 @@ func (t *TableOf[R, K]) BatchInsert(ctx context.Context, db Executor, rows []*R,
 	})
 }
 
-// Update writes every column of row except the primary key, matching on the
-// primary key and, when the table has one, the version.
-func (t *TableOf[R, K]) Update(ctx context.Context, db Executor, row *R) error {
+// Update writes row, matching on the primary key and, when the table has one,
+// the version. With no cols it writes every column TSQ may write: all but the
+// primary key, created_at, deleted_at and generated columns. With cols it writes
+// only those, which is how a row read with a partial Select is saved without
+// zeroing the columns it did not read. updated_at and version are maintained
+// either way.
+func (t *TableOf[R, K]) Update(ctx context.Context, db Executor, row *R, cols ...BoundColumn[R]) error {
 	return traceExecutor(ctx, db, TraceOpUpdate, func(ctx context.Context) error {
-		return t.update(ctx, db, []*R{row}, batchConfig{size: 1}, stampTime())
+		config := batchConfig{size: 1}
+		if len(cols) > 0 {
+			config.only = SQLColumns(cols...)
+		}
+
+		return t.update(ctx, db, []*R{row}, config, stampTime())
 	})
 }
 
@@ -808,16 +820,39 @@ func (t *TableOf[R, K]) update(ctx context.Context, db Executor, rows []*R, conf
 
 	// created_at is written once, and deleted_at only by Delete and Restore: a row
 	// built by hand, or loaded before a concurrent delete, must not overwrite them.
-	cols := make([]*columnCore, 0, len(def.columns))
-	for _, col := range def.columns {
+	writable := func(col *columnCore) bool {
 		switch col.name {
 		case def.primaryKey.name, def.managed.CreatedAt, def.managed.DeletedAt:
-			continue
+			return false
 		}
 
 		// A generated column is the database's to compute, never ours to write.
-		if col != version && col.fill != tsqdialect.FillGenerated {
-			cols = append(cols, col)
+		return col != version && col.fill != tsqdialect.FillGenerated
+	}
+
+	cols := make([]*columnCore, 0, len(def.columns))
+
+	if config.only == nil {
+		for _, col := range def.columns {
+			if writable(col) {
+				cols = append(cols, col)
+			}
+		}
+	} else {
+		for _, only := range config.only {
+			col, err := updateColumn(def, only, writable)
+			if err != nil {
+				return err
+			}
+
+			if !slices.Contains(cols, col) {
+				cols = append(cols, col)
+			}
+		}
+
+		// updated_at is refreshed by every update, whichever columns it names.
+		if at := def.column(def.managed.UpdatedAt); at != nil && !slices.Contains(cols, at) {
+			cols = append(cols, at)
 		}
 	}
 
@@ -1193,4 +1228,27 @@ func (t *TableOf[R, K]) reloadColumns(ctx context.Context, db Executor, scope ex
 	}
 
 	return nil
+}
+
+// updateColumn resolves a column Update was told to write.
+func updateColumn(def *tableDef, col SQLColumn, writable func(*columnCore) bool) (*columnCore, error) {
+	if isNilValue(col) {
+		return nil, fmt.Errorf("update %s: column cannot be nil", def.name)
+	}
+
+	core := col.core()
+	if err := core.err(); err != nil {
+		return nil, err
+	}
+
+	own := def.column(core.name)
+	if own == nil || isNilValue(core.table) || core.table.definition() != def || !core.plain {
+		return nil, fmt.Errorf("update %s: %s is not a column of the table", def.name, core.name)
+	}
+
+	if !writable(own) {
+		return nil, fmt.Errorf("update %s: column %s is maintained by TSQ or the database and cannot be written by Update", def.name, core.name)
+	}
+
+	return own, nil
 }

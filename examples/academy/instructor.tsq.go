@@ -164,9 +164,9 @@ func (i *Instructor) Insert(ctx context.Context, db tsq.Executor) error {
 	return TableInstructor.Insert(ctx, db, i)
 }
 
-// Update updates the row; see tsq.TableOf.Update.
-func (i *Instructor) Update(ctx context.Context, db tsq.Executor) error {
-	return TableInstructor.Update(ctx, db, i)
+// Update writes the row, or only cols when given; see tsq.TableOf.Update.
+func (i *Instructor) Update(ctx context.Context, db tsq.Executor, cols ...tsq.BoundColumn[Instructor]) error {
+	return TableInstructor.Update(ctx, db, i, cols...)
 }
 
 // Delete removes the row. Instructor has no deleted_at column, so Delete and

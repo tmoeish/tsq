@@ -236,9 +236,9 @@ func (c *Course) Insert(ctx context.Context, db tsq.Executor) error {
 	return TableCourse.Insert(ctx, db, c)
 }
 
-// Update updates the row; see tsq.TableOf.Update.
-func (c *Course) Update(ctx context.Context, db tsq.Executor) error {
-	return TableCourse.Update(ctx, db, c)
+// Update writes the row, or only cols when given; see tsq.TableOf.Update.
+func (c *Course) Update(ctx context.Context, db tsq.Executor, cols ...tsq.BoundColumn[Course]) error {
+	return TableCourse.Update(ctx, db, c, cols...)
 }
 
 // Delete removes the row. Course has no deleted_at column, so Delete and

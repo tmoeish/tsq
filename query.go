@@ -489,27 +489,6 @@ func queryCount(ctx context.Context, db Executor, stmt prepared) (int64, error) 
 	return n, nil
 }
 
-func (q *Query[O]) checkSingleSelect(selected SQLColumn) error {
-	if q == nil {
-		return errors.New("query cannot be nil")
-	}
-
-	if isNilValue(selected) {
-		return errors.New("selected column cannot be nil")
-	}
-
-	if len(q.spec.Selects) != 1 {
-		return fmt.Errorf("query must select exactly one column, got %d", len(q.spec.Selects))
-	}
-
-	want := debugSQL(columnInfo(selected).sql)
-	if got := debugSQL(columnInfo(q.spec.Selects[0]).sql); got != want {
-		return fmt.Errorf("query selects %s, not %s", got, want)
-	}
-
-	return nil
-}
-
 // Page runs the query for one page, plus a count of all matching rows. The query
 // must not set Limit or Offset, and it must not order itself when p.OrderBy is set:
 // Page owns those clauses.
@@ -639,14 +618,19 @@ func splitCommaValues(value string) []string {
 	return result
 }
 
-// AnySubquery is a built query used as a subquery where its columns do not matter,
-// as in Exists. A *Query and a Subquery both satisfy it; only TSQ implements it.
+// AnySubquery is a query used as a subquery where its columns do not matter, as in
+// Exists: any query stage, or a built *Query. Only TSQ implements it.
 type AnySubquery interface {
 	subquery() exprInfo
 }
 
-// Subquery is a built single-column query holding a T, usable as the right-hand
-// side of a comparison or of IN. Make one with AsSubquery or BuildSubquery.
+// Subquery is a query whose rows are T, usable as the right-hand side of a
+// comparison or of IN. A stage or *Query from SelectValue is one:
+//
+//	TableCourse.TrackID.In(tsq.SelectValue(TableTrack.ID).From(TableTrack).Where(...))
+//
+// A stage used as a subquery is built with the query around it, which reports
+// its errors.
 type Subquery[T any] interface {
 	AnySubquery
 	RHS[T]
@@ -658,8 +642,28 @@ func (q *Query[O]) subquery() exprInfo {
 		return exprInfo{err: errors.New("subquery cannot be nil")}
 	}
 
+	if q.err != nil {
+		return exprInfo{err: q.err}
+	}
+
 	return exprInfo{sql: sqlQuery(q)}
 }
+
+// valueSubquery is the query as a value: it must select exactly one column.
+func (q *Query[O]) valueSubquery() exprInfo {
+	info := q.subquery()
+	if info.err == nil && len(q.spec.Selects) != 1 {
+		return exprInfo{err: fmt.Errorf("a subquery used as a value selects one column, not %d; select it with tsq.SelectValue", len(q.spec.Selects))}
+	}
+
+	return info
+}
+
+// A scalar subquery is NULL when it returns no row.
+func (q *Query[O]) operand() exprInfo                { return nullWhenEmpty(q.valueSubquery()) }
+func (q *Query[O]) setOperand(negated bool) exprInfo { return q.valueSubquery() }
+func (*Query[O]) rhsValue(O)                         {}
+func (*Query[O]) setValue(O)                         {}
 
 func (q *Query[O]) renderQuery(r *renderer) {
 	r.writeText("(")
@@ -669,43 +673,10 @@ func (q *Query[O]) renderQuery(r *renderer) {
 
 func (q *Query[O]) correlatedTables() map[string]Table { return q.spec.correlatedNames() }
 
-type typedSubquery[O, T any] struct {
-	q *Query[O]
-}
-
-func (s typedSubquery[O, T]) subquery() exprInfo               { return s.q.subquery() }
-func (s typedSubquery[O, T]) operand() exprInfo                { return nullWhenEmpty(s.q.subquery()) }
-func (s typedSubquery[O, T]) setOperand(negated bool) exprInfo { return s.q.subquery() }
-func (typedSubquery[O, T]) rhsValue(T)                         {}
-func (typedSubquery[O, T]) setValue(T)                         {}
-
 // nullWhenEmpty marks a scalar subquery, which is NULL when it returns no row.
 func nullWhenEmpty(info exprInfo) exprInfo {
 	info.null = nullness{always: true}
 	return info
-}
-
-// AsSubquery returns the query as a typed subquery. It must select exactly selected.
-func (q *Query[O]) AsSubquery[T any](selected ValueColumn[T]) (Subquery[T], error) {
-	if err := q.checkSingleSelect(selected); err != nil {
-		return nil, fmt.Errorf("subquery: %w", err)
-	}
-
-	return typedSubquery[O, T]{q: q}, nil
-}
-
-// BuildSubquery builds stage and returns it as a typed subquery selecting selected.
-func BuildSubquery[O, T any](stage QueryStage[O], selected ValueColumn[T]) (Subquery[T], error) {
-	if isNilValue(stage) {
-		return nil, errors.New("subquery builder cannot be nil")
-	}
-
-	q, err := stage.Build()
-	if err != nil {
-		return nil, err
-	}
-
-	return q.AsSubquery(selected)
 }
 
 // noopExecutor lets Query.SQL render without a database.

@@ -15,7 +15,12 @@ import (
 
 // QueryStage is a complete query: it can be built or run directly. Running a stage
 // builds it on every call; build once and reuse the *Query on hot paths.
+//
+// A stage is also a Subquery of its rows, so a stage from SelectValue can stand on
+// the right of a comparison or IN, and any stage can go to Exists.
 type QueryStage[O any] interface {
+	Subquery[O]
+
 	Build() (*Query[O], error)
 	MustBuild() *Query[O]
 	Get(ctx context.Context, db Executor, args ...Arg) (*O, error)
@@ -58,11 +63,6 @@ type Groupable[O any] interface {
 // SelectStage is a query with columns but no FROM table yet.
 type SelectStage[O any] interface {
 	From(table Table) JoinStage[O]
-}
-
-// FromStage is a query with a FROM table but no columns yet.
-type FromStage[O any] interface {
-	Select(cols ...BoundColumn[O]) JoinStage[O]
 }
 
 // JoinStage is a query that can still take joins.
@@ -199,35 +199,13 @@ func SelectDistinct[O any](cols ...BoundColumn[O]) SelectStage[O] {
 // The value must never be NULL; use SelectNullValue where it can be, for example
 // for SUM over no rows.
 func SelectValue[T any](expr ValueColumn[T]) SelectStage[T] {
-	return Select(MapInto(expr, func(v *T) *T { return v }, valueJSONName(expr)))
+	return Select(MapInto(expr, func(v *T) *T { return v }))
 }
 
 // SelectNullValue is SelectValue for an expression that can be NULL; its rows are
 // sql.Null[T].
 func SelectNullValue[T any](expr ValueColumn[T]) SelectStage[sql.Null[T]] {
-	return Select(MapIntoNull(expr, func(v *sql.Null[T]) *sql.Null[T] { return v }, valueJSONName(expr)))
-}
-
-// valueJSONName is the json name of a one-value projection: the source column's,
-// so PageRequest.OrderBy can name it.
-func valueJSONName(expr SQLColumn) string {
-	if isNilValue(expr) {
-		return "value"
-	}
-
-	if name := expr.JSONFieldName(); name != "" {
-		return name
-	}
-
-	return expr.Name()
-}
-
-// From starts a query with its FROM table.
-func From[O any](table Table) FromStage[O] {
-	b := &builder[O]{}
-	b.setFrom(table)
-
-	return fromBuilder[O]{b}
+	return Select(MapIntoNull(expr, func(v *sql.Null[T]) *sql.Null[T] { return v }))
 }
 
 type selectBuilder[O any] struct{ b *builder[O] }
@@ -235,15 +213,6 @@ type selectBuilder[O any] struct{ b *builder[O] }
 func (s selectBuilder[O]) From(table Table) JoinStage[O] {
 	n := s.b.next()
 	n.setFrom(table)
-
-	return joinBuilder[O]{n}
-}
-
-type fromBuilder[O any] struct{ b *builder[O] }
-
-func (f fromBuilder[O]) Select(cols ...BoundColumn[O]) JoinStage[O] {
-	n := f.b.next()
-	n.setSelect(cols)
 
 	return joinBuilder[O]{n}
 }
@@ -583,6 +552,36 @@ func stageSpec[O any](stage QueryStage[O]) (querySpec[O], error) {
 }
 
 // Build validates the query and returns it.
+func (b *builder[O]) subquery() exprInfo {
+	q, err := b.Build()
+	if err != nil {
+		return exprInfo{err: err}
+	}
+
+	return q.subquery()
+}
+
+func (b *builder[O]) operand() exprInfo {
+	q, err := b.Build()
+	if err != nil {
+		return exprInfo{err: err}
+	}
+
+	return q.operand()
+}
+
+func (b *builder[O]) setOperand(negated bool) exprInfo {
+	q, err := b.Build()
+	if err != nil {
+		return exprInfo{err: err}
+	}
+
+	return q.setOperand(negated)
+}
+
+func (*builder[O]) rhsValue(O) {}
+func (*builder[O]) setValue(O) {}
+
 func (b *builder[O]) Build() (*Query[O], error) {
 	spec, err := b.specOf()
 	if err != nil {

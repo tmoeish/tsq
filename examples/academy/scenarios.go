@@ -655,10 +655,10 @@ func runAliasDemo(ctx context.Context, runtime *tsq.Runtime) (*AliasSummary, err
 
 	courseTitle := tsq.MapInto(TableCourse.Title, func(holder *prerequisiteRow) *string {
 		return &holder.CourseTitle
-	}, "course_title")
+	})
 	prerequisiteTitle := tsq.MapIntoNull(prerequisite.Title, func(holder *prerequisiteRow) *sql.NullString {
 		return &holder.PrerequisiteTitle
-	}, "prerequisite_title")
+	})
 
 	query, err := tsq.
 		Select(courseTitle, prerequisiteTitle).
@@ -687,13 +687,13 @@ func runAggregateDemo(ctx context.Context, runtime *tsq.Runtime) ([]AggregateSum
 	exec := runtime
 	trackName := tsq.MapInto(TableTrack.Name, func(holder *trackMetricRow) *string {
 		return &holder.Track
-	}, "track")
+	})
 	enrollmentCount := tsq.MapInto(tsq.Count(TableEnrollment.UID), func(holder *trackMetricRow) *int64 {
 		return &holder.EnrollmentCount
-	}, "enrollment_count")
+	})
 	averageScore := tsq.MapInto(tsq.Avg(TableEnrollment.Score), func(holder *trackMetricRow) *float64 {
 		return &holder.AverageScore
-	}, "average_score")
+	})
 
 	query, err := tsq.
 		Select(trackName, enrollmentCount, averageScore).
@@ -774,28 +774,17 @@ func runListParamDemo(ctx context.Context, runtime *tsq.Runtime) (*ListParamSumm
 func runSubqueryDemo(ctx context.Context, runtime *tsq.Runtime) (*SubquerySummary, error) {
 	exec := runtime
 
-	dataTrackIDSubquery, err := tsq.BuildSubquery(
-		tsq.
-			Select(TableTrack.ID).
-			From(TableTrack).
-			Where(TableTrack.Name.EQ(tsq.Val("Data & AI"))),
-		TableTrack.ID,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", "build data track id subquery", err)
-	}
+	// Stages from SelectValue nest directly; the outermost Build reports any error.
+	dataTrackIDs := tsq.
+		SelectValue(TableTrack.ID).
+		From(TableTrack).
+		Where(TableTrack.Name.EQ(tsq.Val("Data & AI")))
 
-	dataTrackLearnerIDs, err := tsq.BuildSubquery(
-		tsq.
-			Select(TableEnrollment.LearnerID).
-			From(TableEnrollment).
-			LeftJoin(TableCourse, TableEnrollment.CourseID.EQ(TableCourse.ID)).
-			Where(TableCourse.TrackID.In(dataTrackIDSubquery)),
-		TableEnrollment.LearnerID,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", "build learner ids in data track subquery", err)
-	}
+	dataTrackLearnerIDs := tsq.
+		SelectValue(TableEnrollment.LearnerID).
+		From(TableEnrollment).
+		Join(TableCourse, TableEnrollment.CourseID.EQ(TableCourse.ID)).
+		Where(TableCourse.TrackID.In(dataTrackIDs))
 
 	learnersInDataTrackQuery, err := tsq.
 		Select(TableLearner.Columns()...).
@@ -811,21 +800,15 @@ func runSubqueryDemo(ctx context.Context, runtime *tsq.Runtime) (*SubquerySummar
 		return nil, err
 	}
 
-	anchorPriceSubquery, err := tsq.BuildSubquery(
-		tsq.
-			Select(TableCourse.ListPriceCents).
-			From(TableCourse).
-			Where(TableCourse.Title.EQ(tsq.Val("Retrieval Systems with SQLite"))),
-		TableCourse.ListPriceCents,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", "build anchor price subquery", err)
-	}
+	anchorPrice := tsq.
+		SelectValue(TableCourse.ListPriceCents).
+		From(TableCourse).
+		Where(TableCourse.Title.EQ(tsq.Val("Retrieval Systems with SQLite")))
 
 	coursesCheaperThanAnchorQuery, err := tsq.
 		Select(TableCourse.Columns()...).
 		From(TableCourse).
-		Where(TableCourse.ListPriceCents.LT(anchorPriceSubquery)).
+		Where(TableCourse.ListPriceCents.LT(anchorPrice)).
 		Build()
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", "build cheaper courses query", err)
@@ -875,7 +858,7 @@ func runCaseDemo(ctx context.Context, runtime *tsq.Runtime) (*CaseSummary, error
 
 	label := tsq.MapInto(labelExpr, func(holder *namedRow) *string {
 		return &holder.Name
-	}, "label")
+	})
 
 	query, err := tsq.
 		Select(label).
@@ -919,7 +902,7 @@ func runCTEDemo(ctx context.Context, runtime *tsq.Runtime) (*CTESummary, error) 
 	platformCourseID := TableCourse.ID.WithTable(platformCatalog)
 	platformCourseTitle := tsq.MapInto(TableCourse.Title.WithTable(platformCatalog), func(holder *namedRow) *string {
 		return &holder.Name
-	}, "name")
+	})
 
 	query, err := tsq.
 		Select(platformCourseTitle).
@@ -960,7 +943,7 @@ func runSetOpsDemo(ctx context.Context, runtime *tsq.Runtime) (*SetOpsSummary, e
 	exec := runtime
 	courseTitle := tsq.MapInto(TableCourse.Title, func(holder *namedRow) *string {
 		return &holder.Name
-	}, "name")
+	})
 
 	unionQuery, err := tsq.
 		Select(courseTitle).
