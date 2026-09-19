@@ -201,7 +201,7 @@
   非法值只从构造器报一次。
 - 选项加进 `skills/tsq` 的 Runtime 小节；它是使用者唯一能看到这份清单的地方。
 
-## 改了 schema 托管（`runtime_schema.go`）
+## 改了 schema 托管（`runtime_schema.go`、`runtime_index.go`）
 
 - **不要重新引入任何"删掉不再声明的对象"的策略。** v4 的 `SchemaPolicyManaged` 靠一张全库共享
   的记账表做这件事，两个共用数据库的服务因此互删对方的表连同数据。一个 runtime 只知道自己声明了
@@ -252,9 +252,15 @@
 - 主键回填有两条路：`LastInsertId()` + `BatchInsertStartID`（MySQL / SQLite），和
   `INSERT ... RETURNING`（PostgreSQL）。改任何一条要看 `internal/integration` 的 CRUD 用例。
 
+## 退役了一个使用者写过的名字或写法
+
+- 把旧写法加进 `script/check_docs.py` 的 `RETIRED`：它扫使用者文档、示例 README、`CONTRIBUTING.md` 和
+  生成器源码（CLI 帮助文本在那里）。`api-check` 和 `tsq.*` 符号检查只认符号，认不出散文和帮助里的旧词。
+  `[门禁: doc-check 的 check_retired_vocabulary]`
+
 ## 在执行路径上加了一个日志或诊断出口
 
-- 必须走 `logForExecutor` / `logSQLForExecutor`（`runtime_schema.go`），**不要直接调
+- 必须走 `logForExecutor` / `logSQLForExecutor`（`log.go`），**不要直接调
   `slog.*`**。使用者配了 `WithLogger` 就是要所有执行期输出都进那个 Logger，
   少接一处等于那一处对他不存在。
 - 加完 grep 一遍确认没漏（**只扫根包和 `internal/sqldialect/`**——`internal/parser` 是生成器，

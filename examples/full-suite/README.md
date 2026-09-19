@@ -15,7 +15,7 @@
 | 需求 | TSQ 能力 |
 | --- | --- |
 | 把 `Learner + Enrollment + Course + Track + Instructor` 组装成一行结果 | joins |
-| 让 API 直接消费结果结构 | `@RESULT` |
+| 让 API 直接消费结果结构 | `//tsq:result` |
 | 只保留“参与度足够高”的课程 | 子查询 |
 | 给看板列表做分页和排序 | `query.Page(...)` |
 
@@ -35,7 +35,7 @@
 2. `advanced`：进阶 demo 结果
 3. `comprehensive`：最终学习旅程看板
 
-其中 `comprehensive.first` 是当前页第一条记录，方便直接看 `@RESULT` 映射出来的最终形状。
+其中 `comprehensive.first` 是当前页第一条记录，方便直接看 `//tsq:result` 映射出来的最终形状。
 
 `advanced.optimistic_lock` 会额外展示 SQLite 示例里的自动乐观锁重试结果；  
 而行锁 DSL 不会出现在 `full-suite` 的执行结果中，因为整个 examples runtime 仍然是 SQLite。

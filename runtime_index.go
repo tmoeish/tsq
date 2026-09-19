@@ -9,23 +9,6 @@ import (
 	sqld "github.com/tmoeish/tsq/v5/internal/sqldialect"
 )
 
-func resolveSchemaPolicy(policy SchemaPolicy) SchemaPolicy {
-	if policy == "" {
-		return SchemaPolicyManual
-	}
-
-	return policy
-}
-
-func validateSchemaPolicy(policy SchemaPolicy) error {
-	switch policy {
-	case SchemaPolicyManual, SchemaPolicyValidate, SchemaPolicyCreateMissing, SchemaPolicyReconcile:
-		return nil
-	default:
-		return fmt.Errorf("invalid schema policy %q", policy)
-	}
-}
-
 func inspectIndexDefinition(
 	ctx context.Context,
 	db *sql.DB,

@@ -80,7 +80,7 @@ TRIGGERS: Final = (
         matches=prefix("internal/parser/"),
         required=(USER_SKILL_DIR, DEV_CODEGEN),
         hint=(
-            "`@TABLE` / `@RESULT` 的 DSL 是使用者直接手写的东西。解析器接受或拒绝"
+            "`//tsq:` 指令是使用者直接手写的东西。解析器接受或拒绝"
             "的内容变了，使用者技能里的注解说明就成了错的。"
         ),
     ),

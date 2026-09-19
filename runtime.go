@@ -6,6 +6,7 @@ import (
 	"database/sql/driver"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
@@ -320,4 +321,19 @@ func (r *Runtime) validateRegisteredTableIdentifiers() error {
 	}
 
 	return nil
+}
+
+func resolveRuntimeDialect(driverName string) (sqld.Dialect, error) {
+	// The names are the ones drivers register: modernc.org/sqlite is "sqlite" and
+	// mattn/go-sqlite3 is "sqlite3", and both speak the same SQL.
+	switch strings.ToLower(strings.TrimSpace(driverName)) {
+	case "sqlite", "sqlite3":
+		return sqld.SQLiteDialect{}, nil
+	case "mysql":
+		return sqld.MySQLDialect{}, nil
+	case "postgres", "postgresql", "pgx", "pq":
+		return sqld.PostgresDialect{}, nil
+	default:
+		return nil, fmt.Errorf("unsupported sql driver %q; expected sqlite, sqlite3, mysql, postgres, postgresql, pgx, or pq", driverName)
+	}
 }

@@ -43,7 +43,19 @@ NOT_TARGETS: Final = frozenset({"no-print-directory"})
 API_SURFACE: Final = ".agents/skills/tsq-dev/references/api-surface.txt"
 # `BEST_PRACTICES.md` 是后加进来的：它教了三个月一个从来不存在的
 # `tsq.Into[...]`，正因为它不在这份清单里。面向使用者的散文只要引用 `tsq.X`，就该被对照快照。
-USER_DOCS: Final = ("README.md", "BEST_PRACTICES.md", "docs", "skills/tsq")
+# 示例的 README 和 CONTRIBUTING.md 是 v5 之后补进来的：它们一直写着 `@TABLE` / `@RESULT` 和已经删掉
+# 的 `QueryCourse`，因为这里从来没扫过它们。
+USER_DOCS: Final = ("README.md", "BEST_PRACTICES.md", "CONTRIBUTING.md", "docs", "skills/tsq", "examples")
+
+# 已经退役、却会被照抄的 v4 写法。`tsq gen --help` 在 v5 里还印着 "for each @TABLE struct"，
+# 示例 README 教的是 `@RESULT`——没有任何门看文字，只看符号。CLI 的帮助文本在 Go 源码里，所以
+# 生成器那一侧的非测试源码也扫。CHANGELOG 和项目内存讲历史，有意不扫。
+RETIRED: Final = (
+    (re.compile(r"@TABLE|@RESULT"), "注解是 `//tsq:table` / `//tsq:result` 指令行"),
+    (re.compile(r"\b[A-Z][A-Za-z0-9]*__Cols\b"), "列表是 `TableXxx.Columns()` / `ResultXxx.Columns()`"),
+    (re.compile(r"\b[A-Z][a-z][A-Za-z0-9]*_[A-Z][A-Za-z0-9]*\b"), "列是表的字段：`TableXxx.Field`"),
+)
+RETIRED_GO_DIRS: Final = (Path("cmd"), Path("internal/cmd"), Path("internal/parser"))
 TSQ_SYMBOL: Final = re.compile(r"\btsq\.([A-Z][A-Za-z0-9_]*)")
 API_TOP_LEVEL: Final = re.compile(
     r"^(?:func|type|var|const)\s+([A-Z][A-Za-z0-9_]*)|^\t([A-Z][A-Za-z0-9_]*)\b", re.MULTILINE
@@ -166,6 +178,31 @@ def check_api_references() -> list[str]:
     return lines
 
 
+def check_retired_vocabulary() -> list[str]:
+    sources = user_documents() + sorted(
+        path
+        for path in git_paths(["ls-files", "-z", "*.go"])
+        if path.suffix == ".go"
+        and not path.name.endswith("_test.go")
+        and any(under(path, d) for d in RETIRED_GO_DIRS)
+    )
+
+    found: list[str] = []
+    for path in sources:
+        text = (PROJECT_ROOT / path).read_text(encoding="utf-8", errors="replace")
+        for pattern, fix in RETIRED:
+            for match in pattern.finditer(text):
+                line = text.count("\n", 0, match.start()) + 1
+                found.append(f"  - {path.as_posix()}:{line}: `{match.group(0)}`（{fix}）")
+
+    if not found:
+        print(f"文档检查通过：{len(sources)} 份使用者文档和生成器源码里没有退役的 v4 写法。")
+
+        return []
+
+    return ["使用者看得到的地方还在用退役的写法：", *found]
+
+
 def check_go_source_language() -> list[str]:
     sources = sorted(
         path
@@ -232,6 +269,7 @@ def main() -> int:
     for check in (
         check_make_targets,
         check_api_references,
+        check_retired_vocabulary,
         check_go_source_language,
         check_shipped_skill_language,
     ):

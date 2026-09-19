@@ -40,25 +40,6 @@ func validateIdentifierForDialect(identifier string, d sqld.Dialect) error {
 	return sqld.ValidateIdentifier(d, identifier)
 }
 
-// IsDuplicateKeyError reports whether err is the database refusing a row because a
-// primary key or unique index already holds its value. Each driver reports it its
-// own way, which is what this hides: on MySQL an error number, on PostgreSQL a
-// SQLSTATE, on SQLite a result code that one driver exposes as a method and another
-// as a struct field.
-func IsDuplicateKeyError(err error) bool { return isDuplicateKeyError(err) }
-
-func isDuplicateKeyError(err error) bool {
-	if err == nil {
-		return false
-	}
-
-	if number, ok := mysqlErrorNumber(err); ok {
-		return number == 1062
-	}
-
-	return isSQLiteDuplicateKeyError(err) || isPostgresDuplicateKeyError(err)
-}
-
 // validatePredicateValue rejects values that cannot be compared with = in SQL: NULL
 // needs IS NULL, and collections need IN.
 func validatePredicateValue(arg any) error {
