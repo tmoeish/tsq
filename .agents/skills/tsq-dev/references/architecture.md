@@ -46,7 +46,7 @@ cmd/tsq  ──► internal/cmd ──► internal/parser ──► internal/gen
 写入      rows.go             TableOf 上的行写入与批量写
           mutation.go         UpdateTable / DeleteFrom 按条件写
 执行      executor.go         封闭的 Executor、WrapExecutor
-          runtime*.go tx.go trace.go schema.go table_index.go
+          runtime*.go tx.go trace.go schema.go log.go errors.go
 ```
 
 ### 表描述符（`table.go`）
@@ -276,7 +276,7 @@ CTE 的输出列可空时，`WithTable(cte)` 重绑的列标成 `always`。
 - **连接池的所有权记在 `ownsDB` 上，`Close()` 只关自己开的那个。**
 - 选项是函数式的（`runtime_options.go`），先全部应用再统一校验。
 - 标识符长度校验**没有开关**，在任何 DDL 之前跑；渲染时每个标识符也按方言再校验一次。
-- 执行期日志走 `logForExecutor` / `logSQLForExecutor`（`runtime_schema.go`），不要在执行路径
+- 执行期日志走 `logForExecutor` / `logSQLForExecutor`（`log.go`），不要在执行路径
   里直接调 `slog.*`。SQL 日志的开关是 `WithSQLLogging()`；`WrapExecutor` 的结果没有 runtime，
   不打。
 - `WithTx(ctx, fn, ...TxOption)`（`tx.go`）是多操作事务的唯一入口，选项 `WithIsolation` / `WithReadOnly` /
@@ -284,7 +284,7 @@ CTE 的输出列可空时，`WithTable(cte)` 重绑的列标成 `always`。
   commit 阶段只对明确的冲突码（`IsTxConflictError`）重试。
 - 驱动错误分类按**接口**匹配：`sqlite_errors.go` 认 `Code() int`，`postgres_errors.go` 认
   `SQLState() string`。MySQL 是唯一被 import 的驱动，因为 `MySQLError.Number` 是字段。
-- `runtime_schema.go` 负责 schema 对账，`TablePolicy` / `IndexPolicy` 各取一档
+- `runtime_schema.go`（表与列）和 `runtime_index.go`（索引）负责 schema 对账，`TablePolicy` / `IndexPolicy` 各取一档
   （`Manual` / `Validate` / `CreateMissing` / `Reconcile`）。**四档都只增不减**，理由见 `memory.md`。
 
 ## 方言

@@ -162,7 +162,7 @@ func (ps *ParseState) getPackageInfo(packagePath string) (genmodel.PackageInfo, 
 	}, nil
 }
 
-// parseTableMetadata parses @TABLE / @RESULT metadata for every struct.
+// parseTableMetadata parses the //tsq:table and //tsq:result directives of every struct.
 func (ps *ParseState) parseTableMetadata(pkg genmodel.PackageInfo) error {
 	buildPkg, err := ps.importBuildPackage(pkg.Path)
 	if err != nil {

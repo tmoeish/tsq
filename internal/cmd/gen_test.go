@@ -54,8 +54,8 @@ func TestGenCmdHelpDocumentsInputsAndOverwriteBehavior(t *testing.T) {
 	for _, want := range []string{
 		"module import path",
 		"relative directory",
-		"<struct>.tsq.go",
-		"<result>.result.tsq.go",
+		"<struct>.tsq.go for each struct marked //tsq:table",
+		"<result>.result.tsq.go for each struct marked //tsq:result",
 		"sqlite.sql / mysql.sql / postgres.sql",
 		"tsq.json",
 		`refuses to overwrite non-generated files`,

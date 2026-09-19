@@ -80,7 +80,7 @@ refactor/split-parser
 示例：
 
 ```
-feat(parser): accept composite index definitions in @TABLE
+feat(parser): accept composite index definitions in //tsq:index
 
 `idx=[{fields=["A","B"]}]` 此前只解析第一个字段，复合索引静默退化成单列索引，
 而 DDL 和运行期对账都不会报错——建出来的索引和注解写的不是一回事。

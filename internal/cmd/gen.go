@@ -77,8 +77,8 @@ Accepted inputs:
   - absolute directory: /path/to/project/internal/database
 
 Generated files:
-  - <struct>.tsq.go for each @TABLE struct
-  - <result>.result.tsq.go for each @RESULT struct
+  - <struct>.tsq.go for each struct marked //tsq:table
+  - <result>.result.tsq.go for each struct marked //tsq:result
   - sqlite.sql / mysql.sql / postgres.sql beside generated Go files
     with the initial schema plus dated migration sections
   - tsq.json with the latest snapshot and migration history

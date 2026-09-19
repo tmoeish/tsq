@@ -1,9 +1,7 @@
 package tsq
 
 import (
-	"context"
 	"fmt"
-	"log/slog"
 	"slices"
 
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
@@ -53,12 +51,6 @@ type MissingTableError struct {
 
 func (e *MissingTableError) Error() string {
 	return fmt.Sprintf("table %s is missing; create it in a migration or use SchemaPolicyCreateMissing", e.Name)
-}
-
-// Logger is the subset of *slog.Logger the runtime writes to.
-type Logger interface {
-	Enabled(ctx context.Context, level slog.Level) bool
-	LogAttrs(ctx context.Context, level slog.Level, msg string, attrs ...slog.Attr)
 }
 
 // registeredTable is a table as the schema policies see it.
@@ -116,4 +108,21 @@ func registerTables(tables []Table) ([]*registeredTable, error) {
 	})
 
 	return result, nil
+}
+
+func resolveSchemaPolicy(policy SchemaPolicy) SchemaPolicy {
+	if policy == "" {
+		return SchemaPolicyManual
+	}
+
+	return policy
+}
+
+func validateSchemaPolicy(policy SchemaPolicy) error {
+	switch policy {
+	case SchemaPolicyManual, SchemaPolicyValidate, SchemaPolicyCreateMissing, SchemaPolicyReconcile:
+		return nil
+	default:
+		return fmt.Errorf("invalid schema policy %q", policy)
+	}
 }

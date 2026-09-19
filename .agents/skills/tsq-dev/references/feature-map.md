@@ -36,8 +36,8 @@
 | 错误类型 `OptimisticLockError` | `errors.go` |
 | 关联装配 `AttachMany` / `AttachOne`（父键收集、按键分组、走 `ListIn`） | `attach.go`（`attach_test.go`；三方言真跑在 `TestIntegrationAttachLoadsChildrenInOneQuery`） |
 | 全文检索（`//tsq:fulltext`、`TableOf.FullText`、`Matches`、三方言渲染） | `fulltext.go` + `internal/sqldialect/*.go` 的 `FullTextIndexSQL` / `FullTextVectorSQL`（`fulltext_test.go`；三方言真跑在 `TestIntegrationFullTextSearch`） |
-| 表注册、`SchemaPolicy`、`MissingTableError` / `MissingIndexError`、`Logger` | `schema.go` |
-| 索引策略执行 | `table_index.go` |
+| 表注册、`SchemaPolicy`、`MissingTableError` / `MissingIndexError` | `schema.go` |
+| 索引策略执行 | `runtime_index.go`（`runtime_index_test.go`） |
 
 ## 根包：运行时与执行器
 
@@ -45,11 +45,13 @@
 | --- | --- |
 | 封闭的 `Executor`、`execScope`、`WrapExecutor`、`DBTX` | `executor.go` |
 | `Open` / `NewRuntime`、连接池所有权、标识符校验 | `runtime.go`（选项在 `runtime_options.go`） |
-| schema 对账、执行期日志与 SQL 日志 | `runtime_schema.go` |
-| 事务与重试（`WithTx`、`WithTxResult`、`TxOption` 与 `WithRetry` 等、`RetryPolicy`、错误谓词） | `tx.go`（`tx_test.go`） |
+| 表与列的 schema 对账 | `runtime_schema.go` |
+| `Logger`、执行期日志与 SQL 日志（`logForExecutor` / `logSQLForExecutor`） | `log.go` |
+| 错误类型与全部 `Is*` 判断（乐观锁、行状态、重试、冲突、重复键） | `errors.go`（驱动错误分类在 `mysql_errors.go` / `postgres_errors.go` / `sqlite_errors.go`） |
+| 事务与重试（`WithTx`、`WithTxResult`、`TxOption` 与 `WithRetry` 等、`RetryPolicy`） | `tx.go`（`tx_test.go`） |
 | 追踪钩子 | `trace.go` |
 | SQLite / PostgreSQL / MySQL 错误映射 | `sqlite_errors.go`、`postgres_errors.go`、`mysql_errors.go`（反射读 `*mysql.MySQLError`，不 import 驱动） |
-| 杂项（`isNilValue`、标识符校验、重复键判断、谓词值校验） | `util.go` |
+| 杂项（`isNilValue`、标识符校验、谓词值校验） | `util.go` |
 | 真实 MySQL / PostgreSQL 集成测试、MySQL 错误分类 | `internal/integration/integration_test.go`（只用导出 API，env DSN 驱动；放在根包外是为了不把驱动和 nullbio 带进使用者的 `go.sum`） |
 | 测试夹具（`Users` / `Orders` 表、`newSQLite`、`wideTable`） | `fixtures_test.go` |
 
