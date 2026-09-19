@@ -293,7 +293,7 @@ func (r *Runtime) executeTxAttempt[T any](
 		}
 	}()
 
-	result, err := fn(ctx, boundExecutor{Executor: tx, s: execScope{dialect: r.dialect, runtime: r, tx: true}})
+	result, err := fn(ctx, boundExecutor{DBTX: tx, s: execScope{dialect: r.dialect, runtime: r, tx: true}})
 	if err != nil {
 		var zero T
 		return zero, txRetryStageBody, err

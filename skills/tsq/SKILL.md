@@ -40,7 +40,7 @@ describes the implementation.
 - Treat generated `*.tsq.go` and `*.result.tsq.go` as outputs; do not hand-edit them unless the user is explicitly debugging generation output.
 - Prefer the current Build-based query flow:
   `tsq.Select(...).From(...).Where(...).Build()`
-- Pass `runtime` (or the `WithTx` executor) where a `tsq.Executor` is needed; wrap a pool TSQ did not open with `tsq.WrapExecutor(db, dialect)`.
+- Pass `runtime` (or the `WithTx` executor) where a `tsq.Executor` is needed; wrap a pool TSQ did not open with `tsq.WrapExecutor(db, dialect.MySQL)` (the `dialect` package names the three engines).
 - Values known only at execution are parameters: `col.EQ(col.Param())` in the query and `col.Bind(v)` when running it, or `tsq.NewParam[T]("name")` when a column needs two values. Arguments are `tsq.Arg` values matched by parameter, never positional.
 - Row writes go through the generated row methods (`row.Insert(ctx, db)`) or the table descriptor (`TableXxx.BatchInsert(ctx, db, rows)`).
 - Use `TableXxx.Upsert(ctx, db, &row, key...)` / `BatchUpsert` for insert-or-update by the primary key or a unique index; on MySQL it is refused while the row could hit another unique key.
@@ -73,7 +73,7 @@ describes the implementation.
 1. Choose the target package for table structs and result structs.
 2. Add or update the `//tsq:` directives.
 3. Run `tsq gen`.
-4. Wire `tsq.Open(ctx, driverName, dsn, package.TSQTables(), opts...)` (or `tsq.NewRuntime(ctx, db, dialect, ...)` over an existing pool) in the existing DB bootstrap path.
+4. Wire `tsq.Open(ctx, driverName, dsn, package.TSQTables(), opts...)` (or `tsq.NewRuntime(ctx, db, dialect.Postgres, ...)` over an existing pool) in the existing DB bootstrap path.
 5. Replace one query or CRUD path at a time.
 6. Keep the change aligned with the target project's existing tests and transaction model.
 

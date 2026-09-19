@@ -174,7 +174,7 @@ if err := runtime.WithTx(ctx, &tsq.TxOptions{
 
 这些 helper 接收的是 `Executor`，因此事务边界由调用方决定：
 
-- 传 `runtime`（或 `tsq.WrapExecutor(db, dialect)`）：每条语句各自提交，允许部分成功
+- 传 `runtime`（或 `tsq.WrapExecutor(db, dialect.MySQL)`）：每条语句各自提交，允许部分成功
 - 通过 `runtime.WithTx(...)` 提供的事务 executor：让整个批量操作参与同一个事务
 
 ```go

@@ -13,6 +13,7 @@ import (
 	"sync"
 
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
+	sqld "github.com/tmoeish/tsq/v5/internal/sqldialect"
 )
 
 var builtInIdentifierPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
@@ -37,7 +38,7 @@ type renderKey struct {
 }
 
 // statement returns the template for mode on d.
-func (q *Query[O]) statement(d tsqdialect.Dialect, m renderMode) (*statement, error) {
+func (q *Query[O]) statement(d sqld.Dialect, m renderMode) (*statement, error) {
 	key := renderKey{dialect: d.Name(), count: m.count, keyword: m.keyword, single: m.single}
 	if !m.paged {
 		if cached, ok := q.cache.Load(key); ok {
@@ -125,12 +126,13 @@ func (q *Query[O]) prepare(exec Executor, args []Arg, builtin map[*paramSpec]any
 }
 
 // SQL renders the query for dialect with args bound, as it would run.
-func (q *Query[O]) SQL(dialect tsqdialect.Dialect, args ...Arg) (string, []any, error) {
-	if isNilValue(dialect) {
-		return "", nil, errors.New("dialect cannot be nil")
+func (q *Query[O]) SQL(engine tsqdialect.Name, args ...Arg) (string, []any, error) {
+	exec, err := wrapExecutor(noopExecutor{}, engine)
+	if err != nil {
+		return "", nil, err
 	}
 
-	_, stmts, err := q.prepare(WrapExecutor(noopExecutor{}, dialect), args, nil, renderMode{})
+	_, stmts, err := q.prepare(exec, args, nil, renderMode{})
 	if err != nil {
 		return "", nil, err
 	}
@@ -141,7 +143,7 @@ func (q *Query[O]) SQL(dialect tsqdialect.Dialect, args ...Arg) (string, []any, 
 // String renders the query for debugging, in SQLite syntax, with parameters shown
 // by name.
 func (q *Query[O]) String() string {
-	r := newRenderer(tsqdialect.SQLiteDialect{})
+	r := newRenderer(sqld.SQLiteDialect{})
 	q.spec.render(r, renderMode{})
 
 	return debugStatement(r)
@@ -283,7 +285,7 @@ func (q *Query[O]) ListIn[T comparable](ctx context.Context, db Executor, param 
 
 		// An empty list renders without placeholders, so this is what the rest of
 		// the statement binds.
-		room := tsqdialect.MaxBindParams(scope.dialect) - len(empty[0].args)
+		room := sqld.MaxBindParams(scope.dialect) - len(empty[0].args)
 		if room < 1 {
 			return nil, errors.New("list in: the other arguments already fill the bind parameter limit")
 		}
@@ -582,7 +584,7 @@ func snapshotRead[T any](ctx context.Context, db Executor, fn func(context.Conte
 		return fn(ctx, db)
 	}
 
-	beginner, ok := bound.Executor.(interface {
+	beginner, ok := bound.DBTX.(interface {
 		BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error)
 	})
 	if !ok {
@@ -594,7 +596,7 @@ func snapshotRead[T any](ctx context.Context, db Executor, fn func(context.Conte
 		return zero, fmt.Errorf("begin snapshot read: %w", err)
 	}
 
-	result, err := fn(ctx, WrapExecutor(tx, s.dialect))
+	result, err := fn(ctx, boundExecutor{DBTX: tx, s: execScope{dialect: s.dialect, tx: true}})
 	if err != nil {
 		return zero, errors.Join(err, ignoreTxDone(tx.Rollback()))
 	}

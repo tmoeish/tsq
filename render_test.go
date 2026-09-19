@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
+	sqld "github.com/tmoeish/tsq/v5/internal/sqldialect"
 )
 
 func TestRenderQuotesAndNumbersPerDialect(t *testing.T) {
@@ -17,7 +18,7 @@ func TestRenderQuotesAndNumbersPerDialect(t *testing.T) {
 		MustBuild()
 
 	tests := []struct {
-		dialect tsqdialect.Dialect
+		dialect tsqdialect.Name
 		want    string
 	}{
 		{onSQLite, `SELECT "users"."id", "users"."name" FROM "users" WHERE ("users"."name" = ? AND "users"."version" > ? AND "users"."deleted_at" = 0)`},
@@ -26,7 +27,7 @@ func TestRenderQuotesAndNumbersPerDialect(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		t.Run(string(tt.dialect.Name()), func(t *testing.T) {
+		t.Run(string(tt.dialect), func(t *testing.T) {
 			sql, args := sqlOf(t, q, tt.dialect, name.Bind("amy"))
 			if sql != tt.want {
 				t.Fatalf("SQL =\n%s\nwant\n%s", sql, tt.want)
@@ -107,19 +108,19 @@ func TestDatePartsAreSpelledPerDialect(t *testing.T) {
 	q := Select(MapInto(Year(User_CreatedAt), func(r *namedRow) *int64 { return &r.ID }, "year")).
 		From(Users).MustBuild()
 
-	for d, want := range map[tsqdialect.Dialect]string{
+	for d, want := range map[tsqdialect.Name]string{
 		onMySQL:    "YEAR(`users`.`created_at`)",
 		onPostgres: `CAST(EXTRACT(YEAR FROM "users"."created_at") AS BIGINT)`,
 		onSQLite:   `CAST(strftime('%Y', SUBSTR("users"."created_at", 1, 19)) AS INTEGER)`,
 	} {
 		if sql, _ := sqlOf(t, q, d); !strings.Contains(sql, want) {
-			t.Fatalf("%s: %s does not contain %s", d.Name(), sql, want)
+			t.Fatalf("%s: %s does not contain %s", d, sql, want)
 		}
 	}
 }
 
 func TestIdentifiersAreValidatedForTheDialect(t *testing.T) {
-	long := firstRejectedIdentifier(t, onPostgres)
+	long := firstRejectedIdentifier(t, sqld.PostgresDialect{})
 	table := namedTable(long)
 
 	q := Select(table.Columns()...).From(table).MustBuild()
@@ -219,13 +220,13 @@ func TestCaseRendersBranchesInOrder(t *testing.T) {
 func TestQueryRenderingIsCachedPerDialect(t *testing.T) {
 	q := Select(User_ID).From(Users).MustBuild()
 
-	first, err := q.statement(onSQLite, renderMode{})
+	first, err := q.statement(sqld.SQLiteDialect{}, renderMode{})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	second, _ := q.statement(onSQLite, renderMode{})
-	other, _ := q.statement(onMySQL, renderMode{})
+	second, _ := q.statement(sqld.SQLiteDialect{}, renderMode{})
+	other, _ := q.statement(sqld.MySQLDialect{}, renderMode{})
 
 	if first != second {
 		t.Fatal("expected the second render for the same dialect to hit the cache")
@@ -239,15 +240,20 @@ func TestQueryRenderingIsCachedPerDialect(t *testing.T) {
 // TestSingleRowReadsLimitBeforeTheLock guards the clause order Get, Find, Exists
 // and Scalar rely on: every dialect wants LIMIT before FOR UPDATE / FOR SHARE.
 func TestSingleRowReadsLimitBeforeTheLock(t *testing.T) {
-	single := func(q *Query[user], d tsqdialect.Dialect) (string, []any) {
+	single := func(q *Query[user], d tsqdialect.Name) (string, []any) {
 		t.Helper()
 
-		stmt, err := q.statement(d, renderMode{single: true})
+		impl, err := sqld.For(d)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		sql, args, err := stmt.assemble(d, argSet{})
+		stmt, err := q.statement(impl, renderMode{single: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		sql, args, err := stmt.assemble(impl, argSet{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -256,9 +262,9 @@ func TestSingleRowReadsLimitBeforeTheLock(t *testing.T) {
 	}
 
 	locked := Select(User_ID).From(Users.WithDeleted()).ForUpdate().MustBuild()
-	for _, d := range []tsqdialect.Dialect{onMySQL, onPostgres} {
+	for _, d := range []tsqdialect.Name{onMySQL, onPostgres} {
 		if sql, _ := single(locked, d); !strings.HasSuffix(sql, " LIMIT 1 FOR UPDATE") {
-			t.Errorf("%s: %s", d.Name(), sql)
+			t.Errorf("%s: %s", d, sql)
 		}
 	}
 

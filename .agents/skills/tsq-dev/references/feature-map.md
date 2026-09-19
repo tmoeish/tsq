@@ -34,7 +34,7 @@
 | 按条件写（`UpdateTable` / `DeleteFrom` / `HardDeleteFrom`、`Mutation`） | `mutation.go`（`exec_test.go`；`internal/integration` 的 `TestIntegrationMutationsByCondition` 三方言真跑） |
 | 错误类型 `OptimisticLockError` | `errors.go` |
 | 关联装配 `AttachMany` / `AttachOne`（父键收集、按键分组、走 `ListIn`） | `attach.go`（`attach_test.go`；三方言真跑在 `TestIntegrationAttachLoadsChildrenInOneQuery`） |
-| 全文检索（`//tsq:fulltext`、`TableOf.FullText`、`Matches`、三方言渲染） | `fulltext.go` + `dialect/*.go` 的 `FullTextIndexSQL` / `FullTextVectorSQL`（`fulltext_test.go`；三方言真跑在 `TestIntegrationFullTextSearch`） |
+| 全文检索（`//tsq:fulltext`、`TableOf.FullText`、`Matches`、三方言渲染） | `fulltext.go` + `internal/sqldialect/*.go` 的 `FullTextIndexSQL` / `FullTextVectorSQL`（`fulltext_test.go`；三方言真跑在 `TestIntegrationFullTextSearch`） |
 | 表注册、`SchemaPolicy`、`MissingTableError` / `MissingIndexError`、`Logger` | `schema.go` |
 | 索引策略执行 | `table_index.go` |
 
@@ -42,7 +42,7 @@
 
 | 关注点 | 文件 |
 | --- | --- |
-| 封闭的 `Executor`、`execScope`、`WrapExecutor` | `executor.go` |
+| 封闭的 `Executor`、`execScope`、`WrapExecutor`、`DBTX` | `executor.go` |
 | `Open` / `NewRuntime`、连接池所有权、标识符校验 | `runtime.go`（选项在 `runtime_options.go`） |
 | schema 对账、执行期日志与 SQL 日志 | `runtime_schema.go` |
 | 事务与重试（`WithTx`、`WithTxResult`、`TxOptions`、`RetryPolicy`、错误谓词） | `tx.go`（`tx_test.go`） |
@@ -56,10 +56,12 @@
 
 | 关注点 | 文件 |
 | --- | --- |
-| `Dialect` 接口、`Capability` 枚举、`UnsupportedCapabilityError`、`Index`、`ColumnSpec` | `dialect/dialect.go` |
-| MySQL | `dialect/mysql.go` |
-| PostgreSQL | `dialect/postgres.go` |
-| SQLite | `dialect/sqlite.go` |
+| 公开的方言名、`Capability` 表、`Supports` / `Check`、`UnsupportedCapabilityError` | `dialect/dialect.go` |
+| 生成代码用的列描述（`ColumnSpec`、`ColumnType`、`Kind*`、`Fill*`） | `dialect/schema.go` |
+| `Dialect` 接口、`For(name)`、`Index`、`MaxBindParams`、DDL 渲染 | `internal/sqldialect/dialect.go` |
+| MySQL | `internal/sqldialect/mysql.go` |
+| PostgreSQL | `internal/sqldialect/postgres.go` |
+| SQLite | `internal/sqldialect/sqlite.go` |
 
 ## 生成器
 

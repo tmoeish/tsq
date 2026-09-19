@@ -381,7 +381,7 @@ func runFullTextDemo(ctx context.Context, runtime *tsq.Runtime) (*FullTextSummar
 	return &FullTextSummary{
 		Term:   term,
 		Titles: titles,
-		Native: runtime.Dialect().SupportsCapability(tsqdialect.CapabilityFullTextSearch),
+		Native: tsqdialect.Supports(runtime.Dialect(), tsqdialect.CapabilityFullTextSearch),
 	}, nil
 }
 

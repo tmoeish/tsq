@@ -1,4 +1,4 @@
-package dialect
+package sqldialect
 
 import (
 	"database/sql"

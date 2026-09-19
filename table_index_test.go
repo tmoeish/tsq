@@ -7,13 +7,13 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
+	sqld "github.com/tmoeish/tsq/v5/internal/sqldialect"
 )
 
-func inspectRegisteredIndex(t *testing.T, db *Runtime, table, idx string) (tsqdialect.Index, bool) {
+func inspectRegisteredIndex(t *testing.T, db *Runtime, table, idx string) (sqld.Index, bool) {
 	t.Helper()
 
-	definition, found, err := db.Dialect().InspectIndex(context.Background(), db, table, idx)
+	definition, found, err := db.dialect.InspectIndex(context.Background(), db, table, idx)
 	if err != nil {
 		t.Fatalf("failed to inspect index %s on %s: %v", idx, table, err)
 	}
@@ -47,20 +47,20 @@ func newRegisteredIndexRuntime(
 }
 
 func TestUpsertIndexRejectsInvalidIdentifiers(t *testing.T) {
-	err := upsertIndex(context.Background(), nil, tsqdialect.MySQLDialect{}, SchemaPolicyCreateMissing, "users;drop", false, "idx_users_id", []string{"id"})
+	err := upsertIndex(context.Background(), nil, sqld.MySQLDialect{}, SchemaPolicyCreateMissing, "users;drop", false, "idx_users_id", []string{"id"})
 	if err == nil {
 		t.Fatal("expected nil db to return an error")
 	}
 	db, _ := newSQLiteIndexTestEngine(t)
-	err = upsertIndex(context.Background(), db.DB(), tsqdialect.MySQLDialect{}, SchemaPolicyCreateMissing, "users;drop", false, "idx_users_id", []string{"id"})
+	err = upsertIndex(context.Background(), db.DB(), sqld.MySQLDialect{}, SchemaPolicyCreateMissing, "users;drop", false, "idx_users_id", []string{"id"})
 	if err == nil {
 		t.Fatal("expected invalid table name to return an error")
 	}
-	err = upsertIndex(context.Background(), db.DB(), tsqdialect.MySQLDialect{}, SchemaPolicyCreateMissing, "users", false, "idx users id", []string{"id"})
+	err = upsertIndex(context.Background(), db.DB(), sqld.MySQLDialect{}, SchemaPolicyCreateMissing, "users", false, "idx users id", []string{"id"})
 	if err == nil {
 		t.Fatal("expected invalid index name to return an error")
 	}
-	err = upsertIndex(context.Background(), db.DB(), tsqdialect.MySQLDialect{}, SchemaPolicyCreateMissing, "users", false, "idx_users_id", []string{"id", "name desc"})
+	err = upsertIndex(context.Background(), db.DB(), sqld.MySQLDialect{}, SchemaPolicyCreateMissing, "users", false, "idx_users_id", []string{"id", "name desc"})
 	if err == nil {
 		t.Fatal("expected invalid field name to return an error")
 	}
@@ -68,14 +68,14 @@ func TestUpsertIndexRejectsInvalidIdentifiers(t *testing.T) {
 
 func TestUpsertIndexRejectsEmptyFields(t *testing.T) {
 	db, _ := newSQLiteIndexTestEngine(t)
-	err := upsertIndex(context.Background(), db.DB(), tsqdialect.MySQLDialect{}, SchemaPolicyCreateMissing, "users", false, "idx_users_id", nil)
+	err := upsertIndex(context.Background(), db.DB(), sqld.MySQLDialect{}, SchemaPolicyCreateMissing, "users", false, "idx_users_id", nil)
 	if err == nil {
 		t.Fatal("expected empty index fields to return an error")
 	}
 }
 
 func TestUpsertIndexRejectsNilDB(t *testing.T) {
-	err := upsertIndex(context.Background(), nil, tsqdialect.MySQLDialect{}, SchemaPolicyCreateMissing, "users", false, "idx_users_id", []string{"id"})
+	err := upsertIndex(context.Background(), nil, sqld.MySQLDialect{}, SchemaPolicyCreateMissing, "users", false, "idx_users_id", []string{"id"})
 	if err == nil {
 		t.Fatal("expected nil db to return an error")
 	}
@@ -95,7 +95,7 @@ func TestUpsertIndexSQLiteRejectsConflictingTableReuse(t *testing.T) {
 			t.Fatalf("failed to execute setup statement %q: %v", statement, err)
 		}
 	}
-	err := upsertIndex(context.Background(), db.DB(), db.Dialect(), SchemaPolicyCreateMissing, "orgs", true, "ux_name", []string{"name"})
+	err := upsertIndex(context.Background(), db.DB(), db.dialect, SchemaPolicyCreateMissing, "orgs", true, "ux_name", []string{"name"})
 	if err == nil {
 		t.Fatal("expected conflicting sqlite index name to return an error")
 	}
@@ -109,7 +109,7 @@ func TestUpsertIndexSQLiteRejectsDefinitionMismatch(t *testing.T) {
 			t.Fatalf("failed to execute setup statement %q: %v", statement, err)
 		}
 	}
-	err := upsertIndex(context.Background(), db.DB(), db.Dialect(), SchemaPolicyCreateMissing, "users", true, "ux_users_name", []string{"name"})
+	err := upsertIndex(context.Background(), db.DB(), db.dialect, SchemaPolicyCreateMissing, "users", true, "ux_users_name", []string{"name"})
 	if err == nil {
 		t.Fatal("expected mismatched sqlite index definition to return an error")
 	}
@@ -123,7 +123,7 @@ func TestUpsertIndexSQLiteAcceptsMatchingDefinition(t *testing.T) {
 			t.Fatalf("failed to execute setup statement %q: %v", statement, err)
 		}
 	}
-	if err := upsertIndex(context.Background(), db.DB(), db.Dialect(), SchemaPolicyCreateMissing, "users", true, "ux_users_name", []string{"name"}); err != nil {
+	if err := upsertIndex(context.Background(), db.DB(), db.dialect, SchemaPolicyCreateMissing, "users", true, "ux_users_name", []string{"name"}); err != nil {
 		t.Fatalf("expected matching sqlite index definition to pass, got %v", err)
 	}
 }

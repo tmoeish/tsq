@@ -8,7 +8,7 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
+	sqld "github.com/tmoeish/tsq/v5/internal/sqldialect"
 )
 
 func sharedSQLiteDSN(t *testing.T) string {
@@ -27,7 +27,7 @@ func tableExists(t *testing.T, dsn, name string) bool {
 
 	defer func() { _ = db.Close() }()
 
-	_, found, err := tsqdialect.SQLiteDialect{}.InspectColumns(context.Background(), db, name)
+	_, found, err := sqld.SQLiteDialect{}.InspectColumns(context.Background(), db, name)
 	if err != nil {
 		t.Fatalf("inspect %s: %v", name, err)
 	}

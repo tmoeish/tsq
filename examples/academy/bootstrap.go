@@ -54,7 +54,7 @@ func OpenSQLiteExampleDB() (*tsq.Runtime, func(), error) {
 	runtime, err := tsq.NewRuntime(
 		context.Background(),
 		db,
-		tsqdialect.SQLiteDialect{},
+		tsqdialect.SQLite,
 		TSQTables(),
 		tsq.WithIndexPolicy(tsq.SchemaPolicyCreateMissing),
 	)

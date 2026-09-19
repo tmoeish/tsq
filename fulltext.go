@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
+	sqld "github.com/tmoeish/tsq/v5/internal/sqldialect"
 )
 
 // FullTextIndex is a table's declared full-text index, from TableOf.FullText.
@@ -49,7 +50,7 @@ func Matches(index FullTextIndex, term SearchTerm) Condition {
 	// The spelling is built with the dialect in use, so the quoting and the indexed
 	// expression come from it rather than from a dialect this package picked.
 	return newCondition(info.merge(raw).merge(like).withSQL(
-		sqlForDialect("full-text search", func(d tsqdialect.Dialect) (sqlExpr, bool) {
+		sqlForDialect("full-text search", func(d sqld.Dialect) (sqlExpr, bool) {
 			switch d.Name() {
 			case tsqdialect.MySQL:
 				return matchAgainst(index, raw.sql), true
@@ -76,7 +77,7 @@ func matchAgainst(index FullTextIndex, term sqlExpr) sqlExpr {
 
 // textSearchMatch repeats the expression the GIN index holds, which is what lets
 // PostgreSQL use it.
-func textSearchMatch(d tsqdialect.Dialect, index FullTextIndex, term sqlExpr) sqlExpr {
+func textSearchMatch(d sqld.Dialect, index FullTextIndex, term sqlExpr) sqlExpr {
 	quoted := make([]string, 0, len(index.index.Fields))
 	for _, name := range index.index.Fields {
 		quoted = append(quoted, d.QuoteIdent(index.table.Name())+"."+d.QuoteIdent(name))

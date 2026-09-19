@@ -224,7 +224,8 @@ func TestIntegrationReconcileAltersOnlyTheChangedColumn(t *testing.T) {
 			widened := widenedLearner(t, 200)
 
 			rt, recorder := openWithPolicy(t, target, widened, tsq.SchemaPolicyReconcile)
-			if rt.Dialect().AlterMode() != tsqdialect.AlterRebuild && recorder.count() != 1 {
+			// SQLite rebuilds the table instead of altering the column.
+			if rt.Dialect() != tsqdialect.SQLite && recorder.count() != 1 {
 				t.Fatalf("expected exactly one ALTER for the widened column, got:\n  %s",
 					strings.Join(recorder.statements(), "\n  "))
 			}
@@ -341,7 +342,7 @@ func TestIntegrationLockConflictsAreRetryable(t *testing.T) {
 			}
 			defer holder.Rollback() //nolint:errcheck // best-effort cleanup
 
-			lockSQL := fmt.Sprintf("SELECT id FROM track WHERE id = %s FOR UPDATE", rt.Dialect().Placeholder(0))
+			lockSQL := fmt.Sprintf("SELECT id FROM track WHERE id = %s FOR UPDATE", placeholder(rt))
 			if _, err := holder.ExecContext(ctx, lockSQL, track.ID); err != nil {
 				t.Fatalf("hold row lock: %v", err)
 			}
@@ -398,9 +399,7 @@ func TestIntegrationCapabilitiesExecute(t *testing.T) {
 				t.Fatalf("insert learner: %v", err)
 			}
 
-			dialect := rt.Dialect()
-
-			if dialect.SupportsCapability(tsqdialect.CapabilityCTE) {
+			if tsqdialect.Supports(rt.Dialect(), tsqdialect.CapabilityCTE) {
 				recent := tsq.CTE("recent_learners",
 					tsq.Select(academy.Learner_ID).From(academy.TableLearner).Where(academy.Learner_ID.GT(tsq.Val(int64(0)))))
 				recentID := academy.Learner_ID.WithTable(recent)
@@ -415,7 +414,7 @@ func TestIntegrationCapabilitiesExecute(t *testing.T) {
 				}
 			}
 
-			if dialect.SupportsCapability(tsqdialect.CapabilityIntersect) {
+			if tsqdialect.Supports(rt.Dialect(), tsqdialect.CapabilityIntersect) {
 				query := tsq.Select(academy.Learner_ID).From(academy.TableLearner).
 					Intersect(tsq.Select(academy.Learner_ID).From(academy.TableLearner)).
 					MustBuild()
@@ -430,7 +429,7 @@ func TestIntegrationCapabilitiesExecute(t *testing.T) {
 				}
 			}
 
-			if dialect.SupportsCapability(tsqdialect.CapabilityExcept) {
+			if tsqdialect.Supports(rt.Dialect(), tsqdialect.CapabilityExcept) {
 				query := tsq.Select(academy.Learner_ID).From(academy.TableLearner).
 					Except(tsq.Select(academy.Learner_ID).From(academy.TableLearner)).
 					MustBuild()
@@ -445,7 +444,7 @@ func TestIntegrationCapabilitiesExecute(t *testing.T) {
 				}
 			}
 
-			if dialect.SupportsCapability(tsqdialect.CapabilityFullOuterJoin) {
+			if tsqdialect.Supports(rt.Dialect(), tsqdialect.CapabilityFullOuterJoin) {
 				// Both sides of a FULL JOIN can be NULL, so the key is coalesced.
 				query := tsq.SelectValue(tsq.Coalesce(academy.Learner_ID, tsq.Val(int64(0)))).From(academy.TableLearner).
 					FullJoin(academy.TableEnrollment, academy.Learner_ID.EQ(academy.Enrollment_LearnerID)).
@@ -653,13 +652,10 @@ func TestIntegrationSchemaPolicyNeverDropsUndeclaredTables(t *testing.T) {
 			}
 
 			for _, name := range []string{"learner", "course", "enrollment"} {
-				_, found, err := academyRT.Dialect().InspectColumns(ctx, academyRT.DB(), name)
-				if err != nil {
-					t.Fatalf("inspect %s on %s: %v", name, target.name, err)
-				}
-
-				if !found {
-					t.Fatalf("table %s was dropped by a runtime that never declared it on %s", name, target.name)
+				// Selecting nothing from a table fails only when the table is gone.
+				var one int
+				if err := academyRT.DB().QueryRowContext(ctx, "SELECT 1 FROM "+name+" WHERE 1 = 0").Scan(&one); !errors.Is(err, sql.ErrNoRows) {
+					t.Fatalf("table %s was dropped by a runtime that never declared it on %s: %v", name, target.name, err)
 				}
 			}
 		})
@@ -814,7 +810,7 @@ func TestIntegrationUpsert(t *testing.T) {
 
 			dropAcademyTables(t, target)
 			rt, _ := openWithPolicy(t, target, academy.TSQTables(), tsq.SchemaPolicyReconcile)
-			mysql := rt.Dialect().Name() == tsqdialect.MySQL
+			mysql := rt.Dialect() == tsqdialect.MySQL
 
 			// By a unique index: insert, then update the same learner.
 			first := &academy.Learner{Name: "Ada", Email: "ada@example.test", Company: "A"}
@@ -1253,7 +1249,7 @@ func TestIntegrationFullTextSearch(t *testing.T) {
 				t.Fatalf("value term = %d, %v", n, err)
 			}
 
-			native := rt.Dialect().SupportsCapability(tsqdialect.CapabilityFullTextSearch)
+			native := tsqdialect.Supports(rt.Dialect(), tsqdialect.CapabilityFullTextSearch)
 			if native != (target.driver != "sqlite") {
 				t.Fatalf("%s reports full-text support %v", target.name, native)
 			}
@@ -1471,7 +1467,7 @@ func TestIntegrationSoftDeleteScopeJoins(t *testing.T) {
 			count("right join", from().RightJoin(academy.TableEnrollment, on), 1)
 			count("inner join with deleted", from().Join(academy.TableEnrollment.WithDeleted(), on), 2)
 
-			if rt.Dialect().SupportsCapability(tsqdialect.CapabilityFullOuterJoin) {
+			if tsqdialect.Supports(rt.Dialect(), tsqdialect.CapabilityFullOuterJoin) {
 				count("full join", from().FullJoin(academy.TableEnrollment, on), 2)
 			}
 		})
@@ -1597,4 +1593,13 @@ func TestMySQLErrorsAreClassifiedWithoutImportingTheDriver(t *testing.T) {
 	if tsq.IsTxConflictError(&mysql.MySQLError{Number: 1062}) {
 		t.Fatal("a duplicate key is not a transaction conflict")
 	}
+}
+
+// placeholder is the first bind placeholder of rt's dialect, for raw SQL.
+func placeholder(rt *tsq.Runtime) string {
+	if rt.Dialect() == tsqdialect.Postgres {
+		return "$1"
+	}
+
+	return "?"
 }

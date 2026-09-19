@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
+	sqld "github.com/tmoeish/tsq/v5/internal/sqldialect"
 )
 
 // Runtime owns the initialized TSQ process state used for execution, index setup,
@@ -17,7 +18,7 @@ type Runtime struct {
 	tables      []*registeredTable
 	tracers     []Tracer
 	db          *sql.DB
-	dialect     tsqdialect.Dialect
+	dialect     sqld.Dialect
 	tablePolicy SchemaPolicy
 	indexPolicy SchemaPolicy
 	logger      Logger
@@ -78,7 +79,7 @@ func Open(
 func NewRuntime(
 	ctx context.Context,
 	db *sql.DB,
-	sqlDialect tsqdialect.Dialect,
+	engine tsqdialect.Name,
 	tables []Table,
 	options ...RuntimeOption,
 ) (*Runtime, error) {
@@ -90,8 +91,9 @@ func NewRuntime(
 		return nil, errors.New("db cannot be nil")
 	}
 
-	if sqlDialect == nil {
-		return nil, errors.New("dialect cannot be nil; pass one of the dialect package values")
+	sqlDialect, err := sqld.For(engine)
+	if err != nil {
+		return nil, err
 	}
 
 	return newRuntime(ctx, db, sqlDialect, tables, false, options)
@@ -100,7 +102,7 @@ func NewRuntime(
 func newRuntime(
 	ctx context.Context,
 	db *sql.DB,
-	sqlDialect tsqdialect.Dialect,
+	sqlDialect sqld.Dialect,
 	tables []Table,
 	ownsDB bool,
 	options []RuntimeOption,
@@ -185,13 +187,13 @@ func (r *Runtime) DB() *sql.DB {
 	return r.db
 }
 
-// Dialect returns the concrete SQL dialect bound to this runtime.
-func (r *Runtime) Dialect() tsqdialect.Dialect {
-	if r == nil {
-		return nil
+// Dialect returns the SQL engine this runtime talks to.
+func (r *Runtime) Dialect() tsqdialect.Name {
+	if r == nil || r.dialect == nil {
+		return ""
 	}
 
-	return r.dialect
+	return r.dialect.Name()
 }
 
 // QueryContext executes a query against the runtime database.

@@ -164,7 +164,7 @@ func main() {
 
 更完整的从零到 SQLite 示例见 [`docs/quickstart.md`](docs/quickstart.md)。
 
-`tsq.Open` 自己 `sql.Open` 并按 `driverName` 解析方言；已经有连接池时用 `tsq.NewRuntime(ctx, db, dialect, tables, ...)`，`Close()` 不会关掉别人的池。默认策略是 **manual**：TSQ 只记录提醒日志，不会自动建表或补索引。`tsq.WithSchemaPolicy(p)` 同时设置表和索引，`WithTablePolicy` / `WithIndexPolicy` 分开设置。
+`tsq.Open` 自己 `sql.Open` 并按 `driverName` 解析方言；已经有连接池时用 `tsq.NewRuntime(ctx, db, dialect.MySQL, tables, ...)`，`Close()` 不会关掉别人的池。默认策略是 **manual**：TSQ 只记录提醒日志，不会自动建表或补索引。`tsq.WithSchemaPolicy(p)` 同时设置表和索引，`WithTablePolicy` / `WithIndexPolicy` 分开设置。
 
 四档策略，从不做到做得最多：
 
@@ -222,7 +222,7 @@ TSQ 当前内置的 `Dialect` 实现只有 **SQLite / MySQL / PostgreSQL**。下
 - **`OrderBy` / `Limit` / `Offset` 和 `Page(...)` 二选一**：`Page` 自己决定排序和分页。
 - **空的列表参数不会去掉过滤条件**：`In` 匹配不到任何行，`NotIn` 匹配全部。
 - **执行期的值都走参数**：`List` / `Get` / `Exec` 只接受 `Bind` 出来的 `tsq.Arg`，按参数匹配而不是按位置。
-- **执行器必须知道方言**：`*tsq.Runtime`、`WithTx` 给的执行器，或 `tsq.WrapExecutor(db, dialect)`；裸 `*sql.DB` 编译不过。
+- **执行器必须知道方言**：`*tsq.Runtime`、`WithTx` 给的执行器，或 `tsq.WrapExecutor(db, dialect.MySQL)`；裸 `*sql.DB` 编译不过。
 - **`Build()` 成功不代表所有方言都能执行**：CTE、`FULL JOIN`、行锁在执行时按方言校验，不支持时返回 `*dialect.UnsupportedCapabilityError`。
 - **`version` 字段是自动乐观锁**：`Update` / `Delete` 冲突时返回 `*tsq.OptimisticLockError`，这是业务错误，必须处理。`TxOptions{RetryIf: tsq.IsOptimisticLockError}` 可以整段重试。
 - **声明了 `deleted_at` 的表，`Delete` 是软删除**，而且已删行对**所有**引用这张表的查询和按条件写都不可见（JOIN 里也是）；要看已删行用 `TableXxx.WithDeleted()`，物理删除写 `HardDelete`。没有 `deleted_at` 的表两者同义。

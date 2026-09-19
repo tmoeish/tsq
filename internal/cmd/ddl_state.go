@@ -10,8 +10,8 @@ import (
 	"sort"
 	"strings"
 
-	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 	"github.com/tmoeish/tsq/v5/internal/genmodel"
+	sqld "github.com/tmoeish/tsq/v5/internal/sqldialect"
 )
 
 const (
@@ -784,7 +784,7 @@ func renderDDLIncrementalTableBody(
 		return "", false
 	}
 
-	if dialect.dialect.AlterMode() == tsqdialect.AlterRebuild && ddlChangesRequireTableRebuild(ops) {
+	if dialect.dialect.AlterMode() == sqld.AlterRebuild && ddlChangesRequireTableRebuild(ops) {
 		body, ok := renderSQLiteRebuildTableBody(dialect, tableName, ops)
 		if ok {
 			return body, true
@@ -938,7 +938,7 @@ func renderDDLAlterColumnStatements(
 		return []string{renderDDLManualComment(tableName, fmt.Sprintf("manual change required for primary key column %s", after.Name))}
 	}
 
-	if dialect.dialect.AlterMode() != tsqdialect.AlterInPlace {
+	if dialect.dialect.AlterMode() != sqld.AlterInPlace {
 		return []string{renderDDLManualComment(tableName, fmt.Sprintf("manual change required for column %s on %s", after.Name, ddlDialectName(dialect)))}
 	}
 

@@ -15,10 +15,10 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
-	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 	"github.com/tmoeish/tsq/v5/internal/buildinfo"
 	"github.com/tmoeish/tsq/v5/internal/genmodel"
 	"github.com/tmoeish/tsq/v5/internal/parser"
+	sqld "github.com/tmoeish/tsq/v5/internal/sqldialect"
 )
 
 var (
@@ -422,10 +422,10 @@ func validateStructForGeneration(
 
 // generatedDialects are the dialects tsq gen writes DDL for; every identifier must
 // fit all of them.
-var generatedDialects = []tsqdialect.Dialect{
-	tsqdialect.MySQLDialect{},
-	tsqdialect.PostgresDialect{},
-	tsqdialect.SQLiteDialect{},
+var generatedDialects = []sqld.Dialect{
+	sqld.MySQLDialect{},
+	sqld.PostgresDialect{},
+	sqld.SQLiteDialect{},
 }
 
 // validateIdentifierLengths rejects names a dialect would truncate. The runtime
@@ -434,7 +434,7 @@ var generatedDialects = []tsqdialect.Dialect{
 func validateIdentifierLengths(data *genmodel.StructInfo) error {
 	check := func(kind, name, fix string) error {
 		for _, d := range generatedDialects {
-			if err := tsqdialect.ValidateIdentifier(d, name); err != nil {
+			if err := sqld.ValidateIdentifier(d, name); err != nil {
 				return fmt.Errorf("%s %s of %s: %w; %s", kind, name, data.TypeInfo.TypeName, err, fix)
 			}
 		}

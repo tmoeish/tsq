@@ -6,6 +6,7 @@ import (
 	"errors"
 
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
+	sqld "github.com/tmoeish/tsq/v5/internal/sqldialect"
 )
 
 // Executor runs TSQ statements. It is a *Runtime, the transaction executor
@@ -25,35 +26,58 @@ type Executor interface {
 
 // execScope is what an Executor knows beyond database/sql.
 type execScope struct {
-	dialect tsqdialect.Dialect
+	dialect sqld.Dialect
 	runtime *Runtime
 	// tx reports that statements run inside a transaction.
 	tx bool
 }
 
+// DBTX is what *sql.DB, *sql.Tx and *sql.Conn have in common: the database/sql
+// handle WrapExecutor turns into an Executor.
+type DBTX interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
 type boundExecutor struct {
-	tsqdialect.Executor
+	DBTX
 	s execScope
 }
 
 func (b boundExecutor) scope() execScope { return b.s }
 
 // WrapExecutor makes an Executor of a database/sql handle TSQ did not open, such as
-// a *sql.Tx begun elsewhere. Statements run without the logging, tracing and page
-// size cap a Runtime provides.
-func WrapExecutor(exec tsqdialect.Executor, dialect tsqdialect.Dialect) Executor {
-	if isNilValue(exec) || isNilValue(dialect) {
+// a *sql.Tx begun elsewhere, talking to engine. Statements run without the logging,
+// tracing and page size cap a Runtime provides. It returns nil when db is nil or
+// engine is not one of the dialect package's names.
+func WrapExecutor(db DBTX, engine tsqdialect.Name) Executor {
+	exec, err := wrapExecutor(db, engine)
+	if err != nil {
 		return nil
 	}
 
-	if b, ok := exec.(boundExecutor); ok {
-		b.s.dialect = dialect
-		return b
+	return exec
+}
+
+func wrapExecutor(db DBTX, engine tsqdialect.Name) (Executor, error) {
+	if isNilValue(db) {
+		return nil, errors.New("db cannot be nil")
 	}
 
-	_, isTx := exec.(*sql.Tx)
+	dialect, err := sqld.For(engine)
+	if err != nil {
+		return nil, err
+	}
 
-	return boundExecutor{Executor: exec, s: execScope{dialect: dialect, tx: isTx}}
+	if b, ok := db.(boundExecutor); ok {
+		b.s.dialect = dialect
+		return b, nil
+	}
+
+	_, isTx := db.(*sql.Tx)
+
+	return boundExecutor{DBTX: db, s: execScope{dialect: dialect, tx: isTx}}, nil
 }
 
 // executorScope validates exec and returns its scope.

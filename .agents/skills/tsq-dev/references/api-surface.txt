@@ -37,7 +37,7 @@ func IsTxConflictError(err error) bool
 func NewRuntime(
 	ctx context.Context,
 	db *sql.DB,
-	sqlDialect tsqdialect.Dialect,
+	engine tsqdialect.Name,
 	tables []Table,
 	options ...RuntimeOption,
 ) (*Runtime, error)
@@ -108,6 +108,11 @@ func NotExists(sq AnySubquery) Condition
 func NotStartsWith[S ~string](col Expression[S], prefix Pattern[S]) Condition
 func Or(conds ...Condition) Condition
 func StartsWith[S ~string](col Expression[S], prefix Pattern[S]) Condition
+type DBTX interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
 type DeleteBuilder[R any] struct {
 }
 func DeleteFrom[R any](table *TableOf[R]) *DeleteBuilder[R]
@@ -118,7 +123,7 @@ type Executor interface {
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 }
-func WrapExecutor(exec tsqdialect.Executor, dialect tsqdialect.Dialect) Executor
+func WrapExecutor(db DBTX, engine tsqdialect.Name) Executor
 type Expression[T any] interface {
 	ValueColumn[T]
 	RHS[T]
@@ -248,7 +253,7 @@ func (e *MissingTableError) Error() string
 type Mutation[R any] struct {
 }
 func (m *Mutation[R]) Exec(ctx context.Context, db Executor, args ...Arg) (int64, error)
-func (m *Mutation[R]) SQL(dialect tsqdialect.Dialect, args ...Arg) (string, []any, error)
+func (m *Mutation[R]) SQL(engine tsqdialect.Name, args ...Arg) (string, []any, error)
 type MutationStage[R any] interface {
 	Build() (*Mutation[R], error)
 	MustBuild() *Mutation[R]
@@ -338,7 +343,7 @@ func (q *Query[O]) List(ctx context.Context, db Executor, args ...Arg) ([]*O, er
 func (q *Query[O]) ListIn[T comparable](ctx context.Context, db Executor, param ListParam[T], values []T, args ...Arg) ([]*O, error)
 func (q *Query[O]) Page(ctx context.Context, db Executor, p Paging, args ...Arg) (*PageResponse[O], error)
 func (q *Query[O]) PageKeyset(ctx context.Context, db Executor, k Keyset, args ...Arg) (*KeysetPage[O], error)
-func (q *Query[O]) SQL(dialect tsqdialect.Dialect, args ...Arg) (string, []any, error)
+func (q *Query[O]) SQL(engine tsqdialect.Name, args ...Arg) (string, []any, error)
 func (q *Query[O]) String() string
 type QueryStage[O any] interface {
 	Build() (*Query[O], error)
@@ -376,7 +381,7 @@ type Runtime struct {
 }
 func (r *Runtime) Close() error
 func (r *Runtime) DB() *sql.DB
-func (r *Runtime) Dialect() tsqdialect.Dialect
+func (r *Runtime) Dialect() tsqdialect.Name
 func (r *Runtime) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 func (r *Runtime) MaxPageSize() int
 func (r *Runtime) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
@@ -554,17 +559,9 @@ type WhereStage[O any] interface {
 ## ./dialect
 package dialect // import "github.com/tmoeish/tsq/v5/dialect"
 FUNCTIONS
-func ColumnDefinitionSQL(dialect Dialect, column ColumnSpec) (string, error)
-func MaxBindParams(dialect Dialect) int
-func SameColumnType(dialect Dialect, left, right ColumnSpec) bool
-func ValidateCapability(dialect Dialect, capability Capability) error
-func ValidateIdentifier(dialect Dialect, identifier string) error
+func Check(engine Name, capability Capability) error
+func Supports(engine Name, capability Capability) bool
 TYPES
-type AlterMode string
-const (
-	AlterInPlace AlterMode = "direct"
-	AlterRebuild AlterMode = "rebuild"
-)
 type Capability string
 const (
 	CapabilityCTE                 Capability = "CTE"
@@ -577,7 +574,6 @@ const (
 	CapabilitySelectForSkipLocked Capability = "SELECT_FOR_SKIP_LOCKED"
 	CapabilityFullTextSearch Capability = "FULL_TEXT_SEARCH"
 )
-func AllCapabilities() []Capability
 type ColumnKind string
 const (
 	KindBool   ColumnKind = "bool"
@@ -605,113 +601,20 @@ type ColumnType struct {
 	Size     int
 	RawType  string
 }
-type Dialect interface {
-	Name() Name
-	QuoteIdent(ident string) string
-	Placeholder(i int) string
-	ReturningClause(col string) string
-	ValidateIdentifier(identifier string) error
-	SupportsCapability(capability Capability) bool
-	BatchInsertStartID(lastID, rowsAffected int64) (int64, bool)
-	InspectColumns(ctx context.Context, db Executor, table string) ([]ColumnSpec, bool, error)
-	ListIndexes(ctx context.Context, db Executor, table string) ([]Index, error)
-	EnsureIndex(ctx context.Context, db Executor, table, idx string, fields []string, unique bool) (string, error)
-	InspectIndex(ctx context.Context, db Executor, table, idx string) (Index, bool, error)
-	ColumnTypeSQL(t ColumnType) string
-	AutoIncrementColumnSQL(quotedColumn string, t ColumnType) (string, error)
-	CreateIndexSQL(table, idx string, quotedFields []string, unique bool) string
-	FullTextIndexSQL(table, idx string, quotedFields []string) string
-	FullTextVectorSQL(quotedFields []string) string
-	DropIndexSQL(table, idx string) string
-	AlterMode() AlterMode
-	AlterColumnSQL(table string, before, after ColumnSpec) []string
-}
-type Executor interface {
-	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
-	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
-	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
-}
 type Fill uint8
 const (
 	FillCaller Fill = iota
 	FillDefault
 	FillGenerated
 )
-type Index struct {
-	Name       string
-	Table      string
-	Unique     bool
-	Fields     []string
-	PrimaryKey bool
-	Constraint bool
-}
-type MySQLDialect struct{}
-func (d MySQLDialect) AlterColumnSQL(table string, before, after ColumnSpec) []string
-func (d MySQLDialect) AlterMode() AlterMode
-func (d MySQLDialect) AutoIncrementColumnSQL(quotedColumn string, desc ColumnType) (string, error)
-func (d MySQLDialect) BatchInsertStartID(lastID, rowsAffected int64) (int64, bool)
-func (d MySQLDialect) ColumnTypeSQL(desc ColumnType) string
-func (d MySQLDialect) CreateIndexSQL(table, idx string, fields []string, unique bool) string
-func (d MySQLDialect) DropIndexSQL(table, idx string) string
-func (d MySQLDialect) EnsureIndex(ctx context.Context, db Executor, table, idx string, fields []string, unique bool) (string, error)
-func (d MySQLDialect) FullTextIndexSQL(table, idx string, quotedFields []string) string
-func (d MySQLDialect) FullTextVectorSQL(quotedFields []string) string
-func (d MySQLDialect) InspectColumns(ctx context.Context, db Executor, table string) ([]ColumnSpec, bool, error)
-func (d MySQLDialect) InspectIndex(ctx context.Context, db Executor, table, idx string) (Index, bool, error)
-func (d MySQLDialect) ListIndexes(ctx context.Context, db Executor, table string) ([]Index, error)
-func (d MySQLDialect) Name() Name
-func (d MySQLDialect) Placeholder(i int) string
-func (d MySQLDialect) QuoteIdent(f string) string
-func (d MySQLDialect) ReturningClause(col string) string
-func (d MySQLDialect) SupportsCapability(capability Capability) bool
-func (d MySQLDialect) ValidateIdentifier(identifier string) error
 type Name string
 const (
 	MySQL    Name = "mysql"
 	Postgres Name = "postgres"
 	SQLite   Name = "sqlite"
-	Unknown  Name = "unknown"
 )
-type PostgresDialect struct{}
-func (d PostgresDialect) AlterColumnSQL(table string, before, after ColumnSpec) []string
-func (d PostgresDialect) AlterMode() AlterMode
-func (d PostgresDialect) AutoIncrementColumnSQL(quotedColumn string, desc ColumnType) (string, error)
-func (d PostgresDialect) BatchInsertStartID(lastID, rowsAffected int64) (int64, bool)
-func (d PostgresDialect) ColumnTypeSQL(desc ColumnType) string
-func (d PostgresDialect) CreateIndexSQL(table, idx string, fields []string, unique bool) string
-func (d PostgresDialect) DropIndexSQL(table, idx string) string
-func (d PostgresDialect) EnsureIndex(ctx context.Context, db Executor, table, idx string, fields []string, unique bool) (string, error)
-func (d PostgresDialect) FullTextIndexSQL(table, idx string, quotedFields []string) string
-func (d PostgresDialect) FullTextVectorSQL(quotedFields []string) string
-func (d PostgresDialect) InspectColumns(ctx context.Context, db Executor, table string) ([]ColumnSpec, bool, error)
-func (d PostgresDialect) InspectIndex(ctx context.Context, db Executor, table, idx string) (Index, bool, error)
-func (d PostgresDialect) ListIndexes(ctx context.Context, db Executor, table string) ([]Index, error)
-func (d PostgresDialect) Name() Name
-func (d PostgresDialect) Placeholder(i int) string
-func (d PostgresDialect) QuoteIdent(f string) string
-func (d PostgresDialect) ReturningClause(col string) string
-func (d PostgresDialect) SupportsCapability(capability Capability) bool
-func (d PostgresDialect) ValidateIdentifier(identifier string) error
-type SQLiteDialect struct{}
-func (d SQLiteDialect) AlterColumnSQL(table string, before, after ColumnSpec) []string
-func (d SQLiteDialect) AlterMode() AlterMode
-func (d SQLiteDialect) AutoIncrementColumnSQL(quotedColumn string, desc ColumnType) (string, error)
-func (d SQLiteDialect) BatchInsertStartID(lastID, rowsAffected int64) (int64, bool)
-func (d SQLiteDialect) ColumnTypeSQL(desc ColumnType) string
-func (d SQLiteDialect) CreateIndexSQL(table, idx string, fields []string, unique bool) string
-func (d SQLiteDialect) DropIndexSQL(table, idx string) string
-func (d SQLiteDialect) EnsureIndex(ctx context.Context, db Executor, table, idx string, fields []string, unique bool) (string, error)
-func (d SQLiteDialect) FullTextIndexSQL(table, idx string, quotedFields []string) string
-func (d SQLiteDialect) FullTextVectorSQL(quotedFields []string) string
-func (d SQLiteDialect) InspectColumns(ctx context.Context, db Executor, table string) ([]ColumnSpec, bool, error)
-func (d SQLiteDialect) InspectIndex(ctx context.Context, db Executor, table, idx string) (Index, bool, error)
-func (d SQLiteDialect) ListIndexes(ctx context.Context, db Executor, table string) ([]Index, error)
-func (d SQLiteDialect) Name() Name
-func (d SQLiteDialect) Placeholder(i int) string
-func (d SQLiteDialect) QuoteIdent(f string) string
-func (d SQLiteDialect) ReturningClause(col string) string
-func (d SQLiteDialect) SupportsCapability(capability Capability) bool
-func (d SQLiteDialect) ValidateIdentifier(identifier string) error
 type UnsupportedCapabilityError struct {
+	Capability Capability
+	Dialect Name
 }
 func (e *UnsupportedCapabilityError) Error() string

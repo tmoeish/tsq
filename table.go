@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
+	sqld "github.com/tmoeish/tsq/v5/internal/sqldialect"
 )
 
 // Table is a query source: a table declared with NewTable, an alias of one, or a
@@ -493,7 +494,7 @@ func (c cteTable) hasColumn(n string) bool {
 // debugSQL renders a fragment in SQLite syntax with ? placeholders, for String
 // methods and error messages.
 func debugSQL(e sqlExpr) string {
-	r := newRenderer(tsqdialect.SQLiteDialect{})
+	r := newRenderer(sqld.SQLiteDialect{})
 	r.write(e)
 
 	return debugStatement(r)

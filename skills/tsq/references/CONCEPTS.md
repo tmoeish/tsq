@@ -82,7 +82,7 @@ parameter, not position, and have the parameter's type.
 
 - it holds the pool, dialect, registered tables, logger and tracers
 - it is a `tsq.Executor`, as is the executor `WithTx` passes to its callback and the result of
-  `tsq.WrapExecutor(handle, dialect)`; a bare `*sql.DB` is not, because TSQ must know the dialect
+  `tsq.WrapExecutor(handle, dialect.MySQL)`; a bare `*sql.DB` is not, because TSQ must know the dialect
 - it runs queries, row writes, and `UpdateTable(table)` / `DeleteFrom(table)` statements
 
 ## Query lifecycle

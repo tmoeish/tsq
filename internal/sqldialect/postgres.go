@@ -1,4 +1,4 @@
-package dialect
+package sqldialect
 
 import (
 	"context"
@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 )
 
 type PostgresDialect struct{}
@@ -31,24 +33,8 @@ func (d PostgresDialect) ValidateIdentifier(identifier string) error {
 	return validateDialectIdentifier(identifier, d.Name(), maxIdentifierLengthPostgreSQL)
 }
 
-// postgresCapabilities is PostgreSQL's position on every capability in
-// AllCapabilities. It supports all of them at every version TSQ targets, but the
-// entries are still spelled out one per line: a future capability must be an explicit
-// decision here too, not something PostgreSQL inherits by being the permissive one.
-var postgresCapabilities = map[Capability]bool{
-	CapabilityCTE:                 true,
-	CapabilityExcept:              true,
-	CapabilityFullOuterJoin:       true,
-	CapabilityIntersect:           true,
-	CapabilitySelectForUpdate:     true,
-	CapabilitySelectForShare:      true,
-	CapabilitySelectForNoWait:     true,
-	CapabilitySelectForSkipLocked: true,
-	CapabilityFullTextSearch:      true,
-}
-
 func (d PostgresDialect) SupportsCapability(capability Capability) bool {
-	return capabilitySupport(postgresCapabilities, capability)
+	return tsqdialect.Supports(d.Name(), capability)
 }
 
 func (d PostgresDialect) BatchInsertStartID(lastID, rowsAffected int64) (int64, bool) {
