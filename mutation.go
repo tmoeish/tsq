@@ -142,7 +142,7 @@ func (b *UpdateBuilder[R]) assign(col SQLColumn, value exprInfo) *UpdateBuilder[
 // Set assigns rhs, a column, Param, Val or typed subquery, to col. A NOT NULL
 // column refuses a value that can be NULL, such as a nullable column or a
 // subquery; wrap it in Coalesce.
-func (b *UpdateBuilder[R]) Set[T any](col TypedColumn[R, T], rhs RHS[T]) *UpdateBuilder[R] {
+func (b *UpdateBuilder[R]) Set[T any](col Column[R, T], rhs Operand[T]) *UpdateBuilder[R] {
 	return b.assign(col, rhsInfo(rhs))
 }
 

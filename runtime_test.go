@@ -27,7 +27,7 @@ func TestValidateRegisteredTableIdentifiersRejectsOversizedNames(t *testing.T) {
 	tests := map[string]Table{
 		"table name":  wideTable(long, []string{"name"}, nil, nil),
 		"column name": wideTable("users", []string{long}, nil, nil),
-		"index name":  wideTable("users", []string{"name"}, nil, []TableIndex{{Name: long, Fields: []string{"name"}}}),
+		"index name":  wideTable("users", []string{"name"}, nil, []TableIndex{{Name: long, Columns: []string{"name"}}}),
 	}
 
 	for name, table := range tests {

@@ -31,8 +31,8 @@ var Notes = notesHandle.Define(TableSpec[note, int64]{
 	Columns:       []BoundColumn[note]{Note_ID, Note_Body, Note_Title, Note_Rating},
 	PrimaryKey:    Note_ID,
 	AutoIncrement: true,
-	Indexes:       []TableIndex{{Name: "ft_notes_title_body", FullText: true, Fields: []string{"title", "body"}}},
-	Schema: []tsqdialect.ColumnSpec{
+	Indexes:       []TableIndex{{Name: "ft_notes_title_body", FullText: true, Columns: []string{"title", "body"}}},
+	ColumnSpecs: []tsqdialect.ColumnSpec{
 		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
 		{Name: "body", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 64, Nullable: true}},
 		{Name: "title", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 64, Nullable: true}},

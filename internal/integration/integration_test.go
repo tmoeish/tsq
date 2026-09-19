@@ -153,7 +153,7 @@ func openWithPolicy(t *testing.T, target integrationTarget, tables []tsq.Table, 
 func widenedLearner(t *testing.T, size int) []tsq.Table {
 	t.Helper()
 
-	schema := academy.TableLearner.Schema()
+	schema := academy.TableLearner.ColumnSpecs()
 	widened := false
 
 	for i := range schema {
@@ -179,7 +179,7 @@ func widenedLearner(t *testing.T, size int) []tsq.Table {
 		PrimaryKey:    id,
 		AutoIncrement: true,
 		CreatedAt:     created,
-		Schema:        schema,
+		ColumnSpecs:   schema,
 		Indexes:       academy.TableLearner.Indexes(),
 	})
 

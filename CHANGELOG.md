@@ -45,14 +45,14 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 - 按主键读写都有类型：`TableXxx.Get(ctx, db, id)`（没有时包装 `sql.ErrNoRows`）、`Find`（没有时 `nil, nil`）、`Fetch(ctx, db, ids...)`（按给定顺序、任意数量），`BatchDeleteByPK` / `BatchHardDeleteByPK` 收 `[]K`——传错类型编译不过（此前收任意 `Arg`，运行时才检查）。`TableXxx.FetchBy(ctx, db, col, values, conds...)` 按其他唯一列取，`TableXxx.Query()` 是读全表（带声明的搜索列）的查询。
 - 别名是表的方法：`pre := TableCourse.As("pre")` 返回的表上每列都已绑到别名（`pre.ID`）；`Column.As` 和 `tsq.AliasTable` 删除，单列改绑用 `col.WithTable(source)`。`Table` 接口的 `Name()` 改名为 `TableName()`，列字段因此可以叫 `Name`。
 - `tsq.UpdateTable` / `DeleteFrom` / `HardDeleteFrom` 收 `tsq.RowTable[R]`，生成的表结构体和 `*tsq.TableOf` 都满足；对别名执行会被拒绝。
-- `TSQTables()` 返回 `[]tsq.Table`，`TableRegistration` 删除；schema 与索引从描述符读取，`Schema()` / `Indexes()` 可供工具使用。
+- `TSQTables()` 返回 `[]tsq.Table`，`TableRegistration` 删除；schema 与索引从描述符读取，`ColumnSpecs()` / `Indexes()` 可供工具使用。
 
 **参数**
 
 - 执行期的值是**参数**，不再按位置传：`TableCourse.ID.EQ(TableCourse.ID.Param())` 写进查询，执行时传 `TableCourse.ID.Bind(5)`；列表用 `In(col.ListParam())` 与 `col.BindList(ids...)`；一列需要两个值时用 `tsq.NewParam[T]("name")`。执行方法的变参类型是密封的 `tsq.Arg`，按参数身份匹配：缺值、多余的值、重复绑定都会报错，值的类型在编译期检查。
 - 所有 `*Var()` 谓词、`SetVar`、`Bind` / `BindSlice` / `Expression` 删除。
 - 模式匹配是包级函数：`tsq.StartsWith(col, pattern)` / `EndsWith` / `Contains` 及 `Not` 形式，`pattern` 是 `tsq.Val("x")` 或参数（`tsq.Pattern[S]`），不再分值和参数两套函数；只接受字符串类的列，都会转义通配符并声明 `ESCAPE`。`Like` 按原样使用模式。
-- 固定值统一写成 `tsq.Val(v)`，列表写成 `tsq.Vals(vs...)`，放在任何接受同类型列的位置：`EQ` / `Between` / `Like` / `Set` / `Case().When` / `Coalesce`……`EQVal` / `InVal` / `BetweenVal` 等全部 `*Val` 方法，以及 `SetVal`、`WhenVal` / `ElseVal`、`CoalesceVal` / `NullIfVal` 删除。值的类型只由值本身推断，无类型数字常量是 `int`：`int64` 列上写 `tsq.Val(int64(90))`，写错时编译报 `does not implement tsq.RHS[int64]`。比较里的 `NULL` 报错，`Set` 里 nil 指针写入 `NULL`。
+- 固定值统一写成 `tsq.Val(v)`，列表写成 `tsq.Vals(vs...)`，放在任何接受同类型列的位置：`EQ` / `Between` / `Like` / `Set` / `Case().When` / `Coalesce`……`EQVal` / `InVal` / `BetweenVal` 等全部 `*Val` 方法，以及 `SetVal`、`WhenVal` / `ElseVal`、`CoalesceVal` / `NullIfVal` 删除。值的类型只由值本身推断，无类型数字常量是 `int`：`int64` 列上写 `tsq.Val(int64(90))`，写错时编译报 `does not implement tsq.Operand[int64]`。比较里的 `NULL` 报错，`Set` 里 nil 指针写入 `NULL`。
 
 **查询**
 
@@ -111,13 +111,17 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 - 读单行只有两个入口：`Get` 在没有行时返回包装 `sql.ErrNoRows` 的错误，`Find` 返回 `nil, nil`。`Get` / `Find` / `Exists` / `Scalar` 最多读一行，`Exists` 不再走 `COUNT`。`Count` 返回 `int64`。
 - 批量写的选项是 `WithBatchSize(n)` 和只对插入有效的 `WithSkipDuplicates()`（传给其他入口会报错）。
 - 事务：`runtime.WithTx(ctx, fn, options...)` / `WithTxResult(ctx, fn, options...)`，选项是 `tsq.WithIsolation(level)`、`WithReadOnly()`、`WithRetry(predicate)`、`WithRetryPolicy(policy)`；`TxOptions` 删除（此前九成调用要在中间传一个 `nil`），`DefaultRetryPolicy()` 返回值而不是指针。重试谓词：`IsRetryableTxError`、`IsOptimisticLockError`、`IsRetryableNetworkError`、`IsTxConflictError`。
-- 分页：`Query.Page(ctx, db, tsq.Paging{Page, Size, OrderBy}, args...)`，排序项是 `[]tsq.OrderBy`，写错列名编译不过。HTTP 形态的 `tsq.PageRequest` 用 `req.Paging(可排序列...)` 转换，同时校验（负数、越界页号、非法 order 报错），排序白名单由端点给出；超过 runtime 上限的大小由 `Page` 封顶而不报错。没有单独的 `Validate` / `Normalize`，也没有 `Runtime.MaxPageSize()`。`Page` 的计数和数据在同一个只读事务里读取（MySQL / PostgreSQL 用 `REPEATABLE READ`），并发写入不会让 `Total` 和 `Data` 对不上；传入事务执行器时直接使用该事务。`PageResponse` 有 `Page` / `Size` / `Total` / `TotalPages` / `Data`（从不为 nil），`PageRequest.Offset()` / `Response()` 改为 `Paging.Offset()` 与库内部构造。HTTP 参数解析交给调用方的 binder。
+- 分页：`Query.Page(ctx, db, tsq.Paging{Page, Size, OrderBy}, args...)`，排序项是 `[]tsq.OrderBy`，写错列名编译不过。HTTP 形态的 `tsq.PageRequest` 用 `req.Paging(可排序列...)` 转换，同时校验（负数、越界页号、非法 order 报错），排序白名单由端点给出；超过 runtime 上限的大小由 `Page` 封顶而不报错。没有单独的 `Validate` / `Normalize`，也没有 `Runtime.MaxPageSize()`。`Page` 的计数和数据在同一个只读事务里读取（MySQL / PostgreSQL 用 `REPEATABLE READ`），并发写入不会让 `Total` 和 `Data` 对不上；传入事务执行器时直接使用该事务。结果类型是 `tsq.Page[T]`（与游标分页的 `KeysetPage[T]` 成对），有 `Page` / `Size` / `Total` / `TotalPages` / `Data`（从不为 nil），`PageRequest.Offset()` / `Response()` 改为 `Paging.Offset()` 与库内部构造。HTTP 参数解析交给调用方的 binder。
 
 **查询 API 命名**
 
 - 否定谓词统一写作 `Not*`：`NotIn`、`NotLike`、`NotBetween`、`tsq.NotStartsWith`……
 - `tsq.Exists(sq)` / `tsq.NotExists(sq)` 是包级函数，参数类型是密封接口 `AnySubquery`。
 - 没有 `Unique` / `NUnique` / `Concat` / `Now()` 这类不读接收者或只会失败的列方法，需要时用 `Expr` / `Exprf`。
+- 右值接口叫 `tsq.Operand[T]`，IN 的列表右值叫 `tsq.ListOperand[T]`：`RHS` 是行话却出现在最常见的编译错误里，`SetRHS` 的 Set 又和 `UpdateBuilder.Set` 的赋值撞词。
+- `OrderBy` / `Limit` / `Offset` 之后的阶段叫 `OrderedStage`（原 `PagedStage`，名字暗示"已分页"，而 `Page` 恰恰拒绝带 `Limit` / `Offset` 的查询）。
+- `TableIndex.Columns` 与 `MissingIndexError.Columns`（原 `Fields`，装的是列名，指令里的 field 指 Go 字段）；`TableSpec.ColumnSpecs` 与 `TableOf.ColumnSpecs()`（原 `Schema`，只含列定义，不含索引；`Schema` 也因此不再是保留的列字段名）。
+- `UpdateBuilder.Set` 只收表的列 `Column[R, T]`：此前收 `TypedColumn`，`MapInto` 的结果列能编译、运行时才报错。
 - 全文检索的检索词类型叫 `tsq.MatchTerm`（和 `tsq.Matches` 配对），避免和关键词搜索那套 `Search` 名字混淆。
 - 错误类型以 `Error` 结尾且字段导出：`OptimisticLockError`、`UnknownSortFieldError`、`AmbiguousSortFieldError`、`OrderCountMismatchError`、`MissingIndexError`、`MissingTableError`，以及 `dialect.UnsupportedCapabilityError`；`OptimisticLockError` / `RowStateError` 的 `Expected` 和 `Actual` 都是 `int64`。`RegistrationError` 删除，注册错误由 `Define` 报告。
 - 其余命名：`NewColumn`、`Order.Reverse()`、`OrderBy.Column()`、`Runtime.WithTxResult[T]`。

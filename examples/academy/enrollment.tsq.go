@@ -69,7 +69,7 @@ func newEnrollmentTable() EnrollmentTable {
 		CreatedAt:     c.CreatedAt,
 		UpdatedAt:     c.UpdatedAt,
 		DeletedAt:     c.DeletedAt,
-		Schema: []tsqdialect.ColumnSpec{
+		ColumnSpecs: []tsqdialect.ColumnSpec{
 			{
 				Name: "uid",
 				Type: tsqdialect.ColumnType{
@@ -146,9 +146,9 @@ func newEnrollmentTable() EnrollmentTable {
 			},
 		},
 		Indexes: []tsq.TableIndex{
-			{Name: "idx_enrollment_course_id", Fields: []string{"deleted_at", "course_id"}},
-			{Name: "idx_enrollment_learner_id_course_id", Fields: []string{"deleted_at", "learner_id", "course_id"}},
-			{Name: "idx_enrollment_status", Fields: []string{"deleted_at", "status"}},
+			{Name: "idx_enrollment_course_id", Columns: []string{"deleted_at", "course_id"}},
+			{Name: "idx_enrollment_learner_id_course_id", Columns: []string{"deleted_at", "learner_id", "course_id"}},
+			{Name: "idx_enrollment_status", Columns: []string{"deleted_at", "status"}},
 		},
 	})
 

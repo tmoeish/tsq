@@ -35,15 +35,15 @@ const DefaultMaxPageSize = 1000
 
 // MissingIndexError reports a declared index the database does not have.
 type MissingIndexError struct {
-	Table  string
-	Name   string
-	Fields []string
-	Unique bool
+	Table   string
+	Name    string
+	Columns []string
+	Unique  bool
 }
 
 func (e *MissingIndexError) Error() string {
 	return fmt.Sprintf("index %s on table %s (%v) is missing; create it in a migration or use SchemaPolicyCreateMissing",
-		e.Name, e.Table, e.Fields)
+		e.Name, e.Table, e.Columns)
 }
 
 // MissingTableError reports a declared table the database does not have.

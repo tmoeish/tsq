@@ -60,16 +60,16 @@ type SearchColumn interface {
 	searchable()
 }
 
-// RHS is the right-hand side of a comparison against a T: a column or expression
+// Operand is the right-hand side of a comparison against a T: a column or expression
 // holding a T, a Param[T], a Value[T] from Val, or a typed scalar Subquery[T].
-type RHS[T any] interface {
+type Operand[T any] interface {
 	rhsValue(T)
 	operand() exprInfo
 }
 
-// SetRHS is the right-hand side of IN and NOT IN over T: a ListParam[T], a
+// ListOperand is the right-hand side of IN and NOT IN over T: a ListParam[T], a
 // ValueList[T] from Vals, or a typed Subquery[T].
-type SetRHS[T any] interface {
+type ListOperand[T any] interface {
 	setValue(T)
 	setOperand(negated bool) exprInfo
 }
@@ -83,28 +83,28 @@ type SetRHS[T any] interface {
 // select it on its own with SelectValue.
 type Expression[T any] interface {
 	ValueColumn[T]
-	RHS[T]
+	Operand[T]
 
 	IsNull() Condition
 	IsNotNull() Condition
 
 	// EQ and the other comparisons take a column, a Param, a Val or a typed subquery.
-	EQ(rhs RHS[T]) Condition
-	NE(rhs RHS[T]) Condition
-	GT(rhs RHS[T]) Condition
-	GTE(rhs RHS[T]) Condition
-	LT(rhs RHS[T]) Condition
-	LTE(rhs RHS[T]) Condition
+	EQ(rhs Operand[T]) Condition
+	NE(rhs Operand[T]) Condition
+	GT(rhs Operand[T]) Condition
+	GTE(rhs Operand[T]) Condition
+	LT(rhs Operand[T]) Condition
+	LTE(rhs Operand[T]) Condition
 	// Like matches a pattern as written, wildcards included. StartsWith, EndsWith
 	// and Contains match literally.
-	Like(rhs RHS[T]) Condition
-	NotLike(rhs RHS[T]) Condition
-	Between(start, end RHS[T]) Condition
-	NotBetween(start, end RHS[T]) Condition
+	Like(rhs Operand[T]) Condition
+	NotLike(rhs Operand[T]) Condition
+	Between(start, end Operand[T]) Condition
+	NotBetween(start, end Operand[T]) Condition
 	// In takes a ListParam, Vals or a typed subquery. An empty list matches nothing, and
 	// NotIn over an empty list matches everything.
-	In(set SetRHS[T]) Condition
-	NotIn(set SetRHS[T]) Condition
+	In(set ListOperand[T]) Condition
+	NotIn(set ListOperand[T]) Condition
 
 	// Pred builds a custom condition. The first %s is the expression and each further
 	// %s takes the next argument, which may be a column, a Param, a typed subquery or
@@ -160,7 +160,7 @@ type columnCore struct {
 	// one value per column per row, which is where reflection cost shows up.
 	get func(holder any) any
 	// fill says who provides the value: the caller, or the database through a
-	// DEFAULT or a generated expression. It comes from TableSpec.Schema.
+	// DEFAULT or a generated expression. It comes from TableSpec.ColumnSpecs.
 	fill tsqdialect.Fill
 	// nullable reports that the scan target holds NULL: a NullColumn, or a
 	// MapIntoNull projection. A value that can be NULL may only be read into one.
@@ -397,7 +397,7 @@ func (c exprImpl[T]) compare(op string, rhs exprInfo) Condition {
 	return newCondition(info.withSQL(sqlJoin(c.c.info.sql, sqlText(" "+op+" "), rhs.sql)))
 }
 
-func rhsInfo[T any](rhs RHS[T]) exprInfo {
+func rhsInfo[T any](rhs Operand[T]) exprInfo {
 	if isNilValue(rhs) {
 		return exprInfo{err: errors.New("comparison operand cannot be nil")}
 	}
@@ -416,38 +416,38 @@ func (c exprImpl[T]) IsNotNull() Condition {
 }
 
 // EQ compares with =.
-func (c exprImpl[T]) EQ(rhs RHS[T]) Condition { return c.compare("=", rhsInfo(rhs)) }
+func (c exprImpl[T]) EQ(rhs Operand[T]) Condition { return c.compare("=", rhsInfo(rhs)) }
 
 // NE compares with <>.
-func (c exprImpl[T]) NE(rhs RHS[T]) Condition { return c.compare("<>", rhsInfo(rhs)) }
+func (c exprImpl[T]) NE(rhs Operand[T]) Condition { return c.compare("<>", rhsInfo(rhs)) }
 
 // GT compares with >.
-func (c exprImpl[T]) GT(rhs RHS[T]) Condition { return c.compare(">", rhsInfo(rhs)) }
+func (c exprImpl[T]) GT(rhs Operand[T]) Condition { return c.compare(">", rhsInfo(rhs)) }
 
 // GTE compares with >=.
-func (c exprImpl[T]) GTE(rhs RHS[T]) Condition { return c.compare(">=", rhsInfo(rhs)) }
+func (c exprImpl[T]) GTE(rhs Operand[T]) Condition { return c.compare(">=", rhsInfo(rhs)) }
 
 // LT compares with <.
-func (c exprImpl[T]) LT(rhs RHS[T]) Condition { return c.compare("<", rhsInfo(rhs)) }
+func (c exprImpl[T]) LT(rhs Operand[T]) Condition { return c.compare("<", rhsInfo(rhs)) }
 
 // LTE compares with <=.
-func (c exprImpl[T]) LTE(rhs RHS[T]) Condition { return c.compare("<=", rhsInfo(rhs)) }
+func (c exprImpl[T]) LTE(rhs Operand[T]) Condition { return c.compare("<=", rhsInfo(rhs)) }
 
 // Like matches with LIKE.
-func (c exprImpl[T]) Like(rhs RHS[T]) Condition { return c.compare("LIKE", rhsInfo(rhs)) }
+func (c exprImpl[T]) Like(rhs Operand[T]) Condition { return c.compare("LIKE", rhsInfo(rhs)) }
 
 // NotLike matches with NOT LIKE.
-func (c exprImpl[T]) NotLike(rhs RHS[T]) Condition {
+func (c exprImpl[T]) NotLike(rhs Operand[T]) Condition {
 	return c.compare("NOT LIKE", rhsInfo(rhs))
 }
 
 // Between matches the inclusive range.
-func (c exprImpl[T]) Between(start, end RHS[T]) Condition {
+func (c exprImpl[T]) Between(start, end Operand[T]) Condition {
 	return c.between("BETWEEN", rhsInfo(start), rhsInfo(end))
 }
 
 // NotBetween matches outside the inclusive range.
-func (c exprImpl[T]) NotBetween(start, end RHS[T]) Condition {
+func (c exprImpl[T]) NotBetween(start, end Operand[T]) Condition {
 	return c.between("NOT BETWEEN", rhsInfo(start), rhsInfo(end))
 }
 
@@ -460,14 +460,14 @@ func (c exprImpl[T]) between(op string, start, end exprInfo) Condition {
 }
 
 // In matches values in set.
-func (c exprImpl[T]) In(set SetRHS[T]) Condition { return c.membership("IN", set, false) }
+func (c exprImpl[T]) In(set ListOperand[T]) Condition { return c.membership("IN", set, false) }
 
 // NotIn matches values not in set.
-func (c exprImpl[T]) NotIn(set SetRHS[T]) Condition {
+func (c exprImpl[T]) NotIn(set ListOperand[T]) Condition {
 	return c.membership("NOT IN", set, true)
 }
 
-func (c exprImpl[T]) membership(op string, set SetRHS[T], negated bool) Condition {
+func (c exprImpl[T]) membership(op string, set ListOperand[T], negated bool) Condition {
 	if isNilValue(set) {
 		return conditionError(errors.New("IN operand cannot be nil"))
 	}

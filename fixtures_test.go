@@ -44,7 +44,7 @@ var Users = usersHandle.Define(TableSpec[user, int64]{
 	UpdatedAt:     User_UpdatedAt,
 	DeletedAt:     User_DeletedAt,
 	Search:        []SearchColumn{Searchable(User_Name), Searchable(User_Email)},
-	Schema: []tsqdialect.ColumnSpec{
+	ColumnSpecs: []tsqdialect.ColumnSpec{
 		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
 		{Name: "name", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 64}},
 		{Name: "email", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 128}},
@@ -53,7 +53,7 @@ var Users = usersHandle.Define(TableSpec[user, int64]{
 		{Name: "updated_at", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindTime}},
 		{Name: "deleted_at", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}},
 	},
-	Indexes: []TableIndex{{Name: "ux_users_email", Fields: []string{"email", "deleted_at"}, Unique: true}},
+	Indexes: []TableIndex{{Name: "ux_users_email", Columns: []string{"email", "deleted_at"}, Unique: true}},
 })
 
 var User__Cols = Users.Columns()
@@ -78,7 +78,7 @@ var Orders = ordersHandle.Define(TableSpec[order, int64]{
 	Columns:       []BoundColumn[order]{Order_ID, Order_UserID, Order_Amount, Order_Note},
 	PrimaryKey:    Order_ID,
 	AutoIncrement: true,
-	Schema: []tsqdialect.ColumnSpec{
+	ColumnSpecs: []tsqdialect.ColumnSpec{
 		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
 		{Name: "user_id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}},
 		{Name: "amount", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}},
@@ -102,7 +102,7 @@ func namedTable(name string) *TableOf[namedRow, int64] {
 		Columns:       []BoundColumn[namedRow]{id, label},
 		PrimaryKey:    id,
 		AutoIncrement: true,
-		Schema: []tsqdialect.ColumnSpec{
+		ColumnSpecs: []tsqdialect.ColumnSpec{
 			{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
 			{Name: "name", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 64}},
 		},
@@ -188,7 +188,7 @@ func wideTable(name string, names []string, schema []tsqdialect.ColumnSpec, inde
 		}
 	}
 
-	return h.Define(TableSpec[wideRow, any]{Columns: cols, PrimaryKey: pk, AutoIncrement: auto, Schema: schema, Indexes: indexes})
+	return h.Define(TableSpec[wideRow, any]{Columns: cols, PrimaryKey: pk, AutoIncrement: auto, ColumnSpecs: schema, Indexes: indexes})
 }
 
 func specNames(schema []tsqdialect.ColumnSpec) []string {

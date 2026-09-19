@@ -126,7 +126,7 @@ var TableCourse = newCourseTable() // 函数里：NewTable → 各列 → Define
 
 ### 参数（`param.go`）
 
-执行期才知道的值是**参数**：`Param[T]` 是 `RHS[T]`，`ListParam[T]` 是 `SetRHS[T]`，
+执行期才知道的值是**参数**：`Param[T]` 是 `Operand[T]`，`ListParam[T]` 是 `ListOperand[T]`，
 `Bind` 只收 `T` 并产出密封的 `Arg`。每一列自带一对参数（`col.Param()` / `col.ListParam()`），
 复制和换表都共享同一个指针，所以 `col.Bind(v)` 总能找到它。
 
@@ -152,7 +152,7 @@ JoinStage ─Where─► WhereStage ─Search─► FilteredStage
 JoinStage ─Search► SearchStage ─Where─► FilteredStage
 (Join/Where/Search/Filtered) ─GroupBy─► GroupedStage ─Having─► HavingStage
 (Join/Where/Grouped/Having/Compound) ─Union...─► CompoundStage
-(大多数阶段) ─OrderBy/Limit/Offset─► PagedStage ─ForUpdate/ForShare─► LockedStage
+(大多数阶段) ─OrderBy/Limit/Offset─► OrderedStage ─ForUpdate/ForShare─► LockedStage
 ```
 
 - 分组、HAVING、集合操作之后**没有**行锁（PostgreSQL 拒绝，这里在类型上就拒绝）；带搜索的

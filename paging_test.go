@@ -102,7 +102,7 @@ func TestNewResponse(t *testing.T) {
 		new("item3"),
 	}
 
-	resp := newPageResponse(req, 25, data)
+	resp := newPage(req, 25, data)
 
 	if resp.Page != 2 {
 		t.Errorf("Expected page 2, got %d", resp.Page)
@@ -127,7 +127,7 @@ func TestNewResponse(t *testing.T) {
 }
 
 func TestNewResponse_ExactDivision(t *testing.T) {
-	resp := newPageResponse(Paging{Page: 1, Size: 10}, 20, []*string{})
+	resp := newPage(Paging{Page: 1, Size: 10}, 20, []*string{})
 
 	expectedTotalPage := int64(2) // 20 / 10 = 2
 	if resp.TotalPages != expectedTotalPage {
@@ -136,7 +136,7 @@ func TestNewResponse_ExactDivision(t *testing.T) {
 }
 
 func TestNewResponse_ZeroSize(t *testing.T) {
-	resp := newPageResponse(Paging{}.normalized(0), 20, []*string(nil))
+	resp := newPage(Paging{}.normalized(0), 20, []*string(nil))
 
 	if resp.Size != defaultPageSize || resp.TotalPages != 1 || resp.Data == nil {
 		t.Fatalf("response over a normalized empty Paging = %+v", resp)
@@ -157,7 +157,7 @@ func TestPageResp_HasNext(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resp := &PageResponse[string]{
+			resp := &Page[string]{
 				Page:       tt.page,
 				TotalPages: tt.total,
 			}
@@ -182,7 +182,7 @@ func TestPageResp_HasPrev(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resp := &PageResponse[string]{
+			resp := &Page[string]{
 				Page: tt.page,
 			}
 
@@ -194,7 +194,7 @@ func TestPageResp_HasPrev(t *testing.T) {
 }
 
 func TestPageResp_NilHelpers(t *testing.T) {
-	var resp *PageResponse[int]
+	var resp *Page[int]
 
 	if resp.HasNext() {
 		t.Fatal("expected nil response to report no next page")
@@ -222,7 +222,7 @@ func TestPageResp_IsEmpty(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resp := &PageResponse[string]{
+			resp := &Page[string]{
 				Data: tt.data,
 			}
 

@@ -34,7 +34,7 @@ var bindLimitTable = func() *TableOf[wide, int64] {
 		schema = append(schema, tsqdialect.ColumnSpec{Name: name, Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}})
 	}
 
-	return h.Define(TableSpec[wide, int64]{Columns: cols, PrimaryKey: id, AutoIncrement: true, Schema: schema})
+	return h.Define(TableSpec[wide, int64]{Columns: cols, PrimaryKey: id, AutoIncrement: true, ColumnSpecs: schema})
 }()
 
 func newWideRuntime(t *testing.T) *Runtime {

@@ -36,7 +36,7 @@ var tags = func() tagTable {
 	t.Define(TableSpec[tag, string]{
 		Columns:    []BoundColumn[tag]{c.Name, c.Label},
 		PrimaryKey: c.Name,
-		Schema: []tsqdialect.ColumnSpec{
+		ColumnSpecs: []tsqdialect.ColumnSpec{
 			{Name: "name", Type: tsqdialect.ColumnType{RawType: "TEXT COLLATE NOCASE"}, PrimaryKey: true},
 			{Name: "label", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 64}},
 		},

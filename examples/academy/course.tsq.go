@@ -76,7 +76,7 @@ func newCourseTable() CourseTable {
 			tsq.Searchable(c.Title),
 			tsq.Searchable(c.Summary),
 		},
-		Schema: []tsqdialect.ColumnSpec{
+		ColumnSpecs: []tsqdialect.ColumnSpec{
 			{
 				Name: "id",
 				Type: tsqdialect.ColumnType{
@@ -168,11 +168,11 @@ func newCourseTable() CourseTable {
 			},
 		},
 		Indexes: []tsq.TableIndex{
-			{Name: "ux_course_title", Unique: true, Fields: []string{"title"}},
-			{Name: "idx_course_instructor_id", Fields: []string{"instructor_id"}},
-			{Name: "idx_course_prerequisite_id", Fields: []string{"prerequisite_id"}},
-			{Name: "idx_course_track_id", Fields: []string{"track_id"}},
-			{Name: "ft_course_title_summary", FullText: true, Fields: []string{"title", "summary"}},
+			{Name: "ux_course_title", Unique: true, Columns: []string{"title"}},
+			{Name: "idx_course_instructor_id", Columns: []string{"instructor_id"}},
+			{Name: "idx_course_prerequisite_id", Columns: []string{"prerequisite_id"}},
+			{Name: "idx_course_track_id", Columns: []string{"track_id"}},
+			{Name: "ft_course_title_summary", FullText: true, Columns: []string{"title", "summary"}},
 		},
 	})
 

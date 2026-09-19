@@ -59,7 +59,7 @@ func newInstructorTable() InstructorTable {
 			tsq.Searchable(c.Specialty),
 			tsq.Searchable(c.Bio),
 		},
-		Schema: []tsqdialect.ColumnSpec{
+		ColumnSpecs: []tsqdialect.ColumnSpec{
 			{
 				Name: "id",
 				Type: tsqdialect.ColumnType{
@@ -106,7 +106,7 @@ func newInstructorTable() InstructorTable {
 			},
 		},
 		Indexes: []tsq.TableIndex{
-			{Name: "ux_instructor_email", Unique: true, Fields: []string{"email"}},
+			{Name: "ux_instructor_email", Unique: true, Columns: []string{"email"}},
 		},
 	})
 

@@ -167,7 +167,7 @@ func TestDefineReportsInvalidTables(t *testing.T) {
 			return h.Define(TableSpec[row, int64]{
 				Columns:    []BoundColumn[row]{id},
 				PrimaryKey: id,
-				Indexes:    []TableIndex{{Name: "idx_t5_x", Fields: []string{"x"}}},
+				Indexes:    []TableIndex{{Name: "idx_t5_x", Columns: []string{"x"}}},
 			}).Err()
 		},
 		"defined twice": func() error {

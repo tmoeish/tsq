@@ -64,8 +64,8 @@ type BoundColumn[O any] interface {
 	SQLColumn
 }
 type CaseStage[T any] interface {
-	When(cond Condition, result RHS[T]) CaseStage[T]
-	Else(result RHS[T]) CaseStage[T]
+	When(cond Condition, result Operand[T]) CaseStage[T]
+	Else(result Operand[T]) CaseStage[T]
 	End() Expression[T]
 }
 func Case[T any]() CaseStage[T]
@@ -124,21 +124,21 @@ type Executor interface {
 func WrapExecutor(db DBTX, engine tsqdialect.Name) Executor
 type Expression[T any] interface {
 	ValueColumn[T]
-	RHS[T]
+	Operand[T]
 	IsNull() Condition
 	IsNotNull() Condition
-	EQ(rhs RHS[T]) Condition
-	NE(rhs RHS[T]) Condition
-	GT(rhs RHS[T]) Condition
-	GTE(rhs RHS[T]) Condition
-	LT(rhs RHS[T]) Condition
-	LTE(rhs RHS[T]) Condition
-	Like(rhs RHS[T]) Condition
-	NotLike(rhs RHS[T]) Condition
-	Between(start, end RHS[T]) Condition
-	NotBetween(start, end RHS[T]) Condition
-	In(set SetRHS[T]) Condition
-	NotIn(set SetRHS[T]) Condition
+	EQ(rhs Operand[T]) Condition
+	NE(rhs Operand[T]) Condition
+	GT(rhs Operand[T]) Condition
+	GTE(rhs Operand[T]) Condition
+	LT(rhs Operand[T]) Condition
+	LTE(rhs Operand[T]) Condition
+	Like(rhs Operand[T]) Condition
+	NotLike(rhs Operand[T]) Condition
+	Between(start, end Operand[T]) Condition
+	NotBetween(start, end Operand[T]) Condition
+	In(set ListOperand[T]) Condition
+	NotIn(set ListOperand[T]) Condition
 	Pred(format string, args ...any) Condition
 	Expr(format string) Expression[T]
 	Exprf(format string, args ...any) Expression[T]
@@ -148,7 +148,7 @@ type Expression[T any] interface {
 func Abs[N Number](col Expression[N]) Expression[N]
 func Avg[N Number](col Expression[N]) Expression[float64]
 func Ceil[N Number](col Expression[N]) Expression[N]
-func Coalesce[T any](col Expression[T], fallback RHS[T]) Expression[T]
+func Coalesce[T any](col Expression[T], fallback Operand[T]) Expression[T]
 func Count[T any](col Expression[T]) Expression[int64]
 func CountDistinct[T any](col Expression[T]) Expression[int64]
 func Date[T any](col Expression[T]) Expression[string]
@@ -159,7 +159,7 @@ func Lower[S Text](col Expression[S]) Expression[S]
 func Max[T any](col Expression[T]) Expression[T]
 func Min[T any](col Expression[T]) Expression[T]
 func Month[T any](col Expression[T]) Expression[int64]
-func NullIf[T any](col Expression[T], value RHS[T]) Expression[T]
+func NullIf[T any](col Expression[T], value Operand[T]) Expression[T]
 func Round[N Number](col Expression[N], precision int) Expression[N]
 func Substring[S Text](col Expression[S], start, length int) Expression[S]
 func Sum[N Number](col Expression[N]) Expression[N]
@@ -215,6 +215,8 @@ type KeysetPage[T any] struct {
 	Next string `json:"next"` // Next is the Keyset.After of the following page; empty on the last.
 }
 func (p *KeysetPage[T]) HasNext() bool
+type ListOperand[T any] interface {
+}
 type ListParam[T any] struct {
 }
 func NewListParam[T any](name string) ListParam[T]
@@ -235,13 +237,13 @@ type Logger interface {
 }
 type MatchTerm interface {
 	Pattern[string]
-	RHS[string]
+	Operand[string]
 }
 type MissingIndexError struct {
-	Table  string
-	Name   string
-	Fields []string
-	Unique bool
+	Table   string
+	Name    string
+	Columns []string
+	Unique  bool
 }
 func (e *MissingIndexError) Error() string
 type MissingTableError struct {
@@ -266,6 +268,8 @@ type Number interface {
 		~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 |
 		~float32 | ~float64
 }
+type Operand[T any] interface {
+}
 type OptimisticLockError struct {
 	Table    string
 	Expected int64
@@ -289,6 +293,21 @@ type OrderCountMismatchError struct {
 	Directions int
 }
 func (e *OrderCountMismatchError) Error() string
+type OrderedStage[O any] interface {
+	QueryStage[O]
+	Sortable[O]
+	Lockable[O]
+}
+type Page[T any] struct {
+	Page       int   `json:"page"`        // Page is the 1-based page number served.
+	Size       int   `json:"size"`        // Size is the page size served.
+	Total      int64 `json:"total"`       // Total is the number of matching rows.
+	TotalPages int64 `json:"total_pages"` // TotalPages is Total divided by Size, rounded up.
+	Data       []*T  `json:"data"`        // Data holds the rows of the page, never nil.
+}
+func (r *Page[T]) HasNext() bool
+func (r *Page[T]) HasPrev() bool
+func (r *Page[T]) IsEmpty() bool
 type PageRequest struct {
 	Size    int    `json:"size"     query:"size"`     // Size is the requested page size.
 	Page    int    `json:"page"     query:"page"`     // Page is the 1-based page number.
@@ -299,21 +318,6 @@ type PageRequest struct {
 }
 func (r *PageRequest) Keyset(sortable ...SQLColumn) (Keyset, error)
 func (r *PageRequest) Paging(sortable ...SQLColumn) (Paging, error)
-type PageResponse[T any] struct {
-	Page       int   `json:"page"`        // Page is the 1-based page number served.
-	Size       int   `json:"size"`        // Size is the page size served.
-	Total      int64 `json:"total"`       // Total is the number of matching rows.
-	TotalPages int64 `json:"total_pages"` // TotalPages is Total divided by Size, rounded up.
-	Data       []*T  `json:"data"`        // Data holds the rows of the page, never nil.
-}
-func (r *PageResponse[T]) HasNext() bool
-func (r *PageResponse[T]) HasPrev() bool
-func (r *PageResponse[T]) IsEmpty() bool
-type PagedStage[O any] interface {
-	QueryStage[O]
-	Sortable[O]
-	Lockable[O]
-}
 type Paging struct {
 	Page int
 	Size int
@@ -336,7 +340,7 @@ func (q *Query[O]) Get(ctx context.Context, db Executor, args ...Arg) (*O, error
 func (q *Query[O]) Iter(ctx context.Context, db Executor, args ...Arg) iter.Seq2[*O, error]
 func (q *Query[O]) List(ctx context.Context, db Executor, args ...Arg) ([]*O, error)
 func (q *Query[O]) ListIn[T comparable](ctx context.Context, db Executor, param ListParam[T], values []T, args ...Arg) ([]*O, error)
-func (q *Query[O]) Page(ctx context.Context, db Executor, p Paging, args ...Arg) (*PageResponse[O], error)
+func (q *Query[O]) Page(ctx context.Context, db Executor, p Paging, args ...Arg) (*Page[O], error)
 func (q *Query[O]) PageKeyset(ctx context.Context, db Executor, k Keyset, args ...Arg) (*KeysetPage[O], error)
 func (q *Query[O]) SQL(engine tsqdialect.Name, args ...Arg) (string, []any, error)
 type QueryStage[O any] interface {
@@ -348,9 +352,7 @@ type QueryStage[O any] interface {
 	Exists(ctx context.Context, db Executor, args ...Arg) (bool, error)
 	Count(ctx context.Context, db Executor, args ...Arg) (int64, error)
 	List(ctx context.Context, db Executor, args ...Arg) ([]*O, error)
-	Page(ctx context.Context, db Executor, p Paging, args ...Arg) (*PageResponse[O], error)
-}
-type RHS[T any] interface {
+	Page(ctx context.Context, db Executor, p Paging, args ...Arg) (*Page[O], error)
 }
 type ResultColumn[O, T any] interface {
 	TypedColumn[O, T]
@@ -432,26 +434,24 @@ func Select[O any](cols ...BoundColumn[O]) SelectStage[O]
 func SelectDistinct[O any](cols ...BoundColumn[O]) SelectStage[O]
 func SelectNullValue[T any](expr ValueColumn[T]) SelectStage[sql.Null[T]]
 func SelectValue[T any](expr ValueColumn[T]) SelectStage[T]
-type SetRHS[T any] interface {
-}
 type Sortable[O any] interface {
-	OrderBy(orders ...OrderBy) PagedStage[O]
-	Limit(limit int) PagedStage[O]
-	Offset(offset int) PagedStage[O]
+	OrderBy(orders ...OrderBy) OrderedStage[O]
+	Limit(limit int) OrderedStage[O]
+	Offset(offset int) OrderedStage[O]
 }
 type Subquery[T any] interface {
 	AnySubquery
-	RHS[T]
-	SetRHS[T]
+	Operand[T]
+	ListOperand[T]
 }
 type Table interface {
 	TableName() string
 }
 func CTE[O any](name string, query QueryStage[O]) Table
 type TableIndex struct {
-	Name   string   // Name is the physical index name.
-	Fields []string // Fields lists the indexed column names in order.
-	Unique bool     // Unique reports whether the index enforces uniqueness.
+	Name    string   // Name is the physical index name.
+	Columns []string // Columns lists the indexed column names in order.
+	Unique  bool     // Unique reports whether the index enforces uniqueness.
 	FullText bool
 }
 type TableOf[R any, K comparable] struct {
@@ -466,6 +466,7 @@ func (t *TableOf[R, K]) BatchInsert(ctx context.Context, db Executor, rows []*R,
 func (t *TableOf[R, K]) BatchRestore(ctx context.Context, db Executor, rows []*R, options ...BatchOption) error
 func (t *TableOf[R, K]) BatchUpdate(ctx context.Context, db Executor, rows []*R, options ...BatchOption) error
 func (t *TableOf[R, K]) BatchUpsert(ctx context.Context, db Executor, rows []*R, key []BoundColumn[R], options ...BatchOption) error
+func (t *TableOf[R, K]) ColumnSpecs() []tsqdialect.ColumnSpec
 func (t *TableOf[R, K]) Columns() []BoundColumn[R]
 func (t *TableOf[R, K]) Define(spec TableSpec[R, K]) *TableOf[R, K]
 func (t *TableOf[R, K]) Delete(ctx context.Context, db Executor, row *R) error
@@ -480,7 +481,6 @@ func (t *TableOf[R, K]) Indexes() []TableIndex
 func (t *TableOf[R, K]) Insert(ctx context.Context, db Executor, row *R) error
 func (t *TableOf[R, K]) Query() *Query[R]
 func (t *TableOf[R, K]) Restore(ctx context.Context, db Executor, row *R) error
-func (t *TableOf[R, K]) Schema() []tsqdialect.ColumnSpec
 func (t *TableOf[R, K]) SearchColumns() []SearchColumn
 func (t *TableOf[R, K]) TableName() string
 func (t *TableOf[R, K]) Update(ctx context.Context, db Executor, row *R, cols ...BoundColumn[R]) error
@@ -495,7 +495,7 @@ type TableSpec[R any, K comparable] struct {
 	UpdatedAt BoundColumn[R]
 	DeletedAt BoundColumn[R]
 	Search []SearchColumn
-	Schema []tsqdialect.ColumnSpec
+	ColumnSpecs []tsqdialect.ColumnSpec
 	Indexes []TableIndex
 }
 type Text interface {
@@ -534,7 +534,7 @@ func (e *UnknownSortFieldError) Error() string
 type UpdateBuilder[R any] struct {
 }
 func UpdateTable[R any](table RowTable[R]) *UpdateBuilder[R]
-func (b *UpdateBuilder[R]) Set[T any](col TypedColumn[R, T], rhs RHS[T]) *UpdateBuilder[R]
+func (b *UpdateBuilder[R]) Set[T any](col Column[R, T], rhs Operand[T]) *UpdateBuilder[R]
 func (b *UpdateBuilder[R]) SetNull[T any](col NullColumn[R, T]) *UpdateBuilder[R]
 func (b *UpdateBuilder[R]) Where(conds ...Condition) MutationStage[R]
 type Value[T any] struct {
