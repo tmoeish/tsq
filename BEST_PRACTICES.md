@@ -7,11 +7,12 @@
 ### 1.1 尽早校验输入
 
 - 在构建查询前校验分页、排序和用户输入
-- 对外部输入优先使用 `Validate(maxSize)`
+- 对外部输入，`pageReq.Paging(可排序列...)` 就是校验：负数、越界页号、非法 order 都报错
 - `Build()` 返回错误时立即处理
 
 ```go
-if err := pageReq.Validate(runtime.MaxPageSize()); err != nil {
+paging, err := pageReq.Paging(database.TableUser.Name)
+if err != nil {
 	return fmt.Errorf("invalid pagination: %w", err)
 }
 
@@ -62,16 +63,11 @@ if errors.As(err, &unknownField) {
 
 ## 2. 分页
 
-### 2.1 对 API 输入优先使用 `Validate`
+### 2.1 `Paging` 负责校验，`Page` 负责封顶
 
-`Normalize(maxSize)` 会把非法值归一化为安全默认值；  
-`Validate(maxSize)` 会直接返回错误，更适合 HTTP API 和管理端输入。
-
-```go
-if err := pageReq.Validate(runtime.MaxPageSize()); err != nil {
-	return nil, err
-}
-```
+`pageReq.Paging(...)` 拒绝负数页号 / 大小、超过 `tsq.MaxPageNumber` 的页号和非法的 order，0 表示第一页和
+默认大小。超过 runtime `WithMaxPageSize` 的大小**不报错**：`Page` 按上限返回，并在响应的 `Size` 里说明。
+需要拒绝过大的请求时，端点自己比较。
 
 ### 2.2 排序字段白名单由端点给出
 
@@ -141,7 +137,7 @@ return tx.Commit()
 ### 3.3 优先用 `runtime.WithTx(...)` 执行事务里的 TSQ 操作
 
 ```go
-if err := runtime.WithTx(ctx, nil, func(ctx context.Context, txExec tsq.Executor) error {
+if err := runtime.WithTx(ctx, func(ctx context.Context, txExec tsq.Executor) error {
 	if err := order.Insert(ctx, txExec); err != nil {
 		return err
 	}
@@ -156,12 +152,10 @@ if err := runtime.WithTx(ctx, nil, func(ctx context.Context, txExec tsq.Executor
 如果你已经启用了 `version` 乐观锁，并且希望冲突时自动重跑整个事务回调，最短写法是：
 
 ```go
-if err := runtime.WithTx(ctx, &tsq.TxOptions{
-	RetryIf: tsq.IsOptimisticLockError,
-}, func(ctx context.Context, txExec tsq.Executor) error {
+if err := runtime.WithTx(ctx, func(ctx context.Context, txExec tsq.Executor) error {
 	// 在回调里重新读取、重新计算、重新写入。
 	return nil
-}); err != nil {
+}, tsq.WithRetry(tsq.IsOptimisticLockError)); err != nil {
 	return err
 }
 ```
@@ -178,7 +172,7 @@ if err := runtime.WithTx(ctx, &tsq.TxOptions{
 - 通过 `runtime.WithTx(...)` 提供的事务 executor：让整个批量操作参与同一个事务
 
 ```go
-if err := runtime.WithTx(ctx, nil, func(ctx context.Context, txExec tsq.Executor) error {
+if err := runtime.WithTx(ctx, func(ctx context.Context, txExec tsq.Executor) error {
 	if err := database.TableOrder.BatchInsert(ctx, txExec, rows, tsq.WithBatchSize(500)); err != nil {
 		return err
 	}
@@ -196,7 +190,7 @@ if err := runtime.WithTx(ctx, nil, func(ctx context.Context, txExec tsq.Executor
 `ForUpdate()` / `ForShare()` 适合表达“读取并锁定随后要修改的行”，但只有放在事务里才有实际意义。
 
 ```go
-if err := runtime.WithTx(ctx, nil, func(ctx context.Context, txExec tsq.Executor) error {
+if err := runtime.WithTx(ctx, func(ctx context.Context, txExec tsq.Executor) error {
 	query, err := tsq.Select(database.TableUser.Columns()...).
 		From(database.TableUser).
 		Where(database.TableUser.ID.EQ(userID)).
@@ -253,7 +247,7 @@ if err := user.Update(ctx, runtime); err != nil {
 
 不要自己再手工拼一层 `WHERE version = ?`，也不要忽略这类冲突再继续覆盖写。
 
-如果你的写逻辑天然支持“重读后重算再提交”，也可以配合 `runtime.WithTx(..., &tsq.TxOptions{RetryIf: tsq.IsOptimisticLockError}, ...)` 把这类冲突交给事务 helper 重试。
+如果你的写逻辑天然支持“重读后重算再提交”，也可以配合 `runtime.WithTx(ctx, fn, tsq.WithRetry(tsq.IsOptimisticLockError))` 把这类冲突交给事务 helper 重试。
 
 ### 3.8 按条件批量改写用 `UpdateTable` / `DeleteFrom`，不要先查再逐行 `Update`
 

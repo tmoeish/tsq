@@ -57,7 +57,7 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 **查询**
 
 - **类型系统区分可空列**：可为 NULL 的字段（指针、`sql.NullX`、`sql.Null[T]`、nullbio 类型）生成为 `tsq.NullColumn[X, T]`（`tsq.NewNullColumn[T]`），按值类型 `T` 比较（`Nickname.EQ(tsq.Val("x"))`），`UpdateTable(...).SetNull(col)` 只接受它。查询在读行之前检查：可空列、外连接可选侧的表、无 `GROUP BY` 的 `SUM`/`AVG`/`MAX`/`MIN`、`NullIf`、无 `Else` 的 `CASE`、标量子查询，读进不能存 NULL 的字段一律报错（此前要等数据里真有 NULL 才在扫描时失败）；`tsq.MapIntoNull` 映射进可空字段，`Coalesce` 消除可空性，`Query.ScalarNull` 返回 `sql.Null[T]`（`Scalar` 此前把 NULL 静默读成零值，现在拒绝）。`Set` 往 NOT NULL 列赋可能为 NULL 的值时报错。`tsq.Text` / `tsq.Number` 不再包含 `sql.NullX`。`NewColumn` 用在可空字段类型上是定义错误。
-- SQL 在执行时按方言从表达式树渲染并按方言缓存，`Condition` / `SQLColumn` 不再暴露 `Clause()` / `SQLExpr()` 字符串；要看 SQL 用 `Query.SQL(dialect, args...)` 或 `String()`，`ListSQL` / `CountSQL` 等删除。方言能力（`FULL JOIN`、行锁、CTE、`INTERSECT` / `EXCEPT`）由渲染该构造的代码检查，不再扫描 SQL 文本。
+- SQL 在执行时按方言从表达式树渲染并按方言缓存，`Condition` / `SQLColumn` 不再暴露 `Clause()` / `SQLExpr()` 字符串；要看 SQL 用 `Query.SQL(dialect.X, args...)`（`Query.String()` 删除：它一律按 SQLite 渲染，会误导），`ListSQL` / `CountSQL` 等删除。方言能力（`FULL JOIN`、行锁、CTE、`INTERSECT` / `EXCEPT`）由渲染该构造的代码检查，不再扫描 SQL 文本。
 - 阶段接口去掉了 SQL 不允许的转移：分组、`HAVING`、集合操作之后不能加行锁，带搜索的查询不能做集合操作。构建器的具体类型不再出现在签名里，`Select(...).From(...)` 返回 `JoinStage`。
 - **查询阶段本身就是子查询**：`tsq.SelectValue(col).From(t).Where(...)` 直接放在比较、`In`、`Set` 的右边，不用先 `Build`，错误由外层 `Build` 报告；任何阶段都能传给 `Exists`。`tsq.BuildSubquery` 和 `Query.AsSubquery` 删除（它们要把选出的列再写一遍，每个子查询多一段错误处理）。
 - `tsq.MapInto(source, field)` / `MapIntoNull(source, field)` 不再要求 JSON 名，默认取源列的；需要时 `.Named("x")`。
@@ -86,7 +86,7 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 - `tsq.Open(ctx, driver, dsn, tables, ...)` 自己开连接池；`tsq.NewRuntime(ctx, db, dialect.Postgres, tables, ...)` 用调用方已有的池，`Close()` 只关闭自己开的池。选项是函数式的：`WithSchemaPolicy` / `WithTablePolicy` / `WithIndexPolicy` / `WithLogger` / `WithSQLLogging` / `WithTracers` / `WithMaxPageSize`。
 - Schema 策略四档：`Manual`（默认，生产用）、`Validate`、`CreateMissing`、`Reconcile`（开发和测试用，改了结构重启就跟上）。**TSQ 只增不减**：不删表、不删未声明的索引，也不建任何记账表。
 - 标识符长度校验恒为严格，没有关闭开关。
-- `Tracer` 的签名是 `func(ctx, op tsq.TraceOp, next) error`。
+- `Tracer` 的签名是 `func(ctx, info tsq.TraceInfo, next) error`：`info.Op` 是操作，`info.Table` 是写入的表或查询的 FROM 表（span 名终于能说清是哪张表）。`UpdateTable` / `DeleteFrom` 报 `update` / `delete` 而不是 `exec`；`TraceOpScalar` / `TraceOpExec` 删除。
 - `Runtime.Dialect()` 返回方言名 `dialect.Name`。
 
 **读写语义**
@@ -110,15 +110,16 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 - **行级写入不越权改托管列**：`Update` 不再写 `created_at` 和 `deleted_at`，并且在软删除表上只匹配未删除的行——手工构造的行不会把 `created_at` 清零，删除之前读出的旧副本也不会把行复活。软删除只写 `deleted_at` / `updated_at` / `version`，不顺带保存行上其他改动；删除已删除的行在有 `version` 的表上报 `OptimisticLockError`。恢复用 `Restore`。`Upsert` 写入的行总是未删除状态。
 - 读单行只有两个入口：`Get` 在没有行时返回包装 `sql.ErrNoRows` 的错误，`Find` 返回 `nil, nil`。`Get` / `Find` / `Exists` / `Scalar` 最多读一行，`Exists` 不再走 `COUNT`。`Count` 返回 `int64`。
 - 批量写的选项是 `WithBatchSize(n)` 和只对插入有效的 `WithSkipDuplicates()`（传给其他入口会报错）。
-- 事务：`TxOptions{SQL, RetryIf, RetryPolicy}`，`DefaultRetryPolicy()`。重试谓词：`IsRetryableTxError`、`IsOptimisticLockError`、`IsRetryableNetworkError`、`IsTxConflictError`。
-- 分页：`Query.Page(ctx, db, tsq.Paging{Page, Size, OrderBy, Keyword}, args...)`，排序项是 `[]tsq.OrderBy`，写错列名编译不过。HTTP 形态的 `tsq.PageRequest` 用 `Validate(maxSize)` / `Normalize(maxSize)` 校验，再用 `req.Paging(可排序列...)` 转换，排序白名单由端点给出；传 `runtime.MaxPageSize()` 让 handler 和查询用同一个上限。`Page` 的计数和数据在同一个只读事务里读取（MySQL / PostgreSQL 用 `REPEATABLE READ`），并发写入不会让 `Total` 和 `Data` 对不上；传入事务执行器时直接使用该事务。`PageResponse` 有 `Page` / `Size` / `Total` / `TotalPages` / `Data`（从不为 nil），`PageRequest.Offset()` / `Response()` 改为 `Paging.Offset()` 与库内部构造。HTTP 参数解析交给调用方的 binder。
+- 事务：`runtime.WithTx(ctx, fn, options...)` / `WithTxResult(ctx, fn, options...)`，选项是 `tsq.WithIsolation(level)`、`WithReadOnly()`、`WithRetry(predicate)`、`WithRetryPolicy(policy)`；`TxOptions` 删除（此前九成调用要在中间传一个 `nil`），`DefaultRetryPolicy()` 返回值而不是指针。重试谓词：`IsRetryableTxError`、`IsOptimisticLockError`、`IsRetryableNetworkError`、`IsTxConflictError`。
+- 分页：`Query.Page(ctx, db, tsq.Paging{Page, Size, OrderBy}, args...)`，排序项是 `[]tsq.OrderBy`，写错列名编译不过。HTTP 形态的 `tsq.PageRequest` 用 `req.Paging(可排序列...)` 转换，同时校验（负数、越界页号、非法 order 报错），排序白名单由端点给出；超过 runtime 上限的大小由 `Page` 封顶而不报错。没有单独的 `Validate` / `Normalize`，也没有 `Runtime.MaxPageSize()`。`Page` 的计数和数据在同一个只读事务里读取（MySQL / PostgreSQL 用 `REPEATABLE READ`），并发写入不会让 `Total` 和 `Data` 对不上；传入事务执行器时直接使用该事务。`PageResponse` 有 `Page` / `Size` / `Total` / `TotalPages` / `Data`（从不为 nil），`PageRequest.Offset()` / `Response()` 改为 `Paging.Offset()` 与库内部构造。HTTP 参数解析交给调用方的 binder。
 
 **查询 API 命名**
 
 - 否定谓词统一写作 `Not*`：`NotIn`、`NotLike`、`NotBetween`、`tsq.NotStartsWith`……
 - `tsq.Exists(sq)` / `tsq.NotExists(sq)` 是包级函数，参数类型是密封接口 `AnySubquery`。
 - 没有 `Unique` / `NUnique` / `Concat` / `Now()` 这类不读接收者或只会失败的列方法，需要时用 `Expr` / `Exprf`。
-- 错误类型以 `Error` 结尾且字段导出：`OptimisticLockError`、`UnknownSortFieldError`、`AmbiguousSortFieldError`、`OrderCountMismatchError`、`MissingIndexError`、`MissingTableError`，以及 `dialect.UnsupportedCapabilityError`。`RegistrationError` 删除，注册错误由 `Define` 报告。
+- 全文检索的检索词类型叫 `tsq.MatchTerm`（和 `tsq.Matches` 配对），避免和关键词搜索那套 `Search` 名字混淆。
+- 错误类型以 `Error` 结尾且字段导出：`OptimisticLockError`、`UnknownSortFieldError`、`AmbiguousSortFieldError`、`OrderCountMismatchError`、`MissingIndexError`、`MissingTableError`，以及 `dialect.UnsupportedCapabilityError`；`OptimisticLockError` / `RowStateError` 的 `Expected` 和 `Actual` 都是 `int64`。`RegistrationError` 删除，注册错误由 `Define` 报告。
 - 其余命名：`NewColumn`、`Order.Reverse()`、`OrderBy.Column()`、`Runtime.WithTxResult[T]`。
 
 **生成代码**

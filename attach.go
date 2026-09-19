@@ -15,7 +15,7 @@ import (
 // parentKey, deduplicated and read through Query.ListIn, so any number of parents
 // works.
 //
-//	err := tsq.AttachMany(ctx, db, courses, Course_ID, enrollmentsByCourse, Enrollment_CourseID,
+//	err := tsq.AttachMany(ctx, db, courses, TableCourse.ID, enrollmentsByCourse, TableEnrollment.CourseID,
 //		func(c *Course, es []*Enrollment) { c.Enrollments = es })
 //
 // Within one statement the children keep the order of the child query; a key list

@@ -111,7 +111,7 @@ var TableCourse = newCourseTable() // 函数里：NewTable → 各列 → Define
 报告，使用者的原样文本从不被扫描。
 
 - `Condition`、`AnySubquery`、`SQLColumn` 都是封闭接口，没有导出的 `Clause()` / `SQLExpr()`
-  字符串——看 SQL 用 `Query.SQL(dialect, args...)` 或 `String()`。
+  字符串——看 SQL 用 `Query.SQL(dialect.X, args...)`（没有 `String()`：按某个方言默认渲染会误导）。
 - 列的核心是不可变的 `*columnCore`，派生列（函数、聚合、`Exprf`）复制一份再改；`plain`
   标记"直接引用 table.name"，只有它能 `WithTable` / `As` 换表。
 - 方言写法不同的列函数（`Length`、`Round`、`Date`、`Year/Month/Day`）用 `sqlByDialect` 分叉；
@@ -279,7 +279,8 @@ CTE 的输出列可空时，`WithTable(cte)` 重绑的列标成 `always`。
 - 执行期日志走 `logForExecutor` / `logSQLForExecutor`（`runtime_schema.go`），不要在执行路径
   里直接调 `slog.*`。SQL 日志的开关是 `WithSQLLogging()`；`WrapExecutor` 的结果没有 runtime，
   不打。
-- `WithTx`（`tx.go`）是多操作事务的唯一入口，支持 `TxOptions.RetryIf` / `RetryPolicy`。
+- `WithTx(ctx, fn, ...TxOption)`（`tx.go`）是多操作事务的唯一入口，选项 `WithIsolation` / `WithReadOnly` /
+  `WithRetry` / `WithRetryPolicy`。
   commit 阶段只对明确的冲突码（`IsTxConflictError`）重试。
 - 驱动错误分类按**接口**匹配：`sqlite_errors.go` 认 `Code() int`，`postgres_errors.go` 认
   `SQLState() string`。MySQL 是唯一被 import 的驱动，因为 `MySQLError.Number` 是字段。
@@ -313,7 +314,9 @@ DDL 语句、schema 探查，以及 `SupportsCapability(Capability)`。接口只
 
 ## 追踪与错误
 
-- `trace.go`：`Tracer` 是 `func(ctx, op TraceOp, next) error`，每个入口带上自己的 `TraceOp`。
+- `trace.go`：`Tracer` 是 `func(ctx, info TraceInfo, next) error`。每个入口带上自己的 `TraceInfo`：
+  表的写入用 `TableOf.traceInfo`，查询用 `Query.traceInfo`（FROM 表的物理名），按条件写的语句按种类报
+  `update` / `delete`。
   渲染后的 SQL 不在这里，归 `WithSQLLogging()`。
 - 错误类型以 `Error` 结尾（`OptimisticLockError`、`MissingIndexError`……），字段导出，用
   `errors.AsType` 取。乐观锁冲突是**业务错误**，调用方必须处理。

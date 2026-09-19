@@ -224,7 +224,7 @@ TSQ 当前内置的 `Dialect` 实现只有 **SQLite / MySQL / PostgreSQL**。下
 - **执行期的值都走参数**：`List` / `Get` / `Exec` 只接受 `Bind` 出来的 `tsq.Arg`，按参数匹配而不是按位置。
 - **执行器必须知道方言**：`*tsq.Runtime`、`WithTx` 给的执行器，或 `tsq.WrapExecutor(db, dialect.MySQL)`；裸 `*sql.DB` 编译不过。
 - **`Build()` 成功不代表所有方言都能执行**：CTE、`FULL JOIN`、行锁在执行时按方言校验，不支持时返回 `*dialect.UnsupportedCapabilityError`。
-- **`version` 字段是自动乐观锁**：`Update` / `Delete` 冲突时返回 `*tsq.OptimisticLockError`，这是业务错误，必须处理。`TxOptions{RetryIf: tsq.IsOptimisticLockError}` 可以整段重试。
+- **`version` 字段是自动乐观锁**：`Update` / `Delete` 冲突时返回 `*tsq.OptimisticLockError`，这是业务错误，必须处理。`runtime.WithTx(ctx, fn, tsq.WithRetry(tsq.IsOptimisticLockError))` 可以整段重试。
 - **声明了 `deleted_at` 的表，`Delete` 是软删除**，而且已删行对**所有**引用这张表的查询和按条件写都不可见（JOIN 里也是）；要看已删行用 `TableXxx.WithDeleted()`，物理删除写 `HardDelete`。没有 `deleted_at` 的表两者同义。
 - **列函数是包级泛型函数**：`tsq.Upper(col)`、`tsq.Sum(col)`、`tsq.Contains(col, tsq.Val("x"))`，套在类型不合的列上编译不过。
 - **可空列是 `tsq.NullColumn[X, T]`**：按值类型比较，`SetNull` 写 NULL；可能读到 NULL 的值（可空列、外连接的表、没有 GROUP BY 的聚合）只能读进可空字段，否则查询在执行前就报错，而不是等到数据里真有 NULL 才炸。

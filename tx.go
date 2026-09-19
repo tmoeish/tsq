@@ -27,18 +27,44 @@ const (
 	txRetryStageCommit
 )
 
-// TxOptions configures Runtime.WithTx.
-type TxOptions struct {
-	// SQL passes through to database/sql BeginTx.
-	SQL *sql.TxOptions
-	// RetryIf decides whether a failed transaction attempt should be retried.
-	// When set, DefaultRetryPolicy applies unless RetryPolicy overrides it.
-	RetryIf func(err error) bool
-	// RetryPolicy customizes retry timing and attempt limits when RetryIf is set.
-	RetryPolicy *RetryPolicy
+// TxOption configures Runtime.WithTx and Runtime.WithTxResult.
+type TxOption func(*txConfig)
+
+type txConfig struct {
+	sql      sql.TxOptions
+	retryIf  func(err error) bool
+	retrySet bool
+	policy   *RetryPolicy
 }
 
-// RetryPolicy configures retry timing and attempt limits for Runtime.WithTx.
+// WithIsolation sets the transaction's isolation level.
+func WithIsolation(level sql.IsolationLevel) TxOption {
+	return func(c *txConfig) { c.sql.Isolation = level }
+}
+
+// WithReadOnly makes the transaction read-only.
+func WithReadOnly() TxOption {
+	return func(c *txConfig) { c.sql.ReadOnly = true }
+}
+
+// WithRetry runs the whole transaction again when an attempt fails with an error
+// retryIf accepts, under DefaultRetryPolicy unless WithRetryPolicy sets another.
+// A failed COMMIT is retried only for IsTxConflictError, whatever retryIf says:
+// any other commit failure may have committed. IsRetryableTxError is the usual
+// retryIf.
+func WithRetry(retryIf func(err error) bool) TxOption {
+	return func(c *txConfig) {
+		c.retryIf = retryIf
+		c.retrySet = true
+	}
+}
+
+// WithRetryPolicy sets the attempt limit and backoff of WithRetry.
+func WithRetryPolicy(policy RetryPolicy) TxOption {
+	return func(c *txConfig) { c.policy = &policy }
+}
+
+// RetryPolicy is the attempt limit and backoff of a transaction run WithRetry.
 type RetryPolicy struct {
 	// MaxAttempts is the total number of attempts, including the first try.
 	MaxAttempts int
@@ -50,9 +76,10 @@ type RetryPolicy struct {
 	Multiplier float64
 }
 
-// DefaultRetryPolicy returns the default retry timing used when RetryIf is set.
-func DefaultRetryPolicy() *RetryPolicy {
-	return &RetryPolicy{
+// DefaultRetryPolicy returns the policy WithRetry uses unless WithRetryPolicy
+// sets another: three attempts, 5ms backoff doubling up to 25ms.
+func DefaultRetryPolicy() RetryPolicy {
+	return RetryPolicy{
 		MaxAttempts:    defaultTxRetryMaxAttempts,
 		InitialBackoff: defaultTxRetryInitialBackoff,
 		MaxBackoff:     defaultTxRetryMaxBackoff,
@@ -114,7 +141,7 @@ func IsTxConflictError(err error) bool {
 
 // IsRetryableTxError reports whether err is any of the conditions TSQ knows how
 // to retry: an optimistic-lock conflict, a retryable network failure, or a
-// transaction conflict. It is the predicate to pass to TxOptions.RetryIf unless
+// transaction conflict. It is the predicate to pass to WithRetry unless
 // the caller wants a narrower rule.
 func IsRetryableTxError(err error) bool {
 	return IsOptimisticLockError(err) ||
@@ -128,35 +155,45 @@ type normalizedTxOptions struct {
 	retryPolicy *RetryPolicy
 }
 
-func normalizeTxOptions(options *TxOptions) (*normalizedTxOptions, error) {
+func normalizeTxOptions(options []TxOption) (*normalizedTxOptions, error) {
+	var cfg txConfig
+
+	for _, option := range options {
+		if option == nil {
+			return nil, errors.New("transaction option cannot be nil")
+		}
+
+		option(&cfg)
+	}
+
 	normalized := &normalizedTxOptions{}
-	if options == nil {
-		return normalized, nil
+	if cfg.sql != (sql.TxOptions{}) {
+		normalized.sqlOptions = new(cfg.sql)
 	}
 
-	if options.SQL != nil {
-		normalized.sqlOptions = new(*options.SQL)
-	}
-
-	if options.RetryIf == nil {
-		if options.RetryPolicy != nil {
-			return nil, errors.New("TxOptions.RetryPolicy requires TxOptions.RetryIf")
+	if !cfg.retrySet {
+		if cfg.policy != nil {
+			return nil, errors.New("WithRetryPolicy requires WithRetry")
 		}
 
 		return normalized, nil
 	}
 
-	policy := DefaultRetryPolicy()
-	if options.RetryPolicy != nil {
-		policy = new(*options.RetryPolicy)
+	if cfg.retryIf == nil {
+		return nil, errors.New("WithRetry needs a function that decides which errors to retry")
 	}
 
-	if err := validateRetryPolicy(policy); err != nil {
+	policy := DefaultRetryPolicy()
+	if cfg.policy != nil {
+		policy = *cfg.policy
+	}
+
+	if err := validateRetryPolicy(&policy); err != nil {
 		return nil, err
 	}
 
-	normalized.retryIf = options.RetryIf
-	normalized.retryPolicy = policy
+	normalized.retryIf = cfg.retryIf
+	normalized.retryPolicy = &policy
 
 	return normalized, nil
 }
@@ -311,8 +348,8 @@ func (r *Runtime) executeTxAttempt[T any](
 
 func (r *Runtime) withTxResult[T any](
 	ctx context.Context,
-	options *TxOptions,
 	fn func(context.Context, Executor) (T, error),
+	options []TxOption,
 ) (T, error) {
 	var zero T
 
@@ -329,7 +366,7 @@ func (r *Runtime) withTxResult[T any](
 		return zero, err
 	}
 
-	return r.trace1(ctx, TraceOpTx, func(ctx context.Context) (T, error) {
+	return r.trace1(ctx, TraceInfo{Op: TraceOpTx}, func(ctx context.Context) (T, error) {
 		for attempt := 1; ; attempt++ {
 			result, phase, err := r.executeTxAttempt(ctx, normalized, fn)
 			if err == nil {
@@ -347,11 +384,12 @@ func (r *Runtime) withTxResult[T any](
 	})
 }
 
-// WithTxResult runs fn in a transaction and returns its typed result.
+// WithTxResult is WithTx for a callback that returns a value; return a small
+// struct when several values come back.
 func (r *Runtime) WithTxResult[T any](
 	ctx context.Context,
-	options *TxOptions,
 	fn func(context.Context, Executor) (T, error),
+	options ...TxOption,
 ) (T, error) {
-	return r.withTxResult(ctx, options, fn)
+	return r.withTxResult(ctx, fn, options)
 }

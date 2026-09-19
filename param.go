@@ -13,8 +13,8 @@ import (
 // A Param is an RHS, so it goes wherever a column or subquery could:
 //
 //	minPrice := tsq.NewParam[int64]("min_price")
-//	q := tsq.Select(Course__Cols...).From(TableCourse).
-//		Where(Course_Price.GTE(minPrice)).MustBuild()
+//	q := tsq.Select(TableCourse.Columns()...).From(TableCourse).
+//		Where(TableCourse.Price.GTE(minPrice)).MustBuild()
 //	courses, err := q.List(ctx, db, minPrice.Bind(1000))
 //
 // Values are matched to placeholders by parameter identity, not by position, and

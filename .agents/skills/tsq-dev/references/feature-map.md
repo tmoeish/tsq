@@ -20,7 +20,7 @@
 | `CASE` | `case.go` |
 | `ORDER BY` 方向解析、NULL 排序位置（`NullsFirst` / `NullsLast`、`orderTerm.render`） | `order.go`、`query_render.go`（`order_test.go`；三方言真跑在 `TestIntegrationNullOrderingAgrees`） |
 | 游标分页 `Keyset` / `KeysetPage` / `PageKeyset`、游标编解码与指纹、seek 条件 | `keyset.go`（`keyset_test.go`；时间值游标三方言真跑在 `TestIntegrationPageKeysetOverTimestamps`） |
-| 分页 `Paging` / `PageResponse`、HTTP 形态 `PageRequest`（`Validate` / `Normalize` / `Paging(sortable...)`）、排序字段错误类型 | `paging.go`（`exec_test.go` 的 `TestPageSearchesSortsAndCounts`） |
+| 分页 `Paging` / `PageResponse`、HTTP 形态 `PageRequest`（`Paging(sortable...)` / `Keyset` 同时校验）、排序字段错误类型 | `paging.go`（`exec_test.go` 的 `TestPageSearchesSortsAndCounts`） |
 | 软删除作用域（`WithDeleted`、`liveRows` / `liveSource`、JOIN 位置规则） | `table.go` + `query_render.go` 的 `writeFromWhere`（`exec_test.go` 的 `TestSoftDeleteScope`；`internal/integration` 的 `TestIntegrationSoftDeleteScopeJoins`） |
 
 ## 根包：表与写入
@@ -46,7 +46,7 @@
 | 封闭的 `Executor`、`execScope`、`WrapExecutor`、`DBTX` | `executor.go` |
 | `Open` / `NewRuntime`、连接池所有权、标识符校验 | `runtime.go`（选项在 `runtime_options.go`） |
 | schema 对账、执行期日志与 SQL 日志 | `runtime_schema.go` |
-| 事务与重试（`WithTx`、`WithTxResult`、`TxOptions`、`RetryPolicy`、错误谓词） | `tx.go`（`tx_test.go`） |
+| 事务与重试（`WithTx`、`WithTxResult`、`TxOption` 与 `WithRetry` 等、`RetryPolicy`、错误谓词） | `tx.go`（`tx_test.go`） |
 | 追踪钩子 | `trace.go` |
 | SQLite / PostgreSQL / MySQL 错误映射 | `sqlite_errors.go`、`postgres_errors.go`、`mysql_errors.go`（反射读 `*mysql.MySQLError`，不 import 驱动） |
 | 杂项（`isNilValue`、标识符校验、重复键判断、谓词值校验） | `util.go` |

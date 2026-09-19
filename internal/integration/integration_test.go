@@ -589,7 +589,7 @@ func TestIntegrationBatchInsertIgnoresDuplicatesInsideTransaction(t *testing.T) 
 				{Name: "Grace", Email: "grace@example.test", Company: "Navy"},
 			}
 
-			err := rt.WithTx(ctx, nil, func(ctx context.Context, txExec tsq.Executor) error {
+			err := rt.WithTx(ctx, func(ctx context.Context, txExec tsq.Executor) error {
 				if err := academy.TableLearner.BatchInsert(ctx, txExec, learners, tsq.WithBatchSize(10), tsq.WithSkipDuplicates()); err != nil {
 					return err
 				}

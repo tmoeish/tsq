@@ -40,7 +40,7 @@ func (p *KeysetPage[T]) HasNext() bool { return p != nil && p.Next != "" }
 // rows. There is no total: counting is what keyset paging avoids; use Count when
 // it is needed.
 func (q *Query[O]) PageKeyset(ctx context.Context, db Executor, k Keyset, args ...Arg) (*KeysetPage[O], error) {
-	return traceExecutor1(ctx, db, TraceOpPage, func(ctx context.Context) (*KeysetPage[O], error) {
+	return traceExecutor1(ctx, db, q.traceInfo(TraceOpPage), func(ctx context.Context) (*KeysetPage[O], error) {
 		if q == nil {
 			return nil, errors.New("query cannot be nil")
 		}
@@ -49,7 +49,7 @@ func (q *Query[O]) PageKeyset(ctx context.Context, db Executor, k Keyset, args .
 			return nil, q.err
 		}
 
-		size := Paging{Size: k.Size}.normalized(runtimeForExecutor(db).MaxPageSize()).Size
+		size := Paging{Size: k.Size}.normalized(runtimeForExecutor(db).maxPage()).Size
 
 		keys, err := q.keysetColumns(k.OrderBy)
 		if err != nil {

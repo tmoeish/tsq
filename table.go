@@ -544,3 +544,8 @@ func debugStatement(r *renderer) string {
 
 	return b.String()
 }
+
+// traceInfo names an operation on the table for tracers.
+func (t *TableOf[R, K]) traceInfo(op TraceOp) TraceInfo {
+	return TraceInfo{Op: op, Table: t.def.name}
+}

@@ -14,8 +14,8 @@ type FullTextIndex struct {
 	err   error
 }
 
-// SearchTerm is the term Matches looks for: a Val or a Param of a string.
-type SearchTerm interface {
+// MatchTerm is the term Matches looks for: a Val or a Param of a string.
+type MatchTerm interface {
 	Pattern[string]
 	RHS[string]
 }
@@ -29,7 +29,7 @@ type SearchTerm interface {
 // matches term as a substring of any indexed column. Ranking and operator syntax
 // are not portable; dialect.CapabilityFullTextSearch reports which kind a runtime
 // gets.
-func Matches(index FullTextIndex, term SearchTerm) Condition {
+func Matches(index FullTextIndex, term MatchTerm) Condition {
 	switch {
 	case index.err != nil:
 		return conditionError(index.err)

@@ -13,7 +13,7 @@ type RowStateError struct {
 	Table    string
 	Op       string
 	Need     string
-	Expected int
+	Expected int64
 	Actual   int64
 }
 
@@ -32,10 +32,10 @@ func IsRowStateError(err error) bool {
 // OptimisticLockError reports that a version-guarded write matched fewer rows than
 // it was given: another writer changed or deleted one of them first. It is a
 // business outcome to handle, typically by reloading and retrying; see
-// TxOptions.RetryIf and IsOptimisticLockError.
+// WithRetry and IsOptimisticLockError.
 type OptimisticLockError struct {
 	Table    string
-	Expected int
+	Expected int64
 	Actual   int64
 }
 

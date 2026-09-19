@@ -725,22 +725,22 @@ An HTTP endpoint receives strings. `tsq.PageRequest` is that shape (`page`, `siz
 endpoint allows to sort by; the keyword goes in as `tsq.Keyword(req.Keyword)`:
 
 ```go
-if err := req.Validate(runtime.MaxPageSize()); err != nil {
-	return err // 400
-}
-
 paging, err := req.Paging(database.TableUser.Name, database.TableUser.CreatedAt)
 if err != nil {
-	return err // 400: *UnknownSortFieldError, *AmbiguousSortFieldError, *OrderCountMismatchError
+	return err // 400: a negative page or size, a bad order, *UnknownSortFieldError, ...
 }
+
+resp, err := database.TableUser.Query().Page(ctx, runtime, paging, tsq.Keyword(req.Keyword))
 ```
 
 - `order_by` is a comma-separated list of column or JSON names; `order` is `asc` / `desc`, one
   per field or one for all
 - the sortable list is explicit: selecting a column does not make it sortable, since sorting
   on an unindexed column is a cost the endpoint decides to pay
-- prefer `Validate(maxSize)` for external input; `Normalize(maxSize)` clamps instead. Pass
-  `runtime.MaxPageSize()` so the handler and the query agree
+- `Paging` (and `Keyset`) is where the request is validated: a negative page or size, a page
+  above `tsq.MaxPageNumber`, or an order other than `asc` / `desc` is an error. Zero means the first
+  page and the default size (20). A size above the runtime's `WithMaxPageSize` (default
+  `tsq.DefaultMaxPageSize`) is not an error: `Page` serves the capped size and says so in `Size`
 - parsing the request out of a query string is the caller's job; the struct's `query` and `json`
   tags cover the usual binders
 
@@ -988,7 +988,7 @@ Rules:
 - default policy is manual: TSQ logs a reminder but does not automatically reconcile missing tables or indexes
 - `tsq gen` refuses a table, column or index name longer than any built-in dialect allows, and suggests the directive that fixes it (usually `name=` on the index). A runtime checks again at construction, and there is no way to turn that off. Such a name does not reach the server intact, so the objects TSQ creates stop matching the names its queries reference. Name the index explicitly (`//tsq:unique Email name=ux_short`) when a derived index name is what runs over the limit
 - `tsq.WithMaxPageSize(n)` sets the page-size cap for paged queries on that runtime, in either direction. `tsq.DefaultMaxPageSize` (1000) is the default, not a ceiling
-- `tsq.WithTracers(t...)` wraps every traced operation. A tracer receives the context, a `tsq.TraceOp` naming the work (`insert`, `upsert`, `update`, `delete`, `get`, `list`, `iter`, `page`, `count`, `scalar`, `exec`, `tx`) and the continuation, and must call the continuation and return its error. The rendered SQL is not passed: tracing brackets the whole operation, binding and dialect rendering included, so statements come from `WithSQLLogging()` instead
+- `tsq.WithTracers(t...)` wraps every traced operation. A tracer receives the context, a `tsq.TraceInfo` and the continuation, and must call the continuation and return its error. `TraceInfo.Op` names the work (`insert`, `upsert`, `update`, `delete`, `get`, `list`, `iter`, `page`, `count`, `tx`; an `UpdateTable` statement is an `update`, a `DeleteFrom` a `delete`) and `TraceInfo.Table` the table it writes or the query's `FROM` table (empty for `tx`), which is what a span name needs. The rendered SQL is not passed: tracing brackets the whole operation, binding and dialect rendering included, so statements come from `WithSQLLogging()` instead
 - **TSQ only ever adds.** No policy drops a table, so several services can share one database and bring up their own tables independently. Removing a table that is no longer declared is a migration, not a boot-time decision: a runtime knows only its own declarations and cannot tell "this table is obsolete" from "this table belongs to someone else"
 - schema policies log the mode they are in at info level; `SchemaPolicyManual` (the default) is a normal production choice, not a warning
 - `tsq.WithLogger(l)` receives bootstrap DDL and execution-time warnings (for example a skipped batch-insert ID assignment); it defaults to `slog.Default()`
@@ -999,10 +999,13 @@ Rules:
 Use:
 
 ```go
-runtime.WithTx(ctx, opts, func(ctx context.Context, txExec tsq.Executor) error {
+err := runtime.WithTx(ctx, func(ctx context.Context, txExec tsq.Executor) error {
 	...
 })
 ```
+
+Options follow the callback: `tsq.WithIsolation(sql.LevelSerializable)`, `tsq.WithReadOnly()`,
+`tsq.WithRetry(tsq.IsRetryableTxError)` and `tsq.WithRetryPolicy(policy)`.
 
 Use transaction helpers when:
 
@@ -1013,9 +1016,9 @@ Use transaction helpers when:
 When the callback returns a value, use the Go 1.27 generic method:
 
 ```go
-result, err := runtime.WithTxResult(ctx, opts, func(ctx context.Context, txExec tsq.Executor) (*Result, error) {
+result, err := runtime.WithTxResult(ctx, func(ctx context.Context, txExec tsq.Executor) (*Result, error) {
 	return loadAndUpdate(ctx, txExec)
-})
+}, opts...)
 ```
 
 Return a small result struct when several related values come back; `WithTxResult` is the only typed transaction helper.
@@ -1030,7 +1033,7 @@ Useful rules:
 - a batch `INSERT` binds about one placeholder per column per row, but a batch `UPDATE` binds about **two** (it renders `col = CASE pk WHEN ? THEN ? ... END`), so the same rows split roughly half as large for `BatchUpdate` as for `BatchInsert`
 - `tsq.WithSkipDuplicates()` skips rows that violate a unique or primary-key constraint and keeps going. It skips **duplicate keys only**; every other failure still aborts the call
 - inside a transaction, each row of a `WithSkipDuplicates` insert is bracketed by a savepoint, because PostgreSQL aborts the whole transaction on any failed statement and rejects everything after it until the transaction unwinds. Outside a transaction no savepoint is used, since each insert is already its own implicit transaction
-- `TxOptions.RetryIf` takes a predicate; `TxOptions.RetryPolicy` (attempts and backoff) defaults to `tsq.DefaultRetryPolicy()` and is rejected without `RetryIf`. `tsq.IsRetryableTxError` covers every condition TSQ knows how to retry; the narrower `tsq.IsOptimisticLockError`, `tsq.IsRetryableNetworkError` and `tsq.IsTxConflictError` are there when a caller wants one class and not the others
+- `tsq.WithRetry(predicate)` reruns the whole callback while the predicate accepts the error; `tsq.WithRetryPolicy(p)` (attempts and backoff) defaults to `tsq.DefaultRetryPolicy()` and is rejected without `WithRetry`. `tsq.IsRetryableTxError` covers every condition TSQ knows how to retry; the narrower `tsq.IsOptimisticLockError`, `tsq.IsRetryableNetworkError` and `tsq.IsTxConflictError` are there when a caller wants one class and not the others
 - after a failed `COMMIT` only `tsq.IsTxConflictError` conditions are retried, whatever the predicate says: those codes guarantee the transaction was rolled back, while a network failure at commit time leaves it unknown whether the commit landed
 
 ## 10. Aliases, rebinding, and result mapping

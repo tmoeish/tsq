@@ -87,7 +87,7 @@ func TestRuntimeQueryRowContextRequiresInit(t *testing.T) {
 func TestRuntimeWithTxCommitsAndCarriesDialect(t *testing.T) {
 	db := newSQLite(t)
 
-	err := db.WithTx(context.Background(), nil, func(ctx context.Context, txExec Executor) error {
+	err := db.WithTx(context.Background(), func(ctx context.Context, txExec Executor) error {
 		return Users.Insert(ctx, txExec, &user{
 			Name:  "alice",
 			Email: "alice@example.com",
@@ -110,7 +110,7 @@ func TestRuntimeWithTxRollsBackOnCallbackError(t *testing.T) {
 	db := newSQLite(t)
 	wantErr := errors.New("boom")
 
-	err := db.WithTx(context.Background(), nil, func(ctx context.Context, txExec Executor) error {
+	err := db.WithTx(context.Background(), func(ctx context.Context, txExec Executor) error {
 		if err := Users.Insert(ctx, txExec, &user{
 			Name:  "alice",
 			Email: "alice@example.com",
@@ -136,7 +136,7 @@ func TestRuntimeWithTxRollsBackOnCallbackError(t *testing.T) {
 func TestRuntimeWithTxRequiresInitializedRuntime(t *testing.T) {
 	runtime := &Runtime{}
 
-	err := runtime.WithTx(context.Background(), nil, func(context.Context, Executor) error {
+	err := runtime.WithTx(context.Background(), func(context.Context, Executor) error {
 		return nil
 	})
 	if err == nil {
@@ -150,7 +150,7 @@ func TestRuntimeWithTxRequiresInitializedRuntime(t *testing.T) {
 func TestRuntimeWithTxRejectsNilCallback(t *testing.T) {
 	db := newSQLite(t)
 
-	err := db.WithTx(context.Background(), nil, nil)
+	err := db.WithTx(context.Background(), nil)
 	if err == nil {
 		t.Fatal("expected nil callback to fail")
 	}
@@ -163,7 +163,7 @@ func TestRuntimeWithTxRetriesOptimisticLockWithDefaultPolicy(t *testing.T) {
 	db := newSQLite(t)
 	attempts := 0
 
-	err := db.WithTx(context.Background(), &TxOptions{RetryIf: IsOptimisticLockError}, func(ctx context.Context, txExec Executor) error {
+	err := db.WithTx(context.Background(), func(ctx context.Context, txExec Executor) error {
 		attempts++
 		if attempts < 3 {
 			return &OptimisticLockError{}
@@ -173,7 +173,7 @@ func TestRuntimeWithTxRetriesOptimisticLockWithDefaultPolicy(t *testing.T) {
 			Name:  "alice",
 			Email: "alice@example.com",
 		})
-	})
+	}, WithRetry(IsOptimisticLockError))
 	if err != nil {
 		t.Fatalf("expected optimistic lock retry to succeed, got %v", err)
 	}
@@ -187,18 +187,15 @@ func TestRuntimeWithTxOptimisticLockRetryHonorsCustomPolicy(t *testing.T) {
 	attempts := 0
 	wantErr := &OptimisticLockError{}
 
-	err := db.WithTx(context.Background(), &TxOptions{
-		RetryIf: IsOptimisticLockError,
-		RetryPolicy: &RetryPolicy{
-			MaxAttempts:    2,
-			InitialBackoff: 0,
-			MaxBackoff:     0,
-			Multiplier:     1,
-		},
-	}, func(context.Context, Executor) error {
+	err := db.WithTx(context.Background(), func(context.Context, Executor) error {
 		attempts++
 		return wantErr
-	})
+	}, WithRetry(IsOptimisticLockError), WithRetryPolicy(RetryPolicy{
+		MaxAttempts:    2,
+		InitialBackoff: 0,
+		MaxBackoff:     0,
+		Multiplier:     1,
+	}))
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("expected optimistic lock conflict, got %v", err)
 	}
@@ -210,17 +207,14 @@ func TestRuntimeWithTxOptimisticLockRetryHonorsCustomPolicy(t *testing.T) {
 func TestRuntimeWithTxRejectsInvalidRetryPolicy(t *testing.T) {
 	db := newSQLite(t)
 
-	err := db.WithTx(context.Background(), &TxOptions{
-		RetryIf: IsOptimisticLockError,
-		RetryPolicy: &RetryPolicy{
-			MaxAttempts:    0,
-			InitialBackoff: 0,
-			MaxBackoff:     0,
-			Multiplier:     1,
-		},
-	}, func(context.Context, Executor) error {
+	err := db.WithTx(context.Background(), func(context.Context, Executor) error {
 		return nil
-	})
+	}, WithRetry(IsOptimisticLockError), WithRetryPolicy(RetryPolicy{
+		MaxAttempts:    0,
+		InitialBackoff: 0,
+		MaxBackoff:     0,
+		Multiplier:     1,
+	}))
 	if err == nil {
 		t.Fatal("expected invalid retry policy to fail")
 	}
@@ -232,7 +226,7 @@ func TestRuntimeWithTxRejectsInvalidRetryPolicy(t *testing.T) {
 func TestRuntimeWithTxResultReturnsValue(t *testing.T) {
 	db := newSQLite(t)
 
-	got, err := db.WithTxResult(context.Background(), nil, func(ctx context.Context, txExec Executor) (int, error) {
+	got, err := db.WithTxResult(context.Background(), func(ctx context.Context, txExec Executor) (int, error) {
 		if err := Users.Insert(ctx, txExec, &user{
 			Name:  "alice",
 			Email: "alice@example.com",
@@ -260,15 +254,7 @@ func TestRuntimeWithTxResultReturnsAStruct(t *testing.T) {
 		state string
 	}
 
-	got, err := db.WithTxResult(context.Background(), &TxOptions{
-		RetryIf: IsOptimisticLockError,
-		RetryPolicy: &RetryPolicy{
-			MaxAttempts:    2,
-			InitialBackoff: 0,
-			MaxBackoff:     0,
-			Multiplier:     1,
-		},
-	}, func(ctx context.Context, txExec Executor) (result, error) {
+	got, err := db.WithTxResult(context.Background(), func(ctx context.Context, txExec Executor) (result, error) {
 		if err := Users.Insert(ctx, txExec, &user{
 			Name:  "alice",
 			Email: "alice@example.com",
@@ -277,7 +263,12 @@ func TestRuntimeWithTxResultReturnsAStruct(t *testing.T) {
 		}
 
 		return result{count: 7, state: "ok"}, nil
-	})
+	}, WithRetry(IsOptimisticLockError), WithRetryPolicy(RetryPolicy{
+		MaxAttempts:    2,
+		InitialBackoff: 0,
+		MaxBackoff:     0,
+		Multiplier:     1,
+	}))
 	if err != nil {
 		t.Fatalf("expected WithTxResult to succeed, got %v", err)
 	}
@@ -292,19 +283,16 @@ func TestRuntimeWithTxRetryRespectsContextCancellationBetweenAttempts(t *testing
 	ctx, cancel := context.WithCancel(context.Background())
 	attempts := 0
 
-	err := db.WithTx(ctx, &TxOptions{
-		RetryIf: IsOptimisticLockError,
-		RetryPolicy: &RetryPolicy{
-			MaxAttempts:    3,
-			InitialBackoff: 10 * time.Millisecond,
-			MaxBackoff:     10 * time.Millisecond,
-			Multiplier:     1,
-		},
-	}, func(context.Context, Executor) error {
+	err := db.WithTx(ctx, func(context.Context, Executor) error {
 		attempts++
 		cancel()
 		return &OptimisticLockError{}
-	})
+	}, WithRetry(IsOptimisticLockError), WithRetryPolicy(RetryPolicy{
+		MaxAttempts:    3,
+		InitialBackoff: 10 * time.Millisecond,
+		MaxBackoff:     10 * time.Millisecond,
+		Multiplier:     1,
+	}))
 	if err == nil {
 		t.Fatal("expected canceled context to stop retries")
 	}
@@ -386,7 +374,7 @@ func TestPostgresErrorsMatchBySQLStateInterface(t *testing.T) {
 func TestShouldRetryTxCommitStageOnlyRetriesDefiniteConflicts(t *testing.T) {
 	opts := &normalizedTxOptions{
 		retryIf:     IsRetryableTxError,
-		retryPolicy: DefaultRetryPolicy(),
+		retryPolicy: new(DefaultRetryPolicy()),
 	}
 
 	if shouldRetryTx(driver.ErrBadConn, txRetryStageCommit, opts, 1) {

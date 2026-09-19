@@ -202,14 +202,10 @@ MySQL 的 `LENGTH` 数字节；PostgreSQL 没有 `round(double, int)`；modernc 
 
 ### 两个测试各自编码了相反的意图，代码同时满足它们 (2026-09-16)
 
-`DefaultMaxPageSize` 到底是默认值还是硬顶？`TestRuntimeMaxPageSizeDefaultsAndOverrides` 断言
-`WithMaxPageSize(5000)` 能放行 3000，当时另一条测试断言"没有 runtime
-能抬高绝对上限"。两条都绿——因为 `Validate` 把上限夹到 1000 而 `Normalize` 不夹，于是同一个请求能
-通过一个、被另一个悄悄改小。
-
-**一对互相矛盾的断言可以同时为真，只要实现里有两条路径各满足一条。** 这类分歧不会被测试发现，它
-就藏在测试里。判据：同一个概念的两个入口，要有一个用例把它们放在一起比，而不是各测各的。现在是
-`TestValidateAndNormalizeResolveTheSameLimit`：`Validate` 拒绝的，恰好是 `Normalize` 会夹的。
+一条测试断言 `WithMaxPageSize(5000)` 能放行 3000，另一条断言"没有 runtime 能抬高绝对上限"，两条都绿：
+`Validate` 把上限夹到 1000 而 `Normalize` 不夹。**一对矛盾的断言可以同时为真，只要实现里有两条路径各
+满足一条**；同一个概念的两个入口要放在一个用例里比。后来只留一条路径：`PageRequest.Paging` 只拒绝没有
+意义的输入，大小由 `Page` 按 runtime 上限封顶（2026-09-19），`Validate` / `Normalize` / `MaxPageSize()` 删除。
 
 定案取名字：`DefaultMaxPageSize` 是**默认**，`WithMaxPageSize(n)` 是这个 runtime 的上限，双向生效。
 把常量当硬顶会让 `WithMaxPageSize(5000)` 变成一句空话——库不该用一个编译期常量去否决调用方明确的选择。
@@ -231,8 +227,10 @@ v5 不背兼容，一次把名字改到"最合理"。定下的几条规则，每
 - 否定一律 `Not*`（`NotIn`、`NotLike`）。v4 的 `NIn` 和 `NotExists` 并存，同一个意思两种拼法。`NE` 保留，它是比较运算符。
 - 可选参数用函数式选项（`RuntimeOption`、`BatchOption`），不用 `...*XxxOptions`。只对插入有意义的
   `WithSkipDuplicates` 传给别的 `Batch*` 会**报错**而不是被忽略：被静默忽略的选项就是 v4 的零值歧义。
-- 分页的上限是必传参数 `Validate(maxSize)`：v4 的无参版本量的是全局上限，和 runtime 的上限不一致，
-  `WithLimit` 版本才是对的——对的那个应该是唯一的那个。
+- 事务选项跟在回调后面（`WithTx(ctx, fn, tsq.WithRetry(...))`），和 `RuntimeOption` 一个形状；
+  `TxOptions` 结构体让九成调用在中间传 `nil`。`WithTablePolicy` / `WithIndexPolicy` **保留**：示例的表来自
+  `mock.sql`、只让 TSQ 管索引，合并成一个选项就表达不了。追踪给 `TraceInfo{Op, Table}`，没有表名的
+  span 说不清在做什么。
 - 表是描述符，方法在 `TableOf` 上，不在使用者的结构体上。`Table` 的方法叫 `TableName()` 不叫
   `Name()`：生成结构体的列字段常叫 `Name`，同名会遮住接口方法。
 - 没有 `BuildSubquery` / `AsSubquery`：阶段和 `*Query` 自己实现 `Subquery[O]`，`SelectValue` 的阶段就是

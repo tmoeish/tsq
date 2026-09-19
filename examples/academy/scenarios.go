@@ -459,10 +459,6 @@ func runComprehensive(ctx context.Context, runtime *tsq.Runtime) (*Comprehensive
 		OrderBy: "learner_id,enrollment_id",
 		Order:   "asc,asc",
 	}
-	if err := pageReq.Validate(runtime.MaxPageSize()); err != nil {
-		return nil, err
-	}
-
 	// A handler turns the request into a Paging, naming the columns clients may sort by.
 	paging, err := pageReq.Paging(ResultLearningJourney.LearnerID, ResultLearningJourney.EnrollmentID)
 	if err != nil {
@@ -569,9 +565,6 @@ func runCatalogSearchDemo(ctx context.Context, runtime *tsq.Runtime) (*SearchSum
 		OrderBy: "id", // OrderBy uses the JSON tag because callers (e.g. the frontend) only see JSON tags, not column names or db tags.
 		Order:   "asc",
 		Keyword: "SQLite",
-	}
-	if err := pageReq.Validate(runtime.MaxPageSize()); err != nil {
-		return nil, err
 	}
 
 	paging, err := pageReq.Paging(TableCourse.ID, TableCourse.Title)
@@ -1038,7 +1031,7 @@ func runBatchDemo(ctx context.Context, runtime *tsq.Runtime) (*BatchSummary, err
 		},
 	}
 
-	if err := runtime.WithTx(ctx, nil, func(ctx context.Context, txExec tsq.Executor) error {
+	if err := runtime.WithTx(ctx, func(ctx context.Context, txExec tsq.Executor) error {
 		if err := TableEnrollment.BatchInsert(ctx, txExec, enrollments, tsq.WithBatchSize(2)); err != nil {
 			return err
 		}
@@ -1215,7 +1208,7 @@ func runOptimisticLockDemo(ctx context.Context, runtime *tsq.Runtime) (*Optimist
 
 	attempts := 0
 
-	summary, err := runtime.WithTxResult(ctx, &tsq.TxOptions{RetryIf: tsq.IsOptimisticLockError}, func(ctx context.Context, txExec tsq.Executor) (*OptimisticLockSummary, error) {
+	summary, err := runtime.WithTxResult(ctx, func(ctx context.Context, txExec tsq.Executor) (*OptimisticLockSummary, error) {
 		attempts++
 
 		if attempts == 1 {
@@ -1262,7 +1255,7 @@ func runOptimisticLockDemo(ctx context.Context, runtime *tsq.Runtime) (*Optimist
 			Attempts:            attempts,
 			DeletedSuccessfully: deleted == nil,
 		}, nil
-	})
+	}, tsq.WithRetry(tsq.IsOptimisticLockError))
 	if err != nil {
 		return nil, err
 	}
