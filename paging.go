@@ -19,6 +19,9 @@ type Paging struct {
 	Size int
 	// OrderBy orders the rows. It must be empty when the query orders itself.
 	OrderBy []OrderBy
+
+	// keyword is PageRequest.Keyword, which Page applies; see requestKeyword.
+	keyword string
 }
 
 func (p Paging) normalized(maxSize int) Paging {
@@ -102,7 +105,7 @@ func (r *PageRequest) Paging(sortable ...SQLColumn) (Paging, error) {
 		return Paging{}, err
 	}
 
-	return Paging{Page: r.Page, Size: r.Size, OrderBy: order}, nil
+	return Paging{Page: r.Page, Size: r.Size, OrderBy: order, keyword: r.Keyword}, nil
 }
 
 // Keyset resolves the request as a keyset page: Size, the sort fields as Paging
@@ -122,7 +125,7 @@ func (r *PageRequest) Keyset(sortable ...SQLColumn) (Keyset, error) {
 		return Keyset{}, err
 	}
 
-	return Keyset{Size: r.Size, OrderBy: order, After: r.After}, nil
+	return Keyset{Size: r.Size, OrderBy: order, After: r.After, keyword: r.Keyword}, nil
 }
 
 func (r *PageRequest) orderBy(sortable []SQLColumn) ([]OrderBy, error) {

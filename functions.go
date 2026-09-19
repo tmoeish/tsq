@@ -256,6 +256,7 @@ func patternValue(s string, mode paramMode) exprInfo {
 // Pattern is the text StartsWith, EndsWith and Contains match literally: a Val or
 // a Param of the column's type. Its % and _ are escaped, so they match themselves.
 type Pattern[S ~string] interface {
+	needsTsqVal()
 	patternText(S)
 	patternOperand(mode paramMode) exprInfo
 }

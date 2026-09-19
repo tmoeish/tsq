@@ -198,3 +198,48 @@ func TestPageReq_OffsetClampsOutOfRangePage(t *testing.T) {
 		t.Fatalf("Offset() = %d, want %d", got, want)
 	}
 }
+
+// TestPageAppliesTheRequestKeyword is the trap it closes: a handler that turns a
+// PageRequest into a Paging and forgets tsq.Keyword used to page every row.
+func TestPageAppliesTheRequestKeyword(t *testing.T) {
+	ctx := context.Background()
+	rt := newSQLite(t)
+	seedUsers(t, rt, "ada", "bob", "adam")
+
+	req := &PageRequest{Keyword: "ada", OrderBy: "id"}
+
+	paging, err := req.Paging(User_ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	searched := Select(User__Cols...).From(Users).Search(Searchable(User_Name)).MustBuild()
+
+	page, err := searched.Page(ctx, rt, paging)
+	if err != nil || page.Total != 2 {
+		t.Fatalf("Page without tsq.Keyword = %+v, %v; want the two matches", page, err)
+	}
+
+	if page, err = searched.Page(ctx, rt, paging, Keyword("ada")); err != nil || page.Total != 2 {
+		t.Fatalf("Page with the same keyword = %+v, %v", page, err)
+	}
+
+	if _, err := searched.Page(ctx, rt, paging, Keyword("bob")); err == nil {
+		t.Fatal("expected two different keywords to be refused")
+	}
+
+	keyset, err := req.Keyset(User_ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if kp, err := searched.PageKeyset(ctx, rt, keyset); err != nil || len(kp.Data) != 2 {
+		t.Fatalf("PageKeyset without tsq.Keyword = %+v, %v", kp, err)
+	}
+
+	// An endpoint that does not search ignores the parameter.
+	plain := Select(User__Cols...).From(Users).MustBuild()
+	if page, err := plain.Page(ctx, rt, paging); err != nil || page.Total != 3 {
+		t.Fatalf("Page on a query without Search = %+v, %v", page, err)
+	}
+}

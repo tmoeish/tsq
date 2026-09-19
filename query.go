@@ -244,6 +244,27 @@ func (q *Query[O]) keywordArgs(args []Arg) (bool, []Arg, error) {
 	return true, args, nil
 }
 
+// requestKeyword applies the keyword a PageRequest carried into a Paging or
+// Keyset, so a handler cannot drop the client's search by forgetting to pass
+// tsq.Keyword. It applies only to a query built with Search: an endpoint that
+// does not search ignores the parameter, as it ignores any other it does not
+// know. A different tsq.Keyword among args is an error.
+func (q *Query[O]) requestKeyword(term string, args []Arg) ([]Arg, error) {
+	if term == "" || len(q.spec.KeywordSearch) == 0 {
+		return args, nil
+	}
+
+	if idx := slices.IndexFunc(args, func(a Arg) bool { return a.spec == keywordParam }); idx >= 0 {
+		if given, _ := args[idx].value.(string); given != term {
+			return nil, fmt.Errorf("the page request searches for %q but tsq.Keyword(%q) was passed too; pass one", term, given)
+		}
+
+		return args, nil
+	}
+
+	return append(slices.Clone(args), Keyword(term)), nil
+}
+
 // ListIn is List for a list parameter that may hold more values than one statement
 // can bind, such as a lookup by thousands of keys. values are deduplicated, split
 // into statements that fit the dialect's bind parameter limit, and read in one
@@ -489,6 +510,11 @@ func (q *Query[O]) Page(ctx context.Context, db Executor, p Paging, args ...Arg)
 			return nil, errors.New("query cannot be nil")
 		}
 
+		args, err := q.requestKeyword(p.keyword, args)
+		if err != nil {
+			return nil, err
+		}
+
 		p = p.normalized(runtimeForExecutor(db).maxPage())
 
 		if q.spec.Limit != nil {
@@ -652,8 +678,10 @@ func (q *Query[O]) valueSubquery() exprInfo {
 // A scalar subquery is NULL when it returns no row.
 func (q *Query[O]) operand() exprInfo                { return nullWhenEmpty(q.valueSubquery()) }
 func (q *Query[O]) setOperand(negated bool) exprInfo { return q.valueSubquery() }
-func (*Query[O]) rhsValue(O)                         {}
-func (*Query[O]) setValue(O)                         {}
+func (*Query[O]) valueOfType(O)                      {}
+func (*Query[O]) needsTsqVal()                       {}
+func (*Query[O]) needsTsqVals()                      {}
+func (*Query[O]) valuesOfType(O)                     {}
 
 func (q *Query[O]) renderQuery(r *renderer) {
 	r.writeText("(")

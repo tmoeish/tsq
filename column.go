@@ -58,15 +58,25 @@ type SearchColumn interface {
 
 // Operand is the right-hand side of a comparison against a T: a column or expression
 // holding a T, a Param[T], a Value[T] from Val, or a typed scalar Subquery[T].
+//
+// The unexported method names are what the compiler prints when something else is
+// passed, so they say how to fix it: a literal is reported as "missing method
+// needsTsqVal", and a value of another type as "have valueOfType(int) want
+// valueOfType(int64)". The compiler names the first missing method in
+// alphabetical order, which is why the hint sorts first.
 type Operand[T any] interface {
-	rhsValue(T)
+	needsTsqVal()
+	valueOfType(T)
 	operand() exprInfo
 }
 
 // ListOperand is the right-hand side of IN and NOT IN over T: a ListParam[T], a
 // ValueList[T] from Vals, or a typed Subquery[T].
+//
+// A slice passed here is reported as "missing method needsTsqVals"; see Operand.
 type ListOperand[T any] interface {
-	setValue(T)
+	needsTsqVals()
+	valuesOfType(T)
 	setOperand(negated bool) exprInfo
 }
 
@@ -320,7 +330,8 @@ func (c exprImpl[T]) String() string { return debugSQL(c.c.info.sql) }
 
 func (columnImpl[O, T]) boundTo(O) {}
 func (exprImpl[T]) valueOf(T)      {}
-func (exprImpl[T]) rhsValue(T)     {}
+func (exprImpl[T]) valueOfType(T)  {}
+func (exprImpl[T]) needsTsqVal()   {}
 
 func (c exprImpl[T]) operand() exprInfo { return c.c.info }
 

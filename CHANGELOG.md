@@ -111,13 +111,14 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 - 读单行只有两个入口：`Get` 在没有行时返回包装 `sql.ErrNoRows` 的错误，`Find` 返回 `nil, nil`。`Get` / `Find` / `Exists` / `Scalar` 最多读一行，`Exists` 不再走 `COUNT`。`Count` 返回 `int64`。
 - 批量写的选项是 `WithBatchSize(n)` 和只对插入有效的 `WithSkipDuplicates()`（传给其他入口会报错）。
 - 事务：`runtime.WithTx(ctx, fn, options...)` / `WithTxResult(ctx, fn, options...)`，选项是 `tsq.WithIsolation(level)`、`WithReadOnly()`、`WithRetry(predicate)`、`WithRetryPolicy(policy)`；`TxOptions` 删除（此前九成调用要在中间传一个 `nil`），`DefaultRetryPolicy()` 返回值而不是指针。重试谓词：`IsRetryableTxError`、`IsOptimisticLockError`、`IsRetryableNetworkError`、`IsTxConflictError`。
-- 分页：`Query.Page(ctx, db, tsq.Paging{Page, Size, OrderBy}, args...)`，排序项是 `[]tsq.OrderBy`，写错列名编译不过。HTTP 形态的 `tsq.PageRequest` 用 `req.Paging(可排序列...)` 转换，同时校验（负数、越界页号、非法 order 报错），排序白名单由端点给出；超过 runtime 上限的大小由 `Page` 封顶而不报错。没有单独的 `Validate` / `Normalize`，也没有 `Runtime.MaxPageSize()`。`Page` 的计数和数据在同一个只读事务里读取（MySQL / PostgreSQL 用 `REPEATABLE READ`），并发写入不会让 `Total` 和 `Data` 对不上；传入事务执行器时直接使用该事务。结果类型是 `tsq.Page[T]`（与游标分页的 `KeysetPage[T]` 成对），有 `Page` / `Size` / `Total` / `TotalPages` / `Data`（从不为 nil），`PageRequest.Offset()` / `Response()` 改为 `Paging.Offset()` 与库内部构造。HTTP 参数解析交给调用方的 binder。
+- 分页：`Query.Page(ctx, db, tsq.Paging{Page, Size, OrderBy}, args...)`，排序项是 `[]tsq.OrderBy`，写错列名编译不过。HTTP 形态的 `tsq.PageRequest` 用 `req.Paging(可排序列...)` / `req.Keyset(...)` 转换，并把请求里的 `keyword` 带给 `Page` / `PageKeyset`（查询有 `Search` 时生效，没有时忽略；另传一个不同的 `tsq.Keyword` 报错——此前忘了传关键词就悄悄返回不带搜索的结果），同时校验（负数、越界页号、非法 order 报错），排序白名单由端点给出；超过 runtime 上限的大小由 `Page` 封顶而不报错。没有单独的 `Validate` / `Normalize`，也没有 `Runtime.MaxPageSize()`。`Page` 的计数和数据在同一个只读事务里读取（MySQL / PostgreSQL 用 `REPEATABLE READ`），并发写入不会让 `Total` 和 `Data` 对不上；传入事务执行器时直接使用该事务。结果类型是 `tsq.Page[T]`（与游标分页的 `KeysetPage[T]` 成对），有 `Page` / `Size` / `Total` / `TotalPages` / `Data`（从不为 nil），`PageRequest.Offset()` / `Response()` 改为 `Paging.Offset()` 与库内部构造。HTTP 参数解析交给调用方的 binder。
 
 **查询 API 命名**
 
 - 否定谓词统一写作 `Not*`：`NotIn`、`NotLike`、`NotBetween`、`tsq.NotStartsWith`……
 - `tsq.Exists(sq)` / `tsq.NotExists(sq)` 是包级泛型函数，任何查询阶段或 `*Query` 都能传，不论选了几列。
 - 没有 `Unique` / `NUnique` / `Concat` / `Now()` 这类不读接收者或只会失败的列方法，需要时用 `Expr` / `Exprf`。
+- **编译错误自己说出改法**：把字面值直接传给比较，报错是 `missing method needsTsqVal`；传切片给 `In` 是 `needsTsqVals`；类型不对是 `have valueOfType(int) want valueOfType(int64)`；传裸 `*sql.DB` 是 `needsRuntimeOrWrapExecutor`。这些是未导出的方法名，只出现在报错里。
 - 右值接口叫 `tsq.Operand[T]`，IN 的列表右值叫 `tsq.ListOperand[T]`：`RHS` 是行话却出现在最常见的编译错误里，`SetRHS` 的 Set 又和 `UpdateBuilder.Set` 的赋值撞词。
 - `OrderBy` / `Limit` / `Offset` 之后的阶段叫 `OrderedStage`（原 `PagedStage`，名字暗示"已分页"，而 `Page` 恰恰拒绝带 `Limit` / `Offset` 的查询）。
 - `TableIndex.Columns` 与 `MissingIndexError.Columns`（原 `Fields`，装的是列名，指令里的 field 指 Go 字段）；`TableSpec.ColumnSpecs` 与 `TableOf.ColumnSpecs()`（原 `Schema`，只含列定义，不含索引；`Schema` 也因此不再是保留的列字段名）。

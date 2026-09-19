@@ -37,7 +37,8 @@ func (p Param[T]) Bind(value T) Arg {
 	return newArg(p.spec, value)
 }
 
-func (p Param[T]) rhsValue(T) {}
+func (p Param[T]) valueOfType(T) {}
+func (p Param[T]) needsTsqVal()  {}
 
 func (p Param[T]) operand() exprInfo {
 	if p.spec == nil {
@@ -81,7 +82,8 @@ func (p ListParam[T]) Bind(values ...T) Arg {
 	return newArg(p.spec, boxed)
 }
 
-func (p ListParam[T]) setValue(T) {}
+func (p ListParam[T]) valuesOfType(T) {}
+func (p ListParam[T]) needsTsqVals()  {}
 
 func (p ListParam[T]) setOperand(negated bool) exprInfo {
 	if p.spec == nil {

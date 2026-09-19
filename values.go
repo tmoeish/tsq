@@ -20,7 +20,8 @@ type Value[T any] struct {
 // mismatch is a compile error, "does not implement tsq.Operand[int64]".
 func Val[T any](v T) Value[T] { return Value[T]{v: v} }
 
-func (Value[T]) rhsValue(T) {}
+func (Value[T]) valueOfType(T) {}
+func (Value[T]) needsTsqVal()  {}
 
 // operand renders the value for a comparison, where NULL never matches.
 func (v Value[T]) operand() exprInfo {
@@ -66,7 +67,8 @@ type ValueList[T any] struct {
 // values alone.
 func Vals[T any](values ...T) ValueList[T] { return ValueList[T]{vs: values} }
 
-func (ValueList[T]) setValue(T) {}
+func (ValueList[T]) valuesOfType(T) {}
+func (ValueList[T]) needsTsqVals()  {}
 
 func (l ValueList[T]) setOperand(negated bool) exprInfo {
 	if len(l.vs) == 0 {

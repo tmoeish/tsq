@@ -23,6 +23,9 @@ type Keyset struct {
 	OrderBy []OrderBy
 	// After is KeysetPage.Next of the previous page; empty starts at the first row.
 	After string
+
+	// keyword is PageRequest.Keyword, which PageKeyset applies; see requestKeyword.
+	keyword string
 }
 
 // KeysetPage is one page of a keyset-paged query.
@@ -47,6 +50,11 @@ func (q *Query[O]) PageKeyset(ctx context.Context, db Executor, k Keyset, args .
 
 		if q.err != nil {
 			return nil, q.err
+		}
+
+		args, err := q.requestKeyword(k.keyword, args)
+		if err != nil {
+			return nil, err
 		}
 
 		size := Paging{Size: k.Size}.normalized(runtimeForExecutor(db).maxPage()).Size

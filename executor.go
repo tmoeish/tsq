@@ -21,6 +21,9 @@ type Executor interface {
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 
+	// needsRuntimeOrWrapExecutor is what the compiler reports for a bare *sql.DB
+	// or *sql.Tx; it sorts before scope, so it is the method named.
+	needsRuntimeOrWrapExecutor()
 	scope() execScope
 }
 
@@ -46,6 +49,8 @@ type boundExecutor struct {
 }
 
 func (b boundExecutor) scope() execScope { return b.s }
+
+func (boundExecutor) needsRuntimeOrWrapExecutor() {}
 
 // WrapExecutor makes an Executor of a database/sql handle TSQ did not open, such as
 // a *sql.Tx begun elsewhere, talking to engine. Statements run without the logging,

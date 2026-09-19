@@ -252,6 +252,14 @@
 - 主键回填有两条路：`LastInsertId()` + `BatchInsertStartID`（MySQL / SQLite），和
   `INSERT ... RETURNING`（PostgreSQL）。改任何一条要看 `internal/integration` 的 CRUD 用例。
 
+## 给 `Operand` / `ListOperand` / `Pattern` / `Executor` 加或改了未导出方法
+
+- 这些方法名就是使用者看到的编译错误：Go 报**按字母序第一个**缺失的方法，类型参数不符时报签名不对的那个。
+  `needsTsqVal` / `needsTsqVals` / `needsRuntimeOrWrapExecutor` 是只为报错存在的标记方法，必须排在同一接口
+  其他未导出方法之前（新方法别起 `a…`–`m…` 开头的名字），承载类型的那个叫 `valueOfType(T)` / `valuesOfType(T)`。
+- 每个实现（列、`Param`、`Value`、阶段、`*Query`、`*Runtime`、`boundExecutor`）都要实现标记方法。
+  `[门禁: compilefail_test.go 的 "a literal names tsq.Val" 等用例]`
+
 ## 退役了一个使用者写过的名字或写法
 
 - 把旧写法加进 `script/check_docs.py` 的 `RETIRED`：它扫使用者文档、示例 README、`CONTRIBUTING.md` 和

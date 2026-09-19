@@ -171,6 +171,8 @@ func (r *Runtime) maxPage() int {
 	return r.maxPageSize
 }
 
+func (*Runtime) needsRuntimeOrWrapExecutor() {}
+
 func (r *Runtime) scope() execScope {
 	if r == nil {
 		return execScope{}
