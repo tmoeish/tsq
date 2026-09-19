@@ -74,6 +74,8 @@ var compileFailCases = []struct {
 	{"from-first entry is gone", `_ = tsq.From[User](Users)`, "undefined: tsq.From"},
 	{"update column of another table", `_ = Users.Update(context.Background(), nil, &User{}, OrderID)`, "OrderID"},
 	{"set a result column", `_ = tsq.UpdateTable(Users).Set(tsq.MapInto(UserName, func(u *User) *string { return &u.Name }), tsq.Val("x"))`, "does not match tsq.Column[User, T]"},
+	{"sort direction is internal", `_ = tsq.ASC`, "undefined: tsq.ASC"},
+	{"columns do not expose their table", `_ = UserID.Table()`, "Table undefined"},
 	{"fetch by a column of another table", `_, _ = Users.FetchBy(context.Background(), nil, OrderID, []int64{1})`, "OrderID"},
 }
 

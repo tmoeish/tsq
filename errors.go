@@ -27,13 +27,6 @@ func (e *RowStateError) Error() string {
 		e.Op, e.Table, e.Need, e.Expected, e.Actual)
 }
 
-// IsRowStateError reports whether err wraps a RowStateError.
-func IsRowStateError(err error) bool {
-	_, ok := errors.AsType[*RowStateError](err)
-
-	return ok
-}
-
 // OptimisticLockError reports that a version-guarded write matched fewer rows than
 // it was given: another writer changed or deleted one of them first. It is a
 // business outcome to handle, typically by reloading and retrying; see

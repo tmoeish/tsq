@@ -49,7 +49,7 @@ func (d MySQLDialect) BatchInsertStartID(lastID, rowsAffected int64) (int64, boo
 	return lastID, true
 }
 
-func (d MySQLDialect) InspectColumns(ctx context.Context, db Executor, table string) ([]ColumnSpec, bool, error) {
+func (d MySQLDialect) InspectColumns(ctx context.Context, db Executor, table string) ([]Column, bool, error) {
 	rows, err := db.QueryContext(ctx, `
 		SELECT
 			column_name,
@@ -84,7 +84,7 @@ func (d MySQLDialect) InspectColumns(ctx context.Context, db Executor, table str
 		Size    sql.NullInt64
 	}
 
-	columns := make([]ColumnSpec, 0)
+	columns := make([]Column, 0)
 
 	for rows.Next() {
 		var item row
@@ -98,7 +98,7 @@ func (d MySQLDialect) InspectColumns(ctx context.Context, db Executor, table str
 		}
 
 		nullable := strings.EqualFold(item.Null, "YES")
-		columns = append(columns, ColumnSpec{
+		columns = append(columns, Column{
 			Name:          item.Name,
 			Type:          withDDLNullable(desc, nullable && item.Key != "PRI"),
 			PrimaryKey:    item.Key == "PRI",
@@ -407,7 +407,7 @@ func (d MySQLDialect) AlterMode() AlterMode {
 	return AlterInPlace
 }
 
-func (d MySQLDialect) AlterColumnSQL(table string, before, after ColumnSpec) []string {
+func (d MySQLDialect) AlterColumnSQL(table string, before Column, after ColumnSpec) []string {
 	return []string{fmt.Sprintf(
 		"ALTER TABLE %s MODIFY COLUMN %s;",
 		d.QuoteIdent(table),

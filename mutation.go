@@ -27,19 +27,19 @@ func UpdateTable[R any](table RowTable[R]) *UpdateBuilder[R] {
 // DeleteFrom starts a delete of every row of table that matches Where. On a table
 // with a deleted_at column it is a soft delete, stamped when the statement runs, of
 // rows not already deleted.
-func DeleteFrom[R any](table RowTable[R]) *DeleteBuilder[R] {
+func DeleteFrom[R any](table RowTable[R]) DeleteStage[R] {
 	kind := mutationDelete
 	if !isNilValue(table) && table.softDeleted() {
 		kind = mutationSoftDelete
 	}
 
-	return &DeleteBuilder[R]{m: newMutationSpec(table, kind)}
+	return &deleteBuilder[R]{m: newMutationSpec(table, kind)}
 }
 
 // HardDeleteFrom starts a DELETE of every row of table that matches Where,
 // deleted rows included.
-func HardDeleteFrom[R any](table RowTable[R]) *DeleteBuilder[R] {
-	return &DeleteBuilder[R]{m: newMutationSpec(table, mutationDelete)}
+func HardDeleteFrom[R any](table RowTable[R]) DeleteStage[R] {
+	return &deleteBuilder[R]{m: newMutationSpec(table, mutationDelete)}
 }
 
 type mutationKind uint8
@@ -63,7 +63,7 @@ type RowTable[R any] interface {
 }
 
 // writeTarget is what a statement by condition needs from its table, without the
-// key type, which UpdateBuilder and DeleteBuilder do not carry.
+// key type, which UpdateBuilder and DeleteStage do not carry.
 type writeTarget interface {
 	Table
 	Err() error
@@ -157,13 +157,17 @@ func (b *UpdateBuilder[R]) Where(conds ...Condition) MutationStage[R] {
 	return where(b.m, conds)
 }
 
-// DeleteBuilder is a delete waiting for its WHERE clause.
-type DeleteBuilder[R any] struct {
+// DeleteStage is a delete waiting for its WHERE clause, which is required.
+type DeleteStage[R any] interface {
+	Where(conds ...Condition) MutationStage[R]
+}
+
+type deleteBuilder[R any] struct {
 	m mutationSpec[R]
 }
 
 // Where limits the delete. To delete every row, say so with Where(tsq.And()).
-func (b *DeleteBuilder[R]) Where(conds ...Condition) MutationStage[R] {
+func (b *deleteBuilder[R]) Where(conds ...Condition) MutationStage[R] {
 	return where(b.m, conds)
 }
 

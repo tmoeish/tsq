@@ -942,7 +942,7 @@ func renderDDLAlterColumnStatements(
 		return []string{renderDDLManualComment(tableName, fmt.Sprintf("manual change required for column %s on %s", after.Name, ddlDialectName(dialect)))}
 	}
 
-	statements := dialect.dialect.AlterColumnSQL(tableName, ddlColumnSpecFromSnapshot(before), ddlColumnSpecFromSnapshot(after))
+	statements := dialect.dialect.AlterColumnSQL(tableName, sqld.Column{ColumnSpec: ddlColumnSpecFromSnapshot(before)}, ddlColumnSpecFromSnapshot(after))
 	if len(statements) == 0 {
 		return []string{renderDDLManualComment(tableName, fmt.Sprintf("manual change required for column %s", after.Name))}
 	}

@@ -41,7 +41,7 @@ func (d PostgresDialect) BatchInsertStartID(lastID, rowsAffected int64) (int64, 
 	return 0, false
 }
 
-func (d PostgresDialect) InspectColumns(ctx context.Context, db Executor, table string) ([]ColumnSpec, bool, error) {
+func (d PostgresDialect) InspectColumns(ctx context.Context, db Executor, table string) ([]Column, bool, error) {
 	rows, err := db.QueryContext(ctx, `
 		SELECT
 			c.column_name,
@@ -99,7 +99,7 @@ func (d PostgresDialect) InspectColumns(ctx context.Context, db Executor, table 
 		Primary  bool
 	}
 
-	columns := make([]ColumnSpec, 0)
+	columns := make([]Column, 0)
 
 	for rows.Next() {
 		var item row
@@ -118,7 +118,7 @@ func (d PostgresDialect) InspectColumns(ctx context.Context, db Executor, table 
 		// is_identity. Both are database-managed auto-increment mechanisms.
 		autoIncrement := strings.HasPrefix(defaultValue, "nextval(") ||
 			strings.EqualFold(strings.TrimSpace(item.Identity.String), "YES")
-		columns = append(columns, ColumnSpec{
+		columns = append(columns, Column{
 			Name:          item.Name,
 			Type:          withDDLNullable(desc, strings.EqualFold(item.Null, "YES") && !item.Primary),
 			PrimaryKey:    item.Primary,
@@ -435,7 +435,7 @@ func (d PostgresDialect) AlterMode() AlterMode {
 	return AlterInPlace
 }
 
-func (d PostgresDialect) AlterColumnSQL(table string, before, after ColumnSpec) []string {
+func (d PostgresDialect) AlterColumnSQL(table string, before Column, after ColumnSpec) []string {
 	statements := make([]string, 0, 3)
 	quotedTable := d.QuoteIdent(table)
 	quotedColumn := d.QuoteIdent(after.Name)

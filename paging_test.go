@@ -169,67 +169,11 @@ func TestPageResp_HasNext(t *testing.T) {
 	}
 }
 
-func TestPageResp_HasPrev(t *testing.T) {
-	tests := []struct {
-		name     string
-		page     int
-		expected bool
-	}{
-		{"has prev", 2, true},
-		{"no prev", 1, false},
-		{"third page", 3, true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			resp := &Page[string]{
-				Page: tt.page,
-			}
-
-			if resp.HasPrev() != tt.expected {
-				t.Errorf("Expected HasPrev() %v, got %v", tt.expected, resp.HasPrev())
-			}
-		})
-	}
-}
-
 func TestPageResp_NilHelpers(t *testing.T) {
 	var resp *Page[int]
 
 	if resp.HasNext() {
 		t.Fatal("expected nil response to report no next page")
-	}
-
-	if resp.HasPrev() {
-		t.Fatal("expected nil response to report no previous page")
-	}
-
-	if !resp.IsEmpty() {
-		t.Fatal("expected nil response to be empty")
-	}
-}
-
-func TestPageResp_IsEmpty(t *testing.T) {
-	tests := []struct {
-		name     string
-		data     []*string
-		expected bool
-	}{
-		{"empty", []*string{}, true},
-		{"not empty", []*string{new("item")}, false},
-		{"nil", nil, true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			resp := &Page[string]{
-				Data: tt.data,
-			}
-
-			if resp.IsEmpty() != tt.expected {
-				t.Errorf("Expected IsEmpty() %v, got %v", tt.expected, resp.IsEmpty())
-			}
-		})
 	}
 }
 

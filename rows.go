@@ -148,7 +148,7 @@ func (t *TableOf[R, K]) Update(ctx context.Context, db Executor, row *R, cols ..
 	return traceExecutor(ctx, db, t.traceInfo(TraceOpUpdate), func(ctx context.Context) error {
 		config := batchConfig{size: 1}
 		if len(cols) > 0 {
-			config.only = SQLColumns(cols...)
+			config.only = sqlColumns(cols...)
 		}
 
 		return t.update(ctx, db, []*R{row}, config, stampTime())

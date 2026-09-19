@@ -225,6 +225,7 @@ MySQL 的 `LENGTH` 数字节；PostgreSQL 没有 `round(double, int)`；modernc 
 v5 不背兼容，一次把名字改到"最合理"。定下的几条规则，每条都是有意的：
 - 错误**类型**以 `Error` 结尾（`OptimisticLockError`），`Err` 前缀只留给哨兵变量——Go 标准库的惯例。
 - `tsq gen --help` 曾在 v5 里印着 `@TABLE`：门只看符号不看文字。现由 `doc-check` 的退役写法清单拦截。
+- 导出面只留使用者用得到的（2026-09-19 逐个查示例和文档的引用）：只供库内部读的取值方法一律不导出。
 - 右值接口叫 `Operand` / `ListOperand`（不叫 `RHS` / `SetRHS`，Set 已是 UPDATE 赋值）；装列名的字段叫 `Columns`。
 - 否定一律 `Not*`（`NotIn`、`NotLike`）。v4 的 `NIn` 和 `NotExists` 并存，同一个意思两种拼法。`NE` 保留，它是比较运算符。
 - 可选参数用函数式选项（`RuntimeOption`、`BatchOption`），不用 `...*XxxOptions`。只对插入有意义的
@@ -240,9 +241,8 @@ v5 不背兼容，一次把名字改到"最合理"。定下的几条规则，每
   `SelectValue` 的 `O` 会和某列的 `T` 相同。`MapInto` 的 JSON 名默认取源列，要改才 `.Named`。
 - 按主键读在库里且有类型（`TableXxx.Get` / `Fetch`），唯一索引生成 `GetByX` / `FetchByX`，缺行时包装
   `sql.ErrNoRows`；单行写入的错误**只带主键**（`users id=5`），不序列化整行（列值会进日志）。
-- `dialect` 包里不加 `DDL` 前缀（包名已经说明语境）；`Dialect` 接口只收**各方言确实不同**的方法，
-  三家返回同一常量的方法内联掉。模板不许拼接常量名（`Kind{{ .Kind }}`）：符号门禁只认完整的
-  `tsqdialect.X`，拼出来的名字改名后照样"通过"，所以由 `columnKindRef` 显式列出。
+- 方言类型不加 `DDL` 前缀。模板不许拼接常量名（`Kind{{ .Kind }}`）：符号门禁只认完整的 `tsqdialect.X`，
+  拼出来的名字改名后照样"通过"，所以由 `columnKindRef` 显式列出。
 
 ### 决定：读单行只留两个入口，语义写在名字里 (2026-09-09，v5)
 
@@ -258,7 +258,7 @@ v4 攒下九个 `Deprecated` 符号，没有任何门禁会提醒它们该走—
 
 **方法体里不出现 `c.`，就说明它不该是方法**：`User_Name.Now()` 和 `User_ID.Now()` 完全一样，
 `ExistsSub` 逼调用方随便挑一列。后者的参数类型还未导出——**调用能编译，但使用者写不出类型名**，
-也就写不了 helper；现在是导出的密封接口 `AnySubquery`。
+也就写不了 helper；现在是泛型 `Exists[T](Subquery[T])`，任何阶段都能传。
 
 ### 决定：软删除是默认的删除语义，物理删除要显式说 (2026-09-09，v5)
 

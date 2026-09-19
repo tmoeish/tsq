@@ -286,7 +286,7 @@ func TestPageSearchesSortsAndCounts(t *testing.T) {
 	rt := newSQLite(t)
 	seedUsers(t, rt, "a_1", "ab1", "b_2", "zz")
 
-	q := Select(User__Cols...).From(Users).Search(Users.SearchColumns()...).MustBuild()
+	q := Select(User__Cols...).From(Users).Search(Users.searchColumns()...).MustBuild()
 
 	// "_" is a LIKE wildcard; the keyword must match it literally.
 	page, err := q.Page(ctx, rt, Paging{Size: 10, OrderBy: []OrderBy{User_Name.Desc()}}, Keyword("_"))
@@ -306,20 +306,20 @@ func TestPageSearchesSortsAndCounts(t *testing.T) {
 	}
 
 	page, err = q.Page(ctx, rt, paging)
-	if err != nil || page.Total != 4 || len(page.Data) != 1 || page.TotalPages != 2 || !page.HasPrev() || page.HasNext() {
+	if err != nil || page.Total != 4 || len(page.Data) != 1 || page.TotalPages != 2 || page.Page != 2 || page.HasNext() {
 		t.Fatalf("second page = %+v, %v", page, err)
 	}
 
 	// Only the columns the endpoint names are sortable, whatever the query selects.
-	if _, err := (&PageRequest{OrderBy: "email"}).Paging(User_ID, User_Name); !isErr[*UnknownSortFieldError](err) {
+	if _, err := (&PageRequest{OrderBy: "email"}).Paging(User_ID, User_Name); !isErr[*SortError](err) {
 		t.Fatalf("unknown sort field error = %v", err)
 	}
 
-	if _, err := (&PageRequest{OrderBy: "id,name", Order: "asc"}).Paging(User_ID, User_Name); !isErr[*OrderCountMismatchError](err) {
+	if _, err := (&PageRequest{OrderBy: "id,name", Order: "asc"}).Paging(User_ID, User_Name); !isErr[*SortError](err) {
 		t.Fatalf("order count mismatch error = %v", err)
 	}
 
-	if _, err := (&PageRequest{OrderBy: "id"}).Paging(User_ID, Order_ID); !isErr[*AmbiguousSortFieldError](err) {
+	if _, err := (&PageRequest{OrderBy: "id"}).Paging(User_ID, Order_ID); !isErr[*SortError](err) {
 		t.Fatalf("ambiguous sort field error = %v", err)
 	}
 
@@ -334,7 +334,7 @@ func TestPageSearchesSortsAndCounts(t *testing.T) {
 	}
 
 	empty, err := Select(User_ID).From(Users).Where(User_ID.EQ(Val(int64(-1)))).MustBuild().Page(ctx, rt, Paging{})
-	if err != nil || empty.Data == nil || !empty.IsEmpty() || empty.Size != 20 || empty.Page != 1 {
+	if err != nil || empty.Data == nil || len(empty.Data) != 0 || empty.Size != 20 || empty.Page != 1 {
 		t.Fatalf("empty page = %+v, %v", empty, err)
 	}
 }

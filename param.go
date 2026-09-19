@@ -37,9 +37,6 @@ func (p Param[T]) Bind(value T) Arg {
 	return newArg(p.spec, value)
 }
 
-// Name returns the parameter name.
-func (p Param[T]) Name() string { return p.spec.name }
-
 func (p Param[T]) rhsValue(T) {}
 
 func (p Param[T]) operand() exprInfo {
@@ -83,9 +80,6 @@ func (p ListParam[T]) Bind(values ...T) Arg {
 
 	return newArg(p.spec, boxed)
 }
-
-// Name returns the parameter name.
-func (p ListParam[T]) Name() string { return p.spec.name }
 
 func (p ListParam[T]) setValue(T) {}
 

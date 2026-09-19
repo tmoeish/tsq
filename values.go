@@ -48,7 +48,7 @@ func (v Value[T]) patternOperand(mode paramMode) exprInfo {
 
 func valueError(v any) error {
 	switch v.(type) {
-	case interface{ operand() exprInfo }, Condition, AnySubquery, Arg:
+	case interface{ operand() exprInfo }, Condition, anySubquery, Arg:
 		return fmt.Errorf("Val takes a Go value, not %T; pass the expression itself", v)
 	}
 

@@ -444,7 +444,7 @@ func (b *builder[O]) OrderBy(orders ...OrderBy) OrderedStage[O] {
 	}
 
 	for _, o := range orders {
-		if o.direction != ASC && o.direction != DESC {
+		if o.direction != orderAsc && o.direction != orderDesc {
 			n.fail(fmt.Errorf("invalid order direction %q; use Asc() or Desc()", o.direction))
 		}
 	}

@@ -10,70 +10,70 @@ func TestDDLColumnTypesEquivalent(t *testing.T) {
 	tests := []struct {
 		name    string
 		dialect Dialect
-		left    ColumnSpec
+		left    Column
 		right   ColumnSpec
 		want    bool
 	}{
 		{
 			name:    "postgres text raw type round trip",
 			dialect: PostgresDialect{},
-			left:    ColumnSpec{Type: ColumnType{RawType: "TEXT"}, NativeType: "text"},
+			left:    Column{ColumnSpec: ColumnSpec{Type: ColumnType{RawType: "TEXT"}}, NativeType: "text"},
 			right:   ColumnSpec{Type: ColumnType{RawType: "TEXT"}},
 			want:    true,
 		},
 		{
 			name:    "postgres declared char matches native character",
 			dialect: PostgresDialect{},
-			left:    ColumnSpec{Type: ColumnType{Kind: KindString, Size: 10}, NativeType: "character(10)"},
+			left:    Column{ColumnSpec: ColumnSpec{Type: ColumnType{Kind: KindString, Size: 10}}, NativeType: "character(10)"},
 			right:   ColumnSpec{Type: ColumnType{RawType: "CHAR(10)"}},
 			want:    true,
 		},
 		{
 			name:    "postgres declared numeric matches native numeric",
 			dialect: PostgresDialect{},
-			left:    ColumnSpec{Type: ColumnType{Kind: KindFloat, Bits: 64}, NativeType: "numeric(10,2)"},
+			left:    Column{ColumnSpec: ColumnSpec{Type: ColumnType{Kind: KindFloat, Bits: 64}}, NativeType: "numeric(10,2)"},
 			right:   ColumnSpec{Type: ColumnType{RawType: "DECIMAL(10, 2)"}},
 			want:    true,
 		},
 		{
 			name:    "mysql declared TEXT matches inspected text column",
 			dialect: MySQLDialect{},
-			left:    ColumnSpec{Type: ColumnType{Kind: KindString, Size: mysqlMaxVarcharChars + 1}, NativeType: "text"},
+			left:    Column{ColumnSpec: ColumnSpec{Type: ColumnType{Kind: KindString, Size: mysqlMaxVarcharChars + 1}}, NativeType: "text"},
 			right:   ColumnSpec{Type: ColumnType{RawType: "TEXT"}},
 			want:    true,
 		},
 		{
 			name:    "mysql declared DECIMAL matches inspected decimal column",
 			dialect: MySQLDialect{},
-			left:    ColumnSpec{Type: ColumnType{Kind: KindFloat, Bits: 64}, NativeType: "decimal(10,2)"},
+			left:    Column{ColumnSpec: ColumnSpec{Type: ColumnType{Kind: KindFloat, Bits: 64}}, NativeType: "decimal(10,2)"},
 			right:   ColumnSpec{Type: ColumnType{RawType: "DECIMAL(10,2)"}},
 			want:    true,
 		},
 		{
 			name:    "sqlite declared TEXT matches native TEXT",
 			dialect: SQLiteDialect{},
-			left:    ColumnSpec{Type: ColumnType{Kind: KindString}, NativeType: "TEXT"},
+			left:    Column{ColumnSpec: ColumnSpec{Type: ColumnType{Kind: KindString}}, NativeType: "TEXT"},
 			right:   ColumnSpec{Type: ColumnType{RawType: "TEXT"}},
 			want:    true,
 		},
 		{
 			name:    "nullability does not affect type equivalence",
 			dialect: PostgresDialect{},
-			left:    ColumnSpec{Type: ColumnType{Kind: KindString, Size: 120, Nullable: true}},
+			left:    Column{ColumnSpec: ColumnSpec{Type: ColumnType{Kind: KindString, Size: 120, Nullable: true}}},
 			right:   ColumnSpec{Type: ColumnType{Kind: KindString, Size: 120}},
 			want:    true,
 		},
 		{
 			name:    "different rendered types are not equivalent",
 			dialect: PostgresDialect{},
-			left:    ColumnSpec{Type: ColumnType{Kind: KindInt, Bits: 64}, NativeType: "bigint"},
+			left:    Column{ColumnSpec: ColumnSpec{Type: ColumnType{Kind: KindInt, Bits: 64}}, NativeType: "bigint"},
 			right:   ColumnSpec{Type: ColumnType{Kind: KindString, Size: 255}},
 			want:    false,
 		},
 		{
 			name:    "declared raw type differing from native type is drift",
 			dialect: PostgresDialect{},
-			left:    ColumnSpec{Type: ColumnType{RawType: "TEXT"}, NativeType: "text"},
+			left:    Column{ColumnSpec: ColumnSpec{Type: ColumnType{RawType: "TEXT"}}, NativeType: "text"},
 			right:   ColumnSpec{Type: ColumnType{RawType: "JSONB"}},
 			want:    false,
 		},
@@ -163,7 +163,7 @@ func TestMySQLDDLAlterColumnStatementsDoesNotRepeatPrimaryKey(t *testing.T) {
 		AutoIncrement: true,
 	}
 
-	statements := d.AlterColumnSQL("users", before, after)
+	statements := d.AlterColumnSQL("users", Column{ColumnSpec: before}, after)
 	if len(statements) != 1 {
 		t.Fatalf("expected a single MODIFY statement, got %v", statements)
 	}
@@ -186,7 +186,7 @@ func TestMySQLDDLAlterColumnStatementsKeepsDefaultForRegularColumn(t *testing.T)
 		Default: "1",
 	}
 
-	statements := d.AlterColumnSQL("users", ColumnSpec{Name: "version"}, after)
+	statements := d.AlterColumnSQL("users", Column{Name: "version"}, after)
 	want := "ALTER TABLE `users` MODIFY COLUMN `version` BIGINT NOT NULL DEFAULT 1;"
 
 	if len(statements) != 1 || statements[0] != want {
@@ -196,10 +196,9 @@ func TestMySQLDDLAlterColumnStatementsKeepsDefaultForRegularColumn(t *testing.T)
 
 func TestPostgresDDLAlterColumnStatementsNullabilityOnlySkipsAlterType(t *testing.T) {
 	d := PostgresDialect{}
-	before := ColumnSpec{
-		Name:       "name",
-		Type:       ColumnType{Kind: KindString, Size: 120, Nullable: true},
-		NativeType: "character varying(120)",
+	before := Column{
+		Name: "name",
+		Type: ColumnType{Kind: KindString, Size: 120, Nullable: true}, NativeType: "character varying(120)",
 	}
 	after := ColumnSpec{
 		Name: "name",
@@ -216,13 +215,12 @@ func TestPostgresDDLAlterColumnStatementsNullabilityOnlySkipsAlterType(t *testin
 
 func TestPostgresDDLAlterColumnStatementsKeepsAutoIncrementDefault(t *testing.T) {
 	d := PostgresDialect{}
-	before := ColumnSpec{
+	before := Column{
 		Name:          "id",
 		Type:          ColumnType{Kind: KindInt, Bits: 32},
 		PrimaryKey:    true,
 		AutoIncrement: true,
-		Default:       "nextval('users_id_seq'::regclass)",
-		NativeType:    "integer",
+		Default:       "nextval('users_id_seq'::regclass)", NativeType: "integer",
 	}
 	after := ColumnSpec{
 		Name:          "id",

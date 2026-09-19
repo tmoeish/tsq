@@ -25,8 +25,7 @@ type ColumnType struct {
 	RawType  string
 }
 
-// ColumnSpec describes one table column, as generated code declares it or as TSQ
-// reads it back from a live database.
+// ColumnSpec describes one table column as generated code declares it.
 type ColumnSpec struct {
 	Name          string
 	Type          ColumnType
@@ -37,9 +36,6 @@ type ColumnSpec struct {
 	Fill Fill
 	// Generated is the expression of a generated column, empty otherwise.
 	Generated string
-	// NativeType is the column type exactly as reported by the database. It is
-	// empty on declared specs.
-	NativeType string
 }
 
 // Fill says who provides a column's value.

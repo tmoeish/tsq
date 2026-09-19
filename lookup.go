@@ -67,7 +67,7 @@ func (t *TableOf[R, K]) Query() *Query[R] {
 		}
 
 		stage := Select(t.Columns()...).From(t)
-		if search := t.SearchColumns(); len(search) > 0 {
+		if search := t.searchColumns(); len(search) > 0 {
 			return stage.Search(search...).Build()
 		}
 

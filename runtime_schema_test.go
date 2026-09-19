@@ -117,13 +117,12 @@ func TestNewRuntimeTablePolicyReconcileAddsMissingColumn(t *testing.T) {
 
 func TestColumnsEqualIgnoresAutoIncrementSequenceDefault(t *testing.T) {
 	dialect := sqld.PostgresDialect{}
-	inspected := tsqdialect.ColumnSpec{
+	inspected := sqld.Column{
 		Name:          "id",
 		Type:          tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64},
 		PrimaryKey:    true,
 		AutoIncrement: true,
-		Default:       "nextval('users_id_seq'::regclass)",
-		NativeType:    "bigint",
+		Default:       "nextval('users_id_seq'::regclass)", NativeType: "bigint",
 	}
 	declared := tsqdialect.ColumnSpec{
 		Name:          "id",

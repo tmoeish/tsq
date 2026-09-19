@@ -124,7 +124,7 @@ type renderMode struct {
 
 type orderTerm struct {
 	expr      sqlExpr
-	direction Order
+	direction sortOrder
 	// nullable terms place NULLs explicitly; nullsFirst says where.
 	nullable   bool
 	nullsFirst bool
@@ -153,7 +153,7 @@ func (t orderTerm) render() sqlExpr {
 		tsqdialect.SQLite:   sqlJoin(plain, sqlText(clause)),
 	}
 
-	if t.nullsFirst != (t.direction != DESC) {
+	if t.nullsFirst != (t.direction != orderDesc) {
 		key := " IS NULL ASC, "
 		if t.nullsFirst {
 			key = " IS NULL DESC, "

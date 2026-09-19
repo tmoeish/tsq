@@ -14,7 +14,7 @@ import (
 
 type tableColumnChange struct {
 	kind   string
-	before *tsqdialect.ColumnSpec
+	before *sqld.Column
 	after  *tsqdialect.ColumnSpec
 }
 
@@ -136,7 +136,7 @@ func (r *Runtime) applyTablePolicyForTable(ctx context.Context, table *registere
 func (r *Runtime) rebuildTable(
 	ctx context.Context,
 	tableName string,
-	current []tsqdialect.ColumnSpec,
+	current []sqld.Column,
 	desired []tsqdialect.ColumnSpec,
 ) error {
 	existingIndexes, err := r.dialect.ListIndexes(ctx, r.db, tableName)
@@ -288,7 +288,7 @@ func (r *Runtime) execDDL(ctx context.Context, statement string) error {
 
 func diffTableColumns(
 	dialect sqld.Dialect,
-	current []tsqdialect.ColumnSpec,
+	current []sqld.Column,
 	desired []tsqdialect.ColumnSpec,
 ) []tableColumnChange {
 	// A generated column is created with the table and never touched afterwards:
@@ -304,11 +304,10 @@ func diffTableColumns(
 		}
 	}
 
-	skipGenerated := func(c tsqdialect.ColumnSpec) bool { return generated[c.Name] }
-	desired = slices.DeleteFunc(slices.Clone(desired), skipGenerated)
-	current = slices.DeleteFunc(slices.Clone(current), skipGenerated)
+	desired = slices.DeleteFunc(slices.Clone(desired), func(c tsqdialect.ColumnSpec) bool { return generated[c.Name] })
+	current = slices.DeleteFunc(slices.Clone(current), func(c sqld.Column) bool { return generated[c.Name] })
 
-	currentByName := make(map[string]tsqdialect.ColumnSpec, len(current))
+	currentByName := make(map[string]sqld.Column, len(current))
 	for _, column := range current {
 		currentByName[column.Name] = column
 	}
@@ -363,7 +362,7 @@ func diffTableColumns(
 	return changes
 }
 
-func columnsEqual(dialect sqld.Dialect, left, right tsqdialect.ColumnSpec) bool {
+func columnsEqual(dialect sqld.Dialect, left sqld.Column, right tsqdialect.ColumnSpec) bool {
 	if !sqld.SameColumnType(dialect, left, right) ||
 		left.PrimaryKey != right.PrimaryKey ||
 		left.AutoIncrement != right.AutoIncrement ||
@@ -532,7 +531,7 @@ func hasAlterColumnChange(changes []tableColumnChange) bool {
 func renderRebuildTableStatements(
 	dialect sqld.Dialect,
 	tableName string,
-	current []tsqdialect.ColumnSpec,
+	current []sqld.Column,
 	desired []tsqdialect.ColumnSpec,
 	existingIndexes []sqld.Index,
 ) ([]string, error) {
@@ -619,7 +618,7 @@ func renderRebuildIndexStatements(
 	return statements
 }
 
-func sharedColumnNames(current, desired []tsqdialect.ColumnSpec) []string {
+func sharedColumnNames(current []sqld.Column, desired []tsqdialect.ColumnSpec) []string {
 	currentByName := make(map[string]struct{}, len(current))
 	for _, column := range current {
 		currentByName[column.Name] = struct{}{}

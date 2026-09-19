@@ -501,7 +501,7 @@ func (q *Query[O]) Page(ctx context.Context, db Executor, p Paging, args ...Arg)
 
 		order := make([]orderTerm, 0, len(p.OrderBy))
 		for _, ob := range p.OrderBy {
-			if ob.direction != ASC && ob.direction != DESC {
+			if ob.direction != orderAsc && ob.direction != orderDesc {
 				return nil, fmt.Errorf("invalid order direction %q", ob.direction)
 			}
 
@@ -609,9 +609,8 @@ func splitCommaValues(value string) []string {
 	return result
 }
 
-// AnySubquery is a query used as a subquery where its columns do not matter, as in
-// Exists: any query stage, or a built *Query. Only TSQ implements it.
-type AnySubquery interface {
+// anySubquery is a query used as a subquery where its columns do not matter.
+type anySubquery interface {
 	subquery() exprInfo
 }
 
@@ -623,7 +622,7 @@ type AnySubquery interface {
 // A stage used as a subquery is built with the query around it, which reports
 // its errors.
 type Subquery[T any] interface {
-	AnySubquery
+	anySubquery
 	Operand[T]
 	ListOperand[T]
 }
