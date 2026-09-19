@@ -28,6 +28,7 @@ func AttachOne[P, C any, K comparable](
 	args ...Arg,
 ) error
 func BuildSubquery[O, T any](stage QueryStage[O], selected ValueColumn[T]) (Subquery[T], error)
+func IsDuplicateKeyError(err error) bool
 func IsOptimisticLockError(err error) bool
 func IsRetryableNetworkError(err error) bool
 func IsRetryableTxError(err error) bool

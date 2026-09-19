@@ -26,15 +26,17 @@ const (
 )
 
 func resolveRuntimeDialect(driverName string) (tsqdialect.Dialect, error) {
+	// The names are the ones drivers register: modernc.org/sqlite is "sqlite" and
+	// mattn/go-sqlite3 is "sqlite3", and both speak the same SQL.
 	switch strings.ToLower(strings.TrimSpace(driverName)) {
-	case "sqlite":
+	case "sqlite", "sqlite3":
 		return tsqdialect.SQLiteDialect{}, nil
 	case "mysql":
 		return tsqdialect.MySQLDialect{}, nil
 	case "postgres", "postgresql", "pgx", "pq":
 		return tsqdialect.PostgresDialect{}, nil
 	default:
-		return nil, fmt.Errorf("unsupported sql driver %q; expected sqlite, mysql, postgres, pgx, or pq", driverName)
+		return nil, fmt.Errorf("unsupported sql driver %q; expected sqlite, sqlite3, mysql, postgres, postgresql, pgx, or pq", driverName)
 	}
 }
 

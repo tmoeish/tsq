@@ -27,6 +27,14 @@ type Executor interface {
 // Dialect is everything TSQ needs to know about one SQL engine: how to spell
 // identifiers and placeholders, which optional features exist, how to inspect a live
 // schema, and how to render the DDL that changes it.
+//
+// **It is not an extension point.** TSQ supports MySQL, PostgreSQL and SQLite, and
+// the constructs the three spell differently — date parts, ROUND, NULL ordering,
+// full-text search — are chosen inside the library by dialect name, not through this
+// interface. A type implementing Dialect for a fourth engine would render most
+// queries and then fail on those with "not supported on <name>". The boundary is
+// deliberate: TSQ supports the engines its tests run against, and an untested
+// fourth would be a promise nothing keeps.
 type Dialect interface {
 	// Name identifies the dialect.
 	Name() Name

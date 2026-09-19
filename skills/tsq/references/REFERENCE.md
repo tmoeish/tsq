@@ -1116,6 +1116,19 @@ The older workaround, rewriting `NOT EXISTS` as `NotIn(subquery)`, still works a
 
 ## 12. Dialect capability boundaries
 
+### The three supported engines
+
+TSQ speaks MySQL, PostgreSQL and SQLite, and nothing else. `dialect.Dialect` is an exported
+interface, but it is **not an extension point**: what the three spell differently (date parts,
+`ROUND`, NULL ordering, full-text search) is chosen inside the library by dialect name. A fourth
+engine would run most queries and then fail on those with "not supported on ...". The library
+supports the engines its tests run against.
+
+Driver names `tsq.Open` understands: `sqlite` (modernc.org/sqlite), `sqlite3`
+(github.com/mattn/go-sqlite3), `mysql`, and `postgres` / `postgresql` / `pgx` / `pq`. Both SQLite
+drivers work, error classification included. `tsq.NewRuntime` takes the dialect directly, for a pool
+opened elsewhere or a driver registered under another name.
+
 TSQ separates structure validation from dialect execution.
 
 ### `Build()` guarantees

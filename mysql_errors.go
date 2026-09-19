@@ -7,7 +7,23 @@ import "reflect"
 // and importing the driver would put it in every TSQ user's module graph, so the
 // Number field is read by reflection.
 func mysqlErrorNumber(err error) (uint16, bool) {
-	queue := []error{err}
+	for _, candidate := range errorChain(err) {
+		if n, ok := mysqlNumber(candidate); ok {
+			return n, true
+		}
+	}
+
+	return 0, false
+}
+
+// errorChain flattens err and everything it wraps, the way errors.As walks it. The
+// drivers whose error types carry codes in fields rather than methods need the walk
+// without a target type to match on.
+func errorChain(err error) []error {
+	var (
+		chain []error
+		queue = []error{err}
+	)
 
 	for len(queue) > 0 {
 		e := queue[0]
@@ -17,11 +33,9 @@ func mysqlErrorNumber(err error) (uint16, bool) {
 			continue
 		}
 
-		if n, ok := mysqlNumber(e); ok {
-			return n, true
-		}
+		chain = append(chain, e)
 
-		switch u := e.(type) { //nolint:errorlint // this loop is the chain walk errors.As would do
+		switch u := e.(type) { //nolint:errorlint // this loop is the walk errors.As would do
 		case interface{ Unwrap() error }:
 			queue = append(queue, u.Unwrap())
 		case interface{ Unwrap() []error }:
@@ -29,7 +43,7 @@ func mysqlErrorNumber(err error) (uint16, bool) {
 		}
 	}
 
-	return 0, false
+	return chain
 }
 
 func mysqlNumber(e error) (uint16, bool) {

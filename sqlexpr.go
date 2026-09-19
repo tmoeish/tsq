@@ -30,6 +30,7 @@ const (
 	partParam
 	partQuery
 	partByDialect
+	partForDialect
 )
 
 type exprPart struct {
@@ -40,7 +41,11 @@ type exprPart struct {
 	query queryRenderer
 	// byDialect holds the spelling of a construct the dialects disagree on.
 	byDialect map[tsqdialect.Name]sqlExpr
-	feature   string
+	// forDialect spells the construct once the dialect is known, for a spelling
+	// that needs the dialect itself (to quote an identifier, say). false means the
+	// dialect cannot express it.
+	forDialect func(d tsqdialect.Dialect) (sqlExpr, bool)
+	feature    string
 }
 
 // queryRenderer is a nested SELECT: a subquery or a CTE body.
@@ -67,6 +72,12 @@ func sqlQuery(q queryRenderer) sqlExpr {
 // names the construct in the error a dialect without an entry produces.
 func sqlByDialect(feature string, choices map[tsqdialect.Name]sqlExpr) sqlExpr {
 	return sqlExpr{parts: []exprPart{{kind: partByDialect, byDialect: choices, feature: feature}}}
+}
+
+// sqlForDialect defers the spelling of a construct until the dialect is known, so
+// that it is built with the dialect in use rather than with one the caller picked.
+func sqlForDialect(feature string, spell func(d tsqdialect.Dialect) (sqlExpr, bool)) sqlExpr {
+	return sqlExpr{parts: []exprPart{{kind: partForDialect, forDialect: spell, feature: feature}}}
 }
 
 // sqlJoin concatenates fragments.
@@ -233,6 +244,14 @@ func (r *renderer) write(e sqlExpr) {
 			r.writeParam(part.param)
 		case partQuery:
 			part.query.renderQuery(r)
+		case partForDialect:
+			choice, ok := part.forDialect(r.dialect)
+			if !ok {
+				r.fail(fmt.Errorf("%s is not supported on %s", part.feature, r.dialect.Name()))
+				continue
+			}
+
+			r.write(choice)
 		case partByDialect:
 			choice, ok := part.byDialect[r.dialect.Name()]
 			if !ok {

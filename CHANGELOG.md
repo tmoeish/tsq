@@ -86,6 +86,10 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 - 在声明了 `deleted_at` 的表上，`Delete` 是软删除，物理删除是 `HardDelete`；没有 `deleted_at` 的表两者同义。
 - **已删行是表的默认作用域**：引用这张表的每个查询（包括手写查询、JOIN 里的表、子查询和 CTE 里的表）以及 `UpdateTable` / 软 `DeleteFrom` 都看不到已删行。LEFT JOIN 的条件并进 `ON`；有 RIGHT / FULL JOIN 时表按活行派生表读取。`TableXxx.WithDeleted()` 是包含已删行的同一张表；`HardDeleteFrom` 作用于所有行，重复的软删除不会重写墓碑时间。软删除走 UPDATE，乐观锁校验、`version` 自增和 `updated_at` 刷新照常生效。`DeleteFrom` 的软删除时间戳**在执行时**计算（此前在构建时计算，包级语句会一直写入进程启动的时间）。
+- `tsq.Open` 接受 `sqlite3`（github.com/mattn/go-sqlite3）这个驱动名，并且能识别它的错误类型——它把 SQLite 结果码放在结构体字段里而不是方法上，此前重复键和 busy 重试在这个驱动上会静默失效。
+- 新增 `tsq.IsDuplicateKeyError`：判断主键或唯一索引冲突，不用自己去匹配各驱动的错误类型。
+- 按方言分叉的 SQL 片段可以延迟到渲染时构造（`tsq.Matches` 的 PostgreSQL 分支因此用当前方言来引号和拼表达式，而不是由根包自己挑一个方言实例）。
+- 文档写明**只支持 MySQL / PostgreSQL / SQLite**：`dialect.Dialect` 是导出接口但不是扩展点，第四种方言会在按方言分叉的构造上报错。
 - 行写入绑定值不再走反射（列上带一个由生成的访问器构成的取值函数）：100 行的批量 INSERT 约快 19%，批量 UPDATE 约快 28%（`write_bench_test.go`）。
 - 新增 `tsq.AttachMany` / `tsq.AttachOne`：给一批父行一次性装配子行（内部走 `ListIn`，父键去重分块），不再需要每行一次查询。子查询由调用方给出，它的过滤、排序和软删除作用域决定哪些子行算在内。
 - **全文检索**：`//tsq:fulltext Title,Summary` 声明全文索引，`tsq.Matches(TableXxx.FullText(), tsq.Val(term))` 搜索它。MySQL 渲染 `MATCH ... AGAINST`（并创建 `FULLTEXT` 索引），PostgreSQL 渲染 `to_tsvector('simple', ...) @@ plainto_tsquery` 并建 GIN 表达式索引，SQLite 没有 TSQ 能管理的全文索引，同一个谓词退化为按子串匹配（`dialect.CapabilityFullTextSearch` 报告是哪一种）。全文索引只按名字对账。
