@@ -28,14 +28,14 @@ type QueryStage[O any] interface {
 	Exists(ctx context.Context, db Executor, args ...Arg) (bool, error)
 	Count(ctx context.Context, db Executor, args ...Arg) (int64, error)
 	List(ctx context.Context, db Executor, args ...Arg) ([]*O, error)
-	Page(ctx context.Context, db Executor, p Paging, args ...Arg) (*PageResponse[O], error)
+	Page(ctx context.Context, db Executor, p Paging, args ...Arg) (*Page[O], error)
 }
 
 // Sortable is the part of a stage that can order and slice the result.
 type Sortable[O any] interface {
-	OrderBy(orders ...OrderBy) PagedStage[O]
-	Limit(limit int) PagedStage[O]
-	Offset(offset int) PagedStage[O]
+	OrderBy(orders ...OrderBy) OrderedStage[O]
+	Limit(limit int) OrderedStage[O]
+	Offset(offset int) OrderedStage[O]
 }
 
 // Lockable is the part of a stage that can lock the rows it reads. Row locks only
@@ -138,8 +138,8 @@ type CompoundStage[O any] interface {
 	Combinable[O]
 }
 
-// PagedStage is a query with ORDER BY, LIMIT or OFFSET.
-type PagedStage[O any] interface {
+// OrderedStage is a query with ORDER BY, LIMIT or OFFSET.
+type OrderedStage[O any] interface {
 	QueryStage[O]
 	Sortable[O]
 	Lockable[O]
@@ -433,7 +433,7 @@ func (b *builder[O]) ExceptAll(other QueryStage[O]) CompoundStage[O] {
 	return b.setOp(exceptAllType, other)
 }
 
-func (b *builder[O]) OrderBy(orders ...OrderBy) PagedStage[O] {
+func (b *builder[O]) OrderBy(orders ...OrderBy) OrderedStage[O] {
 	n := b.enter("OrderBy", phasePaged)
 
 	switch {
@@ -454,7 +454,7 @@ func (b *builder[O]) OrderBy(orders ...OrderBy) PagedStage[O] {
 	return n
 }
 
-func (b *builder[O]) Limit(limit int) PagedStage[O] {
+func (b *builder[O]) Limit(limit int) OrderedStage[O] {
 	n := b.enter("Limit", phasePaged)
 
 	switch {
@@ -469,7 +469,7 @@ func (b *builder[O]) Limit(limit int) PagedStage[O] {
 	return n
 }
 
-func (b *builder[O]) Offset(offset int) PagedStage[O] {
+func (b *builder[O]) Offset(offset int) OrderedStage[O] {
 	n := b.enter("Offset", phasePaged)
 
 	switch {
@@ -647,7 +647,7 @@ func (b *builder[O]) List(ctx context.Context, db Executor, args ...Arg) ([]*O, 
 	return q.List(ctx, db, args...)
 }
 
-func (b *builder[O]) Page(ctx context.Context, db Executor, p Paging, args ...Arg) (*PageResponse[O], error) {
+func (b *builder[O]) Page(ctx context.Context, db Executor, p Paging, args ...Arg) (*Page[O], error) {
 	q, err := b.Build()
 	if err != nil {
 		return nil, err

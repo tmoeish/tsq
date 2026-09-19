@@ -483,8 +483,8 @@ func queryCount(ctx context.Context, db Executor, stmt prepared) (int64, error) 
 // Page runs the query for one page, plus a count of all matching rows. The query
 // must not set Limit or Offset, and it must not order itself when p.OrderBy is set:
 // Page owns those clauses.
-func (q *Query[O]) Page(ctx context.Context, db Executor, p Paging, args ...Arg) (*PageResponse[O], error) {
-	return traceExecutor1(ctx, db, q.traceInfo(TraceOpPage), func(ctx context.Context) (*PageResponse[O], error) {
+func (q *Query[O]) Page(ctx context.Context, db Executor, p Paging, args ...Arg) (*Page[O], error) {
+	return traceExecutor1(ctx, db, q.traceInfo(TraceOpPage), func(ctx context.Context) (*Page[O], error) {
 		if q == nil {
 			return nil, errors.New("query cannot be nil")
 		}
@@ -518,7 +518,7 @@ func (q *Query[O]) Page(ctx context.Context, db Executor, p Paging, args ...Arg)
 
 		// The count and the rows are read from one snapshot; otherwise a write
 		// between them makes Total disagree with Data.
-		return snapshotRead(ctx, db, func(ctx context.Context, db Executor) (*PageResponse[O], error) {
+		return snapshotRead(ctx, db, func(ctx context.Context, db Executor) (*Page[O], error) {
 			total, err := queryCount(ctx, db, stmts[0])
 			if err != nil {
 				return nil, err
@@ -529,7 +529,7 @@ func (q *Query[O]) Page(ctx context.Context, db Executor, p Paging, args ...Arg)
 				return nil, err
 			}
 
-			return newPageResponse(p, total, rows), nil
+			return newPage(p, total, rows), nil
 		})
 	})
 }
@@ -624,8 +624,8 @@ type AnySubquery interface {
 // its errors.
 type Subquery[T any] interface {
 	AnySubquery
-	RHS[T]
-	SetRHS[T]
+	Operand[T]
+	ListOperand[T]
 }
 
 func (q *Query[O]) subquery() exprInfo {

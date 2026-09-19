@@ -17,7 +17,7 @@ type FullTextIndex struct {
 // MatchTerm is the term Matches looks for: a Val or a Param of a string.
 type MatchTerm interface {
 	Pattern[string]
-	RHS[string]
+	Operand[string]
 }
 
 // Matches is the full-text predicate of index: rows whose indexed columns match
@@ -67,8 +67,8 @@ func Matches(index FullTextIndex, term MatchTerm) Condition {
 // matchAgainst is MySQL's MATCH(cols) AGAINST (term), which needs the FULLTEXT
 // index over exactly those columns.
 func matchAgainst(index FullTextIndex, term sqlExpr) sqlExpr {
-	cols := make([]sqlExpr, 0, len(index.index.Fields))
-	for _, name := range index.index.Fields {
+	cols := make([]sqlExpr, 0, len(index.index.Columns))
+	for _, name := range index.index.Columns {
 		cols = append(cols, columnRef(index.table, name))
 	}
 
@@ -78,8 +78,8 @@ func matchAgainst(index FullTextIndex, term sqlExpr) sqlExpr {
 // textSearchMatch repeats the expression the GIN index holds, which is what lets
 // PostgreSQL use it.
 func textSearchMatch(d sqld.Dialect, index FullTextIndex, term sqlExpr) sqlExpr {
-	quoted := make([]string, 0, len(index.index.Fields))
-	for _, name := range index.index.Fields {
+	quoted := make([]string, 0, len(index.index.Columns))
+	for _, name := range index.index.Columns {
 		quoted = append(quoted, d.QuoteIdent(index.table.TableName())+"."+d.QuoteIdent(name))
 	}
 
@@ -89,8 +89,8 @@ func textSearchMatch(d sqld.Dialect, index FullTextIndex, term sqlExpr) sqlExpr 
 // substringMatch is the fallback where the dialect has no full-text index: the term
 // has to appear in one of the columns, wildcards escaped.
 func substringMatch(index FullTextIndex, pattern sqlExpr) sqlExpr {
-	terms := make([]sqlExpr, 0, len(index.index.Fields))
-	for _, name := range index.index.Fields {
+	terms := make([]sqlExpr, 0, len(index.index.Columns))
+	for _, name := range index.index.Columns {
 		terms = append(terms, sqlJoin(columnRef(index.table, name), sqlText(" LIKE "), pattern))
 	}
 

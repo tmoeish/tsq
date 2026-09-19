@@ -295,7 +295,7 @@ func (r *Runtime) applyIndexPolicyForTable(ctx context.Context, table *registere
 	for _, idx := range table.Indexes {
 		desiredByName[idx.Name] = idx
 
-		if err := validateIndexIdentifiers(tableName, idx.Name, idx.Fields); err != nil {
+		if err := validateIndexIdentifiers(tableName, idx.Name, idx.Columns); err != nil {
 			return err
 		}
 
@@ -316,14 +316,14 @@ func (r *Runtime) applyIndexPolicyForTable(ctx context.Context, table *registere
 		if !found {
 			if r.indexPolicy == SchemaPolicyValidate {
 				return &MissingIndexError{
-					Table:  tableName,
-					Name:   idx.Name,
-					Fields: append([]string(nil), idx.Fields...),
-					Unique: idx.Unique,
+					Table:   tableName,
+					Name:    idx.Name,
+					Columns: append([]string(nil), idx.Columns...),
+					Unique:  idx.Unique,
 				}
 			}
 
-			statement, err := r.dialect.EnsureIndex(ctx, r.db, tableName, idx.Name, idx.Fields, idx.Unique)
+			statement, err := r.dialect.EnsureIndex(ctx, r.db, tableName, idx.Name, idx.Columns, idx.Unique)
 			if err != nil {
 				return fmt.Errorf("create index %s on %s: %w", idx.Name, tableName, err)
 			}
@@ -340,7 +340,7 @@ func (r *Runtime) applyIndexPolicyForTable(ctx context.Context, table *registere
 			Unique: existing.Unique,
 			Fields: existing.Fields,
 		}
-		if err := validateIndex(tableName, idx.Unique, idx.Name, idx.Fields, definition); err != nil {
+		if err := validateIndex(tableName, idx.Unique, idx.Name, idx.Columns, definition); err != nil {
 			if r.indexPolicy == SchemaPolicyValidate || r.indexPolicy == SchemaPolicyCreateMissing {
 				return err
 			}
@@ -354,7 +354,7 @@ func (r *Runtime) applyIndexPolicyForTable(ctx context.Context, table *registere
 				return err
 			}
 
-			createStatement, err := r.dialect.EnsureIndex(ctx, r.db, tableName, idx.Name, idx.Fields, idx.Unique)
+			createStatement, err := r.dialect.EnsureIndex(ctx, r.db, tableName, idx.Name, idx.Columns, idx.Unique)
 			if err != nil {
 				return fmt.Errorf("recreate index %s on %s: %w", idx.Name, tableName, err)
 			}
@@ -529,8 +529,8 @@ func (r *Runtime) ensureFullTextIndex(ctx context.Context, tableName string, idx
 		return nil
 	}
 
-	quoted := make([]string, 0, len(idx.Fields))
-	for _, field := range idx.Fields {
+	quoted := make([]string, 0, len(idx.Columns))
+	for _, field := range idx.Columns {
 		quoted = append(quoted, r.dialect.QuoteIdent(field))
 	}
 
@@ -540,7 +540,7 @@ func (r *Runtime) ensureFullTextIndex(ctx context.Context, tableName string, idx
 	}
 
 	if r.indexPolicy == SchemaPolicyValidate {
-		return &MissingIndexError{Table: tableName, Name: idx.Name, Fields: append([]string(nil), idx.Fields...)}
+		return &MissingIndexError{Table: tableName, Name: idx.Name, Columns: append([]string(nil), idx.Columns...)}
 	}
 
 	if err := r.execDDL(ctx, statement); err != nil {

@@ -76,7 +76,7 @@ func new{{$tableType}}() {{$tableType}} {
 		{{- end }}
 		},
 {{- end }}
-		Schema: []tsqdialect.ColumnSpec{
+		ColumnSpecs: []tsqdialect.ColumnSpec{
 	{{- range .Schema }}
 			{
 				Name: "{{ .Name }}",
@@ -121,13 +121,13 @@ func new{{$tableType}}() {{$tableType}} {
 	{{- if or .Uniques .Indexes .FullTexts }}
 		Indexes: []tsq.TableIndex{
 		{{- range $idx := .Uniques }}
-			{Name: "{{$idx.Name}}", Unique: true, Fields: []string{{"{"}}{{ IndexFieldsToCols $dot $idx.Fields }}{{"}"}}},
+			{Name: "{{$idx.Name}}", Unique: true, Columns: []string{{"{"}}{{ IndexFieldsToCols $dot $idx.Fields }}{{"}"}}},
 		{{- end }}
 		{{- range $idx := .Indexes }}
-			{Name: "{{$idx.Name}}", Fields: []string{{"{"}}{{ IndexFieldsToCols $dot $idx.Fields }}{{"}"}}},
+			{Name: "{{$idx.Name}}", Columns: []string{{"{"}}{{ IndexFieldsToCols $dot $idx.Fields }}{{"}"}}},
 		{{- end }}
 		{{- range $idx := .FullTexts }}
-			{Name: "{{$idx.Name}}", FullText: true, Fields: []string{{"{"}}{{ IndexFieldsToCols $dot $idx.Fields }}{{"}"}}},
+			{Name: "{{$idx.Name}}", FullText: true, Columns: []string{{"{"}}{{ IndexFieldsToCols $dot $idx.Fields }}{{"}"}}},
 		{{- end }}
 		},
 	{{- end }}

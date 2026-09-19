@@ -17,7 +17,7 @@ type Value[T any] struct {
 //
 // T is inferred from v alone, so an untyped constant gets its default type:
 // Val(90) is a Value[int]. Against an int64 column write Val(int64(90)); the
-// mismatch is a compile error, "does not implement tsq.RHS[int64]".
+// mismatch is a compile error, "does not implement tsq.Operand[int64]".
 func Val[T any](v T) Value[T] { return Value[T]{v: v} }
 
 func (Value[T]) rhsValue(T) {}

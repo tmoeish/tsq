@@ -165,17 +165,17 @@ func upsertTarget[R any](def *tableDef, key []BoundColumn[R]) ([]string, error) 
 			continue
 		}
 
-		named := slices.DeleteFunc(slices.Clone(index.Fields), func(f string) bool {
+		named := slices.DeleteFunc(slices.Clone(index.Columns), func(f string) bool {
 			return f == def.managed.DeletedAt && !slices.Contains(names, f)
 		})
 		if sameColumns(named, names) {
-			if len(named) != len(index.Fields) && !def.tombstoneIsZero {
+			if len(named) != len(index.Columns) && !def.tombstoneIsZero {
 				// NULL never equals NULL, so a nullable tombstone in the index means
 				// no live row ever conflicts and every upsert inserts.
 				return nil, fmt.Errorf("unique index %s includes a nullable %s, so it never matches; use an integer tombstone", index.Name, def.managed.DeletedAt)
 			}
 
-			return index.Fields, nil
+			return index.Columns, nil
 		}
 	}
 
@@ -224,7 +224,7 @@ func checkUpsertRows[R any](def *tableDef, target []string, rows []*R, d sqld.Di
 	}
 
 	for _, index := range def.indexes {
-		if index.Unique && !sameColumns(index.Fields, target) {
+		if index.Unique && !sameColumns(index.Columns, target) {
 			return fmt.Errorf("MySQL would also match unique index %s; upsert by it or drop it", index.Name)
 		}
 	}

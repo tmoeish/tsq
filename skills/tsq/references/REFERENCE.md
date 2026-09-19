@@ -294,7 +294,7 @@ func newCourseTable() CourseTable {
 		PrimaryKey:    c.ID,
 		AutoIncrement: true,
 		Search:        []tsq.SearchColumn{tsq.Searchable(c.Title)},
-		Schema:        []dialect.ColumnSpec{ /* ... */ },
+		ColumnSpecs:   []dialect.ColumnSpec{ /* ... */ },
 		Indexes:       []tsq.TableIndex{ /* ... */ },
 	})
 
@@ -316,7 +316,7 @@ A column field cannot share a name with a method of the table (`Update`, `Query`
 `As`, ...): `tsq gen` refuses it and names the field. Rename the Go field; the `db` tag keeps the
 column name.
 
-`TableOf` also exposes `TableName()`, `Columns()`, `SearchColumns()`, `Schema()`, `Indexes()`,
+`TableOf` also exposes `TableName()`, `Columns()`, `SearchColumns()`, `ColumnSpecs()`, `Indexes()`,
 `As(alias)`, `WithDeleted()` and `Err()`, which reports a definition error such as a primary key that is not one of
 the columns.
 
@@ -688,7 +688,7 @@ type**: `tsq.Val(90)` is a `Value[int]`. Against an `int64` column write `tsq.Va
 (or `tsq.Val[int64](90)`); the mismatch does not compile:
 
 ```
-tsq.Value[int] does not implement tsq.RHS[int64] (wrong type for method rhsValue)
+tsq.Value[int] does not implement tsq.Operand[int64] (wrong type for method rhsValue)
 ```
 
 String constants, typed constants (`tsq.Val(StatusActive)`) and typed variables need no
@@ -714,7 +714,7 @@ page, err := database.TableUser.Query().Page(ctx, runtime, tsq.Paging{
 - `Page` below 1 means 1 and is capped at `tsq.MaxPageNumber`; `Size` 0 means 20 and is capped
   by the runtime's `WithMaxPageSize`
 - `OrderBy` is built from columns, so a sort field that does not exist does not compile
-- the result is a `*tsq.PageResponse[O]` with `Page`, `Size`, `Total`, `TotalPages` and `Data`
+- the result is a `*tsq.Page[O]` with `Page`, `Size`, `Total`, `TotalPages` and `Data`
   (never nil), plus `HasNext()` / `HasPrev()` / `IsEmpty()`
 - `Total` and `Data` come from one snapshot: `Page` runs its count and its rows in a read-only
   transaction (`REPEATABLE READ` on MySQL and PostgreSQL), so a concurrent write cannot make them
@@ -846,7 +846,7 @@ Reads are methods on the built `*Query[O]`; `args` are the `tsq.Arg` values made
 - `query.Find(ctx, db, args...)` → `*O, error` (`nil, nil` when not found)
 - `query.Exists(ctx, db, args...)` → `bool, error`
 - `query.Count(ctx, db, args...)` → `int64, error`
-- `query.Page(ctx, db, paging, args...)` → `*PageResponse[O], error`
+- `query.Page(ctx, db, paging, args...)` → `*Page[O], error`
 - `query.PageKeyset(ctx, db, keyset, args...)` → `*KeysetPage[O], error` (section 7)
 - `query.SQL(dialect, args...)` → the SQL and arguments the query would run with, for logging and tests
 

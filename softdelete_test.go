@@ -33,7 +33,7 @@ var Memos = memosHandle.Define(TableSpec[memo, int64]{
 	AutoIncrement: true,
 	CreatedAt:     Memo_CreatedAt,
 	DeletedAt:     Memo_DeletedAt,
-	Schema: []tsqdialect.ColumnSpec{
+	ColumnSpecs: []tsqdialect.ColumnSpec{
 		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
 		{Name: "body", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 64}},
 		{Name: "created_at", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindTime}},

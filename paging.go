@@ -43,8 +43,8 @@ func (p Paging) Offset() int {
 	return p.Size * (p.Page - 1)
 }
 
-// PageResponse is one page of rows plus the total count.
-type PageResponse[T any] struct {
+// Page is one page of rows plus the total count.
+type Page[T any] struct {
 	Page       int   `json:"page"`        // Page is the 1-based page number served.
 	Size       int   `json:"size"`        // Size is the page size served.
 	Total      int64 `json:"total"`       // Total is the number of matching rows.
@@ -52,12 +52,12 @@ type PageResponse[T any] struct {
 	Data       []*T  `json:"data"`        // Data holds the rows of the page, never nil.
 }
 
-func newPageResponse[T any](p Paging, total int64, data []*T) *PageResponse[T] {
+func newPage[T any](p Paging, total int64, data []*T) *Page[T] {
 	if data == nil {
 		data = make([]*T, 0)
 	}
 
-	return &PageResponse[T]{
+	return &Page[T]{
 		Page:       p.Page,
 		Size:       p.Size,
 		Total:      total,
@@ -67,13 +67,13 @@ func newPageResponse[T any](p Paging, total int64, data []*T) *PageResponse[T] {
 }
 
 // HasNext reports whether another page follows.
-func (r *PageResponse[T]) HasNext() bool { return r != nil && int64(r.Page) < r.TotalPages }
+func (r *Page[T]) HasNext() bool { return r != nil && int64(r.Page) < r.TotalPages }
 
 // HasPrev reports whether a page precedes.
-func (r *PageResponse[T]) HasPrev() bool { return r != nil && r.Page > 1 }
+func (r *Page[T]) HasPrev() bool { return r != nil && r.Page > 1 }
 
 // IsEmpty reports whether the page holds no rows.
-func (r *PageResponse[T]) IsEmpty() bool { return r == nil || len(r.Data) == 0 }
+func (r *Page[T]) IsEmpty() bool { return r == nil || len(r.Data) == 0 }
 
 // PageRequest is the HTTP shape of a page request: strings as a client sends them.
 // Turn it into a Paging (or a Keyset) with the columns the endpoint allows

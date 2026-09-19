@@ -8,9 +8,9 @@ import (
 // CaseStage builds a searched CASE expression holding a T.
 type CaseStage[T any] interface {
 	// When adds WHEN cond THEN result: a column, Param, Val or subquery.
-	When(cond Condition, result RHS[T]) CaseStage[T]
+	When(cond Condition, result Operand[T]) CaseStage[T]
 	// Else sets the ELSE result.
-	Else(result RHS[T]) CaseStage[T]
+	Else(result Operand[T]) CaseStage[T]
 	// End finishes the expression. Project it into a result with MapInto.
 	End() Expression[T]
 }
@@ -36,7 +36,7 @@ func (b caseBuilder[T]) branch(cond Condition, result exprInfo) CaseStage[T] {
 	return b
 }
 
-func (b caseBuilder[T]) When(cond Condition, result RHS[T]) CaseStage[T] {
+func (b caseBuilder[T]) When(cond Condition, result Operand[T]) CaseStage[T] {
 	return b.branch(cond, rhsInfo(result))
 }
 
@@ -52,7 +52,7 @@ func (b caseBuilder[T]) otherwise(result exprInfo) CaseStage[T] {
 	return b
 }
 
-func (b caseBuilder[T]) Else(result RHS[T]) CaseStage[T] { return b.otherwise(rhsInfo(result)) }
+func (b caseBuilder[T]) Else(result Operand[T]) CaseStage[T] { return b.otherwise(rhsInfo(result)) }
 
 func (b caseBuilder[T]) End() Expression[T] {
 	info := b.info

@@ -224,6 +224,8 @@ MySQL 的 `LENGTH` 数字节；PostgreSQL 没有 `round(double, int)`；modernc 
 
 v5 不背兼容，一次把名字改到"最合理"。定下的几条规则，每条都是有意的：
 - 错误**类型**以 `Error` 结尾（`OptimisticLockError`），`Err` 前缀只留给哨兵变量——Go 标准库的惯例。
+- 右值接口叫 `Operand` / `ListOperand`，不叫 `RHS` / `SetRHS`：它们出现在最常见的编译错误里，而 Set 已经是
+  UPDATE 赋值的意思。索引上装列名的字段叫 `Columns`，`Fields` 只指 Go 字段（指令里的用法）。
 - 否定一律 `Not*`（`NotIn`、`NotLike`）。v4 的 `NIn` 和 `NotExists` 并存，同一个意思两种拼法。`NE` 保留，它是比较运算符。
 - 可选参数用函数式选项（`RuntimeOption`、`BatchOption`），不用 `...*XxxOptions`。只对插入有意义的
   `WithSkipDuplicates` 传给别的 `Batch*` 会**报错**而不是被忽略：被静默忽略的选项就是 v4 的零值歧义。

@@ -200,7 +200,7 @@ type User struct {
 
 	for _, want := range []string{
 		`Name: "ux_users_email"`,
-		`Fields: []string{"email"}`,
+		`Columns: []string{"email"}`,
 	} {
 		if !strings.Contains(string(tableFile), want) {
 			t.Fatalf("expected user.tsq.go to declare %q, got:\n%s", want, tableFile)
@@ -243,7 +243,7 @@ type Order struct {
 	if err != nil {
 		t.Fatalf("failed to read order.tsq.go: %v", err)
 	}
-	if got := string(tableFile); !strings.Contains(got, `Fields: []string{"deleted_at", "status"}`) {
+	if got := string(tableFile); !strings.Contains(got, `Columns: []string{"deleted_at", "status"}`) {
 		t.Fatalf("expected declared index fields to include deleted_at prefix, got:\n%s", got)
 	}
 
@@ -1565,7 +1565,7 @@ func TestTableTemplateGeneratesNoQueriesForPlainIndexes(t *testing.T) {
 		t.Fatalf("did not expect a query for a plain index, got:\n%s", rendered)
 	}
 
-	if !strings.Contains(rendered, `{Name: "idx_order_org_item", Fields: []string{"org_id", "item_id"}}`) {
+	if !strings.Contains(rendered, `{Name: "idx_order_org_item", Columns: []string{"org_id", "item_id"}}`) {
 		t.Fatalf("expected the index in the table spec, got:\n%s", rendered)
 	}
 }

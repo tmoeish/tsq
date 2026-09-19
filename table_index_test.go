@@ -37,7 +37,7 @@ func newRegisteredIndexRuntime(
 	runtime, err := Open(context.Background(),
 		"sqlite",
 		dsn,
-		[]Table{registered(table, nil, []TableIndex{{Name: indexName, Fields: fields, Unique: unique}}...)},
+		[]Table{registered(table, nil, []TableIndex{{Name: indexName, Columns: fields, Unique: unique}}...)},
 		options...)
 	if err != nil {
 		t.Fatalf("NewRuntime() error = %v", err)
@@ -137,7 +137,7 @@ func TestNewRuntimeIndexModeValidateReturnsMissingIndexError(t *testing.T) {
 	_, err := Open(context.Background(),
 		"sqlite",
 		dsn,
-		[]Table{registered(mustStrictMockTable(t, "users", "name"), nil, []TableIndex{{Name: "ux_users_name", Fields: []string{"name"}, Unique: true}}...)},
+		[]Table{registered(mustStrictMockTable(t, "users", "name"), nil, []TableIndex{{Name: "ux_users_name", Columns: []string{"name"}, Unique: true}}...)},
 		WithIndexPolicy(SchemaPolicyValidate))
 	if err == nil {
 		t.Fatal("expected validate mode to fail when index is missing")
@@ -185,7 +185,7 @@ func TestNewRuntimeValidateModeAcceptsExistingRegisteredIndex(t *testing.T) {
 	if _, err := Open(context.Background(),
 		"sqlite",
 		dsn,
-		[]Table{registered(mustStrictMockTable(t, "users", "name"), nil, []TableIndex{{Name: "ux_users_name", Fields: []string{"name"}, Unique: true}}...)},
+		[]Table{registered(mustStrictMockTable(t, "users", "name"), nil, []TableIndex{{Name: "ux_users_name", Columns: []string{"name"}, Unique: true}}...)},
 		WithIndexPolicy(SchemaPolicyValidate)); err != nil {
 		t.Fatalf("expected validate mode with existing index to succeed, got %v", err)
 	}

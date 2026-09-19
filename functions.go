@@ -203,7 +203,7 @@ func datePart[T any](col Expression[T], part, sqlPart, strftime string) Expressi
 // Coalesce is col, or fallback where col is NULL: a column, Param, Val or subquery.
 // It is NULL only if both can be, so Coalesce(col, tsq.Val(x)) reads into a field
 // that cannot hold NULL.
-func Coalesce[T any](col Expression[T], fallback RHS[T]) Expression[T] {
+func Coalesce[T any](col Expression[T], fallback Operand[T]) Expression[T] {
 	return combined[T](col, "COALESCE(", fallback, func(left, right nullness) nullness {
 		if left.never() || right.never() {
 			return nullness{}
@@ -214,7 +214,7 @@ func Coalesce[T any](col Expression[T], fallback RHS[T]) Expression[T] {
 }
 
 // NullIf is col, or NULL where col equals value.
-func NullIf[T any](col Expression[T], value RHS[T]) Expression[T] {
+func NullIf[T any](col Expression[T], value Operand[T]) Expression[T] {
 	return combined[T](col, "NULLIF(", value, func(left, right nullness) nullness {
 		n := left.or(right)
 		n.always = true
@@ -223,7 +223,7 @@ func NullIf[T any](col Expression[T], value RHS[T]) Expression[T] {
 	})
 }
 
-func combined[T any](col Expression[T], open string, rhs RHS[T], null func(left, right nullness) nullness) Expression[T] {
+func combined[T any](col Expression[T], open string, rhs Operand[T], null func(left, right nullness) nullness) Expression[T] {
 	left := columnInfo(col)
 	right := rhsInfo(rhs)
 	info := left.merge(right).withSQL(sqlJoin(sqlText(open), left.sql, sqlText(", "), right.sql, sqlText(")")))

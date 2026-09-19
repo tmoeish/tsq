@@ -42,9 +42,9 @@ type managedColumns struct {
 
 // TableIndex declares one physical index of a table.
 type TableIndex struct {
-	Name   string   // Name is the physical index name.
-	Fields []string // Fields lists the indexed column names in order.
-	Unique bool     // Unique reports whether the index enforces uniqueness.
+	Name    string   // Name is the physical index name.
+	Columns []string // Columns lists the indexed column names in order.
+	Unique  bool     // Unique reports whether the index enforces uniqueness.
 	// FullText marks a full-text index, which tsq.Matches searches. Where the
 	// dialect has none (SQLite), nothing is created and Matches falls back to a
 	// substring match.
@@ -54,7 +54,7 @@ type TableIndex struct {
 // cloneTableIndex copies an index, fields included, so that adding a field to
 // TableIndex cannot be forgotten here.
 func cloneTableIndex(index TableIndex) TableIndex {
-	index.Fields = slices.Clone(index.Fields)
+	index.Columns = slices.Clone(index.Columns)
 
 	return index
 }
@@ -132,8 +132,8 @@ type TableSpec[R any, K comparable] struct {
 	DeletedAt BoundColumn[R]
 	// Search lists the columns keyword search matches against.
 	Search []SearchColumn
-	// Schema is the physical column definition, used by the schema policies.
-	Schema []tsqdialect.ColumnSpec
+	// ColumnSpecs is the physical column definition, used by the schema policies.
+	ColumnSpecs []tsqdialect.ColumnSpec
 	// Indexes are the declared indexes, used by the schema policies.
 	Indexes []TableIndex
 }
@@ -184,8 +184,8 @@ func (t *TableOf[R, K]) Define(spec TableSpec[R, K]) *TableOf[R, K] {
 		return core
 	}
 
-	fill := make(map[string]tsqdialect.Fill, len(spec.Schema))
-	for _, column := range spec.Schema {
+	fill := make(map[string]tsqdialect.Fill, len(spec.ColumnSpecs))
+	for _, column := range spec.ColumnSpecs {
 		fill[column.Name] = column.Fill
 	}
 
@@ -254,8 +254,8 @@ func (t *TableOf[R, K]) Define(spec TableSpec[R, K]) *TableOf[R, K] {
 		}
 	}
 
-	seen := make(map[string]bool, len(spec.Schema))
-	for _, column := range spec.Schema {
+	seen := make(map[string]bool, len(spec.ColumnSpecs))
+	for _, column := range spec.ColumnSpecs {
 		if d.byName[column.Name] == nil {
 			fail("schema column %s is not in Columns", column.Name)
 		}
@@ -267,18 +267,18 @@ func (t *TableOf[R, K]) Define(spec TableSpec[R, K]) *TableOf[R, K] {
 		seen[column.Name] = true
 	}
 
-	d.schema = slices.Clone(spec.Schema)
+	d.schema = slices.Clone(spec.ColumnSpecs)
 
 	for _, index := range spec.Indexes {
 		if err := validateBuiltInIdentifier(index.Name); err != nil {
 			fail("index name: %v", err)
 		}
 
-		if len(index.Fields) == 0 {
+		if len(index.Columns) == 0 {
 			fail("index %s has no fields", index.Name)
 		}
 
-		for _, field := range index.Fields {
+		for _, field := range index.Columns {
 			if d.byName[field] == nil {
 				fail("index %s references unknown column %s", index.Name, field)
 			}
@@ -345,8 +345,8 @@ func (t *TableOf[R, K]) FullText(name ...string) FullTextIndex {
 // SearchColumns returns the columns keyword search matches against.
 func (t *TableOf[R, K]) SearchColumns() []SearchColumn { return slices.Clone(t.def.search) }
 
-// Schema returns the declared physical columns.
-func (t *TableOf[R, K]) Schema() []tsqdialect.ColumnSpec { return slices.Clone(t.def.schema) }
+// ColumnSpecs returns the declared physical columns.
+func (t *TableOf[R, K]) ColumnSpecs() []tsqdialect.ColumnSpec { return slices.Clone(t.def.schema) }
 
 // Indexes returns the declared indexes.
 func (t *TableOf[R, K]) Indexes() []TableIndex {

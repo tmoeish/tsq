@@ -56,7 +56,7 @@ func newTrackTable() TrackTable {
 			tsq.Searchable(c.Name),
 			tsq.Searchable(c.Description),
 		},
-		Schema: []tsqdialect.ColumnSpec{
+		ColumnSpecs: []tsqdialect.ColumnSpec{
 			{
 				Name: "id",
 				Type: tsqdialect.ColumnType{
@@ -96,7 +96,7 @@ func newTrackTable() TrackTable {
 			},
 		},
 		Indexes: []tsq.TableIndex{
-			{Name: "ux_track_name", Unique: true, Fields: []string{"name"}},
+			{Name: "ux_track_name", Unique: true, Columns: []string{"name"}},
 		},
 	})
 

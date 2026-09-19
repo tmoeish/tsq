@@ -56,7 +56,7 @@ func newLearnerTable() LearnerTable {
 			tsq.Searchable(c.Email),
 			tsq.Searchable(c.Company),
 		},
-		Schema: []tsqdialect.ColumnSpec{
+		ColumnSpecs: []tsqdialect.ColumnSpec{
 			{
 				Name: "id",
 				Type: tsqdialect.ColumnType{
@@ -96,8 +96,8 @@ func newLearnerTable() LearnerTable {
 			},
 		},
 		Indexes: []tsq.TableIndex{
-			{Name: "ux_learner_email", Unique: true, Fields: []string{"email"}},
-			{Name: "idx_learner_company", Fields: []string{"company"}},
+			{Name: "ux_learner_email", Unique: true, Columns: []string{"email"}},
+			{Name: "idx_learner_company", Columns: []string{"company"}},
 		},
 	})
 

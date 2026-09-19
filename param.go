@@ -10,7 +10,7 @@ import (
 
 // Param is a named, typed placeholder whose value is supplied when the query runs.
 //
-// A Param is an RHS, so it goes wherever a column or subquery could:
+// A Param is an Operand, so it goes wherever a column or subquery could:
 //
 //	minPrice := tsq.NewParam[int64]("min_price")
 //	q := tsq.Select(TableCourse.Columns()...).From(TableCourse).

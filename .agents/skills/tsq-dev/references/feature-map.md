@@ -20,7 +20,7 @@
 | `CASE` | `case.go` |
 | `ORDER BY` 方向解析、NULL 排序位置（`NullsFirst` / `NullsLast`、`orderTerm.render`） | `order.go`、`query_render.go`（`order_test.go`；三方言真跑在 `TestIntegrationNullOrderingAgrees`） |
 | 游标分页 `Keyset` / `KeysetPage` / `PageKeyset`、游标编解码与指纹、seek 条件 | `keyset.go`（`keyset_test.go`；时间值游标三方言真跑在 `TestIntegrationPageKeysetOverTimestamps`） |
-| 分页 `Paging` / `PageResponse`、HTTP 形态 `PageRequest`（`Paging(sortable...)` / `Keyset` 同时校验）、排序字段错误类型 | `paging.go`（`exec_test.go` 的 `TestPageSearchesSortsAndCounts`） |
+| 分页 `Paging` / `Page`、HTTP 形态 `PageRequest`（`Paging(sortable...)` / `Keyset` 同时校验）、排序字段错误类型 | `paging.go`（`exec_test.go` 的 `TestPageSearchesSortsAndCounts`） |
 | 软删除作用域（`WithDeleted`、`liveRows` / `liveSource`、JOIN 位置规则） | `table.go` + `query_render.go` 的 `writeFromWhere`（`exec_test.go` 的 `TestSoftDeleteScope`；`internal/integration` 的 `TestIntegrationSoftDeleteScopeJoins`） |
 
 ## 根包：表与写入
