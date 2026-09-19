@@ -688,11 +688,24 @@ type**: `tsq.Val(90)` is a `Value[int]`. Against an `int64` column write `tsq.Va
 (or `tsq.Val[int64](90)`); the mismatch does not compile:
 
 ```
-tsq.Value[int] does not implement tsq.Operand[int64] (wrong type for method rhsValue)
+tsq.Value[int] does not implement tsq.Operand[int64] (wrong type for method valueOfType)
+        have valueOfType(int)
+        want valueOfType(int64)
 ```
 
 String constants, typed constants (`tsq.Val(StatusActive)`) and typed variables need no
 conversion.
+
+The compile errors name their fix. The method named in "missing method ..." or "wrong type for
+method ..." is chosen to say what to write:
+
+| the error says | write instead |
+| --- | --- |
+| `missing method needsTsqVal` | wrap the literal: `col.EQ(tsq.Val(x))`, `tsq.StartsWith(col, tsq.Val("x"))` |
+| `missing method needsTsqVals` | wrap the slice: `col.In(tsq.Vals(ids...))` |
+| `wrong type for method valueOfType` / `valuesOfType`, `have ... want ...` | give the value the column's type, `tsq.Val(int64(90))`, or compare with a column of that type |
+| `missing method needsRuntimeOrWrapExecutor` | pass the `*tsq.Runtime`, the `WithTx` executor, or `tsq.WrapExecutor(db, dialect.X)` instead of a `*sql.DB` / `*sql.Tx` |
+| `WhereStage ... has no field or method Where` | pass every condition to the one `Where(a, b, ...)`; `tsq.Or(...)` for OR |
 
 - a `NULL` comparison is refused (use `IsNull()` / `IsNotNull()`); `NULL` is written with
   `SetNull`
@@ -722,7 +735,8 @@ page, err := database.TableUser.Query().Page(ctx, runtime, tsq.Paging{
 
 An HTTP endpoint receives strings. `tsq.PageRequest` is that shape (`page`, `size`, `order_by`,
 `order`, `keyword`), and `Paging(sortable...)` turns it into a `Paging` against the columns the
-endpoint allows to sort by; the keyword goes in as `tsq.Keyword(req.Keyword)`:
+endpoint allows to sort by. It also carries the request's `keyword`, which `Page` searches with, so
+the handler does not pass it again:
 
 ```go
 paging, err := req.Paging(database.TableUser.Name, database.TableUser.CreatedAt)
@@ -730,13 +744,16 @@ if err != nil {
 	return err // 400: a negative page or size, or a *tsq.SortError (unknown or ambiguous field, bad direction)
 }
 
-resp, err := database.TableUser.Query().Page(ctx, runtime, paging, tsq.Keyword(req.Keyword))
+resp, err := database.TableUser.Query().Page(ctx, runtime, paging)
 ```
 
 - `order_by` is a comma-separated list of column or JSON names; `order` is `asc` / `desc`, one
   per field or one for all
 - the sortable list is explicit: selecting a column does not make it sortable, since sorting
   on an unindexed column is a cost the endpoint decides to pay
+- the carried keyword applies only to a query built with `Search`; an endpoint that does not
+  search ignores it, as it ignores any parameter it does not know. Passing a different
+  `tsq.Keyword` as well is an error
 - `Paging` (and `Keyset`) is where the request is validated: a negative page or size, a page
   above `tsq.MaxPageNumber`, or an order other than `asc` / `desc` is an error. Zero means the first
   page and the default size (20). A size above the runtime's `WithMaxPageSize` (default
@@ -756,9 +773,12 @@ k := tsq.Keyset{
 	After:   req.After, // the previous page's Next; empty for the first page
 }
 
-page, err := QueryPost.PageKeyset(ctx, runtime, k, tsq.Keyword(req.Keyword))
+page, err := database.TablePost.Query().PageKeyset(ctx, runtime, k, tsq.Keyword(term))
 // page.Data, page.Next, page.HasNext()
 ```
+
+`req.Keyset(sortable...)` builds the `Keyset` from a `PageRequest` (its `order_by`, `size` and `after`)
+and, like `Paging`, carries its keyword, so `PageKeyset(ctx, runtime, k)` searches with it.
 
 - `OrderBy` is required, every column in it must be selected by the query, and the **last one
   must be a primary key** so that every position is unique. An index on the order columns is what

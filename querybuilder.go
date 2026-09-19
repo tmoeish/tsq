@@ -579,8 +579,10 @@ func (b *builder[O]) setOperand(negated bool) exprInfo {
 	return q.setOperand(negated)
 }
 
-func (*builder[O]) rhsValue(O) {}
-func (*builder[O]) setValue(O) {}
+func (*builder[O]) valueOfType(O)  {}
+func (*builder[O]) needsTsqVal()   {}
+func (*builder[O]) needsTsqVals()  {}
+func (*builder[O]) valuesOfType(O) {}
 
 func (b *builder[O]) Build() (*Query[O], error) {
 	spec, err := b.specOf()
