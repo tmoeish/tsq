@@ -186,7 +186,7 @@
   兜底，测试是它唯一的安全网。
 - 改了 GoReleaser 配置，跑 `goreleaser check`。
 - 一波变更的定义只有一处：`script/changeset.py`（非 Markdown、非生成物）。所以改
-  `Makefile`、`.golangci.yml`、`Dockerfile` 或 CI 和改 Go 代码一样，要带内存记录。
+  `Makefile`、`.golangci.yml` 或 CI 和改 Go 代码一样，要带内存记录。
 
 ## 技能维护是变更的一部分
 
@@ -240,7 +240,7 @@
 
 | 改了什么 | 发版？ |
 | --- | --- |
-| 根包、`dialect`、`internal/**`（非测试）、模板、`go.mod`/`go.sum`、`.goreleaser.yaml`、`Dockerfile` | 是 |
+| 根包、`dialect`、`internal/**`（非测试）、模板、`go.mod`/`go.sum`、`.goreleaser.yaml` | 是 |
 | `agents/`、`script/`、`skills/`、`docs/`、`.github/`、`Makefile`、`*.md`、`*_test.go` | 否 |
 
 `internal/` **算**使用者可见：Go 的 import 规则让使用者引用不到它，但 CLI 的全部行为都在
@@ -262,7 +262,7 @@
   等于没写。
 - `make release-dry-run` 看一眼会发成什么；`make release` 真的发。
 - **`main` 上有 ruleset，禁止直推**：必须走 PR，且 `Lint`、`Coverage`、`Build`、
-  `Docker Build`、`GoReleaser Check`、`Integration` 六个检查全绿才能合。所以 `make release` 是这条路：
+  `GoReleaser Check`、`Integration` 五个检查全绿才能合。所以 `make release` 是这条路：
   切 `release/vX.Y.Z` 分支 → 改版本号和 CHANGELOG → 重新生成 → 本地 `make harness` →
   提交 → 推分支 → 开 PR → 开启自动合并 → CI 全绿后 squash 合入 → 回 `main` 拉最新 →
   在**合并后的 HEAD** 上打 tag → 推 tag。推 tag 触发 CI 的 GoReleaser。
@@ -275,7 +275,7 @@
 - **日常改动的完整路径**：从同步过的 `main` 切 `<type>/<描述>` 分支（type 用
   Conventional Commit 那份词表，和提交信息同一套）→ 改代码 → `make fmt` → 更新技能与
   项目内存 → `make harness` 全绿 → 提交（`commit-msg` 钩子校验）→ 推分支 → 开 PR →
-  CI 六个必需检查全绿后 squash 合入 → 分支自动删除。`main` 是唯一的长期分支，没有 develop。
+  CI 五个必需检查全绿后 squash 合入 → 分支自动删除。`main` 是唯一的长期分支，没有 develop。
   合进 `main` **不等于**发版，见上面的表格判断这波要不要发。
 - **开新分支之前先回 `main` 同步**：`git checkout main && git fetch && git reset --hard
   origin/main`。把新分支叠在还没合的 PR 分支上，等那个 PR 被 squash 合并（产生新 SHA）

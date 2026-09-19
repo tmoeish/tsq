@@ -322,12 +322,12 @@
   `go.sum`。需要真实驱动的测试放 `internal/integration`；根包测试只允许 SQLite。
 - `internal/integration` 的 `TestIntegrationLockConflictsAreRetryable` 用真实驱动验证。
 
-## 加了或改了 `-X` ldflags（`Makefile`、`.goreleaser.yaml`、`Dockerfile`）
+## 加了或改了 `-X` ldflags（`Makefile`、`.goreleaser.yaml`）
 
 - 目标必须是 `github.com/tmoeish/tsq/v5/internal/buildinfo.<var>`，`<var>` 必须真的在
   `internal/buildinfo/buildinfo.go` 里声明。链接器对找不到的符号**静默忽略**，二进制会
   把 build time / commit / branch 报成 `unknown` 而没有任何报错。
-  `[门禁: release-check 核对三份配置里的每个 -X]`
+  `[门禁: release-check 核对两份配置里的每个 -X；CI 的 Build 运行二进制核对值]`
 - 三份配置是三个副本，改变量名要一起改。
 
 ## 改了注解指令（`internal/parser/directive.go`）
@@ -448,7 +448,7 @@
 
 ## 改了 CI 的 job 名字
 
-`main` 的 ruleset 按**检查名**要求 `Lint`、`Coverage`、`Build`、`Docker Build`、
+`main` 的 ruleset 按**检查名**要求 `Lint`、`Coverage`、`Build`、
 `GoReleaser Check`、`Integration` 全绿。改掉其中任何一个 job 的 `name:`，那个必需检查就再也不会出现在
 PR 上，而"等不到的检查"等于**所有 PR 永久合不进去**，包括发版 PR。
 
@@ -475,7 +475,7 @@ gh api repos/tmoeish/tsq/rulesets/<id> --jq '.rules[] | select(.type=="required_
 
 ## 升级 Go 版本
 
-`go.mod`、`.github/workflows/go.yml` 的 `GO_VERSION` 与 matrix、`Dockerfile`、
+`go.mod`、`.github/workflows/go.yml` 的 `GO_VERSION` 与 matrix、
 `CLAUDE.md` / `AGENTS.md` 里写的版本号，全部一起改。golangci-lint 也要升到兼容版本
 （`Makefile` 的 `LINT_BIN` 那行钉死了版本）。
 

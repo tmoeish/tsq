@@ -157,6 +157,9 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 ### 其他
 
+- CLI 改用标准库 `flag`，不再依赖 cobra、pflag、`golang.org/x/term`。flag 仍可写在参数之后（`tsq gen ./pkg --check`），`tsq --version` / `tsq help <命令>` 照旧可用；报错着色认 `NO_COLOR`。
+- 删掉了从未发布到任何镜像仓库的 Docker 镜像构建；CI 的 `Build` 改为运行构建出的二进制，核对注入的版本和 commit。
+
 - 模板与模板 helper 里出现的每个 `tsq.X` / `tsqdialect.X` 都对照真实包的导出符号校验（`internal/cmd/generated_symbols_test.go`）。
 
 ## [4.10.0] - 2026-09-03

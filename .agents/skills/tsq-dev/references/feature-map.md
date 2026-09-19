@@ -71,7 +71,8 @@
 
 | 关注点 | 文件 |
 | --- | --- |
-| CLI 入口、子命令注册 | `cmd/tsq/main.go` |
+| CLI 入口、子命令分派、`--version`、错误着色 | `cmd/tsq/main.go`（`main_test.go`） |
+| 子命令类型（标准库 `flag`、参数后的 flag、帮助文本） | `internal/cmd/command.go` |
 | `tsq version`（默认表格 / `--short` / `--json`） | `internal/cmd/version.go` |
 | `tsq gen`（flag、校验、渲染、写盘） | `internal/cmd/gen.go` |
 | 模板 | `internal/cmd/table.go.tmpl`、`result.go.tmpl`、`runtime.go.tmpl` |
