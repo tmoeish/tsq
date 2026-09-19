@@ -27,6 +27,9 @@ type Query[O any] struct {
 	// mapped into a field that cannot hold it. It does not fail Build, because a
 	// query used as a subquery or CTE is never read.
 	scanErr error
+	// partial lists the columns the query reads when they are only some of the
+	// row type's table; rows it returns are remembered so Update can refuse them.
+	partial []string
 	// err is why the query could not be built, for a query a table hands out
 	// ready-made (TableOf.Query); every execution reports it.
 	err   error
@@ -157,6 +160,10 @@ func (q *Query[O]) scan(rows interface{ Scan(...any) error }) (*O, error) {
 
 	if err := rows.Scan(dest...); err != nil {
 		return nil, err
+	}
+
+	if q.partial != nil {
+		markPartial(row, q.partial)
 	}
 
 	return row, nil

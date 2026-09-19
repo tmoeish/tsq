@@ -63,7 +63,7 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 - **查询阶段本身就是子查询**：`tsq.SelectValue(col).From(t).Where(...)` 直接放在比较、`In`、`Set` 的右边，不用先 `Build`，错误由外层 `Build` 报告；任何阶段都能传给 `Exists`。`tsq.BuildSubquery` 和 `Query.AsSubquery` 删除（它们要把选出的列再写一遍，每个子查询多一段错误处理）。
 - `tsq.MapInto(source, field)` / `MapIntoNull(source, field)` 不再要求 JSON 名，默认取源列的；需要时 `.Named("x")`。
 - 查询只有一个入口 `tsq.Select(...).From(...)`，`tsq.From[O](t).Select(...)` 删除。
-- `TableXxx.Update(ctx, db, &row, cols...)` 和生成的 `row.Update(ctx, db, cols...)` 可以只写指定的列（`updated_at`、`version` 照常维护）：部分 `Select` 读出的行用它保存，不会把没读的列写成零值。
+- `TableXxx.Update(ctx, db, &row, cols...)` 和生成的 `row.Update(ctx, db, cols...)` 可以只写指定的列（`updated_at`、`version` 照常维护）：部分 `Select` 读出的行用它保存。**对这样的行直接 `Update` / `BatchUpdate` / `Upsert` 会报错**并列出它读过的列，不再悄悄把没读的列写成零值（库用弱引用记住这些行，行被回收后记录随之消失）。
 - `Case[T]()` 的结果有类型：`When(cond, rhs)` / `Else(rhs)`。
 - 列函数从列方法改为**包级泛型函数**，并按列类型约束：`tsq.Upper(col)` / `Lower` / `Trim` / `Length` / `Substring` 只接受字符串类的列（`tsq.Text`），`tsq.Sum` / `Avg` / `Round` / `Ceil` / `Floor` / `Abs` 只接受数值列（`tsq.Number`），`tsq.Count` / `CountDistinct` / `Max` / `Min` / `Date` / `Year` / `Month` / `Day` / `Coalesce` / `NullIf` 接受任意列。套在类型不合的列上编译不过。
 - 列函数在三个方言上返回相同的值：`Year` / `Month` / `Day` 返回 `int64`（此前返回列自身类型且得到文本）；`Date` 返回 `'YYYY-MM-DD'` 文本；`Length` 数字符（MySQL 上是 `CHAR_LENGTH`，此前数字节）；`Round` 在 PostgreSQL 的浮点列上也能用；`Substring` 的边界直接写进 SQL，避免 PostgreSQL 选错重载。SQLite 上的日期函数同时认 modernc 驱动默认的 Go 时间文本格式（此前返回 NULL）。

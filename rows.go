@@ -833,6 +833,12 @@ func (t *TableOf[R, K]) update(ctx context.Context, db Executor, rows []*R, conf
 	cols := make([]*columnCore, 0, len(def.columns))
 
 	if config.only == nil {
+		for _, row := range rows {
+			if err := checkFullRow("update", def.name, row); err != nil {
+				return err
+			}
+		}
+
 		for _, col := range def.columns {
 			if writable(col) {
 				cols = append(cols, col)

@@ -590,7 +590,7 @@ func (b *builder[O]) Build() (*Query[O], error) {
 		return nil, err
 	}
 
-	return &Query[O]{spec: spec, scanErr: spec.checkScanTargets()}, nil
+	return &Query[O]{spec: spec, scanErr: spec.checkScanTargets(), partial: partialColumns(spec.Selects)}, nil
 }
 
 // MustBuild is Build for package-level queries whose shape is fixed; it panics on

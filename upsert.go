@@ -67,6 +67,12 @@ func (t *TableOf[R, K]) upsert(ctx context.Context, db Executor, rows []*R, key 
 		return fmt.Errorf("upsert into %s: %w", def.name, err)
 	}
 
+	for _, row := range rows {
+		if err := checkFullRow("upsert into", def.name, row); err != nil {
+			return err
+		}
+	}
+
 	now := stampTime()
 
 	for _, row := range rows {
