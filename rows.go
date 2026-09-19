@@ -121,14 +121,14 @@ func chunks[T any](items []T, size int) [][]T {
 // Insert inserts row. A zero auto-increment primary key is left to the database
 // and written back to row.
 func (t *TableOf[R, K]) Insert(ctx context.Context, db Executor, row *R) error {
-	return traceExecutor(ctx, db, TraceOpInsert, func(ctx context.Context) error {
+	return traceExecutor(ctx, db, t.traceInfo(TraceOpInsert), func(ctx context.Context) error {
 		return t.insert(ctx, db, []*R{row}, batchConfig{size: 1})
 	})
 }
 
 // BatchInsert inserts rows in as few statements as the batch size allows.
 func (t *TableOf[R, K]) BatchInsert(ctx context.Context, db Executor, rows []*R, options ...BatchOption) error {
-	return traceExecutor(ctx, db, TraceOpInsert, func(ctx context.Context) error {
+	return traceExecutor(ctx, db, t.traceInfo(TraceOpInsert), func(ctx context.Context) error {
 		config, err := newBatchConfig(options, true)
 		if err != nil {
 			return err
@@ -145,7 +145,7 @@ func (t *TableOf[R, K]) BatchInsert(ctx context.Context, db Executor, rows []*R,
 // zeroing the columns it did not read. updated_at and version are maintained
 // either way.
 func (t *TableOf[R, K]) Update(ctx context.Context, db Executor, row *R, cols ...BoundColumn[R]) error {
-	return traceExecutor(ctx, db, TraceOpUpdate, func(ctx context.Context) error {
+	return traceExecutor(ctx, db, t.traceInfo(TraceOpUpdate), func(ctx context.Context) error {
 		config := batchConfig{size: 1}
 		if len(cols) > 0 {
 			config.only = SQLColumns(cols...)
@@ -157,7 +157,7 @@ func (t *TableOf[R, K]) Update(ctx context.Context, db Executor, row *R, cols ..
 
 // BatchUpdate updates rows in as few statements as the batch size allows.
 func (t *TableOf[R, K]) BatchUpdate(ctx context.Context, db Executor, rows []*R, options ...BatchOption) error {
-	return traceExecutor(ctx, db, TraceOpUpdate, func(ctx context.Context) error {
+	return traceExecutor(ctx, db, t.traceInfo(TraceOpUpdate), func(ctx context.Context) error {
 		config, err := newBatchConfig(options, false)
 		if err != nil {
 			return err
@@ -176,7 +176,7 @@ func (t *TableOf[R, K]) Delete(ctx context.Context, db Executor, row *R) error {
 
 // BatchDelete deletes rows as Delete does.
 func (t *TableOf[R, K]) BatchDelete(ctx context.Context, db Executor, rows []*R, options ...BatchOption) error {
-	return traceExecutor(ctx, db, TraceOpDelete, func(ctx context.Context) error {
+	return traceExecutor(ctx, db, t.traceInfo(TraceOpDelete), func(ctx context.Context) error {
 		config, err := newBatchConfig(options, false)
 		if err != nil {
 			return err
@@ -200,7 +200,7 @@ func (t *TableOf[R, K]) Restore(ctx context.Context, db Executor, row *R) error 
 
 // BatchRestore restores rows in as few statements as the batch size allows.
 func (t *TableOf[R, K]) BatchRestore(ctx context.Context, db Executor, rows []*R, options ...BatchOption) error {
-	return traceExecutor(ctx, db, TraceOpUpdate, func(ctx context.Context) error {
+	return traceExecutor(ctx, db, t.traceInfo(TraceOpUpdate), func(ctx context.Context) error {
 		config, err := newBatchConfig(options, false)
 		if err != nil {
 			return err
@@ -343,7 +343,7 @@ func (t *TableOf[R, K]) HardDelete(ctx context.Context, db Executor, row *R) err
 
 // BatchHardDelete removes rows from the table, ignoring any deleted_at column.
 func (t *TableOf[R, K]) BatchHardDelete(ctx context.Context, db Executor, rows []*R, options ...BatchOption) error {
-	return traceExecutor(ctx, db, TraceOpDelete, func(ctx context.Context) error {
+	return traceExecutor(ctx, db, t.traceInfo(TraceOpDelete), func(ctx context.Context) error {
 		config, err := newBatchConfig(options, false)
 		if err != nil {
 			return err
@@ -931,7 +931,7 @@ func (t *TableOf[R, K]) updateChunk(ctx context.Context, db Executor, scope exec
 // OptimisticLockError unless every row matched.
 // execCounted runs the statement. When mismatch is set, it checks that the
 // statement matched every row and turns a shortfall into that error.
-func (t *TableOf[R, K]) execCounted(ctx context.Context, db Executor, w *writeStmt, def *tableDef, op string, rows []*R, mismatch func(expected int, actual int64) error) error {
+func (t *TableOf[R, K]) execCounted(ctx context.Context, db Executor, w *writeStmt, def *tableDef, op string, rows []*R, mismatch func(expected, actual int64) error) error {
 	if w.err != nil {
 		return w.err
 	}
@@ -960,7 +960,7 @@ func (t *TableOf[R, K]) execCounted(ctx context.Context, db Executor, w *writeSt
 	}
 
 	if affected != int64(len(rows)) {
-		return fmt.Errorf("%s %s: %w", op, target, mismatch(len(rows), affected))
+		return fmt.Errorf("%s %s: %w", op, target, mismatch(int64(len(rows)), affected))
 	}
 
 	return nil
@@ -968,7 +968,7 @@ func (t *TableOf[R, K]) execCounted(ctx context.Context, db Executor, w *writeSt
 
 // versionGuard checks the row count only when the table has a version column: it
 // is what makes a mismatch mean "someone else changed it".
-func versionGuard(def *tableDef, version *columnCore) func(int, int64) error {
+func versionGuard(def *tableDef, version *columnCore) func(int64, int64) error {
 	if version == nil {
 		return nil
 	}
@@ -977,15 +977,15 @@ func versionGuard(def *tableDef, version *columnCore) func(int, int64) error {
 }
 
 // versionConflict is the mismatch error of a version-guarded write.
-func versionConflict(table string) func(int, int64) error {
-	return func(expected int, actual int64) error {
+func versionConflict(table string) func(int64, int64) error {
+	return func(expected, actual int64) error {
 		return &OptimisticLockError{Table: table, Expected: expected, Actual: actual}
 	}
 }
 
 // wrongRowState is the mismatch error of a write that needs the row in one state.
-func wrongRowState(table, op, need string) func(int, int64) error {
-	return func(expected int, actual int64) error {
+func wrongRowState(table, op, need string) func(int64, int64) error {
+	return func(expected, actual int64) error {
 		return &RowStateError{Table: table, Op: op, Need: need, Expected: expected, Actual: actual}
 	}
 }
@@ -1109,7 +1109,7 @@ func (t *TableOf[R, K]) BatchHardDeleteByPK(ctx context.Context, db Executor, ke
 }
 
 func (t *TableOf[R, K]) deleteByPK(ctx context.Context, db Executor, keys []K, options []BatchOption, soft bool) error {
-	return traceExecutor(ctx, db, TraceOpDelete, func(ctx context.Context) error {
+	return traceExecutor(ctx, db, t.traceInfo(TraceOpDelete), func(ctx context.Context) error {
 		config, err := newBatchConfig(options, false)
 		if err != nil {
 			return err

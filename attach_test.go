@@ -23,8 +23,8 @@ func TestAttachManyAndOneReadChildrenOnce(t *testing.T) {
 	// One extra query for every parent, not one per parent.
 	var ops []TraceOp
 
-	traced := newSQLite(t, WithTracers(func(ctx context.Context, op TraceOp, next func(context.Context) error) error {
-		ops = append(ops, op)
+	traced := newSQLite(t, WithTracers(func(ctx context.Context, info TraceInfo, next func(context.Context) error) error {
+		ops = append(ops, info.Op)
 		return next(ctx)
 	}))
 

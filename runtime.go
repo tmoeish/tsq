@@ -161,8 +161,8 @@ func (r *Runtime) Close() error {
 	return r.db.Close()
 }
 
-// MaxPageSize returns the page-size cap applied to paged queries on this runtime.
-func (r *Runtime) MaxPageSize() int {
+// maxPage is the page-size cap applied to paged queries on this runtime.
+func (r *Runtime) maxPage() int {
 	if r == nil || r.maxPageSize <= 0 {
 		return DefaultMaxPageSize
 	}
@@ -226,20 +226,21 @@ func (r *Runtime) ExecContext(ctx context.Context, query string, args ...any) (s
 	return db.ExecContext(ctx, query, args...)
 }
 
-// WithTx starts a transaction on the runtime database and passes a dialect-aware executor to fn.
-// It manages BeginTx, Commit, and Rollback automatically.
+// WithTx runs fn in a transaction and passes it the executor to use inside it:
+// the transaction commits when fn returns nil and rolls back otherwise. Options
+// set the isolation level, read-only mode and retries.
 func (r *Runtime) WithTx(
 	ctx context.Context,
-	options *TxOptions,
 	fn func(context.Context, Executor) error,
+	options ...TxOption,
 ) error {
 	if fn == nil {
 		return errors.New("transaction function cannot be nil")
 	}
 
-	_, err := r.withTxResult(ctx, options, func(ctx context.Context, txExec Executor) (struct{}, error) {
+	_, err := r.withTxResult(ctx, func(ctx context.Context, txExec Executor) (struct{}, error) {
 		return struct{}{}, fn(ctx, txExec)
-	})
+	}, options)
 
 	return err
 }

@@ -397,13 +397,13 @@ func (m *Mutation[R]) prepare(db Executor, args []Arg) (string, []any, error) {
 
 // Exec runs the statement and returns the number of rows it changed.
 func (m *Mutation[R]) Exec(ctx context.Context, db Executor, args ...Arg) (int64, error) {
-	return traceExecutor1(ctx, db, TraceOpExec, func(ctx context.Context) (int64, error) {
+	return traceExecutor1(ctx, db, m.traceInfo(), func(ctx context.Context) (int64, error) {
 		sqlText, sqlArgs, err := m.prepare(db, args)
 		if err != nil {
 			return 0, err
 		}
 
-		logSQLForExecutor(ctx, db, "exec", sqlText, sqlArgs)
+		logSQLForExecutor(ctx, db, string(m.traceInfo().Op), sqlText, sqlArgs)
 
 		result, err := db.ExecContext(ctx, sqlText, sqlArgs...)
 		if err != nil {
@@ -412,4 +412,19 @@ func (m *Mutation[R]) Exec(ctx context.Context, db Executor, args ...Arg) (int64
 
 		return result.RowsAffected()
 	})
+}
+
+// traceInfo names the statement for tracers: an update, or a delete (soft or
+// hard) of the target table.
+func (m *Mutation[R]) traceInfo() TraceInfo {
+	info := TraceInfo{Op: TraceOpUpdate}
+	if m != nil && m.m.kind != mutationUpdate {
+		info.Op = TraceOpDelete
+	}
+
+	if m != nil && m.m.def != nil {
+		info.Table = m.m.def.name
+	}
+
+	return info
 }

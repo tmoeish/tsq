@@ -9,8 +9,6 @@ import (
 
 const maxTracers = 100
 
-// Tracer wraps a function call with tracing behavior.
-// Configure tracers via WithTracers when constructing a Runtime.
 // TraceOp names the kind of work a traced call performs.
 type TraceOp string
 
@@ -25,21 +23,25 @@ const (
 	TraceOpIter   TraceOp = "iter"
 	TraceOpPage   TraceOp = "page"
 	TraceOpCount  TraceOp = "count"
-	TraceOpScalar TraceOp = "scalar"
-	TraceOpExec   TraceOp = "exec"
 	TraceOpTx     TraceOp = "tx"
 )
 
-// Tracer wraps one traced operation. Call next to run it, and return its error.
-//
-// op says what is being run, which is what makes a tracer useful: the previous
-// signature passed only the continuation, so a tracer could time a call without
-// being able to say what it had timed. The rendered SQL is not available here
-// because tracing brackets the whole operation, including argument binding and
-// dialect rendering; RuntimeOption WithSQLLogging reports statements instead.
-type Tracer func(ctx context.Context, op TraceOp, next func(ctx context.Context) error) error
+// TraceInfo describes a traced operation.
+type TraceInfo struct {
+	// Op is what runs.
+	Op TraceOp
+	// Table is the table written, or the FROM table of a query; empty for a
+	// transaction.
+	Table string
+}
 
-func (r *Runtime) trace(ctx context.Context, op TraceOp, fn func(ctx context.Context) error) error {
+// Tracer wraps one traced operation: call next to run it, and return its error.
+// Configure tracers with WithTracers. A tracer brackets the whole operation,
+// argument binding and rendering included, so the statement is not known when it
+// starts; WithSQLLogging reports statements.
+type Tracer func(ctx context.Context, info TraceInfo, next func(ctx context.Context) error) error
+
+func (r *Runtime) trace(ctx context.Context, info TraceInfo, fn func(ctx context.Context) error) error {
 	if fn == nil {
 		return errors.New("trace function cannot be nil")
 	}
@@ -54,14 +56,14 @@ func (r *Runtime) trace(ctx context.Context, op TraceOp, fn func(ctx context.Con
 		next := wrappedFn
 
 		wrappedFn = func(ctx context.Context) error {
-			return tracer(ctx, op, next)
+			return tracer(ctx, info, next)
 		}
 	}
 
 	return wrappedFn(ctx)
 }
 
-func (r *Runtime) trace1[T any](ctx context.Context, op TraceOp, fn func(ctx context.Context) (T, error)) (T, error) {
+func (r *Runtime) trace1[T any](ctx context.Context, info TraceInfo, fn func(ctx context.Context) (T, error)) (T, error) {
 	if r == nil {
 		var zero T
 		return zero, errors.New("runtime cannot be nil")
@@ -94,16 +96,16 @@ func (r *Runtime) trace1[T any](ctx context.Context, op TraceOp, fn func(ctx con
 		next := wrappedFn
 
 		wrappedFn = func(ctx context.Context) error {
-			return tracer(ctx, op, next)
+			return tracer(ctx, info, next)
 		}
 	}
 
 	return result, wrappedFn(ctx)
 }
 
-func traceExecutor(ctx context.Context, exec Executor, op TraceOp, fn func(ctx context.Context) error) error {
+func traceExecutor(ctx context.Context, exec Executor, info TraceInfo, fn func(ctx context.Context) error) error {
 	if rt := runtimeForExecutor(exec); rt != nil {
-		return rt.trace(ctx, op, fn)
+		return rt.trace(ctx, info, fn)
 	}
 
 	if fn == nil {
@@ -117,9 +119,9 @@ func traceExecutor(ctx context.Context, exec Executor, op TraceOp, fn func(ctx c
 	return fn(ctx)
 }
 
-func traceExecutor1[T any](ctx context.Context, exec Executor, op TraceOp, fn func(ctx context.Context) (T, error)) (T, error) {
+func traceExecutor1[T any](ctx context.Context, exec Executor, info TraceInfo, fn func(ctx context.Context) (T, error)) (T, error) {
 	if rt := runtimeForExecutor(exec); rt != nil {
-		return rt.trace1(ctx, op, fn)
+		return rt.trace1(ctx, info, fn)
 	}
 
 	if fn == nil {

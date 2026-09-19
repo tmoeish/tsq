@@ -98,7 +98,7 @@ func And(conds ...Condition) Condition
 func Contains[S ~string](col Expression[S], part Pattern[S]) Condition
 func EndsWith[S ~string](col Expression[S], suffix Pattern[S]) Condition
 func Exists(sq AnySubquery) Condition
-func Matches(index FullTextIndex, term SearchTerm) Condition
+func Matches(index FullTextIndex, term MatchTerm) Condition
 func Not(cond Condition) Condition
 func NotContains[S ~string](col Expression[S], part Pattern[S]) Condition
 func NotEndsWith[S ~string](col Expression[S], suffix Pattern[S]) Condition
@@ -233,6 +233,10 @@ type Logger interface {
 	Enabled(ctx context.Context, level slog.Level) bool
 	LogAttrs(ctx context.Context, level slog.Level, msg string, attrs ...slog.Attr)
 }
+type MatchTerm interface {
+	Pattern[string]
+	RHS[string]
+}
 type MissingIndexError struct {
 	Table  string
 	Name   string
@@ -264,7 +268,7 @@ type Number interface {
 }
 type OptimisticLockError struct {
 	Table    string
-	Expected int
+	Expected int64
 	Actual   int64
 }
 func (e *OptimisticLockError) Error() string
@@ -294,9 +298,7 @@ type PageRequest struct {
 	After   string `json:"after"    query:"after"`    // After is the cursor of a keyset page.
 }
 func (r *PageRequest) Keyset(sortable ...SQLColumn) (Keyset, error)
-func (r *PageRequest) Normalize(maxSize int)
 func (r *PageRequest) Paging(sortable ...SQLColumn) (Paging, error)
-func (r *PageRequest) Validate(maxSize int) error
 type PageResponse[T any] struct {
 	Page       int   `json:"page"`        // Page is the 1-based page number served.
 	Size       int   `json:"size"`        // Size is the page size served.
@@ -337,7 +339,6 @@ func (q *Query[O]) ListIn[T comparable](ctx context.Context, db Executor, param 
 func (q *Query[O]) Page(ctx context.Context, db Executor, p Paging, args ...Arg) (*PageResponse[O], error)
 func (q *Query[O]) PageKeyset(ctx context.Context, db Executor, k Keyset, args ...Arg) (*KeysetPage[O], error)
 func (q *Query[O]) SQL(engine tsqdialect.Name, args ...Arg) (string, []any, error)
-func (q *Query[O]) String() string
 type QueryStage[O any] interface {
 	Subquery[O]
 	Build() (*Query[O], error)
@@ -363,12 +364,12 @@ type RetryPolicy struct {
 	MaxBackoff time.Duration
 	Multiplier float64
 }
-func DefaultRetryPolicy() *RetryPolicy
+func DefaultRetryPolicy() RetryPolicy
 type RowStateError struct {
 	Table    string
 	Op       string
 	Need     string
-	Expected int
+	Expected int64
 	Actual   int64
 }
 func (e *RowStateError) Error() string
@@ -380,18 +381,17 @@ func (r *Runtime) Close() error
 func (r *Runtime) DB() *sql.DB
 func (r *Runtime) Dialect() tsqdialect.Name
 func (r *Runtime) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
-func (r *Runtime) MaxPageSize() int
 func (r *Runtime) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
 func (r *Runtime) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 func (r *Runtime) WithTx(
 	ctx context.Context,
-	options *TxOptions,
 	fn func(context.Context, Executor) error,
+	options ...TxOption,
 ) error
 func (r *Runtime) WithTxResult[T any](
 	ctx context.Context,
-	options *TxOptions,
 	fn func(context.Context, Executor) (T, error),
+	options ...TxOption,
 ) (T, error)
 type RuntimeOption func(*runtimeConfig)
 func WithIndexPolicy(policy SchemaPolicy) RuntimeOption
@@ -424,10 +424,6 @@ type SearchStage[O any] interface {
 	Sortable[O]
 	Lockable[O]
 	Where(conds ...Condition) FilteredStage[O]
-}
-type SearchTerm interface {
-	Pattern[string]
-	RHS[string]
 }
 type SelectStage[O any] interface {
 	From(table Table) JoinStage[O]
@@ -505,6 +501,10 @@ type TableSpec[R any, K comparable] struct {
 type Text interface {
 	~string
 }
+type TraceInfo struct {
+	Op TraceOp
+	Table string
+}
 type TraceOp string
 const (
 	TraceOpInsert TraceOp = "insert"
@@ -516,16 +516,14 @@ const (
 	TraceOpIter   TraceOp = "iter"
 	TraceOpPage   TraceOp = "page"
 	TraceOpCount  TraceOp = "count"
-	TraceOpScalar TraceOp = "scalar"
-	TraceOpExec   TraceOp = "exec"
 	TraceOpTx     TraceOp = "tx"
 )
-type Tracer func(ctx context.Context, op TraceOp, next func(ctx context.Context) error) error
-type TxOptions struct {
-	SQL *sql.TxOptions
-	RetryIf func(err error) bool
-	RetryPolicy *RetryPolicy
-}
+type Tracer func(ctx context.Context, info TraceInfo, next func(ctx context.Context) error) error
+type TxOption func(*txConfig)
+func WithIsolation(level sql.IsolationLevel) TxOption
+func WithReadOnly() TxOption
+func WithRetry(retryIf func(err error) bool) TxOption
+func WithRetryPolicy(policy RetryPolicy) TxOption
 type TypedColumn[O, T any] interface {
 	BoundColumn[O]
 }

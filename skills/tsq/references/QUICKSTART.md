@@ -154,7 +154,7 @@ all, err := database.TableUser.Query().List(ctx, runtime, tsq.Keyword("ali"))
 If multiple TSQ operations must share one transaction:
 
 ```go
-if err := runtime.WithTx(ctx, nil, func(ctx context.Context, txExec tsq.Executor) error {
+if err := runtime.WithTx(ctx, func(ctx context.Context, txExec tsq.Executor) error {
 	if err := user.Insert(ctx, txExec); err != nil {
 		return err
 	}

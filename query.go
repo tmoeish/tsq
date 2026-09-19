@@ -147,15 +147,6 @@ func (q *Query[O]) SQL(engine tsqdialect.Name, args ...Arg) (string, []any, erro
 	return stmts[0].sql, stmts[0].args, nil
 }
 
-// String renders the query for debugging, in SQLite syntax, with parameters shown
-// by name.
-func (q *Query[O]) String() string {
-	r := newRenderer(sqld.SQLiteDialect{})
-	q.spec.render(r, renderMode{})
-
-	return debugStatement(r)
-}
-
 func (q *Query[O]) scan(rows interface{ Scan(...any) error }) (*O, error) {
 	row := new(O)
 
@@ -173,7 +164,7 @@ func (q *Query[O]) scan(rows interface{ Scan(...any) error }) (*O, error) {
 
 // List returns every matching row.
 func (q *Query[O]) List(ctx context.Context, db Executor, args ...Arg) ([]*O, error) {
-	return traceExecutor1(ctx, db, TraceOpList, func(ctx context.Context) ([]*O, error) {
+	return traceExecutor1(ctx, db, q.traceInfo(TraceOpList), func(ctx context.Context) ([]*O, error) {
 		_, stmts, err := q.prepare(db, args, nil, renderMode{})
 		if err != nil {
 			return nil, err
@@ -263,7 +254,7 @@ func (q *Query[O]) keywordArgs(args []Arg) (bool, []Arg, error) {
 // query must use param exactly once, as col.In(param) passed directly to Where,
 // and have no GROUP BY, aggregate, DISTINCT, set operation, ORDER BY or LIMIT.
 func (q *Query[O]) ListIn[T comparable](ctx context.Context, db Executor, param ListParam[T], values []T, args ...Arg) ([]*O, error) {
-	return traceExecutor1(ctx, db, TraceOpList, func(ctx context.Context) ([]*O, error) {
+	return traceExecutor1(ctx, db, q.traceInfo(TraceOpList), func(ctx context.Context) ([]*O, error) {
 		if q != nil && q.err != nil {
 			return nil, q.err
 		}
@@ -388,7 +379,7 @@ func (q *Query[O]) Iter(ctx context.Context, db Executor, args ...Arg) iter.Seq2
 	return func(yield func(*O, error) bool) {
 		stopped := false
 
-		err := traceExecutor(ctx, db, TraceOpIter, func(ctx context.Context) error {
+		err := traceExecutor(ctx, db, q.traceInfo(TraceOpIter), func(ctx context.Context) error {
 			if q == nil {
 				return errors.New("query cannot be nil")
 			}
@@ -411,7 +402,7 @@ func (q *Query[O]) Iter(ctx context.Context, db Executor, args ...Arg) iter.Seq2
 
 // Get returns the first matching row, or an error wrapping sql.ErrNoRows.
 func (q *Query[O]) Get(ctx context.Context, db Executor, args ...Arg) (*O, error) {
-	return traceExecutor1(ctx, db, TraceOpGet, func(ctx context.Context) (*O, error) {
+	return traceExecutor1(ctx, db, q.traceInfo(TraceOpGet), func(ctx context.Context) (*O, error) {
 		return q.get(ctx, db, args)
 	})
 }
@@ -443,7 +434,7 @@ func (q *Query[O]) get(ctx context.Context, db Executor, args []Arg) (*O, error)
 
 // Find returns the first matching row, or nil when there is none.
 func (q *Query[O]) Find(ctx context.Context, db Executor, args ...Arg) (*O, error) {
-	return traceExecutor1(ctx, db, TraceOpGet, func(ctx context.Context) (*O, error) {
+	return traceExecutor1(ctx, db, q.traceInfo(TraceOpGet), func(ctx context.Context) (*O, error) {
 		row, err := q.get(ctx, db, args)
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
@@ -456,7 +447,7 @@ func (q *Query[O]) Find(ctx context.Context, db Executor, args ...Arg) (*O, erro
 // Exists reports whether any row matches. It reads at most one row rather than
 // counting them all.
 func (q *Query[O]) Exists(ctx context.Context, db Executor, args ...Arg) (bool, error) {
-	return traceExecutor1(ctx, db, TraceOpGet, func(ctx context.Context) (bool, error) {
+	return traceExecutor1(ctx, db, q.traceInfo(TraceOpGet), func(ctx context.Context) (bool, error) {
 		row, err := q.get(ctx, db, args)
 		if errors.Is(err, sql.ErrNoRows) {
 			return false, nil
@@ -468,7 +459,7 @@ func (q *Query[O]) Exists(ctx context.Context, db Executor, args ...Arg) (bool, 
 
 // Count returns the number of matching rows.
 func (q *Query[O]) Count(ctx context.Context, db Executor, args ...Arg) (int64, error) {
-	return traceExecutor1(ctx, db, TraceOpCount, func(ctx context.Context) (int64, error) {
+	return traceExecutor1(ctx, db, q.traceInfo(TraceOpCount), func(ctx context.Context) (int64, error) {
 		_, stmts, err := q.prepare(db, args, nil, renderMode{count: true})
 		if err != nil {
 			return 0, err
@@ -493,12 +484,12 @@ func queryCount(ctx context.Context, db Executor, stmt prepared) (int64, error) 
 // must not set Limit or Offset, and it must not order itself when p.OrderBy is set:
 // Page owns those clauses.
 func (q *Query[O]) Page(ctx context.Context, db Executor, p Paging, args ...Arg) (*PageResponse[O], error) {
-	return traceExecutor1(ctx, db, TraceOpPage, func(ctx context.Context) (*PageResponse[O], error) {
+	return traceExecutor1(ctx, db, q.traceInfo(TraceOpPage), func(ctx context.Context) (*PageResponse[O], error) {
 		if q == nil {
 			return nil, errors.New("query cannot be nil")
 		}
 
-		p = p.normalized(runtimeForExecutor(db).MaxPageSize())
+		p = p.normalized(runtimeForExecutor(db).maxPage())
 
 		if q.spec.Limit != nil {
 			return nil, errors.New("query sets Limit/Offset; Page controls paging, so drop them from the builder")
@@ -566,7 +557,7 @@ func snapshotRead[T any](ctx context.Context, db Executor, fn func(context.Conte
 	}
 
 	if s.runtime != nil {
-		return s.runtime.withTxResult(ctx, &TxOptions{SQL: opts}, fn)
+		return s.runtime.withTxResult(ctx, fn, []TxOption{WithIsolation(opts.Isolation), WithReadOnly()})
 	}
 
 	bound, ok := db.(boundExecutor)
@@ -690,4 +681,19 @@ func (noopExecutor) QueryRowContext(context.Context, string, ...any) *sql.Row { 
 
 func (noopExecutor) ExecContext(context.Context, string, ...any) (sql.Result, error) {
 	return nil, errors.New("no database")
+}
+
+// traceInfo names a run of the query for tracers, by its FROM table.
+func (q *Query[O]) traceInfo(op TraceOp) TraceInfo {
+	info := TraceInfo{Op: op}
+
+	if q != nil && !isNilValue(q.spec.From) {
+		if def := q.spec.From.definition(); def != nil {
+			info.Table = def.name
+		} else {
+			info.Table = q.spec.From.TableName()
+		}
+	}
+
+	return info
 }

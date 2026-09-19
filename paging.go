@@ -76,8 +76,8 @@ func (r *PageResponse[T]) HasPrev() bool { return r != nil && r.Page > 1 }
 func (r *PageResponse[T]) IsEmpty() bool { return r == nil || len(r.Data) == 0 }
 
 // PageRequest is the HTTP shape of a page request: strings as a client sends them.
-// Validate or Normalize it, then turn it into a Paging with the columns the
-// endpoint allows sorting by.
+// Turn it into a Paging (or a Keyset) with the columns the endpoint allows
+// sorting by; that is also where it is validated.
 type PageRequest struct {
 	Size    int    `json:"size"     query:"size"`     // Size is the requested page size.
 	Page    int    `json:"page"     query:"page"`     // Page is the 1-based page number.
@@ -90,9 +90,18 @@ type PageRequest struct {
 // Paging resolves the request against the columns it may sort by. A sort field
 // names a column by its JSON field name or its column name; any other name is an
 // UnknownSortFieldError, so a client can only sort by what the endpoint allows.
+//
+// A page or size below zero, a page above MaxPageNumber, or an order that is not
+// asc/desc is an error. Zero means the first page and the default size. A size
+// above the runtime's WithMaxPageSize is not an error: Page serves the capped
+// size, and the response says which.
 func (r *PageRequest) Paging(sortable ...SQLColumn) (Paging, error) {
 	if r == nil {
 		return Paging{}, nil
+	}
+
+	if err := r.validate(); err != nil {
+		return Paging{}, err
 	}
 
 	order, err := r.orderBy(sortable)
@@ -109,6 +118,10 @@ func (r *PageRequest) Paging(sortable ...SQLColumn) (Paging, error) {
 func (r *PageRequest) Keyset(sortable ...SQLColumn) (Keyset, error) {
 	if r == nil {
 		return Keyset{}, nil
+	}
+
+	if err := r.validate(); err != nil {
+		return Keyset{}, err
 	}
 
 	order, err := r.orderBy(sortable)
@@ -190,62 +203,19 @@ func (e *OrderCountMismatchError) Error() string {
 	return fmt.Sprintf("order_by lists %d fields but order lists %d directions", e.Fields, e.Directions)
 }
 
-// Normalize applies default page values and clamps Page to MaxPageNumber and Size to
-// maxSize. A maxSize of zero or less means DefaultMaxPageSize. Pass the runtime's
-// Runtime.MaxPageSize so that a handler applies the same limit the query will.
-func (r *PageRequest) Normalize(maxSize int) {
-	if r == nil {
-		return
+// validate rejects what no page can mean; out-of-range sizes are capped by Page.
+func (r *PageRequest) validate() error {
+	if r.Page < 0 {
+		return fmt.Errorf("page must not be negative, got %d", r.Page)
 	}
 
-	maxSize = boundPageSize(maxSize)
-
-	if r.Page <= 0 {
-		r.Page = 1
-	}
-
-	if r.Page > MaxPageNumber {
-		r.Page = MaxPageNumber
-	}
-
-	if r.Size <= 0 {
-		r.Size = defaultPageSize
-	}
-
-	if r.Size > maxSize {
-		r.Size = maxSize
-	}
-}
-
-// Validate reports invalid paging or sorting input without mutating r. maxSize is
-// resolved the same way Normalize resolves it.
-func (r *PageRequest) Validate(maxSize int) error {
-	if r == nil {
-		return nil
-	}
-
-	maxSize = boundPageSize(maxSize)
-
-	if r.Page <= 0 {
-		return fmt.Errorf("page must be greater than 0, got %d", r.Page)
-	}
-
-	// Offset is Size*(Page-1) and has to stay well inside int on 32-bit builds, so an
-	// out-of-range page is rejected here rather than silently clamped by Offset.
+	// Offset is Size*(Page-1) and has to stay well inside int on 32-bit builds.
 	if r.Page > MaxPageNumber {
 		return fmt.Errorf("page must be less than or equal to %d, got %d", MaxPageNumber, r.Page)
 	}
 
-	if r.Size <= 0 {
-		return fmt.Errorf("size must be greater than 0, got %d", r.Size)
-	}
-
-	if r.Size > maxSize {
-		return fmt.Errorf("size must be less than or equal to %d, got %d", maxSize, r.Size)
-	}
-
-	if len(splitCommaValues(r.OrderBy)) == 0 && len(splitCommaValues(r.Order)) > 0 {
-		return errors.New("order requires order_by")
+	if r.Size < 0 {
+		return fmt.Errorf("size must not be negative, got %d", r.Size)
 	}
 
 	for _, rawOrder := range splitCommaValues(r.Order) {
@@ -257,17 +227,9 @@ func (r *PageRequest) Validate(maxSize int) error {
 	return nil
 }
 
-// boundPageSize resolves a caller-supplied page-size limit.
-//
-// DefaultMaxPageSize is the default, not a ceiling: a runtime built with
-// WithMaxPageSize decides its own cap, in either direction. Treating the
-// constant as an absolute maximum would make WithMaxPageSize(5000) silently do
-// nothing, and the library would be overriding an explicit choice with a
-// compile-time constant.
-//
-// Validate and Normalize must resolve the limit the same way. They did not:
-// Validate clamped the limit to DefaultMaxPageSize and Normalize used it as
-// given, so the same request could pass one and fail the other.
+// boundPageSize resolves a page-size limit. DefaultMaxPageSize is the default,
+// not a ceiling: a runtime built with WithMaxPageSize decides its own cap, in
+// either direction.
 func boundPageSize(maxSize int) int {
 	if maxSize <= 0 {
 		return DefaultMaxPageSize

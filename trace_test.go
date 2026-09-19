@@ -9,8 +9,8 @@ import (
 func TestRuntimeTracePreservesDistinctClosures(t *testing.T) {
 	var calls []string
 	makeTracer := func(name string) Tracer {
-		return func(ctx context.Context, op TraceOp, next func(context.Context) error) error {
-			calls = append(calls, name+":before:"+string(op))
+		return func(ctx context.Context, info TraceInfo, next func(context.Context) error) error {
+			calls = append(calls, name+":before:"+string(info.Op))
 			err := next(ctx)
 			calls = append(calls, name+":after")
 
@@ -19,7 +19,7 @@ func TestRuntimeTracePreservesDistinctClosures(t *testing.T) {
 	}
 
 	runtime := &Runtime{tracers: appendTracers(nil, makeTracer("first"), makeTracer("second"))}
-	err := runtime.trace(context.Background(), TraceOpList, func(context.Context) error {
+	err := runtime.trace(context.Background(), TraceInfo{Op: TraceOpList}, func(context.Context) error {
 		calls = append(calls, "body")
 		return nil
 	})
@@ -41,14 +41,14 @@ func TestRuntimeTracePreservesDistinctClosures(t *testing.T) {
 func TestTracersSeeTheOperationOfEachEntryPoint(t *testing.T) {
 	var ops []TraceOp
 
-	runtime := &Runtime{tracers: appendTracers(nil, func(ctx context.Context, op TraceOp, next func(context.Context) error) error {
-		ops = append(ops, op)
+	runtime := &Runtime{tracers: appendTracers(nil, func(ctx context.Context, info TraceInfo, next func(context.Context) error) error {
+		ops = append(ops, info.Op)
 
 		return next(ctx)
 	})}
 
 	for _, op := range []TraceOp{TraceOpInsert, TraceOpUpdate, TraceOpDelete, TraceOpGet} {
-		if err := runtime.trace(context.Background(), op, func(context.Context) error { return nil }); err != nil {
+		if err := runtime.trace(context.Background(), TraceInfo{Op: op}, func(context.Context) error { return nil }); err != nil {
 			t.Fatalf("trace(%s) returned an error: %v", op, err)
 		}
 	}
@@ -56,5 +56,45 @@ func TestTracersSeeTheOperationOfEachEntryPoint(t *testing.T) {
 	want := []TraceOp{TraceOpInsert, TraceOpUpdate, TraceOpDelete, TraceOpGet}
 	if !slices.Equal(ops, want) {
 		t.Fatalf("ops = %v, want %v", ops, want)
+	}
+}
+
+// TestTracersSeeTheTable is what makes a span name useful: the table a write
+// changes, or the FROM table of a query.
+func TestTracersSeeTheTable(t *testing.T) {
+	ctx := context.Background()
+
+	var seen []TraceInfo
+
+	rt := newSQLite(t, WithTracers(func(ctx context.Context, info TraceInfo, next func(context.Context) error) error {
+		seen = append(seen, info)
+		return next(ctx)
+	}))
+
+	row := &user{Name: "a", Email: "a@x"}
+	if err := Users.Insert(ctx, rt, row); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Select(Order_ID).From(Orders).Join(Users, Order_UserID.EQ(User_ID)).List(ctx, rt); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := DeleteFrom(Users).Where(User_ID.EQ(Val(row.ID))).Exec(ctx, rt); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := rt.WithTx(ctx, func(context.Context, Executor) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+
+	want := []TraceInfo{
+		{Op: TraceOpInsert, Table: "users"},
+		{Op: TraceOpList, Table: "orders"},
+		{Op: TraceOpDelete, Table: "users"},
+		{Op: TraceOpTx},
+	}
+	if !slices.Equal(seen, want) {
+		t.Fatalf("trace infos = %+v, want %+v", seen, want)
 	}
 }

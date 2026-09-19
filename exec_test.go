@@ -201,7 +201,7 @@ func TestSkipDuplicatesInsideATransaction(t *testing.T) {
 	rt := newSQLite(t)
 	seedUsers(t, rt, "dup")
 
-	err := rt.WithTx(ctx, nil, func(ctx context.Context, tx Executor) error {
+	err := rt.WithTx(ctx, func(ctx context.Context, tx Executor) error {
 		rows := []*user{{Name: "dup", Email: "dup@example.com"}, {Name: "new", Email: "new@example.com"}}
 		if err := Users.BatchInsert(ctx, tx, rows, WithSkipDuplicates()); err != nil {
 			return err
@@ -473,8 +473,8 @@ func TestListInSplitsListsBeyondTheBindLimit(t *testing.T) {
 	// One statement is not worth a transaction; several share one snapshot.
 	var ops []TraceOp
 
-	traced := newSQLite(t, WithTracers(func(ctx context.Context, op TraceOp, next func(context.Context) error) error {
-		ops = append(ops, op)
+	traced := newSQLite(t, WithTracers(func(ctx context.Context, info TraceInfo, next func(context.Context) error) error {
+		ops = append(ops, info.Op)
 		return next(ctx)
 	}))
 
@@ -585,8 +585,8 @@ func TestPageInsideATransactionUsesIt(t *testing.T) {
 
 	var ops []TraceOp
 
-	rt := newSQLite(t, WithTracers(func(ctx context.Context, op TraceOp, next func(context.Context) error) error {
-		ops = append(ops, op)
+	rt := newSQLite(t, WithTracers(func(ctx context.Context, info TraceInfo, next func(context.Context) error) error {
+		ops = append(ops, info.Op)
 		return next(ctx)
 	}))
 
@@ -602,7 +602,7 @@ func TestPageInsideATransactionUsesIt(t *testing.T) {
 
 	ops = nil
 
-	err := rt.WithTx(ctx, nil, func(ctx context.Context, tx Executor) error {
+	err := rt.WithTx(ctx, func(ctx context.Context, tx Executor) error {
 		if err := Users.Insert(ctx, tx, &user{Name: "pending", Email: "p@example.com"}); err != nil {
 			return err
 		}
@@ -804,8 +804,8 @@ func TestTracersAndExecutorScopes(t *testing.T) {
 
 	var ops []TraceOp
 
-	rt := newSQLite(t, WithTracers(func(ctx context.Context, op TraceOp, next func(context.Context) error) error {
-		ops = append(ops, op)
+	rt := newSQLite(t, WithTracers(func(ctx context.Context, info TraceInfo, next func(context.Context) error) error {
+		ops = append(ops, info.Op)
 		return next(ctx)
 	}))
 

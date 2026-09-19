@@ -29,7 +29,7 @@ const upsertAlias = "tsq_new"
 // an upsert is refused while the table has another unique key the row could hit.
 // A zero auto-increment primary key cannot hit anything.
 func (t *TableOf[R, K]) Upsert(ctx context.Context, db Executor, row *R, key ...BoundColumn[R]) error {
-	return traceExecutor(ctx, db, TraceOpUpsert, func(ctx context.Context) error {
+	return traceExecutor(ctx, db, t.traceInfo(TraceOpUpsert), func(ctx context.Context) error {
 		return t.upsert(ctx, db, []*R{row}, key, batchConfig{size: 1}, true)
 	})
 }
@@ -38,7 +38,7 @@ func (t *TableOf[R, K]) Upsert(ctx context.Context, db Executor, row *R, key ...
 // allows. It reads nothing back into rows, and two rows with the same key are an
 // error, because PostgreSQL refuses to update one row twice in a statement.
 func (t *TableOf[R, K]) BatchUpsert(ctx context.Context, db Executor, rows []*R, key []BoundColumn[R], options ...BatchOption) error {
-	return traceExecutor(ctx, db, TraceOpUpsert, func(ctx context.Context) error {
+	return traceExecutor(ctx, db, t.traceInfo(TraceOpUpsert), func(ctx context.Context) error {
 		config, err := newBatchConfig(options, false)
 		if err != nil {
 			return err
