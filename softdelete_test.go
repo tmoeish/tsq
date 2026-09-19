@@ -2,6 +2,7 @@ package tsq
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -105,7 +106,7 @@ func TestUpdateNeverWritesCreatedAtOrDeletedAt(t *testing.T) {
 
 	// Without a version column the state is still checked: a second delete and a
 	// restore of a live row report it instead of doing nothing.
-	if err := Memos.Delete(ctx, rt, again); !IsRowStateError(err) {
+	if err := Memos.Delete(ctx, rt, again); !isRowState(err) {
 		t.Fatalf("second Delete without version = %v", err)
 	}
 
@@ -113,7 +114,7 @@ func TestUpdateNeverWritesCreatedAtOrDeletedAt(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := Memos.Restore(ctx, rt, again); !IsRowStateError(err) {
+	if err := Memos.Restore(ctx, rt, again); !isRowState(err) {
 		t.Fatalf("second Restore = %v", err)
 	}
 
@@ -140,7 +141,7 @@ func TestRestoreAndDeleteMatchOnlyTheRightState(t *testing.T) {
 	row := rows[0]
 
 	// Restoring a live row matches nothing.
-	if err := Users.Restore(ctx, rt, row); !IsRowStateError(err) || IsOptimisticLockError(err) {
+	if err := Users.Restore(ctx, rt, row); !isRowState(err) || IsOptimisticLockError(err) {
 		t.Fatalf("Restore of a live row = %v; want a RowStateError", err)
 	}
 
@@ -150,7 +151,7 @@ func TestRestoreAndDeleteMatchOnlyTheRightState(t *testing.T) {
 
 	// Deleting it twice matches nothing and keeps the first tombstone.
 	stamp := row.DeletedAt
-	if err := Users.Delete(ctx, rt, row); !IsRowStateError(err) || row.DeletedAt != stamp {
+	if err := Users.Delete(ctx, rt, row); !isRowState(err) || row.DeletedAt != stamp {
 		t.Fatalf("second Delete = %v, tombstone %d -> %d", err, stamp, row.DeletedAt)
 	}
 
@@ -170,4 +171,11 @@ func TestRestoreAndDeleteMatchOnlyTheRightState(t *testing.T) {
 	if err := Orders.Restore(ctx, rt, &order{ID: 1}); err == nil {
 		t.Fatal("expected Restore on a table without deleted_at to be refused")
 	}
+}
+
+// isRowState reports a *RowStateError, which callers match with errors.AsType.
+func isRowState(err error) bool {
+	_, ok := errors.AsType[*RowStateError](err)
+
+	return ok
 }

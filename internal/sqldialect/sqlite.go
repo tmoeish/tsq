@@ -45,7 +45,7 @@ func (d SQLiteDialect) BatchInsertStartID(lastID, rowsAffected int64) (int64, bo
 	return lastID - rowsAffected + 1, true
 }
 
-func (d SQLiteDialect) InspectColumns(ctx context.Context, db Executor, table string) ([]ColumnSpec, bool, error) {
+func (d SQLiteDialect) InspectColumns(ctx context.Context, db Executor, table string) ([]Column, bool, error) {
 	quotedTable, err := quoteDialectIdentifier(d, table)
 	if err != nil {
 		return nil, false, err
@@ -84,7 +84,7 @@ func (d SQLiteDialect) InspectColumns(ctx context.Context, db Executor, table st
 		PrimaryKey int
 	}
 
-	columns := make([]ColumnSpec, 0)
+	columns := make([]Column, 0)
 	createStmtUpper := strings.ToUpper(createSQL.String)
 
 	for rows.Next() {
@@ -101,7 +101,7 @@ func (d SQLiteDialect) InspectColumns(ctx context.Context, db Executor, table st
 		autoincrement := row.PrimaryKey > 0 &&
 			sqliteCreateSQLDeclaresAutoincrement(createStmtUpper, row.Name)
 
-		columns = append(columns, ColumnSpec{
+		columns = append(columns, Column{
 			Name:          row.Name,
 			Type:          withDDLNullable(colType, row.NotNull == 0 && row.PrimaryKey == 0),
 			PrimaryKey:    row.PrimaryKey > 0,
@@ -451,6 +451,6 @@ func (d SQLiteDialect) AlterMode() AlterMode {
 	return AlterRebuild
 }
 
-func (d SQLiteDialect) AlterColumnSQL(table string, before, after ColumnSpec) []string {
+func (d SQLiteDialect) AlterColumnSQL(table string, before Column, after ColumnSpec) []string {
 	return nil
 }

@@ -17,10 +17,6 @@ type SQLColumn interface {
 	// Name returns the physical column name, or for a derived expression the name of
 	// the column it was derived from.
 	Name() string
-	// Table returns the table the expression primarily belongs to.
-	Table() Table
-	// JSONFieldName returns the field name PageRequest.OrderBy may use to sort by it.
-	JSONFieldName() string
 
 	core() *columnCore
 }
@@ -319,12 +315,6 @@ func (c exprImpl[T]) core() *columnCore { return c.c }
 // Name returns the physical column name.
 func (c exprImpl[T]) Name() string { return c.c.name }
 
-// Table returns the table the column belongs to.
-func (c exprImpl[T]) Table() Table { return c.c.table }
-
-// JSONFieldName returns the JSON field name of the column.
-func (c exprImpl[T]) JSONFieldName() string { return c.c.json }
-
 // String renders the column for debugging, in SQLite syntax.
 func (c exprImpl[T]) String() string { return debugSQL(c.c.info.sql) }
 
@@ -528,13 +518,13 @@ func (c exprImpl[T]) Exprf(format string, args ...any) Expression[T] {
 }
 
 // Asc orders by the column ascending.
-func (c exprImpl[T]) Asc() OrderBy { return OrderBy{column: c, direction: ASC} }
+func (c exprImpl[T]) Asc() OrderBy { return OrderBy{column: c, direction: orderAsc} }
 
 // Desc orders by the column descending.
-func (c exprImpl[T]) Desc() OrderBy { return OrderBy{column: c, direction: DESC} }
+func (c exprImpl[T]) Desc() OrderBy { return OrderBy{column: c, direction: orderDesc} }
 
-// SQLColumns converts typed columns into a slice of SQLColumn.
-func SQLColumns[O any](cols ...BoundColumn[O]) []SQLColumn {
+// sqlColumns converts typed columns into a slice of SQLColumn.
+func sqlColumns[O any](cols ...BoundColumn[O]) []SQLColumn {
 	result := make([]SQLColumn, 0, len(cols))
 	for _, col := range cols {
 		result = append(result, col)
@@ -579,7 +569,7 @@ func (c columnImpl[O, T]) Named(jsonName string) ResultColumn[O, T] {
 // projectionName is the JSON name a projection of source starts with: the
 // source column's, so PageRequest.OrderBy can name it.
 func projectionName(source SQLColumn) string {
-	if name := source.JSONFieldName(); name != "" {
+	if name := source.core().json; name != "" {
 		return name
 	}
 

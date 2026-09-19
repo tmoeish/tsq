@@ -186,18 +186,19 @@ func andAll(conds []Condition) exprInfo {
 	return conditionInfo(combine(" AND ", "1 = 1", conds))
 }
 
-// Exists builds EXISTS (subquery). EXISTS asks whether the subquery returns any
-// row, so it belongs to no column.
-func Exists(sq AnySubquery) Condition {
+// Exists builds EXISTS (subquery) over any query stage or *Query, whatever it
+// selects. EXISTS asks whether the subquery returns any row, so it belongs to no
+// column.
+func Exists[T any](sq Subquery[T]) Condition {
 	return existsCondition("EXISTS ", sq)
 }
 
 // NotExists builds NOT EXISTS (subquery).
-func NotExists(sq AnySubquery) Condition {
+func NotExists[T any](sq Subquery[T]) Condition {
 	return existsCondition("NOT EXISTS ", sq)
 }
 
-func existsCondition(keyword string, sq AnySubquery) Condition {
+func existsCondition(keyword string, sq anySubquery) Condition {
 	if isNilValue(sq) {
 		return conditionError(errors.New("subquery cannot be nil"))
 	}

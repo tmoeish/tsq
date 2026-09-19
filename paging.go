@@ -1,7 +1,6 @@
 package tsq
 
 import (
-	"errors"
 	"fmt"
 )
 
@@ -69,12 +68,6 @@ func newPage[T any](p Paging, total int64, data []*T) *Page[T] {
 // HasNext reports whether another page follows.
 func (r *Page[T]) HasNext() bool { return r != nil && int64(r.Page) < r.TotalPages }
 
-// HasPrev reports whether a page precedes.
-func (r *Page[T]) HasPrev() bool { return r != nil && r.Page > 1 }
-
-// IsEmpty reports whether the page holds no rows.
-func (r *Page[T]) IsEmpty() bool { return r == nil || len(r.Data) == 0 }
-
 // PageRequest is the HTTP shape of a page request: strings as a client sends them.
 // Turn it into a Paging (or a Keyset) with the columns the endpoint allows
 // sorting by; that is also where it is validated.
@@ -88,8 +81,8 @@ type PageRequest struct {
 }
 
 // Paging resolves the request against the columns it may sort by. A sort field
-// names a column by its JSON field name or its column name; any other name is an
-// UnknownSortFieldError, so a client can only sort by what the endpoint allows.
+// names a column by its JSON field name or its column name; any other name is a
+// *SortError, so a client can only sort by what the endpoint allows.
 //
 // A page or size below zero, a page above MaxPageNumber, or an order that is not
 // asc/desc is an error. Zero means the first page and the default size. A size
@@ -136,7 +129,7 @@ func (r *PageRequest) orderBy(sortable []SQLColumn) ([]OrderBy, error) {
 	fields := splitCommaValues(r.OrderBy)
 	if len(fields) == 0 {
 		if len(splitCommaValues(r.Order)) > 0 {
-			return nil, errors.New("order requires order_by")
+			return nil, &SortError{Reason: "order requires order_by"}
 		}
 
 		return nil, nil
@@ -158,7 +151,7 @@ func (r *PageRequest) orderBy(sortable []SQLColumn) ([]OrderBy, error) {
 
 		byName[col.Name()] = append(byName[col.Name()], col)
 
-		if json := col.JSONFieldName(); json != "" && json != "-" && json != col.Name() {
+		if json := col.core().json; json != "" && json != "-" && json != col.Name() {
 			byName[json] = append(byName[json], col)
 		}
 	}
@@ -168,9 +161,9 @@ func (r *PageRequest) orderBy(sortable []SQLColumn) ([]OrderBy, error) {
 
 		switch {
 		case len(matches) == 0:
-			return nil, &UnknownSortFieldError{Field: field}
+			return nil, &SortError{Field: field, Reason: "not a column the endpoint sorts by"}
 		case len(matches) > 1:
-			return nil, &AmbiguousSortFieldError{Field: field}
+			return nil, &SortError{Field: field, Reason: "names more than one sortable column"}
 		}
 
 		order = append(order, OrderBy{column: matches[0], direction: directions[i]})
@@ -179,28 +172,24 @@ func (r *PageRequest) orderBy(sortable []SQLColumn) ([]OrderBy, error) {
 	return order, nil
 }
 
-// UnknownSortFieldError reports a sort field the endpoint does not allow.
-type UnknownSortFieldError struct {
+// SortError reports an order_by / order pair a PageRequest cannot sort by: a
+// field the endpoint does not allow or that names more than one column, a
+// direction other than asc/desc, or lists of different lengths. It is the
+// client's mistake, so an HTTP handler answers it with 400.
+type SortError struct {
+	// Field is the offending sort field or direction, empty when the lists
+	// themselves do not match.
 	Field string
+	// Reason says what is wrong with it.
+	Reason string
 }
 
-func (e *UnknownSortFieldError) Error() string { return "unknown sort field: " + e.Field }
+func (e *SortError) Error() string {
+	if e.Field == "" {
+		return "invalid sort: " + e.Reason
+	}
 
-// AmbiguousSortFieldError reports a sort field that names more than one column.
-type AmbiguousSortFieldError struct {
-	Field string
-}
-
-func (e *AmbiguousSortFieldError) Error() string { return "ambiguous sort field: " + e.Field }
-
-// OrderCountMismatchError reports order_by and order lists of different lengths.
-type OrderCountMismatchError struct {
-	Fields     int
-	Directions int
-}
-
-func (e *OrderCountMismatchError) Error() string {
-	return fmt.Sprintf("order_by lists %d fields but order lists %d directions", e.Fields, e.Directions)
+	return fmt.Sprintf("invalid sort %q: %s", e.Field, e.Reason)
 }
 
 // validate rejects what no page can mean; out-of-range sizes are capped by Page.

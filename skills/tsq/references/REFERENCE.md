@@ -316,7 +316,7 @@ A column field cannot share a name with a method of the table (`Update`, `Query`
 `As`, ...): `tsq gen` refuses it and names the field. Rename the Go field; the `db` tag keeps the
 column name.
 
-`TableOf` also exposes `TableName()`, `Columns()`, `SearchColumns()`, `ColumnSpecs()`, `Indexes()`,
+`TableOf` also exposes `TableName()`, `Columns()`, `ColumnSpecs()`, `Indexes()`,
 `As(alias)`, `WithDeleted()` and `Err()`, which reports a definition error such as a primary key that is not one of
 the columns.
 
@@ -715,7 +715,7 @@ page, err := database.TableUser.Query().Page(ctx, runtime, tsq.Paging{
   by the runtime's `WithMaxPageSize`
 - `OrderBy` is built from columns, so a sort field that does not exist does not compile
 - the result is a `*tsq.Page[O]` with `Page`, `Size`, `Total`, `TotalPages` and `Data`
-  (never nil), plus `HasNext()` / `HasPrev()` / `IsEmpty()`
+  (never nil), plus `HasNext()`
 - `Total` and `Data` come from one snapshot: `Page` runs its count and its rows in a read-only
   transaction (`REPEATABLE READ` on MySQL and PostgreSQL), so a concurrent write cannot make them
   disagree. Called with a transaction executor, it uses that transaction and its isolation
@@ -727,7 +727,7 @@ endpoint allows to sort by; the keyword goes in as `tsq.Keyword(req.Keyword)`:
 ```go
 paging, err := req.Paging(database.TableUser.Name, database.TableUser.CreatedAt)
 if err != nil {
-	return err // 400: a negative page or size, a bad order, *UnknownSortFieldError, ...
+	return err // 400: a negative page or size, or a *tsq.SortError (unknown or ambiguous field, bad direction)
 }
 
 resp, err := database.TableUser.Query().Page(ctx, runtime, paging, tsq.Keyword(req.Keyword))
@@ -888,7 +888,7 @@ Whether `Delete` removes the row is decided by the table, not by the call site:
 - a soft delete writes **only** `deleted_at`, `updated_at` and `version`; other fields changed on
   the row are not saved. It checks and increments the version, so a stale copy fails with
   `OptimisticLockError`, and it matches live rows only: deleting a row that is already deleted, or
-  restoring one that is not, fails with `*RowStateError` (`tsq.IsRowStateError`) whether or not the
+  restoring one that is not, fails with `*RowStateError` (match it with `errors.AsType[*tsq.RowStateError]`) whether or not the
   table has a `version` column. That is not a concurrency conflict, so retrying it cannot help
 - `Restore` / `BatchRestore` (and the generated `item.Restore(...)`) clear the tombstone of a
   deleted row, refresh `updated_at` and increment `version`; a live row does not match

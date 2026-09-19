@@ -97,11 +97,11 @@ func TestPageRequestKeysetResolvesSortFields(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if k.Size != 5 || k.After != "cursor" || len(k.OrderBy) != 1 || k.OrderBy[0].direction != DESC {
+	if k.Size != 5 || k.After != "cursor" || len(k.OrderBy) != 1 || k.OrderBy[0].direction != orderDesc {
 		t.Fatalf("keyset = %+v", k)
 	}
 
-	if _, err := (&PageRequest{OrderBy: "email"}).Keyset(User_Name); !isErr[*UnknownSortFieldError](err) {
+	if _, err := (&PageRequest{OrderBy: "email"}).Keyset(User_Name); !isErr[*SortError](err) {
 		t.Fatalf("unknown field = %v", err)
 	}
 }

@@ -31,7 +31,6 @@ func IsDuplicateKeyError(err error) bool
 func IsOptimisticLockError(err error) bool
 func IsRetryableNetworkError(err error) bool
 func IsRetryableTxError(err error) bool
-func IsRowStateError(err error) bool
 func IsTxConflictError(err error) bool
 func NewRuntime(
 	ctx context.Context,
@@ -48,12 +47,6 @@ func Open(
 	options ...RuntimeOption,
 ) (*Runtime, error)
 TYPES
-type AmbiguousSortFieldError struct {
-	Field string
-}
-func (e *AmbiguousSortFieldError) Error() string
-type AnySubquery interface {
-}
 type Arg struct {
 }
 func Keyword(term string) Arg
@@ -97,12 +90,12 @@ type Condition interface {
 func And(conds ...Condition) Condition
 func Contains[S ~string](col Expression[S], part Pattern[S]) Condition
 func EndsWith[S ~string](col Expression[S], suffix Pattern[S]) Condition
-func Exists(sq AnySubquery) Condition
+func Exists[T any](sq Subquery[T]) Condition
 func Matches(index FullTextIndex, term MatchTerm) Condition
 func Not(cond Condition) Condition
 func NotContains[S ~string](col Expression[S], part Pattern[S]) Condition
 func NotEndsWith[S ~string](col Expression[S], suffix Pattern[S]) Condition
-func NotExists(sq AnySubquery) Condition
+func NotExists[T any](sq Subquery[T]) Condition
 func NotStartsWith[S ~string](col Expression[S], prefix Pattern[S]) Condition
 func Or(conds ...Condition) Condition
 func StartsWith[S ~string](col Expression[S], prefix Pattern[S]) Condition
@@ -111,11 +104,11 @@ type DBTX interface {
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 }
-type DeleteBuilder[R any] struct {
+type DeleteStage[R any] interface {
+	Where(conds ...Condition) MutationStage[R]
 }
-func DeleteFrom[R any](table RowTable[R]) *DeleteBuilder[R]
-func HardDeleteFrom[R any](table RowTable[R]) *DeleteBuilder[R]
-func (b *DeleteBuilder[R]) Where(conds ...Condition) MutationStage[R]
+func DeleteFrom[R any](table RowTable[R]) DeleteStage[R]
+func HardDeleteFrom[R any](table RowTable[R]) DeleteStage[R]
 type Executor interface {
 	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
@@ -221,7 +214,6 @@ type ListParam[T any] struct {
 }
 func NewListParam[T any](name string) ListParam[T]
 func (p ListParam[T]) Bind(values ...T) Arg
-func (p ListParam[T]) Name() string
 type Lockable[O any] interface {
 	ForUpdate() LockedStage[O]
 	ForShare() LockedStage[O]
@@ -276,23 +268,10 @@ type OptimisticLockError struct {
 	Actual   int64
 }
 func (e *OptimisticLockError) Error() string
-type Order string
-const (
-	ASC Order = "ASC" // Ascending order
-	DESC Order = "DESC" // Descending order
-)
-func (o Order) Reverse() Order
 type OrderBy struct {
 }
-func (ob OrderBy) Column() SQLColumn
 func (ob OrderBy) NullsFirst() OrderBy
 func (ob OrderBy) NullsLast() OrderBy
-func (ob OrderBy) Order() Order
-type OrderCountMismatchError struct {
-	Fields     int
-	Directions int
-}
-func (e *OrderCountMismatchError) Error() string
 type OrderedStage[O any] interface {
 	QueryStage[O]
 	Sortable[O]
@@ -306,8 +285,6 @@ type Page[T any] struct {
 	Data       []*T  `json:"data"`        // Data holds the rows of the page, never nil.
 }
 func (r *Page[T]) HasNext() bool
-func (r *Page[T]) HasPrev() bool
-func (r *Page[T]) IsEmpty() bool
 type PageRequest struct {
 	Size    int    `json:"size"     query:"size"`     // Size is the requested page size.
 	Page    int    `json:"page"     query:"page"`     // Page is the 1-based page number.
@@ -328,7 +305,6 @@ type Param[T any] struct {
 }
 func NewParam[T any](name string) Param[T]
 func (p Param[T]) Bind(value T) Arg
-func (p Param[T]) Name() string
 type Pattern[S ~string] interface {
 }
 type Query[O any] struct {
@@ -405,10 +381,7 @@ func WithTablePolicy(policy SchemaPolicy) RuntimeOption
 func WithTracers(tracers ...Tracer) RuntimeOption
 type SQLColumn interface {
 	Name() string
-	Table() Table
-	JSONFieldName() string
 }
-func SQLColumns[O any](cols ...BoundColumn[O]) []SQLColumn
 type SchemaPolicy string
 const (
 	SchemaPolicyManual SchemaPolicy = "manual"
@@ -434,13 +407,17 @@ func Select[O any](cols ...BoundColumn[O]) SelectStage[O]
 func SelectDistinct[O any](cols ...BoundColumn[O]) SelectStage[O]
 func SelectNullValue[T any](expr ValueColumn[T]) SelectStage[sql.Null[T]]
 func SelectValue[T any](expr ValueColumn[T]) SelectStage[T]
+type SortError struct {
+	Field string
+	Reason string
+}
+func (e *SortError) Error() string
 type Sortable[O any] interface {
 	OrderBy(orders ...OrderBy) OrderedStage[O]
 	Limit(limit int) OrderedStage[O]
 	Offset(offset int) OrderedStage[O]
 }
 type Subquery[T any] interface {
-	AnySubquery
 	Operand[T]
 	ListOperand[T]
 }
@@ -481,7 +458,6 @@ func (t *TableOf[R, K]) Indexes() []TableIndex
 func (t *TableOf[R, K]) Insert(ctx context.Context, db Executor, row *R) error
 func (t *TableOf[R, K]) Query() *Query[R]
 func (t *TableOf[R, K]) Restore(ctx context.Context, db Executor, row *R) error
-func (t *TableOf[R, K]) SearchColumns() []SearchColumn
 func (t *TableOf[R, K]) TableName() string
 func (t *TableOf[R, K]) Update(ctx context.Context, db Executor, row *R, cols ...BoundColumn[R]) error
 func (t *TableOf[R, K]) Upsert(ctx context.Context, db Executor, row *R, key ...BoundColumn[R]) error
@@ -527,10 +503,6 @@ func WithRetryPolicy(policy RetryPolicy) TxOption
 type TypedColumn[O, T any] interface {
 	BoundColumn[O]
 }
-type UnknownSortFieldError struct {
-	Field string
-}
-func (e *UnknownSortFieldError) Error() string
 type UpdateBuilder[R any] struct {
 }
 func UpdateTable[R any](table RowTable[R]) *UpdateBuilder[R]
@@ -590,7 +562,6 @@ type ColumnSpec struct {
 	Default       string
 	Fill Fill
 	Generated string
-	NativeType string
 }
 type ColumnType struct {
 	Kind     ColumnKind

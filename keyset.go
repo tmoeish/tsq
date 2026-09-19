@@ -126,7 +126,7 @@ func (q *Query[O]) keysetColumns(orderBy []OrderBy) ([]keysetColumn[O], error) {
 			return nil, errors.New("Keyset.OrderBy has a nil column")
 		}
 
-		if ob.direction != ASC && ob.direction != DESC {
+		if ob.direction != orderAsc && ob.direction != orderDesc {
 			return nil, fmt.Errorf("invalid order direction %q", ob.direction)
 		}
 
@@ -174,7 +174,7 @@ func seekCondition[O any](keys []keysetColumn[O], values []any) sqlExpr {
 		}
 
 		op := " > "
-		if key.term.direction == DESC {
+		if key.term.direction == orderDesc {
 			op = " < "
 		}
 

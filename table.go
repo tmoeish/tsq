@@ -342,8 +342,8 @@ func (t *TableOf[R, K]) FullText(name ...string) FullTextIndex {
 	return FullTextIndex{table: t, index: found[0]}
 }
 
-// SearchColumns returns the columns keyword search matches against.
-func (t *TableOf[R, K]) SearchColumns() []SearchColumn { return slices.Clone(t.def.search) }
+// searchColumns returns the columns keyword search matches against.
+func (t *TableOf[R, K]) searchColumns() []SearchColumn { return slices.Clone(t.def.search) }
 
 // ColumnSpecs returns the declared physical columns.
 func (t *TableOf[R, K]) ColumnSpecs() []tsqdialect.ColumnSpec { return slices.Clone(t.def.schema) }

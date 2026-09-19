@@ -944,7 +944,7 @@ func TestIntegrationUpsert(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			if err := restored.Restore(ctx, rt); !tsq.IsRowStateError(err) {
+			if err := restored.Restore(ctx, rt); !isRowState(err) {
 				t.Fatalf("restoring a live row = %v", err)
 			}
 
@@ -1605,4 +1605,11 @@ func placeholder(rt *tsq.Runtime) string {
 	}
 
 	return "?"
+}
+
+// isRowState reports a *RowStateError, which callers match with errors.AsType.
+func isRowState(err error) bool {
+	_, ok := errors.AsType[*tsq.RowStateError](err)
+
+	return ok
 }

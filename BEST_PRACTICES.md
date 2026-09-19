@@ -52,12 +52,11 @@ if err != nil {
 }
 ```
 
-### 1.4 需要分支处理时用 `errors.Is` / `errors.As`
+### 1.4 需要分支处理时用 `errors.Is` / `errors.AsType`
 
 ```go
-var unknownField *tsq.UnknownSortFieldError
-if errors.As(err, &unknownField) {
-	return fmt.Errorf("sort field %q not found", unknownField.Field)
+if sortErr, ok := errors.AsType[*tsq.SortError](err); ok {
+	return fmt.Errorf("sort field %q: %s", sortErr.Field, sortErr.Reason) // 400
 }
 ```
 
@@ -97,7 +96,7 @@ offset := paging.Offset()
 offset := page * size
 ```
 
-### 2.4 UI 逻辑优先用 `HasNext()` / `HasPrev()`
+### 2.4 UI 逻辑用 `HasNext()`，上一页就是 `Page > 1`
 
 ```go
 if resp.HasNext() {
@@ -298,9 +297,8 @@ userName := tsq.MapInto(database.TableUser.Name, func(r *UserResult) *string {
 ### 5.1 排序字段必须可验证
 
 ```go
-var unknownField *tsq.UnknownSortFieldError
-if errors.As(err, &unknownField) {
-	return fmt.Errorf("unsupported sort field %q", unknownField.Field)
+if sortErr, ok := errors.AsType[*tsq.SortError](err); ok {
+	return fmt.Errorf("unsupported sort %q: %s", sortErr.Field, sortErr.Reason)
 }
 ```
 

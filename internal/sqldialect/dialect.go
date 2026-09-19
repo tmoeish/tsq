@@ -49,6 +49,14 @@ const (
 	FillGenerated = tsqdialect.FillGenerated
 )
 
+// Column is a live column as InspectColumns reads it back: its spec, plus the
+// type exactly as the database reports it, which a declared RawType is compared
+// with.
+type Column struct {
+	ColumnSpec
+	NativeType string
+}
+
 // For returns the implementation of engine.
 func For(engine Name) (Dialect, error) {
 	switch engine {
@@ -107,7 +115,7 @@ type Dialect interface {
 	// LastInsertId, reporting false when the engine does not make that possible.
 	BatchInsertStartID(lastID, rowsAffected int64) (int64, bool)
 	// InspectColumns reports the live columns of table, and false when it does not exist.
-	InspectColumns(ctx context.Context, db Executor, table string) ([]ColumnSpec, bool, error)
+	InspectColumns(ctx context.Context, db Executor, table string) ([]Column, bool, error)
 	// ListIndexes reports the live indexes of table.
 	ListIndexes(ctx context.Context, db Executor, table string) ([]Index, error)
 	// EnsureIndex creates an index and returns the statement it ran. An existing index
@@ -133,7 +141,7 @@ type Dialect interface {
 	// AlterMode says whether a column type change is an ALTER or a table rebuild.
 	AlterMode() AlterMode
 	// AlterColumnSQL renders the statements that turn column before into after.
-	AlterColumnSQL(table string, before, after ColumnSpec) []string
+	AlterColumnSQL(table string, before Column, after ColumnSpec) []string
 }
 
 // maxBindParams is each dialect's ceiling on the number of bound parameters in one
@@ -303,18 +311,18 @@ var ddlNativeTypeAliases = map[string]string{
 // during inspection. Without that second check, types that inspection collapses
 // into a canonical kind (TEXT, DECIMAL(n,m), CHAR(n), ...) would be flagged as
 // drift on every reconcile and produce repeated, never-converging ALTERs.
-func SameColumnType(dialect Dialect, left, right ColumnSpec) bool {
+func SameColumnType(dialect Dialect, inspected Column, declared ColumnSpec) bool {
 	if strings.EqualFold(
-		strings.TrimSpace(dialect.ColumnTypeSQL(left.Type)),
-		strings.TrimSpace(dialect.ColumnTypeSQL(right.Type)),
+		strings.TrimSpace(dialect.ColumnTypeSQL(inspected.Type)),
+		strings.TrimSpace(dialect.ColumnTypeSQL(declared.Type)),
 	) {
 		return true
 	}
 
-	return nativeDDLTypeMatchesDeclared(left, right) || nativeDDLTypeMatchesDeclared(right, left)
+	return nativeDDLTypeMatchesDeclared(inspected, declared)
 }
 
-func nativeDDLTypeMatchesDeclared(inspected, declared ColumnSpec) bool {
+func nativeDDLTypeMatchesDeclared(inspected Column, declared ColumnSpec) bool {
 	if inspected.NativeType == "" || declared.Type.RawType == "" {
 		return false
 	}

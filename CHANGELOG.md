@@ -78,7 +78,7 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 - 行写入在表描述符上：`TableXxx.Insert/Update/Delete/HardDelete(ctx, db, &row)` 与 `BatchInsert/BatchUpdate/BatchDelete/BatchHardDelete(ctx, db, rows, options...)`；生成的行方法转发给它们。包级的 `tsq.Insert` / `tsq.Update` / `tsq.Delete` / `tsq.Batch*` 删除，按主键删除是 `TableXxx.BatchDeleteByPK(ctx, db, ids, options...)` 和 `BatchHardDeleteByPK`。
 - 托管列由库维护，不再由生成代码维护：`Insert` 只在未设置时填 `created_at` / `updated_at`，`Update` 总是刷新 `updated_at`。单行写入的错误带主键（`users id=5`），乐观锁冲突以 `*OptimisticLockError`（字段导出）包装返回。
-- 按条件写：`tsq.UpdateTable(TableXxx)` / `tsq.DeleteFrom(TableXxx)` / `tsq.HardDeleteFrom(TableXxx)`，返回导出的 `*UpdateBuilder[R]` / `*DeleteBuilder[R]`；`Set` 接受列、参数、`tsq.Val` 或子查询，`tsq.Val` 包 nil 指针可写 `NULL`。`Mutation.SQL()` 改为 `SQL(dialect, args...)`。
+- 按条件写：`tsq.UpdateTable(TableXxx)` / `tsq.DeleteFrom(TableXxx)` / `tsq.HardDeleteFrom(TableXxx)`，返回 `*UpdateBuilder[R]`（`Set` 是泛型方法，只能是具体类型）/ 接口 `DeleteStage[R]`；`Set` 接受列、参数、`tsq.Val` 或子查询，`tsq.Val` 包 nil 指针可写 `NULL`。`Mutation.SQL()` 改为 `SQL(dialect, args...)`。
 
 **执行器与运行时**
 
@@ -102,7 +102,7 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 - **全文检索**：`//tsq:fulltext Title,Summary` 声明全文索引，`tsq.Matches(TableXxx.FullText(), tsq.Val(term))` 搜索它。MySQL 渲染 `MATCH ... AGAINST`（并创建 `FULLTEXT` 索引），PostgreSQL 渲染 `to_tsvector('simple', ...) @@ plainto_tsquery` 并建 GIN 表达式索引，SQLite 没有 TSQ 能管理的全文索引，同一个谓词退化为按子串匹配（`dialect.CapabilityFullTextSearch` 报告是哪一种）。全文索引只按名字对账。
 - **数据库填值的列**：`db:"col,default:SQL"` 让列有 DDL 默认值，并且字段未设置时插入语句直接不写这一列（由数据库填），单行 `Insert` 之后把值读回；`db:"col,generated:SQL"` 声明生成列（`GENERATED ALWAYS AS (SQL) STORED`），`Insert` / `Update` / `Upsert` 永不写它，单行插入后读回。托管列和主键不允许这样标注，`tsq gen` 会拒绝。生成列由建表语句创建，之后 schema 策略不再比较它（三个方言的自省结果不一致）。
 - 列定义的 DDL 渲染库和生成器共用一份实现，不再各写一份。
-- 新增 `*tsq.RowStateError` 和 `tsq.IsRowStateError`：删除一个已删除的行、恢复一个未删除的行，报的是行的状态不对，而不是乐观锁冲突（那种重试没用），没有 `version` 列的表也会报。
+- 新增 `*tsq.RowStateError`（用 `errors.AsType` 判断，它不是可重试的错误，所以没有 `Is*` 函数）：删除一个已删除的行、恢复一个未删除的行，报的是行的状态不对，而不是乐观锁冲突（那种重试没用），没有 `version` 列的表也会报。
 - `Query.ListIn` 在列表一条语句装得下时不再开事务。
 - **派生表达式不再能直接 `Select`**：列（`Column` / `NullColumn`）知道自己扫描进哪个字段，函数、`CASE`、`Expr` / `Exprf` 产出的是 `tsq.Expression[T]`，没有行归属。此前 `Select(tsq.Date(时间列))` 能编译、执行时才报扫描错误。现在用 `tsq.MapInto` 指定字段，或用新增的 `tsq.SelectValue` / `tsq.SelectNullValue` 让值本身成为行（`Query.Scalar` / `ScalarNull` 因此删除）。`WithTable` / `Param` / `Bind` 只在列上。
 - **可空值的排序在三个方言上一致**：NULL 一律当作最小值（升序在前、降序在后），PostgreSQL 显式写 `NULLS FIRST/LAST`；`OrderBy.NullsFirst()` / `NullsLast()` 可改，MySQL 用 `IS NULL` 排序键模拟（集合操作上拒绝）。此前 PostgreSQL 与另两个方言的顺序相反。
@@ -116,15 +116,16 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 **查询 API 命名**
 
 - 否定谓词统一写作 `Not*`：`NotIn`、`NotLike`、`NotBetween`、`tsq.NotStartsWith`……
-- `tsq.Exists(sq)` / `tsq.NotExists(sq)` 是包级函数，参数类型是密封接口 `AnySubquery`。
+- `tsq.Exists(sq)` / `tsq.NotExists(sq)` 是包级泛型函数，任何查询阶段或 `*Query` 都能传，不论选了几列。
 - 没有 `Unique` / `NUnique` / `Concat` / `Now()` 这类不读接收者或只会失败的列方法，需要时用 `Expr` / `Exprf`。
 - 右值接口叫 `tsq.Operand[T]`，IN 的列表右值叫 `tsq.ListOperand[T]`：`RHS` 是行话却出现在最常见的编译错误里，`SetRHS` 的 Set 又和 `UpdateBuilder.Set` 的赋值撞词。
 - `OrderBy` / `Limit` / `Offset` 之后的阶段叫 `OrderedStage`（原 `PagedStage`，名字暗示"已分页"，而 `Page` 恰恰拒绝带 `Limit` / `Offset` 的查询）。
 - `TableIndex.Columns` 与 `MissingIndexError.Columns`（原 `Fields`，装的是列名，指令里的 field 指 Go 字段）；`TableSpec.ColumnSpecs` 与 `TableOf.ColumnSpecs()`（原 `Schema`，只含列定义，不含索引；`Schema` 也因此不再是保留的列字段名）。
 - `UpdateBuilder.Set` 只收表的列 `Column[R, T]`：此前收 `TypedColumn`，`MapInto` 的结果列能编译、运行时才报错。
 - 全文检索的检索词类型叫 `tsq.MatchTerm`（和 `tsq.Matches` 配对），避免和关键词搜索那套 `Search` 名字混淆。
-- 错误类型以 `Error` 结尾且字段导出：`OptimisticLockError`、`UnknownSortFieldError`、`AmbiguousSortFieldError`、`OrderCountMismatchError`、`MissingIndexError`、`MissingTableError`，以及 `dialect.UnsupportedCapabilityError`；`OptimisticLockError` / `RowStateError` 的 `Expected` 和 `Actual` 都是 `int64`。`RegistrationError` 删除，注册错误由 `Define` 报告。
-- 其余命名：`NewColumn`、`Order.Reverse()`、`OrderBy.Column()`、`Runtime.WithTxResult[T]`。
+- 错误类型以 `Error` 结尾且字段导出：`OptimisticLockError`、`RowStateError`、`SortError`（排序字段未知或有歧义、方向不是 asc/desc、两个列表长度不一致，都是它，`Field` + `Reason`）、`MissingIndexError`、`MissingTableError`，以及 `dialect.UnsupportedCapabilityError`；`OptimisticLockError` / `RowStateError` 的 `Expected` 和 `Actual` 都是 `int64`。`RegistrationError` 删除，注册错误由 `Define` 报告。
+- 其余命名：`NewColumn`、`Runtime.WithTxResult[T]`。
+- 只留使用者用得到的导出面：`OrderBy` 只有 `NullsFirst()` / `NullsLast()`（排序方向类型 `Order`、`ASC` / `DESC`、`Reverse` 和两个取值方法是内部实现）；`SQLColumn` 只有 `Name()`；`Param` / `ListParam` 没有 `Name()`；`Page` 只有 `HasNext()`（上一页就是 `Page > 1`）；`SQLColumns`、`TableOf.SearchColumns()` 不导出；`dialect.ColumnSpec` 没有只在读回数据库结构时才有意义的 `NativeType`。
 
 **生成代码**
 

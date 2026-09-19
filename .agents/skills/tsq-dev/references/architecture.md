@@ -110,7 +110,7 @@ var TableCourse = newCourseTable() // 函数里：NewTable → 各列 → Define
 会被当成行锁拒绝"这一类 bug；现在能力需求由**渲染那个构造的代码**调用 `r.require(...)`
 报告，使用者的原样文本从不被扫描。
 
-- `Condition`、`AnySubquery`、`SQLColumn` 都是封闭接口，没有导出的 `Clause()` / `SQLExpr()`
+- `Condition`、`Subquery`、`SQLColumn` 都是封闭接口，没有导出的 `Clause()` / `SQLExpr()`
   字符串——看 SQL 用 `Query.SQL(dialect.X, args...)`（没有 `String()`：按某个方言默认渲染会误导）。
 - 列的核心是不可变的 `*columnCore`，派生列（函数、聚合、`Exprf`）复制一份再改；`plain`
   标记"直接引用 table.name"，只有它能 `WithTable` / `As` 换表。
