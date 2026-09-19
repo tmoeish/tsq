@@ -27,7 +27,6 @@ func AttachOne[P, C any, K comparable](
 	assign func(parent *P, child *C),
 	args ...Arg,
 ) error
-func BuildSubquery[O, T any](stage QueryStage[O], selected ValueColumn[T]) (Subquery[T], error)
 func IsDuplicateKeyError(err error) bool
 func IsOptimisticLockError(err error) bool
 func IsRetryableNetworkError(err error) bool
@@ -173,10 +172,6 @@ type FilteredStage[O any] interface {
 	Sortable[O]
 	Lockable[O]
 }
-type FromStage[O any] interface {
-	Select(cols ...BoundColumn[O]) JoinStage[O]
-}
-func From[O any](table Table) FromStage[O]
 type FullTextIndex struct {
 }
 type Groupable[O any] interface {
@@ -332,7 +327,6 @@ type Pattern[S ~string] interface {
 }
 type Query[O any] struct {
 }
-func (q *Query[O]) AsSubquery[T any](selected ValueColumn[T]) (Subquery[T], error)
 func (q *Query[O]) Count(ctx context.Context, db Executor, args ...Arg) (int64, error)
 func (q *Query[O]) Exists(ctx context.Context, db Executor, args ...Arg) (bool, error)
 func (q *Query[O]) Find(ctx context.Context, db Executor, args ...Arg) (*O, error)
@@ -345,6 +339,7 @@ func (q *Query[O]) PageKeyset(ctx context.Context, db Executor, k Keyset, args .
 func (q *Query[O]) SQL(engine tsqdialect.Name, args ...Arg) (string, []any, error)
 func (q *Query[O]) String() string
 type QueryStage[O any] interface {
+	Subquery[O]
 	Build() (*Query[O], error)
 	MustBuild() *Query[O]
 	Get(ctx context.Context, db Executor, args ...Arg) (*O, error)
@@ -358,9 +353,10 @@ type RHS[T any] interface {
 }
 type ResultColumn[O, T any] interface {
 	TypedColumn[O, T]
+	Named(jsonName string) ResultColumn[O, T]
 }
-func MapInto[Target, T any](source ValueColumn[T], field func(*Target) *T, jsonName string) ResultColumn[Target, T]
-func MapIntoNull[Target, T, F any](source ValueColumn[T], field func(*Target) *F, jsonName string) ResultColumn[Target, T]
+func MapInto[Target, T any](source ValueColumn[T], field func(*Target) *T) ResultColumn[Target, T]
+func MapIntoNull[Target, T, F any](source ValueColumn[T], field func(*Target) *F) ResultColumn[Target, T]
 type RetryPolicy struct {
 	MaxAttempts int
 	InitialBackoff time.Duration
@@ -491,7 +487,7 @@ func (t *TableOf[R, K]) Restore(ctx context.Context, db Executor, row *R) error
 func (t *TableOf[R, K]) Schema() []tsqdialect.ColumnSpec
 func (t *TableOf[R, K]) SearchColumns() []SearchColumn
 func (t *TableOf[R, K]) TableName() string
-func (t *TableOf[R, K]) Update(ctx context.Context, db Executor, row *R) error
+func (t *TableOf[R, K]) Update(ctx context.Context, db Executor, row *R, cols ...BoundColumn[R]) error
 func (t *TableOf[R, K]) Upsert(ctx context.Context, db Executor, row *R, key ...BoundColumn[R]) error
 func (t *TableOf[R, K]) WithDeleted() *TableOf[R, K]
 type TableSpec[R any, K comparable] struct {

@@ -105,7 +105,7 @@ func isUnsupported(err error) bool {
 }
 
 func TestDatePartsAreSpelledPerDialect(t *testing.T) {
-	q := Select(MapInto(Year(User_CreatedAt), func(r *namedRow) *int64 { return &r.ID }, "year")).
+	q := Select(MapInto(Year(User_CreatedAt), func(r *namedRow) *int64 { return &r.ID }).Named("year")).
 		From(Users).MustBuild()
 
 	for d, want := range map[tsqdialect.Name]string{
@@ -164,13 +164,7 @@ func TestSetOperationsCTEAndSubqueries(t *testing.T) {
 
 func TestCorrelatedSubqueryCarriesItsParameters(t *testing.T) {
 	min := NewParam[int64]("min")
-	sub, err := BuildSubquery(
-		Select(Order_ID).From(Orders).Correlate(Users).Where(Order_UserID.EQ(User_ID), Order_Amount.GTE(min)),
-		Order_ID,
-	)
-	if err != nil {
-		t.Fatalf("BuildSubquery() error = %v", err)
-	}
+	sub := Select(Order_ID).From(Orders).Correlate(Users).Where(Order_UserID.EQ(User_ID), Order_Amount.GTE(min))
 
 	q := Select(User_ID).From(Users).Where(Exists(sub)).MustBuild()
 
@@ -203,7 +197,7 @@ func TestCaseRendersBranchesInOrder(t *testing.T) {
 		Else(Val("cold")).
 		End()
 
-	q := Select(MapInto(label, func(r *namedRow) *string { return &r.Name }, "label")).From(Users.WithDeleted()).MustBuild()
+	q := Select(MapInto(label, func(r *namedRow) *string { return &r.Name }).Named("label")).From(Users.WithDeleted()).MustBuild()
 
 	sql, args := sqlOf(t, q, onSQLite)
 	want := `SELECT CASE WHEN "users"."version" > ? THEN ? WHEN "users"."name" IS NULL THEN "users"."email" ELSE ? END FROM "users"`

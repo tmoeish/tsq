@@ -40,7 +40,7 @@ cmd/tsq  ──► internal/cmd ──► internal/parser ──► internal/gen
 表达式    column.go expr.go   Column / Condition / Case，内部是 exprInfo
           case.go param.go    Param / ListParam / Arg
 中间表示  sqlexpr.go          sqlExpr（片段）→ renderer → statement（模板）→ assemble
-查询      querybuilder.go     阶段接口 + builder
+查询      querybuilder.go     阶段接口 + builder（builder 也实现 Subquery[O]，外层 Build 时才建）
           query_render.go     querySpec：结构校验 + 按方言渲染
           query.go            Query：缓存、绑参、执行、Page、子查询
 写入      rows.go             TableOf 上的行写入与批量写

@@ -47,6 +47,10 @@ type ValueColumn[T any] interface {
 // a table column, so it offers no predicates of its own.
 type ResultColumn[O, T any] interface {
 	TypedColumn[O, T]
+
+	// Named returns the projection under another JSON name, the name
+	// PageRequest.OrderBy and Keyset cursors use for it.
+	Named(jsonName string) ResultColumn[O, T]
 }
 
 // SearchColumn is a text column keyword search may match against; make one with
@@ -539,34 +543,56 @@ func SQLColumns[O any](cols ...BoundColumn[O]) []SQLColumn {
 	return result
 }
 
-// MapInto projects source into a field of a result type. Generated result code
-// calls it; the result's json name is what PageRequest.OrderBy sorts by. The field
-// cannot hold NULL, so a query where source can be NULL (a nullable column, an
-// outer-joined table, an aggregate without GROUP BY) refuses to read it: use
-// MapIntoNull, or Coalesce.
-func MapInto[Target, T any](source ValueColumn[T], field func(*Target) *T, jsonName string) ResultColumn[Target, T] {
-	return mapInto[Target, T](source, field, jsonName, false)
+// MapInto projects source into a field of a result type. The projection's JSON
+// name, which PageRequest.OrderBy sorts by, is the source column's; rename it
+// with Named. The field cannot hold NULL, so a query where source can be NULL (a
+// nullable column, an outer-joined table, an aggregate without GROUP BY) refuses
+// to read it: use MapIntoNull, or Coalesce.
+func MapInto[Target, T any](source ValueColumn[T], field func(*Target) *T) ResultColumn[Target, T] {
+	return mapInto[Target, T](source, field, false)
 }
 
 // MapIntoNull projects source into a field that can hold NULL: F is a nullable
 // form of T, as NewNullColumn describes.
-func MapIntoNull[Target, T, F any](source ValueColumn[T], field func(*Target) *F, jsonName string) ResultColumn[Target, T] {
-	c := mapInto[Target, T](source, field, jsonName, true)
+func MapIntoNull[Target, T, F any](source ValueColumn[T], field func(*Target) *F) ResultColumn[Target, T] {
+	c := mapInto[Target, T](source, field, true)
 
 	if value, ok := nullableValueType(reflect.TypeFor[F]()); (!ok || value != reflect.TypeFor[T]()) && c.c.info.err == nil {
-		c.c.info.err = fmt.Errorf("projection %s: %v is not a nullable form of %v", jsonName, reflect.TypeFor[F](), reflect.TypeFor[T]())
+		c.c.info.err = fmt.Errorf("projection %s: %v is not a nullable form of %v", c.c.json, reflect.TypeFor[F](), reflect.TypeFor[T]())
 	}
 
 	return c
 }
 
-func mapInto[Target, T, F any](source ValueColumn[T], field func(*Target) *F, jsonName string, nullable bool) columnImpl[Target, T] {
+// Named renames the projection's JSON name.
+func (c columnImpl[O, T]) Named(jsonName string) ResultColumn[O, T] {
+	next := *c.c
+	next.json = jsonName
+
+	if jsonName == "" && next.info.err == nil {
+		next.info = exprInfo{err: fmt.Errorf("projection of %s needs a JSON name", next.name)}
+	}
+
+	return columnImpl[O, T]{exprImpl[T]{c: &next}}
+}
+
+// projectionName is the JSON name a projection of source starts with: the
+// source column's, so PageRequest.OrderBy can name it.
+func projectionName(source SQLColumn) string {
+	if name := source.JSONFieldName(); name != "" {
+		return name
+	}
+
+	return source.Name()
+}
+
+func mapInto[Target, T, F any](source ValueColumn[T], field func(*Target) *F, nullable bool) columnImpl[Target, T] {
 	if isNilValue(source) {
-		return columnImpl[Target, T]{exprImpl[T]{c: &columnCore{json: jsonName, info: exprInfo{err: errors.New("projection source cannot be nil")}}}}
+		return columnImpl[Target, T]{exprImpl[T]{c: &columnCore{json: "value", info: exprInfo{err: errors.New("projection source cannot be nil")}}}}
 	}
 
 	next := *source.core()
-	next.json = jsonName
+	next.json = projectionName(source)
 	next.plain = false
 	next.nullable = nullable
 

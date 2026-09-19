@@ -44,7 +44,7 @@ var compileFailCases = []struct {
 	{"set of another owner", `_ = tsq.UpdateTable(Users).Set(OrderID, UserID)`, "OrderID"},
 	{"mutation after where", `_ = tsq.UpdateTable(Users).Set(UserName, tsq.Val("x")).Where(tsq.And()).Where(tsq.And())`, "Where undefined"},
 	{"set after where", `_ = tsq.UpdateTable(Users).Set(UserName, tsq.Val("x")).Where(tsq.And()).Set(UserName, tsq.Val("y"))`, "Set undefined"},
-	{"result column predicate", `_ = tsq.MapInto(UserID, func(r *Label) *int64 { return nil }, "id").EQ(tsq.Val(int64(1)))`, "EQ undefined"},
+	{"result column predicate", `_ = tsq.MapInto(UserID, func(r *Label) *int64 { return nil }).Named("id").EQ(tsq.Val(int64(1)))`, "EQ undefined"},
 	{"conditions are sealed", `var _ tsq.Condition = fakeCondition{}`, "does not implement tsq.Condition"},
 	{"tables are sealed", `var _ tsq.Table = fakeTable{}`, "does not implement tsq.Table"},
 	{"executors are sealed", `var _ tsq.Executor = fakeExecutor{}`, "does not implement tsq.Executor"},
@@ -68,6 +68,11 @@ var compileFailCases = []struct {
 	{"key of another type", `_, _ = Users.Get(context.Background(), nil, "x")`, `cannot use "x"`},
 	{"delete keys of another type", `_ = Users.BatchDeleteByPK(context.Background(), nil, []string{"x"})`, "cannot use []string"},
 	{"columns rebind through the table", `_ = UserID.As("u")`, "As undefined"},
+	{"subquery of another type", `_ = UserID.In(tsq.SelectValue(UserName).From(Users))`, "does not implement tsq.SetRHS[int64]"},
+	{"table rows are not a value", `_ = UserID.In(tsq.Select(UserID).From(Users))`, "does not implement tsq.SetRHS[int64]"},
+	{"subquery builders are gone", `_, _ = tsq.BuildSubquery(tsq.SelectValue(UserID).From(Users), UserID)`, "undefined: tsq.BuildSubquery"},
+	{"from-first entry is gone", `_ = tsq.From[User](Users)`, "undefined: tsq.From"},
+	{"update column of another table", `_ = Users.Update(context.Background(), nil, &User{}, OrderID)`, "OrderID"},
 	{"fetch by a column of another table", `_, _ = Users.FetchBy(context.Background(), nil, OrderID, []int64{1})`, "OrderID"},
 }
 

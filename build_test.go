@@ -213,18 +213,26 @@ func TestRebindRequiresTheColumnOnTheTarget(t *testing.T) {
 	}
 }
 
-func TestScalarAndSubqueryRequireTheSelectedColumn(t *testing.T) {
-	q := Select(User_ID).From(Users).MustBuild()
-
-	if _, err := q.AsSubquery(User_Version); err == nil {
-		t.Fatal("expected a subquery over a different column to be refused")
+// TestStagesAreSubqueries covers the stage used directly as a value: its build
+// errors surface in the outer Build, and a value must be one column.
+func TestStagesAreSubqueries(t *testing.T) {
+	ids := SelectValue(Order_UserID).From(Orders).Where(Order_Amount.GT(Val(int64(10))))
+	if _, err := Select(User_ID).From(Users).Where(User_ID.In(ids), User_ID.EQ(SelectValue(Max(Order_UserID)).From(Orders))).Build(); err != nil {
+		t.Fatalf("stage as IN and scalar subquery: %v", err)
 	}
 
-	if _, err := Select(User_ID, User_Name).From(Users).MustBuild().AsSubquery(User_ID); err == nil {
-		t.Fatal("expected a two-column subquery to be refused")
+	broken := SelectValue(Order_UserID).From(Users) // the column is not in the query
+	if _, err := Select(User_ID).From(Users).Where(User_ID.In(broken)).Build(); err == nil {
+		t.Fatal("expected the subquery's build error to fail the outer Build")
 	}
 
-	if _, err := q.AsSubquery(User_ID); err != nil {
-		t.Fatalf("AsSubquery() error = %v", err)
+	var built Subquery[int64] = SelectValue(Order_UserID).From(Orders).MustBuild()
+	if _, err := Select(User_ID).From(Users).Where(User_ID.In(built)).Build(); err != nil {
+		t.Fatalf("a built *Query is a subquery too: %v", err)
+	}
+
+	// Any stage goes to Exists, whatever it selects.
+	if _, err := Select(User_ID).From(Users).Where(Exists(Select(Order_ID, Order_Amount).From(Orders))).Build(); err != nil {
+		t.Fatalf("Exists over a two-column stage: %v", err)
 	}
 }

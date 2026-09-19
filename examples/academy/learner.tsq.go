@@ -154,9 +154,9 @@ func (l *Learner) Insert(ctx context.Context, db tsq.Executor) error {
 	return TableLearner.Insert(ctx, db, l)
 }
 
-// Update updates the row; see tsq.TableOf.Update.
-func (l *Learner) Update(ctx context.Context, db tsq.Executor) error {
-	return TableLearner.Update(ctx, db, l)
+// Update writes the row, or only cols when given; see tsq.TableOf.Update.
+func (l *Learner) Update(ctx context.Context, db tsq.Executor, cols ...tsq.BoundColumn[Learner]) error {
+	return TableLearner.Update(ctx, db, l, cols...)
 }
 
 // Delete removes the row. Learner has no deleted_at column, so Delete and

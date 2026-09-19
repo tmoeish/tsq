@@ -42,31 +42,19 @@ type LearningJourney struct {
 	EnrolledAt time.Time `json:"enrolled_at" tsq:"Enrollment.CreatedAt"`
 }
 
-type engagedCourseRow struct {
-	CourseID int64
-}
-
 var pageLearningJourneyQuery *tsq.Query[LearningJourney]
 
 func init() {
+	// A stage from SelectValue is a subquery of its values; its errors surface in
+	// the Build below.
+	engagedCourseIDs := tsq.
+		SelectValue(TableEnrollment.CourseID).
+		From(TableEnrollment).
+		Where(TableEnrollment.Status.NE(tsq.Val(EnrollmentStatusCancelled))).
+		GroupBy(TableEnrollment.CourseID).
+		Having(tsq.Count(TableEnrollment.UID).GTE(tsq.Val(int64(2))))
+
 	var err error
-
-	courseID := tsq.MapInto(TableEnrollment.CourseID, func(holder *engagedCourseRow) *int64 {
-		return &holder.CourseID
-	}, "course_id")
-
-	engagedCourseIDs, err := tsq.BuildSubquery(
-		tsq.
-			Select(courseID).
-			From(TableEnrollment).
-			Where(TableEnrollment.Status.NE(tsq.Val(EnrollmentStatusCancelled))).
-			GroupBy(TableEnrollment.CourseID).
-			Having(tsq.Count(TableEnrollment.UID).GTE(tsq.Val(int64(2)))),
-		courseID,
-	)
-	if err != nil {
-		panic(fmt.Errorf("%s: %w", "initialize engagedCourseIDs", err))
-	}
 
 	pageLearningJourneyQuery, err = tsq.
 		Select(ResultLearningJourney.Columns()...).

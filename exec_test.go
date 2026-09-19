@@ -268,13 +268,7 @@ func TestReadsAgainstSQLite(t *testing.T) {
 		t.Fatalf("SelectNullValue(SUM) = %v, %v", v, err)
 	}
 
-	big, err := BuildSubquery(
-		Select(Order_ID).From(Orders).Correlate(Users).Where(Order_UserID.EQ(User_ID), Order_Amount.GT(Val(int64(100)))),
-		Order_ID,
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	big := Select(Order_ID).From(Orders).Correlate(Users).Where(Order_UserID.EQ(User_ID), Order_Amount.GT(Val(int64(100))))
 
 	withBig, err := Select(User_ID).From(Users).Where(Exists(big)).OrderBy(User_ID.Asc()).List(ctx, rt)
 	if err != nil || len(withBig) != 2 {
@@ -530,12 +524,7 @@ func TestSelectValueReadsOneExpression(t *testing.T) {
 	}
 
 	// It is a subquery like any other, too.
-	sub, err := BuildSubquery(SelectValue(Max(User_ID)).From(Users), Max(User_ID))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	last, err := Select(User__Cols...).From(Users).Where(User_ID.EQ(sub)).MustBuild().Get(ctx, rt)
+	last, err := Select(User__Cols...).From(Users).Where(User_ID.EQ(SelectValue(Max(User_ID)).From(Users))).MustBuild().Get(ctx, rt)
 	if err != nil || last.Name != "c" {
 		t.Fatalf("subquery = %+v, %v", last, err)
 	}
@@ -846,5 +835,43 @@ func TestTracersAndExecutorScopes(t *testing.T) {
 
 	if _, err := QueryByID.Find(ctx, nil, User_ID.Bind(1)); err == nil {
 		t.Fatal("expected a nil executor to be refused")
+	}
+}
+
+// TestUpdateWritesOnlyTheNamedColumns is the partial-Select hazard: a row read
+// with some columns and saved with Update(cols...) keeps the columns it did not
+// read, and still gets its version and updated_at maintained.
+func TestUpdateWritesOnlyTheNamedColumns(t *testing.T) {
+	ctx := context.Background()
+	rt := newSQLite(t)
+
+	row := &user{Name: "ada", Email: "ada@x"}
+	if err := Users.Insert(ctx, rt, row); err != nil {
+		t.Fatal(err)
+	}
+
+	partial, err := Select(User_ID, User_Name, User_Version).From(Users).Where(User_ID.EQ(Val(row.ID))).Get(ctx, rt)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	partial.Name = "Ada"
+	if err := Users.Update(ctx, rt, partial, User_Name); err != nil {
+		t.Fatal(err)
+	}
+
+	stored, err := Users.Get(ctx, rt, row.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if stored.Name != "Ada" || stored.Email != "ada@x" || stored.Version != row.Version+1 || stored.UpdatedAt.IsZero() {
+		t.Fatalf("partial update stored %+v", stored)
+	}
+
+	for name, col := range map[string]BoundColumn[user]{"primary key": User_ID, "version": User_Version, "created_at": User_CreatedAt} {
+		if err := Users.Update(ctx, rt, stored, col); err == nil {
+			t.Errorf("Update(%s) was accepted", name)
+		}
 	}
 }

@@ -235,7 +235,9 @@ v5 不背兼容，一次把名字改到"最合理"。定下的几条规则，每
   `WithLimit` 版本才是对的——对的那个应该是唯一的那个。
 - 表是描述符，方法在 `TableOf` 上，不在使用者的结构体上。`Table` 的方法叫 `TableName()` 不叫
   `Name()`：生成结构体的列字段常叫 `Name`，同名会遮住接口方法。
-- `BuildSubquery` 保留：它省掉一次 `Build` 的错误检查，24 处调用。
+- 没有 `BuildSubquery` / `AsSubquery`：阶段和 `*Query` 自己实现 `Subquery[O]`，`SelectValue` 的阶段就是
+  值的子查询，错误推迟到外层 `Build`（旧形状要把选出的列再写一遍）；把 `O` 当值类型是安全的，只有
+  `SelectValue` 的 `O` 会和某列的 `T` 相同。`MapInto` 的 JSON 名默认取源列，要改才 `.Named`。
 - 按主键读在库里且有类型（`TableXxx.Get` / `Fetch`），唯一索引生成 `GetByX` / `FetchByX`，缺行时包装
   `sql.ErrNoRows`；单行写入的错误**只带主键**（`users id=5`），不序列化整行（列值会进日志）。
 - `dialect` 包里不加 `DDL` 前缀（包名已经说明语境）；`Dialect` 接口只收**各方言确实不同**的方法，

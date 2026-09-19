@@ -204,9 +204,9 @@ func (t {{$tableType}}) FetchBy{{$name}}(
 	return {{$varTbl}}.Insert(ctx, db, {{$dot.Receiver}})
 }
 
-// Update updates the row; see tsq.TableOf.Update.
-{{$precv}}Update(ctx context.Context, db tsq.Executor) error {
-	return {{$varTbl}}.Update(ctx, db, {{$dot.Receiver}})
+// Update writes the row, or only cols when given; see tsq.TableOf.Update.
+{{$precv}}Update(ctx context.Context, db tsq.Executor, cols ...tsq.BoundColumn[{{$type}}]) error {
+	return {{$varTbl}}.Update(ctx, db, {{$dot.Receiver}}, cols...)
 }
 
 {{ if .DeletedAtField -}}
