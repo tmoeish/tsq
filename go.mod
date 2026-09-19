@@ -11,7 +11,6 @@ require (
 	github.com/stretchr/testify v1.12.1
 	golang.org/x/term v0.45.0
 	golang.org/x/tools v0.49.0
-	gopkg.in/nullbio/null.v6 v6.0.0-20161116030900-40264a2e6b79
 	modernc.org/sqlite v1.57.0
 	mvdan.cc/gofumpt v0.11.0
 )

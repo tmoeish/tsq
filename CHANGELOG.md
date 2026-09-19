@@ -19,6 +19,7 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 - 新增 `Query.ListIn(ctx, db, listParam, values, args...)`：列表参数超过方言绑定上限时按上限分块、在同一快照里读完再拼接，只接受分块不改变结果的查询。`TableXxx.Fetch` / `FetchBy` 用它，任意数量的键都能取（此前超过 SQLite 的 32766 个就报错）。
 - 新增 `TableXxx.Restore` / `BatchRestore` 和生成的 `row.Restore(ctx, db)`：恢复软删除的行，是清除 `deleted_at` 的唯一入口。
 - 根包不再 import 任何数据库驱动（MySQL 错误改为反射识别），根包测试也不再 import 驱动和 nullbio：只用库的项目 `go mod tidy` 之后 `go.mod` 不会多出间接依赖，`go.sum` 里只剩 SQLite 驱动（根包单测需要）。
+- `TableXxx.GetBy(ctx, db, col, value, conds...)`：按唯一列读一行，与 `FetchBy` 成对；生成的 `GetByX` 调它，没有额外条件时查询只构建一次（此前每次调用都重新构建和渲染）。
 - `TableXxx.Upsert(ctx, db, &row, key...)` 和 `BatchUpsert(ctx, db, rows, key, options...)`：按主键或某个唯一索引插入或更新，PostgreSQL / SQLite 渲染成 `ON CONFLICT ... DO UPDATE`，MySQL 渲染成 `ON DUPLICATE KEY UPDATE`。更新时 `version` 自增不校验、`updated_at` 刷新、`created_at` 保留；单行版本回读主键、`version` 和 `created_at`。MySQL 会匹配所有唯一键，因此行可能撞上别的唯一键时直接拒绝。追踪操作名为 `upsert`。
 - `Query.Iter(ctx, db, args...)` 返回 `iter.Seq2[*O, error]`，逐行扫描，大结果集不必整体读进内存；`break` 会结束查询。追踪操作名为 `iter`。
 
@@ -143,6 +144,8 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 - `Dialect` 接口、`MySQLDialect` / `PostgresDialect` / `SQLiteDialect`、schema 探查、DDL 渲染和绑定上限都是内部实现，不再导出：它们从来不是扩展点，导出只会让每次内部调整都变成破坏性变更。`tsq.NewRuntime`、`tsq.WrapExecutor`、`Query.SQL`、`Mutation.SQL` 收 `dialect.Name`。
 
 ### 修复
+
+- **字段类型写成 `sql.Null[T]`（或任何实例化的泛型类型）时 `tsq gen` 直接报 `unsupported field type: *ast.IndexExpr`**，而文档一直说可空字段可以用 `sql.Null[T]`。现在解析器接受泛型类型，生成器按 `go/types` 写出完整类型，DDL 推导把 `sql.Null[T]` 当作可为 NULL 的 `T`，托管时间列也接受 `sql.Null[time.Time]`。示例改用 `sql.Null[time.Time]` 后，模块不再依赖 `gopkg.in/nullbio/null.v6`（生成器仍按类型路径识别 nullbio 类型）。
 
 - **按唯一字符串键批量读取，在不区分大小写的排序规则下会误报"不存在"**：MySQL 默认的 `utf8mb4_0900_ai_ci` 让 `'intro to go'` 匹配到 `'Intro to Go'`，旧的生成代码却逐字节比对返回的行，于是报 `sql.ErrNoRows`。现在对 Go 里对不上的字符串逐个再问一次数据库，以数据库的判断为准，遇到第一个确实不存在的键就停止。
 

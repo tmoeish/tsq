@@ -25,7 +25,6 @@ import (
 
 	"github.com/go-sql-driver/mysql"
 	_ "github.com/jackc/pgx/v5/stdlib"
-	null "gopkg.in/nullbio/null.v6"
 	_ "modernc.org/sqlite"
 
 	"github.com/tmoeish/tsq/v5"
@@ -169,7 +168,7 @@ func widenedLearner(t *testing.T, size int) []tsq.Table {
 
 	h := tsq.NewTable[academy.Learner, int64]("learner")
 	id := tsq.NewColumn(h, "id", "id", func(r *academy.Learner) *int64 { return &r.ID })
-	created := tsq.NewNullColumn[time.Time](h, "created_at", "created_at", func(r *academy.Learner) *null.Time { return &r.CreatedAt })
+	created := tsq.NewNullColumn[time.Time](h, "created_at", "created_at", func(r *academy.Learner) *sql.Null[time.Time] { return &r.CreatedAt })
 	name := tsq.NewColumn(h, "name", "name", func(r *academy.Learner) *string { return &r.Name })
 	email := tsq.NewColumn(h, "email", "email", func(r *academy.Learner) *string { return &r.Email })
 	company := tsq.NewColumn(h, "company", "company", func(r *academy.Learner) *string { return &r.Company })
@@ -316,6 +315,46 @@ func TestIntegrationCRUDOptimisticLockAndDuplicateKeys(t *testing.T) {
 // TestIntegrationLockConflictsAreRetryable provokes a real lock-wait failure and
 // checks that the driver's error is recognised as a retryable conflict. This is the
 // path that silently broke for pgx v5 when the matcher was tied to pgx v4's type.
+// TestIntegrationFetchByFollowsTheCollation checks the lookup against the
+// database's own string comparison. MySQL's default collation is case-insensitive,
+// so "ada@example.test" finds the row holding "Ada@Example.test", and FetchBy must
+// return it rather than report it missing after comparing bytes in Go. PostgreSQL
+// and SQLite compare case-sensitively and find nothing.
+func TestIntegrationFetchByFollowsTheCollation(t *testing.T) {
+	for _, target := range integrationTargets(t) {
+		t.Run(target.name, func(t *testing.T) {
+			ctx := context.Background()
+
+			dropAcademyTables(t, target)
+			rt, _ := openWithPolicy(t, target, academy.TSQTables(), tsq.SchemaPolicyReconcile)
+
+			ada := &academy.Learner{Name: "Ada", Email: "Ada@Example.test", Company: "Analytical"}
+			if err := ada.Insert(ctx, rt); err != nil {
+				t.Fatalf("insert learner: %v", err)
+			}
+
+			fetched, fetchErr := academy.TableLearner.FetchByEmail(ctx, rt, "ada@example.test")
+			got, getErr := academy.TableLearner.GetByEmail(ctx, rt, "ada@example.test")
+
+			if target.driver == "mysql" {
+				if fetchErr != nil || len(fetched) != 1 || fetched[0].ID != ada.ID {
+					t.Fatalf("FetchByEmail under a case-insensitive collation = %v, %v", fetched, fetchErr)
+				}
+
+				if getErr != nil || got.ID != ada.ID {
+					t.Fatalf("GetByEmail under a case-insensitive collation = %v, %v", got, getErr)
+				}
+
+				return
+			}
+
+			if !errors.Is(fetchErr, sql.ErrNoRows) || !errors.Is(getErr, sql.ErrNoRows) {
+				t.Fatalf("case-sensitive %s found a row: FetchByEmail %v, GetByEmail %v", target.name, fetchErr, getErr)
+			}
+		})
+	}
+}
+
 func TestIntegrationLockConflictsAreRetryable(t *testing.T) {
 	targets := integrationTargets(t)
 	requireExternalTargets(t, targets)
@@ -825,13 +864,13 @@ func TestIntegrationUpsert(t *testing.T) {
 			// created_at is kept on update and read back over the value passed in.
 			ancient := time.Date(2001, 1, 1, 0, 0, 0, 0, time.UTC)
 			again := &academy.Learner{Name: "Ada L.", Email: "ada@example.test", Company: "B"}
-			again.CreatedAt = null.TimeFrom(ancient)
+			again.CreatedAt = sql.Null[time.Time]{V: ancient, Valid: true}
 
 			if err := academy.TableLearner.Upsert(ctx, rt, again, academy.TableLearner.Email); err != nil {
 				t.Fatal(err)
 			}
 
-			if again.ID != first.ID || !again.CreatedAt.Valid || again.CreatedAt.Time.Year() == 2001 {
+			if again.ID != first.ID || !again.CreatedAt.Valid || again.CreatedAt.V.Year() == 2001 {
 				t.Fatalf("updated row reads back id %d created %v; want id %d and the original time", again.ID, again.CreatedAt, first.ID)
 			}
 

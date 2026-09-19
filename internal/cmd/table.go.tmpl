@@ -170,11 +170,18 @@ func (t {{$tableType}}) GetBy{{$name}}(
 	{{ FieldVarName $f }} {{ ValueType (index $dot.FieldsByName $f) }},
 	{{- end }}
 ) (*{{$type}}, error) {
+{{- if $lastField.IsSlice }}
 	return tsq.Select(t.Columns()...).From(t).Where(
 		{{- range $f := $ux.Fields }}
 		t.{{$f}}.EQ(tsq.Val({{ FieldVarName $f }})),
 		{{- end }}
 	).Get(ctx, db)
+{{- else }}
+	return t.GetBy(ctx, db, t.{{$last}}, {{ FieldVarName $last }}
+	{{- range $f := $ux.Fields }}
+	{{- if ne $f $last }}, t.{{$f}}.EQ(tsq.Val({{ FieldVarName $f }})){{ end }}
+	{{- end }})
+{{- end }}
 }
 {{- if Fetchable $lastField }}
 

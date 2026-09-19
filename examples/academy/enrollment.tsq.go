@@ -4,9 +4,8 @@ package academy
 
 import (
 	"context"
+	tsqsql "database/sql"
 	tsqtime "time"
-
-	null "gopkg.in/nullbio/null.v6"
 
 	"github.com/tmoeish/tsq/v5"
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
@@ -46,7 +45,7 @@ func newEnrollmentTable() EnrollmentTable {
 		Score:     tsq.NewColumn(t, "score", "score", func(r *Enrollment) *int64 { return &r.Score }),
 		Status:    tsq.NewColumn(t, "status", "status", func(r *Enrollment) *EnrollmentStatus { return &r.Status }),
 		UID:       tsq.NewColumn(t, "uid", "uid", func(r *Enrollment) *int64 { return &r.UID }),
-		UpdatedAt: tsq.NewNullColumn[tsqtime.Time](t, "updated_at", "updated_at", func(r *Enrollment) *null.Time { return &r.UpdatedAt }),
+		UpdatedAt: tsq.NewNullColumn[tsqtime.Time](t, "updated_at", "updated_at", func(r *Enrollment) *tsqsql.Null[tsqtime.Time] { return &r.UpdatedAt }),
 		Version:   tsq.NewColumn(t, "version", "version", func(r *Enrollment) *int64 { return &r.Version }),
 	}
 

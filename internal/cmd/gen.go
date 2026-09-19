@@ -535,6 +535,7 @@ func validateResultFields(
 
 func isScanCompatible(dst, src genmodel.FieldInfo) bool {
 	return dst.Type == src.Type &&
+		dst.TypeArgs == src.TypeArgs &&
 		dst.IsPointer == src.IsPointer &&
 		dst.IsSlice == src.IsSlice
 }

@@ -238,7 +238,7 @@ The primary-key lookups are on the table itself, typed by the key:
 
 - `TableXxx.Get(ctx, db, id)` reads one row and fails with an error wrapping `sql.ErrNoRows` when there is none; `Find` returns `nil, nil` instead
 - `TableXxx.Fetch(ctx, db, ids...)` reads rows in the order given, for any number of keys (they are split to fit the bind parameter limit). A missing key fails the call with an error wrapping `sql.ErrNoRows`, so `errors.Is(err, sql.ErrNoRows)` tells "not there" from a database failure
-- `TableXxx.FetchBy(ctx, db, col, values, conds...)` does the same for another unique column. Matching follows the database: on a case-insensitive column `"ADA"` finds the row holding `"Ada"`
+- `TableXxx.GetBy(ctx, db, col, value, conds...)` and `TableXxx.FetchBy(ctx, db, col, values, conds...)` do the same for another unique column; the generated `GetByX` / `FetchByX` call them. Without `conds` the query is built once and reused. Matching follows the database: on a case-insensitive column `"ADA"` finds the row holding `"Ada"`
 - `TableXxx.Query()` is the query over every row, with keyword search over the declared search columns: `TableXxx.Query().Page(ctx, db, paging, tsq.Keyword(q))`
 
 On a table that declares `deleted_at`, deleted rows are out of scope for **every** query and

@@ -66,6 +66,15 @@ type FieldInfo struct {
 	// NullValue is the Go type, as generated code spells it, of the value a field
 	// that can hold NULL holds when it is not NULL; empty for a NOT NULL field.
 	NullValue string
+	// TypeArgs is the type argument list of an instantiated generic field type as
+	// written in the source, "time.Time" for sql.Null[time.Time]; empty otherwise.
+	TypeArgs string
+	// TypeArgPackages are the packages the type arguments name, which the
+	// generated file imports.
+	TypeArgPackages []PackageInfo
+	// Spelled is the whole field type as generated code spells it, set for the
+	// generic types Type alone cannot describe.
+	Spelled string
 }
 
 func (f FieldInfo) String() string {

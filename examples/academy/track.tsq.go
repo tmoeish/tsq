@@ -4,10 +4,9 @@ package academy
 
 import (
 	"context"
+	tsqsql "database/sql"
 	json "encoding/json"
 	tsqtime "time"
-
-	null "gopkg.in/nullbio/null.v6"
 
 	"github.com/tmoeish/tsq/v5"
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
@@ -34,7 +33,7 @@ func newTrackTable() TrackTable {
 	t := tsq.NewTable[Track, int64]("track")
 	c := TrackTable{
 		TableOf:     t,
-		CreatedAt:   tsq.NewNullColumn[tsqtime.Time](t, "created_at", "created_at", func(r *Track) *null.Time { return &r.CreatedAt }),
+		CreatedAt:   tsq.NewNullColumn[tsqtime.Time](t, "created_at", "created_at", func(r *Track) *tsqsql.Null[tsqtime.Time] { return &r.CreatedAt }),
 		Description: tsq.NewColumn(t, "description", "description", func(r *Track) *string { return &r.Description }),
 		ID:          tsq.NewColumn(t, "id", "id", func(r *Track) *int64 { return &r.ID }),
 		Name:        tsq.NewColumn(t, "name", "name", func(r *Track) *string { return &r.Name }),
@@ -133,9 +132,7 @@ func (t TrackTable) GetByName(
 	db tsq.Executor,
 	name string,
 ) (*Track, error) {
-	return tsq.Select(t.Columns()...).From(t).Where(
-		t.Name.EQ(tsq.Val(name)),
-	).Get(ctx, db)
+	return t.GetBy(ctx, db, t.Name, name)
 }
 
 // FetchByName reads the Track rows matching unique index ux_track_name, one per

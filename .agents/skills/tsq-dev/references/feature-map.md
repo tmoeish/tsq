@@ -28,7 +28,7 @@
 | 关注点 | 文件 |
 | --- | --- |
 | `TableOf` / `NewTable` / `Define`、`Table` 接口、别名、CTE、`debugSQL` | `table.go` |
-| 按主键 / 唯一列读取（`Get` / `Find` / `Fetch` / `FetchBy` / `Query()`、排序规则兜底） | `lookup.go`（`lookup_test.go`；`RowTable` 推断也在那里测） |
+| 按主键 / 唯一列读取（`Get` / `Find` / `Fetch` / `GetBy` / `FetchBy` / `Query()`、按列缓存查询、排序规则兜底） | `lookup.go`（`lookup_test.go`；`RowTable` 推断也在那里测） |
 | 写入路径基准（批量 INSERT / UPDATE 的语句构建） | `write_bench_test.go` |
 | 行写入与批量写、托管时间戳、数据库填值列（`Fill`、`insertColumns`、`reloadColumns`）、软删除与 `Restore`（`setTombstone`）、`TableOf.BatchDeleteByPK`、`WithSkipDuplicates` | `rows.go`（`exec_test.go` 端到端；`batch_test.go` 宽表分批；`timestamps_test.go` 托管字段类型；`softdelete_test.go` 行级软删除与恢复） |
 | Upsert（`TableOf.Upsert` / `BatchUpsert`、键解析、MySQL 多唯一键拒绝、主键回读） | `upsert.go`（`exec_test.go` 的 `TestUpsertMatchesLiveRowsOfASoftDeletedUniqueIndex`；`internal/integration` 的 `TestIntegrationUpsert` 三方言真跑） |
