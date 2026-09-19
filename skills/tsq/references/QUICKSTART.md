@@ -98,7 +98,7 @@ defer runtime.Close()
 
 `Open` opens the pool itself and resolves the dialect from `driverName`; the context bounds the
 ping and any bootstrap DDL. When the project already opens its own pool, for instance to wrap it with
-instrumentation, use `tsq.NewRuntime(ctx, db, dialect, tables, options...)` instead and keep
+instrumentation, use `tsq.NewRuntime(ctx, db, dialect.SQLite, tables, options...)` instead and keep
 that pool: TSQ will not close a pool it did not open. If the project manages schema by migrations,
 pass no policy and keep the default manual mode.
 

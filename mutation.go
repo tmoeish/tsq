@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
+	sqld "github.com/tmoeish/tsq/v5/internal/sqldialect"
 )
 
 // UpdateTable starts an UPDATE of every row of table that matches Where. On a table
@@ -287,7 +288,7 @@ func (m *Mutation[R]) stampsUpdatedAt() bool {
 	return name != "" && !slices.ContainsFunc(m.m.assigns, func(a assignment) bool { return a.column == name })
 }
 
-func (m *Mutation[R]) statement(d tsqdialect.Dialect) (*statement, error) {
+func (m *Mutation[R]) statement(d sqld.Dialect) (*statement, error) {
 	if cached, ok := m.cache.Load(d.Name()); ok {
 		return cached.(*statement), nil
 	}
@@ -307,12 +308,13 @@ func (m *Mutation[R]) statement(d tsqdialect.Dialect) (*statement, error) {
 
 // SQL renders the statement for dialect with args bound, as it would run. A soft
 // delete is rendered with the current time.
-func (m *Mutation[R]) SQL(dialect tsqdialect.Dialect, args ...Arg) (string, []any, error) {
-	if isNilValue(dialect) {
-		return "", nil, errors.New("dialect cannot be nil")
+func (m *Mutation[R]) SQL(engine tsqdialect.Name, args ...Arg) (string, []any, error) {
+	exec, err := wrapExecutor(noopExecutor{}, engine)
+	if err != nil {
+		return "", nil, err
 	}
 
-	return m.prepare(WrapExecutor(noopExecutor{}, dialect), args)
+	return m.prepare(exec, args)
 }
 
 func (m *Mutation[R]) prepare(db Executor, args []Arg) (string, []any, error) {

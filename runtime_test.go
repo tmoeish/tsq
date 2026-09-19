@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
+	sqld "github.com/tmoeish/tsq/v5/internal/sqldialect"
 )
 
 // TestValidateRegisteredTableIdentifiersRejectsOversizedNames covers the three
@@ -20,7 +21,7 @@ import (
 // mode any more: an identifier the dialect will truncate names an object that
 // does not match what the rendered queries reference, so it fails construction.
 func TestValidateRegisteredTableIdentifiersRejectsOversizedNames(t *testing.T) {
-	mysql := tsqdialect.MySQLDialect{}
+	mysql := sqld.MySQLDialect{}
 	long := firstRejectedIdentifier(t, mysql)
 
 	tests := map[string]Table{
@@ -47,12 +48,12 @@ func TestValidateRegisteredTableIdentifiersRejectsOversizedNames(t *testing.T) {
 }
 
 // firstRejectedIdentifier returns the shortest identifier dialect rejects as too long.
-func firstRejectedIdentifier(t *testing.T, dialect tsqdialect.Dialect) string {
+func firstRejectedIdentifier(t *testing.T, dialect sqld.Dialect) string {
 	t.Helper()
 
 	identifier := "x"
 	for range 1024 {
-		if err := tsqdialect.ValidateIdentifier(dialect, identifier); err != nil {
+		if err := sqld.ValidateIdentifier(dialect, identifier); err != nil {
 			return identifier
 		}
 
@@ -290,7 +291,7 @@ func TestNewRuntimeFromDBLeavesTheCallersPoolOpen(t *testing.T) {
 
 	t.Cleanup(func() { _ = db.Close() })
 
-	runtime, err := NewRuntime(context.Background(), db, tsqdialect.SQLiteDialect{}, nil)
+	runtime, err := NewRuntime(context.Background(), db, tsqdialect.SQLite, nil)
 	if err != nil {
 		t.Fatalf("NewRuntime() error = %v", err)
 	}
@@ -314,11 +315,11 @@ func TestNewRuntimeFromDBRejectsMissingArguments(t *testing.T) {
 
 	t.Cleanup(func() { _ = db.Close() })
 
-	if _, err := NewRuntime(context.Background(), nil, tsqdialect.SQLiteDialect{}, nil); err == nil {
+	if _, err := NewRuntime(context.Background(), nil, tsqdialect.SQLite, nil); err == nil {
 		t.Fatal("expected a nil pool to be rejected")
 	}
 
-	if _, err := NewRuntime(context.Background(), db, nil, nil); err == nil {
+	if _, err := NewRuntime(context.Background(), db, "", nil); err == nil {
 		t.Fatal("expected a nil dialect to be rejected")
 	}
 }

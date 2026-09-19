@@ -840,7 +840,7 @@ func TestTracersAndExecutorScopes(t *testing.T) {
 		t.Fatalf("a wrapped executor must not trace, got %v", ops)
 	}
 
-	if WrapExecutor(nil, rt.Dialect()) != nil || WrapExecutor(rt.DB(), nil) != nil {
+	if WrapExecutor(nil, rt.Dialect()) != nil || WrapExecutor(rt.DB(), "") != nil {
 		t.Fatal("WrapExecutor must refuse missing arguments")
 	}
 

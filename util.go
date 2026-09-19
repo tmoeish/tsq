@@ -7,7 +7,7 @@ import (
 	"reflect"
 	"time"
 
-	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
+	sqld "github.com/tmoeish/tsq/v5/internal/sqldialect"
 )
 
 func isNilValue(v any) bool {
@@ -32,12 +32,12 @@ func validateBuiltInIdentifier(name string) error {
 	return nil
 }
 
-func validateIdentifierForDialect(identifier string, d tsqdialect.Dialect) error {
+func validateIdentifierForDialect(identifier string, d sqld.Dialect) error {
 	if err := validateBuiltInIdentifier(identifier); err != nil {
 		return err
 	}
 
-	return tsqdialect.ValidateIdentifier(d, identifier)
+	return sqld.ValidateIdentifier(d, identifier)
 }
 
 // IsDuplicateKeyError reports whether err is the database refusing a row because a

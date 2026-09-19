@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
+	sqld "github.com/tmoeish/tsq/v5/internal/sqldialect"
 )
 
 // sqlExpr is TSQ's representation of a SQL fragment before a dialect is known.
@@ -44,7 +45,7 @@ type exprPart struct {
 	// forDialect spells the construct once the dialect is known, for a spelling
 	// that needs the dialect itself (to quote an identifier, say). false means the
 	// dialect cannot express it.
-	forDialect func(d tsqdialect.Dialect) (sqlExpr, bool)
+	forDialect func(d sqld.Dialect) (sqlExpr, bool)
 	feature    string
 }
 
@@ -76,7 +77,7 @@ func sqlByDialect(feature string, choices map[tsqdialect.Name]sqlExpr) sqlExpr {
 
 // sqlForDialect defers the spelling of a construct until the dialect is known, so
 // that it is built with the dialect in use rather than with one the caller picked.
-func sqlForDialect(feature string, spell func(d tsqdialect.Dialect) (sqlExpr, bool)) sqlExpr {
+func sqlForDialect(feature string, spell func(d sqld.Dialect) (sqlExpr, bool)) sqlExpr {
 	return sqlExpr{parts: []exprPart{{kind: partForDialect, forDialect: spell, feature: feature}}}
 }
 
@@ -179,13 +180,13 @@ func (e sqlExpr) correlated() map[string]Table {
 
 // renderer walks fragments for one dialect and produces a statement template.
 type renderer struct {
-	dialect tsqdialect.Dialect
+	dialect sqld.Dialect
 	stmt    statement
 	text    strings.Builder
 	err     error
 }
 
-func newRenderer(d tsqdialect.Dialect) *renderer {
+func newRenderer(d sqld.Dialect) *renderer {
 	return &renderer{dialect: d}
 }
 
@@ -228,7 +229,7 @@ func (r *renderer) writeParam(p *paramSpec) {
 // require records that the statement uses capability and fails the render when the
 // dialect does not support it.
 func (r *renderer) require(capability tsqdialect.Capability) {
-	r.fail(tsqdialect.ValidateCapability(r.dialect, capability))
+	r.fail(sqld.ValidateCapability(r.dialect, capability))
 }
 
 func (r *renderer) write(e sqlExpr) {
@@ -304,7 +305,7 @@ func (s *statement) params() []*paramSpec {
 
 // assemble produces executable SQL and its arguments from the template and the
 // bound arguments.
-func (s *statement) assemble(d tsqdialect.Dialect, bound argSet) (string, []any, error) {
+func (s *statement) assemble(d sqld.Dialect, bound argSet) (string, []any, error) {
 	var (
 		sql  strings.Builder
 		args []any

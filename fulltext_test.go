@@ -16,23 +16,23 @@ func TestMatchesIsSpelledPerDialect(t *testing.T) {
 		tsqdialect.SQLite:   `("notes"."title" LIKE ? ESCAPE '~' OR "notes"."body" LIKE ? ESCAPE '~')`,
 	}
 
-	for _, d := range []tsqdialect.Dialect{onMySQL, onPostgres, onSQLite} {
+	for _, d := range []tsqdialect.Name{onMySQL, onPostgres, onSQLite} {
 		sql, args, err := q.SQL(d)
 		if err != nil {
-			t.Fatalf("%s: %v", d.Name(), err)
+			t.Fatalf("%s: %v", d, err)
 		}
 
-		if !strings.HasSuffix(sql, want[d.Name()]) {
-			t.Errorf("%s:\n%s\nwant suffix\n%s", d.Name(), sql, want[d.Name()])
+		if !strings.HasSuffix(sql, want[d]) {
+			t.Errorf("%s:\n%s\nwant suffix\n%s", d, sql, want[d])
 		}
 
 		// The term is bound, and the substring fallback escapes it.
-		if d.Name() == tsqdialect.SQLite {
+		if d == tsqdialect.SQLite {
 			if len(args) != 2 || args[0] != "%hello world%" {
 				t.Errorf("sqlite args = %v", args)
 			}
 		} else if len(args) != 1 || args[0] != "hello world" {
-			t.Errorf("%s args = %v", d.Name(), args)
+			t.Errorf("%s args = %v", d, args)
 		}
 	}
 }

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
+	sqld "github.com/tmoeish/tsq/v5/internal/sqldialect"
 )
 
 // Row writes live on the table descriptor: TableCourse.Insert(ctx, db, &course).
@@ -239,7 +240,7 @@ func (t *TableOf[R]) setTombstone(ctx context.Context, db Executor, rows []*R, c
 	}
 
 	version := def.column(def.managed.Version)
-	size := effectiveChunkSize(config.size, 2, tsqdialect.MaxBindParams(scope.dialect))
+	size := effectiveChunkSize(config.size, 2, sqld.MaxBindParams(scope.dialect))
 
 	for _, chunk := range chunks(rows, size) {
 		w := &writeStmt{d: scope.dialect}
@@ -357,7 +358,7 @@ func field[R any](row *R, col *columnCore) reflect.Value {
 
 // writeStmt builds one statement for a known dialect.
 type writeStmt struct {
-	d    tsqdialect.Dialect
+	d    sqld.Dialect
 	sql  strings.Builder
 	args []any
 	err  error
@@ -477,7 +478,7 @@ func (t *TableOf[R]) insert(ctx context.Context, db Executor, rows []*R, config 
 			continue
 		}
 
-		size := effectiveChunkSize(config.size, len(cols), tsqdialect.MaxBindParams(scope.dialect))
+		size := effectiveChunkSize(config.size, len(cols), sqld.MaxBindParams(scope.dialect))
 		for _, chunk := range chunks(group, size) {
 			if err := t.insertChunk(ctx, db, scope, def, cols, chunk, omitKey); err != nil {
 				return fmt.Errorf("insert into %s: %w", def.name, err)
@@ -640,7 +641,7 @@ func (t *TableOf[R]) insertReturning(ctx context.Context, db Executor, def *tabl
 	return nil
 }
 
-func assignInsertIDs[R any](ctx context.Context, db Executor, d tsqdialect.Dialect, def *tableDef, rows []*R, result sql.Result) {
+func assignInsertIDs[R any](ctx context.Context, db Executor, d sqld.Dialect, def *tableDef, rows []*R, result sql.Result) {
 	lastID, err := result.LastInsertId()
 	if err != nil {
 		return
@@ -826,7 +827,7 @@ func (t *TableOf[R]) update(ctx context.Context, db Executor, rows []*R, config 
 
 	// Each column binds a key and a value per row, and the WHERE clause one or two
 	// more per row.
-	size := effectiveChunkSize(config.size, 2*len(cols)+2, tsqdialect.MaxBindParams(scope.dialect))
+	size := effectiveChunkSize(config.size, 2*len(cols)+2, sqld.MaxBindParams(scope.dialect))
 
 	for _, chunk := range chunks(rows, size) {
 		if err := t.updateChunk(ctx, db, scope, def, cols, version, chunk); err != nil {
@@ -969,7 +970,7 @@ func (t *TableOf[R]) hardDelete(ctx context.Context, db Executor, rows []*R, con
 	}
 
 	version := def.column(def.managed.Version)
-	size := effectiveChunkSize(config.size, 2, tsqdialect.MaxBindParams(scope.dialect))
+	size := effectiveChunkSize(config.size, 2, sqld.MaxBindParams(scope.dialect))
 
 	for _, chunk := range chunks(rows, size) {
 		w := &writeStmt{d: scope.dialect}
@@ -1106,7 +1107,7 @@ func (t *TableOf[R]) deleteByPK(ctx context.Context, db Executor, keys Arg, opti
 			}
 		}
 
-		size := effectiveChunkSize(config.size, 1, tsqdialect.MaxBindParams(scope.dialect)-len(stamp))
+		size := effectiveChunkSize(config.size, 1, sqld.MaxBindParams(scope.dialect)-len(stamp))
 
 		for _, chunk := range chunks(ids, size) {
 			w := &writeStmt{d: scope.dialect}

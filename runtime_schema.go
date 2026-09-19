@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
+	sqld "github.com/tmoeish/tsq/v5/internal/sqldialect"
 )
 
 type tableColumnChange struct {
@@ -25,16 +26,16 @@ const (
 	tableColumnAlter = "alter"
 )
 
-func resolveRuntimeDialect(driverName string) (tsqdialect.Dialect, error) {
+func resolveRuntimeDialect(driverName string) (sqld.Dialect, error) {
 	// The names are the ones drivers register: modernc.org/sqlite is "sqlite" and
 	// mattn/go-sqlite3 is "sqlite3", and both speak the same SQL.
 	switch strings.ToLower(strings.TrimSpace(driverName)) {
 	case "sqlite", "sqlite3":
-		return tsqdialect.SQLiteDialect{}, nil
+		return sqld.SQLiteDialect{}, nil
 	case "mysql":
-		return tsqdialect.MySQLDialect{}, nil
+		return sqld.MySQLDialect{}, nil
 	case "postgres", "postgresql", "pgx", "pq":
-		return tsqdialect.PostgresDialect{}, nil
+		return sqld.PostgresDialect{}, nil
 	default:
 		return nil, fmt.Errorf("unsupported sql driver %q; expected sqlite, sqlite3, mysql, postgres, postgresql, pgx, or pq", driverName)
 	}
@@ -202,7 +203,7 @@ func (r *Runtime) applyTablePolicyForTable(ctx context.Context, table *registere
 			}
 		}
 
-		if r.dialect.AlterMode() == tsqdialect.AlterRebuild && hasAlterColumnChange(changes) {
+		if r.dialect.AlterMode() == sqld.AlterRebuild && hasAlterColumnChange(changes) {
 			if err := r.rebuildTable(ctx, tableName, current, table.Columns); err != nil {
 				return fmt.Errorf("reconcile table %s: %w", tableName, err)
 			}
@@ -285,7 +286,7 @@ func (r *Runtime) applyIndexPolicyForTable(ctx context.Context, table *registere
 		return fmt.Errorf("list indexes for %s: %w", tableName, err)
 	}
 
-	currentByName := make(map[string]tsqdialect.Index, len(currentIndexes))
+	currentByName := make(map[string]sqld.Index, len(currentIndexes))
 	for _, idx := range currentIndexes {
 		currentByName[idx.Name] = idx
 	}
@@ -334,7 +335,7 @@ func (r *Runtime) applyIndexPolicyForTable(ctx context.Context, table *registere
 			continue
 		}
 
-		definition := tsqdialect.Index{
+		definition := sqld.Index{
 			Table:  existing.Table,
 			Unique: existing.Unique,
 			Fields: existing.Fields,
@@ -383,7 +384,7 @@ func (r *Runtime) execDDL(ctx context.Context, statement string) error {
 }
 
 func diffTableColumns(
-	dialect tsqdialect.Dialect,
+	dialect sqld.Dialect,
 	current []tsqdialect.ColumnSpec,
 	desired []tsqdialect.ColumnSpec,
 ) []tableColumnChange {
@@ -459,8 +460,8 @@ func diffTableColumns(
 	return changes
 }
 
-func columnsEqual(dialect tsqdialect.Dialect, left, right tsqdialect.ColumnSpec) bool {
-	if !tsqdialect.SameColumnType(dialect, left, right) ||
+func columnsEqual(dialect sqld.Dialect, left, right tsqdialect.ColumnSpec) bool {
+	if !sqld.SameColumnType(dialect, left, right) ||
 		left.PrimaryKey != right.PrimaryKey ||
 		left.AutoIncrement != right.AutoIncrement ||
 		left.Type.Nullable != right.Type.Nullable {
@@ -550,7 +551,7 @@ func (r *Runtime) ensureFullTextIndex(ctx context.Context, tableName string, idx
 }
 
 func renderCreateTableStatement(
-	dialect tsqdialect.Dialect,
+	dialect sqld.Dialect,
 	tableName string,
 	columns []tsqdialect.ColumnSpec,
 ) (string, error) {
@@ -574,12 +575,12 @@ func renderCreateTableStatement(
 	return buf.String(), nil
 }
 
-func renderRuntimeDDLColumnSpec(dialect tsqdialect.Dialect, column tsqdialect.ColumnSpec) (string, error) {
-	return tsqdialect.ColumnDefinitionSQL(dialect, column)
+func renderRuntimeDDLColumnSpec(dialect sqld.Dialect, column tsqdialect.ColumnSpec) (string, error) {
+	return sqld.ColumnDefinitionSQL(dialect, column)
 }
 
 func renderTableColumnChanges(
-	dialect tsqdialect.Dialect,
+	dialect sqld.Dialect,
 	tableName string,
 	changes []tableColumnChange,
 ) ([]string, error) {
@@ -626,11 +627,11 @@ func hasAlterColumnChange(changes []tableColumnChange) bool {
 }
 
 func renderRebuildTableStatements(
-	dialect tsqdialect.Dialect,
+	dialect sqld.Dialect,
 	tableName string,
 	current []tsqdialect.ColumnSpec,
 	desired []tsqdialect.ColumnSpec,
-	existingIndexes []tsqdialect.Index,
+	existingIndexes []sqld.Index,
 ) ([]string, error) {
 	tempTable := "__tsq_rebuild_" + tableName
 
@@ -674,10 +675,10 @@ func renderRebuildTableStatements(
 }
 
 func renderRebuildIndexStatements(
-	dialect tsqdialect.Dialect,
+	dialect sqld.Dialect,
 	tableName string,
 	desired []tsqdialect.ColumnSpec,
-	existingIndexes []tsqdialect.Index,
+	existingIndexes []sqld.Index,
 ) []string {
 	desiredNames := make(map[string]struct{}, len(desired))
 	for _, column := range desired {

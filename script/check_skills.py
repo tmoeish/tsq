@@ -104,7 +104,7 @@ TRIGGERS: Final = (
     ),
     Trigger(
         name="dialect",
-        matches=prefix("dialect/"),
+        matches=either(prefix("dialect/"), prefix("internal/sqldialect/")),
         required=(USER_SKILL_DIR, DEV_ARCHITECTURE),
         hint=(
             "方言能力（CTE、FULL JOIN、行锁、DDL 类型映射）是在执行期才校验的，"

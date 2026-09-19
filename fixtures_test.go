@@ -126,7 +126,7 @@ func newSQLite(t *testing.T, options ...RuntimeOption) *Runtime {
 }
 
 // sqlOf renders a built query for d with args, failing the test on error.
-func sqlOf[O any](t *testing.T, q *Query[O], d tsqdialect.Dialect, args ...Arg) (string, []any) {
+func sqlOf[O any](t *testing.T, q *Query[O], d tsqdialect.Name, args ...Arg) (string, []any) {
 	t.Helper()
 
 	sql, values, err := q.SQL(d, args...)
@@ -138,9 +138,9 @@ func sqlOf[O any](t *testing.T, q *Query[O], d tsqdialect.Dialect, args ...Arg) 
 }
 
 var (
-	onSQLite   tsqdialect.Dialect = tsqdialect.SQLiteDialect{}
-	onMySQL    tsqdialect.Dialect = tsqdialect.MySQLDialect{}
-	onPostgres tsqdialect.Dialect = tsqdialect.PostgresDialect{}
+	onSQLite   = tsqdialect.SQLite
+	onMySQL    = tsqdialect.MySQL
+	onPostgres = tsqdialect.Postgres
 )
 
 // wideRow scans any column into an untyped slot, for tables described only by

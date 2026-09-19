@@ -61,7 +61,7 @@ jobs:
       run: make test-race
 
   # Real MySQL and PostgreSQL. The unit suite only ever touches SQLite, so this job
-  # is the only automated coverage of dialect/mysql.go and dialect/postgres.go.
+  # is the only automated coverage of internal/sqldialect/mysql.go and postgres.go.
   # Not a ruleset-required check yet; promote it once it has run green for a while.
   integration:
     name: Integration

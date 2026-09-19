@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
+	sqld "github.com/tmoeish/tsq/v5/internal/sqldialect"
 )
 
 type recordingLogger struct {
@@ -63,7 +64,7 @@ func TestNewRuntimeTablePolicyCreateMissingCreatesTable(t *testing.T) {
 		t.Fatalf("NewRuntime() error = %v", err)
 	}
 
-	columns, found, err := runtime.Dialect().InspectColumns(context.Background(), db, "users")
+	columns, found, err := runtime.dialect.InspectColumns(context.Background(), db, "users")
 	if err != nil {
 		t.Fatalf("InspectColumns() error = %v", err)
 	}
@@ -102,7 +103,7 @@ func TestNewRuntimeTablePolicyReconcileAddsMissingColumn(t *testing.T) {
 		t.Fatalf("NewRuntime() error = %v", err)
 	}
 
-	columns, found, err := runtime.Dialect().InspectColumns(context.Background(), runtime, "users")
+	columns, found, err := runtime.dialect.InspectColumns(context.Background(), runtime, "users")
 	if err != nil {
 		t.Fatalf("InspectColumns() error = %v", err)
 	}
@@ -115,7 +116,7 @@ func TestNewRuntimeTablePolicyReconcileAddsMissingColumn(t *testing.T) {
 }
 
 func TestColumnsEqualIgnoresAutoIncrementSequenceDefault(t *testing.T) {
-	dialect := tsqdialect.PostgresDialect{}
+	dialect := sqld.PostgresDialect{}
 	inspected := tsqdialect.ColumnSpec{
 		Name:          "id",
 		Type:          tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64},
@@ -215,7 +216,7 @@ func TestNewRuntimeReconcileRebuildPreservesDataAndIndexes(t *testing.T) {
 		t.Fatalf("NewRuntime() error = %v", err)
 	}
 
-	columns, found, err := runtime.Dialect().InspectColumns(context.Background(), runtime, "users")
+	columns, found, err := runtime.dialect.InspectColumns(context.Background(), runtime, "users")
 	if err != nil || !found {
 		t.Fatalf("InspectColumns() found=%v error = %v", found, err)
 	}

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
+	sqld "github.com/tmoeish/tsq/v5/internal/sqldialect"
 )
 
 // wideColumns makes the bind limit reachable with few rows: a batch UPDATE costs
@@ -103,7 +104,7 @@ func TestSQLiteRejectsMoreBoundParametersThanItsCeiling(t *testing.T) {
 		t.Skip("single-goroutine and slow under the race detector; runs in the plain test pass")
 	}
 
-	limit := tsqdialect.MaxBindParams(tsqdialect.SQLiteDialect{})
+	limit := sqld.MaxBindParams(sqld.SQLiteDialect{})
 
 	db, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
@@ -140,7 +141,7 @@ func TestSQLiteRejectsMoreBoundParametersThanItsCeiling(t *testing.T) {
 }
 
 func TestEffectiveChunkSize(t *testing.T) {
-	limit := tsqdialect.MaxBindParams(tsqdialect.SQLiteDialect{})
+	limit := sqld.MaxBindParams(sqld.SQLiteDialect{})
 
 	tests := []struct {
 		chunk, perRow, max, want int

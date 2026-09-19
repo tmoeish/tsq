@@ -45,7 +45,7 @@
 ## 改了全文检索
 
 - PostgreSQL 的索引表达式和谓词表达式必须**逐字相同**，否则索引用不上：两边都走
-  `PostgresDialect.FullTextVectorSQL`，不要在谓词里另写一份。
+  `internal/sqldialect` 的 `PostgresDialect.FullTextVectorSQL`，不要在谓词里另写一份。
 - 全文索引只按名字对账（`ensureFullTextIndex`）：字段比较会因为三个方言的自省差异每次启动都想重建。
 - SQLite 是**按子串匹配的退化实现**，语义和另两个不同。改 `Matches` 的渲染要同时想清楚三种行为，
   `TestIntegrationFullTextSearch` 只断言三者都同意的部分。
@@ -180,7 +180,7 @@
 ## 改了批量写（`rows.go`）
 
 - 分批的单位是**行**，数据库数的是**占位符**：
-  - **上限按方言**（`dialect.MaxBindParams`）：MySQL / PostgreSQL 65535，**SQLite 32766**。
+  - **上限按方言**（`sqldialect.MaxBindParams`）：MySQL / PostgreSQL 65535，**SQLite 32766**。
   - **每行占位符数按操作算**：INSERT 每列一个；UPDATE 每列两个（`CASE pk WHEN ? THEN ?`）加
     WHERE 的一到两个；DELETE 每行一到两个。改了语句形状就要回来核对 `effectiveChunkSize` 的实参。
 - **`WithSkipDuplicates` 的错误处理不可移植**：事务内必须用 savepoint 括住每一行（PostgreSQL
@@ -232,10 +232,10 @@
 
 ## 新增或改动方言能力位
 
-- `dialect/dialect.go` 加 `Capability` 常量，**三个方言（mysql / postgres / sqlite）都要
+- 公开的 `dialect/dialect.go` 加 `Capability` 常量，**三个方言（mysql / postgres / sqlite）都要
   显式表态**。漏掉一个，默认值会让不支持的方言悄悄放行——那是跑到生产库上才炸的一类错。
-- 执行期不支持要返回 `*UnsupportedCapabilityError`，带上能力名和方言名；
-  `unsupportedCapabilityHint` 里"去哪个方言跑"的提示要跟着改。
+- 执行期不支持要返回 `*dialect.UnsupportedCapabilityError`（导出 `Capability`、`Dialect` 字段）；
+  `capabilityHint` 里"去哪个方言跑"的提示要跟着改。
 - `internal/integration` 的 `TestIntegrationCapabilitiesExecute` 对每个方言声明支持的
   能力真跑一遍——声明了但跑不通，CI 的 `Integration` job 会红。
 - 更新 `skills/tsq` 里"哪条查询能在哪个库上跑"的说明和 `README.md` 的能力矩阵。
@@ -244,7 +244,8 @@
 
 ## 给 `Dialect` 接口加了钩子，或改了行写入（`rows.go`）
 
-- 接口里的钩子必须有调用方：`grep -rn '<钩子名>(' --include='*.go' . | grep -v dialect/`
+- 接口（`internal/sqldialect.Dialect`）里的钩子必须有调用方：
+  `grep -rn '<钩子名>(' --include='*.go' . | grep -v internal/sqldialect/`
   必须命中根包。`ReturningClause` 曾经"有定义、有实现、零调用"六个版本，PostgreSQL 上
   `Insert` 从来没回填过主键。
 - `ReturningClause(col)` 接**未加引号**的列名，方言自己加引号。
@@ -256,11 +257,11 @@
 - 必须走 `logForExecutor` / `logSQLForExecutor`（`runtime_schema.go`），**不要直接调
   `slog.*`**。使用者配了 `WithLogger` 就是要所有执行期输出都进那个 Logger，
   少接一处等于那一处对他不存在。
-- 加完 grep 一遍确认没漏（**只扫根包和 `dialect/`**——`internal/parser` 是生成器，
+- 加完 grep 一遍确认没漏（**只扫根包和 `internal/sqldialect/`**——`internal/parser` 是生成器，
   跑在 `tsq` CLI 里，那儿根本没有 runtime，用 `slog` 是对的）：
 
   ```bash
-  grep -n 'slog\.\(Info\|Warn\|Error\|Debug\)' *.go dialect/*.go | grep -v _test
+  grep -n 'slog\.\(Info\|Warn\|Error\|Debug\)' *.go internal/sqldialect/*.go | grep -v _test
   ```
 
   **应该一条都不命中。** 确实拿不到执行器的地方（`Build()` 期、Runtime 还没组装完）
@@ -282,14 +283,13 @@
 
 ## 加了或改了 `Capability` 常量
 
-- `dialect/dialect.go` 的 `AllCapabilities()` 加一行，**三张方言表
-  （`mysqlCapabilities` / `postgresCapabilities` / `sqliteCapabilities`）各加一行**，
-  true/false 都要显式写出来。`[门禁: dialect/capability_test.go 的
-  TestDialectsCoverAllCapabilities]`
-- `SupportsCapability` 只做查表，**不要再引入 `default` 分支**——那正是这道门要挡的东西。
-- `displayCapabilityName` 和 `unsupportedCapabilityHint` 也要加分支，否则错误信息里
+- 公开 `dialect/dialect.go` 的 `allCapabilities` 加一行，`capabilities` 里**三张方言表各加一行**，
+  true/false 都要显式写出来。`[门禁: dialect/dialect_test.go 的 TestEnginesCoverAllCapabilities]`
+- `dialect.Supports` 只做查表，**不要再引入 `default` 分支**——那正是这道门要挡的东西。
+  `internal/sqldialect` 的 `SupportsCapability` 只转发给它，不另存一份表。
+- `displayCapability` 和 `capabilityHint` 也要加分支，否则错误信息里
   是原始的枚举串而不是使用者认得的 SQL 语法。
-- 别名（`FULL JOIN` → `FULL_OUTER_JOIN` 之类）加进 `canonicalCapabilityName`。
+- 别名（`FULL JOIN` → `FULL_OUTER_JOIN` 之类）加进 `canonicalCapability`。
   **根包不要复制这个函数**：曾经有过一份逐行副本，只被自己的测试撑着。
 - 其余按下面"新增或改动方言能力位"那条走完。
 
@@ -353,7 +353,7 @@
 - 自定义 codec 类型（`driver.Valuer` / `sql.Scanner`）推不出列类型，使用者必须写显式的
   `db:"...,type:..."`。改推导规则前先确认新规则不会让某类类型从"必须显式"变成"猜一个"——
   猜错的列类型在建表那一刻不报错，在写入超长数据那一刻才报错。
-- `dialect/ddl_reconcile_test.go` 覆盖运行期对账，生成期变了它可能跟着变。
+- `internal/sqldialect/ddl_reconcile_test.go` 覆盖运行期对账，生成期变了它可能跟着变。
 
 ## 改了生成文件的命名或文件头
 

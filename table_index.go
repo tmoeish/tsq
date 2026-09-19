@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 
-	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
+	sqld "github.com/tmoeish/tsq/v5/internal/sqldialect"
 )
 
 func resolveSchemaPolicy(policy SchemaPolicy) SchemaPolicy {
@@ -29,10 +29,10 @@ func validateSchemaPolicy(policy SchemaPolicy) error {
 func inspectIndexDefinition(
 	ctx context.Context,
 	db *sql.DB,
-	sqlDialect tsqdialect.Dialect,
+	sqlDialect sqld.Dialect,
 	table string,
 	idx string,
-) (tsqdialect.Index, bool, error) {
+) (sqld.Index, bool, error) {
 	return sqlDialect.InspectIndex(ctx, db, table, idx)
 }
 
@@ -41,7 +41,7 @@ func validateIndex(
 	unique bool,
 	idx string,
 	fields []string,
-	existing tsqdialect.Index,
+	existing sqld.Index,
 ) error {
 	if existing.Table != table {
 		return fmt.Errorf(
@@ -106,7 +106,7 @@ func validateIndexIdentifiers(table, idx string, fields []string) error {
 func upsertIndex(
 	ctx context.Context,
 	db *sql.DB,
-	sqlDialect tsqdialect.Dialect,
+	sqlDialect sqld.Dialect,
 	policy SchemaPolicy,
 	table string,
 	unique bool,

@@ -19,16 +19,19 @@ TSQ 是一个被 import 的库加一个 CLI 生成器，没有服务、没有进
 ```
 cmd/tsq  ──► internal/cmd ──► internal/parser ──► internal/genmodel
                    │                                     ▲
-                   └────────────► dialect ◄──────────────┘
-根包 tsq ──────────────────────► dialect
+                   └──────► internal/sqldialect ──► dialect ◄──┘
+根包 tsq ──────────► internal/sqldialect ──► dialect
 ```
 
 - `internal/genmodel` 是**中立的数据模型**：`StructInfo`、`FieldInfo`、`TableMeta`、
   `IndexInfo`、`SchemaColumn`。解析器往里填，生成器补上需要类型信息的 `Schema`，模板从里读。
 - `internal/parser` 只负责 Go 源码 → `genmodel`（`directive.go` 解析 `//tsq:` 指令）。
 - `internal/cmd` 只负责 `genmodel` → 磁盘：模板渲染、校验、DDL 推导与渲染、文件写入。
-- `dialect` 同时被库和生成器用：运行期的方言能力和生成期的 DDL 类型映射说的是同一件事。
-- 根包 `tsq` 不 import 任何 `internal/` 包。生成的代码只依赖根包和 `dialect`。
+- 公开的 `dialect` 只有**名字和事实**：`Name`、能力表与 `Supports` / `Check`、
+  `UnsupportedCapabilityError`、生成代码声明列用的 `ColumnSpec` 一族。没有接口可实现。
+- 实现在 `internal/sqldialect`（`Dialect` 接口、三个方言、DDL 渲染、schema 探查），被库和生成器
+  共用：运行期的方言能力和生成期的 DDL 类型映射说的是同一件事。它用类型别名拼写公开包的类型。
+- 根包唯一 import 的 internal 包是 `internal/sqldialect`；生成的代码只依赖根包和 `dialect`。
 
 ## 根包的四块
 
@@ -222,7 +225,7 @@ CTE 的输出列可空时，`WithTable(cte)` 重绑的列标成 `always`。
 - 软删除 / 恢复走 `setTombstone`：只写 `deleted_at`、`updated_at`、`version`，按主键（和版本）匹配，
   并要求行当前是活的 / 已删的。`Update` 跳过主键、`version`、`created_at`、`deleted_at`，软删除表上
   追加活行条件（`WithDeleted()` 不追加）。
-- 批量写按占位符数分批（`effectiveChunkSize` × `dialect.MaxBindParams`）：INSERT 每行约一个
+- 批量写按占位符数分批（`effectiveChunkSize` × `sqldialect.MaxBindParams`）：INSERT 每行约一个
   占位符每列，UPDATE 约两个（`CASE pk WHEN ? THEN ?`）。单行 UPDATE 直接 `SET c = ?`。
 - `WithSkipDuplicates` 逐行插入，事务内用同一个 savepoint 包住每一行（PostgreSQL 的失败语句
   会毒化整个事务），事务外不用（PostgreSQL 拒绝事务外的 SAVEPOINT）。事务与否由执行器的
@@ -241,7 +244,7 @@ CTE 的输出列可空时，`WithTable(cte)` 重绑的列标成 `always`。
 ### 执行器（`executor.go`）
 
 `Executor` 是 database/sql 的三个方法加一个未导出的 `scope()`，因此是**封闭的**：
-`*Runtime`、`WithTx` 的回调执行器、`WrapExecutor(handle, dialect)` 的结果。裸 `*sql.DB`
+`*Runtime`、`WithTx` 的回调执行器、`WrapExecutor(handle, dialect.Name)` 的结果。裸 `*sql.DB`
 编译不过——库必须知道方言才能渲染，v4 允许传裸池，结果是运行期才发现方言未知。
 
 `execScope` 带方言、所属 runtime（日志、追踪、分页上限从这里取）和是否在事务里。
@@ -250,7 +253,8 @@ CTE 的输出列可空时，`WithTable(cte)` 重绑的列标成 `always`。
 
 `Runtime`（`runtime.go`）是 `*sql.DB` 加方言加已注册表：
 `Open(ctx, driverName, dsn, tables, ...RuntimeOption)` 自己开池，
-`NewRuntime(ctx, db, dialect, tables, ...RuntimeOption)` 接管调用方已有的池。`tables` 是
+`NewRuntime(ctx, db, dialect.Name, tables, ...RuntimeOption)` 接管调用方已有的池。
+对外只收方言**名字**，`sqldialect.For(name)` 取实现；`Runtime.Dialect()` 也只报名字。`tables` 是
 `[]Table`（生成的 `TSQTables()`），`schema.go` 的 `registerTables` 从描述符取 schema 与索引。
 没有全局 `Init()`，没有包级单例——不要以任何形式重新引入。
 
@@ -269,13 +273,16 @@ CTE 的输出列可空时，`WithTable(cte)` 重绑的列标成 `always`。
 
 ## 方言
 
-`dialect/` 下每个方言实现 `Dialect` 接口：标识符引用、占位符、DDL 类型映射、DDL 语句、
-schema 探查，以及 `SupportsCapability(Capability)`。接口只收**各方言确实不同**的方法。
+`internal/sqldialect` 下每个方言实现 `Dialect` 接口：标识符引用、占位符、DDL 类型映射、
+DDL 语句、schema 探查，以及 `SupportsCapability(Capability)`。接口只收**各方言确实不同**的方法。
+它曾经是公开包，文档写着"不是扩展点"却导出了十九个方法——每次内部调整都算破坏契约，
+所以挪进了 internal，公开包只留名字、能力表和列描述。
 
 - 能力位按**当前版本基线**表态，不探测服务器版本：MySQL 8.0（FULL JOIN 不支持）、
   SQLite 3.39+（行锁不支持）、PostgreSQL 全部支持。
-- 每个方言持一张 `map[Capability]bool`，`SupportsCapability` 只查表、没有 `default` 分支；
-  新增能力位要往 `AllCapabilities()` 和三张表各加一行，`TestDialectsCoverAllCapabilities` 守着。
+- 能力表住在公开的 `dialect.capabilities`（每方言一张 `map[Capability]bool`），`Supports` 只查表、
+  没有 `default` 分支；新增能力位要往 `allCapabilities` 和三张表各加一行，
+  `TestEnginesCoverAllCapabilities` 守着。
 - 绑定参数上限（`MaxBindParams`）：MySQL / PostgreSQL 65535，**SQLite 32766**。
 
 ## 测试矩阵
@@ -286,8 +293,8 @@ schema 探查，以及 `SupportsCapability(Capability)`。接口只收**各方�
 - 在 SQLite 里耗时的单 goroutine 测试在 `-race` 下跳过（`raceEnabled`）：转译的 SQLite 在竞态
   检测下慢约四十倍，而它们没有并发可查。
 - **集成测试**（`internal/integration`，只用导出 API）在设置 `TSQ_MYSQL_DSN` /
-  `TSQ_POSTGRES_DSN` 时对真实服务器跑，SQLite 目标始终参与。**这是 `dialect/mysql.go` 与
-  `dialect/postgres.go` 唯一的自动化覆盖**，改它们必须看 CI `Integration` job 的结果。
+  `TSQ_POSTGRES_DSN` 时对真实服务器跑，SQLite 目标始终参与。**这是 `internal/sqldialect/mysql.go` 与
+  `internal/sqldialect/postgres.go` 唯一的自动化覆盖**，改它们必须看 CI `Integration` job 的结果。
 
 ## 追踪与错误
 

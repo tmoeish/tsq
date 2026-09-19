@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
+	sqld "github.com/tmoeish/tsq/v5/internal/sqldialect"
 )
 
 // upsertAlias names the proposed row on MySQL, which has no excluded table.
@@ -110,7 +111,7 @@ func (t *TableOf[R]) upsert(ctx context.Context, db Executor, rows []*R, key []B
 			}
 		}
 
-		size := effectiveChunkSize(config.size, len(cols), tsqdialect.MaxBindParams(scope.dialect))
+		size := effectiveChunkSize(config.size, len(cols), sqld.MaxBindParams(scope.dialect))
 		for _, chunk := range chunks(group, size) {
 			if err := t.upsertChunk(ctx, db, scope, def, cols, target, chunk, single); err != nil {
 				return fmt.Errorf("upsert into %s: %w", def.name, err)
@@ -187,7 +188,7 @@ func sameColumns(a, b []string) bool {
 
 // checkUpsertRows refuses what would behave differently per dialect: two rows with
 // one key, and, on MySQL, a row that could hit a unique key other than target.
-func checkUpsertRows[R any](def *tableDef, target []string, rows []*R, d tsqdialect.Dialect) error {
+func checkUpsertRows[R any](def *tableDef, target []string, rows []*R, d sqld.Dialect) error {
 	byPK := len(target) == 1 && target[0] == def.primaryKey.name
 	seen := make(map[string]bool, len(rows))
 

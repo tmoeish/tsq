@@ -786,7 +786,7 @@ tsq.Select(database.Course__Cols...).
   mode, PostgreSQL compares `to_tsvector('simple', ...)` against `plainto_tsquery` (every word must
   appear), and SQLite, which has no index TSQ manages, matches the term as a **substring** of any
   indexed column. Ranking and operator syntax are not portable.
-  `runtime.Dialect().SupportsCapability(dialect.CapabilityFullTextSearch)` says which kind a
+  `dialect.Supports(runtime.Dialect(), dialect.CapabilityFullTextSearch)` says which kind a
   deployment gets, so a test on SQLite can still exercise the query path
 - the fields must be plain `string` columns
 
@@ -841,7 +841,7 @@ Row writes are methods on the table descriptor, and the generated row methods ca
   key's `BindList`
 
 The executor `db` is a `*tsq.Runtime`, the executor `WithTx` passes to its callback, or
-`tsq.WrapExecutor(handle, dialect)` around a `*sql.DB` / `*sql.Tx` opened elsewhere. A bare
+`tsq.WrapExecutor(handle, dialect.Postgres)` around a `*sql.DB` / `*sql.Tx` / `*sql.Conn` (any `tsq.DBTX`) opened elsewhere. A bare
 `*sql.DB` does not compile: TSQ has to know the dialect to render a statement.
 
 ### Deleting rows
@@ -949,7 +949,7 @@ Rules:
 - use `tsq.Open(ctx, "sqlite", dsn, database.TSQTables())` for one generated package; `TSQTables()` returns the package's `[]tsq.Table`
 - combine multiple generated packages by concatenating their `TSQTables()` slices before calling `Open` or `NewRuntime`
 - `Open` opens the pool itself and resolves the dialect from `driverName`; the context bounds the ping and any bootstrap DDL
-- `tsq.NewRuntime(ctx, db, dialect, tables, options...)` builds a runtime over a pool the caller already opened, which is how an instrumented or specially configured `*sql.DB` keeps working while still getting SQL logging, tracers and the page-size cap
+- `tsq.NewRuntime(ctx, db, dialect.Postgres, tables, options...)` builds a runtime over a pool the caller already opened, which is how an instrumented or specially configured `*sql.DB` keeps working while still getting SQL logging, tracers and the page-size cap
 - call `runtime.Close()` when the process is done with the database. It closes **only** a pool `Open` opened; a pool passed to `NewRuntime` belongs to its caller and stays open
 - configure both constructors with options: `tsq.WithSchemaPolicy(p)` sets the table and index policy together, `tsq.WithTablePolicy(p)` / `tsq.WithIndexPolicy(p)` set them apart for a schema whose tables come from migrations while its indexes do not, `tsq.WithLogger(l)`, `tsq.WithSQLLogging()`, `tsq.WithTracers(...)` and `tsq.WithMaxPageSize(n)`
 - the policies, from doing nothing to doing the most: `SchemaPolicyManual` (default: log the mode and change nothing), `SchemaPolicyValidate` (fail to start on a mismatch), `SchemaPolicyCreateMissing` (create missing tables, columns and indexes), `SchemaPolicyReconcile` (also alter columns back to what is declared). Production keeps `Manual` and owns its schema through migrations; development and test want `Reconcile`, where changing a struct and restarting is enough
@@ -994,7 +994,7 @@ Useful rules:
 - the `Batch*` writes do not silently create outer transactions
 - the helpers take functional options: `tsq.WithBatchSize(n)` and, for `BatchInsert` only, `tsq.WithSkipDuplicates()`. Passing `WithSkipDuplicates` to any other helper is an error
 - the batch size (default 1000) is an upper bound on rows per statement, not an exact size. Databases count placeholders rather than rows, so wide tables are split smaller automatically. The size is never raised, and never falls below one row per statement
-- the ceiling is per dialect: MySQL and PostgreSQL accept 65535 bound parameters per statement, SQLite 32766. `dialect.MaxBindParams(d)` reports it
+- the ceiling is per dialect: MySQL and PostgreSQL accept 65535 bound parameters per statement, SQLite 32766
 - a batch `INSERT` binds about one placeholder per column per row, but a batch `UPDATE` binds about **two** (it renders `col = CASE pk WHEN ? THEN ? ... END`), so the same rows split roughly half as large for `BatchUpdate` as for `BatchInsert`
 - `tsq.WithSkipDuplicates()` skips rows that violate a unique or primary-key constraint and keeps going. It skips **duplicate keys only**; every other failure still aborts the call
 - inside a transaction, each row of a `WithSkipDuplicates` insert is bracketed by a savepoint, because PostgreSQL aborts the whole transaction on any failed statement and rejects everything after it until the transaction unwinds. Outside a transaction no savepoint is used, since each insert is already its own implicit transaction
@@ -1118,16 +1118,16 @@ The older workaround, rewriting `NOT EXISTS` as `NotIn(subquery)`, still works a
 
 ### The three supported engines
 
-TSQ speaks MySQL, PostgreSQL and SQLite, and nothing else. `dialect.Dialect` is an exported
-interface, but it is **not an extension point**: what the three spell differently (date parts,
-`ROUND`, NULL ordering, full-text search) is chosen inside the library by dialect name. A fourth
-engine would run most queries and then fail on those with "not supported on ...". The library
-supports the engines its tests run against.
+TSQ speaks MySQL, PostgreSQL and SQLite, and nothing else. The `dialect` package holds their names
+(`dialect.MySQL`, `dialect.Postgres`, `dialect.SQLite`), what each supports, and the column types
+generated code declares; it has no interface to implement. What the three spell differently (date
+parts, `ROUND`, NULL ordering, full-text search) is chosen inside the library by name, and the
+library supports the engines its tests run against.
 
 Driver names `tsq.Open` understands: `sqlite` (modernc.org/sqlite), `sqlite3`
 (github.com/mattn/go-sqlite3), `mysql`, and `postgres` / `postgresql` / `pgx` / `pq`. Both SQLite
-drivers work, error classification included. `tsq.NewRuntime` takes the dialect directly, for a pool
-opened elsewhere or a driver registered under another name.
+drivers work, error classification included. `tsq.NewRuntime` takes the dialect name directly, for a
+pool opened elsewhere or a driver registered under another name.
 
 TSQ separates structure validation from dialect execution.
 
@@ -1154,15 +1154,18 @@ Do not claim that a query is portable just because it builds.
 
 ### Checking support ahead of execution
 
-`dialect.AllCapabilities()` lists every capability TSQ knows about, and
-`runtime.Dialect().SupportsCapability(cap)` answers for one of them. Use them to
-gate a feature before building a query that will fail at execution:
+`dialect.Supports(name, capability)` answers for one capability, and `dialect.Check`
+returns the same `*dialect.UnsupportedCapabilityError` execution would. Use them to gate a
+feature before building a query that will fail at execution:
 
 ```go
-if runtime.Dialect().SupportsCapability(dialect.CapabilityFullOuterJoin) {
+if dialect.Supports(runtime.Dialect(), dialect.CapabilityFullOuterJoin) {
 	// build the FULL JOIN variant
 }
 ```
+
+The error carries `Capability` and `Dialect` fields; match it with
+`errors.AsType[*dialect.UnsupportedCapabilityError](err)`.
 
 Every dialect takes an explicit position on every capability, so an unrecognized
 capability name is reported as unsupported rather than quietly allowed.

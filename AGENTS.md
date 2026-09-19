@@ -40,12 +40,14 @@
 
 ## 分层
 
-- 根包 `tsq` **不 import 任何 `internal/` 包**。生成的代码只依赖根包和 `dialect`。
+- 根包 `tsq` 唯一允许 import 的 internal 包是 `internal/sqldialect`（方言实现）；**不 import 生成器
+  那一侧的任何包**。生成的代码只依赖根包和 `dialect`。
 - `internal/genmodel` 是中立数据模型，不 import 解析器也不 import 命令层。这是"解析"和
   "渲染"能各自被测试的原因。
 - `internal/parser` 只做 Go 源码 → `genmodel`；`internal/cmd` 只做 `genmodel` → 磁盘。
-- `dialect` 同时被库和生成器使用：运行期的方言能力和生成期的 DDL 类型映射说的是同一件事
-  （这个库支持什么），拆开必然漂移。
+- 公开的 `dialect` 只放名字和事实（方言名、能力表、列描述），**不放可实现的接口**；实现在
+  `internal/sqldialect`，同时被库和生成器使用：运行期的方言能力和生成期的 DDL 类型映射说的是
+  同一件事（这个库支持什么），拆开必然漂移。
 
 ## 类型系统是约束的来源
 

@@ -75,12 +75,12 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 **执行器与运行时**
 
-- `tsq.Executor` 是封闭接口：`*Runtime`、`WithTx` 回调里的执行器、`tsq.WrapExecutor(handle, dialect)` 的结果。**裸 `*sql.DB` 不再能传入**——库必须知道方言才能渲染。
-- `tsq.Open(ctx, driver, dsn, tables, ...)` 自己开连接池；`tsq.NewRuntime(ctx, db, dialect, tables, ...)` 用调用方已有的池，`Close()` 只关闭自己开的池。选项是函数式的：`WithSchemaPolicy` / `WithTablePolicy` / `WithIndexPolicy` / `WithLogger` / `WithSQLLogging` / `WithTracers` / `WithMaxPageSize`。
+- `tsq.Executor` 是封闭接口：`*Runtime`、`WithTx` 回调里的执行器、`tsq.WrapExecutor(handle, dialect.MySQL)` 的结果（`handle` 是任何 `tsq.DBTX`：`*sql.DB`、`*sql.Tx`、`*sql.Conn`）。**裸 `*sql.DB` 不再能传入**——库必须知道方言才能渲染。
+- `tsq.Open(ctx, driver, dsn, tables, ...)` 自己开连接池；`tsq.NewRuntime(ctx, db, dialect.Postgres, tables, ...)` 用调用方已有的池，`Close()` 只关闭自己开的池。选项是函数式的：`WithSchemaPolicy` / `WithTablePolicy` / `WithIndexPolicy` / `WithLogger` / `WithSQLLogging` / `WithTracers` / `WithMaxPageSize`。
 - Schema 策略四档：`Manual`（默认，生产用）、`Validate`、`CreateMissing`、`Reconcile`（开发和测试用，改了结构重启就跟上）。**TSQ 只增不减**：不删表、不删未声明的索引，也不建任何记账表。
 - 标识符长度校验恒为严格，没有关闭开关。
 - `Tracer` 的签名是 `func(ctx, op tsq.TraceOp, next) error`。
-- `Runtime.Dialect()`。
+- `Runtime.Dialect()` 返回方言名 `dialect.Name`。
 
 **读写语义**
 
@@ -89,12 +89,12 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 - `tsq.Open` 接受 `sqlite3`（github.com/mattn/go-sqlite3）这个驱动名，并且能识别它的错误类型——它把 SQLite 结果码放在结构体字段里而不是方法上，此前重复键和 busy 重试在这个驱动上会静默失效。
 - 新增 `tsq.IsDuplicateKeyError`：判断主键或唯一索引冲突，不用自己去匹配各驱动的错误类型。
 - 按方言分叉的 SQL 片段可以延迟到渲染时构造（`tsq.Matches` 的 PostgreSQL 分支因此用当前方言来引号和拼表达式，而不是由根包自己挑一个方言实例）。
-- 文档写明**只支持 MySQL / PostgreSQL / SQLite**：`dialect.Dialect` 是导出接口但不是扩展点，第四种方言会在按方言分叉的构造上报错。
+- **只支持 MySQL / PostgreSQL / SQLite**，公开 API 只收方言名，没有可以实现的方言接口。
 - 行写入绑定值不再走反射（列上带一个由生成的访问器构成的取值函数）：100 行的批量 INSERT 约快 19%，批量 UPDATE 约快 28%（`write_bench_test.go`）。
 - 新增 `tsq.AttachMany` / `tsq.AttachOne`：给一批父行一次性装配子行（内部走 `ListIn`，父键去重分块），不再需要每行一次查询。子查询由调用方给出，它的过滤、排序和软删除作用域决定哪些子行算在内。
 - **全文检索**：`//tsq:fulltext Title,Summary` 声明全文索引，`tsq.Matches(TableXxx.FullText(), tsq.Val(term))` 搜索它。MySQL 渲染 `MATCH ... AGAINST`（并创建 `FULLTEXT` 索引），PostgreSQL 渲染 `to_tsvector('simple', ...) @@ plainto_tsquery` 并建 GIN 表达式索引，SQLite 没有 TSQ 能管理的全文索引，同一个谓词退化为按子串匹配（`dialect.CapabilityFullTextSearch` 报告是哪一种）。全文索引只按名字对账。
 - **数据库填值的列**：`db:"col,default:SQL"` 让列有 DDL 默认值，并且字段未设置时插入语句直接不写这一列（由数据库填），单行 `Insert` 之后把值读回；`db:"col,generated:SQL"` 声明生成列（`GENERATED ALWAYS AS (SQL) STORED`），`Insert` / `Update` / `Upsert` 永不写它，单行插入后读回。托管列和主键不允许这样标注，`tsq gen` 会拒绝。生成列由建表语句创建，之后 schema 策略不再比较它（三个方言的自省结果不一致）。
-- 列定义的 DDL 渲染统一到 `dialect.ColumnDefinitionSQL`，库和生成器不再各写一份。
+- 列定义的 DDL 渲染库和生成器共用一份实现，不再各写一份。
 - 新增 `*tsq.RowStateError` 和 `tsq.IsRowStateError`：删除一个已删除的行、恢复一个未删除的行，报的是行的状态不对，而不是乐观锁冲突（那种重试没用），没有 `version` 列的表也会报。
 - `Query.ListIn` 在列表一条语句装得下时不再开事务。
 - **派生表达式不再能直接 `Select`**：列（`Column` / `NullColumn`）知道自己扫描进哪个字段，函数、`CASE`、`Expr` / `Exprf` 产出的是 `tsq.Expression[T]`，没有行归属。此前 `Select(tsq.Date(时间列))` 能编译、执行时才报扫描错误。现在用 `tsq.MapInto` 指定字段，或用新增的 `tsq.SelectValue` / `tsq.SelectNullValue` 让值本身成为行（`Query.Scalar` / `ScalarNull` 因此删除）。`WithTable` / `As` / `Param` / `Bind` 只在列上；`AsSubquery` / `BuildSubquery` 改收 `ValueColumn[T]`。
@@ -123,8 +123,8 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 **`dialect` 包**
 
-- 类型：`ColumnSpec`、`ColumnType`、`ColumnKind`（`KindBool` … `KindTime`）、`AlterMode`（`AlterInPlace` / `AlterRebuild`）、`Index`。函数：`SameColumnType`、`ValidateIdentifier(d, id)`、`ValidateCapability`、`MaxBindParams`、`AllCapabilities`。
-- `Dialect` 接口只保留各方言确实不同的方法，每个都有文档：`QuoteIdent`、`Placeholder`（零基）、`ReturningClause`、`ValidateIdentifier`、`SupportsCapability`、`BatchInsertStartID`、`InspectColumns`、`ListIndexes`、`EnsureIndex`、`InspectIndex`、`ColumnTypeSQL`、`AutoIncrementColumnSQL`、`CreateIndexSQL`、`DropIndexSQL`、`AlterMode`、`AlterColumnSQL`。
+- `dialect` 只剩名字和事实：方言名 `dialect.MySQL` / `Postgres` / `SQLite`（类型 `dialect.Name`）；能力常量与 `dialect.Supports(name, capability)`、`dialect.Check(name, capability)`；`*dialect.UnsupportedCapabilityError`（导出 `Capability`、`Dialect` 字段）；生成代码声明列用的 `ColumnSpec`、`ColumnType`、`ColumnKind`（`KindBool` … `KindTime`）、`Fill`。
+- `Dialect` 接口、`MySQLDialect` / `PostgresDialect` / `SQLiteDialect`、schema 探查、DDL 渲染和绑定上限都是内部实现，不再导出：它们从来不是扩展点，导出只会让每次内部调整都变成破坏性变更。`tsq.NewRuntime`、`tsq.WrapExecutor`、`Query.SQL`、`Mutation.SQL` 收 `dialect.Name`。
 
 ### 修复
 
