@@ -208,12 +208,26 @@ func resolveNullValues(s *genmodel.StructInfo, resolver *ddlTypeResolver) error 
 			return err
 		}
 
+		changed := false
+
 		if value, ok := nullableValueType(obj.Type()); ok {
 			field.NullValue = types.TypeString(value, qualifier)
+			changed = true
+		}
+
+		// The parser reads types from the AST and records a generic type by its
+		// base name; its full spelling, sql.Null[time.Time], comes from go/types.
+		if field.TypeArgs != "" {
+			field.Spelled = types.TypeString(obj.Type(), qualifier)
+			changed = true
+		}
+
+		if changed {
 			s.Fields[i] = field
 
 			if mapped, ok := s.FieldsByName[field.Name]; ok {
 				mapped.NullValue = field.NullValue
+				mapped.Spelled = field.Spelled
 				s.FieldsByName[field.Name] = mapped
 			}
 		}

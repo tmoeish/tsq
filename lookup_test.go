@@ -190,3 +190,51 @@ func TestStatementsByConditionAcceptTableStructs(t *testing.T) {
 		}
 	}
 }
+
+// TestGetByCachesItsQuery covers what generated GetByX relies on: one query per
+// column and soft-delete scope, reused across calls, and a column taken from an
+// aliased table still reading the table itself.
+func TestGetByCachesItsQuery(t *testing.T) {
+	ctx := context.Background()
+	rt := newLookupRuntime(t)
+
+	row := &user{Name: "ada", Email: "ada@x"}
+	if err := Users.Insert(ctx, rt, row); err != nil {
+		t.Fatal(err)
+	}
+
+	for range 3 {
+		got, err := Users.GetBy(ctx, rt, User_Email, "ada@x")
+		if err != nil || got.ID != row.ID {
+			t.Fatalf("GetBy = %+v, %v", got, err)
+		}
+	}
+
+	cached := 0
+	Users.keys.by.Range(func(any, any) bool { cached++; return true })
+
+	if cached != 1 {
+		t.Fatalf("GetBy cached %d queries, want 1", cached)
+	}
+
+	alias := Users.As("u")
+	if got, err := alias.GetBy(ctx, rt, User_Email.WithTable(alias), "ada@x"); err != nil || got.ID != row.ID {
+		t.Fatalf("GetBy through an alias = %+v, %v", got, err)
+	}
+
+	if _, err := Users.GetBy(ctx, rt, User_Email, "nobody@x"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("GetBy(missing) = %v, want sql.ErrNoRows", err)
+	}
+
+	if err := Users.Delete(ctx, rt, row); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Users.GetBy(ctx, rt, User_Email, "ada@x"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("GetBy(deleted) = %v, want sql.ErrNoRows", err)
+	}
+
+	if got, err := Users.WithDeleted().GetBy(ctx, rt, User_Email, "ada@x"); err != nil || got.ID != row.ID {
+		t.Fatalf("WithDeleted().GetBy = %+v, %v", got, err)
+	}
+}

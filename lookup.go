@@ -150,20 +150,71 @@ func (t *TableOf[R, K]) Fetch(ctx context.Context, db Executor, keys ...K) ([]*R
 func (t *TableOf[R, K]) FetchBy[T comparable](ctx context.Context, db Executor, col Column[R, T], values []T, where ...Condition) ([]*R, error) {
 	t = t.unaliased()
 
-	if err := t.Err(); err != nil {
+	col, err := ownColumn(t, col)
+	if err != nil {
 		return nil, err
 	}
 
-	if col == nil {
-		return nil, errors.New("fetch column cannot be nil")
-	}
-
-	list, err := Select(t.Columns()...).From(t).Where(append([]Condition{col.In(col.ListParam())}, where...)...).Build()
+	list, err := t.byQuery(col, true, where, func() (*Query[R], error) {
+		return Select(t.Columns()...).From(t).Where(append([]Condition{col.In(col.ListParam())}, where...)...).Build()
+	})
 	if err != nil {
 		return nil, err
 	}
 
 	return fetchInOrder(ctx, db, t, list, col, values, where)
+}
+
+// GetBy reads the row whose col is value, and fails with an error wrapping
+// sql.ErrNoRows when there is none. col should be unique, alone or together with
+// the columns where fixes; the generated GetByX methods call it for each unique
+// index. Without where the query is built once and reused.
+func (t *TableOf[R, K]) GetBy[T comparable](ctx context.Context, db Executor, col Column[R, T], value T, where ...Condition) (*R, error) {
+	t = t.unaliased()
+
+	col, err := ownColumn(t, col)
+	if err != nil {
+		return nil, err
+	}
+
+	q, err := t.byQuery(col, false, where, func() (*Query[R], error) {
+		return Select(t.Columns()...).From(t).Where(append([]Condition{col.EQ(col.Param())}, where...)...).Build()
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return q.Get(ctx, db, col.Bind(value))
+}
+
+// byQuery returns the GetBy / FetchBy query of col: built once per scope and
+// cached when there are no extra conditions, whose values would differ per call.
+func (t *TableOf[R, K]) byQuery(col SQLColumn, list bool, where []Condition, build func() (*Query[R], error)) (*Query[R], error) {
+	if len(where) > 0 {
+		return build()
+	}
+
+	cached, _ := t.keys.by.LoadOrStore(byKey{column: col.Name(), scope: t.scope(), list: list}, &lazyQuery[R]{})
+
+	return cached.(*lazyQuery[R]).get(build)
+}
+
+// ownColumn checks col and binds it to t, the unaliased table the lookups read:
+// a column taken from an aliased table struct is bound to the alias.
+func ownColumn[R any, K, T comparable](t *TableOf[R, K], col Column[R, T]) (Column[R, T], error) {
+	if err := t.Err(); err != nil {
+		return nil, err
+	}
+
+	if col == nil {
+		return nil, errors.New("lookup column cannot be nil")
+	}
+
+	if col.core().table != nil && col.core().table.TableName() != t.TableName() {
+		col = col.WithTable(t)
+	}
+
+	return col, nil
 }
 
 // fetchInOrder lists the rows of values through list and puts them in the order

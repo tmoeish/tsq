@@ -4,9 +4,8 @@ package academy
 
 import (
 	"context"
+	tsqsql "database/sql"
 	tsqtime "time"
-
-	null "gopkg.in/nullbio/null.v6"
 
 	"github.com/tmoeish/tsq/v5"
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
@@ -35,7 +34,7 @@ func newInstructorTable() InstructorTable {
 	c := InstructorTable{
 		TableOf:   t,
 		Bio:       tsq.NewColumn(t, "bio", "bio", func(r *Instructor) *string { return &r.Bio }),
-		CreatedAt: tsq.NewNullColumn[tsqtime.Time](t, "created_at", "created_at", func(r *Instructor) *null.Time { return &r.CreatedAt }),
+		CreatedAt: tsq.NewNullColumn[tsqtime.Time](t, "created_at", "created_at", func(r *Instructor) *tsqsql.Null[tsqtime.Time] { return &r.CreatedAt }),
 		Email:     tsq.NewColumn(t, "email", "email", func(r *Instructor) *string { return &r.Email }),
 		ID:        tsq.NewColumn(t, "id", "id", func(r *Instructor) *int64 { return &r.ID }),
 		Name:      tsq.NewColumn(t, "name", "name", func(r *Instructor) *string { return &r.Name }),
@@ -144,9 +143,7 @@ func (t InstructorTable) GetByEmail(
 	db tsq.Executor,
 	email string,
 ) (*Instructor, error) {
-	return tsq.Select(t.Columns()...).From(t).Where(
-		t.Email.EQ(tsq.Val(email)),
-	).Get(ctx, db)
+	return t.GetBy(ctx, db, t.Email, email)
 }
 
 // FetchByEmail reads the Instructor rows matching unique index ux_instructor_email, one per

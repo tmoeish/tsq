@@ -4,9 +4,8 @@ package academy
 
 import (
 	"context"
+	tsqsql "database/sql"
 	tsqtime "time"
-
-	null "gopkg.in/nullbio/null.v6"
 
 	"github.com/tmoeish/tsq/v5"
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
@@ -40,7 +39,7 @@ func newCourseTable() CourseTable {
 	t := tsq.NewTable[Course, int64]("course")
 	c := CourseTable{
 		TableOf:        t,
-		CreatedAt:      tsq.NewNullColumn[tsqtime.Time](t, "created_at", "created_at", func(r *Course) *null.Time { return &r.CreatedAt }),
+		CreatedAt:      tsq.NewNullColumn[tsqtime.Time](t, "created_at", "created_at", func(r *Course) *tsqsql.Null[tsqtime.Time] { return &r.CreatedAt }),
 		Currency:       tsq.NewColumn(t, "currency", "currency", func(r *Course) *string { return &r.Currency }),
 		ID:             tsq.NewColumn(t, "id", "id", func(r *Course) *int64 { return &r.ID }),
 		InstructorID:   tsq.NewColumn(t, "instructor_id", "instructor_id", func(r *Course) *int64 { return &r.InstructorID }),
@@ -216,9 +215,7 @@ func (t CourseTable) GetByTitle(
 	db tsq.Executor,
 	title string,
 ) (*Course, error) {
-	return tsq.Select(t.Columns()...).From(t).Where(
-		t.Title.EQ(tsq.Val(title)),
-	).Get(ctx, db)
+	return t.GetBy(ctx, db, t.Title, title)
 }
 
 // FetchByTitle reads the Course rows matching unique index ux_course_title, one per

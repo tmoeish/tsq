@@ -12,7 +12,7 @@ import (
 // genericTableMethods are the generic methods of tsq.TableOf. reflect does not
 // list generic methods, so they are named here; TestReservedTableNamesCoverTableOf
 // checks the list against the source.
-var genericTableMethods = []string{"FetchBy"}
+var genericTableMethods = []string{"FetchBy", "GetBy"}
 
 // reservedTableFields returns the names a column field of a generated table struct
 // cannot take: the embedded TableOf, every method it promotes, and the methods the

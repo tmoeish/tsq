@@ -169,6 +169,10 @@ func fieldSliceVarName(fieldName string) string {
 
 // fieldType returns the Go type expression for a field.
 func fieldType(field genmodel.FieldInfo) string {
+	if field.Spelled != "" {
+		return field.Spelled
+	}
+
 	pkg := field.Type.Package
 	typeName := field.Type.TypeName
 	fullTypeName := typeName
@@ -272,7 +276,8 @@ func fieldsUse(data *genmodel.StructInfo, importPath string) bool {
 	alias := map[string]string{importPathTime: generatedTimeAlias, importPathDatabaseSQL: generatedSQLAlias}[importPath]
 
 	for _, f := range data.Fields {
-		if f.Type.Package.Path == importPath || (alias != "" && strings.Contains(f.NullValue, alias+".")) {
+		if f.Type.Package.Path == importPath ||
+			(alias != "" && (strings.Contains(f.NullValue, alias+".") || strings.Contains(f.Spelled, alias+"."))) {
 			return true
 		}
 	}
@@ -298,6 +303,10 @@ func managedTimestampKind(field genmodel.FieldInfo) string {
 		return "time_ptr"
 	case !field.IsPointer && field.Type.Package.Path == importPathDatabaseSQL && field.Type.TypeName == "NullTime":
 		return "sql_null_time"
+	case !field.IsPointer && field.Type.Package.Path == importPathDatabaseSQL && field.Type.TypeName == "Null" &&
+		isTimeTypeArg(field):
+		// sql.Null[time.Time] is a nullable time like sql.NullTime.
+		return "sql_null_time"
 	case !field.IsPointer &&
 		strings.HasPrefix(field.Type.Package.Path, nullbioImportPrefix) &&
 		field.Type.TypeName == "Time":
@@ -305,6 +314,18 @@ func managedTimestampKind(field genmodel.FieldInfo) string {
 	default:
 		return ""
 	}
+}
+
+// isTimeTypeArg reports whether a generic field's only type argument is time.Time,
+// however the source file imports the time package.
+func isTimeTypeArg(field genmodel.FieldInfo) bool {
+	if len(field.TypeArgPackages) != 1 || field.TypeArgPackages[0].Path != importPathTime {
+		return false
+	}
+
+	_, name, ok := strings.Cut(field.TypeArgs, ".")
+
+	return ok && name == "Time"
 }
 
 func softDeleteKind(field genmodel.FieldInfo) string {
@@ -331,7 +352,7 @@ func validateTimestampField(field genmodel.FieldInfo, role string) error {
 	}
 
 	return fmt.Errorf(
-		"%s field %s has unsupported type %s; supported types are time.Time, *time.Time, sql.NullTime, null.Time",
+		"%s field %s has unsupported type %s; supported types are time.Time, *time.Time, sql.NullTime, sql.Null[time.Time], null.Time",
 		role,
 		field.Name,
 		fieldType(field),
@@ -344,7 +365,7 @@ func validateSoftDeleteField(field genmodel.FieldInfo) error {
 	}
 
 	return fmt.Errorf(
-		"deleted_at field %s has unsupported type %s; supported types are int64, uint64, *time.Time, sql.NullTime, null.Time",
+		"deleted_at field %s has unsupported type %s; supported types are int64, uint64, *time.Time, sql.NullTime, sql.Null[time.Time], null.Time",
 		field.Name,
 		fieldType(field),
 	)

@@ -3,7 +3,9 @@ package parser
 import (
 	"fmt"
 	"go/ast"
+	"go/types"
 	"reflect"
+	"slices"
 	"strings"
 
 	"github.com/tmoeish/tsq/v5/internal/genmodel"
@@ -51,14 +53,21 @@ func parseNamedFields(
 				return nil, err
 			}
 
+			argText, argPackages, err := typeArgs(field.Type, packageAliases, currentPkg)
+			if err != nil {
+				return nil, err
+			}
+
 			// Build the field.
 			field := genmodel.FieldInfo{
-				Name:      fieldName,
-				IsPointer: isPointer,
-				IsSlice:   isArray,
-				Type:      genmodel.TypeInfo{Package: typePackage, TypeName: typeName},
-				Column:    getColumnName(fieldTags),
-				JSONTag:   getJsonTagName(fieldTags, fieldName),
+				Name:            fieldName,
+				IsPointer:       isPointer,
+				IsSlice:         isArray,
+				Type:            genmodel.TypeInfo{Package: typePackage, TypeName: typeName},
+				Column:          getColumnName(fieldTags),
+				JSONTag:         getJsonTagName(fieldTags, fieldName),
+				TypeArgs:        argText,
+				TypeArgPackages: argPackages,
 			}
 
 			fields[fieldName] = field
@@ -212,6 +221,64 @@ func parseEmbeddedFields(
 	return embeddedTypes, nil
 }
 
+// typeArgs returns the type arguments of an instantiated generic field type, as
+// written, and the packages they name. The generator spells the full type from
+// go/types; the parser only needs them to compare types and collect imports.
+func typeArgs(
+	expr ast.Expr,
+	packageAliases map[string]genmodel.PackageInfo,
+	currentPkg genmodel.PackageInfo,
+) (string, []genmodel.PackageInfo, error) {
+	var args []ast.Expr
+
+	for args == nil {
+		switch t := expr.(type) {
+		case *ast.StarExpr:
+			expr = t.X
+		case *ast.ArrayType:
+			expr = t.Elt
+		case *ast.IndexExpr:
+			args = []ast.Expr{t.Index}
+		case *ast.IndexListExpr:
+			args = t.Indices
+		default:
+			return "", nil, nil
+		}
+	}
+
+	var (
+		texts    []string
+		packages []genmodel.PackageInfo
+		failure  error
+	)
+
+	for _, arg := range args {
+		texts = append(texts, types.ExprString(arg))
+
+		ast.Inspect(arg, func(n ast.Node) bool {
+			sel, ok := n.(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
+
+			if ident, ok := sel.X.(*ast.Ident); ok {
+				pkg, err := resolveFieldPackage(ident.Name, sel.Sel.Name, packageAliases, currentPkg)
+				if err != nil && failure == nil {
+					failure = err
+				}
+
+				if pkg.Path != "" && !slices.Contains(packages, pkg) {
+					packages = append(packages, pkg)
+				}
+			}
+
+			return false
+		})
+	}
+
+	return strings.Join(texts, ", "), packages, failure
+}
+
 // parseFieldType parses a field type expression.
 func parseFieldType(
 	expr ast.Expr,
@@ -244,6 +311,14 @@ func parseFieldType(
 		}
 
 		return isPointer, true, packagePath, typeName, nil
+
+	case *ast.IndexExpr:
+		// Instantiated generic type: Null[T]; the arguments are read by typeArgs.
+		return parseFieldType(t.X)
+
+	case *ast.IndexListExpr:
+		// Instantiated generic type with several arguments: Pair[K, V].
+		return parseFieldType(t.X)
 
 	case *ast.StarExpr:
 		// Pointer: *Type

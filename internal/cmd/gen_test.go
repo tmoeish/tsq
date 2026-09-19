@@ -1870,22 +1870,29 @@ func TestGeneratedCodeWithDatabaseSQLFieldsCompiles(t *testing.T) {
 	writeTestFile(t, filepath.Join(dir, "go.mod"), genTestModuleFile(t))
 	writeTestFile(t, filepath.Join(dir, "model.go"), `package gentest
 
-import "database/sql"
+import (
+	"database/sql"
+	"time"
+)
 
 //tsq:table name=users
 //tsq:unique Email
+//tsq:managed updated_at
 type User struct {
-	ID       int64          `+"`db:\"id\"`"+`
-	Email    string         `+"`db:\"email,size:128\"`"+`
-	Nickname sql.NullString `+"`db:\"nickname,size:64\"`"+`
-	Bio      *string        `+"`db:\"bio,size:256\"`"+`
-	SeenAt   sql.NullTime   `+"`db:\"seen_at\"`"+`
+	ID        int64                `+"`db:\"id\"`"+`
+	Email     string               `+"`db:\"email,size:128\"`"+`
+	Nickname  sql.NullString       `+"`db:\"nickname,size:64\"`"+`
+	Bio       *string              `+"`db:\"bio,size:256\"`"+`
+	SeenAt    sql.NullTime         `+"`db:\"seen_at\"`"+`
+	Score     sql.Null[int64]      `+"`db:\"score\"`"+`
+	UpdatedAt sql.Null[time.Time]  `+"`db:\"updated_at\"`"+`
 }
 
 //tsq:result
 type UserNickname struct {
-	UserID   int64          `+"`json:\"user_id\" tsq:\"User.ID\"`"+`
-	Nickname sql.NullString `+"`json:\"nickname\" tsq:\"User.Nickname\"`"+`
+	UserID   int64           `+"`json:\"user_id\" tsq:\"User.ID\"`"+`
+	Nickname sql.NullString  `+"`json:\"nickname\" tsq:\"User.Nickname\"`"+`
+	Score    sql.Null[int64] `+"`json:\"score\" tsq:\"User.Score\"`"+`
 }
 `)
 	chdirForGenTest(t, dir)
@@ -1924,6 +1931,8 @@ type UserNickname struct {
 		"table bio":      "Bio:      tsq.NewNullColumn[string](t, \"bio\"",
 		"table seen_at":  "tsq.NewNullColumn[tsqtime.Time](t, \"seen_at\"",
 		"table id":       "tsq.NewColumn(t, \"id\"",
+		"table generic":  "Score:     tsq.NewNullColumn[int64](t, \"score\", \"Score\", func(r *User) *tsqsql.Null[int64]",
+		"table time":     "tsq.NewNullColumn[tsqtime.Time](t, \"updated_at\", \"UpdatedAt\", func(r *User) *tsqsql.Null[tsqtime.Time]",
 		"table field":    "Nickname tsq.NullColumn[User, string]",
 		"result":         "tsq.MapIntoNull(TableUser.Nickname",
 	} {
@@ -1932,7 +1941,8 @@ type UserNickname struct {
 			source = result
 		}
 
-		if !strings.Contains(string(source), want) {
+		// gofmt aligns fields by the longest name, so compare with spaces collapsed.
+		if !strings.Contains(strings.Join(strings.Fields(string(source)), " "), strings.Join(strings.Fields(want), " ")) {
 			t.Errorf("%s: generated code lacks %q", file, want)
 		}
 	}

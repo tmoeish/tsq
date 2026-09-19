@@ -64,6 +64,9 @@ genmodel.StructInfo / TableMeta        internal/genmodel/model.go
   可空或切片类型的末字段不生成），以及转发到表的行方法。主键查询在库里（`TableOf.Get/Find/Fetch/Query`），
   不生成。普通索引和唯一索引的前缀**不生成查询**（理由见 `memory.md`）；模板里没有软删除过滤，作用域在库里。
   列字段名的保留字见 `architecture.md` § 表描述符。
+- 实例化的泛型字段类型（`sql.Null[time.Time]`）：解析器只按 AST 读基础类型，并记下 `FieldInfo.TypeArgs`
+  （原文，用于比较）和 `TypeArgPackages`（用于 import）；完整写法 `FieldInfo.Spelled` 在 `generation_plan.go`
+  里用 `go/types` 算出，`fieldType` 优先用它。DDL 推导（`ddl_render.go`）把 `sql.Null[T]` 当作可空的 `T`。
 - 可空字段（指针、`sql.NullX`、nullbio，即"可扫描、带 `Valid bool` 和唯一数据字段"的结构体）生成
   `tsq.NewNullColumn[值类型]`；值类型由 `generation_plan.go` 的 `resolveNullValues` 用 `go/types` 算出，
   按生成文件的导入别名写进 `FieldInfo.NullValue`（`time.Time` → `tsqtime.Time`，因此

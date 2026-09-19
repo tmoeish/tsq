@@ -4,9 +4,8 @@ package academy
 
 import (
 	"context"
+	tsqsql "database/sql"
 	tsqtime "time"
-
-	null "gopkg.in/nullbio/null.v6"
 
 	"github.com/tmoeish/tsq/v5"
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
@@ -34,7 +33,7 @@ func newLearnerTable() LearnerTable {
 	c := LearnerTable{
 		TableOf:   t,
 		Company:   tsq.NewColumn(t, "company", "company", func(r *Learner) *string { return &r.Company }),
-		CreatedAt: tsq.NewNullColumn[tsqtime.Time](t, "created_at", "created_at", func(r *Learner) *null.Time { return &r.CreatedAt }),
+		CreatedAt: tsq.NewNullColumn[tsqtime.Time](t, "created_at", "created_at", func(r *Learner) *tsqsql.Null[tsqtime.Time] { return &r.CreatedAt }),
 		Email:     tsq.NewColumn(t, "email", "email", func(r *Learner) *string { return &r.Email }),
 		ID:        tsq.NewColumn(t, "id", "id", func(r *Learner) *int64 { return &r.ID }),
 		Name:      tsq.NewColumn(t, "name", "name", func(r *Learner) *string { return &r.Name }),
@@ -134,9 +133,7 @@ func (t LearnerTable) GetByEmail(
 	db tsq.Executor,
 	email string,
 ) (*Learner, error) {
-	return tsq.Select(t.Columns()...).From(t).Where(
-		t.Email.EQ(tsq.Val(email)),
-	).Get(ctx, db)
+	return t.GetBy(ctx, db, t.Email, email)
 }
 
 // FetchByEmail reads the Learner rows matching unique index ux_learner_email, one per

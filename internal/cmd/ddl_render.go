@@ -695,6 +695,11 @@ func classifyDDLColumnTypeRecursive(
 					return ddlColumnDescriptor{kind: ddlColumnString, nullable: true, size: size}, nil
 				case "NullTime":
 					return ddlColumnDescriptor{kind: ddlColumnTime, nullable: true}, nil
+				case "Null":
+					// sql.Null[T] is T that can be NULL.
+					if args := value.TypeArgs(); args.Len() == 1 {
+						return classifyDDLColumnTypeRecursive(args.At(0), size, true)
+					}
 				}
 			default:
 				if strings.HasPrefix(pkg.Path(), nullbioImportPrefix) {

@@ -109,6 +109,12 @@ func (s *StructInfo) collectRequiredPackages() map[genmodel.PackageInfo]bool {
 		}
 
 		packages[fieldPkg] = true
+
+		for _, argPkg := range field.TypeArgPackages {
+			if argPkg != s.TypeInfo.Package {
+				packages[argPkg] = true
+			}
+		}
 	}
 
 	return packages

@@ -103,13 +103,8 @@ SQLite ≥3.39。代价是更老的引擎拿到数据库报错而不是 `Unsuppo
 ### 集成测试为什么长这样，以及暂时不做的几件事 (2026-08-26)
 
 核心断言"托管 schema 第二次启动零 DDL"（v4.2.0 的 Critical 事故都表现为它）。用 env DSN 而不是
-build tag，SQLite 目标因此每次 `go test` 都跑。
-
-- **Docker 镜像不推送 registry**。`Docker Build` 是必需检查，但产物没人消费；推送要配
-  ghcr 权限和 tag 策略，等有真实使用者再说。
-- **不替换 `gopkg.in/nullbio/null.v6` 和 `serenize/snaker`**。前者出现在生成代码里
-  （`examples/academy/*.tsq.go` import 它），是使用者契约；后者只在生成器里做
-  CamelToSnake，换实现等于改所有使用者的表名推导。
+build tag，SQLite 目标因此每次 `go test` 都跑。**不换 `serenize/snaker`**：它做 CamelToSnake，换实现等于改
+所有使用者的表名推导。nullbio 只按类型路径识别，模块不依赖它（2026-09-19）。
 
 ### 决定：相关子查询靠 `Correlate(...)` 显式声明，不靠推断 (2026-09-03)
 
@@ -301,6 +296,10 @@ RIGHT JOIN 被保留侧的已删行，所以有 RIGHT / FULL JOIN 时整张表�
 `*TableOf` 的 `CourseTable`：取列必经 `TableCourse`，初始化顺序由 Go 保证；`As` 一次改绑整套列。
 **代价**：列字段不能和 `TableOf` 的方法重名，`tsq gen` 报错（`reserved.go`），所以 `Table.Name()` 改成了
 `TableName()`，**以后给 `TableOf` 加导出方法都会让某个列名非法**，加之前想清楚。
+
+### 文档承诺的类型，要有一个真的用它的示例 (2026-09-19)
+
+文档说可空字段可用 `sql.Null[T]`，解析器却不认泛型（`*ast.IndexExpr`），示例换过去才暴露；门是 `gen_test.go` 的 `TestGeneratedCodeWithDatabaseSQLFieldsCompiles`。
 
 ### 按字符串批量取数要以数据库的判等为准 (2026-09-19)
 

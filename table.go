@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
 
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 	sqld "github.com/tmoeish/tsq/v5/internal/sqldialect"
@@ -115,6 +116,15 @@ type tableKeys[R any, K comparable] struct {
 	get  [2]lazyQuery[R]
 	all  [2]lazyQuery[R]
 	list [2]lazyQuery[R]
+	// by caches GetBy and FetchBy queries without extra conditions, by byKey.
+	by sync.Map
+}
+
+// byKey names a cached GetBy / FetchBy query.
+type byKey struct {
+	column string
+	scope  int
+	list   bool
 }
 
 // TableSpec is the definition of a table.
