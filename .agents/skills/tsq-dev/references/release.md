@@ -81,7 +81,7 @@ make release             # 真的发
 7. `make examples`——让生成文件头带上新版本号。它用的是 `make build-gen` 产出的
    `bin/tsq-gen`，**故意不带 `$(LDFLAGS)`**：`bin/tsq` 的版本号来自 `git describe`，
    而即将发布的 tag 那一刻还不存在，用它生成会让 `release-check` 永远失败（想写对头部
-   要先打 tag，想打 tag 要先过 release-check）。见 `memory.md` 2026-08-21 那条。
+   要先打 tag，想打 tag 要先过 release-check）。见 `memory/codegen.md` 的"生成器不能带 `git describe` 的版本号"。
 8. `make harness`——全绿才继续。
 9. 提交，推 release 分支，开 PR，开启自动合并。
 10. 等 CI 全绿、PR 被 squash 合入。

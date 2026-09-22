@@ -1,6 +1,6 @@
 ---
 name: tsq-dev
-description: 开发 TSQ 仓库本身时加载：查询构建器、代码生成器、方言层和 harness 的工程上下文与约定。承载架构、代码地图、代码生成管线、变更影响清单、发版流程和项目内存，让任务从记录下来的上下文开始，而不是从源码考古开始。与面向 TSQ 使用者的 `tsq` 技能是两回事——那份教别人怎么用这个库，这份教你怎么改这个库。
+description: 开发 TSQ 仓库本身时加载：查询构建器、代码生成器、方言层和 harness 的工程上下文与约定。承载架构、代码地图、代码生成管线、变更影响清单、发版流程和项目内存；它本身是一份路由表，变更影响和项目内存按域拆在 references/ 下，按需读其中一两份，让任务从记录下来的上下文开始，而不是从源码考古开始。与面向 TSQ 使用者的 `tsq` 技能是两回事——那份教别人怎么用这个库，这份教你怎么改这个库。
 license: MIT
 metadata:
   repository: github.com/tmoeish/tsq
@@ -25,14 +25,17 @@ TSQ 由三件东西组成，它们共用一个仓库和一个版本号：
 
 ## 上下文查找 — 看代码之前，先读与任务匹配的那行
 
+`change-impact.md` 和 `memory.md` 是**索引**：从索引挑一两份子文件读，不要整域加载——一波改动
+通常只落在一两个域里，整份读进来是每次会话都要付的成本。其余几份篇幅不大，仍是单文件。
+
 | 任务 | 优先读 |
 | --- | --- |
-| 任何改动 | `references/change-impact.md` — 耦合清单 |
+| 任何改动：确认"改了 A 还得改 B" | `references/change-impact.md` → `impact/<域>.md` |
 | "X 在哪实现的？" | `references/feature-map.md` |
 | 分层、查询阶段机、执行路径、方言 | `references/architecture.md` |
 | 注解指令、模板、生成物、DDL 推导 | `references/codegen.md` |
 | 发版、版本号、tag、Go Proxy | `references/release.md` |
-| "为什么是这样？"、过去的事故、死胡同 | `references/memory.md` |
+| "为什么是这样？"、过去的事故、死胡同 | `references/memory.md` → `memory/<主题>.md` |
 | 对外 Go 符号的当前全集 | `references/api-surface.txt`（生成物，`make api-snapshot` 重写） |
 | 有约束力的规则 | `AGENTS.md`（仓库根） |
 | 外部贡献者怎么参与 | `CONTRIBUTING.md`（仓库根） |
@@ -43,8 +46,10 @@ TSQ 由三件东西组成，它们共用一个仓库和一个版本号：
 
 ## 工作流
 
-1. 读 `AGENTS.md`，读本技能里覆盖你要碰的领域的上下文文件，读 `references/memory.md`，
-   然后才读附近的代码和测试。
+0. 从同步过的 `main` 切 `<type>/<描述>` 分支（`git checkout main && git fetch && git reset
+   --hard origin/main`，理由见 `AGENTS.md` § 发版）；不要叠在还没合的 PR 分支上。
+1. 读 `AGENTS.md`；按上表挑你要碰的那一两份上下文文件；对着 `change-impact.md` 的触发器速查
+   确认耦合，读匹配到的 `impact/<域>.md`；读 `memory/` 里同主题的那份；然后才读附近的代码和测试。
 2. 改手写源码。生成物（`*.tsq.go`、`*.result.tsq.go`、`tsq.json`、`*.sql`）不是源码：
    改结构体、注解、模板或解析器，然后重新生成。
 3. 编辑期间跑窄范围的检查和 `make fmt`。
@@ -68,9 +73,9 @@ TSQ 由三件东西组成，它们共用一个仓库和一个版本号：
 
 | 你学到了什么 | 去哪 |
 | --- | --- |
-| bug 的根本原因；为什么看起来对的修法是错的；值得不再重复的死胡同；不明显的运行时行为；一个决定及其理由 | `references/memory.md` 对应主题的小节 |
-| **发现了但决定暂不处理的问题**——现象、为什么现在不值得动、什么条件下该动 | `references/memory.md` 对应主题的小节，`已知未处理：` 开头；要排期就再开 GitHub issue |
-| "改 A 也得改 B"——尤其是你靠弄坏它才发现的 | `references/change-impact.md` |
+| bug 的根本原因；为什么看起来对的修法是错的；值得不再重复的死胡同；不明显的运行时行为；一个决定及其理由 | `references/memory/<主题>.md` |
+| **发现了但决定暂不处理的问题**——现象、为什么现在不值得动、什么条件下该动 | `references/memory/<主题>.md`，`已知未处理：` 开头；要排期就再开 GitHub issue |
+| "改 A 也得改 B"——尤其是你靠弄坏它才发现的 | `references/impact/<域>.md`，并在 `change-impact.md` 的速查里补一行标题 |
 | 新文件、新入口、职责搬家、新的 CLI 子命令或 flag | `references/feature-map.md` |
 | 新组件、新的阶段类型、新方言能力、新的执行路径 | `references/architecture.md` |
 | 新的 `//tsq:` 指令、模板结构、生成文件命名、DDL 类型推导规则 | `references/codegen.md` |
@@ -88,20 +93,24 @@ TSQ 由三件东西组成，它们共用一个仓库和一个版本号：
   因为人会相信它。
 - **记录耦合，不要记流水账。** "改 `X` 必须同时改 `Y`，因为 Z" 可复用；"我今天下午重构了
   X" 不可复用。
-- **同一类问题被修两次，说明第二次修得也不彻底。** 直到 `change-impact.md` 或 `memory.md`
+- **一条耦合只进一份 `impact/*.md`，一条记录只进一份 `memory/*.md`。** "一个事实一个归宿"对拆开的
+  子文件同样成立；找不到该归哪份就归离它最近的那份，不要新开一份只装一条。
+- **同一类问题被修两次，说明第二次修得也不彻底。** 直到 `impact/*.md` 或 `memory/*.md`
   阻止了第三次发生，那次修复才算完成。
-- `make skill-check` 把最容易忘的几条耦合钉死了；它没覆盖的部分靠这一节。
+- **`make skill-check` 无条件比对索引与子文件**：速查漏一条触发器、多一条已删的触发器、路由表漏
+  一份子文件都会红——索引是替代整份加载的东西，漏一条等于那条耦合不存在。这一半不提供豁免。
+- `make skill-check` 还把最容易忘的几条耦合钉死了；它没覆盖的部分靠这一节。
 - **内存里的条目是有寿命的。** 一件事了结之后那条记录是删是留，判据只有一条：删掉之后
   有人会不会重犯、或者重新调查一遍。搁置项处理完就删，事故根因在有门禁挡着之后压成一行，
   决定和死胡同永久保留。**不要新增"XX 已处理"的条目**——那是成本翻倍而信息量没变。
-  完整的分类表在 `memory.md` 开头，`make memory-check` 守着行数上限。
+  完整的分类表在 `memory.md` 开头，`make memory-check` 守着索引加 `memory/` 的总行数上限。
 
 ## 命令
 
 ```bash
 make fmt              # go fix + golangci-lint fmt + 自动修复
 make lint             # golangci-lint run（含 `unused`：只被 `_test.go` 引用的
-                      # 未导出符号它看不见，那类死代码要靠 change-impact.md 里
+                      # 未导出符号它看不见，那类死代码要靠 impact/api.md 里
                       # "开关 + 若干消费点" 那条的 grep）
 make test             # go test ./...
 make test-race        # -race -shuffle=on
@@ -109,9 +118,9 @@ make examples         # 重新生成 examples/academy 并编译三个示例程�
 make gen-check        # 生成物是不是当前源码的输出（tsq gen --check）
 make api-check        # 对外 Go 契约有没有偏离快照
 make api-snapshot     # 刷新快照
-make skill-check      # 技能有没有跟上代码
+make skill-check      # 索引与子文件对得上，且技能跟上了代码
 make doc-check        # 文档里的 make 目标和 tsq.* 符号都存在、没有退役的 v4 写法、英文侧没有中文
-make memory-check     # 这波有没有留下项目内存，以及内存文件有没有超出行数上限（460 行；先压缩，压不动了再抬，理由写进 check_change_log.py）
+make memory-check     # 这波有没有留下项目内存，以及索引加 memory/ 合计有没有超出行数上限（先压缩，压不动了再抬，理由写进 check_change_log.py）
 make release-check    # 版本号四个副本一致，发版工具链钉死版本
 make harness          # 交接前的全部确定性门禁
 make release          # 发版（改版本号 → CHANGELOG → 重新生成 → harness → 提交 → tag → push）

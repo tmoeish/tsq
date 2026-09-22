@@ -63,7 +63,7 @@ genmodel.StructInfo / TableMeta        internal/genmodel/model.go
   `newXxxTable()`（`NewTable` → 列 → `Define`，含 `ColumnSpecs` 与 `Indexes`）、变量 `TableXxx`、改绑全部列的
   `As`（软删表另有 `WithDeleted`）、**每个唯一索引**的 `GetBy<字段>` 与 `FetchBy<字段>`（后者转发 `TableOf.FetchBy`；
   可空或切片类型的末字段不生成），以及转发到表的行方法。主键查询在库里（`TableOf.Get/Find/Fetch/Query`），
-  不生成。普通索引和唯一索引的前缀**不生成查询**（理由见 `memory.md`）；模板里没有软删除过滤，作用域在库里。
+  不生成。普通索引和唯一索引的前缀**不生成查询**（理由见 `memory/codegen.md`）；模板里没有软删除过滤，作用域在库里。
   列字段名的保留字见 `architecture.md` § 表描述符。
 - 实例化的泛型字段类型（`sql.Null[time.Time]`）：解析器只按 AST 读基础类型，并记下 `FieldInfo.TypeArgs`
   （原文，用于比较）和 `TypeArgPackages`（用于 import）；完整写法 `FieldInfo.Spelled` 在 `generation_plan.go`
@@ -142,4 +142,4 @@ genmodel.StructInfo / TableMeta        internal/genmodel/model.go
 
 生成用的是 `make build-gen` 产出的 `bin/tsq-gen`，**故意不带 `$(LDFLAGS)`**。带 ldflags 的
 `bin/tsq` 的版本号来自 `git describe`，那既不是即将发布的版本，也会随工作区干不干净而变——
-生成结果必须只依赖源码。两个二进制的分工不要合并，理由见 `memory.md` 2026-08-21 那条。
+生成结果必须只依赖源码。两个二进制的分工不要合并，理由见 `memory/codegen.md` 的"生成器不能带 `git describe` 的版本号"。

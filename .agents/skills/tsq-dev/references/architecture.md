@@ -275,7 +275,7 @@ CTE 的输出列可空时，`WithTable(cte)` 重绑的列标成 `always`。
 - 按条件写：`UpdateTable(table)` / `DeleteFrom(softTable)` / `HardDeleteFrom(table)`。
   `Set` 是泛型方法，所以 `UpdateBuilder` 是导出的具体类型；`Where` 之后切到
   `MutationStage` 接口。语句只能引用目标表本身（按 `tableDef` 指针加表名判断，别名不行，`WithDeleted()` 行）。有 `version`
-  的表追加 `version = version + 1` 但不校验版本（理由见 `memory.md`）。`DeleteFrom` 恒渲染成
+  的表追加 `version = version + 1` 但不校验版本（理由见 `memory/write.md`）。`DeleteFrom` 恒渲染成
   UPDATE，墓碑值**执行时**才算——v4 在构建时算，包级语句会
   永远盖进程启动的时间。
 
@@ -309,7 +309,7 @@ CTE 的输出列可空时，`WithTable(cte)` 重绑的列标成 `always`。
   `SQLState() string`。MySQL 是唯一被 import 的驱动，因为 `MySQLError.Number` 是字段。
 - `runtime_schema.go`（表与列）和 `runtime_index.go`（索引）负责 schema 对账，`TablePolicy` / `IndexPolicy` 各取一档
   （`Manual` / `Validate` / `CreateMissing` / `Reconcile`）。**四档都不删表**；`Reconcile` 会改漂移的列、删不再声明的列（原型期让测试库
-  跟着代码走，生产用 `Manual`），理由见 `memory.md`。
+  跟着代码走，生产用 `Manual`），理由见 `memory/dialect.md`。
 
 ## 方言
 

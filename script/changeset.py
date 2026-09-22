@@ -44,7 +44,20 @@ PUBLIC_API_ROOTS: Final = ("dialect",)
 # 面向 TSQ 使用者的技能（仓库根 skills/），与面向本仓开发者的技能（.agents/skills/）。
 USER_SKILL_DIR: Final = Path("skills/tsq")
 DEV_SKILL_DIR: Final = Path(".agents/skills/tsq-dev")
-MEMORY_PATH: Final = DEV_SKILL_DIR / "references/memory.md"
+
+# 项目内存按主题拆成 `references/memory/*.md`，`memory.md` 只留判据与索引：一次会话只读与
+# 本波有关的那一两份。门禁因此按"索引 + 目录"整体说话——写进哪一份都算这波带了记录，行数
+# 上限也按总和算，拆分不是让总量随便涨的借口。
+MEMORY_INDEX: Final = DEV_SKILL_DIR / "references/memory.md"
+MEMORY_DIR: Final = DEV_SKILL_DIR / "references/memory"
+
+
+def memory_files() -> list[Path]:
+    """索引加上 `memory/` 下的全部主题文件，按路径排序。"""
+    absolute = PROJECT_ROOT / MEMORY_DIR
+    shards = sorted(absolute.glob("*.md")) if absolute.is_dir() else []
+
+    return [MEMORY_INDEX, *(MEMORY_DIR / shard.name for shard in shards)]
 
 
 class ChangesetError(RuntimeError):

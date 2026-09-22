@@ -16,11 +16,16 @@
 
 真的判断过、确认技能不需要动时，用 `SKIP_SKILL_CHECK=<触发器名,...>` 逐条豁免，并在
 提交正文里说明理由。整道门不提供无理由的总开关。
+
+另一半和本波改了什么无关、**无条件**跑：`change-impact.md` 与 `memory.md` 是索引，子文件在
+`impact/`、`memory/` 下。速查漏一条触发器、路由表漏一份子文件，读的人就以为自己看过了全部，
+所以索引与子文件对不上时直接失败，这一半不提供豁免。
 """
 
 from __future__ import annotations
 
 import os
+import re
 import sys
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
@@ -29,6 +34,9 @@ from typing import Final
 
 from changeset import (
     DEV_SKILL_DIR,
+    MEMORY_DIR,
+    MEMORY_INDEX,
+    PROJECT_ROOT,
     USER_SKILL_DIR,
     ChangesetError,
     changed_functional_files,
@@ -43,6 +51,7 @@ DEV_ARCHITECTURE: Final = DEV_SKILL_DIR / "references/architecture.md"
 DEV_FEATURE_MAP: Final = DEV_SKILL_DIR / "references/feature-map.md"
 DEV_CODEGEN: Final = DEV_SKILL_DIR / "references/codegen.md"
 DEV_CHANGE_IMPACT: Final = DEV_SKILL_DIR / "references/change-impact.md"
+DEV_IMPACT_DIR: Final = DEV_SKILL_DIR / "references/impact"
 DEV_RELEASE: Final = DEV_SKILL_DIR / "references/release.md"
 
 
@@ -125,7 +134,7 @@ TRIGGERS: Final = (
     Trigger(
         name="library",
         matches=root_go,
-        required=(DEV_ARCHITECTURE, DEV_FEATURE_MAP, DEV_CHANGE_IMPACT),
+        required=(DEV_ARCHITECTURE, DEV_FEATURE_MAP, DEV_CHANGE_IMPACT, DEV_IMPACT_DIR),
         hint=(
             "根包就是这个库本身。新增或移动文件、改查询阶段机、改执行路径之后，"
             "开发者技能的代码地图必须还能把人带到正确的文件。"
@@ -148,6 +157,79 @@ TRIGGERS: Final = (
 )
 
 
+TRIGGER_HEADING: Final = re.compile(r"^## (?P<title>.+)$")
+INDEX_ENTRY: Final = re.compile(r"^### `(?P<file>impact/[a-z-]+\.md)`$")
+INDEX_BULLET: Final = re.compile(r"^- (?P<title>.+)$")
+
+
+def read(path: Path) -> list[str]:
+    return (PROJECT_ROOT / path).read_text(encoding="utf-8").splitlines()
+
+
+def index_triggers() -> dict[str, list[str]]:
+    """`change-impact.md` 速查里按子文件列出的触发器标题。"""
+    listed: dict[str, list[str]] = {}
+    current: str | None = None
+    for line in read(DEV_CHANGE_IMPACT):
+        if entry := INDEX_ENTRY.match(line):
+            current = entry.group("file")
+            listed.setdefault(current, [])
+            continue
+
+        if current and (bullet := INDEX_BULLET.match(line)):
+            listed[current].append(bullet.group("title"))
+
+    return listed
+
+
+def check_index_sync() -> list[str]:
+    """索引必须能替代整份加载：速查漏一条，那条耦合就等于不存在。
+
+    拆分的代价全在这里——一份和子文件对不上的索引比不拆更糟，读的人以为自己看过了全部
+    触发器。所以这道检查无条件跑，和"这波改了什么"无关。
+    """
+    failures: list[str] = []
+    listed = index_triggers()
+    shards = sorted((PROJECT_ROOT / DEV_IMPACT_DIR).glob("*.md"))
+    for shard in shards:
+        key = f"impact/{shard.name}"
+        actual = [
+            match.group("title")
+            for line in read(DEV_IMPACT_DIR / shard.name)
+            if (match := TRIGGER_HEADING.match(line))
+        ]
+        if key not in listed:
+            failures.append(f"  {DEV_CHANGE_IMPACT} 的速查里没有 `{key}` 这一节")
+            continue
+
+        failures.extend(
+            f"  {key} 有触发器「{title}」，但速查里没有"
+            for title in actual
+            if title not in listed[key]
+        )
+        failures.extend(
+            f"  速查里的「{title}」在 {key} 里已经没有了"
+            for title in listed[key]
+            if title not in actual
+        )
+
+    names = {f"impact/{shard.name}" for shard in shards}
+    failures.extend(f"  速查指向的 {key} 不存在" for key in listed if key not in names)
+
+    for directory, index in (
+        (DEV_IMPACT_DIR, DEV_CHANGE_IMPACT),
+        (MEMORY_DIR, MEMORY_INDEX),
+    ):
+        body = "\n".join(read(index))
+        failures.extend(
+            f"  {index} 的路由表里没有 {directory.name}/{shard.name}"
+            for shard in sorted((PROJECT_ROOT / directory).glob("*.md"))
+            if f"{directory.name}/{shard.name}" not in body
+        )
+
+    return failures
+
+
 def skipped() -> frozenset[str]:
     raw = os.environ.get(SKIP_ENV, "")
 
@@ -161,6 +243,13 @@ def satisfied(required: Iterable[Path], paths: set[Path]) -> bool:
 
 
 def main() -> int:
+    unsynced = check_index_sync()
+    if unsynced:
+        print("技能的索引和子文件对不上了（这一半无条件检查，不提供豁免）：\n")
+        print("\n".join(unsynced))
+
+        return 1
+
     changed = changed_functional_files()
     if not changed:
         print("技能同步检查跳过：没有未提交的功能性改动。")
