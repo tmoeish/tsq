@@ -176,6 +176,8 @@ MySQL 的 `LENGTH` 数字节；PostgreSQL 没有 `round(double, int)`；modernc 
 - **生成列不参与 schema 对账**：SQLite 的 `table_info` 不列它，每次启动都会再 ADD（duplicate column）。
 - **没匹配到行分两种错误**：版本不符 `OptimisticLockError`（可重试），状态不符 `RowStateError`（重试无用）。软删除 / 恢复的
   语句同时校验两者，曾一律报后者；现在失败后按字段类型回读版本来区分（`tombstoneMismatch`，只在错误路径上多一次查询）。
+- 已知未处理（2026-09-22）：`Insert` 的 `assignInsertIDs` 和 #33d 修掉的 Upsert 一样吞掉 `LastInsertId` 的错误。MySQL /
+  SQLite 驱动实际不会失败、PG 走 `RETURNING`，所以现在碰不到；**加第四种驱动或方言之前**改成返回错误。
 - **MySQL 的 `Index.Constraint` 指"外键需要的索引"**（删它报 1553）：别改成读 `TABLE_CONSTRAINTS`，那里把每个唯一索引都列成
   UNIQUE 约束，TSQ 自己建的也在内，Reconcile 就再也不能重建任何唯一索引。
 - **派生表达式不是列**：`derived` 不留扫描目标，`Select(tsq.Date(时间列))` 在编译期就写不出来（以前运行期
@@ -183,6 +185,8 @@ MySQL 的 `LENGTH` 数字节；PostgreSQL 没有 `round(double, int)`；modernc 
 - **Go 1.27 允许组合字面量用提升字段作键**（`outer{c: 1}`）：拆结构体时旧字面量照样编译，别当成改完了。
 - **SQLite 表达式深度上限 1000 恰等于默认批量大小**（2026-09-22）：每行一个 `OR` 的版本匹配从 998 行起被拒。批量 WHERE
   只用扁平形状（`IN`、`CASE`）；不用行值 `IN`（SQLite 要求右侧子查询，MySQL 要 `ROW(...)`）。门 `TestBatchWritesFitTheDefaultBatchOnSQLite`。
+- 已知未处理（2026-09-22）：同一 CTE 里两个派生项来自同一源列（`SUM(amount)` 与 `MAX(amount)`）会得到同一个
+  `AS "amount"`，外层引用时数据库报歧义（响亮，不静默）；要支持得让使用者给输出列起名，等有人真需要再做。
 - **派生选择项写 `AS <Name()>`，不用 JSON 名**（2026-09-22）：CTE 的列靠 `源列.WithTable(cte)` 按源列名查找，集合操作的
   `ORDER BY` 也按它。`ResultColumn` 因此有 `Asc` / `Desc`（排序不是谓词），按选中的投影给集合操作排序。
 - **`driver.Value` 是定义类型**（2026-09-22）：手写的 `interface{ Value() (any, error) }` 永远不匹配 `driver.Valuer`，两处
