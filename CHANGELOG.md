@@ -159,6 +159,12 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 - **`ListIn` 会把 `Not(col.In(list))` 按块拆开**：每块 `NOT IN` 都匹配其他块排除的行，结果被重复拼接且不报错。现在和 `NotIn` 一样拒绝。
 - **`driver.Valuer` 值的 NULL 检查从未生效**：`Pred` / `Expr` 里的 `sql.NullString` 这类结构体 Valuer 被当成不可比较而拒绝，底层不是结构体的 Valuer 即使是 NULL 也被放行，渲染成 `col = NULL` 静默零行。游标分页对 NULL 的排序值同样漏检。
 - **集合操作的操作数自带的 `OrderBy` / `Limit` / `Offset` / 行锁被静默丢弃**：守卫检查的是左侧而不是操作数，`Union(q.OrderBy(...).Limit(3))` 渲染时前三条的限制消失。现在构建时报错。
+- **实现了 `driver.Valuer` / `sql.Scanner` 的自定义类型被按底层类型猜列类型**：文档一直要求这类字段写显式 `type:`，生成器却没有检查，`type Status string` 的 `Value()` 返回整数时建出 `VARCHAR` 列，写入时才报错。现在 `tsq gen` 拒绝并给出修法；只是按底层类型存储的具名类型（`type Level int`）不需要 `Value()`，删掉它即可推导。显式 `type:` 的可空 codec 类型（带 `Valid bool` 的结构体）此前在 Go 侧是 `NullColumn`、DDL 里却是 `NOT NULL`，现在两边一致。
+- **几种字段形状让生成代码编译不过**：result 字段的类型来自别的包时 result 文件不写 import；两个同名包的类型都按包名拼写（导入的是 `pkg` / `pkg1`）；本包泛型类型用别的包的类型实例化时漏掉那个 import；唯一索引字段叫 `Ctx` / `Db` / `T` / `Tsq` 时生成的 `GetByX` 参数和 `ctx`、`db`、接收者、`tsq` 包重名。
+- **软删除表上的全文索引带上了 `deleted_at`**：MySQL 拒绝把整数列放进 FULLTEXT，PostgreSQL 的 `coalesce` 类型不匹配，两边的 DDL 都执行不了。唯一索引和普通索引仍以 `deleted_at` 打头。
+- **两个字段映射到同一列时生成非法的 `CREATE TABLE`**：重复的 `db` 标签（大小写不同也算）或 `A, B string` 共用一个标签，现在 `tsq gen` 报错。
+- **删掉一个结构体后 `tsq gen` 不删它的生成文件**：残留文件引用已不存在的类型，包编译不过，之后每次 `gen --check` 都失败。现在和过期的 DDL 文件一样删除。
+- **文档写着 `//tsq:result [name=X]`**：result 不收任何选项（名字对投影没有含义），文档已更正。
 - **SQLite 上有表达式索引时 runtime 启动失败**：`PRAGMA index_info` 对表达式列报 NULL 列名，读索引列表时 `converting NULL to string`——只要库里有一个 `CREATE INDEX ... ON t(lower(x))`，任何索引策略都起不来。现在和 PostgreSQL 一样，表达式列不计入索引的列。
 - **SQLite 上 `Reconcile` 改列类型时静默丢掉约束、改写索引**：重建表时新表只按声明的列建，UNIQUE / CHECK / 外键约束随旧表消失；索引按名字和普通列重建，表达式索引被丢掉、`(a, lower(b))` 变成 `(a)`、部分索引丢掉 `WHERE`，触发器全丢；先 RENAME 旧表还会让别处的视图、触发器和外键指向随后被删掉的临时表。现在表自己的索引和触发器按原始语句重建，其余无法保留的情况拒绝重建并说明原因，交给迁移。
 - **两个不同的 CTE 同名时静默合并**：`WITH` 按名字去重，第二个 CTE 的查询和参数消失，引用它的分支读到第一个 CTE 的结果。现在构建时报错；同一个 CTE 在多个分支里引用仍只写一次。

@@ -7,6 +7,11 @@
 package {{ .TypeInfo.Package.Name }}
 
 import (
+{{- range $p, $a := .Imports }}
+{{- if and (ne $p "database/sql") (ne $p "time") }}
+	{{$a}} "{{$p}}"
+{{- end }}
+{{- end }}
 {{- if NeedsGeneratedSQLImport . }}
 	tsqsql "database/sql"
 {{- end }}

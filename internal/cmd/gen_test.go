@@ -2083,3 +2083,237 @@ type User struct {
 		}
 	}
 }
+
+// genModule writes a module of files (relative path to content), runs tsq gen on
+// its root package and returns the error.
+func genModule(t *testing.T, files map[string]string, args ...string) error {
+	t.Helper()
+	t.Cleanup(func() {
+		dryRunFlag = false
+		checkFlag = false
+		v = false
+		GenCmd.SetArgs(nil)
+	})
+
+	dir := t.TempDir()
+	writeTestFile(t, filepath.Join(dir, "go.mod"), genTestModuleFile(t))
+
+	for name, content := range files {
+		path := filepath.Join(dir, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+
+		writeTestFile(t, path, content)
+	}
+
+	chdirForGenTest(t, dir)
+	tidyGenTestModule(t)
+
+	return runGen(t, args...)
+}
+
+// runGen runs tsq gen on the working directory's package.
+func runGen(t *testing.T, args ...string) error {
+	t.Helper()
+
+	GenCmd.SetOut(new(bytes.Buffer))
+	GenCmd.SetErr(new(bytes.Buffer))
+	GenCmd.SetArgs(append([]string{"."}, args...))
+
+	return GenCmd.Execute()
+}
+
+// shapeModule holds a field of every shape the generator once got wrong. Each
+// shape is named by what used to fail.
+var shapeModule = map[string]string{
+	"ext/ext.go": `package ext
+
+// Money is a type from another package, projected into a result.
+type Money int64
+`,
+	"x1/pkg/pkg.go": "package pkg\n\ntype V string\n",
+	"x2/pkg/pkg.go": "package pkg\n\ntype V string\n",
+	"model.go": `package gentest
+
+import (
+	"database/sql"
+	"database/sql/driver"
+	"errors"
+
+	"example.com/gentest/ext"
+	p1 "example.com/gentest/x1/pkg"
+	p2 "example.com/gentest/x2/pkg"
+)
+
+// Box is a local generic codec type, instantiated with a type from another package.
+type Box[T any] struct{ V T }
+
+func (b Box[T]) Value() (driver.Value, error) { return nil, nil }
+func (b *Box[T]) Scan(any) error             { return errors.New("unused") }
+
+// NullMoney is a nullable codec type: a NullColumn on the Go side, so NULL in DDL.
+type NullMoney struct {
+	Money int64
+	Valid bool
+}
+
+func (n NullMoney) Value() (driver.Value, error) { return nil, nil }
+func (n *NullMoney) Scan(any) error             { return errors.New("unused") }
+
+//tsq:table name=wallets
+//tsq:unique Ctx
+//tsq:unique Db
+//tsq:unique T
+//tsq:unique Tsq
+//tsq:fulltext Note
+//tsq:managed deleted_at
+type Wallet struct {
+	ID        int64          ` + "`db:\"id\"`" + `
+	Ctx       string         ` + "`db:\"ctx,size:32\"`" + `
+	Db        string         ` + "`db:\"db_name,size:32\"`" + `
+	T         string         ` + "`db:\"t,size:32\"`" + `
+	Tsq       string         ` + "`db:\"tsq,size:32\"`" + `
+	Note      string         ` + "`db:\"note,size:200\"`" + `
+	Balance   ext.Money      ` + "`db:\"balance\"`" + `
+	A         p1.V           ` + "`db:\"a,size:16\"`" + `
+	B         p2.V           ` + "`db:\"b,size:16\"`" + `
+	NA        sql.Null[p1.V] ` + "`db:\"na,size:16\"`" + `
+	NB        sql.Null[p2.V] ` + "`db:\"nb,size:16\"`" + `
+	Data      Box[ext.Money] ` + "`db:\"data,type:TEXT\"`" + `
+	Amount    NullMoney      ` + "`db:\"amount,type:BIGINT\"`" + `
+	DeletedAt int64          ` + "`db:\"deleted_at\"`" + `
+}
+
+//tsq:result
+type WalletBrief struct {
+	ID      int64     ` + "`json:\"id\" tsq:\"Wallet.ID\"`" + `
+	Balance ext.Money ` + "`json:\"balance\" tsq:\"Wallet.Balance\"`" + `
+}
+`,
+}
+
+// TestGeneratedCodeCompilesForEveryFieldShape generates and builds the shape
+// module. Each shape used to produce code or DDL that failed:
+//   - a result field from another package: the result template wrote no imports
+//   - two packages named pkg: types were spelled by package name, not alias
+//   - Box[ext.Money]: a local generic type dropped its type argument's import
+//   - fields named Ctx, Db, T and Tsq: GetByX parameters collided with ctx, db,
+//     the receiver and the tsq package
+//   - NullMoney with type:: a NullColumn in Go but NOT NULL in DDL
+//   - a full-text index on a soft-delete table: deleted_at was put into it
+func TestGeneratedCodeCompilesForEveryFieldShape(t *testing.T) {
+	if err := genModule(t, shapeModule); err != nil {
+		t.Fatalf("tsq gen: %v", err)
+	}
+
+	tidyGenTestModule(t)
+
+	if output, err := exec.Command("go", "build", "./...").CombinedOutput(); err != nil {
+		t.Fatalf("generated code does not compile: %v\n%s", err, output)
+	}
+
+	table, err := os.ReadFile("wallet.tsq.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, want := range []string{"tsq.NullColumn[Wallet, pkg.V]", "tsq.NullColumn[Wallet, pkg1.V]", "tsq.NullColumn[Wallet, int64]", "ctx_ string", "db_ string", "t_ string", "tsq_ string"} {
+		if !strings.Contains(string(table), want) {
+			t.Errorf("wallet.tsq.go lacks %q", want)
+		}
+	}
+
+	mysql, err := os.ReadFile("mysql.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, want := range []string{"`amount` BIGINT,", "FULLTEXT INDEX `ft_wallets_note`(`note`)"} {
+		if !strings.Contains(string(mysql), want) {
+			t.Errorf("mysql.sql lacks %q:\n%s", want, mysql)
+		}
+	}
+
+	postgres, err := os.ReadFile("postgres.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if strings.Contains(string(postgres), `coalesce("deleted_at"`) {
+		t.Errorf("postgres.sql puts deleted_at into the full-text index:\n%s", postgres)
+	}
+}
+
+// TestGenRefusesToGuessACodecColumnType covers a type that implements
+// driver.Valuer: what it stores is up to Value, which the underlying string does
+// not tell, so the column type must be declared. It used to be guessed from the
+// underlying type, a VARCHAR here, and the first write of an integer failed.
+func TestGenRefusesToGuessACodecColumnType(t *testing.T) {
+	err := genModule(t, map[string]string{"model.go": `package gentest
+
+import "database/sql/driver"
+
+type Status string
+
+func (s Status) Value() (driver.Value, error) { return int64(len(s)), nil }
+
+//tsq:table
+type Row struct {
+	ID    int64  ` + "`db:\"id\"`" + `
+	State Status ` + "`db:\"state\"`" + `
+}
+`})
+	if err == nil || !strings.Contains(err.Error(), "implements driver.Valuer") || !strings.Contains(err.Error(), "type:") {
+		t.Fatalf("tsq gen = %v; want the codec type refused with the type: fix", err)
+	}
+}
+
+// TestGenRefusesTwoFieldsWithOneColumn covers a repeated db tag, and one tag on a
+// field list, which both produced a CREATE TABLE naming the column twice.
+func TestGenRefusesTwoFieldsWithOneColumn(t *testing.T) {
+	for name, fields := range map[string]string{
+		"repeated tag": "Name string `db:\"label\"`\n\tTitle string `db:\"LABEL\"`",
+		"field list":   "Name, Title string `db:\"label\"`",
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := genModule(t, map[string]string{"model.go": "package gentest\n\n//tsq:table\ntype Row struct {\n\tID int64 `db:\"id\"`\n\t" + fields + "\n}\n"})
+			if err == nil || !strings.Contains(err.Error(), "both map to column") {
+				t.Fatalf("tsq gen = %v; want the duplicate column refused", err)
+			}
+		})
+	}
+}
+
+// TestGenRemovesTheGoFilesItNoLongerGenerates covers a struct deleted from the
+// source: its generated file used to stay behind, naming a type that no longer
+// exists, so the package did not compile and gen --check failed after every gen.
+func TestGenRemovesTheGoFilesItNoLongerGenerates(t *testing.T) {
+	if err := genModule(t, shapeModule); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := os.Stat("walletbrief.result.tsq.go"); err != nil {
+		t.Fatalf("result file after the first gen: %v", err)
+	}
+
+	source, err := os.ReadFile("model.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cut := strings.Index(string(source), "//tsq:result")
+	writeTestFile(t, "model.go", string(source[:cut]))
+
+	if err := runGen(t); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := os.Stat("walletbrief.result.tsq.go"); !os.IsNotExist(err) {
+		t.Fatalf("stale result file: %v; want it removed", err)
+	}
+
+	if err := runGen(t, "--check"); err != nil {
+		t.Fatalf("gen --check after gen = %v", err)
+	}
+}

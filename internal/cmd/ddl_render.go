@@ -649,8 +649,11 @@ func classifyDDLColumnType(t types.Type, rawTag string) (ddlColumnDescriptor, er
 			)
 		}
 
+		// The same rule the generated Go uses: a nullable form here is a NullColumn
+		// there, so the column must accept NULL.
+		_, nullableValue := nullableValueType(t)
 		desc = ddlColumnDescriptor{
-			nullable: ddlTypeNullable(t),
+			nullable: ddlTypeNullable(t) || nullableValue,
 		}
 	}
 
@@ -739,6 +742,18 @@ func classifyDDLColumnTypeRecursive(
 			}
 		}
 
+		// A codec type decides its own representation, which the underlying type
+		// does not tell: a string type may store an integer. Guessing would create
+		// the column without an error and fail on the first write, so it is declared.
+		if method := codecMethod(value); method != "" {
+			err := fmt.Errorf("%s implements %s, so its column type cannot be derived", types.TypeString(value, nil), method)
+			if basic, ok := value.Underlying().(*types.Basic); ok {
+				err = fmt.Errorf("%w (database/sql already stores a named %s as itself, which needs neither method)", err, basic.Name())
+			}
+
+			return ddlColumnDescriptor{}, err
+		}
+
 		return classifyDDLColumnTypeRecursive(value.Underlying(), size, nullable)
 
 	case *types.Basic:
@@ -765,6 +780,29 @@ func classifyDDLColumnTypeRecursive(
 	}
 
 	return ddlColumnDescriptor{}, fmt.Errorf("unsupported DDL field type %s", types.TypeString(t, nil))
+}
+
+// codecMethod names the database/sql interface t implements, driver.Valuer or
+// sql.Scanner, or "" when it implements neither. The pointer's method set counts:
+// Scan has a pointer receiver.
+func codecMethod(t *types.Named) string {
+	for _, m := range []struct {
+		name, iface  string
+		params, outs int
+	}{{"Value", "driver.Valuer", 0, 2}, {"Scan", "sql.Scanner", 1, 1}} {
+		obj, _, _ := types.LookupFieldOrMethod(types.NewPointer(t), true, t.Obj().Pkg(), m.name)
+
+		fn, ok := obj.(*types.Func)
+		if !ok {
+			continue
+		}
+
+		if sig, ok := fn.Type().(*types.Signature); ok && sig.Params().Len() == m.params && sig.Results().Len() == m.outs {
+			return m.iface
+		}
+	}
+
+	return ""
 }
 
 func normalizeDDLStringSize(size int) int {

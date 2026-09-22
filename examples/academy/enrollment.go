@@ -1,7 +1,5 @@
 package academy
 
-import "database/sql/driver"
-
 // Enrollment records the learner's progress in a course.
 //
 //tsq:table name=enrollment pk=UID
@@ -37,10 +35,3 @@ const (
 	// EnrollmentStatusCancelled marks an enrollment that was cancelled.
 	EnrollmentStatusCancelled
 )
-
-var _ driver.Valuer = EnrollmentStatus(0)
-
-// Value stores the enum as an integer in the database.
-func (s EnrollmentStatus) Value() (driver.Value, error) {
-	return int64(s), nil
-}

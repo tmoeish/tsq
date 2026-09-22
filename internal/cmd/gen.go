@@ -207,13 +207,16 @@ Troubleshooting:
 			}
 		}
 
-		for _, entry := range ddlPlan {
+		// A file tsq generated that the sources no longer produce is removed, Go and
+		// DDL alike; left behind, a stale .tsq.go names a struct that is gone, and
+		// gen --check could never pass after gen.
+		for _, entry := range combinedPlan {
 			if entry.Status != generationPlanStale {
 				continue
 			}
 
 			if err := os.Remove(entry.Filename); err != nil && !os.IsNotExist(err) {
-				return fmt.Errorf("failed to remove stale DDL file: %s"+": %w", entry.Filename, err)
+				return fmt.Errorf("failed to remove stale generated file: %s"+": %w", entry.Filename, err)
 			}
 		}
 
@@ -388,6 +391,10 @@ func validateStructForGeneration(
 		return validateResultFields(data, structsByName)
 	}
 
+	if err := validateColumnNames(data); err != nil {
+		return err
+	}
+
 	if err := validatePrimaryKeyField(data); err != nil {
 		return err
 	}
@@ -405,6 +412,25 @@ func validateStructForGeneration(
 	}
 
 	return validateManagedFields(data)
+}
+
+// validateColumnNames refuses two fields mapped to one column, a repeated db tag or
+// one tag on a field list such as A, B string: the CREATE TABLE would name the
+// column twice. Names compare case-insensitively, as MySQL and SQLite compare them.
+func validateColumnNames(data *genmodel.StructInfo) error {
+	seen := make(map[string]string, len(data.Fields))
+
+	for _, field := range data.Fields {
+		key := strings.ToLower(field.Column)
+		if other, ok := seen[key]; ok {
+			return fmt.Errorf("%s.%s and %s.%s both map to column %s; give one of them another db tag",
+				data.TypeInfo.TypeName, other, data.TypeInfo.TypeName, field.Name, field.Column)
+		}
+
+		seen[key] = field.Name
+	}
+
+	return nil
 }
 
 // generatedDialects are the dialects tsq gen writes DDL for; every identifier must

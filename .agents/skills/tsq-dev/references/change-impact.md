@@ -380,6 +380,12 @@
 - **生成代码里出现的 `tsq.X` / `tsqdialect.X` 必须是那两个包真实导出的符号。** 模板和 helper 里
   的字符串不参与本包的类型检查，写错了要到使用者自己的工程里才炸；断言"发出了这个字符串"的
   单元测试证明不了这一点。`[门禁: internal/cmd/generated_symbols_test.go]`
+- **生成代码里的使用者类型，拼写和 import 必须同一个来源**：类型写 `FieldInfo.Spelled`（`go/types` 按本文件
+  的别名限定），import 写 `StructInfo.Imports`，两个模板（table、result）都要写 import 块。
+  `examples/academy` 只覆盖同包和标准库类型，**新增一种字段形状就往 `gen_test.go` 的 `shapeModule` 里加一个
+  字段**——那个测试真的 `go build` 生成物。`[门禁: TestGeneratedCodeCompilesForEveryFieldShape]`
+- 生成函数的参数名（`fieldVarName`）不能和函数自己用的标识符撞：`ctx`、`db`、接收者 `t`、函数体调用的
+  `tsq`，都在 `generatedIdentifiers` 里。给生成函数加参数或在函数体里用新的包名，就把它加进去。
 
 ## 改了生成的表声明（`table.go.tmpl`、`TableOf.Define`）
 
@@ -396,7 +402,13 @@
 - 三个方言的 `.sql` 输出都会变，`tsq.json` 快照也会变。看 diff 确认是预期的。
 - 自定义 codec 类型（`driver.Valuer` / `sql.Scanner`）推不出列类型，使用者必须写显式的
   `db:"...,type:..."`。改推导规则前先确认新规则不会让某类类型从"必须显式"变成"猜一个"——
-  猜错的列类型在建表那一刻不报错，在写入超长数据那一刻才报错。
+  猜错的列类型在建表那一刻不报错，在写入超长数据那一刻才报错。`[门禁: TestGenRefusesToGuessACodecColumnType]`
+- 显式 `type:` 分支的可空性必须和 Go 侧 `NullColumn` 的判据（`nullableValueType`）一致；两边各判一次就会
+  出现"Go 能写 NULL、列是 NOT NULL"。
+- 索引的列：唯一索引和普通索引在软删表上以 `deleted_at` 打头（`indexFieldNames`），**全文索引不加**。
+  模板（`FieldsToCols`）和快照（`ddl_state.go` 的 `appendIndexes`）两处要一起改。
+- 同一列不许被两个字段映射（`validateColumnNames`，大小写不敏感）：解析器把 `A, B string` 拆成两个字段，
+  各自带同一个标签。
 - `internal/sqldialect/ddl_reconcile_test.go` 覆盖运行期对账，生成期变了它可能跟着变。
 
 ## 改了生成文件的命名或文件头

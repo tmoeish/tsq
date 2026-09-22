@@ -1,7 +1,5 @@
 package academy
 
-import "database/sql/driver"
-
 // Course is the main catalog entity learners enroll into.
 //
 //tsq:table name=course pk=ID
@@ -50,10 +48,3 @@ const (
 	// CourseLevelAdvanced marks advanced specialist courses.
 	CourseLevelAdvanced
 )
-
-var _ driver.Valuer = CourseLevel(0)
-
-// Value stores the enum as an integer in the database.
-func (l CourseLevel) Value() (driver.Value, error) {
-	return int64(l), nil
-}

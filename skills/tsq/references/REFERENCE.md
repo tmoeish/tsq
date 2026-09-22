@@ -110,7 +110,7 @@ from the field's `db` tag.
 | directive | purpose |
 | --- | --- |
 | `//tsq:table [name=X] [pk=Field] [assigned]` | declares a physical table. Required once per table struct |
-| `//tsq:result [name=X]` | declares a projection that is not a table. Required once per result struct |
+| `//tsq:result` | declares a projection that is not a table. Required once per result struct; it takes no options |
 | `//tsq:managed role[=Field] ...` | enables managed columns: `version`, `created_at`, `updated_at`, `deleted_at` |
 | `//tsq:fulltext Field[,Field] [name=X]` | a full-text index over string fields, searched with `tsq.Matches` |
 | `//tsq:unique Fields[,Fields] [name=X]` | a unique index |
@@ -167,7 +167,8 @@ Rules:
 - a generated column is created with the table and never altered afterwards: every dialect reports
   it differently, so the schema policies leave it alone. Adding one to a table that already exists
   is a migration
-- use `type:` for custom Go types such as JSON slices that implement `driver.Valuer` / `sql.Scanner`; those runtime interfaces do not tell TSQ whether the column should be `JSON`, `TEXT`, `JSONB`, or another SQL type
+- a type that implements `driver.Valuer` or `sql.Scanner` (a JSON slice, a UUID, a nullable wrapper) **must** declare `type:`: what it stores is up to its `Value` method, which neither its Go type nor its underlying type tells, and `tsq gen` refuses to guess. A named basic type such as `type Level int` needs neither method, because database/sql stores it as its underlying type, and its column type is derived
+- a codec type that is a nullable form (a pointer, or a struct with a `Valid bool` and a `Scan` method) is a `NullColumn` in Go and a column that accepts NULL in the DDL
 - `type:` is emitted verbatim to generated dialect DDL, so only reuse the same value across dialects when that is actually correct
 - dialects may still choose a more suitable large-text type for oversized strings; for example, MySQL upgrades very large strings to `MEDIUMTEXT` / `LONGTEXT`
 
@@ -204,6 +205,8 @@ Supported field types:
 - a field repeated inside one index is invalid, and so are two indexes over the same field list
 - on a table declaring `deleted_at`, prefer an integer tombstone when the table also has unique
   indexes; nullable-time soft deletes are not portable there
+- on such a table a unique or plain index leads with `deleted_at`, so a deleted row does not hold a
+  unique value; a full-text index covers exactly the fields listed
 
 ### `//tsq:search`
 

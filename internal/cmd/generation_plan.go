@@ -189,6 +189,9 @@ func resolveNullValues(s *genmodel.StructInfo, resolver *ddlTypeResolver) error 
 		return err
 	}
 
+	// A package is spelled by the alias this file imports it under: two packages
+	// named pkg are imported as pkg and pkg1, and one named like a package the
+	// generated code uses (tsq, context) is renamed too.
 	qualifier := func(p *types.Package) string {
 		switch p.Path() {
 		case pkg.Path():
@@ -197,9 +200,13 @@ func resolveNullValues(s *genmodel.StructInfo, resolver *ddlTypeResolver) error 
 			return generatedTimeAlias
 		case importPathDatabaseSQL:
 			return generatedSQLAlias
-		default:
-			return p.Name()
 		}
+
+		if alias, ok := s.Imports[p.Path()]; ok {
+			return alias
+		}
+
+		return p.Name()
 	}
 
 	for i, field := range s.Fields {
@@ -216,8 +223,10 @@ func resolveNullValues(s *genmodel.StructInfo, resolver *ddlTypeResolver) error 
 		}
 
 		// The parser reads types from the AST and records a generic type by its
-		// base name; its full spelling, sql.Null[time.Time], comes from go/types.
-		if field.TypeArgs != "" {
+		// base name, and a package by its name rather than this file's alias; the
+		// spelling of a type from another package, sql.Null[time.Time] or pkg1.V,
+		// comes from go/types.
+		if field.TypeArgs != "" || field.Type.Package.Path != "" {
 			field.Spelled = types.TypeString(obj.Type(), qualifier)
 			changed = true
 		}
