@@ -38,7 +38,10 @@
   **每个**嵌入它的包装类型都有了这个方法——要靠接口把它藏起来。
 - `stagePhase` 只挡住"把接口断言回来"的调用，不是约束来源——别把类型约束改成运行期 if。
 - 新阶段要问"它能从哪些阶段进入"，以及"SQL 允许它跟在什么后面"：分组和集合操作之后没有
-  行锁（PostgreSQL 拒绝），带搜索的查询没有集合操作。
+  行锁（PostgreSQL 拒绝），带搜索的查询没有集合操作。**还要问它返回的阶段又能走到哪**：约束会沿着
+  返回类型传下去，`GroupedStage` 曾嵌着返回 `OrderedStage`（带 `Lockable`）的 `Sortable`，于是
+  `GroupBy().OrderBy().ForUpdate()` 能编译。`compilefail_test.go` 要为每条"绕一步"的路径各写一条，
+  不只写直接拼法。
 - ORDER BY / LIMIT 作用于整个查询，由 `writeTail` 在查询体**之外**、行锁**之前**写；查询体
   （`writeBody`）会被复用为集合操作数和 CTE 体。所以集合操作数自带的 ORDER BY / LIMIT / OFFSET / 锁
   **不会被写出来**，`setOp` 必须检查的是**操作数的** spec（曾经检查的是左侧自己，那条分支阶段类型

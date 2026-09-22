@@ -38,6 +38,16 @@ type Sortable[O any] interface {
 	Offset(offset int) OrderedStage[O]
 }
 
+// ResultSortable is the part of a grouped or combined stage that can order and
+// slice the result. Those rows are not rows of a table, so an ordered result
+// cannot be locked: PostgreSQL refuses FOR UPDATE with GROUP BY, HAVING and set
+// operations, and ordering first does not change that.
+type ResultSortable[O any] interface {
+	OrderBy(orders ...OrderBy) OrderedResultStage[O]
+	Limit(limit int) OrderedResultStage[O]
+	Offset(offset int) OrderedResultStage[O]
+}
+
 // Lockable is the part of a stage that can lock the rows it reads. Row locks only
 // mean something inside a transaction.
 type Lockable[O any] interface {
@@ -119,7 +129,7 @@ type FilteredStage[O any] interface {
 // GroupedStage is a query with GROUP BY. Grouped rows cannot be locked.
 type GroupedStage[O any] interface {
 	QueryStage[O]
-	Sortable[O]
+	ResultSortable[O]
 	Combinable[O]
 	Having(conds ...Condition) HavingStage[O]
 }
@@ -127,15 +137,22 @@ type GroupedStage[O any] interface {
 // HavingStage is a grouped query with HAVING.
 type HavingStage[O any] interface {
 	QueryStage[O]
-	Sortable[O]
+	ResultSortable[O]
 	Combinable[O]
 }
 
 // CompoundStage is a query combined with others by set operations.
 type CompoundStage[O any] interface {
 	QueryStage[O]
-	Sortable[O]
+	ResultSortable[O]
 	Combinable[O]
+}
+
+// OrderedResultStage is a grouped or combined query with ORDER BY, LIMIT or
+// OFFSET. Unlike OrderedStage it cannot be locked.
+type OrderedResultStage[O any] interface {
+	QueryStage[O]
+	ResultSortable[O]
 }
 
 // OrderedStage is a query with ORDER BY, LIMIT or OFFSET.
@@ -357,6 +374,22 @@ func (j joinBuilder[O]) Search(cols ...SearchColumn) SearchStage[O] {
 
 type whereBuilder[O any] struct{ *builder[O] }
 
+// resultBuilder is a grouped or combined query: its ordering methods return a stage
+// that cannot be locked.
+type resultBuilder[O any] struct{ *builder[O] }
+
+func (r resultBuilder[O]) OrderBy(orders ...OrderBy) OrderedResultStage[O] {
+	return resultBuilder[O]{r.orderBy(orders)}
+}
+
+func (r resultBuilder[O]) Limit(limit int) OrderedResultStage[O] {
+	return resultBuilder[O]{r.limit(limit)}
+}
+
+func (r resultBuilder[O]) Offset(offset int) OrderedResultStage[O] {
+	return resultBuilder[O]{r.offset(offset)}
+}
+
 func (w whereBuilder[O]) Search(cols ...SearchColumn) FilteredStage[O] {
 	return w.search(cols)
 }
@@ -379,7 +412,7 @@ func (b *builder[O]) GroupBy(cols ...SQLColumn) GroupedStage[O] {
 
 	n.spec.GroupBy = append(n.spec.GroupBy, cols...)
 
-	return n
+	return resultBuilder[O]{n}
 }
 
 func (b *builder[O]) Having(conds ...Condition) HavingStage[O] {
@@ -390,7 +423,7 @@ func (b *builder[O]) Having(conds ...Condition) HavingStage[O] {
 
 	n.spec.Having = append(n.spec.Having, conds...)
 
-	return n
+	return resultBuilder[O]{n}
 }
 
 func (b *builder[O]) setOp(op setOperationType, other QueryStage[O]) CompoundStage[O] {
@@ -399,7 +432,7 @@ func (b *builder[O]) setOp(op setOperationType, other QueryStage[O]) CompoundSta
 	spec, err := stageSpec(other)
 	if err != nil {
 		n.fail(err)
-		return n
+		return resultBuilder[O]{n}
 	}
 
 	// The operand's own ORDER BY, LIMIT, OFFSET and lock would not be rendered: a
@@ -410,7 +443,7 @@ func (b *builder[O]) setOp(op setOperationType, other QueryStage[O]) CompoundSta
 
 	n.spec.SetOps = append(n.spec.SetOps, setOperation[O]{op: op, spec: spec})
 
-	return n
+	return resultBuilder[O]{n}
 }
 
 func (b *builder[O]) Union(other QueryStage[O]) CompoundStage[O] { return b.setOp(unionType, other) }
@@ -435,7 +468,13 @@ func (b *builder[O]) ExceptAll(other QueryStage[O]) CompoundStage[O] {
 	return b.setOp(exceptAllType, other)
 }
 
-func (b *builder[O]) OrderBy(orders ...OrderBy) OrderedStage[O] {
+func (b *builder[O]) OrderBy(orders ...OrderBy) OrderedStage[O] { return b.orderBy(orders) }
+
+func (b *builder[O]) Limit(limit int) OrderedStage[O] { return b.limit(limit) }
+
+func (b *builder[O]) Offset(offset int) OrderedStage[O] { return b.offset(offset) }
+
+func (b *builder[O]) orderBy(orders []OrderBy) *builder[O] {
 	n := b.enter("OrderBy", phasePaged)
 
 	switch {
@@ -456,7 +495,7 @@ func (b *builder[O]) OrderBy(orders ...OrderBy) OrderedStage[O] {
 	return n
 }
 
-func (b *builder[O]) Limit(limit int) OrderedStage[O] {
+func (b *builder[O]) limit(limit int) *builder[O] {
 	n := b.enter("Limit", phasePaged)
 
 	switch {
@@ -471,7 +510,7 @@ func (b *builder[O]) Limit(limit int) OrderedStage[O] {
 	return n
 }
 
-func (b *builder[O]) Offset(offset int) OrderedStage[O] {
+func (b *builder[O]) offset(offset int) *builder[O] {
 	n := b.enter("Offset", phasePaged)
 
 	switch {
@@ -490,6 +529,12 @@ func (b *builder[O]) lock(strength queryLockStrength) LockedStage[O] {
 	n := b.enter(string(strength), phaseLocked)
 	if n.spec.Lock.strength != "" {
 		n.fail(errors.New("row lock is already set"))
+	}
+
+	// The stage types already keep a lock off grouped and combined rows; this
+	// catches a caller who asserts past them.
+	if len(n.spec.GroupBy) > 0 || len(n.spec.SetOps) > 0 {
+		n.fail(errors.New("grouped or combined rows cannot be locked"))
 	}
 
 	n.spec.Lock = queryLock{strength: strength}

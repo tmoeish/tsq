@@ -152,8 +152,9 @@ v4 的 `EQVar()` 往参数列表里塞标记，值从 `List(ctx, db, args ...any
 
 ### 查询构建器：阶段接口
 
-约束来自**接口的返回类型**。一个具体 `builder[O]` 实现所有公共方法；只有 `Where` / `Search`
-在不同阶段返回不同接口，由 `joinBuilder` / `whereBuilder` / `searchBuilder` 三个薄包装提供。
+约束来自**接口的返回类型**。一个具体 `builder[O]` 实现所有公共方法；在不同阶段返回不同接口的方法
+由薄包装提供：`Where` / `Search` 在 `joinBuilder` / `whereBuilder` / `searchBuilder` 上，分组和集合
+之后的 `OrderBy` / `Limit` / `Offset` 在 `resultBuilder` 上（`GroupBy` / `Having` / `setOp` 返回它）。
 
 ```
 Select ─► SelectStage ─From──┐
@@ -162,11 +163,19 @@ JoinStage ─Where─► WhereStage ─Search─► FilteredStage
 JoinStage ─Search► SearchStage ─Where─► FilteredStage
 (Join/Where/Search/Filtered) ─GroupBy─► GroupedStage ─Having─► HavingStage
 (Join/Where/Grouped/Having/Compound) ─Union...─► CompoundStage
-(大多数阶段) ─OrderBy/Limit/Offset─► OrderedStage ─ForUpdate/ForShare─► LockedStage
+(Join/Where/Search/Filtered) ─OrderBy/Limit/Offset─► OrderedStage ─ForUpdate/ForShare─► LockedStage
+(Grouped/Having/Compound) ─OrderBy/Limit/Offset─► OrderedResultStage（没有行锁）
 ```
 
-- 分组、HAVING、集合操作之后**没有**行锁（PostgreSQL 拒绝，这里在类型上就拒绝）；带搜索的
+- 分组、HAVING、集合操作之后**没有**行锁（PostgreSQL 拒绝，这里在类型上就拒绝），**排序之后也没有**：
+  它们嵌的是 `ResultSortable`，返回不带 `Lockable` 的 `OrderedResultStage`。曾经只有一种 `Sortable`，
+  它返回的 `OrderedStage` 带 `Lockable`，绕一次 `OrderBy` 锁就回来了——**加阶段时，每个排序后的
+  类型也要回答"还能不能锁"**。`lock()` 另有运行期兜底，只防断言回具体类型的人。带搜索的
   阶段没有集合操作（关键词搜索不能跨集合）。
+- 集合操作按**输出列的名字**排序：不是裸列引用的选择项写 `AS <Name()>`（`selectItem`，`columnCore.bare`
+  标记"投影的 SQL 仍是裸列引用"），`checkCompoundOrder` 只接受选中的项或名字唯一对得上的裸列。
+  CTE 的列查找（`outputNames`）用的是同一个名字。嵌套的集合操作数写成派生表 `SELECT * FROM (…) AS
+  "tsq_set"`：SQLite 不认带括号的复合 SELECT。
 - `builder` 里的 `stagePhase` 序号只挡住"把接口断言回来再调"的人，不是约束来源。
 - `Build()` 调 `querySpec.validate`，只做**结构**校验：FROM/JOIN 图、`Correlate`（包括
   子查询透出的外层表必须在外层查询里）、集合操作列数、`Offset` 需要 `Limit`、CTE 环、

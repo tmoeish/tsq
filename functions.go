@@ -31,6 +31,7 @@ func derived[T any](col SQLColumn, info exprInfo) Expression[T] {
 	next := *col.core()
 	next.info = info
 	next.plain = false
+	next.bare = false
 	next.scan = nil
 	next.nullable = false
 

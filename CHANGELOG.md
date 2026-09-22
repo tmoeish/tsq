@@ -159,6 +159,10 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 - **`ListIn` 会把 `Not(col.In(list))` 按块拆开**：每块 `NOT IN` 都匹配其他块排除的行，结果被重复拼接且不报错。现在和 `NotIn` 一样拒绝。
 - **`driver.Valuer` 值的 NULL 检查从未生效**：`Pred` / `Expr` 里的 `sql.NullString` 这类结构体 Valuer 被当成不可比较而拒绝，底层不是结构体的 Valuer 即使是 NULL 也被放行，渲染成 `col = NULL` 静默零行。游标分页对 NULL 的排序值同样漏检。
 - **集合操作的操作数自带的 `OrderBy` / `Limit` / `Offset` / 行锁被静默丢弃**：守卫检查的是左侧而不是操作数，`Union(q.OrderBy(...).Limit(3))` 渲染时前三条的限制消失。现在构建时报错。
+- **分组、HAVING、集合操作之后绕一次 `OrderBy` 就能加行锁**：`GroupBy(...).OrderBy(...).ForUpdate()` 能编译，PostgreSQL 拒绝执行。现在这些阶段的 `OrderBy` / `Limit` / `Offset` 返回新的 `OrderedResultStage`（经 `ResultSortable`），上面没有 `ForUpdate` / `ForShare`。
+- **聚合、`CASE` 等派生选择项没有列名，CTE 和集合操作的 `ORDER BY` 按名字找不到它们**：`CTE` 里的 `SUM(fee_cents)` 在外层用 `FeeCents.WithTable(cte)` 引用时报 `no such column`，集合操作按派生项排序时 SQLite 报 `does not match any column`。现在不是裸列的选择项写成 `AS <列名>`；集合操作的排序项必须是输出列（`ResultColumn` 新增 `Asc()` / `Desc()` 用来按选中的投影排序），`Upper(col)` 这类没选中的表达式在构建时报错，而不是被静默换成它包着的列。
+- **嵌套的集合操作在 SQLite 上是语法错误**：`a.Union(b.Union(c))` 渲染成带括号的复合 SELECT，SQLite 不认。现在嵌套的操作数写成派生表，三个方言都能执行。
+- **`UpdateTable(nil)` 或 `Set(nil, ...)` 直接 panic**：现在和构建器其他地方一样是构建错误。
 - **实现了 `driver.Valuer` / `sql.Scanner` 的自定义类型被按底层类型猜列类型**：文档一直要求这类字段写显式 `type:`，生成器却没有检查，`type Status string` 的 `Value()` 返回整数时建出 `VARCHAR` 列，写入时才报错。现在 `tsq gen` 拒绝并给出修法；只是按底层类型存储的具名类型（`type Level int`）不需要 `Value()`，删掉它即可推导。显式 `type:` 的可空 codec 类型（带 `Valid bool` 的结构体）此前在 Go 侧是 `NullColumn`、DDL 里却是 `NOT NULL`，现在两边一致。
 - **几种字段形状让生成代码编译不过**：result 字段的类型来自别的包时 result 文件不写 import；两个同名包的类型都按包名拼写（导入的是 `pkg` / `pkg1`）；本包泛型类型用别的包的类型实例化时漏掉那个 import；唯一索引字段叫 `Ctx` / `Db` / `T` / `Tsq` 时生成的 `GetByX` 参数和 `ctx`、`db`、接收者、`tsq` 包重名。
 - **软删除表上的全文索引带上了 `deleted_at`**：MySQL 拒绝把整数列放进 FULLTEXT，PostgreSQL 的 `coalesce` 类型不匹配，两边的 DDL 都执行不了。唯一索引和普通索引仍以 `deleted_at` 打头。
