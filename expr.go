@@ -155,6 +155,9 @@ func Or(conds ...Condition) Condition {
 // Not negates a condition.
 func Not(cond Condition) Condition {
 	info := conditionInfo(cond)
+	// NOT (col IN (list)) is not a condition ListIn can split: each chunk would
+	// match the rows the other chunks exclude.
+	info.inList = nil
 
 	return newCondition(info.withSQL(sqlJoin(sqlText("NOT ("), info.sql, sqlText(")"))))
 }

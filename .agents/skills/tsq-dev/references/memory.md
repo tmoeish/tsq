@@ -178,6 +178,11 @@ MySQL 的 `LENGTH` 数字节；PostgreSQL 没有 `round(double, int)`；modernc 
 - **派生表达式不是列**：`derived` 不留扫描目标，`Select(tsq.Date(时间列))` 在编译期就写不出来（以前运行期
   扫描失败）；单值查询走 `SelectValue`。
 - **Go 1.27 允许组合字面量用提升字段作键**（`outer{c: 1}`）：拆结构体时旧字面量照样编译，别当成改完了。
+- **SQLite 表达式深度上限 1000 恰等于默认批量大小**（2026-09-22）：每行一个 `OR` 的版本匹配从 998 行起被拒，无 `version`
+  的表走扁平 `IN` 所以测试一直绿。批量 WHERE 只用扁平形状（`IN`、`CASE` 分支）；不用行值 `IN`（SQLite 文档要求右侧是
+  子查询，MySQL 的 `VALUES` 要 `ROW(...)`）。门是 `TestBatchWritesFitTheDefaultBatchOnSQLite`。
+- **`driver.Value` 是定义类型**（2026-09-22）：手写的 `interface{ Value() (any, error) }` 永远不匹配 `driver.Valuer`，两处
+  NULL 检查因此从未生效（审计发现）。只断言 `driver.Valuer`，门是 `TestValuersAreComparedByTheirValue`。
 - **NULL 排序默认最小值**：MySQL/SQLite 本来如此只需改 PG；换默认就得给 MySQL 每个可空排序加 `IS NULL` 键。
 - **时间在绑定出口统一转 UTC，不只是托管时间戳**：SQLite 按文本存时间，本地时间和 UTC 行按文本比较会错。
 - **超长列表参数用显式 `ListIn`，否决自动分块**：`OR`、`NOT IN`、排序、聚合、LIMIT 分块后语义都变。
@@ -446,11 +451,6 @@ tag，想打 tag 得先过 `release-check`。所以 `make build-gen` **故意不
 
 一波变更本来就可能合法地改动生成物，`git diff` 会对每一波正当改动都失败。判据只能是
 "重新渲染一遍看结果一不一样"，即 `make gen-check`。
-
-### `make commit-check` 单独存在时是失效的 (2026-08-21)
-
-未提交时它跳过，提交后 `memory-check` 又跳过，写提交信息那一刻活着的永远是另一道门。
-提交信息真正被校验的唯一时机是 `commit-msg` 钩子，`make hooks` 每台机器必须跑一次。
 
 ## 搁置项与决定不做的事
 

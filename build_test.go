@@ -74,6 +74,14 @@ func TestBuildRejectsInvalidStructure(t *testing.T) {
 			stage: Select(User_ID).From(Users).Offset(5),
 			want:  "offset requires limit",
 		},
+		"set operand ordered": {
+			stage: Select(User_ID).From(Users).Union(Select(User_ID).From(Users).OrderBy(User_ID.Desc()).Limit(3)),
+			want:  "operands cannot order, limit or lock",
+		},
+		"set operand locked": {
+			stage: Select(User_ID).From(Users).UnionAll(Select(User_ID).From(Users).ForUpdate()),
+			want:  "operands cannot order, limit or lock",
+		},
 		"set operand width": {
 			stage: Select(User_ID).From(Users).Union(Select(User_ID, User_Name).From(Users)),
 			want:  "matching select column counts",
