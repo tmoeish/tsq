@@ -2183,6 +2183,7 @@ type Wallet struct {
 	Data      Box[ext.Money] ` + "`db:\"data,type:TEXT\"`" + `
 	Amount    NullMoney      ` + "`db:\"amount,type:BIGINT\"`" + `
 	DeletedAt int64          ` + "`db:\"deleted_at\"`" + `
+	Quoted    string         ` + "`db:\"quoted,size:8\" json:\"say \\\"hi\\\"\"`" + `
 }
 
 //tsq:result
@@ -2202,6 +2203,7 @@ type WalletBrief struct {
 //     the receiver and the tsq package
 //   - NullMoney with type:: a NullColumn in Go but NOT NULL in DDL
 //   - a full-text index on a soft-delete table: deleted_at was put into it
+//   - a JSON tag holding a quote: tag values were pasted into string literals
 func TestGeneratedCodeCompilesForEveryFieldShape(t *testing.T) {
 	if err := genModule(t, shapeModule); err != nil {
 		t.Fatalf("tsq gen: %v", err)
@@ -2315,5 +2317,40 @@ func TestGenRemovesTheGoFilesItNoLongerGenerates(t *testing.T) {
 
 	if err := runGen(t, "--check"); err != nil {
 		t.Fatalf("gen --check after gen = %v", err)
+	}
+}
+
+// TestMigrationWarnsOfANotNullColumnWithoutDefault covers the ADD COLUMN a
+// migration record holds for a new field. A NOT NULL column with no default fails
+// on a table with rows on every dialect, and the statement was written without a
+// word; it now carries a comment saying so and how to fix it.
+func TestMigrationWarnsOfANotNullColumnWithoutDefault(t *testing.T) {
+	model := func(fields string) string {
+		return "package gentest\n\n//tsq:table\ntype Row struct {\n\tID int64 `db:\"id\"`\n" + fields + "}\n"
+	}
+
+	if err := genModule(t, map[string]string{"model.go": model("")}); err != nil {
+		t.Fatal(err)
+	}
+
+	writeTestFile(t, "model.go", model("\tAge int64 `db:\"age\"`\n\tNote *string `db:\"note,size:20\"`\n"))
+
+	if err := runGen(t); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, file := range []string{"mysql.sql", "postgres.sql", "sqlite.sql"} {
+		ddl, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if !strings.Contains(string(ddl), "-- row: age is NOT NULL without a default, which fails on a table with rows") {
+			t.Errorf("%s does not warn about age:\n%s", file, ddl)
+		}
+
+		if strings.Contains(string(ddl), "note is NOT NULL") {
+			t.Errorf("%s warns about a nullable column:\n%s", file, ddl)
+		}
 	}
 }

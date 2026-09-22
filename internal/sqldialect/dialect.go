@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
@@ -403,7 +404,9 @@ func validateBuiltInIdentifier(name string) error {
 	return nil
 }
 
-func validateIndex(
+// ValidateIndex reports whether existing is the index idx over fields that table
+// declares; the runtime and EnsureIndex compare a live index the same way.
+func ValidateIndex(
 	table string,
 	unique bool,
 	idx string,
@@ -419,7 +422,7 @@ func validateIndex(
 		)
 	}
 
-	if existing.Unique != unique || !sameOrderedFields(existing.Fields, fields) {
+	if existing.Unique != unique || !slices.Equal(existing.Fields, fields) {
 		return fmt.Errorf(
 			"index %s on table %s has definition unique=%t fields=%v, expected unique=%t fields=%v",
 			idx,
@@ -432,20 +435,6 @@ func validateIndex(
 	}
 
 	return nil
-}
-
-func sameOrderedFields(left, right []string) bool {
-	if len(left) != len(right) {
-		return false
-	}
-
-	for i := range left {
-		if left[i] != right[i] {
-			return false
-		}
-	}
-
-	return true
 }
 
 func parseColumnsCSV(csv string) []string {

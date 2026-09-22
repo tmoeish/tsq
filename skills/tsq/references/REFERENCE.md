@@ -915,7 +915,9 @@ Row writes are methods on the table descriptor, and the generated row methods ca
   TableCourse.Title)` / `row.Update(ctx, db, TableCourse.Title)` writes only `title` (plus
   `updated_at` and `version`). TSQ remembers the rows a partial `Select` returns (weakly, so they
   are forgotten when dropped), and a plain `Update`, `BatchUpdate` or `Upsert` of one fails with
-  an error naming the columns it was read with, instead of overwriting the others with zero values
+  an error naming the columns it was read with, instead of overwriting the others with zero values.
+  An `Update` that fails leaves the row as it was: `updated_at` and `version` change only when the
+  statement succeeds
 - `TableCourse.BatchInsert(ctx, db, rows, options...)`, and `BatchUpdate`, `BatchHardDelete`, and
   `BatchDelete` on a soft-delete table
 - `TableCourse.Upsert(ctx, db, &row, key...)` and `BatchUpsert(ctx, db, rows, key, options...)`

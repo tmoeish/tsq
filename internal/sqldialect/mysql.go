@@ -247,7 +247,7 @@ func (d MySQLDialect) EnsureIndex(ctx context.Context, db Executor, table, idx s
 	_, err = db.ExecContext(ctx, query)
 	if err != nil {
 		definition, found, inspectErr := d.InspectIndex(ctx, db, table, idx)
-		if inspectErr == nil && found && validateIndex(table, unique, idx, fields, definition) == nil {
+		if inspectErr == nil && found && ValidateIndex(table, unique, idx, fields, definition) == nil {
 			return "", nil
 		}
 

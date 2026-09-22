@@ -866,14 +866,6 @@ func (t *TableOf[R, K]) update(ctx context.Context, db Executor, rows []*R, conf
 		return err
 	}
 
-	if col := def.column(def.managed.UpdatedAt); col != nil {
-		for _, row := range rows {
-			if err := applyTimestamp(field(row, col), now); err != nil {
-				return fmt.Errorf("table %s: %w", def.name, err)
-			}
-		}
-	}
-
 	version := def.column(def.managed.Version)
 
 	// created_at is written once, and deleted_at only by Delete and Restore: a row
@@ -928,12 +920,52 @@ func (t *TableOf[R, K]) update(ctx context.Context, db Executor, rows []*R, conf
 	size := effectiveChunkSize(config.size, 2*len(cols)+keyMatchParams(def), sqld.MaxBindParams(scope.dialect))
 
 	for _, chunk := range chunks(rows, size) {
+		// The statement reads updated_at from the rows, so it is stamped into them
+		// just before, and put back when the statement fails: a refused update must
+		// not leave the caller's rows holding a time the database never stored, as
+		// version is only incremented once the statement succeeds.
+		restore, err := stampUpdatedAt(def, chunk, now)
+		if err != nil {
+			return err
+		}
+
 		if err := t.updateChunk(ctx, db, scope, def, cols, version, chunk); err != nil {
+			restore()
 			return err
 		}
 	}
 
 	return nil
+}
+
+// stampUpdatedAt writes now into the updated_at field of rows and returns what puts
+// the previous values back.
+func stampUpdatedAt[R any](def *tableDef, rows []*R, now time.Time) (func(), error) {
+	col := def.column(def.managed.UpdatedAt)
+	if col == nil {
+		return func() {}, nil
+	}
+
+	previous := make([]reflect.Value, 0, len(rows))
+	restore := func() {
+		for i, value := range previous {
+			field(rows[i], col).Set(value)
+		}
+	}
+
+	for _, row := range rows {
+		f := field(row, col)
+		held := reflect.New(f.Type()).Elem()
+		held.Set(f)
+		previous = append(previous, held)
+
+		if err := applyTimestamp(f, now); err != nil {
+			restore()
+			return nil, fmt.Errorf("table %s: %w", def.name, err)
+		}
+	}
+
+	return restore, nil
 }
 
 func (t *TableOf[R, K]) updateChunk(ctx context.Context, db Executor, scope execScope, def *tableDef, cols []*columnCore, version *columnCore, rows []*R) error {

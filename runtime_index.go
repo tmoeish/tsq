@@ -1,68 +1,9 @@
 package tsq
 
 import (
-	"context"
-	"database/sql"
 	"errors"
 	"fmt"
-
-	sqld "github.com/tmoeish/tsq/v5/internal/sqldialect"
 )
-
-func inspectIndexDefinition(
-	ctx context.Context,
-	db *sql.DB,
-	sqlDialect sqld.Dialect,
-	table string,
-	idx string,
-) (sqld.Index, bool, error) {
-	return sqlDialect.InspectIndex(ctx, db, table, idx)
-}
-
-func validateIndex(
-	table string,
-	unique bool,
-	idx string,
-	fields []string,
-	existing sqld.Index,
-) error {
-	if existing.Table != table {
-		return fmt.Errorf(
-			"index %s already exists on table %s, expected table %s",
-			idx,
-			existing.Table,
-			table,
-		)
-	}
-
-	if existing.Unique != unique || !sameOrderedFields(existing.Fields, fields) {
-		return fmt.Errorf(
-			"index %s on table %s has definition unique=%t fields=%v, expected unique=%t fields=%v",
-			idx,
-			table,
-			existing.Unique,
-			existing.Fields,
-			unique,
-			fields,
-		)
-	}
-
-	return nil
-}
-
-func sameOrderedFields(left, right []string) bool {
-	if len(left) != len(right) {
-		return false
-	}
-
-	for i := range left {
-		if left[i] != right[i] {
-			return false
-		}
-	}
-
-	return true
-}
 
 func validateIndexIdentifiers(table, idx string, fields []string) error {
 	if err := validateBuiltInIdentifier(table); err != nil {
@@ -84,60 +25,4 @@ func validateIndexIdentifiers(table, idx string, fields []string) error {
 	}
 
 	return nil
-}
-
-func upsertIndex(
-	ctx context.Context,
-	db *sql.DB,
-	sqlDialect sqld.Dialect,
-	policy SchemaPolicy,
-	table string,
-	unique bool,
-	idx string,
-	fields []string,
-) error {
-	if db == nil {
-		return errors.New("database connection cannot be nil")
-	}
-
-	if sqlDialect == nil {
-		return errors.New("database dialect is required")
-	}
-
-	if err := validateIndexIdentifiers(table, idx, fields); err != nil {
-		return err
-	}
-
-	mode := resolveSchemaPolicy(policy)
-	if mode == SchemaPolicyManual {
-		return nil
-	}
-
-	definition, found, err := inspectIndexDefinition(ctx, db, sqlDialect, table, idx)
-	if err != nil {
-		return err
-	}
-
-	if found {
-		if err := validateIndex(table, unique, idx, fields, definition); err == nil || mode == SchemaPolicyValidate || mode == SchemaPolicyCreateMissing {
-			return err
-		}
-
-		if _, err := db.ExecContext(ctx, sqlDialect.DropIndexSQL(table, idx)); err != nil {
-			return err
-		}
-	}
-
-	if !found && mode == SchemaPolicyValidate {
-		return &MissingIndexError{
-			Table:   table,
-			Name:    idx,
-			Columns: append([]string(nil), fields...),
-			Unique:  unique,
-		}
-	}
-
-	_, err = sqlDialect.EnsureIndex(ctx, db, table, idx, fields, unique)
-
-	return err
 }

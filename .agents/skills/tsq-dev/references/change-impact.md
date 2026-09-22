@@ -231,6 +231,8 @@
   的记账表做这件事，两个共用数据库的服务因此互删对方的表连同数据。一个 runtime 只知道自己声明了
   什么，分不清"这张表不该存在了"和"这张表是别人的"。**列不在此列**：`Reconcile` 删不再声明的列是
   有意的，`TestReconcileDropsUndeclaredColumns` 钉着。理由见 `memory.md`。
+- 索引定义只有一种比较：`sqldialect.ValidateIndex`（运行期策略和 `EnsureIndex` 共用），别在根包再写一份——
+  上一份副本 `upsertIndex` 没人调用，却已经和真实路径漂移。"applied ddl" 只在语句成功之后记（重建在提交之后）。
 - **SQLite 的重建**（`rebuildTable`，`AlterMode() == AlterRebuild` 时改列类型走这里）从声明的列建新表，
   所以旧表 CREATE TABLE 里声明之外的东西（UNIQUE / CHECK / 外键）、以及别处引用这张表的视图、触发器、
   外键都会丢或悬空：`InspectRebuild` 把它们列成 `Blockers`，有就拒绝重建。表自己的索引和触发器按
@@ -324,14 +326,15 @@
 - 开关必须从**导出的** `With*` 选项一路接到消费点。中途任何一段不可达，
   那个特性在发布出去的库里就不存在，而源码看着像它能用。
 - 判据同"给 `Dialect` 接口加了钩子"那条：**grep 一遍调用方**。只被 `_test.go` 引用的
-  未导出符号是这类缺陷的典型形态——`unused` linter 看不见它（测试里的引用算使用），
-  所以 grep 时要显式排除 `_test.go`。
+  未导出符号是这类缺陷的典型形态——`unused` linter 看不见它（测试里的引用算使用）。
+  `[门禁: deadcode_test.go 的 TestNoUnexportedCodeOnlyTestsReach]`；它按名字匹配、不看类型，同名的
+  两个声明会互相遮住，所以接进导出选项这一段仍要自己 grep。
 - `printSQL` context key 加它的三个未导出 tracer 就是这样活了很久：八处
   `ctx.Value(printSQL)` 在库里永远为假，唯一能设置它的 `printSQLTracer` 没导出。
 
 ## 加了或改了 `Capability` 常量
 
-- 公开 `dialect/dialect.go` 的 `allCapabilities` 加一行，`capabilities` 里**三张方言表各加一行**，
+- `dialect/dialect_test.go` 的 `allCapabilities` 加一行，`dialect/dialect.go` 的 `capabilities` 里**三张方言表各加一行**，
   true/false 都要显式写出来。`[门禁: dialect/dialect_test.go 的 TestEnginesCoverAllCapabilities]`
 - `dialect.Supports` 只做查表，**不要再引入 `default` 分支**——那正是这道门要挡的东西。
   `internal/sqldialect` 的 `SupportsCapability` 只转发给它，不另存一份表。

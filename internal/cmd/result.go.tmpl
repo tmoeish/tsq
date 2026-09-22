@@ -33,7 +33,7 @@ var {{$var}} = {{$resultType}}{
 {{- range $f := .Fields }}
 	{{$f.Name}}: {{ if $f.NullValue }}tsq.MapIntoNull{{ else }}tsq.MapInto{{ end }}({{$f.Column}}, func(holder *{{$type}}) *{{$f | FieldType}} {
 		return &holder.{{$f.Name}}
-	}).Named("{{$f.JSONTag}}"),
+	}).Named({{ printf "%q" $f.JSONTag }}),
 {{- end }}
 }
 

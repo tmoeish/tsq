@@ -1,6 +1,7 @@
 package tsq
 
 import (
+	"context"
 	"database/sql"
 	"database/sql/driver"
 	"reflect"
@@ -68,5 +69,33 @@ func TestManagedTimestampKinds(t *testing.T) {
 	var bad string
 	if err := applyTimestamp(reflect.ValueOf(&bad).Elem(), now); err == nil {
 		t.Fatal("expected an unsupported type to be refused")
+	}
+}
+
+// TestRefusedUpdatesLeaveUpdatedAtAlone covers the caller's row after an Update
+// that did not happen. updated_at used to be written into it before anything was
+// checked, so a version conflict left the row holding a time the database never
+// stored, while its version stayed where it was.
+func TestRefusedUpdatesLeaveUpdatedAtAlone(t *testing.T) {
+	ctx := context.Background()
+	rt := newSQLite(t)
+	row := seedUsers(t, rt, "a")[0]
+
+	stale := *row
+	row.Name = "moved on"
+
+	if err := Users.Update(ctx, rt, row); err != nil {
+		t.Fatal(err)
+	}
+
+	stamp := stale.UpdatedAt
+	stale.Name = "lost"
+
+	if err := Users.Update(ctx, rt, &stale); !IsOptimisticLockError(err) {
+		t.Fatalf("Update of a stale copy = %v; want an OptimisticLockError", err)
+	}
+
+	if !stale.UpdatedAt.Equal(stamp) {
+		t.Fatalf("updated_at of the refused row = %v, want %v as loaded", stale.UpdatedAt, stamp)
 	}
 }

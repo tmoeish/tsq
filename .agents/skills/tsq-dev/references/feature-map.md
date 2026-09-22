@@ -114,6 +114,7 @@
 | --- | --- |
 | 本波变更范围的唯一定义 | `script/changeset.py` |
 | 内存与提交信息门禁 | `script/check_change_log.py` |
+| 只被测试引用的非导出代码（根包、`dialect`、各 internal 包） | `deadcode_test.go`（`TestNoUnexportedCodeOnlyTestsReach`，随 `make test` 跑） |
 | 技能同步触发表 | `script/check_skills.py` |
 | 生成物同步 | `script/check_generated.py` |
 | 对外 Go 契约快照 | `script/check_api_surface.py` |

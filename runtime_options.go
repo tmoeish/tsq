@@ -76,7 +76,8 @@ func WithSQLLogging() RuntimeOption {
 }
 
 // WithMaxPageSize caps PageRequest.Size for paged queries run through this
-// runtime. It defaults to DefaultMaxPageSize.
+// runtime. It defaults to DefaultMaxPageSize; a size below 1 is an error, not a
+// request for the default.
 func WithMaxPageSize(size int) RuntimeOption {
 	return func(cfg *runtimeConfig) {
 		cfg.maxPageSize = size
@@ -85,7 +86,9 @@ func WithMaxPageSize(size int) RuntimeOption {
 
 // newRuntimeConfig applies options in order and validates the result.
 func newRuntimeConfig(options []RuntimeOption) (*runtimeConfig, error) {
-	cfg := &runtimeConfig{}
+	// The default is set before the options, so an explicit 0 is seen as the
+	// mistake it is rather than taken for "not set".
+	cfg := &runtimeConfig{maxPageSize: DefaultMaxPageSize}
 
 	for _, option := range options {
 		if option == nil {
@@ -105,8 +108,8 @@ func newRuntimeConfig(options []RuntimeOption) (*runtimeConfig, error) {
 		return nil, err
 	}
 
-	if cfg.maxPageSize < 0 {
-		return nil, fmt.Errorf("invalid max page size: %d", cfg.maxPageSize)
+	if cfg.maxPageSize < 1 {
+		return nil, fmt.Errorf("invalid max page size %d: it must be at least 1", cfg.maxPageSize)
 	}
 
 	if cfg.logger == nil {

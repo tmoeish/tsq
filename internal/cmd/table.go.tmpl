@@ -47,11 +47,11 @@ var {{$varTbl}} = new{{$tableType}}()
 // new{{$tableType}} declares the table, its columns, then its definition, so that
 // anything naming {{$varTbl}} is initialized after the table is complete.
 func new{{$tableType}}() {{$tableType}} {
-	t := tsq.{{ if .DeletedAtField }}NewSoftDeleteTable{{ else }}NewTable{{ end }}[{{$type}}, {{$key}}]("{{.Table}}")
+	t := tsq.{{ if .DeletedAtField }}NewSoftDeleteTable{{ else }}NewTable{{ end }}[{{$type}}, {{$key}}]({{ printf "%q" .Table }})
 	c := {{$tableType}}{
 		{{$base}}: t,
 {{- range $f := .Fields }}
-		{{$f.Name}}: {{ if $f.NullValue }}tsq.NewNullColumn[{{$f.NullValue}}]{{ else }}tsq.NewColumn{{ end }}({{$bind}}, "{{$f.Column}}", "{{$f.JSONTag}}", func(r *{{$type}}) *{{$f | FieldType}} { return &r.{{$f.Name}} }),
+		{{$f.Name}}: {{ if $f.NullValue }}tsq.NewNullColumn[{{$f.NullValue}}]{{ else }}tsq.NewColumn{{ end }}({{$bind}}, {{ printf "%q" $f.Column }}, {{ printf "%q" $f.JSONTag }}, func(r *{{$type}}) *{{$f | FieldType}} { return &r.{{$f.Name}} }),
 {{- end }}
 	}
 
@@ -82,7 +82,7 @@ func new{{$tableType}}() {{$tableType}} {
 		ColumnSpecs: []tsqdialect.ColumnSpec{
 	{{- range .Schema }}
 			{
-				Name: "{{ .Name }}",
+				Name: {{ printf "%q" .Name }},
 				Type: tsqdialect.ColumnType{
 		{{- if .RawType }}
 					RawType: {{ printf "%q" .RawType }},
@@ -124,13 +124,13 @@ func new{{$tableType}}() {{$tableType}} {
 	{{- if or .Uniques .Indexes .FullTexts }}
 		Indexes: []tsq.TableIndex{
 		{{- range $idx := .Uniques }}
-			{Name: "{{$idx.Name}}", Unique: true, Columns: []string{{"{"}}{{ IndexFieldsToCols $dot $idx.Fields }}{{"}"}}},
+			{Name: {{ printf "%q" $idx.Name }}, Unique: true, Columns: []string{{"{"}}{{ IndexFieldsToCols $dot $idx.Fields }}{{"}"}}},
 		{{- end }}
 		{{- range $idx := .Indexes }}
-			{Name: "{{$idx.Name}}", Columns: []string{{"{"}}{{ IndexFieldsToCols $dot $idx.Fields }}{{"}"}}},
+			{Name: {{ printf "%q" $idx.Name }}, Columns: []string{{"{"}}{{ IndexFieldsToCols $dot $idx.Fields }}{{"}"}}},
 		{{- end }}
 		{{- range $idx := .FullTexts }}
-			{Name: "{{$idx.Name}}", FullText: true, Columns: []string{{"{"}}{{ FieldsToCols $dot $idx.Fields }}{{"}"}}},
+			{Name: {{ printf "%q" $idx.Name }}, FullText: true, Columns: []string{{"{"}}{{ FieldsToCols $dot $idx.Fields }}{{"}"}}},
 		{{- end }}
 		},
 	{{- end }}

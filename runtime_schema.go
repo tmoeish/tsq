@@ -163,15 +163,23 @@ func (r *Runtime) rebuildTable(
 	}
 
 	for _, statement := range statements {
-		r.info("applied ddl", "table", tableName, "kind", "table_rebuild", "ddl", statement)
-
 		if _, err := tx.ExecContext(ctx, statement); err != nil {
 			_ = tx.Rollback()
 			return fmt.Errorf("apply table rebuild on %s: %w", tableName, err)
 		}
 	}
 
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("apply table rebuild on %s: %w", tableName, err)
+	}
+
+	// Logged once the rebuild committed: a statement that ran in a transaction that
+	// was then rolled back was not applied.
+	for _, statement := range statements {
+		r.info("applied ddl", "table", tableName, "kind", "table_rebuild", "ddl", statement)
+	}
+
+	return nil
 }
 
 func (r *Runtime) applyIndexPolicy(ctx context.Context) error {
@@ -202,10 +210,7 @@ func (r *Runtime) applyIndexPolicyForTable(ctx context.Context, table *registere
 		currentByName[idx.Name] = idx
 	}
 
-	desiredByName := make(map[string]TableIndex, len(table.Indexes))
 	for _, idx := range table.Indexes {
-		desiredByName[idx.Name] = idx
-
 		if err := validateIndexIdentifiers(tableName, idx.Name, idx.Columns); err != nil {
 			return err
 		}
@@ -251,7 +256,7 @@ func (r *Runtime) applyIndexPolicyForTable(ctx context.Context, table *registere
 			Unique: existing.Unique,
 			Fields: existing.Fields,
 		}
-		if err := validateIndex(tableName, idx.Unique, idx.Name, idx.Columns, definition); err != nil {
+		if err := sqld.ValidateIndex(tableName, idx.Unique, idx.Name, idx.Columns, definition); err != nil {
 			if r.indexPolicy == SchemaPolicyValidate || r.indexPolicy == SchemaPolicyCreateMissing {
 				return err
 			}
@@ -285,11 +290,11 @@ func (r *Runtime) execDDL(ctx context.Context, statement string) error {
 		return nil
 	}
 
-	r.info("applied ddl", "ddl", statement)
-
 	if _, err := r.db.ExecContext(ctx, statement); err != nil {
 		return err
 	}
+
+	r.info("applied ddl", "ddl", statement)
 
 	return nil
 }
@@ -385,24 +390,49 @@ func columnsEqual(dialect sqld.Dialect, left sqld.Column, right tsqdialect.Colum
 		return true
 	}
 
-	return normalizeDefaultLiteral(left.Default) == normalizeDefaultLiteral(right.Default)
+	return sameDefault(left.Default, right.Default)
+}
+
+// sameDefault compares two spellings of a column default. Two quoted literals
+// compare exactly, so 'Active' and 'active' differ; anything else compares without
+// case, since keywords (CURRENT_TIMESTAMP) are spelled either way and MySQL reads a
+// string default back without its quotes.
+func sameDefault(left, right string) bool {
+	a, aQuoted := normalizeDefaultLiteral(left)
+	b, bQuoted := normalizeDefaultLiteral(right)
+
+	if aQuoted && bQuoted {
+		return a == b
+	}
+
+	return strings.EqualFold(a, b)
 }
 
 // normalizeDefaultLiteral makes two spellings of the same default comparable: a
 // declared 'USD' reads back as USD on MySQL and as 'USD'::character varying on
 // PostgreSQL, and comparing those verbatim asks to set the default on every boot.
-func normalizeDefaultLiteral(value string) string {
+// It drops a cast outside the literal (a '::' inside one is text), unquotes a
+// literal and reports whether it was one.
+func normalizeDefaultLiteral(value string) (string, bool) {
 	value = strings.TrimSpace(value)
 
-	if cast := strings.Index(value, "::"); cast >= 0 {
-		value = strings.TrimSpace(value[:cast])
+	quoted := false
+
+	for i := 0; i < len(value); i++ {
+		switch {
+		case value[i] == '\'':
+			quoted = !quoted
+		case !quoted && strings.HasPrefix(value[i:], "::"):
+			value = strings.TrimSpace(value[:i])
+			i = len(value)
+		}
 	}
 
 	if len(value) >= 2 && strings.HasPrefix(value, "'") && strings.HasSuffix(value, "'") {
-		value = value[1 : len(value)-1]
+		return strings.ReplaceAll(value[1:len(value)-1], "''", "'"), true
 	}
 
-	return strings.ToLower(value)
+	return value, false
 }
 
 func ddlColumnChangeName(change tableColumnChange) string {

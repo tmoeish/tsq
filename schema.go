@@ -93,7 +93,9 @@ func registerTables(tables []Table) ([]*registeredTable, error) {
 			name:    def.name,
 			columns: def.columns,
 			Columns: slices.Clone(def.schema),
-			Indexes: slices.Clone(def.indexes),
+			// Each index is copied with its column list, so the registration shares no
+			// slice with the table definition.
+			Indexes: cloneTableIndexes(def.indexes),
 		})
 	}
 
