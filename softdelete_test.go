@@ -292,3 +292,46 @@ func TestSoftDeleteTablesAreDefinedByTheirOwnDefine(t *testing.T) {
 		t.Fatalf("Define without deleted_at = %v; want it refused", err)
 	}
 }
+
+// TestStaleSoftDeletesAreVersionConflicts covers the two ways a delete or restore
+// can match nothing. The statement checks the version and the state together, and
+// every miss used to be a RowStateError, which WithRetry does not retry: a copy of
+// a live row changed since it was loaded is a version conflict, which it should.
+func TestStaleSoftDeletesAreVersionConflicts(t *testing.T) {
+	ctx := context.Background()
+	rt := newSQLite(t)
+	row := seedUsers(t, rt, "a")[0]
+
+	stale := *row
+	row.Name = "moved on"
+
+	if err := Users.Update(ctx, rt, row); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Users.Delete(ctx, rt, &stale); !IsOptimisticLockError(err) || isRowState(err) {
+		t.Fatalf("Delete of a stale copy = %v; want an OptimisticLockError", err)
+	}
+
+	if err := Users.Delete(ctx, rt, row); err != nil {
+		t.Fatal(err)
+	}
+
+	gone := *row
+	if err := Users.WithDeleted().Update(ctx, rt, row); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Users.Restore(ctx, rt, &gone); !IsOptimisticLockError(err) || isRowState(err) {
+		t.Fatalf("Restore of a stale copy = %v; want an OptimisticLockError", err)
+	}
+
+	// The same version in the wrong state is still a state error: deleting twice.
+	if err := Users.Restore(ctx, rt, row); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Users.Restore(ctx, rt, row); !isRowState(err) || IsOptimisticLockError(err) {
+		t.Fatalf("Restore of a live row = %v; want a RowStateError", err)
+	}
+}

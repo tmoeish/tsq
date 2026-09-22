@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
@@ -163,7 +164,58 @@ func (d MySQLDialect) ListIndexes(ctx context.Context, db Executor, table string
 		return nil, err
 	}
 
+	keys, err := d.foreignKeyColumns(ctx, db, table)
+	if err != nil {
+		return nil, err
+	}
+
+	for i, index := range indexes {
+		indexes[i].Constraint = slices.ContainsFunc(keys, func(columns []string) bool {
+			return len(columns) <= len(index.Fields) && slices.Equal(index.Fields[:len(columns)], columns)
+		})
+	}
+
 	return indexes, nil
+}
+
+// foreignKeyColumns lists the column lists of table that a foreign key needs an
+// index on: its own foreign keys, and the columns other tables' foreign keys
+// reference. MySQL refuses to drop an index a foreign key uses (error 1553), which
+// is what Index.Constraint means here. It does not flag every unique index:
+// information_schema lists each one as a UNIQUE constraint, TSQ's own included.
+func (d MySQLDialect) foreignKeyColumns(ctx context.Context, db Executor, table string) ([][]string, error) {
+	rows, err := db.QueryContext(ctx, `
+		SELECT GROUP_CONCAT(column_name ORDER BY ordinal_position SEPARATOR ',')
+		FROM information_schema.key_column_usage
+		WHERE table_schema = DATABASE() AND table_name = ? AND referenced_table_name IS NOT NULL
+		GROUP BY constraint_name
+		UNION ALL
+		SELECT GROUP_CONCAT(referenced_column_name ORDER BY position_in_unique_constraint SEPARATOR ',')
+		FROM information_schema.key_column_usage
+		WHERE referenced_table_schema = DATABASE() AND referenced_table_name = ?
+		GROUP BY table_name, constraint_name`,
+		table, table,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() {
+		_ = rows.Close()
+	}()
+
+	var keys [][]string
+
+	for rows.Next() {
+		var columns sql.NullString
+		if err := rows.Scan(&columns); err != nil {
+			return nil, err
+		}
+
+		keys = append(keys, parseColumnsCSV(columns.String))
+	}
+
+	return keys, rows.Err()
 }
 
 func (d MySQLDialect) EnsureIndex(ctx context.Context, db Executor, table, idx string, fields []string, unique bool) (string, error) {
@@ -277,7 +329,11 @@ func parseMySQLColumnType(dataType, columnType string, size sql.NullInt64) (Colu
 
 		return result, nil
 	case "text", "tinytext":
-		return ColumnType{Kind: KindString, Size: mysqlMaxVarcharChars + 1}, nil
+		// TSQ renders a string as VARCHAR, MEDIUMTEXT or LONGTEXT, never TEXT or
+		// TINYTEXT, so these keep their raw type: read as MEDIUMTEXT, a TINYTEXT
+		// holding 255 bytes matched a string declared for 100000 and was never
+		// altered. A column declared type:TEXT still matches.
+		return ColumnType{RawType: strings.ToUpper(data)}, nil
 	case "mediumtext":
 		return ColumnType{Kind: KindString, Size: mysqlMaxVarcharChars + 1}, nil
 	case "longtext":

@@ -159,6 +159,9 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 - **`ListIn` 会把 `Not(col.In(list))` 按块拆开**：每块 `NOT IN` 都匹配其他块排除的行，结果被重复拼接且不报错。现在和 `NotIn` 一样拒绝。
 - **`driver.Valuer` 值的 NULL 检查从未生效**：`Pred` / `Expr` 里的 `sql.NullString` 这类结构体 Valuer 被当成不可比较而拒绝，底层不是结构体的 Valuer 即使是 NULL 也被放行，渲染成 `col = NULL` 静默零行。游标分页对 NULL 的排序值同样漏检。
 - **集合操作的操作数自带的 `OrderBy` / `Limit` / `Offset` / 行锁被静默丢弃**：守卫检查的是左侧而不是操作数，`Union(q.OrderBy(...).Limit(3))` 渲染时前三条的限制消失。现在构建时报错。
+- **软删除和恢复的版本冲突被报成 `RowStateError`**：陈旧副本的 `Delete` / `Restore` 报"需要一个活行"，`WithRetry(tsq.IsOptimisticLockError)` 不会重试本该重试的冲突，而 `Restore` 的文档写的正是 `OptimisticLockError`。现在匹配不上时回读版本号：版本变了报 `OptimisticLockError`，只是状态不对才报 `RowStateError`。
+- **MySQL 上 `TEXT` / `TINYTEXT` 列被当成 `MEDIUMTEXT`**：一个只能存 255 字节的 `TINYTEXT` 被判定与声明为 100000 字符的字符串一致，`Reconcile` 从不修正，写入长数据时才报错。现在两者按原始类型读回，只和显式的 `type:TEXT` / `type:TINYTEXT` 一致。
+- **MySQL 上 `Reconcile` 会去删外键正在用的索引**：MySQL 的索引列表从不标记约束，"约束支撑的索引不许重建"这条保护在 MySQL 上从不生效，使用者拿到驱动的 1553 错误。现在外键需要的索引被标出，重建会被拒绝并说明原因。
 - **分组、HAVING、集合操作之后绕一次 `OrderBy` 就能加行锁**：`GroupBy(...).OrderBy(...).ForUpdate()` 能编译，PostgreSQL 拒绝执行。现在这些阶段的 `OrderBy` / `Limit` / `Offset` 返回新的 `OrderedResultStage`（经 `ResultSortable`），上面没有 `ForUpdate` / `ForShare`。
 - **聚合、`CASE` 等派生选择项没有列名，CTE 和集合操作的 `ORDER BY` 按名字找不到它们**：`CTE` 里的 `SUM(fee_cents)` 在外层用 `FeeCents.WithTable(cte)` 引用时报 `no such column`，集合操作按派生项排序时 SQLite 报 `does not match any column`。现在不是裸列的选择项写成 `AS <列名>`；集合操作的排序项必须是输出列（`ResultColumn` 新增 `Asc()` / `Desc()` 用来按选中的投影排序），`Upper(col)` 这类没选中的表达式在构建时报错，而不是被静默换成它包着的列。
 - **嵌套的集合操作在 SQLite 上是语法错误**：`a.Union(b.Union(c))` 渲染成带括号的复合 SELECT，SQLite 不认。现在嵌套的操作数写成派生表，三个方言都能执行。
