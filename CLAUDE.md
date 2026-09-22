@@ -18,12 +18,12 @@ CLI 生成器在 `./cmd/tsq`，可运行示例在 `./examples`。
 
 | 文件 | 解答 |
 | --- | --- |
-| `references/change-impact.md` | **"这个改动还会触及什么？"**——对你匹配的每个触发器逐条处理 |
+| `references/change-impact.md` → `impact/<域>.md` | **"这个改动还会触及什么？"**——从速查挑出匹配的那一两份，逐条处理 |
 | `references/feature-map.md` | "X 在哪实现的？"——关注点 → 文件 |
 | `references/architecture.md` | 分层、查询阶段机、执行路径、方言、运行时 |
 | `references/codegen.md` | 注解 DSL、模板、生成物、DDL 推导 |
 | `references/release.md` | 发版、版本号传导、tag 与 Go Proxy 的坑 |
-| `references/memory.md` | 为什么会这样：事故、根本原因、决定、死胡同 |
+| `references/memory.md` → `memory/<主题>.md` | 为什么会这样：事故、根本原因、决定、死胡同 |
 | `references/api-surface.txt` | 对外 Go 符号的当前全集（生成物） |
 
 优先阅读匹配的上下文是在这里工作的预期方式。如果你必须读源码才能知道技能本该告诉你的事，
