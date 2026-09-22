@@ -53,10 +53,11 @@ func (r *Runtime) applyTablePolicy(ctx context.Context) error {
 		return nil
 	}
 
-	// TSQ only ever adds: it creates what is declared and missing, and under
-	// Reconcile it alters columns that drifted. It never removes a table it no
-	// longer sees declared, because a runtime only knows its own declarations
-	// and cannot tell "no longer declared here" from "declared by someone else".
+	// TSQ never removes a table: it creates what is declared and missing, and under
+	// Reconcile it alters the columns that drifted and drops the ones no longer
+	// declared. A table it no longer sees declared stays, because a runtime only
+	// knows its own declarations and cannot tell "no longer declared here" from
+	// "declared by someone else".
 	for _, table := range r.tables {
 		if err := r.applyTablePolicyForTable(ctx, table); err != nil {
 			return err
@@ -139,12 +140,19 @@ func (r *Runtime) rebuildTable(
 	current []sqld.Column,
 	desired []tsqdialect.ColumnSpec,
 ) error {
-	existingIndexes, err := r.dialect.ListIndexes(ctx, r.db, tableName)
+	rebuild, err := r.dialect.InspectRebuild(ctx, r.db, tableName)
 	if err != nil {
-		return fmt.Errorf("list indexes for %s: %w", tableName, err)
+		return err
 	}
 
-	statements, err := renderRebuildTableStatements(r.dialect, tableName, current, desired, existingIndexes)
+	// The rebuilt table is created from the declared columns. What it cannot carry
+	// over would be lost without a word, so the change is left to a migration.
+	if len(rebuild.Blockers) > 0 {
+		return fmt.Errorf("changing a column type rebuilds %s on %s, which would lose %s; change the table in a migration",
+			tableName, r.dialect.Name(), strings.Join(rebuild.Blockers, ", "))
+	}
+
+	statements, err := renderRebuildTableStatements(r.dialect, tableName, current, desired, rebuild.Objects)
 	if err != nil {
 		return err
 	}
@@ -533,7 +541,7 @@ func renderRebuildTableStatements(
 	tableName string,
 	current []sqld.Column,
 	desired []tsqdialect.ColumnSpec,
-	existingIndexes []sqld.Index,
+	objects []sqld.RebuildObject,
 ) ([]string, error) {
 	tempTable := "__tsq_rebuild_" + tableName
 
@@ -569,50 +577,31 @@ func renderRebuildTableStatements(
 
 	statements = append(statements, fmt.Sprintf("DROP TABLE %s;", dialect.QuoteIdent(tempTable)))
 
-	// Dropping the old table also drops its indexes; restore every secondary
-	// index that still applies, regardless of the index policy in effect.
-	statements = append(statements, renderRebuildIndexStatements(dialect, tableName, desired, existingIndexes)...)
+	// Dropping the old table also drops its indexes and triggers; create them again
+	// as they were, regardless of the index policy in effect.
+	statements = append(statements, renderRebuildObjectStatements(desired, objects)...)
 
 	return statements, nil
 }
 
-func renderRebuildIndexStatements(
-	dialect sqld.Dialect,
-	tableName string,
-	desired []tsqdialect.ColumnSpec,
-	existingIndexes []sqld.Index,
-) []string {
-	desiredNames := make(map[string]struct{}, len(desired))
+// renderRebuildObjectStatements are the statements that created the table's
+// indexes and triggers, run again as they were, so an expression, a partial WHERE
+// or a collation survives. An index over a column the rebuild drops goes with the
+// column.
+func renderRebuildObjectStatements(desired []tsqdialect.ColumnSpec, objects []sqld.RebuildObject) []string {
+	declared := make(map[string]bool, len(desired))
 	for _, column := range desired {
-		desiredNames[column.Name] = struct{}{}
+		declared[column.Name] = true
 	}
 
-	statements := make([]string, 0, len(existingIndexes))
+	statements := make([]string, 0, len(objects))
 
-	for _, idx := range existingIndexes {
-		// Primary-key and constraint-backed indexes are created with the table
-		// itself and cannot be recreated as standalone indexes.
-		if idx.PrimaryKey || idx.Constraint || len(idx.Fields) == 0 {
+	for _, object := range objects {
+		if slices.ContainsFunc(object.Columns, func(column string) bool { return !declared[column] }) {
 			continue
 		}
 
-		quotedFields := make([]string, 0, len(idx.Fields))
-		applicable := true
-
-		for _, field := range idx.Fields {
-			if _, ok := desiredNames[field]; !ok {
-				applicable = false
-				break
-			}
-
-			quotedFields = append(quotedFields, dialect.QuoteIdent(field))
-		}
-
-		if !applicable {
-			continue
-		}
-
-		statements = append(statements, dialect.CreateIndexSQL(tableName, idx.Name, quotedFields, idx.Unique))
+		statements = append(statements, object.SQL+";")
 	}
 
 	return statements

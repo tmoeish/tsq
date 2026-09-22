@@ -222,11 +222,21 @@
 
 ## 改了 schema 托管（`runtime_schema.go`、`runtime_index.go`）
 
-- **不要重新引入任何"删掉不再声明的对象"的策略。** v4 的 `SchemaPolicyManaged` 靠一张全库共享
+- **不要重新引入任何"删掉不再声明的表或索引"的策略。** v4 的 `SchemaPolicyManaged` 靠一张全库共享
   的记账表做这件事，两个共用数据库的服务因此互删对方的表连同数据。一个 runtime 只知道自己声明了
-  什么，分不清"这张表不该存在了"和"这张表是别人的"。理由见 `memory.md`。
+  什么，分不清"这张表不该存在了"和"这张表是别人的"。**列不在此列**：`Reconcile` 删不再声明的列是
+  有意的，`TestReconcileDropsUndeclaredColumns` 钉着。理由见 `memory.md`。
+- **SQLite 的重建**（`rebuildTable`，`AlterMode() == AlterRebuild` 时改列类型走这里）从声明的列建新表，
+  所以旧表 CREATE TABLE 里声明之外的东西（UNIQUE / CHECK / 外键）、以及别处引用这张表的视图、触发器、
+  外键都会丢或悬空：`InspectRebuild` 把它们列成 `Blockers`，有就拒绝重建。表自己的索引和触发器按
+  `sqlite_master.sql` **原样**重建——别改回"按名字和列重建索引"，那会丢表达式、部分索引的 `WHERE` 和
+  排序规则。门是 `TestReconcileRebuildKeepsIndexesAndTriggersAsCreated` 和
+  `TestReconcileRefusesARebuildThatWouldLoseSomething`。它是唯一包进事务的 DDL：一连串语句必须落在同一个
+  连接上。
+- 自省读回来的**可空**列（SQLite 表达式索引的列名是 NULL，PG 的 `attname` 在 LEFT JOIN 下为 NULL）
+  扫进 `sql.NullString`，三个方言对表达式列的表示要一致：不出现在 `Index.Fields` 里。
 - **不要引入任何 TSQ 自己的记账表。** 一份全局状态被只知道局部真相的写入者覆盖，就是数据丢失。
-- 加新策略档要想清楚它是不是仍然"只增不减"，并且三个方言都要在集成测试里跑。
+- 加新策略档要想清楚它是不是仍然"从不删表"，并且三个方言都要在集成测试里跑。
 - **不要把 DDL 包进事务**：MySQL 每条 DDL 都隐式提交，包起来只在 PG / SQLite 上成立，反而让人
   误以为它是原子的。
 - 门：`runtime_schema_isolation_test.go`（SQLite）和 `internal/integration` 的

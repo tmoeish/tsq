@@ -403,6 +403,11 @@ func (d MySQLDialect) DropIndexSQL(table, idx string) string {
 	)
 }
 
+// InspectRebuild is refused: MySQL alters a column in place.
+func (d MySQLDialect) InspectRebuild(context.Context, Executor, string) (Rebuild, error) {
+	return Rebuild{}, errors.New("mysql alters columns in place and never rebuilds a table")
+}
+
 func (d MySQLDialect) AlterMode() AlterMode {
 	return AlterInPlace
 }

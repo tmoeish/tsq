@@ -162,6 +162,32 @@ func TestSetOperationsCTEAndSubqueries(t *testing.T) {
 	}
 }
 
+// TestOneCTEPerName covers the WITH clause, which names every CTE of the statement
+// once. The same CTE used in two branches is written once; two different CTEs
+// under one name used to be written as the first, so the second branch read the
+// wrong query and its parameter was dropped.
+func TestOneCTEPerName(t *testing.T) {
+	named := func(name string) Table {
+		return CTE("t", Select(User_ID).From(Users).Where(User_Name.EQ(Val(name))))
+	}
+
+	a := named("a")
+
+	shared := Select(User_ID.WithTable(a)).From(a).Union(Select(User_ID.WithTable(a)).From(a)).MustBuild()
+
+	sql, args := sqlOf(t, shared, onSQLite)
+	if strings.Count(sql, `"t" AS (`) != 1 || !reflect.DeepEqual(args, []any{"a"}) {
+		t.Fatalf("SQL = %s, args = %#v; want the shared CTE written once", sql, args)
+	}
+
+	b := named("b")
+
+	_, err := Select(User_ID.WithTable(a)).From(a).Union(Select(User_ID.WithTable(b)).From(b)).Build()
+	if err == nil || !strings.Contains(err.Error(), "two different CTEs are named t") {
+		t.Fatalf("Build = %v; want the name collision refused", err)
+	}
+}
+
 func TestCorrelatedSubqueryCarriesItsParameters(t *testing.T) {
 	min := NewParam[int64]("min")
 	sub := Select(Order_ID).From(Orders).Correlate(Users).Where(Order_UserID.EQ(User_ID), Order_Amount.GTE(min))
