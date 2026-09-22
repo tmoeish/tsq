@@ -132,7 +132,13 @@ def tags() -> list[Version]:
 
 
 def latest_tag() -> Version | None:
-    existing = tags()
+    """本模块主版本线上最新的 tag。
+
+    v4 维护分支和 v5 的 tag 住在同一个仓库里；拿全部 tag 比，任何 v4 补丁都会被判成
+    "比 v5 倒退"，发版也会以 v5 为基线去算下一个版本号。
+    """
+    major = module_major()
+    existing = [tag for tag in tags() if tag.major == major]
 
     return existing[-1] if existing else None
 

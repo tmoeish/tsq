@@ -5,10 +5,10 @@ name: CI
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "v4" ]
     tags: [ "*" ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ "main", "v4" ]
 
 # Least privilege by default; jobs that need more declare it themselves.
 permissions:
@@ -174,10 +174,12 @@ jobs:
 
     # Two runs on purpose. The SARIF pass feeds code scanning and must upload its file
     # even when findings exist, so it keeps `-no-fail`; the second pass is the gate.
+    # Both passes exclude the same rules: when only the gate excluded them, code
+    # scanning opened a new alert for every file read the gate had already accepted.
     # With only the first, this job reported success on every input it could possibly
     # be given, which is indistinguishable from not running it.
     - name: Run Gosec Security Scanner
-      run: ~/go/bin/gosec -no-fail -fmt sarif -out results.sarif ./...
+      run: ~/go/bin/gosec -no-fail -exclude=G201,G304 -fmt sarif -out results.sarif ./...
 
     - name: Upload SARIF file
       if: always()
