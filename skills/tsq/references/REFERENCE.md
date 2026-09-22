@@ -506,8 +506,10 @@ Builder state can branch safely, but the main reusable object is the built query
 Writes by condition use the same staged style with `tsq.UpdateTable(table)` / `tsq.DeleteFrom(table)` (section 8).
 
 The stage interfaces are named after where a chain is (`JoinStage`, `WhereStage`, `GroupedStage`,
-...), and are composed from four capability interfaces a helper can accept instead:
-`tsq.Sortable[O]` (`OrderBy` / `Limit` / `Offset`), `tsq.Lockable[O]` (`ForUpdate` / `ForShare`),
+...), and are composed from capability interfaces a helper can accept instead:
+`tsq.Sortable[O]` (`OrderBy` / `Limit` / `Offset` on rows, leading to `OrderedStage`, which can
+still lock), `tsq.ResultSortable[O]` (the same after `GroupBy`, `Having` or a set operation, leading
+to `OrderedResultStage`, which cannot), `tsq.Lockable[O]` (`ForUpdate` / `ForShare`),
 `tsq.Combinable[O]` (`Union` / `Intersect` / `Except`) and `tsq.Groupable[O]` (`GroupBy`).
 
 ### Soft-delete scope
@@ -544,12 +546,14 @@ query, err := tsq.
 
 Rules:
 
-- `OrderBy` / `Limit` / `Offset` are reachable from every complete stage (after `Where`, `Search`, `GroupBy`, `Having`, or a set operation). Only `ForUpdate()` / `ForShare()` may follow them, matching SQL clause order
+- `OrderBy` / `Limit` / `Offset` are reachable from every complete stage (after `Where`, `Search`, `GroupBy`, `Having`, or a set operation). Only `ForUpdate()` / `ForShare()` may follow them, matching SQL clause order, and not after `GroupBy`, `Having` or a set operation: those rows are not rows of a table, and ordering them first does not change that
 - `Offset` requires `Limit`. A bare `OFFSET` is a syntax error on MySQL and SQLite, so `Build()` rejects it rather than letting it fail on two dialects out of three
 - the ordered column must belong to a table the query already selects from or joins
 - the count query ignores `ORDER BY` / `LIMIT` / `OFFSET`: `Count()` reports how many rows match, which a limit does not change
 - **do not combine builder-level paging with `query.Page(...)`**. `Page` appends its own `LIMIT`/`OFFSET`, and its own `ORDER BY` when `Paging.OrderBy` is set, so a builder-level clause would be emitted a second time rather than replaced. `Page` returns an error instead of guessing. A builder `OrderBy` combined with an empty `Paging.OrderBy` is fine: the builder's ordering stands and `Page` only adds the window
-- on a set operation (`Union`, ...) an `OrderBy` term refers to the output column by name, which is the only form every dialect accepts there
+- on a set operation (`Union`, ...) an `OrderBy` term refers to the output column by name, which is the only form every dialect accepts there. The term must be an output column: a selected projection (`upper := tsq.MapInto(tsq.Upper(col), ...)`, then `OrderBy(upper.Asc())`) or a column selected under that name; `Build()` refuses an expression that is not selected
+- a select item that is not a plain column is written `AS` its name (the name of the column it is derived from), so a CTE and a set operation's `ORDER BY` find it by that name on every dialect
+- a set operation whose operand is itself combined (`a.Union(b.Union(c))`) groups the operand as a derived table, which every dialect accepts
 - a set operation's operands cannot have their own `OrderBy`, `Limit`, `Offset` or lock: each operand is written as a bare `SELECT`, so `Build()` refuses them rather than dropping the clause. Order and limit the combined result instead
 - where the ordered value can be NULL (a `NullColumn`, an outer-joined column, ...), NULLs sort as
   the **smallest value on every dialect**: first when ascending, last when descending. MySQL and

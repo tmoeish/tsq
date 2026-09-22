@@ -818,6 +818,11 @@ func TestConditionalWrites(t *testing.T) {
 		"no assignment":  UpdateTable(Users).Where(And()),
 		"aliased target": UpdateTable(Users).Set(User_Name.WithTable(Users.As("u")), Val("x")).Where(And()),
 		"assigned twice": UpdateTable(Users).Set(User_Name, Val("x")).Set(User_Name, Val("y")).Where(And()),
+		// A nil table or column is a build error, not a panic while building.
+		"nil table":  UpdateTable[user](nil).Set(User_Name, Val("x")).Where(And()),
+		"nil column": UpdateTable(Users).Set(Column[user, string](nil), Val("x")).Where(And()),
+		"nil soft":   DeleteFrom((*SoftDeleteTableOf[user, int64])(nil)).Where(And()),
+		"nil hard":   HardDeleteFrom[user](nil).Where(And()),
 	}
 
 	for name, stage := range bad {

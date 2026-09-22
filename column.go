@@ -47,6 +47,10 @@ type ResultColumn[O, T any] interface {
 	// Named returns the projection under another JSON name, the name
 	// PageRequest.OrderBy and Keyset cursors use for it.
 	Named(jsonName string) ResultColumn[O, T]
+	// Asc and Desc order by the projection. Ordering is not a predicate: it is how
+	// a set operation is ordered by a selected expression.
+	Asc() OrderBy
+	Desc() OrderBy
 }
 
 // SearchColumn is a text column keyword search may match against; make one with
@@ -161,7 +165,11 @@ type columnCore struct {
 	// plain reports a direct reference to table.name, which can be rebound to
 	// another source and sorted by name.
 	plain bool
-	scan  scanPointer
+	// bare reports a projection whose SQL is still a direct column reference, which
+	// every dialect names by the column; any other select item is written with AS
+	// its name, the name a CTE or a set operation's ORDER BY looks it up by.
+	bare bool
+	scan scanPointer
 	// get reads the value the row holds, without reflection: the write path binds
 	// one value per column per row, which is where reflection cost shows up.
 	get func(holder any) any
@@ -341,6 +349,7 @@ func (c exprImpl[T]) derive(info exprInfo) *columnCore {
 	next := *c.c
 	next.info = info
 	next.plain = false
+	next.bare = false
 
 	return &next
 }
@@ -594,6 +603,7 @@ func mapInto[Target, T, F any](source ValueColumn[T], field func(*Target) *F, nu
 
 	next := *source.core()
 	next.json = projectionName(source)
+	next.bare = next.plain || next.bare
 	next.plain = false
 	next.nullable = nullable
 

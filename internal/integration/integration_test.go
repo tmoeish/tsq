@@ -1407,6 +1407,81 @@ func TestIntegrationBatchWritesMatchByVersion(t *testing.T) {
 	}
 }
 
+// courseTotal is a row of a grouped CTE over enrollments.
+type courseTotal struct {
+	CourseID int64
+	Fees     int64
+}
+
+// TestIntegrationDerivedColumnsAreNamed runs, on every dialect, the SQL that names
+// output columns. A select item that is not a column reference is written with AS
+// its name, which is what a CTE column and a set operation's ORDER BY find it by;
+// each dialect used to name it differently (the expression's text, "sum"). A
+// combined operand of a set operation is a derived table, since SQLite has no
+// parenthesized compound SELECT.
+func TestIntegrationDerivedColumnsAreNamed(t *testing.T) {
+	for _, target := range integrationTargets(t) {
+		t.Run(target.name, func(t *testing.T) {
+			ctx := context.Background()
+
+			dropAcademyTables(t, target)
+			rt, _ := openWithPolicy(t, target, academy.TSQTables(), tsq.SchemaPolicyReconcile)
+
+			e := academy.TableEnrollment
+			rows := []*academy.Enrollment{
+				{LearnerID: 1, CourseID: 1, FeeCents: 100},
+				{LearnerID: 2, CourseID: 1, FeeCents: 50},
+				{LearnerID: 3, CourseID: 2, FeeCents: 70},
+			}
+			if err := e.BatchInsert(ctx, rt, rows); err != nil {
+				t.Fatal(err)
+			}
+
+			// A CTE column that is an aggregate, read through the CTE by name.
+			totals := tsq.CTE("totals", tsq.Select(
+				tsq.MapInto(e.CourseID, func(r *courseTotal) *int64 { return &r.CourseID }),
+				tsq.MapInto(tsq.Sum(e.FeeCents), func(r *courseTotal) *int64 { return &r.Fees }),
+			).From(e).GroupBy(e.CourseID))
+
+			fees := e.FeeCents.WithTable(totals)
+			got, err := tsq.Select(
+				tsq.MapInto(e.CourseID.WithTable(totals), func(r *courseTotal) *int64 { return &r.CourseID }),
+				tsq.MapInto(fees, func(r *courseTotal) *int64 { return &r.Fees }),
+			).From(totals).Where(fees.GT(tsq.Val(int64(100)))).MustBuild().List(ctx, rt)
+			if err != nil || len(got) != 1 || got[0].CourseID != 1 || got[0].Fees != 150 {
+				t.Fatalf("courses over 100 = %+v, %v; want course 1 with 150", got, err)
+			}
+
+			// A set operation ordered by a selected expression.
+			l := academy.TableLearner
+			for _, name := range []string{"bo", "al", "cy"} {
+				if err := l.Insert(ctx, rt, &academy.Learner{Name: name, Email: name + "@example.test"}); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			upper := tsq.MapInto(tsq.Upper(l.Name), func(r *string) *string { return r })
+
+			ordered, err := tsq.Select[string](upper).From(l).Where(l.Name.EQ(tsq.Val("bo"))).
+				Union(tsq.Select[string](upper).From(l).Where(l.Name.NE(tsq.Val("bo")))).
+				OrderBy(upper.Desc()).MustBuild().List(ctx, rt)
+			if err != nil || len(ordered) != 3 || *ordered[0] != "CY" || *ordered[2] != "AL" {
+				t.Fatalf("ordered union = %v, %v; want CY, BO, AL", ordered, err)
+			}
+
+			// A set operation with a combined operand.
+			id := func(name string) tsq.WhereStage[int64] {
+				return tsq.SelectValue(l.ID).From(l).Where(l.Name.EQ(tsq.Val(name)))
+			}
+
+			ids, err := id("al").Union(id("bo").UnionAll(id("cy"))).MustBuild().List(ctx, rt)
+			if err != nil || len(ids) != 3 {
+				t.Fatalf("nested union = %v, %v; want three ids", ids, err)
+			}
+		})
+	}
+}
+
 // TestIntegrationFullTextSearch searches the declared full-text index on every
 // dialect. MySQL and PostgreSQL use their own index; SQLite has none TSQ manages,
 // so the same predicate matches substrings, which is why the assertions only cover

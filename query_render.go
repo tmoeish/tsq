@@ -304,9 +304,12 @@ func (s *querySpec[O]) writeBody(r *renderer, m renderMode) {
 		r.writeText(" " + string(op.op) + " ")
 
 		if len(op.spec.SetOps) > 0 {
-			r.writeText("(")
+			// A combined operand is grouped as a derived table: SQLite has no
+			// parenthesized compound SELECT, and this spelling runs everywhere.
+			r.writeText("SELECT * FROM (")
 			op.spec.writeBody(r, renderMode{})
-			r.writeText(")")
+			r.writeText(") AS ")
+			r.writeIdent("tsq_set")
 		} else {
 			op.spec.writeSimple(r, renderMode{})
 		}
@@ -316,7 +319,7 @@ func (s *querySpec[O]) writeBody(r *renderer, m renderMode) {
 func (s *querySpec[O]) writeSimple(r *renderer, m renderMode) {
 	cols := make([]sqlExpr, 0, len(s.Selects))
 	for _, col := range s.Selects {
-		cols = append(cols, columnInfo(col).sql)
+		cols = append(cols, selectItem(col))
 	}
 
 	r.writeText("SELECT ")
@@ -444,6 +447,39 @@ func (s *querySpec[O]) orderTerm(ob OrderBy) orderTerm {
 	}
 
 	return term
+}
+
+// checkCompoundOrder refuses an ORDER BY term a set operation cannot follow. The
+// combined result is ordered by its output columns, found by name, so a term must
+// be one of them: a selected item, or a column reference named like exactly one.
+// An expression such as Upper(col) used to render as the column it wraps, and the
+// result was ordered by something else without a word.
+func (s *querySpec[O]) checkCompoundOrder(ob OrderBy) error {
+	if isNilValue(ob.column) || ob.column.core() == nil {
+		return nil
+	}
+
+	core := ob.column.core()
+	named, selected := 0, false
+
+	for _, col := range s.Selects {
+		if col.Name() == ob.column.Name() {
+			named++
+		}
+
+		selected = selected || col.core() == core
+	}
+
+	switch {
+	case !selected && !core.plain && !core.bare:
+		return fmt.Errorf("a set operation is ordered by its output columns, and %s is an expression; select it and order by the selected column", debugSQL(core.info.sql))
+	case named == 0:
+		return fmt.Errorf("a set operation is ordered by its output columns, and none is named %s", ob.column.Name())
+	case named > 1:
+		return fmt.Errorf("a set operation is ordered by its output columns, and more than one is named %s", ob.column.Name())
+	}
+
+	return nil
 }
 
 // outputCanBeNull reports whether the named output column of a set operation can
@@ -669,6 +705,14 @@ func (s *querySpec[O]) validate(outer map[string]Table) error {
 		return err
 	}
 
+	if len(s.SetOps) > 0 {
+		for _, ob := range s.OrderBys {
+			if err := s.checkCompoundOrder(ob); err != nil {
+				return err
+			}
+		}
+	}
+
 	for _, op := range s.SetOps {
 		if len(op.spec.Selects) != len(s.Selects) {
 			return fmt.Errorf("%s requires matching select column counts: left=%d right=%d",
@@ -859,6 +903,19 @@ func (c *cteSpec[O]) nullableOutput(name string) bool {
 	}
 
 	return false
+}
+
+// selectItem renders one entry of a SELECT list. A column reference is named by
+// the column on every dialect; any other expression is named by the dialect (the
+// expression's text, or PostgreSQL's "sum"), so it is given its name with AS, the
+// name a CTE or a set operation's ORDER BY finds it by.
+func selectItem(col SQLColumn) sqlExpr {
+	info := columnInfo(col)
+	if core := col.core(); core == nil || core.plain || core.bare || core.name == "" {
+		return info.sql
+	}
+
+	return sqlJoin(info.sql, sqlText(" AS "), sqlIdent(col.Name()))
 }
 
 func (c *cteSpec[O]) outputNames() []string {

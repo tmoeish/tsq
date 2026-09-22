@@ -116,6 +116,16 @@ type UpdateBuilder[R any] struct {
 func (b *UpdateBuilder[R]) assign(col SQLColumn, value exprInfo) *UpdateBuilder[R] {
 	n := &UpdateBuilder[R]{m: b.m.clone()}
 
+	// A nil table or column is a build error, as everywhere else in the builder,
+	// not a nil dereference here.
+	switch {
+	case n.m.err != nil:
+		return n
+	case isNilValue(col):
+		n.m.fail(errors.New("assignment target cannot be nil"))
+		return n
+	}
+
 	core := col.core()
 	switch {
 	case core.err() != nil:

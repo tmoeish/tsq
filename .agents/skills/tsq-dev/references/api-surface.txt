@@ -82,7 +82,7 @@ type Combinable[O any] interface {
 }
 type CompoundStage[O any] interface {
 	QueryStage[O]
-	Sortable[O]
+	ResultSortable[O]
 	Combinable[O]
 }
 type Condition interface {
@@ -172,13 +172,13 @@ type Groupable[O any] interface {
 }
 type GroupedStage[O any] interface {
 	QueryStage[O]
-	Sortable[O]
+	ResultSortable[O]
 	Combinable[O]
 	Having(conds ...Condition) HavingStage[O]
 }
 type HavingStage[O any] interface {
 	QueryStage[O]
-	Sortable[O]
+	ResultSortable[O]
 	Combinable[O]
 }
 type JoinStage[O any] interface {
@@ -272,6 +272,10 @@ type OrderBy struct {
 }
 func (ob OrderBy) NullsFirst() OrderBy
 func (ob OrderBy) NullsLast() OrderBy
+type OrderedResultStage[O any] interface {
+	QueryStage[O]
+	ResultSortable[O]
+}
 type OrderedStage[O any] interface {
 	QueryStage[O]
 	Sortable[O]
@@ -333,9 +337,16 @@ type QueryStage[O any] interface {
 type ResultColumn[O, T any] interface {
 	TypedColumn[O, T]
 	Named(jsonName string) ResultColumn[O, T]
+	Asc() OrderBy
+	Desc() OrderBy
 }
 func MapInto[Target, T any](source ValueColumn[T], field func(*Target) *T) ResultColumn[Target, T]
 func MapIntoNull[Target, T, F any](source ValueColumn[T], field func(*Target) *F) ResultColumn[Target, T]
+type ResultSortable[O any] interface {
+	OrderBy(orders ...OrderBy) OrderedResultStage[O]
+	Limit(limit int) OrderedResultStage[O]
+	Offset(offset int) OrderedResultStage[O]
+}
 type RetryPolicy struct {
 	MaxAttempts int
 	InitialBackoff time.Duration

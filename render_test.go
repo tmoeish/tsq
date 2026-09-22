@@ -188,6 +188,41 @@ func TestOneCTEPerName(t *testing.T) {
 	}
 }
 
+// TestSetOperationsNameAndGroupTheirOperands covers the SQL a set operation relies
+// on to find its output columns. A select item that is not a column reference is
+// written with AS its name, so ORDER BY finds it on every dialect; an ORDER BY term
+// that is not an output column is refused, where Upper(col) used to render as the
+// column it wraps; and a combined operand is a derived table, since SQLite has no
+// parenthesized compound SELECT.
+func TestSetOperationsNameAndGroupTheirOperands(t *testing.T) {
+	upper := MapInto(Upper(User_Name), func(r *string) *string { return r })
+	left := Select[string](upper).From(Users.WithDeleted())
+	right := Select[string](upper).From(Users.WithDeleted())
+
+	sql, _ := sqlOf(t, left.Union(right).OrderBy(upper.Asc()).MustBuild(), onSQLite)
+	if want := `SELECT UPPER("users"."name") AS "name" FROM "users" UNION SELECT UPPER("users"."name") AS "name" FROM "users" ORDER BY "name" ASC`; sql != want {
+		t.Fatalf("SQL =\n%s\nwant\n%s", sql, want)
+	}
+
+	for name, stage := range map[string]OrderedResultStage[string]{
+		"expression": left.Union(right).OrderBy(Upper(User_Name).Asc()),
+		"not output": left.Union(right).OrderBy(User_Email.Asc()),
+	} {
+		if _, err := stage.Build(); err == nil || !strings.Contains(err.Error(), "ordered by its output columns") {
+			t.Errorf("%s: Build = %v; want the term refused", name, err)
+		}
+	}
+
+	id := func(name string) WhereStage[int64] {
+		return SelectValue(User_ID).From(Users.WithDeleted()).Where(User_Name.EQ(Val(name)))
+	}
+
+	sql, _ = sqlOf(t, id("a").Union(id("b").UnionAll(id("c"))).MustBuild(), onSQLite)
+	if want := `SELECT "users"."id" FROM "users" WHERE "users"."name" = ? UNION SELECT * FROM (SELECT "users"."id" FROM "users" WHERE "users"."name" = ? UNION ALL SELECT "users"."id" FROM "users" WHERE "users"."name" = ?) AS "tsq_set"`; sql != want {
+		t.Fatalf("nested SQL =\n%s\nwant\n%s", sql, want)
+	}
+}
+
 func TestCorrelatedSubqueryCarriesItsParameters(t *testing.T) {
 	min := NewParam[int64]("min")
 	sub := Select(Order_ID).From(Orders).Correlate(Users).Where(Order_UserID.EQ(User_ID), Order_Amount.GTE(min))
@@ -226,7 +261,7 @@ func TestCaseRendersBranchesInOrder(t *testing.T) {
 	q := Select(MapInto(label, func(r *namedRow) *string { return &r.Name }).Named("label")).From(Users.WithDeleted()).MustBuild()
 
 	sql, args := sqlOf(t, q, onSQLite)
-	want := `SELECT CASE WHEN "users"."version" > ? THEN ? WHEN "users"."name" IS NULL THEN "users"."email" ELSE ? END FROM "users"`
+	want := `SELECT CASE WHEN "users"."version" > ? THEN ? WHEN "users"."name" IS NULL THEN "users"."email" ELSE ? END AS "case" FROM "users"`
 
 	if sql != want {
 		t.Fatalf("SQL =\n%s\nwant\n%s", sql, want)
