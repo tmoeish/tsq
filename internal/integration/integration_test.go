@@ -305,7 +305,7 @@ func TestIntegrationCRUDOptimisticLockAndDuplicateKeys(t *testing.T) {
 				t.Fatalf("expected exactly one learner after ignored duplicate, got %d", count)
 			}
 
-			if err := learners[0].Delete(ctx, rt); err != nil {
+			if err := learners[0].HardDelete(ctx, rt); err != nil {
 				t.Fatalf("delete learner: %v", err)
 			}
 		})

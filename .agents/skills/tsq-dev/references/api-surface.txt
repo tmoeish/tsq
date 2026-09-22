@@ -107,7 +107,7 @@ type DBTX interface {
 type DeleteStage[R any] interface {
 	Where(conds ...Condition) MutationStage[R]
 }
-func DeleteFrom[R any](table RowTable[R]) DeleteStage[R]
+func DeleteFrom[T SoftDeleteTable[R], R any](table T) DeleteStage[R]
 func HardDeleteFrom[R any](table RowTable[R]) DeleteStage[R]
 type Executor interface {
 	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
@@ -407,6 +407,21 @@ func Select[O any](cols ...BoundColumn[O]) SelectStage[O]
 func SelectDistinct[O any](cols ...BoundColumn[O]) SelectStage[O]
 func SelectNullValue[T any](expr ValueColumn[T]) SelectStage[sql.Null[T]]
 func SelectValue[T any](expr ValueColumn[T]) SelectStage[T]
+type SoftDeleteTable[R any] interface {
+	RowTable[R]
+}
+type SoftDeleteTableOf[R any, K comparable] struct {
+	*TableOf[R, K]
+}
+func NewSoftDeleteTable[R any, K comparable](name string) *SoftDeleteTableOf[R, K]
+func (t *SoftDeleteTableOf[R, K]) As(alias string) *SoftDeleteTableOf[R, K]
+func (t *SoftDeleteTableOf[R, K]) BatchDelete(ctx context.Context, db Executor, rows []*R, options ...BatchOption) error
+func (t *SoftDeleteTableOf[R, K]) BatchDeleteByPK(ctx context.Context, db Executor, keys []K, options ...BatchOption) error
+func (t *SoftDeleteTableOf[R, K]) BatchRestore(ctx context.Context, db Executor, rows []*R, options ...BatchOption) error
+func (t *SoftDeleteTableOf[R, K]) Define(spec TableSpec[R, K], deletedAt BoundColumn[R]) *SoftDeleteTableOf[R, K]
+func (t *SoftDeleteTableOf[R, K]) Delete(ctx context.Context, db Executor, row *R) error
+func (t *SoftDeleteTableOf[R, K]) Restore(ctx context.Context, db Executor, row *R) error
+func (t *SoftDeleteTableOf[R, K]) WithDeleted() *SoftDeleteTableOf[R, K]
 type SortError struct {
 	Field string
 	Reason string
@@ -435,18 +450,14 @@ type TableOf[R any, K comparable] struct {
 }
 func NewTable[R any, K comparable](name string) *TableOf[R, K]
 func (t *TableOf[R, K]) As(alias string) *TableOf[R, K]
-func (t *TableOf[R, K]) BatchDelete(ctx context.Context, db Executor, rows []*R, options ...BatchOption) error
-func (t *TableOf[R, K]) BatchDeleteByPK(ctx context.Context, db Executor, keys []K, options ...BatchOption) error
 func (t *TableOf[R, K]) BatchHardDelete(ctx context.Context, db Executor, rows []*R, options ...BatchOption) error
 func (t *TableOf[R, K]) BatchHardDeleteByPK(ctx context.Context, db Executor, keys []K, options ...BatchOption) error
 func (t *TableOf[R, K]) BatchInsert(ctx context.Context, db Executor, rows []*R, options ...BatchOption) error
-func (t *TableOf[R, K]) BatchRestore(ctx context.Context, db Executor, rows []*R, options ...BatchOption) error
 func (t *TableOf[R, K]) BatchUpdate(ctx context.Context, db Executor, rows []*R, options ...BatchOption) error
 func (t *TableOf[R, K]) BatchUpsert(ctx context.Context, db Executor, rows []*R, key []BoundColumn[R], options ...BatchOption) error
 func (t *TableOf[R, K]) ColumnSpecs() []tsqdialect.ColumnSpec
 func (t *TableOf[R, K]) Columns() []BoundColumn[R]
 func (t *TableOf[R, K]) Define(spec TableSpec[R, K]) *TableOf[R, K]
-func (t *TableOf[R, K]) Delete(ctx context.Context, db Executor, row *R) error
 func (t *TableOf[R, K]) Err() error
 func (t *TableOf[R, K]) Fetch(ctx context.Context, db Executor, keys ...K) ([]*R, error)
 func (t *TableOf[R, K]) FetchBy[T comparable](ctx context.Context, db Executor, col Column[R, T], values []T, where ...Condition) ([]*R, error)
@@ -458,11 +469,9 @@ func (t *TableOf[R, K]) HardDelete(ctx context.Context, db Executor, row *R) err
 func (t *TableOf[R, K]) Indexes() []TableIndex
 func (t *TableOf[R, K]) Insert(ctx context.Context, db Executor, row *R) error
 func (t *TableOf[R, K]) Query() *Query[R]
-func (t *TableOf[R, K]) Restore(ctx context.Context, db Executor, row *R) error
 func (t *TableOf[R, K]) TableName() string
 func (t *TableOf[R, K]) Update(ctx context.Context, db Executor, row *R, cols ...BoundColumn[R]) error
 func (t *TableOf[R, K]) Upsert(ctx context.Context, db Executor, row *R, key ...BoundColumn[R]) error
-func (t *TableOf[R, K]) WithDeleted() *TableOf[R, K]
 type TableSpec[R any, K comparable] struct {
 	Columns []BoundColumn[R]
 	PrimaryKey Column[R, K]
@@ -470,7 +479,6 @@ type TableSpec[R any, K comparable] struct {
 	Version   BoundColumn[R]
 	CreatedAt BoundColumn[R]
 	UpdatedAt BoundColumn[R]
-	DeletedAt BoundColumn[R]
 	Search []SearchColumn
 	ColumnSpecs []tsqdialect.ColumnSpec
 	Indexes []TableIndex

@@ -24,16 +24,16 @@ func UpdateTable[R any](table RowTable[R]) *UpdateBuilder[R] {
 	return &UpdateBuilder[R]{m: newMutationSpec(table, mutationUpdate)}
 }
 
-// DeleteFrom starts a delete of every row of table that matches Where. On a table
-// with a deleted_at column it is a soft delete, stamped when the statement runs, of
-// rows not already deleted.
-func DeleteFrom[R any](table RowTable[R]) DeleteStage[R] {
-	kind := mutationDelete
-	if !isNilValue(table) && table.softDeleted() {
-		kind = mutationSoftDelete
-	}
-
-	return &deleteBuilder[R]{m: newMutationSpec(table, kind)}
+// DeleteFrom starts a soft delete of every row of table that matches Where: an
+// UPDATE that stamps the tombstone when the statement runs, of rows not already
+// deleted unless table is WithDeleted. It takes only a table with a deleted_at
+// column; HardDeleteFrom removes rows.
+//
+// T is a type parameter rather than the interface itself so that passing a table
+// without deleted_at fails to compile naming the missing method,
+// needsDeletedAtOrHardDeleteFrom, instead of reporting that R cannot be inferred.
+func DeleteFrom[T SoftDeleteTable[R], R any](table T) DeleteStage[R] {
+	return &deleteBuilder[R]{m: newMutationSpec[R](table, mutationSoftDelete)}
 }
 
 // HardDeleteFrom starts a DELETE of every row of table that matches Where,

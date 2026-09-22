@@ -167,53 +167,6 @@ func (t *TableOf[R, K]) BatchUpdate(ctx context.Context, db Executor, rows []*R,
 	})
 }
 
-// Delete deletes row. On a table with a deleted_at column it is a soft delete: an
-// update that stamps the tombstone, so the version check applies. Otherwise it is
-// HardDelete.
-func (t *TableOf[R, K]) Delete(ctx context.Context, db Executor, row *R) error {
-	return t.BatchDelete(ctx, db, []*R{row}, WithBatchSize(1))
-}
-
-// BatchDelete deletes rows as Delete does.
-func (t *TableOf[R, K]) BatchDelete(ctx context.Context, db Executor, rows []*R, options ...BatchOption) error {
-	return traceExecutor(ctx, db, t.traceInfo(TraceOpDelete), func(ctx context.Context) error {
-		config, err := newBatchConfig(options, false)
-		if err != nil {
-			return err
-		}
-
-		if !t.softDeleted() {
-			return t.hardDelete(ctx, db, rows, config)
-		}
-
-		return t.setTombstone(ctx, db, rows, config, true)
-	})
-}
-
-// Restore clears the tombstone of a soft-deleted row, refreshing updated_at and
-// incrementing version. Only a deleted row matches; on a table with a version
-// column a row that is not deleted, or changed since it was loaded, fails with
-// OptimisticLockError.
-func (t *TableOf[R, K]) Restore(ctx context.Context, db Executor, row *R) error {
-	return t.BatchRestore(ctx, db, []*R{row}, WithBatchSize(1))
-}
-
-// BatchRestore restores rows in as few statements as the batch size allows.
-func (t *TableOf[R, K]) BatchRestore(ctx context.Context, db Executor, rows []*R, options ...BatchOption) error {
-	return traceExecutor(ctx, db, t.traceInfo(TraceOpUpdate), func(ctx context.Context) error {
-		config, err := newBatchConfig(options, false)
-		if err != nil {
-			return err
-		}
-
-		if t.def.managed.DeletedAt == "" {
-			return fmt.Errorf("restore %s: the table has no deleted_at column", t.TableName())
-		}
-
-		return t.setTombstone(ctx, db, rows, config, false)
-	})
-}
-
 // setTombstone soft-deletes live rows (deleted is true) or restores deleted ones.
 // It writes only the managed columns: a delete is not a way to save other changes.
 func (t *TableOf[R, K]) setTombstone(ctx context.Context, db Executor, rows []*R, config batchConfig, deleted bool) error {
@@ -277,7 +230,10 @@ func (t *TableOf[R, K]) setTombstone(ctx context.Context, db Executor, rows []*R
 
 		w.text(" WHERE ")
 		writeKeyMatch(w, def, chunk)
-		writeTombstoneFilter(w, def, !deleted)
+
+		if !deleted || t.softDeleted() {
+			writeTombstoneFilter(w, def, !deleted)
+		}
 
 		need := "a live row"
 		if !deleted {
@@ -1100,14 +1056,6 @@ func applyTimestamp(v reflect.Value, ts time.Time) error {
 	return fmt.Errorf("managed time column has unsupported type %s", v.Type())
 }
 
-// BatchDeleteByPK deletes the rows whose primary key is in keys, as Delete would:
-// a soft delete on a table with deleted_at (rows already deleted keep their
-// tombstone), otherwise a hard delete. It does not check versions, but a soft
-// delete increments them.
-func (t *TableOf[R, K]) BatchDeleteByPK(ctx context.Context, db Executor, keys []K, options ...BatchOption) error {
-	return t.deleteByPK(ctx, db, keys, options, t.def.managed.DeletedAt != "")
-}
-
 // BatchHardDeleteByPK removes the rows whose primary key is in keys, deleted rows
 // included.
 func (t *TableOf[R, K]) BatchHardDeleteByPK(ctx context.Context, db Executor, keys []K, options ...BatchOption) error {
@@ -1166,8 +1114,9 @@ func (t *TableOf[R, K]) deleteByPK(ctx context.Context, db Executor, keys []K, o
 
 			w.text(")")
 
-			if soft {
-				// A row that is already deleted keeps its original tombstone.
+			if soft && t.softDeleted() {
+				// A row that is already deleted keeps its original tombstone,
+				// unless the table is WithDeleted.
 				w.text(" AND ").ident(def.managed.DeletedAt)
 
 				if def.tombstoneIsZero {

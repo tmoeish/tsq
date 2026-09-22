@@ -128,14 +128,6 @@ func (t InstructorTable) As(alias string) InstructorTable {
 	}
 }
 
-// WithDeleted returns the table without its soft-delete scope; see
-// tsq.TableOf.WithDeleted.
-func (t InstructorTable) WithDeleted() InstructorTable {
-	t.TableOf = t.TableOf.WithDeleted()
-
-	return t
-}
-
 // GetByEmail reads the Instructor matching unique index ux_instructor_email, and fails with an
 // error wrapping sql.ErrNoRows when there is none.
 func (t InstructorTable) GetByEmail(
@@ -164,15 +156,8 @@ func (i *Instructor) Insert(ctx context.Context, db tsq.Executor) error {
 // Update writes the row, or only cols when given; see tsq.TableOf.Update.
 func (i *Instructor) Update(ctx context.Context, db tsq.Executor, cols ...tsq.BoundColumn[Instructor]) error {
 	return TableInstructor.Update(ctx, db, i, cols...)
-}
+} // HardDelete removes the row from the table.
 
-// Delete removes the row. Instructor has no deleted_at column, so Delete and
-// HardDelete are the same.
-func (i *Instructor) Delete(ctx context.Context, db tsq.Executor) error {
-	return TableInstructor.Delete(ctx, db, i)
-}
-
-// HardDelete removes the row from the table.
 func (i *Instructor) HardDelete(ctx context.Context, db tsq.Executor) error {
 	return TableInstructor.HardDelete(ctx, db, i)
 }

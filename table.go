@@ -38,7 +38,7 @@ type managedColumns struct {
 	Version   string // Version is the optimistic-lock column.
 	CreatedAt string // CreatedAt is set once, when the row is inserted.
 	UpdatedAt string // UpdatedAt is refreshed by every update, including soft deletes.
-	DeletedAt string // DeletedAt carries the soft-delete tombstone; when set, Delete is a soft delete.
+	DeletedAt string // DeletedAt carries the tombstone of a SoftDeleteTableOf.
 }
 
 // TableIndex declares one physical index of a table.
@@ -74,8 +74,11 @@ type tableDef struct {
 	// tombstoneIsZero says a live row has deleted_at = 0 (integer tombstones)
 	// rather than deleted_at IS NULL.
 	tombstoneIsZero bool
-	defined         bool
-	err             error
+	// softDelete marks a table made by NewSoftDeleteTable, which only
+	// SoftDeleteTableOf.Define completes.
+	softDelete bool
+	defined    bool
+	err        error
 }
 
 func (d *tableDef) column(name string) *columnCore {
@@ -135,11 +138,12 @@ type TableSpec[R any, K comparable] struct {
 	PrimaryKey Column[R, K]
 	// AutoIncrement reports whether the database generates the primary key.
 	AutoIncrement bool
-	// Version, CreatedAt, UpdatedAt and DeletedAt are the managed columns, or nil.
+	// Version, CreatedAt and UpdatedAt are the managed columns, or nil. The
+	// deleted_at column is not here: it makes the table a SoftDeleteTableOf, whose
+	// Define takes it.
 	Version   BoundColumn[R]
 	CreatedAt BoundColumn[R]
 	UpdatedAt BoundColumn[R]
-	DeletedAt BoundColumn[R]
 	// Search lists the columns keyword search matches against.
 	Search []SearchColumn
 	// ColumnSpecs is the physical column definition, used by the schema policies.
@@ -160,12 +164,28 @@ func NewTable[R any, K comparable](name string) *TableOf[R, K] {
 }
 
 // Define completes the table and returns it. A definition error is reported by
-// every query and write that uses the table.
+// every query and write that uses the table. A table from NewSoftDeleteTable is
+// completed by SoftDeleteTableOf.Define instead.
 func (t *TableOf[R, K]) Define(spec TableSpec[R, K]) *TableOf[R, K] {
+	if t.def.softDelete {
+		t.def.err = errors.Join(t.def.err, fmt.Errorf("table %s is a soft-delete table; complete it with SoftDeleteTableOf.Define", t.def.name))
+		t.def.defined = true
+
+		return t
+	}
+
+	t.define(spec, nil)
+
+	return t
+}
+
+// define completes the table; deletedAt is the tombstone column of a soft-delete
+// table, or nil.
+func (t *TableOf[R, K]) define(spec TableSpec[R, K], deletedAt BoundColumn[R]) {
 	d := t.def
 	if d.defined {
 		d.err = errors.Join(d.err, fmt.Errorf("table %s is defined twice", d.name))
-		return t
+		return
 	}
 
 	d.defined = true
@@ -243,7 +263,7 @@ func (t *TableOf[R, K]) Define(spec TableSpec[R, K]) *TableOf[R, K] {
 
 	d.autoIncrement = spec.AutoIncrement
 
-	if col := spec.DeletedAt; !isNilValue(col) && col.core().scan != nil {
+	if col := deletedAt; !isNilValue(col) && col.core().scan != nil {
 		switch reflect.ValueOf(col.core().scan(new(R))).Elem().Kind() {
 		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
 			reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
@@ -255,7 +275,11 @@ func (t *TableOf[R, K]) Define(spec TableSpec[R, K]) *TableOf[R, K] {
 		Version:   registered("version column", spec.Version),
 		CreatedAt: registered("created_at column", spec.CreatedAt),
 		UpdatedAt: registered("updated_at column", spec.UpdatedAt),
-		DeletedAt: registered("deleted_at column", spec.DeletedAt),
+		DeletedAt: registered("deleted_at column", deletedAt),
+	}
+
+	if d.softDelete && isNilValue(deletedAt) {
+		fail("a soft-delete table needs its deleted_at column")
 	}
 
 	for _, col := range spec.Search {
@@ -296,8 +320,6 @@ func (t *TableOf[R, K]) Define(spec TableSpec[R, K]) *TableOf[R, K] {
 
 		d.indexes = append(d.indexes, cloneTableIndex(index))
 	}
-
-	return t
 }
 
 // TableName returns the name queries use for the table: its alias, if it has
@@ -368,11 +390,9 @@ func (t *TableOf[R, K]) Indexes() []TableIndex {
 	return result
 }
 
-// WithDeleted returns the table without its soft-delete scope. A table with a
-// deleted_at column leaves deleted rows out of every query and of UpdateTable and
-// DeleteFrom; select from, join or update WithDeleted() to include them. Its
-// columns are the table's columns.
-func (t *TableOf[R, K]) WithDeleted() *TableOf[R, K] {
+// withDeleted is t without the live-row filter; SoftDeleteTableOf.WithDeleted is
+// how a caller asks for it.
+func (t *TableOf[R, K]) withDeleted() *TableOf[R, K] {
 	next := *t
 	next.includeDeleted = true
 

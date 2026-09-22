@@ -534,8 +534,9 @@ func runTrackCRUDDemo(ctx context.Context, runtime *tsq.Runtime) (*CRUDSummary, 
 		return nil, fmt.Errorf("%s: %w", "get updated track", err)
 	}
 
-	// Delete the track.
-	if err := inserted.Delete(ctx, exec); err != nil {
+	// Remove the track. Track has no deleted_at column, so it has no Delete: a
+	// statement that removes data always says Hard.
+	if err := inserted.HardDelete(ctx, exec); err != nil {
 		return nil, fmt.Errorf("%s: %w", "delete track", err)
 	}
 

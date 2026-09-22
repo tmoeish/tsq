@@ -200,14 +200,6 @@ func (t CourseTable) As(alias string) CourseTable {
 	}
 }
 
-// WithDeleted returns the table without its soft-delete scope; see
-// tsq.TableOf.WithDeleted.
-func (t CourseTable) WithDeleted() CourseTable {
-	t.TableOf = t.TableOf.WithDeleted()
-
-	return t
-}
-
 // GetByTitle reads the Course matching unique index ux_course_title, and fails with an
 // error wrapping sql.ErrNoRows when there is none.
 func (t CourseTable) GetByTitle(
@@ -236,15 +228,8 @@ func (c *Course) Insert(ctx context.Context, db tsq.Executor) error {
 // Update writes the row, or only cols when given; see tsq.TableOf.Update.
 func (c *Course) Update(ctx context.Context, db tsq.Executor, cols ...tsq.BoundColumn[Course]) error {
 	return TableCourse.Update(ctx, db, c, cols...)
-}
+} // HardDelete removes the row from the table.
 
-// Delete removes the row. Course has no deleted_at column, so Delete and
-// HardDelete are the same.
-func (c *Course) Delete(ctx context.Context, db tsq.Executor) error {
-	return TableCourse.Delete(ctx, db, c)
-}
-
-// HardDelete removes the row from the table.
 func (c *Course) HardDelete(ctx context.Context, db tsq.Executor) error {
 	return TableCourse.HardDelete(ctx, db, c)
 }

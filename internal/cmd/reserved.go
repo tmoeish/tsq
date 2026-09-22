@@ -15,19 +15,26 @@ import (
 var genericTableMethods = []string{"FetchBy", "GetBy"}
 
 // reservedTableFields returns the names a column field of a generated table struct
-// cannot take: the embedded TableOf, every method it promotes, and the methods the
-// table template adds. A field with one of these names would hide the method, or
-// fail to compile beside it.
+// cannot take: the embedded table type (TableOf, or SoftDeleteTableOf for a table
+// with deleted_at), every method it promotes, and the methods the table template
+// adds. A field with one of these names would hide the method, or fail to compile
+// beside it.
 func reservedTableFields(data *genmodel.StructInfo) map[string]string {
 	reserved := map[string]string{
-		"TableOf":     "the embedded *tsq.TableOf",
-		"As":          "the generated As method",
-		"WithDeleted": "the generated WithDeleted method",
+		"TableOf": "the embedded *tsq.TableOf",
+		"As":      "the generated As method",
 	}
 
-	table := reflect.TypeFor[*tsq.TableOf[struct{}, int]]()
+	table, label := reflect.TypeFor[*tsq.TableOf[struct{}, int]](), "tsq.TableOf"
+
+	if data.DeletedAtField != "" {
+		reserved["SoftDeleteTableOf"] = "the embedded *tsq.SoftDeleteTableOf"
+		reserved["WithDeleted"] = "the generated WithDeleted method"
+		table, label = reflect.TypeFor[*tsq.SoftDeleteTableOf[struct{}, int]](), "tsq.SoftDeleteTableOf"
+	}
+
 	for method := range table.Methods() {
-		reserved[method.Name] = "the tsq.TableOf method " + method.Name
+		reserved[method.Name] = "the " + label + " method " + method.Name
 	}
 
 	for _, name := range genericTableMethods {

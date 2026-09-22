@@ -55,7 +55,8 @@ cmd/tsq  ──► internal/cmd ──► internal/parser ──► internal/gen
 schema 和索引。**行类型 R 上不需要任何方法**——v5 之前表元数据是使用者结构体上的七个方法，会和
 字段重名，还逼出了 `DeclareTable` 那个初始化顺序补丁。
 
-生成代码是一个内嵌 `*TableOf` 的结构体，**每列一个字段**，由一个构造函数建成：
+生成代码是一个内嵌 `*TableOf`（声明了 `deleted_at` 时是 `*SoftDeleteTableOf`，见下）的结构体，
+**每列一个字段**，由一个构造函数建成：
 
 ```go
 type CourseTable struct {
@@ -70,13 +71,22 @@ var TableCourse = newCourseTable() // 函数里：NewTable → 各列 → Define
 顺序由 Go 自己保证，没有要维护的声明形状。
 
 - 生成的结构体靠内嵌满足 `Table`（未导出方法也会被提升），所以 `From(TableCourse)` 直接可用；
-  `UpdateTable` / `DeleteFrom` 收 `RowTable[R]`，R 由 Go 1.21 起的"按方法推断类型实参"从结构体上
+  `UpdateTable` / `HardDeleteFrom` 收 `RowTable[R]`，R 由 Go 1.21 起的"按方法推断类型实参"从结构体上
   推出来——`TableOf[R, K]` 的 K 因此不进 `UpdateBuilder`。
-- 生成的 `As(alias)` / `WithDeleted()` 返回同一个结构体，列用 `WithTable` 改绑；`NullColumn` 的
+- **软删除是一种表类型**（`softdelete.go`）：`SoftDeleteTableOf[R, K]` 内嵌 `*TableOf`，只有它有
+  `Delete` / `BatchDelete` / `BatchDeleteByPK` / `Restore` / `BatchRestore` / `WithDeleted`，以及
+  提升进生成结构体的标记方法 `needsDeletedAtOrHardDeleteFrom()`。`DeleteFrom[T SoftDeleteTable[R], R]`
+  把表放在**类型参数**上而不是直接收接口：收接口时传错表的报错是 `cannot infer R`，放在约束上
+  R 照样能从约束的方法推出来，报错变成 `missing method needsDeletedAtOrHardDeleteFrom`。
+  `includeDeleted` 仍住在内层 `TableOf` 上——`Get` / `Fetch` / 当 FROM 源这些是从内嵌指针提升的
+  方法，scope 放外层它们看不见；只是设置它的 `WithDeleted` 只在软删类型上导出。构造分两个入口
+  `NewTable` / `NewSoftDeleteTable`，`tableDef.softDelete` 让两个 `Define` 互相拒绝对方的形状。
+- 生成的 `As(alias)`（和软删表的 `WithDeleted()`）返回同一个结构体，列用 `WithTable` 改绑；`NullColumn` 的
   `WithTable` 返回的动态类型仍是 `NullColumn`，生成代码断言回去。
-- 列字段名不能和 `*TableOf` 的方法、`TableOf`、生成的 `As` / `WithDeleted` / `GetByX` / `FetchByX`
-  重名：`internal/cmd/reserved.go` 用反射取方法集（泛型方法反射看不见，单独列出），
-  `TestReservedTableNamesCoverTableOf` 扫源码核对。**给 `TableOf` 加导出方法等于让某个列名从此非法**。
+- 列字段名不能和内嵌表类型（`*TableOf` 或 `*SoftDeleteTableOf`）的方法、内嵌字段名、生成的 `As` /
+  `WithDeleted` / `GetByX` / `FetchByX` 重名：`internal/cmd/reserved.go` 用反射取方法集（泛型方法反射看不见，单独列出），
+  `TestReservedTableNamesCoverTableOf` 扫源码核对两种类型。**给 `TableOf` 或 `SoftDeleteTableOf` 加导出方法
+等于让某个列名从此非法**。
 - 主键查询（`lookup.go`）：`Get` / `Find` / `Fetch` / `Query()` 各自懒建一条查询，按软删除作用域
   缓存两份（`tableKeys` 被 `As` / `WithDeleted` 的副本共享）；`FetchBy` 每次现建。按字符串取时，
   Go 里对不上的值再单行问一次数据库（排序规则可能判等），遇到第一个真不存在的就停。
@@ -85,7 +95,7 @@ var TableCourse = newCourseTable() // 函数里：NewTable → 各列 → Define
   不能 Define 两次），错误记在表上，由每个用到它的查询和写入报告，`Err()` 可以直接读。
 - 表的身份：`Define` 的"是不是本表的列"按**指针**比；查询里的表按**引用名**（别名或表名）比，
   所以 `As` 得到的是另一个名字。别名就是带 `alias` 字段的 `TableOf` 副本；按条件写的语句拒绝别名。
-- `Table` 接口是封闭的：`*TableOf[R, K]`（及内嵌它的生成结构体）和 `cteTable`。接口方法叫
+- `Table` 接口是封闭的：`*TableOf[R, K]`（及内嵌它的 `*SoftDeleteTableOf` 和生成结构体）和 `cteTable`。接口方法叫
   `TableName()` 而不是 `Name()`，因为列字段常叫 `Name`。
 
 ### 表达式与中间表示（`column.go`、`expr.go`、`sqlexpr.go`）
@@ -211,21 +221,25 @@ CTE 的输出列可空时，`WithTable(cte)` 重绑的列标成 `always`。
 
 ### 软删除作用域（`query_render.go` 的 `writeFromWhere`、`table.go` 的 `liveRows` / `liveSource`）
 
-声明了 `deleted_at` 的 `TableOf` 默认 `softDeleted()`；`WithDeleted()` 返回共享同一个
-`tableDef`、`includeDeleted = true` 的副本，别名委托给底层表，CTE 永远是 false。渲染时：
+`softDeleted()` 只回答一个问题：**WHERE 里要不要活行过滤**。软删表默认是，`WithDeleted()` 返回共享同一个
+`tableDef`、`includeDeleted = true` 的副本，别名委托给底层表，普通表和 CTE 永远是 false。
+"软删还是物理删"**不是**它回答的——那由类型决定（软删表的 `Delete*` 恒写墓碑，`Hard*` 恒 DELETE），
+运行期不存在这个分支。曾经两个问题共用这一个函数，`WithDeleted()` 一改可见性就把 `Delete` 变成了物理删除。
+渲染时：
 
 - 查询里有 RIGHT / FULL JOIN：每张作用域表都渲染成 `(SELECT * FROM t WHERE 活行) AS t`。
   这时 WHERE 过滤会把被保留侧的 NULL 行滤掉，ON 过滤又挡不住被保留侧自己的已删行，只有
   派生表两头都对。
 - 否则 FROM 表和 INNER / CROSS JOIN 表的条件并进 WHERE，LEFT JOIN 表的条件并进它的 ON
   （放进 WHERE 会把 LEFT JOIN 变成 INNER JOIN）。
-- `UpdateTable` 和软 `DeleteFrom` 在 WHERE 后追加活行条件，所以二次软删除不会重盖墓碑；
-  `HardDeleteFrom` 与 `DeleteFrom(t.WithDeleted())` 都是物理删除。
+- `UpdateTable`、`DeleteFrom`、行级 `Delete` 和 `BatchDeleteByPK` 在 WHERE 后追加活行条件，所以二次软删除
+  不会重盖墓碑；经由 `WithDeleted()` 时不追加，已删行被重新盖一次墓碑（仍是软删）。`Restore` 始终要求行已删。
+  `HardDeleteFrom` 作用于所有行。
 - 列按 `definition()` 与名字归属表，所以 `Users` 的列可以直接用在 `Users.WithDeleted()` 上。
 
 ### 写入（`rows.go`、`mutation.go`）
 
-- **行写入住在表描述符上**：`TableOf.Insert/Update/Delete/HardDelete` 和 `Batch*`。生成的行
+- **行写入住在表描述符上**：`TableOf.Insert/Update/HardDelete` 和 `Batch*`，`SoftDeleteTableOf.Delete/Restore` 和它们的 `Batch*`。生成的行
   方法只是转发。字段通过列的访问器取地址再反射取值，表的列清单决定写哪些列。
 - **写入路径读值不走反射**：`columnCore.get` 由 `NewColumn` 的类型化访问器构成（`value(row, col)`），
   批量写每列每行绑一个值，这是反射成本最集中的地方；零值判断和盖时间戳仍用反射（每表几列，一次）。
@@ -238,7 +252,7 @@ CTE 的输出列可空时，`WithTable(cte)` 重绑的列标成 `always`。
   `sql.Scanner` 的可空包装（`sql.NullTime`、`null.Time`，根包因此不 import nullbio）。
   `timestamps_test.go` 逐个类型守着。
 - 软删除 / 恢复走 `setTombstone`：只写 `deleted_at`、`updated_at`、`version`，按主键（和版本）匹配，
-  并要求行当前是活的 / 已删的。`Update` 跳过主键、`version`、`created_at`、`deleted_at`，软删除表上
+  恢复要求行已删，删除在表带活行作用域时要求行是活的。`Update` 跳过主键、`version`、`created_at`、`deleted_at`，软删除表上
   追加活行条件（`WithDeleted()` 不追加）。
 - 批量写按占位符数分批（`effectiveChunkSize` × `sqldialect.MaxBindParams`）：INSERT 每行约一个
   占位符每列，UPDATE 约两个（`CASE pk WHEN ? THEN ?`）。单行 UPDATE 直接 `SET c = ?`。
@@ -249,11 +263,11 @@ CTE 的输出列可空时，`WithTable(cte)` 重绑的列标成 `always`。
   SET c = excluded.c`，MySQL `AS tsq_new ON DUPLICATE KEY UPDATE c = tsq_new.c`。单行时 PG/SQLite 用
   `RETURNING pk`，MySQL 用 `pk = LAST_INSERT_ID(pk)` 让更新也报出主键，随后按主键回读
   `version` / `created_at`。
-- 按条件写：`UpdateTable(table)` / `DeleteFrom(table)` / `HardDeleteFrom(table)`。
+- 按条件写：`UpdateTable(table)` / `DeleteFrom(softTable)` / `HardDeleteFrom(table)`。
   `Set` 是泛型方法，所以 `UpdateBuilder` 是导出的具体类型；`Where` 之后切到
   `MutationStage` 接口。语句只能引用目标表本身（按 `tableDef` 指针加表名判断，别名不行，`WithDeleted()` 行）。有 `version`
-  的表追加 `version = version + 1` 但不校验版本（理由见 `memory.md`）。`DeleteFrom` 在有
-  `deleted_at` 的表上渲染成 UPDATE，墓碑值**执行时**才算——v4 在构建时算，包级语句会
+  的表追加 `version = version + 1` 但不校验版本（理由见 `memory.md`）。`DeleteFrom` 恒渲染成
+  UPDATE，墓碑值**执行时**才算——v4 在构建时算，包级语句会
   永远盖进程启动的时间。
 
 ### 执行器（`executor.go`）

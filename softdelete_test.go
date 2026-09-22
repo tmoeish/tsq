@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -19,13 +20,13 @@ type memo struct {
 	DeletedAt int64
 }
 
-var memosHandle = NewTable[memo, int64]("memos")
+var memosHandle = NewSoftDeleteTable[memo, int64]("memos")
 
 var (
-	Memo_ID        = NewColumn(memosHandle, "id", "id", func(r *memo) *int64 { return &r.ID })
-	Memo_Body      = NewColumn(memosHandle, "body", "body", func(r *memo) *string { return &r.Body })
-	Memo_CreatedAt = NewColumn(memosHandle, "created_at", "created_at", func(r *memo) *time.Time { return &r.CreatedAt })
-	Memo_DeletedAt = NewColumn(memosHandle, "deleted_at", "deleted_at", func(r *memo) *int64 { return &r.DeletedAt })
+	Memo_ID        = NewColumn(memosHandle.TableOf, "id", "id", func(r *memo) *int64 { return &r.ID })
+	Memo_Body      = NewColumn(memosHandle.TableOf, "body", "body", func(r *memo) *string { return &r.Body })
+	Memo_CreatedAt = NewColumn(memosHandle.TableOf, "created_at", "created_at", func(r *memo) *time.Time { return &r.CreatedAt })
+	Memo_DeletedAt = NewColumn(memosHandle.TableOf, "deleted_at", "deleted_at", func(r *memo) *int64 { return &r.DeletedAt })
 )
 
 var Memos = memosHandle.Define(TableSpec[memo, int64]{
@@ -33,14 +34,52 @@ var Memos = memosHandle.Define(TableSpec[memo, int64]{
 	PrimaryKey:    Memo_ID,
 	AutoIncrement: true,
 	CreatedAt:     Memo_CreatedAt,
-	DeletedAt:     Memo_DeletedAt,
 	ColumnSpecs: []tsqdialect.ColumnSpec{
 		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
 		{Name: "body", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 64}},
 		{Name: "created_at", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindTime}},
 		{Name: "deleted_at", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}},
 	},
-})
+}, Memo_DeletedAt)
+
+// ticket is a soft-deleted table in the shape tsq gen writes: a struct that embeds
+// *SoftDeleteTableOf, with its columns as fields.
+type ticket struct {
+	ID        int64
+	Body      string
+	DeletedAt int64
+}
+
+type ticketTable struct {
+	*SoftDeleteTableOf[ticket, int64]
+
+	ID        Column[ticket, int64]
+	Body      Column[ticket, string]
+	DeletedAt Column[ticket, int64]
+}
+
+var tickets = func() ticketTable {
+	t := NewSoftDeleteTable[ticket, int64]("tickets")
+	c := ticketTable{
+		SoftDeleteTableOf: t,
+		ID:                NewColumn(t.TableOf, "id", "id", func(r *ticket) *int64 { return &r.ID }),
+		Body:              NewColumn(t.TableOf, "body", "body", func(r *ticket) *string { return &r.Body }),
+		DeletedAt:         NewColumn(t.TableOf, "deleted_at", "deleted_at", func(r *ticket) *int64 { return &r.DeletedAt }),
+	}
+
+	t.Define(TableSpec[ticket, int64]{
+		Columns:       []BoundColumn[ticket]{c.ID, c.Body, c.DeletedAt},
+		PrimaryKey:    c.ID,
+		AutoIncrement: true,
+		ColumnSpecs: []tsqdialect.ColumnSpec{
+			{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
+			{Name: "body", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 64}},
+			{Name: "deleted_at", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}},
+		},
+	}, c.DeletedAt)
+
+	return c
+}()
 
 var memoByID = Select(Memos.Columns()...).From(Memos.WithDeleted()).Where(Memo_ID.EQ(Memo_ID.Param())).MustBuild()
 
@@ -167,10 +206,6 @@ func TestRestoreAndDeleteMatchOnlyTheRightState(t *testing.T) {
 	if _, err := QueryByID.Get(ctx, rt, User_ID.Bind(row.ID)); err != nil {
 		t.Fatalf("restored row is not visible: %v", err)
 	}
-
-	if err := Orders.Restore(ctx, rt, &order{ID: 1}); err == nil {
-		t.Fatal("expected Restore on a table without deleted_at to be refused")
-	}
 }
 
 // isRowState reports a *RowStateError, which callers match with errors.AsType.
@@ -178,4 +213,82 @@ func isRowState(err error) bool {
 	_, ok := errors.AsType[*RowStateError](err)
 
 	return ok
+}
+
+// TestWithDeletedOnlyDropsTheLiveRowFilter covers the rule that WithDeleted
+// changes which rows a statement reaches and never what it does to them: every
+// delete through it is still soft, and a row already deleted is stamped again. The
+// version column shows the stamp, since a soft delete increments it.
+func TestWithDeletedOnlyDropsTheLiveRowFilter(t *testing.T) {
+	ctx := context.Background()
+	rt := newSQLite(t)
+
+	rows := seedUsers(t, rt, "a", "b", "c")
+	if err := Users.BatchDelete(ctx, rt, rows); err != nil {
+		t.Fatal(err)
+	}
+
+	stamped := func(label string, id, version int64) {
+		t.Helper()
+
+		got, err := Users.WithDeleted().Get(ctx, rt, id)
+		if err != nil {
+			t.Fatalf("%s: the row is gone, so the delete was hard: %v", label, err)
+		}
+
+		if got.DeletedAt == 0 || got.Version != version {
+			t.Fatalf("%s: row = %+v; want a tombstone and version %d", label, got, version)
+		}
+	}
+
+	// Without WithDeleted, a deleted row is left alone and keeps its tombstone.
+	if err := Users.BatchDeleteByPK(ctx, rt, []int64{rows[1].ID}); err != nil {
+		t.Fatal(err)
+	}
+
+	stamped("BatchDeleteByPK", rows[1].ID, rows[1].Version)
+
+	if err := Users.WithDeleted().Delete(ctx, rt, rows[0]); err != nil {
+		t.Fatal(err)
+	}
+
+	stamped("WithDeleted().Delete", rows[0].ID, rows[0].Version)
+
+	if err := Users.WithDeleted().BatchDeleteByPK(ctx, rt, []int64{rows[1].ID}); err != nil {
+		t.Fatal(err)
+	}
+
+	stamped("WithDeleted().BatchDeleteByPK", rows[1].ID, rows[1].Version+1)
+
+	deleteC, err := DeleteFrom(Users.WithDeleted()).Where(User_ID.EQ(Val(rows[2].ID))).Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if n, err := deleteC.Exec(ctx, rt); err != nil || n != 1 {
+		t.Fatalf("DeleteFrom(WithDeleted()) = %d, %v; want 1 row", n, err)
+	}
+
+	stamped("DeleteFrom(WithDeleted())", rows[2].ID, rows[2].Version+1)
+}
+
+// TestSoftDeleteTablesAreDefinedByTheirOwnDefine covers the two constructors
+// refusing each other's shape, so a hand-written definition cannot claim a
+// tombstone it does not have, or drop one it does.
+func TestSoftDeleteTablesAreDefinedByTheirOwnDefine(t *testing.T) {
+	plain := NewSoftDeleteTable[memo, int64]("plain_define")
+	id := NewColumn(plain.TableOf, "id", "id", func(r *memo) *int64 { return &r.ID })
+	plain.TableOf.Define(TableSpec[memo, int64]{Columns: []BoundColumn[memo]{id}, PrimaryKey: id})
+
+	if err := plain.Err(); err == nil || !strings.Contains(err.Error(), "SoftDeleteTableOf.Define") {
+		t.Fatalf("TableOf.Define on a soft-delete table = %v; want it refused", err)
+	}
+
+	missing := NewSoftDeleteTable[memo, int64]("missing_tombstone")
+	id = NewColumn(missing.TableOf, "id", "id", func(r *memo) *int64 { return &r.ID })
+	missing.Define(TableSpec[memo, int64]{Columns: []BoundColumn[memo]{id}, PrimaryKey: id}, nil)
+
+	if err := missing.Err(); err == nil || !strings.Contains(err.Error(), "needs its deleted_at column") {
+		t.Fatalf("Define without deleted_at = %v; want it refused", err)
+	}
 }
