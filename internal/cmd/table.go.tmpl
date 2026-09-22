@@ -130,7 +130,7 @@ func new{{$tableType}}() {{$tableType}} {
 			{Name: "{{$idx.Name}}", Columns: []string{{"{"}}{{ IndexFieldsToCols $dot $idx.Fields }}{{"}"}}},
 		{{- end }}
 		{{- range $idx := .FullTexts }}
-			{Name: "{{$idx.Name}}", FullText: true, Columns: []string{{"{"}}{{ IndexFieldsToCols $dot $idx.Fields }}{{"}"}}},
+			{Name: "{{$idx.Name}}", FullText: true, Columns: []string{{"{"}}{{ FieldsToCols $dot $idx.Fields }}{{"}"}}},
 		{{- end }}
 		},
 	{{- end }}

@@ -36,7 +36,7 @@ genmodel.StructInfo / TableMeta        internal/genmodel/model.go
 | 指令 | 含义 |
 | --- | --- |
 | `//tsq:table [name=X] [pk=Field] [assigned]` | 声明物理表，每个表结构体一次 |
-| `//tsq:result [name=X]` | 声明投影结构体，每个 result 一次 |
+| `//tsq:result` | 声明投影结构体，每个 result 一次；不收任何选项（`name` 对投影没有含义，解析器拒绝） |
 | `//tsq:managed role[=Field] ...` | `version` / `created_at` / `updated_at` / `deleted_at` |
 | `//tsq:unique 字段[,字段] [name=X]` | 唯一索引，可重复 |
 | `//tsq:index 字段[,字段] [name=X]` | 普通索引，可重复 |
@@ -112,8 +112,14 @@ genmodel.StructInfo / TableMeta        internal/genmodel/model.go
 看不出来。
 
 - `classifyDDLColumnTypeRecursive` 顺着类型链往下找基础类型，遇到实现了
-  `driver.Valuer` / `sql.Scanner` 的类型就停下来——**这类类型 TSQ 推不出 DDL 列类型，
-  使用者必须写 `db:"...,type:JSON"` 之类的显式覆盖**。
+  `driver.Valuer` / `sql.Scanner` 的类型（`codecMethod`，按指针的方法集查，`Scan` 是指针接收者）就报错——
+  **这类类型 TSQ 推不出 DDL 列类型，使用者必须写 `db:"...,type:JSON"` 之类的显式覆盖**。已知的包
+  （`time`、`database/sql`、nullbio）在这之前按名字映射。这条曾经只写在文档里、代码里没有，示例的两个
+  枚举还实现了多余的 `Value()` 靠"猜"过关；现在示例删掉了它们（database/sql 本就按底层类型存具名整数）。
+  显式 `type:` 时的可空性和生成的 Go 用同一条规则（`nullableValueType`）。
+- 字段类型的拼写一律来自 `go/types`（`resolveNullValues` 写 `FieldInfo.Spelled`），限定符查本文件的
+  import 别名（`StructInfo.Imports`）：两个同名包会被导入成 `pkg` / `pkg1`，和 `tsq` / `context` 同名的
+  使用者包也会改名，按 `PackageInfo.Name` 拼就错。门是 `TestGeneratedCodeCompilesForEveryFieldShape`。
 - `parseDDLTagOptions` 解析 `db` tag 上的 `size:`、`type:` 等选项。
 - `normalizeDDLStringSize` 给字符串列一个合理的默认长度。
 - 加载生成物本身会形成循环（生成物引用还没生成的符号），`buildDDLGeneratedFileOverlay`

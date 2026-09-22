@@ -158,7 +158,10 @@ func buildCurrentDDLTableSnapshot(
 
 	appendIndexes := func(items []genmodel.IndexInfo, unique, fullText bool) error {
 		for _, idx := range items {
-			fieldNames := indexFieldNames(table, idx.Fields)
+			fieldNames := idx.Fields
+			if !fullText {
+				fieldNames = indexFieldNames(table, idx.Fields)
+			}
 
 			fields := make([]string, 0, len(fieldNames))
 			for _, fieldName := range fieldNames {

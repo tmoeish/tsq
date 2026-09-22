@@ -101,19 +101,17 @@ func (s *StructInfo) collectRequiredPackages() map[genmodel.PackageInfo]bool {
 	packages := make(map[genmodel.PackageInfo]bool)
 
 	for _, field := range s.FieldsByName {
-		fieldPkg := field.Type.Package
-
-		// Skip primitive types and types from the current package.
-		if fieldPkg.Path == "" || fieldPkg == s.TypeInfo.Package {
-			continue
-		}
-
-		packages[fieldPkg] = true
-
+		// A type argument needs its import even when the generic type is local
+		// (Box[ext.V] declared in this package).
 		for _, argPkg := range field.TypeArgPackages {
-			if argPkg != s.TypeInfo.Package {
+			if argPkg.Path != "" && argPkg != s.TypeInfo.Package {
 				packages[argPkg] = true
 			}
+		}
+
+		// Skip primitive types and types from the current package.
+		if fieldPkg := field.Type.Package; fieldPkg.Path != "" && fieldPkg != s.TypeInfo.Package {
+			packages[fieldPkg] = true
 		}
 	}
 

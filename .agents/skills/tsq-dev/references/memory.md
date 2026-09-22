@@ -298,9 +298,12 @@ RIGHT JOIN 被保留侧的已删行，所以有 RIGHT / FULL JOIN 时整张表�
 **代价**：列字段不能和 `TableOf` 的方法重名，`tsq gen` 报错（`reserved.go`），所以 `Table.Name()` 改成了
 `TableName()`，**以后给 `TableOf` 加导出方法都会让某个列名非法**，加之前想清楚。
 
-### 文档承诺的类型，要有一个真的用它的示例 (2026-09-19)
+### 文档承诺的类型，要有一个真的用它的示例 (2026-09-19，2026-09-22)
 
-文档说可空字段可用 `sql.Null[T]`，解析器却不认泛型（`*ast.IndexExpr`），示例换过去才暴露；门是 `gen_test.go` 的 `TestGeneratedCodeWithDatabaseSQLFieldsCompiles`。
+文档说可空字段可用 `sql.Null[T]`，解析器却不认泛型（`*ast.IndexExpr`），示例换过去才暴露。2026-09-20 的审计又在生成器里
+找出九处同一形状：跨包 result 字段、同名包、本包泛型、`Ctx` 字段……**全是 academy 恰好没有的形状**，文档里的"必须显式
+`type:`"甚至从没实现、示例靠猜过关。门是 `gen_test.go` 的形状矩阵 `TestGeneratedCodeCompilesForEveryFieldShape`：
+**新的字段形状进矩阵，不进示例。**
 
 ### 决定：部分列读出的行不许整行写回，靠弱引用记住它们 (2026-09-19)
 
@@ -388,10 +391,6 @@ flag（cobra 时代包级单例的 `Changed` 位跨测试残留过），并支�
 - 版本号 vs 模块主版本：曾要求相等。跨主版本必须分两步（先一波正常变更把 `/vN` 和全部 import 改完，
   再发首个 vN），两步之间模块路径已是 v5 而 buildinfo 还是 4.x——**严格相等把这个合法过渡态拦死，
   于是迁移根本没法作为独立的一波合入**。现在只查 `module_major() < code.major`。
-
-### 两份技能必须各住各的目录，别为了少一个符号链接把它们并在一起 (2026-08-21)
-
-**布局是文档的一部分**：软链在一起就是在说"它俩是一伙的"。改路径用 `git mv` 并 `grep -rn` 一遍。
 
 ### squash 的粒度是 PR，所以 PR 的粒度就是你能保留的历史粒度 (2026-08-21)
 

@@ -281,7 +281,7 @@ over nullable time semantics.
 
 Normally, a result struct declares only:
 
-- `//tsq:result [name=X]`
+- `//tsq:result`
 - `//tsq:search Fields`
 
 Declare projection sources using field tags:

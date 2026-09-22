@@ -55,6 +55,7 @@ func funcMap() template.FuncMap {
 		"Sub1":                     sub1,
 		"FieldToCol":               fieldToCol,
 		"IndexFieldsToCols":        indexFieldsToCols,
+		"FieldsToCols":             fieldsToCols,
 		"NeedsGeneratedTimeImport": needsGeneratedTimeImport,
 		"NeedsGeneratedSQLImport":  needsGeneratedSQLImport,
 		"SoftDeleteActiveExpr":     softDeleteActiveExpr,
@@ -124,6 +125,11 @@ var goKeywords = map[string]struct{}{
 	"var":         {},
 }
 
+// generatedIdentifiers are the names a generated lookup already uses: its fixed
+// parameters, its receiver, and the package its body calls. A parameter named after
+// a field must not take one.
+var generatedIdentifiers = map[string]struct{}{"ctx": {}, "db": {}, "t": {}, "tsq": {}}
+
 func fieldVarName(fieldName string) string {
 	name := lowerInitial(fieldName)
 	if name == "" {
@@ -131,6 +137,10 @@ func fieldVarName(fieldName string) string {
 	}
 
 	if _, ok := goKeywords[name]; ok {
+		return name + "_"
+	}
+
+	if _, ok := generatedIdentifiers[name]; ok {
 		return name + "_"
 	}
 
@@ -241,6 +251,10 @@ func fieldsToCols(data *genmodel.StructInfo, fields []string) string {
 	return strings.Join(cols, ", ")
 }
 
+// indexFieldNames are the fields a unique or plain index covers: a soft-delete table
+// leads with deleted_at, so a deleted row does not hold a unique value and a scan
+// of live rows uses the index. A full-text index takes its fields as written:
+// deleted_at is not text, and the live-row filter is the query's.
 func indexFieldNames(data *genmodel.StructInfo, fields []string) []string {
 	if data == nil || data.DeletedAtField == "" {
 		return append([]string(nil), fields...)
