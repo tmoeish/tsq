@@ -47,6 +47,24 @@ func TestValidateRegisteredTableIdentifiersRejectsOversizedNames(t *testing.T) {
 	}
 }
 
+// TestRegisteredIndexesShareNothingWithTheTable covers the copy registerTables
+// makes: a shallow one shared each index's column list with the table, so a
+// policy that edited the registration would edit the definition too.
+func TestRegisteredIndexesShareNothingWithTheTable(t *testing.T) {
+	table := wideTable("users", []string{"name"}, nil, []TableIndex{{Name: "idx_users_name", Columns: []string{"name"}}})
+
+	registered, err := registerTables([]Table{table})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	registered[0].Indexes[0].Columns[0] = "changed"
+
+	if got := table.definition().indexes[0].Columns[0]; got != "name" {
+		t.Fatalf("the table's index column = %q after editing the registration; want it untouched", got)
+	}
+}
+
 // firstRejectedIdentifier returns the shortest identifier dialect rejects as too long.
 func firstRejectedIdentifier(t *testing.T, dialect sqld.Dialect) string {
 	t.Helper()
@@ -148,8 +166,12 @@ func TestRuntimeMaxPageSizeDefaultsAndOverrides(t *testing.T) {
 		t.Fatalf("expected a wrapped pool to fall back to the default cap, got %d", page.Size)
 	}
 
-	if _, err := Open(context.Background(), "sqlite", dsn, nil, WithMaxPageSize(-1)); err == nil {
-		t.Fatal("expected negative max page size to be rejected")
+	// Zero is refused too: it used to pass and fall back to the default, so a size
+	// read from an unset config value silently became 1000.
+	for _, size := range []int{-1, 0} {
+		if _, err := Open(context.Background(), "sqlite", dsn, nil, WithMaxPageSize(size)); err == nil {
+			t.Fatalf("expected max page size %d to be rejected", size)
+		}
 	}
 }
 

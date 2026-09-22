@@ -430,10 +430,20 @@ func (t *TableOf[R, K]) upsertChunk(ctx context.Context, db Executor, scope exec
 		return err
 	}
 
+	// LAST_INSERT_ID(pk) in the update makes MySQL report the key of an updated row
+	// too, so no key means the read-back that follows cannot happen: say so rather
+	// than return with the documented columns unread.
 	if returnKey {
-		if id, err := result.LastInsertId(); err == nil && id > 0 {
-			setID(field(rows[0], def.primaryKey), id)
+		id, err := result.LastInsertId()
+
+		switch {
+		case err != nil:
+			return fmt.Errorf("read the upserted key: %w", err)
+		case id <= 0:
+			return fmt.Errorf("read the upserted key: the database reported %d", id)
 		}
+
+		setID(field(rows[0], def.primaryKey), id)
 	}
 
 	return nil

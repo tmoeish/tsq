@@ -6,6 +6,22 @@ import (
 	"testing"
 )
 
+// allCapabilities lists every capability in declaration order. Every engine must
+// take an explicit position on each of them: TestEnginesCoverAllCapabilities fails
+// when an engine's table misses one, so a capability added here cannot silently read as
+// "unsupported" somewhere.
+var allCapabilities = []Capability{
+	CapabilityCTE,
+	CapabilityExcept,
+	CapabilityFullOuterJoin,
+	CapabilityIntersect,
+	CapabilitySelectForUpdate,
+	CapabilitySelectForShare,
+	CapabilitySelectForNoWait,
+	CapabilitySelectForSkipLocked,
+	CapabilityFullTextSearch,
+}
+
 // TestEnginesCoverAllCapabilities is the gate behind the rule that every engine must
 // take an explicit position on every capability. A capability missing from a table
 // would read as unsupported with nothing failing: not the compiler, not the linter.

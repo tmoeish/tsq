@@ -327,16 +327,12 @@ RIGHT JOIN 被保留侧的已删行，所以有 RIGHT / FULL JOIN 时整张表�
 
 ## 验证与门禁系统
 
-### 又一次：只被自己的测试撑着的代码，在库里是不存在的 (2026-08-26，2026-09-09)
+### 只被自己的测试撑着的代码，在库里是不存在的 (2026-08-26，2026-09-09，2026-09-22)
 
-一次审计同时抓到三处同一形状的东西：未导出的 `printSQL` key 加三个 tracer（读路径八处
-`ctx.Value` 在发布出去的库里**永远为假**）；`canonicalCapabilityName` 的逐行副本加一个零调用入口；
-以及 `_test.go` 里自己定义 `AGENTS.md` 明令禁止的包级 `Runtime` 单例——守着它的 `api-check` 只看
-快照，而 `_test.go` 的导出符号不进快照。**规则的门在哪，绕过它的路就在哪。**
-
-两条教训比"删掉了"值钱：**`unused` linter 看不见这类东西**（`_test.go` 里的引用算使用，判据只能是
-排除 `_test.go` 之后 grep 调用方）；**一个只被自己的测试引用的符号，测试证明的是它自洽，不是它可达**
-——绿色的测试在这里是伪装。`change-impact.md` 为此加了两条带 grep 的触发器。
+四次同一形状：永远为假的 `printSQL` tracer、`canonicalCapabilityName` 的副本、测试里的包级 `Runtime`、以及和真实
+索引策略已经漂移的第二份 `upsertIndex`。**`unused` linter 看不见**（测试里的引用算使用），**测试证明的是它自洽，
+不是它可达**。第四次之后装了门：`deadcode_test.go` 的 `TestNoUnexportedCodeOnlyTestsReach`。只给测试用的数据
+（如能力清单）放进 `_test.go`，别给门开豁免。
 
 **2026-09-09 又一次，这次在代码生成侧**：模板 helper 发出 `tsq.TimePtr(...)`，根包没有这个符号，
 声明 `*time.Time` 托管字段的使用者拿到的是**自己工程里**的编译错误，而 `skills/tsq` 一直把它列为

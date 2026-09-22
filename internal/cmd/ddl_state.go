@@ -905,11 +905,24 @@ func renderDDLChangeOperation(dialect ddlDialectSpec, op ddlChange) []string {
 			return []string{renderDDLManualComment(op.table, fmt.Sprintf("manual change required to add primary key column %s", op.newColumn.Name))}
 		}
 
-		return []string{fmt.Sprintf(
+		statement := fmt.Sprintf(
 			"ALTER TABLE %s ADD COLUMN %s;",
 			dialect.dialect.QuoteIdent(op.table),
 			renderDDLSnapshotColumnDefinition(*op.newColumn, dialect),
-		)}
+		)
+
+		// Right on an empty table, and refused by every dialect on one with rows:
+		// the migration is the user's to run, so it says so where it will be read.
+		if column := op.newColumn; !column.Nullable && column.Default == "" && column.Generated == "" {
+			return []string{
+				renderDDLManualComment(op.table, fmt.Sprintf(
+					"%s is NOT NULL without a default, which fails on a table with rows; declare default: or backfill it first", column.Name)),
+				statement,
+			}
+		}
+
+		return []string{statement}
+
 	case ddlChangeDropColumn:
 		return []string{fmt.Sprintf(
 			"ALTER TABLE %s DROP COLUMN %s;",

@@ -31,13 +31,14 @@ func AttachMany[P, C any, K comparable](
 	assign func(parent *P, children []*C),
 	args ...Arg,
 ) error {
+	// Checked before the query runs: a nil assign would throw the rows away.
+	if assign == nil {
+		return errors.New("attach: assign cannot be nil")
+	}
+
 	byKey, err := loadChildren(ctx, db, parents, parentKey, children, childKey, args)
 	if err != nil {
 		return err
-	}
-
-	if assign == nil {
-		return errors.New("attach: assign cannot be nil")
 	}
 
 	for _, parent := range parents {
@@ -65,13 +66,14 @@ func AttachOne[P, C any, K comparable](
 	assign func(parent *P, child *C),
 	args ...Arg,
 ) error {
+	// Checked before the query runs: a nil assign would throw the rows away.
+	if assign == nil {
+		return errors.New("attach: assign cannot be nil")
+	}
+
 	byKey, err := loadChildren(ctx, db, parents, parentKey, children, childKey, args)
 	if err != nil {
 		return err
-	}
-
-	if assign == nil {
-		return errors.New("attach: assign cannot be nil")
 	}
 
 	for _, parent := range parents {

@@ -321,7 +321,7 @@ DDL 语句、schema 探查，以及 `SupportsCapability(Capability)`。接口只
 - 能力位按**当前版本基线**表态，不探测服务器版本：MySQL 8.0（FULL JOIN 不支持）、
   SQLite 3.39+（行锁不支持）、PostgreSQL 全部支持。
 - 能力表住在公开的 `dialect.capabilities`（每方言一张 `map[Capability]bool`），`Supports` 只查表、
-  没有 `default` 分支；新增能力位要往 `allCapabilities` 和三张表各加一行，
+  没有 `default` 分支；新增能力位要往三张表和 `dialect_test.go` 的 `allCapabilities` 各加一行，
   `TestEnginesCoverAllCapabilities` 守着。
 - 绑定参数上限（`MaxBindParams`）：MySQL / PostgreSQL 65535，**SQLite 32766**。
 

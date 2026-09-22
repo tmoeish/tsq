@@ -479,6 +479,63 @@ func TestReconcileDropsUndeclaredColumns(t *testing.T) {
 	}
 }
 
+// TestFailedDDLIsNotLoggedAsApplied covers the "applied ddl" record, which was
+// written before the statement ran, so a failed ALTER was reported as applied.
+func TestFailedDDLIsNotLoggedAsApplied(t *testing.T) {
+	ctx := context.Background()
+	db, dsn := newSQLiteIndexTestEngine(t)
+
+	for _, statement := range []string{
+		`CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, name VARCHAR(120))`,
+		`INSERT INTO users (name) VALUES ('amy')`,
+	} {
+		if _, err := db.DB().ExecContext(ctx, statement); err != nil {
+			t.Fatalf("%s: %v", statement, err)
+		}
+	}
+
+	// A NOT NULL column with no default cannot be added to a table with rows.
+	table, _ := newStrictMockTable("users", "id", "name", "age")
+	declared := registered(table, []tsqdialect.ColumnSpec{
+		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
+		{Name: "name", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 120, Nullable: true}},
+		{Name: "age", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}},
+	})
+
+	logger := &recordingLogger{}
+	if _, err := Open(ctx, "sqlite", dsn, []Table{declared},
+		WithTablePolicy(SchemaPolicyReconcile), WithIndexPolicy(SchemaPolicyManual), WithLogger(logger)); err == nil {
+		t.Fatal("expected the ALTER to fail")
+	}
+
+	if applied := logger.count("applied ddl"); applied != 0 {
+		t.Fatalf("%d failed statements were logged as applied", applied)
+	}
+}
+
+// TestColumnDefaultsCompareByMeaning covers the default comparison of schema
+// reconcile. It cut a value at its first "::", so PostgreSQL's 'a::b'::text never
+// matched a declared 'a::b' and every boot set the default again, and it lowered
+// everything, so 'Active' matched 'active' and a changed default was never seen.
+func TestColumnDefaultsCompareByMeaning(t *testing.T) {
+	for _, tt := range []struct {
+		left, right string
+		same        bool
+	}{
+		{"'USD'", "'USD'::character varying", true},
+		{"'a::b'", "'a::b'::text", true},
+		{"'it''s'", "'it''s'::text", true},
+		{"CURRENT_TIMESTAMP", "current_timestamp", true},
+		{"'USD'", "USD", true}, // MySQL reads a string default back unquoted
+		{"'Active'", "'active'::text", false},
+		{"'a'", "'b'", false},
+	} {
+		if got := sameDefault(tt.left, tt.right); got != tt.same {
+			t.Errorf("sameDefault(%q, %q) = %v, want %v", tt.left, tt.right, got, tt.same)
+		}
+	}
+}
+
 // TestResolveRuntimeDialectAcceptsEverySQLiteDriverName covers both registered
 // names: modernc.org/sqlite is "sqlite" and mattn/go-sqlite3 is "sqlite3". The
 // latter used to be refused, from the days when TSQ shipped with the CGO driver

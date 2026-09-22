@@ -52,6 +52,16 @@ type TableIndex struct {
 	FullText bool
 }
 
+// cloneTableIndexes copies indexes, each with cloneTableIndex.
+func cloneTableIndexes(indexes []TableIndex) []TableIndex {
+	result := make([]TableIndex, 0, len(indexes))
+	for _, index := range indexes {
+		result = append(result, cloneTableIndex(index))
+	}
+
+	return result
+}
+
 // cloneTableIndex copies an index, fields included, so that adding a field to
 // TableIndex cannot be forgotten here.
 func cloneTableIndex(index TableIndex) TableIndex {
@@ -382,12 +392,7 @@ func (t *TableOf[R, K]) ColumnSpecs() []tsqdialect.ColumnSpec { return slices.Cl
 
 // Indexes returns the declared indexes.
 func (t *TableOf[R, K]) Indexes() []TableIndex {
-	result := make([]TableIndex, 0, len(t.def.indexes))
-	for _, index := range t.def.indexes {
-		result = append(result, cloneTableIndex(index))
-	}
-
-	return result
+	return cloneTableIndexes(t.def.indexes)
 }
 
 // withDeleted is t without the live-row filter; SoftDeleteTableOf.WithDeleted is

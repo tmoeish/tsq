@@ -40,22 +40,6 @@ const (
 	CapabilityFullTextSearch Capability = "FULL_TEXT_SEARCH"
 )
 
-// allCapabilities lists every capability in declaration order. Every engine must
-// take an explicit position on each of them: TestEnginesCoverAllCapabilities fails
-// when a table below misses one, so a capability added here cannot silently read as
-// "unsupported" somewhere.
-var allCapabilities = []Capability{
-	CapabilityCTE,
-	CapabilityExcept,
-	CapabilityFullOuterJoin,
-	CapabilityIntersect,
-	CapabilitySelectForUpdate,
-	CapabilitySelectForShare,
-	CapabilitySelectForNoWait,
-	CapabilitySelectForSkipLocked,
-	CapabilityFullTextSearch,
-}
-
 // capabilities is each engine's position on every capability.
 var capabilities = map[Name]map[Capability]bool{
 	// Baseline is MySQL 8.0 (5.7 reached end of life in 2023-10): CTEs since 8.0,

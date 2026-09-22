@@ -159,6 +159,14 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 - **`ListIn` 会把 `Not(col.In(list))` 按块拆开**：每块 `NOT IN` 都匹配其他块排除的行，结果被重复拼接且不报错。现在和 `NotIn` 一样拒绝。
 - **`driver.Valuer` 值的 NULL 检查从未生效**：`Pred` / `Expr` 里的 `sql.NullString` 这类结构体 Valuer 被当成不可比较而拒绝，底层不是结构体的 Valuer 即使是 NULL 也被放行，渲染成 `col = NULL` 静默零行。游标分页对 NULL 的排序值同样漏检。
 - **集合操作的操作数自带的 `OrderBy` / `Limit` / `Offset` / 行锁被静默丢弃**：守卫检查的是左侧而不是操作数，`Union(q.OrderBy(...).Limit(3))` 渲染时前三条的限制消失。现在构建时报错。
+- **失败的 `Update` 也改掉了调用方行上的 `updated_at`**：时间戳在任何校验之前写进行里，版本冲突或部分列行被拒绝之后，行对象带着一个数据库里不存在的时间，`version` 却没动。现在执行失败时恢复原值。
+- **`WithMaxPageSize(0)` 被当成"没设置"**：静默落回默认的 1000。现在小于 1 的值报错。
+- **DDL 失败了日志仍记 "applied ddl"**：日志写在执行之前，SQLite 重建表在事务回滚后也照样宣称每条语句都已应用。现在只在成功（重建是提交）之后记录。
+- **schema 对账对列默认值的比较**：在第一个 `::` 处截断，PostgreSQL 读回的 `'a::b'::text` 永远对不上声明的 `'a::b'`，每次启动都重设默认值；同时一律转小写，`'Active'` 改成 `'active'` 时看不出差别。现在只截掉字面量之外的类型转换，两个带引号的字面量按原样比较。
+- **MySQL 上 `Upsert` 读不到主键时静默返回成功**：文档承诺回读 `version` / `created_at`，这时却什么也没读。现在返回错误。
+- **JSON 标签里带引号时生成失败**：标签原样拼进字符串字面量。生成的表名、列名、索引名和 JSON 名现在都用 Go 的引号转义写出。
+- **迁移记录里新增 `NOT NULL` 且没有默认值的列**：`ADD COLUMN` 在有数据的表上三个方言都会失败，迁移段里却没有任何提示。现在语句前带一行注释，说明失败条件和两种修法（声明 `default:` 或先回填）。
+- `AttachMany` / `AttachOne` 在发出查询之前检查 `assign`，而不是查完再报错。
 - **软删除和恢复的版本冲突被报成 `RowStateError`**：陈旧副本的 `Delete` / `Restore` 报"需要一个活行"，`WithRetry(tsq.IsOptimisticLockError)` 不会重试本该重试的冲突，而 `Restore` 的文档写的正是 `OptimisticLockError`。现在匹配不上时回读版本号：版本变了报 `OptimisticLockError`，只是状态不对才报 `RowStateError`。
 - **MySQL 上 `TEXT` / `TINYTEXT` 列被当成 `MEDIUMTEXT`**：一个只能存 255 字节的 `TINYTEXT` 被判定与声明为 100000 字符的字符串一致，`Reconcile` 从不修正，写入长数据时才报错。现在两者按原始类型读回，只和显式的 `type:TEXT` / `type:TINYTEXT` 一致。
 - **MySQL 上 `Reconcile` 会去删外键正在用的索引**：MySQL 的索引列表从不标记约束，"约束支撑的索引不许重建"这条保护在 MySQL 上从不生效，使用者拿到驱动的 1553 错误。现在外键需要的索引被标出，重建会被拒绝并说明原因。
