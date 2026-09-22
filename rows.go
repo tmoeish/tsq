@@ -241,7 +241,7 @@ func (t *TableOf[R, K]) setTombstone(ctx context.Context, db Executor, rows []*R
 			need = "a deleted row"
 		}
 
-		if err := t.execCounted(ctx, db, w, def, op, chunk, wrongRowState(def.name, op, need)); err != nil {
+		if err := t.execCounted(ctx, db, w, def, op, chunk, t.tombstoneMismatch(ctx, db, scope, def, version, op, need, chunk)); err != nil {
 			return err
 		}
 
@@ -266,6 +266,87 @@ func (t *TableOf[R, K]) setTombstone(ctx context.Context, db Executor, rows []*R
 	}
 
 	return nil
+}
+
+// tombstoneMismatch is the error of a delete or restore that matched fewer rows
+// than it was given. The statement checks the version and the row's state at once,
+// and the two failures need different handling: a row changed since it was loaded
+// is an OptimisticLockError, which a retry after reloading fixes, and a row in the
+// wrong state is a RowStateError, which it does not. With a version column the
+// rows are read back to tell which; the read only happens on this error path.
+func (t *TableOf[R, K]) tombstoneMismatch(ctx context.Context, db Executor, scope execScope, def *tableDef, version *columnCore, op, need string, rows []*R) func(int64, int64) error {
+	state := wrongRowState(def.name, op, need)
+	if version == nil {
+		return state
+	}
+
+	return func(expected, actual int64) error {
+		changed, err := t.versionsChanged(ctx, db, scope, def, version, rows)
+
+		switch {
+		case err != nil:
+			return errors.Join(state(expected, actual), fmt.Errorf("read back the versions: %w", err))
+		case changed:
+			return versionConflict(def.name)(expected, actual)
+		}
+
+		return state(expected, actual)
+	}
+}
+
+// versionsChanged reports whether one of rows is gone or holds another version than
+// the one it was loaded with. Values are scanned into the fields' own types, so they
+// compare the same whatever the driver hands back.
+func (t *TableOf[R, K]) versionsChanged(ctx context.Context, db Executor, scope execScope, def *tableDef, version *columnCore, rows []*R) (bool, error) {
+	w := &writeStmt{d: scope.dialect}
+	w.text("SELECT ").ident(def.primaryKey.name).text(", ").ident(version.name).text(" FROM ").ident(def.name)
+	w.text(" WHERE ").ident(def.primaryKey.name).text(" IN (")
+
+	for i, row := range rows {
+		if i > 0 {
+			w.text(", ")
+		}
+
+		w.arg(value(row, def.primaryKey))
+	}
+
+	w.text(")")
+
+	if w.err != nil {
+		return false, w.err
+	}
+
+	result, err := db.QueryContext(ctx, w.sql.String(), w.args...)
+	if err != nil {
+		return false, err
+	}
+
+	defer func() { _ = result.Close() }()
+
+	stored := make(map[string]string, len(rows))
+
+	for result.Next() {
+		key := reflect.New(field(new(R), def.primaryKey).Type())
+		held := reflect.New(field(new(R), version).Type())
+
+		if err := result.Scan(key.Interface(), held.Interface()); err != nil {
+			return false, err
+		}
+
+		stored[keyText(key.Elem().Interface())] = keyText(held.Elem().Interface())
+	}
+
+	if err := result.Err(); err != nil {
+		return false, err
+	}
+
+	for _, row := range rows {
+		if held, ok := stored[keyText(value(row, def.primaryKey))]; !ok || held != keyText(value(row, version)) {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }
 
 // writeTombstoneFilter appends the condition that a row is deleted (true) or live.

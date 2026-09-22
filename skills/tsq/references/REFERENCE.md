@@ -171,6 +171,7 @@ Rules:
 - a codec type that is a nullable form (a pointer, or a struct with a `Valid bool` and a `Scan` method) is a `NullColumn` in Go and a column that accepts NULL in the DDL
 - `type:` is emitted verbatim to generated dialect DDL, so only reuse the same value across dialects when that is actually correct
 - dialects may still choose a more suitable large-text type for oversized strings; for example, MySQL upgrades very large strings to `MEDIUMTEXT` / `LONGTEXT`
+- TSQ never creates a MySQL `TEXT` or `TINYTEXT` column for a string, so a live one matches only a column declared `type:TEXT` / `type:TINYTEXT`; declared as a string of some size it is reported as a mismatch, which `Reconcile` alters
 
 ### `//tsq:managed`
 
@@ -945,7 +946,8 @@ needsDeletedAtOrHardDeleteFrom`, and `tsq.HardDeleteFrom` is the statement to wr
   the row are not saved. It checks and increments the version, so a stale copy fails with
   `OptimisticLockError`, and it matches live rows only: deleting a row that is already deleted, or
   restoring one that is not, fails with `*RowStateError` (match it with `errors.AsType[*tsq.RowStateError]`) whether or not the
-  table has a `version` column. That is not a concurrency conflict, so retrying it cannot help
+  table has a `version` column. That is not a concurrency conflict, so retrying it cannot help. The
+  statement checks both at once; when it matches nothing TSQ reads the versions back to tell which
 - `Restore` / `BatchRestore` (and the generated `item.Restore(...)`) clear the tombstone of a
   deleted row, refresh `updated_at` and increment `version`; a live row does not match
 - `Update` on a table with `deleted_at` matches live rows only and never writes `deleted_at` or

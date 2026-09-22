@@ -143,3 +143,35 @@ func TestDDLColumnParsersPreserveUnknownTypes(t *testing.T) {
 		t.Fatalf("parseSQLiteColumnType() raw = %q, want %q", sqliteDesc.RawType, "JSON")
 	}
 }
+
+// TestMySQLTextColumnsKeepTheirSize covers the read-back of MySQL's text family.
+// TEXT and TINYTEXT used to read as the MEDIUMTEXT size, so a TINYTEXT column
+// holding 255 bytes matched a string declared for 100000 and reconcile never
+// altered it. TSQ renders strings as VARCHAR, MEDIUMTEXT or LONGTEXT, so the two
+// smaller types read back as themselves: drift unless the column declares them.
+func TestMySQLTextColumnsKeepTheirSize(t *testing.T) {
+	d := MySQLDialect{}
+	large := ColumnSpec{Name: "bio", Type: ColumnType{Kind: KindString, Size: 100000}}
+	declaredText := ColumnSpec{Name: "bio", Type: ColumnType{RawType: "TEXT"}}
+
+	for _, native := range []string{"tinytext", "text"} {
+		desc, err := parseMySQLColumnType(native, native, sql.NullInt64{})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		live := Column{Name: "bio", Type: desc, NativeType: native}
+		if SameColumnType(d, live, large) {
+			t.Errorf("%s matched a string declared for 100000 characters", native)
+		}
+
+		if want := native == "text"; SameColumnType(d, live, declaredText) != want {
+			t.Errorf("%s against type:TEXT = %v, want %v", native, !want, want)
+		}
+	}
+
+	medium, err := parseMySQLColumnType("mediumtext", "mediumtext", sql.NullInt64{})
+	if err != nil || !SameColumnType(d, Column{Name: "bio", Type: medium, NativeType: "mediumtext"}, large) {
+		t.Fatalf("mediumtext = %+v, %v; want it to match the MEDIUMTEXT TSQ renders", medium, err)
+	}
+}

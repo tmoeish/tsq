@@ -174,7 +174,10 @@ MySQL 的 `LENGTH` 数字节；PostgreSQL 没有 `round(double, int)`；modernc 
   退化成子串匹配（FTS5 要影子表和触发器）。排序和操作符不可移植，只有 `Capability` 说得清拿到哪一种。
   `TableIndex` 加字段记得 `cloneTableIndex`：曾逐字段复制，`FullText` 标记就在那里丢过。
 - **生成列不参与 schema 对账**：SQLite 的 `table_info` 不列它，每次启动都会再 ADD（duplicate column）。
-- **没匹配到行分两种错误**：版本不符 `OptimisticLockError`（可重试），状态不符 `RowStateError`（重试无用）。
+- **没匹配到行分两种错误**：版本不符 `OptimisticLockError`（可重试），状态不符 `RowStateError`（重试无用）。软删除 / 恢复的
+  语句同时校验两者，曾一律报后者；现在失败后按字段类型回读版本来区分（`tombstoneMismatch`，只在错误路径上多一次查询）。
+- **MySQL 的 `Index.Constraint` 指"外键需要的索引"**（删它报 1553）：别改成读 `TABLE_CONSTRAINTS`，那里把每个唯一索引都列成
+  UNIQUE 约束，TSQ 自己建的也在内，Reconcile 就再也不能重建任何唯一索引。
 - **派生表达式不是列**：`derived` 不留扫描目标，`Select(tsq.Date(时间列))` 在编译期就写不出来（以前运行期
   扫描失败）；单值查询走 `SelectValue`。
 - **Go 1.27 允许组合字面量用提升字段作键**（`outer{c: 1}`）：拆结构体时旧字面量照样编译，别当成改完了。
@@ -401,12 +404,9 @@ flag（cobra 时代包级单例的 `Changed` 位跨测试残留过），并支�
 
 ### 把并发写入者的改动误判成了工具的 bug (2026-08-21)
 
-曾断定 `make fmt` 里的 `go fix` 会把树改坏并删掉它——**错的，已改回**：另一个 claude 进程在同一
-工作区边跑边写，`go fix` 报的编译错误是它遇到的，不是它造成的。
-
-- **"我改了 A，然后 B 坏了"在有并发写入者时什么都不能证明。** 先确认自己是不是唯一写入者
-  （`ps aux | grep claude` 加 `lsof -p <pid> -a -d cwd`），再在 `git archive HEAD` 的副本里
-  复现。当时几次 `git checkout -- '*.go'` 丢掉了对方未提交的工作。
+曾断定 `make fmt` 的 `go fix` 会把树改坏（**错的，已改回**）：另一个 claude 进程在同一工作区边跑边写。**"我改了 A，
+然后 B 坏了"在有并发写入者时什么都不能证明**：先 `ps aux | grep claude` 加 `lsof -p <pid> -a -d cwd` 确认自己是唯一
+写入者，再在 `git archive HEAD` 的副本里复现；当时几次 `git checkout -- '*.go'` 丢掉了对方未提交的工作。
 
 ### 给 main 和 tag 加了 ruleset，发版随之改成 PR 流程 (2026-08-21)
 

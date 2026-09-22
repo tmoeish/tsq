@@ -77,7 +77,9 @@
   见 `memory.md` § 软删除）。`TestWithDeletedOnlyDropsTheLiveRowFilter` 守着 `WithDeleted()` 只改可达的行。
 - 生成器按 `DeletedAtField` 在两种表类型之间选（`table.go.tmpl` 的 `$base` / `$bind`），`reserved.go`
   按同一个判据取方法集；三处的判据必须是同一个字段。
-- **软删除和恢复的状态不符报 `RowStateError` 而不是 `OptimisticLockError`**：重试不能解决它，`IsOptimisticLockError` 不该为真。
+- **软删除和恢复的状态不符报 `RowStateError`，版本不符报 `OptimisticLockError`**：前者重试不能解决，后者能。
+  语句同时校验两者，匹配不上时 `tombstoneMismatch` 回读版本号判别；新的"校验状态又校验版本"的写路径要用同一个判别，
+  门是 `TestStaleSoftDeletesAreVersionConflicts`。
 - **软删除和恢复只写托管列**（`setTombstone`），自带版本校验和自增；`Update` 永远不写 `created_at` /
   `deleted_at` 且只匹配活行。`softdelete_test.go` 用一张没有 `version` 的表守着"旧副本复活已删行"。
 - **托管时间戳和墓碑在库里维护**（`applyTimestamp` / `applyTombstone` / `isUnset`）。新增一种

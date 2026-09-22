@@ -1482,6 +1482,92 @@ func TestIntegrationDerivedColumnsAreNamed(t *testing.T) {
 	}
 }
 
+// fkChild is a table whose parent_id is a foreign key.
+type fkChild struct {
+	ID       int64
+	ParentID int64
+}
+
+// fkChildTable declares fk_child with idx_fk_child_parent over (parent_id, id), a
+// different definition from the (parent_id) index the database holds.
+func fkChildTable() tsq.Table {
+	h := tsq.NewTable[fkChild, int64]("fk_child")
+	id := tsq.NewColumn(h, "id", "id", func(r *fkChild) *int64 { return &r.ID })
+	parent := tsq.NewColumn(h, "parent_id", "parent_id", func(r *fkChild) *int64 { return &r.ParentID })
+
+	return h.Define(tsq.TableSpec[fkChild, int64]{
+		Columns:    []tsq.BoundColumn[fkChild]{id, parent},
+		PrimaryKey: id,
+		ColumnSpecs: []tsqdialect.ColumnSpec{
+			{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true},
+			{Name: "parent_id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}},
+		},
+		Indexes: []tsq.TableIndex{{Name: "idx_fk_child_parent", Columns: []string{"parent_id", "id"}}},
+	})
+}
+
+// TestIntegrationIndexAForeignKeyNeedsIsNotRebuilt covers Index.Constraint on
+// MySQL, which never set it: an index a foreign key uses cannot be dropped there
+// (error 1553), and Reconcile went ahead and hit that. It is now refused with the
+// reason. PostgreSQL and SQLite need no index for a foreign key, so there the
+// index is rebuilt to its declaration.
+func TestIntegrationIndexAForeignKeyNeedsIsNotRebuilt(t *testing.T) {
+	for _, target := range integrationTargets(t) {
+		t.Run(target.name, func(t *testing.T) {
+			ctx := context.Background()
+
+			db, err := sql.Open(target.driver, target.dsn)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			t.Cleanup(func() { _ = db.Close() })
+
+			setup := []string{
+				"DROP TABLE IF EXISTS fk_child",
+				"DROP TABLE IF EXISTS fk_parent",
+				"CREATE TABLE fk_parent (id BIGINT PRIMARY KEY)",
+			}
+			if target.name == "mysql" {
+				setup = append(setup, "CREATE TABLE fk_child (id BIGINT PRIMARY KEY, parent_id BIGINT NOT NULL, "+
+					"INDEX idx_fk_child_parent (parent_id), CONSTRAINT fk_child_parent FOREIGN KEY (parent_id) REFERENCES fk_parent (id))")
+			} else {
+				setup = append(setup,
+					"CREATE TABLE fk_child (id BIGINT PRIMARY KEY, parent_id BIGINT NOT NULL REFERENCES fk_parent (id))",
+					"CREATE INDEX idx_fk_child_parent ON fk_child (parent_id)")
+			}
+
+			for _, statement := range setup {
+				if _, err := db.ExecContext(ctx, statement); err != nil {
+					t.Fatalf("%s: %v", statement, err)
+				}
+			}
+
+			t.Cleanup(func() {
+				_, _ = db.ExecContext(ctx, "DROP TABLE IF EXISTS fk_child")
+				_, _ = db.ExecContext(ctx, "DROP TABLE IF EXISTS fk_parent")
+			})
+
+			rt, err := tsq.Open(ctx, target.driver, target.dsn, []tsq.Table{fkChildTable()},
+				tsq.WithTablePolicy(tsq.SchemaPolicyManual), tsq.WithIndexPolicy(tsq.SchemaPolicyReconcile))
+
+			if target.name == "mysql" {
+				if err == nil || !strings.Contains(err.Error(), "backed by a primary key or constraint") {
+					t.Fatalf("Open = %v; want the rebuild refused naming the constraint", err)
+				}
+
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("Open = %v; want the index rebuilt", err)
+			}
+
+			_ = rt.Close()
+		})
+	}
+}
+
 // TestIntegrationFullTextSearch searches the declared full-text index on every
 // dialect. MySQL and PostgreSQL use their own index; SQLite has none TSQ manages,
 // so the same predicate matches substrings, which is why the assertions only cover
