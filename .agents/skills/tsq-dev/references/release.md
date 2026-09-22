@@ -89,11 +89,14 @@ make release             # 真的发
     的是新 commit，`git pull --ff-only` 会报分叉。**重新读一遍 `buildinfo` 确认版本对得
     上**，在合并后的 HEAD 上打 tag 并推送。
 
-## `main` 和 tag 都有 ruleset
+## `main`、`v4` 和 tag 都有 ruleset
 
 - **`main`**：禁止直推、禁止强推、禁止删除；必须走 PR，且 `Lint`、`Coverage`、`Build`、
   `GoReleaser Check`、`Integration` 五个检查全绿。规则对仓库所有者也生效（没有配
   bypass actor），所以 `git push origin main` 一定会被拒——这就是发版走 PR 的原因。
+- **`v4`**（ruleset `v4 protection`）：规则逐条照抄 `main`，但**是独立的一套**，不是把 `v4` 加进
+  `main` 那套的目标里。两条线的 CI 已经分开演化，共用一份必需检查清单时，`main` 改一个 job 名，
+  `v4` 上的 PR 就永远等不到那项检查、再也合不进去。改其中一套时想清楚另一套要不要跟。
 - **`refs/tags/v*`**：禁止删除、禁止移动、禁止强推。这条比分支保护重要得多：Go Proxy
   永久缓存每个 tag 的内容哈希，删掉重打会让全球用户 checksum 校验失败。**"不要删 tag
   重打"从此是被强制的，不是靠人记得的。**
