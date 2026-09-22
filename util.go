@@ -49,7 +49,7 @@ func validatePredicateValue(arg any) error {
 		return errNull
 	}
 
-	if valuer, ok := arg.(interface{ Value() (any, error) }); ok {
+	if valuer, ok := arg.(driver.Valuer); ok {
 		value, err := valuer.Value()
 		if err != nil {
 			return fmt.Errorf("evaluate %T: %w", arg, err)

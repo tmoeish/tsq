@@ -205,7 +205,8 @@ func (t *TableOf[R, K]) setTombstone(ctx context.Context, db Executor, rows []*R
 	}
 
 	version := def.column(def.managed.Version)
-	size := effectiveChunkSize(config.size, 2, sqld.MaxBindParams(scope.dialect))
+	// The stamps bind once per statement, the key match per row.
+	size := effectiveChunkSize(config.size, keyMatchParams(def), sqld.MaxBindParams(scope.dialect)-len(stamp))
 
 	for _, chunk := range chunks(rows, size) {
 		w := &writeStmt{d: scope.dialect}
@@ -421,7 +422,7 @@ func (t *TableOf[R, K]) insert(ctx context.Context, db Executor, rows []*R, conf
 	order := []string{}
 
 	for _, row := range rows {
-		key := t.insertColumnKey(def, row)
+		key := columnsKey(t.insertColumns(def, row))
 		if _, seen := groups[key]; !seen {
 			order = append(order, key)
 		}
@@ -483,11 +484,11 @@ func (t *TableOf[R, K]) insertColumns(def *tableDef, row *R) []*columnCore {
 	return cols
 }
 
-// insertColumnKey groups rows that write the same columns.
-func (t *TableOf[R, K]) insertColumnKey(def *tableDef, row *R) string {
+// columnsKey names a set of columns, to group rows that write the same ones.
+func columnsKey(cols []*columnCore) string {
 	var key strings.Builder
 
-	for _, col := range t.insertColumns(def, row) {
+	for _, col := range cols {
 		key.WriteString(col.name)
 		key.WriteByte(0)
 	}
@@ -722,22 +723,42 @@ func writeKeyMatch[R any](w *writeStmt, def *tableDef, rows []*R) {
 		return
 	}
 
-	if len(rows) > 1 {
-		w.text("(")
+	if len(rows) == 1 {
+		w.text("(").ident(pk.name).text(" = ").arg(value(rows[0], pk))
+		w.text(" AND ").ident(version.name).text(" = ").arg(value(rows[0], version)).text(")")
+
+		return
 	}
+
+	// Not (pk = ? AND version = ?) OR ...: each OR nests the expression one level
+	// deeper, and SQLite refuses one deeper than 1000, the default batch size. The
+	// arms of a CASE are a flat list, spelled the same on every dialect.
+	w.ident(pk.name).text(" IN (")
 
 	for i, row := range rows {
 		if i > 0 {
-			w.text(" OR ")
+			w.text(", ")
 		}
 
-		w.text("(").ident(pk.name).text(" = ").arg(value(row, pk))
-		w.text(" AND ").ident(version.name).text(" = ").arg(value(row, version)).text(")")
+		w.arg(value(row, pk))
 	}
 
-	if len(rows) > 1 {
-		w.text(")")
+	w.text(") AND CASE ").ident(pk.name)
+
+	for _, row := range rows {
+		w.text(" WHEN ").arg(value(row, pk)).text(" THEN ").ident(version.name).text(" = ").arg(value(row, version))
 	}
+
+	w.text(" END")
+}
+
+// keyMatchParams is how many parameters writeKeyMatch binds per row.
+func keyMatchParams(def *tableDef) int {
+	if def.managed.Version != "" {
+		return 3
+	}
+
+	return 1
 }
 
 func checkKeys[R any](def *tableDef, rows []*R, op string) error {
@@ -822,9 +843,8 @@ func (t *TableOf[R, K]) update(ctx context.Context, db Executor, rows []*R, conf
 		return fmt.Errorf("update %s: the table has no column to update", def.name)
 	}
 
-	// Each column binds a key and a value per row, and the WHERE clause one or two
-	// more per row.
-	size := effectiveChunkSize(config.size, 2*len(cols)+2, sqld.MaxBindParams(scope.dialect))
+	// Each column binds a key and a value per row, and the WHERE clause its key match.
+	size := effectiveChunkSize(config.size, 2*len(cols)+keyMatchParams(def), sqld.MaxBindParams(scope.dialect))
 
 	for _, chunk := range chunks(rows, size) {
 		if err := t.updateChunk(ctx, db, scope, def, cols, version, chunk); err != nil {
@@ -967,7 +987,7 @@ func (t *TableOf[R, K]) hardDelete(ctx context.Context, db Executor, rows []*R, 
 	}
 
 	version := def.column(def.managed.Version)
-	size := effectiveChunkSize(config.size, 2, sqld.MaxBindParams(scope.dialect))
+	size := effectiveChunkSize(config.size, keyMatchParams(def), sqld.MaxBindParams(scope.dialect))
 
 	for _, chunk := range chunks(rows, size) {
 		w := &writeStmt{d: scope.dialect}

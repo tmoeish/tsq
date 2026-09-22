@@ -341,6 +341,31 @@ func TestPageSearchesSortsAndCounts(t *testing.T) {
 	}
 }
 
+// TestBatchUpsertComparesTheKeysItWrites covers the check that refuses two rows
+// with one key in a batch. It ran before deleted_at was cleared, so a row passed
+// with a tombstone and a live row of the same email looked different, and SQLite
+// silently kept one of them.
+func TestBatchUpsertComparesTheKeysItWrites(t *testing.T) {
+	ctx := context.Background()
+	rt := newSQLite(t)
+
+	rows := []*user{
+		{Name: "one", Email: "dup@example.com", DeletedAt: 12345},
+		{Name: "two", Email: "dup@example.com"},
+	}
+
+	err := Users.BatchUpsert(ctx, rt, rows, []BoundColumn[user]{User_Email})
+	if err == nil || !strings.Contains(err.Error(), "two rows have the key") {
+		t.Fatalf("BatchUpsert = %v; want the duplicate key refused", err)
+	}
+
+	// Keys compare by value, not by the address a pointer holds.
+	a, b := "x", "x"
+	if keyText(&a) != keyText(&b) || keyText(&a) != keyText("x") {
+		t.Fatalf("keyText(&a) = %s, keyText(&b) = %s; want equal values to be equal keys", keyText(&a), keyText(&b))
+	}
+}
+
 func TestUpsertMatchesLiveRowsOfASoftDeletedUniqueIndex(t *testing.T) {
 	ctx := context.Background()
 	rt := newSQLite(t)
@@ -496,6 +521,7 @@ func TestListInSplitsListsBeyondTheBindLimit(t *testing.T) {
 		"ordered":    Select(User__Cols...).From(Users).Where(User_ID.In(list)).OrderBy(User_ID.Asc()).MustBuild(),
 		"not in":     Select(User__Cols...).From(Users).Where(User_ID.NotIn(list)).MustBuild(),
 		"under or":   Select(User__Cols...).From(Users).Where(Or(User_ID.In(list), User_Name.EQ(Val("a")))).MustBuild(),
+		"under not":  Select(User__Cols...).From(Users).Where(Not(User_ID.In(list))).MustBuild(),
 		"used twice": Select(User__Cols...).From(Users).Where(User_ID.In(list), User_Version.In(Vals[int64]()), User_ID.NotIn(list)).MustBuild(),
 		"distinct":   SelectDistinct(User__Cols...).From(Users).Where(User_ID.In(list)).MustBuild(),
 	}

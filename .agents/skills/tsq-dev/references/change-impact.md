@@ -40,7 +40,9 @@
 - 新阶段要问"它能从哪些阶段进入"，以及"SQL 允许它跟在什么后面"：分组和集合操作之后没有
   行锁（PostgreSQL 拒绝），带搜索的查询没有集合操作。
 - ORDER BY / LIMIT 作用于整个查询，由 `writeTail` 在查询体**之外**、行锁**之前**写；查询体
-  （`writeBody`）会被复用为集合操作数和 CTE 体。
+  （`writeBody`）会被复用为集合操作数和 CTE 体。所以集合操作数自带的 ORDER BY / LIMIT / OFFSET / 锁
+  **不会被写出来**，`setOp` 必须检查的是**操作数的** spec（曾经检查的是左侧自己，那条分支阶段类型
+  本来就走不到，于是守卫形同虚设）。`TestBuildRejectsInvalidStructure` 的 `set operand *` 用例守着。
 
 ## 改了全文检索
 
@@ -54,6 +56,9 @@
 
 - 三条路径都要一致：插入的列清单（`insertColumns`，按行分组，因为"未设置"是逐行的）、`Update` /
   `Upsert` 的 SET 清单、单行写入后的回读（`reloadColumns`）。漏一处就会写进一个数据库该自己算的列。
+  **`Upsert` 曾自己拼列清单**，有生成列的表（示例的 `Course`）因此一次都 upsert 不了，而规则就写在这里；
+  现在 `upsertColumns` 调 `insertColumns`（只多一个恒写的 `deleted_at`），回读用 `databaseFilled`。
+  别再给某条写路径单独拼列清单。
 - **生成列不参与 schema 对账**（`diffTableColumns` 里过滤）：SQLite 的 `table_info` 根本不列它，
   MySQL/PG 报的类型和默认值也和声明不同，比较的结果是每次启动都想改一次。
 - 端到端的门是 `examples/academy` 的 `runDatabaseFilledDemo` 和 `TestIntegrationDatabaseFilledColumns`
@@ -191,7 +196,12 @@
 - 分批的单位是**行**，数据库数的是**占位符**：
   - **上限按方言**（`sqldialect.MaxBindParams`）：MySQL / PostgreSQL 65535，**SQLite 32766**。
   - **每行占位符数按操作算**：INSERT 每列一个；UPDATE 每列两个（`CASE pk WHEN ? THEN ?`）加
-    WHERE 的一到两个；DELETE 每行一到两个。改了语句形状就要回来核对 `effectiveChunkSize` 的实参。
+    WHERE 的 `keyMatchParams`；DELETE 每行 `keyMatchParams`。每条语句一次的参数（墓碑、时间戳）从上限里
+    扣掉。改了语句形状就要回来核对 `effectiveChunkSize` 的实参。
+- **占位符不是唯一的上限，表达式深度是第二个**：SQLite 拒绝深于 1000 层的表达式，恰好等于
+  `defaultBatchSize`。批量语句的 WHERE 只许用扁平形状（`IN` 列表、`CASE` 分支），每行一个 `OR` 就是
+  每行深一层。`TestBatchWritesFitTheDefaultBatchOnSQLite` 用默认批量大小真写 1000 行；新的批量写路径
+  要进这个测试，形状要进 `TestIntegrationBatchWritesMatchByVersion` 在三方言上跑。
 - **`WithSkipDuplicates` 的错误处理不可移植**：事务内必须用 savepoint 括住每一行（PostgreSQL
   一条语句失败就 aborted），事务外**不能**发 savepoint（`25P01`）。事务与否读 `execScope.tx`。
   别改成 `INSERT IGNORE` / `ON CONFLICT DO NOTHING`：前者在 MySQL 上吞掉所有错误，后者让

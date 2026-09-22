@@ -1,6 +1,8 @@
 package tsq
 
 import (
+	"database/sql"
+	"database/sql/driver"
 	"reflect"
 	"strings"
 	"testing"
@@ -43,5 +45,41 @@ func TestValsExpandAndKeepEmptyListsExplicit(t *testing.T) {
 
 	if sql := render(User_ID.NotIn(Vals[int64]())); !strings.HasSuffix(sql, `NOT IN (SELECT 1 WHERE 1 = 0)`) {
 		t.Fatalf("empty NOT IN rendered %s", sql)
+	}
+}
+
+// nullableID is a Valuer whose underlying type is not a struct, as a custom codec
+// type often is: zero means NULL.
+type nullableID int64
+
+func (n nullableID) Value() (driver.Value, error) {
+	if n == 0 {
+		return nil, nil
+	}
+
+	return int64(n), nil
+}
+
+// TestValuersAreComparedByTheirValue covers the NULL check on a value compared
+// with =. It once asserted interface{ Value() (any, error) }, which no
+// driver.Valuer satisfies, since driver.Value is a defined type: a struct Valuer
+// was refused as not comparable, and any other one passed even when it was NULL.
+func TestValuersAreComparedByTheirValue(t *testing.T) {
+	for name, v := range map[string]any{
+		"struct valuer": sql.NullString{String: "a", Valid: true},
+		"named valuer":  nullableID(7),
+	} {
+		if _, err := Select(User_ID).From(Users).Where(User_Name.Pred("%s = %s", v)).Build(); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+
+	for name, v := range map[string]any{
+		"struct valuer": sql.NullString{},
+		"named valuer":  nullableID(0),
+	} {
+		if _, err := Select(User_ID).From(Users).Where(User_Name.Pred("%s = %s", v)).Build(); err == nil || !strings.Contains(err.Error(), "IsNull") {
+			t.Errorf("NULL %s: err = %v; want it refused", name, err)
+		}
 	}
 }

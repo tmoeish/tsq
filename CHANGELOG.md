@@ -154,6 +154,12 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 - **字符串字面量里出现 `FOR UPDATE` 之类的词，会让正常查询被当成使用了不支持的能力而拒绝执行**：能力检测不再扫描 SQL 文本，而是由渲染对应构造的代码报告。
 - **v4 的 `ContainsVal` 等模式方法不转义通配符**：`ContainsVal("50%")` 会匹配 `50` 开头的任何内容。现在与关键词搜索一样转义并声明 `ESCAPE`。
 - **相关子查询的外层表没有被外层查询校验**：外层没 join 那张表时构建成功、执行时才由数据库报错。
+- **有生成列的表 `Upsert` 必然失败，`default:` 列被写成 Go 零值**：`Upsert` / `BatchUpsert` 此前把所有列写进 INSERT，生成列在三个方言上都被数据库拒绝（示例里的 `Course` 就是这样），未设置的默认值列绑的是零值而不是让数据库填。现在和 `Insert` 用同一条规则：生成列从不写，默认值列只在行里设了值时才写（更新时未设置的保留原值），单行 `Upsert` 把数据库填的列读回来。
+- **有 `version` 列的表批量写 1000 行在 SQLite 上失败**：按主键和版本匹配曾渲染成每行一个 `OR`，而 SQLite 的表达式深度上限 1000 恰好等于默认批量大小，不传任何选项的 `BatchUpdate` / `BatchDelete` / `BatchHardDelete` 从 998 行起报 `Expression tree is too large`。现在渲染成 `pk IN (...) AND CASE pk WHEN ? THEN version = ? ... END`。
+- **`ListIn` 会把 `Not(col.In(list))` 按块拆开**：每块 `NOT IN` 都匹配其他块排除的行，结果被重复拼接且不报错。现在和 `NotIn` 一样拒绝。
+- **`driver.Valuer` 值的 NULL 检查从未生效**：`Pred` / `Expr` 里的 `sql.NullString` 这类结构体 Valuer 被当成不可比较而拒绝，底层不是结构体的 Valuer 即使是 NULL 也被放行，渲染成 `col = NULL` 静默零行。游标分页对 NULL 的排序值同样漏检。
+- **集合操作的操作数自带的 `OrderBy` / `Limit` / `Offset` / 行锁被静默丢弃**：守卫检查的是左侧而不是操作数，`Union(q.OrderBy(...).Limit(3))` 渲染时前三条的限制消失。现在构建时报错。
+- **`BatchUpsert` 的同键检查能被绕过**：检查发生在清除 `deleted_at` 之前，一行带墓碑、一行活着的同邮箱被当成不同的键，SQLite 上静默只剩一行；可空键按指针地址比较也会漏检。现在按实际写入的值比较。
 
 ### 其他
 

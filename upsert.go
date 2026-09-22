@@ -2,10 +2,12 @@ package tsq
 
 import (
 	"context"
+	"database/sql/driver"
 	"errors"
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 	sqld "github.com/tmoeish/tsq/v5/internal/sqldialect"
@@ -19,11 +21,14 @@ const upsertAlias = "tsq_new"
 // an integer deleted_at, a unique index that includes deleted_at is named by its
 // other columns and matches live rows only.
 //
-// An update writes every column except the key, the primary key and created_at,
-// increments version without checking it, and refreshes updated_at. The row
-// written is always live: deleted_at is cleared, so an upsert by primary key
-// restores a deleted row. A generated primary key, version and created_at are read
-// back into row.
+// It writes the columns Insert would: a generated column never, and a column the
+// database defaults only when the row sets it, so an unset one takes the default
+// on insert and keeps its value on update. An update writes those columns except
+// the key, the primary key and created_at, increments version without checking
+// it, and refreshes updated_at. The row written is always live: deleted_at is
+// cleared, so an upsert by primary key restores a deleted row. A generated primary
+// key, version, created_at and the columns the database filled are read back into
+// row.
 //
 // MySQL matches the proposed row against every unique key, not just key, so there
 // an upsert is refused while the table has another unique key the row could hit.
@@ -63,10 +68,6 @@ func (t *TableOf[R, K]) upsert(ctx context.Context, db Executor, rows []*R, key 
 		return fmt.Errorf("upsert into %s: %w", def.name, err)
 	}
 
-	if err := checkUpsertRows(def, target, rows, scope.dialect); err != nil {
-		return fmt.Errorf("upsert into %s: %w", def.name, err)
-	}
-
 	for _, row := range rows {
 		if err := checkFullRow("upsert into", def.name, row); err != nil {
 			return err
@@ -93,28 +94,35 @@ func (t *TableOf[R, K]) upsert(ctx context.Context, db Executor, rows []*R, key 
 		}
 	}
 
-	var generated, explicit []*R
-
-	for _, row := range rows {
-		if def.autoIncrement && field(row, def.primaryKey).IsZero() {
-			generated = append(generated, row)
-		} else {
-			explicit = append(explicit, row)
-		}
+	// Checked after the managed columns are set, because a target that includes
+	// deleted_at compares the values the statement writes, not the ones passed in.
+	if err := checkUpsertRows(def, target, rows, scope.dialect); err != nil {
+		return fmt.Errorf("upsert into %s: %w", def.name, err)
 	}
 
-	for _, group := range [][]*R{explicit, generated} {
-		if len(group) == 0 {
-			continue
+	var readBack []*columnCore
+	if single {
+		readBack = t.upsertReadBack(def, rows[0])
+	}
+
+	groups := map[string][]*R{}
+	order := []string{}
+
+	for _, row := range rows {
+		key := columnsKey(t.upsertColumns(def, row))
+		if _, seen := groups[key]; !seen {
+			order = append(order, key)
 		}
 
-		omitKey := def.autoIncrement && field(group[0], def.primaryKey).IsZero()
+		groups[key] = append(groups[key], row)
+	}
 
-		cols := make([]*columnCore, 0, len(def.columns))
-		for _, col := range def.columns {
-			if !omitKey || col != def.primaryKey {
-				cols = append(cols, col)
-			}
+	for _, key := range order {
+		group := groups[key]
+
+		cols := t.upsertColumns(def, group[0])
+		if len(cols) == 0 {
+			return fmt.Errorf("upsert into %s: every column is left to the database", def.name)
 		}
 
 		size := effectiveChunkSize(config.size, len(cols), sqld.MaxBindParams(scope.dialect))
@@ -126,10 +134,31 @@ func (t *TableOf[R, K]) upsert(ctx context.Context, db Executor, rows []*R, key 
 	}
 
 	if single {
-		return t.reloadColumns(ctx, db, scope, def, rows[0], t.upsertReadBack(def))
+		return t.reloadColumns(ctx, db, scope, def, rows[0], readBack)
 	}
 
 	return nil
+}
+
+// upsertColumns are the columns an upsert of row writes: those an insert writes,
+// and deleted_at, which an upsert always clears even when the column has a
+// default.
+func (t *TableOf[R, K]) upsertColumns(def *tableDef, row *R) []*columnCore {
+	cols := t.insertColumns(def, row)
+
+	tombstone := def.column(def.managed.DeletedAt)
+	if tombstone == nil || slices.Contains(cols, tombstone) {
+		return cols
+	}
+
+	written := make([]*columnCore, 0, len(cols)+1)
+	for _, col := range def.columns {
+		if col == tombstone || slices.Contains(cols, col) {
+			written = append(written, col)
+		}
+	}
+
+	return written
 }
 
 // upsertTarget resolves key to the columns of the primary key or of one unique
@@ -188,6 +217,20 @@ func upsertTarget[R any](def *tableDef, key []BoundColumn[R]) ([]string, error) 
 	return nil, fmt.Errorf("upsert key (%s) is neither the primary key nor a unique index", strings.Join(names, ", "))
 }
 
+// keyText spells v as the database compares it: a pointer by what it points to, a
+// Valuer by its value, a named type by its underlying one.
+func keyText(v any) string {
+	if converted, err := driver.DefaultParameterConverter.ConvertValue(bindValue(v)); err == nil {
+		v = converted
+	}
+
+	if t, ok := v.(time.Time); ok {
+		return t.UTC().Format(time.RFC3339Nano)
+	}
+
+	return fmt.Sprintf("%#v", v)
+}
+
 func sameColumns(a, b []string) bool {
 	return len(a) == len(b) && !slices.ContainsFunc(a, func(s string) bool { return !slices.Contains(b, s) })
 }
@@ -205,7 +248,7 @@ func checkUpsertRows[R any](def *tableDef, target []string, rows []*R, d sqld.Di
 
 		parts := make([]string, 0, len(target))
 		for _, name := range target {
-			parts = append(parts, fmt.Sprintf("%#v", value(row, def.column(name))))
+			parts = append(parts, keyText(value(row, def.column(name))))
 		}
 
 		key := strings.Join(parts, "\x00")
@@ -238,10 +281,10 @@ func checkUpsertRows[R any](def *tableDef, target []string, rows []*R, d sqld.Di
 	return nil
 }
 
-// upsertReadBack are the columns an upsert may have left different from the row:
-// the version of an updated row, its original created_at, and anything the
-// database fills.
-func (t *TableOf[R, K]) upsertReadBack(def *tableDef) []*columnCore {
+// upsertReadBack are the columns an upsert of row may leave different from it: the
+// version of an updated row, its original created_at, and what the database
+// fills. It is taken before the write, while an unset default is still unset.
+func (t *TableOf[R, K]) upsertReadBack(def *tableDef, row *R) []*columnCore {
 	var cols []*columnCore
 
 	for _, name := range []string{def.managed.Version, def.managed.CreatedAt} {
@@ -250,8 +293,8 @@ func (t *TableOf[R, K]) upsertReadBack(def *tableDef) []*columnCore {
 		}
 	}
 
-	for _, col := range def.columns {
-		if col.fill == tsqdialect.FillGenerated && !slices.Contains(cols, col) {
+	for _, col := range t.databaseFilled(def, row) {
+		if col.name != def.managed.DeletedAt && !slices.Contains(cols, col) {
 			cols = append(cols, col)
 		}
 	}

@@ -547,6 +547,7 @@ Rules:
 - the count query ignores `ORDER BY` / `LIMIT` / `OFFSET`: `Count()` reports how many rows match, which a limit does not change
 - **do not combine builder-level paging with `query.Page(...)`**. `Page` appends its own `LIMIT`/`OFFSET`, and its own `ORDER BY` when `Paging.OrderBy` is set, so a builder-level clause would be emitted a second time rather than replaced. `Page` returns an error instead of guessing. A builder `OrderBy` combined with an empty `Paging.OrderBy` is fine: the builder's ordering stands and `Page` only adds the window
 - on a set operation (`Union`, ...) an `OrderBy` term refers to the output column by name, which is the only form every dialect accepts there
+- a set operation's operands cannot have their own `OrderBy`, `Limit`, `Offset` or lock: each operand is written as a bare `SELECT`, so `Build()` refuses them rather than dropping the clause. Order and limit the combined result instead
 - where the ordered value can be NULL (a `NullColumn`, an outer-joined column, ...), NULLs sort as
   the **smallest value on every dialect**: first when ascending, last when descending. MySQL and
   SQLite do that already; PostgreSQL is told with `NULLS FIRST` / `NULLS LAST`. `col.Asc().NullsLast()`
@@ -967,13 +968,18 @@ err = database.TableLearner.BatchUpsert(ctx, runtime, learners,
   table with an integer `deleted_at`, a unique index that includes `deleted_at` is named by its
   other columns and matches live rows only; with a nullable `deleted_at` it never matches, so
   that is an error
-- an update writes every column except the key, the primary key and `created_at`, refreshes
+- it writes the columns `Insert` would: never a `generated:` column, and a `default:` column only
+  when the row sets it, so an unset one takes the database default on insert and keeps its stored
+  value on update
+- an update writes those columns except the key, the primary key and `created_at`, refreshes
   `updated_at`, and increments `version` **without checking it**. The row written is always live:
   `deleted_at` is cleared, so upserting a deleted row by primary key restores it
-- `Upsert` reads back the primary key (also of an updated row), `version` and `created_at`, so the
-  row can go straight into `Update`. `BatchUpsert` reads nothing back
+- `Upsert` reads back the primary key (also of an updated row), `version`, `created_at` and the
+  columns the database filled, so the row can go straight into `Update`. `BatchUpsert` reads
+  nothing back
 - two rows with the same key in one `BatchUpsert` are an error on every dialect (PostgreSQL
-  cannot update one row twice in a statement)
+  cannot update one row twice in a statement). Keys compare as the statement writes them: by
+  value, and after `deleted_at` is cleared
 - **MySQL** matches the proposed row against every unique key, not only the one you named. TSQ
   refuses an upsert there while the row could hit another unique key: another unique index, or a
   primary key that is set (a zero auto-increment key cannot collide). Other dialects raise the

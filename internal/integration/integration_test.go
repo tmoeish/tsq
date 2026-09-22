@@ -1292,6 +1292,47 @@ func TestIntegrationDatabaseFilledColumns(t *testing.T) {
 				t.Fatalf("batch rows = %+v, %v", rows, err)
 			}
 
+			// Upsert writes the columns Insert does: never the generated slug, and the
+			// defaulted currency only when the row sets it. It used to write both, so a
+			// table with a generated column could not be upserted at all.
+			up := &academy.Course{TrackID: 1, InstructorID: 1, Title: "Upserted", Summary: "s"}
+			if err := academy.TableCourse.Upsert(ctx, rt, up, academy.TableCourse.Title); err != nil {
+				t.Fatal(err)
+			}
+
+			if up.ID == 0 || up.Currency != "USD" || up.Slug != "upserted" {
+				t.Fatalf("upserted course = %+v; want the database values read back", up)
+			}
+
+			euro := &academy.Course{TrackID: 1, InstructorID: 1, Title: "Upserted", Summary: "s", Currency: "EUR"}
+			if err := academy.TableCourse.Upsert(ctx, rt, euro, academy.TableCourse.Title); err != nil {
+				t.Fatal(err)
+			}
+
+			// An unset default keeps the stored value on update rather than writing "".
+			unset := &academy.Course{TrackID: 1, InstructorID: 1, Title: "Upserted", Summary: "again"}
+			if err := academy.TableCourse.Upsert(ctx, rt, unset, academy.TableCourse.Title); err != nil {
+				t.Fatal(err)
+			}
+
+			if unset.ID != up.ID || unset.Currency != "EUR" {
+				t.Fatalf("second update = %+v; want id %d keeping EUR", unset, up.ID)
+			}
+
+			// A batch groups rows by the columns they write.
+			upserts := []*academy.Course{
+				{TrackID: 1, InstructorID: 1, Title: "Batch Up A", Summary: "s"},
+				{TrackID: 1, InstructorID: 1, Title: "Batch Up B", Summary: "s", Currency: "GBP"},
+			}
+			if err := academy.TableCourse.BatchUpsert(ctx, rt, upserts, []tsq.BoundColumn[academy.Course]{academy.TableCourse.Title}); err != nil {
+				t.Fatal(err)
+			}
+
+			upserted, err := academy.TableCourse.FetchByTitle(ctx, rt, "Batch Up A", "Batch Up B")
+			if err != nil || upserted[0].Currency != "USD" || upserted[1].Currency != "GBP" || upserted[0].Slug != "batch up a" {
+				t.Fatalf("batch upserted = %+v, %v", upserted, err)
+			}
+
 			// Reconcile must not keep altering the generated column.
 			recorder.reset()
 
@@ -1302,6 +1343,65 @@ func TestIntegrationDatabaseFilledColumns(t *testing.T) {
 
 			if applied := recorder.statements(); len(applied) != 0 {
 				t.Fatalf("second boot applied %d statements: %v", len(applied), applied)
+			}
+		})
+	}
+}
+
+// TestIntegrationBatchWritesMatchByVersion runs the multi-row key match of a table
+// with a version column on every dialect: pk IN (...) AND CASE pk WHEN ? THEN
+// version = ? ... END. It replaced one OR per row, which SQLite refused beyond 998
+// rows, under the default batch size of 1000.
+func TestIntegrationBatchWritesMatchByVersion(t *testing.T) {
+	for _, target := range integrationTargets(t) {
+		t.Run(target.name, func(t *testing.T) {
+			ctx := context.Background()
+
+			dropAcademyTables(t, target)
+			rt, _ := openWithPolicy(t, target, academy.TSQTables(), tsq.SchemaPolicyReconcile)
+
+			rows := make([]*academy.Enrollment, 3)
+			for i := range rows {
+				rows[i] = &academy.Enrollment{LearnerID: int64(i + 1), CourseID: 1}
+			}
+
+			if err := academy.TableEnrollment.BatchInsert(ctx, rt, rows); err != nil {
+				t.Fatal(err)
+			}
+
+			for _, row := range rows {
+				row.Score = 70
+			}
+
+			if err := academy.TableEnrollment.BatchUpdate(ctx, rt, rows); err != nil {
+				t.Fatal(err)
+			}
+
+			// One stale row fails the whole statement's count.
+			stale := *rows[1]
+			stale.Version--
+
+			if err := academy.TableEnrollment.BatchUpdate(ctx, rt, []*academy.Enrollment{rows[0], &stale}); !tsq.IsOptimisticLockError(err) {
+				t.Fatalf("stale batch update = %v; want OptimisticLockError", err)
+			}
+
+			// The failed statement changed nothing; reload the versions it left.
+			fresh, err := academy.TableEnrollment.Fetch(ctx, rt, rows[0].UID, rows[1].UID, rows[2].UID)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if err := academy.TableEnrollment.BatchDelete(ctx, rt, fresh[:2]); err != nil {
+				t.Fatal(err)
+			}
+
+			if err := academy.TableEnrollment.BatchHardDelete(ctx, rt, fresh); err != nil {
+				t.Fatalf("hard delete of live and deleted rows = %v", err)
+			}
+
+			left, err := tsq.Select(academy.TableEnrollment.UID).From(academy.TableEnrollment.WithDeleted()).MustBuild().Count(ctx, rt)
+			if err != nil || left != 0 {
+				t.Fatalf("rows left = %d, %v; want none", left, err)
 			}
 		})
 	}

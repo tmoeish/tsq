@@ -160,3 +160,37 @@ func TestEffectiveChunkSize(t *testing.T) {
 		}
 	}
 }
+
+// TestBatchWritesFitTheDefaultBatchOnSQLite writes 1000 rows of a table with a
+// version column under the default batch size. Matching them by key and version
+// used to render one OR per row, and SQLite refuses an expression deeper than
+// 1000, so every one of these failed from 998 rows on.
+func TestBatchWritesFitTheDefaultBatchOnSQLite(t *testing.T) {
+	ctx := context.Background()
+	rt := newSQLite(t)
+
+	rows := make([]*user, 1000)
+	for i := range rows {
+		rows[i] = &user{Name: "u", Email: fmt.Sprintf("u%d@example.test", i)}
+	}
+
+	if err := Users.BatchInsert(ctx, rt, rows); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, row := range rows {
+		row.Name = "v"
+	}
+
+	if err := Users.BatchUpdate(ctx, rt, rows); err != nil {
+		t.Fatalf("BatchUpdate: %v", err)
+	}
+
+	if err := Users.BatchDelete(ctx, rt, rows); err != nil {
+		t.Fatalf("BatchDelete: %v", err)
+	}
+
+	if err := Users.BatchHardDelete(ctx, rt, rows); err != nil {
+		t.Fatalf("BatchHardDelete: %v", err)
+	}
+}

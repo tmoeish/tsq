@@ -2,6 +2,7 @@ package tsq
 
 import (
 	"context"
+	"database/sql/driver"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -219,8 +220,13 @@ func (q *Query[O]) encodeCursor(keys []keysetColumn[O], row *O) (string, error) 
 			return "", fmt.Errorf("keyset column %s is NULL in the last row; order by columns that are never NULL", key.selected.Name())
 		}
 
-		if valuer, ok := reflect.TypeAssert[interface{ Value() (any, error) }](v); ok {
-			if value, err := valuer.Value(); err != nil || value == nil {
+		if valuer, ok := reflect.TypeAssert[driver.Valuer](v); ok {
+			value, err := valuer.Value()
+			if err != nil {
+				return "", fmt.Errorf("encode keyset column %s: %w", key.selected.Name(), err)
+			}
+
+			if value == nil {
 				return "", fmt.Errorf("keyset column %s is NULL in the last row; order by columns that are never NULL", key.selected.Name())
 			}
 		}

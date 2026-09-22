@@ -402,7 +402,9 @@ func (b *builder[O]) setOp(op setOperationType, other QueryStage[O]) CompoundSta
 		return n
 	}
 
-	if len(n.spec.OrderBys) > 0 || n.spec.Limit != nil || n.spec.Lock.strength != "" {
+	// The operand's own ORDER BY, LIMIT, OFFSET and lock would not be rendered: a
+	// set operation writes each operand as a bare SELECT.
+	if len(spec.OrderBys) > 0 || spec.Limit != nil || spec.Offset != nil || spec.Lock.strength != "" {
 		n.fail(fmt.Errorf("%s operands cannot order, limit or lock", op))
 	}
 
