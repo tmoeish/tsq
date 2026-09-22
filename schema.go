@@ -8,9 +8,9 @@ import (
 )
 
 // SchemaPolicy controls what a Runtime does to declared tables and indexes when it
-// starts. TSQ only ever adds: it never drops a table or an index it does not see
-// declared, because a runtime cannot tell an obsolete object from another
-// service's.
+// starts. No policy drops a table or an index it does not see declared, because a
+// runtime cannot tell an obsolete object from another service's.
+// SchemaPolicyReconcile does drop a column its table no longer declares.
 type SchemaPolicy string
 
 const (
@@ -23,8 +23,9 @@ const (
 	// on anything that differs.
 	SchemaPolicyCreateMissing SchemaPolicy = "create_missing"
 	// SchemaPolicyReconcile also changes differing columns back to their
-	// declaration: the development setting, where editing a struct and restarting is
-	// enough.
+	// declaration and drops the columns a table no longer declares, with their data:
+	// the development setting, where the database follows the code and editing a
+	// struct and restarting is enough. Production keeps SchemaPolicyManual.
 	SchemaPolicyReconcile SchemaPolicy = "reconcile"
 )
 

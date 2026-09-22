@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -305,11 +306,16 @@ func (d SQLiteDialect) inspectSQLiteIndexColumns(ctx context.Context, db Executo
 	for rows.Next() {
 		var seqno, cid int
 
-		var name string
+		// An expression index reports its expressions with a NULL name, which
+		// is left out, as PostgreSQL's listing does.
+		var name sql.NullString
 		if err := rows.Scan(&seqno, &cid, &name); err != nil {
 			return nil, err
 		}
-		fields = append(fields, name)
+
+		if name.Valid {
+			fields = append(fields, name.String)
+		}
 	}
 
 	if err := rows.Err(); err != nil {
@@ -445,6 +451,114 @@ func (d SQLiteDialect) CreateIndexSQL(table, idx string, fields []string, unique
 
 func (d SQLiteDialect) DropIndexSQL(table, idx string) string {
 	return fmt.Sprintf("DROP INDEX %s;", d.QuoteIdent(idx))
+}
+
+// sqliteCheck finds a CHECK constraint in a CREATE TABLE statement. A match inside
+// a string literal is a false positive, which refuses a rebuild that was safe; the
+// other way round would drop the constraint.
+var sqliteCheck = regexp.MustCompile(`(?i)\bCHECK\s*\(`)
+
+// sqliteMentions reports whether a statement names table as an identifier. Like
+// sqliteCheck it errs on the side of refusing.
+func sqliteMentions(statement, table string) bool {
+	name := regexp.QuoteMeta(table)
+
+	return regexp.MustCompile(`(?i)(^|[^A-Za-z0-9_$])["'\x60\[]?` + name + `["'\x60\]]?($|[^A-Za-z0-9_$])`).MatchString(statement)
+}
+
+// InspectRebuild reads what a rebuild of table must keep. The rebuilt table is
+// created from the declared columns, so anything its CREATE TABLE carries besides
+// them (UNIQUE, CHECK and FOREIGN KEY constraints) blocks the rebuild, and so does a
+// view, a trigger or a foreign key elsewhere that refers to the table: renaming
+// and dropping it would leave them pointing at nothing. Its own indexes and
+// triggers are returned with the statements that created them, so expressions,
+// partial WHERE clauses and collations survive.
+func (d SQLiteDialect) InspectRebuild(ctx context.Context, db Executor, table string) (Rebuild, error) {
+	var rebuild Rebuild
+
+	var definition string
+	if err := db.QueryRowContext(ctx, "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ? COLLATE NOCASE", table).Scan(&definition); err != nil {
+		return Rebuild{}, fmt.Errorf("read the definition of %s: %w", table, err)
+	}
+
+	if sqliteCheck.MatchString(definition) {
+		rebuild.Blockers = append(rebuild.Blockers, "a CHECK constraint")
+	}
+
+	indexes, err := d.ListIndexes(ctx, db, table)
+	if err != nil {
+		return Rebuild{}, err
+	}
+
+	for _, index := range indexes {
+		if index.Constraint {
+			rebuild.Blockers = append(rebuild.Blockers, fmt.Sprintf("a UNIQUE constraint on (%s)", strings.Join(index.Fields, ", ")))
+		}
+	}
+
+	keys, err := db.QueryContext(ctx, `SELECT DISTINCT m.name, f."table" FROM sqlite_master AS m, pragma_foreign_key_list(m.name) AS f WHERE m.type = 'table'`)
+	if err != nil {
+		return Rebuild{}, err
+	}
+
+	defer func() { _ = keys.Close() }()
+
+	for keys.Next() {
+		var from, to string
+		if err := keys.Scan(&from, &to); err != nil {
+			return Rebuild{}, err
+		}
+
+		switch {
+		case strings.EqualFold(from, table):
+			rebuild.Blockers = append(rebuild.Blockers, "its foreign key to "+to)
+		case strings.EqualFold(to, table):
+			rebuild.Blockers = append(rebuild.Blockers, "the foreign key of "+from+" that references it")
+		}
+	}
+
+	if err := keys.Err(); err != nil {
+		return Rebuild{}, err
+	}
+
+	objects, err := db.QueryContext(ctx, `SELECT type, name, tbl_name, sql FROM sqlite_master WHERE type IN ('index', 'trigger', 'view') AND sql IS NOT NULL ORDER BY type, name`)
+	if err != nil {
+		return Rebuild{}, err
+	}
+
+	defer func() { _ = objects.Close() }()
+
+	var ownIndexes []int // positions in rebuild.Objects of the table's indexes
+
+	for objects.Next() {
+		var kind, name, of, statement string
+		if err := objects.Scan(&kind, &name, &of, &statement); err != nil {
+			return Rebuild{}, err
+		}
+
+		switch {
+		case kind != "view" && strings.EqualFold(of, table):
+			if kind == "index" {
+				ownIndexes = append(ownIndexes, len(rebuild.Objects))
+			}
+
+			rebuild.Objects = append(rebuild.Objects, RebuildObject{Name: name, SQL: statement})
+		case kind != "index" && sqliteMentions(statement, table):
+			rebuild.Blockers = append(rebuild.Blockers, fmt.Sprintf("the %s %s, which refers to it", kind, name))
+		}
+	}
+
+	if err := objects.Err(); err != nil {
+		return Rebuild{}, err
+	}
+
+	for _, i := range ownIndexes {
+		if rebuild.Objects[i].Columns, err = d.inspectSQLiteIndexColumns(ctx, db, rebuild.Objects[i].Name); err != nil {
+			return Rebuild{}, err
+		}
+	}
+
+	return rebuild, nil
 }
 
 func (d SQLiteDialect) AlterMode() AlterMode {

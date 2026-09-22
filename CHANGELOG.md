@@ -85,7 +85,7 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 - `tsq.Executor` 是封闭接口：`*Runtime`、`WithTx` 回调里的执行器、`tsq.WrapExecutor(handle, dialect.MySQL)` 的结果（`handle` 是任何 `tsq.DBTX`：`*sql.DB`、`*sql.Tx`、`*sql.Conn`）。**裸 `*sql.DB` 不再能传入**——库必须知道方言才能渲染。
 - `tsq.Open(ctx, driver, dsn, tables, ...)` 自己开连接池；`tsq.NewRuntime(ctx, db, dialect.Postgres, tables, ...)` 用调用方已有的池，`Close()` 只关闭自己开的池。选项是函数式的：`WithSchemaPolicy` / `WithTablePolicy` / `WithIndexPolicy` / `WithLogger` / `WithSQLLogging` / `WithTracers` / `WithMaxPageSize`。
-- Schema 策略四档：`Manual`（默认，生产用）、`Validate`、`CreateMissing`、`Reconcile`（开发和测试用，改了结构重启就跟上）。**TSQ 只增不减**：不删表、不删未声明的索引，也不建任何记账表。
+- Schema 策略四档：`Manual`（默认，生产用）、`Validate`、`CreateMissing`、`Reconcile`（开发和测试用，改了结构重启就跟上）。**TSQ 从不删表**：不删表、不删未声明的索引，也不建任何记账表；`Reconcile` 会删掉表里不再声明的列。
 - 标识符长度校验恒为严格，没有关闭开关。
 - `Tracer` 的签名是 `func(ctx, info tsq.TraceInfo, next) error`：`info.Op` 是操作，`info.Table` 是写入的表或查询的 FROM 表（span 名终于能说清是哪张表）。`UpdateTable` / `DeleteFrom` 报 `update` / `delete` 而不是 `exec`；`TraceOpScalar` / `TraceOpExec` 删除。
 - `Runtime.Dialect()` 返回方言名 `dialect.Name`。
@@ -159,6 +159,9 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 - **`ListIn` 会把 `Not(col.In(list))` 按块拆开**：每块 `NOT IN` 都匹配其他块排除的行，结果被重复拼接且不报错。现在和 `NotIn` 一样拒绝。
 - **`driver.Valuer` 值的 NULL 检查从未生效**：`Pred` / `Expr` 里的 `sql.NullString` 这类结构体 Valuer 被当成不可比较而拒绝，底层不是结构体的 Valuer 即使是 NULL 也被放行，渲染成 `col = NULL` 静默零行。游标分页对 NULL 的排序值同样漏检。
 - **集合操作的操作数自带的 `OrderBy` / `Limit` / `Offset` / 行锁被静默丢弃**：守卫检查的是左侧而不是操作数，`Union(q.OrderBy(...).Limit(3))` 渲染时前三条的限制消失。现在构建时报错。
+- **SQLite 上有表达式索引时 runtime 启动失败**：`PRAGMA index_info` 对表达式列报 NULL 列名，读索引列表时 `converting NULL to string`——只要库里有一个 `CREATE INDEX ... ON t(lower(x))`，任何索引策略都起不来。现在和 PostgreSQL 一样，表达式列不计入索引的列。
+- **SQLite 上 `Reconcile` 改列类型时静默丢掉约束、改写索引**：重建表时新表只按声明的列建，UNIQUE / CHECK / 外键约束随旧表消失；索引按名字和普通列重建，表达式索引被丢掉、`(a, lower(b))` 变成 `(a)`、部分索引丢掉 `WHERE`，触发器全丢；先 RENAME 旧表还会让别处的视图、触发器和外键指向随后被删掉的临时表。现在表自己的索引和触发器按原始语句重建，其余无法保留的情况拒绝重建并说明原因，交给迁移。
+- **两个不同的 CTE 同名时静默合并**：`WITH` 按名字去重，第二个 CTE 的查询和参数消失，引用它的分支读到第一个 CTE 的结果。现在构建时报错；同一个 CTE 在多个分支里引用仍只写一次。
 - **`BatchUpsert` 的同键检查能被绕过**：检查发生在清除 `deleted_at` 之前，一行带墓碑、一行活着的同邮箱被当成不同的键，SQLite 上静默只剩一行；可空键按指针地址比较也会漏检。现在按实际写入的值比较。
 
 ### 其他

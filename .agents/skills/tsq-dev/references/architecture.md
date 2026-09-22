@@ -299,7 +299,8 @@ CTE 的输出列可空时，`WithTable(cte)` 重绑的列标成 `always`。
 - 驱动错误分类按**接口**匹配：`sqlite_errors.go` 认 `Code() int`，`postgres_errors.go` 认
   `SQLState() string`。MySQL 是唯一被 import 的驱动，因为 `MySQLError.Number` 是字段。
 - `runtime_schema.go`（表与列）和 `runtime_index.go`（索引）负责 schema 对账，`TablePolicy` / `IndexPolicy` 各取一档
-  （`Manual` / `Validate` / `CreateMissing` / `Reconcile`）。**四档都只增不减**，理由见 `memory.md`。
+  （`Manual` / `Validate` / `CreateMissing` / `Reconcile`）。**四档都不删表**；`Reconcile` 会改漂移的列、删不再声明的列（原型期让测试库
+  跟着代码走，生产用 `Manual`），理由见 `memory.md`。
 
 ## 方言
 

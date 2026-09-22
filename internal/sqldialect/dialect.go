@@ -142,6 +142,30 @@ type Dialect interface {
 	AlterMode() AlterMode
 	// AlterColumnSQL renders the statements that turn column before into after.
 	AlterColumnSQL(table string, before Column, after ColumnSpec) []string
+	// InspectRebuild reports what rebuilding table must carry over besides its
+	// columns. Only a dialect whose AlterMode is AlterRebuild answers; the others
+	// never rebuild a table and return an error.
+	InspectRebuild(ctx context.Context, db Executor, table string) (Rebuild, error)
+}
+
+// Rebuild is what rebuilding a table in place must know besides its columns.
+type Rebuild struct {
+	// Blockers name what the rebuild cannot carry over, such as a constraint the
+	// declared columns do not describe; a rebuild with any is refused.
+	Blockers []string
+	// Objects are the table's own indexes and triggers, to create again as they
+	// were.
+	Objects []RebuildObject
+}
+
+// RebuildObject is an index or trigger of a table, with the statement that created
+// it.
+type RebuildObject struct {
+	Name string
+	SQL  string
+	// Columns are the plain columns an index covers, and nil for a trigger. An
+	// index over a column the rebuild drops goes with the column.
+	Columns []string
 }
 
 // maxBindParams is each dialect's ceiling on the number of bound parameters in one

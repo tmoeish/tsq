@@ -3,6 +3,8 @@ package tsq
 import (
 	"context"
 	"log/slog"
+	"maps"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -253,6 +255,227 @@ func TestNewRuntimeReconcileRebuildPreservesDataAndIndexes(t *testing.T) {
 	}
 	if ddl := logger.count("applied ddl"); ddl != 0 {
 		t.Fatalf("expected reconcile to converge after rebuild, got %d DDL statements", ddl)
+	}
+}
+
+// retypedUsers declares users(id, age, name) with age as a string, so a live table
+// with an INTEGER age takes the SQLite rebuild path.
+func retypedUsers() Table {
+	table, _ := newStrictMockTable("users", "id", "age", "name")
+
+	return registered(table, []tsqdialect.ColumnSpec{
+		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
+		{Name: "age", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 60, Nullable: true}},
+		{Name: "name", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 120, Nullable: true}},
+	})
+}
+
+// schemaObjects lists the statements SQLite keeps for the table's indexes and
+// triggers.
+func schemaObjects(t *testing.T, db Executor, table string) map[string]string {
+	t.Helper()
+
+	rows, err := db.QueryContext(context.Background(),
+		`SELECT name, sql FROM sqlite_master WHERE tbl_name = ? AND type IN ('index', 'trigger') AND sql IS NOT NULL`, table)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer func() { _ = rows.Close() }()
+
+	objects := map[string]string{}
+
+	for rows.Next() {
+		var name, statement string
+		if err := rows.Scan(&name, &statement); err != nil {
+			t.Fatal(err)
+		}
+
+		objects[name] = statement
+	}
+
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+
+	return objects
+}
+
+// TestReconcileRebuildKeepsIndexesAndTriggersAsCreated covers what the rebuild
+// recreates. It used to rebuild each index from its name and plain columns, which
+// dropped an expression index, turned (age, lower(name)) into (age), lost a
+// partial index's WHERE and every trigger. Listing an expression index also
+// failed outright: SQLite reports its expression with a NULL column name.
+func TestReconcileRebuildKeepsIndexesAndTriggersAsCreated(t *testing.T) {
+	ctx := context.Background()
+	db, dsn := newSQLiteIndexTestEngine(t)
+
+	for _, statement := range []string{
+		`CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, age INTEGER, name VARCHAR(120))`,
+		`CREATE INDEX idx_users_lower_name ON users(lower(name))`,
+		`CREATE INDEX idx_users_age_name ON users(age, lower(name))`,
+		`CREATE UNIQUE INDEX ux_users_name_adult ON users(name) WHERE age >= 18`,
+		`CREATE TRIGGER trg_users_touch AFTER UPDATE ON users BEGIN SELECT 1; END`,
+		`INSERT INTO users (age, name) VALUES (30, 'amy')`,
+	} {
+		if _, err := db.DB().ExecContext(ctx, statement); err != nil {
+			t.Fatalf("%s: %v", statement, err)
+		}
+	}
+
+	before := schemaObjects(t, db, "users")
+
+	// Listing the indexes must cope with the expression column.
+	if _, err := Open(ctx, "sqlite", dsn, []Table{retypedUsers()},
+		WithTablePolicy(SchemaPolicyManual), WithIndexPolicy(SchemaPolicyCreateMissing)); err != nil {
+		t.Fatalf("Open with an expression index = %v", err)
+	}
+
+	rt, err := Open(ctx, "sqlite", dsn, []Table{retypedUsers()},
+		WithTablePolicy(SchemaPolicyReconcile), WithIndexPolicy(SchemaPolicyManual))
+	if err != nil {
+		t.Fatalf("rebuild = %v", err)
+	}
+
+	t.Cleanup(func() { _ = rt.Close() })
+
+	columns, _, err := rt.dialect.InspectColumns(ctx, rt, "users")
+	if err != nil || !slices.ContainsFunc(columns, func(c sqld.Column) bool { return c.Name == "age" && c.Type.Kind == tsqdialect.KindString }) {
+		t.Fatalf("columns = %+v, %v; want age rebuilt as a string", columns, err)
+	}
+
+	if after := schemaObjects(t, rt, "users"); !maps.Equal(before, after) {
+		t.Fatalf("objects after the rebuild = %v\nwant them as created: %v", after, before)
+	}
+}
+
+// TestReconcileRefusesARebuildThatWouldLoseSomething covers what the rebuild
+// cannot carry over. The new table is created from the declared columns, so a
+// constraint in the old CREATE TABLE, or anything elsewhere that refers to the
+// table, would be lost or left dangling. The table must be untouched.
+func TestReconcileRefusesARebuildThatWouldLoseSomething(t *testing.T) {
+	for name, tt := range map[string]struct {
+		setup []string
+		want  string
+	}{
+		"unique constraint": {
+			setup: []string{`CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, age INTEGER, name VARCHAR(120) UNIQUE)`},
+			want:  "a UNIQUE constraint on (name)",
+		},
+		"check constraint": {
+			setup: []string{`CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, age INTEGER CHECK (age > 0), name VARCHAR(120))`},
+			want:  "a CHECK constraint",
+		},
+		"foreign key of the table": {
+			setup: []string{
+				`CREATE TABLE teams (id INTEGER PRIMARY KEY)`,
+				`CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, age INTEGER, name VARCHAR(120), team_id INTEGER REFERENCES teams(id))`,
+			},
+			want: "its foreign key to teams",
+		},
+		"foreign key to the table": {
+			setup: []string{
+				`CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, age INTEGER, name VARCHAR(120))`,
+				`CREATE TABLE posts (id INTEGER PRIMARY KEY, user_id INTEGER REFERENCES users(id))`,
+			},
+			want: "the foreign key of posts that references it",
+		},
+		"view": {
+			setup: []string{
+				`CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, age INTEGER, name VARCHAR(120))`,
+				`CREATE VIEW adults AS SELECT name FROM users WHERE age >= 18`,
+			},
+			want: "the view adults, which refers to it",
+		},
+		"trigger of another table": {
+			setup: []string{
+				`CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, age INTEGER, name VARCHAR(120))`,
+				`CREATE TABLE audit (id INTEGER PRIMARY KEY)`,
+				`CREATE TRIGGER trg_audit AFTER INSERT ON audit BEGIN DELETE FROM users WHERE id = NEW.id; END`,
+			},
+			want: "the trigger trg_audit, which refers to it",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			db, dsn := newSQLiteIndexTestEngine(t)
+
+			for _, statement := range tt.setup {
+				if _, err := db.DB().ExecContext(ctx, statement); err != nil {
+					t.Fatalf("%s: %v", statement, err)
+				}
+			}
+
+			_, err := Open(ctx, "sqlite", dsn, []Table{retypedUsers()},
+				WithTablePolicy(SchemaPolicyReconcile), WithIndexPolicy(SchemaPolicyManual))
+			if err == nil || !strings.Contains(err.Error(), tt.want) || !strings.Contains(err.Error(), "migration") {
+				t.Fatalf("Open = %v; want the rebuild refused naming %q", err, tt.want)
+			}
+
+			columns, _, err := db.dialect.InspectColumns(ctx, db, "users")
+			if err != nil || !slices.ContainsFunc(columns, func(c sqld.Column) bool { return c.Name == "age" && c.Type.Kind == tsqdialect.KindInt }) {
+				t.Fatalf("columns = %+v, %v; want the table untouched", columns, err)
+			}
+		})
+	}
+}
+
+// TestReconcileDropsUndeclaredColumns pins a decision: Reconcile makes the table
+// match the declaration, which includes dropping a column the struct no longer has,
+// with its data. It is the prototype setting, where the database follows the code;
+// production keeps Manual. The other policies leave the column and refuse to
+// start. No policy drops a table (runtime_schema_isolation_test.go).
+func TestReconcileDropsUndeclaredColumns(t *testing.T) {
+	ctx := context.Background()
+	db, dsn := newSQLiteIndexTestEngine(t)
+
+	for _, statement := range []string{
+		`CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, age INTEGER, name VARCHAR(120), legacy TEXT)`,
+		`INSERT INTO users (age, name, legacy) VALUES (30, 'amy', 'old')`,
+	} {
+		if _, err := db.DB().ExecContext(ctx, statement); err != nil {
+			t.Fatalf("%s: %v", statement, err)
+		}
+	}
+
+	table, _ := newStrictMockTable("users", "id", "age", "name")
+	declared := registered(table, []tsqdialect.ColumnSpec{
+		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
+		{Name: "age", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64, Nullable: true}},
+		{Name: "name", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 120, Nullable: true}},
+	})
+
+	hasLegacy := func() bool {
+		t.Helper()
+
+		columns, _, err := db.dialect.InspectColumns(ctx, db, "users")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		return slices.ContainsFunc(columns, func(c sqld.Column) bool { return c.Name == "legacy" })
+	}
+
+	for _, policy := range []SchemaPolicy{SchemaPolicyValidate, SchemaPolicyCreateMissing} {
+		if _, err := Open(ctx, "sqlite", dsn, []Table{declared}, WithTablePolicy(policy), WithIndexPolicy(SchemaPolicyManual)); err == nil || !hasLegacy() {
+			t.Fatalf("%s = %v; want a refusal that leaves the column", policy, err)
+		}
+	}
+
+	rt, err := Open(ctx, "sqlite", dsn, []Table{declared}, WithTablePolicy(SchemaPolicyReconcile), WithIndexPolicy(SchemaPolicyManual))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() { _ = rt.Close() })
+
+	if hasLegacy() {
+		t.Fatal("Reconcile kept a column the table no longer declares")
+	}
+
+	var name string
+	if err := rt.QueryRowContext(ctx, `SELECT name FROM users WHERE age = 30`).Scan(&name); err != nil || name != "amy" {
+		t.Fatalf("declared columns after the drop: %q, %v", name, err)
 	}
 }
 

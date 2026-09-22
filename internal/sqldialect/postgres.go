@@ -431,6 +431,11 @@ func (d PostgresDialect) DropIndexSQL(table, idx string) string {
 	return fmt.Sprintf("DROP INDEX %s;", d.QuoteIdent(idx))
 }
 
+// InspectRebuild is refused: PostgreSQL alters a column in place.
+func (d PostgresDialect) InspectRebuild(context.Context, Executor, string) (Rebuild, error) {
+	return Rebuild{}, errors.New("postgres alters columns in place and never rebuilds a table")
+}
+
 func (d PostgresDialect) AlterMode() AlterMode {
 	return AlterInPlace
 }

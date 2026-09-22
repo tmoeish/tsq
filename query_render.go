@@ -772,12 +772,26 @@ func (s *querySpec[O]) validateJoinGraph(outer map[string]Table) error {
 func (s *querySpec[O]) validateCTEs() error {
 	visiting := make(map[string]bool)
 	done := make(map[string]bool)
+	// One WITH clause names every CTE of the statement, so two different bodies
+	// under one name would render as the first, and the second would run its query
+	// with the wrong parameters or none.
+	bodies := make(map[string]cteQuery)
 
 	var visit func(sources []Table) error
 	visit = func(sources []Table) error {
 		for _, t := range sources {
 			cte, ok := t.(cteTable)
-			if !ok || done[cte.name] {
+			if !ok {
+				continue
+			}
+
+			if body, named := bodies[cte.name]; named && body != cte.body {
+				return fmt.Errorf("two different CTEs are named %s; one statement can hold only one", cte.name)
+			}
+
+			bodies[cte.name] = cte.body
+
+			if done[cte.name] {
 				continue
 			}
 
