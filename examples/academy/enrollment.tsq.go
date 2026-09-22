@@ -14,7 +14,7 @@ import (
 // EnrollmentTable is the enrollment table: the descriptor of Enrollment rows, with one field
 // per column.
 type EnrollmentTable struct {
-	*tsq.TableOf[Enrollment, int64]
+	*tsq.SoftDeleteTableOf[Enrollment, int64]
 
 	CourseID  tsq.Column[Enrollment, int64]
 	CreatedAt tsq.Column[Enrollment, tsqtime.Time]
@@ -34,19 +34,19 @@ var TableEnrollment = newEnrollmentTable()
 // newEnrollmentTable declares the table, its columns, then its definition, so that
 // anything naming TableEnrollment is initialized after the table is complete.
 func newEnrollmentTable() EnrollmentTable {
-	t := tsq.NewTable[Enrollment, int64]("enrollment")
+	t := tsq.NewSoftDeleteTable[Enrollment, int64]("enrollment")
 	c := EnrollmentTable{
-		TableOf:   t,
-		CourseID:  tsq.NewColumn(t, "course_id", "course_id", func(r *Enrollment) *int64 { return &r.CourseID }),
-		CreatedAt: tsq.NewColumn(t, "created_at", "created_at", func(r *Enrollment) *tsqtime.Time { return &r.CreatedAt }),
-		DeletedAt: tsq.NewColumn(t, "deleted_at", "deleted_at", func(r *Enrollment) *int64 { return &r.DeletedAt }),
-		FeeCents:  tsq.NewColumn(t, "fee_cents", "fee_cents", func(r *Enrollment) *int64 { return &r.FeeCents }),
-		LearnerID: tsq.NewColumn(t, "learner_id", "learner_id", func(r *Enrollment) *int64 { return &r.LearnerID }),
-		Score:     tsq.NewColumn(t, "score", "score", func(r *Enrollment) *int64 { return &r.Score }),
-		Status:    tsq.NewColumn(t, "status", "status", func(r *Enrollment) *EnrollmentStatus { return &r.Status }),
-		UID:       tsq.NewColumn(t, "uid", "uid", func(r *Enrollment) *int64 { return &r.UID }),
-		UpdatedAt: tsq.NewNullColumn[tsqtime.Time](t, "updated_at", "updated_at", func(r *Enrollment) *tsqsql.Null[tsqtime.Time] { return &r.UpdatedAt }),
-		Version:   tsq.NewColumn(t, "version", "version", func(r *Enrollment) *int64 { return &r.Version }),
+		SoftDeleteTableOf: t,
+		CourseID:          tsq.NewColumn(t.TableOf, "course_id", "course_id", func(r *Enrollment) *int64 { return &r.CourseID }),
+		CreatedAt:         tsq.NewColumn(t.TableOf, "created_at", "created_at", func(r *Enrollment) *tsqtime.Time { return &r.CreatedAt }),
+		DeletedAt:         tsq.NewColumn(t.TableOf, "deleted_at", "deleted_at", func(r *Enrollment) *int64 { return &r.DeletedAt }),
+		FeeCents:          tsq.NewColumn(t.TableOf, "fee_cents", "fee_cents", func(r *Enrollment) *int64 { return &r.FeeCents }),
+		LearnerID:         tsq.NewColumn(t.TableOf, "learner_id", "learner_id", func(r *Enrollment) *int64 { return &r.LearnerID }),
+		Score:             tsq.NewColumn(t.TableOf, "score", "score", func(r *Enrollment) *int64 { return &r.Score }),
+		Status:            tsq.NewColumn(t.TableOf, "status", "status", func(r *Enrollment) *EnrollmentStatus { return &r.Status }),
+		UID:               tsq.NewColumn(t.TableOf, "uid", "uid", func(r *Enrollment) *int64 { return &r.UID }),
+		UpdatedAt:         tsq.NewNullColumn[tsqtime.Time](t.TableOf, "updated_at", "updated_at", func(r *Enrollment) *tsqsql.Null[tsqtime.Time] { return &r.UpdatedAt }),
+		Version:           tsq.NewColumn(t.TableOf, "version", "version", func(r *Enrollment) *int64 { return &r.Version }),
 	}
 
 	t.Define(tsq.TableSpec[Enrollment, int64]{
@@ -67,7 +67,6 @@ func newEnrollmentTable() EnrollmentTable {
 		Version:       c.Version,
 		CreatedAt:     c.CreatedAt,
 		UpdatedAt:     c.UpdatedAt,
-		DeletedAt:     c.DeletedAt,
 		ColumnSpecs: []tsqdialect.ColumnSpec{
 			{
 				Name: "uid",
@@ -149,7 +148,7 @@ func newEnrollmentTable() EnrollmentTable {
 			{Name: "idx_enrollment_learner_id_course_id", Columns: []string{"deleted_at", "learner_id", "course_id"}},
 			{Name: "idx_enrollment_status", Columns: []string{"deleted_at", "status"}},
 		},
-	})
+	}, c.DeletedAt)
 
 	return c
 }
@@ -157,27 +156,27 @@ func newEnrollmentTable() EnrollmentTable {
 // As returns the table under alias, with every column bound to the alias, for
 // joining the table more than once.
 func (t EnrollmentTable) As(alias string) EnrollmentTable {
-	a := t.TableOf.As(alias)
+	a := t.SoftDeleteTableOf.As(alias)
 
 	return EnrollmentTable{
-		TableOf:   a,
-		CourseID:  t.CourseID.WithTable(a),
-		CreatedAt: t.CreatedAt.WithTable(a),
-		DeletedAt: t.DeletedAt.WithTable(a),
-		FeeCents:  t.FeeCents.WithTable(a),
-		LearnerID: t.LearnerID.WithTable(a),
-		Score:     t.Score.WithTable(a),
-		Status:    t.Status.WithTable(a),
-		UID:       t.UID.WithTable(a),
-		UpdatedAt: t.UpdatedAt.WithTable(a).(tsq.NullColumn[Enrollment, tsqtime.Time]),
-		Version:   t.Version.WithTable(a),
+		SoftDeleteTableOf: a,
+		CourseID:          t.CourseID.WithTable(a),
+		CreatedAt:         t.CreatedAt.WithTable(a),
+		DeletedAt:         t.DeletedAt.WithTable(a),
+		FeeCents:          t.FeeCents.WithTable(a),
+		LearnerID:         t.LearnerID.WithTable(a),
+		Score:             t.Score.WithTable(a),
+		Status:            t.Status.WithTable(a),
+		UID:               t.UID.WithTable(a),
+		UpdatedAt:         t.UpdatedAt.WithTable(a).(tsq.NullColumn[Enrollment, tsqtime.Time]),
+		Version:           t.Version.WithTable(a),
 	}
 }
 
-// WithDeleted returns the table without its soft-delete scope; see
-// tsq.TableOf.WithDeleted.
+// WithDeleted returns the table without its live-row filter; see
+// tsq.SoftDeleteTableOf.WithDeleted.
 func (t EnrollmentTable) WithDeleted() EnrollmentTable {
-	t.TableOf = t.TableOf.WithDeleted()
+	t.SoftDeleteTableOf = t.SoftDeleteTableOf.WithDeleted()
 
 	return t
 }
@@ -193,7 +192,7 @@ func (e *Enrollment) Update(ctx context.Context, db tsq.Executor, cols ...tsq.Bo
 }
 
 // Delete soft-deletes the row by stamping DeletedAt; queries naming the
-// table leave it out from then on. See tsq.TableOf.Delete.
+// table leave it out from then on. See tsq.SoftDeleteTableOf.Delete.
 func (e *Enrollment) Delete(ctx context.Context, db tsq.Executor) error {
 	return TableEnrollment.Delete(ctx, db, e)
 }
@@ -203,7 +202,7 @@ func (e *Enrollment) HardDelete(ctx context.Context, db tsq.Executor) error {
 	return TableEnrollment.HardDelete(ctx, db, e)
 }
 
-// Restore clears the row's tombstone; see tsq.TableOf.Restore.
+// Restore clears the row's tombstone; see tsq.SoftDeleteTableOf.Restore.
 func (e *Enrollment) Restore(ctx context.Context, db tsq.Executor) error {
 	return TableEnrollment.Restore(ctx, db, e)
 }

@@ -201,7 +201,7 @@ TSQ 当前内置的 `Dialect` 实现只有 **SQLite / MySQL / PostgreSQL**。下
 | 类型安全列与链式查询 | ✅ | ✅ | ✅ | `tsq.Select(...).From(table).Where(...).Build()` |
 | `//tsq:result` 结果映射 | ✅ | ✅ | ✅ | 生成 `*.result.tsq.go` |
 | 自动乐观锁（`version`） | ✅ | ✅ | ✅ | `Update/Delete` 在执行时按声明的 `version` 列做版本校验 |
-| 按条件批量 `UPDATE` / `DELETE`（`tsq.UpdateTable` / `tsq.DeleteFrom`） | ✅ | ✅ | ✅ | 不校验 `version` 但会自增它；只引用目标表，不支持 JOIN / `LIMIT` / `RETURNING` |
+| 按条件批量 `UPDATE` / 软删除 / `DELETE`（`tsq.UpdateTable` / `tsq.DeleteFrom` / `tsq.HardDeleteFrom`） | ✅ | ✅ | ✅ | 不校验 `version` 但会自增它；只引用目标表，不支持 JOIN / `LIMIT` / `RETURNING` |
 | 列表参数 `In(col.ListParam())` / `NotIn(...)` | ✅ | ✅ | ✅ | 执行时按值个数展开 |
 | `CASE` 表达式 | ✅ | ✅ | ✅ | 构建与执行都支持 |
 | 行锁读取（`FOR UPDATE` / `FOR SHARE`） | ❌ | ✅ | ✅ | 能否执行取决于运行时 dialect |
@@ -225,7 +225,7 @@ TSQ 当前内置的 `Dialect` 实现只有 **SQLite / MySQL / PostgreSQL**。下
 - **执行器必须知道方言**：`*tsq.Runtime`、`WithTx` 给的执行器，或 `tsq.WrapExecutor(db, dialect.MySQL)`；裸 `*sql.DB` 编译不过。
 - **`Build()` 成功不代表所有方言都能执行**：CTE、`FULL JOIN`、行锁在执行时按方言校验，不支持时返回 `*dialect.UnsupportedCapabilityError`。
 - **`version` 字段是自动乐观锁**：`Update` / `Delete` 冲突时返回 `*tsq.OptimisticLockError`，这是业务错误，必须处理。`runtime.WithTx(ctx, fn, tsq.WithRetry(tsq.IsOptimisticLockError))` 可以整段重试。
-- **声明了 `deleted_at` 的表，`Delete` 是软删除**，而且已删行对**所有**引用这张表的查询和按条件写都不可见（JOIN 里也是）；要看已删行用 `TableXxx.WithDeleted()`，物理删除写 `HardDelete`。没有 `deleted_at` 的表两者同义。
+- **`Delete` 永远是软删除，物理删除永远带 `Hard`**：只有声明了 `deleted_at` 的表（`*tsq.SoftDeleteTableOf`）有 `Delete` / `Restore` / `WithDeleted()`，也只有它能传给 `tsq.DeleteFrom`；没有 `deleted_at` 的表上这些编译不过，删除只有 `HardDelete` / `tsq.HardDeleteFrom`。已删行对**所有**引用这张表的查询和按条件写都不可见（JOIN 里也是）；`TableXxx.WithDeleted()` 只去掉这层过滤，经由它的删除仍是软删除。
 - **列函数是包级泛型函数**：`tsq.Upper(col)`、`tsq.Sum(col)`、`tsq.Contains(col, tsq.Val("x"))`，套在类型不合的列上编译不过。
 - **可空列是 `tsq.NullColumn[X, T]`**：按值类型比较，`SetNull` 写 NULL；可能读到 NULL 的值（可空列、外连接的表、没有 GROUP BY 的聚合）只能读进可空字段，否则查询在执行前就报错，而不是等到数据里真有 NULL 才炸。
 - **`Page` 吃类型化的 `tsq.Paging`**：HTTP 进来的 `tsq.PageRequest` 先 `Validate`，再用 `req.Paging(允许排序的列...)` 转换。

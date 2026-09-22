@@ -66,7 +66,11 @@ var compileFailCases = []struct {
 	{"pattern param variants are gone", `_ = tsq.ContainsParam(UserName, UserName.Param())`, "undefined: tsq.ContainsParam"},
 	{"functions are not column methods", `_ = UserName.Upper()`, "Upper undefined"},
 	{"key of another type", `_, _ = Users.Get(context.Background(), nil, "x")`, `cannot use "x"`},
-	{"delete keys of another type", `_ = Users.BatchDeleteByPK(context.Background(), nil, []string{"x"})`, "cannot use []string"},
+	{"delete keys of another type", `_ = Posts.BatchDeleteByPK(context.Background(), nil, []string{"x"})`, "cannot use []string"},
+	{"a plain table has no soft delete", `_ = Users.Delete(context.Background(), nil, &User{})`, "Delete undefined"},
+	{"a plain table has no restore", `_ = Users.Restore(context.Background(), nil, &User{})`, "Restore undefined"},
+	{"a plain table has no deleted scope", `_ = Users.WithDeleted()`, "WithDeleted undefined"},
+	{"DeleteFrom names HardDeleteFrom", `_ = tsq.DeleteFrom(Users)`, "missing method needsDeletedAtOrHardDeleteFrom"},
 	{"columns rebind through the table", `_ = UserID.As("u")`, "As undefined"},
 	{"subquery of another type", `_ = UserID.In(tsq.SelectValue(UserName).From(Users))`, "does not implement tsq.ListOperand[int64]"},
 	{"table rows are not a value", `_ = UserID.In(tsq.Select(UserID).From(Users))`, "does not implement tsq.ListOperand[int64]"},
@@ -110,6 +114,20 @@ var (
 )
 
 var Users = usersHandle.Define(tsq.TableSpec[User, int64]{Columns: []tsq.BoundColumn[User]{UserID, UserName}, PrimaryKey: UserID})
+
+type Post struct {
+	ID        int64
+	DeletedAt int64
+}
+
+var postsHandle = tsq.NewSoftDeleteTable[Post, int64]("posts")
+
+var (
+	PostID        = tsq.NewColumn(postsHandle.TableOf, "id", "id", func(r *Post) *int64 { return &r.ID })
+	PostDeletedAt = tsq.NewColumn(postsHandle.TableOf, "deleted_at", "deleted_at", func(r *Post) *int64 { return &r.DeletedAt })
+)
+
+var Posts = postsHandle.Define(tsq.TableSpec[Post, int64]{Columns: []tsq.BoundColumn[Post]{PostID, PostDeletedAt}, PrimaryKey: PostID}, PostDeletedAt)
 
 var ordersHandle = tsq.NewTable[Order, int64]("orders")
 

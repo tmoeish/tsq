@@ -23,16 +23,16 @@ type user struct {
 	DeletedAt int64
 }
 
-var usersHandle = NewTable[user, int64]("users")
+var usersHandle = NewSoftDeleteTable[user, int64]("users")
 
 var (
-	User_ID        = NewColumn(usersHandle, "id", "id", func(r *user) *int64 { return &r.ID })
-	User_Name      = NewColumn(usersHandle, "name", "name", func(r *user) *string { return &r.Name })
-	User_Email     = NewColumn(usersHandle, "email", "email", func(r *user) *string { return &r.Email })
-	User_Version   = NewColumn(usersHandle, "version", "version", func(r *user) *int64 { return &r.Version })
-	User_CreatedAt = NewColumn(usersHandle, "created_at", "created_at", func(r *user) *time.Time { return &r.CreatedAt })
-	User_UpdatedAt = NewColumn(usersHandle, "updated_at", "updated_at", func(r *user) *time.Time { return &r.UpdatedAt })
-	User_DeletedAt = NewColumn(usersHandle, "deleted_at", "deleted_at", func(r *user) *int64 { return &r.DeletedAt })
+	User_ID        = NewColumn(usersHandle.TableOf, "id", "id", func(r *user) *int64 { return &r.ID })
+	User_Name      = NewColumn(usersHandle.TableOf, "name", "name", func(r *user) *string { return &r.Name })
+	User_Email     = NewColumn(usersHandle.TableOf, "email", "email", func(r *user) *string { return &r.Email })
+	User_Version   = NewColumn(usersHandle.TableOf, "version", "version", func(r *user) *int64 { return &r.Version })
+	User_CreatedAt = NewColumn(usersHandle.TableOf, "created_at", "created_at", func(r *user) *time.Time { return &r.CreatedAt })
+	User_UpdatedAt = NewColumn(usersHandle.TableOf, "updated_at", "updated_at", func(r *user) *time.Time { return &r.UpdatedAt })
+	User_DeletedAt = NewColumn(usersHandle.TableOf, "deleted_at", "deleted_at", func(r *user) *int64 { return &r.DeletedAt })
 )
 
 var Users = usersHandle.Define(TableSpec[user, int64]{
@@ -42,7 +42,6 @@ var Users = usersHandle.Define(TableSpec[user, int64]{
 	Version:       User_Version,
 	CreatedAt:     User_CreatedAt,
 	UpdatedAt:     User_UpdatedAt,
-	DeletedAt:     User_DeletedAt,
 	Search:        []SearchColumn{Searchable(User_Name), Searchable(User_Email)},
 	ColumnSpecs: []tsqdialect.ColumnSpec{
 		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
@@ -54,7 +53,7 @@ var Users = usersHandle.Define(TableSpec[user, int64]{
 		{Name: "deleted_at", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}},
 	},
 	Indexes: []TableIndex{{Name: "ux_users_email", Columns: []string{"email", "deleted_at"}, Unique: true}},
-})
+}, User_DeletedAt)
 
 var User__Cols = Users.Columns()
 

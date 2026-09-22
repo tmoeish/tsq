@@ -117,14 +117,6 @@ func (t TrackTable) As(alias string) TrackTable {
 	}
 }
 
-// WithDeleted returns the table without its soft-delete scope; see
-// tsq.TableOf.WithDeleted.
-func (t TrackTable) WithDeleted() TrackTable {
-	t.TableOf = t.TableOf.WithDeleted()
-
-	return t
-}
-
 // GetByName reads the Track matching unique index ux_track_name, and fails with an
 // error wrapping sql.ErrNoRows when there is none.
 func (t TrackTable) GetByName(
@@ -153,15 +145,8 @@ func (t *Track) Insert(ctx context.Context, db tsq.Executor) error {
 // Update writes the row, or only cols when given; see tsq.TableOf.Update.
 func (t *Track) Update(ctx context.Context, db tsq.Executor, cols ...tsq.BoundColumn[Track]) error {
 	return TableTrack.Update(ctx, db, t, cols...)
-}
+} // HardDelete removes the row from the table.
 
-// Delete removes the row. Track has no deleted_at column, so Delete and
-// HardDelete are the same.
-func (t *Track) Delete(ctx context.Context, db tsq.Executor) error {
-	return TableTrack.Delete(ctx, db, t)
-}
-
-// HardDelete removes the row from the table.
 func (t *Track) HardDelete(ctx context.Context, db tsq.Executor) error {
 	return TableTrack.HardDelete(ctx, db, t)
 }

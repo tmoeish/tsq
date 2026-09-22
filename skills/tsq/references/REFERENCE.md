@@ -218,19 +218,21 @@ result.
 
 From table structs, TSQ commonly generates:
 
-- `XxxTable`, a struct that embeds `*tsq.TableOf[Xxx, K]` (K is the primary key's type) and has one
+- `XxxTable`, a struct that embeds `*tsq.TableOf[Xxx, K]` (K is the primary key's type), or
+  `*tsq.SoftDeleteTableOf[Xxx, K]` when the struct declares `deleted_at`, and has one
   field per column: `TableXxx.ID`, `TableXxx.Name`. A NOT NULL field is a `tsq.Column[Xxx, T]` and a
   field that can hold NULL a `tsq.NullColumn[Xxx, T]` (see "Nullable columns" in section 6)
 - `TableXxx`, the table value. `TableXxx.Columns()` lists every column, for `tsq.Select`
-- `TableXxx.As(alias)` and `TableXxx.WithDeleted()`, which return an `XxxTable` with every column
-  bound to the alias or scope
+- `TableXxx.As(alias)`, and `TableXxx.WithDeleted()` on a soft-delete table, which return an
+  `XxxTable` with every column bound to the alias or scope
 - per unique index, `TableXxx.GetByEmail(ctx, db, email)` (one row, `sql.ErrNoRows` when there is
   none) and `TableXxx.FetchByEmail(ctx, db, emails...)`; a composite index `A,B` gives
   `GetByAAndB(ctx, db, a, b)` and `FetchByAAndB(ctx, db, a, bs...)`. A plain `//tsq:index` is a
   schema object only; a query on it has an ordering, a limit and a page size the generator cannot
   guess, so write it with the builder
-- row methods: `Insert`, `Update`, `Delete`, `HardDelete`, and `Restore()` / `Active()` on
-  soft-delete tables
+- row methods: `Insert`, `Update`, `HardDelete`, and `Delete()` / `Restore()` / `Active()` on
+  soft-delete tables. A table without `deleted_at` has no `Delete`: removing a row always says
+  `Hard`
 - the errors returned by `Update`, `Delete` and `HardDelete` name the row by its primary key; they
   never serialize the row, so column values do not leak into logs
 
@@ -305,20 +307,36 @@ func newCourseTable() CourseTable {
 `TableCourse` is the table's name, columns, key, managed columns, search columns, physical
 schema and indexes in one value, and it is what queries select from (`From(TableCourse)`) and
 statements write (`tsq.UpdateTable(TableCourse)`). The row struct itself carries no TSQ methods
-besides the generated `Insert` / `Update` / `Delete` / `HardDelete` (and `Restore` / `Active`),
-which delegate to the table.
+besides the generated `Insert` / `Update` / `HardDelete` (and, on a soft-delete table, `Delete` /
+`Restore` / `Active`), which delegate to the table.
 
 One function creates the table, its columns and its definition, so anything that names
 `TableCourse` is initialized after the table is complete; there is no declaration order to get
-right. A table written by hand follows the same shape.
+right. A table written by hand follows the same shape. A soft-delete table starts with
+`tsq.NewSoftDeleteTable[R, K](name)`, binds its columns to the embedded `t.TableOf`, and passes
+the tombstone column to `Define`:
+
+```go
+t := tsq.NewSoftDeleteTable[Enrollment, int64]("enrollment")
+c := EnrollmentTable{
+	SoftDeleteTableOf: t,
+	ID:                tsq.NewColumn(t.TableOf, "id", "id", func(r *Enrollment) *int64 { return &r.ID }),
+	DeletedAt:         tsq.NewColumn(t.TableOf, "deleted_at", "deleted_at", func(r *Enrollment) *int64 { return &r.DeletedAt }),
+}
+
+t.Define(tsq.TableSpec[Enrollment, int64]{ /* ... */ }, c.DeletedAt)
+```
+
+Each constructor refuses the other's shape: `TableOf.Define` on a soft-delete table, or
+`SoftDeleteTableOf.Define` without a `deleted_at` column, is a definition error.
 
 A column field cannot share a name with a method of the table (`Update`, `Query`, `Columns`,
 `As`, ...): `tsq gen` refuses it and names the field. Rename the Go field; the `db` tag keeps the
 column name.
 
 `TableOf` also exposes `TableName()`, `Columns()`, `ColumnSpecs()`, `Indexes()`,
-`As(alias)`, `WithDeleted()` and `Err()`, which reports a definition error such as a primary key that is not one of
-the columns.
+`As(alias)` and `Err()`, which reports a definition error such as a primary key that is not one of
+the columns. `SoftDeleteTableOf` adds `WithDeleted()`.
 
 ## 4.1 Managed-field semantics
 
@@ -427,7 +445,7 @@ Semantics:
   - `//tsq:managed deleted_at`
   - `//tsq:managed deleted_at=RemovedAt`
 - the value names the **Go struct field**, not the SQL column name
-- declaring it changes what deletion means for the table: `Delete` stamps the tombstone instead of removing the row, and `HardDelete` is the way to remove it (see *Deleting rows* in section 8)
+- declaring it makes the table a soft-delete table (`*tsq.SoftDeleteTableOf`): only such a table has `Delete`, which stamps the tombstone, and `Restore` and `WithDeleted()`; `HardDelete` removes the row (see *Deleting rows* in section 8)
 - every generated query filters tombstoned rows out; there is no generated query that returns them
 - with unique indexes, portable behavior prefers an integer tombstone style rather than nullable-time semantics
 
@@ -499,9 +517,12 @@ forget the filter:
   left row is kept with `NULL`s
 - when the query has a `RIGHT` or `FULL` join, every scoped table is read through a derived table
   of its live rows, so a deleted row is never a preserved row
-- `UpdateTable` and a soft `DeleteFrom` skip deleted rows (a second soft delete does not restamp);
+- `UpdateTable` and `DeleteFrom` skip deleted rows (a second soft delete does not restamp);
   `HardDeleteFrom` reaches every row
-- `table.WithDeleted()` is the same table without the scope, in any of those positions
+- `table.WithDeleted()` is the same table without the scope, in any of those positions. It
+  changes which rows a statement reaches, never what the statement does: a `Delete`,
+  `BatchDeleteByPK` or `DeleteFrom` through it is still a soft delete, and stamps a deleted row
+  again
 - a CTE and a subquery are scoped by the tables inside them
 
 ### Ordering and slicing
@@ -880,18 +901,19 @@ Row writes are methods on the table descriptor, and the generated row methods ca
 
 - `TableCourse.Insert(ctx, db, &row)` / `row.Insert(ctx, db)`; a zero auto-increment key is
   generated by the database and written back
-- `Update`, `Delete`, `HardDelete` the same way. `Update` writes every column TSQ may write, so
+- `Update`, `HardDelete`, and `Delete` on a soft-delete table, the same way. `Update` writes every column TSQ may write, so
   **a row read with a partial `Select` names what it saves**: `TableCourse.Update(ctx, db, &row,
   TableCourse.Title)` / `row.Update(ctx, db, TableCourse.Title)` writes only `title` (plus
   `updated_at` and `version`). TSQ remembers the rows a partial `Select` returns (weakly, so they
   are forgotten when dropped), and a plain `Update`, `BatchUpdate` or `Upsert` of one fails with
   an error naming the columns it was read with, instead of overwriting the others with zero values
-- `TableCourse.BatchInsert(ctx, db, rows, options...)`, and `BatchUpdate`, `BatchDelete`,
-  `BatchHardDelete`
+- `TableCourse.BatchInsert(ctx, db, rows, options...)`, and `BatchUpdate`, `BatchHardDelete`, and
+  `BatchDelete` on a soft-delete table
 - `TableCourse.Upsert(ctx, db, &row, key...)` and `BatchUpsert(ctx, db, rows, key, options...)`
   insert or update by a key (see "Upserting rows" below)
-- `TableCourse.BatchDeleteByPK(ctx, db, ids, options...)` and `BatchHardDeleteByPK` delete by key
-  without loading the rows; `ids` is a slice of the primary key's type
+- `TableCourse.BatchHardDeleteByPK(ctx, db, ids, options...)`, and `BatchDeleteByPK` on a
+  soft-delete table, delete by key without loading the rows; `ids` is a slice of the primary key's
+  type
 
 The executor `db` is a `*tsq.Runtime`, the executor `WithTx` passes to its callback, or
 `tsq.WrapExecutor(handle, dialect.Postgres)` around a `*sql.DB` / `*sql.Tx` / `*sql.Conn` (any `tsq.DBTX`) opened elsewhere. A bare
@@ -899,12 +921,17 @@ The executor `db` is a `*tsq.Runtime`, the executor `WithTx` passes to its callb
 
 ### Deleting rows
 
-Whether `Delete` removes the row is decided by the table, not by the call site:
+`Delete` is always a soft delete and every call that removes a row says `Hard`, so the type of the
+table, not the call site, decides what a delete can do:
 
-| the table declares | `Delete` | `HardDelete` |
-| --- | --- | --- |
-| `deleted_at` | stamps the tombstone and `updated_at`, row stays | removes the row |
-| no `deleted_at` | removes the row | removes the row (same thing) |
+| the table declares | it is a | `Delete` | `HardDelete` |
+| --- | --- | --- | --- |
+| `deleted_at` | `*tsq.SoftDeleteTableOf` | stamps the tombstone and `updated_at`, row stays | removes the row |
+| no `deleted_at` | `*tsq.TableOf` | does not compile | removes the row |
+
+`grep HardDelete` therefore finds every place a project removes data. `tsq.DeleteFrom` follows the
+same rule: passing it a table without `deleted_at` fails to compile with `missing method
+needsDeletedAtOrHardDeleteFrom`, and `tsq.HardDeleteFrom` is the statement to write instead.
 
 - a soft delete writes **only** `deleted_at`, `updated_at` and `version`; other fields changed on
   the row are not saved. It checks and increments the version, so a stale copy fails with
@@ -915,10 +942,13 @@ Whether `Delete` removes the row is decided by the table, not by the call site:
   deleted row, refresh `updated_at` and increment `version`; a live row does not match
 - `Update` on a table with `deleted_at` matches live rows only and never writes `deleted_at` or
   `created_at`. `TableXxx.WithDeleted().Update(...)` edits a deleted row and leaves it deleted
-- `TableXxx.WithDeleted()` turns `Delete` into a hard delete, as it does for `tsq.DeleteFrom`
-- the pairs are `Delete` / `HardDelete` and `BatchDelete` / `BatchHardDelete` on the table,
-  `BatchDeleteByPK` / `BatchHardDeleteByPK`, `tsq.DeleteFrom` / `tsq.HardDeleteFrom`,
-  and the generated `item.Delete(...)` / `item.HardDelete(...)`
+- `TableXxx.WithDeleted()` only drops the live-row filter; a delete through it is still soft.
+  `TableXxx.WithDeleted().Delete(...)`, `BatchDeleteByPK` and `tsq.DeleteFrom(TableXxx.WithDeleted())`
+  stamp a row that is already deleted again, instead of failing
+- the pairs on a soft-delete table are `Delete` / `HardDelete` and `BatchDelete` /
+  `BatchHardDelete`, `BatchDeleteByPK` / `BatchHardDeleteByPK`, `tsq.DeleteFrom` /
+  `tsq.HardDeleteFrom`, and the generated `item.Delete(...)` / `item.HardDelete(...)`; a table
+  without `deleted_at` has only the `Hard` half
 - `item.Active()` reports whether the loaded row is untombstoned
 
 ### Upserting rows
@@ -953,7 +983,7 @@ err = database.TableLearner.BatchUpsert(ctx, runtime, learners,
 
 ### Bulk `UPDATE` / `DELETE` by condition
 
-`Update` and `Delete` work on one loaded row and honor optimistic locking. When the caller does not hold the rows ("set these columns on every row matching this condition"), build a statement instead:
+`Update` and `Delete` (and `HardDelete`) work on one loaded row and honor optimistic locking. When the caller does not hold the rows ("set these columns on every row matching this condition"), build a statement instead:
 
 ```go
 var score = tsq.NewParam[int64]("score")
@@ -968,8 +998,8 @@ var CompleteCourseEnrollments = tsq.
 affected, err := CompleteCourseEnrollments.Exec(ctx, runtime,
 	score.Bind(88), database.TableEnrollment.CourseID.Bind(courseID))
 
-// Enrollment declares deleted_at, so this renders as an UPDATE that stamps the
-// tombstone when it runs. Use HardDeleteFrom to render a DELETE regardless.
+// DeleteFrom takes only a table that declares deleted_at, and renders an UPDATE
+// that stamps the tombstone when it runs. HardDeleteFrom renders a DELETE.
 var CancelEnrollments = tsq.
 	DeleteFrom(database.TableEnrollment).
 	Where(database.TableEnrollment.UID.In(database.TableEnrollment.UID.ListParam())).
@@ -980,7 +1010,7 @@ affected, err = CancelEnrollments.Exec(ctx, runtime, database.TableEnrollment.UI
 
 Shape:
 
-- `tsq.UpdateTable(table)` / `tsq.DeleteFrom(table)` / `tsq.HardDeleteFrom(table)` take the table descriptor
+- `tsq.UpdateTable(table)` / `tsq.HardDeleteFrom(table)` take any table descriptor; `tsq.DeleteFrom(table)` takes a soft-delete one, and a table without `deleted_at` fails to compile with `missing method needsDeletedAtOrHardDeleteFrom`
 - `Set(col, rhs)` takes a column, `Param`, `tsq.Val` or typed scalar subquery of the column's type; `SetNull(col)` writes NULL into a `NullColumn`. Types are matched at compile time, and a NOT NULL column refuses a value that can be NULL
 - `Where(...)` is required and appears exactly once; the type system enforces both. Conditions are ANDed; a full-table statement says so with `tsq.And()`
 - `Build()` returns an immutable `*tsq.Mutation[R]`; `Exec(ctx, db, args...)` returns the affected row count; `mutation.SQL(dialect, args...)` shows what would run
@@ -988,9 +1018,9 @@ Shape:
 Rules:
 
 - the statement never checks the `version` column. `UpdateTable` on a table that declares `version` still adds `version = version + 1`, so rows loaded before the bulk change fail their own `Update(...)` with `OptimisticLockError`. Assigning the version column yourself is a build error
-- `UpdateTable` increments `version` and refreshes `updated_at` at execution time (unless you `Set` it). It skips deleted rows like every query does; `tsq.UpdateTable(table.WithDeleted())` reaches them. `DeleteFrom` is the exception, because a soft delete *is* the deletion: on a table declaring `deleted_at` it renders as an `UPDATE` that stamps the tombstone and `updated_at` **at execution time**, so a package-level statement does not reuse the time the program started
+- `UpdateTable` increments `version` and refreshes `updated_at` at execution time (unless you `Set` it). It skips deleted rows like every query does; `tsq.UpdateTable(table.WithDeleted())` reaches them. `DeleteFrom` renders as an `UPDATE` that stamps the tombstone and `updated_at` **at execution time**, so a package-level statement does not reuse the time the program started; `tsq.DeleteFrom(table.WithDeleted())` stamps deleted rows again rather than removing them
 - assignments and conditions may reference only the target table, unaliased. `JOIN`, `UPDATE ... FROM`, aliases, `LIMIT`, `ORDER BY`, and `RETURNING` are not supported; each dialect spells them differently. Subquery predicates (`In(subquery)`, `EQ(subquery)`) are fine. MySQL rejects a subquery that reads the table being modified (error 1093); that is a database rule, not a TSQ one
-- it is a single `UPDATE` / `DELETE` and is not chunked. A very large list parameter can exceed the dialect's bind-parameter ceiling; use `table.BatchDeleteByPK` or slice the input yourself. For reads, `query.ListIn` does the splitting
+- it is a single `UPDATE` / `DELETE` and is not chunked. A very large list parameter can exceed the dialect's bind-parameter ceiling; use `table.BatchDeleteByPK` / `BatchHardDeleteByPK` or slice the input yourself. For reads, `query.ListIn` does the splitting
 
 ## 9. Runtime and transactions
 

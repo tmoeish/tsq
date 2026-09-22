@@ -42,10 +42,10 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 **表描述符**
 
 - 生成的表是一个结构体 `XxxTable`：内嵌 `*tsq.TableOf[Xxx, K]`（K 是主键类型），**每列一个字段**——`TableCourse.Title` 而不是包级变量 `Course_Title`，`TableCourse.Columns()` 而不是 `Course__Cols`。表名、列、主键、自增、托管列、搜索列、物理 schema 与索引都在这一个值上。**行结构体不再实现任何接口**，`Owner` / `Result` 标记接口删除。
-- 一个构造函数依次建表、建列、`Define`，引用 `TableXxx` 的东西天然在表完成之后初始化，没有声明顺序要记，`DeclareTable` 删除。手写表同样用 `tsq.NewTable[R, K]` / `tsq.NewColumn` / `Define`，定义错误由 `Err()` 和每个用到它的查询报告。
+- 一个构造函数依次建表、建列、`Define`，引用 `TableXxx` 的东西天然在表完成之后初始化，没有声明顺序要记，`DeclareTable` 删除。手写表同样用 `tsq.NewTable[R, K]` / `tsq.NewColumn` / `Define`（有 `deleted_at` 的表用 `tsq.NewSoftDeleteTable[R, K]`，列绑到它内嵌的 `TableOf`，`Define(spec, deletedAt)`），定义错误由 `Err()` 和每个用到它的查询报告。
 - 按主键读写都有类型：`TableXxx.Get(ctx, db, id)`（没有时包装 `sql.ErrNoRows`）、`Find`（没有时 `nil, nil`）、`Fetch(ctx, db, ids...)`（按给定顺序、任意数量），`BatchDeleteByPK` / `BatchHardDeleteByPK` 收 `[]K`——传错类型编译不过（此前收任意 `Arg`，运行时才检查）。`TableXxx.FetchBy(ctx, db, col, values, conds...)` 按其他唯一列取，`TableXxx.Query()` 是读全表（带声明的搜索列）的查询。
 - 别名是表的方法：`pre := TableCourse.As("pre")` 返回的表上每列都已绑到别名（`pre.ID`）；`Column.As` 和 `tsq.AliasTable` 删除，单列改绑用 `col.WithTable(source)`。`Table` 接口的 `Name()` 改名为 `TableName()`，列字段因此可以叫 `Name`。
-- `tsq.UpdateTable` / `DeleteFrom` / `HardDeleteFrom` 收 `tsq.RowTable[R]`，生成的表结构体和 `*tsq.TableOf` 都满足；对别名执行会被拒绝。
+- `tsq.UpdateTable` / `HardDeleteFrom` 收 `tsq.RowTable[R]`，`tsq.DeleteFrom` 只收 `tsq.SoftDeleteTable[R]`；生成的表结构体、`*tsq.TableOf` 和 `*tsq.SoftDeleteTableOf` 按各自的形状满足它们。对别名执行会被拒绝。
 - `TSQTables()` 返回 `[]tsq.Table`，`TableRegistration` 删除；schema 与索引从描述符读取，`ColumnSpecs()` / `Indexes()` 可供工具使用。
 
 **参数**
@@ -77,7 +77,7 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 **写入**
 
-- 行写入在表描述符上：`TableXxx.Insert/Update/Delete/HardDelete(ctx, db, &row)` 与 `BatchInsert/BatchUpdate/BatchDelete/BatchHardDelete(ctx, db, rows, options...)`；生成的行方法转发给它们。包级的 `tsq.Insert` / `tsq.Update` / `tsq.Delete` / `tsq.Batch*` 删除，按主键删除是 `TableXxx.BatchDeleteByPK(ctx, db, ids, options...)` 和 `BatchHardDeleteByPK`。
+- 行写入在表描述符上：`TableXxx.Insert/Update/HardDelete(ctx, db, &row)` 与 `BatchInsert/BatchUpdate/BatchHardDelete(ctx, db, rows, options...)`，软删除表另有 `Delete` / `BatchDelete`；生成的行方法转发给它们。包级的 `tsq.Insert` / `tsq.Update` / `tsq.Delete` / `tsq.Batch*` 删除，按主键删除是 `TableXxx.BatchHardDeleteByPK(ctx, db, ids, options...)`，软删除表另有 `BatchDeleteByPK`。
 - 托管列由库维护，不再由生成代码维护：`Insert` 只在未设置时填 `created_at` / `updated_at`，`Update` 总是刷新 `updated_at`。单行写入的错误带主键（`users id=5`），乐观锁冲突以 `*OptimisticLockError`（字段导出）包装返回。
 - 按条件写：`tsq.UpdateTable(TableXxx)` / `tsq.DeleteFrom(TableXxx)` / `tsq.HardDeleteFrom(TableXxx)`，返回 `*UpdateBuilder[R]`（`Set` 是泛型方法，只能是具体类型）/ 接口 `DeleteStage[R]`；`Set` 接受列、参数、`tsq.Val` 或子查询，`tsq.Val` 包 nil 指针可写 `NULL`。`Mutation.SQL()` 改为 `SQL(dialect, args...)`。
 
@@ -92,8 +92,8 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 **读写语义**
 
-- 在声明了 `deleted_at` 的表上，`Delete` 是软删除，物理删除是 `HardDelete`；没有 `deleted_at` 的表两者同义。
-- **已删行是表的默认作用域**：引用这张表的每个查询（包括手写查询、JOIN 里的表、子查询和 CTE 里的表）以及 `UpdateTable` / 软 `DeleteFrom` 都看不到已删行。LEFT JOIN 的条件并进 `ON`；有 RIGHT / FULL JOIN 时表按活行派生表读取。`TableXxx.WithDeleted()` 是包含已删行的同一张表；`HardDeleteFrom` 作用于所有行，重复的软删除不会重写墓碑时间。软删除走 UPDATE，乐观锁校验、`version` 自增和 `updated_at` 刷新照常生效。`DeleteFrom` 的软删除时间戳**在执行时**计算（此前在构建时计算，包级语句会一直写入进程启动的时间）。
+- **软删除是一种表类型**：声明了 `deleted_at` 的表生成为内嵌 `*tsq.SoftDeleteTableOf[R, K]` 的结构体，只有它有 `Delete` / `BatchDelete` / `BatchDeleteByPK` / `Restore` / `BatchRestore` / `WithDeleted()`，`tsq.DeleteFrom` 也只收它。没有 `deleted_at` 的表上写这些是**编译错误**（`tsq.DeleteFrom` 报 `missing method needsDeletedAtOrHardDeleteFrom`），删除只有 `HardDelete` / `BatchHardDelete` / `BatchHardDeleteByPK` / `tsq.HardDeleteFrom`。于是 `Delete` 永远是软删，会真删数据的调用永远带 `Hard`：`grep HardDelete` 就是工程里全部物理删除点。
+- **已删行是表的默认作用域**：引用这张表的每个查询（包括手写查询、JOIN 里的表、子查询和 CTE 里的表）以及 `UpdateTable` / 软 `DeleteFrom` 都看不到已删行。LEFT JOIN 的条件并进 `ON`；有 RIGHT / FULL JOIN 时表按活行派生表读取。`TableXxx.WithDeleted()` 只去掉活行过滤、不改变语句做什么：经由它的 `Delete` / `BatchDeleteByPK` / `DeleteFrom` 仍然是软删除，已删行被重新盖一次墓碑；不经由它时，重复的软删除不会重写墓碑时间。`HardDeleteFrom` 作用于所有行。软删除走 UPDATE，乐观锁校验、`version` 自增和 `updated_at` 刷新照常生效。`DeleteFrom` 的软删除时间戳**在执行时**计算（此前在构建时计算，包级语句会一直写入进程启动的时间）。
 - `tsq.Open` 接受 `sqlite3`（github.com/mattn/go-sqlite3）这个驱动名，并且能识别它的错误类型——它把 SQLite 结果码放在结构体字段里而不是方法上，此前重复键和 busy 重试在这个驱动上会静默失效。
 - 新增 `tsq.IsDuplicateKeyError`：判断主键或唯一索引冲突，不用自己去匹配各驱动的错误类型。
 - 按方言分叉的 SQL 片段可以延迟到渲染时构造（`tsq.Matches` 的 PostgreSQL 分支因此用当前方言来引号和拼表达式，而不是由根包自己挑一个方言实例）。
@@ -108,7 +108,7 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 - **派生表达式不再能直接 `Select`**：列（`Column` / `NullColumn`）知道自己扫描进哪个字段，函数、`CASE`、`Expr` / `Exprf` 产出的是 `tsq.Expression[T]`，没有行归属。此前 `Select(tsq.Date(时间列))` 能编译、执行时才报扫描错误。现在用 `tsq.MapInto` 指定字段，或用新增的 `tsq.SelectValue` / `tsq.SelectNullValue` 让值本身成为行（`Query.Scalar` / `ScalarNull` 因此删除）。`WithTable` / `Param` / `Bind` 只在列上。
 - **可空值的排序在三个方言上一致**：NULL 一律当作最小值（升序在前、降序在后），PostgreSQL 显式写 `NULLS FIRST/LAST`；`OrderBy.NullsFirst()` / `NullsLast()` 可改，MySQL 用 `IS NULL` 排序键模拟（集合操作上拒绝）。此前 PostgreSQL 与另两个方言的顺序相反。
 - **时间统一用 UTC**：托管时间戳以 UTC 写入，绑定到 SQL 的所有 `time.Time`（含 `*time.Time`、`sql.NullTime`、`null.Time`）也先转成 UTC。SQLite 按文本存时间，不同时区写入的行此前按文本比较和排序会出错。`tsq.UpdateTable` 在执行时自动刷新 `updated_at`（显式 `Set` 的值优先），与 `Update`、软删除、`Upsert` 一致。
-- **行级写入不越权改托管列**：`Update` 不再写 `created_at` 和 `deleted_at`，并且在软删除表上只匹配未删除的行——手工构造的行不会把 `created_at` 清零，删除之前读出的旧副本也不会把行复活。软删除只写 `deleted_at` / `updated_at` / `version`，不顺带保存行上其他改动；删除已删除的行在有 `version` 的表上报 `OptimisticLockError`。恢复用 `Restore`。`Upsert` 写入的行总是未删除状态。
+- **行级写入不越权改托管列**：`Update` 不再写 `created_at` 和 `deleted_at`，并且在软删除表上只匹配未删除的行——手工构造的行不会把 `created_at` 清零，删除之前读出的旧副本也不会把行复活。软删除只写 `deleted_at` / `updated_at` / `version`，不顺带保存行上其他改动；删除已删除的行报 `RowStateError`（经由 `WithDeleted()` 时重新盖墓碑）。恢复用 `Restore`。`Upsert` 写入的行总是未删除状态。
 - 读单行只有两个入口：`Get` 在没有行时返回包装 `sql.ErrNoRows` 的错误，`Find` 返回 `nil, nil`。`Get` / `Find` / `Exists` / `Scalar` 最多读一行，`Exists` 不再走 `COUNT`。`Count` 返回 `int64`。
 - 批量写的选项是 `WithBatchSize(n)` 和只对插入有效的 `WithSkipDuplicates()`（传给其他入口会报错）。
 - 事务：`runtime.WithTx(ctx, fn, options...)` / `WithTxResult(ctx, fn, options...)`，选项是 `tsq.WithIsolation(level)`、`WithReadOnly()`、`WithRetry(predicate)`、`WithRetryPolicy(policy)`；`TxOptions` 删除（此前九成调用要在中间传一个 `nil`），`DefaultRetryPolicy()` 返回值而不是指针。重试谓词：`IsRetryableTxError`、`IsOptimisticLockError`、`IsRetryableNetworkError`、`IsTxConflictError`。
@@ -131,10 +131,10 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 **生成代码**
 
-- 表文件：`XxxTable` 结构体与 `TableXxx` 值，外加 `As(alias)` / `WithDeleted()`（返回同样的结构体，列一起改绑），以及每个唯一索引的 `GetByEmail(ctx, db, email)` 和 `FetchByEmail(ctx, db, emails...)`（复合索引 `A,B` 是 `GetByAAndB(ctx, db, a, b)` / `FetchByAAndB(ctx, db, a, bs...)`）。主键查询在 `TableOf` 上，不再生成 `QueryXxx*` / `FetchXxxByID` 变量和函数。**普通索引和唯一索引前缀不生成查询**：这类查询需要排序和限量，用构建器写。
+- 表文件：`XxxTable` 结构体与 `TableXxx` 值，外加 `As(alias)`，软删除表另有 `WithDeleted()`（都返回同样的结构体，列一起改绑），以及每个唯一索引的 `GetByEmail(ctx, db, email)` 和 `FetchByEmail(ctx, db, emails...)`（复合索引 `A,B` 是 `GetByAAndB(ctx, db, a, b)` / `FetchByAAndB(ctx, db, a, bs...)`）。主键查询在 `TableOf` 上，不再生成 `QueryXxx*` / `FetchXxxByID` 变量和函数。**普通索引和唯一索引前缀不生成查询**：这类查询需要排序和限量，用构建器写。
 - 列字段与表的方法重名（`Update`、`Query`、`Columns`、`As`……）时 `tsq gen` 报错并指出字段，改 Go 字段名即可（`db` tag 保留列名）。
 - 生成的参数名按缩写词整体小写（`ids`、`uid`），不再出现 `iDs`。
-- 行方法：`Insert` / `Update` / `Delete` / `HardDelete`，软删除表另有 `Restore()` / `Active()`。
+- 行方法：`Insert` / `Update` / `HardDelete`，软删除表另有 `Delete()` / `Restore()` / `Active()`。
 - Result：`XxxResult` 结构体（每个结果字段一个 `ResultColumn`）与 `ResultXxx` 值，用法是 `tsq.Select(ResultXxx.Columns()...)`。
 - `runtime.tsq.go` 只剩 `TSQTables()`；生成文件、`tsq.json` 和各方言 `.sql` 由 `tsq gen` 维护，不再有 `--tpl` / `--resulttpl`。
 

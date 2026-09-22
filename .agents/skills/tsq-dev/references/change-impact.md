@@ -59,10 +59,16 @@
 - 端到端的门是 `examples/academy` 的 `runDatabaseFilledDemo` 和 `TestIntegrationDatabaseFilledColumns`
   （后者还断言第二次启动零 DDL）。
 
-## 改了删除语义或托管列（`rows.go`、`TableSpec`）
+## 改了删除语义或托管列（`rows.go`、`softdelete.go`、`TableSpec`）
 
-- **删除语义由表决定，不由调用点决定**：`TableSpec.DeletedAt` 非空 → `Delete` 打墓碑，
-  `HardDelete` 物理删；为空 → 两者同义。加一个删除入口就要同时加它的 `Hard*` 对偶。
+- **删除语义由表的类型决定，不由调用点、也不由 scope 决定**：有 `deleted_at` 的表是
+  `SoftDeleteTableOf`，它的 `Delete*` 恒写墓碑；`TableOf` 上根本没有 `Delete*`，只有恒 DELETE 的 `Hard*`。
+  加一个软删除入口就放在 `SoftDeleteTableOf` 上、同时在 `TableOf` 上加它的 `Hard*` 对偶，并在
+  `compilefail_test.go` 加一条"普通表上编译不过"。**不要让任何删除路径读 `softDeleted()` 来选软删还是
+  硬删**：它只回答"要不要活行过滤"，一旦兼任，`WithDeleted()` 就会把删除变成物理删除（v5 发版前出过，
+  见 `memory.md` § 软删除）。`TestWithDeletedOnlyDropsTheLiveRowFilter` 守着 `WithDeleted()` 只改可达的行。
+- 生成器按 `DeletedAtField` 在两种表类型之间选（`table.go.tmpl` 的 `$base` / `$bind`），`reserved.go`
+  按同一个判据取方法集；三处的判据必须是同一个字段。
 - **软删除和恢复的状态不符报 `RowStateError` 而不是 `OptimisticLockError`**：重试不能解决它，`IsOptimisticLockError` 不该为真。
 - **软删除和恢复只写托管列**（`setTombstone`），自带版本校验和自增；`Update` 永远不写 `created_at` /
   `deleted_at` 且只匹配活行。`softdelete_test.go` 用一张没有 `version` 的表守着"旧副本复活已删行"。
@@ -73,7 +79,7 @@
 - `Insert` 只在字段**未设置**时盖 `created_at` / `updated_at`（导入历史数据时不能丢调用方的
   时间），`Update` **总是**刷新 `updated_at`。
 - 给 `TableSpec` 加字段不是破坏性变更；给 `Table` 接口加方法也不影响使用者（它是封闭的），但
-  三个实现（`TableOf`、`aliasTable`、`cteTable`）都要跟上。`[门禁: api-check]`
+  两个实现（`TableOf`，`SoftDeleteTableOf` 经内嵌自动跟上；`cteTable`）都要跟上。`[门禁: api-check]`
 - 软删除的端到端门是 `examples/academy` 的 `runSoftDeleteDemo`。
 - **软删除作用域在渲染里，不在调用点**：新增一种表出现的位置（新的 JOIN 类型、`UPDATE ... FROM`、
   新的集合形态）必须在 `writeFromWhere` 里表态它的作用域放 WHERE、ON 还是派生表，并在

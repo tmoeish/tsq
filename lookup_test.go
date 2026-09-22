@@ -175,15 +175,27 @@ func TestAliasedTableBindsItsColumns(t *testing.T) {
 	}
 }
 
-// TestStatementsByConditionAcceptTableStructs covers the RowTable inference that
-// lets tsq.UpdateTable(TableCourse) take a generated struct.
+// TestStatementsByConditionAcceptTableStructs covers the inference that lets
+// tsq.UpdateTable(TableCourse) take a generated struct: RowTable for a plain
+// table, and the SoftDeleteTable constraint DeleteFrom infers R through.
 func TestStatementsByConditionAcceptTableStructs(t *testing.T) {
 	for name, stage := range map[string]interface {
 		Build() (*Mutation[tag], error)
 	}{
 		"update": UpdateTable(tags).Set(tags.Label, Val("x")).Where(tags.Name.EQ(Val("a"))),
-		"delete": DeleteFrom(tags).Where(tags.Name.EQ(Val("a"))),
 		"hard":   HardDeleteFrom(tags).Where(tags.Name.EQ(Val("a"))),
+	} {
+		if _, err := stage.Build(); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+
+	for name, stage := range map[string]interface {
+		Build() (*Mutation[ticket], error)
+	}{
+		"soft":         DeleteFrom(tickets).Where(tickets.Body.EQ(Val("a"))),
+		"soft deleted": DeleteFrom(tickets.WithDeleted()).Where(tickets.Body.EQ(Val("a"))),
+		"hard":         HardDeleteFrom(tickets).Where(tickets.Body.EQ(Val("a"))),
 	} {
 		if _, err := stage.Build(); err != nil {
 			t.Errorf("%s: %v", name, err)

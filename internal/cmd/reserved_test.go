@@ -20,7 +20,10 @@ func TestReservedTableNamesCoverTableOf(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reserved := reservedTableFields(&genmodel.StructInfo{TableMeta: &genmodel.TableMeta{}})
+	reserved := map[string]map[string]string{
+		"TableOf":           reservedTableFields(&genmodel.StructInfo{TableMeta: &genmodel.TableMeta{}}),
+		"SoftDeleteTableOf": reservedTableFields(&genmodel.StructInfo{TableMeta: &genmodel.TableMeta{DeletedAtField: "DeletedAt"}}),
+	}
 	fset := token.NewFileSet()
 	found := 0
 
@@ -50,20 +53,29 @@ func TestReservedTableNamesCoverTableOf(t *testing.T) {
 				continue
 			}
 
-			if ident, ok := index.X.(*ast.Ident); !ok || ident.Name != "TableOf" {
+			ident, ok := index.X.(*ast.Ident)
+			if !ok || reserved[ident.Name] == nil {
 				continue
 			}
 
 			found++
 
-			if _, ok := reserved[fn.Name.Name]; !ok {
-				t.Errorf("TableOf.%s is not reserved; a column field of that name would hide it", fn.Name.Name)
+			// A soft-delete table embeds TableOf too, so it reserves both method sets.
+			receivers := []string{ident.Name}
+			if ident.Name == "TableOf" {
+				receivers = append(receivers, "SoftDeleteTableOf")
+			}
+
+			for _, receiver := range receivers {
+				if _, ok := reserved[receiver][fn.Name.Name]; !ok {
+					t.Errorf("%s.%s is not reserved on a %s table; a column field of that name would hide it", ident.Name, fn.Name.Name, receiver)
+				}
 			}
 		}
 	}
 
-	if found < 20 {
-		t.Fatalf("found only %d TableOf methods; the source scan is broken", found)
+	if found < 25 {
+		t.Fatalf("found only %d TableOf and SoftDeleteTableOf methods; the source scan is broken", found)
 	}
 }
 
@@ -88,6 +100,21 @@ func TestValidateFieldNamesRefusesCollisions(t *testing.T) {
 
 	if err := validateFieldNames(table("ID", "Name", "Email", "Table")); err != nil {
 		t.Errorf("ordinary fields refused: %v", err)
+	}
+
+	// Only a table with deleted_at has the soft-delete methods, so only there do
+	// their names collide.
+	if err := validateFieldNames(table("ID", "Restore", "WithDeleted")); err != nil {
+		t.Errorf("a plain table has no Restore or WithDeleted to hide: %v", err)
+	}
+
+	for _, name := range []string{"Restore", "WithDeleted", "SoftDeleteTableOf", "BatchDeleteByPK"} {
+		soft := table("ID", name)
+		soft.DeletedAtField = "DeletedAt"
+
+		if err := validateFieldNames(soft); err == nil || !strings.Contains(err.Error(), "User."+name) {
+			t.Errorf("soft-delete field %s: err = %v, want a collision", name, err)
+		}
 	}
 
 	result := &genmodel.StructInfo{
