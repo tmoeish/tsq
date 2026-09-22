@@ -281,7 +281,8 @@
 - **日常改动的完整路径**：从同步过的 `main` 切 `<type>/<描述>` 分支（type 用
   Conventional Commit 那份词表，和提交信息同一套）→ 改代码 → `make fmt` → 更新技能与
   项目内存 → `make harness` 全绿 → 提交（`commit-msg` 钩子校验）→ 推分支 → 开 PR →
-  CI 五个必需检查全绿后 squash 合入 → 分支自动删除。`main` 是唯一的长期分支，没有 develop。
+  CI 五个必需检查全绿后 squash 合入 → 分支自动删除。`main` 是唯一的开发分支，没有 develop；
+  唯一的长期分支例外是 v4 维护线 `v4`（见 `release.md` § 分支策略）。
   合进 `main` **不等于**发版，见上面的表格判断这波要不要发。
 - **开新分支之前先回 `main` 同步**：`git checkout main && git fetch && git reset --hard
   origin/main`。把新分支叠在还没合的 PR 分支上，等那个 PR 被 squash 合并（产生新 SHA）
