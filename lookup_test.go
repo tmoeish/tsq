@@ -157,7 +157,7 @@ func TestAliasedTableBindsItsColumns(t *testing.T) {
 	}
 
 	q := Select(User_ID).From(Users).
-		Join(other, User_ID.EQ(User_ID.WithTable(other))).
+		InnerJoin(other, User_ID.EQ(User_ID.WithTable(other))).
 		Where(User_Name.WithTable(other).IsNotNull()).
 		MustBuild()
 

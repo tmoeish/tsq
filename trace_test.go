@@ -76,7 +76,7 @@ func TestTracersSeeTheTable(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := Select(Order_ID).From(Orders).Join(Users, Order_UserID.EQ(User_ID)).List(ctx, rt); err != nil {
+	if _, err := Select(Order_ID).From(Orders).InnerJoin(Users, Order_UserID.EQ(User_ID)).List(ctx, rt); err != nil {
 		t.Fatal(err)
 	}
 

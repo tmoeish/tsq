@@ -546,9 +546,10 @@ type cteTable struct {
 	body cteQuery
 }
 
-// CTE declares a non-recursive common table expression named name. Columns of the
-// query are referenced through it with Column.WithTable.
-func CTE[O any](name string, query QueryStage[O]) Table {
+// CTE declares a non-recursive common table expression named name over a stage or
+// a built *Query. Columns of the query are referenced through it with
+// Column.WithTable.
+func CTE[O any](name string, query Subquery[O]) Table {
 	name = strings.TrimSpace(name)
 
 	spec, err := stageSpec(query)

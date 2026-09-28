@@ -429,8 +429,8 @@ func TestIntegrationPredicatesMatchTheSameRows(t *testing.T) {
 				{"In over no text values", l.Name.In(tsq.Vals[string]()), nil, nil},
 				{"LTE", l.ID.LTE(tsq.Val(first)), nil, []string{"Ada"}},
 				{"NotBetween", l.ID.NotBetween(tsq.Val(first), tsq.Val(first)), nil, []string{"Bob", "Cyd"}},
-				{"Like as written", l.Name.Like(tsq.Val("_d_")), nil, []string{"Ada"}},
-				{"NotLike", l.Name.NotLike(tsq.Val("B%")), nil, []string{"Ada", "Cyd"}},
+				{"Like as written", tsq.Like(l.Name, tsq.Val("_d_")), nil, []string{"Ada"}},
+				{"NotLike", tsq.NotLike(l.Name, tsq.Val("B%")), nil, []string{"Ada", "Cyd"}},
 				{"NotStartsWith escapes _", tsq.NotStartsWith(l.Company, tsq.Val("A_")), nil, []string{"Bob", "Cyd"}},
 				{"NotEndsWith escapes %", tsq.NotEndsWith(l.Company, tsq.Val("0%")), nil, []string{"Ada", "Bob"}},
 				{"NotContains", tsq.NotContains(l.Name, tsq.Val("o")), nil, []string{"Ada", "Cyd"}},
@@ -1158,7 +1158,7 @@ func TestIntegrationPageKeysetOverTimestamps(t *testing.T) {
 
 			order := []tsq.OrderBy{academy.TableEnrollment.CreatedAt.Desc(), academy.TableEnrollment.UID.Desc()}
 
-			want, err := tsq.Select(academy.TableEnrollment.Columns()...).From(academy.TableEnrollment).OrderBy(order...).MustBuild().List(ctx, rt)
+			want, err := tsq.Select(academy.TableEnrollment.Columns()...).From(academy.TableEnrollment).OrderBy(order[0], order[1:]...).MustBuild().List(ctx, rt)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1901,10 +1901,10 @@ func TestIntegrationSoftDeleteScopeJoins(t *testing.T) {
 				return tsq.Select(academy.TableLearner.ID).From(academy.TableLearner)
 			}
 
-			count("inner join", from().Join(academy.TableEnrollment, on), 1)
+			count("inner join", from().InnerJoin(academy.TableEnrollment, on), 1)
 			count("left join without a live enrollment", from().LeftJoin(academy.TableEnrollment, on).Where(academy.TableEnrollment.UID.IsNull()), 1)
 			count("right join", from().RightJoin(academy.TableEnrollment, on), 1)
-			count("inner join with deleted", from().Join(academy.TableEnrollment.WithDeleted(), on), 2)
+			count("inner join with deleted", from().InnerJoin(academy.TableEnrollment.WithDeleted(), on), 2)
 
 			if tsqdialect.Supports(rt.Dialect(), tsqdialect.CapabilityFullOuterJoin) {
 				count("full join", from().FullJoin(academy.TableEnrollment, on), 2)

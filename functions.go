@@ -3,6 +3,7 @@ package tsq
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 )
@@ -174,8 +175,9 @@ func sqliteTimeText(x sqlExpr) sqlExpr {
 	return sqlJoin(sqlText("SUBSTR("), x, sqlText(", 1, 19)"))
 }
 
-// Date formats the date part of col as 'YYYY-MM-DD' on every dialect.
-func Date[T any](col Expression[T]) Expression[string] {
+// Date formats the date part of col as 'YYYY-MM-DD' on every dialect. The date
+// functions take a time column, nullable or not.
+func Date(col Expression[time.Time]) Expression[string] {
 	return byDialect[string](col, "date", func(x sqlExpr) map[tsqdialect.Name]sqlExpr {
 		return map[tsqdialect.Name]sqlExpr{
 			tsqdialect.MySQL:    sqlJoin(sqlText("DATE_FORMAT("), x, sqlText(", '%Y-%m-%d')")),
@@ -186,17 +188,17 @@ func Date[T any](col Expression[T]) Expression[string] {
 }
 
 // Year extracts the year of col as an integer.
-func Year[T any](col Expression[T]) Expression[int64] { return datePart(col, "year", "YEAR", "%Y") }
+func Year(col Expression[time.Time]) Expression[int64] { return datePart(col, "year", "YEAR", "%Y") }
 
 // Month extracts the month of col as an integer.
-func Month[T any](col Expression[T]) Expression[int64] {
+func Month(col Expression[time.Time]) Expression[int64] {
 	return datePart(col, "month", "MONTH", "%m")
 }
 
 // Day extracts the day of the month of col as an integer.
-func Day[T any](col Expression[T]) Expression[int64] { return datePart(col, "day", "DAY", "%d") }
+func Day(col Expression[time.Time]) Expression[int64] { return datePart(col, "day", "DAY", "%d") }
 
-func datePart[T any](col Expression[T], part, sqlPart, strftime string) Expression[int64] {
+func datePart(col Expression[time.Time], part, sqlPart, strftime string) Expression[int64] {
 	return byDialect[int64](col, part+" extraction", func(x sqlExpr) map[tsqdialect.Name]sqlExpr {
 		return map[tsqdialect.Name]sqlExpr{
 			tsqdialect.MySQL:    sqlJoin(sqlText(sqlPart+"("), x, sqlText(")")),
@@ -238,7 +240,7 @@ func combined[T any](col Expression[T], open string, rhs Operand[T], null func(l
 	return derived[T](col, info)
 }
 
-func pattern[S ~string](col Expression[S], op string, right exprInfo) Condition {
+func patternOf[S Text](col Expression[S], op string, right exprInfo) Condition {
 	left := columnInfo(col)
 
 	return newCondition(left.merge(right).withSQL(sqlJoin(left.sql, sqlText(" "+op+" "), right.sql)))
@@ -267,47 +269,58 @@ func patternValue(s string, mode paramMode) exprInfo {
 // case), and PostgreSQL respects case. Keyword search (Search) matches the same
 // way. Match Lower(col) against a lowercased pattern to get one answer on all
 // three.
-type Pattern[S ~string] interface {
+type Pattern[S Text] interface {
 	needsTsqVal()
 	patternText(S)
 	patternOperand(mode paramMode) exprInfo
 }
 
-func patternMatch[S ~string](col Expression[S], op string, text Pattern[S], mode paramMode) Condition {
+func patternMatch[S Text](col Expression[S], op string, text Pattern[S], mode paramMode) Condition {
 	if isNilValue(text) {
 		return conditionError(errors.New("pattern cannot be nil"))
 	}
 
-	return pattern(col, op, text.patternOperand(mode))
+	return patternOf(col, op, text.patternOperand(mode))
+}
+
+// Like matches col against pattern as written: % and _ are wildcards, and there
+// is no escape character. StartsWith, EndsWith and Contains match text literally.
+func Like[S Text](col Expression[S], pattern Operand[S]) Condition {
+	return patternOf(col, "LIKE", rhsInfo(pattern))
+}
+
+// NotLike matches values of col that do not match pattern; see Like.
+func NotLike[S Text](col Expression[S], pattern Operand[S]) Condition {
+	return patternOf(col, "NOT LIKE", rhsInfo(pattern))
 }
 
 // StartsWith matches values of col beginning with prefix.
-func StartsWith[S ~string](col Expression[S], prefix Pattern[S]) Condition {
+func StartsWith[S Text](col Expression[S], prefix Pattern[S]) Condition {
 	return patternMatch(col, "LIKE", prefix, paramPrefix)
 }
 
 // NotStartsWith matches values of col not beginning with prefix.
-func NotStartsWith[S ~string](col Expression[S], prefix Pattern[S]) Condition {
+func NotStartsWith[S Text](col Expression[S], prefix Pattern[S]) Condition {
 	return patternMatch(col, "NOT LIKE", prefix, paramPrefix)
 }
 
 // EndsWith matches values of col ending with suffix.
-func EndsWith[S ~string](col Expression[S], suffix Pattern[S]) Condition {
+func EndsWith[S Text](col Expression[S], suffix Pattern[S]) Condition {
 	return patternMatch(col, "LIKE", suffix, paramSuffix)
 }
 
 // NotEndsWith matches values of col not ending with suffix.
-func NotEndsWith[S ~string](col Expression[S], suffix Pattern[S]) Condition {
+func NotEndsWith[S Text](col Expression[S], suffix Pattern[S]) Condition {
 	return patternMatch(col, "NOT LIKE", suffix, paramSuffix)
 }
 
 // Contains matches values of col containing part.
-func Contains[S ~string](col Expression[S], part Pattern[S]) Condition {
+func Contains[S Text](col Expression[S], part Pattern[S]) Condition {
 	return patternMatch(col, "LIKE", part, paramContains)
 }
 
 // NotContains matches values of col not containing part.
-func NotContains[S ~string](col Expression[S], part Pattern[S]) Condition {
+func NotContains[S Text](col Expression[S], part Pattern[S]) Condition {
 	return patternMatch(col, "NOT LIKE", part, paramContains)
 }
 
@@ -318,6 +331,6 @@ type searchColumn struct {
 func (searchColumn) searchable() {}
 
 // Searchable marks a text column for keyword search (TableSpec.Search, Search).
-func Searchable[O any, S ~string](col Column[O, S]) SearchColumn {
+func Searchable[O any, S Text](col Column[O, S]) SearchColumn {
 	return searchColumn{SQLColumn: col}
 }

@@ -68,7 +68,7 @@ func (t *TableOf[R, K]) Query() *Query[R] {
 
 		stage := Select(t.Columns()...).From(t)
 		if search := t.searchColumns(); len(search) > 0 {
-			return stage.Search(search...).Build()
+			return stage.Search(search[0], search[1:]...).Build()
 		}
 
 		return stage.Build()
@@ -156,7 +156,7 @@ func (t *TableOf[R, K]) FetchBy[T comparable](ctx context.Context, db Executor, 
 	}
 
 	list, err := t.byQuery(col, true, where, func() (*Query[R], error) {
-		return Select(t.Columns()...).From(t).Where(append([]Condition{col.In(col.ListParam())}, where...)...).Build()
+		return Select(t.Columns()...).From(t).Where(col.In(col.ListParam()), where...).Build()
 	})
 	if err != nil {
 		return nil, err
@@ -178,7 +178,7 @@ func (t *TableOf[R, K]) GetBy[T comparable](ctx context.Context, db Executor, co
 	}
 
 	q, err := t.byQuery(col, false, where, func() (*Query[R], error) {
-		return Select(t.Columns()...).From(t).Where(append([]Condition{col.EQ(col.Param())}, where...)...).Build()
+		return Select(t.Columns()...).From(t).Where(col.EQ(col.Param()), where...).Build()
 	})
 	if err != nil {
 		return nil, err
@@ -284,7 +284,7 @@ func fetchInOrder[R any, K, T comparable](
 		}
 
 		if one == nil {
-			if one, err = Select(t.Columns()...).From(t).Where(append([]Condition{col.EQ(col.Param())}, where...)...).Build(); err != nil {
+			if one, err = Select(t.Columns()...).From(t).Where(col.EQ(col.Param()), where...).Build(); err != nil {
 				return nil, err
 			}
 		}

@@ -53,7 +53,9 @@ v5 不背兼容，一次把名字改到"最合理"。定下的几条规则，每
 - `tsq gen --help` 曾在 v5 里印着 `@TABLE`（门只看符号不看文字）；编译错误里的方法名同样是给人读的文案，见 `../impact/api.md`。
 - 导出面只留使用者用得到的（2026-09-19 逐个查示例和文档的引用）：只供库内部读的取值方法一律不导出。
 - 右值接口叫 `Operand` / `ListOperand`（不叫 `RHS` / `SetRHS`，Set 已是 UPDATE 赋值）；装列名的字段叫 `Columns`。
-- 否定一律 `Not*`（`NotIn`、`NotLike`）。v4 的 `NIn` 和 `NotExists` 并存，同一个意思两种拼法。`NE` 保留，它是比较运算符。
+- 否定一律 `Not*`（`NotIn`、`tsq.NotLike`）；同一个意思只留一种拼法（`NIn` 与 `NotExists` 并存过，`Join` 与 `InnerJoin` 也是，删前者）。
+- 必填参数写成 `(first, more...)`（2026-09-28 维护者定案，编译期挡住空 `Where()` / 无 `ON` 的 join）。**`Select` 例外**：`Select(R.Columns()...)`
+  是主用法，拆开会逼每个调用写 `cols[0], cols[1:]...`。只对部分类型有意义的操作一律包级泛型函数（`tsq.Like[S Text]`），不留列方法。
 - 可选参数用函数式选项（`RuntimeOption`、`BatchOption`），不用 `...*XxxOptions`。只对插入有意义的
   `WithSkipDuplicates` 传给别的 `Batch*` 会**报错**而不是被忽略：被静默忽略的选项就是 v4 的零值歧义。
 - 事务选项跟在回调后面（`WithTx(ctx, fn, tsq.WithRetry(...))`），和 `RuntimeOption` 一个形状；
@@ -72,12 +74,9 @@ v5 不背兼容，一次把名字改到"最合理"。定下的几条规则，每
 
 ## 决定：v5 不留兼容别名，且"不用接收者的方法"要变成函数 (2026-09-09)
 
-v4 攒下九个 `Deprecated` 符号，没有任何门禁会提醒它们该走——**兼容包装只会积累**，删掉它们本身就是
-大版本存在的理由。同一波删掉 `Unique` / `NUnique` / `Concat`（只会返回构建错误）和 `Column.Now()`。
-
-**方法体里不出现 `c.`，就说明它不该是方法**：`User_Name.Now()` 和 `User_ID.Now()` 完全一样，
-`ExistsSub` 逼调用方随便挑一列。后者的参数类型还未导出——**调用能编译，但使用者写不出类型名**，
-也就写不了 helper；现在是泛型 `Exists[T](Subquery[T])`，任何阶段都能传。
+v4 的九个 `Deprecated` 符号没有门禁提醒它们该走——**兼容包装只会积累**，删掉它们是大版本存在的理由。
+**方法体里不出现 `c.`，就说明它不该是方法**（`User_Name.Now()` 与 `User_ID.Now()` 相同）；`ExistsSub` 的参数类型
+未导出——**调用能编译，但使用者写不出类型名**，写不了 helper；现在是泛型 `Exists[T](Subquery[T])`。
 
 ## 决定：CLI 不拆子模块，收紧根包自己的依赖 (2026-09-17 重测)
 

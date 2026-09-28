@@ -695,8 +695,8 @@ func runAggregateDemo(ctx context.Context, runtime *tsq.Runtime) ([]AggregateSum
 		From(TableTrack).
 		// The WHERE on enrollment status drops the rows a LEFT JOIN would add, and
 		// the averaged score would read them as NULL; say INNER JOIN outright.
-		Join(TableCourse, TableTrack.ID.EQ(TableCourse.TrackID)).
-		Join(TableEnrollment, TableCourse.ID.EQ(TableEnrollment.CourseID)).
+		InnerJoin(TableCourse, TableTrack.ID.EQ(TableCourse.TrackID)).
+		InnerJoin(TableEnrollment, TableCourse.ID.EQ(TableEnrollment.CourseID)).
 		Where(tsq.Or(
 			TableEnrollment.Status.EQ(tsq.Val(EnrollmentStatusActive)),
 			TableEnrollment.Status.EQ(tsq.Val(EnrollmentStatusCompleted)),
@@ -778,7 +778,7 @@ func runSubqueryDemo(ctx context.Context, runtime *tsq.Runtime) (*SubquerySummar
 	dataTrackLearnerIDs := tsq.
 		SelectValue(TableEnrollment.LearnerID).
 		From(TableEnrollment).
-		Join(TableCourse, TableEnrollment.CourseID.EQ(TableCourse.ID)).
+		InnerJoin(TableCourse, TableEnrollment.CourseID.EQ(TableCourse.ID)).
 		Where(TableCourse.TrackID.In(dataTrackIDs))
 
 	learnersInDataTrackQuery, err := tsq.
@@ -838,11 +838,10 @@ func runSubqueryDemo(ctx context.Context, runtime *tsq.Runtime) (*SubquerySummar
 func runCaseDemo(ctx context.Context, runtime *tsq.Runtime) (*CaseSummary, error) {
 	exec := runtime
 	labelExpr := tsq.
-		Case[string]().
-		When(tsq.And(
-			TableEnrollment.Status.EQ(tsq.Val(EnrollmentStatusCompleted)),
-			TableEnrollment.Score.GTE(tsq.Val(int64(90))),
-		), tsq.Val("excellent")).
+		Case[string](tsq.And(
+		TableEnrollment.Status.EQ(tsq.Val(EnrollmentStatusCompleted)),
+		TableEnrollment.Score.GTE(tsq.Val(int64(90))),
+	), tsq.Val("excellent")).
 		When(tsq.And(
 			TableEnrollment.Status.EQ(tsq.Val(EnrollmentStatusActive)),
 			TableEnrollment.Score.GTE(tsq.Val(int64(80))),

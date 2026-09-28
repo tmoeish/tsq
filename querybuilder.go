@@ -33,7 +33,9 @@ type QueryStage[O any] interface {
 
 // Sortable is the part of a stage that can order and slice the result.
 type Sortable[O any] interface {
-	OrderBy(orders ...OrderBy) OrderedStage[O]
+	sealedStage()
+
+	OrderBy(order OrderBy, more ...OrderBy) OrderedStage[O]
 	Limit(limit int) OrderedStage[O]
 	Offset(offset int) OrderedStage[O]
 }
@@ -43,7 +45,9 @@ type Sortable[O any] interface {
 // cannot be locked: PostgreSQL refuses FOR UPDATE with GROUP BY, HAVING and set
 // operations, and ordering first does not change that.
 type ResultSortable[O any] interface {
-	OrderBy(orders ...OrderBy) OrderedResultStage[O]
+	sealedStage()
+
+	OrderBy(order OrderBy, more ...OrderBy) OrderedResultStage[O]
 	Limit(limit int) OrderedResultStage[O]
 	Offset(offset int) OrderedResultStage[O]
 }
@@ -51,27 +55,36 @@ type ResultSortable[O any] interface {
 // Lockable is the part of a stage that can lock the rows it reads. Row locks only
 // mean something inside a transaction.
 type Lockable[O any] interface {
+	sealedStage()
+
 	ForUpdate() LockedStage[O]
 	ForShare() LockedStage[O]
 }
 
-// Combinable is the part of a stage that can be combined with another query.
+// Combinable is the part of a stage that can be combined with another query: a
+// stage or a built *Query with the same rows.
 type Combinable[O any] interface {
-	Union(other QueryStage[O]) CompoundStage[O]
-	UnionAll(other QueryStage[O]) CompoundStage[O]
-	Intersect(other QueryStage[O]) CompoundStage[O]
-	IntersectAll(other QueryStage[O]) CompoundStage[O]
-	Except(other QueryStage[O]) CompoundStage[O]
-	ExceptAll(other QueryStage[O]) CompoundStage[O]
+	sealedStage()
+
+	Union(other Subquery[O]) CompoundStage[O]
+	UnionAll(other Subquery[O]) CompoundStage[O]
+	Intersect(other Subquery[O]) CompoundStage[O]
+	IntersectAll(other Subquery[O]) CompoundStage[O]
+	Except(other Subquery[O]) CompoundStage[O]
+	ExceptAll(other Subquery[O]) CompoundStage[O]
 }
 
 // Groupable is the part of a stage that can group rows.
 type Groupable[O any] interface {
-	GroupBy(cols ...SQLColumn) GroupedStage[O]
+	sealedStage()
+
+	GroupBy(col SQLColumn, more ...SQLColumn) GroupedStage[O]
 }
 
 // SelectStage is a query with columns but no FROM table yet.
 type SelectStage[O any] interface {
+	sealedStage()
+
 	From(table Table) JoinStage[O]
 }
 
@@ -82,20 +95,22 @@ type JoinStage[O any] interface {
 	Sortable[O]
 	Lockable[O]
 	Combinable[O]
-	Join(table Table, on ...Condition) JoinStage[O]
-	InnerJoin(table Table, on ...Condition) JoinStage[O]
-	LeftJoin(table Table, on ...Condition) JoinStage[O]
-	RightJoin(table Table, on ...Condition) JoinStage[O]
-	FullJoin(table Table, on ...Condition) JoinStage[O]
+	// InnerJoin, LeftJoin, RightJoin and FullJoin take at least one ON condition;
+	// their conditions are ANDed. A join without one is CrossJoin.
+	InnerJoin(table Table, on Condition, more ...Condition) JoinStage[O]
+	LeftJoin(table Table, on Condition, more ...Condition) JoinStage[O]
+	RightJoin(table Table, on Condition, more ...Condition) JoinStage[O]
+	FullJoin(table Table, on Condition, more ...Condition) JoinStage[O]
 	CrossJoin(table Table) JoinStage[O]
 	// Correlate declares outer-query tables this query references without joining
 	// them, which makes it a correlated subquery. Such a query only runs inside a
 	// query that provides those tables.
-	Correlate(tables ...Table) JoinStage[O]
-	// Where sets the WHERE clause; its conditions are ANDed.
-	Where(conds ...Condition) WhereStage[O]
+	Correlate(table Table, more ...Table) JoinStage[O]
+	// Where sets the WHERE clause; its conditions are ANDed. Pass a list of
+	// conditions assembled at run time as And(conds...).
+	Where(cond Condition, more ...Condition) WhereStage[O]
 	// Search sets the columns a Keyword argument is matched against.
-	Search(cols ...SearchColumn) SearchStage[O]
+	Search(col SearchColumn, more ...SearchColumn) SearchStage[O]
 }
 
 // WhereStage is a query with a WHERE clause.
@@ -105,7 +120,7 @@ type WhereStage[O any] interface {
 	Sortable[O]
 	Lockable[O]
 	Combinable[O]
-	Search(cols ...SearchColumn) FilteredStage[O]
+	Search(col SearchColumn, more ...SearchColumn) FilteredStage[O]
 }
 
 // SearchStage is a query with search columns. Keyword search does not combine with
@@ -114,8 +129,8 @@ type SearchStage[O any] interface {
 	QueryStage[O]
 	Sortable[O]
 	Lockable[O]
-	GroupBy(cols ...SQLColumn) SearchGroupedStage[O]
-	Where(conds ...Condition) FilteredStage[O]
+	GroupBy(col SQLColumn, more ...SQLColumn) SearchGroupedStage[O]
+	Where(cond Condition, more ...Condition) FilteredStage[O]
 }
 
 // FilteredStage is a query with both WHERE and search columns.
@@ -123,7 +138,7 @@ type FilteredStage[O any] interface {
 	QueryStage[O]
 	Sortable[O]
 	Lockable[O]
-	GroupBy(cols ...SQLColumn) SearchGroupedStage[O]
+	GroupBy(col SQLColumn, more ...SQLColumn) SearchGroupedStage[O]
 }
 
 // SearchGroupedStage is a searched query with GROUP BY. Unlike GroupedStage it
@@ -131,7 +146,7 @@ type FilteredStage[O any] interface {
 type SearchGroupedStage[O any] interface {
 	QueryStage[O]
 	ResultSortable[O]
-	Having(conds ...Condition) SearchHavingStage[O]
+	Having(cond Condition, more ...Condition) SearchHavingStage[O]
 }
 
 // SearchHavingStage is a searched grouped query with HAVING.
@@ -145,7 +160,7 @@ type GroupedStage[O any] interface {
 	QueryStage[O]
 	ResultSortable[O]
 	Combinable[O]
-	Having(conds ...Condition) HavingStage[O]
+	Having(cond Condition, more ...Condition) HavingStage[O]
 }
 
 // HavingStage is a grouped query with HAVING.
@@ -241,6 +256,12 @@ func SelectNullValue[T any](expr ValueColumn[T]) SelectStage[sql.Null[T]] {
 
 type selectBuilder[O any] struct{ b *builder[O] }
 
+func (selectBuilder[O]) sealedStage() {}
+
+// sealedStage keeps the stage interfaces to this package's builders, so methods
+// can be added to them without breaking a type outside it.
+func (*builder[O]) sealedStage() {}
+
 func (s selectBuilder[O]) From(table Table) JoinStage[O] {
 	n := s.b.next()
 	n.setFrom(table)
@@ -302,37 +323,35 @@ func (b *builder[O]) addJoin(kind joinType, table Table, on []Condition) JoinSta
 	return joinBuilder[O]{n}
 }
 
-func (b *builder[O]) Join(table Table, on ...Condition) JoinStage[O] {
-	return b.addJoin(innerJoinType, table, on)
+func (b *builder[O]) InnerJoin(table Table, on Condition, more ...Condition) JoinStage[O] {
+	return b.addJoin(innerJoinType, table, list(on, more))
 }
 
-func (b *builder[O]) InnerJoin(table Table, on ...Condition) JoinStage[O] {
-	return b.addJoin(innerJoinType, table, on)
+func (b *builder[O]) LeftJoin(table Table, on Condition, more ...Condition) JoinStage[O] {
+	return b.addJoin(leftJoinType, table, list(on, more))
 }
 
-func (b *builder[O]) LeftJoin(table Table, on ...Condition) JoinStage[O] {
-	return b.addJoin(leftJoinType, table, on)
+func (b *builder[O]) RightJoin(table Table, on Condition, more ...Condition) JoinStage[O] {
+	return b.addJoin(rightJoinType, table, list(on, more))
 }
 
-func (b *builder[O]) RightJoin(table Table, on ...Condition) JoinStage[O] {
-	return b.addJoin(rightJoinType, table, on)
+func (b *builder[O]) FullJoin(table Table, on Condition, more ...Condition) JoinStage[O] {
+	return b.addJoin(fullJoinType, table, list(on, more))
 }
 
-func (b *builder[O]) FullJoin(table Table, on ...Condition) JoinStage[O] {
-	return b.addJoin(fullJoinType, table, on)
+// list joins the required first argument of a variadic call to the rest.
+func list[T any](first T, more []T) []T {
+	return append([]T{first}, more...)
 }
 
 func (b *builder[O]) CrossJoin(table Table) JoinStage[O] {
 	return b.addJoin(crossJoinType, table, nil)
 }
 
-func (b *builder[O]) Correlate(tables ...Table) JoinStage[O] {
+func (b *builder[O]) Correlate(table Table, more ...Table) JoinStage[O] {
 	n := b.enter("Correlate", phaseJoin)
-	if len(tables) == 0 {
-		n.fail(errors.New("correlate requires at least one outer table"))
-	}
 
-	for _, t := range tables {
+	for _, t := range list(table, more) {
 		if err := tableErr(t); err != nil {
 			n.fail(err)
 			continue
@@ -378,12 +397,12 @@ func (b *builder[O]) search(cols []SearchColumn) *builder[O] {
 	return n
 }
 
-func (j joinBuilder[O]) Where(conds ...Condition) WhereStage[O] {
-	return whereBuilder[O]{j.where(conds)}
+func (j joinBuilder[O]) Where(cond Condition, more ...Condition) WhereStage[O] {
+	return whereBuilder[O]{j.where(list(cond, more))}
 }
 
-func (j joinBuilder[O]) Search(cols ...SearchColumn) SearchStage[O] {
-	return searchBuilder[O]{j.search(cols)}
+func (j joinBuilder[O]) Search(col SearchColumn, more ...SearchColumn) SearchStage[O] {
+	return searchBuilder[O]{j.search(list(col, more))}
 }
 
 type whereBuilder[O any] struct{ *builder[O] }
@@ -392,8 +411,8 @@ type whereBuilder[O any] struct{ *builder[O] }
 // that cannot be locked.
 type resultBuilder[O any] struct{ *builder[O] }
 
-func (r resultBuilder[O]) OrderBy(orders ...OrderBy) OrderedResultStage[O] {
-	return resultBuilder[O]{r.orderBy(orders)}
+func (r resultBuilder[O]) OrderBy(order OrderBy, more ...OrderBy) OrderedResultStage[O] {
+	return resultBuilder[O]{r.orderBy(list(order, more))}
 }
 
 func (r resultBuilder[O]) Limit(limit int) OrderedResultStage[O] {
@@ -404,38 +423,35 @@ func (r resultBuilder[O]) Offset(offset int) OrderedResultStage[O] {
 	return resultBuilder[O]{r.offset(offset)}
 }
 
-func (w whereBuilder[O]) Search(cols ...SearchColumn) FilteredStage[O] {
-	return searchBuilder[O]{w.search(cols)}
+func (w whereBuilder[O]) Search(col SearchColumn, more ...SearchColumn) FilteredStage[O] {
+	return searchBuilder[O]{w.search(list(col, more))}
 }
 
 // searchBuilder is a query with search columns; its grouped stages cannot combine.
 type searchBuilder[O any] struct{ *builder[O] }
 
-func (s searchBuilder[O]) Where(conds ...Condition) FilteredStage[O] {
-	return searchBuilder[O]{s.where(conds)}
+func (s searchBuilder[O]) Where(cond Condition, more ...Condition) FilteredStage[O] {
+	return searchBuilder[O]{s.where(list(cond, more))}
 }
 
-func (s searchBuilder[O]) GroupBy(cols ...SQLColumn) SearchGroupedStage[O] {
-	return searchResultBuilder[O]{resultBuilder[O]{s.groupBy(cols)}}
+func (s searchBuilder[O]) GroupBy(col SQLColumn, more ...SQLColumn) SearchGroupedStage[O] {
+	return searchResultBuilder[O]{resultBuilder[O]{s.groupBy(list(col, more))}}
 }
 
 type searchResultBuilder[O any] struct{ resultBuilder[O] }
 
-func (s searchResultBuilder[O]) Having(conds ...Condition) SearchHavingStage[O] {
-	return searchResultBuilder[O]{resultBuilder[O]{s.having(conds)}}
+func (s searchResultBuilder[O]) Having(cond Condition, more ...Condition) SearchHavingStage[O] {
+	return searchResultBuilder[O]{resultBuilder[O]{s.having(list(cond, more))}}
 }
 
-func (b *builder[O]) GroupBy(cols ...SQLColumn) GroupedStage[O] {
-	return resultBuilder[O]{b.groupBy(cols)}
+func (b *builder[O]) GroupBy(col SQLColumn, more ...SQLColumn) GroupedStage[O] {
+	return resultBuilder[O]{b.groupBy(list(col, more))}
 }
 
 func (b *builder[O]) groupBy(cols []SQLColumn) *builder[O] {
 	n := b.enter("GroupBy", phaseGroup)
 
-	switch {
-	case len(cols) == 0:
-		n.fail(errors.New("group by requires at least one column"))
-	case len(n.spec.GroupBy) > 0:
+	if len(n.spec.GroupBy) > 0 {
 		n.fail(errors.New("group by is already set"))
 	}
 
@@ -444,8 +460,8 @@ func (b *builder[O]) groupBy(cols []SQLColumn) *builder[O] {
 	return n
 }
 
-func (b *builder[O]) Having(conds ...Condition) HavingStage[O] {
-	return resultBuilder[O]{b.having(conds)}
+func (b *builder[O]) Having(cond Condition, more ...Condition) HavingStage[O] {
+	return resultBuilder[O]{b.having(list(cond, more))}
 }
 
 func (b *builder[O]) having(conds []Condition) *builder[O] {
@@ -459,7 +475,7 @@ func (b *builder[O]) having(conds []Condition) *builder[O] {
 	return n
 }
 
-func (b *builder[O]) setOp(op setOperationType, other QueryStage[O]) CompoundStage[O] {
+func (b *builder[O]) setOp(op setOperationType, other Subquery[O]) CompoundStage[O] {
 	n := b.enter(string(op), phaseCompound)
 
 	spec, err := stageSpec(other)
@@ -479,29 +495,31 @@ func (b *builder[O]) setOp(op setOperationType, other QueryStage[O]) CompoundSta
 	return resultBuilder[O]{n}
 }
 
-func (b *builder[O]) Union(other QueryStage[O]) CompoundStage[O] { return b.setOp(unionType, other) }
+func (b *builder[O]) Union(other Subquery[O]) CompoundStage[O] { return b.setOp(unionType, other) }
 
-func (b *builder[O]) UnionAll(other QueryStage[O]) CompoundStage[O] {
+func (b *builder[O]) UnionAll(other Subquery[O]) CompoundStage[O] {
 	return b.setOp(unionAllType, other)
 }
 
-func (b *builder[O]) Intersect(other QueryStage[O]) CompoundStage[O] {
+func (b *builder[O]) Intersect(other Subquery[O]) CompoundStage[O] {
 	return b.setOp(intersectType, other)
 }
 
-func (b *builder[O]) IntersectAll(other QueryStage[O]) CompoundStage[O] {
+func (b *builder[O]) IntersectAll(other Subquery[O]) CompoundStage[O] {
 	return b.setOp(intersectAllType, other)
 }
 
-func (b *builder[O]) Except(other QueryStage[O]) CompoundStage[O] {
+func (b *builder[O]) Except(other Subquery[O]) CompoundStage[O] {
 	return b.setOp(exceptType, other)
 }
 
-func (b *builder[O]) ExceptAll(other QueryStage[O]) CompoundStage[O] {
+func (b *builder[O]) ExceptAll(other Subquery[O]) CompoundStage[O] {
 	return b.setOp(exceptAllType, other)
 }
 
-func (b *builder[O]) OrderBy(orders ...OrderBy) OrderedStage[O] { return b.orderBy(orders) }
+func (b *builder[O]) OrderBy(order OrderBy, more ...OrderBy) OrderedStage[O] {
+	return b.orderBy(list(order, more))
+}
 
 func (b *builder[O]) Limit(limit int) OrderedStage[O] { return b.limit(limit) }
 
@@ -616,8 +634,8 @@ func (b *builder[O]) specOf() (querySpec[O], error) {
 	return b.spec.clone(), nil
 }
 
-// stageSpec extracts the spec of a stage built by this package.
-func stageSpec[O any](stage QueryStage[O]) (querySpec[O], error) {
+// stageSpec extracts the spec of a stage or *Query built by this package.
+func stageSpec[O any](stage Subquery[O]) (querySpec[O], error) {
 	if isNilValue(stage) {
 		return querySpec[O]{}, errors.New("query stage cannot be nil")
 	}
@@ -626,7 +644,7 @@ func stageSpec[O any](stage QueryStage[O]) (querySpec[O], error) {
 		specOf() (querySpec[O], error)
 	})
 	if !ok {
-		return querySpec[O]{}, errors.New("query stage must come from tsq.Select or tsq.From")
+		return querySpec[O]{}, errors.New("query must come from tsq.Select")
 	}
 
 	return provider.specOf()

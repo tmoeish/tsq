@@ -539,16 +539,23 @@ Typical stages include:
 
 - `Select(...)`
 - `From(...)`
-- `Join(...)` / `LeftJoin(...)` / `InnerJoin(...)` / `RightJoin(...)` / `FullJoin(...)` / `CrossJoin(...)`
-- `Where(...)`
-- `Search(...)`
-- `GroupBy(...)`
-- `Having(...)`
-- `OrderBy(...)` / `Limit(...)` / `Offset(...)`
+- `InnerJoin(t, on, more...)` / `LeftJoin(...)` / `RightJoin(...)` / `FullJoin(...)`, which need an `ON`
+  condition, and `CrossJoin(t)`, which takes none
+- `Where(cond, more...)`
+- `Search(col, more...)`
+- `GroupBy(col, more...)`
+- `Having(cond, more...)`
+- `OrderBy(term, more...)` / `Limit(...)` / `Offset(...)`
 - `ForUpdate()` / `ForShare()`, optionally followed by `NoWait()` / `SkipLocked()`
 - `Build()`
 
-Builder state can branch safely, but the main reusable object is the built query.
+Every clause that needs an argument takes its first one as a separate parameter, so leaving it out
+(`Where()`, `GroupBy()`, a join with no `ON`) does not compile. A list assembled at run time goes to
+`Where` as `tsq.And(conds...)`; a slice of columns or terms as `GroupBy(cols[0], cols[1:]...)`.
+
+Builder state can branch safely, but the main reusable object is the built query. A built `*Query`
+composes like a stage: it is a set-operation operand (`Union(q)`), a CTE body (`tsq.CTE("x", q)`)
+and a subquery.
 
 Writes by condition use the same staged style with `tsq.UpdateTable(table)` / `tsq.DeleteFrom(table)` (section 8).
 
@@ -557,7 +564,8 @@ The stage interfaces are named after where a chain is (`JoinStage`, `WhereStage`
 `tsq.Sortable[O]` (`OrderBy` / `Limit` / `Offset` on rows, leading to `OrderedStage`, which can
 still lock), `tsq.ResultSortable[O]` (the same after `GroupBy`, `Having` or a set operation, leading
 to `OrderedResultStage`, which cannot), `tsq.Lockable[O]` (`ForUpdate` / `ForShare`),
-`tsq.Combinable[O]` (`Union` / `Intersect` / `Except`) and `tsq.Groupable[O]` (`GroupBy`).
+`tsq.Combinable[O]` (`Union` / `Intersect` / `Except`) and `tsq.Groupable[O]` (`GroupBy`). They are
+sealed: only this package's builders implement them.
 
 ### Soft-delete scope
 
@@ -620,7 +628,7 @@ Common examples:
 ```go
 database.TableUser.ID.EQ(tsq.Val(int64(1)))
 tsq.Contains(database.TableUser.Name, tsq.Val("alice"))
-database.TableUser.Email.Like(tsq.Val("%@example.com"))
+tsq.Like(database.TableUser.Email, tsq.Val("%@example.com")) // pattern as written; text columns only
 database.TableUser.ManagerID.IsNull()
 ```
 
@@ -657,7 +665,7 @@ users, err := QueryUsersByOrg.List(ctx, runtime, database.TableUser.OrgID.Bind(o
 - a query that compares one column to two values declares its own:
   `low, high := tsq.NewParam[int64]("low"), tsq.NewParam[int64]("high")`, then
   `Where(col.Between(low, high))` and `List(ctx, db, low.Bind(1), high.Bind(9))`
-- a `Param[T]` is an RHS, so it goes wherever a column of the same type could: `EQ`, `GT`, `Like`,
+- a `Param[T]` is an RHS, so it goes wherever a column of the same type could: `EQ`, `GT`, `tsq.Like`,
   `Between`, `Set`, `Case().When`. A `ListParam[T]` goes to `In` / `NotIn`
 - values are matched **by parameter, not by position**, and `Bind` only accepts a `T`: the order of
   the arguments does not matter and a value of the wrong type does not compile
@@ -678,7 +686,7 @@ field of `O` it scans into, which is what `Select` needs. Everything built from 
 ```go
 tsq.Upper(database.TableUser.Name)                 // tsq.Expression[string]
 tsq.Count(database.TableOrder.ID)                  // tsq.Expression[int64]
-tsq.Case[string]()./* ... */.End()            // tsq.Expression[string]
+tsq.Case(cond, tsq.Val("x"))./* ... */.End()  // tsq.Expression[string]
 ```
 
 An expression cannot be passed to `Select`, because what it holds has nothing to do with the field
@@ -754,7 +762,7 @@ Use the escape hatches deliberately, not as a replacement for typed columns:
 ### Values fixed in the code
 
 `tsq.Val(v)` is a Go value that stands wherever a column of the same type could: `EQ`, `GT`,
-`Like`, `Between`, `Set`, `Case().When` / `Else`, `tsq.Coalesce`, `tsq.NullIf`. `tsq.Vals(vs...)`
+`tsq.Like`, `Between`, `Set`, `Case` / `When` / `Else`, `tsq.Coalesce`, `tsq.NullIf`. `tsq.Vals(vs...)`
 is the list form for `In` / `NotIn`. Both are always bound, never inlined into the SQL text, and so
 are plain values passed to `Pred` / `Exprf`.
 
@@ -1179,7 +1187,7 @@ Useful rules:
 manager := database.TableUser.As("manager")
 query := tsq.Select(database.TableUser.ID).
 	From(database.TableUser).
-	Join(manager, database.TableUser.ManagerID.EQ(manager.ID))
+	InnerJoin(manager, database.TableUser.ManagerID.EQ(manager.ID))
 ```
 
 A statement by condition (`UpdateTable`, `DeleteFrom`) writes the table itself and refuses an
@@ -1210,9 +1218,9 @@ another result, which has no columns of its own.
 TSQ supports more than simple list queries. Common advanced shapes include:
 
 - aggregate queries with `GroupBy(...)` and `Having(...)`. `Build()` refuses a selected, `HAVING` or `ORDER BY` column that is neither grouped nor inside an aggregate (SQLite would return an arbitrary row's value, PostgreSQL refuses it); grouping by a table's primary key allows the table's other columns
-- `CASE` expressions: `tsq.Case[string]().When(cond, col).When(cond, tsq.Val("x")).Else(tsq.Val("y")).End()`; results are typed, so a branch of another type does not compile
+- `CASE` expressions: `tsq.Case(cond, col).When(cond, tsq.Val("x")).Else(tsq.Val("y")).End()` (the first branch is required, and fixes the type); results are typed, so a branch of another type does not compile
 - `tsq.Coalesce(col, rhs)` and `tsq.NullIf(col, rhs)`, with `tsq.Val` for a fixed value
-- subqueries such as `In(subquery)`, `tsq.Exists(subquery)`, and typed RHS comparisons like `EQ(subquery)` or `Like(subquery)`. An `In` subquery may set `Limit` (it is written as a derived table, which MySQL requires). A subquery cannot use `Search`: the keyword is an argument of the statement that runs, so `Build()` refuses it instead of dropping the predicate
+- subqueries such as `In(subquery)`, `tsq.Exists(subquery)`, and typed RHS comparisons like `EQ(subquery)` or `tsq.Like(col, subquery)`. An `In` subquery may set `Limit` (it is written as a derived table, which MySQL requires). A subquery cannot use `Search`: the keyword is an argument of the statement that runs, so `Build()` refuses it instead of dropping the predicate
 - correlated subqueries, where the subquery declares the enclosing query's tables with `Correlate(...)`
 - non-recursive CTEs: `cte := tsq.CTE("big_orders", stage)`, then join `cte` and reference its columns with `col.WithTable(cte)` (all built-in dialects; MySQL baseline is 8.0). A CTE's columns are found by name, so its select list cannot name one column twice: `SUM(amount)` and `MAX(amount)` are both `amount`, and `Build()` refuses them. Whether `col.WithTable(cte)` can be NULL follows the CTE body, not the column: a nullable column the CTE coalesces reads into a plain field
 - `tsq.SelectDistinct(cols...)` for `SELECT DISTINCT` (its `Count()` counts distinct rows), and `tsq.CountDistinct(col)` for `COUNT(DISTINCT col)`
@@ -1232,9 +1240,10 @@ does not fit does not compile:
 | `tsq.Avg` | `tsq.Number` | `float64` |
 | `tsq.Upper`, `tsq.Lower`, `tsq.Trim`, `tsq.Substring(col, start, length)` | `tsq.Text`: string kinds, nullable ones included | the column's type |
 | `tsq.Length` | `tsq.Text` | `int64` |
-| `tsq.Date` | any column | `string` (`'YYYY-MM-DD'`) |
-| `tsq.Year`, `tsq.Month`, `tsq.Day` | any column | `int64` |
-| `tsq.StartsWith(col, pattern)`, `EndsWith`, `Contains` and `Not` forms, where `pattern` is `tsq.Val(s)` or a `Param` | string-kind columns | a condition |
+| `tsq.Date` | `time.Time` columns, nullable or not | `string` (`'YYYY-MM-DD'`) |
+| `tsq.Year`, `tsq.Month`, `tsq.Day` | `time.Time` columns, nullable or not | `int64` |
+| `tsq.StartsWith(col, pattern)`, `EndsWith`, `Contains` and `Not` forms, where `pattern` is `tsq.Val(s)` or a `Param` | `tsq.Text` | a condition |
+| `tsq.Like(col, pattern)`, `tsq.NotLike`: the pattern as written, wildcards included | `tsq.Text` | a condition |
 
 ```go
 tsq.Select(tsq.Upper(database.TableUser.Name), tsq.Count(database.TableUser.ID)).

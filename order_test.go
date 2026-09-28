@@ -9,7 +9,7 @@ import (
 
 func TestNullableOrderingIsSpelledPerDialect(t *testing.T) {
 	render := func(d tsqdialect.Name, ob ...OrderBy) (string, error) {
-		sql, _, err := Select(Notes.Columns()...).From(Notes).OrderBy(ob...).MustBuild().SQL(d)
+		sql, _, err := Select(Notes.Columns()...).From(Notes).OrderBy(ob[0], ob[1:]...).MustBuild().SQL(d)
 		if err != nil {
 			return "", err
 		}

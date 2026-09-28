@@ -678,17 +678,32 @@ type anySubquery interface {
 	subquery() exprInfo
 }
 
-// Subquery is a query whose rows are T, usable as the right-hand side of a
-// comparison or of IN. A stage or *Query from SelectValue is one:
+// Subquery is a query whose rows are T: any stage, or a built *Query. One from
+// SelectValue stands on the right of a comparison or of IN:
 //
 //	TableCourse.TrackID.In(tsq.SelectValue(TableTrack.ID).From(TableTrack).Where(...))
 //
-// A stage used as a subquery is built with the query around it, which reports
-// its errors.
+// and any one is an operand of Union and the other set operations, the body of a
+// CTE, or the argument of Exists. A stage used this way is built with the query
+// around it, which reports its errors.
 type Subquery[T any] interface {
 	anySubquery
 	Operand[T]
 	ListOperand[T]
+}
+
+// specOf returns the spec of a built query, so a *Query can be a set-operation
+// operand or a CTE body like a stage.
+func (q *Query[O]) specOf() (querySpec[O], error) {
+	if q == nil {
+		return querySpec[O]{}, errors.New("query cannot be nil")
+	}
+
+	if q.err != nil {
+		return querySpec[O]{}, q.err
+	}
+
+	return q.spec.clone(), nil
 }
 
 func (q *Query[O]) subquery() exprInfo {

@@ -11,6 +11,8 @@
   `whereBuilder` / `searchBuilder` 上；其余方法都在 `builder` 上。给 `builder` 加方法等于让
   **每个**嵌入它的包装类型都有了这个方法——要靠接口把它藏起来。
 - `stagePhase` 只挡住"把接口断言回来"的调用，不是约束来源——别把类型约束改成运行期 if。
+- 新方法或新接口：需要参数的写成 `(first, more ...T)`（`list(first, more)` 拼回切片），接口里带
+  `sealedStage()`；`compilefail_test.go` 为空调用和包外实现各加一条。`Join` 已删，不要加回同义方法。
 - 新阶段要问"它能从哪些阶段进入"，以及"SQL 允许它跟在什么后面"：分组和集合操作之后没有
   行锁（PostgreSQL 拒绝），带搜索的查询没有集合操作。**还要问它返回的阶段又能走到哪**：约束会沿着
   返回类型传下去，`GroupedStage` 曾嵌着返回 `OrderedStage`（带 `Lockable`）的 `Sortable`，于是

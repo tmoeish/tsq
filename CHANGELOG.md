@@ -52,8 +52,8 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 - 执行期的值是**参数**，不再按位置传：`TableCourse.ID.EQ(TableCourse.ID.Param())` 写进查询，执行时传 `TableCourse.ID.Bind(5)`；列表用 `In(col.ListParam())` 与 `col.BindList(ids...)`；一列需要两个值时用 `tsq.NewParam[T]("name")`。执行方法的变参类型是密封的 `tsq.Arg`，按参数身份匹配：缺值、多余的值、重复绑定都会报错，值的类型在编译期检查。
 - 所有 `*Var()` 谓词、`SetVar`、`Bind` / `BindSlice` / `Expression` 删除。
-- 模式匹配是包级函数：`tsq.StartsWith(col, pattern)` / `EndsWith` / `Contains` 及 `Not` 形式，`pattern` 是 `tsq.Val("x")` 或参数（`tsq.Pattern[S]`），不再分值和参数两套函数；只接受字符串类的列，都会转义通配符并声明 `ESCAPE`。`Like` 按原样使用模式。
-- 固定值统一写成 `tsq.Val(v)`，列表写成 `tsq.Vals(vs...)`，放在任何接受同类型列的位置：`EQ` / `Between` / `Like` / `Set` / `Case().When` / `Coalesce`……`EQVal` / `InVal` / `BetweenVal` 等全部 `*Val` 方法，以及 `SetVal`、`WhenVal` / `ElseVal`、`CoalesceVal` / `NullIfVal` 删除。值的类型只由值本身推断，无类型数字常量是 `int`：`int64` 列上写 `tsq.Val(int64(90))`，写错时编译报 `does not implement tsq.Operand[int64]`。比较里的 `NULL` 报错，`Set` 里 nil 指针写入 `NULL`。
+- 模式匹配是包级函数：`tsq.StartsWith(col, pattern)` / `EndsWith` / `Contains` 及 `Not` 形式，`pattern` 是 `tsq.Val("x")` 或参数（`tsq.Pattern[S]`），不再分值和参数两套函数；只接受字符串类的列（`tsq.Text`），都会转义通配符并声明 `ESCAPE`。按原样使用模式的 `Like` / `NotLike` 同样改为包级函数 `tsq.Like(col, pattern)`，列方法删除（此前整数列上也能调用）。
+- 固定值统一写成 `tsq.Val(v)`，列表写成 `tsq.Vals(vs...)`，放在任何接受同类型列的位置：`EQ` / `Between` / `tsq.Like` / `Set` / `Case` / `When` / `Coalesce`……`EQVal` / `InVal` / `BetweenVal` 等全部 `*Val` 方法，以及 `SetVal`、`WhenVal` / `ElseVal`、`CoalesceVal` / `NullIfVal` 删除。值的类型只由值本身推断，无类型数字常量是 `int`：`int64` 列上写 `tsq.Val(int64(90))`，写错时编译报 `does not implement tsq.Operand[int64]`。比较里的 `NULL` 报错，`Set` 里 nil 指针写入 `NULL`。
 
 **查询**
 
@@ -64,9 +64,9 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 - `tsq.MapInto(source, field)` / `MapIntoNull(source, field)` 不再要求 JSON 名，默认取源列的；需要时 `.Named("x")`。
 - 查询只有一个入口 `tsq.Select(...).From(...)`，`tsq.From[O](t).Select(...)` 删除。
 - `TableXxx.Update(ctx, db, &row, cols...)` 和生成的 `row.Update(ctx, db, cols...)` 可以只写指定的列（`updated_at`、`version` 照常维护）：部分 `Select` 读出的行用它保存。**对这样的行直接 `Update` / `BatchUpdate` / `Upsert` 会报错**并列出它读过的列，不再悄悄把没读的列写成零值（库用弱引用记住这些行，行被回收后记录随之消失）。
-- `Case[T]()` 的结果有类型：`When(cond, rhs)` / `Else(rhs)`。
+- `CASE` 的结果有类型，且第一个分支是必填参数：`tsq.Case(cond, rhs).When(cond, rhs).Else(rhs).End()`，类型由第一个分支推断；没有分支的 `Case[T]()` 删除。
 - 列函数从列方法改为**包级泛型函数**，并按列类型约束：`tsq.Upper(col)` / `Lower` / `Trim` / `Length` / `Substring` 只接受字符串类的列（`tsq.Text`），`tsq.Sum` / `Avg` / `Round` / `Ceil` / `Floor` / `Abs` 只接受数值列（`tsq.Number`），`tsq.Count` / `CountDistinct` / `Max` / `Min` / `Date` / `Year` / `Month` / `Day` / `Coalesce` / `NullIf` 接受任意列。套在类型不合的列上编译不过。
-- 列函数在三个方言上返回相同的值：`Year` / `Month` / `Day` 返回 `int64`（此前返回列自身类型且得到文本）；`Date` 返回 `'YYYY-MM-DD'` 文本；`Length` 数字符（MySQL 上是 `CHAR_LENGTH`，此前数字节）；`Round` 在 PostgreSQL 的浮点列上也能用；`Substring` 的边界直接写进 SQL，避免 PostgreSQL 选错重载。SQLite 上的日期函数同时认 modernc 驱动默认的 Go 时间文本格式（此前返回 NULL）。
+- 列函数在三个方言上返回相同的值：`Year` / `Month` / `Day` 返回 `int64`（此前返回列自身类型且得到文本），`Date` / `Year` / `Month` / `Day` 只接受 `time.Time` 列（可空的也行）；`Date` 返回 `'YYYY-MM-DD'` 文本；`Length` 数字符（MySQL 上是 `CHAR_LENGTH`，此前数字节）；`Round` 在 PostgreSQL 的浮点列上也能用；`Substring` 的边界直接写进 SQL，避免 PostgreSQL 选错重载。SQLite 上的日期函数同时认 modernc 驱动默认的 Go 时间文本格式（此前返回 NULL）。
 - 列方法 `Distinct()` 删除（放在选择列表中间会生成非法 SQL），改为 `tsq.CountDistinct(col)` 和查询级的 `tsq.SelectDistinct(...)`。
 - 搜索列由 `tsq.Searchable(col)` 声明，只接受字符串类的列；`//tsq:search` 和 `//tsq:fulltext` 接受 `string` 以及底层类型是 `string` 的具名类型（此前只认字面的 `string`）。
 - 阶段接口由 `tsq.Sortable` / `Lockable` / `Combinable` / `Groupable` 组合而成，helper 可以只接受其中一种能力。
@@ -74,6 +74,9 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 - `tsq gen` 在生成时拒绝超过任一方言长度上限的表名、列名和索引名，并给出修改方法（通常是给索引写 `name=`）；此前要到运行时启动才报错。
 - 相关子查询的外层表会传给外层查询校验：外层没有提供该表时构建失败。
 - 新增 `tsq.Not(cond)`；`GroupBy` 只能调用一次。
+- **必填参数在签名上**：`Where(cond, more...)`、`Search(col, more...)`、`GroupBy(col, more...)`、`Having(cond, more...)`、`OrderBy(term, more...)`、`Correlate(t, more...)`，带条件的 join 写成 `InnerJoin(t, on, more...)` / `LeftJoin` / `RightJoin` / `FullJoin`：空调用和不带 `ON` 的 join 编译不过（此前构建时才报错，或渲染出 MySQL 拒绝的 `JOIN t`）。运行期拼出来的条件列表写成 `Where(tsq.And(conds...))`。`Join` 删除，内连接统一写 `InnerJoin`；没有条件的是 `CrossJoin`。
+- 已构建的 `*Query` 和阶段一样能做集合操作的操作数（`Union(q)`）和 CTE 的查询体（`tsq.CTE("x", q)`）；此前只收阶段，构建一次的查询没法复用。
+- 阶段接口和能力接口（`Sortable`、`Lockable`、`Combinable`、`Groupable`、`SelectStage`、`CaseStage` 等）是封闭的：只有本包的构建器实现它们。
 
 **写入**
 
@@ -116,7 +119,7 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 **查询 API 命名**
 
-- 否定谓词统一写作 `Not*`：`NotIn`、`NotLike`、`NotBetween`、`tsq.NotStartsWith`……
+- 否定谓词统一写作 `Not*`：`NotIn`、`tsq.NotLike`、`NotBetween`、`tsq.NotStartsWith`……
 - `tsq.Exists(sq)` / `tsq.NotExists(sq)` 是包级泛型函数，任何查询阶段或 `*Query` 都能传，不论选了几列。
 - 没有 `Unique` / `NUnique` / `Concat` / `Now()` 这类不读接收者或只会失败的列方法，需要时用 `Expr` / `Exprf`。
 - **编译错误自己说出改法**：把字面值直接传给比较，报错是 `missing method needsTsqVal`；传切片给 `In` 是 `needsTsqVals`；类型不对是 `have valueOfType(int) want valueOfType(int64)`；传裸 `*sql.DB` 是 `needsRuntimeOrWrapExecutor`。这些是未导出的方法名，只出现在报错里。

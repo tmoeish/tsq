@@ -158,8 +158,7 @@ v4 的 `EQVar()` 往参数列表里塞标记，值从 `List(ctx, db, args ...any
 之后的 `OrderBy` / `Limit` / `Offset` 在 `resultBuilder` 上（`GroupBy` / `Having` / `setOp` 返回它）。
 
 ```
-Select ─► SelectStage ─From──┐
-From   ─► FromStage   ─Select┴► JoinStage ─Join/Correlate─► JoinStage
+Select ─► SelectStage ─From─► JoinStage ─InnerJoin/LeftJoin/…/Correlate─► JoinStage
 JoinStage ─Where─► WhereStage ─Search─► FilteredStage
 JoinStage ─Search► SearchStage ─Where─► FilteredStage
 (Join/Where/Search/Filtered) ─GroupBy─► GroupedStage ─Having─► HavingStage
@@ -177,6 +176,12 @@ JoinStage ─Search► SearchStage ─Where─► FilteredStage
   标记"投影的 SQL 仍是裸列引用"），`checkCompoundOrder` 只接受选中的项或名字唯一对得上的裸列。
   CTE 的列查找（`outputNames`）用的是同一个名字。嵌套的集合操作数写成派生表 `SELECT * FROM (…) AS
   "tsq_set"`：SQLite 不认带括号的复合 SELECT。
+- **必填参数是签名的一部分**：`Where` / `Search` / `GroupBy` / `Having` / `OrderBy` / `Correlate` 写成
+  `(first T, more ...T)`，带 `ON` 的 join 写成 `(table, on, more...)`，`Case(cond, result)` 带第一个分支，
+  `builder` 里用 `list(first, more)` 拼回切片。空调用于是编译不过；运行期的"至少一个"检查随之删掉。
+  `Select` 保持纯可变参数：`Select(Result.Columns()...)` 是主要用法，没有列由 `Build` 报。
+- 阶段接口和能力接口都带未导出的 `sealedStage()`，包外类型实现不了，往里加方法不算破坏。
+- 集合操作数和 CTE 收 `Subquery[O]`（阶段或已构建的 `*Query`，都实现 `specOf`）。
 - `builder` 里的 `stagePhase` 序号只挡住"把接口断言回来再调"的人，不是约束来源。
 - `Build()` 调 `querySpec.validate`，只做**结构**校验：FROM/JOIN 图、`Correlate`（包括
   子查询透出的外层表必须在外层查询里）、集合操作列数、`Offset` 需要 `Limit`、CTE 环、

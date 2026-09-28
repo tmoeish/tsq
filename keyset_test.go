@@ -16,7 +16,7 @@ func TestPageKeysetWalksEveryRowOnce(t *testing.T) {
 	// version is 0 on every row, so the pages break ties on name and then id.
 	order := []OrderBy{User_Version.Asc(), User_Name.Desc(), User_ID.Asc()}
 
-	all, err := Select(User__Cols...).From(Users).OrderBy(order...).MustBuild().List(ctx, rt)
+	all, err := Select(User__Cols...).From(Users).OrderBy(order[0], order[1:]...).MustBuild().List(ctx, rt)
 	if err != nil {
 		t.Fatal(err)
 	}

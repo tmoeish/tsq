@@ -105,10 +105,6 @@ type Expression[T any] interface {
 	GTE(rhs Operand[T]) Condition
 	LT(rhs Operand[T]) Condition
 	LTE(rhs Operand[T]) Condition
-	// Like matches a pattern as written, wildcards included. StartsWith, EndsWith
-	// and Contains match literally.
-	Like(rhs Operand[T]) Condition
-	NotLike(rhs Operand[T]) Condition
 	Between(start, end Operand[T]) Condition
 	NotBetween(start, end Operand[T]) Condition
 	// In takes a ListParam, Vals or a typed subquery. An empty list matches nothing, and
@@ -450,14 +446,6 @@ func (c exprImpl[T]) LT(rhs Operand[T]) Condition { return c.compare("<", rhsInf
 
 // LTE compares with <=.
 func (c exprImpl[T]) LTE(rhs Operand[T]) Condition { return c.compare("<=", rhsInfo(rhs)) }
-
-// Like matches with LIKE.
-func (c exprImpl[T]) Like(rhs Operand[T]) Condition { return c.compare("LIKE", rhsInfo(rhs)) }
-
-// NotLike matches with NOT LIKE.
-func (c exprImpl[T]) NotLike(rhs Operand[T]) Condition {
-	return c.compare("NOT LIKE", rhsInfo(rhs))
-}
 
 // Between matches the inclusive range.
 func (c exprImpl[T]) Between(start, end Operand[T]) Condition {

@@ -61,7 +61,7 @@ type CaseStage[T any] interface {
 	Else(result Operand[T]) CaseStage[T]
 	End() Expression[T]
 }
-func Case[T any]() CaseStage[T]
+func Case[T any](cond Condition, result Operand[T]) CaseStage[T]
 type Column[O, T any] interface {
 	Expression[T]
 	TypedColumn[O, T]
@@ -73,12 +73,12 @@ type Column[O, T any] interface {
 }
 func NewColumn[O, T any, K comparable](table *TableOf[O, K], name, jsonName string, field func(*O) *T) Column[O, T]
 type Combinable[O any] interface {
-	Union(other QueryStage[O]) CompoundStage[O]
-	UnionAll(other QueryStage[O]) CompoundStage[O]
-	Intersect(other QueryStage[O]) CompoundStage[O]
-	IntersectAll(other QueryStage[O]) CompoundStage[O]
-	Except(other QueryStage[O]) CompoundStage[O]
-	ExceptAll(other QueryStage[O]) CompoundStage[O]
+	Union(other Subquery[O]) CompoundStage[O]
+	UnionAll(other Subquery[O]) CompoundStage[O]
+	Intersect(other Subquery[O]) CompoundStage[O]
+	IntersectAll(other Subquery[O]) CompoundStage[O]
+	Except(other Subquery[O]) CompoundStage[O]
+	ExceptAll(other Subquery[O]) CompoundStage[O]
 }
 type CompoundStage[O any] interface {
 	QueryStage[O]
@@ -88,17 +88,19 @@ type CompoundStage[O any] interface {
 type Condition interface {
 }
 func And(conds ...Condition) Condition
-func Contains[S ~string](col Expression[S], part Pattern[S]) Condition
-func EndsWith[S ~string](col Expression[S], suffix Pattern[S]) Condition
+func Contains[S Text](col Expression[S], part Pattern[S]) Condition
+func EndsWith[S Text](col Expression[S], suffix Pattern[S]) Condition
 func Exists[T any](sq Subquery[T]) Condition
+func Like[S Text](col Expression[S], pattern Operand[S]) Condition
 func Matches(index FullTextIndex, term MatchTerm) Condition
 func Not(cond Condition) Condition
-func NotContains[S ~string](col Expression[S], part Pattern[S]) Condition
-func NotEndsWith[S ~string](col Expression[S], suffix Pattern[S]) Condition
+func NotContains[S Text](col Expression[S], part Pattern[S]) Condition
+func NotEndsWith[S Text](col Expression[S], suffix Pattern[S]) Condition
 func NotExists[T any](sq Subquery[T]) Condition
-func NotStartsWith[S ~string](col Expression[S], prefix Pattern[S]) Condition
+func NotLike[S Text](col Expression[S], pattern Operand[S]) Condition
+func NotStartsWith[S Text](col Expression[S], prefix Pattern[S]) Condition
 func Or(conds ...Condition) Condition
-func StartsWith[S ~string](col Expression[S], prefix Pattern[S]) Condition
+func StartsWith[S Text](col Expression[S], prefix Pattern[S]) Condition
 type DBTX interface {
 	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
@@ -126,8 +128,6 @@ type Expression[T any] interface {
 	GTE(rhs Operand[T]) Condition
 	LT(rhs Operand[T]) Condition
 	LTE(rhs Operand[T]) Condition
-	Like(rhs Operand[T]) Condition
-	NotLike(rhs Operand[T]) Condition
 	Between(start, end Operand[T]) Condition
 	NotBetween(start, end Operand[T]) Condition
 	In(set ListOperand[T]) Condition
@@ -144,37 +144,37 @@ func Ceil[N Number](col Expression[N]) Expression[N]
 func Coalesce[T any](col Expression[T], fallback Operand[T]) Expression[T]
 func Count[T any](col Expression[T]) Expression[int64]
 func CountDistinct[T any](col Expression[T]) Expression[int64]
-func Date[T any](col Expression[T]) Expression[string]
-func Day[T any](col Expression[T]) Expression[int64]
+func Date(col Expression[time.Time]) Expression[string]
+func Day(col Expression[time.Time]) Expression[int64]
 func Floor[N Number](col Expression[N]) Expression[N]
 func Length[S Text](col Expression[S]) Expression[int64]
 func Lower[S Text](col Expression[S]) Expression[S]
 func Max[T any](col Expression[T]) Expression[T]
 func Min[T any](col Expression[T]) Expression[T]
-func Month[T any](col Expression[T]) Expression[int64]
+func Month(col Expression[time.Time]) Expression[int64]
 func NullIf[T any](col Expression[T], value Operand[T]) Expression[T]
 func Round[N Number](col Expression[N], precision int) Expression[N]
 func Substring[S Text](col Expression[S], start, length int) Expression[S]
 func Sum[N Number](col Expression[N]) Expression[N]
 func Trim[S Text](col Expression[S]) Expression[S]
 func Upper[S Text](col Expression[S]) Expression[S]
-func Year[T any](col Expression[T]) Expression[int64]
+func Year(col Expression[time.Time]) Expression[int64]
 type FilteredStage[O any] interface {
 	QueryStage[O]
 	Sortable[O]
 	Lockable[O]
-	GroupBy(cols ...SQLColumn) SearchGroupedStage[O]
+	GroupBy(col SQLColumn, more ...SQLColumn) SearchGroupedStage[O]
 }
 type FullTextIndex struct {
 }
 type Groupable[O any] interface {
-	GroupBy(cols ...SQLColumn) GroupedStage[O]
+	GroupBy(col SQLColumn, more ...SQLColumn) GroupedStage[O]
 }
 type GroupedStage[O any] interface {
 	QueryStage[O]
 	ResultSortable[O]
 	Combinable[O]
-	Having(conds ...Condition) HavingStage[O]
+	Having(cond Condition, more ...Condition) HavingStage[O]
 }
 type HavingStage[O any] interface {
 	QueryStage[O]
@@ -187,15 +187,14 @@ type JoinStage[O any] interface {
 	Sortable[O]
 	Lockable[O]
 	Combinable[O]
-	Join(table Table, on ...Condition) JoinStage[O]
-	InnerJoin(table Table, on ...Condition) JoinStage[O]
-	LeftJoin(table Table, on ...Condition) JoinStage[O]
-	RightJoin(table Table, on ...Condition) JoinStage[O]
-	FullJoin(table Table, on ...Condition) JoinStage[O]
+	InnerJoin(table Table, on Condition, more ...Condition) JoinStage[O]
+	LeftJoin(table Table, on Condition, more ...Condition) JoinStage[O]
+	RightJoin(table Table, on Condition, more ...Condition) JoinStage[O]
+	FullJoin(table Table, on Condition, more ...Condition) JoinStage[O]
 	CrossJoin(table Table) JoinStage[O]
-	Correlate(tables ...Table) JoinStage[O]
-	Where(conds ...Condition) WhereStage[O]
-	Search(cols ...SearchColumn) SearchStage[O]
+	Correlate(table Table, more ...Table) JoinStage[O]
+	Where(cond Condition, more ...Condition) WhereStage[O]
+	Search(col SearchColumn, more ...SearchColumn) SearchStage[O]
 }
 type Keyset struct {
 	Size int
@@ -310,7 +309,7 @@ type Param[T any] struct {
 }
 func NewParam[T any](name string) Param[T]
 func (p Param[T]) Bind(value T) Arg
-type Pattern[S ~string] interface {
+type Pattern[S Text] interface {
 }
 type Query[O any] struct {
 }
@@ -344,7 +343,7 @@ type ResultColumn[O, T any] interface {
 func MapInto[Target, T any](source ValueColumn[T], field func(*Target) *T) ResultColumn[Target, T]
 func MapIntoNull[Target, T, F any](source ValueColumn[T], field func(*Target) *F) ResultColumn[Target, T]
 type ResultSortable[O any] interface {
-	OrderBy(orders ...OrderBy) OrderedResultStage[O]
+	OrderBy(order OrderBy, more ...OrderBy) OrderedResultStage[O]
 	Limit(limit int) OrderedResultStage[O]
 	Offset(offset int) OrderedResultStage[O]
 }
@@ -405,11 +404,11 @@ const (
 type SearchColumn interface {
 	SQLColumn
 }
-func Searchable[O any, S ~string](col Column[O, S]) SearchColumn
+func Searchable[O any, S Text](col Column[O, S]) SearchColumn
 type SearchGroupedStage[O any] interface {
 	QueryStage[O]
 	ResultSortable[O]
-	Having(conds ...Condition) SearchHavingStage[O]
+	Having(cond Condition, more ...Condition) SearchHavingStage[O]
 }
 type SearchHavingStage[O any] interface {
 	QueryStage[O]
@@ -419,8 +418,8 @@ type SearchStage[O any] interface {
 	QueryStage[O]
 	Sortable[O]
 	Lockable[O]
-	GroupBy(cols ...SQLColumn) SearchGroupedStage[O]
-	Where(conds ...Condition) FilteredStage[O]
+	GroupBy(col SQLColumn, more ...SQLColumn) SearchGroupedStage[O]
+	Where(cond Condition, more ...Condition) FilteredStage[O]
 }
 type SelectStage[O any] interface {
 	From(table Table) JoinStage[O]
@@ -450,7 +449,7 @@ type SortError struct {
 }
 func (e *SortError) Error() string
 type Sortable[O any] interface {
-	OrderBy(orders ...OrderBy) OrderedStage[O]
+	OrderBy(order OrderBy, more ...OrderBy) OrderedStage[O]
 	Limit(limit int) OrderedStage[O]
 	Offset(offset int) OrderedStage[O]
 }
@@ -461,7 +460,7 @@ type Subquery[T any] interface {
 type Table interface {
 	TableName() string
 }
-func CTE[O any](name string, query QueryStage[O]) Table
+func CTE[O any](name string, query Subquery[O]) Table
 type TableIndex struct {
 	Name    string   // Name is the physical index name.
 	Columns []string // Columns lists the indexed column names in order.
@@ -555,7 +554,7 @@ type WhereStage[O any] interface {
 	Sortable[O]
 	Lockable[O]
 	Combinable[O]
-	Search(cols ...SearchColumn) FilteredStage[O]
+	Search(col SearchColumn, more ...SearchColumn) FilteredStage[O]
 }
 
 ## ./dialect

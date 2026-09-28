@@ -145,7 +145,7 @@ func TestSetOperationsCTEAndSubqueries(t *testing.T) {
 	bigUser := Order_UserID.WithTable(cte)
 
 	q := Select(User_ID).From(Users.WithDeleted()).
-		Join(cte, bigUser.EQ(User_ID)).
+		InnerJoin(cte, bigUser.EQ(User_ID)).
 		Union(Select(User_ID).From(Users.WithDeleted()).Where(User_Name.EQ(Val("root")))).
 		MustBuild()
 
@@ -382,8 +382,7 @@ func TestCorrelatedSubqueryCarriesItsParameters(t *testing.T) {
 }
 
 func TestCaseRendersBranchesInOrder(t *testing.T) {
-	label := Case[string]().
-		When(User_Version.GT(Val(int64(10))), Val("hot")).
+	label := Case[string](User_Version.GT(Val(int64(10))), Val("hot")).
 		When(User_Name.IsNull(), User_Email).
 		Else(Val("cold")).
 		End()
