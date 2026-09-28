@@ -75,7 +75,19 @@ func (t *TableOf[R, K]) upsert(ctx context.Context, db Executor, rows []*R, key 
 	}
 
 	now := stampTime()
+	snapshot := snapshotFields(rows, def.column(def.managed.CreatedAt), def.column(def.managed.UpdatedAt), def.column(def.managed.DeletedAt))
+	written := make(map[*R]bool, len(rows))
 
+	if err := t.upsertRows(ctx, db, scope, def, rows, target, config, single, now, written); err != nil {
+		snapshot.restore(written)
+		return err
+	}
+
+	return nil
+}
+
+// upsertRows writes rows, recording in written the rows each statement stored.
+func (t *TableOf[R, K]) upsertRows(ctx context.Context, db Executor, scope execScope, def *tableDef, rows []*R, target []string, config batchConfig, single bool, now time.Time, written map[*R]bool) error {
 	for _, row := range rows {
 		if col := def.column(def.managed.CreatedAt); col != nil && isUnset(field(row, col)) {
 			if err := applyTimestamp(field(row, col), now); err != nil {
@@ -129,6 +141,10 @@ func (t *TableOf[R, K]) upsert(ctx context.Context, db Executor, rows []*R, key 
 		for _, chunk := range chunks(group, size) {
 			if err := t.upsertChunk(ctx, db, scope, def, cols, target, chunk, single); err != nil {
 				return fmt.Errorf("upsert into %s: %w", def.name, err)
+			}
+
+			for _, row := range chunk {
+				written[row] = true
 			}
 		}
 	}

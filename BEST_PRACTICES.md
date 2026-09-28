@@ -167,7 +167,7 @@ if err := runtime.WithTx(ctx, func(ctx context.Context, txExec tsq.Executor) err
 
 这些 helper 接收的是 `Executor`，因此事务边界由调用方决定：
 
-- 传 `runtime`（或 `tsq.WrapExecutor(db, dialect.MySQL)`）：每条语句各自提交，允许部分成功
+- 传 `runtime`（或 `tsq.WrapExecutor(db, dialect.MySQL)`）：每条语句各自提交，允许部分成功。`BatchUpdate` 遇到过期的行时照样写完其余的行，`OptimisticLockError.Keys` 列出没写成的主键，写成的行已带上新的 `version` / `updated_at`，只需重读 `Keys` 里的那几行
 - 通过 `runtime.WithTx(...)` 提供的事务 executor：让整个批量操作参与同一个事务
 
 ```go

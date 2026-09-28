@@ -42,13 +42,19 @@ func (d MySQLDialect) SupportsCapability(capability Capability) bool {
 	return tsqdialect.Supports(d.Name(), capability)
 }
 
-func (d MySQLDialect) BatchInsertStartID(lastID, rowsAffected int64) (int64, bool) {
+// BatchInsertStartID is the last insert id itself: MySQL reports the first key of
+// a multi-row INSERT.
+func (d MySQLDialect) BatchInsertStartID(lastID, rowsAffected, step int64) (int64, bool) {
 	if rowsAffected <= 0 {
 		return 0, false
 	}
 
 	return lastID, true
 }
+
+// InsertIDStepQuery reads auto_increment_increment, which spaces the keys of one
+// INSERT (a multi-primary setup sets it above 1).
+func (d MySQLDialect) InsertIDStepQuery() string { return "SELECT @@auto_increment_increment" }
 
 func (d MySQLDialect) InspectColumns(ctx context.Context, db Executor, table string) ([]Column, bool, error) {
 	rows, err := db.QueryContext(ctx, `

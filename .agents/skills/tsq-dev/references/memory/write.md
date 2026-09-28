@@ -45,7 +45,13 @@ RIGHT JOIN 被保留侧的已删行，所以有 RIGHT / FULL JOIN 时整张表�
 - **写入热路径用列自带的类型化取值函数**，不用反射：100 行批量 INSERT 快约 19%、UPDATE 约 28%（`write_bench_test.go`）。
 - **没匹配到行分两种错误**：版本不符 `OptimisticLockError`（可重试），状态不符 `RowStateError`（重试无用）。软删除 / 恢复的
   语句同时校验两者，曾一律报后者；现在失败后按字段类型回读版本来区分（`tombstoneMismatch`，只在错误路径上多一次查询）。
-- 已知未处理（2026-09-22）：`Insert` 的 `assignInsertIDs` 和 #33d 修掉的 Upsert 一样吞掉 `LastInsertId` 的错误。MySQL /
-  SQLite 驱动实际不会失败、PG 走 `RETURNING`，所以现在碰不到；**加第四种驱动或方言之前**改成返回错误。
 - **SQLite 表达式深度上限 1000 恰等于默认批量大小**（2026-09-22）：每行一个 `OR` 的版本匹配从 998 行起被拒。批量 WHERE
   只用扁平形状（`IN`、`CASE`）；不用行值 `IN`（SQLite 要求右侧子查询，MySQL 要 `ROW(...)`）。门 `TestBatchWritesFitTheDefaultBatchOnSQLite`。
+
+## 决定：批量更新部分过期时回读，不自动开事务 (2026-09-28)
+
+`Batch*` 不开事务是规则（`AGENTS.md` 语义陷阱），所以一行过期时其余行已经写进库。以前把整块行退回旧的
+`updated_at` / `version`，内存和库对不上、重试永远失败。现在失败路径上回读这块行：版本是"加载值 + 1"**且**写入的
+每个值都对得上才算写成（只比版本会把"别人恰好也更新了一次"误判成自己写的）；`updated_at` 不比，库可能按更粗的精度存。
+没有版本列时短缺不算冲突：MySQL 只数**改变了**的行，写原值报零行，所以只把回读不到的行算作缺失。
+**否掉 RETURNING**：MySQL 没有，两条路径只为省一次错误路径上的查询不值得。

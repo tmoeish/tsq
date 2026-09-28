@@ -5,12 +5,15 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 	"weak"
+
+	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 )
 
 func seedUsers(t *testing.T, rt *Runtime, names ...string) []*user {
@@ -120,6 +123,131 @@ func TestUpdateChecksAndBumpsTheVersion(t *testing.T) {
 	}
 }
 
+// TestBatchUpdateWithAStaleRowSaysWhichAndKeepsTheRest covers a batch in which one
+// row is stale. A batch is not a transaction, so the statement writes the others;
+// they used to be put back to their old updated_at and version, the error could
+// not say which row was stale, and retrying the same rows could never succeed.
+func TestBatchUpdateWithAStaleRowSaysWhichAndKeepsTheRest(t *testing.T) {
+	ctx := context.Background()
+	rt := newSQLite(t)
+	rows := seedUsers(t, rt, "a", "b", "c")
+
+	// Another writer updates b first.
+	other := *rows[1]
+	if err := Users.Update(ctx, rt, &other); err != nil {
+		t.Fatal(err)
+	}
+
+	before := rows[1].UpdatedAt
+
+	for _, r := range rows {
+		r.Name += "!"
+	}
+
+	err := Users.BatchUpdate(ctx, rt, rows)
+
+	conflict, ok := errors.AsType[*OptimisticLockError](err)
+	if !ok || len(conflict.Keys) != 1 || conflict.Keys[0] != rows[1].ID {
+		t.Fatalf("BatchUpdate = %v; want an OptimisticLockError naming %d", err, rows[1].ID)
+	}
+
+	if rows[0].Version != 1 || rows[2].Version != 1 || rows[1].Version != 0 || !rows[1].UpdatedAt.Equal(before) {
+		t.Fatalf("versions = %d %d %d; want the written rows advanced and the stale one untouched", rows[0].Version, rows[1].Version, rows[2].Version)
+	}
+
+	// Across statements too: the rows after a stale one are still written.
+	for _, r := range rows {
+		r.Name += "?"
+	}
+
+	err = Users.BatchUpdate(ctx, rt, rows, WithBatchSize(1))
+	if conflict, ok := errors.AsType[*OptimisticLockError](err); !ok || len(conflict.Keys) != 1 || conflict.Expected != 3 || conflict.Actual != 2 {
+		t.Fatalf("BatchUpdate in statements of one = %v; want one stale key of three", err)
+	}
+
+	if rows[0].Version != 2 || rows[2].Version != 2 {
+		t.Fatalf("versions = %d, %d; want the rows around the stale one written", rows[0].Version, rows[2].Version)
+	}
+
+	// The written rows are current: writing them again succeeds.
+	if err := Users.BatchUpdate(ctx, rt, []*user{rows[0], rows[2]}); err != nil {
+		t.Fatalf("retrying the written rows = %v", err)
+	}
+
+	// Only the stale row needs reloading.
+	fresh, err := Users.Get(ctx, rt, rows[1].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	fresh.Name = "b!"
+	if err := Users.BatchUpdate(ctx, rt, []*user{fresh}); err != nil {
+		t.Fatalf("retrying the reloaded row = %v", err)
+	}
+}
+
+// TestUpdateWithoutAVersionReportsAMissingRow covers a table without a version
+// column, where an update that matched nothing used to report success.
+func TestUpdateWithoutAVersionReportsAMissingRow(t *testing.T) {
+	ctx := context.Background()
+	rt := newSQLite(t)
+
+	missing := &order{ID: 404, UserID: 1, Amount: 1}
+
+	err := Orders.Update(ctx, rt, missing)
+	if state, ok := errors.AsType[*RowStateError](err); !ok || len(state.Keys) != 1 || state.Keys[0] != int64(404) {
+		t.Fatalf("Update of a missing row = %v; want a RowStateError naming it", err)
+	}
+
+	kept := &order{UserID: 1, Amount: 1}
+	if err := Orders.Insert(ctx, rt, kept); err != nil {
+		t.Fatal(err)
+	}
+
+	// Writing the values a row already holds is not a missing row, although MySQL
+	// reports no row affected.
+	if err := Orders.BatchUpdate(ctx, rt, []*order{kept}); err != nil {
+		t.Fatalf("Update with unchanged values = %v", err)
+	}
+}
+
+// TestFailedWritesLeaveRowsAsTheyWere covers Insert and Upsert failing on a
+// unique index: the rows used to keep the timestamps (and Upsert the cleared
+// tombstone) of a write the database never stored.
+func TestFailedWritesLeaveRowsAsTheyWere(t *testing.T) {
+	ctx := context.Background()
+	rt := newSQLite(t)
+	seedUsers(t, rt, "taken")
+
+	dup := &user{Name: "dup", Email: "taken@example.com"}
+	if err := Users.Insert(ctx, rt, dup); err == nil {
+		t.Fatal("expected the duplicate email to be refused")
+	}
+
+	if !dup.CreatedAt.IsZero() || !dup.UpdatedAt.IsZero() || dup.ID != 0 {
+		t.Fatalf("failed Insert left %+v", dup)
+	}
+
+	// A batch keeps what its earlier statements stored.
+	batch := []*user{{Name: "ok", Email: "ok@example.com"}, {Name: "dup", Email: "taken@example.com"}}
+	if err := Users.BatchInsert(ctx, rt, batch, WithBatchSize(1)); err == nil {
+		t.Fatal("expected the duplicate email to be refused")
+	}
+
+	if batch[0].ID == 0 || batch[0].CreatedAt.IsZero() || !batch[1].CreatedAt.IsZero() {
+		t.Fatalf("batch rows = %+v, %+v; want the first stored and the second untouched", batch[0], batch[1])
+	}
+
+	clash := &user{ID: batch[0].ID, Name: "clash", Email: "taken@example.com", DeletedAt: 7}
+	if err := Users.Upsert(ctx, rt, clash); err == nil {
+		t.Fatal("expected the duplicate email to be refused")
+	}
+
+	if clash.DeletedAt != 7 || !clash.UpdatedAt.IsZero() || !clash.CreatedAt.IsZero() {
+		t.Fatalf("failed Upsert left %+v", clash)
+	}
+}
+
 func TestDeleteIsSoftWhenTheTableHasDeletedAt(t *testing.T) {
 	ctx := context.Background()
 	rt := newSQLite(t)
@@ -195,6 +323,15 @@ func TestRowWritesRejectBadInput(t *testing.T) {
 
 	if err := undefinedTable.Insert(ctx, rt, &user{}); err == nil {
 		t.Fatal("expected an undefined table to be refused")
+	}
+
+	// Two rows with one key: the statement would write only the first.
+	row := seedUsers(t, rt, "one")[0]
+	twin := *row
+	twin.Name = "two"
+
+	if err := Users.BatchUpdate(ctx, rt, []*user{row, &twin}); err == nil || !strings.Contains(err.Error(), "same primary key") {
+		t.Fatalf("BatchUpdate of one key twice = %v; want it refused", err)
 	}
 }
 
@@ -1026,6 +1163,63 @@ func TestPartialRowsRefuseAFullUpdate(t *testing.T) {
 	full.Email = "ada@y"
 	if err := Users.Update(ctx, rt, full); err != nil || full.Name != "Ada" {
 		t.Fatalf("full Update of a full row = %v (name %q)", err, full.Name)
+	}
+}
+
+type slugged struct {
+	ID    int64
+	Title string
+	Slug  string
+}
+
+// sluggedTable has a generated column, which no write path ever writes.
+var (
+	sluggedHandle = NewTable[slugged, int64]("slugged")
+	Slugged_ID    = NewColumn(sluggedHandle, "id", "id", func(r *slugged) *int64 { return &r.ID })
+	Slugged_Title = NewColumn(sluggedHandle, "title", "title", func(r *slugged) *string { return &r.Title })
+	Slugged_Slug  = NewColumn(sluggedHandle, "slug", "slug", func(r *slugged) *string { return &r.Slug })
+	sluggedTable  = sluggedHandle.Define(TableSpec[slugged, int64]{
+		Columns:       []BoundColumn[slugged]{Slugged_ID, Slugged_Title, Slugged_Slug},
+		PrimaryKey:    Slugged_ID,
+		AutoIncrement: true,
+		ColumnSpecs: []tsqdialect.ColumnSpec{
+			{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
+			{Name: "title", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 64}},
+			{Name: "slug", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 64}, Fill: tsqdialect.FillGenerated, Generated: "LOWER(title)"},
+		},
+	})
+)
+
+// TestRowsWithoutTheirGeneratedColumnsAreWhole covers a row read with every
+// column but a generated one. No write path writes a generated column, so such a
+// row is whole; it used to be refused as partial.
+func TestRowsWithoutTheirGeneratedColumnsAreWhole(t *testing.T) {
+	ctx := context.Background()
+
+	rt, err := Open(ctx, "sqlite", filepath.Join(t.TempDir(), "slug.db"), []Table{sluggedTable}, WithSchemaPolicy(SchemaPolicyCreateMissing))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() { _ = rt.Close() })
+
+	row := &slugged{Title: "Go"}
+	if err := sluggedTable.Insert(ctx, rt, row); err != nil {
+		t.Fatal(err)
+	}
+
+	read, err := Select(Slugged_ID, Slugged_Title).From(sluggedTable).Where(Slugged_ID.EQ(Val(row.ID))).Get(ctx, rt)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	read.Title = "Rust"
+	if err := sluggedTable.Update(ctx, rt, read); err != nil {
+		t.Fatalf("Update of a row read without its generated column = %v", err)
+	}
+
+	if got, err := sluggedTable.Get(ctx, rt, row.ID); err != nil || got.Slug != "rust" {
+		t.Fatalf("stored = %+v, %v", got, err)
 	}
 }
 

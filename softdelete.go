@@ -87,9 +87,9 @@ func (t *SoftDeleteTableOf[R, K]) BatchDeleteByPK(ctx context.Context, db Execut
 }
 
 // Restore clears the tombstone of a soft-deleted row, refreshing updated_at and
-// incrementing version. Only a deleted row matches; on a table with a version
-// column a row that is not deleted, or changed since it was loaded, fails with
-// OptimisticLockError.
+// incrementing version. Only a deleted row matches: a row that is not deleted
+// fails with RowStateError, and on a table with a version column a row changed
+// or removed since it was loaded fails with OptimisticLockError.
 func (t *SoftDeleteTableOf[R, K]) Restore(ctx context.Context, db Executor, row *R) error {
 	return t.BatchRestore(ctx, db, []*R{row}, WithBatchSize(1))
 }

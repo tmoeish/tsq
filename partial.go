@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 	"weak"
+
+	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 )
 
 // partialRows remembers the rows a query read with only some of their table's
@@ -46,11 +48,18 @@ func partialColumns[O any](selects []BoundColumn[O]) []string {
 		}
 	}
 
-	if def == nil || len(names) >= len(def.columns) {
+	if def == nil {
 		return nil
 	}
 
-	return names
+	// A generated column is never written, so leaving it out loses nothing.
+	for _, col := range def.columns {
+		if col.fill != tsqdialect.FillGenerated && !slices.Contains(names, col.name) {
+			return names
+		}
+	}
+
+	return nil
 }
 
 // markPartial records that row holds only cols.

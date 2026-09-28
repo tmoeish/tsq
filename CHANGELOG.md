@@ -157,6 +157,16 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 - **`NullColumn.WithTable(cte)` 在 CTE 已经 `COALESCE` 过时仍被当成可为 NULL**：现在可空性按 CTE 体推导。
 - **`In(带 Limit 的子查询)` 在 MySQL 上被拒绝**（错误 1235）：现在写成派生表。
 - **CTE 选了两个同名输出列**（`SUM(amount)` 与 `MAX(amount)`）**时引用它们有歧义**，以前要到数据库执行时才报错，现在构建时报错。
+- **有生成列的表，读出所有可写列的行被当成"部分列读取"拒绝 `Update`**：完整性按全部列算，而生成列从来不写。
+- **`BatchUpdate` 里有一行过期时，其余行在库里已经写成，内存里却被退回旧的 `updated_at` 和 `version`**，错误也说不出是哪一行，拿同一批行重试永远失败。现在写成的行带上新版本，`OptimisticLockError.Keys` 列出过期行的主键；一行过期也不再打断后面的语句。`RowStateError` 同样新增 `Keys`。
+- **没有 `version` 列的表 `Update` 一个不存在（或已软删除）的行时报告成功**：现在返回 `*RowStateError`。MySQL 写入原值时报告零行变化，那不算错。
+- **`Insert` / `Upsert` 失败后行上留着库里从未存过的时间戳、主键和清空的墓碑**：现在只有写成的行保留它们。
+- **`BatchDelete` / `BatchRestore` 让 `*time.Time` 字段的所有行指向同一个时间**：改一行的时间会改掉全部。
+- **`BatchUpdate` 里两行主键相同时，后一行被静默丢掉**：现在报错。
+- **指向零值时间的非 nil `*time.Time` 被当成调用方设置过的 `created_at`**，于是存进公元 1 年。
+- **MySQL 批量插入回填主键时假定 `auto_increment_increment = 1`**：多主部署下除第一行外全错。现在按该变量的步长回填。
+- **驱动报不出 `LastInsertId` 时 `Insert` 静默留下零主键**：现在返回错误。
+- `Restore` 和 `RowStateError` 的 Go doc 与实际错误类型不符，已更正。
 
 - **字段类型写成 `sql.Null[T]`（或任何实例化的泛型类型）时 `tsq gen` 直接报 `unsupported field type: *ast.IndexExpr`**，而文档一直说可空字段可以用 `sql.Null[T]`。现在解析器接受泛型类型，生成器按 `go/types` 写出完整类型，DDL 推导把 `sql.Null[T]` 当作可为 NULL 的 `T`，托管时间列也接受 `sql.Null[time.Time]`。示例改用 `sql.Null[time.Time]` 后，模块不再依赖 `gopkg.in/nullbio/null.v6`（生成器仍按类型路径识别 nullbio 类型）。
 

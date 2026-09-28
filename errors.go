@@ -11,20 +11,35 @@ import (
 )
 
 // RowStateError reports that a write needed the row in a state it was not in: a
-// Delete of a row already deleted, or a Restore of one that is not. Unlike
-// OptimisticLockError it is not a concurrency conflict, so retrying cannot help;
-// the row is either in the other state already or gone.
+// Delete of a row already deleted, a Restore of one that is not, or, on a table
+// without a version column, an Update of a row that is gone. Unlike
+// OptimisticLockError it is not a concurrency conflict, so retrying cannot help.
+// On a table with a version column a row that is gone is an OptimisticLockError:
+// its version no longer matches.
 type RowStateError struct {
 	Table    string
 	Op       string
 	Need     string
 	Expected int64
 	Actual   int64
+	// Keys are the primary keys of the rows in the wrong state, when the write
+	// could tell.
+	Keys []any
 }
 
 func (e *RowStateError) Error() string {
-	return fmt.Sprintf("%s on %s needs %s: expected %d row(s) to match, matched %d",
-		e.Op, e.Table, e.Need, e.Expected, e.Actual)
+	return fmt.Sprintf("%s on %s needs %s: expected %d row(s) to match, matched %d%s",
+		e.Op, e.Table, e.Need, e.Expected, e.Actual, keysSuffix(e.Keys))
+}
+
+// keysSuffix names the rows an error is about. Only keys are printed: the rest of
+// a row may carry data that must not reach logs.
+func keysSuffix(keys []any) string {
+	if len(keys) == 0 {
+		return ""
+	}
+
+	return fmt.Sprintf(" (keys %v)", keys)
 }
 
 // OptimisticLockError reports that a version-guarded write matched fewer rows than
@@ -35,11 +50,15 @@ type OptimisticLockError struct {
 	Table    string
 	Expected int64
 	Actual   int64
+	// Keys are the primary keys of the rows that were not written, when the write
+	// could tell (BatchUpdate reads the rows back to find them). The other rows
+	// of the batch were written and carry their new version.
+	Keys []any
 }
 
 func (e *OptimisticLockError) Error() string {
-	return fmt.Sprintf("optimistic lock conflict on %s: expected %d row(s) to match, matched %d",
-		e.Table, e.Expected, e.Actual)
+	return fmt.Sprintf("optimistic lock conflict on %s: expected %d row(s) to match, matched %d%s",
+		e.Table, e.Expected, e.Actual, keysSuffix(e.Keys))
 }
 
 // IsOptimisticLockError reports whether err wraps an OptimisticLockError.
