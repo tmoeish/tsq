@@ -34,7 +34,7 @@ func (driverResult) RowsAffected() (int64, error) { return 0, nil }
 // column values are read through the generated accessors, not reflection.
 func BenchmarkBatchInsertStatement(b *testing.B) {
 	ctx := context.Background()
-	db := WrapExecutor(&countingExecutor{}, onSQLite)
+	db := mustWrap(b, &countingExecutor{}, onSQLite)
 
 	rows := make([]*order, 0, 100)
 	for i := range 100 {
@@ -52,7 +52,7 @@ func BenchmarkBatchInsertStatement(b *testing.B) {
 // values per column per row.
 func BenchmarkBatchUpdateStatement(b *testing.B) {
 	ctx := context.Background()
-	db := WrapExecutor(&countingExecutor{}, onSQLite)
+	db := mustWrap(b, &countingExecutor{}, onSQLite)
 
 	rows := make([]*order, 0, 100)
 	for i := range 100 {

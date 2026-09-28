@@ -94,7 +94,7 @@ func newLearnerTable() LearnerTable {
 				},
 			},
 		},
-		Indexes: []tsq.TableIndex{
+		Indexes: []tsq.IndexSpec{
 			{Name: "ux_learner_email", Unique: true, Columns: []string{"email"}},
 			{Name: "idx_learner_company", Columns: []string{"company"}},
 		},

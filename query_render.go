@@ -474,7 +474,7 @@ func (s *querySpec[O]) writeFromWhere(r *renderer, m renderMode) {
 
 	for _, j := range s.Joins {
 		if j.kind == fullJoinType {
-			r.require(tsqdialect.CapabilityFullOuterJoin)
+			r.require(tsqdialect.CapabilityFullJoin)
 		}
 
 		r.writeText(" " + string(j.kind) + " ")
@@ -642,16 +642,16 @@ func (s *querySpec[O]) writeLock(r *renderer) {
 
 	switch s.Lock.strength {
 	case queryLockStrengthUpdate:
-		r.require(tsqdialect.CapabilitySelectForUpdate)
+		r.require(tsqdialect.CapabilityForUpdate)
 	case queryLockStrengthShare:
-		r.require(tsqdialect.CapabilitySelectForShare)
+		r.require(tsqdialect.CapabilityForShare)
 	}
 
 	switch s.Lock.waitMode {
 	case queryLockWaitNoWait:
-		r.require(tsqdialect.CapabilitySelectForNoWait)
+		r.require(tsqdialect.CapabilityNoWait)
 	case queryLockWaitSkipLocked:
-		r.require(tsqdialect.CapabilitySelectForSkipLocked)
+		r.require(tsqdialect.CapabilitySkipLocked)
 	}
 
 	r.writeText(" " + string(s.Lock.strength))

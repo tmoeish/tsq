@@ -38,7 +38,7 @@ func newRegisteredIndexRuntime(
 	runtime, err := Open(context.Background(),
 		"sqlite",
 		dsn,
-		[]Table{registered(table, nil, []TableIndex{{Name: indexName, Columns: fields, Unique: unique}}...)},
+		[]Table{registered(table, nil, []IndexSpec{{Name: indexName, Columns: fields, Unique: unique}}...)},
 		options...)
 	if err != nil {
 		t.Fatalf("NewRuntime() error = %v", err)
@@ -62,13 +62,13 @@ func TestIndexPolicyChecksDeclaredIndexes(t *testing.T) {
 		setup   []string
 		table   string
 		columns []string
-		index   TableIndex
+		index   IndexSpec
 		wantErr string
 	}{
 		"invalid index name": {
 			setup: []string{"CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)"},
 			table: "users", columns: []string{"name"},
-			index:   TableIndex{Name: "idx users name", Columns: []string{"name"}},
+			index:   IndexSpec{Name: "idx users name", Columns: []string{"name"}},
 			wantErr: "index name: invalid SQL identifier",
 		},
 		"index name used by another table": {
@@ -78,7 +78,7 @@ func TestIndexPolicyChecksDeclaredIndexes(t *testing.T) {
 				"CREATE UNIQUE INDEX ux_name ON users(name)",
 			},
 			table: "orgs", columns: []string{"name"},
-			index:   TableIndex{Name: "ux_name", Columns: []string{"name"}, Unique: true},
+			index:   IndexSpec{Name: "ux_name", Columns: []string{"name"}, Unique: true},
 			wantErr: "already exists",
 		},
 		"definition mismatch": {
@@ -87,7 +87,7 @@ func TestIndexPolicyChecksDeclaredIndexes(t *testing.T) {
 				"CREATE UNIQUE INDEX ux_users_name ON users(email)",
 			},
 			table: "users", columns: []string{"name", "email"},
-			index:   TableIndex{Name: "ux_users_name", Columns: []string{"name"}, Unique: true},
+			index:   IndexSpec{Name: "ux_users_name", Columns: []string{"name"}, Unique: true},
 			wantErr: "has definition",
 		},
 		"matching definition": {
@@ -96,7 +96,7 @@ func TestIndexPolicyChecksDeclaredIndexes(t *testing.T) {
 				"CREATE UNIQUE INDEX ux_users_name ON users(name)",
 			},
 			table: "users", columns: []string{"name"},
-			index: TableIndex{Name: "ux_users_name", Columns: []string{"name"}, Unique: true},
+			index: IndexSpec{Name: "ux_users_name", Columns: []string{"name"}, Unique: true},
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -134,7 +134,7 @@ func TestNewRuntimeIndexModeValidateReturnsMissingIndexError(t *testing.T) {
 	_, err := Open(context.Background(),
 		"sqlite",
 		dsn,
-		[]Table{registered(mustStrictMockTable(t, "users", "name"), nil, []TableIndex{{Name: "ux_users_name", Columns: []string{"name"}, Unique: true}}...)},
+		[]Table{registered(mustStrictMockTable(t, "users", "name"), nil, []IndexSpec{{Name: "ux_users_name", Columns: []string{"name"}, Unique: true}}...)},
 		WithIndexPolicy(SchemaPolicyValidate))
 	if err == nil {
 		t.Fatal("expected validate mode to fail when index is missing")
@@ -182,7 +182,7 @@ func TestNewRuntimeValidateModeAcceptsExistingRegisteredIndex(t *testing.T) {
 	if _, err := Open(context.Background(),
 		"sqlite",
 		dsn,
-		[]Table{registered(mustStrictMockTable(t, "users", "name"), nil, []TableIndex{{Name: "ux_users_name", Columns: []string{"name"}, Unique: true}}...)},
+		[]Table{registered(mustStrictMockTable(t, "users", "name"), nil, []IndexSpec{{Name: "ux_users_name", Columns: []string{"name"}, Unique: true}}...)},
 		WithIndexPolicy(SchemaPolicyValidate)); err != nil {
 		t.Fatalf("expected validate mode with existing index to succeed, got %v", err)
 	}
@@ -223,7 +223,7 @@ func TestReconcileKeepsAnIndexItCannotReplace(t *testing.T) {
 	table, _ := newStrictMockTable("users", "id", "name", "email")
 
 	// The same index name now declares the duplicated column.
-	rt, err := Open(ctx, "sqlite", dsn, []Table{registered(table, nil, TableIndex{Name: "ux_users_key", Columns: []string{"name"}, Unique: true})},
+	rt, err := Open(ctx, "sqlite", dsn, []Table{registered(table, nil, IndexSpec{Name: "ux_users_key", Columns: []string{"name"}, Unique: true})},
 		WithIndexPolicy(SchemaPolicyReconcile))
 	if rt != nil {
 		_ = rt.Close()

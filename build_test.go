@@ -4,6 +4,8 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 )
 
 func TestArgumentsAreMatchedByParameter(t *testing.T) {
@@ -176,7 +178,7 @@ func TestDefineReportsInvalidTables(t *testing.T) {
 			return h.Define(TableSpec[row, int64]{
 				Columns:    []BoundColumn[row]{id},
 				PrimaryKey: id,
-				Indexes:    []TableIndex{{Name: "idx_t5_x", Columns: []string{"x"}}},
+				Indexes:    []IndexSpec{{Name: "idx_t5_x", Columns: []string{"x"}}},
 			}).Err()
 		},
 		"defined twice": func() error {
@@ -197,6 +199,31 @@ func TestDefineReportsInvalidTables(t *testing.T) {
 			}
 
 			return err
+		},
+		"schema disagrees on the key": func() error {
+			h := NewTable[row, int64]("t8")
+			id := NewColumn(h, "id", "id", func(r *row) *int64 { return &r.ID })
+			other := NewColumn(h, "other", "other", func(r *row) *int64 { return &r.Other })
+
+			return h.Define(TableSpec[row, int64]{
+				Columns: []BoundColumn[row]{id, other}, PrimaryKey: id, AutoIncrement: true,
+				ColumnSpecs: []tsqdialect.ColumnSpec{
+					{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true},
+					{Name: "other", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}},
+				},
+			}).Err()
+		},
+		"schema misses a column": func() error {
+			h := NewTable[row, int64]("t9")
+			id := NewColumn(h, "id", "id", func(r *row) *int64 { return &r.ID })
+			other := NewColumn(h, "other", "other", func(r *row) *int64 { return &r.Other })
+
+			return h.Define(TableSpec[row, int64]{
+				Columns: []BoundColumn[row]{id, other}, PrimaryKey: id,
+				ColumnSpecs: []tsqdialect.ColumnSpec{
+					{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true},
+				},
+			}).Err()
 		},
 		"bad name": func() error {
 			h := NewTable[row, int64]("bad name")

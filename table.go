@@ -41,8 +41,8 @@ type managedColumns struct {
 	DeletedAt string // DeletedAt carries the tombstone of a SoftDeleteTableOf.
 }
 
-// TableIndex declares one physical index of a table.
-type TableIndex struct {
+// IndexSpec declares one physical index of a table.
+type IndexSpec struct {
 	Name    string   // Name is the physical index name.
 	Columns []string // Columns lists the indexed column names in order.
 	Unique  bool     // Unique reports whether the index enforces uniqueness.
@@ -52,19 +52,19 @@ type TableIndex struct {
 	FullText bool
 }
 
-// cloneTableIndexes copies indexes, each with cloneTableIndex.
-func cloneTableIndexes(indexes []TableIndex) []TableIndex {
-	result := make([]TableIndex, 0, len(indexes))
+// cloneIndexSpecs copies indexes, each with cloneIndexSpec.
+func cloneIndexSpecs(indexes []IndexSpec) []IndexSpec {
+	result := make([]IndexSpec, 0, len(indexes))
 	for _, index := range indexes {
-		result = append(result, cloneTableIndex(index))
+		result = append(result, cloneIndexSpec(index))
 	}
 
 	return result
 }
 
-// cloneTableIndex copies an index, fields included, so that adding a field to
-// TableIndex cannot be forgotten here.
-func cloneTableIndex(index TableIndex) TableIndex {
+// cloneIndexSpec copies an index, fields included, so that adding a field to
+// IndexSpec cannot be forgotten here.
+func cloneIndexSpec(index IndexSpec) IndexSpec {
 	index.Columns = slices.Clone(index.Columns)
 
 	return index
@@ -80,7 +80,7 @@ type tableDef struct {
 	managed       managedColumns
 	search        []SearchColumn
 	schema        []tsqdialect.ColumnSpec
-	indexes       []TableIndex
+	indexes       []IndexSpec
 	// tombstoneIsZero says a live row has deleted_at = 0 (integer tombstones)
 	// rather than deleted_at IS NULL.
 	tombstoneIsZero bool
@@ -159,7 +159,7 @@ type TableSpec[R any, K comparable] struct {
 	// ColumnSpecs is the physical column definition, used by the schema policies.
 	ColumnSpecs []tsqdialect.ColumnSpec
 	// Indexes are the declared indexes, used by the schema policies.
-	Indexes []TableIndex
+	Indexes []IndexSpec
 }
 
 // NewTable starts the declaration of a table named name. The table is unusable
@@ -334,6 +334,31 @@ func (t *TableOf[R, K]) define(spec TableSpec[R, K], deletedAt BoundColumn[R]) {
 		}
 
 		seen[column.Name] = true
+
+		// The schema is what CreateMissing builds and Reconcile compares, so it has to
+		// agree on the key: one it does not declare fails only once the table is used.
+		// Nullability is not compared, since a codec column may write NULL.
+		core := d.byName[column.Name]
+		if core == nil {
+			continue
+		}
+
+		key := core == d.primaryKey
+
+		switch {
+		case column.PrimaryKey != key:
+			fail("schema column %s: PrimaryKey is %t, but the table's primary key is %s", column.Name, column.PrimaryKey, keyName(d))
+		case column.AutoIncrement != (key && spec.AutoIncrement):
+			fail("schema column %s: AutoIncrement is %t, but the table's is %t", column.Name, column.AutoIncrement, key && spec.AutoIncrement)
+		}
+	}
+
+	if len(spec.ColumnSpecs) > 0 {
+		for _, core := range d.columns {
+			if !seen[core.name] {
+				fail("column %s has no schema column", core.name)
+			}
+		}
 	}
 
 	d.schema = slices.Clone(spec.ColumnSpecs)
@@ -353,7 +378,7 @@ func (t *TableOf[R, K]) define(spec TableSpec[R, K], deletedAt BoundColumn[R]) {
 			}
 		}
 
-		d.indexes = append(d.indexes, cloneTableIndex(index))
+		d.indexes = append(d.indexes, cloneIndexSpec(index))
 	}
 }
 
@@ -389,7 +414,7 @@ func (t *TableOf[R, K]) FullText(name ...string) FullTextIndex {
 		return FullTextIndex{err: err}
 	}
 
-	var found []TableIndex
+	var found []IndexSpec
 
 	for _, index := range t.def.indexes {
 		if index.FullText && (len(name) == 0 || index.Name == name[0]) {
@@ -416,8 +441,8 @@ func (t *TableOf[R, K]) searchColumns() []SearchColumn { return slices.Clone(t.d
 func (t *TableOf[R, K]) ColumnSpecs() []tsqdialect.ColumnSpec { return slices.Clone(t.def.schema) }
 
 // Indexes returns the declared indexes.
-func (t *TableOf[R, K]) Indexes() []TableIndex {
-	return cloneTableIndexes(t.def.indexes)
+func (t *TableOf[R, K]) Indexes() []IndexSpec {
+	return cloneIndexSpecs(t.def.indexes)
 }
 
 // withDeleted is t without the live-row filter; SoftDeleteTableOf.WithDeleted is
@@ -609,4 +634,12 @@ func debugStatement(r *renderer) string {
 // traceInfo names an operation on the table for tracers.
 func (t *TableOf[R, K]) traceInfo(op TraceOp) TraceInfo {
 	return TraceInfo{Op: op, Table: t.def.name}
+}
+
+func keyName(d *tableDef) string {
+	if d.primaryKey == nil {
+		return "unset"
+	}
+
+	return d.primaryKey.name
 }

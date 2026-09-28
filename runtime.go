@@ -197,7 +197,8 @@ func (r *Runtime) Dialect() tsqdialect.Name {
 	return r.dialect.Name()
 }
 
-// QueryContext executes a query against the runtime database.
+// QueryContext executes a query against the runtime database; like ExecContext it
+// is not traced or logged.
 func (r *Runtime) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
 	db, err := r.sqlDB()
 	if err != nil {
@@ -207,7 +208,8 @@ func (r *Runtime) QueryContext(ctx context.Context, query string, args ...any) (
 	return db.QueryContext(ctx, query, args...)
 }
 
-// QueryRowContext executes a query expected to return at most one row.
+// QueryRowContext executes a query expected to return at most one row; like
+// ExecContext it is not traced or logged.
 func (r *Runtime) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
 	db, err := r.sqlDB()
 	if err != nil {
@@ -217,7 +219,8 @@ func (r *Runtime) QueryRowContext(ctx context.Context, query string, args ...any
 	return db.QueryRowContext(ctx, query, args...)
 }
 
-// ExecContext executes a statement against the runtime database.
+// ExecContext executes a statement against the runtime database, as
+// database/sql does: it is not traced or logged, and has no dialect checks.
 func (r *Runtime) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
 	db, err := r.sqlDB()
 	if err != nil {
@@ -230,6 +233,11 @@ func (r *Runtime) ExecContext(ctx context.Context, query string, args ...any) (s
 // WithTx runs fn in a transaction and passes it the executor to use inside it:
 // the transaction commits when fn returns nil and rolls back otherwise. Options
 // set the isolation level, read-only mode and retries.
+//
+// A rollback undoes the database, not memory: a row an Insert or Update inside fn
+// stamped (key, created_at, updated_at, version) keeps those values after the
+// rollback, and a retry runs fn again with them. Load or build the rows fn writes
+// inside fn, so every attempt starts from what the database holds.
 func (r *Runtime) WithTx(
 	ctx context.Context,
 	fn func(context.Context, Executor) error,

@@ -28,17 +28,17 @@ const (
 	Postgres = tsqdialect.Postgres
 	SQLite   = tsqdialect.SQLite
 
-	CapabilityCTE                 = tsqdialect.CapabilityCTE
-	CapabilityExcept              = tsqdialect.CapabilityExcept
-	CapabilityExceptAll           = tsqdialect.CapabilityExceptAll
-	CapabilityFullOuterJoin       = tsqdialect.CapabilityFullOuterJoin
-	CapabilityIntersect           = tsqdialect.CapabilityIntersect
-	CapabilityIntersectAll        = tsqdialect.CapabilityIntersectAll
-	CapabilitySelectForUpdate     = tsqdialect.CapabilitySelectForUpdate
-	CapabilitySelectForShare      = tsqdialect.CapabilitySelectForShare
-	CapabilitySelectForNoWait     = tsqdialect.CapabilitySelectForNoWait
-	CapabilitySelectForSkipLocked = tsqdialect.CapabilitySelectForSkipLocked
-	CapabilityFullTextSearch      = tsqdialect.CapabilityFullTextSearch
+	CapabilityCTE            = tsqdialect.CapabilityCTE
+	CapabilityExcept         = tsqdialect.CapabilityExcept
+	CapabilityExceptAll      = tsqdialect.CapabilityExceptAll
+	CapabilityFullJoin       = tsqdialect.CapabilityFullJoin
+	CapabilityIntersect      = tsqdialect.CapabilityIntersect
+	CapabilityIntersectAll   = tsqdialect.CapabilityIntersectAll
+	CapabilityForUpdate      = tsqdialect.CapabilityForUpdate
+	CapabilityForShare       = tsqdialect.CapabilityForShare
+	CapabilityNoWait         = tsqdialect.CapabilityNoWait
+	CapabilitySkipLocked     = tsqdialect.CapabilitySkipLocked
+	CapabilityFullTextSearch = tsqdialect.CapabilityFullTextSearch
 
 	KindBool   = tsqdialect.KindBool
 	KindBytes  = tsqdialect.KindBytes

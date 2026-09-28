@@ -8,7 +8,6 @@ package dialect
 
 import (
 	"fmt"
-	"strings"
 )
 
 // Name identifies one of the supported SQL engines.
@@ -24,22 +23,23 @@ const (
 // Capability is an optional SQL feature an engine may or may not support.
 type Capability string
 
-// The optional features TSQ checks when a statement runs.
+// The optional features TSQ checks when a statement runs. Each is named after the
+// builder method that needs it, and its value is the SQL an error names.
 const (
-	CapabilityCTE                 Capability = "CTE"
-	CapabilityExcept              Capability = "EXCEPT"
-	CapabilityExceptAll           Capability = "EXCEPT_ALL"
-	CapabilityFullOuterJoin       Capability = "FULL_OUTER_JOIN"
-	CapabilityIntersect           Capability = "INTERSECT"
-	CapabilityIntersectAll        Capability = "INTERSECT_ALL"
-	CapabilitySelectForUpdate     Capability = "SELECT_FOR_UPDATE"
-	CapabilitySelectForShare      Capability = "SELECT_FOR_SHARE"
-	CapabilitySelectForNoWait     Capability = "SELECT_FOR_NOWAIT"
-	CapabilitySelectForSkipLocked Capability = "SELECT_FOR_SKIP_LOCKED"
+	CapabilityCTE          Capability = "CTE"
+	CapabilityExcept       Capability = "EXCEPT"
+	CapabilityExceptAll    Capability = "EXCEPT ALL"
+	CapabilityFullJoin     Capability = "FULL JOIN"
+	CapabilityIntersect    Capability = "INTERSECT"
+	CapabilityIntersectAll Capability = "INTERSECT ALL"
+	CapabilityForUpdate    Capability = "FOR UPDATE"
+	CapabilityForShare     Capability = "FOR SHARE"
+	CapabilityNoWait       Capability = "NOWAIT"
+	CapabilitySkipLocked   Capability = "SKIP LOCKED"
 	// CapabilityFullTextSearch reports a full-text index and a matching predicate.
 	// Where it is missing, TSQ matches the term as a substring instead, which finds
 	// different rows: no stemming, no ranking, and no word boundaries.
-	CapabilityFullTextSearch Capability = "FULL_TEXT_SEARCH"
+	CapabilityFullTextSearch Capability = "FULL TEXT SEARCH"
 )
 
 // capabilities is each engine's position on every capability.
@@ -47,56 +47,56 @@ var capabilities = map[Name]map[Capability]bool{
 	// Baseline is MySQL 8.0 (5.7 reached end of life in 2023-10): CTEs since 8.0,
 	// INTERSECT/EXCEPT since 8.0.31. FULL OUTER JOIN is still absent in MySQL 8.
 	MySQL: {
-		CapabilityCTE:                 true,
-		CapabilityExcept:              true,
-		CapabilityExceptAll:           true,
-		CapabilityFullOuterJoin:       false,
-		CapabilityIntersect:           true,
-		CapabilityIntersectAll:        true,
-		CapabilitySelectForUpdate:     true,
-		CapabilitySelectForShare:      true,
-		CapabilitySelectForNoWait:     true,
-		CapabilitySelectForSkipLocked: true,
-		CapabilityFullTextSearch:      true,
+		CapabilityCTE:            true,
+		CapabilityExcept:         true,
+		CapabilityExceptAll:      true,
+		CapabilityFullJoin:       false,
+		CapabilityIntersect:      true,
+		CapabilityIntersectAll:   true,
+		CapabilityForUpdate:      true,
+		CapabilityForShare:       true,
+		CapabilityNoWait:         true,
+		CapabilitySkipLocked:     true,
+		CapabilityFullTextSearch: true,
 	},
 	// PostgreSQL supports all of them at every version TSQ targets, but the entries
 	// are still spelled out: a future capability must be an explicit decision here
 	// too, not something PostgreSQL inherits by being the permissive one.
 	Postgres: {
-		CapabilityCTE:                 true,
-		CapabilityExcept:              true,
-		CapabilityExceptAll:           true,
-		CapabilityFullOuterJoin:       true,
-		CapabilityIntersect:           true,
-		CapabilityIntersectAll:        true,
-		CapabilitySelectForUpdate:     true,
-		CapabilitySelectForShare:      true,
-		CapabilitySelectForNoWait:     true,
-		CapabilitySelectForSkipLocked: true,
-		CapabilityFullTextSearch:      true,
+		CapabilityCTE:            true,
+		CapabilityExcept:         true,
+		CapabilityExceptAll:      true,
+		CapabilityFullJoin:       true,
+		CapabilityIntersect:      true,
+		CapabilityIntersectAll:   true,
+		CapabilityForUpdate:      true,
+		CapabilityForShare:       true,
+		CapabilityNoWait:         true,
+		CapabilitySkipLocked:     true,
+		CapabilityFullTextSearch: true,
 	},
 	// Baseline is SQLite 3.39 (2022-06), which is when FULL OUTER JOIN landed.
 	// SQLite has no row-level locking at all: it serializes writers instead, and
 	// its INTERSECT and EXCEPT have no ALL form.
 	SQLite: {
-		CapabilityCTE:                 true,
-		CapabilityExcept:              true,
-		CapabilityExceptAll:           false,
-		CapabilityFullOuterJoin:       true,
-		CapabilityIntersect:           true,
-		CapabilityIntersectAll:        false,
-		CapabilitySelectForUpdate:     false,
-		CapabilitySelectForShare:      false,
-		CapabilitySelectForNoWait:     false,
-		CapabilitySelectForSkipLocked: false,
-		CapabilityFullTextSearch:      false,
+		CapabilityCTE:            true,
+		CapabilityExcept:         true,
+		CapabilityExceptAll:      false,
+		CapabilityFullJoin:       true,
+		CapabilityIntersect:      true,
+		CapabilityIntersectAll:   false,
+		CapabilityForUpdate:      false,
+		CapabilityForShare:       false,
+		CapabilityNoWait:         false,
+		CapabilitySkipLocked:     false,
+		CapabilityFullTextSearch: false,
 	},
 }
 
 // Supports reports whether engine supports capability. An unknown engine or
 // capability is unsupported.
 func Supports(engine Name, capability Capability) bool {
-	supported, declared := capabilities[engine][canonicalCapability(string(capability))]
+	supported, declared := capabilities[engine][capability]
 
 	return declared && supported
 }
@@ -117,7 +117,7 @@ func Check(engine Name, capability Capability) error {
 		return nil
 	}
 
-	return &UnsupportedCapabilityError{Capability: canonicalCapability(string(capability)), Dialect: engine}
+	return &UnsupportedCapabilityError{Capability: capability, Dialect: engine}
 }
 
 func (e *UnsupportedCapabilityError) Error() string {
@@ -127,61 +127,14 @@ func (e *UnsupportedCapabilityError) Error() string {
 	}
 
 	return fmt.Sprintf("operation %s is not supported by %s dialect; %s",
-		displayCapability(e.Capability), engine, capabilityHint(e.Capability))
-}
-
-// canonicalCapability maps the SQL spellings users write to a Capability.
-func canonicalCapability(operation string) Capability {
-	value := strings.ToUpper(strings.TrimSpace(operation))
-
-	switch value {
-	case "FULL JOIN", "FULL OUTER JOIN":
-		return CapabilityFullOuterJoin
-	case "EXCEPT", "MINUS":
-		return CapabilityExcept
-	case "EXCEPT ALL":
-		return CapabilityExceptAll
-	case "INTERSECT ALL":
-		return CapabilityIntersectAll
-	case "FOR UPDATE":
-		return CapabilitySelectForUpdate
-	case "FOR SHARE":
-		return CapabilitySelectForShare
-	case "NOWAIT":
-		return CapabilitySelectForNoWait
-	case "SKIP LOCKED":
-		return CapabilitySelectForSkipLocked
-	default:
-		return Capability(value)
-	}
-}
-
-func displayCapability(capability Capability) string {
-	switch capability {
-	case CapabilityFullOuterJoin:
-		return "FULL JOIN"
-	case CapabilityExceptAll:
-		return "EXCEPT ALL"
-	case CapabilityIntersectAll:
-		return "INTERSECT ALL"
-	case CapabilitySelectForUpdate:
-		return "FOR UPDATE"
-	case CapabilitySelectForShare:
-		return "FOR SHARE"
-	case CapabilitySelectForNoWait:
-		return "NOWAIT"
-	case CapabilitySelectForSkipLocked:
-		return "SKIP LOCKED"
-	default:
-		return string(capability)
-	}
+		e.Capability, engine, capabilityHint(e.Capability))
 }
 
 func capabilityHint(capability Capability) string {
 	switch capability {
 	case CapabilityCTE:
 		return "use a subquery or split the query"
-	case CapabilityFullOuterJoin:
+	case CapabilityFullJoin:
 		return "use LEFT/RIGHT JOIN with UNION, or execute on sqlite/postgres"
 	case CapabilityIntersect:
 		return "use IN/EXISTS filtering"
@@ -189,9 +142,9 @@ func capabilityHint(capability Capability) string {
 		return "use NOT EXISTS filtering"
 	case CapabilityIntersectAll, CapabilityExceptAll:
 		return "use the distinct form (Intersect / Except) if duplicates need not be kept"
-	case CapabilitySelectForUpdate, CapabilitySelectForShare:
+	case CapabilityForUpdate, CapabilityForShare:
 		return "execute on a dialect that supports row-locking reads"
-	case CapabilitySelectForNoWait, CapabilitySelectForSkipLocked:
+	case CapabilityNoWait, CapabilitySkipLocked:
 		return "execute on a dialect that supports row-lock wait modifiers"
 	default:
 		return "use a simpler query shape or a dialect that supports this capability"

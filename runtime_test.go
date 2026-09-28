@@ -27,7 +27,7 @@ func TestValidateRegisteredTableIdentifiersRejectsOversizedNames(t *testing.T) {
 	tests := map[string]Table{
 		"table name":  wideTable(long, []string{"name"}, nil, nil),
 		"column name": wideTable("users", []string{long}, nil, nil),
-		"index name":  wideTable("users", []string{"name"}, nil, []TableIndex{{Name: long, Columns: []string{"name"}}}),
+		"index name":  wideTable("users", []string{"name"}, nil, []IndexSpec{{Name: long, Columns: []string{"name"}}}),
 	}
 
 	for name, table := range tests {
@@ -51,7 +51,7 @@ func TestValidateRegisteredTableIdentifiersRejectsOversizedNames(t *testing.T) {
 // makes: a shallow one shared each index's column list with the table, so a
 // policy that edited the registration would edit the definition too.
 func TestRegisteredIndexesShareNothingWithTheTable(t *testing.T) {
-	table := wideTable("users", []string{"name"}, nil, []TableIndex{{Name: "idx_users_name", Columns: []string{"name"}}})
+	table := wideTable("users", []string{"name"}, nil, []IndexSpec{{Name: "idx_users_name", Columns: []string{"name"}}})
 
 	registered, err := registerTables([]Table{table})
 	if err != nil {
@@ -159,7 +159,7 @@ func TestRuntimeMaxPageSizeDefaultsAndOverrides(t *testing.T) {
 		t.Fatalf("expected runtime limit to allow size 3000, got %d", page.Size)
 	}
 
-	wrapped := WrapExecutor(custom.DB(), onSQLite)
+	wrapped := mustWrap(t, custom.DB(), onSQLite)
 
 	page = Paging{Size: 3000}.normalized(runtimeForExecutor(wrapped).maxPage())
 	if page.Size != DefaultMaxPageSize {
@@ -192,7 +192,7 @@ func TestLogForExecutorRoutesToRuntimeLogger(t *testing.T) {
 	}
 
 	// An executor without a runtime must not panic and must not reach the runtime logger.
-	logForExecutor(context.Background(), WrapExecutor(rt.DB(), onSQLite), slog.LevelDebug, "unrouted")
+	logForExecutor(context.Background(), mustWrap(t, rt.DB(), onSQLite), slog.LevelDebug, "unrouted")
 
 	if logger.count("unrouted") != 0 {
 		t.Fatal("expected bare *sql.DB executor to bypass the runtime logger")

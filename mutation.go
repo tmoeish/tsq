@@ -20,8 +20,8 @@ import (
 // It does not check the version column, but it increments it, so a row loaded
 // before the update fails its own Update with OptimisticLockError. Use
 // TableOf.Update to write one row under the version check.
-func UpdateTable[R any](table RowTable[R]) *UpdateBuilder[R] {
-	return &UpdateBuilder[R]{m: newMutationSpec(table, mutationUpdate)}
+func UpdateTable[R any](table RowTable[R]) *UpdateStage[R] {
+	return &UpdateStage[R]{m: newMutationSpec(table, mutationUpdate)}
 }
 
 // DeleteFrom starts a soft delete of every row of table that matches Where: an
@@ -63,7 +63,7 @@ type RowTable[R any] interface {
 }
 
 // writeTarget is what a statement by condition needs from its table, without the
-// key type, which UpdateBuilder and DeleteStage do not carry.
+// key type, which the statement stages do not carry.
 type writeTarget interface {
 	Table
 	Err() error
@@ -107,14 +107,34 @@ func (m *mutationSpec[R]) fail(err error) {
 	}
 }
 
-// UpdateBuilder collects the assignments of an UPDATE. Its Set methods are generic,
-// which interface methods cannot be, so it is a concrete type.
-type UpdateBuilder[R any] struct {
+// UpdateStage is an UPDATE without assignments: Set or SetNull comes first, so an
+// UPDATE that sets nothing does not compile. Set is a generic method, which
+// interface methods cannot be, so the stage is a concrete type.
+type UpdateStage[R any] struct {
 	m mutationSpec[R]
 }
 
-func (b *UpdateBuilder[R]) assign(col SQLColumn, value exprInfo) *UpdateBuilder[R] {
-	n := &UpdateBuilder[R]{m: b.m.clone()}
+// Set assigns rhs, a column, Param, Val or typed subquery, to col. A NOT NULL
+// column refuses a value that can be NULL, such as a nullable column or a
+// subquery; wrap it in Coalesce.
+func (b *UpdateStage[R]) Set[T any](col Column[R, T], rhs Operand[T]) *SetStage[R] {
+	return assign(b.m, col, rhsInfo(rhs))
+}
+
+// SetNull assigns NULL to col, which must be a NullColumn.
+func (b *UpdateStage[R]) SetNull[T any](col NullColumn[R, T]) *SetStage[R] {
+	return assign(b.m, col, nullValue)
+}
+
+// SetStage is an UPDATE with assignments: more Set calls, then Where.
+type SetStage[R any] struct {
+	m mutationSpec[R]
+}
+
+var nullValue = exprInfo{sql: sqlText("NULL"), null: nullness{always: true}}
+
+func assign[R any](m mutationSpec[R], col SQLColumn, value exprInfo) *SetStage[R] {
+	n := &SetStage[R]{m: m.clone()}
 
 	// A nil table or column is a build error, as everywhere else in the builder,
 	// not a nil dereference here.
@@ -130,9 +150,9 @@ func (b *UpdateBuilder[R]) assign(col SQLColumn, value exprInfo) *UpdateBuilder[
 	switch {
 	case core.err() != nil:
 		n.m.fail(core.err())
-	case isNilValue(core.table) || core.table.definition() != b.m.def || core.table.TableName() != b.m.table.TableName() || !core.plain:
-		n.m.fail(fmt.Errorf("assignment target %s must be a column of %s", core.name, b.m.table.TableName()))
-	case core.name == b.m.def.managed.Version:
+	case isNilValue(core.table) || core.table.definition() != m.def || core.table.TableName() != m.table.TableName() || !core.plain:
+		n.m.fail(fmt.Errorf("assignment target %s must be a column of %s", core.name, m.table.TableName()))
+	case core.name == m.def.managed.Version:
 		n.m.fail(fmt.Errorf("column %s is the version column; it is incremented automatically", core.name))
 	case !core.nullable && value.null.always:
 		n.m.fail(fmt.Errorf("column %s is NOT NULL, but the value assigned to it can be NULL", core.name))
@@ -146,7 +166,7 @@ func (b *UpdateBuilder[R]) assign(col SQLColumn, value exprInfo) *UpdateBuilder[
 		// MySQL evaluates a single-table UPDATE's assignments left to right, so a
 		// later one reads the value an earlier one just wrote; PostgreSQL and SQLite
 		// read the row as it was. Swapping two columns gave different rows.
-		if slices.Contains(value.bare, columnKey{b.m.table.TableName(), a.column}) {
+		if slices.Contains(value.bare, columnKey{m.table.TableName(), a.column}) {
 			n.m.fail(fmt.Errorf("the value assigned to %s reads %s, which the statement assigns before it; "+
 				"MySQL would read the new value and the other dialects the old one", core.name, a.column))
 		}
@@ -157,44 +177,43 @@ func (b *UpdateBuilder[R]) assign(col SQLColumn, value exprInfo) *UpdateBuilder[
 	return n
 }
 
-// Set assigns rhs, a column, Param, Val or typed subquery, to col. A NOT NULL
-// column refuses a value that can be NULL, such as a nullable column or a
-// subquery; wrap it in Coalesce.
-func (b *UpdateBuilder[R]) Set[T any](col Column[R, T], rhs Operand[T]) *UpdateBuilder[R] {
-	return b.assign(col, rhsInfo(rhs))
+// Set assigns rhs to col as UpdateStage.Set does.
+func (b *SetStage[R]) Set[T any](col Column[R, T], rhs Operand[T]) *SetStage[R] {
+	return assign(b.m, col, rhsInfo(rhs))
 }
 
 // SetNull assigns NULL to col, which must be a NullColumn.
-func (b *UpdateBuilder[R]) SetNull[T any](col NullColumn[R, T]) *UpdateBuilder[R] {
-	return b.assign(col, exprInfo{sql: sqlText("NULL"), null: nullness{always: true}})
+func (b *SetStage[R]) SetNull[T any](col NullColumn[R, T]) *SetStage[R] {
+	return assign(b.m, col, nullValue)
 }
 
-// Where limits the update. A statement has exactly one WHERE; to update every row,
-// say so with Where(tsq.And()).
-func (b *UpdateBuilder[R]) Where(conds ...Condition) MutationStage[R] {
-	return where(b.m, conds)
+// Where limits the update; its conditions are ANDed. A statement has exactly one
+// WHERE; to update every row, say so with Where(tsq.And()).
+func (b *SetStage[R]) Where(cond Condition, more ...Condition) MutationStage[R] {
+	return where(b.m, list(cond, more))
 }
 
 // DeleteStage is a delete waiting for its WHERE clause, which is required.
 type DeleteStage[R any] interface {
-	Where(conds ...Condition) MutationStage[R]
+	sealedStage()
+
+	// Where limits the delete; its conditions are ANDed. To delete every row, say
+	// so with Where(tsq.And()).
+	Where(cond Condition, more ...Condition) MutationStage[R]
 }
 
 type deleteBuilder[R any] struct {
 	m mutationSpec[R]
 }
 
-// Where limits the delete. To delete every row, say so with Where(tsq.And()).
-func (b *deleteBuilder[R]) Where(conds ...Condition) MutationStage[R] {
-	return where(b.m, conds)
+func (*deleteBuilder[R]) sealedStage() {}
+
+func (b *deleteBuilder[R]) Where(cond Condition, more ...Condition) MutationStage[R] {
+	return where(b.m, list(cond, more))
 }
 
 func where[R any](m mutationSpec[R], conds []Condition) MutationStage[R] {
 	m = m.clone()
-	if len(conds) == 0 {
-		m.fail(errors.New("where requires at least one condition; use And() to match every row"))
-	}
-
 	m.filters = append(m.filters, conds...)
 
 	return mutationStage[R]{m: m}
@@ -202,6 +221,8 @@ func where[R any](m mutationSpec[R], conds []Condition) MutationStage[R] {
 
 // MutationStage is an UPDATE or DELETE ready to build or run.
 type MutationStage[R any] interface {
+	sealedStage()
+
 	Build() (*Mutation[R], error)
 	MustBuild() *Mutation[R]
 	Exec(ctx context.Context, db Executor, args ...Arg) (int64, error)
@@ -210,6 +231,8 @@ type MutationStage[R any] interface {
 type mutationStage[R any] struct {
 	m mutationSpec[R]
 }
+
+func (mutationStage[R]) sealedStage() {}
 
 func (s mutationStage[R]) Build() (*Mutation[R], error) {
 	m := s.m
@@ -223,10 +246,6 @@ func (s mutationStage[R]) Build() (*Mutation[R], error) {
 
 	if err := m.table.Err(); err != nil {
 		return nil, err
-	}
-
-	if m.kind == mutationUpdate && len(m.assigns) == 0 {
-		return nil, errors.New("update requires at least one assignment")
 	}
 
 	infos := make([]exprInfo, 0, len(m.assigns)+len(m.filters))
@@ -370,7 +389,7 @@ func (m *Mutation[R]) statement(d sqld.Dialect) (*statement, error) {
 // SQL renders the statement for dialect with args bound, as it would run. A soft
 // delete is rendered with the current time.
 func (m *Mutation[R]) SQL(engine tsqdialect.Name, args ...Arg) (string, []any, error) {
-	exec, err := wrapExecutor(noopExecutor{}, engine)
+	exec, err := WrapExecutor(noopExecutor{}, engine)
 	if err != nil {
 		return "", nil, err
 	}

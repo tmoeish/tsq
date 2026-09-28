@@ -94,7 +94,7 @@ func newTrackTable() TrackTable {
 				},
 			},
 		},
-		Indexes: []tsq.TableIndex{
+		Indexes: []tsq.IndexSpec{
 			{Name: "ux_track_name", Unique: true, Columns: []string{"name"}},
 		},
 	})

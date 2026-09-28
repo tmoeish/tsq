@@ -72,7 +72,7 @@ var TableCourse = newCourseTable() // 函数里：NewTable → 各列 → Define
 
 - 生成的结构体靠内嵌满足 `Table`（未导出方法也会被提升），所以 `From(TableCourse)` 直接可用；
   `UpdateTable` / `HardDeleteFrom` 收 `RowTable[R]`，R 由 Go 1.21 起的"按方法推断类型实参"从结构体上
-  推出来——`TableOf[R, K]` 的 K 因此不进 `UpdateBuilder`。
+  推出来——`TableOf[R, K]` 的 K 因此不进 `UpdateStage`。
 - **软删除是一种表类型**（`softdelete.go`）：`SoftDeleteTableOf[R, K]` 内嵌 `*TableOf`，只有它有
   `Delete` / `BatchDelete` / `BatchDeleteByPK` / `Restore` / `BatchRestore` / `WithDeleted`，以及
   提升进生成结构体的标记方法 `needsDeletedAtOrHardDeleteFrom()`。`DeleteFrom[T SoftDeleteTable[R], R]`
@@ -279,8 +279,8 @@ CTE 的输出列可空时，`WithTable(cte)` 重绑的列标成 `always`。
   `RETURNING pk`，MySQL 用 `pk = LAST_INSERT_ID(pk)` 让更新也报出主键，随后按主键回读
   `version` / `created_at`。
 - 按条件写：`UpdateTable(table)` / `DeleteFrom(softTable)` / `HardDeleteFrom(table)`。
-  `Set` 是泛型方法，所以 `UpdateBuilder` 是导出的具体类型；`Where` 之后切到
-  `MutationStage` 接口。语句只能引用目标表本身（按 `tableDef` 指针加表名判断，别名不行，`WithDeleted()` 行）。有 `version`
+  `Set` 是泛型方法，所以 `UpdateStage`（`UpdateTable` 返回，只有 `Set` / `SetNull`）和 `SetStage`（再 `Set` 或 `Where`）
+  是导出的具体类型：不 `Set` 就写不出 `Where`。`Where` 之后切到封闭的 `MutationStage` 接口。语句只能引用目标表本身（按 `tableDef` 指针加表名判断，别名不行，`WithDeleted()` 行）。有 `version`
   的表追加 `version = version + 1` 但不校验版本（理由见 `memory/write.md`）。`DeleteFrom` 恒渲染成
   UPDATE，墓碑值**执行时**才算——v4 在构建时算，包级语句会
   永远盖进程启动的时间。

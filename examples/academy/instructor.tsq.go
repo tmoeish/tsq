@@ -104,7 +104,7 @@ func newInstructorTable() InstructorTable {
 				},
 			},
 		},
-		Indexes: []tsq.TableIndex{
+		Indexes: []tsq.IndexSpec{
 			{Name: "ux_instructor_email", Unique: true, Columns: []string{"email"}},
 		},
 	})

@@ -143,7 +143,7 @@ func newEnrollmentTable() EnrollmentTable {
 				},
 			},
 		},
-		Indexes: []tsq.TableIndex{
+		Indexes: []tsq.IndexSpec{
 			{Name: "idx_enrollment_course_id", Columns: []string{"deleted_at", "course_id"}},
 			{Name: "idx_enrollment_learner_id_course_id", Columns: []string{"deleted_at", "learner_id", "course_id"}},
 			{Name: "idx_enrollment_status", Columns: []string{"deleted_at", "status"}},

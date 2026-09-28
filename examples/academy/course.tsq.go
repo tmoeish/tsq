@@ -166,7 +166,7 @@ func newCourseTable() CourseTable {
 				},
 			},
 		},
-		Indexes: []tsq.TableIndex{
+		Indexes: []tsq.IndexSpec{
 			{Name: "ux_course_title", Unique: true, Columns: []string{"title"}},
 			{Name: "idx_course_instructor_id", Columns: []string{"instructor_id"}},
 			{Name: "idx_course_prerequisite_id", Columns: []string{"prerequisite_id"}},

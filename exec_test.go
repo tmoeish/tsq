@@ -1024,8 +1024,6 @@ func TestConditionalWrites(t *testing.T) {
 	bad := map[string]MutationStage[user]{
 		"foreign table":  UpdateTable(Users).Set(User_Name, Val("x")).Where(Order_Amount.GT(Val(int64(1)))),
 		"version target": UpdateTable(Users).Set(User_Version, Val(int64(1))).Where(And()),
-		"no where":       UpdateTable(Users).Set(User_Name, Val("x")).Where(),
-		"no assignment":  UpdateTable(Users).Where(And()),
 		"aliased target": UpdateTable(Users).Set(User_Name.WithTable(Users.As("u")), Val("x")).Where(And()),
 		"assigned twice": UpdateTable(Users).Set(User_Name, Val("x")).Set(User_Name, Val("y")).Where(And()),
 		// A nil table or column is a build error, not a panic while building.
@@ -1063,7 +1061,7 @@ func TestTracersAndExecutorScopes(t *testing.T) {
 	}
 
 	// A wrapped pool runs statements without the runtime's tracers.
-	wrapped := WrapExecutor(rt.DB(), rt.Dialect())
+	wrapped := mustWrap(t, rt.DB(), rt.Dialect())
 	if _, err := QueryByID.Find(ctx, wrapped, User_ID.Bind(1)); err != nil {
 		t.Fatal(err)
 	}
@@ -1072,8 +1070,12 @@ func TestTracersAndExecutorScopes(t *testing.T) {
 		t.Fatalf("a wrapped executor must not trace, got %v", ops)
 	}
 
-	if WrapExecutor(nil, rt.Dialect()) != nil || WrapExecutor(rt.DB(), "") != nil {
-		t.Fatal("WrapExecutor must refuse missing arguments")
+	if _, err := WrapExecutor(nil, rt.Dialect()); err == nil {
+		t.Fatal("WrapExecutor must refuse a nil handle")
+	}
+
+	if _, err := WrapExecutor(rt.DB(), ""); err == nil {
+		t.Fatal("WrapExecutor must refuse an unknown engine")
 	}
 
 	if _, err := QueryByID.Find(ctx, nil, User_ID.Bind(1)); err == nil {
