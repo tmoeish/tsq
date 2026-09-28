@@ -40,9 +40,15 @@ genmodel.StructInfo / TableMeta        internal/genmodel/model.go
 | `//tsq:managed role[=Field] ...` | `version` / `created_at` / `updated_at` / `deleted_at` |
 | `//tsq:unique 字段[,字段] [name=X]` | 唯一索引，可重复 |
 | `//tsq:index 字段[,字段] [name=X]` | 普通索引，可重复 |
-| `//tsq:search 字段[,字段]` | 参与关键字搜索的字段 |
+| `//tsq:search 字段[,字段]` | 参与关键字搜索的字段；只能写在表上（结果没有生成查询可放） |
 
 - 所有字段名都是 **Go 字段名**，不是 SQL 列名。
+- 指令只能写在非泛型的结构体类型上；写在别处 `refuseDirectiveOnNonStruct` 报错，而不是像以前那样静默忽略。
+- 包里**每个**结构体都会被解析（带 `db` 标签的字段、嵌入），但解析失败只记在 `StructInfo.err` 上：只有被表或
+  结果用到（本身带指令，或被它嵌入）时才报出来，并带结构体名和字段名。别改回"第一个解析失败就中止"——包里总有
+  TSQ 不管的结构体。
+- 包的导入取自 `go/packages` 加载时给的 `Imports`，不按导入路径重新加载：重新加载从当前目录解析，目标是绝对路径
+  而当前目录在模块外时找不到包。`import "C"` 跳过。
 - `pk` 默认 `ID` 且自增；`assigned` 关掉自增（调用方自己给值）。
 - 索引没写 `name=` 时由 `derivedIndexName` 按 `ux`/`idx` 前缀加表名推出来——**索引名是生成物的
   一部分，改这个推导规则会让使用者已经建好的索引对不上**。

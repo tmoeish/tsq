@@ -37,6 +37,12 @@
 - 给 `TableOf` 加导出方法，或给模板加生成方法：同名的列字段从此非法。普通方法反射自动覆盖；
   **泛型方法要加进 `reserved.go` 的 `genericTableMethods`**，生成方法加进 `reservedTableFields`。
   `[门禁: internal/cmd/reserved_test.go 的 TestReservedTableNamesCoverTableOf]`
+- 模板在**行类型**上声明的方法（`Insert`、`Update`、`HardDelete`，软删除表再加 `Delete`、`Restore`、`Active`）
+  列在 `reserved.go` 的 `rowMethods` 里，同名字段报错。给行类型加方法要加进去，
+  `TestRowMethodsMatchTheTemplate` 按模板核对。行方法的参数（`ctx`、`db`、`cols`）和 `tsq` 包名不能被接收者占用，
+  见 `receiverName`。
+- 新增一种生成文件（像 `runtime.tsq.go` 这样不按结构体命名的），把名字加进 `validateGeneratedFilenameCollisions`
+  的初始集合，否则同名结构体的文件会被它覆盖。
 - 生成的方法名、参数名进 `validateGeneratedSymbolCollisions` 的清单和 `gen_test.go` 的断言；
   改了形状要 `make examples` 并看 `examples/academy/*.tsq.go` 的 diff。
 
@@ -48,6 +54,11 @@
   猜错的列类型在建表那一刻不报错，在写入超长数据那一刻才报错。`[门禁: TestGenRefusesToGuessACodecColumnType]`
 - 显式 `type:` 分支的可空性必须和 Go 侧 `NullColumn` 的判据（`nullableValueType`）一致；两边各判一次就会
   出现"Go 能写 NULL、列是 NOT NULL"。
+- **生成期要替数据库先拒绝它建表时才会拒绝的东西**：MySQL 索引键 3072 字节、`TEXT` 不能进索引
+  （`validateMySQLIndexKeys`），自增主键必须是整数（`validateAutoIncrementKey`）。改 MySQL 的字符串类型映射
+  （`VARCHAR` / `MEDIUMTEXT` 的界）要回来看前者。
+- `generated` 不带表达式的列属于迁移：`ColumnDefinitionSQL` 拒绝写它（运行期建表因此报错），生成的 `.sql` 用
+  `migrationOwned` 留出它。新的 DDL 渲染路径（重建、加列）要同样跳过它。
 - 索引的列：唯一索引和普通索引在软删表上以 `deleted_at` 打头（`indexFieldNames`），**全文索引不加**。
   模板（`FieldsToCols`）和快照（`ddl_state.go` 的 `appendIndexes`）两处要一起改。
 - 同一列不许被两个字段映射（`validateColumnNames`，大小写不敏感）：解析器把 `A, B string` 拆成两个字段，

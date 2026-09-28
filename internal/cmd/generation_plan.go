@@ -82,6 +82,8 @@ func buildGenerationModels(
 			return nil, fmt.Errorf("failed to validate %s"+": %w", s.TypeInfo.TypeName, err)
 		}
 
+		s.Receiver = receiverName(s.Receiver)
+
 		model := generationModel{
 			Data:     s,
 			Filename: filepath.Join(dir, generatedFilename(s)),
@@ -112,6 +114,14 @@ func buildGenerationModels(
 			}
 
 			s.Schema = schema
+
+			if err := validateAutoIncrementKey(s); err != nil {
+				return nil, fmt.Errorf("validate %s: %w", s.TypeInfo.TypeName, err)
+			}
+
+			if err := validateMySQLIndexKeys(s); err != nil {
+				return nil, fmt.Errorf("validate %s: %w", s.TypeInfo.TypeName, err)
+			}
 
 			if err := validateFullTextFields(s); err != nil {
 				return nil, fmt.Errorf("validate %s: %w", s.TypeInfo.TypeName, err)
@@ -177,7 +187,7 @@ func buildPackageRuntimeModel(
 			TSQVersion: tables[0].TSQVersion,
 		},
 		Template:   runtimeTpl,
-		Filename:   filepath.Join(dir, "runtime.tsq.go"),
+		Filename:   filepath.Join(dir, runtimeFilename),
 		ErrorLabel: "runtime template rendering failed",
 	}, nil
 }
@@ -226,7 +236,10 @@ func resolveNullValues(s *genmodel.StructInfo, resolver *ddlTypeResolver) error 
 		// base name, and a package by its name rather than this file's alias; the
 		// spelling of a type from another package, sql.Null[time.Time] or pkg1.V,
 		// comes from go/types.
-		if field.TypeArgs != "" || field.Type.Package.Path != "" {
+		// The AST records [N]T as a slice of T, which is another type.
+		_, array := obj.Type().(*types.Array)
+
+		if field.TypeArgs != "" || field.Type.Package.Path != "" || array {
 			field.Spelled = types.TypeString(obj.Type(), qualifier)
 			changed = true
 		}
@@ -541,4 +554,18 @@ func printGenerationSummary(w io.Writer, plan []generationPlanEntry) {
 	); err != nil {
 		return
 	}
+}
+
+// validateAutoIncrementKey refuses a key the database is to generate that is not
+// an integer column: the DDL has no way to write it, and pk=Code on a string used
+// to reach it as a panic.
+func validateAutoIncrementKey(s *genmodel.StructInfo) error {
+	for _, column := range s.Schema {
+		if column.PrimaryKey && column.AutoIncrement && column.Kind != string(ddlColumnInt) {
+			return fmt.Errorf("primary key %s is a %s column, and a key the database generates is an integer; "+
+				"write pk=%s assigned when the caller sets it", s.PrimaryKey, column.Kind, s.PrimaryKey)
+		}
+	}
+
+	return nil
 }

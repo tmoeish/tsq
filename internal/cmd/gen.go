@@ -517,6 +517,16 @@ func validateResultFields(
 			)
 		}
 
+		// A result's columns come from table columns; another result has none of
+		// its own, and its generated code has no TableX to take them from.
+		if targetStruct.IsResult {
+			return fmt.Errorf(
+				"result field %s references %s, which is a result; reference the table column it projects",
+				field.Name,
+				field.Column,
+			)
+		}
+
 		sourceField, ok := targetStruct.FieldsByName[parts[1]]
 		if !ok {
 			return fmt.Errorf(
@@ -563,7 +573,9 @@ func normalizeResultColumns(data *genmodel.StructInfo) {
 }
 
 func validateGeneratedFilenameCollisions(list []*genmodel.StructInfo) error {
-	seen := make(map[string]string, len(list))
+	// The package's runtime file is generated too, under a name a struct can take:
+	// a table called Runtime used to be overwritten by it.
+	seen := map[string]string{runtimeFilename: "the package runtime"}
 
 	for _, data := range list {
 		if data == nil || data.TableMeta == nil || len(data.Fields) == 0 {
@@ -682,6 +694,9 @@ func validateGeneratedSymbolCollisions(list []*genmodel.StructInfo) error {
 
 	return nil
 }
+
+// runtimeFilename is the file that lists a package's tables.
+const runtimeFilename = "runtime.tsq.go"
 
 func generatedFilename(data *genmodel.StructInfo) string {
 	base := strings.ToLower(data.TypeInfo.TypeName)

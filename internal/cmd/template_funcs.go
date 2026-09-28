@@ -130,6 +130,22 @@ var goKeywords = map[string]struct{}{
 // a field must not take one.
 var generatedIdentifiers = map[string]struct{}{"ctx": {}, "db": {}, "t": {}, "tsq": {}}
 
+// receiverName is recv, or "row" when recv would shadow what a generated row
+// method uses: its parameters ctx, db and cols, and the tsq package. The receiver
+// is the struct name's initials, so DeviceBinding was db.
+func receiverName(recv string) string {
+	_, keyword := goKeywords[recv]
+
+	switch {
+	case recv == "", keyword:
+		return "row"
+	case recv == "ctx", recv == "db", recv == "cols", recv == "tsq":
+		return "row"
+	}
+
+	return recv
+}
+
 func fieldVarName(fieldName string) string {
 	name := lowerInitial(fieldName)
 	if name == "" {

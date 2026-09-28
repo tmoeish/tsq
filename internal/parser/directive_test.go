@@ -81,9 +81,19 @@ type User struct{}`,
 		},
 		{
 			name:   "result",
-			src:    "//tsq:result\n//tsq:search Name\ntype User struct{}",
+			src:    "//tsq:result\ntype User struct{}",
 			fields: []string{"Name"},
-			want:   genmodel.TableMeta{IsResult: true, SearchColumns: []string{"Name"}},
+			want:   genmodel.TableMeta{IsResult: true},
+		},
+		{
+			// "A, B" splits into the words "A," and "B".
+			name:   "field list with a space after the comma",
+			src:    "//tsq:table\n//tsq:unique A, B\ntype User struct{}",
+			fields: []string{"ID", "A", "B"},
+			want: genmodel.TableMeta{
+				Table: "user", PrimaryKey: "ID", AutoIncrement: true,
+				Uniques: []genmodel.IndexInfo{{Name: "ux_user_a_b", Fields: []string{"A", "B"}}},
+			},
 		},
 	}
 
@@ -130,6 +140,8 @@ func TestParseAnnotationsReportsTheLine(t *testing.T) {
 		{"repeated field", "//tsq:table\n//tsq:index Name,Name\ntype User struct{}", "model.go:4", "listed twice"},
 		{"same fields twice", "//tsq:table\n//tsq:unique Name\n//tsq:index Name\ntype User struct{}", "model.go:5", "already covers Name"},
 		{"index on result", "//tsq:result\n//tsq:index Name\ntype User struct{}", "model.go:4", "indexes belong to a table"},
+		{"search on result", "//tsq:result\n//tsq:search Name\ntype User struct{}", "model.go:4", "search belongs to a table"},
+		{"empty field inside a list", "//tsq:table\n//tsq:index Name,,Name\ntype User struct{}", "model.go:4", "empty field name"},
 	}
 
 	for _, test := range tests {

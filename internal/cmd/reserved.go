@@ -47,7 +47,23 @@ func reservedTableFields(data *genmodel.StructInfo) map[string]string {
 		reserved["FetchBy"+name] = "the generated FetchBy" + name + " method"
 	}
 
+	// The row type gets methods too, and a field of the same name beside them
+	// does not compile.
+	for _, name := range rowMethods(data) {
+		reserved[name] = "the generated row method " + name
+	}
+
 	return reserved
+}
+
+// rowMethods are the methods table.go.tmpl declares on the row type itself.
+func rowMethods(data *genmodel.StructInfo) []string {
+	methods := []string{"Insert", "Update", "HardDelete"}
+	if data.DeletedAtField != "" {
+		methods = append(methods, "Delete", "Restore", "Active")
+	}
+
+	return methods
 }
 
 // validateFieldNames refuses a field whose generated column would collide with a

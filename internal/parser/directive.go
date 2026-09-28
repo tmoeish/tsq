@@ -199,6 +199,12 @@ func applyDirective(meta *genmodel.TableMeta, d directive, fields map[string]str
 		return nil
 
 	case "search":
+		// A result generates no query for the search to go into: it used to be
+		// accepted and dropped. A query over results takes Search(...) itself.
+		if meta.IsResult {
+			return d.errorf("search belongs to a table; a query that selects a result calls Search(...) itself")
+		}
+
 		list, name, err := fieldList(d, fields)
 		if err != nil {
 			return err
@@ -275,7 +281,15 @@ func fieldList(d directive, fields map[string]struct{}) (list []string, name str
 			continue
 		}
 
-		for field := range strings.SplitSeq(arg, ",") {
+		pieces := strings.Split(arg, ",")
+
+		for i, field := range pieces {
+			// "A, B" reaches here as "A," and "B": the empty piece at an edge is
+			// the space after a comma, not a missing name.
+			if field == "" && (i == 0 || i == len(pieces)-1) && len(pieces) > 1 {
+				continue
+			}
+
 			switch {
 			case field == "":
 				return nil, "", d.errorf("empty field name")

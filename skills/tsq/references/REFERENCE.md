@@ -105,6 +105,14 @@ type Course struct {
 All field references are **Go struct field names**, not SQL column names. The SQL column still comes
 from the field's `db` tag.
 
+Directives go on struct types, and a table or result is one concrete struct: a directive on another
+kind of type, or on a generic struct, is an error. A struct that embeds another embeds it by value
+(`Base`, not `*Base`: a nil embedded pointer would make every generated accessor panic), and what it
+embeds must be a struct TSQ can read. Other structs in the package are left alone, whatever their
+fields. A field cannot be named like a method TSQ generates on the row (`Insert`, `Update`,
+`HardDelete`, and on a soft-delete table `Delete`, `Restore`, `Active`); rename the Go field and keep
+the column with the `db` tag.
+
 ### The directives
 
 | directive | purpose |
@@ -128,7 +136,8 @@ several roles on one line.
   the table a single-column key (usually an auto-increment `ID`) and declare the natural key with
   `//tsq:unique A,B`, which also generates `TableXxx.GetByAAndB` and `TableXxx.FetchByAAndB`
 - the primary key is auto-increment unless the line says `assigned`, which means the caller supplies
-  the value and a zero primary key is not filled in by the database
+  the value and a zero primary key is not filled in by the database. The database generates integer
+  keys only, so a string key must say `assigned`
 
 ```go
 //tsq:table                          // table "user", pk ID, auto-increment
@@ -159,7 +168,8 @@ Rules:
 - `db:"col,generated:SQL"` declares a column the database computes:
   `GENERATED ALWAYS AS (SQL) STORED` in the DDL, never written by `Insert`, `Update` or `Upsert`, and
   read back after a single-row `Insert`. `db:"col,generated"` without an expression says the same
-  about a column whose schema comes from migrations
+  about a column whose schema comes from migrations: the DDL TSQ writes leaves it out with a comment,
+  and a runtime policy that would create the table refuses to, since it cannot write the column
 - a database-filled column cannot be the primary key or a managed column (`version`, `created_at`,
   `updated_at`, `deleted_at`): those are TSQ's to write, and `tsq gen` refuses it
 - a batch insert does not read database-filled values back; that would be one query per row. Reload
@@ -201,7 +211,11 @@ Supported field types:
 //tsq:index OrgID,Status
 ```
 
-- the field list is comma-separated and its order is the index order
+- the field list is comma-separated and its order is the index order; a space after a comma is fine
+- MySQL limits an index key to 3072 bytes and counts a string column at 4 bytes a character, and it
+  cannot index a `TEXT` column at all: `tsq gen` refuses an index whose string columns could exceed
+  the limit (`VARCHAR(2000)` alone does) or that covers a string too large for `VARCHAR`. Lower the
+  `size:` or leave the column out of the index
 - `name=` is optional; an omitted name is derived from the table and the fields
 - a field repeated inside one index is invalid, and so are two indexes over the same field list
 - on a table declaring `deleted_at`, prefer an integer tombstone when the table also has unique
@@ -215,8 +229,9 @@ Supported field types:
 //tsq:search Name,Email
 ```
 
-It declares which fields the generated keyword-search helpers cover. It works on both a table and a
-result.
+It declares which fields the generated keyword-search helpers cover. It belongs to a table: a
+result generates no query to put the search in, so `tsq gen` refuses it there. A query that selects
+into a result calls `Search(...)` itself.
 
 ## 4. Generated outputs
 
@@ -1149,6 +1164,9 @@ clients sort by it.
 ### `//tsq:result`
 
 Prefer a generated result when the query result shape is stable and meaningful in the project. Use `MapInto(...)` when the result mapping is local and does not need a generated result model.
+
+Each result field names the table column it projects (`tsq:"Table.Field"`); it cannot name a field of
+another result, which has no columns of its own.
 
 ## 11. Advanced query features
 

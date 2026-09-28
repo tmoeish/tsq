@@ -6,6 +6,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"strings"
 	"testing"
 
 	"github.com/tmoeish/tsq/v5/internal/genmodel"
@@ -159,14 +160,15 @@ type User struct {
 	parsedPackages := make(map[genmodel.PackageInfo]bool)
 	pendingPackages := list.New()
 
-	err = parseStructDeclaration(packageAliases, currentPkg, structName, structType, structMap, parsedPackages, pendingPackages)
-	if err == nil {
-		t.Fatal("Expected error for duplicate field names")
+	// The error is kept on the struct, and reported only if a table or result
+	// uses it: a package holds structs TSQ never generates.
+	if err := parseStructDeclaration(packageAliases, currentPkg, structName, structType, structMap, parsedPackages, pendingPackages); err != nil {
+		t.Fatalf("parseStructDeclaration() = %v; want the error kept on the struct", err)
 	}
 
-	// 验证错误类型
-	if !errors.Is(err, ErrDuplicateField) {
-		t.Errorf("Expected ErrorTypeDuplicateField, got different error: %v", err)
+	info := structMap[genmodel.TypeInfo{Package: currentPkg, TypeName: structName}]
+	if info == nil || !errors.Is(info.err, ErrDuplicateField) || !strings.Contains(info.err.Error(), "struct User") {
+		t.Errorf("kept error = %v; want a duplicate field naming the struct", info)
 	}
 }
 
