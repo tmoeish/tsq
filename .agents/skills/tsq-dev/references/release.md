@@ -160,8 +160,10 @@ Go 的语义化导入版本要求：
 
 1. `go.mod` 的 `module github.com/tmoeish/tsq/v5` 改成 `/v5`。
 2. 仓库内所有 import 路径跟着改。
-3. `README.md`、`docs/`、`skills/tsq`、`CHANGELOG.md` 的迁移说明全部更新。
-4. 然后才打 `v5.0.0`。
+3. `README.md`、`docs/`、`skills/tsq`、`CHANGELOG.md` 的迁移说明全部更新，并**删掉 README 顶部
+   "v5 正在开发中，尚未发布"的提示**——它只在默认分支领先于已发布版本时成立，没有门禁会提醒它过期。
+4. 然后才打 `v5.0.0`。首个 v5 用 `--version v5.0.0` 显式指定：`latest_tag()` 只看本主版本线，
+   这时还没有 v5 的 tag 可作基线。
 
 漏掉第 1 步就打 tag，Go Proxy 会判这个版本非法，使用者 `go get` 收到 `invalid version`，
 而这个 tag 已经不能重用了。所以 `release.py` 检测到主版本跨越会直接拒绝，让你把它当成一波

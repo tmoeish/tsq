@@ -14,6 +14,11 @@
 [![Go Report Card][4]][5]
 [![License: MIT][6]][7]
 
+> [!IMPORTANT]
+> **v5 正在开发中，尚未发布。** 默认分支 `main` 上的 README、`docs/` 和 `skills/tsq` 描述的是还不能
+> `go get` 到的 v5（模块 `github.com/tmoeish/tsq/v5`）。当前可用的最新版本是 v4，它的用法以
+> [`v4` 分支](https://github.com/tmoeish/tsq/tree/v4)上的文档为准。
+
 [1]: https://img.shields.io/github/v/release/tmoeish/tsq
 [2]: https://github.com/tmoeish/tsq/releases
 [3]: https://img.shields.io/github/actions/workflow/status/tmoeish/tsq/go.yml
