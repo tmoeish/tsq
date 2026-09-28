@@ -2,7 +2,10 @@ package tsq
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"reflect"
+	"strings"
 	"testing"
 
 	_ "modernc.org/sqlite"
@@ -319,5 +322,87 @@ func TestEngineInsertAssignsIDsThroughReturningClause(t *testing.T) {
 
 	if users[0].ID <= 0 || users[1].ID != users[0].ID+1 {
 		t.Fatalf("expected consecutive generated IDs from RETURNING, got %d and %d", users[0].ID, users[1].ID)
+	}
+}
+
+// TestChunkedUpdateWithAStaleRowKeepsTheWrittenRowsCurrent covers a chunk in
+// which one row is stale. The statement writes the others, but they kept their
+// old version in memory and the error could not say which row was stale, so
+// retrying the written row failed forever.
+func TestChunkedUpdateWithAStaleRowKeepsTheWrittenRowsCurrent(t *testing.T) {
+	db := newOptimisticMutationEngine(t)
+	exec := requireInitializedRuntime(t, db)
+	ctx := context.Background()
+
+	if _, err := db.DB().ExecContext(ctx, `INSERT INTO users (id,name,email,version) VALUES (1,'a','a@x',3),(2,'b','b@x',7)`); err != nil {
+		t.Fatal(err)
+	}
+
+	fresh := &optimisticMutationUser{ID: 1, Name: "a2", Email: "a2@x", Version: 3}
+	stale := &optimisticMutationUser{ID: 2, Name: "b2", Email: "b2@x", Version: 6}
+
+	err := ChunkedUpdate(ctx, exec, []*optimisticMutationUser{fresh, stale})
+	if !errors.Is(err, &ErrOptimisticLockConflict{}) || !strings.Contains(err.Error(), "stale keys [2]") {
+		t.Fatalf("ChunkedUpdate = %v; want a conflict naming key 2", err)
+	}
+
+	if fresh.Version != 4 || stale.Version != 6 {
+		t.Fatalf("versions = %d, %d; want the written row advanced and the stale one untouched", fresh.Version, stale.Version)
+	}
+
+	fresh.Name = "a3"
+	if err := Update(ctx, exec, fresh); err != nil {
+		t.Fatalf("retrying the written row = %v", err)
+	}
+}
+
+// TestUpdateWithoutAVersionReportsAMissingRow covers a table without a version
+// column, where an update that matched nothing reported success.
+func TestUpdateWithoutAVersionReportsAMissingRow(t *testing.T) {
+	db := newBatchMutationEngine(t)
+	exec := requireInitializedRuntime(t, db)
+	ctx := context.Background()
+
+	err := Update(ctx, exec, &batchMutationUser{ID: 42, Name: "ghost", Email: "g@x"})
+	if !errors.Is(err, sql.ErrNoRows) || !strings.Contains(err.Error(), "42") {
+		t.Fatalf("Update of a missing row = %v; want sql.ErrNoRows naming it", err)
+	}
+
+	if _, err := db.DB().ExecContext(ctx, `INSERT INTO users (id,name,email) VALUES (1,'a','a@x')`); err != nil {
+		t.Fatal(err)
+	}
+
+	// Writing the values a row already holds is not a missing row, although
+	// MySQL reports no row affected.
+	if err := Update(ctx, exec, &batchMutationUser{ID: 1, Name: "a", Email: "a@x"}); err != nil {
+		t.Fatalf("Update with unchanged values = %v", err)
+	}
+}
+
+// TestChunkedUpdateRefusesOneKeyTwice covers two rows with one primary key: the
+// CASE statement wrote the first and dropped the second without a word.
+func TestChunkedUpdateRefusesOneKeyTwice(t *testing.T) {
+	db := newBatchMutationEngine(t)
+	exec := requireInitializedRuntime(t, db)
+
+	err := ChunkedUpdate(context.Background(), exec, []*batchMutationUser{{ID: 1, Name: "first", Email: "f@x"}, {ID: 1, Name: "second", Email: "s@x"}})
+	if err == nil || !strings.Contains(err.Error(), "same primary key") {
+		t.Fatalf("ChunkedUpdate = %v; want the duplicate key refused", err)
+	}
+}
+
+type failingInsertResult struct{}
+
+func (failingInsertResult) LastInsertId() (int64, error) { return 0, errors.New("no id") }
+func (failingInsertResult) RowsAffected() (int64, error) { return 1, nil }
+
+// TestInsertReportsAKeyItCannotRead covers a driver that cannot report the
+// generated key: the row silently kept a zero key.
+func TestInsertReportsAKeyItCannotRead(t *testing.T) {
+	record := mutationRecord{pkField: mutationField{column: "id", value: reflect.ValueOf(new(int64)).Elem()}}
+
+	err := assignBatchInsertIDs(context.Background(), nil, []mutationRecord{record}, failingInsertResult{}, true)
+	if err == nil || !strings.Contains(err.Error(), "generated key") {
+		t.Fatalf("assignBatchInsertIDs = %v; want the missing key reported", err)
 	}
 }

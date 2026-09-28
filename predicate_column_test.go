@@ -40,7 +40,7 @@ func TestCondition_InVarDefersSliceBindingToExecution(t *testing.T) {
 func TestCondition_NInVarDefersSliceBindingToExecution(t *testing.T) {
 	col := newColForTable[Table, int](newMockTable("users"), "id", "id", nil)
 	cond := col.NInVar()
-	if got := cond.Clause(); got != `"users"."id" NOT IN (?)` {
+	if got := cond.Clause(); got != `("users"."id" NOT IN (?))` {
 		t.Fatalf("expected NOT IN var clause template to keep a single placeholder, got %q", got)
 	}
 	args := cond.Args()

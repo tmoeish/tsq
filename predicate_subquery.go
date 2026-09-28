@@ -10,6 +10,9 @@ type rawSubquery interface {
 	subquerySQL() string
 	subqueryArgs() []any
 	subquerySelectCount() int
+	// subqueryShape reports whether the query sets LIMIT/OFFSET and whether it
+	// was built with keyword search.
+	subqueryShape() (limited, searched bool)
 }
 
 type subqueryUsage string
@@ -98,6 +101,13 @@ func buildSubqueryExpression(q rawSubquery, usage subqueryUsage) (string, []any,
 		return "", nil, errors.New("subquery is not built")
 	}
 
+	// The keyword is bound only when the statement that runs was built with
+	// Search; a subquery never receives it, so its search predicate was dropped.
+	limited, searched := q.subqueryShape()
+	if searched {
+		return "", nil, errors.New("a subquery cannot use keyword search; filter it with Where")
+	}
+
 	selectCount := q.subquerySelectCount()
 	if selectCount == 0 {
 		return "", nil, errors.New("subquery metadata is unavailable; build the subquery with tsq.Select(...).Build()")
@@ -115,6 +125,12 @@ func buildSubqueryExpression(q rawSubquery, usage subqueryUsage) (string, []any,
 	case existsSubqueryUsage:
 	default:
 		return "", nil, fmt.Errorf("unknown subquery usage %q", usage)
+	}
+
+	// MySQL refuses LIMIT in an IN subquery (error 1235) but not in a derived
+	// table, and the derived table means the same everywhere.
+	if usage == membershipSubqueryUsage && limited {
+		return fmt.Sprintf("(SELECT * FROM (%s) AS tsq_in)", sqlText), q.subqueryArgs(), nil
 	}
 
 	return fmt.Sprintf("(%s)", sqlText), q.subqueryArgs(), nil

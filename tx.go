@@ -102,7 +102,9 @@ func IsRetryableTransactionConflictError(err error) bool {
 	}
 
 	if mysqlErr, ok := errors.AsType[*mysql.MySQLError](err); ok {
-		return mysqlErr.Number == 1205 || mysqlErr.Number == 1213
+		// 1205 lock wait timeout, 1213 deadlock, 3572 a NOWAIT lock that was
+		// taken: the last is PostgreSQL's 55P03, which is retried there too.
+		return mysqlErr.Number == 1205 || mysqlErr.Number == 1213 || mysqlErr.Number == 3572
 	}
 
 	if isPostgresRetryableTransactionConflict(err) {

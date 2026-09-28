@@ -368,3 +368,83 @@ func TestResolveRuntimeDialectRejectsLegacySQLite3DriverName(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func auditUserColumns() []tsqdialect.DDLColumnSpec {
+	return []tsqdialect.DDLColumnSpec{
+		{Name: "id", Type: tsqdialect.DDLColumnType{Kind: tsqdialect.DDLColumnKindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
+		{Name: "name", Type: tsqdialect.DDLColumnType{Kind: tsqdialect.DDLColumnKindString, Size: 120}, Default: "''"},
+	}
+}
+
+func openAuditRuntime(t *testing.T, seed []string, options *RuntimeOptions) (*Runtime, error) {
+	t.Helper()
+
+	db, dsn := newSQLiteIndexTestEngine(t)
+	for _, statement := range seed {
+		if _, err := db.DB().ExecContext(context.Background(), statement); err != nil {
+			t.Fatalf("seed %q: %v", statement, err)
+		}
+	}
+
+	table, _ := newStrictMockTable("users", "id", "name")
+
+	rt, err := NewRuntime("sqlite", dsn, []TableRegistration{{Table: table, Columns: auditUserColumns()}}, options)
+	if rt != nil {
+		t.Cleanup(func() { _ = rt.Close() })
+	}
+
+	return rt, err
+}
+
+// TestCreateMissingAddsAMissingColumn covers CreateMissing, which creates missing
+// declared objects and used to refuse to start over a missing column instead.
+func TestCreateMissingAddsAMissingColumn(t *testing.T) {
+	rt, err := openAuditRuntime(t, []string{`CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT)`}, &RuntimeOptions{TablePolicy: SchemaPolicyCreateMissing})
+	if err != nil {
+		t.Fatalf("CreateMissing with a missing column = %v", err)
+	}
+
+	if _, err := rt.DB().ExecContext(context.Background(), `INSERT INTO users (name) VALUES ('a')`); err != nil {
+		t.Fatalf("the added column = %v", err)
+	}
+}
+
+// TestReconcileRebuildKeepsTheAutoincrementCounter covers the SQLite rebuild,
+// which dropped the table's sqlite_sequence row: the new table counted on from
+// its largest copied key and handed out the key of a deleted row again.
+func TestReconcileRebuildKeepsTheAutoincrementCounter(t *testing.T) {
+	rt, err := openAuditRuntime(t, []string{
+		`CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, name INTEGER)`,
+		`INSERT INTO users (name) VALUES (1), (2), (3)`,
+		`DELETE FROM users WHERE id = 3`,
+	}, &RuntimeOptions{TablePolicy: SchemaPolicyReconcile})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := rt.DB().ExecContext(context.Background(), `INSERT INTO users (name) VALUES ('x')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if id, err := result.LastInsertId(); err != nil || id != 4 {
+		t.Fatalf("key after rebuild = %d, %v; want 4, not the deleted row's 3", id, err)
+	}
+}
+
+// TestSQLiteSchemaFollowsTheEngineSpelling covers two tables SQLite considers
+// the declared one: a name in another case (users as "Users"), read as missing,
+// and a hand-written id INTEGER PRIMARY KEY without AUTOINCREMENT, which is the
+// rowid either way and was read as drift.
+func TestSQLiteSchemaFollowsTheEngineSpelling(t *testing.T) {
+	for name, create := range map[string]string{
+		"name in another case": `CREATE TABLE "Users" (id INTEGER PRIMARY KEY AUTOINCREMENT, name VARCHAR(120) NOT NULL DEFAULT '')`,
+		"rowid key":            `CREATE TABLE users (id INTEGER PRIMARY KEY, name VARCHAR(120) NOT NULL DEFAULT '')`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := openAuditRuntime(t, []string{create}, &RuntimeOptions{TablePolicy: SchemaPolicyValidate}); err != nil {
+				t.Fatalf("Validate = %v", err)
+			}
+		})
+	}
+}

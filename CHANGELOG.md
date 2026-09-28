@@ -7,6 +7,24 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 项目遵循 [语义化版本控制](https://semver.org/lang/zh-CN/)。
 
+## [未发布]
+
+### 修复
+
+- **平铺的集合运算链在不同方言上返回不同的行**：`a.Union(b).Intersect(c)` 原样渲染，SQLite 从左到右算，MySQL / PostgreSQL 让 `INTERSECT` 优先。现在一律从左到右：`INTERSECT` 前面有 `UNION` / `EXCEPT` 时前面的部分包成派生表。组合过的操作数也改成派生表（此前的括号写法 SQLite 不认）。
+- **`IntersectAll` / `ExceptAll` 在 SQLite 上报语法错误**，现在返回 `ErrUnsupportedCapability`。
+- **集合运算查询的排序**：构建器 `OrderBy` 写出带表名的列（PostgreSQL / MySQL 拒绝），`PageRequest.OrderBy` 能按 JSON 名或表达式排序（都不是输出列）。现在按输出列名排序，排序项必须是选中的普通列，`Build()` 就报错。
+- **空的 `NInVar()` 在 PostgreSQL 的非整数列上报错**（`varchar = integer`）：现在渲染成 `(col NOT IN (NULL) OR (1 = 1))`，语义不变。
+- **分组查询选了两个同名列时，MySQL 上 `Count` / `Page` 失败**（错误 1060）：同名列从第二次出现起换成生成的名字，读行按位置，调用方无感知。
+- **子查询里的 `Search` 被静默丢掉**：现在报错。**`In(带 Limit 的子查询)` 在 MySQL 上被拒绝**（错误 1235）：现在写成派生表。
+- **`ChunkedUpdate` 里有一行过期时，写成的行在内存里仍是旧版本**，错误也说不出是哪一行，拿同一批行重试永远失败。现在写成的行带上新版本，错误消息列出过期行的主键。**同一批里两行主键相同时后一行被静默丢掉**：现在报错。
+- **没有 `version` 列的表 `Update` 一个不存在的行时报告成功**：现在返回包装 `sql.ErrNoRows` 的错误；MySQL 写入原值报零行变化不算错。
+- **MySQL 批量插入回填主键时假定 `auto_increment_increment = 1`**：现在按该变量的步长回填。**驱动报不出 `LastInsertId` 时行静默留下零主键**：现在返回错误。
+- **`SchemaPolicyCreateMissing` 不补缺失的列**，而是拒绝启动：现在补上；已有的列不一致仍然报错。
+- **SQLite 上 `Reconcile` 重建表后，被删除的最大主键会被重新分配**：`sqlite_sequence` 的计数现在随表保留。
+- **SQLite 按表名、索引名自省时区分大小写**：表建成 `"Users"`、声明成 `users` 时被当成不存在；手写的 `id INTEGER PRIMARY KEY`（没写 `AUTOINCREMENT`）被当成漂移。
+- **MySQL 的 `NOWAIT` 加锁失败（错误 3572）不被当作可重试的事务冲突**，而 PostgreSQL 的 55P03 会。
+
 ## [4.10.0] - 2026-09-03
 
 ### 新增

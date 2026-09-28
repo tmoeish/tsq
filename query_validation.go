@@ -180,6 +180,10 @@ func validateExecutorForSQL(tx SQLExecutor, rawSQLs ...string) error {
 					return err
 				}
 			}
+
+			if err := validateSetOperationsWithAll(dialect, rawSQL); err != nil {
+				return err
+			}
 		}
 
 		return nil
@@ -188,6 +192,26 @@ func validateExecutorForSQL(tx SQLExecutor, rawSQLs ...string) error {
 	for _, rawSQL := range rawSQLs {
 		if containsIdentifierMarkersNeedingRender(rawSQL) || containsBindVarsNeedingDialect(rawSQL) {
 			return errors.New("sql executor dialect cannot be determined")
+		}
+	}
+
+	return nil
+}
+
+// validateSetOperationsWithAll refuses INTERSECT ALL and EXCEPT ALL on SQLite,
+// which has only the distinct forms: the INTERSECT and EXCEPT capabilities it
+// declares used to let them through to a syntax error. The check is by name
+// rather than a new capability so that a Dialect implemented elsewhere is not
+// suddenly asked about one it never declared.
+func validateSetOperationsWithAll(dialect tsqdialect.Dialect, rawSQL string) error {
+	if dialect.Name() != tsqdialect.SQLite {
+		return nil
+	}
+
+	upperSQL := strings.ToUpper(rawSQL)
+	for _, op := range []string{"INTERSECT ALL", "EXCEPT ALL"} {
+		if strings.Contains(upperSQL, " "+op+" ") {
+			return tsqdialect.ValidateCapability(dialect, tsqdialect.Capability(op))
 		}
 	}
 

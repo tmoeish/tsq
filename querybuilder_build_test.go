@@ -151,7 +151,7 @@ func TestQueryBuilder_Build_AllowsRepeatedJoinTableWithAliases(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected aliased repeated join to build, got %v", err)
 	}
-	want := `SELECT "users"."id", "parent_orgs"."id" FROM "users" LEFT JOIN "orgs" ON "users"."org_id" = "orgs"."id" LEFT JOIN "orgs" AS "parent_orgs" ON "orgs"."parent_id" = "parent_orgs"."id"`
+	want := `SELECT "users"."id", "parent_orgs"."id" AS "tsq_c2" FROM "users" LEFT JOIN "orgs" ON "users"."org_id" = "orgs"."id" LEFT JOIN "orgs" AS "parent_orgs" ON "orgs"."parent_id" = "parent_orgs"."id"`
 	if got := query.ListSQL(); got != want {
 		t.Fatalf("expected aliased join SQL %q, got %q", want, got)
 	}

@@ -720,3 +720,62 @@ func TestIntegrationMutationsByCondition(t *testing.T) {
 		})
 	}
 }
+
+// TestIntegrationAuditQueriesAgreeAcrossEngines runs, on every engine, the query
+// shapes the 2026-09 audit found rendered differently or refused by one of them:
+// a mixed set-operation chain (INTERSECT bound tighter on MySQL/PostgreSQL), an
+// empty NOT IN list on a text column (PostgreSQL compared varchar with integer),
+// an IN subquery with LIMIT (MySQL error 1235), and a grouped count with two
+// columns of one name (MySQL error 1060).
+func TestIntegrationAuditQueriesAgreeAcrossEngines(t *testing.T) {
+	for _, target := range integrationTargets(t) {
+		t.Run(target.name, func(t *testing.T) {
+			ctx := context.Background()
+
+			dropAcademyTables(t, target)
+			rt, _ := openManaged(t, target, academy.TSQTables(), tsq.SchemaPolicyManaged)
+
+			for _, name := range []string{"Ada", "Bob", "Cyd"} {
+				learner := &academy.Learner{Name: name, Email: strings.ToLower(name) + "@audit.test", Company: "C"}
+				if err := learner.Insert(ctx, rt); err != nil {
+					t.Fatalf("insert %s: %v", name, err)
+				}
+			}
+
+			named := func(names ...string) tsq.WhereStage[academy.Learner] {
+				return tsq.Select(academy.Learner_Name).From(academy.TableLearner).Where(academy.Learner_Name.InVal(names...))
+			}
+
+			chain, err := named("Ada", "Bob").Union(named("Cyd")).Intersect(named("Ada", "Cyd")).OrderBy(academy.Learner_Name.Asc()).Build()
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			rows, err := chain.List(ctx, rt)
+			if err != nil || len(rows) != 2 || rows[0].Name != "Ada" || rows[1].Name != "Cyd" {
+				t.Fatalf("(Ada, Bob ∪ Cyd) ∩ (Ada, Cyd) = %v, %v; want Ada and Cyd", rows, err)
+			}
+
+			notIn := tsq.Select(academy.Learner_Name).From(academy.TableLearner).Where(academy.Learner_Name.NInVar()).MustBuild()
+			if rows, err := notIn.List(ctx, rt, []string{}); err != nil || len(rows) != 3 {
+				t.Fatalf("empty NOT IN on a text column = %d rows, %v; want 3", len(rows), err)
+			}
+
+			top, err := tsq.BuildSubquery(tsq.Select(academy.Learner_ID).From(academy.TableLearner).OrderBy(academy.Learner_ID.Asc()).Limit(1), academy.Learner_ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			limited := tsq.Select(academy.Learner_Name).From(academy.TableLearner).Where(academy.Learner_ID.In(top)).MustBuild()
+			if rows, err := limited.List(ctx, rt); err != nil || len(rows) != 1 || rows[0].Name != "Ada" {
+				t.Fatalf("IN a limited subquery = %v, %v; want Ada", rows, err)
+			}
+
+			grouped := tsq.Select(academy.Learner_Name, academy.Learner_Name.WithTable(academy.TableLearner)).From(academy.TableLearner).
+				GroupBy(academy.Learner_Name).MustBuild()
+			if n, err := grouped.Count(ctx, rt); err != nil || n != 3 {
+				t.Fatalf("count of a grouped query naming a column twice = %d, %v; want 3", n, err)
+			}
+		})
+	}
+}

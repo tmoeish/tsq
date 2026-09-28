@@ -89,6 +89,12 @@
 - `sql_render_bench_test.go`、`querybuilder_bench_test.go`、`query_exec_bench_test.go`
   在测热路径。渲染进热路径的字符串拼接要看一眼 bench。
 - 参数顺序变了 → `condition_ordering_test.go`。
+- 集合运算链靠 `regroupSetOperationsAt` 的派生表保证从左到右求值，组合过的操作数也写成派生表（SQLite 不认
+  括号里的复合 SELECT）；改 `buildCompoundChainSQL` 跑 `TestSetOperationChainsReadLeftToRight` 和集成测试的链用例。
+- 查询被包成派生表的每个位置（计数、集合运算分组、`In` 带 `Limit` 的子查询）都要求输出列名唯一，`buildSelect` 把
+  重名改写成 `tsq_c<位置>`（读行按位置）。集合运算的 ORDER BY 按输出列名写，`checkCompoundOrderColumn` 在 `Build`
+  校验，`PageRequest.OrderBy` 的可排序字段表也只收普通列。
+- 空 `NInVar` 的 `NULL) OR (1 = 1` 依赖模板 `(%s NOT IN (%s))` 的外层括号：改模板要一起改 `expandNotInSlicePlaceholders`。
 
 ## 改了 LIKE 谓词的渲染，或改了关键字转义
 
@@ -129,6 +135,8 @@
   直接钉住 32766 这个数，比靠特定表形状去推便宜得多。
 - `query_chunked_widetable_test.go` 是那道门——它真的插一张 40 列的表，纯粹比对算出来的
   chunk size 证明不了语句能被数据库接受。
+- 更新短缺时 `explainUpdateShortfall` 回读这块行：版本是"加载值 + 1"且非时间值对得上才算写成，只有它们在内存里
+  自增版本；无版本列的表只把回读不到的行算缺失（MySQL 写原值报零行）。改 UPDATE 语句的形状要回来核对这段回读。
 
 ## 改了 schema 托管（`runtime_schema.go`）或 `_tsq_managed_tables`
 
@@ -141,6 +149,8 @@
   PG / SQLite 上成立，反而让人误以为它是原子的。
 - 门：`runtime_schema_ownership_test.go`（SQLite，含旧记账迁移）和
   `integration_test.go` 的 `TestIntegrationManagedPolicyIsScopedToItsOwner`（三方言）。
+- `CreateMissing` 只加（表、列、索引），已有列不一致仍然拒绝启动。SQLite 重建要带上 `sqlite_sequence` 的计数；
+  SQLite 自省比名字要 `COLLATE NOCASE` / `EqualFold`，单列 `INTEGER PRIMARY KEY` 视为自增（rowid）。
 
 ## 改了校验逻辑
 
@@ -225,6 +235,7 @@
   同一个 SQLSTATE 在 pq、pgx v4、pgx v5 里是三个 Go 类型，只认一个就静默漏掉另外两个
   （2026-08-26 之前 pgx v5 就是这样漏的）。
 - `integration_test.go` 的 `TestIntegrationLockConflictsAreRetryable` 用真实驱动验证。
+- 同一种情况三个方言一起表态：PG 的 55P03 被重试而 MySQL 的 3572 曾漏掉。
 
 ## 加了或改了 `-X` ldflags（`Makefile`、`.goreleaser.yaml`、`Dockerfile`）
 
