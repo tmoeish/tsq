@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"go/types"
 	"io"
@@ -56,6 +57,10 @@ func buildGenerationModels(
 		return nil, err
 	}
 
+	if err := validateTableNameCollisions(list); err != nil {
+		return nil, err
+	}
+
 	if err := validateIndexNameCollisions(list); err != nil {
 		return nil, err
 	}
@@ -79,7 +84,7 @@ func buildGenerationModels(
 		}
 
 		if err := validateStructForGeneration(s, structsByName); err != nil {
-			return nil, fmt.Errorf("failed to validate %s"+": %w", s.TypeInfo.TypeName, err)
+			return nil, structErr(s, err)
 		}
 
 		s.Receiver = receiverName(s.Receiver)
@@ -99,10 +104,18 @@ func buildGenerationModels(
 		}
 
 		if err := resolveNullValues(s, resolver); err != nil {
-			return nil, fmt.Errorf("resolve nullable fields of %s: %w", s.TypeInfo.TypeName, err)
+			return nil, structErr(s, fmt.Errorf("resolve nullable fields: %w", err))
+		}
+
+		if err := validateTextFields(s, resolver); err != nil {
+			return nil, structErr(s, err)
 		}
 
 		if s.IsResult {
+			if err := validateResultTypes(s, structsByName, resolver); err != nil {
+				return nil, structErr(s, err)
+			}
+
 			normalizeResultColumns(s)
 
 			model.Template = resultTpl
@@ -110,21 +123,17 @@ func buildGenerationModels(
 		} else {
 			schema, err := buildSchemaColumns(s, resolver)
 			if err != nil {
-				return nil, fmt.Errorf("build schema columns for %s: %w", s.TypeInfo.TypeName, err)
+				return nil, structErr(s, fmt.Errorf("build schema columns: %w", err))
 			}
 
 			s.Schema = schema
 
 			if err := validateAutoIncrementKey(s); err != nil {
-				return nil, fmt.Errorf("validate %s: %w", s.TypeInfo.TypeName, err)
-			}
-
-			if err := validateFullTextFields(s); err != nil {
-				return nil, fmt.Errorf("validate %s: %w", s.TypeInfo.TypeName, err)
+				return nil, structErr(s, err)
 			}
 
 			if err := validateDatabaseFilledFields(s); err != nil {
-				return nil, fmt.Errorf("validate %s: %w", s.TypeInfo.TypeName, err)
+				return nil, structErr(s, err)
 			}
 
 			model.Template = tableTpl
@@ -132,6 +141,12 @@ func buildGenerationModels(
 		}
 
 		models = append(models, model)
+	}
+
+	if resolver != nil {
+		if err := validateDeclaredSymbols(list, resolver); err != nil {
+			return nil, err
+		}
 	}
 
 	runtimeModel, err := buildPackageRuntimeModel(list, dir, runtimeTpl)
@@ -144,6 +159,15 @@ func buildGenerationModels(
 	}
 
 	return models, nil
+}
+
+// structErr points err at the struct it is about: file:line:column: Name: err.
+func structErr(s *genmodel.StructInfo, err error) error {
+	if s.Pos == "" {
+		return fmt.Errorf("%s: %w", s.TypeInfo.TypeName, err)
+	}
+
+	return fmt.Errorf("%s: %s: %w", s.Pos, s.TypeInfo.TypeName, err)
 }
 
 func buildPackageRuntimeModel(
@@ -510,8 +534,12 @@ func ensureGenerationPlanUpToDate(plan []generationPlanEntry) error {
 		return nil
 	}
 
-	return fmt.Errorf("generated files are out of date:\n%s", strings.Join(outdated, "\n"))
+	return fmt.Errorf("%w:\n%s", ErrOutOfDate, strings.Join(outdated, "\n"))
 }
+
+// ErrOutOfDate is what gen --check fails with when generating again would change
+// files; the tsq command exits with status 2 for it, and 1 for every other error.
+var ErrOutOfDate = errors.New("generated files are out of date")
 
 func printGenerationPlan(w io.Writer, plan []generationPlanEntry) {
 	for _, entry := range plan {

@@ -2128,3 +2128,65 @@ func TestIntegrationUpdateWithoutAVersionTellsUnchangedFromMissing(t *testing.T)
 		})
 	}
 }
+
+type keyOnlyRow struct{ ID int64 }
+
+// TestIntegrationStampsAndKeysRoundTrip covers two writes each dialect spelled
+// differently: a table whose only column is its generated key, which rendered
+// "INSERT INTO t () VALUES ()" (MySQL only), and a stamped time, which MySQL's
+// DATETIME rounded to the second so the row in memory disagreed with the row read
+// back.
+func TestIntegrationStampsAndKeysRoundTrip(t *testing.T) {
+	h := tsq.NewTable[keyOnlyRow, int64]("tsq_key_only")
+	id := tsq.NewColumn(h, "id", "id", func(r *keyOnlyRow) *int64 { return &r.ID })
+	keyOnly := h.Define(tsq.TableSpec[keyOnlyRow, int64]{
+		Columns:       []tsq.BoundColumn[keyOnlyRow]{id},
+		PrimaryKey:    id,
+		AutoIncrement: true,
+		ColumnSpecs: []tsqdialect.ColumnSpec{
+			{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
+		},
+	})
+
+	for _, target := range integrationTargets(t) {
+		t.Run(target.name, func(t *testing.T) {
+			ctx := context.Background()
+
+			dropAcademyTables(t, target)
+
+			db, err := sql.Open(target.driver, target.dsn)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			_, _ = db.ExecContext(ctx, "DROP TABLE IF EXISTS tsq_key_only")
+			_ = db.Close()
+
+			rt, _ := openWithPolicy(t, target, append(academy.TSQTables(), keyOnly), tsq.SchemaPolicyReconcile)
+
+			one := &keyOnlyRow{}
+			if err := keyOnly.Insert(ctx, rt, one); err != nil || one.ID == 0 {
+				t.Fatalf("Insert = %+v, %v", one, err)
+			}
+
+			batch := []*keyOnlyRow{{}, {}}
+			if err := keyOnly.BatchInsert(ctx, rt, batch); err != nil {
+				t.Fatal(err)
+			}
+
+			if n, err := tsq.Select(id).From(keyOnly).MustBuild().Count(ctx, rt); err != nil || n != 3 {
+				t.Fatalf("rows = %d, %v", n, err)
+			}
+
+			learner := &academy.Learner{Name: "Stamp", Email: "stamp@example.com"}
+			if err := learner.Insert(ctx, rt); err != nil {
+				t.Fatal(err)
+			}
+
+			stored, err := academy.TableLearner.Get(ctx, rt, learner.ID)
+			if err != nil || !stored.CreatedAt.V.Equal(learner.CreatedAt.V) {
+				t.Fatalf("stored created_at = %v, in memory %v (%v)", stored.CreatedAt.V, learner.CreatedAt.V, err)
+			}
+		})
+	}
+}

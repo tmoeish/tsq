@@ -156,8 +156,9 @@ func (i *Instructor) Insert(ctx context.Context, db tsq.Executor) error {
 // Update writes the row, or only cols when given; see tsq.TableOf.Update.
 func (i *Instructor) Update(ctx context.Context, db tsq.Executor, cols ...tsq.BoundColumn[Instructor]) error {
 	return TableInstructor.Update(ctx, db, i, cols...)
-} // HardDelete removes the row from the table.
+}
 
+// HardDelete removes the row from the table.
 func (i *Instructor) HardDelete(ctx context.Context, db tsq.Executor) error {
 	return TableInstructor.HardDelete(ctx, db, i)
 }

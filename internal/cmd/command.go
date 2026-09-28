@@ -130,11 +130,24 @@ func (c *Command) Help() error {
 
 	b.WriteString("\nFlags:\n")
 
+	// A one-letter flag whose usage is "shorthand for --name" is listed beside
+	// that flag, "-v, --verbose", rather than as a flag of its own.
 	fs := c.flagSet()
+	short := map[string]string{}
+
 	fs.VisitAll(func(f *flag.Flag) {
-		fmt.Fprintf(&b, "  %-12s %s\n", "--"+f.Name, f.Usage)
+		if long, ok := strings.CutPrefix(f.Usage, "shorthand for --"); ok && len(f.Name) == 1 {
+			short[long] = "-" + f.Name + ", "
+		}
 	})
-	fmt.Fprintf(&b, "  %-12s %s\n", "-h, --help", "help for "+c.Name)
+	fs.VisitAll(func(f *flag.Flag) {
+		if _, ok := strings.CutPrefix(f.Usage, "shorthand for --"); ok && len(f.Name) == 1 {
+			return
+		}
+
+		fmt.Fprintf(&b, "  %-15s %s\n", short[f.Name]+"--"+f.Name, f.Usage)
+	})
+	fmt.Fprintf(&b, "  %-15s %s\n", "-h, --help", "help for "+c.Name)
 
 	_, err := io.WriteString(c.OutOrStdout(), b.String())
 

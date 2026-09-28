@@ -325,6 +325,8 @@ DDL 语句、schema 探查，以及 `SupportsCapability(Capability)`。接口只
   没有 `default` 分支；新增能力位要往三张表和 `dialect_test.go` 的 `allCapabilities` 各加一行，
   `TestEnginesCoverAllCapabilities` 守着。
 - 绑定参数上限（`MaxBindParams`）：MySQL / PostgreSQL 65535，**SQLite 32766**。
+- 类型映射和 DEFAULT 的拼写都经 `ColumnDefinitionSQL`（生成器和运行期共用）：MySQL 的时间是 `DATETIME(6)`，
+  "插入时的当前时间"写成 `CURRENT_TIMESTAMP(6)`（`DefaultSQL`；精度不一致是错误 1067），读回时两种拼写等价（`sameDefault`）。
 
 ## 测试矩阵
 

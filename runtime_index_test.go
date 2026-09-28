@@ -202,3 +202,38 @@ func TestNewRuntimePersistsIndexModeOnEngine(t *testing.T) {
 		t.Fatalf("expected runtime index policy %q after init, got %q", SchemaPolicyValidate, runtime.indexPolicy)
 	}
 }
+
+// TestReconcileKeepsAnIndexItCannotReplace covers a unique index whose new
+// definition the rows do not fit: Reconcile dropped the old index first, the new
+// one failed, and the table was left without any, open to duplicates.
+func TestReconcileKeepsAnIndexItCannotReplace(t *testing.T) {
+	ctx := context.Background()
+	db, dsn := newSQLiteIndexTestEngine(t)
+
+	for _, statement := range []string{
+		`CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, email TEXT)`,
+		`CREATE UNIQUE INDEX ux_users_key ON users(email)`,
+		`INSERT INTO users (name, email) VALUES ('same', 'a@x'), ('same', 'b@x')`,
+	} {
+		if _, err := db.DB().ExecContext(ctx, statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	table, _ := newStrictMockTable("users", "id", "name", "email")
+
+	// The same index name now declares the duplicated column.
+	rt, err := Open(ctx, "sqlite", dsn, []Table{registered(table, nil, TableIndex{Name: "ux_users_key", Columns: []string{"name"}, Unique: true})},
+		WithIndexPolicy(SchemaPolicyReconcile))
+	if rt != nil {
+		_ = rt.Close()
+	}
+
+	if err == nil {
+		t.Fatal("Open = nil; want the new definition refused by the duplicates")
+	}
+
+	if _, err := db.DB().ExecContext(ctx, `INSERT INTO users (name, email) VALUES ('other', 'a@x')`); err == nil {
+		t.Fatal("the old unique index is gone: a duplicate email was accepted")
+	}
+}

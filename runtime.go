@@ -150,10 +150,8 @@ func newRuntime(
 
 var _ Executor = (*Runtime)(nil)
 
-// Close releases the underlying database connection pool. It is safe to call on a
-// nil runtime.
-// Close releases the connection pool, but only the one this runtime opened.
-// A pool handed to NewRuntime belongs to its caller.
+// Close releases the connection pool, but only the one Open opened: a pool
+// handed to NewRuntime belongs to its caller. It is safe to call on a nil runtime.
 func (r *Runtime) Close() error {
 	if r == nil || r.db == nil || !r.ownsDB {
 		return nil

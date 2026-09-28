@@ -295,6 +295,17 @@ func (s *querySpec[O]) render(r *renderer, m renderMode) {
 	s.writeWith(r)
 
 	if m.count {
+		// A limited query counts the rows it returns, as List reads them: the
+		// count used to ignore Limit and Offset.
+		if s.Limit != nil {
+			r.writeText("SELECT COUNT(1) FROM (")
+			s.writeBody(r, m)
+			s.writeTail(r, renderMode{keyword: m.keyword})
+			r.writeText(") AS _tsq_cnt")
+
+			return
+		}
+
 		if s.grouped() {
 			r.writeText("SELECT COUNT(1) FROM (")
 			s.writeBody(r, m)
@@ -780,6 +791,10 @@ func (s *querySpec[O]) validate(outer map[string]Table) error {
 		return err
 	}
 
+	if err := s.checkGrouping(); err != nil {
+		return err
+	}
+
 	if len(s.SetOps) > 0 {
 		for _, ob := range s.OrderBys {
 			if err := s.checkCompoundOrder(ob); err != nil {
@@ -964,6 +979,11 @@ func (c *cteSpec[O]) err() error {
 		return errors.New("a cte cannot lock rows")
 	}
 
+	// A CTE is written before the query that uses it and sees no outer table.
+	if len(c.spec.Correlated) > 0 {
+		return errors.New("a cte cannot use Correlate: it sees no outer query; join the tables it needs")
+	}
+
 	// Its columns are found by name, so two of one name would make a reference to
 	// either ambiguous (SUM(amount) and MAX(amount) are both named amount).
 	seen := make(map[string]bool, len(c.spec.Selects))
@@ -984,6 +1004,10 @@ func (c *cteSpec[O]) renderQuery(r *renderer) {
 }
 
 func (c *cteSpec[O]) correlatedTables() map[string]Table { return nil }
+
+func (c *cteSpec[O]) readsTable(name string) bool {
+	return slices.ContainsFunc(c.spec.sources(), func(t Table) bool { return t.TableName() == name })
+}
 
 func (c *cteSpec[O]) sources() []Table { return c.spec.sources() }
 
@@ -1027,6 +1051,86 @@ func sameScanTargets[O any](left, right []BoundColumn[O]) error {
 		if reflect.ValueOf(l.scan(holder)).Pointer() != reflect.ValueOf(r.scan(holder)).Pointer() {
 			return fmt.Errorf("column %d reads into another field than the first operand's (%s, %s); select the operands' columns in the same order",
 				i+1, left[i].Name(), right[i].Name())
+		}
+	}
+
+	return nil
+}
+
+// checkGrouping refuses a grouped query that reads a column neither grouped nor
+// aggregated: SQLite (and MySQL without ONLY_FULL_GROUP_BY) returns a value from an
+// arbitrary row of the group, and PostgreSQL refuses it at execution. A query is
+// grouped by GROUP BY, or by an aggregate in its select list or HAVING. A column is
+// allowed when an item is a GROUP BY expression itself, when the column is
+// grouped, or when its table's primary key is (the functional dependence
+// PostgreSQL and MySQL accept). An outer table of a correlated subquery is a
+// constant for each outer row.
+func (s *querySpec[O]) checkGrouping() error {
+	grouped := len(s.GroupBy) > 0 || len(s.Having) > 0
+	for _, col := range s.Selects {
+		grouped = grouped || columnInfo(col).aggregate
+	}
+
+	if !grouped {
+		return nil
+	}
+
+	exprs := make(map[string]bool, len(s.GroupBy))
+	columns := make(map[columnKey]bool, len(s.GroupBy))
+
+	for _, g := range s.GroupBy {
+		info := columnInfo(g)
+		exprs[debugSQL(info.sql)] = true
+
+		if core := g.core(); core != nil && core.plain && !isNilValue(core.table) {
+			columns[columnKey{core.table.TableName(), core.name}] = true
+		}
+	}
+
+	keyed := map[string]bool{}
+
+	for _, table := range s.sources() {
+		if def := table.definition(); def != nil && def.primaryKey != nil && columns[columnKey{table.TableName(), def.primaryKey.name}] {
+			keyed[table.TableName()] = true
+		}
+	}
+
+	outer := map[string]bool{}
+	for _, table := range s.Correlated {
+		outer[table.TableName()] = true
+	}
+
+	check := func(what string, info exprInfo) error {
+		if exprs[debugSQL(info.sql)] {
+			return nil
+		}
+
+		for _, key := range info.bare {
+			if !columns[key] && !keyed[key.table] && !outer[key.table] {
+				return fmt.Errorf("%s reads %s, which is neither in GROUP BY nor inside an aggregate; group by it or aggregate it", what, key)
+			}
+		}
+
+		return nil
+	}
+
+	for _, col := range s.Selects {
+		if err := check("the selected "+col.Name(), columnInfo(col)); err != nil {
+			return err
+		}
+	}
+
+	for _, cond := range s.Having {
+		if err := check("HAVING", conditionInfo(cond)); err != nil {
+			return err
+		}
+	}
+
+	for _, ob := range s.OrderBys {
+		if !isNilValue(ob.column) {
+			if err := check("ORDER BY", columnInfo(ob.column)); err != nil {
+				return err
+			}
 		}
 	}
 

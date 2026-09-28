@@ -145,8 +145,9 @@ func (t *Track) Insert(ctx context.Context, db tsq.Executor) error {
 // Update writes the row, or only cols when given; see tsq.TableOf.Update.
 func (t *Track) Update(ctx context.Context, db tsq.Executor, cols ...tsq.BoundColumn[Track]) error {
 	return TableTrack.Update(ctx, db, t, cols...)
-} // HardDelete removes the row from the table.
+}
 
+// HardDelete removes the row from the table.
 func (t *Track) HardDelete(ctx context.Context, db tsq.Executor) error {
 	return TableTrack.HardDelete(ctx, db, t)
 }

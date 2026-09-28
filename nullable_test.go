@@ -252,3 +252,23 @@ func TestCTEColumnNamesAreDistinct(t *testing.T) {
 		t.Fatalf("Build = %v; want the repeated name refused", err)
 	}
 }
+
+// TestNotInOverANullableSubqueryIsRefused covers NotIn over a subquery whose
+// column can be NULL: one NULL makes NOT IN never true, and the query silently
+// matched nothing.
+func TestNotInOverANullableSubqueryIsRefused(t *testing.T) {
+	ratings := SelectValue(Note_Rating).From(Notes)
+
+	if _, err := Select(Note_ID).From(Notes).Where(Note_ID.NotIn(ratings)).Build(); err == nil || !strings.Contains(err.Error(), "use NotExists") {
+		t.Fatalf("NotIn over a nullable subquery: Build = %v", err)
+	}
+
+	if _, err := Select(Note_ID).From(Notes).Where(Note_ID.In(ratings)).Build(); err != nil {
+		t.Fatalf("In over the same subquery = %v; NULL does not matter to IN", err)
+	}
+
+	coalesced := SelectValue(Coalesce(Note_Rating, Val(int64(0)))).From(Notes)
+	if _, err := Select(Note_ID).From(Notes).Where(Note_ID.NotIn(coalesced)).Build(); err != nil {
+		t.Fatalf("NotIn over a coalesced subquery = %v", err)
+	}
+}

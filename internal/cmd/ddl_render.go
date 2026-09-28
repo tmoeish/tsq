@@ -562,6 +562,24 @@ func (r *ddlTypeResolver) describeField(
 	return classifyDDLColumnType(varObj.Type(), tag)
 }
 
+// isText reports whether field holds text: its type is string, or a named type
+// whose underlying type is, which tsq.Searchable and the pattern functions take.
+func (r *ddlTypeResolver) isText(table *genmodel.StructInfo, field genmodel.FieldInfo) (bool, error) {
+	namedType, pkg, err := r.lookupNamedStruct(table.TypeInfo)
+	if err != nil {
+		return false, err
+	}
+
+	varObj, _, err := lookupDDLField(namedType, pkg, field.Name)
+	if err != nil {
+		return false, err
+	}
+
+	basic, ok := varObj.Type().Underlying().(*types.Basic)
+
+	return ok && basic.Kind() == types.String, nil
+}
+
 func (r *ddlTypeResolver) lookupNamedStruct(typeInfo genmodel.TypeInfo) (*types.Named, *types.Package, error) {
 	pkg, ok := r.packages[typeInfo.Package.Path]
 	if !ok || pkg.Types == nil {

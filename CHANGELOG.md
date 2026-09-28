@@ -68,7 +68,7 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 - 列函数从列方法改为**包级泛型函数**，并按列类型约束：`tsq.Upper(col)` / `Lower` / `Trim` / `Length` / `Substring` 只接受字符串类的列（`tsq.Text`），`tsq.Sum` / `Avg` / `Round` / `Ceil` / `Floor` / `Abs` 只接受数值列（`tsq.Number`），`tsq.Count` / `CountDistinct` / `Max` / `Min` / `Date` / `Year` / `Month` / `Day` / `Coalesce` / `NullIf` 接受任意列。套在类型不合的列上编译不过。
 - 列函数在三个方言上返回相同的值：`Year` / `Month` / `Day` 返回 `int64`（此前返回列自身类型且得到文本）；`Date` 返回 `'YYYY-MM-DD'` 文本；`Length` 数字符（MySQL 上是 `CHAR_LENGTH`，此前数字节）；`Round` 在 PostgreSQL 的浮点列上也能用；`Substring` 的边界直接写进 SQL，避免 PostgreSQL 选错重载。SQLite 上的日期函数同时认 modernc 驱动默认的 Go 时间文本格式（此前返回 NULL）。
 - 列方法 `Distinct()` 删除（放在选择列表中间会生成非法 SQL），改为 `tsq.CountDistinct(col)` 和查询级的 `tsq.SelectDistinct(...)`。
-- 搜索列由 `tsq.Searchable(col)` 声明，只接受字符串类的列；`//tsq:search` 只接受 `string` 字段。
+- 搜索列由 `tsq.Searchable(col)` 声明，只接受字符串类的列；`//tsq:search` 和 `//tsq:fulltext` 接受 `string` 以及底层类型是 `string` 的具名类型（此前只认字面的 `string`）。
 - 阶段接口由 `tsq.Sortable` / `Lockable` / `Combinable` / `Groupable` 组合而成，helper 可以只接受其中一种能力。
 - 集合操作查询的 `OrderBy` 按输出列名渲染，三个方言都能执行。
 - `tsq gen` 在生成时拒绝超过任一方言长度上限的表名、列名和索引名，并给出修改方法（通常是给索引写 `name=`）；此前要到运行时启动才报错。
@@ -238,6 +238,24 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 - **SQLite 上 `Reconcile` 改列类型时静默丢掉约束、改写索引**：重建表时新表只按声明的列建，UNIQUE / CHECK / 外键约束随旧表消失；索引按名字和普通列重建，表达式索引被丢掉、`(a, lower(b))` 变成 `(a)`、部分索引丢掉 `WHERE`，触发器全丢；先 RENAME 旧表还会让别处的视图、触发器和外键指向随后被删掉的临时表。现在表自己的索引和触发器按原始语句重建，其余无法保留的情况拒绝重建并说明原因，交给迁移。
 - **两个不同的 CTE 同名时静默合并**：`WITH` 按名字去重，第二个 CTE 的查询和参数消失，引用它的分支读到第一个 CTE 的结果。现在构建时报错；同一个 CTE 在多个分支里引用仍只写一次。
 - **`BatchUpsert` 的同键检查能被绕过**：检查发生在清除 `deleted_at` 之前，一行带墓碑、一行活着的同邮箱被当成不同的键，SQLite 上静默只剩一行；可空键按指针地址比较也会漏检。现在按实际写入的值比较。
+- **`Build` 不检查分组**：选了既不在 `GROUP BY` 里、也不在聚合里的列，SQLite 返回组里任意一行的值，PostgreSQL 执行时报错。现在构建时报错并点名那一列；分组了表的主键时，同表其他列照常可选。
+- **`Count` 忽略 `Limit`**：`Limit(2)` 的查询 `Count` 出全部匹配行数；排序里用了参数的查询 `Count` 时反而报"多余的参数"。现在带 `Limit` / `Offset` 的查询包一层再数，`Count` 接受和 `List` 相同的参数。
+- **能构建、执行时才失败的几种查询**：`DISTINCT` / 聚合之后加行锁、CTE 里用 `Correlate`（CTE 看不到外层）、顶层集合操作数用 `Correlate`、带搜索的查询 `GroupBy` 之后做集合操作、对 nil 的 `*Query` 调 `Get`（panic）。现在都在构建或调用时报错。
+- **`NotIn(可空子查询)` 静默返回零行**：子查询结果里有一个 NULL，`NOT IN` 就对每一行都是 UNKNOWN。现在构建时拒绝，提示改用 `NotExists` 或在子查询里用 `Coalesce` 滤掉 NULL。
+- **`AttachMany` 的子键没被选出或可空时读错**：没选出子键时所有子行挂不上，可空键按指针比较永不相等。现在没选出直接报错，可空键按值比较、NULL 键跳过；文档写明挂接按 Go 值精确匹配，不跟数据库排序规则走。
+- **部分列读出的行能被 `Insert`**：和整行 `Update` 一样会把没读的列写成零值。现在同样拒绝。
+- **MySQL 上按条件写的两种形状和别的方言结果不同**：`SET a = b, b = a` 在 MySQL 上从左到右求值（后一个赋值读到新值），`UPDATE` / `DELETE` 的子查询读同一张表报 1093。现在构建时拒绝前者，MySQL 上渲染时拒绝后者并给出改法。
+- **重建索引时先删后建**：新索引建不出来（比如新加的唯一约束和现有数据冲突）时旧索引已经没了。现在先按临时名建新索引，成功后才删旧的、改回原名。
+- **MySQL 的 `DATETIME` 只存到秒**：托管时间戳写进去被四舍五入，内存里的行和读回的行不一致。时间列改为 `DATETIME(6)`（`DEFAULT CURRENT_TIMESTAMP` 相应写成 `CURRENT_TIMESTAMP(6)`），库写入的时间戳截断到微秒（MySQL 和 PostgreSQL 的精度）；`Reconcile` 会把已有的 `DATETIME` 列加宽，用生成的迁移文件的项目需要自己执行 `ALTER TABLE ... MODIFY ... DATETIME(6)`（生成器的迁移历史不会为方言拼写的变化补一条迁移）。
+- **只有自增主键的表不能 `Insert`**：渲染出 `INSERT INTO t () VALUES ()`，只有 MySQL 接受。现在把主键列交给数据库（SQLite 写 `NULL`，其他写 `DEFAULT`），单行和批量都能写。
+- **`IsRetryableNetworkError` 把裸的 `io.EOF` 当成断线**：回调里读文件读到末尾就会让整个事务重跑。现在只认 `io.ErrUnexpectedEOF`。追踪器数量上限（超出时往 `slog.Default` 打警告）一并删除。
+- **result 不能投影 LEFT JOIN 可空一侧的列**：字段类型必须和源列完全相同，所以 NOT NULL 列没法读进 `sql.Null[T]` / `*T`。现在接受源列值类型的任何可空形式，并用 `MapIntoNull`。
+- **生成的名字和包里已有的名字冲突时生成出编译不过的包**：包里手写了 `TableX` / `XTable` / `TSQTables`，或一张表叫另一张表生成出的类型名（`Row` 与 `RowTable`）。现在 `tsq gen` 报错并指出声明的位置。
+- **同一字段担任两个角色、两个结构体映射同一张表时不报错**：主键同时是 `version` 或时间戳，`created_at` 和 `updated_at` 是同一个字段，两个结构体的 `name=` 只差大小写。生成器和 `Define` / `Open` 现在都拒绝。
+- **生成器的校验错误不带位置**：现在以 `文件:行:列: 结构体名:` 开头。
+- **生成代码的几处瑕疵**：`HardDelete` 的文档注释跟在上一个函数的 `}` 后面；result 文件的"Code generated"注释紧贴 `package`，成了包文档；列表参数名简单加 `s`（`statuss`、`categorys`）。
+- **`tsq gen --check` 发现过期和其他错误用同一个退出码**：现在过期退出 2，其他错误退出 1，CI 能区分"忘了跑 gen"和"包坏了"；帮助里 `-v` 显示为 `-v, --verbose`，并列出 `runtime.tsq.go`。
+- **LIKE 的大小写敏感性随方言不同，文档没说**：SQLite 忽略 ASCII 大小写，MySQL 按排序规则，PostgreSQL 区分。模式函数和关键词搜索的文档现在写明，并给出三方言一致的写法。
 
 ### 其他
 

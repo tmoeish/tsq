@@ -53,6 +53,8 @@ type exprPart struct {
 type queryRenderer interface {
 	renderQuery(r *renderer)
 	correlatedTables() map[string]Table
+	// readsTable reports whether the query reads the table of that name.
+	readsTable(name string) bool
 }
 
 func sqlText(s string) sqlExpr { return sqlExpr{parts: []exprPart{{kind: partText, text: s}}} }

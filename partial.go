@@ -77,6 +77,6 @@ func checkFullRow[R any](op, table string, row *R) error {
 	}
 
 	return fmt.Errorf(
-		"%s %s: the row was read with only %s, so writing every column would overwrite the others with zero values; name the columns to write, as in Update(ctx, db, row, cols...)",
+		"%s %s: the row was read with only %s, so writing every column would write zero values over the others; read it whole, or name the columns an Update writes (Update(ctx, db, row, cols...))",
 		op, table, strings.Join(cols.([]string), ", "))
 }

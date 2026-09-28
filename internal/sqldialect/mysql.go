@@ -345,7 +345,15 @@ func parseMySQLColumnType(dataType, columnType string, size sql.NullInt64) (Colu
 	case "longtext":
 		return ColumnType{Kind: KindString, Size: mysqlMaxMediumTextChars + 1}, nil
 	case "datetime", "timestamp", "date":
-		return ColumnType{Kind: KindTime}, nil
+		// TSQ renders a time as DATETIME(6). Any other precision keeps its raw type,
+		// so a DATETIME column, which rounds to the second, is widened by Reconcile
+		// instead of silently disagreeing with the microseconds held in memory. A
+		// column declared with the same type:X still matches.
+		if colType == "datetime(6)" {
+			return ColumnType{Kind: KindTime}, nil
+		}
+
+		return ColumnType{RawType: strings.ToUpper(rawColumnType)}, nil
 	default:
 		if rawColumnType == "" {
 			rawColumnType = strings.TrimSpace(dataType)
@@ -411,7 +419,7 @@ func (d MySQLDialect) ColumnTypeSQL(desc ColumnType) string {
 			return "LONGTEXT"
 		}
 	case KindTime:
-		return "DATETIME"
+		return "DATETIME(6)"
 	default:
 		return "TEXT"
 	}
@@ -496,7 +504,7 @@ func (d MySQLDialect) renderModifyColumnDefinition(column ColumnSpec) string {
 	if column.AutoIncrement {
 		parts = append(parts, "AUTO_INCREMENT")
 	} else if column.Default != "" {
-		parts = append(parts, "DEFAULT "+column.Default)
+		parts = append(parts, "DEFAULT "+DefaultSQL(d, column))
 	}
 
 	return strings.Join(parts, " ")

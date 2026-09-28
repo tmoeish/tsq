@@ -147,7 +147,11 @@ func receiverName(recv string) string {
 }
 
 func fieldVarName(fieldName string) string {
-	name := lowerInitial(fieldName)
+	return varName(lowerInitial(fieldName))
+}
+
+// varName keeps name clear of Go keywords and the generated code's identifiers.
+func varName(name string) string {
 	if name == "" {
 		name = "v"
 	}
@@ -189,8 +193,26 @@ func fetchable(f genmodel.FieldInfo) bool {
 	return f.NullValue == "" && !f.IsSlice
 }
 
+// fieldSliceVarName names a list of fieldName values in English: statuses, not
+// statuss; categories, not categorys.
 func fieldSliceVarName(fieldName string) string {
-	return fieldVarName(fieldName) + "s"
+	return varName(plural(lowerInitial(fieldName)))
+}
+
+func plural(word string) string {
+	lower := strings.ToLower(word)
+
+	switch {
+	case word == "":
+		return word
+	case strings.HasSuffix(lower, "s"), strings.HasSuffix(lower, "x"), strings.HasSuffix(lower, "z"),
+		strings.HasSuffix(lower, "ch"), strings.HasSuffix(lower, "sh"):
+		return word + "es"
+	case len(lower) > 1 && lower[len(lower)-1] == 'y' && !strings.ContainsRune("aeiou", rune(lower[len(lower)-2])):
+		return word[:len(word)-1] + "ies"
+	default:
+		return word + "s"
+	}
 }
 
 // fieldType returns the Go type expression for a field.

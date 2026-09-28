@@ -161,9 +161,9 @@ func Upper[S Text](col Expression[S]) Expression[S]
 func Year[T any](col Expression[T]) Expression[int64]
 type FilteredStage[O any] interface {
 	QueryStage[O]
-	Groupable[O]
 	Sortable[O]
 	Lockable[O]
+	GroupBy(cols ...SQLColumn) SearchGroupedStage[O]
 }
 type FullTextIndex struct {
 }
@@ -406,11 +406,20 @@ type SearchColumn interface {
 	SQLColumn
 }
 func Searchable[O any, S ~string](col Column[O, S]) SearchColumn
+type SearchGroupedStage[O any] interface {
+	QueryStage[O]
+	ResultSortable[O]
+	Having(conds ...Condition) SearchHavingStage[O]
+}
+type SearchHavingStage[O any] interface {
+	QueryStage[O]
+	ResultSortable[O]
+}
 type SearchStage[O any] interface {
 	QueryStage[O]
-	Groupable[O]
 	Sortable[O]
 	Lockable[O]
+	GroupBy(cols ...SQLColumn) SearchGroupedStage[O]
 	Where(conds ...Condition) FilteredStage[O]
 }
 type SelectStage[O any] interface {

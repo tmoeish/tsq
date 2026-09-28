@@ -3,6 +3,7 @@ package tsq
 import (
 	"fmt"
 	"slices"
+	"strings"
 
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 )
@@ -84,11 +85,14 @@ func registerTables(tables []Table) ([]*registeredTable, error) {
 			return nil, err
 		}
 
-		if seen[def.name] {
+		// Without case: MySQL and SQLite take users and USERS for one table.
+		key := strings.ToLower(def.name)
+		if seen[key] {
 			return nil, fmt.Errorf("table %s is registered twice", def.name)
 		}
 
-		seen[def.name] = true
+		seen[key] = true
+
 		result = append(result, &registeredTable{
 			name:    def.name,
 			columns: def.columns,

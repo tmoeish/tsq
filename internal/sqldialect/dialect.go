@@ -269,10 +269,38 @@ func ColumnDefinitionSQL(dialect Dialect, column ColumnSpec) (string, error) {
 	}
 
 	if column.Default != "" {
-		parts = append(parts, "DEFAULT "+column.Default)
+		parts = append(parts, "DEFAULT "+DefaultSQL(dialect, column))
 	}
 
 	return strings.Join(parts, " "), nil
+}
+
+// DefaultSQL is the DEFAULT clause's value for column. MySQL needs the current
+// time at the column's precision: DATETIME(6) DEFAULT CURRENT_TIMESTAMP is error
+// 1067, so the keyword is written CURRENT_TIMESTAMP(6) there.
+func DefaultSQL(dialect Dialect, column ColumnSpec) string {
+	if dialect.Name() == MySQL && column.Type.Kind == KindTime && column.Type.RawType == "" && IsCurrentTime(column.Default) {
+		return "CURRENT_TIMESTAMP(6)"
+	}
+
+	return column.Default
+}
+
+// IsCurrentTime reports a default that is the time of the insert, in any of the
+// spellings the dialects take or report: CURRENT_TIMESTAMP, with or without a
+// precision, NOW() and LOCALTIMESTAMP.
+func IsCurrentTime(value string) bool {
+	base := strings.ToUpper(strings.TrimSpace(value))
+	if i := strings.IndexByte(base, '('); i >= 0 {
+		base = base[:i]
+	}
+
+	switch strings.TrimSpace(base) {
+	case "CURRENT_TIMESTAMP", "NOW", "LOCALTIMESTAMP":
+		return true
+	default:
+		return false
+	}
 }
 
 // Index describes a table index, either as declared or as reported by the database.

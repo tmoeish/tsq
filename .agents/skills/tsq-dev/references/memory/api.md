@@ -4,9 +4,8 @@
 
 ## 全局 `Init()` 和 engine 中间层是被删掉的，不要重新引入 (2026-08-21)
 
-历史上有过包级全局 `Init()`、`engine` 中间层和 `traceManager` 层，都被删了，换成显式的
-`NewRuntime(...)`。全局单例让"这个查询用的是哪个库"不可回答，测试也没法并行；中间层是纯
-转发，只让调用栈多一层。**任何"方便起见加个全局默认 runtime"都是在往回走。**
+全局单例让"这个查询用的是哪个库"不可回答、测试没法并行；中间层是纯转发。换成显式的 `Open` / `NewRuntime`。
+**任何"方便起见加个全局默认 runtime"都是在往回走。**
 
 ## 决定：公开的 `dialect` 只有名字和事实，实现在 `internal/sqldialect` (2026-09-19，v5)
 
@@ -21,9 +20,8 @@
 
 ## 接口里"有定义、有实现、零调用"的钩子 (2026-08-26)
 
-`Dialect.ReturningClause` 零调用，PG 上 `Insert` 从没回填过主键，只跑 SQLite 的测试一直绿；现在由
-集成测试挡着。`Integration` 红着的 PR #61 被 auto-merge 合入（**auto-merge 只等必需检查**），此后它
-成了必需检查。**说"某检查是不是必需"之前先查 ruleset**（`gh api repos/tmoeish/tsq/rulesets/<id>`）。
+`Dialect.ReturningClause` 零调用，PG 上 `Insert` 从没回填主键，现在由集成测试挡着。**auto-merge 只等必需检查**：
+说"某检查是不是必需"之前先查 ruleset（`gh api repos/tmoeish/tsq/rulesets/<id>`）。
 
 ## 决定：v5 核心重写——表达式树、命名参数、表描述符、封闭执行器 (2026-09-17)
 
@@ -83,10 +81,8 @@ v4 攒下九个 `Deprecated` 符号，没有任何门禁会提醒它们该走—
 
 ## 决定：CLI 不拆子模块，收紧根包自己的依赖 (2026-09-17 重测)
 
-只 import 根包的模块 tidy 后，生成器的依赖本就
-不在其 `go.sum`；进去的是根包的非测试 import 和**根包测试**的 import（tidy 记录依赖包测试的依赖）。修法：MySQL
-错误改反射读取、集成测试挪进 `internal/integration`，门是 `TestRootPackageImportsNoDriver`，只剩 SQLite 驱动（根包
-单测离不开它）。复测：临时模块 `replace` 到本仓，tidy 后看 `go.sum`。
+生成器的依赖本就不进使用者的 `go.sum`；进去的是根包及**根包测试**的 import。MySQL 错误改反射读取、集成测试挪进
+`internal/integration`，门是 `TestRootPackageImportsNoDriver`。复测：临时模块 `replace` 到本仓，tidy 后看 `go.sum`。
 
 ## 决定：v5 不支持复合主键 (2026-09-17)
 

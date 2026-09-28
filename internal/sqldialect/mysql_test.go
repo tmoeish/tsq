@@ -175,3 +175,47 @@ func TestMySQLTextColumnsKeepTheirSize(t *testing.T) {
 		t.Fatalf("mediumtext = %+v, %v; want it to match the MEDIUMTEXT TSQ renders", medium, err)
 	}
 }
+
+// TestMySQLTimesKeepMicroseconds covers MySQL's DATETIME, which rounds to the
+// second: a row stamped in memory disagreed with the row read back, and optimistic
+// retries compared stale stamps. TSQ renders DATETIME(6); a column of any other
+// precision reads back as its raw type, so Reconcile widens it.
+func TestMySQLTimesKeepMicroseconds(t *testing.T) {
+	d := MySQLDialect{}
+	declared := ColumnSpec{Name: "at", Type: ColumnType{Kind: KindTime}}
+
+	if got := d.ColumnTypeSQL(declared.Type); got != "DATETIME(6)" {
+		t.Fatalf("time renders as %s", got)
+	}
+
+	for native, want := range map[string]bool{"datetime(6)": true, "datetime": false, "datetime(3)": false, "timestamp": false} {
+		desc, err := parseMySQLColumnType(strings.Split(native, "(")[0], native, sql.NullInt64{})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if got := SameColumnType(d, Column{Name: "at", Type: desc, NativeType: native}, declared); got != want {
+			t.Errorf("%s matched = %v, want %v", native, got, want)
+		}
+	}
+
+	// DATETIME(6) DEFAULT CURRENT_TIMESTAMP is MySQL error 1067: the default has to
+	// name the column's precision.
+	stamped := ColumnSpec{Name: "at", Type: ColumnType{Kind: KindTime}, Default: "CURRENT_TIMESTAMP"}
+	if got, err := ColumnDefinitionSQL(d, stamped); err != nil || !strings.HasSuffix(got, "DEFAULT CURRENT_TIMESTAMP(6)") {
+		t.Errorf("stamped column = %s, %v", got, err)
+	}
+
+	if got := d.renderModifyColumnDefinition(stamped); !strings.HasSuffix(got, "DEFAULT CURRENT_TIMESTAMP(6)") {
+		t.Errorf("modified stamped column = %s", got)
+	}
+
+	if got, _ := ColumnDefinitionSQL(PostgresDialect{}, stamped); !strings.HasSuffix(got, "DEFAULT CURRENT_TIMESTAMP") {
+		t.Errorf("stamped column on PostgreSQL = %s", got)
+	}
+
+	desc, _ := parseMySQLColumnType("datetime", "datetime", sql.NullInt64{})
+	if !SameColumnType(d, Column{Name: "at", Type: desc, NativeType: "datetime"}, ColumnSpec{Name: "at", Type: ColumnType{RawType: "DATETIME"}}) {
+		t.Error("datetime did not match a column declared type:DATETIME")
+	}
+}

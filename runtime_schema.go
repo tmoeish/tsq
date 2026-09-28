@@ -284,8 +284,16 @@ func (r *Runtime) applyIndexPolicyForTable(ctx context.Context, table *registere
 				return fmt.Errorf("cannot rebuild index %s on table %s because it is backed by a primary key or constraint", idx.Name, tableName)
 			}
 
-			dropStatement := r.dialect.DropIndexSQL(tableName, idx.Name)
-			if err := r.execDDL(ctx, dropStatement); err != nil {
+			// The new definition is built under another name first: when the rows do
+			// not fit it (duplicates against a new unique index), that fails and the
+			// old index is still there. Dropping first left the table without the
+			// unique index, open to the duplicates it kept out.
+			probe := rebuildIndexName(idx.Name)
+			if _, err := r.dialect.EnsureIndex(ctx, r.db, tableName, probe, idx.Columns, idx.Unique); err != nil {
+				return fmt.Errorf("recreate index %s on %s: %w", idx.Name, tableName, err)
+			}
+
+			if err := r.execDDL(ctx, r.dialect.DropIndexSQL(tableName, idx.Name)); err != nil {
 				return err
 			}
 
@@ -296,6 +304,10 @@ func (r *Runtime) applyIndexPolicyForTable(ctx context.Context, table *registere
 
 			if createStatement != "" {
 				r.info("applied ddl", "table", tableName, "kind", "index_create", "ddl", createStatement)
+			}
+
+			if err := r.execDDL(ctx, r.dialect.DropIndexSQL(tableName, probe)); err != nil {
+				return err
 			}
 		}
 	}
@@ -432,6 +444,12 @@ func columnsEqual(dialect sqld.Dialect, left sqld.Column, right tsqdialect.Colum
 // back as 1 and a decimal 0 as 0.00, which used to ask for the same ALTER on every
 // boot.
 func sameDefault(left, right string) bool {
+	// MySQL reports CURRENT_TIMESTAMP(6) for the CURRENT_TIMESTAMP TSQ declares on
+	// a DATETIME(6) column.
+	if sqld.IsCurrentTime(left) && sqld.IsCurrentTime(right) {
+		return true
+	}
+
 	a, aQuoted := normalizeDefaultLiteral(left)
 	b, bQuoted := normalizeDefaultLiteral(right)
 
@@ -756,4 +774,16 @@ func zeroLiteral(t tsqdialect.ColumnType) (string, bool) {
 // sqlStringLiteral quotes s as a SQL string literal.
 func sqlStringLiteral(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
+}
+
+// rebuildIndexName is the name an index is built under while it replaces another,
+// kept within every dialect's 63-character limit.
+func rebuildIndexName(name string) string {
+	const prefix = "tsq_new_"
+
+	if len(name) > 63-len(prefix) {
+		name = name[:63-len(prefix)]
+	}
+
+	return prefix + name
 }

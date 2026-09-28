@@ -2,6 +2,8 @@ package tsq
 
 import (
 	"context"
+	"database/sql"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -92,5 +94,45 @@ func TestAttachManyAndOneReadChildrenOnce(t *testing.T) {
 	// An expression is not a column of the row.
 	if err := AttachMany(ctx, rt, users, User_ID, byUser, Order_UserID, nil); err == nil {
 		t.Fatal("expected a nil assign to be refused")
+	}
+}
+
+// TestAttachChecksItsChildKey covers a child query that does not select the key
+// children are grouped by, which left every child under the zero key and gave no
+// parent any child without an error, and a nullable key, which failed only after
+// the child query had run.
+func TestAttachChecksItsChildKey(t *testing.T) {
+	ctx := context.Background()
+
+	rt, err := Open(ctx, "sqlite", filepath.Join(t.TempDir(), "attach.db"), []Table{Users, Notes}, WithSchemaPolicy(SchemaPolicyReconcile))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() { _ = rt.Close() })
+
+	users := seedUsers(t, rt, "a", "b")
+
+	unselected := Select(Order_ID).From(Orders).Where(Order_UserID.In(Order_UserID.ListParam())).MustBuild()
+	if err := AttachMany(ctx, rt, users, User_ID, unselected, Order_UserID, func(*user, []*order) {}); err == nil || !strings.Contains(err.Error(), "does not select user_id") {
+		t.Fatalf("AttachMany with an unselected key = %v; want it refused", err)
+	}
+
+	rated := func(r int64) *note { return &note{Rating: sql.Null[int64]{V: r, Valid: true}} }
+	notes := []*note{rated(users[0].ID), rated(users[0].ID), {}}
+
+	if err := Notes.BatchInsert(ctx, rt, notes); err != nil {
+		t.Fatal(err)
+	}
+
+	byRating := Select(Notes.Columns()...).From(Notes).Where(Note_Rating.In(Note_Rating.ListParam())).MustBuild()
+	counts := map[int64]int{}
+
+	if err := AttachMany(ctx, rt, users, User_ID, byRating, Note_Rating, func(u *user, ns []*note) { counts[u.ID] = len(ns) }); err != nil {
+		t.Fatalf("AttachMany by a nullable key = %v", err)
+	}
+
+	if counts[users[0].ID] != 2 || counts[users[1].ID] != 0 {
+		t.Fatalf("counts = %v; want a's two notes, and the NULL one attached to no one", counts)
 	}
 }

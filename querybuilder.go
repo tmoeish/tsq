@@ -109,21 +109,35 @@ type WhereStage[O any] interface {
 }
 
 // SearchStage is a query with search columns. Keyword search does not combine with
-// set operations.
+// set operations, grouped or not.
 type SearchStage[O any] interface {
 	QueryStage[O]
-	Groupable[O]
 	Sortable[O]
 	Lockable[O]
+	GroupBy(cols ...SQLColumn) SearchGroupedStage[O]
 	Where(conds ...Condition) FilteredStage[O]
 }
 
 // FilteredStage is a query with both WHERE and search columns.
 type FilteredStage[O any] interface {
 	QueryStage[O]
-	Groupable[O]
 	Sortable[O]
 	Lockable[O]
+	GroupBy(cols ...SQLColumn) SearchGroupedStage[O]
+}
+
+// SearchGroupedStage is a searched query with GROUP BY. Unlike GroupedStage it
+// cannot be combined: keyword search does not combine with set operations.
+type SearchGroupedStage[O any] interface {
+	QueryStage[O]
+	ResultSortable[O]
+	Having(conds ...Condition) SearchHavingStage[O]
+}
+
+// SearchHavingStage is a searched grouped query with HAVING.
+type SearchHavingStage[O any] interface {
+	QueryStage[O]
+	ResultSortable[O]
 }
 
 // GroupedStage is a query with GROUP BY. Grouped rows cannot be locked.
@@ -391,16 +405,31 @@ func (r resultBuilder[O]) Offset(offset int) OrderedResultStage[O] {
 }
 
 func (w whereBuilder[O]) Search(cols ...SearchColumn) FilteredStage[O] {
-	return w.search(cols)
+	return searchBuilder[O]{w.search(cols)}
 }
 
+// searchBuilder is a query with search columns; its grouped stages cannot combine.
 type searchBuilder[O any] struct{ *builder[O] }
 
 func (s searchBuilder[O]) Where(conds ...Condition) FilteredStage[O] {
-	return s.where(conds)
+	return searchBuilder[O]{s.where(conds)}
+}
+
+func (s searchBuilder[O]) GroupBy(cols ...SQLColumn) SearchGroupedStage[O] {
+	return searchResultBuilder[O]{resultBuilder[O]{s.groupBy(cols)}}
+}
+
+type searchResultBuilder[O any] struct{ resultBuilder[O] }
+
+func (s searchResultBuilder[O]) Having(conds ...Condition) SearchHavingStage[O] {
+	return searchResultBuilder[O]{resultBuilder[O]{s.having(conds)}}
 }
 
 func (b *builder[O]) GroupBy(cols ...SQLColumn) GroupedStage[O] {
+	return resultBuilder[O]{b.groupBy(cols)}
+}
+
+func (b *builder[O]) groupBy(cols []SQLColumn) *builder[O] {
 	n := b.enter("GroupBy", phaseGroup)
 
 	switch {
@@ -412,10 +441,14 @@ func (b *builder[O]) GroupBy(cols ...SQLColumn) GroupedStage[O] {
 
 	n.spec.GroupBy = append(n.spec.GroupBy, cols...)
 
-	return resultBuilder[O]{n}
+	return n
 }
 
 func (b *builder[O]) Having(conds ...Condition) HavingStage[O] {
+	return resultBuilder[O]{b.having(conds)}
+}
+
+func (b *builder[O]) having(conds []Condition) *builder[O] {
 	n := b.enter("Having", phaseHaving)
 	if len(n.spec.GroupBy) == 0 {
 		n.fail(errors.New("having requires group by"))
@@ -423,7 +456,7 @@ func (b *builder[O]) Having(conds ...Condition) HavingStage[O] {
 
 	n.spec.Having = append(n.spec.Having, conds...)
 
-	return resultBuilder[O]{n}
+	return n
 }
 
 func (b *builder[O]) setOp(op setOperationType, other QueryStage[O]) CompoundStage[O] {
@@ -531,10 +564,11 @@ func (b *builder[O]) lock(strength queryLockStrength) LockedStage[O] {
 		n.fail(errors.New("row lock is already set"))
 	}
 
-	// The stage types already keep a lock off grouped and combined rows; this
-	// catches a caller who asserts past them.
-	if len(n.spec.GroupBy) > 0 || len(n.spec.SetOps) > 0 {
-		n.fail(errors.New("grouped or combined rows cannot be locked"))
+	// The stage types keep a lock off GROUP BY and set operations. DISTINCT and
+	// an aggregate without GROUP BY also return rows that are not rows of a table,
+	// which PostgreSQL refuses to lock; grouped covers all four.
+	if n.spec.grouped() {
+		n.fail(errors.New("grouped, distinct, aggregated or combined rows cannot be locked"))
 	}
 
 	n.spec.Lock = queryLock{strength: strength}

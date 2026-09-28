@@ -13,6 +13,10 @@ type StructInfo struct {
 	Receiver   string
 	TSQVersion string
 
+	// Pos is where the struct is declared, file:line:column, so an error about it
+	// can point there.
+	Pos string
+
 	// Schema is the physical column definition of a table, filled in by the
 	// generator after parsing because it needs type information.
 	Schema []SchemaColumn

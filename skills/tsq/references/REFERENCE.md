@@ -49,7 +49,7 @@ tsq gen --dry-run ./database
 tsq gen --check ./database
 ```
 
-Use `--dry-run` to preview generation changes and `--check` in CI or review flows to fail when generated files are stale.
+Use `--dry-run` to preview generation changes and `--check` in CI or review flows to fail when generated files are stale. `tsq gen` exits 2 when `--check` finds stale files and 1 for any other error, so CI can tell "run tsq gen" from "the package is broken". Validation errors start with the struct's `file:line:column`.
 
 ### Checking which TSQ you are running
 
@@ -474,7 +474,9 @@ TSQ stamps `created_at`, `updated_at` and time tombstones in **UTC**, and binds 
 it sends to the database in UTC, whatever zone the value was in. SQLite keeps a time as the text of
 the value, and text in two zones does not sort the way the times do; UTC everywhere makes rows
 written by processes in different zones, or across a daylight-saving change, compare correctly.
-Times read back are in UTC (or in the zone the driver is configured for).
+Times read back are in UTC (or in the zone the driver is configured for). Stamps are truncated to
+microseconds, the precision MySQL (`DATETIME(6)`, what TSQ declares for a time column) and
+PostgreSQL store, so a stamped row equals the row read back.
 
 Supported field types:
 
@@ -591,10 +593,10 @@ query, err := tsq.
 
 Rules:
 
-- `OrderBy` / `Limit` / `Offset` are reachable from every complete stage (after `Where`, `Search`, `GroupBy`, `Having`, or a set operation). Only `ForUpdate()` / `ForShare()` may follow them, matching SQL clause order, and not after `GroupBy`, `Having` or a set operation: those rows are not rows of a table, and ordering them first does not change that
+- `OrderBy` / `Limit` / `Offset` are reachable from every complete stage (after `Where`, `Search`, `GroupBy`, `Having`, or a set operation). Only `ForUpdate()` / `ForShare()` may follow them, matching SQL clause order, and not after `GroupBy`, `Having`, a set operation, `SelectDistinct` or an aggregate: those rows are not rows of a table, and ordering them first does not change that
 - `Offset` requires `Limit`. A bare `OFFSET` is a syntax error on MySQL and SQLite, so `Build()` rejects it rather than letting it fail on two dialects out of three
 - the ordered column must belong to a table the query already selects from or joins
-- the count query ignores `ORDER BY` / `LIMIT` / `OFFSET`: `Count()` reports how many rows match, which a limit does not change
+- `Count()` counts the rows `List` returns: the count query drops `ORDER BY`, and a query with `Limit` / `Offset` is counted over the limited rows. It takes the same arguments as `List`
 - **do not combine builder-level paging with `query.Page(...)`**. `Page` appends its own `LIMIT`/`OFFSET`, and its own `ORDER BY` when `Paging.OrderBy` is set, so a builder-level clause would be emitted a second time rather than replaced. `Page` returns an error instead of guessing. A builder `OrderBy` combined with an empty `Paging.OrderBy` is fine: the builder's ordering stands and `Page` only adds the window
 - on a set operation (`Union`, ...) an `OrderBy` term refers to the output column by name, which is the only form every dialect accepts there. The term must be an output column: a selected projection (`upper := tsq.MapInto(tsq.Upper(col), ...)`, then `OrderBy(upper.Asc())`) or a column selected under that name; `Build()` refuses an expression that is not selected
 - a select item that is not a plain column is written `AS` its name (the name of the column it is derived from), so a CTE and a set operation's `ORDER BY` find it by that name on every dialect
@@ -732,7 +734,9 @@ fails with an error naming the column and the reason, **before** the query runs,
 scan error on the first NULL row. The fixes are, in order of preference: an inner join where the
 row always exists, `tsq.Coalesce(x, tsq.Val(...))`, or a nullable field with
 `tsq.MapIntoNull(source, func(r *R) *sql.NullString { ... })`. Building such a query is
-fine, since a subquery or CTE never reads its rows.
+fine, since a subquery or CTE never reads its rows. A generated result does the same: give the
+field a nullable form of the column's value type (`sql.Null[string]`, `*string`, `sql.NullString`)
+for a column of a `LEFT JOIN`ed table, and `tsq gen` projects it with `MapIntoNull`.
 
 `tsq.SelectValue` refuses a value that can be NULL the same way; `tsq.SelectNullValue` reads it as
 a `sql.Null[T]`.
@@ -894,6 +898,9 @@ err := tsq.AttachMany(ctx, db, learners, database.TableLearner.ID, children, dat
 - `tsq.AttachOne` is the same for a single child, such as the row a foreign key points at: the first
   match in the child query's order wins, and a parent without one is left alone
 - no parents means no query at all
+- the child query must select the child key, and a nullable key is compared by value: a child
+  whose key is NULL belongs to no parent. Keys match by Go equality, not by the database's
+  collation, so `"Ada"` and `"ada"` are different parents even where a `_ci` collation matched both
 
 ### Full-text search
 
@@ -934,6 +941,8 @@ The term is escaped for LIKE wildcards, so `%`, `_` and the escape character its
 
 The pattern functions (`tsq.StartsWith`, `tsq.EndsWith`, `tsq.Contains`, and their `Not` forms, with a `Val` or a `Param`) escape wildcards the same way. `Like` takes a pattern as written, wildcards included. Wildcard escaping is about matching the right rows, not SQL injection protection — that comes from parameter binding.
 
+Case sensitivity is the database's, and it differs: SQLite ignores ASCII case, MySQL follows the column's collation (the default `_ci` collations ignore case), PostgreSQL respects case. Keyword search and the pattern functions all behave this way. For one answer on every dialect, match `tsq.Lower(col)` against a lowercased term.
+
 ## 8. Execution helpers
 
 Reads are methods on the built `*Query[O]`; `args` are the `tsq.Arg` values made by `Bind`:
@@ -959,7 +968,7 @@ Build package-level queries once and reuse them.
 Row writes are methods on the table descriptor, and the generated row methods call them:
 
 - `TableCourse.Insert(ctx, db, &row)` / `row.Insert(ctx, db)`; a zero auto-increment key is
-  generated by the database and written back
+  generated by the database and written back, also on a table whose only column is that key
 - `Update`, `HardDelete`, and `Delete` on a soft-delete table, the same way. `Update` writes every column TSQ may write, so
   **a row read with a partial `Select` names what it saves**: `TableCourse.Update(ctx, db, &row,
   TableCourse.Title)` / `row.Update(ctx, db, TableCourse.Title)` writes only `title` (plus
@@ -1091,6 +1100,7 @@ Rules:
 - the statement never checks the `version` column. `UpdateTable` on a table that declares `version` still adds `version = version + 1`, so rows loaded before the bulk change fail their own `Update(...)` with `OptimisticLockError`. Assigning the version column yourself is a build error
 - `UpdateTable` increments `version` and refreshes `updated_at` at execution time (unless you `Set` it). It skips deleted rows like every query does; `tsq.UpdateTable(table.WithDeleted())` reaches them. `DeleteFrom` renders as an `UPDATE` that stamps the tombstone and `updated_at` **at execution time**, so a package-level statement does not reuse the time the program started; `tsq.DeleteFrom(table.WithDeleted())` stamps deleted rows again rather than removing them
 - assignments and conditions may reference only the target table, unaliased. `JOIN`, `UPDATE ... FROM`, aliases, `LIMIT`, `ORDER BY`, and `RETURNING` are not supported; each dialect spells them differently. Subquery predicates (`In(subquery)`, `EQ(subquery)`) are fine. MySQL rejects a subquery that reads the table being modified (error 1093); that is a database rule, not a TSQ one
+- every dialect reads the old values on the right of `Set`, but MySQL assigns left to right, so a `Set` whose value reads a column an earlier `Set` assigned (a swap) is a build error. On MySQL a subquery that reads the table being written is refused when the SQL is rendered (MySQL error 1093): read the keys first and pass them as a list parameter
 - it is a single `UPDATE` / `DELETE` and is not chunked. A very large list parameter can exceed the dialect's bind-parameter ceiling; use `table.BatchDeleteByPK` / `BatchHardDeleteByPK` or slice the input yourself. For reads, `query.ListIn` does the splitting
 
 ## 9. Runtime and transactions
@@ -1199,7 +1209,7 @@ another result, which has no columns of its own.
 
 TSQ supports more than simple list queries. Common advanced shapes include:
 
-- aggregate queries with `GroupBy(...)` and `Having(...)`
+- aggregate queries with `GroupBy(...)` and `Having(...)`. `Build()` refuses a selected, `HAVING` or `ORDER BY` column that is neither grouped nor inside an aggregate (SQLite would return an arbitrary row's value, PostgreSQL refuses it); grouping by a table's primary key allows the table's other columns
 - `CASE` expressions: `tsq.Case[string]().When(cond, col).When(cond, tsq.Val("x")).Else(tsq.Val("y")).End()`; results are typed, so a branch of another type does not compile
 - `tsq.Coalesce(col, rhs)` and `tsq.NullIf(col, rhs)`, with `tsq.Val` for a fixed value
 - subqueries such as `In(subquery)`, `tsq.Exists(subquery)`, and typed RHS comparisons like `EQ(subquery)` or `Like(subquery)`. An `In` subquery may set `Limit` (it is written as a derived table, which MySQL requires). A subquery cannot use `Search`: the keyword is an argument of the statement that runs, so `Build()` refuses it instead of dropping the predicate
@@ -1240,7 +1250,7 @@ differ:
 - `Round` works on floating-point columns on PostgreSQL too (it rounds through `NUMERIC`)
 
 A table's search columns must be string-kind: `tsq.Searchable(col)` is how a `TableSpec` lists
-them, and `//tsq:search` accepts only `string` fields.
+them, and `//tsq:search` / `//tsq:fulltext` accept `string` fields and named types whose underlying type is `string`.
 
 Two SQLite limits to know:
 
@@ -1291,7 +1301,7 @@ Rules that go with it:
 - a query built with `Correlate(...)` only makes sense inside an enclosing query. Executing it on its own (`List`, `Get`, `Count`, `Exists`, `Page`, ...) is refused, because its SQL references a table its own `FROM` clause does not introduce
 - the outer table must actually be in scope at the point where the subquery is used, which SQL, not TSQ, decides
 
-The older workaround, rewriting `NOT EXISTS` as `NotIn(subquery)`, still works and is often the better plan on MySQL. It is equivalent only when the subquery column cannot be `NULL`: in SQL three-valued logic `NOT IN` over a result set containing `NULL` returns no rows at all, while the correlated `NOT EXISTS` returns the non-matching rows. Filter the `NULL`s out in the subquery when the column is nullable.
+The older workaround, rewriting `NOT EXISTS` as `NotIn(subquery)`, still works and is often the better plan on MySQL. It is equivalent only when the subquery column cannot be `NULL`: in SQL three-valued logic `NOT IN` over a result set containing `NULL` returns no rows at all, while the correlated `NOT EXISTS` returns the non-matching rows. Filter the `NULL`s out in the subquery when the column is nullable. TSQ refuses `NotIn` over a subquery whose value can be NULL at build time; filter the NULLs out with `Coalesce` or use `NotExists`.
 
 ## 12. Dialect capability boundaries
 

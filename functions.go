@@ -41,7 +41,11 @@ func derived[T any](col SQLColumn, info exprInfo) Expression[T] {
 func wrapped[T any](col SQLColumn, open, close string, aggregate bool) Expression[T] {
 	info := columnInfo(col)
 	info = info.withSQL(sqlJoin(sqlText(open), info.sql, sqlText(close)))
+
 	info.aggregate = info.aggregate || aggregate
+	if aggregate {
+		info.bare = nil
+	}
 
 	// SUM, AVG, MAX and MIN are NULL over no rows; COUNT is 0.
 	info.null.emptyGroup = info.null.emptyGroup || aggregate
@@ -53,6 +57,7 @@ func counted[T any](col SQLColumn, open string) Expression[int64] {
 	info := columnInfo(col)
 	info = info.withSQL(sqlJoin(sqlText(open), info.sql, sqlText(")")))
 	info.aggregate = true
+	info.bare = nil
 	info.null = nullness{}
 
 	return derived[int64](col, info)
@@ -256,6 +261,12 @@ func patternValue(s string, mode paramMode) exprInfo {
 
 // Pattern is the text StartsWith, EndsWith and Contains match literally: a Val or
 // a Param of the column's type. Its % and _ are escaped, so they match themselves.
+//
+// The match is the database's LIKE, whose case sensitivity differs: SQLite ignores
+// ASCII case, MySQL follows the column's collation (the default _ci ones ignore
+// case), and PostgreSQL respects case. Keyword search (Search) matches the same
+// way. Match Lower(col) against a lowercased pattern to get one answer on all
+// three.
 type Pattern[S ~string] interface {
 	needsTsqVal()
 	patternText(S)
