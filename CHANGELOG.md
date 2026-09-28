@@ -14,7 +14,7 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 ### 新增
 
-- 新增游标分页 `Query.PageKeyset(ctx, db, tsq.Keyset{Size, OrderBy, After}, args...)`：按上一页最后一行的排序值翻页，深页不再越翻越慢、中途插入的行也不会让页面错位。排序列必须被查询选出且最后一列是主键；`Next` 是不透明字符串，换了排序会被拒绝。`PageRequest` 新增 `After` 字段和 `Keyset(sortable...)`。
+- 新增游标分页 `Query.PageKeyset(ctx, db, tsq.Keyset{Size, OrderBy, After}, args...)`：按上一页最后一行的排序值翻页，深页不再越翻越慢、中途插入的行也不会让页面错位。排序列必须被查询选出，且包含查询里每张表（FROM 和每个 JOIN）的主键；`Next` 是不透明字符串，换了排序会被拒绝。`PageRequest` 新增 `After` 字段和 `Keyset(sortable...)`。
 - 关键词搜索改为执行参数 `tsq.Keyword(term)`，所有读取方法都能用（此前只有 `Page` 通过 `Paging.Keyword` 支持，搜索结果没法 `Iter` 导出或单独 `Count`）；`Paging.Keyword` 删除。空关键词不搜索，对没有 `Search` 的查询传非空关键词报错。
 - 新增 `Query.ListIn(ctx, db, listParam, values, args...)`：列表参数超过方言绑定上限时按上限分块、在同一快照里读完再拼接，只接受分块不改变结果的查询。`TableXxx.Fetch` / `FetchBy` 用它，任意数量的键都能取（此前超过 SQLite 的 32766 个就报错）。
 - 新增 `TableXxx.Restore` / `BatchRestore` 和生成的 `row.Restore(ctx, db)`：恢复软删除的行，是清除 `deleted_at` 的唯一入口。
@@ -144,6 +144,17 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 - `Dialect` 接口、`MySQLDialect` / `PostgresDialect` / `SQLiteDialect`、schema 探查、DDL 渲染和绑定上限都是内部实现，不再导出：它们从来不是扩展点，导出只会让每次内部调整都变成破坏性变更。`tsq.NewRuntime`、`tsq.WrapExecutor`、`Query.SQL`、`Mutation.SQL` 收 `dialect.Name`。
 
 ### 修复
+
+- **SQLite 的重建式迁移可能删光整张表**：迁移先把旧表改名、建新表、复制行，复制一失败（新增 NOT NULL 列、表上有生成列），`sqlite3` 命令行并不停下，接着删掉旧表并提交。现在按 SQLite 文档的步骤先建新表、复制、再删旧表改名，并关掉外键；复制不会失败：新增的 NOT NULL 列用零值填、生成列交给新表计算，做不到的情况整段写成需要人工处理的注释。
+- **迁移里的 `DROP TABLE` / `DROP COLUMN` 没有任何提示就能被执行**：改表名、改 `db` 标签，甚至把 `//tsq:table` 写成 `// tsq:table`，都会生成删表删列。现在这类语句（包括丢列的重建）以注释形式写在 `-- DESTRUCTIVE` 下，`tsq gen` 给出警告，像指令却不是指令的注释也会报出来。
+- **删掉带索引的字段生成的迁移在三个方言上都失败**：先删列再删索引。现在索引先删。**SQLite 上新增生成列写成 `ADD COLUMN … STORED`**，SQLite 不接受：现在走重建。示例的迁移历史因此重新生成。
+- **SQLite 上 `Reconcile` 按大小写比较列名**：库里的 `Name` 和声明的 `name` 被当成"删一列、加一列"，先删列把数据删了，随后加列失败、启动不了。SQLite 和 MySQL 的列名现在不分大小写地比较。运行期的重建也不再复制生成列，并给新增的 NOT NULL 列填零值。
+- **`[]byte` 字段没赋值时 `Insert` 失败**：它的列是 NOT NULL，而 nil 按 NULL 绑定。现在按空字节写入。
+- **`BatchDelete` / `BatchRestore` / `BatchHardDelete` 里有一行过期时，写成的行在内存里停在旧状态**，错误也说不出是哪一行，重试永远失败。现在和 `BatchUpdate` 一样回读：写成的行带上新状态和版本，`Keys` 列出没写成的行，后面的语句照常执行。
+- **`BatchInsert` 带 `WithSkipDuplicates()` 时，后面的行失败会让已经入库的行在内存里丢掉主键和时间戳**，被跳过的重复行又留着库里没存过的时间戳。
+- **带 JOIN 的 `PageKeyset` 静默跳行**：只要求最后一列是某张表的主键，一对多时父表主键重复，按它翻页跳过了其余子行。现在排序必须包含查询里每张表的主键。**从 CTE 读的 `PageKeyset` 会 panic**，现在报错。
+- **经 CTE 或 `MapInto` 读回表的行类型，再 `Update` 会把没读到的列写成零值**：只有"同一张表的普通列"才会被当成部分读取。现在按行里实际被填的字段判断。
+- **集合运算两边选列顺序不同时，字段被静默对调**：`Select(ID, Name, Email).UnionAll(Select(ID, Email, Name))` 把邮箱读进了姓名。现在构建时报错。
 
 - **嵌入指针结构体（`*Base`）的表生成的代码一读就 panic**：生成的访问器解引用那个指针，而 `new(R)` 里它是 nil。现在 `tsq gen` 报错，要求按值嵌入。
 - **`pk=Code` 用在 string 字段上又没写 `assigned` 时 `tsq gen` 直接 panic**：现在报错并提示加 `assigned`。

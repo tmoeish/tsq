@@ -214,6 +214,8 @@ func (t *TableOf[R, K]) setTombstone(ctx context.Context, db Executor, rows []*R
 	// The stamps bind once per statement, the key match per row.
 	size := effectiveChunkSize(config.size, keyMatchParams(def), sqld.MaxBindParams(scope.dialect)-len(stamp))
 
+	var failures shortfalls
+
 	for _, chunk := range chunks(rows, size) {
 		w := &writeStmt{d: scope.dialect}
 		w.text("UPDATE ").ident(def.name).text(" SET ").ident(def.managed.DeletedAt).text(" = ")
@@ -247,116 +249,212 @@ func (t *TableOf[R, K]) setTombstone(ctx context.Context, db Executor, rows []*R
 			need = "a deleted row"
 		}
 
-		if err := t.execCounted(ctx, db, w, def, op, chunk, t.tombstoneMismatch(ctx, db, scope, def, version, op, need, chunk)); err != nil {
-			return err
-		}
+		var written []bool
 
-		for _, row := range chunk {
-			tombstone := field(row, def.column(def.managed.DeletedAt))
-			if deleted {
-				if err := applyTombstone(tombstone, now); err != nil {
-					return fmt.Errorf("table %s: %w", def.name, err)
-				}
-			} else {
-				tombstone.SetZero()
+		err := t.execCounted(ctx, db, w, def, op, chunk, t.tombstoneShortfall(ctx, db, scope, def, version, op, need, deleted, chunk, &written))
+
+		for i, row := range chunk {
+			// A statement that matched fewer rows than it was given still wrote the
+			// others: they carry their new state, as rows of a full success do.
+			if err != nil && (i >= len(written) || !written[i]) {
+				continue
 			}
 
-			// Each row gets its own value: a *time.Time shared by every row would let
-			// a change to one row's time change them all.
-			if col := def.column(def.managed.UpdatedAt); col != nil {
-				if err := applyTimestamp(field(row, col), now); err != nil {
-					return fmt.Errorf("table %s: %w", def.name, err)
-				}
-			}
-
-			if version != nil {
-				incrementVersion(field(row, version))
+			if applyErr := t.applyTombstoneWrite(def, version, row, deleted, now); applyErr != nil {
+				return applyErr
 			}
 		}
+
+		if err != nil {
+			// A stale or misplaced row does not stop the batch: the rows after it are
+			// written too, and one error names every row that was not.
+			if !failures.add(err, len(chunk) == len(rows)) {
+				return errors.Join(err, failures.err(def.name, op, len(rows)))
+			}
+		}
+	}
+
+	return failures.err(def.name, op, len(rows))
+}
+
+// applyTombstoneWrite gives row the state a delete (deleted) or restore wrote.
+func (t *TableOf[R, K]) applyTombstoneWrite(def *tableDef, version *columnCore, row *R, deleted bool, now time.Time) error {
+	tombstone := field(row, def.column(def.managed.DeletedAt))
+	if deleted {
+		if err := applyTombstone(tombstone, now); err != nil {
+			return fmt.Errorf("table %s: %w", def.name, err)
+		}
+	} else {
+		tombstone.SetZero()
+	}
+
+	// Each row gets its own value: a *time.Time shared by every row would let a
+	// change to one row's time change them all.
+	if col := def.column(def.managed.UpdatedAt); col != nil {
+		if err := applyTimestamp(field(row, col), now); err != nil {
+			return fmt.Errorf("table %s: %w", def.name, err)
+		}
+	}
+
+	if version != nil {
+		incrementVersion(field(row, version))
 	}
 
 	return nil
 }
 
-// tombstoneMismatch is the error of a delete or restore that matched fewer rows
-// than it was given. The statement checks the version and the row's state at once,
-// and the two failures need different handling: a row changed since it was loaded
-// is an OptimisticLockError, which a retry after reloading fixes, and a row in the
-// wrong state is a RowStateError, which it does not. With a version column the
-// rows are read back to tell which; the read only happens on this error path.
-func (t *TableOf[R, K]) tombstoneMismatch(ctx context.Context, db Executor, scope execScope, def *tableDef, version *columnCore, op, need string, rows []*R) func(int64, int64) error {
-	state := wrongRowState(def.name, op, need)
-	if version == nil {
-		return state
-	}
-
+// tombstoneShortfall explains a delete or restore that matched fewer rows than
+// it was given. The statement checks the version and the row's state at once, and
+// the two failures need different handling: a row changed since it was loaded is
+// an OptimisticLockError, which a retry after reloading fixes, and a row in the
+// wrong state is a RowStateError, which it does not.
+//
+// A batch is not a transaction, so the statement wrote the other rows. They are
+// read back: a row counts as written when it is in the state the statement sets
+// and, with a version column, holds the version after the loaded one. Without a
+// version the state alone cannot tell this statement's write from an earlier one;
+// either way the row is in that state, and it is given it.
+func (t *TableOf[R, K]) tombstoneShortfall(ctx context.Context, db Executor, scope execScope, def *tableDef, version *columnCore, op, need string, deleted bool, rows []*R, written *[]bool) func(int64, int64) error {
 	return func(expected, actual int64) error {
-		changed, err := t.versionsChanged(ctx, db, scope, def, version, rows)
+		tombstone := def.column(def.managed.DeletedAt)
+		cols := []*columnCore{tombstone}
 
-		switch {
-		case err != nil:
-			return errors.Join(state(expected, actual), fmt.Errorf("read back the versions: %w", err))
-		case changed:
-			return versionConflict(def.name)(expected, actual)
+		if version != nil {
+			cols = append(cols, version)
 		}
 
-		return state(expected, actual)
+		stored, err := t.readBack(ctx, db, scope, def, cols, rows, false)
+		if err != nil {
+			return errors.Join(wrongRowState(def.name, op, need)(expected, actual), fmt.Errorf("read back the rows: %w", err))
+		}
+
+		done := make([]bool, len(rows))
+
+		var changed, misplaced []any
+
+		for i, row := range rows {
+			key := value(row, def.primaryKey)
+
+			values, found := stored[keyText(key)]
+			if !found {
+				changed = append(changed, key)
+				continue
+			}
+
+			inState := isUnset(values[0]) != deleted
+
+			if version == nil {
+				// A statement that wrote nothing wrote none of them, whatever state
+				// they were already in.
+				done[i] = inState && actual > 0
+				if !inState {
+					misplaced = append(misplaced, key)
+				}
+
+				continue
+			}
+
+			loaded := field(row, version)
+			next := reflect.New(loaded.Type()).Elem()
+			next.Set(loaded)
+			incrementVersion(next)
+
+			switch stored := keyText(values[1].Interface()); {
+			case inState && stored == keyText(next.Interface()):
+				done[i] = true
+			case stored == keyText(loaded.Interface()):
+				// Nobody changed it: the statement refused it for its state.
+				misplaced = append(misplaced, key)
+			default:
+				changed = append(changed, key)
+			}
+		}
+
+		*written = done
+
+		var errs []error
+		if len(changed) > 0 {
+			errs = append(errs, &OptimisticLockError{Table: def.name, Expected: expected, Actual: actual, Keys: changed})
+		}
+
+		// Without a version, a row already in the state the statement sets cannot be
+		// told from one it set: the shortfall is reported without naming it.
+		if len(misplaced) > 0 || len(errs) == 0 {
+			errs = append(errs, &RowStateError{Table: def.name, Op: op, Need: need, Expected: expected, Actual: actual, Keys: misplaced})
+		}
+
+		return errors.Join(errs...)
 	}
 }
 
-// versionsChanged reports whether one of rows is gone or holds another version than
-// the one it was loaded with. Values are scanned into the fields' own types, so they
-// compare the same whatever the driver hands back.
-func (t *TableOf[R, K]) versionsChanged(ctx context.Context, db Executor, scope execScope, def *tableDef, version *columnCore, rows []*R) (bool, error) {
-	w := &writeStmt{d: scope.dialect}
-	w.text("SELECT ").ident(def.primaryKey.name).text(", ").ident(version.name).text(" FROM ").ident(def.name)
-	w.text(" WHERE ").ident(def.primaryKey.name).text(" IN (")
+// shortfalls gathers the stale and misplaced rows of a batch across its
+// statements, so one error names every row that was not written.
+type shortfalls struct {
+	conflict *OptimisticLockError
+	state    *RowStateError
+}
 
-	for i, row := range rows {
-		if i > 0 {
-			w.text(", ")
+// add records err and reports whether the batch goes on. It does for the errors of
+// a statement that matched fewer rows, when the batch has other statements.
+func (s *shortfalls) add(err error, single bool) bool {
+	if single {
+		return false
+	}
+
+	conflict, isConflict := errors.AsType[*OptimisticLockError](err)
+	state, isState := errors.AsType[*RowStateError](err)
+
+	if (!isConflict || conflict.Keys == nil) && (!isState || state.Keys == nil) {
+		return false
+	}
+
+	if isConflict {
+		if s.conflict == nil {
+			s.conflict = &OptimisticLockError{Table: conflict.Table}
 		}
 
-		w.arg(value(row, def.primaryKey))
+		s.conflict.Keys = append(s.conflict.Keys, conflict.Keys...)
 	}
 
-	w.text(")")
-
-	if w.err != nil {
-		return false, w.err
-	}
-
-	result, err := db.QueryContext(ctx, w.sql.String(), w.args...)
-	if err != nil {
-		return false, err
-	}
-
-	defer func() { _ = result.Close() }()
-
-	stored := make(map[string]string, len(rows))
-
-	for result.Next() {
-		key := reflect.New(field(new(R), def.primaryKey).Type())
-		held := reflect.New(field(new(R), version).Type())
-
-		if err := result.Scan(key.Interface(), held.Interface()); err != nil {
-			return false, err
+	if isState {
+		if s.state == nil {
+			s.state = &RowStateError{Table: state.Table, Op: state.Op, Need: state.Need}
 		}
 
-		stored[keyText(key.Elem().Interface())] = keyText(held.Elem().Interface())
+		s.state.Keys = append(s.state.Keys, state.Keys...)
 	}
 
-	if err := result.Err(); err != nil {
-		return false, err
+	return true
+}
+
+// err is the error of the whole batch of n rows, or nil when no statement fell short.
+func (s *shortfalls) err(table, op string, n int) error {
+	var errs []error
+
+	missing := 0
+	if s.conflict != nil {
+		missing += len(s.conflict.Keys)
 	}
 
-	for _, row := range rows {
-		if held, ok := stored[keyText(value(row, def.primaryKey))]; !ok || held != keyText(value(row, version)) {
-			return true, nil
-		}
+	if s.state != nil {
+		missing += len(s.state.Keys)
 	}
 
-	return false, nil
+	if s.conflict != nil {
+		s.conflict.Expected, s.conflict.Actual = int64(n), int64(n-missing)
+		errs = append(errs, s.conflict)
+	}
+
+	if s.state != nil {
+		s.state.Expected, s.state.Actual = int64(n), int64(n-missing)
+		errs = append(errs, s.state)
+	}
+
+	if len(errs) == 0 {
+		return nil
+	}
+
+	return fmt.Errorf("%s %s: %w", op, table, errors.Join(errs...))
 }
 
 // writeTombstoneFilter appends the condition that a row is deleted (true) or live.
@@ -566,6 +664,11 @@ func (t *TableOf[R, K]) insert(ctx context.Context, db Executor, rows []*R, conf
 		return err
 	}
 
+	// A row skipped as a duplicate was not stored: it keeps its own stamps.
+	if config.skipDuplicates {
+		snapshot.restore(written)
+	}
+
 	// One row reads back what the database filled in. A batch does not: that would
 	// be one query per row, and the caller asked for as few statements as possible.
 	if len(rows) == 1 {
@@ -604,7 +707,7 @@ func (t *TableOf[R, K]) insertGroups(ctx context.Context, db Executor, scope exe
 		}
 
 		if config.skipDuplicates {
-			if err := t.insertSkippingDuplicates(ctx, db, scope, def, cols, group, omitKey); err != nil {
+			if err := t.insertSkippingDuplicates(ctx, db, scope, def, cols, group, omitKey, written); err != nil {
 				return err
 			}
 
@@ -854,7 +957,7 @@ const (
 // the whole transaction on any failed statement, so catching the error and moving
 // on does not work there. Outside a transaction every insert is its own
 // transaction and PostgreSQL rejects SAVEPOINT, so none is used.
-func (t *TableOf[R, K]) insertSkippingDuplicates(ctx context.Context, db Executor, scope execScope, def *tableDef, cols []*columnCore, rows []*R, omitKey bool) error {
+func (t *TableOf[R, K]) insertSkippingDuplicates(ctx context.Context, db Executor, scope execScope, def *tableDef, cols []*columnCore, rows []*R, omitKey bool, written map[*R]bool) error {
 	for i, row := range rows {
 		if scope.tx {
 			if _, err := db.ExecContext(ctx, insertSavepointCreate); err != nil {
@@ -864,6 +967,8 @@ func (t *TableOf[R, K]) insertSkippingDuplicates(ctx context.Context, db Executo
 
 		err := t.insertChunk(ctx, db, scope, def, cols, []*R{row}, omitKey)
 		if err == nil {
+			written[row] = true
+
 			if scope.tx {
 				if _, err := db.ExecContext(ctx, insertSavepointRelease); err != nil {
 					return fmt.Errorf("insert into %s, row %d: %w", def.name, i, err)
@@ -1040,7 +1145,7 @@ func (t *TableOf[R, K]) update(ctx context.Context, db Executor, rows []*R, conf
 
 	// A stale row does not stop the batch: the rows after it are written too, and
 	// one error names every row that was not.
-	var conflict *OptimisticLockError
+	var failures shortfalls
 
 	for _, chunk := range chunks(rows, size) {
 		// The statement reads updated_at from the rows, so it is stamped into them
@@ -1048,7 +1153,7 @@ func (t *TableOf[R, K]) update(ctx context.Context, db Executor, rows []*R, conf
 		// must not leave the caller's rows holding a time the database never stored.
 		restore, err := stampUpdatedAt(def, chunk, now)
 		if err != nil {
-			return err
+			return errors.Join(err, failures.err(def.name, "update", len(rows)))
 		}
 
 		written, err := t.updateChunk(ctx, db, scope, def, cols, version, chunk)
@@ -1058,24 +1163,12 @@ func (t *TableOf[R, K]) update(ctx context.Context, db Executor, rows []*R, conf
 
 		restore(written)
 
-		stale, ok := errors.AsType[*OptimisticLockError](err)
-		if !ok || stale.Keys == nil || len(rows) == len(chunk) {
-			return err
+		if !failures.add(err, len(chunk) == len(rows)) {
+			return errors.Join(err, failures.err(def.name, "update", len(rows)))
 		}
-
-		if conflict == nil {
-			conflict = &OptimisticLockError{Table: def.name, Expected: int64(len(rows)), Actual: int64(len(rows))}
-		}
-
-		conflict.Actual -= int64(len(stale.Keys))
-		conflict.Keys = append(conflict.Keys, stale.Keys...)
 	}
 
-	if conflict != nil {
-		return fmt.Errorf("update %s: %w", def.name, conflict)
-	}
-
-	return nil
+	return failures.err(def.name, "update", len(rows))
 }
 
 // stampUpdatedAt writes now into the updated_at field of rows and returns what puts
@@ -1192,10 +1285,10 @@ func (t *TableOf[R, K]) updateMismatch(ctx context.Context, db Executor, scope e
 			compared = append(compared, version)
 		}
 
-		// updated_at is left out: a database may store it at a coarser precision
-		// than the time that was bound.
+		// Times are left out: a database may store one at a coarser precision than
+		// the time that was bound (MySQL DATETIME, PostgreSQL microseconds).
 		for _, col := range cols {
-			if col.name != def.managed.UpdatedAt {
+			if !isTimeField(field(new(R), col)) {
 				compared = append(compared, col)
 			}
 		}
@@ -1204,7 +1297,7 @@ func (t *TableOf[R, K]) updateMismatch(ctx context.Context, db Executor, scope e
 			compared = nil
 		}
 
-		stored, err := t.readBack(ctx, db, scope, def, compared, rows)
+		stored, err := t.readBack(ctx, db, scope, def, compared, rows, true)
 
 		var keys []any
 
@@ -1223,7 +1316,7 @@ func (t *TableOf[R, K]) updateMismatch(ctx context.Context, db Executor, scope e
 					want = next
 				}
 
-				if done[i] && values[j] != keyText(want.Interface()) {
+				if done[i] && keyText(values[j].Interface()) != keyText(want.Interface()) {
 					done[i] = false
 				}
 			}
@@ -1257,8 +1350,9 @@ func (t *TableOf[R, K]) updateMismatch(ctx context.Context, db Executor, scope e
 	}
 }
 
-// readBack returns cols of the live rows among rows, keyed and rendered by keyText.
-func (t *TableOf[R, K]) readBack(ctx context.Context, db Executor, scope execScope, def *tableDef, cols []*columnCore, rows []*R) (map[string][]string, error) {
+// readBack returns cols of the rows among rows, keyed by keyText of their key;
+// with live, only rows that are not soft-deleted.
+func (t *TableOf[R, K]) readBack(ctx context.Context, db Executor, scope execScope, def *tableDef, cols []*columnCore, rows []*R, live bool) (map[string][]reflect.Value, error) {
 	w := &writeStmt{d: scope.dialect}
 	w.text("SELECT ").ident(def.primaryKey.name)
 
@@ -1278,7 +1372,7 @@ func (t *TableOf[R, K]) readBack(ctx context.Context, db Executor, scope execSco
 
 	w.text(")")
 
-	if t.softDeleted() {
+	if live && t.softDeleted() {
 		writeTombstoneFilter(w, def, false)
 	}
 
@@ -1293,7 +1387,7 @@ func (t *TableOf[R, K]) readBack(ctx context.Context, db Executor, scope execSco
 
 	defer func() { _ = result.Close() }()
 
-	stored := make(map[string][]string, len(rows))
+	stored := make(map[string][]reflect.Value, len(rows))
 
 	for result.Next() {
 		key := reflect.New(field(new(R), def.primaryKey).Type())
@@ -1310,9 +1404,9 @@ func (t *TableOf[R, K]) readBack(ctx context.Context, db Executor, scope execSco
 			return nil, err
 		}
 
-		values := make([]string, 0, len(held))
+		values := make([]reflect.Value, 0, len(held))
 		for _, v := range held {
-			values = append(values, keyText(v.Elem().Interface()))
+			values = append(values, v.Elem())
 		}
 
 		stored[keyText(key.Elem().Interface())] = values
@@ -1362,16 +1456,6 @@ func (t *TableOf[R, K]) execCounted(ctx context.Context, db Executor, w *writeSt
 	return nil
 }
 
-// versionGuard checks the row count only when the table has a version column: it
-// is what makes a mismatch mean "someone else changed it".
-func versionGuard(def *tableDef, version *columnCore) func(int64, int64) error {
-	if version == nil {
-		return nil
-	}
-
-	return versionConflict(def.name)
-}
-
 // versionConflict is the mismatch error of a version-guarded write.
 func versionConflict(table string) func(int64, int64) error {
 	return func(expected, actual int64) error {
@@ -1403,17 +1487,47 @@ func (t *TableOf[R, K]) hardDelete(ctx context.Context, db Executor, rows []*R, 
 	version := def.column(def.managed.Version)
 	size := effectiveChunkSize(config.size, keyMatchParams(def), sqld.MaxBindParams(scope.dialect))
 
+	var failures shortfalls
+
 	for _, chunk := range chunks(rows, size) {
 		w := &writeStmt{d: scope.dialect}
 		w.text("DELETE FROM ").ident(def.name).text(" WHERE ")
 		writeKeyMatch(w, def, chunk)
 
-		if err := t.execCounted(ctx, db, w, def, "delete", chunk, versionGuard(def, version)); err != nil {
-			return err
+		if err := t.execCounted(ctx, db, w, def, "delete", chunk, t.hardDeleteShortfall(ctx, db, scope, def, version, chunk)); err != nil {
+			if !failures.add(err, len(chunk) == len(rows)) {
+				return errors.Join(err, failures.err(def.name, "delete", len(rows)))
+			}
 		}
 	}
 
-	return nil
+	return failures.err(def.name, "delete", len(rows))
+}
+
+// hardDeleteShortfall explains a version-guarded delete that removed fewer rows
+// than it was given: the rows still in the table were changed since they were
+// loaded, and are named; the others are gone.
+func (t *TableOf[R, K]) hardDeleteShortfall(ctx context.Context, db Executor, scope execScope, def *tableDef, version *columnCore, rows []*R) func(int64, int64) error {
+	if version == nil {
+		return nil
+	}
+
+	return func(expected, actual int64) error {
+		stored, err := t.readBack(ctx, db, scope, def, nil, rows, false)
+		if err != nil {
+			return errors.Join(versionConflict(def.name)(expected, actual), fmt.Errorf("read back the rows: %w", err))
+		}
+
+		var keys []any
+
+		for _, row := range rows {
+			if _, found := stored[keyText(value(row, def.primaryKey))]; found {
+				keys = append(keys, value(row, def.primaryKey))
+			}
+		}
+
+		return &OptimisticLockError{Table: def.name, Expected: expected, Actual: actual, Keys: keys}
+	}
 }
 
 // stampDeleted writes the tombstone and updated_at into row.
@@ -1640,4 +1754,29 @@ func updateColumn(def *tableDef, col SQLColumn, writable func(*columnCore) bool)
 	}
 
 	return own, nil
+}
+
+// isTimeField reports a field that holds a time: time.Time, a pointer to one, or
+// a nullable wrapper around one (sql.NullTime, sql.Null[time.Time], null.Time).
+func isTimeField(v reflect.Value) bool {
+	t := v.Type()
+	if t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+
+	if t == reflect.TypeFor[time.Time]() {
+		return true
+	}
+
+	if t.Kind() != reflect.Struct {
+		return false
+	}
+
+	for f := range t.Fields() {
+		if f.Type == reflect.TypeFor[time.Time]() {
+			return true
+		}
+	}
+
+	return false
 }

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"go/ast"
 	"go/token"
+	"log/slog"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -81,6 +83,10 @@ func parseAnnotations(
 	return meta, nil
 }
 
+// lookalikeDirective matches a comment that reads like a directive but is not
+// one: a space after //, or a block comment.
+var lookalikeDirective = regexp.MustCompile(`^(//\s+|/\*\s*)tsq:[a-z]`)
+
 func collectDirectives(comments []*ast.CommentGroup, fileSet *token.FileSet) []directive {
 	var directives []directive
 
@@ -92,6 +98,18 @@ func collectDirectives(comments []*ast.CommentGroup, fileSet *token.FileSet) []d
 		for _, comment := range group.List {
 			text := strings.TrimRight(comment.Text, " \t")
 			if !strings.HasPrefix(text, DirectivePrefix) {
+				// "// tsq:table" is prose to Go and to this parser, so the struct
+				// silently stops being a table, and the next migration drops it.
+				if lookalikeDirective.MatchString(text) {
+					var at token.Position
+					if fileSet != nil {
+						at = fileSet.Position(comment.Slash)
+					}
+
+					slog.Warn("comment looks like a //tsq: directive but is not one; write it with no space after //",
+						"at", at.String(), "comment", text)
+				}
+
 				continue
 			}
 

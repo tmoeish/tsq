@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"reflect"
 	"slices"
 
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
@@ -252,6 +253,16 @@ func (s *querySpec[O]) checkScanTargets() error {
 	}
 
 	return nil
+}
+
+// sourceTables returns the FROM table and every joined table.
+func (s *querySpec[O]) sourceTables() []Table {
+	tables := []Table{s.From}
+	for _, j := range s.Joins {
+		tables = append(tables, j.table)
+	}
+
+	return tables
 }
 
 // operands returns s and every operand of its set operations, recursively.
@@ -783,6 +794,13 @@ func (s *querySpec[O]) validate(outer map[string]Table) error {
 				op.op, len(s.Selects), len(op.spec.Selects))
 		}
 
+		// Every operand's rows are read through the first operand's columns, by
+		// position: an operand that selects name and email the other way round
+		// had its values read into each other's fields without a word.
+		if err := sameScanTargets(s.Selects, op.spec.Selects); err != nil {
+			return fmt.Errorf("%s: %w", op.op, err)
+		}
+
 		if len(s.KeywordSearch) > 0 || len(op.spec.KeywordSearch) > 0 {
 			return errors.New("set operations do not support keyword search")
 		}
@@ -993,4 +1011,24 @@ func (c *cteSpec[O]) outputNames() []string {
 	}
 
 	return names
+}
+
+// sameScanTargets refuses operands whose columns at one position read into
+// different fields of O.
+func sameScanTargets[O any](left, right []BoundColumn[O]) error {
+	holder := new(O)
+
+	for i := range left {
+		l, r := left[i].core(), right[i].core()
+		if l == nil || r == nil || l.scan == nil || r.scan == nil {
+			continue
+		}
+
+		if reflect.ValueOf(l.scan(holder)).Pointer() != reflect.ValueOf(r.scan(holder)).Pointer() {
+			return fmt.Errorf("column %d reads into another field than the first operand's (%s, %s); select the operands' columns in the same order",
+				i+1, left[i].Name(), right[i].Name())
+		}
+	}
+
+	return nil
 }

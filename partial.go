@@ -2,8 +2,8 @@ package tsq
 
 import (
 	"fmt"
+	"reflect"
 	"runtime"
-	"slices"
 	"strings"
 	"sync"
 	"weak"
@@ -18,48 +18,48 @@ import (
 // which columns to name.
 var partialRows sync.Map // weak.Pointer[R] -> []string
 
-// partialColumns returns the columns a query reads when it scans a strict subset
-// of one table's columns into that table's own row type, and nil otherwise:
-// projections into result types, CTEs and full-width selects are not partial.
+// rowTables maps a table's row type to its definition, for partialColumns.
+var rowTables sync.Map // reflect.Type -> *tableDef
+
+// partialColumns returns the columns a query reads when it scans into a table's
+// own row type without filling every column TSQ writes back, and nil otherwise.
+// What is compared is the fields the scan fills, not where the values come from:
+// a row read through a CTE, or projected into the row type with MapInto, is as
+// partial as one read with a narrow Select, and saving it whole zeroed the rest.
+// A generated column is never written, so leaving it out loses nothing.
 func partialColumns[O any](selects []BoundColumn[O]) []string {
-	var (
-		def   *tableDef
-		names = make([]string, 0, len(selects))
-	)
-
-	for _, col := range selects {
-		core := col.core()
-		if core == nil || !core.plain || isNilValue(core.table) {
-			return nil
-		}
-
-		d := core.table.definition()
-		switch {
-		case d == nil:
-			return nil
-		case def == nil:
-			def = d
-		case def != d:
-			return nil
-		}
-
-		if !slices.Contains(names, core.name) {
-			names = append(names, core.name)
-		}
-	}
-
-	if def == nil {
+	found, ok := rowTables.Load(reflect.TypeFor[O]())
+	if !ok {
 		return nil
 	}
 
-	// A generated column is never written, so leaving it out loses nothing.
-	for _, col := range def.columns {
-		if col.fill != tsqdialect.FillGenerated && !slices.Contains(names, col.name) {
-			return names
+	def := found.(*tableDef)
+	holder := new(O)
+
+	filled := make(map[uintptr]bool, len(selects))
+	for _, col := range selects {
+		if core := col.core(); core != nil && core.scan != nil {
+			filled[reflect.ValueOf(core.scan(holder)).Pointer()] = true
 		}
 	}
 
-	return nil
+	var names []string
+
+	whole := true
+
+	for _, col := range def.columns {
+		if filled[reflect.ValueOf(col.scan(holder)).Pointer()] {
+			names = append(names, col.name)
+		} else if col.fill != tsqdialect.FillGenerated {
+			whole = false
+		}
+	}
+
+	if whole {
+		return nil
+	}
+
+	return names
 }
 
 // markPartial records that row holds only cols.

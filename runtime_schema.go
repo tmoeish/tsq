@@ -328,38 +328,49 @@ func diffTableColumns(
 	// so comparing would ask for the same change on every boot. It leaves both sides
 	// of the comparison, or the live column would look undeclared and be dropped.
 	// Adding one to a table that exists is a migration.
+	// SQLite and MySQL match column names without case, so "Name" and "name" are
+	// one column there: comparing them exactly read as drop Name, add name, and the
+	// drop ran first, with the data. PostgreSQL keeps the case of quoted names.
+	key := func(name string) string {
+		if dialect.Name() == tsqdialect.Postgres {
+			return name
+		}
+
+		return strings.ToLower(name)
+	}
+
 	generated := map[string]bool{}
 
 	for _, column := range desired {
 		if column.Fill == tsqdialect.FillGenerated {
-			generated[column.Name] = true
+			generated[key(column.Name)] = true
 		}
 	}
 
-	desired = slices.DeleteFunc(slices.Clone(desired), func(c tsqdialect.ColumnSpec) bool { return generated[c.Name] })
-	current = slices.DeleteFunc(slices.Clone(current), func(c sqld.Column) bool { return generated[c.Name] })
+	desired = slices.DeleteFunc(slices.Clone(desired), func(c tsqdialect.ColumnSpec) bool { return generated[key(c.Name)] })
+	current = slices.DeleteFunc(slices.Clone(current), func(c sqld.Column) bool { return generated[key(c.Name)] })
 
 	currentByName := make(map[string]sqld.Column, len(current))
 	for _, column := range current {
-		currentByName[column.Name] = column
+		currentByName[key(column.Name)] = column
 	}
 
 	desiredByName := make(map[string]tsqdialect.ColumnSpec, len(desired))
 	for _, column := range desired {
-		desiredByName[column.Name] = column
+		desiredByName[key(column.Name)] = column
 	}
 
 	changes := make([]tableColumnChange, 0)
 
 	for _, column := range current {
-		if _, ok := desiredByName[column.Name]; !ok {
+		if _, ok := desiredByName[key(column.Name)]; !ok {
 			columnCopy := column
 			changes = append(changes, tableColumnChange{kind: tableColumnDrop, before: &columnCopy})
 		}
 	}
 
 	for _, column := range desired {
-		currentColumn, ok := currentByName[column.Name]
+		currentColumn, ok := currentByName[key(column.Name)]
 		if !ok {
 			columnCopy := column
 			changes = append(changes, tableColumnChange{kind: tableColumnAdd, after: &columnCopy})
@@ -621,7 +632,7 @@ func renderRebuildTableStatements(
 		return nil, err
 	}
 
-	shared := sharedColumnNames(current, desired)
+	targets, sources := rebuildCopyColumns(dialect, current, desired)
 	statements := []string{
 		fmt.Sprintf(
 			"ALTER TABLE %s RENAME TO %s;",
@@ -631,17 +642,12 @@ func renderRebuildTableStatements(
 		createStatement,
 	}
 
-	if len(shared) > 0 {
-		quotedColumns := make([]string, 0, len(shared))
-		for _, name := range shared {
-			quotedColumns = append(quotedColumns, dialect.QuoteIdent(name))
-		}
-
+	if len(targets) > 0 {
 		statements = append(statements, fmt.Sprintf(
 			"INSERT INTO %s (%s) SELECT %s FROM %s;",
 			dialect.QuoteIdent(tableName),
-			strings.Join(quotedColumns, ", "),
-			strings.Join(quotedColumns, ", "),
+			strings.Join(targets, ", "),
+			strings.Join(sources, ", "),
 			dialect.QuoteIdent(tempTable),
 		))
 	}
@@ -690,20 +696,61 @@ func renderRebuildObjectStatements(desired []tsqdialect.ColumnSpec, objects []sq
 	return statements
 }
 
-func sharedColumnNames(current []sqld.Column, desired []tsqdialect.ColumnSpec) []string {
-	currentByName := make(map[string]struct{}, len(current))
+// rebuildCopyColumns lists the columns a rebuild copies and what it copies into
+// them. A generated column is computed by the new table (SQLite refuses to insert
+// into one), and a new NOT NULL column without a default gets its type's zero
+// value, so the copy does not fail on a table with rows. Names are matched without
+// case, as SQLite matches them.
+func rebuildCopyColumns(dialect sqld.Dialect, current []sqld.Column, desired []tsqdialect.ColumnSpec) (targets, sources []string) {
+	existing := make(map[string]string, len(current))
 	for _, column := range current {
-		currentByName[column.Name] = struct{}{}
+		existing[strings.ToLower(column.Name)] = column.Name
 	}
 
-	shared := make([]string, 0, len(desired))
 	for _, column := range desired {
-		if _, ok := currentByName[column.Name]; ok {
-			shared = append(shared, column.Name)
+		if column.Fill == tsqdialect.FillGenerated {
+			continue
+		}
+
+		if name, ok := existing[strings.ToLower(column.Name)]; ok {
+			targets = append(targets, dialect.QuoteIdent(column.Name))
+			sources = append(sources, dialect.QuoteIdent(name))
+
+			continue
+		}
+
+		if column.Type.Nullable || column.Default != "" || column.AutoIncrement {
+			continue
+		}
+
+		if zero, ok := zeroLiteral(column.Type); ok {
+			targets = append(targets, dialect.QuoteIdent(column.Name))
+			sources = append(sources, zero)
 		}
 	}
 
-	return shared
+	return targets, sources
+}
+
+// zeroLiteral is the Go zero value of a column type as a SQL literal, for rows a
+// new NOT NULL column is added to. A column of an explicit type: has none TSQ knows.
+func zeroLiteral(t tsqdialect.ColumnType) (string, bool) {
+	if t.RawType != "" {
+		return "", false
+	}
+
+	switch t.Kind {
+	case tsqdialect.KindString:
+		return "''", true
+	case tsqdialect.KindInt, tsqdialect.KindBool, tsqdialect.KindFloat:
+		return "0", true
+	case tsqdialect.KindBytes:
+		return "X''", true
+	case tsqdialect.KindTime:
+		return "'0001-01-01 00:00:00+00:00'", true
+	}
+
+	return "", false
 }
 
 // sqlStringLiteral quotes s as a SQL string literal.

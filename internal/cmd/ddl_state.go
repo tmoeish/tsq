@@ -551,20 +551,25 @@ func compareDDLChanges(left, right ddlChange) int {
 	return strings.Compare(ddlChangeObjectName(left), ddlChangeObjectName(right))
 }
 
+// ddlChangeCategoryRank orders a table's changes. An index is dropped before the
+// columns change: dropping a column first fails on SQLite (the index names it)
+// and takes the index with it on MySQL and PostgreSQL, so its DROP INDEX fails.
 func ddlChangeCategoryRank(change ddlChange) int {
 	switch change.kind {
 	case ddlChangeCreateTable, ddlChangeDropTable:
 		return 0
-	case ddlChangeAddColumn, ddlChangeAlterColumn, ddlChangeDropColumn:
+	case ddlChangeDropIndex:
 		return 1
-	case ddlChangeAddIndex, ddlChangeDropIndex:
+	case ddlChangeAddColumn, ddlChangeAlterColumn, ddlChangeDropColumn:
+		return 2
+	case ddlChangeAddIndex:
 		if ddlChangeIndexUnique(change) {
-			return 2
+			return 3
 		}
 
-		return 3
-	default:
 		return 4
+	default:
+		return 5
 	}
 }
 
@@ -824,6 +829,11 @@ func renderDDLIncrementalTableBody(
 		}
 	}
 
+	// Statements run in the order the summary lists them: indexes are dropped
+	// before the columns they name (ddlChangeCategoryRank).
+	ops = slices.Clone(ops)
+	slices.SortStableFunc(ops, compareDDLChanges)
+
 	lines := make([]string, 0, len(ops))
 	for _, op := range ops {
 		rendered := renderDDLChangeOperation(dialect, op)
@@ -840,9 +850,12 @@ func renderDDLIncrementalTableBody(
 	return strings.Join(lines, "\n\n"), true
 }
 
+// ddlChangesRequireTableRebuild reports changes SQLite cannot make in place:
+// altering a column, and adding a stored generated column (ALTER TABLE ADD
+// COLUMN refuses STORED).
 func ddlChangesRequireTableRebuild(ops []ddlChange) bool {
 	for _, op := range ops {
-		if op.kind == ddlChangeAlterColumn {
+		if op.kind == ddlChangeAlterColumn || (op.kind == ddlChangeAddColumn && op.newColumn.Generated != "") {
 			return true
 		}
 	}
@@ -868,43 +881,83 @@ func renderSQLiteRebuildTableBody(dialect ddlDialectSpec, tableName string, ops 
 		return renderDDLManualComment(tableName, "manual change required to rebuild table for sqlite"), true
 	}
 
-	tempTable := "__tsq_rebuild_" + tableName
-
-	// The copy writes only the columns both tables have, so a new NOT NULL column
-	// with no default fails it on a table with rows, the same as ADD COLUMN would.
-	var statements []string
-
+	// The section is run by a client that may not stop at the first error: the
+	// sqlite3 shell goes on to the DROP after a failed copy, and the table's rows
+	// are gone. So the copy must not be able to fail: a new NOT NULL column gets
+	// its type's zero value, a generated column is left to the new table, and what
+	// cannot be filled that way is not rebuilt at all.
 	existing := make(map[string]bool, len(before.Columns))
 	for _, column := range before.Columns {
 		existing[column.Name] = true
 	}
 
+	var (
+		notes   []string
+		targets []string
+		sources []string
+	)
+
 	for _, column := range after.Columns {
-		if !existing[column.Name] && !column.Nullable && column.Default == "" && column.Generated == "" && !column.AutoIncrement {
-			statements = append(statements, renderDDLManualComment(tableName, fmt.Sprintf(
-				"%s is NOT NULL without a default, which fails on a table with rows; declare default: or backfill it first", column.Name)))
+		quoted := dialect.dialect.QuoteIdent(column.Name)
+
+		switch {
+		case column.Generated != "":
+			continue
+		case migrationOwned(column):
+			return renderDDLManualComment(tableName, fmt.Sprintf(
+				"manual rebuild required: %s is computed by the database with no expression TSQ knows, so a rebuilt table would lose it", column.Name)), true
+		case existing[column.Name]:
+			targets = append(targets, quoted)
+			sources = append(sources, quoted)
+		case column.Nullable || column.Default != "" || column.AutoIncrement:
+			// The new table fills it.
+		default:
+			zero, ok := sqliteZeroLiteral(column)
+			if !ok {
+				return renderDDLManualComment(tableName, fmt.Sprintf(
+					"manual rebuild required: %s is NOT NULL without a default, and its type:%s has no known zero value to fill existing rows with", column.Name, column.RawType)), true
+			}
+
+			notes = append(notes, renderDDLManualComment(tableName, fmt.Sprintf(
+				"%s is NOT NULL without a default; existing rows get %s", column.Name, zero)))
+			targets = append(targets, quoted)
+			sources = append(sources, zero)
 		}
 	}
 
-	statements = append(statements,
+	var dropped []string
+
+	kept := make(map[string]bool, len(after.Columns))
+	for _, column := range after.Columns {
+		kept[column.Name] = true
+	}
+
+	for _, column := range before.Columns {
+		if !kept[column.Name] {
+			dropped = append(dropped, column.Name)
+		}
+	}
+
+	newTable := "__tsq_new_" + tableName
+	fresh := *after
+	fresh.Name = newTable
+
+	statements := append(notes,
+		renderDDLManualComment(tableName, "rebuilt by copying its rows; triggers on it are dropped and must be created again"),
+		// Dropping the old table with foreign keys on would cascade to, or fail
+		// for, the rows that reference it (SQLite's documented rebuild procedure).
+		"PRAGMA foreign_keys = OFF;",
 		"BEGIN TRANSACTION;",
-		fmt.Sprintf(
-			"ALTER TABLE %s RENAME TO %s;",
-			dialect.dialect.QuoteIdent(tableName),
-			dialect.dialect.QuoteIdent(tempTable),
-		),
-		renderDDLSnapshotCreateTable(*after, dialect),
+		renderDDLSnapshotCreateTable(fresh, dialect),
 	)
 
-	commonColumns := sharedDDLSnapshotColumns(*before, *after)
-	if len(commonColumns) > 0 {
-		quotedColumns := quoteDDLColumns(commonColumns, dialect)
+	if len(targets) > 0 {
 		statements = append(statements, fmt.Sprintf(
 			"INSERT INTO %s (%s) SELECT %s FROM %s;",
+			dialect.dialect.QuoteIdent(newTable),
+			strings.Join(targets, ", "),
+			strings.Join(sources, ", "),
 			dialect.dialect.QuoteIdent(tableName),
-			strings.Join(quotedColumns, ", "),
-			strings.Join(quotedColumns, ", "),
-			dialect.dialect.QuoteIdent(tempTable),
 		))
 	}
 
@@ -912,48 +965,53 @@ func renderSQLiteRebuildTableBody(dialect ddlDialectSpec, tableName string, ops 
 	// table would hand out the keys of rows deleted before the rebuild again.
 	if slices.ContainsFunc(after.Columns, func(c ddlSnapshotColumn) bool { return c.AutoIncrement }) {
 		statements = append(statements,
-			fmt.Sprintf("DELETE FROM sqlite_sequence WHERE name = '%s';", strings.ReplaceAll(tableName, "'", "''")),
-			fmt.Sprintf("INSERT INTO sqlite_sequence (name, seq) SELECT '%s', seq FROM sqlite_sequence WHERE name = '%s';",
-				strings.ReplaceAll(tableName, "'", "''"), strings.ReplaceAll(tempTable, "'", "''")),
+			fmt.Sprintf("DELETE FROM sqlite_sequence WHERE name = %s;", sqlLiteral(newTable)),
+			fmt.Sprintf("INSERT INTO sqlite_sequence (name, seq) SELECT %s, seq FROM sqlite_sequence WHERE name = %s;",
+				sqlLiteral(newTable), sqlLiteral(tableName)),
 		)
 	}
 
-	statements = append(statements, fmt.Sprintf("DROP TABLE %s;", dialect.dialect.QuoteIdent(tempTable)))
+	statements = append(statements,
+		fmt.Sprintf("DROP TABLE %s;", dialect.dialect.QuoteIdent(tableName)),
+		fmt.Sprintf("ALTER TABLE %s RENAME TO %s;", dialect.dialect.QuoteIdent(newTable), dialect.dialect.QuoteIdent(tableName)),
+	)
 	statements = append(statements, renderDDLSnapshotIndexStatements(*after, dialect)...)
+	statements = append(statements, "PRAGMA foreign_key_check;", "COMMIT;", "PRAGMA foreign_keys = ON;")
 
-	statements = append(statements, "COMMIT;")
+	// A rebuild that leaves a column out drops its data, like DROP COLUMN.
+	if len(dropped) > 0 {
+		return destructive(tableName, "rebuilds the table without "+strings.Join(dropped, ", ")+" and their data",
+			strings.Join(statements, "\n\n"))[0], true
+	}
 
 	return strings.Join(statements, "\n\n"), true
 }
 
-func sharedDDLSnapshotColumns(before, after ddlSnapshotTable) []string {
-	beforeColumns := make(map[string]struct{}, len(before.Columns))
-	for _, column := range before.Columns {
-		beforeColumns[column.Name] = struct{}{}
+// sqliteZeroLiteral is the Go zero value of column's type as a SQLite literal,
+// which a rebuild writes into a new NOT NULL column of existing rows. A column of
+// an explicit type: has none TSQ knows.
+func sqliteZeroLiteral(column ddlSnapshotColumn) (string, bool) {
+	if column.RawType != "" {
+		return "", false
 	}
 
-	names := make([]string, 0, len(after.Columns))
-	for _, column := range after.Columns {
-		// The rebuilt table does not have it: TSQ cannot write its definition.
-		if migrationOwned(column) {
-			continue
-		}
-
-		if _, ok := beforeColumns[column.Name]; ok {
-			names = append(names, column.Name)
-		}
+	switch column.Kind {
+	case ddlColumnString:
+		return "''", true
+	case ddlColumnInt, ddlColumnBool, ddlColumnFloat:
+		return "0", true
+	case ddlColumnBytes:
+		return "X''", true
+	case ddlColumnTime:
+		return "'0001-01-01 00:00:00+00:00'", true
 	}
 
-	return names
+	return "", false
 }
 
-func quoteDDLColumns(columns []string, dialect ddlDialectSpec) []string {
-	quoted := make([]string, 0, len(columns))
-	for _, column := range columns {
-		quoted = append(quoted, dialect.dialect.QuoteIdent(column))
-	}
-
-	return quoted
+// sqlLiteral quotes s as a SQL string literal.
+func sqlLiteral(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
 }
 
 func renderDDLChangeOperation(dialect ddlDialectSpec, op ddlChange) []string {
@@ -961,7 +1019,8 @@ func renderDDLChangeOperation(dialect ddlDialectSpec, op ddlChange) []string {
 	case ddlChangeCreateTable:
 		return []string{renderDDLSnapshotTableBlock(*op.newTable, dialect)}
 	case ddlChangeDropTable:
-		return []string{fmt.Sprintf("DROP TABLE %s;", dialect.dialect.QuoteIdent(op.oldTable.Name))}
+		return destructive(op.oldTable.Name, "drops the table and its rows",
+			fmt.Sprintf("DROP TABLE %s;", dialect.dialect.QuoteIdent(op.oldTable.Name)))
 	case ddlChangeAddColumn:
 		if migrationOwned(*op.newColumn) {
 			return []string{renderDDLManualComment(op.table, migrationOwnedNote(*op.newColumn))}
@@ -990,11 +1049,11 @@ func renderDDLChangeOperation(dialect ddlDialectSpec, op ddlChange) []string {
 		return []string{statement}
 
 	case ddlChangeDropColumn:
-		return []string{fmt.Sprintf(
+		return destructive(op.table, "drops column "+op.oldColumn.Name+" and its data", fmt.Sprintf(
 			"ALTER TABLE %s DROP COLUMN %s;",
 			dialect.dialect.QuoteIdent(op.table),
 			dialect.dialect.QuoteIdent(op.oldColumn.Name),
-		)}
+		))
 	case ddlChangeAlterColumn:
 		return renderDDLAlterColumnStatements(dialect, op.table, *op.oldColumn, *op.newColumn)
 	case ddlChangeAddIndex:
@@ -1097,4 +1156,23 @@ func snapshotColumnType(table ddlSnapshotTable) func(string) (tsqdialect.ColumnT
 
 		return tsqdialect.ColumnType{}, false
 	}
+}
+
+// destructiveMarker starts every statement a migration writes commented out
+// because it destroys data: renaming a table or a db tag, or a directive typed
+// wrongly, looks the same to the generator as removing it on purpose.
+const destructiveMarker = "-- DESTRUCTIVE"
+
+// destructive writes statements commented out behind destructiveMarker, to be
+// run by hand once the drop is known to be meant.
+func destructive(table, what string, statements ...string) []string {
+	lines := []string{fmt.Sprintf("%s (%s %s): check it is meant, then run it by hand", destructiveMarker, table, what)}
+
+	for _, statement := range statements {
+		for line := range strings.SplitSeq(statement, "\n") {
+			lines = append(lines, "-- "+line)
+		}
+	}
+
+	return []string{strings.Join(lines, "\n")}
 }

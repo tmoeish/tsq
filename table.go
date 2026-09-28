@@ -201,6 +201,10 @@ func (t *TableOf[R, K]) define(spec TableSpec[R, K], deletedAt BoundColumn[R]) {
 	d.defined = true
 	d.byName = make(map[string]*columnCore, len(spec.Columns))
 
+	// A query that reads R, whatever it selects from, is checked against this
+	// table for the columns it leaves out (partialColumns).
+	rowTables.LoadOrStore(reflect.TypeFor[R](), d)
+
 	fail := func(format string, args ...any) {
 		d.err = errors.Join(d.err, fmt.Errorf("table %s: "+format, append([]any{d.name}, args...)...))
 	}

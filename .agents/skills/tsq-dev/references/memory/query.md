@@ -66,3 +66,8 @@ SQL 标准和 MySQL / PostgreSQL 让 `INTERSECT` 比 `UNION` / `EXCEPT` 结合�
 空 `NotIn` 同理只能交给引擎验证：`NOT IN (SELECT 1 WHERE 1 = 0)` 的渲染断言全绿，PostgreSQL 在 varchar 列上
 比较 `varchar = integer` 报错。换成 `(col NOT IN (NULL) OR <守卫>)`：`NULL` 字面量能适配任何列类型，守卫在绑定时
 按列表空否写 `1 = 1` / `1 = 0`。
+
+## 决定：部分读取和 keyset 唯一性都按"行实际是什么"判断 (2026-09-28)
+
+部分读取曾按"选的都是同一张表的普通列"判断，经 CTE 或 `MapInto` 读回的表行漏网、`Update` 写零值；现在比较扫描实际
+填了行类型的哪些字段。keyset 曾只要求"最后一列是主键"，一对多 join 里父表主键重复、静默跳行；现在要求每张来源表的主键。

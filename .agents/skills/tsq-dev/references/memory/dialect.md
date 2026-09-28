@@ -7,14 +7,9 @@
 `SchemaPolicyManaged` 靠全库共享的 `_tsq_managed_tables` 记住"我托管过哪些表"，不在当前声明里的
 就 DROP，而每个 runtime 用**自己那份表集整个覆盖**它。两个服务共用一个库时来回摧毁对方的表和数据。
 
-**判据**：一份**全局**状态被一个只知道**局部**真相的写入者整个覆盖时，覆盖就是数据丢失。问题不在
-DROP 那段逻辑（它按自己的记账是对的），在记账的**范围**和写入者的范围不一致。
-
-v4 的补丁是给记账加 owner 维度（`SchemaOwner`）。**v5 把整档删掉**：runtime 分不清"这张表不该存在了"
-和"这张表是别人的"，删表交给迁移脚本；门是 `runtime_schema_isolation_test.go` 加同名集成用例。**列不同**：
-`Reconcile` 删不再声明的列是有意的（原型期测试库跟着代码走，生产用 `Manual`，维护者 2026-09-22 确认）。
-2026-09-20 的审计按"只增不减"的旧措辞把它判成了缺陷，**别照那个措辞去掉它**；门是
-`TestReconcileDropsUndeclaredColumns`。
+**判据**：一份**全局**状态被一个只知道**局部**真相的写入者整个覆盖，就是数据丢失。v5 删掉整档（`SchemaOwner` 补丁也不要），
+删表交给迁移，门是 `runtime_schema_isolation_test.go` 加同名集成用例。**列不同**：`Reconcile` 删不再声明的列是有意的（维护者
+2026-09-22 确认），别照 2026-09-20 审计"只增不减"的措辞去掉它；门是 `TestReconcileDropsUndeclaredColumns`。
 
 ## "抓住错误继续跑"在 PostgreSQL 的事务里不成立 (2026-08-28)
 

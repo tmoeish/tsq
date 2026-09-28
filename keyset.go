@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"reflect"
+	"slices"
 	"strings"
 )
 
@@ -19,8 +20,8 @@ type Keyset struct {
 	// Size is the page size; 0 means 20, and the runtime's WithMaxPageSize caps it.
 	Size int
 	// OrderBy orders the rows and defines the position. It is required, every column
-	// must be selected by the query and never NULL, and the last must be a primary
-	// key, which makes the position unique.
+	// must be selected by the query and never NULL, and it must include the primary
+	// key of every table of the query, which makes the position unique.
 	OrderBy []OrderBy
 	// After is KeysetPage.Next of the previous page; empty starts at the first row.
 	After string
@@ -161,10 +162,25 @@ func (q *Query[O]) keysetColumns(orderBy []OrderBy) ([]keysetColumn[O], error) {
 		keys = append(keys, keysetColumn[O]{term: orderTerm{expr: columnInfo(ob.column).sql, direction: ob.direction}, selected: selected})
 	}
 
-	last := orderBy[len(orderBy)-1].column.core()
-	if last.err() != nil || isNilValue(last.table) || !last.plain || last.table.definition().primaryKey == nil ||
-		last.table.definition().primaryKey.name != last.name {
-		return nil, errors.New("the last Keyset.OrderBy column must be a primary key, so that every position is unique")
+	// A position is unique only when the order names every row of the result, and
+	// a row of a join is one row of each table: in a one-to-many join the parent's
+	// key repeats, and seeking past it skipped the rest of its children. So the
+	// order must hold the primary key of the FROM table and of every joined table.
+	for _, table := range s.sourceTables() {
+		def := table.definition()
+		if def == nil || def.primaryKey == nil {
+			return nil, fmt.Errorf("PageKeyset needs a primary key on every table of the query, and %s has none", table.TableName())
+		}
+
+		if !slices.ContainsFunc(orderBy, func(ob OrderBy) bool {
+			core := ob.column.core()
+
+			return core.err() == nil && core.plain && !isNilValue(core.table) &&
+				core.table.TableName() == table.TableName() && core.name == def.primaryKey.name
+		}) {
+			return nil, fmt.Errorf("Keyset.OrderBy must include the primary key of %s (%s), so that every position is unique",
+				table.TableName(), def.primaryKey.name)
+		}
 	}
 
 	return keys, nil

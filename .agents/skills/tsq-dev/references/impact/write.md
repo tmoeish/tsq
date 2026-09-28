@@ -93,3 +93,8 @@
 - `batch_test.go` 的宽表用例是门：它真的写一张 200 列的表。UPDATE 的求值开销约是行数² × 列数，
   所以表做宽、行做少；它在 `-race` 下跳过（转译的 SQLite 慢约四十倍，且没有并发可查），
   普通 `test` 里照跑。
+- **批量写的短缺一律回读**：`BatchUpdate`（`updateMismatch`）、`BatchDelete` / `BatchRestore`（`tombstoneShortfall`）、
+  `BatchHardDelete`（`hardDeleteShortfall`）在匹配行数不够时回读这一块，只给写成的行改内存状态，`Keys` 列出其余的行；
+  跨语句的汇总走 `shortfalls`（后面的语句出别的错时也不丢前面的 `Keys`）。新增一条"一条语句写多行"的写路径要接进同一套。
+  回读比较跳过时间列（`isTimeField`），数据库可能按更粗的精度存。
+- `insert` 的 `written` 集合要由每条真正写成行的路径登记，`WithSkipDuplicates` 也不例外，否则出错时会把已入库的行恢复成旧值。

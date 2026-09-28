@@ -161,6 +161,8 @@ Rules:
 - `string`, `sql.NullString`, `null.String`, and their type alias / custom string forms default to `VARCHAR(255)` when `size` is omitted
 - `int`, `uint`, and enum-like custom types built on them default to regular integer width; `int64` / `uint64` map to big-integer types
 - `db:"col,size:N"` sets an explicit string width
+- a `[]byte` field is a NOT NULL binary column, and an unset (nil) one is written as empty bytes;
+  `*[]byte` is the nullable form
 - `db:"col,type:SQL_TYPE"` sets an explicit raw SQL type override for DDL generation and runtime schema metadata
 - `db:"col,default:SQL"` gives the column a DDL `DEFAULT SQL` **and** leaves it to the database when
   the field is unset: an `INSERT` of such a row omits the column, and a single-row `Insert` reads the
@@ -291,6 +293,21 @@ In projects that keep schema artifacts, TSQ may also generate:
 
 Do not hand-edit generated outputs in normal usage.
 
+Each `.sql` file holds the full schema followed by one dated migration section per `tsq gen` that
+changed it. A migration never runs a destructive statement for you:
+
+- a `DROP TABLE`, a `DROP COLUMN`, or a SQLite rebuild that leaves a column out is written commented
+  out behind `-- DESTRUCTIVE`, and `tsq gen` warns about it. Renaming a table or a `db` tag, and a
+  mistyped directive, look the same to the generator as removing it, so run it by hand only once the
+  drop is meant. A comment that reads like a directive but is not one (`// tsq:table`, with a space)
+  is reported too
+- indexes are dropped before the columns they name
+- SQLite changes a column type, or adds a generated column, by rebuilding the table: it creates the
+  new table, copies the rows, drops the old one and renames the new one, with foreign keys off. The
+  copy cannot fail on a table with rows: a new NOT NULL column without a default gets its type's zero
+  value (the section says so), and a generated column is computed by the new table. Triggers on the
+  table are dropped by the rebuild and must be created again; the section says that too
+
 ### What a generated table looks like
 
 ```go
@@ -397,7 +414,11 @@ Semantics:
   transaction: `BatchUpdate` still writes the rows that are current, reads the batch back to find
   the stale ones, and lists their primary keys in `OptimisticLockError.Keys`. The written rows carry
   their new `version` and `updated_at`, so only the rows in `Keys` need reloading; wrap the call in
-  `WithTx` when it must be all or nothing
+  `WithTx` when it must be all or nothing. `BatchDelete`, `BatchRestore` and `BatchHardDelete` work
+  the same way (a row in the wrong state goes into `RowStateError.Keys`), and a stale row does not
+  stop the statements after it
+- `BatchInsert` with `WithSkipDuplicates()` leaves a skipped row as it was passed in (no key, no
+  stamps), and keeps the key and stamps of the rows it stored when a later row fails
 - without a `version` column, an `Update` of a row that is gone (or, on a soft-delete table,
   deleted) fails with `*RowStateError`; writing a row's current values is not an error, although
   MySQL reports no row changed
@@ -578,6 +599,7 @@ Rules:
 - on a set operation (`Union`, ...) an `OrderBy` term refers to the output column by name, which is the only form every dialect accepts there. The term must be an output column: a selected projection (`upper := tsq.MapInto(tsq.Upper(col), ...)`, then `OrderBy(upper.Asc())`) or a column selected under that name; `Build()` refuses an expression that is not selected
 - a select item that is not a plain column is written `AS` its name (the name of the column it is derived from), so a CTE and a set operation's `ORDER BY` find it by that name on every dialect
 - a set operation whose operand is itself combined (`a.Union(b.Union(c))`) groups the operand as a derived table, which every dialect accepts
+- every operand's rows are read through the first operand's columns, by position, so each operand must select into the same fields in the same order; `Build()` refuses an operand that selects them in another order
 - a chain is evaluated left to right, as it reads: `a.Union(b).Intersect(c)` is `(a ∪ b) ∩ c` on every dialect. SQL itself binds `INTERSECT` tighter than `UNION` / `EXCEPT` on MySQL and PostgreSQL but not on SQLite, so TSQ groups the part before such an `INTERSECT` as a derived table. For `a ∪ (b ∩ c)`, pass the combined operand: `a.Union(b.Intersect(c))`
 - a select list that names one column twice (`users.id` and `orders.id`) keeps the first name and writes the later one under a generated name, so the query can still be counted or grouped as a derived table; rows are read by position, so nothing changes for the caller
 - a set operation's operands cannot have their own `OrderBy`, `Limit`, `Offset` or lock: each operand is written as a bare `SELECT`, so `Build()` refuses them rather than dropping the clause. Order and limit the combined result instead
@@ -835,9 +857,11 @@ page, err := database.TablePost.Query().PageKeyset(ctx, runtime, k, tsq.Keyword(
 `req.Keyset(sortable...)` builds the `Keyset` from a `PageRequest` (its `order_by`, `size` and `after`)
 and, like `Paging`, carries its keyword, so `PageKeyset(ctx, runtime, k)` searches with it.
 
-- `OrderBy` is required, every column in it must be selected by the query, and the **last one
-  must be a primary key** so that every position is unique. An index on the order columns is what
-  makes it fast
+- `OrderBy` is required, every column in it must be selected by the query, and it must **include
+  the primary key of every table in the query**, the FROM table and each joined one, so that every
+  position is unique: in a one-to-many join the parent's key repeats, and seeking past it would skip
+  the rest of its children. A source without a primary key (a CTE) cannot be keyset-paged. An index
+  on the order columns is what makes it fast
 - the query must not set its own `OrderBy`, `Limit` or `Offset`, and must not group, aggregate,
   use `DISTINCT` or set operations
 - `Next` is an opaque string carrying the last row's order values; it is refused for a different
@@ -845,7 +869,7 @@ and, like `Paging`, carries its keyword, so `PageKeyset(ctx, runtime, k)` search
 - there is no `Total`: not counting is the point. Use `Count` if the endpoint needs one
 - mixed directions work; the condition is spelled `a < ? OR (a = ? AND b > ?)`
 - over HTTP, `PageRequest` carries `after`, and `req.Keyset(sortable...)` resolves it like
-  `Paging`; append the primary key to the resolved `OrderBy` yourself
+  `Paging`; append the primary keys to the resolved `OrderBy` yourself
 
 ### Loading children without N+1
 
@@ -939,9 +963,11 @@ Row writes are methods on the table descriptor, and the generated row methods ca
 - `Update`, `HardDelete`, and `Delete` on a soft-delete table, the same way. `Update` writes every column TSQ may write, so
   **a row read with a partial `Select` names what it saves**: `TableCourse.Update(ctx, db, &row,
   TableCourse.Title)` / `row.Update(ctx, db, TableCourse.Title)` writes only `title` (plus
-  `updated_at` and `version`). TSQ remembers the rows a partial `Select` returns (weakly, so they
-  are forgotten when dropped), and a plain `Update`, `BatchUpdate` or `Upsert` of one fails with
-  an error naming the columns it was read with, instead of overwriting the others with zero values.
+  `updated_at` and `version`). TSQ remembers the rows a query reads into the table's row type without
+  filling every column it writes back, whatever the query selects from (a narrow `Select`, a CTE,
+  `MapInto` into the row type), weakly, so they are forgotten when dropped; a plain `Update`,
+  `BatchUpdate` or `Upsert` of one fails with an error naming the columns it was read with, instead
+  of overwriting the others with zero values.
   An `Update` that fails leaves the row as it was: `updated_at` and `version` change only when the
   statement succeeds. The same holds for `Insert` and `Upsert`: a row the database did not store
   keeps its own `created_at`, `updated_at`, `deleted_at` and key. A batch refuses two rows with the

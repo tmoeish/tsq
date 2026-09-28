@@ -20,6 +20,9 @@
   （`writeBody`）会被复用为集合操作数和 CTE 体。所以集合操作数自带的 ORDER BY / LIMIT / OFFSET / 锁
   **不会被写出来**，`setOp` 必须检查的是**操作数的** spec（曾经检查的是左侧自己，那条分支阶段类型
   本来就走不到，于是守卫形同虚设）。`TestBuildRejectsInvalidStructure` 的 `set operand *` 用例守着。
+- 集合运算每个操作数的行都按第一个操作数的列读，`sameScanTargets` 要求每个位置读进同一个字段。
+- "部分读取"按扫描实际填了行类型的哪些字段判断（`partialColumns` + `rowTables`，`Define` 时登记行类型），与列来自哪张表、
+  CTE 还是 `MapInto` 无关。新增一种能读进表行类型的查询形态不需要特判，但 `rowTables` 的登记不能省。
 
 ## 改了全文检索
 
@@ -58,6 +61,8 @@
   `TestPageChecksTheOrderOfACompoundQuery` 守着）。
 - **计数和列表必须在同一个快照里**（`snapshotRead`）。给 `Page` 加第三条语句也要放进去；不要为了
   省一次 BEGIN 把它拆开——`TestIntegrationPageReadsOneSnapshot` 会在两条语句之间插入一行。
+- `PageKeyset` 的唯一性要求：排序里包含 FROM 和每张 JOIN 表的主键（`sourceTables`）。新增一种查询来源（新的 JOIN
+  形态、派生表）要想清楚它的行由什么唯一确定；没有主键的来源（CTE）直接拒绝。
 
 ## 改了可空性推导或加了新的表达式构造
 
