@@ -13,20 +13,19 @@
 
 ## 两个测试各自编码了相反的意图，代码同时满足它们 (2026-09-16)
 
-一条测试断言 `WithMaxPageSize(5000)` 能放行 3000，另一条断言"没有 runtime 能抬高绝对上限"，两条都绿：
-`Validate` 把上限夹到 1000 而 `Normalize` 不夹。**一对矛盾的断言可以同时为真，只要实现里有两条路径各
-满足一条**；同一个概念的两个入口要放在一个用例里比。后来只留一条路径：`PageRequest.Paging` 只拒绝没有
-意义的输入，大小由 `Page` 按 runtime 上限封顶（2026-09-19），`Validate` / `Normalize` / `MaxPageSize()` 删除。
+`WithMaxPageSize(5000)` 放行 3000 与"没有 runtime 能抬高上限"两条断言都绿，因为 `Validate` 夹到 1000 而
+`Normalize` 不夹。**同一概念的两个入口要放在一个用例里比。** 现在只剩一条路径（`Page` 按 runtime 上限封顶），
+`DefaultMaxPageSize` 是默认不是硬顶：编译期常量不该否决调用方明确的选择。
 
-定案取名字：`DefaultMaxPageSize` 是**默认**，`WithMaxPageSize(n)` 是这个 runtime 的上限，双向生效。
-把常量当硬顶会让 `WithMaxPageSize(5000)` 变成一句空话——库不该用一个编译期常量去否决调用方明确的选择。
+同一类：`Page(Paging.OrderBy)` 和构建器 `OrderBy` 各有一个排序入口，只有后者检查集合运算的输出列（2026-09-28
+审计修复）。新增一个与构建器等价的执行期入口时，把构建器的校验调用一遍。
 
 ## 决定：读单行只留两个入口，语义写在名字里 (2026-09-09，v5)
 
 `Get`（无行报 `sql.ErrNoRows`）和 `Find`（`nil, nil`）；删掉的 `Load(holder)` 没法不比较错误就表达
 "没查到"。`Count` 只留 `int64`（截断是静默的）。单行读取加 `LIMIT 1`，**必须在行锁之前**——这道门
 在 v5 核心重写时随旧测试文件一起丢过，现在是 `TestSingleRowReadsLimitBeforeTheLock`。`Exists` 不用
-`COUNT`：它要访问每个匹配行，去回答第一行就能定的问题。
+`COUNT`（要访问每个匹配行），也不扫描那一行（否则会因可空性检查拒绝回答）。
 
 ## 决定：v5 设计收尾——查询语义 (2026-09-17)
 
@@ -42,8 +41,9 @@
 - **关联装配不引入关系 DSL**：`AttachMany` 只做收键、一次查询、按键分组，子查询仍由调用方给出。
 - **派生表达式不是列**：`derived` 不留扫描目标，`Select(tsq.Date(时间列))` 在编译期就写不出来（以前运行期
   扫描失败）；单值查询走 `SelectValue`。
-- 已知未处理（2026-09-22）：同一 CTE 里两个派生项来自同一源列（`SUM(amount)` 与 `MAX(amount)`）会得到同一个
-  `AS "amount"`，外层引用时数据库报歧义（响亮，不静默）；要支持得让使用者给输出列起名，等有人真需要再做。
+- **CTE 输出列重名在 `Build` 拒绝，不加起别名的 API**（2026-09-28）：`SUM(amount)` 与 `MAX(amount)` 都叫 `amount`，
+  而 CTE 的列靠名字找。普通 SELECT 里的重名改写成 `tsq_c<位置>`（读行按位置），CTE 里不能这么做——那会让
+  `amount.WithTable(cte)` 静默拿到第一个。
 - **派生选择项写 `AS <Name()>`，不用 JSON 名**（2026-09-22）：CTE 的列靠 `源列.WithTable(cte)` 按源列名查找，集合操作的
   `ORDER BY` 也按它。`ResultColumn` 因此有 `Asc` / `Desc`（排序不是谓词），按选中的投影给集合操作排序。
 - **`driver.Value` 是定义类型**（2026-09-22）：手写的 `interface{ Value() (any, error) }` 永远不匹配 `driver.Valuer`，两处
@@ -55,3 +55,14 @@
   带进未导出字段，由 `Page` 补上：否则忘传就悄悄返回不搜索的结果。
 - **`Page` 的一致性靠只读快照事务，不靠 `COUNT(*) OVER()`**：窗口函数在 `DISTINCT` 前求值、PG 不能和
   `FOR UPDATE` 同用、越界页没有行带回总数。代价是一对 BEGIN/COMMIT（单语句的 `ListIn` 因此不开事务）。
+
+## 决定：集合运算链从左到右求值 (2026-09-28)
+
+SQL 标准和 MySQL / PostgreSQL 让 `INTERSECT` 比 `UNION` / `EXCEPT` 结合得紧，SQLite 严格从左到右，于是平铺
+的 `a.Union(b).Intersect(c)` 三个方言返回不同的行（审计 P0）。选从左到右：它是链式调用读起来的顺序，
+也和嵌套写法 `a.Union(b.Intersect(c))` 各表达一种意思，不需要新 API。`regroupAt` 只在"`INTERSECT` 前面有
+`UNION` / `EXCEPT`"时把前缀包成派生表，其余形态照旧平铺。**否掉"拒绝混用"**：那让一个标准的查询写不出来。
+
+空 `NotIn` 同理只能交给引擎验证：`NOT IN (SELECT 1 WHERE 1 = 0)` 的渲染断言全绿，PostgreSQL 在 varchar 列上
+比较 `varchar = integer` 报错。换成 `(col NOT IN (NULL) OR <守卫>)`：`NULL` 字面量能适配任何列类型，守卫在绑定时
+按列表空否写 `1 = 1` / `1 = 0`。

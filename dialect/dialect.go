@@ -28,8 +28,10 @@ type Capability string
 const (
 	CapabilityCTE                 Capability = "CTE"
 	CapabilityExcept              Capability = "EXCEPT"
+	CapabilityExceptAll           Capability = "EXCEPT_ALL"
 	CapabilityFullOuterJoin       Capability = "FULL_OUTER_JOIN"
 	CapabilityIntersect           Capability = "INTERSECT"
+	CapabilityIntersectAll        Capability = "INTERSECT_ALL"
 	CapabilitySelectForUpdate     Capability = "SELECT_FOR_UPDATE"
 	CapabilitySelectForShare      Capability = "SELECT_FOR_SHARE"
 	CapabilitySelectForNoWait     Capability = "SELECT_FOR_NOWAIT"
@@ -47,8 +49,10 @@ var capabilities = map[Name]map[Capability]bool{
 	MySQL: {
 		CapabilityCTE:                 true,
 		CapabilityExcept:              true,
+		CapabilityExceptAll:           true,
 		CapabilityFullOuterJoin:       false,
 		CapabilityIntersect:           true,
+		CapabilityIntersectAll:        true,
 		CapabilitySelectForUpdate:     true,
 		CapabilitySelectForShare:      true,
 		CapabilitySelectForNoWait:     true,
@@ -61,8 +65,10 @@ var capabilities = map[Name]map[Capability]bool{
 	Postgres: {
 		CapabilityCTE:                 true,
 		CapabilityExcept:              true,
+		CapabilityExceptAll:           true,
 		CapabilityFullOuterJoin:       true,
 		CapabilityIntersect:           true,
+		CapabilityIntersectAll:        true,
 		CapabilitySelectForUpdate:     true,
 		CapabilitySelectForShare:      true,
 		CapabilitySelectForNoWait:     true,
@@ -70,12 +76,15 @@ var capabilities = map[Name]map[Capability]bool{
 		CapabilityFullTextSearch:      true,
 	},
 	// Baseline is SQLite 3.39 (2022-06), which is when FULL OUTER JOIN landed.
-	// SQLite has no row-level locking at all: it serializes writers instead.
+	// SQLite has no row-level locking at all: it serializes writers instead, and
+	// its INTERSECT and EXCEPT have no ALL form.
 	SQLite: {
 		CapabilityCTE:                 true,
 		CapabilityExcept:              true,
+		CapabilityExceptAll:           false,
 		CapabilityFullOuterJoin:       true,
 		CapabilityIntersect:           true,
+		CapabilityIntersectAll:        false,
 		CapabilitySelectForUpdate:     false,
 		CapabilitySelectForShare:      false,
 		CapabilitySelectForNoWait:     false,
@@ -130,6 +139,10 @@ func canonicalCapability(operation string) Capability {
 		return CapabilityFullOuterJoin
 	case "EXCEPT", "MINUS":
 		return CapabilityExcept
+	case "EXCEPT ALL":
+		return CapabilityExceptAll
+	case "INTERSECT ALL":
+		return CapabilityIntersectAll
 	case "FOR UPDATE":
 		return CapabilitySelectForUpdate
 	case "FOR SHARE":
@@ -147,6 +160,10 @@ func displayCapability(capability Capability) string {
 	switch capability {
 	case CapabilityFullOuterJoin:
 		return "FULL JOIN"
+	case CapabilityExceptAll:
+		return "EXCEPT ALL"
+	case CapabilityIntersectAll:
+		return "INTERSECT ALL"
 	case CapabilitySelectForUpdate:
 		return "FOR UPDATE"
 	case CapabilitySelectForShare:
@@ -170,6 +187,8 @@ func capabilityHint(capability Capability) string {
 		return "use IN/EXISTS filtering"
 	case CapabilityExcept:
 		return "use NOT EXISTS filtering"
+	case CapabilityIntersectAll, CapabilityExceptAll:
+		return "use the distinct form (Intersect / Except) if duplicates need not be kept"
 	case CapabilitySelectForUpdate, CapabilitySelectForShare:
 		return "execute on a dialect that supports row-locking reads"
 	case CapabilitySelectForNoWait, CapabilitySelectForSkipLocked:

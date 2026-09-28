@@ -53,7 +53,9 @@
   "后者覆盖前者"**：猜调用方想要哪个比说不清更糟。
 - 计数语句和列表语句**合在一起**判断参数是否被用到（`prepare` 的多模式），否则只出现在列表
   语句里的参数会被误报成"未使用"。
-- 排序字段按列名或 JSON 名解析；集合操作查询只能按输出列名排序。
+- 排序字段按列名或 JSON 名解析；集合操作查询只能按输出列名排序。`Paging.OrderBy` 和构建器 `OrderBy`
+  是同一件事的两个入口：`Build` 对后者跑的 `checkCompoundOrder`，`Page` 必须对前者再跑一遍（曾漏掉，
+  `TestPageChecksTheOrderOfACompoundQuery` 守着）。
 - **计数和列表必须在同一个快照里**（`snapshotRead`）。给 `Page` 加第三条语句也要放进去；不要为了
   省一次 BEGIN 把它拆开——`TestIntegrationPageReadsOneSnapshot` 会在两条语句之间插入一行。
 
@@ -81,6 +83,10 @@
   **不一样**。
 - **能力需求必须由渲染那个构造的代码报告**（`r.require(...)`）。不要回到"渲染完再扫文本"：
   使用者的原样文本（`Pred` / `Exprf`）会被误判，子查询也会漏报。
+- 查询被包成**派生表**的每个位置（计数、集合运算的分组、`In` 里带 `Limit` 的子查询）都要求输出列名唯一，
+  MySQL 否则报 1060。`writeSimple` 把重名改写成 `tsq_c<位置>`；CTE 的列按名字找，所以 CTE 里重名在 `Build`
+  拒绝而不是改写。集合运算链的求值顺序靠 `regroupAt` 的派生表保证，改 `writeBody` 时跑
+  `TestSetOperationChainsReadLeftToRight` 和集成测试里的链用例。
 - 新的片段类型要同时处理：`renderer.write`、`sqlExpr.correlated`（若它能包含查询）、
   `debugSQL`。
 - 占位符编号在 `assemble` 里做（`Placeholder` 是**零基**）；不要在渲染时编号，列表参数的长度
@@ -91,7 +97,8 @@
   一样不缓存。
 - 新增或改了一个谓词、否定形式或空列表写法：加进 `internal/integration` 的
   `TestIntegrationPredicatesMatchTheSameRows`，按**匹配到的行**断言。只核对 SQL 文本证明不了引擎接受它
-  （空 `NotIn` 的 `SELECT 1 WHERE 1 = 0` 不带 `FROM`，能不能跑是引擎说了算）。
+  （空 `NotIn` 曾渲染成 `NOT IN (SELECT 1 WHERE 1 = 0)`，渲染断言全过，PostgreSQL 却在 varchar 列上报
+  `varchar = integer`——能不能跑、类型对不对是引擎说了算，所以用例要覆盖非整数列）。
 
 ## 改了 LIKE 谓词的渲染，或改了关键字转义
 

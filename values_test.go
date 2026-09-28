@@ -43,7 +43,7 @@ func TestValsExpandAndKeepEmptyListsExplicit(t *testing.T) {
 		t.Fatalf("empty IN rendered %s", sql)
 	}
 
-	if sql := render(User_ID.NotIn(Vals[int64]())); !strings.HasSuffix(sql, `NOT IN (SELECT 1 WHERE 1 = 0)`) {
+	if sql := render(User_ID.NotIn(Vals[int64]())); !strings.HasSuffix(sql, `WHERE 1 = 1`) {
 		t.Fatalf("empty NOT IN rendered %s", sql)
 	}
 }

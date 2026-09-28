@@ -143,7 +143,8 @@ var TableCourse = newCourseTable() // 函数里：NewTable → 各列 → Define
 - 绑定按**参数身份**匹配，不按位置。缺值、多余的值（语句没用到）、同一参数绑两次都是错误。
   `Page` 的计数语句和列表语句合在一起判断"用没用到"。
 - 派生规格（模式参数、`NOT IN` 形式）共享根参数的值，渲染方式不同。
-- 空列表：`IN` 渲染 `IN (NULL)`，`NOT IN` 渲染 `NOT IN (SELECT 1 WHERE 1 = 0)`，都不丢过滤条件。
+- 空列表：`IN` 渲染 `IN (NULL)`；`NotIn(Vals())` 在构建时就是 `1 = 1`，`NotIn(列表参数)` 渲染 `(col NOT IN (<列表>) OR <守卫>)`，
+  空列表时列表写 `NULL`、守卫写 `1 = 1`，非空时守卫写 `1 = 0`。都不丢过滤条件，也不引入一个类型要和列比较的子查询。
 - 内置参数：`keywordParam`（`tsq.Keyword` 绑定它；`prepare` 据此决定是否渲染搜索谓词，空关键词被丢掉）、`deletedAtParam` / `updatedAtParam`
   （按条件软删除的时间戳，执行时计算）。
 
@@ -319,7 +320,7 @@ DDL 语句、schema 探查，以及 `SupportsCapability(Capability)`。接口只
 所以挪进了 internal，公开包只留名字、能力表和列描述。
 
 - 能力位按**当前版本基线**表态，不探测服务器版本：MySQL 8.0（FULL JOIN 不支持）、
-  SQLite 3.39+（行锁不支持）、PostgreSQL 全部支持。
+  SQLite 3.39+（行锁、`INTERSECT ALL` / `EXCEPT ALL` 不支持）、PostgreSQL 全部支持。
 - 能力表住在公开的 `dialect.capabilities`（每方言一张 `map[Capability]bool`），`Supports` 只查表、
   没有 `default` 分支；新增能力位要往三张表和 `dialect_test.go` 的 `allCapabilities` 各加一行，
   `TestEnginesCoverAllCapabilities` 守着。

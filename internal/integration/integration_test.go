@@ -358,8 +358,9 @@ func TestIntegrationFetchByFollowsTheCollation(t *testing.T) {
 // TestIntegrationPredicatesMatchTheSameRows runs every predicate family on each
 // engine and checks the rows matched, not the SQL text: the unit suite renders
 // them, but only SQLite had ever executed the negations, the custom expressions
-// or the empty-list forms. An empty NotIn renders NOT IN (SELECT 1 WHERE 1 = 0),
-// a FROM-less subquery whose acceptance is an engine's to decide.
+// or the empty-list forms. An empty NotIn once rendered NOT IN (SELECT 1 WHERE 1 = 0),
+// which passed on integer columns and failed on PostgreSQL for text ones
+// (varchar = integer), so the empty forms run on a text column too.
 func TestIntegrationPredicatesMatchTheSameRows(t *testing.T) {
 	for _, target := range integrationTargets(t) {
 		t.Run(target.name, func(t *testing.T) {
@@ -396,6 +397,10 @@ func TestIntegrationPredicatesMatchTheSameRows(t *testing.T) {
 				{"NotIn over no values", l.ID.NotIn(tsq.Vals[int64]()), nil, []string{"Ada", "Bob", "Cyd"}},
 				{"In over an empty list param", l.ID.In(l.ID.ListParam()), []tsq.Arg{l.ID.BindList()}, nil},
 				{"NotIn over an empty list param", l.ID.NotIn(l.ID.ListParam()), []tsq.Arg{l.ID.BindList()}, []string{"Ada", "Bob", "Cyd"}},
+				{"NotIn over no text values", l.Name.NotIn(tsq.Vals[string]()), nil, []string{"Ada", "Bob", "Cyd"}},
+				{"NotIn over an empty text list param", l.Name.NotIn(l.Name.ListParam()), []tsq.Arg{l.Name.BindList()}, []string{"Ada", "Bob", "Cyd"}},
+				{"NotIn over a text list param", l.Name.NotIn(l.Name.ListParam()), []tsq.Arg{l.Name.BindList("Bob")}, []string{"Ada", "Cyd"}},
+				{"In over no text values", l.Name.In(tsq.Vals[string]()), nil, nil},
 				{"LTE", l.ID.LTE(tsq.Val(first)), nil, []string{"Ada"}},
 				{"NotBetween", l.ID.NotBetween(tsq.Val(first), tsq.Val(first)), nil, []string{"Bob", "Cyd"}},
 				{"Like as written", l.Name.Like(tsq.Val("_d_")), nil, []string{"Ada"}},
@@ -406,6 +411,7 @@ func TestIntegrationPredicatesMatchTheSameRows(t *testing.T) {
 				{"Not", tsq.Not(l.Name.EQ(tsq.Val("Bob"))), nil, []string{"Ada", "Cyd"}},
 				{"Expr", l.Name.Expr("LOWER(%s)").EQ(tsq.Val("cyd")), nil, []string{"Cyd"}},
 				{"Exprf", l.ID.Exprf("%s + %s", tsq.Val(int64(1))).GT(tsq.Val(last)), nil, []string{"Cyd"}},
+				{"In a limited subquery", l.ID.In(tsq.SelectValue(l.ID).From(l).OrderBy(l.ID.Asc()).Limit(1)), nil, []string{"Ada"}},
 				{"NotExists", tsq.NotExists(tsq.SelectValue(e.UID).From(e).Correlate(l).Where(e.LearnerID.EQ(l.ID))), nil, []string{"Bob", "Cyd"}},
 			} {
 				names, err := tsq.SelectValue(l.Name).From(l).Where(tt.cond).OrderBy(l.Name.Asc()).List(ctx, rt, tt.args...)
@@ -422,6 +428,21 @@ func TestIntegrationPredicatesMatchTheSameRows(t *testing.T) {
 				if strings.Join(got, ",") != strings.Join(tt.want, ",") {
 					t.Errorf("%s matched %v, want %v", tt.name, got, tt.want)
 				}
+			}
+
+			// A chain reads left to right on every engine: (Ada, Bob ∪ Cyd) ∩ (Ada, Cyd).
+			// Written flat, MySQL and PostgreSQL bind INTERSECT first and add Bob.
+			named := func(names ...string) tsq.WhereStage[string] {
+				return tsq.SelectValue(l.Name).From(l).Where(l.Name.In(tsq.Vals(names...)))
+			}
+
+			chain, err := named("Ada", "Bob").Union(named("Cyd")).Intersect(named("Ada", "Cyd")).OrderBy(l.Name.Asc()).MustBuild().List(ctx, rt)
+			if err != nil {
+				t.Fatalf("set operation chain: %v", err)
+			}
+
+			if len(chain) != 2 || *chain[0] != "Ada" || *chain[1] != "Cyd" {
+				t.Errorf("set operation chain matched %d rows, want Ada and Cyd", len(chain))
 			}
 		})
 	}
@@ -537,6 +558,23 @@ func TestIntegrationCapabilitiesExecute(t *testing.T) {
 
 				if len(rows) != 1 {
 					t.Fatalf("expected one row from INTERSECT, got %d", len(rows))
+				}
+			}
+
+			for _, capability := range []tsqdialect.Capability{tsqdialect.CapabilityIntersectAll, tsqdialect.CapabilityExceptAll} {
+				if !tsqdialect.Supports(rt.Dialect(), capability) {
+					continue
+				}
+
+				ids := tsq.SelectValue(academy.TableLearner.ID).From(academy.TableLearner)
+
+				query := ids.IntersectAll(ids)
+				if capability == tsqdialect.CapabilityExceptAll {
+					query = ids.ExceptAll(ids)
+				}
+
+				if _, err := query.MustBuild().List(ctx, rt); err != nil {
+					t.Fatalf("%s advertised but failed on %s: %v", capability, target.name, err)
 				}
 			}
 

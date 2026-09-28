@@ -293,7 +293,7 @@ type PageRequest struct {
 	Size    int    `json:"size"     query:"size"`     // Size is the requested page size.
 	Page    int    `json:"page"     query:"page"`     // Page is the 1-based page number.
 	OrderBy string `json:"order_by" query:"order_by"` // OrderBy lists sort fields separated by commas.
-	Order   string `json:"order"    query:"order"`    // Order lists asc/desc aligned with OrderBy.
+	Order   string `json:"order"    query:"order"`    // Order lists asc/desc aligned with OrderBy, or one for every field.
 	Keyword string `json:"keyword"  query:"keyword"`  // Keyword is the optional search term.
 	After   string `json:"after"    query:"after"`    // After is the cursor of a keyset page.
 }
@@ -557,8 +557,10 @@ type Capability string
 const (
 	CapabilityCTE                 Capability = "CTE"
 	CapabilityExcept              Capability = "EXCEPT"
+	CapabilityExceptAll           Capability = "EXCEPT_ALL"
 	CapabilityFullOuterJoin       Capability = "FULL_OUTER_JOIN"
 	CapabilityIntersect           Capability = "INTERSECT"
+	CapabilityIntersectAll        Capability = "INTERSECT_ALL"
 	CapabilitySelectForUpdate     Capability = "SELECT_FOR_UPDATE"
 	CapabilitySelectForShare      Capability = "SELECT_FOR_SHARE"
 	CapabilitySelectForNoWait     Capability = "SELECT_FOR_NOWAIT"

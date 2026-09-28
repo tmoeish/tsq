@@ -71,11 +71,8 @@ func (ValueList[T]) valuesOfType(T) {}
 func (ValueList[T]) needsTsqVals()  {}
 
 func (l ValueList[T]) setOperand(negated bool) exprInfo {
+	// NotIn handles an empty list before asking for the operand.
 	if len(l.vs) == 0 {
-		if negated {
-			return exprInfo{sql: sqlText("(SELECT 1 WHERE 1 = 0)")}
-		}
-
 		return exprInfo{sql: sqlText("(NULL)")}
 	}
 

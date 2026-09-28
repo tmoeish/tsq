@@ -15,12 +15,8 @@
 不是它可达**。第四次之后装了门：`deadcode_test.go` 的 `TestNoUnexportedCodeOnlyTestsReach`。只给测试用的数据
 （如能力清单）放进 `_test.go`，别给门开豁免。
 
-**2026-09-09 又一次，这次在代码生成侧**：模板 helper 发出 `tsq.TimePtr(...)`，根包没有这个符号，
-声明 `*time.Time` 托管字段的使用者拿到的是**自己工程里**的编译错误，而 `skills/tsq` 一直把它列为
-受支持；守着它的单元测试断言的正是那个字符串。**模板和 helper 里的字符串不参与本包的类型检查**，
-`api-check` 又只看根包快照，缝正好在"生成代码引用的符号存不存在"。门是
-`internal/cmd/generated_symbols_test.go`，它装上后立刻抓到第二个（`PageRespType` 渲染的
-`tsq.PageResp` 其实叫 `PageResponse`）。
+代码生成侧的同形（2026-09-09）：模板发出根包没有的 `tsq.TimePtr`，单元测试断言的正是那个字符串。**模板里的
+字符串不参与类型检查**，门是 `internal/cmd/generated_symbols_test.go`（装上就抓到第二个）。
 
 ## 写在 AGENTS.md 里但没有门的规则，几个月都是假的 (2026-08-26)
 
@@ -44,20 +40,13 @@ CI 的 gosec 也跑两遍：门禁那遍排除 G201/G304，上传代码扫描的
 
 ## `release-check` 两次装反：**先数清楚合法状态有几个** (2026-08-21，2026-09-16)
 
-**一道门要先问"合法状态有几个"，只有一个时才用等号。** 这里错了两次：
-
-- 版本号 vs 最新 tag：第一版要求"严格大于"，但合法状态有两个（发版之间 buildinfo 等于最新 tag；
-  `release.py` 跑 harness 时 buildinfo 领先于 tag），两个都被拦。真正的错误状态只有一个：
-  buildinfo **低于**最新 tag。
-- 版本号 vs 模块主版本：曾要求相等。跨主版本必须分两步（先一波正常变更把 `/vN` 和全部 import 改完，
-  再发首个 vN），两步之间模块路径已是 v5 而 buildinfo 还是 4.x——**严格相等把这个合法过渡态拦死，
-  于是迁移根本没法作为独立的一波合入**。现在只查 `module_major() < code.major`。
+**一道门要先问"合法状态有几个"，只有一个时才用等号。** 版本号 vs 最新 tag 曾要求"严格大于"，而发版之间相等、
+`release.py` 跑 harness 时领先都合法，错误态只有"低于"。版本号 vs 模块主版本曾要求相等，把跨主版本的合法过渡态
+（路径已是 `/v5`、buildinfo 还是 4.x）拦死；现在只查 `module_major() < code.major`。
 
 ## squash 的粒度是 PR，所以 PR 的粒度就是你能保留的历史粒度 (2026-08-21)
 
-第一次真跑 PR 发版流程，同一天被这一件事绊了三次：`pull --ff-only` 报分叉、卷进发版 PR 的三条
-提交信息从 `git log` 消失、新分支叠在未合并分支上冲突。三个动作现在都是 `AGENTS.md` § 发版
-里的规则，`release.py` 还会拒绝 `origin/main..main` 不为空的发版。
+同一天绊了三次（`pull --ff-only` 报分叉、卷进 PR 的提交信息消失、叠在未合并分支上冲突），规则在 `AGENTS.md` § 发版。
 
 ## 把并发写入者的改动误判成了工具的 bug (2026-08-21)
 
@@ -67,8 +56,7 @@ CI 的 gosec 也跑两遍：门禁那遍排除 G201/G304，上传代码扫描的
 
 ## 给 main 和 tag 加了 ruleset，发版随之改成 PR 流程 (2026-08-21)
 
-`main` 禁直推、必须走 PR 且五个必需检查全绿；`refs/tags/v*` 禁删除/移动/强推。两条都对仓库
-所有者生效。**tag 那条更重要**：删掉或移动已发布的 tag 是唯一不可恢复的操作（Go Proxy 永久缓存）。
+规则本身在 `AGENTS.md` § 发版，这里只留踩过的坑：
 
 - **必需检查不能放 matrix job**（名字带 Go 版本，升版本就永远等不到）；理由和当前选的五个
   检查见 `../impact/harness.md` § 改了 CI 的 job 名字。

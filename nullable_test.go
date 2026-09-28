@@ -181,12 +181,18 @@ func TestReadingAValueThatCanBeNullNeedsANullableField(t *testing.T) {
 		"case without else":       Select(label(Case[string]().When(User_ID.GT(Val(int64(1))), User_Name).End())).From(Users).MustBuild(),
 		"nullif":                  Select(label(NullIf(User_Name, Val("a")))).From(Users).MustBuild(),
 		"set operation operand":   Select(name).From(Users).Union(Select(label(Case[string]().When(User_ID.GT(Val(int64(1))), User_Name).End())).From(Users)).MustBuild(),
+		"nested set operand":      Select(name).From(Users).Union(Select(name).From(Users).Union(Select(label(Case[string]().When(User_ID.GT(Val(int64(1))), User_Name).End())).From(Users))).MustBuild(),
 		"right joined preserved":  Select(name).From(Users).RightJoin(Orders, Order_UserID.EQ(User_ID)).MustBuild(),
 	}
 
 	for what, q := range refused {
-		if _, err := q.List(ctx, rt); err == nil || !strings.Contains(err.Error(), "NULL") {
+		if _, err := q.List(ctx, rt); err == nil || !strings.Contains(err.Error(), "can be NULL here") {
 			t.Errorf("%s: List = %v; want the nullable value refused", what, err)
+		}
+
+		// Whether a row exists does not depend on reading it.
+		if _, err := q.Exists(ctx, rt); err != nil {
+			t.Errorf("%s: Exists = %v; want an answer", what, err)
 		}
 
 		// The same query is fine where it is not read: as a subquery or CTE.
@@ -221,5 +227,28 @@ func TestReadingAValueThatCanBeNullNeedsANullableField(t *testing.T) {
 
 	if _, err := Select(nullLabel(orderNote.WithTable(cte))).From(cte).MustBuild().List(ctx, rt); err != nil {
 		t.Errorf("nullable CTE column into a nullable field = %v", err)
+	}
+
+	// A nullable column the CTE coalesces is not NULL through it: the CTE decides,
+	// not the column's declaration.
+	coalesced := CTE("bodies", Select(MapInto(Coalesce(Note_Body, Val("none")), func(r *labelRow) *string { return &r.Name })).From(Notes))
+	through := Select(MapInto(Note_Body.WithTable(coalesced), func(r *labelRow) *string { return &r.Name })).From(coalesced).MustBuild()
+
+	if through.scanErr != nil {
+		t.Errorf("coalesced CTE column = %v; want it readable into a string", through.scanErr)
+	}
+}
+
+// TestCTEColumnNamesAreDistinct covers a CTE that selects two columns of one
+// name, SUM(amount) and MAX(amount): its columns are found by name, so either
+// reference was ambiguous, and the database said so only when it ran.
+func TestCTEColumnNamesAreDistinct(t *testing.T) {
+	sum := MapInto(Sum(Order_Amount), func(r *labelRow) *int64 { return &r.Count })
+	most := MapInto(Max(Order_Amount), func(r *labelRow) *int64 { return &r.Count })
+	cte := CTE("totals", Select(sum, most).From(Orders))
+
+	_, err := Select(MapInto(Order_Amount.WithTable(cte), func(r *labelRow) *int64 { return &r.Count })).From(cte).Build()
+	if err == nil || !strings.Contains(err.Error(), "two columns named amount") {
+		t.Fatalf("Build = %v; want the repeated name refused", err)
 	}
 }

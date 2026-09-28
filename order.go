@@ -2,6 +2,7 @@ package tsq
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -80,6 +81,11 @@ func normalizeSortOrders(values []string, expected int) ([]sortOrder, error) {
 		}
 
 		return orders, nil
+	}
+
+	// One direction applies to every field, as documented for PageRequest.Order.
+	if len(values) == 1 && expected > 1 {
+		values = slices.Repeat(values, expected)
 	}
 
 	if len(values) != expected {
