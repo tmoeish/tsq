@@ -143,7 +143,8 @@ func (t *TableOf[R, K]) BatchInsert(ctx context.Context, db Executor, rows []*R,
 // primary key, created_at, deleted_at and generated columns. With cols it writes
 // only those, which is how a row read with a partial Select is saved without
 // zeroing the columns it did not read. updated_at and version are maintained
-// either way.
+// either way. A row changed since it was loaded fails with OptimisticLockError;
+// without a version column, a row that is gone fails with RowStateError.
 func (t *TableOf[R, K]) Update(ctx context.Context, db Executor, row *R, cols ...BoundColumn[R]) error {
 	return traceExecutor(ctx, db, t.traceInfo(TraceOpUpdate), func(ctx context.Context) error {
 		config := batchConfig{size: 1}
@@ -155,7 +156,12 @@ func (t *TableOf[R, K]) Update(ctx context.Context, db Executor, row *R, cols ..
 	})
 }
 
-// BatchUpdate updates rows in as few statements as the batch size allows.
+// BatchUpdate updates rows in as few statements as the batch size allows. The
+// statements are not a transaction: when some rows are stale, the others are
+// still written. The error then names the stale rows in its Keys, and the written
+// rows carry their new version and updated_at, so only the stale ones need
+// reloading. Wrap the call in WithTx for all or nothing. Two rows with the same
+// primary key are refused.
 func (t *TableOf[R, K]) BatchUpdate(ctx context.Context, db Executor, rows []*R, options ...BatchOption) error {
 	return traceExecutor(ctx, db, t.traceInfo(TraceOpUpdate), func(ctx context.Context) error {
 		config, err := newBatchConfig(options, false)
@@ -255,8 +261,12 @@ func (t *TableOf[R, K]) setTombstone(ctx context.Context, db Executor, rows []*R
 				tombstone.SetZero()
 			}
 
+			// Each row gets its own value: a *time.Time shared by every row would let
+			// a change to one row's time change them all.
 			if col := def.column(def.managed.UpdatedAt); col != nil {
-				field(row, col).Set(reflect.ValueOf(stamp[col.name]))
+				if err := applyTimestamp(field(row, col), now); err != nil {
+					return fmt.Errorf("table %s: %w", def.name, err)
+				}
 			}
 
 			if version != nil {
@@ -460,10 +470,62 @@ func (t *TableOf[R, K]) prepareWrite(db Executor, rows []*R) (*tableDef, execSco
 	return def, scope, nil
 }
 
+// fieldSnapshot holds some fields of rows as they were before a write set them,
+// to put back on the rows the write did not store: a failed write must not leave
+// the caller's rows holding values the database never saw.
+type fieldSnapshot[R any] struct {
+	rows   []*R
+	cols   []*columnCore
+	values [][]reflect.Value
+}
+
+func snapshotFields[R any](rows []*R, cols ...*columnCore) *fieldSnapshot[R] {
+	s := &fieldSnapshot[R]{rows: rows}
+
+	for _, col := range cols {
+		if col != nil {
+			s.cols = append(s.cols, col)
+		}
+	}
+
+	for _, row := range rows {
+		held := make([]reflect.Value, 0, len(s.cols))
+
+		for _, col := range s.cols {
+			f := field(row, col)
+			v := reflect.New(f.Type()).Elem()
+			v.Set(f)
+			held = append(held, v)
+		}
+
+		s.values = append(s.values, held)
+	}
+
+	return s
+}
+
+// restore puts the fields back on every row not in written.
+func (s *fieldSnapshot[R]) restore(written map[*R]bool) {
+	for i, row := range s.rows {
+		if written[row] {
+			continue
+		}
+
+		for j, col := range s.cols {
+			field(row, col).Set(s.values[i][j])
+		}
+	}
+}
+
 // isUnset reports whether a managed timestamp field holds no value yet.
 func isUnset(v reflect.Value) bool {
 	if v.IsZero() {
 		return true
+	}
+
+	// A pointer to the zero time holds no time either, however it was made.
+	if v.Kind() == reflect.Pointer {
+		return isUnset(v.Elem())
 	}
 
 	if valuer, ok := reflect.TypeAssert[driver.Valuer](v); ok {
@@ -485,17 +547,38 @@ func (t *TableOf[R, K]) insert(ctx context.Context, db Executor, rows []*R, conf
 	}
 
 	now := stampTime()
+	snapshot := snapshotFields(rows, def.column(def.managed.CreatedAt), def.column(def.managed.UpdatedAt), def.primaryKey)
+	written := make(map[*R]bool, len(rows))
 
 	for _, row := range rows {
 		for _, name := range []string{def.managed.CreatedAt, def.managed.UpdatedAt} {
 			if col := def.column(name); col != nil && isUnset(field(row, col)) {
 				if err := applyTimestamp(field(row, col), now); err != nil {
+					snapshot.restore(nil)
 					return fmt.Errorf("table %s: %w", def.name, err)
 				}
 			}
 		}
 	}
 
+	if err := t.insertGroups(ctx, db, scope, def, rows, config, written); err != nil {
+		snapshot.restore(written)
+		return err
+	}
+
+	// One row reads back what the database filled in. A batch does not: that would
+	// be one query per row, and the caller asked for as few statements as possible.
+	if len(rows) == 1 {
+		if filled := t.databaseFilled(def, rows[0]); len(filled) > 0 {
+			return t.reloadColumns(ctx, db, scope, def, rows[0], filled)
+		}
+	}
+
+	return nil
+}
+
+// insertGroups inserts rows, recording in written the rows each statement stored.
+func (t *TableOf[R, K]) insertGroups(ctx context.Context, db Executor, scope execScope, def *tableDef, rows []*R, config batchConfig, written map[*R]bool) error {
 	// Rows that leave a column to the database (a generated key, an unset column
 	// with a DEFAULT) omit it from the statement, so rows are grouped by what they
 	// write and each group gets its own INSERT.
@@ -533,14 +616,10 @@ func (t *TableOf[R, K]) insert(ctx context.Context, db Executor, rows []*R, conf
 			if err := t.insertChunk(ctx, db, scope, def, cols, chunk, omitKey); err != nil {
 				return fmt.Errorf("insert into %s: %w", def.name, err)
 			}
-		}
-	}
 
-	// One row reads back what the database filled in. A batch does not: that would
-	// be one query per row, and the caller asked for as few statements as possible.
-	if len(rows) == 1 {
-		if filled := t.databaseFilled(def, rows[0]); len(filled) > 0 {
-			return t.reloadColumns(ctx, db, scope, def, rows[0], filled)
+			for _, row := range chunk {
+				written[row] = true
+			}
 		}
 	}
 
@@ -650,7 +729,7 @@ func (t *TableOf[R, K]) insertChunk(ctx context.Context, db Executor, scope exec
 	}
 
 	if omitKey {
-		assignInsertIDs(ctx, db, scope.dialect, def, rows, result)
+		return assignInsertIDs(ctx, db, scope.dialect, def, rows, result)
 	}
 
 	return nil
@@ -691,15 +770,18 @@ func (t *TableOf[R, K]) insertReturning(ctx context.Context, db Executor, def *t
 	return nil
 }
 
-func assignInsertIDs[R any](ctx context.Context, db Executor, d sqld.Dialect, def *tableDef, rows []*R, result sql.Result) {
+// assignInsertIDs writes the generated keys of an INSERT into rows. A driver that
+// cannot report them is an error: the rows would otherwise keep a zero key that
+// every later write of them refuses, with nothing saying why.
+func assignInsertIDs[R any](ctx context.Context, db Executor, d sqld.Dialect, def *tableDef, rows []*R, result sql.Result) error {
 	lastID, err := result.LastInsertId()
 	if err != nil {
-		return
+		return fmt.Errorf("read the generated key: %w", err)
 	}
 
 	if len(rows) == 1 {
 		setID(field(rows[0], def.primaryKey), lastID)
-		return
+		return nil
 	}
 
 	affected, err := result.RowsAffected()
@@ -707,17 +789,42 @@ func assignInsertIDs[R any](ctx context.Context, db Executor, d sqld.Dialect, de
 		logForExecutor(ctx, db, slog.LevelWarn, "generated keys not assigned: rows affected mismatch",
 			"table", def.name, "expected", len(rows), "actual", affected, "error", err)
 
-		return
+		return nil
 	}
 
-	start, ok := d.BatchInsertStartID(lastID, affected)
+	step, err := insertIDStep(ctx, db, d)
+	if err != nil {
+		return err
+	}
+
+	start, ok := d.BatchInsertStartID(lastID, affected, step)
 	if !ok {
-		return
+		return nil
 	}
 
 	for i, row := range rows {
-		setID(field(row, def.primaryKey), start+int64(i))
+		setID(field(row, def.primaryKey), start+int64(i)*step)
 	}
+
+	return nil
+}
+
+// insertIDStep is the distance between the keys one INSERT generates: MySQL's
+// auto_increment_increment, which a multi-primary setup raises above 1. It is read
+// on the statement's own executor, once per multi-row INSERT, so a session that
+// sets it is followed.
+func insertIDStep(ctx context.Context, db Executor, d sqld.Dialect) (int64, error) {
+	query := d.InsertIDStepQuery()
+	if query == "" {
+		return 1, nil
+	}
+
+	var step int64
+	if err := db.QueryRowContext(ctx, query).Scan(&step); err != nil {
+		return 0, fmt.Errorf("read the auto-increment step: %w", err)
+	}
+
+	return max(step, 1), nil
 }
 
 func setID(v reflect.Value, id int64) {
@@ -842,11 +949,23 @@ func keyMatchParams(def *tableDef) int {
 	return 1
 }
 
+// checkKeys refuses a row without a key, and two rows with one key: a statement
+// writes a row once, so one of the two would be dropped without a word (or, with a
+// version column, reported as a conflict).
 func checkKeys[R any](def *tableDef, rows []*R, op string) error {
+	seen := make(map[string]int, len(rows))
+
 	for i, row := range rows {
 		if field(row, def.primaryKey).IsZero() {
 			return fmt.Errorf("%s %s: row %d has a zero primary key", op, def.name, i)
 		}
+
+		key := keyText(value(row, def.primaryKey))
+		if first, dup := seen[key]; dup {
+			return fmt.Errorf("%s %s: rows %d and %d have the same primary key %v", op, def.name, first, i, value(row, def.primaryKey))
+		}
+
+		seen[key] = i
 	}
 
 	return nil
@@ -919,37 +1038,60 @@ func (t *TableOf[R, K]) update(ctx context.Context, db Executor, rows []*R, conf
 	// Each column binds a key and a value per row, and the WHERE clause its key match.
 	size := effectiveChunkSize(config.size, 2*len(cols)+keyMatchParams(def), sqld.MaxBindParams(scope.dialect))
 
+	// A stale row does not stop the batch: the rows after it are written too, and
+	// one error names every row that was not.
+	var conflict *OptimisticLockError
+
 	for _, chunk := range chunks(rows, size) {
 		// The statement reads updated_at from the rows, so it is stamped into them
-		// just before, and put back when the statement fails: a refused update must
-		// not leave the caller's rows holding a time the database never stored, as
-		// version is only incremented once the statement succeeds.
+		// just before, and put back on the rows it did not write: a refused update
+		// must not leave the caller's rows holding a time the database never stored.
 		restore, err := stampUpdatedAt(def, chunk, now)
 		if err != nil {
 			return err
 		}
 
-		if err := t.updateChunk(ctx, db, scope, def, cols, version, chunk); err != nil {
-			restore()
+		written, err := t.updateChunk(ctx, db, scope, def, cols, version, chunk)
+		if err == nil {
+			continue
+		}
+
+		restore(written)
+
+		stale, ok := errors.AsType[*OptimisticLockError](err)
+		if !ok || stale.Keys == nil || len(rows) == len(chunk) {
 			return err
 		}
+
+		if conflict == nil {
+			conflict = &OptimisticLockError{Table: def.name, Expected: int64(len(rows)), Actual: int64(len(rows))}
+		}
+
+		conflict.Actual -= int64(len(stale.Keys))
+		conflict.Keys = append(conflict.Keys, stale.Keys...)
+	}
+
+	if conflict != nil {
+		return fmt.Errorf("update %s: %w", def.name, conflict)
 	}
 
 	return nil
 }
 
 // stampUpdatedAt writes now into the updated_at field of rows and returns what puts
-// the previous values back.
-func stampUpdatedAt[R any](def *tableDef, rows []*R, now time.Time) (func(), error) {
+// the previous values back on every row but those keep marks.
+func stampUpdatedAt[R any](def *tableDef, rows []*R, now time.Time) (func(keep []bool), error) {
 	col := def.column(def.managed.UpdatedAt)
 	if col == nil {
-		return func() {}, nil
+		return func([]bool) {}, nil
 	}
 
 	previous := make([]reflect.Value, 0, len(rows))
-	restore := func() {
+	restore := func(keep []bool) {
 		for i, value := range previous {
-			field(rows[i], col).Set(value)
+			if i >= len(keep) || !keep[i] {
+				field(rows[i], col).Set(value)
+			}
 		}
 	}
 
@@ -960,7 +1102,7 @@ func stampUpdatedAt[R any](def *tableDef, rows []*R, now time.Time) (func(), err
 		previous = append(previous, held)
 
 		if err := applyTimestamp(f, now); err != nil {
-			restore()
+			restore(nil)
 			return nil, fmt.Errorf("table %s: %w", def.name, err)
 		}
 	}
@@ -968,7 +1110,10 @@ func stampUpdatedAt[R any](def *tableDef, rows []*R, now time.Time) (func(), err
 	return restore, nil
 }
 
-func (t *TableOf[R, K]) updateChunk(ctx context.Context, db Executor, scope execScope, def *tableDef, cols []*columnCore, version *columnCore, rows []*R) error {
+// updateChunk writes rows in one statement. When it fails, it reports which rows
+// the database holds the update for (nil when none), and those rows carry their
+// new version as the ones written in full do.
+func (t *TableOf[R, K]) updateChunk(ctx context.Context, db Executor, scope execScope, def *tableDef, cols []*columnCore, version *columnCore, rows []*R) ([]bool, error) {
 	w := &writeStmt{d: scope.dialect}
 	w.text("UPDATE ").ident(def.name).text(" SET ")
 
@@ -1009,8 +1154,18 @@ func (t *TableOf[R, K]) updateChunk(ctx context.Context, db Executor, scope exec
 		writeTombstoneFilter(w, def, false)
 	}
 
-	if err := t.execCounted(ctx, db, w, def, "update", rows, versionGuard(def, version)); err != nil {
-		return err
+	var written []bool
+
+	if err := t.execCounted(ctx, db, w, def, "update", rows, t.updateMismatch(ctx, db, scope, def, version, cols, rows, &written)); err != nil {
+		if version != nil {
+			for i, row := range rows {
+				if i < len(written) && written[i] {
+					incrementVersion(field(row, version))
+				}
+			}
+		}
+
+		return written, err
 	}
 
 	if version != nil {
@@ -1019,7 +1174,151 @@ func (t *TableOf[R, K]) updateChunk(ctx context.Context, db Executor, scope exec
 		}
 	}
 
-	return nil
+	return nil, nil
+}
+
+// updateMismatch explains an update that matched fewer rows than it was given.
+// Batches are not transactions, so the database may hold the update for some of
+// the rows: they are read back, and a row counts as written when it holds the next
+// version and every value the statement wrote. The rest are named in the error.
+//
+// Without a version column a shortfall is not a conflict: MySQL counts only the
+// rows a statement changed, so an update that writes a row's current values
+// reports none. Only rows that no longer exist are an error then.
+func (t *TableOf[R, K]) updateMismatch(ctx context.Context, db Executor, scope execScope, def *tableDef, version *columnCore, cols []*columnCore, rows []*R, written *[]bool) func(int64, int64) error {
+	return func(expected, actual int64) error {
+		compared := make([]*columnCore, 0, len(cols)+1)
+		if version != nil {
+			compared = append(compared, version)
+		}
+
+		// updated_at is left out: a database may store it at a coarser precision
+		// than the time that was bound.
+		for _, col := range cols {
+			if col.name != def.managed.UpdatedAt {
+				compared = append(compared, col)
+			}
+		}
+
+		if version == nil {
+			compared = nil
+		}
+
+		stored, err := t.readBack(ctx, db, scope, def, compared, rows)
+
+		var keys []any
+
+		done := make([]bool, len(rows))
+
+		for i, row := range rows {
+			values, found := stored[keyText(value(row, def.primaryKey))]
+			done[i] = found && err == nil
+
+			for j, col := range compared {
+				want := field(row, col)
+				if col == version {
+					next := reflect.New(want.Type()).Elem()
+					next.Set(want)
+					incrementVersion(next)
+					want = next
+				}
+
+				if done[i] && values[j] != keyText(want.Interface()) {
+					done[i] = false
+				}
+			}
+
+			if !done[i] {
+				keys = append(keys, value(row, def.primaryKey))
+			}
+		}
+
+		*written = done
+
+		need := "an existing row"
+		if t.softDeleted() {
+			need = "a live row"
+		}
+
+		switch {
+		case err != nil && version != nil:
+			return errors.Join(&OptimisticLockError{Table: def.name, Expected: expected, Actual: actual},
+				fmt.Errorf("read back the rows: %w", err))
+		case err != nil:
+			return errors.Join(&RowStateError{Table: def.name, Op: "update", Need: need, Expected: expected, Actual: actual},
+				fmt.Errorf("read back the rows: %w", err))
+		case version != nil:
+			return &OptimisticLockError{Table: def.name, Expected: expected, Actual: actual, Keys: keys}
+		case len(keys) > 0:
+			return &RowStateError{Table: def.name, Op: "update", Need: need, Expected: expected, Actual: expected - int64(len(keys)), Keys: keys}
+		}
+
+		return nil
+	}
+}
+
+// readBack returns cols of the live rows among rows, keyed and rendered by keyText.
+func (t *TableOf[R, K]) readBack(ctx context.Context, db Executor, scope execScope, def *tableDef, cols []*columnCore, rows []*R) (map[string][]string, error) {
+	w := &writeStmt{d: scope.dialect}
+	w.text("SELECT ").ident(def.primaryKey.name)
+
+	for _, col := range cols {
+		w.text(", ").ident(col.name)
+	}
+
+	w.text(" FROM ").ident(def.name).text(" WHERE ").ident(def.primaryKey.name).text(" IN (")
+
+	for i, row := range rows {
+		if i > 0 {
+			w.text(", ")
+		}
+
+		w.arg(value(row, def.primaryKey))
+	}
+
+	w.text(")")
+
+	if t.softDeleted() {
+		writeTombstoneFilter(w, def, false)
+	}
+
+	if w.err != nil {
+		return nil, w.err
+	}
+
+	result, err := db.QueryContext(ctx, w.sql.String(), w.args...)
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() { _ = result.Close() }()
+
+	stored := make(map[string][]string, len(rows))
+
+	for result.Next() {
+		key := reflect.New(field(new(R), def.primaryKey).Type())
+		dest := []any{key.Interface()}
+
+		held := make([]reflect.Value, 0, len(cols))
+		for _, col := range cols {
+			v := reflect.New(field(new(R), col).Type())
+			held = append(held, v)
+			dest = append(dest, v.Interface())
+		}
+
+		if err := result.Scan(dest...); err != nil {
+			return nil, err
+		}
+
+		values := make([]string, 0, len(held))
+		for _, v := range held {
+			values = append(values, keyText(v.Elem().Interface()))
+		}
+
+		stored[keyText(key.Elem().Interface())] = values
+	}
+
+	return stored, result.Err()
 }
 
 // execCounted runs w and, when the rows are version-guarded, reports an
@@ -1055,7 +1354,9 @@ func (t *TableOf[R, K]) execCounted(ctx context.Context, db Executor, w *writeSt
 	}
 
 	if affected != int64(len(rows)) {
-		return fmt.Errorf("%s %s: %w", op, target, mismatch(int64(len(rows)), affected))
+		if err := mismatch(int64(len(rows)), affected); err != nil {
+			return fmt.Errorf("%s %s: %w", op, target, err)
+		}
 	}
 
 	return nil

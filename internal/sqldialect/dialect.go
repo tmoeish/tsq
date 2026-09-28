@@ -115,8 +115,12 @@ type Dialect interface {
 	// SupportsCapability reports whether the dialect supports capability.
 	SupportsCapability(capability Capability) bool
 	// BatchInsertStartID derives the first generated key of a multi-row INSERT from
-	// LastInsertId, reporting false when the engine does not make that possible.
-	BatchInsertStartID(lastID, rowsAffected int64) (int64, bool)
+	// LastInsertId and the distance between keys, reporting false when the engine
+	// does not make that possible.
+	BatchInsertStartID(lastID, rowsAffected, step int64) (int64, bool)
+	// InsertIDStepQuery reads the distance between the keys one INSERT generates,
+	// or is empty when it is always 1.
+	InsertIDStepQuery() string
 	// InspectColumns reports the live columns of table, and false when it does not exist.
 	InspectColumns(ctx context.Context, db Executor, table string) ([]Column, bool, error)
 	// ListIndexes reports the live indexes of table.

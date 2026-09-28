@@ -114,9 +114,11 @@ func TestUpdateNeverWritesCreatedAtOrDeletedAt(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Without a version column the refusal is a RowStateError; it used to be
+	// reported as success.
 	loaded.Body = "stale"
-	if err := Memos.Update(ctx, rt, loaded); err != nil {
-		t.Fatal(err)
+	if err := Memos.Update(ctx, rt, loaded); !isErr[*RowStateError](err) {
+		t.Fatalf("Update of a deleted row = %v; want a RowStateError", err)
 	}
 
 	stored, err = memoByID.Get(ctx, rt, Memo_ID.Bind(loaded.ID))

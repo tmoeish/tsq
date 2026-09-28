@@ -86,6 +86,10 @@
   别改成 `INSERT IGNORE` / `ON CONFLICT DO NOTHING`：前者在 MySQL 上吞掉所有错误，后者让
   `RETURNING` 无法按位置回填主键。`TestIntegrationBatchInsertIgnoresDuplicatesInsideTransaction`
   只有在真实 PostgreSQL 上才有意义。
+- **写之前改了行上的字段，写失败就要放回去**：`Insert` / `Upsert` 用 `snapshotFields` 记下托管列和主键，只放回没写成
+  的行；`BatchUpdate` 靠 `updateMismatch` 的回读判断哪些行写成了。新增一条会盖戳的写路径要走同一套，
+  `TestFailedWritesLeaveRowsAsTheyWere` / `TestBatchUpdateWithAStaleRowSaysWhichAndKeepsTheRest` 守着。
+- 给多行 `*time.Time` 字段写时间要**每行各自** `applyTimestamp`，不要 `Set` 同一个 `reflect.Value`（指针会被共享）。
 - `batch_test.go` 的宽表用例是门：它真的写一张 200 列的表。UPDATE 的求值开销约是行数² × 列数，
   所以表做宽、行做少；它在 `-race` 下跳过（转译的 SQLite 慢约四十倍，且没有并发可查），
   普通 `test` 里照跑。

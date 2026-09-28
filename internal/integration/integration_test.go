@@ -2023,3 +2023,77 @@ func isRowState(err error) bool {
 
 	return ok
 }
+
+// TestIntegrationBatchInsertKeysFollowTheAutoIncrementStep backfills the keys of a
+// multi-row INSERT under auto_increment_increment = 2, as a multi-primary MySQL
+// setup runs. The keys used to be assumed consecutive, so every row but the first
+// got another row's key.
+func TestIntegrationBatchInsertKeysFollowTheAutoIncrementStep(t *testing.T) {
+	for _, target := range integrationTargets(t) {
+		t.Run(target.name, func(t *testing.T) {
+			ctx := context.Background()
+
+			dropAcademyTables(t, target)
+			rt, _ := openWithPolicy(t, target, academy.TSQTables(), tsq.SchemaPolicyReconcile)
+
+			learners := []*academy.Learner{
+				{Name: "Ada", Email: "ada@step.test", Company: "A"},
+				{Name: "Bob", Email: "bob@step.test", Company: "B"},
+				{Name: "Cyd", Email: "cyd@step.test", Company: "C"},
+			}
+
+			// The session variable lives on one connection, so the insert runs in a
+			// transaction on it.
+			err := rt.WithTx(ctx, func(ctx context.Context, tx tsq.Executor) error {
+				if target.name == "mysql" {
+					if _, err := tx.ExecContext(ctx, "SET SESSION auto_increment_increment = 2"); err != nil {
+						return err
+					}
+				}
+
+				return academy.TableLearner.BatchInsert(ctx, tx, learners)
+			})
+			if err != nil {
+				t.Fatalf("batch insert: %v", err)
+			}
+
+			for _, learner := range learners {
+				stored, err := academy.TableLearner.Get(ctx, rt, learner.ID)
+				if err != nil || stored.Email != learner.Email {
+					t.Fatalf("key %d of %s reads back %v, %v", learner.ID, learner.Email, stored, err)
+				}
+			}
+		})
+	}
+}
+
+// TestIntegrationUpdateWithoutAVersionTellsUnchangedFromMissing updates a table
+// with no version and no updated_at. MySQL counts only the rows a statement
+// changes, so writing a row's own values reports none affected, which must not
+// read as a missing row; a row that is really gone must.
+func TestIntegrationUpdateWithoutAVersionTellsUnchangedFromMissing(t *testing.T) {
+	for _, target := range integrationTargets(t) {
+		t.Run(target.name, func(t *testing.T) {
+			ctx := context.Background()
+
+			dropAcademyTables(t, target)
+			rt, _ := openWithPolicy(t, target, academy.TSQTables(), tsq.SchemaPolicyReconcile)
+
+			instructor := &academy.Instructor{Name: "Ada", Email: "ada@unchanged.test"}
+			if err := instructor.Insert(ctx, rt); err != nil {
+				t.Fatalf("insert: %v", err)
+			}
+
+			if err := academy.TableInstructor.Update(ctx, rt, instructor); err != nil {
+				t.Fatalf("update with unchanged values: %v", err)
+			}
+
+			gone := *instructor
+			gone.ID += 1000
+
+			if err := academy.TableInstructor.Update(ctx, rt, &gone); !errors.As(err, new(*tsq.RowStateError)) {
+				t.Fatalf("update of a missing row = %v; want a RowStateError", err)
+			}
+		})
+	}
+}

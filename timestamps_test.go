@@ -4,9 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
+
+	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 )
 
 // scannerTime has the shape of gopkg.in/nullbio/null.v6's Time: a struct with its
@@ -61,6 +64,13 @@ func TestManagedTimestampKinds(t *testing.T) {
 		})
 	}
 
+	// A pointer to the zero time is as unset as a nil one: Insert used to keep it
+	// as the caller's created_at and store year 1.
+	zero := &time.Time{}
+	if !isUnset(reflect.ValueOf(&zero).Elem()) {
+		t.Fatal("a pointer to the zero time must read as unset")
+	}
+
 	var tombstone int64
 	if err := applyTombstone(reflect.ValueOf(&tombstone).Elem(), now); err != nil || tombstone != now.UnixNano() {
 		t.Fatalf("integer tombstone = %d, %v", tombstone, err)
@@ -97,5 +107,65 @@ func TestRefusedUpdatesLeaveUpdatedAtAlone(t *testing.T) {
 
 	if !stale.UpdatedAt.Equal(stamp) {
 		t.Fatalf("updated_at of the refused row = %v, want %v as loaded", stale.UpdatedAt, stamp)
+	}
+}
+
+// stamped keeps its managed times behind pointers, the field shape where one
+// value shared by several rows would be visible.
+type stamped struct {
+	ID        int64
+	UpdatedAt *time.Time
+	DeletedAt *time.Time
+}
+
+var (
+	stampedHandle   = NewSoftDeleteTable[stamped, int64]("stamped")
+	Stamped_ID      = NewColumn(stampedHandle.TableOf, "id", "id", func(r *stamped) *int64 { return &r.ID })
+	Stamped_Updated = NewNullColumn[time.Time](stampedHandle.TableOf, "updated_at", "updated_at", func(r *stamped) **time.Time { return &r.UpdatedAt })
+	Stamped_Deleted = NewNullColumn[time.Time](stampedHandle.TableOf, "deleted_at", "deleted_at", func(r *stamped) **time.Time { return &r.DeletedAt })
+	stampedTable    = stampedHandle.Define(TableSpec[stamped, int64]{
+		Columns:       []BoundColumn[stamped]{Stamped_ID, Stamped_Updated, Stamped_Deleted},
+		PrimaryKey:    Stamped_ID,
+		AutoIncrement: true,
+		UpdatedAt:     Stamped_Updated,
+		ColumnSpecs: []tsqdialect.ColumnSpec{
+			{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
+			{Name: "updated_at", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindTime, Nullable: true}},
+			{Name: "deleted_at", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindTime, Nullable: true}},
+		},
+	}, Stamped_Deleted)
+)
+
+// TestBatchTombstonesGiveEachRowItsOwnTime covers BatchDelete and BatchRestore on
+// *time.Time fields, which used to point every row at one shared time.
+func TestBatchTombstonesGiveEachRowItsOwnTime(t *testing.T) {
+	ctx := context.Background()
+
+	rt, err := Open(ctx, "sqlite", filepath.Join(t.TempDir(), "stamped.db"), []Table{stampedTable}, WithSchemaPolicy(SchemaPolicyCreateMissing))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() { _ = rt.Close() })
+
+	rows := []*stamped{{}, {}}
+	if err := stampedTable.BatchInsert(ctx, rt, rows); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := stampedTable.BatchDelete(ctx, rt, rows); err != nil {
+		t.Fatal(err)
+	}
+
+	if rows[0].UpdatedAt == rows[1].UpdatedAt || rows[0].DeletedAt == rows[1].DeletedAt {
+		t.Fatal("BatchDelete gave two rows one shared time")
+	}
+
+	if err := stampedTable.BatchRestore(ctx, rt, rows); err != nil {
+		t.Fatal(err)
+	}
+
+	if rows[0].UpdatedAt == rows[1].UpdatedAt {
+		t.Fatal("BatchRestore gave two rows one shared time")
 	}
 }

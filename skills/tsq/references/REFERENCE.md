@@ -377,7 +377,14 @@ Semantics:
 - successful updates increment the database version by `+1`
 - successful updates also increment the in-memory struct field
 - `Delete(...)` also matches by primary key and version
-- if fewer rows match than expected, TSQ returns `OptimisticLockError`
+- if fewer rows match than expected, TSQ returns `OptimisticLockError`. A batch is not a
+  transaction: `BatchUpdate` still writes the rows that are current, reads the batch back to find
+  the stale ones, and lists their primary keys in `OptimisticLockError.Keys`. The written rows carry
+  their new `version` and `updated_at`, so only the rows in `Keys` need reloading; wrap the call in
+  `WithTx` when it must be all or nothing
+- without a `version` column, an `Update` of a row that is gone (or, on a soft-delete table,
+  deleted) fails with `*RowStateError`; writing a row's current values is not an error, although
+  MySQL reports no row changed
 
 Use `version` when you want lost-update protection.
 
@@ -920,7 +927,9 @@ Row writes are methods on the table descriptor, and the generated row methods ca
   are forgotten when dropped), and a plain `Update`, `BatchUpdate` or `Upsert` of one fails with
   an error naming the columns it was read with, instead of overwriting the others with zero values.
   An `Update` that fails leaves the row as it was: `updated_at` and `version` change only when the
-  statement succeeds
+  statement succeeds. The same holds for `Insert` and `Upsert`: a row the database did not store
+  keeps its own `created_at`, `updated_at`, `deleted_at` and key. A batch refuses two rows with the
+  same primary key
 - `TableCourse.BatchInsert(ctx, db, rows, options...)`, and `BatchUpdate`, `BatchHardDelete`, and
   `BatchDelete` on a soft-delete table
 - `TableCourse.Upsert(ctx, db, &row, key...)` and `BatchUpsert(ctx, db, rows, key, options...)`

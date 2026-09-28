@@ -7,17 +7,26 @@ import "testing"
 // last, so the same interface method has to mean different arithmetic per dialect.
 // PostgreSQL opts out entirely: it backfills through INSERT ... RETURNING instead.
 func TestBatchInsertStartID(t *testing.T) {
-	start, ok := SQLiteDialect{}.BatchInsertStartID(7, 3)
+	start, ok := SQLiteDialect{}.BatchInsertStartID(7, 3, 1)
 	if !ok || start != 5 {
 		t.Fatalf("sqlite BatchInsertStartID = (%d, %t), want (5, true)", start, ok)
 	}
 
-	start, ok = MySQLDialect{}.BatchInsertStartID(7, 3)
+	start, ok = MySQLDialect{}.BatchInsertStartID(7, 3, 1)
 	if !ok || start != 7 {
 		t.Fatalf("mysql BatchInsertStartID = (%d, %t), want (7, true)", start, ok)
 	}
 
-	if _, ok = (PostgresDialect{}).BatchInsertStartID(7, 3); ok {
+	// SQLite counts back from the last key by the step.
+	if start, ok = (SQLiteDialect{}).BatchInsertStartID(11, 3, 2); !ok || start != 7 {
+		t.Fatalf("sqlite BatchInsertStartID with step 2 = (%d, %t), want (7, true)", start, ok)
+	}
+
+	if (MySQLDialect{}).InsertIDStepQuery() == "" || (SQLiteDialect{}).InsertIDStepQuery() != "" {
+		t.Fatal("only MySQL reads the step between generated keys")
+	}
+
+	if _, ok = (PostgresDialect{}).BatchInsertStartID(7, 3, 1); ok {
 		t.Fatal("postgres should not derive multi-row insert IDs from LastInsertId")
 	}
 }

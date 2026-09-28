@@ -38,13 +38,16 @@ func (d SQLiteDialect) SupportsCapability(capability Capability) bool {
 	return tsqdialect.Supports(d.Name(), capability)
 }
 
-func (d SQLiteDialect) BatchInsertStartID(lastID, rowsAffected int64) (int64, bool) {
+// BatchInsertStartID counts back from the last key: SQLite reports the last one.
+func (d SQLiteDialect) BatchInsertStartID(lastID, rowsAffected, step int64) (int64, bool) {
 	if rowsAffected <= 0 {
 		return 0, false
 	}
 
-	return lastID - rowsAffected + 1, true
+	return lastID - (rowsAffected-1)*step, true
 }
+
+func (d SQLiteDialect) InsertIDStepQuery() string { return "" }
 
 func (d SQLiteDialect) InspectColumns(ctx context.Context, db Executor, table string) ([]Column, bool, error) {
 	quotedTable, err := quoteDialectIdentifier(d, table)

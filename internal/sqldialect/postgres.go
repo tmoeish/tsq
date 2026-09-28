@@ -37,9 +37,11 @@ func (d PostgresDialect) SupportsCapability(capability Capability) bool {
 	return tsqdialect.Supports(d.Name(), capability)
 }
 
-func (d PostgresDialect) BatchInsertStartID(lastID, rowsAffected int64) (int64, bool) {
+func (d PostgresDialect) BatchInsertStartID(lastID, rowsAffected, step int64) (int64, bool) {
 	return 0, false
 }
+
+func (d PostgresDialect) InsertIDStepQuery() string { return "" }
 
 func (d PostgresDialect) InspectColumns(ctx context.Context, db Executor, table string) ([]Column, bool, error) {
 	rows, err := db.QueryContext(ctx, `
