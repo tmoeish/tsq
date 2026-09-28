@@ -51,7 +51,7 @@ erDiagram
 | --- | --- | --- |
 | `runTrackCRUDDemo` | 课程路径的增删改查 | 生成的 `Insert / Update / Delete` helper |
 | `runCatalogSearchDemo` | 按关键词搜课程目录 | 关键词搜索、分页、`Page...` helper |
-| `runBackendCatalogDemo` | 查某条学习路径下的已发布课程 | `Select` / `From` / `Join` / `Where` / `List` |
+| `runBackendCatalogDemo` | 查某条学习路径下的已发布课程 | `Select` / `From` / `InnerJoin` / `Where` / `List` |
 | `runAliasDemo` | 查课程及其前置课标题 | alias / rebinding |
 | `runAggregateDemo` | 按路径汇总报名人数与平均得分 | aggregate、`GroupBy`、`Having` |
 | `runListParamDemo` | 用一组动态课程 ID 过滤目录 | `In(col.ListParam())` + `BindList` |

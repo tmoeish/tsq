@@ -925,7 +925,7 @@ func validateFieldDatabaseCompatibility(data *genmodel.StructInfo) error {
 }
 
 // validateTextFields refuses a search column or full-text index over a field
-// that is not text: tsq.Searchable takes ~string columns, and LIKE, MATCH and
+// that is not text: tsq.Searchable takes Text columns, and LIKE, MATCH and
 // to_tsvector are not portable over anything else (PostgreSQL has no LIKE for
 // integers). A named type whose underlying type is string is text.
 func validateTextFields(data *genmodel.StructInfo, resolver *ddlTypeResolver) error {

@@ -425,7 +425,7 @@ func TestPageSearchesSortsAndCounts(t *testing.T) {
 	rt := newSQLite(t)
 	seedUsers(t, rt, "a_1", "ab1", "b_2", "zz")
 
-	q := Select(User__Cols...).From(Users).Search(Users.searchColumns()...).MustBuild()
+	q := Select(User__Cols...).From(Users).Search(Users.searchColumns()[0], Users.searchColumns()[1:]...).MustBuild()
 
 	// "_" is a LIKE wildcard; the keyword must match it literally.
 	page, err := q.Page(ctx, rt, Paging{Size: 10, OrderBy: []OrderBy{User_Name.Desc()}}, Keyword("_"))
@@ -924,7 +924,7 @@ func TestSoftDeleteScope(t *testing.T) {
 	}
 
 	// INNER JOIN: the order of the deleted user disappears.
-	if n := count(Select(Order_ID).From(Orders).Join(Users, User_ID.EQ(Order_UserID))); n != 1 {
+	if n := count(Select(Order_ID).From(Orders).InnerJoin(Users, User_ID.EQ(Order_UserID))); n != 1 {
 		t.Errorf("inner join = %d, want 1", n)
 	}
 
@@ -940,7 +940,7 @@ func TestSoftDeleteScope(t *testing.T) {
 		t.Errorf("right join = %d, want 1", n)
 	}
 
-	withDeleted := Select(Order_ID).From(Orders).Join(Users.WithDeleted(), User_ID.EQ(Order_UserID))
+	withDeleted := Select(Order_ID).From(Orders).InnerJoin(Users.WithDeleted(), User_ID.EQ(Order_UserID))
 	if n := count(withDeleted); n != 2 {
 		t.Errorf("inner join WithDeleted = %d, want 2", n)
 	}
@@ -1400,7 +1400,7 @@ func TestCountAgreesWithList(t *testing.T) {
 	}
 
 	pinned := NewParam[string]("pinned")
-	first := MapInto(Case[int64]().When(User_Name.EQ(pinned), Val(int64(0))).Else(Val(int64(1))).End(), func(r *user) *int64 { return &r.Version })
+	first := MapInto(Case[int64](User_Name.EQ(pinned), Val(int64(0))).Else(Val(int64(1))).End(), func(r *user) *int64 { return &r.Version })
 	ordered := Select(User_ID, first).From(Users).OrderBy(first.Asc()).MustBuild()
 
 	if n, err := ordered.Count(ctx, rt, pinned.Bind("c")); err != nil || n != 5 {
@@ -1426,7 +1426,7 @@ func TestQueriesRefuseWhatTheyCannotRun(t *testing.T) {
 	}
 
 	cte := CTE("outer_ref", Select(Order_ID).From(Orders).Correlate(Users).Where(Order_UserID.EQ(User_ID)))
-	if _, err := Select(User_ID).From(Users).Join(cte, Order_ID.WithTable(cte).EQ(User_ID)).Build(); err == nil || !strings.Contains(err.Error(), "cannot use Correlate") {
+	if _, err := Select(User_ID).From(Users).InnerJoin(cte, Order_ID.WithTable(cte).EQ(User_ID)).Build(); err == nil || !strings.Contains(err.Error(), "cannot use Correlate") {
 		t.Errorf("Correlate in a CTE: Build = %v", err)
 	}
 

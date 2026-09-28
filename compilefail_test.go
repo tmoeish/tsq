@@ -22,7 +22,21 @@ var compileFailCases = []struct {
 	{"where twice", `tsq.Select(UserID).From(Users).Where(UserID.EQ(tsq.Val(int64(1)))).Where(UserID.EQ(tsq.Val(int64(2))))`, "Where undefined"},
 	{"search twice", `tsq.Select(UserID).From(Users).Search(UserName).Search(UserName)`, "Search undefined"},
 	{"having without group by", `tsq.Select(UserID).From(Users).Having(UserID.EQ(tsq.Val(int64(1))))`, "Having undefined"},
-	{"join after where", `tsq.Select(UserID).From(Users).Where(UserID.EQ(tsq.Val(int64(1)))).Join(Users)`, "Join undefined"},
+	{"join after where", `tsq.Select(UserID).From(Users).Where(UserID.EQ(tsq.Val(int64(1)))).InnerJoin(Users, UserID.EQ(UserID))`, "InnerJoin undefined"},
+	{"join without on", `tsq.Select(UserID).From(Users).InnerJoin(Posts)`, "not enough arguments in call"},
+	{"left join without on", `tsq.Select(UserID).From(Users).LeftJoin(Posts)`, "not enough arguments in call"},
+	{"join is spelled inner join", `tsq.Select(UserID).From(Users).Join(Posts, UserID.EQ(UserID))`, "Join undefined"},
+	{"where without a condition", `tsq.Select(UserID).From(Users).Where()`, "not enough arguments in call"},
+	{"search without a column", `tsq.Select(UserID).From(Users).Search()`, "not enough arguments in call"},
+	{"group by without a column", `tsq.Select(UserID).From(Users).GroupBy()`, "not enough arguments in call"},
+	{"having without a condition", `tsq.Select(UserID).From(Users).GroupBy(UserID).Having()`, "not enough arguments in call"},
+	{"order by without a term", `tsq.Select(UserID).From(Users).OrderBy()`, "not enough arguments in call"},
+	{"correlate without a table", `tsq.Select(UserID).From(Users).Correlate()`, "not enough arguments in call"},
+	{"case without a branch", `_ = tsq.Case[string]()`, "not enough arguments in call"},
+	{"like on a number", `_ = tsq.Like(UserID, tsq.Val(int64(1)))`, "does not satisfy tsq.Text"},
+	{"like is not a method", `_ = UserName.Like(tsq.Val("a%"))`, "Like undefined"},
+	{"date part of text", `_ = tsq.Year(UserName)`, "cannot use UserName"},
+	{"stages are sealed", `var _ tsq.Sortable[User] = fakeSortable{}`, "does not implement tsq.Sortable[User]"},
 	{"lock after group by", `tsq.Select(UserID).From(Users).GroupBy(UserID).ForUpdate()`, "ForUpdate undefined"},
 	{"lock after group by and order", `tsq.Select(UserID).From(Users).GroupBy(UserID).OrderBy(UserID.Asc()).ForUpdate()`, "ForUpdate undefined"},
 	{"lock after having and limit", `tsq.Select(UserID).From(Users).GroupBy(UserID).Having(UserID.GT(tsq.Val(int64(0)))).Limit(1).ForShare()`, "ForShare undefined"},
@@ -53,13 +67,13 @@ var compileFailCases = []struct {
 	{"conditions are sealed", `var _ tsq.Condition = fakeCondition{}`, "does not implement tsq.Condition"},
 	{"tables are sealed", `var _ tsq.Table = fakeTable{}`, "does not implement tsq.Table"},
 	{"executors are sealed", `var _ tsq.Executor = fakeExecutor{}`, "does not implement tsq.Executor"},
-	{"case result of another type", `_ = tsq.Case[string]().When(UserID.EQ(tsq.Val(int64(1))), UserID)`, "does not implement tsq.Operand[string]"},
-	{"case value of another type", `_ = tsq.Case[string]().When(UserID.EQ(tsq.Val(int64(1))), tsq.Val(3))`, "does not implement tsq.Operand[string]"},
+	{"case result of another type", `_ = tsq.Case[string](UserID.EQ(tsq.Val(int64(1))), UserID)`, "does not implement tsq.Operand[string]"},
+	{"case value of another type", `_ = tsq.Case[string](UserID.EQ(tsq.Val(int64(1))), tsq.Val(3))`, "does not implement tsq.Operand[string]"},
 	{"text function on a number", `_ = tsq.Upper(UserID)`, "does not satisfy tsq.Text"},
 	{"numeric function on text", `_ = tsq.Sum(UserName)`, "does not satisfy tsq.Number"},
-	{"search on a number", `_ = tsq.Searchable(UserID)`, "does not satisfy ~string"},
+	{"search on a number", `_ = tsq.Searchable(UserID)`, "does not satisfy tsq.Text"},
 	{"pattern of another type", `_ = tsq.Contains(UserName, tsq.Val(3))`, "tsq.Value[int]"},
-	{"pattern of a number column", `_ = tsq.Contains(UserID, tsq.Val(int64(3)))`, "does not satisfy ~string"},
+	{"pattern of a number column", `_ = tsq.Contains(UserID, tsq.Val(int64(3)))`, "does not satisfy tsq.Text"},
 	{"pattern as a plain string", `_ = tsq.Contains(UserName, "x")`, "does not implement tsq.Pattern[string]"},
 	{"expression is not selectable", `_ = tsq.Select(tsq.Upper(UserName))`, "does not match tsq.BoundColumn"},
 	{"expression cannot be rebound", `_ = tsq.Upper(UserName).WithTable(Users)`, "WithTable undefined"},
@@ -141,6 +155,12 @@ var OrderID = tsq.NewColumn(ordersHandle, "id", "id", func(r *Order) *int64 { re
 type fakeCondition struct{}
 
 func (fakeCondition) Clause() string { return "1 = 1" }
+
+type fakeSortable struct{}
+
+func (fakeSortable) OrderBy(tsq.OrderBy, ...tsq.OrderBy) tsq.OrderedStage[User] { return nil }
+func (fakeSortable) Limit(int) tsq.OrderedStage[User]                           { return nil }
+func (fakeSortable) Offset(int) tsq.OrderedStage[User]                          { return nil }
 
 type fakeTable struct{}
 

@@ -178,10 +178,10 @@ func TestReadingAValueThatCanBeNullNeedsANullableField(t *testing.T) {
 	refused := map[string]*Query[labelRow]{
 		"outer-joined column":     joined(name, label(orderNote)),
 		"aggregate without group": Select(label(Max(User_Name))).From(Users).MustBuild(),
-		"case without else":       Select(label(Case[string]().When(User_ID.GT(Val(int64(1))), User_Name).End())).From(Users).MustBuild(),
+		"case without else":       Select(label(Case[string](User_ID.GT(Val(int64(1))), User_Name).End())).From(Users).MustBuild(),
 		"nullif":                  Select(label(NullIf(User_Name, Val("a")))).From(Users).MustBuild(),
-		"set operation operand":   Select(name).From(Users).Union(Select(label(Case[string]().When(User_ID.GT(Val(int64(1))), User_Name).End())).From(Users)).MustBuild(),
-		"nested set operand":      Select(name).From(Users).Union(Select(name).From(Users).Union(Select(label(Case[string]().When(User_ID.GT(Val(int64(1))), User_Name).End())).From(Users))).MustBuild(),
+		"set operation operand":   Select(name).From(Users).Union(Select(label(Case[string](User_ID.GT(Val(int64(1))), User_Name).End())).From(Users)).MustBuild(),
+		"nested set operand":      Select(name).From(Users).Union(Select(name).From(Users).Union(Select(label(Case[string](User_ID.GT(Val(int64(1))), User_Name).End())).From(Users))).MustBuild(),
 		"right joined preserved":  Select(name).From(Users).RightJoin(Orders, Order_UserID.EQ(User_ID)).MustBuild(),
 	}
 
@@ -206,8 +206,8 @@ func TestReadingAValueThatCanBeNullNeedsANullableField(t *testing.T) {
 		"coalesced":           joined(name, label(Coalesce(orderNote, Val("none"))), count),
 		"count is never null": Select(name, count).From(Users).LeftJoin(Orders, Order_UserID.EQ(User_ID)).GroupBy(User_Name).MustBuild(),
 		"grouped aggregate":   Select(label(Max(User_Name))).From(Users).GroupBy(User_Email).MustBuild(),
-		"case with else":      Select(label(Case[string]().When(User_ID.GT(Val(int64(1))), User_Name).Else(Val("x")).End())).From(Users).MustBuild(),
-		"condition on outer":  Select(label(Case[string]().When(Order_Note.IsNull(), Val("none")).Else(Val("some")).End())).From(Users).LeftJoin(Orders, Order_UserID.EQ(User_ID)).MustBuild(),
+		"case with else":      Select(label(Case[string](User_ID.GT(Val(int64(1))), User_Name).Else(Val("x")).End())).From(Users).MustBuild(),
+		"condition on outer":  Select(label(Case[string](Order_Note.IsNull(), Val("none")).Else(Val("some")).End())).From(Users).LeftJoin(Orders, Order_UserID.EQ(User_ID)).MustBuild(),
 	}
 
 	for what, q := range allowed {

@@ -62,10 +62,10 @@ func init() {
 		// Every enrollment has a learner and a course, and every course a track and
 		// an instructor, so these are inner joins; a LEFT JOIN would make the
 		// projected fields nullable.
-		Join(TableLearner, TableEnrollment.LearnerID.EQ(TableLearner.ID)).
-		Join(TableCourse, TableEnrollment.CourseID.EQ(TableCourse.ID)).
-		Join(TableTrack, TableCourse.TrackID.EQ(TableTrack.ID)).
-		Join(TableInstructor, TableCourse.InstructorID.EQ(TableInstructor.ID)).
+		InnerJoin(TableLearner, TableEnrollment.LearnerID.EQ(TableLearner.ID)).
+		InnerJoin(TableCourse, TableEnrollment.CourseID.EQ(TableCourse.ID)).
+		InnerJoin(TableTrack, TableCourse.TrackID.EQ(TableTrack.ID)).
+		InnerJoin(TableInstructor, TableCourse.InstructorID.EQ(TableInstructor.ID)).
 		Where(
 			TableLearner.ID.In(TableLearner.ID.ListParam()),
 			TableTrack.Name.In(TableTrack.Name.ListParam()),

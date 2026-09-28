@@ -7,6 +7,8 @@ import (
 
 // CaseStage builds a searched CASE expression holding a T.
 type CaseStage[T any] interface {
+	sealedStage()
+
 	// When adds WHEN cond THEN result: a column, Param, Val or subquery.
 	When(cond Condition, result Operand[T]) CaseStage[T]
 	// Else sets the ELSE result.
@@ -15,9 +17,10 @@ type CaseStage[T any] interface {
 	End() Expression[T]
 }
 
-// Case starts a searched CASE expression.
-func Case[T any]() CaseStage[T] {
-	return caseBuilder[T]{}
+// Case starts a searched CASE expression with its first branch, WHEN cond THEN
+// result; T is the result's type.
+func Case[T any](cond Condition, result Operand[T]) CaseStage[T] {
+	return caseBuilder[T]{}.When(cond, result)
 }
 
 type caseBuilder[T any] struct {
@@ -25,6 +28,8 @@ type caseBuilder[T any] struct {
 	branches []sqlExpr
 	elseExpr *sqlExpr
 }
+
+func (caseBuilder[T]) sealedStage() {}
 
 func (b caseBuilder[T]) branch(cond Condition, result exprInfo) CaseStage[T] {
 	ci := conditionInfo(cond)
