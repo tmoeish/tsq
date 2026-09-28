@@ -10,79 +10,79 @@ import (
 
 // LearningJourneyResult holds the column each field of LearningJourney is read from.
 type LearningJourneyResult struct {
-	CourseID         tsq.ResultColumn[LearningJourney, int64]
-	CourseLevel      tsq.ResultColumn[LearningJourney, CourseLevel]
-	CourseTitle      tsq.ResultColumn[LearningJourney, string]
-	EnrolledAt       tsq.ResultColumn[LearningJourney, tsqtime.Time]
-	EnrollmentFee    tsq.ResultColumn[LearningJourney, int64]
-	EnrollmentID     tsq.ResultColumn[LearningJourney, int64]
-	EnrollmentScore  tsq.ResultColumn[LearningJourney, int64]
-	EnrollmentStatus tsq.ResultColumn[LearningJourney, EnrollmentStatus]
-	InstructorName   tsq.ResultColumn[LearningJourney, string]
-	LearnerCompany   tsq.ResultColumn[LearningJourney, string]
 	LearnerID        tsq.ResultColumn[LearningJourney, int64]
 	LearnerName      tsq.ResultColumn[LearningJourney, string]
+	LearnerCompany   tsq.ResultColumn[LearningJourney, string]
 	TrackName        tsq.ResultColumn[LearningJourney, string]
+	CourseID         tsq.ResultColumn[LearningJourney, int64]
+	CourseTitle      tsq.ResultColumn[LearningJourney, string]
+	CourseLevel      tsq.ResultColumn[LearningJourney, CourseLevel]
+	InstructorName   tsq.ResultColumn[LearningJourney, string]
+	EnrollmentID     tsq.ResultColumn[LearningJourney, int64]
+	EnrollmentStatus tsq.ResultColumn[LearningJourney, EnrollmentStatus]
+	EnrollmentScore  tsq.ResultColumn[LearningJourney, int64]
+	EnrollmentFee    tsq.ResultColumn[LearningJourney, int64]
+	EnrolledAt       tsq.ResultColumn[LearningJourney, tsqtime.Time]
 }
 
 // ResultLearningJourney is the LearningJourney projection; select it with tsq.Select(ResultLearningJourney.Columns()...).
 var ResultLearningJourney = LearningJourneyResult{
-	CourseID: tsq.MapInto(TableCourse.ID, func(holder *LearningJourney) *int64 {
-		return &holder.CourseID
-	}).Named("course_id"),
-	CourseLevel: tsq.MapInto(TableCourse.Level, func(holder *LearningJourney) *CourseLevel {
-		return &holder.CourseLevel
-	}).Named("course_level"),
-	CourseTitle: tsq.MapInto(TableCourse.Title, func(holder *LearningJourney) *string {
-		return &holder.CourseTitle
-	}).Named("course_title"),
-	EnrolledAt: tsq.MapInto(TableEnrollment.CreatedAt, func(holder *LearningJourney) *tsqtime.Time {
-		return &holder.EnrolledAt
-	}).Named("enrolled_at"),
-	EnrollmentFee: tsq.MapInto(TableEnrollment.FeeCents, func(holder *LearningJourney) *int64 {
-		return &holder.EnrollmentFee
-	}).Named("enrollment_fee"),
-	EnrollmentID: tsq.MapInto(TableEnrollment.UID, func(holder *LearningJourney) *int64 {
-		return &holder.EnrollmentID
-	}).Named("enrollment_id"),
-	EnrollmentScore: tsq.MapInto(TableEnrollment.Score, func(holder *LearningJourney) *int64 {
-		return &holder.EnrollmentScore
-	}).Named("enrollment_score"),
-	EnrollmentStatus: tsq.MapInto(TableEnrollment.Status, func(holder *LearningJourney) *EnrollmentStatus {
-		return &holder.EnrollmentStatus
-	}).Named("enrollment_status"),
-	InstructorName: tsq.MapInto(TableInstructor.Name, func(holder *LearningJourney) *string {
-		return &holder.InstructorName
-	}).Named("instructor_name"),
-	LearnerCompany: tsq.MapInto(TableLearner.Company, func(holder *LearningJourney) *string {
-		return &holder.LearnerCompany
-	}).Named("learner_company"),
 	LearnerID: tsq.MapInto(TableLearner.ID, func(holder *LearningJourney) *int64 {
 		return &holder.LearnerID
 	}).Named("learner_id"),
 	LearnerName: tsq.MapInto(TableLearner.Name, func(holder *LearningJourney) *string {
 		return &holder.LearnerName
 	}).Named("learner_name"),
+	LearnerCompany: tsq.MapInto(TableLearner.Company, func(holder *LearningJourney) *string {
+		return &holder.LearnerCompany
+	}).Named("learner_company"),
 	TrackName: tsq.MapInto(TableTrack.Name, func(holder *LearningJourney) *string {
 		return &holder.TrackName
 	}).Named("track_name"),
+	CourseID: tsq.MapInto(TableCourse.ID, func(holder *LearningJourney) *int64 {
+		return &holder.CourseID
+	}).Named("course_id"),
+	CourseTitle: tsq.MapInto(TableCourse.Title, func(holder *LearningJourney) *string {
+		return &holder.CourseTitle
+	}).Named("course_title"),
+	CourseLevel: tsq.MapInto(TableCourse.Level, func(holder *LearningJourney) *CourseLevel {
+		return &holder.CourseLevel
+	}).Named("course_level"),
+	InstructorName: tsq.MapInto(TableInstructor.Name, func(holder *LearningJourney) *string {
+		return &holder.InstructorName
+	}).Named("instructor_name"),
+	EnrollmentID: tsq.MapInto(TableEnrollment.UID, func(holder *LearningJourney) *int64 {
+		return &holder.EnrollmentID
+	}).Named("enrollment_id"),
+	EnrollmentStatus: tsq.MapInto(TableEnrollment.Status, func(holder *LearningJourney) *EnrollmentStatus {
+		return &holder.EnrollmentStatus
+	}).Named("enrollment_status"),
+	EnrollmentScore: tsq.MapInto(TableEnrollment.Score, func(holder *LearningJourney) *int64 {
+		return &holder.EnrollmentScore
+	}).Named("enrollment_score"),
+	EnrollmentFee: tsq.MapInto(TableEnrollment.FeeCents, func(holder *LearningJourney) *int64 {
+		return &holder.EnrollmentFee
+	}).Named("enrollment_fee"),
+	EnrolledAt: tsq.MapInto(TableEnrollment.CreatedAt, func(holder *LearningJourney) *tsqtime.Time {
+		return &holder.EnrolledAt
+	}).Named("enrolled_at"),
 }
 
 // Columns returns every column of the projection, for Select.
 func (r LearningJourneyResult) Columns() []tsq.BoundColumn[LearningJourney] {
 	return []tsq.BoundColumn[LearningJourney]{
-		r.CourseID,
-		r.CourseLevel,
-		r.CourseTitle,
-		r.EnrolledAt,
-		r.EnrollmentFee,
-		r.EnrollmentID,
-		r.EnrollmentScore,
-		r.EnrollmentStatus,
-		r.InstructorName,
-		r.LearnerCompany,
 		r.LearnerID,
 		r.LearnerName,
+		r.LearnerCompany,
 		r.TrackName,
+		r.CourseID,
+		r.CourseTitle,
+		r.CourseLevel,
+		r.InstructorName,
+		r.EnrollmentID,
+		r.EnrollmentStatus,
+		r.EnrollmentScore,
+		r.EnrollmentFee,
+		r.EnrolledAt,
 	}
 }

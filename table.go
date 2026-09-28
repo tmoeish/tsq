@@ -407,31 +407,20 @@ func (t *TableOf[R, K]) Columns() []BoundColumn[R] {
 	return result
 }
 
-// FullText returns the table's full-text index, or the one named. Pass it to
-// tsq.Matches to search it.
-func (t *TableOf[R, K]) FullText(name ...string) FullTextIndex {
+// FullText returns the full-text index named name. Pass it to tsq.Matches to
+// search it; a generated table has a FullTextX method for each of its indexes.
+func (t *TableOf[R, K]) FullText(name string) FullTextIndex {
 	if err := t.Err(); err != nil {
 		return FullTextIndex{err: err}
 	}
 
-	var found []IndexSpec
-
 	for _, index := range t.def.indexes {
-		if index.FullText && (len(name) == 0 || index.Name == name[0]) {
-			found = append(found, index)
+		if index.FullText && index.Name == name {
+			return FullTextIndex{table: t, index: index}
 		}
 	}
 
-	switch {
-	case len(found) == 0 && len(name) > 0:
-		return FullTextIndex{err: fmt.Errorf("table %s has no full-text index named %s", t.def.name, name[0])}
-	case len(found) == 0:
-		return FullTextIndex{err: fmt.Errorf("table %s declares no full-text index; add //tsq:fulltext", t.def.name)}
-	case len(found) > 1:
-		return FullTextIndex{err: fmt.Errorf("table %s has %d full-text indexes; name the one to search", t.def.name, len(found))}
-	}
-
-	return FullTextIndex{table: t, index: found[0]}
+	return FullTextIndex{err: fmt.Errorf("table %s has no full-text index named %s; declare it with //tsq:fulltext", t.def.name, name)}
 }
 
 // searchColumns returns the columns keyword search matches against.

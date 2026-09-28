@@ -61,13 +61,14 @@ flag（cobra 时代包级单例的 `Changed` 位跨测试残留过），并支�
 
 ## 生成器不能带 `git describe` 的版本号，否则发版是死锁 (2026-08-21)
 
-用带 `-X version=$(git describe)` 的 `bin/tsq` 生成，文件头记的是 git 描述的版本：想写对头部得先打
-tag，想打 tag 得先过 `release-check`。所以 `make build-gen` **故意不带 `$(LDFLAGS)`** 编 `bin/tsq-gen`
-（报告 `internal/buildinfo` 字面量）；`bin/tsq` 是给人用的 CLI，两个二进制的分工不要合并。
+带 `-X version=$(git describe)` 生成，写对文件头得先打 tag，打 tag 又得先过 `release-check`。所以 `make build-gen`
+**故意不带 `$(LDFLAGS)`** 编 `bin/tsq-gen`（报 `internal/buildinfo` 字面量）；`bin/tsq` 给人用，两个二进制别合并。
 
 ## 决定：只为主键和唯一索引生成查询 (2026-09-17)
 
-普通索引和前缀的查询要排序、限量，生成器猜不到，照抄就是全表读取。
+普通索引和前缀的查询要排序、限量，生成器猜不到，照抄就是全表读取。唯一索引生成 `GetByX` / `FindByX` / `FetchByX`
+（与主键的 `Get` / `Find` / `Fetch` 对称，2026-09-28）；全文索引生成 `FullTextX()` **方法**——字段在 `As` 之后仍指向原表。
+生成的列按声明顺序（2026-09-28）；DDL 列序不跟着改，它已写进使用者的迁移历史。
 
 ## 决定：`generated` 不带表达式保留，但 TSQ 不替它建表 (2026-09-28)
 

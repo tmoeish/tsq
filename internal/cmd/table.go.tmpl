@@ -162,6 +162,14 @@ func (t {{$tableType}}) WithDeleted() {{$tableType}} {
 	return t
 }
 {{- end }}
+{{- range $idx := .FullTexts }}
+
+// FullText{{ JoinAnd $idx.Fields }} is the full-text index {{$idx.Name}}; search it with
+// tsq.Matches.
+func (t {{$tableType}}) FullText{{ JoinAnd $idx.Fields }}() tsq.FullTextIndex {
+	return t.FullText({{ printf "%q" $idx.Name }})
+}
+{{- end }}
 {{- range $ux := .Uniques }}
 	{{- $name := JoinAnd $ux.Fields }}
 	{{- $last := index $ux.Fields (Sub1 (len $ux.Fields)) }}
@@ -184,6 +192,28 @@ func (t {{$tableType}}) GetBy{{$name}}(
 	).Get(ctx, db)
 {{- else }}
 	return t.GetBy(ctx, db, t.{{$last}}, {{ FieldVarName $last }}
+	{{- range $f := $ux.Fields }}
+	{{- if ne $f $last }}, t.{{$f}}.EQ(tsq.Val({{ FieldVarName $f }})){{ end }}
+	{{- end }})
+{{- end }}
+}
+
+// FindBy{{$name}} is GetBy{{$name}} that returns nil, nil when there is no such row.
+func (t {{$tableType}}) FindBy{{$name}}(
+	ctx context.Context,
+	db tsq.Executor,
+	{{- range $f := $ux.Fields }}
+	{{ FieldVarName $f }} {{ ValueType (index $dot.FieldsByName $f) }},
+	{{- end }}
+) (*{{$type}}, error) {
+{{- if $lastField.IsSlice }}
+	return tsq.Select(t.Columns()...).From(t).Where(
+		{{- range $f := $ux.Fields }}
+		t.{{$f}}.EQ(tsq.Val({{ FieldVarName $f }})),
+		{{- end }}
+	).Find(ctx, db)
+{{- else }}
+	return t.FindBy(ctx, db, t.{{$last}}, {{ FieldVarName $last }}
 	{{- range $f := $ux.Fields }}
 	{{- if ne $f $last }}, t.{{$f}}.EQ(tsq.Val({{ FieldVarName $f }})){{ end }}
 	{{- end }})
@@ -243,8 +273,8 @@ func (t {{$tableType}}) FetchBy{{$name}}(
 	return {{$varTbl}}.Restore(ctx, db, {{$dot.Receiver}})
 }
 
-// Active reports whether the row is not soft-deleted.
-{{$precv}}Active() bool {
-	return {{ SoftDeleteActiveExpr $dot.Receiver $dot.DeletedAtField (index $dot.FieldsByName $dot.DeletedAtField) }}
+// IsDeleted reports whether the row, as loaded, is soft-deleted.
+{{$precv}}IsDeleted() bool {
+	return {{ SoftDeletedExpr $dot.Receiver $dot.DeletedAtField (index $dot.FieldsByName $dot.DeletedAtField) }}
 }
 {{- end }}

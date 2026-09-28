@@ -8,7 +8,7 @@ import (
 )
 
 func TestMatchesIsSpelledPerDialect(t *testing.T) {
-	q := Select(Note_ID).From(Notes).Where(Matches(Notes.FullText(), Val("hello world"))).MustBuild()
+	q := Select(Note_ID).From(Notes).Where(Matches(Notes.FullText("ft_notes_title_body"), Val("hello world"))).MustBuild()
 
 	want := map[tsqdialect.Name]string{
 		tsqdialect.MySQL:    "MATCH(`notes`.`title`, `notes`.`body`) AGAINST (? IN NATURAL LANGUAGE MODE)",
@@ -39,7 +39,7 @@ func TestMatchesIsSpelledPerDialect(t *testing.T) {
 
 func TestFullTextRequiresADeclaredIndex(t *testing.T) {
 	// Users declares no full-text index.
-	if _, err := Select(User_ID).From(Users).Where(Matches(Users.FullText(), Val("x"))).Build(); err == nil ||
+	if _, err := Select(User_ID).From(Users).Where(Matches(Users.FullText("ft_users"), Val("x"))).Build(); err == nil ||
 		!strings.Contains(err.Error(), "//tsq:fulltext") {
 		t.Fatalf("missing index = %v", err)
 	}
@@ -51,11 +51,11 @@ func TestFullTextRequiresADeclaredIndex(t *testing.T) {
 
 	// A Param works as the term, and the query knows which table it belongs to.
 	term := NewParam[string]("term")
-	if _, err := Select(Note_ID).From(Notes).Where(Matches(Notes.FullText(), term)).Build(); err != nil {
+	if _, err := Select(Note_ID).From(Notes).Where(Matches(Notes.FullText("ft_notes_title_body"), term)).Build(); err != nil {
 		t.Fatalf("param term = %v", err)
 	}
 
-	if _, err := Select(User_ID).From(Users).Where(Matches(Notes.FullText(), Val("x"))).Build(); err == nil {
+	if _, err := Select(User_ID).From(Users).Where(Matches(Notes.FullText("ft_notes_title_body"), Val("x"))).Build(); err == nil {
 		t.Fatal("expected the index's table to be required in the query")
 	}
 }

@@ -19,7 +19,7 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 - 新增 `Query.ListIn(ctx, db, listParam, values, args...)`：列表参数超过方言绑定上限时按上限分块、在同一快照里读完再拼接，只接受分块不改变结果的查询。`TableXxx.Fetch` / `FetchBy` 用它，任意数量的键都能取（此前超过 SQLite 的 32766 个就报错）。
 - 新增 `TableXxx.Restore` / `BatchRestore` 和生成的 `row.Restore(ctx, db)`：恢复软删除的行，是清除 `deleted_at` 的唯一入口。
 - 根包不再 import 任何数据库驱动（MySQL 错误改为反射识别），根包测试也不再 import 驱动和 nullbio：只用库的项目 `go mod tidy` 之后 `go.mod` 不会多出间接依赖，`go.sum` 里只剩 SQLite 驱动（根包单测需要）。
-- `TableXxx.GetBy(ctx, db, col, value, conds...)`：按唯一列读一行，与 `FetchBy` 成对；生成的 `GetByX` 调它，没有额外条件时查询只构建一次（此前每次调用都重新构建和渲染）。
+- `TableXxx.GetBy(ctx, db, col, value, conds...)` / `FindBy`（没有时 `nil, nil`）：按唯一列读一行，与 `FetchBy` 成对；生成的 `GetByX` / `FindByX` 调它，没有额外条件时查询只构建一次（此前每次调用都重新构建和渲染）。
 - `TableXxx.Upsert(ctx, db, &row, key...)` 和 `BatchUpsert(ctx, db, rows, key, options...)`：按主键或某个唯一索引插入或更新，PostgreSQL / SQLite 渲染成 `ON CONFLICT ... DO UPDATE`，MySQL 渲染成 `ON DUPLICATE KEY UPDATE`。更新时 `version` 自增不校验、`updated_at` 刷新、`created_at` 保留；单行版本回读主键、`version` 和 `created_at`。MySQL 会匹配所有唯一键，因此行可能撞上别的唯一键时直接拒绝。追踪操作名为 `upsert`。
 - `Query.Iter(ctx, db, args...)` 返回 `iter.Seq2[*O, error]`，逐行扫描，大结果集不必整体读进内存；`break` 会结束查询。追踪操作名为 `iter`。
 
@@ -104,7 +104,7 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 - **只支持 MySQL / PostgreSQL / SQLite**，公开 API 只收方言名，没有可以实现的方言接口。
 - 行写入绑定值不再走反射（列上带一个由生成的访问器构成的取值函数）：100 行的批量 INSERT 约快 19%，批量 UPDATE 约快 28%（`write_bench_test.go`）。
 - 新增 `tsq.AttachMany` / `tsq.AttachOne`：给一批父行一次性装配子行（内部走 `ListIn`，父键去重分块），不再需要每行一次查询。子查询由调用方给出，它的过滤、排序和软删除作用域决定哪些子行算在内。
-- **全文检索**：`//tsq:fulltext Title,Summary` 声明全文索引，`tsq.Matches(TableXxx.FullText(), tsq.Val(term))` 搜索它。MySQL 渲染 `MATCH ... AGAINST`（并创建 `FULLTEXT` 索引），PostgreSQL 渲染 `to_tsvector('simple', ...) @@ plainto_tsquery` 并建 GIN 表达式索引，SQLite 没有 TSQ 能管理的全文索引，同一个谓词退化为按子串匹配（`dialect.CapabilityFullTextSearch` 报告是哪一种）。全文索引只按名字对账。
+- **全文检索**：`//tsq:fulltext Title,Summary` 声明全文索引，`tsq.Matches(TableXxx.FullTextTitleAndSummary(), tsq.Val(term))` 搜索它：每个全文索引生成一个按字段命名的方法（别名表上同样可用），手写表用 `TableOf.FullText("索引名")`（此前是 `FullText(name ...string)`，没有或有多个索引时运行期才报错）。MySQL 渲染 `MATCH ... AGAINST`（并创建 `FULLTEXT` 索引），PostgreSQL 渲染 `to_tsvector('simple', ...) @@ plainto_tsquery` 并建 GIN 表达式索引，SQLite 没有 TSQ 能管理的全文索引，同一个谓词退化为按子串匹配（`dialect.CapabilityFullTextSearch` 报告是哪一种）。全文索引只按名字对账。
 - **数据库填值的列**：`db:"col,default:SQL"` 让列有 DDL 默认值，并且字段未设置时插入语句直接不写这一列（由数据库填），单行 `Insert` 之后把值读回；`db:"col,generated:SQL"` 声明生成列（`GENERATED ALWAYS AS (SQL) STORED`），`Insert` / `Update` / `Upsert` 永不写它，单行插入后读回。托管列和主键不允许这样标注，`tsq gen` 会拒绝。生成列由建表语句创建，之后 schema 策略不再比较它（三个方言的自省结果不一致）。
 - 列定义的 DDL 渲染库和生成器共用一份实现，不再各写一份。
 - 新增 `*tsq.RowStateError`（用 `errors.AsType` 判断，它不是可重试的错误，所以没有 `Is*` 函数）：删除一个已删除的行、恢复一个未删除的行，报的是行的状态不对，而不是乐观锁冲突（那种重试没用），没有 `version` 列的表也会报。
@@ -135,10 +135,10 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 **生成代码**
 
-- 表文件：`XxxTable` 结构体与 `TableXxx` 值，外加 `As(alias)`，软删除表另有 `WithDeleted()`（都返回同样的结构体，列一起改绑），以及每个唯一索引的 `GetByEmail(ctx, db, email)` 和 `FetchByEmail(ctx, db, emails...)`（复合索引 `A,B` 是 `GetByAAndB(ctx, db, a, b)` / `FetchByAAndB(ctx, db, a, bs...)`）。主键查询在 `TableOf` 上，不再生成 `QueryXxx*` / `FetchXxxByID` 变量和函数。**普通索引和唯一索引前缀不生成查询**：这类查询需要排序和限量，用构建器写。
+- 表文件：`XxxTable` 结构体与 `TableXxx` 值，外加 `As(alias)`，软删除表另有 `WithDeleted()`（都返回同样的结构体，列一起改绑），以及每个唯一索引的 `GetByEmail(ctx, db, email)`、`FindByEmail(ctx, db, email)` 和 `FetchByEmail(ctx, db, emails...)`（复合索引 `A,B` 是 `GetByAAndB(ctx, db, a, b)` / `FindByAAndB` / `FetchByAAndB(ctx, db, a, bs...)`）。列字段按结构体里的声明顺序排列（嵌入结构体的字段在嵌入处），`Columns()` 也按这个顺序选列；此前按字段名排序。主键查询在 `TableOf` 上，不再生成 `QueryXxx*` / `FetchXxxByID` 变量和函数。**普通索引和唯一索引前缀不生成查询**：这类查询需要排序和限量，用构建器写。
 - 列字段与表的方法重名（`Update`、`Query`、`Columns`、`As`……）时 `tsq gen` 报错并指出字段，改 Go 字段名即可（`db` tag 保留列名）。
 - 生成的参数名按缩写词整体小写（`ids`、`uid`），不再出现 `iDs`。
-- 行方法：`Insert` / `Update` / `HardDelete`，软删除表另有 `Delete()` / `Restore()` / `Active()`。
+- 行方法：`Insert` / `Update` / `HardDelete`，软删除表另有 `Delete()` / `Restore()` / `IsDeleted()`（报告加载时这一行是否带墓碑；名字说的是它检查什么，`Active` 容易被读成"业务上启用"）。
 - Result：`XxxResult` 结构体（每个结果字段一个 `ResultColumn`）与 `ResultXxx` 值，用法是 `tsq.Select(ResultXxx.Columns()...)`。
 - `runtime.tsq.go` 只剩 `TSQTables()`；生成文件、`tsq.json` 和各方言 `.sql` 由 `tsq gen` 维护，不再有 `--tpl` / `--resulttpl`。
 
@@ -165,7 +165,7 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 - **`pk=Code` 用在 string 字段上又没写 `assigned` 时 `tsq gen` 直接 panic**：现在报错并提示加 `assigned`。
 - **在模块外用绝对路径跑 `tsq gen /path/to/pkg` 找不到包**：包按导入路径从当前目录重新加载；加载失败时也不再吞掉 `go/packages` 给出的原因。
 - **结构体叫 `Runtime` 时，它的生成文件被 `runtime.tsq.go` 覆盖**：现在报文件名冲突。
-- **软删除表上叫 `Active`（或 `Insert`、`Update`、`HardDelete`、`Delete`、`Restore`）的字段让生成代码编译不过**：这些是生成在行类型上的方法，现在 `tsq gen` 报错。
+- **软删除表上叫 `IsDeleted`（或 `Insert`、`Update`、`HardDelete`、`Delete`、`Restore`）的字段让生成代码编译不过**：这些是生成在行类型上的方法，现在 `tsq gen` 报错。
 - **结构体名缩写成 `db` / `ctx` / `tsq`（如 `DeviceBinding`）时，接收者遮住了行方法的参数**，生成代码编译不过。现在换成 `row`。
 - **`[N]byte` 字段加 `type:` 后生成 `*[]byte` 访问器**，编译不过。
 - **结果上的 `//tsq:search` 被接受然后静默丢掉**：结果没有生成查询可放搜索，现在报错（文档曾说它在结果上也有效，已更正）。

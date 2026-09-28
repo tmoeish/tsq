@@ -16,11 +16,11 @@ import (
 type LearnerTable struct {
 	*tsq.TableOf[Learner, int64]
 
-	Company   tsq.Column[Learner, string]
-	CreatedAt tsq.NullColumn[Learner, tsqtime.Time]
-	Email     tsq.Column[Learner, string]
 	ID        tsq.Column[Learner, int64]
+	CreatedAt tsq.NullColumn[Learner, tsqtime.Time]
 	Name      tsq.Column[Learner, string]
+	Email     tsq.Column[Learner, string]
+	Company   tsq.Column[Learner, string]
 }
 
 // TableLearner is the learner table.
@@ -32,20 +32,20 @@ func newLearnerTable() LearnerTable {
 	t := tsq.NewTable[Learner, int64]("learner")
 	c := LearnerTable{
 		TableOf:   t,
-		Company:   tsq.NewColumn(t, "company", "company", func(r *Learner) *string { return &r.Company }),
-		CreatedAt: tsq.NewNullColumn[tsqtime.Time](t, "created_at", "created_at", func(r *Learner) *tsqsql.Null[tsqtime.Time] { return &r.CreatedAt }),
-		Email:     tsq.NewColumn(t, "email", "email", func(r *Learner) *string { return &r.Email }),
 		ID:        tsq.NewColumn(t, "id", "id", func(r *Learner) *int64 { return &r.ID }),
+		CreatedAt: tsq.NewNullColumn[tsqtime.Time](t, "created_at", "created_at", func(r *Learner) *tsqsql.Null[tsqtime.Time] { return &r.CreatedAt }),
 		Name:      tsq.NewColumn(t, "name", "name", func(r *Learner) *string { return &r.Name }),
+		Email:     tsq.NewColumn(t, "email", "email", func(r *Learner) *string { return &r.Email }),
+		Company:   tsq.NewColumn(t, "company", "company", func(r *Learner) *string { return &r.Company }),
 	}
 
 	t.Define(tsq.TableSpec[Learner, int64]{
 		Columns: []tsq.BoundColumn[Learner]{
-			c.Company,
-			c.CreatedAt,
-			c.Email,
 			c.ID,
+			c.CreatedAt,
 			c.Name,
+			c.Email,
+			c.Company,
 		},
 		PrimaryKey:    c.ID,
 		AutoIncrement: true,
@@ -110,11 +110,11 @@ func (t LearnerTable) As(alias string) LearnerTable {
 
 	return LearnerTable{
 		TableOf:   a,
-		Company:   t.Company.WithTable(a),
-		CreatedAt: t.CreatedAt.WithTable(a).(tsq.NullColumn[Learner, tsqtime.Time]),
-		Email:     t.Email.WithTable(a),
 		ID:        t.ID.WithTable(a),
+		CreatedAt: t.CreatedAt.WithTable(a).(tsq.NullColumn[Learner, tsqtime.Time]),
 		Name:      t.Name.WithTable(a),
+		Email:     t.Email.WithTable(a),
+		Company:   t.Company.WithTable(a),
 	}
 }
 
@@ -126,6 +126,15 @@ func (t LearnerTable) GetByEmail(
 	email string,
 ) (*Learner, error) {
 	return t.GetBy(ctx, db, t.Email, email)
+}
+
+// FindByEmail is GetByEmail that returns nil, nil when there is no such row.
+func (t LearnerTable) FindByEmail(
+	ctx context.Context,
+	db tsq.Executor,
+	email string,
+) (*Learner, error) {
+	return t.FindBy(ctx, db, t.Email, email)
 }
 
 // FetchByEmail reads the Learner rows matching unique index ux_learner_email, one per

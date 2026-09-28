@@ -170,21 +170,39 @@ func (t *TableOf[R, K]) FetchBy[T comparable](ctx context.Context, db Executor, 
 // the columns where fixes; the generated GetByX methods call it for each unique
 // index. Without where the query is built once and reused.
 func (t *TableOf[R, K]) GetBy[T comparable](ctx context.Context, db Executor, col Column[R, T], value T, where ...Condition) (*R, error) {
-	t = t.unaliased()
-
-	col, err := ownColumn(t, col)
-	if err != nil {
-		return nil, err
-	}
-
-	q, err := t.byQuery(col, false, where, func() (*Query[R], error) {
-		return Select(t.Columns()...).From(t).Where(col.EQ(col.Param()), where...).Build()
-	})
+	q, col, err := oneBy(t, col, where)
 	if err != nil {
 		return nil, err
 	}
 
 	return q.Get(ctx, db, col.Bind(value))
+}
+
+// FindBy is GetBy that returns nil, nil when there is no such row; the generated
+// FindByX methods call it.
+func (t *TableOf[R, K]) FindBy[T comparable](ctx context.Context, db Executor, col Column[R, T], value T, where ...Condition) (*R, error) {
+	q, col, err := oneBy(t, col, where)
+	if err != nil {
+		return nil, err
+	}
+
+	return q.Find(ctx, db, col.Bind(value))
+}
+
+// oneBy is the query of GetBy and FindBy.
+func oneBy[R any, K, T comparable](t *TableOf[R, K], col Column[R, T], where []Condition) (*Query[R], Column[R, T], error) {
+	t = t.unaliased()
+
+	col, err := ownColumn(t, col)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	q, err := t.byQuery(col, false, where, func() (*Query[R], error) {
+		return Select(t.Columns()...).From(t).Where(col.EQ(col.Param()), where...).Build()
+	})
+
+	return q, col, err
 }
 
 // byQuery returns the GetBy / FetchBy query of col: built once per scope and

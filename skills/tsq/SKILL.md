@@ -54,7 +54,7 @@ describes the implementation.
 - `query.Page` takes a typed `tsq.Paging`; convert an HTTP `tsq.PageRequest` with `req.Paging(sortableCols...)`, which is also where it is validated and which carries the request's keyword into `Page`. A size above the runtime cap is served capped, not rejected.
 - Transaction options follow the callback: `runtime.WithTx(ctx, fn, tsq.WithRetry(tsq.IsRetryableTxError))`.
 - Columns are fields of the generated table: `TableXxx.Name`, and `TableXxx.Columns()` for `Select`. An alias is `TableXxx.As("x")`, whose fields are the columns bound to it.
-- Read by primary key with `TableXxx.Get(ctx, db, id)` / `Find` / `Fetch(ctx, db, ids...)`, and by a unique index with the generated `TableXxx.GetByEmail` / `FetchByEmail`. Write lookups on plain indexes with the builder.
+- Read by primary key with `TableXxx.Get(ctx, db, id)` / `Find` / `Fetch(ctx, db, ids...)`, and by a unique index with the generated `TableXxx.GetByEmail` / `FindByEmail` / `FetchByEmail`. Write lookups on plain indexes with the builder.
 - Do not assume this skill ships management scripts; install or upgrade TSQ with explicit `go install .../cmd/tsq@version` commands, and run `tsq gen` directly against the chosen package.
 - The builder is stage-based: `Where(...)` and `Search(...)` each appear at most once per chain, enforced by the Go type system at compile time. Pass all filter conditions to the single `Where(...)` call; use `tsq.Or(...)` for OR groups. Both clauses can coexist in either order.
 - Remember that `In` over an empty list parameter matches nothing and `NotIn` matches everything; the filter is never dropped.
