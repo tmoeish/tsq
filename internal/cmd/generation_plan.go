@@ -119,10 +119,6 @@ func buildGenerationModels(
 				return nil, fmt.Errorf("validate %s: %w", s.TypeInfo.TypeName, err)
 			}
 
-			if err := validateMySQLIndexKeys(s); err != nil {
-				return nil, fmt.Errorf("validate %s: %w", s.TypeInfo.TypeName, err)
-			}
-
 			if err := validateFullTextFields(s); err != nil {
 				return nil, fmt.Errorf("validate %s: %w", s.TypeInfo.TypeName, err)
 			}

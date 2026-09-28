@@ -1155,48 +1155,73 @@ const (
 	mysqlCharBytes   = 4
 )
 
-// validateMySQLIndexKeys refuses an index MySQL would reject when the DDL runs:
-// one over a TEXT or BLOB column (error 1170), or one whose key can exceed 3072
-// bytes (error 1071; a VARCHAR(n) is up to 4n bytes). A column with type: is
-// the user's to size and is not counted.
-func validateMySQLIndexKeys(s *genmodel.StructInfo) error {
+// mysqlIndexProblem says why MySQL rejects an index over columns when the DDL
+// runs, or "" when it does not: a TEXT or BLOB column cannot be indexed (error
+// 1170), and a key can take at most 3072 bytes (error 1071; a VARCHAR(n) is up to
+// 4n). A column of an unknown or explicit type: is not counted.
+//
+// It is a warning, not a refusal: a schema that only ever runs on PostgreSQL or
+// SQLite may declare such an index, and tsq gen writes the DDL of every dialect.
+func mysqlIndexProblem(index string, columns []string, typeOf func(column string) (tsqdialect.ColumnType, bool)) string {
+	total := 0
+
+	for _, name := range columns {
+		columnType, ok := typeOf(name)
+		if !ok || columnType.RawType != "" {
+			continue
+		}
+
+		spelled := sqld.MySQLDialect{}.ColumnTypeSQL(columnType)
+
+		var chars int
+
+		switch {
+		case strings.HasPrefix(spelled, "VARCHAR("):
+			_, _ = fmt.Sscanf(spelled, "VARCHAR(%d)", &chars)
+			total += chars * mysqlCharBytes
+		case strings.HasSuffix(spelled, "TEXT"), strings.HasSuffix(spelled, "BLOB"):
+			return fmt.Sprintf("index %s covers %s, a %s on MySQL, which cannot be indexed; give it a size: of at most %d or leave it out of the index",
+				index, name, spelled, mysqlMaxKeyBytes/mysqlCharBytes)
+		default:
+			total += 8
+		}
+	}
+
+	if total > mysqlMaxKeyBytes {
+		return fmt.Sprintf("index %s can take %d bytes on MySQL, which limits a key to %d (%d bytes a character); lower the size: of its string columns or leave some out",
+			index, total, mysqlMaxKeyBytes, mysqlCharBytes)
+	}
+
+	return ""
+}
+
+// mysqlIndexWarnings lists the indexes of s that MySQL would reject.
+func mysqlIndexWarnings(s *genmodel.StructInfo) []string {
 	columns := make(map[string]genmodel.SchemaColumn, len(s.Schema))
 	for _, column := range s.Schema {
 		columns[column.Name] = column
 	}
 
+	typeOf := func(name string) (tsqdialect.ColumnType, bool) {
+		column, ok := columns[name]
+
+		return tsqdialect.ColumnType{
+			Kind: tsqdialect.ColumnKind(column.Kind), Bits: column.Bits, Unsigned: column.Unsigned, Size: column.Size, RawType: column.RawType,
+		}, ok
+	}
+
+	var warnings []string
+
 	for _, index := range slices.Concat(s.Uniques, s.Indexes) {
-		total := 0
-
-		for _, name := range indexFieldNames(s, index.Fields) {
-			column, ok := columns[s.FieldsByName[name].Column]
-			if !ok || column.RawType != "" {
-				continue
-			}
-
-			spelled := sqld.MySQLDialect{}.ColumnTypeSQL(tsqdialect.ColumnType{
-				Kind: tsqdialect.ColumnKind(column.Kind), Bits: column.Bits, Unsigned: column.Unsigned, Size: column.Size,
-			})
-
-			var chars int
-
-			switch {
-			case strings.HasPrefix(spelled, "VARCHAR("):
-				_, _ = fmt.Sscanf(spelled, "VARCHAR(%d)", &chars)
-				total += chars * mysqlCharBytes
-			case strings.HasSuffix(spelled, "TEXT"), strings.HasSuffix(spelled, "BLOB"):
-				return fmt.Errorf("index %s covers %s, a %s on MySQL, which cannot be indexed; give it a size: of at most %d, or leave it out of the index",
-					index.Name, name, spelled, mysqlMaxKeyBytes/mysqlCharBytes)
-			default:
-				total += 8
-			}
+		cols := make([]string, 0, len(index.Fields)+1)
+		for _, field := range indexFieldNames(s, index.Fields) {
+			cols = append(cols, s.FieldsByName[field].Column)
 		}
 
-		if total > mysqlMaxKeyBytes {
-			return fmt.Errorf("index %s can take %d bytes on MySQL, which limits a key to %d (a string column takes up to %d bytes a character); "+
-				"lower the size: of its string columns or leave some out", index.Name, total, mysqlMaxKeyBytes, mysqlCharBytes)
+		if problem := mysqlIndexProblem(index.Name, cols, typeOf); problem != "" {
+			warnings = append(warnings, s.TypeInfo.TypeName+": "+problem)
 		}
 	}
 
-	return nil
+	return warnings
 }

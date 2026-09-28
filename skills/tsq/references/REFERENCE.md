@@ -213,9 +213,10 @@ Supported field types:
 
 - the field list is comma-separated and its order is the index order; a space after a comma is fine
 - MySQL limits an index key to 3072 bytes and counts a string column at 4 bytes a character, and it
-  cannot index a `TEXT` column at all: `tsq gen` refuses an index whose string columns could exceed
-  the limit (`VARCHAR(2000)` alone does) or that covers a string too large for `VARCHAR`. Lower the
-  `size:` or leave the column out of the index
+  cannot index a `TEXT` column at all. PostgreSQL and SQLite accept such an index, so `tsq gen`
+  generates it and warns: it prints the reason, and `mysql.sql` carries it as a comment above the
+  statement that will fail there (`VARCHAR(2000)` alone exceeds the limit). For a schema that runs
+  on MySQL, lower the `size:` or leave the column out of the index
 - `name=` is optional; an omitted name is derived from the table and the fields
 - a field repeated inside one index is invalid, and so are two indexes over the same field list
 - on a table declaring `deleted_at`, prefer an integer tombstone when the table also has unique
