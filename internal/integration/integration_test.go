@@ -249,6 +249,32 @@ func TestIntegrationReconcileAltersOnlyTheChangedColumn(t *testing.T) {
 	}
 }
 
+// TestIntegrationCreateMissingAddsAMissingColumn drops a declared column and
+// starts again under CreateMissing, which is documented to add it back and used to
+// refuse to start instead.
+func TestIntegrationCreateMissingAddsAMissingColumn(t *testing.T) {
+	for _, target := range integrationTargets(t) {
+		t.Run(target.name, func(t *testing.T) {
+			dropAcademyTables(t, target)
+			rt, _ := openWithPolicy(t, target, academy.TSQTables(), tsq.SchemaPolicyReconcile)
+
+			if _, err := rt.ExecContext(context.Background(), "ALTER TABLE track DROP COLUMN skill_items"); err != nil {
+				t.Fatalf("drop column: %v", err)
+			}
+
+			_, recorder := openWithPolicy(t, target, academy.TSQTables(), tsq.SchemaPolicyCreateMissing)
+			if !slices.ContainsFunc(recorder.statements(), func(ddl string) bool { return strings.Contains(ddl, "ADD COLUMN") }) {
+				t.Fatalf("expected an ADD COLUMN, got:\n  %s", strings.Join(recorder.statements(), "\n  "))
+			}
+
+			_, again := openWithPolicy(t, target, academy.TSQTables(), tsq.SchemaPolicyReconcile)
+			if again.count() != 0 {
+				t.Fatalf("the added column differs from the declared one:\n  %s", strings.Join(again.statements(), "\n  "))
+			}
+		})
+	}
+}
+
 func TestIntegrationCRUDOptimisticLockAndDuplicateKeys(t *testing.T) {
 	for _, target := range integrationTargets(t) {
 		t.Run(target.name, func(t *testing.T) {
@@ -2001,6 +2027,11 @@ func TestMySQLErrorsAreClassifiedWithoutImportingTheDriver(t *testing.T) {
 	joined := errors.Join(errors.New("other"), &mysql.MySQLError{Number: 1205})
 	if !tsq.IsTxConflictError(joined) {
 		t.Fatal("expected a lock wait timeout inside errors.Join to be a transaction conflict")
+	}
+
+	// NOWAIT finding the row locked: PostgreSQL's 55P03 was retried, MySQL's was not.
+	if !tsq.IsTxConflictError(&mysql.MySQLError{Number: 3572}) {
+		t.Fatal("expected a NOWAIT lock failure to be a transaction conflict")
 	}
 
 	if tsq.IsTxConflictError(&mysql.MySQLError{Number: 1062}) {
