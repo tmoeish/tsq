@@ -6,7 +6,7 @@ import (
 )
 
 // version is injected at build time via ldflags.
-var version = "v4.10.0"
+var version = "v4.10.1"
 
 // buildTime is injected at build time via ldflags.
 var buildTime = "unknown"
