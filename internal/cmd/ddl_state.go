@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 	"github.com/tmoeish/tsq/v5/internal/genmodel"
 	sqld "github.com/tmoeish/tsq/v5/internal/sqldialect"
 )
@@ -743,9 +744,20 @@ func renderDDLSnapshotIndexStatements(table ddlSnapshotTable, dialect ddlDialect
 
 	for _, idx := range table.Indexes {
 		// A dialect without a full-text index of its own has nothing to write.
-		if statement := renderDDLIndexCreateStatement(table.Name, idx, dialect); statement != "" {
-			statements = append(statements, statement)
+		statement := renderDDLIndexCreateStatement(table.Name, idx, dialect)
+		if statement == "" {
+			continue
 		}
+
+		// MySQL rejects some indexes the other dialects take; the statement stays,
+		// and says why it will fail, for a schema that also runs on MySQL.
+		if dialect.dialect.Name() == tsqdialect.MySQL && !idx.FullText {
+			if problem := mysqlIndexProblem(idx.Name, idx.Fields, snapshotColumnType(table)); problem != "" {
+				statements = append(statements, renderDDLManualComment(table.Name, problem))
+			}
+		}
+
+		statements = append(statements, statement)
 	}
 
 	return statements
@@ -1072,4 +1084,17 @@ func renderDDLHistorySection(sequence, body string) string {
 	buf.WriteString(strings.TrimSpace(body))
 
 	return buf.String()
+}
+
+// snapshotColumnType looks up the type of a column of table by name.
+func snapshotColumnType(table ddlSnapshotTable) func(string) (tsqdialect.ColumnType, bool) {
+	return func(name string) (tsqdialect.ColumnType, bool) {
+		for _, column := range table.Columns {
+			if column.Name == name {
+				return ddlColumnSpecFromSnapshot(column).Type, true
+			}
+		}
+
+		return tsqdialect.ColumnType{}, false
+	}
 }

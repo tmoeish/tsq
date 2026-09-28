@@ -54,9 +54,9 @@
   猜错的列类型在建表那一刻不报错，在写入超长数据那一刻才报错。`[门禁: TestGenRefusesToGuessACodecColumnType]`
 - 显式 `type:` 分支的可空性必须和 Go 侧 `NullColumn` 的判据（`nullableValueType`）一致；两边各判一次就会
   出现"Go 能写 NULL、列是 NOT NULL"。
-- **生成期要替数据库先拒绝它建表时才会拒绝的东西**：MySQL 索引键 3072 字节、`TEXT` 不能进索引
-  （`validateMySQLIndexKeys`），自增主键必须是整数（`validateAutoIncrementKey`）。改 MySQL 的字符串类型映射
-  （`VARCHAR` / `MEDIUMTEXT` 的界）要回来看前者。
+- **生成期要替数据库先说出它建表时才会拒绝的东西**：自增主键必须是整数（`validateAutoIncrementKey`，报错）；MySQL
+  索引键 3072 字节、`TEXT` 不能进索引（`mysqlIndexProblem`，**只警告**并在 `mysql.sql` 写注释——只对一个方言成立的限制
+  不能拦住另外两个方言的使用者）。改 MySQL 的字符串类型映射（`VARCHAR` / `MEDIUMTEXT` 的界）要回来看后者。
 - `generated` 不带表达式的列属于迁移：`ColumnDefinitionSQL` 拒绝写它（运行期建表因此报错），生成的 `.sql` 用
   `migrationOwned` 留出它。新的 DDL 渲染路径（重建、加列）要同样跳过它。
 - 索引的列：唯一索引和普通索引在软删表上以 `deleted_at` 打头（`indexFieldNames`），**全文索引不加**。

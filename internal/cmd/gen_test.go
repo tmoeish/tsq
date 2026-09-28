@@ -2427,9 +2427,6 @@ func TestGenRefusesWhatItCannotGenerate(t *testing.T) {
 		"search on a result": {table("//tsq:table", "") + "\n//tsq:result\n//tsq:search Name\ntype View struct {\n\tName int64 `tsq:\"Row.ID\"`\n}\n", "search belongs to a table"},
 		// The generated result referenced a TableView that does not exist.
 		"result of a result": {table("//tsq:table", "") + "\n//tsq:result\ntype A struct {\n\tID int64 `tsq:\"Row.ID\"`\n}\n\n//tsq:result\ntype B struct {\n\tID int64 `tsq:\"A.ID\"`\n}\n", "which is a result"},
-		// MySQL refuses these when the DDL runs (errors 1071 and 1170).
-		"index key over 3072 bytes": {table("//tsq:table\n//tsq:unique Body", "Body string `db:\"body,size:2000\"`"), "limits a key to 3072"},
-		"index over a text column":  {table("//tsq:table\n//tsq:index Body", "Body string `db:\"body,size:20000\"`"), "cannot be indexed"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			err := genModule(t, map[string]string{"model.go": tt.source})
@@ -2473,5 +2470,31 @@ func TestGenTakesAnAbsoluteDirectoryFromOutsideTheModule(t *testing.T) {
 
 	if err := GenCmd.Execute(); err != nil {
 		t.Fatalf("tsq gen %s: %v", module, err)
+	}
+}
+
+// TestGenWarnsAboutIndexesMySQLRejects covers indexes MySQL refuses when the DDL
+// runs (errors 1071 and 1170) and the other dialects accept. They were refused by
+// tsq gen, which blocked a schema that never runs on MySQL; now mysql.sql says why
+// the statement will fail there, and the other files are as declared.
+func TestGenWarnsAboutIndexesMySQLRejects(t *testing.T) {
+	err := genModule(t, map[string]string{"model.go": "package gentest\n\n//tsq:table\n//tsq:unique Body\n//tsq:index Notes\ntype Row struct {\n\tID    int64  `db:\"id\"`\n\tBody  string `db:\"body,size:2000\"`\n\tNotes string `db:\"notes,size:20000\"`\n}\n"})
+	if err != nil {
+		t.Fatalf("tsq gen: %v", err)
+	}
+
+	mysql, err := os.ReadFile("mysql.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, want := range []string{"-- row: index ux_row_body can take 8000 bytes on MySQL", "-- row: index idx_row_notes covers notes, a MEDIUMTEXT on MySQL"} {
+		if !strings.Contains(string(mysql), want) {
+			t.Errorf("mysql.sql lacks %q:\n%s", want, mysql)
+		}
+	}
+
+	if postgres, err := os.ReadFile("postgres.sql"); err != nil || strings.Contains(string(postgres), "on MySQL") {
+		t.Errorf("postgres.sql carries the MySQL note: %v\n%s", err, postgres)
 	}
 }

@@ -158,7 +158,7 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 - **包里与 TSQ 无关的结构体会让 `tsq gen` 中止**：带 `db` 标签的 map 字段、嵌入另一个包的接口（`io.Reader`）都会报一条既不说结构体也不说字段的错误。现在只有被表或结果用到的结构体才会报错，并点出结构体和字段。
 - **包里有 `import "C"` 时 `tsq gen` 报 `cannot import package C`**。
 - 泛型结构体上的 `//tsq:table`、引用另一个结果的结果，以前生成编译不过的代码，现在报错；`default:'a, b'` 不再在引号里的逗号处被截断；`//tsq:unique A, B`（逗号后有空格）不再报"字段名为空"；写在非结构体类型上的指令不再被静默忽略。
-- **MySQL 上超过 3072 字节键长的索引（如 `VARCHAR(2000)` 上的唯一索引）和 `TEXT` 列上的索引，建表时才被数据库拒绝**：现在 `tsq gen` 就报错。
+- **MySQL 上超过 3072 字节键长的索引（如 `VARCHAR(2000)` 上的唯一索引）和 `TEXT` 列上的索引，建表时才被数据库拒绝**：现在 `tsq gen` 打出警告，并在 `mysql.sql` 那条语句上方注明原因。不报错：PostgreSQL / SQLite 接受这种索引，只跑在它们上面的 schema 不该因此生成失败。
 - **`SchemaPolicyCreateMissing` 从不补缺失的列**：文档、Go doc 和 README 都说它会，代码却把"缺一列"和"列不一样"一起当成不匹配而拒绝启动。现在缺的列会加上；列不一样或多出未声明的列仍然拒绝启动。
 - **SQLite 上 `Reconcile` 重建表后，被硬删除的最大主键会被重新分配**：重建丢掉了 `sqlite_sequence` 里的计数，新表从复制过来的最大主键接着数。现在计数随表保留。
 - **SQLite 按表名、索引名自省时区分大小写**：表建成 `"Users"`、声明成 `users` 时，`Validate` 报表不存在，`CreateMissing` 把一条什么也没做的 `CREATE TABLE IF NOT EXISTS` 记成已执行。

@@ -143,6 +143,13 @@ Troubleshooting:
 			return err
 		}
 
+		// MySQL's index limits are warnings: the schema may run on the others only.
+		for _, s := range list {
+			for _, warning := range mysqlIndexWarnings(s) {
+				_, _ = fmt.Fprintln(errWriter, "warning: "+warning)
+			}
+		}
+
 		stats := summarizeGenerationModels(models)
 		if v {
 			_, _ = fmt.Fprintf(errWriter, "parsed %d table(s), %d result(s)\n", stats.Tables, stats.Results)
