@@ -240,7 +240,7 @@ func SelectDistinct[O any](cols ...BoundColumn[O]) SelectStage[O] {
 // SelectValue starts a query that reads one expression, such as an aggregate:
 // its rows are the values themselves.
 //
-//	total, err := tsq.SelectValue(tsq.Sum(Order_Amount)).From(Orders).MustBuild().Get(ctx, db)
+//	n, err := tsq.SelectValue(tsq.Count(Order_ID)).From(Orders).MustBuild().Get(ctx, db)
 //
 // The value must never be NULL; use SelectNullValue where it can be, for example
 // for SUM over no rows.

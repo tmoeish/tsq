@@ -41,6 +41,7 @@ genmodel.StructInfo / TableMeta        internal/genmodel/model.go
 | `//tsq:unique 字段[,字段] [name=X]` | 唯一索引，可重复 |
 | `//tsq:index 字段[,字段] [name=X]` | 普通索引，可重复 |
 | `//tsq:search 字段[,字段]` | 参与关键字搜索的字段；只能写在表上（结果没有生成查询可放） |
+| `//tsq:fulltext 字段[,字段] [name=X]` | 全文索引，可重复；每个生成一个 `FullText<字段>()` 方法；字段须是文本 |
 
 - 所有字段名都是 **Go 字段名**，不是 SQL 列名。
 - 指令只能写在非泛型的结构体类型上；写在别处 `refuseDirectiveOnNonStruct` 报错，而不是像以前那样静默忽略。

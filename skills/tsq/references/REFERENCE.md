@@ -233,7 +233,8 @@ Supported field types:
 //tsq:search Name,Email
 ```
 
-It declares which fields the generated keyword-search helpers cover. It belongs to a table: a
+It declares the columns keyword search matches: `TableXxx.Query()` searches them when given
+`tsq.Keyword(term)`. It belongs to a table: a
 result generates no query to put the search in, so `tsq gen` refuses it there. A query that selects
 into a result calls `Search(...)` itself.
 
@@ -706,9 +707,11 @@ its source column scans into: `tsq.Date(TableUser.CreatedAt)` holds text while `
 // Into a field of a result type.
 tsq.Select(tsq.MapInto(tsq.Upper(database.TableUser.Name), func(r *Row) *string { return &r.Name }))
 
-// Or on its own, when the value is the whole row.
-total, err := tsq.SelectValue(tsq.Sum(database.TableOrder.Amount)).From(database.TableOrder).MustBuild().Get(ctx, db)
-// total is *int64; SelectNullValue reads a *sql.Null[int64] where the value can be NULL
+// Or on its own, when the value is the whole row. n is *int64.
+n, err := tsq.SelectValue(tsq.Count(database.TableOrder.ID)).From(database.TableOrder).MustBuild().Get(ctx, db)
+
+// SUM over no rows is NULL, so SelectValue refuses it; SelectNullValue reads a *sql.Null[int64].
+total, err := tsq.SelectNullValue(tsq.Sum(database.TableOrder.Amount)).From(database.TableOrder).MustBuild().Get(ctx, db)
 ```
 
 `SelectValue` / `SelectNullValue` build ordinary queries: `Where`, `OrderBy`, `Page`, `List` and
@@ -1260,9 +1263,18 @@ does not fit does not compile:
 | `tsq.Like(col, pattern)`, `tsq.NotLike`: the pattern as written, wildcards included | `tsq.Text` | a condition |
 
 ```go
-tsq.Select(tsq.Upper(database.TableUser.Name), tsq.Count(database.TableUser.ID)).
+type NameCount struct {
+	Name  string
+	Count int64
+}
+
+upper := tsq.Upper(database.TableUser.Name)
+tsq.Select(
+	tsq.MapInto(upper, func(r *NameCount) *string { return &r.Name }),
+	tsq.MapInto(tsq.Count(database.TableUser.ID), func(r *NameCount) *int64 { return &r.Count }),
+).
 	From(database.TableUser).
-	GroupBy(tsq.Upper(database.TableUser.Name))
+	GroupBy(upper)
 ```
 
 Each runs on all three dialects and returns the same value; TSQ spells it per dialect where they
