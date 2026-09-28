@@ -16,12 +16,12 @@ import (
 type InstructorTable struct {
 	*tsq.TableOf[Instructor, int64]
 
-	Bio       tsq.Column[Instructor, string]
-	CreatedAt tsq.NullColumn[Instructor, tsqtime.Time]
-	Email     tsq.Column[Instructor, string]
 	ID        tsq.Column[Instructor, int64]
+	CreatedAt tsq.NullColumn[Instructor, tsqtime.Time]
 	Name      tsq.Column[Instructor, string]
+	Email     tsq.Column[Instructor, string]
 	Specialty tsq.Column[Instructor, string]
+	Bio       tsq.Column[Instructor, string]
 }
 
 // TableInstructor is the instructor table.
@@ -33,22 +33,22 @@ func newInstructorTable() InstructorTable {
 	t := tsq.NewTable[Instructor, int64]("instructor")
 	c := InstructorTable{
 		TableOf:   t,
-		Bio:       tsq.NewColumn(t, "bio", "bio", func(r *Instructor) *string { return &r.Bio }),
-		CreatedAt: tsq.NewNullColumn[tsqtime.Time](t, "created_at", "created_at", func(r *Instructor) *tsqsql.Null[tsqtime.Time] { return &r.CreatedAt }),
-		Email:     tsq.NewColumn(t, "email", "email", func(r *Instructor) *string { return &r.Email }),
 		ID:        tsq.NewColumn(t, "id", "id", func(r *Instructor) *int64 { return &r.ID }),
+		CreatedAt: tsq.NewNullColumn[tsqtime.Time](t, "created_at", "created_at", func(r *Instructor) *tsqsql.Null[tsqtime.Time] { return &r.CreatedAt }),
 		Name:      tsq.NewColumn(t, "name", "name", func(r *Instructor) *string { return &r.Name }),
+		Email:     tsq.NewColumn(t, "email", "email", func(r *Instructor) *string { return &r.Email }),
 		Specialty: tsq.NewColumn(t, "specialty", "specialty", func(r *Instructor) *string { return &r.Specialty }),
+		Bio:       tsq.NewColumn(t, "bio", "bio", func(r *Instructor) *string { return &r.Bio }),
 	}
 
 	t.Define(tsq.TableSpec[Instructor, int64]{
 		Columns: []tsq.BoundColumn[Instructor]{
-			c.Bio,
-			c.CreatedAt,
-			c.Email,
 			c.ID,
+			c.CreatedAt,
 			c.Name,
+			c.Email,
 			c.Specialty,
+			c.Bio,
 		},
 		PrimaryKey:    c.ID,
 		AutoIncrement: true,
@@ -119,12 +119,12 @@ func (t InstructorTable) As(alias string) InstructorTable {
 
 	return InstructorTable{
 		TableOf:   a,
-		Bio:       t.Bio.WithTable(a),
-		CreatedAt: t.CreatedAt.WithTable(a).(tsq.NullColumn[Instructor, tsqtime.Time]),
-		Email:     t.Email.WithTable(a),
 		ID:        t.ID.WithTable(a),
+		CreatedAt: t.CreatedAt.WithTable(a).(tsq.NullColumn[Instructor, tsqtime.Time]),
 		Name:      t.Name.WithTable(a),
+		Email:     t.Email.WithTable(a),
 		Specialty: t.Specialty.WithTable(a),
+		Bio:       t.Bio.WithTable(a),
 	}
 }
 
@@ -136,6 +136,15 @@ func (t InstructorTable) GetByEmail(
 	email string,
 ) (*Instructor, error) {
 	return t.GetBy(ctx, db, t.Email, email)
+}
+
+// FindByEmail is GetByEmail that returns nil, nil when there is no such row.
+func (t InstructorTable) FindByEmail(
+	ctx context.Context,
+	db tsq.Executor,
+	email string,
+) (*Instructor, error) {
+	return t.FindBy(ctx, db, t.Email, email)
 }
 
 // FetchByEmail reads the Instructor rows matching unique index ux_instructor_email, one per

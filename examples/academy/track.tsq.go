@@ -17,10 +17,10 @@ import (
 type TrackTable struct {
 	*tsq.TableOf[Track, int64]
 
-	CreatedAt   tsq.NullColumn[Track, tsqtime.Time]
-	Description tsq.Column[Track, string]
 	ID          tsq.Column[Track, int64]
+	CreatedAt   tsq.NullColumn[Track, tsqtime.Time]
 	Name        tsq.Column[Track, string]
+	Description tsq.Column[Track, string]
 	SkillItems  tsq.Column[Track, json.RawMessage]
 }
 
@@ -33,19 +33,19 @@ func newTrackTable() TrackTable {
 	t := tsq.NewTable[Track, int64]("track")
 	c := TrackTable{
 		TableOf:     t,
-		CreatedAt:   tsq.NewNullColumn[tsqtime.Time](t, "created_at", "created_at", func(r *Track) *tsqsql.Null[tsqtime.Time] { return &r.CreatedAt }),
-		Description: tsq.NewColumn(t, "description", "description", func(r *Track) *string { return &r.Description }),
 		ID:          tsq.NewColumn(t, "id", "id", func(r *Track) *int64 { return &r.ID }),
+		CreatedAt:   tsq.NewNullColumn[tsqtime.Time](t, "created_at", "created_at", func(r *Track) *tsqsql.Null[tsqtime.Time] { return &r.CreatedAt }),
 		Name:        tsq.NewColumn(t, "name", "name", func(r *Track) *string { return &r.Name }),
+		Description: tsq.NewColumn(t, "description", "description", func(r *Track) *string { return &r.Description }),
 		SkillItems:  tsq.NewColumn(t, "skill_items", "skill_items", func(r *Track) *json.RawMessage { return &r.SkillItems }),
 	}
 
 	t.Define(tsq.TableSpec[Track, int64]{
 		Columns: []tsq.BoundColumn[Track]{
-			c.CreatedAt,
-			c.Description,
 			c.ID,
+			c.CreatedAt,
 			c.Name,
+			c.Description,
 			c.SkillItems,
 		},
 		PrimaryKey:    c.ID,
@@ -109,10 +109,10 @@ func (t TrackTable) As(alias string) TrackTable {
 
 	return TrackTable{
 		TableOf:     a,
-		CreatedAt:   t.CreatedAt.WithTable(a).(tsq.NullColumn[Track, tsqtime.Time]),
-		Description: t.Description.WithTable(a),
 		ID:          t.ID.WithTable(a),
+		CreatedAt:   t.CreatedAt.WithTable(a).(tsq.NullColumn[Track, tsqtime.Time]),
 		Name:        t.Name.WithTable(a),
+		Description: t.Description.WithTable(a),
 		SkillItems:  t.SkillItems.WithTable(a),
 	}
 }
@@ -125,6 +125,15 @@ func (t TrackTable) GetByName(
 	name string,
 ) (*Track, error) {
 	return t.GetBy(ctx, db, t.Name, name)
+}
+
+// FindByName is GetByName that returns nil, nil when there is no such row.
+func (t TrackTable) FindByName(
+	ctx context.Context,
+	db tsq.Executor,
+	name string,
+) (*Track, error) {
+	return t.FindBy(ctx, db, t.Name, name)
 }
 
 // FetchByName reads the Track rows matching unique index ux_track_name, one per

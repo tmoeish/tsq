@@ -110,7 +110,8 @@ kind of type, or on a generic struct, is an error. A struct that embeds another 
 (`Base`, not `*Base`: a nil embedded pointer would make every generated accessor panic), and what it
 embeds must be a struct TSQ can read. Other structs in the package are left alone, whatever their
 fields. A field cannot be named like a method TSQ generates on the row (`Insert`, `Update`,
-`HardDelete`, and on a soft-delete table `Delete`, `Restore`, `Active`); rename the Go field and keep
+`HardDelete`, and on a soft-delete table `Delete`, `Restore`, `IsDeleted`), nor like a generated table
+method (`GetByX`, `FindByX`, `FetchByX`, `FullTextX`); rename the Go field and keep
 the column with the `db` tag.
 
 ### The directives
@@ -134,7 +135,7 @@ several roles on one line.
 - `pk=` is the primary-key **Go field**; it defaults to `ID`
 - one field only: composite primary keys are not supported in v5, and `pk=A,B` is an error. Give
   the table a single-column key (usually an auto-increment `ID`) and declare the natural key with
-  `//tsq:unique A,B`, which also generates `TableXxx.GetByAAndB` and `TableXxx.FetchByAAndB`
+  `//tsq:unique A,B`, which also generates `TableXxx.GetByAAndB`, `FindByAAndB` and `FetchByAAndB`
 - the primary key is auto-increment unless the line says `assigned`, which means the caller supplies
   the value and a zero primary key is not filled in by the database. The database generates integer
   keys only, so a string key must say `assigned`
@@ -242,17 +243,21 @@ From table structs, TSQ commonly generates:
 
 - `XxxTable`, a struct that embeds `*tsq.TableOf[Xxx, K]` (K is the primary key's type), or
   `*tsq.SoftDeleteTableOf[Xxx, K]` when the struct declares `deleted_at`, and has one
-  field per column: `TableXxx.ID`, `TableXxx.Name`. A NOT NULL field is a `tsq.Column[Xxx, T]` and a
+  field per column, in the order the struct declares them (an embedded struct's fields where it is
+  embedded): `TableXxx.ID`, `TableXxx.Name`. A NOT NULL field is a `tsq.Column[Xxx, T]` and a
   field that can hold NULL a `tsq.NullColumn[Xxx, T]` (see "Nullable columns" in section 6)
 - `TableXxx`, the table value. `TableXxx.Columns()` lists every column, for `tsq.Select`
 - `TableXxx.As(alias)`, and `TableXxx.WithDeleted()` on a soft-delete table, which return an
   `XxxTable` with every column bound to the alias or scope
 - per unique index, `TableXxx.GetByEmail(ctx, db, email)` (one row, `sql.ErrNoRows` when there is
-  none) and `TableXxx.FetchByEmail(ctx, db, emails...)`; a composite index `A,B` gives
-  `GetByAAndB(ctx, db, a, b)` and `FetchByAAndB(ctx, db, a, bs...)`. A plain `//tsq:index` is a
+  none), `TableXxx.FindByEmail(ctx, db, email)` (`nil, nil` when there is none) and
+  `TableXxx.FetchByEmail(ctx, db, emails...)`; a composite index `A,B` gives
+  `GetByAAndB(ctx, db, a, b)`, `FindByAAndB` and `FetchByAAndB(ctx, db, a, bs...)`. A plain `//tsq:index` is a
   schema object only; a query on it has an ordering, a limit and a page size the generator cannot
   guess, so write it with the builder
-- row methods: `Insert`, `Update`, `HardDelete`, and `Delete()` / `Restore()` / `Active()` on
+- per full-text index, `TableXxx.FullTextTitleAndSummary()`, named after its fields, to pass to
+  `tsq.Matches`
+- row methods: `Insert`, `Update`, `HardDelete`, and `Delete()` / `Restore()` / `IsDeleted()` on
   soft-delete tables. A table without `deleted_at` has no `Delete`: removing a row always says
   `Hard`
 - the errors returned by `Update`, `Delete` and `HardDelete` name the row by its primary key; they
@@ -262,7 +267,7 @@ The primary-key lookups are on the table itself, typed by the key:
 
 - `TableXxx.Get(ctx, db, id)` reads one row and fails with an error wrapping `sql.ErrNoRows` when there is none; `Find` returns `nil, nil` instead
 - `TableXxx.Fetch(ctx, db, ids...)` reads rows in the order given, for any number of keys (they are split to fit the bind parameter limit). A missing key fails the call with an error wrapping `sql.ErrNoRows`, so `errors.Is(err, sql.ErrNoRows)` tells "not there" from a database failure
-- `TableXxx.GetBy(ctx, db, col, value, conds...)` and `TableXxx.FetchBy(ctx, db, col, values, conds...)` do the same for another unique column; the generated `GetByX` / `FetchByX` call them. Without `conds` the query is built once and reused. Matching follows the database: on a case-insensitive column `"ADA"` finds the row holding `"Ada"`
+- `TableXxx.GetBy(ctx, db, col, value, conds...)`, `FindBy` and `TableXxx.FetchBy(ctx, db, col, values, conds...)` do the same for another unique column; the generated `GetByX` / `FindByX` / `FetchByX` call them. Without `conds` the query is built once and reused. Matching follows the database: on a case-insensitive column `"ADA"` finds the row holding `"Ada"`
 - `TableXxx.Query()` is the query over every row, with keyword search over the declared search columns: `TableXxx.Query().Page(ctx, db, paging, tsq.Keyword(q))`
 
 On a table that declares `deleted_at`, deleted rows are out of scope for **every** query and
@@ -345,7 +350,7 @@ func newCourseTable() CourseTable {
 schema and indexes in one value, and it is what queries select from (`From(TableCourse)`) and
 statements write (`tsq.UpdateTable(TableCourse)`). The row struct itself carries no TSQ methods
 besides the generated `Insert` / `Update` / `HardDelete` (and, on a soft-delete table, `Delete` /
-`Restore` / `Active`), which delegate to the table.
+`Restore` / `IsDeleted`), which delegate to the table.
 
 In a hand-written `TableSpec`, `ColumnSpecs` (when given) must list every column, and mark the
 primary key and auto-increment exactly as `PrimaryKey` and `AutoIncrement` do; `Define` reports a
@@ -921,10 +926,11 @@ err := tsq.AttachMany(ctx, db, learners, database.TableLearner.ID, children, dat
 ```go
 tsq.Select(database.TableCourse.Columns()...).
 	From(database.TableCourse).
-	Where(tsq.Matches(database.TableCourse.FullText(), tsq.Val(term)))   // or a Param
+	Where(tsq.Matches(database.TableCourse.FullTextTitleAndSummary(), tsq.Val(term)))   // or a Param
 ```
 
-- `TableXxx.FullText()` returns the table's index, or `FullText("name")` when it declares several
+- the generated `FullTextX()` method (named after the index's fields) returns the index; a
+  hand-written table calls `FullText("index_name")`, which fails the query when there is no such index
 - the term is a `tsq.Val` or a `Param` of a string, bound like any value
 - the index is created by the schema policies, and compared **by name only**: PostgreSQL indexes an
   expression, MySQL reports another index type, and SQLite has none, so comparing columns would ask
@@ -1036,7 +1042,7 @@ needsDeletedAtOrHardDeleteFrom`, and `tsq.HardDeleteFrom` is the statement to wr
   `BatchHardDelete`, `BatchDeleteByPK` / `BatchHardDeleteByPK`, `tsq.DeleteFrom` /
   `tsq.HardDeleteFrom`, and the generated `item.Delete(...)` / `item.HardDelete(...)`; a table
   without `deleted_at` has only the `Hard` half
-- `item.Active()` reports whether the loaded row is untombstoned
+- `item.IsDeleted()` reports whether the loaded row carries a tombstone
 
 ### Upserting rows
 

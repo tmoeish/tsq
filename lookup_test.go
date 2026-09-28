@@ -238,6 +238,15 @@ func TestGetByCachesItsQuery(t *testing.T) {
 		t.Fatalf("GetBy(missing) = %v, want sql.ErrNoRows", err)
 	}
 
+	// FindBy shares the cached query and reports a missing row as nil, nil.
+	if got, err := Users.FindBy(ctx, rt, User_Email, "ada@x"); err != nil || got == nil || got.ID != row.ID {
+		t.Fatalf("FindBy = %+v, %v", got, err)
+	}
+
+	if got, err := Users.FindBy(ctx, rt, User_Email, "nobody@x"); err != nil || got != nil {
+		t.Fatalf("FindBy(missing) = %+v, %v; want nil, nil", got, err)
+	}
+
 	if err := Users.Delete(ctx, rt, row); err != nil {
 		t.Fatal(err)
 	}

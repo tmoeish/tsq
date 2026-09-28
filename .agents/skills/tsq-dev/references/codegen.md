@@ -65,10 +65,12 @@ genmodel.StructInfo / TableMeta        internal/genmodel/model.go
 ## 生成物的形态
 
 - `<struct>.tsq.go`：结构体 `XxxTable`（内嵌 `*tsq.TableOf[Xxx, 主键类型]`，声明了 `deleted_at` 时内嵌
-  `*tsq.SoftDeleteTableOf`、列绑到它的 `t.TableOf`、`Define` 多收墓碑列；每列一个字段）、构造函数
-  `newXxxTable()`（`NewTable` → 列 → `Define`，含 `ColumnSpecs` 与 `Indexes`）、变量 `TableXxx`、改绑全部列的
-  `As`（软删表另有 `WithDeleted`）、**每个唯一索引**的 `GetBy<字段>` 与 `FetchBy<字段>`（后者转发 `TableOf.FetchBy`；
-  可空或切片类型的末字段不生成），以及转发到表的行方法。主键查询在库里（`TableOf.Get/Find/Fetch/Query`），
+  `*tsq.SoftDeleteTableOf`、列绑到它的 `t.TableOf`、`Define` 多收墓碑列；每列一个字段，**按结构体声明顺序**，
+  嵌入的字段在嵌入处——解析器把字段收进 map，顺序由 `sortByDeclaration` 用 go/types 的字段下标恢复；DDL 的列序
+  另有规则，不跟它走）、构造函数 `newXxxTable()`（`NewTable` → 列 → `Define`，含 `ColumnSpecs` 与 `Indexes`）、
+  变量 `TableXxx`、改绑全部列的 `As`（软删表另有 `WithDeleted`）、**每个唯一索引**的 `GetBy<字段>`、`FindBy<字段>`
+  与 `FetchBy<字段>`（后者转发 `TableOf.FetchBy`；可空或切片类型的末字段不生成）、**每个全文索引**的
+  `FullText<字段>()`（方法而非字段，别名表上也对），以及转发到表的行方法（软删表有 `IsDeleted()`）。主键查询在库里（`TableOf.Get/Find/Fetch/Query`），
   不生成。普通索引和唯一索引的前缀**不生成查询**（理由见 `memory/codegen.md`）；模板里没有软删除过滤，作用域在库里。
   列字段名的保留字见 `architecture.md` § 表描述符。
 - 实例化的泛型字段类型（`sql.Null[time.Time]`）：解析器只按 AST 读基础类型，并记下 `FieldInfo.TypeArgs`

@@ -494,7 +494,8 @@ func (t *TableOf[R, K]) Err() error
 func (t *TableOf[R, K]) Fetch(ctx context.Context, db Executor, keys ...K) ([]*R, error)
 func (t *TableOf[R, K]) FetchBy[T comparable](ctx context.Context, db Executor, col Column[R, T], values []T, where ...Condition) ([]*R, error)
 func (t *TableOf[R, K]) Find(ctx context.Context, db Executor, key K) (*R, error)
-func (t *TableOf[R, K]) FullText(name ...string) FullTextIndex
+func (t *TableOf[R, K]) FindBy[T comparable](ctx context.Context, db Executor, col Column[R, T], value T, where ...Condition) (*R, error)
+func (t *TableOf[R, K]) FullText(name string) FullTextIndex
 func (t *TableOf[R, K]) Get(ctx context.Context, db Executor, key K) (*R, error)
 func (t *TableOf[R, K]) GetBy[T comparable](ctx context.Context, db Executor, col Column[R, T], value T, where ...Condition) (*R, error)
 func (t *TableOf[R, K]) HardDelete(ctx context.Context, db Executor, row *R) error

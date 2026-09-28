@@ -147,9 +147,9 @@ type BatchSummary struct {
 // SoftDeleteSummary captures the soft-delete demo result.
 type SoftDeleteSummary struct {
 	EnrollmentUID  int64 `json:"enrollment_uid"`   // EnrollmentUID is the row used for the demo.
-	ActiveBefore   bool  `json:"active_before"`    // ActiveBefore reports whether the row was active before the delete.
+	DeletedBefore  bool  `json:"deleted_before"`   // DeletedBefore reports whether the row was deleted before the delete.
 	VisibleBefore  bool  `json:"visible_before"`   // VisibleBefore reports whether generated queries returned the row before the delete.
-	ActiveAfter    bool  `json:"active_after"`     // ActiveAfter reports whether the row was still active after the soft delete.
+	DeletedAfter   bool  `json:"deleted_after"`    // DeletedAfter reports whether the loaded row was marked deleted by the soft delete.
 	VisibleAfter   bool  `json:"visible_after"`    // VisibleAfter reports whether generated queries still returned the row.
 	StoredAfter    bool  `json:"stored_after"`     // StoredAfter reports whether the row was still stored in the table.
 	VisibleRestore bool  `json:"visible_restored"` // VisibleRestore reports whether clearing the tombstone brought the row back.
@@ -361,7 +361,7 @@ func runFullTextDemo(ctx context.Context, runtime *tsq.Runtime) (*FullTextSummar
 	query, err := tsq.
 		Select(TableCourse.Columns()...).
 		From(TableCourse).
-		Where(tsq.Matches(TableCourse.FullText(), tsq.Val(term))).
+		Where(tsq.Matches(TableCourse.FullTextTitleAndSummary(), tsq.Val(term))).
 		OrderBy(TableCourse.Title.Asc()).
 		Build()
 	if err != nil {
@@ -1124,7 +1124,7 @@ func runSoftDeleteDemo(ctx context.Context, runtime *tsq.Runtime) (*SoftDeleteSu
 
 	summary := &SoftDeleteSummary{
 		EnrollmentUID: row.UID,
-		ActiveBefore:  row.Active(),
+		DeletedBefore: row.IsDeleted(),
 		VisibleBefore: visible != nil,
 	}
 
@@ -1132,7 +1132,7 @@ func runSoftDeleteDemo(ctx context.Context, runtime *tsq.Runtime) (*SoftDeleteSu
 		return nil, fmt.Errorf("%s: %w", "soft-delete enrollment", err)
 	}
 
-	summary.ActiveAfter = row.Active()
+	summary.DeletedAfter = row.IsDeleted()
 
 	visible, err = TableEnrollment.Find(ctx, exec, row.UID)
 	if err != nil {

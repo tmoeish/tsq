@@ -12,7 +12,7 @@ import (
 // genericTableMethods are the generic methods of tsq.TableOf. reflect does not
 // list generic methods, so they are named here; TestReservedTableNamesCoverTableOf
 // checks the list against the source.
-var genericTableMethods = []string{"FetchBy", "GetBy"}
+var genericTableMethods = []string{"FetchBy", "FindBy", "GetBy"}
 
 // reservedTableFields returns the names a column field of a generated table struct
 // cannot take: the embedded table type (TableOf, or SoftDeleteTableOf for a table
@@ -45,6 +45,12 @@ func reservedTableFields(data *genmodel.StructInfo) map[string]string {
 		name := joinAnd(ux.Fields)
 		reserved["GetBy"+name] = "the generated GetBy" + name + " method"
 		reserved["FetchBy"+name] = "the generated FetchBy" + name + " method"
+		reserved["FindBy"+name] = "the generated FindBy" + name + " method"
+	}
+
+	for _, ft := range data.FullTexts {
+		name := "FullText" + joinAnd(ft.Fields)
+		reserved[name] = "the generated " + name + " method"
 	}
 
 	// The row type gets methods too, and a field of the same name beside them
@@ -60,7 +66,7 @@ func reservedTableFields(data *genmodel.StructInfo) map[string]string {
 func rowMethods(data *genmodel.StructInfo) []string {
 	methods := []string{"Insert", "Update", "HardDelete"}
 	if data.DeletedAtField != "" {
-		methods = append(methods, "Delete", "Restore", "Active")
+		methods = append(methods, "Delete", "Restore", "IsDeleted")
 	}
 
 	return methods

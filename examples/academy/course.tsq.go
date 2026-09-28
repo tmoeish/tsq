@@ -16,18 +16,18 @@ import (
 type CourseTable struct {
 	*tsq.TableOf[Course, int64]
 
-	CreatedAt      tsq.NullColumn[Course, tsqtime.Time]
-	Currency       tsq.Column[Course, string]
 	ID             tsq.Column[Course, int64]
+	CreatedAt      tsq.NullColumn[Course, tsqtime.Time]
+	TrackID        tsq.Column[Course, int64]
 	InstructorID   tsq.Column[Course, int64]
+	PrerequisiteID tsq.Column[Course, int64]
+	Title          tsq.Column[Course, string]
+	Summary        tsq.Column[Course, string]
 	Level          tsq.Column[Course, CourseLevel]
 	ListPriceCents tsq.Column[Course, int64]
-	PrerequisiteID tsq.Column[Course, int64]
 	Published      tsq.Column[Course, bool]
+	Currency       tsq.Column[Course, string]
 	Slug           tsq.Column[Course, string]
-	Summary        tsq.Column[Course, string]
-	Title          tsq.Column[Course, string]
-	TrackID        tsq.Column[Course, int64]
 }
 
 // TableCourse is the course table.
@@ -39,34 +39,34 @@ func newCourseTable() CourseTable {
 	t := tsq.NewTable[Course, int64]("course")
 	c := CourseTable{
 		TableOf:        t,
-		CreatedAt:      tsq.NewNullColumn[tsqtime.Time](t, "created_at", "created_at", func(r *Course) *tsqsql.Null[tsqtime.Time] { return &r.CreatedAt }),
-		Currency:       tsq.NewColumn(t, "currency", "currency", func(r *Course) *string { return &r.Currency }),
 		ID:             tsq.NewColumn(t, "id", "id", func(r *Course) *int64 { return &r.ID }),
+		CreatedAt:      tsq.NewNullColumn[tsqtime.Time](t, "created_at", "created_at", func(r *Course) *tsqsql.Null[tsqtime.Time] { return &r.CreatedAt }),
+		TrackID:        tsq.NewColumn(t, "track_id", "track_id", func(r *Course) *int64 { return &r.TrackID }),
 		InstructorID:   tsq.NewColumn(t, "instructor_id", "instructor_id", func(r *Course) *int64 { return &r.InstructorID }),
+		PrerequisiteID: tsq.NewColumn(t, "prerequisite_id", "prerequisite_id", func(r *Course) *int64 { return &r.PrerequisiteID }),
+		Title:          tsq.NewColumn(t, "title", "title", func(r *Course) *string { return &r.Title }),
+		Summary:        tsq.NewColumn(t, "summary", "summary", func(r *Course) *string { return &r.Summary }),
 		Level:          tsq.NewColumn(t, "level", "level", func(r *Course) *CourseLevel { return &r.Level }),
 		ListPriceCents: tsq.NewColumn(t, "list_price_cents", "list_price_cents", func(r *Course) *int64 { return &r.ListPriceCents }),
-		PrerequisiteID: tsq.NewColumn(t, "prerequisite_id", "prerequisite_id", func(r *Course) *int64 { return &r.PrerequisiteID }),
 		Published:      tsq.NewColumn(t, "published", "published", func(r *Course) *bool { return &r.Published }),
+		Currency:       tsq.NewColumn(t, "currency", "currency", func(r *Course) *string { return &r.Currency }),
 		Slug:           tsq.NewColumn(t, "slug", "slug", func(r *Course) *string { return &r.Slug }),
-		Summary:        tsq.NewColumn(t, "summary", "summary", func(r *Course) *string { return &r.Summary }),
-		Title:          tsq.NewColumn(t, "title", "title", func(r *Course) *string { return &r.Title }),
-		TrackID:        tsq.NewColumn(t, "track_id", "track_id", func(r *Course) *int64 { return &r.TrackID }),
 	}
 
 	t.Define(tsq.TableSpec[Course, int64]{
 		Columns: []tsq.BoundColumn[Course]{
-			c.CreatedAt,
-			c.Currency,
 			c.ID,
+			c.CreatedAt,
+			c.TrackID,
 			c.InstructorID,
+			c.PrerequisiteID,
+			c.Title,
+			c.Summary,
 			c.Level,
 			c.ListPriceCents,
-			c.PrerequisiteID,
 			c.Published,
+			c.Currency,
 			c.Slug,
-			c.Summary,
-			c.Title,
-			c.TrackID,
 		},
 		PrimaryKey:    c.ID,
 		AutoIncrement: true,
@@ -185,19 +185,25 @@ func (t CourseTable) As(alias string) CourseTable {
 
 	return CourseTable{
 		TableOf:        a,
-		CreatedAt:      t.CreatedAt.WithTable(a).(tsq.NullColumn[Course, tsqtime.Time]),
-		Currency:       t.Currency.WithTable(a),
 		ID:             t.ID.WithTable(a),
+		CreatedAt:      t.CreatedAt.WithTable(a).(tsq.NullColumn[Course, tsqtime.Time]),
+		TrackID:        t.TrackID.WithTable(a),
 		InstructorID:   t.InstructorID.WithTable(a),
+		PrerequisiteID: t.PrerequisiteID.WithTable(a),
+		Title:          t.Title.WithTable(a),
+		Summary:        t.Summary.WithTable(a),
 		Level:          t.Level.WithTable(a),
 		ListPriceCents: t.ListPriceCents.WithTable(a),
-		PrerequisiteID: t.PrerequisiteID.WithTable(a),
 		Published:      t.Published.WithTable(a),
+		Currency:       t.Currency.WithTable(a),
 		Slug:           t.Slug.WithTable(a),
-		Summary:        t.Summary.WithTable(a),
-		Title:          t.Title.WithTable(a),
-		TrackID:        t.TrackID.WithTable(a),
 	}
+}
+
+// FullTextTitleAndSummary is the full-text index ft_course_title_summary; search it with
+// tsq.Matches.
+func (t CourseTable) FullTextTitleAndSummary() tsq.FullTextIndex {
+	return t.FullText("ft_course_title_summary")
 }
 
 // GetByTitle reads the Course matching unique index ux_course_title, and fails with an
@@ -208,6 +214,15 @@ func (t CourseTable) GetByTitle(
 	title string,
 ) (*Course, error) {
 	return t.GetBy(ctx, db, t.Title, title)
+}
+
+// FindByTitle is GetByTitle that returns nil, nil when there is no such row.
+func (t CourseTable) FindByTitle(
+	ctx context.Context,
+	db tsq.Executor,
+	title string,
+) (*Course, error) {
+	return t.FindBy(ctx, db, t.Title, title)
 }
 
 // FetchByTitle reads the Course rows matching unique index ux_course_title, one per

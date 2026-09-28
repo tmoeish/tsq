@@ -84,7 +84,7 @@ var TableCourse = newCourseTable() // 函数里：NewTable → 各列 → Define
 - 生成的 `As(alias)`（和软删表的 `WithDeleted()`）返回同一个结构体，列用 `WithTable` 改绑；`NullColumn` 的
   `WithTable` 返回的动态类型仍是 `NullColumn`，生成代码断言回去。
 - 列字段名不能和内嵌表类型（`*TableOf` 或 `*SoftDeleteTableOf`）的方法、内嵌字段名、生成的 `As` /
-  `WithDeleted` / `GetByX` / `FetchByX` 重名：`internal/cmd/reserved.go` 用反射取方法集（泛型方法反射看不见，单独列出），
+  `WithDeleted` / `GetByX` / `FindByX` / `FetchByX` / `FullTextX` 重名：`internal/cmd/reserved.go` 用反射取方法集（泛型方法反射看不见，单独列出），
   `TestReservedTableNamesCoverTableOf` 扫源码核对两种类型。**给 `TableOf` 或 `SoftDeleteTableOf` 加导出方法
 等于让某个列名从此非法**。
 - 主键查询（`lookup.go`）：`Get` / `Find` / `Fetch` / `Query()` 各自懒建一条查询，按软删除作用域

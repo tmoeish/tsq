@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"text/template"
@@ -2442,7 +2443,7 @@ func TestGenRefusesWhatItCannotGenerate(t *testing.T) {
 		// runtime.tsq.go overwrote the table's file.
 		"table named Runtime": {"package gentest\n\n//tsq:table\ntype Runtime struct {\n\tID int64 `db:\"id\"`\n}\n", "runtime.tsq.go collides"},
 		// A field beside the generated method did not compile.
-		"field named like a row method": {table("//tsq:table\n//tsq:managed deleted_at", "Active bool `db:\"active\"`\n\tDeletedAt int64 `db:\"deleted_at\"`"), "generated row method Active"},
+		"field named like a row method": {table("//tsq:table\n//tsq:managed deleted_at", "IsDeleted bool `db:\"is_deleted\"`\n\tDeletedAt int64 `db:\"deleted_at\"`"), "generated row method IsDeleted"},
 		"directive on a non-struct":     {"package gentest\n\n//tsq:table\ntype Status string\n", "is not a struct"},
 		"generic table":                 {"package gentest\n\n//tsq:table\ntype Row[T any] struct {\n\tID int64 `db:\"id\"`\n}\n", "is generic"},
 		// It was accepted and dropped.
@@ -2623,5 +2624,62 @@ func TestGenRefusesAFieldWithTwoRoles(t *testing.T) {
 				t.Errorf("tsq gen = %v; want the struct's position", err)
 			}
 		})
+	}
+}
+
+// TestGeneratedTablesFollowTheStruct covers the shape of a generated table: its
+// columns in the order the struct declares them (an embedded struct's in place),
+// FindByX beside GetByX for a unique index, a FullTextX method for each full-text
+// index, and IsDeleted on a soft-delete row.
+func TestGeneratedTablesFollowTheStruct(t *testing.T) {
+	err := genModule(t, map[string]string{"model.go": `package gentest
+
+type Base struct {
+	ID        int64 ` + "`db:\"id\"`" + `
+	DeletedAt int64 ` + "`db:\"deleted_at\"`" + `
+}
+
+//tsq:table
+//tsq:managed deleted_at
+//tsq:unique Slug
+//tsq:fulltext Title,Body
+type Post struct {
+	Title string ` + "`db:\"title\"`" + `
+	Base
+	Slug string ` + "`db:\"slug\"`" + `
+	Body string ` + "`db:\"body\"`" + `
+}
+`})
+	if err != nil {
+		t.Fatalf("tsq gen = %v", err)
+	}
+
+	tidyGenTestModule(t)
+
+	if output, err := exec.Command("go", "build", "./...").CombinedOutput(); err != nil {
+		t.Fatalf("generated code does not compile: %v\n%s", err, output)
+	}
+
+	source, err := os.ReadFile("post.tsq.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	generated := string(source)
+
+	order := regexp.MustCompile(`(?m)^\t(\w+) +tsq\.Column\[Post`).FindAllStringSubmatch(generated, -1)
+	var names []string
+	for _, m := range order {
+		names = append(names, m[1])
+	}
+
+	if got := strings.Join(names, ","); got != "Title,ID,DeletedAt,Slug,Body" {
+		t.Errorf("column order = %s; want the declaration order", got)
+	}
+
+	for _, want := range []string{"func (t PostTable) FindBySlug(", "func (t PostTable) FullTextTitleAndBody() tsq.FullTextIndex", "func (p *Post) IsDeleted() bool"} {
+		if !strings.Contains(generated, want) {
+			t.Errorf("post.tsq.go lacks %q", want)
+		}
 	}
 }

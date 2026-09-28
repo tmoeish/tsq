@@ -58,7 +58,7 @@ func funcMap() template.FuncMap {
 		"FieldsToCols":             fieldsToCols,
 		"NeedsGeneratedTimeImport": needsGeneratedTimeImport,
 		"NeedsGeneratedSQLImport":  needsGeneratedSQLImport,
-		"SoftDeleteActiveExpr":     softDeleteActiveExpr,
+		"SoftDeletedExpr":          softDeletedExpr,
 	}
 }
 
@@ -473,16 +473,18 @@ func validateManagedFields(data *genmodel.StructInfo) error {
 	return nil
 }
 
-func softDeleteActiveExpr(recv, fieldName string, field genmodel.FieldInfo) string {
+// softDeletedExpr is the Go expression that reports whether the row recv holds is
+// soft-deleted.
+func softDeletedExpr(recv, fieldName string, field genmodel.FieldInfo) string {
 	target := fmt.Sprintf("%s.%s", recv, fieldName)
 
 	switch softDeleteKind(field) {
 	case "integer":
-		return target + " == 0"
+		return target + " != 0"
 	case "time_ptr":
-		return target + " == nil"
+		return target + " != nil"
 	case "sql_null_time", "null_time":
-		return "!" + target + ".Valid"
+		return target + ".Valid"
 	default:
 		panic(fmt.Sprintf("unsupported deleted_at field type: %s", fieldType(field)))
 	}

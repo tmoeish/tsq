@@ -39,7 +39,7 @@
 - 给 `TableOf` 加导出方法，或给模板加生成方法：同名的列字段从此非法。普通方法反射自动覆盖；
   **泛型方法要加进 `reserved.go` 的 `genericTableMethods`**，生成方法加进 `reservedTableFields`。
   `[门禁: internal/cmd/reserved_test.go 的 TestReservedTableNamesCoverTableOf]`
-- 模板在**行类型**上声明的方法（`Insert`、`Update`、`HardDelete`，软删除表再加 `Delete`、`Restore`、`Active`）
+- 模板在**行类型**上声明的方法（`Insert`、`Update`、`HardDelete`，软删除表再加 `Delete`、`Restore`、`IsDeleted`）
   列在 `reserved.go` 的 `rowMethods` 里，同名字段报错。给行类型加方法要加进去，
   `TestRowMethodsMatchTheTemplate` 按模板核对。行方法的参数（`ctx`、`db`、`cols`）和 `tsq` 包名不能被接收者占用，
   见 `receiverName`。

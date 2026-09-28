@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"text/template"
@@ -107,6 +108,10 @@ func buildGenerationModels(
 			return nil, structErr(s, fmt.Errorf("resolve nullable fields: %w", err))
 		}
 
+		if err := sortByDeclaration(s, resolver); err != nil {
+			return nil, structErr(s, err)
+		}
+
 		if err := validateTextFields(s, resolver); err != nil {
 			return nil, structErr(s, err)
 		}
@@ -159,6 +164,34 @@ func buildGenerationModels(
 	}
 
 	return models, nil
+}
+
+// sortByDeclaration puts s.Fields in the order the struct declares them, an
+// embedded struct's fields where it is embedded, so the generated table lists its
+// columns (and Columns() selects them) the way the reader wrote them. The parser
+// collects fields in a map and cannot tell.
+func sortByDeclaration(s *genmodel.StructInfo, resolver *ddlTypeResolver) error {
+	named, pkg, err := resolver.lookupNamedStruct(s.TypeInfo)
+	if err != nil {
+		return err
+	}
+
+	position := make(map[string][]int, len(s.Fields))
+
+	for _, field := range s.Fields {
+		_, index, _ := types.LookupFieldOrMethod(named, false, pkg, field.Name)
+		if index == nil {
+			return fmt.Errorf("field %s not found", field.Name)
+		}
+
+		position[field.Name] = index
+	}
+
+	slices.SortStableFunc(s.Fields, func(a, b genmodel.FieldInfo) int {
+		return slices.Compare(position[a.Name], position[b.Name])
+	})
+
+	return nil
 }
 
 // structErr points err at the struct it is about: file:line:column: Name: err.

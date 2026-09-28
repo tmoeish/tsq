@@ -1655,7 +1655,7 @@ func TestIntegrationFullTextSearch(t *testing.T) {
 
 			term := tsq.NewParam[string]("term")
 			search := tsq.Select(academy.TableCourse.Columns()...).From(academy.TableCourse).
-				Where(tsq.Matches(academy.TableCourse.FullText(), term)).
+				Where(tsq.Matches(academy.TableCourse.FullTextTitleAndSummary(), term)).
 				OrderBy(academy.TableCourse.Title.Asc()).MustBuild()
 
 			found, err := search.List(ctx, rt, term.Bind("sqlite"))
@@ -1682,7 +1682,7 @@ func TestIntegrationFullTextSearch(t *testing.T) {
 
 			// A Val term works the same way, and the index is only created once.
 			byValue := tsq.Select(academy.TableCourse.ID).From(academy.TableCourse).
-				Where(tsq.Matches(academy.TableCourse.FullText(), tsq.Val("journals"))).MustBuild()
+				Where(tsq.Matches(academy.TableCourse.FullTextTitleAndSummary(), tsq.Val("journals"))).MustBuild()
 
 			if n, err := byValue.Count(ctx, rt); err != nil || n != 1 {
 				t.Fatalf("value term = %d, %v", n, err)
