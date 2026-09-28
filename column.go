@@ -379,10 +379,12 @@ func rebind(c *columnCore, table Table) *columnCore {
 	default:
 		next.table = table
 		next.info = exprInfo{sql: columnRef(table, c.name), tables: map[string]Table{table.TableName(): table}, null: nullableIn(table.TableName())}
-		next.info.null.always = c.info.null.always
-
-		if body := table.cteBody(); body != nil && body.nullableOutput(c.name) {
-			next.info.null.always = true
+		// A CTE's output is NULL exactly when its body can make it so: a nullable
+		// column the body coalesces is not NULL through the CTE.
+		if body := table.cteBody(); body != nil {
+			next.info.null.always = body.nullableOutput(c.name)
+		} else {
+			next.info.null.always = c.info.null.always
 		}
 	}
 
@@ -480,6 +482,24 @@ func (c exprImpl[T]) NotIn(set ListOperand[T]) Condition {
 func (c exprImpl[T]) membership(op string, set ListOperand[T], negated bool) Condition {
 	if isNilValue(set) {
 		return conditionError(errors.New("IN operand cannot be nil"))
+	}
+
+	// NotIn with no values matches every row, NULLs included, and does so with
+	// no subquery whose column type PostgreSQL would compare with the column's.
+	if negated {
+		switch set := any(set).(type) {
+		case ValueList[T]:
+			if len(set.vs) == 0 {
+				return newCondition(c.c.info.withSQL(sqlText("1 = 1")))
+			}
+		case ListParam[T]:
+			if set.spec != nil {
+				cond := c.compare(op, set.setOperand(negated)).condition()
+				guard := sqlParam(set.spec.derive(paramEmptyGuard))
+
+				return newCondition(cond.withSQL(sqlJoin(sqlText("("), cond.sql, sqlText(" OR "), guard, sqlText(")"))))
+			}
+		}
 	}
 
 	operand := set.setOperand(negated)

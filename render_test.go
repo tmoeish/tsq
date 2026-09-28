@@ -55,8 +55,14 @@ func TestListParamExpandsAndKeepsEmptyListsExplicit(t *testing.T) {
 		t.Fatalf("empty IN rendered %s", sql)
 	}
 
-	if sql, _ := sqlOf(t, notIn, onSQLite, User_ID.BindList()); !strings.HasSuffix(sql, `NOT IN (SELECT 1 WHERE 1 = 0)`) {
+	// NOT IN (NULL) alone matches nothing, so the guard carries the empty case;
+	// no subquery whose column type PostgreSQL would compare with the column's.
+	if sql, _ := sqlOf(t, notIn, onSQLite, User_ID.BindList()); !strings.HasSuffix(sql, `("users"."id" NOT IN (NULL) OR 1 = 1)`) {
 		t.Fatalf("empty NOT IN rendered %s", sql)
+	}
+
+	if sql, args := sqlOf(t, notIn, onPostgres, User_ID.BindList(4)); !strings.HasSuffix(sql, `("users"."id" NOT IN ($1) OR 1 = 0)`) || len(args) != 1 {
+		t.Fatalf("NOT IN list rendered %s %v", sql, args)
 	}
 }
 
@@ -220,6 +226,116 @@ func TestSetOperationsNameAndGroupTheirOperands(t *testing.T) {
 	sql, _ = sqlOf(t, id("a").Union(id("b").UnionAll(id("c"))).MustBuild(), onSQLite)
 	if want := `SELECT "users"."id" FROM "users" WHERE "users"."name" = ? UNION SELECT * FROM (SELECT "users"."id" FROM "users" WHERE "users"."name" = ? UNION ALL SELECT "users"."id" FROM "users" WHERE "users"."name" = ?) AS "tsq_set"`; sql != want {
 		t.Fatalf("nested SQL =\n%s\nwant\n%s", sql, want)
+	}
+}
+
+// TestSetOperationChainsReadLeftToRight covers a flat chain that mixes INTERSECT
+// with UNION or EXCEPT. SQLite evaluates it left to right, MySQL and PostgreSQL
+// bind INTERSECT tighter, so written flat the same query returned different rows
+// per dialect. The part before the INTERSECT is grouped instead.
+func TestSetOperationChainsReadLeftToRight(t *testing.T) {
+	id := func(name string) WhereStage[int64] {
+		return SelectValue(User_ID).From(Users.WithDeleted()).Where(User_Name.EQ(Val(name)))
+	}
+
+	const (
+		a = `SELECT "users"."id" FROM "users" WHERE "users"."name" = ?`
+		b = a
+		c = a
+	)
+
+	for name, tt := range map[string]struct {
+		q    *Query[int64]
+		want string
+	}{
+		"union then intersect": {
+			id("a").Union(id("b")).Intersect(id("c")).MustBuild(),
+			`SELECT * FROM (` + a + ` UNION ` + b + `) AS "tsq_set" INTERSECT ` + c,
+		},
+		"intersect then union needs nothing": {
+			id("a").Intersect(id("b")).Union(id("c")).MustBuild(),
+			a + ` INTERSECT ` + b + ` UNION ` + c,
+		},
+		"except, intersect, union, intersect": {
+			id("a").Except(id("b")).Intersect(id("c")).Union(id("d")).Intersect(id("e")).MustBuild(),
+			`SELECT * FROM (SELECT * FROM (` + a + ` EXCEPT ` + a + `) AS "tsq_set" INTERSECT ` + a + ` UNION ` + a + `) AS "tsq_set" INTERSECT ` + a,
+		},
+	} {
+		if sql, _ := sqlOf(t, tt.q, onSQLite); sql != tt.want {
+			t.Errorf("%s: SQL =\n%s\nwant\n%s", name, sql, tt.want)
+		}
+
+		for _, d := range []tsqdialect.Name{onMySQL, onPostgres} {
+			if _, _, err := tt.q.SQL(d); err != nil {
+				t.Errorf("%s on %s: %v", name, d, err)
+			}
+		}
+	}
+}
+
+// TestSetOperationsWithAllNeedTheirCapability covers INTERSECT ALL and EXCEPT
+// ALL, which SQLite lacks although it has INTERSECT and EXCEPT: they used to
+// reach SQLite as a syntax error instead of an UnsupportedCapabilityError.
+func TestSetOperationsWithAllNeedTheirCapability(t *testing.T) {
+	id := SelectValue(User_ID).From(Users)
+
+	for want, q := range map[tsqdialect.Capability]*Query[int64]{
+		tsqdialect.CapabilityIntersectAll: id.IntersectAll(id).MustBuild(),
+		tsqdialect.CapabilityExceptAll:    id.ExceptAll(id).MustBuild(),
+	} {
+		_, _, err := q.SQL(onSQLite)
+		if e, ok := errors.AsType[*tsqdialect.UnsupportedCapabilityError](err); !ok || e.Capability != want || e.Dialect != onSQLite {
+			t.Errorf("%s on sqlite = %v; want UnsupportedCapabilityError", want, err)
+		}
+
+		for _, d := range []tsqdialect.Name{onMySQL, onPostgres} {
+			if _, _, err := q.SQL(d); err != nil {
+				t.Errorf("%s on %s: %v", want, d, err)
+			}
+		}
+	}
+}
+
+// TestDerivedTablesHaveDistinctColumnNames covers a SELECT list with one name
+// twice. It is read by position, so the name only matters once the query is a
+// derived table (counting a grouped query, grouping a set operation), where MySQL
+// refuses two columns of one name with error 1060.
+func TestDerivedTablesHaveDistinctColumnNames(t *testing.T) {
+	upper := MapInto(Upper(User_Name), func(u *user) *string { return &u.Email })
+	q := SelectDistinct(User_Name, upper).From(Users).MustBuild()
+
+	exec, err := wrapExecutor(noopExecutor{}, onMySQL)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, stmts, err := q.prepare(exec, nil, nil, renderMode{count: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sql := stmts[0].sql
+
+	if !strings.Contains(sql, "SELECT DISTINCT `users`.`name`, UPPER(`users`.`name`) AS `tsq_c2`") {
+		t.Fatalf("count SQL = %s; want the repeated name replaced", sql)
+	}
+}
+
+// TestSubqueriesKeepTheirFilters covers two subquery shapes that used to lose or
+// break their meaning: Search in a subquery never received the keyword, so its
+// predicate was dropped, and MySQL refuses LIMIT inside IN (error 1235).
+func TestSubqueriesKeepTheirFilters(t *testing.T) {
+	searched := SelectValue(Order_UserID).From(Orders).Search(Searchable(Order_Note))
+	if _, err := Select(User_ID).From(Users).Where(User_ID.In(searched)).Build(); err == nil || !strings.Contains(err.Error(), "keyword search") {
+		t.Fatalf("Build = %v; want Search in a subquery refused", err)
+	}
+
+	top := SelectValue(Order_UserID).From(Orders).OrderBy(Order_Amount.Desc()).Limit(3)
+	q := Select(User_ID).From(Users.WithDeleted()).Where(User_ID.In(top)).MustBuild()
+
+	sql, _ := sqlOf(t, q, onMySQL)
+	if !strings.Contains(sql, "IN (SELECT * FROM (SELECT `orders`.`user_id` FROM `orders` ORDER BY `orders`.`amount` DESC LIMIT ?) AS `tsq_in`)") {
+		t.Fatalf("SQL = %s; want the limited subquery as a derived table", sql)
 	}
 }
 

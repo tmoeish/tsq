@@ -476,12 +476,29 @@ func (q *Query[O]) Find(ctx context.Context, db Executor, args ...Arg) (*O, erro
 // counting them all.
 func (q *Query[O]) Exists(ctx context.Context, db Executor, args ...Arg) (bool, error) {
 	return traceExecutor1(ctx, db, q.traceInfo(TraceOpGet), func(ctx context.Context) (bool, error) {
-		row, err := q.get(ctx, db, args)
-		if errors.Is(err, sql.ErrNoRows) {
-			return false, nil
+		// Whether a row exists does not depend on reading it, so a value that could
+		// not be scanned into O is no reason to refuse.
+		_, stmts, err := q.prepare(db, args, nil, renderMode{single: true})
+		if err != nil {
+			return false, err
 		}
 
-		return row != nil, err
+		stmt := stmts[0]
+		logSQLForExecutor(ctx, db, "get", stmt.sql, stmt.args)
+
+		rows, err := db.QueryContext(ctx, stmt.sql, stmt.args...)
+		if err != nil {
+			return false, fmt.Errorf("exists query: %w", err)
+		}
+
+		defer func() { _ = rows.Close() }()
+
+		found := rows.Next()
+		if err := rows.Err(); err != nil {
+			return false, fmt.Errorf("exists query: %w", err)
+		}
+
+		return found, nil
 	})
 }
 
@@ -536,6 +553,13 @@ func (q *Query[O]) Page(ctx context.Context, db Executor, p Paging, args ...Arg)
 		for _, ob := range p.OrderBy {
 			if ob.direction != orderAsc && ob.direction != orderDesc {
 				return nil, fmt.Errorf("invalid order direction %q", ob.direction)
+			}
+
+			// The same rule as the builder's OrderBy, which Build enforces.
+			if len(q.spec.SetOps) > 0 {
+				if err := q.spec.checkCompoundOrder(ob); err != nil {
+					return nil, err
+				}
 			}
 
 			order = append(order, q.spec.orderTerm(ob))
@@ -669,6 +693,12 @@ func (q *Query[O]) subquery() exprInfo {
 		return exprInfo{err: q.err}
 	}
 
+	// The keyword is an argument of the statement that runs; a subquery never
+	// receives one, so its search predicate would be dropped without a word.
+	if len(q.spec.KeywordSearch) > 0 {
+		return exprInfo{err: errors.New("a subquery cannot use keyword search; filter it with Where")}
+	}
+
 	return exprInfo{sql: sqlQuery(q)}
 }
 
@@ -683,12 +713,22 @@ func (q *Query[O]) valueSubquery() exprInfo {
 }
 
 // A scalar subquery is NULL when it returns no row.
-func (q *Query[O]) operand() exprInfo                { return nullWhenEmpty(q.valueSubquery()) }
-func (q *Query[O]) setOperand(negated bool) exprInfo { return q.valueSubquery() }
-func (*Query[O]) valueOfType(O)                      {}
-func (*Query[O]) needsTsqVal()                       {}
-func (*Query[O]) needsTsqVals()                      {}
-func (*Query[O]) valuesOfType(O)                     {}
+func (q *Query[O]) operand() exprInfo { return nullWhenEmpty(q.valueSubquery()) }
+
+func (q *Query[O]) setOperand(negated bool) exprInfo {
+	info := q.valueSubquery()
+	if info.err != nil || q.spec.Limit == nil {
+		return info
+	}
+
+	// MySQL refuses LIMIT in an IN subquery (error 1235) but not in a derived
+	// table, and the derived table means the same everywhere.
+	return info.withSQL(sqlJoin(sqlText("(SELECT * FROM "), info.sql, sqlText(" AS "), sqlIdent("tsq_in"), sqlText(")")))
+}
+func (*Query[O]) valueOfType(O)  {}
+func (*Query[O]) needsTsqVal()   {}
+func (*Query[O]) needsTsqVals()  {}
+func (*Query[O]) valuesOfType(O) {}
 
 func (q *Query[O]) renderQuery(r *renderer) {
 	r.writeText("(")

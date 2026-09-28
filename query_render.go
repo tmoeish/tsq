@@ -32,10 +32,14 @@ const (
 
 func (op setOperationType) capability() tsqdialect.Capability {
 	switch op {
-	case intersectType, intersectAllType:
+	case intersectType:
 		return tsqdialect.CapabilityIntersect
-	case exceptType, exceptAllType:
+	case intersectAllType:
+		return tsqdialect.CapabilityIntersectAll
+	case exceptType:
 		return tsqdialect.CapabilityExcept
+	case exceptAllType:
+		return tsqdialect.CapabilityExceptAll
 	default:
 		return ""
 	}
@@ -225,11 +229,9 @@ func (s *querySpec[O]) canBeNull(n nullness) (bool, string) {
 // cannot hold it. It runs before rows are read rather than in Build, because a
 // query used as a subquery or CTE never scans.
 func (s *querySpec[O]) checkScanTargets() error {
-	// Every operand of a set operation is read through the first one's columns.
-	specs := []*querySpec[O]{s}
-	for i := range s.SetOps {
-		specs = append(specs, &s.SetOps[i].spec)
-	}
+	// Every operand of a set operation, nested ones included, is read through
+	// the first one's columns.
+	specs := s.operands()
 
 	for i, col := range s.Selects {
 		target := col.core()
@@ -250,6 +252,16 @@ func (s *querySpec[O]) checkScanTargets() error {
 	}
 
 	return nil
+}
+
+// operands returns s and every operand of its set operations, recursively.
+func (s *querySpec[O]) operands() []*querySpec[O] {
+	specs := []*querySpec[O]{s}
+	for i := range s.SetOps {
+		specs = append(specs, s.SetOps[i].spec.operands()...)
+	}
+
+	return specs
 }
 
 func (s *querySpec[O]) grouped() bool {
@@ -294,9 +306,29 @@ func (s *querySpec[O]) render(r *renderer, m renderMode) {
 // writeBody writes the query without ORDER BY, LIMIT and locks. Only the keyword
 // and seek parts of m apply, and only to the first operand of a set operation.
 func (s *querySpec[O]) writeBody(r *renderer, m renderMode) {
-	s.writeSimple(r, m)
+	s.writeChain(r, m, len(s.SetOps))
+}
 
-	for _, op := range s.SetOps {
+// writeChain writes the first operand and the first n set operations. A chain is
+// evaluated left to right, as it reads; SQL instead binds INTERSECT tighter than
+// UNION and EXCEPT on MySQL and PostgreSQL but not on SQLite. So the operations
+// before an INTERSECT that follows a UNION or EXCEPT are grouped as a derived
+// table, which every dialect evaluates first.
+func (s *querySpec[O]) writeChain(r *renderer, m renderMode, n int) {
+	ops := s.SetOps[:n]
+
+	if split := regroupAt(ops); split > 0 {
+		r.writeText("SELECT * FROM (")
+		s.writeChain(r, m, split)
+		r.writeText(") AS ")
+		r.writeIdent("tsq_set")
+
+		ops = ops[split:]
+	} else {
+		s.writeSimple(r, m)
+	}
+
+	for _, op := range ops {
 		if c := op.op.capability(); c != "" {
 			r.require(c)
 		}
@@ -316,9 +348,44 @@ func (s *querySpec[O]) writeBody(r *renderer, m renderMode) {
 	}
 }
 
+// regroupAt returns the index of the last INTERSECT preceded by a UNION or
+// EXCEPT, or 0 when the chain means the same flat on every dialect.
+func regroupAt[O any](ops []setOperation[O]) int {
+	loose := false
+	split := 0
+
+	for i, op := range ops {
+		if op.op == intersectType || op.op == intersectAllType {
+			if loose {
+				split = i
+			}
+
+			continue
+		}
+
+		loose = true
+	}
+
+	return split
+}
+
 func (s *querySpec[O]) writeSimple(r *renderer, m renderMode) {
+	// Rows are read by position, so an output name only matters where the query
+	// becomes a derived table: counting a grouped query, or grouping a set
+	// operation. MySQL refuses a derived table with two columns of one name
+	// (error 1060), so a repeated name is replaced after its first use.
 	cols := make([]sqlExpr, 0, len(s.Selects))
-	for _, col := range s.Selects {
+	named := make(map[string]bool, len(s.Selects))
+
+	for i, col := range s.Selects {
+		name := col.Name()
+		if name != "" && named[name] {
+			cols = append(cols, sqlJoin(columnInfo(col).sql, sqlText(" AS "), sqlIdent(fmt.Sprintf("tsq_c%d", i+1))))
+			continue
+		}
+
+		named[name] = true
+
 		cols = append(cols, selectItem(col))
 	}
 
@@ -485,10 +552,7 @@ func (s *querySpec[O]) checkCompoundOrder(ob OrderBy) error {
 // outputCanBeNull reports whether the named output column of a set operation can
 // be NULL in any of its operands.
 func (s *querySpec[O]) outputCanBeNull(name string) bool {
-	specs := []*querySpec[O]{s}
-	for i := range s.SetOps {
-		specs = append(specs, &s.SetOps[i].spec)
-	}
+	specs := s.operands()
 
 	for i, col := range s.Selects {
 		if col.Name() != name {
@@ -882,6 +946,17 @@ func (c *cteSpec[O]) err() error {
 		return errors.New("a cte cannot lock rows")
 	}
 
+	// Its columns are found by name, so two of one name would make a reference to
+	// either ambiguous (SUM(amount) and MAX(amount) are both named amount).
+	seen := make(map[string]bool, len(c.spec.Selects))
+	for _, name := range c.outputNames() {
+		if seen[name] {
+			return fmt.Errorf("a cte selects two columns named %s; its columns are found by name, so select one of them from a column of another name", name)
+		}
+
+		seen[name] = true
+	}
+
 	return c.spec.validate(nil)
 }
 
@@ -895,14 +970,7 @@ func (c *cteSpec[O]) correlatedTables() map[string]Table { return nil }
 func (c *cteSpec[O]) sources() []Table { return c.spec.sources() }
 
 func (c *cteSpec[O]) nullableOutput(name string) bool {
-	for _, col := range c.spec.Selects {
-		if col.Name() == name {
-			null, _ := c.spec.canBeNull(columnInfo(col).null)
-			return null
-		}
-	}
-
-	return false
+	return c.spec.outputCanBeNull(name)
 }
 
 // selectItem renders one entry of a SELECT list. A column reference is named by

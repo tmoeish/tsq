@@ -555,6 +555,8 @@ Rules:
 - on a set operation (`Union`, ...) an `OrderBy` term refers to the output column by name, which is the only form every dialect accepts there. The term must be an output column: a selected projection (`upper := tsq.MapInto(tsq.Upper(col), ...)`, then `OrderBy(upper.Asc())`) or a column selected under that name; `Build()` refuses an expression that is not selected
 - a select item that is not a plain column is written `AS` its name (the name of the column it is derived from), so a CTE and a set operation's `ORDER BY` find it by that name on every dialect
 - a set operation whose operand is itself combined (`a.Union(b.Union(c))`) groups the operand as a derived table, which every dialect accepts
+- a chain is evaluated left to right, as it reads: `a.Union(b).Intersect(c)` is `(a ∪ b) ∩ c` on every dialect. SQL itself binds `INTERSECT` tighter than `UNION` / `EXCEPT` on MySQL and PostgreSQL but not on SQLite, so TSQ groups the part before such an `INTERSECT` as a derived table. For `a ∪ (b ∩ c)`, pass the combined operand: `a.Union(b.Intersect(c))`
+- a select list that names one column twice (`users.id` and `orders.id`) keeps the first name and writes the later one under a generated name, so the query can still be counted or grouped as a derived table; rows are read by position, so nothing changes for the caller
 - a set operation's operands cannot have their own `OrderBy`, `Limit`, `Offset` or lock: each operand is written as a bare `SELECT`, so `Build()` refuses them rather than dropping the clause. Order and limit the combined result instead
 - where the ordered value can be NULL (a `NullColumn`, an outer-joined column, ...), NULLs sort as
   the **smallest value on every dialect**: first when ascending, last when descending. MySQL and
@@ -901,7 +903,8 @@ Reads are methods on the built `*Query[O]`; `args` are the `tsq.Arg` values made
 - `query.SQL(dialect, args...)` → the SQL and arguments the query would run with, for logging and tests
 
 `Get`, `Find` and `Exists` read at most one row: they add `LIMIT 1` unless the builder
-set its own limit. `Exists` does not count.
+set its own limit. `Exists` does not count, and does not read the row either, so a selected value
+that could be `NULL` in a field that cannot hold it is no reason for it to fail.
 
 A query is rendered for a dialect the first time it runs on one, and the rendering is cached.
 Build package-level queries once and reuse them.
@@ -1144,11 +1147,11 @@ TSQ supports more than simple list queries. Common advanced shapes include:
 - aggregate queries with `GroupBy(...)` and `Having(...)`
 - `CASE` expressions: `tsq.Case[string]().When(cond, col).When(cond, tsq.Val("x")).Else(tsq.Val("y")).End()`; results are typed, so a branch of another type does not compile
 - `tsq.Coalesce(col, rhs)` and `tsq.NullIf(col, rhs)`, with `tsq.Val` for a fixed value
-- subqueries such as `In(subquery)`, `tsq.Exists(subquery)`, and typed RHS comparisons like `EQ(subquery)` or `Like(subquery)`
+- subqueries such as `In(subquery)`, `tsq.Exists(subquery)`, and typed RHS comparisons like `EQ(subquery)` or `Like(subquery)`. An `In` subquery may set `Limit` (it is written as a derived table, which MySQL requires). A subquery cannot use `Search`: the keyword is an argument of the statement that runs, so `Build()` refuses it instead of dropping the predicate
 - correlated subqueries, where the subquery declares the enclosing query's tables with `Correlate(...)`
-- non-recursive CTEs: `cte := tsq.CTE("big_orders", stage)`, then join `cte` and reference its columns with `col.WithTable(cte)` (all built-in dialects; MySQL baseline is 8.0)
+- non-recursive CTEs: `cte := tsq.CTE("big_orders", stage)`, then join `cte` and reference its columns with `col.WithTable(cte)` (all built-in dialects; MySQL baseline is 8.0). A CTE's columns are found by name, so its select list cannot name one column twice: `SUM(amount)` and `MAX(amount)` are both `amount`, and `Build()` refuses them. Whether `col.WithTable(cte)` can be NULL follows the CTE body, not the column: a nullable column the CTE coalesces reads into a plain field
 - `tsq.SelectDistinct(cols...)` for `SELECT DISTINCT` (its `Count()` counts distinct rows), and `tsq.CountDistinct(col)` for `COUNT(DISTINCT col)`
-- set operations such as `UNION`, `INTERSECT`, and `EXCEPT` (all built-in dialects; MySQL needs 8.0.31+)
+- set operations such as `UNION`, `INTERSECT`, and `EXCEPT` (all built-in dialects; MySQL needs 8.0.31+). `IntersectAll` / `ExceptAll` run on MySQL and PostgreSQL; SQLite has no `ALL` form and returns `UnsupportedCapabilityError` (`INTERSECT_ALL` / `EXCEPT_ALL`)
 - row-lock clauses such as `ForUpdate()` and `ForShare()`
 
 ### Column functions

@@ -78,7 +78,7 @@ type PageRequest struct {
 	Size    int    `json:"size"     query:"size"`     // Size is the requested page size.
 	Page    int    `json:"page"     query:"page"`     // Page is the 1-based page number.
 	OrderBy string `json:"order_by" query:"order_by"` // OrderBy lists sort fields separated by commas.
-	Order   string `json:"order"    query:"order"`    // Order lists asc/desc aligned with OrderBy.
+	Order   string `json:"order"    query:"order"`    // Order lists asc/desc aligned with OrderBy, or one for every field.
 	Keyword string `json:"keyword"  query:"keyword"`  // Keyword is the optional search term.
 	After   string `json:"after"    query:"after"`    // After is the cursor of a keyset page.
 }

@@ -133,6 +133,8 @@ const (
 	paramScalar paramMode = iota
 	paramList
 	paramNotInList
+	// paramEmptyGuard renders 1 = 1 when its list is empty and 1 = 0 otherwise.
+	paramEmptyGuard
 	paramPrefix
 	paramSuffix
 	paramContains
@@ -194,6 +196,12 @@ func (p *paramSpec) write(value any, placeholder func(any), sql *strings.Builder
 		}
 
 		placeholder(s)
+	case paramEmptyGuard:
+		if values, _ := value.([]any); len(values) == 0 {
+			sql.WriteString("1 = 1")
+		} else {
+			sql.WriteString("1 = 0")
+		}
 	case paramList, paramNotInList:
 		values, ok := value.([]any)
 		if !ok {
@@ -201,14 +209,9 @@ func (p *paramSpec) write(value any, placeholder func(any), sql *strings.Builder
 		}
 
 		if len(values) == 0 {
-			// An empty list must neither be a syntax error nor drop the filter:
-			// IN (NULL) matches nothing, and NOT IN over an empty subquery matches
-			// everything, on every supported dialect.
-			if p.mode == paramList {
-				sql.WriteString("NULL")
-			} else {
-				sql.WriteString("SELECT 1 WHERE 1 = 0")
-			}
+			// An empty list must not be a syntax error: IN (NULL) matches nothing.
+			// NOT IN (NULL) matches nothing too, so NotIn ORs in an empty guard.
+			sql.WriteString("NULL")
 
 			return nil
 		}
@@ -305,7 +308,7 @@ func (s argSet) value(spec *paramSpec) (any, error) {
 		return nil, fmt.Errorf("parameter %s has no value; pass it with Bind", spec.label())
 	}
 
-	if spec.mode == paramNotInList || spec.mode == paramList {
+	if spec.mode == paramNotInList || spec.mode == paramList || spec.mode == paramEmptyGuard {
 		if _, isList := v.([]any); !isList {
 			return nil, fmt.Errorf("parameter %s is a list parameter; bind it with BindList", spec.label())
 		}

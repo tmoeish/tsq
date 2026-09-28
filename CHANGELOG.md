@@ -145,6 +145,19 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 ### 修复
 
+- **平铺的集合运算链在不同方言上返回不同的行**：`a.Union(b).Intersect(c)` 原样渲染，SQLite 从左到右算出 `(a ∪ b) ∩ c`，MySQL 和 PostgreSQL 让 `INTERSECT` 优先算出 `a ∪ (b ∩ c)`。现在链一律从左到右求值：`INTERSECT` 前面有 `UNION` / `EXCEPT` 时，前面的部分包成派生表。要 `a ∪ (b ∩ c)` 就把组合好的操作数传进去：`a.Union(b.Intersect(c))`。
+- **`IntersectAll` / `ExceptAll` 在 SQLite 上报语法错误**，而不是 `UnsupportedCapabilityError`：它们借用了 `INTERSECT` / `EXCEPT` 的能力位，而 SQLite 只有不带 `ALL` 的那种。新增能力位 `dialect.CapabilityIntersectAll` / `CapabilityExceptAll`。
+- **`Page` 对集合运算查询的排序不做检查**：`Paging.OrderBy` 绕过了构建器 `OrderBy` 的那道校验，`Upper(col)` 被静默当成按 `col` 排序，别的表的列按名字绑上。现在两条路径用同一个检查。
+- **`PageRequest.Order` 只给一个方向时报错**：文档一直写"每个字段一个，或者一个管全部"，代码只接受前者。现在一个方向用于所有排序字段。
+- **空的 `NotIn` 在 PostgreSQL 的非整数列上报错**：它渲染成 `NOT IN (SELECT 1 WHERE 1 = 0)`，PostgreSQL 拿整数和列比较，`varchar = integer` 失败。现在 `NotIn(tsq.Vals())` 在构建时就是 `1 = 1`，空的列表参数渲染成 `(col NOT IN (NULL) OR 1 = 1)`，语义不变（空 `NotIn` 显式全匹配）。
+- **嵌套集合运算的操作数逃过了读行前的可空性检查**：`a.Union(b.Union(c))` 里 `c` 可能为 NULL 的列只在扫描时报 `converting NULL`。
+- **分组或 `DISTINCT` 查询选了两个同名列时，MySQL 上 `Count` / `Page` 失败**（错误 1060）：计数把查询包成派生表，派生表不许重名。现在同名列从第二次出现起换成生成的名字，读行按位置，调用方无感知。
+- **子查询里的 `Search` 被静默丢掉**：关键词是执行参数，子查询收不到，搜索谓词就没了。现在构建时报错。
+- **`Exists` 会因为选中列可能为 NULL 而报错**，而它根本不读那一行。
+- **`NullColumn.WithTable(cte)` 在 CTE 已经 `COALESCE` 过时仍被当成可为 NULL**：现在可空性按 CTE 体推导。
+- **`In(带 Limit 的子查询)` 在 MySQL 上被拒绝**（错误 1235）：现在写成派生表。
+- **CTE 选了两个同名输出列**（`SUM(amount)` 与 `MAX(amount)`）**时引用它们有歧义**，以前要到数据库执行时才报错，现在构建时报错。
+
 - **字段类型写成 `sql.Null[T]`（或任何实例化的泛型类型）时 `tsq gen` 直接报 `unsupported field type: *ast.IndexExpr`**，而文档一直说可空字段可以用 `sql.Null[T]`。现在解析器接受泛型类型，生成器按 `go/types` 写出完整类型，DDL 推导把 `sql.Null[T]` 当作可为 NULL 的 `T`，托管时间列也接受 `sql.Null[time.Time]`。示例改用 `sql.Null[time.Time]` 后，模块不再依赖 `gopkg.in/nullbio/null.v6`（生成器仍按类型路径识别 nullbio 类型）。
 
 - **按唯一字符串键批量读取，在不区分大小写的排序规则下会误报"不存在"**：MySQL 默认的 `utf8mb4_0900_ai_ci` 让 `'intro to go'` 匹配到 `'Intro to Go'`，旧的生成代码却逐字节比对返回的行，于是报 `sql.ErrNoRows`。现在对 Go 里对不上的字符串逐个再问一次数据库，以数据库的判断为准，遇到第一个确实不存在的键就停止。

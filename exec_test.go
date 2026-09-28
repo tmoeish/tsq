@@ -317,7 +317,13 @@ func TestPageSearchesSortsAndCounts(t *testing.T) {
 		t.Fatalf("unknown sort field error = %v", err)
 	}
 
-	if _, err := (&PageRequest{OrderBy: "id,name", Order: "asc"}).Paging(User_ID, User_Name); !isErr[*SortError](err) {
+	// One direction applies to every field, as PageRequest.Order documents.
+	one, err := (&PageRequest{OrderBy: "id,name", Order: "desc"}).Paging(User_ID, User_Name)
+	if err != nil || len(one.OrderBy) != 2 || one.OrderBy[0].direction != orderDesc || one.OrderBy[1].direction != orderDesc {
+		t.Fatalf("one direction for every field = %+v, %v", one, err)
+	}
+
+	if _, err := (&PageRequest{OrderBy: "id,name", Order: "asc,desc,asc"}).Paging(User_ID, User_Name); !isErr[*SortError](err) {
 		t.Fatalf("order count mismatch error = %v", err)
 	}
 
@@ -684,6 +690,73 @@ func TestPageOrdersCompoundQueriesByOutputName(t *testing.T) {
 
 	if n, err := SelectValue(CountDistinct(User_Name)).From(Users).MustBuild().Get(ctx, rt); err != nil || *n != 3 {
 		t.Fatalf("COUNT(DISTINCT) = %v, %v; want 3", n, err)
+	}
+}
+
+// TestSetOperationChainsRunLeftToRight runs A UNION B INTERSECT C, which reads as
+// (A ∪ B) ∩ C. MySQL and PostgreSQL would compute A ∪ (B ∩ C) from the flat SQL.
+func TestSetOperationChainsRunLeftToRight(t *testing.T) {
+	ctx := context.Background()
+	rt := newSQLite(t)
+	rows := seedUsers(t, rt, "a", "b", "c")
+
+	named := func(names ...string) WhereStage[int64] {
+		return SelectValue(User_ID).From(Users).Where(User_Name.In(Vals(names...)))
+	}
+
+	ids, err := named("a", "b").Union(named("c")).Intersect(named("a", "c")).OrderBy(User_ID.Asc()).MustBuild().List(ctx, rt)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(ids) != 2 || *ids[0] != rows[0].ID || *ids[1] != rows[2].ID {
+		t.Fatalf("ids = %v; want a and c", ids)
+	}
+
+	// The count wraps the query as a derived table.
+	n, err := named("a", "b").Union(named("c")).Intersect(named("a", "c")).MustBuild().Count(ctx, rt)
+	if err != nil || n != 2 {
+		t.Fatalf("count = %d, %v; want 2", n, err)
+	}
+}
+
+// TestPageChecksTheOrderOfACompoundQuery covers Paging.OrderBy on a set
+// operation, which skipped the check the builder's OrderBy gets: Upper(col) was
+// ordered by col, and another table's column was bound by its name.
+func TestPageChecksTheOrderOfACompoundQuery(t *testing.T) {
+	ctx := context.Background()
+	rt := newSQLite(t)
+	seedUsers(t, rt, "a", "b")
+
+	q := Select(User_Name).From(Users).Union(Select(User_Name).From(Users)).MustBuild()
+
+	for name, ob := range map[string]OrderBy{
+		"expression":  Upper(User_Name).Asc(),
+		"not output":  User_Email.Asc(),
+		"other table": Order_Note.Asc(),
+	} {
+		if _, err := q.Page(ctx, rt, Paging{OrderBy: []OrderBy{ob}}); err == nil || !strings.Contains(err.Error(), "ordered by its output columns") {
+			t.Errorf("%s: Page = %v; want the term refused", name, err)
+		}
+	}
+
+	if _, err := q.Page(ctx, rt, Paging{OrderBy: []OrderBy{User_Name.Desc()}}); err != nil {
+		t.Fatalf("ordering by an output column: %v", err)
+	}
+}
+
+// TestCountOfAGroupedQueryWithARepeatedName runs the count of a DISTINCT query
+// that selects one name twice, a derived table MySQL would refuse (error 1060).
+func TestCountOfAGroupedQueryWithARepeatedName(t *testing.T) {
+	ctx := context.Background()
+	rt := newSQLite(t)
+	seedUsers(t, rt, "a", "b")
+
+	upper := MapInto(Upper(User_Name), func(u *user) *string { return &u.Email })
+
+	page, err := SelectDistinct(User_Name, upper).From(Users).MustBuild().Page(ctx, rt, Paging{Size: 1})
+	if err != nil || page.Total != 2 || len(page.Data) != 1 {
+		t.Fatalf("page = %+v, %v", page, err)
 	}
 }
 

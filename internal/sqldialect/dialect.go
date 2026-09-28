@@ -30,8 +30,10 @@ const (
 
 	CapabilityCTE                 = tsqdialect.CapabilityCTE
 	CapabilityExcept              = tsqdialect.CapabilityExcept
+	CapabilityExceptAll           = tsqdialect.CapabilityExceptAll
 	CapabilityFullOuterJoin       = tsqdialect.CapabilityFullOuterJoin
 	CapabilityIntersect           = tsqdialect.CapabilityIntersect
+	CapabilityIntersectAll        = tsqdialect.CapabilityIntersectAll
 	CapabilitySelectForUpdate     = tsqdialect.CapabilitySelectForUpdate
 	CapabilitySelectForShare      = tsqdialect.CapabilitySelectForShare
 	CapabilitySelectForNoWait     = tsqdialect.CapabilitySelectForNoWait

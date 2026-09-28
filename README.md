@@ -208,6 +208,7 @@ TSQ 当前内置的 `Dialect` 实现只有 **SQLite / MySQL / PostgreSQL**。下
 | 行锁读取（`FOR UPDATE` / `FOR SHARE`） | ❌ | ✅ | ✅ | 能否执行取决于运行时 dialect |
 | 非递归 CTE / `WITH` | ✅ | ✅ | ✅ | MySQL 基线为 8.0（5.7 已 EOL），5.7 上会收到数据库报错而不是 TSQ 的拒绝 |
 | `INTERSECT` / `EXCEPT` | ✅ | ✅ | ✅ | MySQL 需要 8.0.31+ |
+| `INTERSECT ALL` / `EXCEPT ALL` | ❌ | ✅ | ✅ | SQLite 没有 `ALL` 形式 |
 | `FULL JOIN` 执行 | ✅ | ❌ | ✅ | SQLite 需要 3.39+（内置的 modernc 驱动满足）；MySQL 会在执行前显式拒绝 |
 
 补充说明：
