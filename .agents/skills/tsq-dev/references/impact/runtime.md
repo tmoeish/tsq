@@ -32,6 +32,12 @@
 - 加新策略档要想清楚它是不是仍然"从不删表"，并且三个方言都要在集成测试里跑。
 - **不要把 DDL 包进事务**：MySQL 每条 DDL 都隐式提交，包起来只在 PG / SQLite 上成立，反而让人
   误以为它是原子的。
+- **策略档之间的分界按"改不改已有的东西"划**：`CreateMissing` 只加（表、列、索引），已有的列不一样仍然拒绝启动，
+  改列和删列是 `Reconcile` 的。`CreateMissing` 曾把"缺列"和"列不一样"一起拒绝，而三处文档都说它会加列。
+- **自省比较按引擎的拼法归一**：SQLite 的名字不分大小写（`sqlite_master` 查询要 `COLLATE NOCASE`，Go 里比名字用
+  `EqualFold`），MySQL 读回的默认值是它自己的规范形式（`sameDefault` 按数值比）。漏一处就是"每次启动都改一次"。
+- SQLite 重建表要把 `sqlite_sequence` 的计数带过去（`renderRebuildTableStatements`），否则 AUTOINCREMENT 会重发
+  已删行的主键。
 - 门：`runtime_schema_isolation_test.go`（SQLite）和 `internal/integration` 的
   `TestIntegrationSchemaPolicyNeverDropsUndeclaredTables`（三方言）。
 
@@ -109,3 +115,5 @@
 - **根包的测试也不许 import 驱动或 nullbio**：`go mod tidy` 会把依赖包测试的依赖记进使用者的
   `go.sum`。需要真实驱动的测试放 `internal/integration`；根包测试只允许 SQLite。
 - `internal/integration` 的 `TestIntegrationLockConflictsAreRetryable` 用真实驱动验证。
+- **同一种情况在三个方言上要一起表态**：PG 的 55P03（`NOWAIT` 拿不到锁）被重试而 MySQL 的 3572 没有，是只看一个
+  方言补码的结果。新增一个错误码时，把另两个方言的对应码一起查出来。

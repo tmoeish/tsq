@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/big"
 	"slices"
 	"sort"
 	"strings"
@@ -97,8 +98,26 @@ func (r *Runtime) applyTablePolicyForTable(ctx context.Context, table *registere
 	}
 
 	switch r.tablePolicy {
-	case SchemaPolicyValidate, SchemaPolicyCreateMissing:
+	case SchemaPolicyValidate:
 		return fmt.Errorf("table %s schema mismatch: %s", tableName, summarizeTableColumnChanges(changes))
+	case SchemaPolicyCreateMissing:
+		// Missing columns are added; a column that differs or is not declared is
+		// Reconcile's to change, and nothing is added while one is there.
+		added := slices.DeleteFunc(slices.Clone(changes), func(c tableColumnChange) bool { return c.kind != tableColumnAdd })
+		if len(added) < len(changes) {
+			return fmt.Errorf("table %s schema mismatch: %s", tableName, summarizeTableColumnChanges(changes))
+		}
+
+		statements, err := renderTableColumnChanges(r.dialect, tableName, added)
+		if err != nil {
+			return fmt.Errorf("add columns to %s: %w", tableName, err)
+		}
+
+		for _, statement := range statements {
+			if err := r.execDDL(ctx, statement); err != nil {
+				return fmt.Errorf("add column to %s: %w", tableName, err)
+			}
+		}
 	case SchemaPolicyReconcile:
 		for _, change := range changes {
 			if change.kind == tableColumnDrop {
@@ -397,6 +416,10 @@ func columnsEqual(dialect sqld.Dialect, left sqld.Column, right tsqdialect.Colum
 // compare exactly, so 'Active' and 'active' differ; anything else compares without
 // case, since keywords (CURRENT_TIMESTAMP) are spelled either way and MySQL reads a
 // string default back without its quotes.
+//
+// Numbers compare by value and booleans as 1 and 0: MySQL reads a declared true
+// back as 1 and a decimal 0 as 0.00, which used to ask for the same ALTER on every
+// boot.
 func sameDefault(left, right string) bool {
 	a, aQuoted := normalizeDefaultLiteral(left)
 	b, bQuoted := normalizeDefaultLiteral(right)
@@ -405,7 +428,25 @@ func sameDefault(left, right string) bool {
 		return a == b
 	}
 
+	if x, ok := defaultNumber(a); ok {
+		if y, ok := defaultNumber(b); ok {
+			return x.Cmp(y) == 0
+		}
+	}
+
 	return strings.EqualFold(a, b)
+}
+
+// defaultNumber reads a default as an exact number, true and false included.
+func defaultNumber(value string) (*big.Rat, bool) {
+	switch strings.ToLower(value) {
+	case "true":
+		value = "1"
+	case "false":
+		value = "0"
+	}
+
+	return new(big.Rat).SetString(value)
 }
 
 // normalizeDefaultLiteral makes two spellings of the same default comparable: a
@@ -605,6 +646,18 @@ func renderRebuildTableStatements(
 		))
 	}
 
+	// AUTOINCREMENT promises never to reuse a key, and the counter lives in
+	// sqlite_sequence under the table's name: the new table would otherwise count on
+	// from its largest copied key, and hand out again the keys of rows deleted after
+	// it. The old counter (renamed with the table) is carried over before it goes.
+	if slices.ContainsFunc(desired, func(c tsqdialect.ColumnSpec) bool { return c.AutoIncrement }) {
+		statements = append(statements,
+			fmt.Sprintf("DELETE FROM sqlite_sequence WHERE name = %s;", sqlStringLiteral(tableName)),
+			fmt.Sprintf("INSERT INTO sqlite_sequence (name, seq) SELECT %s, seq FROM sqlite_sequence WHERE name = %s;",
+				sqlStringLiteral(tableName), sqlStringLiteral(tempTable)),
+		)
+	}
+
 	statements = append(statements, fmt.Sprintf("DROP TABLE %s;", dialect.QuoteIdent(tempTable)))
 
 	// Dropping the old table also drops its indexes and triggers; create them again
@@ -651,4 +704,9 @@ func sharedColumnNames(current []sqld.Column, desired []tsqdialect.ColumnSpec) [
 	}
 
 	return shared
+}
+
+// sqlStringLiteral quotes s as a SQL string literal.
+func sqlStringLiteral(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
 }

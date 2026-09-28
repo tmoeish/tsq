@@ -78,42 +78,49 @@ func TestNewRuntimeTablePolicyCreateMissingCreatesTable(t *testing.T) {
 	}
 }
 
-func TestNewRuntimeTablePolicyReconcileAddsMissingColumn(t *testing.T) {
-	db, dsn := newSQLiteIndexTestEngine(t)
-	if _, err := db.DB().ExecContext(context.Background(), `CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT)`); err != nil {
-		t.Fatalf("failed to create seed table: %v", err)
-	}
+// TestNewRuntimeTablePoliciesAddMissingColumns covers CreateMissing, which is
+// documented to add missing columns and used to refuse to start instead, and
+// Reconcile, which always did.
+func TestNewRuntimeTablePoliciesAddMissingColumns(t *testing.T) {
+	for _, policy := range []SchemaPolicy{SchemaPolicyCreateMissing, SchemaPolicyReconcile} {
+		t.Run(string(policy), func(t *testing.T) {
+			db, dsn := newSQLiteIndexTestEngine(t)
+			if _, err := db.DB().ExecContext(context.Background(), `CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT)`); err != nil {
+				t.Fatalf("failed to create seed table: %v", err)
+			}
 
-	table, _ := newStrictMockTable("users", "id", "name")
-	runtime, err := Open(context.Background(),
-		"sqlite",
-		dsn,
-		[]Table{registered(table, []tsqdialect.ColumnSpec{
-			{
-				Name:          "id",
-				Type:          tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64},
-				PrimaryKey:    true,
-				AutoIncrement: true,
-			},
-			{
-				Name: "name",
-				Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 120},
-			},
-		})},
-		WithTablePolicy(SchemaPolicyReconcile))
-	if err != nil {
-		t.Fatalf("NewRuntime() error = %v", err)
-	}
+			table, _ := newStrictMockTable("users", "id", "name")
+			runtime, err := Open(context.Background(),
+				"sqlite",
+				dsn,
+				[]Table{registered(table, []tsqdialect.ColumnSpec{
+					{
+						Name:          "id",
+						Type:          tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64},
+						PrimaryKey:    true,
+						AutoIncrement: true,
+					},
+					{
+						Name: "name",
+						Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 120},
+					},
+				})},
+				WithTablePolicy(policy))
+			if err != nil {
+				t.Fatalf("NewRuntime() error = %v", err)
+			}
 
-	columns, found, err := runtime.dialect.InspectColumns(context.Background(), runtime, "users")
-	if err != nil {
-		t.Fatalf("InspectColumns() error = %v", err)
-	}
-	if !found {
-		t.Fatal("expected users table to exist")
-	}
-	if len(columns) != 2 {
-		t.Fatalf("expected reconcile to add missing column, got %d columns", len(columns))
+			columns, found, err := runtime.dialect.InspectColumns(context.Background(), runtime, "users")
+			if err != nil {
+				t.Fatalf("InspectColumns() error = %v", err)
+			}
+			if !found {
+				t.Fatal("expected users table to exist")
+			}
+			if len(columns) != 2 {
+				t.Fatalf("expected %s to add the missing column, got %d columns", policy, len(columns))
+			}
+		})
 	}
 }
 
@@ -182,6 +189,9 @@ func TestNewRuntimeReconcileRebuildPreservesDataAndIndexes(t *testing.T) {
 		`CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, age INTEGER, name VARCHAR(120))`,
 		`CREATE INDEX idx_users_name ON users(name)`,
 		`INSERT INTO users (age, name) VALUES (30, 'amy')`,
+		// Key 2 is used and deleted: AUTOINCREMENT must never hand it out again.
+		`INSERT INTO users (age, name) VALUES (40, 'gone')`,
+		`DELETE FROM users WHERE name = 'gone'`,
 	}
 	for _, statement := range statements {
 		if _, err := db.DB().ExecContext(context.Background(), statement); err != nil {
@@ -242,6 +252,16 @@ func TestNewRuntimeReconcileRebuildPreservesDataAndIndexes(t *testing.T) {
 
 	if _, found := inspectRegisteredIndex(t, runtime, "users", "idx_users_name"); !found {
 		t.Fatal("expected rebuild to restore pre-existing secondary index even with manual index policy")
+	}
+
+	// The rebuilt table used to count on from its largest copied key.
+	result, err := runtime.ExecContext(context.Background(), `INSERT INTO users (age, name) VALUES ('50', 'new')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if id, err := result.LastInsertId(); err != nil || id != 3 {
+		t.Fatalf("key after rebuild = %d, %v; want 3, not the deleted row's 2", id, err)
 	}
 
 	// A second bootstrap must be a no-op: the rebuilt schema now matches.
@@ -529,6 +549,12 @@ func TestColumnDefaultsCompareByMeaning(t *testing.T) {
 		{"'USD'", "USD", true}, // MySQL reads a string default back unquoted
 		{"'Active'", "'active'::text", false},
 		{"'a'", "'b'", false},
+		{"true", "1", true}, // MySQL reads a boolean default back as a number
+		{"FALSE", "0", true},
+		{"0", "0.00", true}, // and a decimal one with its scale
+		{"1.5", "1.50", true},
+		{"1", "0", false},
+		{"0", "false", true},
 	} {
 		if got := sameDefault(tt.left, tt.right); got != tt.same {
 			t.Errorf("sameDefault(%q, %q) = %v, want %v", tt.left, tt.right, got, tt.same)
@@ -553,4 +579,65 @@ func TestResolveRuntimeDialectAcceptsEverySQLiteDriverName(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "expected sqlite, sqlite3, mysql") {
 		t.Fatalf("unknown driver = %v", err)
 	}
+}
+
+// TestSQLiteFindsATableWhateverTheCaseOfItsName covers SQLite's case-insensitive
+// names: a table created as "Users" is the declared users. Inspection compared
+// names exactly, so Validate reported it missing and CreateMissing logged a
+// CREATE TABLE IF NOT EXISTS that did nothing as applied.
+func TestSQLiteFindsATableWhateverTheCaseOfItsName(t *testing.T) {
+	ctx := context.Background()
+	db, dsn := newSQLiteIndexTestEngine(t)
+
+	if _, err := db.DB().ExecContext(ctx, `CREATE TABLE "Users" (id INTEGER PRIMARY KEY AUTOINCREMENT, name VARCHAR(120) NOT NULL DEFAULT '')`); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := db.DB().ExecContext(ctx, `CREATE INDEX "IX_Users_Name" ON "Users"(name)`); err != nil {
+		t.Fatal(err)
+	}
+
+	table, _ := newStrictMockTable("users", "id", "name")
+	declared := registered(table, []tsqdialect.ColumnSpec{
+		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
+		{Name: "name", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 120}, Default: "''"},
+	})
+
+	logger := &recordingLogger{}
+
+	rt, err := Open(ctx, "sqlite", dsn, []Table{declared}, WithTablePolicy(SchemaPolicyValidate), WithIndexPolicy(SchemaPolicyManual), WithLogger(logger))
+	if err != nil {
+		t.Fatalf("Validate of a table named in another case = %v", err)
+	}
+
+	t.Cleanup(func() { _ = rt.Close() })
+
+	if _, found, err := rt.dialect.InspectIndex(ctx, rt, "users", "ix_users_name"); err != nil || !found {
+		t.Fatalf("InspectIndex in another case = %t, %v", found, err)
+	}
+}
+
+// TestSQLiteRowidKeyWithoutAutoincrementIsNotDrift covers a hand-written
+// id INTEGER PRIMARY KEY: SQLite assigns it as the rowid, so a table declared
+// with an auto-increment key matches it, and Validate starts.
+func TestSQLiteRowidKeyWithoutAutoincrementIsNotDrift(t *testing.T) {
+	ctx := context.Background()
+	db, dsn := newSQLiteIndexTestEngine(t)
+
+	if _, err := db.DB().ExecContext(ctx, `CREATE TABLE users (id INTEGER PRIMARY KEY, name VARCHAR(120) NOT NULL DEFAULT '')`); err != nil {
+		t.Fatal(err)
+	}
+
+	table, _ := newStrictMockTable("users", "id", "name")
+	declared := registered(table, []tsqdialect.ColumnSpec{
+		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
+		{Name: "name", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 120}, Default: "''"},
+	})
+
+	rt, err := Open(ctx, "sqlite", dsn, []Table{declared}, WithTablePolicy(SchemaPolicyValidate), WithIndexPolicy(SchemaPolicyManual))
+	if err != nil {
+		t.Fatalf("Validate of a rowid key = %v", err)
+	}
+
+	_ = rt.Close()
 }

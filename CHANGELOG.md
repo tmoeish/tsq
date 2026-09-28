@@ -145,6 +145,12 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 ### 修复
 
+- **`SchemaPolicyCreateMissing` 从不补缺失的列**：文档、Go doc 和 README 都说它会，代码却把"缺一列"和"列不一样"一起当成不匹配而拒绝启动。现在缺的列会加上；列不一样或多出未声明的列仍然拒绝启动。
+- **SQLite 上 `Reconcile` 重建表后，被硬删除的最大主键会被重新分配**：重建丢掉了 `sqlite_sequence` 里的计数，新表从复制过来的最大主键接着数。现在计数随表保留。
+- **SQLite 按表名、索引名自省时区分大小写**：表建成 `"Users"`、声明成 `users` 时，`Validate` 报表不存在，`CreateMissing` 把一条什么也没做的 `CREATE TABLE IF NOT EXISTS` 记成已执行。
+- **MySQL 上布尔和 decimal 默认值每次启动都被当成漂移**：MySQL 把 `true` 读回成 `1`、decimal 的 `0` 读回成 `0.00`。现在数值按值比较。
+- **SQLite 上手写的 `id INTEGER PRIMARY KEY`（没写 `AUTOINCREMENT`）被当成与自增主键不一致**。
+- **MySQL 的 `NOWAIT` 加锁失败（错误 3572）不被 `IsTxConflictError` 识别**，而 PostgreSQL 的同一种情况（55P03）会被重试。
 - **平铺的集合运算链在不同方言上返回不同的行**：`a.Union(b).Intersect(c)` 原样渲染，SQLite 从左到右算出 `(a ∪ b) ∩ c`，MySQL 和 PostgreSQL 让 `INTERSECT` 优先算出 `a ∪ (b ∩ c)`。现在链一律从左到右求值：`INTERSECT` 前面有 `UNION` / `EXCEPT` 时，前面的部分包成派生表。要 `a ∪ (b ∩ c)` 就把组合好的操作数传进去：`a.Union(b.Intersect(c))`。
 - **`IntersectAll` / `ExceptAll` 在 SQLite 上报语法错误**，而不是 `UnsupportedCapabilityError`：它们借用了 `INTERSECT` / `EXCEPT` 的能力位，而 SQLite 只有不带 `ALL` 的那种。新增能力位 `dialect.CapabilityIntersectAll` / `CapabilityExceptAll`。
 - **`Page` 对集合运算查询的排序不做检查**：`Paging.OrderBy` 绕过了构建器 `OrderBy` 的那道校验，`Upper(col)` 被静默当成按 `col` 排序，别的表的列按名字绑上。现在两条路径用同一个检查。

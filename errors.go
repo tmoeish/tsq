@@ -103,7 +103,9 @@ func IsTxConflictError(err error) bool {
 	}
 
 	if number, ok := mysqlErrorNumber(err); ok {
-		return number == 1205 || number == 1213
+		// 1205 lock wait timeout, 1213 deadlock, 3572 a NOWAIT lock that was taken:
+		// the last is PostgreSQL's 55P03, which is retried there too.
+		return number == 1205 || number == 1213 || number == 3572
 	}
 
 	if isPostgresRetryableTransactionConflict(err) {
