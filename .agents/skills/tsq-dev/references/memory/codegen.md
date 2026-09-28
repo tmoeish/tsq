@@ -24,12 +24,11 @@
 **代价**：列字段不能和 `TableOf` 的方法重名，`tsq gen` 报错（`reserved.go`），所以 `Table.Name()` 改成了
 `TableName()`，**以后给 `TableOf` 加导出方法都会让某个列名非法**，加之前想清楚。
 
-## 文档承诺的类型，要有一个真的用它的示例 (2026-09-19，2026-09-22)
+## 文档承诺的类型，要有一个真的用它的示例 (2026-09-19，2026-09-22，2026-09-28)
 
-文档说可空字段可用 `sql.Null[T]`，解析器却不认泛型（`*ast.IndexExpr`），示例换过去才暴露。2026-09-20 的审计又在生成器里
-找出九处同一形状：跨包 result 字段、同名包、本包泛型、`Ctx` 字段……**全是 academy 恰好没有的形状**，文档里的"必须显式
-`type:`"甚至从没实现、示例靠猜过关。门是 `gen_test.go` 的形状矩阵 `TestGeneratedCodeCompilesForEveryFieldShape`：
-**新的字段形状进矩阵，不进示例。**
+`sql.Null[T]`、跨包 result 字段、同名包、`Ctx` 字段、`[N]byte`、`DeviceBinding` 的接收者 `db`……**全是 academy 恰好
+没有的形状**，每一处都生成过编译不过的代码。**新的字段形状进 `TestGeneratedCodeCompilesForEveryFieldShape` 的矩阵，
+不进示例**；生成器该拒绝的声明进 `TestGenRefusesWhatItCannotGenerate`。
 
 ## 按字符串批量取数要以数据库的判等为准 (2026-09-19)
 
@@ -39,8 +38,8 @@
 
 ## 版本号有四个副本，生成物那份最容易忘 (2026-08-21)
 
-版本号传导进生成文件头和 `tsq.json`，**改版本号必须重新生成示例**，`release.py` 依赖这一点。生成文件
-后缀（`TSQFileSuffix`）还被 `changeset.py` 和 `check_release.py` 认着，改它要一起改。
+**改版本号必须重新生成示例**（文件头和 `tsq.json`），`release.py` 依赖这一点；`TSQFileSuffix` 还被
+`changeset.py` 和 `check_release.py` 认着。
 
 ## 决定：CLI 用标准库 `flag`，不用 cobra (2026-09-19)
 
@@ -62,3 +61,10 @@ tag，想打 tag 得先过 `release-check`。所以 `make build-gen` **故意不
 ## 决定：只为主键和唯一索引生成查询 (2026-09-17)
 
 普通索引和前缀的查询要排序、限量，生成器猜不到，照抄就是全表读取。
+
+## 决定：`generated` 不带表达式保留，但 TSQ 不替它建表 (2026-09-28)
+
+它表示"库计算、schema 归迁移"（触发器、方言相关的表达式），审计发现它被写成普通 NOT NULL 列，`CreateMissing`
+建出的表每次 `Insert` 都失败。**否掉"一律要求写表达式"**：那会让迁移管 schema 的使用者没法声明这种列。改成
+TSQ 写的 DDL 留出它（带注释），运行期要建含它的表就报错。`//tsq:search` 写在结果上则直接拒绝，文档改掉——结果
+没有生成查询，"支持"只能是一个空承诺。

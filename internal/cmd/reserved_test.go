@@ -4,7 +4,10 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"os"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -123,5 +126,31 @@ func TestValidateFieldNamesRefusesCollisions(t *testing.T) {
 	}
 	if err := validateFieldNames(result); err == nil {
 		t.Error("a result field named Columns must be refused")
+	}
+}
+
+// TestRowMethodsMatchTheTemplate reads the methods table.go.tmpl declares on the
+// row type. A field named like one of them (Active on a soft-delete table) made
+// generated code that did not compile, because rowMethods did not exist.
+func TestRowMethodsMatchTheTemplate(t *testing.T) {
+	source, err := os.ReadFile("table.go.tmpl")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	declared := regexp.MustCompile(`\{\{\$precv\}\}(\w+)\(`).FindAllStringSubmatch(string(source), -1)
+
+	names := make([]string, 0, len(declared))
+	for _, m := range declared {
+		names = append(names, m[1])
+	}
+
+	listed := rowMethods(&genmodel.StructInfo{TableMeta: &genmodel.TableMeta{DeletedAtField: "DeletedAt"}})
+
+	slices.Sort(names)
+	slices.Sort(listed)
+
+	if !slices.Equal(names, listed) {
+		t.Fatalf("table.go.tmpl declares row methods %v, rowMethods lists %v", names, listed)
 	}
 }

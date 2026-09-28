@@ -145,6 +145,20 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 ### 修复
 
+- **嵌入指针结构体（`*Base`）的表生成的代码一读就 panic**：生成的访问器解引用那个指针，而 `new(R)` 里它是 nil。现在 `tsq gen` 报错，要求按值嵌入。
+- **`pk=Code` 用在 string 字段上又没写 `assigned` 时 `tsq gen` 直接 panic**：现在报错并提示加 `assigned`。
+- **在模块外用绝对路径跑 `tsq gen /path/to/pkg` 找不到包**：包按导入路径从当前目录重新加载；加载失败时也不再吞掉 `go/packages` 给出的原因。
+- **结构体叫 `Runtime` 时，它的生成文件被 `runtime.tsq.go` 覆盖**：现在报文件名冲突。
+- **软删除表上叫 `Active`（或 `Insert`、`Update`、`HardDelete`、`Delete`、`Restore`）的字段让生成代码编译不过**：这些是生成在行类型上的方法，现在 `tsq gen` 报错。
+- **结构体名缩写成 `db` / `ctx` / `tsq`（如 `DeviceBinding`）时，接收者遮住了行方法的参数**，生成代码编译不过。现在换成 `row`。
+- **`[N]byte` 字段加 `type:` 后生成 `*[]byte` 访问器**，编译不过。
+- **结果上的 `//tsq:search` 被接受然后静默丢掉**：结果没有生成查询可放搜索，现在报错（文档曾说它在结果上也有效，已更正）。
+- **SQLite 重建式迁移里新增 NOT NULL 又没默认值的列时，缺少非重建路径那条手工处理的提示**，在有数据的表上执行到一半失败；迁移现在也保留 `AUTOINCREMENT` 的计数。
+- **`db:"col,generated"`（不带表达式）被写成普通的 NOT NULL 列**，`CreateMissing` 建出的表上每次 `Insert` 都失败。这种列属于拥有这张表的迁移：生成的 DDL 用注释留出它，运行期策略拒绝替它建表。
+- **包里与 TSQ 无关的结构体会让 `tsq gen` 中止**：带 `db` 标签的 map 字段、嵌入另一个包的接口（`io.Reader`）都会报一条既不说结构体也不说字段的错误。现在只有被表或结果用到的结构体才会报错，并点出结构体和字段。
+- **包里有 `import "C"` 时 `tsq gen` 报 `cannot import package C`**。
+- 泛型结构体上的 `//tsq:table`、引用另一个结果的结果，以前生成编译不过的代码，现在报错；`default:'a, b'` 不再在引号里的逗号处被截断；`//tsq:unique A, B`（逗号后有空格）不再报"字段名为空"；写在非结构体类型上的指令不再被静默忽略。
+- **MySQL 上超过 3072 字节键长的索引（如 `VARCHAR(2000)` 上的唯一索引）和 `TEXT` 列上的索引，建表时才被数据库拒绝**：现在 `tsq gen` 就报错。
 - **`SchemaPolicyCreateMissing` 从不补缺失的列**：文档、Go doc 和 README 都说它会，代码却把"缺一列"和"列不一样"一起当成不匹配而拒绝启动。现在缺的列会加上；列不一样或多出未声明的列仍然拒绝启动。
 - **SQLite 上 `Reconcile` 重建表后，被硬删除的最大主键会被重新分配**：重建丢掉了 `sqlite_sequence` 里的计数，新表从复制过来的最大主键接着数。现在计数随表保留。
 - **SQLite 按表名、索引名自省时区分大小写**：表建成 `"Users"`、声明成 `users` 时，`Validate` 报表不存在，`CreateMissing` 把一条什么也没做的 `CREATE TABLE IF NOT EXISTS` 记成已执行。

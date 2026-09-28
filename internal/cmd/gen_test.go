@@ -546,12 +546,15 @@ type User struct {
 		t.Fatalf("initial GenCmd.Execute() error = %v", err)
 	}
 
+	// The name changes type, forcing the rebuild, and a NOT NULL column without a
+	// default arrives, which the copy into the new table cannot fill.
 	writeTestFile(t, modelPath, `package gentest
 
 //tsq:table name=users
 type User struct {
-	ID   int64  `+"`db:\"id\"`"+`
-	Name string `+"`db:\"name,size:128\"`"+`
+	ID    int64  `+"`db:\"id\"`"+`
+	Name  string `+"`db:\"name,size:128\"`"+`
+	Email string `+"`db:\"email\"`"+`
 }
 `)
 
@@ -573,6 +576,8 @@ type User struct {
 		`ALTER TABLE "users" RENAME TO "__tsq_rebuild_users";`,
 		`CREATE TABLE IF NOT EXISTS "users" (`,
 		`INSERT INTO "users" ("id", "name") SELECT "id", "name" FROM "__tsq_rebuild_users";`,
+		`-- users: email is NOT NULL without a default, which fails on a table with rows`,
+		`INSERT INTO sqlite_sequence (name, seq) SELECT 'users', seq FROM sqlite_sequence WHERE name = '__tsq_rebuild_users';`,
 		`DROP TABLE "__tsq_rebuild_users";`,
 		`COMMIT;`,
 	} {
@@ -2140,11 +2145,31 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"errors"
+	"io"
 
 	"example.com/gentest/ext"
 	p1 "example.com/gentest/x1/pkg"
 	p2 "example.com/gentest/x2/pkg"
 )
+
+// Legacy and Stream are not TSQ's: a map field, and an embedded interface.
+type Legacy struct {
+	Meta map[string]string ` + "`db:\"meta\"`" + `
+}
+
+type Stream struct {
+	io.Reader
+}
+
+//tsq:table name=device_bindings
+//tsq:unique Name
+type DeviceBinding struct {
+	ID   int64    ` + "`db:\"id\"`" + `
+	Name string   ` + "`db:\"name,size:64\"`" + `
+	Hash [32]byte ` + "`db:\"hash,type:BINARY(32)\"`" + `
+	Tags string   ` + "`db:\"tags,size:32,default:'a, b'\"`" + `
+	Slug string   ` + "`db:\"slug,generated\"`" + `
+}
 
 // Box is a local generic codec type, instantiated with a type from another package.
 type Box[T any] struct{ V T }
@@ -2204,6 +2229,12 @@ type WalletBrief struct {
 //   - NullMoney with type:: a NullColumn in Go but NOT NULL in DDL
 //   - a full-text index on a soft-delete table: deleted_at was put into it
 //   - a JSON tag holding a quote: tag values were pasted into string literals
+//   - DeviceBinding: its receiver was db, the parameter of every row method
+//   - [32]byte: the column accessor returned *[]byte
+//   - Legacy and Stream: structs no directive names stopped gen with an error
+//     that named neither the struct nor the field
+//   - default:'a, b': the tag was cut at the comma inside the literal
+//   - generated with no expression: written as a NOT NULL column no INSERT fills
 func TestGeneratedCodeCompilesForEveryFieldShape(t *testing.T) {
 	if err := genModule(t, shapeModule); err != nil {
 		t.Fatalf("tsq gen: %v", err)
@@ -2235,6 +2266,21 @@ func TestGeneratedCodeCompilesForEveryFieldShape(t *testing.T) {
 		if !strings.Contains(string(mysql), want) {
 			t.Errorf("mysql.sql lacks %q:\n%s", want, mysql)
 		}
+	}
+
+	sqlite, err := os.ReadFile("sqlite.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, want := range []string{`"tags" VARCHAR(32) NOT NULL DEFAULT 'a, b'`, "slug is computed by the database"} {
+		if !strings.Contains(string(sqlite), want) {
+			t.Errorf("sqlite.sql lacks %q:\n%s", want, sqlite)
+		}
+	}
+
+	if strings.Contains(string(sqlite), `"slug"`) {
+		t.Errorf("sqlite.sql creates the column a migration owns:\n%s", sqlite)
 	}
 
 	postgres, err := os.ReadFile("postgres.sql")
@@ -2352,5 +2398,80 @@ func TestMigrationWarnsOfANotNullColumnWithoutDefault(t *testing.T) {
 		if strings.Contains(string(ddl), "note is NOT NULL") {
 			t.Errorf("%s warns about a nullable column:\n%s", file, ddl)
 		}
+	}
+}
+
+// TestGenRefusesWhatItCannotGenerate covers declarations tsq gen used to turn
+// into code that panicked, did not compile or broke the DDL, and now refuses
+// with the reason and the way out.
+func TestGenRefusesWhatItCannotGenerate(t *testing.T) {
+	table := func(directives, fields string) string {
+		return "package gentest\n\n" + directives + "\ntype Row struct {\n\tID int64 `db:\"id\"`\n\t" + fields + "\n}\n"
+	}
+
+	for name, tt := range map[string]struct {
+		source string
+		want   string
+	}{
+		// Every generated accessor of a promoted field dereferenced the pointer.
+		"embedded pointer": {"package gentest\n\ntype Base struct {\n\tID int64 `db:\"id\"`\n}\n\n//tsq:table\ntype Row struct {\n\t*Base\n\tName string `db:\"name\"`\n}\n", "embed the struct by value"},
+		// The DDL renderer panicked.
+		"generated string key": {"package gentest\n\n//tsq:table pk=Code\ntype Row struct {\n\tCode string `db:\"code\"`\n}\n", "pk=Code assigned"},
+		// runtime.tsq.go overwrote the table's file.
+		"table named Runtime": {"package gentest\n\n//tsq:table\ntype Runtime struct {\n\tID int64 `db:\"id\"`\n}\n", "runtime.tsq.go collides"},
+		// A field beside the generated method did not compile.
+		"field named like a row method": {table("//tsq:table\n//tsq:managed deleted_at", "Active bool `db:\"active\"`\n\tDeletedAt int64 `db:\"deleted_at\"`"), "generated row method Active"},
+		"directive on a non-struct":     {"package gentest\n\n//tsq:table\ntype Status string\n", "is not a struct"},
+		"generic table":                 {"package gentest\n\n//tsq:table\ntype Row[T any] struct {\n\tID int64 `db:\"id\"`\n}\n", "is generic"},
+		// It was accepted and dropped.
+		"search on a result": {table("//tsq:table", "") + "\n//tsq:result\n//tsq:search Name\ntype View struct {\n\tName int64 `tsq:\"Row.ID\"`\n}\n", "search belongs to a table"},
+		// The generated result referenced a TableView that does not exist.
+		"result of a result": {table("//tsq:table", "") + "\n//tsq:result\ntype A struct {\n\tID int64 `tsq:\"Row.ID\"`\n}\n\n//tsq:result\ntype B struct {\n\tID int64 `tsq:\"A.ID\"`\n}\n", "which is a result"},
+		// MySQL refuses these when the DDL runs (errors 1071 and 1170).
+		"index key over 3072 bytes": {table("//tsq:table\n//tsq:unique Body", "Body string `db:\"body,size:2000\"`"), "limits a key to 3072"},
+		"index over a text column":  {table("//tsq:table\n//tsq:index Body", "Body string `db:\"body,size:20000\"`"), "cannot be indexed"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := genModule(t, map[string]string{"model.go": tt.source})
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("tsq gen = %v; want an error containing %q", err, tt.want)
+			}
+		})
+	}
+}
+
+// TestGenReadsAPackageThatUsesCgo covers import "C", which has no package to
+// load: resolving it stopped gen for every package that used cgo.
+func TestGenReadsAPackageThatUsesCgo(t *testing.T) {
+	err := genModule(t, map[string]string{
+		"cgo.go":   "package gentest\n\n// #include <stdlib.h>\nimport \"C\"\n\nfunc free() { C.free(nil) }\n",
+		"model.go": "package gentest\n\n//tsq:table\ntype Row struct {\n\tID int64 `db:\"id\"`\n}\n",
+	})
+	if err != nil {
+		t.Fatalf("tsq gen: %v", err)
+	}
+}
+
+// TestGenTakesAnAbsoluteDirectoryFromOutsideTheModule runs tsq gen on a module
+// by its absolute path from a directory outside it. Packages were reloaded by
+// import path, resolved from the working directory, and not found.
+func TestGenTakesAnAbsoluteDirectoryFromOutsideTheModule(t *testing.T) {
+	if err := genModule(t, map[string]string{"model.go": "package gentest\n\n//tsq:table\ntype Row struct {\n\tID int64 `db:\"id\"`\n}\n"}); err != nil {
+		t.Fatal(err)
+	}
+
+	module, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	chdirForGenTest(t, t.TempDir())
+
+	GenCmd.SetOut(new(bytes.Buffer))
+	GenCmd.SetErr(new(bytes.Buffer))
+	GenCmd.SetArgs([]string{module})
+
+	if err := GenCmd.Execute(); err != nil {
+		t.Fatalf("tsq gen %s: %v", module, err)
 	}
 }

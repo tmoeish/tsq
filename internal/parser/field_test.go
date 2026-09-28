@@ -104,7 +104,24 @@ package test
 
 type User struct {
 	BaseModel
-	*AuditModel
+	AuditModel
+}
+
+// Test_parseEmbeddedFieldsRefusesPointers covers an embedded *Base: every
+// generated accessor of its fields dereferenced it, so a row made with new(R)
+// panicked on its first Get or Fetch.
+func Test_parseEmbeddedFieldsRefusesPointers(t *testing.T) {
+	file, err := parser.ParseFile(token.NewFileSet(), "test.go", "package test\n\ntype User struct {\n\t*AuditModel\n}\n", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	st := file.Decls[0].(*ast.GenDecl).Specs[0].(*ast.TypeSpec).Type.(*ast.StructType)
+
+	_, err = parseEmbeddedFields(nil, genmodel.PackageInfo{Path: "test", Name: "test"}, st)
+	if !errors.Is(err, ErrUnsupportedField) || !strings.Contains(err.Error(), "*AuditModel") {
+		t.Fatalf("parseEmbeddedFields = %v; want the pointer refused", err)
+	}
 }
 `
 

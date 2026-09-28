@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 
@@ -697,11 +698,18 @@ func renderDDLSnapshotTableBlock(table ddlSnapshotTable, dialect ddlDialectSpec)
 
 func renderDDLSnapshotCreateTable(table ddlSnapshotTable, dialect ddlDialectSpec) string {
 	lines := make([]string, 0, len(table.Columns))
+
+	var buf strings.Builder
+
 	for _, column := range table.Columns {
+		if migrationOwned(column) {
+			buf.WriteString(renderDDLManualComment(table.Name, migrationOwnedNote(column)) + "\n")
+			continue
+		}
+
 		lines = append(lines, "    "+renderDDLSnapshotColumnDefinition(column, dialect))
 	}
 
-	var buf strings.Builder
 	buf.WriteString("CREATE TABLE IF NOT EXISTS ")
 	buf.WriteString(dialect.dialect.QuoteIdent(table.Name))
 	buf.WriteString(" (\n")
@@ -709,6 +717,16 @@ func renderDDLSnapshotCreateTable(table ddlSnapshotTable, dialect ddlDialectSpec
 	buf.WriteString("\n);")
 
 	return buf.String()
+}
+
+// migrationOwned reports a column the database computes without an expression TSQ
+// knows: generated with no SQL. TSQ cannot write it, so its DDL leaves it out.
+func migrationOwned(column ddlSnapshotColumn) bool {
+	return column.Fill == "generated" && column.Generated == ""
+}
+
+func migrationOwnedNote(column ddlSnapshotColumn) string {
+	return fmt.Sprintf("%s is computed by the database (generated, no expression); add it in the migration that owns this table", column.Name)
 }
 
 func renderDDLSnapshotColumnDefinition(column ddlSnapshotColumn, dialect ddlDialectSpec) string {
@@ -839,7 +857,24 @@ func renderSQLiteRebuildTableBody(dialect ddlDialectSpec, tableName string, ops 
 	}
 
 	tempTable := "__tsq_rebuild_" + tableName
-	statements := []string{
+
+	// The copy writes only the columns both tables have, so a new NOT NULL column
+	// with no default fails it on a table with rows, the same as ADD COLUMN would.
+	var statements []string
+
+	existing := make(map[string]bool, len(before.Columns))
+	for _, column := range before.Columns {
+		existing[column.Name] = true
+	}
+
+	for _, column := range after.Columns {
+		if !existing[column.Name] && !column.Nullable && column.Default == "" && column.Generated == "" && !column.AutoIncrement {
+			statements = append(statements, renderDDLManualComment(tableName, fmt.Sprintf(
+				"%s is NOT NULL without a default, which fails on a table with rows; declare default: or backfill it first", column.Name)))
+		}
+	}
+
+	statements = append(statements,
 		"BEGIN TRANSACTION;",
 		fmt.Sprintf(
 			"ALTER TABLE %s RENAME TO %s;",
@@ -847,7 +882,7 @@ func renderSQLiteRebuildTableBody(dialect ddlDialectSpec, tableName string, ops 
 			dialect.dialect.QuoteIdent(tempTable),
 		),
 		renderDDLSnapshotCreateTable(*after, dialect),
-	}
+	)
 
 	commonColumns := sharedDDLSnapshotColumns(*before, *after)
 	if len(commonColumns) > 0 {
@@ -859,6 +894,16 @@ func renderSQLiteRebuildTableBody(dialect ddlDialectSpec, tableName string, ops 
 			strings.Join(quotedColumns, ", "),
 			dialect.dialect.QuoteIdent(tempTable),
 		))
+	}
+
+	// AUTOINCREMENT's counter is kept under the table's name; without it the new
+	// table would hand out the keys of rows deleted before the rebuild again.
+	if slices.ContainsFunc(after.Columns, func(c ddlSnapshotColumn) bool { return c.AutoIncrement }) {
+		statements = append(statements,
+			fmt.Sprintf("DELETE FROM sqlite_sequence WHERE name = '%s';", strings.ReplaceAll(tableName, "'", "''")),
+			fmt.Sprintf("INSERT INTO sqlite_sequence (name, seq) SELECT '%s', seq FROM sqlite_sequence WHERE name = '%s';",
+				strings.ReplaceAll(tableName, "'", "''"), strings.ReplaceAll(tempTable, "'", "''")),
+		)
 	}
 
 	statements = append(statements, fmt.Sprintf("DROP TABLE %s;", dialect.dialect.QuoteIdent(tempTable)))
@@ -877,6 +922,11 @@ func sharedDDLSnapshotColumns(before, after ddlSnapshotTable) []string {
 
 	names := make([]string, 0, len(after.Columns))
 	for _, column := range after.Columns {
+		// The rebuilt table does not have it: TSQ cannot write its definition.
+		if migrationOwned(column) {
+			continue
+		}
+
 		if _, ok := beforeColumns[column.Name]; ok {
 			names = append(names, column.Name)
 		}
@@ -901,6 +951,10 @@ func renderDDLChangeOperation(dialect ddlDialectSpec, op ddlChange) []string {
 	case ddlChangeDropTable:
 		return []string{fmt.Sprintf("DROP TABLE %s;", dialect.dialect.QuoteIdent(op.oldTable.Name))}
 	case ddlChangeAddColumn:
+		if migrationOwned(*op.newColumn) {
+			return []string{renderDDLManualComment(op.table, migrationOwnedNote(*op.newColumn))}
+		}
+
 		if op.newColumn.PrimaryKey || op.newColumn.AutoIncrement {
 			return []string{renderDDLManualComment(op.table, fmt.Sprintf("manual change required to add primary key column %s", op.newColumn.Name))}
 		}

@@ -3,6 +3,8 @@ package parser
 import (
 	"fmt"
 	"go/ast"
+	"go/format"
+	"go/token"
 	"go/types"
 	"reflect"
 	"slices"
@@ -44,18 +46,18 @@ func parseNamedFields(
 			// Parse the field type.
 			isPointer, isArray, packagePath, typeName, err := parseFieldType(field.Type)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("field %s: %w", fieldName, err)
 			}
 
 			// Resolve the field's package.
 			typePackage, err := resolveFieldPackage(packagePath, typeName, packageAliases, currentPkg)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("field %s: %w", fieldName, err)
 			}
 
 			argText, argPackages, err := typeArgs(field.Type, packageAliases, currentPkg)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("field %s: %w", fieldName, err)
 			}
 
 			// Build the field.
@@ -189,6 +191,12 @@ func parseEmbeddedFields(
 		// Only embedded fields (no name).
 		if len(field.Names) != 0 {
 			continue
+		}
+
+		// A pointer is nil in a row made with new(R) or a composite literal, and
+		// every generated accessor of a promoted field would dereference it.
+		if star, ok := field.Type.(*ast.StarExpr); ok {
+			return nil, unsupportedFieldError("embedded pointer *%s: embed the struct by value", exprText(star.X))
 		}
 
 		// Parse the embedded type.
@@ -362,4 +370,14 @@ func parseSelectorExpr(
 	// Anything but a plain identifier would be a nested selector,
 	// which is not supported.
 	return false, false, "", "", unsupportedFieldError("selector on %T", selExpr.X)
+}
+
+// exprText is the source form of a type expression, for error messages.
+func exprText(expr ast.Expr) string {
+	var buf strings.Builder
+	if err := format.Node(&buf, token.NewFileSet(), expr); err != nil {
+		return fmt.Sprintf("%T", expr)
+	}
+
+	return buf.String()
 }

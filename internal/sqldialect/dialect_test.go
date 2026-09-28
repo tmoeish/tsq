@@ -1,6 +1,9 @@
 package sqldialect
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // TestBatchInsertStartID covers the LastInsertId-based half of primary-key backfill.
 // MySQL reports the first generated id of a multi-row insert and SQLite reports the
@@ -43,6 +46,19 @@ func TestOnlyPostgresReturnsInsertIDsThroughReturning(t *testing.T) {
 	for name, dialect := range map[Name]Dialect{MySQL: MySQLDialect{}, SQLite: SQLiteDialect{}} {
 		if suffix := dialect.ReturningClause("id"); suffix != "" {
 			t.Errorf("dialect %s returned RETURNING suffix %q; it backfills through LastInsertId", name, suffix)
+		}
+	}
+}
+
+// TestColumnDefinitionRefusesAColumnItCannotWrite covers a generated column with
+// no expression. It used to be written as a plain NOT NULL column, so a runtime
+// that created the table made every INSERT fail on it.
+func TestColumnDefinitionRefusesAColumnItCannotWrite(t *testing.T) {
+	column := ColumnSpec{Name: "slug", Type: ColumnType{Kind: KindString, Size: 64}, Fill: FillGenerated}
+
+	for _, d := range []Dialect{MySQLDialect{}, PostgresDialect{}, SQLiteDialect{}} {
+		if _, err := ColumnDefinitionSQL(d, column); err == nil || !strings.Contains(err.Error(), "slug is computed by the database") {
+			t.Errorf("%s: ColumnDefinitionSQL = %v; want the column refused", d.Name(), err)
 		}
 	}
 }

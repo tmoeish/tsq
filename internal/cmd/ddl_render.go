@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -919,17 +920,24 @@ func splitDDLTagParts(dbTag string) []string {
 	parts := make([]string, 0, 4)
 	var current strings.Builder
 	depth := 0
+	// A comma inside a SQL string literal (default:'a, b') is part of it; a
+	// doubled quote inside one toggles twice and changes nothing.
+	quoted := false
 
 	for _, r := range dbTag {
 		switch r {
+		case '\'':
+			quoted = !quoted
 		case '(':
-			depth++
+			if !quoted {
+				depth++
+			}
 		case ')':
-			if depth > 0 {
+			if depth > 0 && !quoted {
 				depth--
 			}
 		case ',':
-			if depth == 0 {
+			if depth == 0 && !quoted {
 				parts = append(parts, current.String())
 				current.Reset()
 
@@ -1138,4 +1146,57 @@ func isGeneratedDDLArtifact(content []byte) bool {
 	}
 
 	return strings.HasPrefix(meta.GeneratedBy, "tsq-")
+}
+
+// mysqlMaxKeyBytes is InnoDB's limit on an index key, and mysqlCharBytes the most
+// a utf8mb4 character takes.
+const (
+	mysqlMaxKeyBytes = 3072
+	mysqlCharBytes   = 4
+)
+
+// validateMySQLIndexKeys refuses an index MySQL would reject when the DDL runs:
+// one over a TEXT or BLOB column (error 1170), or one whose key can exceed 3072
+// bytes (error 1071; a VARCHAR(n) is up to 4n bytes). A column with type: is
+// the user's to size and is not counted.
+func validateMySQLIndexKeys(s *genmodel.StructInfo) error {
+	columns := make(map[string]genmodel.SchemaColumn, len(s.Schema))
+	for _, column := range s.Schema {
+		columns[column.Name] = column
+	}
+
+	for _, index := range slices.Concat(s.Uniques, s.Indexes) {
+		total := 0
+
+		for _, name := range indexFieldNames(s, index.Fields) {
+			column, ok := columns[s.FieldsByName[name].Column]
+			if !ok || column.RawType != "" {
+				continue
+			}
+
+			spelled := sqld.MySQLDialect{}.ColumnTypeSQL(tsqdialect.ColumnType{
+				Kind: tsqdialect.ColumnKind(column.Kind), Bits: column.Bits, Unsigned: column.Unsigned, Size: column.Size,
+			})
+
+			var chars int
+
+			switch {
+			case strings.HasPrefix(spelled, "VARCHAR("):
+				_, _ = fmt.Sscanf(spelled, "VARCHAR(%d)", &chars)
+				total += chars * mysqlCharBytes
+			case strings.HasSuffix(spelled, "TEXT"), strings.HasSuffix(spelled, "BLOB"):
+				return fmt.Errorf("index %s covers %s, a %s on MySQL, which cannot be indexed; give it a size: of at most %d, or leave it out of the index",
+					index.Name, name, spelled, mysqlMaxKeyBytes/mysqlCharBytes)
+			default:
+				total += 8
+			}
+		}
+
+		if total > mysqlMaxKeyBytes {
+			return fmt.Errorf("index %s can take %d bytes on MySQL, which limits a key to %d (a string column takes up to %d bytes a character); "+
+				"lower the size: of its string columns or leave some out", index.Name, total, mysqlMaxKeyBytes, mysqlCharBytes)
+		}
+	}
+
+	return nil
 }

@@ -245,6 +245,14 @@ func ColumnDefinitionSQL(dialect Dialect, column ColumnSpec) (string, error) {
 		return dialect.AutoIncrementColumnSQL(quoted, column.Type)
 	}
 
+	// A column the database computes by means TSQ was not told (a generated
+	// column with no expression, a trigger) belongs to the migration that owns the
+	// table: written as a plain NOT NULL column, every INSERT would fail on it.
+	if column.Fill == FillGenerated && column.Generated == "" {
+		return "", fmt.Errorf("column %s is computed by the database and declares no expression, so TSQ cannot create it; "+
+			"its table comes from a migration (keep the table policy Manual or Validate), or write generated:SQL", column.Name)
+	}
+
 	// A generated column takes neither NOT NULL nor DEFAULT, and STORED is the one
 	// form MySQL 5.7+, PostgreSQL 12+ and SQLite 3.31+ all accept.
 	if column.Generated != "" {
