@@ -370,32 +370,39 @@ var QueryActiveEnrollment = tsq.
 // CRUD Operations
 // =============================================================================
 
-// Insert inserts a new Enrollment record.
+// Insert inserts a new Enrollment record. When it fails, the managed timestamps
+// are put back: the row does not keep times the database never stored.
 func (e *Enrollment) Insert(
 	ctx context.Context,
 	db tsq.SQLExecutor,
 ) error {
+	prevCreatedAt := e.CreatedAt
+	prevUpdatedAt := e.UpdatedAt
 	if e.CreatedAt.IsZero() {
 		e.CreatedAt = tsqtime.Now()
 	}
-	if !e.UpdatedAt.Valid {
+	if !e.UpdatedAt.Valid || e.UpdatedAt.Time.IsZero() {
 		e.UpdatedAt = null.TimeFrom(tsqtime.Now())
 	}
 	err := tsq.Insert(ctx, db, e)
 	if err != nil {
+		e.CreatedAt = prevCreatedAt
+		e.UpdatedAt = prevUpdatedAt
 		return fmt.Errorf("insert Enrollment: %s: %w", compactJSON(e), err)
 	}
 	return nil
 }
 
-// Update updates an existing Enrollment record.
+// Update updates an existing Enrollment record. When it fails, updated_at is put back.
 func (e *Enrollment) Update(
 	ctx context.Context,
 	db tsq.SQLExecutor,
 ) error {
+	prevUpdatedAt := e.UpdatedAt
 	e.UpdatedAt = null.TimeFrom(tsqtime.Now())
 	err := tsq.Update(ctx, db, e)
 	if err != nil {
+		e.UpdatedAt = prevUpdatedAt
 		return fmt.Errorf("update Enrollment: %s: %w", compactJSON(e), err)
 	}
 	return nil
@@ -419,6 +426,8 @@ func (e *Enrollment) SoftDelete(
 	db tsq.SQLExecutor,
 	dt int64,
 ) error {
+	prevDeletedAt := e.DeletedAt
+	prevUpdatedAt := e.UpdatedAt
 	if dt != 0 {
 		e.DeletedAt = dt
 	} else {
@@ -427,6 +436,9 @@ func (e *Enrollment) SoftDelete(
 	e.UpdatedAt = null.TimeFrom(tsqtime.Now())
 	err := tsq.Update(ctx, db, e)
 	if err != nil {
+		// A failed soft delete leaves the row live in memory, as it is in the database.
+		e.DeletedAt = prevDeletedAt
+		e.UpdatedAt = prevUpdatedAt
 		return fmt.Errorf("soft-delete Enrollment: %s: %w", compactJSON(e), err)
 	}
 	return nil

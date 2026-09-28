@@ -208,15 +208,15 @@ to table Y`：指着一列明明存在的列说它不属于明明就是它的表
 `examples/academy/academyqueries.go`（文件名排在 `course.tsq.go` 之前的投影查询），改名等于
 关掉这道门。
 
-### 版本号有四个副本，生成物那份最容易忘 (2026-08-21)
+### 版本号有四个副本；生成文件后缀是使用者的构建约定 (2026-08-21)
 
-版本号传导进生成文件头和 `tsq.json`，**改版本号必须重新生成示例**——这让"tag 指向的代码"
-和"生成物声称的版本"不可能不一致，`release.py` 依赖这一点。
+**改版本号必须重新生成示例**（文件头和 `tsq.json`），`release.py` 依赖这一点。`_tsq.go` → `.tsq.go`（v4.3.0）让所有
+使用者改 `.gitignore`、glob 和 CI；后缀的唯一来源是 `TSQFileSuffix`，`changeset.py` / `check_release.py` 也认它。
 
-### 改生成文件后缀的真实代价 (2026-08-21，追溯 v4.3.0)
+### 生成器只对被注解用到的结构体负责 (2026-09-28)
 
-`_tsq.go` → `.tsq.go` 是对的，但所有使用者的 `.gitignore`、Makefile glob 和 CI 都得改。
-后缀常量来源是 `TSQFileSuffix`，认这个格式的还有 `changeset.py` 和 `check_release.py`。
+包里无关结构体的解析错误（map 字段、嵌入接口）曾让整个 `tsq gen` 中止且不说是哪个结构体；现在错误挂在结构体上，
+只在它被 `@TABLE` / `@RESULT` 用到时报。**补丁版里，过去被静默接受的写法只警告不报错**，否则升补丁就让 gen 失败。
 
 ## 验证与门禁系统
 

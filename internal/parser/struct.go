@@ -4,6 +4,7 @@ import (
 	"container/list"
 	"fmt"
 	"go/ast"
+	"go/token"
 	"log/slog"
 	"sort"
 	"strings"
@@ -29,6 +30,11 @@ type StructInfo struct {
 	embeddedTypes     map[genmodel.TypeInfo]bool // embedded struct types
 	embeddedResolving bool                       // embedded fields are being resolved (cycle guard)
 	embeddedResolved  bool                       // embedded fields have been resolved
+
+	// err is why the struct cannot be generated. It is reported only when a table
+	// or result uses the struct: a package holds structs TSQ never generates, and
+	// a field of one of those TSQ cannot read is none of its business.
+	err error
 }
 
 // parseStructDeclaration parses one struct declaration.
@@ -51,7 +57,8 @@ func parseStructDeclaration(
 	// Parse embedded fields.
 	embeddedTypes, err := parseEmbeddedFields(packageAliases, currentPkg, structType)
 	if err != nil {
-		return err
+		structMap[typeInfo] = brokenStruct(typeInfo, structName, err)
+		return nil
 	}
 
 	// Queue the embedded fields' packages for parsing.
@@ -70,7 +77,8 @@ func parseStructDeclaration(
 	// Parse named fields.
 	fieldMap, err := parseNamedFields(packageAliases, currentPkg, structType)
 	if err != nil {
-		return err
+		structMap[typeInfo] = brokenStruct(typeInfo, structName, err)
+		return nil
 	}
 
 	// Build the struct info.
@@ -85,6 +93,19 @@ func parseStructDeclaration(
 	}
 
 	return nil
+}
+
+// brokenStruct records a struct that cannot be generated, and why.
+func brokenStruct(typeInfo genmodel.TypeInfo, structName string, err error) *StructInfo {
+	return &StructInfo{
+		StructInfo: &genmodel.StructInfo{
+			TypeInfo: typeInfo,
+			FieldMap: map[string]genmodel.FieldInfo{},
+			Recv:     genRecv(structName),
+		},
+		embeddedResolved: true,
+		err:              fmt.Errorf("struct %s: %w", structName, err),
+	}
 }
 
 // resolveImportDependencies computes the imports a struct's fields need.
@@ -241,5 +262,18 @@ func genRecv(typeName string) string {
 		result = append(result, unicode.ToLower(runes[0]))
 	}
 
+	// The receiver shares scope with what the generated methods use: DeviceBinding
+	// was db, the executor parameter, and FooManagerThing was fmt, the import.
+	if _, used := generatedIdentifiers[string(result)]; used || token.IsKeyword(string(result)) || len(result) == 0 {
+		return "row"
+	}
+
 	return string(result)
+}
+
+// generatedIdentifiers are the names generated table code declares or imports:
+// the parameters and locals of its methods and its package names.
+var generatedIdentifiers = map[string]struct{}{
+	"ctx": {}, "db": {}, "dt": {}, "err": {},
+	"context": {}, "fmt": {}, "tsq": {}, "tsqtime": {}, "tsqsql": {}, "null": {}, "errors": {},
 }

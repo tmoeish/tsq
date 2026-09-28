@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"text/template"
@@ -1936,5 +1937,161 @@ func tidyGenTestModule(t *testing.T) {
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("go mod tidy failed: %v\n%s", err, string(output))
+	}
+}
+
+// auditModule writes a module of files whose tsq dependency is this repository,
+// runs tsq gen on its root package from dir, and returns the module directory and
+// the error.
+func auditModule(t *testing.T, files map[string]string, run func(module string) error) (string, error) {
+	t.Helper()
+	t.Cleanup(func() {
+		dryRunFlag = false
+		checkFlag = false
+		v = false
+		GenCmd.SetArgs(nil)
+	})
+
+	root, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	module := t.TempDir()
+	writeTestFile(t, filepath.Join(module, "go.mod"), "module example.com/audit\n\ngo 1.24.2\n\nrequire github.com/tmoeish/tsq/v4 v4.0.2\n\nreplace github.com/tmoeish/tsq/v4 => "+root+"\n")
+
+	for name, content := range files {
+		writeTestFile(t, filepath.Join(module, name), content)
+	}
+
+	chdirForGenTest(t, module)
+	tidyGenTestModule(t)
+
+	GenCmd.SetOut(new(bytes.Buffer))
+	GenCmd.SetErr(new(bytes.Buffer))
+
+	return module, run(module)
+}
+
+func genHere(string) error {
+	GenCmd.SetArgs([]string{"."})
+	return GenCmd.Execute()
+}
+
+// TestGenRefusesWhatItCannotGenerate covers declarations tsq gen turned into code
+// that panicked, did not compile, or overwrote another file; they are refused
+// with the reason and the way out.
+func TestGenRefusesWhatItCannotGenerate(t *testing.T) {
+	for name, tt := range map[string]struct {
+		source string
+		want   string
+	}{
+		// Every generated accessor of a promoted field dereferenced the pointer.
+		"embedded pointer": {"package audit\n\ntype Base struct {\n\tID int64 `db:\"id\"`\n}\n\n// @TABLE(name=\"users\", pk=\"ID\")\ntype User struct {\n\t*Base\n\tName string `db:\"name\"`\n}\n", "embed the struct by value"},
+		// The DDL renderer panicked.
+		"generated string key": {"package audit\n\n// @TABLE(name=\"tag\", pk=\"Code\")\ntype Tag struct {\n\tCode string `db:\"code\"`\n}\n", `pk="Code,false"`},
+		// runtime.tsq.go overwrote the table's file.
+		"table named Runtime": {"package audit\n\n// @TABLE(name=\"runtime\", pk=\"ID\")\ntype Runtime struct {\n\tID int64 `db:\"id\"`\n}\n", "runtime.tsq.go collides"},
+		// A field beside the generated method did not compile.
+		"field named like a method": {"package audit\n\n// @TABLE(name=\"seat\", pk=\"ID\")\ntype Seat struct {\n\tID    int64  `db:\"id\"`\n\tTable string `db:\"tbl\"`\n}\n", "generated method Table"},
+		// The accessor was *[]byte.
+		"fixed-size array": {"package audit\n\n// @TABLE(name=\"blob\", pk=\"ID\")\ntype Blob struct {\n\tID   int64    `db:\"id\"`\n\tHash [32]byte `db:\"hash,type:BINARY(32)\"`\n}\n", "fixed-size arrays"},
+		"generic table":    {"package audit\n\n// @TABLE(name=\"box\", pk=\"ID\")\ntype Box[T any] struct {\n\tID int64 `db:\"id\"`\n}\n", "is generic"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := auditModule(t, map[string]string{"model.go": tt.source}, genHere)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("tsq gen = %v; want an error containing %q", err, tt.want)
+			}
+		})
+	}
+}
+
+// TestGenCompilesShapesItOnceBroke generates and builds a package holding shapes
+// that stopped tsq gen or broke the generated code: structs TSQ does not own (a
+// db-tagged map field, an embedded io.Reader), a cgo import, receivers that were
+// db and fmt, and a type: with a comma inside a quoted default.
+func TestGenCompilesShapesItOnceBroke(t *testing.T) {
+	_, err := auditModule(t, map[string]string{
+		"cgo.go": "package audit\n\n// #include <stdlib.h>\nimport \"C\"\n\nfunc free() { C.free(nil) }\n",
+		"model.go": `package audit
+
+import "io"
+
+type Legacy struct {
+	Meta map[string]string ` + "`db:\"meta\"`" + `
+}
+
+type Stream struct {
+	io.Reader
+}
+
+// @TABLE(name="device_binding", pk="ID")
+type DeviceBinding struct {
+	ID   int64  ` + "`db:\"id\"`" + `
+	Tags string ` + "`db:\"tags,type:VARCHAR(20) DEFAULT 'a, b'\"`" + `
+}
+
+// @TABLE(name="foo_manager_thing", pk="ID")
+type FooManagerThing struct {
+	ID int64 ` + "`db:\"id\"`" + `
+}
+`,
+	}, genHere)
+	if err != nil {
+		t.Fatalf("tsq gen: %v", err)
+	}
+
+	tidyGenTestModule(t)
+
+	if output, err := exec.Command("go", "build", "./...").CombinedOutput(); err != nil {
+		t.Fatalf("generated code does not compile: %v\n%s", err, output)
+	}
+
+	sqlite, err := os.ReadFile("sqlite.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !strings.Contains(string(sqlite), `"tags" VARCHAR(20) DEFAULT 'a, b'`) {
+		t.Fatalf("sqlite.sql cut the default at its comma:\n%s", sqlite)
+	}
+}
+
+// TestGenTakesAnAbsoluteDirectoryFromOutsideTheModule runs tsq gen on a module by
+// its absolute path from a directory outside it: packages were reloaded by import
+// path, resolved from the working directory, and not found.
+func TestGenTakesAnAbsoluteDirectoryFromOutsideTheModule(t *testing.T) {
+	_, err := auditModule(t, map[string]string{"model.go": "package audit\n\n// @TABLE(name=\"row\", pk=\"ID\")\ntype Row struct {\n\tID int64 `db:\"id\"`\n}\n"}, func(module string) error {
+		chdirForGenTest(t, t.TempDir())
+		GenCmd.SetArgs([]string{module})
+
+		return GenCmd.Execute()
+	})
+	if err != nil {
+		t.Fatalf("tsq gen by absolute path: %v", err)
+	}
+}
+
+// TestReservedFieldNamesMatchTheTemplates reads the methods the templates declare
+// on the struct itself; a field of one of these names did not compile.
+func TestReservedFieldNamesMatchTheTemplates(t *testing.T) {
+	for file, data := range map[string]*genmodel.StructInfo{
+		"tsq.go.tmpl":        {TableMeta: &genmodel.TableMeta{DeletedAtField: "DeletedAt"}},
+		"tsq_result.go.tmpl": {TableMeta: &genmodel.TableMeta{IsResult: true}},
+	} {
+		source, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		for _, m := range regexp.MustCompile(`(?m)^(?:func \(\{\{\$dot\.Recv\}\} \{\{\$type\}\}\) |\{\{\$precv\}\})(\w+)\(`).FindAllStringSubmatch(string(source), -1) {
+			data.FieldMap = map[string]genmodel.FieldInfo{m[1]: {Name: m[1]}}
+			data.TypeInfo.TypeName = "Row"
+
+			if err := validateReservedFieldNames(data); err == nil {
+				t.Errorf("%s declares %s, which validateReservedFieldNames does not reserve", file, m[1])
+			}
+		}
 	}
 }

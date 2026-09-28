@@ -243,22 +243,25 @@ var QueryCourse = tsq.
 // CRUD Operations
 // =============================================================================
 
-// Insert inserts a new Course record.
+// Insert inserts a new Course record. When it fails, the managed timestamps
+// are put back: the row does not keep times the database never stored.
 func (c *Course) Insert(
 	ctx context.Context,
 	db tsq.SQLExecutor,
 ) error {
-	if !c.CreatedAt.Valid {
+	prevCreatedAt := c.CreatedAt
+	if !c.CreatedAt.Valid || c.CreatedAt.Time.IsZero() {
 		c.CreatedAt = null.TimeFrom(tsqtime.Now())
 	}
 	err := tsq.Insert(ctx, db, c)
 	if err != nil {
+		c.CreatedAt = prevCreatedAt
 		return fmt.Errorf("insert Course: %s: %w", compactJSON(c), err)
 	}
 	return nil
 }
 
-// Update updates an existing Course record.
+// Update updates an existing Course record. When it fails, updated_at is put back.
 func (c *Course) Update(
 	ctx context.Context,
 	db tsq.SQLExecutor,

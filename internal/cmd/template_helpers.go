@@ -370,9 +370,11 @@ func timestampUnsetExpr(recv, fieldName string, field genmodel.FieldInfo) string
 	case "time":
 		return target + ".IsZero()"
 	case "time_ptr":
-		return target + " == nil"
+		// A pointer to the zero time holds no time either: it used to be kept as
+		// the caller's value and stored as year 1.
+		return "(" + target + " == nil || " + target + ".IsZero())"
 	case "sql_null_time", "null_time":
-		return "!" + target + ".Valid"
+		return "(!" + target + ".Valid || " + target + ".Time.IsZero())"
 	default:
 		panic(fmt.Sprintf("unsupported timestamp field type: %s", fieldType(field)))
 	}

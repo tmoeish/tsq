@@ -31,7 +31,7 @@ import (
 		log.Fatal(err)
 	}
 
-	pkgs, err := parsePackageAliases(f)
+	pkgs, err := parsePackageAliases(f, nil)
 	if err != nil {
 		t.Fatalf("parsePackageAliases returned error: %v", err)
 	}
@@ -55,7 +55,7 @@ import "example.invalid/missingpkg/v2"
 		log.Fatal(err)
 	}
 
-	_, err = parsePackageAliases(f)
+	_, err = parsePackageAliases(f, nil)
 	if err == nil {
 		t.Fatal("expected unresolved import to return an error")
 	}
@@ -139,7 +139,7 @@ import . "strings"
 		log.Fatal(err)
 	}
 
-	_, err = parsePackageAliases(f)
+	_, err = parsePackageAliases(f, nil)
 	if err == nil {
 		t.Fatal("expected dot import to return an error")
 	}
@@ -165,7 +165,7 @@ import (
 		log.Fatal(err)
 	}
 
-	_, err = parsePackageAliases(f)
+	_, err = parsePackageAliases(f, nil)
 	if err == nil {
 		t.Fatal("expected duplicate import alias to return an error")
 	}
@@ -191,7 +191,7 @@ import (
 		log.Fatal(err)
 	}
 
-	pkgs, err := parsePackageAliases(f)
+	pkgs, err := parsePackageAliases(f, nil)
 	if err != nil {
 		t.Fatalf("parsePackageAliases returned error: %v", err)
 	}

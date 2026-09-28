@@ -50,6 +50,13 @@ func parsePackage(packagePath string) (*ParseResult, error) {
 		loader:          newPackageLoader(),
 	}
 
+	// Import paths are resolved in the target's module, wherever tsq gen runs.
+	if filepath.IsAbs(packagePath) || strings.HasPrefix(packagePath, ".") {
+		if dir, err := filepath.Abs(packagePath); err == nil {
+			parseState.loader.dir = dir
+		}
+	}
+
 	pipeline := parsePipeline{
 		targetPath: packagePath,
 		state:      parseState,
@@ -140,9 +147,16 @@ func (ps *ParseState) parsePackagesRecursively(packagePath string) error {
 
 // resolveAllEmbeddedFields resolves embedded fields for every parsed struct.
 func (ps *ParseState) resolveAllEmbeddedFields() error {
+	// A struct whose embeds cannot be resolved (an interface, a type of another
+	// package that is not a struct) keeps the reason, which matters only if a
+	// table or result uses it.
 	for _, structInfo := range ps.structMap {
+		if structInfo.err != nil {
+			continue
+		}
+
 		if err := resolveEmbeddedFields(structInfo, ps.structMap); err != nil {
-			return fmt.Errorf("failed to parse embedded fields: %v"+": %w", structInfo.TypeInfo, err)
+			structInfo.err = fmt.Errorf("struct %s: %w", structInfo.TypeInfo.TypeName, err)
 		}
 	}
 
@@ -247,6 +261,12 @@ func (ps *ParseState) processGenDecl(
 			continue
 		}
 
+		// A declaration's comment belongs to its one type; in a group, each
+		// type's own comment is handled by processTypeSpec.
+		if len(genDecl.Specs) == 1 {
+			warnAnnotationOnNonStruct(typeSpec, comments, fileSet)
+		}
+
 		if !isStructType(typeSpec.Type) {
 			continue
 		}
@@ -266,6 +286,8 @@ func (ps *ParseState) processTypeSpec(
 	fileSet *token.FileSet,
 	pkg genmodel.PackageInfo,
 ) error {
+	warnAnnotationOnNonStruct(typeSpec, comments, fileSet)
+
 	if !isStructType(typeSpec.Type) {
 		return nil
 	}
@@ -287,6 +309,15 @@ func (ps *ParseState) processStructTypeSpec(
 	if !exists {
 		return nil
 	}
+
+	if structInfo.err != nil {
+		// Report why the struct cannot be generated, if it is meant to be.
+		if hasAnnotation(comments) {
+			return fmt.Errorf("%s: %w", fileSet.Position(typeSpec.Pos()), structInfo.err)
+		}
+
+		return nil
+	}
 	// Build the field set.
 	fields := make(map[string]struct{})
 	for name := range structInfo.FieldMap {
@@ -298,11 +329,42 @@ func (ps *ParseState) processStructTypeSpec(
 		return err
 	}
 
+	// Generated code names the struct without type arguments, so it did not compile.
+	if tableMeta != nil && typeSpec.TypeParams != nil {
+		return fmt.Errorf("%s: %s is generic; a table or result is one concrete struct", fileSet.Position(typeSpec.Pos()), structName)
+	}
+
 	if tableMeta != nil {
 		structInfo.TableMeta = tableMeta
 	}
 
 	return nil
+}
+
+// hasAnnotation reports whether comments hold a @TABLE or @RESULT annotation.
+func hasAnnotation(comments []*ast.CommentGroup) bool {
+	for _, group := range comments {
+		text := group.Text()
+		for _, keyword := range []string{"@TABLE", "@RESULT"} {
+			if _, ok := findAnnotationKeyword(text, keyword); ok {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// warnAnnotationOnNonStruct reports an annotation on a type that is not a
+// struct, which is ignored. It warns rather than fails: a patch release must not
+// stop tsq gen on code that generated before.
+func warnAnnotationOnNonStruct(typeSpec *ast.TypeSpec, comments []*ast.CommentGroup, fileSet *token.FileSet) {
+	if isStructType(typeSpec.Type) || !hasAnnotation(comments) {
+		return
+	}
+
+	slog.Warn("annotation ignored: only struct types are tables or results",
+		"type", typeSpec.Name.Name, "at", fileSet.Position(typeSpec.Pos()).String())
 }
 
 // isStructType reports whether a type spec declares a struct.
@@ -374,7 +436,7 @@ func (ps *ParseState) parseSinglePackage(packagePath string) error {
 			return fmt.Errorf("failed to parse file: %s"+": %w", fullPath, err)
 		}
 
-		packageAliases, err := parsePackageAliases(file)
+		packageAliases, err := parsePackageAliases(file, buildPkg.Imports)
 		if err != nil {
 			return fmt.Errorf("failed to resolve package aliases: %s"+": %w", fullPath, err)
 		}
@@ -425,15 +487,25 @@ func (ps *ParseState) parseStructDeclarations(
 }
 
 // parsePackageAliases maps import aliases of one file to packages.
-func parsePackageAliases(file *ast.File) (map[string]genmodel.PackageInfo, error) {
+// The package's own import map answers most of them: loading each import again
+// resolves it from the working directory, not from the package's module.
+func parsePackageAliases(file *ast.File, imports map[string]genmodel.PackageInfo) (map[string]genmodel.PackageInfo, error) {
 	packageAliases := make(map[string]genmodel.PackageInfo)
 
 	for _, importSpec := range file.Imports {
 		importPath := strings.Trim(importSpec.Path.Value, `"`)
 
-		pkg, err := getPackageInfo(importPath)
-		if err != nil {
-			return nil, err
+		// cgo's pseudo-package has no source; no field type can come from it.
+		if importPath == "C" {
+			continue
+		}
+
+		pkg, known := imports[importPath]
+		if !known || pkg.Name == "" {
+			var err error
+			if pkg, err = getPackageInfo(importPath); err != nil {
+				return nil, err
+			}
 		}
 
 		if importSpec.Name != nil {
@@ -510,7 +582,11 @@ func resolveEmbeddedFields(
 	for embeddedType := range structInfo.embeddedTypes {
 		embeddedStruct, found := allStructs[embeddedType]
 		if !found {
-			return fmt.Errorf("embedded struct %s not found", embeddedType)
+			return fmt.Errorf("embedded %s is not a struct TSQ can read; give the field a name, or tag it db:\"-\"", embeddedType)
+		}
+
+		if embeddedStruct.err != nil {
+			return fmt.Errorf("embedded %w", embeddedStruct.err)
 		}
 
 		if !embeddedStruct.embeddedResolved {
@@ -548,6 +624,8 @@ func (ps *ParseState) importBuildPackage(packagePath string) (*loadedPackage, er
 type packageLoader struct {
 	mu    sync.Mutex
 	cache map[string]*loadedPackage
+	// dir is where an import path is resolved; empty is the working directory.
+	dir string
 }
 
 func newPackageLoader() *packageLoader {
@@ -559,7 +637,7 @@ func newPackageLoader() *packageLoader {
 var defaultPackageLoader = newPackageLoader()
 
 func (l *packageLoader) load(packagePath string) (*loadedPackage, error) {
-	key, cfg, pattern, err := resolveLoadRequest(packagePath)
+	key, cfg, pattern, err := resolveLoadRequest(packagePath, l.dir)
 	if err != nil {
 		return nil, err
 	}
@@ -592,7 +670,7 @@ func (l *packageLoader) load(packagePath string) (*loadedPackage, error) {
 }
 
 func (l *packageLoader) loadUncached(packagePath string) (*loadedPackage, error) {
-	_, cfg, pattern, err := resolveLoadRequest(packagePath)
+	_, cfg, pattern, err := resolveLoadRequest(packagePath, l.dir)
 	if err != nil {
 		return nil, err
 	}
@@ -600,9 +678,10 @@ func (l *packageLoader) loadUncached(packagePath string) (*loadedPackage, error)
 	return l.loadWithConfig(cfg, pattern, packagePath)
 }
 
-func resolveLoadRequest(packagePath string) (string, *packages.Config, string, error) {
+func resolveLoadRequest(packagePath, dir string) (string, *packages.Config, string, error) {
 	cfg := &packages.Config{
 		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles | packages.NeedImports | packages.NeedModule,
+		Dir:  dir,
 	}
 
 	pattern := packagePath
@@ -649,7 +728,12 @@ func (l *packageLoader) loadWithConfig(
 
 	for _, pkg := range pkgs {
 		if len(pkg.Errors) > 0 {
-			return nil, fmt.Errorf("failed to load package %s", packagePath)
+			causes := make([]string, 0, len(pkg.Errors))
+			for _, e := range pkg.Errors {
+				causes = append(causes, e.Error())
+			}
+
+			return nil, fmt.Errorf("failed to load package %s: %s", packagePath, strings.Join(causes, "; "))
 		}
 	}
 

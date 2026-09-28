@@ -311,9 +311,9 @@ func TestTimestampUnsetExprCoversEveryManagedTimestampKind(t *testing.T) {
 		want  string
 	}{
 		{name: "time.Time", field: timeField, want: "u.CreatedAt.IsZero()"},
-		{name: "*time.Time", field: timePtrField, want: "u.CreatedAt == nil"},
-		{name: "sql.NullTime", field: sqlNullField, want: "!u.UpdatedAt.Valid"},
-		{name: "null.Time", field: nullField, want: "!u.UpdatedAt.Valid"},
+		{name: "*time.Time", field: timePtrField, want: "(u.CreatedAt == nil || u.CreatedAt.IsZero())"},
+		{name: "sql.NullTime", field: sqlNullField, want: "(!u.UpdatedAt.Valid || u.UpdatedAt.Time.IsZero())"},
+		{name: "null.Time", field: nullField, want: "(!u.UpdatedAt.Valid || u.UpdatedAt.Time.IsZero())"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := timestampUnsetExpr("u", tc.field.Name, tc.field); got != tc.want {

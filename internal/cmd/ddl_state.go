@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 
@@ -138,6 +139,10 @@ func buildCurrentDDLTableSnapshot(
 			return ddlSnapshotTable{}, fmt.Errorf("failed to describe %s.%s"+": %w", table.TypeInfo.TypeName, field.Name, err)
 		}
 
+		if err := checkAutoIncrementKey(table, field, desc); err != nil {
+			return ddlSnapshotTable{}, err
+		}
+
 		result.Columns = append(result.Columns, ddlSnapshotColumn{
 			Name:          field.Column,
 			Kind:          desc.kind,
@@ -187,6 +192,8 @@ func buildCurrentDDLTableSnapshot(
 	sort.Slice(result.Indexes, func(i, j int) bool {
 		return result.Indexes[i].Name < result.Indexes[j].Name
 	})
+
+	warnMySQLIndexKeys(result)
 
 	return result, nil
 }
@@ -829,7 +836,24 @@ func renderSQLiteRebuildTableBody(dialect ddlDialectSpec, tableName string, ops 
 	}
 
 	tempTable := "__tsq_rebuild_" + tableName
-	statements := []string{
+
+	// The copy writes only the columns both tables have, so a new NOT NULL column
+	// with no default fails it on a table with rows; a client that does not stop
+	// at the first error then drops the old table with the data.
+	var statements []string
+
+	existing := make(map[string]bool, len(before.Columns))
+	for _, column := range before.Columns {
+		existing[column.Name] = true
+	}
+
+	for _, column := range after.Columns {
+		if !existing[column.Name] && notNullWithoutDefault(column) {
+			statements = append(statements, renderDDLManualComment(tableName, notNullWithoutDefaultNote(column)))
+		}
+	}
+
+	statements = append(statements,
 		"BEGIN TRANSACTION;",
 		fmt.Sprintf(
 			"ALTER TABLE %s RENAME TO %s;",
@@ -837,7 +861,7 @@ func renderSQLiteRebuildTableBody(dialect ddlDialectSpec, tableName string, ops 
 			dialect.dialect.QuoteField(tempTable),
 		),
 		renderDDLSnapshotCreateTable(*after, dialect),
-	}
+	)
 
 	commonColumns := sharedDDLSnapshotColumns(*before, *after)
 	if len(commonColumns) > 0 {
@@ -851,12 +875,30 @@ func renderSQLiteRebuildTableBody(dialect ddlDialectSpec, tableName string, ops 
 		))
 	}
 
+	// AUTOINCREMENT's counter is kept under the table's name; without it the new
+	// table would hand out the keys of rows deleted before the rebuild again.
+	if slices.ContainsFunc(after.Columns, func(c ddlSnapshotColumn) bool { return c.AutoIncrement }) {
+		statements = append(statements,
+			fmt.Sprintf("DELETE FROM sqlite_sequence WHERE name = '%s';", strings.ReplaceAll(tableName, "'", "''")),
+			fmt.Sprintf("INSERT INTO sqlite_sequence (name, seq) SELECT '%s', seq FROM sqlite_sequence WHERE name = '%s';",
+				strings.ReplaceAll(tableName, "'", "''"), strings.ReplaceAll(tempTable, "'", "''")),
+		)
+	}
+
 	statements = append(statements, fmt.Sprintf("DROP TABLE %s;", dialect.dialect.QuoteField(tempTable)))
 	statements = append(statements, renderDDLSnapshotIndexStatements(*after, dialect)...)
 
 	statements = append(statements, "COMMIT;")
 
 	return strings.Join(statements, "\n\n"), true
+}
+
+func notNullWithoutDefault(column ddlSnapshotColumn) bool {
+	return !column.Nullable && column.Default == "" && !column.AutoIncrement
+}
+
+func notNullWithoutDefaultNote(column ddlSnapshotColumn) string {
+	return fmt.Sprintf("%s is NOT NULL without a default, which fails on a table with rows; make it nullable or backfill it first", column.Name)
 }
 
 func sharedDDLSnapshotColumns(before, after ddlSnapshotTable) []string {
@@ -895,11 +937,19 @@ func renderDDLChangeOperation(dialect ddlDialectSpec, op ddlChange) []string {
 			return []string{renderDDLManualComment(op.table, fmt.Sprintf("manual change required to add primary key column %s", op.newColumn.Name))}
 		}
 
-		return []string{fmt.Sprintf(
+		statement := fmt.Sprintf(
 			"ALTER TABLE %s ADD COLUMN %s;",
 			dialect.dialect.QuoteField(op.table),
 			renderDDLSnapshotColumnDefinition(*op.newColumn, dialect),
-		)}
+		)
+
+		// Right on an empty table, and refused by every dialect on one with rows:
+		// the migration is the user's to run, so it says so where it will be read.
+		if notNullWithoutDefault(*op.newColumn) {
+			return []string{renderDDLManualComment(op.table, notNullWithoutDefaultNote(*op.newColumn)), statement}
+		}
+
+		return []string{statement}
 	case ddlChangeDropColumn:
 		return []string{fmt.Sprintf(
 			"ALTER TABLE %s DROP COLUMN %s;",

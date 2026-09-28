@@ -8,6 +8,7 @@ import (
 	goparser "go/parser"
 	"go/token"
 	"go/types"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -825,17 +826,24 @@ func splitDDLTagParts(dbTag string) []string {
 	parts := make([]string, 0, 4)
 	var current strings.Builder
 	depth := 0
+	// A comma inside a SQL string literal (type:VARCHAR(20) DEFAULT 'a, b') is part
+	// of it; a doubled quote inside one toggles twice and changes nothing.
+	quoted := false
 
 	for _, r := range dbTag {
 		switch r {
+		case '\'':
+			quoted = !quoted
 		case '(':
-			depth++
+			if !quoted {
+				depth++
+			}
 		case ')':
-			if depth > 0 {
+			if depth > 0 && !quoted {
 				depth--
 			}
 		case ',':
-			if depth == 0 {
+			if depth == 0 && !quoted {
 				parts = append(parts, current.String())
 				current.Reset()
 
@@ -1044,4 +1052,67 @@ func isGeneratedDDLArtifact(content []byte) bool {
 	}
 
 	return strings.HasPrefix(meta.GeneratedBy, "tsq-")
+}
+
+// checkAutoIncrementKey refuses a key the database is to generate that is not an
+// integer column: no dialect can write it, and pk="Code" on a string reached the
+// DDL renderer as a panic.
+func checkAutoIncrementKey(table *genmodel.StructInfo, field genmodel.FieldInfo, desc ddlColumnDescriptor) error {
+	if field.Name != table.PK || !table.AI || desc.kind == ddlColumnInt {
+		return nil
+	}
+
+	return fmt.Errorf("primary key %s of %s is a %s column, and a key the database generates is an integer; "+
+		"write pk=\"%s,false\" when the caller sets it", field.Name, table.TypeInfo.TypeName, desc.kind, field.Name)
+}
+
+// mysqlMaxKeyBytes is InnoDB's limit on an index key, and mysqlCharBytes the most
+// a utf8mb4 character takes.
+const (
+	mysqlMaxKeyBytes = 3072
+	mysqlCharBytes   = 4
+)
+
+// warnMySQLIndexKeys warns about an index MySQL rejects when the DDL runs: one
+// over a TEXT column (error 1170), or one whose key can exceed 3072 bytes (error
+// 1071). It warns rather than fails: the schema may run on PostgreSQL or SQLite
+// only, and a patch release must not stop gen on code that generated before.
+func warnMySQLIndexKeys(table ddlSnapshotTable) {
+	columns := make(map[string]ddlSnapshotColumn, len(table.Columns))
+	for _, column := range table.Columns {
+		columns[column.Name] = column
+	}
+
+	for _, index := range table.Indexes {
+		total := 0
+
+		for _, name := range index.Fields {
+			column, ok := columns[name]
+			if !ok || column.RawType != "" {
+				continue
+			}
+
+			spelled := (tsqdialect.MySQLDialect{}).DDLColumnType(ddlColumnSpecFromSnapshot(column).Type)
+
+			var chars int
+
+			switch {
+			case strings.HasPrefix(spelled, "VARCHAR("):
+				_, _ = fmt.Sscanf(spelled, "VARCHAR(%d)", &chars)
+				total += chars * mysqlCharBytes
+			case strings.HasSuffix(spelled, "TEXT"), strings.HasSuffix(spelled, "BLOB"):
+				slog.Warn("MySQL cannot index this column; give it a smaller size or leave it out of the index",
+					"table", table.Name, "index", index.Name, "column", name, "mysql_type", spelled)
+
+				total = 0
+			default:
+				total += 8
+			}
+		}
+
+		if total > mysqlMaxKeyBytes {
+			slog.Warn("MySQL limits an index key to 3072 bytes (4 a character); lower the size of its string columns",
+				"table", table.Name, "index", index.Name, "bytes", total)
+		}
+	}
 }

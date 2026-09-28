@@ -177,22 +177,25 @@ var QueryTrack = tsq.
 // CRUD Operations
 // =============================================================================
 
-// Insert inserts a new Track record.
+// Insert inserts a new Track record. When it fails, the managed timestamps
+// are put back: the row does not keep times the database never stored.
 func (t *Track) Insert(
 	ctx context.Context,
 	db tsq.SQLExecutor,
 ) error {
-	if !t.CreatedAt.Valid {
+	prevCreatedAt := t.CreatedAt
+	if !t.CreatedAt.Valid || t.CreatedAt.Time.IsZero() {
 		t.CreatedAt = null.TimeFrom(tsqtime.Now())
 	}
 	err := tsq.Insert(ctx, db, t)
 	if err != nil {
+		t.CreatedAt = prevCreatedAt
 		return fmt.Errorf("insert Track: %s: %w", compactJSON(t), err)
 	}
 	return nil
 }
 
-// Update updates an existing Track record.
+// Update updates an existing Track record. When it fails, updated_at is put back.
 func (t *Track) Update(
 	ctx context.Context,
 	db tsq.SQLExecutor,
