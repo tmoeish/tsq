@@ -54,18 +54,9 @@ func (boundExecutor) needsRuntimeOrWrapExecutor() {}
 
 // WrapExecutor makes an Executor of a database/sql handle TSQ did not open, such as
 // a *sql.Tx begun elsewhere, talking to engine. Statements run without the logging,
-// tracing and page size cap a Runtime provides. It returns nil when db is nil or
-// engine is not one of the dialect package's names.
-func WrapExecutor(db DBTX, engine tsqdialect.Name) Executor {
-	exec, err := wrapExecutor(db, engine)
-	if err != nil {
-		return nil
-	}
-
-	return exec
-}
-
-func wrapExecutor(db DBTX, engine tsqdialect.Name) (Executor, error) {
+// tracing and page size cap a Runtime provides. It fails when db is nil or engine
+// is not one of the dialect package's names.
+func WrapExecutor(db DBTX, engine tsqdialect.Name) (Executor, error) {
 	if isNilValue(db) {
 		return nil, errors.New("db cannot be nil")
 	}

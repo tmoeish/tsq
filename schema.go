@@ -30,9 +30,6 @@ const (
 	SchemaPolicyReconcile SchemaPolicy = "reconcile"
 )
 
-// DefaultMaxPageSize caps PageRequest.Size unless WithMaxPageSize says otherwise.
-const DefaultMaxPageSize = 1000
-
 // MissingIndexError reports a declared index the database does not have.
 type MissingIndexError struct {
 	Table   string
@@ -48,11 +45,11 @@ func (e *MissingIndexError) Error() string {
 
 // MissingTableError reports a declared table the database does not have.
 type MissingTableError struct {
-	Name string
+	Table string
 }
 
 func (e *MissingTableError) Error() string {
-	return fmt.Sprintf("table %s is missing; create it in a migration or use SchemaPolicyCreateMissing", e.Name)
+	return fmt.Sprintf("table %s is missing; create it in a migration or use SchemaPolicyCreateMissing", e.Table)
 }
 
 // registeredTable is a table as the schema policies see it.
@@ -60,7 +57,7 @@ type registeredTable struct {
 	name    string
 	columns []*columnCore
 	Columns []tsqdialect.ColumnSpec
-	Indexes []TableIndex
+	Indexes []IndexSpec
 }
 
 func registerTables(tables []Table) ([]*registeredTable, error) {
@@ -99,7 +96,7 @@ func registerTables(tables []Table) ([]*registeredTable, error) {
 			Columns: slices.Clone(def.schema),
 			// Each index is copied with its column list, so the registration shares no
 			// slice with the table definition.
-			Indexes: cloneTableIndexes(def.indexes),
+			Indexes: cloneIndexSpecs(def.indexes),
 		})
 	}
 

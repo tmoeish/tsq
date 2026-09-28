@@ -14,13 +14,13 @@ var allCapabilities = []Capability{
 	CapabilityCTE,
 	CapabilityExcept,
 	CapabilityExceptAll,
-	CapabilityFullOuterJoin,
+	CapabilityFullJoin,
 	CapabilityIntersect,
 	CapabilityIntersectAll,
-	CapabilitySelectForUpdate,
-	CapabilitySelectForShare,
-	CapabilitySelectForNoWait,
-	CapabilitySelectForSkipLocked,
+	CapabilityForUpdate,
+	CapabilityForShare,
+	CapabilityNoWait,
+	CapabilitySkipLocked,
 	CapabilityFullTextSearch,
 }
 
@@ -70,9 +70,9 @@ func TestCapabilityBaselines(t *testing.T) {
 		capability Capability
 		want       bool
 	}{
-		{SQLite, CapabilityFullOuterJoin, true},
+		{SQLite, CapabilityFullJoin, true},
 		{SQLite, CapabilityCTE, true},
-		{SQLite, CapabilitySelectForUpdate, false},
+		{SQLite, CapabilityForUpdate, false},
 		{SQLite, CapabilityFullTextSearch, false},
 		{SQLite, CapabilityIntersect, true},
 		{SQLite, CapabilityIntersectAll, false},
@@ -82,10 +82,10 @@ func TestCapabilityBaselines(t *testing.T) {
 		{MySQL, CapabilityExcept, true},
 		{MySQL, CapabilityIntersectAll, true},
 		{MySQL, CapabilityExceptAll, true},
-		{MySQL, CapabilityFullOuterJoin, false},
-		{MySQL, CapabilitySelectForSkipLocked, true},
-		{Postgres, CapabilityFullOuterJoin, true},
-		{Postgres, CapabilitySelectForShare, true},
+		{MySQL, CapabilityFullJoin, false},
+		{MySQL, CapabilitySkipLocked, true},
+		{Postgres, CapabilityFullJoin, true},
+		{Postgres, CapabilityForShare, true},
 		{Postgres, CapabilityExcept, true},
 	}
 
@@ -122,14 +122,14 @@ func TestUnknownIsUnsupported(t *testing.T) {
 // TestUnsupportedCapabilityErrorNamesBothSides keeps the two facts a caller needs,
 // and the actionable hint, in the error.
 func TestUnsupportedCapabilityErrorNamesBothSides(t *testing.T) {
-	err := Check(MySQL, CapabilityFullOuterJoin)
+	err := Check(MySQL, CapabilityFullJoin)
 
 	target, ok := errors.AsType[*UnsupportedCapabilityError](err)
 	if !ok {
 		t.Fatalf("Check = %v, want *UnsupportedCapabilityError", err)
 	}
 
-	if target.Capability != CapabilityFullOuterJoin || target.Dialect != MySQL {
+	if target.Capability != CapabilityFullJoin || target.Dialect != MySQL {
 		t.Fatalf("error fields = %s/%s", target.Capability, target.Dialect)
 	}
 
@@ -139,7 +139,7 @@ func TestUnsupportedCapabilityErrorNamesBothSides(t *testing.T) {
 		}
 	}
 
-	if err := Check(Postgres, CapabilityFullOuterJoin); err != nil {
+	if err := Check(Postgres, CapabilityFullJoin); err != nil {
 		t.Fatalf("Check(postgres, full join) = %v, want nil", err)
 	}
 }

@@ -98,10 +98,9 @@
   true/false 都要显式写出来。`[门禁: dialect/dialect_test.go 的 TestEnginesCoverAllCapabilities]`
 - `dialect.Supports` 只做查表，**不要再引入 `default` 分支**——那正是这道门要挡的东西。
   `internal/sqldialect` 的 `SupportsCapability` 只转发给它，不另存一份表。
-- `displayCapability` 和 `capabilityHint` 也要加分支，否则错误信息里
-  是原始的枚举串而不是使用者认得的 SQL 语法。
-- 别名（`FULL JOIN` → `FULL_OUTER_JOIN` 之类）加进 `canonicalCapability`。
-  **根包不要复制这个函数**：曾经有过一份逐行副本，只被自己的测试撑着。
+- 常量名跟构建器方法走（`CapabilityFullJoin` 对 `FullJoin`、`CapabilityNoWait` 对 `NoWait`），**值就是错误里给使用者看的
+  SQL 拼写**（`"FULL JOIN"`）。没有别名表：曾有的 `canonicalCapability` 让 `Supports("full join")` 也能查，
+  等于接受字符串形态的能力名，已删除。`capabilityHint` 要加分支。
 - 其余按上面"新增或改动方言能力位"那条走完。
 
 ## 改了驱动错误分类（`*_errors.go`、`IsRetryable*`）

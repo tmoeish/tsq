@@ -334,7 +334,7 @@ func newCourseTable() CourseTable {
 		AutoIncrement: true,
 		Search:        []tsq.SearchColumn{tsq.Searchable(c.Title)},
 		ColumnSpecs:   []dialect.ColumnSpec{ /* ... */ },
-		Indexes:       []tsq.TableIndex{ /* ... */ },
+		Indexes:       []tsq.IndexSpec{ /* ... */ },
 	})
 
 	return c
@@ -346,6 +346,10 @@ schema and indexes in one value, and it is what queries select from (`From(Table
 statements write (`tsq.UpdateTable(TableCourse)`). The row struct itself carries no TSQ methods
 besides the generated `Insert` / `Update` / `HardDelete` (and, on a soft-delete table, `Delete` /
 `Restore` / `Active`), which delegate to the table.
+
+In a hand-written `TableSpec`, `ColumnSpecs` (when given) must list every column, and mark the
+primary key and auto-increment exactly as `PrimaryKey` and `AutoIncrement` do; `Define` reports a
+disagreement, since the schema is what `SchemaPolicyCreateMissing` builds.
 
 One function creates the table, its columns and its definition, so anything that names
 `TableCourse` is initialized after the table is complete; there is no declaration order to get
@@ -998,7 +1002,7 @@ Row writes are methods on the table descriptor, and the generated row methods ca
   type
 
 The executor `db` is a `*tsq.Runtime`, the executor `WithTx` passes to its callback, or
-`tsq.WrapExecutor(handle, dialect.Postgres)` around a `*sql.DB` / `*sql.Tx` / `*sql.Conn` (any `tsq.DBTX`) opened elsewhere. A bare
+`tsq.WrapExecutor(handle, dialect.Postgres)` (it returns an error for a nil handle or an unknown dialect) around a `*sql.DB` / `*sql.Tx` / `*sql.Conn` (any `tsq.DBTX`) opened elsewhere. A bare
 `*sql.DB` does not compile: TSQ has to know the dialect to render a statement.
 
 ### Deleting rows
@@ -1018,7 +1022,7 @@ needsDeletedAtOrHardDeleteFrom`, and `tsq.HardDeleteFrom` is the statement to wr
 - a soft delete writes **only** `deleted_at`, `updated_at` and `version`; other fields changed on
   the row are not saved. It checks and increments the version, so a stale copy fails with
   `OptimisticLockError`, and it matches live rows only: deleting a row that is already deleted, or
-  restoring one that is not, fails with `*RowStateError` (match it with `errors.AsType[*tsq.RowStateError]`) whether or not the
+  restoring one that is not, fails with `*RowStateError` (match it with `errors.AsType[*tsq.RowStateError]`; its `Op` is a `tsq.TraceOp` and `Need` a `tsq.RowState`: `RowExists`, `RowLive` or `RowDeleted`) whether or not the
   table has a `version` column. That is not a concurrency conflict, so retrying it cannot help. The
   statement checks both at once; when it matches nothing TSQ reads the versions back to tell which
 - `Restore` / `BatchRestore` (and the generated `item.Restore(...)`) clear the tombstone of a
@@ -1099,8 +1103,8 @@ affected, err = CancelEnrollments.Exec(ctx, runtime, database.TableEnrollment.UI
 Shape:
 
 - `tsq.UpdateTable(table)` / `tsq.HardDeleteFrom(table)` take any table descriptor; `tsq.DeleteFrom(table)` takes a soft-delete one, and a table without `deleted_at` fails to compile with `missing method needsDeletedAtOrHardDeleteFrom`
-- `Set(col, rhs)` takes a column, `Param`, `tsq.Val` or typed scalar subquery of the column's type; `SetNull(col)` writes NULL into a `NullColumn`. Types are matched at compile time, and a NOT NULL column refuses a value that can be NULL
-- `Where(...)` is required and appears exactly once; the type system enforces both. Conditions are ANDed; a full-table statement says so with `tsq.And()`
+- `UpdateTable` needs at least one `Set` before `Where`: an UPDATE that assigns nothing does not compile. `Set(col, rhs)` takes a column, `Param`, `tsq.Val` or typed scalar subquery of the column's type; `SetNull(col)` writes NULL into a `NullColumn`. Types are matched at compile time, and a NOT NULL column refuses a value that can be NULL
+- `Where(cond, more...)` is required and appears exactly once; the type system enforces both. Conditions are ANDed; a full-table statement says so with `Where(tsq.And())`
 - `Build()` returns an immutable `*tsq.Mutation[R]`; `Exec(ctx, db, args...)` returns the affected row count; `mutation.SQL(dialect, args...)` shows what would run
 
 Rules:
@@ -1164,6 +1168,10 @@ result, err := runtime.WithTxResult(ctx, func(ctx context.Context, txExec tsq.Ex
 
 Return a small result struct when several related values come back; `WithTxResult` is the only typed transaction helper.
 
+A rollback undoes the database, not memory: a row an `Insert` or `Update` inside the callback stamped
+(key, `created_at`, `updated_at`, `version`) keeps those values after a rollback, and a retry runs
+the callback again with them. Load or build the rows a transaction writes inside its callback.
+
 Useful rules:
 
 - transaction boundaries stay explicit
@@ -1224,7 +1232,7 @@ TSQ supports more than simple list queries. Common advanced shapes include:
 - correlated subqueries, where the subquery declares the enclosing query's tables with `Correlate(...)`
 - non-recursive CTEs: `cte := tsq.CTE("big_orders", stage)`, then join `cte` and reference its columns with `col.WithTable(cte)` (all built-in dialects; MySQL baseline is 8.0). A CTE's columns are found by name, so its select list cannot name one column twice: `SUM(amount)` and `MAX(amount)` are both `amount`, and `Build()` refuses them. Whether `col.WithTable(cte)` can be NULL follows the CTE body, not the column: a nullable column the CTE coalesces reads into a plain field
 - `tsq.SelectDistinct(cols...)` for `SELECT DISTINCT` (its `Count()` counts distinct rows), and `tsq.CountDistinct(col)` for `COUNT(DISTINCT col)`
-- set operations such as `UNION`, `INTERSECT`, and `EXCEPT` (all built-in dialects; MySQL needs 8.0.31+). `IntersectAll` / `ExceptAll` run on MySQL and PostgreSQL; SQLite has no `ALL` form and returns `UnsupportedCapabilityError` (`INTERSECT_ALL` / `EXCEPT_ALL`)
+- set operations such as `UNION`, `INTERSECT`, and `EXCEPT` (all built-in dialects; MySQL needs 8.0.31+). `IntersectAll` / `ExceptAll` run on MySQL and PostgreSQL; SQLite has no `ALL` form and returns `UnsupportedCapabilityError` (`dialect.CapabilityIntersectAll` / `CapabilityExceptAll`)
 - row-lock clauses such as `ForUpdate()` and `ForShare()`
 
 ### Column functions
@@ -1357,7 +1365,7 @@ returns the same `*dialect.UnsupportedCapabilityError` execution would. Use them
 feature before building a query that will fail at execution:
 
 ```go
-if dialect.Supports(runtime.Dialect(), dialect.CapabilityFullOuterJoin) {
+if dialect.Supports(runtime.Dialect(), dialect.CapabilityFullJoin) {
 	// build the FULL JOIN variant
 }
 ```

@@ -52,7 +52,7 @@ var Users = usersHandle.Define(TableSpec[user, int64]{
 		{Name: "updated_at", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindTime}},
 		{Name: "deleted_at", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}},
 	},
-	Indexes: []TableIndex{{Name: "ux_users_email", Columns: []string{"email", "deleted_at"}, Unique: true}},
+	Indexes: []IndexSpec{{Name: "ux_users_email", Columns: []string{"email", "deleted_at"}, Unique: true}},
 }, User_DeletedAt)
 
 var User__Cols = Users.Columns()
@@ -149,7 +149,7 @@ type wideRow struct {
 }
 
 // wideTable declares a table whose columns are names plus fields of schema.
-func wideTable(name string, names []string, schema []tsqdialect.ColumnSpec, indexes []TableIndex) *TableOf[wideRow, any] {
+func wideTable(name string, names []string, schema []tsqdialect.ColumnSpec, indexes []IndexSpec) *TableOf[wideRow, any] {
 	h := NewTable[wideRow, any](name)
 
 	seen := map[string]bool{}
@@ -213,7 +213,7 @@ func mustStrictMockTable(t *testing.T, name string, fields ...string) *TableOf[w
 }
 
 // registered redeclares table with a schema and indexes.
-func registered(table *TableOf[wideRow, any], schema []tsqdialect.ColumnSpec, indexes ...TableIndex) Table {
+func registered(table *TableOf[wideRow, any], schema []tsqdialect.ColumnSpec, indexes ...IndexSpec) Table {
 	names := make([]string, 0, len(table.def.columns))
 	for _, c := range table.def.columns {
 		names = append(names, c.name)
@@ -235,4 +235,16 @@ func newSQLiteIndexTestEngine(t *testing.T) (*Runtime, string) {
 	t.Cleanup(func() { _ = rt.Close() })
 
 	return rt, dsn
+}
+
+// mustWrap is WrapExecutor for a handle and engine the test knows are valid.
+func mustWrap(t testing.TB, db DBTX, engine tsqdialect.Name) Executor {
+	t.Helper()
+
+	exec, err := WrapExecutor(db, engine)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return exec
 }

@@ -62,7 +62,8 @@ const defaultBatchSize = 1000
 
 // WithBatchSize sets the number of rows per statement; the default is 1000. It is an
 // upper bound: wide tables are split further so that one statement stays within
-// the dialect's bind parameter limit (dialect.MaxBindParams).
+// the dialect's bind parameter limit (65535 on MySQL and PostgreSQL, 32766 on
+// SQLite).
 func WithBatchSize(size int) BatchOption {
 	return func(c *batchConfig) {
 		if size <= 0 {
@@ -187,12 +188,12 @@ func (t *TableOf[R, K]) setTombstone(ctx context.Context, db Executor, rows []*R
 		return err
 	}
 
-	op := "delete"
+	op := TraceOpDelete
 	if !deleted {
-		op = "restore"
+		op = TraceOpRestore
 	}
 
-	if err := checkKeys(def, rows, op); err != nil {
+	if err := checkKeys(def, rows, string(op)); err != nil {
 		return err
 	}
 
@@ -246,14 +247,14 @@ func (t *TableOf[R, K]) setTombstone(ctx context.Context, db Executor, rows []*R
 			writeTombstoneFilter(w, def, !deleted)
 		}
 
-		need := "a live row"
+		need := RowLive
 		if !deleted {
-			need = "a deleted row"
+			need = RowDeleted
 		}
 
 		var written []bool
 
-		err := t.execCounted(ctx, db, w, def, op, chunk, t.tombstoneShortfall(ctx, db, scope, def, version, op, need, deleted, chunk, &written))
+		err := t.execCounted(ctx, db, w, def, string(op), chunk, t.tombstoneShortfall(ctx, db, scope, def, version, op, need, deleted, chunk, &written))
 
 		for i, row := range chunk {
 			// A statement that matched fewer rows than it was given still wrote the
@@ -271,12 +272,12 @@ func (t *TableOf[R, K]) setTombstone(ctx context.Context, db Executor, rows []*R
 			// A stale or misplaced row does not stop the batch: the rows after it are
 			// written too, and one error names every row that was not.
 			if !failures.add(err, len(chunk) == len(rows)) {
-				return errors.Join(err, failures.err(def.name, op, len(rows)))
+				return errors.Join(err, failures.err(def.name, string(op), len(rows)))
 			}
 		}
 	}
 
-	return failures.err(def.name, op, len(rows))
+	return failures.err(def.name, string(op), len(rows))
 }
 
 // applyTombstoneWrite gives row the state a delete (deleted) or restore wrote.
@@ -316,7 +317,7 @@ func (t *TableOf[R, K]) applyTombstoneWrite(def *tableDef, version *columnCore, 
 // and, with a version column, holds the version after the loaded one. Without a
 // version the state alone cannot tell this statement's write from an earlier one;
 // either way the row is in that state, and it is given it.
-func (t *TableOf[R, K]) tombstoneShortfall(ctx context.Context, db Executor, scope execScope, def *tableDef, version *columnCore, op, need string, deleted bool, rows []*R, written *[]bool) func(int64, int64) error {
+func (t *TableOf[R, K]) tombstoneShortfall(ctx context.Context, db Executor, scope execScope, def *tableDef, version *columnCore, op TraceOp, need RowState, deleted bool, rows []*R, written *[]bool) func(int64, int64) error {
 	return func(expected, actual int64) error {
 		tombstone := def.column(def.managed.DeletedAt)
 		cols := []*columnCore{tombstone}
@@ -1359,9 +1360,9 @@ func (t *TableOf[R, K]) updateMismatch(ctx context.Context, db Executor, scope e
 
 		*written = done
 
-		need := "an existing row"
+		need := RowExists
 		if t.softDeleted() {
-			need = "a live row"
+			need = RowLive
 		}
 
 		switch {
@@ -1369,12 +1370,12 @@ func (t *TableOf[R, K]) updateMismatch(ctx context.Context, db Executor, scope e
 			return errors.Join(&OptimisticLockError{Table: def.name, Expected: expected, Actual: actual},
 				fmt.Errorf("read back the rows: %w", err))
 		case err != nil:
-			return errors.Join(&RowStateError{Table: def.name, Op: "update", Need: need, Expected: expected, Actual: actual},
+			return errors.Join(&RowStateError{Table: def.name, Op: TraceOpUpdate, Need: need, Expected: expected, Actual: actual},
 				fmt.Errorf("read back the rows: %w", err))
 		case version != nil:
 			return &OptimisticLockError{Table: def.name, Expected: expected, Actual: actual, Keys: keys}
 		case len(keys) > 0:
-			return &RowStateError{Table: def.name, Op: "update", Need: need, Expected: expected, Actual: expected - int64(len(keys)), Keys: keys}
+			return &RowStateError{Table: def.name, Op: TraceOpUpdate, Need: need, Expected: expected, Actual: expected - int64(len(keys)), Keys: keys}
 		}
 
 		return nil
@@ -1495,7 +1496,7 @@ func versionConflict(table string) func(int64, int64) error {
 }
 
 // wrongRowState is the mismatch error of a write that needs the row in one state.
-func wrongRowState(table, op, need string) func(int64, int64) error {
+func wrongRowState(table string, op TraceOp, need RowState) func(int64, int64) error {
 	return func(expected, actual int64) error {
 		return &RowStateError{Table: table, Op: op, Need: need, Expected: expected, Actual: actual}
 	}

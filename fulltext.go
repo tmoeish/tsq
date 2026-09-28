@@ -10,7 +10,7 @@ import (
 // FullTextIndex is a table's declared full-text index, from TableOf.FullText.
 type FullTextIndex struct {
 	table Table
-	index TableIndex
+	index IndexSpec
 	err   error
 }
 

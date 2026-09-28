@@ -304,7 +304,7 @@ func TestDerivedTablesHaveDistinctColumnNames(t *testing.T) {
 	upper := MapInto(Upper(User_Name), func(u *user) *string { return &u.Email })
 	q := SelectDistinct(User_Name, upper).From(Users).MustBuild()
 
-	exec, err := wrapExecutor(noopExecutor{}, onMySQL)
+	exec, err := WrapExecutor(noopExecutor{}, onMySQL)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -4,6 +4,9 @@ import (
 	"fmt"
 )
 
+// DefaultMaxPageSize caps Paging.Size unless WithMaxPageSize says otherwise.
+const DefaultMaxPageSize = 1000
+
 // defaultPageSize is the page size of a Paging that sets none.
 const defaultPageSize = 20
 
@@ -37,13 +40,8 @@ func (p Paging) normalized(maxSize int) Paging {
 	return p
 }
 
-// Offset is the number of rows before the page, after the same normalization Page
-// applies (without a runtime's size cap).
-func (p Paging) Offset() int {
-	p = p.normalized(DefaultMaxPageSize)
-
-	return p.Size * (p.Page - 1)
-}
+// offset is the number of rows before the page of a normalized p.
+func (p Paging) offset() int { return p.Size * (p.Page - 1) }
 
 // Page is one page of rows plus the total count.
 type Page[T any] struct {

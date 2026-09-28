@@ -122,7 +122,7 @@ func new{{$tableType}}() {{$tableType}} {
 	{{- end }}
 		},
 	{{- if or .Uniques .Indexes .FullTexts }}
-		Indexes: []tsq.TableIndex{
+		Indexes: []tsq.IndexSpec{
 		{{- range $idx := .Uniques }}
 			{Name: {{ printf "%q" $idx.Name }}, Unique: true, Columns: []string{{"{"}}{{ IndexFieldsToCols $dot $idx.Fields }}{{"}"}}},
 		{{- end }}

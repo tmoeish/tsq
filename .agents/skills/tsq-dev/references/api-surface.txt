@@ -46,6 +46,7 @@ func Open(
 	tables []Table,
 	options ...RuntimeOption,
 ) (*Runtime, error)
+func WrapExecutor(db DBTX, engine tsqdialect.Name) (Executor, error)
 TYPES
 type Arg struct {
 }
@@ -107,7 +108,7 @@ type DBTX interface {
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 }
 type DeleteStage[R any] interface {
-	Where(conds ...Condition) MutationStage[R]
+	Where(cond Condition, more ...Condition) MutationStage[R]
 }
 func DeleteFrom[T SoftDeleteTable[R], R any](table T) DeleteStage[R]
 func HardDeleteFrom[R any](table RowTable[R]) DeleteStage[R]
@@ -116,7 +117,6 @@ type Executor interface {
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 }
-func WrapExecutor(db DBTX, engine tsqdialect.Name) Executor
 type Expression[T any] interface {
 	ValueColumn[T]
 	Operand[T]
@@ -181,6 +181,12 @@ type HavingStage[O any] interface {
 	ResultSortable[O]
 	Combinable[O]
 }
+type IndexSpec struct {
+	Name    string   // Name is the physical index name.
+	Columns []string // Columns lists the indexed column names in order.
+	Unique  bool     // Unique reports whether the index enforces uniqueness.
+	FullText bool
+}
 type JoinStage[O any] interface {
 	QueryStage[O]
 	Groupable[O]
@@ -238,7 +244,7 @@ type MissingIndexError struct {
 }
 func (e *MissingIndexError) Error() string
 type MissingTableError struct {
-	Name string
+	Table string
 }
 func (e *MissingTableError) Error() string
 type Mutation[R any] struct {
@@ -304,7 +310,6 @@ type Paging struct {
 	Size int
 	OrderBy []OrderBy
 }
-func (p Paging) Offset() int
 type Param[T any] struct {
 }
 func NewParam[T any](name string) Param[T]
@@ -354,10 +359,17 @@ type RetryPolicy struct {
 	Multiplier float64
 }
 func DefaultRetryPolicy() RetryPolicy
+type RowState uint8
+const (
+	RowExists RowState = iota + 1
+	RowLive
+	RowDeleted
+)
+func (s RowState) String() string
 type RowStateError struct {
-	Table    string
-	Op       string
-	Need     string
+	Table string
+	Op TraceOp
+	Need     RowState
 	Expected int64
 	Actual   int64
 	Keys []any
@@ -428,6 +440,11 @@ func Select[O any](cols ...BoundColumn[O]) SelectStage[O]
 func SelectDistinct[O any](cols ...BoundColumn[O]) SelectStage[O]
 func SelectNullValue[T any](expr ValueColumn[T]) SelectStage[sql.Null[T]]
 func SelectValue[T any](expr ValueColumn[T]) SelectStage[T]
+type SetStage[R any] struct {
+}
+func (b *SetStage[R]) Set[T any](col Column[R, T], rhs Operand[T]) *SetStage[R]
+func (b *SetStage[R]) SetNull[T any](col NullColumn[R, T]) *SetStage[R]
+func (b *SetStage[R]) Where(cond Condition, more ...Condition) MutationStage[R]
 type SoftDeleteTable[R any] interface {
 	RowTable[R]
 }
@@ -461,12 +478,6 @@ type Table interface {
 	TableName() string
 }
 func CTE[O any](name string, query Subquery[O]) Table
-type TableIndex struct {
-	Name    string   // Name is the physical index name.
-	Columns []string // Columns lists the indexed column names in order.
-	Unique  bool     // Unique reports whether the index enforces uniqueness.
-	FullText bool
-}
 type TableOf[R any, K comparable] struct {
 }
 func NewTable[R any, K comparable](name string) *TableOf[R, K]
@@ -487,7 +498,7 @@ func (t *TableOf[R, K]) FullText(name ...string) FullTextIndex
 func (t *TableOf[R, K]) Get(ctx context.Context, db Executor, key K) (*R, error)
 func (t *TableOf[R, K]) GetBy[T comparable](ctx context.Context, db Executor, col Column[R, T], value T, where ...Condition) (*R, error)
 func (t *TableOf[R, K]) HardDelete(ctx context.Context, db Executor, row *R) error
-func (t *TableOf[R, K]) Indexes() []TableIndex
+func (t *TableOf[R, K]) Indexes() []IndexSpec
 func (t *TableOf[R, K]) Insert(ctx context.Context, db Executor, row *R) error
 func (t *TableOf[R, K]) Query() *Query[R]
 func (t *TableOf[R, K]) TableName() string
@@ -502,7 +513,7 @@ type TableSpec[R any, K comparable] struct {
 	UpdatedAt BoundColumn[R]
 	Search []SearchColumn
 	ColumnSpecs []tsqdialect.ColumnSpec
-	Indexes []TableIndex
+	Indexes []IndexSpec
 }
 type Text interface {
 	~string
@@ -517,12 +528,13 @@ const (
 	TraceOpUpsert TraceOp = "upsert"
 	TraceOpUpdate TraceOp = "update"
 	TraceOpDelete TraceOp = "delete"
-	TraceOpGet    TraceOp = "get"
-	TraceOpList   TraceOp = "list"
-	TraceOpIter   TraceOp = "iter"
-	TraceOpPage   TraceOp = "page"
-	TraceOpCount  TraceOp = "count"
-	TraceOpTx     TraceOp = "tx"
+	TraceOpRestore TraceOp = "restore"
+	TraceOpGet     TraceOp = "get"
+	TraceOpList    TraceOp = "list"
+	TraceOpIter    TraceOp = "iter"
+	TraceOpPage    TraceOp = "page"
+	TraceOpCount   TraceOp = "count"
+	TraceOpTx      TraceOp = "tx"
 )
 type Tracer func(ctx context.Context, info TraceInfo, next func(ctx context.Context) error) error
 type TxOption func(*txConfig)
@@ -533,12 +545,11 @@ func WithRetryPolicy(policy RetryPolicy) TxOption
 type TypedColumn[O, T any] interface {
 	BoundColumn[O]
 }
-type UpdateBuilder[R any] struct {
+type UpdateStage[R any] struct {
 }
-func UpdateTable[R any](table RowTable[R]) *UpdateBuilder[R]
-func (b *UpdateBuilder[R]) Set[T any](col Column[R, T], rhs Operand[T]) *UpdateBuilder[R]
-func (b *UpdateBuilder[R]) SetNull[T any](col NullColumn[R, T]) *UpdateBuilder[R]
-func (b *UpdateBuilder[R]) Where(conds ...Condition) MutationStage[R]
+func UpdateTable[R any](table RowTable[R]) *UpdateStage[R]
+func (b *UpdateStage[R]) Set[T any](col Column[R, T], rhs Operand[T]) *SetStage[R]
+func (b *UpdateStage[R]) SetNull[T any](col NullColumn[R, T]) *SetStage[R]
 type Value[T any] struct {
 }
 func Val[T any](v T) Value[T]
@@ -565,17 +576,17 @@ func Supports(engine Name, capability Capability) bool
 TYPES
 type Capability string
 const (
-	CapabilityCTE                 Capability = "CTE"
-	CapabilityExcept              Capability = "EXCEPT"
-	CapabilityExceptAll           Capability = "EXCEPT_ALL"
-	CapabilityFullOuterJoin       Capability = "FULL_OUTER_JOIN"
-	CapabilityIntersect           Capability = "INTERSECT"
-	CapabilityIntersectAll        Capability = "INTERSECT_ALL"
-	CapabilitySelectForUpdate     Capability = "SELECT_FOR_UPDATE"
-	CapabilitySelectForShare      Capability = "SELECT_FOR_SHARE"
-	CapabilitySelectForNoWait     Capability = "SELECT_FOR_NOWAIT"
-	CapabilitySelectForSkipLocked Capability = "SELECT_FOR_SKIP_LOCKED"
-	CapabilityFullTextSearch Capability = "FULL_TEXT_SEARCH"
+	CapabilityCTE          Capability = "CTE"
+	CapabilityExcept       Capability = "EXCEPT"
+	CapabilityExceptAll    Capability = "EXCEPT ALL"
+	CapabilityFullJoin     Capability = "FULL JOIN"
+	CapabilityIntersect    Capability = "INTERSECT"
+	CapabilityIntersectAll Capability = "INTERSECT ALL"
+	CapabilityForUpdate    Capability = "FOR UPDATE"
+	CapabilityForShare     Capability = "FOR SHARE"
+	CapabilityNoWait       Capability = "NOWAIT"
+	CapabilitySkipLocked   Capability = "SKIP LOCKED"
+	CapabilityFullTextSearch Capability = "FULL TEXT SEARCH"
 )
 type ColumnKind string
 const (

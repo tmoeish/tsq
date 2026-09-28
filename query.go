@@ -138,7 +138,7 @@ func (q *Query[O]) prepare(exec Executor, args []Arg, builtin map[*paramSpec]any
 
 // SQL renders the query for dialect with args bound, as it would run.
 func (q *Query[O]) SQL(engine tsqdialect.Name, args ...Arg) (string, []any, error) {
-	exec, err := wrapExecutor(noopExecutor{}, engine)
+	exec, err := WrapExecutor(noopExecutor{}, engine)
 	if err != nil {
 		return "", nil, err
 	}
@@ -574,7 +574,7 @@ func (q *Query[O]) Page(ctx context.Context, db Executor, p Paging, args ...Arg)
 
 		_, stmts, err := q.prepare(db, args, nil,
 			renderMode{count: true},
-			renderMode{paged: true, order: order, limit: p.Size, offset: p.Size * (p.Page - 1)},
+			renderMode{paged: true, order: order, limit: p.Size, offset: p.offset()},
 		)
 		if err != nil {
 			return nil, err

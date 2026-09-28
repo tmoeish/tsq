@@ -66,7 +66,8 @@
 - 只能引用目标表本身：`Build` 按 `tableDef` 指针加表名比较 `allTables()`，别名会被拒，
   `WithDeleted()` 视为同一张表。放开这一点要先为
   三个方言各设计一种 `UPDATE ... FROM` 写法。
-- `Set` 是泛型方法，所以 `UpdateBuilder` 必须是具体类型；`Where` 之后才是接口。
+- `Set` 是泛型方法，所以 `UpdateStage` / `SetStage` 必须是具体类型；`Where` 之后才是接口。给 `UpdateStage` 加方法
+  时想清楚它能不能出现在第一个 `Set` 之前。
 - 使用者文档三处要同步：`skills/tsq/references/REFERENCE.md` §8 与 §13、`README.md`
   "常见边界"、`BEST_PRACTICES.md` §3.8。
 

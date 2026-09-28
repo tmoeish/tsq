@@ -82,18 +82,14 @@ if err != nil {
 page, err := database.TableUser.Query().Page(ctx, runtime, paging)
 ```
 
-### 2.3 不要自己手算 offset
+### 2.3 不要自己算 offset、拼 `LIMIT`
 
-`Paging.Offset()` 已经处理了归一化和溢出保护。
-
-```go
-offset := paging.Offset()
-```
+把 `Paging` 交给 `Query.Page`：页码和页大小的归一化、上限和溢出保护都在里面。深翻页用 `Query.PageKeyset`。
 
 避免：
 
 ```go
-offset := page * size
+offset := page * size // 页码从 1 开始时差一页，也没有上限
 ```
 
 ### 2.4 UI 逻辑用 `HasNext()`，上一页就是 `Page > 1`
@@ -226,7 +222,10 @@ defer func() {
 	_ = tx.Rollback()
 }()
 
-txExec := tsq.WrapExecutor(tx, runtime.Dialect())
+txExec, err := tsq.WrapExecutor(tx, runtime.Dialect())
+if err != nil {
+	return err
+}
 _ = txExec
 ```
 

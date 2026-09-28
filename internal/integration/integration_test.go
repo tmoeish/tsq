@@ -619,7 +619,7 @@ func TestIntegrationCapabilitiesExecute(t *testing.T) {
 				}
 			}
 
-			if tsqdialect.Supports(rt.Dialect(), tsqdialect.CapabilityFullOuterJoin) {
+			if tsqdialect.Supports(rt.Dialect(), tsqdialect.CapabilityFullJoin) {
 				// Both sides of a FULL JOIN can be NULL, so the key is coalesced.
 				query := tsq.SelectValue(tsq.Coalesce(academy.TableLearner.ID, tsq.Val(int64(0)))).From(academy.TableLearner).
 					FullJoin(academy.TableEnrollment, academy.TableLearner.ID.EQ(academy.TableEnrollment.LearnerID)).
@@ -1566,7 +1566,7 @@ func fkChildTable() tsq.Table {
 			{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true},
 			{Name: "parent_id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}},
 		},
-		Indexes: []tsq.TableIndex{{Name: "idx_fk_child_parent", Columns: []string{"parent_id", "id"}}},
+		Indexes: []tsq.IndexSpec{{Name: "idx_fk_child_parent", Columns: []string{"parent_id", "id"}}},
 	})
 }
 
@@ -1820,7 +1820,13 @@ func TestIntegrationPageReadsOneSnapshot(t *testing.T) {
 
 			hook := &writeBeforeList{write: func() {
 				late := &academy.Learner{Name: "late", Email: "late@example.test"}
-				writeErr = academy.TableLearner.Insert(ctx, tsq.WrapExecutor(other, setup.Dialect()), late)
+				exec, err := tsq.WrapExecutor(other, setup.Dialect())
+				if err != nil {
+					writeErr = err
+					return
+				}
+
+				writeErr = academy.TableLearner.Insert(ctx, exec, late)
 			}}
 
 			rt, err := tsq.Open(ctx, target.driver, target.dsn, academy.TSQTables(), tsq.WithLogger(hook), tsq.WithSQLLogging())
@@ -1906,7 +1912,7 @@ func TestIntegrationSoftDeleteScopeJoins(t *testing.T) {
 			count("right join", from().RightJoin(academy.TableEnrollment, on), 1)
 			count("inner join with deleted", from().InnerJoin(academy.TableEnrollment.WithDeleted(), on), 2)
 
-			if tsqdialect.Supports(rt.Dialect(), tsqdialect.CapabilityFullOuterJoin) {
+			if tsqdialect.Supports(rt.Dialect(), tsqdialect.CapabilityFullJoin) {
 				count("full join", from().FullJoin(academy.TableEnrollment, on), 2)
 			}
 		})

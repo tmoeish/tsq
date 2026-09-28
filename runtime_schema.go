@@ -81,7 +81,7 @@ func (r *Runtime) applyTablePolicyForTable(ctx context.Context, table *registere
 
 	if !found {
 		if r.tablePolicy == SchemaPolicyValidate {
-			return &MissingTableError{Name: tableName}
+			return &MissingTableError{Table: tableName}
 		}
 
 		statement, err := renderCreateTableStatement(r.dialect, tableName, table.Columns)
@@ -216,7 +216,7 @@ func (r *Runtime) applyIndexPolicyForTable(ctx context.Context, table *registere
 	if _, found, err := r.dialect.InspectColumns(ctx, r.db, tableName); err != nil {
 		return err
 	} else if !found {
-		return &MissingTableError{Name: tableName}
+		return &MissingTableError{Table: tableName}
 	}
 
 	currentIndexes, err := r.dialect.ListIndexes(ctx, r.db, tableName)
@@ -534,7 +534,7 @@ func summarizeTableColumnChanges(changes []tableColumnChange) string {
 
 // ensureFullTextIndex creates the full-text index when it is missing and the
 // dialect has one to create.
-func (r *Runtime) ensureFullTextIndex(ctx context.Context, tableName string, idx TableIndex, found bool) error {
+func (r *Runtime) ensureFullTextIndex(ctx context.Context, tableName string, idx IndexSpec, found bool) error {
 	if found {
 		return nil
 	}

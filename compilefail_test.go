@@ -62,6 +62,9 @@ var compileFailCases = []struct {
 	{"column of another type", `_ = UserID.EQ(UserName)`, "does not implement tsq.Operand[int64]"},
 	{"set of another owner", `_ = tsq.UpdateTable(Users).Set(OrderID, UserID)`, "OrderID"},
 	{"mutation after where", `_ = tsq.UpdateTable(Users).Set(UserName, tsq.Val("x")).Where(tsq.And()).Where(tsq.And())`, "Where undefined"},
+	{"update without an assignment", `_ = tsq.UpdateTable(Users).Where(tsq.And())`, "Where undefined"},
+	{"mutation where without a condition", `_ = tsq.HardDeleteFrom(Users).Where()`, "not enough arguments in call"},
+	{"mutation stages are sealed", `var _ tsq.MutationStage[User] = fakeMutation{}`, "does not implement tsq.MutationStage[User]"},
 	{"set after where", `_ = tsq.UpdateTable(Users).Set(UserName, tsq.Val("x")).Where(tsq.And()).Set(UserName, tsq.Val("y"))`, "Set undefined"},
 	{"result column predicate", `_ = tsq.MapInto(UserID, func(r *Label) *int64 { return nil }).Named("id").EQ(tsq.Val(int64(1)))`, "EQ undefined"},
 	{"conditions are sealed", `var _ tsq.Condition = fakeCondition{}`, "does not implement tsq.Condition"},
@@ -155,6 +158,12 @@ var OrderID = tsq.NewColumn(ordersHandle, "id", "id", func(r *Order) *int64 { re
 type fakeCondition struct{}
 
 func (fakeCondition) Clause() string { return "1 = 1" }
+
+type fakeMutation struct{}
+
+func (fakeMutation) Build() (*tsq.Mutation[User], error)                                { return nil, nil }
+func (fakeMutation) MustBuild() *tsq.Mutation[User]                                     { return nil }
+func (fakeMutation) Exec(context.Context, tsq.Executor, ...tsq.Arg) (int64, error)      { return 0, nil }
 
 type fakeSortable struct{}
 

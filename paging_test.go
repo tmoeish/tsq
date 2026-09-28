@@ -8,7 +8,7 @@ import (
 func TestPageReq_NilHelpers(t *testing.T) {
 	var page *PageRequest
 
-	if paging, err := page.Paging(); err != nil || paging.Offset() != 0 {
+	if paging, err := page.Paging(); err != nil || paging.normalized(DefaultMaxPageSize).offset() != 0 {
 		t.Fatalf("nil request = %+v, %v", paging, err)
 	}
 }
@@ -29,7 +29,7 @@ func TestPageReq_Offset(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			offset := Paging{Page: tt.page, Size: tt.size}.Offset()
+			offset := Paging{Page: tt.page, Size: tt.size}.normalized(DefaultMaxPageSize).offset()
 			if offset != tt.expected {
 				t.Errorf("Expected offset %d, got %d", tt.expected, offset)
 			}
@@ -187,15 +187,15 @@ func TestConstants(t *testing.T) {
 	}
 }
 
-// TestPageReq_OffsetClampsOutOfRangePage documents what Offset does with a page that
+// TestPageReq_OffsetClampsOutOfRangePage documents what Page does with a page that
 // Paging rejects: it clamps to the last representable page rather than
 // wrapping around to the first one.
 func TestPageReq_OffsetClampsOutOfRangePage(t *testing.T) {
 	page := Paging{Page: MaxPageNumber * 10, Size: 20}
 
 	want := 20 * (MaxPageNumber - 1)
-	if got := page.Offset(); got != want {
-		t.Fatalf("Offset() = %d, want %d", got, want)
+	if got := page.normalized(DefaultMaxPageSize).offset(); got != want {
+		t.Fatalf("offset = %d, want %d", got, want)
 	}
 }
 

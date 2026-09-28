@@ -46,7 +46,8 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 - 按主键读写都有类型：`TableXxx.Get(ctx, db, id)`（没有时包装 `sql.ErrNoRows`）、`Find`（没有时 `nil, nil`）、`Fetch(ctx, db, ids...)`（按给定顺序、任意数量），`BatchDeleteByPK` / `BatchHardDeleteByPK` 收 `[]K`——传错类型编译不过（此前收任意 `Arg`，运行时才检查）。`TableXxx.FetchBy(ctx, db, col, values, conds...)` 按其他唯一列取，`TableXxx.Query()` 是读全表（带声明的搜索列）的查询。
 - 别名是表的方法：`pre := TableCourse.As("pre")` 返回的表上每列都已绑到别名（`pre.ID`）；`Column.As` 和 `tsq.AliasTable` 删除，单列改绑用 `col.WithTable(source)`。`Table` 接口的 `Name()` 改名为 `TableName()`，列字段因此可以叫 `Name`。
 - `tsq.UpdateTable` / `HardDeleteFrom` 收 `tsq.RowTable[R]`，`tsq.DeleteFrom` 只收 `tsq.SoftDeleteTable[R]`；生成的表结构体、`*tsq.TableOf` 和 `*tsq.SoftDeleteTableOf` 按各自的形状满足它们。对别名执行会被拒绝。
-- `TSQTables()` 返回 `[]tsq.Table`，`TableRegistration` 删除；schema 与索引从描述符读取，`ColumnSpecs()` / `Indexes()` 可供工具使用。
+- `TSQTables()` 返回 `[]tsq.Table`，`TableRegistration` 删除；schema 与索引从描述符读取，`ColumnSpecs()` / `Indexes()` 可供工具使用。手写 `TableSpec` 时 `Define` 要求 `ColumnSpecs` 覆盖每一列、主键和自增与 `PrimaryKey` / `AutoIncrement` 一致。
+- `Paging.Offset()` 删除：offset 是 `Page` 的实现细节，使用者手算 offset 正是它要避免的事。`DefaultMaxPageSize` 挪到分页文件并改为约束 `Paging.Size`。
 
 **参数**
 
@@ -82,7 +83,7 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 - 行写入在表描述符上：`TableXxx.Insert/Update/HardDelete(ctx, db, &row)` 与 `BatchInsert/BatchUpdate/BatchHardDelete(ctx, db, rows, options...)`，软删除表另有 `Delete` / `BatchDelete`；生成的行方法转发给它们。包级的 `tsq.Insert` / `tsq.Update` / `tsq.Delete` / `tsq.Batch*` 删除，按主键删除是 `TableXxx.BatchHardDeleteByPK(ctx, db, ids, options...)`，软删除表另有 `BatchDeleteByPK`。
 - 托管列由库维护，不再由生成代码维护：`Insert` 只在未设置时填 `created_at` / `updated_at`，`Update` 总是刷新 `updated_at`。单行写入的错误带主键（`users id=5`），乐观锁冲突以 `*OptimisticLockError`（字段导出）包装返回。
-- 按条件写：`tsq.UpdateTable(TableXxx)` / `tsq.DeleteFrom(TableXxx)` / `tsq.HardDeleteFrom(TableXxx)`，返回 `*UpdateBuilder[R]`（`Set` 是泛型方法，只能是具体类型）/ 接口 `DeleteStage[R]`；`Set` 接受列、参数、`tsq.Val` 或子查询，`tsq.Val` 包 nil 指针可写 `NULL`。`Mutation.SQL()` 改为 `SQL(dialect, args...)`。
+- 按条件写：`tsq.UpdateTable(TableXxx)` / `tsq.DeleteFrom(TableXxx)` / `tsq.HardDeleteFrom(TableXxx)`，`UpdateTable` 返回 `*UpdateStage[R]`，上面只有 `Set` / `SetNull`，第一次赋值之后是 `*SetStage[R]`（`Set` 是泛型方法，只能是具体类型），所以不赋值的 UPDATE 编译不过；删除返回封闭接口 `DeleteStage[R]`，`Where(cond, more...)` 之后是封闭的 `MutationStage[R]`；`Set` 接受列、参数、`tsq.Val` 或子查询，`tsq.Val` 包 nil 指针可写 `NULL`。`Mutation.SQL()` 改为 `SQL(dialect, args...)`。
 
 **执行器与运行时**
 
@@ -123,12 +124,12 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 - `tsq.Exists(sq)` / `tsq.NotExists(sq)` 是包级泛型函数，任何查询阶段或 `*Query` 都能传，不论选了几列。
 - 没有 `Unique` / `NUnique` / `Concat` / `Now()` 这类不读接收者或只会失败的列方法，需要时用 `Expr` / `Exprf`。
 - **编译错误自己说出改法**：把字面值直接传给比较，报错是 `missing method needsTsqVal`；传切片给 `In` 是 `needsTsqVals`；类型不对是 `have valueOfType(int) want valueOfType(int64)`；传裸 `*sql.DB` 是 `needsRuntimeOrWrapExecutor`。这些是未导出的方法名，只出现在报错里。
-- 右值接口叫 `tsq.Operand[T]`，IN 的列表右值叫 `tsq.ListOperand[T]`：`RHS` 是行话却出现在最常见的编译错误里，`SetRHS` 的 Set 又和 `UpdateBuilder.Set` 的赋值撞词。
+- 右值接口叫 `tsq.Operand[T]`，IN 的列表右值叫 `tsq.ListOperand[T]`：`RHS` 是行话却出现在最常见的编译错误里，`SetRHS` 的 Set 又和 `UpdateStage.Set` 的赋值撞词。
 - `OrderBy` / `Limit` / `Offset` 之后的阶段叫 `OrderedStage`（原 `PagedStage`，名字暗示"已分页"，而 `Page` 恰恰拒绝带 `Limit` / `Offset` 的查询）。
-- `TableIndex.Columns` 与 `MissingIndexError.Columns`（原 `Fields`，装的是列名，指令里的 field 指 Go 字段）；`TableSpec.ColumnSpecs` 与 `TableOf.ColumnSpecs()`（原 `Schema`，只含列定义，不含索引；`Schema` 也因此不再是保留的列字段名）。
-- `UpdateBuilder.Set` 只收表的列 `Column[R, T]`：此前收 `TypedColumn`，`MapInto` 的结果列能编译、运行时才报错。
+- `IndexSpec`（原 `TableIndex`，与 `dialect.ColumnSpec` 对称），`IndexSpec.Columns` 与 `MissingIndexError.Columns`（原 `Fields`，装的是列名，指令里的 field 指 Go 字段）；`TableSpec.ColumnSpecs` 与 `TableOf.ColumnSpecs()`（原 `Schema`，只含列定义，不含索引；`Schema` 也因此不再是保留的列字段名）。
+- `Set` 只收表的列 `Column[R, T]`：此前收 `TypedColumn`，`MapInto` 的结果列能编译、运行时才报错。
 - 全文检索的检索词类型叫 `tsq.MatchTerm`（和 `tsq.Matches` 配对），避免和关键词搜索那套 `Search` 名字混淆。
-- 错误类型以 `Error` 结尾且字段导出：`OptimisticLockError`、`RowStateError`、`SortError`（排序字段未知或有歧义、方向不是 asc/desc、两个列表长度不一致，都是它，`Field` + `Reason`）、`MissingIndexError`、`MissingTableError`，以及 `dialect.UnsupportedCapabilityError`；`OptimisticLockError` / `RowStateError` 的 `Expected` 和 `Actual` 都是 `int64`。`RegistrationError` 删除，注册错误由 `Define` 报告。
+- 错误类型以 `Error` 结尾且字段导出：`OptimisticLockError`、`RowStateError`、`SortError`（排序字段未知或有歧义、方向不是 asc/desc、两个列表长度不一致，都是它，`Field` + `Reason`）、`MissingIndexError`、`MissingTableError`（表名字段叫 `Table`，与其他错误一致），以及 `dialect.UnsupportedCapabilityError`；`RowStateError.Op` 是 `tsq.TraceOp`（新增 `TraceOpRestore`，恢复也按它追踪），`Need` 是 `tsq.RowState`（`RowExists` / `RowLive` / `RowDeleted`），此前都是自由文本；`OptimisticLockError` / `RowStateError` 的 `Expected` 和 `Actual` 都是 `int64`。`RegistrationError` 删除，注册错误由 `Define` 报告。
 - 其余命名：`NewColumn`、`Runtime.WithTxResult[T]`。
 - 只留使用者用得到的导出面：`OrderBy` 只有 `NullsFirst()` / `NullsLast()`（排序方向类型 `Order`、`ASC` / `DESC`、`Reverse` 和两个取值方法是内部实现）；`SQLColumn` 只有 `Name()`；`Param` / `ListParam` 没有 `Name()`；`Page` 只有 `HasNext()`（上一页就是 `Page > 1`）；`SQLColumns`、`TableOf.SearchColumns()` 不导出；`dialect.ColumnSpec` 没有只在读回数据库结构时才有意义的 `NativeType`。
 
@@ -144,7 +145,8 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 **`dialect` 包**
 
 - `dialect` 只剩名字和事实：方言名 `dialect.MySQL` / `Postgres` / `SQLite`（类型 `dialect.Name`）；能力常量与 `dialect.Supports(name, capability)`、`dialect.Check(name, capability)`；`*dialect.UnsupportedCapabilityError`（导出 `Capability`、`Dialect` 字段）；生成代码声明列用的 `ColumnSpec`、`ColumnType`、`ColumnKind`（`KindBool` … `KindTime`）、`Fill`。
-- `Dialect` 接口、`MySQLDialect` / `PostgresDialect` / `SQLiteDialect`、schema 探查、DDL 渲染和绑定上限都是内部实现，不再导出：它们从来不是扩展点，导出只会让每次内部调整都变成破坏性变更。`tsq.NewRuntime`、`tsq.WrapExecutor`、`Query.SQL`、`Mutation.SQL` 收 `dialect.Name`。
+- `Dialect` 接口、`MySQLDialect` / `PostgresDialect` / `SQLiteDialect`、schema 探查、DDL 渲染和绑定上限都是内部实现，不再导出：它们从来不是扩展点，导出只会让每次内部调整都变成破坏性变更。`tsq.NewRuntime`、`tsq.WrapExecutor`、`Query.SQL`、`Mutation.SQL` 收 `dialect.Name`。`WrapExecutor` 返回 `(Executor, error)`，句柄为 nil 或方言未知时报错（此前返回 nil，错误在第一条语句才出现）。
+- 能力常量按构建器方法命名，值就是错误里显示的 SQL：`CapabilityFullJoin`（原 `CapabilityFullOuterJoin`）、`CapabilityForUpdate` / `CapabilityForShare` / `CapabilityNoWait` / `CapabilitySkipLocked`（原 `CapabilitySelectFor*`）；`Supports` / `Check` 不再接受 `"full join"` 这类字符串拼写。
 
 ### 修复
 

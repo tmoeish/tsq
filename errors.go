@@ -17,9 +17,12 @@ import (
 // On a table with a version column a row that is gone is an OptimisticLockError:
 // its version no longer matches.
 type RowStateError struct {
-	Table    string
-	Op       string
-	Need     string
+	Table string
+	// Op is the write: TraceOpUpdate, TraceOpDelete (a soft delete) or
+	// TraceOpRestore.
+	Op TraceOp
+	// Need is the state the write needed the rows in.
+	Need     RowState
 	Expected int64
 	Actual   int64
 	// Keys are the primary keys of the rows in the wrong state, when the write
@@ -30,6 +33,32 @@ type RowStateError struct {
 func (e *RowStateError) Error() string {
 	return fmt.Sprintf("%s on %s needs %s: expected %d row(s) to match, matched %d%s",
 		e.Op, e.Table, e.Need, e.Expected, e.Actual, keysSuffix(e.Keys))
+}
+
+// RowState is the state a write needs its rows in.
+type RowState uint8
+
+const (
+	// RowExists is a row still in the table: an Update on a table without
+	// deleted_at.
+	RowExists RowState = iota + 1
+	// RowLive is a row not soft-deleted: an Update or Delete on a soft-delete table.
+	RowLive
+	// RowDeleted is a soft-deleted row: a Restore.
+	RowDeleted
+)
+
+func (s RowState) String() string {
+	switch s {
+	case RowExists:
+		return "an existing row"
+	case RowLive:
+		return "a live row"
+	case RowDeleted:
+		return "a deleted row"
+	default:
+		return fmt.Sprintf("RowState(%d)", uint8(s))
+	}
 }
 
 // keysSuffix names the rows an error is about. Only keys are printed: the rest of
@@ -95,10 +124,11 @@ func IsRetryableNetworkError(err error) bool {
 	return errors.As(err, &netErr) && netErr.Timeout()
 }
 
-// IsTxConflictError reports whether err is a deadlock or serialization failure
-// the database has already rolled back, which is the only class TSQ retries
-// after a failed COMMIT: those codes guarantee the transaction is gone, while a
-// network failure at commit time leaves it unknown whether the commit landed.
+// IsTxConflictError reports whether err is a conflict that running the whole
+// transaction again can resolve: a deadlock, a serialization failure, or a lock
+// that could not be taken (a wait timeout, or NOWAIT). It is the only class TSQ
+// retries after a failed COMMIT, because a COMMIT failing with one of them did
+// not commit; a network failure at commit time leaves that unknown.
 func IsTxConflictError(err error) bool {
 	if err == nil {
 		return false

@@ -6,10 +6,6 @@ import (
 )
 
 // RuntimeOption configures a Runtime while it is being constructed.
-//
-// Options replaced a single *RuntimeOptions struct pointer passed as a variadic
-// argument, which made "no options" and "one options value" the same signature
-// and left every field's zero value doing double duty as "unset".
 type RuntimeOption func(*runtimeConfig)
 
 // runtimeConfig accumulates the applied options before any of them is validated,
@@ -75,8 +71,8 @@ func WithSQLLogging() RuntimeOption {
 	}
 }
 
-// WithMaxPageSize caps PageRequest.Size for paged queries run through this
-// runtime. It defaults to DefaultMaxPageSize; a size below 1 is an error, not a
+// WithMaxPageSize caps the page size (Paging.Size) of paged queries run through
+// this runtime. It defaults to DefaultMaxPageSize; a size below 1 is an error, not a
 // request for the default.
 func WithMaxPageSize(size int) RuntimeOption {
 	return func(cfg *runtimeConfig) {

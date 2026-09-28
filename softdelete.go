@@ -96,7 +96,7 @@ func (t *SoftDeleteTableOf[R, K]) Restore(ctx context.Context, db Executor, row 
 
 // BatchRestore restores rows in as few statements as the batch size allows.
 func (t *SoftDeleteTableOf[R, K]) BatchRestore(ctx context.Context, db Executor, rows []*R, options ...BatchOption) error {
-	return traceExecutor(ctx, db, t.traceInfo(TraceOpUpdate), func(ctx context.Context) error {
+	return traceExecutor(ctx, db, t.traceInfo(TraceOpRestore), func(ctx context.Context) error {
 		config, err := newBatchConfig(options, false)
 		if err != nil {
 			return err
