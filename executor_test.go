@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-sql-driver/mysql"
 	_ "modernc.org/sqlite"
 
 	tsqdialect "github.com/tmoeish/tsq/v4/dialect"
@@ -481,6 +482,12 @@ func TestIsRetryableNetworkError(t *testing.T) {
 func TestIsRetryableTransactionConflictError(t *testing.T) {
 	if !IsRetryableTransactionConflictError(fakeSQLStateError{state: "40001"}) {
 		t.Fatal("expected postgres serialization failure to be retryable")
+	}
+	// NOWAIT finding the row locked: PostgreSQL's 55P03 was retried, MySQL's was not.
+	for _, number := range []uint16{1205, 1213, 3572} {
+		if !IsRetryableTransactionConflictError(&mysql.MySQLError{Number: number}) {
+			t.Fatalf("expected MySQL error %d to be retryable", number)
+		}
 	}
 	if IsRetryableTransactionConflictError(errors.New("boom")) {
 		t.Fatal("expected generic error to stay non-retryable")

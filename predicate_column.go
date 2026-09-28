@@ -69,11 +69,11 @@ func (c columnImpl[Owner, T]) InVar() Condition {
 
 // NInVar binds a slice at execution time for NOT IN predicates.
 //
-// For nil and empty slices, TSQ renders the empty-set form `NOT IN (SELECT 1
-// WHERE 1 = 0)`, which preserves the explicit "match everything" meaning of an
-// empty NOT IN list across the built-in dialects.
+// For nil and empty slices, TSQ renders `(col NOT IN (NULL) OR (1 = 1))`, which
+// preserves the explicit "match everything" meaning of an empty NOT IN list on
+// every built-in dialect and for every column type.
 func (c columnImpl[Owner, T]) NInVar() Condition {
-	return c.Pred(`%s NOT IN (%s)`, varNotInSliceMarker)
+	return c.Pred(`(%s NOT IN (%s))`, varNotInSliceMarker)
 }
 
 // BetweenVar compares the column to two runtime-bound values with BETWEEN.

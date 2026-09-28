@@ -264,8 +264,27 @@ func (r *Runtime) applyTablePolicyForTable(ctx context.Context, table *registere
 	}
 
 	switch r.tablePolicy {
-	case SchemaPolicyValidate, SchemaPolicyCreateMissing:
+	case SchemaPolicyValidate:
 		return fmt.Errorf("table %s schema mismatch: %s", tableName, summarizeTableColumnChanges(changes))
+	case SchemaPolicyCreateMissing:
+		// A missing column is a missing object, which this policy creates; a
+		// column that differs or is not declared still fails, and nothing is added
+		// while one is there.
+		added := slices.DeleteFunc(slices.Clone(changes), func(c tableColumnChange) bool { return c.kind != tableColumnAdd })
+		if len(added) < len(changes) {
+			return fmt.Errorf("table %s schema mismatch: %s", tableName, summarizeTableColumnChanges(changes))
+		}
+
+		statements, err := renderTableColumnChanges(r.dialect, tableName, added)
+		if err != nil {
+			return fmt.Errorf("add columns to %s: %w", tableName, err)
+		}
+
+		for _, statement := range statements {
+			if err := r.execDDL(ctx, statement); err != nil {
+				return fmt.Errorf("add column to %s: %w", tableName, err)
+			}
+		}
 	case SchemaPolicyReconcile, SchemaPolicyManaged:
 		for _, change := range changes {
 			if change.kind == tableColumnDrop {
@@ -894,6 +913,18 @@ func renderRebuildTableStatements(
 		))
 	}
 
+	// AUTOINCREMENT promises never to reuse a key, and the counter lives in
+	// sqlite_sequence under the table's name: the new table would otherwise count
+	// on from its largest copied key and hand out again the keys of rows deleted
+	// after it. The old counter (renamed with the table) is carried over.
+	if slices.ContainsFunc(desired, func(c tsqdialect.DDLColumnSpec) bool { return c.AutoIncrement }) {
+		statements = append(statements,
+			fmt.Sprintf("DELETE FROM sqlite_sequence WHERE name = %s;", sqlStringLiteral(tableName)),
+			fmt.Sprintf("INSERT INTO sqlite_sequence (name, seq) SELECT %s, seq FROM sqlite_sequence WHERE name = %s;",
+				sqlStringLiteral(tableName), sqlStringLiteral(tempTable)),
+		)
+	}
+
 	statements = append(statements, fmt.Sprintf("DROP TABLE %s;", dialect.QuoteField(tempTable)))
 
 	// Dropping the old table also drops its indexes; restore every secondary
@@ -963,4 +994,9 @@ func sharedColumnNames(current, desired []tsqdialect.DDLColumnSpec) []string {
 
 func containsString(items []string, target string) bool {
 	return slices.Contains(items, target)
+}
+
+// sqlStringLiteral quotes s as a SQL string literal.
+func sqlStringLiteral(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
 }

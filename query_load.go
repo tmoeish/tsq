@@ -366,19 +366,22 @@ func (q *Query[O]) buildPageSQLsWithLimit(page *PageRequest, maxSize int) (strin
 
 	for _, f := range q.selectCols {
 		sortExpr := rawColumnQualifiedName(f)
+
+		// A set operation is ordered by its output columns, and TSQ names one only
+		// by the column it selects: an expression's name is the dialect's to make
+		// up, and a JSON name is not a column name at all.
 		if q.hasSetOps {
+			if t, ok := f.(interface{ isTransformedExpression() bool }); ok && t.isTransformedExpression() {
+				continue
+			}
+
 			sortExpr = rawIdentifier(f.OutputName())
 		}
 
 		registerSortableField(f.OutputName(), sortExpr)
 
 		if f.JSONFieldName() != "" && f.JSONFieldName() != "-" {
-			jsonSortExpr := rawColumnQualifiedName(f)
-			if q.hasSetOps {
-				jsonSortExpr = rawIdentifier(f.JSONFieldName())
-			}
-
-			registerSortableField(f.JSONFieldName(), jsonSortExpr)
+			registerSortableField(f.JSONFieldName(), sortExpr)
 		}
 	}
 

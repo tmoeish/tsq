@@ -34,6 +34,14 @@ func (sq *typedSubquery[O, T]) subqueryArgs() []any {
 	return sq.query.subqueryArgs()
 }
 
+func (sq *typedSubquery[O, T]) subqueryShape() (limited, searched bool) {
+	if sq == nil || sq.query == nil {
+		return false, false
+	}
+
+	return sq.query.subqueryShape()
+}
+
 func (sq *typedSubquery[O, T]) subquerySelectCount() int {
 	if sq == nil {
 		return 0

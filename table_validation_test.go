@@ -305,7 +305,7 @@ func TestJoinValidation_SelfJoinWithAliasSucceeds(t *testing.T) {
 		t.Fatalf("expected no error for self-join with alias, got: %v", err)
 	}
 
-	want := `SELECT "users"."id", "parent_users"."id" FROM "users" LEFT JOIN "users" AS "parent_users" ON "users"."parent_id" = "parent_users"."id"`
+	want := `SELECT "users"."id", "parent_users"."id" AS "tsq_c2" FROM "users" LEFT JOIN "users" AS "parent_users" ON "users"."parent_id" = "parent_users"."id"`
 	if got := query.ListSQL(); got != want {
 		t.Fatalf("expected aliased self-join SQL %q, got %q", want, got)
 	}

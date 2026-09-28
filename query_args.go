@@ -423,9 +423,14 @@ func expandSlicePlaceholders(size int) string {
 	return builder.String()
 }
 
+// expandNotInSlicePlaceholders fills the list of `(col NOT IN (%s))`. An empty
+// list must match every row: NOT IN (NULL) alone matches none, so the empty case
+// closes the list and ORs in a true term inside the predicate's own parentheses.
+// It used to be the empty subquery SELECT 1 WHERE 1 = 0, whose integer column
+// PostgreSQL refuses to compare with a text column (varchar = integer).
 func expandNotInSlicePlaceholders(size int) string {
 	if size == 0 {
-		return "SELECT 1 WHERE 1 = 0"
+		return "NULL) OR (1 = 1"
 	}
 
 	return expandSlicePlaceholders(size)

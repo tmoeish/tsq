@@ -3,10 +3,15 @@ package tsq
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
+	"errors"
 	"fmt"
 	"log/slog"
 	"reflect"
 	"strings"
+	"time"
+
+	tsqdialect "github.com/tmoeish/tsq/v4/dialect"
 )
 
 type mutationField struct {
@@ -206,7 +211,9 @@ func insertBatch(ctx context.Context, exec SQLExecutor, records []mutationRecord
 		return err
 	}
 
-	assignBatchInsertIDs(ctx, exec, records, result, omittedPrimaryKey)
+	if err := assignBatchInsertIDs(ctx, exec, records, result, omittedPrimaryKey); err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -277,6 +284,10 @@ func updateBatch(ctx context.Context, exec SQLExecutor, records []mutationRecord
 		if !mutationFieldColumnsEqual(updateFields, updateFieldsForRecord(record)) {
 			return 0, errUpdateLayoutMismatch
 		}
+	}
+
+	if err := refuseDuplicateMutationKeys(records); err != nil {
+		return 0, err
 	}
 
 	tableSQL, err := quoteMutationIdentifier(exec, records[0].tableName)
@@ -361,12 +372,8 @@ func updateBatch(ctx context.Context, exec SQLExecutor, records []mutationRecord
 		return 0, err
 	}
 
-	if hasOptimisticLock && rowsAffected != int64(len(records)) {
-		return rowsAffected, &ErrOptimisticLockConflict{
-			table:    records[0].tableName,
-			expected: len(records),
-			actual:   rowsAffected,
-		}
+	if rowsAffected != int64(len(records)) {
+		return rowsAffected, explainUpdateShortfall(ctx, exec, records, updateFields, rowsAffected)
 	}
 
 	if hasOptimisticLock {
@@ -374,6 +381,205 @@ func updateBatch(ctx context.Context, exec SQLExecutor, records []mutationRecord
 	}
 
 	return rowsAffected, nil
+}
+
+// explainUpdateShortfall handles an update that matched fewer rows than it was
+// given. A batch is not a transaction, so the database may hold the update for
+// some rows: they are read back, and a row counts as written when it holds the
+// next version and the values the statement wrote. Those rows get their new
+// version in memory, as the rows of a fully successful update do, and the error
+// names the others; the rows used to keep their old version, so retrying them
+// could never succeed.
+//
+// Without a version column a shortfall is not a conflict: MySQL counts only the
+// rows an UPDATE changed, so writing a row's current values reports none. Only
+// rows that are gone are an error then, which wraps sql.ErrNoRows; it used to be
+// reported as success.
+func explainUpdateShortfall(ctx context.Context, exec SQLExecutor, records []mutationRecord, updateFields []mutationField, affected int64) error {
+	versioned := hasOptimisticMutation(records[0])
+
+	var compared []mutationField
+	if versioned {
+		compared = append(compared, records[0].versionField)
+
+		for _, field := range updateFields {
+			// A database may store a time at a coarser precision than was bound.
+			if !isTimeMutationValue(field.value) {
+				compared = append(compared, field)
+			}
+		}
+	}
+
+	stored, err := readBackMutationRecords(ctx, exec, records, compared)
+	if err != nil {
+		if versioned {
+			return errors.Join(&ErrOptimisticLockConflict{table: records[0].tableName, expected: len(records), actual: affected},
+				fmt.Errorf("read back the rows: %w", err))
+		}
+
+		return fmt.Errorf("update %s: read back the rows: %w", records[0].tableName, err)
+	}
+
+	var missing []any
+
+	for _, record := range records {
+		values, found := stored[mutationValueText(record.pkField.value.Interface())]
+		written := found
+
+		for i, field := range compared {
+			want := mutationFieldByColumn(record.fields, field.column).value
+			if field.column == record.versionField.column {
+				want = nextMutationVersion(record.versionField.value)
+			}
+
+			if written && values[i] != mutationValueText(want.Interface()) {
+				written = false
+			}
+		}
+
+		if !written {
+			missing = append(missing, record.pkField.value.Interface())
+			continue
+		}
+
+		if versioned {
+			incrementMutationVersions([]mutationRecord{record})
+		}
+	}
+
+	switch {
+	case versioned:
+		return &ErrOptimisticLockConflict{table: records[0].tableName, expected: len(records), actual: affected, keys: missing}
+	case len(missing) > 0:
+		return fmt.Errorf("update %s: no row with primary key %v: %w", records[0].tableName, missing, sql.ErrNoRows)
+	}
+
+	return nil
+}
+
+// readBackMutationRecords returns the columns of the rows among records, keyed and
+// rendered by mutationValueText.
+func readBackMutationRecords(ctx context.Context, exec SQLExecutor, records []mutationRecord, columns []mutationField) (map[string][]string, error) {
+	tableSQL, err := quoteMutationIdentifier(exec, records[0].tableName)
+	if err != nil {
+		return nil, err
+	}
+
+	names := make([]string, 0, len(columns)+1)
+	for _, field := range append([]mutationField{records[0].pkField}, columns...) {
+		quoted, err := quoteMutationIdentifier(exec, field.column)
+		if err != nil {
+			return nil, err
+		}
+
+		names = append(names, quoted)
+	}
+
+	var argIndex int
+
+	placeholders := make([]string, 0, len(records))
+	args := make([]any, 0, len(records))
+
+	for _, record := range records {
+		placeholders = append(placeholders, nextBindVar(exec, &argIndex))
+		args = append(args, record.pkField.value.Interface())
+	}
+
+	query := fmt.Sprintf("SELECT %s FROM %s WHERE %s IN (%s)",
+		strings.Join(names, ", "), tableSQL, names[0], strings.Join(placeholders, ", "))
+
+	rows, err := exec.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() { _ = rows.Close() }()
+
+	stored := make(map[string][]string, len(records))
+
+	for rows.Next() {
+		key := reflect.New(records[0].pkField.value.Type())
+		dest := []any{key.Interface()}
+
+		held := make([]reflect.Value, 0, len(columns))
+		for _, field := range columns {
+			v := reflect.New(field.value.Type())
+			held = append(held, v)
+			dest = append(dest, v.Interface())
+		}
+
+		if err := rows.Scan(dest...); err != nil {
+			return nil, err
+		}
+
+		values := make([]string, 0, len(held))
+		for _, v := range held {
+			values = append(values, mutationValueText(v.Elem().Interface()))
+		}
+
+		stored[mutationValueText(key.Elem().Interface())] = values
+	}
+
+	return stored, rows.Err()
+}
+
+// mutationValueText renders a value the way the driver would bind it, so a value
+// read back into the field's own type compares with the one written.
+func mutationValueText(v any) string {
+	if converted, err := driver.DefaultParameterConverter.ConvertValue(v); err == nil {
+		v = converted
+	}
+
+	return fmt.Sprintf("%#v", v)
+}
+
+// isTimeMutationValue reports a field the driver binds as a time: time.Time,
+// *time.Time, sql.NullTime and the other nullable time wrappers.
+func isTimeMutationValue(v reflect.Value) bool {
+	switch v.Interface().(type) {
+	case time.Time, *time.Time:
+		return true
+	}
+
+	if converted, err := driver.DefaultParameterConverter.ConvertValue(v.Interface()); err == nil {
+		_, isTime := converted.(time.Time)
+		return isTime
+	}
+
+	return false
+}
+
+// nextMutationVersion is v plus one, in v's own type.
+func nextMutationVersion(v reflect.Value) reflect.Value {
+	next := reflect.New(v.Type()).Elem()
+	next.Set(v)
+
+	switch next.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		next.SetInt(next.Int() + 1)
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		next.SetUint(next.Uint() + 1)
+	}
+
+	return next
+}
+
+// refuseDuplicateMutationKeys refuses two records with one primary key: the
+// statement writes a row once, so one of them was dropped without a word (or,
+// with a version column, reported as a conflict after the other was written).
+func refuseDuplicateMutationKeys(records []mutationRecord) error {
+	seen := make(map[string]int, len(records))
+
+	for i, record := range records {
+		key := mutationValueText(record.pkField.value.Interface())
+		if first, dup := seen[key]; dup {
+			return fmt.Errorf("rows %d and %d have the same primary key %v", first, i, record.pkField.value.Interface())
+		}
+
+		seen[key] = i
+	}
+
+	return nil
 }
 
 func deleteBatch(ctx context.Context, exec SQLExecutor, records []mutationRecord) (int64, error) {
@@ -479,19 +685,22 @@ func assignMutationID(field reflect.Value, id int64) {
 	}
 }
 
-func assignBatchInsertIDs(ctx context.Context, exec SQLExecutor, records []mutationRecord, result sql.Result, omittedPrimaryKey bool) {
+// assignBatchInsertIDs writes the generated keys of an INSERT into records. A
+// driver that cannot report them is an error: the rows would otherwise keep a
+// zero key that every later write of them refuses, with nothing saying why.
+func assignBatchInsertIDs(ctx context.Context, exec SQLExecutor, records []mutationRecord, result sql.Result, omittedPrimaryKey bool) error {
 	if !omittedPrimaryKey || len(records) == 0 {
-		return
+		return nil
 	}
 
 	lastID, err := result.LastInsertId()
 	if err != nil {
-		return
+		return fmt.Errorf("read the generated key: %w", err)
 	}
 
 	if len(records) == 1 {
 		assignMutationID(records[0].pkField.value, lastID)
-		return
+		return nil
 	}
 
 	rowsAffected, err := result.RowsAffected()
@@ -502,20 +711,34 @@ func assignBatchInsertIDs(ctx context.Context, exec SQLExecutor, records []mutat
 			"error", err,
 		)
 
-		return
+		return nil
 	}
 
 	dialect := dialectForExecutor(exec)
 	if dialect == nil {
-		return
+		return nil
 	}
 
 	startID, ok := dialect.BatchInsertStartID(lastID, rowsAffected)
 	if !ok {
-		return
+		return nil
+	}
+
+	// MySQL spaces the keys of one INSERT by auto_increment_increment, which a
+	// multi-primary setup raises above 1; they used to be assumed consecutive.
+	step := int64(1)
+
+	if dialect.Name() == tsqdialect.MySQL {
+		if err := exec.QueryRowContext(ctx, "SELECT @@auto_increment_increment").Scan(&step); err != nil {
+			return fmt.Errorf("read the auto-increment step: %w", err)
+		}
+
+		step = max(step, 1)
 	}
 
 	for i, record := range records {
-		assignMutationID(record.pkField.value, startID+int64(i))
+		assignMutationID(record.pkField.value, startID+int64(i)*step)
 	}
+
+	return nil
 }

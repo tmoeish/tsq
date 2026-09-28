@@ -276,12 +276,8 @@ CI 调了一个不存在的 `make update-examples`，同一个幽灵在 README /
 
 ### 生成的 `.sql` 文件头停在旧版本是**有意的**，别去"修"它 (2026-08-28)
 
-`examples/academy/{mysql,postgres,sqlite}.sql` 的头写着 `tsq-v4.1.19`，而 `.tsq.go` 是当前
-版本。看起来像"改版本号忘了重新生成"，**不是**：`tsq.json` 保存着首次建 schema 时的原始
-`.sql` 内容，聚合文件由它重建、后续变更以带日期的迁移段追加。**文件头记的是这份 schema 的
-出身，不是最近一次生成的版本**，所以它就该停在那儿，`gen-check` 也因此是绿的。
-
-留下这条是为了下一个人别再查一遍、更别"修"成当前版本——那会让每次发版都重写三个 DDL 文件的头，把真正的 schema 变更淹掉。
+`tsq.json` 保存首次建 schema 时的原始 `.sql`，后续变更以带日期的迁移段追加，**文件头记的是 schema 的出身**。
+"修"成当前版本会让每次发版都重写三个 DDL 文件头，把真正的 schema 变更淹掉。
 
 ### 能力位的 `default` 分支是那道门自己的漏洞 (2026-08-26)
 
@@ -311,17 +307,11 @@ SARIF 那一遍不排除，于是门禁已接受的每处读文件都开一条�
 
 改这类路径用 `git mv` 而不是删了重建（`git log --follow` 才追得到），并 `grep -rn` 一遍。
 
-### 第一次真跑 PR 发版流程暴露的两件事 (2026-08-21)
+### 第一次真跑 PR 发版流程暴露的三件事 (2026-08-21)
 
-- **squash 之后不能 `git pull --ff-only`**：squash 在 origin 上造出**新** commit，本地的
-  原始提交不在它的历史里，必然报分叉。正确动作是 `git fetch` + `git reset --hard origin/main`。
-- **发版 PR 里只该有发版提交**：曾把三个没推的提交一起卷进发版 PR，squash 之后 `main` 上只剩
-  一句 `chore: release`，那三条提交信息从 `git log` 消失。`release.py` 现在检查
-  `origin/main..main` 为空，不空就拒绝。
-- **别把新分支叠在还没合的 PR 分支上**：上游被 squash 后产生新 SHA，你那份原始提交立刻冲突。
-  开新分支前先 `git checkout main && git fetch && git reset --hard origin/main`。
-
-三条是同一件事的三个面：**squash 的粒度是 PR，所以 PR 的粒度就是你能保留的历史粒度。**
+squash 之后 `pull --ff-only` 报分叉（用 `fetch` + `reset --hard`）、卷进发版 PR 的提交信息消失（`release.py`
+检查 `origin/<分支>..<分支>` 为空）、叠在未合并分支上必然冲突。**squash 的粒度是 PR，所以 PR 的粒度就是你能保留的
+历史粒度。**
 
 ### 把并发写入者的改动误判成了工具的 bug (2026-08-21)
 
@@ -396,5 +386,10 @@ goreleaser v2.18.1 一发布就要求 Go >= 1.27.1，CI 用 `GOTOOLCHAIN=local` 
   `WrapExecutor`，随之失去 `LogSQL`、tracer 和 `MaxPageSize`。真实缺口，属于新特性。
 - **`detectSQLCapabilities` 靠字符串匹配**渲染好的 SQL：标识符 base64 编码避开了大部分误判，
   但 `Expr` / `Pred` 的字面量含 ` EXCEPT ` / ` FOR UPDATE` 会误报。正解是从 `querySpec` 导出。
-- **CLI 不拆子模块**：`x/tools` 和 `gofumpt` 只被 `internal/` 用却进了使用者的 `go.sum`。
-  拆分是破坏性变更，留给 v5。
+
+### 维护线移植 v5 审计修复的取舍 (2026-09-28)
+
+补丁版不加导出 API、不改导出接口：`Dialect` 不加方法（MySQL 自增步长在执行器里按方言名查
+`@@auto_increment_increment`，SQLite 的 `INTERSECT ALL` 按方言名拒绝），过期行的主键只进错误消息
+（`ErrOptimisticLockConflict` 的未导出字段），无版本列更新缺行包 `sql.ErrNoRows`。过去被静默忽略、
+现在会让 `tsq gen` 失败的写法只打警告。空 `NInVar` 靠 `(%s NOT IN (%s))` 外层括号装下 `OR (1 = 1)`。

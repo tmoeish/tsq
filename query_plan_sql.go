@@ -2,6 +2,7 @@ package tsq
 
 import (
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -90,13 +91,36 @@ func (spec querySpec[O]) buildListBodySQL(useKeyword bool) (string, []any) {
 }
 
 func (spec querySpec[O]) buildCompoundListSQL(useKeyword bool) (string, []any) {
-	baseSQL, baseArgs := spec.buildSimpleCompoundOperandSQL(useKeyword)
-	args := slices.Clone(baseArgs)
+	return spec.buildCompoundChainSQL(useKeyword, len(spec.SetOps))
+}
 
-	var builder strings.Builder
-	builder.WriteString(baseSQL)
+// buildCompoundChainSQL writes the first operand and the first n set operations.
+// A chain is evaluated left to right, as it reads; SQL instead binds INTERSECT
+// tighter than UNION and EXCEPT on MySQL and PostgreSQL but not on SQLite. So the
+// operations before an INTERSECT that follows a UNION or EXCEPT are grouped as a
+// derived table, which every dialect evaluates first.
+func (spec querySpec[O]) buildCompoundChainSQL(useKeyword bool, n int) (string, []any) {
+	ops := spec.SetOps[:n]
 
-	for _, op := range spec.SetOps {
+	var (
+		builder strings.Builder
+		args    []any
+	)
+
+	if split := regroupSetOperationsAt(ops); split > 0 {
+		prefixSQL, prefixArgs := spec.buildCompoundChainSQL(useKeyword, split)
+		builder.WriteString(derivedSetOperand(prefixSQL))
+
+		args = append(args, prefixArgs...)
+		ops = ops[split:]
+	} else {
+		baseSQL, baseArgs := spec.buildSimpleCompoundOperandSQL(useKeyword)
+		builder.WriteString(baseSQL)
+
+		args = append(args, baseArgs...)
+	}
+
+	for _, op := range ops {
 		rightSQL, rightArgs := op.spec.buildOperandSQL(useKeyword)
 
 		builder.WriteByte(' ')
@@ -110,10 +134,37 @@ func (spec querySpec[O]) buildCompoundListSQL(useKeyword bool) (string, []any) {
 	return builder.String(), args
 }
 
+// regroupSetOperationsAt returns the index of the last INTERSECT preceded by a
+// UNION or EXCEPT, or 0 when the chain means the same flat on every dialect.
+func regroupSetOperationsAt[O Owner](ops []setOperation[O]) int {
+	loose := false
+	split := 0
+
+	for i, op := range ops {
+		if op.op == intersectType || op.op == intersectAllType {
+			if loose {
+				split = i
+			}
+
+			continue
+		}
+
+		loose = true
+	}
+
+	return split
+}
+
+// derivedSetOperand groups a combined query as a derived table: SQLite has no
+// parenthesized compound SELECT, and this spelling runs everywhere.
+func derivedSetOperand(sql string) string {
+	return "SELECT * FROM (" + sql + ") AS tsq_set"
+}
+
 func (spec querySpec[O]) buildOperandSQL(useKeyword bool) (string, []any) {
 	if len(spec.SetOps) > 0 {
 		sql, args := spec.buildListBodySQL(useKeyword)
-		return "(" + sql + ")", args
+		return derivedSetOperand(sql), args
 	}
 
 	return spec.buildSimpleCompoundOperandSQL(useKeyword)
@@ -127,8 +178,24 @@ func (spec querySpec[O]) buildSelect() (string, []any) {
 	args := make([]any, 0, len(spec.Selects))
 	fullNames := make([]string, 0, len(spec.Selects))
 
-	for _, col := range spec.Selects {
-		fullNames = append(fullNames, rawColumnQualifiedName(col))
+	// Rows are read by position, so a column's name only matters where the query
+	// becomes a derived table (counting a grouped query, grouping a set operation),
+	// and there MySQL refuses two columns of one name (error 1060): users.id and
+	// orders.id. A repeated name is replaced after its first use.
+	named := make(map[string]bool, len(spec.Selects))
+
+	for i, col := range spec.Selects {
+		name := rawColumnQualifiedName(col)
+
+		if t, ok := col.(interface{ isTransformedExpression() bool }); !ok || !t.isTransformedExpression() {
+			if named[col.OutputName()] {
+				name += " AS " + rawIdentifier("tsq_c"+strconv.Itoa(i+1))
+			}
+
+			named[col.OutputName()] = true
+		}
+
+		fullNames = append(fullNames, name)
 		args = append(args, expressionArgs(col)...)
 	}
 
@@ -362,6 +429,13 @@ func (spec querySpec[O]) buildQueryTail() (string, []any) {
 		terms := make([]string, 0, len(spec.OrderBys))
 
 		for _, order := range spec.OrderBys {
+			// A set operation is ordered by its output columns, by name: a
+			// table-qualified column is refused by PostgreSQL and MySQL there.
+			if len(spec.SetOps) > 0 {
+				terms = append(terms, rawIdentifier(order.field.OutputName())+" "+string(order.order))
+				continue
+			}
+
 			terms = append(terms, rawColumnQualifiedName(order.field)+" "+string(order.order))
 			args = append(args, expressionArgs(order.field)...)
 		}

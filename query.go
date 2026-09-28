@@ -207,6 +207,14 @@ func (q *Query[O]) subqueryArgs() []any {
 	return slices.Clone(q.listArgs)
 }
 
+func (q *Query[O]) subqueryShape() (limited, searched bool) {
+	if q == nil {
+		return false, false
+	}
+
+	return q.hasLimit, len(q.kwCols) > 0
+}
+
 func (q *Query[O]) subquerySelectCount() int {
 	if q == nil {
 		return 0

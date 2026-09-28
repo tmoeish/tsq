@@ -178,7 +178,7 @@ func main() {
 
 更完整的从零到 SQLite 示例见 [`docs/quickstart.md`](docs/quickstart.md)。
 
-`NewRuntime` 现在会自己 `sql.Open` 并按 `driverName` 解析 dialect。默认策略是 **manual**：TSQ 只记录提醒日志，不会自动补表或补索引。要让启动阶段自动补齐缺失对象，可以显式传：
+`NewRuntime` 现在会自己 `sql.Open` 并按 `driverName` 解析 dialect。默认策略是 **manual**：TSQ 只记录提醒日志，不会自动补表或补索引。要让启动阶段自动补齐缺失对象（表、列、索引；已有的列和声明不一致时仍然报错），可以显式传：
 
 - `TablePolicy: tsq.SchemaPolicyCreateMissing`
 - `IndexPolicy: tsq.SchemaPolicyCreateMissing`
@@ -217,7 +217,7 @@ TSQ 当前内置的 `Dialect` 实现只有 **SQLite / MySQL / PostgreSQL**。下
 | `CASE` 表达式 | ✅ | ✅ | ✅ | 构建与执行都支持 |
 | 行锁读取（`FOR UPDATE` / `FOR SHARE`） | ❌ | ✅ | ✅ | 能否执行取决于运行时 dialect |
 | 非递归 CTE / `WITH` | ✅ | ✅ | ✅ | MySQL 基线为 8.0（5.7 已 EOL），5.7 上会收到数据库报错而不是 TSQ 的拒绝 |
-| `INTERSECT` / `EXCEPT` | ✅ | ✅ | ✅ | MySQL 需要 8.0.31+ |
+| `INTERSECT` / `EXCEPT` | ✅ | ✅ | ✅ | MySQL 需要 8.0.31+；链式组合一律从左到右求值 |
 | `FULL JOIN` 执行 | ✅ | ❌ | ✅ | SQLite 需要 3.39+（内置的 modernc 驱动满足）；MySQL 会在执行前显式拒绝 |
 
 补充说明：
@@ -290,7 +290,7 @@ query, err := tsq.
 ### `NInVar()` 的空切片 / nil 切片语义是“显式全匹配”
 
 `NInVar()` 用于把执行时传入的切片参数展开成 `NOT IN (...)`。  
-如果执行时传入的是空切片或 `nil`，TSQ 会把它渲染成一个空结果子查询，让 `NOT IN (...)` 保持合法 SQL，同时等价于**不过滤任何值**。
+如果执行时传入的是空切片或 `nil`，TSQ 会把它渲染成 `(col NOT IN (NULL) OR (1 = 1))`，让 SQL 保持合法，同时等价于**不过滤任何值**，对任何列类型都成立。
 
 这同样是刻意设计的 API 语义：
 

@@ -55,11 +55,14 @@ func TestResolveQueryExpandsEmptyExternalSliceArgsToNull(t *testing.T) {
 }
 
 func TestResolveQueryExpandsEmptyExternalNotInSliceArgsToEmptySet(t *testing.T) {
-	sqlText, args, err := resolveQuery(`SELECT * FROM "users" WHERE "users"."id" NOT IN (?)`, []any{externalNotInSliceArgMarker{}}, []any{[]int64{}}, "")
+	// NInVar writes the predicate in its own parentheses, which the empty case
+	// relies on. It used to be NOT IN (SELECT 1 WHERE 1 = 0), whose integer column
+	// PostgreSQL refuses to compare with a text column.
+	sqlText, args, err := resolveQuery(`SELECT * FROM "users" WHERE ("users"."name" NOT IN (?))`, []any{externalNotInSliceArgMarker{}}, []any{[]string{}}, "")
 	if err != nil {
 		t.Fatalf("expected empty slice to resolve, got %v", err)
 	}
-	if sqlText != `SELECT * FROM "users" WHERE "users"."id" NOT IN (SELECT 1 WHERE 1 = 0)` {
+	if sqlText != `SELECT * FROM "users" WHERE ("users"."name" NOT IN (NULL) OR (1 = 1))` {
 		t.Fatalf("unexpected SQL for empty NOT IN slice: %q", sqlText)
 	}
 	if len(args) != 0 {

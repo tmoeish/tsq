@@ -14,6 +14,12 @@ func (spec querySpec[O]) validateSetOperations() error {
 		return errors.New("set operations do not support keyword search")
 	}
 
+	for _, order := range spec.OrderBys {
+		if err := spec.checkCompoundOrderColumn(order.field); err != nil {
+			return err
+		}
+	}
+
 	leftCount := len(spec.Selects)
 	for _, op := range spec.SetOps {
 		if len(op.spec.Selects) != leftCount {
@@ -175,4 +181,36 @@ func (spec querySpec[O]) validateJoinGraph(outer map[string]struct{}) error {
 	}
 
 	return nil
+}
+
+// checkCompoundOrderColumn refuses an ORDER BY term a set operation cannot follow.
+// The combined result is ordered by its output columns, found by name, and TSQ
+// names an output column only by the column it selects: an expression such as
+// Upper(name) has a name each dialect makes up, and a column that is not selected
+// is not in the result at all.
+func (spec querySpec[O]) checkCompoundOrderColumn(field SQLColumn) error {
+	if t, ok := field.(interface{ isTransformedExpression() bool }); ok && t.isTransformedExpression() {
+		return fmt.Errorf("a set operation is ordered by its output columns, and %s is an expression; order by a selected column", field.QualifiedName())
+	}
+
+	named := 0
+
+	for _, col := range spec.Selects {
+		if t, ok := col.(interface{ isTransformedExpression() bool }); ok && t.isTransformedExpression() {
+			continue
+		}
+
+		if col.OutputName() == field.OutputName() {
+			named++
+		}
+	}
+
+	switch named {
+	case 0:
+		return fmt.Errorf("a set operation is ordered by its output columns, and none is named %s", field.OutputName())
+	case 1:
+		return nil
+	default:
+		return fmt.Errorf("a set operation is ordered by its output columns, and more than one is named %s", field.OutputName())
+	}
 }

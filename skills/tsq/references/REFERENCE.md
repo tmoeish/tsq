@@ -368,7 +368,8 @@ Semantics:
 - successful updates increment the database version by `+1`
 - successful updates also increment the in-memory struct field
 - `Delete(...)` also matches by primary key and version
-- if fewer rows match than expected, TSQ returns `ErrOptimisticLockConflict`
+- if fewer rows match than expected, TSQ returns `ErrOptimisticLockConflict`. A `ChunkedUpdate` chunk is not a transaction: the rows that were current are written and carry their new `version`, and the error message lists the primary keys of the stale ones, so only those need reloading. Two rows with one primary key in a batch are refused
+- without a `version` column, an `Update` of a row that does not exist returns an error wrapping `sql.ErrNoRows`; writing a row's current values is not an error, although MySQL reports no row changed
 
 Use `version` when you want lost-update protection.
 
@@ -643,7 +644,7 @@ Rules:
 - combine multiple generated packages by concatenating their `TSQTables()` slices before calling `NewRuntime`
 - `NewRuntime` opens the DB itself and resolves the dialect from `driverName`; `NewRuntimeContext(ctx, ...)` is the same with a context that bounds the ping and any bootstrap DDL
 - call `runtime.Close()` when the process is done with the database; it closes the pool `NewRuntime` opened
-- configure optional bootstrap behavior with `tsq.RuntimeOptions`, for example `&tsq.RuntimeOptions{TablePolicy: tsq.SchemaPolicyCreateMissing, IndexPolicy: tsq.SchemaPolicyCreateMissing}`
+- configure optional bootstrap behavior with `tsq.RuntimeOptions`, for example `&tsq.RuntimeOptions{TablePolicy: tsq.SchemaPolicyCreateMissing, IndexPolicy: tsq.SchemaPolicyCreateMissing}`. `SchemaPolicyCreateMissing` creates missing tables, columns and indexes; a column that differs from its declaration still fails startup
 - default policy is manual: TSQ logs a reminder but does not automatically reconcile missing tables or indexes
 - `RuntimeOptions.IdentifierValidationMode` is `tsq.IdentifierValidationStrict` by default (bootstrap fails on identifiers longer than the dialect allows); `IdentifierValidationWarn` logs instead, `IdentifierValidationSkip` disables the check
 - `RuntimeOptions.MaxPageSize` caps `PageRequest.Size` for paged queries on that runtime (default `tsq.DefaultMaxPageSize`, 1000)
@@ -716,7 +717,8 @@ TSQ supports more than simple list queries. Common advanced shapes include:
 - subqueries such as `In(subquery)`, `ExistsSub`, and typed RHS comparisons like `EQ(subquery)` or `Like(subquery)`
 - correlated subqueries, where the subquery declares the enclosing query's tables with `Correlate(...)`
 - non-recursive CTEs (all built-in dialects; MySQL baseline is 8.0)
-- set operations such as `UNION`, `INTERSECT`, and `EXCEPT` (all built-in dialects; MySQL needs 8.0.31+)
+- set operations such as `UNION`, `INTERSECT`, and `EXCEPT` (all built-in dialects; MySQL needs 8.0.31+). A chain is evaluated left to right on every dialect: `a.Union(b).Intersect(c)` is `(a ∪ b) ∩ c`; pass a combined operand for `a.Union(b.Intersect(c))`. `IntersectAll` / `ExceptAll` run on MySQL and PostgreSQL; SQLite has no `ALL` form and returns `ErrUnsupportedCapability`. A set operation is ordered by its output columns, so `OrderBy` (and `PageRequest.OrderBy`) must name a selected plain column, not an expression
+- a subquery cannot use `Search` (it never receives the keyword); an `In` subquery may set `Limit`, written as a derived table because MySQL requires it
 - row-lock clauses such as `ForUpdate()` and `ForShare()`
 
 Important subquery rule:
@@ -813,7 +815,7 @@ The builder is **stage-based**: each call returns a different concrete type that
 If the runtime slice is empty or nil, TSQ keeps the filter explicit instead of silently dropping it:
 
 - `InVar()` renders an explicit no-match shape
-- `NInVar()` renders an explicit match-all shape
+- `NInVar()` renders an explicit match-all shape, `(col NOT IN (NULL) OR (1 = 1))`, valid for every column type
 
 ### Generated helpers
 

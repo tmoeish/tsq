@@ -315,3 +315,31 @@ func TestSubquery_CorrelatedQueryRefusesStandaloneExecution(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+// TestSubqueriesKeepTheirMeaning covers two subquery shapes that used to lose or
+// break it: Search in a subquery never received the keyword, so its predicate
+// was dropped, and MySQL refuses LIMIT inside IN (error 1235).
+func TestSubqueriesKeepTheirMeaning(t *testing.T) {
+	id, name := setOpUserCols()
+	orders := newMockTable("orders")
+	userID := newColForTable[inVarUser, int64](orders, "user_id", "user_id", nil)
+
+	searched, err := BuildSubquery(Select(id).From(id.Table()).Search(name), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Select(userID).From(orders).Where(userID.In(searched)).Build(); err == nil || !strings.Contains(err.Error(), "keyword search") {
+		t.Fatalf("Build = %v; want Search in a subquery refused", err)
+	}
+
+	top, err := BuildSubquery(Select(id).From(id.Table()).OrderBy(id.Desc()).Limit(5), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	q := mustBuild(Select(userID).From(orders).Where(userID.In(top)))
+	if !strings.Contains(q.ListSQL(), `IN (SELECT * FROM (SELECT "users"."id" FROM "users" ORDER BY "users"."id" DESC LIMIT ?) AS tsq_in)`) {
+		t.Fatalf("list SQL = %s; want the limited subquery as a derived table", q.ListSQL())
+	}
+}

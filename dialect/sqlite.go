@@ -131,7 +131,8 @@ func (d SQLiteDialect) InspectTableColumns(ctx context.Context, db Executor, tab
 
 	err = db.QueryRowContext(
 		ctx,
-		"SELECT sql FROM sqlite_master WHERE type='table' AND name=?",
+		// SQLite names are case-insensitive: "Users" is the table users.
+		"SELECT sql FROM sqlite_master WHERE type='table' AND name=? COLLATE NOCASE",
 		table,
 	).Scan(&createSQL)
 	if err != nil {
@@ -162,6 +163,7 @@ func (d SQLiteDialect) InspectTableColumns(ctx context.Context, db Executor, tab
 
 	columns := make([]DDLColumnSpec, 0)
 	createStmtUpper := strings.ToUpper(createSQL.String)
+	keys := 0
 
 	for rows.Next() {
 		var row pragmaRow
@@ -172,6 +174,10 @@ func (d SQLiteDialect) InspectTableColumns(ctx context.Context, db Executor, tab
 		colType, err := parseSQLiteDDLColumnType(row.Type)
 		if err != nil {
 			return nil, false, fmt.Errorf("inspect sqlite column %s.%s: %w", table, row.Name, err)
+		}
+
+		if row.PrimaryKey > 0 {
+			keys++
 		}
 
 		autoincrement := row.PrimaryKey > 0 &&
@@ -189,6 +195,17 @@ func (d SQLiteDialect) InspectTableColumns(ctx context.Context, db Executor, tab
 
 	if err := rows.Err(); err != nil {
 		return nil, false, err
+	}
+
+	// A lone INTEGER PRIMARY KEY is the rowid: the database assigns it whether or
+	// not AUTOINCREMENT is written, which only stops the keys of deleted rows from
+	// coming back. A hand-written table without it is not drift.
+	if keys == 1 {
+		for i := range columns {
+			if columns[i].PrimaryKey && strings.EqualFold(columns[i].NativeType, "INTEGER") {
+				columns[i].AutoIncrement = true
+			}
+		}
 	}
 
 	return columns, true, nil
@@ -303,7 +320,7 @@ func (d SQLiteDialect) InspectIndexDefinition(ctx context.Context, db Executor, 
 
 	err := db.QueryRowContext(
 		ctx,
-		"SELECT tbl_name FROM sqlite_master WHERE type='index' AND name=?",
+		"SELECT tbl_name FROM sqlite_master WHERE type='index' AND name=? COLLATE NOCASE",
 		idx,
 	).Scan(&master.Table)
 	if err != nil {
@@ -334,7 +351,7 @@ func (d SQLiteDialect) InspectIndexDefinition(ctx context.Context, db Executor, 
 			return IndexDefinition{}, false, err
 		}
 
-		if row.Name == idx {
+		if strings.EqualFold(row.Name, idx) {
 			definition.Unique = row.Unique == 1
 			found = true
 
