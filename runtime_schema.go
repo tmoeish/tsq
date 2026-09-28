@@ -444,6 +444,12 @@ func columnsEqual(dialect sqld.Dialect, left sqld.Column, right tsqdialect.Colum
 // back as 1 and a decimal 0 as 0.00, which used to ask for the same ALTER on every
 // boot.
 func sameDefault(left, right string) bool {
+	// MySQL reports CURRENT_TIMESTAMP(6) for the CURRENT_TIMESTAMP TSQ declares on
+	// a DATETIME(6) column.
+	if sqld.IsCurrentTime(left) && sqld.IsCurrentTime(right) {
+		return true
+	}
+
 	a, aQuoted := normalizeDefaultLiteral(left)
 	b, bQuoted := normalizeDefaultLiteral(right)
 

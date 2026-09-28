@@ -504,7 +504,7 @@ func (d MySQLDialect) renderModifyColumnDefinition(column ColumnSpec) string {
 	if column.AutoIncrement {
 		parts = append(parts, "AUTO_INCREMENT")
 	} else if column.Default != "" {
-		parts = append(parts, "DEFAULT "+column.Default)
+		parts = append(parts, "DEFAULT "+DefaultSQL(d, column))
 	}
 
 	return strings.Join(parts, " ")

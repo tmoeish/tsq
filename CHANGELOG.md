@@ -246,7 +246,7 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 - **部分列读出的行能被 `Insert`**：和整行 `Update` 一样会把没读的列写成零值。现在同样拒绝。
 - **MySQL 上按条件写的两种形状和别的方言结果不同**：`SET a = b, b = a` 在 MySQL 上从左到右求值（后一个赋值读到新值），`UPDATE` / `DELETE` 的子查询读同一张表报 1093。现在构建时拒绝前者，MySQL 上渲染时拒绝后者并给出改法。
 - **重建索引时先删后建**：新索引建不出来（比如新加的唯一约束和现有数据冲突）时旧索引已经没了。现在先按临时名建新索引，成功后才删旧的、改回原名。
-- **MySQL 的 `DATETIME` 只存到秒**：托管时间戳写进去被四舍五入，内存里的行和读回的行不一致。时间列改为 `DATETIME(6)`，库写入的时间戳截断到微秒（MySQL 和 PostgreSQL 的精度）；`Reconcile` 会把已有的 `DATETIME` 列加宽，用生成的迁移文件的项目需要自己执行 `ALTER TABLE ... MODIFY ... DATETIME(6)`（生成器的迁移历史不会为方言拼写的变化补一条迁移）。
+- **MySQL 的 `DATETIME` 只存到秒**：托管时间戳写进去被四舍五入，内存里的行和读回的行不一致。时间列改为 `DATETIME(6)`（`DEFAULT CURRENT_TIMESTAMP` 相应写成 `CURRENT_TIMESTAMP(6)`），库写入的时间戳截断到微秒（MySQL 和 PostgreSQL 的精度）；`Reconcile` 会把已有的 `DATETIME` 列加宽，用生成的迁移文件的项目需要自己执行 `ALTER TABLE ... MODIFY ... DATETIME(6)`（生成器的迁移历史不会为方言拼写的变化补一条迁移）。
 - **只有自增主键的表不能 `Insert`**：渲染出 `INSERT INTO t () VALUES ()`，只有 MySQL 接受。现在把主键列交给数据库（SQLite 写 `NULL`，其他写 `DEFAULT`），单行和批量都能写。
 - **`IsRetryableNetworkError` 把裸的 `io.EOF` 当成断线**：回调里读文件读到末尾就会让整个事务重跑。现在只认 `io.ErrUnexpectedEOF`。追踪器数量上限（超出时往 `slog.Default` 打警告）一并删除。
 - **result 不能投影 LEFT JOIN 可空一侧的列**：字段类型必须和源列完全相同，所以 NOT NULL 列没法读进 `sql.Null[T]` / `*T`。现在接受源列值类型的任何可空形式，并用 `MapIntoNull`。

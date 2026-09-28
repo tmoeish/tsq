@@ -546,7 +546,8 @@ func TestColumnDefaultsCompareByMeaning(t *testing.T) {
 		{"'a::b'", "'a::b'::text", true},
 		{"'it''s'", "'it''s'::text", true},
 		{"CURRENT_TIMESTAMP", "current_timestamp", true},
-		{"'USD'", "USD", true}, // MySQL reads a string default back unquoted
+		{"CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP(6)", true}, // MySQL on a DATETIME(6) column
+		{"'USD'", "USD", true},                              // MySQL reads a string default back unquoted
 		{"'Active'", "'active'::text", false},
 		{"'a'", "'b'", false},
 		{"true", "1", true}, // MySQL reads a boolean default back as a number

@@ -72,7 +72,8 @@
   生成列不复制，填不了就整段写成人工处理）；语句按 `compareDDLChanges` 排序渲染，索引先于它指向的列删除。
   `TestGenCmdAppendsSQLiteRebuildDDLForTypeChange` 用真的 `sqlite3` 命令行跑迁移。
 - 改了某个方言对一种类型的拼写（`ColumnTypeSQL`，如 MySQL 时间改成 `DATETIME(6)`）：同一方言的读回
-  （`parseMySQLColumnType` 等）要同步，旧拼写读成原始类型，`Reconcile` 才会改它、新拼写才不算漂移；迁移历史不会补段，
+  （`parseMySQLColumnType` 等）要同步，旧拼写读成原始类型，`Reconcile` 才会改它、新拼写才不算漂移；依赖类型的 DEFAULT
+  也要跟上（MySQL `DATETIME(6)` 只收 `CURRENT_TIMESTAMP(6)`，见 `DefaultSQL`，比较见 `sameDefault`）；迁移历史不会补段，
   `CHANGELOG` 要写明使用迁移文件的项目怎么手工改。
 - 迁移历史存在 `tsq.json` 里，不会随生成器修复重新渲染：修了迁移渲染之后，示例里已经写坏的段要重置示例的
   DDL 状态（删掉 `tsq.json` 和三份 `.sql` 再 `make examples`），使用者自己的历史只能手工改。

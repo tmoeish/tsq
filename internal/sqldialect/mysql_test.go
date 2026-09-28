@@ -199,6 +199,21 @@ func TestMySQLTimesKeepMicroseconds(t *testing.T) {
 		}
 	}
 
+	// DATETIME(6) DEFAULT CURRENT_TIMESTAMP is MySQL error 1067: the default has to
+	// name the column's precision.
+	stamped := ColumnSpec{Name: "at", Type: ColumnType{Kind: KindTime}, Default: "CURRENT_TIMESTAMP"}
+	if got, err := ColumnDefinitionSQL(d, stamped); err != nil || !strings.HasSuffix(got, "DEFAULT CURRENT_TIMESTAMP(6)") {
+		t.Errorf("stamped column = %s, %v", got, err)
+	}
+
+	if got := d.renderModifyColumnDefinition(stamped); !strings.HasSuffix(got, "DEFAULT CURRENT_TIMESTAMP(6)") {
+		t.Errorf("modified stamped column = %s", got)
+	}
+
+	if got, _ := ColumnDefinitionSQL(PostgresDialect{}, stamped); !strings.HasSuffix(got, "DEFAULT CURRENT_TIMESTAMP") {
+		t.Errorf("stamped column on PostgreSQL = %s", got)
+	}
+
 	desc, _ := parseMySQLColumnType("datetime", "datetime", sql.NullInt64{})
 	if !SameColumnType(d, Column{Name: "at", Type: desc, NativeType: "datetime"}, ColumnSpec{Name: "at", Type: ColumnType{RawType: "DATETIME"}}) {
 		t.Error("datetime did not match a column declared type:DATETIME")
