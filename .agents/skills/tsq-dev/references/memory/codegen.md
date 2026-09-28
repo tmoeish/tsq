@@ -78,4 +78,4 @@ TSQ 写的 DDL 留出它（带注释），运行期要建含它的表就报错�
 
 **只对一个方言成立的限制只警告**（2026-09-28）：MySQL 索引键长先做成了 `tsq gen` 报错，等于替只跑 PostgreSQL / SQLite
 的使用者拒绝了一个合法索引；改成警告加 `mysql.sql` 注释。
-result 字段类型用 go/types 比对（2026-09-28）：LEFT JOIN 一侧要把 NOT NULL 列读进 `sql.Null[T]`，按名字比的旧检查拒绝了。
+result 字段类型用 go/types 比对（2026-09-28，旧检查拒绝 LEFT JOIN 一侧的 `sql.Null[T]`）；点名多个结构体的错误先排序（解析顺序不稳定，CI 红过）。

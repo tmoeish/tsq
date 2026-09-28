@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"text/template"
@@ -867,11 +868,15 @@ func validateFieldRoles(data *genmodel.StructInfo) error {
 func validateTableNameCollisions(list []*genmodel.StructInfo) error {
 	seen := map[string]string{}
 
-	for _, data := range list {
-		if data == nil || data.TableMeta == nil || data.IsResult || data.Table == "" {
-			continue
-		}
+	// Sorted, so the error names the same pair in the same order on every run.
+	tables := slices.DeleteFunc(slices.Clone(list), func(data *genmodel.StructInfo) bool {
+		return data == nil || data.TableMeta == nil || data.IsResult || data.Table == ""
+	})
+	slices.SortFunc(tables, func(a, b *genmodel.StructInfo) int {
+		return strings.Compare(a.TypeInfo.TypeName, b.TypeInfo.TypeName)
+	})
 
+	for _, data := range tables {
 		key := strings.ToLower(data.Table)
 		if other, ok := seen[key]; ok {
 			return fmt.Errorf("%s and %s both map to table %s; give one of them another name=", other, data.TypeInfo.TypeName, data.Table)

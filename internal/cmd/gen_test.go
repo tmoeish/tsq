@@ -2608,7 +2608,7 @@ func TestGenRefusesAFieldWithTwoRoles(t *testing.T) {
 	for name, tc := range map[string]struct{ source, want string }{
 		"key is the version":     {"//tsq:table pk=Version\n//tsq:managed version\ntype Row struct {\n\tVersion int64 `db:\"version\"`\n}\n", "both the id and the version field"},
 		"one time, two roles":    {"//tsq:table\n//tsq:managed created_at=At updated_at=At\ntype Row struct {\n\tID int64 `db:\"id\"`\n\tAt time.Time `db:\"at\"`\n}\n", "both the created_at and the updated_at field"},
-		"one table, two structs": {"//tsq:table name=rows\ntype Row struct {\n\tID int64 `db:\"id\"`\n}\n\n//tsq:table name=ROWS\ntype Other struct {\n\tID int64 `db:\"id\"`\n}\n", "both map to table ROWS"},
+		"one table, two structs": {"//tsq:table name=rows\ntype Row struct {\n\tID int64 `db:\"id\"`\n}\n\n//tsq:table name=ROWS\ntype Other struct {\n\tID int64 `db:\"id\"`\n}\n", "Other and Row both map to table"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			source := "package gentest\n\nimport \"time\"\n\nvar _ time.Time\n\n" + tc.source
