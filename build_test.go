@@ -186,6 +186,17 @@ func TestDefineReportsInvalidTables(t *testing.T) {
 
 			return h.Define(spec).Err()
 		},
+		"key is the version": func() error {
+			h := NewTable[row, int64]("t7")
+			id := NewColumn(h, "id", "id", func(r *row) *int64 { return &r.ID })
+
+			err := h.Define(TableSpec[row, int64]{Columns: []BoundColumn[row]{id}, PrimaryKey: id, Version: id}).Err()
+			if err != nil && !strings.Contains(err.Error(), "both the primary key and the version column") {
+				t.Errorf("key is the version: %v", err)
+			}
+
+			return err
+		},
 		"bad name": func() error {
 			h := NewTable[row, int64]("bad name")
 			id := NewColumn(h, "id", "id", func(r *row) *int64 { return &r.ID })
@@ -242,5 +253,39 @@ func TestStagesAreSubqueries(t *testing.T) {
 	// Any stage goes to Exists, whatever it selects.
 	if _, err := Select(User_ID).From(Users).Where(Exists(Select(Order_ID, Order_Amount).From(Orders))).Build(); err != nil {
 		t.Fatalf("Exists over a two-column stage: %v", err)
+	}
+}
+
+// TestBuildChecksGrouping covers a grouped query reading a column neither grouped
+// nor aggregated: it built, and SQLite returned an arbitrary row's value while
+// PostgreSQL refused it at execution.
+func TestBuildChecksGrouping(t *testing.T) {
+	count := MapInto(Count(Order_ID), func(r *order) *int64 { return &r.Amount })
+
+	refused := map[string]interface{ Build() (*Query[order], error) }{
+		"ungrouped column":             Select(Order_UserID, Order_Note, count).From(Orders).GroupBy(Order_UserID),
+		"column beside an aggregate":   Select(Order_Note, count).From(Orders),
+		"order by an ungrouped column": Select(Order_UserID, count).From(Orders).GroupBy(Order_UserID).OrderBy(Order_Note.Asc()),
+	}
+
+	for name, stage := range refused {
+		if _, err := stage.Build(); err == nil || !strings.Contains(err.Error(), "neither in GROUP BY nor inside an aggregate") {
+			t.Errorf("%s: Build = %v", name, err)
+		}
+	}
+
+	upper := MapInto(Upper(Order_Note), func(r *order) *string { return &r.Note })
+
+	allowed := map[string]interface{ Build() (*Query[order], error) }{
+		"grouped column":          Select(Order_UserID, count).From(Orders).GroupBy(Order_UserID),
+		"grouped expression":      Select(upper, count).From(Orders).GroupBy(Upper(Order_Note)),
+		"column of a grouped key": Select(Order_ID, Order_Note, count).From(Orders).GroupBy(Order_ID),
+		"aggregate alone":         Select(count).From(Orders),
+	}
+
+	for name, stage := range allowed {
+		if _, err := stage.Build(); err != nil {
+			t.Errorf("%s: Build = %v", name, err)
+		}
 	}
 }

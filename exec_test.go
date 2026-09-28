@@ -1150,6 +1150,11 @@ func TestPartialRowsRefuseAFullUpdate(t *testing.T) {
 		t.Fatal("expected Upsert of a partial row to be refused")
 	}
 
+	// Inserting it would write zero values into the columns it lacks.
+	if err := Users.Insert(ctx, rt, partial); err == nil {
+		t.Fatal("expected Insert of a partial row to be refused")
+	}
+
 	if err := Users.Update(ctx, rt, partial, User_Name); err != nil {
 		t.Fatalf("Update naming the columns = %v", err)
 	}
@@ -1378,5 +1383,86 @@ func TestRowsReadThroughACTEArePartial(t *testing.T) {
 	stored, err := Orders.Get(ctx, rt, read.ID)
 	if err != nil || stored.Amount != 42 || stored.Note != "keep" {
 		t.Fatalf("stored = %+v, %v; want the unread columns kept", stored, err)
+	}
+}
+
+// TestCountAgreesWithList covers Count on a limited query, which counted every
+// matching row, and on a query ordered by a parameter, which Count refused as an
+// argument its statement does not use.
+func TestCountAgreesWithList(t *testing.T) {
+	ctx := context.Background()
+	rt := newSQLite(t)
+	seedUsers(t, rt, "a", "b", "c", "d", "e")
+
+	limited := Select(User_ID).From(Users).OrderBy(User_ID.Asc()).Limit(2).MustBuild()
+	if n, err := limited.Count(ctx, rt); err != nil || n != 2 {
+		t.Fatalf("Count of a query limited to 2 = %d, %v", n, err)
+	}
+
+	pinned := NewParam[string]("pinned")
+	first := MapInto(Case[int64]().When(User_Name.EQ(pinned), Val(int64(0))).Else(Val(int64(1))).End(), func(r *user) *int64 { return &r.Version })
+	ordered := Select(User_ID, first).From(Users).OrderBy(first.Asc()).MustBuild()
+
+	if n, err := ordered.Count(ctx, rt, pinned.Bind("c")); err != nil || n != 5 {
+		t.Fatalf("Count with the arguments List takes = %d, %v", n, err)
+	}
+}
+
+// TestQueriesRefuseWhatTheyCannotRun covers shapes that built and then failed:
+// a lock on DISTINCT or aggregated rows (PostgreSQL refuses it), Correlate in a
+// CTE (which sees no outer query) or in a top-level set-operation operand, and
+// Get on a nil query, which panicked.
+func TestQueriesRefuseWhatTheyCannotRun(t *testing.T) {
+	ctx := context.Background()
+	rt := newSQLite(t)
+
+	for name, stage := range map[string]QueryStage[user]{
+		"distinct":  SelectDistinct(User_Name).From(Users).ForUpdate(),
+		"aggregate": Select(MapInto(Count(User_ID), func(r *user) *int64 { return &r.Version })).From(Users).ForShare(),
+	} {
+		if _, err := stage.Build(); err == nil || !strings.Contains(err.Error(), "cannot be locked") {
+			t.Errorf("lock on %s rows: Build = %v", name, err)
+		}
+	}
+
+	cte := CTE("outer_ref", Select(Order_ID).From(Orders).Correlate(Users).Where(Order_UserID.EQ(User_ID)))
+	if _, err := Select(User_ID).From(Users).Join(cte, Order_ID.WithTable(cte).EQ(User_ID)).Build(); err == nil || !strings.Contains(err.Error(), "cannot use Correlate") {
+		t.Errorf("Correlate in a CTE: Build = %v", err)
+	}
+
+	operand := Select(User_ID).From(Users).Union(Select(User_ID).From(Users).Correlate(Orders).Where(User_ID.EQ(Order_UserID))).MustBuild()
+	if _, err := operand.List(ctx, rt); err == nil || !strings.Contains(err.Error(), "Correlate") {
+		t.Errorf("Correlate in a top-level operand: List = %v", err)
+	}
+
+	var missing *Query[user]
+	if _, err := missing.Get(ctx, rt); err == nil {
+		t.Error("Get on a nil query: want an error")
+	}
+}
+
+// TestStatementsByConditionMeanTheSameOnEveryDialect covers two UpdateTable and
+// DeleteFrom shapes MySQL runs differently or not at all: an assignment reading a
+// column assigned before it (MySQL reads the new value, the others the old one),
+// and a subquery reading the table the statement writes (MySQL error 1093).
+func TestStatementsByConditionMeanTheSameOnEveryDialect(t *testing.T) {
+	swap := UpdateTable(Orders).Set(Order_Amount, Order_UserID).Set(Order_UserID, Order_Amount).Where(And())
+	if _, err := swap.Build(); err == nil || !strings.Contains(err.Error(), "assigns before it") {
+		t.Fatalf("a swap: Build = %v; want it refused", err)
+	}
+
+	small := SelectValue(Order_ID).From(Orders).Where(Order_Amount.LT(Val(int64(10))))
+
+	cleanup, err := HardDeleteFrom(Orders).Where(Order_ID.In(small)).Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, _, err := cleanup.SQL(onMySQL); err == nil || !strings.Contains(err.Error(), "error 1093") {
+		t.Fatalf("on MySQL: SQL = %v; want it refused", err)
+	}
+
+	if _, _, err := cleanup.SQL(onSQLite); err != nil {
+		t.Fatalf("on SQLite: %v", err)
 	}
 }

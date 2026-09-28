@@ -21,7 +21,7 @@ genmodel.StructInfo / TableMeta        internal/genmodel/model.go
 
 - `tsq gen <package>`（`internal/cmd/gen.go`）：生成全部产物。
   - `--dry-run`：在内存里渲染，打印哪些文件会变，不落盘。
-  - `--check`：在内存里渲染，与磁盘比对，不一致就非零退出。**`make gen-check` 用的就是
+  - `--check`：在内存里渲染，与磁盘比对，不一致就以 2 退出（`ErrOutOfDate`；其他错误退出 1）。**`make gen-check` 用的就是
     它**——不要退回到 `git diff` 判断生成物是否同步，那会对每一波正当改动都误报。
   - `-v`：打印每个生成文件路径。
 

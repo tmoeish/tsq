@@ -89,7 +89,8 @@ func (q *Query[O]) prepare(exec Executor, args []Arg, builtin map[*paramSpec]any
 		return execScope{}, nil, err
 	}
 
-	if len(q.spec.Correlated) > 0 {
+	// Every operand of a set operation runs at the top level too.
+	if slices.ContainsFunc(q.spec.operands(), func(s *querySpec[O]) bool { return len(s.Correlated) > 0 }) {
 		return execScope{}, nil, errors.New("a query with Correlate(...) can only run as a subquery of a query that provides those tables")
 	}
 
@@ -436,6 +437,10 @@ func (q *Query[O]) Get(ctx context.Context, db Executor, args ...Arg) (*O, error
 }
 
 func (q *Query[O]) get(ctx context.Context, db Executor, args []Arg) (*O, error) {
+	if q == nil {
+		return nil, errors.New("query cannot be nil")
+	}
+
 	if q.scanErr != nil {
 		return nil, q.scanErr
 	}
@@ -505,7 +510,9 @@ func (q *Query[O]) Exists(ctx context.Context, db Executor, args ...Arg) (bool, 
 // Count returns the number of matching rows.
 func (q *Query[O]) Count(ctx context.Context, db Executor, args ...Arg) (int64, error) {
 	return traceExecutor1(ctx, db, q.traceInfo(TraceOpCount), func(ctx context.Context) (int64, error) {
-		_, stmts, err := q.prepare(db, args, nil, renderMode{count: true})
+		// The arguments are those of the query, which List takes: one used only by
+		// the select list or ORDER BY is not refused as unused by the count.
+		_, stmts, err := q.prepare(db, args, nil, renderMode{count: true}, renderMode{})
 		if err != nil {
 			return 0, err
 		}
@@ -717,7 +724,22 @@ func (q *Query[O]) operand() exprInfo { return nullWhenEmpty(q.valueSubquery()) 
 
 func (q *Query[O]) setOperand(negated bool) exprInfo {
 	info := q.valueSubquery()
-	if info.err != nil || q.spec.Limit == nil {
+	if info.err != nil {
+		return info
+	}
+
+	// NOT IN over a set holding a NULL is never true, so the condition matched no
+	// row at all, silently, as soon as one NULL came back.
+	if negated {
+		for _, operand := range q.spec.operands() {
+			if null, why := operand.canBeNull(columnInfo(operand.Selects[0]).null); null {
+				return exprInfo{err: fmt.Errorf("NotIn over a subquery whose %s can be NULL (%s) matches no row once one is; "+
+					"use NotExists, or filter the NULLs out of the subquery with Coalesce", operand.Selects[0].Name(), why)}
+			}
+		}
+	}
+
+	if q.spec.Limit == nil {
 		return info
 	}
 
@@ -737,6 +759,10 @@ func (q *Query[O]) renderQuery(r *renderer) {
 }
 
 func (q *Query[O]) correlatedTables() map[string]Table { return q.spec.correlatedNames() }
+
+func (q *Query[O]) readsTable(name string) bool {
+	return slices.ContainsFunc(q.spec.sources(), func(t Table) bool { return t.TableName() == name })
+}
 
 // nullWhenEmpty marks a scalar subquery, which is NULL when it returns no row.
 func nullWhenEmpty(info exprInfo) exprInfo {

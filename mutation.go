@@ -142,6 +142,14 @@ func (b *UpdateBuilder[R]) assign(col SQLColumn, value exprInfo) *UpdateBuilder[
 		if a.column == core.name {
 			n.m.fail(fmt.Errorf("column %s is assigned twice", core.name))
 		}
+
+		// MySQL evaluates a single-table UPDATE's assignments left to right, so a
+		// later one reads the value an earlier one just wrote; PostgreSQL and SQLite
+		// read the row as it was. Swapping two columns gave different rows.
+		if slices.Contains(value.bare, columnKey{b.m.table.TableName(), a.column}) {
+			n.m.fail(fmt.Errorf("the value assigned to %s reads %s, which the statement assigns before it; "+
+				"MySQL would read the new value and the other dialects the old one", core.name, a.column))
+		}
 	}
 
 	n.m.assigns = append(n.m.assigns, assignment{column: core.name, value: value})
@@ -339,6 +347,13 @@ func (m *Mutation[R]) statement(d sqld.Dialect) (*statement, error) {
 		return cached.(*statement), nil
 	}
 
+	// MySQL refuses a statement that reads, in a subquery, the table it writes
+	// (error 1093); SQLite and PostgreSQL run it.
+	if d.Name() == tsqdialect.MySQL && m.readsItsTable() {
+		return nil, fmt.Errorf("MySQL cannot read %s in a subquery of a statement that writes it (error 1093); "+
+			"read the keys first and pass them as a list", m.m.table.TableName())
+	}
+
 	r := newRenderer(d)
 	m.render(r)
 
@@ -441,4 +456,26 @@ func (m *Mutation[R]) traceInfo() TraceInfo {
 	}
 
 	return info
+}
+
+// readsItsTable reports whether a subquery of the statement reads its table.
+func (m *Mutation[R]) readsItsTable() bool {
+	exprs := make([]sqlExpr, 0, len(m.m.assigns)+len(m.m.filters))
+	for _, a := range m.m.assigns {
+		exprs = append(exprs, a.value.sql)
+	}
+
+	for _, c := range m.m.filters {
+		exprs = append(exprs, conditionInfo(c).sql)
+	}
+
+	for _, e := range exprs {
+		for _, part := range e.parts {
+			if part.kind == partQuery && part.query.readsTable(m.m.table.TableName()) {
+				return true
+			}
+		}
+	}
+
+	return false
 }

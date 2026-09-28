@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -755,7 +756,7 @@ type Artifact struct {
 				"`legacy_id` BIGINT",
 				"`enabled` BOOLEAN NOT NULL",
 				"`payload` BLOB NOT NULL",
-				"`created_at` DATETIME NOT NULL",
+				"`created_at` DATETIME(6) NOT NULL",
 			},
 		},
 		{
@@ -1084,8 +1085,8 @@ func TestGenCheckReportsOutdatedFiles(t *testing.T) {
 		{Filename: "org.tsq.go", Status: generationPlanCreate},
 		{Filename: "item.tsq.go", Status: generationPlanUnchanged},
 	})
-	if err == nil {
-		t.Fatal("expected outdated plan to fail check")
+	if !errors.Is(err, ErrOutOfDate) {
+		t.Fatalf("check = %v; want ErrOutOfDate, which the tsq command exits 2 for", err)
 	}
 
 	got := err.Error()
@@ -1227,60 +1228,40 @@ func TestValidateResultFieldsRejectsNormalizedReferenceCollisions(t *testing.T) 
 	}
 }
 
-func TestValidateResultFieldsRejectsIncompatibleTypes(t *testing.T) {
-	dto := &genmodel.StructInfo{
-		TableMeta: &genmodel.TableMeta{IsResult: true},
-		TypeInfo:  genmodel.TypeInfo{TypeName: "UserResult"},
-		Fields: []genmodel.FieldInfo{
-			{Name: "OrderTime", Column: "Order.CreatedAt", Type: genmodel.TypeInfo{TypeName: "string"}},
-		},
+// TestGenResultsTakeNullableForms covers a result field reading the outer side of
+// a LEFT JOIN: it has to hold NULL although the column is NOT NULL, and the
+// generator refused anything but the column's own type. A type that holds neither
+// is still refused.
+func TestGenResultsTakeNullableForms(t *testing.T) {
+	module := func(field string) map[string]string {
+		return map[string]string{"model.go": "package gentest\n\nimport (\n\t\"database/sql\"\n\t\"time\"\n)\n\nvar _ sql.Null[int]\nvar _ time.Time\n\n//tsq:table\ntype Row struct {\n\tID int64 `db:\"id\"`\n\tName string `db:\"name\"`\n\tAt time.Time `db:\"at\"`\n}\n\n//tsq:result\ntype View struct {\n\t" + field + "\n}\n"}
 	}
 
-	structsByName := map[string]*genmodel.StructInfo{
-		"Order": {
-			TableMeta: &genmodel.TableMeta{Table: "order"},
-			FieldsByName: map[string]genmodel.FieldInfo{
-				"CreatedAt": {
-					Name:   "CreatedAt",
-					Column: "created_at",
-					Type: genmodel.TypeInfo{
-						Package:  genmodel.PackageInfo{Path: "time", Name: "time"},
-						TypeName: "Time",
-					},
-				},
-			},
-		},
+	for _, field := range []string{
+		"Name string `tsq:\"Row.Name\"`",
+		"Name sql.Null[string] `tsq:\"Row.Name\"`",
+		"Name *string `tsq:\"Row.Name\"`",
+		"At sql.NullTime `tsq:\"Row.At\"`",
+	} {
+		t.Run(field, func(t *testing.T) {
+			if err := genModule(t, module(field)); err != nil {
+				t.Fatalf("tsq gen = %v", err)
+			}
+
+			tidyGenTestModule(t)
+
+			if output, err := exec.Command("go", "build", "./...").CombinedOutput(); err != nil {
+				t.Fatalf("generated code does not compile: %v\n%s", err, output)
+			}
+		})
 	}
 
-	if err := validateResultFields(dto, structsByName); err == nil {
-		t.Fatal("expected incompatible Result field type to return an error")
-	}
-}
-
-func TestValidateResultFieldsAcceptsMatchingTypes(t *testing.T) {
-	timeType := genmodel.TypeInfo{
-		Package:  genmodel.PackageInfo{Path: "time", Name: "time"},
-		TypeName: "Time",
-	}
-	dto := &genmodel.StructInfo{
-		TableMeta: &genmodel.TableMeta{IsResult: true},
-		TypeInfo:  genmodel.TypeInfo{TypeName: "UserResult"},
-		Fields: []genmodel.FieldInfo{
-			{Name: "OrderTime", Column: "Order.CreatedAt", Type: timeType},
-		},
-	}
-
-	structsByName := map[string]*genmodel.StructInfo{
-		"Order": {
-			TableMeta: &genmodel.TableMeta{Table: "order"},
-			FieldsByName: map[string]genmodel.FieldInfo{
-				"CreatedAt": {Name: "CreatedAt", Column: "created_at", Type: timeType},
-			},
-		},
-	}
-
-	if err := validateResultFields(dto, structsByName); err != nil {
-		t.Fatalf("expected matching Result field type to pass, got %v", err)
+	for _, field := range []string{"At string `tsq:\"Row.At\"`", "Name sql.Null[int64] `tsq:\"Row.Name\"`"} {
+		t.Run(field, func(t *testing.T) {
+			if err := genModule(t, module(field)); err == nil || !strings.Contains(err.Error(), "cannot hold Row.") {
+				t.Fatalf("tsq gen = %v; want it refused", err)
+			}
+		})
 	}
 }
 
@@ -1430,26 +1411,31 @@ func TestGeneratedColumnRendersTheSameOnEveryDialect(t *testing.T) {
 	}
 }
 
-func TestValidateFieldDatabaseTypeRequiresStringSearchFields(t *testing.T) {
-	search := map[string]struct{}{"F": {}}
-	tests := []struct {
-		name  string
-		field genmodel.FieldInfo
-		ok    bool
-	}{
-		{"string", genmodel.FieldInfo{Name: "F", Type: genmodel.TypeInfo{TypeName: "string"}}, true},
-		{"int", genmodel.FieldInfo{Name: "F", Type: genmodel.TypeInfo{TypeName: "int64"}}, false},
-		{"null string", genmodel.FieldInfo{Name: "F", Type: genmodel.TypeInfo{TypeName: "NullString", Package: genmodel.PackageInfo{Path: "database/sql"}}}, false},
-		{"pointer", genmodel.FieldInfo{Name: "F", IsPointer: true, Type: genmodel.TypeInfo{TypeName: "string"}}, false},
+// TestGenSearchesNamedStringTypes covers //tsq:search and //tsq:fulltext over a
+// named string type, which tsq.Searchable takes but the generator refused because
+// it compared type names; anything that is not text is still refused.
+func TestGenSearchesNamedStringTypes(t *testing.T) {
+	module := func(field string) map[string]string {
+		return map[string]string{"model.go": "package gentest\n\ntype Slug string\n\n//tsq:table\n//tsq:search Label\n//tsq:fulltext Label\ntype Row struct {\n\tID int64 `db:\"id\"`\n\tLabel " + field + " `db:\"label\"`\n}\n"}
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if err := validateFieldDatabaseType(tt.field, search); (err == nil) != tt.ok {
-				t.Fatalf("validateFieldDatabaseType() = %v, want ok=%v", err, tt.ok)
-			}
-		})
-	}
+	t.Run("named string", func(t *testing.T) {
+		if err := genModule(t, module("Slug")); err != nil {
+			t.Fatalf("tsq gen = %v", err)
+		}
+
+		tidyGenTestModule(t)
+
+		if output, err := exec.Command("go", "build", "./...").CombinedOutput(); err != nil {
+			t.Fatalf("generated code does not compile: %v\n%s", err, output)
+		}
+	})
+
+	t.Run("integer", func(t *testing.T) {
+		if err := genModule(t, module("int64")); err == nil || !strings.Contains(err.Error(), "search field Label is not a string") {
+			t.Fatalf("tsq gen = %v; want it refused", err)
+		}
+	})
 }
 
 func TestValidateIndexNameCollisionsRejectsCrossTableReuse(t *testing.T) {
@@ -1550,7 +1536,7 @@ func TestTableTemplateAvoidsKeywordParameterNames(t *testing.T) {
 	}
 
 	rendered := string(contents)
-	if !strings.Contains(rendered, "type_s ...int64") || !strings.Contains(rendered, "type_ int64") {
+	if !strings.Contains(rendered, "types ...int64") || !strings.Contains(rendered, "type_ int64") {
 		t.Fatalf("expected generated parameter to avoid Go keyword, got:\n%s", rendered)
 	}
 
@@ -2592,5 +2578,50 @@ func TestGenMigrationsNeverDropDataUnasked(t *testing.T) {
 	last := string(sqlite[strings.LastIndex(string(sqlite), "-- Migration: "):])
 	if strings.Contains(last, "ADD COLUMN") || !strings.Contains(last, `ALTER TABLE "__tsq_new_scores" RENAME TO "scores";`) {
 		t.Fatalf("sqlite adds a generated column in place, which it refuses:\n%s", last)
+	}
+}
+
+// TestGenRefusesNamesThePackageAlreadyUses covers generated names that clash with
+// the package: a declaration of TableRow in a file of the package, and a second
+// table named after the first one's generated type. Both used to leave a package
+// that no longer compiled.
+func TestGenRefusesNamesThePackageAlreadyUses(t *testing.T) {
+	row := "//tsq:table\ntype Row struct {\n\tID int64 `db:\"id\"`\n}\n"
+
+	for name, tc := range map[string]struct{ source, want string }{
+		"declared":       {"package gentest\n\nvar TableRow = 1\n\n" + row, "TableRow is declared here"},
+		"table named so": {"package gentest\n\n" + row + "\n//tsq:table\ntype RowTable struct {\n\tID int64 `db:\"id\"`\n}\n", "generated symbol RowTable collides"},
+		"runtime symbol": {"package gentest\n\nfunc TSQTables() {}\n\n" + row, "TSQTables is declared here"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := genModule(t, map[string]string{"model.go": tc.source}); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("tsq gen = %v; want %q", err, tc.want)
+			}
+		})
+	}
+}
+
+// TestGenRefusesAFieldWithTwoRoles covers a primary key TSQ also writes (version
+// or a timestamp), two roles on one field, and two structs on one table: each
+// generated code or DDL that failed only once it ran.
+func TestGenRefusesAFieldWithTwoRoles(t *testing.T) {
+	for name, tc := range map[string]struct{ source, want string }{
+		"key is the version":     {"//tsq:table pk=Version\n//tsq:managed version\ntype Row struct {\n\tVersion int64 `db:\"version\"`\n}\n", "both the id and the version field"},
+		"one time, two roles":    {"//tsq:table\n//tsq:managed created_at=At updated_at=At\ntype Row struct {\n\tID int64 `db:\"id\"`\n\tAt time.Time `db:\"at\"`\n}\n", "both the created_at and the updated_at field"},
+		"one table, two structs": {"//tsq:table name=rows\ntype Row struct {\n\tID int64 `db:\"id\"`\n}\n\n//tsq:table name=ROWS\ntype Other struct {\n\tID int64 `db:\"id\"`\n}\n", "both map to table ROWS"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			source := "package gentest\n\nimport \"time\"\n\nvar _ time.Time\n\n" + tc.source
+
+			err := genModule(t, map[string]string{"model.go": source})
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("tsq gen = %v; want %q", err, tc.want)
+			}
+
+			// An error about one struct points at its declaration.
+			if !strings.Contains(tc.want, "both map to table") && !strings.Contains(err.Error(), "model.go:9:6: Row: ") {
+				t.Errorf("tsq gen = %v; want the struct's position", err)
+			}
+		})
 	}
 }

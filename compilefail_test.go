@@ -28,6 +28,8 @@ var compileFailCases = []struct {
 	{"lock after having and limit", `tsq.Select(UserID).From(Users).GroupBy(UserID).Having(UserID.GT(tsq.Val(int64(0)))).Limit(1).ForShare()`, "ForShare undefined"},
 	{"lock after union and order", `tsq.Select(UserID).From(Users).Union(tsq.Select(UserID).From(Users)).OrderBy(UserID.Asc()).ForUpdate()`, "ForUpdate undefined"},
 	{"set operation after search", `tsq.Select(UserID).From(Users).Search(UserName).Union(tsq.Select(UserID).From(Users))`, "Union undefined"},
+	{"set operation after search and group by", `tsq.Select(UserID).From(Users).Search(UserName).GroupBy(UserID).Union(tsq.Select(UserID).From(Users))`, "Union undefined"},
+	{"set operation after where, search, group by and having", `tsq.Select(UserID).From(Users).Where(UserID.GT(tsq.Val(int64(0)))).Search(UserName).GroupBy(UserID).Having(UserID.GT(tsq.Val(int64(0)))).Except(tsq.Select(UserID).From(Users))`, "Except undefined"},
 	{"where after order by", `tsq.Select(UserID).From(Users).OrderBy(UserID.Asc()).Where(UserID.EQ(tsq.Val(int64(1))))`, "Where undefined"},
 	{"wait mode without lock", `tsq.Select(UserID).From(Users).NoWait()`, "NoWait undefined"},
 	{"columns of two owners", `tsq.Select(UserID, OrderID)`, "OrderID"},

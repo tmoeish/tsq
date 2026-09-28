@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"go/types"
 	"io"
 	"os"
 	"path/filepath"
@@ -73,9 +74,15 @@ Accepted inputs:
 Generated files:
   - <struct>.tsq.go for each struct marked //tsq:table
   - <result>.result.tsq.go for each struct marked //tsq:result
+  - runtime.tsq.go with TSQTables(), every table of the package
   - sqlite.sql / mysql.sql / postgres.sql beside generated Go files
     with the initial schema plus dated migration sections
   - tsq.json with the latest snapshot and migration history
+
+Exit status:
+  - 0 on success
+  - 2 when --check finds generated files out of date
+  - 1 for every other error
 
 Overwrite behavior:
   - creates missing generated files
@@ -497,6 +504,56 @@ func validateIdentifierLengths(data *genmodel.StructInfo) error {
 	return nil
 }
 
+// validateResultTypes refuses a result field that cannot hold the column it
+// projects. It holds the column's type, or a nullable form of the column's value
+// type (*T, sql.Null[T], ...), which a column on the outer side of a LEFT JOIN
+// needs even when the column itself is NOT NULL.
+func validateResultTypes(result *genmodel.StructInfo, structsByName map[string]*genmodel.StructInfo, resolver *ddlTypeResolver) error {
+	named, pkg, err := resolver.lookupNamedStruct(result.TypeInfo)
+	if err != nil {
+		return err
+	}
+
+	for _, field := range result.Fields {
+		table, name, _ := strings.Cut(field.Column, ".")
+
+		sourceNamed, sourcePkg, err := resolver.lookupNamedStruct(structsByName[table].TypeInfo)
+		if err != nil {
+			return err
+		}
+
+		target, _, err := lookupDDLField(named, pkg, field.Name)
+		if err != nil {
+			return err
+		}
+
+		source, _, err := lookupDDLField(sourceNamed, sourcePkg, name)
+		if err != nil {
+			return err
+		}
+
+		if types.Identical(target.Type(), source.Type()) {
+			continue
+		}
+
+		value := source.Type()
+		if v, ok := nullableValueType(value); ok {
+			value = v
+		}
+
+		if v, ok := nullableValueType(target.Type()); ok && types.Identical(v, value) {
+			continue
+		}
+
+		spell := func(t types.Type) string { return types.TypeString(t, types.RelativeTo(pkg)) }
+
+		return fmt.Errorf("result field %s of type %s cannot hold %s of type %s; use %s, or a nullable form of it (*%s, sql.Null[%s]) for a column that can be NULL",
+			field.Name, spell(target.Type()), field.Column, spell(source.Type()), spell(value), spell(value), spell(value))
+	}
+
+	return nil
+}
+
 func validateResultFields(
 	dto *genmodel.StructInfo,
 	structsByName map[string]*genmodel.StructInfo,
@@ -544,8 +601,7 @@ func validateResultFields(
 			)
 		}
 
-		sourceField, ok := targetStruct.FieldsByName[parts[1]]
-		if !ok {
+		if _, ok := targetStruct.FieldsByName[parts[1]]; !ok {
 			return fmt.Errorf(
 				"result field %s references unknown field %s.%s",
 				field.Name,
@@ -553,27 +609,9 @@ func validateResultFields(
 				parts[1],
 			)
 		}
-
-		if !isScanCompatible(field, sourceField) {
-			return fmt.Errorf(
-				"result field %s type %s is incompatible with %s.%s type %s",
-				field.Name,
-				field.String(),
-				parts[0],
-				parts[1],
-				sourceField.String(),
-			)
-		}
 	}
 
 	return nil
-}
-
-func isScanCompatible(dst, src genmodel.FieldInfo) bool {
-	return dst.Type == src.Type &&
-		dst.TypeArgs == src.TypeArgs &&
-		dst.IsPointer == src.IsPointer &&
-		dst.IsSlice == src.IsSlice
 }
 
 // normalizeResultColumns turns each Struct.Field reference into the generated
@@ -674,13 +712,9 @@ func validateIndexNameCollisions(list []*genmodel.StructInfo) error {
 }
 
 func validateGeneratedSymbolCollisions(list []*genmodel.StructInfo) error {
-	seen := make(map[string]string)
+	seen := map[string]string{runtimeSymbol: "the package runtime"}
 
 	register := func(symbol, owner string) error {
-		if symbol == "" {
-			return nil
-		}
-
 		if existing, ok := seen[symbol]; ok && existing != owner {
 			return fmt.Errorf("generated symbol %s collides between %s and %s", symbol, existing, owner)
 		}
@@ -690,20 +724,79 @@ func validateGeneratedSymbolCollisions(list []*genmodel.StructInfo) error {
 		return nil
 	}
 
+	// A struct's own name is taken too: a table Course generates CourseTable, which
+	// cannot sit beside a table struct named CourseTable.
+	for _, data := range list {
+		if data != nil && data.TableMeta != nil {
+			if err := register(data.TypeInfo.TypeName, data.TypeInfo.TypeName); err != nil {
+				return err
+			}
+		}
+	}
+
 	for _, data := range list {
 		if data == nil || data.TableMeta == nil {
 			continue
 		}
 
-		typeName := data.TypeInfo.TypeName
+		for _, symbol := range generatedSymbols(data) {
+			if err := register(symbol, data.TypeInfo.TypeName); err != nil {
+				return err
+			}
+		}
+	}
 
-		symbols := []string{"Table" + typeName, typeName + "Table", "new" + typeName + "Table"}
-		if data.IsResult {
-			symbols = []string{"Result" + typeName, typeName + "Result"}
+	return nil
+}
+
+// runtimeSymbol is the function runtime.tsq.go declares.
+const runtimeSymbol = "TSQTables"
+
+// generatedSymbols are the package-level names the generated file of data declares.
+func generatedSymbols(data *genmodel.StructInfo) []string {
+	typeName := data.TypeInfo.TypeName
+	if data.IsResult {
+		return []string{"Result" + typeName, typeName + "Result"}
+	}
+
+	return []string{"Table" + typeName, typeName + "Table", "new" + typeName + "Table"}
+}
+
+// validateDeclaredSymbols refuses a generated name the package already declares
+// in a file TSQ did not generate: the package stopped compiling after gen, with an
+// error in the generated file rather than a word about the clash.
+func validateDeclaredSymbols(list []*genmodel.StructInfo, resolver *ddlTypeResolver) error {
+	check := func(pkgPath, symbol, owner string) error {
+		pkg, ok := resolver.packages[pkgPath]
+		if !ok || pkg.Types == nil {
+			return nil
 		}
 
-		for _, symbol := range symbols {
-			if err := register(symbol, typeName); err != nil {
+		obj := pkg.Types.Scope().Lookup(symbol)
+		if obj == nil {
+			return nil
+		}
+
+		pos := pkg.Fset.Position(obj.Pos())
+		if strings.HasSuffix(pos.Filename, ".tsq.go") {
+			return nil
+		}
+
+		return fmt.Errorf("%s:%d: %s is declared here, and TSQ generates %s for %s; rename one of them", pos.Filename, pos.Line, symbol, symbol, owner)
+	}
+
+	for _, data := range list {
+		if data == nil || data.TableMeta == nil || len(data.Fields) == 0 {
+			continue
+		}
+
+		path := data.TypeInfo.Package.Path
+		if err := check(path, runtimeSymbol, "the package's tables"); err != nil {
+			return err
+		}
+
+		for _, symbol := range generatedSymbols(data) {
+			if err := check(path, symbol, data.TypeInfo.TypeName); err != nil {
 				return err
 			}
 		}
@@ -740,6 +833,51 @@ func validatePrimaryKeyField(data *genmodel.StructInfo) error {
 			data.PrimaryKey,
 			data.TypeInfo.TypeName,
 		)
+	}
+
+	return validateFieldRoles(data)
+}
+
+// validateFieldRoles refuses a field given two roles: a key TSQ also stamps or
+// increments would change under the row every write matches it by, and one field
+// cannot hold both a creation and an update time.
+func validateFieldRoles(data *genmodel.StructInfo) error {
+	roles := []struct{ role, field string }{
+		{"id", data.PrimaryKey},
+		{"version", data.VersionField},
+		{"created_at", data.CreatedAtField},
+		{"updated_at", data.UpdatedAtField},
+		{"deleted_at", data.DeletedAtField},
+	}
+
+	for i, a := range roles {
+		for _, b := range roles[i+1:] {
+			if a.field != "" && a.field == b.field {
+				return fmt.Errorf("field %s in %s is both the %s and the %s field; give each role its own field", a.field, data.TypeInfo.TypeName, a.role, b.role)
+			}
+		}
+	}
+
+	return nil
+}
+
+// validateTableNameCollisions refuses two structs mapped to one table: the DDL
+// created it twice and the runtime could not tell the tables apart. Names compare
+// without case, as MySQL and SQLite do.
+func validateTableNameCollisions(list []*genmodel.StructInfo) error {
+	seen := map[string]string{}
+
+	for _, data := range list {
+		if data == nil || data.TableMeta == nil || data.IsResult || data.Table == "" {
+			continue
+		}
+
+		key := strings.ToLower(data.Table)
+		if other, ok := seen[key]; ok {
+			return fmt.Errorf("%s and %s both map to table %s; give one of them another name=", other, data.TypeInfo.TypeName, data.Table)
+		}
+
+		seen[key] = data.TypeInfo.TypeName
 	}
 
 	return nil
@@ -781,17 +919,43 @@ func validateFieldDatabaseCompatibility(data *genmodel.StructInfo) error {
 	return nil
 }
 
-// validateFullTextFields refuses a full-text index over a column that is not text:
-// MATCH, to_tsvector and LIKE all need one.
-func validateFullTextFields(data *genmodel.StructInfo) error {
+// validateTextFields refuses a search column or full-text index over a field
+// that is not text: tsq.Searchable takes ~string columns, and LIKE, MATCH and
+// to_tsvector are not portable over anything else (PostgreSQL has no LIKE for
+// integers). A named type whose underlying type is string is text.
+func validateTextFields(data *genmodel.StructInfo, resolver *ddlTypeResolver) error {
+	text := func(name string) (bool, error) {
+		field, ok := data.FieldsByName[name]
+		if !ok {
+			return false, fmt.Errorf("unknown field %s", name)
+		}
+
+		if field.IsSlice || field.IsPointer {
+			return false, nil
+		}
+
+		return resolver.isText(data, field)
+	}
+
+	for _, name := range data.SearchColumns {
+		ok, err := text(name)
+		if err != nil {
+			return fmt.Errorf("search: %w", err)
+		}
+
+		if !ok {
+			return fmt.Errorf("search field %s is not a string", name)
+		}
+	}
+
 	for _, index := range data.FullTexts {
 		for _, name := range index.Fields {
-			field, ok := data.FieldsByName[name]
-			if !ok {
-				return fmt.Errorf("full-text index %s references unknown field %s", index.Name, name)
+			ok, err := text(name)
+			if err != nil {
+				return fmt.Errorf("full-text index %s: %w", index.Name, err)
 			}
 
-			if field.IsSlice || field.IsPointer || field.Type.Package.Path != "" || field.Type.TypeName != "string" {
+			if !ok {
 				return fmt.Errorf("full-text index %s covers %s, which is not a string", index.Name, name)
 			}
 		}
@@ -850,12 +1014,6 @@ func validateFieldDatabaseType(field genmodel.FieldInfo, keywordFields map[strin
 		}
 
 		if field.IsSlice {
-			return errors.New("search fields must be of type string")
-		}
-
-		// tsq.Searchable accepts ~string columns, and LIKE on anything else is not
-		// portable (PostgreSQL has no LIKE for integers).
-		if field.Type.Package.Path != "" || field.Type.TypeName != "string" {
 			return errors.New("search fields must be of type string")
 		}
 	}

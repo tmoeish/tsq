@@ -146,8 +146,9 @@ func (l *Learner) Insert(ctx context.Context, db tsq.Executor) error {
 // Update writes the row, or only cols when given; see tsq.TableOf.Update.
 func (l *Learner) Update(ctx context.Context, db tsq.Executor, cols ...tsq.BoundColumn[Learner]) error {
 	return TableLearner.Update(ctx, db, l, cols...)
-} // HardDelete removes the row from the table.
+}
 
+// HardDelete removes the row from the table.
 func (l *Learner) HardDelete(ctx context.Context, db tsq.Executor) error {
 	return TableLearner.HardDelete(ctx, db, l)
 }

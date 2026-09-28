@@ -175,3 +175,32 @@ func TestMySQLTextColumnsKeepTheirSize(t *testing.T) {
 		t.Fatalf("mediumtext = %+v, %v; want it to match the MEDIUMTEXT TSQ renders", medium, err)
 	}
 }
+
+// TestMySQLTimesKeepMicroseconds covers MySQL's DATETIME, which rounds to the
+// second: a row stamped in memory disagreed with the row read back, and optimistic
+// retries compared stale stamps. TSQ renders DATETIME(6); a column of any other
+// precision reads back as its raw type, so Reconcile widens it.
+func TestMySQLTimesKeepMicroseconds(t *testing.T) {
+	d := MySQLDialect{}
+	declared := ColumnSpec{Name: "at", Type: ColumnType{Kind: KindTime}}
+
+	if got := d.ColumnTypeSQL(declared.Type); got != "DATETIME(6)" {
+		t.Fatalf("time renders as %s", got)
+	}
+
+	for native, want := range map[string]bool{"datetime(6)": true, "datetime": false, "datetime(3)": false, "timestamp": false} {
+		desc, err := parseMySQLColumnType(strings.Split(native, "(")[0], native, sql.NullInt64{})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if got := SameColumnType(d, Column{Name: "at", Type: desc, NativeType: native}, declared); got != want {
+			t.Errorf("%s matched = %v, want %v", native, got, want)
+		}
+	}
+
+	desc, _ := parseMySQLColumnType("datetime", "datetime", sql.NullInt64{})
+	if !SameColumnType(d, Column{Name: "at", Type: desc, NativeType: "datetime"}, ColumnSpec{Name: "at", Type: ColumnType{RawType: "DATETIME"}}) {
+		t.Error("datetime did not match a column declared type:DATETIME")
+	}
+}

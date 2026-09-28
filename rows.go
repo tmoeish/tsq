@@ -31,7 +31,9 @@ import (
 // stampTime is the time TSQ writes into managed timestamps. It is UTC, so rows
 // stamped by processes in different zones, or on both sides of a daylight-saving
 // change, still sort by time where the database keeps the time as text (SQLite).
-func stampTime() time.Time { return time.Now().UTC() }
+// It is truncated to microseconds, the finest precision MySQL (DATETIME(6)) and
+// PostgreSQL store, so a stamped row agrees with the row read back.
+func stampTime() time.Time { return time.Now().UTC().Truncate(time.Microsecond) }
 
 // updatedAtValue returns now as the table's updated_at field type holds it.
 func (t *TableOf[R, K]) updatedAtValue(now time.Time) (any, error) {
@@ -644,6 +646,14 @@ func (t *TableOf[R, K]) insert(ctx context.Context, db Executor, rows []*R, conf
 		return err
 	}
 
+	// A row read with some of its columns would be copied with zero values in the
+	// others, as Update would overwrite them; Insert refuses it the same way.
+	for _, row := range rows {
+		if err := checkFullRow("insert into", def.name, row); err != nil {
+			return err
+		}
+	}
+
 	now := stampTime()
 	snapshot := snapshotFields(rows, def.column(def.managed.CreatedAt), def.column(def.managed.UpdatedAt), def.primaryKey)
 	written := make(map[*R]bool, len(rows))
@@ -702,7 +712,7 @@ func (t *TableOf[R, K]) insertGroups(ctx context.Context, db Executor, scope exe
 		omitKey := def.autoIncrement && field(group[0], def.primaryKey).IsZero()
 		cols := t.insertColumns(def, group[0])
 
-		if len(cols) == 0 {
+		if len(cols) == 0 && !omitKey {
 			return fmt.Errorf("insert into %s: every column is left to the database", def.name)
 		}
 
@@ -789,6 +799,13 @@ func (t *TableOf[R, K]) insertChunk(ctx context.Context, db Executor, scope exec
 		w.ident(col.name)
 	}
 
+	// With nothing to write (only a generated key, and columns the database
+	// fills), the key is named and left to the database: "()" is MySQL only, and
+	// DEFAULT VALUES inserts a single row.
+	if len(cols) == 0 {
+		w.ident(def.primaryKey.name)
+	}
+
 	w.text(") VALUES ")
 
 	for i, row := range rows {
@@ -804,6 +821,10 @@ func (t *TableOf[R, K]) insertChunk(ctx context.Context, db Executor, scope exec
 			}
 
 			w.arg(value(row, col))
+		}
+
+		if len(cols) == 0 {
+			w.text(generatedKeyValue(scope.dialect))
 		}
 
 		w.text(")")
@@ -836,6 +857,16 @@ func (t *TableOf[R, K]) insertChunk(ctx context.Context, db Executor, scope exec
 	}
 
 	return nil
+}
+
+// generatedKeyValue asks the database for the next key of an auto-increment
+// column: SQLite has no DEFAULT in VALUES, and assigns a key for NULL.
+func generatedKeyValue(d sqld.Dialect) string {
+	if d.Name() == tsqdialect.SQLite {
+		return "NULL"
+	}
+
+	return "DEFAULT"
 }
 
 func (t *TableOf[R, K]) insertReturning(ctx context.Context, db Executor, def *tableDef, w *writeStmt, rows []*R) error {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 )
 
 // AttachMany reads the children of parents with one extra query and hands each
@@ -21,6 +22,12 @@ import (
 // Within one statement the children keep the order of the child query; a key list
 // large enough to be split over several statements has no overall order, so order
 // the children per parent afterwards when it matters.
+//
+// childKey must be selected by the child query. A nullable key (a NullColumn) is
+// unwrapped, and NULL matches nothing. Keys are matched in Go, exactly: under a
+// case-insensitive collation (MySQL's default) the child query finds "ABC" for
+// the key "abc", and that child is then attached to no parent, so give string keys
+// a binary collation.
 func AttachMany[P, C any, K comparable](
 	ctx context.Context,
 	db Executor,
@@ -42,9 +49,14 @@ func AttachMany[P, C any, K comparable](
 	}
 
 	for _, parent := range parents {
-		key, err := columnValue[P, K](parentKey, parent)
+		key, ok, err := columnValue[P, K](parentKey, parent)
 		if err != nil {
 			return err
+		}
+
+		if !ok {
+			assign(parent, nil)
+			continue
 		}
 
 		assign(parent, byKey[key])
@@ -77,12 +89,12 @@ func AttachOne[P, C any, K comparable](
 	}
 
 	for _, parent := range parents {
-		key, err := columnValue[P, K](parentKey, parent)
+		key, ok, err := columnValue[P, K](parentKey, parent)
 		if err != nil {
 			return err
 		}
 
-		if group := byKey[key]; len(group) > 0 {
+		if group := byKey[key]; ok && len(group) > 0 {
 			assign(parent, group[0])
 		}
 	}
@@ -107,15 +119,23 @@ func loadChildren[P, C any, K comparable](
 		return nil, errors.New("attach: the child query cannot be nil")
 	}
 
+	// Every child is grouped by the value its childKey field holds; a child query
+	// that does not select childKey left it zero, and no parent got any child.
+	if !selectsField(children.spec.Selects, childKey.core()) {
+		return nil, fmt.Errorf("attach: the child query does not select %s, the key children are grouped by", childKey.Name())
+	}
+
 	keys := make([]K, 0, len(parents))
 
 	for _, parent := range parents {
-		key, err := columnValue[P, K](parentKey, parent)
+		key, ok, err := columnValue[P, K](parentKey, parent)
 		if err != nil {
 			return nil, err
 		}
 
-		keys = append(keys, key)
+		if ok {
+			keys = append(keys, key)
+		}
 	}
 
 	byKey := map[K][]*C{}
@@ -130,38 +150,98 @@ func loadChildren[P, C any, K comparable](
 	}
 
 	for _, row := range rows {
-		key, err := columnValue[C, K](childKey, row)
+		key, ok, err := columnValue[C, K](childKey, row)
 		if err != nil {
 			return nil, err
 		}
 
-		byKey[key] = append(byKey[key], row)
+		if ok {
+			byKey[key] = append(byKey[key], row)
+		}
 	}
 
 	return byKey, nil
 }
 
-// columnValue reads the value col scans into, from the row it belongs to.
-func columnValue[O, T any](col TypedColumn[O, T], row *O) (T, error) {
+// columnValue reads the value col scans into, from the row it belongs to. A
+// nullable column's value is unwrapped, and a NULL reports false: a NULL key
+// matches nothing.
+func columnValue[O, T any](col TypedColumn[O, T], row *O) (T, bool, error) {
 	var zero T
 
 	if row == nil {
-		return zero, errors.New("attach: a row is nil")
+		return zero, false, errors.New("attach: a row is nil")
 	}
 
 	core := col.core()
 	if err := core.err(); err != nil {
-		return zero, err
+		return zero, false, err
 	}
 
 	if core.scan == nil {
-		return zero, fmt.Errorf("attach: %s is an expression, not a column of the row", core.name)
+		return zero, false, fmt.Errorf("attach: %s is an expression, not a column of the row", core.name)
 	}
 
-	pointer, ok := core.scan(row).(*T)
+	field := reflect.ValueOf(core.scan(row)).Elem()
+
+	if core.nullable {
+		value, valid := nullableValue(field)
+		if !valid {
+			return zero, false, nil
+		}
+
+		field = value
+	}
+
+	key, ok := reflect.TypeAssert[T](field)
 	if !ok {
-		return zero, fmt.Errorf("attach: %s does not read into the row", core.name)
+		return zero, false, fmt.Errorf("attach: %s does not hold a %T", core.name, zero)
 	}
 
-	return *pointer, nil
+	return key, true, nil
+}
+
+// nullableValue unwraps a nullable form: the element of a pointer, or the value
+// of a struct with a Valid flag (sql.Null[T], sql.NullString, null.String), which
+// is its first field.
+func nullableValue(v reflect.Value) (reflect.Value, bool) {
+	switch v.Kind() {
+	case reflect.Pointer:
+		if v.IsNil() {
+			return reflect.Value{}, false
+		}
+
+		return v.Elem(), true
+	case reflect.Struct:
+		valid := v.FieldByName("Valid")
+		if !valid.IsValid() || valid.Kind() != reflect.Bool || !valid.Bool() {
+			return reflect.Value{}, false
+		}
+
+		for i := range v.NumField() {
+			if v.Type().Field(i).Name != "Valid" {
+				return v.Field(i), true
+			}
+		}
+	}
+
+	return reflect.Value{}, false
+}
+
+// selectsField reports whether one of selects reads into the field key reads into.
+func selectsField[O any](selects []BoundColumn[O], key *columnCore) bool {
+	if key == nil || key.scan == nil {
+		return false
+	}
+
+	holder := new(O)
+	want := reflect.ValueOf(key.scan(holder)).Pointer()
+
+	for _, col := range selects {
+		if core := col.core(); core != nil && core.scan != nil && reflect.ValueOf(core.scan(holder)).Pointer() == want {
+			return true
+		}
+	}
+
+	return false
 }

@@ -3,11 +3,8 @@ package tsq
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"slices"
 )
-
-const maxTracers = 100
 
 // TraceOp names the kind of work a traced call performs.
 type TraceOp string
@@ -143,14 +140,6 @@ func appendTracers(existing []Tracer, newTracers ...Tracer) []Tracer {
 	for _, tracer := range newTracers {
 		if tracer == nil {
 			continue
-		}
-
-		if len(result) >= maxTracers {
-			// appendTracers runs while NewRuntime is still assembling the Runtime, so
-			// WithLogger is not reachable from here yet.
-			slog.Default().Warn("maximum tracer limit reached", "limit", maxTracers)
-
-			return result
 		}
 
 		result = append(result, tracer)

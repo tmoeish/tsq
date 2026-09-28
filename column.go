@@ -315,7 +315,10 @@ func newColumn[O, T any, K comparable](table *TableOf[O, K], name, jsonName stri
 		core.info.err = fmt.Errorf("column name %q is not a plain SQL identifier", name)
 	default:
 		core.table = table
-		core.info = exprInfo{sql: columnRef(table, name), tables: map[string]Table{table.TableName(): table}, null: nullableIn(table.TableName())}
+		core.info = exprInfo{
+			sql: columnRef(table, name), tables: map[string]Table{table.TableName(): table}, null: nullableIn(table.TableName()),
+			bare: []columnKey{{table.TableName(), name}},
+		}
 		core.scan = func(holder any) any { return field(holder.(*O)) }
 		core.get = func(holder any) any { return *field(holder.(*O)) }
 	}
@@ -378,7 +381,10 @@ func rebind(c *columnCore, table Table) *columnCore {
 		next.info = exprInfo{err: fmt.Errorf("column %s does not exist on %s", c.name, table.TableName())}
 	default:
 		next.table = table
-		next.info = exprInfo{sql: columnRef(table, c.name), tables: map[string]Table{table.TableName(): table}, null: nullableIn(table.TableName())}
+		next.info = exprInfo{
+			sql: columnRef(table, c.name), tables: map[string]Table{table.TableName(): table}, null: nullableIn(table.TableName()),
+			bare: []columnKey{{table.TableName(), c.name}},
+		}
 		// A CTE's output is NULL exactly when its body can make it so: a nullable
 		// column the body coalesces is not NULL through the CTE.
 		if body := table.cteBody(); body != nil {

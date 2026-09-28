@@ -221,15 +221,15 @@ func (t {{$tableType}}) FetchBy{{$name}}(
 {{$precv}}Update(ctx context.Context, db tsq.Executor, cols ...tsq.BoundColumn[{{$type}}]) error {
 	return {{$varTbl}}.Update(ctx, db, {{$dot.Receiver}}, cols...)
 }
-
 {{- if .DeletedAtField }}
+
 // Delete soft-deletes the row by stamping {{$dot.DeletedAtField}}; queries naming the
 // table leave it out from then on. See tsq.SoftDeleteTableOf.Delete.
 {{$precv}}Delete(ctx context.Context, db tsq.Executor) error {
 	return {{$varTbl}}.Delete(ctx, db, {{$dot.Receiver}})
 }
+{{- end }}
 
-{{ end -}}
 // HardDelete removes the row from the table.
 {{- if .DeletedAtField }} Unlike a soft delete, it cannot be undone.
 {{- end }}

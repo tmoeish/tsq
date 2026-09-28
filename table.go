@@ -296,6 +296,27 @@ func (t *TableOf[R, K]) define(spec TableSpec[R, K], deletedAt BoundColumn[R]) {
 		fail("a soft-delete table needs its deleted_at column")
 	}
 
+	// One column cannot hold two roles: a key TSQ stamps or increments changes
+	// under the row every write matches it by.
+	roles := []struct{ role, column string }{
+		{"primary key", ""},
+		{"version column", d.managed.Version},
+		{"created_at column", d.managed.CreatedAt},
+		{"updated_at column", d.managed.UpdatedAt},
+		{"deleted_at column", d.managed.DeletedAt},
+	}
+	if d.primaryKey != nil {
+		roles[0].column = d.primaryKey.name
+	}
+
+	for i, a := range roles {
+		for _, b := range roles[i+1:] {
+			if a.column != "" && a.column == b.column {
+				fail("column %s is both the %s and the %s", a.column, a.role, b.role)
+			}
+		}
+	}
+
 	for _, col := range spec.Search {
 		if registered("search column", col) != "" {
 			d.search = append(d.search, col)

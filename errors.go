@@ -74,8 +74,10 @@ func IsRetryableNetworkError(err error) bool {
 		return false
 	}
 
+	// A bare io.EOF is not one: a callback that reads a file returns it, and
+	// retrying reran the whole transaction. Drivers report a dropped connection
+	// as ErrBadConn or io.ErrUnexpectedEOF.
 	if errors.Is(err, driver.ErrBadConn) ||
-		errors.Is(err, io.EOF) ||
 		errors.Is(err, io.ErrUnexpectedEOF) ||
 		errors.Is(err, syscall.EPIPE) ||
 		errors.Is(err, syscall.ECONNRESET) ||

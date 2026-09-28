@@ -3,6 +3,7 @@ package tsq
 import (
 	"errors"
 	"maps"
+	"slices"
 )
 
 // exprInfo is a rendered-later SQL expression plus what the query builder needs to
@@ -19,8 +20,16 @@ type exprInfo struct {
 	// deliberately not merged: under AND, OR or NOT the condition is no longer one
 	// a query can be split on.
 	inList *paramSpec
-	err    error
+	// bare are the columns the expression reads outside any aggregate, which a
+	// grouped query must group (checkGrouping).
+	bare []columnKey
+	err  error
 }
+
+// columnKey names a column by the name its table has in the query.
+type columnKey struct{ table, column string }
+
+func (k columnKey) String() string { return k.table + "." + k.column }
 
 func (e exprInfo) withSQL(sql sqlExpr) exprInfo {
 	e.sql = sql
@@ -42,6 +51,12 @@ func (e exprInfo) merge(other exprInfo) exprInfo {
 
 	e.aggregate = e.aggregate || other.aggregate
 	e.null = e.null.or(other.null)
+
+	for _, key := range other.bare {
+		if !slices.Contains(e.bare, key) {
+			e.bare = append(slices.Clip(e.bare), key)
+		}
+	}
 
 	return e
 }

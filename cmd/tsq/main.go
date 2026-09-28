@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -14,6 +15,11 @@ var commands = []*cmd.Command{cmd.GenCmd, cmd.VersionCmd}
 func main() {
 	if err := run(os.Args[1:], os.Stdout); err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, formatCLIError(os.Stderr, err))
+
+		// CI tells "run tsq gen" apart from a broken package by the status.
+		if errors.Is(err, cmd.ErrOutOfDate) {
+			os.Exit(2)
+		}
 
 		os.Exit(1)
 	}

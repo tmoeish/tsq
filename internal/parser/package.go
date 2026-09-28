@@ -340,6 +340,7 @@ func (ps *ParseState) processStructTypeSpec(
 
 	if tableMeta != nil {
 		structInfo.TableMeta = tableMeta
+		structInfo.Pos = fileSet.Position(typeSpec.Pos()).String()
 	}
 
 	return nil

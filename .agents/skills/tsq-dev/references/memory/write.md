@@ -54,3 +54,7 @@ RIGHT JOIN 被保留侧的已删行，所以有 RIGHT / FULL JOIN 时整张表�
 精度存）。无版本列时 MySQL 写原值报零行，只把回读不到的行算缺失；"本来就在目标状态"和"刚写成"分不出，只报短缺不点名。
 **否掉 RETURNING**（MySQL 没有）。先只修了 `BatchUpdate`，同形的删除 / 恢复 / 跳过重复又被审计找出：**一次只修一条写路径必漏**，
 短缺处理现在集中在 `shortfalls`。
+
+**时间戳截断到微秒、MySQL 用 `DATETIME(6)`**（2026-09-28）：`DATETIME` 四舍五入到秒，内存行和库里的行对不上。已有的
+`DATETIME` 列读回为原始类型，`Reconcile` 会加宽它。只有自增主键的表写 `(pk) VALUES (DEFAULT)`（SQLite 写 `NULL`）；
+MySQL 的 `SET` 从左到右求值，读前面赋值过的列的赋值**拒绝而不重排**——有环（交换）时无法重排。

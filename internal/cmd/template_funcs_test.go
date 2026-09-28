@@ -248,8 +248,10 @@ func TestFieldVarNameAvoidsGoKeywords(t *testing.T) {
 		t.Fatalf("expected keyword field name to be suffixed, got %q", got)
 	}
 
-	if got := fieldSliceVarName("Type"); got != "type_s" {
-		t.Fatalf("expected keyword slice field name to be suffixed before pluralization, got %q", got)
+	for in, want := range map[string]string{"Type": "types", "Status": "statuses", "Category": "categories", "Key": "keys", "Box": "boxes", "Batch": "batches"} {
+		if got := fieldSliceVarName(in); got != want {
+			t.Errorf("fieldSliceVarName(%s) = %q, want %q", in, got, want)
+		}
 	}
 
 	if got := fieldVarName("UserID"); got != "userID" {

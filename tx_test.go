@@ -323,6 +323,14 @@ func TestIsRetryableNetworkError(t *testing.T) {
 	if IsRetryableNetworkError(context.Canceled) {
 		t.Fatal("expected context cancellation to stay non-retryable")
 	}
+	// A callback reading a file returns a bare io.EOF; retrying reran the whole
+	// transaction. A connection dropped mid-read is io.ErrUnexpectedEOF.
+	if IsRetryableNetworkError(fmt.Errorf("read config: %w", io.EOF)) {
+		t.Fatal("expected a bare io.EOF to stay non-retryable")
+	}
+	if !IsRetryableNetworkError(io.ErrUnexpectedEOF) {
+		t.Fatal("expected io.ErrUnexpectedEOF to be retryable")
+	}
 }
 
 func TestIsTxConflictError(t *testing.T) {
