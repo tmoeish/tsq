@@ -1271,3 +1271,112 @@ func TestPartialRowsAreForgotten(t *testing.T) {
 
 	t.Fatalf("registry still holds %d of the rows after collection", remembered())
 }
+
+// TestSkipDuplicatesKeepsTheRowsItStored covers BatchInsert with
+// WithSkipDuplicates, which never recorded the rows it stored: when a later row
+// failed, the rows already in the table lost their keys and stamps in memory, and
+// a row skipped as a duplicate kept stamps the database never saw.
+func TestSkipDuplicatesKeepsTheRowsItStored(t *testing.T) {
+	ctx := context.Background()
+	rt := newSQLite(t)
+	seedUsers(t, rt, "taken")
+
+	if _, err := rt.ExecContext(ctx, `CREATE TRIGGER no_boom BEFORE INSERT ON users WHEN NEW.name = 'boom' BEGIN SELECT RAISE(ABORT, 'boom refused'); END`); err != nil {
+		t.Fatal(err)
+	}
+
+	stored := &user{Name: "ok", Email: "ok@example.com"}
+	skipped := &user{Name: "dup", Email: "taken@example.com"}
+	failed := &user{Name: "boom", Email: "boom@example.com"}
+
+	err := Users.BatchInsert(ctx, rt, []*user{stored, skipped, failed}, WithSkipDuplicates())
+	if err == nil || !strings.Contains(err.Error(), "boom refused") {
+		t.Fatalf("BatchInsert = %v; want the trigger's refusal", err)
+	}
+
+	if stored.ID == 0 || stored.CreatedAt.IsZero() {
+		t.Fatalf("stored row = %+v; want its key and stamps kept", stored)
+	}
+
+	if skipped.ID != 0 || !skipped.CreatedAt.IsZero() || !failed.CreatedAt.IsZero() {
+		t.Fatalf("skipped = %+v, failed = %+v; want both as they were", skipped, failed)
+	}
+
+	// Without a failure, a skipped row still keeps no stamps.
+	again := &user{Name: "dup", Email: "taken@example.com"}
+	if err := Users.BatchInsert(ctx, rt, []*user{again}, WithSkipDuplicates()); err != nil || !again.CreatedAt.IsZero() {
+		t.Fatalf("skipped duplicate = %+v, %v; want no stamps", again, err)
+	}
+}
+
+type blobRow struct {
+	ID   int64
+	Data []byte
+}
+
+var (
+	blobHandle = NewTable[blobRow, int64]("blobs")
+	Blob_ID    = NewColumn(blobHandle, "id", "id", func(r *blobRow) *int64 { return &r.ID })
+	Blob_Data  = NewColumn(blobHandle, "data", "data", func(r *blobRow) *[]byte { return &r.Data })
+	blobTable  = blobHandle.Define(TableSpec[blobRow, int64]{
+		Columns:       []BoundColumn[blobRow]{Blob_ID, Blob_Data},
+		PrimaryKey:    Blob_ID,
+		AutoIncrement: true,
+		ColumnSpecs: []tsqdialect.ColumnSpec{
+			{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
+			{Name: "data", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindBytes}},
+		},
+	})
+)
+
+// TestUnsetBytesAreWrittenEmpty covers a []byte field, a NOT NULL column whose
+// zero value is nil: the drivers bound it as NULL, and every Insert that left it
+// unset failed.
+func TestUnsetBytesAreWrittenEmpty(t *testing.T) {
+	ctx := context.Background()
+
+	rt, err := Open(ctx, "sqlite", filepath.Join(t.TempDir(), "blob.db"), []Table{blobTable}, WithSchemaPolicy(SchemaPolicyCreateMissing))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() { _ = rt.Close() })
+
+	row := &blobRow{}
+	if err := blobTable.Insert(ctx, rt, row); err != nil {
+		t.Fatalf("Insert with unset bytes = %v", err)
+	}
+
+	if got, err := blobTable.Get(ctx, rt, row.ID); err != nil || len(got.Data) != 0 {
+		t.Fatalf("stored = %+v, %v", got, err)
+	}
+}
+
+// TestRowsReadThroughACTEArePartial covers a row of a table read through a CTE,
+// which selects the table's columns rebound to the CTE: it was not recognised as
+// partial, and Update wrote zero values over the columns it did not read.
+func TestRowsReadThroughACTEArePartial(t *testing.T) {
+	ctx := context.Background()
+	rt := newSQLite(t)
+	user := seedUsers(t, rt, "a")[0]
+
+	if err := Orders.Insert(ctx, rt, &order{UserID: user.ID, Amount: 42, Note: "keep"}); err != nil {
+		t.Fatal(err)
+	}
+
+	cte := CTE("recent", Select(Order_ID, Order_UserID).From(Orders))
+
+	read, err := Select(Order_ID.WithTable(cte), Order_UserID.WithTable(cte)).From(cte).MustBuild().Get(ctx, rt)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Orders.Update(ctx, rt, read); err == nil || !strings.Contains(err.Error(), "read with only id, user_id") {
+		t.Fatalf("Update of a row read through a CTE = %v; want it refused", err)
+	}
+
+	stored, err := Orders.Get(ctx, rt, read.ID)
+	if err != nil || stored.Amount != 42 || stored.Note != "keep" {
+		t.Fatalf("stored = %+v, %v; want the unread columns kept", stored, err)
+	}
+}

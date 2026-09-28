@@ -4,6 +4,7 @@ import (
 	"errors"
 	"go/parser"
 	"go/token"
+	"log/slog"
 	"reflect"
 	"strings"
 	"testing"
@@ -161,5 +162,25 @@ func TestParseAnnotationsReportsTheLine(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestLookalikeDirectivesWarn covers "// tsq:table", which Go and this parser read
+// as prose: the struct silently stopped being a table, and the next migration
+// dropped it. It is still not a directive, but it is reported.
+func TestLookalikeDirectivesWarn(t *testing.T) {
+	var logged strings.Builder
+
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logged, nil)))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+
+	meta, err := parseSource(t, "// tsq:table\ntype User struct{}")
+	if err != nil || meta != nil {
+		t.Fatalf("parseAnnotations = %+v, %v; want no table", meta, err)
+	}
+
+	if !strings.Contains(logged.String(), "looks like a //tsq: directive") {
+		t.Fatalf("log = %q; want the look-alike reported", logged.String())
 	}
 }

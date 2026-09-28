@@ -40,6 +40,7 @@ const (
 	ansiBold     = "\033[1m"
 	ansiCyan     = "\033[36m"
 	ansiBoldCyan = "\033[1;36m"
+	ansiBoldRed  = "\033[1;31m"
 	ansiGreen    = "\033[32m"
 	ansiYellow   = "\033[33m"
 	ansiRed      = "\033[31m"
@@ -335,6 +336,15 @@ func printDDLChangeSummary(w io.Writer, artifacts ddlArtifacts) {
 				if _, err := fmt.Fprintf(w, "      %s\n", colorizeDDLAction(w, line)); err != nil {
 					return
 				}
+			}
+		}
+	}
+
+	for _, table := range artifacts.recordTables {
+		for _, line := range table.Columns {
+			if strings.HasPrefix(line, "drop ") {
+				_, _ = fmt.Fprintf(w, "%s: %s: %s is written commented out (%s); run it by hand once the drop is meant\n",
+					maybeANSI(w, ansiBoldRed, "warning"), table.Table, line, destructiveMarker)
 			}
 		}
 	}

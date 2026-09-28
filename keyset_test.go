@@ -3,6 +3,7 @@ package tsq
 import (
 	"context"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -103,5 +104,59 @@ func TestPageRequestKeysetResolvesSortFields(t *testing.T) {
 
 	if _, err := (&PageRequest{OrderBy: "email"}).Keyset(User_Name); !isErr[*SortError](err) {
 		t.Fatalf("unknown field = %v", err)
+	}
+}
+
+type userOrder struct {
+	UserID  int64
+	OrderID int64
+}
+
+// TestPageKeysetOverAJoinNeedsEveryKey covers a one-to-many join ordered by the
+// parent's key alone: the key repeats, and seeking past it skipped the rest of
+// the parent's children without a word. A CTE, which has no key, used to panic.
+func TestPageKeysetOverAJoinNeedsEveryKey(t *testing.T) {
+	ctx := context.Background()
+	rt := newSQLite(t)
+	users := seedUsers(t, rt, "a", "b")
+
+	if err := Orders.BatchInsert(ctx, rt, []*order{{UserID: users[0].ID, Amount: 1}, {UserID: users[0].ID, Amount: 2}, {UserID: users[1].ID, Amount: 3}}); err != nil {
+		t.Fatal(err)
+	}
+
+	userID := MapInto(User_ID, func(r *userOrder) *int64 { return &r.UserID })
+	orderID := MapInto(Order_ID, func(r *userOrder) *int64 { return &r.OrderID })
+	q := Select(userID, orderID).From(Users).InnerJoin(Orders, Order_UserID.EQ(User_ID)).MustBuild()
+
+	if _, err := q.PageKeyset(ctx, rt, Keyset{Size: 1, OrderBy: []OrderBy{User_ID.Asc()}}); err == nil || !strings.Contains(err.Error(), "primary key of orders") {
+		t.Fatalf("PageKeyset by the parent's key alone = %v; want it refused", err)
+	}
+
+	k := Keyset{Size: 1, OrderBy: []OrderBy{User_ID.Asc(), Order_ID.Asc()}}
+	seen := 0
+
+	for {
+		page, err := q.PageKeyset(ctx, rt, k)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		seen += len(page.Data)
+		if !page.HasNext() {
+			break
+		}
+
+		k.After = page.Next
+	}
+
+	if seen != 3 {
+		t.Fatalf("walked %d rows; want all 3", seen)
+	}
+
+	cte := CTE("ids", Select(User_ID).From(Users))
+	overCTE := Select(User_ID.WithTable(cte)).From(cte).MustBuild()
+
+	if _, err := overCTE.PageKeyset(ctx, rt, Keyset{OrderBy: []OrderBy{User_ID.WithTable(cte).Asc()}}); err == nil || !strings.Contains(err.Error(), "has none") {
+		t.Fatalf("PageKeyset over a CTE = %v; want it refused", err)
 	}
 }

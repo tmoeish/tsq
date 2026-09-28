@@ -408,7 +408,8 @@ func TestPrintDDLChangeSummary(t *testing.T) {
 				},
 			},
 		})
-		if got := buf.String(); got != "ddl:\n  <category>:\n    columns:\n      add column name\n      drop column abc\n    indexes:\n      add unique index ux_name\n      drop index idx_type\n" {
+		if got := buf.String(); got != "ddl:\n  <category>:\n    columns:\n      add column name\n      drop column abc\n    indexes:\n      add unique index ux_name\n      drop index idx_type\n"+
+			"warning: category: drop column abc is written commented out (-- DESTRUCTIVE); run it by hand once the drop is meant\n" {
 			t.Fatalf("unexpected ddl summary %q", got)
 		}
 	})
@@ -444,7 +445,8 @@ func TestPrintDDLChangeSummary(t *testing.T) {
 			hasChange:    true,
 			recordTables: recordTables,
 		})
-		if got := buf.String(); got != "ddl:\n  <category>:\n    columns:\n      alter column abc (type)\n  <item>:\n    columns:\n      add column sku\n      drop column spu_name\n" {
+		if got := buf.String(); got != "ddl:\n  <category>:\n    columns:\n      alter column abc (type)\n  <item>:\n    columns:\n      add column sku\n      drop column spu_name\n"+
+			"warning: item: drop column spu_name is written commented out (-- DESTRUCTIVE); run it by hand once the drop is meant\n" {
 			t.Fatalf("unexpected grouped ddl order %q", got)
 		}
 		if len(recordTables) != 2 || recordTables[0].Table != "category" || recordTables[1].Table != "item" {
@@ -503,7 +505,8 @@ func TestPrintDDLChangeSummary(t *testing.T) {
 				{Table: "new_table", Columns: []string{"drop table"}},
 			},
 		})
-		if got := buf.String(); got != "ddl:\n  <new_table>:\n    drop table\n" {
+		if got := buf.String(); got != "ddl:\n  <new_table>:\n    drop table\n"+
+			"warning: new_table: drop table is written commented out (-- DESTRUCTIVE); run it by hand once the drop is meant\n" {
 			t.Fatalf("unexpected drop table summary %q", got)
 		}
 	})
@@ -546,8 +549,13 @@ type User struct {
 		t.Fatalf("initial GenCmd.Execute() error = %v", err)
 	}
 
+	initial, err := os.ReadFile(filepath.Join(dir, "sqlite.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	// The name changes type, forcing the rebuild, and a NOT NULL column without a
-	// default arrives, which the copy into the new table cannot fill.
+	// default arrives, which the copy fills with the zero value.
 	writeTestFile(t, modelPath, `package gentest
 
 //tsq:table name=users
@@ -573,13 +581,15 @@ type User struct {
 	got := string(sqliteDDL)
 	for _, want := range []string{
 		`-- Migration: `,
-		`ALTER TABLE "users" RENAME TO "__tsq_rebuild_users";`,
-		`CREATE TABLE IF NOT EXISTS "users" (`,
-		`INSERT INTO "users" ("id", "name") SELECT "id", "name" FROM "__tsq_rebuild_users";`,
-		`-- users: email is NOT NULL without a default, which fails on a table with rows`,
-		`INSERT INTO sqlite_sequence (name, seq) SELECT 'users', seq FROM sqlite_sequence WHERE name = '__tsq_rebuild_users';`,
-		`DROP TABLE "__tsq_rebuild_users";`,
+		`-- users: email is NOT NULL without a default; existing rows get ''`,
+		`PRAGMA foreign_keys = OFF;`,
+		`CREATE TABLE IF NOT EXISTS "__tsq_new_users" (`,
+		`INSERT INTO "__tsq_new_users" ("id", "email", "name") SELECT "id", '', "name" FROM "users";`,
+		`INSERT INTO sqlite_sequence (name, seq) SELECT '__tsq_new_users', seq FROM sqlite_sequence WHERE name = 'users';`,
+		`DROP TABLE "users";`,
+		`ALTER TABLE "__tsq_new_users" RENAME TO "users";`,
 		`COMMIT;`,
+		`PRAGMA foreign_keys = ON;`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("expected sqlite incremental ddl to contain %q, got:\n%s", want, got)
@@ -587,6 +597,32 @@ type User struct {
 	}
 	if strings.Contains(got, ";;") {
 		t.Fatalf("expected sqlite ddl history to avoid duplicate semicolons, got:\n%s", got)
+	}
+
+	// Run the migration the way a user would: the sqlite3 shell, which does not
+	// stop at an error. The copy used to fail on the NOT NULL column and the shell
+	// then dropped the table with its rows.
+	shell, err := exec.LookPath("sqlite3")
+	if err != nil {
+		t.Skip("sqlite3 shell not installed")
+	}
+
+	db := filepath.Join(dir, "t.db")
+	migration := got[strings.Index(got, "-- Migration: "):]
+
+	for _, script := range []string{
+		string(initial),
+		`INSERT INTO users (name) VALUES (1), (2), (3); DELETE FROM users WHERE id = 3;`,
+		migration,
+	} {
+		if out, err := runSQLiteShell(shell, db, script); err != nil || strings.Contains(out, "Error") {
+			t.Fatalf("sqlite3: %v\n%s", err, out)
+		}
+	}
+
+	out, err := runSQLiteShell(shell, db, `INSERT INTO users (name, email) VALUES ('x', 'x@y'); SELECT count(*), max(id) FROM users;`)
+	if err != nil || strings.TrimSpace(out) != "3|4" {
+		t.Fatalf("after the rebuild: %q, %v; want the 2 rows kept, and key 4 rather than the deleted row's 3", out, err)
 	}
 }
 
@@ -2054,7 +2090,7 @@ type User struct {
 		"mysql.sql":    {"DROP INDEX `idx_users_name` ON `users`;", "MODIFY COLUMN `name`"},
 		// SQLite cannot ALTER a column type, so it rebuilds the table, which takes
 		// the dropped index with it.
-		"sqlite.sql": {`ALTER TABLE "users" RENAME TO "__tsq_rebuild_users";`, `"name" VARCHAR(128) NOT NULL`},
+		"sqlite.sql": {`ALTER TABLE "__tsq_new_users" RENAME TO "users";`, `"name" VARCHAR(128) NOT NULL`},
 	} {
 		content, err := os.ReadFile(filepath.Join(dir, file))
 		if err != nil {
@@ -2496,5 +2532,65 @@ func TestGenWarnsAboutIndexesMySQLRejects(t *testing.T) {
 
 	if postgres, err := os.ReadFile("postgres.sql"); err != nil || strings.Contains(string(postgres), "on MySQL") {
 		t.Errorf("postgres.sql carries the MySQL note: %v\n%s", err, postgres)
+	}
+}
+
+// runSQLiteShell runs script with the sqlite3 shell on db, as a user runs a
+// migration section: from stdin, without stopping at an error.
+func runSQLiteShell(shell, db, script string) (string, error) {
+	cmd := exec.Command(shell, db)
+	cmd.Stdin = strings.NewReader(script)
+	out, err := cmd.CombinedOutput()
+
+	return string(out), err
+}
+
+// TestGenMigrationsNeverDropDataUnasked covers three migrations the generator got
+// wrong. Removing an indexed field dropped the column before its index, which
+// fails on every dialect, and wrote the DROP COLUMN as a plain statement, although
+// a renamed db tag or a mistyped directive looks the same to the generator.
+// Adding a generated column wrote ADD COLUMN ... STORED, which SQLite refuses.
+func TestGenMigrationsNeverDropDataUnasked(t *testing.T) {
+	model := func(fields string) string {
+		return "package gentest\n\n//tsq:table name=scores\ntype Score struct {\n\tID int64 `db:\"id\"`\n\tName string `db:\"name,size:32\"`\n" + fields + "}\n"
+	}
+
+	if err := genModule(t, map[string]string{"model.go": strings.Replace(model("\tPoints int64 `db:\"points\"`\n"), "//tsq:table name=scores", "//tsq:table name=scores\n//tsq:index Points", 1)}); err != nil {
+		t.Fatal(err)
+	}
+
+	writeTestFile(t, "model.go", model(""))
+
+	if err := runGen(t); err != nil {
+		t.Fatal(err)
+	}
+
+	postgres, err := os.ReadFile("postgres.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	migration := string(postgres[strings.Index(string(postgres), "-- Migration: "):])
+	dropIndex := strings.Index(migration, `DROP INDEX "idx_scores_points";`)
+	dropColumn := strings.Index(migration, `-- ALTER TABLE "scores" DROP COLUMN "points";`)
+
+	if dropIndex < 0 || dropColumn < 0 || dropIndex > dropColumn || !strings.Contains(migration, "-- DESTRUCTIVE (scores drops column points") {
+		t.Fatalf("postgres migration drops the index after the column, or runs the drop:\n%s", migration)
+	}
+
+	writeTestFile(t, "model.go", model("\tSlug string `db:\"slug,size:32,generated:lower(name)\"`\n"))
+
+	if err := runGen(t); err != nil {
+		t.Fatal(err)
+	}
+
+	sqlite, err := os.ReadFile("sqlite.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	last := string(sqlite[strings.LastIndex(string(sqlite), "-- Migration: "):])
+	if strings.Contains(last, "ADD COLUMN") || !strings.Contains(last, `ALTER TABLE "__tsq_new_scores" RENAME TO "scores";`) {
+		t.Fatalf("sqlite adds a generated column in place, which it refuses:\n%s", last)
 	}
 }

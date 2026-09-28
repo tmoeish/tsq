@@ -337,3 +337,44 @@ func TestStaleSoftDeletesAreVersionConflicts(t *testing.T) {
 		t.Fatalf("Restore of a live row = %v; want a RowStateError", err)
 	}
 }
+
+// TestBatchTombstonesWithAStaleRowKeepTheWrittenRowsCurrent covers a batch delete,
+// restore or hard delete in which one row is stale. A batch is not a transaction,
+// so the statement changes the others; they used to keep their old state and
+// version in memory, the error named no row, and retrying could not succeed.
+func TestBatchTombstonesWithAStaleRowKeepTheWrittenRowsCurrent(t *testing.T) {
+	ctx := context.Background()
+	rt := newSQLite(t)
+	rows := seedUsers(t, rt, "a", "b", "c")
+
+	// Another writer updates b first.
+	other := *rows[1]
+	if err := Users.Update(ctx, rt, &other); err != nil {
+		t.Fatal(err)
+	}
+
+	err := Users.BatchDelete(ctx, rt, rows, WithBatchSize(1))
+	if conflict, ok := errors.AsType[*OptimisticLockError](err); !ok || len(conflict.Keys) != 1 || conflict.Keys[0] != rows[1].ID {
+		t.Fatalf("BatchDelete = %v; want a conflict naming %d", err, rows[1].ID)
+	}
+
+	if rows[0].DeletedAt == 0 || rows[2].DeletedAt == 0 || rows[1].DeletedAt != 0 || rows[0].Version != 1 || rows[1].Version != 0 {
+		t.Fatalf("rows = %+v; want a and c deleted in memory as they are in the table, b untouched", rows)
+	}
+
+	// The written rows are current: restoring them succeeds.
+	if err := Users.BatchRestore(ctx, rt, []*user{rows[0], rows[2]}); err != nil {
+		t.Fatalf("restoring the written rows = %v", err)
+	}
+
+	// A stale row in a hard delete is named too.
+	stale := *rows[0]
+	if err := Users.Update(ctx, rt, rows[0]); err != nil {
+		t.Fatal(err)
+	}
+
+	err = Users.BatchHardDelete(ctx, rt, []*user{&stale, rows[2]})
+	if conflict, ok := errors.AsType[*OptimisticLockError](err); !ok || len(conflict.Keys) != 1 || conflict.Keys[0] != stale.ID {
+		t.Fatalf("BatchHardDelete = %v; want a conflict naming %d", err, stale.ID)
+	}
+}

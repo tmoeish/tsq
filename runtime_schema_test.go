@@ -641,3 +641,77 @@ func TestSQLiteRowidKeyWithoutAutoincrementIsNotDrift(t *testing.T) {
 
 	_ = rt.Close()
 }
+
+// TestReconcileMatchesColumnNamesWithoutCase covers a live column "Name" against
+// a declared "name": one column on SQLite, which Reconcile read as drop Name, add
+// name, and ran the drop first, with the data.
+func TestReconcileMatchesColumnNamesWithoutCase(t *testing.T) {
+	ctx := context.Background()
+	db, dsn := newSQLiteIndexTestEngine(t)
+
+	for _, statement := range []string{
+		`CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, "Name" VARCHAR(120) NOT NULL DEFAULT '')`,
+		`INSERT INTO users ("Name") VALUES ('amy')`,
+	} {
+		if _, err := db.DB().ExecContext(ctx, statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	table, _ := newStrictMockTable("users", "id", "name")
+	declared := registered(table, []tsqdialect.ColumnSpec{
+		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
+		{Name: "name", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 120}, Default: "''"},
+	})
+
+	rt, err := Open(ctx, "sqlite", dsn, []Table{declared}, WithTablePolicy(SchemaPolicyReconcile), WithIndexPolicy(SchemaPolicyManual))
+	if err != nil {
+		t.Fatalf("Reconcile = %v", err)
+	}
+
+	t.Cleanup(func() { _ = rt.Close() })
+
+	var name string
+	if err := rt.QueryRowContext(ctx, `SELECT name FROM users`).Scan(&name); err != nil || name != "amy" {
+		t.Fatalf("name after Reconcile = %q, %v; want the data kept", name, err)
+	}
+}
+
+// TestReconcileRebuildLeavesGeneratedColumnsToTheTable covers a SQLite rebuild of
+// a table with a generated column, which copied into it (SQLite refuses to insert
+// into one) and failed, and a new NOT NULL column without a default, which the
+// copy could not fill.
+func TestReconcileRebuildLeavesGeneratedColumnsToTheTable(t *testing.T) {
+	ctx := context.Background()
+	db, dsn := newSQLiteIndexTestEngine(t)
+
+	for _, statement := range []string{
+		`CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, name INTEGER NOT NULL, slug TEXT GENERATED ALWAYS AS (lower(name)) STORED)`,
+		`INSERT INTO users (name) VALUES (1)`,
+	} {
+		if _, err := db.DB().ExecContext(ctx, statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	table, _ := newStrictMockTable("users", "id", "name", "slug", "note")
+	declared := registered(table, []tsqdialect.ColumnSpec{
+		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
+		// INTEGER -> VARCHAR forces the rebuild.
+		{Name: "name", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 120}},
+		{Name: "note", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 60}},
+		{Name: "slug", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 120}, Fill: tsqdialect.FillGenerated, Generated: "lower(name)"},
+	})
+
+	rt, err := Open(ctx, "sqlite", dsn, []Table{declared}, WithTablePolicy(SchemaPolicyReconcile), WithIndexPolicy(SchemaPolicyManual))
+	if err != nil {
+		t.Fatalf("Reconcile = %v", err)
+	}
+
+	t.Cleanup(func() { _ = rt.Close() })
+
+	var name, note, slug string
+	if err := rt.QueryRowContext(ctx, `SELECT name, note, slug FROM users`).Scan(&name, &note, &slug); err != nil || name != "1" || note != "" || slug != "1" {
+		t.Fatalf("row after the rebuild = %q %q %q, %v", name, note, slug, err)
+	}
+}

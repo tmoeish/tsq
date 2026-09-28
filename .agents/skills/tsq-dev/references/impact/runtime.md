@@ -40,6 +40,9 @@
   已删行的主键。
 - 门：`runtime_schema_isolation_test.go`（SQLite）和 `internal/integration` 的
   `TestIntegrationSchemaPolicyNeverDropsUndeclaredTables`（三方言）。
+- `diffTableColumns` 在 SQLite / MySQL 上不分大小写地比列名（PostgreSQL 的带引号名字区分大小写）；按大小写比会把
+  `Name` 对 `name` 读成先删后加，删列在前、数据随之丢失。运行期重建复制列走 `rebuildCopyColumns`：跳过生成列、
+  给新增的 NOT NULL 列填零值，和生成器的迁移规则一致。
 
 ## 给查询加了需要方言能力的构造
 

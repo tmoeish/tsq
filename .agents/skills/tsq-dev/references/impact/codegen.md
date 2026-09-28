@@ -64,6 +64,13 @@
 - 同一列不许被两个字段映射（`validateColumnNames`，大小写不敏感）：解析器把 `A, B string` 拆成两个字段，
   各自带同一个标签。
 - `internal/sqldialect/ddl_reconcile_test.go` 覆盖运行期对账，生成期变了它可能跟着变。
+- **迁移段是给不会遇错停下的客户端执行的**（`sqlite3` 命令行会在失败的 INSERT 之后照样 DROP、COMMIT）。所以：
+  破坏数据的语句一律经 `destructive()` 注释掉（新增一种会删数据的迁移语句也要走它，摘要的警告按 `drop ` 前缀识别）；
+  SQLite 重建按"新表、复制、删旧表、改名"并关外键，复制要保证不会失败（`sqliteZeroLiteral` 填新 NOT NULL 列、
+  生成列不复制，填不了就整段写成人工处理）；语句按 `compareDDLChanges` 排序渲染，索引先于它指向的列删除。
+  `TestGenCmdAppendsSQLiteRebuildDDLForTypeChange` 用真的 `sqlite3` 命令行跑迁移。
+- 迁移历史存在 `tsq.json` 里，不会随生成器修复重新渲染：修了迁移渲染之后，示例里已经写坏的段要重置示例的
+  DDL 状态（删掉 `tsq.json` 和三份 `.sql` 再 `make examples`），使用者自己的历史只能手工改。
 
 ## 改了生成文件的命名或文件头
 

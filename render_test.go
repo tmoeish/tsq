@@ -339,6 +339,20 @@ func TestSubqueriesKeepTheirFilters(t *testing.T) {
 	}
 }
 
+// TestSetOperationOperandsReadIntoTheSameFields covers operands that select the
+// same columns in another order: their rows were read through the first
+// operand's columns by position, and name and email were swapped without a word.
+func TestSetOperationOperandsReadIntoTheSameFields(t *testing.T) {
+	_, err := Select(User_ID, User_Name, User_Email).From(Users).UnionAll(Select(User_ID, User_Email, User_Name).From(Users)).Build()
+	if err == nil || !strings.Contains(err.Error(), "reads into another field") {
+		t.Fatalf("Build = %v; want the swapped operand refused", err)
+	}
+
+	if _, err := Select(User_ID, User_Name).From(Users).UnionAll(Select(User_ID, User_Name).From(Users)).Build(); err != nil {
+		t.Fatalf("matching operands = %v", err)
+	}
+}
+
 func TestCorrelatedSubqueryCarriesItsParameters(t *testing.T) {
 	min := NewParam[int64]("min")
 	sub := Select(Order_ID).From(Orders).Correlate(Users).Where(Order_UserID.EQ(User_ID), Order_Amount.GTE(min))
