@@ -179,22 +179,25 @@ var QueryInstructor = tsq.
 // CRUD Operations
 // =============================================================================
 
-// Insert inserts a new Instructor record.
+// Insert inserts a new Instructor record. When it fails, the managed timestamps
+// are put back: the row does not keep times the database never stored.
 func (i *Instructor) Insert(
 	ctx context.Context,
 	db tsq.SQLExecutor,
 ) error {
-	if !i.CreatedAt.Valid {
+	prevCreatedAt := i.CreatedAt
+	if !i.CreatedAt.Valid || i.CreatedAt.Time.IsZero() {
 		i.CreatedAt = null.TimeFrom(tsqtime.Now())
 	}
 	err := tsq.Insert(ctx, db, i)
 	if err != nil {
+		i.CreatedAt = prevCreatedAt
 		return fmt.Errorf("insert Instructor: %s: %w", compactJSON(i), err)
 	}
 	return nil
 }
 
-// Update updates an existing Instructor record.
+// Update updates an existing Instructor record. When it fails, updated_at is put back.
 func (i *Instructor) Update(
 	ctx context.Context,
 	db tsq.SQLExecutor,

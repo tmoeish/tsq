@@ -158,14 +158,15 @@ type User struct {
 	parsedPackages := make(map[genmodel.PackageInfo]bool)
 	pendingPackages := list.New()
 
-	err = parseStructDeclaration(packageAliases, currentPkg, structName, structType, structMap, parsedPackages, pendingPackages)
-	if err == nil {
-		t.Fatal("Expected error for duplicate field names")
+	// The error is kept on the struct and reported only if a table or result
+	// uses it: a package holds structs TSQ never generates.
+	if err := parseStructDeclaration(packageAliases, currentPkg, structName, structType, structMap, parsedPackages, pendingPackages); err != nil {
+		t.Fatalf("parseStructDeclaration() = %v; want the error kept on the struct", err)
 	}
 
-	// 验证错误类型
-	if !IsErrorType(err, ErrorTypeDuplicateField) {
-		t.Errorf("Expected ErrorTypeDuplicateField, got different error: %v", err)
+	info := structMap[genmodel.TypeInfo{Package: currentPkg, TypeName: structName}]
+	if info == nil || !IsErrorType(info.err, ErrorTypeDuplicateField) {
+		t.Errorf("kept error = %v; want a duplicate field error", info)
 	}
 }
 
@@ -182,8 +183,12 @@ func Test_genRecv(t *testing.T) {
 		{"ABC", "abc"},
 		{"用户_资料", "用资"},
 		{"Äpfel_Banane", "äb"},
-		{"", ""},
+		{"", "row"},
 		{"A", "a"},
+		// Names the generated methods use: the executor parameter, the import.
+		{"DeviceBinding", "row"},
+		{"FooManagerThing", "row"},
+		{"GoOrder", "row"},
 	}
 
 	for _, tt := range tests {

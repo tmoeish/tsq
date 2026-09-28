@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -445,6 +446,18 @@ func validateStructForGeneration(
 		return nil
 	}
 
+	if err := validateReservedFieldNames(data); err != nil {
+		return err
+	}
+
+	// A result generates no query for the search columns to go into, so they were
+	// dropped without a word. Refusing them would stop gen on code that generated
+	// before, which a patch release must not do.
+	if data.IsResult && len(data.SearchColumns) > 0 {
+		slog.Warn("search ignored on a @RESULT: it generates no query to search; call Search(...) on the query that selects it",
+			"result", data.TypeInfo.TypeName)
+	}
+
 	if data.IsResult {
 		return validateResultFields(data, structsByName)
 	}
@@ -462,6 +475,27 @@ func validateStructForGeneration(
 	}
 
 	return validateManagedFields(data)
+}
+
+// validateReservedFieldNames refuses a field named like a method the template
+// declares on the struct: the generated code did not compile beside it.
+func validateReservedFieldNames(data *genmodel.StructInfo) error {
+	methods := []string{"TSQOwner", "TSQResult"}
+	if !data.IsResult {
+		methods = []string{"TSQOwner", "Table", "Cols", "SearchColumns", "PrimaryKeys", "AutoIncrement", "VersionColumn", "Insert", "Update", "Delete"}
+		if data.DeletedAtField != "" {
+			methods = append(methods, "Active", "SoftDelete")
+		}
+	}
+
+	for _, name := range methods {
+		if _, ok := data.FieldMap[name]; ok {
+			return fmt.Errorf("%s.%s: the field would collide with the generated method %s; rename the Go field (the db tag keeps the column name)",
+				data.TypeInfo.TypeName, name, name)
+		}
+	}
+
+	return nil
 }
 
 func validateResultFields(
@@ -544,7 +578,9 @@ func normalizeResultColumns(data *genmodel.StructInfo) {
 }
 
 func validateGeneratedFilenameCollisions(list []*genmodel.StructInfo) error {
-	seen := make(map[string]string, len(list))
+	// The package's runtime file is generated too, under a name a struct can take:
+	// a table called Runtime used to be overwritten by it.
+	seen := map[string]string{"runtime.tsq.go": "the package runtime"}
 
 	for _, data := range list {
 		if data == nil || data.TableMeta == nil || len(data.Fields) == 0 {

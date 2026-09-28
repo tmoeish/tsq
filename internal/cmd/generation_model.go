@@ -180,6 +180,10 @@ func buildRuntimeSchemaColumns(
 			return nil, err
 		}
 
+		if err := checkAutoIncrementKey(table, field, desc); err != nil {
+			return nil, err
+		}
+
 		columns = append(columns, runtimeColumnTemplateData{
 			Name:          field.Column,
 			Kind:          string(desc.kind),

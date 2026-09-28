@@ -109,6 +109,11 @@ Important points:
 - use `search=[...]` for keyword-search columns
 - do not use legacy `kw`
 - the source struct plus annotation is the source-of-truth
+- annotate struct types only, and not generic ones; embed structs by value (`Base`, not `*Base`), and don't use fixed-size array fields (`[32]byte`), which `tsq gen` refuses
+- a field cannot be named like a method TSQ generates on the struct (`TSQOwner`, `Table`, `Cols`, `SearchColumns`, `PrimaryKeys`, `AutoIncrement`, `VersionColumn`, `Insert`, `Update`, `Delete`, and `Active` / `SoftDelete` with `deleted_at`); rename the Go field and keep the column with the `db` tag
+- an auto-increment key must be an integer; a key the application assigns is `pk="Code,false"`
+- other structs in the package are ignored, whatever their fields
+- MySQL limits an index key to 3072 bytes (4 per character) and cannot index a `TEXT` column; `tsq gen` warns when an index would break that rule
 
 #### `db` tags and DDL string defaults
 
@@ -269,9 +274,9 @@ In normal usage, keep `@RESULT` simple:
 | key | type | purpose |
 | --- | --- | --- |
 | `name` | string | generated result name |
-| `search` | array of strings | optional search fields for generated result helpers |
+| `search` | array of strings | accepted but has no effect: a result generates no query to search, and `tsq gen` warns. Call `Search(...)` on the query that selects the result |
 
-`name` and `search` also use **Go-side names**, not SQL column names.
+`name` also uses the **Go-side name**, not a SQL column name.
 
 #### Important `@RESULT` behavior
 
@@ -279,7 +284,7 @@ Even though the parser shares some table-DSL machinery, table-only keys such as 
 
 Practical rule for agents:
 
-- for `@RESULT`, use only `name` and `search`
+- for `@RESULT`, use only `name`
 - treat table-only keys on `@RESULT` as unsupported / no-op in normal usage
 - do not rely on them for validation, mutation behavior, indexes, or managed fields
 

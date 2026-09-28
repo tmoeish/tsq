@@ -103,7 +103,7 @@ package test
 
 type User struct {
 	BaseModel
-	*AuditModel
+	AuditModel
 }
 `
 

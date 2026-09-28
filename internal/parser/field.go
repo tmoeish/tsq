@@ -42,13 +42,13 @@ func parseNamedFields(
 			// Parse the field type.
 			isPointer, isArray, packagePath, typeName, err := parseFieldType(field.Type)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("field %s: %w", fieldName, err)
 			}
 
 			// Resolve the field's package.
 			typePackage, err := resolveFieldPackage(packagePath, typeName, packageAliases, currentPkg)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("field %s: %w", fieldName, err)
 			}
 
 			// Build the field.
@@ -182,6 +182,12 @@ func parseEmbeddedFields(
 			continue
 		}
 
+		// A pointer is nil in a zero row, and every generated accessor of a
+		// promoted field would dereference it.
+		if _, ok := field.Type.(*ast.StarExpr); ok {
+			return nil, NewFieldUnsupportedCompositionError("embedded pointers are not supported; embed the struct by value")
+		}
+
 		// Parse the embedded type.
 		_, _, packagePath, typeName, err := parseFieldType(field.Type)
 		if err != nil {
@@ -233,7 +239,12 @@ func parseFieldType(
 		return isPointer, isArray, packagePath, typeName, err
 
 	case *ast.ArrayType:
-		// Slice: []Type
+		// Slice: []Type. A fixed-size array was read as a slice and generated an
+		// accessor of the wrong type, which did not compile.
+		if t.Len != nil {
+			return false, false, "", "", NewFieldUnsupportedCompositionError("fixed-size arrays are not supported; use a slice such as []byte")
+		}
+
 		if _, nestedArray := t.Elt.(*ast.ArrayType); nestedArray {
 			return false, false, "", "", NewFieldUnsupportedCompositionError("nested slices/arrays are not supported")
 		}

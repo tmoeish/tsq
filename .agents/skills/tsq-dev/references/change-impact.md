@@ -254,6 +254,9 @@
 - 改索引名推导（`normalizeIndexNames`）会让使用者已经建好的索引对不上。这是 schema 层面
   的破坏性变更，按破坏性变更处理。
 - `make examples` 重新生成，`./bin/examples/full-suite` 跑一遍。`[门禁: gen-check]`
+- 包里每个结构体都被解析，但解析失败只记在 `StructInfo.err` 上，只有带注解（或被带注解的结构体嵌入）时才报出，
+  并带结构体名和字段名。包的导入取自 `go/packages` 给的 `Imports`（按导入路径重新加载会从当前目录解析），`import "C"`
+  跳过。过去被静默接受的写法在补丁版里只警告（`@RESULT` 的 `search`、非结构体上的注解）。
 
 ## 改了模板（`internal/cmd/*.go.tmpl`）
 
@@ -261,6 +264,9 @@
 - `make examples` 后看一眼 `examples/academy/*.tsq.go` 的 diff——那就是使用者会看到的变化。
 - `skills/tsq` 里凡是提到生成方法名的地方都要同步。`[门禁: skill-check templates]`
 - 模板里新用的辅助函数要加进 `template_helpers.go` 并配测试。
+- 模板在结构体上声明的方法列在 `validateReservedFieldNames` 里，同名字段报错；`TestReservedFieldNamesMatchTheTemplates`
+  按模板核对。接收者（`genRecv`）不能和方法用到的参数、局部变量、导入同名，见 `generatedIdentifiers`。
+- `Insert` / `Update` / `SoftDelete` 在写之前盖的戳和墓碑，失败时要放回原值；给模板加一个写之前改字段的方法也一样。
 
 ## 改了生成的 `var TableXxx` 声明，或改了 `Cols()` 怎么拿到列切片
 
@@ -282,6 +288,8 @@
   `db:"...,type:..."`。改推导规则前先确认新规则不会让某类类型从"必须显式"变成"猜一个"——
   猜错的列类型在建表那一刻不报错，在写入超长数据那一刻才报错。
 - `dialect/ddl_reconcile_test.go` 覆盖运行期对账，生成期变了它可能跟着变。
+- 自增主键必须推导成整数列（`checkAutoIncrementKey`），否则渲染器 panic。MySQL 索引键 3072 字节、`TEXT` 不能进索引，
+  `warnMySQLIndexKeys` 只警告。SQLite 迁移：加 NOT NULL 无默认值的列要带手工提示，重建要带上 `sqlite_sequence`。
 
 ## 改了生成文件的命名或文件头
 

@@ -24,6 +24,17 @@
 - **SQLite 上 `Reconcile` 重建表后，被删除的最大主键会被重新分配**：`sqlite_sequence` 的计数现在随表保留。
 - **SQLite 按表名、索引名自省时区分大小写**：表建成 `"Users"`、声明成 `users` 时被当成不存在；手写的 `id INTEGER PRIMARY KEY`（没写 `AUTOINCREMENT`）被当成漂移。
 - **MySQL 的 `NOWAIT` 加锁失败（错误 3572）不被当作可重试的事务冲突**，而 PostgreSQL 的 55P03 会。
+- **嵌入指针结构体（`*Base`）的表生成的代码一调用就 panic**：现在 `tsq gen` 报错，要求按值嵌入。
+- **自增主键声明在字符串字段上（`pk="Code"`）时 `tsq gen` 直接 panic**：现在报错，提示写 `pk="Code,false"`。
+- **在模块外用绝对路径跑 `tsq gen` 找不到包**，加载失败时还吞掉原因：现在按目标所在模块解析，并报出 `go/packages` 的错误。
+- **结构体叫 `Runtime` 时它的生成文件被 `runtime.tsq.go` 覆盖**；**字段名和生成的方法同名**（`Table`、`Insert`、`Update`、`Active` 等）、**`[N]byte` 字段**时生成代码编译不过：现在都在 `tsq gen` 报错。
+- **结构体名缩写成 `db`、`fmt`、`dt` 等（如 `DeviceBinding`）时，接收者遮住了参数或导入**，生成代码编译不过：现在换成 `row`。
+- **包里与 TSQ 无关的结构体会让 `tsq gen` 中止**（带 `db` 标签的 map 字段、嵌入 `io.Reader`），`import "C"` 也会：现在只有被 `@TABLE` / `@RESULT` 用到的结构体才报错，并点出结构体和字段。泛型结构体上的注解改为报错（此前生成编译不过的代码）。
+- **SQLite 迁移新增 NOT NULL 又没默认值的列时没有任何提示**，重建式迁移在有数据的表上中途失败、非中断式客户端会接着删掉旧表：现在迁移里写明需要手工处理。重建时也保留 `AUTOINCREMENT` 的计数。
+- **`type:` 里带逗号的默认值（`DEFAULT 'a, b'`）在逗号处被截断**。
+- **指向零值时间的 `*time.Time`（或 Valid 但时间为零的可空时间）被当成调用方设置过的 `created_at`**，存进公元 1 年。
+- **生成的 `Insert` / `Update` / `SoftDelete` 失败后，行上留着库里没存过的时间戳和墓碑**：现在放回原值。
+- `@RESULT` 上的 `search`、写在非结构体类型上的注解、MySQL 会拒绝的索引（超过 3072 字节键长或 `TEXT` 列）此前被静默接受，现在 `tsq gen` 打出警告（补丁版不让以前能生成的代码生成失败）。
 
 ## [4.10.0] - 2026-09-03
 

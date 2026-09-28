@@ -440,11 +440,18 @@ var {{$query}} = tsq.
 // CRUD Operations
 // =============================================================================
 
-// Insert inserts a new {{$type}} record.
+// Insert inserts a new {{$type}} record. When it fails, the managed timestamps
+// are put back: the row does not keep times the database never stored.
 {{$precv}}Insert(
 	ctx context.Context,
 	db tsq.SQLExecutor,
 ) error {
+{{- if $dot.CreatedAtField }}
+	prevCreatedAt := {{$dot.Recv}}.{{$dot.CreatedAtField}}
+{{- end }}
+{{- if $dot.UpdatedAtField }}
+	prevUpdatedAt := {{$dot.Recv}}.{{$dot.UpdatedAtField}}
+{{- end }}
 {{- if $dot.CreatedAtField }}
 	if {{ TimestampUnsetExpr $dot.Recv $dot.CreatedAtField (index $dot.FieldMap $dot.CreatedAtField) }} {
 		{{$dot.Recv}}.{{$dot.CreatedAtField}} = {{ TimestampNowValue (index $dot.FieldMap $dot.CreatedAtField) }}
@@ -457,21 +464,31 @@ var {{$query}} = tsq.
 {{- end }}
 	err := tsq.Insert(ctx, db, {{$dot.Recv}})
 	if err != nil {
+{{- if $dot.CreatedAtField }}
+		{{$dot.Recv}}.{{$dot.CreatedAtField}} = prevCreatedAt
+{{- end }}
+{{- if $dot.UpdatedAtField }}
+		{{$dot.Recv}}.{{$dot.UpdatedAtField}} = prevUpdatedAt
+{{- end }}
 		return fmt.Errorf("insert {{$type}}: %s: %w", compactJSON({{$dot.Recv}}), err)
 	}
 	return nil
 }
 
-// Update updates an existing {{$type}} record.
+// Update updates an existing {{$type}} record. When it fails, updated_at is put back.
 {{$precv}}Update(
 	ctx context.Context,
 	db tsq.SQLExecutor,
 ) error {
 {{- if $dot.UpdatedAtField }}
+	prevUpdatedAt := {{$dot.Recv}}.{{$dot.UpdatedAtField}}
 	{{$dot.Recv}}.{{$dot.UpdatedAtField}} = {{ TimestampNowValue (index $dot.FieldMap $dot.UpdatedAtField) }}
 {{- end }}
 	err := tsq.Update(ctx, db, {{$dot.Recv}})
 	if err != nil {
+{{- if $dot.UpdatedAtField }}
+		{{$dot.Recv}}.{{$dot.UpdatedAtField}} = prevUpdatedAt
+{{- end }}
 		return fmt.Errorf("update {{$type}}: %s: %w", compactJSON({{$dot.Recv}}), err)
 	}
 	return nil
@@ -496,6 +513,10 @@ var {{$query}} = tsq.
 	db tsq.SQLExecutor,
 	dt {{ SoftDeleteParamType (index $dot.FieldMap $dot.DeletedAtField) }},
 ) error {
+	prevDeletedAt := {{$dot.Recv}}.{{$dot.DeletedAtField}}
+{{- if $dot.UpdatedAtField }}
+	prevUpdatedAt := {{$dot.Recv}}.{{$dot.UpdatedAtField}}
+{{- end }}
 	if {{ SoftDeleteParamSetExpr "dt" (index $dot.FieldMap $dot.DeletedAtField) }} {
 		{{$dot.Recv}}.{{$dot.DeletedAtField}} = dt
 	} else {
@@ -506,6 +527,11 @@ var {{$query}} = tsq.
 {{- end }}
 	err := tsq.Update(ctx, db, {{$dot.Recv}})
 	if err != nil {
+		// A failed soft delete leaves the row live in memory, as it is in the database.
+		{{$dot.Recv}}.{{$dot.DeletedAtField}} = prevDeletedAt
+{{- if $dot.UpdatedAtField }}
+		{{$dot.Recv}}.{{$dot.UpdatedAtField}} = prevUpdatedAt
+{{- end }}
 		return fmt.Errorf("soft-delete {{$type}}: %s: %w", compactJSON({{$dot.Recv}}), err)
 	}
 	return nil

@@ -196,22 +196,25 @@ var QueryLearner = tsq.
 // CRUD Operations
 // =============================================================================
 
-// Insert inserts a new Learner record.
+// Insert inserts a new Learner record. When it fails, the managed timestamps
+// are put back: the row does not keep times the database never stored.
 func (l *Learner) Insert(
 	ctx context.Context,
 	db tsq.SQLExecutor,
 ) error {
-	if !l.CreatedAt.Valid {
+	prevCreatedAt := l.CreatedAt
+	if !l.CreatedAt.Valid || l.CreatedAt.Time.IsZero() {
 		l.CreatedAt = null.TimeFrom(tsqtime.Now())
 	}
 	err := tsq.Insert(ctx, db, l)
 	if err != nil {
+		l.CreatedAt = prevCreatedAt
 		return fmt.Errorf("insert Learner: %s: %w", compactJSON(l), err)
 	}
 	return nil
 }
 
-// Update updates an existing Learner record.
+// Update updates an existing Learner record. When it fails, updated_at is put back.
 func (l *Learner) Update(
 	ctx context.Context,
 	db tsq.SQLExecutor,
