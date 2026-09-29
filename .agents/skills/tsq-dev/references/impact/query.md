@@ -13,6 +13,7 @@
 - `stagePhase` 只挡住"把接口断言回来"的调用，不是约束来源——别把类型约束改成运行期 if。
 - 新方法或新接口：需要参数的写成 `(first, more ...T)`（`list(first, more)` 拼回切片），接口里带
   `sealedStage()`；`compilefail_test.go` 为空调用和包外实现各加一条。`Join` 已删，不要加回同义方法。
+  只能出现一次的子句由阶段表达（`OrderBy` → `Limit` → `Offset`，锁后一个等待模式，`Else` 后只有 `End`），不靠 `Build` 报错。
 - 新阶段要问"它能从哪些阶段进入"，以及"SQL 允许它跟在什么后面"：分组和集合操作之后没有
   行锁（PostgreSQL 拒绝），带搜索的查询没有集合操作。**还要问它返回的阶段又能走到哪**：约束会沿着
   返回类型传下去，`GroupedStage` 曾嵌着返回 `OrderedStage`（带 `Lockable`）的 `Sortable`，于是
@@ -129,3 +130,5 @@
 - **方言相关**校验（能力位、标识符长度、按方言分叉的构造）→ 渲染时，在第一次执行时跑。
 
 把方言校验提前到 `Build()` 会断掉"一个 `*Query` 在多个方言上复用"这个用法。
+- `Build` 与 `Page(Paging.OrderBy)` 走同一个 `validate`：`Page` 拿 `OrderBy` 换掉后的 spec 副本整个校验一遍。新增一条结构
+  规则只写进 `validate`（`checkPlacement` / `checkGrouping` / `checkCompoundOrder`），两个入口自动一致。

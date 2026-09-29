@@ -175,7 +175,9 @@ func (q *Query[O]) keysetColumns(orderBy []OrderBy) ([]keysetColumn[O], error) {
 		if !slices.ContainsFunc(orderBy, func(ob OrderBy) bool {
 			core := ob.column.core()
 
-			return core.err() == nil && core.plain && !isNilValue(core.table) &&
+			// A result's projection of the key (MapInto(TableX.ID, ...)) is the key
+			// too: its SQL is still the bare column.
+			return core.err() == nil && (core.plain || core.bare) && !isNilValue(core.table) &&
 				core.table.TableName() == table.TableName() && core.name == def.primaryKey.name
 		}) {
 			return nil, fmt.Errorf("Keyset.OrderBy must include the primary key of %s (%s), so that every position is unique",

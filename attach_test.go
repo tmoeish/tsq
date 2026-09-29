@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 )
 
 func TestAttachManyAndOneReadChildrenOnce(t *testing.T) {
@@ -134,5 +136,61 @@ func TestAttachChecksItsChildKey(t *testing.T) {
 
 	if counts[users[0].ID] != 2 || counts[users[1].ID] != 0 {
 		t.Fatalf("counts = %v; want a's two notes, and the NULL one attached to no one", counts)
+	}
+}
+
+// embeddedNullInt64 is the shape of guregu's null.Int: a struct embedding the
+// database/sql nullable type, whose Valid and value fields are promoted.
+type embeddedNullInt64 struct{ sql.NullInt64 }
+
+type tagRow struct {
+	ID    int64
+	Owner embeddedNullInt64
+}
+
+var (
+	tagsHandle = NewTable[tagRow, int64]("tags")
+	Tag_ID     = NewColumn(tagsHandle, "id", "id", func(r *tagRow) *int64 { return &r.ID })
+	Tag_Owner  = NewNullColumn[int64](tagsHandle, "owner", "owner", func(r *tagRow) *embeddedNullInt64 { return &r.Owner })
+	Tags       = tagsHandle.Define(TableSpec[tagRow, int64]{
+		Columns:       []BoundColumn[tagRow]{Tag_ID, Tag_Owner},
+		PrimaryKey:    Tag_ID,
+		AutoIncrement: true,
+		ColumnSpecs: []tsqdialect.ColumnSpec{
+			{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
+			{Name: "owner", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64, Nullable: true}},
+		},
+	})
+)
+
+// TestAttachReadsAnEmbeddedNullableKey covers a child key of a type embedding a
+// database/sql nullable type, which NewNullColumn takes: AttachMany looked for its
+// value among the direct fields only and refused it.
+func TestAttachReadsAnEmbeddedNullableKey(t *testing.T) {
+	ctx := context.Background()
+
+	rt, err := Open(ctx, "sqlite", filepath.Join(t.TempDir(), "tags.db"), []Table{Users, Tags}, WithSchemaPolicy(SchemaPolicyReconcile))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() { _ = rt.Close() })
+
+	users := seedUsers(t, rt, "a", "b")
+	owned := &tagRow{Owner: embeddedNullInt64{sql.NullInt64{Int64: users[1].ID, Valid: true}}}
+
+	if err := Tags.BatchInsert(ctx, rt, []*tagRow{owned, {}}); err != nil {
+		t.Fatal(err)
+	}
+
+	children := Select(Tags.Columns()...).From(Tags).Where(Tag_Owner.In(Tag_Owner.ListParam())).MustBuild()
+	counts := map[int64]int{}
+
+	if err := AttachMany(ctx, rt, users, User_ID, children, Tag_Owner, func(u *user, ts []*tagRow) { counts[u.ID] = len(ts) }); err != nil {
+		t.Fatalf("AttachMany by an embedded nullable key = %v", err)
+	}
+
+	if counts[users[0].ID] != 0 || counts[users[1].ID] != 1 {
+		t.Fatalf("counts = %v", counts)
 	}
 }

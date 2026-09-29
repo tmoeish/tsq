@@ -218,9 +218,11 @@ func nullableValue(v reflect.Value) (reflect.Value, bool) {
 			return reflect.Value{}, false
 		}
 
-		for i := range v.NumField() {
-			if v.Type().Field(i).Name != "Valid" {
-				return v.Field(i), true
+		// The value field is found the way nullableValueType finds it, promoted
+		// fields included: a type embedding sql.NullString is nullable too.
+		for _, f := range reflect.VisibleFields(v.Type()) {
+			if !f.Anonymous && f.IsExported() && f.Name != "Valid" {
+				return v.FieldByIndex(f.Index), true
 			}
 		}
 	}

@@ -3,6 +3,7 @@ package tsq
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
@@ -41,6 +42,10 @@ func derived[T any](col SQLColumn, info exprInfo) Expression[T] {
 
 func wrapped[T any](col SQLColumn, open, close string, aggregate bool) Expression[T] {
 	info := columnInfo(col)
+	if aggregate && info.aggregate && info.err == nil {
+		info.err = fmt.Errorf("%s cannot aggregate an aggregate; aggregate in a subquery or CTE first", strings.TrimSuffix(open, "("))
+	}
+
 	info = info.withSQL(sqlJoin(sqlText(open), info.sql, sqlText(close)))
 
 	info.aggregate = info.aggregate || aggregate
@@ -56,6 +61,10 @@ func wrapped[T any](col SQLColumn, open, close string, aggregate bool) Expressio
 
 func counted[T any](col SQLColumn, open string) Expression[int64] {
 	info := columnInfo(col)
+	if info.aggregate && info.err == nil {
+		info.err = fmt.Errorf("%s cannot aggregate an aggregate; aggregate in a subquery or CTE first", strings.TrimSuffix(open, "("))
+	}
+
 	info = info.withSQL(sqlJoin(sqlText(open), info.sql, sqlText(")")))
 	info.aggregate = true
 	info.bare = nil
@@ -283,8 +292,10 @@ func patternMatch[S Text](col Expression[S], op string, text Pattern[S], mode pa
 	return patternOf(col, op, text.patternOperand(mode))
 }
 
-// Like matches col against pattern as written: % and _ are wildcards, and there
-// is no escape character. StartsWith, EndsWith and Contains match text literally.
+// Like matches col against pattern as written: % and _ are wildcards, and how a
+// wildcard is escaped is the database's (a backslash on MySQL and PostgreSQL,
+// nothing on SQLite). StartsWith, EndsWith and Contains match text literally on
+// every dialect.
 func Like[S Text](col Expression[S], pattern Operand[S]) Condition {
 	return patternOf(col, "LIKE", rhsInfo(pattern))
 }
@@ -332,5 +343,9 @@ func (searchColumn) searchable() {}
 
 // Searchable marks a text column for keyword search (TableSpec.Search, Search).
 func Searchable[O any, S Text](col Column[O, S]) SearchColumn {
+	if isNilValue(col) {
+		return searchColumn{SQLColumn: exprImpl[S]{c: &columnCore{info: exprInfo{err: errors.New("search column cannot be nil")}}}}
+	}
+
 	return searchColumn{SQLColumn: col}
 }

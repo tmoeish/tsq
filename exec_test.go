@@ -868,12 +868,15 @@ func TestPageChecksTheOrderOfACompoundQuery(t *testing.T) {
 
 	q := Select(User_Name).From(Users).Union(Select(User_Name).From(Users)).MustBuild()
 
-	for name, ob := range map[string]OrderBy{
-		"expression":  Upper(User_Name).Asc(),
-		"not output":  User_Email.Asc(),
-		"other table": Order_Note.Asc(),
+	for name, tc := range map[string]struct {
+		ob   OrderBy
+		want string
+	}{
+		"expression":  {Upper(User_Name).Asc(), "ordered by its output columns"},
+		"not output":  {User_Email.Asc(), "ordered by its output columns"},
+		"other table": {Order_Note.Asc(), "is not in this query's FROM/JOIN"},
 	} {
-		if _, err := q.Page(ctx, rt, Paging{OrderBy: []OrderBy{ob}}); err == nil || !strings.Contains(err.Error(), "ordered by its output columns") {
+		if _, err := q.Page(ctx, rt, Paging{OrderBy: []OrderBy{tc.ob}}); err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%s: Page = %v; want the term refused", name, err)
 		}
 	}
@@ -1552,5 +1555,23 @@ func TestUpsertByAUniqueKeyAdoptsTheStoredKey(t *testing.T) {
 	batch := []*account{{Code: "b2", Email: "b@x", Name: "again"}, {Code: "c1", Email: "c@x", Name: "new"}}
 	if err := Accounts.BatchUpsert(ctx, rt, batch, []BoundColumn[account]{Account_Email}); err != nil || batch[0].Code != "b1" || batch[1].Code != "c1" {
 		t.Fatalf("BatchUpsert = %v, rows %+v %+v; want keys b1 and c1", err, batch[0], batch[1])
+	}
+}
+
+// TestKeysetTakesAProjectionOfTheKey covers PageKeyset over a result type: the
+// order had to name the table's own key column, so a projection of it (MapInto)
+// was refused as not the primary key, and PageRequest.Keyset could not serve a
+// result at all.
+func TestKeysetTakesAProjectionOfTheKey(t *testing.T) {
+	ctx := context.Background()
+	rt := newSQLite(t)
+	seedUsers(t, rt, "a", "b", "c")
+
+	id := MapInto(User_ID, func(r *namedRow) *int64 { return &r.ID })
+	q := Select(id, MapInto(User_Name, func(r *namedRow) *string { return &r.Name })).From(Users).MustBuild()
+
+	page, err := q.PageKeyset(ctx, rt, Keyset{Size: 2, OrderBy: []OrderBy{id.Asc()}})
+	if err != nil || len(page.Data) != 2 || page.Next == "" {
+		t.Fatalf("PageKeyset by a projection of the key = %+v, %v", page, err)
 	}
 }

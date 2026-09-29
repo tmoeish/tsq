@@ -272,7 +272,7 @@ The primary-key lookups are on the table itself, typed by the key:
 - `TableXxx.Get(ctx, db, id)` reads one row and fails with an error wrapping `sql.ErrNoRows` when there is none; `Find` returns `nil, nil` instead
 - `TableXxx.Fetch(ctx, db, ids...)` reads rows in the order given, for any number of keys (they are split to fit the bind parameter limit). A missing key fails the call with an error wrapping `sql.ErrNoRows`, so `errors.Is(err, sql.ErrNoRows)` tells "not there" from a database failure
 - `TableXxx.GetBy(ctx, db, col, value, conds...)`, `FindBy` and `TableXxx.FetchBy(ctx, db, col, values, conds...)` do the same for another unique column; the generated `GetByX` / `FindByX` / `FetchByX` call them. The column, together with the columns the `conds` fix with `EQ`, must cover the primary key or a unique index (the live-row scope counts as fixing an integer `deleted_at`); anything else is refused rather than answered with an arbitrary row, and is a query to write with `Select`. Without `conds` the query is built once and reused. Matching follows the database: on a case-insensitive column `"ADA"` finds the row holding `"Ada"`
-- `TableXxx.Query()` is the query over every row, with keyword search over the declared search columns: `TableXxx.Query().Page(ctx, db, paging, tsq.Keyword(q))`
+- `TableXxx.Query()` is the query over every row, with keyword search over the declared search columns: `TableXxx.Query().Page(ctx, db, paging, tsq.Keyword(q))`. Because it carries `Search`, it is not a subquery, CTE body or set-operation operand on a table with search columns; build those with `tsq.Select`
 
 On a table that declares `deleted_at`, deleted rows are out of scope for **every** query and
 statement that names the table, generated or hand-written (see "Soft-delete scope" in section 5).
@@ -570,8 +570,9 @@ Typical stages include:
 - `Search(col, more...)`
 - `GroupBy(col, more...)`
 - `Having(cond, more...)`
-- `OrderBy(term, more...)` / `Limit(...)` / `Offset(...)`
-- `ForUpdate()` / `ForShare()`, optionally followed by `NoWait()` / `SkipLocked()`
+- `OrderBy(term, more...)`, then `Limit(...)`, then `Offset(...)`: in SQL's order, each at most once,
+  and `Offset` only after `Limit`
+- `ForUpdate()` / `ForShare()`, optionally followed by one of `NoWait()` / `SkipLocked()`
 - `Build()`
 
 Every clause that needs an argument takes its first one as a separate parameter, so leaving it out
@@ -586,9 +587,10 @@ Writes by condition use the same staged style with `tsq.UpdateTable(table)` / `t
 
 The stage interfaces are named after where a chain is (`JoinStage`, `WhereStage`, `GroupedStage`,
 ...), and are composed from capability interfaces a helper can accept instead:
-`tsq.Sortable[O]` (`OrderBy` / `Limit` / `Offset` on rows, leading to `OrderedStage`, which can
-still lock), `tsq.ResultSortable[O]` (the same after `GroupBy`, `Having` or a set operation, leading
-to `OrderedResultStage`, which cannot), `tsq.Lockable[O]` (`ForUpdate` / `ForShare`),
+`tsq.Sortable[O]` (`OrderBy` / `Limit` on rows, leading to `OrderedStage`, `LimitedStage` and
+`OffsetStage`, which can still lock), `tsq.ResultSortable[O]` (the same after `GroupBy`, `Having` or
+a set operation, leading to `OrderedResultStage` and `LimitedResultStage`, which cannot),
+`tsq.Lockable[O]` (`ForUpdate` / `ForShare`),
 `tsq.Combinable[O]` (`Union` / `Intersect` / `Except`) and `tsq.Groupable[O]` (`GroupBy`). They are
 sealed: only this package's builders implement them.
 
@@ -627,7 +629,14 @@ query, err := tsq.
 Rules:
 
 - `OrderBy` / `Limit` / `Offset` are reachable from every complete stage (after `Where`, `Search`, `GroupBy`, `Having`, or a set operation). Only `ForUpdate()` / `ForShare()` may follow them, matching SQL clause order, and not after `GroupBy`, `Having`, a set operation, `SelectDistinct` or an aggregate: those rows are not rows of a table, and ordering them first does not change that
-- `Offset` requires `Limit`. A bare `OFFSET` is a syntax error on MySQL and SQLite, so `Build()` rejects it rather than letting it fail on two dialects out of three
+- `Offset` exists only after `Limit`: a bare `OFFSET` is a syntax error on MySQL and SQLite
+- a row lock does not cover a `LEFT`, `RIGHT` or `FULL` join (PostgreSQL cannot lock the side that can
+  be NULL), and a `SelectDistinct` query orders only by what it selects; `Build()` refuses both
+- an aggregate belongs in the select list, `Having` or `OrderBy`: `Build()` refuses one in `Where`, a
+  join condition or `GroupBy`, and one aggregate inside another
+- an expression with bound values that is both selected and grouped or ordered by (a `CASE` bucket)
+  is written as its position in `GROUP BY` / `ORDER BY`: PostgreSQL numbers each placeholder anew and
+  would not see the two as the same expression
 - the ordered column must belong to a table the query already selects from or joins
 - `Count()` counts the rows `List` returns: the count query drops `ORDER BY`, and a query with `Limit` / `Offset` is counted over the limited rows. It takes the same arguments as `List`
 - **do not combine builder-level paging with `query.Page(...)`**. `Page` appends its own `LIMIT`/`OFFSET`, and its own `ORDER BY` when `Paging.OrderBy` is set, so a builder-level clause would be emitted a second time rather than replaced. `Page` returns an error instead of guessing. A builder `OrderBy` combined with an empty `Paging.OrderBy` is fine: the builder's ordering stands and `Page` only adds the window
@@ -975,7 +984,7 @@ for row, err := range database.TableUser.Query().Iter(ctx, runtime, tsq.Keyword(
 
 The term is escaped for LIKE wildcards, so `%`, `_` and the escape character itself are matched literally on every supported dialect; the keyword still matches as a substring. The generated predicate carries an explicit `ESCAPE '~'` clause, because SQLite has no default LIKE escape character. A backslash in a keyword is an ordinary character.
 
-The pattern functions (`tsq.StartsWith`, `tsq.EndsWith`, `tsq.Contains`, and their `Not` forms, with a `Val` or a `Param`) escape wildcards the same way. `Like` takes a pattern as written, wildcards included. Wildcard escaping is about matching the right rows, not SQL injection protection — that comes from parameter binding.
+The pattern functions (`tsq.StartsWith`, `tsq.EndsWith`, `tsq.Contains`, and their `Not` forms, with a `Val` or a `Param`) escape wildcards the same way. `Like` takes a pattern as written, wildcards included, so escaping one is the database's business: a backslash escapes on MySQL and PostgreSQL and does nothing on SQLite. Wildcard escaping is about matching the right rows, not SQL injection protection — that comes from parameter binding.
 
 Case sensitivity is the database's, and it differs: SQLite ignores ASCII case, MySQL follows the column's collation (the default `_ci` collations ignore case), PostgreSQL respects case. Keyword search and the pattern functions all behave this way. For one answer on every dialect, match `tsq.Lower(col)` against a lowercased term.
 
@@ -1252,7 +1261,7 @@ another result, which has no columns of its own.
 TSQ supports more than simple list queries. Common advanced shapes include:
 
 - aggregate queries with `GroupBy(...)` and `Having(...)`. `Build()` refuses a selected, `HAVING` or `ORDER BY` column that is neither grouped nor inside an aggregate (SQLite would return an arbitrary row's value, PostgreSQL refuses it); grouping by a table's primary key allows the table's other columns
-- `CASE` expressions: `tsq.Case(cond, col).When(cond, tsq.Val("x")).Else(tsq.Val("y")).End()` (the first branch is required, and fixes the type); results are typed, so a branch of another type does not compile
+- `CASE` expressions: `tsq.Case(cond, col).When(cond, tsq.Val("x")).Else(tsq.Val("y")).End()` (the first branch is required, and fixes the type; `Else` comes last and is followed only by `End`); results are typed, so a branch of another type does not compile. On PostgreSQL a CASE whose results are all bound values is cast to the result type, since PostgreSQL would read them as text
 - `tsq.Coalesce(col, rhs)` and `tsq.NullIf(col, rhs)`, with `tsq.Val` for a fixed value
 - subqueries such as `In(subquery)`, `tsq.Exists(subquery)`, and typed RHS comparisons like `EQ(subquery)` or `tsq.Like(col, subquery)`. An `In` subquery may set `Limit` (it is written as a derived table, which MySQL requires). A subquery cannot use `Search`: the keyword is an argument of the statement that runs, so `Build()` refuses it instead of dropping the predicate
 - correlated subqueries, where the subquery declares the enclosing query's tables with `Correlate(...)`

@@ -163,8 +163,9 @@ JoinStage ─Where─► WhereStage ─Search─► FilteredStage
 JoinStage ─Search► SearchStage ─Where─► FilteredStage
 (Join/Where/Search/Filtered) ─GroupBy─► GroupedStage ─Having─► HavingStage
 (Join/Where/Grouped/Having/Compound) ─Union...─► CompoundStage
-(Join/Where/Search/Filtered) ─OrderBy/Limit/Offset─► OrderedStage ─ForUpdate/ForShare─► LockedStage
-(Grouped/Having/Compound) ─OrderBy/Limit/Offset─► OrderedResultStage（没有行锁）
+(Join/Where/Search/Filtered) ─OrderBy─► OrderedStage ─Limit─► LimitedStage ─Offset─► OffsetStage
+  （Limit 也可直接跟在前面几种之后；这几个阶段都可 ForUpdate/ForShare ─► LockedStage ─NoWait|SkipLocked─► QueryStage）
+(Grouped/Having/Compound) ─OrderBy─► OrderedResultStage ─Limit─► LimitedResultStage ─Offset─► QueryStage（没有行锁）
 ```
 
 - 分组、HAVING、集合操作之后**没有**行锁（PostgreSQL 拒绝，这里在类型上就拒绝），**排序之后也没有**：

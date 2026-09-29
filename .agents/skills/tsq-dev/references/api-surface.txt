@@ -57,9 +57,12 @@ func WithSkipDuplicates() BatchOption
 type BoundColumn[O any] interface {
 	SQLColumn
 }
+type CaseElseStage[T any] interface {
+	End() Expression[T]
+}
 type CaseStage[T any] interface {
 	When(cond Condition, result Operand[T]) CaseStage[T]
-	Else(result Operand[T]) CaseStage[T]
+	Else(result Operand[T]) CaseElseStage[T]
 	End() Expression[T]
 }
 func Case[T any](cond Condition, result Operand[T]) CaseStage[T]
@@ -213,6 +216,15 @@ type KeysetPage[T any] struct {
 	Next string `json:"next"` // Next is the Keyset.After of the following page; empty on the last.
 }
 func (p *KeysetPage[T]) HasNext() bool
+type LimitedResultStage[O any] interface {
+	QueryStage[O]
+	Offset(offset int) QueryStage[O]
+}
+type LimitedStage[O any] interface {
+	QueryStage[O]
+	Lockable[O]
+	Offset(offset int) OffsetStage[O]
+}
 type ListOperand[T any] interface {
 }
 type ListParam[T any] struct {
@@ -225,8 +237,8 @@ type Lockable[O any] interface {
 }
 type LockedStage[O any] interface {
 	QueryStage[O]
-	NoWait() LockedStage[O]
-	SkipLocked() LockedStage[O]
+	NoWait() QueryStage[O]
+	SkipLocked() QueryStage[O]
 }
 type Logger interface {
 	Enabled(ctx context.Context, level slog.Level) bool
@@ -265,6 +277,10 @@ type Number interface {
 		~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 |
 		~float32 | ~float64
 }
+type OffsetStage[O any] interface {
+	QueryStage[O]
+	Lockable[O]
+}
 type Operand[T any] interface {
 }
 type OptimisticLockError struct {
@@ -280,12 +296,12 @@ func (ob OrderBy) NullsFirst() OrderBy
 func (ob OrderBy) NullsLast() OrderBy
 type OrderedResultStage[O any] interface {
 	QueryStage[O]
-	ResultSortable[O]
+	Limit(limit int) LimitedResultStage[O]
 }
 type OrderedStage[O any] interface {
 	QueryStage[O]
-	Sortable[O]
 	Lockable[O]
+	Limit(limit int) LimitedStage[O]
 }
 type Page[T any] struct {
 	Page       int   `json:"page"`        // Page is the 1-based page number served.
@@ -349,8 +365,7 @@ func MapInto[Target, T any](source ValueColumn[T], field func(*Target) *T) Resul
 func MapIntoNull[Target, T, F any](source ValueColumn[T], field func(*Target) *F) ResultColumn[Target, T]
 type ResultSortable[O any] interface {
 	OrderBy(order OrderBy, more ...OrderBy) OrderedResultStage[O]
-	Limit(limit int) OrderedResultStage[O]
-	Offset(offset int) OrderedResultStage[O]
+	Limit(limit int) LimitedResultStage[O]
 }
 type RetryPolicy struct {
 	MaxAttempts int
@@ -467,8 +482,7 @@ type SortError struct {
 func (e *SortError) Error() string
 type Sortable[O any] interface {
 	OrderBy(order OrderBy, more ...OrderBy) OrderedStage[O]
-	Limit(limit int) OrderedStage[O]
-	Offset(offset int) OrderedStage[O]
+	Limit(limit int) LimitedStage[O]
 }
 type Subquery[T any] interface {
 	Operand[T]
