@@ -73,10 +73,6 @@ func TestBuildRejectsInvalidStructure(t *testing.T) {
 			stage: Select(User_ID).From(Users).Correlate(Users),
 			want:  "shadow",
 		},
-		"offset without limit": {
-			stage: Select(User_ID).From(Users).Offset(5),
-			want:  "offset requires limit",
-		},
 		"set operand ordered": {
 			stage: Select(User_ID).From(Users).Union(Select(User_ID).From(Users).OrderBy(User_ID.Desc()).Limit(3)),
 			want:  "operands cannot order, limit or lock",
@@ -398,5 +394,141 @@ func TestSetOperationsOrderByTheColumnNamed(t *testing.T) {
 	plain := Select(id, name).From(Users).Union(Select(id, name).From(Users))
 	if _, err := plain.OrderBy(User_Name.Desc()).Build(); err != nil {
 		t.Fatalf("ordered by name over the name column: %v", err)
+	}
+}
+
+// TestBuildRefusesWhatEveryDialectRefuses covers query shapes that built and then
+// failed on every dialect, or on PostgreSQL alone, when they ran.
+func TestBuildRefusesWhatEveryDialectRefuses(t *testing.T) {
+	count := MapInto(Count(User_ID), func(r *user) *int64 { return &r.Version })
+
+	for name, tc := range map[string]struct {
+		stage QueryStage[user]
+		want  string
+	}{
+		"aggregate in WHERE":        {Select(User_ID).From(Users).Where(Count(User_ID).GT(Val(int64(1)))), "WHERE cannot use an aggregate"},
+		"aggregate in a join":       {Select(User_ID).From(Users).InnerJoin(Orders, Order_UserID.EQ(User_ID), Count(Order_ID).GT(Val(int64(1)))), "cannot use an aggregate"},
+		"aggregate in GROUP BY":     {Select(count).From(Users).GroupBy(Count(User_ID)), "GROUP BY cannot use an aggregate"},
+		"ordered by an aggregate":   {Select(User_ID).From(Users).OrderBy(Count(User_ID).Asc()), "neither in GROUP BY nor inside an aggregate"},
+		"nested aggregates":         {Select(MapInto(Sum(Max(User_Version)), func(r *user) *int64 { return &r.Version })).From(Users), "cannot aggregate an aggregate"},
+		"DISTINCT ordered by other": {SelectDistinct(User_Name).From(Users).OrderBy(User_ID.Asc()), "which it does not select"},
+		"lock over an outer join":   {Select(User_ID).From(Users).LeftJoin(Orders, Order_UserID.EQ(User_ID)).ForUpdate(), "row lock cannot cover the LEFT JOIN"},
+		"correlated second operand": {Select(User_ID).From(Users).Where(Exists(Select(Order_ID).From(Orders).Union(Select(Order_ID).From(Orders.As("o2")).Correlate(Notes).Where(Order_ID.WithTable(Orders.As("o2")).EQ(Note_ID))))), "Correlate"},
+	} {
+		if _, err := tc.stage.Build(); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: Build = %v; want %q", name, err, tc.want)
+		}
+	}
+
+	if _, err := SelectDistinct(User_Name).From(Users).OrderBy(User_Name.Asc()).Build(); err != nil {
+		t.Errorf("DISTINCT ordered by what it selects: %v", err)
+	}
+
+	// A soft-delete table under a RIGHT JOIN is a derived table of its live rows,
+	// and PostgreSQL infers nothing from a derived table's key.
+	byKey := Select(MapInto(User_Name, func(r *order) *string { return &r.Note })).From(Orders).RightJoin(Users, Order_UserID.EQ(User_ID)).GroupBy(User_ID)
+	if _, err := byKey.Build(); err == nil || !strings.Contains(err.Error(), "neither in GROUP BY") {
+		t.Errorf("grouped by the key of a derived table: Build = %v", err)
+	}
+
+	// A correlated subquery may name the enclosing query's table in a JOIN's ON.
+	correlated := Select(Order_ID).From(Orders).Correlate(Users).InnerJoin(Notes, Note_ID.EQ(User_ID)).Where(Order_UserID.EQ(User_ID))
+	if _, err := Select(User_ID).From(Users).Where(Exists(correlated)).Build(); err != nil {
+		t.Errorf("an ON condition on the enclosing query's table: %v", err)
+	}
+}
+
+// TestGroupedExpressionsWithValuesRunOnPostgres covers a GROUP BY or ORDER BY
+// expression with bound values: PostgreSQL numbers each placeholder anew, so the
+// selected CASE WHEN x > $1 and the grouped CASE WHEN x > $4 differed and it
+// refused the query. A selected expression is grouped and ordered by position.
+// A CASE of bound values only is cast on PostgreSQL, which would type it as text.
+func TestGroupedExpressionsWithValuesRunOnPostgres(t *testing.T) {
+	size := Case(Order_Amount.GT(Val(int64(8))), Val(int64(10))).Else(Val(int64(9))).End()
+	q := Select(
+		MapInto(size, func(r *order) *int64 { return &r.Amount }),
+		MapInto(Count(Order_ID), func(r *order) *int64 { return &r.ID }),
+	).From(Orders).GroupBy(size).OrderBy(size.Asc()).MustBuild()
+
+	sql, _ := sqlOf(t, q, onPostgres)
+	if !strings.Contains(sql, "GROUP BY 1 ORDER BY 1 ASC") || !strings.Contains(sql, "THEN CAST($2 AS BIGINT) ELSE CAST($3 AS BIGINT)") {
+		t.Fatalf("postgres = %s", sql)
+	}
+
+	if sql, _ := sqlOf(t, q, onSQLite); strings.Contains(sql, "CAST(") {
+		t.Fatalf("sqlite casts the CASE: %s", sql)
+	}
+
+	ctx := context.Background()
+	rt := newSQLite(t)
+	user := seedUsers(t, rt, "a")[0]
+
+	if err := Orders.BatchInsert(ctx, rt, []*order{{UserID: user.ID, Amount: 5}, {UserID: user.ID, Amount: 20}, {UserID: user.ID, Amount: 30}}); err != nil {
+		t.Fatal(err)
+	}
+
+	rows, err := q.List(ctx, rt)
+	if err != nil || len(rows) != 2 || rows[0].Amount != 9 || rows[0].ID != 1 || rows[1].ID != 2 {
+		t.Fatalf("grouped rows = %+v, %v", rows, err)
+	}
+}
+
+// TestPageOrdersAsTheBuilderWould covers Paging.OrderBy, which skipped the checks
+// Build runs on the builder's OrderBy: a grouped page ordered by an ungrouped
+// column ran on SQLite with an arbitrary row's value, and a broken expression
+// rendered ORDER BY  ASC.
+func TestPageOrdersAsTheBuilderWould(t *testing.T) {
+	ctx := context.Background()
+	rt := newSQLite(t)
+
+	grouped := Select(MapInto(Count(Order_ID), func(r *order) *int64 { return &r.ID })).From(Orders).GroupBy(Order_UserID).MustBuild()
+
+	for name, tc := range map[string]struct {
+		ob   OrderBy
+		want string
+	}{
+		"ungrouped column": {Order_Amount.Asc(), "neither in GROUP BY nor inside an aggregate"},
+		"broken term":      {Round(Order_Amount, -1).Asc(), "precision cannot be negative"},
+	} {
+		if _, err := grouped.Page(ctx, rt, Paging{OrderBy: []OrderBy{tc.ob}}); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: Page = %v; want %q", name, err, tc.want)
+		}
+	}
+}
+
+// TestZeroValuesReportErrors covers zero values of exported types, which panicked
+// with a nil dereference where the rest of the builder reports an error.
+func TestZeroValuesReportErrors(t *testing.T) {
+	ctx := context.Background()
+
+	var (
+		q     Query[user]
+		m     Mutation[user]
+		stage UpdateStage[user]
+		table TableOf[user, int64]
+	)
+
+	if _, _, err := q.SQL(onSQLite); err == nil || !strings.Contains(err.Error(), "not built") {
+		t.Errorf("zero Query SQL = %v", err)
+	}
+
+	if _, err := q.List(ctx, newSQLite(t)); err == nil {
+		t.Error("zero Query List: want an error")
+	}
+
+	if _, _, err := m.SQL(onSQLite); err == nil {
+		t.Error("zero Mutation SQL: want an error")
+	}
+
+	if _, err := stage.Set(User_Name, Val("x")).Where(And()).Build(); err == nil || !strings.Contains(err.Error(), "UpdateTable") {
+		t.Errorf("zero UpdateStage = %v", err)
+	}
+
+	if err := table.Err(); err == nil || table.TableName() != "" {
+		t.Errorf("zero TableOf Err = %v", err)
+	}
+
+	if _, err := Select(User_ID).From(Users).Search(Searchable(Column[user, string](nil))).Build(); err == nil {
+		t.Error("Searchable(nil): want an error")
 	}
 }

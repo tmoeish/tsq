@@ -6,6 +6,7 @@ import (
 	"maps"
 	"reflect"
 	"slices"
+	"strconv"
 
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 )
@@ -287,6 +288,13 @@ func (s *querySpec[O]) grouped() bool {
 		}
 	}
 
+	// ORDER BY COUNT(x) aggregates the whole query as well.
+	for _, ob := range s.OrderBys {
+		if !isNilValue(ob.column) && columnInfo(ob.column).aggregate {
+			return true
+		}
+	}
+
 	return false
 }
 
@@ -423,7 +431,7 @@ func (s *querySpec[O]) writeSimple(r *renderer, m renderMode) {
 	if len(s.GroupBy) > 0 {
 		groups := make([]sqlExpr, 0, len(s.GroupBy))
 		for _, col := range s.GroupBy {
-			groups = append(groups, columnInfo(col).sql)
+			groups = append(groups, s.selectedPosition(columnInfo(col).sql))
 		}
 
 		r.writeText(" GROUP BY ")
@@ -523,10 +531,48 @@ func (s *querySpec[O]) writeFromWhere(r *renderer, m renderMode) {
 	}
 }
 
+// selectedPosition is expr for GROUP BY or ORDER BY. An expression with bound
+// values that is also selected is written as its position in the select list:
+// PostgreSQL numbers every placeholder anew, so CASE WHEN x > $1 in the select
+// list and CASE WHEN x > $4 in GROUP BY are different expressions to it, and it
+// refused the query. All three dialects take the position.
+func (s *querySpec[O]) selectedPosition(expr sqlExpr) sqlExpr {
+	if !bindsValues(expr) {
+		return expr
+	}
+
+	text := debugSQL(expr)
+	for i, col := range s.Selects {
+		if debugSQL(columnInfo(col).sql) == text {
+			return sqlText(strconv.Itoa(i + 1))
+		}
+	}
+
+	return expr
+}
+
+// bindsValues reports whether e has a bound value or parameter.
+func bindsValues(e sqlExpr) bool {
+	for _, part := range e.parts {
+		switch part.kind {
+		case partValue, partParam:
+			return true
+		case partByDialect:
+			for _, spelled := range part.byDialect {
+				if bindsValues(spelled) {
+					return true
+				}
+			}
+		}
+	}
+
+	return false
+}
+
 // orderTerm renders an ORDER BY term. A compound query can only be ordered by its
 // output column names, so the term drops its table there.
 func (s *querySpec[O]) orderTerm(ob OrderBy) orderTerm {
-	term := orderTerm{expr: columnInfo(ob.column).sql, direction: ob.direction, nullsFirst: ob.nulls.first(ob.direction)}
+	term := orderTerm{expr: s.selectedPosition(columnInfo(ob.column).sql), direction: ob.direction, nullsFirst: ob.nulls.first(ob.direction)}
 	term.nullable, _ = s.canBeNull(columnInfo(ob.column).null)
 
 	if len(s.SetOps) > 0 && !isNilValue(ob.column) {
@@ -807,6 +853,10 @@ func (s *querySpec[O]) validate(outer map[string]Table) error {
 		return err
 	}
 
+	if err := s.checkPlacement(); err != nil {
+		return err
+	}
+
 	if err := s.checkGrouping(); err != nil {
 		return err
 	}
@@ -842,6 +892,56 @@ func (s *querySpec[O]) validate(outer map[string]Table) error {
 	}
 
 	return s.validateCTEs()
+}
+
+// checkPlacement refuses what every dialect refuses at execution: an aggregate in
+// WHERE, in a JOIN condition or in GROUP BY; a DISTINCT query ordered by what it
+// does not select (PostgreSQL and MySQL refuse it, SQLite orders by an arbitrary
+// row of each group); and a row lock over an outer join (PostgreSQL cannot lock
+// the nullable side).
+func (s *querySpec[O]) checkPlacement() error {
+	for _, cond := range s.Filters {
+		if conditionInfo(cond).aggregate {
+			return errors.New("WHERE cannot use an aggregate; filter groups with Having")
+		}
+	}
+
+	for _, j := range s.Joins {
+		for _, cond := range j.on {
+			if conditionInfo(cond).aggregate {
+				return fmt.Errorf("the condition of the join of %s cannot use an aggregate", j.table.TableName())
+			}
+		}
+
+		if s.Lock.strength != "" && j.kind != innerJoinType && j.kind != crossJoinType {
+			return fmt.Errorf("a row lock cannot cover the %s of %s: PostgreSQL does not lock the side that can be NULL; lock the rows with an inner join, or in a query of their own", j.kind, j.table.TableName())
+		}
+	}
+
+	for _, g := range s.GroupBy {
+		if columnInfo(g).aggregate {
+			return errors.New("GROUP BY cannot use an aggregate")
+		}
+	}
+
+	if s.Distinct && len(s.SetOps) == 0 {
+		selected := make(map[string]bool, len(s.Selects))
+		for _, col := range s.Selects {
+			selected[debugSQL(columnInfo(col).sql)] = true
+		}
+
+		for _, ob := range s.OrderBys {
+			if isNilValue(ob.column) {
+				continue
+			}
+
+			if info := columnInfo(ob.column); !selected[debugSQL(info.sql)] {
+				return fmt.Errorf("a DISTINCT query is ordered by %s, which it does not select; select it, or drop DISTINCT", debugSQL(info.sql))
+			}
+		}
+	}
+
+	return nil
 }
 
 func (s *querySpec[O]) correlatedNames() map[string]Table {
@@ -882,7 +982,8 @@ func (s *querySpec[O]) validateJoinGraph(outer map[string]Table) error {
 					continue
 				}
 
-				if !introduced[other] {
+				// A table of the enclosing query (Correlate) is in scope in ON too.
+				if !introduced[other] && correlated[other] == nil {
 					return fmt.Errorf("%s %s: the ON condition references %s, which is not joined before it", j.kind, name, other)
 				}
 
@@ -1087,6 +1188,10 @@ func (s *querySpec[O]) checkGrouping() error {
 		grouped = grouped || columnInfo(col).aggregate
 	}
 
+	for _, ob := range s.OrderBys {
+		grouped = grouped || (!isNilValue(ob.column) && columnInfo(ob.column).aggregate)
+	}
+
 	if !grouped {
 		return nil
 	}
@@ -1103,9 +1208,18 @@ func (s *querySpec[O]) checkGrouping() error {
 		}
 	}
 
+	// A soft-delete table under a RIGHT or FULL JOIN is read as a derived table
+	// of its live rows (writeFromWhere), and PostgreSQL infers nothing from the
+	// key of a derived table: its other columns have to be grouped.
+	outerJoined := slices.ContainsFunc(s.Joins, func(j join) bool { return j.kind == rightJoinType || j.kind == fullJoinType })
+
 	keyed := map[string]bool{}
 
 	for _, table := range s.sources() {
+		if outerJoined && table.softDeleted() {
+			continue
+		}
+
 		if def := table.definition(); def != nil && def.primaryKey != nil && columns[columnKey{table.TableName(), def.primaryKey.name}] {
 			keyed[table.TableName()] = true
 		}

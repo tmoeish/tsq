@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"iter"
 	"log/slog"
+	"maps"
 	"regexp"
 	"slices"
 	"strings"
@@ -45,6 +46,10 @@ type renderKey struct {
 
 // statement returns the template for mode on d.
 func (q *Query[O]) statement(d sqld.Dialect, m renderMode) (*statement, error) {
+	if q == nil || isNilValue(q.spec.From) {
+		return nil, errNotBuilt
+	}
+
 	key := renderKey{dialect: d.Name(), count: m.count, keyword: m.keyword, single: m.single}
 	if !m.paged {
 		if cached, ok := q.cache.Load(key); ok {
@@ -82,6 +87,10 @@ func (q *Query[O]) prepare(exec Executor, args []Arg, builtin map[*paramSpec]any
 
 	if q.err != nil {
 		return execScope{}, nil, q.err
+	}
+
+	if isNilValue(q.spec.From) {
+		return execScope{}, nil, errNotBuilt
 	}
 
 	scope, err := executorScope(exec)
@@ -563,14 +572,20 @@ func (q *Query[O]) Page(ctx context.Context, db Executor, p Paging, args ...Arg)
 				return nil, fmt.Errorf("invalid order direction %q", ob.direction)
 			}
 
-			// The same rule as the builder's OrderBy, which Build enforces.
-			if len(q.spec.SetOps) > 0 {
-				if err := q.spec.checkCompoundOrder(ob); err != nil {
-					return nil, err
-				}
-			}
-
 			order = append(order, q.spec.orderTerm(ob))
+		}
+
+		// Paging.OrderBy is the builder's OrderBy chosen at run time, so it passes
+		// the checks Build runs on that one: the expression, its tables, grouping,
+		// DISTINCT and set operations. It used to pass only the last, and an order
+		// by an ungrouped column ran on SQLite with an arbitrary row's value.
+		if len(p.OrderBy) > 0 {
+			checked := q.spec.clone()
+			checked.OrderBys = p.OrderBy
+
+			if err := checked.validate(nil); err != nil {
+				return nil, err
+			}
 		}
 
 		_, stmts, err := q.prepare(db, args, nil,
@@ -693,6 +708,10 @@ type Subquery[T any] interface {
 	ListOperand[T]
 }
 
+// errNotBuilt is the error of a Query that is a zero value rather than the result
+// of Build.
+var errNotBuilt = errors.New("query is not built; make one with tsq.Select(...).Build()")
+
 // specOf returns the spec of a built query, so a *Query can be a set-operation
 // operand or a CTE body like a stage.
 func (q *Query[O]) specOf() (querySpec[O], error) {
@@ -774,7 +793,18 @@ func (q *Query[O]) renderQuery(r *renderer) {
 	r.writeText(")")
 }
 
-func (q *Query[O]) correlatedTables() map[string]Table { return q.spec.correlatedNames() }
+// correlatedTables are the outer tables the query needs from the query around it,
+// including those of its set-operation operands: only the first operand's used to
+// be checked, and an EXISTS over a correlated second operand built with no outer
+// table to correlate to.
+func (q *Query[O]) correlatedTables() map[string]Table {
+	tables := map[string]Table{}
+	for _, spec := range q.spec.operands() {
+		maps.Copy(tables, spec.correlatedNames())
+	}
+
+	return tables
+}
 
 func (q *Query[O]) readsTable(name string) bool {
 	return slices.ContainsFunc(q.spec.sources(), func(t Table) bool { return t.TableName() == name })

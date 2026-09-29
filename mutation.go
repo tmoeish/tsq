@@ -141,6 +141,9 @@ func assign[R any](m mutationSpec[R], col SQLColumn, value exprInfo) *SetStage[R
 	switch {
 	case n.m.err != nil:
 		return n
+	case n.m.def == nil:
+		n.m.fail(errors.New("update is not started; start it with tsq.UpdateTable(table)"))
+		return n
 	case isNilValue(col):
 		n.m.fail(errors.New("assignment target cannot be nil"))
 		return n
@@ -362,6 +365,10 @@ func (m *Mutation[R]) stampsUpdatedAt() bool {
 }
 
 func (m *Mutation[R]) statement(d sqld.Dialect) (*statement, error) {
+	if m == nil || m.m.def == nil {
+		return nil, errors.New("statement is not built; make one with tsq.UpdateTable, DeleteFrom or HardDeleteFrom and Build")
+	}
+
 	if cached, ok := m.cache.Load(d.Name()); ok {
 		return cached.(*statement), nil
 	}

@@ -407,12 +407,20 @@ func (t *TableOf[R, K]) TableName() string {
 		return t.alias
 	}
 
+	if t.def == nil {
+		return ""
+	}
+
 	return t.def.name
 }
 
 // Columns returns every column of the table, in declaration order, bound to
 // this table (to its alias, for an aliased table).
 func (t *TableOf[R, K]) Columns() []BoundColumn[R] {
+	if t.def == nil {
+		return nil
+	}
+
 	result := make([]BoundColumn[R], 0, len(t.def.columns))
 	for _, core := range t.def.columns {
 		if t.alias != "" {
@@ -477,6 +485,10 @@ func (t *TableOf[R, K]) As(alias string) *TableOf[R, K] {
 
 // Err reports why the table definition is invalid, or nil.
 func (t *TableOf[R, K]) Err() error {
+	if t.def == nil {
+		return errors.New("table is a zero TableOf; declare it with tsq.NewTable and Define")
+	}
+
 	if !t.def.defined {
 		return errors.Join(t.def.err, fmt.Errorf("table %s is used before Define", t.def.name))
 	}

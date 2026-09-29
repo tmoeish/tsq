@@ -31,13 +31,14 @@ type QueryStage[O any] interface {
 	Page(ctx context.Context, db Executor, p Paging, args ...Arg) (*Page[O], error)
 }
 
-// Sortable is the part of a stage that can order and slice the result.
+// Sortable is the part of a stage that can order and slice the result. The
+// clauses come in SQL's order, each once: OrderBy, then Limit, then Offset, which
+// needs a Limit (a bare OFFSET is a syntax error on MySQL and SQLite).
 type Sortable[O any] interface {
 	sealedStage()
 
 	OrderBy(order OrderBy, more ...OrderBy) OrderedStage[O]
-	Limit(limit int) OrderedStage[O]
-	Offset(offset int) OrderedStage[O]
+	Limit(limit int) LimitedStage[O]
 }
 
 // ResultSortable is the part of a grouped or combined stage that can order and
@@ -48,8 +49,7 @@ type ResultSortable[O any] interface {
 	sealedStage()
 
 	OrderBy(order OrderBy, more ...OrderBy) OrderedResultStage[O]
-	Limit(limit int) OrderedResultStage[O]
-	Offset(offset int) OrderedResultStage[O]
+	Limit(limit int) LimitedResultStage[O]
 }
 
 // Lockable is the part of a stage that can lock the rows it reads. Row locks only
@@ -177,25 +177,45 @@ type CompoundStage[O any] interface {
 	Combinable[O]
 }
 
-// OrderedResultStage is a grouped or combined query with ORDER BY, LIMIT or
-// OFFSET. Unlike OrderedStage it cannot be locked.
+// OrderedResultStage is a grouped or combined query with ORDER BY. Unlike
+// OrderedStage it cannot be locked.
 type OrderedResultStage[O any] interface {
 	QueryStage[O]
-	ResultSortable[O]
+	Limit(limit int) LimitedResultStage[O]
 }
 
-// OrderedStage is a query with ORDER BY, LIMIT or OFFSET.
+// LimitedResultStage is a grouped or combined query with LIMIT.
+type LimitedResultStage[O any] interface {
+	QueryStage[O]
+	Offset(offset int) QueryStage[O]
+}
+
+// OrderedStage is a query with ORDER BY.
 type OrderedStage[O any] interface {
 	QueryStage[O]
-	Sortable[O]
+	Lockable[O]
+	Limit(limit int) LimitedStage[O]
+}
+
+// LimitedStage is a query with LIMIT.
+type LimitedStage[O any] interface {
+	QueryStage[O]
+	Lockable[O]
+	Offset(offset int) OffsetStage[O]
+}
+
+// OffsetStage is a query with LIMIT and OFFSET.
+type OffsetStage[O any] interface {
+	QueryStage[O]
 	Lockable[O]
 }
 
-// LockedStage is a query that locks the rows it reads.
+// LockedStage is a query that locks the rows it reads; NoWait or SkipLocked may
+// say what to do with rows another transaction holds, and only one of them.
 type LockedStage[O any] interface {
 	QueryStage[O]
-	NoWait() LockedStage[O]
-	SkipLocked() LockedStage[O]
+	NoWait() QueryStage[O]
+	SkipLocked() QueryStage[O]
 }
 
 type stagePhase uint8
@@ -415,11 +435,11 @@ func (r resultBuilder[O]) OrderBy(order OrderBy, more ...OrderBy) OrderedResultS
 	return resultBuilder[O]{r.orderBy(list(order, more))}
 }
 
-func (r resultBuilder[O]) Limit(limit int) OrderedResultStage[O] {
+func (r resultBuilder[O]) Limit(limit int) LimitedResultStage[O] {
 	return resultBuilder[O]{r.limit(limit)}
 }
 
-func (r resultBuilder[O]) Offset(offset int) OrderedResultStage[O] {
+func (r resultBuilder[O]) Offset(offset int) QueryStage[O] {
 	return resultBuilder[O]{r.offset(offset)}
 }
 
@@ -521,9 +541,9 @@ func (b *builder[O]) OrderBy(order OrderBy, more ...OrderBy) OrderedStage[O] {
 	return b.orderBy(list(order, more))
 }
 
-func (b *builder[O]) Limit(limit int) OrderedStage[O] { return b.limit(limit) }
+func (b *builder[O]) Limit(limit int) LimitedStage[O] { return b.limit(limit) }
 
-func (b *builder[O]) Offset(offset int) OrderedStage[O] { return b.offset(offset) }
+func (b *builder[O]) Offset(offset int) OffsetStage[O] { return b.offset(offset) }
 
 func (b *builder[O]) orderBy(orders []OrderBy) *builder[O] {
 	n := b.enter("OrderBy", phasePaged)
@@ -613,9 +633,9 @@ func (b *builder[O]) wait(mode queryLockWaitMode) LockedStage[O] {
 	return n
 }
 
-func (b *builder[O]) NoWait() LockedStage[O] { return b.wait(queryLockWaitNoWait) }
+func (b *builder[O]) NoWait() QueryStage[O] { return b.wait(queryLockWaitNoWait) }
 
-func (b *builder[O]) SkipLocked() LockedStage[O] { return b.wait(queryLockWaitSkipLocked) }
+func (b *builder[O]) SkipLocked() QueryStage[O] { return b.wait(queryLockWaitSkipLocked) }
 
 // specOf returns the validated spec of a finished builder.
 func (b *builder[O]) specOf() (querySpec[O], error) {

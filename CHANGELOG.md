@@ -76,6 +76,7 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 - 相关子查询的外层表会传给外层查询校验：外层没有提供该表时构建失败。
 - 新增 `tsq.Not(cond)`；`GroupBy` 只能调用一次。
 - **必填参数在签名上**：`Where(cond, more...)`、`Search(col, more...)`、`GroupBy(col, more...)`、`Having(cond, more...)`、`OrderBy(term, more...)`、`Correlate(t, more...)`，带条件的 join 写成 `InnerJoin(t, on, more...)` / `LeftJoin` / `RightJoin` / `FullJoin`：空调用和不带 `ON` 的 join 编译不过（此前构建时才报错，或渲染出 MySQL 拒绝的 `JOIN t`）。运行期拼出来的条件列表写成 `Where(tsq.And(conds...))`。`Join` 删除，内连接统一写 `InnerJoin`；没有条件的是 `CrossJoin`。
+- 排序、截取和行锁的子句按 SQL 的顺序、各一次出现在类型上：`OrderBy` → `Limit` → `Offset`（`Offset` 只能跟在 `Limit` 之后），行锁后最多一个 `NoWait` / `SkipLocked`，`Case(...).Else(...)` 之后只有 `End()`。重复调用、`Offset` 不带 `Limit`、`Else` 之后再 `When` 此前能编译、构建时才报错（后者静默把分支挪到 `ELSE` 前面）。新增阶段 `LimitedStage`、`OffsetStage`、`LimitedResultStage`、`CaseElseStage`。
 - 已构建的 `*Query` 和阶段一样能做集合操作的操作数（`Union(q)`）和 CTE 的查询体（`tsq.CTE("x", q)`）；此前只收阶段，构建一次的查询没法复用。
 - 阶段接口和能力接口（`Sortable`、`Lockable`、`Combinable`、`Groupable`、`SelectStage`、`CaseStage` 等）是封闭的：只有本包的构建器实现它们。
 
@@ -277,6 +278,18 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 - **PostgreSQL 忽略无符号**：`uint16` 建成 `SMALLINT`、`uint32` 建成 `INTEGER`、`uint64` 建成 `BIGINT`，都装不下 Go 类型的上半段。现在取下一档更宽的类型（`uint64` 为 `NUMERIC(20)`），读回时 `NUMERIC(20)` 对应 `uint64`；其他 `NUMERIC` 和 `DATE` 不再被当成浮点和时间列。已有的列 `Reconcile` 会加宽，用迁移文件的项目需自己改。
 - **集合运算按一个没选中的列排序时，可能按同名的派生项排序**：派生项以源列名作别名（`LENGTH(name) AS name`），按 `name` 排序实际按长度排。现在这种排序在构建时报错。
 - **文档写 `*[]byte` 是可空字节字段**，解析器却拒绝它。文档改为 `sql.Null[[]byte]`。
+- **`Page` 的 `Paging.OrderBy` 跳过了构建器 `OrderBy` 的检查**：分组查询按未分组的列分页在 SQLite 上返回任意一行的值、PostgreSQL 上报错；出错的表达式渲染成 `ORDER BY  ASC`；引用查询外的表要到数据库才报错。现在它和构建器的排序过同一套校验。
+- **能构建、每个方言执行时都失败的几种查询**：聚合出现在 `WHERE`、连接条件或 `GROUP BY` 里，聚合套聚合，没有分组却按聚合排序（`Count` 返回数字而 `List` 失败）。现在构建时报错。
+- **`SelectDistinct` 按没选中的列排序**只有 SQLite 能执行（按每组任意一行排），PostgreSQL 和 MySQL 拒绝；**行锁加在 `LEFT` / `RIGHT` / `FULL JOIN` 上**PostgreSQL 拒绝。现在都在构建时报错。
+- **集合运算里第二个及以后的操作数用了 `Correlate`，外层却没有那张表**，照样能构建、到数据库才报错。现在每个操作数的外层表都会检查。
+- **分组或排序的表达式里有绑定值时 PostgreSQL 拒绝执行**（例如按 `CASE` 分桶）：PostgreSQL 给每个占位符重新编号，选择列表里的 `$1` 和 `GROUP BY` 里的 `$4` 被当成不同的表达式。现在这种表达式在 `GROUP BY` / `ORDER BY` 里写成它在选择列表中的位置。
+- **结果全是绑定值的 `CASE` 在 PostgreSQL 上被当成文本**：数字按字符串排序（`10` 排在 `9` 前），pgx 也无法把 `int64` 绑成文本。现在 PostgreSQL 上这些结果显式转换成结果类型。
+- **按主键分组时，RIGHT / FULL JOIN 里的软删除表的其他列被放行**，而这时它被读成活行派生表，PostgreSQL 不会从派生表的主键推出函数依赖。现在这些列必须分组。
+- **相关子查询的 `JOIN ... ON` 不能引用外层查询的表**，被误报成"未连接"。现在外层表在 `ON` 里也可用。
+- **`AttachMany` / `AttachOne` 不认嵌入了 `database/sql` 可空类型的键**（guregu `null.Int` 的形状），`NewNullColumn` 却接受它们。现在按相同的规则找值字段。
+- **`PageKeyset` 不接受结果类型里对主键的投影**（`MapInto(TableX.ID, ...)`）作为唯一排序列，结果类型因此无法游标分页。现在接受。
+- **零值的 `Query`、`Mutation`、`TableOf`、`UpdateStage` 和 `Searchable(nil)` 直接 panic**：现在和构建器其他地方一样返回错误。
+- **`Like` 的文档说"没有转义字符"**：实际由数据库决定（MySQL / PostgreSQL 用反斜杠，SQLite 没有）。文档已更正，字面匹配请用 `StartsWith` / `Contains`。
 
 ### 其他
 
