@@ -102,9 +102,12 @@ const (
 	ddlChangeDropTable   = "drop_table"
 	ddlChangeAddColumn   = "add_column"
 	ddlChangeDropColumn  = "drop_column"
-	ddlChangeAlterColumn = "alter_column"
-	ddlChangeAddIndex    = "add_index"
-	ddlChangeDropIndex   = "drop_index"
+	// ddlChangeRenameColumn is a column whose name changed only in case: MySQL and
+	// SQLite take both spellings for one column, so an add and a drop failed there.
+	ddlChangeRenameColumn = "rename_column"
+	ddlChangeAlterColumn  = "alter_column"
+	ddlChangeAddIndex     = "add_index"
+	ddlChangeDropIndex    = "drop_index"
 )
 
 func buildCurrentDDLSnapshot(tables []*genmodel.StructInfo, resolver *ddlTypeResolver) (ddlSnapshot, error) {
@@ -395,8 +398,41 @@ func diffExistingDDLTable(result *ddlChangeSet, before, after ddlSnapshotTable) 
 		afterColumns[column.Name] = column
 	}
 
+	// A column whose name changed only in case is renamed, not dropped and added.
+	renamedTo := map[string]string{}
+
 	for _, column := range before.Columns {
 		if _, ok := afterColumns[column.Name]; ok {
+			continue
+		}
+
+		for _, other := range after.Columns {
+			if _, taken := beforeColumns[other.Name]; !taken && strings.EqualFold(other.Name, column.Name) {
+				renamedTo[column.Name] = other.Name
+			}
+		}
+	}
+
+	for _, column := range before.Columns {
+		if _, ok := afterColumns[column.Name]; ok {
+			continue
+		}
+
+		if name, ok := renamedTo[column.Name]; ok {
+			renamed := afterColumns[name]
+			result.ByTable[tableName] = append(result.ByTable[tableName], ddlChange{
+				kind:      ddlChangeRenameColumn,
+				table:     tableName,
+				oldTable:  &beforeTableCopy,
+				newTable:  &afterTableCopy,
+				oldColumn: new(column),
+				newColumn: new(renamed),
+			})
+
+			// What else changed is an alter of the renamed column.
+			column.Name = name
+			beforeColumns[name] = column
+
 			continue
 		}
 
@@ -560,7 +596,7 @@ func ddlChangeCategoryRank(change ddlChange) int {
 		return 0
 	case ddlChangeDropIndex:
 		return 1
-	case ddlChangeAddColumn, ddlChangeAlterColumn, ddlChangeDropColumn:
+	case ddlChangeAddColumn, ddlChangeAlterColumn, ddlChangeDropColumn, ddlChangeRenameColumn:
 		return 2
 	case ddlChangeAddIndex:
 		if ddlChangeIndexUnique(change) {
@@ -577,6 +613,8 @@ func ddlChangeActionRank(change ddlChange) int {
 	switch change.kind {
 	case ddlChangeCreateTable, ddlChangeAddColumn, ddlChangeAddIndex:
 		return 0
+	case ddlChangeRenameColumn:
+		return 0
 	case ddlChangeAlterColumn:
 		return 1
 	case ddlChangeDropColumn, ddlChangeDropIndex, ddlChangeDropTable:
@@ -592,7 +630,7 @@ func ddlChangeObjectName(change ddlChange) string {
 		return change.newTable.Name
 	case ddlChangeDropTable:
 		return change.oldTable.Name
-	case ddlChangeAddColumn, ddlChangeAlterColumn:
+	case ddlChangeAddColumn, ddlChangeAlterColumn, ddlChangeRenameColumn:
 		return change.newColumn.Name
 	case ddlChangeDropColumn:
 		return change.oldColumn.Name
@@ -626,6 +664,8 @@ func classifyDDLRecordLine(change ddlChange) (string, bool) {
 		return "add column " + change.newColumn.Name, false
 	case ddlChangeDropColumn:
 		return "drop column " + change.oldColumn.Name, false
+	case ddlChangeRenameColumn:
+		return "rename column " + change.oldColumn.Name + " to " + change.newColumn.Name, false
 	case ddlChangeAlterColumn:
 		return formatDDLAlterColumnSummary(*change.oldColumn, *change.newColumn), false
 	case ddlChangeAddIndex:
@@ -907,12 +947,48 @@ func renderDDLIncrementalTableBody(
 // COLUMN refuses STORED).
 func ddlChangesRequireTableRebuild(ops []ddlChange) bool {
 	for _, op := range ops {
-		if op.kind == ddlChangeAlterColumn || (op.kind == ddlChangeAddColumn && op.newColumn.Generated != "") {
+		if op.kind == ddlChangeAlterColumn && !sqliteAlterUnenforced(*op.oldColumn, *op.newColumn) {
+			return true
+		}
+
+		if op.kind == ddlChangeAddColumn && op.newColumn.Generated != "" {
 			return true
 		}
 	}
 
 	return false
+}
+
+// sqliteAlterUnenforced reports a column change SQLite would not enforce: only
+// the declared type moved, within one type affinity (VARCHAR(20) to VARCHAR(40),
+// INT to BIGINT). A rebuild for it copied the table and dropped its triggers and
+// hand-made indexes to change nothing SQLite checks.
+func sqliteAlterUnenforced(before, after ddlSnapshotColumn) bool {
+	d := sqld.SQLiteDialect{}
+	spelled := func(c ddlSnapshotColumn) string { return d.ColumnTypeSQL(ddlColumnSpecFromSnapshot(c).Type) }
+
+	return before.Nullable == after.Nullable && before.Default == after.Default && before.Fill == after.Fill &&
+		before.Generated == after.Generated && before.PrimaryKey == after.PrimaryKey && before.AutoIncrement == after.AutoIncrement &&
+		sqliteAffinity(spelled(before)) == sqliteAffinity(spelled(after))
+}
+
+// sqliteAffinity is the type affinity SQLite gives a declared type, by its rules
+// (datatype3.html, section 3.1).
+func sqliteAffinity(declared string) string {
+	t := strings.ToUpper(declared)
+
+	switch {
+	case strings.Contains(t, "INT"):
+		return "INTEGER"
+	case strings.Contains(t, "CHAR"), strings.Contains(t, "CLOB"), strings.Contains(t, "TEXT"):
+		return "TEXT"
+	case strings.Contains(t, "BLOB"), t == "":
+		return "BLOB"
+	case strings.Contains(t, "REAL"), strings.Contains(t, "FLOA"), strings.Contains(t, "DOUB"):
+		return "REAL"
+	default:
+		return "NUMERIC"
+	}
 }
 
 func renderSQLiteRebuildTableBody(dialect ddlDialectSpec, tableName string, ops []ddlChange) (string, bool) {
@@ -938,9 +1014,11 @@ func renderSQLiteRebuildTableBody(dialect ddlDialectSpec, tableName string, ops 
 	// are gone. So the copy must not be able to fail: a new NOT NULL column gets
 	// its type's zero value, a generated column is left to the new table, and what
 	// cannot be filled that way is not rebuilt at all.
+	// Columns are matched without case, as SQLite matches them: a column renamed
+	// only in case is copied from its old spelling.
 	existing := make(map[string]ddlSnapshotColumn, len(before.Columns))
 	for _, column := range before.Columns {
-		existing[column.Name] = column
+		existing[strings.ToLower(column.Name)] = column
 	}
 
 	var (
@@ -958,7 +1036,7 @@ func renderSQLiteRebuildTableBody(dialect ddlDialectSpec, tableName string, ops 
 		case migrationOwned(column):
 			return renderDDLManualComment(tableName, fmt.Sprintf(
 				"manual rebuild required: %s is computed by the database with no expression TSQ knows, so a rebuilt table would lose it", column.Name)), true
-		case existing[column.Name].Name != "" && existing[column.Name].Nullable && !column.Nullable:
+		case existing[strings.ToLower(column.Name)].Name != "" && existing[strings.ToLower(column.Name)].Nullable && !column.Nullable:
 			// A column that becomes NOT NULL: its NULLs take the default, or the
 			// type's zero value, so the copy cannot fail on them.
 			fill := column.Default
@@ -975,10 +1053,10 @@ func renderSQLiteRebuildTableBody(dialect ddlDialectSpec, tableName string, ops 
 			notes = append(notes, renderDDLManualComment(tableName, fmt.Sprintf(
 				"%s becomes NOT NULL; rows holding NULL get %s", column.Name, fill)))
 			targets = append(targets, quoted)
-			sources = append(sources, fmt.Sprintf("COALESCE(%s, %s)", quoted, fill))
-		case existing[column.Name].Name != "":
+			sources = append(sources, fmt.Sprintf("COALESCE(%s, %s)", dialect.dialect.QuoteIdent(existing[strings.ToLower(column.Name)].Name), fill))
+		case existing[strings.ToLower(column.Name)].Name != "":
 			targets = append(targets, quoted)
-			sources = append(sources, quoted)
+			sources = append(sources, dialect.dialect.QuoteIdent(existing[strings.ToLower(column.Name)].Name))
 		case column.Nullable || column.Default != "" || column.AutoIncrement:
 			// The new table fills it.
 		default:
@@ -999,11 +1077,11 @@ func renderSQLiteRebuildTableBody(dialect ddlDialectSpec, tableName string, ops 
 
 	kept := make(map[string]bool, len(after.Columns))
 	for _, column := range after.Columns {
-		kept[column.Name] = true
+		kept[strings.ToLower(column.Name)] = true
 	}
 
 	for _, column := range before.Columns {
-		if !kept[column.Name] {
+		if !kept[strings.ToLower(column.Name)] {
 			dropped = append(dropped, column.Name)
 		}
 	}
@@ -1126,6 +1204,14 @@ func renderDDLChangeOperation(dialect ddlDialectSpec, op ddlChange) []string {
 		))
 	case ddlChangeAlterColumn:
 		return renderDDLAlterColumnStatements(dialect, op.table, *op.oldColumn, *op.newColumn)
+	case ddlChangeRenameColumn:
+		if dialect.dialect.Name() != tsqdialect.Postgres {
+			return []string{renderDDLManualComment(op.table, fmt.Sprintf(
+				"column %s is now spelled %s; %s matches column names without case, so there is nothing to run", op.oldColumn.Name, op.newColumn.Name, ddlDialectName(dialect)))}
+		}
+
+		return []string{fmt.Sprintf("ALTER TABLE %s RENAME COLUMN %s TO %s;",
+			dialect.dialect.QuoteIdent(op.table), dialect.dialect.QuoteIdent(op.oldColumn.Name), dialect.dialect.QuoteIdent(op.newColumn.Name))}
 	case ddlChangeAddIndex:
 		if statement := renderDDLIndexCreateStatement(op.table, *op.newIndex, dialect); statement != "" {
 			return []string{statement}
@@ -1158,6 +1244,11 @@ func renderDDLAlterColumnStatements(
 	}
 
 	if dialect.dialect.AlterMode() != sqld.AlterInPlace {
+		if sqliteAlterUnenforced(before, after) {
+			return []string{renderDDLManualComment(tableName, fmt.Sprintf(
+				"column %s changes only its declared type within one SQLite type affinity, which SQLite does not enforce; nothing to run", after.Name))}
+		}
+
 		return []string{renderDDLManualComment(tableName, fmt.Sprintf("manual change required for column %s on %s", after.Name, ddlDialectName(dialect)))}
 	}
 

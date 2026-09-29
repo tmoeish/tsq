@@ -112,7 +112,12 @@ embeds must be a struct TSQ can read. Other structs in the package are left alon
 fields. A field cannot be named like a method TSQ generates on the row (`Insert`, `Update`,
 `HardDelete`, and on a soft-delete table `Delete`, `Restore`, `IsDeleted`), nor like a generated table
 method (`GetByX`, `FindByX`, `FetchByX`, `FullTextX`); rename the Go field and keep
-the column with the `db` tag.
+the column with the `db` tag. The row type cannot declare those methods itself either, and nothing in
+the package can already be named like what `tsq gen` declares (`TableX`, `XTable`, `ResultX`,
+`XResult`, `TSQTables`); `tsq gen` says where the clash is. In a `type ( ... )` group, write the
+directive on the type it is for: one above the group belongs to no type and is an error. A package
+with no directive, or a table or result with no column field, is an error rather than an empty
+output.
 
 ### The directives
 
@@ -161,7 +166,9 @@ Rules:
 - `db:"col"` keeps the default DDL mapping for that Go field type
 - `string`, `sql.NullString`, `null.String`, and their type alias / custom string forms default to `VARCHAR(255)` when `size` is omitted
 - `int`, `uint`, and enum-like custom types built on them default to regular integer width; `int64` / `uint64` map to big-integer types. PostgreSQL has no unsigned types, so an unsigned field takes the next wider one there (`uint16` an `INTEGER`, `uint32` a `BIGINT`, `uint64` a `NUMERIC(20)`)
-- `db:"col,size:N"` sets an explicit string width
+- `db:"col,size:N"` sets an explicit string width, or for `[]byte` the size MySQL picks `BLOB`,
+  `MEDIUMBLOB` or `LONGBLOB` by. The options are `size:N`, `type:SQL`, `default:SQL` and
+  `generated[:SQL]`; anything else, or one without a usable value, is an error
 - a `[]byte` field (or a named byte-slice type such as `json.RawMessage`) is a NOT NULL binary
   column, and an unset (nil) one is written as empty bytes; `sql.Null[[]byte]` is the nullable form
 - `db:"col,type:SQL_TYPE"` sets an explicit raw SQL type override for DDL generation and runtime schema metadata
@@ -316,6 +323,13 @@ changed it. A migration never runs a destructive statement for you:
 - a column that becomes NOT NULL is filled for the rows holding NULL (with its type's zero value) when
   SQLite rebuilds the table, so the copy cannot fail
 - a changed `generated:` expression is left to a migration you write, with a comment saying so
+- a `db` tag renamed only in case is a column rename: `RENAME COLUMN` on PostgreSQL, and a comment on
+  MySQL and SQLite, which match column names without case
+- a type change SQLite does not enforce (a `VARCHAR` size, `INT` to `BIGINT`) does not rebuild the
+  SQLite table; PostgreSQL converts with `USING`, and widening an auto-increment key widens its
+  sequence too
+- `tsq gen` prints the warnings about drops written commented out on every run, and does not write
+  again a generated file whose content would not change
 - `tsq.json` holds the history the `.sql` files are rendered from: keep it in version control. `tsq gen`
   refuses to run when the `.sql` files exist without it, rather than start the history over and lose
   the changes since the last run

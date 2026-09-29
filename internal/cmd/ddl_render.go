@@ -16,6 +16,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"golang.org/x/tools/go/packages"
 
@@ -617,6 +619,10 @@ func lookupDDLField(named *types.Named, pkg *types.Package, fieldName string) (*
 	if obj == nil {
 		obj, index, _ = types.LookupFieldOrMethod(types.NewPointer(named), false, pkg, fieldName)
 		if obj == nil {
+			if first, _ := utf8.DecodeRuneInString(fieldName); unicode.IsLower(first) {
+				return nil, "", fmt.Errorf("field %s is unexported in a type from another package, which the generated code cannot reach; export it", fieldName)
+			}
+
 			return nil, "", fmt.Errorf("field %s not found", fieldName)
 		}
 	}
@@ -665,7 +671,10 @@ func underlyingStructType(t types.Type) *types.Struct {
 }
 
 func classifyDDLColumnType(t types.Type, rawTag string) (ddlColumnDescriptor, error) {
-	opts := parseDDLTagOptions(reflect.StructTag(rawTag).Get("db"))
+	opts, err := parseDDLTagOptions(reflect.StructTag(rawTag).Get("db"))
+	if err != nil {
+		return ddlColumnDescriptor{}, err
+	}
 
 	desc, err := classifyDDLColumnTypeRecursive(t, opts.size, false)
 	if err != nil {
@@ -684,8 +693,12 @@ func classifyDDLColumnType(t types.Type, rawTag string) (ddlColumnDescriptor, er
 		}
 	}
 
-	if desc.kind == ddlColumnString {
+	switch desc.kind {
+	case ddlColumnString:
 		desc.size = normalizeDDLStringSize(opts.size)
+	case ddlColumnBytes:
+		// Bytes have no default size; one declared picks MySQL's BLOB type.
+		desc.size = opts.size
 	}
 
 	desc.rawType = opts.rawType
@@ -882,10 +895,14 @@ type ddlTagOptions struct {
 	generatedSQL string
 }
 
-func parseDDLTagOptions(dbTag string) ddlTagOptions {
+// parseDDLTagOptions reads the options of a db tag after the column name. An
+// option it does not know, or one without a usable value, is an error: size:ten
+// or a misspelled defualt: used to be ignored, and the column quietly got the
+// type or default nobody asked for.
+func parseDDLTagOptions(dbTag string) (ddlTagOptions, error) {
 	opts := ddlTagOptions{}
 	if dbTag == "" {
-		return opts
+		return opts, nil
 	}
 
 	parts := splitDDLTagParts(dbTag)
@@ -893,49 +910,37 @@ func parseDDLTagOptions(dbTag string) ddlTagOptions {
 		key, value, ok := strings.Cut(strings.TrimSpace(part), ":")
 
 		key = strings.TrimSpace(key)
-		if !ok {
-			// generated without an expression: the database computes the column,
-			// and the schema it lives in is not TSQ's to write.
-			if key == "generated" {
-				opts.generated = true
-			}
-
-			continue
-		}
-
 		value = strings.TrimSpace(value)
 
-		switch key {
-		case "size":
+		switch {
+		case key == "generated" && !ok:
+			// generated without an expression: the database computes the column,
+			// and the schema it lives in is not TSQ's to write.
+			opts.generated = true
+		case key == "size":
 			n, err := strconv.Atoi(value)
 			if err != nil || n <= 0 {
-				continue
+				return opts, fmt.Errorf("db tag option size:%s is not a positive number", value)
 			}
 
 			opts.size = n
-		case "type":
-			if value == "" {
-				continue
-			}
-
+		case key == "type" && value != "":
 			opts.rawType = value
-		case "default":
-			if value == "" {
-				continue
-			}
-
+		case key == "default" && value != "":
 			opts.defaultExpr = value
-		case "generated":
-			if value == "" {
-				continue
-			}
-
+		case key == "generated" && value != "":
 			opts.generated = true
 			opts.generatedSQL = value
+		case key == "type" || key == "default" || key == "generated":
+			return opts, fmt.Errorf("db tag option %s: needs a value", key)
+		case key == "":
+			return opts, fmt.Errorf("db tag %q has an empty option", dbTag)
+		default:
+			return opts, fmt.Errorf("db tag option %q is not one TSQ knows; it takes size:N, type:SQL, default:SQL and generated[:SQL]", key)
 		}
 	}
 
-	return opts
+	return opts, nil
 }
 
 func splitDDLTagParts(dbTag string) []string {

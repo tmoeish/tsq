@@ -278,3 +278,21 @@ func TestMySQLTextDefaultsAreExpressions(t *testing.T) {
 		t.Errorf("varchar default = %s", got)
 	}
 }
+
+// TestMySQLBytesTakeTheirSize covers size: on a byte column, which MySQL ignored:
+// every one was a BLOB, which holds 64 KiB, and a larger value failed to insert.
+func TestMySQLBytesTakeTheirSize(t *testing.T) {
+	d := MySQLDialect{}
+
+	for size, want := range map[int]string{0: "BLOB", 1000: "BLOB", 1 << 20: "MEDIUMBLOB", 1 << 25: "LONGBLOB"} {
+		declared := ColumnSpec{Name: "b", Type: ColumnType{Kind: KindBytes, Size: size}}
+		if got := d.ColumnTypeSQL(declared.Type); got != want {
+			t.Errorf("size %d = %s, want %s", size, got, want)
+		}
+
+		back, err := parseMySQLColumnType(strings.ToLower(want), strings.ToLower(want), sql.NullInt64{})
+		if err != nil || !SameColumnType(d, Column{Name: "b", Type: back}, declared) {
+			t.Errorf("%s read back as %+v, %v; want it to match size %d", want, back, err, size)
+		}
+	}
+}

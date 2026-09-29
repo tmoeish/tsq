@@ -232,9 +232,16 @@ func applyDirective(meta *genmodel.TableMeta, d directive, fields map[string]str
 			return d.errorf("search takes no name")
 		}
 
+		for _, field := range list {
+			if slices.Contains(meta.SearchColumns, field) {
+				return d.errorf("search already covers %s", field)
+			}
+		}
+
 		meta.SearchColumns = append(meta.SearchColumns, list...)
 
 		return nil
+
 	case "unique", "index", "fulltext":
 		if meta.IsResult {
 			return d.errorf("indexes belong to a table")
@@ -258,11 +265,23 @@ func applyDirective(meta *genmodel.TableMeta, d directive, fields map[string]str
 			name = derivedIndexName(prefix, meta.Table, list)
 		}
 
-		for _, existing := range slices.Concat(meta.Uniques, meta.Indexes, meta.FullTexts) {
+		// A full-text index answers other queries than a B-tree index over the same
+		// fields, so only indexes of one kind can repeat each other: a unique and a
+		// plain index over one field list are the same index twice.
+		fullText := d.name == "fulltext"
+		kinds := slices.Concat(meta.Uniques, meta.Indexes)
+
+		if fullText {
+			kinds = meta.FullTexts
+		}
+
+		for _, existing := range kinds {
 			if slices.Equal(existing.Fields, list) {
 				return d.errorf("index %s already covers %s", existing.Name, strings.Join(list, ","))
 			}
+		}
 
+		for _, existing := range slices.Concat(meta.Uniques, meta.Indexes, meta.FullTexts) {
 			if existing.Name == name {
 				return d.errorf("index name %s is already used", name)
 			}
@@ -316,7 +335,7 @@ func fieldList(d directive, fields map[string]struct{}) (list []string, name str
 			}
 
 			if _, ok := fields[field]; fields != nil && !ok {
-				return nil, "", d.errorf("struct has no field %s (use Go field names, not column names)", field)
+				return nil, "", d.errorf("struct has no field %s with a db tag (name Go fields, not columns; a field is a column only with a db tag)", field)
 			}
 
 			list = append(list, field)
@@ -343,7 +362,7 @@ func checkReferencedFields(meta *genmodel.TableMeta, fields map[string]struct{},
 		}
 
 		if _, ok := fields[field]; !ok {
-			return declaration.errorf("struct has no field %s (use Go field names, not column names)", field)
+			return declaration.errorf("struct has no field %s with a db tag (name Go fields, not columns; a field is a column only with a db tag)", field)
 		}
 	}
 

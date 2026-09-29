@@ -2,6 +2,7 @@ package sqldialect
 
 import (
 	"database/sql"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -229,11 +230,15 @@ func TestPostgresDDLAlterColumnStatementsKeepsAutoIncrementDefault(t *testing.T)
 		AutoIncrement: true,
 	}
 
+	// The column and its sequence are widened; the SERIAL default is kept.
 	statements := d.AlterColumnSQL("users", before, after)
-	want := `ALTER TABLE "users" ALTER COLUMN "id" TYPE BIGINT;`
+	want := []string{
+		`ALTER TABLE "users" ALTER COLUMN "id" TYPE BIGINT;`,
+		`DO $$ BEGIN EXECUTE format('ALTER SEQUENCE %s AS BIGINT', pg_get_serial_sequence('"users"', 'id')); END $$;`,
+	}
 
-	if len(statements) != 1 || statements[0] != want {
-		t.Fatalf("expected only an ALTER TYPE statement, got %v", statements)
+	if !slices.Equal(statements, want) {
+		t.Fatalf("statements = %v, want %v", statements, want)
 	}
 
 	for _, statement := range statements {

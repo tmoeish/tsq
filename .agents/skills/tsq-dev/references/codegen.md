@@ -98,13 +98,15 @@ genmodel.StructInfo / TableMeta        internal/genmodel/model.go
 `gen.go` 在渲染前跑一串校验，每一条都是为了让错误在生成期爆掉而不是在使用者的编译期或
 运行期：
 
-- `validatePrimaryKeyField` / `validateVersionField`：主键和乐观锁字段存在且类型可用。
-- `validateFieldDatabaseCompatibility` / `validateFieldDatabaseType`：字段类型能映射到
-  DDL 类型；SQL 关键字冲突的列名被挡住。
+- `validatePrimaryKeyField` / `validateVersionField` / `validateFieldRoles`：主键和托管字段存在、类型可用、一个字段只担一个角色。
+- `validateFieldDatabaseCompatibility` / `validateFieldDatabaseType`：字段类型能映射到 DDL 类型（标识符一律加引号，
+  所以没有也不需要 SQL 关键字检查）；`db` 标签的选项由 `parseDDLTagOptions` 逐个认，不认识的报错。
 - `validateGeneratedFilenameCollisions`：两个结构体不会生成到同一个文件。
-- `validateIndexNameCollisions`：索引名在包内唯一。
-- `validateGeneratedSymbolCollisions`：生成的标识符不会互相覆盖。
-- `validateResultFields` / `isScanCompatible`：`//tsq:result` 的字段能从来源列 scan 出来。
+- `validateIndexNameCollisions` / `validateTableNameCollisions`：索引名、表名在包内唯一。
+- `validateGeneratedSymbolCollisions` / `validateDeclaredSymbols`：生成的包级名字不互相覆盖、不撞包里手写的声明，
+  行类型上手写的方法不撞生成的行方法（`checkRowMethods`）。
+- `validateResultFields` / `validateResultTypes`：`//tsq:result` 的字段引用存在的列，类型用 go/types 比（可空形式也行）。
+- 包里没有带指令的结构体、或结构体没有任何列字段时报错，不静默生成空东西；未变化的生成文件不重写。
 - `validateIdentifierLengths`：表名、列名、索引名对三个方言都不超长。派生索引名最容易超，报错直接给出
   `//tsq:index ... name=` 的写法；运行时构造时还会再查一遍，但那时已经是部署之后。
 

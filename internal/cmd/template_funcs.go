@@ -50,6 +50,7 @@ func funcMap() template.FuncMap {
 		"ValueType":                valueType,
 		"Fetchable":                fetchable,
 		"FieldSliceVarName":        fieldSliceVarName,
+		"IndexSliceVarName":        indexSliceVarName,
 		"FieldType":                fieldType,
 		"JoinAnd":                  joinAnd,
 		"Sub1":                     sub1,
@@ -197,6 +198,21 @@ func fetchable(f genmodel.FieldInfo) bool {
 // statuss; categories, not categorys.
 func fieldSliceVarName(fieldName string) string {
 	return varName(plural(lowerInitial(fieldName)))
+}
+
+// indexSliceVarName names the list parameter of FetchByX for the last field of an
+// index, clear of the other fields' parameters: //tsq:unique Tags,Tag made both
+// tags.
+func indexSliceVarName(fields []string, last string) string {
+	name := fieldSliceVarName(last)
+
+	for _, field := range fields {
+		if field != last && fieldVarName(field) == name {
+			return fieldVarName(last) + "List"
+		}
+	}
+
+	return name
 }
 
 func plural(word string) string {
