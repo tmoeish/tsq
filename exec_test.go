@@ -1839,3 +1839,32 @@ func TestUpsertUpdatesOnlyTheNamedColumns(t *testing.T) {
 		t.Error("two Conflicts: want them refused")
 	}
 }
+
+// TestDeleteByPKNamesTheKeysItDidNotDelete covers BatchDeleteByPK and
+// BatchHardDeleteByPK, which reported success for keys that matched nothing.
+func TestDeleteByPKNamesTheKeysItDidNotDelete(t *testing.T) {
+	ctx := context.Background()
+	rt := newSQLite(t)
+	users := seedUsers(t, rt, "a", "b", "c")
+
+	err := Users.BatchHardDeleteByPK(ctx, rt, []int64{users[0].ID, 404, users[0].ID, users[1].ID})
+
+	state, ok := errors.AsType[*RowStateError](err)
+	if !ok || state.Need != RowExists || len(state.Keys) != 1 || state.Keys[0] != int64(404) || state.Expected != 3 || state.Actual != 2 {
+		t.Fatalf("BatchHardDeleteByPK = %v; want a RowStateError naming 404 only", err)
+	}
+
+	left, err := Users.WithDeleted().Fetch(ctx, rt, users[2].ID)
+	if err != nil || len(left) != 1 {
+		t.Fatalf("the untouched row = %v, %v", left, err)
+	}
+
+	if _, err := Users.WithDeleted().Get(ctx, rt, users[0].ID); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("a deleted key is still there: %v", err)
+	}
+
+	// Every key there: no error.
+	if err := Users.BatchHardDeleteByPK(ctx, rt, []int64{users[2].ID}); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -35,7 +35,9 @@
 - **策略档之间的分界按"改不改已有的东西"划**：`CreateMissing` 只加（表、列、索引），已有的列不一样仍然拒绝启动，
   改列和删列是 `Reconcile` 的。`CreateMissing` 曾把"缺列"和"列不一样"一起拒绝，而三处文档都说它会加列。
 - **自省比较按引擎的拼法归一**：SQLite 的名字不分大小写（`sqlite_master` 查询要 `COLLATE NOCASE`，Go 里比名字用
-  `EqualFold`），MySQL 读回的默认值是它自己的规范形式（`sameDefault` 按数值比）。漏一处就是"每次启动都改一次"。
+  `EqualFold`），MySQL 读回的默认值是它自己的规范形式（`sameDefault` 按数值比；表达式默认值由 `mysqlDefault` 去掉
+  字符集前缀和转义），SQLite 的列类型按亲和性比（`SameColumnType` 用 `SQLiteAffinity`，生成器的迁移用同一个函数，
+  主键除外）。漏一处就是"每次启动都改一次"。academy 的 `Course.Blurb`（`TEXT` 带默认值）让集成测试在 MySQL 上守着前者。
 - SQLite 重建表要把 `sqlite_sequence` 的计数带过去（`renderRebuildTableStatements`），否则 AUTOINCREMENT 会重发
   已删行的主键。
 - 门：`runtime_schema_isolation_test.go`（SQLite）和 `internal/integration` 的

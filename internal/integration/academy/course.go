@@ -33,6 +33,9 @@ type Course struct {
 
 	// Currency is the price currency; nil leaves it to the database default, read back after an insert.
 	Currency *string `db:"currency,size:3,default:'USD'" json:"currency"`
+	// Blurb is a TEXT column with a default, which MySQL takes only as an
+	// expression and reports back in another spelling.
+	Blurb *string `db:"blurb,type:TEXT,default:'none'" json:"blurb"`
 	// Slug is computed by the database from the title; TSQ never writes it.
 	Slug string `db:"slug,size:160,generated:LOWER(title)" json:"slug"`
 }

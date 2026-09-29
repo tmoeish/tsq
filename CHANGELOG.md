@@ -160,6 +160,10 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 ### 修复
 
+- **`BatchDeleteByPK` / `BatchHardDeleteByPK` 对没删到的主键报告成功**：不存在的键（软删除时还有已删除的行）现在让调用返回 `*RowStateError`，`Keys` 列出它们；存在的键照样删除，重复的键只算一次。PostgreSQL / SQLite 用 `RETURNING` 拿到删到的键，MySQL 软删按本次的墓碑回查、硬删在删除前查。要"删掉匹配到的，不管有没有"用 `DeleteFrom` / `HardDeleteFrom`。
+- **MySQL 上 `TEXT` 列的默认值每次启动都被当成差异**：这种默认值只能写成表达式，`information_schema` 读回来是 `_utf8mb4\'x\'`，`Validate` 起不来、`Reconcile` 每次都改一遍。现在按声明的写法还原后再比较。
+- **运行时 `Reconcile` 在 SQLite 上为 `VARCHAR` 长度变化重建整张表**：SQLite 只按类型亲和性存值，重建丢掉触发器和手建索引却什么也没改。现在同一亲和性的类型视为相同（主键除外），和生成器的迁移一致。
+
 - **`BatchInsert` 分配的主键不按切片顺序**：行里把 `default:` 列留给数据库的和没留的写成不同的语句，此前先插完一种形状的所有行，自增主键因此跳着分配。现在只合并相邻的同形状行。
 - **新行的 `version` 从 0 开始，DDL 默认值却是 1**：TSQ 插入的行和手写 SQL 插入的行版本号不一致。`Insert` / `Upsert` 现在把为零的版本从 1 开始，调用方设了的版本（导入）保留。
 - **单行 `Insert` / `Upsert` 为回读数据库填的列多发一条查询**：PostgreSQL 和 SQLite 上现在在写入语句里用 `RETURNING` 取回主键和这些列；MySQL 没有 `RETURNING`，照旧按主键回读。

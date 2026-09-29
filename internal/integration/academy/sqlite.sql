@@ -139,3 +139,9 @@ PRAGMA foreign_key_check;
 COMMIT;
 
 PRAGMA foreign_keys = ON;
+
+-- Migration: 2026-09-29 15:39:59
+
+-- Table: course
+
+ALTER TABLE "course" ADD COLUMN "blurb" TEXT DEFAULT 'none';

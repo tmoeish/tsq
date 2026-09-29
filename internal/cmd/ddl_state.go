@@ -969,26 +969,7 @@ func sqliteAlterUnenforced(before, after ddlSnapshotColumn) bool {
 
 	return before.Nullable == after.Nullable && before.Default == after.Default && before.Fill == after.Fill &&
 		before.Generated == after.Generated && before.PrimaryKey == after.PrimaryKey && before.AutoIncrement == after.AutoIncrement &&
-		sqliteAffinity(spelled(before)) == sqliteAffinity(spelled(after))
-}
-
-// sqliteAffinity is the type affinity SQLite gives a declared type, by its rules
-// (datatype3.html, section 3.1).
-func sqliteAffinity(declared string) string {
-	t := strings.ToUpper(declared)
-
-	switch {
-	case strings.Contains(t, "INT"):
-		return "INTEGER"
-	case strings.Contains(t, "CHAR"), strings.Contains(t, "CLOB"), strings.Contains(t, "TEXT"):
-		return "TEXT"
-	case strings.Contains(t, "BLOB"), t == "":
-		return "BLOB"
-	case strings.Contains(t, "REAL"), strings.Contains(t, "FLOA"), strings.Contains(t, "DOUB"):
-		return "REAL"
-	default:
-		return "NUMERIC"
-	}
+		sqld.SQLiteAffinity(spelled(before)) == sqld.SQLiteAffinity(spelled(after))
 }
 
 func renderSQLiteRebuildTableBody(dialect ddlDialectSpec, tableName string, ops []ddlChange) (string, bool) {

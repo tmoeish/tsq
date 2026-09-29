@@ -98,3 +98,9 @@ CREATE UNIQUE INDEX "ux_track_name" ON "track"("name");
 -- Table: course
 
 ALTER TABLE "course" ALTER COLUMN "currency" DROP NOT NULL;
+
+-- Migration: 2026-09-29 15:39:59
+
+-- Table: course
+
+ALTER TABLE "course" ADD COLUMN "blurb" TEXT DEFAULT 'none';

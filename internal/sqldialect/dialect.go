@@ -409,7 +409,36 @@ func SameColumnType(dialect Dialect, inspected Column, declared ColumnSpec) bool
 		return true
 	}
 
+	// SQLite enforces a type affinity, not the declared type: VARCHAR(20) and
+	// VARCHAR(40), INT and BIGINT store the same values. Calling them different
+	// made Reconcile rebuild the table, dropping its triggers and hand-made
+	// indexes, to change nothing SQLite checks. A primary key keeps the exact
+	// comparison: INTEGER PRIMARY KEY is the rowid and BIGINT PRIMARY KEY is not.
+	if dialect.Name() == tsqdialect.SQLite && !inspected.PrimaryKey && !declared.PrimaryKey &&
+		SQLiteAffinity(dialect.ColumnTypeSQL(inspected.Type)) == SQLiteAffinity(dialect.ColumnTypeSQL(declared.Type)) {
+		return true
+	}
+
 	return nativeDDLTypeMatchesDeclared(inspected, declared)
+}
+
+// SQLiteAffinity is the type affinity SQLite gives a declared type, by its rules
+// (datatype3.html, section 3.1).
+func SQLiteAffinity(declared string) string {
+	t := strings.ToUpper(declared)
+
+	switch {
+	case strings.Contains(t, "INT"):
+		return "INTEGER"
+	case strings.Contains(t, "CHAR"), strings.Contains(t, "CLOB"), strings.Contains(t, "TEXT"):
+		return "TEXT"
+	case strings.Contains(t, "BLOB"), t == "":
+		return "BLOB"
+	case strings.Contains(t, "REAL"), strings.Contains(t, "FLOA"), strings.Contains(t, "DOUB"):
+		return "REAL"
+	default:
+		return "NUMERIC"
+	}
 }
 
 func nativeDDLTypeMatchesDeclared(inspected Column, declared ColumnSpec) bool {

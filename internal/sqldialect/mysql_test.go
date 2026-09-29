@@ -296,3 +296,22 @@ func TestMySQLBytesTakeTheirSize(t *testing.T) {
 		}
 	}
 }
+
+// TestMySQLReadsAnExpressionDefaultBackAsDeclared covers the default of a TEXT
+// column, which MySQL takes only as an expression and reports with an escaped,
+// charset-prefixed literal: it never matched the declared 'USD'.
+func TestMySQLReadsAnExpressionDefaultBackAsDeclared(t *testing.T) {
+	for _, c := range []struct {
+		value, extra, want string
+	}{
+		{`_utf8mb4\'USD\'`, "DEFAULT_GENERATED", "'USD'"},
+		{`(_utf8mb4\'it\'\'s\')`, "DEFAULT_GENERATED", "'it''s'"},
+		{`_latin1\'a\\\\b\'`, "DEFAULT_GENERATED", `'a\\b'`},
+		{"USD", "", "USD"},
+		{"utc_timestamp(6)", "DEFAULT_GENERATED", "utc_timestamp(6)"},
+	} {
+		if got := mysqlDefault(sql.NullString{String: c.value, Valid: true}, c.extra); got != c.want {
+			t.Errorf("mysqlDefault(%q, %q) = %q; want %q", c.value, c.extra, got, c.want)
+		}
+	}
+}

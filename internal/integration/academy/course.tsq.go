@@ -27,6 +27,7 @@ type CourseTable struct {
 	ListPriceCents tsq.Column[Course, int64]
 	Published      tsq.Column[Course, bool]
 	Currency       tsq.NullColumn[Course, string]
+	Blurb          tsq.NullColumn[Course, string]
 	Slug           tsq.Column[Course, string]
 }
 
@@ -50,6 +51,7 @@ func newCourseTable() CourseTable {
 		ListPriceCents: tsq.NewColumn(t, "list_price_cents", "list_price_cents", func(r *Course) *int64 { return &r.ListPriceCents }),
 		Published:      tsq.NewColumn(t, "published", "published", func(r *Course) *bool { return &r.Published }),
 		Currency:       tsq.NewNullColumn[string](t, "currency", "currency", func(r *Course) **string { return &r.Currency }),
+		Blurb:          tsq.NewNullColumn[string](t, "blurb", "blurb", func(r *Course) **string { return &r.Blurb }),
 		Slug:           tsq.NewColumn(t, "slug", "slug", func(r *Course) *string { return &r.Slug }),
 	}
 
@@ -66,6 +68,7 @@ func newCourseTable() CourseTable {
 			c.ListPriceCents,
 			c.Published,
 			c.Currency,
+			c.Blurb,
 			c.Slug,
 		},
 		PrimaryKey:    c.ID,
@@ -91,6 +94,17 @@ func newCourseTable() CourseTable {
 					Kind:     tsqdialect.KindTime,
 					Nullable: true,
 				},
+			},
+			{
+				Name: "blurb",
+				Type: tsqdialect.ColumnType{
+					RawType:  "TEXT",
+					Kind:     tsqdialect.KindString,
+					Nullable: true,
+					Size:     255,
+				},
+				Default: "'none'",
+				Fill:    tsqdialect.FillDefault,
 			},
 			{
 				Name: "currency",
@@ -197,6 +211,7 @@ func (t CourseTable) As(alias string) CourseTable {
 		ListPriceCents: t.ListPriceCents.WithTable(a),
 		Published:      t.Published.WithTable(a),
 		Currency:       tsq.RebindNull(t.Currency, a),
+		Blurb:          tsq.RebindNull(t.Blurb, a),
 		Slug:           t.Slug.WithTable(a),
 	}
 }
