@@ -20,13 +20,12 @@
 `examples/` 是**可运行的契约**，不是片段：
 
 ```bash
-go run ./examples/quickstart     # 最小可运行示例
-go run ./examples/advanced       # 连接、子查询、CASE、集合操作
-go run ./examples/full-suite     # 覆盖面最广的一份
+go run ./examples/01-getting-started   # 从一个结构体开始
+go run ./examples/02-querying          # 然后按章往下走，一共 11 章
 ```
 
-`examples/academy` 是它们共用的模型包，生成物被提交，所以打开就能看到 `tsq gen`
-真实的输出长什么样。
+每章打印它执行的 SQL。第 2 到 11 章共用 `examples/shop` 的网店模型，生成物被提交，
+所以打开就能看到 `tsq gen` 真实的输出长什么样。目录见 [`examples/README.md`](../examples/README.md)。
 
 ## 为什么这里只有一个链接
 

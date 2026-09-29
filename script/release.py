@@ -293,7 +293,7 @@ def commit_message(version: Version, body: str) -> str:
         f"{highlights or '- 维护性更新'}\n"
         "\n"
         f"版本号同步到 {BUILDINFO_PATH} 与 {CHANGELOG_PATH}，"
-        "并重新生成 examples/academy 让生成文件头带上新版本。\n"
+        "并重新生成示例（make examples）让生成文件头带上新版本。\n"
         "验证：make harness 全绿（fmt/lint/vet/test/test-race/gen-check/"
         "api-check/release-check/examples）。\n"
     )

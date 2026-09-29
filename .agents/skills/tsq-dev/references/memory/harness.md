@@ -42,10 +42,6 @@ buildinfo 判成倒退、所有 PR 变红（2026-09-28）。**改发版脚本时
 `release.py` 跑 harness 时领先都合法，错误态只有"低于"。版本号 vs 模块主版本曾要求相等，把跨主版本的合法过渡态
 （路径已是 `/v5`、buildinfo 还是 4.x）拦死；现在只查 `module_major() < code.major`。
 
-## squash 的粒度是 PR，所以 PR 的粒度就是你能保留的历史粒度 (2026-08-21)
-
-同一天绊了三次（`pull --ff-only` 报分叉、卷进 PR 的提交信息消失、叠在未合并分支上冲突），规则在 `AGENTS.md` § 发版。
-
 ## 把并发写入者的改动误判成了工具的 bug (2026-08-21)
 
 曾断定 `make fmt` 的 `go fix` 会把树改坏（**错的，已改回**）：另一个 claude 进程在同一工作区边跑边写。**"我改了 A，
@@ -65,9 +61,8 @@ buildinfo 判成倒退、所有 PR 变红（2026-09-28）。**改发版脚本时
 
 ## CI 里用 `@latest` 装的工具，会在它发新版本的那天让每个 PR 变红 (2026-09-09)
 
-goreleaser v2.18.1 一发布就要求 Go >= 1.27.1，CI 用 `GOTOOLCHAIN=local` 钉着 1.27.0，`@latest`
-随即装不上，**每个 PR 的 GoReleaser Check 都红**且与改动无关。更贵的是 release job 的
-`version: latest`：它只在**tag 推送之后**才跑，那一步不可撤销；两处版本不同时 check job 也证明不了 release 会成功。
+goreleaser v2.18.1 一发布就要求 Go >= 1.27.1，CI 钉着 1.27.0，`@latest` 装不上，**每个 PR 的 GoReleaser Check 都红**。
+更贵的是 release job 的 `version: latest`：它只在**tag 推送之后**才跑，不可撤销；两处版本不同，check 证明不了 release。
 
 ## `-X` 打错包路径是**静默**失败的 (2026-08-21)
 
@@ -81,8 +76,6 @@ goreleaser v2.18.1 一发布就要求 Go >= 1.27.1，CI 用 `GOTOOLCHAIN=local` 
 
 ## 决定：变更影响和项目内存拆成"索引 + 子文件"，其余几份不拆 (2026-09-22)
 
-`change-impact.md` 537 行、`memory.md` 460 行，每一波都要整份读进来，而一波通常只落在一两个域里。照
-`ddwiki-dev` 的做法拆成索引加 `impact/`、`memory/` 各六份；`architecture.md`、`feature-map.md`、`codegen.md`、
-`release.md` 不拆——**判据是读一份要付的字节数，不是文件数**，它们还没到那个量。拆分的代价是索引漂移：
-速查漏一条就等于那条耦合不存在，所以 `check_index_sync` 无条件跑、不给豁免。拆的时候还翻出一条早已失效的
-小节引用（`§ 改了分块或批量语句的形状`，小节早改名成"改了批量写"）：**按小节名的交叉引用没有门**，改标题时 grep 它。
+`change-impact.md` 537 行、`memory.md` 460 行每波整份读，而一波只落在一两个域；拆成索引加 `impact/`、`memory/` 各六份，
+其余几份不拆——**判据是读一份要付的字节数，不是文件数**。代价是索引漂移，所以 `check_index_sync` 无条件跑。
+**按小节名的交叉引用没有门**（拆分时翻出一条指向已改名小节的引用），改标题时 grep 它。

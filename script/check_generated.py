@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""确认 examples/academy 的生成物就是当前源码此刻会产出的东西。
+"""确认每个生成包（有 tsq.json 的包：示例模型和集成测试夹具）的生成物就是当前源码此刻会产出的东西。
 
-`git diff --exit-code -- examples/academy` 不能用来判断这件事：一波变更本来就可能
+`git diff --exit-code` 不能用来判断这件事：一波变更本来就可能
 合法地改动生成物，而它们在提交之前一直是未提交状态——那道门会对每一波正当改动都失败。
 
 判据只能是"拿当前源码重新渲染一遍，看结果一不一样"。`tsq gen --check` 正是为此存在：
@@ -22,7 +22,17 @@ from typing import Final
 
 from changeset import PROJECT_ROOT, ChangesetError, git_output
 
-EXAMPLE_PACKAGE: Final = "examples/academy"
+def generated_packages() -> list[str]:
+    """有 tsq.json 的目录就是生成包；Makefile 的 GENERATED_PACKAGES 用同一个判据。"""
+    skip = {"bin", "dist", ".git"}
+    found = [
+        path.parent.relative_to(PROJECT_ROOT).as_posix()
+        for path in PROJECT_ROOT.rglob("tsq.json")
+        if not skip.intersection(path.relative_to(PROJECT_ROOT).parts)
+    ]
+
+    return sorted(found)
+
 
 # 必须和 `make examples` 用同一个二进制：`bin/tsq` 带着 git describe 注入的版本号，
 # 用它比对会把"工作区脏"读成"生成物过期"。见 Makefile 的 build-gen。
@@ -54,22 +64,28 @@ def main() -> int:
         detail = built.stderr.decode("utf-8", errors="replace").strip()
         raise GeneratedError(f"构建 tsq 生成器失败：\n{detail}")
 
-    package = f"{module_path()}/{EXAMPLE_PACKAGE}"
-    checked = run([f"./bin/{GENERATOR_BINARY}", "gen", "--check", package])
-    output = (checked.stdout + checked.stderr).decode("utf-8", errors="replace").strip()
-    if checked.returncode == 0:
-        print(f"生成物检查通过：{EXAMPLE_PACKAGE} 就是当前源码的输出。")
+    failed = False
+    for relative in generated_packages():
+        package = f"{module_path()}/{relative}"
+        checked = run([f"./bin/{GENERATOR_BINARY}", "gen", "--check", package])
+        output = (checked.stdout + checked.stderr).decode("utf-8", errors="replace").strip()
+        if checked.returncode == 0:
+            print(f"生成物检查通过：{relative} 就是当前源码的输出。")
+            continue
 
-        return 0
+        failed = True
+        print(f"{relative} 的生成物与源码脱节：\n{output}")
 
-    print(f"{EXAMPLE_PACKAGE} 的生成物与源码脱节：\n{output}")
-    print(
-        "\n跑 `make examples` 重新生成，然后 `./bin/examples/full-suite` 确认示例仍"
-        "可运行，把生成结果一起提交。如果你是手改了 *.tsq.go，把改动挪回结构体、"
-        "模板或解析器里——生成文件不是源码。"
-    )
+    if failed:
+        print(
+            "\n跑 `make examples` 重新生成，然后 `make examples-run` 确认示例仍可运行，"
+            "把生成结果一起提交。如果你是手改了 *.tsq.go，把改动挪回结构体、模板或解析器里"
+            "——生成文件不是源码。"
+        )
 
-    return 1
+        return 1
+
+    return 0
 
 
 if __name__ == "__main__":

@@ -28,12 +28,12 @@ PROJECT_ROOT: Final = Path(__file__).resolve().parent.parent
 
 # 重新生成这些文件从不携带值得记住的知识。
 GENERATED_SUFFIXES: Final = (".tsq.go", ".result.tsq.go")
+# tsq gen 在每个生成包里写 tsq.json 和三份 DDL；包的位置不固定（示例、集成测试夹具），
+# 所以按文件名认，DDL 只在同目录有 tsq.json 时才算生成物。
+GENERATED_STATE: Final = "tsq.json"
+GENERATED_DDL: Final = frozenset({"mysql.sql", "postgres.sql", "sqlite.sql"})
 GENERATED_PATHS: Final = frozenset(
     {
-        Path("examples/academy/tsq.json"),
-        Path("examples/academy/mysql.sql"),
-        Path("examples/academy/postgres.sql"),
-        Path("examples/academy/sqlite.sql"),
         Path(".agents/skills/tsq-dev/references/api-surface.txt"),
     }
 )
@@ -87,7 +87,28 @@ def git_paths(arguments: Sequence[str]) -> set[Path]:
 
 
 def is_generated(path: Path) -> bool:
-    return path in GENERATED_PATHS or path.name.endswith(GENERATED_SUFFIXES)
+    if path in GENERATED_PATHS or path.name.endswith(GENERATED_SUFFIXES):
+        return True
+    if path.name == GENERATED_STATE:
+        return True
+
+    if path.name not in GENERATED_DDL:
+        return False
+
+    # 删掉或挪走整个生成包时 tsq.json 已不在磁盘上，HEAD 里还在。
+    state = path.parent / GENERATED_STATE
+    if (PROJECT_ROOT / state).exists():
+        return True
+
+    return (
+        subprocess.run(
+            ["git", "cat-file", "-e", f"HEAD:{state.as_posix()}"],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            check=False,
+        ).returncode
+        == 0
+    )
 
 
 def changed_paths() -> set[Path]:

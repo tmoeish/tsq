@@ -73,3 +73,8 @@ SQL 标准和 MySQL / PostgreSQL 让 `INTERSECT` 比 `UNION` / `EXCEPT` 结合�
 **分组合法性在 `Build` 查**（2026-09-28；2026-09-29 补上错位的聚合、DISTINCT 排序、外连接上的行锁，`Page` 的排序复用 `validate`）：它是结构，不是方言能力；SQLite 静默取任意行、PG 报错，两种都不该发生。
 分组了表主键即放行同表其他列（PG / MySQL 认的函数依赖）。`NotIn(可空子查询)` 同样在 `Build` 拒绝，**否掉自动改写成
 `NOT EXISTS`**：那会换掉使用者写的查询和它的执行计划。`Count` 数的是 `List` 返回的行，带 `Limit` 的包一层再数。
+
+## 决定：`ListIn` 接受 ORDER BY，照旧拒绝 LIMIT (2026-09-29)
+
+切分只改变跨语句的整体顺序，不改变取到哪些行（`LIMIT`、分组、`DISTINCT` 才改变）；一并拒绝 ORDER BY 让 Attach 承诺的
+"子行按子查询排序、`AttachOne` 取第一条"写不出来。按父键切分，每个父行的子行总在同一段里。

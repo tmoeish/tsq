@@ -1,105 +1,54 @@
-# TSQ Examples
+# TSQ 示例
 
-`examples/` 不再是零散功能拼盘，而是一个完整的 SQLite 业务域：**Academy** 培训平台。
-同一套表和 seed data 覆盖三层示例，重点是让你看清楚：
-
-1. **这个查询在业务上是在干什么**
-2. **它具体演示了 TSQ 的哪一类能力**
-3. **复杂能力是怎么从简单写法一步步长出来的**
-
-## 学习顺序
-
-| 目录 | 业务场景 | 重点能力 |
-| --- | --- | --- |
-| [`academy/`](academy/) | 共享 Academy 模型、seed 数据和场景实现 | `//tsq:table`、`//tsq:result`、生成代码、可复用 query logic |
-| [`quickstart/`](quickstart/) | 课程目录的最小日常操作 | CRUD helper、关键词搜索、基础查询构建链路 |
-| [`advanced/`](advanced/) | 把目录和报名数据做成分析型查询 | alias、聚合、列表参数、subquery、`CASE`、CTE、set ops、批量写、软删除 |
-| [`full-suite/`](full-suite/) | 给学习后台做一个学习旅程看板 | joins、子查询、`//tsq:result`、分页 |
-
-## Academy ER 图
-
-```mermaid
-erDiagram
-    TRACK ||--o{ COURSE : contains
-    INSTRUCTOR ||--o{ COURSE : teaches
-    COURSE ||--o{ ENROLLMENT : receives
-    LEARNER ||--o{ ENROLLMENT : creates
-    COURSE ||--o{ COURSE : prerequisite
-```
-
-## 各表关系说明
-
-- `track` 与 `course` 是一对多：`course.track_id -> track.id`，一条学习路径下可以挂多门课程。
-- `instructor` 与 `course` 是一对多：`course.instructor_id -> instructor.id`，一位讲师可以负责多门课程。
-- `course` 存在自关联：`course.prerequisite_id -> course.id`，表示当前课程的前置课；示例数据里 `0` 表示“没有前置课”。
-- `learner` 与 `enrollment` 是一对多：`enrollment.learner_id -> learner.id`，一个学员可以报名多门课程。
-- `course` 与 `enrollment` 是一对多：`enrollment.course_id -> course.id`，一门课程可以有多条报名记录。
-- `enrollment` 是学员和课程之间的关联表，同时承载报名状态、得分、实付金额，以及 `version` / `deleted_at` 这类生命周期字段。
-
-## 代码怎么读
-
-推荐按这个顺序看：
-
-1. `academy/*.go`：看领域模型，理解表长什么样
-2. `academy/scenarios.go`：看每个 demo 的业务意图和 TSQ 写法
-3. `quickstart/main.go` / `advanced/main.go` / `full-suite/main.go`：看如何把单个场景跑起来
-4. 对应 README：看每个 demo 在讲什么
-
-## 示例能力地图
-
-| Demo | 业务问题 | TSQ 能力 |
-| --- | --- | --- |
-| `runTrackCRUDDemo` | 课程路径的增删改查 | 生成的 `Insert / Update / Delete` helper |
-| `runCatalogSearchDemo` | 按关键词搜课程目录 | 关键词搜索、分页、`Page...` helper |
-| `runBackendCatalogDemo` | 查某条学习路径下的已发布课程 | `Select` / `From` / `InnerJoin` / `Where` / `List` |
-| `runAliasDemo` | 查课程及其前置课标题 | alias / rebinding |
-| `runAggregateDemo` | 按路径汇总报名人数与平均得分 | aggregate、`GroupBy`、`Having` |
-| `runListParamDemo` | 用一组动态课程 ID 过滤目录 | `In(col.ListParam())` + `BindList` |
-| `runSubqueryDemo` | 用子查询筛学员和课程 | `In(subquery)`、标量子查询 |
-| `runCaseDemo` | 给学员报名打运营标签 | `CASE WHEN` |
-| `runCTEDemo` | 先抽平台课程子集再继续查询 | non-recursive CTE |
-| `runSetOpsDemo` | 合并/排除课程集合 | `UNION`、`EXCEPT` |
-| `runBatchDemo` | 在一个事务里批量处理报名记录 | `runtime.WithTx(...)`、`BatchInsert`、`BatchUpdate`、`BatchDelete` |
-| `runSoftDeleteDemo` | 走完报名记录的软删除生命周期 | `Delete`（打墓碑）、生成查询自动过滤、清墓碑恢复、`HardDelete` |
-| `runOptimisticLockDemo` | 先制造过期快照，再自动重试更新同一条报名记录 | `runtime.WithTxResult(...)`、`IsOptimisticLockError`、自动乐观锁重试 |
-| `runComprehensive` | 生成学习旅程看板 | joins、子查询、`//tsq:result`、`query.Page(...)` |
-
-## 运行方式
+11 章，由浅入深。每一章是一个能直接运行的程序：它打印每一步做了什么、**TSQ 实际发出的 SQL**
+和结果，让你对照代码看每行 Go 背后跑了什么。
 
 ```bash
-make examples
-./bin/examples/quickstart
-./bin/examples/advanced
-./bin/examples/full-suite
-go test ./examples/...
+go run ./examples/01-getting-started   # 在仓库根运行，任意一章都一样
+go test ./examples/...                  # 每章都有测试，断言它的输出
 ```
 
-## 生成文件说明
+不需要装数据库：示例用纯 Go 的 SQLite（`modernc.org/sqlite`），每次运行在临时目录里新建一个库。
 
-以下文件由 `tsq gen` 基于 `academy/*.go` 生成，不要手改：
+## 学习路线
 
-- `academy/*.tsq.go`
-- `academy/*.result.tsq.go`
-- `academy/sqlite.sql`
-- `academy/mysql.sql`
-- `academy/postgres.sql`
-- `academy/tsq.json`
+| 章 | 学什么 | 主要 API |
+| --- | --- | --- |
+| [01 从结构体开始](01-getting-started/) | 写结构体和注解 → `tsq gen` → 增删改查 | `//tsq:table`、`tsq.Open`、`Insert` / `Get` / `Update` / `HardDelete`、`Select` |
+| [02 查询](02-querying/) | 条件、排序、分片、参数，读结果的几种方式 | `Where`、`tsq.Val` / `Vals`、`Or` / `Not`、`Param` / `Bind`、`Limit` / `Offset`、`Get` / `Find` / `Exists` / `Count`、`SelectValue`、`Iter` |
+| [03 多表](03-joins-and-results/) | 连接、结果投影、别名、可能为 NULL 的值 | `InnerJoin` / `LeftJoin`、`//tsq:result`、`MapInto` / `MapIntoNull`、`As`、`Coalesce` |
+| [04 聚合](04-aggregates-and-case/) | 分组统计、CASE、列函数、自定义 SQL 片段 | `GroupBy` / `Having`、`Count` / `Sum` / `Avg`、`SelectNullValue`、`Case`、`Upper` / `Length`、`SelectDistinct`、`Exprf` / `Pred` |
+| [05 子查询](05-subqueries-cte-setops/) | 子查询、关联子查询、CTE、集合运算 | `In(子查询)`、`NotExists` + `Correlate`、`tsq.CTE` + `WithTable`、`Union` / `Intersect` / `Except` |
+| [06 分页和搜索](06-paging-and-search/) | 页码分页、HTTP 分页请求、游标分页、关键词和全文搜索 | `Page`、`PageRequest`、`PageKeyset`、`Search` + `tsq.Keyword`、`tsq.Matches` |
+| [07 写数据](07-writing-data/) | 插入、更新、Upsert、按条件批量改删、事务 | `BatchInsert`、`Update(cols...)`、`Upsert`、`UpdateTable` / `HardDeleteFrom`、`WithTx` / `WithTxResult` |
+| [08 软删除和并发](08-soft-delete-and-concurrency/) | 删除与恢复、乐观锁冲突与重试、行锁 | `Delete` / `Restore` / `WithDeleted`、`DeleteFrom`、`OptimisticLockError`、`WithRetry`、`ForUpdate` |
+| [09 查找和关联](09-lookups-and-relations/) | 按主键和唯一键查找、不产生 N+1 的关联加载 | `Get` / `Find` / `Fetch`、`GetByX` / `FetchByX`、`AttachMany` / `AttachOne`、`ListIn` |
+| [10 表结构](10-schema-and-migrations/) | 生成的 DDL、启动策略、结构漂移 | `*.sql` / `tsq.json`、`SchemaPolicy*`、`MissingTableError` / `SchemaMismatchError`、`NewRuntime` |
+| [11 方言和可观测性](11-dialects-and-observability/) | 同一查询的三种 SQL、方言能力、追踪、外部连接 | `query.SQL`、`dialect.Supports`、`WithTracers`、`WrapExecutor`、`WithMaxPageSize` |
 
-修改 `academy/*.go` 后，重新生成：
+第 1 章自带一张最小的表；第 2 到 11 章共用 [`shop`](shop/) 里的网店模型。
 
-```bash
-tsq gen ./examples/academy
+## 网店模型
+
+```
+categories  分类，可嵌套（parent_id）
+products    商品：软删除、乐观锁、唯一 SKU、关键词搜索、全文索引
+customers   顾客：可空的手机号，带数据库默认值的等级
+orders      订单：乐观锁
+order_items 订单明细：复合唯一键，数据库计算的小计（生成列）
 ```
 
-当前生成代码中的查询 helper 不会因为包初始化失败直接 `panic`；  
-如果模型、注解和生成结果不一致，错误会在调用对应 helper 时返回出来，因此重新生成后最好直接跑一遍示例或测试。
+- 结构体和注解：[`shop/*.go`](shop/)，每个注解旁边写了它的作用
+- 生成物：`shop/*.tsq.go`、`shop/tsq.json`、`shop/{sqlite,mysql,postgres}.sql`——由 `tsq gen` 生成，不要手改
+- 种子数据：[`shop/seed.go`](shop/seed.go)，开头列出了每一行的主键，各章按主键引用它们
+- 演示脚手架：[`shop/demo.go`](shop/demo.go) 打开临时库并灌数据；[`internal/show`](internal/show/)
+  把 SQL 打印出来。它们不是 TSQ 的一部分
 
-## 锁相关说明
+输出里的 `‹products 的 12 列›` 是打印时的缩写：TSQ 实际发出的 SQL 总是逐列列出，从不写 `SELECT *`。
 
-这套示例运行时统一使用 **SQLite**，所以：
+## 改了模型之后
 
-- **自动乐观锁** 是可运行、可观察的，`runOptimisticLockDemo` 会演示“第一次因过期版本失败、随后自动重试成功”的完整流程
-- **软删除** 同样是可观察的：`runSoftDeleteDemo` 的输出里 `stored_after` 为真而 `visible_after` 为假，这就是“行还在库里、但已从所有生成查询消失”
-- **行锁 DSL**（`ForUpdate()` / `ForShare()` / `NoWait()` / `SkipLocked()`）不会在示例里执行，因为 SQLite 不支持这些语句
+在仓库根运行 `make examples`：重新生成 `shop` 和 `01-getting-started/todo`，再编译每一章。
+`make examples-run` 还会把每一章跑一遍。
 
-如果你想演示行锁，请把同样的 query 放到 MySQL 或 PostgreSQL runtime 中执行，并放在显式事务里观察锁行为。
+完整的 API 说明在 [`skills/tsq/references/REFERENCE.md`](../skills/tsq/references/REFERENCE.md)。

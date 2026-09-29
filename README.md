@@ -194,7 +194,7 @@ func main() {
 | [`skills/tsq/references/CONCEPTS.md`](skills/tsq/references/CONCEPTS.md) | 想建立 Table 注解、生成文件、查询构建链路、Result、Runtime 的心智模型（`docs/concepts.md` 是它的索引页） |
 | [`skills/tsq/references/REFERENCE.md`](skills/tsq/references/REFERENCE.md) | 完整的注解 DSL、查询 API、运行时与方言契约 |
 | [`docs/skill.md`](docs/skill.md) | 想把 TSQ 作为一个 agent skill 安装到 Copilot / Claude Code / Gemini CLI |
-| [`examples/README.md`](examples/README.md) | 想按 quickstart / cookbook / full-suite 找示例 |
+| [`examples/README.md`](examples/README.md) | 想跟着 11 章可运行的示例由浅入深地学，每章打印它执行的 SQL |
 | [`BEST_PRACTICES.md`](BEST_PRACTICES.md) | 想看输入校验、分页、事务、排序和生产环境建议 |
 
 ## 能力矩阵（内置 Dialect）
@@ -240,13 +240,20 @@ TSQ 当前内置的 `Dialect` 实现只有 **SQLite / MySQL / PostgreSQL**。下
 - **`Batch*` 不自动开事务**：要全有或全无，放进 `runtime.WithTx(...)`。
 - **关键词搜索会转义 LIKE 通配符**，这是语义正确性，不是 SQL 注入防护——普通值本来就走绑定参数。
 - **相关子查询先 `Correlate(...)` 声明外层表**，不要把外层表 join 进子查询：那会让谓词悄悄失去相关性。
-- **生成的查询变量在包初始化时 `MustBuild()`**：注解改了没重新生成，导入包时就会 panic。改完结构体跑 `tsq gen`。
+- **改完结构体或注解要重新 `tsq gen`**：过期的生成文件编译不过，或者让用到这张表的每个查询和写入都报定义错误（`TableXxx.Err()`）。CI 里跑 `tsq gen --check`。
 
 ## 示例入口
 
-- **Quickstart**：[`examples/quickstart/README.md`](examples/quickstart/README.md)
-- **Advanced**：[`examples/advanced/README.md`](examples/advanced/README.md)
-- **Full suite**：[`examples/full-suite/README.md`](examples/full-suite/README.md)
+[`examples/`](examples/README.md) 是 11 章由浅入深的教程，每章一个能直接运行的程序，打印每一步、
+TSQ 实际发出的 SQL 和结果：
+
+```bash
+go run ./examples/01-getting-started   # 结构体 → tsq gen → 增删改查
+go run ./examples/02-querying          # 条件、参数、分片
+# …… 一直到 11-dialects-and-observability
+```
+
+目录和每章的主题见 [`examples/README.md`](examples/README.md)。
 
 ## 开发
 
@@ -255,8 +262,7 @@ make fmt
 make lint
 make test
 make build
-make examples
-./bin/examples/full-suite
+make examples-run
 ```
 
 常用目标：

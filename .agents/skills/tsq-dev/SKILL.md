@@ -20,8 +20,10 @@ TSQ 由三件东西组成，它们共用一个仓库和一个版本号：
 - **库**：仓库根包 `tsq`，提供阶段式查询构建器、执行器、事务和运行时。
 - **生成器**：`./cmd/tsq` CLI，读结构体上的 `//tsq:` 指令，产出类型化的列
   元数据、CRUD helper 和 DDL。
-- **示例**：`./examples`，可运行的契约。`examples/academy` 的生成物是**被提交的**，
-  它同时是回归测试和文档里代码片段的来源。
+- **示例**：`./examples`，11 章由浅入深的教程（`01-getting-started` … `11-dialects-and-observability`），
+  每章一个打印自己 SQL 的程序加一个断言输出的测试，也是可运行的契约。第 1 章用自己的 `todo` 包，
+  其余共用网店模型 `examples/shop`；集成测试的夹具是 `internal/integration/academy`。三个生成包的
+  生成物都**被提交**。
 
 ## 上下文查找 — 看代码之前，先读与任务匹配的那行
 
@@ -53,7 +55,7 @@ TSQ 由三件东西组成，它们共用一个仓库和一个版本号：
 2. 改手写源码。生成物（`*.tsq.go`、`*.result.tsq.go`、`tsq.json`、`*.sql`）不是源码：
    改结构体、注解、模板或解析器，然后重新生成。
 3. 编辑期间跑窄范围的检查和 `make fmt`。
-4. 动了生成器、模板、解析器或示例，跑 `make examples` 并跑 `./bin/examples/full-suite`。
+4. 动了生成器、模板、解析器或示例，跑 `make examples-run`（重新生成并把每一章跑一遍）。
 5. 补上聚焦的测试。这个库的测试是它唯一的安全网——没有集成环境可以兜底。
 6. 把这波教会你的东西写进本技能对应的文件（见下），把使用者看得见的变化写进
    `skills/tsq`、`README.md`、`docs/` 和 `CHANGELOG.md` 的未发布段。
@@ -114,7 +116,8 @@ make lint             # golangci-lint run（含 `unused`：只被 `_test.go` 引
                       # "开关 + 若干消费点" 那条的 grep）
 make test             # go test ./...
 make test-race        # -race -shuffle=on
-make examples         # 重新生成 examples/academy 并编译三个示例程序
+make examples         # 重新生成每个带 tsq.json 的包，并编译每一章
+make examples-run     # 再把每一章跑一遍
 make gen-check        # 生成物是不是当前源码的输出（tsq gen --check）
 make api-check        # 对外 Go 契约有没有偏离快照
 make api-snapshot     # 刷新快照
@@ -129,12 +132,9 @@ make hooks            # 装 commit-msg 钩子，每台机器一次
 
 ## 生成的文件（不要手改）
 
-- `examples/academy/*.tsq.go`
-- `examples/academy/*.result.tsq.go`
-- `examples/academy/runtime.tsq.go`
-- `examples/academy/tsq.json`
-- `examples/academy/{mysql,postgres,sqlite}.sql`
+- 生成包（`examples/shop`、`examples/01-getting-started/todo`、`internal/integration/academy`）里的
+  `*.tsq.go`、`*.result.tsq.go`、`runtime.tsq.go`、`tsq.json` 和同目录的 `{mysql,postgres,sqlite}.sql`
 - `.agents/skills/tsq-dev/references/api-surface.txt`
 
-`examples/academy/mock.sql` 是**手写的**——它是示例库的 schema 真相源，和示例结构体必须
-保持一致。
+生成包按"目录里有 `tsq.json`"识别：`Makefile` 的 `GENERATED_PACKAGES`、`check_generated.py` 和
+`changeset.py` 用的是同一条判据，新增一个生成包不用改任何脚本。

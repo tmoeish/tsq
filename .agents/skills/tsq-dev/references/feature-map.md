@@ -100,13 +100,15 @@
 
 | 关注点 | 文件 |
 | --- | --- |
-| 示例 schema 真相源（手写） | `examples/academy/mock.sql` |
-| 表结构体与注解 | `examples/academy/{course,track,learner,instructor,enrollment}.go` |
-| `//tsq:result` 投影 | `examples/academy/learningjourney.go` |
-| 嵌入基表（`ImmutableTable` 等） | `examples/academy/base.go` |
-| 运行时装配 | `examples/academy/bootstrap.go` |
-| 可复用场景 | `examples/academy/scenarios.go` |
-| 三个可运行程序 | `examples/{quickstart,advanced,full-suite}/main.go` |
+| 章节目录、学习路线、每章覆盖的 API | `examples/README.md` |
+| 一章 = 程序 + 断言输出的测试 + README | `examples/NN-主题/{main.go,main_test.go,README.md}` |
+| 第 1 章自己的最小模型 | `examples/01-getting-started/todo/todo.go` |
+| 第 2–11 章共用的网店模型（表结构体与注解） | `examples/shop/{category,product,customer,order}.go` |
+| `//tsq:result` 投影 | `examples/shop/results.go` |
+| 临时 SQLite 库 + 种子数据（主键表在文件头） | `examples/shop/{demo,seed}.go` |
+| 把生成的 DDL 编进程序（`//go:embed`） | `examples/shop/schema.go` |
+| 把 SQL 打印成 `SQL>` 行的 `tsq.Logger` | `examples/internal/show/show.go` |
+| 集成测试夹具（嵌入基表、`default:`、`generated:`） | `internal/integration/academy/*.go` |
 
 ## harness
 

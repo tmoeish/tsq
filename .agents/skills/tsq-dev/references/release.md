@@ -10,7 +10,7 @@
 | --- | --- | --- |
 | 代码里的 | `internal/buildinfo/buildinfo.go` 的 `var version` | `script/release.py` |
 | 变更日志 | `CHANGELOG.md` 置顶的 `## [X.Y.Z] - YYYY-MM-DD` | `script/release.py` |
-| 生成文件头 | `examples/academy/*.tsq.go` 首行、`tsq.json` 的 `version` | `make examples` 用 `bin/tsq-gen` 从 buildinfo 传导 |
+| 生成文件头 | 每个生成包的 `*.tsq.go` 首行、`tsq.json` 的 `version`（`check_release.py` 读 `examples/shop/runtime.tsq.go`） | `make examples` 用 `bin/tsq-gen` 从 buildinfo 传导 |
 | git tag | `vX.Y.Z` | `script/release.py` |
 
 `make release-check` 校验四者一致，外加：主版本号必须和 go.mod 的模块路径匹配；

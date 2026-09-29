@@ -109,25 +109,22 @@ make test             # go test ./...
 make test-race        # -race -shuffle=on，跨切面改动必跑
 make gen-check        # 生成物是不是当前源码的输出
 make api-check        # 对外 Go 契约有没有偏离快照
-make examples-run     # 重新生成示例并跑通 full-suite
+make examples-run     # 重新生成示例并把每一章跑一遍
 ```
 
-动了生成器、模板、解析器或示例，跑 `make examples` 并确认 `./bin/examples/full-suite`
-能跑通。
+动了生成器、模板、解析器或示例，跑 `make examples-run`，确认每一章都能跑通。
 
 ## 不要手改生成物
 
 以下文件由 `tsq gen` 产出，改结构体、注解、模板或解析器然后重新生成：
 
 ```
-examples/academy/*.tsq.go
-examples/academy/*.result.tsq.go
-examples/academy/runtime.tsq.go
-examples/academy/tsq.json
-examples/academy/{mysql,postgres,sqlite}.sql
+*.tsq.go、*.result.tsq.go、runtime.tsq.go
+tsq.json，以及和它同目录的 {mysql,postgres,sqlite}.sql
 ```
 
-`examples/academy/mock.sql` 是**手写的** schema 真相源，改示例结构体时它要跟着改。
+生成包有三个：`examples/shop`、`examples/01-getting-started/todo` 和集成测试夹具
+`internal/integration/academy`。
 
 判断生成物是否同步不要用 `git diff`——一波变更本来就可能合法地改动生成物。用
 `make gen-check`。

@@ -12,7 +12,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 
 	"github.com/tmoeish/tsq/v5"
-	"github.com/tmoeish/tsq/v5/examples/academy"
+	"github.com/tmoeish/tsq/v5/internal/integration/academy"
 )
 
 // TestSQLite3DriverIsSupported runs TSQ over github.com/mattn/go-sqlite3, the CGO

@@ -195,3 +195,63 @@ func TestAttachReadsAnEmbeddedNullableKey(t *testing.T) {
 		t.Fatalf("counts = %v", counts)
 	}
 }
+
+// TestAttachKeepsTheChildQueryOrder covers a child query with ORDER BY, which the
+// documentation promised to keep and ListIn refused outright.
+func TestAttachKeepsTheChildQueryOrder(t *testing.T) {
+	ctx := context.Background()
+	rt := newSQLite(t)
+	users := seedUsers(t, rt, "a", "b")
+
+	orders := []*order{
+		{UserID: users[0].ID, Amount: 10, Note: "a10"},
+		{UserID: users[0].ID, Amount: 30, Note: "a30"},
+		{UserID: users[1].ID, Amount: 5, Note: "b5"},
+		{UserID: users[0].ID, Amount: 20, Note: "a20"},
+	}
+	if err := Orders.BatchInsert(ctx, rt, orders); err != nil {
+		t.Fatal(err)
+	}
+
+	byAmount := Select(Orders.Columns()...).
+		From(Orders).
+		Where(Order_UserID.In(Order_UserID.ListParam())).
+		OrderBy(Order_Amount.Desc()).
+		MustBuild()
+
+	notes := map[int64]string{}
+	if err := AttachMany(ctx, rt, users, User_ID, byAmount, Order_UserID, func(u *user, os []*order) {
+		for _, o := range os {
+			notes[u.ID] += o.Note + ","
+		}
+	}); err != nil {
+		t.Fatalf("AttachMany with an ordered child query = %v", err)
+	}
+
+	if notes[users[0].ID] != "a30,a20,a10," || notes[users[1].ID] != "b5," {
+		t.Fatalf("notes = %v; want each user's orders by amount, descending", notes)
+	}
+
+	// The first match in the child query's order is the one AttachOne keeps.
+	largest := map[int64]int64{}
+	if err := AttachOne(ctx, rt, users, User_ID, byAmount, Order_UserID, func(u *user, o *order) {
+		largest[u.ID] = o.Amount
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if largest[users[0].ID] != 30 {
+		t.Fatalf("AttachOne kept %v; want the largest amount first", largest)
+	}
+
+	limited := Select(Orders.Columns()...).
+		From(Orders).
+		Where(Order_UserID.In(Order_UserID.ListParam())).
+		OrderBy(Order_Amount.Desc()).
+		Limit(1).
+		MustBuild()
+
+	if _, err := limited.ListIn(ctx, rt, Order_UserID.ListParam(), []int64{users[0].ID}); err == nil {
+		t.Fatal("ListIn with LIMIT: want it refused, a split would change which rows come back")
+	}
+}
