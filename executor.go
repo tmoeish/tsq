@@ -27,6 +27,21 @@ type Executor interface {
 	scope() execScope
 }
 
+// DialectOf returns the dialect db renders for: a Runtime's, or the one given to
+// WrapExecutor, including inside a WithTx callback. Use it with
+// dialect.Supports to pick a query shape before running it.
+func DialectOf(db Executor) tsqdialect.Name {
+	if isNilValue(db) {
+		return ""
+	}
+
+	if d := db.scope().dialect; d != nil {
+		return d.Name()
+	}
+
+	return ""
+}
+
 // execScope is what an Executor knows beyond database/sql.
 type execScope struct {
 	dialect sqld.Dialect
@@ -53,27 +68,28 @@ func (b boundExecutor) scope() execScope { return b.s }
 func (boundExecutor) needsRuntimeOrWrapExecutor() {}
 
 // WrapExecutor makes an Executor of a database/sql handle TSQ did not open, such as
-// a *sql.Tx begun elsewhere, talking to engine. Statements run without the logging,
-// tracing and page size cap a Runtime provides. It fails when db is nil or engine
-// is not one of the dialect package's names.
-func WrapExecutor(db DBTX, engine tsqdialect.Name) (Executor, error) {
+// a *sql.Tx begun elsewhere, talking to dialect. Statements run without the logging
+// and tracing a Runtime provides, and pages are capped at DefaultMaxPageSize
+// rather than a runtime's WithMaxPageSize. It fails when db is nil or dialect is
+// not one of the dialect package's names.
+func WrapExecutor(db DBTX, dialect tsqdialect.Name) (Executor, error) {
 	if isNilValue(db) {
 		return nil, errors.New("db cannot be nil")
 	}
 
-	dialect, err := sqld.For(engine)
+	d, err := sqld.For(dialect)
 	if err != nil {
 		return nil, err
 	}
 
 	if b, ok := db.(boundExecutor); ok {
-		b.s.dialect = dialect
+		b.s.dialect = d
 		return b, nil
 	}
 
 	_, isTx := db.(*sql.Tx)
 
-	return boundExecutor{DBTX: db, s: execScope{dialect: dialect, tx: isTx}}, nil
+	return boundExecutor{DBTX: db, s: execScope{dialect: d, tx: isTx}}, nil
 }
 
 // executorScope validates exec and returns its scope.

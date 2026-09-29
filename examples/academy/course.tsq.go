@@ -187,7 +187,7 @@ func (t CourseTable) As(alias string) CourseTable {
 	return CourseTable{
 		TableOf:        a,
 		ID:             t.ID.WithTable(a),
-		CreatedAt:      t.CreatedAt.WithTable(a).(tsq.NullColumn[Course, tsqtime.Time]),
+		CreatedAt:      tsq.RebindNull(t.CreatedAt, a),
 		TrackID:        t.TrackID.WithTable(a),
 		InstructorID:   t.InstructorID.WithTable(a),
 		PrerequisiteID: t.PrerequisiteID.WithTable(a),
@@ -196,7 +196,7 @@ func (t CourseTable) As(alias string) CourseTable {
 		Level:          t.Level.WithTable(a),
 		ListPriceCents: t.ListPriceCents.WithTable(a),
 		Published:      t.Published.WithTable(a),
-		Currency:       t.Currency.WithTable(a).(tsq.NullColumn[Course, string]),
+		Currency:       tsq.RebindNull(t.Currency, a),
 		Slug:           t.Slug.WithTable(a),
 	}
 }

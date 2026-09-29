@@ -33,6 +33,9 @@ type Runtime struct {
 //
 // ctx bounds the connection ping and the schema policy application, which may
 // execute DDL. The runtime owns the pool it opened, so Close closes it.
+//
+// A MySQL DSN must set parseTime=true: without it the driver reads DATETIME as
+// bytes, and no managed timestamp can be read back.
 func Open(
 	ctx context.Context,
 	driverName string,
@@ -57,6 +60,10 @@ func Open(
 		return nil, err
 	}
 
+	if sqlDialect.Name() == tsqdialect.MySQL && !strings.Contains(strings.ToLower(dsn), "parsetime=true") {
+		return nil, errors.New("the MySQL DSN must set parseTime=true, or times are read as bytes and no timestamp can be read back")
+	}
+
 	db, err := sql.Open(driverName, dsn)
 	if err != nil {
 		return nil, err
@@ -77,10 +84,11 @@ func Open(
 // while still getting SQL logging, tracers and the page-size cap.
 //
 // The pool is not closed by Close: whoever opened it decides when it goes away.
+// A MySQL pool has to be opened with parseTime=true, as Open requires.
 func NewRuntime(
 	ctx context.Context,
 	db *sql.DB,
-	engine tsqdialect.Name,
+	dialect tsqdialect.Name,
 	tables []Table,
 	options ...RuntimeOption,
 ) (*Runtime, error) {
@@ -92,7 +100,7 @@ func NewRuntime(
 		return nil, errors.New("db cannot be nil")
 	}
 
-	sqlDialect, err := sqld.For(engine)
+	sqlDialect, err := sqld.For(dialect)
 	if err != nil {
 		return nil, err
 	}
@@ -188,7 +196,7 @@ func (r *Runtime) DB() *sql.DB {
 	return r.db
 }
 
-// Dialect returns the SQL engine this runtime talks to.
+// Dialect returns the dialect this runtime renders for.
 func (r *Runtime) Dialect() tsqdialect.Name {
 	if r == nil || r.dialect == nil {
 		return ""

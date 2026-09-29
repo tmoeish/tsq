@@ -378,3 +378,32 @@ func TestBatchTombstonesWithAStaleRowKeepTheWrittenRowsCurrent(t *testing.T) {
 		t.Fatalf("BatchHardDelete = %v; want a conflict naming %d", err, stale.ID)
 	}
 }
+
+// TestDeletingARowThatIsGoneIsARowStateError covers a soft delete of a row
+// removed meanwhile, on a table without a version column: it was reported as an
+// optimistic lock conflict, which the retry helpers retry, where nothing tells a
+// conflict apart and Update of the same row reports a RowStateError.
+func TestDeletingARowThatIsGoneIsARowStateError(t *testing.T) {
+	ctx := context.Background()
+
+	rt, err := Open(ctx, "sqlite", filepath.Join(t.TempDir(), "memos.db"), []Table{Memos}, WithSchemaPolicy(SchemaPolicyCreateMissing))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() { _ = rt.Close() })
+
+	row := &memo{}
+	if err := Memos.Insert(ctx, rt, row); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Memos.HardDelete(ctx, rt, row); err != nil {
+		t.Fatal(err)
+	}
+
+	err = Memos.Delete(ctx, rt, row)
+	if _, ok := errors.AsType[*RowStateError](err); !ok || IsOptimisticLockError(err) {
+		t.Fatalf("Delete of a row that is gone = %v; want a RowStateError", err)
+	}
+}

@@ -23,8 +23,10 @@ const (
 // Capability is an optional SQL feature an engine may or may not support.
 type Capability string
 
-// The optional features TSQ checks when a statement runs. Each is named after the
-// builder method that needs it, and its value is the SQL an error names.
+// The optional features of a dialect. Each is named after the builder method that
+// needs it, and its value is the SQL an error names; TSQ checks them when a
+// statement runs, except CapabilityFullTextSearch, which only reports how Matches
+// matches.
 const (
 	CapabilityCTE          Capability = "CTE"
 	CapabilityExcept       Capability = "EXCEPT"
@@ -36,9 +38,10 @@ const (
 	CapabilityForShare     Capability = "FOR SHARE"
 	CapabilityNoWait       Capability = "NOWAIT"
 	CapabilitySkipLocked   Capability = "SKIP LOCKED"
-	// CapabilityFullTextSearch reports a full-text index and a matching predicate.
-	// Where it is missing, TSQ matches the term as a substring instead, which finds
-	// different rows: no stemming, no ranking, and no word boundaries.
+	// CapabilityFullTextSearch reports a full-text index and a matching predicate
+	// for tsq.Matches. Where it is missing, Matches is not refused: it matches the
+	// term as a substring instead, which finds different rows (no stemming, no
+	// ranking, no word boundaries). Check it to tell which one a runtime gets.
 	CapabilityFullTextSearch Capability = "FULL TEXT SEARCH"
 )
 
@@ -93,10 +96,10 @@ var capabilities = map[Name]map[Capability]bool{
 	},
 }
 
-// Supports reports whether engine supports capability. An unknown engine or
+// Supports reports whether dialect supports capability. An unknown dialect or
 // capability is unsupported.
-func Supports(engine Name, capability Capability) bool {
-	supported, declared := capabilities[engine][capability]
+func Supports(dialect Name, capability Capability) bool {
+	supported, declared := capabilities[dialect][capability]
 
 	return declared && supported
 }
@@ -110,14 +113,14 @@ type UnsupportedCapabilityError struct {
 	Dialect Name
 }
 
-// Check returns an *UnsupportedCapabilityError when engine lacks capability, and
+// Check returns an *UnsupportedCapabilityError when dialect lacks capability, and
 // nil otherwise.
-func Check(engine Name, capability Capability) error {
-	if Supports(engine, capability) {
+func Check(dialect Name, capability Capability) error {
+	if Supports(dialect, capability) {
 		return nil
 	}
 
-	return &UnsupportedCapabilityError{Capability: capability, Dialect: engine}
+	return &UnsupportedCapabilityError{Capability: capability, Dialect: dialect}
 }
 
 func (e *UnsupportedCapabilityError) Error() string {

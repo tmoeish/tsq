@@ -43,6 +43,10 @@
 - `diffTableColumns` 在 SQLite / MySQL 上不分大小写地比列名（PostgreSQL 的带引号名字区分大小写）；按大小写比会把
   `Name` 对 `name` 读成先删后加，删列在前、数据随之丢失。运行期重建复制列走 `rebuildCopyColumns`：跳过生成列、
   给新增的 NOT NULL 列填零值，和生成器的迁移规则一致。
+- SQLite 的探查（`ListIndexes`、`InspectRebuild`）**先读完、关掉结果集再发下一条查询**：使用者常把 SQLite 池设成一个连接，
+  开着结果集再查会永远等下去（`TestSchemaPoliciesRunOnOneConnection`）。新增探查照此写。
+- `Reconcile` 在 SQLite 上删列前先删覆盖它的索引（`dropIndexesOfDroppedColumns`）；索引列名比较不区分大小写（`ValidateIndex`、
+  重建时的 `renderRebuildObjectStatements`）。`Validate` 的列差异是 `*SchemaMismatchError`。
 
 ## 给查询加了需要方言能力的构造
 

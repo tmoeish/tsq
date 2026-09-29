@@ -3,6 +3,7 @@ package tsq
 import (
 	"errors"
 	"fmt"
+	"slices"
 )
 
 // RuntimeOption configures a Runtime while it is being constructed.
@@ -11,6 +12,7 @@ type RuntimeOption func(*runtimeConfig)
 // runtimeConfig accumulates the applied options before any of them is validated,
 // so a bad value is reported once, from the constructor, rather than per option.
 type runtimeConfig struct {
+	err         error
 	tablePolicy SchemaPolicy
 	indexPolicy SchemaPolicy
 	tracers     []Tracer
@@ -48,14 +50,25 @@ func WithIndexPolicy(policy SchemaPolicy) RuntimeOption {
 // WithTracers appends to the runtime's tracer chain. Repeated calls accumulate.
 func WithTracers(tracers ...Tracer) RuntimeOption {
 	return func(cfg *runtimeConfig) {
-		cfg.tracers = appendTracers(cfg.tracers, tracers...)
+		if slices.ContainsFunc(tracers, func(t Tracer) bool { return t == nil }) {
+			cfg.err = errors.Join(cfg.err, errors.New("tracer cannot be nil"))
+			return
+		}
+
+		cfg.tracers = append(cfg.tracers, tracers...)
 	}
 }
 
 // WithLogger sets the logger that receives schema bootstrap decisions, executed
-// DDL and execution-time warnings. It defaults to slog.Default().
+// DDL and execution-time warnings. Without it, that is slog.Default(); a nil
+// logger is an error, not a way to ask for the default.
 func WithLogger(logger Logger) RuntimeOption {
 	return func(cfg *runtimeConfig) {
+		if isNilValue(logger) {
+			cfg.err = errors.Join(cfg.err, errors.New("logger cannot be nil; leave out WithLogger for slog.Default()"))
+			return
+		}
+
 		cfg.logger = logger
 	}
 }
@@ -92,6 +105,10 @@ func newRuntimeConfig(options []RuntimeOption) (*runtimeConfig, error) {
 		}
 
 		option(cfg)
+	}
+
+	if cfg.err != nil {
+		return nil, cfg.err
 	}
 
 	cfg.tablePolicy = resolveSchemaPolicy(cfg.tablePolicy)

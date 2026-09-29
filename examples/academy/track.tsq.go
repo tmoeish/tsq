@@ -110,7 +110,7 @@ func (t TrackTable) As(alias string) TrackTable {
 	return TrackTable{
 		TableOf:     a,
 		ID:          t.ID.WithTable(a),
-		CreatedAt:   t.CreatedAt.WithTable(a).(tsq.NullColumn[Track, tsqtime.Time]),
+		CreatedAt:   tsq.RebindNull(t.CreatedAt, a),
 		Name:        t.Name.WithTable(a),
 		Description: t.Description.WithTable(a),
 		SkillItems:  t.SkillItems.WithTable(a),

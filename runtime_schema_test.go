@@ -2,12 +2,16 @@ package tsq
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"log/slog"
 	"maps"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 	sqld "github.com/tmoeish/tsq/v5/internal/sqldialect"
@@ -713,5 +717,100 @@ func TestReconcileRebuildLeavesGeneratedColumnsToTheTable(t *testing.T) {
 	var name, note, slug string
 	if err := rt.QueryRowContext(ctx, `SELECT name, note, slug FROM users`).Scan(&name, &note, &slug); err != nil || name != "1" || note != "" || slug != "1" {
 		t.Fatalf("row after the rebuild = %q %q %q, %v", name, note, slug, err)
+	}
+}
+
+// TestSchemaPoliciesRunOnOneConnection covers a pool of one connection, the usual
+// SQLite setup: listing indexes kept its rows open while it asked for each index's
+// columns, which needed a second connection, so a start with any index waited
+// forever. A rebuild read its objects the same way.
+func TestSchemaPoliciesRunOnOneConnection(t *testing.T) {
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "one.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	db.SetMaxOpenConns(1)
+	t.Cleanup(func() { _ = db.Close() })
+
+	if _, err := db.ExecContext(context.Background(), `CREATE TABLE things (id INTEGER PRIMARY KEY, code INTEGER); CREATE INDEX idx_things_code ON things(code)`); err != nil {
+		t.Fatal(err)
+	}
+
+	// code turns from an integer into text: SQLite rebuilds the table.
+	things := wideTableOf("things", []string{"id", "code"}, []tsqdialect.ColumnSpec{
+		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true},
+		{Name: "code", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 16}},
+	}, []IndexSpec{{Name: "idx_things_code", Columns: []string{"code"}}}, func(r *thingsRow) *[16]any { return &r.Fields })
+
+	for _, tables := range [][]Table{{Users, Orders}, {Users, Orders}, {things}} {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+
+		_, err := NewRuntime(ctx, db, tsqdialect.SQLite, tables, WithSchemaPolicy(SchemaPolicyReconcile))
+
+		cancel()
+
+		if err != nil {
+			t.Fatalf("start on one connection: %v", err)
+		}
+	}
+}
+
+// TestReconcileDropsAnIndexedColumnOnSQLite covers a field removed together with
+// its index: SQLite refuses DROP COLUMN on an indexed column, TSQ does not drop
+// undeclared indexes, and the start failed. The index over the column goes first.
+func TestReconcileDropsAnIndexedColumnOnSQLite(t *testing.T) {
+	db, dsn := newSQLiteIndexTestEngine(t)
+
+	if _, err := db.DB().ExecContext(context.Background(), `CREATE TABLE crates (id INTEGER PRIMARY KEY, code TEXT, name TEXT); CREATE INDEX idx_crates_code ON crates(code)`); err != nil {
+		t.Fatal(err)
+	}
+
+	crates := wideTableOf("crates", []string{"id", "name"}, []tsqdialect.ColumnSpec{
+		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true},
+		{Name: "name", Type: tsqdialect.ColumnType{RawType: "TEXT", Nullable: true}},
+	}, nil, func(r *cratesRow) *[16]any { return &r.Fields })
+
+	rt, err := Open(context.Background(), "sqlite", dsn, []Table{crates}, WithSchemaPolicy(SchemaPolicyReconcile))
+	if err != nil {
+		t.Fatalf("reconcile dropping an indexed column: %v", err)
+	}
+
+	_ = rt.Close()
+}
+
+// TestRebuildKeepsAnIndexOverAColumnInAnotherCase covers the objects a SQLite
+// rebuild runs again: an index over "Code", the declared column code, was taken
+// for an index over a dropped column and silently lost.
+func TestRebuildKeepsAnIndexOverAColumnInAnotherCase(t *testing.T) {
+	statements := renderRebuildObjectStatements(
+		[]tsqdialect.ColumnSpec{{Name: "id"}, {Name: "code"}},
+		[]sqld.RebuildObject{{Name: "my_code_lookup", SQL: `CREATE INDEX my_code_lookup ON things("Code")`, Columns: []string{"Code"}}},
+	)
+	if len(statements) != 1 {
+		t.Fatalf("statements = %v; want the index kept", statements)
+	}
+}
+
+// TestValidateReportsATypedMismatch covers a table whose columns differ under
+// Validate: a missing table or index came back as a typed error, a differing
+// column only as text.
+func TestValidateReportsATypedMismatch(t *testing.T) {
+	db, dsn := newSQLiteIndexTestEngine(t)
+
+	if _, err := db.DB().ExecContext(context.Background(), `CREATE TABLE gadgets (id INTEGER PRIMARY KEY)`); err != nil {
+		t.Fatal(err)
+	}
+
+	gadgets := wideTableOf("gadgets", []string{"id", "name"}, []tsqdialect.ColumnSpec{
+		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true},
+		{Name: "name", Type: tsqdialect.ColumnType{RawType: "TEXT", Nullable: true}},
+	}, nil, func(r *gadgetsRow) *[16]any { return &r.Fields })
+
+	_, err := Open(context.Background(), "sqlite", dsn, []Table{gadgets}, WithSchemaPolicy(SchemaPolicyValidate))
+
+	mismatch, ok := errors.AsType[*SchemaMismatchError](err)
+	if !ok || mismatch.Table != "gadgets" || !slices.Contains(mismatch.Changes, "add column name") {
+		t.Fatalf("Validate = %v; want a SchemaMismatchError naming the missing column", err)
 	}
 }

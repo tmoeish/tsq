@@ -451,7 +451,7 @@ func TestPageSearchesSortsAndCounts(t *testing.T) {
 	}
 
 	// Only the columns the endpoint names are sortable, whatever the query selects.
-	if _, err := (&PageRequest{OrderBy: "email"}).Paging(User_ID, User_Name); !isErr[*SortError](err) {
+	if _, err := (&PageRequest{OrderBy: "email"}).Paging(User_ID, User_Name); !isErr[*PageRequestError](err) {
 		t.Fatalf("unknown sort field error = %v", err)
 	}
 
@@ -461,11 +461,11 @@ func TestPageSearchesSortsAndCounts(t *testing.T) {
 		t.Fatalf("one direction for every field = %+v, %v", one, err)
 	}
 
-	if _, err := (&PageRequest{OrderBy: "id,name", Order: "asc,desc,asc"}).Paging(User_ID, User_Name); !isErr[*SortError](err) {
+	if _, err := (&PageRequest{OrderBy: "id,name", Order: "asc,desc,asc"}).Paging(User_ID, User_Name); !isErr[*PageRequestError](err) {
 		t.Fatalf("order count mismatch error = %v", err)
 	}
 
-	if _, err := (&PageRequest{OrderBy: "id"}).Paging(User_ID, Order_ID); !isErr[*SortError](err) {
+	if _, err := (&PageRequest{OrderBy: "id"}).Paging(User_ID, Order_ID); !isErr[*PageRequestError](err) {
 		t.Fatalf("ambiguous sort field error = %v", err)
 	}
 
@@ -1573,5 +1573,93 @@ func TestKeysetTakesAProjectionOfTheKey(t *testing.T) {
 	page, err := q.PageKeyset(ctx, rt, Keyset{Size: 2, OrderBy: []OrderBy{id.Asc()}})
 	if err != nil || len(page.Data) != 2 || page.Next == "" {
 		t.Fatalf("PageKeyset by a projection of the key = %+v, %v", page, err)
+	}
+}
+
+type badge struct {
+	Code  string
+	Color *string
+}
+
+var (
+	badgesHandle = NewTable[badge, string]("badges")
+	Badge_Code   = NewColumn(badgesHandle, "code", "code", func(r *badge) *string { return &r.Code })
+	Badge_Color  = NewNullColumn[string](badgesHandle, "color", "color", func(r *badge) **string { return &r.Color })
+	Badges       = badgesHandle.Define(TableSpec[badge, string]{
+		Columns:    []BoundColumn[badge]{Badge_Code, Badge_Color},
+		PrimaryKey: Badge_Code,
+		ColumnSpecs: []tsqdialect.ColumnSpec{
+			{Name: "code", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 8}, PrimaryKey: true},
+			{Name: "color", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 8, Nullable: true}, Default: "'red'", Fill: tsqdialect.FillDefault},
+		},
+	})
+)
+
+// TestASkippedRowReadsNothingBack covers a single-row BatchInsert with
+// WithSkipDuplicates whose row collided: the read-back of the database-filled
+// columns ran anyway and copied the stored row's values into the skipped one.
+func TestASkippedRowReadsNothingBack(t *testing.T) {
+	ctx := context.Background()
+
+	rt, err := Open(ctx, "sqlite", filepath.Join(t.TempDir(), "badges.db"), []Table{Badges}, WithSchemaPolicy(SchemaPolicyCreateMissing))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() { _ = rt.Close() })
+
+	blue := "blue"
+	if err := Badges.Insert(ctx, rt, &badge{Code: "A", Color: &blue}); err != nil {
+		t.Fatal(err)
+	}
+
+	skipped := &badge{Code: "A"}
+	if err := Badges.BatchInsert(ctx, rt, []*badge{skipped}, WithSkipDuplicates()); err != nil || skipped.Color != nil {
+		t.Fatalf("skipped row = %+v, %v; want nothing read into it", skipped, err)
+	}
+
+	fresh := &badge{Code: "B"}
+	if err := Badges.Insert(ctx, rt, fresh); err != nil || fresh.Color == nil || *fresh.Color != "red" {
+		t.Fatalf("inserted row = %+v, %v; want the default read back", fresh, err)
+	}
+}
+
+// TestEmptyResultsAreEmptyLists covers List over no rows, which returned nil where
+// Fetch and Page.Data return an empty slice: the same empty result marshaled to
+// null or to [] depending on the call.
+func TestEmptyResultsAreEmptyLists(t *testing.T) {
+	rows, err := Select(User_ID).From(Users).MustBuild().List(context.Background(), newSQLite(t))
+	if err != nil || rows == nil || len(rows) != 0 {
+		t.Fatalf("List over no rows = %#v, %v; want an empty, non-nil list", rows, err)
+	}
+}
+
+// TestStagesRunEveryRead covers the reads a stage runs without Build first: it
+// had Page but not Iter or PageKeyset.
+func TestStagesRunEveryRead(t *testing.T) {
+	ctx := context.Background()
+	rt := newSQLite(t)
+	seedUsers(t, rt, "a", "b")
+
+	stage := Select(User__Cols...).From(Users)
+
+	n := 0
+	for _, err := range stage.Iter(ctx, rt) {
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		n++
+	}
+
+	page, err := stage.PageKeyset(ctx, rt, Keyset{Size: 1, OrderBy: []OrderBy{User_ID.Asc()}})
+	if n != 2 || err != nil || len(page.Data) != 1 {
+		t.Fatalf("Iter read %d rows; PageKeyset = %+v, %v", n, page, err)
+	}
+
+	for _, err := range Select(User_ID).From(Orders).Iter(ctx, rt) {
+		if err == nil {
+			t.Fatal("Iter of a stage that does not build: want its error")
+		}
 	}
 }

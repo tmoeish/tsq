@@ -14,7 +14,10 @@ const (
 	TraceOpInsert TraceOp = "insert"
 	TraceOpUpsert TraceOp = "upsert"
 	TraceOpUpdate TraceOp = "update"
+	// TraceOpDelete is a soft delete: it stamps deleted_at.
 	TraceOpDelete TraceOp = "delete"
+	// TraceOpHardDelete removes rows.
+	TraceOpHardDelete TraceOp = "hard_delete"
 	// TraceOpRestore clears the tombstone of soft-deleted rows.
 	TraceOpRestore TraceOp = "restore"
 	TraceOpGet     TraceOp = "get"
@@ -134,18 +137,4 @@ func traceExecutor1[T any](ctx context.Context, exec Executor, info TraceInfo, f
 	}
 
 	return fn(ctx)
-}
-
-func appendTracers(existing []Tracer, newTracers ...Tracer) []Tracer {
-	result := append([]Tracer(nil), existing...)
-
-	for _, tracer := range newTracers {
-		if tracer == nil {
-			continue
-		}
-
-		result = append(result, tracer)
-	}
-
-	return result
 }

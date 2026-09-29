@@ -62,3 +62,13 @@ func TestColumnDefinitionRefusesAColumnItCannotWrite(t *testing.T) {
 		}
 	}
 }
+
+// TestIndexColumnsCompareWithoutCase covers an index a database reports over
+// "Code" for a declared column code: MySQL and SQLite take them for one column,
+// and Validate refused the index while Reconcile rebuilt it on every start.
+func TestIndexColumnsCompareWithoutCase(t *testing.T) {
+	existing := Index{Table: "things", Fields: []string{"Code"}}
+	if err := ValidateIndex("things", false, "idx_things_code", []string{"code"}, existing); err != nil {
+		t.Fatalf("ValidateIndex = %v", err)
+	}
+}

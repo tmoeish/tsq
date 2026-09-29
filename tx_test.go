@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 )
 
 func TestEngineQueryUsesContext(t *testing.T) {
@@ -459,4 +461,25 @@ func requireInitializedRuntime(t *testing.T, runtime *Runtime) *Runtime {
 	}
 
 	return runtime
+}
+
+// TestDialectOfAnExecutor covers the executor a WithTx callback gets, which did
+// not say its dialect: only *Runtime.Dialect did, so a capability check inside a
+// transaction needed the runtime passed along.
+func TestDialectOfAnExecutor(t *testing.T) {
+	rt := newSQLite(t)
+
+	if err := rt.WithTx(context.Background(), func(_ context.Context, tx Executor) error {
+		if got := DialectOf(tx); got != tsqdialect.SQLite {
+			t.Errorf("DialectOf(tx) = %q", got)
+		}
+
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if DialectOf(nil) != "" {
+		t.Error("DialectOf(nil) is not empty")
+	}
 }

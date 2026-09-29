@@ -272,3 +272,19 @@ func TestNotInOverANullableSubqueryIsRefused(t *testing.T) {
 		t.Fatalf("NotIn over a coalesced subquery = %v", err)
 	}
 }
+
+// TestRebindNullKeepsTheNullableType covers WithTable on a NullColumn, which
+// returns a Column: the rebound column needed a type assertion to be read into a
+// nullable field or compared as nullable again.
+func TestRebindNullKeepsTheNullableType(t *testing.T) {
+	alias := Notes.As("n")
+
+	rating := RebindNull(Note_Rating, alias)
+	if _, err := Select(Note_ID.WithTable(alias), rating).From(alias).Where(rating.IsNull()).Build(); err != nil {
+		t.Fatalf("query over the rebound column: %v", err)
+	}
+
+	if _, err := Select(Note_ID).From(Notes).Where(RebindNull[note, int64](nil, alias).IsNull()).Build(); err == nil {
+		t.Fatal("RebindNull(nil): want an error")
+	}
+}

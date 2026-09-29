@@ -69,7 +69,7 @@ func parseOrder(value string) (sortOrder, error) {
 	case orderAsc, orderDesc:
 		return order, nil
 	default:
-		return "", &SortError{Field: value, Reason: "order must be asc or desc"}
+		return "", &PageRequestError{Field: value, Reason: "order must be asc or desc"}
 	}
 }
 
@@ -89,7 +89,7 @@ func normalizeSortOrders(values []string, expected int) ([]sortOrder, error) {
 	}
 
 	if len(values) != expected {
-		return nil, &SortError{Reason: fmt.Sprintf("order_by lists %d fields but order lists %d directions", expected, len(values))}
+		return nil, &PageRequestError{Reason: fmt.Sprintf("order_by lists %d fields but order lists %d directions", expected, len(values))}
 	}
 
 	orders := make([]sortOrder, 0, len(values))

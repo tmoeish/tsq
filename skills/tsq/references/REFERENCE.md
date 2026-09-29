@@ -750,9 +750,12 @@ A field that can hold NULL — a pointer, `sql.NullString` and the other `sql.Nu
 `tsq.NullColumn[Xxx, T]`, where `T` is the value it holds when it is not NULL:
 
 ```go
-var TableUser.Nickname = tsq.NewNullColumn[string](tsqUserTable, "nickname", "nickname",
-	func(r *User) *sql.NullString { return &r.Nickname })
+// Inside newUserTable, which declares the table as t; generated code does this.
+Nickname: tsq.NewNullColumn[string](t, "nickname", "nickname",
+	func(r *User) *sql.NullString { return &r.Nickname }),
 ```
+
+- `col.WithTable(alias)` returns a `Column`; `tsq.RebindNull(col, alias)` keeps it a `NullColumn`
 
 - it compares with its value type like any column: `TableUser.Nickname.EQ(tsq.Val("ada"))`,
   `tsq.Upper(TableUser.Nickname)`, `tsq.Contains(TableUser.Nickname, tsq.Val("a"))`. NULL rows never match a
@@ -866,7 +869,7 @@ the handler does not pass it again:
 ```go
 paging, err := req.Paging(database.TableUser.Name, database.TableUser.CreatedAt)
 if err != nil {
-	return err // 400: a negative page or size, or a *tsq.SortError (unknown or ambiguous field, bad direction)
+	return err // 400: a *tsq.PageRequestError (negative page or size, unknown or ambiguous sort field, bad direction, bad cursor)
 }
 
 resp, err := database.TableUser.Query().Page(ctx, runtime, paging)
@@ -990,9 +993,9 @@ Case sensitivity is the database's, and it differs: SQLite ignores ASCII case, M
 
 ## 8. Execution helpers
 
-Reads are methods on the built `*Query[O]`; `args` are the `tsq.Arg` values made by `Bind`:
+Reads are methods on the built `*Query[O]`, and on every complete stage, which builds first (build once and reuse the `*Query` on hot paths); `args` are the `tsq.Arg` values made by `Bind`:
 
-- `query.List(ctx, db, args...)` → `[]*O, error`
+- `query.List(ctx, db, args...)` → `[]*O, error`; no rows is an empty list, never nil
 - `query.ListIn(ctx, db, listParam, values, args...)` → `[]*O, error`: `List` for a list parameter that may hold more values than one statement can bind (65535 on MySQL and PostgreSQL, 32766 on SQLite). Values are deduplicated, split and concatenated in no particular order; a list that fits in one statement runs as one, and several parts share one snapshot. The query must use the parameter once, as `col.In(param)` passed directly to `Where`, and have no `GROUP BY`, aggregate, `DISTINCT`, set operation, `ORDER BY` or `LIMIT`; anything else is refused, because splitting would change the result. `TableXxx.Fetch` and `FetchBy` use it
 - `query.Iter(ctx, db, args...)` → `iter.Seq2[*O, error]`: `for row, err := range query.Iter(ctx, db) { ... }` scans one row at a time, so exports and batch jobs do not hold the whole result in memory. `break` stops the query; a failure is yielded once with a nil row. The rows hold a connection until the loop ends, so inside a transaction finish the loop before running another statement on it
 - `query.Get(ctx, db, args...)` → `*O, error` (an error wrapping `sql.ErrNoRows` when not found)
@@ -1157,21 +1160,21 @@ Rules:
 `Runtime` is the TSQ-managed executor and runtime container.
 
 - it implements `Executor` directly
-- use `tsq.Open(ctx, "sqlite", dsn, database.TSQTables())` for one generated package; `TSQTables()` returns the package's `[]tsq.Table`
+- use `tsq.Open(ctx, "sqlite", dsn, database.TSQTables())` for one generated package; `TSQTables()` returns the package's `[]tsq.Table`. A MySQL DSN must set `parseTime=true` (`Open` refuses one that does not; a pool handed to `NewRuntime` needs it too), or times are read as bytes
 - combine multiple generated packages by concatenating their `TSQTables()` slices before calling `Open` or `NewRuntime`
 - `Open` opens the pool itself and resolves the dialect from `driverName`; the context bounds the ping and any bootstrap DDL
 - `tsq.NewRuntime(ctx, db, dialect.Postgres, tables, options...)` builds a runtime over a pool the caller already opened, which is how an instrumented or specially configured `*sql.DB` keeps working while still getting SQL logging, tracers and the page-size cap
 - call `runtime.Close()` when the process is done with the database. It closes **only** a pool `Open` opened; a pool passed to `NewRuntime` belongs to its caller and stays open
 - configure both constructors with options: `tsq.WithSchemaPolicy(p)` sets the table and index policy together, `tsq.WithTablePolicy(p)` / `tsq.WithIndexPolicy(p)` set them apart for a schema whose tables come from migrations while its indexes do not, `tsq.WithLogger(l)`, `tsq.WithSQLLogging()`, `tsq.WithTracers(...)` and `tsq.WithMaxPageSize(n)`
-- the policies, from doing nothing to doing the most: `SchemaPolicyManual` (default: log the mode and change nothing), `SchemaPolicyValidate` (fail to start on a mismatch), `SchemaPolicyCreateMissing` (create missing tables, columns and indexes; a column that differs from its declaration, or one the table no longer declares, still fails startup), `SchemaPolicyReconcile` (also alter columns back to what is declared, and drop columns no longer declared). Production keeps `Manual` and owns its schema through migrations; development and test want `Reconcile`, where changing a struct and restarting is enough
+- the policies, from doing nothing to doing the most: `SchemaPolicyManual` (default: log the mode and change nothing), `SchemaPolicyValidate` (fail to start on a mismatch: `*tsq.MissingTableError`, `*tsq.MissingIndexError`, or `*tsq.SchemaMismatchError` listing the differing columns), `SchemaPolicyCreateMissing` (create missing tables, columns and indexes; a column that differs from its declaration, or one the table no longer declares, still fails startup), `SchemaPolicyReconcile` (also alter columns back to what is declared, and drop columns no longer declared). Production keeps `Manual` and owns its schema through migrations; development and test want `Reconcile`, where changing a struct and restarting is enough
 - default policy is manual: TSQ logs a reminder but does not automatically reconcile missing tables or indexes
 - `tsq gen` refuses a table, column or index name longer than any built-in dialect allows, and suggests the directive that fixes it (usually `name=` on the index). A runtime checks again at construction, and there is no way to turn that off. Such a name does not reach the server intact, so the objects TSQ creates stop matching the names its queries reference. Name the index explicitly (`//tsq:unique Email name=ux_short`) when a derived index name is what runs over the limit
 - schema comparison follows each engine's own spelling: MySQL reading a `true` default back as `1` or a decimal `0` as `0.00` is not a difference, SQLite table and index names match in any case, and on SQLite a hand-written `id INTEGER PRIMARY KEY` (without `AUTOINCREMENT`) matches a declared auto-increment key, since the database assigns it either way. A `Reconcile` rebuild on SQLite keeps the table's `AUTOINCREMENT` counter, so keys of deleted rows are not handed out again
 - `tsq.WithMaxPageSize(n)` sets the page-size cap for paged queries on that runtime, in either direction. `tsq.DefaultMaxPageSize` (1000) is the default, not a ceiling
-- `tsq.WithTracers(t...)` wraps every traced operation. A tracer receives the context, a `tsq.TraceInfo` and the continuation, and must call the continuation and return its error. `TraceInfo.Op` names the work (`insert`, `upsert`, `update`, `delete`, `get`, `list`, `iter`, `page`, `count`, `tx`; an `UpdateTable` statement is an `update`, a `DeleteFrom` a `delete`) and `TraceInfo.Table` the table it writes or the query's `FROM` table (empty for `tx`), which is what a span name needs. The rendered SQL is not passed: tracing brackets the whole operation, binding and dialect rendering included, so statements come from `WithSQLLogging()` instead
+- `tsq.WithTracers(t...)` wraps every traced operation. A tracer receives the context, a `tsq.TraceInfo` and the continuation, and must call the continuation and return its error. `TraceInfo.Op` names the work: `insert`, `upsert`, `update`, `delete` (a soft delete), `hard_delete`, `restore`, `get` (also `Find` and `Exists`), `list`, `iter`, `page` (also `PageKeyset`), `count`, `tx`; an `UpdateTable` statement is an `update`, a `DeleteFrom` a `delete` and a `HardDeleteFrom` a `hard_delete` and `TraceInfo.Table` the table it writes or the query's `FROM` table (empty for `tx`), which is what a span name needs. The rendered SQL is not passed: tracing brackets the whole operation, binding and dialect rendering included, so statements come from `WithSQLLogging()` instead
 - **TSQ never drops a table.** No policy does, so several services can share one database and bring up their own tables independently. Removing a table that is no longer declared is a migration, not a boot-time decision: a runtime knows only its own declarations and cannot tell "this table is obsolete" from "this table belongs to someone else". Columns are different: `SchemaPolicyReconcile` drops a column the table no longer declares, with its data. It is the prototype setting, where the database follows the code; production keeps `Manual`
 - schema policies log the mode they are in at info level; `SchemaPolicyManual` (the default) is a normal production choice, not a warning
-- `tsq.WithLogger(l)` receives bootstrap DDL and execution-time warnings (for example a skipped batch-insert ID assignment); it defaults to `slog.Default()`
+- `tsq.WithLogger(l)` receives bootstrap DDL and execution-time warnings (for example a skipped batch-insert ID assignment); without it that is `slog.Default()`. A nil logger, tracer, runtime option, batch option or transaction option is an error, never a way to ask for the default
 - `tsq.WithSQLLogging()` logs every rendered statement and its bound arguments through the logger at debug level. It is off by default and logs arguments verbatim, so leave it off wherever query parameters carry secrets or personal data. Only executors that belong to a runtime log; a `WrapExecutor` result has no runtime to read the setting from
 
 ### Transactions
@@ -1343,7 +1346,7 @@ stage or query goes to `tsq.Exists` / `tsq.NotExists`, whatever it selects.
 
 ### Correlated subqueries
 
-A subquery may reference a column of an enclosing query's table, but it has to declare that table first with `Correlate(...)`. Without the declaration the build fails with `table X is referenced but is not in this query's FROM/JOIN graph`, because every table a query mentions must otherwise be in that query's own `FROM`/`JOIN` graph.
+A subquery may reference a column of an enclosing query's table, but it has to declare that table first with `Correlate(...)`. Without the declaration the build fails with `table X is referenced but is not in this query's FROM/JOIN; join it, or, if it belongs to an enclosing query, declare it with Correlate(X)`, because every table a query mentions must otherwise be in that query's own `FROM`/`JOIN` graph.
 
 ```go
 sub := tsq.Select(database.TableOrder.ID).
@@ -1413,6 +1416,8 @@ if dialect.Supports(runtime.Dialect(), dialect.CapabilityFullJoin) {
 	// build the FULL JOIN variant
 }
 ```
+
+Inside a `WithTx` callback, or with any other `Executor`, `tsq.DialectOf(db)` gives the dialect.
 
 The error carries `Capability` and `Dialect` fields; match it with
 `errors.AsType[*dialect.UnsupportedCapabilityError](err)`.

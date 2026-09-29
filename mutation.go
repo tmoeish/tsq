@@ -395,8 +395,8 @@ func (m *Mutation[R]) statement(d sqld.Dialect) (*statement, error) {
 
 // SQL renders the statement for dialect with args bound, as it would run. A soft
 // delete is rendered with the current time.
-func (m *Mutation[R]) SQL(engine tsqdialect.Name, args ...Arg) (string, []any, error) {
-	exec, err := WrapExecutor(noopExecutor{}, engine)
+func (m *Mutation[R]) SQL(dialect tsqdialect.Name, args ...Arg) (string, []any, error) {
+	exec, err := WrapExecutor(noopExecutor{}, dialect)
 	if err != nil {
 		return "", nil, err
 	}
@@ -450,7 +450,10 @@ func (m *Mutation[R]) prepare(db Executor, args []Arg) (string, []any, error) {
 	return stmt.assemble(scope.dialect, bound)
 }
 
-// Exec runs the statement and returns the number of rows it changed.
+// Exec runs the statement and returns the number of rows it affected, as the
+// driver reports it: MySQL counts only the rows whose values changed (unless the
+// DSN sets clientFoundRows=true), PostgreSQL and SQLite every row matched. On a
+// table with version or updated_at every matched row changes, so they agree.
 func (m *Mutation[R]) Exec(ctx context.Context, db Executor, args ...Arg) (int64, error) {
 	return traceExecutor1(ctx, db, m.traceInfo(), func(ctx context.Context) (int64, error) {
 		sqlText, sqlArgs, err := m.prepare(db, args)
@@ -469,12 +472,17 @@ func (m *Mutation[R]) Exec(ctx context.Context, db Executor, args ...Arg) (int64
 	})
 }
 
-// traceInfo names the statement for tracers: an update, or a delete (soft or
-// hard) of the target table.
+// traceInfo names the statement for tracers: an update, a soft delete or a hard
+// delete of the target table.
 func (m *Mutation[R]) traceInfo() TraceInfo {
 	info := TraceInfo{Op: TraceOpUpdate}
-	if m != nil && m.m.kind != mutationUpdate {
+
+	switch {
+	case m == nil:
+	case m.m.kind == mutationSoftDelete:
 		info.Op = TraceOpDelete
+	case m.m.kind == mutationDelete:
+		info.Op = TraceOpHardDelete
 	}
 
 	if m != nil && m.m.def != nil {

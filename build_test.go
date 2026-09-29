@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 )
@@ -530,5 +531,63 @@ func TestZeroValuesReportErrors(t *testing.T) {
 
 	if _, err := Select(User_ID).From(Users).Search(Searchable(Column[user, string](nil))).Build(); err == nil {
 		t.Error("Searchable(nil): want an error")
+	}
+}
+
+// TestDefineChecksManagedColumnTypes covers managed columns TSQ cannot write, which
+// Define accepted and the first write refused: a bool created_at, a time.Time
+// tombstone (every row then read as deleted), an int16 tombstone (UnixNano
+// truncated, sometimes to zero), and an index both unique and full-text.
+func TestDefineChecksManagedColumnTypes(t *testing.T) {
+	type stamped struct {
+		ID        int64
+		CreatedAt bool
+	}
+
+	h1 := NewTable[stamped, int64]("t_stamped")
+	id1 := NewColumn(h1, "id", "id", func(r *stamped) *int64 { return &r.ID })
+	at := NewColumn(h1, "created_at", "created_at", func(r *stamped) *bool { return &r.CreatedAt })
+
+	if err := h1.Define(TableSpec[stamped, int64]{Columns: []BoundColumn[stamped]{id1, at}, PrimaryKey: id1, CreatedAt: at}).Err(); err == nil || !strings.Contains(err.Error(), "must be a time") {
+		t.Errorf("bool created_at: %v", err)
+	}
+
+	type timeTomb struct {
+		ID        int64
+		DeletedAt time.Time
+	}
+
+	h2 := NewSoftDeleteTable[timeTomb, int64]("t_time_tomb")
+	id2 := NewColumn(h2.TableOf, "id", "id", func(r *timeTomb) *int64 { return &r.ID })
+	del2 := NewColumn(h2.TableOf, "deleted_at", "deleted_at", func(r *timeTomb) *time.Time { return &r.DeletedAt })
+
+	if err := h2.Define(TableSpec[timeTomb, int64]{Columns: []BoundColumn[timeTomb]{id2, del2}, PrimaryKey: id2}, del2).Err(); err == nil || !strings.Contains(err.Error(), "int64 or uint64") {
+		t.Errorf("time.Time tombstone: %v", err)
+	}
+
+	type shortTomb struct {
+		ID        int64
+		DeletedAt int16
+	}
+
+	h3 := NewSoftDeleteTable[shortTomb, int64]("t_short_tomb")
+	id3 := NewColumn(h3.TableOf, "id", "id", func(r *shortTomb) *int64 { return &r.ID })
+	del3 := NewColumn(h3.TableOf, "deleted_at", "deleted_at", func(r *shortTomb) *int16 { return &r.DeletedAt })
+
+	if err := h3.Define(TableSpec[shortTomb, int64]{Columns: []BoundColumn[shortTomb]{id3, del3}, PrimaryKey: id3}, del3).Err(); err == nil {
+		t.Error("int16 tombstone: want an error")
+	}
+
+	type indexed struct {
+		ID   int64
+		Body string
+	}
+
+	h4 := NewTable[indexed, int64]("t_indexed")
+	id4 := NewColumn(h4, "id", "id", func(r *indexed) *int64 { return &r.ID })
+	body := NewColumn(h4, "body", "body", func(r *indexed) *string { return &r.Body })
+
+	if err := h4.Define(TableSpec[indexed, int64]{Columns: []BoundColumn[indexed]{id4, body}, PrimaryKey: id4, Indexes: []IndexSpec{{Name: "ft_body", Columns: []string{"body"}, Unique: true, FullText: true}}}).Err(); err == nil || !strings.Contains(err.Error(), "both unique and full-text") {
+		t.Errorf("unique full-text index: %v", err)
 	}
 }

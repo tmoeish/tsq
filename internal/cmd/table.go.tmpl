@@ -147,7 +147,7 @@ func (t {{$tableType}}) As(alias string) {{$tableType}} {
 	return {{$tableType}}{
 		{{$base}}: a,
 {{- range $f := .Fields }}
-		{{$f.Name}}: t.{{$f.Name}}.WithTable(a){{ if $f.NullValue }}.(tsq.NullColumn[{{$type}}, {{$f.NullValue}}]){{ end }},
+		{{$f.Name}}: {{ if $f.NullValue }}tsq.RebindNull(t.{{$f.Name}}, a){{ else }}t.{{$f.Name}}.WithTable(a){{ end }},
 {{- end }}
 	}
 }

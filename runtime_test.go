@@ -363,3 +363,31 @@ func TestNewRuntimeClosesThePoolItOpened(t *testing.T) {
 		t.Fatal("expected the runtime's own pool to be closed")
 	}
 }
+
+// TestOpenNeedsParseTimeOnMySQL covers a MySQL DSN without parseTime=true, with
+// which the driver reads DATETIME as bytes: every read of a managed timestamp
+// failed, far from the DSN that caused it.
+func TestOpenNeedsParseTimeOnMySQL(t *testing.T) {
+	if _, err := Open(context.Background(), "mysql", "u:p@tcp(127.0.0.1:1)/db", nil); err == nil || !strings.Contains(err.Error(), "parseTime=true") {
+		t.Fatalf("Open without parseTime = %v", err)
+	}
+}
+
+// TestNilOptionsAreErrors covers nil options, which were errors for some option
+// types and silently skipped or taken for a default for others.
+func TestNilOptionsAreErrors(t *testing.T) {
+	dsn := filepath.Join(t.TempDir(), "nil.db")
+
+	for name, option := range map[string]RuntimeOption{
+		"nil logger": WithLogger(nil),
+		"nil tracer": WithTracers(nil),
+	} {
+		if _, err := Open(context.Background(), "sqlite", dsn, nil, option); err == nil || !strings.Contains(err.Error(), "cannot be nil") {
+			t.Errorf("%s: Open = %v", name, err)
+		}
+	}
+
+	if err := Users.BatchInsert(context.Background(), newSQLite(t), []*user{{Name: "a", Email: "a@x"}}, nil); err == nil || !strings.Contains(err.Error(), "cannot be nil") {
+		t.Errorf("nil batch option: %v", err)
+	}
+}

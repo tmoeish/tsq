@@ -266,7 +266,7 @@ func (q *Query[O]) encodeCursor(keys []keysetColumn[O], row *O) (string, error) 
 }
 
 func (q *Query[O]) decodeCursor(keys []keysetColumn[O], after string) ([]any, error) {
-	invalid := errors.New("invalid Keyset.After")
+	invalid := &PageRequestError{Field: "after", Reason: "not a cursor this endpoint returned"}
 
 	raw, err := base64.RawURLEncoding.DecodeString(strings.TrimSpace(after))
 	if err != nil {
@@ -279,7 +279,7 @@ func (q *Query[O]) decodeCursor(keys []keysetColumn[O], after string) ([]any, er
 	}
 
 	if c.Order != fingerprint(keys) {
-		return nil, errors.New("Keyset.After was made for a different OrderBy")
+		return nil, &PageRequestError{Field: "after", Reason: "the cursor was made for another order"}
 	}
 
 	row := new(O)

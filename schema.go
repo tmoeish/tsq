@@ -32,10 +32,20 @@ const (
 
 // MissingIndexError reports a declared index the database does not have.
 type MissingIndexError struct {
+	Table string
+	IndexSpec
+}
+
+// SchemaMismatchError reports a declared table whose columns differ from the
+// database's, under a policy that does not change them (Validate, or a column
+// CreateMissing would not add): Changes says what differs, one entry per column.
+type SchemaMismatchError struct {
 	Table   string
-	Name    string
-	Columns []string
-	Unique  bool
+	Changes []string
+}
+
+func (e *SchemaMismatchError) Error() string {
+	return fmt.Sprintf("table %s schema mismatch: %s", e.Table, strings.Join(e.Changes, "; "))
 }
 
 func (e *MissingIndexError) Error() string {

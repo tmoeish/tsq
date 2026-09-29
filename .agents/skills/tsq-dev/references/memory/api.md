@@ -41,8 +41,7 @@ SQLite `UPPER` 只认 ASCII），门是 `TestIntegrationColumnFunctionsArePortab
 `options ...*RuntimeOptions` 让"没传选项"和"传了一个选项值"是同一个签名，字段零值又兼任"没设置"。`Open`（自己开池）/
 `NewRuntime`（用别人的池）照 `sql.Open` 分工；**`Close()` 只关自己开的池**（`ownsDB`），正反各有一个测试。
 
-标识符长度校验去掉了三档模式：超长的名字到不了服务端，`warn` / `skip` 只是把失败推后；生成期也校验
-（派生的索引名最容易超限）。
+标识符长度校验去掉了三档模式（超长名字到不了服务端，`warn`/`skip` 只是推后失败）；生成期也校验（派生索引名最容易超限）。
 
 ## 决定：v5 的命名规则，改回去之前先读这里 (2026-09-16，v5)
 
@@ -67,6 +66,8 @@ v5 不背兼容，一次把名字改到"最合理"。定下的几条规则，每
   `SelectValue` 的 `O` 会和某列的 `T` 相同。`MapInto` 的 JSON 名默认取源列，要改才 `.Named`。
 - 按主键读在库里且有类型（`TableXxx.Get` / `Fetch`），唯一索引生成 `GetByX` / `FetchByX`，缺行时包装
   `sql.ErrNoRows`；单行写入的错误**只带主键**（`users id=5`），不序列化整行（列值会进日志）。
+- 客户端分页错误统一为 `PageRequestError`（2026-09-29，原 `SortError` 只管排序）；`Executor` 不加 `Dialect()` 方法而用 `DialectOf`：
+  导出方法排在 `needsRuntimeOrWrapExecutor` 前面，传 `*sql.DB` 时编译器就不再报那个指路的方法名。
 - 2026-09-28 第二轮：`UpdateTable` → `UpdateStage`（只有 `Set`）→ `SetStage` → `MutationStage`，不赋值的 UPDATE 编译不过；能力常量跟构建器方法
   命名、值即 SQL 拼写（删掉别名表）；`WrapExecutor` 返回 error。**`ColumnSpecs()` / `Indexes()` 保持导出**：审计曾想收起，但集成测试和工具靠它改 schema。
 - 方言类型不加 `DDL` 前缀。模板不许拼接常量名（`Kind{{ .Kind }}`）：符号门禁只认完整的 `tsqdialect.X`，

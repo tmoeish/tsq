@@ -233,3 +233,48 @@ func TestMySQLTimesKeepMicroseconds(t *testing.T) {
 		t.Error("datetime did not match a column declared type:DATETIME")
 	}
 }
+
+// TestMySQLNarrowerTypesAreNotTheDeclaredOnes covers columns migrated by hand to a
+// type TSQ does not declare: a MEDIUMINT passed for an INT and a DECIMAL for a
+// DOUBLE, so Validate accepted a column that truncates or rounds.
+func TestMySQLNarrowerTypesAreNotTheDeclaredOnes(t *testing.T) {
+	d := MySQLDialect{}
+
+	for native, declared := range map[string]ColumnType{
+		"mediumint":     {Kind: KindInt, Bits: 32},
+		"decimal(10,2)": {Kind: KindFloat, Bits: 64},
+	} {
+		data, _, _ := strings.Cut(native, "(")
+
+		got, err := parseMySQLColumnType(data, native, sql.NullInt64{})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if SameColumnType(d, Column{Name: "c", Type: got}, ColumnSpec{Name: "c", Type: declared}) {
+			t.Errorf("%s matched a declared %+v", native, declared)
+		}
+	}
+}
+
+// TestMySQLTextDefaultsAreExpressions covers a default on a long string, bytes or
+// JSON column: MySQL refuses a literal there (error 1101), and takes it written
+// as an expression.
+func TestMySQLTextDefaultsAreExpressions(t *testing.T) {
+	d := MySQLDialect{}
+
+	for _, column := range []ColumnSpec{
+		{Name: "bio", Type: ColumnType{Kind: KindString, Size: 100000}, Default: "''"},
+		{Name: "blob", Type: ColumnType{Kind: KindBytes}, Default: "''"},
+		{Name: "doc", Type: ColumnType{RawType: "JSON"}, Default: "'{}'"},
+	} {
+		if got, err := ColumnDefinitionSQL(d, column); err != nil || !strings.Contains(got, "DEFAULT ("+column.Default+")") {
+			t.Errorf("%s = %s, %v", column.Name, got, err)
+		}
+	}
+
+	short := ColumnSpec{Name: "code", Type: ColumnType{Kind: KindString, Size: 8}, Default: "'x'"}
+	if got, _ := ColumnDefinitionSQL(d, short); !strings.HasSuffix(got, "DEFAULT 'x'") {
+		t.Errorf("varchar default = %s", got)
+	}
+}
