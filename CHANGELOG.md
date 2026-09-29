@@ -307,6 +307,19 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 - **nil 选项的处理不一致**：nil 的 `BatchOption` 和 tracer 被静默跳过，`WithLogger(nil)` 被当成默认值，而 nil 的 `RuntimeOption` / `TxOption` 报错。现在一律报错。
 - **Go doc 与行为不符**：`WrapExecutor` 说没有页大小上限（实际按 `DefaultMaxPageSize`）；`PageRequest.Keyset` 说最后一个排序字段必须是主键（实际要包含每张表的主键）；`CapabilityFullTextSearch` 被说成执行时检查（实际只报告 `Matches` 怎么匹配）；`Mutation.Exec` 没说 MySQL 默认只数值真正变化的行；`MaxPageNumber` 的溢出说明不对。已更正。
 - **使用者文档里编译不过的例子**：`BEST_PRACTICES.md` 的 `ID.EQ(1)` 这类裸值、`Set(UpdatedAt, tsq.Val(null.TimeFrom(...)))`，REFERENCE 里不是合法 Go 的可空列声明；追踪操作名的列表缺项。已更正。
+- **名为 `Table` 的表结构体（或名为 `Result` 的结果）生成编译不过的代码**（`TableTable` 重复声明）。行类型上手写了与生成方法同名的方法（如 `Update`）同样编译不过。现在 `tsq gen` 报错并指出位置。
+- **不带 `-v` 时看不到"删除语句被注释掉"的警告**：改表名、改 `db` 标签在生成器眼里和删除一样，警告是使用者得知这件事的唯一途径。现在每次都打印。
+- **`type ( ... )` 分组上方的 `//tsq:table` 作用到组里每个结构体**：现在报错，要求写在具体的类型上。
+- **`db` 标签里不认识或写错的选项被静默忽略**（`sise:10`、`size:ten`、`defualt:5`）：现在报错；`default:` 与 `generated:` 同时出现也报错。
+- **同一组字段上的全文索引和唯一索引被当成重复**：两者回答不同的查询，现在允许；重复的 `//tsq:search` 字段现在报错而不是生成两遍。
+- **只改了大小写的列名（`name` → `Name`）生成了 `ADD COLUMN`**，MySQL 和 SQLite 把两个拼写当成同一列而失败。现在是列改名：PostgreSQL 上 `RENAME COLUMN`，另两个方言写一条说明不需要执行的注释；SQLite 重建表时按大小写不敏感复制。
+- **SQLite 为它并不检查的类型变化重建整张表**（`VARCHAR` 长度、`INT` 到 `BIGINT`），重建会丢掉触发器和手建的索引。现在同一类型亲和性内的变化只写注释。
+- **PostgreSQL 的 `ALTER COLUMN ... TYPE` 没有 `USING`**，没有隐式转换的变化（布尔到整数、文本到整数）直接失败；加宽自增主键时序列仍停在旧类型的上限。现在带 `USING`，并同时加宽序列。
+- **MySQL 上 `[]byte` 的 `size:` 被忽略**，一律建成 64 KiB 的 `BLOB`。现在按大小选 `BLOB` / `MEDIUMBLOB` / `LONGBLOB`。
+- **包里没有带指令的结构体时生成四个空的 schema 文件**并提示去执行它们；没有任何列字段的结果静默地什么都不生成。现在都报错。
+- **每次 `tsq gen` 都重写所有生成文件**，即使内容没变，触发构建缓存和文件监视；`-v` 的输出绕过了命令的输出流。现在内容不变的文件不写。
+- **`//tsq:unique Tags,Tag` 生成了两个同名参数**，`FetchByTagsAndTag` 编译不过。现在列表参数避开同名。
+- **几条指错方向的报错**：字符非法的标识符被说成"太长"；带字段但缺 `db` 标签被说成"没有这个字段"；嵌入其他包类型里的未导出字段报"找不到字段"；不存在的包目录套了三层"failed to parse"。现在各自说清原因和改法。
 
 ### 其他
 

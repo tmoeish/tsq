@@ -325,8 +325,14 @@ func parseMySQLColumnType(dataType, columnType string, size sql.NullInt64) (Colu
 		return ColumnType{Kind: KindFloat, Bits: 32}, nil
 	case "double", "double precision":
 		return ColumnType{Kind: KindFloat, Bits: 64}, nil
-	case "blob", "tinyblob", "mediumblob", "longblob":
+	case "blob":
 		return ColumnType{Kind: KindBytes}, nil
+	case "mediumblob":
+		return ColumnType{Kind: KindBytes, Size: mysqlMaxBlobBytes + 1}, nil
+	case "longblob":
+		return ColumnType{Kind: KindBytes, Size: mysqlMaxMediumBlobBytes + 1}, nil
+	case "tinyblob":
+		return ColumnType{RawType: "TINYBLOB"}, nil
 	case "varchar", "char":
 		result := ColumnType{Kind: KindString}
 		if size.Valid && size.Int64 > 0 {
@@ -366,6 +372,12 @@ func parseMySQLColumnType(dataType, columnType string, size sql.NullInt64) (Colu
 	}
 }
 
+// The largest values of MySQL's BLOB and MEDIUMBLOB, in bytes.
+const (
+	mysqlMaxBlobBytes       = 1<<16 - 1
+	mysqlMaxMediumBlobBytes = 1<<24 - 1
+)
+
 func (d MySQLDialect) ColumnTypeSQL(desc ColumnType) string {
 	if desc.RawType != "" {
 		return desc.RawType
@@ -375,7 +387,15 @@ func (d MySQLDialect) ColumnTypeSQL(desc ColumnType) string {
 	case KindBool:
 		return "BOOLEAN"
 	case KindBytes:
-		return "BLOB"
+		// A BLOB holds 64 KiB; a larger declared size takes the type that holds it.
+		switch {
+		case desc.Size <= mysqlMaxBlobBytes:
+			return "BLOB"
+		case desc.Size <= mysqlMaxMediumBlobBytes:
+			return "MEDIUMBLOB"
+		default:
+			return "LONGBLOB"
+		}
 	case KindFloat:
 		if desc.Bits <= 32 {
 			return "FLOAT"

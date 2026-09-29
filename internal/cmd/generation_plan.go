@@ -80,8 +80,19 @@ func buildGenerationModels(
 	var resolver *ddlTypeResolver
 
 	for _, s := range list {
-		if s.TableMeta == nil || len(s.Fields) == 0 {
+		if s.TableMeta == nil {
 			continue
+		}
+
+		// A table or result with no column field generates nothing, which used to
+		// happen without a word.
+		if len(s.Fields) == 0 {
+			tag := "db"
+			if s.IsResult {
+				tag = "tsq"
+			}
+
+			return nil, structErr(s, fmt.Errorf("no field has a %s tag, so there is nothing to generate", tag))
 		}
 
 		if err := validateStructForGeneration(s, structsByName); err != nil {
@@ -429,9 +440,9 @@ func prettyJSON(v any) string {
 	return string(bs)
 }
 
-func renderGenerationModel(model generationModel) error {
+func renderGenerationModel(w io.Writer, model generationModel) error {
 	if v {
-		if _, err := fmt.Fprintf(os.Stderr, "gen %s\n", model.Filename); err != nil {
+		if _, err := fmt.Fprintf(w, "gen %s\n", model.Filename); err != nil {
 			return err
 		}
 	}

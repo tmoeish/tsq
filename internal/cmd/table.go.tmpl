@@ -228,13 +228,13 @@ func (t {{$tableType}}) FetchBy{{$name}}(
 	db tsq.Executor,
 	{{- range $f := $ux.Fields }}
 	{{- if eq $f $last }}
-	{{ FieldSliceVarName $f }} ...{{ ValueType (index $dot.FieldsByName $f) }},
+	{{ IndexSliceVarName $ux.Fields $f }} ...{{ ValueType (index $dot.FieldsByName $f) }},
 	{{- else }}
 	{{ FieldVarName $f }} {{ ValueType (index $dot.FieldsByName $f) }},
 	{{- end }}
 	{{- end }}
 ) ([]*{{$type}}, error) {
-	return t.FetchBy(ctx, db, t.{{$last}}, {{ FieldSliceVarName $last }}
+	return t.FetchBy(ctx, db, t.{{$last}}, {{ IndexSliceVarName $ux.Fields $last }}
 	{{- range $f := $ux.Fields }}
 	{{- if ne $f $last }}, t.{{$f}}.EQ(tsq.Val({{ FieldVarName $f }})){{ end }}
 	{{- end }})

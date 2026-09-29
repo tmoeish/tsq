@@ -128,6 +128,12 @@ Troubleshooting:
 			return err
 		}
 
+		// A package without a //tsq: struct used to get four empty schema files and
+		// the advice to run them.
+		if !slices.ContainsFunc(list, func(s *genmodel.StructInfo) bool { return s.TableMeta != nil }) {
+			return fmt.Errorf("package %s has no struct with a //tsq:table or //tsq:result directive; if you removed them all, delete the generated files yourself", pPath)
+		}
+
 		for i := range list {
 			list[i].SetTSQVersion(stableVersion(buildinfo.Version()))
 		}
@@ -181,6 +187,8 @@ Troubleshooting:
 
 		combinedPlan := appendCombinedGenerationPlans(plan, ddlPlan)
 
+		printDestructiveWarnings(errWriter, ddlArtifacts)
+
 		if dryRunFlag {
 			printGenerationPlan(cmd.OutOrStdout(), combinedPlan)
 
@@ -205,13 +213,28 @@ Troubleshooting:
 			return nil
 		}
 
+		// A file whose content would not change is not written again: rewriting it
+		// bumped its time and woke every build cache and file watcher.
+		unchanged := map[string]bool{}
+		for _, entry := range combinedPlan {
+			unchanged[entry.Filename] = entry.Status == generationPlanUnchanged
+		}
+
 		for _, model := range models {
-			if err := renderGenerationModel(model); err != nil {
+			if unchanged[model.Filename] {
+				continue
+			}
+
+			if err := renderGenerationModel(errWriter, model); err != nil {
 				return err
 			}
 		}
 
 		for _, model := range ddlArtifacts.models {
+			if unchanged[model.Filename] {
+				continue
+			}
+
 			if v {
 				if _, err := fmt.Fprintf(errWriter, "ddl %s\n", model.Filename); err != nil {
 					return err
@@ -347,7 +370,12 @@ func printDDLChangeSummary(w io.Writer, artifacts ddlArtifacts) {
 			}
 		}
 	}
+}
 
+// printDestructiveWarnings says which drops a migration writes commented out. It
+// is printed on every run, not only with -v: a renamed table or db tag looks like
+// a drop, and the warning is how the user hears of it.
+func printDestructiveWarnings(w io.Writer, artifacts ddlArtifacts) {
 	for _, table := range artifacts.recordTables {
 		for _, line := range table.Columns {
 			if strings.HasPrefix(line, "drop ") {
@@ -480,12 +508,16 @@ func validateIdentifierLengths(data *genmodel.StructInfo) error {
 		return nil
 	}
 
-	if err := check("table", data.Table, "set a shorter name with //tsq:table name=..."); err != nil {
+	if err := check("table", data.Table, "give it another name with //tsq:table name=..."); err != nil {
 		return err
 	}
 
 	for _, field := range data.Fields {
-		if err := check("column", field.Column, "shorten the db tag of field "+field.Name); err != nil {
+		if field.Column == "" {
+			return fmt.Errorf("field %s of %s has a db tag without a column name; write db:\"name,...\"", field.Name, data.TypeInfo.TypeName)
+		}
+
+		if err := check("column", field.Column, "change the column name in the db tag of field "+field.Name); err != nil {
 			return err
 		}
 	}
@@ -740,7 +772,17 @@ func validateGeneratedSymbolCollisions(list []*genmodel.StructInfo) error {
 			continue
 		}
 
+		// A struct named Table (or a result named Result) generates TableTable
+		// both as its variable and as its type.
+		own := map[string]bool{data.TypeInfo.TypeName: true}
+
 		for _, symbol := range generatedSymbols(data) {
+			if own[symbol] {
+				return fmt.Errorf("%s would generate %s twice; rename the struct", data.TypeInfo.TypeName, symbol)
+			}
+
+			own[symbol] = true
+
 			if err := register(symbol, data.TypeInfo.TypeName); err != nil {
 				return err
 			}
@@ -801,6 +843,45 @@ func validateDeclaredSymbols(list []*genmodel.StructInfo, resolver *ddlTypeResol
 				return err
 			}
 		}
+
+		if err := checkRowMethods(resolver, data); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// checkRowMethods refuses a method the row type declares by hand under a name the
+// table file declares on it (Insert, Update, HardDelete, ...): the package stopped
+// compiling after gen, with the error in the generated file.
+func checkRowMethods(resolver *ddlTypeResolver, data *genmodel.StructInfo) error {
+	if data.IsResult {
+		return nil
+	}
+
+	pkg, ok := resolver.packages[data.TypeInfo.Package.Path]
+	if !ok || pkg.Types == nil {
+		return nil
+	}
+
+	named, _, err := resolver.lookupNamedStruct(data.TypeInfo)
+	if err != nil {
+		return err
+	}
+
+	for method := range named.Methods() {
+		if !slices.Contains(rowMethods(data), method.Name()) {
+			continue
+		}
+
+		pos := pkg.Fset.Position(method.Pos())
+		if strings.HasSuffix(pos.Filename, ".tsq.go") {
+			continue
+		}
+
+		return fmt.Errorf("%s:%d: %s.%s is declared here, and TSQ generates a %s method on %s; rename yours",
+			pos.Filename, pos.Line, data.TypeInfo.TypeName, method.Name(), method.Name(), data.TypeInfo.TypeName)
 	}
 
 	return nil

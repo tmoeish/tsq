@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -400,7 +401,7 @@ type User struct {
 func TestPrintDDLChangeSummary(t *testing.T) {
 	t.Run("changed", func(t *testing.T) {
 		buf := new(bytes.Buffer)
-		printDDLChangeSummary(buf, ddlArtifacts{
+		printSummaryAndWarnings(buf, ddlArtifacts{
 			hasChange: true,
 			recordTables: []ddlStateRecordTable{
 				{
@@ -443,7 +444,7 @@ func TestPrintDDLChangeSummary(t *testing.T) {
 				},
 			},
 		})
-		printDDLChangeSummary(buf, ddlArtifacts{
+		printSummaryAndWarnings(buf, ddlArtifacts{
 			hasChange:    true,
 			recordTables: recordTables,
 		})
@@ -490,7 +491,7 @@ func TestPrintDDLChangeSummary(t *testing.T) {
 		}
 
 		buf := new(bytes.Buffer)
-		printDDLChangeSummary(buf, ddlArtifacts{
+		printSummaryAndWarnings(buf, ddlArtifacts{
 			hasChange:    true,
 			recordTables: recordTables,
 		})
@@ -501,7 +502,7 @@ func TestPrintDDLChangeSummary(t *testing.T) {
 
 	t.Run("drop table is single line", func(t *testing.T) {
 		buf := new(bytes.Buffer)
-		printDDLChangeSummary(buf, ddlArtifacts{
+		printSummaryAndWarnings(buf, ddlArtifacts{
 			hasChange: true,
 			recordTables: []ddlStateRecordTable{
 				{Table: "new_table", Columns: []string{"drop table"}},
@@ -1028,7 +1029,7 @@ type User struct {
 	if !strings.Contains(got, "model.go:4") {
 		t.Fatalf("expected gen error to point at the offending directive line, got %q", got)
 	}
-	if !strings.Contains(got, "use Go field names, not column names") {
+	if !strings.Contains(got, "name Go fields, not columns") {
 		t.Fatalf("expected gen error to keep field guidance, got %q", got)
 	}
 }
@@ -1792,7 +1793,7 @@ func TestWriteGeneratedFilePreservesPermissions(t *testing.T) {
 // code path.
 
 func gen(data *genmodel.StructInfo, t *template.Template, dir string) error {
-	return renderGenerationModel(generationModel{
+	return renderGenerationModel(io.Discard, generationModel{
 		Data:       data,
 		Template:   t,
 		Filename:   filepath.Join(dir, generatedFilename(data)),
@@ -1801,7 +1802,7 @@ func gen(data *genmodel.StructInfo, t *template.Template, dir string) error {
 }
 
 func genResult(data *genmodel.StructInfo, t *template.Template, dir string) error {
-	return renderGenerationModel(generationModel{
+	return renderGenerationModel(io.Discard, generationModel{
 		Data:       data,
 		Template:   t,
 		Filename:   filepath.Join(dir, generatedFilename(data)),
@@ -2074,11 +2075,11 @@ type User struct {
 	run("second")
 
 	for file, wants := range map[string][]string{
-		"postgres.sql": {`DROP INDEX "idx_users_name";`, `ALTER TABLE "users" ALTER COLUMN "name" TYPE VARCHAR(128);`},
+		"postgres.sql": {`DROP INDEX "idx_users_name";`, `ALTER TABLE "users" ALTER COLUMN "name" TYPE VARCHAR(128) USING "name"::VARCHAR(128);`},
 		"mysql.sql":    {"DROP INDEX `idx_users_name` ON `users`;", "MODIFY COLUMN `name`"},
-		// SQLite cannot ALTER a column type, so it rebuilds the table, which takes
-		// the dropped index with it.
-		"sqlite.sql": {`ALTER TABLE "__tsq_new_users" RENAME TO "users";`, `"name" VARCHAR(128) NOT NULL`},
+		// SQLite does not enforce a VARCHAR size, so it drops the index and does not
+		// rebuild the table (which would lose its triggers) for nothing.
+		"sqlite.sql": {`DROP INDEX "idx_users_name";`, "SQLite does not enforce; nothing to run"},
 	} {
 		content, err := os.ReadFile(filepath.Join(dir, file))
 		if err != nil {
@@ -2594,9 +2595,11 @@ func TestGenRefusesNamesThePackageAlreadyUses(t *testing.T) {
 	row := "//tsq:table\ntype Row struct {\n\tID int64 `db:\"id\"`\n}\n"
 
 	for name, tc := range map[string]struct{ source, want string }{
-		"declared":       {"package gentest\n\nvar TableRow = 1\n\n" + row, "TableRow is declared here"},
-		"table named so": {"package gentest\n\n" + row + "\n//tsq:table\ntype RowTable struct {\n\tID int64 `db:\"id\"`\n}\n", "generated symbol RowTable collides"},
-		"runtime symbol": {"package gentest\n\nfunc TSQTables() {}\n\n" + row, "TSQTables is declared here"},
+		"declared":            {"package gentest\n\nvar TableRow = 1\n\n" + row, "TableRow is declared here"},
+		"table named so":      {"package gentest\n\n" + row + "\n//tsq:table\ntype RowTable struct {\n\tID int64 `db:\"id\"`\n}\n", "generated symbol RowTable collides"},
+		"runtime symbol":      {"package gentest\n\nfunc TSQTables() {}\n\n" + row, "TSQTables is declared here"},
+		"a method of the row": {"package gentest\n\n" + row + "\nfunc (r *Row) Update(name string) {}\n", "Row.Update is declared here"},
+		"a table named Table": {"package gentest\n\n//tsq:table name=things\ntype Table struct {\n\tID int64 `db:\"id\"`\n}\n", "would generate TableTable twice"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if err := genModule(t, map[string]string{"model.go": tc.source}); err == nil || !strings.Contains(err.Error(), tc.want) {
@@ -2854,4 +2857,196 @@ func TestGenMigrationLeavesGeneratedColumnsToAMigration(t *testing.T) {
 			t.Fatalf("%s alters a generated column in place:\n%s", file, migration)
 		}
 	}
+}
+
+// printSummaryAndWarnings is what gen -v prints about the schema: the summary,
+// then the destructive warnings every run prints.
+func printSummaryAndWarnings(w io.Writer, artifacts ddlArtifacts) {
+	printDDLChangeSummary(w, artifacts)
+	printDestructiveWarnings(w, artifacts)
+}
+
+// TestGenWarnsWithoutVerboseAndKeepsUnchangedFiles covers two things a plain gen
+// did: the warning about a drop written commented out printed only with -v, so a
+// renamed table went unnoticed, and every generated file was written again on a
+// run that changed nothing, which woke every build cache and file watcher.
+func TestGenWarnsWithoutVerboseAndKeepsUnchangedFiles(t *testing.T) {
+	model := func(name string) map[string]string {
+		return map[string]string{"model.go": "package gentest\n\n//tsq:table name=" + name + "\ntype Row struct {\n\tID int64 `db:\"id\"`\n}\n"}
+	}
+
+	if err := genModule(t, model("rows")); err != nil {
+		t.Fatal(err)
+	}
+
+	stat := func() time.Time {
+		info, err := os.Stat("row.tsq.go")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		return info.ModTime()
+	}
+
+	before := stat()
+	time.Sleep(20 * time.Millisecond)
+
+	if err := runGen(t); err != nil {
+		t.Fatal(err)
+	}
+
+	if !stat().Equal(before) {
+		t.Error("a run that changed nothing wrote row.tsq.go again")
+	}
+
+	writeTestFile(t, "model.go", model("renamed_rows")["model.go"])
+
+	stderr := new(bytes.Buffer)
+	GenCmd.SetOut(new(bytes.Buffer))
+	GenCmd.SetErr(stderr)
+	GenCmd.SetArgs([]string{"."})
+
+	if err := GenCmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	if !strings.Contains(stderr.String(), "rows: drop table is written commented out") {
+		t.Fatalf("gen without -v printed:\n%s\nwant the drop warning", stderr.String())
+	}
+}
+
+// TestGenReadsDirectivesOfAGroupedTypeFromTheType covers //tsq:table written above
+// a type ( ... ) group: it was applied to every struct of the group. A directive
+// belongs to the type it is written on.
+func TestGenReadsDirectivesOfAGroupedTypeFromTheType(t *testing.T) {
+	source := "package gentest\n\n//tsq:table\ntype (\n\tUser struct {\n\t\tID int64 `db:\"id\"`\n\t}\n\n\t//tsq:table\n\tOther struct {\n\t\tID int64 `db:\"id\"`\n\t}\n)\n"
+
+	if err := genModule(t, map[string]string{"model.go": source}); err == nil || !strings.Contains(err.Error(), "model.go:3:1") || !strings.Contains(err.Error(), "belongs to no one type") {
+		t.Fatalf("tsq gen = %v; want the group's directive refused where it is", err)
+	}
+
+	writeTestFile(t, "model.go", strings.Replace(source, "//tsq:table\ntype (", "type (", 1))
+
+	if err := runGen(t); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := os.Stat("user.tsq.go"); !os.IsNotExist(err) {
+		t.Errorf("user.tsq.go: %v; want only the type with the directive generated", err)
+	}
+
+	if _, err := os.Stat("other.tsq.go"); err != nil {
+		t.Errorf("other.tsq.go: %v; want Other, which carries the directive, generated", err)
+	}
+}
+
+// TestGenTakesAFullTextIndexBesideAUniqueOne covers a full-text index over the
+// fields a unique index has, which was refused as the same index twice although
+// the two answer different queries; a search field named twice was kept twice.
+func TestGenTakesAFullTextIndexBesideAUniqueOne(t *testing.T) {
+	model := func(directives string) map[string]string {
+		return map[string]string{"model.go": "package gentest\n\n//tsq:table\n" + directives + "type Post struct {\n\tID int64 `db:\"id\"`\n\tTitle string `db:\"title,size:64\"`\n}\n"}
+	}
+
+	t.Run("unique and full-text", func(t *testing.T) {
+		if err := genModule(t, model("//tsq:unique Title\n//tsq:fulltext Title\n")); err != nil {
+			t.Fatalf("tsq gen = %v", err)
+		}
+	})
+
+	t.Run("search twice", func(t *testing.T) {
+		if err := genModule(t, model("//tsq:search Title\n//tsq:search Title\n")); err == nil || !strings.Contains(err.Error(), "search already covers Title") {
+			t.Fatalf("tsq gen = %v; want the repeated field refused", err)
+		}
+	})
+}
+
+// TestGenRenamesAColumnOnlyInCase covers a db tag changed only in case: it was
+// written as ADD COLUMN "Name" and a commented drop of name, and the ADD fails on
+// MySQL and SQLite, which take both spellings for one column.
+func TestGenRenamesAColumnOnlyInCase(t *testing.T) {
+	model := func(tag string) map[string]string {
+		return map[string]string{"model.go": "package gentest\n\n//tsq:table name=people\ntype Person struct {\n\tID int64 `db:\"id\"`\n\tName string `db:\"" + tag + "\"`\n}\n"}
+	}
+
+	if err := genModule(t, model("name,size:20")); err != nil {
+		t.Fatal(err)
+	}
+
+	initial, err := os.ReadFile("sqlite.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Renamed in case and widened: SQLite rebuilds the table.
+	writeTestFile(t, "model.go", model("Name,size:40")["model.go"])
+
+	if err := runGen(t); err != nil {
+		t.Fatal(err)
+	}
+
+	last := func(file string) string {
+		content, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		return string(content[strings.LastIndex(string(content), "-- Migration: "):])
+	}
+
+	if pg := last("postgres.sql"); !strings.Contains(pg, `ALTER TABLE "people" RENAME COLUMN "name" TO "Name";`) || strings.Contains(pg, "ADD COLUMN") {
+		t.Fatalf("postgres migration:\n%s", pg)
+	}
+
+	if my := last("mysql.sql"); strings.Contains(my, "ADD COLUMN") || !strings.Contains(my, "nothing to run") {
+		t.Fatalf("mysql migration:\n%s", my)
+	}
+
+	shell, err := exec.LookPath("sqlite3")
+	if err != nil {
+		t.Skip("sqlite3 shell not installed")
+	}
+
+	db := filepath.Join(t.TempDir(), "t.db")
+	for _, script := range []string{string(initial), `INSERT INTO people (name) VALUES ('kept');`, last("sqlite.sql")} {
+		if out, err := runSQLiteShell(shell, db, script); err != nil || strings.Contains(out, "Error") {
+			t.Fatalf("sqlite3: %v\n%s", err, out)
+		}
+	}
+
+	if out, err := runSQLiteShell(shell, db, `SELECT Name FROM people;`); err != nil || strings.TrimSpace(out) != "kept" {
+		t.Fatalf("after the migration: %q, %v; want the value kept", out, err)
+	}
+}
+
+// TestGenRefusesToGenerateNothing covers runs that produced nothing without a
+// word: a package with no //tsq: struct (which got four empty schema files and
+// the advice to run them) and a result none of whose fields has a tsq tag. A
+// unique index over Tags and Tag generated two parameters named tags.
+func TestGenRefusesToGenerateNothing(t *testing.T) {
+	t.Run("no directive", func(t *testing.T) {
+		if err := genModule(t, map[string]string{"model.go": "package gentest\n\ntype Row struct{ ID int64 }\n"}); err == nil || !strings.Contains(err.Error(), "has no struct with a //tsq:table") {
+			t.Fatalf("tsq gen = %v", err)
+		}
+	})
+
+	t.Run("result without columns", func(t *testing.T) {
+		source := "package gentest\n\n//tsq:table\ntype Row struct {\n\tID int64 `db:\"id\"`\n}\n\n//tsq:result\ntype View struct {\n\tID int64\n}\n"
+		if err := genModule(t, map[string]string{"model.go": source}); err == nil || !strings.Contains(err.Error(), "no field has a tsq tag") {
+			t.Fatalf("tsq gen = %v", err)
+		}
+	})
+
+	t.Run("parameters of Tags and Tag", func(t *testing.T) {
+		source := "package gentest\n\n//tsq:table\n//tsq:unique Tags,Tag\ntype Row struct {\n\tID int64 `db:\"id\"`\n\tTags string `db:\"tags,size:32\"`\n\tTag string `db:\"tag,size:32\"`\n}\n"
+		if err := genModule(t, map[string]string{"model.go": source}); err != nil {
+			t.Fatal(err)
+		}
+
+		tidyGenTestModule(t)
+
+		if output, err := exec.Command("go", "build", "./...").CombinedOutput(); err != nil {
+			t.Fatalf("generated code does not compile: %v\n%s", err, output)
+		}
+	})
 }

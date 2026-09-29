@@ -474,13 +474,27 @@ func (d PostgresDialect) AlterColumnSQL(table string, before Column, after Colum
 	// Compare resolved types instead of raw struct equality: nullability lives
 	// inside DDLColumnType, and a nullability-only drift must not trigger a
 	// table-rewriting ALTER TYPE.
+	// USING says how to convert: without it PostgreSQL refuses every change that
+	// has no implicit cast (BOOLEAN to INTEGER, VARCHAR to BIGINT). An
+	// auto-increment key keeps its SERIAL default; its sequence is widened too, or
+	// it stops at the old type's maximum however wide the column is.
 	if !SameColumnType(d, before, after) {
-		statements = append(statements, fmt.Sprintf(
-			"ALTER TABLE %s ALTER COLUMN %s TYPE %s;",
-			quotedTable,
-			quotedColumn,
-			d.ColumnTypeSQL(after.Type),
-		))
+		spelled := d.ColumnTypeSQL(after.Type)
+
+		if after.AutoIncrement {
+			statements = append(statements, fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s TYPE %s;", quotedTable, quotedColumn, spelled))
+
+			if spelled == "BIGINT" {
+				statements = append(statements, fmt.Sprintf(
+					"DO $$ BEGIN EXECUTE format('ALTER SEQUENCE %%s AS BIGINT', pg_get_serial_sequence(%s, %s)); END $$;",
+					quoteLiteral(quotedTable), quoteLiteral(after.Name)))
+			}
+		} else {
+			statements = append(statements, fmt.Sprintf(
+				"ALTER TABLE %s ALTER COLUMN %s TYPE %s USING %s::%s;",
+				quotedTable, quotedColumn, spelled, quotedColumn, spelled,
+			))
+		}
 	}
 
 	if before.PrimaryKey != after.PrimaryKey || before.AutoIncrement != after.AutoIncrement {
@@ -522,4 +536,9 @@ func (d PostgresDialect) AlterColumnSQL(table string, before Column, after Colum
 	}
 
 	return statements
+}
+
+// quoteLiteral writes s as a SQL string literal.
+func quoteLiteral(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
 }

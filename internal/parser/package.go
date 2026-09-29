@@ -28,6 +28,12 @@ type ParseResult struct {
 
 // Parse parses the package at path and returns every annotated struct plus the package directory.
 func Parse(packagePath string) ([]*genmodel.StructInfo, string, error) {
+	if filepath.IsAbs(packagePath) || strings.HasPrefix(packagePath, ".") {
+		if info, err := os.Stat(packagePath); err != nil || !info.IsDir() {
+			return nil, "", fmt.Errorf("package directory %s does not exist", packagePath)
+		}
+	}
+
 	result, err := parsePackage(packagePath)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to parse package %s"+": %w", packagePath, err)
@@ -63,7 +69,7 @@ func parsePackage(packagePath string) (*ParseResult, error) {
 	}
 
 	if err := pipeline.collectStructs(); err != nil {
-		return nil, fmt.Errorf("%s: %w", "failed to recursively parse package", err)
+		return nil, err
 	}
 
 	if err := pipeline.resolveEmbeds(); err != nil {
@@ -138,7 +144,7 @@ func (ps *ParseState) parsePackagesRecursively(packagePath string) error {
 		currentPath := element.Value.(string)
 
 		if err := ps.parseSinglePackage(currentPath); err != nil {
-			return fmt.Errorf("failed to recursively parse package %s"+": %w", currentPath, err)
+			return fmt.Errorf("package %s: %w", currentPath, err)
 		}
 	}
 
@@ -255,6 +261,11 @@ func (ps *ParseState) processGenDecl(
 	fileSet *token.FileSet,
 	pkg genmodel.PackageInfo,
 ) error {
+	if len(genDecl.Specs) > 1 && genDecl.Tok == token.TYPE && hasDirective(comments) {
+		return fmt.Errorf("%s: %w: a //tsq: directive above type ( ... ) belongs to no one type; write it on the type inside the group",
+			fileSet.Position(comments[0].Pos()), ErrInvalidDirective)
+	}
+
 	for _, spec := range genDecl.Specs {
 		typeSpec, ok := spec.(*ast.TypeSpec)
 		if !ok {
@@ -269,7 +280,10 @@ func (ps *ParseState) processGenDecl(
 			}
 		}
 
-		if !isStructType(typeSpec.Type) {
+		// In a group, the group's comment is no type's: applied to each, one
+		// //tsq:table above type ( ... ) made every struct of the group a table.
+		// Each type there carries its own comment (processTypeSpec).
+		if len(genDecl.Specs) != 1 || !isStructType(typeSpec.Type) {
 			continue
 		}
 
@@ -414,7 +428,7 @@ func (ps *ParseState) filterAndProcessResults(packagePath string) (*ParseResult,
 func (ps *ParseState) parseSinglePackage(packagePath string) error {
 	buildPkg, err := ps.importBuildPackage(packagePath)
 	if err != nil {
-		return fmt.Errorf("failed to process pkg: %s"+": %w", packagePath, err)
+		return err
 	}
 
 	pkg := genmodel.PackageInfo{
