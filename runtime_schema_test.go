@@ -153,8 +153,7 @@ func TestNewRuntimeReconcileRawTypeTextProducesNoDDL(t *testing.T) {
 	}
 
 	logger := &recordingLogger{}
-	table, _ := newStrictMockTable("notes", "id", "body")
-	registration := registered(table, []tsqdialect.ColumnSpec{
+	registration := wideTableOf("notes", []string{"id", "body"}, []tsqdialect.ColumnSpec{
 		{
 			Name:          "id",
 			Type:          tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64},
@@ -165,7 +164,7 @@ func TestNewRuntimeReconcileRawTypeTextProducesNoDDL(t *testing.T) {
 			Name: "body",
 			Type: tsqdialect.ColumnType{RawType: "TEXT", Nullable: true},
 		},
-	})
+	}, nil, func(r *notesRow) *[16]any { return &r.Fields })
 
 	for restart := range 2 {
 		_, err := Open(context.Background(),

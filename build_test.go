@@ -148,16 +148,19 @@ func TestPhaseChecksCatchAssertedStages(t *testing.T) {
 }
 
 func TestDefineReportsInvalidTables(t *testing.T) {
-	type row struct{ ID, Other int64 }
-
+	// Each case declares its own row type: a row type describes one table.
 	tests := map[string]func() error{
 		"no primary key": func() error {
+			type row struct{ ID, Other int64 }
+
 			h := NewTable[row, int64]("t1")
 			id := NewColumn(h, "id", "id", func(r *row) *int64 { return &r.ID })
 
 			return h.Define(TableSpec[row, int64]{Columns: []BoundColumn[row]{id}}).Err()
 		},
 		"primary key not listed": func() error {
+			type row struct{ ID, Other int64 }
+
 			h := NewTable[row, int64]("t2")
 			id := NewColumn(h, "id", "id", func(r *row) *int64 { return &r.ID })
 			other := NewColumn(h, "other", "other", func(r *row) *int64 { return &r.Other })
@@ -165,6 +168,8 @@ func TestDefineReportsInvalidTables(t *testing.T) {
 			return h.Define(TableSpec[row, int64]{Columns: []BoundColumn[row]{other}, PrimaryKey: id}).Err()
 		},
 		"foreign column": func() error {
+			type row struct{ ID, Other int64 }
+
 			h := NewTable[row, int64]("t3")
 			h2 := NewTable[row, int64]("t4")
 			id := NewColumn(h2, "id", "id", func(r *row) *int64 { return &r.ID })
@@ -172,6 +177,8 @@ func TestDefineReportsInvalidTables(t *testing.T) {
 			return h.Define(TableSpec[row, int64]{Columns: []BoundColumn[row]{id}, PrimaryKey: id}).Err()
 		},
 		"unknown index field": func() error {
+			type row struct{ ID, Other int64 }
+
 			h := NewTable[row, int64]("t5")
 			id := NewColumn(h, "id", "id", func(r *row) *int64 { return &r.ID })
 
@@ -182,6 +189,8 @@ func TestDefineReportsInvalidTables(t *testing.T) {
 			}).Err()
 		},
 		"defined twice": func() error {
+			type row struct{ ID, Other int64 }
+
 			h := NewTable[row, int64]("t6")
 			id := NewColumn(h, "id", "id", func(r *row) *int64 { return &r.ID })
 			spec := TableSpec[row, int64]{Columns: []BoundColumn[row]{id}, PrimaryKey: id}
@@ -190,6 +199,8 @@ func TestDefineReportsInvalidTables(t *testing.T) {
 			return h.Define(spec).Err()
 		},
 		"key is the version": func() error {
+			type row struct{ ID, Other int64 }
+
 			h := NewTable[row, int64]("t7")
 			id := NewColumn(h, "id", "id", func(r *row) *int64 { return &r.ID })
 
@@ -201,6 +212,8 @@ func TestDefineReportsInvalidTables(t *testing.T) {
 			return err
 		},
 		"schema disagrees on the key": func() error {
+			type row struct{ ID, Other int64 }
+
 			h := NewTable[row, int64]("t8")
 			id := NewColumn(h, "id", "id", func(r *row) *int64 { return &r.ID })
 			other := NewColumn(h, "other", "other", func(r *row) *int64 { return &r.Other })
@@ -214,6 +227,8 @@ func TestDefineReportsInvalidTables(t *testing.T) {
 			}).Err()
 		},
 		"schema misses a column": func() error {
+			type row struct{ ID, Other int64 }
+
 			h := NewTable[row, int64]("t9")
 			id := NewColumn(h, "id", "id", func(r *row) *int64 { return &r.ID })
 			other := NewColumn(h, "other", "other", func(r *row) *int64 { return &r.Other })
@@ -225,7 +240,27 @@ func TestDefineReportsInvalidTables(t *testing.T) {
 				},
 			}).Err()
 		},
+		"row type of another table": func() error {
+			type row struct{ ID, Other int64 }
+
+			for _, name := range []string{"t10", "t11"} {
+				h := NewTable[row, int64](name)
+				id := NewColumn(h, "id", "id", func(r *row) *int64 { return &r.ID })
+
+				if err := h.Define(TableSpec[row, int64]{Columns: []BoundColumn[row]{id}, PrimaryKey: id}).Err(); err != nil {
+					if !strings.Contains(err.Error(), "already describes table t10") {
+						t.Errorf("second table: %v", err)
+					}
+
+					return err
+				}
+			}
+
+			return nil
+		},
 		"bad name": func() error {
+			type row struct{ ID, Other int64 }
+
 			h := NewTable[row, int64]("bad name")
 			id := NewColumn(h, "id", "id", func(r *row) *int64 { return &r.ID })
 
@@ -343,5 +378,25 @@ func TestBuiltQueriesComposeLikeStages(t *testing.T) {
 	var missing *Query[user]
 	if _, err := Select(User_ID).From(Users).Union(missing).Build(); err == nil {
 		t.Fatal("union with a nil query: want an error")
+	}
+}
+
+// TestSetOperationsOrderByTheColumnNamed covers a set operation ordered by a
+// column the query does not select itself, which is found by its output name: a
+// derived item is named after its source column, so ordering by name sorted by
+// LENGTH(name).
+func TestSetOperationsOrderByTheColumnNamed(t *testing.T) {
+	id := MapInto(User_ID, func(r *namedRow) *int64 { return &r.ID })
+	length := MapInto(Length(User_Name), func(r *namedRow) *int64 { return &r.ID })
+	name := MapInto(User_Name, func(r *namedRow) *string { return &r.Name })
+
+	derived := Select(id, length).From(Users).Union(Select(id, length).From(Users))
+	if _, err := derived.OrderBy(User_Name.Desc()).Build(); err == nil || !strings.Contains(err.Error(), "LENGTH") {
+		t.Fatalf("ordered by name over LENGTH(name) AS name: Build = %v; want it refused", err)
+	}
+
+	plain := Select(id, name).From(Users).Union(Select(id, name).From(Users))
+	if _, err := plain.OrderBy(User_Name.Desc()).Build(); err != nil {
+		t.Fatalf("ordered by name over the name column: %v", err)
 	}
 }

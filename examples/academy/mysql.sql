@@ -92,3 +92,9 @@ CREATE TABLE IF NOT EXISTS `track` (
 );
 
 ALTER TABLE `track` ADD UNIQUE INDEX `ux_track_name`(`name`);
+
+-- Migration: 2026-09-29 11:19:35
+
+-- Table: course
+
+ALTER TABLE `course` MODIFY COLUMN `currency` VARCHAR(3) DEFAULT 'USD';

@@ -95,11 +95,17 @@ func validatePredicateValue(arg any) error {
 // zone the caller's value is in: SQLite keeps a time as the text of the value, and
 // text in two zones does not sort or compare the way the times do.
 func bindValue(v any) any {
-	// A []byte field is a NOT NULL column, and its zero value is nil, which the
-	// drivers bind as NULL: an Insert that left it unset failed. The nullable form
-	// is *[]byte.
+	// A []byte field, or one of a named byte-slice type (json.RawMessage), is a
+	// NOT NULL column, and its zero value is nil, which the drivers bind as NULL:
+	// an Insert that left it unset failed. The nullable form is sql.Null[[]byte].
 	if b, ok := v.([]byte); ok && b == nil {
 		return []byte{}
+	}
+
+	if _, codec := v.(driver.Valuer); !codec {
+		if rv := reflect.ValueOf(v); rv.Kind() == reflect.Slice && rv.Type().Elem().Kind() == reflect.Uint8 && rv.IsNil() {
+			return []byte{}
+		}
 	}
 
 	if isNilValue(v) {

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 )
@@ -255,7 +256,92 @@ func TestGetByCachesItsQuery(t *testing.T) {
 		t.Fatalf("GetBy(deleted) = %v, want sql.ErrNoRows", err)
 	}
 
-	if got, err := Users.WithDeleted().GetBy(ctx, rt, User_Email, "ada@x"); err != nil || got.ID != row.ID {
+	// Deleted rows may repeat an email, so without the live scope the email alone
+	// is no longer unique; fixing the tombstone makes it so again.
+	if _, err := Users.WithDeleted().GetBy(ctx, rt, User_Email, "ada@x"); err == nil || !strings.Contains(err.Error(), "not unique") {
+		t.Fatalf("WithDeleted().GetBy by email alone = %v; want it refused", err)
+	}
+
+	if got, err := Users.WithDeleted().GetBy(ctx, rt, User_Email, "ada@x", User_DeletedAt.EQ(Val(row.DeletedAt))); err != nil || got.ID != row.ID {
 		t.Fatalf("WithDeleted().GetBy = %+v, %v", got, err)
+	}
+}
+
+// TestLookupsNeedAUniqueKey covers GetBy, FindBy and FetchBy by a column that is
+// not unique: GetBy returned one arbitrary row of several and FetchBy reported
+// the others as missing, without an error.
+func TestLookupsNeedAUniqueKey(t *testing.T) {
+	ctx := context.Background()
+	rt := newLookupRuntime(t)
+
+	if err := Users.BatchInsert(ctx, rt, []*user{{Name: "ann", Email: "a1@x"}, {Name: "ann", Email: "a2@x"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Users.GetBy(ctx, rt, User_Name, "ann"); err == nil || !strings.Contains(err.Error(), "a lookup by name is not unique") {
+		t.Fatalf("GetBy(name) = %v; want it refused", err)
+	}
+
+	if _, err := Users.FindBy(ctx, rt, User_Name, "ann"); err == nil {
+		t.Fatal("FindBy(name): want it refused")
+	}
+
+	if _, err := Users.FetchBy(ctx, rt, User_Name, []string{"ann"}); err == nil {
+		t.Fatal("FetchBy(name): want it refused")
+	}
+
+	// The primary key is unique whatever the column: fixing it by EQ makes the
+	// lookup unique, while any other comparison does not.
+	if _, err := Users.GetBy(ctx, rt, User_Name, "ann", User_ID.EQ(Val(int64(1)))); err != nil {
+		t.Fatalf("GetBy(name, id = 1) = %v", err)
+	}
+
+	if _, err := Users.GetBy(ctx, rt, User_Name, "ann", User_ID.GT(Val(int64(0)))); err == nil {
+		t.Fatal("GetBy(name, id > 0): want it refused")
+	}
+}
+
+type event struct {
+	ID int64
+	At time.Time
+}
+
+var (
+	eventsHandle = NewTable[event, int64]("events")
+	Event_ID     = NewColumn(eventsHandle, "id", "id", func(r *event) *int64 { return &r.ID })
+	Event_At     = NewColumn(eventsHandle, "at", "at", func(r *event) *time.Time { return &r.At })
+	Events       = eventsHandle.Define(TableSpec[event, int64]{
+		Columns:       []BoundColumn[event]{Event_ID, Event_At},
+		PrimaryKey:    Event_ID,
+		AutoIncrement: true,
+		ColumnSpecs: []tsqdialect.ColumnSpec{
+			{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
+			{Name: "at", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindTime}},
+		},
+		Indexes: []IndexSpec{{Name: "ux_events_at", Columns: []string{"at"}, Unique: true}},
+	})
+)
+
+// TestFetchByATimeFindsTheStoredRow covers FetchBy by a time: the rows it read were
+// matched to the values asked for with Go's ==, which compares the zone, so a
+// value in another zone than the one read back was reported missing.
+func TestFetchByATimeFindsTheStoredRow(t *testing.T) {
+	ctx := context.Background()
+
+	rt, err := Open(ctx, "sqlite", filepath.Join(t.TempDir(), "events.db"), []Table{Events}, WithSchemaPolicy(SchemaPolicyCreateMissing))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() { _ = rt.Close() })
+
+	at := time.Date(2024, 1, 2, 3, 4, 5, 0, time.FixedZone("UTC+8", 8*3600))
+	if err := Events.Insert(ctx, rt, &event{At: at}); err != nil {
+		t.Fatal(err)
+	}
+
+	rows, err := Events.FetchBy(ctx, rt, Event_At, []time.Time{at})
+	if err != nil || len(rows) != 1 || !rows[0].At.Equal(at) {
+		t.Fatalf("FetchBy(at) = %v, %v", rows, err)
 	}
 }

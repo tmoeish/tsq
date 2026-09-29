@@ -993,6 +993,18 @@ func validateDatabaseFilledFields(data *genmodel.StructInfo) error {
 			if role, ok := managed[field.Name]; ok && role != "" {
 				return fmt.Errorf("field %s is %s, which TSQ writes itself; it cannot be %s", field.Name, role, column.Fill)
 			}
+
+			// NULL leaves a default column to the database, so a field that cannot
+			// hold NULL could never be written with its zero value (false, 0, ""):
+			// it read as unset and the default was stored instead.
+			if column.Fill == "default" && field.NullValue == "" {
+				return fmt.Errorf("field %s has default: but cannot hold NULL; make it *%s or sql.Null[%s], where nil leaves the column to the default and any other value is written",
+					field.Name, field.Type.TypeName, field.Type.TypeName)
+			}
+
+			if column.Default != "" && column.Generated != "" {
+				return fmt.Errorf("field %s has both default: and generated:; a generated column takes no default", field.Name)
+			}
 		}
 	}
 

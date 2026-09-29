@@ -5,8 +5,12 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"maps"
 	"reflect"
+	"slices"
+	"strings"
 	"sync"
+	"time"
 )
 
 // lazyQuery builds a query the first time it is needed and keeps it, so its
@@ -208,6 +212,10 @@ func oneBy[R any, K, T comparable](t *TableOf[R, K], col Column[R, T], where []C
 // byQuery returns the GetBy / FetchBy query of col: built once per scope and
 // cached when there are no extra conditions, whose values would differ per call.
 func (t *TableOf[R, K]) byQuery(col SQLColumn, list bool, where []Condition, build func() (*Query[R], error)) (*Query[R], error) {
+	if err := t.uniqueBy(col, where); err != nil {
+		return nil, err
+	}
+
 	if len(where) > 0 {
 		return build()
 	}
@@ -266,15 +274,19 @@ func fetchInOrder[R any, K, T comparable](
 	}
 
 	get := col.core().get
-	byValue := make(map[T]*R, len(rows))
+	byValue := make(map[any]*R, len(rows))
 
 	for _, row := range rows {
 		if v, ok := get(row).(T); ok {
-			byValue[v] = row
+			byValue[fetchKey(v)] = row
 		}
 	}
 
-	collated := reflect.TypeFor[T]().Kind() == reflect.String
+	// The database decides what matches: a collation for text, and for a time the
+	// instant, whatever the zone of the value passed; Go's == on those would call a
+	// stored row missing. A value not found by key is asked for on its own.
+	kind := reflect.TypeFor[T]().Kind()
+	collated := kind == reflect.String || kind == reflect.Struct
 
 	var (
 		one     *Query[R]
@@ -284,7 +296,7 @@ func fetchInOrder[R any, K, T comparable](
 	)
 
 	for _, v := range values {
-		row, ok := byValue[v]
+		row, ok := byValue[fetchKey(v)]
 		if ok {
 			ordered = append(ordered, row)
 			continue
@@ -316,7 +328,7 @@ func fetchInOrder[R any, K, T comparable](
 			break
 		}
 
-		byValue[v] = row
+		byValue[fetchKey(v)] = row
 		ordered = append(ordered, row)
 	}
 
@@ -325,4 +337,58 @@ func fetchInOrder[R any, K, T comparable](
 	}
 
 	return ordered, nil
+}
+
+// uniqueBy refuses a lookup by a column that does not identify one row: col,
+// with the columns where fixes by equality, has to cover the primary key or a
+// unique index. A lookup by anything else returned one arbitrary row of several,
+// or reported rows as missing, without an error.
+func (t *TableOf[R, K]) uniqueBy(col SQLColumn, where []Condition) error {
+	def := t.def
+	fixed := map[string]bool{col.core().name: true}
+
+	for _, cond := range where {
+		if pin := conditionInfo(cond).pins; pin != nil && pin.table == t.TableName() {
+			fixed[pin.column] = true
+		}
+	}
+
+	if def.primaryKey != nil && fixed[def.primaryKey.name] {
+		return nil
+	}
+
+	for _, index := range def.indexes {
+		if !index.Unique {
+			continue
+		}
+
+		// The live-row scope fixes an integer tombstone for every lookup.
+		covered := true
+
+		for _, name := range index.Columns {
+			if !fixed[name] && (name != def.managed.DeletedAt || !def.tombstoneIsZero || t.includeDeleted) {
+				covered = false
+				break
+			}
+		}
+
+		if covered {
+			return nil
+		}
+	}
+
+	names := slices.Sorted(maps.Keys(fixed))
+
+	return fmt.Errorf("%s: a lookup by %s is not unique; it needs the primary key or a unique index, with the other columns fixed by EQ in where. Query anything else with Select",
+		def.name, strings.Join(names, ", "))
+}
+
+// fetchKey is the key fetchInOrder matches a value by: a time is the instant, in
+// UTC at the microsecond the database keeps.
+func fetchKey(v any) any {
+	if t, ok := v.(time.Time); ok {
+		return t.UTC().Truncate(time.Microsecond)
+	}
+
+	return v
 }

@@ -408,6 +408,10 @@ func (c columnImpl[O, T]) BindList(values ...T) Arg { return c.ListParam().Bind(
 func (c exprImpl[T]) compare(op string, rhs exprInfo) Condition {
 	info := c.c.info.merge(rhs)
 
+	if op == "=" && c.c.plain && !isNilValue(c.c.table) && len(rhs.tables) == 0 && !rhs.aggregate {
+		info.pins = &columnKey{c.c.table.TableName(), c.c.name}
+	}
+
 	return newCondition(info.withSQL(sqlJoin(c.c.info.sql, sqlText(" "+op+" "), rhs.sql)))
 }
 
@@ -478,21 +482,26 @@ func (c exprImpl[T]) membership(op string, set ListOperand[T], negated bool) Con
 		return conditionError(errors.New("IN operand cannot be nil"))
 	}
 
-	// NotIn with no values matches every row, NULLs included, and does so with
-	// no subquery whose column type PostgreSQL would compare with the column's.
-	if negated {
-		switch set := any(set).(type) {
-		case ValueList[T]:
-			if len(set.vs) == 0 {
-				return newCondition(c.c.info.withSQL(sqlText("1 = 1")))
-			}
-		case ListParam[T]:
-			if set.spec != nil {
-				cond := c.compare(op, set.setOperand(negated)).condition()
-				guard := sqlParam(set.spec.derive(paramEmptyGuard))
+	// No values is a constant: In matches no row and NotIn every row, NULLs
+	// included. IN (NULL) alone is UNKNOWN rather than FALSE, so Not(col.In(empty))
+	// matched nothing; the empty guard makes both answers definite, and no subquery
+	// makes PostgreSQL compare its column type with the column's.
+	switch set := any(set).(type) {
+	case ValueList[T]:
+		if len(set.vs) == 0 {
+			return newCondition(c.c.info.withSQL(sqlText(map[bool]string{true: "1 = 1", false: "1 = 0"}[negated])))
+		}
+	case ListParam[T]:
+		if set.spec != nil {
+			operand := set.setOperand(negated)
+			cond := c.compare(op, operand).condition()
+			guard := sqlParam(set.spec.derive(map[bool]paramMode{true: paramEmptyAll, false: paramEmptyNone}[negated]))
 
-				return newCondition(cond.withSQL(sqlJoin(sqlText("("), cond.sql, sqlText(" OR "), guard, sqlText(")"))))
+			if !negated {
+				cond.inList = operand.inList
 			}
+
+			return newCondition(cond.withSQL(sqlJoin(sqlText("("), cond.sql, guard, sqlText(")"))))
 		}
 	}
 

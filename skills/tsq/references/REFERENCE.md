@@ -160,14 +160,17 @@ Rules:
 
 - `db:"col"` keeps the default DDL mapping for that Go field type
 - `string`, `sql.NullString`, `null.String`, and their type alias / custom string forms default to `VARCHAR(255)` when `size` is omitted
-- `int`, `uint`, and enum-like custom types built on them default to regular integer width; `int64` / `uint64` map to big-integer types
+- `int`, `uint`, and enum-like custom types built on them default to regular integer width; `int64` / `uint64` map to big-integer types. PostgreSQL has no unsigned types, so an unsigned field takes the next wider one there (`uint16` an `INTEGER`, `uint32` a `BIGINT`, `uint64` a `NUMERIC(20)`)
 - `db:"col,size:N"` sets an explicit string width
-- a `[]byte` field is a NOT NULL binary column, and an unset (nil) one is written as empty bytes;
-  `*[]byte` is the nullable form
+- a `[]byte` field (or a named byte-slice type such as `json.RawMessage`) is a NOT NULL binary
+  column, and an unset (nil) one is written as empty bytes; `sql.Null[[]byte]` is the nullable form
 - `db:"col,type:SQL_TYPE"` sets an explicit raw SQL type override for DDL generation and runtime schema metadata
 - `db:"col,default:SQL"` gives the column a DDL `DEFAULT SQL` **and** leaves it to the database when
-  the field is unset: an `INSERT` of such a row omits the column, and a single-row `Insert` reads the
-  value back into the field. A field the caller did set is written as usual
+  the field holds NULL: an `INSERT` of such a row omits the column, and a single-row `Insert` reads
+  the value back into the field. The field must be able to hold NULL (`*T`, `sql.Null[T]`, ...), and
+  `tsq gen` refuses `default:` on one that cannot: a zero value is a value, so `false` or `0` is
+  written, and only nil leaves the column to the default. `default:CURRENT_TIMESTAMP` on a time column
+  stores the current **UTC** time on every dialect, like every time TSQ writes
 - `db:"col,generated:SQL"` declares a column the database computes:
   `GENERATED ALWAYS AS (SQL) STORED` in the DDL, never written by `Insert`, `Update` or `Upsert`, and
   read back after a single-row `Insert`. `db:"col,generated"` without an expression says the same
@@ -268,7 +271,7 @@ The primary-key lookups are on the table itself, typed by the key:
 
 - `TableXxx.Get(ctx, db, id)` reads one row and fails with an error wrapping `sql.ErrNoRows` when there is none; `Find` returns `nil, nil` instead
 - `TableXxx.Fetch(ctx, db, ids...)` reads rows in the order given, for any number of keys (they are split to fit the bind parameter limit). A missing key fails the call with an error wrapping `sql.ErrNoRows`, so `errors.Is(err, sql.ErrNoRows)` tells "not there" from a database failure
-- `TableXxx.GetBy(ctx, db, col, value, conds...)`, `FindBy` and `TableXxx.FetchBy(ctx, db, col, values, conds...)` do the same for another unique column; the generated `GetByX` / `FindByX` / `FetchByX` call them. Without `conds` the query is built once and reused. Matching follows the database: on a case-insensitive column `"ADA"` finds the row holding `"Ada"`
+- `TableXxx.GetBy(ctx, db, col, value, conds...)`, `FindBy` and `TableXxx.FetchBy(ctx, db, col, values, conds...)` do the same for another unique column; the generated `GetByX` / `FindByX` / `FetchByX` call them. The column, together with the columns the `conds` fix with `EQ`, must cover the primary key or a unique index (the live-row scope counts as fixing an integer `deleted_at`); anything else is refused rather than answered with an arbitrary row, and is a query to write with `Select`. Without `conds` the query is built once and reused. Matching follows the database: on a case-insensitive column `"ADA"` finds the row holding `"Ada"`
 - `TableXxx.Query()` is the query over every row, with keyword search over the declared search columns: `TableXxx.Query().Page(ctx, db, paging, tsq.Keyword(q))`
 
 On a table that declares `deleted_at`, deleted rows are out of scope for **every** query and
@@ -307,7 +310,15 @@ changed it. A migration never runs a destructive statement for you:
   mistyped directive, look the same to the generator as removing it, so run it by hand only once the
   drop is meant. A comment that reads like a directive but is not one (`// tsq:table`, with a space)
   is reported too
-- indexes are dropped before the columns they name
+- indexes are dropped before the columns they name, and before any table's changes, since index
+  names are global on PostgreSQL and SQLite: an index moving to another table, or a renamed table
+  keeping its index names, does not collide with the old one
+- a column that becomes NOT NULL is filled for the rows holding NULL (with its type's zero value) when
+  SQLite rebuilds the table, so the copy cannot fail
+- a changed `generated:` expression is left to a migration you write, with a comment saying so
+- `tsq.json` holds the history the `.sql` files are rendered from: keep it in version control. `tsq gen`
+  refuses to run when the `.sql` files exist without it, rather than start the history over and lose
+  the changes since the last run
 - SQLite changes a column type, or adds a generated column, by rebuilding the table: it creates the
   new table, copies the rows, drops the old one and renames the new one, with foreign keys off. The
   copy cannot fail on a table with rows: a new NOT NULL column without a default gets its type's zero
@@ -346,6 +357,10 @@ func newCourseTable() CourseTable {
 	return c
 }
 ```
+
+A row type describes one table: `Define` refuses a second table (another name) over the same `R`,
+because a row read from one would be checked against the other's columns when it is saved. Give an
+archive or shard table its own type, such as `type OrderArchive Order`.
 
 `TableCourse` is the table's name, columns, key, managed columns, search columns, physical
 schema and indexes in one value, and it is what queries select from (`From(TableCourse)`) and
@@ -616,7 +631,7 @@ Rules:
 - the ordered column must belong to a table the query already selects from or joins
 - `Count()` counts the rows `List` returns: the count query drops `ORDER BY`, and a query with `Limit` / `Offset` is counted over the limited rows. It takes the same arguments as `List`
 - **do not combine builder-level paging with `query.Page(...)`**. `Page` appends its own `LIMIT`/`OFFSET`, and its own `ORDER BY` when `Paging.OrderBy` is set, so a builder-level clause would be emitted a second time rather than replaced. `Page` returns an error instead of guessing. A builder `OrderBy` combined with an empty `Paging.OrderBy` is fine: the builder's ordering stands and `Page` only adds the window
-- on a set operation (`Union`, ...) an `OrderBy` term refers to the output column by name, which is the only form every dialect accepts there. The term must be an output column: a selected projection (`upper := tsq.MapInto(tsq.Upper(col), ...)`, then `OrderBy(upper.Asc())`) or a column selected under that name; `Build()` refuses an expression that is not selected
+- on a set operation (`Union`, ...) an `OrderBy` term refers to the output column by name, which is the only form every dialect accepts there. The term must be an output column: a selected projection (`upper := tsq.MapInto(tsq.Upper(col), ...)`, then `OrderBy(upper.Asc())`) or a column selected under that name (the output of that name has to be that column, not an expression derived from it, which carries its name); `Build()` refuses an expression that is not selected
 - a select item that is not a plain column is written `AS` its name (the name of the column it is derived from), so a CTE and a set operation's `ORDER BY` find it by that name on every dialect
 - a set operation whose operand is itself combined (`a.Union(b.Union(c))`) groups the operand as a derived table, which every dialect accepts
 - every operand's rows are read through the first operand's columns, by position, so each operand must select into the same fields in the same order; `Build()` refuses an operand that selects them in another order
@@ -1069,6 +1084,8 @@ err = database.TableLearner.BatchUpsert(ctx, runtime, learners,
 - an update writes those columns except the key, the primary key and `created_at`, refreshes
   `updated_at`, and increments `version` **without checking it**. The row written is always live:
   `deleted_at` is cleared, so upserting a deleted row by primary key restores it
+- by a unique index other than the primary key, a row that conflicts takes the primary key of the row
+  it updated, whether the key is generated or assigned by the caller (`BatchUpsert` too)
 - `Upsert` reads back the primary key (also of an updated row), `version`, `created_at` and the
   columns the database filled, so the row can go straight into `Update`. `BatchUpsert` reads
   nothing back
@@ -1416,7 +1433,8 @@ The builder is **stage-based**: each call returns a different concrete type that
 
 An empty or nil list never drops the filter:
 
-- `In(listParam)` bound to no values matches nothing; so does `In(tsq.Vals[int64]())`
+- `In(listParam)` bound to no values matches nothing; so does `In(tsq.Vals[int64]())`, and
+  `tsq.Not(...)` of either matches everything
 - `NotIn(listParam)` bound to no values matches everything; so does `NotIn(tsq.Vals[int64]())`
 
 ### Stale generated files

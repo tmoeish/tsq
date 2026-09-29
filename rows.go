@@ -619,6 +619,23 @@ func (s *fieldSnapshot[R]) restore(written map[*R]bool) {
 }
 
 // isUnset reports whether a managed timestamp field holds no value yet.
+// holdsNull reports whether v, a field that can hold NULL, holds it: a nil pointer,
+// or a nullable type whose Value is nil. A column with a database default is left
+// to the database only then; any value the field holds, false and 0 included, is
+// written.
+func holdsNull(v reflect.Value) bool {
+	if v.Kind() == reflect.Pointer {
+		return v.IsNil()
+	}
+
+	if valuer, ok := reflect.TypeAssert[driver.Valuer](v); ok {
+		value, err := valuer.Value()
+		return err == nil && value == nil
+	}
+
+	return false
+}
+
 func isUnset(v reflect.Value) bool {
 	if v.IsZero() {
 		return true
@@ -749,7 +766,7 @@ func (t *TableOf[R, K]) insertColumns(def *tableDef, row *R) []*columnCore {
 		switch {
 		case col == def.primaryKey && def.autoIncrement && field(row, col).IsZero():
 		case col.fill == tsqdialect.FillGenerated:
-		case col.fill == tsqdialect.FillDefault && isUnset(field(row, col)):
+		case col.fill == tsqdialect.FillDefault && holdsNull(field(row, col)):
 		default:
 			cols = append(cols, col)
 		}
@@ -780,7 +797,7 @@ func (t *TableOf[R, K]) databaseFilled(def *tableDef, row *R) []*columnCore {
 			continue
 		}
 
-		if col.fill == tsqdialect.FillGenerated || (col.fill == tsqdialect.FillDefault && isUnset(field(row, col))) {
+		if col.fill == tsqdialect.FillGenerated || (col.fill == tsqdialect.FillDefault && holdsNull(field(row, col))) {
 			cols = append(cols, col)
 		}
 	}
@@ -1312,21 +1329,13 @@ func (t *TableOf[R, K]) updateChunk(ctx context.Context, db Executor, scope exec
 // reports none. Only rows that no longer exist are an error then.
 func (t *TableOf[R, K]) updateMismatch(ctx context.Context, db Executor, scope execScope, def *tableDef, version *columnCore, cols []*columnCore, rows []*R, written *[]bool) func(int64, int64) error {
 	return func(expected, actual int64) error {
-		compared := make([]*columnCore, 0, len(cols)+1)
+		// Every written column is compared, times included: another writer that
+		// changed only a time column also moves the version on, and leaving times
+		// out counted its row as ours, so the next Update overwrote its change.
+		// Times compare within a microsecond, the finest precision stored.
+		var compared []*columnCore
 		if version != nil {
-			compared = append(compared, version)
-		}
-
-		// Times are left out: a database may store one at a coarser precision than
-		// the time that was bound (MySQL DATETIME, PostgreSQL microseconds).
-		for _, col := range cols {
-			if !isTimeField(field(new(R), col)) {
-				compared = append(compared, col)
-			}
-		}
-
-		if version == nil {
-			compared = nil
+			compared = append([]*columnCore{version}, cols...)
 		}
 
 		stored, err := t.readBack(ctx, db, scope, def, compared, rows, true)
@@ -1348,7 +1357,7 @@ func (t *TableOf[R, K]) updateMismatch(ctx context.Context, db Executor, scope e
 					want = next
 				}
 
-				if done[i] && keyText(values[j].Interface()) != keyText(want.Interface()) {
+				if done[i] && !sameStored(values[j].Interface(), want.Interface()) {
 					done[i] = false
 				}
 			}
@@ -1790,6 +1799,49 @@ func updateColumn(def *tableDef, col SQLColumn, writable func(*columnCore) bool)
 
 // isTimeField reports a field that holds a time: time.Time, a pointer to one, or
 // a nullable wrapper around one (sql.NullTime, sql.Null[time.Time], null.Time).
+// sameStored reports whether a value read back is the value that was written.
+// Times are equal within a microsecond: the database keeps at most that, rounding
+// (MySQL) or truncating a bound time with nanoseconds.
+func sameStored(stored, written any) bool {
+	a, aTime := timeValue(stored)
+	b, bTime := timeValue(written)
+
+	if aTime || bTime {
+		if a == nil || b == nil {
+			return a == nil && b == nil
+		}
+
+		return a.Sub(*b).Abs() < time.Microsecond
+	}
+
+	return keyText(stored) == keyText(written)
+}
+
+// timeValue reads a time out of a time field of any form (time.Time, *time.Time,
+// sql.NullTime, sql.Null[time.Time], ...); nil is NULL. It reports false for a
+// value that is not a time.
+func timeValue(v any) (*time.Time, bool) {
+	switch v := v.(type) {
+	case time.Time:
+		return &v, true
+	case *time.Time:
+		return v, true
+	case driver.Valuer:
+		value, err := v.Value()
+		if err != nil {
+			return nil, false
+		}
+
+		if t, ok := value.(time.Time); ok {
+			return &t, true
+		}
+
+		return nil, value == nil && isTimeField(reflect.ValueOf(v))
+	}
+
+	return nil, false
+}
+
 func isTimeField(v reflect.Value) bool {
 	t := v.Type()
 	if t.Kind() == reflect.Pointer {

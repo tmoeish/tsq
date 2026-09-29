@@ -108,9 +108,16 @@ func TestIndexPolicyChecksDeclaredIndexes(t *testing.T) {
 				}
 			}
 
-			table, _ := newStrictMockTable(tt.table, tt.columns...)
+			// A row type describes one table, so orgs has its own.
+			var declared Table
+			if tt.table == "orgs" {
+				declared = wideTableOf(tt.table, tt.columns, nil, []IndexSpec{tt.index}, func(r *orgsRow) *[16]any { return &r.Fields })
+			} else {
+				table, _ := newStrictMockTable(tt.table, tt.columns...)
+				declared = registered(table, nil, tt.index)
+			}
 
-			rt, err := Open(context.Background(), "sqlite", dsn, []Table{registered(table, nil, tt.index)}, WithIndexPolicy(SchemaPolicyCreateMissing))
+			rt, err := Open(context.Background(), "sqlite", dsn, []Table{declared}, WithIndexPolicy(SchemaPolicyCreateMissing))
 			if rt != nil {
 				_ = rt.Close()
 			}

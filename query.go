@@ -305,7 +305,8 @@ func (q *Query[O]) ListIn[T comparable](ctx context.Context, db Executor, param 
 		uses := 0
 
 		for _, c := range stmt.chunks {
-			if c.param != nil && c.param.root() == param.spec {
+			// The empty-list guard of the same IN is not another use.
+			if c.param != nil && c.param.root() == param.spec && c.param.mode != paramEmptyNone {
 				uses++
 			}
 		}

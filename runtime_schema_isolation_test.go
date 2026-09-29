@@ -51,7 +51,7 @@ func TestSchemaPoliciesNeverDropAnotherRuntimesTables(t *testing.T) {
 			ctx := context.Background()
 
 			first, err := Open(ctx, "sqlite", dsn,
-				[]Table{namedTable("service_a")},
+				[]Table{namedTableOf("service_a", func(r *serviceARow) (*int64, *string) { return &r.ID, &r.Name })},
 				WithTablePolicy(policy), WithIndexPolicy(policy))
 			if err != nil {
 				t.Fatalf("start first runtime: %v", err)
@@ -66,7 +66,7 @@ func TestSchemaPoliciesNeverDropAnotherRuntimesTables(t *testing.T) {
 			}
 
 			second, err := Open(ctx, "sqlite", dsn,
-				[]Table{namedTable("service_b")},
+				[]Table{namedTableOf("service_b", func(r *serviceBRow) (*int64, *string) { return &r.ID, &r.Name })},
 				WithTablePolicy(policy), WithIndexPolicy(policy))
 			if err != nil {
 				t.Fatalf("start second runtime: %v", err)
@@ -86,7 +86,7 @@ func TestSchemaPoliciesNeverDropAnotherRuntimesTables(t *testing.T) {
 
 			// Restarting the first one must not undo the second one either.
 			again, err := Open(ctx, "sqlite", dsn,
-				[]Table{namedTable("service_a")},
+				[]Table{namedTableOf("service_a", func(r *serviceARow) (*int64, *string) { return &r.ID, &r.Name })},
 				WithTablePolicy(policy), WithIndexPolicy(policy))
 			if err != nil {
 				t.Fatalf("restart first runtime: %v", err)
@@ -111,7 +111,7 @@ func TestNoManagedRegistryTableIsCreated(t *testing.T) {
 	dsn := sharedSQLiteDSN(t)
 
 	runtime, err := Open(context.Background(), "sqlite", dsn,
-		[]Table{namedTable("service_a")},
+		[]Table{namedTableOf("service_a", func(r *serviceARow) (*int64, *string) { return &r.ID, &r.Name })},
 		WithTablePolicy(SchemaPolicyReconcile), WithIndexPolicy(SchemaPolicyReconcile))
 	if err != nil {
 		t.Fatalf("start runtime: %v", err)

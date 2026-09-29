@@ -51,6 +51,8 @@
 - 它们渲染 `renderMode{single: true}`，由 `writeTail` 加 `LIMIT 1`——位置天然在行锁之前。
   构建器自己设了 `Limit` 时不再补。
 - `Exists` 与 `Find` 共用这条语句，给单行读取加的边界会同时改变 `Exists`。
+- 按唯一列读（`GetBy` / `FindBy` / `FetchBy`）经 `uniqueBy` 检查：列加上 `where` 里 `col = 值`（`exprInfo.pins`）固定的列要
+  覆盖主键或唯一索引。`FetchBy` 取回的行按 `fetchKey` 对应值（时间按 UTC 瞬间），对不上的文本和结构体值逐个再查一次。
 
 ## 改了 `Page()` 或构建器级分页
 
@@ -80,7 +82,9 @@
 
 - 分块只在"结果是各块并集"时成立：参数只用一次、是 `Where` 顶层的 `col.In(param)`、查询逐行过滤。
   `exprInfo.inList` 只由 `ListParam.setOperand`（非 NOT IN）设置，并且**故意不在 `merge` 里传递**——
-  被 `And` / `Or` / `Not` 包住的 IN 不能拆。给 `exprInfo` 加字段时别顺手把它加进 `merge`。
+  被 `And` / `Or` / `Not` 包住的 IN 不能拆。给 `exprInfo` 加字段时别顺手把它加进 `merge`（`pins` 同理）。
+- 列表参数的 `IN` / `NOT IN` 都带一个派生守卫参数（`paramEmptyNone` / `paramEmptyAll`），空列表时补成确定的真假，
+  否则什么都不写。`ListIn` 数参数用了几次时跳过守卫；新增一种派生参数也要想它算不算"一次使用"。
 - `TestListInSplitsListsBeyondTheBindLimit` 在 `-race` 下跳过（SQLite 绑 4 万个参数太慢），MySQL/PG
   的大列表由 `TestIntegrationUpsert` 覆盖。
 

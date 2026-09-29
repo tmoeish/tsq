@@ -201,12 +201,23 @@ func (t *TableOf[R, K]) define(spec TableSpec[R, K], deletedAt BoundColumn[R]) {
 	d.defined = true
 	d.byName = make(map[string]*columnCore, len(spec.Columns))
 
-	// A query that reads R, whatever it selects from, is checked against this
-	// table for the columns it leaves out (partialColumns).
-	rowTables.LoadOrStore(reflect.TypeFor[R](), d)
-
 	fail := func(format string, args ...any) {
 		d.err = errors.Join(d.err, fmt.Errorf("table %s: "+format, append([]any{d.name}, args...)...))
+	}
+
+	// A query that reads R, whatever it selects from, is checked against this
+	// table for the columns it leaves out (partialColumns). A row does not know
+	// which table it came from, so two tables over one R would check a row of one
+	// against the other's columns: an Update of a narrow read then zeroed the rest.
+	// A new definition of the same table replaces the old one.
+	rowType := reflect.TypeFor[R]()
+	if other, loaded := rowTables.LoadOrStore(rowType, d); loaded {
+		if name := other.(*tableDef).name; name != d.name {
+			fail("row type %s already describes table %s; give each table its own row type, for example type %sArchive %s",
+				rowType, name, rowType.Name(), rowType.Name())
+		} else {
+			rowTables.Store(rowType, d)
+		}
 	}
 
 	own := func(role string, col SQLColumn) *columnCore {
@@ -240,6 +251,13 @@ func (t *TableOf[R, K]) define(spec TableSpec[R, K], deletedAt BoundColumn[R]) {
 		}
 
 		core.fill = fill[core.name]
+
+		// The database fills a default column when the field holds NULL, so a field
+		// that cannot hold it could never be written with its zero value (false, 0):
+		// that was read as "unset" and the default stored instead.
+		if core.fill == tsqdialect.FillDefault && !core.nullable {
+			fail("column %s has a database default, but its field cannot hold NULL; make it a NullColumn (a *T or sql.Null[T] field), where NULL leaves the column to the default", core.name)
+		}
 
 		if _, dup := d.byName[core.name]; dup {
 			fail("column %s is declared twice", core.name)

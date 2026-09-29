@@ -45,13 +45,14 @@ func TestListParamExpandsAndKeepsEmptyListsExplicit(t *testing.T) {
 	notIn := Select(User_ID).From(Users.WithDeleted()).Where(User_ID.NotIn(User_ID.ListParam())).MustBuild()
 
 	sql, args := sqlOf(t, in, onPostgres, User_ID.BindList(4, 5))
-	if !strings.HasSuffix(sql, `"users"."id" IN ($1, $2)`) || len(args) != 2 {
+	if !strings.HasSuffix(sql, `("users"."id" IN ($1, $2))`) || len(args) != 2 {
 		t.Fatalf("IN list rendered %s %v", sql, args)
 	}
 
 	// An empty IN matches nothing and an empty NOT IN matches everything; neither
-	// drops the predicate.
-	if sql, _ := sqlOf(t, in, onSQLite, User_ID.BindList()); !strings.HasSuffix(sql, `IN (NULL)`) {
+	// drops the predicate. IN (NULL) alone is UNKNOWN, which Not would keep UNKNOWN,
+	// so the guard makes it FALSE.
+	if sql, _ := sqlOf(t, in, onSQLite, User_ID.BindList()); !strings.HasSuffix(sql, `("users"."id" IN (NULL) AND 1 = 0)`) {
 		t.Fatalf("empty IN rendered %s", sql)
 	}
 
@@ -61,7 +62,7 @@ func TestListParamExpandsAndKeepsEmptyListsExplicit(t *testing.T) {
 		t.Fatalf("empty NOT IN rendered %s", sql)
 	}
 
-	if sql, args := sqlOf(t, notIn, onPostgres, User_ID.BindList(4)); !strings.HasSuffix(sql, `("users"."id" NOT IN ($1) OR 1 = 0)`) || len(args) != 1 {
+	if sql, args := sqlOf(t, notIn, onPostgres, User_ID.BindList(4)); !strings.HasSuffix(sql, `("users"."id" NOT IN ($1))`) || len(args) != 1 {
 		t.Fatalf("NOT IN list rendered %s %v", sql, args)
 	}
 }
@@ -127,7 +128,7 @@ func TestDatePartsAreSpelledPerDialect(t *testing.T) {
 
 func TestIdentifiersAreValidatedForTheDialect(t *testing.T) {
 	long := firstRejectedIdentifier(t, sqld.PostgresDialect{})
-	table := namedTable(long)
+	table := namedTableOf(long, func(r *longNamedRow) (*int64, *string) { return &r.ID, &r.Name })
 
 	q := Select(table.Columns()...).From(table).MustBuild()
 	if _, _, err := q.SQL(onPostgres); err == nil {

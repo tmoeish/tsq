@@ -60,6 +60,8 @@ SQL 标准和 MySQL / PostgreSQL 让 `INTERSECT` 比 `UNION` / `EXCEPT` 结合�
 也和嵌套写法 `a.Union(b.Intersect(c))` 各表达一种意思，不需要新 API。`regroupAt` 只在"`INTERSECT` 前面有
 `UNION` / `EXCEPT`"时把前缀包成派生表，其余形态照旧平铺。**否掉"拒绝混用"**：那让一个标准的查询写不出来。
 
+空 `In` 同理（2026-09-29）：`IN (NULL)` 是 UNKNOWN，`Not(col.In(空))` 因此零行；现在空列表由派生的守卫参数补成确定的 FALSE / TRUE，
+非空时守卫不渲染任何东西。`GetBy` 类查找要求唯一靠条件上的 `pins`（`col = 值`，像 `inList` 一样不合并、`Not` 清掉）。
 空 `NotIn` 同理只能交给引擎验证：`NOT IN (SELECT 1 WHERE 1 = 0)` 的渲染断言全绿，PostgreSQL 在 varchar 列上
 比较 `varchar = integer` 报错。换成 `(col NOT IN (NULL) OR <守卫>)`：`NULL` 字面量能适配任何列类型，守卫在绑定时
 按列表空否写 `1 = 1` / `1 = 0`。

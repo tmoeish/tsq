@@ -20,6 +20,9 @@ type exprInfo struct {
 	// deliberately not merged: under AND, OR or NOT the condition is no longer one
 	// a query can be split on.
 	inList *paramSpec
+	// pins is the column of a col = value condition, which a lookup counts as fixed
+	// when it checks the key it reads by is unique. Like inList it is not merged.
+	pins *columnKey
 	// bare are the columns the expression reads outside any aggregate, which a
 	// grouped query must group (checkGrouping).
 	bare []columnKey
@@ -173,6 +176,7 @@ func Not(cond Condition) Condition {
 	// NOT (col IN (list)) is not a condition ListIn can split: each chunk would
 	// match the rows the other chunks exclude.
 	info.inList = nil
+	info.pins = nil
 
 	return newCondition(info.withSQL(sqlJoin(sqlText("NOT ("), info.sql, sqlText(")"))))
 }
