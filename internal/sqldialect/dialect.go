@@ -110,6 +110,9 @@ type Dialect interface {
 	// ReturningClause renders the clause that returns the generated key column after an
 	// INSERT, or "" when the key comes from LastInsertId instead.
 	ReturningClause(col string) string
+	// Returning renders the clause that reads cols back from the one row a
+	// statement wrote, or "" when the engine has no RETURNING (MySQL).
+	Returning(cols ...string) string
 	// ValidateIdentifier reports whether identifier is valid and within the length limit.
 	ValidateIdentifier(identifier string) error
 	// SupportsCapability reports whether the dialect supports capability.

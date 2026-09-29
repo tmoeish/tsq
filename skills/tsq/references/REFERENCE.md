@@ -174,7 +174,7 @@ Rules:
 - `db:"col,type:SQL_TYPE"` sets an explicit raw SQL type override for DDL generation and runtime schema metadata
 - `db:"col,default:SQL"` gives the column a DDL `DEFAULT SQL` **and** leaves it to the database when
   the field holds NULL: an `INSERT` of such a row omits the column, and a single-row `Insert` reads
-  the value back into the field. The field must be able to hold NULL (`*T`, `sql.Null[T]`, ...), and
+  the value back into the field (with `RETURNING` in the `INSERT` itself on PostgreSQL and SQLite). The field must be able to hold NULL (`*T`, `sql.Null[T]`, ...), and
   `tsq gen` refuses `default:` on one that cannot: a zero value is a value, so `false` or `0` is
   written, and only nil leaves the column to the default. `default:CURRENT_TIMESTAMP` on a time column
   stores the current **UTC** time on every dialect, like every time TSQ writes
@@ -186,8 +186,8 @@ Rules:
 - a database-filled column cannot be the primary key or a managed column (`version`, `created_at`,
   `updated_at`, `deleted_at`): those are TSQ's to write, and `tsq gen` refuses it
 - a batch insert does not read database-filled values back; that would be one query per row. Reload
-  the rows when the values matter. Rows that leave different `default:` columns to the database are
-  written by different statements, so the keys they get do not follow their order in the slice
+  the rows when the values matter. Rows that leave different `default:` columns to the database go in
+  different statements; only neighbouring rows share one, so generated keys follow the slice's order
 - a generated column is created with the table and never altered afterwards: every dialect reports
   it differently, so the schema policies leave it alone. Adding one to a table that already exists
   is a migration
@@ -260,8 +260,11 @@ From table structs, TSQ commonly generates:
   embedded): `TableXxx.ID`, `TableXxx.Name`. A NOT NULL field is a `tsq.Column[Xxx, T]` and a
   field that can hold NULL a `tsq.NullColumn[Xxx, T]` (see "Nullable columns" in section 6)
 - `TableXxx`, the table value. `TableXxx.Columns()` lists every column, for `tsq.Select`
-- `TableXxx.As(alias)`, and `TableXxx.WithDeleted()` on a soft-delete table, which return an
-  `XxxTable` with every column bound to the alias or scope
+- `TableXxx.As(alias)`, which returns an `XxxTable` with every column bound to the alias, and
+  `TableXxx.WithDeleted()` on a soft-delete table, which returns an `XxxTableWithDeleted`: the same
+  columns, `As` and full-text indexes, and no `GetByX` / `FindByX` / `FetchByX`. A soft-delete
+  table's unique indexes include `deleted_at`, so a value is unique only among live rows; a lookup
+  by it over deleted rows does not compile. Read deleted rows by primary key or with `Select`
 - per unique index, `TableXxx.GetByEmail(ctx, db, email)` (one row, `sql.ErrNoRows` when there is
   none), `TableXxx.FindByEmail(ctx, db, email)` (`nil, nil` when there is none) and
   `TableXxx.FetchByEmail(ctx, db, emails...)`; a composite index `A,B` gives
@@ -446,7 +449,9 @@ Semantics:
 - the referenced field must exist on the Go struct
 - the field must be a **non-pointer integer type**
 - supported practical choices are integer fields such as `int`, `int32`, `int64`, `uint`, `uint32`, `uint64`; do not use string, time, pointer, slice, or nullable wrapper types
-- DDL generation uses default `1` for a non-null integer version column
+- DDL generation uses default `1` for a non-null integer version column, and `Insert` / `Upsert`
+  start a row whose version is zero at `1` too, so rows TSQ inserts and rows inserted by hand
+  agree; a version the caller set (an import) is kept
 - `Update(...)` matches rows by primary key **and** current version
 - successful updates increment the database version by `+1`
 - successful updates also increment the in-memory struct field
@@ -661,7 +666,7 @@ Rules:
 - a set operation whose operand is itself combined (`a.Union(b.Union(c))`) groups the operand as a derived table, which every dialect accepts
 - every operand's rows are read through the first operand's columns, by position, so each operand must select into the same fields in the same order; `Build()` refuses an operand that selects them in another order
 - a chain is evaluated left to right, as it reads: `a.Union(b).Intersect(c)` is `(a ∪ b) ∩ c` on every dialect. SQL itself binds `INTERSECT` tighter than `UNION` / `EXCEPT` on MySQL and PostgreSQL but not on SQLite, so TSQ groups the part before such an `INTERSECT` as a derived table. For `a ∪ (b ∩ c)`, pass the combined operand: `a.Union(b.Intersect(c))`
-- a select list that names one column twice (`users.id` and `orders.id`) keeps the first name and writes the later one under a generated name, so the query can still be counted or grouped as a derived table; rows are read by position, so nothing changes for the caller
+- a select list that names one column twice (`users.id` and `orders.id`) keeps the first name and writes the later one under another: a column of another table as `table_column` (`orders_id`), anything else as `name_2`, `name_3`. The query can still be counted or grouped as a derived table; rows are read by position, so nothing changes for the caller
 - a set operation's operands cannot have their own `OrderBy`, `Limit`, `Offset` or lock: each operand is written as a bare `SELECT`, so `Build()` refuses them rather than dropping the clause. Order and limit the combined result instead
 - where the ordered value can be NULL (a `NullColumn`, an outer-joined column, ...), NULLs sort as
   the **smallest value on every dialect**: first when ascending, last when descending. MySQL and
@@ -1023,8 +1028,10 @@ Reads are methods on the built `*Query[O]`, and on every complete stage, which b
 - `query.SQL(dialect, args...)` → the SQL and arguments the query would run with, for logging and tests
 
 `Get`, `Find` and `Exists` read at most one row: they add `LIMIT 1` unless the builder
-set its own limit. `Exists` does not count, and does not read the row either, so a selected value
-that could be `NULL` in a field that cannot hold it is no reason for it to fail.
+set its own limit. `Exists` does not count, and does not read the row either: it selects `1`
+instead of the columns (a grouped, `DISTINCT` or limited query keeps its shape, since that decides
+its rows), so a selected value that could be `NULL` in a field that cannot hold it is no reason for
+it to fail.
 
 A query is rendered for a dialect the first time it runs on one, and the rendering is cached.
 Build package-level queries once and reuse them.
@@ -1092,16 +1099,24 @@ needsDeletedAtOrHardDeleteFrom`, and `tsq.HardDeleteFrom` is the statement to wr
 
 ### Upserting rows
 
-`Upsert` inserts the row, or updates the row that already has the same key, in one statement:
+`Upsert` inserts the row, or updates the row that already has the same key, in one statement.
+`tsq.OnConflict(key...)` names the key, and `.Update(cols...)` the columns a conflicting row gets:
 
 ```go
 learner := &database.Learner{Name: "Ada", Email: "ada@example.com"}
-err := database.TableLearner.Upsert(ctx, runtime, learner, database.TableLearner.Email)
+err := database.TableLearner.Upsert(ctx, runtime, learner)                 // by primary key, whole row
+err = database.TableLearner.Upsert(ctx, runtime, learner,
+	tsq.OnConflict(database.TableLearner.Email))                              // by a unique index
+err = database.TableLearner.Upsert(ctx, runtime, learner,
+	tsq.OnConflict(database.TableLearner.Email).Update(database.TableLearner.Name)) // only name on conflict
 
 err = database.TableLearner.BatchUpsert(ctx, runtime, learners,
-	[]tsq.BoundColumn[database.Learner]{database.TableLearner.Email}, tsq.WithBatchSize(500))
+	tsq.OnConflict(database.TableLearner.Email), tsq.WithBatchSize(500))
 ```
 
+- the columns are typed by the table's row, so a key or update column of another table does not
+  compile. `BatchUpsert` takes the `Conflict` as a value: the zero `tsq.Conflict[R]{}` matches by
+  primary key and writes the whole row
 - the key is the primary key when omitted, otherwise exactly the columns of one unique index. On a
   table with an integer `deleted_at`, a unique index that includes `deleted_at` is named by its
   other columns and matches live rows only; with a nullable `deleted_at` it never matches, so
@@ -1112,10 +1127,16 @@ err = database.TableLearner.BatchUpsert(ctx, runtime, learners,
 - an update writes those columns except the key, the primary key and `created_at`, refreshes
   `updated_at`, and increments `version` **without checking it**. The row written is always live:
   `deleted_at` is cleared, so upserting a deleted row by primary key restores it
+- without `Update` a nil field of the row writes NULL over the stored value. `Update(cols...)`
+  writes only those columns over a conflicting row (plus `updated_at`, `version` and the cleared
+  `deleted_at`, as a row `Update(ctx, db, row, cols...)` does); a row that conflicts with nothing is
+  inserted whole. Naming the key, the primary key, `created_at`, a managed or a `generated:` column
+  is refused, since the statement would not write it as named
 - by a unique index other than the primary key, a row that conflicts takes the primary key of the row
   it updated, whether the key is generated or assigned by the caller (`BatchUpsert` too)
 - `Upsert` reads back the primary key (also of an updated row), `version`, `created_at` and the
-  columns the database filled, so the row can go straight into `Update`. `BatchUpsert` reads
+  columns the database filled, so the row can go straight into `Update`: with `RETURNING` in the
+  statement itself on PostgreSQL and SQLite, with a second query on MySQL. `BatchUpsert` reads
   nothing back
 - two rows with the same key in one `BatchUpsert` are an error on every dialect (PostgreSQL
   cannot update one row twice in a statement). Keys compare as the statement writes them: by
@@ -1191,7 +1212,7 @@ Rules:
 - **TSQ never drops a table.** No policy does, so several services can share one database and bring up their own tables independently. Removing a table that is no longer declared is a migration, not a boot-time decision: a runtime knows only its own declarations and cannot tell "this table is obsolete" from "this table belongs to someone else". Columns are different: `SchemaPolicyReconcile` drops a column the table no longer declares, with its data. It is the prototype setting, where the database follows the code; production keeps `Manual`
 - schema policies log the mode they are in at info level; `SchemaPolicyManual` (the default) is a normal production choice, not a warning
 - `tsq.WithLogger(l)` receives bootstrap DDL and execution-time warnings (for example a skipped batch-insert ID assignment); without it that is `slog.Default()`. A nil logger, tracer, runtime option, batch option or transaction option is an error, never a way to ask for the default
-- `tsq.WithSQLLogging()` logs every rendered statement and its bound arguments through the logger at debug level. It is off by default and logs arguments verbatim, so leave it off wherever query parameters carry secrets or personal data. Only executors that belong to a runtime log; a `WrapExecutor` result has no runtime to read the setting from
+- `tsq.WithSQLLogging()` logs every rendered statement and its bound arguments through the logger at debug level: the message names the operation as `TraceInfo.Op` does (a hard delete is `hard_delete`), with the attributes `sql` and `args`. It is off by default and logs arguments verbatim, so leave it off wherever query parameters carry secrets or personal data. Only executors that belong to a runtime log; a `WrapExecutor` result has no runtime to read the setting from
 
 ### Transactions
 
@@ -1300,6 +1321,7 @@ does not fit does not compile:
 | `tsq.Max`, `tsq.Min` | any column | the column's type |
 | `tsq.Sum`, `tsq.Ceil`, `tsq.Floor`, `tsq.Abs`, `tsq.Round(col, digits)` | `tsq.Number`: integer and float kinds (a `NullColumn[O, int64]` is numeric too) | the column's type |
 | `tsq.Avg` | `tsq.Number` | `float64` |
+| `tsq.Add(a, b)`, `tsq.Sub`, `tsq.Mul`, `tsq.Div`: `b` is a column, `Param`, `tsq.Val` or subquery of the same type | `tsq.Number` | the column's type |
 | `tsq.Upper`, `tsq.Lower`, `tsq.Trim`, `tsq.Substring(col, start, length)` | `tsq.Text`: string kinds, nullable ones included | the column's type |
 | `tsq.Length` | `tsq.Text` | `int64` |
 | `tsq.Date` | `time.Time` columns, nullable or not | `string` (`'YYYY-MM-DD'`) |
@@ -1325,6 +1347,10 @@ tsq.Select(
 Each runs on all three dialects and returns the same value; TSQ spells it per dialect where they
 differ:
 
+- `Div` of integers truncates toward zero everywhere (`DIV` on MySQL, whose `/` returns a decimal).
+  Division by zero is NULL on MySQL and SQLite and an error on PostgreSQL, so a quotient whose
+  divisor is not a non-zero `tsq.Val` can be NULL: read it with `MapIntoNull` / `SelectNullValue`,
+  or `Coalesce` it
 - `Length` counts characters (MySQL's `LENGTH` counts bytes, so it is `CHAR_LENGTH` there)
 - `Substring` uses a 1-based start
 - `Round` works on floating-point columns on PostgreSQL too (it rounds through `NUMERIC`)

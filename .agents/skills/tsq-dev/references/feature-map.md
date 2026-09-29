@@ -15,6 +15,7 @@
 | 单值查询 `SelectValue` / `SelectNullValue` | `querybuilder.go`（`exec_test.go` 的 `TestSelectValueReadsOneExpression`） |
 | 可空性推导（`exprInfo.null` / `nullness`）、外连接可选表、读行前检查（`checkScanTargets`） | `expr.go`、`query_render.go`、`query.go`（`nullable_test.go`；三方言真跑在 `TestIntegrationNullableColumns`） |
 | 固定值 `Val` / `Vals`（从不为 NULL，NULL 用 `SetNull` 写；`Value` 和 `Param` 共同实现模式函数的 `Pattern[S]`） | `values.go`、`param.go`（`values_test.go`；模式转义三方言真跑在 `TestIntegrationKeywordSearchEscapesWildcards`） |
+| 算术 `Add` / `Sub` / `Mul` / `Div`（MySQL 整数除法写 `DIV`） | `arith.go`（`arith_test.go`；三方言在 `TestIntegrationColumnFunctionsArePortable`） |
 | 包级类型约束函数（`Text` / `Number`、聚合、字符串、数值、日期、`Coalesce` / `NullIf`、`StartsWith` 等模式函数、`Searchable`） | `functions.go`（`compilefail_test.go` 守约束；`internal/integration` 的 `TestIntegrationColumnFunctionsArePortable` 三方言真跑） |
 | `Condition`、`And` / `Or` / `Not`、`Exists` / `NotExists`、`exprInfo` | `expr.go` |
 | `CASE` | `case.go` |
@@ -33,7 +34,7 @@
 | 按主键 / 唯一列读取（`Get` / `Find` / `Fetch` / `GetBy` / `FindBy` / `FetchBy` / `Query()`、按列缓存查询、排序规则兜底） | `lookup.go`（`lookup_test.go`；`RowTable` 推断也在那里测） |
 | 写入路径基准（批量 INSERT / UPDATE 的语句构建） | `write_bench_test.go` |
 | 行写入与批量写、托管时间戳、数据库填值列（`Fill`、`insertColumns`、`reloadColumns`）、墓碑写入（`setTombstone`、`deleteByPK`）、`WithSkipDuplicates` | `rows.go`（`exec_test.go` 端到端；`batch_test.go` 宽表分批；`timestamps_test.go` 托管字段类型；`softdelete_test.go` 行级软删除与恢复） |
-| Upsert（`TableOf.Upsert` / `BatchUpsert`、键解析、MySQL 多唯一键拒绝、主键回读） | `upsert.go`（`exec_test.go` 的 `TestUpsertMatchesLiveRowsOfASoftDeletedUniqueIndex`；`internal/integration` 的 `TestIntegrationUpsert` 三方言真跑） |
+| Upsert（`TableOf.Upsert` / `BatchUpsert`、`tsq.OnConflict(...).Update(...)`、键解析、MySQL 多唯一键拒绝、主键回读） | `upsert.go`（`exec_test.go` 的 `TestUpsertMatchesLiveRowsOfASoftDeletedUniqueIndex`；`internal/integration` 的 `TestIntegrationUpsert` 三方言真跑） |
 | 按条件写（`UpdateTable` / `DeleteFrom` / `HardDeleteFrom`、`Mutation`） | `mutation.go`（`exec_test.go`；`internal/integration` 的 `TestIntegrationMutationsByCondition` 三方言真跑） |
 | 错误类型 `OptimisticLockError` | `errors.go` |
 | 关联装配 `AttachMany` / `AttachOne`（父键收集、按键分组、走 `ListIn`） | `attach.go`（`attach_test.go`；三方言真跑在 `TestIntegrationAttachLoadsChildrenInOneQuery`） |

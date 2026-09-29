@@ -486,6 +486,15 @@ func writeTombstoneFilter(w *writeStmt, def *tableDef, deleted bool) {
 	}
 }
 
+// startVersion gives a row about to be inserted version 1 when it holds zero: 1 is
+// the DDL default, so a row TSQ inserts and one inserted by hand start alike. A
+// version the caller set, as an import does, is kept.
+func startVersion(v reflect.Value) {
+	if v.IsZero() {
+		incrementVersion(v)
+	}
+}
+
 func incrementVersion(v reflect.Value) {
 	switch v.Kind() {
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
@@ -683,10 +692,15 @@ func (t *TableOf[R, K]) insert(ctx context.Context, db Executor, rows []*R, conf
 	}
 
 	now := stampTime()
-	snapshot := snapshotFields(rows, def.column(def.managed.CreatedAt), def.column(def.managed.UpdatedAt), def.primaryKey)
+	version := def.column(def.managed.Version)
+	snapshot := snapshotFields(rows, def.column(def.managed.CreatedAt), def.column(def.managed.UpdatedAt), version, def.primaryKey)
 	written := make(map[*R]bool, len(rows))
 
 	for _, row := range rows {
+		if version != nil {
+			startVersion(field(row, version))
+		}
+
 		for _, name := range []string{def.managed.CreatedAt, def.managed.UpdatedAt} {
 			if col := def.column(name); col != nil && isUnset(field(row, col)) {
 				if err := applyTimestamp(field(row, col), now); err != nil {
@@ -697,7 +711,15 @@ func (t *TableOf[R, K]) insert(ctx context.Context, db Executor, rows []*R, conf
 		}
 	}
 
-	if err := t.insertGroups(ctx, db, scope, def, rows, config, written); err != nil {
+	// One row reads back what the database filled in, in the INSERT itself where
+	// the engine has RETURNING. A batch does not: that would be one query per row,
+	// and the caller asked for as few statements as possible.
+	var returning []*columnCore
+	if len(rows) == 1 && !config.skipDuplicates && scope.dialect.Returning(def.primaryKey.name) != "" {
+		returning = t.databaseFilled(def, rows[0])
+	}
+
+	if err := t.insertGroups(ctx, db, scope, def, rows, config, returning, written); err != nil {
 		snapshot.restore(written)
 		return err
 	}
@@ -707,11 +729,10 @@ func (t *TableOf[R, K]) insert(ctx context.Context, db Executor, rows []*R, conf
 		snapshot.restore(written)
 	}
 
-	// One row reads back what the database filled in. A batch does not: that would
-	// be one query per row, and the caller asked for as few statements as possible.
-	// A row skipped as a duplicate wrote nothing to read: the read-back found the
-	// row it collided with and copied that row's values into it.
-	if len(rows) == 1 && written[rows[0]] {
+	// Without RETURNING the values are read by key. A row skipped as a duplicate
+	// wrote nothing to read: the read-back found the row it collided with and copied
+	// that row's values into it.
+	if len(rows) == 1 && written[rows[0]] && len(returning) == 0 {
 		if filled := t.databaseFilled(def, rows[0]); len(filled) > 0 {
 			return t.reloadColumns(ctx, db, scope, def, rows[0], filled)
 		}
@@ -721,24 +742,27 @@ func (t *TableOf[R, K]) insert(ctx context.Context, db Executor, rows []*R, conf
 }
 
 // insertGroups inserts rows, recording in written the rows each statement stored.
-func (t *TableOf[R, K]) insertGroups(ctx context.Context, db Executor, scope execScope, def *tableDef, rows []*R, config batchConfig, written map[*R]bool) error {
+// returning are the database-filled columns a single-row insert reads back.
+func (t *TableOf[R, K]) insertGroups(ctx context.Context, db Executor, scope execScope, def *tableDef, rows []*R, config batchConfig, returning []*columnCore, written map[*R]bool) error {
 	// Rows that leave a column to the database (a generated key, an unset column
-	// with a DEFAULT) omit it from the statement, so rows are grouped by what they
-	// write and each group gets its own INSERT.
-	groups := map[string][]*R{}
-	order := []string{}
+	// with a DEFAULT) omit it from the statement, so a statement holds rows that
+	// write the same columns. Only neighbouring rows are grouped: gathering every
+	// row of one shape first handed out generated keys out of the slice's order.
+	var groups [][]*R
 
-	for _, row := range rows {
+	last := ""
+
+	for i, row := range rows {
 		key := columnsKey(t.insertColumns(def, row))
-		if _, seen := groups[key]; !seen {
-			order = append(order, key)
+		if i == 0 || key != last {
+			groups = append(groups, nil)
 		}
 
-		groups[key] = append(groups[key], row)
+		groups[len(groups)-1] = append(groups[len(groups)-1], row)
+		last = key
 	}
 
-	for _, key := range order {
-		group := groups[key]
+	for _, group := range groups {
 		omitKey := def.autoIncrement && field(group[0], def.primaryKey).IsZero()
 		cols := t.insertColumns(def, group[0])
 
@@ -756,7 +780,7 @@ func (t *TableOf[R, K]) insertGroups(ctx context.Context, db Executor, scope exe
 
 		size := effectiveChunkSize(config.size, len(cols), sqld.MaxBindParams(scope.dialect))
 		for _, chunk := range chunks(group, size) {
-			if err := t.insertChunk(ctx, db, scope, def, cols, chunk, omitKey); err != nil {
+			if err := t.insertChunk(ctx, db, scope, def, cols, chunk, omitKey, returning); err != nil {
 				return fmt.Errorf("insert into %s: %w", def.name, err)
 			}
 
@@ -817,7 +841,9 @@ func (t *TableOf[R, K]) databaseFilled(def *tableDef, row *R) []*columnCore {
 	return cols
 }
 
-func (t *TableOf[R, K]) insertChunk(ctx context.Context, db Executor, scope execScope, def *tableDef, cols []*columnCore, rows []*R, omitKey bool) error {
+// insertChunk inserts rows with one statement. A single row with readBack reads
+// its generated key and those columns back through RETURNING.
+func (t *TableOf[R, K]) insertChunk(ctx context.Context, db Executor, scope execScope, def *tableDef, cols []*columnCore, rows []*R, omitKey bool, readBack []*columnCore) error {
 	w := &writeStmt{d: scope.dialect}
 	w.text("INSERT INTO ").ident(def.name).text(" (")
 
@@ -860,6 +886,10 @@ func (t *TableOf[R, K]) insertChunk(ctx context.Context, db Executor, scope exec
 		w.text(")")
 	}
 
+	if len(rows) == 1 && len(readBack) > 0 {
+		return t.insertReadingBack(ctx, db, scope, def, w, rows[0], omitKey, readBack)
+	}
+
 	returning := ""
 	if omitKey {
 		returning = scope.dialect.ReturningClause(def.primaryKey.name)
@@ -884,6 +914,43 @@ func (t *TableOf[R, K]) insertChunk(ctx context.Context, db Executor, scope exec
 
 	if omitKey {
 		return assignInsertIDs(ctx, db, scope.dialect, def, rows, result)
+	}
+
+	return nil
+}
+
+// insertReadingBack runs a single-row INSERT that returns the generated key, when
+// omitKey, and the columns in readBack, scanned into row.
+func (t *TableOf[R, K]) insertReadingBack(ctx context.Context, db Executor, scope execScope, def *tableDef, w *writeStmt, row *R, omitKey bool, readBack []*columnCore) error {
+	names := make([]string, 0, len(readBack)+1)
+	dest := make([]any, 0, len(readBack)+1)
+
+	var id int64
+
+	if omitKey {
+		names = append(names, def.primaryKey.name)
+		dest = append(dest, &id)
+	}
+
+	for _, col := range readBack {
+		names = append(names, col.name)
+		dest = append(dest, col.scan(row))
+	}
+
+	w.text(scope.dialect.Returning(names...))
+
+	if w.err != nil {
+		return w.err
+	}
+
+	logSQLForExecutor(ctx, db, "insert", w.sql.String(), w.args)
+
+	if err := db.QueryRowContext(ctx, w.sql.String(), w.args...).Scan(dest...); err != nil {
+		return err
+	}
+
+	if omitKey {
+		setID(field(row, def.primaryKey), id)
 	}
 
 	return nil
@@ -1026,7 +1093,7 @@ func (t *TableOf[R, K]) insertSkippingDuplicates(ctx context.Context, db Executo
 			}
 		}
 
-		err := t.insertChunk(ctx, db, scope, def, cols, []*R{row}, omitKey)
+		err := t.insertChunk(ctx, db, scope, def, cols, []*R{row}, omitKey, nil)
 		if err == nil {
 			written[row] = true
 
@@ -1533,7 +1600,11 @@ func (t *TableOf[R, K]) hardDelete(ctx context.Context, db Executor, rows []*R, 
 		return err
 	}
 
-	if err := checkKeys(def, rows, "delete"); err != nil {
+	// The SQL log and errors name the operation as tracing does: a hard delete is not
+	// a delete, which on a soft-delete table only stamps the row.
+	op := string(TraceOpHardDelete)
+
+	if err := checkKeys(def, rows, op); err != nil {
 		return err
 	}
 
@@ -1547,14 +1618,14 @@ func (t *TableOf[R, K]) hardDelete(ctx context.Context, db Executor, rows []*R, 
 		w.text("DELETE FROM ").ident(def.name).text(" WHERE ")
 		writeKeyMatch(w, def, chunk)
 
-		if err := t.execCounted(ctx, db, w, def, "delete", chunk, t.hardDeleteShortfall(ctx, db, scope, def, version, chunk)); err != nil {
+		if err := t.execCounted(ctx, db, w, def, op, chunk, t.hardDeleteShortfall(ctx, db, scope, def, version, chunk)); err != nil {
 			if !failures.add(err, len(chunk) == len(rows)) {
-				return errors.Join(err, failures.err(def.name, "delete", len(rows)))
+				return errors.Join(err, failures.err(def.name, op, len(rows)))
 			}
 		}
 	}
 
-	return failures.err(def.name, "delete", len(rows))
+	return failures.err(def.name, op, len(rows))
 }
 
 // hardDeleteShortfall explains a version-guarded delete that removed fewer rows
@@ -1732,7 +1803,12 @@ func (t *TableOf[R, K]) deleteByPK(ctx context.Context, db Executor, keys []K, o
 				}
 			}
 
-			if err := t.execCounted(ctx, db, w, def, "delete", nil, nil); err != nil {
+			op := TraceOpHardDelete
+			if soft {
+				op = TraceOpDelete
+			}
+
+			if err := t.execCounted(ctx, db, w, def, string(op), nil, nil); err != nil {
 				return err
 			}
 		}

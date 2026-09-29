@@ -29,6 +29,15 @@ func (d PostgresDialect) ReturningClause(col string) string {
 	return " RETURNING " + d.QuoteIdent(col)
 }
 
+func (d PostgresDialect) Returning(cols ...string) string {
+	quoted := make([]string, len(cols))
+	for i, col := range cols {
+		quoted[i] = d.QuoteIdent(col)
+	}
+
+	return " RETURNING " + strings.Join(quoted, ", ")
+}
+
 func (d PostgresDialect) ValidateIdentifier(identifier string) error {
 	return validateDialectIdentifier(identifier, d.Name(), maxIdentifierLengthPostgreSQL)
 }

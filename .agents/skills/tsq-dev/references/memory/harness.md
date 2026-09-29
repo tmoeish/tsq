@@ -50,14 +50,9 @@ buildinfo 判成倒退、所有 PR 变红（2026-09-28）。**改发版脚本时
 
 ## 给 main 和 tag 加了 ruleset，发版随之改成 PR 流程 (2026-08-21)
 
-规则本身在 `AGENTS.md` § 发版，这里只留踩过的坑：
-
-- **必需检查不能放 matrix job**（名字带 Go 版本，升版本就永远等不到）；理由和当前选的五个
-  检查见 `../impact/harness.md` § 改了 CI 的 job 名字。
-- **用 `gh pr merge --auto`，不要"等 CI 再合"**：PR 刚建出来的头几秒没有任何 check 注册，
-  `gh pr checks --watch` 那一刻会以 "no checks reported" 直接退出。
-- **验证服务端规则不能用 `git push --dry-run`**——它不联服务端，看起来永远成功。要真推一次；
-  测 tag 规则用不合法 semver 的探针 tag（`v-ruleset-probe`），受 `v*` 规则管但 Go Proxy 忽略。
+规则在 `AGENTS.md` § 发版。坑：**必需检查不能放 matrix job**（名字带 Go 版本，见 `../impact/harness.md`）；
+**用 `gh pr merge --auto`**，刚建的 PR 没注册 check，`gh pr checks --watch` 会直接退出；**验证服务端规则不能用
+`git push --dry-run`**（不联服务端），测 tag 规则用 Go Proxy 忽略的探针 tag `v-ruleset-probe`。
 
 ## CI 里用 `@latest` 装的工具，会在它发新版本的那天让每个 PR 变红 (2026-09-09)
 

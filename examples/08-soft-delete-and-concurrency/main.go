@@ -83,7 +83,8 @@ func run(ctx context.Context, w io.Writer) error {
 	// ---------------------------------------------------------------------
 	show.Step(w, "8.3 Restore：从 WithDeleted() 里把它找回来")
 	// 按主键取。已删除的行不再占用唯一值（唯一索引以 deleted_at 打头，同一个 SKU
-	// 可以有多个已删除的行），所以在 WithDeleted() 上按 SKU 查找会被拒绝。
+	// 可以有多个已删除的行），所以 WithDeleted() 返回的 ProductTableWithDeleted
+	// 上根本没有 GetBySKU——写了编译不过。
 	lamp, err = product.WithDeleted().Get(ctx, db, lamp.ID)
 	if err != nil {
 		return err

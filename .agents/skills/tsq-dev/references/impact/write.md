@@ -55,7 +55,10 @@
 - 更新时的列清单（不写键、主键、`created_at`，`version` 自增）和 `UpdateTable` 的语义保持一致；
   改一边要看另一边。
 - 冲突目标不是主键、主键又不是自增时，语句拿不回被更新那一行的主键：`adoptStoredKeys` 按目标列回读并改写行的主键，
-  单行和批量都走它；多列目标每行一个 `OR`，按 `maxOrTerms` 分段（SQLite 深度上限）。
+  批量和 MySQL 的单行走它；多列目标每行一个 `OR`，按 `maxOrTerms` 分段（SQLite 深度上限）。PostgreSQL / SQLite 的
+  单行走 `upsertReturning`：`RETURNING` 主键加 `upsertReadBack` 的列，拿到的就是被写那一行的，不再回读。
+- `Conflict.Update(cols)` 在 `upsertStatement` 里收窄 SET 列表，`updated_at` 和 `deleted_at` 照写（和行级
+  `Update(cols)` 一致）；`upsertUpdate` 拒绝键、主键、`created_at`、托管列和生成列。插入那一半永远是整行。
 
 ## 改了按条件写语句（`mutation.go`）
 
@@ -91,6 +94,9 @@
   别改成 `INSERT IGNORE` / `ON CONFLICT DO NOTHING`：前者在 MySQL 上吞掉所有错误，后者让
   `RETURNING` 无法按位置回填主键。`TestIntegrationBatchInsertIgnoresDuplicatesInsideTransaction`
   只有在真实 PostgreSQL 上才有意义。
+- **一条 INSERT 只合并相邻的同形状行**（`insertGroups`）：按形状全局分组会让自增主键不按切片顺序分配。
+  单行 `Insert` 在有 `RETURNING` 的方言上走 `insertReadingBack`，数据库填的列在同一条语句里取回；
+  `Returning(...)` 返回空串（MySQL）就退回 `reloadColumns`。`startVersion` 让为零的 `version` 从 1 开始，与 DDL 默认值一致。
 - **写之前改了行上的字段，写失败就要放回去**：`Insert` / `Upsert` 用 `snapshotFields` 记下托管列和主键，只放回没写成
   的行；`BatchUpdate` 靠 `updateMismatch` 的回读判断哪些行写成了。新增一条会盖戳的写路径要走同一套，
   `TestFailedWritesLeaveRowsAsTheyWere` / `TestBatchUpdateWithAStaleRowSaysWhichAndKeepsTheRest` 守着。

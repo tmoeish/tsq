@@ -34,6 +34,10 @@ func (d MySQLDialect) ReturningClause(col string) string {
 	return ""
 }
 
+func (d MySQLDialect) Returning(...string) string {
+	return ""
+}
+
 func (d MySQLDialect) ValidateIdentifier(identifier string) error {
 	return validateDialectIdentifier(identifier, d.Name(), maxIdentifierLengthMySQL)
 }

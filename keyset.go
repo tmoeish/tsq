@@ -66,7 +66,7 @@ func (q *Query[O]) PageKeyset(ctx context.Context, db Executor, k Keyset, args .
 			return nil, err
 		}
 
-		m := renderMode{paged: true, limit: size + 1}
+		m := renderMode{paged: true, keyset: true, limit: size + 1}
 		for _, key := range keys {
 			m.order = append(m.order, key.term)
 		}

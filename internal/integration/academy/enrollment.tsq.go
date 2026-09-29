@@ -173,12 +173,23 @@ func (t EnrollmentTable) As(alias string) EnrollmentTable {
 	}
 }
 
+// EnrollmentTableWithDeleted is EnrollmentTable without its live-row filter: the same columns,
+// and no lookups by unique index. The unique indexes of a soft-delete table include
+// deleted_at, so a value is unique only among live rows; read deleted rows
+// by primary key.
+type EnrollmentTableWithDeleted EnrollmentTable
+
 // WithDeleted returns the table without its live-row filter; see
 // tsq.SoftDeleteTableOf.WithDeleted.
-func (t EnrollmentTable) WithDeleted() EnrollmentTable {
+func (t EnrollmentTable) WithDeleted() EnrollmentTableWithDeleted {
 	t.SoftDeleteTableOf = t.SoftDeleteTableOf.WithDeleted()
 
-	return t
+	return EnrollmentTableWithDeleted(t)
+}
+
+// As returns the table under alias, with every column bound to the alias.
+func (t EnrollmentTableWithDeleted) As(alias string) EnrollmentTableWithDeleted {
+	return EnrollmentTableWithDeleted(EnrollmentTable(t).As(alias))
 }
 
 // Insert inserts the row; see tsq.TableOf.Insert.

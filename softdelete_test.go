@@ -358,7 +358,7 @@ func TestBatchTombstonesWithAStaleRowKeepTheWrittenRowsCurrent(t *testing.T) {
 		t.Fatalf("BatchDelete = %v; want a conflict naming %d", err, rows[1].ID)
 	}
 
-	if rows[0].DeletedAt == 0 || rows[2].DeletedAt == 0 || rows[1].DeletedAt != 0 || rows[0].Version != 1 || rows[1].Version != 0 {
+	if rows[0].DeletedAt == 0 || rows[2].DeletedAt == 0 || rows[1].DeletedAt != 0 || rows[0].Version != 2 || rows[1].Version != 1 {
 		t.Fatalf("rows = %+v; want a and c deleted in memory as they are in the table, b untouched", rows)
 	}
 

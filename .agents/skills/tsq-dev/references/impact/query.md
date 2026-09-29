@@ -51,7 +51,8 @@
 
 - 它们渲染 `renderMode{single: true}`，由 `writeTail` 加 `LIMIT 1`——位置天然在行锁之前。
   构建器自己设了 `Limit` 时不再补。
-- `Exists` 与 `Find` 共用这条语句，给单行读取加的边界会同时改变 `Exists`。
+- `Exists` 渲染 `renderMode{exists: true}`：不分组、没有自带 `Limit` 的查询写成 `SELECT 1 ... LIMIT 1`（带行锁），
+  其余和 `Find` 共用语句。给单行读取加的边界要看两条路径。
 - 按唯一列读（`GetBy` / `FindBy` / `FetchBy`）经 `uniqueBy` 检查：列加上 `where` 里 `col = 值`（`exprInfo.pins`）固定的列要
   覆盖主键或唯一索引。`FetchBy` 取回的行按 `fetchKey` 对应值（时间按 UTC 瞬间），对不上的文本和结构体值逐个再查一次。
 
@@ -72,7 +73,8 @@
 ## 改了可空性推导或加了新的表达式构造
 
 - 新的函数 / 表达式要想清楚它的 `nullness`：默认 `merge` 是"任一操作数可空则可空"，这对大多数 SQL 函数
-  成立；**不成立的要自己设**（`COUNT` 永不为 NULL、`COALESCE` 取与、聚合在无 GROUP BY 时为 NULL）。
+  成立；**不成立的要自己设**（`COUNT` 永不为 NULL、`COALESCE` 取与、聚合在无 GROUP BY 时为 NULL、
+  `Div` 的除数不是非零 `tsq.Val` 时总可能为 NULL——除以零在 MySQL / SQLite 是 NULL）。
   漏设的后果是读行前的检查放过了一个会扫描失败的查询，或者冤枉一个正确的查询。
 - 新的 JOIN 种类要在 `optionalTables` 里表态哪边会被填 NULL。
 - 可空性也决定排序怎么写（`orderTerm.render`），推导错了三个方言的顺序会不一致；`TestIntegrationNullOrderingAgrees` 守着。

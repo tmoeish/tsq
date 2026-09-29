@@ -153,14 +153,34 @@ func (t {{$tableType}}) As(alias string) {{$tableType}} {
 }
 
 {{- if .DeletedAtField }}
+{{- $allType := printf "%sTableWithDeleted" $type }}
+
+// {{$allType}} is {{$tableType}} without its live-row filter: the same columns,
+// and no lookups by unique index. The unique indexes of a soft-delete table include
+// {{ (index .FieldsByName .DeletedAtField).Column }}, so a value is unique only among live rows; read deleted rows
+// by primary key.
+type {{$allType}} {{$tableType}}
 
 // WithDeleted returns the table without its live-row filter; see
 // tsq.SoftDeleteTableOf.WithDeleted.
-func (t {{$tableType}}) WithDeleted() {{$tableType}} {
+func (t {{$tableType}}) WithDeleted() {{$allType}} {
 	t.SoftDeleteTableOf = t.SoftDeleteTableOf.WithDeleted()
 
-	return t
+	return {{$allType}}(t)
 }
+
+// As returns the table under alias, with every column bound to the alias.
+func (t {{$allType}}) As(alias string) {{$allType}} {
+	return {{$allType}}({{$tableType}}(t).As(alias))
+}
+{{- range $idx := .FullTexts }}
+
+// FullText{{ JoinAnd $idx.Fields }} is the full-text index {{$idx.Name}}; search it with
+// tsq.Matches.
+func (t {{$allType}}) FullText{{ JoinAnd $idx.Fields }}() tsq.FullTextIndex {
+	return t.FullText({{ printf "%q" $idx.Name }})
+}
+{{- end }}
 {{- end }}
 {{- range $idx := .FullTexts }}
 

@@ -214,15 +214,15 @@ func run(ctx context.Context, w io.Writer) error {
 	}
 
 	// ---------------------------------------------------------------------
-	show.Step(w, "4.7 逃生舱：Exprf 和 Pred 写 TSQ 没有封装的 SQL——价格尾数是 99 元的商品打九折")
-	// 格式串里第一个 %s 是列本身，之后每个 %s 依次取一个参数（值会被绑定，不会拼进 SQL）。
-	// 格式串原样发给每种方言，可移植性由你负责——只在确实需要时用。
+	show.Step(w, "4.7 算术和逃生舱：价格尾数是 99 元的商品打九折")
+	// 加减乘除是 tsq.Add / Sub / Mul / Div，和列函数一样按类型约束。
+	// Div 的除数不是非零的 tsq.Val 时结果可能是 NULL（除以零），就得读进可空字段。
 	type discounted struct {
 		Name  string
 		Price int64
 	}
 
-	nineTenths := product.PriceCents.Exprf("%s * %s / 100", int64(90))
+	nineTenths := tsq.Div(tsq.Mul(product.PriceCents, tsq.Val(int64(90))), tsq.Val(int64(100)))
 
 	deals, err := tsq.
 		Select(
@@ -230,6 +230,8 @@ func run(ctx context.Context, w io.Writer) error {
 			tsq.MapInto(nineTenths, func(r *discounted) *int64 { return &r.Price }),
 		).
 		From(product).
+		// TSQ 没有封装的 SQL 用 Pred / Exprf 写：格式串里第一个 %s 是列本身，之后每个 %s
+		// 依次取一个参数（值会被绑定）。格式串原样发给每种方言，可移植性由你负责。
 		// %% 是字面的百分号（取模运算符）。
 		Where(product.PriceCents.Pred("%s %% %s = %s", int64(10000), int64(9900))).
 		OrderBy(product.ID.Asc()).

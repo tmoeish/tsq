@@ -989,7 +989,7 @@ func TestIntegrationUpsert(t *testing.T) {
 
 			// By a unique index: insert, then update the same learner.
 			first := &academy.Learner{Name: "Ada", Email: "ada@example.test", Company: "A"}
-			if err := academy.TableLearner.Upsert(ctx, rt, first, academy.TableLearner.Email); err != nil {
+			if err := academy.TableLearner.Upsert(ctx, rt, first, tsq.OnConflict(academy.TableLearner.Email)); err != nil {
 				t.Fatal(err)
 			}
 
@@ -1002,7 +1002,7 @@ func TestIntegrationUpsert(t *testing.T) {
 			again := &academy.Learner{Name: "Ada L.", Email: "ada@example.test", Company: "B"}
 			again.CreatedAt = sql.Null[time.Time]{V: ancient, Valid: true}
 
-			if err := academy.TableLearner.Upsert(ctx, rt, again, academy.TableLearner.Email); err != nil {
+			if err := academy.TableLearner.Upsert(ctx, rt, again, tsq.OnConflict(academy.TableLearner.Email)); err != nil {
 				t.Fatal(err)
 			}
 
@@ -1013,7 +1013,7 @@ func TestIntegrationUpsert(t *testing.T) {
 			// Unchanged values still report the key.
 			same := *again
 			same.ID = 0
-			if err := academy.TableLearner.Upsert(ctx, rt, &same, academy.TableLearner.Email); err != nil || same.ID != first.ID {
+			if err := academy.TableLearner.Upsert(ctx, rt, &same, tsq.OnConflict(academy.TableLearner.Email)); err != nil || same.ID != first.ID {
 				t.Fatalf("no-op upsert = id %d, %v; want %d", same.ID, err, first.ID)
 			}
 
@@ -1046,7 +1046,7 @@ func TestIntegrationUpsert(t *testing.T) {
 			// A known primary key could hit a second unique key; only MySQL cares.
 			explicit := &academy.Learner{Name: "Ada", Email: "ada@example.test"}
 			explicit.ID = first.ID
-			err = academy.TableLearner.Upsert(ctx, rt, explicit, academy.TableLearner.Email)
+			err = academy.TableLearner.Upsert(ctx, rt, explicit, tsq.OnConflict(academy.TableLearner.Email))
 			if mysql != (err != nil) {
 				t.Fatalf("upsert with a key set on %s: %v", target.name, err)
 			}
@@ -1056,7 +1056,7 @@ func TestIntegrationUpsert(t *testing.T) {
 				{Name: "Ada 3", Email: "ada@example.test"},
 				{Name: "Bob", Email: "bob@example.test"},
 			}
-			if err := academy.TableLearner.BatchUpsert(ctx, rt, batch, []tsq.BoundColumn[academy.Learner]{academy.TableLearner.Email}); err != nil {
+			if err := academy.TableLearner.BatchUpsert(ctx, rt, batch, tsq.OnConflict(academy.TableLearner.Email)); err != nil {
 				t.Fatal(err)
 			}
 
@@ -1065,11 +1065,11 @@ func TestIntegrationUpsert(t *testing.T) {
 			}
 
 			dup := []*academy.Learner{{Email: "x@example.test"}, {Email: "x@example.test"}}
-			if err := academy.TableLearner.BatchUpsert(ctx, rt, dup, []tsq.BoundColumn[academy.Learner]{academy.TableLearner.Email}); err == nil {
+			if err := academy.TableLearner.BatchUpsert(ctx, rt, dup, tsq.OnConflict(academy.TableLearner.Email)); err == nil {
 				t.Fatal("expected two rows with one key to be refused")
 			}
 
-			if err := academy.TableLearner.Upsert(ctx, rt, &academy.Learner{Email: "y@example.test"}, academy.TableLearner.Company); err == nil {
+			if err := academy.TableLearner.Upsert(ctx, rt, &academy.Learner{Email: "y@example.test"}, tsq.OnConflict(academy.TableLearner.Company)); err == nil {
 				t.Fatal("expected a non-unique key to be refused")
 			}
 
@@ -1360,7 +1360,7 @@ func TestIntegrationDatabaseFilledColumns(t *testing.T) {
 			// defaulted currency only when the row sets it. It used to write both, so a
 			// table with a generated column could not be upserted at all.
 			up := &academy.Course{TrackID: 1, InstructorID: 1, Title: "Upserted", Summary: "s"}
-			if err := academy.TableCourse.Upsert(ctx, rt, up, academy.TableCourse.Title); err != nil {
+			if err := academy.TableCourse.Upsert(ctx, rt, up, tsq.OnConflict(academy.TableCourse.Title)); err != nil {
 				t.Fatal(err)
 			}
 
@@ -1369,13 +1369,13 @@ func TestIntegrationDatabaseFilledColumns(t *testing.T) {
 			}
 
 			euro := &academy.Course{TrackID: 1, InstructorID: 1, Title: "Upserted", Summary: "s", Currency: new("EUR")}
-			if err := academy.TableCourse.Upsert(ctx, rt, euro, academy.TableCourse.Title); err != nil {
+			if err := academy.TableCourse.Upsert(ctx, rt, euro, tsq.OnConflict(academy.TableCourse.Title)); err != nil {
 				t.Fatal(err)
 			}
 
 			// An unset default keeps the stored value on update rather than writing "".
 			unset := &academy.Course{TrackID: 1, InstructorID: 1, Title: "Upserted", Summary: "again"}
-			if err := academy.TableCourse.Upsert(ctx, rt, unset, academy.TableCourse.Title); err != nil {
+			if err := academy.TableCourse.Upsert(ctx, rt, unset, tsq.OnConflict(academy.TableCourse.Title)); err != nil {
 				t.Fatal(err)
 			}
 
@@ -1388,7 +1388,7 @@ func TestIntegrationDatabaseFilledColumns(t *testing.T) {
 				{TrackID: 1, InstructorID: 1, Title: "Batch Up A", Summary: "s"},
 				{TrackID: 1, InstructorID: 1, Title: "Batch Up B", Summary: "s", Currency: new("GBP")},
 			}
-			if err := academy.TableCourse.BatchUpsert(ctx, rt, upserts, []tsq.BoundColumn[academy.Course]{academy.TableCourse.Title}); err != nil {
+			if err := academy.TableCourse.BatchUpsert(ctx, rt, upserts, tsq.OnConflict(academy.TableCourse.Title)); err != nil {
 				t.Fatal(err)
 			}
 
@@ -1988,6 +1988,12 @@ func TestIntegrationColumnFunctionsArePortable(t *testing.T) {
 			num(tsq.Max(tsq.Month(created)), 3)
 			num(tsq.Max(tsq.Day(created)), 4)
 			num(tsq.Abs(tsq.Min(score)), 7)
+			num(tsq.Add(tsq.Max(score), tsq.Val(int64(5))), 15)
+			num(tsq.Sub(tsq.Min(score), tsq.Val(int64(3))), -10)
+			num(tsq.Mul(tsq.Max(score), tsq.Val(int64(3))), 30)
+			// Integer division truncates toward zero on every dialect (DIV on MySQL).
+			num(tsq.Div(tsq.Max(score), tsq.Val(int64(4))), 2)
+			num(tsq.Div(tsq.Min(score), tsq.Val(int64(2))), -3)
 
 			dec := func(col tsq.Expression[float64], want float64) {
 				t.Helper()
@@ -2002,6 +2008,7 @@ func TestIntegrationColumnFunctionsArePortable(t *testing.T) {
 			dec(tsq.Round(tsq.Avg(score), 1), 2.3)
 			dec(tsq.Ceil(tsq.Avg(score)), 3)
 			dec(tsq.Floor(tsq.Avg(score)), 2)
+			dec(tsq.Div(tsq.Avg(score), tsq.Val(2.0)), 1.125)
 
 			day := tsq.Max(tsq.Date(created))
 			if got, err := tsq.SelectNullValue(day).From(academy.TableEnrollment).MustBuild().Get(ctx, rt); err != nil || got.V != "2026-03-04" {
