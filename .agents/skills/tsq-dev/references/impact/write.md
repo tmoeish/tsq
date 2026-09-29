@@ -94,6 +94,8 @@
   别改成 `INSERT IGNORE` / `ON CONFLICT DO NOTHING`：前者在 MySQL 上吞掉所有错误，后者让
   `RETURNING` 无法按位置回填主键。`TestIntegrationBatchInsertIgnoresDuplicatesInsideTransaction`
   只有在真实 PostgreSQL 上才有意义。
+- `BatchDeleteByPK` / `BatchHardDeleteByPK`（`deleteByPK` → `deleteKeys`）要知道哪些键删到了：有 `RETURNING` 的方言
+  从语句里读，MySQL 软删按本次墓碑回查、硬删在删除前查存在的键。没删到的键进 `RowStateError.Keys`。
 - **一条 INSERT 只合并相邻的同形状行**（`insertGroups`）：按形状全局分组会让自增主键不按切片顺序分配。
   单行 `Insert` 在有 `RETURNING` 的方言上走 `insertReadingBack`，数据库填的列在同一条语句里取回；
   `Returning(...)` 返回空串（MySQL）就退回 `reloadColumns`。`startVersion` 让为零的 `version` 从 1 开始，与 DDL 默认值一致。

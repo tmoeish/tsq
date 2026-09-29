@@ -243,9 +243,11 @@ func TestWithDeletedOnlyDropsTheLiveRowFilter(t *testing.T) {
 		}
 	}
 
-	// Without WithDeleted, a deleted row is left alone and keeps its tombstone.
-	if err := Users.BatchDeleteByPK(ctx, rt, []int64{rows[1].ID}); err != nil {
-		t.Fatal(err)
+	// Without WithDeleted, a deleted row is left alone and keeps its tombstone, and
+	// the call names it.
+	err := Users.BatchDeleteByPK(ctx, rt, []int64{rows[1].ID})
+	if state, ok := errors.AsType[*RowStateError](err); !ok || state.Need != RowLive || len(state.Keys) != 1 || state.Keys[0] != rows[1].ID {
+		t.Fatalf("BatchDeleteByPK of a deleted row = %v; want a RowStateError naming it", err)
 	}
 
 	stamped("BatchDeleteByPK", rows[1].ID, rows[1].Version)

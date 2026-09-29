@@ -98,3 +98,9 @@ ALTER TABLE `track` ADD UNIQUE INDEX `ux_track_name`(`name`);
 -- Table: course
 
 ALTER TABLE `course` MODIFY COLUMN `currency` VARCHAR(3) DEFAULT 'USD';
+
+-- Migration: 2026-09-29 15:39:59
+
+-- Table: course
+
+ALTER TABLE `course` ADD COLUMN `blurb` TEXT DEFAULT ('none');

@@ -814,3 +814,52 @@ func TestValidateReportsATypedMismatch(t *testing.T) {
 		t.Fatalf("Validate = %v; want a SchemaMismatchError naming the missing column", err)
 	}
 }
+
+// TestSQLiteReconcileLeavesATypeOfTheSameAffinity covers a VARCHAR whose size
+// differs from the declared one on SQLite, which enforces neither: Reconcile
+// rebuilt the table for it on every boot, dropping its triggers.
+func TestSQLiteReconcileLeavesATypeOfTheSameAffinity(t *testing.T) {
+	ctx := context.Background()
+	dsn := filepath.Join(t.TempDir(), "affinity.db")
+
+	seed, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := seed.ExecContext(ctx, `CREATE TABLE "users" (
+		"id" INTEGER PRIMARY KEY AUTOINCREMENT,
+		"name" VARCHAR(8) NOT NULL,
+		"email" VARCHAR(128) NOT NULL,
+		"version" INTEGER NOT NULL,
+		"created_at" TIMESTAMP NOT NULL,
+		"updated_at" TIMESTAMP NOT NULL,
+		"deleted_at" INTEGER NOT NULL
+	); CREATE UNIQUE INDEX "ux_users_email" ON "users"("email", "deleted_at")`); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := seed.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	logger := &recordingLogger{}
+
+	rt, err := Open(ctx, "sqlite", dsn, []Table{Users}, WithSchemaPolicy(SchemaPolicyReconcile), WithLogger(logger))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_ = rt.Close()
+
+	if n := logger.count("applied ddl"); n != 0 {
+		t.Fatalf("Reconcile applied %d statements for a VARCHAR size SQLite does not enforce: %v", n, logger.messages)
+	}
+
+	rt, err = Open(ctx, "sqlite", dsn, []Table{Users}, WithSchemaPolicy(SchemaPolicyValidate))
+	if err != nil {
+		t.Fatalf("Validate = %v; want the same affinity accepted", err)
+	}
+
+	_ = rt.Close()
+}

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -114,7 +115,7 @@ func (d MySQLDialect) InspectColumns(ctx context.Context, db Executor, table str
 			Type:          withDDLNullable(desc, nullable && item.Key != "PRI"),
 			PrimaryKey:    item.Key == "PRI",
 			AutoIncrement: strings.Contains(strings.ToLower(item.Extra), "auto_increment"),
-			Default:       normalizeDDLDefault(item.Default),
+			Default:       mysqlDefault(item.Default, item.Extra),
 			NativeType:    strings.TrimSpace(item.Type),
 		})
 	}
@@ -128,6 +129,31 @@ func (d MySQLDialect) InspectColumns(ctx context.Context, db Executor, table str
 	}
 
 	return columns, true, nil
+}
+
+// mysqlIntroducer is a character set introducer in front of a string literal, as
+// in _utf8mb4'USD'.
+var mysqlIntroducer = regexp.MustCompile(`_[A-Za-z0-9]+'`)
+
+// mysqlDefault reads a column default back as it was declared. An expression
+// default (DEFAULT_GENERATED: every default of a TEXT or BLOB column, which MySQL
+// accepts only as an expression) is reported as its stored text, with the string
+// literals escaped and prefixed by their character set: DEFAULT ('USD') reads back
+// as _utf8mb4\'USD\', which compared as a different default on every boot.
+func mysqlDefault(value sql.NullString, extra string) string {
+	def := normalizeDDLDefault(value)
+	if def == "" || !strings.Contains(strings.ToUpper(extra), "DEFAULT_GENERATED") {
+		return def
+	}
+
+	def = strings.NewReplacer(`\'`, "'", `\\`, `\`).Replace(def)
+	def = mysqlIntroducer.ReplaceAllString(def, "'")
+
+	for len(def) >= 2 && def[0] == '(' && def[len(def)-1] == ')' {
+		def = strings.TrimSpace(def[1 : len(def)-1])
+	}
+
+	return def
 }
 
 func (d MySQLDialect) ListIndexes(ctx context.Context, db Executor, table string) ([]Index, error) {

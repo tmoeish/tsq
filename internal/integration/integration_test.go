@@ -1859,6 +1859,54 @@ func TestIntegrationPageReadsOneSnapshot(t *testing.T) {
 // TestIntegrationSoftDeleteScopeJoins checks the soft-delete scope in every join
 // position on real engines. A RIGHT or FULL JOIN renders the scoped table as a
 // derived table, which is the spelling most likely to differ between dialects.
+// TestIntegrationDeleteByPKNamesMissingKeys covers the keys BatchDeleteByPK and
+// BatchHardDeleteByPK did not delete, read through RETURNING on PostgreSQL and
+// SQLite and by the stamp or a prior read on MySQL.
+func TestIntegrationDeleteByPKNamesMissingKeys(t *testing.T) {
+	for _, target := range integrationTargets(t) {
+		t.Run(target.name, func(t *testing.T) {
+			ctx := context.Background()
+
+			dropAcademyTables(t, target)
+			rt, _ := openWithPolicy(t, target, academy.TSQTables(), tsq.SchemaPolicyReconcile)
+
+			rows := []*academy.Enrollment{{CourseID: 1}, {CourseID: 1}, {CourseID: 1}}
+			for _, e := range rows {
+				if err := e.Insert(ctx, rt); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			missing := func(err error, want ...int64) {
+				t.Helper()
+
+				state, ok := errors.AsType[*tsq.RowStateError](err)
+				if !ok || len(state.Keys) != len(want) {
+					t.Fatalf("err = %v; want a RowStateError naming %v", err, want)
+				}
+
+				for i, key := range want {
+					if fmt.Sprint(state.Keys[i]) != fmt.Sprint(key) {
+						t.Fatalf("keys = %v; want %v", state.Keys, want)
+					}
+				}
+			}
+
+			if err := academy.TableEnrollment.BatchDeleteByPK(ctx, rt, []int64{rows[0].UID}); err != nil {
+				t.Fatal(err)
+			}
+
+			// Already deleted, and never there.
+			missing(academy.TableEnrollment.BatchDeleteByPK(ctx, rt, []int64{rows[0].UID, rows[1].UID, 9999}), rows[0].UID, 9999)
+			missing(academy.TableEnrollment.BatchHardDeleteByPK(ctx, rt, []int64{rows[2].UID, 9999}), 9999)
+
+			if n, err := tsq.Select(academy.TableEnrollment.Columns()...).From(academy.TableEnrollment.WithDeleted()).Count(ctx, rt); err != nil || n != 2 {
+				t.Fatalf("rows left = %d, %v; want the two soft-deleted ones", n, err)
+			}
+		})
+	}
+}
+
 func TestIntegrationSoftDeleteScopeJoins(t *testing.T) {
 	for _, target := range integrationTargets(t) {
 		t.Run(target.name, func(t *testing.T) {

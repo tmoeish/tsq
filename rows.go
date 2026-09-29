@@ -1755,9 +1755,15 @@ func (t *TableOf[R, K]) deleteByPK(ctx context.Context, db Executor, keys []K, o
 			return nil
 		}
 
-		ids := make([]any, len(keys))
-		for i, key := range keys {
-			ids[i] = key
+		// A key given twice is one row: it would otherwise count as missing.
+		seen := make(map[K]bool, len(keys))
+		unique := make([]K, 0, len(keys))
+
+		for _, key := range keys {
+			if !seen[key] {
+				seen[key] = true
+				unique = append(unique, key)
+			}
 		}
 
 		var stamp map[string]any
@@ -1767,54 +1773,159 @@ func (t *TableOf[R, K]) deleteByPK(ctx context.Context, db Executor, keys []K, o
 			}
 		}
 
+		need := RowExists
+		if soft && t.softDeleted() {
+			need = RowLive
+		}
+
 		size := effectiveChunkSize(config.size, 1, sqld.MaxBindParams(scope.dialect)-len(stamp))
 
-		for _, chunk := range chunks(ids, size) {
-			w := &writeStmt{d: scope.dialect}
+		var missing []any
 
-			if soft {
-				w.text("UPDATE ").ident(def.name).text(" SET ")
-				writeTombstoneSet(w, def, stamp)
-			} else {
-				w.text("DELETE FROM ").ident(def.name)
-			}
-
-			w.text(" WHERE ").ident(def.primaryKey.name).text(" IN (")
-
-			for i, id := range chunk {
-				if i > 0 {
-					w.text(", ")
-				}
-
-				w.arg(id)
-			}
-
-			w.text(")")
-
-			if soft && t.softDeleted() {
-				// A row that is already deleted keeps its original tombstone,
-				// unless the table is WithDeleted.
-				w.text(" AND ").ident(def.managed.DeletedAt)
-
-				if def.tombstoneIsZero {
-					w.text(" = 0")
-				} else {
-					w.text(" IS NULL")
-				}
-			}
-
-			op := TraceOpHardDelete
-			if soft {
-				op = TraceOpDelete
-			}
-
-			if err := t.execCounted(ctx, db, w, def, string(op), nil, nil); err != nil {
+		for _, chunk := range chunks(unique, size) {
+			hit, err := t.deleteKeys(ctx, db, scope, def, chunk, stamp, op)
+			if err != nil {
 				return err
+			}
+
+			for _, key := range chunk {
+				if !hit[key] {
+					missing = append(missing, key)
+				}
+			}
+		}
+
+		// The keys that matched are deleted either way, as a batch does; the rest are
+		// named, so a caller can tell a key that was never there, or on a soft-delete
+		// table already deleted, from one it removed. DeleteFrom is the statement that
+		// deletes whatever matches without saying.
+		if len(missing) > 0 {
+			return &RowStateError{
+				Table: def.name, Op: op, Need: need,
+				Expected: int64(len(unique)), Actual: int64(len(unique) - len(missing)), Keys: missing,
 			}
 		}
 
 		return nil
 	})
+}
+
+// deleteKeys deletes the rows of keys, soft when stamp is set, and reports which
+// keys matched: through RETURNING where the engine has it; on MySQL by the stamp
+// the soft delete wrote, or by the keys that existed before a hard delete.
+func (t *TableOf[R, K]) deleteKeys(ctx context.Context, db Executor, scope execScope, def *tableDef, keys []K, stamp map[string]any, op TraceOp) (map[K]bool, error) {
+	soft := stamp != nil
+	returning := scope.dialect.Returning(def.primaryKey.name)
+
+	var existed map[K]bool
+
+	if returning == "" && !soft {
+		var err error
+		if existed, err = t.selectKeys(ctx, db, scope, def, keys, nil); err != nil {
+			return nil, err
+		}
+	}
+
+	w := &writeStmt{d: scope.dialect}
+
+	if soft {
+		w.text("UPDATE ").ident(def.name).text(" SET ")
+		writeTombstoneSet(w, def, stamp)
+	} else {
+		w.text("DELETE FROM ").ident(def.name)
+	}
+
+	w.text(" WHERE ")
+	writeKeyList(w, def, keys)
+
+	if soft && t.softDeleted() {
+		// A row that is already deleted keeps its original tombstone,
+		// unless the table is WithDeleted.
+		w.text(" AND ").ident(def.managed.DeletedAt)
+
+		if def.tombstoneIsZero {
+			w.text(" = 0")
+		} else {
+			w.text(" IS NULL")
+		}
+	}
+
+	if returning == "" {
+		if err := t.execCounted(ctx, db, w, def, string(op), nil, nil); err != nil {
+			return nil, err
+		}
+
+		if soft {
+			return t.selectKeys(ctx, db, scope, def, keys, stamp)
+		}
+
+		return existed, nil
+	}
+
+	w.text(returning)
+
+	if w.err != nil {
+		return nil, w.err
+	}
+
+	logSQLForExecutor(ctx, db, string(op), w.sql.String(), w.args)
+
+	return t.scanKeys(db.QueryContext(ctx, w.sql.String(), w.args...))
+}
+
+// selectKeys reads which of keys have a row, or with stamp, a row carrying that
+// tombstone.
+func (t *TableOf[R, K]) selectKeys(ctx context.Context, db Executor, scope execScope, def *tableDef, keys []K, stamp map[string]any) (map[K]bool, error) {
+	w := &writeStmt{d: scope.dialect}
+	w.text("SELECT ").ident(def.primaryKey.name).text(" FROM ").ident(def.name).text(" WHERE ")
+	writeKeyList(w, def, keys)
+
+	if stamp != nil {
+		w.text(" AND ").ident(def.managed.DeletedAt).text(" = ").arg(stamp[def.managed.DeletedAt])
+	}
+
+	if w.err != nil {
+		return nil, w.err
+	}
+
+	logSQLForExecutor(ctx, db, "reload", w.sql.String(), w.args)
+
+	return t.scanKeys(db.QueryContext(ctx, w.sql.String(), w.args...))
+}
+
+func (t *TableOf[R, K]) scanKeys(rows *sql.Rows, err error) (map[K]bool, error) {
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() { _ = rows.Close() }()
+
+	keys := map[K]bool{}
+
+	for rows.Next() {
+		var key K
+		if err := rows.Scan(&key); err != nil {
+			return nil, fmt.Errorf("scan primary key: %w", err)
+		}
+
+		keys[key] = true
+	}
+
+	return keys, rows.Err()
+}
+
+func writeKeyList[K any](w *writeStmt, def *tableDef, keys []K) {
+	w.ident(def.primaryKey.name).text(" IN (")
+
+	for i, key := range keys {
+		if i > 0 {
+			w.text(", ")
+		}
+
+		w.arg(key)
+	}
+
+	w.text(")")
 }
 
 func writeTombstoneSet(w *writeStmt, def *tableDef, stamp map[string]any) {
