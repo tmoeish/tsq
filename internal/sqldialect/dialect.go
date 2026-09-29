@@ -275,28 +275,39 @@ func ColumnDefinitionSQL(dialect Dialect, column ColumnSpec) (string, error) {
 	return strings.Join(parts, " "), nil
 }
 
-// DefaultSQL is the DEFAULT clause's value for column. MySQL needs the current
-// time at the column's precision: DATETIME(6) DEFAULT CURRENT_TIMESTAMP is error
-// 1067, so the keyword is written CURRENT_TIMESTAMP(6) there.
+// DefaultSQL is the DEFAULT clause's value for column. A default of the current
+// time is written as the current UTC time, the zone of every time TSQ binds:
+// PostgreSQL's CURRENT_TIMESTAMP in a TIMESTAMP column, and MySQL's in a DATETIME,
+// are the session's local time. MySQL also needs the column's precision
+// (DATETIME(6) DEFAULT CURRENT_TIMESTAMP is error 1067). SQLite's is UTC.
 func DefaultSQL(dialect Dialect, column ColumnSpec) string {
-	if dialect.Name() == MySQL && column.Type.Kind == KindTime && column.Type.RawType == "" && IsCurrentTime(column.Default) {
-		return "CURRENT_TIMESTAMP(6)"
+	if column.Type.Kind != KindTime || column.Type.RawType != "" || !IsCurrentTime(column.Default) {
+		return column.Default
 	}
 
-	return column.Default
+	switch dialect.Name() {
+	case MySQL:
+		return "(UTC_TIMESTAMP(6))"
+	case Postgres:
+		return "(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')"
+	default:
+		return column.Default
+	}
 }
 
 // IsCurrentTime reports a default that is the time of the insert, in any of the
-// spellings the dialects take or report: CURRENT_TIMESTAMP, with or without a
-// precision, NOW() and LOCALTIMESTAMP.
+// spellings the dialects take or report back: CURRENT_TIMESTAMP or NOW() with or
+// without a precision, LOCALTIMESTAMP, UTC_TIMESTAMP, and PostgreSQL's
+// timezone('UTC'::text, CURRENT_TIMESTAMP) for CURRENT_TIMESTAMP AT TIME ZONE 'UTC'.
 func IsCurrentTime(value string) bool {
-	base := strings.ToUpper(strings.TrimSpace(value))
-	if i := strings.IndexByte(base, '('); i >= 0 {
-		base = base[:i]
+	v := strings.ToLower(value)
+	for _, noise := range []string{" ", "(", ")", "'", "::text", "6"} {
+		v = strings.ReplaceAll(v, noise, "")
 	}
 
-	switch strings.TrimSpace(base) {
-	case "CURRENT_TIMESTAMP", "NOW", "LOCALTIMESTAMP":
+	switch v {
+	case "current_timestamp", "now", "localtimestamp", "utc_timestamp",
+		"current_timestampattimezoneutc", "timezoneutc,current_timestamp", "timezoneutc,now":
 		return true
 	default:
 		return false

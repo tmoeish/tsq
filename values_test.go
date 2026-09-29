@@ -1,6 +1,7 @@
 package tsq
 
 import (
+	"context"
 	"database/sql"
 	"database/sql/driver"
 	"reflect"
@@ -39,7 +40,7 @@ func TestValsExpandAndKeepEmptyListsExplicit(t *testing.T) {
 		t.Fatalf("IN rendered %s", sql)
 	}
 
-	if sql := render(User_ID.In(Vals[int64]())); !strings.HasSuffix(sql, `IN (NULL)`) {
+	if sql := render(User_ID.In(Vals[int64]())); !strings.HasSuffix(sql, `WHERE 1 = 0`) {
 		t.Fatalf("empty IN rendered %s", sql)
 	}
 
@@ -81,5 +82,33 @@ func TestValuersAreComparedByTheirValue(t *testing.T) {
 		if _, err := Select(User_ID).From(Users).Where(User_Name.Pred("%s = %s", v)).Build(); err == nil || !strings.Contains(err.Error(), "IsNull") {
 			t.Errorf("NULL %s: err = %v; want it refused", name, err)
 		}
+	}
+}
+
+// TestNotOfAnEmptyInMatchesEveryRow covers the complement of an empty In: IN (NULL)
+// is UNKNOWN rather than FALSE, and NOT keeps it UNKNOWN, so Not(col.In(empty))
+// matched no row where it has to match every one.
+func TestNotOfAnEmptyInMatchesEveryRow(t *testing.T) {
+	ctx := context.Background()
+	rt := newSQLite(t)
+	seedUsers(t, rt, "a", "b", "c")
+
+	ids := User_ID.ListParam()
+	for name, tc := range map[string]struct {
+		cond Condition
+		args []Arg
+	}{
+		"list param": {Not(User_ID.In(ids)), []Arg{User_ID.BindList()}},
+		"values":     {Not(User_ID.In(Vals[int64]())), nil},
+	} {
+		rows, err := Select(User_ID).From(Users).Where(tc.cond).MustBuild().List(ctx, rt, tc.args...)
+		if err != nil || len(rows) != 3 {
+			t.Errorf("%s: Not(In(empty)) = %d rows, %v; want 3", name, len(rows), err)
+		}
+	}
+
+	rows, err := Select(User_ID).From(Users).Where(User_ID.In(ids)).MustBuild().List(ctx, rt, User_ID.BindList())
+	if err != nil || len(rows) != 0 {
+		t.Fatalf("In(empty) = %d rows, %v; want 0", len(rows), err)
 	}
 }

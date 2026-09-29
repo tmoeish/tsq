@@ -199,19 +199,33 @@ func TestMySQLTimesKeepMicroseconds(t *testing.T) {
 		}
 	}
 
-	// DATETIME(6) DEFAULT CURRENT_TIMESTAMP is MySQL error 1067: the default has to
-	// name the column's precision.
+	// The current time is the UTC time on every dialect, which is what TSQ binds;
+	// MySQL also needs the precision (DATETIME(6) DEFAULT CURRENT_TIMESTAMP is
+	// error 1067), and SQLite's CURRENT_TIMESTAMP is UTC already.
 	stamped := ColumnSpec{Name: "at", Type: ColumnType{Kind: KindTime}, Default: "CURRENT_TIMESTAMP"}
-	if got, err := ColumnDefinitionSQL(d, stamped); err != nil || !strings.HasSuffix(got, "DEFAULT CURRENT_TIMESTAMP(6)") {
-		t.Errorf("stamped column = %s, %v", got, err)
+	for dialect, want := range map[Dialect]string{
+		d:                 "DEFAULT (UTC_TIMESTAMP(6))",
+		PostgresDialect{}: "DEFAULT (CURRENT_TIMESTAMP AT TIME ZONE 'UTC')",
+		SQLiteDialect{}:   "DEFAULT CURRENT_TIMESTAMP",
+	} {
+		if got, err := ColumnDefinitionSQL(dialect, stamped); err != nil || !strings.HasSuffix(got, want) {
+			t.Errorf("%s: stamped column = %s, %v; want %s", dialect.Name(), got, err, want)
+		}
 	}
 
-	if got := d.renderModifyColumnDefinition(stamped); !strings.HasSuffix(got, "DEFAULT CURRENT_TIMESTAMP(6)") {
+	if got := d.renderModifyColumnDefinition(stamped); !strings.HasSuffix(got, "DEFAULT (UTC_TIMESTAMP(6))") {
 		t.Errorf("modified stamped column = %s", got)
 	}
 
-	if got, _ := ColumnDefinitionSQL(PostgresDialect{}, stamped); !strings.HasSuffix(got, "DEFAULT CURRENT_TIMESTAMP") {
-		t.Errorf("stamped column on PostgreSQL = %s", got)
+	// What each database reports back for them is the same default.
+	for _, reported := range []string{"CURRENT_TIMESTAMP(6)", "utc_timestamp(6)", "(utc_timestamp(6))", "timezone('UTC'::text, CURRENT_TIMESTAMP)", "(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')", "now()"} {
+		if !IsCurrentTime(reported) {
+			t.Errorf("IsCurrentTime(%q) = false", reported)
+		}
+	}
+
+	if IsCurrentTime("'CURRENT_TIMESTAMP_X'") || IsCurrentTime("0") {
+		t.Error("IsCurrentTime matched a literal")
 	}
 
 	desc, _ := parseMySQLColumnType("datetime", "datetime", sql.NullInt64{})

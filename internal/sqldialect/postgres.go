@@ -290,8 +290,16 @@ func parsePostgresColumnType(dataType, udtName, formattedType string, size sql.N
 		return ColumnType{Kind: KindInt, Bits: 64}, nil
 	case "real":
 		return ColumnType{Kind: KindFloat, Bits: 32}, nil
-	case "double precision", "numeric":
+	case "double precision":
 		return ColumnType{Kind: KindFloat, Bits: 64}, nil
+	case "numeric":
+		// NUMERIC(20) is what TSQ declares for uint64; any other NUMERIC keeps its
+		// raw type, so a DECIMAL(10,2) no longer passes for a float column.
+		if n := strings.ReplaceAll(strings.ToLower(formattedType), " ", ""); n == "numeric(20,0)" || n == "numeric(20)" {
+			return ColumnType{Kind: KindInt, Bits: 64, Unsigned: true}, nil
+		}
+
+		return ColumnType{RawType: strings.ToUpper(strings.TrimSpace(formattedType))}, nil
 	case "bytea":
 		return ColumnType{Kind: KindBytes}, nil
 	case "character varying", "character":
@@ -306,8 +314,11 @@ func parsePostgresColumnType(dataType, udtName, formattedType string, size sql.N
 		// kind would render as VARCHAR(n) and produce spurious ALTERs on every
 		// reconcile of columns declared as TEXT.
 		return ColumnType{RawType: "TEXT"}, nil
-	case "timestamp without time zone", "timestamp with time zone", "date":
+	case "timestamp without time zone", "timestamp with time zone":
 		return ColumnType{Kind: KindTime}, nil
+	case "date":
+		// A DATE drops the time of day TSQ writes, so it is not a time column.
+		return ColumnType{RawType: "DATE"}, nil
 	}
 
 	switch udt {
@@ -363,13 +374,26 @@ func (d PostgresDialect) ColumnTypeSQL(desc ColumnType) string {
 
 		return "DOUBLE PRECISION"
 	case KindInt:
+		// PostgreSQL has no unsigned integers: an unsigned type takes the next
+		// wider one, so its upper half fits, and uint64 a NUMERIC(20).
+		bits := desc.Bits
+		if bits <= 0 {
+			bits = 64
+		}
+
+		if desc.Unsigned {
+			bits *= 2
+		}
+
 		switch {
-		case desc.Bits <= 16:
+		case bits <= 16:
 			return "SMALLINT"
-		case desc.Bits <= 32:
+		case bits <= 32:
 			return "INTEGER"
-		default:
+		case bits <= 64:
 			return "BIGINT"
+		default:
+			return "NUMERIC(20)"
 		}
 	case KindString:
 		if desc.Size <= 0 {

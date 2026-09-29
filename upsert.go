@@ -5,6 +5,7 @@ import (
 	"database/sql/driver"
 	"errors"
 	"fmt"
+	"reflect"
 	"slices"
 	"strings"
 	"time"
@@ -145,6 +146,10 @@ func (t *TableOf[R, K]) upsertRows(ctx context.Context, db Executor, scope execS
 
 			for _, row := range chunk {
 				written[row] = true
+			}
+
+			if err := t.adoptStoredKeys(ctx, db, scope, def, target, chunk); err != nil {
+				return fmt.Errorf("upsert into %s: %w", def.name, err)
 			}
 		}
 	}
@@ -463,4 +468,130 @@ func (t *TableOf[R, K]) upsertChunk(ctx context.Context, db Executor, scope exec
 	}
 
 	return nil
+}
+
+// adoptStoredKeys gives rows the primary key of the row each one wrote. By a
+// unique key other than the primary key, a row that conflicted updated a stored
+// row with another key; a generated key comes back from the statement, but a key
+// the caller assigns does not, and the row kept the key it proposed: the read-back
+// then found nothing, after the update had happened.
+func (t *TableOf[R, K]) adoptStoredKeys(ctx context.Context, db Executor, scope execScope, def *tableDef, target []string, rows []*R) error {
+	if def.autoIncrement || (len(target) == 1 && target[0] == def.primaryKey.name) {
+		return nil
+	}
+
+	cols := make([]*columnCore, 0, len(target))
+	for _, name := range target {
+		cols = append(cols, def.column(name))
+	}
+
+	// An OR per row nests one level deeper each: SQLite refuses a depth of 1000,
+	// the default batch size, so a key of several columns is read in parts.
+	if len(cols) > 1 && len(rows) > maxOrTerms {
+		for _, part := range chunks(rows, maxOrTerms) {
+			if err := t.adoptStoredKeys(ctx, db, scope, def, target, part); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	}
+
+	w := &writeStmt{d: scope.dialect}
+	w.text("SELECT ").ident(def.primaryKey.name)
+
+	for _, col := range cols {
+		w.text(", ").ident(col.name)
+	}
+
+	w.text(" FROM ").ident(def.name).text(" WHERE ")
+
+	// One key column is matched with a flat IN; a key of several columns row by
+	// row, which the depth limits of SQLite allow for a batch.
+	if len(cols) == 1 {
+		w.ident(cols[0].name).text(" IN (")
+
+		for i, row := range rows {
+			if i > 0 {
+				w.text(", ")
+			}
+
+			w.arg(value(row, cols[0]))
+		}
+
+		w.text(")")
+	} else {
+		for i, row := range rows {
+			if i > 0 {
+				w.text(" OR ")
+			}
+
+			w.text("(")
+
+			for j, col := range cols {
+				if j > 0 {
+					w.text(" AND ")
+				}
+
+				w.ident(col.name).text(" = ").arg(value(row, col))
+			}
+
+			w.text(")")
+		}
+	}
+
+	if w.err != nil {
+		return w.err
+	}
+
+	logSQLForExecutor(ctx, db, "upsert keys", w.sql.String(), w.args)
+
+	result, err := db.QueryContext(ctx, w.sql.String(), w.args...)
+	if err != nil {
+		return fmt.Errorf("read the upserted keys: %w", err)
+	}
+
+	defer func() { _ = result.Close() }()
+
+	stored := map[string]reflect.Value{}
+
+	for result.Next() {
+		holder := new(R)
+		dest := []any{def.primaryKey.scan(holder)}
+
+		for _, col := range cols {
+			dest = append(dest, col.scan(holder))
+		}
+
+		if err := result.Scan(dest...); err != nil {
+			return fmt.Errorf("read the upserted keys: %w", err)
+		}
+
+		stored[keysOf(holder, cols)] = field(holder, def.primaryKey)
+	}
+
+	if err := result.Err(); err != nil {
+		return fmt.Errorf("read the upserted keys: %w", err)
+	}
+
+	for _, row := range rows {
+		if key, ok := stored[keysOf(row, cols)]; ok {
+			field(row, def.primaryKey).Set(key)
+		}
+	}
+
+	return nil
+}
+
+// maxOrTerms bounds the rows a statement matches with one OR each.
+const maxOrTerms = 200
+
+// keysOf names the values of cols in row.
+func keysOf[R any](row *R, cols []*columnCore) string {
+	parts := make([]string, 0, len(cols))
+	for _, col := range cols {
+		parts = append(parts, keyText(value(row, col)))
+	}
+
+	return strings.Join(parts, "\x00")
 }

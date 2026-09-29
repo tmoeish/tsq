@@ -1315,17 +1315,17 @@ func TestIntegrationDatabaseFilledColumns(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			if course.Currency != "USD" || course.Slug != "filled" {
+			if deref(course.Currency) != "USD" || course.Slug != "filled" {
 				t.Fatalf("inserted course = %+v; want the database values read back", course)
 			}
 
 			// An explicit value wins over the DEFAULT.
-			explicit := &academy.Course{TrackID: 1, InstructorID: 1, Title: "Euro", Summary: "s", Currency: "EUR"}
+			explicit := &academy.Course{TrackID: 1, InstructorID: 1, Title: "Euro", Summary: "s", Currency: new("EUR")}
 			if err := explicit.Insert(ctx, rt); err != nil {
 				t.Fatal(err)
 			}
 
-			if explicit.Currency != "EUR" || explicit.Slug != "euro" {
+			if deref(explicit.Currency) != "EUR" || explicit.Slug != "euro" {
 				t.Fatalf("explicit currency = %+v", explicit)
 			}
 
@@ -1345,14 +1345,14 @@ func TestIntegrationDatabaseFilledColumns(t *testing.T) {
 			// A batch insert leaves the columns to the database without reading back.
 			batch := []*academy.Course{
 				{TrackID: 1, InstructorID: 1, Title: "Batch A", Summary: "s"},
-				{TrackID: 1, InstructorID: 1, Title: "Batch B", Summary: "s", Currency: "GBP"},
+				{TrackID: 1, InstructorID: 1, Title: "Batch B", Summary: "s", Currency: new("GBP")},
 			}
 			if err := academy.TableCourse.BatchInsert(ctx, rt, batch); err != nil {
 				t.Fatal(err)
 			}
 
 			rows, err := academy.TableCourse.Fetch(ctx, rt, batch[0].ID, batch[1].ID)
-			if err != nil || rows[0].Currency != "USD" || rows[1].Currency != "GBP" || rows[0].Slug != "batch a" {
+			if err != nil || deref(rows[0].Currency) != "USD" || deref(rows[1].Currency) != "GBP" || rows[0].Slug != "batch a" {
 				t.Fatalf("batch rows = %+v, %v", rows, err)
 			}
 
@@ -1364,11 +1364,11 @@ func TestIntegrationDatabaseFilledColumns(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			if up.ID == 0 || up.Currency != "USD" || up.Slug != "upserted" {
+			if up.ID == 0 || deref(up.Currency) != "USD" || up.Slug != "upserted" {
 				t.Fatalf("upserted course = %+v; want the database values read back", up)
 			}
 
-			euro := &academy.Course{TrackID: 1, InstructorID: 1, Title: "Upserted", Summary: "s", Currency: "EUR"}
+			euro := &academy.Course{TrackID: 1, InstructorID: 1, Title: "Upserted", Summary: "s", Currency: new("EUR")}
 			if err := academy.TableCourse.Upsert(ctx, rt, euro, academy.TableCourse.Title); err != nil {
 				t.Fatal(err)
 			}
@@ -1379,21 +1379,21 @@ func TestIntegrationDatabaseFilledColumns(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			if unset.ID != up.ID || unset.Currency != "EUR" {
+			if unset.ID != up.ID || deref(unset.Currency) != "EUR" {
 				t.Fatalf("second update = %+v; want id %d keeping EUR", unset, up.ID)
 			}
 
 			// A batch groups rows by the columns they write.
 			upserts := []*academy.Course{
 				{TrackID: 1, InstructorID: 1, Title: "Batch Up A", Summary: "s"},
-				{TrackID: 1, InstructorID: 1, Title: "Batch Up B", Summary: "s", Currency: "GBP"},
+				{TrackID: 1, InstructorID: 1, Title: "Batch Up B", Summary: "s", Currency: new("GBP")},
 			}
 			if err := academy.TableCourse.BatchUpsert(ctx, rt, upserts, []tsq.BoundColumn[academy.Course]{academy.TableCourse.Title}); err != nil {
 				t.Fatal(err)
 			}
 
 			upserted, err := academy.TableCourse.FetchByTitle(ctx, rt, "Batch Up A", "Batch Up B")
-			if err != nil || upserted[0].Currency != "USD" || upserted[1].Currency != "GBP" || upserted[0].Slug != "batch up a" {
+			if err != nil || deref(upserted[0].Currency) != "USD" || deref(upserted[1].Currency) != "GBP" || upserted[0].Slug != "batch up a" {
 				t.Fatalf("batch upserted = %+v, %v", upserted, err)
 			}
 
@@ -2195,4 +2195,13 @@ func TestIntegrationStampsAndKeysRoundTrip(t *testing.T) {
 			}
 		})
 	}
+}
+
+//go:fix inline
+func deref(s *string) string {
+	if s == nil {
+		return "<nil>"
+	}
+
+	return *s
 }

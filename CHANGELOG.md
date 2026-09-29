@@ -19,7 +19,7 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 - 新增 `Query.ListIn(ctx, db, listParam, values, args...)`：列表参数超过方言绑定上限时按上限分块、在同一快照里读完再拼接，只接受分块不改变结果的查询。`TableXxx.Fetch` / `FetchBy` 用它，任意数量的键都能取（此前超过 SQLite 的 32766 个就报错）。
 - 新增 `TableXxx.Restore` / `BatchRestore` 和生成的 `row.Restore(ctx, db)`：恢复软删除的行，是清除 `deleted_at` 的唯一入口。
 - 根包不再 import 任何数据库驱动（MySQL 错误改为反射识别），根包测试也不再 import 驱动和 nullbio：只用库的项目 `go mod tidy` 之后 `go.mod` 不会多出间接依赖，`go.sum` 里只剩 SQLite 驱动（根包单测需要）。
-- `TableXxx.GetBy(ctx, db, col, value, conds...)` / `FindBy`（没有时 `nil, nil`）：按唯一列读一行，与 `FetchBy` 成对；生成的 `GetByX` / `FindByX` 调它，没有额外条件时查询只构建一次（此前每次调用都重新构建和渲染）。
+- `TableXxx.GetBy(ctx, db, col, value, conds...)` / `FindBy`（没有时 `nil, nil`）：按唯一列读一行（列加上 `conds` 里用 `EQ` 固定的列，必须覆盖主键或某个唯一索引，否则报错，而不是返回任意一行），与 `FetchBy` 成对；生成的 `GetByX` / `FindByX` 调它，没有额外条件时查询只构建一次（此前每次调用都重新构建和渲染）。
 - `TableXxx.Upsert(ctx, db, &row, key...)` 和 `BatchUpsert(ctx, db, rows, key, options...)`：按主键或某个唯一索引插入或更新，PostgreSQL / SQLite 渲染成 `ON CONFLICT ... DO UPDATE`，MySQL 渲染成 `ON DUPLICATE KEY UPDATE`。更新时 `version` 自增不校验、`updated_at` 刷新、`created_at` 保留；单行版本回读主键、`version` 和 `created_at`。MySQL 会匹配所有唯一键，因此行可能撞上别的唯一键时直接拒绝。追踪操作名为 `upsert`。
 - `Query.Iter(ctx, db, args...)` 返回 `iter.Seq2[*O, error]`，逐行扫描，大结果集不必整体读进内存；`break` 会结束查询。追踪操作名为 `iter`。
 
@@ -105,7 +105,7 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 - 行写入绑定值不再走反射（列上带一个由生成的访问器构成的取值函数）：100 行的批量 INSERT 约快 19%，批量 UPDATE 约快 28%（`write_bench_test.go`）。
 - 新增 `tsq.AttachMany` / `tsq.AttachOne`：给一批父行一次性装配子行（内部走 `ListIn`，父键去重分块），不再需要每行一次查询。子查询由调用方给出，它的过滤、排序和软删除作用域决定哪些子行算在内。
 - **全文检索**：`//tsq:fulltext Title,Summary` 声明全文索引，`tsq.Matches(TableXxx.FullTextTitleAndSummary(), tsq.Val(term))` 搜索它：每个全文索引生成一个按字段命名的方法（别名表上同样可用），手写表用 `TableOf.FullText("索引名")`（此前是 `FullText(name ...string)`，没有或有多个索引时运行期才报错）。MySQL 渲染 `MATCH ... AGAINST`（并创建 `FULLTEXT` 索引），PostgreSQL 渲染 `to_tsvector('simple', ...) @@ plainto_tsquery` 并建 GIN 表达式索引，SQLite 没有 TSQ 能管理的全文索引，同一个谓词退化为按子串匹配（`dialect.CapabilityFullTextSearch` 报告是哪一种）。全文索引只按名字对账。
-- **数据库填值的列**：`db:"col,default:SQL"` 让列有 DDL 默认值，并且字段未设置时插入语句直接不写这一列（由数据库填），单行 `Insert` 之后把值读回；`db:"col,generated:SQL"` 声明生成列（`GENERATED ALWAYS AS (SQL) STORED`），`Insert` / `Update` / `Upsert` 永不写它，单行插入后读回。托管列和主键不允许这样标注，`tsq gen` 会拒绝。生成列由建表语句创建，之后 schema 策略不再比较它（三个方言的自省结果不一致）。
+- **数据库填值的列**：`db:"col,default:SQL"` 让列有 DDL 默认值，并且字段为 NULL（nil 指针、无效的 `sql.Null`）时插入语句直接不写这一列（由数据库填）；字段必须能存 NULL，`tsq gen` 和 `Define` 拒绝不能存 NULL 的字段，因为零值（`false`、`0`）也是要写入的值，单行 `Insert` 之后把值读回；`db:"col,generated:SQL"` 声明生成列（`GENERATED ALWAYS AS (SQL) STORED`），`Insert` / `Update` / `Upsert` 永不写它，单行插入后读回。托管列和主键不允许这样标注，`tsq gen` 会拒绝。生成列由建表语句创建，之后 schema 策略不再比较它（三个方言的自省结果不一致）。
 - 列定义的 DDL 渲染库和生成器共用一份实现，不再各写一份。
 - 新增 `*tsq.RowStateError`（用 `errors.AsType` 判断，它不是可重试的错误，所以没有 `Is*` 函数）：删除一个已删除的行、恢复一个未删除的行，报的是行的状态不对，而不是乐观锁冲突（那种重试没用），没有 `version` 列的表也会报。
 - `Query.ListIn` 在列表一条语句装得下时不再开事务。
@@ -261,6 +261,22 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 - **生成代码的几处瑕疵**：`HardDelete` 的文档注释跟在上一个函数的 `}` 后面；result 文件的"Code generated"注释紧贴 `package`，成了包文档；列表参数名简单加 `s`（`statuss`、`categorys`）。
 - **`tsq gen --check` 发现过期和其他错误用同一个退出码**：现在过期退出 2，其他错误退出 1，CI 能区分"忘了跑 gen"和"包坏了"；帮助里 `-v` 显示为 `-v, --verbose`，并列出 `runtime.tsq.go`。
 - **LIKE 的大小写敏感性随方言不同，文档没说**：SQLite 忽略 ASCII 大小写，MySQL 按排序规则，PostgreSQL 区分。模式函数和关键词搜索的文档现在写明，并给出三方言一致的写法。
+- **两张表共用一个行类型时，按窄 `Select` 读出的行 `Update` 会把没读的列写成零值**：部分读取的判断按行类型查表，先定义的表胜出，读的是另一张表时判断落空。现在 `Define` 拒绝第二张（不同名的）表使用同一个行类型，归档表、分片表用自己的类型（`type OrderArchive Order`）。
+- **`Not(col.In(空列表))` 一行都不返回**：空 `In` 渲染成 `IN (NULL)`，结果是 UNKNOWN 而不是 FALSE，取反仍是 UNKNOWN。现在空 `In` 是明确的 FALSE、空 `NotIn` 是明确的 TRUE，取反后都对；非空列表的 SQL 不变。
+- **版本冲突只差在时间列上时，下一次 `Update` 会覆盖别人的修改**：冲突后回读判断"是不是自己写成的"时跳过了时间列，别人只改了时间（或写了同样的值）就被当成自己写的，内存里版本号前移。现在时间列也比较（精度到微秒），冲突行留在 `OptimisticLockError.Keys` 里、版本号不动。
+- **生成的 SQLite 迁移把可空列改成 NOT NULL 时会清空整张表**：重建时原样复制这一列，存着 NULL 的行让复制失败，`sqlite3` 命令行继续执行并删掉旧表。现在这些行填入类型的零值，复制不会失败。
+- **按非主键的唯一键 `Upsert`、主键由调用方指定时**：冲突行更新了库里的行，内存里却还是自己提议的主键，随后回读失败（此时更新已经发生）；`BatchUpsert` 静默留下错的主键。现在这些行拿到库里那一行的主键。
+- **`GetBy` / `FindBy` / `FetchBy` 接受不唯一的列**：多行匹配时返回任意一行、或把其余的报成缺失。现在要求唯一（见"新增"）。
+- **`default:` 列写不进零值**：零值被当成"未设置"，`false` / `0` / `""` 永远写不进去，库里存的是默认值（批量插入时内存与库还不一致）。现在只有 NULL 交给默认值（见上）；示例的 `Course.Currency` 因此改为 `*string`。
+- **`json.RawMessage` 这类具名字节切片为 nil 时被写成 NULL**，插入 NOT NULL 列失败。现在和 `[]byte` 一样写成空字节。
+- **`DEFAULT CURRENT_TIMESTAMP` 在 PostgreSQL 和 MySQL 上存的是会话时区的本地时间**，而 TSQ 写入的时间都是 UTC。现在渲染成 `(CURRENT_TIMESTAMP AT TIME ZONE 'UTC')` / `(UTC_TIMESTAMP(6))`；已有的表结构不会自动改，用迁移文件的项目要自己改默认值。
+- **`FetchBy` / 生成的 `FetchByX` 按时间取行时，时区不同的值被报成缺失**：取回的行按 Go 的 `==` 对应，时区和单调时钟都参与比较。现在按瞬间对应。
+- **`tsq.json` 丢了之后，后续的结构变化从迁移记录里消失**：生成器把已有的 `.sql` 当成历史起点。现在 `.sql` 在而 `tsq.json` 不在时拒绝运行，提示从版本库恢复或删掉 `.sql` 重新开始。
+- **索引换表、或表改名保留原索引名时，迁移先建后删而失败**（PostgreSQL 和 SQLite 的索引名全库唯一）。现在所有删除索引的语句最先执行，被删除（注释掉）的表让出新索引要用的名字。
+- **MySQL 迁移用 `MODIFY COLUMN` 改生成列时丢掉了 `GENERATED` 子句**，列变成 TSQ 从不写的普通 NOT NULL 列。现在生成表达式的变化留给手写迁移，并注释说明。
+- **PostgreSQL 忽略无符号**：`uint16` 建成 `SMALLINT`、`uint32` 建成 `INTEGER`、`uint64` 建成 `BIGINT`，都装不下 Go 类型的上半段。现在取下一档更宽的类型（`uint64` 为 `NUMERIC(20)`），读回时 `NUMERIC(20)` 对应 `uint64`；其他 `NUMERIC` 和 `DATE` 不再被当成浮点和时间列。已有的列 `Reconcile` 会加宽，用迁移文件的项目需自己改。
+- **集合运算按一个没选中的列排序时，可能按同名的派生项排序**：派生项以源列名作别名（`LENGTH(name) AS name`），按 `name` 排序实际按长度排。现在这种排序在构建时报错。
+- **文档写 `*[]byte` 是可空字节字段**，解析器却拒绝它。文档改为 `sql.Null[[]byte]`。
 
 ### 其他
 

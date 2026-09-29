@@ -244,6 +244,14 @@ func buildDDLInitialDialects(
 			if !isGeneratedDDLArtifact(content) {
 				return nil, 0, fmt.Errorf("refusing to read non-generated DDL file: %s", filename)
 			}
+
+			// The history lives in tsq.json; without it the file's schema would be
+			// taken as the start of history, and every change since the last run
+			// would reach no migration.
+			if previous == nil {
+				return nil, 0, fmt.Errorf("%s exists but %s does not: restore %s (from version control), or delete the generated .sql files to start the history again",
+					filename, ddlStateFilename, filepath.Join(outDir, ddlStateFilename))
+			}
 		}
 
 		initial[name] = ddlStateDialectSQL{SQL: string(content)}

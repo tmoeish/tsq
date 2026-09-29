@@ -773,8 +773,9 @@ type Artifact struct {
 				`"named_rank" INTEGER NOT NULL`,
 				`"count" INTEGER NOT NULL`,
 				`"named_count" INTEGER NOT NULL`,
-				`"flags" INTEGER NOT NULL`,
-				`"named_flags" INTEGER NOT NULL`,
+				// PostgreSQL has no unsigned types: a uint takes the next wider one.
+				`"flags" BIGINT NOT NULL`,
+				`"named_flags" BIGINT NOT NULL`,
 				`"legacy_id" BIGINT`,
 				`"enabled" BOOLEAN NOT NULL`,
 				`"payload" BYTEA NOT NULL`,
@@ -2190,7 +2191,7 @@ type DeviceBinding struct {
 	ID   int64    ` + "`db:\"id\"`" + `
 	Name string   ` + "`db:\"name,size:64\"`" + `
 	Hash [32]byte ` + "`db:\"hash,type:BINARY(32)\"`" + `
-	Tags string   ` + "`db:\"tags,size:32,default:'a, b'\"`" + `
+	Tags *string  ` + "`db:\"tags,size:32,default:'a, b'\"`" + `
 	Slug string   ` + "`db:\"slug,generated\"`" + `
 }
 
@@ -2296,7 +2297,7 @@ func TestGeneratedCodeCompilesForEveryFieldShape(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, want := range []string{`"tags" VARCHAR(32) NOT NULL DEFAULT 'a, b'`, "slug is computed by the database"} {
+	for _, want := range []string{`"tags" VARCHAR(32) DEFAULT 'a, b'`, "slug is computed by the database"} {
 		if !strings.Contains(string(sqlite), want) {
 			t.Errorf("sqlite.sql lacks %q:\n%s", want, sqlite)
 		}
@@ -2438,6 +2439,9 @@ func TestGenRefusesWhatItCannotGenerate(t *testing.T) {
 	}{
 		// Every generated accessor of a promoted field dereferenced the pointer.
 		"embedded pointer": {"package gentest\n\ntype Base struct {\n\tID int64 `db:\"id\"`\n}\n\n//tsq:table\ntype Row struct {\n\t*Base\n\tName string `db:\"name\"`\n}\n", "embed the struct by value"},
+		// A zero value read as unset: false and 0 could never be written.
+		"default on a field that cannot hold NULL": {table("//tsq:table", "Active bool `db:\"active,default:true\"`"), "has default: but cannot hold NULL"},
+		"default and generated":                    {table("//tsq:table", "Up *string `db:\"up,default:'x',generated:UPPER(up)\"`"), "both default: and generated:"},
 		// The DDL renderer panicked.
 		"generated string key": {"package gentest\n\n//tsq:table pk=Code\ntype Row struct {\n\tCode string `db:\"code\"`\n}\n", "pk=Code assigned"},
 		// runtime.tsq.go overwrote the table's file.
@@ -2680,6 +2684,174 @@ type Post struct {
 	for _, want := range []string{"func (t PostTable) FindBySlug(", "func (t PostTable) FullTextTitleAndBody() tsq.FullTextIndex", "func (p *Post) IsDeleted() bool"} {
 		if !strings.Contains(generated, want) {
 			t.Errorf("post.tsq.go lacks %q", want)
+		}
+	}
+}
+
+// TestGenMigrationFillsAColumnThatBecomesNotNull covers a nullable field made NOT
+// NULL: the SQLite rebuild copied the column as it was, the copy failed on the
+// rows holding NULL, and the sqlite3 shell went on to drop the table with its rows.
+func TestGenMigrationFillsAColumnThatBecomesNotNull(t *testing.T) {
+	shell, err := exec.LookPath("sqlite3")
+	if err != nil {
+		t.Skip("sqlite3 shell not installed")
+	}
+
+	model := func(nick string) map[string]string {
+		return map[string]string{"model.go": "package gentest\n\n//tsq:table name=people\ntype Person struct {\n\tID int64 `db:\"id\"`\n\t" + nick + "\n}\n"}
+	}
+
+	if err := genModule(t, model("Nick *string `db:\"nick\"`")); err != nil {
+		t.Fatal(err)
+	}
+
+	initial, err := os.ReadFile("sqlite.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for field, want := range map[string]string{
+		"Nick string `db:\"nick\"`": "2|",
+	} {
+		writeTestFile(t, "model.go", model(field)["model.go"])
+
+		if err := runGen(t); err != nil {
+			t.Fatal(err)
+		}
+
+		sqlite, err := os.ReadFile("sqlite.sql")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		db := filepath.Join(t.TempDir(), "t.db")
+		migration := string(sqlite[strings.LastIndex(string(sqlite), "-- Migration: "):])
+
+		for _, script := range []string{string(initial), `INSERT INTO people (nick) VALUES ('kept'), (NULL);`, migration} {
+			if out, err := runSQLiteShell(shell, db, script); err != nil || strings.Contains(out, "Error") {
+				t.Fatalf("%s: sqlite3: %v\n%s\n%s", field, err, out, migration)
+			}
+		}
+
+		if out, err := runSQLiteShell(shell, db, `SELECT count(*), max(CASE WHEN nick <> 'kept' THEN nick END) FROM people;`); err != nil || strings.TrimSpace(out) != want {
+			t.Fatalf("%s: after the rebuild %q, %v; want %q", field, out, err, want)
+		}
+
+		// Start the next case from the nullable column again.
+		writeTestFile(t, "model.go", model("Nick *string `db:\"nick\"`")["model.go"])
+
+		if err := runGen(t); err != nil {
+			t.Fatal(err)
+		}
+
+		if initial, err = os.ReadFile("sqlite.sql"); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// TestGenRefusesToStartHistoryOverGeneratedSQL covers a lost tsq.json, deleted to
+// settle a merge conflict: the generated .sql was adopted as the start of history,
+// and a field added since reached no migration at all.
+func TestGenRefusesToStartHistoryOverGeneratedSQL(t *testing.T) {
+	model := func(fields string) map[string]string {
+		return map[string]string{"model.go": "package gentest\n\n//tsq:table\ntype Row struct {\n\tID int64 `db:\"id\"`\n" + fields + "}\n"}
+	}
+
+	if err := genModule(t, model("")); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.Remove("tsq.json"); err != nil {
+		t.Fatal(err)
+	}
+
+	writeTestFile(t, "model.go", model("\tExtra string `db:\"extra\"`\n")["model.go"])
+
+	if err := runGen(t); err == nil || !strings.Contains(err.Error(), "tsq.json does not") {
+		t.Fatalf("tsq gen without tsq.json = %v; want it refused", err)
+	}
+}
+
+// TestGenMigrationFreesIndexNamesFirst covers index names, which PostgreSQL and
+// SQLite keep per schema: renaming a table, whose DROP stays commented, created
+// its unique index under the new table while the old one still held the name,
+// and an index moved from table b to table a was created before b dropped it.
+func TestGenMigrationFreesIndexNamesFirst(t *testing.T) {
+	shell, err := exec.LookPath("sqlite3")
+	if err != nil {
+		t.Skip("sqlite3 shell not installed")
+	}
+
+	model := func(name, index string) map[string]string {
+		return map[string]string{"model.go": "package gentest\n\n//tsq:table name=" + name + "\n//tsq:unique Email name=ux_email\ntype Person struct {\n\tID int64 `db:\"id\"`\n\tEmail string `db:\"email\"`\n}\n\n//tsq:table name=b\n" + index + "type B struct {\n\tID int64 `db:\"id\"`\n\tCode string `db:\"code\"`\n}\n\n//tsq:table name=a\n" + strings.ReplaceAll(index, "//tsq:index Code name=idx_code\n", "") + "type A struct {\n\tID int64 `db:\"id\"`\n\tCode string `db:\"code\"`\n}\n"}
+	}
+
+	if err := genModule(t, model("people", "//tsq:index Code name=idx_code\n")); err != nil {
+		t.Fatal(err)
+	}
+
+	initial, err := os.ReadFile("sqlite.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The table is renamed, and idx_code moves from b to a.
+	next := model("persons", "")["model.go"]
+	next = strings.Replace(next, "//tsq:table name=a\n", "//tsq:table name=a\n//tsq:index Code name=idx_code\n", 1)
+	writeTestFile(t, "model.go", next)
+
+	if err := runGen(t); err != nil {
+		t.Fatal(err)
+	}
+
+	sqlite, err := os.ReadFile("sqlite.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	migration := string(sqlite[strings.LastIndex(string(sqlite), "-- Migration: "):])
+	db := filepath.Join(t.TempDir(), "t.db")
+
+	for _, script := range []string{string(initial), migration} {
+		if out, err := runSQLiteShell(shell, db, script); err != nil || strings.Contains(out, "Error") {
+			t.Fatalf("sqlite3: %v\n%s\n%s", err, out, migration)
+		}
+	}
+
+	out, err := runSQLiteShell(shell, db, `SELECT tbl_name FROM sqlite_master WHERE name IN ('ux_email', 'idx_code') ORDER BY name;`)
+	if err != nil || strings.Fields(out)[0] != "a" || strings.Fields(out)[1] != "persons" {
+		t.Fatalf("indexes after the migration: %q, %v; want idx_code on a and ux_email on persons", out, err)
+	}
+}
+
+// TestGenMigrationLeavesGeneratedColumnsToAMigration covers a changed generated
+// expression: MySQL's MODIFY COLUMN left out GENERATED ALWAYS AS, which turned the
+// column into a plain NOT NULL column TSQ never writes.
+func TestGenMigrationLeavesGeneratedColumnsToAMigration(t *testing.T) {
+	model := func(expr string) map[string]string {
+		return map[string]string{"model.go": "package gentest\n\n//tsq:table\ntype Row struct {\n\tID int64 `db:\"id\"`\n\tName string `db:\"name,size:20\"`\n\tUp string `db:\"up,size:20,generated:" + expr + "\"`\n}\n"}
+	}
+
+	if err := genModule(t, model("UPPER(name)")); err != nil {
+		t.Fatal(err)
+	}
+
+	writeTestFile(t, "model.go", model("LOWER(name)")["model.go"])
+
+	if err := runGen(t); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, file := range []string{"mysql.sql", "postgres.sql"} {
+		content, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		migration := string(content[strings.LastIndex(string(content), "-- Migration: "):])
+		if strings.Contains(migration, "MODIFY COLUMN") || strings.Contains(migration, "ALTER COLUMN") || !strings.Contains(migration, "up changes how the database computes it") {
+			t.Fatalf("%s alters a generated column in place:\n%s", file, migration)
 		}
 	}
 }

@@ -551,12 +551,23 @@ func (s *querySpec[O]) checkCompoundOrder(ob OrderBy) error {
 	core := ob.column.core()
 	named, selected := 0, false
 
+	var output *columnCore
+
 	for _, col := range s.Selects {
 		if col.Name() == ob.column.Name() {
 			named++
+			output = col.core()
 		}
 
 		selected = selected || col.core() == core
+	}
+
+	// A column that is not itself selected finds its output by name, and a derived
+	// item is named after its source column: LENGTH(name) AS name. Ordering by
+	// name then sorted by the length, so the output has to be that column.
+	if !selected && named == 1 && (!output.bare || !sameSource(output, core)) {
+		return fmt.Errorf("a set operation is ordered by its output columns, and the one named %s is %s, not the column; order by the selected column",
+			ob.column.Name(), debugSQL(output.info.sql))
 	}
 
 	switch {
@@ -569,6 +580,11 @@ func (s *querySpec[O]) checkCompoundOrder(ob OrderBy) error {
 	}
 
 	return nil
+}
+
+// sameSource reports whether two columns read the same column of the same table.
+func sameSource(a, b *columnCore) bool {
+	return !isNilValue(a.table) && !isNilValue(b.table) && a.table.TableName() == b.table.TableName() && a.name == b.name
 }
 
 // outputCanBeNull reports whether the named output column of a set operation can

@@ -26,7 +26,7 @@ type CourseTable struct {
 	Level          tsq.Column[Course, CourseLevel]
 	ListPriceCents tsq.Column[Course, int64]
 	Published      tsq.Column[Course, bool]
-	Currency       tsq.Column[Course, string]
+	Currency       tsq.NullColumn[Course, string]
 	Slug           tsq.Column[Course, string]
 }
 
@@ -49,7 +49,7 @@ func newCourseTable() CourseTable {
 		Level:          tsq.NewColumn(t, "level", "level", func(r *Course) *CourseLevel { return &r.Level }),
 		ListPriceCents: tsq.NewColumn(t, "list_price_cents", "list_price_cents", func(r *Course) *int64 { return &r.ListPriceCents }),
 		Published:      tsq.NewColumn(t, "published", "published", func(r *Course) *bool { return &r.Published }),
-		Currency:       tsq.NewColumn(t, "currency", "currency", func(r *Course) *string { return &r.Currency }),
+		Currency:       tsq.NewNullColumn[string](t, "currency", "currency", func(r *Course) **string { return &r.Currency }),
 		Slug:           tsq.NewColumn(t, "slug", "slug", func(r *Course) *string { return &r.Slug }),
 	}
 
@@ -95,8 +95,9 @@ func newCourseTable() CourseTable {
 			{
 				Name: "currency",
 				Type: tsqdialect.ColumnType{
-					Kind: tsqdialect.KindString,
-					Size: 3,
+					Kind:     tsqdialect.KindString,
+					Nullable: true,
+					Size:     3,
 				},
 				Default: "'USD'",
 				Fill:    tsqdialect.FillDefault,
@@ -195,7 +196,7 @@ func (t CourseTable) As(alias string) CourseTable {
 		Level:          t.Level.WithTable(a),
 		ListPriceCents: t.ListPriceCents.WithTable(a),
 		Published:      t.Published.WithTable(a),
-		Currency:       t.Currency.WithTable(a),
+		Currency:       t.Currency.WithTable(a).(tsq.NullColumn[Course, string]),
 		Slug:           t.Slug.WithTable(a),
 	}
 }

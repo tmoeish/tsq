@@ -3,6 +3,7 @@ package tsq
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -1319,26 +1320,29 @@ func TestSkipDuplicatesKeepsTheRowsItStored(t *testing.T) {
 type blobRow struct {
 	ID   int64
 	Data []byte
+	Raw  json.RawMessage
 }
 
 var (
 	blobHandle = NewTable[blobRow, int64]("blobs")
 	Blob_ID    = NewColumn(blobHandle, "id", "id", func(r *blobRow) *int64 { return &r.ID })
 	Blob_Data  = NewColumn(blobHandle, "data", "data", func(r *blobRow) *[]byte { return &r.Data })
+	Blob_Raw   = NewColumn(blobHandle, "raw", "raw", func(r *blobRow) *json.RawMessage { return &r.Raw })
 	blobTable  = blobHandle.Define(TableSpec[blobRow, int64]{
-		Columns:       []BoundColumn[blobRow]{Blob_ID, Blob_Data},
+		Columns:       []BoundColumn[blobRow]{Blob_ID, Blob_Data, Blob_Raw},
 		PrimaryKey:    Blob_ID,
 		AutoIncrement: true,
 		ColumnSpecs: []tsqdialect.ColumnSpec{
 			{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
 			{Name: "data", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindBytes}},
+			{Name: "raw", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindBytes}},
 		},
 	})
 )
 
-// TestUnsetBytesAreWrittenEmpty covers a []byte field, a NOT NULL column whose
-// zero value is nil: the drivers bound it as NULL, and every Insert that left it
-// unset failed.
+// TestUnsetBytesAreWrittenEmpty covers a []byte field, and one of a named byte
+// slice type (json.RawMessage), a NOT NULL column whose zero value is nil: the
+// drivers bound it as NULL, and every Insert that left it unset failed.
 func TestUnsetBytesAreWrittenEmpty(t *testing.T) {
 	ctx := context.Background()
 
@@ -1466,5 +1470,87 @@ func TestStatementsByConditionMeanTheSameOnEveryDialect(t *testing.T) {
 
 	if _, _, err := cleanup.SQL(onSQLite); err != nil {
 		t.Fatalf("on SQLite: %v", err)
+	}
+}
+
+// TestAConflictOnlyInTimesIsNotMistakenForOurWrite covers the read-back after a
+// version conflict, which left times out: another writer that set the same values
+// and only a different updated_at looked like our own write, so the row took the
+// new version in memory and the next Update overwrote the other writer's change.
+func TestAConflictOnlyInTimesIsNotMistakenForOurWrite(t *testing.T) {
+	ctx := context.Background()
+	rt := newSQLite(t)
+	row := seedUsers(t, rt, "a")[0]
+
+	if _, err := UpdateTable(Users).Set(User_Name, Val("renamed")).Where(User_ID.EQ(Val(row.ID))).Exec(ctx, rt); err != nil {
+		t.Fatal(err)
+	}
+
+	row.Name = "renamed"
+
+	err := Users.Update(ctx, rt, row)
+
+	conflict, ok := errors.AsType[*OptimisticLockError](err)
+	if !ok || len(conflict.Keys) != 1 {
+		t.Fatalf("Update = %v; want a conflict naming the row", err)
+	}
+
+	if row.Version != 0 {
+		t.Fatalf("version in memory = %d; want the loaded 0, the write did not happen", row.Version)
+	}
+
+	if err := Users.Update(ctx, rt, row); !IsOptimisticLockError(err) {
+		t.Fatalf("second Update = %v; want the conflict again", err)
+	}
+}
+
+type account struct {
+	Code  string
+	Email string
+	Name  string
+}
+
+var (
+	accountsHandle = NewTable[account, string]("accounts")
+	Account_Code   = NewColumn(accountsHandle, "code", "code", func(r *account) *string { return &r.Code })
+	Account_Email  = NewColumn(accountsHandle, "email", "email", func(r *account) *string { return &r.Email })
+	Account_Name   = NewColumn(accountsHandle, "name", "name", func(r *account) *string { return &r.Name })
+	Accounts       = accountsHandle.Define(TableSpec[account, string]{
+		Columns:    []BoundColumn[account]{Account_Code, Account_Email, Account_Name},
+		PrimaryKey: Account_Code,
+		ColumnSpecs: []tsqdialect.ColumnSpec{
+			{Name: "code", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 16}, PrimaryKey: true},
+			{Name: "email", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 64}},
+			{Name: "name", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 64}},
+		},
+		Indexes: []IndexSpec{{Name: "ux_accounts_email", Columns: []string{"email"}, Unique: true}},
+	})
+)
+
+// TestUpsertByAUniqueKeyAdoptsTheStoredKey covers an upsert by a unique column of
+// a table whose key the caller assigns: a row that conflicted updated the stored
+// row, but kept the key it proposed, and Upsert then failed reading it back.
+func TestUpsertByAUniqueKeyAdoptsTheStoredKey(t *testing.T) {
+	ctx := context.Background()
+
+	rt, err := Open(ctx, "sqlite", filepath.Join(t.TempDir(), "accounts.db"), []Table{Accounts}, WithSchemaPolicy(SchemaPolicyCreateMissing))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() { _ = rt.Close() })
+
+	if err := Accounts.BatchInsert(ctx, rt, []*account{{Code: "a1", Email: "a@x"}, {Code: "b1", Email: "b@x"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	one := &account{Code: "a2", Email: "a@x", Name: "second"}
+	if err := Accounts.Upsert(ctx, rt, one, Account_Email); err != nil || one.Code != "a1" {
+		t.Fatalf("Upsert = %v, row %+v; want the stored key a1", err, one)
+	}
+
+	batch := []*account{{Code: "b2", Email: "b@x", Name: "again"}, {Code: "c1", Email: "c@x", Name: "new"}}
+	if err := Accounts.BatchUpsert(ctx, rt, batch, []BoundColumn[account]{Account_Email}); err != nil || batch[0].Code != "b1" || batch[1].Code != "c1" {
+		t.Fatalf("BatchUpsert = %v, rows %+v %+v; want keys b1 and c1", err, batch[0], batch[1])
 	}
 }

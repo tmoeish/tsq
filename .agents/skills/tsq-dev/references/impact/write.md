@@ -9,6 +9,8 @@
   **`Upsert` 曾自己拼列清单**，有生成列的表（示例的 `Course`）因此一次都 upsert 不了，而规则就写在这里；
   现在 `upsertColumns` 调 `insertColumns`（只多一个恒写的 `deleted_at`），回读用 `databaseFilled`。
   别再给某条写路径单独拼列清单。
+- "交给默认值"只看 `holdsNull`（nil / `Value()==nil`），**不看** `isUnset`（后者把零值和指向零值的指针也当未设置，
+  只给托管时间戳用）。`default:` 只许可空字段，生成器（`validateDatabaseFilledFields`）和 `Define` 各拒一次。
 - **生成列不参与 schema 对账**（`diffTableColumns` 里过滤）：SQLite 的 `table_info` 根本不列它，
   MySQL/PG 报的类型和默认值也和声明不同，比较的结果是每次启动都想改一次。
 - 端到端的门是 `examples/academy` 的 `runDatabaseFilledDemo` 和 `TestIntegrationDatabaseFilledColumns`
@@ -52,6 +54,8 @@
   冲突（1052 ambiguous），**引用已有行的列一律带表名**。
 - 更新时的列清单（不写键、主键、`created_at`，`version` 自增）和 `UpdateTable` 的语义保持一致；
   改一边要看另一边。
+- 冲突目标不是主键、主键又不是自增时，语句拿不回被更新那一行的主键：`adoptStoredKeys` 按目标列回读并改写行的主键，
+  单行和批量都走它；多列目标每行一个 `OR`，按 `maxOrTerms` 分段（SQLite 深度上限）。
 
 ## 改了按条件写语句（`mutation.go`）
 

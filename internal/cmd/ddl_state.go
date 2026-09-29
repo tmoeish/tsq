@@ -797,8 +797,60 @@ func renderDDLIncrementalAggregateBody(dialect ddlDialectSpec, changes ddlChange
 
 	var sections []string
 
+	// Index names are global on PostgreSQL and SQLite, so an index that moves to
+	// another table, or keeps its name through a renamed table, is created by one
+	// table's section after the other's still holds it. Every index drop goes
+	// first, and a dropped table (whose DROP is left commented) gives up the index
+	// names a new index takes; an index holds no data.
+	created := map[string]bool{}
+
 	for _, tableName := range changes.Tables {
-		body, ok := renderDDLIncrementalTableBody(dialect, tableName, changes.ByTable[tableName])
+		for _, op := range changes.ByTable[tableName] {
+			switch op.kind {
+			case ddlChangeAddIndex:
+				created[op.newIndex.Name] = true
+			case ddlChangeCreateTable:
+				for _, index := range op.newTable.Indexes {
+					created[index.Name] = true
+				}
+			}
+		}
+	}
+
+	var early []ddlChange
+
+	byTable := make(map[string][]ddlChange, len(changes.ByTable))
+
+	for _, tableName := range changes.Tables {
+		for _, op := range changes.ByTable[tableName] {
+			switch op.kind {
+			case ddlChangeDropIndex:
+				early = append(early, op)
+				continue
+			case ddlChangeDropTable:
+				for _, index := range op.oldTable.Indexes {
+					if created[index.Name] {
+						early = append(early, ddlChange{kind: ddlChangeDropIndex, table: tableName, oldTable: op.oldTable, oldIndex: &index})
+					}
+				}
+			}
+
+			byTable[tableName] = append(byTable[tableName], op)
+		}
+	}
+
+	var dropped []string
+
+	for _, op := range early {
+		dropped = append(dropped, renderDDLChangeOperation(dialect, op)...)
+	}
+
+	if len(dropped) > 0 {
+		sections = append(sections, "-- Indexes dropped before the tables change\n\n"+strings.Join(dropped, "\n\n"))
+	}
+
+	for _, tableName := range changes.Tables {
+		body, ok := renderDDLIncrementalTableBody(dialect, tableName, byTable[tableName])
 		if !ok {
 			continue
 		}
@@ -886,9 +938,9 @@ func renderSQLiteRebuildTableBody(dialect ddlDialectSpec, tableName string, ops 
 	// are gone. So the copy must not be able to fail: a new NOT NULL column gets
 	// its type's zero value, a generated column is left to the new table, and what
 	// cannot be filled that way is not rebuilt at all.
-	existing := make(map[string]bool, len(before.Columns))
+	existing := make(map[string]ddlSnapshotColumn, len(before.Columns))
 	for _, column := range before.Columns {
-		existing[column.Name] = true
+		existing[column.Name] = column
 	}
 
 	var (
@@ -906,7 +958,25 @@ func renderSQLiteRebuildTableBody(dialect ddlDialectSpec, tableName string, ops 
 		case migrationOwned(column):
 			return renderDDLManualComment(tableName, fmt.Sprintf(
 				"manual rebuild required: %s is computed by the database with no expression TSQ knows, so a rebuilt table would lose it", column.Name)), true
-		case existing[column.Name]:
+		case existing[column.Name].Name != "" && existing[column.Name].Nullable && !column.Nullable:
+			// A column that becomes NOT NULL: its NULLs take the default, or the
+			// type's zero value, so the copy cannot fail on them.
+			fill := column.Default
+			if fill == "" {
+				zero, ok := sqliteZeroLiteral(column)
+				if !ok {
+					return renderDDLManualComment(tableName, fmt.Sprintf(
+						"manual rebuild required: %s becomes NOT NULL without a default, and its type:%s has no known zero value for the rows that hold NULL", column.Name, column.RawType)), true
+				}
+
+				fill = zero
+			}
+
+			notes = append(notes, renderDDLManualComment(tableName, fmt.Sprintf(
+				"%s becomes NOT NULL; rows holding NULL get %s", column.Name, fill)))
+			targets = append(targets, quoted)
+			sources = append(sources, fmt.Sprintf("COALESCE(%s, %s)", quoted, fill))
+		case existing[column.Name].Name != "":
 			targets = append(targets, quoted)
 			sources = append(sources, quoted)
 		case column.Nullable || column.Default != "" || column.AutoIncrement:
@@ -1077,6 +1147,14 @@ func renderDDLAlterColumnStatements(
 ) []string {
 	if before.PrimaryKey != after.PrimaryKey || before.AutoIncrement != after.AutoIncrement {
 		return []string{renderDDLManualComment(tableName, fmt.Sprintf("manual change required for primary key column %s", after.Name))}
+	}
+
+	// A generated column is recreated, not altered: MySQL's MODIFY COLUMN would
+	// write it as a plain column TSQ never fills, and PostgreSQL cannot change the
+	// expression in place.
+	if before.Generated != after.Generated || (before.Fill == "generated") != (after.Fill == "generated") {
+		return []string{renderDDLManualComment(tableName, fmt.Sprintf(
+			"manual change required: %s changes how the database computes it; drop and add the column in a migration", after.Name))}
 	}
 
 	if dialect.dialect.AlterMode() != sqld.AlterInPlace {

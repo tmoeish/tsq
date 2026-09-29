@@ -86,19 +86,34 @@ var Orders = ordersHandle.Define(TableSpec[order, int64]{
 })
 
 // namedTable is a two-column table with a caller-chosen name, for tests that need
-// several distinct tables.
+// several distinct tables. A row type describes one table, so tests that need two
+// of them at once use namedTableOf with another type.
 type namedRow struct {
 	ID   int64
 	Name string
 }
 
-func namedTable(name string) *TableOf[namedRow, int64] {
-	h := NewTable[namedRow, int64](name)
-	id := NewColumn(h, "id", "id", func(r *namedRow) *int64 { return &r.ID })
-	label := NewColumn(h, "name", "name", func(r *namedRow) *string { return &r.Name })
+// Row types of the other tables tests declare with namedTableOf and wideTableOf.
+type (
+	serviceARow  namedRow
+	serviceBRow  namedRow
+	longNamedRow namedRow
+	notesRow     wideRow
+	orgsRow      wideRow
+	longWideRow  wideRow
+)
 
-	return h.Define(TableSpec[namedRow, int64]{
-		Columns:       []BoundColumn[namedRow]{id, label},
+func namedTable(name string) *TableOf[namedRow, int64] {
+	return namedTableOf(name, func(r *namedRow) (*int64, *string) { return &r.ID, &r.Name })
+}
+
+func namedTableOf[R any](name string, fields func(*R) (*int64, *string)) *TableOf[R, int64] {
+	h := NewTable[R, int64](name)
+	id := NewColumn(h, "id", "id", func(r *R) *int64 { p, _ := fields(r); return p })
+	label := NewColumn(h, "name", "name", func(r *R) *string { _, p := fields(r); return p })
+
+	return h.Define(TableSpec[R, int64]{
+		Columns:       []BoundColumn[R]{id, label},
 		PrimaryKey:    id,
 		AutoIncrement: true,
 		ColumnSpecs: []tsqdialect.ColumnSpec{
@@ -143,14 +158,19 @@ var (
 )
 
 // wideRow scans any column into an untyped slot, for tables described only by
-// their schema.
+// their schema. A row type describes one table, so a test that needs a second
+// table at once declares it over otherWideRow with wideTableOf.
 type wideRow struct {
 	Fields [16]any
 }
 
 // wideTable declares a table whose columns are names plus fields of schema.
 func wideTable(name string, names []string, schema []tsqdialect.ColumnSpec, indexes []IndexSpec) *TableOf[wideRow, any] {
-	h := NewTable[wideRow, any](name)
+	return wideTableOf(name, names, schema, indexes, func(r *wideRow) *[16]any { return &r.Fields })
+}
+
+func wideTableOf[R any](name string, names []string, schema []tsqdialect.ColumnSpec, indexes []IndexSpec, slots func(*R) *[16]any) *TableOf[R, any] {
+	h := NewTable[R, any](name)
 
 	seen := map[string]bool{}
 	all := []string{}
@@ -166,12 +186,12 @@ func wideTable(name string, names []string, schema []tsqdialect.ColumnSpec, inde
 		all = append([]string{"id"}, all...)
 	}
 
-	cols := make([]BoundColumn[wideRow], 0, len(all))
+	cols := make([]BoundColumn[R], 0, len(all))
 
-	var pk Column[wideRow, any]
+	var pk Column[R, any]
 
 	for i, n := range all {
-		c := NewColumn(h, n, n, func(r *wideRow) *any { return &r.Fields[i] })
+		c := NewColumn(h, n, n, func(r *R) *any { return &slots(r)[i] })
 		cols = append(cols, c)
 
 		if n == "id" {
@@ -187,7 +207,7 @@ func wideTable(name string, names []string, schema []tsqdialect.ColumnSpec, inde
 		}
 	}
 
-	return h.Define(TableSpec[wideRow, any]{Columns: cols, PrimaryKey: pk, AutoIncrement: auto, ColumnSpecs: schema, Indexes: indexes})
+	return h.Define(TableSpec[R, any]{Columns: cols, PrimaryKey: pk, AutoIncrement: auto, ColumnSpecs: schema, Indexes: indexes})
 }
 
 func specNames(schema []tsqdialect.ColumnSpec) []string {

@@ -418,7 +418,12 @@ func runDatabaseFilledDemo(ctx context.Context, runtime *tsq.Runtime) (*Database
 		return nil, fmt.Errorf("%s: %w", "delete course", err)
 	}
 
-	return &DatabaseFilledSummary{Currency: course.Currency, Slug: stored.Slug}, nil
+	currency := ""
+	if course.Currency != nil {
+		currency = *course.Currency
+	}
+
+	return &DatabaseFilledSummary{Currency: currency, Slug: stored.Slug}, nil
 }
 
 // RunFullSuite executes the whole teaching path and ends with the LearningJourney
