@@ -22,6 +22,10 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 - `TableXxx.GetBy(ctx, db, col, value, conds...)` / `FindBy`（没有时 `nil, nil`）：按唯一列读一行（列加上 `conds` 里用 `EQ` 固定的列，必须覆盖主键或某个唯一索引，否则报错，而不是返回任意一行），与 `FetchBy` 成对；生成的 `GetByX` / `FindByX` 调它，没有额外条件时查询只构建一次（此前每次调用都重新构建和渲染）。
 - `TableXxx.Upsert(ctx, db, &row, key...)` 和 `BatchUpsert(ctx, db, rows, key, options...)`：按主键或某个唯一索引插入或更新，PostgreSQL / SQLite 渲染成 `ON CONFLICT ... DO UPDATE`，MySQL 渲染成 `ON DUPLICATE KEY UPDATE`。更新时 `version` 自增不校验、`updated_at` 刷新、`created_at` 保留；单行版本回读主键、`version` 和 `created_at`。MySQL 会匹配所有唯一键，因此行可能撞上别的唯一键时直接拒绝。追踪操作名为 `upsert`。
 - `Query.Iter(ctx, db, args...)` 返回 `iter.Seq2[*O, error]`，逐行扫描，大结果集不必整体读进内存；`break` 会结束查询。追踪操作名为 `iter`。
+- `tsq.DialectOf(db)`：任何执行器（包括 `WithTx` 回调里的）的方言，事务里也能用 `dialect.Supports` 选查询形状；此前只有 `*Runtime.Dialect()`。
+- 阶段上直接有 `Iter` 和 `PageKeyset`（此前只有 `Page`，其余要先 `MustBuild()`）。
+- `tsq.RebindNull(col, table)`：`NullColumn` 换表后仍是 `NullColumn`（`WithTable` 返回 `Column`，生成代码此前要做类型断言）。
+- 追踪里硬删除是 `hard_delete`、恢复是 `restore`，和软删除 `delete` 分开（此前软硬删除同名）。
 
 ### 破坏性变更
 
@@ -127,10 +131,10 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 - **编译错误自己说出改法**：把字面值直接传给比较，报错是 `missing method needsTsqVal`；传切片给 `In` 是 `needsTsqVals`；类型不对是 `have valueOfType(int) want valueOfType(int64)`；传裸 `*sql.DB` 是 `needsRuntimeOrWrapExecutor`。这些是未导出的方法名，只出现在报错里。
 - 右值接口叫 `tsq.Operand[T]`，IN 的列表右值叫 `tsq.ListOperand[T]`：`RHS` 是行话却出现在最常见的编译错误里，`SetRHS` 的 Set 又和 `UpdateStage.Set` 的赋值撞词。
 - `OrderBy` / `Limit` / `Offset` 之后的阶段叫 `OrderedStage`（原 `PagedStage`，名字暗示"已分页"，而 `Page` 恰恰拒绝带 `Limit` / `Offset` 的查询）。
-- `IndexSpec`（原 `TableIndex`，与 `dialect.ColumnSpec` 对称），`IndexSpec.Columns` 与 `MissingIndexError.Columns`（原 `Fields`，装的是列名，指令里的 field 指 Go 字段）；`TableSpec.ColumnSpecs` 与 `TableOf.ColumnSpecs()`（原 `Schema`，只含列定义，不含索引；`Schema` 也因此不再是保留的列字段名）。
+- `IndexSpec`（原 `TableIndex`，与 `dialect.ColumnSpec` 对称，`MissingIndexError` 内嵌它，因此也带 `FullText`），`IndexSpec.Columns` 与 `MissingIndexError.Columns`（原 `Fields`，装的是列名，指令里的 field 指 Go 字段）；`TableSpec.ColumnSpecs` 与 `TableOf.ColumnSpecs()`（原 `Schema`，只含列定义，不含索引；`Schema` 也因此不再是保留的列字段名）。
 - `Set` 只收表的列 `Column[R, T]`：此前收 `TypedColumn`，`MapInto` 的结果列能编译、运行时才报错。
 - 全文检索的检索词类型叫 `tsq.MatchTerm`（和 `tsq.Matches` 配对），避免和关键词搜索那套 `Search` 名字混淆。
-- 错误类型以 `Error` 结尾且字段导出：`OptimisticLockError`、`RowStateError`、`SortError`（排序字段未知或有歧义、方向不是 asc/desc、两个列表长度不一致，都是它，`Field` + `Reason`）、`MissingIndexError`、`MissingTableError`（表名字段叫 `Table`，与其他错误一致），以及 `dialect.UnsupportedCapabilityError`；`RowStateError.Op` 是 `tsq.TraceOp`（新增 `TraceOpRestore`，恢复也按它追踪），`Need` 是 `tsq.RowState`（`RowExists` / `RowLive` / `RowDeleted`），此前都是自由文本；`OptimisticLockError` / `RowStateError` 的 `Expected` 和 `Actual` 都是 `int64`。`RegistrationError` 删除，注册错误由 `Define` 报告。
+- 错误类型以 `Error` 结尾且字段导出：`OptimisticLockError`、`RowStateError`、`PageRequestError`（客户端的分页请求错了都是它，`Field` + `Reason`：页码或页大小为负、页码超过上限、排序字段未知或有歧义、方向不是 asc/desc、两个列表长度不一致、游标无效或属于另一种排序；此前只有排序问题有类型，叫 `SortError`）、`SchemaMismatchError`（`Validate` 下列不一致，`Changes` 列出每一列；此前是纯文本）、`MissingIndexError`、`MissingTableError`（表名字段叫 `Table`，与其他错误一致），以及 `dialect.UnsupportedCapabilityError`；`RowStateError.Op` 是 `tsq.TraceOp`（新增 `TraceOpRestore`，恢复也按它追踪），`Need` 是 `tsq.RowState`（`RowExists` / `RowLive` / `RowDeleted`），此前都是自由文本；`OptimisticLockError` / `RowStateError` 的 `Expected` 和 `Actual` 都是 `int64`。`RegistrationError` 删除，注册错误由 `Define` 报告。
 - 其余命名：`NewColumn`、`Runtime.WithTxResult[T]`。
 - 只留使用者用得到的导出面：`OrderBy` 只有 `NullsFirst()` / `NullsLast()`（排序方向类型 `Order`、`ASC` / `DESC`、`Reverse` 和两个取值方法是内部实现）；`SQLColumn` 只有 `Name()`；`Param` / `ListParam` 没有 `Name()`；`Page` 只有 `HasNext()`（上一页就是 `Page > 1`）；`SQLColumns`、`TableOf.SearchColumns()` 不导出；`dialect.ColumnSpec` 没有只在读回数据库结构时才有意义的 `NativeType`。
 
@@ -290,6 +294,19 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 - **`PageKeyset` 不接受结果类型里对主键的投影**（`MapInto(TableX.ID, ...)`）作为唯一排序列，结果类型因此无法游标分页。现在接受。
 - **零值的 `Query`、`Mutation`、`TableOf`、`UpdateStage` 和 `Searchable(nil)` 直接 panic**：现在和构建器其他地方一样返回错误。
 - **`Like` 的文档说"没有转义字符"**：实际由数据库决定（MySQL / PostgreSQL 用反斜杠，SQLite 没有）。文档已更正，字面匹配请用 `StartsWith` / `Contains`。
+- **SQLite 连接池只有一个连接时，只要有索引，启动就永远卡住**：读索引列表时没关结果集就去查每个索引的列，需要第二个连接；表重建的检查也一样。现在先读完再查。
+- **`Reconcile` 在 SQLite 上删不掉带索引的列**（SQLite 拒绝，而 TSQ 不删未声明的索引），启动失败。现在先删掉覆盖这一列的索引。
+- **没有 `version` 列的表 `Delete` / `Restore` 一行已经不存在的行时报成乐观锁冲突**，重试帮手会去重试；同一行的 `Update` 报的是 `RowStateError`。现在一致报 `RowStateError`。
+- **SQLite / MySQL 上索引列名按大小写比较**：库里 `"Code"` 上的索引被 `Validate` 拒绝、被 `Reconcile` 每次重建，表重建时还会被当成删掉的列上的索引而丢掉。现在不区分大小写（TSQ 本来就拒绝只差大小写的两列）。
+- **MySQL 上 `MEDIUMINT` 被当成 `INT`、`DECIMAL` 被当成 `DOUBLE`**，手工迁移成更窄或会舍入的类型能通过 `Validate`。现在它们按原始类型比较。
+- **单行 `BatchInsert(..., WithSkipDuplicates())` 被跳过的行读回了撞上的那一行的值**。现在跳过的行不读回。
+- **`Define` 接受 TSQ 写不了的托管列**：`bool` 的 `created_at`、字符串的 `version`、`time.Time` 的墓碑（每一行都被当成已删除）、`int16` 的墓碑（`UnixNano` 被截断，有时截成 0）、既唯一又全文的索引，都要到第一次写入才报错。现在 `Define` 拒绝。
+- **MySQL 的 TEXT / BLOB / JSON 列不接受字面量默认值**（错误 1101）：现在渲染成表达式 `DEFAULT ('...')`。
+- **MySQL DSN 没有 `parseTime=true` 时所有托管时间戳都读不回来**，报错离原因很远。现在 `Open` 直接拒绝这样的 DSN，文档写明 `NewRuntime` 的池也需要它。
+- **空结果有时是 `nil`（JSON 里是 `null`）、有时是 `[]`**：`List`、`AttachMany` 给没有孩子的父行，现在和 `Fetch`、`Page.Data` 一样是空切片。
+- **nil 选项的处理不一致**：nil 的 `BatchOption` 和 tracer 被静默跳过，`WithLogger(nil)` 被当成默认值，而 nil 的 `RuntimeOption` / `TxOption` 报错。现在一律报错。
+- **Go doc 与行为不符**：`WrapExecutor` 说没有页大小上限（实际按 `DefaultMaxPageSize`）；`PageRequest.Keyset` 说最后一个排序字段必须是主键（实际要包含每张表的主键）；`CapabilityFullTextSearch` 被说成执行时检查（实际只报告 `Matches` 怎么匹配）；`Mutation.Exec` 没说 MySQL 默认只数值真正变化的行；`MaxPageNumber` 的溢出说明不对。已更正。
+- **使用者文档里编译不过的例子**：`BEST_PRACTICES.md` 的 `ID.EQ(1)` 这类裸值、`Set(UpdatedAt, tsq.Val(null.TimeFrom(...)))`，REFERENCE 里不是合法 Go 的可空列声明；追踪操作名的列表缺项。已更正。
 
 ### 其他
 

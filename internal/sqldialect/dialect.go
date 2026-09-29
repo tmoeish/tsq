@@ -281,6 +281,15 @@ func ColumnDefinitionSQL(dialect Dialect, column ColumnSpec) (string, error) {
 // are the session's local time. MySQL also needs the column's precision
 // (DATETIME(6) DEFAULT CURRENT_TIMESTAMP is error 1067). SQLite's is UTC.
 func DefaultSQL(dialect Dialect, column ColumnSpec) string {
+	// MySQL takes a default on a TEXT, BLOB or JSON column only as an expression,
+	// in parentheses (error 1101 for a literal).
+	if dialect.Name() == MySQL && !strings.HasPrefix(strings.TrimSpace(column.Default), "(") {
+		spelled := strings.ToUpper(dialect.ColumnTypeSQL(column.Type))
+		if strings.Contains(spelled, "TEXT") || strings.Contains(spelled, "BLOB") || strings.HasPrefix(spelled, "JSON") {
+			return "(" + column.Default + ")"
+		}
+	}
+
 	if column.Type.Kind != KindTime || column.Type.RawType != "" || !IsCurrentTime(column.Default) {
 		return column.Default
 	}
@@ -475,7 +484,9 @@ func ValidateIndex(
 		)
 	}
 
-	if existing.Unique != unique || !slices.Equal(existing.Fields, fields) {
+	// Column names compare without case: MySQL and SQLite match them that way, and
+	// TSQ refuses two columns that differ only in case on every dialect.
+	if existing.Unique != unique || !slices.EqualFunc(existing.Fields, fields, strings.EqualFold) {
 		return fmt.Errorf(
 			"index %s on table %s has definition unique=%t fields=%v, expected unique=%t fields=%v",
 			idx,

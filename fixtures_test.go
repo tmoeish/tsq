@@ -101,6 +101,9 @@ type (
 	notesRow     wideRow
 	orgsRow      wideRow
 	longWideRow  wideRow
+	thingsRow    wideRow
+	cratesRow    wideRow
+	gadgetsRow   wideRow
 )
 
 func namedTable(name string) *TableOf[namedRow, int64] {

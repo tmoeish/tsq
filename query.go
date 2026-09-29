@@ -146,8 +146,8 @@ func (q *Query[O]) prepare(exec Executor, args []Arg, builtin map[*paramSpec]any
 }
 
 // SQL renders the query for dialect with args bound, as it would run.
-func (q *Query[O]) SQL(engine tsqdialect.Name, args ...Arg) (string, []any, error) {
-	exec, err := WrapExecutor(noopExecutor{}, engine)
+func (q *Query[O]) SQL(dialect tsqdialect.Name, args ...Arg) (string, []any, error) {
+	exec, err := WrapExecutor(noopExecutor{}, dialect)
 	if err != nil {
 		return "", nil, err
 	}
@@ -192,7 +192,9 @@ func (q *Query[O]) List(ctx context.Context, db Executor, args ...Arg) ([]*O, er
 }
 
 func (q *Query[O]) query(ctx context.Context, db Executor, op string, stmt prepared) ([]*O, error) {
-	var list []*O
+	// No rows is an empty list, never nil: it marshals to [] as Page.Data and
+	// Fetch do, not to null.
+	list := []*O{}
 
 	err := q.each(ctx, db, op, stmt, func(row *O) bool {
 		list = append(list, row)

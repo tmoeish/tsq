@@ -102,7 +102,7 @@ func TestPageRequestKeysetResolvesSortFields(t *testing.T) {
 		t.Fatalf("keyset = %+v", k)
 	}
 
-	if _, err := (&PageRequest{OrderBy: "email"}).Keyset(User_Name); !isErr[*SortError](err) {
+	if _, err := (&PageRequest{OrderBy: "email"}).Keyset(User_Name); !isErr[*PageRequestError](err) {
 		t.Fatalf("unknown field = %v", err)
 	}
 }
@@ -158,5 +158,26 @@ func TestPageKeysetOverAJoinNeedsEveryKey(t *testing.T) {
 
 	if _, err := overCTE.PageKeyset(ctx, rt, Keyset{OrderBy: []OrderBy{User_ID.WithTable(cte).Asc()}}); err == nil || !strings.Contains(err.Error(), "has none") {
 		t.Fatalf("PageKeyset over a CTE = %v; want it refused", err)
+	}
+}
+
+// TestPageRequestErrorsAreTyped covers the client's mistakes in a page request: a
+// negative page or size and a malformed or foreign cursor came back as plain
+// errors, so a handler could answer them with 400 only by matching text.
+func TestPageRequestErrorsAreTyped(t *testing.T) {
+	ctx := context.Background()
+	rt := newSQLite(t)
+
+	if _, err := (&PageRequest{Page: -1}).Paging(User_ID); !isErr[*PageRequestError](err) {
+		t.Errorf("negative page = %v", err)
+	}
+
+	if _, err := (&PageRequest{Size: -1}).Paging(User_ID); !isErr[*PageRequestError](err) {
+		t.Errorf("negative size = %v", err)
+	}
+
+	q := Select(User__Cols...).From(Users).MustBuild()
+	if _, err := q.PageKeyset(ctx, rt, Keyset{Size: 1, OrderBy: []OrderBy{User_ID.Asc()}, After: "!!"}); !isErr[*PageRequestError](err) {
+		t.Errorf("malformed cursor = %v", err)
 	}
 }

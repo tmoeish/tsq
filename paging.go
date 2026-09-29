@@ -10,8 +10,9 @@ const DefaultMaxPageSize = 1000
 // defaultPageSize is the page size of a Paging that sets none.
 const defaultPageSize = 20
 
-// MaxPageNumber caps the page number. The offset is Size*(Page-1), and with Size
-// capped at DefaultMaxPageSize the largest offset stays inside int on 32-bit builds.
+// MaxPageNumber caps the page number, so that Size*(Page-1) stays inside int on
+// 64-bit builds whatever WithMaxPageSize allows, and on 32-bit builds with Size at
+// most DefaultMaxPageSize.
 const MaxPageNumber = 1000000
 
 // Paging selects one page of a query for Query.Page.
@@ -69,7 +70,8 @@ func newPage[T any](p Paging, total int64, data []*T) *Page[T] {
 // HasNext reports whether another page follows.
 func (r *Page[T]) HasNext() bool { return r != nil && int64(r.Page) < r.TotalPages }
 
-// PageRequest is the HTTP shape of a page request: strings as a client sends them.
+// PageRequest is the HTTP shape of a page request, as a query string or JSON body
+// decodes it: the sort as comma-separated names and directions.
 // Turn it into a Paging (or a Keyset) with the columns the endpoint allows
 // sorting by; that is also where it is validated.
 type PageRequest struct {
@@ -83,7 +85,7 @@ type PageRequest struct {
 
 // Paging resolves the request against the columns it may sort by. A sort field
 // names a column by its JSON field name or its column name; any other name is a
-// *SortError, so a client can only sort by what the endpoint allows.
+// *PageRequestError, so a client can only sort by what the endpoint allows.
 //
 // A page or size below zero, a page above MaxPageNumber, or an order that is not
 // asc/desc is an error. Zero means the first page and the default size. A size
@@ -107,8 +109,9 @@ func (r *PageRequest) Paging(sortable ...SQLColumn) (Paging, error) {
 }
 
 // Keyset resolves the request as a keyset page: Size, the sort fields as Paging
-// resolves them, and After. Page is ignored. The last sort field must be the
-// primary key, which the endpoint can append rather than leave to the client.
+// resolves them, and After. Page is ignored. The sort fields must include the
+// primary key of every table the query reads (PageKeyset checks it), which the
+// endpoint can append rather than leave to the client.
 func (r *PageRequest) Keyset(sortable ...SQLColumn) (Keyset, error) {
 	if r == nil {
 		return Keyset{}, nil
@@ -130,7 +133,7 @@ func (r *PageRequest) orderBy(sortable []SQLColumn) ([]OrderBy, error) {
 	fields := splitCommaValues(r.OrderBy)
 	if len(fields) == 0 {
 		if len(splitCommaValues(r.Order)) > 0 {
-			return nil, &SortError{Reason: "order requires order_by"}
+			return nil, &PageRequestError{Reason: "order requires order_by"}
 		}
 
 		return nil, nil
@@ -162,9 +165,9 @@ func (r *PageRequest) orderBy(sortable []SQLColumn) ([]OrderBy, error) {
 
 		switch {
 		case len(matches) == 0:
-			return nil, &SortError{Field: field, Reason: "not a column the endpoint sorts by"}
+			return nil, &PageRequestError{Field: field, Reason: "not a column the endpoint sorts by"}
 		case len(matches) > 1:
-			return nil, &SortError{Field: field, Reason: "names more than one sortable column"}
+			return nil, &PageRequestError{Field: field, Reason: "names more than one sortable column"}
 		}
 
 		order = append(order, OrderBy{column: matches[0], direction: directions[i]})
@@ -173,39 +176,41 @@ func (r *PageRequest) orderBy(sortable []SQLColumn) ([]OrderBy, error) {
 	return order, nil
 }
 
-// SortError reports an order_by / order pair a PageRequest cannot sort by: a
-// field the endpoint does not allow or that names more than one column, a
-// direction other than asc/desc, or lists of different lengths. It is the
-// client's mistake, so an HTTP handler answers it with 400.
-type SortError struct {
-	// Field is the offending sort field or direction, empty when the lists
-	// themselves do not match.
+// PageRequestError reports a page request the client got wrong, so an HTTP
+// handler answers it with 400: a negative page or size, a page past
+// MaxPageNumber, an order_by / order pair it cannot sort by (a field the endpoint
+// does not allow or that names more than one column, a direction other than
+// asc/desc, lists of different lengths), or a keyset cursor that is malformed or
+// was made for another order.
+type PageRequestError struct {
+	// Field is the offending parameter or sort field: "page", "size", "after",
+	// or the sort field or direction; empty when order_by and order do not match.
 	Field string
 	// Reason says what is wrong with it.
 	Reason string
 }
 
-func (e *SortError) Error() string {
+func (e *PageRequestError) Error() string {
 	if e.Field == "" {
-		return "invalid sort: " + e.Reason
+		return "invalid page request: " + e.Reason
 	}
 
-	return fmt.Sprintf("invalid sort %q: %s", e.Field, e.Reason)
+	return fmt.Sprintf("invalid page request %q: %s", e.Field, e.Reason)
 }
 
 // validate rejects what no page can mean; out-of-range sizes are capped by Page.
 func (r *PageRequest) validate() error {
 	if r.Page < 0 {
-		return fmt.Errorf("page must not be negative, got %d", r.Page)
+		return &PageRequestError{Field: "page", Reason: fmt.Sprintf("must not be negative, got %d", r.Page)}
 	}
 
 	// Offset is Size*(Page-1) and has to stay well inside int on 32-bit builds.
 	if r.Page > MaxPageNumber {
-		return fmt.Errorf("page must be less than or equal to %d, got %d", MaxPageNumber, r.Page)
+		return &PageRequestError{Field: "page", Reason: fmt.Sprintf("must be at most %d, got %d", MaxPageNumber, r.Page)}
 	}
 
 	if r.Size < 0 {
-		return fmt.Errorf("size must not be negative, got %d", r.Size)
+		return &PageRequestError{Field: "size", Reason: fmt.Sprintf("must not be negative, got %d", r.Size)}
 	}
 
 	for _, rawOrder := range splitCommaValues(r.Order) {

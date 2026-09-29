@@ -162,7 +162,7 @@ func (t EnrollmentTable) As(alias string) EnrollmentTable {
 		SoftDeleteTableOf: a,
 		UID:               t.UID.WithTable(a),
 		CreatedAt:         t.CreatedAt.WithTable(a),
-		UpdatedAt:         t.UpdatedAt.WithTable(a).(tsq.NullColumn[Enrollment, tsqtime.Time]),
+		UpdatedAt:         tsq.RebindNull(t.UpdatedAt, a),
 		DeletedAt:         t.DeletedAt.WithTable(a),
 		Version:           t.Version.WithTable(a),
 		LearnerID:         t.LearnerID.WithTable(a),

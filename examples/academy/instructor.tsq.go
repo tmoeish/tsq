@@ -120,7 +120,7 @@ func (t InstructorTable) As(alias string) InstructorTable {
 	return InstructorTable{
 		TableOf:   a,
 		ID:        t.ID.WithTable(a),
-		CreatedAt: t.CreatedAt.WithTable(a).(tsq.NullColumn[Instructor, tsqtime.Time]),
+		CreatedAt: tsq.RebindNull(t.CreatedAt, a),
 		Name:      t.Name.WithTable(a),
 		Email:     t.Email.WithTable(a),
 		Specialty: t.Specialty.WithTable(a),

@@ -85,9 +85,11 @@ func newBatchConfig(options []BatchOption, insert bool) (batchConfig, error) {
 	config := batchConfig{size: defaultBatchSize}
 
 	for _, option := range options {
-		if option != nil {
-			option(&config)
+		if option == nil {
+			return batchConfig{}, errors.New("batch option cannot be nil")
 		}
+
+		option(&config)
 	}
 
 	if config.err != nil {
@@ -338,9 +340,17 @@ func (t *TableOf[R, K]) tombstoneShortfall(ctx context.Context, db Executor, sco
 		for i, row := range rows {
 			key := value(row, def.primaryKey)
 
+			// A row that is gone is a conflict when a version could have told the
+			// writer (another writer removed it); without one it is a row not in the
+			// state the statement needs, like Update reports it.
 			values, found := stored[keyText(key)]
 			if !found {
-				changed = append(changed, key)
+				if version != nil {
+					changed = append(changed, key)
+				} else {
+					misplaced = append(misplaced, key)
+				}
+
 				continue
 			}
 
@@ -492,7 +502,7 @@ func (t *TableOf[R, K]) HardDelete(ctx context.Context, db Executor, row *R) err
 
 // BatchHardDelete removes rows from the table, ignoring any deleted_at column.
 func (t *TableOf[R, K]) BatchHardDelete(ctx context.Context, db Executor, rows []*R, options ...BatchOption) error {
-	return traceExecutor(ctx, db, t.traceInfo(TraceOpDelete), func(ctx context.Context) error {
+	return traceExecutor(ctx, db, t.traceInfo(TraceOpHardDelete), func(ctx context.Context) error {
 		config, err := newBatchConfig(options, false)
 		if err != nil {
 			return err
@@ -699,7 +709,9 @@ func (t *TableOf[R, K]) insert(ctx context.Context, db Executor, rows []*R, conf
 
 	// One row reads back what the database filled in. A batch does not: that would
 	// be one query per row, and the caller asked for as few statements as possible.
-	if len(rows) == 1 {
+	// A row skipped as a duplicate wrote nothing to read: the read-back found the
+	// row it collided with and copied that row's values into it.
+	if len(rows) == 1 && written[rows[0]] {
 		if filled := t.databaseFilled(def, rows[0]); len(filled) > 0 {
 			return t.reloadColumns(ctx, db, scope, def, rows[0], filled)
 		}
@@ -1652,7 +1664,12 @@ func (t *TableOf[R, K]) BatchHardDeleteByPK(ctx context.Context, db Executor, ke
 }
 
 func (t *TableOf[R, K]) deleteByPK(ctx context.Context, db Executor, keys []K, options []BatchOption, soft bool) error {
-	return traceExecutor(ctx, db, t.traceInfo(TraceOpDelete), func(ctx context.Context) error {
+	op := TraceOpHardDelete
+	if soft {
+		op = TraceOpDelete
+	}
+
+	return traceExecutor(ctx, db, t.traceInfo(op), func(ctx context.Context) error {
 		config, err := newBatchConfig(options, false)
 		if err != nil {
 			return err

@@ -54,8 +54,9 @@ func AttachMany[P, C any, K comparable](
 			return err
 		}
 
-		if !ok {
-			assign(parent, nil)
+		// A parent without children gets an empty list, never nil.
+		if !ok || byKey[key] == nil {
+			assign(parent, []*C{})
 			continue
 		}
 

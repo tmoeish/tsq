@@ -27,6 +27,7 @@ func AttachOne[P, C any, K comparable](
 	assign func(parent *P, child *C),
 	args ...Arg,
 ) error
+func DialectOf(db Executor) tsqdialect.Name
 func IsDuplicateKeyError(err error) bool
 func IsOptimisticLockError(err error) bool
 func IsRetryableNetworkError(err error) bool
@@ -35,7 +36,7 @@ func IsTxConflictError(err error) bool
 func NewRuntime(
 	ctx context.Context,
 	db *sql.DB,
-	engine tsqdialect.Name,
+	dialect tsqdialect.Name,
 	tables []Table,
 	options ...RuntimeOption,
 ) (*Runtime, error)
@@ -46,7 +47,7 @@ func Open(
 	tables []Table,
 	options ...RuntimeOption,
 ) (*Runtime, error)
-func WrapExecutor(db DBTX, engine tsqdialect.Name) (Executor, error)
+func WrapExecutor(db DBTX, dialect tsqdialect.Name) (Executor, error)
 TYPES
 type Arg struct {
 }
@@ -249,10 +250,8 @@ type MatchTerm interface {
 	Operand[string]
 }
 type MissingIndexError struct {
-	Table   string
-	Name    string
-	Columns []string
-	Unique  bool
+	Table string
+	IndexSpec
 }
 func (e *MissingIndexError) Error() string
 type MissingTableError struct {
@@ -262,7 +261,7 @@ func (e *MissingTableError) Error() string
 type Mutation[R any] struct {
 }
 func (m *Mutation[R]) Exec(ctx context.Context, db Executor, args ...Arg) (int64, error)
-func (m *Mutation[R]) SQL(engine tsqdialect.Name, args ...Arg) (string, []any, error)
+func (m *Mutation[R]) SQL(dialect tsqdialect.Name, args ...Arg) (string, []any, error)
 type MutationStage[R any] interface {
 	Build() (*Mutation[R], error)
 	MustBuild() *Mutation[R]
@@ -272,6 +271,7 @@ type NullColumn[O, T any] interface {
 	Column[O, T]
 }
 func NewNullColumn[T, O, F any, K comparable](table *TableOf[O, K], name, jsonName string, field func(*O) *F) NullColumn[O, T]
+func RebindNull[O, T any](col NullColumn[O, T], table Table) NullColumn[O, T]
 type Number interface {
 	~int | ~int8 | ~int16 | ~int32 | ~int64 |
 		~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 |
@@ -321,6 +321,11 @@ type PageRequest struct {
 }
 func (r *PageRequest) Keyset(sortable ...SQLColumn) (Keyset, error)
 func (r *PageRequest) Paging(sortable ...SQLColumn) (Paging, error)
+type PageRequestError struct {
+	Field string
+	Reason string
+}
+func (e *PageRequestError) Error() string
 type Paging struct {
 	Page int
 	Size int
@@ -343,7 +348,7 @@ func (q *Query[O]) List(ctx context.Context, db Executor, args ...Arg) ([]*O, er
 func (q *Query[O]) ListIn[T comparable](ctx context.Context, db Executor, param ListParam[T], values []T, args ...Arg) ([]*O, error)
 func (q *Query[O]) Page(ctx context.Context, db Executor, p Paging, args ...Arg) (*Page[O], error)
 func (q *Query[O]) PageKeyset(ctx context.Context, db Executor, k Keyset, args ...Arg) (*KeysetPage[O], error)
-func (q *Query[O]) SQL(engine tsqdialect.Name, args ...Arg) (string, []any, error)
+func (q *Query[O]) SQL(dialect tsqdialect.Name, args ...Arg) (string, []any, error)
 type QueryStage[O any] interface {
 	Subquery[O]
 	Build() (*Query[O], error)
@@ -353,7 +358,9 @@ type QueryStage[O any] interface {
 	Exists(ctx context.Context, db Executor, args ...Arg) (bool, error)
 	Count(ctx context.Context, db Executor, args ...Arg) (int64, error)
 	List(ctx context.Context, db Executor, args ...Arg) ([]*O, error)
+	Iter(ctx context.Context, db Executor, args ...Arg) iter.Seq2[*O, error]
 	Page(ctx context.Context, db Executor, p Paging, args ...Arg) (*Page[O], error)
+	PageKeyset(ctx context.Context, db Executor, k Keyset, args ...Arg) (*KeysetPage[O], error)
 }
 type ResultColumn[O, T any] interface {
 	TypedColumn[O, T]
@@ -421,6 +428,11 @@ func WithTracers(tracers ...Tracer) RuntimeOption
 type SQLColumn interface {
 	Name() string
 }
+type SchemaMismatchError struct {
+	Table   string
+	Changes []string
+}
+func (e *SchemaMismatchError) Error() string
 type SchemaPolicy string
 const (
 	SchemaPolicyManual SchemaPolicy = "manual"
@@ -475,11 +487,6 @@ func (t *SoftDeleteTableOf[R, K]) Define(spec TableSpec[R, K], deletedAt BoundCo
 func (t *SoftDeleteTableOf[R, K]) Delete(ctx context.Context, db Executor, row *R) error
 func (t *SoftDeleteTableOf[R, K]) Restore(ctx context.Context, db Executor, row *R) error
 func (t *SoftDeleteTableOf[R, K]) WithDeleted() *SoftDeleteTableOf[R, K]
-type SortError struct {
-	Field string
-	Reason string
-}
-func (e *SortError) Error() string
 type Sortable[O any] interface {
 	OrderBy(order OrderBy, more ...OrderBy) OrderedStage[O]
 	Limit(limit int) LimitedStage[O]
@@ -543,6 +550,7 @@ const (
 	TraceOpUpsert TraceOp = "upsert"
 	TraceOpUpdate TraceOp = "update"
 	TraceOpDelete TraceOp = "delete"
+	TraceOpHardDelete TraceOp = "hard_delete"
 	TraceOpRestore TraceOp = "restore"
 	TraceOpGet     TraceOp = "get"
 	TraceOpList    TraceOp = "list"
@@ -586,8 +594,8 @@ type WhereStage[O any] interface {
 ## ./dialect
 package dialect // import "github.com/tmoeish/tsq/v5/dialect"
 FUNCTIONS
-func Check(engine Name, capability Capability) error
-func Supports(engine Name, capability Capability) bool
+func Check(dialect Name, capability Capability) error
+func Supports(dialect Name, capability Capability) bool
 TYPES
 type Capability string
 const (

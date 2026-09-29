@@ -162,7 +162,10 @@ func (d SQLiteDialect) ListIndexes(ctx context.Context, db Executor, table strin
 		Partial int
 	}
 
-	indexes := make([]Index, 0)
+	// The list is read whole and closed before each index's columns are asked
+	// for: holding it open needs a second connection, and a pool of one (the
+	// usual SQLite setup) waited for it forever.
+	var list []sqliteIndexListRow
 
 	for rows.Next() {
 		var row sqliteIndexListRow
@@ -170,6 +173,20 @@ func (d SQLiteDialect) ListIndexes(ctx context.Context, db Executor, table strin
 			return nil, err
 		}
 
+		list = append(list, row)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+
+	indexes := make([]Index, 0, len(list))
+
+	for _, row := range list {
 		fields, err := d.inspectSQLiteIndexColumns(ctx, db, row.Name)
 		if err != nil {
 			return nil, err
@@ -183,10 +200,6 @@ func (d SQLiteDialect) ListIndexes(ctx context.Context, db Executor, table strin
 			PrimaryKey: row.Origin == "pk",
 			Constraint: row.Origin == "u",
 		})
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, err
 	}
 
 	return indexes, nil
@@ -541,6 +554,10 @@ func (d SQLiteDialect) InspectRebuild(ctx context.Context, db Executor, table st
 		return Rebuild{}, err
 	}
 
+	if err := keys.Close(); err != nil {
+		return Rebuild{}, err
+	}
+
 	objects, err := db.QueryContext(ctx, `SELECT type, name, tbl_name, sql FROM sqlite_master WHERE type IN ('index', 'trigger', 'view') AND sql IS NOT NULL ORDER BY type, name`)
 	if err != nil {
 		return Rebuild{}, err
@@ -569,6 +586,11 @@ func (d SQLiteDialect) InspectRebuild(ctx context.Context, db Executor, table st
 	}
 
 	if err := objects.Err(); err != nil {
+		return Rebuild{}, err
+	}
+
+	// Closed before the next query, which a pool of one connection needs.
+	if err := objects.Close(); err != nil {
 		return Rebuild{}, err
 	}
 

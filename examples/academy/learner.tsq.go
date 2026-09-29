@@ -111,7 +111,7 @@ func (t LearnerTable) As(alias string) LearnerTable {
 	return LearnerTable{
 		TableOf:   a,
 		ID:        t.ID.WithTable(a),
-		CreatedAt: t.CreatedAt.WithTable(a).(tsq.NullColumn[Learner, tsqtime.Time]),
+		CreatedAt: tsq.RebindNull(t.CreatedAt, a),
 		Name:      t.Name.WithTable(a),
 		Email:     t.Email.WithTable(a),
 		Company:   t.Company.WithTable(a),

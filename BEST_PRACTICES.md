@@ -19,7 +19,7 @@ if err != nil {
 query, err := tsq.
 	Select(database.TableUser.Columns()...).
 	From(database.TableUser).
-	Where(database.TableUser.ID.EQ(1)).
+	Where(database.TableUser.ID.EQ(tsq.Val(int64(1)))).
 	Build()
 if err != nil {
 	return fmt.Errorf("build query: %w", err)
@@ -55,7 +55,7 @@ if err != nil {
 ### 1.4 需要分支处理时用 `errors.Is` / `errors.AsType`
 
 ```go
-if sortErr, ok := errors.AsType[*tsq.SortError](err); ok {
+if sortErr, ok := errors.AsType[*tsq.PageRequestError](err); ok {
 	return fmt.Errorf("sort field %q: %s", sortErr.Field, sortErr.Reason) // 400
 }
 ```
@@ -188,7 +188,7 @@ if err := runtime.WithTx(ctx, func(ctx context.Context, txExec tsq.Executor) err
 if err := runtime.WithTx(ctx, func(ctx context.Context, txExec tsq.Executor) error {
 	query, err := tsq.Select(database.TableUser.Columns()...).
 		From(database.TableUser).
-		Where(database.TableUser.ID.EQ(userID)).
+		Where(database.TableUser.ID.EQ(tsq.Val(userID))).
 		ForUpdate().
 		Build()
 	if err != nil {
@@ -255,7 +255,7 @@ if err := user.Update(ctx, runtime); err != nil {
 affected, err := tsq.
 	UpdateTable(database.TableOrder).
 	Set(database.TableOrder.Status, tsq.Val("expired")).
-	Set(database.TableOrder.UpdatedAt, tsq.Val(null.TimeFrom(time.Now()))).
+	Set(database.TableOrder.UpdatedAt, tsq.Val(time.Now())).
 	Where(database.TableOrder.Status.EQ(tsq.Val("pending")), database.TableOrder.CreatedAt.LT(database.TableOrder.CreatedAt.Param())).
 	Exec(ctx, runtime, database.TableOrder.CreatedAt.Bind(cutoff))
 ```
@@ -267,15 +267,13 @@ affected, err := tsq.
 
 ## 4. Field pointer 和 `MapInto(...)`
 
-### 4.1 field pointer 要能安全处理 nil / 错误类型
+### 4.1 field pointer 只取地址，不做别的
+
+TSQ 总是传一个非 nil 的行给它（读行时是新分配的行，写入时是调用方的行），所以它只需要返回字段的地址，
+不需要判空，也不应该有副作用：同一个函数同时用于扫描、取值和识别"读的是哪个字段"。
 
 ```go
-fp := func(u *User) *int64 {
-	if u == nil {
-		return nil
-	}
-	return &u.ID
-}
+fp := func(u *User) *int64 { return &u.ID }
 ```
 
 ### 4.2 用 `tsq.MapInto(...)` 做结果映射，而不是重复造列
@@ -296,8 +294,8 @@ userName := tsq.MapInto(database.TableUser.Name, func(r *UserResult) *string {
 ### 5.1 排序字段必须可验证
 
 ```go
-if sortErr, ok := errors.AsType[*tsq.SortError](err); ok {
-	return fmt.Errorf("unsupported sort %q: %s", sortErr.Field, sortErr.Reason)
+if sortErr, ok := errors.AsType[*tsq.PageRequestError](err); ok {
+	return fmt.Errorf("bad page request %q: %s", sortErr.Field, sortErr.Reason)
 }
 ```
 
@@ -316,7 +314,7 @@ if sortErr, ok := errors.AsType[*tsq.SortError](err); ok {
 ```go
 query, err := tsq.Select(TableUser.ID, TableUser.Name).
 	From(TableUser).
-	Where(TableUser.Status.EQ("active")).
+	Where(TableUser.Status.EQ(tsq.Val("active"))).
 	Build()
 ```
 

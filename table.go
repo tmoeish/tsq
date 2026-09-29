@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 	sqld "github.com/tmoeish/tsq/v5/internal/sqldialect"
@@ -314,6 +315,28 @@ func (t *TableOf[R, K]) define(spec TableSpec[R, K], deletedAt BoundColumn[R]) {
 		fail("a soft-delete table needs its deleted_at column")
 	}
 
+	// A managed column has to be of a type TSQ can write: a hand-written spec
+	// with a bool created_at, or an int16 tombstone that UnixNano truncates (to
+	// zero, sometimes: the row stays live), failed only at the first write.
+	holder := new(R)
+
+	for _, role := range []struct {
+		name  string
+		check func(reflect.Type) bool
+		want  string
+	}{
+		{d.managed.Version, isIntegerType, "an integer"},
+		{d.managed.CreatedAt, isTimeType, "a time: time.Time, *time.Time or a nullable time such as sql.NullTime"},
+		{d.managed.UpdatedAt, isTimeType, "a time: time.Time, *time.Time or a nullable time such as sql.NullTime"},
+		{d.managed.DeletedAt, isTombstoneType, "an int64 or uint64, or a nullable time (*time.Time, sql.NullTime)"},
+	} {
+		if col := d.column(role.name); col != nil && col.scan != nil {
+			if t := reflect.TypeOf(col.scan(holder)).Elem(); !role.check(t) {
+				fail("managed column %s is a %s; it must be %s", col.name, t, role.want)
+			}
+		}
+	}
+
 	// One column cannot hold two roles: a key TSQ stamps or increments changes
 	// under the row every write matches it by.
 	roles := []struct{ role, column string }{
@@ -388,6 +411,10 @@ func (t *TableOf[R, K]) define(spec TableSpec[R, K], deletedAt BoundColumn[R]) {
 
 		if len(index.Columns) == 0 {
 			fail("index %s has no fields", index.Name)
+		}
+
+		if index.Unique && index.FullText {
+			fail("index %s is both unique and full-text; a full-text index enforces nothing", index.Name)
 		}
 
 		for _, field := range index.Columns {
@@ -661,4 +688,38 @@ func keyName(d *tableDef) string {
 	}
 
 	return d.primaryKey.name
+}
+
+func isIntegerType(t reflect.Type) bool {
+	switch t.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return true
+	default:
+		return false
+	}
+}
+
+// isTimeType reports a type a managed time is written into: time.Time, or a
+// nullable form of it.
+func isTimeType(t reflect.Type) bool {
+	if t == reflect.TypeFor[time.Time]() {
+		return true
+	}
+
+	value, ok := nullableValueType(t)
+
+	return ok && value == reflect.TypeFor[time.Time]()
+}
+
+// isTombstoneType reports a type deleted_at can mark a row deleted in: a 64-bit
+// integer, which holds UnixNano, or a nullable time, whose NULL is a live row. A
+// time.Time has no value for "not deleted".
+func isTombstoneType(t reflect.Type) bool {
+	switch t.Kind() {
+	case reflect.Int64, reflect.Uint64:
+		return true
+	}
+
+	return t != reflect.TypeFor[time.Time]() && isTimeType(t)
 }

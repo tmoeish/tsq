@@ -99,13 +99,13 @@ func (r *Runtime) applyTablePolicyForTable(ctx context.Context, table *registere
 
 	switch r.tablePolicy {
 	case SchemaPolicyValidate:
-		return fmt.Errorf("table %s schema mismatch: %s", tableName, summarizeTableColumnChanges(changes))
+		return &SchemaMismatchError{Table: tableName, Changes: tableColumnChangeLines(changes)}
 	case SchemaPolicyCreateMissing:
 		// Missing columns are added; a column that differs or is not declared is
 		// Reconcile's to change, and nothing is added while one is there.
 		added := slices.DeleteFunc(slices.Clone(changes), func(c tableColumnChange) bool { return c.kind != tableColumnAdd })
 		if len(added) < len(changes) {
-			return fmt.Errorf("table %s schema mismatch: %s", tableName, summarizeTableColumnChanges(changes))
+			return &SchemaMismatchError{Table: tableName, Changes: tableColumnChangeLines(changes)}
 		}
 
 		statements, err := renderTableColumnChanges(r.dialect, tableName, added)
@@ -134,6 +134,10 @@ func (r *Runtime) applyTablePolicyForTable(ctx context.Context, table *registere
 			return nil
 		}
 
+		if err := r.dropIndexesOfDroppedColumns(ctx, tableName, changes); err != nil {
+			return fmt.Errorf("reconcile table %s: %w", tableName, err)
+		}
+
 		statements, err := renderTableColumnChanges(r.dialect, tableName, changes)
 		if err != nil {
 			return fmt.Errorf("reconcile table %s: %w", tableName, err)
@@ -142,6 +146,47 @@ func (r *Runtime) applyTablePolicyForTable(ctx context.Context, table *registere
 		for _, statement := range statements {
 			if err := r.execDDL(ctx, statement); err != nil {
 				return fmt.Errorf("apply table change on %s: %w", tableName, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// dropIndexesOfDroppedColumns drops, on SQLite, the indexes over a column the
+// reconcile drops: SQLite refuses DROP COLUMN on an indexed column, and TSQ never
+// drops an undeclared index otherwise, so the start failed. MySQL and PostgreSQL
+// drop such indexes with the column themselves.
+func (r *Runtime) dropIndexesOfDroppedColumns(ctx context.Context, tableName string, changes []tableColumnChange) error {
+	if r.dialect.Name() != tsqdialect.SQLite {
+		return nil
+	}
+
+	dropped := map[string]bool{}
+
+	for _, change := range changes {
+		if change.kind == tableColumnDrop {
+			dropped[strings.ToLower(change.before.Name)] = true
+		}
+	}
+
+	if len(dropped) == 0 {
+		return nil
+	}
+
+	indexes, err := r.dialect.ListIndexes(ctx, r.db, tableName)
+	if err != nil {
+		return err
+	}
+
+	for _, index := range indexes {
+		if index.PrimaryKey || index.Constraint {
+			continue
+		}
+
+		if slices.ContainsFunc(index.Fields, func(field string) bool { return dropped[strings.ToLower(field)] }) {
+			if err := r.execDDL(ctx, r.dialect.DropIndexSQL(tableName, index.Name)); err != nil {
+				return fmt.Errorf("drop index %s over a dropped column: %w", index.Name, err)
 			}
 		}
 	}
@@ -250,12 +295,7 @@ func (r *Runtime) applyIndexPolicyForTable(ctx context.Context, table *registere
 
 		if !found {
 			if r.indexPolicy == SchemaPolicyValidate {
-				return &MissingIndexError{
-					Table:   tableName,
-					Name:    idx.Name,
-					Columns: append([]string(nil), idx.Columns...),
-					Unique:  idx.Unique,
-				}
+				return &MissingIndexError{Table: tableName, IndexSpec: cloneIndexSpec(idx)}
 			}
 
 			statement, err := r.dialect.EnsureIndex(ctx, r.db, tableName, idx.Name, idx.Columns, idx.Unique)
@@ -516,7 +556,7 @@ func ddlColumnChangeName(change tableColumnChange) string {
 	}
 }
 
-func summarizeTableColumnChanges(changes []tableColumnChange) string {
+func tableColumnChangeLines(changes []tableColumnChange) []string {
 	lines := make([]string, 0, len(changes))
 	for _, change := range changes {
 		switch change.kind {
@@ -529,7 +569,7 @@ func summarizeTableColumnChanges(changes []tableColumnChange) string {
 		}
 	}
 
-	return strings.Join(lines, ", ")
+	return lines
 }
 
 // ensureFullTextIndex creates the full-text index when it is missing and the
@@ -550,7 +590,7 @@ func (r *Runtime) ensureFullTextIndex(ctx context.Context, tableName string, idx
 	}
 
 	if r.indexPolicy == SchemaPolicyValidate {
-		return &MissingIndexError{Table: tableName, Name: idx.Name, Columns: append([]string(nil), idx.Columns...)}
+		return &MissingIndexError{Table: tableName, IndexSpec: cloneIndexSpec(idx)}
 	}
 
 	if err := r.execDDL(ctx, statement); err != nil {
@@ -696,15 +736,17 @@ func renderRebuildTableStatements(
 // or a collation survives. An index over a column the rebuild drops goes with the
 // column.
 func renderRebuildObjectStatements(desired []tsqdialect.ColumnSpec, objects []sqld.RebuildObject) []string {
+	// SQLite matches column names without case, so an index on "Code" is over the
+	// declared column code, and a case-sensitive check dropped it.
 	declared := make(map[string]bool, len(desired))
 	for _, column := range desired {
-		declared[column.Name] = true
+		declared[strings.ToLower(column.Name)] = true
 	}
 
 	statements := make([]string, 0, len(objects))
 
 	for _, object := range objects {
-		if slices.ContainsFunc(object.Columns, func(column string) bool { return !declared[column] }) {
+		if slices.ContainsFunc(object.Columns, func(column string) bool { return !declared[strings.ToLower(column)] }) {
 			continue
 		}
 

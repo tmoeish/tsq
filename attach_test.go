@@ -81,8 +81,9 @@ func TestAttachManyAndOneReadChildrenOnce(t *testing.T) {
 	ops = nil
 	none := 0
 
+	// A parent without children gets an empty list, which marshals to [].
 	if err := AttachMany(ctx, traced, single, User_ID, byUser, Order_UserID, func(_ *user, os []*order) {
-		if os == nil {
+		if os != nil && len(os) == 0 {
 			none++
 		}
 	}); err != nil {

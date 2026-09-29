@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"iter"
 )
 
 // The query builder is staged: every method returns an interface that offers only
@@ -28,7 +29,9 @@ type QueryStage[O any] interface {
 	Exists(ctx context.Context, db Executor, args ...Arg) (bool, error)
 	Count(ctx context.Context, db Executor, args ...Arg) (int64, error)
 	List(ctx context.Context, db Executor, args ...Arg) ([]*O, error)
+	Iter(ctx context.Context, db Executor, args ...Arg) iter.Seq2[*O, error]
 	Page(ctx context.Context, db Executor, p Paging, args ...Arg) (*Page[O], error)
+	PageKeyset(ctx context.Context, db Executor, k Keyset, args ...Arg) (*KeysetPage[O], error)
 }
 
 // Sortable is the part of a stage that can order and slice the result. The
@@ -775,4 +778,22 @@ func (b *builder[O]) Page(ctx context.Context, db Executor, p Paging, args ...Ar
 	}
 
 	return q.Page(ctx, db, p, args...)
+}
+
+func (b *builder[O]) Iter(ctx context.Context, db Executor, args ...Arg) iter.Seq2[*O, error] {
+	q, err := b.Build()
+	if err != nil {
+		return func(yield func(*O, error) bool) { yield(nil, err) }
+	}
+
+	return q.Iter(ctx, db, args...)
+}
+
+func (b *builder[O]) PageKeyset(ctx context.Context, db Executor, k Keyset, args ...Arg) (*KeysetPage[O], error) {
+	q, err := b.Build()
+	if err != nil {
+		return nil, err
+	}
+
+	return q.PageKeyset(ctx, db, k, args...)
 }

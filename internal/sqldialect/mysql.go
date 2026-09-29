@@ -317,13 +317,13 @@ func parseMySQLColumnType(dataType, columnType string, size sql.NullInt64) (Colu
 		return ColumnType{Kind: KindInt, Bits: 8, Unsigned: unsigned}, nil
 	case "smallint":
 		return ColumnType{Kind: KindInt, Bits: 16, Unsigned: unsigned}, nil
-	case "int", "integer", "mediumint":
+	case "int", "integer":
 		return ColumnType{Kind: KindInt, Bits: 32, Unsigned: unsigned}, nil
 	case "bigint":
 		return ColumnType{Kind: KindInt, Bits: 64, Unsigned: unsigned}, nil
 	case "float":
 		return ColumnType{Kind: KindFloat, Bits: 32}, nil
-	case "double", "double precision", "decimal", "numeric":
+	case "double", "double precision":
 		return ColumnType{Kind: KindFloat, Bits: 64}, nil
 	case "blob", "tinyblob", "mediumblob", "longblob":
 		return ColumnType{Kind: KindBytes}, nil
@@ -355,6 +355,9 @@ func parseMySQLColumnType(dataType, columnType string, size sql.NullInt64) (Colu
 
 		return ColumnType{RawType: strings.ToUpper(rawColumnType)}, nil
 	default:
+		// Anything TSQ does not render keeps its raw type, so it matches only a
+		// column declared with that type: a MEDIUMINT is narrower than the INT
+		// TSQ declares, and a DECIMAL rounds where a DOUBLE does not.
 		if rawColumnType == "" {
 			rawColumnType = strings.TrimSpace(dataType)
 		}
