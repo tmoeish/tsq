@@ -13,8 +13,7 @@
 
 ## 两个测试各自编码了相反的意图，代码同时满足它们 (2026-09-16)
 
-**同一概念的两个入口放在一个用例里比**（`WithMaxPageSize` 的两条断言曾同时绿）。`Page(Paging.OrderBy)` 两次只补了一部分构建器
-校验，现在整个走 `validate`——新增与构建器等价的执行期入口时，调用同一个校验，不要逐条抄。
+**同一概念的两个入口放在一个用例里比**（`WithMaxPageSize` 的两条断言曾同时绿）；与构建器等价的执行期入口（`Page(Paging.OrderBy)`）调用同一个 `validate`，不要逐条抄。
 
 ## 决定：读单行只留两个入口，语义写在名字里 (2026-09-09，v5)
 
@@ -78,3 +77,7 @@ SQL 标准和 MySQL / PostgreSQL 让 `INTERSECT` 比 `UNION` / `EXCEPT` 结合�
 
 切分只改变跨语句的整体顺序，不改变取到哪些行（`LIMIT`、分组、`DISTINCT` 才改变）；一并拒绝 ORDER BY 让 Attach 承诺的
 "子行按子查询排序、`AttachOne` 取第一条"写不出来。按父键切分，每个父行的子行总在同一段里。
+
+## 决定：算术是包级泛型函数，`Div` 的可空性按最坏情况 (2026-09-29)
+
+除数不是非零 `tsq.Val` 的 `Div` 算可能为 NULL（MySQL / SQLite 除零得 NULL），宁可逼使用者 `Coalesce`；MySQL 的整数除法写 `DIV`（`/` 返回小数）。

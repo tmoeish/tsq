@@ -317,7 +317,7 @@ func TestDerivedTablesHaveDistinctColumnNames(t *testing.T) {
 
 	sql := stmts[0].sql
 
-	if !strings.Contains(sql, "SELECT DISTINCT `users`.`name`, UPPER(`users`.`name`) AS `tsq_c2`") {
+	if !strings.Contains(sql, "SELECT DISTINCT `users`.`name`, UPPER(`users`.`name`) AS `name_2`") {
 		t.Fatalf("count SQL = %s; want the repeated name replaced", sql)
 	}
 }

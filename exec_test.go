@@ -86,8 +86,9 @@ func TestUpdateChecksAndBumpsTheVersion(t *testing.T) {
 		t.Fatalf("Update() error = %v", err)
 	}
 
-	if row.Version != 1 {
-		t.Fatalf("version = %d, want 1", row.Version)
+	// A new row starts at version 1, the DDL default; the update makes it 2.
+	if row.Version != 2 {
+		t.Fatalf("version = %d, want 2", row.Version)
 	}
 
 	stale.Name = "lost"
@@ -152,7 +153,7 @@ func TestBatchUpdateWithAStaleRowSaysWhichAndKeepsTheRest(t *testing.T) {
 		t.Fatalf("BatchUpdate = %v; want an OptimisticLockError naming %d", err, rows[1].ID)
 	}
 
-	if rows[0].Version != 1 || rows[2].Version != 1 || rows[1].Version != 0 || !rows[1].UpdatedAt.Equal(before) {
+	if rows[0].Version != 2 || rows[2].Version != 2 || rows[1].Version != 1 || !rows[1].UpdatedAt.Equal(before) {
 		t.Fatalf("versions = %d %d %d; want the written rows advanced and the stale one untouched", rows[0].Version, rows[1].Version, rows[2].Version)
 	}
 
@@ -166,7 +167,7 @@ func TestBatchUpdateWithAStaleRowSaysWhichAndKeepsTheRest(t *testing.T) {
 		t.Fatalf("BatchUpdate in statements of one = %v; want one stale key of three", err)
 	}
 
-	if rows[0].Version != 2 || rows[2].Version != 2 {
+	if rows[0].Version != 3 || rows[2].Version != 3 {
 		t.Fatalf("versions = %d, %d; want the rows around the stale one written", rows[0].Version, rows[2].Version)
 	}
 
@@ -258,7 +259,7 @@ func TestDeleteIsSoftWhenTheTableHasDeletedAt(t *testing.T) {
 		t.Fatalf("Delete() error = %v", err)
 	}
 
-	if rows[0].DeletedAt == 0 || rows[0].Version != 1 {
+	if rows[0].DeletedAt == 0 || rows[0].Version != 2 {
 		t.Fatalf("soft delete must stamp the row and bump its version: %+v", rows[0])
 	}
 
@@ -498,7 +499,7 @@ func TestBatchUpsertComparesTheKeysItWrites(t *testing.T) {
 		{Name: "two", Email: "dup@example.com"},
 	}
 
-	err := Users.BatchUpsert(ctx, rt, rows, []BoundColumn[user]{User_Email})
+	err := Users.BatchUpsert(ctx, rt, rows, OnConflict(User_Email))
 	if err == nil || !strings.Contains(err.Error(), "two rows have the key") {
 		t.Fatalf("BatchUpsert = %v; want the duplicate key refused", err)
 	}
@@ -515,7 +516,7 @@ func TestUpsertMatchesLiveRowsOfASoftDeletedUniqueIndex(t *testing.T) {
 	rt := newSQLite(t)
 
 	gone := &user{Name: "old", Email: "same@example.com"}
-	if err := Users.Upsert(ctx, rt, gone, User_Email); err != nil {
+	if err := Users.Upsert(ctx, rt, gone, OnConflict(User_Email)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -525,7 +526,7 @@ func TestUpsertMatchesLiveRowsOfASoftDeletedUniqueIndex(t *testing.T) {
 
 	// The unique index is (email, deleted_at); the deleted row does not match.
 	live := &user{Name: "new", Email: "same@example.com"}
-	if err := Users.Upsert(ctx, rt, live, User_Email); err != nil {
+	if err := Users.Upsert(ctx, rt, live, OnConflict(User_Email)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -533,7 +534,7 @@ func TestUpsertMatchesLiveRowsOfASoftDeletedUniqueIndex(t *testing.T) {
 		t.Fatal("expected a new row next to the deleted one")
 	}
 
-	if err := Users.Upsert(ctx, rt, &user{Name: "renamed", Email: "same@example.com"}, User_Email); err != nil {
+	if err := Users.Upsert(ctx, rt, &user{Name: "renamed", Email: "same@example.com"}, OnConflict(User_Email)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -542,11 +543,11 @@ func TestUpsertMatchesLiveRowsOfASoftDeletedUniqueIndex(t *testing.T) {
 		t.Fatalf("stored = %+v, %v", stored, err)
 	}
 
-	if err := Users.Upsert(ctx, rt, &user{}, User_Name); err == nil {
+	if err := Users.Upsert(ctx, rt, &user{}, OnConflict(User_Name)); err == nil {
 		t.Fatal("expected a key that is not unique to be refused")
 	}
 
-	if err := Users.Upsert(ctx, rt, &user{}, User_Email.WithTable(Users.As("u"))); err == nil {
+	if err := Users.Upsert(ctx, rt, &user{}, OnConflict(User_Email.WithTable(Users.As("u")))); err == nil {
 		t.Fatal("expected an aliased key column to be refused")
 	}
 }
@@ -1498,8 +1499,8 @@ func TestAConflictOnlyInTimesIsNotMistakenForOurWrite(t *testing.T) {
 		t.Fatalf("Update = %v; want a conflict naming the row", err)
 	}
 
-	if row.Version != 0 {
-		t.Fatalf("version in memory = %d; want the loaded 0, the write did not happen", row.Version)
+	if row.Version != 1 {
+		t.Fatalf("version in memory = %d; want the loaded 1, the write did not happen", row.Version)
 	}
 
 	if err := Users.Update(ctx, rt, row); !IsOptimisticLockError(err) {
@@ -1548,12 +1549,12 @@ func TestUpsertByAUniqueKeyAdoptsTheStoredKey(t *testing.T) {
 	}
 
 	one := &account{Code: "a2", Email: "a@x", Name: "second"}
-	if err := Accounts.Upsert(ctx, rt, one, Account_Email); err != nil || one.Code != "a1" {
+	if err := Accounts.Upsert(ctx, rt, one, OnConflict(Account_Email)); err != nil || one.Code != "a1" {
 		t.Fatalf("Upsert = %v, row %+v; want the stored key a1", err, one)
 	}
 
 	batch := []*account{{Code: "b2", Email: "b@x", Name: "again"}, {Code: "c1", Email: "c@x", Name: "new"}}
-	if err := Accounts.BatchUpsert(ctx, rt, batch, []BoundColumn[account]{Account_Email}); err != nil || batch[0].Code != "b1" || batch[1].Code != "c1" {
+	if err := Accounts.BatchUpsert(ctx, rt, batch, OnConflict(Account_Email)); err != nil || batch[0].Code != "b1" || batch[1].Code != "c1" {
 		t.Fatalf("BatchUpsert = %v, rows %+v %+v; want keys b1 and c1", err, batch[0], batch[1])
 	}
 }
@@ -1661,5 +1662,180 @@ func TestStagesRunEveryRead(t *testing.T) {
 		if err == nil {
 			t.Fatal("Iter of a stage that does not build: want its error")
 		}
+	}
+}
+
+type swatch struct {
+	ID    int64
+	Color *string
+}
+
+var (
+	swatchesHandle = NewTable[swatch, int64]("swatches")
+	Swatch_ID      = NewColumn(swatchesHandle, "id", "id", func(r *swatch) *int64 { return &r.ID })
+	Swatch_Color   = NewNullColumn[string](swatchesHandle, "color", "color", func(r *swatch) **string { return &r.Color })
+	Swatches       = swatchesHandle.Define(TableSpec[swatch, int64]{
+		Columns:       []BoundColumn[swatch]{Swatch_ID, Swatch_Color},
+		PrimaryKey:    Swatch_ID,
+		AutoIncrement: true,
+		ColumnSpecs: []tsqdialect.ColumnSpec{
+			{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
+			{Name: "color", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 8, Nullable: true}, Default: "'red'", Fill: tsqdialect.FillDefault},
+		},
+	})
+)
+
+// TestBatchInsertKeepsTheSliceOrder covers a batch whose rows leave different
+// default columns to the database: every row of one shape was inserted first, so
+// the generated keys did not follow the order of the slice.
+func TestBatchInsertKeepsTheSliceOrder(t *testing.T) {
+	ctx := context.Background()
+
+	rt, err := Open(ctx, "sqlite", filepath.Join(t.TempDir(), "swatches.db"), []Table{Swatches}, WithSchemaPolicy(SchemaPolicyCreateMissing))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() { _ = rt.Close() })
+
+	blue := "blue"
+	rows := []*swatch{{Color: &blue}, {}, {Color: &blue}, {}}
+
+	if err := Swatches.BatchInsert(ctx, rt, rows); err != nil {
+		t.Fatal(err)
+	}
+
+	for i, row := range rows {
+		if row.ID != int64(i+1) {
+			t.Fatalf("row %d got key %d; want the keys in the order of the slice", i, row.ID)
+		}
+	}
+}
+
+// TestInsertStartsAtVersionOne covers a row TSQ inserted with version 0 while the
+// DDL default is 1, so rows TSQ wrote and rows written by hand started apart.
+func TestInsertStartsAtVersionOne(t *testing.T) {
+	ctx := context.Background()
+	rt := newSQLite(t)
+
+	fresh := seedUsers(t, rt, "a")[0]
+	if fresh.Version != 1 {
+		t.Fatalf("new row version = %d; want 1", fresh.Version)
+	}
+
+	imported := &user{Name: "b", Email: "b@example.com", Version: 7}
+	if err := Users.Insert(ctx, rt, imported); err != nil {
+		t.Fatal(err)
+	}
+
+	stored, err := Users.Get(ctx, rt, imported.ID)
+	if err != nil || stored.Version != 7 {
+		t.Fatalf("imported row = %+v, %v; want the version the caller set", stored, err)
+	}
+
+	upserted := &user{Name: "c", Email: "c@example.com"}
+	if err := Users.Upsert(ctx, rt, upserted, OnConflict(User_Email)); err != nil || upserted.Version != 1 {
+		t.Fatalf("upserted row = %+v, %v; want version 1", upserted, err)
+	}
+}
+
+// TestSingleRowWritesReadBackInTheStatement covers a single-row Insert or Upsert
+// that read the columns the database filled with a second query, on engines whose
+// RETURNING reads them in the write itself, and a hard delete logged as "delete",
+// the name of a soft delete.
+func TestSingleRowWritesReadBackInTheStatement(t *testing.T) {
+	ctx := context.Background()
+	logger := &recordingLogger{}
+
+	rt, err := Open(ctx, "sqlite", filepath.Join(t.TempDir(), "swatches.db"), []Table{Swatches},
+		WithSchemaPolicy(SchemaPolicyCreateMissing), WithLogger(logger), WithSQLLogging())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() { _ = rt.Close() })
+
+	row := &swatch{}
+	if err := Swatches.Insert(ctx, rt, row); err != nil || row.ID == 0 || row.Color == nil || *row.Color != "red" {
+		t.Fatalf("Insert = %+v, %v; want the key and the default read back", row, err)
+	}
+
+	again := &swatch{ID: row.ID}
+	if err := Swatches.Upsert(ctx, rt, again); err != nil || again.Color == nil || *again.Color != "red" {
+		t.Fatalf("Upsert = %+v, %v; want the default read back", again, err)
+	}
+
+	if err := Swatches.HardDelete(ctx, rt, again); err != nil {
+		t.Fatal(err)
+	}
+
+	if logger.count("insert") != 1 || logger.count("upsert") != 1 || logger.count("reload") != 0 || logger.count("upsert keys") != 0 {
+		t.Fatalf("statements = %v; want one per write and no read-back query", logger.messages)
+	}
+
+	if logger.count("hard_delete") != 1 || logger.count("delete") != 0 {
+		t.Fatalf("statements = %v; want the hard delete logged as hard_delete", logger.messages)
+	}
+}
+
+// TestUpsertUpdatesOnlyTheNamedColumns covers an upsert that could only write the
+// whole row over the row it matched, so a field the caller left nil wrote NULL over
+// a stored value.
+func TestUpsertUpdatesOnlyTheNamedColumns(t *testing.T) {
+	ctx := context.Background()
+
+	rt, err := Open(ctx, "sqlite", filepath.Join(t.TempDir(), "notes.db"), []Table{Notes, Users}, WithSchemaPolicy(SchemaPolicyReconcile))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() { _ = rt.Close() })
+
+	body := "kept"
+	stored := &note{Body: &body, Title: sql.NullString{String: "old", Valid: true}}
+	if err := Notes.Insert(ctx, rt, stored); err != nil {
+		t.Fatal(err)
+	}
+
+	changed := &note{ID: stored.ID, Title: sql.NullString{String: "new", Valid: true}}
+	if err := Notes.Upsert(ctx, rt, changed, OnConflict(Note_ID).Update(Note_Title)); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := Notes.Get(ctx, rt, stored.ID)
+	if err != nil || got.Title.String != "new" || got.Body == nil || *got.Body != "kept" {
+		t.Fatalf("stored = %+v, %v; want the title written and the body kept", got, err)
+	}
+
+	// A row that matches nothing is inserted whole.
+	fresh := &note{ID: stored.ID + 1, Body: &body}
+	if err := Notes.BatchUpsert(ctx, rt, []*note{fresh}, OnConflict(Note_ID).Update(Note_Title)); err != nil {
+		t.Fatal(err)
+	}
+
+	if got, err := Notes.Get(ctx, rt, fresh.ID); err != nil || got.Body == nil {
+		t.Fatalf("inserted = %+v, %v; want the whole row", got, err)
+	}
+
+	// The update still refreshes what TSQ maintains.
+	seeded := seedUsers(t, rt, "a")[0]
+	again := &user{Name: "b", Email: seeded.Email}
+	if err := Users.Upsert(ctx, rt, again, OnConflict(User_Email).Update(User_Name)); err != nil || again.Version != 2 || again.ID != seeded.ID {
+		t.Fatalf("upsert = %+v, %v; want the stored row at version 2", again, err)
+	}
+
+	for name, conflict := range map[string]Conflict[user]{
+		"the key":         OnConflict(User_Email).Update(User_Email),
+		"the primary key": OnConflict(User_Email).Update(User_ID),
+		"a managed one":   OnConflict(User_Email).Update(User_Version),
+		"another alias":   OnConflict(User_Email).Update(User_Name.WithTable(Users.As("u"))),
+	} {
+		if err := Users.Upsert(ctx, rt, &user{Name: "c", Email: "c@example.com"}, conflict); err == nil {
+			t.Errorf("Update naming %s: want it refused", name)
+		}
+	}
+
+	if err := Users.Upsert(ctx, rt, again, OnConflict(User_Email), OnConflict(User_Email)); err == nil {
+		t.Error("two Conflicts: want them refused")
 	}
 }

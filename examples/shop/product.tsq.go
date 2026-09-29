@@ -197,12 +197,29 @@ func (t ProductTable) As(alias string) ProductTable {
 	}
 }
 
+// ProductTableWithDeleted is ProductTable without its live-row filter: the same columns,
+// and no lookups by unique index. The unique indexes of a soft-delete table include
+// deleted_at, so a value is unique only among live rows; read deleted rows
+// by primary key.
+type ProductTableWithDeleted ProductTable
+
 // WithDeleted returns the table without its live-row filter; see
 // tsq.SoftDeleteTableOf.WithDeleted.
-func (t ProductTable) WithDeleted() ProductTable {
+func (t ProductTable) WithDeleted() ProductTableWithDeleted {
 	t.SoftDeleteTableOf = t.SoftDeleteTableOf.WithDeleted()
 
-	return t
+	return ProductTableWithDeleted(t)
+}
+
+// As returns the table under alias, with every column bound to the alias.
+func (t ProductTableWithDeleted) As(alias string) ProductTableWithDeleted {
+	return ProductTableWithDeleted(ProductTable(t).As(alias))
+}
+
+// FullTextNameAndDescription is the full-text index ft_products_name_description; search it with
+// tsq.Matches.
+func (t ProductTableWithDeleted) FullTextNameAndDescription() tsq.FullTextIndex {
+	return t.FullText("ft_products_name_description")
 }
 
 // FullTextNameAndDescription is the full-text index ft_products_name_description; search it with

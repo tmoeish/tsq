@@ -21,7 +21,8 @@ go run ./examples/08-soft-delete-and-concurrency
 - `Delete` 只写 `deleted_at`、`updated_at` 和 `version`；真删用 `HardDelete`；
 - **任何**提到这张表的查询都自动只看没删除的行——生成的、手写的、连接进来的、子查询里的；
 - 需要看已删除的行时写 `WithDeleted()`，它只去掉过滤，删除仍然是软删除；
-- 唯一索引以 `deleted_at` 打头，所以已删除的行不占用唯一值；也因此在 `WithDeleted()` 上按唯一键查找会被拒绝，按主键取。
+- 唯一索引以 `deleted_at` 打头，所以已删除的行不占用唯一值。也因此 `WithDeleted()` 返回的 `ProductTableWithDeleted`
+  上没有 `GetBySKU` 这类按唯一键的查找（同一个 SKU 可能有多个已删除的行），按主键 `Get`。
 
 ## 乐观锁
 

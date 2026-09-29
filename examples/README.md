@@ -17,7 +17,7 @@ go test ./examples/...                  # 每章都有测试，断言它的输�
 | [01 从结构体开始](01-getting-started/) | 写结构体和注解 → `tsq gen` → 增删改查 | `//tsq:table`、`tsq.Open`、`Insert` / `Get` / `Update` / `HardDelete`、`Select` |
 | [02 查询](02-querying/) | 条件、排序、分片、参数，读结果的几种方式 | `Where`、`tsq.Val` / `Vals`、`Or` / `Not`、`Param` / `Bind`、`Limit` / `Offset`、`Get` / `Find` / `Exists` / `Count`、`SelectValue`、`Iter` |
 | [03 多表](03-joins-and-results/) | 连接、结果投影、别名、可能为 NULL 的值 | `InnerJoin` / `LeftJoin`、`//tsq:result`、`MapInto` / `MapIntoNull`、`As`、`Coalesce` |
-| [04 聚合](04-aggregates-and-case/) | 分组统计、CASE、列函数、自定义 SQL 片段 | `GroupBy` / `Having`、`Count` / `Sum` / `Avg`、`SelectNullValue`、`Case`、`Upper` / `Length`、`SelectDistinct`、`Exprf` / `Pred` |
+| [04 聚合](04-aggregates-and-case/) | 分组统计、CASE、列函数、自定义 SQL 片段 | `GroupBy` / `Having`、`Count` / `Sum` / `Avg`、`SelectNullValue`、`Case`、`Upper` / `Length`、`SelectDistinct`、`Add` / `Div`、`Pred` |
 | [05 子查询](05-subqueries-cte-setops/) | 子查询、关联子查询、CTE、集合运算 | `In(子查询)`、`NotExists` + `Correlate`、`tsq.CTE` + `WithTable`、`Union` / `Intersect` / `Except` |
 | [06 分页和搜索](06-paging-and-search/) | 页码分页、HTTP 分页请求、游标分页、关键词和全文搜索 | `Page`、`PageRequest`、`PageKeyset`、`Search` + `tsq.Keyword`、`tsq.Matches` |
 | [07 写数据](07-writing-data/) | 插入、更新、Upsert、按条件批量改删、事务 | `BatchInsert`、`Update(cols...)`、`Upsert`、`UpdateTable` / `HardDeleteFrom`、`WithTx` / `WithTxResult` |

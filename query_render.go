@@ -119,9 +119,13 @@ type renderMode struct {
 	count   bool // SELECT COUNT(1) over the query
 	keyword bool // include the keyword-search predicate
 	single  bool // bound the result to one row
+	// exists selects a constant instead of the columns, where that keeps the rows.
+	exists bool
+	// keyset pages by position: LIMIT without OFFSET, also on the first page.
+	keyset bool
 	// paged replaces ORDER BY with order and appends LIMIT/OFFSET.
 	paged bool
-	// seek, for keyset paging, is ANDed into WHERE and drops the OFFSET.
+	// seek, for keyset paging after the first page, is ANDed into WHERE.
 	seek   *sqlExpr
 	order  []orderTerm
 	limit  int
@@ -328,6 +332,19 @@ func (s *querySpec[O]) render(r *renderer, m renderMode) {
 		return
 	}
 
+	// Whether a row exists does not depend on its columns or its order, so a query
+	// that reads table rows asks for a constant. A grouped query, a set operation
+	// and DISTINCT decide their rows by the select list, and a builder Limit or
+	// Offset by the order, so those keep their full shape.
+	if m.exists && !s.grouped() && s.Limit == nil {
+		r.writeText("SELECT 1")
+		s.writeFromWhere(r, m)
+		r.writeText(" LIMIT 1")
+		s.writeLock(r)
+
+		return
+	}
+
 	s.writeBody(r, m)
 	s.writeTail(r, m)
 	s.writeLock(r)
@@ -407,14 +424,23 @@ func (s *querySpec[O]) writeSimple(r *renderer, m renderMode) {
 	cols := make([]sqlExpr, 0, len(s.Selects))
 	named := make(map[string]bool, len(s.Selects))
 
-	for i, col := range s.Selects {
+	for _, col := range s.Selects {
+		named[col.Name()] = true
+	}
+
+	used := make(map[string]bool, len(s.Selects))
+
+	for _, col := range s.Selects {
 		name := col.Name()
-		if name != "" && named[name] {
-			cols = append(cols, sqlJoin(columnInfo(col).sql, sqlText(" AS "), sqlIdent(fmt.Sprintf("tsq_c%d", i+1))))
+		if name != "" && used[name] {
+			alias := repeatedName(col, named)
+			named[alias] = true
+			cols = append(cols, sqlJoin(columnInfo(col).sql, sqlText(" AS "), sqlIdent(alias)))
+
 			continue
 		}
 
-		named[name] = true
+		used[name] = true
 
 		cols = append(cols, selectItem(col))
 	}
@@ -680,7 +706,7 @@ func (s *querySpec[O]) writeTail(r *renderer, m renderMode) {
 		r.writeText(" LIMIT ")
 		r.writeValue(m.limit)
 
-		if m.seek == nil {
+		if !m.keyset {
 			r.writeText(" OFFSET ")
 			r.writeValue(m.offset)
 		}
@@ -1136,6 +1162,28 @@ func (c *cteSpec[O]) nullableOutput(name string) bool {
 // the column on every dialect; any other expression is named by the dialect (the
 // expression's text, or PostgreSQL's "sum"), so it is given its name with AS, the
 // name a CTE or a set operation's ORDER BY finds it by.
+// repeatedName names a select item whose name an earlier item already has, so it
+// reads in the SQL: a plain column of another table is table_column
+// (categories_name), anything else column_2, column_3. The name is new among
+// every name the select list uses.
+func repeatedName(col SQLColumn, taken map[string]bool) string {
+	name := col.Name()
+
+	if core := col.core(); core != nil && (core.plain || core.bare) {
+		for table := range columnInfo(col).tables {
+			if candidate := table + "_" + name; !taken[candidate] {
+				return candidate
+			}
+		}
+	}
+
+	for n := 2; ; n++ {
+		if candidate := fmt.Sprintf("%s_%d", name, n); !taken[candidate] {
+			return candidate
+		}
+	}
+}
+
 func selectItem(col SQLColumn) sqlExpr {
 	info := columnInfo(col)
 	if core := col.core(); core == nil || core.plain || core.bare || core.name == "" {

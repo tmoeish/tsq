@@ -17,44 +17,77 @@ import (
 // upsertAlias names the proposed row on MySQL, which has no excluded table.
 const upsertAlias = "tsq_new"
 
-// Upsert inserts row, or updates the row that already has the same key. key is
-// the primary key when omitted, or the columns of one unique index; on a table with
-// an integer deleted_at, a unique index that includes deleted_at is named by its
-// other columns and matches live rows only.
+// Conflict says how an upsert matches a row that already exists, and what it
+// writes over one: OnConflict names the key, Update the columns. The zero Conflict
+// matches by primary key and writes every column.
+type Conflict[R any] struct {
+	key    []BoundColumn[R]
+	update []BoundColumn[R]
+}
+
+// OnConflict matches an upsert by key: the primary key, or the columns of one
+// unique index. On a table with an integer deleted_at, a unique index that
+// includes deleted_at is named by its other columns and matches live rows only.
+func OnConflict[R any](key BoundColumn[R], more ...BoundColumn[R]) Conflict[R] {
+	return Conflict[R]{key: append([]BoundColumn[R]{key}, more...)}
+}
+
+// Update limits what an upsert writes over the row it matched to cols, plus
+// updated_at, version and the cleared deleted_at, as Update(ctx, db, row, cols...)
+// does. A row that matches nothing is still inserted whole.
+func (c Conflict[R]) Update(col BoundColumn[R], more ...BoundColumn[R]) Conflict[R] {
+	c.update = append([]BoundColumn[R]{col}, more...)
+
+	return c
+}
+
+// Upsert inserts row, or updates the row that already has the same key; conflict
+// names the key (the primary key when omitted) and, with Update, the columns an
+// update writes.
 //
-// It writes the columns Insert would: a generated column never, and a column the
+// It inserts the columns Insert would: a generated column never, and a column the
 // database defaults only when the row sets it, so an unset one takes the default
-// on insert and keeps its value on update. An update writes those columns except
-// the key, the primary key and created_at, increments version without checking
-// it, and refreshes updated_at. The row written is always live: deleted_at is
-// cleared, so an upsert by primary key restores a deleted row. A generated primary
-// key, version, created_at and the columns the database filled are read back into
-// row.
+// on insert and keeps its value on update. An update writes those columns (or the
+// ones Update names) except the key, the primary key and created_at, increments
+// version without checking it, and refreshes updated_at. The row written is always
+// live: deleted_at is cleared, so an upsert by primary key restores a deleted row.
+// The primary key (the stored row's, when it conflicted), version, created_at and
+// the columns the database filled are read back into row.
 //
 // MySQL matches the proposed row against every unique key, not just key, so there
 // an upsert is refused while the table has another unique key the row could hit.
 // A zero auto-increment primary key cannot hit anything.
-func (t *TableOf[R, K]) Upsert(ctx context.Context, db Executor, row *R, key ...BoundColumn[R]) error {
+func (t *TableOf[R, K]) Upsert(ctx context.Context, db Executor, row *R, conflict ...Conflict[R]) error {
 	return traceExecutor(ctx, db, t.traceInfo(TraceOpUpsert), func(ctx context.Context) error {
-		return t.upsert(ctx, db, []*R{row}, key, batchConfig{size: 1}, true)
+		if len(conflict) > 1 {
+			return errors.New("upsert takes one Conflict; name the key and the columns in one tsq.OnConflict(...).Update(...)")
+		}
+
+		var c Conflict[R]
+		if len(conflict) == 1 {
+			c = conflict[0]
+		}
+
+		return t.upsert(ctx, db, []*R{row}, c, batchConfig{size: 1}, true)
 	})
 }
 
 // BatchUpsert is Upsert for many rows, in as few statements as the batch size
-// allows. It reads nothing back into rows, and two rows with the same key are an
-// error, because PostgreSQL refuses to update one row twice in a statement.
-func (t *TableOf[R, K]) BatchUpsert(ctx context.Context, db Executor, rows []*R, key []BoundColumn[R], options ...BatchOption) error {
+// allows; pass the zero Conflict to match by primary key. It reads nothing back
+// into rows, and two rows with the same key are an error, because PostgreSQL
+// refuses to update one row twice in a statement.
+func (t *TableOf[R, K]) BatchUpsert(ctx context.Context, db Executor, rows []*R, conflict Conflict[R], options ...BatchOption) error {
 	return traceExecutor(ctx, db, t.traceInfo(TraceOpUpsert), func(ctx context.Context) error {
 		config, err := newBatchConfig(options, false)
 		if err != nil {
 			return err
 		}
 
-		return t.upsert(ctx, db, rows, key, config, false)
+		return t.upsert(ctx, db, rows, conflict, config, false)
 	})
 }
 
-func (t *TableOf[R, K]) upsert(ctx context.Context, db Executor, rows []*R, key []BoundColumn[R], config batchConfig, single bool) error {
+func (t *TableOf[R, K]) upsert(ctx context.Context, db Executor, rows []*R, conflict Conflict[R], config batchConfig, single bool) error {
 	if len(rows) == 0 {
 		return nil
 	}
@@ -64,7 +97,12 @@ func (t *TableOf[R, K]) upsert(ctx context.Context, db Executor, rows []*R, key 
 		return err
 	}
 
-	target, err := upsertTarget(def, key)
+	target, err := upsertTarget(def, conflict.key)
+	if err != nil {
+		return fmt.Errorf("upsert into %s: %w", def.name, err)
+	}
+
+	update, err := upsertUpdate(def, target, conflict.update)
 	if err != nil {
 		return fmt.Errorf("upsert into %s: %w", def.name, err)
 	}
@@ -76,10 +114,10 @@ func (t *TableOf[R, K]) upsert(ctx context.Context, db Executor, rows []*R, key 
 	}
 
 	now := stampTime()
-	snapshot := snapshotFields(rows, def.column(def.managed.CreatedAt), def.column(def.managed.UpdatedAt), def.column(def.managed.DeletedAt))
+	snapshot := snapshotFields(rows, def.column(def.managed.CreatedAt), def.column(def.managed.UpdatedAt), def.column(def.managed.DeletedAt), def.column(def.managed.Version))
 	written := make(map[*R]bool, len(rows))
 
-	if err := t.upsertRows(ctx, db, scope, def, rows, target, config, single, now, written); err != nil {
+	if err := t.upsertRows(ctx, db, scope, def, rows, target, update, config, single, now, written); err != nil {
 		snapshot.restore(written)
 		return err
 	}
@@ -88,8 +126,14 @@ func (t *TableOf[R, K]) upsert(ctx context.Context, db Executor, rows []*R, key 
 }
 
 // upsertRows writes rows, recording in written the rows each statement stored.
-func (t *TableOf[R, K]) upsertRows(ctx context.Context, db Executor, scope execScope, def *tableDef, rows []*R, target []string, config batchConfig, single bool, now time.Time, written map[*R]bool) error {
+func (t *TableOf[R, K]) upsertRows(ctx context.Context, db Executor, scope execScope, def *tableDef, rows []*R, target, update []string, config batchConfig, single bool, now time.Time, written map[*R]bool) error {
 	for _, row := range rows {
+		// An inserted row starts at version 1; an updated one keeps the stored
+		// version plus one, which the single-row read-back copies in.
+		if col := def.column(def.managed.Version); col != nil {
+			startVersion(field(row, col))
+		}
+
 		if col := def.column(def.managed.CreatedAt); col != nil && isUnset(field(row, col)) {
 			if err := applyTimestamp(field(row, col), now); err != nil {
 				return fmt.Errorf("table %s: %w", def.name, err)
@@ -118,6 +162,11 @@ func (t *TableOf[R, K]) upsertRows(ctx context.Context, db Executor, scope execS
 		readBack = t.upsertReadBack(def, rows[0])
 	}
 
+	// Where the engine has RETURNING, one row reads its key (the stored row's, when
+	// it conflicted) and readBack in the statement itself; otherwise they are read
+	// by key afterwards.
+	returning := single && scope.dialect.Returning(def.primaryKey.name) != ""
+
 	groups := map[string][]*R{}
 	order := []string{}
 
@@ -140,7 +189,17 @@ func (t *TableOf[R, K]) upsertRows(ctx context.Context, db Executor, scope execS
 
 		size := effectiveChunkSize(config.size, len(cols), sqld.MaxBindParams(scope.dialect))
 		for _, chunk := range chunks(group, size) {
-			if err := t.upsertChunk(ctx, db, scope, def, cols, target, chunk, single); err != nil {
+			if returning {
+				if err := t.upsertReturning(ctx, db, scope, def, cols, target, update, chunk[0], readBack); err != nil {
+					return fmt.Errorf("upsert into %s: %w", def.name, err)
+				}
+
+				written[chunk[0]] = true
+
+				continue
+			}
+
+			if err := t.upsertChunk(ctx, db, scope, def, cols, target, update, chunk, single); err != nil {
 				return fmt.Errorf("upsert into %s: %w", def.name, err)
 			}
 
@@ -154,7 +213,7 @@ func (t *TableOf[R, K]) upsertRows(ctx context.Context, db Executor, scope execS
 		}
 	}
 
-	if single {
+	if single && !returning {
 		return t.reloadColumns(ctx, db, scope, def, rows[0], readBack)
 	}
 
@@ -184,6 +243,49 @@ func (t *TableOf[R, K]) upsertColumns(def *tableDef, row *R) []*columnCore {
 
 // upsertTarget resolves key to the columns of the primary key or of one unique
 // index.
+// upsertUpdate resolves the columns Conflict.Update names, or nil when it names
+// none. A column the update always writes or never writes is refused: naming it
+// would say something the statement does not do.
+func upsertUpdate[R any](def *tableDef, target []string, cols []BoundColumn[R]) ([]string, error) {
+	if len(cols) == 0 {
+		return nil, nil
+	}
+
+	names := make([]string, 0, len(cols))
+
+	for _, col := range cols {
+		if isNilValue(col) {
+			return nil, errors.New("upsert update column cannot be nil")
+		}
+
+		core := col.core()
+		if err := core.err(); err != nil {
+			return nil, err
+		}
+
+		if isNilValue(core.table) || core.table.definition() != def || core.table.TableName() != def.name || !core.plain {
+			return nil, fmt.Errorf("upsert update column %s must be a column of %s", core.name, def.name)
+		}
+
+		switch {
+		case slices.Contains(target, core.name):
+			return nil, fmt.Errorf("upsert update names %s, which is the key it matched by", core.name)
+		case core.name == def.primaryKey.name, core.name == def.managed.CreatedAt:
+			return nil, fmt.Errorf("upsert update names %s, which an update never writes", core.name)
+		case core.name == def.managed.Version, core.name == def.managed.UpdatedAt, core.name == def.managed.DeletedAt:
+			return nil, fmt.Errorf("upsert update names %s, which TSQ maintains", core.name)
+		case core.fill == tsqdialect.FillGenerated:
+			return nil, fmt.Errorf("upsert update names %s, which the database computes", core.name)
+		case slices.Contains(names, core.name):
+			return nil, fmt.Errorf("upsert update names %s twice", core.name)
+		}
+
+		names = append(names, core.name)
+	}
+
+	return names, nil
+}
+
 func upsertTarget[R any](def *tableDef, key []BoundColumn[R]) ([]string, error) {
 	if len(key) == 0 {
 		return []string{def.primaryKey.name}, nil
@@ -323,8 +425,11 @@ func (t *TableOf[R, K]) upsertReadBack(def *tableDef, row *R) []*columnCore {
 	return cols
 }
 
-func (t *TableOf[R, K]) upsertChunk(ctx context.Context, db Executor, scope execScope, def *tableDef, cols []*columnCore, target []string, rows []*R, single bool) error {
-	d := scope.dialect
+// upsertStatement writes the INSERT ... ON CONFLICT / ON DUPLICATE KEY of rows,
+// without anything returned.
+// update names the columns an update writes besides the managed ones; nil is
+// every column the statement inserts.
+func (t *TableOf[R, K]) upsertStatement(d sqld.Dialect, def *tableDef, cols []*columnCore, target, update []string, rows []*R, single bool) *writeStmt {
 	mysql := d.Name() == tsqdialect.MySQL
 
 	w := &writeStmt{d: d}
@@ -403,6 +508,12 @@ func (t *TableOf[R, K]) upsertChunk(ctx context.Context, db Executor, scope exec
 			continue
 		}
 
+		// Update(cols) narrows the update to its columns; updated_at and deleted_at
+		// are written either way, as a row Update writes them too.
+		if update != nil && !slices.Contains(update, col.name) && col.name != def.managed.UpdatedAt && col.name != def.managed.DeletedAt {
+			continue
+		}
+
 		set(col.name)
 		proposed(col.name)
 	}
@@ -424,6 +535,38 @@ func (t *TableOf[R, K]) upsertChunk(ctx context.Context, db Executor, scope exec
 		set(target[0])
 		proposed(target[0])
 	}
+
+	return w
+}
+
+// upsertReturning upserts one row and reads back, in the same statement, the key of
+// the row it wrote (the stored row's, when it conflicted) and readBack.
+func (t *TableOf[R, K]) upsertReturning(ctx context.Context, db Executor, scope execScope, def *tableDef, cols []*columnCore, target, update []string, row *R, readBack []*columnCore) error {
+	w := t.upsertStatement(scope.dialect, def, cols, target, update, []*R{row}, true)
+
+	names := []string{def.primaryKey.name}
+	dest := []any{def.primaryKey.scan(row)}
+
+	for _, col := range readBack {
+		names = append(names, col.name)
+		dest = append(dest, col.scan(row))
+	}
+
+	w.text(scope.dialect.Returning(names...))
+
+	if w.err != nil {
+		return w.err
+	}
+
+	logSQLForExecutor(ctx, db, "upsert", w.sql.String(), w.args)
+
+	return db.QueryRowContext(ctx, w.sql.String(), w.args...).Scan(dest...)
+}
+
+func (t *TableOf[R, K]) upsertChunk(ctx context.Context, db Executor, scope execScope, def *tableDef, cols []*columnCore, target, update []string, rows []*R, single bool) error {
+	mysql := scope.dialect.Name() == tsqdialect.MySQL
+	returnKey := single && def.autoIncrement
+	w := t.upsertStatement(scope.dialect, def, cols, target, update, rows, single)
 
 	if returnKey && !mysql {
 		w.text(" RETURNING ").ident(def.primaryKey.name)

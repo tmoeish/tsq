@@ -42,6 +42,7 @@ type renderKey struct {
 	count   bool
 	keyword bool
 	single  bool
+	exists  bool
 }
 
 // statement returns the template for mode on d.
@@ -50,7 +51,7 @@ func (q *Query[O]) statement(d sqld.Dialect, m renderMode) (*statement, error) {
 		return nil, errNotBuilt
 	}
 
-	key := renderKey{dialect: d.Name(), count: m.count, keyword: m.keyword, single: m.single}
+	key := renderKey{dialect: d.Name(), count: m.count, keyword: m.keyword, single: m.single, exists: m.exists}
 	if !m.paged {
 		if cached, ok := q.cache.Load(key); ok {
 			return cached.(*statement), nil
@@ -497,7 +498,7 @@ func (q *Query[O]) Exists(ctx context.Context, db Executor, args ...Arg) (bool, 
 	return traceExecutor1(ctx, db, q.traceInfo(TraceOpGet), func(ctx context.Context) (bool, error) {
 		// Whether a row exists does not depend on reading it, so a value that could
 		// not be scanned into O is no reason to refuse.
-		_, stmts, err := q.prepare(db, args, nil, renderMode{single: true})
+		_, stmts, err := q.prepare(db, args, nil, renderMode{single: true, exists: true})
 		if err != nil {
 			return false, err
 		}

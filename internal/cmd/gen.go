@@ -802,7 +802,12 @@ func generatedSymbols(data *genmodel.StructInfo) []string {
 		return []string{"Result" + typeName, typeName + "Result"}
 	}
 
-	return []string{"Table" + typeName, typeName + "Table", "new" + typeName + "Table"}
+	symbols := []string{"Table" + typeName, typeName + "Table", "new" + typeName + "Table"}
+	if data.DeletedAtField != "" {
+		symbols = append(symbols, typeName+"TableWithDeleted")
+	}
+
+	return symbols
 }
 
 // validateDeclaredSymbols refuses a generated name the package already declares

@@ -10,7 +10,7 @@ go run ./examples/07-writing-data
 | 7.2 | `BatchInsert` + `tsq.WithSkipDuplicates()` |
 | 7.3 | `Update` 整行保存（带乐观锁）；`Update(ctx, db, 列...)` 只写这几列 |
 | 7.4 | 用窄 `Select` 读出来的行不能整行 `Update` |
-| 7.5 | `Upsert` / `BatchUpsert` 按唯一键插入或更新 |
+| 7.5 | `Upsert(row, tsq.OnConflict(键))` 按唯一键插入或更新整行；`.Update(列...)` 冲突时只改这几列 |
 | 7.6 | `tsq.UpdateTable(...).Set(...).Where(...)`、`SetNull` |
 | 7.7 | `tsq.HardDeleteFrom(...).Where(...)` |
 | 7.8 | `WithTxResult`：一个事务里扣库存、写订单、写明细；返回错误就回滚 |
@@ -27,7 +27,8 @@ go run ./examples/07-writing-data
 
 - **读了几列就只写几列**：用窄 `Select` 读进行类型，没读的列是零值。TSQ 记住了这一行是怎么读的，
   整行 `Update` / `Upsert` 会报错并列出读过的列，而不是悄悄把零值写回去。
-- **`Upsert` 写整行**：字段是 nil 的可空列会被写成 NULL（7.5 里 Ada 的手机号就这样没了）。
+- **`Upsert` 默认写整行**：字段是 nil 的可空列会被写成 NULL（7.5 里 Ada 的手机号就这样没了）。
+  只想改几列时写 `tsq.OnConflict(键).Update(列...)`，没冲突的行照样整行插入。
 - **`default:` 只用在能存 NULL 的字段上**：nil 表示"交给数据库"，零值是一个真实的值。
 - **`Batch*` 不自动开事务**：要全有或全无，用 `WithTx` 包起来。
 - **事务回滚只撤销数据库，不撤销内存**：回调里 `Insert` 过的结构体保留着主键和时间戳，所以要写的行在回调里构造。

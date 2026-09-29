@@ -45,6 +45,9 @@
   见 `receiverName`。
 - 新增一种生成文件（像 `runtime.tsq.go` 这样不按结构体命名的），把名字加进 `validateGeneratedFilenameCollisions`
   的初始集合，否则同名结构体的文件会被它覆盖。
+- 软删除表另生成 `XxxTableWithDeleted`（`XxxTable` 的定义类型：字段和内嵌描述符的方法都在，`XxxTable` 上声明的
+  `GetByX` 等不在），`WithDeleted()` 返回它；它自己的 `As` 和 `FullTextX` 由模板再声明一次。这个名字在
+  `generatedSymbols` 里。给 `XxxTable` 加的生成方法要决定在 `WithDeleted()` 之后还该不该有。
 - 生成的方法名、参数名进 `validateGeneratedSymbolCollisions` 的清单和 `gen_test.go` 的断言；
   改了形状要 `make examples` 并看 `examples/shop/*.tsq.go` 的 diff。
 

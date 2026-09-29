@@ -36,7 +36,7 @@ var (
 
 	takeStock = tsq.
 			UpdateTable(product).
-			Set(product.Stock, product.Stock.Exprf("%s - %s", quantity)).
+			Set(product.Stock, tsq.Sub(product.Stock, quantity)).
 			Where(product.ID.EQ(product.ID.Param()), product.Stock.GTE(quantity)).
 			MustBuild()
 )
@@ -140,31 +140,41 @@ func run(ctx context.Context, w io.Writer) error {
 
 	// ---------------------------------------------------------------------
 	show.Step(w, "7.5 Upsert：按唯一键插入或更新")
-	// 邮箱已存在就更新那一行，不存在就插入。按主键以外的唯一键冲突时，
-	// 行会拿到被更新那一行的主键。
-	// 注意 Upsert 写的是整行：这里 Phone 是 nil，Ada 原来的手机号会被改成 NULL。
-	ada := &shop.Customer{Email: "ada@example.com", Name: "Ada Lovelace", Level: new("vip")}
-	if err := customer.Upsert(ctx, db, ada, customer.Email); err != nil {
+	// tsq.OnConflict(键) 说按哪个唯一键判断"已存在"（不写就是主键）：
+	// 邮箱已存在就更新那一行，不存在就插入。按主键以外的唯一键冲突时，行会拿到被更新那一行的主键。
+	// 不加 Update 就写整行：这里 Phone 是 nil，Ada 原来的手机号会被改成 NULL。
+	ada := &shop.Customer{Email: "ada@example.com", Name: "Ada L.", Level: new("vip")}
+	if err := customer.Upsert(ctx, db, ada, tsq.OnConflict(customer.Email)); err != nil {
 		return err
 	}
 
-	show.Resultf(w, "ada@example.com 已存在，更新后 ID 仍是 %d，名字 %s", ada.ID, ada.Name)
+	show.Resultf(w, "整行 upsert：ID 仍是 %d，手机号 %v", ada.ID, ada.Phone)
+
+	// .Update(列...) 只改这几列（外加 updated_at、version）：Bob 的等级不会被 nil 覆盖。
+	// 没冲突的行照样整行插入。
+	bob := &shop.Customer{Email: "bob@example.com", Name: "Bob Builder"}
+	if err := customer.Upsert(ctx, db, bob, tsq.OnConflict(customer.Email).Update(customer.Name)); err != nil {
+		return err
+	}
+
+	show.Resultf(w, "只更新 name：%s，等级仍是 %s", bob.Name, *bob.Level)
 
 	newcomers := []*shop.Customer{
-		{Email: "bob@example.com", Name: "Bob Builder", Level: new("regular")},
+		{Email: "cai@example.com", Name: "Cai Lun"},
 		{Email: "fay@example.com", Name: "Fay", Level: new("regular")},
 	}
-	if err := customer.BatchUpsert(ctx, db, newcomers, []tsq.BoundColumn[shop.Customer]{customer.Email}); err != nil {
+	if err := customer.BatchUpsert(ctx, db, newcomers, tsq.OnConflict(customer.Email).Update(customer.Name)); err != nil {
 		return err
 	}
 
 	// ---------------------------------------------------------------------
 	show.Step(w, "7.6 按条件更新：UpdateTable")
 	// 不需要先把行读出来。Set 的值可以是 tsq.Val、参数、列或表达式，类型在编译期检查。
+	// 算术用 tsq.Add / Sub / Mul / Div：整数除法在三种方言上都取整（MySQL 上写成 DIV）。
 	// Where 必须写且只能写一次；真要改全表，写 Where(tsq.And())，让意图明明白白。
 	raised, err := tsq.
 		UpdateTable(product).
-		Set(product.PriceCents, product.PriceCents.Exprf("%s * 110 / 100")).
+		Set(product.PriceCents, tsq.Div(tsq.Mul(product.PriceCents, tsq.Val(int64(110))), tsq.Val(int64(100)))).
 		Where(product.CategoryID.EQ(tsq.Val(int64(4)))).
 		Exec(ctx, db)
 	if err != nil {

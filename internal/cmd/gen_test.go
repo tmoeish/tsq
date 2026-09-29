@@ -2271,6 +2271,25 @@ func TestGeneratedCodeCompilesForEveryFieldShape(t *testing.T) {
 		t.Fatalf("generated code does not compile: %v\n%s", err, output)
 	}
 
+	// The table without its live-row filter keeps the columns, alias and full-text
+	// index, and has no lookup by unique index: those values repeat among deleted
+	// rows, so the lookup could only fail when it runs.
+	writeTestFile(t, "probe.go", "package gentest\n\nvar _ = TableWallet.WithDeleted().As(\"w\").FullTextNote()\nvar _ = TableWallet.WithDeleted().Ctx\n")
+
+	if output, err := exec.Command("go", "build", "./...").CombinedOutput(); err != nil {
+		t.Fatalf("the WithDeleted table lost a method: %v\n%s", err, output)
+	}
+
+	writeTestFile(t, "probe.go", "package gentest\n\nvar _ = TableWallet.WithDeleted().GetByCtx\n")
+
+	if output, err := exec.Command("go", "build", "./...").CombinedOutput(); err == nil || !strings.Contains(string(output), "GetByCtx") {
+		t.Fatalf("GetByCtx on the WithDeleted table = %v\n%s; want it undefined", err, output)
+	}
+
+	if err := os.Remove("probe.go"); err != nil {
+		t.Fatal(err)
+	}
+
 	table, err := os.ReadFile("wallet.tsq.go")
 	if err != nil {
 		t.Fatal(err)

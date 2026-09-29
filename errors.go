@@ -31,7 +31,7 @@ type RowStateError struct {
 }
 
 func (e *RowStateError) Error() string {
-	return fmt.Sprintf("%s on %s needs %s: expected %d row(s) to match, matched %d%s",
+	return fmt.Sprintf("%s on %s needs %s rows: expected %d row(s) to match, matched %d%s",
 		e.Op, e.Table, e.Need, e.Expected, e.Actual, keysSuffix(e.Keys))
 }
 
@@ -51,11 +51,11 @@ const (
 func (s RowState) String() string {
 	switch s {
 	case RowExists:
-		return "an existing row"
+		return "existing"
 	case RowLive:
-		return "a live row"
+		return "live"
 	case RowDeleted:
-		return "a deleted row"
+		return "deleted"
 	default:
 		return fmt.Sprintf("RowState(%d)", uint8(s))
 	}

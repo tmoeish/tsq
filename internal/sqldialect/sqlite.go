@@ -30,6 +30,15 @@ func (d SQLiteDialect) ReturningClause(col string) string {
 	return ""
 }
 
+func (d SQLiteDialect) Returning(cols ...string) string {
+	quoted := make([]string, len(cols))
+	for i, col := range cols {
+		quoted[i] = d.QuoteIdent(col)
+	}
+
+	return " RETURNING " + strings.Join(quoted, ", ")
+}
+
 func (d SQLiteDialect) ValidateIdentifier(identifier string) error {
 	return validateDialectIdentifier(identifier, d.Name(), 0)
 }

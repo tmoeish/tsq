@@ -14,13 +14,14 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 ### 新增
 
+- 算术表达式 `tsq.Add` / `tsq.Sub` / `tsq.Mul` / `tsq.Div`，按 `Number` 约束类型：扣库存写 `Set(t.Stock, tsq.Sub(t.Stock, qty))`，不再需要 `Exprf` 和丢了类型的参数。整数除法在三种方言上都取整（MySQL 的 `/` 返回小数，那里写成 `DIV`）；除以零在 PostgreSQL 上报错、在另两个方言上是 NULL，所以除数不是非零 `tsq.Val` 时 `Div` 的结果按可能为 NULL 处理。
 - 新增游标分页 `Query.PageKeyset(ctx, db, tsq.Keyset{Size, OrderBy, After}, args...)`：按上一页最后一行的排序值翻页，深页不再越翻越慢、中途插入的行也不会让页面错位。排序列必须被查询选出，且包含查询里每张表（FROM 和每个 JOIN）的主键；`Next` 是不透明字符串，换了排序会被拒绝。`PageRequest` 新增 `After` 字段和 `Keyset(sortable...)`。
 - 关键词搜索改为执行参数 `tsq.Keyword(term)`，所有读取方法都能用（此前只有 `Page` 通过 `Paging.Keyword` 支持，搜索结果没法 `Iter` 导出或单独 `Count`）；`Paging.Keyword` 删除。空关键词不搜索，对没有 `Search` 的查询传非空关键词报错。
 - 新增 `Query.ListIn(ctx, db, listParam, values, args...)`：列表参数超过方言绑定上限时按上限分块、在同一快照里读完再拼接，只接受分块不改变结果的查询。`TableXxx.Fetch` / `FetchBy` 用它，任意数量的键都能取（此前超过 SQLite 的 32766 个就报错）。
 - 新增 `TableXxx.Restore` / `BatchRestore` 和生成的 `row.Restore(ctx, db)`：恢复软删除的行，是清除 `deleted_at` 的唯一入口。
 - 根包不再 import 任何数据库驱动（MySQL 错误改为反射识别），根包测试也不再 import 驱动和 nullbio：只用库的项目 `go mod tidy` 之后 `go.mod` 不会多出间接依赖，`go.sum` 里只剩 SQLite 驱动（根包单测需要）。
 - `TableXxx.GetBy(ctx, db, col, value, conds...)` / `FindBy`（没有时 `nil, nil`）：按唯一列读一行（列加上 `conds` 里用 `EQ` 固定的列，必须覆盖主键或某个唯一索引，否则报错，而不是返回任意一行），与 `FetchBy` 成对；生成的 `GetByX` / `FindByX` 调它，没有额外条件时查询只构建一次（此前每次调用都重新构建和渲染）。
-- `TableXxx.Upsert(ctx, db, &row, key...)` 和 `BatchUpsert(ctx, db, rows, key, options...)`：按主键或某个唯一索引插入或更新，PostgreSQL / SQLite 渲染成 `ON CONFLICT ... DO UPDATE`，MySQL 渲染成 `ON DUPLICATE KEY UPDATE`。更新时 `version` 自增不校验、`updated_at` 刷新、`created_at` 保留；单行版本回读主键、`version` 和 `created_at`。MySQL 会匹配所有唯一键，因此行可能撞上别的唯一键时直接拒绝。追踪操作名为 `upsert`。
+- `TableXxx.Upsert(ctx, db, &row, tsq.OnConflict(key...))` 和 `BatchUpsert(ctx, db, rows, conflict, options...)`：按主键（不写 `OnConflict`，批量版传零值 `tsq.Conflict[R]{}`）或某个唯一索引插入或更新，PostgreSQL / SQLite 渲染成 `ON CONFLICT ... DO UPDATE`，MySQL 渲染成 `ON DUPLICATE KEY UPDATE`。`tsq.OnConflict(key...).Update(cols...)` 让冲突的行只改这几列（外加 `updated_at`、`version`），否则写整行——nil 字段会把库里的值写成 NULL。键和列按表的行类型定型，别的表的列编译不过。更新时 `version` 自增不校验、`updated_at` 刷新、`created_at` 保留；单行版本回读主键、`version`、`created_at` 和数据库填的列，PostgreSQL / SQLite 上用同一条语句的 `RETURNING`。MySQL 会匹配所有唯一键，因此行可能撞上别的唯一键时直接拒绝。追踪操作名为 `upsert`。
 - `Query.Iter(ctx, db, args...)` 返回 `iter.Seq2[*O, error]`，逐行扫描，大结果集不必整体读进内存；`break` 会结束查询。追踪操作名为 `iter`。
 - `tsq.DialectOf(db)`：任何执行器（包括 `WithTx` 回调里的）的方言，事务里也能用 `dialect.Supports` 选查询形状；此前只有 `*Runtime.Dialect()`。
 - 阶段上直接有 `Iter` 和 `PageKeyset`（此前只有 `Page`，其余要先 `MustBuild()`）。
@@ -140,7 +141,7 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 **生成代码**
 
-- 表文件：`XxxTable` 结构体与 `TableXxx` 值，外加 `As(alias)`，软删除表另有 `WithDeleted()`（都返回同样的结构体，列一起改绑），以及每个唯一索引的 `GetByEmail(ctx, db, email)`、`FindByEmail(ctx, db, email)` 和 `FetchByEmail(ctx, db, emails...)`（复合索引 `A,B` 是 `GetByAAndB(ctx, db, a, b)` / `FindByAAndB` / `FetchByAAndB(ctx, db, a, bs...)`）。列字段按结构体里的声明顺序排列（嵌入结构体的字段在嵌入处），`Columns()` 也按这个顺序选列；此前按字段名排序。主键查询在 `TableOf` 上，不再生成 `QueryXxx*` / `FetchXxxByID` 变量和函数。**普通索引和唯一索引前缀不生成查询**：这类查询需要排序和限量，用构建器写。
+- 表文件：`XxxTable` 结构体与 `TableXxx` 值，外加 `As(alias)`（返回同样的结构体，列一起改绑），软删除表另有 `WithDeleted()`，返回 `XxxTableWithDeleted`：列、`As` 和全文索引都在，但没有 `GetByX` / `FindByX` / `FetchByX`——软删除表的唯一索引包含 `deleted_at`，一个值只在活行里唯一，在已删行上按它查找写了就编译不过，以及每个唯一索引的 `GetByEmail(ctx, db, email)`、`FindByEmail(ctx, db, email)` 和 `FetchByEmail(ctx, db, emails...)`（复合索引 `A,B` 是 `GetByAAndB(ctx, db, a, b)` / `FindByAAndB` / `FetchByAAndB(ctx, db, a, bs...)`）。列字段按结构体里的声明顺序排列（嵌入结构体的字段在嵌入处），`Columns()` 也按这个顺序选列；此前按字段名排序。主键查询在 `TableOf` 上，不再生成 `QueryXxx*` / `FetchXxxByID` 变量和函数。**普通索引和唯一索引前缀不生成查询**：这类查询需要排序和限量，用构建器写。
 - 列字段与表的方法重名（`Update`、`Query`、`Columns`、`As`……）时 `tsq gen` 报错并指出字段，改 Go 字段名即可（`db` tag 保留列名）。
 - 生成的参数名按缩写词整体小写（`ids`、`uid`），不再出现 `iDs`。
 - 行方法：`Insert` / `Update` / `HardDelete`，软删除表另有 `Delete()` / `Restore()` / `IsDeleted()`（报告加载时这一行是否带墓碑；名字说的是它检查什么，`Active` 容易被读成"业务上启用"）。
@@ -158,6 +159,12 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 - 没写 `name=` 的索引按**列名**推导名字（`ux_<表>_<列>...`），不再把 Go 字段名转成蛇形：字段 `SKU`（列 `sku`）的唯一索引从 `ux_products_s_k_u` 变成 `ux_products_sku`，列名和字段名不一致的字段也终于出现在索引名里。字段名的蛇形和列名一致的（绝大多数）不受影响；受影响的表下次 `tsq gen` 会在迁移里删掉旧索引、建新索引。要保留旧名字，在指令上写 `name=`。
 
 ### 修复
+
+- **`BatchInsert` 分配的主键不按切片顺序**：行里把 `default:` 列留给数据库的和没留的写成不同的语句，此前先插完一种形状的所有行，自增主键因此跳着分配。现在只合并相邻的同形状行。
+- **新行的 `version` 从 0 开始，DDL 默认值却是 1**：TSQ 插入的行和手写 SQL 插入的行版本号不一致。`Insert` / `Upsert` 现在把为零的版本从 1 开始，调用方设了的版本（导入）保留。
+- **单行 `Insert` / `Upsert` 为回读数据库填的列多发一条查询**：PostgreSQL 和 SQLite 上现在在写入语句里用 `RETURNING` 取回主键和这些列；MySQL 没有 `RETURNING`，照旧按主键回读。
+- **SQL 日志把硬删除记成 `delete`**：和软删除同名，也和追踪里的 `hard_delete` 不一致。现在日志和错误信息里都是 `hard_delete`。
+- `Exists` 选出全部列再 `LIMIT 1`，现在是 `SELECT 1`（分组、`DISTINCT`、自带 `Limit` 的查询保持原形状，它们的行由选择列表或顺序决定）；`PageKeyset` 的第一页不再带 `OFFSET 0`；选择列表里重名的列不再改名成 `tsq_c5`，而是 `categories_name`（别的表的列）或 `price_cents_2`；`RowState` 打印成 `live` / `deleted` / `existing`，错误信息写成 `needs live rows`。
 - **`AttachMany` / `AttachOne` 的子查询不能排序**：文档说子行保持子查询的顺序、`AttachOne` 取子查询顺序里的第一条，但它们调用的 `Query.ListIn` 拒绝任何带 `ORDER BY` 的查询。切分键列表只会改变跨语句的整体顺序，从不改变取到哪些行，所以 `ListIn` 现在接受 `ORDER BY`：放得进一条语句时保持它，切分后每段各自有序；`LIMIT`、分组、聚合、`DISTINCT`、集合运算仍然拒绝。
 
 - **SQLite 的重建式迁移可能删光整张表**：迁移先把旧表改名、建新表、复制行，复制一失败（新增 NOT NULL 列、表上有生成列），`sqlite3` 命令行并不停下，接着删掉旧表并提交。现在按 SQLite 文档的步骤先建新表、复制、再删旧表改名，并关掉外键；复制不会失败：新增的 NOT NULL 列用零值填、生成列交给新表计算，做不到的情况整段写成需要人工处理的注释。

@@ -34,8 +34,7 @@
 - **表元数据曾是使用者结构体上的七个方法**（和字段重名）：现在是 `TableOf[R, K]` 描述符。
 - **`Executor` 曾就是 database/sql 的三个方法**，裸 `*sql.DB` 能编译：现在是封闭接口。
 
-列函数的可移植性只有真跑三方言才知道（MySQL `LENGTH` 数字节、PG 没有 `round(double, int)`、modernc 的时间格式、
-SQLite `UPPER` 只认 ASCII），门是 `TestIntegrationColumnFunctionsArePortable`。
+列函数的可移植性只有真跑三方言才知道（MySQL `LENGTH` 数字节、PG 没有 `round(double, int)`、SQLite `UPPER` 只认 ASCII），门是 `TestIntegrationColumnFunctionsArePortable`。
 
 ## 决定：Runtime 用函数式选项，并且不关别人的连接池 (2026-09-16，v5)
 
@@ -71,6 +70,8 @@ v5 不背兼容，一次把名字改到"最合理"。定下的几条规则，每
   导出方法排在 `needsRuntimeOrWrapExecutor` 前面，传 `*sql.DB` 时编译器就不再报那个指路的方法名。
 - 2026-09-28 第二轮：`UpdateTable` → `UpdateStage`（只有 `Set`）→ `SetStage` → `MutationStage`，不赋值的 UPDATE 编译不过；能力常量跟构建器方法
   命名、值即 SQL 拼写（删掉别名表）；`WrapExecutor` 返回 error。**`ColumnSpecs()` / `Indexes()` 保持导出**：审计曾想收起，但集成测试和工具靠它改 schema。
+- Upsert 的冲突描述是值 `tsq.OnConflict(键...).Update(列...)`（2026-09-29 维护者定案），键和列按 R 定型。否决了做成
+  `BatchOption`（R 被擦掉，别的表的列只能运行期报错）和另开 `UpsertOnly`（同一件事两种写法）。
 - 方言类型不加 `DDL` 前缀。模板不许拼接常量名（`Kind{{ .Kind }}`）：符号门禁只认完整的 `tsqdialect.X`，
   拼出来的名字改名后照样"通过"，所以由 `columnKindRef` 显式列出。
 
