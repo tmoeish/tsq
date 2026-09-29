@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/serenize/snaker"
+
 	"github.com/tmoeish/tsq/v5/internal/genmodel"
 )
 
@@ -23,12 +25,36 @@ func parseSource(t *testing.T, src string, fields ...string) (*genmodel.TableMet
 		t.Fatalf("ParseFile() error = %v", err)
 	}
 
-	set := make(map[string]struct{}, len(fields))
+	set := make(map[string]string, len(fields))
 	for _, field := range fields {
-		set[field] = struct{}{}
+		set[field] = snaker.CamelToSnake(field)
 	}
 
 	return parseAnnotations("User", file.Comments, set, fset)
+}
+
+// TestDerivedIndexNamesFollowColumns covers a derived index name spelled from the
+// Go field names, which gave a field SKU the index ux_products_s_k_u and a field
+// in a renamed column a name that did not mention the column at all.
+func TestDerivedIndexNamesFollowColumns(t *testing.T) {
+	fset := token.NewFileSet()
+
+	file, err := parser.ParseFile(fset, "model.go",
+		"package p\n\n//tsq:table name=products\n//tsq:unique SKU\n//tsq:index OwnerRef,SKU\ntype Product struct{}",
+		parser.ParseComments)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	meta, err := parseAnnotations("Product", file.Comments,
+		map[string]string{"ID": "id", "SKU": "sku", "OwnerRef": "owner_id"}, fset)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if meta.Uniques[0].Name != "ux_products_sku" || meta.Indexes[0].Name != "idx_products_owner_id_sku" {
+		t.Fatalf("uniques %v, indexes %v; want names spelled from the columns", meta.Uniques, meta.Indexes)
+	}
 }
 
 func TestParseAnnotations(t *testing.T) {

@@ -287,12 +287,13 @@ func (q *Query[O]) requestKeyword(term string, args []Arg) ([]Arg, error) {
 // ListIn is List for a list parameter that may hold more values than one statement
 // can bind, such as a lookup by thousands of keys. values are deduplicated, split
 // into statements that fit the dialect's bind parameter limit, and read in one
-// snapshot; the rows are concatenated in no particular order. args bind the other
-// parameters.
+// snapshot. args bind the other parameters. A list that fits in one statement runs
+// as one and keeps the query's ORDER BY; the parts of a split list are concatenated,
+// each in that order, with no order across them.
 //
-// Splitting only preserves the result of a query that filters row by row, so the
+// Splitting only preserves the rows of a query that filters row by row, so the
 // query must use param exactly once, as col.In(param) passed directly to Where,
-// and have no GROUP BY, aggregate, DISTINCT, set operation, ORDER BY or LIMIT.
+// and have no GROUP BY, aggregate, DISTINCT, set operation or LIMIT.
 func (q *Query[O]) ListIn[T comparable](ctx context.Context, db Executor, param ListParam[T], values []T, args ...Arg) ([]*O, error) {
 	return traceExecutor1(ctx, db, q.traceInfo(TraceOpList), func(ctx context.Context) ([]*O, error) {
 		if q != nil && q.err != nil {
@@ -391,8 +392,9 @@ func (q *Query[O]) checkSplittable(spec *paramSpec) error {
 	}
 
 	s := &q.spec
-	if s.grouped() || len(s.OrderBys) > 0 || s.Limit != nil {
-		return errors.New("list in: the query must filter row by row, without GROUP BY, aggregates, DISTINCT, set operations, ORDER BY or LIMIT")
+	// ORDER BY is fine: splitting changes the order across parts, never which rows.
+	if s.grouped() || s.Limit != nil {
+		return errors.New("list in: the query must filter row by row, without GROUP BY, aggregates, DISTINCT, set operations or LIMIT")
 	}
 
 	top := 0

@@ -153,7 +153,12 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 - `Dialect` 接口、`MySQLDialect` / `PostgresDialect` / `SQLiteDialect`、schema 探查、DDL 渲染和绑定上限都是内部实现，不再导出：它们从来不是扩展点，导出只会让每次内部调整都变成破坏性变更。`tsq.NewRuntime`、`tsq.WrapExecutor`、`Query.SQL`、`Mutation.SQL` 收 `dialect.Name`。`WrapExecutor` 返回 `(Executor, error)`，句柄为 nil 或方言未知时报错（此前返回 nil，错误在第一条语句才出现）。
 - 能力常量按构建器方法命名，值就是错误里显示的 SQL：`CapabilityFullJoin`（原 `CapabilityFullOuterJoin`）、`CapabilityForUpdate` / `CapabilityForShare` / `CapabilityNoWait` / `CapabilitySkipLocked`（原 `CapabilitySelectFor*`）；`Supports` / `Check` 不再接受 `"full join"` 这类字符串拼写。
 
+**生成的 schema**
+
+- 没写 `name=` 的索引按**列名**推导名字（`ux_<表>_<列>...`），不再把 Go 字段名转成蛇形：字段 `SKU`（列 `sku`）的唯一索引从 `ux_products_s_k_u` 变成 `ux_products_sku`，列名和字段名不一致的字段也终于出现在索引名里。字段名的蛇形和列名一致的（绝大多数）不受影响；受影响的表下次 `tsq gen` 会在迁移里删掉旧索引、建新索引。要保留旧名字，在指令上写 `name=`。
+
 ### 修复
+- **`AttachMany` / `AttachOne` 的子查询不能排序**：文档说子行保持子查询的顺序、`AttachOne` 取子查询顺序里的第一条，但它们调用的 `Query.ListIn` 拒绝任何带 `ORDER BY` 的查询。切分键列表只会改变跨语句的整体顺序，从不改变取到哪些行，所以 `ListIn` 现在接受 `ORDER BY`：放得进一条语句时保持它，切分后每段各自有序；`LIMIT`、分组、聚合、`DISTINCT`、集合运算仍然拒绝。
 
 - **SQLite 的重建式迁移可能删光整张表**：迁移先把旧表改名、建新表、复制行，复制一失败（新增 NOT NULL 列、表上有生成列），`sqlite3` 命令行并不停下，接着删掉旧表并提交。现在按 SQLite 文档的步骤先建新表、复制、再删旧表改名，并关掉外键；复制不会失败：新增的 NOT NULL 列用零值填、生成列交给新表计算，做不到的情况整段写成需要人工处理的注释。
 - **迁移里的 `DROP TABLE` / `DROP COLUMN` 没有任何提示就能被执行**：改表名、改 `db` 标签，甚至把 `//tsq:table` 写成 `// tsq:table`，都会生成删表删列。现在这类语句（包括丢列的重建）以注释形式写在 `-- DESTRUCTIVE` 下，`tsq gen` 给出警告，像指令却不是指令的注释也会报出来。
@@ -322,6 +327,8 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 - **几条指错方向的报错**：字符非法的标识符被说成"太长"；带字段但缺 `db` 标签被说成"没有这个字段"；嵌入其他包类型里的未导出字段报"找不到字段"；不存在的包目录套了三层"failed to parse"。现在各自说清原因和改法。
 
 ### 其他
+
+- **示例整个重写**：`examples/` 现在是 11 章由浅入深的教程（从结构体和 `tsq gen` 到方言与追踪），每章一个可运行的程序，打印每一步、TSQ 实际发出的 SQL 和结果，并带一个断言输出的测试；第 2 到 11 章共用一个网店模型 `examples/shop`。原来的 `examples/academy` 挪到 `internal/integration/academy`，只作集成测试的夹具；`quickstart` / `advanced` / `full-suite` 三个程序删除。
 
 - CLI 改用标准库 `flag`，不再依赖 cobra、pflag、`golang.org/x/term`。flag 仍可写在参数之后（`tsq gen ./pkg --check`），`tsq --version` / `tsq help <命令>` 照旧可用；报错着色认 `NO_COLOR`。
 - 删掉了从未发布到任何镜像仓库的 Docker 镜像构建；CI 的 `Build` 改为运行构建出的二进制，核对注入的版本和 commit。

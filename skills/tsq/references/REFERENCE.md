@@ -186,7 +186,8 @@ Rules:
 - a database-filled column cannot be the primary key or a managed column (`version`, `created_at`,
   `updated_at`, `deleted_at`): those are TSQ's to write, and `tsq gen` refuses it
 - a batch insert does not read database-filled values back; that would be one query per row. Reload
-  the rows when the values matter
+  the rows when the values matter. Rows that leave different `default:` columns to the database are
+  written by different statements, so the keys they get do not follow their order in the slice
 - a generated column is created with the table and never altered afterwards: every dialect reports
   it differently, so the schema policies leave it alone. Adding one to a table that already exists
   is a migration
@@ -230,7 +231,8 @@ Supported field types:
   generates it and warns: it prints the reason, and `mysql.sql` carries it as a comment above the
   statement that will fail there (`VARCHAR(2000)` alone exceeds the limit). For a schema that runs
   on MySQL, lower the `size:` or leave the column out of the index
-- `name=` is optional; an omitted name is derived from the table and the fields
+- `name=` is optional; an omitted name is derived from the table and the indexed **columns**:
+  `//tsq:unique SKU` over the column `sku` of `products` is `ux_products_sku`
 - a field repeated inside one index is invalid, and so are two indexes over the same field list
 - on a table declaring `deleted_at`, prefer an integer tombstone when the table also has unique
   indexes; nullable-time soft deletes are not portable there
@@ -1010,7 +1012,7 @@ Case sensitivity is the database's, and it differs: SQLite ignores ASCII case, M
 Reads are methods on the built `*Query[O]`, and on every complete stage, which builds first (build once and reuse the `*Query` on hot paths); `args` are the `tsq.Arg` values made by `Bind`:
 
 - `query.List(ctx, db, args...)` → `[]*O, error`; no rows is an empty list, never nil
-- `query.ListIn(ctx, db, listParam, values, args...)` → `[]*O, error`: `List` for a list parameter that may hold more values than one statement can bind (65535 on MySQL and PostgreSQL, 32766 on SQLite). Values are deduplicated, split and concatenated in no particular order; a list that fits in one statement runs as one, and several parts share one snapshot. The query must use the parameter once, as `col.In(param)` passed directly to `Where`, and have no `GROUP BY`, aggregate, `DISTINCT`, set operation, `ORDER BY` or `LIMIT`; anything else is refused, because splitting would change the result. `TableXxx.Fetch` and `FetchBy` use it
+- `query.ListIn(ctx, db, listParam, values, args...)` → `[]*O, error`: `List` for a list parameter that may hold more values than one statement can bind (65535 on MySQL and PostgreSQL, 32766 on SQLite). Values are deduplicated and split; a list that fits in one statement runs as one and keeps the query's `ORDER BY`, and the parts of a split list share one snapshot and are concatenated, each in that order, with no order across them. The query must use the parameter once, as `col.In(param)` passed directly to `Where`, and have no `GROUP BY`, aggregate, `DISTINCT`, set operation or `LIMIT`; anything else is refused, because splitting would change which rows come back. `TableXxx.Fetch` and `FetchBy` use it
 - `query.Iter(ctx, db, args...)` → `iter.Seq2[*O, error]`: `for row, err := range query.Iter(ctx, db) { ... }` scans one row at a time, so exports and batch jobs do not hold the whole result in memory. `break` stops the query; a failure is yielded once with a nil row. The rows hold a connection until the loop ends, so inside a transaction finish the loop before running another statement on it
 - `query.Get(ctx, db, args...)` → `*O, error` (an error wrapping `sql.ErrNoRows` when not found)
 - `query.Find(ctx, db, args...)` → `*O, error` (`nil, nil` when not found)

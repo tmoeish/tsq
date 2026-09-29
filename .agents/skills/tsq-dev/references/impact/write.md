@@ -13,7 +13,7 @@
   只给托管时间戳用）。`default:` 只许可空字段，生成器（`validateDatabaseFilledFields`）和 `Define` 各拒一次。
 - **生成列不参与 schema 对账**（`diffTableColumns` 里过滤）：SQLite 的 `table_info` 根本不列它，
   MySQL/PG 报的类型和默认值也和声明不同，比较的结果是每次启动都想改一次。
-- 端到端的门是 `examples/academy` 的 `runDatabaseFilledDemo` 和 `TestIntegrationDatabaseFilledColumns`
+- 端到端的门是 `examples/07-writing-data` 的 7.1（`default:` 和 `generated:` 读回）和 `TestIntegrationDatabaseFilledColumns`
   （后者还断言第二次启动零 DDL）。
 
 ## 改了删除语义或托管列（`rows.go`、`softdelete.go`、`TableSpec`）
@@ -39,7 +39,7 @@
   时间），`Update` **总是**刷新 `updated_at`。
 - 给 `TableSpec` 加字段不是破坏性变更；给 `Table` 接口加方法也不影响使用者（它是封闭的），但
   两个实现（`TableOf`，`SoftDeleteTableOf` 经内嵌自动跟上；`cteTable`）都要跟上。`[门禁: api-check]`
-- 软删除的端到端门是 `examples/academy` 的 `runSoftDeleteDemo`。
+- 软删除的端到端门是 `examples/08-soft-delete-and-concurrency`（删除、`RowStateError`、`WithDeleted` + `Restore`、`DeleteFrom`）。
 - **软删除作用域在渲染里，不在调用点**：新增一种表出现的位置（新的 JOIN 类型、`UPDATE ... FROM`、
   新的集合形态）必须在 `writeFromWhere` 里表态它的作用域放 WHERE、ON 还是派生表，并在
   `TestSoftDeleteScope` 和 `TestIntegrationSoftDeleteScopeJoins` 里各加一条。给 `Table` 接口加实现

@@ -98,10 +98,10 @@ Troubleshooting:
   - after generation, execute the SQL file matching your live database dialect
   - generator validation errors point to the offending struct or field`,
 	Example: strings.Join([]string{
-		"  tsq gen ./examples/academy",
-		"  tsq gen --dry-run ./examples/academy",
-		"  tsq gen --check github.com/tmoeish/tsq/v5/examples/academy",
-		"  tsq gen github.com/tmoeish/tsq/v5/examples/academy",
+		"  tsq gen ./examples/shop",
+		"  tsq gen --dry-run ./examples/shop",
+		"  tsq gen --check github.com/tmoeish/tsq/v5/examples/shop",
+		"  tsq gen github.com/tmoeish/tsq/v5/examples/shop",
 	}, "\n"),
 	flags: func(fs *flag.FlagSet) {
 		fs.BoolVar(&dryRunFlag, "dry-run", false, "render in memory and print which files would change")

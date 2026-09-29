@@ -38,7 +38,7 @@ func (d directive) errorf(format string, args ...any) error {
 func parseAnnotations(
 	structName string,
 	comments []*ast.CommentGroup,
-	fields map[string]struct{},
+	fields map[string]string,
 	fileSet *token.FileSet,
 ) (*genmodel.TableMeta, error) {
 	directives := collectDirectives(comments, fileSet)
@@ -184,7 +184,7 @@ var managedRoles = map[string]struct {
 	"deleted_at": {"DeletedAt", func(m *genmodel.TableMeta, f string) { m.DeletedAtField = f }},
 }
 
-func applyDirective(meta *genmodel.TableMeta, d directive, fields map[string]struct{}) error {
+func applyDirective(meta *genmodel.TableMeta, d directive, fields map[string]string) error {
 	switch d.name {
 	case "managed":
 		if meta.IsResult {
@@ -262,7 +262,7 @@ func applyDirective(meta *genmodel.TableMeta, d directive, fields map[string]str
 		}
 
 		if name == "" {
-			name = derivedIndexName(prefix, meta.Table, list)
+			name = derivedIndexName(prefix, meta.Table, list, fields)
 		}
 
 		// A full-text index answers other queries than a B-tree index over the same
@@ -306,7 +306,7 @@ func applyDirective(meta *genmodel.TableMeta, d directive, fields map[string]str
 }
 
 // fieldList reads a comma-separated Go field list and an optional name= option.
-func fieldList(d directive, fields map[string]struct{}) (list []string, name string, err error) {
+func fieldList(d directive, fields map[string]string) (list []string, name string, err error) {
 	for _, arg := range d.args {
 		if key, value, hasValue := strings.Cut(arg, "="); hasValue {
 			if key != "name" || value == "" {
@@ -351,7 +351,7 @@ func fieldList(d directive, fields map[string]struct{}) (list []string, name str
 
 // checkReferencedFields verifies the fields named by the declaration and the
 // managed roles exist.
-func checkReferencedFields(meta *genmodel.TableMeta, fields map[string]struct{}, declaration directive) error {
+func checkReferencedFields(meta *genmodel.TableMeta, fields map[string]string, declaration directive) error {
 	if fields == nil {
 		return nil
 	}
@@ -369,10 +369,18 @@ func checkReferencedFields(meta *genmodel.TableMeta, fields map[string]struct{},
 	return nil
 }
 
-func derivedIndexName(prefix, table string, fields []string) string {
+func derivedIndexName(prefix, table string, list []string, fields map[string]string) string {
 	parts := []string{prefix, snaker.CamelToSnake(table)}
-	for _, field := range fields {
-		parts = append(parts, snaker.CamelToSnake(field))
+
+	for _, field := range list {
+		// The index is over columns, so it is named after them: a field SKU in
+		// column sku gives ux_products_sku, not the snake case of the field.
+		column := fields[field]
+		if column == "" {
+			column = snaker.CamelToSnake(field)
+		}
+
+		parts = append(parts, column)
 	}
 
 	return strings.Join(parts, "_")

@@ -8,16 +8,16 @@
   `[门禁: skill-check dsl]`
 - **不要把指令写成跨行的形态。** 一行一个关注点是这套语法唯一的好处来源：gofmt 不碰它，错误可以
   直接引用那一行，于是既不需要格式化器也不需要把偏移量映射回行号。
-- 改索引名推导（`normalizeIndexNames`）会让使用者已经建好的索引对不上。这是 schema 层面
-  的破坏性变更，按破坏性变更处理。
-- `make examples` 重新生成，`./bin/examples/full-suite` 跑一遍。`[门禁: gen-check]`
-- 改完之后确认 `examples/academy/*.tsq.go` 的 diff 为空：指令和旧 DSL 表达同一件事时，生成物应当
+- 改索引名推导（`internal/parser/directive.go` 的 `derivedIndexName`，按**列名**拼：
+  `ux_<表>_<列>...`）会让使用者已经建好的索引对不上。这是 schema 层面的破坏性变更，按破坏性变更处理。
+- `make examples-run` 重新生成并把每一章跑一遍。`[门禁: gen-check]`
+- 改完之后确认生成包的 `*.tsq.go` 的 diff 为空：指令和旧 DSL 表达同一件事时，生成物应当
   逐字节相同。那是语义等价最直接的证据。
 
 ## 改了模板（`internal/cmd/*.go.tmpl`）
 
 - 模板决定生成代码长什么样，也就决定了使用者能调用哪些方法。**改模板等于改 API。**
-- `make examples` 后看一眼 `examples/academy/*.tsq.go` 的 diff——那就是使用者会看到的变化。
+- `make examples` 后看一眼 `examples/shop/*.tsq.go` 的 diff——那就是使用者会看到的变化。
 - `skills/tsq` 里凡是提到生成方法名的地方都要同步。`[门禁: skill-check templates]`
 - 模板里新用的辅助函数要加进 `template_funcs.go` 并配测试。
 - **生成代码里出现的 `tsq.X` / `tsqdialect.X` 必须是那两个包真实导出的符号。** 模板和 helper 里
@@ -25,7 +25,7 @@
   单元测试证明不了这一点。`[门禁: internal/cmd/generated_symbols_test.go]`
 - **生成代码里的使用者类型，拼写和 import 必须同一个来源**：类型写 `FieldInfo.Spelled`（`go/types` 按本文件
   的别名限定），import 写 `StructInfo.Imports`，两个模板（table、result）都要写 import 块。
-  `examples/academy` 只覆盖同包和标准库类型，**新增一种字段形状就往 `gen_test.go` 的 `shapeModule` 里加一个
+  生成包只覆盖同包和标准库类型，**新增一种字段形状就往 `gen_test.go` 的 `shapeModule` 里加一个
   字段**——那个测试真的 `go build` 生成物。`[门禁: TestGeneratedCodeCompilesForEveryFieldShape]`
 - 生成函数的参数名（`fieldVarName`）不能和函数自己用的标识符撞：`ctx`、`db`、接收者 `t`、函数体调用的
   `tsq`，都在 `generatedIdentifiers` 里。给生成函数加参数或在函数体里用新的包名，就把它加进去。
@@ -46,7 +46,7 @@
 - 新增一种生成文件（像 `runtime.tsq.go` 这样不按结构体命名的），把名字加进 `validateGeneratedFilenameCollisions`
   的初始集合，否则同名结构体的文件会被它覆盖。
 - 生成的方法名、参数名进 `validateGeneratedSymbolCollisions` 的清单和 `gen_test.go` 的断言；
-  改了形状要 `make examples` 并看 `examples/academy/*.tsq.go` 的 diff。
+  改了形状要 `make examples` 并看 `examples/shop/*.tsq.go` 的 diff。
 
 ## 改了 DDL 推导（`internal/cmd/ddl_render.go`）
 
@@ -104,8 +104,11 @@
 
 ## 改了 examples/
 
-- `examples/academy/mock.sql` 是手写的 schema 真相源，示例结构体改了它要跟着改。
-- `make examples` 重新生成，`./bin/examples/full-suite` 必须能跑通。
+- 每章是 `main.go`（`run(ctx, w)` 打印每一步和它的 SQL）+ `main_test.go`（断言输出里的关键行）+ `README.md`
+  （小节表和要点）。改一章三个都要看；新增一章还要进 `examples/README.md` 的学习路线表，
+  `Makefile` 的 `EXAMPLE_CHAPTERS` 按 `examples/[0-9]*/` 自动收进来。
+- 各章按主键引用种子数据（`shop/seed.go` 文件头列着），改种子数据要连带检查每章的断言。
+- 改 `examples/shop` 的结构体：`make examples-run`，然后 `go test ./examples/...`——输出变了测试会指出是哪一章。
 - `skills/tsq` 和 `docs/` 里的代码片段是从示例抄的，示例变了片段要跟着变。
   `[门禁: skill-check examples]`
-- 三个示例程序各有 `main_test.go`，别只改 `main.go`。
+- `examples/` 的注释和 README 用中文（它的读者是来学用法的人），`make doc-check` 对它豁免。

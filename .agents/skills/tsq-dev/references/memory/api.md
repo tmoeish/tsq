@@ -14,7 +14,8 @@
 
 ## 文档描述了一个不存在的阶段；"最紧的上限"是断言要去量 (2026-08-28)
 
-`api-check` 和 `doc-check` 都只看符号：**"文档提到的符号都存在"不等于"描述的用法都成立"**（2026-09-28 又抓到 `SelectValue(Sum)` 会被拒、`Select(tsq.Upper(...))` 编译不过——改示例先跑一遍）。上限写死
+`api-check` 和 `doc-check` 都只看符号：**"文档提到的符号都存在"不等于"描述的用法都成立"**（2026-09-28 又抓到 `SelectValue(Sum)` 会被拒、`Select(tsq.Upper(...))` 编译不过——改示例先跑一遍；
+2026-09-29 重写示例又抓到 Attach 承诺的子查询顺序被 `ListIn` 拒绝、README 说生成代码在 init 时 `MustBuild`）。上限写死
 65535 注释"最紧的"，SQLite 其实是 32766——**修一类 bug 要把这一类的实例都数一遍**。同类（2026-08-26）：
 **stringly-typed 的开关，空值 `""` 永远是那个没人写的分支**，违规被静默丢弃。用类型化枚举或不留开关。
 
@@ -56,8 +57,8 @@ v5 不背兼容，一次把名字改到"最合理"。定下的几条规则，每
 - 可选参数用函数式选项（`RuntimeOption`、`BatchOption`），不用 `...*XxxOptions`。只对插入有意义的
   `WithSkipDuplicates` 传给别的 `Batch*` 会**报错**而不是被忽略：被静默忽略的选项就是 v4 的零值歧义。
 - 事务选项跟在回调后面（`WithTx(ctx, fn, tsq.WithRetry(...))`），和 `RuntimeOption` 一个形状；
-  `TxOptions` 结构体让九成调用在中间传 `nil`。`WithTablePolicy` / `WithIndexPolicy` **保留**：示例的表来自
-  `mock.sql`、只让 TSQ 管索引，合并成一个选项就表达不了。追踪给 `TraceInfo{Op, Table}`，没有表名的
+  `TxOptions` 结构体让九成调用在中间传 `nil`。`WithTablePolicy` / `WithIndexPolicy` **保留**：表来自迁移、
+  只让 TSQ 管索引的项目，合并成一个选项就表达不了。追踪给 `TraceInfo{Op, Table}`，没有表名的
   span 说不清在做什么。
 - 表是描述符，方法在 `TableOf` 上，不在使用者的结构体上。`Table` 的方法叫 `TableName()` 不叫
   `Name()`：生成结构体的列字段常叫 `Name`，同名会遮住接口方法。

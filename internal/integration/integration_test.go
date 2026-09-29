@@ -29,7 +29,7 @@ import (
 
 	"github.com/tmoeish/tsq/v5"
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
-	"github.com/tmoeish/tsq/v5/examples/academy"
+	"github.com/tmoeish/tsq/v5/internal/integration/academy"
 )
 
 type integrationTarget struct {

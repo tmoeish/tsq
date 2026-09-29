@@ -662,7 +662,7 @@ func TestListInSplitsListsBeyondTheBindLimit(t *testing.T) {
 
 	list := User_ID.ListParam()
 	refused := map[string]*Query[user]{
-		"ordered":    Select(User__Cols...).From(Users).Where(User_ID.In(list)).OrderBy(User_ID.Asc()).MustBuild(),
+		"limited":    Select(User__Cols...).From(Users).Where(User_ID.In(list)).OrderBy(User_ID.Asc()).Limit(10).MustBuild(),
 		"not in":     Select(User__Cols...).From(Users).Where(User_ID.NotIn(list)).MustBuild(),
 		"under or":   Select(User__Cols...).From(Users).Where(Or(User_ID.In(list), User_Name.EQ(Val("a")))).MustBuild(),
 		"under not":  Select(User__Cols...).From(Users).Where(Not(User_ID.In(list))).MustBuild(),

@@ -146,18 +146,18 @@ import (
 }
 
 func Test_importBuildPackage_RelativePath(t *testing.T) {
-	buildPkg, err := importBuildPackage("../../examples/academy")
+	buildPkg, err := importBuildPackage("../integration/academy")
 	if err != nil {
 		t.Fatalf("importBuildPackage returned error: %v", err)
 	}
 
-	if got := filepath.ToSlash(buildPkg.Dir); !strings.HasSuffix(got, "/examples/academy") {
-		t.Fatalf("expected package dir to resolve examples/academy, got %q", got)
+	if got := filepath.ToSlash(buildPkg.Dir); !strings.HasSuffix(got, "/internal/integration/academy") {
+		t.Fatalf("expected package dir to resolve internal/integration/academy, got %q", got)
 	}
 }
 
 func TestFilterAndProcessResultsOnlyReturnsTargetPackageStructs(t *testing.T) {
-	buildPkg, err := importBuildPackage("../../examples/academy")
+	buildPkg, err := importBuildPackage("../integration/academy")
 	if err != nil {
 		t.Fatalf("importBuildPackage returned error: %v", err)
 	}
@@ -199,7 +199,7 @@ func TestFilterAndProcessResultsOnlyReturnsTargetPackageStructs(t *testing.T) {
 		},
 	}
 
-	result, err := ps.filterAndProcessResults("../../examples/academy")
+	result, err := ps.filterAndProcessResults("../integration/academy")
 	if err != nil {
 		t.Fatalf("filterAndProcessResults returned error: %v", err)
 	}

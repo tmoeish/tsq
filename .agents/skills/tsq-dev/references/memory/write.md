@@ -29,7 +29,7 @@ RIGHT JOIN 被保留侧的已删行，所以有 RIGHT / FULL JOIN 时整张表�
 - **墓碑值靠 `applyTombstone` 按字段形态分派**，最后一环 `sql.Scanner.Scan(now)` 同时吃下
   `sql.NullTime` 和 `null.Time`，**根包因此不必 import nullbio**。
 
-此前端到端零覆盖（和 `*time.Time` 那个 bug 同一盲区），门是 `runSoftDeleteDemo`。
+此前端到端零覆盖（和 `*time.Time` 那个 bug 同一盲区），门是 `examples/08-soft-delete-and-concurrency`。
 
 ## 决定：部分列读出的行不许整行写回，靠弱引用记住它们 (2026-09-19)
 

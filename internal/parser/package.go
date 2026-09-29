@@ -337,9 +337,10 @@ func (ps *ParseState) processStructTypeSpec(
 		return nil
 	}
 	// Build the field set.
-	fields := make(map[string]struct{})
-	for name := range structInfo.FieldsByName {
-		fields[name] = struct{}{}
+	// Field name to column, for the directives to check and name indexes by.
+	fields := make(map[string]string, len(structInfo.FieldsByName))
+	for name, field := range structInfo.FieldsByName {
+		fields[name] = field.Column
 	}
 
 	tableMeta, err := parseAnnotations(structName, comments, fields, fileSet)

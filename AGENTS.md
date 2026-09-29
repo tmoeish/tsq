@@ -33,7 +33,8 @@
 - **库**：仓库根包 `tsq`，被别的项目 import。
 - **生成器**：`./cmd/tsq` CLI（实现在 `internal/cmd`），读 `//tsq:` 指令产出
   类型化代码和 DDL。
-- **示例**：`./examples`，可运行的契约；`examples/academy` 的生成物被提交。
+- **示例**：`./examples`，11 章可运行的教程，也是可运行的契约；生成包（`examples/shop`、
+  `examples/01-getting-started/todo`）和集成测试夹具 `internal/integration/academy` 的生成物被提交。
 
 环境：Go `1.27.x`（`go.mod` 写 `go 1.27.0`，CI 用 `1.27.0`），模块 `github.com/tmoeish/tsq/v5`，
 任务运行器 `make`，本地 lint 二进制 `./bin/golangci-lint`。
@@ -84,10 +85,9 @@
 ## 生成物
 
 - **不要手改** `*.tsq.go`、`*.result.tsq.go`、`runtime.tsq.go`、`tsq.json`、
-  `examples/academy/{mysql,postgres,sqlite}.sql`、
+  生成包里与 `tsq.json` 同目录的 `{mysql,postgres,sqlite}.sql`、
   `.agents/skills/tsq-dev/references/api-surface.txt`。改结构体、注解、模板或解析器，然后
   重新生成。唯一例外是显式调试生成输出的时候。
-- `examples/academy/mock.sql` 是**手写的** schema 真相源，和示例结构体必须保持一致。
 - 生成物是否同步不能用 `git diff` 判断——一波变更本来就可能合法地改动生成物。判据是
   `tsq gen --check`（`make gen-check`）：拿当前源码重新渲染一遍，看结果一不一样。
 - 生成文件头印着 TSQ 版本号，所以**改了版本号也必须重新生成示例**。
@@ -173,7 +173,7 @@
 ## 验证与交接
 
 - 编辑期间跑窄范围的相关检查和 `make fmt`。
-- 动了生成器、模板、解析器或示例：`make examples`，然后 `./bin/examples/full-suite`。
+- 动了生成器、模板、解析器或示例：`make examples-run`（重新生成并把每一章跑一遍）。
 - 交接前跑 `make harness`。它的顺序是**唯一权威**，按"便宜且常失败的靠前"排：
 
   ```
