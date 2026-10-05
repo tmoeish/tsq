@@ -113,6 +113,9 @@
   `TestIntegrationFunctionsEveryEngineHas`。改 `checkGrouping` 放行的范围时两边要一起看：`Build` 放行而这里不改写的，就是只在某个引擎上炸的查询。
   改写不进聚合、不认识的函数和子查询里面（`maxOfEach` 按括号前的名字判断）：**给库加一个标量函数，它的 MySQL / PG 拼法要进 `transparentCalls`**，
   否则它参数里的分组表达式不会被改写、查询在 MySQL 上照旧报 1054；加的是聚合就不要进。`TestGroupedOccurrencesBecomeAggregatesOnlyWhereTheyMay` 钉着这条边界。
+- 读行的时间一律转成 UTC（`scanTime`）：驱动把带时区的列按它自己的时区交回来（pgx 读 `TIMESTAMPTZ` 用会话的本地时区）。
+- 绑定出口返回的值要保留它的 Go 类型：`interpolateParams` / `simple_protocol` 这类把参数写进语句的模式按类型拼字面量，`json.RawMessage` 换成 `[]byte` 就成了二进制
+  （`TestIntegrationAnUnsetRawMessageIsTheJSONNull` 的 inline 变体守着）。
 - 绑定出口（`bindValue`）把时间转 UTC 并截到微秒，`assemble` 在绑定值超过方言上限时拒绝语句；两者的门是
   `TestBoundTimesKeepMicroseconds` 和 `TestAStatementOverTheBindLimitSaysWhatToDo`。
 - **读行的目标走 `columnCore.target`，不直接用 `scan`**（`scan.go`）：时间字段和自定义 bool 字段要包一层适配（SQLite 的表达式把时间

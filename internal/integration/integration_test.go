@@ -2437,7 +2437,22 @@ func TestIntegrationBatchUpdateCarriesEveryValue(t *testing.T) {
 // JSON: MySQL and PostgreSQL refused the row for a JSON column. It is the JSON
 // null, as encoding/json writes a nil RawMessage.
 func TestIntegrationAnUnsetRawMessageIsTheJSONNull(t *testing.T) {
+	// A driver that writes its parameters into the statement spells a byte slice
+	// as binary, which a JSON column refuses: the null must still read as JSON.
+	inline := map[string]string{"mysql": "&interpolateParams=true", "postgres": "&default_query_exec_mode=simple_protocol"}
+
+	var targets []integrationTarget
+
 	for _, target := range integrationTargets(t) {
+		targets = append(targets, target)
+
+		if param, ok := inline[target.name]; ok {
+			target.name, target.dsn = target.name+" with inline parameters", target.dsn+param
+			targets = append(targets, target)
+		}
+	}
+
+	for _, target := range targets {
 		t.Run(target.name, func(t *testing.T) {
 			ctx := context.Background()
 

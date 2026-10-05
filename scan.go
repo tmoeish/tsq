@@ -88,7 +88,9 @@ func scanTime(src any) (t time.Time, null bool, err error) {
 	case nil:
 		return time.Time{}, true, nil
 	case time.Time:
-		return v, false, nil
+		// A driver hands a zoned column back in a zone of its choosing (pgx reads a
+		// TIMESTAMPTZ in the session's local one): every time TSQ reads is in UTC.
+		return v.UTC(), false, nil
 	case string:
 		t, err = parseTimeText(v)
 	case []byte:

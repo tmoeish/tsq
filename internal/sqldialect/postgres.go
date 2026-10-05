@@ -56,6 +56,23 @@ func (d PostgresDialect) InspectColumns(ctx context.Context, db Executor, table 
 	return d.inspectColumns(ctx, db, "current_schema()", table)
 }
 
+// postgresSchemaLock is the key of the advisory lock schema changes are made
+// under: the bytes of "tsqSCHMA". Advisory locks are kept per database.
+const postgresSchemaLock int64 = 0x7473715343484D41
+
+// LockSchema takes a session advisory lock.
+func (d PostgresDialect) LockSchema(ctx context.Context, conn Executor) (func(context.Context) error, bool, error) {
+	if _, err := conn.ExecContext(ctx, "SELECT pg_advisory_lock($1)", postgresSchemaLock); err != nil {
+		return nil, true, err
+	}
+
+	return func(ctx context.Context) error {
+		_, err := conn.ExecContext(ctx, "SELECT pg_advisory_unlock($1)", postgresSchemaLock)
+
+		return err
+	}, true, nil
+}
+
 // postgresTempSchema names the schema of the session's temporary tables.
 const postgresTempSchema = "(SELECT nspname FROM pg_namespace WHERE oid = pg_my_temp_schema())"
 

@@ -7,17 +7,13 @@
 核心断言"托管 schema 第二次启动零 DDL"（v4.2.0 的 Critical 事故都表现为它），谓词按匹配到的行断言。
 用 env DSN 而不是 build tag，SQLite 目标因此每次 `go test` 都跑。**不换 `serenize/snaker`**：它做 CamelToSnake，换实现等于改
 所有使用者的表名推导。nullbio 只按类型路径识别，模块不依赖它（2026-09-19）。
+**真跑也要换驱动的模式跑**（2026-10-06）：MySQL 的 `interpolateParams=true` 和 pgx 的 `simple_protocol` 把参数写进语句，`[]byte` 成了二进制字面量——"空 `json.RawMessage` 绑成 `[]byte(\"null\")`"在默认模式全绿、换模式就被 JSON 列拒绝。改绑定出口后把集成测试在这两种模式下各跑一遍。
 **macOS 的时钟只有微秒精度**（2026-10-05）：断言里和纳秒有关的 `time.Now()` 在本地永远是绿的，Linux 的 CI 才红（时间绑定截到微秒那一波因此多跑了一轮）；这类测试手写纳秒（`time.Date(..., 828405417, ...)`）。
 
 ## 只被自己的测试撑着的代码，在库里是不存在的 (2026-08-26，2026-09-09，2026-09-22)
 
-四次同一形状：永远为假的 `printSQL` tracer、`canonicalCapabilityName` 的副本、测试里的包级 `Runtime`、以及和真实
-索引策略已经漂移的第二份 `upsertIndex`。**`unused` linter 看不见**（测试里的引用算使用），**测试证明的是它自洽，
-不是它可达**。第四次之后装了门：`deadcode_test.go` 的 `TestNoUnexportedCodeOnlyTestsReach`。只给测试用的数据
-（如能力清单）放进 `_test.go`，别给门开豁免。
-
-代码生成侧的同形（2026-09-09）：模板发出根包没有的 `tsq.TimePtr`，单元测试断言的正是那个字符串。**模板里的
-字符串不参与类型检查**，门是 `internal/cmd/generated_symbols_test.go`（装上就抓到第二个）。
+四次同一形状（永远为假的 tracer、漂移了的第二份 `upsertIndex`……）：**`unused` linter 看不见测试里的引用，测试证明的是它自洽，不是它可达**。门是 `deadcode_test.go` 的
+`TestNoUnexportedCodeOnlyTestsReach`（只给测试用的数据放进 `_test.go`，别给门开豁免）；模板里的字符串不参与类型检查，门是 `internal/cmd/generated_symbols_test.go`。
 
 ## 写在 AGENTS.md 里但没有门的规则，几个月都是假的 (2026-08-26)
 

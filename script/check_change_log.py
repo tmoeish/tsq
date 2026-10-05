@@ -41,7 +41,12 @@ BODY_MIN_CHARS: Final = 120
 # 2026-10-05 从 490 提到 510：第五轮审计第一次在真实 MySQL / PostgreSQL 上跑，记下的是推理得不到的引擎行为和
 # 维护者的五个决定。先压缩了 `memory/dialect.md`（能力表的 `default` 分支并进基线那条、驱动错误分类压成两行、
 # SQLite rowid 那条并进设计收尾的列表），腾出的行数不够放新记录。
-MEMORY_MAX_LINES: Final = 510
+#
+# 2026-10-06 从 510 提到 525：第六、七轮审计留下的是七个决定（问引擎的探测、改类型时值的去向、批量更新的三种
+# 语句形状、分组表达式的改写、schema 锁、tracer 契约、换驱动模式真跑），按 memory.md 的规则永久保留。同期先把八条
+# 有门禁挡着的事故压成了指向门的一两行（PG 事务里继续跑、LIKE 转义、SQLSTATE 的三个类型、零调用的钩子、
+# 只被测试撑着的代码、`release-check` 装反、`@latest`、文档与符号），删掉了三条已处理的搁置项，仍差三行。
+MEMORY_MAX_LINES: Final = 525
 
 # 本仓是公开 OSS，提交历史面向使用者，因此沿用英文 Conventional Commits。
 CONVENTIONAL: Final = re.compile(

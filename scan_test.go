@@ -189,3 +189,39 @@ func TestTimeExpressionsAreReadOnSQLite(t *testing.T) {
 		t.Fatalf("Max over no rows = %+v, %v; want NULL", none, err)
 	}
 }
+
+// TestTimesAreReadInUTC covers a time a driver hands back in a zone of its own:
+// pgx reads a TIMESTAMPTZ in the session's local zone, so a column of that type
+// was the one place a time came back in another zone than UTC.
+func TestTimesAreReadInUTC(t *testing.T) {
+	zoned := time.Date(2024, 6, 1, 12, 0, 0, 0, time.FixedZone("east", 8*3600))
+
+	for name, form := range map[string]any{
+		"time.Time":           new(time.Time),
+		"*time.Time":          new(*time.Time),
+		"sql.NullTime":        new(sql.NullTime),
+		"sql.Null[time.Time]": new(sql.Null[time.Time]),
+	} {
+		dest := scanAdapterFor(reflect.TypeOf(form).Elem())(form).(sql.Scanner)
+		if err := dest.Scan(zoned); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+
+		var got time.Time
+
+		switch v := form.(type) {
+		case *time.Time:
+			got = *v
+		case **time.Time:
+			got = **v
+		case *sql.NullTime:
+			got = v.Time
+		case *sql.Null[time.Time]:
+			got = v.V
+		}
+
+		if !got.Equal(zoned) || got.Location() != time.UTC {
+			t.Errorf("%s read %v, want the same instant in UTC", name, got)
+		}
+	}
+}

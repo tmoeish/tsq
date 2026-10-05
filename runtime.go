@@ -28,6 +28,9 @@ type Runtime struct {
 	maxPageSize int
 	logSQL      bool
 	ownsDB      bool
+	// schema is the connection the schema policies run on while they hold the
+	// schema lock; nil outside of that, and under a policy that changes nothing.
+	schema *sql.Conn
 }
 
 // Open opens a database connection, resolves the SQL dialect from
@@ -138,6 +141,14 @@ func newRuntime(
 	cfg, err := newRuntimeConfig(options)
 	if err != nil {
 		return nil, err
+	}
+
+	// The runtimes of one process change a SQLite schema one at a time (see
+	// lockSchema), and that starts here: a connection that only reads the file
+	// while another commits a schema change is refused too ("database is locked").
+	if sqlDialect.Name() == tsqdialect.SQLite && (changesSchema(cfg.tablePolicy) || changesSchema(cfg.indexPolicy)) {
+		sqliteSchema.Lock()
+		defer sqliteSchema.Unlock()
 	}
 
 	if err := db.PingContext(ctx); err != nil {

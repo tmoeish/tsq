@@ -524,6 +524,12 @@ func sqliteMentions(statement, table string) bool {
 // and dropping it would leave them pointing at nothing. Its own indexes and
 // triggers are returned with the statements that created them, so expressions,
 // partial WHERE clauses and collations survive.
+// LockSchema has no lock to take on SQLite, which gives a connection none that
+// outlives a transaction: the runtimes of one process take turns by a mutex.
+func (d SQLiteDialect) LockSchema(context.Context, Executor) (func(context.Context) error, bool, error) {
+	return nil, false, nil
+}
+
 // ProbeColumn is not needed on SQLite: types compare by affinity, and a default
 // is reported as it was written.
 func (d SQLiteDialect) ProbeColumn(context.Context, Executor, string, Column, ColumnSpec) (Spelling, bool, error) {
