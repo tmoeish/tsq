@@ -130,42 +130,96 @@ func (d MySQLDialect) InspectColumns(ctx context.Context, db Executor, table str
 	return columns, true, nil
 }
 
-// ProbeColumn creates column in a temporary table and reads it back. A temporary
-// table is not in information_schema, so it is read with SHOW COLUMNS, which
-// reports the same column type and default.
-func (d MySQLDialect) ProbeColumn(ctx context.Context, conn Executor, column ColumnSpec) (Column, bool, error) {
-	definition, err := ColumnDefinitionSQL(d, probeSpec(column))
+// ProbeColumn creates two temporary tables in turn, one holding declared and one
+// holding the live column as SHOW CREATE TABLE writes it, and compares what the
+// engine reports for each. Both sides go through the same door on purpose: a
+// temporary table is described from memory and a kept one from the data
+// dictionary, and the two spell a default differently (an expression in one more
+// pair of parentheses, a binary literal as text where the dictionary has hex, a
+// four-byte character whole where the dictionary has "?"), so a probe compared
+// with information_schema matched for types and differed for those defaults on
+// every start.
+func (d MySQLDialect) ProbeColumn(ctx context.Context, conn Executor, table string, inspected Column, declared ColumnSpec) (Spelling, bool, error) {
+	definition, err := ColumnDefinitionSQL(d, probeSpec(declared))
 	if err != nil {
-		return Column{}, true, err
+		return Spelling{}, true, err
 	}
 
+	live, err := d.liveColumnDefinition(ctx, conn, table, inspected.Name)
+	if err != nil {
+		return Spelling{}, true, err
+	}
+
+	wanted, err := d.probeDefinition(ctx, conn, definition)
+	if err != nil {
+		return Spelling{}, true, err
+	}
+
+	held, err := d.probeDefinition(ctx, conn, live)
+	if err != nil {
+		return Spelling{}, true, err
+	}
+
+	return Spelling{
+		Type:    wanted.columnType != "" && strings.EqualFold(wanted.columnType, held.columnType),
+		Default: wanted.value == held.value && wanted.generated == held.generated,
+	}, true, nil
+}
+
+// mysqlProbed is what SHOW COLUMNS reports for the one column of a probe table.
+type mysqlProbed struct {
+	columnType string
+	value      sql.NullString
+	generated  bool
+}
+
+// liveColumnDefinition is the definition of a column of table as SHOW CREATE TABLE
+// writes it: one line, which the engine reads back as the column it describes.
+func (d MySQLDialect) liveColumnDefinition(ctx context.Context, conn Executor, table, column string) (string, error) {
+	var name, create string
+	if err := conn.QueryRowContext(ctx, "SHOW CREATE TABLE "+d.QuoteIdent(table)).Scan(&name, &create); err != nil {
+		return "", err
+	}
+
+	// Column names match without case, and a backquote in one is written twice.
+	prefix := strings.ToLower("`" + strings.ReplaceAll(column, "`", "``") + "` ")
+
+	for line := range strings.SplitSeq(create, "\n") {
+		line = strings.TrimSuffix(strings.TrimSpace(line), ",")
+		if strings.HasPrefix(strings.ToLower(line), prefix) {
+			return line, nil
+		}
+	}
+
+	return "", fmt.Errorf("column %s is not in the definition of table %s", column, table)
+}
+
+// probeDefinition creates a temporary table of the one column definition says and
+// reports how the engine describes it. A temporary table is not in
+// information_schema, so it is read with SHOW COLUMNS.
+func (d MySQLDialect) probeDefinition(ctx context.Context, conn Executor, definition string) (mysqlProbed, error) {
 	drop := "DROP TEMPORARY TABLE IF EXISTS " + d.QuoteIdent(probeTable)
 	if _, err := conn.ExecContext(ctx, drop); err != nil {
-		return Column{}, true, err
+		return mysqlProbed{}, err
 	}
 
 	if _, err := conn.ExecContext(ctx, fmt.Sprintf("CREATE TEMPORARY TABLE %s (%s)", d.QuoteIdent(probeTable), definition)); err != nil {
-		return Column{}, true, err
+		return mysqlProbed{}, err
 	}
 
-	probed, err := d.showProbeColumn(ctx, conn, strings.HasPrefix(strings.TrimSpace(DefaultSQL(d, column)), "("))
+	probed, err := d.showProbeColumn(ctx, conn)
 
 	if _, dropErr := conn.ExecContext(ctx, drop); err == nil {
 		err = dropErr
 	}
 
-	return probed, true, err
+	return probed, err
 }
 
-// showProbeColumn reads the one column of the probe table. expression says the
-// declared default is an expression: a temporary table reports one in another
-// pair of parentheses and without the DEFAULT_GENERATED mark the dictionary gives
-// a table that is kept, so both are put right before the default is read as
-// InspectColumns reads it.
-func (d MySQLDialect) showProbeColumn(ctx context.Context, conn Executor, expression bool) (Column, error) {
+func (d MySQLDialect) showProbeColumn(ctx context.Context, conn Executor) (mysqlProbed, error) {
 	rows, err := conn.QueryContext(ctx, "SHOW FULL COLUMNS FROM "+d.QuoteIdent(probeTable))
 	if err != nil {
-		return Column{}, err
+		return mysqlProbed{}, err
 	}
 
 	defer func() {
@@ -174,7 +228,7 @@ func (d MySQLDialect) showProbeColumn(ctx context.Context, conn Executor, expres
 
 	names, err := rows.Columns()
 	if err != nil {
-		return Column{}, err
+		return mysqlProbed{}, err
 	}
 
 	// SHOW FULL COLUMNS: Field, Type, Collation, Null, Key, Default, Extra, ...
@@ -187,14 +241,14 @@ func (d MySQLDialect) showProbeColumn(ctx context.Context, conn Executor, expres
 
 	if !rows.Next() {
 		if err := rows.Err(); err != nil {
-			return Column{}, err
+			return mysqlProbed{}, err
 		}
 
-		return Column{}, errors.New("the probe table has no column")
+		return mysqlProbed{}, errors.New("the probe table has no column")
 	}
 
 	if err := rows.Scan(dest...); err != nil {
-		return Column{}, err
+		return mysqlProbed{}, err
 	}
 
 	field := func(name string) sql.NullString {
@@ -207,24 +261,10 @@ func (d MySQLDialect) showProbeColumn(ctx context.Context, conn Executor, expres
 		return sql.NullString{}
 	}
 
-	columnType := strings.TrimSpace(field("Type").String)
-	// The data type is the type's first word: int of "int unsigned", varchar of
-	// "varchar(40)", as information_schema's data_type has it.
-	dataType := columnType
-	if end := strings.IndexAny(dataType, "( "); end >= 0 {
-		dataType = dataType[:end]
-	}
-
-	value, extra := field("Default"), field("Extra").String
-	if text := strings.TrimSpace(value.String); expression && value.Valid && strings.HasPrefix(text, "(") && strings.HasSuffix(text, ")") {
-		value.String = text[1 : len(text)-1]
-		extra += " DEFAULT_GENERATED"
-	}
-
-	return Column{
-		Name:       field("Field").String,
-		Default:    mysqlDefault(value, extra, dataType),
-		NativeType: columnType,
+	return mysqlProbed{
+		columnType: strings.TrimSpace(field("Type").String),
+		value:      field("Default"),
+		generated:  strings.Contains(strings.ToUpper(field("Extra").String), "DEFAULT_GENERATED"),
 	}, rows.Err()
 }
 

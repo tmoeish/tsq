@@ -42,7 +42,7 @@ MySQL 1205 / 1213 / 3572）保证事务已回滚。现在 commit 阶段只放行
 - **全文检索三个方言不是一回事**：MySQL `MATCH ... AGAINST`、PG `to_tsvector @@ plainto_tsquery`、SQLite
   退化成子串匹配（FTS5 要影子表和触发器）。排序和操作符不可移植，只有 `Capability` 说得清拿到哪一种。
   `TableIndex` 加字段记得 `cloneTableIndex`：曾逐字段复制，`FullText` 标记就在那里丢过。
-- **生成列不参与 schema 对账**：SQLite 的 `table_info` 不列它，每次启动都会再 ADD（duplicate column）。已知未处理：因此 `Validate` 对一张缺了声明的生成列的表也放行，读它时才报 no such column；要只比"在不在"得先让 SQLite 的自省改用 `table_xinfo`（2026-10-05）。
+- **存在的生成列不参与 schema 对账，缺失的算缺列**（2026-10-06）：SQLite 的 `table_info` 不列生成列，曾每次启动都再 ADD（duplicate column），于是整个排除在比较之外，结果缺了声明的生成列的表 `Validate` 也放行、读它才报 no such column。现在自省读 `table_xinfo`，只比"在不在"；表达式三个引擎各报各的，仍不比。
 - **MySQL 的 `Index.Constraint` 指"外键需要的索引"**（删它报 1553）：别改成读 `TABLE_CONSTRAINTS`，那里把每个唯一索引都列成
   UNIQUE 约束，TSQ 自己建的也在内，Reconcile 就再也不能重建任何唯一索引。
 - **NULL 排序默认最小值**：MySQL/SQLite 本来如此只需改 PG；换默认就得给 MySQL 每个可空排序加 `IS NULL` 键。
@@ -58,8 +58,8 @@ MySQL 1205 / 1213 / 3572）保证事务已回滚。现在 commit 阶段只放行
   `text::BYTEA` 按转义串读（`\101` → `A`）——第五轮的修法落在 bytea 源上又是一次静默改写（第六轮 P1）。字节与文本走 `convert_from` / `convert_to`。
 - **MySQL 的时间字面量只在 TIMESTAMP 范围内才能带时区**：`'0001-01-01 00:00:00+00:00'` 在默认的 `time_zone=SYSTEM` 下**静默存成 `0000-00-00`**，此后每条复制表的 ALTER 都失败；零值字面量因此分方言（`ZeroLiteral`）。
 - **决定（2026-10-05，维护者）：类型和默认值先按文本比，文本说不一样再问引擎**（`ProbeColumn` → `AdoptSpelling`）。别名表补了三轮仍漏（`DECIMAL(10)`、`INT[]`、`(1+1)`、带反斜杠的字面量）；
-  按声明在**临时表**里建这一列读回拼法，与库里那一列一致即同一个东西。**否掉永久探测表**（`Validate` 下也要跑、进 binlog、崩了留表），代价是 MySQL 的临时表不走数据字典：表达式默认值多一层括号、没有
-  `DEFAULT_GENERATED`，`showProbeColumn` 只在声明是表达式时还原。已知未处理：MySQL `BINARY` / `VARBINARY` 的字面量默认值、含 4 字节字符的默认值，PG 非主键列的 `type:SERIAL`，仍每次启动报差异；`VARCHAR(16383)` 只要表里还有别的列就超行宽（1118）。
+  按声明在**临时表**里建这一列读回拼法，与库里那一列一致即同一个东西。**否掉永久探测表**（`Validate` 下也要跑、进 binlog、崩了留表）。**比较的两边要出自同一个读法**：MySQL 的临时表不走数据字典，拿它和
+  `information_schema` 比，表达式默认值多一层括号、二进制字面量和 4 字节字符各是各的拼法，逐个还原是又一张别名表；改成库里那一列也按 `SHOW CREATE TABLE` 的写法建进临时表（2026-10-06）。已知未处理：`VARCHAR(16383)` 只要表里还有别的列就超行宽（1118）。
 - **决定（2026-10-05，维护者）：改类型时三个方言给同一个结果——能转的转，转不了的拒绝**（`sqldialect.SQLiteRetype*`）。SQLite 什么值都存，原样复制后 `Validate` 通过而整张表读不出来。小数取整、数值转布尔写进复制表达式；文本转数值 / 布尔 / 时间
   运行期在**提交前**按 `typeof` 检查并回滚，生成器写成手工注释（脚本的执行者不会停，见 `codegen.md`）。**否掉"先改名旧表 + `INSERT OR ROLLBACK` 守卫"的重排**：要 `legacy_alter_table`，动的是出过 P0 的重建顺序。
 - **决定（维护者 2026-10-05）**：运行期策略给有数据的表加 NOT NULL 列也补零值，与生成器共用 `AddColumnSQL`（带零值默认加列再去掉，SQLite 没有 `DROP DEFAULT` 所以重建）。PG 的无符号自增主键是加宽类型的 SERIAL，`uint64` 是 `BIGSERIAL`。

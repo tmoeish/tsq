@@ -126,11 +126,12 @@ type Dialect interface {
 	InsertIDStepQuery() string
 	// InspectColumns reports the live columns of table, and false when it does not exist.
 	InspectColumns(ctx context.Context, db Executor, table string) ([]Column, bool, error)
-	// ProbeColumn reports how the engine itself spells column as declared: it
-	// creates a temporary table holding it on conn, which must be one connection,
-	// and reads it back as InspectColumns reads a table. The second result is
-	// false for a dialect that compares without it.
-	ProbeColumn(ctx context.Context, conn Executor, column ColumnSpec) (Column, bool, error)
+	// ProbeColumn asks the engine whether declared and the live column inspected
+	// of table are one thing under two spellings. It creates declared in a
+	// temporary table on conn, which must be one connection, and compares what
+	// the engine reports for it with what it reports for the live column. The
+	// second result is false for a dialect that compares without it.
+	ProbeColumn(ctx context.Context, conn Executor, table string, inspected Column, declared ColumnSpec) (Spelling, bool, error)
 	// ListIndexes reports the live indexes of table.
 	ListIndexes(ctx context.Context, db Executor, table string) ([]Index, error)
 	// EnsureIndex creates an index and returns the statement it ran. An existing index
@@ -462,22 +463,37 @@ func probeSpec(column ColumnSpec) ColumnSpec {
 	return column
 }
 
+// Spelling is what a probe settles about a declared column and the live one.
+type Spelling struct {
+	// Type and Default report that the engine spells the two types, and the two
+	// defaults, alike.
+	Type, Default bool
+	// Serial reports two columns that each take their value from a sequence of
+	// their own, as a PostgreSQL SERIAL does: the same default but for the name of
+	// the sequence, which follows the table.
+	Serial bool
+}
+
 // AdoptSpelling is inspected, described as declared wherever the engine spells
-// the two the same: probe is what ProbeColumn read for declared. A type or a
-// default that the engine reports in a spelling of its own (DECIMAL(10) as
-// decimal(10,0), INT[] as integer[], (1+1) as (1 + 1), 'a\b' as a\b) compared as
-// a difference on every start, however long the table of known spellings grew;
-// asked for its spelling of the declaration, the engine gives the one it gave for
-// the column, and the two are the same text exactly when they are the same thing.
-func AdoptSpelling(d Dialect, inspected, probe Column, declared ColumnSpec) Column {
-	if strings.EqualFold(strings.TrimSpace(probe.NativeType), strings.TrimSpace(inspected.NativeType)) && probe.NativeType != "" {
+// the two the same. A type or a default that the engine reports in a spelling of
+// its own (DECIMAL(10) as decimal(10,0), INT[] as integer[], (1+1) as (1 + 1),
+// 'a\b' as a\b) compared as a difference on every start, however long the table
+// of known spellings grew; asked for its spelling of the declaration, the engine
+// gives the one it gave for the column, and the two are the same text exactly
+// when they are the same thing.
+func AdoptSpelling(d Dialect, inspected Column, same Spelling, declared ColumnSpec) Column {
+	if same.Type {
 		nullable := inspected.Type.Nullable
 		inspected.Type = declared.Type
 		inspected.Type.Nullable = nullable
 	}
 
-	if probe.Default == inspected.Default {
+	if same.Default {
 		inspected.Default = DefaultSQL(d, declared)
+	}
+
+	if same.Serial {
+		inspected.AutoIncrement = declared.AutoIncrement
 	}
 
 	return inspected

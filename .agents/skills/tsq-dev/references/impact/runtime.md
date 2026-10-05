@@ -64,9 +64,13 @@
   改 `ColumnTypeSQL` / `AutoIncrementColumnSQL` 的拼写要回来看这两处，门是 `TestIntegrationUnsignedAutoIncrementKeysAreStable` 和
   `TestIntegrationDeclaredColumnsDoNotDrift`——后者的用例表就是"引擎用自己的拼法报回来"的清单，新支持一种拼写就加一行。
 - **文本比较说"不一样"之后还有一步：问引擎**（`adoptEngineSpelling` → `Dialect.ProbeColumn` → `sqldialect.AdoptSpelling`，MySQL / PG 在本会话的
-  临时表里按声明建列、读回拼法）。别名表因此不必再为每种新拼法加行，但**探测读列的代码要和 `InspectColumns` 给出同样的拼法**：PG 用同一条查询换
-  schema（`inspectColumns`），MySQL 的临时表不在 `information_schema` 里，走 `SHOW FULL COLUMNS`，表达式默认值的差别在 `showProbeColumn` 里还原。
-  改任何一边的读法都要跑 `TestIntegrationDeclaredColumnsDoNotDrift`（不漂移）和 `TestIntegrationAChangedColumnIsStillAChange`（真改动没被吞掉）。
+  临时表里按声明建列、读回拼法）。别名表因此不必再为每种新拼法加行，但**比较的两边必须出自同一个读法**：PG 用 `InspectColumns` 的同一条查询换
+  schema（`inspectColumns`），`SERIAL` 靠"默认值只差序列名里的表名"认出来；MySQL 的临时表不走数据字典，所以库里那一列也按 `SHOW CREATE TABLE` 的那一行
+  建进临时表（`liveColumnDefinition` → `probeDefinition`），两边都用 `SHOW FULL COLUMNS` 读。改任何一边的读法都要跑
+  `TestIntegrationDeclaredColumnsDoNotDrift`（不漂移）和 `TestIntegrationAChangedColumnIsStillAChange`（真改动没被吞掉）。
+- **生成列只比"在不在"**（`diffTableColumns`）：在的两边都不参与比较（表达式三个引擎各报各的），声明了却缺的算缺列——`Validate` 报、`CreateMissing` / `Reconcile` 加
+  （SQLite 走 `AddNeedsRebuild` 重建）。能比"在不在"靠 SQLite 的自省读 `table_xinfo`（`table_info` 不列生成列）；改回去，缺列就又看不见了。
+  门是 `TestIntegrationAMissingGeneratedColumnIsSeen`。
 - **改类型时值怎么过去是规则，不是 ALTER 的副作用**：PG 的 `postgresUsing` 按"源 × 目标"逐对写（字节与文本用 `convert_from` / `convert_to`），MySQL 的
   `AlterColumnSQL` 在数值转布尔前先 `UPDATE`，SQLite 的重建用 `sqldialect.SQLiteRetype*`（运行期 `rebuildCopyColumns` 转换、`rebuiltValuesFit` 在提交前
   检查并拒绝；生成器 `renderSQLiteRebuildTableBody` 转换或写成手工注释）。新增一对"源 → 目标"要进 `TestIntegrationRetypeCarriesTheValues` 或

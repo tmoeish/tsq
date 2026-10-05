@@ -203,12 +203,19 @@ func ZeroLiteral(d Dialect, t ColumnType) (string, bool) {
 
 // AddNeedsRebuild reports a column SQLite cannot ADD to a table with rows, so the
 // table is rebuilt with it instead: a default that is not a constant
-// (CURRENT_TIMESTAMP, an expression), or NOT NULL without a default, which the
+// (CURRENT_TIMESTAMP, an expression), NOT NULL without a default, which the
 // other dialects add with the zero value as a default they then drop and SQLite
-// cannot (it has no DROP DEFAULT). The generator and the runtime share it.
+// cannot (it has no DROP DEFAULT), or a stored generated column. The generator
+// and the runtime share it.
 func AddNeedsRebuild(d Dialect, column ColumnSpec) bool {
-	if d.AlterMode() != AlterRebuild || column.PrimaryKey || column.AutoIncrement || column.Fill == FillGenerated {
+	if d.AlterMode() != AlterRebuild || column.PrimaryKey || column.AutoIncrement {
 		return false
+	}
+
+	// ALTER TABLE ADD COLUMN takes a generated column only as VIRTUAL, and the one
+	// form every dialect has, which is what TSQ declares, is STORED.
+	if column.Fill == FillGenerated {
+		return true
 	}
 
 	nonConstant := IsCurrentTime(column.Default) || strings.HasPrefix(strings.TrimSpace(column.Default), "(")

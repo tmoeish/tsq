@@ -209,25 +209,40 @@ func TestAdoptSpellingTakesTheEnginesWord(t *testing.T) {
 	declared := ColumnSpec{Name: "c", Type: ColumnType{Kind: KindString, RawType: "DECIMAL(10)", Nullable: true}, Default: "(1+1)"}
 	inspected := Column{Name: "c", Type: ColumnType{RawType: "decimal(10,0)", Nullable: true}, Default: "1 + 1", NativeType: "decimal(10,0)"}
 
-	if SameColumnType(d, inspected, declared) || SameDefault(inspected.Default, DefaultSQL(d, declared)) {
+	equal := func(c Column) (bool, bool) {
+		return SameColumnType(d, c, declared), SameDefault(c.Default, DefaultSQL(d, declared))
+	}
+
+	if sameType, sameDefault := equal(inspected); sameType || sameDefault {
 		t.Fatal("the fixture compares equal as text; it no longer tests the probe")
 	}
 
-	same := AdoptSpelling(d, inspected, Column{NativeType: "DECIMAL(10,0)", Default: "1 + 1"}, declared)
-	if !SameColumnType(d, same, declared) || !SameDefault(same.Default, DefaultSQL(d, declared)) {
-		t.Errorf("the engine's own spelling of the declaration was not taken: %+v", same)
+	if sameType, sameDefault := equal(AdoptSpelling(d, inspected, Spelling{Type: true, Default: true}, declared)); !sameType || !sameDefault {
+		t.Error("the engine's own spelling of the declaration was not taken")
 	}
 
-	other := AdoptSpelling(d, inspected, Column{NativeType: "decimal(12,0)", Default: "1 + 2"}, declared)
-	if SameColumnType(d, other, declared) || SameDefault(other.Default, DefaultSQL(d, declared)) {
-		t.Errorf("another type and default were taken for the declared ones: %+v", other)
+	if sameType, sameDefault := equal(AdoptSpelling(d, inspected, Spelling{Type: true}, declared)); !sameType || sameDefault {
+		t.Error("a default the engine spells differently was taken with the type")
+	}
+
+	if sameType, sameDefault := equal(AdoptSpelling(d, inspected, Spelling{}, declared)); sameType || sameDefault {
+		t.Error("another type and default were taken for the declared ones")
 	}
 
 	// Nullability is not a matter of spelling and stays as inspected.
 	notNull := inspected
 	notNull.Type.Nullable = false
 
-	if got := AdoptSpelling(d, notNull, Column{NativeType: "decimal(10,0)", Default: "1 + 1"}, declared); got.Type.Nullable {
+	if got := AdoptSpelling(d, notNull, Spelling{Type: true, Default: true}, declared); got.Type.Nullable {
 		t.Error("the declared nullability replaced the inspected one")
+	}
+
+	// A PostgreSQL SERIAL off the key is read as filled by the database, which the
+	// declaration (a type:, no auto-increment key) is not: the probe says so.
+	serial := Column{Name: "c", Type: ColumnType{Kind: KindInt, Bits: 32}, AutoIncrement: true, Default: "nextval('t_c_seq'::regclass)", NativeType: "integer"}
+	raw := ColumnSpec{Name: "c", Type: ColumnType{Kind: KindString, RawType: "SERIAL"}}
+
+	if got := AdoptSpelling(PostgresDialect{}, serial, Spelling{Type: true, Default: true, Serial: true}, raw); got.AutoIncrement || got.Default != "" {
+		t.Errorf("a SERIAL column stayed %+v", got)
 	}
 }

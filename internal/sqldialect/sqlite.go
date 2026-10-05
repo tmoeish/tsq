@@ -80,7 +80,9 @@ func (d SQLiteDialect) InspectColumns(ctx context.Context, db Executor, table st
 		return nil, false, err
 	}
 
-	rows, err := db.QueryContext(ctx, fmt.Sprintf("PRAGMA table_info(%s)", quotedTable))
+	// table_xinfo lists the generated columns too, which table_info leaves out: a
+	// declared one that is missing could not be told from one that is there.
+	rows, err := db.QueryContext(ctx, fmt.Sprintf("PRAGMA table_xinfo(%s)", quotedTable))
 	if err != nil {
 		return nil, false, err
 	}
@@ -96,6 +98,9 @@ func (d SQLiteDialect) InspectColumns(ctx context.Context, db Executor, table st
 		NotNull    int
 		Default    sql.NullString
 		PrimaryKey int
+		// Hidden is 0 for a column of the table, 2 and 3 for a generated one, and 1
+		// for a hidden column of a virtual table.
+		Hidden int
 	}
 
 	columns := make([]Column, 0)
@@ -104,8 +109,12 @@ func (d SQLiteDialect) InspectColumns(ctx context.Context, db Executor, table st
 
 	for rows.Next() {
 		var row pragmaRow
-		if err := rows.Scan(&row.CID, &row.Name, &row.Type, &row.NotNull, &row.Default, &row.PrimaryKey); err != nil {
+		if err := rows.Scan(&row.CID, &row.Name, &row.Type, &row.NotNull, &row.Default, &row.PrimaryKey, &row.Hidden); err != nil {
 			return nil, false, err
+		}
+
+		if row.Hidden == 1 {
+			continue
 		}
 
 		colType, err := parseSQLiteColumnType(row.Type)
@@ -517,8 +526,8 @@ func sqliteMentions(statement, table string) bool {
 // partial WHERE clauses and collations survive.
 // ProbeColumn is not needed on SQLite: types compare by affinity, and a default
 // is reported as it was written.
-func (d SQLiteDialect) ProbeColumn(context.Context, Executor, ColumnSpec) (Column, bool, error) {
-	return Column{}, false, nil
+func (d SQLiteDialect) ProbeColumn(context.Context, Executor, string, Column, ColumnSpec) (Spelling, bool, error) {
+	return Spelling{}, false, nil
 }
 
 func (d SQLiteDialect) InspectRebuild(ctx context.Context, db Executor, table string) (Rebuild, error) {
