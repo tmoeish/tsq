@@ -161,6 +161,9 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 ### 修复
 
+- **MySQL 非严格模式下，`Reconcile` 改列类型会截断数据**：`sql_mode` 里没有 `STRICT_TRANS_TABLES` 时，`ALTER TABLE ... MODIFY` 把放不进新类型的值直接截掉（`'abcdefghij'` 进 `VARCHAR(5)` 成了 `'abcde'`），只留一条没人读的 warning；严格模式下同一条语句被拒绝。现在 schema 策略在它自己的连接上始终按严格模式执行，结束后把会话的 `sql_mode` 还原；放不进去的改动在任何模式下都被拒绝。
+- **MySQL 的 `ANSI_QUOTES` / `ANSI` 模式下，TSQ 自己建的表每次启动都被判为漂移**：这个模式下 `SHOW CREATE TABLE` 用双引号写列名，向引擎求证拼写的那一步在里面找不到列，于是 `type:REAL`、`INTEGER UNSIGNED`、表达式默认值等引擎有自己写法的列，`Validate` 启动失败、`Reconcile` 每次启动都重跑同一条 `ALTER`。`NO_BACKSLASH_ESCAPES` 下 `BINARY` 列的字面量默认值同样误报（服务器读不回它自己写出的 `'ab\0\0'`）。两种模式现在都和默认模式一样：第二次启动零 DDL。
+- MySQL 连接池不在严格模式时，启动时记一条 warning：放不进列的值会被截断或夹到范围边界而不是被拒绝，写入"成功"但存下的是另一个值。只提醒不拒绝——模式是部署自己的选择。
 - **`tsq.Ceil` / `tsq.Floor` / `tsq.Round` 的结果类型随引擎变**：SQLite 上浮点数的 `Ceil` / `Floor` 交回的是整数，`Div(Ceil(a), Floor(b))` 于是成了整数除法（9 除以 8 得 1 而不是 1.125），超出 64 位整数范围的值（`1e19`、`1e300`）被截成 `9.22e18`；整数上三个函数各引擎各答各的——PostgreSQL 的 `CEIL` / `FLOOR` 交回 `double precision`，一百万以上的值读不回整数字段、2^53 以上丢末位、再 `Div` 直接报 `function div(double precision, ...) does not exist`，`Round(整数, 2)` 在 PostgreSQL 上得 `7.00` 读不回来，在 SQLite 上得浮点数、再 `Div` 得 `3.5`。现在浮点数的 `Ceil` / `Floor` 在 SQLite 上仍是浮点数、任意大小都对；整数没有可舍入的东西，三个函数原样交回它，不调引擎函数。
 - 文档写明 `Round` 的一处引擎差异：只在十进制写法上是平局的值（`1.005` 实际存成 `1.00499999999999989`），PostgreSQL 和 MySQL 按写法进位得 `1.01`，SQLite 按存储的值得 `1.0`。需要确定舍入方向的金额用 `DECIMAL` 列或最小单位的整数。
 - **多个实例同时启动时，除了第一个都起不来**：滚动发布或多副本在 `CreateMissing` / `Reconcile` 下一起启动，各自发现同一张表、同一列或同一个索引缺失，各自去建，后到的死在"already exists"上（PostgreSQL 上两条同名的 `CREATE TABLE IF NOT EXISTS` 并发时还会撞系统目录的唯一键，SQLite 是 `database is locked`）。现在改 schema 的策略在锁里跑，一个库同时只有一个实例在改，等锁的实例拿到锁时 schema 已经就绪：PostgreSQL 用会话级 advisory lock，MySQL 用 `GET_LOCK`，策略的每条语句都在持锁的那个连接上执行（只有一个连接的池也够用）；SQLite 没有可跨语句持有的锁，同一进程内的运行时轮流来，跨进程不协调。`Validate` 不改任何东西，不加锁。

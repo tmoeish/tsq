@@ -10,6 +10,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -374,26 +376,23 @@ func driftingTable(columnType tsqdialect.ColumnType, defaultSQL string) *tsq.Tab
 	})
 }
 
-// TestIntegrationDeclaredColumnsDoNotDrift is the suite's core assertion (a
-// second start runs no DDL) over what each engine reports in its own spelling: a
-// literal default MySQL hands back without its quotes, and a raw type the engine
-// knows under another name. Each of these failed Validate on the table TSQ had
-// created, and had Reconcile run the same ALTER on every start.
-func TestIntegrationDeclaredColumnsDoNotDrift(t *testing.T) {
+// driftCase is a column that must read back as it was declared.
+type driftCase struct {
+	name    string
+	column  tsqdialect.ColumnType
+	def     string
+	engines string // empty: every engine
+}
+
+// driftCases lists the columns each engine reports in a spelling of its own.
+func driftCases() []driftCase {
 	text := func(size int) tsqdialect.ColumnType {
 		return tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: size}
 	}
 	raw := func(spelled string) tsqdialect.ColumnType { return tsqdialect.ColumnType{RawType: spelled} }
 	integer := tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}
 
-	type driftCase struct {
-		name    string
-		column  tsqdialect.ColumnType
-		def     string
-		engines string // empty: every engine
-	}
-
-	cases := []driftCase{
+	return []driftCase{
 		{"default in parentheses", text(40), "'(none)'", ""},
 		{"default with a cast-like ::", text(40), "'a::b'", ""},
 		{"default with padding", text(40), "'  pad  '", ""},
@@ -456,38 +455,49 @@ func TestIntegrationDeclaredColumnsDoNotDrift(t *testing.T) {
 		{"SERIAL off the key", raw("SERIAL"), "", "postgres"},
 		{"BIGSERIAL off the key", raw("BIGSERIAL"), "", "postgres"},
 	}
+}
 
+// TestIntegrationDeclaredColumnsDoNotDrift is the suite's core assertion (a
+// second start runs no DDL) over what each engine reports in its own spelling: a
+// literal default MySQL hands back without its quotes, and a raw type the engine
+// knows under another name. Each of these failed Validate on the table TSQ had
+// created, and had Reconcile run the same ALTER on every start.
+func TestIntegrationDeclaredColumnsDoNotDrift(t *testing.T) {
 	for _, target := range integrationTargets(t) {
-		for _, c := range cases {
+		for _, c := range driftCases() {
 			if c.engines != "" && !strings.Contains(c.engines, target.name) {
 				continue
 			}
 
-			t.Run(target.name+"/"+c.name, func(t *testing.T) {
-				dropTables(t, target, "drifting")
+			t.Run(target.name+"/"+c.name, func(t *testing.T) { declaredColumnDoesNotDrift(t, target, c) })
+		}
+	}
+}
 
-				table := driftingTable(c.column, c.def)
+// declaredColumnDoesNotDrift creates the column and starts twice more over it.
+func declaredColumnDoesNotDrift(t *testing.T, target integrationTarget, c driftCase) {
+	t.Helper()
+	dropTables(t, target, "drifting")
 
-				rt, created, err := openQuietly(target, tsq.SchemaPolicyCreateMissing, table)
-				if err != nil {
-					t.Fatalf("create: %v", err)
-				}
+	table := driftingTable(c.column, c.def)
 
-				_ = rt.Close()
+	rt, created, err := openQuietly(target, tsq.SchemaPolicyCreateMissing, table)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
 
-				for _, policy := range []tsq.SchemaPolicy{tsq.SchemaPolicyValidate, tsq.SchemaPolicyReconcile} {
-					rt, ran, err := openQuietly(target, policy, table)
-					if err != nil {
-						t.Fatalf("%s over the table TSQ created: %v\ncreated with:\n  %s", policy, err, strings.Join(created, "\n  "))
-					}
+	_ = rt.Close()
 
-					_ = rt.Close()
+	for _, policy := range []tsq.SchemaPolicy{tsq.SchemaPolicyValidate, tsq.SchemaPolicyReconcile} {
+		rt, ran, err := openQuietly(target, policy, table)
+		if err != nil {
+			t.Fatalf("%s over the table TSQ created: %v\ncreated with:\n  %s", policy, err, strings.Join(created, "\n  "))
+		}
 
-					if len(ran) != 0 {
-						t.Fatalf("%s ran DDL over the table TSQ created:\n  %s", policy, strings.Join(ran, "\n  "))
-					}
-				}
-			})
+		_ = rt.Close()
+
+		if len(ran) != 0 {
+			t.Fatalf("%s ran DDL over the table TSQ created:\n  %s", policy, strings.Join(ran, "\n  "))
 		}
 	}
 }
@@ -1107,4 +1117,132 @@ func TestIntegrationFullTextIndexFollowsItsColumns(t *testing.T) {
 			_ = again.Close()
 		})
 	}
+}
+
+// warnings records what a runtime says at the warning level.
+type warnings struct {
+	mu   sync.Mutex
+	said []string
+}
+
+func (w *warnings) Enabled(context.Context, slog.Level) bool { return true }
+
+func (w *warnings) LogAttrs(_ context.Context, level slog.Level, msg string, _ ...slog.Attr) {
+	if level < slog.LevelWarn {
+		return
+	}
+
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	w.said = append(w.said, msg)
+}
+
+// TestIntegrationMySQLSessionModes covers what the sql_mode of a pool changed,
+// each of them green under the server's default mode. Under ANSI_QUOTES the server
+// writes a table's definition with double quotes, the column to ask it about was
+// not found there, and every raw type and default it spells its own way was a
+// drift on each start. Under NO_BACKSLASH_ESCAPES it does not read back the BINARY
+// default it wrote. Outside strict mode ALTER TABLE cut the values that did not
+// fit the new type of a column, where strict mode refuses the change.
+func TestIntegrationMySQLSessionModes(t *testing.T) {
+	var base *integrationTarget
+
+	for _, target := range integrationTargets(t) {
+		if target.name == "mysql" {
+			base = &target
+		}
+	}
+
+	if base == nil {
+		t.Skip("TSQ_MYSQL_DSN is not set")
+	}
+
+	under := func(mode string) integrationTarget {
+		target := *base
+		target.dsn += "&sql_mode=" + url.QueryEscape("'"+mode+"'")
+
+		return target
+	}
+
+	for _, mode := range []string{"ANSI,STRICT_TRANS_TABLES", "NO_BACKSLASH_ESCAPES,STRICT_TRANS_TABLES"} {
+		for _, c := range driftCases() {
+			if c.engines != "" && !strings.Contains(c.engines, "mysql") {
+				continue
+			}
+
+			t.Run(mode+"/"+c.name, func(t *testing.T) { declaredColumnDoesNotDrift(t, under(mode), c) })
+		}
+	}
+
+	ctx := context.Background()
+	loose := under("")
+	short := tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 5}
+
+	t.Run("a change of type that cuts a value is refused outside strict mode", func(t *testing.T) {
+		dropTables(t, loose, "drifting")
+
+		rt, _, err := openQuietly(loose, tsq.SchemaPolicyCreateMissing, driftingTable(tsqdialect.ColumnType{RawType: "TEXT"}, ""))
+		if err != nil {
+			t.Fatalf("create: %v", err)
+		}
+
+		if _, err := rt.ExecContext(ctx, "INSERT INTO drifting (c) VALUES ('abcdefghij')"); err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+
+		_ = rt.Close()
+
+		rt, ran, err := openQuietly(loose, tsq.SchemaPolicyReconcile, driftingTable(short, ""))
+		if err == nil {
+			_ = rt.Close()
+		}
+
+		if held := columnValues(t, loose, "drifting", "c"); err == nil || len(held) != 1 || held[0] != "abcdefghij" {
+			t.Fatalf("reconcile = %v; the column holds %v, want the ten characters it had\nran:\n  %s", err, held, strings.Join(ran, "\n  "))
+		}
+	})
+
+	t.Run("the pool keeps its mode", func(t *testing.T) {
+		dropTables(t, loose, "drifting")
+
+		db, err := sql.Open(loose.driver, loose.dsn)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		defer func() { _ = db.Close() }()
+
+		// One connection: the session the policies made strict is the one asked.
+		db.SetMaxOpenConns(1)
+
+		said := &warnings{}
+
+		if _, err := tsq.NewRuntime(ctx, db, tsqdialect.MySQL, []tsq.Table{driftingTable(short, "")},
+			tsq.WithSchemaPolicy(tsq.SchemaPolicyReconcile), tsq.WithLogger(said)); err != nil {
+			t.Fatalf("start: %v", err)
+		}
+
+		var mode string
+		if err := db.QueryRowContext(ctx, "SELECT @@SESSION.sql_mode").Scan(&mode); err != nil || mode != "" {
+			t.Errorf("the session's sql_mode after the policies = %q, %v; want it empty, as the pool set it", mode, err)
+		}
+
+		if len(said.said) != 1 || !strings.Contains(said.said[0], "not in strict mode") {
+			t.Errorf("a pool outside strict mode was told %q; want one warning that says so", said.said)
+		}
+
+		strict := &warnings{}
+
+		rt, err := tsq.Open(ctx, base.driver, under("STRICT_TRANS_TABLES").dsn, []tsq.Table{driftingTable(short, "")}, tsq.WithLogger(strict))
+		if err != nil {
+			t.Fatalf("start in strict mode: %v", err)
+		}
+
+		_ = rt.Close()
+
+		if len(strict.said) != 0 {
+			t.Errorf("a pool in strict mode was warned: %q", strict.said)
+		}
+	})
 }

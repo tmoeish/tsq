@@ -16,6 +16,11 @@
 几个实例一起启动（滚动发布、多副本）时各自发现同一张表或同一列缺失，除了第一个都死在"already exists"上（PG 还会撞自己目录表的唯一键）。`lockSchema`：PG 用会话级 advisory lock、MySQL 用 `GET_LOCK`，
 **策略的每条语句都在持锁的那个连接上跑**（`schemaDB`）——只有一个连接的池拿不出第二个；SQLite 没有跨语句的锁，同进程用互斥量、从第一次碰库（Ping）就拿，跨进程不保证。`Validate` 不改东西，不加锁。
 
+**MySQL 的持锁连接强制严格模式，池本身不在严格模式只警告不拒绝**（同日）：非严格模式下 `ALTER ... MODIFY` 把放不进新类型的值截掉只留 warning，
+"放不进去就拒绝"在那里是假的；改列类型是 TSQ 自己发起的，所以由 TSQ 保证。普通写入被截断是部署选的 `sql_mode` 的语义（老 schema 依赖它），拒绝启动会把它们全挡在外面。
+已知未处理：**无符号字段在 PostgreSQL / SQLite 上没有范围约束**（2026-10-06）：`Set(qty, Sub(qty, n))` 能把负数写进 `uint32` 的列（MySQL 的 `UNSIGNED` 会拒绝），之后那一行读不出来。
+没有生成 `CHECK (col >= 0)`：它要进漂移检测、`Reconcile` 的补齐和 SQLite 的重建（现在 CHECK 是重建的**阻断项**），是一项 schema 功能而不是一次修复；文档写明了用 `Where` 守住。使用者真的撞上、或维护者决定要 CHECK 时再做。
+
 ## "抓住错误继续跑"在 PostgreSQL 的事务里不成立 (2026-08-28)
 
 PG 事务里任一语句失败即 aborted，其后都报 `25P02`：**凡是"捕获错误后继续用同一个连接"的代码，都要问 PG 上还能不能用**（`WithSkipDuplicates` 的修法见 `../impact/write.md` § 改了批量写）。
