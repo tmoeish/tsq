@@ -11,15 +11,17 @@ import (
 )
 
 // RowStateError reports that a write needed the row in a state it was not in: a
-// Delete of a row already deleted, a Restore of one that is not, or, on a table
-// without a version column, an Update of a row that is gone. Unlike
-// OptimisticLockError it is not a concurrency conflict, so retrying cannot help.
-// On a table with a version column a row that is gone is an OptimisticLockError:
-// its version no longer matches.
+// Delete of a row already deleted, a Restore of one that is not, a hard delete of
+// a row that is gone (HardDelete, BatchHardDelete, BatchHardDeleteByPK), a
+// BatchDeleteByPK key with no live row, or, on a table without a version column,
+// an Update of a row that is gone. Unlike OptimisticLockError it is not a
+// concurrency conflict, so retrying cannot help. An Update or soft delete of a row
+// that is gone from a table with a version column is an OptimisticLockError: its
+// version no longer matches.
 type RowStateError struct {
 	Table string
-	// Op is the write: TraceOpUpdate, TraceOpDelete (a soft delete) or
-	// TraceOpRestore.
+	// Op is the write: TraceOpUpdate, TraceOpDelete (a soft delete),
+	// TraceOpHardDelete or TraceOpRestore.
 	Op TraceOp
 	// Need is the state the write needed the rows in.
 	Need     RowState
@@ -39,8 +41,8 @@ func (e *RowStateError) Error() string {
 type RowState uint8
 
 const (
-	// RowExists is a row still in the table: an Update on a table without
-	// deleted_at.
+	// RowExists is a row still in the table: a hard delete, or an Update on a
+	// table without deleted_at.
 	RowExists RowState = iota + 1
 	// RowLive is a row not soft-deleted: an Update or Delete on a soft-delete table.
 	RowLive

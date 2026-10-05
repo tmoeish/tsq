@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+
+	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 )
 
 // The query builder is staged: every method returns an interface that offers only
@@ -32,6 +34,7 @@ type QueryStage[O any] interface {
 	Iter(ctx context.Context, db Executor, args ...Arg) iter.Seq2[*O, error]
 	Page(ctx context.Context, db Executor, p Paging, args ...Arg) (*Page[O], error)
 	PageKeyset(ctx context.Context, db Executor, k Keyset, args ...Arg) (*KeysetPage[O], error)
+	SQL(dialect tsqdialect.Name, args ...Arg) (string, []any, error)
 }
 
 // Sortable is the part of a stage that can order and slice the result. The
@@ -751,6 +754,16 @@ func (b *builder[O]) Exists(ctx context.Context, db Executor, args ...Arg) (bool
 	}
 
 	return q.Exists(ctx, db, args...)
+}
+
+// SQL builds the query and renders it for dialect; see Query.SQL.
+func (b *builder[O]) SQL(dialect tsqdialect.Name, args ...Arg) (string, []any, error) {
+	q, err := b.Build()
+	if err != nil {
+		return "", nil, err
+	}
+
+	return q.SQL(dialect, args...)
 }
 
 func (b *builder[O]) Count(ctx context.Context, db Executor, args ...Arg) (int64, error) {

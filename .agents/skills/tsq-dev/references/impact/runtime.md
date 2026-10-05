@@ -4,6 +4,9 @@
 
 ## 加了 Runtime 的构造器或选项
 
+- MySQL DSN 的 `parseTime` 按驱动的规则读（`mysqlParsesTime`：最后一个 `parseTime`，`1`/`true`/`TRUE`/`True`）；
+  根包不 import 驱动（`TestRootPackageImportsNoDriver`），所以自己解析查询串，别退回子串匹配。
+
 - **先决定连接池的所有权**：`Runtime.ownsDB` 决定 `Close()` 关不关它。新构造器如果接管调用方的池，
   `ownsDB` 必须是 false，否则 `Close()` 会打断调用方在 TSQ 之外的用途。正反两侧都要测。
   `[门禁: runtime_test.go 的 NewRuntime/NewRuntimeCloses 两组]`

@@ -106,7 +106,8 @@ All field references are **Go struct field names**, not SQL column names. The SQ
 from the field's `db` tag.
 
 Directives go on struct types, and a table or result is one concrete struct: a directive on another
-kind of type, or on a generic struct, is an error. A struct that embeds another embeds it by value
+kind of type, on a generic struct, or on a field inside the struct body (only the comments above the
+type are read), is an error. A struct that embeds another embeds it by value
 (`Base`, not `*Base`: a nil embedded pointer would make every generated accessor panic), and what it
 embeds must be a struct TSQ can read. Other structs in the package are left alone, whatever their
 fields. A field cannot be named like a method TSQ generates on the row (`Insert`, `Update`,
@@ -472,7 +473,9 @@ Semantics:
   stamps), and keeps the key and stamps of the rows it stored when a later row fails
 - without a `version` column, an `Update` of a row that is gone (or, on a soft-delete table,
   deleted) fails with `*RowStateError`; writing a row's current values is not an error, although
-  MySQL reports no row changed
+  MySQL reports no row changed. A `HardDelete` / `BatchHardDelete` of a row that is gone fails with
+  `*RowStateError` too, naming it in `Keys`, with or without a `version` column; a row whose version
+  moved on fails with `OptimisticLockError`
 
 Use `version` when you want lost-update protection.
 
@@ -1020,10 +1023,11 @@ Case sensitivity is the database's, and it differs: SQLite ignores ASCII case, M
 
 ## 8. Execution helpers
 
-Reads are methods on the built `*Query[O]`, and on every complete stage, which builds first (build once and reuse the `*Query` on hot paths); `args` are the `tsq.Arg` values made by `Bind`:
+Reads are methods on the built `*Query[O]`, and on every complete stage, which builds first (all
+but `ListIn`, a generic method, which an interface cannot declare: call it on the `*Query`) (build once and reuse the `*Query` on hot paths); `args` are the `tsq.Arg` values made by `Bind`:
 
 - `query.List(ctx, db, args...)` → `[]*O, error`; no rows is an empty list, never nil
-- `query.ListIn(ctx, db, listParam, values, args...)` → `[]*O, error`: `List` for a list parameter that may hold more values than one statement can bind (65535 on MySQL and PostgreSQL, 32766 on SQLite). Values are deduplicated and split; a list that fits in one statement runs as one and keeps the query's `ORDER BY`, and the parts of a split list share one snapshot and are concatenated, each in that order, with no order across them. The query must use the parameter once, as `col.In(param)` passed directly to `Where`, and have no `GROUP BY`, aggregate, `DISTINCT`, set operation or `LIMIT`; anything else is refused, because splitting would change which rows come back. `TableXxx.Fetch` and `FetchBy` use it
+- `query.ListIn(ctx, db, listParam, values, args...)` → `[]*O, error`: `List` for a list parameter that may hold more values than one statement can bind (65535 on MySQL and PostgreSQL, 32766 on SQLite). Values are deduplicated and split; a list that fits in one statement runs as one and keeps the query's `ORDER BY`, and the parts of a split list share one snapshot and are concatenated, each in that order, with no order across them; a row of a table that two parts both matched (two values the database takes as one key, such as `"Ada"` and `"ada"` under a case-insensitive collation) is kept once. The query must use the parameter once, as `col.In(param)` passed directly to `Where`, and have no `GROUP BY`, aggregate, `DISTINCT`, set operation or `LIMIT`; anything else is refused, because splitting would change which rows come back. `TableXxx.Fetch` and `FetchBy` use it
 - `query.Iter(ctx, db, args...)` → `iter.Seq2[*O, error]`: `for row, err := range query.Iter(ctx, db) { ... }` scans one row at a time, so exports and batch jobs do not hold the whole result in memory. `break` stops the query; a failure is yielded once with a nil row. The rows hold a connection until the loop ends, so inside a transaction finish the loop before running another statement on it
 - `query.Get(ctx, db, args...)` → `*O, error` (an error wrapping `sql.ErrNoRows` when not found)
 - `query.Find(ctx, db, args...)` → `*O, error` (`nil, nil` when not found)
@@ -1136,17 +1140,21 @@ err = database.TableLearner.BatchUpsert(ctx, runtime, learners,
 - an update writes those columns except the key, the primary key and `created_at`, refreshes
   `updated_at`, and increments `version` **without checking it**. The row written is always live:
   `deleted_at` is cleared, so upserting a deleted row by primary key restores it
-- without `Update` a nil field of the row writes NULL over the stored value. `Update(cols...)`
-  writes only those columns over a conflicting row (plus `updated_at`, `version` and the cleared
-  `deleted_at`, as a row `Update(ctx, db, row, cols...)` does); a row that conflicts with nothing is
-  inserted whole. Naming the key, the primary key, `created_at`, a managed or a `generated:` column
+- without `Update` a nil field of the row writes NULL over the stored value (a `default:` column
+  excepted: nil leaves it to the default on insert and keeps the stored value on update).
+  `Update(cols...)` writes only those columns over a conflicting row (plus `updated_at`, `version` and
+  the cleared `deleted_at`, as a row `Update(ctx, db, row, cols...)` does), a named `default:` column
+  holding nil included, which it sets to NULL; a row that conflicts with nothing is inserted whole. Naming the key, the primary key, `created_at`, a managed or a `generated:` column
   is refused, since the statement would not write it as named
 - by a unique index other than the primary key, a row that conflicts takes the primary key of the row
   it updated, whether the key is generated or assigned by the caller (`BatchUpsert` too)
 - `Upsert` reads back the primary key (also of an updated row), `version`, `created_at` and the
   columns the database filled, so the row can go straight into `Update`: with `RETURNING` in the
   statement itself on PostgreSQL and SQLite, with a second query on MySQL. `BatchUpsert` reads
-  nothing back
+  nothing back and leaves the rows' managed columns as they were passed (what it stored for an
+  updated row is unknown to it): reload a row before you `Update` it. Neighbouring rows that write the
+  same columns share a statement, every row is checked before any is written, and a row with only a
+  generated key to write is inserted
 - two rows with the same key in one `BatchUpsert` are an error on every dialect (PostgreSQL
   cannot update one row twice in a statement). Keys compare as the statement writes them: by
   value, and after `deleted_at` is cleared
@@ -1206,7 +1214,7 @@ Rules:
 `Runtime` is the TSQ-managed executor and runtime container.
 
 - it implements `Executor` directly
-- use `tsq.Open(ctx, "sqlite", dsn, database.TSQTables())` for one generated package; `TSQTables()` returns the package's `[]tsq.Table`. A MySQL DSN must set `parseTime=true` (`Open` refuses one that does not; a pool handed to `NewRuntime` needs it too), or times are read as bytes
+- use `tsq.Open(ctx, "sqlite", dsn, database.TSQTables())` for one generated package; `TSQTables()` returns the package's `[]tsq.Table`. A MySQL DSN must set `parseTime` (`true` or `1`; `Open` refuses one that does not; a pool handed to `NewRuntime` needs it too), or times are read as bytes
 - combine multiple generated packages by concatenating their `TSQTables()` slices before calling `Open` or `NewRuntime`
 - `Open` opens the pool itself and resolves the dialect from `driverName`; the context bounds the ping and any bootstrap DDL
 - `tsq.NewRuntime(ctx, db, dialect.Postgres, tables, options...)` builds a runtime over a pool the caller already opened, which is how an instrumented or specially configured `*sql.DB` keeps working while still getting SQL logging, tracers and the page-size cap
@@ -1309,7 +1317,7 @@ another result, which has no columns of its own.
 
 TSQ supports more than simple list queries. Common advanced shapes include:
 
-- aggregate queries with `GroupBy(...)` and `Having(...)`. `Build()` refuses a selected, `HAVING` or `ORDER BY` column that is neither grouped nor inside an aggregate (SQLite would return an arbitrary row's value, PostgreSQL refuses it); grouping by a table's primary key allows the table's other columns
+- aggregate queries with `GroupBy(...)` and `Having(...)`. `Build()` refuses a selected, `HAVING` or `ORDER BY` column that is neither grouped nor inside an aggregate (SQLite would return an arbitrary row's value, PostgreSQL refuses it); grouping by a table's primary key allows the table's other columns, and a column read only inside a grouped expression is grouped (`GroupBy(tsq.Upper(note))` allows `Having(tsq.Upper(note).NE(...))`)
 - `CASE` expressions: `tsq.Case(cond, col).When(cond, tsq.Val("x")).Else(tsq.Val("y")).End()` (the first branch is required, and fixes the type; `Else` comes last and is followed only by `End`); results are typed, so a branch of another type does not compile. On PostgreSQL a CASE whose results are all bound values is cast to the result type, since PostgreSQL would read them as text
 - `tsq.Coalesce(col, rhs)` and `tsq.NullIf(col, rhs)`, with `tsq.Val` for a fixed value
 - subqueries such as `In(subquery)`, `tsq.Exists(subquery)`, and typed RHS comparisons like `EQ(subquery)` or `tsq.Like(col, subquery)`. An `In` subquery may set `Limit` (it is written as a derived table, which MySQL requires). A subquery cannot use `Search`: the keyword is an argument of the statement that runs, so `Build()` refuses it instead of dropping the predicate

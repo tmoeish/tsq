@@ -14,6 +14,7 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 ### 新增
 
+- 每个查询阶段都有 `SQL(dialect, args...)`：不必先 `Build()` 就能看渲染出的 SQL，文档原本就是这么写的。
 - 算术表达式 `tsq.Add` / `tsq.Sub` / `tsq.Mul` / `tsq.Div`，按 `Number` 约束类型：扣库存写 `Set(t.Stock, tsq.Sub(t.Stock, qty))`，不再需要 `Exprf` 和丢了类型的参数。整数除法在三种方言上都取整（MySQL 的 `/` 返回小数，那里写成 `DIV`）；除以零在 PostgreSQL 上报错、在另两个方言上是 NULL，所以除数不是非零 `tsq.Val` 时 `Div` 的结果按可能为 NULL 处理。
 - 新增游标分页 `Query.PageKeyset(ctx, db, tsq.Keyset{Size, OrderBy, After}, args...)`：按上一页最后一行的排序值翻页，深页不再越翻越慢、中途插入的行也不会让页面错位。排序列必须被查询选出，且包含查询里每张表（FROM 和每个 JOIN）的主键；`Next` 是不透明字符串，换了排序会被拒绝。`PageRequest` 新增 `After` 字段和 `Keyset(sortable...)`。
 - 关键词搜索改为执行参数 `tsq.Keyword(term)`，所有读取方法都能用（此前只有 `Page` 通过 `Paging.Keyword` 支持，搜索结果没法 `Iter` 导出或单独 `Count`）；`Paging.Keyword` 删除。空关键词不搜索，对没有 `Search` 的查询传非空关键词报错。
@@ -159,6 +160,17 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 - 没写 `name=` 的索引按**列名**推导名字（`ux_<表>_<列>...`），不再把 Go 字段名转成蛇形：字段 `SKU`（列 `sku`）的唯一索引从 `ux_products_s_k_u` 变成 `ux_products_sku`，列名和字段名不一致的字段也终于出现在索引名里。字段名的蛇形和列名一致的（绝大多数）不受影响；受影响的表下次 `tsq gen` 会在迁移里删掉旧索引、建新索引。要保留旧名字，在指令上写 `name=`。
 
 ### 修复
+
+- **`HardDelete` / `BatchHardDelete` 删一个已经不存在的行时报告成功**（表没有 `version` 列时），而 `BatchHardDeleteByPK` 会点名报错。现在它们一致：不存在的行返回 `*RowStateError`，`Keys` 点名；版本变了的行仍是 `OptimisticLockError`。
+- **`BatchUpsert` 写入一部分行之后才报错**：某组行没有可写的列时，前面的组已经写进库。现在写之前检查每一组；只有自增主键要写的行（不可能冲突）按插入处理，和 `Insert` 一致；只合并相邻的同形状行，按切片顺序写。
+- **`BatchUpsert` 之后行在内存里看起来是最新的，其实不是**：时间戳被盖上了，版本号却没跟上数据库，接着 `Update` 必然冲突。现在托管列保持传入时的值，文档写明要 `Update` 先重新加载。
+- **`OnConflict(...).Update(col)` 点名的 `default:` 列为 nil 时不写**：和行级 `Update(col)` 不一致，冲突时没法把它清成 NULL。现在点名了就写 NULL。
+- **MySQL 上按不分大小写的字符串主键 `BatchDeleteByPK`，删到的行被报成"没删到"**：数据库读回的键拼写不同。现在删到的行数够了就全算删到，否则按不分大小写、忽略尾部空格再比一次。
+- **切分执行的 `ListIn` 可能把同一行返回两次**：两个数据库认为相等、Go 认为不等的键落在不同的段里。现在按主键去重（结果是表的行时）。
+- **`HAVING` 里用分组表达式被拒**：`GroupBy(tsq.Upper(note))` 配 `Having(tsq.Upper(note).NE(...))` 在三个数据库上都合法，曾被当成没分组的 `note` 拒绝。
+- **`tsq.Open` 拒绝 `parseTime=1`**：驱动接受它，检查却只认 `parseTime=true` 这个子串。现在按驱动的规则读这个参数。
+- **结构体内部写的 `//tsq:` 行被静默忽略**：只有类型上方的注释会被读，写在字段上的 `//tsq:index` 什么也不建。现在报错并给出位置。
+- **生成器的几处小问题**：两个字段 `URL`、`Url` 组成的唯一索引生成的参数同名、编译不过；报错里打印生成器内部的导入别名（`tsqtime.Time`）；某个方言渲染出同一个类型的声明变化（`[]byte` 加 `size:`）仍写成迁移，MySQL 上白复制一遍表；MySQL 索引警告对 `[]byte` 列建议改 `size:`，那没有用（现在建议 `type:VARBINARY(n)`）。
 
 - **`Pred` / `Exprf` 里带 `OR` 时查出已软删除的行**：自定义 SQL 原样拼进 `WHERE`、不加括号，软删除过滤和其他 `Where` 条件只套住最后一个 `OR` 分支（`AND` 优先级更高）；算术的操作数同样缺括号，`Mul(x.Exprf("%s + 1"), 2)` 算成 `x + 2`。现在自定义 SQL 整体加括号。
 - **只差一个绑定值的两个表达式被当成同一个**：`GROUP BY` / `ORDER BY` 按选择列表里"长得一样"的表达式写成列序号，`CASE amount > 100` 和 `CASE amount > 1000` 被认成一个，查询按错误的列排序、分组检查放过了没分组的列，游标分页也可能取错列的值。现在比较时带上绑定值和参数身份。

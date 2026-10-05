@@ -504,7 +504,9 @@ func incrementVersion(v reflect.Value) {
 	}
 }
 
-// HardDelete removes row from the table, ignoring any deleted_at column.
+// HardDelete removes row from the table, ignoring any deleted_at column. A row
+// that is not there fails with *RowStateError; on a table with a version column a
+// row changed since it was loaded fails with *OptimisticLockError.
 func (t *TableOf[R, K]) HardDelete(ctx context.Context, db Executor, row *R) error {
 	return t.BatchHardDelete(ctx, db, []*R{row}, WithBatchSize(1))
 }
@@ -1632,25 +1634,43 @@ func (t *TableOf[R, K]) hardDelete(ctx context.Context, db Executor, rows []*R, 
 // than it was given: the rows still in the table were changed since they were
 // loaded, and are named; the others are gone.
 func (t *TableOf[R, K]) hardDeleteShortfall(ctx context.Context, db Executor, scope execScope, def *tableDef, version *columnCore, rows []*R) func(int64, int64) error {
-	if version == nil {
-		return nil
-	}
-
 	return func(expected, actual int64) error {
 		stored, err := t.readBack(ctx, db, scope, def, nil, rows, false)
 		if err != nil {
-			return errors.Join(versionConflict(def.name)(expected, actual), fmt.Errorf("read back the rows: %w", err))
+			shortfall := wrongRowState(def.name, TraceOpHardDelete, RowExists)
+			if version != nil {
+				shortfall = versionConflict(def.name)
+			}
+
+			return errors.Join(shortfall(expected, actual), fmt.Errorf("read back the rows: %w", err))
 		}
 
-		var keys []any
+		// A row still stored was not deleted because its version moved on; a row
+		// gone was never there to delete. A table without a version column used
+		// to report neither, as BatchHardDeleteByPK does.
+		var stale, gone []any
 
 		for _, row := range rows {
-			if _, found := stored[keyText(value(row, def.primaryKey))]; found {
-				keys = append(keys, value(row, def.primaryKey))
+			key := value(row, def.primaryKey)
+
+			switch _, found := stored[keyText(key)]; {
+			case !found:
+				gone = append(gone, key)
+			case version != nil:
+				stale = append(stale, key)
 			}
 		}
 
-		return &OptimisticLockError{Table: def.name, Expected: expected, Actual: actual, Keys: keys}
+		var errs []error
+		if len(stale) > 0 {
+			errs = append(errs, &OptimisticLockError{Table: def.name, Expected: expected, Actual: actual, Keys: stale})
+		}
+
+		if len(gone) > 0 {
+			errs = append(errs, &RowStateError{Table: def.name, Op: TraceOpHardDelete, Need: RowExists, Expected: expected, Actual: actual, Keys: gone})
+		}
+
+		return errors.Join(errs...)
 	}
 }
 
@@ -1788,11 +1808,7 @@ func (t *TableOf[R, K]) deleteByPK(ctx context.Context, db Executor, keys []K, o
 				return err
 			}
 
-			for _, key := range chunk {
-				if !hit[key] {
-					missing = append(missing, key)
-				}
-			}
+			missing = append(missing, missingKeys(chunk, hit)...)
 		}
 
 		// The keys that matched are deleted either way, as a batch does; the rest are
@@ -1912,6 +1928,52 @@ func (t *TableOf[R, K]) scanKeys(rows *sql.Rows, err error) (map[K]bool, error) 
 	}
 
 	return keys, rows.Err()
+}
+
+// missingKeys are the keys of chunk the database did not report deleted. The
+// database matches keys by its own rules: under MySQL's default collations "ABC"
+// deletes the row stored as "abc", which comes back spelled "abc". All keys
+// matched when it reports as many rows as were asked for; otherwise a string key
+// Go does not find matches one equal without case or trailing spaces.
+func missingKeys[K comparable](chunk []K, hit map[K]bool) []any {
+	if len(hit) >= len(chunk) {
+		return nil
+	}
+
+	folded := map[string]bool{}
+
+	for key := range hit {
+		if text, ok := stringKey(key); ok {
+			folded[text] = true
+		}
+	}
+
+	var missing []any
+
+	for _, key := range chunk {
+		if hit[key] {
+			continue
+		}
+
+		if text, ok := stringKey(key); ok && folded[text] {
+			continue
+		}
+
+		missing = append(missing, key)
+	}
+
+	return missing
+}
+
+// stringKey is a string key as a collation that ignores case and trailing
+// spaces compares it.
+func stringKey(key any) (string, bool) {
+	v := reflect.ValueOf(key)
+	if v.Kind() != reflect.String {
+		return "", false
+	}
+
+	return strings.ToLower(strings.TrimRight(v.String(), " ")), true
 }
 
 func writeKeyList[K any](w *writeStmt, def *tableDef, keys []K) {

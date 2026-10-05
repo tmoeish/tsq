@@ -8,6 +8,7 @@ import (
 	"iter"
 	"log/slog"
 	"maps"
+	"reflect"
 	"regexp"
 	"slices"
 	"strings"
@@ -378,8 +379,43 @@ func (q *Query[O]) ListIn[T comparable](ctx context.Context, db Executor, param 
 				rows = append(rows, list...)
 			}
 
-			return rows, nil
+			return dedupeByPrimaryKey(rows), nil
 		})
+	})
+}
+
+// dedupeByPrimaryKey drops a row of a table that an earlier part of a split ListIn
+// already returned. Two values the database takes as one key ("Ada" and "ada"
+// under a case-insensitive collation, one instant in two zones) are two values to
+// Go, and in two parts each matched the row. A result that is not a table's rows,
+// or a row without its key selected, is left as it is.
+func dedupeByPrimaryKey[O any](rows []*O) []*O {
+	found, ok := rowTables.Load(reflect.TypeFor[O]())
+	if !ok {
+		return rows
+	}
+
+	def := found.(*tableDef)
+	if def.primaryKey == nil {
+		return rows
+	}
+
+	seen := make(map[string]bool, len(rows))
+
+	return slices.DeleteFunc(rows, func(row *O) bool {
+		key := field(row, def.primaryKey)
+		if key.IsZero() {
+			return false
+		}
+
+		text := keyText(key.Interface())
+		if seen[text] {
+			return true
+		}
+
+		seen[text] = true
+
+		return false
 	})
 }
 

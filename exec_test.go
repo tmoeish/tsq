@@ -1885,3 +1885,173 @@ func TestExistsTakesTheArgumentsOfTheQuery(t *testing.T) {
 		t.Fatalf("Exists = %v, %v; want true", ok, err)
 	}
 }
+
+// TestHardDeleteOfAMissingRowSaysSo covers HardDelete and BatchHardDelete on a
+// table without a version column, which reported success for a row that was not
+// there while BatchHardDeleteByPK named it.
+func TestHardDeleteOfAMissingRowSaysSo(t *testing.T) {
+	ctx := context.Background()
+	rt := newSQLite(t)
+	users := seedUsers(t, rt, "a")
+
+	kept := &order{UserID: users[0].ID, Amount: 1, Note: "kept"}
+	gone := &order{UserID: users[0].ID, Amount: 2, Note: "gone"}
+
+	if err := Orders.BatchInsert(ctx, rt, []*order{kept, gone}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Orders.HardDelete(ctx, rt, gone); err != nil {
+		t.Fatal(err)
+	}
+
+	err := Orders.HardDelete(ctx, rt, gone)
+	if state, ok := errors.AsType[*RowStateError](err); !ok || state.Op != TraceOpHardDelete || state.Need != RowExists {
+		t.Fatalf("second HardDelete = %v; want a RowStateError", err)
+	}
+
+	err = Orders.BatchHardDelete(ctx, rt, []*order{kept, gone}, WithBatchSize(1))
+	if state, ok := errors.AsType[*RowStateError](err); !ok || len(state.Keys) != 1 || state.Keys[0] != gone.ID {
+		t.Fatalf("BatchHardDelete = %v; want the missing row named", err)
+	}
+
+	if n, err := Select(Orders.Columns()...).From(Orders).Count(ctx, rt); err != nil || n != 0 {
+		t.Fatalf("rows left = %d, %v; want the present row deleted", n, err)
+	}
+}
+
+// TestUpsertUpdateWritesANamedDefaultColumnAsNull covers Conflict.Update naming a
+// default: column the row leaves NULL: the stored value was kept, while a row
+// Update of that column writes NULL.
+func TestUpsertUpdateWritesANamedDefaultColumnAsNull(t *testing.T) {
+	ctx := context.Background()
+
+	rt, err := Open(ctx, "sqlite", filepath.Join(t.TempDir(), "swatches.db"), []Table{Swatches}, WithSchemaPolicy(SchemaPolicyCreateMissing))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() { _ = rt.Close() })
+
+	blue := "blue"
+	row := &swatch{Color: &blue}
+	if err := Swatches.Insert(ctx, rt, row); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Swatches.Upsert(ctx, rt, &swatch{ID: row.ID}, OnConflict(Swatch_ID).Update(Swatch_Color)); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := Swatches.Get(ctx, rt, row.ID)
+	if err != nil || got.Color != nil {
+		t.Fatalf("color = %v, %v; want NULL, the named column was nil", got.Color, err)
+	}
+
+	// Unnamed, the stored value stays.
+	if err := Swatches.Update(ctx, rt, &swatch{ID: row.ID, Color: &blue}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Swatches.Upsert(ctx, rt, &swatch{ID: row.ID}); err != nil {
+		t.Fatal(err)
+	}
+
+	if got, err := Swatches.Get(ctx, rt, row.ID); err != nil || got.Color == nil || *got.Color != "blue" {
+		t.Fatalf("color = %v, %v; want the stored blue kept", got, err)
+	}
+}
+
+// TestBatchUpsertChecksEveryRowBeforeWriting covers a BatchUpsert whose later rows
+// could not be written: earlier rows were stored before it failed, rows were
+// written out of the slice's order, and a row with only a generated key to write,
+// which Insert takes, was refused.
+func TestBatchUpsertChecksEveryRowBeforeWriting(t *testing.T) {
+	ctx := context.Background()
+
+	rt, err := Open(ctx, "sqlite", filepath.Join(t.TempDir(), "swatches.db"), []Table{Swatches}, WithSchemaPolicy(SchemaPolicyCreateMissing))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() { _ = rt.Close() })
+
+	blue := "blue"
+	rows := []*swatch{{Color: &blue}, {}, {Color: &blue}, {}}
+
+	if err := Swatches.BatchUpsert(ctx, rt, rows, Conflict[swatch]{}); err != nil {
+		t.Fatalf("BatchUpsert = %v; want the rows with only a generated key inserted", err)
+	}
+
+	all, err := Select(Swatches.Columns()...).From(Swatches).OrderBy(Swatch_ID.Asc()).MustBuild().List(ctx, rt)
+	if err != nil || len(all) != 4 {
+		t.Fatalf("rows = %d, %v; want 4", len(all), err)
+	}
+
+	for i, want := range []string{"blue", "red", "blue", "red"} {
+		if all[i].Color == nil || *all[i].Color != want {
+			t.Fatalf("row %d = %v; want %s, in the order of the slice", i, all[i].Color, want)
+		}
+	}
+}
+
+// TestBatchUpsertLeavesTheRowsAsPassed covers a BatchUpsert that stamped
+// updated_at and created_at on the rows without the version the database moved
+// to, leaving rows that looked current and were not.
+func TestBatchUpsertLeavesTheRowsAsPassed(t *testing.T) {
+	ctx := context.Background()
+	rt := newSQLite(t)
+	loaded := seedUsers(t, rt, "a")[0]
+
+	before := *loaded
+	if err := Users.BatchUpsert(ctx, rt, []*user{loaded}, Conflict[user]{}); err != nil {
+		t.Fatal(err)
+	}
+
+	if loaded.Version != before.Version || !loaded.UpdatedAt.Equal(before.UpdatedAt) || !loaded.CreatedAt.Equal(before.CreatedAt) {
+		t.Fatalf("row = %+v; want the managed columns as passed (%+v)", *loaded, before)
+	}
+
+	stored, err := Users.Get(ctx, rt, loaded.ID)
+	if err != nil || stored.Version != before.Version+1 {
+		t.Fatalf("stored = %+v, %v; want the upsert written", stored, err)
+	}
+}
+
+// TestDeleteByPKMatchesKeysAsTheDatabaseDoes covers a string key the database
+// matched without case: the key it reported back did not equal the one passed,
+// and the deleted row was named as not deleted.
+func TestDeleteByPKMatchesKeysAsTheDatabaseDoes(t *testing.T) {
+	hit := map[string]bool{"abc": true}
+
+	if got := missingKeys([]string{"ABC ", "zz"}, hit); len(got) != 1 || got[0] != "zz" {
+		t.Fatalf("missing = %v; want only zz", got)
+	}
+
+	if got := missingKeys([]string{"ABC"}, hit); got != nil {
+		t.Fatalf("missing = %v; want none when every key matched", got)
+	}
+
+	if got := missingKeys([]int64{1, 2}, map[int64]bool{1: true}); len(got) != 1 || got[0] != int64(2) {
+		t.Fatalf("missing = %v; want 2", got)
+	}
+}
+
+// TestASplitListInReturnsEachRowOnce covers two keys the database takes as one
+// landing in two parts of a split ListIn: both parts matched the row, and the
+// result held it twice.
+func TestASplitListInReturnsEachRowOnce(t *testing.T) {
+	a, b := &user{ID: 1, Name: "a"}, &user{ID: 2, Name: "b"}
+
+	got := dedupeByPrimaryKey([]*user{a, b, {ID: 1, Name: "a again"}})
+	if len(got) != 2 || got[0] != a || got[1] != b {
+		t.Fatalf("rows = %v; want each key once, the first kept", got)
+	}
+
+	type projection struct{ Name string }
+
+	plain := []*projection{{"x"}, {"x"}}
+	if got := dedupeByPrimaryKey(plain); len(got) != 2 {
+		t.Fatalf("rows = %v; want a result that is not a table's rows left alone", got)
+	}
+}

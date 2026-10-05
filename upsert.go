@@ -122,6 +122,14 @@ func (t *TableOf[R, K]) upsert(ctx context.Context, db Executor, rows []*R, conf
 		return err
 	}
 
+	// A batch reads nothing back, so what the statement stored for an updated row
+	// (its version plus one, its own created_at) is unknown here. Its stamps used
+	// to stay on the row anyway, ahead of nothing: the next Update of it failed as
+	// a version conflict. The rows keep the values they were passed.
+	if !single {
+		snapshot.restore(nil)
+	}
+
 	return nil
 }
 
@@ -167,24 +175,53 @@ func (t *TableOf[R, K]) upsertRows(ctx context.Context, db Executor, scope execS
 	// by key afterwards.
 	returning := single && scope.dialect.Returning(def.primaryKey.name) != ""
 
-	groups := map[string][]*R{}
-	order := []string{}
+	// Neighbouring rows that write the same columns share a statement, as in
+	// insertGroups: grouping every row of one shape first wrote rows out of order.
+	// Every group is checked before any is written, so an impossible group no
+	// longer fails the call after earlier rows were stored.
+	var groups [][]*R
 
-	for _, row := range rows {
+	last := ""
+
+	for i, row := range rows {
 		key := columnsKey(t.upsertColumns(def, row))
-		if _, seen := groups[key]; !seen {
-			order = append(order, key)
+		if i == 0 || key != last {
+			groups = append(groups, nil)
 		}
 
-		groups[key] = append(groups[key], row)
+		groups[len(groups)-1] = append(groups[len(groups)-1], row)
+		last = key
 	}
 
-	for _, key := range order {
-		group := groups[key]
-
-		cols := t.upsertColumns(def, group[0])
-		if len(cols) == 0 {
+	for _, group := range groups {
+		omitKey := def.autoIncrement && field(group[0], def.primaryKey).IsZero()
+		if len(t.upsertColumns(def, group[0])) == 0 && !omitKey {
 			return fmt.Errorf("upsert into %s: every column is left to the database", def.name)
+		}
+	}
+
+	for _, group := range groups {
+		cols := t.upsertColumns(def, group[0])
+
+		// A row with only a generated key to write cannot conflict: its key does
+		// not exist yet. It is inserted, as Insert inserts it.
+		if len(cols) == 0 {
+			var back []*columnCore
+			if returning {
+				back = readBack
+			}
+
+			for _, chunk := range chunks(group, effectiveChunkSize(config.size, 1, sqld.MaxBindParams(scope.dialect))) {
+				if err := t.insertChunk(ctx, db, scope, def, nil, chunk, true, back); err != nil {
+					return fmt.Errorf("upsert into %s: %w", def.name, err)
+				}
+
+				for _, row := range chunk {
+					written[row] = true
+				}
+			}
+
+			continue
 		}
 
 		size := effectiveChunkSize(config.size, len(cols), sqld.MaxBindParams(scope.dialect))
@@ -516,6 +553,15 @@ func (t *TableOf[R, K]) upsertStatement(d sqld.Dialect, def *tableDef, cols []*c
 
 		set(col.name)
 		proposed(col.name)
+	}
+
+	// A column Update names that these rows leave out of the INSERT (a default:
+	// column holding NULL) is written as NULL, as a row Update(cols) writes it: the
+	// caller named it. Without a name it keeps its stored value.
+	for _, name := range update {
+		if !slices.ContainsFunc(cols, func(c *columnCore) bool { return c.name == name }) {
+			set(name).text("NULL")
+		}
 	}
 
 	// The existing row is named by the table: on MySQL a bare column is ambiguous

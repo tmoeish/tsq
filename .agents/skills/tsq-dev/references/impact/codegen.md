@@ -4,6 +4,9 @@
 
 ## 改了注解指令（`internal/parser/directive.go`）
 
+- 指令只从类型上方的注释读。结构体内部（字段的 `Doc` / `Comment`）出现 `//tsq:` 一律报错（`refuseDirectiveInsideStruct`，
+  在 `processStructTypeSpec` 里——单类型声明和分组声明走的是两条路径，挡在只有一条会走的函数里等于没挡）。
+
 - 解析器接受或拒绝什么，就是使用者能写什么。`skills/tsq` 的注解说明必须同步。
   `[门禁: skill-check dsl]`
 - **不要把指令写成跨行的形态。** 一行一个关注点是这套语法唯一的好处来源：gofmt 不碰它，错误可以
@@ -15,6 +18,9 @@
   逐字节相同。那是语义等价最直接的证据。
 
 ## 改了模板（`internal/cmd/*.go.tmpl`）
+
+- 索引方法的参数名用 `IndexVarName $ux.Fields $f`（同一列表内去重，`URL,Url` → `url`、`url2`），不要直接用 `FieldVarName`。
+  报给使用者的类型用 `userFieldType`（把 `tsqtime.` / `tsqsql.` 换回 `time.` / `sql.`）。
 
 - 模板决定生成代码长什么样，也就决定了使用者能调用哪些方法。**改模板等于改 API。**
 - `make examples` 后看一眼 `examples/shop/*.tsq.go` 的 diff——那就是使用者会看到的变化。
@@ -52,6 +58,9 @@
   改了形状要 `make examples` 并看 `examples/shop/*.tsq.go` 的 diff。
 
 ## 改了 DDL 推导（`internal/cmd/ddl_render.go`）
+
+- 改列迁移先问"这个方言渲染出来一样吗"：前后 `ColumnTypeSQL` 相同、可空和默认值不变就只写一行"无需执行"注释
+  （`[]byte` 加 `size:` 在 PG 上仍是 `BYTEA`，MySQL 曾白复制一遍表）。
 
 - 三个方言的 `.sql` 输出都会变，`tsq.json` 快照也会变。看 diff 确认是预期的。
 - 自定义 codec 类型（`driver.Valuer` / `sql.Scanner`）推不出列类型，使用者必须写显式的

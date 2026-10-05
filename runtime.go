@@ -6,6 +6,7 @@ import (
 	"database/sql/driver"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"sync"
 
@@ -60,7 +61,7 @@ func Open(
 		return nil, err
 	}
 
-	if sqlDialect.Name() == tsqdialect.MySQL && !strings.Contains(strings.ToLower(dsn), "parsetime=true") {
+	if sqlDialect.Name() == tsqdialect.MySQL && !mysqlParsesTime(dsn) {
 		return nil, errors.New("the MySQL DSN must set parseTime=true, or times are read as bytes and no timestamp can be read back")
 	}
 
@@ -351,5 +352,32 @@ func resolveRuntimeDialect(driverName string) (sqld.Dialect, error) {
 		return sqld.PostgresDialect{}, nil
 	default:
 		return nil, fmt.Errorf("unsupported sql driver %q; expected sqlite, sqlite3, mysql, postgres, postgresql, pgx, or pq", driverName)
+	}
+}
+
+// mysqlParsesTime reports whether a go-sql-driver DSN sets parseTime, read as the
+// driver reads it: the last parseTime parameter, true for 1, true, TRUE or True. A
+// substring check refused parseTime=1, which the driver takes.
+func mysqlParsesTime(dsn string) bool {
+	_, query, ok := strings.Cut(dsn[strings.LastIndex(dsn, "/")+1:], "?")
+	if !ok {
+		return false
+	}
+
+	values, err := url.ParseQuery(query)
+	if err != nil {
+		return false
+	}
+
+	settings := values["parseTime"]
+	if len(settings) == 0 {
+		return false
+	}
+
+	switch settings[len(settings)-1] {
+	case "1", "true", "TRUE", "True":
+		return true
+	default:
+		return false
 	}
 }

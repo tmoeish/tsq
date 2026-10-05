@@ -391,3 +391,22 @@ func TestNilOptionsAreErrors(t *testing.T) {
 		t.Errorf("nil batch option: %v", err)
 	}
 }
+
+// TestMySQLParseTimeIsReadAsTheDriverReadsIt covers a DSN check by substring,
+// which refused parseTime=1 and took parseTime=true inside another value.
+func TestMySQLParseTimeIsReadAsTheDriverReadsIt(t *testing.T) {
+	for dsn, want := range map[string]bool{
+		"u:p@tcp(h:3306)/db?parseTime=true":                 true,
+		"u:p@tcp(h:3306)/db?charset=utf8mb4&parseTime=1":    true,
+		"u:p@tcp(h:3306)/db?parseTime=True&loc=UTC":         true,
+		"u:p@tcp(h:3306)/db?parseTime=false":                false,
+		"u:p@tcp(h:3306)/db?parseTime=true&parseTime=false": false,
+		"u:p@tcp(h:3306)/db":                                false,
+		"u:p@tcp(h:3306)/db?parsetime=true":                 false,
+		"u:p?x@tcp(h:3306)/db?parseTime=1":                  true,
+	} {
+		if got := mysqlParsesTime(dsn); got != want {
+			t.Errorf("mysqlParsesTime(%q) = %v; want %v", dsn, got, want)
+		}
+	}
+}

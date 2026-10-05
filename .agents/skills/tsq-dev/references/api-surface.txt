@@ -369,6 +369,7 @@ type QueryStage[O any] interface {
 	Iter(ctx context.Context, db Executor, args ...Arg) iter.Seq2[*O, error]
 	Page(ctx context.Context, db Executor, p Paging, args ...Arg) (*Page[O], error)
 	PageKeyset(ctx context.Context, db Executor, k Keyset, args ...Arg) (*KeysetPage[O], error)
+	SQL(dialect tsqdialect.Name, args ...Arg) (string, []any, error)
 }
 type ResultColumn[O, T any] interface {
 	TypedColumn[O, T]

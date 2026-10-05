@@ -1210,7 +1210,11 @@ func mysqlIndexProblem(index string, columns []string, typeOf func(column string
 		case strings.HasPrefix(spelled, "VARCHAR("):
 			_, _ = fmt.Sscanf(spelled, "VARCHAR(%d)", &chars)
 			total += chars * mysqlCharBytes
-		case strings.HasSuffix(spelled, "TEXT"), strings.HasSuffix(spelled, "BLOB"):
+		case strings.HasSuffix(spelled, "BLOB"):
+			// A []byte is a BLOB on MySQL whatever its size:, so size: cannot help.
+			return fmt.Sprintf("index %s covers %s, a %s on MySQL, which cannot be indexed; declare it type:VARBINARY(n) with n at most %d, or leave it out of the index",
+				index, name, spelled, mysqlMaxKeyBytes)
+		case strings.HasSuffix(spelled, "TEXT"):
 			return fmt.Sprintf("index %s covers %s, a %s on MySQL, which cannot be indexed; give it a size: of at most %d or leave it out of the index",
 				index, name, spelled, mysqlMaxKeyBytes/mysqlCharBytes)
 		default:

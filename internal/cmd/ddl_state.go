@@ -1232,6 +1232,15 @@ func renderDDLAlterColumnStatements(
 			"manual change required: %s changes how the database computes it; drop and add the column in a migration", after.Name))}
 	}
 
+	// A declaration that changed (a size on a []byte) can spell the same type on a
+	// dialect (BYTEA): MySQL copied the whole table to change nothing, and PostgreSQL
+	// asked for a manual change.
+	if beforeSpec, afterSpec := ddlColumnSpecFromSnapshot(before), ddlColumnSpecFromSnapshot(after); before.Nullable == after.Nullable &&
+		before.Default == after.Default && dialect.dialect.ColumnTypeSQL(beforeSpec.Type) == dialect.dialect.ColumnTypeSQL(afterSpec.Type) {
+		return []string{renderDDLManualComment(tableName, fmt.Sprintf(
+			"column %s is declared differently but %s spells its type the same; nothing to run", after.Name, ddlDialectName(dialect)))}
+	}
+
 	if dialect.dialect.AlterMode() != sqld.AlterInPlace {
 		if sqliteAlterUnenforced(before, after) {
 			return []string{renderDDLManualComment(tableName, fmt.Sprintf(
