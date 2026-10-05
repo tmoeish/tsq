@@ -177,7 +177,7 @@ func main() {
 | --- | --- |
 | `SchemaPolicyManual`（默认） | 什么都不改，只记一条提醒日志。**生产用这个**，schema 交给迁移工具 |
 | `SchemaPolicyValidate` | 只校验，对不上就启动失败 |
-| `SchemaPolicyCreateMissing` | 建缺失的表、列和索引 |
+| `SchemaPolicyCreateMissing` | 建缺失的表、列和索引。表里已有数据时，新增的 NOT NULL 列给已有行填类型的零值 |
 | `SchemaPolicyReconcile` | 再加上把漂移的列改回声明的样子、删掉不再声明的列（连同数据）。**开发和测试用这个**，改了结构直接重启就跟上了 |
 
 > **TSQ 从不删表。** 它不会删除一张它没在当前声明里看到的表——一个 runtime 只知道自己声明了

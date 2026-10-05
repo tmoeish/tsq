@@ -47,8 +47,16 @@
 - 门：`runtime_schema_isolation_test.go`（SQLite）和 `internal/integration` 的
   `TestIntegrationSchemaPolicyNeverDropsUndeclaredTables`（三方言）。
 - `diffTableColumns` 在 SQLite / MySQL 上不分大小写地比列名（PostgreSQL 的带引号名字区分大小写）；按大小写比会把
-  `Name` 对 `name` 读成先删后加，删列在前、数据随之丢失。运行期重建复制列走 `rebuildCopyColumns`：跳过生成列、
-  给新增的 NOT NULL 列填零值，和生成器的迁移规则一致。
+  `Name` 对 `name` 读成先删后加，删列在前、数据随之丢失。
+- **加列和收紧列在运行期与生成器走同一份规则**（`sqldialect.AddColumnSQL` / `AddNeedsRebuild` / `NullFill` / `ZeroLiteral`）：新的无默认值
+  NOT NULL 列在 PG / MySQL 带零值默认加列再 `DROP DEFAULT`，SQLite 没有 `DROP DEFAULT`、也加不了非常量默认值，所以 `CreateMissing` 和
+  `Reconcile` 都改走 `rebuildTable`；重建复制列（`rebuildCopyColumns`）跳过生成列、给新列填零值、给变成 NOT NULL 的列写 `COALESCE`。
+  改其中一条路径的规则，另一条要一起改，门是 `internal/integration/schema_test.go` 的 `TestIntegrationPoliciesFollowAStructOverATableWithRows`
+  （三方言、每种列类型、两档策略，表里有数据）。只在空表上测的加列证明不了什么：PG 拒绝的正是有数据的表。
+- **类型比较先过 `storageType`**（PG 上无符号自增主键存成 SERIAL 系列，`uint64` 是 BIGINT），原始类型再过分方言的别名表
+  （`normalizeDDLNativeTypeName(dialect, ...)`：`TIMESTAMP(3)` 对 `timestamp(3) without time zone`、MySQL 的 `INT(11)` 对 `int`）。
+  改 `ColumnTypeSQL` / `AutoIncrementColumnSQL` 的拼写要回来看这两处，门是 `TestIntegrationUnsignedAutoIncrementKeysAreStable` 和
+  `TestIntegrationDeclaredColumnsDoNotDrift`——后者的用例表就是"引擎用自己的拼法报回来"的清单，新支持一种拼写就加一行。
 - SQLite 的探查（`ListIndexes`、`InspectRebuild`）**先读完、关掉结果集再发下一条查询**：使用者常把 SQLite 池设成一个连接，
   开着结果集再查会永远等下去（`TestSchemaPoliciesRunOnOneConnection`）。新增探查照此写。
 - `Reconcile` 在 SQLite 上删列前先删覆盖它的索引（`dropIndexesOfDroppedColumns`）；索引列名比较不区分大小写（`ValidateIndex`、

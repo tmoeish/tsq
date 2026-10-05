@@ -2433,16 +2433,27 @@ func TestMigrationAddsANotNullColumnToATableWithRows(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	writeTestFile(t, "model.go", model("\tAge int64 `db:\"age\"`\n\tNote *string `db:\"note,size:20\"`\n"))
+	writeTestFile(t, "model.go", model("\tAge int64 `db:\"age\"`\n\tNote *string `db:\"note,size:20\"`\n"+
+		"\tBio string `db:\"bio,size:100000\"`\n\tPhoto []byte `db:\"photo\"`\n\tJoined time.Time `db:\"joined\"`\n"))
 
 	if err := runGen(t); err != nil {
 		t.Fatal(err)
 	}
 
 	for file, want := range map[string][]string{
-		"mysql.sql":    {"ADD COLUMN `age` BIGINT NOT NULL DEFAULT 0;", "ALTER COLUMN `age` DROP DEFAULT;"},
-		"postgres.sql": {`ADD COLUMN "age" BIGINT NOT NULL DEFAULT 0;`, `ALTER COLUMN "age" DROP DEFAULT;`},
-		"sqlite.sql":   {`rebuilt by copying its rows`, `"created_at" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP`},
+		// MySQL takes a default on a TEXT or BLOB only as an expression (error 1101
+		// for the literal), and a zone offset in a time literal only within the
+		// range of TIMESTAMP: year 1 with "+00:00" was stored as 0000-00-00.
+		"mysql.sql": {
+			"ADD COLUMN `age` BIGINT NOT NULL DEFAULT 0;", "ALTER COLUMN `age` DROP DEFAULT;",
+			"ADD COLUMN `bio` MEDIUMTEXT NOT NULL DEFAULT ('');", "ADD COLUMN `photo` BLOB NOT NULL DEFAULT (X'');",
+			"ADD COLUMN `joined` DATETIME(6) NOT NULL DEFAULT '0001-01-01 00:00:00';", "ALTER COLUMN `joined` DROP DEFAULT;",
+		},
+		"postgres.sql": {
+			`ADD COLUMN "age" BIGINT NOT NULL DEFAULT 0;`, `ALTER COLUMN "age" DROP DEFAULT;`,
+			`ADD COLUMN "joined" TIMESTAMP NOT NULL DEFAULT '0001-01-01 00:00:00';`, `ADD COLUMN "photo" BYTEA NOT NULL DEFAULT '';`,
+		},
+		"sqlite.sql": {`rebuilt by copying its rows`, `"created_at" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP`},
 	} {
 		ddl, err := os.ReadFile(file)
 		if err != nil {
@@ -2458,6 +2469,10 @@ func TestMigrationAddsANotNullColumnToATableWithRows(t *testing.T) {
 
 		if strings.Contains(string(ddl), "note is NOT NULL") {
 			t.Errorf("%s warns about a nullable column:\n%s", file, ddl)
+		}
+
+		if file == "mysql.sql" && strings.Contains(string(ddl), "+00:00") {
+			t.Errorf("mysql.sql writes a time literal with a zone offset, which MySQL stores as 0000-00-00:\n%s", ddl)
 		}
 
 		if file == "sqlite.sql" && strings.Contains(string(ddl), "ADD COLUMN") {

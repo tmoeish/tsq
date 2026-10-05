@@ -2,6 +2,7 @@ package sqldialect
 
 import (
 	"database/sql"
+	"strings"
 	"testing"
 )
 
@@ -36,5 +37,90 @@ func TestPostgresUnsignedIntegersFit(t *testing.T) {
 				t.Errorf("%s matched a declared %+v", formatted, declared)
 			}
 		}
+	}
+}
+
+// TestPostgresUnsignedKeysAreSerialsOfTheColumnTheyCompareTo covers an unsigned
+// auto-increment key, a `uint` ID above all: the column was created a SERIAL of
+// the Go type's own width and compared as the next wider type, so the table TSQ had
+// just created failed validation on the next start. The key is as wide as the
+// column would be, and a uint64 one is a BIGINT, the widest a sequence counts.
+func TestPostgresUnsignedKeysAreSerialsOfTheColumnTheyCompareTo(t *testing.T) {
+	d := PostgresDialect{}
+
+	for _, c := range []struct {
+		bits            int
+		created, stored string
+		storedBits      int
+	}{
+		{8, "SMALLSERIAL", "smallint", 16},
+		{16, "SERIAL", "integer", 32},
+		{32, "BIGSERIAL", "bigint", 64},
+		{64, "BIGSERIAL", "bigint", 64},
+	} {
+		declared := ColumnSpec{Name: "id", Type: ColumnType{Kind: KindInt, Bits: c.bits, Unsigned: true}, PrimaryKey: true, AutoIncrement: true}
+
+		definition, err := ColumnDefinitionSQL(d, declared)
+		if err != nil || definition != `"id" `+c.created+` PRIMARY KEY` {
+			t.Errorf("uint%d key = %s, %v; want %s", c.bits, definition, err, c.created)
+		}
+
+		live := Column{Name: "id", Type: ColumnType{Kind: KindInt, Bits: c.storedBits}, PrimaryKey: true, AutoIncrement: true}
+		if !SameColumnType(d, live, declared) {
+			t.Errorf("uint%d key created as %s does not match its own declaration", c.bits, c.created)
+		}
+	}
+
+	// A uint64 column that is not a key is still the NUMERIC(20) that holds its range.
+	plain := ColumnSpec{Name: "n", Type: ColumnType{Kind: KindInt, Bits: 64, Unsigned: true}}
+	if SameColumnType(d, Column{Name: "n", Type: ColumnType{Kind: KindInt, Bits: 64}}, plain) {
+		t.Error("a BIGINT passed for a uint64 column that is not an auto-increment key")
+	}
+}
+
+// TestPostgresTypeChangeLeavesTheLengthToTheAssignment covers a type change
+// between kinds, or to or from a raw type, which was written USING col::T: a cast
+// to VARCHAR(5) cuts 'abcdefghij' to 'abcde' without an error, in a migration
+// nobody was told changed data. A character target takes the value as TEXT, and
+// the assignment refuses one that does not fit.
+func TestPostgresTypeChangeLeavesTheLengthToTheAssignment(t *testing.T) {
+	d := PostgresDialect{}
+	text := func(size int) ColumnType { return ColumnType{Kind: KindString, Size: size} }
+
+	for _, c := range []struct {
+		before, after ColumnType
+		want          string
+	}{
+		{ColumnType{RawType: "TEXT"}, text(5), `TYPE VARCHAR(5) USING "c"::TEXT;`},
+		{text(40), ColumnType{RawType: "CHAR(3)"}, `TYPE CHAR(3) USING "c"::TEXT;`},
+		{ColumnType{Kind: KindInt, Bits: 64}, text(1), `TYPE VARCHAR(1) USING "c"::TEXT;`},
+		{ColumnType{Kind: KindTime}, text(10), `TYPE VARCHAR(10) USING "c"::TEXT;`},
+		{text(40), ColumnType{Kind: KindInt, Bits: 64}, `TYPE BIGINT USING "c"::BIGINT;`},
+		{text(40), ColumnType{RawType: "TEXT[]"}, `TYPE TEXT[] USING "c"::TEXT[];`},
+		// BOOLEAN casts to INTEGER only, and no integer casts to it.
+		{ColumnType{Kind: KindBool}, ColumnType{Kind: KindInt, Bits: 64}, `TYPE BIGINT USING "c"::INTEGER;`},
+		{ColumnType{Kind: KindInt, Bits: 64}, ColumnType{Kind: KindBool}, `TYPE BOOLEAN USING "c" <> 0;`},
+	} {
+		statements := d.AlterColumnSQL("t", Column{Name: "c", Type: c.before}, ColumnSpec{Name: "c", Type: c.after})
+		if len(statements) != 1 || !strings.HasSuffix(statements[0], c.want) {
+			t.Errorf("%+v to %+v = %v; want ... %s", c.before, c.after, statements, c.want)
+		}
+	}
+}
+
+// TestPostgresOversizedStringsAreText covers a size: above the longest VARCHAR
+// PostgreSQL declares, which failed CREATE TABLE where MySQL takes a LONGTEXT.
+func TestPostgresOversizedStringsAreText(t *testing.T) {
+	d := PostgresDialect{}
+
+	for size, want := range map[int]string{10485760: "VARCHAR(10485760)", 10485761: "TEXT", 1 << 30: "TEXT"} {
+		if got := d.ColumnTypeSQL(ColumnType{Kind: KindString, Size: size}); got != want {
+			t.Errorf("string of %d = %s, want %s", size, got, want)
+		}
+	}
+
+	live, err := parsePostgresColumnType("text", "text", "text", sql.NullInt64{})
+	if err != nil || !SameColumnType(d, Column{Name: "s", Type: live}, ColumnSpec{Name: "s", Type: ColumnType{Kind: KindString, Size: 1 << 30}}) {
+		t.Errorf("a live TEXT (%+v, %v) does not match the oversized string it was created for", live, err)
 	}
 }

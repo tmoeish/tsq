@@ -965,13 +965,7 @@ func ddlChangesRequireTableRebuild(ops []ddlChange) bool {
 // default. The rebuild creates the table with it, where both are allowed, and
 // fills the rows with the default or the type's zero value.
 func sqliteAddNeedsRebuild(column ddlSnapshotColumn) bool {
-	if migrationOwned(column) || column.PrimaryKey || column.AutoIncrement {
-		return false
-	}
-
-	nonConstant := sqld.IsCurrentTime(column.Default) || strings.HasPrefix(strings.TrimSpace(column.Default), "(")
-
-	return nonConstant || (!column.Nullable && column.Default == "")
+	return !migrationOwned(column) && sqld.AddNeedsRebuild(sqld.SQLiteDialect{}, ddlColumnSpecFromSnapshot(column))
 }
 
 // sqliteAlterUnenforced reports a column change SQLite would not enforce: only
@@ -1152,38 +1146,27 @@ func renderDDLChangeOperation(dialect ddlDialectSpec, op ddlChange) []string {
 			return []string{renderDDLManualComment(op.table, fmt.Sprintf("manual change required to add primary key column %s", op.newColumn.Name))}
 		}
 
-		statement := fmt.Sprintf(
-			"ALTER TABLE %s ADD COLUMN %s;",
-			dialect.dialect.QuoteIdent(op.table),
-			renderDDLSnapshotColumnDefinition(*op.newColumn, dialect),
-		)
+		// NOT NULL without a default is refused on a table with rows (by MySQL for
+		// a time only). The rows get the type's zero value, as the SQLite rebuild
+		// gives them: the column is added with that default, which is then dropped.
+		// The runtime policies add a column with the same statements.
+		spec := ddlColumnSpecFromSnapshot(*op.newColumn)
 
-		// NOT NULL without a default is refused by every dialect on a table with
-		// rows. The rows get the type's zero value, as the SQLite rebuild gives
-		// them: the column is added with that default, which is then dropped.
-		if column := op.newColumn; !column.Nullable && column.Default == "" && column.Generated == "" {
-			spec := ddlColumnSpecFromSnapshot(*column)
-
-			zero, ok := sqld.ZeroLiteral(dialect.dialect, spec.Type)
-			if !ok {
-				return []string{
-					renderDDLManualComment(op.table, fmt.Sprintf(
-						"%s is NOT NULL without a default, which fails on a table with rows; declare default: or backfill it first", column.Name)),
-					statement,
-				}
-			}
-
-			quotedTable, quotedColumn := dialect.dialect.QuoteIdent(op.table), dialect.dialect.QuoteIdent(column.Name)
-
-			return []string{
-				renderDDLManualComment(op.table, fmt.Sprintf("%s is NOT NULL without a default; existing rows get %s", column.Name, zero)),
-				fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s NOT NULL DEFAULT %s;", quotedTable, strings.TrimSuffix(strings.TrimSpace(
-					strings.Replace(renderDDLSnapshotColumnDefinition(*column, dialect), " NOT NULL", "", 1)), ","), zero),
-				fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s DROP DEFAULT;", quotedTable, quotedColumn),
-			}
+		statements, err := sqld.AddColumnSQL(dialect.dialect, op.table, spec)
+		if err != nil {
+			panic(err)
 		}
 
-		return []string{statement}
+		switch column := op.newColumn; {
+		case len(statements) > 1:
+			statements = append([]string{renderDDLManualComment(op.table, fmt.Sprintf(
+				"%s is NOT NULL without a default; existing rows get %s", column.Name, sqld.NewColumnFill(dialect.dialect, spec)))}, statements...)
+		case !column.Nullable && column.Default == "" && column.Generated == "":
+			statements = append([]string{renderDDLManualComment(op.table, fmt.Sprintf(
+				"%s is NOT NULL without a default, which fails on a table with rows; declare default: or backfill it first", column.Name))}, statements...)
+		}
+
+		return statements
 
 	case ddlChangeDropColumn:
 		return destructive(op.table, "drops column "+op.oldColumn.Name+" and its data", fmt.Sprintf(

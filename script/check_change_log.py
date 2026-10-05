@@ -37,7 +37,11 @@ BODY_MIN_CHARS: Final = 120
 # 2026-09-22 从 460 提到 490：内存按主题拆成 `memory.md`（判据与索引）加 `memory/` 六份，条目
 # 一条没删、正文逐字搬运，多出来的是索引的路由表和每份文件的标题与指回索引的那一行。上限从此按
 # 索引加全部主题文件的**总和**算，拆成六份不等于有了六份额度。
-MEMORY_MAX_LINES: Final = 490
+#
+# 2026-10-05 从 490 提到 510：第五轮审计第一次在真实 MySQL / PostgreSQL 上跑，记下的是推理得不到的引擎行为和
+# 维护者的五个决定。先压缩了 `memory/dialect.md`（能力表的 `default` 分支并进基线那条、驱动错误分类压成两行、
+# SQLite rowid 那条并进设计收尾的列表），腾出的行数不够放新记录。
+MEMORY_MAX_LINES: Final = 510
 
 # 本仓是公开 OSS，提交历史面向使用者，因此沿用英文 Conventional Commits。
 CONVENTIONAL: Final = re.compile(

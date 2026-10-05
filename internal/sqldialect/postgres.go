@@ -405,8 +405,12 @@ func (d PostgresDialect) ColumnTypeSQL(desc ColumnType) string {
 			return "NUMERIC(20)"
 		}
 	case KindString:
-		if desc.Size <= 0 {
+		switch {
+		case desc.Size <= 0:
 			return fmt.Sprintf("VARCHAR(%d)", defaultDDLStringSize)
+		case desc.Size > postgresMaxVarcharChars:
+			// A longer VARCHAR is refused; TEXT holds what MySQL's LONGTEXT does.
+			return "TEXT"
 		}
 
 		return fmt.Sprintf("VARCHAR(%d)", desc.Size)
@@ -422,7 +426,25 @@ func (d PostgresDialect) AutoIncrementColumnSQL(quotedColumn string, desc Column
 		return "", errors.New("auto-increment primary key requires an integer field")
 	}
 
-	return quotedColumn + " " + ddlSerialType(desc), nil
+	// The key is as wide as the column the same field would be elsewhere, where
+	// an unsigned type takes the next wider one; the widest sequence is a BIGINT's.
+	bits := desc.Bits
+	if bits <= 0 {
+		bits = 64
+	}
+
+	if desc.Unsigned {
+		bits *= 2
+	}
+
+	switch {
+	case bits <= 16:
+		return quotedColumn + " SMALLSERIAL PRIMARY KEY", nil
+	case bits <= 32:
+		return quotedColumn + " SERIAL PRIMARY KEY", nil
+	default:
+		return quotedColumn + " BIGSERIAL PRIMARY KEY", nil
+	}
 }
 
 // FullTextIndexSQL indexes the same expression the predicate repeats, which is what
@@ -487,10 +509,11 @@ func (d PostgresDialect) AlterColumnSQL(table string, before Column, after Colum
 	// to INTEGER, VARCHAR to BIGINT). Within one kind it is left out: an explicit
 	// cast to VARCHAR(8) cuts a longer value to 8 characters without a word, while
 	// the assignment cast refuses it, and a narrower integer fails on overflow
-	// either way. An auto-increment key keeps its SERIAL default; its sequence is
+	// either way. Elsewhere postgresUsing writes it, never as a cast to a character
+	// type's length. An auto-increment key keeps its SERIAL default; its sequence is
 	// widened too, or it stops at the old type's maximum however wide the column is.
 	if !SameColumnType(d, before, after) {
-		spelled := d.ColumnTypeSQL(after.Type)
+		spelled := d.ColumnTypeSQL(storageType(d, after))
 
 		if after.AutoIncrement {
 			statements = append(statements, fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s TYPE %s;", quotedTable, quotedColumn, spelled))
@@ -504,8 +527,8 @@ func (d PostgresDialect) AlterColumnSQL(table string, before Column, after Colum
 			statements = append(statements, fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s TYPE %s;", quotedTable, quotedColumn, spelled))
 		} else {
 			statements = append(statements, fmt.Sprintf(
-				"ALTER TABLE %s ALTER COLUMN %s TYPE %s USING %s::%s;",
-				quotedTable, quotedColumn, spelled, quotedColumn, spelled,
+				"ALTER TABLE %s ALTER COLUMN %s TYPE %s USING %s;",
+				quotedTable, quotedColumn, spelled, postgresUsing(quotedColumn, before.Type, after.Type, spelled),
 			))
 		}
 	}
@@ -557,6 +580,31 @@ func (d PostgresDialect) AlterColumnSQL(table string, before Column, after Colum
 	}
 
 	return statements
+}
+
+// postgresMaxVarcharChars is the longest VARCHAR PostgreSQL declares.
+const postgresMaxVarcharChars = 10485760
+
+// postgresUsing is the USING expression of a type change between kinds, or to or
+// from a raw type. A cast to the new type itself cuts a value to a character
+// type's length without a word ('abcdef'::VARCHAR(3) is 'abc'), which changed
+// stored values in a migration nobody was told about: a character target takes the
+// value as TEXT and leaves the length to the assignment, which refuses a value
+// that does not fit. BOOLEAN casts to INTEGER only, and no integer casts to it.
+func postgresUsing(column string, before, after ColumnType, spelled string) string {
+	plain := before.RawType == "" && after.RawType == ""
+
+	switch target := strings.ToUpper(strings.TrimSpace(spelled)); {
+	case !strings.Contains(target, "[") && (strings.HasPrefix(target, "VARCHAR") || strings.HasPrefix(target, "CHAR") ||
+		strings.HasPrefix(target, "BPCHAR") || strings.HasPrefix(target, "TEXT") || strings.HasPrefix(target, "CITEXT")):
+		return column + "::TEXT"
+	case plain && before.Kind == KindBool && after.Kind == KindInt:
+		return column + "::INTEGER"
+	case plain && before.Kind == KindInt && after.Kind == KindBool:
+		return column + " <> 0"
+	default:
+		return column + "::" + spelled
+	}
 }
 
 // quoteLiteral writes s as a SQL string literal.

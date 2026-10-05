@@ -114,7 +114,7 @@ func (d MySQLDialect) InspectColumns(ctx context.Context, db Executor, table str
 			Type:          withDDLNullable(desc, nullable && item.Key != "PRI"),
 			PrimaryKey:    item.Key == "PRI",
 			AutoIncrement: strings.Contains(strings.ToLower(item.Extra), "auto_increment"),
-			Default:       mysqlDefault(item.Default, item.Extra),
+			Default:       mysqlDefault(item.Default, item.Extra, item.Data),
 			NativeType:    strings.TrimSpace(item.Type),
 		})
 	}
@@ -135,9 +135,32 @@ func (d MySQLDialect) InspectColumns(ctx context.Context, db Executor, table str
 // accepts only as an expression) is reported as its stored text, with the string
 // literals escaped and prefixed by their character set: DEFAULT ('USD') reads back
 // as _utf8mb4\'USD\', which compared as a different default on every boot.
-func mysqlDefault(value sql.NullString, extra string) string {
-	def := normalizeDDLDefault(value)
-	if def == "" || !strings.Contains(strings.ToUpper(extra), "DEFAULT_GENERATED") {
+//
+// A literal default of a character or time column is reported as its bare value,
+// quotes gone: it is quoted again here, or '(none)' reads as an expression in
+// parentheses, 'a::b' as a cast and '  x ' as x, each of them a different default
+// on every boot too.
+func mysqlDefault(value sql.NullString, extra, dataType string) string {
+	if !value.Valid {
+		return ""
+	}
+
+	if !strings.Contains(strings.ToUpper(extra), "DEFAULT_GENERATED") {
+		switch strings.ToLower(dataType) {
+		case "char", "varchar", "enum", "set":
+			return quoteLiteral(value.String)
+		case "date", "datetime", "timestamp", "time":
+			// Servers before 8.0 do not mark CURRENT_TIMESTAMP as an expression.
+			if !IsCurrentTime(value.String) {
+				return quoteLiteral(value.String)
+			}
+		}
+
+		return strings.TrimSpace(value.String)
+	}
+
+	def := strings.TrimSpace(value.String)
+	if def == "" {
 		return def
 	}
 

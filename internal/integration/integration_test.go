@@ -262,9 +262,13 @@ func TestIntegrationCreateMissingAddsAMissingColumn(t *testing.T) {
 				t.Fatalf("drop column: %v", err)
 			}
 
+			// SQLite adds a NOT NULL column without a default by rebuilding the table
+			// with it: it has no DROP DEFAULT to take the fill value away again.
 			_, recorder := openWithPolicy(t, target, academy.TSQTables(), tsq.SchemaPolicyCreateMissing)
-			if !slices.ContainsFunc(recorder.statements(), func(ddl string) bool { return strings.Contains(ddl, "ADD COLUMN") }) {
-				t.Fatalf("expected an ADD COLUMN, got:\n  %s", strings.Join(recorder.statements(), "\n  "))
+			if !slices.ContainsFunc(recorder.statements(), func(ddl string) bool {
+				return strings.Contains(ddl, "ADD COLUMN") || (target.name == "sqlite" && strings.Contains(ddl, `"skill_items"`))
+			}) {
+				t.Fatalf("expected the column to be added, got:\n  %s", strings.Join(recorder.statements(), "\n  "))
 			}
 
 			_, again := openWithPolicy(t, target, academy.TSQTables(), tsq.SchemaPolicyReconcile)

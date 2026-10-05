@@ -107,6 +107,16 @@ func (r *Runtime) applyTablePolicyForTable(ctx context.Context, table *registere
 			return &SchemaMismatchError{Table: tableName, Changes: tableColumnChangeLines(changes)}
 		}
 
+		// SQLite cannot ADD every column to a table with rows: such a column is
+		// added by rebuilding the table with it, which copies the rows.
+		if addNeedsRebuild(r.dialect, added) {
+			if err := r.rebuildTable(ctx, tableName, current, table.Columns); err != nil {
+				return fmt.Errorf("add columns to %s: %w", tableName, err)
+			}
+
+			return nil
+		}
+
 		statements, err := renderTableColumnChanges(r.dialect, tableName, added)
 		if err != nil {
 			return fmt.Errorf("add columns to %s: %w", tableName, err)
@@ -117,6 +127,7 @@ func (r *Runtime) applyTablePolicyForTable(ctx context.Context, table *registere
 				return fmt.Errorf("add column to %s: %w", tableName, err)
 			}
 		}
+
 	case SchemaPolicyReconcile:
 		for _, change := range changes {
 			if change.kind == tableColumnDrop {
@@ -125,7 +136,7 @@ func (r *Runtime) applyTablePolicyForTable(ctx context.Context, table *registere
 			}
 		}
 
-		if r.dialect.AlterMode() == sqld.AlterRebuild && hasAlterColumnChange(changes) {
+		if (r.dialect.AlterMode() == sqld.AlterRebuild && hasAlterColumnChange(changes)) || addNeedsRebuild(r.dialect, changes) {
 			if err := r.rebuildTable(ctx, tableName, current, table.Columns); err != nil {
 				return fmt.Errorf("reconcile table %s: %w", tableName, err)
 			}
@@ -211,8 +222,8 @@ func (r *Runtime) rebuildTable(
 	// The rebuilt table is created from the declared columns. What it cannot carry
 	// over would be lost without a word, so the change is left to a migration.
 	if len(rebuild.Blockers) > 0 {
-		return fmt.Errorf("changing a column type rebuilds %s on %s, which would lose %s; change the table in a migration",
-			tableName, r.dialect.Name(), strings.Join(rebuild.Blockers, ", "))
+		return fmt.Errorf("this change rebuilds %s on %s (a changed column, or a new one %s cannot add to a table with rows), which would lose %s; change the table in a migration",
+			tableName, r.dialect.Name(), r.dialect.Name(), strings.Join(rebuild.Blockers, ", "))
 	}
 
 	statements, err := renderRebuildTableStatements(r.dialect, tableName, current, desired, rebuild.Objects)
@@ -570,16 +581,14 @@ func renderTableColumnChanges(
 	for _, change := range changes {
 		switch change.kind {
 		case tableColumnAdd:
-			rendered, err := renderRuntimeDDLColumnSpec(dialect, *change.after)
+			// The rows present get the zero value in a new NOT NULL column, as the
+			// generator's migrations give them.
+			rendered, err := sqld.AddColumnSQL(dialect, tableName, *change.after)
 			if err != nil {
 				return nil, err
 			}
 
-			statements = append(statements, fmt.Sprintf(
-				"ALTER TABLE %s ADD COLUMN %s;",
-				dialect.QuoteIdent(tableName),
-				rendered,
-			))
+			statements = append(statements, rendered...)
 		case tableColumnDrop:
 			statements = append(statements, fmt.Sprintf(
 				"ALTER TABLE %s DROP COLUMN %s;",
@@ -596,6 +605,15 @@ func renderTableColumnChanges(
 	}
 
 	return statements, nil
+}
+
+// addNeedsRebuild reports an added column the dialect can only add by rebuilding
+// the table (SQLite: NOT NULL without a default, or a default that is not a
+// constant).
+func addNeedsRebuild(dialect sqld.Dialect, changes []tableColumnChange) bool {
+	return slices.ContainsFunc(changes, func(change tableColumnChange) bool {
+		return change.kind == tableColumnAdd && sqld.AddNeedsRebuild(dialect, *change.after)
+	})
 }
 
 func hasAlterColumnChange(changes []tableColumnChange) bool {
@@ -690,13 +708,14 @@ func renderRebuildObjectStatements(desired []tsqdialect.ColumnSpec, objects []sq
 
 // rebuildCopyColumns lists the columns a rebuild copies and what it copies into
 // them. A generated column is computed by the new table (SQLite refuses to insert
-// into one), and a new NOT NULL column without a default gets its type's zero
-// value, so the copy does not fail on a table with rows. Names are matched without
-// case, as SQLite matches them.
+// into one), a new NOT NULL column without a default gets its type's zero value,
+// and a column that becomes NOT NULL gets its default or zero value where a row
+// holds NULL, so the copy does not fail on a table with rows. Names are matched
+// without case, as SQLite matches them.
 func rebuildCopyColumns(dialect sqld.Dialect, current []sqld.Column, desired []tsqdialect.ColumnSpec) (targets, sources []string) {
-	existing := make(map[string]string, len(current))
+	existing := make(map[string]sqld.Column, len(current))
 	for _, column := range current {
-		existing[strings.ToLower(column.Name)] = column.Name
+		existing[strings.ToLower(column.Name)] = column
 	}
 
 	for _, column := range desired {
@@ -704,18 +723,19 @@ func rebuildCopyColumns(dialect sqld.Dialect, current []sqld.Column, desired []t
 			continue
 		}
 
-		if name, ok := existing[strings.ToLower(column.Name)]; ok {
+		if before, ok := existing[strings.ToLower(column.Name)]; ok {
+			source := dialect.QuoteIdent(before.Name)
+			if fill := sqld.NullFill(dialect, before, column); fill != "" {
+				source = fmt.Sprintf("COALESCE(%s, %s)", source, fill)
+			}
+
 			targets = append(targets, dialect.QuoteIdent(column.Name))
-			sources = append(sources, dialect.QuoteIdent(name))
+			sources = append(sources, source)
 
 			continue
 		}
 
-		if column.Type.Nullable || column.Default != "" || column.AutoIncrement {
-			continue
-		}
-
-		if zero, ok := sqld.ZeroLiteral(dialect, column.Type); ok {
+		if zero := sqld.NewColumnFill(dialect, column); zero != "" {
 			targets = append(targets, dialect.QuoteIdent(column.Name))
 			sources = append(sources, zero)
 		}

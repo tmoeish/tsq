@@ -72,3 +72,44 @@ func TestIndexColumnsCompareWithoutCase(t *testing.T) {
 		t.Fatalf("ValidateIndex = %v", err)
 	}
 }
+
+// TestRawTypesCompareUnderOneName covers a raw type (db:"...,type:X") against the
+// spelling the database reports for it. A pair that never compared equal failed
+// Validate on the table TSQ had created and had Reconcile run the same ALTER on
+// every start, a rewrite of the table each time on PostgreSQL.
+func TestRawTypesCompareUnderOneName(t *testing.T) {
+	for _, c := range []struct {
+		dialect            Name
+		declared, reported string
+		same               bool
+	}{
+		{Postgres, "TIMESTAMP(3)", "timestamp(3) without time zone", true},
+		{Postgres, "TIME", "time without time zone", true},
+		{Postgres, "FLOAT", "double precision", true},
+		{Postgres, "FLOAT8", "double precision", true},
+		{Postgres, "INT4", "integer", true},
+		{Postgres, "INT8", "bigint", true},
+		{Postgres, "NUMERIC(12, 4)", "numeric(12,4)", true},
+		{Postgres, "CHARACTER VARYING(20)", "character varying(20)", true},
+		{Postgres, "REAL", "double precision", false}, // a float4 there
+		{Postgres, "TIMESTAMP(3)", "timestamp(6) without time zone", false},
+		{MySQL, "REAL", "double", true},
+		{MySQL, "DOUBLE PRECISION", "double", true},
+		{MySQL, "BOOL", "tinyint(1)", true},
+		{MySQL, "INT(11)", "int", true},
+		{MySQL, "DECIMAL", "decimal(10,0)", true},
+		{MySQL, "NUMERIC", "decimal(10,0)", true},
+		{MySQL, "DECIMAL(10,2)", "decimal(10,2)", true},
+		{MySQL, "VARCHAR(20) COLLATE utf8mb4_bin", "varchar(20)", true},
+		{MySQL, "BIGINT UNSIGNED", "bigint unsigned", true},
+		{MySQL, "DECIMAL(10,2)", "decimal(10,4)", false},
+		{MySQL, "VARCHAR(20)", "varchar(40)", false},
+		{MySQL, "BIGINT", "bigint unsigned", false},
+	} {
+		got := normalizeDDLNativeTypeName(c.dialect, c.declared) == normalizeDDLNativeTypeName(c.dialect, c.reported)
+		if got != c.same {
+			t.Errorf("%s: declared %q against reported %q = %v, want %v (%q, %q)", c.dialect, c.declared, c.reported, got, c.same,
+				normalizeDDLNativeTypeName(c.dialect, c.declared), normalizeDDLNativeTypeName(c.dialect, c.reported))
+		}
+	}
+}

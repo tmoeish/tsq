@@ -302,18 +302,30 @@ func TestMySQLBytesTakeTheirSize(t *testing.T) {
 // charset-prefixed literal: it never matched the declared 'USD'.
 func TestMySQLReadsAnExpressionDefaultBackAsDeclared(t *testing.T) {
 	for _, c := range []struct {
-		value, extra, want string
+		value, extra, dataType, want string
 	}{
-		{`_utf8mb4\'USD\'`, "DEFAULT_GENERATED", "'USD'"},
-		{`(_utf8mb4\'it\'\'s\')`, "DEFAULT_GENERATED", "'it''s'"},
-		{`_latin1\'a\\\\b\'`, "DEFAULT_GENERATED", `'a\\b'`},
-		{`_utf8mb4\'en_US\'`, "DEFAULT_GENERATED", "'en_US'"},
-		{`_utf8mb4\'not_started\'`, "DEFAULT_GENERATED", "'not_started'"},
-		{`concat(_utf8mb4\'a_b\',_utf8mb4\'c\')`, "DEFAULT_GENERATED", "concat('a_b','c')"},
-		{"USD", "", "USD"},
-		{"utc_timestamp(6)", "DEFAULT_GENERATED", "utc_timestamp(6)"},
+		{`_utf8mb4\'USD\'`, "DEFAULT_GENERATED", "text", "'USD'"},
+		{`(_utf8mb4\'it\'\'s\')`, "DEFAULT_GENERATED", "text", "'it''s'"},
+		{`_latin1\'a\\\\b\'`, "DEFAULT_GENERATED", "text", `'a\\b'`},
+		{`_utf8mb4\'en_US\'`, "DEFAULT_GENERATED", "text", "'en_US'"},
+		{`_utf8mb4\'not_started\'`, "DEFAULT_GENERATED", "text", "'not_started'"},
+		{`concat(_utf8mb4\'a_b\',_utf8mb4\'c\')`, "DEFAULT_GENERATED", "text", "concat('a_b','c')"},
+		{"utc_timestamp(6)", "DEFAULT_GENERATED", "datetime", "utc_timestamp(6)"},
+		// A literal comes back bare, and is quoted again: read as it stood, a
+		// value in parentheses was an expression, a "::" a cast, and padding gone.
+		{"USD", "", "varchar", "'USD'"},
+		{"(none)", "", "varchar", "'(none)'"},
+		{"a::b", "", "char", "'a::b'"},
+		{"  pad  ", "", "varchar", "'  pad  '"},
+		{"it's", "", "varchar", "'it''s'"},
+		{"", "", "varchar", "''"},
+		{"a", "", "enum", "'a'"},
+		{"2020-01-02 03:04:05.000000", "", "datetime", "'2020-01-02 03:04:05.000000'"},
+		{"CURRENT_TIMESTAMP", "", "timestamp", "CURRENT_TIMESTAMP"},
+		{"7", "", "bigint", "7"},
+		{"1.50", "", "decimal", "1.50"},
 	} {
-		if got := mysqlDefault(sql.NullString{String: c.value, Valid: true}, c.extra); got != c.want {
+		if got := mysqlDefault(sql.NullString{String: c.value, Valid: true}, c.extra, c.dataType); got != c.want {
 			t.Errorf("mysqlDefault(%q, %q) = %q; want %q", c.value, c.extra, got, c.want)
 		}
 	}

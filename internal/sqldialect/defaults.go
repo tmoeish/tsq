@@ -1,8 +1,10 @@
 package sqldialect
 
 import (
+	"fmt"
 	"math/big"
 	"strings"
+	"time"
 )
 
 // SameDefault compares two spellings of a column default. Two quoted literals
@@ -31,7 +33,7 @@ func SameDefault(left, right string) bool {
 	b, bQuoted := normalizeDefaultLiteral(right)
 
 	if aQuoted && bQuoted {
-		return a == b
+		return a == b || sameTimeLiteral(a, b)
 	}
 
 	if x, ok := defaultNumber(a); ok {
@@ -41,6 +43,25 @@ func SameDefault(left, right string) bool {
 	}
 
 	return strings.EqualFold(a, b)
+}
+
+// sameTimeLiteral reports two literals that are one time: MySQL reads the default
+// '2020-01-02 03:04:05' of a DATETIME(6) back with its six zeros.
+func sameTimeLiteral(a, b string) bool {
+	x, okX := parseTimeLiteral(a)
+	y, okY := parseTimeLiteral(b)
+
+	return okX && okY && x.Equal(y)
+}
+
+func parseTimeLiteral(value string) (time.Time, bool) {
+	for _, layout := range []string{"2006-01-02 15:04:05.999999999", "2006-01-02"} {
+		if t, err := time.Parse(layout, value); err == nil {
+			return t, true
+		}
+	}
+
+	return time.Time{}, false
 }
 
 // defaultNumber reads a default as an exact number, true and false included.
@@ -165,12 +186,79 @@ func ZeroLiteral(d Dialect, t ColumnType) (string, bool) {
 
 		return "X''", true
 	case KindTime:
-		if postgres {
-			return "'0001-01-01 00:00:00'", true
+		// SQLite keeps a time as text, in the spelling the drivers write: with the
+		// zone. MySQL takes a zone in a literal only within the range of TIMESTAMP:
+		// year 1 with an offset is an error under an explicit session time zone and
+		// is stored as 0000-00-00, without a word, under the default one, after
+		// which every ALTER that copies the table fails on the row.
+		if d.Name() == SQLite {
+			return "'0001-01-01 00:00:00+00:00'", true
 		}
 
-		return "'0001-01-01 00:00:00+00:00'", true
+		return "'0001-01-01 00:00:00'", true
 	}
 
 	return "", false
+}
+
+// AddNeedsRebuild reports a column SQLite cannot ADD to a table with rows, so the
+// table is rebuilt with it instead: a default that is not a constant
+// (CURRENT_TIMESTAMP, an expression), or NOT NULL without a default, which the
+// other dialects add with the zero value as a default they then drop and SQLite
+// cannot (it has no DROP DEFAULT). The generator and the runtime share it.
+func AddNeedsRebuild(d Dialect, column ColumnSpec) bool {
+	if d.AlterMode() != AlterRebuild || column.PrimaryKey || column.AutoIncrement || column.Fill == FillGenerated {
+		return false
+	}
+
+	nonConstant := IsCurrentTime(column.Default) || strings.HasPrefix(strings.TrimSpace(column.Default), "(")
+
+	return nonConstant || (!column.Type.Nullable && column.Default == "")
+}
+
+// AddColumnSQL adds column to a table that may hold rows, on a dialect that
+// alters in place. A NOT NULL column without a default is refused there
+// (PostgreSQL for every type, MySQL for a time), so the rows present get the
+// type's zero value, the value the Go field of a row that never set it holds: the
+// column is added with that default, which is then dropped, leaving the column as
+// declared. A column of an explicit type: has no zero value TSQ knows and is added
+// as it is.
+func AddColumnSQL(d Dialect, table string, column ColumnSpec) ([]string, error) {
+	quotedTable := d.QuoteIdent(table)
+
+	filled := column
+	if zero, ok := ZeroLiteral(d, column.Type); ok && fillsNewColumn(column) {
+		filled.Default = zero
+	}
+
+	definition, err := ColumnDefinitionSQL(d, filled)
+	if err != nil {
+		return nil, err
+	}
+
+	statements := []string{fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s;", quotedTable, definition)}
+	if filled.Default != column.Default {
+		statements = append(statements, fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s DROP DEFAULT;", quotedTable, d.QuoteIdent(column.Name)))
+	}
+
+	return statements, nil
+}
+
+// fillsNewColumn reports a column whose existing rows need a value when it is
+// added: NOT NULL, with nothing that gives it one.
+func fillsNewColumn(column ColumnSpec) bool {
+	return !column.Type.Nullable && column.Default == "" && column.Generated == "" &&
+		column.Fill != FillGenerated && !column.PrimaryKey && !column.AutoIncrement
+}
+
+// NewColumnFill is what the rows present get in a new NOT NULL column without a
+// default, for the note a migration writes; it is empty when nothing is filled.
+func NewColumnFill(d Dialect, column ColumnSpec) string {
+	if !fillsNewColumn(column) {
+		return ""
+	}
+
+	zero, _ := ZeroLiteral(d, column.Type)
+
+	return zero
 }
