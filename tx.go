@@ -229,8 +229,9 @@ func waitTxRetry(ctx context.Context, options *RetryPolicy, attempt int) error {
 
 	// Two transactions that deadlocked fail at the same moment, and with the same
 	// backoff they met again at the next attempt: each waits somewhere between
-	// half the backoff and the whole of it.
-	delay = delay/2 + rand.N(delay/2+1)
+	// half the backoff and the whole of it. The draw spreads retries and guards
+	// nothing, so it needs no cryptographic source.
+	delay = delay/2 + rand.N(delay/2+1) // #nosec G404 -- backoff jitter, not a secret
 
 	timer := time.NewTimer(delay)
 	defer timer.Stop()
