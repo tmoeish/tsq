@@ -130,6 +130,30 @@ func (d MySQLDialect) InspectColumns(ctx context.Context, db Executor, table str
 	return columns, true, nil
 }
 
+// mysqlSchemaLock names the lock schema changes are made under. A named lock is
+// the server's, not a database's, so the name carries the database (hashed: a
+// lock name is at most 64 characters).
+const mysqlSchemaLock = "CONCAT('tsq.schema.', MD5(DATABASE()))"
+
+// LockSchema takes a named lock, waiting for it without a limit of its own: ctx
+// is what gives up.
+func (d MySQLDialect) LockSchema(ctx context.Context, conn Executor) (func(context.Context) error, bool, error) {
+	var got sql.NullInt64
+	if err := conn.QueryRowContext(ctx, "SELECT GET_LOCK("+mysqlSchemaLock+", -1)").Scan(&got); err != nil {
+		return nil, true, err
+	}
+
+	if got.Int64 != 1 {
+		return nil, true, errors.New("the server did not give the schema lock")
+	}
+
+	return func(ctx context.Context) error {
+		_, err := conn.ExecContext(ctx, "DO RELEASE_LOCK("+mysqlSchemaLock+")")
+
+		return err
+	}, true, nil
+}
+
 // ProbeColumn creates two temporary tables in turn, one holding declared and one
 // holding the live column as SHOW CREATE TABLE writes it, and compares what the
 // engine reports for each. Both sides go through the same door on purpose: a

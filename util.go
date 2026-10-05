@@ -123,8 +123,11 @@ func bindValue(v any) any {
 	// A json.RawMessage that was never set is not JSON: bound as the empty bytes
 	// every other byte slice becomes, MySQL and PostgreSQL refused it for a JSON
 	// column. It is the JSON null, as encoding/json writes a nil RawMessage.
+	// It stays a RawMessage: a driver that writes its parameters into the statement
+	// (MySQL's interpolateParams, pgx's simple protocol) spells a plain []byte as
+	// binary, which a JSON column refuses.
 	if raw, ok := v.(json.RawMessage); ok && len(raw) == 0 {
-		return []byte("null")
+		return json.RawMessage("null")
 	}
 
 	// A []byte field, or one of a named byte-slice type (json.RawMessage), is a

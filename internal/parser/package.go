@@ -29,8 +29,13 @@ type ParseResult struct {
 // Parse parses the package at path and returns every annotated struct plus the package directory.
 func Parse(packagePath string) ([]*genmodel.StructInfo, string, error) {
 	if filepath.IsAbs(packagePath) || strings.HasPrefix(packagePath, ".") {
-		if info, err := os.Stat(packagePath); err != nil || !info.IsDir() {
+		switch info, err := os.Stat(packagePath); {
+		case strings.Contains(packagePath, "..."):
+			return nil, "", fmt.Errorf("%s is a pattern; tsq gen takes the directory of one package, so run it once for each", packagePath)
+		case err != nil:
 			return nil, "", fmt.Errorf("package directory %s does not exist", packagePath)
+		case !info.IsDir():
+			return nil, "", fmt.Errorf("%s is a file; tsq gen takes the directory of the package", packagePath)
 		}
 	}
 

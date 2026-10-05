@@ -55,7 +55,7 @@
 | `Logger`、执行期日志与 SQL 日志（`logForExecutor` / `logSQLForExecutor`） | `log.go` |
 | 错误类型与全部 `Is*` 判断（乐观锁、行状态、重试、冲突、重复键） | `errors.go`（驱动错误分类在 `mysql_errors.go` / `postgres_errors.go` / `sqlite_errors.go`） |
 | 事务与重试（`WithTx`、`WithTxResult`、`TxOption` 与 `WithRetry` 等、`RetryPolicy`） | `tx.go`（`tx_test.go`） |
-| 追踪钩子 | `trace.go` |
+| 追踪钩子、tracer 契约的执行（`traced`：恰好调用一次 `next`、不传 nil context） | `trace.go`（`trace_test.go` 的 `TestTracersAreHeldToTheirContract`） |
 | SQLite / PostgreSQL / MySQL 错误映射 | `sqlite_errors.go`、`postgres_errors.go`、`mysql_errors.go`（反射读 `*mysql.MySQLError`，不 import 驱动） |
 | 杂项（`isNilValue`、标识符校验、谓词值校验） | `util.go` |
 | 真实 MySQL / PostgreSQL 集成测试、MySQL 错误分类 | `internal/integration/integration_test.go`（只用导出 API，env DSN 驱动；放在根包外是为了不把驱动和 nullbio 带进使用者的 `go.sum`） |

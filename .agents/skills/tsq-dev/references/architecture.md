@@ -261,7 +261,7 @@ CTE 的输出列可空时，`WithTable(cte)` 重绑的列标成 `always`。
   批量写每列每行绑一个值，这是反射成本最集中的地方；零值判断和盖时间戳仍用反射（每表几列，一次）。
   基准在 `write_bench_test.go`。
 - **所有绑定值经 `bindValue`**（`assemble` 和 `writeStmt.arg` 两个出口）：时间转 UTC 并截到微秒（`boundTime`），含 `Valuer` 产出的时间；
-  托管时间戳取 `stampTime()`（同一精度）。新增绑定出口必须也走它。`assemble` 还在绑定值超过 `MaxBindParams` 时拒绝语句并指向 `ListIn`。
+  托管时间戳取 `stampTime()`（同一精度）；读回的时间在 `scanTime` 里统一转成 UTC。新增绑定出口必须也走它。`assemble` 还在绑定值超过 `MaxBindParams` 时拒绝语句并指向 `ListIn`。
 - **托管列在库里维护，不在模板里**：`Insert` 只在未设置时填 `created_at` / `updated_at`
   （`isUnset`：零值或 `Valuer` 返回 nil），`Update` 总是刷新 `updated_at`，软删除写墓碑。
   `applyTimestamp` / `applyTombstone` 覆盖 `time.Time`、`*time.Time`，整数墓碑，以及实现

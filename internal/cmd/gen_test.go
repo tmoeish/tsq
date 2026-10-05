@@ -3002,6 +3002,46 @@ func TestGenWarnsAboutAMySQLRowTooLarge(t *testing.T) {
 	}
 }
 
+// TestGenSaysWhatIsWrongWithItsInput covers two refusals that named something
+// else than the problem: a tsq.json with a merge conflict left in it was "a
+// non-generated DDL state file", and a package pattern or a file was a "package
+// directory" that "does not exist".
+func TestGenSaysWhatIsWrongWithItsInput(t *testing.T) {
+	model := map[string]string{"model.go": "package gentest\n\n//tsq:table name=people\ntype Person struct {\n\tID int64 `db:\"id\"`\n}\n"}
+
+	if err := genModule(t, model); err != nil {
+		t.Fatal(err)
+	}
+
+	state, err := os.ReadFile("tsq.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for name, damaged := range map[string]string{
+		"a merge conflict": "<<<<<<< HEAD\n" + string(state) + "=======\n{}\n>>>>>>> theirs\n",
+		"a file cut short": string(state[:len(state)/3]),
+	} {
+		writeTestFile(t, "tsq.json", damaged)
+
+		if err := runGen(t); err == nil || !strings.Contains(err.Error(), "merge conflict") || !strings.Contains(err.Error(), "version control") {
+			t.Errorf("tsq gen over a tsq.json with %s = %v", name, err)
+		}
+	}
+
+	writeTestFile(t, "tsq.json", string(state))
+
+	for arg, want := range map[string]string{"./...": "is a pattern", "./model.go": "is a file", "./nowhere": "does not exist"} {
+		GenCmd.SetOut(new(bytes.Buffer))
+		GenCmd.SetErr(new(bytes.Buffer))
+		GenCmd.SetArgs([]string{arg})
+
+		if err := GenCmd.Execute(); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("tsq gen %s = %v; want it to say the path %s", arg, err, want)
+		}
+	}
+}
+
 // TestGenRefusesToStartHistoryOverGeneratedSQL covers a lost tsq.json, deleted to
 // settle a merge conflict: the generated .sql was adopted as the start of history,
 // and a field added since reached no migration at all.

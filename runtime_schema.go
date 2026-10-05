@@ -3,11 +3,14 @@ package tsq
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"fmt"
 	"slices"
 	"sort"
 	"strings"
+	"sync"
+	"time"
 
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 	sqld "github.com/tmoeish/tsq/v5/internal/sqldialect"
@@ -30,6 +33,13 @@ func (r *Runtime) applySchemaPolicies(ctx context.Context) error {
 		return errors.New("runtime cannot be nil")
 	}
 
+	unlock, err := r.lockSchema(ctx)
+	if err != nil {
+		return err
+	}
+
+	defer unlock()
+
 	// Manual is the default and the recommended production setup, so saying so is a
 	// statement of the configured mode, not a warning that something may be wrong.
 	// Logging it at warn level put two records in front of every user on every boot.
@@ -47,6 +57,76 @@ func (r *Runtime) applySchemaPolicies(ctx context.Context) error {
 	}
 
 	return r.applyIndexPolicy(ctx)
+}
+
+// sqliteSchema lets the runtimes of one process change a SQLite schema one at a
+// time: SQLite has no lock a connection can hold across statements. The runtime's
+// constructor holds it from its first use of the database.
+var sqliteSchema sync.Mutex
+
+// changesSchema reports a policy that runs DDL.
+func changesSchema(p SchemaPolicy) bool {
+	return p == SchemaPolicyCreateMissing || p == SchemaPolicyReconcile
+}
+
+// lockSchema makes this runtime the only one changing the schema until the
+// returned function is called. Several instances of a service start together,
+// each finds the same table or column missing, and all but the first failed on
+// "already exists" (PostgreSQL also on a duplicate key in its own catalog, when
+// two CREATE TABLE of one name ran at once): the instance that waits for the lock
+// then finds the schema as the first one left it, and has nothing to do.
+//
+// MySQL and PostgreSQL hold the lock on one connection, and every statement of
+// the policies runs on that connection for as long: a pool of one connection has
+// no other to give. A policy that changes nothing (Validate) takes no lock.
+func (r *Runtime) lockSchema(ctx context.Context) (func(), error) {
+	if (!changesSchema(r.tablePolicy) && !changesSchema(r.indexPolicy)) || r.dialect.Name() == tsqdialect.SQLite {
+		return func() {}, nil
+	}
+
+	conn, err := r.db.Conn(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("take the schema lock: %w", err)
+	}
+
+	unlock, ok, err := r.dialect.LockSchema(ctx, conn)
+	if err != nil || !ok {
+		_ = conn.Close()
+
+		if err != nil {
+			return nil, fmt.Errorf("take the schema lock: %w", err)
+		}
+
+		return func() {}, nil
+	}
+
+	r.schema = conn
+
+	return func() {
+		r.schema = nil
+
+		// The lock is the session's: a connection that could not release it must
+		// not go back to the pool holding it, where it would block every other
+		// instance until the pool lets the connection go.
+		released, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer cancel()
+
+		if err := unlock(released); err != nil {
+			_ = conn.Raw(func(any) error { return driver.ErrBadConn })
+		}
+
+		_ = conn.Close()
+	}, nil
+}
+
+// schemaDB is what the schema policies run their statements on: the connection
+// that holds the schema lock, or the pool when no lock is held.
+func (r *Runtime) schemaDB() sqld.Executor {
+	if r.schema != nil {
+		return r.schema
+	}
+
+	return r.db
 }
 
 func (r *Runtime) applyTablePolicy(ctx context.Context) error {
@@ -74,7 +154,7 @@ func (r *Runtime) applyTablePolicyForTable(ctx context.Context, table *registere
 		return fmt.Errorf("table %s does not include runtime schema columns; regenerate TSQ code before using table management", tableName)
 	}
 
-	current, found, err := r.dialect.InspectColumns(ctx, r.db, tableName)
+	current, found, err := r.dialect.InspectColumns(ctx, r.schemaDB(), tableName)
 	if err != nil {
 		return fmt.Errorf("inspect table %s: %w", tableName, err)
 	}
@@ -190,7 +270,7 @@ func (r *Runtime) dropIndexesOfDroppedColumns(ctx context.Context, tableName str
 		return nil
 	}
 
-	indexes, err := r.dialect.ListIndexes(ctx, r.db, tableName)
+	indexes, err := r.dialect.ListIndexes(ctx, r.schemaDB(), tableName)
 	if err != nil {
 		return err
 	}
@@ -220,7 +300,7 @@ func (r *Runtime) rebuildTable(
 	current []sqld.Column,
 	desired []tsqdialect.ColumnSpec,
 ) error {
-	rebuild, err := r.dialect.InspectRebuild(ctx, r.db, tableName)
+	rebuild, err := r.dialect.InspectRebuild(ctx, r.schemaDB(), tableName)
 	if err != nil {
 		return err
 	}
@@ -295,16 +375,23 @@ func (r *Runtime) adoptEngineSpelling(ctx context.Context, tableName string, cur
 			continue
 		}
 
-		if conn == nil {
-			opened, err := r.db.Conn(ctx)
-			if err != nil {
-				return current
+		// Under the schema lock the policies have a connection already, and a pool
+		// of one has no second to give.
+		probeOn := r.schema
+		if probeOn == nil {
+			if conn == nil {
+				opened, err := r.db.Conn(ctx)
+				if err != nil {
+					return current
+				}
+
+				conn = opened
 			}
 
-			conn = opened
+			probeOn = conn
 		}
 
-		same, supported, err := r.dialect.ProbeColumn(ctx, conn, tableName, *change.before, *change.after)
+		same, supported, err := r.dialect.ProbeColumn(ctx, probeOn, tableName, *change.before, *change.after)
 		if !supported {
 			return current
 		}
@@ -388,13 +475,13 @@ func (r *Runtime) applyIndexPolicy(ctx context.Context) error {
 
 func (r *Runtime) applyIndexPolicyForTable(ctx context.Context, table *registeredTable) error {
 	tableName := table.name
-	if _, found, err := r.dialect.InspectColumns(ctx, r.db, tableName); err != nil {
+	if _, found, err := r.dialect.InspectColumns(ctx, r.schemaDB(), tableName); err != nil {
 		return err
 	} else if !found {
 		return &MissingTableError{Table: tableName}
 	}
 
-	currentIndexes, err := r.dialect.ListIndexes(ctx, r.db, tableName)
+	currentIndexes, err := r.dialect.ListIndexes(ctx, r.schemaDB(), tableName)
 	if err != nil {
 		return fmt.Errorf("list indexes for %s: %w", tableName, err)
 	}
@@ -441,7 +528,7 @@ func (r *Runtime) applyIndexPolicyForTable(ctx context.Context, table *registere
 				return &MissingIndexError{Table: tableName, IndexSpec: cloneIndexSpec(idx)}
 			}
 
-			statement, err := r.dialect.EnsureIndex(ctx, r.db, tableName, idx.Name, idx.Columns, idx.Unique)
+			statement, err := r.dialect.EnsureIndex(ctx, r.schemaDB(), tableName, idx.Name, idx.Columns, idx.Unique)
 			if err != nil {
 				return fmt.Errorf("create index %s on %s: %w", idx.Name, tableName, err)
 			}
@@ -472,7 +559,7 @@ func (r *Runtime) applyIndexPolicyForTable(ctx context.Context, table *registere
 			// old index is still there. Dropping first left the table without the
 			// unique index, open to the duplicates it kept out.
 			probe := rebuildIndexName(idx.Name)
-			if _, err := r.dialect.EnsureIndex(ctx, r.db, tableName, probe, idx.Columns, idx.Unique); err != nil {
+			if _, err := r.dialect.EnsureIndex(ctx, r.schemaDB(), tableName, probe, idx.Columns, idx.Unique); err != nil {
 				return fmt.Errorf("recreate index %s on %s: %w", idx.Name, tableName, err)
 			}
 
@@ -480,7 +567,7 @@ func (r *Runtime) applyIndexPolicyForTable(ctx context.Context, table *registere
 				return err
 			}
 
-			createStatement, err := r.dialect.EnsureIndex(ctx, r.db, tableName, idx.Name, idx.Columns, idx.Unique)
+			createStatement, err := r.dialect.EnsureIndex(ctx, r.schemaDB(), tableName, idx.Name, idx.Columns, idx.Unique)
 			if err != nil {
 				return fmt.Errorf("recreate index %s on %s: %w", idx.Name, tableName, err)
 			}
@@ -560,7 +647,7 @@ func (r *Runtime) execDDL(ctx context.Context, statement string) error {
 		return nil
 	}
 
-	if _, err := r.db.ExecContext(ctx, statement); err != nil {
+	if _, err := r.schemaDB().ExecContext(ctx, statement); err != nil {
 		return err
 	}
 

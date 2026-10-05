@@ -504,3 +504,67 @@ func TestIntegrationFunctionsEveryEngineHas(t *testing.T) {
 		})
 	}
 }
+
+type zoned struct {
+	ID int64
+	At time.Time
+}
+
+// zonedTable declares a time column of the engine's zone-aware type.
+func zonedTable(raw string) *tsq.TableOf[zoned, int64] {
+	h := tsq.NewTable[zoned, int64]("zoned")
+	id := tsq.NewColumn(h, "id", "id", func(r *zoned) *int64 { return &r.ID })
+
+	return h.Define(tsq.TableSpec[zoned, int64]{
+		Columns:       []tsq.BoundColumn[zoned]{id, tsq.NewColumn(h, "at", "at", func(r *zoned) *time.Time { return &r.At })},
+		PrimaryKey:    id,
+		AutoIncrement: true,
+		ColumnSpecs: []tsqdialect.ColumnSpec{
+			{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
+			{Name: "at", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindTime, RawType: raw}},
+		},
+	})
+}
+
+// TestIntegrationZonedColumnsAreReadInUTC covers a time column declared with the
+// engine's zone-aware type. Every time TSQ reads is in UTC, and this was the one
+// that was not: pgx hands a TIMESTAMPTZ back in the session's local zone.
+func TestIntegrationZonedColumnsAreReadInUTC(t *testing.T) {
+	ctx := context.Background()
+	at := time.Date(2024, 6, 1, 12, 0, 0, 0, time.FixedZone("east", 8*3600))
+
+	for _, target := range integrationTargets(t) {
+		raw := map[string]string{"mysql": "TIMESTAMP(6)", "postgres": "TIMESTAMPTZ", "sqlite": "TIMESTAMP"}[target.name]
+
+		t.Run(target.name+"/"+raw, func(t *testing.T) {
+			dropTables(t, target, "zoned")
+
+			table := zonedTable(raw)
+
+			rt, _, err := openQuietly(target, tsq.SchemaPolicyCreateMissing, table)
+			if err != nil {
+				t.Fatalf("open: %v", err)
+			}
+
+			defer func() { _ = rt.Close() }()
+
+			if _, err := rt.ExecContext(ctx, "SET TIME ZONE 'Asia/Tokyo'"); err != nil && target.name == "postgres" {
+				t.Fatalf("set the session zone: %v", err)
+			}
+
+			row := &zoned{At: at}
+			if err := table.Insert(ctx, rt, row); err != nil {
+				t.Fatalf("insert: %v", err)
+			}
+
+			got, err := table.Get(ctx, rt, row.ID)
+			if err != nil {
+				t.Fatalf("get: %v", err)
+			}
+
+			if !got.At.Equal(at) || got.At.Location() != time.UTC {
+				t.Fatalf("read %v, want %v in UTC", got.At, at.UTC())
+			}
+		})
+	}
+}

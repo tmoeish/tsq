@@ -126,6 +126,11 @@ type Dialect interface {
 	InsertIDStepQuery() string
 	// InspectColumns reports the live columns of table, and false when it does not exist.
 	InspectColumns(ctx context.Context, db Executor, table string) ([]Column, bool, error)
+	// LockSchema takes the lock that lets one runtime at a time change the schema
+	// of the database conn is connected to, waiting for whoever holds it, and
+	// returns what releases it. conn must be one connection: the lock belongs to
+	// its session. The second result is false for a dialect that has no such lock.
+	LockSchema(ctx context.Context, conn Executor) (unlock func(context.Context) error, ok bool, err error)
 	// ProbeColumn asks the engine whether declared and the live column inspected
 	// of table are one thing under two spellings. It creates declared in a
 	// temporary table on conn, which must be one connection, and compares what

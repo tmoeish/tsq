@@ -14,15 +14,13 @@
 
 ## 文档描述了一个不存在的阶段；"最紧的上限"是断言要去量 (2026-08-28)
 
-`api-check` 和 `doc-check` 都只看符号：**"文档提到的符号都存在"不等于"描述的用法都成立"**（2026-09-28 又抓到 `SelectValue(Sum)` 会被拒、`Select(tsq.Upper(...))` 编译不过——改示例先跑一遍；
-2026-09-29 重写示例又抓到 Attach 承诺的子查询顺序被 `ListIn` 拒绝；第四轮审计抓到 `ScalarNull`、`PageRequest.Validate`、"任何 `*sql.DB`"——
-**复写的副本最先过时**，`docs/skill.md` 复述规则那一节因此换成指向 REFERENCE 的链接）。上限写死
-65535 注释"最紧的"，SQLite 其实是 32766——**修一类 bug 要把这一类的实例都数一遍**。同类（2026-08-26）：
-**stringly-typed 的开关，空值 `""` 永远是那个没人写的分支**，违规被静默丢弃。用类型化枚举或不留开关。
+`api-check` 和 `doc-check` 只看符号：**"文档提到的符号都存在"不等于"描述的用法都成立"**（三轮审计各抓到几处：`SelectValue(Sum)` 会被拒、Attach 承诺的顺序被 `ListIn` 拒绝、`ScalarNull`……），
+改示例先跑一遍；**复写的副本最先过时**（`docs/skill.md` 复述规则那一节因此换成链接）。上限曾写死 65535 注释"最紧的"，SQLite 其实是 32766——**修一类 bug 要把这一类的实例都数一遍**。
+同类：**stringly-typed 的开关，空值 `""` 永远是那个没人写的分支**，用类型化枚举或不留开关。
 
 ## 接口里"有定义、有实现、零调用"的钩子 (2026-08-26)
 
-`Dialect.ReturningClause` 零调用，PG 上 `Insert` 从没回填主键，现在由集成测试挡着。**auto-merge 只等必需检查**（先查 ruleset）。
+`Dialect.ReturningClause` 零调用，PG 上 `Insert` 从没回填主键；规则在 `../impact/runtime.md` § 给 `Dialect` 接口加了钩子。**auto-merge 只等必需检查**（先查 ruleset）。
 
 ## 决定：v5 核心重写——表达式树、命名参数、表描述符、封闭执行器 (2026-09-17)
 
@@ -74,6 +72,10 @@ v5 不背兼容，一次把名字改到"最合理"。定下的几条规则，每
   `BatchOption`（R 被擦掉，别的表的列只能运行期报错）和另开 `UpsertOnly`（同一件事两种写法）。
 - 方言类型不加 `DDL` 前缀。模板不许拼接常量名（`Kind{{ .Kind }}`）：符号门禁只认完整的 `tsqdialect.X`，
   拼出来的名字改名后照样"通过"，所以由 `columnKindRef` 显式列出。
+
+## 决定：tracer 的契约由库执行，不只写在文档里 (2026-10-06)
+
+"必须调用 `next` 并返回它的错误"曾只是一句话：不调用就是"成功但没执行"（`Insert` 没插入、`Get` 返回 nil 行和 nil 错误），调两次就执行两次，传 nil context 让 database/sql 带着锁 panic、`Close` 永不返回。`Runtime.traced` 现在把三种都变成错误；tracer 仍可以用自己的错误拒绝一次操作。
 
 ## 决定：v5 不留兼容别名，且"不用接收者的方法"要变成函数 (2026-09-09)
 

@@ -161,6 +161,11 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 ### 修复
 
+- **多个实例同时启动时，除了第一个都起不来**：滚动发布或多副本在 `CreateMissing` / `Reconcile` 下一起启动，各自发现同一张表、同一列或同一个索引缺失，各自去建，后到的死在"already exists"上（PostgreSQL 上两条同名的 `CREATE TABLE IF NOT EXISTS` 并发时还会撞系统目录的唯一键，SQLite 是 `database is locked`）。现在改 schema 的策略在锁里跑，一个库同时只有一个实例在改，等锁的实例拿到锁时 schema 已经就绪：PostgreSQL 用会话级 advisory lock，MySQL 用 `GET_LOCK`，策略的每条语句都在持锁的那个连接上执行（只有一个连接的池也够用）；SQLite 没有可跨语句持有的锁，同一进程内的运行时轮流来，跨进程不协调。`Validate` 不改任何东西，不加锁。
+- **tracer 不守约时，操作"成功"但没有执行，或者执行两次**：tracer 返回 nil 却没调用 `next`，`Insert` 什么都没插入也不报错、`Get` 返回 nil 行和 nil 错误、`WithTx` 的回调被跳过；调用两次 `next`，语句就执行两次（`Set(x, x+1)` 加了两次）；给 `next` 传 nil context，database/sql 带着锁 panic，此后 `Close` 永不返回。现在这三种都变成明确的错误，语句最多执行一次；tracer 仍然可以用自己的错误拒绝一次操作。
+- **PostgreSQL 的 `TIMESTAMPTZ` 列读回来不是 UTC**：pgx 按会话的本地时区交回带时区的时间，这是唯一一处读回的时间不在 UTC 的地方。现在读行时统一转成 UTC。
+- **没设置过的 `json.RawMessage` 在把参数写进语句的驱动模式下仍被拒绝**：上一条修复把它绑成了普通字节切片，MySQL 的 `interpolateParams=true` 和 pgx 的 simple protocol 会把字节切片拼成二进制字面量，JSON 列不收。现在绑定值保持 `json.RawMessage` 类型。
+- **`tsq gen` 的两处报错说的不是问题本身**：`tsq.json` 里留着合并冲突或被截断时，报的是"non-generated DDL state file"；传了 `./...` 或一个文件时，报的是"package directory does not exist"。现在分别说明是状态文件损坏（并提示从版本库恢复）、是通配路径、是文件而不是目录。
 - **分组表达式在 `HAVING`、嵌套表达式和 `ORDER BY` 里再用一次，MySQL 和 PostgreSQL 报错**：`GroupBy(tsq.Upper(note))` 之后写 `Having(tsq.Upper(note).NE(...))` 或选出 `tsq.Lower(tsq.Upper(note))`，`Build` 放行、SQLite 能跑，MySQL 报 1054 / 1055（它只认整个出现在选择列表或 `ORDER BY` 里的分组表达式）；分组表达式带绑定值时（`tsq.Add(qty, tsq.Val(10))`）PostgreSQL 也报错，因为每写一次就是一个新参数，它把两处当成两个表达式。现在这两个引擎上，这样的出现被写成 `MAX(表达式)`——同一组里它只有一个值，聚合可以出现在任何位置。只改写原本必然报错的写法：聚合里面的出现（`Count(Upper(note))`）、`Expr` 手写的函数里面的出现、子查询里面的出现、分组的列、本身就是分组表达式的选择项都保持原样。
 - **`tsq.Max` / `tsq.Min` 作用于布尔列在 PostgreSQL 上报错**（没有 `MAX(boolean)`）：那里改写成 `BOOL_OR` / `BOOL_AND`，三个引擎答案一致。
 - **`tsq.Ceil` / `tsq.Floor` 在 mattn/go-sqlite3 上报 `no such function`**：这个驱动默认不编入 SQLite 的数学函数。SQLite 上改用不依赖数学函数的写法，两个驱动都能用。

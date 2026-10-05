@@ -221,7 +221,8 @@ func loadDDLStateFile(outDir string) (*ddlStateFile, error) {
 	}
 
 	if !isGeneratedDDLArtifact(content) {
-		return nil, fmt.Errorf("refusing to read non-generated DDL state file: %s", filename)
+		return nil, fmt.Errorf("%s is not a state file tsq gen wrote, or no longer one: it does not read as JSON with a generated_by field "+
+			"(a merge conflict left in it, or a file cut short); restore it from version control", filename)
 	}
 
 	var state ddlStateFile

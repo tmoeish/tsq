@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -818,6 +819,107 @@ func TestIntegrationAMissingGeneratedColumnIsSeen(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// TestIntegrationInstancesStartTogether covers several instances of one service
+// starting at once under a policy that changes the schema: a rolling deploy, or
+// replicas coming up after a release that adds a column. Each found the same thing
+// missing, and all but the first failed to start: "already exists" on every
+// engine, a duplicate key in PostgreSQL's own catalog for two CREATE TABLE of one
+// name, "database is locked" on SQLite. They now take turns under a lock, and the
+// ones that waited find nothing left to do.
+func TestIntegrationInstancesStartTogether(t *testing.T) {
+	const instances = 6
+
+	for _, target := range integrationTargets(t) {
+		for _, policy := range []tsq.SchemaPolicy{tsq.SchemaPolicyCreateMissing, tsq.SchemaPolicyReconcile} {
+			t.Run(target.name+"/"+string(policy), func(t *testing.T) {
+				start := func(what string, table tsq.Table) {
+					t.Helper()
+
+					var wg sync.WaitGroup
+
+					errs := make([]error, instances)
+					ran := make([]int, instances)
+					gate := make(chan struct{})
+
+					for i := range instances {
+						wg.Go(func() {
+							<-gate
+
+							rt, statements, err := openQuietly(target, policy, table)
+							if rt != nil {
+								_ = rt.Close()
+							}
+
+							errs[i], ran[i] = err, len(statements)
+						})
+					}
+
+					close(gate)
+					wg.Wait()
+
+					changed := 0
+
+					for i, err := range errs {
+						if err != nil {
+							t.Errorf("%s: instance %d failed to start: %v", what, i, err)
+						}
+
+						if ran[i] > 0 {
+							changed++
+						}
+					}
+
+					if changed != 1 {
+						t.Errorf("%s: %d instances changed the schema, want exactly one", what, changed)
+					}
+				}
+
+				dropTables(t, target, "indexed")
+				start("a database without the table", indexedTable(tsq.IndexSpec{Name: "ux_indexed_a", Columns: []string{"a"}, Unique: true}))
+
+				// The next release declares another index: every instance sees it missing.
+				start("an index added", indexedTable(
+					tsq.IndexSpec{Name: "ux_indexed_a", Columns: []string{"a"}, Unique: true},
+					tsq.IndexSpec{Name: "idx_indexed_b", Columns: []string{"b"}},
+				))
+
+				// A pool of one connection has none to spare for the lock.
+				db, err := sql.Open(target.driver, target.dsn)
+				if err != nil {
+					t.Fatal(err)
+				}
+
+				defer func() { _ = db.Close() }()
+
+				db.SetMaxOpenConns(1)
+
+				ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+				defer cancel()
+
+				rt, err := tsq.NewRuntime(ctx, db, targetDialect(target), []tsq.Table{indexedTable(tsq.IndexSpec{Name: "idx_indexed_b", Columns: []string{"b"}})},
+					tsq.WithSchemaPolicy(policy), tsq.WithLogger(&ddlRecorder{}))
+				if err != nil {
+					t.Fatalf("a pool of one connection: %v", err)
+				}
+
+				_ = rt.Close()
+			})
+		}
+	}
+}
+
+// targetDialect is the dialect of an integration target.
+func targetDialect(target integrationTarget) tsqdialect.Name {
+	switch target.name {
+	case "mysql":
+		return tsqdialect.MySQL
+	case "postgres":
+		return tsqdialect.Postgres
+	default:
+		return tsqdialect.SQLite
 	}
 }
 
