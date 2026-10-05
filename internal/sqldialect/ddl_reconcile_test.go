@@ -206,11 +206,46 @@ func TestPostgresDDLAlterColumnStatementsNullabilityOnlySkipsAlterType(t *testin
 		Type: ColumnType{Kind: KindString, Size: 120},
 	}
 
+	// No ALTER TYPE; the rows holding NULL are filled before SET NOT NULL, which
+	// would fail on them.
 	statements := d.AlterColumnSQL("users", before, after)
-	want := `ALTER TABLE "users" ALTER COLUMN "name" SET NOT NULL;`
+	want := []string{
+		`UPDATE "users" SET "name" = '' WHERE "name" IS NULL;`,
+		`ALTER TABLE "users" ALTER COLUMN "name" SET NOT NULL;`,
+	}
 
-	if len(statements) != 1 || statements[0] != want {
-		t.Fatalf("expected only a SET NOT NULL statement, got %v", statements)
+	if !slices.Equal(statements, want) {
+		t.Fatalf("statements = %v; want %v", statements, want)
+	}
+}
+
+// TestPostgresAlterColumnDoesNotTruncate covers a shorter VARCHAR written with
+// USING col::VARCHAR(n), an explicit cast that cuts longer values without an
+// error, and a current-time default set as CURRENT_TIMESTAMP, the session's local
+// time where CREATE TABLE writes UTC.
+func TestPostgresAlterColumnDoesNotTruncate(t *testing.T) {
+	d := PostgresDialect{}
+
+	shrink := d.AlterColumnSQL("t",
+		Column{Name: "name", Type: ColumnType{Kind: KindString, Size: 128}},
+		ColumnSpec{Name: "name", Type: ColumnType{Kind: KindString, Size: 8}})
+	if len(shrink) != 1 || shrink[0] != `ALTER TABLE "t" ALTER COLUMN "name" TYPE VARCHAR(8);` {
+		t.Fatalf("shrink = %v; want no USING, so PostgreSQL refuses a value that does not fit", shrink)
+	}
+
+	kind := d.AlterColumnSQL("t",
+		Column{Name: "flag", Type: ColumnType{Kind: KindBool}},
+		ColumnSpec{Name: "flag", Type: ColumnType{Kind: KindInt, Bits: 32}})
+	if len(kind) != 1 || !strings.Contains(kind[0], `USING "flag"::INTEGER`) {
+		t.Fatalf("bool to int = %v; want USING, which has no assignment cast", kind)
+	}
+
+	stamped := d.AlterColumnSQL("t",
+		Column{Name: "seen_at", Type: ColumnType{Kind: KindTime, Nullable: true}},
+		ColumnSpec{Name: "seen_at", Type: ColumnType{Kind: KindTime}, Default: "CURRENT_TIMESTAMP"})
+	joined := strings.Join(stamped, " ")
+	if !strings.Contains(joined, "SET DEFAULT (CURRENT_TIMESTAMP AT TIME ZONE 'UTC')") || strings.Contains(joined, "SET DEFAULT CURRENT_TIMESTAMP;") {
+		t.Fatalf("stamped = %v; want the UTC default CREATE TABLE writes", stamped)
 	}
 }
 

@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"regexp"
 	"slices"
 	"strings"
 
@@ -131,10 +130,6 @@ func (d MySQLDialect) InspectColumns(ctx context.Context, db Executor, table str
 	return columns, true, nil
 }
 
-// mysqlIntroducer is a character set introducer in front of a string literal, as
-// in _utf8mb4'USD'.
-var mysqlIntroducer = regexp.MustCompile(`_[A-Za-z0-9]+'`)
-
 // mysqlDefault reads a column default back as it was declared. An expression
 // default (DEFAULT_GENERATED: every default of a TEXT or BLOB column, which MySQL
 // accepts only as an expression) is reported as its stored text, with the string
@@ -146,14 +141,51 @@ func mysqlDefault(value sql.NullString, extra string) string {
 		return def
 	}
 
-	def = strings.NewReplacer(`\'`, "'", `\\`, `\`).Replace(def)
-	def = mysqlIntroducer.ReplaceAllString(def, "'")
+	def = stripIntroducers(strings.NewReplacer(`\'`, "'", `\\`, `\`).Replace(def))
 
 	for len(def) >= 2 && def[0] == '(' && def[len(def)-1] == ')' {
 		def = strings.TrimSpace(def[1 : len(def)-1])
 	}
 
 	return def
+}
+
+// stripIntroducers removes the character set introducers (_utf8mb4 in
+// _utf8mb4'USD') in front of string literals. Only outside a literal: 'en_US' is
+// text, and a pattern over the whole default cut it to 'en'.
+func stripIntroducers(def string) string {
+	var b strings.Builder
+
+	quoted := false
+
+	for i := 0; i < len(def); i++ {
+		c := def[i]
+
+		if !quoted && c == '_' && (i == 0 || !isIdentByte(def[i-1])) {
+			j := i + 1
+			for j < len(def) && isIdentByte(def[j]) {
+				j++
+			}
+
+			if j > i+1 && j < len(def) && def[j] == '\'' {
+				i = j - 1
+
+				continue
+			}
+		}
+
+		if c == '\'' {
+			quoted = !quoted
+		}
+
+		b.WriteByte(c)
+	}
+
+	return b.String()
+}
+
+func isIdentByte(c byte) bool {
+	return c == '_' || c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
 }
 
 func (d MySQLDialect) ListIndexes(ctx context.Context, db Executor, table string) ([]Index, error) {
@@ -536,11 +568,20 @@ func (d MySQLDialect) AlterMode() AlterMode {
 }
 
 func (d MySQLDialect) AlterColumnSQL(table string, before Column, after ColumnSpec) []string {
-	return []string{fmt.Sprintf(
+	var statements []string
+
+	// NOT NULL over rows holding NULL fails in strict mode and turns them into
+	// zero values silently otherwise: fill them first, the same on every dialect.
+	if fill := NullFill(d, before, after); fill != "" {
+		statements = append(statements, fmt.Sprintf("UPDATE %s SET %s = %s WHERE %s IS NULL;",
+			d.QuoteIdent(table), d.QuoteIdent(after.Name), fill, d.QuoteIdent(after.Name)))
+	}
+
+	return append(statements, fmt.Sprintf(
 		"ALTER TABLE %s MODIFY COLUMN %s;",
 		d.QuoteIdent(table),
 		d.renderModifyColumnDefinition(after),
-	)}
+	))
 }
 
 // renderModifyColumnDefinition renders a column definition for MODIFY COLUMN.

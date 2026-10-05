@@ -951,12 +951,27 @@ func ddlChangesRequireTableRebuild(ops []ddlChange) bool {
 			return true
 		}
 
-		if op.kind == ddlChangeAddColumn && op.newColumn.Generated != "" {
+		if op.kind == ddlChangeAddColumn && (op.newColumn.Generated != "" || sqliteAddNeedsRebuild(*op.newColumn)) {
 			return true
 		}
 	}
 
 	return false
+}
+
+// sqliteAddNeedsRebuild reports a column SQLite cannot ADD to a table with rows: a
+// default that is not a constant (CURRENT_TIMESTAMP, an expression), which
+// adding created_at to an existing table always has, or NOT NULL without a
+// default. The rebuild creates the table with it, where both are allowed, and
+// fills the rows with the default or the type's zero value.
+func sqliteAddNeedsRebuild(column ddlSnapshotColumn) bool {
+	if migrationOwned(column) || column.PrimaryKey || column.AutoIncrement {
+		return false
+	}
+
+	nonConstant := sqld.IsCurrentTime(column.Default) || strings.HasPrefix(strings.TrimSpace(column.Default), "(")
+
+	return nonConstant || (!column.Nullable && column.Default == "")
 }
 
 // sqliteAlterUnenforced reports a column change SQLite would not enforce: only
@@ -1022,7 +1037,7 @@ func renderSQLiteRebuildTableBody(dialect ddlDialectSpec, tableName string, ops 
 			// type's zero value, so the copy cannot fail on them.
 			fill := column.Default
 			if fill == "" {
-				zero, ok := sqliteZeroLiteral(column)
+				zero, ok := sqld.ZeroLiteral(sqld.SQLiteDialect{}, ddlColumnSpecFromSnapshot(column).Type)
 				if !ok {
 					return renderDDLManualComment(tableName, fmt.Sprintf(
 						"manual rebuild required: %s becomes NOT NULL without a default, and its type:%s has no known zero value for the rows that hold NULL", column.Name, column.RawType)), true
@@ -1041,7 +1056,7 @@ func renderSQLiteRebuildTableBody(dialect ddlDialectSpec, tableName string, ops 
 		case column.Nullable || column.Default != "" || column.AutoIncrement:
 			// The new table fills it.
 		default:
-			zero, ok := sqliteZeroLiteral(column)
+			zero, ok := sqld.ZeroLiteral(sqld.SQLiteDialect{}, ddlColumnSpecFromSnapshot(column).Type)
 			if !ok {
 				return renderDDLManualComment(tableName, fmt.Sprintf(
 					"manual rebuild required: %s is NOT NULL without a default, and its type:%s has no known zero value to fill existing rows with", column.Name, column.RawType)), true
@@ -1116,28 +1131,6 @@ func renderSQLiteRebuildTableBody(dialect ddlDialectSpec, tableName string, ops 
 	return strings.Join(statements, "\n\n"), true
 }
 
-// sqliteZeroLiteral is the Go zero value of column's type as a SQLite literal,
-// which a rebuild writes into a new NOT NULL column of existing rows. A column of
-// an explicit type: has none TSQ knows.
-func sqliteZeroLiteral(column ddlSnapshotColumn) (string, bool) {
-	if column.RawType != "" {
-		return "", false
-	}
-
-	switch column.Kind {
-	case ddlColumnString:
-		return "''", true
-	case ddlColumnInt, ddlColumnBool, ddlColumnFloat:
-		return "0", true
-	case ddlColumnBytes:
-		return "X''", true
-	case ddlColumnTime:
-		return "'0001-01-01 00:00:00+00:00'", true
-	}
-
-	return "", false
-}
-
 // sqlLiteral quotes s as a SQL string literal.
 func sqlLiteral(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
@@ -1165,13 +1158,28 @@ func renderDDLChangeOperation(dialect ddlDialectSpec, op ddlChange) []string {
 			renderDDLSnapshotColumnDefinition(*op.newColumn, dialect),
 		)
 
-		// Right on an empty table, and refused by every dialect on one with rows:
-		// the migration is the user's to run, so it says so where it will be read.
+		// NOT NULL without a default is refused by every dialect on a table with
+		// rows. The rows get the type's zero value, as the SQLite rebuild gives
+		// them: the column is added with that default, which is then dropped.
 		if column := op.newColumn; !column.Nullable && column.Default == "" && column.Generated == "" {
+			spec := ddlColumnSpecFromSnapshot(*column)
+
+			zero, ok := sqld.ZeroLiteral(dialect.dialect, spec.Type)
+			if !ok {
+				return []string{
+					renderDDLManualComment(op.table, fmt.Sprintf(
+						"%s is NOT NULL without a default, which fails on a table with rows; declare default: or backfill it first", column.Name)),
+					statement,
+				}
+			}
+
+			quotedTable, quotedColumn := dialect.dialect.QuoteIdent(op.table), dialect.dialect.QuoteIdent(column.Name)
+
 			return []string{
-				renderDDLManualComment(op.table, fmt.Sprintf(
-					"%s is NOT NULL without a default, which fails on a table with rows; declare default: or backfill it first", column.Name)),
-				statement,
+				renderDDLManualComment(op.table, fmt.Sprintf("%s is NOT NULL without a default; existing rows get %s", column.Name, zero)),
+				fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s NOT NULL DEFAULT %s;", quotedTable, strings.TrimSuffix(strings.TrimSpace(
+					strings.Replace(renderDDLSnapshotColumnDefinition(*column, dialect), " NOT NULL", "", 1)), ","), zero),
+				fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s DROP DEFAULT;", quotedTable, quotedColumn),
 			}
 		}
 
@@ -1233,9 +1241,18 @@ func renderDDLAlterColumnStatements(
 		return []string{renderDDLManualComment(tableName, fmt.Sprintf("manual change required for column %s on %s", after.Name, ddlDialectName(dialect)))}
 	}
 
-	statements := dialect.dialect.AlterColumnSQL(tableName, sqld.Column{ColumnSpec: ddlColumnSpecFromSnapshot(before)}, ddlColumnSpecFromSnapshot(after))
+	beforeColumn, afterSpec := sqld.Column{ColumnSpec: ddlColumnSpecFromSnapshot(before)}, ddlColumnSpecFromSnapshot(after)
+
+	statements := dialect.dialect.AlterColumnSQL(tableName, beforeColumn, afterSpec)
 	if len(statements) == 0 {
 		return []string{renderDDLManualComment(tableName, fmt.Sprintf("manual change required for column %s", after.Name))}
+	}
+
+	// The same note the SQLite rebuild writes: the NULLs of a column that becomes
+	// NOT NULL are filled first, and whoever runs the migration should know with what.
+	if fill := sqld.NullFill(dialect.dialect, beforeColumn, afterSpec); fill != "" {
+		statements = append([]string{renderDDLManualComment(tableName, fmt.Sprintf(
+			"%s becomes NOT NULL; rows holding NULL get %s", after.Name, fill))}, statements...)
 	}
 
 	return statements

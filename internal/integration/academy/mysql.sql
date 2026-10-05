@@ -104,3 +104,9 @@ ALTER TABLE `course` MODIFY COLUMN `currency` VARCHAR(3) DEFAULT 'USD';
 -- Table: course
 
 ALTER TABLE `course` ADD COLUMN `blurb` TEXT DEFAULT ('none');
+
+-- Migration: 2026-09-29 16:19:27
+
+-- Table: course
+
+ALTER TABLE `course` MODIFY COLUMN `blurb` TEXT DEFAULT ('not_set');

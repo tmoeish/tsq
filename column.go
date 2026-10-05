@@ -557,7 +557,11 @@ func (c exprImpl[T]) format(format string, args []any) (exprInfo, error) {
 		return exprInfo{}, err
 	}
 
-	return info.withSQL(sql), info.err
+	// The text is the caller's and can hold any operator: an OR in a Pred ANDed
+	// with the soft-delete filter or another condition bound only its last branch
+	// (AND binds tighter), which returned deleted rows. Parenthesized, it is one
+	// term wherever it goes.
+	return info.withSQL(sqlJoin(sqlText("("), sql, sqlText(")"))), info.err
 }
 
 // Expr wraps the column in custom SQL.

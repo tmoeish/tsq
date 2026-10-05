@@ -160,6 +160,18 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 ### 修复
 
+- **`Pred` / `Exprf` 里带 `OR` 时查出已软删除的行**：自定义 SQL 原样拼进 `WHERE`、不加括号，软删除过滤和其他 `Where` 条件只套住最后一个 `OR` 分支（`AND` 优先级更高）；算术的操作数同样缺括号，`Mul(x.Exprf("%s + 1"), 2)` 算成 `x + 2`。现在自定义 SQL 整体加括号。
+- **只差一个绑定值的两个表达式被当成同一个**：`GROUP BY` / `ORDER BY` 按选择列表里"长得一样"的表达式写成列序号，`CASE amount > 100` 和 `CASE amount > 1000` 被认成一个，查询按错误的列排序、分组检查放过了没分组的列，游标分页也可能取错列的值。现在比较时带上绑定值和参数身份。
+- **PostgreSQL 迁移和 `Reconcile` 把 `VARCHAR` 改短时静默截断数据**：类型变更一律写 `USING col::T`，显式转换把超长的值截到新长度而不报错。现在只在没有赋值转换的类型之间（`BOOLEAN` 改 `INTEGER`）才写 `USING`，放不下的值让迁移失败。
+- **把可空列改成 NOT NULL 时，PostgreSQL / MySQL 的迁移不处理已有的 NULL**：PostgreSQL 直接失败，MySQL 严格模式失败、否则静默变零值。现在三个方言都先把 NULL 填成默认值或零值（SQLite 重建时本来就这样），迁移里注明填了什么；新加的无默认值 NOT NULL 列同样给已有行零值。
+- **SQLite 上给有数据的表加 `CURRENT_TIMESTAMP` 默认值的列（例如给已有表加 `created_at`）或无默认值的 NOT NULL 列，迁移必然失败**：`ADD COLUMN` 拒绝这两种。现在改用重建表。
+- **PostgreSQL 上 `Reconcile` 把默认值改成本地时间**：`SET DEFAULT` 写的是原样的 `CURRENT_TIMESTAMP` 而不是建表用的 UTC 表达式；默认值比较也认不出本地时间和 UTC 的区别，旧库里的本地时间默认值永远不会被纠正。现在两处都按 UTC 写、按 UTC 比。
+- **PostgreSQL 上整数 `Div` 返回小数**：`SUM` 的结果和 `uint64` 列是 `NUMERIC`，`/` 保留小数，读进 `int64` 失败。现在写成 `DIV()`。
+- **MySQL 上 `NullsLast` / `NullsFirst` 对带绑定值的表达式失效**：排序项写成列序号后，`IS NULL` 键变成了常量 `2 IS NULL`。
+- **`Exists` 拒绝只在选择列表或 `ORDER BY` 里用到的参数**（`SELECT 1` 去掉了它们）。
+- **MySQL 上带下划线的 `TEXT` 默认值（`'en_US'`）仍被当成差异**：去掉字符集前缀时没分清字面量内外，把 `'en_US'` 截成了 `'en'`。
+- **唯一索引建在自定义切片类型（`json.RawMessage`、`type Hash []byte`）上时，生成的代码编译不过**：查找方法要求可比较的类型。现在这类字段走和 `[]byte` 一样的查询。
+
 - **`BatchDeleteByPK` / `BatchHardDeleteByPK` 对没删到的主键报告成功**：不存在的键（软删除时还有已删除的行）现在让调用返回 `*RowStateError`，`Keys` 列出它们；存在的键照样删除，重复的键只算一次。PostgreSQL / SQLite 用 `RETURNING` 拿到删到的键，MySQL 软删按本次的墓碑回查、硬删在删除前查。要"删掉匹配到的，不管有没有"用 `DeleteFrom` / `HardDeleteFrom`。
 - **MySQL 上 `TEXT` 列的默认值每次启动都被当成差异**：这种默认值只能写成表达式，`information_schema` 读回来是 `_utf8mb4\'x\'`，`Validate` 起不来、`Reconcile` 每次都改一遍。现在按声明的写法还原后再比较。
 - **运行时 `Reconcile` 在 SQLite 上为 `VARCHAR` 长度变化重建整张表**：SQLite 只按类型亲和性存值，重建丢掉触发器和手建索引却什么也没改。现在同一亲和性的类型视为相同（主键除外），和生成器的迁移一致。

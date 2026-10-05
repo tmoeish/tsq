@@ -308,12 +308,18 @@ func resolveNullValues(s *genmodel.StructInfo, resolver *ddlTypeResolver) error 
 			changed = true
 		}
 
+		if !types.Comparable(obj.Type()) {
+			field.Incomparable = true
+			changed = true
+		}
+
 		if changed {
 			s.Fields[i] = field
 
 			if mapped, ok := s.FieldsByName[field.Name]; ok {
 				mapped.NullValue = field.NullValue
 				mapped.Spelled = field.Spelled
+				mapped.Incomparable = field.Incomparable
 				s.FieldsByName[field.Name] = mapped
 			}
 		}

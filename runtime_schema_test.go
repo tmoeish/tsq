@@ -536,36 +536,6 @@ func TestFailedDDLIsNotLoggedAsApplied(t *testing.T) {
 	}
 }
 
-// TestColumnDefaultsCompareByMeaning covers the default comparison of schema
-// reconcile. It cut a value at its first "::", so PostgreSQL's 'a::b'::text never
-// matched a declared 'a::b' and every boot set the default again, and it lowered
-// everything, so 'Active' matched 'active' and a changed default was never seen.
-func TestColumnDefaultsCompareByMeaning(t *testing.T) {
-	for _, tt := range []struct {
-		left, right string
-		same        bool
-	}{
-		{"'USD'", "'USD'::character varying", true},
-		{"'a::b'", "'a::b'::text", true},
-		{"'it''s'", "'it''s'::text", true},
-		{"CURRENT_TIMESTAMP", "current_timestamp", true},
-		{"CURRENT_TIMESTAMP", "CURRENT_TIMESTAMP(6)", true}, // MySQL on a DATETIME(6) column
-		{"'USD'", "USD", true},                              // MySQL reads a string default back unquoted
-		{"'Active'", "'active'::text", false},
-		{"'a'", "'b'", false},
-		{"true", "1", true}, // MySQL reads a boolean default back as a number
-		{"FALSE", "0", true},
-		{"0", "0.00", true}, // and a decimal one with its scale
-		{"1.5", "1.50", true},
-		{"1", "0", false},
-		{"0", "false", true},
-	} {
-		if got := sameDefault(tt.left, tt.right); got != tt.same {
-			t.Errorf("sameDefault(%q, %q) = %v, want %v", tt.left, tt.right, got, tt.same)
-		}
-	}
-}
-
 // TestResolveRuntimeDialectAcceptsEverySQLiteDriverName covers both registered
 // names: modernc.org/sqlite is "sqlite" and mattn/go-sqlite3 is "sqlite3". The
 // latter used to be refused, from the days when TSQ shipped with the CGO driver

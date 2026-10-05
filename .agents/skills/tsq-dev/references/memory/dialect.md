@@ -39,8 +39,7 @@ MySQL 1205 / 1213 / 3572）保证事务已回滚。现在 commit 阶段只放行
 
 ## 能力位的 `default` 分支是那道门自己的漏洞 (2026-08-26)
 
-`switch` 加 `default: return false` 让漏表态的方言静默变成"不支持"。**对所有"必须穷尽"的 switch 都成立**：
-`default` 把"忘了写"和"决定不支持"变成同一件事；要穷尽就用表加一个遍历表的测试（现在的 `dialect.capabilities`）。
+`default: return false` 把"忘了写"和"决定不支持"变成同一件事；**要穷尽就用表加遍历表的测试**（`dialect.capabilities`）。
 
 ## 决定：v5 设计收尾——数据库与方言行为 (2026-09-17)
 

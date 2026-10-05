@@ -104,3 +104,9 @@ ALTER TABLE "course" ALTER COLUMN "currency" DROP NOT NULL;
 -- Table: course
 
 ALTER TABLE "course" ADD COLUMN "blurb" TEXT DEFAULT 'none';
+
+-- Migration: 2026-09-29 16:19:27
+
+-- Table: course
+
+ALTER TABLE "course" ALTER COLUMN "blurb" SET DEFAULT 'not_set';

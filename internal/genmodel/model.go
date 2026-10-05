@@ -79,6 +79,10 @@ type FieldInfo struct {
 	// Spelled is the whole field type as generated code spells it, set for the
 	// generic types Type alone cannot describe.
 	Spelled string
+	// Incomparable reports a field type Go cannot compare with ==, such as a
+	// named slice (json.RawMessage), which the parser does not see as a slice: a
+	// lookup by it cannot go through the generic GetBy, which needs comparable.
+	Incomparable bool
 }
 
 func (f FieldInfo) String() string {

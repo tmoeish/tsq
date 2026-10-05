@@ -2042,6 +2042,8 @@ func TestIntegrationColumnFunctionsArePortable(t *testing.T) {
 			// Integer division truncates toward zero on every dialect (DIV on MySQL).
 			num(tsq.Div(tsq.Max(score), tsq.Val(int64(4))), 2)
 			num(tsq.Div(tsq.Min(score), tsq.Val(int64(2))), -3)
+			// SUM of an integer column is NUMERIC on PostgreSQL and DECIMAL on MySQL.
+			num(tsq.Div(tsq.Sum(score), tsq.Val(int64(2))), 4)
 
 			dec := func(col tsq.Expression[float64], want float64) {
 				t.Helper()

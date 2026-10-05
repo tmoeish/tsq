@@ -483,10 +483,12 @@ func (d PostgresDialect) AlterColumnSQL(table string, before Column, after Colum
 	// Compare resolved types instead of raw struct equality: nullability lives
 	// inside DDLColumnType, and a nullability-only drift must not trigger a
 	// table-rewriting ALTER TYPE.
-	// USING says how to convert: without it PostgreSQL refuses every change that
-	// has no implicit cast (BOOLEAN to INTEGER, VARCHAR to BIGINT). An
-	// auto-increment key keeps its SERIAL default; its sequence is widened too, or
-	// it stops at the old type's maximum however wide the column is.
+	// USING says how to convert where PostgreSQL has no assignment cast (BOOLEAN
+	// to INTEGER, VARCHAR to BIGINT). Within one kind it is left out: an explicit
+	// cast to VARCHAR(8) cuts a longer value to 8 characters without a word, while
+	// the assignment cast refuses it, and a narrower integer fails on overflow
+	// either way. An auto-increment key keeps its SERIAL default; its sequence is
+	// widened too, or it stops at the old type's maximum however wide the column is.
 	if !SameColumnType(d, before, after) {
 		spelled := d.ColumnTypeSQL(after.Type)
 
@@ -498,6 +500,8 @@ func (d PostgresDialect) AlterColumnSQL(table string, before Column, after Colum
 					"DO $$ BEGIN EXECUTE format('ALTER SEQUENCE %%s AS BIGINT', pg_get_serial_sequence(%s, %s)); END $$;",
 					quoteLiteral(quotedTable), quoteLiteral(after.Name)))
 			}
+		} else if before.Type.Kind == after.Type.Kind && before.Type.RawType == "" && after.Type.RawType == "" {
+			statements = append(statements, fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s TYPE %s;", quotedTable, quotedColumn, spelled))
 		} else {
 			statements = append(statements, fmt.Sprintf(
 				"ALTER TABLE %s ALTER COLUMN %s TYPE %s USING %s::%s;",
@@ -516,6 +520,12 @@ func (d PostgresDialect) AlterColumnSQL(table string, before Column, after Colum
 			action = "DROP"
 		}
 
+		// SET NOT NULL fails on a row holding NULL: fill those first.
+		if fill := NullFill(d, before, after); fill != "" {
+			statements = append(statements, fmt.Sprintf("UPDATE %s SET %s = %s WHERE %s IS NULL;",
+				quotedTable, quotedColumn, fill, quotedColumn))
+		}
+
 		statements = append(statements, fmt.Sprintf(
 			"ALTER TABLE %s ALTER COLUMN %s %s NOT NULL;",
 			quotedTable,
@@ -527,7 +537,9 @@ func (d PostgresDialect) AlterColumnSQL(table string, before Column, after Colum
 	// Never touch defaults on auto-increment columns: the database-side
 	// nextval('..._seq') default is an implementation detail of SERIAL and
 	// dropping it would break inserts.
-	if before.Default != after.Default && (!before.AutoIncrement || !after.AutoIncrement) {
+	// The default is written as CREATE TABLE writes it (a current time in UTC),
+	// and compared by meaning: 'USD'::character varying is the declared 'USD'.
+	if !SameDefault(before.Default, DefaultSQL(d, after)) && (!before.AutoIncrement || !after.AutoIncrement) {
 		if after.Default == "" {
 			statements = append(statements, fmt.Sprintf(
 				"ALTER TABLE %s ALTER COLUMN %s DROP DEFAULT;",
@@ -539,7 +551,7 @@ func (d PostgresDialect) AlterColumnSQL(table string, before Column, after Colum
 				"ALTER TABLE %s ALTER COLUMN %s SET DEFAULT %s;",
 				quotedTable,
 				quotedColumn,
-				after.Default,
+				DefaultSQL(d, after),
 			))
 		}
 	}

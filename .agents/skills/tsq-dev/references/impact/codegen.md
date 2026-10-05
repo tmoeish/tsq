@@ -76,10 +76,15 @@
   `TestGenCmdAppendsSQLiteRebuildDDLForTypeChange` 用真的 `sqlite3` 命令行跑迁移。
 - 改了某个方言对一种类型的拼写（`ColumnTypeSQL`，如 MySQL 时间改成 `DATETIME(6)`）：同一方言的读回
   （`parseMySQLColumnType` 等）要同步，旧拼写读成原始类型，`Reconcile` 才会改它、新拼写才不算漂移；依赖类型的 DEFAULT
-  也要跟上（MySQL `DATETIME(6)` 只收 `CURRENT_TIMESTAMP(6)`，见 `DefaultSQL`，比较见 `sameDefault`）；迁移历史不会补段，
+  也要跟上（MySQL `DATETIME(6)` 写 `(UTC_TIMESTAMP(6))`，见 `DefaultSQL`，比较见 `sqldialect.SameDefault`）；迁移历史不会补段，
   `CHANGELOG` 要写明使用迁移文件的项目怎么手工改。
 - 迁移段的顺序：所有删索引语句在最前（索引名在 PG / SQLite 全库唯一，换表或改名的表会撞名），被删（注释掉）的表让出
-  新索引要的名字；再按表输出。生成列表达式的变化一律写成人工注释。可空改非空的列在 SQLite 重建里用 `COALESCE` 填。
+  新索引要的名字；再按表输出。生成列表达式的变化一律写成人工注释。可空改非空的列先填默认值或零值：SQLite 在重建里用 `COALESCE`，PG / MySQL
+  由 `AlterColumnSQL` 先发 `UPDATE ... WHERE col IS NULL`（`sqldialect.NullFill`），迁移里加注释；新的无默认值 NOT NULL 列在 PG / MySQL
+  带零值默认加列再去掉默认，SQLite 上它和非常量默认值（`CURRENT_TIMESTAMP`）的列走重建（`sqliteAddNeedsRebuild`）。零值只有一份：
+  `sqldialect.ZeroLiteral`（分方言，PG 的布尔是 `FALSE`）。PG 改类型只在没有赋值转换的类型之间写 `USING`（同类加 `USING` 会静默截断）。
+- 字段类型是否可比较由生成计划用 go/types 判断（`FieldInfo.Incomparable`）：解析器只认字面的 `[]byte` 是切片，
+  `json.RawMessage` 上的唯一索引曾生成编译不过的 `GetBy`。新的"依赖类型性质"的分支照此从 go/types 取，不要从 AST 猜。
   `tsq.json` 缺失而 `.sql` 在时拒绝运行（`buildDDLInitialDialects`）。
 - PG 没有无符号：`ColumnTypeSQL` 把无符号整数放大一档，`uint64` 是 `NUMERIC(20)`，读回时 `numeric(20,0)` 对应它；改映射两头一起改。
 - 迁移历史存在 `tsq.json` 里，不会随生成器修复重新渲染：修了迁移渲染之后，示例里已经写坏的段要重置示例的

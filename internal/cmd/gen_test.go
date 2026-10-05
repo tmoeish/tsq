@@ -323,7 +323,7 @@ type User struct {
 		`CREATE TABLE IF NOT EXISTS "users" (`,
 		`"id" BIGSERIAL PRIMARY KEY`,
 		`-- Migration: `,
-		`ALTER TABLE "users" ADD COLUMN "name" VARCHAR(128) NOT NULL;`,
+		`ALTER TABLE "users" ADD COLUMN "name" VARCHAR(128) NOT NULL DEFAULT '';`,
 	} {
 		if !strings.Contains(gotDDL, want) {
 			t.Fatalf("expected postgres ddl history to contain %q, got:\n%s", want, gotDDL)
@@ -2075,7 +2075,7 @@ type User struct {
 	run("second")
 
 	for file, wants := range map[string][]string{
-		"postgres.sql": {`DROP INDEX "idx_users_name";`, `ALTER TABLE "users" ALTER COLUMN "name" TYPE VARCHAR(128) USING "name"::VARCHAR(128);`},
+		"postgres.sql": {`DROP INDEX "idx_users_name";`, `ALTER TABLE "users" ALTER COLUMN "name" TYPE VARCHAR(128);`},
 		"mysql.sql":    {"DROP INDEX `idx_users_name` ON `users`;", "MODIFY COLUMN `name`"},
 		// SQLite does not enforce a VARCHAR size, so it drops the index and does not
 		// rebuild the table (which would lose its triggers) for nothing.
@@ -2216,6 +2216,7 @@ func (n *NullMoney) Scan(any) error             { return errors.New("unused") }
 //tsq:unique Db
 //tsq:unique T
 //tsq:unique Tsq
+//tsq:unique Digest
 //tsq:fulltext Note
 //tsq:managed deleted_at
 type Wallet struct {
@@ -2234,7 +2235,12 @@ type Wallet struct {
 	Amount    NullMoney      ` + "`db:\"amount,type:BIGINT\"`" + `
 	DeletedAt int64          ` + "`db:\"deleted_at\"`" + `
 	Quoted    string         ` + "`db:\"quoted,size:8\" json:\"say \\\"hi\\\"\"`" + `
+	Digest    Hash           ` + "`db:\"digest,type:VARCHAR(64)\"`" + `
 }
+
+// Hash is a named byte slice: not comparable, so a lookup by it cannot go through
+// the generic GetBy.
+type Hash []byte
 
 //tsq:result
 type WalletBrief struct {
@@ -2410,16 +2416,17 @@ func TestGenRemovesTheGoFilesItNoLongerGenerates(t *testing.T) {
 	}
 }
 
-// TestMigrationWarnsOfANotNullColumnWithoutDefault covers the ADD COLUMN a
-// migration record holds for a new field. A NOT NULL column with no default fails
-// on a table with rows on every dialect, and the statement was written without a
-// word; it now carries a comment saying so and how to fix it.
-func TestMigrationWarnsOfANotNullColumnWithoutDefault(t *testing.T) {
+// TestMigrationAddsANotNullColumnToATableWithRows covers the ADD COLUMN a
+// migration record holds for a new field. A NOT NULL column with no default, and
+// on SQLite one whose default is not a constant (CURRENT_TIMESTAMP, which adding
+// created_at has), fail on a table with rows; the statement was written anyway.
+// The rows now get the type's zero value on every dialect, SQLite by a rebuild.
+func TestMigrationAddsANotNullColumnToATableWithRows(t *testing.T) {
 	model := func(fields string) string {
-		return "package gentest\n\n//tsq:table\ntype Row struct {\n\tID int64 `db:\"id\"`\n" + fields + "}\n"
+		return "package gentest\n\nimport \"time\"\n\nvar _ time.Time\n\n//tsq:table\n//tsq:managed created_at\ntype Row struct {\n\tID int64 `db:\"id\"`\n\tCreatedAt time.Time `db:\"created_at\"`\n" + fields + "}\n"
 	}
 
-	if err := genModule(t, map[string]string{"model.go": model("")}); err != nil {
+	if err := genModule(t, map[string]string{"model.go": strings.Replace(strings.Replace(model(""), "//tsq:managed created_at\n", "", 1), "\tCreatedAt time.Time `db:\"created_at\"`\n", "", 1)}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -2429,18 +2436,29 @@ func TestMigrationWarnsOfANotNullColumnWithoutDefault(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, file := range []string{"mysql.sql", "postgres.sql", "sqlite.sql"} {
+	for file, want := range map[string][]string{
+		"mysql.sql":    {"ADD COLUMN `age` BIGINT NOT NULL DEFAULT 0;", "ALTER COLUMN `age` DROP DEFAULT;"},
+		"postgres.sql": {`ADD COLUMN "age" BIGINT NOT NULL DEFAULT 0;`, `ALTER COLUMN "age" DROP DEFAULT;`},
+		"sqlite.sql":   {`rebuilt by copying its rows`, `"created_at" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP`},
+	} {
 		ddl, err := os.ReadFile(file)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		if !strings.Contains(string(ddl), "-- row: age is NOT NULL without a default, which fails on a table with rows") {
-			t.Errorf("%s does not warn about age:\n%s", file, ddl)
+		want = append(want, "-- row: age is NOT NULL without a default; existing rows get 0")
+		for _, w := range want {
+			if !strings.Contains(string(ddl), w) {
+				t.Errorf("%s lacks %q:\n%s", file, w, ddl)
+			}
 		}
 
 		if strings.Contains(string(ddl), "note is NOT NULL") {
 			t.Errorf("%s warns about a nullable column:\n%s", file, ddl)
+		}
+
+		if file == "sqlite.sql" && strings.Contains(string(ddl), "ADD COLUMN") {
+			t.Errorf("sqlite.sql adds a column SQLite refuses on a table with rows:\n%s", ddl)
 		}
 	}
 }
@@ -3068,4 +3086,40 @@ func TestGenRefusesToGenerateNothing(t *testing.T) {
 			t.Fatalf("generated code does not compile: %v\n%s", err, output)
 		}
 	})
+}
+
+// TestMigrationFillsNullsOfAColumnThatBecomesNotNull covers a nullable column made
+// NOT NULL: SQLite filled its NULLs with the zero value, PostgreSQL wrote a bare
+// SET NOT NULL that fails on them, and MySQL a MODIFY that fails in strict mode
+// and turns them into zero values silently otherwise.
+func TestMigrationFillsNullsOfAColumnThatBecomesNotNull(t *testing.T) {
+	model := func(field string) string {
+		return "package gentest\n\n//tsq:table\ntype Row struct {\n\tID int64 `db:\"id\"`\n\t" + field + "\n}\n"
+	}
+
+	if err := genModule(t, map[string]string{"model.go": model("Note *string `db:\"note,size:20\"`")}); err != nil {
+		t.Fatal(err)
+	}
+
+	writeTestFile(t, "model.go", model("Note string `db:\"note,size:20\"`"))
+
+	if err := runGen(t); err != nil {
+		t.Fatal(err)
+	}
+
+	for file, want := range map[string][]string{
+		"postgres.sql": {`-- row: note becomes NOT NULL; rows holding NULL get ''`, `UPDATE "row" SET "note" = '' WHERE "note" IS NULL;`, `ALTER TABLE "row" ALTER COLUMN "note" SET NOT NULL;`},
+		"mysql.sql":    {"-- row: note becomes NOT NULL; rows holding NULL get ''", "UPDATE `row` SET `note` = '' WHERE `note` IS NULL;", "MODIFY COLUMN `note` VARCHAR(20) NOT NULL;"},
+	} {
+		ddl, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		for _, w := range want {
+			if !strings.Contains(string(ddl), w) {
+				t.Errorf("%s lacks %q:\n%s", file, w, ddl)
+			}
+		}
+	}
 }

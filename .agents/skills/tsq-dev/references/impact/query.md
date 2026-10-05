@@ -98,11 +98,16 @@
 - **能力需求必须由渲染那个构造的代码报告**（`r.require(...)`）。不要回到"渲染完再扫文本"：
   使用者的原样文本（`Pred` / `Exprf`）会被误判，子查询也会漏报。
 - 查询被包成**派生表**的每个位置（计数、集合运算的分组、`In` 里带 `Limit` 的子查询）都要求输出列名唯一，
-  MySQL 否则报 1060。`writeSimple` 把重名改写成 `tsq_c<位置>`；CTE 的列按名字找，所以 CTE 里重名在 `Build`
+  MySQL 否则报 1060。`writeSimple` 用 `repeatedName` 把重名改写成 `表_列` 或 `列_2`；CTE 的列按名字找，所以 CTE 里重名在 `Build`
   拒绝而不是改写。集合运算链的求值顺序靠 `regroupAt` 的派生表保证，改 `writeBody` 时跑
   `TestSetOperationChainsReadLeftToRight` 和集成测试里的链用例。
 - 新的片段类型要同时处理：`renderer.write`、`sqlExpr.correlated`（若它能包含查询）、
-  `debugSQL`。
+  `debugSQL` 和 `exprKey`。
+- **比较两个表达式是不是同一个，用 `exprKey`，不用 `debugSQL`**：后者把绑定值都印成 `?`，只差一个值的两个 `CASE`
+  曾被认成一个，`GROUP BY` / `ORDER BY` 的列序号、分组检查、`DISTINCT` 检查和游标列全部错配（2026-09-29 审计 P0）。
+  `debugSQL` 只给报错文案；游标指纹（`fingerprint`）要跨进程稳定，所以仍用它。
+- **使用者的原样文本（`Pred` / `Exprf`）由 `format` 整体加括号**，算术、`combine` / `andAll` 都依赖这一点：没有括号时
+  `Pred` 里的 `OR` 只被软删除过滤套住最后一个分支，查出过已删除的行。新的"拼接使用者文本"的构造照此加括号。
 - 占位符编号在 `assemble` 里做（`Placeholder` 是**零基**）；不要在渲染时编号，列表参数的长度
   要到执行时才知道。
 - 绑定规则（缺值、多余、重复都报错）在 `bindArgs`，`build_test.go` 守着。放宽其中任何一条都会

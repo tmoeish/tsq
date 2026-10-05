@@ -140,6 +140,10 @@ type orderTerm struct {
 	nullsFirst bool
 	// compound terms order a set operation by output name.
 	compound bool
+	// nullKey is the expression MySQL's "IS NULL" key tests. It is the ordered
+	// expression itself where expr is a select-list position: "2 IS NULL" is a
+	// constant, not the second column, and dropped the requested NULL placement.
+	nullKey sqlExpr
 }
 
 // render writes the term, placing NULLs where nullsFirst says. PostgreSQL and
@@ -169,7 +173,12 @@ func (t orderTerm) render() sqlExpr {
 			key = " IS NULL DESC, "
 		}
 
-		spelled[tsqdialect.MySQL] = sqlJoin(t.expr, sqlText(key), plain)
+		nullKey := t.expr
+		if len(t.nullKey.parts) > 0 {
+			nullKey = t.nullKey
+		}
+
+		spelled[tsqdialect.MySQL] = sqlJoin(nullKey, sqlText(key), plain)
 
 		// MySQL orders a UNION by output columns only, not by expressions on them.
 		if t.compound {
@@ -567,9 +576,9 @@ func (s *querySpec[O]) selectedPosition(expr sqlExpr) sqlExpr {
 		return expr
 	}
 
-	text := debugSQL(expr)
+	key := exprKey(expr)
 	for i, col := range s.Selects {
-		if debugSQL(columnInfo(col).sql) == text {
+		if exprKey(columnInfo(col).sql) == key {
 			return sqlText(strconv.Itoa(i + 1))
 		}
 	}
@@ -598,11 +607,12 @@ func bindsValues(e sqlExpr) bool {
 // orderTerm renders an ORDER BY term. A compound query can only be ordered by its
 // output column names, so the term drops its table there.
 func (s *querySpec[O]) orderTerm(ob OrderBy) orderTerm {
-	term := orderTerm{expr: s.selectedPosition(columnInfo(ob.column).sql), direction: ob.direction, nullsFirst: ob.nulls.first(ob.direction)}
+	term := orderTerm{expr: s.selectedPosition(columnInfo(ob.column).sql), nullKey: columnInfo(ob.column).sql, direction: ob.direction, nullsFirst: ob.nulls.first(ob.direction)}
 	term.nullable, _ = s.canBeNull(columnInfo(ob.column).null)
 
 	if len(s.SetOps) > 0 && !isNilValue(ob.column) {
 		term.expr = sqlIdent(ob.column.Name())
+		term.nullKey = term.expr
 		term.nullable = s.outputCanBeNull(ob.column.Name())
 		term.compound = true
 	}
@@ -953,7 +963,7 @@ func (s *querySpec[O]) checkPlacement() error {
 	if s.Distinct && len(s.SetOps) == 0 {
 		selected := make(map[string]bool, len(s.Selects))
 		for _, col := range s.Selects {
-			selected[debugSQL(columnInfo(col).sql)] = true
+			selected[exprKey(columnInfo(col).sql)] = true
 		}
 
 		for _, ob := range s.OrderBys {
@@ -961,7 +971,7 @@ func (s *querySpec[O]) checkPlacement() error {
 				continue
 			}
 
-			if info := columnInfo(ob.column); !selected[debugSQL(info.sql)] {
+			if info := columnInfo(ob.column); !selected[exprKey(info.sql)] {
 				return fmt.Errorf("a DISTINCT query is ordered by %s, which it does not select; select it, or drop DISTINCT", debugSQL(info.sql))
 			}
 		}
@@ -1249,7 +1259,7 @@ func (s *querySpec[O]) checkGrouping() error {
 
 	for _, g := range s.GroupBy {
 		info := columnInfo(g)
-		exprs[debugSQL(info.sql)] = true
+		exprs[exprKey(info.sql)] = true
 
 		if core := g.core(); core != nil && core.plain && !isNilValue(core.table) {
 			columns[columnKey{core.table.TableName(), core.name}] = true
@@ -1279,7 +1289,7 @@ func (s *querySpec[O]) checkGrouping() error {
 	}
 
 	check := func(what string, info exprInfo) error {
-		if exprs[debugSQL(info.sql)] {
+		if exprs[exprKey(info.sql)] {
 			return nil
 		}
 
