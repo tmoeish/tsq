@@ -47,6 +47,10 @@
 
 ## 改了 upsert（`upsert.go`）
 
+- `upsertRows` 先按相邻同形状分组、写之前检查每一组（不许写到一半才报错）；只有自增主键要写的组交给 `insertChunk`
+  （零值主键不会冲突）。批量成功后 `snapshot.restore(nil)` 把托管列还原成传入值：批量不回读，盖上的戳只会让行
+  看起来是最新的。`Conflict.Update` 点名、但这批行没进 INSERT 的列（nil 的 `default:` 列）写成 `NULL`。
+
 - **MySQL 的 `ON DUPLICATE KEY UPDATE` 匹配所有唯一键**，`checkUpsertRows` 因此在行可能撞上别的唯一键
   时拒绝。放宽它之前先想清楚：那一行会静默地更新一条和指定键无关的行。
 - 三个方言的语句形状只有 `TestIntegrationUpsert` 能证明，包括"值没变时 MySQL 仍报出主键"。本地没有
@@ -79,6 +83,10 @@
   "常见边界"、`BEST_PRACTICES.md` §3.8。
 
 ## 改了批量写（`rows.go`）
+
+- 硬删的短缺（`hardDeleteShortfall`）按回读分两类：还在的行是版本冲突，不在的行是 `RowStateError{RowExists}`，
+  没有 `version` 列的表也查——行级硬删和 `BatchHardDeleteByPK` 必须对"行不存在"说同一件事。按主键删时数据库按
+  自己的排序规则匹配键（MySQL `_ci`），`missingKeys` 先比行数、再按不分大小写和尾部空格比，别退回 Go `==`。
 
 - 分批的单位是**行**，数据库数的是**占位符**：
   - **上限按方言**（`sqldialect.MaxBindParams`）：MySQL / PostgreSQL 65535，**SQLite 32766**。

@@ -320,6 +320,10 @@ func (ps *ParseState) processStructTypeSpec(
 	fileSet *token.FileSet,
 	pkg genmodel.PackageInfo,
 ) error {
+	if err := refuseDirectiveInsideStruct(typeSpec, fileSet); err != nil {
+		return err
+	}
+
 	structName := typeSpec.Name.Name
 	typeInfo := genmodel.TypeInfo{Package: pkg, TypeName: structName}
 
@@ -383,6 +387,33 @@ func refuseDirectiveOnNonStruct(typeSpec *ast.TypeSpec, comments []*ast.CommentG
 
 	return fmt.Errorf("%s: %w: %s is not a struct; //tsq: directives go on struct types",
 		fileSet.Position(typeSpec.Pos()), ErrInvalidDirective, typeSpec.Name.Name)
+}
+
+// refuseDirectiveInsideStruct reports a //tsq: directive written on a field
+// inside the struct body: only the comments above the type are read, so the
+// directive did nothing without a word, an index silently not created.
+func refuseDirectiveInsideStruct(typeSpec *ast.TypeSpec, fileSet *token.FileSet) error {
+	st, ok := typeSpec.Type.(*ast.StructType)
+	if !ok || st.Fields == nil {
+		return nil
+	}
+
+	for _, field := range st.Fields.List {
+		for _, group := range []*ast.CommentGroup{field.Doc, field.Comment} {
+			if group == nil {
+				continue
+			}
+
+			for _, comment := range group.List {
+				if strings.HasPrefix(comment.Text, "//tsq:") {
+					return fmt.Errorf("%s: %w: %s is inside struct %s, where it is not read; write it above the type",
+						fileSet.Position(comment.Pos()), ErrInvalidDirective, comment.Text, typeSpec.Name.Name)
+				}
+			}
+		}
+	}
+
+	return nil
 }
 
 // isStructType reports whether a type spec declares a struct.

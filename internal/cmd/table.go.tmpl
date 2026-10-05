@@ -201,19 +201,19 @@ func (t {{$tableType}}) GetBy{{$name}}(
 	ctx context.Context,
 	db tsq.Executor,
 	{{- range $f := $ux.Fields }}
-	{{ FieldVarName $f }} {{ ValueType (index $dot.FieldsByName $f) }},
+	{{ IndexVarName $ux.Fields $f }} {{ ValueType (index $dot.FieldsByName $f) }},
 	{{- end }}
 ) (*{{$type}}, error) {
 {{- if or $lastField.IsSlice $lastField.Incomparable }}
 	return tsq.Select(t.Columns()...).From(t).Where(
 		{{- range $f := $ux.Fields }}
-		t.{{$f}}.EQ(tsq.Val({{ FieldVarName $f }})),
+		t.{{$f}}.EQ(tsq.Val({{ IndexVarName $ux.Fields $f }})),
 		{{- end }}
 	).Get(ctx, db)
 {{- else }}
-	return t.GetBy(ctx, db, t.{{$last}}, {{ FieldVarName $last }}
+	return t.GetBy(ctx, db, t.{{$last}}, {{ IndexVarName $ux.Fields $last }}
 	{{- range $f := $ux.Fields }}
-	{{- if ne $f $last }}, t.{{$f}}.EQ(tsq.Val({{ FieldVarName $f }})){{ end }}
+	{{- if ne $f $last }}, t.{{$f}}.EQ(tsq.Val({{ IndexVarName $ux.Fields $f }})){{ end }}
 	{{- end }})
 {{- end }}
 }
@@ -223,19 +223,19 @@ func (t {{$tableType}}) FindBy{{$name}}(
 	ctx context.Context,
 	db tsq.Executor,
 	{{- range $f := $ux.Fields }}
-	{{ FieldVarName $f }} {{ ValueType (index $dot.FieldsByName $f) }},
+	{{ IndexVarName $ux.Fields $f }} {{ ValueType (index $dot.FieldsByName $f) }},
 	{{- end }}
 ) (*{{$type}}, error) {
 {{- if or $lastField.IsSlice $lastField.Incomparable }}
 	return tsq.Select(t.Columns()...).From(t).Where(
 		{{- range $f := $ux.Fields }}
-		t.{{$f}}.EQ(tsq.Val({{ FieldVarName $f }})),
+		t.{{$f}}.EQ(tsq.Val({{ IndexVarName $ux.Fields $f }})),
 		{{- end }}
 	).Find(ctx, db)
 {{- else }}
-	return t.FindBy(ctx, db, t.{{$last}}, {{ FieldVarName $last }}
+	return t.FindBy(ctx, db, t.{{$last}}, {{ IndexVarName $ux.Fields $last }}
 	{{- range $f := $ux.Fields }}
-	{{- if ne $f $last }}, t.{{$f}}.EQ(tsq.Val({{ FieldVarName $f }})){{ end }}
+	{{- if ne $f $last }}, t.{{$f}}.EQ(tsq.Val({{ IndexVarName $ux.Fields $f }})){{ end }}
 	{{- end }})
 {{- end }}
 }
@@ -250,13 +250,13 @@ func (t {{$tableType}}) FetchBy{{$name}}(
 	{{- if eq $f $last }}
 	{{ IndexSliceVarName $ux.Fields $f }} ...{{ ValueType (index $dot.FieldsByName $f) }},
 	{{- else }}
-	{{ FieldVarName $f }} {{ ValueType (index $dot.FieldsByName $f) }},
+	{{ IndexVarName $ux.Fields $f }} {{ ValueType (index $dot.FieldsByName $f) }},
 	{{- end }}
 	{{- end }}
 ) ([]*{{$type}}, error) {
 	return t.FetchBy(ctx, db, t.{{$last}}, {{ IndexSliceVarName $ux.Fields $last }}
 	{{- range $f := $ux.Fields }}
-	{{- if ne $f $last }}, t.{{$f}}.EQ(tsq.Val({{ FieldVarName $f }})){{ end }}
+	{{- if ne $f $last }}, t.{{$f}}.EQ(tsq.Val({{ IndexVarName $ux.Fields $f }})){{ end }}
 	{{- end }})
 }
 {{- end }}

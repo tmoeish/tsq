@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"slices"
 	"strconv"
+	"strings"
 
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 )
@@ -1289,14 +1290,29 @@ func (s *querySpec[O]) checkGrouping() error {
 	}
 
 	check := func(what string, info exprInfo) error {
-		if exprs[exprKey(info.sql)] {
+		key := exprKey(info.sql)
+		if exprs[key] {
 			return nil
 		}
 
-		for _, key := range info.bare {
-			if !columns[key] && !keyed[key.table] && !outer[key.table] {
-				return fmt.Errorf("%s reads %s, which is neither in GROUP BY nor inside an aggregate; group by it or aggregate it", what, key)
+		// A column read only inside a grouped expression is grouped: GROUP BY
+		// UPPER(note) allows HAVING UPPER(note) <> 'X' and LOWER(UPPER(note)), which
+		// every dialect accepts and which were refused.
+		rest := key
+		for grouped := range exprs {
+			rest = strings.ReplaceAll(rest, grouped, "{grouped}")
+		}
+
+		for _, bare := range info.bare {
+			if columns[bare] || keyed[bare.table] || outer[bare.table] {
+				continue
 			}
+
+			if !strings.Contains(rest, `"`+bare.table+`"."`+bare.column+`"`) {
+				continue
+			}
+
+			return fmt.Errorf("%s reads %s, which is neither in GROUP BY nor inside an aggregate; group by it or aggregate it", what, bare)
 		}
 
 		return nil

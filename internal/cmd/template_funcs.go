@@ -46,6 +46,7 @@ func funcMap() template.FuncMap {
 		"FillRef":                  fillRef,
 		"ColumnKindRef":            columnKindRef,
 		"FieldVarName":             fieldVarName,
+		"IndexVarName":             indexVarName,
 		"ColumnType":               columnType,
 		"ValueType":                valueType,
 		"Fetchable":                fetchable,
@@ -203,12 +204,34 @@ func fieldSliceVarName(fieldName string) string {
 // indexSliceVarName names the list parameter of FetchByX for the last field of an
 // index, clear of the other fields' parameters: //tsq:unique Tags,Tag made both
 // tags.
+// indexVarName is the parameter of field in a method over the index fields: its
+// fieldVarName, numbered when an earlier field of the list has the same one (URL
+// and Url are both url, and the signature declared url twice).
+func indexVarName(fields []string, field string) string {
+	used := map[string]bool{}
+
+	for _, f := range fields {
+		name := fieldVarName(f)
+		for n := 2; used[name]; n++ {
+			name = fmt.Sprintf("%s%d", fieldVarName(f), n)
+		}
+
+		used[name] = true
+
+		if f == field {
+			return name
+		}
+	}
+
+	return fieldVarName(field)
+}
+
 func indexSliceVarName(fields []string, last string) string {
 	name := fieldSliceVarName(last)
 
 	for _, field := range fields {
-		if field != last && fieldVarName(field) == name {
-			return fieldVarName(last) + "List"
+		if field != last && indexVarName(fields, field) == name {
+			return indexVarName(fields, last) + "List"
 		}
 	}
 
@@ -414,6 +437,13 @@ func softDeleteKind(field genmodel.FieldInfo) string {
 	}
 }
 
+// userFieldType is the field type as the user spells it, for messages: generated
+// code imports time and database/sql under aliases of its own, which read as
+// "unsupported type tsqtime.Time" for a time.Time field.
+func userFieldType(field genmodel.FieldInfo) string {
+	return strings.NewReplacer(generatedTimeAlias+".", "time.", generatedSQLAlias+".", "sql.").Replace(fieldType(field))
+}
+
 func validateTimestampField(field genmodel.FieldInfo, role string) error {
 	if managedTimestampKind(field) != "" {
 		return nil
@@ -423,7 +453,7 @@ func validateTimestampField(field genmodel.FieldInfo, role string) error {
 		"%s field %s has unsupported type %s; supported types are time.Time, *time.Time, sql.NullTime, sql.Null[time.Time], null.Time",
 		role,
 		field.Name,
-		fieldType(field),
+		userFieldType(field),
 	)
 }
 
@@ -435,7 +465,7 @@ func validateSoftDeleteField(field genmodel.FieldInfo) error {
 	return fmt.Errorf(
 		"deleted_at field %s has unsupported type %s; supported types are int64, uint64, *time.Time, sql.NullTime, sql.Null[time.Time], null.Time",
 		field.Name,
-		fieldType(field),
+		userFieldType(field),
 	)
 }
 

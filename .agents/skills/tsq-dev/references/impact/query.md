@@ -83,6 +83,10 @@
 
 ## 改了 `ListIn` 或列表参数
 
+- 切分执行后按主键去重（`dedupeByPrimaryKey`，结果是表的行且选了主键时）：数据库认为相等、Go 认为不等的两个键
+  落在不同段里会各自匹配同一行。阶段（`builder`）上的读方法都转发给 `*Query`；`ListIn` 是泛型方法，接口放不下，
+  所以阶段上没有它，`SQL` 有。
+
 - 分块只在"结果是各块并集"时成立：参数只用一次、是 `Where` 顶层的 `col.In(param)`、查询逐行过滤。
   `exprInfo.inList` 只由 `ListParam.setOperand`（非 NOT IN）设置，并且**故意不在 `merge` 里传递**——
   被 `And` / `Or` / `Not` 包住的 IN 不能拆。给 `exprInfo` 加字段时别顺手把它加进 `merge`（`pins` 同理）。
@@ -129,6 +133,9 @@
   `internal/integration` 的 `TestIntegrationKeywordSearchEscapesWildcards` 守另外两个方言。
 
 ## 改了校验逻辑
+
+- `checkGrouping` 的 `check`：表达式本身是分组表达式就过；否则把条件里出现的分组表达式（按 `exprKey`）替换掉，剩下的
+  文本里不再直接引用的列也算已分组——`HAVING UPPER(note) <> 'X'` 合法、裸 `note` 仍拒绝。
 
 先确定它属于哪一边，这条边界是有意的（见 `../architecture.md`）：
 

@@ -2217,6 +2217,7 @@ func (n *NullMoney) Scan(any) error             { return errors.New("unused") }
 //tsq:unique T
 //tsq:unique Tsq
 //tsq:unique Digest
+//tsq:unique URL,Url
 //tsq:fulltext Note
 //tsq:managed deleted_at
 type Wallet struct {
@@ -2236,6 +2237,8 @@ type Wallet struct {
 	DeletedAt int64          ` + "`db:\"deleted_at\"`" + `
 	Quoted    string         ` + "`db:\"quoted,size:8\" json:\"say \\\"hi\\\"\"`" + `
 	Digest    Hash           ` + "`db:\"digest,type:VARCHAR(64)\"`" + `
+	URL       string         ` + "`db:\"url,size:64\"`" + `
+	Url       string         ` + "`db:\"url_alias,size:64\"`" + `
 }
 
 // Hash is a named byte slice: not comparable, so a lookup by it cannot go through
@@ -2488,6 +2491,10 @@ func TestGenRefusesWhatItCannotGenerate(t *testing.T) {
 		"field named like a row method": {table("//tsq:table\n//tsq:managed deleted_at", "IsDeleted bool `db:\"is_deleted\"`\n\tDeletedAt int64 `db:\"deleted_at\"`"), "generated row method IsDeleted"},
 		"directive on a non-struct":     {"package gentest\n\n//tsq:table\ntype Status string\n", "is not a struct"},
 		"generic table":                 {"package gentest\n\n//tsq:table\ntype Row[T any] struct {\n\tID int64 `db:\"id\"`\n}\n", "is generic"},
+		// The message named the generator's import alias, tsqtime.Time.
+		"deleted_at of the wrong type": {"package gentest\n\nimport \"time\"\n\n//tsq:table\n//tsq:managed deleted_at\ntype Row struct {\n\tID int64 `db:\"id\"`\n\tDeletedAt time.Time `db:\"deleted_at\"`\n}\n", "has unsupported type time.Time"},
+		// Only the comments above the type are read; this one did nothing.
+		"directive inside the struct": {table("//tsq:table", "//tsq:index Title\n\tName string `db:\"name\"`"), "is inside struct Row"},
 		// It was accepted and dropped.
 		"search on a result": {table("//tsq:table", "") + "\n//tsq:result\n//tsq:search Name\ntype View struct {\n\tName int64 `tsq:\"Row.ID\"`\n}\n", "search belongs to a table"},
 		// The generated result referenced a TableView that does not exist.
@@ -3121,5 +3128,33 @@ func TestMigrationFillsNullsOfAColumnThatBecomesNotNull(t *testing.T) {
 				t.Errorf("%s lacks %q:\n%s", file, w, ddl)
 			}
 		}
+	}
+}
+
+// TestMigrationSkipsATypeTheDialectSpellsTheSame covers a declaration change that
+// renders the same type on a dialect: a size on a []byte is BYTEA on PostgreSQL
+// either way, which asked for a manual change.
+func TestMigrationSkipsATypeTheDialectSpellsTheSame(t *testing.T) {
+	model := func(tag string) string {
+		return "package gentest\n\n//tsq:table\ntype Row struct {\n\tID int64 `db:\"id\"`\n\tH []byte `db:\"" + tag + "\"`\n}\n"
+	}
+
+	if err := genModule(t, map[string]string{"model.go": model("h")}); err != nil {
+		t.Fatal(err)
+	}
+
+	writeTestFile(t, "model.go", model("h,size:16"))
+
+	if err := runGen(t); err != nil {
+		t.Fatal(err)
+	}
+
+	postgres, err := os.ReadFile("postgres.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if strings.Contains(string(postgres), "manual change required") || !strings.Contains(string(postgres), "spells its type the same; nothing to run") {
+		t.Fatalf("postgres.sql:\n%s", postgres)
 	}
 }

@@ -591,3 +591,16 @@ func TestDefineChecksManagedColumnTypes(t *testing.T) {
 		t.Errorf("unique full-text index: %v", err)
 	}
 }
+
+// TestStagesRenderSQL covers SQL, which the documentation listed among the reads
+// every stage has and only *Query had.
+func TestStagesRenderSQL(t *testing.T) {
+	stage := Select(User__Cols...).From(Users).Where(User_ID.EQ(User_ID.Param()))
+
+	got, args, err := stage.SQL(tsqdialect.Postgres, User_ID.Bind(7))
+	want, _, _ := stage.MustBuild().SQL(tsqdialect.Postgres, User_ID.Bind(7))
+
+	if err != nil || got != want || len(args) != 1 {
+		t.Fatalf("stage SQL = %q %v, %v; want %q", got, args, err, want)
+	}
+}

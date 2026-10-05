@@ -2,7 +2,10 @@ package cmd
 
 import (
 	"slices"
+	"strings"
 	"testing"
+
+	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 )
 
 func TestParseDDLTagOptionsSupportsExplicitTypes(t *testing.T) {
@@ -46,5 +49,23 @@ func TestSplitDDLTagPartsKeepsTypeCommas(t *testing.T) {
 		if parts := splitDDLTagParts(tag); !slices.Equal(parts, want) {
 			t.Errorf("splitDDLTagParts(%q) = %q, want %q", tag, parts, want)
 		}
+	}
+}
+
+// TestMySQLIndexWarningGivesAFixThatWorks covers the advice for an indexed []byte,
+// which is a BLOB on MySQL whatever its size: and was told to set a size:.
+func TestMySQLIndexWarningGivesAFixThatWorks(t *testing.T) {
+	types := map[string]tsqdialect.ColumnType{
+		"h":    {Kind: tsqdialect.KindBytes, Size: 16},
+		"body": {Kind: tsqdialect.KindString, Size: 100000},
+	}
+	typeOf := func(c string) (tsqdialect.ColumnType, bool) { t, ok := types[c]; return t, ok }
+
+	if got := mysqlIndexProblem("ux_h", []string{"h"}, typeOf); !strings.Contains(got, "type:VARBINARY(n)") || strings.Contains(got, "size:") {
+		t.Fatalf("[]byte warning = %q; want type:VARBINARY(n)", got)
+	}
+
+	if got := mysqlIndexProblem("ix_body", []string{"body"}, typeOf); !strings.Contains(got, "give it a size:") {
+		t.Fatalf("TEXT warning = %q", got)
 	}
 }
