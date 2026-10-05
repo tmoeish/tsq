@@ -17,7 +17,7 @@ func TestRun(t *testing.T) {
 		"P-3001 重复的 SKU → 跳过",
 		"version 1 → 2",
 		"the row was read with only id, name, version",
-		"整行 upsert：ID 仍是 1，手机号 <nil>",
+		"整行 upsert：ID 仍是 1，库里的手机号是 NULL：true",
 		"只更新 name：Bob Builder，等级仍是 regular",
 		"图书涨价 10%：4 行",
 		"删掉已取消订单的明细：1 行",

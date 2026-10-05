@@ -15,14 +15,14 @@
 ## 文档描述了一个不存在的阶段；"最紧的上限"是断言要去量 (2026-08-28)
 
 `api-check` 和 `doc-check` 都只看符号：**"文档提到的符号都存在"不等于"描述的用法都成立"**（2026-09-28 又抓到 `SelectValue(Sum)` 会被拒、`Select(tsq.Upper(...))` 编译不过——改示例先跑一遍；
-2026-09-29 重写示例又抓到 Attach 承诺的子查询顺序被 `ListIn` 拒绝、README 说生成代码在 init 时 `MustBuild`）。上限写死
+2026-09-29 重写示例又抓到 Attach 承诺的子查询顺序被 `ListIn` 拒绝；第四轮审计抓到 `ScalarNull`、`PageRequest.Validate`、"任何 `*sql.DB`"——
+**复写的副本最先过时**，`docs/skill.md` 复述规则那一节因此换成指向 REFERENCE 的链接）。上限写死
 65535 注释"最紧的"，SQLite 其实是 32766——**修一类 bug 要把这一类的实例都数一遍**。同类（2026-08-26）：
 **stringly-typed 的开关，空值 `""` 永远是那个没人写的分支**，违规被静默丢弃。用类型化枚举或不留开关。
 
 ## 接口里"有定义、有实现、零调用"的钩子 (2026-08-26)
 
-`Dialect.ReturningClause` 零调用，PG 上 `Insert` 从没回填主键，现在由集成测试挡着。**auto-merge 只等必需检查**：
-说"某检查是不是必需"之前先查 ruleset（`gh api repos/tmoeish/tsq/rulesets/<id>`）。
+`Dialect.ReturningClause` 零调用，PG 上 `Insert` 从没回填主键，现在由集成测试挡着。**auto-merge 只等必需检查**（先查 ruleset）。
 
 ## 决定：v5 核心重写——表达式树、命名参数、表描述符、封闭执行器 (2026-09-17)
 

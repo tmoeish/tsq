@@ -71,10 +71,17 @@ Expected output:
 
 ```txt
 database/
+  mysql.sql
+  postgres.sql
   runtime.tsq.go
+  sqlite.sql
+  tsq.json
   user.go
   user.tsq.go
 ```
+
+The `.sql` files are the schema for each dialect, with one migration section per later change, and
+`tsq.json` is the history they are rendered from: commit all four.
 
 Generated files are outputs. Change the source struct or annotation, then regenerate.
 

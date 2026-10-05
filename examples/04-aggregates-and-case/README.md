@@ -12,7 +12,7 @@ go run ./examples/04-aggregates-and-case
 | 4.4 | `tsq.Case(...).When(...).Else(...).End()`，再按它分组 |
 | 4.5 | 列函数 `Upper` / `Length` / `Substring`，也能用在 `Where` 里 |
 | 4.6 | `SelectDistinct` |
-| 4.7 | 算术 `tsq.Mul` / `tsq.Div`；逃生舱 `Pred` / `Exprf` |
+| 4.7 | 算术 `tsq.Mul` / `tsq.Div`；逃生舱 `Pred`（`Exprf` 同理，写派生列） |
 
 ## 要点
 

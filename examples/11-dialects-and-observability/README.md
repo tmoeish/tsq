@@ -15,8 +15,9 @@ go run ./examples/11-dialects-and-observability
 ## 三种方言
 
 TSQ 只支持 SQLite、MySQL、PostgreSQL。同一个 `*Query` 不绑定方言，执行时按执行器的方言渲染并缓存。
-各方言写法不同的地方（占位符、引号、`LENGTH`、`ROUND`、NULL 排序、全文检索、Upsert 语法）由 TSQ 按方言改写，
+各方言写法不同的地方（占位符、引号、`LENGTH`、`ROUND`、整数除法、NULL 排序、Upsert 语法）由 TSQ 按方言改写，
 结果一致；做不到一致的能力（`FULL JOIN`、行锁、`INTERSECT ALL`）在执行时报错，错误里带能力名和方言名。
+全文检索是例外：三个方言都能跑同一段代码，但"匹配"的含义各不相同（见第 6 章）。
 
 ## 日志和追踪
 

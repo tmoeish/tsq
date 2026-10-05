@@ -331,15 +331,15 @@ query, err := tsq.Select(TableUser.ID, TableUser.Name).
 
 但如果查询形状已经稳定，仍然优先缓存 `Build()` 后的 `*tsq.Query[Row]`，而不是在热路径里反复从 builder 往下走：`*tsq.Query` 在第一次跑某个方言时渲染并缓存 SQL。
 
-### 6.4 把生成 helper 的初始化失败当普通错误处理
+### 6.4 改了结构体就重新生成，并在 CI 里检查
 
-生成的查询 helper 不会因为导入包直接 `panic`。  
-如果内部静态查询初始化失败，错误会在调用 `Get...` / `List...` / `Page...` 这类 helper 时返回。
+生成的代码在包初始化时不构建任何查询，所以过期的生成文件不会在导入时 `panic`：它要么编译不过，要么让
+用到这张表的每个查询和写入都返回定义错误（`TableXxx.Err()`）。
 
 这意味着：
 
-- 不要假设“能 import 就说明生成查询一定没问题”
-- 对生成 helper 的返回错误照常做 `%w` 包装和日志记录
+- 改了结构体或注解就跑 `tsq gen`，CI 里跑 `tsq gen --check`（生成物过期时退出码 2）
+- 对查询和写入返回的错误照常做 `%w` 包装和日志记录，定义错误也会从那里冒出来
 
 ## 7. 生产环境建议
 
@@ -361,7 +361,7 @@ query, err := tsq.Select(TableUser.ID, TableUser.Name).
 - 单次查询超时
 - 批量写入的 chunk size
 
-## 8. TSQ 特有的两个提醒
+## 8. TSQ 特有的几个提醒
 
 ### 8.1 `Where(...)` 和 `Search(...)` 每条链只能出现一次
 
@@ -410,7 +410,7 @@ courses, err := query.List(ctx, runtime, database.TableCourse.ID.BindList(ids...
 当前 TSQ 的安全主路径是参数绑定。  
 如果你要表达列、函数、子查询，请显式传表达式对象；如果你只是传普通值，就让 TSQ 去绑定参数，不要自己拼 SQL 字符串。
 
-### 8.4 `Build()` 只做结构校验，方言能力在执行时校验
+### 8.5 `Build()` 只做结构校验，方言能力在执行时校验
 
 `Build()` 会校验：
 
@@ -423,7 +423,7 @@ courses, err := query.List(ctx, runtime, database.TableCourse.ID.BindList(ids...
 对 CTE、`FULL JOIN`、`INTERSECT`、`EXCEPT` 这类能力，TSQ 需要在真正执行时根据 executor 上的 dialect 做判断。原因是：
 
 - 同一个查询值可以被复用到不同数据库
-- 运行时可能有多个 registry / runtime，每个都有不同 dialect
+- 一个进程里可能有多个 runtime，各自连着不同方言的数据库
 - `Build()` 阶段没有足够信息决定最终 SQL 能力边界
 
 实践上应当这样理解：

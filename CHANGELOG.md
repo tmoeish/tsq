@@ -64,7 +64,7 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 **查询**
 
-- **类型系统区分可空列**：可为 NULL 的字段（指针、`sql.NullX`、`sql.Null[T]`、nullbio 类型）生成为 `tsq.NullColumn[X, T]`（`tsq.NewNullColumn[T]`），按值类型 `T` 比较（`Nickname.EQ(tsq.Val("x"))`），`UpdateTable(...).SetNull(col)` 只接受它。查询在读行之前检查：可空列、外连接可选侧的表、无 `GROUP BY` 的 `SUM`/`AVG`/`MAX`/`MIN`、`NullIf`、无 `Else` 的 `CASE`、标量子查询，读进不能存 NULL 的字段一律报错（此前要等数据里真有 NULL 才在扫描时失败）；`tsq.MapIntoNull` 映射进可空字段，`Coalesce` 消除可空性，`Query.ScalarNull` 返回 `sql.Null[T]`（`Scalar` 此前把 NULL 静默读成零值，现在拒绝）。`Set` 往 NOT NULL 列赋可能为 NULL 的值时报错。`tsq.Text` / `tsq.Number` 不再包含 `sql.NullX`。`NewColumn` 用在可空字段类型上是定义错误。
+- **类型系统区分可空列**：可为 NULL 的字段（指针、`sql.NullX`、`sql.Null[T]`、nullbio 类型）生成为 `tsq.NullColumn[X, T]`（`tsq.NewNullColumn[T]`），按值类型 `T` 比较（`Nickname.EQ(tsq.Val("x"))`），`UpdateTable(...).SetNull(col)` 只接受它。查询在读行之前检查：可空列、外连接可选侧的表、无 `GROUP BY` 的 `SUM`/`AVG`/`MAX`/`MIN`、`NullIf`、无 `Else` 的 `CASE`、标量子查询，读进不能存 NULL 的字段一律报错（此前要等数据里真有 NULL 才在扫描时失败）；`tsq.MapIntoNull` 映射进可空字段，`Coalesce` 消除可空性，`tsq.SelectNullValue` 把单个值读成 `sql.Null[T]`（`Scalar` 此前把 NULL 静默读成零值）。`Set` 往 NOT NULL 列赋可能为 NULL 的值时报错。`tsq.Text` / `tsq.Number` 不再包含 `sql.NullX`。`NewColumn` 用在可空字段类型上是定义错误。
 - SQL 在执行时按方言从表达式树渲染并按方言缓存，`Condition` / `SQLColumn` 不再暴露 `Clause()` / `SQLExpr()` 字符串；要看 SQL 用 `Query.SQL(dialect.X, args...)`（`Query.String()` 删除：它一律按 SQLite 渲染，会误导），`ListSQL` / `CountSQL` 等删除。方言能力（`FULL JOIN`、行锁、CTE、`INTERSECT` / `EXCEPT`）由渲染该构造的代码检查，不再扫描 SQL 文本。
 - 阶段接口去掉了 SQL 不允许的转移：分组、`HAVING`、集合操作之后不能加行锁，带搜索的查询不能做集合操作。构建器的具体类型不再出现在签名里，`Select(...).From(...)` 返回 `JoinStage`。
 - **查询阶段本身就是子查询**：`tsq.SelectValue(col).From(t).Where(...)` 直接放在比较、`In`、`Set` 的右边，不用先 `Build`，错误由外层 `Build` 报告；任何阶段都能传给 `Exists`。`tsq.BuildSubquery` 和 `Query.AsSubquery` 删除（它们要把选出的列再写一遍，每个子查询多一段错误处理）。
@@ -362,6 +362,8 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 - **几条指错方向的报错**：字符非法的标识符被说成"太长"；带字段但缺 `db` 标签被说成"没有这个字段"；嵌入其他包类型里的未导出字段报"找不到字段"；不存在的包目录套了三层"failed to parse"。现在各自说清原因和改法。
 
 ### 其他
+
+- **文档对齐实际行为**（第四轮审计）：`skills/tsq` 不再让人用不存在的 `ScalarNull`；README 不再说 `*sql.DB` 可以直接当执行器、不再提不存在的 `PageRequest.Validate` 和"自定义方言合约"；`docs/skill.md` 复述规则（含 `tsq gen` 会拒绝的旧注解写法）的一节换成指向 REFERENCE 的链接；REFERENCE 写明 `Search` 要 `tsq.Searchable` 包住列、可空时间墓碑配唯一索引会被拒绝、`.sql` 和 `tsq.json` 总会生成、`Upsert` 的冲突参数；`BEST_PRACTICES.md` 去掉"生成 helper 初始化静态查询"的过时说法；示例里几处不准的说明和打印改正。
 
 - **示例整个重写**：`examples/` 现在是 11 章由浅入深的教程（从结构体和 `tsq gen` 到方言与追踪），每章一个可运行的程序，打印每一步、TSQ 实际发出的 SQL 和结果，并带一个断言输出的测试；第 2 到 11 章共用一个网店模型 `examples/shop`。原来的 `examples/academy` 挪到 `internal/integration/academy`，只作集成测试的夹具；`quickstart` / `advanced` / `full-suite` 三个程序删除。
 

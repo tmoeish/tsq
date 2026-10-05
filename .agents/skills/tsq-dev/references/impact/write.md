@@ -117,5 +117,6 @@
 - **批量写的短缺一律回读**：`BatchUpdate`（`updateMismatch`）、`BatchDelete` / `BatchRestore`（`tombstoneShortfall`）、
   `BatchHardDelete`（`hardDeleteShortfall`）在匹配行数不够时回读这一块，只给写成的行改内存状态，`Keys` 列出其余的行；
   跨语句的汇总走 `shortfalls`（后面的语句出别的错时也不丢前面的 `Keys`）。新增一条"一条语句写多行"的写路径要接进同一套。
-  回读比较跳过时间列（`isTimeField`），数据库可能按更粗的精度存。
+  回读比较时间列按 1µs 容差比（`sameStored`），**不要跳过时间列**：跳过时，别人只改了时间的行被当成自己写的，
+  版本前移后下一次 `Update` 覆盖了别人（2026-09-29 审计 P0，见 `../memory/write.md`）。
 - `insert` 的 `written` 集合要由每条真正写成行的路径登记，`WithSkipDuplicates` 也不例外，否则出错时会把已入库的行恢复成旧值。

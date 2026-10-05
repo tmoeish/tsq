@@ -148,7 +148,13 @@ func run(ctx context.Context, w io.Writer) error {
 		return err
 	}
 
-	show.Resultf(w, "整行 upsert：ID 仍是 %d，手机号 %v", ada.ID, ada.Phone)
+	// 从库里重新读出来看：手机号确实成了 NULL。
+	stored, err := customer.Get(ctx, db, ada.ID)
+	if err != nil {
+		return err
+	}
+
+	show.Resultf(w, "整行 upsert：ID 仍是 %d，库里的手机号是 NULL：%t", stored.ID, stored.Phone == nil)
 
 	// .Update(列...) 只改这几列（外加 updated_at、version）：Bob 的等级不会被 nil 覆盖。
 	// 没冲突的行照样整行插入。
