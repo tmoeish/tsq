@@ -90,12 +90,17 @@
 - 迁移段的顺序：所有删索引语句在最前（索引名在 PG / SQLite 全库唯一，换表或改名的表会撞名），被删（注释掉）的表让出
   新索引要的名字；再按表输出。生成列表达式的变化一律写成人工注释。可空改非空的列先填默认值或零值：SQLite 在重建里用 `COALESCE`，PG / MySQL
   由 `AlterColumnSQL` 先发 `UPDATE ... WHERE col IS NULL`（`sqldialect.NullFill`），迁移里加注释；新的无默认值 NOT NULL 列在 PG / MySQL
-  带零值默认加列再去掉默认，SQLite 上它和非常量默认值（`CURRENT_TIMESTAMP`）的列走重建（`sqliteAddNeedsRebuild`）。零值只有一份：
-  `sqldialect.ZeroLiteral`（分方言，PG 的布尔是 `FALSE`）。PG 改类型只在没有赋值转换的类型之间写 `USING`（同类加 `USING` 会静默截断）。
+  带零值默认加列再去掉默认（`sqldialect.AddColumnSQL`，**运行期策略用的是同一个函数**），SQLite 上它和非常量默认值（`CURRENT_TIMESTAMP`）的列
+  走重建（`sqldialect.AddNeedsRebuild`）。零值只有一份：`sqldialect.ZeroLiteral`（分方言：PG 的布尔是 `FALSE`；时间字面量只有 SQLite 带
+  `+00:00`，MySQL 把带时区的公元 1 年存成 `0000-00-00`）；默认值的拼写走 `DefaultSQL`（MySQL 的 TEXT / BLOB 只收表达式）。PG 改类型只在没有
+  赋值转换的类型之间写 `USING`，并且**从不写成转到字符类型本身**（`postgresUsing`：`c::VARCHAR(5)` 静默截断，写 `c::TEXT` 让赋值去拒绝）。
+  这一段的每条规则都要在真实引擎上跑过才算数：`internal/integration/schema_test.go`。
 - 字段类型是否可比较由生成计划用 go/types 判断（`FieldInfo.Incomparable`）：解析器只认字面的 `[]byte` 是切片，
   `json.RawMessage` 上的唯一索引曾生成编译不过的 `GetBy`。新的"依赖类型性质"的分支照此从 go/types 取，不要从 AST 猜。
   `tsq.json` 缺失而 `.sql` 在时拒绝运行（`buildDDLInitialDialects`）。
 - PG 没有无符号：`ColumnTypeSQL` 把无符号整数放大一档，`uint64` 是 `NUMERIC(20)`，读回时 `numeric(20,0)` 对应它；改映射两头一起改。
+  **自增主键是第三头**：`AutoIncrementColumnSQL` 按放大后的宽度选 SERIAL（`uint64` 封顶 `BIGSERIAL`），比较时 `storageType` 把它当 BIGINT。
+  超过 10485760 的字符串在 PG 上是 `TEXT`（`VARCHAR` 的上限），读回的 `text` 靠渲染结果相同对上。
 - 迁移历史存在 `tsq.json` 里，不会随生成器修复重新渲染：修了迁移渲染之后，示例里已经写坏的段要重置示例的
   DDL 状态（删掉 `tsq.json` 和三份 `.sql` 再 `make examples`），使用者自己的历史只能手工改。
 

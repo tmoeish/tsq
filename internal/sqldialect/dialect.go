@@ -382,17 +382,40 @@ func validateDialectIdentifier(identifier string, dialect Name, maxLen int) erro
 	return nil
 }
 
-// ddlNativeTypeAliases maps database-reported type spellings to the canonical
-// spellings commonly used in declared raw types (db:"...,type:X"), so the two
-// representations can be compared textually.
-var ddlNativeTypeAliases = map[string]string{
+// nativeTypeAliases maps the spellings of one type, as declared in a raw type
+// (db:"...,type:X") and as the database reports it, to one of them, so the two
+// compare as text. The first table holds for every dialect; a name that means two
+// types (REAL is a float4 on PostgreSQL and a DOUBLE on MySQL) is in the dialect's.
+var nativeTypeAliases = map[string]string{
 	"BOOLEAN":                     "BOOL",
 	"CHARACTER VARYING":           "VARCHAR",
 	"CHARACTER":                   "CHAR",
 	"INTEGER":                     "INT",
 	"NUMERIC":                     "DECIMAL",
+	"DEC":                         "DECIMAL",
 	"TIMESTAMP WITHOUT TIME ZONE": "TIMESTAMP",
 	"TIMESTAMP WITH TIME ZONE":    "TIMESTAMPTZ",
+	"TIME WITHOUT TIME ZONE":      "TIME",
+	"TIME WITH TIME ZONE":         "TIMETZ",
+}
+
+var dialectNativeTypeAliases = map[Name]map[string]string{
+	Postgres: {
+		"INT2":   "SMALLINT",
+		"INT4":   "INT",
+		"INT8":   "BIGINT",
+		"FLOAT4": "REAL",
+		"FLOAT":  "DOUBLE PRECISION",
+		"FLOAT8": "DOUBLE PRECISION",
+		"BPCHAR": "CHAR",
+		"VARBIT": "BIT VARYING",
+	},
+	MySQL: {
+		"REAL":             "DOUBLE",
+		"DOUBLE PRECISION": "DOUBLE",
+		"FIXED":            "DECIMAL",
+		"BOOL":             "TINYINT",
+	},
 }
 
 // SameColumnType reports whether two column specs resolve to the same
@@ -402,10 +425,10 @@ var ddlNativeTypeAliases = map[string]string{
 // into a canonical kind (TEXT, DECIMAL(n,m), CHAR(n), ...) would be flagged as
 // drift on every reconcile and produce repeated, never-converging ALTERs.
 func SameColumnType(dialect Dialect, inspected Column, declared ColumnSpec) bool {
-	if strings.EqualFold(
-		strings.TrimSpace(dialect.ColumnTypeSQL(inspected.Type)),
-		strings.TrimSpace(dialect.ColumnTypeSQL(declared.Type)),
-	) {
+	inspectedSQL := strings.TrimSpace(dialect.ColumnTypeSQL(storageType(dialect, inspected.ColumnSpec)))
+	declaredSQL := strings.TrimSpace(dialect.ColumnTypeSQL(storageType(dialect, declared)))
+
+	if strings.EqualFold(inspectedSQL, declaredSQL) {
 		return true
 	}
 
@@ -415,11 +438,26 @@ func SameColumnType(dialect Dialect, inspected Column, declared ColumnSpec) bool
 	// indexes, to change nothing SQLite checks. A primary key keeps the exact
 	// comparison: INTEGER PRIMARY KEY is the rowid and BIGINT PRIMARY KEY is not.
 	if dialect.Name() == tsqdialect.SQLite && !inspected.PrimaryKey && !declared.PrimaryKey &&
-		SQLiteAffinity(dialect.ColumnTypeSQL(inspected.Type)) == SQLiteAffinity(dialect.ColumnTypeSQL(declared.Type)) {
+		SQLiteAffinity(inspectedSQL) == SQLiteAffinity(declaredSQL) {
 		return true
 	}
 
-	return nativeDDLTypeMatchesDeclared(inspected, declared)
+	return nativeDDLTypeMatchesDeclared(dialect.Name(), inspected, declared)
+}
+
+// storageType is the type column is created with. An auto-increment key on
+// PostgreSQL is a SERIAL, whose sequence never passes the signed 64-bit maximum, so
+// an unsigned 64-bit key is a BIGINT there, not the NUMERIC(20) a uint64 column
+// is: declared as one and created as the other, the table TSQ had just created
+// failed validation on the next start.
+func storageType(dialect Dialect, column ColumnSpec) ColumnType {
+	t := column.Type
+	if dialect.Name() == Postgres && column.AutoIncrement && t.RawType == "" && t.Kind == KindInt && t.Unsigned &&
+		(t.Bits <= 0 || t.Bits >= 64) {
+		t.Unsigned, t.Bits = false, 64
+	}
+
+	return t
 }
 
 // SQLiteAffinity is the type affinity SQLite gives a declared type, by its rules
@@ -441,29 +479,72 @@ func SQLiteAffinity(declared string) string {
 	}
 }
 
-func nativeDDLTypeMatchesDeclared(inspected Column, declared ColumnSpec) bool {
+func nativeDDLTypeMatchesDeclared(dialect Name, inspected Column, declared ColumnSpec) bool {
 	if inspected.NativeType == "" || declared.Type.RawType == "" {
 		return false
 	}
 
-	return normalizeDDLNativeTypeName(inspected.NativeType) == normalizeDDLNativeTypeName(declared.Type.RawType)
+	return normalizeDDLNativeTypeName(dialect, inspected.NativeType) == normalizeDDLNativeTypeName(dialect, declared.Type.RawType)
 }
 
-func normalizeDDLNativeTypeName(value string) string {
-	value = strings.ToUpper(strings.TrimSpace(value))
+// mysqlIntegerTypes are the types MySQL 8.0.19 reports without the display width
+// they were declared with: INT(11) reads back as int.
+var mysqlIntegerTypes = []string{"TINYINT", "SMALLINT", "MEDIUMINT", "INT", "BIGINT"}
 
-	base, args, hasArgs := strings.Cut(value, "(")
+// normalizeDDLNativeTypeName spells a type one way, whether it comes from a raw
+// type or from the database: without case or extra spaces, under one name
+// (INT4 and integer are INT), and with what follows the arguments
+// (timestamp(3) without time zone) read as part of the name. A raw type that
+// never compared equal to what the database reports for it asked for the same
+// ALTER on every start, a rewrite of the table each time on PostgreSQL.
+func normalizeDDLNativeTypeName(dialect Name, value string) string {
+	value = strings.Join(strings.Fields(strings.ToUpper(value)), " ")
+
+	// A collation or character set is not part of the type MySQL reports.
+	if dialect == MySQL {
+		for _, clause := range []string{" COLLATE ", " CHARACTER SET ", " CHARSET "} {
+			if i := strings.Index(value, clause); i >= 0 {
+				value = value[:i]
+			}
+		}
+	}
+
+	base, args := value, ""
+
+	if open := strings.Index(value, "("); open >= 0 {
+		if end := strings.LastIndex(value, ")"); end > open {
+			base = strings.TrimSpace(value[:open] + " " + value[end+1:])
+			args = strings.ReplaceAll(value[open+1:end], " ", "")
+		}
+	}
+
 	base = strings.Join(strings.Fields(base), " ")
 
-	if alias, ok := ddlNativeTypeAliases[base]; ok {
+	if alias, ok := nativeTypeAliases[base]; ok {
 		base = alias
 	}
 
-	if !hasArgs {
+	if alias, ok := dialectNativeTypeAliases[dialect][base]; ok {
+		base = alias
+	}
+
+	if dialect == MySQL {
+		// An integer's display width is not stored, and a bare DECIMAL is the
+		// DECIMAL(10,0) MySQL reports.
+		if slices.Contains(mysqlIntegerTypes, strings.TrimSuffix(base, " UNSIGNED")) {
+			args = ""
+		}
+
+		if base == "DECIMAL" && args == "" {
+			args = "10,0"
+		}
+	}
+
+	if args == "" {
 		return base
 	}
 
-	return base + "(" + strings.ReplaceAll(args, " ", "")
+	return base + "(" + args + ")"
 }
 
 func normalizeDDLDefault(value sql.NullString) string {
@@ -477,17 +558,6 @@ func normalizeDDLDefault(value sql.NullString) string {
 func withDDLNullable(desc ColumnType, nullable bool) ColumnType {
 	desc.Nullable = nullable
 	return desc
-}
-
-func ddlSerialType(desc ColumnType) string {
-	switch {
-	case desc.Bits <= 16:
-		return "SMALLSERIAL PRIMARY KEY"
-	case desc.Bits <= 32:
-		return "SERIAL PRIMARY KEY"
-	default:
-		return "BIGSERIAL PRIMARY KEY"
-	}
 }
 
 func validateBuiltInIdentifier(name string) error {

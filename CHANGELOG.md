@@ -161,6 +161,12 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 ### 修复
 
+- **PostgreSQL 改列类型仍会静默截断**：跨类型、或任一侧写了 `type:` 的改动（`type:TEXT` 改成 `size:5`、`VARCHAR` 改成 `type:CHAR(3)`、整数或时间改成短字符串）写成 `USING 列::新类型`，显式转换把放不下的值直接截短，运行期 `Reconcile` 和生成的迁移段都是。现在字符类型的目标写 `USING 列::TEXT`，长度交给赋值检查，放不下就失败、数据不动；`BOOLEAN` 和整数互转也能执行了（此前转 `BIGINT` 报"无法转换"）。
+- **运行期策略没法给有数据的表加 NOT NULL 列**：`CreateMissing` / `Reconcile` 在 PostgreSQL 和 SQLite 上对任何类型都失败、在 MySQL 上对时间列失败，"改了结构直接重启就跟上"只在空表上成立。现在和生成的迁移一样给已有行填类型的零值（带零值默认加列再去掉默认）；SQLite 没有 `DROP DEFAULT`，这类列和默认值不是常量的列（`CURRENT_TIMESTAMP`）通过重建表添加。SQLite 上 `Reconcile` 把可空列改成 NOT NULL 时也先填掉 NULL（此前有一行是 NULL 就失败）。
+- **PostgreSQL 上无符号自增主键第二次启动就对不上**：`uint` / `uint16` / `uint32` / `uint64` 的自增主键建成和 Go 类型同宽的 `SERIAL`，校验却按加宽一档的类型比：TSQ 自己建的表过不了 `Validate`，`Reconcile` 把 `uint64` 主键改成 `NUMERIC(20)`。现在主键按加宽后的宽度建（`uint16` 是 `SERIAL`，`uint` / `uint32` / `uint64` 是 `BIGSERIAL`）。已经按旧规则建的表，`Reconcile` 会加宽列和序列；用迁移文件的项目自己 `ALTER ... TYPE BIGINT`。
+- **MySQL 上迁移写入的零值时间是坏的**：`'0001-01-01 00:00:00+00:00'` 在默认的 `time_zone=SYSTEM` 下被静默存成 `0000-00-00`，在显式会话时区下报 1292，之后这张表上每条复制整表的 `ALTER` 都失败。生成的迁移（新增 NOT NULL 时间列、可空改非空）和 `Reconcile` 都写它；现在 MySQL 上不带时区。新增 NOT NULL 的大字符串或 `[]byte` 列写成 `DEFAULT ''` / `DEFAULT X''` 被 MySQL 拒绝（1101），现在写成表达式默认值。
+- **TSQ 自己建的列每次启动都被判成漂移**：`Validate` 报不匹配，`Reconcile` 每次启动重跑同一条 `ALTER`（PostgreSQL 上是整表重写）。MySQL：字面量默认值是 `'(none)'` 这样带括号的、含 `::` 的、首尾有空格的，或时间字面量；`type:` 写成 `REAL`、`DOUBLE PRECISION`、`BOOL`、`INT(11)`、不带精度的 `DECIMAL` / `NUMERIC`、带 `COLLATE` 的。PostgreSQL：`type:` 写成 `FLOAT`、`TIME`、`TIMESTAMP(3)`、`INT4`、`INT8`、`FLOAT8`。
+- **PostgreSQL 上 `size:` 超过 10485760 的字符串建表失败**：那是 `VARCHAR` 的上限。现在写成 `TEXT`（MySQL 本来就转 `LONGTEXT`）。
 - **`HardDelete` / `BatchHardDelete` 删一个已经不存在的行时报告成功**（表没有 `version` 列时），而 `BatchHardDeleteByPK` 会点名报错。现在它们一致：不存在的行返回 `*RowStateError`，`Keys` 点名；版本变了的行仍是 `OptimisticLockError`。
 - **`BatchUpsert` 写入一部分行之后才报错**：某组行没有可写的列时，前面的组已经写进库。现在写之前检查每一组；只有自增主键要写的行（不可能冲突）按插入处理，和 `Insert` 一致；只合并相邻的同形状行，按切片顺序写。
 - **`BatchUpsert` 之后行在内存里看起来是最新的，其实不是**：时间戳被盖上了，版本号却没跟上数据库，接着 `Update` 必然冲突。现在托管列保持传入时的值，文档写明要 `Update` 先重新加载。

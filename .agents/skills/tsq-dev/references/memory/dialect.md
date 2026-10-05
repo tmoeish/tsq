@@ -23,23 +23,19 @@ PG 上还能不能用**；`WithSkipDuplicates` 的修法见 `../impact/write.md`
 
 ## 同一个 SQLSTATE 在三个驱动里是三个 Go 类型 (2026-08-26)
 
-曾匹配 pgx **v4** 的 `*pgconn.PgError`；v5 的是另一个类型，重试和 `WithSkipDuplicates` 静默失效，而
-单测 fixture 恰好也是 v4。修法是匹配接口 `interface{ SQLState() string }`（pq / pgx v4 / pgx v5 都实现）。
-**驱动错误分类永远按接口，不按具体类型**（MySQL 例外见 `../impact/runtime.md` § 改了驱动错误分类）；集成测试用真实 pgx v5 守着。
+曾匹配 pgx **v4** 的 `*pgconn.PgError`；v5 的是另一个类型，重试和 `WithSkipDuplicates` 静默失效，而单测 fixture 恰好也是 v4。
+**驱动错误分类永远按接口（`SQLState()`），不按具体类型**（MySQL 例外见 `../impact/runtime.md` § 改了驱动错误分类）；集成测试用真实 pgx v5 守着。
 
 ## 决定：方言能力位按版本基线表态，否决"版本可配置" (2026-08-26)
 
 能力位曾按 2018 年前的引擎写死。**否决**给方言加 `ServerVersion`：`Build()` 之前不知道会连哪个库，版本只能执行时探测，
 方言就得带状态。改成按基线表态（MySQL 8.0、SQLite ≥3.39），更老的引擎拿到数据库报错而不是 `UnsupportedCapabilityError`。
+能力表不留 `default` 分支：它把"忘了写"和"决定不支持"变成同一件事，穷尽靠表加遍历表的测试（`dialect.capabilities`）。
 
 ## 决定：commit 阶段只对明确冲突码重试 (2026-08-26)
 
 曾一刀切不重试 commit 失败（有歧义），但 PG 的 `40001` **经常在 COMMIT 时才抛**，而这些码（40001 / 40P01 / 55P03、
 MySQL 1205 / 1213 / 3572）保证事务已回滚。现在 commit 阶段只放行明确冲突码，网络类错误仍不重试。
-
-## 能力位的 `default` 分支是那道门自己的漏洞 (2026-08-26)
-
-`default: return false` 把"忘了写"和"决定不支持"变成同一件事；**要穷尽就用表加遍历表的测试**（`dialect.capabilities`）。
 
 ## 决定：v5 设计收尾——数据库与方言行为 (2026-09-17)
 
@@ -54,8 +50,21 @@ MySQL 1205 / 1213 / 3572）保证事务已回滚。现在 commit 阶段只放行
   UNIQUE 约束，TSQ 自己建的也在内，Reconcile 就再也不能重建任何唯一索引。
 - **NULL 排序默认最小值**：MySQL/SQLite 本来如此只需改 PG；换默认就得给 MySQL 每个可空排序加 `IS NULL` 键。
 - **时间在绑定出口统一转 UTC，不只是托管时间戳**：SQLite 按文本存时间，本地时间和 UTC 行按文本比较会错。
+- **SQLite 的 `INTEGER PRIMARY KEY` 不写 `AUTOINCREMENT` 也算自增**（2026-09-28）：它就是 rowid；当成漂移会让 `Validate` 起不来、
+  `Reconcile` 为使用者自己的选择重建整张表。TSQ 自己建的表仍写 `AUTOINCREMENT`，重建时保留它的计数。
 
-## 决定：SQLite 的 `INTEGER PRIMARY KEY` 不写 `AUTOINCREMENT` 也算自增 (2026-09-28)
+## 只有真实引擎说得出的 schema 行为 (2026-10-05，第五轮审计)
 
-它就是 rowid，库会分配键；`AUTOINCREMENT` 只多保证"已删行的键不再发"。把手写表当漂移会让 `Validate` 起不来、
-`Reconcile` 为一个使用者自己的选择重建整张表。TSQ 自己建的表仍写 `AUTOINCREMENT`，重建时也保留它的计数。
+前四轮审计对 MySQL / PostgreSQL 只能推理，第一次真跑就在 schema 路径上找出一串推理看不见的事；**改 schema 路径要真跑
+"类型 × 引擎 × 策略"的矩阵**（`internal/integration/schema_test.go`），本机没有 Docker 时下二进制起临时实例即可。
+
+- **PG 的显式转换截断、赋值转换拒绝**：`USING c::VARCHAR(5)` 把超长值静默截短。第四轮只去掉了同类改动的 `USING`，跨类和带
+  `type:` 的照旧——同一类 bug 没数全。字符目标一律 `USING c::TEXT`，长度交给赋值检查。
+- **MySQL 的时间字面量只在 TIMESTAMP 范围内才能带时区**：`'0001-01-01 00:00:00+00:00'` 在显式会话时区下报 1292，在默认的
+  `time_zone=SYSTEM` 下**静默存成 `0000-00-00`**，此后每条复制表的 ALTER 都失败。零值字面量因此分方言（`ZeroLiteral`）。
+- **MySQL 读回的字面量默认值不带引号**：`'(none)'` 读成括号表达式、`'a::b'` 读成转换、首尾空格被修掉，于是每次启动都改一次；
+  `mysqlDefault` 按列类型把引号加回去。原始类型的别名分方言（`REAL` 在 PG 是 float4、在 MySQL 是 DOUBLE）。
+  已知未处理：MySQL 把默认值里的反斜杠当转义，`'a\b'` 仍每次启动都漂移；`VARCHAR(16383)` 只要表里还有别的列就超行宽（1118）。
+- **决定（维护者 2026-10-05）**：运行期策略给有数据的表加 NOT NULL 列也补零值，与生成器的迁移共用 `AddColumnSQL`（带零值默认加列再
+  去掉默认，SQLite 没有 `DROP DEFAULT` 所以重建）——"改了结构重启就跟上"在 PG 上此前一行数据就断。PG 上无符号自增主键是加宽
+  类型的 SERIAL，`uint64` 是 `BIGSERIAL`：序列本来就到不了 int64 上限，`NUMERIC(20)` 的主键只有代价。

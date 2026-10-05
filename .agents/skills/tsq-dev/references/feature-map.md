@@ -48,7 +48,8 @@
 | --- | --- |
 | 封闭的 `Executor`、`execScope`、`WrapExecutor`、`DBTX` | `executor.go` |
 | `Open` / `NewRuntime`、连接池所有权、标识符校验 | `runtime.go`（选项在 `runtime_options.go`） |
-| 表与列的 schema 对账 | `runtime_schema.go`；默认值比较、补 NULL 的值、零值字面量在 `internal/sqldialect/defaults.go`（生成器和运行期共用） |
+| 表与列的 schema 对账 | `runtime_schema.go`；默认值比较、补 NULL 的值、零值字面量、加列语句（`AddColumnSQL` / `AddNeedsRebuild`）在 `internal/sqldialect/defaults.go`（生成器和运行期共用）；类型比较与原始类型别名在 `internal/sqldialect/dialect.go`（`SameColumnType`、`storageType`、`normalizeDDLNativeTypeName`） |
+| schema 策略在真实引擎上的矩阵（有数据的表加列与收紧、无符号自增主键、默认值与原始类型不漂移、改类型不截断） | `internal/integration/schema_test.go` |
 | `Logger`、执行期日志与 SQL 日志（`logForExecutor` / `logSQLForExecutor`） | `log.go` |
 | 错误类型与全部 `Is*` 判断（乐观锁、行状态、重试、冲突、重复键） | `errors.go`（驱动错误分类在 `mysql_errors.go` / `postgres_errors.go` / `sqlite_errors.go`） |
 | 事务与重试（`WithTx`、`WithTxResult`、`TxOption` 与 `WithRetry` 等、`RetryPolicy`） | `tx.go`（`tx_test.go`） |

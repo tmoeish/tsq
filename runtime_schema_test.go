@@ -517,12 +517,12 @@ func TestFailedDDLIsNotLoggedAsApplied(t *testing.T) {
 		}
 	}
 
-	// A NOT NULL column with no default cannot be added to a table with rows.
+	// A type that is not SQL makes the ADD COLUMN a syntax error.
 	table, _ := newStrictMockTable("users", "id", "name", "age")
 	declared := registered(table, []tsqdialect.ColumnSpec{
 		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
 		{Name: "name", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 120, Nullable: true}},
-		{Name: "age", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}},
+		{Name: "age", Type: tsqdialect.ColumnType{RawType: "BROKEN(", Nullable: true}},
 	})
 
 	logger := &recordingLogger{}
