@@ -29,6 +29,9 @@
   `check_change_log.py` 的 `RELEASE_ONLY_FILES` 就是为此存在的。
 - `.github/workflows/go.yml` 和本地 `make` 目标是两条独立的真相。改了本地目标名，
   CI 里引用它的地方要一起改（v4.4.1 那次 CI 调了一个不存在的 `make update-examples`）。
+- **`make harness` 不含 CI 的 `Security`（gosec）和 `Vulncheck`**：本地全绿的一波会在 CI 上红。非测试代码里用了 gosec 会标的东西
+  （`math/rand`、文件权限、`exec`、`unsafe`）之前，本地跑 CI 那条命令（`gosec -exclude=G201,G304 ./...`，版本看 `GOSEC_VERSION`）。只关乎
+  某一行的误报写 `// #nosec <规则> -- 理由`（重试抖动的 G404 是第一处）；G201 / G304 是按规则排除的，理由在 workflow 的注释里，别改成逐行标注。
 
 ## 想往 `make fmt` 里加自动改写工具
 
