@@ -161,6 +161,8 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 ### 修复
 
+- **会话的文本编码不是 UTF-8 时，文本被悄悄存成别的字符**：PostgreSQL 的数据库编码是 `LATIN1` 这类时，pgx 不会自己要求编码，会话就跟着数据库走；MySQL 的 DSN 写了 `charset=latin1` 同理。Go 字符串的 UTF-8 字节被当成 latin1 字符读：`é` 存成了 `Ã©`，`Length` 数成两个字符，`Substring` 从一个字符中间切开，而同一个会话读回来又是完整的，所以全程不报错，直到别的客户端来读这张表。现在运行时在启动时拒绝这样的会话并说明改法：PostgreSQL 在 DSN 里加 `client_encoding=UTF8`，MySQL 去掉 `charset` / `collation`（驱动默认 `utf8mb4`）。`SQL_ASCII` 的 PostgreSQL 库什么都不转换，不检查。
+- **MySQL 上 `BatchUpdate` 对非连接字符集的表直接报错**：表（或被写的某一列、主键）是 `latin1`、`gbk`、`ascii` 这类字符集，而连接是 `utf8mb4`——早于 utf8mb4 的老库都是这样——多行更新报 `Illegal mix of collations (latin1_swedish_ci,IMPLICIT) and (utf8mb4_general_ci,COERCIBLE) for operation 'UNION'`，一行也写不进去。服务器在比较和赋值时会把参数转成列的字符集，但给 `UNION` 定类型时不会。现在遇到这个错误（语句在写任何行之前就被拒绝）就把这一批改成逐行更新，结果相同，速度是单行更新的速度。
 - **MySQL 非严格模式下，`Reconcile` 改列类型会截断数据**：`sql_mode` 里没有 `STRICT_TRANS_TABLES` 时，`ALTER TABLE ... MODIFY` 把放不进新类型的值直接截掉（`'abcdefghij'` 进 `VARCHAR(5)` 成了 `'abcde'`），只留一条没人读的 warning；严格模式下同一条语句被拒绝。现在 schema 策略在它自己的连接上始终按严格模式执行，结束后把会话的 `sql_mode` 还原；放不进去的改动在任何模式下都被拒绝。
 - **MySQL 的 `ANSI_QUOTES` / `ANSI` 模式下，TSQ 自己建的表每次启动都被判为漂移**：这个模式下 `SHOW CREATE TABLE` 用双引号写列名，向引擎求证拼写的那一步在里面找不到列，于是 `type:REAL`、`INTEGER UNSIGNED`、表达式默认值等引擎有自己写法的列，`Validate` 启动失败、`Reconcile` 每次启动都重跑同一条 `ALTER`。`NO_BACKSLASH_ESCAPES` 下 `BINARY` 列的字面量默认值同样误报（服务器读不回它自己写出的 `'ab\0\0'`）。两种模式现在都和默认模式一样：第二次启动零 DDL。
 - MySQL 连接池不在严格模式时，启动时记一条 warning：放不进列的值会被截断或夹到范围边界而不是被拒绝，写入"成功"但存下的是另一个值。只提醒不拒绝——模式是部署自己的选择。

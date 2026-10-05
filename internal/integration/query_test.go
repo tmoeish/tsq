@@ -345,6 +345,57 @@ func TestIntegrationZeroTimeIsStoredOnEveryEngine(t *testing.T) {
 	}
 }
 
+// TestIntegrationSessionsExchangeTextAsUTF8 covers a session whose text is not
+// UTF-8 on the wire: charset=latin1 in a MySQL DSN, and on PostgreSQL the
+// encoding of the database, which a session takes when the driver asks for none
+// (pgx does not). The bytes of a Go string are then read as that many latin1
+// characters: "é" was stored as "Ã©", counted as two characters and cut in the
+// middle by SUBSTRING, and read back whole by the same session, so nothing failed.
+func TestIntegrationSessionsExchangeTextAsUTF8(t *testing.T) {
+	ctx := context.Background()
+
+	for _, target := range integrationTargets(t) {
+		var refused, taken []string
+
+		switch target.name {
+		case "mysql":
+			refused = []string{"&charset=latin1", "&collation=latin1_swedish_ci", "&charset=gbk"}
+			taken = []string{"", "&charset=utf8mb4", "&collation=utf8mb4_0900_ai_ci", "&charset=utf8"}
+		case "postgres":
+			refused = []string{"&client_encoding=LATIN1", "&client_encoding=WIN1252"}
+			taken = []string{"", "&client_encoding=UTF8"}
+		default:
+			continue
+		}
+
+		for _, setting := range refused {
+			rt, err := tsq.Open(ctx, target.driver, target.dsn+setting, nil)
+			if err == nil {
+				_ = rt.Close()
+
+				t.Errorf("%s: Open took a session of %s", target.name, setting)
+
+				continue
+			}
+
+			if !strings.Contains(err.Error(), "UTF-8") {
+				t.Errorf("%s: Open(%s) = %v; want it to say the text is not UTF-8", target.name, setting, err)
+			}
+		}
+
+		for _, setting := range taken {
+			rt, err := tsq.Open(ctx, target.driver, target.dsn+setting, nil)
+			if err != nil {
+				t.Errorf("%s: Open refused a session of %q: %v", target.name, setting, err)
+
+				continue
+			}
+
+			_ = rt.Close()
+		}
+	}
+}
+
 // TestIntegrationOpenRefusesAMySQLLocOtherThanUTC covers the go-sql-driver loc
 // parameter, "loc=Local" above all. The driver writes a time in loc and reads a
 // DATETIME as one in loc: TSQ's stamps were then stored in local time where the

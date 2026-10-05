@@ -155,8 +155,17 @@ func newRuntime(
 		return nil, err
 	}
 
-	if sqlDialect.Name() == tsqdialect.MySQL {
+	switch sqlDialect.Name() {
+	case tsqdialect.MySQL:
 		if err := checkMySQLTimes(ctx, db); err != nil {
+			return nil, err
+		}
+
+		if err := checkMySQLText(ctx, db); err != nil {
+			return nil, err
+		}
+	case tsqdialect.Postgres:
+		if err := checkPostgresText(ctx, db); err != nil {
 			return nil, err
 		}
 	}
@@ -412,6 +421,49 @@ func checkMySQLTimes(ctx context.Context, db *sql.DB) error {
 	}
 
 	return nil
+}
+
+// checkPostgresText refuses a session that exchanges text in another encoding
+// than UTF-8. pgx asks for none, so the session takes the database's: over a
+// LATIN1 database the bytes of a Go string, which are UTF-8, are read as LATIN1
+// characters, two or three for one. What is stored is not what was written (any
+// other client sees it), LENGTH counts the wrong characters and SUBSTRING cuts
+// between the bytes of one, and nothing fails, because the same misreading turns
+// the text back on the way out. A SQL_ASCII database converts nothing whatever
+// the client asks for, so there is nothing to ask of it.
+func checkPostgresText(ctx context.Context, db *sql.DB) error {
+	var client, server string
+
+	// A setting that cannot be read is not a reason to refuse to start.
+	if err := db.QueryRowContext(ctx, "SELECT current_setting('client_encoding'), current_setting('server_encoding')").Scan(&client, &server); err != nil {
+		return nil //nolint:nilerr // see above
+	}
+
+	if strings.EqualFold(client, "UTF8") || strings.EqualFold(server, "SQL_ASCII") {
+		return nil
+	}
+
+	return fmt.Errorf("the PostgreSQL session exchanges text as %s (the encoding of the database is %s, and the driver asks for none of its own); "+
+		"a Go string is UTF-8, and its bytes would be stored as other characters than the ones written: add client_encoding=UTF8 to the DSN", client, server)
+}
+
+// checkMySQLText is checkPostgresText for MySQL, where the DSN's charset or
+// collation decides: with charset=latin1 the server reads the UTF-8 bytes of a Go
+// string as latin1 characters and stores those. The driver's default is utf8mb4.
+func checkMySQLText(ctx context.Context, db *sql.DB) error {
+	var client sql.NullString
+
+	if err := db.QueryRowContext(ctx, "SELECT @@SESSION.character_set_client").Scan(&client); err != nil || !client.Valid {
+		return nil //nolint:nilerr // a setting that cannot be read is not a reason to refuse to start
+	}
+
+	switch strings.ToLower(client.String) {
+	case "utf8mb4", "utf8mb3", "utf8", "binary":
+		return nil
+	}
+
+	return fmt.Errorf("the MySQL connection exchanges text as %s; a Go string is UTF-8, and its bytes would be stored as other characters than the ones written: "+
+		"drop charset and collation from the DSN (utf8mb4 is the driver's default), or set them to utf8mb4", client.String)
 }
 
 // warnMySQLMode says so where the sessions of the pool are not strict. Outside
