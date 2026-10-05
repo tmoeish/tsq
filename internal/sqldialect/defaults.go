@@ -262,3 +262,103 @@ func NewColumnFill(d Dialect, column ColumnSpec) string {
 
 	return zero
 }
+
+// Retype is how a SQLite rebuild carries the values of a column into another type.
+// SQLite stores what it is given under any declared type, so a rebuild that copied
+// a column as it was "succeeded" over values no field of the new type reads: 1.5 in
+// an integer column, 2 in a boolean one, 'Hello' in either. MySQL and PostgreSQL
+// convert such a value where their casts do and refuse the change where they do
+// not, and a rebuild does the same.
+type Retype uint8
+
+const (
+	// RetypeAsIs is a change every stored value survives as it is.
+	RetypeAsIs Retype = iota
+	// RetypeConvert is a change every value converts under, by SQLiteRetypeSource.
+	RetypeConvert
+	// RetypeMayFail is a change some values may not convert under: text into a
+	// number, a boolean or a time.
+	RetypeMayFail
+)
+
+// SQLiteRetype classifies the change of a column from before to after. A raw
+// type: on either side is the declaration's own business and is carried as it is.
+func SQLiteRetype(before, after ColumnType) Retype {
+	if before.RawType != "" || after.RawType != "" || before.Kind == after.Kind {
+		return RetypeAsIs
+	}
+
+	numeric := before.Kind == KindInt || before.Kind == KindFloat || before.Kind == KindBool
+
+	switch after.Kind {
+	case KindInt:
+		switch before.Kind {
+		case KindBool:
+			return RetypeAsIs
+		case KindFloat:
+			return RetypeConvert
+		}
+
+		return RetypeMayFail
+	case KindFloat:
+		if numeric {
+			return RetypeAsIs
+		}
+
+		return RetypeMayFail
+	case KindBool:
+		if numeric {
+			return RetypeConvert
+		}
+
+		return RetypeMayFail
+	case KindTime:
+		return RetypeMayFail
+	default:
+		// Text and bytes hold anything.
+		return RetypeAsIs
+	}
+}
+
+// SQLiteRetypeSource is what a rebuild copies from source into a column that
+// becomes after: a fraction is rounded into an integer as MySQL rounds it, and any
+// number but zero is true, as PostgreSQL's USING c <> 0 has it. It goes by the
+// value's own storage class, so it is right whatever the old column was declared.
+func SQLiteRetypeSource(source string, after ColumnType) string {
+	if after.RawType != "" {
+		return source
+	}
+
+	switch after.Kind {
+	case KindInt:
+		return fmt.Sprintf("CASE typeof(%s) WHEN 'real' THEN CAST(ROUND(%s) AS INTEGER) ELSE %s END", source, source, source)
+	case KindBool:
+		return fmt.Sprintf("CASE WHEN typeof(%s) IN ('integer', 'real') THEN %s <> 0 ELSE %s END", source, source, source)
+	default:
+		return source
+	}
+}
+
+// SQLiteMisfit is a condition true of a value stored in column that a field of type
+// t does not read, and what such a value is not, for the error; both are empty for
+// a type that reads anything. It is asked of the rebuilt table, after SQLite's
+// affinity has converted what it converts ('12' into an integer column is 12).
+func SQLiteMisfit(column string, t ColumnType) (condition, kind string) {
+	if t.RawType != "" {
+		return "", ""
+	}
+
+	switch t.Kind {
+	case KindInt:
+		return fmt.Sprintf("typeof(%s) NOT IN ('integer', 'null')", column), "an integer"
+	case KindFloat:
+		return fmt.Sprintf("typeof(%s) NOT IN ('real', 'integer', 'null')", column), "a number"
+	case KindBool:
+		return fmt.Sprintf("typeof(%s) <> 'null' AND (typeof(%s) <> 'integer' OR %s NOT IN (0, 1))", column, column, column), "a boolean"
+	case KindTime:
+		return fmt.Sprintf("typeof(%s) <> 'null' AND (typeof(%s) <> 'text' OR %s NOT GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*')",
+			column, column, column), "a time"
+	default:
+		return "", ""
+	}
+}

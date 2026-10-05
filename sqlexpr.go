@@ -336,5 +336,13 @@ func (s *statement) assemble(d sqld.Dialect, bound argSet) (string, []any, error
 		}
 	}
 
+	// Past the limit each driver fails in words of its own ("too many SQL
+	// variables", "Prepared statement contains too many placeholders", "extended
+	// protocol limited to 65535 parameters"), none of which says what to do.
+	if limit := sqld.MaxBindParams(d); len(args) > limit {
+		return "", nil, fmt.Errorf("the statement binds %d values and %s takes at most %d in one statement; "+
+			"run a query over a long list in parts with ListIn, and write many rows with the Batch methods", len(args), d.Name(), limit)
+	}
+
 	return sql.String(), args, nil
 }

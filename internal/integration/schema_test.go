@@ -382,6 +382,7 @@ func TestIntegrationDeclaredColumnsDoNotDrift(t *testing.T) {
 		return tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: size}
 	}
 	raw := func(spelled string) tsqdialect.ColumnType { return tsqdialect.ColumnType{RawType: spelled} }
+	integer := tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}
 
 	type driftCase struct {
 		name    string
@@ -413,6 +414,34 @@ func TestIntegrationDeclaredColumnsDoNotDrift(t *testing.T) {
 		{"INT4", raw("INT4"), "", "postgres"},
 		{"INT8", raw("INT8"), "", "postgres"},
 		{"FLOAT8", raw("FLOAT8"), "", "postgres"},
+		// What no table of spellings kept up with, settled by asking the engine.
+		{"DECIMAL(10)", raw("DECIMAL(10)"), "", "mysql"},
+		{"INTEGER UNSIGNED", raw("INTEGER UNSIGNED"), "", "mysql"},
+		{"CHAR", raw("CHAR"), "", "mysql,postgres"},
+		{"BIT", raw("BIT"), "", "mysql"},
+		{"BIT(1) default", raw("BIT(1)"), "1", "mysql"},
+		{"NVARCHAR(10)", raw("NVARCHAR(10)"), "", "mysql"},
+		{"NCHAR(3)", raw("NCHAR(3)"), "", "mysql"},
+		{"YEAR(4)", raw("YEAR(4)"), "", "mysql"},
+		{"FLOAT(24)", raw("FLOAT(24)"), "", "mysql,postgres"},
+		{"FLOAT(53)", raw("FLOAT(53)"), "", "mysql,postgres"},
+		{"INT1", raw("INT1"), "", "mysql"},
+		{"MIDDLEINT", raw("MIDDLEINT"), "", "mysql"},
+		{"INT ZEROFILL", raw("INT ZEROFILL"), "", "mysql"},
+		{"LONG VARCHAR", raw("LONG VARCHAR"), "", "mysql"},
+		{"VARCHAR BINARY", raw("VARCHAR(10) BINARY"), "", "mysql"},
+		{"DATE default", raw("DATE"), "(CURRENT_DATE)", "mysql"},
+		{"INT[]", raw("INT[]"), "", "postgres"},
+		{"VARCHAR(10)[]", raw("VARCHAR(10)[]"), "", "postgres"},
+		{"INT[] default", raw("INT[]"), "'{}'", "postgres"},
+		{"NUMERIC(10)", raw("NUMERIC(10)"), "", "postgres"},
+		{"default with a backslash", text(40), `'a\\b'`, ""},
+		{"expression default", integer, "(1+1)", ""},
+		{"function default", raw("INTEGER"), "(abs(-1))", ""},
+		{"function default over text", raw("TEXT"), "(lower('X'))", "postgres,sqlite"},
+		{"signed default", integer, "+5", "postgres,sqlite"},
+		{"time default with a zone", tsqdialect.ColumnType{Kind: tsqdialect.KindTime}, "'2020-01-02T03:04:05Z'", "postgres"},
+		{"empty bytes default", tsqdialect.ColumnType{Kind: tsqdialect.KindBytes}, "''", "postgres,sqlite"},
 	}
 
 	for _, target := range integrationTargets(t) {
@@ -460,20 +489,25 @@ func TestIntegrationRetypeRefusesAValueThatDoesNotFit(t *testing.T) {
 	}
 
 	for _, target := range integrationTargets(t) {
-		if target.name == "sqlite" {
-			continue // SQLite keeps any value in any column.
-		}
-
 		for _, c := range []struct {
 			name     string
 			from, to tsqdialect.ColumnType
 			value    string
+			sqlite   bool // SQLite does not enforce a length; it refuses a value of another kind.
 		}{
-			{"TEXT to a short string", tsqdialect.ColumnType{RawType: "TEXT"}, text(5), "'abcdefghij'"},
-			{"string to CHAR(3)", text(40), tsqdialect.ColumnType{RawType: "CHAR(3)"}, "'abcdefghij'"},
-			{"integer to a short string", tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, text(1), "12345"},
-			{"time to a short string", tsqdialect.ColumnType{Kind: tsqdialect.KindTime}, text(10), "'2020-01-02 03:04:05'"},
+			{"TEXT to a short string", tsqdialect.ColumnType{RawType: "TEXT"}, text(5), "'abcdefghij'", false},
+			{"string to CHAR(3)", text(40), tsqdialect.ColumnType{RawType: "CHAR(3)"}, "'abcdefghij'", false},
+			{"integer to a short string", tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, text(1), "12345", false},
+			{"time to a short string", tsqdialect.ColumnType{Kind: tsqdialect.KindTime}, text(10), "'2020-01-02 03:04:05'", false},
+			{"text to an integer", text(40), tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, "'Hello'", true},
+			{"text to a number", text(40), tsqdialect.ColumnType{Kind: tsqdialect.KindFloat, Bits: 64}, "'Hello'", true},
+			{"text to a time", text(40), tsqdialect.ColumnType{Kind: tsqdialect.KindTime}, "'Hello'", true},
+			{"text to a boolean", text(40), tsqdialect.ColumnType{Kind: tsqdialect.KindBool}, "'Hello'", true},
 		} {
+			if target.name == "sqlite" && !c.sqlite {
+				continue
+			}
+
 			t.Run(target.name+"/"+c.name, func(t *testing.T) {
 				dropTables(t, target, "drifting")
 
@@ -500,6 +534,165 @@ func TestIntegrationRetypeRefusesAValueThatDoesNotFit(t *testing.T) {
 
 				if after := columnValues(t, target, "drifting", "c"); !strings.EqualFold(strings.Join(after, ","), strings.Join(before, ",")) {
 					t.Fatalf("the change failed and still altered the rows: %v, was %v", after, before)
+				}
+			})
+		}
+	}
+}
+
+// TestIntegrationRetypeCarriesTheValues covers a type change every value
+// converts under, where the three engines must end up holding the same thing.
+// PostgreSQL cast bytes to text as their hex spelling and text to bytes as an
+// escape string, SQLite kept 1.5 under an integer column and 2 under a boolean
+// one (after which no read of the table worked), and MySQL kept the 2 as well.
+func TestIntegrationRetypeCarriesTheValues(t *testing.T) {
+	text := tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 40}
+	bytes := tsqdialect.ColumnType{Kind: tsqdialect.KindBytes}
+	integer := tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}
+	number := tsqdialect.ColumnType{Kind: tsqdialect.KindFloat, Bits: 64}
+	boolean := tsqdialect.ColumnType{Kind: tsqdialect.KindBool}
+
+	for _, target := range integrationTargets(t) {
+		for _, c := range []struct {
+			name     string
+			from, to tsqdialect.ColumnType
+			values   []any
+			want     string
+		}{
+			{"bytes to text", bytes, text, []any{[]byte("abc"), []byte("it's")}, "abc,it's"},
+			{"text to bytes", text, bytes, []any{`tab\101x`, `a\\b`, "plain"}, `tab\101x,a\\b,plain`},
+			{"fraction to an integer", number, integer, []any{1.6, 2.25, -1.7}, "2,2,-2"},
+			{"number to a boolean", integer, boolean, []any{int64(0), int64(1), int64(2), int64(-7)}, "false,true,true,true"},
+			{"fraction to a boolean", number, boolean, []any{0.0, 0.4}, "false,true"},
+			{"numeric text to an integer", text, integer, []any{"12", "-3"}, "12,-3"},
+			{"boolean to an integer", boolean, integer, []any{true, false}, "1,0"},
+			{"integer to text", integer, text, []any{int64(12)}, "12"},
+		} {
+			t.Run(target.name+"/"+c.name, func(t *testing.T) {
+				dropTables(t, target, "drifting")
+
+				rt, _, err := openQuietly(target, tsq.SchemaPolicyCreateMissing, driftingTable(c.from, ""))
+				if err != nil {
+					t.Fatalf("create: %v", err)
+				}
+
+				placeholder := "?"
+				if target.name == "postgres" {
+					placeholder = "$1"
+				}
+
+				for _, value := range c.values {
+					if _, err := rt.ExecContext(context.Background(), "INSERT INTO drifting (c) VALUES ("+placeholder+")", value); err != nil {
+						t.Fatalf("seed %v: %v", value, err)
+					}
+				}
+
+				_ = rt.Close()
+
+				rt, ran, err := openQuietly(target, tsq.SchemaPolicyReconcile, driftingTable(c.to, ""))
+				if err != nil {
+					t.Fatalf("reconcile: %v", err)
+				}
+
+				_ = rt.Close()
+
+				got := columnValues(t, target, "drifting", "c")
+				for i, value := range got {
+					// A boolean reads as true/false on PostgreSQL and 1/0 elsewhere.
+					if c.to.Kind == tsqdialect.KindBool {
+						got[i] = map[string]string{"1": "true", "0": "false"}[value]
+						if got[i] == "" {
+							got[i] = value
+						}
+					}
+				}
+
+				if strings.Join(got, ",") != c.want {
+					t.Fatalf("the column holds %q, want %q\nran:\n  %s", strings.Join(got, ","), c.want, strings.Join(ran, "\n  "))
+				}
+
+				// What was carried over is what the declaration says: nothing more to do.
+				rt, ran, err = openQuietly(target, tsq.SchemaPolicyValidate, driftingTable(c.to, ""))
+				if err != nil {
+					t.Fatalf("validate after the change: %v", err)
+				}
+
+				_ = rt.Close()
+
+				if len(ran) != 0 {
+					t.Fatalf("validate ran DDL: %v", ran)
+				}
+			})
+		}
+	}
+}
+
+// TestIntegrationAChangedColumnIsStillAChange is the other half of asking the
+// engine for its spelling: a declaration that differs from the column is altered,
+// once, however the engine spells either.
+func TestIntegrationAChangedColumnIsStillAChange(t *testing.T) {
+	raw := func(spelled string) tsqdialect.ColumnType { return tsqdialect.ColumnType{RawType: spelled} }
+	integer := tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}
+
+	for _, target := range integrationTargets(t) {
+		for _, c := range []struct {
+			name           string
+			from, to       tsqdialect.ColumnType
+			fromDef, toDef string
+			engines        string
+		}{
+			{"precision", raw("DECIMAL(10)"), raw("DECIMAL(12)"), "", "", "mysql,postgres"},
+			{"expression default", integer, integer, "(1+1)", "(1+2)", ""},
+			{"array element", raw("INT[]"), raw("BIGINT[]"), "", "", "postgres"},
+			{"default added", raw("CHAR"), raw("CHAR"), "", "'x'", "mysql,postgres"},
+		} {
+			if c.engines != "" && !strings.Contains(c.engines, target.name) {
+				continue
+			}
+
+			t.Run(target.name+"/"+c.name, func(t *testing.T) {
+				dropTables(t, target, "drifting")
+
+				// Both declarations hold NULL, so only what the case changes differs.
+				declared := func(column tsqdialect.ColumnType, def string) tsq.Table {
+					column.Nullable = true
+
+					return driftingTable(column, def)
+				}
+
+				rt, _, err := openQuietly(target, tsq.SchemaPolicyCreateMissing, declared(c.from, c.fromDef))
+				if err != nil {
+					t.Fatalf("create: %v", err)
+				}
+
+				_ = rt.Close()
+
+				if rt, _, err := openQuietly(target, tsq.SchemaPolicyValidate, declared(c.to, c.toDef)); err == nil {
+					_ = rt.Close()
+
+					t.Fatal("validate took the changed declaration for the column as it is")
+				}
+
+				rt, ran, err := openQuietly(target, tsq.SchemaPolicyReconcile, declared(c.to, c.toDef))
+				if err != nil {
+					t.Fatalf("reconcile: %v", err)
+				}
+
+				_ = rt.Close()
+
+				if len(ran) == 0 {
+					t.Fatal("reconcile ran nothing for a changed declaration")
+				}
+
+				rt, ran, err = openQuietly(target, tsq.SchemaPolicyReconcile, declared(c.to, c.toDef))
+				if err != nil {
+					t.Fatalf("second reconcile: %v", err)
+				}
+
+				_ = rt.Close()
+
+				if len(ran) != 0 {
+					t.Fatalf("the change was made again on the next start: %v", ran)
 				}
 			})
 		}

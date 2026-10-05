@@ -63,6 +63,14 @@
   （`normalizeDDLNativeTypeName(dialect, ...)`：`TIMESTAMP(3)` 对 `timestamp(3) without time zone`、MySQL 的 `INT(11)` 对 `int`）。
   改 `ColumnTypeSQL` / `AutoIncrementColumnSQL` 的拼写要回来看这两处，门是 `TestIntegrationUnsignedAutoIncrementKeysAreStable` 和
   `TestIntegrationDeclaredColumnsDoNotDrift`——后者的用例表就是"引擎用自己的拼法报回来"的清单，新支持一种拼写就加一行。
+- **文本比较说"不一样"之后还有一步：问引擎**（`adoptEngineSpelling` → `Dialect.ProbeColumn` → `sqldialect.AdoptSpelling`，MySQL / PG 在本会话的
+  临时表里按声明建列、读回拼法）。别名表因此不必再为每种新拼法加行，但**探测读列的代码要和 `InspectColumns` 给出同样的拼法**：PG 用同一条查询换
+  schema（`inspectColumns`），MySQL 的临时表不在 `information_schema` 里，走 `SHOW FULL COLUMNS`，表达式默认值的差别在 `showProbeColumn` 里还原。
+  改任何一边的读法都要跑 `TestIntegrationDeclaredColumnsDoNotDrift`（不漂移）和 `TestIntegrationAChangedColumnIsStillAChange`（真改动没被吞掉）。
+- **改类型时值怎么过去是规则，不是 ALTER 的副作用**：PG 的 `postgresUsing` 按"源 × 目标"逐对写（字节与文本用 `convert_from` / `convert_to`），MySQL 的
+  `AlterColumnSQL` 在数值转布尔前先 `UPDATE`，SQLite 的重建用 `sqldialect.SQLiteRetype*`（运行期 `rebuildCopyColumns` 转换、`rebuiltValuesFit` 在提交前
+  检查并拒绝；生成器 `renderSQLiteRebuildTableBody` 转换或写成手工注释）。新增一对"源 → 目标"要进 `TestIntegrationRetypeCarriesTheValues` 或
+  `TestIntegrationRetypeRefusesAValueThatDoesNotFit`，三个方言的结果必须相同。
 - SQLite 的探查（`ListIndexes`、`InspectRebuild`）**先读完、关掉结果集再发下一条查询**：使用者常把 SQLite 池设成一个连接，
   开着结果集再查会永远等下去（`TestSchemaPoliciesRunOnOneConnection`）。新增探查照此写。
 - `Reconcile` 在 SQLite 上删列前先删覆盖它的索引（`dropIndexesOfDroppedColumns`）；索引列名比较不区分大小写（`ValidateIndex`、

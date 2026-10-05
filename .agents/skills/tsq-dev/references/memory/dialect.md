@@ -13,18 +13,15 @@
 
 ## "抓住错误继续跑"在 PostgreSQL 的事务里不成立 (2026-08-28)
 
-PG 事务里任一语句失败，事务即 aborted，其后语句都报 `25P02`。**凡是"捕获错误后继续用同一个连接"的代码，都要问
-PG 上还能不能用**；`WithSkipDuplicates` 的修法见 `../impact/write.md` § 改了批量写。
+PG 事务里任一语句失败即 aborted，其后都报 `25P02`：**凡是"捕获错误后继续用同一个连接"的代码，都要问 PG 上还能不能用**（`WithSkipDuplicates` 的修法见 `../impact/write.md` § 改了批量写）。
 
-## 转义值和声明转义符是同一件事的两半，只做前一半是静默错误 (2026-08-28)
+## 转义值和声明转义符是同一件事的两半 (2026-08-28)
 
-转义了 `%` / `_` 却渲染裸 `LIKE ?`：SQLite 没有默认转义符，搜 `a_b` 返回零行，另两个方言靠默认反斜杠侥幸正确。
-**任何"对值做了预处理"的功能都要问"数据库怎么知道"**；约束和门在 `../impact/query.md` § 改了 LIKE 谓词的渲染。
+转义了 `%` / `_` 却渲染裸 `LIKE ?`，SQLite 没有默认转义符、搜 `a_b` 零行。**任何"对值做了预处理"的功能都要问"数据库怎么知道"**；门在 `../impact/query.md` § 改了 LIKE 谓词的渲染。
 
 ## 同一个 SQLSTATE 在三个驱动里是三个 Go 类型 (2026-08-26)
 
-曾匹配 pgx **v4** 的 `*pgconn.PgError`；v5 的是另一个类型，重试和 `WithSkipDuplicates` 静默失效，而单测 fixture 恰好也是 v4。
-**驱动错误分类永远按接口（`SQLState()`），不按具体类型**（MySQL 例外见 `../impact/runtime.md` § 改了驱动错误分类）；集成测试用真实 pgx v5 守着。
+曾匹配 pgx **v4** 的具体类型，v5 是另一个类型，重试静默失效。**驱动错误分类按接口（`SQLState()`）**（MySQL 例外见 `../impact/runtime.md` § 改了驱动错误分类），集成测试用真实 pgx v5 守着。
 
 ## 决定：方言能力位按版本基线表态，否决"版本可配置" (2026-08-26)
 
@@ -45,26 +42,25 @@ MySQL 1205 / 1213 / 3572）保证事务已回滚。现在 commit 阶段只放行
 - **全文检索三个方言不是一回事**：MySQL `MATCH ... AGAINST`、PG `to_tsvector @@ plainto_tsquery`、SQLite
   退化成子串匹配（FTS5 要影子表和触发器）。排序和操作符不可移植，只有 `Capability` 说得清拿到哪一种。
   `TableIndex` 加字段记得 `cloneTableIndex`：曾逐字段复制，`FullText` 标记就在那里丢过。
-- **生成列不参与 schema 对账**：SQLite 的 `table_info` 不列它，每次启动都会再 ADD（duplicate column）。
+- **生成列不参与 schema 对账**：SQLite 的 `table_info` 不列它，每次启动都会再 ADD（duplicate column）。已知未处理：因此 `Validate` 对一张缺了声明的生成列的表也放行，读它时才报 no such column；要只比"在不在"得先让 SQLite 的自省改用 `table_xinfo`（2026-10-05）。
 - **MySQL 的 `Index.Constraint` 指"外键需要的索引"**（删它报 1553）：别改成读 `TABLE_CONSTRAINTS`，那里把每个唯一索引都列成
   UNIQUE 约束，TSQ 自己建的也在内，Reconcile 就再也不能重建任何唯一索引。
 - **NULL 排序默认最小值**：MySQL/SQLite 本来如此只需改 PG；换默认就得给 MySQL 每个可空排序加 `IS NULL` 键。
-- **时间在绑定出口统一转 UTC，不只是托管时间戳**：SQLite 按文本存时间，本地时间和 UTC 行按文本比较会错。
+- **时间在绑定出口统一转 UTC 并截到微秒（`boundTime`），不只是托管时间戳**：SQLite 按文本存时间，本地时间和 UTC 行按文本比较会错；带纳秒的值 SQLite 原样存、MySQL 四舍五入、PG 截断，同一个谓词三个答案（2026-10-05）。
 - **SQLite 的 `INTEGER PRIMARY KEY` 不写 `AUTOINCREMENT` 也算自增**（2026-09-28）：它就是 rowid；当成漂移会让 `Validate` 起不来、
   `Reconcile` 为使用者自己的选择重建整张表。TSQ 自己建的表仍写 `AUTOINCREMENT`，重建时保留它的计数。
 
-## 只有真实引擎说得出的 schema 行为 (2026-10-05，第五轮审计)
+## 只有真实引擎说得出的 schema 行为 (2026-10-05，第五、六轮审计)
 
 前四轮只能推理，第一次真跑就找出一串推理看不见的事；**改 schema 路径要真跑"类型 × 引擎 × 策略"的矩阵**（`internal/integration/schema_test.go`）。
 
-- **PG 的显式转换截断、赋值转换拒绝**：`USING c::VARCHAR(5)` 把超长值静默截短。第四轮只去掉了同类改动的 `USING`，跨类和带
-  `type:` 的照旧——同一类 bug 没数全。字符目标一律 `USING c::TEXT`，长度交给赋值检查。
-- **MySQL 的时间字面量只在 TIMESTAMP 范围内才能带时区**：`'0001-01-01 00:00:00+00:00'` 在显式会话时区下报 1292，在默认的
-  `time_zone=SYSTEM` 下**静默存成 `0000-00-00`**，此后每条复制表的 ALTER 都失败。零值字面量因此分方言（`ZeroLiteral`）。
-- **MySQL 读回的字面量默认值不带引号**：`'(none)'` 读成括号表达式、`'a::b'` 读成转换、首尾空格被修掉，于是每次启动都改一次；
-  `mysqlDefault` 按列类型把引号加回去。原始类型的别名分方言（`REAL` 在 PG 是 float4、在 MySQL 是 DOUBLE）。已知未处理：MySQL 把默认值
-  里的反斜杠当转义，`'a\b'` 仍每次启动都漂移；`VARCHAR(16383)` 只要表里还有别的列就超行宽（1118）。
-- **决定（维护者 2026-10-05）**：运行期策略给有数据的表加 NOT NULL 列也补零值，与生成器共用 `AddColumnSQL`（带零值默认加列再去掉，SQLite 没有
-  `DROP DEFAULT` 所以重建）——"改了结构重启就跟上"在 PG 上此前一行数据就断。PG 的无符号自增主键是加宽类型的 SERIAL，`uint64` 是 `BIGSERIAL`（序列到不了 int64 上限）。
-- **决定（维护者 2026-10-05）：`Open` 拒绝 `loc` 不是 UTC 的 MySQL DSN**，否掉"只写文档"：`loc=Local` 是教程里的标准写法，
-  而它让数据库填的 UTC 时间读回来差一个时区、不报错。`NewRuntime` 看不到 DSN，只能靠文档。
+- **PG 改类型的 `USING` 要按"源 × 目标"逐对想**：`c::VARCHAR(5)` 静默截短（第四轮只修同类、第五轮改成 `c::TEXT`），而 `bytea::TEXT` 是十六进制拼法（`abc` → `\x616263`）、
+  `text::BYTEA` 按转义串读（`\101` → `A`）——第五轮的修法落在 bytea 源上又是一次静默改写（第六轮 P1）。字节与文本走 `convert_from` / `convert_to`。
+- **MySQL 的时间字面量只在 TIMESTAMP 范围内才能带时区**：`'0001-01-01 00:00:00+00:00'` 在默认的 `time_zone=SYSTEM` 下**静默存成 `0000-00-00`**，此后每条复制表的 ALTER 都失败；零值字面量因此分方言（`ZeroLiteral`）。
+- **决定（2026-10-05，维护者）：类型和默认值先按文本比，文本说不一样再问引擎**（`ProbeColumn` → `AdoptSpelling`）。别名表补了三轮仍漏（`DECIMAL(10)`、`INT[]`、`(1+1)`、带反斜杠的字面量）；
+  按声明在**临时表**里建这一列读回拼法，与库里那一列一致即同一个东西。**否掉永久探测表**（`Validate` 下也要跑、进 binlog、崩了留表），代价是 MySQL 的临时表不走数据字典：表达式默认值多一层括号、没有
+  `DEFAULT_GENERATED`，`showProbeColumn` 只在声明是表达式时还原。已知未处理：MySQL `BINARY` / `VARBINARY` 的字面量默认值、含 4 字节字符的默认值，PG 非主键列的 `type:SERIAL`，仍每次启动报差异；`VARCHAR(16383)` 只要表里还有别的列就超行宽（1118）。
+- **决定（2026-10-05，维护者）：改类型时三个方言给同一个结果——能转的转，转不了的拒绝**（`sqldialect.SQLiteRetype*`）。SQLite 什么值都存，原样复制后 `Validate` 通过而整张表读不出来。小数取整、数值转布尔写进复制表达式；文本转数值 / 布尔 / 时间
+  运行期在**提交前**按 `typeof` 检查并回滚，生成器写成手工注释（脚本的执行者不会停，见 `codegen.md`）。**否掉"先改名旧表 + `INSERT OR ROLLBACK` 守卫"的重排**：要 `legacy_alter_table`，动的是出过 P0 的重建顺序。
+- **决定（维护者 2026-10-05）**：运行期策略给有数据的表加 NOT NULL 列也补零值，与生成器共用 `AddColumnSQL`（带零值默认加列再去掉，SQLite 没有 `DROP DEFAULT` 所以重建）。PG 的无符号自增主键是加宽类型的 SERIAL，`uint64` 是 `BIGSERIAL`。
+- **决定（维护者 2026-10-05）：`Open` 拒绝 `loc` 不是 UTC 的 MySQL DSN**，否掉"只写文档"：`loc=Local` 是教程里的标准写法，而它让数据库填的 UTC 时间读回来差一个时区、不报错。`NewRuntime` 看不到 DSN，只能靠文档。

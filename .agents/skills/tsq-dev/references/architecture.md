@@ -260,8 +260,8 @@ CTE 的输出列可空时，`WithTable(cte)` 重绑的列标成 `always`。
 - **写入路径读值不走反射**：`columnCore.get` 由 `NewColumn` 的类型化访问器构成（`value(row, col)`），
   批量写每列每行绑一个值，这是反射成本最集中的地方；零值判断和盖时间戳仍用反射（每表几列，一次）。
   基准在 `write_bench_test.go`。
-- **所有绑定值经 `bindValue`**（`assemble` 和 `writeStmt.arg` 两个出口）：时间转 UTC，含 `Valuer` 产出的时间；
-  托管时间戳取 `stampTime()`（UTC）。新增绑定出口必须也走它。
+- **所有绑定值经 `bindValue`**（`assemble` 和 `writeStmt.arg` 两个出口）：时间转 UTC 并截到微秒（`boundTime`），含 `Valuer` 产出的时间；
+  托管时间戳取 `stampTime()`（同一精度）。新增绑定出口必须也走它。`assemble` 还在绑定值超过 `MaxBindParams` 时拒绝语句并指向 `ListIn`。
 - **托管列在库里维护，不在模板里**：`Insert` 只在未设置时填 `created_at` / `updated_at`
   （`isUnset`：零值或 `Valuer` 返回 nil），`Update` 总是刷新 `updated_at`，软删除写墓碑。
   `applyTimestamp` / `applyTombstone` 覆盖 `time.Time`、`*time.Time`，整数墓碑，以及实现
@@ -271,7 +271,8 @@ CTE 的输出列可空时，`WithTable(cte)` 重绑的列标成 `always`。
   恢复要求行已删，删除在表带活行作用域时要求行是活的。`Update` 跳过主键、`version`、`created_at`、`deleted_at`，软删除表上
   追加活行条件（`WithDeleted()` 不追加）。
 - 批量写按占位符数分批（`effectiveChunkSize` × `sqldialect.MaxBindParams`）：INSERT 每行约一个
-  占位符每列，UPDATE 约两个（`CASE pk WHEN ? THEN ?`）。单行 UPDATE 直接 `SET c = ?`。
+  占位符每列，UPDATE 每行是主键、版本各一个加每列一个：多行 UPDATE 是"表连接这批行的值列表"（`writeJoinedUpdate`，
+  三个方言三种写法，行列表的类型怎么定见 `memory/write.md`）。单行 UPDATE 直接 `SET c = ?`。
 - `WithSkipDuplicates` 逐行插入，事务内用同一个 savepoint 包住每一行（PostgreSQL 的失败语句
   会毒化整个事务），事务外不用（PostgreSQL 拒绝事务外的 SAVEPOINT）。事务与否由执行器的
   `execScope.tx` 说明。

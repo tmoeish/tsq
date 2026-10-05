@@ -130,6 +130,104 @@ func (d MySQLDialect) InspectColumns(ctx context.Context, db Executor, table str
 	return columns, true, nil
 }
 
+// ProbeColumn creates column in a temporary table and reads it back. A temporary
+// table is not in information_schema, so it is read with SHOW COLUMNS, which
+// reports the same column type and default.
+func (d MySQLDialect) ProbeColumn(ctx context.Context, conn Executor, column ColumnSpec) (Column, bool, error) {
+	definition, err := ColumnDefinitionSQL(d, probeSpec(column))
+	if err != nil {
+		return Column{}, true, err
+	}
+
+	drop := "DROP TEMPORARY TABLE IF EXISTS " + d.QuoteIdent(probeTable)
+	if _, err := conn.ExecContext(ctx, drop); err != nil {
+		return Column{}, true, err
+	}
+
+	if _, err := conn.ExecContext(ctx, fmt.Sprintf("CREATE TEMPORARY TABLE %s (%s)", d.QuoteIdent(probeTable), definition)); err != nil {
+		return Column{}, true, err
+	}
+
+	probed, err := d.showProbeColumn(ctx, conn, strings.HasPrefix(strings.TrimSpace(DefaultSQL(d, column)), "("))
+
+	if _, dropErr := conn.ExecContext(ctx, drop); err == nil {
+		err = dropErr
+	}
+
+	return probed, true, err
+}
+
+// showProbeColumn reads the one column of the probe table. expression says the
+// declared default is an expression: a temporary table reports one in another
+// pair of parentheses and without the DEFAULT_GENERATED mark the dictionary gives
+// a table that is kept, so both are put right before the default is read as
+// InspectColumns reads it.
+func (d MySQLDialect) showProbeColumn(ctx context.Context, conn Executor, expression bool) (Column, error) {
+	rows, err := conn.QueryContext(ctx, "SHOW FULL COLUMNS FROM "+d.QuoteIdent(probeTable))
+	if err != nil {
+		return Column{}, err
+	}
+
+	defer func() {
+		_ = rows.Close()
+	}()
+
+	names, err := rows.Columns()
+	if err != nil {
+		return Column{}, err
+	}
+
+	// SHOW FULL COLUMNS: Field, Type, Collation, Null, Key, Default, Extra, ...
+	values := make([]sql.NullString, len(names))
+	dest := make([]any, len(names))
+
+	for i := range values {
+		dest[i] = &values[i]
+	}
+
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return Column{}, err
+		}
+
+		return Column{}, errors.New("the probe table has no column")
+	}
+
+	if err := rows.Scan(dest...); err != nil {
+		return Column{}, err
+	}
+
+	field := func(name string) sql.NullString {
+		for i, column := range names {
+			if strings.EqualFold(column, name) {
+				return values[i]
+			}
+		}
+
+		return sql.NullString{}
+	}
+
+	columnType := strings.TrimSpace(field("Type").String)
+	// The data type is the type's first word: int of "int unsigned", varchar of
+	// "varchar(40)", as information_schema's data_type has it.
+	dataType := columnType
+	if end := strings.IndexAny(dataType, "( "); end >= 0 {
+		dataType = dataType[:end]
+	}
+
+	value, extra := field("Default"), field("Extra").String
+	if text := strings.TrimSpace(value.String); expression && value.Valid && strings.HasPrefix(text, "(") && strings.HasSuffix(text, ")") {
+		value.String = text[1 : len(text)-1]
+		extra += " DEFAULT_GENERATED"
+	}
+
+	return Column{
+		Name:       field("Field").String,
+		Default:    mysqlDefault(value, extra, dataType),
+		NativeType: columnType,
+	}, rows.Err()
+}
+
 // mysqlDefault reads a column default back as it was declared. An expression
 // default (DEFAULT_GENERATED: every default of a TEXT or BLOB column, which MySQL
 // accepts only as an expression) is reported as its stored text, with the string
@@ -598,6 +696,15 @@ func (d MySQLDialect) AlterColumnSQL(table string, before Column, after ColumnSp
 	if fill := NullFill(d, before, after); fill != "" {
 		statements = append(statements, fmt.Sprintf("UPDATE %s SET %s = %s WHERE %s IS NULL;",
 			d.QuoteIdent(table), d.QuoteIdent(after.Name), fill, d.QuoteIdent(after.Name)))
+	}
+
+	// A number that becomes a BOOLEAN keeps its value, and a 2 in a TINYINT(1) is
+	// read into no bool: every later read of the table failed. Anything but zero
+	// is true, as PostgreSQL's USING c <> 0 says it.
+	if before.Type.RawType == "" && after.Type.RawType == "" && after.Type.Kind == KindBool &&
+		(before.Type.Kind == KindInt || before.Type.Kind == KindFloat) {
+		statements = append(statements, fmt.Sprintf("UPDATE %s SET %s = 1 WHERE %s <> 0;",
+			d.QuoteIdent(table), d.QuoteIdent(after.Name), d.QuoteIdent(after.Name)))
 	}
 
 	return append(statements, fmt.Sprintf(

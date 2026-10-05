@@ -108,6 +108,8 @@
   `TestSetOperationChainsReadLeftToRight` 和集成测试里的链用例。
 - 新的片段类型要同时处理：`renderer.write`、`sqlExpr.correlated`（若它能包含查询）、
   `debugSQL` 和 `exprKey`。
+- 绑定出口（`bindValue`）把时间转 UTC 并截到微秒，`assemble` 在绑定值超过方言上限时拒绝语句；两者的门是
+  `TestBoundTimesKeepMicroseconds` 和 `TestAStatementOverTheBindLimitSaysWhatToDo`。
 - **读行的目标走 `columnCore.target`，不直接用 `scan`**（`scan.go`）：时间字段和自定义 bool 字段要包一层适配（SQLite 的表达式把时间
   交回成文本，MySQL / SQLite 把布尔交回成整数，database/sql 都不替命名类型转换）。`scan` 仍是字段指针本身，按地址识别字段的代码
   （`partial.go`、`keyset.go`、`attach.go`）继续用它；新的 `rows.Scan` 调用点用 `target` / `adapted`。新的字段形状要进

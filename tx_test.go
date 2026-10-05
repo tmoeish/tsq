@@ -483,3 +483,29 @@ func TestDialectOfAnExecutor(t *testing.T) {
 		t.Error("DialectOf(nil) is not empty")
 	}
 }
+
+// TestRetryWaitsAreSpread covers the wait between two attempts. Two transactions
+// that deadlock fail together, and with one fixed backoff they met again at every
+// retry: each wait is drawn from the upper half of the backoff.
+func TestRetryWaitsAreSpread(t *testing.T) {
+	policy := &RetryPolicy{MaxAttempts: 3, InitialBackoff: 40 * time.Millisecond, MaxBackoff: 40 * time.Millisecond, Multiplier: 1}
+	seen := map[time.Duration]bool{}
+
+	for range 8 {
+		start := time.Now()
+		if err := waitTxRetry(context.Background(), policy, 1); err != nil {
+			t.Fatal(err)
+		}
+
+		waited := time.Since(start)
+		if waited < 20*time.Millisecond {
+			t.Fatalf("waited %s, less than half the backoff", waited)
+		}
+
+		seen[waited.Round(time.Millisecond)] = true
+	}
+
+	if len(seen) < 2 {
+		t.Errorf("every wait took %v: the retries are in step", seen)
+	}
+}

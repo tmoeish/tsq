@@ -2167,6 +2167,11 @@ type Money int64
 	// An alias is the type it names. A managed field of one was refused
 	// ("unsupported type Stamp"), and once followed, the generated file imported
 	// time without spelling it.
+	// The narrow nullable wrappers of database/sql derive their column like
+	// sql.NullInt64 does. They were refused as codec types ("implements
+	// driver.Valuer ... use type:") while their siblings were not.
+	"narrow.go": "package gentest\n\nimport \"database/sql\"\n\n//tsq:table name=narrow\ntype Narrow struct {\n\tID int64 `db:\"id\"`\n" +
+		"\tA sql.NullInt32 `db:\"a\"`\n\tB sql.NullInt16 `db:\"b\"`\n\tC sql.NullByte `db:\"c\"`\n}\n",
 	"stamped.go": "package gentest\n\nimport \"time\"\n\ntype Stamp = time.Time\n\n//tsq:table name=stamped\n//tsq:managed created_at updated_at\n" +
 		"type Stamped struct {\n\tID int64 `db:\"id\"`\n\tAt Stamp `db:\"at\"`\n\tSeen *Stamp `db:\"seen\"`\n" +
 		"\tCreatedAt Stamp `db:\"created_at\"`\n\tUpdatedAt *Stamp `db:\"updated_at\"`\n}\n",
@@ -2821,6 +2826,85 @@ func TestGenMigrationFillsAColumnThatBecomesNotNull(t *testing.T) {
 		if initial, err = os.ReadFile("sqlite.sql"); err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+// TestGenSQLiteRebuildConvertsOrLeavesARetype covers a column that changes type
+// in a SQLite rebuild. SQLite keeps any value under any type, so the copy cannot
+// fail, and a section may be run by a shell that would not stop if it did: a
+// fraction copied as it was into an integer column stayed 1.5 and a 2 stayed in a
+// boolean one, where no read takes them. What always converts is converted in the
+// copy; text into a number, a boolean or a time may not convert, cannot be
+// refused by a script, and is left to a hand.
+func TestGenSQLiteRebuildConvertsOrLeavesARetype(t *testing.T) {
+	model := func(field string) map[string]string {
+		return map[string]string{"model.go": "package gentest\n\n//tsq:table name=people\ntype Person struct {\n\tID int64 `db:\"id\"`\n\t" + field + "\n}\n"}
+	}
+
+	for _, c := range []struct {
+		name, before, after string
+		want                []string
+		refused             bool
+	}{
+		{
+			"fraction to integer", "Score float64 `db:\"score\"`", "Score int64 `db:\"score\"`",
+			[]string{"fractions are rounded", `CASE typeof("score") WHEN 'real' THEN CAST(ROUND("score") AS INTEGER) ELSE "score" END`},
+			false,
+		},
+		{
+			"number to boolean", "Score int32 `db:\"score\"`", "Score bool `db:\"score\"`",
+			[]string{"any number but zero becomes true", `CASE WHEN typeof("score") IN ('integer', 'real') THEN "score" <> 0 ELSE "score" END`},
+			false,
+		},
+		{
+			"text to integer", "Score string `db:\"score\"`", "Score int64 `db:\"score\"`",
+			[]string{"manual rebuild required: score changes from string to int", "not an integer"},
+			true,
+		},
+		{
+			"text to time", "Score string `db:\"score\"`", "Score time.Time `db:\"score\"`",
+			[]string{"manual rebuild required: score changes from string to time", "not a time"},
+			true,
+		},
+		{"integer to text", "Score int64 `db:\"score\"`", "Score string `db:\"score\"`", []string{`SELECT "id", "score" FROM "people"`}, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			source := func(field string) string {
+				text := model(field)["model.go"]
+				if strings.Contains(field, "time.Time") {
+					text = strings.Replace(text, "package gentest\n", "package gentest\n\nimport \"time\"\n", 1)
+				}
+
+				return text
+			}
+
+			if err := genModule(t, map[string]string{"model.go": source(c.before)}); err != nil {
+				t.Fatal(err)
+			}
+
+			writeTestFile(t, "model.go", source(c.after))
+
+			if err := runGen(t); err != nil {
+				t.Fatal(err)
+			}
+
+			sqlite, err := os.ReadFile("sqlite.sql")
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			migration := string(sqlite[strings.LastIndex(string(sqlite), "-- Migration: "):])
+
+			for _, want := range c.want {
+				if !strings.Contains(migration, want) {
+					t.Errorf("the migration lacks %q:\n%s", want, migration)
+				}
+			}
+
+			if rebuilt := strings.Contains(migration, "DROP TABLE"); rebuilt == c.refused {
+				t.Errorf("rebuilt = %v, want refused = %v:\n%s", rebuilt, c.refused, migration)
+			}
+		})
 	}
 }
 

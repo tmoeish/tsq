@@ -53,6 +53,49 @@ func (d PostgresDialect) BatchInsertStartID(lastID, rowsAffected, step int64) (i
 func (d PostgresDialect) InsertIDStepQuery() string { return "" }
 
 func (d PostgresDialect) InspectColumns(ctx context.Context, db Executor, table string) ([]Column, bool, error) {
+	return d.inspectColumns(ctx, db, "current_schema()", table)
+}
+
+// postgresTempSchema names the schema of the session's temporary tables.
+const postgresTempSchema = "(SELECT nspname FROM pg_namespace WHERE oid = pg_my_temp_schema())"
+
+// ProbeColumn creates column in a temporary table and reads it back with the
+// query InspectColumns runs, pointed at the session's temporary schema.
+func (d PostgresDialect) ProbeColumn(ctx context.Context, conn Executor, column ColumnSpec) (Column, bool, error) {
+	definition, err := ColumnDefinitionSQL(d, probeSpec(column))
+	if err != nil {
+		return Column{}, true, err
+	}
+
+	drop := "DROP TABLE IF EXISTS pg_temp." + d.QuoteIdent(probeTable)
+	if _, err := conn.ExecContext(ctx, drop); err != nil {
+		return Column{}, true, err
+	}
+
+	if _, err := conn.ExecContext(ctx, fmt.Sprintf("CREATE TEMPORARY TABLE %s (%s)", d.QuoteIdent(probeTable), definition)); err != nil {
+		return Column{}, true, err
+	}
+
+	columns, _, err := d.inspectColumns(ctx, conn, postgresTempSchema, probeTable)
+
+	if _, dropErr := conn.ExecContext(ctx, drop); err == nil {
+		err = dropErr
+	}
+
+	if err != nil {
+		return Column{}, true, err
+	}
+
+	if len(columns) != 1 {
+		return Column{}, true, fmt.Errorf("the probe of column %s read %d columns", column.Name, len(columns))
+	}
+
+	return columns[0], true, nil
+}
+
+// inspectColumns reads the columns of table in the schema the SQL expression
+// schema names.
+func (d PostgresDialect) inspectColumns(ctx context.Context, db Executor, schema, table string) ([]Column, bool, error) {
 	rows, err := db.QueryContext(ctx, `
 		SELECT
 			c.column_name,
@@ -63,7 +106,7 @@ func (d PostgresDialect) InspectColumns(ctx context.Context, db Executor, table 
 				FROM pg_class t
 				JOIN pg_namespace ns ON ns.oid = t.relnamespace
 				JOIN pg_attribute a ON a.attrelid = t.oid
-				WHERE ns.nspname = current_schema()
+				WHERE ns.nspname = `+schema+`
 					AND t.relname = c.table_name
 					AND a.attname = c.column_name
 					AND a.attnum > 0
@@ -80,13 +123,13 @@ func (d PostgresDialect) InspectColumns(ctx context.Context, db Executor, table 
 				JOIN pg_class t ON t.oid = i.indrelid
 				JOIN pg_namespace ns ON ns.oid = t.relnamespace
 				JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(i.indkey)
-				WHERE ns.nspname = current_schema()
+				WHERE ns.nspname = `+schema+`
 					AND t.relname = c.table_name
 					AND a.attname = c.column_name
 					AND i.indisprimary
 			) AS is_primary
 		FROM information_schema.columns c
-		WHERE c.table_schema = current_schema() AND c.table_name = $1
+		WHERE c.table_schema = `+schema+` AND c.table_name = $1
 		ORDER BY c.ordinal_position`,
 		table,
 	)
@@ -590,21 +633,47 @@ const postgresMaxVarcharChars = 10485760
 // type's length without a word ('abcdef'::VARCHAR(3) is 'abc'), which changed
 // stored values in a migration nobody was told about: a character target takes the
 // value as TEXT and leaves the length to the assignment, which refuses a value
-// that does not fit. BOOLEAN casts to INTEGER only, and no integer casts to it.
+// that does not fit. BOOLEAN casts to INTEGER only, and no number casts to it.
+//
+// Bytes and text are not cast into one another at all: bytea::TEXT is the hex
+// spelling of the bytes ('abc' becomes '\x616263') and text::BYTEA reads the text
+// as an escape string ('tab\101x' becomes 'tabAx'), and both rewrote every stored
+// value where MySQL and SQLite keep the bytes. convert_from and convert_to carry
+// the bytes over, and refuse bytes that are not text.
 func postgresUsing(column string, before, after ColumnType, spelled string) string {
 	plain := before.RawType == "" && after.RawType == ""
+	target := strings.ToUpper(strings.TrimSpace(spelled))
+	source := strings.ToUpper(strings.TrimSpace(PostgresDialect{}.ColumnTypeSQL(before)))
 
-	switch target := strings.ToUpper(strings.TrimSpace(spelled)); {
-	case !strings.Contains(target, "[") && (strings.HasPrefix(target, "VARCHAR") || strings.HasPrefix(target, "CHAR") ||
-		strings.HasPrefix(target, "BPCHAR") || strings.HasPrefix(target, "TEXT") || strings.HasPrefix(target, "CITEXT")):
+	switch {
+	case postgresCharacterType(target) && source == "BYTEA":
+		return "convert_from(" + column + ", 'UTF8')"
+	case target == "BYTEA" && postgresCharacterType(source):
+		return "convert_to(" + column + ", 'UTF8')"
+	case postgresCharacterType(target):
 		return column + "::TEXT"
 	case plain && before.Kind == KindBool && after.Kind == KindInt:
 		return column + "::INTEGER"
-	case plain && before.Kind == KindInt && after.Kind == KindBool:
+	case plain && (before.Kind == KindInt || before.Kind == KindFloat) && after.Kind == KindBool:
 		return column + " <> 0"
 	default:
 		return column + "::" + spelled
 	}
+}
+
+// postgresCharacterType reports a type spelled in upper case that holds text.
+func postgresCharacterType(spelled string) bool {
+	if strings.Contains(spelled, "[") {
+		return false
+	}
+
+	for _, name := range []string{"VARCHAR", "CHAR", "BPCHAR", "TEXT", "CITEXT"} {
+		if strings.HasPrefix(spelled, name) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // quoteLiteral writes s as a SQL string literal.

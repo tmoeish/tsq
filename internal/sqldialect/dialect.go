@@ -126,6 +126,11 @@ type Dialect interface {
 	InsertIDStepQuery() string
 	// InspectColumns reports the live columns of table, and false when it does not exist.
 	InspectColumns(ctx context.Context, db Executor, table string) ([]Column, bool, error)
+	// ProbeColumn reports how the engine itself spells column as declared: it
+	// creates a temporary table holding it on conn, which must be one connection,
+	// and reads it back as InspectColumns reads a table. The second result is
+	// false for a dialect that compares without it.
+	ProbeColumn(ctx context.Context, conn Executor, column ColumnSpec) (Column, bool, error)
 	// ListIndexes reports the live indexes of table.
 	ListIndexes(ctx context.Context, db Executor, table string) ([]Index, error)
 	// EnsureIndex creates an index and returns the statement it ran. An existing index
@@ -443,6 +448,39 @@ func SameColumnType(dialect Dialect, inspected Column, declared ColumnSpec) bool
 	}
 
 	return nativeDDLTypeMatchesDeclared(dialect.Name(), inspected, declared)
+}
+
+// probeTable is the temporary table ProbeColumn creates and drops.
+const probeTable = "_tsq_probe"
+
+// probeSpec is column as a probe declares it: alone in a table, so neither a key
+// nor computed from another column.
+func probeSpec(column ColumnSpec) ColumnSpec {
+	column.PrimaryKey = false
+	column.AutoIncrement = false
+
+	return column
+}
+
+// AdoptSpelling is inspected, described as declared wherever the engine spells
+// the two the same: probe is what ProbeColumn read for declared. A type or a
+// default that the engine reports in a spelling of its own (DECIMAL(10) as
+// decimal(10,0), INT[] as integer[], (1+1) as (1 + 1), 'a\b' as a\b) compared as
+// a difference on every start, however long the table of known spellings grew;
+// asked for its spelling of the declaration, the engine gives the one it gave for
+// the column, and the two are the same text exactly when they are the same thing.
+func AdoptSpelling(d Dialect, inspected, probe Column, declared ColumnSpec) Column {
+	if strings.EqualFold(strings.TrimSpace(probe.NativeType), strings.TrimSpace(inspected.NativeType)) && probe.NativeType != "" {
+		nullable := inspected.Type.Nullable
+		inspected.Type = declared.Type
+		inspected.Type.Nullable = nullable
+	}
+
+	if probe.Default == inspected.Default {
+		inspected.Default = DefaultSQL(d, declared)
+	}
+
+	return inspected
 }
 
 // storageType is the type column is created with. An auto-increment key on

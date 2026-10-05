@@ -734,6 +734,12 @@ func classifyDDLColumnTypeRecursive(
 					return ddlColumnDescriptor{kind: ddlColumnFloat, bits: 64, nullable: true}, nil
 				case "NullInt64":
 					return ddlColumnDescriptor{kind: ddlColumnInt, bits: 64, nullable: true}, nil
+				case "NullInt32":
+					return ddlColumnDescriptor{kind: ddlColumnInt, bits: 32, nullable: true}, nil
+				case "NullInt16":
+					return ddlColumnDescriptor{kind: ddlColumnInt, bits: 16, nullable: true}, nil
+				case "NullByte":
+					return ddlColumnDescriptor{kind: ddlColumnInt, bits: 8, unsigned: true, nullable: true}, nil
 				case "NullString":
 					return ddlColumnDescriptor{kind: ddlColumnString, nullable: true, size: size}, nil
 				case "NullTime":
@@ -744,6 +750,7 @@ func classifyDDLColumnTypeRecursive(
 						return classifyDDLColumnTypeRecursive(args.At(0), size, true)
 					}
 				}
+
 			default:
 				if strings.HasPrefix(pkg.Path(), nullbioImportPrefix) {
 					switch value.Obj().Name() {

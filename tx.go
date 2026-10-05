@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"time"
 )
 
@@ -61,6 +62,8 @@ func WithRetryPolicy(policy RetryPolicy) TxOption {
 }
 
 // RetryPolicy is the attempt limit and backoff of a transaction run WithRetry.
+// Each wait is drawn between half the backoff and the whole of it, so that two
+// transactions that collided do not retry in step.
 type RetryPolicy struct {
 	// MaxAttempts is the total number of attempts, including the first try.
 	MaxAttempts int
@@ -223,6 +226,11 @@ func waitTxRetry(ctx context.Context, options *RetryPolicy, attempt int) error {
 	if delay <= 0 {
 		return nil
 	}
+
+	// Two transactions that deadlocked fail at the same moment, and with the same
+	// backoff they met again at the next attempt: each waits somewhere between
+	// half the backoff and the whole of it.
+	delay = delay/2 + rand.N(delay/2+1)
 
 	timer := time.NewTimer(delay)
 	defer timer.Stop()

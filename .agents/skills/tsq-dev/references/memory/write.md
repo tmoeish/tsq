@@ -41,7 +41,7 @@ RIGHT JOIN 被保留侧的已删行，所以有 RIGHT / FULL JOIN 时整张表�
 
 - **Upsert 在 MySQL 上遇到别的唯一键也可能冲突就拒绝**：`ON DUPLICATE KEY UPDATE` 没有冲突目标，会静默更新
   无关的行。批量同键两行报错（PG 不许一条语句改一行两次），批量不回读。
-- **写入热路径用列自带的类型化取值函数**，不用反射：100 行批量 INSERT 快约 19%、UPDATE 约 28%（`write_bench_test.go`）。
+- **写入热路径用列自带的类型化取值函数**，不用反射：100 行批量 INSERT 快约 19%（`write_bench_test.go`）。
 - **没匹配到行分两种错误**：版本不符 `OptimisticLockError`（可重试），状态不符 `RowStateError`（重试无用），失败路径上回读来区分。
 - **SQLite 表达式深度上限 1000 恰等于默认批量大小**（2026-09-22）：每行一个 `OR` 的版本匹配从 998 行起被拒。批量 WHERE
   只用扁平形状（`IN`、`CASE`）；不用行值 `IN`（SQLite 要求右侧子查询，MySQL 要 `ROW(...)`）。门 `TestBatchWritesFitTheDefaultBatchOnSQLite`。
@@ -53,6 +53,12 @@ RIGHT JOIN 被保留侧的已删行，所以有 RIGHT / FULL JOIN 时整张表�
 版本前移后下一次 `Update` 覆盖了别人——2026-09-29 审计 P0）。无版本列时 MySQL 写原值报零行，只把回读不到的行算缺失；"本来就在目标状态"和"刚写成"分不出，只报短缺不点名。
 批量更新**否掉 RETURNING**（MySQL 没有）；单行写入和按主键删用它、MySQL 另走回查。没删到的行报 `RowStateError`（2026-09-29，
 按主键删与行级硬删一致，维护者定案；要静默用 `DeleteFrom`）。`BatchUpsert` 不回读，成功后托管列还原成传入值，免得行看起来最新。先只修了 `BatchUpdate`，同形的删除 / 恢复 / 跳过重复又被审计找出：**一次只修一条写路径必漏**，短缺处理集中在 `shortfalls`。
+
+## 决定：批量更新是"表连接行列表"，类型各方言各有一个定法 (2026-10-05)
+
+每列一个按主键分支的 `CASE` 让一批的代价是行数的平方（SQLite 默认批 1000 比批 50 慢 12 倍）；维护者选了换语句形状而不是调小默认批。行列表没有类型，**三个定法都是试出来的，别互相套**：
+PG 的裸 `VALUES` 全读成 text，第一行放每列的类型化 NULL（`(SELECT col FROM t WHERE FALSE)`，不需要类型名）；MySQL 的 `VALUES ROW` 把值转成文本、拒绝非 UTF-8 的字节，改成"表上空分支 + `UNION ALL SELECT ?`"；
+SQLite 不需要类型，但 `UNION` 链有 500 项上限，只能用 `VALUES`。门是 `TestBatchUpdateJoinsTheRowsOnEveryDialect` 和 `TestIntegrationBatchUpdateCarriesEveryValue`。
 
 **时间戳截断到微秒、MySQL 用 `DATETIME(6)`；"当前时间"默认值写成 UTC 表达式**（PG/MySQL 的 `CURRENT_TIMESTAMP` 是会话本地时间，MySQL
 还要带精度，否则 1067——只跑 SQLite 时漏了，CI 才发现）。已有的 `DATETIME` 列读回为原始类型，`Reconcile` 会加宽它。
