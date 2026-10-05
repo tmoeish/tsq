@@ -166,7 +166,7 @@ Rules:
 
 - `db:"col"` keeps the default DDL mapping for that Go field type
 - `string`, `sql.NullString`, `null.String`, and their type alias / custom string forms default to `VARCHAR(255)` when `size` is omitted
-- `int`, `uint`, and enum-like custom types built on them default to regular integer width; `int64` / `uint64` map to big-integer types. PostgreSQL has no unsigned types, so an unsigned field takes the next wider one there (`uint16` an `INTEGER`, `uint32` a `BIGINT`, `uint64` a `NUMERIC(20)`). An auto-increment key there is the `SERIAL` of that width, and a `uint64` key a `BIGSERIAL`, the widest a sequence counts
+- `int`, `uint`, and enum-like custom types built on them default to regular integer width; `int64` / `uint64` map to big-integer types. PostgreSQL has no unsigned types, so an unsigned field takes the next wider one there (`uint16` an `INTEGER`, `uint32` a `BIGINT`, `uint64` a `NUMERIC(20)`). An auto-increment key there is the `SERIAL` of that width, and a `uint64` key a `BIGSERIAL`, the widest a sequence counts. SQLite's integers are signed 64-bit, so a `uint64` above `math.MaxInt64` cannot be written there (`database/sql` refuses the value)
 - `db:"col,size:N"` sets an explicit string width, or for `[]byte` the size MySQL picks `BLOB`,
   `MEDIUMBLOB` or `LONGBLOB` by. The options are `size:N`, `type:SQL`, `default:SQL` and
   `generated[:SQL]`; anything else, or one without a usable value, is an error
