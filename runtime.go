@@ -174,6 +174,10 @@ func newRuntime(
 		ownsDB:      ownsDB,
 	}
 
+	if sqlDialect.Name() == tsqdialect.MySQL {
+		runtime.warnMySQLMode(ctx)
+	}
+
 	// Identifiers are checked before any DDL runs: a name the dialect will
 	// truncate produces objects that do not match what the queries reference.
 	if err := runtime.validateRegisteredTableIdentifiers(); err != nil {
@@ -408,6 +412,24 @@ func checkMySQLTimes(ctx context.Context, db *sql.DB) error {
 	}
 
 	return nil
+}
+
+// warnMySQLMode says so where the sessions of the pool are not strict. Outside
+// strict mode MySQL cuts a string to the length of its column and clamps a number
+// to the range of its type, with a warning the driver does not pass on: a write
+// reported as done stored another value. The mode is the deployment's to choose,
+// and schemas from before strict mode was the default depend on it, so this is a
+// warning and not a refusal. One session answers for the pool.
+func (r *Runtime) warnMySQLMode(ctx context.Context) {
+	var mode string
+
+	// A mode that cannot be read is not a reason to refuse to start.
+	if err := r.db.QueryRowContext(ctx, "SELECT @@SESSION.sql_mode").Scan(&mode); err != nil || sqld.MySQLStrict(mode) {
+		return
+	}
+
+	r.warn("the MySQL session is not in strict mode: a value that does not fit its column is cut or clamped, not refused; "+
+		"add STRICT_TRANS_TABLES to sql_mode", "sql_mode", mode)
 }
 
 // mysqlParsesTime reports whether a go-sql-driver DSN sets parseTime, read as the

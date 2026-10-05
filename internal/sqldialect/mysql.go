@@ -136,7 +136,10 @@ func (d MySQLDialect) InspectColumns(ctx context.Context, db Executor, table str
 const mysqlSchemaLock = "CONCAT('tsq.schema.', MD5(DATABASE()))"
 
 // LockSchema takes a named lock, waiting for it without a limit of its own: ctx
-// is what gives up.
+// is what gives up. The session is strict while it holds the lock, whatever mode
+// the pool runs in: outside strict mode ALTER TABLE cuts a value that does not fit
+// the new type of its column ('abcdefghij' into a VARCHAR(5) is 'abcde', with a
+// warning nobody reads), and a change of type is refused or it is a loss of data.
 func (d MySQLDialect) LockSchema(ctx context.Context, conn Executor) (func(context.Context) error, bool, error) {
 	var got sql.NullInt64
 	if err := conn.QueryRowContext(ctx, "SELECT GET_LOCK("+mysqlSchemaLock+", -1)").Scan(&got); err != nil {
@@ -147,11 +150,48 @@ func (d MySQLDialect) LockSchema(ctx context.Context, conn Executor) (func(conte
 		return nil, true, errors.New("the server did not give the schema lock")
 	}
 
-	return func(ctx context.Context) error {
+	release := func(ctx context.Context) error {
 		_, err := conn.ExecContext(ctx, "DO RELEASE_LOCK("+mysqlSchemaLock+")")
 
 		return err
+	}
+
+	mode, err := mysqlSessionMode(ctx, conn)
+	if err == nil {
+		_, err = conn.ExecContext(ctx, "SET SESSION sql_mode = CONCAT_WS(',', NULLIF(@@SESSION.sql_mode, ''), 'STRICT_ALL_TABLES')")
+	}
+
+	if err != nil {
+		return nil, true, errors.Join(fmt.Errorf("make the session strict for schema changes: %w", err), release(ctx))
+	}
+
+	return func(ctx context.Context) error {
+		_, restoreErr := conn.ExecContext(ctx, "SET SESSION sql_mode = "+quoteLiteral(mode))
+
+		return errors.Join(restoreErr, release(ctx))
 	}, true, nil
+}
+
+// mysqlSessionMode is the sql_mode of the session, as the server lists it.
+func mysqlSessionMode(ctx context.Context, conn Executor) (string, error) {
+	var mode string
+
+	err := conn.QueryRowContext(ctx, "SELECT @@SESSION.sql_mode").Scan(&mode)
+
+	return mode, err
+}
+
+// MySQLStrict reports whether a session of that sql_mode refuses a value that does
+// not fit its column, rather than cutting or clamping it.
+func MySQLStrict(mode string) bool {
+	for name := range strings.SplitSeq(mode, ",") {
+		switch strings.ToUpper(strings.TrimSpace(name)) {
+		case "STRICT_TRANS_TABLES", "STRICT_ALL_TABLES", "TRADITIONAL":
+			return true
+		}
+	}
+
+	return false
 }
 
 // ProbeColumn creates two temporary tables in turn, one holding declared and one
@@ -179,7 +219,7 @@ func (d MySQLDialect) ProbeColumn(ctx context.Context, conn Executor, table stri
 		return Spelling{}, true, err
 	}
 
-	held, err := d.probeDefinition(ctx, conn, live)
+	held, err := d.probeLive(ctx, conn, live)
 	if err != nil {
 		return Spelling{}, true, err
 	}
@@ -205,17 +245,49 @@ func (d MySQLDialect) liveColumnDefinition(ctx context.Context, conn Executor, t
 		return "", err
 	}
 
-	// Column names match without case, and a backquote in one is written twice.
-	prefix := strings.ToLower("`" + strings.ReplaceAll(column, "`", "``") + "` ")
+	// Column names match without case. The server quotes one with backquotes, or
+	// with double quotes under ANSI_QUOTES, and writes the quote in a name twice.
+	quoted := strings.ToLower("`" + strings.ReplaceAll(column, "`", "``") + "` ")
+	ansi := strings.ToLower(`"` + strings.ReplaceAll(column, `"`, `""`) + `" `)
 
 	for line := range strings.SplitSeq(create, "\n") {
 		line = strings.TrimSuffix(strings.TrimSpace(line), ",")
-		if strings.HasPrefix(strings.ToLower(line), prefix) {
+		if lower := strings.ToLower(line); strings.HasPrefix(lower, quoted) || strings.HasPrefix(lower, ansi) {
 			return line, nil
 		}
 	}
 
 	return "", fmt.Errorf("column %s is not in the definition of table %s", column, table)
+}
+
+// probeLive is probeDefinition of a line SHOW CREATE TABLE wrote. The server
+// escapes a default there with backslashes whatever the mode ('ab\0\0' for the
+// 'ab' of a BINARY(4)), and under NO_BACKSLASH_ESCAPES it would read its own line
+// back as another value: the line is read with the mode off.
+func (d MySQLDialect) probeLive(ctx context.Context, conn Executor, line string) (mysqlProbed, error) {
+	mode, err := mysqlSessionMode(ctx, conn)
+	if err != nil {
+		return mysqlProbed{}, err
+	}
+
+	modes := strings.Split(mode, ",")
+
+	escaping := slices.DeleteFunc(slices.Clone(modes), func(name string) bool { return strings.EqualFold(name, "NO_BACKSLASH_ESCAPES") })
+	if len(escaping) == len(modes) {
+		return d.probeDefinition(ctx, conn, line)
+	}
+
+	if _, err := conn.ExecContext(ctx, "SET SESSION sql_mode = "+quoteLiteral(strings.Join(escaping, ","))); err != nil {
+		return mysqlProbed{}, err
+	}
+
+	probed, err := d.probeDefinition(ctx, conn, line)
+
+	if _, restoreErr := conn.ExecContext(ctx, "SET SESSION sql_mode = "+quoteLiteral(mode)); err == nil {
+		err = restoreErr
+	}
+
+	return probed, err
 }
 
 // probeDefinition creates a temporary table of the one column definition says and

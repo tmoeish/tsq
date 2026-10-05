@@ -347,3 +347,25 @@ func TestMySQLNumbersBecomeBooleansByValue(t *testing.T) {
 		t.Errorf("text to boolean is the engine's to refuse, got %v", statements)
 	}
 }
+
+// TestMySQLStrictReadsTheSessionMode covers the modes under which the server
+// refuses a value that does not fit its column. TRADITIONAL is a combination that
+// includes both strict modes; ANSI is one that includes neither.
+func TestMySQLStrictReadsTheSessionMode(t *testing.T) {
+	for mode, want := range map[string]bool{
+		"": false,
+		"ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE": true,
+		"STRICT_ALL_TABLES":   true,
+		"strict_trans_tables": true,
+		"REAL_AS_FLOAT,PIPES_AS_CONCAT,ANSI_QUOTES,IGNORE_SPACE,ANSI":                false,
+		"STRICT_TRANS_TABLES,STRICT_ALL_TABLES,NO_ZERO_DATE,TRADITIONAL":             true,
+		"NO_ENGINE_SUBSTITUTION, STRICT_TRANS_TABLES":                                true,
+		"NO_BACKSLASH_ESCAPES,ONLY_FULL_GROUP_BY,ERROR_FOR_DIVISION_BY_ZERO":         false,
+		"HIGH_NOT_PRECEDENCE,NO_UNSIGNED_SUBTRACTION,TIME_TRUNCATE_FRACTIONAL":       false,
+		"PAD_CHAR_TO_FULL_LENGTH,NO_AUTO_VALUE_ON_ZERO,NO_DIR_IN_CREATE,TRADITIONAL": true,
+	} {
+		if got := MySQLStrict(mode); got != want {
+			t.Errorf("MySQLStrict(%q) = %v, want %v", mode, got, want)
+		}
+	}
+}
