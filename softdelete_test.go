@@ -409,3 +409,23 @@ func TestDeletingARowThatIsGoneIsARowStateError(t *testing.T) {
 		t.Fatalf("Delete of a row that is gone = %v; want a RowStateError", err)
 	}
 }
+
+// TestAPredWithAnORStaysInsideTheLiveScope covers a Pred holding an OR, spliced
+// into WHERE without parentheses: the soft-delete filter and every other condition
+// bound only its last branch, and a deleted row came back.
+func TestAPredWithAnORStaysInsideTheLiveScope(t *testing.T) {
+	ctx := context.Background()
+	rt := newSQLite(t)
+	users := seedUsers(t, rt, "ada", "bob")
+
+	if err := Users.Delete(ctx, rt, users[1]); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := Select(User__Cols...).From(Users).
+		Where(User_Name.Pred("%s = %s OR %s = %s", Val("bob"), User_Name, Val("ada")), User_ID.GT(Val(int64(0)))).
+		MustBuild().List(ctx, rt)
+	if err != nil || len(got) != 1 || got[0].Name != "ada" {
+		t.Fatalf("rows = %+v, %v; want only the live ada", got, err)
+	}
+}

@@ -325,20 +325,25 @@ changed it. A migration never runs a destructive statement for you:
 - indexes are dropped before the columns they name, and before any table's changes, since index
   names are global on PostgreSQL and SQLite: an index moving to another table, or a renamed table
   keeping its index names, does not collide with the old one
-- a column that becomes NOT NULL is filled for the rows holding NULL (with its type's zero value) when
-  SQLite rebuilds the table, so the copy cannot fail
+- a column that becomes NOT NULL is filled for the rows holding NULL first, with its default or its
+  type's zero value, on every dialect (`UPDATE ... WHERE col IS NULL` on MySQL and PostgreSQL, the copy
+  of a SQLite rebuild), and the section says with what. A new NOT NULL column without a default gives
+  the rows present the zero value the same way: added with that default, which is then dropped
 - a changed `generated:` expression is left to a migration you write, with a comment saying so
 - a `db` tag renamed only in case is a column rename: `RENAME COLUMN` on PostgreSQL, and a comment on
   MySQL and SQLite, which match column names without case
 - a type change SQLite does not enforce (a `VARCHAR` size, `INT` to `BIGINT`) does not rebuild the
-  SQLite table; PostgreSQL converts with `USING`, and widening an auto-increment key widens its
-  sequence too
+  SQLite table. PostgreSQL writes `USING` only between kinds that have no assignment cast (`BOOLEAN` to
+  `INTEGER`): a shorter `VARCHAR` is changed without it, so a value that does not fit fails the
+  migration instead of being cut. Widening an auto-increment key widens its sequence too
 - `tsq gen` prints the warnings about drops written commented out on every run, and does not write
   again a generated file whose content would not change
 - `tsq.json` holds the history the `.sql` files are rendered from: keep it in version control. `tsq gen`
   refuses to run when the `.sql` files exist without it, rather than start the history over and lose
   the changes since the last run
-- SQLite changes a column type, or adds a generated column, by rebuilding the table: it creates the
+- SQLite changes a column type, or adds a generated column, a column whose default is not a constant
+  (`CURRENT_TIMESTAMP`, which adding `created_at` has) or a NOT NULL column without a default, by
+  rebuilding the table, since `ADD COLUMN` refuses those on a table with rows: it creates the
   new table, copies the rows, drops the old one and renames the new one, with foreign keys off. The
   copy cannot fail on a table with rows: a new NOT NULL column without a default gets its type's zero
   value (the section says so), and a generated column is computed by the new table. Triggers on the
@@ -817,7 +822,8 @@ Use the escape hatches deliberately, not as a replacement for typed columns:
   takes the next argument, which may be a column, a `Param`, a typed subquery or a plain value
   (bound). `%%` is a literal percent sign
 - `col.Expr(format)` / `col.Exprf(format, args...)` build a derived column the same way
-- the format text is emitted verbatim for every dialect; it is yours to keep portable
+- the format text is emitted verbatim for every dialect, in parentheses, so an `OR` in a `Pred` stays
+  one condition next to the others and the soft-delete filter; keeping the text portable is yours
 
 ### Values fixed in the code
 
@@ -1209,7 +1215,7 @@ Rules:
 - the policies, from doing nothing to doing the most: `SchemaPolicyManual` (default: log the mode and change nothing), `SchemaPolicyValidate` (fail to start on a mismatch: `*tsq.MissingTableError`, `*tsq.MissingIndexError`, or `*tsq.SchemaMismatchError` listing the differing columns), `SchemaPolicyCreateMissing` (create missing tables, columns and indexes; a column that differs from its declaration, or one the table no longer declares, still fails startup), `SchemaPolicyReconcile` (also alter columns back to what is declared, and drop columns no longer declared). Production keeps `Manual` and owns its schema through migrations; development and test want `Reconcile`, where changing a struct and restarting is enough
 - default policy is manual: TSQ logs a reminder but does not automatically reconcile missing tables or indexes
 - `tsq gen` refuses a table, column or index name longer than any built-in dialect allows, and suggests the directive that fixes it (usually `name=` on the index). A runtime checks again at construction, and there is no way to turn that off. Such a name does not reach the server intact, so the objects TSQ creates stop matching the names its queries reference. Name the index explicitly (`//tsq:unique Email name=ux_short`) when a derived index name is what runs over the limit
-- schema comparison follows each engine's own spelling: MySQL reading a `true` default back as `1` or a decimal `0` as `0.00`, or the default of a `TEXT` column (an expression there) as `_utf8mb4\'x\'`, is not a difference; on SQLite, which enforces a type affinity rather than the declared type, `VARCHAR(20)` and `VARCHAR(40)` or `INT` and `BIGINT` are the same column (a primary key excepted), so `Reconcile` does not rebuild the table for them; SQLite table and index names match in any case, and on SQLite a hand-written `id INTEGER PRIMARY KEY` (without `AUTOINCREMENT`) matches a declared auto-increment key, since the database assigns it either way. A `Reconcile` rebuild on SQLite keeps the table's `AUTOINCREMENT` counter, so keys of deleted rows are not handed out again
+- schema comparison follows each engine's own spelling: MySQL reading a `true` default back as `1` or a decimal `0` as `0.00`, or the default of a `TEXT` column (an expression there) as `_utf8mb4\'x\'`, is not a difference; on SQLite, which enforces a type affinity rather than the declared type, `VARCHAR(20)` and `VARCHAR(40)` or `INT` and `BIGINT` are the same column (a primary key excepted), so `Reconcile` does not rebuild the table for them; SQLite table and index names match in any case, and on SQLite a hand-written `id INTEGER PRIMARY KEY` (without `AUTOINCREMENT`) matches a declared auto-increment key, since the database assigns it either way. A `Reconcile` rebuild on SQLite keeps the table's `AUTOINCREMENT` counter, so keys of deleted rows are not handed out again. A current-time default is UTC on every dialect, and a live `CURRENT_TIMESTAMP` default on MySQL or PostgreSQL (the session's local time, as tables created before TSQ wrote UTC have) is a difference that `Validate` reports and `Reconcile` corrects
 - `tsq.WithMaxPageSize(n)` sets the page-size cap for paged queries on that runtime, in either direction. `tsq.DefaultMaxPageSize` (1000) is the default, not a ceiling
 - `tsq.WithTracers(t...)` wraps every traced operation. A tracer receives the context, a `tsq.TraceInfo` and the continuation, and must call the continuation and return its error. `TraceInfo.Op` names the work: `insert`, `upsert`, `update`, `delete` (a soft delete), `hard_delete`, `restore`, `get` (also `Find` and `Exists`), `list`, `iter`, `page` (also `PageKeyset`), `count`, `tx`; an `UpdateTable` statement is an `update`, a `DeleteFrom` a `delete` and a `HardDeleteFrom` a `hard_delete` and `TraceInfo.Table` the table it writes or the query's `FROM` table (empty for `tx`), which is what a span name needs. The rendered SQL is not passed: tracing brackets the whole operation, binding and dialect rendering included, so statements come from `WithSQLLogging()` instead
 - **TSQ never drops a table.** No policy does, so several services can share one database and bring up their own tables independently. Removing a table that is no longer declared is a migration, not a boot-time decision: a runtime knows only its own declarations and cannot tell "this table is obsolete" from "this table belongs to someone else". Columns are different: `SchemaPolicyReconcile` drops a column the table no longer declares, with its data. It is the prototype setting, where the database follows the code; production keeps `Manual`
@@ -1350,7 +1356,8 @@ tsq.Select(
 Each runs on all three dialects and returns the same value; TSQ spells it per dialect where they
 differ:
 
-- `Div` of integers truncates toward zero everywhere (`DIV` on MySQL, whose `/` returns a decimal).
+- `Div` of integers truncates toward zero everywhere: `DIV` on MySQL, whose `/` returns a decimal, and
+  `DIV()` on PostgreSQL, where an operand can be `NUMERIC` (a `SUM`, a `uint64` column).
   Division by zero is NULL on MySQL and SQLite and an error on PostgreSQL, so a quotient whose
   divisor is not a non-zero `tsq.Val` can be NULL: read it with `MapIntoNull` / `SelectNullValue`,
   or `Coalesce` it

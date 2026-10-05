@@ -1868,3 +1868,20 @@ func TestDeleteByPKNamesTheKeysItDidNotDelete(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// TestExistsTakesTheArgumentsOfTheQuery covers Exists, rendered as SELECT 1, which
+// refused a parameter the select list or ORDER BY used as unused.
+func TestExistsTakesTheArgumentsOfTheQuery(t *testing.T) {
+	ctx := context.Background()
+	rt := newSQLite(t)
+	seedUsers(t, rt, "a")
+
+	type row struct{ N int64 }
+
+	p := NewParam[int64]("threshold")
+	q := Select(MapInto(Add(User_ID, p), func(r *row) *int64 { return &r.N })).From(Users).OrderBy(Add(User_ID, p).Asc()).MustBuild()
+
+	if ok, err := q.Exists(ctx, rt, p.Bind(5)); err != nil || !ok {
+		t.Fatalf("Exists = %v, %v; want true", ok, err)
+	}
+}

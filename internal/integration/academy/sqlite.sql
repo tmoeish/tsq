@@ -145,3 +145,53 @@ PRAGMA foreign_keys = ON;
 -- Table: course
 
 ALTER TABLE "course" ADD COLUMN "blurb" TEXT DEFAULT 'none';
+
+-- Migration: 2026-09-29 16:19:27
+
+-- Table: course
+
+-- course: rebuilt by copying its rows; triggers on it are dropped and must be created again
+
+PRAGMA foreign_keys = OFF;
+
+BEGIN TRANSACTION;
+
+CREATE TABLE IF NOT EXISTS "__tsq_new_course" (
+    "id" INTEGER PRIMARY KEY AUTOINCREMENT,
+    "created_at" TIMESTAMP,
+    "blurb" TEXT DEFAULT 'not_set',
+    "currency" VARCHAR(3) DEFAULT 'USD',
+    "instructor_id" INTEGER NOT NULL,
+    "level" INTEGER NOT NULL,
+    "list_price_cents" INTEGER NOT NULL,
+    "prerequisite_id" INTEGER NOT NULL,
+    "published" BOOLEAN NOT NULL,
+    "slug" VARCHAR(160) GENERATED ALWAYS AS (LOWER(title)) STORED,
+    "summary" VARCHAR(4096) NOT NULL,
+    "title" VARCHAR(160) NOT NULL,
+    "track_id" INTEGER NOT NULL
+);
+
+INSERT INTO "__tsq_new_course" ("id", "created_at", "blurb", "currency", "instructor_id", "level", "list_price_cents", "prerequisite_id", "published", "summary", "title", "track_id") SELECT "id", "created_at", "blurb", "currency", "instructor_id", "level", "list_price_cents", "prerequisite_id", "published", "summary", "title", "track_id" FROM "course";
+
+DELETE FROM sqlite_sequence WHERE name = '__tsq_new_course';
+
+INSERT INTO sqlite_sequence (name, seq) SELECT '__tsq_new_course', seq FROM sqlite_sequence WHERE name = 'course';
+
+DROP TABLE "course";
+
+ALTER TABLE "__tsq_new_course" RENAME TO "course";
+
+CREATE INDEX "idx_course_instructor_id" ON "course"("instructor_id");
+
+CREATE INDEX "idx_course_prerequisite_id" ON "course"("prerequisite_id");
+
+CREATE INDEX "idx_course_track_id" ON "course"("track_id");
+
+CREATE UNIQUE INDEX "ux_course_title" ON "course"("title");
+
+PRAGMA foreign_key_check;
+
+COMMIT;
+
+PRAGMA foreign_keys = ON;

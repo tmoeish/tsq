@@ -204,7 +204,7 @@ func (t {{$tableType}}) GetBy{{$name}}(
 	{{ FieldVarName $f }} {{ ValueType (index $dot.FieldsByName $f) }},
 	{{- end }}
 ) (*{{$type}}, error) {
-{{- if $lastField.IsSlice }}
+{{- if or $lastField.IsSlice $lastField.Incomparable }}
 	return tsq.Select(t.Columns()...).From(t).Where(
 		{{- range $f := $ux.Fields }}
 		t.{{$f}}.EQ(tsq.Val({{ FieldVarName $f }})),
@@ -226,7 +226,7 @@ func (t {{$tableType}}) FindBy{{$name}}(
 	{{ FieldVarName $f }} {{ ValueType (index $dot.FieldsByName $f) }},
 	{{- end }}
 ) (*{{$type}}, error) {
-{{- if $lastField.IsSlice }}
+{{- if or $lastField.IsSlice $lastField.Incomparable }}
 	return tsq.Select(t.Columns()...).From(t).Where(
 		{{- range $f := $ux.Fields }}
 		t.{{$f}}.EQ(tsq.Val({{ FieldVarName $f }})),

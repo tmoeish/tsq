@@ -24,7 +24,7 @@
             "nullable": true,
             "size": 255,
             "raw_type": "TEXT",
-            "default": "'none'",
+            "default": "'not_set'",
             "fill": "default"
           },
           {
@@ -398,6 +398,28 @@
         },
         "sqlite": {
           "aggregate_sql": "-- Table: course\n\nALTER TABLE \"course\" ADD COLUMN \"blurb\" TEXT DEFAULT 'none';"
+        }
+      }
+    },
+    {
+      "sequence": "2026-09-29 16:19:27",
+      "tables": [
+        {
+          "table": "course",
+          "columns": [
+            "alter column blurb (default)"
+          ]
+        }
+      ],
+      "dialects": {
+        "mysql": {
+          "aggregate_sql": "-- Table: course\n\nALTER TABLE `course` MODIFY COLUMN `blurb` TEXT DEFAULT ('not_set');"
+        },
+        "postgres": {
+          "aggregate_sql": "-- Table: course\n\nALTER TABLE \"course\" ALTER COLUMN \"blurb\" SET DEFAULT 'not_set';"
+        },
+        "sqlite": {
+          "aggregate_sql": "-- Table: course\n\n-- course: rebuilt by copying its rows; triggers on it are dropped and must be created again\n\nPRAGMA foreign_keys = OFF;\n\nBEGIN TRANSACTION;\n\nCREATE TABLE IF NOT EXISTS \"__tsq_new_course\" (\n    \"id\" INTEGER PRIMARY KEY AUTOINCREMENT,\n    \"created_at\" TIMESTAMP,\n    \"blurb\" TEXT DEFAULT 'not_set',\n    \"currency\" VARCHAR(3) DEFAULT 'USD',\n    \"instructor_id\" INTEGER NOT NULL,\n    \"level\" INTEGER NOT NULL,\n    \"list_price_cents\" INTEGER NOT NULL,\n    \"prerequisite_id\" INTEGER NOT NULL,\n    \"published\" BOOLEAN NOT NULL,\n    \"slug\" VARCHAR(160) GENERATED ALWAYS AS (LOWER(title)) STORED,\n    \"summary\" VARCHAR(4096) NOT NULL,\n    \"title\" VARCHAR(160) NOT NULL,\n    \"track_id\" INTEGER NOT NULL\n);\n\nINSERT INTO \"__tsq_new_course\" (\"id\", \"created_at\", \"blurb\", \"currency\", \"instructor_id\", \"level\", \"list_price_cents\", \"prerequisite_id\", \"published\", \"summary\", \"title\", \"track_id\") SELECT \"id\", \"created_at\", \"blurb\", \"currency\", \"instructor_id\", \"level\", \"list_price_cents\", \"prerequisite_id\", \"published\", \"summary\", \"title\", \"track_id\" FROM \"course\";\n\nDELETE FROM sqlite_sequence WHERE name = '__tsq_new_course';\n\nINSERT INTO sqlite_sequence (name, seq) SELECT '__tsq_new_course', seq FROM sqlite_sequence WHERE name = 'course';\n\nDROP TABLE \"course\";\n\nALTER TABLE \"__tsq_new_course\" RENAME TO \"course\";\n\nCREATE INDEX \"idx_course_instructor_id\" ON \"course\"(\"instructor_id\");\n\nCREATE INDEX \"idx_course_prerequisite_id\" ON \"course\"(\"prerequisite_id\");\n\nCREATE INDEX \"idx_course_track_id\" ON \"course\"(\"track_id\");\n\nCREATE UNIQUE INDEX \"ux_course_title\" ON \"course\"(\"title\");\n\nPRAGMA foreign_key_check;\n\nCOMMIT;\n\nPRAGMA foreign_keys = ON;"
         }
       }
     }

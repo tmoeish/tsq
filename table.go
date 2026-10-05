@@ -654,6 +654,35 @@ func debugSQL(e sqlExpr) string {
 	return debugStatement(r)
 }
 
+// exprKey identifies a fragment for comparing two expressions: what debugSQL
+// prints, with every bound value spelled by type and value and every parameter by
+// identity. debugSQL prints both as placeholders, so CASE x > 100 and CASE x > 1000
+// compared equal, and GROUP BY and ORDER BY pointed at the wrong select item.
+func exprKey(e sqlExpr) string {
+	r := newRenderer(sqld.SQLiteDialect{})
+	r.write(e)
+
+	stmt, err := r.finish()
+	if err != nil {
+		return "<invalid: " + err.Error() + ">"
+	}
+
+	var b strings.Builder
+
+	for _, c := range stmt.chunks {
+		switch {
+		case c.hasValue:
+			fmt.Fprintf(&b, "{%T %#v}", c.value, c.value)
+		case c.param != nil:
+			fmt.Fprintf(&b, "{param %p}", c.param)
+		default:
+			b.WriteString(c.text)
+		}
+	}
+
+	return b.String()
+}
+
 // debugStatement finishes r and prints parameters by name.
 func debugStatement(r *renderer) string {
 	stmt, err := r.finish()

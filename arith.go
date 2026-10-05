@@ -22,8 +22,9 @@ func Mul[N Number](a Expression[N], b Operand[N]) Expression[N] {
 }
 
 // Div is a / b. An integer N divides as integers on every dialect, truncating
-// toward zero (DIV on MySQL, where / returns a decimal); a floating-point N
-// divides exactly. Division by zero is NULL on MySQL and SQLite and an error on
+// toward zero: DIV on MySQL, where / returns a decimal, and DIV() on PostgreSQL,
+// where an operand can be NUMERIC (SUM of an integer column, a uint64 column) and
+// / keeps the fraction. A floating-point N divides exactly. Division by zero is NULL on MySQL and SQLite and an error on
 // PostgreSQL, so the quotient can be NULL unless b is a non-zero tsq.Val: read it
 // into a nullable field, or Coalesce it.
 func Div[N Number](a Expression[N], b Operand[N]) Expression[N] {
@@ -37,7 +38,7 @@ func Div[N Number](a Expression[N], b Operand[N]) Expression[N] {
 	if kind := reflect.TypeOf(zero).Kind(); kind != reflect.Float32 && kind != reflect.Float64 {
 		quotient = sqlByDialect("integer division", map[tsqdialect.Name]sqlExpr{
 			tsqdialect.MySQL:    sqlJoin(sqlText("("), left.sql, sqlText(" DIV "), right.sql, sqlText(")")),
-			tsqdialect.Postgres: quotient,
+			tsqdialect.Postgres: sqlJoin(sqlText("DIV("), left.sql, sqlText(", "), right.sql, sqlText(")")),
 			tsqdialect.SQLite:   quotient,
 		})
 	}

@@ -191,7 +191,7 @@ func valueType(f genmodel.FieldInfo) string {
 // fetchable reports whether TableOf.FetchBy can read by f: a NOT NULL field of a
 // comparable type.
 func fetchable(f genmodel.FieldInfo) bool {
-	return f.NullValue == "" && !f.IsSlice
+	return f.NullValue == "" && !f.IsSlice && !f.Incomparable
 }
 
 // fieldSliceVarName names a list of fieldName values in English: statuses, not

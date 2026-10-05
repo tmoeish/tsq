@@ -63,7 +63,24 @@ func TestArithmeticWritesAndReadsWithoutTheEscapeHatch(t *testing.T) {
 	}
 
 	pg, _, err := q.SQL(tsqdialect.Postgres, divisor.Bind(2))
-	if err != nil || !strings.Contains(pg, `"amount" / $1`) {
+	if err != nil || !strings.Contains(pg, `DIV("orders"."amount", $1)`) {
 		t.Fatalf("PostgreSQL = %s, %v", pg, err)
+	}
+}
+
+// TestArithmeticOfCustomSQLKeepsItsPrecedence covers an Exprf operand spliced into
+// arithmetic without parentheses: (amount + 1) * 2 rendered as amount + 1 * 2.
+func TestArithmeticOfCustomSQLKeepsItsPrecedence(t *testing.T) {
+	ctx := context.Background()
+	rt := newSQLite(t)
+	users := seedUsers(t, rt, "a")
+
+	if err := Orders.Insert(ctx, rt, &order{UserID: users[0].ID, Amount: 10, Note: "x"}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := SelectValue(Mul(Order_Amount.Exprf("%s + %s", int64(1)), Val(int64(2)))).From(Orders).MustBuild().Get(ctx, rt)
+	if err != nil || *got != 22 {
+		t.Fatalf("(amount + 1) * 2 = %v, %v; want 22", got, err)
 	}
 }

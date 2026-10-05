@@ -103,7 +103,7 @@ func newCourseTable() CourseTable {
 					Nullable: true,
 					Size:     255,
 				},
-				Default: "'none'",
+				Default: "'not_set'",
 				Fill:    tsqdialect.FillDefault,
 			},
 			{

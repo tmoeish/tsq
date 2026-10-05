@@ -498,7 +498,9 @@ func (q *Query[O]) Exists(ctx context.Context, db Executor, args ...Arg) (bool, 
 	return traceExecutor1(ctx, db, q.traceInfo(TraceOpGet), func(ctx context.Context) (bool, error) {
 		// Whether a row exists does not depend on reading it, so a value that could
 		// not be scanned into O is no reason to refuse.
-		_, stmts, err := q.prepare(db, args, nil, renderMode{single: true, exists: true})
+		// The arguments are those of the query, as for Count: SELECT 1 drops the
+		// select list and ORDER BY, and a parameter used only there is not unused.
+		_, stmts, err := q.prepare(db, args, nil, renderMode{single: true, exists: true}, renderMode{})
 		if err != nil {
 			return false, err
 		}

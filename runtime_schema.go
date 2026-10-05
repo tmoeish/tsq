@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math/big"
 	"slices"
 	"sort"
 	"strings"
@@ -472,77 +471,10 @@ func columnsEqual(dialect sqld.Dialect, left sqld.Column, right tsqdialect.Colum
 		return true
 	}
 
-	return sameDefault(left.Default, right.Default)
-}
-
-// sameDefault compares two spellings of a column default. Two quoted literals
-// compare exactly, so 'Active' and 'active' differ; anything else compares without
-// case, since keywords (CURRENT_TIMESTAMP) are spelled either way and MySQL reads a
-// string default back without its quotes.
-//
-// Numbers compare by value and booleans as 1 and 0: MySQL reads a declared true
-// back as 1 and a decimal 0 as 0.00, which used to ask for the same ALTER on every
-// boot.
-func sameDefault(left, right string) bool {
-	// MySQL reports CURRENT_TIMESTAMP(6) for the CURRENT_TIMESTAMP TSQ declares on
-	// a DATETIME(6) column.
-	if sqld.IsCurrentTime(left) && sqld.IsCurrentTime(right) {
-		return true
-	}
-
-	a, aQuoted := normalizeDefaultLiteral(left)
-	b, bQuoted := normalizeDefaultLiteral(right)
-
-	if aQuoted && bQuoted {
-		return a == b
-	}
-
-	if x, ok := defaultNumber(a); ok {
-		if y, ok := defaultNumber(b); ok {
-			return x.Cmp(y) == 0
-		}
-	}
-
-	return strings.EqualFold(a, b)
-}
-
-// defaultNumber reads a default as an exact number, true and false included.
-func defaultNumber(value string) (*big.Rat, bool) {
-	switch strings.ToLower(value) {
-	case "true":
-		value = "1"
-	case "false":
-		value = "0"
-	}
-
-	return new(big.Rat).SetString(value)
-}
-
-// normalizeDefaultLiteral makes two spellings of the same default comparable: a
-// declared 'USD' reads back as USD on MySQL and as 'USD'::character varying on
-// PostgreSQL, and comparing those verbatim asks to set the default on every boot.
-// It drops a cast outside the literal (a '::' inside one is text), unquotes a
-// literal and reports whether it was one.
-func normalizeDefaultLiteral(value string) (string, bool) {
-	value = strings.TrimSpace(value)
-
-	quoted := false
-
-	for i := 0; i < len(value); i++ {
-		switch {
-		case value[i] == '\'':
-			quoted = !quoted
-		case !quoted && strings.HasPrefix(value[i:], "::"):
-			value = strings.TrimSpace(value[:i])
-			i = len(value)
-		}
-	}
-
-	if len(value) >= 2 && strings.HasPrefix(value, "'") && strings.HasSuffix(value, "'") {
-		return strings.ReplaceAll(value[1:len(value)-1], "''", "'"), true
-	}
-
-	return value, false
+	// The declared default is compared as the DDL spells it: a current-time
+	// default is a UTC expression on MySQL and PostgreSQL, and a live
+	// CURRENT_TIMESTAMP there (a table created before TSQ wrote UTC) differs.
+	return sqld.SameDefault(left.Default, sqld.DefaultSQL(dialect, right))
 }
 
 func ddlColumnChangeName(change tableColumnChange) string {
@@ -783,34 +715,13 @@ func rebuildCopyColumns(dialect sqld.Dialect, current []sqld.Column, desired []t
 			continue
 		}
 
-		if zero, ok := zeroLiteral(column.Type); ok {
+		if zero, ok := sqld.ZeroLiteral(dialect, column.Type); ok {
 			targets = append(targets, dialect.QuoteIdent(column.Name))
 			sources = append(sources, zero)
 		}
 	}
 
 	return targets, sources
-}
-
-// zeroLiteral is the Go zero value of a column type as a SQL literal, for rows a
-// new NOT NULL column is added to. A column of an explicit type: has none TSQ knows.
-func zeroLiteral(t tsqdialect.ColumnType) (string, bool) {
-	if t.RawType != "" {
-		return "", false
-	}
-
-	switch t.Kind {
-	case tsqdialect.KindString:
-		return "''", true
-	case tsqdialect.KindInt, tsqdialect.KindBool, tsqdialect.KindFloat:
-		return "0", true
-	case tsqdialect.KindBytes:
-		return "X''", true
-	case tsqdialect.KindTime:
-		return "'0001-01-01 00:00:00+00:00'", true
-	}
-
-	return "", false
 }
 
 // sqlStringLiteral quotes s as a SQL string literal.

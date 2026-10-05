@@ -307,6 +307,9 @@ func TestMySQLReadsAnExpressionDefaultBackAsDeclared(t *testing.T) {
 		{`_utf8mb4\'USD\'`, "DEFAULT_GENERATED", "'USD'"},
 		{`(_utf8mb4\'it\'\'s\')`, "DEFAULT_GENERATED", "'it''s'"},
 		{`_latin1\'a\\\\b\'`, "DEFAULT_GENERATED", `'a\\b'`},
+		{`_utf8mb4\'en_US\'`, "DEFAULT_GENERATED", "'en_US'"},
+		{`_utf8mb4\'not_started\'`, "DEFAULT_GENERATED", "'not_started'"},
+		{`concat(_utf8mb4\'a_b\',_utf8mb4\'c\')`, "DEFAULT_GENERATED", "concat('a_b','c')"},
 		{"USD", "", "USD"},
 		{"utc_timestamp(6)", "DEFAULT_GENERATED", "utc_timestamp(6)"},
 	} {

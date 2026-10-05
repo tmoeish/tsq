@@ -140,12 +140,12 @@ func (q *Query[O]) keysetColumns(orderBy []OrderBy) ([]keysetColumn[O], error) {
 			return nil, fmt.Errorf("invalid order direction %q", ob.direction)
 		}
 
-		want := debugSQL(columnInfo(ob.column).sql)
+		want := exprKey(columnInfo(ob.column).sql)
 
 		var selected BoundColumn[O]
 
 		for _, col := range s.Selects {
-			if debugSQL(columnInfo(col).sql) == want {
+			if exprKey(columnInfo(col).sql) == want {
 				selected = col
 				break
 			}
