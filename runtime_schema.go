@@ -291,11 +291,24 @@ func (r *Runtime) applyIndexPolicyForTable(ctx context.Context, table *registere
 
 		existing, found := currentByName[idx.Name]
 
-		// A full-text index is compared by name only: PostgreSQL indexes an
-		// expression rather than columns, MySQL reports a different index type, and
-		// SQLite has none at all, so a field comparison would ask to rebuild it on
-		// every boot.
+		// A full-text index is compared by name where its columns cannot be:
+		// PostgreSQL indexes an expression rather than columns and SQLite has none at
+		// all, so a field comparison would ask to rebuild it on every boot. MySQL
+		// reports the columns, and MATCH needs an index over exactly those it names:
+		// one left over other columns failed every search (error 1191).
 		if idx.FullText {
+			if found && len(existing.Fields) > 0 && !sameIndexColumns(existing.Fields, idx.Columns) {
+				if r.indexPolicy != SchemaPolicyReconcile {
+					return fmt.Errorf("full-text index %s on table %s covers %v, expected %v", idx.Name, tableName, existing.Fields, idx.Columns)
+				}
+
+				if err := r.execDDL(ctx, r.dialect.DropIndexSQL(tableName, idx.Name)); err != nil {
+					return fmt.Errorf("recreate full-text index %s on %s: %w", idx.Name, tableName, err)
+				}
+
+				found = false
+			}
+
 			if err := r.ensureFullTextIndex(ctx, tableName, idx, found); err != nil {
 				return err
 			}
@@ -362,7 +375,63 @@ func (r *Runtime) applyIndexPolicyForTable(ctx context.Context, table *registere
 		}
 	}
 
+	if r.indexPolicy == SchemaPolicyReconcile {
+		return r.dropUndeclaredIndexes(ctx, table, currentIndexes)
+	}
+
 	return nil
+}
+
+// dropUndeclaredIndexes drops, under Reconcile, the indexes of a declared table
+// that TSQ named and the table no longer declares. A //tsq:unique that was removed,
+// or widened by a column (which changes its derived name), left the old unique
+// index in place, refusing rows the declaration allows, under the one policy where
+// the database follows the code and undeclared columns are dropped too.
+//
+// Only a name tsq gen derives for this table goes: ux_<table>_..., idx_<table>_...
+// or ft_<table>_.... An index under any other name may be anyone's, as an index on
+// a table this runtime does not declare is, and no policy touches those.
+func (r *Runtime) dropUndeclaredIndexes(ctx context.Context, table *registeredTable, current []sqld.Index) error {
+	declared := make(map[string]bool, len(table.Indexes))
+	for _, idx := range table.Indexes {
+		declared[strings.ToLower(idx.Name)] = true
+	}
+
+	for _, idx := range current {
+		if idx.PrimaryKey || idx.Constraint || declared[strings.ToLower(idx.Name)] || !derivedIndexName(idx.Name, table.name) {
+			continue
+		}
+
+		r.warn("schema reconcile drops an index the table no longer declares",
+			"table", table.name, "index", idx.Name, "policy", r.indexPolicy)
+
+		if err := r.execDDL(ctx, r.dialect.DropIndexSQL(table.name, idx.Name)); err != nil {
+			return fmt.Errorf("drop index %s no longer declared on %s: %w", idx.Name, table.name, err)
+		}
+	}
+
+	return nil
+}
+
+// derivedIndexName reports an index name tsq gen derives for table: a prefix for
+// the kind of index, the table's name in snake case, then the columns. Case and
+// underscores are left out of the comparison, so UserAccount, user_account and
+// useraccount are one table name.
+func derivedIndexName(index, table string) bool {
+	squash := func(name string) string { return strings.ReplaceAll(strings.ToLower(name), "_", "") }
+
+	for _, prefix := range []string{"ux_", "idx_", "ft_"} {
+		if rest, ok := strings.CutPrefix(strings.ToLower(index), prefix); ok && strings.HasPrefix(squash(rest), squash(table)) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// sameIndexColumns compares two column lists in order, without case.
+func sameIndexColumns(left, right []string) bool {
+	return slices.EqualFunc(left, right, strings.EqualFold)
 }
 
 func (r *Runtime) execDDL(ctx context.Context, statement string) error {
