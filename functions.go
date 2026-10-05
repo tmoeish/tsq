@@ -3,6 +3,7 @@ package tsq
 import (
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
@@ -35,6 +36,7 @@ func derived[T any](col SQLColumn, info exprInfo) Expression[T] {
 	next.plain = false
 	next.bare = false
 	next.scan = nil
+	next.adapt = nil
 	next.nullable = false
 
 	return exprImpl[T]{c: &next}
@@ -90,7 +92,8 @@ func CountDistinct[T any](col Expression[T]) Expression[int64] {
 	return counted[T](col, "COUNT(DISTINCT ")
 }
 
-// Max is the largest value of col.
+// Max is the largest value of col. What can be ordered is the engine's to say:
+// PostgreSQL has no MAX or MIN over a boolean.
 func Max[T any](col Expression[T]) Expression[T] { return wrapped[T](col, "MAX(", ")", true) }
 
 // Min is the smallest value of col.
@@ -101,34 +104,69 @@ func Sum[N Number](col Expression[N]) Expression[N] {
 	return wrapped[N](col, "SUM(", ")", true)
 }
 
-// Avg is the mean of col.
+// Avg is the mean of col. MySQL averages an integer column as a DECIMAL with four
+// more digits (AVG of 1, 2, 2 is 1.6667); the column is averaged as a DOUBLE
+// there, as PostgreSQL and SQLite give it.
 func Avg[N Number](col Expression[N]) Expression[float64] {
-	return wrapped[float64](col, "AVG(", ")", true)
+	if isFloat[N]() {
+		return wrapped[float64](col, "AVG(", ")", true)
+	}
+
+	floating := byDialect[N](col, "avg", func(x sqlExpr) map[tsqdialect.Name]sqlExpr {
+		return map[tsqdialect.Name]sqlExpr{
+			tsqdialect.MySQL:    sqlJoin(sqlText("("), x, sqlText(" + 0E0)")),
+			tsqdialect.Postgres: x,
+			tsqdialect.SQLite:   x,
+		}
+	})
+
+	return wrapped[float64](floating, "AVG(", ")", true)
 }
 
-// Round rounds col to precision decimal places; PostgreSQL rounds through NUMERIC.
+// isFloat reports a floating-point N.
+func isFloat[N Number]() bool {
+	kind := reflect.TypeFor[N]().Kind()
+
+	return kind == reflect.Float32 || kind == reflect.Float64
+}
+
+// Round rounds col to precision decimal places, a tie away from zero: 2.5 is 3 and
+// -2.5 is -3 on every dialect. PostgreSQL and MySQL round a floating-point value
+// through an exact decimal: PostgreSQL has no ROUND(double precision, integer),
+// and MySQL rounds a DOUBLE to the nearest even digit (2.5 is 2), so the same
+// query gave another answer there.
 func Round[N Number](col Expression[N], precision int) Expression[N] {
 	if precision < 0 {
 		return derived[N](col, exprInfo{err: errors.New("round precision cannot be negative")})
 	}
 
 	n := sqlText(fmt.Sprintf(", %d)", precision))
+	floating := isFloat[N]()
 
 	return byDialect[N](col, "round", func(x sqlExpr) map[tsqdialect.Name]sqlExpr {
+		mysql := sqlJoin(sqlText("ROUND("), x, n)
+		if floating {
+			// A DECIMAL holds 35 digits before the point and CAST clamps a larger
+			// value to it without an error; such a value has no fraction to round.
+			mysql = sqlJoin(sqlText("(CASE WHEN ABS("), x, sqlText(") < 1E30 THEN ROUND(CAST("), x, sqlText(" AS DECIMAL(65,30))"), n,
+				sqlText(" ELSE "), x, sqlText(" END)"))
+		}
+
 		return map[tsqdialect.Name]sqlExpr{
-			tsqdialect.MySQL:    sqlJoin(sqlText("ROUND("), x, n),
+			tsqdialect.MySQL:    mysql,
 			tsqdialect.Postgres: sqlJoin(sqlText("ROUND(CAST("), x, sqlText(" AS NUMERIC)"), n),
 			tsqdialect.SQLite:   sqlJoin(sqlText("ROUND("), x, n),
 		}
 	})
 }
 
-// Ceil rounds col up.
+// Ceil rounds col up. On SQLite it needs the math functions: modernc.org/sqlite
+// has them, mattn/go-sqlite3 only when built with -tags sqlite_math_functions.
 func Ceil[N Number](col Expression[N]) Expression[N] {
 	return wrapped[N](col, "CEIL(", ")", false)
 }
 
-// Floor rounds col down.
+// Floor rounds col down; see Ceil for SQLite.
 func Floor[N Number](col Expression[N]) Expression[N] {
 	return wrapped[N](col, "FLOOR(", ")", false)
 }
@@ -218,15 +256,23 @@ func datePart(col Expression[time.Time], part, sqlPart, strftime string) Express
 }
 
 // Coalesce is col, or fallback where col is NULL: a column, Param, Val or subquery.
-// It is NULL only if both can be, so Coalesce(col, tsq.Val(x)) reads into a field
-// that cannot hold NULL.
+// It is NULL only where both are, so Coalesce(col, tsq.Val(x)), and
+// Coalesce(nullable, column) with a NOT NULL column, read into a field that
+// cannot hold NULL.
 func Coalesce[T any](col Expression[T], fallback Operand[T]) Expression[T] {
 	return combined[T](col, "COALESCE(", fallback, func(left, right nullness) nullness {
-		if left.never() || right.never() {
+		switch {
+		case left.never() || right.never():
 			return nullness{}
+		case left.always:
+			// NULL exactly where the fallback is: a nullable column over a NOT NULL
+			// one was still called nullable, and the error said to use Coalesce.
+			return right
+		case right.always:
+			return left
+		default:
+			return left.or(right)
 		}
-
-		return left.or(right)
 	})
 }
 

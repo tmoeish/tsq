@@ -591,11 +591,11 @@ func (t *TableOf[R, K]) upsertReturning(ctx context.Context, db Executor, scope 
 	w := t.upsertStatement(scope.dialect, def, cols, target, update, []*R{row}, true)
 
 	names := []string{def.primaryKey.name}
-	dest := []any{def.primaryKey.scan(row)}
+	dest := []any{def.primaryKey.target(row)}
 
 	for _, col := range readBack {
 		names = append(names, col.name)
-		dest = append(dest, col.scan(row))
+		dest = append(dest, col.target(row))
 	}
 
 	w.text(scope.dialect.Returning(names...))
@@ -746,10 +746,10 @@ func (t *TableOf[R, K]) adoptStoredKeys(ctx context.Context, db Executor, scope 
 
 	for result.Next() {
 		holder := new(R)
-		dest := []any{def.primaryKey.scan(holder)}
+		dest := []any{def.primaryKey.target(holder)}
 
 		for _, col := range cols {
-			dest = append(dest, col.scan(holder))
+			dest = append(dest, col.target(holder))
 		}
 
 		if err := result.Scan(dest...); err != nil {

@@ -55,16 +55,16 @@ MySQL 1205 / 1213 / 3572）保证事务已回滚。现在 commit 阶段只放行
 
 ## 只有真实引擎说得出的 schema 行为 (2026-10-05，第五轮审计)
 
-前四轮审计对 MySQL / PostgreSQL 只能推理，第一次真跑就在 schema 路径上找出一串推理看不见的事；**改 schema 路径要真跑
-"类型 × 引擎 × 策略"的矩阵**（`internal/integration/schema_test.go`），本机没有 Docker 时下二进制起临时实例即可。
+前四轮只能推理，第一次真跑就找出一串推理看不见的事；**改 schema 路径要真跑"类型 × 引擎 × 策略"的矩阵**（`internal/integration/schema_test.go`）。
 
 - **PG 的显式转换截断、赋值转换拒绝**：`USING c::VARCHAR(5)` 把超长值静默截短。第四轮只去掉了同类改动的 `USING`，跨类和带
   `type:` 的照旧——同一类 bug 没数全。字符目标一律 `USING c::TEXT`，长度交给赋值检查。
 - **MySQL 的时间字面量只在 TIMESTAMP 范围内才能带时区**：`'0001-01-01 00:00:00+00:00'` 在显式会话时区下报 1292，在默认的
   `time_zone=SYSTEM` 下**静默存成 `0000-00-00`**，此后每条复制表的 ALTER 都失败。零值字面量因此分方言（`ZeroLiteral`）。
 - **MySQL 读回的字面量默认值不带引号**：`'(none)'` 读成括号表达式、`'a::b'` 读成转换、首尾空格被修掉，于是每次启动都改一次；
-  `mysqlDefault` 按列类型把引号加回去。原始类型的别名分方言（`REAL` 在 PG 是 float4、在 MySQL 是 DOUBLE）。
-  已知未处理：MySQL 把默认值里的反斜杠当转义，`'a\b'` 仍每次启动都漂移；`VARCHAR(16383)` 只要表里还有别的列就超行宽（1118）。
-- **决定（维护者 2026-10-05）**：运行期策略给有数据的表加 NOT NULL 列也补零值，与生成器的迁移共用 `AddColumnSQL`（带零值默认加列再
-  去掉默认，SQLite 没有 `DROP DEFAULT` 所以重建）——"改了结构重启就跟上"在 PG 上此前一行数据就断。PG 上无符号自增主键是加宽
-  类型的 SERIAL，`uint64` 是 `BIGSERIAL`：序列本来就到不了 int64 上限，`NUMERIC(20)` 的主键只有代价。
+  `mysqlDefault` 按列类型把引号加回去。原始类型的别名分方言（`REAL` 在 PG 是 float4、在 MySQL 是 DOUBLE）。已知未处理：MySQL 把默认值
+  里的反斜杠当转义，`'a\b'` 仍每次启动都漂移；`VARCHAR(16383)` 只要表里还有别的列就超行宽（1118）。
+- **决定（维护者 2026-10-05）**：运行期策略给有数据的表加 NOT NULL 列也补零值，与生成器共用 `AddColumnSQL`（带零值默认加列再去掉，SQLite 没有
+  `DROP DEFAULT` 所以重建）——"改了结构重启就跟上"在 PG 上此前一行数据就断。PG 的无符号自增主键是加宽类型的 SERIAL，`uint64` 是 `BIGSERIAL`（序列到不了 int64 上限）。
+- **决定（维护者 2026-10-05）：`Open` 拒绝 `loc` 不是 UTC 的 MySQL DSN**，否掉"只写文档"：`loc=Local` 是教程里的标准写法，
+  而它让数据库填的 UTC 时间读回来差一个时区、不报错。`NewRuntime` 看不到 DSN，只能靠文档。

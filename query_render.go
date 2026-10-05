@@ -426,12 +426,15 @@ func regroupAt[O any](ops []setOperation[O]) int {
 	return split
 }
 
-func (s *querySpec[O]) writeSimple(r *renderer, m renderMode) {
-	// Rows are read by position, so an output name only matters where the query
-	// becomes a derived table: counting a grouped query, or grouping a set
-	// operation. MySQL refuses a derived table with two columns of one name
-	// (error 1060), so a repeated name is replaced after its first use.
-	cols := make([]sqlExpr, 0, len(s.Selects))
+// selectAliases is the name each select item is written AS, empty for one written
+// bare (a column reference, which every dialect names by the column).
+//
+// Rows are read by position, so an output name only matters where the query
+// becomes a derived table: counting a grouped query, or grouping a set operation.
+// MySQL refuses a derived table with two columns of one name (error 1060), so a
+// repeated name is replaced after its first use.
+func (s *querySpec[O]) selectAliases() []string {
+	aliases := make([]string, len(s.Selects))
 	named := make(map[string]bool, len(s.Selects))
 
 	for _, col := range s.Selects {
@@ -440,19 +443,37 @@ func (s *querySpec[O]) writeSimple(r *renderer, m renderMode) {
 
 	used := make(map[string]bool, len(s.Selects))
 
-	for _, col := range s.Selects {
+	for i, col := range s.Selects {
 		name := col.Name()
 		if name != "" && used[name] {
-			alias := repeatedName(col, named)
-			named[alias] = true
-			cols = append(cols, sqlJoin(columnInfo(col).sql, sqlText(" AS "), sqlIdent(alias)))
+			aliases[i] = repeatedName(col, named)
+			named[aliases[i]] = true
 
 			continue
 		}
 
 		used[name] = true
 
-		cols = append(cols, selectItem(col))
+		if core := col.core(); core != nil && !core.plain && !core.bare && core.name != "" {
+			aliases[i] = name
+		}
+	}
+
+	return aliases
+}
+
+func (s *querySpec[O]) writeSimple(r *renderer, m renderMode) {
+	aliases := s.selectAliases()
+	cols := make([]sqlExpr, 0, len(s.Selects))
+
+	for i, col := range s.Selects {
+		if aliases[i] == "" {
+			cols = append(cols, columnInfo(col).sql)
+
+			continue
+		}
+
+		cols = append(cols, sqlJoin(columnInfo(col).sql, sqlText(" AS "), sqlIdent(aliases[i])))
 	}
 
 	r.writeText("SELECT ")
@@ -610,6 +631,21 @@ func bindsValues(e sqlExpr) bool {
 func (s *querySpec[O]) orderTerm(ob OrderBy) orderTerm {
 	term := orderTerm{expr: s.selectedPosition(columnInfo(ob.column).sql), nullKey: columnInfo(ob.column).sql, direction: ob.direction, nullsFirst: ob.nulls.first(ob.direction)}
 	term.nullable, _ = s.canBeNull(columnInfo(ob.column).null)
+
+	// MySQL's "expr IS NULL" key is not in the select list, and a DISTINCT query
+	// may only be ordered by what is (error 3065) unless every column the key
+	// reads is selected itself. A selected expression is tested through its alias.
+	if s.Distinct && len(s.SetOps) == 0 {
+		key := exprKey(term.nullKey)
+
+		for i, alias := range s.selectAliases() {
+			if alias != "" && exprKey(columnInfo(s.Selects[i]).sql) == key {
+				term.nullKey = sqlIdent(alias)
+
+				break
+			}
+		}
+	}
 
 	if len(s.SetOps) > 0 && !isNilValue(ob.column) {
 		term.expr = sqlIdent(ob.column.Name())
@@ -1195,15 +1231,6 @@ func repeatedName(col SQLColumn, taken map[string]bool) string {
 	}
 }
 
-func selectItem(col SQLColumn) sqlExpr {
-	info := columnInfo(col)
-	if core := col.core(); core == nil || core.plain || core.bare || core.name == "" {
-		return info.sql
-	}
-
-	return sqlJoin(info.sql, sqlText(" AS "), sqlIdent(col.Name()))
-}
-
 func (c *cteSpec[O]) outputNames() []string {
 	names := make([]string, 0, len(c.spec.Selects))
 	for _, col := range c.spec.Selects {
@@ -1296,8 +1323,11 @@ func (s *querySpec[O]) checkGrouping() error {
 		}
 
 		// A column read only inside a grouped expression is grouped: GROUP BY
-		// UPPER(note) allows HAVING UPPER(note) <> 'X' and LOWER(UPPER(note)), which
-		// every dialect accepts and which were refused.
+		// UPPER(note) allows HAVING UPPER(note) <> 'X' and LOWER(UPPER(note)). The
+		// SQL standard, PostgreSQL and SQLite take both; MySQL matches a grouped
+		// expression only where it is repeated whole in the select list or ORDER BY,
+		// and refuses the rest when it runs (errors 1054 and 1055). That is the
+		// engine's to say, as every dialect limit is: Build checks structure.
 		rest := key
 		for grouped := range exprs {
 			rest = strings.ReplaceAll(rest, grouped, "{grouped}")

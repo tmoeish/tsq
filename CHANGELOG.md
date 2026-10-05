@@ -161,6 +161,15 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 ### 修复
 
+- **`ListIn` 列表长到被切分后会丢行**：切分后的结果按主键去重，把 join 本来就重复的行也去掉了，同一个查询短列表返回 8 行、长列表返回 2 行。现在只有读单张表的查询才去重（那里一行只可能出现一次），带 join 的查询保留各段返回的每一行。
+- **MySQL DSN 带 `loc=Local` 时数据库填的时间读回来差一个时区**：驱动按 `loc` 写入和解读 `DATETIME`，TSQ 的时间于是按本地时间落库（文档说一律 UTC），而数据库自己填的 UTC 时间（`default:CURRENT_TIMESTAMP`）读回来偏了时区那么多小时，不报错。`tsq.Open` 现在拒绝 `loc` 不是 `UTC` 的 DSN；显示时用 `time.Time.In` 转换。
+- **自定义 bool 类型的字段在 MySQL 和 SQLite 上读不出来**：`type Flag bool`（含 `*Flag`、`sql.Null[Flag]`）能生成、能写入，每次读都报 `unsupported Scan`——这两个库把布尔报成整数，database/sql 只替内建的 `bool` 转换。现在 TSQ 自己读进命名类型。
+- **SQLite 上对时间列做 `Max` / `Min` / `Coalesce` 读不出来**：SQLite 把时间存成文本，驱动只对声明成时间的列返回 `time.Time`，表达式的结果是字符串，扫描失败（两个 SQLite 驱动都是）。现在时间字段按文本也读得进。
+- **`tsq.Round` 和 `tsq.Avg` 在 MySQL 上答案不同**：MySQL 对 `DOUBLE` 用银行家舍入（`-6.5` 得 `-6`、`8.5` 得 `8`），对整数列求平均只留四位小数（`1.6667`）。现在浮点数在 MySQL 上经精确小数舍入、整数列按 `DOUBLE` 求平均，三个方言一致：平局远离零。
+- **MySQL 上 `SelectDistinct` 配 `.NullsLast()` 排序报 3065**：NULL 位置靠 `expr IS NULL` 排序键实现，它不在选择列表里。现在对选出的表达式用它的别名判断。
+- **`Coalesce(可空列, 非空列)` 仍被当成可能为 NULL**：读进不能存 NULL 的字段时被拒绝，报错还建议"用 Coalesce"。它只在两边都为 NULL 时为 NULL。
+- **MySQL 上没赋值的 NOT NULL 时间字段插不进去**：驱动把 Go 的零值时间写成 `0000-00-00`，MySQL 默认模式拒收；PostgreSQL 和 SQLite 存成公元 1 年。现在 MySQL 上也按公元 1 年绑定，读回仍是零值。
+- **按主键批量删除在 PostgreSQL / SQLite 上漏报不存在的键**：同一批里有只差大小写的两个键（`"ABC"` 和 `"abc"`）而库里只有一个时，另一个被当成删掉了。大小写折叠只该用于 MySQL 的不区分大小写比较。
 - **PostgreSQL 改列类型仍会静默截断**：跨类型、或任一侧写了 `type:` 的改动（`type:TEXT` 改成 `size:5`、`VARCHAR` 改成 `type:CHAR(3)`、整数或时间改成短字符串）写成 `USING 列::新类型`，显式转换把放不下的值直接截短，运行期 `Reconcile` 和生成的迁移段都是。现在字符类型的目标写 `USING 列::TEXT`，长度交给赋值检查，放不下就失败、数据不动；`BOOLEAN` 和整数互转也能执行了（此前转 `BIGINT` 报"无法转换"）。
 - **运行期策略没法给有数据的表加 NOT NULL 列**：`CreateMissing` / `Reconcile` 在 PostgreSQL 和 SQLite 上对任何类型都失败、在 MySQL 上对时间列失败，"改了结构直接重启就跟上"只在空表上成立。现在和生成的迁移一样给已有行填类型的零值（带零值默认加列再去掉默认）；SQLite 没有 `DROP DEFAULT`，这类列和默认值不是常量的列（`CURRENT_TIMESTAMP`）通过重建表添加。SQLite 上 `Reconcile` 把可空列改成 NOT NULL 时也先填掉 NULL（此前有一行是 NULL 就失败）。
 - **PostgreSQL 上无符号自增主键第二次启动就对不上**：`uint` / `uint16` / `uint32` / `uint64` 的自增主键建成和 Go 类型同宽的 `SERIAL`，校验却按加宽一档的类型比：TSQ 自己建的表过不了 `Validate`，`Reconcile` 把 `uint64` 主键改成 `NUMERIC(20)`。现在主键按加宽后的宽度建（`uint16` 是 `SERIAL`，`uint` / `uint32` / `uint64` 是 `BIGSERIAL`）。已经按旧规则建的表，`Reconcile` 会加宽列和序列；用迁移文件的项目自己 `ALTER ... TYPE BIGINT`。
@@ -173,7 +182,7 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 - **`OnConflict(...).Update(col)` 点名的 `default:` 列为 nil 时不写**：和行级 `Update(col)` 不一致，冲突时没法把它清成 NULL。现在点名了就写 NULL。
 - **MySQL 上按不分大小写的字符串主键 `BatchDeleteByPK`，删到的行被报成"没删到"**：数据库读回的键拼写不同。现在删到的行数够了就全算删到，否则按不分大小写、忽略尾部空格再比一次。
 - **切分执行的 `ListIn` 可能把同一行返回两次**：两个数据库认为相等、Go 认为不等的键落在不同的段里。现在按主键去重（结果是表的行时）。
-- **`HAVING` 里用分组表达式被拒**：`GroupBy(tsq.Upper(note))` 配 `Having(tsq.Upper(note).NE(...))` 在三个数据库上都合法，曾被当成没分组的 `note` 拒绝。
+- **`HAVING` 里用分组表达式被拒**：`GroupBy(tsq.Upper(note))` 配 `Having(tsq.Upper(note).NE(...))` 在 SQL 标准、PostgreSQL 和 SQLite 上合法，曾被当成没分组的 `note` 拒绝。MySQL 只认选择列表或 `ORDER BY` 里整个重复的分组表达式，放进 `HAVING` 或套一层函数执行时报 1054 / 1055——那里先在 CTE 里分组再过滤。
 - **`tsq.Open` 拒绝 `parseTime=1`**：驱动接受它，检查却只认 `parseTime=true` 这个子串。现在按驱动的规则读这个参数。
 - **结构体内部写的 `//tsq:` 行被静默忽略**：只有类型上方的注释会被读，写在字段上的 `//tsq:index` 什么也不建。现在报错并给出位置。
 - **生成器的几处小问题**：两个字段 `URL`、`Url` 组成的唯一索引生成的参数同名、编译不过；报错里打印生成器内部的导入别名（`tsqtime.Time`）；某个方言渲染出同一个类型的声明变化（`[]byte` 加 `size:`）仍写成迁移，MySQL 上白复制一遍表；MySQL 索引警告对 `[]byte` 列建议改 `size:`，那没有用（现在建议 `type:VARBINARY(n)`）。

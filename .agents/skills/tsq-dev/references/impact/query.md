@@ -84,7 +84,8 @@
 ## 改了 `ListIn` 或列表参数
 
 - 切分执行后按主键去重（`dedupeByPrimaryKey`，结果是表的行且选了主键时）：数据库认为相等、Go 认为不等的两个键
-  落在不同段里会各自匹配同一行。阶段（`builder`）上的读方法都转发给 `*Query`；`ListIn` 是泛型方法，接口放不下，
+  落在不同段里会各自匹配同一行。**只对读单张表的查询做**：join 本来就会让一行重复出现，去重把那些行也丢了，短列表和长列表的
+  结果不一样（`TestIntegrationASplitListInKeepsTheRowsAJoinRepeats`）。给 `ListIn` 加任何"事后整理结果"的步骤都要问：不切分时 `List` 会不会返回同样的东西。阶段（`builder`）上的读方法都转发给 `*Query`；`ListIn` 是泛型方法，接口放不下，
   所以阶段上没有它，`SQL` 有。
 
 - 分块只在"结果是各块并集"时成立：参数只用一次、是 `Where` 顶层的 `col.In(param)`、查询逐行过滤。
@@ -107,6 +108,12 @@
   `TestSetOperationChainsReadLeftToRight` 和集成测试里的链用例。
 - 新的片段类型要同时处理：`renderer.write`、`sqlExpr.correlated`（若它能包含查询）、
   `debugSQL` 和 `exprKey`。
+- **读行的目标走 `columnCore.target`，不直接用 `scan`**（`scan.go`）：时间字段和自定义 bool 字段要包一层适配（SQLite 的表达式把时间
+  交回成文本，MySQL / SQLite 把布尔交回成整数，database/sql 都不替命名类型转换）。`scan` 仍是字段指针本身，按地址识别字段的代码
+  （`partial.go`、`keyset.go`、`attach.go`）继续用它；新的 `rows.Scan` 调用点用 `target` / `adapted`。新的字段形状要进
+  `internal/integration/query_test.go` 的 `measure` 表真跑三方言，SQLite 单测发现不了另两个引擎的事，反过来也一样。
+- 按方言分叉的函数（`byDialect`）改拼写要真跑：`Round` 在 MySQL 上对 `DOUBLE` 是银行家舍入、`AVG(整数)` 只留四位小数，渲染断言看不出来，
+  门是 `TestIntegrationRoundAndAverageAgree`。MySQL 的 NULL 位置排序键在 `DISTINCT` 查询里要用选择项的别名（`selectAliases`，3065）。
 - **比较两个表达式是不是同一个，用 `exprKey`，不用 `debugSQL`**：后者把绑定值都印成 `?`，只差一个值的两个 `CASE`
   曾被认成一个，`GROUP BY` / `ORDER BY` 的列序号、分组检查、`DISTINCT` 检查和游标列全部错配（2026-09-29 审计 P0）。
   `debugSQL` 只给报错文案；游标指纹（`fingerprint`）要跨进程稳定，所以仍用它。

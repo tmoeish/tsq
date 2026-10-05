@@ -1,6 +1,7 @@
 package tsq
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
 	"reflect"
@@ -457,5 +458,56 @@ func TestSingleRowReadsLimitBeforeTheLock(t *testing.T) {
 	limited := Select(User_ID).From(Users.WithDeleted()).Limit(5).MustBuild()
 	if sql, args := single(limited, onSQLite); !strings.HasSuffix(sql, " LIMIT ?") || len(args) != 1 || fmt.Sprint(args[0]) != "5" {
 		t.Errorf("builder limit: %s %v", sql, args)
+	}
+}
+
+// TestRoundAndAvgAnswerAlikeOnEveryDialect covers two functions MySQL answers
+// differently by default: it rounds a DOUBLE to the nearest even digit (2.5 is 2)
+// and averages an integer column as a DECIMAL with four more digits.
+func TestRoundAndAvgAnswerAlikeOnEveryDialect(t *testing.T) {
+	type result struct {
+		Mean  float64
+		Share float64
+	}
+
+	share := MapInto(Round(Avg(Order_Amount), 1), func(r *result) *float64 { return &r.Share })
+	q := Select(MapInto(Avg(Order_Amount), func(r *result) *float64 { return &r.Mean }), share).From(Orders).GroupBy(Order_UserID).MustBuild()
+
+	for dialect, want := range map[tsqdialect.Name]string{
+		onMySQL: "SELECT AVG((`orders`.`amount` + 0E0)) AS `amount`, " +
+			"(CASE WHEN ABS(AVG((`orders`.`amount` + 0E0))) < 1E30 THEN ROUND(CAST(AVG((`orders`.`amount` + 0E0)) AS DECIMAL(65,30)), 1) ELSE AVG((`orders`.`amount` + 0E0)) END) AS `amount_2`",
+		onPostgres: `SELECT AVG("orders"."amount") AS "amount", ROUND(CAST(AVG("orders"."amount") AS NUMERIC), 1) AS "amount_2"`,
+		onSQLite:   `SELECT AVG("orders"."amount") AS "amount", ROUND(AVG("orders"."amount"), 1) AS "amount_2"`,
+	} {
+		if sql, _ := sqlOf(t, q, dialect); !strings.HasPrefix(sql, want+" FROM ") {
+			t.Errorf("%s:\n got  %s\n want %s FROM ...", dialect, sql, want)
+		}
+	}
+
+	// An integer has no tie to round: MySQL's ROUND is left as it is.
+	whole := Select(MapInto(Round(Order_Amount, 0), func(r *order) *int64 { return &r.Amount })).From(Orders).MustBuild()
+	if sql, _ := sqlOf(t, whole, onMySQL); !strings.HasPrefix(sql, "SELECT ROUND(`orders`.`amount`, 0) AS ") {
+		t.Errorf("mysql rounds an integer as %s", sql)
+	}
+}
+
+// TestDistinctNullPlacementIsTestedThroughTheAliasOnMySQL covers MySQL's NULL
+// placement key in a DISTINCT query. "expr IS NULL" is not in the select list,
+// which MySQL refuses for an expression (error 3065); the alias is.
+func TestDistinctNullPlacementIsTestedThroughTheAliasOnMySQL(t *testing.T) {
+	size := Case(Order_Amount.GT(Val(int64(100))), Val("big")).End()
+	q := SelectDistinct(MapIntoNull(size, func(v *sql.Null[string]) *sql.Null[string] { return v })).
+		From(Orders).OrderBy(size.Asc().NullsLast()).MustBuild()
+
+	rendered, _ := sqlOf(t, q, onMySQL)
+	if !strings.Contains(rendered, " AS `case` FROM ") || !strings.HasSuffix(rendered, "ORDER BY `case` IS NULL ASC, 1 ASC") {
+		t.Errorf("mysql orders the DISTINCT expression by %s", rendered)
+	}
+
+	// Without DISTINCT the key may repeat the expression, as before.
+	plain := Select(MapIntoNull(size, func(v *sql.Null[string]) *sql.Null[string] { return v })).
+		From(Orders).OrderBy(size.Asc().NullsLast()).MustBuild()
+	if rendered, _ := sqlOf(t, plain, onMySQL); !strings.HasSuffix(rendered, "THEN ? END IS NULL ASC, 1 ASC") {
+		t.Errorf("mysql orders the plain expression by %s", rendered)
 	}
 }

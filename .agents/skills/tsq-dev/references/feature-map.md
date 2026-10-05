@@ -14,6 +14,8 @@
 | `Expression` / `Column` / `NullColumn` 的接口与实现、谓词、`Expr` / `Pred`、`NewNullColumn`、`MapInto` / `MapIntoNull`、可空形态识别 | `column.go`（`nullable_test.go`、`compilefail_test.go`） |
 | 单值查询 `SelectValue` / `SelectNullValue` | `querybuilder.go`（`exec_test.go` 的 `TestSelectValueReadsOneExpression`） |
 | 可空性推导（`exprInfo.null` / `nullness`）、外连接可选表、读行前检查（`checkScanTargets`） | `expr.go`、`query_render.go`、`query.go`（`nullable_test.go`；三方言真跑在 `TestIntegrationNullableColumns`） |
+| 读行的扫描目标适配（时间按文本读、自定义 bool 按整数读，`columnCore.target`） | `scan.go`（`scan_test.go`；三方言真跑在 `internal/integration/query_test.go`） |
+| 答案不该随引擎变的查询：`Round` / `Avg`、时间表达式、自定义 bool、`DISTINCT` 的 NULL 排序、切分的 `ListIn`、零值时间、MySQL 的 `loc` | `internal/integration/query_test.go`（自带 `measure` 表：浮点列、自定义 bool、可空时间） |
 | 固定值 `Val` / `Vals`（从不为 NULL，NULL 用 `SetNull` 写；`Value` 和 `Param` 共同实现模式函数的 `Pattern[S]`） | `values.go`、`param.go`（`values_test.go`；模式转义三方言真跑在 `TestIntegrationKeywordSearchEscapesWildcards`） |
 | 算术 `Add` / `Sub` / `Mul` / `Div`（MySQL 整数除法写 `DIV`） | `arith.go`（`arith_test.go`；三方言在 `TestIntegrationColumnFunctionsArePortable`） |
 | 包级类型约束函数（`Text` / `Number`、聚合、字符串、数值、日期、`Coalesce` / `NullIf`、`StartsWith` 等模式函数、`Searchable`） | `functions.go`（`compilefail_test.go` 守约束；`internal/integration` 的 `TestIntegrationColumnFunctionsArePortable` 三方言真跑） |

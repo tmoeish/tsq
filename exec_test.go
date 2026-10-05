@@ -15,6 +15,7 @@ import (
 	"weak"
 
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
+	sqld "github.com/tmoeish/tsq/v5/internal/sqldialect"
 )
 
 func seedUsers(t *testing.T, rt *Runtime, names ...string) []*user {
@@ -2024,16 +2025,24 @@ func TestBatchUpsertLeavesTheRowsAsPassed(t *testing.T) {
 func TestDeleteByPKMatchesKeysAsTheDatabaseDoes(t *testing.T) {
 	hit := map[string]bool{"abc": true}
 
-	if got := missingKeys([]string{"ABC ", "zz"}, hit); len(got) != 1 || got[0] != "zz" {
+	if got := missingKeys(sqld.MySQLDialect{}, []string{"ABC ", "zz"}, hit); len(got) != 1 || got[0] != "zz" {
 		t.Fatalf("missing = %v; want only zz", got)
 	}
 
-	if got := missingKeys([]string{"ABC"}, hit); got != nil {
+	if got := missingKeys(sqld.MySQLDialect{}, []string{"ABC"}, hit); got != nil {
 		t.Fatalf("missing = %v; want none when every key matched", got)
 	}
 
-	if got := missingKeys([]int64{1, 2}, map[int64]bool{1: true}); len(got) != 1 || got[0] != int64(2) {
+	if got := missingKeys(sqld.MySQLDialect{}, []int64{1, 2}, map[int64]bool{1: true}); len(got) != 1 || got[0] != int64(2) {
 		t.Fatalf("missing = %v; want 2", got)
+	}
+
+	// PostgreSQL and SQLite compare keys exactly: "ABC" beside a deleted "abc" was
+	// not found there, and was passed over as if it had been.
+	for _, exact := range []sqld.Dialect{sqld.PostgresDialect{}, sqld.SQLiteDialect{}} {
+		if got := missingKeys(exact, []string{"ABC", "abc"}, hit); len(got) != 1 || got[0] != "ABC" {
+			t.Fatalf("%s: missing = %v; want ABC", exact.Name(), got)
+		}
 	}
 }
 

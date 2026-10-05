@@ -562,7 +562,7 @@ func (w *writeStmt) ident(name string) *writeStmt {
 }
 
 func (w *writeStmt) arg(v any) *writeStmt {
-	w.args = append(w.args, bindValue(v))
+	w.args = append(w.args, bindValueFor(w.d, v))
 	w.sql.WriteString(w.d.Placeholder(len(w.args) - 1))
 
 	return w
@@ -936,7 +936,7 @@ func (t *TableOf[R, K]) insertReadingBack(ctx context.Context, db Executor, scop
 
 	for _, col := range readBack {
 		names = append(names, col.name)
-		dest = append(dest, col.scan(row))
+		dest = append(dest, col.target(row))
 	}
 
 	w.text(scope.dialect.Returning(names...))
@@ -1519,7 +1519,7 @@ func (t *TableOf[R, K]) readBack(ctx context.Context, db Executor, scope execSco
 		for _, col := range cols {
 			v := reflect.New(field(new(R), col).Type())
 			held = append(held, v)
-			dest = append(dest, v.Interface())
+			dest = append(dest, col.adapted(v.Interface()))
 		}
 
 		if err := result.Scan(dest...); err != nil {
@@ -1808,7 +1808,7 @@ func (t *TableOf[R, K]) deleteByPK(ctx context.Context, db Executor, keys []K, o
 				return err
 			}
 
-			missing = append(missing, missingKeys(chunk, hit)...)
+			missing = append(missing, missingKeys(scope.dialect, chunk, hit)...)
 		}
 
 		// The keys that matched are deleted either way, as a batch does; the rest are
@@ -1933,18 +1933,22 @@ func (t *TableOf[R, K]) scanKeys(rows *sql.Rows, err error) (map[K]bool, error) 
 // missingKeys are the keys of chunk the database did not report deleted. The
 // database matches keys by its own rules: under MySQL's default collations "ABC"
 // deletes the row stored as "abc", which comes back spelled "abc". All keys
-// matched when it reports as many rows as were asked for; otherwise a string key
-// Go does not find matches one equal without case or trailing spaces.
-func missingKeys[K comparable](chunk []K, hit map[K]bool) []any {
+// matched when it reports as many rows as were asked for; otherwise, on MySQL, a
+// string key Go does not find matches one equal without case or trailing spaces.
+// PostgreSQL and SQLite compare keys exactly, and there "ABC" beside a deleted
+// "abc" is a key that was not found.
+func missingKeys[K comparable](d sqld.Dialect, chunk []K, hit map[K]bool) []any {
 	if len(hit) >= len(chunk) {
 		return nil
 	}
 
 	folded := map[string]bool{}
 
-	for key := range hit {
-		if text, ok := stringKey(key); ok {
-			folded[text] = true
+	if d.Name() == tsqdialect.MySQL {
+		for key := range hit {
+			if text, ok := stringKey(key); ok {
+				folded[text] = true
+			}
 		}
 	}
 
@@ -2022,7 +2026,7 @@ func (t *TableOf[R, K]) reloadColumns(ctx context.Context, db Executor, scope ex
 
 		w.ident(col.name)
 
-		dest = append(dest, col.scan(row))
+		dest = append(dest, col.target(row))
 	}
 
 	w.text(" FROM ").ident(def.name).text(" WHERE ").ident(def.primaryKey.name).text(" = ").arg(pk.Interface())
