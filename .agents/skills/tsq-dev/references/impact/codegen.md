@@ -63,6 +63,11 @@
   （`[]byte` 加 `size:` 在 PG 上仍是 `BYTEA`，MySQL 曾白复制一遍表）。
 
 - 三个方言的 `.sql` 输出都会变，`tsq.json` 快照也会变。看 diff 确认是预期的。
+- `database/sql` 的可空包装按名字逐个认（`classifyDDLColumnTypeRecursive`：`NullString` / `NullInt64` / `NullInt32` / `NullInt16` / `NullByte` /
+  `NullFloat64` / `NullBool` / `NullTime` / `Null[T]`）；漏一个，它就落进"实现了 `driver.Valuer`，必须写 `type:`"的拒绝里。新认一个要进
+  `shapeModule`（`TestGeneratedCodeCompilesForEveryFieldShape`）。
+- SQLite 重建段里改了类型的列走 `sqldialect.SQLiteRetype`：能转的把转换写进复制表达式并加注释，可能转不了的整段改成 `manual rebuild required`
+  （`TestGenSQLiteRebuildConvertsOrLeavesARetype`）。运行期用同一组规则，见 `runtime.md` § 改了 schema 托管。
 - 自定义 codec 类型（`driver.Valuer` / `sql.Scanner`）推不出列类型，使用者必须写显式的
   `db:"...,type:..."`。改推导规则前先确认新规则不会让某类类型从"必须显式"变成"猜一个"——
   猜错的列类型在建表那一刻不报错，在写入超长数据那一刻才报错。`[门禁: TestGenRefusesToGuessACodecColumnType]`

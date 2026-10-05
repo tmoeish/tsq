@@ -91,9 +91,6 @@ func validatePredicateValue(arg any) error {
 	}
 }
 
-// bindValue is the value TSQ passes to the driver for v. Times go in UTC, whatever
-// zone the caller's value is in: SQLite keeps a time as the text of the value, and
-// text in two zones does not sort or compare the way the times do.
 // bindValueFor is bindValue for the dialect the statement runs on. The MySQL
 // driver writes the zero time.Time as '0000-00-00', which MySQL refuses in its
 // default mode ("Incorrect datetime value") where PostgreSQL and SQLite store
@@ -118,6 +115,9 @@ func bindValueFor(d sqld.Dialect, v any) any {
 	return bound
 }
 
+// bindValue is the value TSQ passes to the driver for v. Times go in UTC, whatever
+// zone the caller's value is in: SQLite keeps a time as the text of the value, and
+// text in two zones does not sort or compare the way the times do.
 func bindValue(v any) any {
 	// A []byte field, or one of a named byte-slice type (json.RawMessage), is a
 	// NOT NULL column, and its zero value is nil, which the drivers bind as NULL:
@@ -138,16 +138,24 @@ func bindValue(v any) any {
 
 	switch x := v.(type) {
 	case time.Time:
-		return x.UTC()
+		return boundTime(x)
 	case *time.Time:
-		return x.UTC()
+		return boundTime(*x)
 	case driver.Valuer:
 		if value, err := x.Value(); err == nil {
 			if t, ok := value.(time.Time); ok {
-				return t.UTC()
+				return boundTime(t)
 			}
 		}
 	}
 
 	return v
+}
+
+// boundTime is t as every statement binds it: in UTC, and cut to the microsecond
+// the columns keep. Bound with its nanoseconds, a time was stored whole by SQLite
+// (as text), rounded by MySQL and cut by PostgreSQL, so a row and a predicate that
+// carried the same instant from another source met in three different ways.
+func boundTime(t time.Time) time.Time {
+	return t.UTC().Truncate(time.Microsecond)
 }

@@ -981,6 +981,16 @@ func sqliteAlterUnenforced(before, after ddlSnapshotColumn) bool {
 		sqld.SQLiteAffinity(spelled(before)) == sqld.SQLiteAffinity(spelled(after))
 }
 
+// sqliteConversionNote says what a rebuild does to the values of a column that
+// becomes t, for the note above the statements.
+func sqliteConversionNote(t tsqdialect.ColumnType) string {
+	if t.Kind == tsqdialect.KindBool {
+		return "any number but zero becomes true"
+	}
+
+	return "fractions are rounded"
+}
+
 func renderSQLiteRebuildTableBody(dialect ddlDialectSpec, tableName string, ops []ddlChange) (string, bool) {
 	var before *ddlSnapshotTable
 	var after *ddlSnapshotTable
@@ -1019,6 +1029,32 @@ func renderSQLiteRebuildTableBody(dialect ddlDialectSpec, tableName string, ops 
 
 	for _, column := range after.Columns {
 		quoted := dialect.dialect.QuoteIdent(column.Name)
+		old, kept := existing[strings.ToLower(column.Name)]
+		source := dialect.dialect.QuoteIdent(old.Name)
+
+		// A column that changes type: SQLite stores any value under any type, so
+		// the copy cannot fail, and a value that does not convert would stay as it
+		// is under the new type, where no read takes it. What always converts is
+		// converted; what may not is left to a hand that can look at the rows.
+		if kept && column.Generated == "" && !migrationOwned(column) {
+			oldType, newType := ddlColumnSpecFromSnapshot(old).Type, ddlColumnSpecFromSnapshot(column).Type
+
+			switch sqld.SQLiteRetype(oldType, newType) {
+			case sqld.RetypeMayFail:
+				_, kind := sqld.SQLiteMisfit(quoted, newType)
+
+				return renderDDLManualComment(tableName, fmt.Sprintf(
+					"manual rebuild required: %s changes from %s to %s, and SQLite keeps a value that is not %s as it is, where no read takes it; "+
+						"a script cannot refuse it, so convert the column by hand (SchemaPolicyReconcile does it when every value converts, and refuses when one does not)",
+					column.Name, oldType.Kind, newType.Kind, kind)), true
+			case sqld.RetypeConvert:
+				source = sqld.SQLiteRetypeSource(source, newType)
+
+				notes = append(notes, renderDDLManualComment(tableName, fmt.Sprintf(
+					"%s changes from %s to %s; %s", column.Name, oldType.Kind, newType.Kind, sqliteConversionNote(newType))))
+			case sqld.RetypeAsIs:
+			}
+		}
 
 		switch {
 		case column.Generated != "":
@@ -1043,10 +1079,10 @@ func renderSQLiteRebuildTableBody(dialect ddlDialectSpec, tableName string, ops 
 			notes = append(notes, renderDDLManualComment(tableName, fmt.Sprintf(
 				"%s becomes NOT NULL; rows holding NULL get %s", column.Name, fill)))
 			targets = append(targets, quoted)
-			sources = append(sources, fmt.Sprintf("COALESCE(%s, %s)", dialect.dialect.QuoteIdent(existing[strings.ToLower(column.Name)].Name), fill))
+			sources = append(sources, fmt.Sprintf("COALESCE(%s, %s)", source, fill))
 		case existing[strings.ToLower(column.Name)].Name != "":
 			targets = append(targets, quoted)
-			sources = append(sources, dialect.dialect.QuoteIdent(existing[strings.ToLower(column.Name)].Name))
+			sources = append(sources, source)
 		case column.Nullable || column.Default != "" || column.AutoIncrement:
 			// The new table fills it.
 		default:
@@ -1163,7 +1199,8 @@ func renderDDLChangeOperation(dialect ddlDialectSpec, op ddlChange) []string {
 				"%s is NOT NULL without a default; existing rows get %s", column.Name, sqld.NewColumnFill(dialect.dialect, spec)))}, statements...)
 		case !column.Nullable && column.Default == "" && column.Generated == "":
 			statements = append([]string{renderDDLManualComment(op.table, fmt.Sprintf(
-				"%s is NOT NULL without a default, which fails on a table with rows; declare default: or backfill it first", column.Name))}, statements...)
+				"%s is NOT NULL without a default and its type: has no zero value TSQ knows, so this fails on a table with rows; "+
+					"add the column with a DEFAULT of your own and drop the default afterwards, or let the field hold NULL", column.Name))}, statements...)
 		}
 
 		return statements

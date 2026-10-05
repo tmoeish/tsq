@@ -457,9 +457,14 @@ func TestZeroTimeIsBoundAsYearOneOnMySQL(t *testing.T) {
 		t.Errorf("mysql binds a pointer to the zero time as %#v", got)
 	}
 
-	now := time.Now()
-	if got, ok := bindValueFor(sqld.MySQLDialect{}, now).(time.Time); !ok || !got.Equal(now) || got.Location() != time.UTC {
-		t.Errorf("mysql binds a time as %#v", got)
+	// Any other time goes as every dialect takes it: in UTC, cut to the microsecond.
+	// The nanoseconds are set by hand: not every clock has them (macOS counts in
+	// microseconds), and a time.Now() there cannot tell a cut from none.
+	at := time.Date(2026, 10, 5, 23, 6, 34, 828405417, time.FixedZone("east", 8*3600))
+	want := time.Date(2026, 10, 5, 15, 6, 34, 828405000, time.UTC)
+
+	if got, ok := bindValueFor(sqld.MySQLDialect{}, at).(time.Time); !ok || !got.Equal(want) || got.Location() != time.UTC {
+		t.Errorf("mysql binds a time as %#v, want %v", got, want)
 	}
 
 	for _, d := range []sqld.Dialect{sqld.PostgresDialect{}, sqld.SQLiteDialect{}} {

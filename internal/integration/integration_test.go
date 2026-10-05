@@ -12,6 +12,7 @@ package integration_test
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -2265,4 +2266,168 @@ func deref(s *string) string {
 	}
 
 	return *s
+}
+
+// parcel is a row with a string key, a version and the values a list of bound
+// parameters loses its types over: bytes that are not text, JSON, an integer
+// above the signed range, a named bool, a time and a string with a length.
+type parcel struct {
+	Code    string
+	Version int64
+	Blob    []byte
+	Doc     json.RawMessage
+	Big     uint64
+	On      flag
+	At      time.Time
+	Note    sql.Null[string]
+}
+
+var parcels = func() *tsq.TableOf[parcel, string] {
+	h := tsq.NewTable[parcel, string]("parcels")
+	code := tsq.NewColumn(h, "code", "code", func(r *parcel) *string { return &r.Code })
+	version := tsq.NewColumn(h, "version", "version", func(r *parcel) *int64 { return &r.Version })
+
+	return h.Define(tsq.TableSpec[parcel, string]{
+		Columns: []tsq.BoundColumn[parcel]{
+			code, version,
+			tsq.NewColumn(h, "blob_value", "blob_value", func(r *parcel) *[]byte { return &r.Blob }),
+			tsq.NewColumn(h, "doc", "doc", func(r *parcel) *json.RawMessage { return &r.Doc }),
+			tsq.NewColumn(h, "big", "big", func(r *parcel) *uint64 { return &r.Big }),
+			tsq.NewColumn(h, "is_on", "is_on", func(r *parcel) *flag { return &r.On }),
+			tsq.NewColumn(h, "at", "at", func(r *parcel) *time.Time { return &r.At }),
+			tsq.NewNullColumn[string](h, "note", "note", func(r *parcel) *sql.Null[string] { return &r.Note }),
+		},
+		PrimaryKey: code,
+		Version:    version,
+		ColumnSpecs: []tsqdialect.ColumnSpec{
+			{Name: "code", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 20}, PrimaryKey: true},
+			{Name: "version", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, Default: "1"},
+			{Name: "blob_value", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindBytes}},
+			{Name: "doc", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindBytes, RawType: "JSON"}},
+			{Name: "big", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64, Unsigned: true}},
+			{Name: "is_on", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindBool}},
+			{Name: "at", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindTime}},
+			{Name: "note", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 5, Nullable: true}},
+		},
+	})
+}()
+
+// TestIntegrationBatchUpdateCarriesEveryValue covers the statement a batch update
+// of several rows is: the table joined to the list of the rows' values. A list of
+// parameters has no types, and each engine went wrong over it in its own way when
+// the list was written plainly: PostgreSQL read every value as text, and MySQL
+// refused bytes that are not text. The values must arrive as a single-row update
+// writes them, a string longer than its column must be refused and not cut, and a
+// stale row must still be told from the rows that were written.
+func TestIntegrationBatchUpdateCarriesEveryValue(t *testing.T) {
+	for _, target := range integrationTargets(t) {
+		t.Run(target.name, func(t *testing.T) {
+			ctx := context.Background()
+
+			dropTables(t, target, "parcels")
+
+			rt, _, err := openQuietly(target, tsq.SchemaPolicyCreateMissing, parcels)
+			if err != nil {
+				t.Fatalf("open: %v", err)
+			}
+
+			defer func() { _ = rt.Close() }()
+
+			// SQLite's integers are signed: database/sql refuses a larger one there.
+			big := uint64(1<<63) + 5
+			if target.name == "sqlite" {
+				big = 1 << 62
+			}
+
+			rows := make([]*parcel, 4)
+			for i := range rows {
+				rows[i] = &parcel{Code: fmt.Sprintf("p%d", i), Blob: []byte{1}, Doc: json.RawMessage(`{}`), At: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)}
+			}
+
+			if err := parcels.BatchInsert(ctx, rt, rows); err != nil {
+				t.Fatalf("insert: %v", err)
+			}
+
+			at := time.Date(2025, 2, 3, 4, 5, 6, 789012000, time.UTC)
+
+			for i, row := range rows {
+				row.Blob = []byte{0xff, 0x00, 0x80, byte(i)}
+				row.Doc = json.RawMessage(fmt.Sprintf(`{"n": [%d, "it's"]}`, i))
+				row.Big = big + uint64(i)
+				row.On = i%2 == 0
+				row.At = at.Add(time.Duration(i) * time.Microsecond)
+				row.Note = sql.Null[string]{}
+				if i%2 == 1 {
+					row.Note = sql.Null[string]{V: "abc", Valid: true}
+				}
+			}
+
+			if err := parcels.BatchUpdate(ctx, rt, rows); err != nil {
+				t.Fatalf("batch update: %v", err)
+			}
+
+			stored, err := parcels.Fetch(ctx, rt, "p0", "p1", "p2", "p3")
+			if err != nil {
+				t.Fatalf("fetch: %v", err)
+			}
+
+			for i, got := range stored {
+				want := rows[i]
+
+				var doc, wantDoc any
+				if err := json.Unmarshal(got.Doc, &doc); err != nil {
+					t.Fatalf("row %d holds %q as its document: %v", i, got.Doc, err)
+				}
+
+				_ = json.Unmarshal(want.Doc, &wantDoc)
+
+				if got.Version != 2 || want.Version != 2 || !slices.Equal(got.Blob, want.Blob) || fmt.Sprint(doc) != fmt.Sprint(wantDoc) ||
+					got.Big != want.Big || got.On != want.On || !got.At.Equal(want.At) || got.Note != want.Note {
+					t.Fatalf("row %d was written as %+v, want %+v", i, *got, *want)
+				}
+			}
+
+			// A stale row is named; the rows beside it are written.
+			rows[1].Version = 1
+			for _, row := range rows {
+				row.Big++
+			}
+
+			err = parcels.BatchUpdate(ctx, rt, rows)
+
+			var conflict *tsq.OptimisticLockError
+			if !errors.As(err, &conflict) || len(conflict.Keys) != 1 || conflict.Keys[0] != "p1" {
+				t.Fatalf("a batch with one stale row: %v", err)
+			}
+
+			if got, err := parcels.Get(ctx, rt, "p2"); err != nil || got.Big != rows[2].Big || got.Version != 3 || rows[2].Version != 3 {
+				t.Fatalf("the row beside the stale one: %+v (in memory version %d), %v", got, rows[2].Version, err)
+			}
+
+			if got, err := parcels.Get(ctx, rt, "p1"); err != nil || got.Version != 2 || got.Big != big+1 {
+				t.Fatalf("the stale row was written: %+v, %v", got, err)
+			}
+
+			// A string longer than its column is refused where a length is enforced.
+			if target.name != "sqlite" {
+				fresh, err := parcels.Fetch(ctx, rt, "p0", "p3")
+				if err != nil {
+					t.Fatalf("fetch: %v", err)
+				}
+
+				for _, row := range fresh {
+					row.Note = sql.Null[string]{V: "abcdefghij", Valid: true}
+				}
+
+				if err := parcels.BatchUpdate(ctx, rt, fresh); err == nil {
+					got, _ := parcels.Get(ctx, rt, "p3")
+					t.Fatalf("a ten-character note went into a column of five; it now holds %q", got.Note.V)
+				}
+
+				if got, err := parcels.Get(ctx, rt, "p3"); err != nil || got.Note.V != "abc" {
+					t.Fatalf("the refused update changed the note: %+v, %v", got, err)
+				}
+			}
+		})
+	}
 }

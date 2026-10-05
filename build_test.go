@@ -604,3 +604,20 @@ func TestStagesRenderSQL(t *testing.T) {
 		t.Fatalf("stage SQL = %q %v, %v; want %q", got, args, err, want)
 	}
 }
+
+// TestAStatementOverTheBindLimitSaysWhatToDo covers a list longer than a
+// statement takes. Each driver refused it in words of its own, none of which
+// named the way out.
+func TestAStatementOverTheBindLimitSaysWhatToDo(t *testing.T) {
+	ids := make([]int64, 40000)
+	query := Select(User_ID).From(Users).Where(User_ID.In(Vals(ids...))).MustBuild()
+
+	_, _, err := query.SQL(tsqdialect.SQLite)
+	if err == nil || !strings.Contains(err.Error(), "ListIn") || !strings.Contains(err.Error(), "32766") {
+		t.Errorf("40000 values on SQLite: %v", err)
+	}
+
+	if _, _, err := query.SQL(tsqdialect.MySQL); err != nil {
+		t.Errorf("40000 values fit MySQL's 65535: %v", err)
+	}
+}

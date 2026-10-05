@@ -1270,8 +1270,8 @@ func (t *TableOf[R, K]) update(ctx context.Context, db Executor, rows []*R, conf
 		return fmt.Errorf("update %s: the table has no column to update", def.name)
 	}
 
-	// Each column binds a key and a value per row, and the WHERE clause its key match.
-	size := effectiveChunkSize(config.size, 2*len(cols)+keyMatchParams(def), sqld.MaxBindParams(scope.dialect))
+	// Each row binds its key, its version and one value per column.
+	size := effectiveChunkSize(config.size, len(cols)+2, sqld.MaxBindParams(scope.dialect))
 
 	// A stale row does not stop the batch: the rows after it are written too, and
 	// one error names every row that was not.
@@ -1338,40 +1338,31 @@ func stampUpdatedAt[R any](def *tableDef, rows []*R, now time.Time) (func(keep [
 // new version as the ones written in full do.
 func (t *TableOf[R, K]) updateChunk(ctx context.Context, db Executor, scope execScope, def *tableDef, cols []*columnCore, version *columnCore, rows []*R) ([]bool, error) {
 	w := &writeStmt{d: scope.dialect}
-	w.text("UPDATE ").ident(def.name).text(" SET ")
 
-	for i, col := range cols {
-		if i > 0 {
-			w.text(", ")
+	if len(rows) == 1 {
+		w.text("UPDATE ").ident(def.name).text(" SET ")
+
+		for i, col := range cols {
+			if i > 0 {
+				w.text(", ")
+			}
+
+			w.ident(col.name).text(" = ").arg(value(rows[0], col))
 		}
 
-		w.ident(col.name).text(" = ")
+		if version != nil {
+			if len(cols) > 0 {
+				w.text(", ")
+			}
 
-		if len(rows) == 1 {
-			w.arg(value(rows[0], col))
-			continue
+			w.ident(version.name).text(" = ").ident(version.name).text(" + 1")
 		}
 
-		w.text("CASE ").ident(def.primaryKey.name)
-
-		for _, row := range rows {
-			w.text(" WHEN ").arg(value(row, def.primaryKey))
-			w.text(" THEN ").arg(value(row, col))
-		}
-
-		w.text(" ELSE ").ident(col.name).text(" END")
+		w.text(" WHERE ")
+		writeKeyMatch(w, def, rows)
+	} else {
+		writeJoinedUpdate(w, def, cols, version, rows)
 	}
-
-	if version != nil {
-		if len(cols) > 0 {
-			w.text(", ")
-		}
-
-		w.ident(version.name).text(" = ").ident(version.name).text(" + 1")
-	}
-
-	w.text(" WHERE ")
-	writeKeyMatch(w, def, rows)
 
 	if t.softDeleted() {
 		writeTombstoneFilter(w, def, false)
@@ -1398,6 +1389,187 @@ func (t *TableOf[R, K]) updateChunk(ctx context.Context, db Executor, scope exec
 	}
 
 	return nil, nil
+}
+
+// The names of the row list a batch update joins to: its alias, the key, the
+// version, and one value column per written column. No column of the table can
+// carry the tsq_ prefix by accident and clash with them unqualified.
+const (
+	updateRows       = "tsq_v"
+	updateRowKey     = "tsq_k"
+	updateRowVersion = "tsq_n"
+)
+
+func updateRowValue(i int) string { return fmt.Sprintf("tsq_%d", i) }
+
+// writeJoinedUpdate writes the UPDATE of several rows: the table joined to the
+// list of the rows' values, matched by key and version, each column taking its
+// row's value. The earlier form gave every column a CASE over the keys, which a
+// database evaluates arm by arm for each row: a batch cost its rows squared, and
+// the default batch of a thousand took twelve times as long on SQLite as the
+// same rows in batches of fifty.
+//
+// A list of bound values has no types of its own, and each dialect is told them
+// in the one way it takes:
+//
+//   - SQLite needs none (a column's affinity converts what is assigned to it), and
+//     takes the list as a WITH ... VALUES.
+//   - PostgreSQL reads an untyped VALUES as text. Its first row is a NULL of each
+//     column's own type, a scalar subquery over no rows: the list takes the
+//     table's types, the parameters after it are read as those, and the NULL key
+//     joins to nothing.
+//   - MySQL converts a VALUES row to text too, and refuses bytes that are not
+//     text. The list is a UNION ALL whose first branch selects the columns from
+//     the table over no rows, which types the branches after it.
+//
+// The assignment itself checks a value as a single-row UPDATE does: a string
+// longer than its column is refused, never cut.
+func writeJoinedUpdate[R any](w *writeStmt, def *tableDef, cols []*columnCore, version *columnCore, rows []*R) {
+	// The columns of the list, by position: the key, the version, the values.
+	sources := []*columnCore{def.primaryKey}
+	names := []string{updateRowKey}
+
+	if version != nil {
+		sources = append(sources, version)
+		names = append(names, updateRowVersion)
+	}
+
+	for i, col := range cols {
+		sources = append(sources, col)
+		names = append(names, updateRowValue(i))
+	}
+
+	nameList := func() {
+		for i, name := range names {
+			if i > 0 {
+				w.text(", ")
+			}
+
+			w.ident(name)
+		}
+	}
+
+	rowValues := func(row *R) {
+		for i, col := range sources {
+			if i > 0 {
+				w.text(", ")
+			}
+
+			w.arg(value(row, col))
+		}
+	}
+
+	qualified := func(table, column string) { w.ident(table).text(".").ident(column) }
+
+	assignments := func(target func(*columnCore)) {
+		for i, col := range cols {
+			if i > 0 {
+				w.text(", ")
+			}
+
+			target(col)
+			w.text(" = ")
+			qualified(updateRows, updateRowValue(i))
+		}
+
+		if version != nil {
+			if len(cols) > 0 {
+				w.text(", ")
+			}
+
+			target(version)
+			w.text(" = ")
+			qualified(def.name, version.name)
+			w.text(" + 1")
+		}
+	}
+
+	match := func() {
+		qualified(def.name, def.primaryKey.name)
+		w.text(" = ")
+		qualified(updateRows, updateRowKey)
+
+		if version != nil {
+			w.text(" AND ")
+			qualified(def.name, version.name)
+			w.text(" = ")
+			qualified(updateRows, updateRowVersion)
+		}
+	}
+
+	bare := func(col *columnCore) { w.ident(col.name) }
+
+	switch w.d.Name() {
+	case tsqdialect.MySQL:
+		w.text("UPDATE ").ident(def.name).text(" JOIN (SELECT ")
+
+		for i, col := range sources {
+			if i > 0 {
+				w.text(", ")
+			}
+
+			w.ident(col.name).text(" AS ").ident(names[i])
+		}
+
+		w.text(" FROM ").ident(def.name).text(" WHERE FALSE")
+
+		for _, row := range rows {
+			w.text(" UNION ALL SELECT ")
+			rowValues(row)
+		}
+
+		w.text(") AS ").ident(updateRows).text(" ON ")
+		match()
+		w.text(" SET ")
+		assignments(func(col *columnCore) { qualified(def.name, col.name) })
+		w.text(" WHERE TRUE")
+
+	case tsqdialect.Postgres:
+		w.text("UPDATE ").ident(def.name).text(" SET ")
+		assignments(bare)
+		w.text(" FROM (VALUES (")
+
+		for i, col := range sources {
+			if i > 0 {
+				w.text(", ")
+			}
+
+			w.text("(SELECT ").ident(col.name).text(" FROM ").ident(def.name).text(" WHERE FALSE)")
+		}
+
+		w.text(")")
+
+		for _, row := range rows {
+			w.text(", (")
+			rowValues(row)
+			w.text(")")
+		}
+
+		w.text(") AS ").ident(updateRows).text("(")
+		nameList()
+		w.text(") WHERE ")
+		match()
+
+	default:
+		w.text("WITH ").ident(updateRows).text("(")
+		nameList()
+		w.text(") AS (VALUES ")
+
+		for i, row := range rows {
+			if i > 0 {
+				w.text(", ")
+			}
+
+			w.text("(")
+			rowValues(row)
+			w.text(")")
+		}
+
+		w.text(") UPDATE ").ident(def.name).text(" SET ")
+		assignments(bare)
+		w.text(" FROM ").ident(updateRows).text(" WHERE ")
+		match()
+	}
 }
 
 // updateMismatch explains an update that matched fewer rows than it was given.

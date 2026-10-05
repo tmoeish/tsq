@@ -161,6 +161,15 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 ### 修复
 
+- **PostgreSQL 上 `[]byte` 与 `string` 互改类型会静默改写数据**：生成的迁移和 `Reconcile` 把 `[]byte` → `string` 写成 `USING c::TEXT`，`abc` 变成 8 个字符的文本 `\x616263`；`string` → `[]byte` 写成 `USING c::BYTEA`，文本被当成转义串解析（`tab\101x` 变成 `tabAx`）。MySQL 和 SQLite 保留原字节，改完 `Validate` 照样通过。现在写 `convert_from(c, 'UTF8')` / `convert_to(c, 'UTF8')`，不是文本的字节会让迁移失败而不是被改写。
+- **SQLite 改列类型后整张表读不出来**：SQLite 在任何声明类型下都原样存值，重建表时把 `1.5` 抄进整数列、`2` 抄进布尔列、`'Hello'` 抄进整数或时间列都"成功"，`Validate` 通过，随后每次读这张表都报 Scan 错误；MySQL 的数值 → `BOOLEAN` 同样留着 `2`。现在三个方言对同一个改动给出同一个结果：小数四舍五入成整数，数值变布尔时非零即真（PostgreSQL 的 `USING c <> 0`、MySQL 在 `MODIFY` 前的一条 `UPDATE`、SQLite 重建时的复制表达式）；文本变成数值、布尔或时间时，转不过去的值在 MySQL / PostgreSQL 上让改动失败，SQLite 上 `Reconcile` 在提交前检查、报出列名、行数和一个例子并保持原表不动，生成的迁移则把这个改动写成注释交给人（脚本拦不住一个转不过去的值）。
+- **声明的原始类型和默认值每次启动都被当成"变了"**：`type:DECIMAL(10)`、`INTEGER UNSIGNED`、`CHAR`、`BIT`、`NVARCHAR(10)`、`YEAR(4)`、`FLOAT(24)`（MySQL），`INT[]`、`VARCHAR(10)[]`、`NUMERIC(10)`、`FLOAT(53)`（PostgreSQL），以及 `(1+1)`、`(CURRENT_DATE)`、带反斜杠的字面量这类默认值，数据库报回来的拼法和声明的不一样，`Validate` 在 TSQ 自己建的表上起不来，`Reconcile` 每次启动都重发同一条 `ALTER`。别名表补了三轮仍有漏网，现在文本比较说"不一样"时改问引擎：在本会话的临时表里按声明建这一列，读回引擎自己的拼法，和库里那一列的拼法一致就是同一个东西。只有文本上不同的列才探测；没有建临时表的权限时退回文本比较并在日志里告警。仍会每次启动报差异的：MySQL 上 `BINARY` / `VARBINARY` 列的字面量默认值和含 4 字节字符的默认值，PostgreSQL 上非主键列的 `type:SERIAL` / `BIGSERIAL`。
+- **`BatchUpdate` 的耗时随批大小平方增长**：多行更新给每一列写一个按主键分支的 `CASE`，数据库对每一行逐个分支求值，默认一批 1000 行就是一千乘一千。4000 行 × 20 列实测 SQLite 6.5 秒（每批 50 行只要 0.55 秒），MySQL 431 毫秒，PostgreSQL 335 毫秒。现在把这批行的值写成一个行列表，和表按主键、版本号连接后赋值：同样的数据 SQLite 0.53 秒、MySQL 151 毫秒、PostgreSQL 62 毫秒。赋值的检查和单行 `Update` 一样，超出列宽的字符串被拒绝而不是截断。
+- **时间绑定时不截到微秒**：`time.Now()` 带着列存不下的纳秒，SQLite 按文本原样存、MySQL 四舍五入、PostgreSQL 截断，同一个带纳秒的谓词在三个引擎上匹配三组不同的行。现在每个绑定的时间（行字段、`Val`、参数）都截到微秒，和托管时间戳一致。
+- **`sql.NullInt32` / `sql.NullInt16` / `sql.NullByte` 不写 `type:` 就被 `tsq gen` 拒绝**，而 `sql.NullInt64` / `NullString` 等同门类型能自动推导列类型。现在它们按各自的值类型推导。
+- **绑定值超过方言上限时的报错说不清该怎么办**：`col.In(tsq.Vals(...))` 放进七万个值，三个驱动各报各的（`too many SQL variables`、`Prepared statement contains too many placeholders`、`extended protocol limited to 65535 parameters`）。现在语句在发出前被拒绝，报错写明绑定了多少、上限多少，并指向 `ListIn` 和 `Batch*`。
+- **事务重试的两次尝试之间等待时间固定**：两个互相死锁的事务同时失败、同时重试，下一次还会撞上。现在每次等待在退避时长的一半到全长之间随机取。
+- 生成的迁移注释和文档对"带 `type:` 的 NOT NULL 新列"给的建议是"声明 `default:`"，而 `tsq gen` 不许不能存 NULL 的字段写 `default:`；两处都改成了能照做的说法。文档新增一段：多个 goroutine 共用 SQLite 时 DSN 要设 `busy_timeout` 和 WAL，否则并发读写直接报 `database is locked`。
 - **`Reconcile` 留着不再声明的索引**：去掉一个 `//tsq:unique`，或给它加一列（推导出的名字随之改变），旧的唯一索引仍在库里，继续拒绝声明已经允许的行，而同一档策略对不再声明的列是会删的。现在 `Reconcile` 删掉已声明的表上按 TSQ 推导名（`ux_<表>_…` / `idx_<表>_…` / `ft_<表>_…`）命名却不再声明的索引；别的名字的索引、别的档位、没声明的表都不碰。
 - **同名全文索引换了列检测不到**：只按名字比，索引留在旧的列上；MySQL 的 `MATCH` 要求索引正好覆盖它点名的列，每次检索报 1191。现在 MySQL 上也比列，`Reconcile` 重建，其他档位报错。
 - **`tsq gen` 的几处**：`//tsq:unique A,B` 和 `//tsq:unique AAndB` 都生成 `GetByAAndB`，生成的代码编译不过，现在生成时报错并点名两条指令；类型别名（`type Stamp = time.Time`）做 `created_at` / `updated_at` 被当成不认识的类型拒绝，现在按它代表的类型处理；`//tsq:search` 写在指针字段上的报错说的是"keyword fields"，map 字段的报错是 `*ast.MapType`，都改成点名指令和源码里的类型。

@@ -35,7 +35,7 @@
 | 部分列读出的行登记与整行写回拦截（`partialColumns`、`markPartial`、`checkFullRow`） | `partial.go`（`exec_test.go` 的 `TestPartialRows*`） |
 | 按主键 / 唯一列读取（`Get` / `Find` / `Fetch` / `GetBy` / `FindBy` / `FetchBy` / `Query()`、按列缓存查询、排序规则兜底） | `lookup.go`（`lookup_test.go`；`RowTable` 推断也在那里测） |
 | 写入路径基准（批量 INSERT / UPDATE 的语句构建） | `write_bench_test.go` |
-| 行写入与批量写、托管时间戳、数据库填值列（`Fill`、`insertColumns`、`reloadColumns`）、墓碑写入（`setTombstone`、`deleteByPK`）、`WithSkipDuplicates` | `rows.go`（`exec_test.go` 端到端；`batch_test.go` 宽表分批；`timestamps_test.go` 托管字段类型；`softdelete_test.go` 行级软删除与恢复） |
+| 行写入与批量写、托管时间戳、数据库填值列（`Fill`、`insertColumns`、`reloadColumns`）、墓碑写入（`setTombstone`、`deleteByPK`）、`WithSkipDuplicates` | `rows.go`（`exec_test.go` 端到端；`batch_test.go` 宽表分批和多行 UPDATE 的三方言语句 `writeJoinedUpdate`，值在真实引擎上的去向在 `TestIntegrationBatchUpdateCarriesEveryValue`；`timestamps_test.go` 托管字段类型；`softdelete_test.go` 行级软删除与恢复） |
 | Upsert（`TableOf.Upsert` / `BatchUpsert`、`tsq.OnConflict(...).Update(...)`、键解析、MySQL 多唯一键拒绝、主键回读） | `upsert.go`（`exec_test.go` 的 `TestUpsertMatchesLiveRowsOfASoftDeletedUniqueIndex`；`internal/integration` 的 `TestIntegrationUpsert` 三方言真跑） |
 | 按条件写（`UpdateTable` / `DeleteFrom` / `HardDeleteFrom`、`Mutation`） | `mutation.go`（`exec_test.go`；`internal/integration` 的 `TestIntegrationMutationsByCondition` 三方言真跑） |
 | 错误类型 `OptimisticLockError` | `errors.go` |
@@ -50,8 +50,8 @@
 | --- | --- |
 | 封闭的 `Executor`、`execScope`、`WrapExecutor`、`DBTX` | `executor.go` |
 | `Open` / `NewRuntime`、连接池所有权、标识符校验 | `runtime.go`（选项在 `runtime_options.go`） |
-| 表与列的 schema 对账 | `runtime_schema.go`；默认值比较、补 NULL 的值、零值字面量、加列语句（`AddColumnSQL` / `AddNeedsRebuild`）在 `internal/sqldialect/defaults.go`（生成器和运行期共用）；类型比较与原始类型别名在 `internal/sqldialect/dialect.go`（`SameColumnType`、`storageType`、`normalizeDDLNativeTypeName`） |
-| schema 策略在真实引擎上的矩阵（有数据的表加列与收紧、无符号自增主键、默认值与原始类型不漂移、改类型不截断） | `internal/integration/schema_test.go` |
+| 表与列的 schema 对账 | `runtime_schema.go`；默认值比较、补 NULL 的值、零值字面量、加列语句（`AddColumnSQL` / `AddNeedsRebuild`）在 `internal/sqldialect/defaults.go`（生成器和运行期共用）；类型比较与原始类型别名在 `internal/sqldialect/dialect.go`（`SameColumnType`、`storageType`、`normalizeDDLNativeTypeName`）；文本比不平时问引擎的探测在 `adoptEngineSpelling` + 各方言的 `ProbeColumn`；SQLite 改类型的转换与拒绝在 `defaults.go` 的 `SQLiteRetype*` 和 `rebuiltValuesFit` |
+| schema 策略在真实引擎上的矩阵（有数据的表加列与收紧、无符号自增主键、默认值与原始类型不漂移、改类型不截断、改类型时值的去向三方言一致、真改动不被探测吞掉） | `internal/integration/schema_test.go` |
 | `Logger`、执行期日志与 SQL 日志（`logForExecutor` / `logSQLForExecutor`） | `log.go` |
 | 错误类型与全部 `Is*` 判断（乐观锁、行状态、重试、冲突、重复键） | `errors.go`（驱动错误分类在 `mysql_errors.go` / `postgres_errors.go` / `sqlite_errors.go`） |
 | 事务与重试（`WithTx`、`WithTxResult`、`TxOption` 与 `WithRetry` 等、`RetryPolicy`） | `tx.go`（`tx_test.go`） |

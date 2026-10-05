@@ -100,6 +100,14 @@ func TestPostgresTypeChangeLeavesTheLengthToTheAssignment(t *testing.T) {
 		// BOOLEAN casts to INTEGER only, and no integer casts to it.
 		{ColumnType{Kind: KindBool}, ColumnType{Kind: KindInt, Bits: 64}, `TYPE BIGINT USING "c"::INTEGER;`},
 		{ColumnType{Kind: KindInt, Bits: 64}, ColumnType{Kind: KindBool}, `TYPE BOOLEAN USING "c" <> 0;`},
+		{ColumnType{Kind: KindFloat, Bits: 64}, ColumnType{Kind: KindBool}, `TYPE BOOLEAN USING "c" <> 0;`},
+		// Bytes and text carry their bytes over: bytea::TEXT is the hex spelling
+		// ('\x616263' for abc) and text::BYTEA reads the text as an escape string.
+		{ColumnType{Kind: KindBytes}, text(40), `TYPE VARCHAR(40) USING convert_from("c", 'UTF8');`},
+		{ColumnType{RawType: "BYTEA"}, ColumnType{RawType: "TEXT"}, `TYPE TEXT USING convert_from("c", 'UTF8');`},
+		{text(40), ColumnType{Kind: KindBytes}, `TYPE BYTEA USING convert_to("c", 'UTF8');`},
+		{ColumnType{RawType: "TEXT"}, ColumnType{RawType: "BYTEA"}, `TYPE BYTEA USING convert_to("c", 'UTF8');`},
+		{ColumnType{Kind: KindInt, Bits: 64}, ColumnType{Kind: KindBytes}, `TYPE BYTEA USING "c"::BYTEA;`},
 	} {
 		statements := d.AlterColumnSQL("t", Column{Name: "c", Type: c.before}, ColumnSpec{Name: "c", Type: c.after})
 		if len(statements) != 1 || !strings.HasSuffix(statements[0], c.want) {

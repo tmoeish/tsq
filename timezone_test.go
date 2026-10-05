@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"testing"
 	"time"
+
+	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 )
 
 func TestTimesAreBoundInUTC(t *testing.T) {
@@ -77,5 +79,44 @@ func TestUpdateTableRefreshesUpdatedAt(t *testing.T) {
 	sql, args, err := UpdateTable(Orders).Set(Order_Note, Val("x")).Where(And()).MustBuild().SQL(onSQLite)
 	if err != nil || sql != `UPDATE "orders" SET "note" = ? WHERE 1 = 1` || len(args) != 1 {
 		t.Fatalf("a table without updated_at = %s %v, %v", sql, args, err)
+	}
+}
+
+// TestBoundTimesKeepMicroseconds covers the precision a time is bound with. A
+// time.Now() carries nanoseconds the columns do not keep: SQLite stored them (as
+// text), MySQL rounded to the microsecond and PostgreSQL cut to it, so one
+// predicate over one instant matched three different sets of rows.
+func TestBoundTimesKeepMicroseconds(t *testing.T) {
+	at := time.Date(2024, 2, 29, 23, 59, 59, 999999999, time.FixedZone("east", 8*3600))
+	want := time.Date(2024, 2, 29, 15, 59, 59, 999999000, time.UTC)
+
+	for name, bound := range map[string]any{
+		"time":    bindValue(at),
+		"pointer": bindValue(&at),
+		"valuer":  bindValue(sql.NullTime{Time: at, Valid: true}),
+	} {
+		if got, ok := bound.(time.Time); !ok || !got.Equal(want) || got.Location() != time.UTC || got.Nanosecond() != 999999000 {
+			t.Errorf("%s is bound as %v (%T), want %v", name, bound, bound, want)
+		}
+	}
+
+	if bound := bindValue((*time.Time)(nil)); bound != (*time.Time)(nil) {
+		t.Errorf("a nil time is bound as %v", bound)
+	}
+
+	ctx := context.Background()
+	rt := newSQLite(t)
+
+	if _, err := UpdateTable(Users).Set(User_UpdatedAt, Val(at)).Where(And()).Exec(ctx, rt); err != nil {
+		t.Fatal(err)
+	}
+
+	sqlText, args, err := Select(User_ID).From(Users).Where(User_UpdatedAt.EQ(Val(at))).SQL(tsqdialect.SQLite)
+	if err != nil || len(args) == 0 {
+		t.Fatalf("SQL() = %q, %v, %v", sqlText, args, err)
+	}
+
+	if got, ok := args[0].(time.Time); !ok || got.Nanosecond() != 999999000 {
+		t.Errorf("a predicate binds %v, want the microsecond", args[0])
 	}
 }

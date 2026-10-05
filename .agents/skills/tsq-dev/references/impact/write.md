@@ -90,8 +90,8 @@
 
 - 分批的单位是**行**，数据库数的是**占位符**：
   - **上限按方言**（`sqldialect.MaxBindParams`）：MySQL / PostgreSQL 65535，**SQLite 32766**。
-  - **每行占位符数按操作算**：INSERT 每列一个；UPDATE 每列两个（`CASE pk WHEN ? THEN ?`）加
-    WHERE 的 `keyMatchParams`；DELETE 每行 `keyMatchParams`。每条语句一次的参数（墓碑、时间戳）从上限里
+  - **每行占位符数按操作算**：INSERT 每列一个；UPDATE 每列一个加主键和版本（`writeJoinedUpdate` 的行列表）；
+    DELETE 每行 `keyMatchParams`。每条语句一次的参数（墓碑、时间戳）从上限里
     扣掉。改了语句形状就要回来核对 `effectiveChunkSize` 的实参。
 - **占位符不是唯一的上限，表达式深度是第二个**：SQLite 拒绝深于 1000 层的表达式，恰好等于
   `defaultBatchSize`。批量语句的 WHERE 只许用扁平形状（`IN` 列表、`CASE` 分支），每行一个 `OR` 就是
@@ -111,9 +111,12 @@
   的行；`BatchUpdate` 靠 `updateMismatch` 的回读判断哪些行写成了。新增一条会盖戳的写路径要走同一套，
   `TestFailedWritesLeaveRowsAsTheyWere` / `TestBatchUpdateWithAStaleRowSaysWhichAndKeepsTheRest` 守着。
 - 给多行 `*time.Time` 字段写时间要**每行各自** `applyTimestamp`，不要 `Set` 同一个 `reflect.Value`（指针会被共享）。
-- `batch_test.go` 的宽表用例是门：它真的写一张 200 列的表。UPDATE 的求值开销约是行数² × 列数，
-  所以表做宽、行做少；它在 `-race` 下跳过（转译的 SQLite 慢约四十倍，且没有并发可查），
+- `batch_test.go` 的宽表用例是门：它真的写一张 200 列的表；它在 `-race` 下跳过（转译的 SQLite 慢约四十倍，且没有并发可查），
   普通 `test` 里照跑。
+- **多行 UPDATE 的语句按方言分三种写法**（`writeJoinedUpdate`：SQLite 的 `WITH ... VALUES`、PG 带类型化 NULL 首行的 `VALUES`、MySQL 的
+  空分支加 `UNION ALL`），理由和死胡同在 `../memory/write.md`。改它要三样一起看：`TestBatchUpdateJoinsTheRowsOnEveryDialect` 钉着三段 SQL，
+  `TestIntegrationBatchUpdateCarriesEveryValue` 在真实引擎上验值（字节、JSON、无符号大数、超长字符串被拒、过期行被点名），行列表的列名
+  （`tsq_k` / `tsq_n` / `tsq_<i>`）不能和表的列撞——墓碑过滤和 SET 的左侧都是不带表名的列。
 - **批量写的短缺一律回读**：`BatchUpdate`（`updateMismatch`）、`BatchDelete` / `BatchRestore`（`tombstoneShortfall`）、
   `BatchHardDelete`（`hardDeleteShortfall`）在匹配行数不够时回读这一块，只给写成的行改内存状态，`Keys` 列出其余的行；
   跨语句的汇总走 `shortfalls`（后面的语句出别的错时也不丢前面的 `Keys`）。新增一条"一条语句写多行"的写路径要接进同一套。

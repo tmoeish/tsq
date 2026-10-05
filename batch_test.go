@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -192,5 +193,56 @@ func TestBatchWritesFitTheDefaultBatchOnSQLite(t *testing.T) {
 
 	if err := Users.BatchHardDelete(ctx, rt, rows); err != nil {
 		t.Fatalf("BatchHardDelete: %v", err)
+	}
+}
+
+// TestBatchUpdateJoinsTheRowsOnEveryDialect pins the statement a batch update of
+// several rows is: the table joined to the list of the rows' values, where it was
+// a CASE over the keys for every column, which a database evaluates arm by arm
+// for each row (the default batch of a thousand cost a thousand times a thousand).
+// A list of parameters has no types, and each dialect is told them its own way:
+// PostgreSQL by a first row of NULLs of the columns' types, MySQL by a first
+// branch that selects the columns over no rows, and SQLite needs none.
+func TestBatchUpdateJoinsTheRowsOnEveryDialect(t *testing.T) {
+	def := Users.def
+	cols := []*columnCore{def.column("name")}
+	rows := []*user{{ID: 1, Name: "a", Version: 3}, {ID: 2, Name: "b", Version: 4}}
+
+	for name, want := range map[tsqdialect.Name]string{
+		tsqdialect.SQLite: `WITH "tsq_v"("tsq_k", "tsq_n", "tsq_0") AS (VALUES (?, ?, ?), (?, ?, ?)) ` +
+			`UPDATE "users" SET "name" = "tsq_v"."tsq_0", "version" = "users"."version" + 1 FROM "tsq_v" ` +
+			`WHERE "users"."id" = "tsq_v"."tsq_k" AND "users"."version" = "tsq_v"."tsq_n"`,
+		tsqdialect.Postgres: `UPDATE "users" SET "name" = "tsq_v"."tsq_0", "version" = "users"."version" + 1 ` +
+			`FROM (VALUES ((SELECT "id" FROM "users" WHERE FALSE), (SELECT "version" FROM "users" WHERE FALSE), (SELECT "name" FROM "users" WHERE FALSE)), ` +
+			`($1, $2, $3), ($4, $5, $6)) AS "tsq_v"("tsq_k", "tsq_n", "tsq_0") ` +
+			`WHERE "users"."id" = "tsq_v"."tsq_k" AND "users"."version" = "tsq_v"."tsq_n"`,
+		tsqdialect.MySQL: "UPDATE `users` JOIN (SELECT `id` AS `tsq_k`, `version` AS `tsq_n`, `name` AS `tsq_0` FROM `users` WHERE FALSE " +
+			"UNION ALL SELECT ?, ?, ? UNION ALL SELECT ?, ?, ?) AS `tsq_v` " +
+			"ON `users`.`id` = `tsq_v`.`tsq_k` AND `users`.`version` = `tsq_v`.`tsq_n` " +
+			"SET `users`.`name` = `tsq_v`.`tsq_0`, `users`.`version` = `users`.`version` + 1 WHERE TRUE",
+	} {
+		d, err := sqld.For(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		w := &writeStmt{d: d}
+		writeJoinedUpdate(w, def, cols, def.column("version"), rows)
+
+		if got := w.sql.String(); got != want {
+			t.Errorf("%s:\n got %s\nwant %s", name, got, want)
+		}
+
+		if want := []any{int64(1), int64(3), "a", int64(2), int64(4), "b"}; !slices.Equal(w.args, want) {
+			t.Errorf("%s binds %v, want %v", name, w.args, want)
+		}
+	}
+
+	// Without a version the rows are matched by key alone.
+	w := &writeStmt{d: sqld.SQLiteDialect{}}
+	writeJoinedUpdate(w, Orders.def, []*columnCore{Orders.def.column("note")}, nil, []*order{{ID: 1}, {ID: 2}})
+
+	if got := w.sql.String(); strings.Contains(got, "tsq_n") || !strings.HasSuffix(got, `WHERE "orders"."id" = "tsq_v"."tsq_k"`) {
+		t.Errorf("without a version: %s", got)
 	}
 }

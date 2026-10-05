@@ -2,6 +2,7 @@ package tsq
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"slices"
@@ -92,6 +93,11 @@ func (r *Runtime) applyTablePolicyForTable(ctx context.Context, table *registere
 	}
 
 	changes := diffTableColumns(r.dialect, current, table.Columns)
+	if hasAlterColumnChange(changes) {
+		current = r.adoptEngineSpelling(ctx, tableName, current, changes)
+		changes = diffTableColumns(r.dialect, current, table.Columns)
+	}
+
 	if len(changes) == 0 {
 		return nil
 	}
@@ -243,6 +249,11 @@ func (r *Runtime) rebuildTable(
 		}
 	}
 
+	if err := rebuiltValuesFit(ctx, tx, r.dialect, tableName, current, desired); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("apply table rebuild on %s: %w", tableName, err)
 	}
@@ -251,6 +262,115 @@ func (r *Runtime) rebuildTable(
 	// was then rolled back was not applied.
 	for _, statement := range statements {
 		r.info("applied ddl", "table", tableName, "kind", "table_rebuild", "ddl", statement)
+	}
+
+	return nil
+}
+
+// adoptEngineSpelling settles the columns whose type or default compares different
+// as text by asking the engine: each is created as declared in a temporary table,
+// and where the engine spells that the way it spells the live column, the two are
+// one thing (see sqldialect.AdoptSpelling). Only a column the text comparison
+// calls different is probed, so a schema that matches costs nothing. A probe that
+// cannot run (no right to create a temporary table, a declaration the engine
+// refuses) leaves the text comparison's answer.
+func (r *Runtime) adoptEngineSpelling(ctx context.Context, tableName string, current []sqld.Column, changes []tableColumnChange) []sqld.Column {
+	var conn *sql.Conn
+
+	defer func() {
+		if conn != nil {
+			_ = conn.Close()
+		}
+	}()
+
+	settled := slices.Clone(current)
+
+	for _, change := range changes {
+		if change.kind != tableColumnAlter || change.before.PrimaryKey || change.after.PrimaryKey || change.after.AutoIncrement {
+			continue
+		}
+
+		if sqld.SameColumnType(r.dialect, *change.before, *change.after) &&
+			sqld.SameDefault(change.before.Default, sqld.DefaultSQL(r.dialect, *change.after)) {
+			continue
+		}
+
+		if conn == nil {
+			opened, err := r.db.Conn(ctx)
+			if err != nil {
+				return current
+			}
+
+			conn = opened
+		}
+
+		probe, supported, err := r.dialect.ProbeColumn(ctx, conn, *change.after)
+		if !supported {
+			return current
+		}
+
+		if err != nil {
+			r.warn("could not ask the database how it spells a declared column; it is compared as text",
+				"table", tableName, "column", change.after.Name, "error", err)
+
+			continue
+		}
+
+		for i := range settled {
+			if settled[i].Name == change.before.Name {
+				settled[i] = sqld.AdoptSpelling(r.dialect, settled[i], probe, *change.after)
+			}
+		}
+	}
+
+	return settled
+}
+
+// retyped reports a column the rebuild carries into another type.
+func retyped(dialect sqld.Dialect, before sqld.Column, after tsqdialect.ColumnSpec) bool {
+	return before.Type.Kind != after.Type.Kind || !sqld.SameColumnType(dialect, before, after)
+}
+
+// rebuiltValuesFit refuses a rebuild that left, in a column whose type changed, a
+// value a field of the new type does not read. SQLite stores anything under any
+// declared type, so the copy itself never fails: 'Hello' moved into an integer
+// column is still 'Hello', the schema then matched its declaration, and every read
+// of the table failed on the row. MySQL and PostgreSQL refuse that change; here it
+// is refused before the transaction commits, and the table is as it was.
+func rebuiltValuesFit(ctx context.Context, tx *sql.Tx, dialect sqld.Dialect, tableName string, current []sqld.Column, desired []tsqdialect.ColumnSpec) error {
+	existing := make(map[string]sqld.Column, len(current))
+	for _, column := range current {
+		existing[strings.ToLower(column.Name)] = column
+	}
+
+	for _, column := range desired {
+		before, ok := existing[strings.ToLower(column.Name)]
+		if !ok || column.Fill == tsqdialect.FillGenerated || !retyped(dialect, before, column) {
+			continue
+		}
+
+		quoted := dialect.QuoteIdent(column.Name)
+
+		condition, kind := sqld.SQLiteMisfit(quoted, column.Type)
+		if condition == "" {
+			continue
+		}
+
+		var (
+			count  int64
+			sample sql.NullString
+		)
+
+		query := fmt.Sprintf("SELECT COUNT(*), MIN(CAST(%s AS TEXT)) FROM %s WHERE %s", quoted, dialect.QuoteIdent(tableName), condition)
+		if err := tx.QueryRowContext(ctx, query).Scan(&count, &sample); err != nil {
+			return fmt.Errorf("check the rebuilt table %s: %w", tableName, err)
+		}
+
+		if count > 0 {
+			return fmt.Errorf("column %s of %s becomes %s, and %d row(s) hold a value that is not %s (for example %q); "+
+				"nothing was changed: fix the rows, or change the column in a migration",
+				column.Name, tableName, dialect.ColumnTypeSQL(column.Type), count, kind, sample.String)
+		}
 	}
 
 	return nil
@@ -794,6 +914,10 @@ func rebuildCopyColumns(dialect sqld.Dialect, current []sqld.Column, desired []t
 
 		if before, ok := existing[strings.ToLower(column.Name)]; ok {
 			source := dialect.QuoteIdent(before.Name)
+			if retyped(dialect, before, column) {
+				source = sqld.SQLiteRetypeSource(source, column.Type)
+			}
+
 			if fill := sqld.NullFill(dialect, before, column); fill != "" {
 				source = fmt.Sprintf("COALESCE(%s, %s)", source, fill)
 			}

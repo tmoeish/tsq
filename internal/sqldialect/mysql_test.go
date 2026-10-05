@@ -330,3 +330,20 @@ func TestMySQLReadsAnExpressionDefaultBackAsDeclared(t *testing.T) {
 		}
 	}
 }
+
+// TestMySQLNumbersBecomeBooleansByValue covers a number column that becomes a
+// BOOLEAN: MODIFY keeps a 2 as it is, and no bool reads a 2. Anything but zero is
+// set to 1 first, as PostgreSQL's USING c <> 0 has it.
+func TestMySQLNumbersBecomeBooleansByValue(t *testing.T) {
+	d := MySQLDialect{}
+
+	statements := d.AlterColumnSQL("t", Column{Name: "c", Type: ColumnType{Kind: KindInt, Bits: 32}}, ColumnSpec{Name: "c", Type: ColumnType{Kind: KindBool}})
+	if len(statements) != 2 || statements[0] != "UPDATE `t` SET `c` = 1 WHERE `c` <> 0;" || !strings.HasPrefix(statements[1], "ALTER TABLE `t` MODIFY COLUMN `c` BOOLEAN") {
+		t.Errorf("integer to boolean = %v", statements)
+	}
+
+	statements = d.AlterColumnSQL("t", Column{Name: "c", Type: ColumnType{Kind: KindString, Size: 10}}, ColumnSpec{Name: "c", Type: ColumnType{Kind: KindBool}})
+	if len(statements) != 1 {
+		t.Errorf("text to boolean is the engine's to refuse, got %v", statements)
+	}
+}

@@ -515,6 +515,12 @@ func sqliteMentions(statement, table string) bool {
 // and dropping it would leave them pointing at nothing. Its own indexes and
 // triggers are returned with the statements that created them, so expressions,
 // partial WHERE clauses and collations survive.
+// ProbeColumn is not needed on SQLite: types compare by affinity, and a default
+// is reported as it was written.
+func (d SQLiteDialect) ProbeColumn(context.Context, Executor, ColumnSpec) (Column, bool, error) {
+	return Column{}, false, nil
+}
+
 func (d SQLiteDialect) InspectRebuild(ctx context.Context, db Executor, table string) (Rebuild, error) {
 	var rebuild Rebuild
 
