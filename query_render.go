@@ -146,8 +146,6 @@ type orderTerm struct {
 	// expression itself where expr is a select-list position: "2 IS NULL" is a
 	// constant, not the second column, and dropped the requested NULL placement.
 	nullKey sqlExpr
-	// aggregate reports an ordered expression with an aggregate in it.
-	aggregate bool
 }
 
 // render writes the term, placing NULLs where nullsFirst says. PostgreSQL and
@@ -470,7 +468,7 @@ func (s *querySpec[O]) writeSimple(r *renderer, m renderMode) {
 	cols := make([]sqlExpr, 0, len(s.Selects))
 
 	for i, col := range s.Selects {
-		item, _ := s.overGroups(r.dialect, columnInfo(col).sql, columnInfo(col).aggregate, true)
+		item, _ := s.overGroups(r.dialect, columnInfo(col).sql, true)
 
 		if aliases[i] == "" {
 			cols = append(cols, item)
@@ -515,7 +513,7 @@ func (s *querySpec[O]) havingOverGroups(d sqld.Dialect) sqlExpr {
 
 	for _, cond := range s.Having {
 		info := conditionInfo(cond)
-		over, rewritten := s.overGroups(d, info.sql, info.aggregate, false)
+		over, rewritten := s.overGroups(d, info.sql, false)
 		changed = changed || rewritten
 
 		conds = append(conds, sqlJoin(sqlText("("), over, sqlText(")")))
@@ -541,13 +539,13 @@ func (s *querySpec[O]) havingOverGroups(d sqld.Dialect) sqlExpr {
 // Within a group the expression has one value, so MAX of it is that value, and an
 // aggregate is taken anywhere: each such occurrence becomes MAX(expression).
 //
-// Only what the dialect refuses is rewritten. An expression with an aggregate of
-// its own is left alone (COUNT(UPPER(note)) is valid, and an aggregate in an
-// aggregate is not); a grouped column needs none of this; and a selected item that
-// is the grouped expression itself is what GROUP BY refers to (item is true for
-// one of the select list).
-func (s *querySpec[O]) overGroups(d sqld.Dialect, e sqlExpr, aggregate, item bool) (sqlExpr, bool) {
-	if d.Name() == tsqdialect.SQLite || aggregate || len(s.GroupBy) == 0 {
+// Only what the dialect refuses is rewritten. An occurrence inside an aggregate is
+// left alone (COUNT(UPPER(note)) is valid, and an aggregate in an aggregate is
+// not; see maxOfEach for how one is told); a grouped column needs none of this;
+// and a selected item that is the grouped expression itself is what GROUP BY
+// refers to (item is true for one of the select list).
+func (s *querySpec[O]) overGroups(d sqld.Dialect, e sqlExpr, item bool) (sqlExpr, bool) {
+	if d.Name() == tsqdialect.SQLite || len(s.GroupBy) == 0 {
 		return e, false
 	}
 
@@ -659,13 +657,57 @@ func (s *querySpec[O]) overGroups(d sqld.Dialect, e sqlExpr, aggregate, item boo
 // groups are tried longest first at each position and a match is not looked into
 // again, and an occurrence that continues an identifier (XUPPER(...) for
 // UPPER(...)) is not one.
+//
+// An occurrence inside an aggregate stays as it is, and so does one inside
+// anything that may be an aggregate: the arguments of a function this library
+// does not write itself (a GROUP_CONCAT from Expr), and a subquery. Wrapping one
+// there would turn a query the engine takes into "invalid use of group function".
 func maxOfEach(text string, groups []string) string {
-	var b strings.Builder
+	var (
+		b      strings.Builder
+		opaque []bool // one for each open parenthesis: are its contents left alone
+		closed int    // how many of them are
+	)
 
 	for i := 0; i < len(text); {
+		switch text[i] {
+		case 0:
+			// A bound value's mark, copied whole: what it prints is not SQL.
+			end := strings.IndexByte(text[i+1:], 0)
+			if end < 0 {
+				end = len(text) - i - 2
+			}
+
+			b.WriteString(text[i : i+end+2])
+			i += end + 2
+
+			continue
+		case '(':
+			name := i
+			for name > 0 && identifierByte(text[name-1]) && text[name-1] != '`' && text[name-1] != '"' && text[name-1] != '.' {
+				name--
+			}
+
+			inner := strings.TrimLeft(text[i+1:], " ")
+			shut := !transparentCalls[strings.ToUpper(text[name:i])] || strings.HasPrefix(strings.ToUpper(inner), "SELECT ")
+			opaque = append(opaque, shut)
+
+			if shut {
+				closed++
+			}
+		case ')':
+			if n := len(opaque); n > 0 {
+				if opaque[n-1] {
+					closed--
+				}
+
+				opaque = opaque[:n-1]
+			}
+		}
+
 		matched := ""
 
-		if i == 0 || !identifierByte(text[i-1]) {
+		if closed == 0 && (i == 0 || !identifierByte(text[i-1])) {
 			for _, g := range groups {
 				if strings.HasPrefix(text[i:], g) {
 					matched = g
@@ -682,11 +724,33 @@ func maxOfEach(text string, groups []string) string {
 			continue
 		}
 
+		// The match opens and closes its own parentheses: none is left open.
+		if text[i] == '(' {
+			if n := len(opaque); n > 0 {
+				if opaque[n-1] {
+					closed--
+				}
+
+				opaque = opaque[:n-1]
+			}
+		}
+
 		b.WriteString("MAX(" + matched + ")")
 		i += len(matched)
 	}
 
 	return b.String()
+}
+
+// transparentCalls are what may stand before an opening parenthesis without
+// making its contents an aggregate's: nothing at all, the keywords of a
+// predicate, and the scalar functions this library writes.
+var transparentCalls = map[string]bool{
+	"": true, "AND": true, "OR": true, "NOT": true, "IN": true, "WHEN": true, "THEN": true, "ELSE": true, "CASE": true, "BETWEEN": true, "LIKE": true,
+	"AS": true, "DECIMAL": true, "NUMERIC": true, "DIV": true,
+	"ABS": true, "CAST": true, "CEIL": true, "CHAR_LENGTH": true, "COALESCE": true, "DATE": true, "DATE_FORMAT": true, "EXTRACT": true,
+	"FLOOR": true, "LENGTH": true, "LOWER": true, "NULLIF": true, "ROUND": true, "SUBSTR": true, "SUBSTRING": true, "TO_CHAR": true,
+	"TRIM": true, "UPPER": true, "YEAR": true, "MONTH": true, "DAY": true,
 }
 
 func identifierByte(c byte) bool {
@@ -822,7 +886,6 @@ func bindsValues(e sqlExpr) bool {
 // output column names, so the term drops its table there.
 func (s *querySpec[O]) orderTerm(ob OrderBy) orderTerm {
 	term := orderTerm{expr: s.selectedPosition(columnInfo(ob.column).sql), nullKey: columnInfo(ob.column).sql, direction: ob.direction, nullsFirst: ob.nulls.first(ob.direction)}
-	term.aggregate = columnInfo(ob.column).aggregate
 	term.nullable, _ = s.canBeNull(columnInfo(ob.column).null)
 
 	// MySQL's "expr IS NULL" key is not in the select list, and a DISTINCT query
@@ -934,8 +997,8 @@ func (s *querySpec[O]) writeTail(r *renderer, m renderMode) {
 	if len(order) > 0 {
 		terms := make([]sqlExpr, 0, len(order))
 		for _, term := range order {
-			term.expr, _ = s.overGroups(r.dialect, term.expr, term.aggregate, false)
-			term.nullKey, _ = s.overGroups(r.dialect, term.nullKey, term.aggregate, false)
+			term.expr, _ = s.overGroups(r.dialect, term.expr, false)
+			term.nullKey, _ = s.overGroups(r.dialect, term.nullKey, false)
 			terms = append(terms, term.render())
 		}
 

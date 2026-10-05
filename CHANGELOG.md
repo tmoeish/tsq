@@ -161,7 +161,7 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 ### 修复
 
-- **分组表达式在 `HAVING`、嵌套表达式和 `ORDER BY` 里再用一次，MySQL 和 PostgreSQL 报错**：`GroupBy(tsq.Upper(note))` 之后写 `Having(tsq.Upper(note).NE(...))` 或选出 `tsq.Lower(tsq.Upper(note))`，`Build` 放行、SQLite 能跑，MySQL 报 1054 / 1055（它只认整个出现在选择列表或 `ORDER BY` 里的分组表达式）；分组表达式带绑定值时（`tsq.Add(qty, tsq.Val(10))`）PostgreSQL 也报错，因为每写一次就是一个新参数，它把两处当成两个表达式。现在这两个引擎上，这样的出现被写成 `MAX(表达式)`——同一组里它只有一个值，聚合可以出现在任何位置。只改写原本必然报错的写法：自带聚合的表达式、分组的列、本身就是分组表达式的选择项都保持原样。
+- **分组表达式在 `HAVING`、嵌套表达式和 `ORDER BY` 里再用一次，MySQL 和 PostgreSQL 报错**：`GroupBy(tsq.Upper(note))` 之后写 `Having(tsq.Upper(note).NE(...))` 或选出 `tsq.Lower(tsq.Upper(note))`，`Build` 放行、SQLite 能跑，MySQL 报 1054 / 1055（它只认整个出现在选择列表或 `ORDER BY` 里的分组表达式）；分组表达式带绑定值时（`tsq.Add(qty, tsq.Val(10))`）PostgreSQL 也报错，因为每写一次就是一个新参数，它把两处当成两个表达式。现在这两个引擎上，这样的出现被写成 `MAX(表达式)`——同一组里它只有一个值，聚合可以出现在任何位置。只改写原本必然报错的写法：聚合里面的出现（`Count(Upper(note))`）、`Expr` 手写的函数里面的出现、子查询里面的出现、分组的列、本身就是分组表达式的选择项都保持原样。
 - **`tsq.Max` / `tsq.Min` 作用于布尔列在 PostgreSQL 上报错**（没有 `MAX(boolean)`）：那里改写成 `BOOL_OR` / `BOOL_AND`，三个引擎答案一致。
 - **`tsq.Ceil` / `tsq.Floor` 在 mattn/go-sqlite3 上报 `no such function`**：这个驱动默认不编入 SQLite 的数学函数。SQLite 上改用不依赖数学函数的写法，两个驱动都能用。
 - **没设置过的 `json.RawMessage` 写不进 JSON 列**：nil 的字节切片按空字节绑定，而空字节不是 JSON，MySQL 和 PostgreSQL 拒绝这一行。现在按 JSON 的 `null` 写入，和 `encoding/json` 对 nil `RawMessage` 的写法一致。

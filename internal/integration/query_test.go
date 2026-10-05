@@ -483,6 +483,19 @@ func TestIntegrationFunctionsEveryEngineHas(t *testing.T) {
 				t.Errorf("HAVING and ORDER BY over a grouped expression with a bound value: %v, %v", counts, err)
 			}
 
+			// A condition that mixes the grouped expression with an aggregate, and an
+			// aggregate written by hand over it, which must stay as written.
+			mixed, err := tsq.SelectValue(tsq.Count(measures.ID)).From(measures).GroupBy(initial).
+				Having(tsq.Or(initial.EQ(tsq.Val("X")), tsq.Count(measures.ID).GT(tsq.Val(int64(1))))).List(ctx, rt)
+			if err != nil || len(mixed) != 1 || *mixed[0] != 6 {
+				t.Errorf("HAVING that mixes a grouped expression with an aggregate: %v, %v", mixed, err)
+			}
+
+			byHand, err := tsq.SelectValue(initial.Expr("MIN(%s)")).From(measures).GroupBy(initial).List(ctx, rt)
+			if err != nil || len(byHand) != 1 || *byHand[0] != "M" {
+				t.Errorf("an aggregate written by hand over the grouped expression: %v, %v", byHand, err)
+			}
+
 			// An aggregate over the grouped expression is valid as it is, and stays so.
 			inside, err := tsq.SelectValue(tsq.Count(initial)).From(measures).GroupBy(initial).Having(tsq.Count(initial).GT(tsq.Val(int64(1)))).List(ctx, rt)
 			if err != nil || len(inside) != 1 || *inside[0] != 6 {

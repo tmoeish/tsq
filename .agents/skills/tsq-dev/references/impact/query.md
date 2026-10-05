@@ -111,6 +111,8 @@
 - **分组查询里再出现的分组表达式在渲染时按方言改写**（`overGroups`：MySQL 全部非列的分组表达式、PG 带绑定值的，写成 `MAX(...)`；选择项、`HAVING` 的每个条件、
   排序项三处都过它）。表达式按"文本加绑定值标记"比较，所以新的渲染出口如果绕过它，同一个查询就会在 MySQL / PG 上报 1054 / 42803；门是
   `TestIntegrationFunctionsEveryEngineHas`。改 `checkGrouping` 放行的范围时两边要一起看：`Build` 放行而这里不改写的，就是只在某个引擎上炸的查询。
+  改写不进聚合、不认识的函数和子查询里面（`maxOfEach` 按括号前的名字判断）：**给库加一个标量函数，它的 MySQL / PG 拼法要进 `transparentCalls`**，
+  否则它参数里的分组表达式不会被改写、查询在 MySQL 上照旧报 1054；加的是聚合就不要进。`TestGroupedOccurrencesBecomeAggregatesOnlyWhereTheyMay` 钉着这条边界。
 - 绑定出口（`bindValue`）把时间转 UTC 并截到微秒，`assemble` 在绑定值超过方言上限时拒绝语句；两者的门是
   `TestBoundTimesKeepMicroseconds` 和 `TestAStatementOverTheBindLimitSaysWhatToDo`。
 - **读行的目标走 `columnCore.target`，不直接用 `scan`**（`scan.go`）：时间字段和自定义 bool 字段要包一层适配（SQLite 的表达式把时间

@@ -511,3 +511,49 @@ func TestDistinctNullPlacementIsTestedThroughTheAliasOnMySQL(t *testing.T) {
 		t.Errorf("mysql orders the plain expression by %s", rendered)
 	}
 }
+
+// TestGroupedOccurrencesBecomeAggregatesOnlyWhereTheyMay covers the rewrite of a
+// grouped expression used again (see overGroups). It may not reach into an
+// aggregate, whose argument is already valid and where MAX would be an aggregate
+// in an aggregate, nor into what may be one: a function this library does not
+// write, or a subquery.
+func TestGroupedOccurrencesBecomeAggregatesOnlyWhereTheyMay(t *testing.T) {
+	upper := "UPPER(`t`.`note`)"
+	sum := "(`t`.`qty` + \x00int64 10\x00)"
+
+	for _, c := range []struct {
+		text   string
+		groups []string
+		want   string
+	}{
+		{"LOWER(" + upper + ")", []string{upper}, "LOWER(MAX(" + upper + "))"},
+		{upper + " <> \x00string \"X\"\x00", []string{upper}, "MAX(" + upper + ") <> \x00string \"X\"\x00"},
+		{
+			"(" + upper + " = \x00string \"C\"\x00 OR COUNT(" + upper + ") > \x00int64 1\x00)",
+			[]string{upper},
+			"(MAX(" + upper + ") = \x00string \"C\"\x00 OR COUNT(" + upper + ") > \x00int64 1\x00)",
+		},
+		{"COUNT(DISTINCT " + upper + ")", []string{upper}, "COUNT(DISTINCT " + upper + ")"},
+		{"GROUP_CONCAT(" + upper + ")", []string{upper}, "GROUP_CONCAT(" + upper + ")"},
+		{"my_func(LOWER(" + upper + "))", []string{upper}, "my_func(LOWER(" + upper + "))"},
+		{"`t`.`n` IN (SELECT " + upper + " FROM `t`)", []string{upper}, "`t`.`n` IN (SELECT " + upper + " FROM `t`)"},
+		{"X" + upper, []string{upper}, "X" + upper},
+		{
+			"CASE WHEN " + upper + " = \x00string \"A\"\x00 THEN COALESCE(" + upper + ", \x00string \"(\"\x00) ELSE \x00string \")\"\x00 END",
+			[]string{upper},
+			"CASE WHEN MAX(" + upper + ") = \x00string \"A\"\x00 THEN COALESCE(MAX(" + upper + "), \x00string \"(\"\x00) ELSE \x00string \")\"\x00 END",
+		},
+		{
+			"CHAR_LENGTH(" + upper + ") = \x00int64 1\x00 AND " + upper + " IN (\x00string \"A\"\x00)",
+			[]string{"CHAR_LENGTH(" + upper + ")", upper},
+			"MAX(CHAR_LENGTH(" + upper + ")) = \x00int64 1\x00 AND MAX(" + upper + ") IN (\x00string \"A\"\x00)",
+		},
+		{sum + " > \x00int64 11\x00", []string{sum}, "MAX(" + sum + ") > \x00int64 11\x00"},
+		{"(" + sum + " * \x00int64 -1\x00)", []string{sum}, "(MAX(" + sum + ") * \x00int64 -1\x00)"},
+		{"SUM(" + sum + ") + " + sum, []string{sum}, "SUM(" + sum + ") + MAX(" + sum + ")"},
+	} {
+		if got := maxOfEach(c.text, c.groups); got != c.want {
+			t.Errorf("maxOfEach(%q)\n got %q\nwant %q", c.text, got, c.want)
+		}
+	}
+}
