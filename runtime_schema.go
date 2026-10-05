@@ -304,7 +304,7 @@ func (r *Runtime) adoptEngineSpelling(ctx context.Context, tableName string, cur
 			conn = opened
 		}
 
-		probe, supported, err := r.dialect.ProbeColumn(ctx, conn, *change.after)
+		same, supported, err := r.dialect.ProbeColumn(ctx, conn, tableName, *change.before, *change.after)
 		if !supported {
 			return current
 		}
@@ -318,7 +318,7 @@ func (r *Runtime) adoptEngineSpelling(ctx context.Context, tableName string, cur
 
 		for i := range settled {
 			if settled[i].Name == change.before.Name {
-				settled[i] = sqld.AdoptSpelling(r.dialect, settled[i], probe, *change.after)
+				settled[i] = sqld.AdoptSpelling(r.dialect, settled[i], same, *change.after)
 			}
 		}
 	}
@@ -574,11 +574,10 @@ func diffTableColumns(
 	current []sqld.Column,
 	desired []tsqdialect.ColumnSpec,
 ) []tableColumnChange {
-	// A generated column is created with the table and never touched afterwards:
-	// every dialect reports it differently (SQLite's table_info omits it entirely),
-	// so comparing would ask for the same change on every boot. It leaves both sides
-	// of the comparison, or the live column would look undeclared and be dropped.
-	// Adding one to a table that exists is a migration.
+	// A generated column that exists is never touched: every dialect reports its
+	// expression differently, so comparing would ask for the same change on every
+	// boot. It leaves both sides of the comparison, or the live column would look
+	// undeclared and be dropped. A changed expression is a migration.
 	// SQLite and MySQL match column names without case, so "Name" and "name" are
 	// one column there: comparing them exactly read as drop Name, add name, and the
 	// drop ran first, with the data. PostgreSQL keeps the case of quoted names.
@@ -590,10 +589,18 @@ func diffTableColumns(
 		return strings.ToLower(name)
 	}
 
+	present := make(map[string]bool, len(current))
+	for _, column := range current {
+		present[key(column.Name)] = true
+	}
+
+	// A generated column that is there leaves the comparison; one that is declared
+	// and missing stays in it, as a column to add. Left out too, a table without
+	// it passed Validate and failed at the first read ("no such column").
 	generated := map[string]bool{}
 
 	for _, column := range desired {
-		if column.Fill == tsqdialect.FillGenerated {
+		if column.Fill == tsqdialect.FillGenerated && present[key(column.Name)] {
 			generated[key(column.Name)] = true
 		}
 	}

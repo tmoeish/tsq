@@ -59,21 +59,22 @@ func (d PostgresDialect) InspectColumns(ctx context.Context, db Executor, table 
 // postgresTempSchema names the schema of the session's temporary tables.
 const postgresTempSchema = "(SELECT nspname FROM pg_namespace WHERE oid = pg_my_temp_schema())"
 
-// ProbeColumn creates column in a temporary table and reads it back with the
-// query InspectColumns runs, pointed at the session's temporary schema.
-func (d PostgresDialect) ProbeColumn(ctx context.Context, conn Executor, column ColumnSpec) (Column, bool, error) {
-	definition, err := ColumnDefinitionSQL(d, probeSpec(column))
+// ProbeColumn creates declared in a temporary table and reads it back with the
+// query InspectColumns runs, pointed at the session's temporary schema: the two
+// columns are then described by one reader.
+func (d PostgresDialect) ProbeColumn(ctx context.Context, conn Executor, table string, inspected Column, declared ColumnSpec) (Spelling, bool, error) {
+	definition, err := ColumnDefinitionSQL(d, probeSpec(declared))
 	if err != nil {
-		return Column{}, true, err
+		return Spelling{}, true, err
 	}
 
 	drop := "DROP TABLE IF EXISTS pg_temp." + d.QuoteIdent(probeTable)
 	if _, err := conn.ExecContext(ctx, drop); err != nil {
-		return Column{}, true, err
+		return Spelling{}, true, err
 	}
 
 	if _, err := conn.ExecContext(ctx, fmt.Sprintf("CREATE TEMPORARY TABLE %s (%s)", d.QuoteIdent(probeTable), definition)); err != nil {
-		return Column{}, true, err
+		return Spelling{}, true, err
 	}
 
 	columns, _, err := d.inspectColumns(ctx, conn, postgresTempSchema, probeTable)
@@ -83,14 +84,28 @@ func (d PostgresDialect) ProbeColumn(ctx context.Context, conn Executor, column 
 	}
 
 	if err != nil {
-		return Column{}, true, err
+		return Spelling{}, true, err
 	}
 
 	if len(columns) != 1 {
-		return Column{}, true, fmt.Errorf("the probe of column %s read %d columns", column.Name, len(columns))
+		return Spelling{}, true, fmt.Errorf("the probe of column %s read %d columns", declared.Name, len(columns))
 	}
 
-	return columns[0], true, nil
+	probe := columns[0]
+	same := Spelling{
+		Type:    probe.NativeType != "" && strings.EqualFold(strings.TrimSpace(probe.NativeType), strings.TrimSpace(inspected.NativeType)),
+		Default: probe.Default == inspected.Default,
+	}
+
+	// A SERIAL column draws from a sequence named after its table and itself:
+	// nextval('t_c_seq') for the live column and nextval('_tsq_probe_c_seq') for the
+	// probe are one default, and both columns count as filled by the database.
+	if probe.AutoIncrement && inspected.AutoIncrement && !inspected.PrimaryKey &&
+		strings.ReplaceAll(probe.Default, probeTable, table) == inspected.Default {
+		same.Default, same.Serial = true, true
+	}
+
+	return same, true, nil
 }
 
 // inspectColumns reads the columns of table in the schema the SQL expression

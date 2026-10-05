@@ -11,8 +11,8 @@
   别再给某条写路径单独拼列清单。
 - "交给默认值"只看 `holdsNull`（nil / `Value()==nil`），**不看** `isUnset`（后者把零值和指向零值的指针也当未设置，
   只给托管时间戳用）。`default:` 只许可空字段，生成器（`validateDatabaseFilledFields`）和 `Define` 各拒一次。
-- **生成列不参与 schema 对账**（`diffTableColumns` 里过滤）：SQLite 的 `table_info` 根本不列它，
-  MySQL/PG 报的类型和默认值也和声明不同，比较的结果是每次启动都想改一次。
+- **已存在的生成列不参与 schema 对账**（`diffTableColumns` 里过滤）：MySQL/PG 报的类型和默认值和声明不同，比较的结果是每次启动都想改一次。
+  声明了却缺失的算缺列，规则在 `runtime.md` § 改了 schema 托管。
 - 端到端的门是 `examples/07-writing-data` 的 7.1（`default:` 和 `generated:` 读回）和 `TestIntegrationDatabaseFilledColumns`
   （后者还断言第二次启动零 DDL）。
 

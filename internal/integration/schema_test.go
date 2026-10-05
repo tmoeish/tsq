@@ -8,6 +8,7 @@ package integration_test
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -442,6 +443,17 @@ func TestIntegrationDeclaredColumnsDoNotDrift(t *testing.T) {
 		{"signed default", integer, "+5", "postgres,sqlite"},
 		{"time default with a zone", tsqdialect.ColumnType{Kind: tsqdialect.KindTime}, "'2020-01-02T03:04:05Z'", "postgres"},
 		{"empty bytes default", tsqdialect.ColumnType{Kind: tsqdialect.KindBytes}, "''", "postgres,sqlite"},
+		// MySQL describes a kept table from its dictionary and a temporary one from
+		// memory, and the two spell these defaults differently: the probe compares
+		// two temporary tables, the declaration and the live column.
+		{"VARBINARY literal default", raw("VARBINARY(8)"), "'ab'", "mysql"},
+		{"VARBINARY hex default", raw("VARBINARY(8)"), "X'6162'", "mysql"},
+		{"BINARY literal default", raw("BINARY(4)"), "'ab'", "mysql"},
+		{"bytes hex default", tsqdialect.ColumnType{Kind: tsqdialect.KindBytes}, "X'00'", "mysql,sqlite"},
+		{"default with a four-byte character", text(40), "'ok \U0001F600'", ""},
+		// A SERIAL off the key draws from a sequence named after its own table.
+		{"SERIAL off the key", raw("SERIAL"), "", "postgres"},
+		{"BIGSERIAL off the key", raw("BIGSERIAL"), "", "postgres"},
 	}
 
 	for _, target := range integrationTargets(t) {
@@ -693,6 +705,116 @@ func TestIntegrationAChangedColumnIsStillAChange(t *testing.T) {
 
 				if len(ran) != 0 {
 					t.Fatalf("the change was made again on the next start: %v", ran)
+				}
+			})
+		}
+	}
+}
+
+type slugged struct {
+	ID    int64
+	Title string
+	Slug  string
+}
+
+// sluggedTable declares a table with a title, and with a column the database
+// computes from it when generated is not empty ("-" declares one whose expression
+// TSQ is not told, which belongs to a migration).
+func sluggedTable(generated string) *tsq.TableOf[slugged, int64] {
+	h := tsq.NewTable[slugged, int64]("slugged")
+	id := tsq.NewColumn(h, "id", "id", func(r *slugged) *int64 { return &r.ID })
+
+	columns := []tsq.BoundColumn[slugged]{id, tsq.NewColumn(h, "title", "title", func(r *slugged) *string { return &r.Title })}
+	specs := []tsqdialect.ColumnSpec{
+		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
+		{Name: "title", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 40}},
+	}
+
+	if generated != "" {
+		spec := tsqdialect.ColumnSpec{Name: "slug", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 40}, Fill: tsqdialect.FillGenerated}
+		if generated != "-" {
+			spec.Generated = generated
+		}
+
+		columns = append(columns, tsq.NewColumn(h, "slug", "slug", func(r *slugged) *string { return &r.Slug }))
+		specs = append(specs, spec)
+	}
+
+	return h.Define(tsq.TableSpec[slugged, int64]{Columns: columns, PrimaryKey: id, AutoIncrement: true, ColumnSpecs: specs})
+}
+
+// TestIntegrationAMissingGeneratedColumnIsSeen covers a generated column declared
+// after its table was created. Generated columns left the schema comparison
+// altogether (no two engines report one alike, and SQLite's table_info does not
+// list them), so Validate passed a table without the column and the first read
+// failed with "no such column". A missing one is now a column to add: Validate
+// says so, CreateMissing and Reconcile add it over the rows present, and one that
+// is there is still never compared.
+func TestIntegrationAMissingGeneratedColumnIsSeen(t *testing.T) {
+	for _, target := range integrationTargets(t) {
+		for _, policy := range []tsq.SchemaPolicy{tsq.SchemaPolicyCreateMissing, tsq.SchemaPolicyReconcile} {
+			t.Run(target.name+"/"+string(policy), func(t *testing.T) {
+				ctx := context.Background()
+
+				dropTables(t, target, "slugged")
+
+				rt, _, err := openQuietly(target, tsq.SchemaPolicyCreateMissing, sluggedTable(""))
+				if err != nil {
+					t.Fatalf("create: %v", err)
+				}
+
+				if _, err := rt.ExecContext(ctx, "INSERT INTO slugged (title) VALUES ('Hello'), ('WORLD')"); err != nil {
+					t.Fatalf("seed: %v", err)
+				}
+
+				_ = rt.Close()
+
+				with := sluggedTable("LOWER(title)")
+
+				var mismatch *tsq.SchemaMismatchError
+				if rt, _, err := openQuietly(target, tsq.SchemaPolicyValidate, with); !errors.As(err, &mismatch) || !strings.Contains(err.Error(), "add column slug") {
+					if rt != nil {
+						_ = rt.Close()
+					}
+
+					t.Fatalf("validate over a table without the generated column: %v", err)
+				}
+
+				// A column whose expression TSQ is not told cannot be added by it.
+				if rt, _, err := openQuietly(target, policy, sluggedTable("-")); err == nil {
+					_ = rt.Close()
+
+					t.Fatal("a generated column with no expression was added")
+				}
+
+				rt, ran, err := openQuietly(target, policy, with)
+				if err != nil {
+					t.Fatalf("%s: %v", policy, err)
+				}
+
+				rows, err := with.Query().List(ctx, rt)
+				if err != nil {
+					t.Fatalf("read after %s: %v\nran:\n  %s", policy, err, strings.Join(ran, "\n  "))
+				}
+
+				_ = rt.Close()
+
+				if len(rows) != 2 || rows[0].Slug != "hello" || rows[1].Slug != "world" {
+					t.Fatalf("the rows present read %+v, %+v", rows[0], rows[1])
+				}
+
+				// The column is there now, and is never compared: no second change.
+				for _, again := range []tsq.SchemaPolicy{tsq.SchemaPolicyValidate, tsq.SchemaPolicyReconcile} {
+					rt, ran, err := openQuietly(target, again, with)
+					if err != nil {
+						t.Fatalf("%s after the column was added: %v", again, err)
+					}
+
+					_ = rt.Close()
+
+					if len(ran) != 0 {
+						t.Fatalf("%s ran DDL over a table that has the column: %v", again, ran)
+					}
 				}
 			})
 		}
