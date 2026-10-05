@@ -33,7 +33,7 @@ TSQ（Type-Safe Query）把带 `//tsq:` 指令的 Go 结构体生成为**表元�
 - **表是一个值**：生成的 `TableXxx` 内嵌 `*tsq.TableOf[Xxx, 主键类型]`，每列一个字段（`TableXxx.Title`），持有列、主键、托管列、索引和物理 schema；按主键读是 `TableXxx.Get(ctx, db, id)`。你的结构体上不需要实现任何接口。
 - **参数按名字绑定、有类型**：`TableCourse.ID.EQ(TableCourse.ID.Param())` 写进查询，执行时传 `TableCourse.ID.Bind(5)`；参数错位、类型不对都编译不过或当场报错。
 - **SQL 在执行时按方言渲染**：查询是一棵表达式树，第一次在某个方言上执行时渲染并缓存；方言能力（`FULL JOIN`、行锁、CTE）在渲染时按结构检查。
-- **显式运行时**：`Runtime` 持有表声明、方言、日志和 tracer；所有执行方法第一个参数是 `context.Context`，第二个是 `tsq.Executor`（`*Runtime`、事务或任何 `*sql.DB`）。
+- **显式运行时**：`Runtime` 持有表声明、方言、日志和 tracer；所有执行方法第一个参数是 `context.Context`，第二个是 `tsq.Executor`（`*Runtime`、`WithTx` 回调拿到的事务，或用 `tsq.WrapExecutor(句柄, 方言)` 包过的 `*sql.DB` / `*sql.Tx`；裸 `*sql.DB` 编译不过，因为 TSQ 必须知道方言才能渲染）。
 
 ## 先回答三个上手问题
 
@@ -112,7 +112,7 @@ DDL 的默认字符串映射现在更偏向“常规业务字段”：
 - `string`、`sql.NullString`、`null.String` 以及它们的 type alias / 自定义字符串类型，在**没写 `size`** 时默认生成 `VARCHAR(255)`
 - 写了 `size:N` 之后，会按方言选更合适的类型；例如 MySQL 超过 `VARCHAR` 安全范围时会自动切到 `MEDIUMTEXT` / `LONGTEXT`
 - 如果字段本身是 TSQ 不认识的自定义类型（例如实现了 `driver.Valuer` / `sql.Scanner` 的 JSON slice），可以直接在 `db` tag 里写 `type:JSON`、`type:TEXT`、`type:JSONB` 这类覆盖；TSQ 会原样写入三个方言的 DDL，并把这个 raw type 记录进 runtime/schema snapshot
-- `int` / `uint` 以及基于它们的 enum / type alias 默认按常规整型宽度生成（MySQL `INT`，Postgres `INTEGER`）；只有显式 `int64` / `uint64` 才会落到 `BIGINT`
+- `int` / `uint` 以及基于它们的 enum / type alias 默认按常规整型宽度生成（MySQL `INT`，Postgres `INTEGER`）；只有显式 `int64` / `uint64` 才会落到 `BIGINT`（PostgreSQL 没有无符号类型，`uint32` 也是 `BIGINT`、`uint64` 是 `NUMERIC(20)`，见 `skills/tsq/references/REFERENCE.md`）
 
 ### 3. 跑第一条查询
 
@@ -218,8 +218,7 @@ TSQ 当前内置的 `Dialect` 实现只有 **SQLite / MySQL / PostgreSQL**。下
 
 补充说明：
 
-- TSQ 现在只内置 **SQLite / MySQL / PostgreSQL** 三个完整闭环的 `Dialect` 实现。能力位按 **MySQL 8.0、SQLite 3.39+、PostgreSQL** 当前版本表态，不做服务器版本探测。
-- 如果你要接入自定义数据库，需要实现完整 `Dialect` 合约，而不是依赖 TSQ 在接口外推断能力、DDL 或索引行为。
+- TSQ 只支持 **SQLite / MySQL / PostgreSQL** 三个方言，实现在库内部，没有可供实现的方言接口：第四种数据库不是扩展点。能力位按 **MySQL 8.0、SQLite 3.39+、PostgreSQL** 当前版本表态，不做服务器版本探测。
 
 ## 常见边界和注意事项
 
@@ -235,7 +234,7 @@ TSQ 当前内置的 `Dialect` 实现只有 **SQLite / MySQL / PostgreSQL**。下
 - **`Delete` 永远是软删除，物理删除永远带 `Hard`**：只有声明了 `deleted_at` 的表（`*tsq.SoftDeleteTableOf`）有 `Delete` / `Restore` / `WithDeleted()`，也只有它能传给 `tsq.DeleteFrom`；没有 `deleted_at` 的表上这些编译不过，删除只有 `HardDelete` / `tsq.HardDeleteFrom`。已删行对**所有**引用这张表的查询和按条件写都不可见（JOIN 里也是）；`TableXxx.WithDeleted()` 只去掉这层过滤，经由它的删除仍是软删除。
 - **列函数是包级泛型函数**：`tsq.Upper(col)`、`tsq.Sum(col)`、`tsq.Contains(col, tsq.Val("x"))`，套在类型不合的列上编译不过。
 - **可空列是 `tsq.NullColumn[X, T]`**：按值类型比较，`SetNull` 写 NULL；可能读到 NULL 的值（可空列、外连接的表、没有 GROUP BY 的聚合）只能读进可空字段，否则查询在执行前就报错，而不是等到数据里真有 NULL 才炸。
-- **`Page` 吃类型化的 `tsq.Paging`**：HTTP 进来的 `tsq.PageRequest` 先 `Validate`，再用 `req.Paging(允许排序的列...)` 转换。
+- **`Page` 吃类型化的 `tsq.Paging`**：HTTP 进来的 `tsq.PageRequest` 用 `req.Paging(允许排序的列...)` 转换，校验就发生在这一步，非法请求得到 `*tsq.PageRequestError`。
 - **`UpdateTable` / `DeleteFrom` 按条件写**：不校验 `version` 但会自增它。
 - **`Batch*` 不自动开事务**：要全有或全无，放进 `runtime.WithTx(...)`。
 - **关键词搜索会转义 LIKE 通配符**，这是语义正确性，不是 SQL 注入防护——普通值本来就走绑定参数。

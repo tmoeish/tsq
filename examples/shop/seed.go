@@ -57,9 +57,8 @@ func Seed(ctx context.Context, rt *tsq.Runtime) error {
 		cai := &Customer{Email: "cai@example.com", Name: "Cai", Phone: new("13800000003")}
 		dan := &Customer{Email: "dan@example.com", Name: "Dan", Level: new("vip")}
 
-		// 逐行 Insert 而不是 BatchInsert：Level 为 nil 的行要把列留给数据库默认值，
-		// 批量插入会把"留不留这一列"不同的行分成不同的语句，主键顺序就不再是列出的顺序；
-		// 单行 Insert 还会把数据库填的默认值读回 Level。
+		// 逐行 Insert 而不是 BatchInsert：单行 Insert 会把数据库填的默认值读回 Level，
+		// 批量插入不回读（那要每行一次查询）。
 		for _, c := range []*Customer{ada, bob, cai, dan} {
 			if err := c.Insert(ctx, tx); err != nil {
 				return err

@@ -235,8 +235,9 @@ Supported field types:
 - `name=` is optional; an omitted name is derived from the table and the indexed **columns**:
   `//tsq:unique SKU` over the column `sku` of `products` is `ux_products_sku`
 - a field repeated inside one index is invalid, and so are two indexes over the same field list
-- on a table declaring `deleted_at`, prefer an integer tombstone when the table also has unique
-  indexes; nullable-time soft deletes are not portable there
+- on a table declaring `deleted_at`, a unique index needs an integer tombstone (`int64` / `uint64`):
+  `tsq gen` refuses a nullable time `deleted_at` beside one, since NULL never collides and the index
+  would not keep live values unique
 - on such a table a unique or plain index leads with `deleted_at`, so a deleted row does not hold a
   unique value; a full-text index covers exactly the fields listed
 
@@ -264,8 +265,9 @@ From table structs, TSQ commonly generates:
 - `TableXxx.As(alias)`, which returns an `XxxTable` with every column bound to the alias, and
   `TableXxx.WithDeleted()` on a soft-delete table, which returns an `XxxTableWithDeleted`: the same
   columns, `As` and full-text indexes, and no `GetByX` / `FindByX` / `FetchByX`. A soft-delete
-  table's unique indexes include `deleted_at`, so a value is unique only among live rows; a lookup
-  by it over deleted rows does not compile. Read deleted rows by primary key or with `Select`
+  table's unique indexes include `deleted_at`, so a value is unique only among live rows, and the
+  lookups by it are not generated there. The table's own `GetBy` / `FindBy` / `FetchBy` still compile
+  on it and refuse such a lookup when they run. Read deleted rows by primary key or with `Select`
 - per unique index, `TableXxx.GetByEmail(ctx, db, email)` (one row, `sql.ErrNoRows` when there is
   none), `TableXxx.FindByEmail(ctx, db, email)` (`nil, nil` when there is none) and
   `TableXxx.FetchByEmail(ctx, db, emails...)`; a composite index `A,B` gives
@@ -306,7 +308,7 @@ From result structs, TSQ commonly generates:
   source column (`ResultXxx.LearnerName`)
 - `ResultXxx`, the projection value; select it with `tsq.Select(ResultXxx.Columns()...)`
 
-In projects that keep schema artifacts, TSQ may also generate:
+`tsq gen` also writes, always, beside the Go files:
 
 - `sqlite.sql`
 - `mysql.sql`
@@ -451,7 +453,6 @@ Semantics:
   - `//tsq:managed version=CustomField`
 - the bare role uses the default Go field name `Version`
 - string names the **Go struct field**, not the SQL column name
-- boolean `false` disables it and is equivalent to not configuring `version`
 - the referenced field must exist on the Go struct
 - the field must be a **non-pointer integer type**
 - supported practical choices are integer fields such as `int`, `int32`, `int64`, `uint`, `uint32`, `uint64`; do not use string, time, pointer, slice, or nullable wrapper types
@@ -563,7 +564,7 @@ Supported field types:
 
 Additional rule:
 
-- if the table also declares unique indexes, prefer `int64` or `uint64` tombstone semantics for `deleted_at`; nullable-time soft-delete fields are not portable there
+- a table with unique indexes needs an `int64` or `uint64` tombstone; `tsq gen` refuses a nullable time `deleted_at` there
 
 Use `deleted_at` when a deleted row should stay in the database for audit while disappearing from
 the application. `Update` never writes `deleted_at`: only `Delete` stamps it and `Restore` clears
@@ -596,7 +597,8 @@ Typical stages include:
 - `InnerJoin(t, on, more...)` / `LeftJoin(...)` / `RightJoin(...)` / `FullJoin(...)`, which need an `ON`
   condition, and `CrossJoin(t)`, which takes none
 - `Where(cond, more...)`
-- `Search(col, more...)`
+- `Search(tsq.Searchable(col), more...)`: each search column is wrapped in `tsq.Searchable`, which
+  takes string columns only
 - `GroupBy(col, more...)`
 - `Having(cond, more...)`
 - `OrderBy(term, more...)`, then `Limit(...)`, then `Offset(...)`: in SQL's order, each at most once,
@@ -861,6 +863,7 @@ method ..." is chosen to say what to write:
 | --- | --- |
 | `missing method needsTsqVal` | wrap the literal: `col.EQ(tsq.Val(x))`, `tsq.StartsWith(col, tsq.Val("x"))` |
 | `missing method needsTsqVals` | wrap the slice: `col.In(tsq.Vals(ids...))` |
+| `does not implement tsq.SearchColumn (missing method searchable)` | wrap the column: `Search(tsq.Searchable(col))` |
 | `wrong type for method valueOfType` / `valuesOfType`, `have ... want ...` | give the value the column's type, `tsq.Val(int64(90))`, or compare with a column of that type |
 | `missing method needsRuntimeOrWrapExecutor` | pass the `*tsq.Runtime`, the `WithTx` executor, or `tsq.WrapExecutor(db, dialect.X)` instead of a `*sql.DB` / `*sql.Tx` |
 | `WhereStage ... has no field or method Where` | pass every condition to the one `Where(a, b, ...)`; `tsq.Or(...)` for OR |
@@ -1064,8 +1067,9 @@ Row writes are methods on the table descriptor, and the generated row methods ca
   same primary key
 - `TableCourse.BatchInsert(ctx, db, rows, options...)`, and `BatchUpdate`, `BatchHardDelete`, and
   `BatchDelete` on a soft-delete table
-- `TableCourse.Upsert(ctx, db, &row, key...)` and `BatchUpsert(ctx, db, rows, key, options...)`
-  insert or update by a key (see "Upserting rows" below)
+- `TableCourse.Upsert(ctx, db, &row, conflict...)` and `BatchUpsert(ctx, db, rows, conflict, options...)`
+  insert or update by a key, `tsq.OnConflict(key...)` (see "Upserting rows" below). `Upsert` takes at
+  most one `Conflict`, so leaving it out means the primary key; passing two is an error
 - `TableCourse.BatchHardDeleteByPK(ctx, db, ids, options...)`, and `BatchDeleteByPK` on a
   soft-delete table, delete by key without loading the rows; `ids` is a slice of the primary key's
   type. The keys that match are deleted; a key with no row (or, for `BatchDeleteByPK`, whose row is
