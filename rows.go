@@ -1371,6 +1371,10 @@ func (t *TableOf[R, K]) updateChunk(ctx context.Context, db Executor, scope exec
 	var written []bool
 
 	if err := t.execCounted(ctx, db, w, def, "update", rows, t.updateMismatch(ctx, db, scope, def, version, cols, rows, &written)); err != nil {
+		if len(rows) > 1 && mysqlCannotTypeTheList(scope.dialect, err) {
+			return t.updateOneByOne(ctx, db, scope, def, cols, version, rows)
+		}
+
 		if version != nil {
 			for i, row := range rows {
 				if i < len(written) && written[i] {
@@ -1386,6 +1390,56 @@ func (t *TableOf[R, K]) updateChunk(ctx context.Context, db Executor, scope exec
 		for _, row := range rows {
 			incrementVersion(field(row, version))
 		}
+	}
+
+	return nil, nil
+}
+
+// mysqlCannotTypeTheList reports the error MySQL has for the list of a joined
+// update when a written column, or the key, is of a character set other than the
+// connection's (a latin1 table read over a utf8mb4 connection, which is what a
+// schema older than utf8mb4 is): "Illegal mix of collations ... for operation
+// 'UNION'". The first branch of the list has the column's character set, the
+// parameters after it the connection's, and the server converts a parameter into
+// a column's character set where it compares or assigns the two, but not where it
+// gives a UNION one type. It refuses the statement as it reads it, before any row
+// is written.
+func mysqlCannotTypeTheList(d sqld.Dialect, err error) bool {
+	if d.Name() != tsqdialect.MySQL {
+		return false
+	}
+
+	// ER_CANT_AGGREGATE_2COLLATIONS, _3COLLATIONS and _NCOLLATIONS.
+	number, ok := mysqlErrorNumber(err)
+
+	return ok && (number == 1267 || number == 1270 || number == 1271)
+}
+
+// updateOneByOne writes rows a statement each, which is what a joined update the
+// server cannot type falls back to: a single-row UPDATE compares and assigns its
+// parameters, and those the server converts. The rows before one that fails are
+// written, as the statements of a batch before a failed one are; a stale row
+// does not stop the ones after it.
+func (t *TableOf[R, K]) updateOneByOne(ctx context.Context, db Executor, scope execScope, def *tableDef, cols []*columnCore, version *columnCore, rows []*R) ([]bool, error) {
+	var failures shortfalls
+
+	written := make([]bool, len(rows))
+
+	for i := range rows {
+		_, err := t.updateChunk(ctx, db, scope, def, cols, version, rows[i:i+1])
+		if err == nil {
+			written[i] = true
+
+			continue
+		}
+
+		if !failures.add(err, false) {
+			return written, errors.Join(err, failures.err(def.name, "update", len(rows)))
+		}
+	}
+
+	if err := failures.err(def.name, "update", len(rows)); err != nil {
+		return written, err
 	}
 
 	return nil, nil
@@ -1420,7 +1474,9 @@ func updateRowValue(i int) string { return fmt.Sprintf("tsq_%d", i) }
 //     joins to nothing.
 //   - MySQL converts a VALUES row to text too, and refuses bytes that are not
 //     text. The list is a UNION ALL whose first branch selects the columns from
-//     the table over no rows, which types the branches after it.
+//     the table over no rows, which types the branches after it. Where a column
+//     is of another character set than the connection, the server refuses to
+//     type the list at all, and the rows are written one by one (updateOneByOne).
 //
 // The assignment itself checks a value as a single-row UPDATE does: a string
 // longer than its column is refused, never cut.

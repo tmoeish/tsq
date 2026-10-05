@@ -117,6 +117,8 @@
   空分支加 `UNION ALL`），理由和死胡同在 `../memory/write.md`。改它要三样一起看：`TestBatchUpdateJoinsTheRowsOnEveryDialect` 钉着三段 SQL，
   `TestIntegrationBatchUpdateCarriesEveryValue` 在真实引擎上验值（字节、JSON、无符号大数、超长字符串被拒、过期行被点名），行列表的列名
   （`tsq_k` / `tsq_n` / `tsq_<i>`）不能和表的列撞——墓碑过滤和 SET 的左侧都是不带表名的列。
+  MySQL 上列的字符集不是连接的字符集时这条语句被服务器拒绝，`updateChunk` 改走逐行（`updateOneByOne`）：**新的多行写法要在 latin1 表上跑一遍**，
+  上面那条集成测试在 MySQL 上会把表转成 latin1 再跑一次。
 - **批量写的短缺一律回读**：`BatchUpdate`（`updateMismatch`）、`BatchDelete` / `BatchRestore`（`tombstoneShortfall`）、
   `BatchHardDelete`（`hardDeleteShortfall`）在匹配行数不够时回读这一块，只给写成的行改内存状态，`Keys` 列出其余的行；
   跨语句的汇总走 `shortfalls`（后面的语句出别的错时也不丢前面的 `Keys`）。新增一条"一条语句写多行"的写路径要接进同一套。

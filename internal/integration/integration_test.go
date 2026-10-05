@@ -2319,9 +2319,31 @@ var parcels = func() *tsq.TableOf[parcel, string] {
 // refused bytes that are not text. The values must arrive as a single-row update
 // writes them, a string longer than its column must be refused and not cut, and a
 // stale row must still be told from the rows that were written.
+//
+// On MySQL it runs again over a table of another character set than the
+// connection's, which is what a schema older than utf8mb4 is: the server refuses
+// to give the list a type there ("Illegal mix of collations ... for operation
+// 'UNION'"), and the rows are written one by one.
 func TestIntegrationBatchUpdateCarriesEveryValue(t *testing.T) {
+	var targets []integrationTarget
+
 	for _, target := range integrationTargets(t) {
-		t.Run(target.name, func(t *testing.T) {
+		targets = append(targets, target)
+
+		if target.name == "mysql" {
+			targets = append(targets, target)
+		}
+	}
+
+	for i, target := range targets {
+		latin1 := i > 0 && targets[i-1].name == target.name
+
+		name := target.name
+		if latin1 {
+			name += " over a latin1 table"
+		}
+
+		t.Run(name, func(t *testing.T) {
 			ctx := context.Background()
 
 			dropTables(t, target, "parcels")
@@ -2332,6 +2354,12 @@ func TestIntegrationBatchUpdateCarriesEveryValue(t *testing.T) {
 			}
 
 			defer func() { _ = rt.Close() }()
+
+			if latin1 {
+				if _, err := rt.ExecContext(ctx, "ALTER TABLE parcels CONVERT TO CHARACTER SET latin1"); err != nil {
+					t.Fatalf("convert the table: %v", err)
+				}
+			}
 
 			// SQLite's integers are signed: database/sql refuses a larger one there.
 			big := uint64(1<<63) + 5
