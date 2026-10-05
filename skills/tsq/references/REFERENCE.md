@@ -192,7 +192,7 @@ Rules:
 - a generated column is created with the table and never altered afterwards: every dialect reports
   it differently, so the schema policies leave it alone. Adding one to a table that already exists
   is a migration
-- a type that implements `driver.Valuer` or `sql.Scanner` (a JSON slice, a UUID, a nullable wrapper) **must** declare `type:`: what it stores is up to its `Value` method, which neither its Go type nor its underlying type tells, and `tsq gen` refuses to guess. A named basic type such as `type Level int` needs neither method, because database/sql stores it as its underlying type, and its column type is derived
+- a type that implements `driver.Valuer` or `sql.Scanner` (a JSON slice, a UUID, a nullable wrapper) **must** declare `type:`: what it stores is up to its `Value` method, which neither its Go type nor its underlying type tells, and `tsq gen` refuses to guess. A named basic type such as `type Level int` needs neither method, because database/sql stores it as its underlying type, and its column type is derived (a named bool included: MySQL and SQLite report a boolean as an integer, and TSQ reads it into the named type)
 - a codec type that is a nullable form (a pointer, or a struct with a `Valid bool` and a `Scan` method) is a `NullColumn` in Go and a column that accepts NULL in the DDL
 - `type:` is emitted verbatim to generated dialect DDL, so only reuse the same value across dialects when that is actually correct
 - dialects may still choose a more suitable large-text type for oversized strings; for example, MySQL upgrades very large strings to `MEDIUMTEXT` / `LONGTEXT`, and PostgreSQL writes `TEXT` above 10485760 characters, the longest `VARCHAR` it declares
@@ -531,7 +531,7 @@ TSQ stamps `created_at`, `updated_at` and time tombstones in **UTC**, and binds 
 it sends to the database in UTC, whatever zone the value was in. SQLite keeps a time as the text of
 the value, and text in two zones does not sort the way the times do; UTC everywhere makes rows
 written by processes in different zones, or across a daylight-saving change, compare correctly.
-Times read back are in UTC (or in the zone the driver is configured for). Stamps are truncated to
+Times read back are in UTC. A `time.Time` left at its zero value is stored as year 1 on every engine (the MySQL driver alone would write `0000-00-00`, which MySQL refuses). Stamps are truncated to
 microseconds, the precision MySQL (`DATETIME(6)`, what TSQ declares for a time column) and
 PostgreSQL store, so a stamped row equals the row read back.
 
@@ -1032,7 +1032,7 @@ Reads are methods on the built `*Query[O]`, and on every complete stage, which b
 but `ListIn`, a generic method, which an interface cannot declare: call it on the `*Query`) (build once and reuse the `*Query` on hot paths); `args` are the `tsq.Arg` values made by `Bind`:
 
 - `query.List(ctx, db, args...)` → `[]*O, error`; no rows is an empty list, never nil
-- `query.ListIn(ctx, db, listParam, values, args...)` → `[]*O, error`: `List` for a list parameter that may hold more values than one statement can bind (65535 on MySQL and PostgreSQL, 32766 on SQLite). Values are deduplicated and split; a list that fits in one statement runs as one and keeps the query's `ORDER BY`, and the parts of a split list share one snapshot and are concatenated, each in that order, with no order across them; a row of a table that two parts both matched (two values the database takes as one key, such as `"Ada"` and `"ada"` under a case-insensitive collation) is kept once. The query must use the parameter once, as `col.In(param)` passed directly to `Where`, and have no `GROUP BY`, aggregate, `DISTINCT`, set operation or `LIMIT`; anything else is refused, because splitting would change which rows come back. `TableXxx.Fetch` and `FetchBy` use it
+- `query.ListIn(ctx, db, listParam, values, args...)` → `[]*O, error`: `List` for a list parameter that may hold more values than one statement can bind (65535 on MySQL and PostgreSQL, 32766 on SQLite). Values are deduplicated and split; a list that fits in one statement runs as one and keeps the query's `ORDER BY`, and the parts of a split list share one snapshot and are concatenated, each in that order, with no order across them; in a query that reads one table, a row that two parts both matched (two values the database takes as one key, such as `"Ada"` and `"ada"` under a case-insensitive collation) is kept once, by primary key; a query that joins keeps every row its parts returned, since a join repeats rows of its own. The query must use the parameter once, as `col.In(param)` passed directly to `Where`, and have no `GROUP BY`, aggregate, `DISTINCT`, set operation or `LIMIT`; anything else is refused, because splitting would change which rows come back. `TableXxx.Fetch` and `FetchBy` use it
 - `query.Iter(ctx, db, args...)` → `iter.Seq2[*O, error]`: `for row, err := range query.Iter(ctx, db) { ... }` scans one row at a time, so exports and batch jobs do not hold the whole result in memory. `break` stops the query; a failure is yielded once with a nil row. The rows hold a connection until the loop ends, so inside a transaction finish the loop before running another statement on it
 - `query.Get(ctx, db, args...)` → `*O, error` (an error wrapping `sql.ErrNoRows` when not found)
 - `query.Find(ctx, db, args...)` → `*O, error` (`nil, nil` when not found)
@@ -1220,7 +1220,7 @@ Rules:
 `Runtime` is the TSQ-managed executor and runtime container.
 
 - it implements `Executor` directly
-- use `tsq.Open(ctx, "sqlite", dsn, database.TSQTables())` for one generated package; `TSQTables()` returns the package's `[]tsq.Table`. A MySQL DSN must set `parseTime` (`true` or `1`; `Open` refuses one that does not; a pool handed to `NewRuntime` needs it too), or times are read as bytes
+- use `tsq.Open(ctx, "sqlite", dsn, database.TSQTables())` for one generated package; `TSQTables()` returns the package's `[]tsq.Table`. A MySQL DSN must set `parseTime` (`true` or `1`; `Open` refuses one that does not; a pool handed to `NewRuntime` needs it too), or times are read as bytes It must also leave `loc` at the driver's default, UTC: with `loc=Local` the driver stores TSQ's UTC times in that zone after all and reads the times the database fills (`default:CURRENT_TIMESTAMP`, written in UTC) as if they were in it, hours off and without an error, so `Open` refuses a `loc` other than `UTC`. Convert for display with `time.Time.In`
 - combine multiple generated packages by concatenating their `TSQTables()` slices before calling `Open` or `NewRuntime`
 - `Open` opens the pool itself and resolves the dialect from `driverName`; the context bounds the ping and any bootstrap DDL
 - `tsq.NewRuntime(ctx, db, dialect.Postgres, tables, options...)` builds a runtime over a pool the caller already opened, which is how an instrumented or specially configured `*sql.DB` keeps working while still getting SQL logging, tracers and the page-size cap
@@ -1324,7 +1324,7 @@ another result, which has no columns of its own.
 
 TSQ supports more than simple list queries. Common advanced shapes include:
 
-- aggregate queries with `GroupBy(...)` and `Having(...)`. `Build()` refuses a selected, `HAVING` or `ORDER BY` column that is neither grouped nor inside an aggregate (SQLite would return an arbitrary row's value, PostgreSQL refuses it); grouping by a table's primary key allows the table's other columns, and a column read only inside a grouped expression is grouped (`GroupBy(tsq.Upper(note))` allows `Having(tsq.Upper(note).NE(...))`)
+- aggregate queries with `GroupBy(...)` and `Having(...)`. `Build()` refuses a selected, `HAVING` or `ORDER BY` column that is neither grouped nor inside an aggregate (SQLite would return an arbitrary row's value, PostgreSQL refuses it); grouping by a table's primary key allows the table's other columns, and a column read only inside a grouped expression is grouped (`GroupBy(tsq.Upper(note))` allows `Having(tsq.Upper(note).NE(...))`). PostgreSQL and SQLite run such a query; MySQL recognizes a grouped expression only where the select list or `ORDER BY` repeats it whole, and refuses it in `HAVING` or inside another expression when the query runs (errors 1054 and 1055): there, group in a CTE and filter its output
 - `CASE` expressions: `tsq.Case(cond, col).When(cond, tsq.Val("x")).Else(tsq.Val("y")).End()` (the first branch is required, and fixes the type; `Else` comes last and is followed only by `End`); results are typed, so a branch of another type does not compile. On PostgreSQL a CASE whose results are all bound values is cast to the result type, since PostgreSQL would read them as text
 - `tsq.Coalesce(col, rhs)` and `tsq.NullIf(col, rhs)`, with `tsq.Val` for a fixed value
 - subqueries such as `In(subquery)`, `tsq.Exists(subquery)`, and typed RHS comparisons like `EQ(subquery)` or `tsq.Like(col, subquery)`. An `In` subquery may set `Limit` (it is written as a derived table, which MySQL requires). A subquery cannot use `Search`: the keyword is an argument of the statement that runs, so `Build()` refuses it instead of dropping the predicate
@@ -1378,7 +1378,17 @@ differ:
   or `Coalesce` it
 - `Length` counts characters (MySQL's `LENGTH` counts bytes, so it is `CHAR_LENGTH` there)
 - `Substring` uses a 1-based start
-- `Round` works on floating-point columns on PostgreSQL too (it rounds through `NUMERIC`)
+- `Round` rounds a tie away from zero on every dialect (`2.5` is `3`, `-2.5` is `-3`): PostgreSQL and MySQL round a
+  floating-point column through an exact decimal, since PostgreSQL has no `ROUND(double precision, n)` and MySQL
+  rounds a `DOUBLE` to the nearest even digit (`2.5` is `2`)
+- `Avg` of an integer column is a `float64` with all its digits; MySQL's own `AVG` of integers keeps four
+  decimals (`1.6667`), so the column is averaged as a `DOUBLE` there
+- `Max` / `Min` take any column type, and what can be ordered is the engine's to say: PostgreSQL has no
+  `MAX(boolean)`. A time read through `Max`, `Min` or `Coalesce` is a `time.Time` on SQLite too
+- `Coalesce(col, fallback)` is NULL only where both are: with `tsq.Val(x)` or a NOT NULL column as the
+  fallback it reads into a field that cannot hold NULL
+- `Ceil` / `Floor` need SQLite's math functions: `modernc.org/sqlite` has them, and `mattn/go-sqlite3` only when
+  built with `-tags sqlite_math_functions` ("no such function: CEIL" otherwise)
 
 A table's search columns must be string-kind: `tsq.Searchable(col)` is how a `TableSpec` lists
 them, and `//tsq:search` / `//tsq:fulltext` accept `string` fields and named types whose underlying type is `string`.

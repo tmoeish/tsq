@@ -314,7 +314,7 @@ func (s *statement) assemble(d sqld.Dialect, bound argSet) (string, []any, error
 	)
 
 	placeholder := func(v any) {
-		args = append(args, bindValue(v))
+		args = append(args, bindValueFor(d, v))
 		sql.WriteString(d.Placeholder(len(args) - 1))
 	}
 

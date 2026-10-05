@@ -288,3 +288,31 @@ func TestRebindNullKeepsTheNullableType(t *testing.T) {
 		t.Fatal("RebindNull(nil): want an error")
 	}
 }
+
+// TestCoalesceIsNullOnlyWhereBothAre covers Coalesce over a nullable column with a
+// NOT NULL column as the fallback: it was still called nullable, and the error
+// reading it into a plain field said to use Coalesce.
+func TestCoalesceIsNullOnlyWhereBothAre(t *testing.T) {
+	type result struct {
+		Rating int64
+		Text   string
+	}
+
+	rating := func(r *result) *int64 { return &r.Rating }
+
+	settled := Select(MapInto(Coalesce[int64](Note_Rating, Note_ID), rating)).From(Notes).MustBuild()
+	if settled.scanErr != nil {
+		t.Fatalf("a nullable column over a NOT NULL one: %v", settled.scanErr)
+	}
+
+	both := Select(MapInto(Coalesce[string](Note_Body, Note_Title), func(r *result) *string { return &r.Text })).From(Notes).MustBuild()
+	if both.scanErr == nil {
+		t.Fatal("two nullable columns read into a field that cannot hold NULL")
+	}
+
+	// The fallback's table is filled with NULLs by the outer join.
+	outer := Select(MapInto(Coalesce[int64](Note_Rating, User_ID), rating)).From(Notes).LeftJoin(Users, User_ID.EQ(Note_ID)).MustBuild()
+	if outer.scanErr == nil {
+		t.Fatal("a fallback from the optional side of an outer join read into a field that cannot hold NULL")
+	}
+}

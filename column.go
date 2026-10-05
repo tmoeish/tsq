@@ -166,6 +166,9 @@ type columnCore struct {
 	// its name, the name a CTE or a set operation's ORDER BY looks it up by.
 	bare bool
 	scan scanPointer
+	// adapt wraps the scan pointer of a field type database/sql does not read
+	// from every driver (see scanAdapterFor); nil for every other type.
+	adapt scanAdapter
 	// get reads the value the row holds, without reflection: the write path binds
 	// one value per column per row, which is where reflection cost shows up.
 	get func(holder any) any
@@ -179,6 +182,21 @@ type columnCore struct {
 	// rebinding of the column so that Bind finds them.
 	param *paramSpec
 	list  *paramSpec
+}
+
+// target is what a value of the column is scanned into for holder: the field,
+// or its adapter. scan stays the field pointer itself, which identifies it.
+func (c *columnCore) target(holder any) any {
+	return c.adapted(c.scan(holder))
+}
+
+// adapted wraps a pointer to a value of the column's field type for scanning.
+func (c *columnCore) adapted(field any) any {
+	if c.adapt != nil {
+		return c.adapt(field)
+	}
+
+	return field
 }
 
 func (c *columnCore) err() error {
@@ -331,6 +349,7 @@ func newColumn[O, T any, K comparable](table *TableOf[O, K], name, jsonName stri
 			bare: []columnKey{{table.TableName(), name}},
 		}
 		core.scan = func(holder any) any { return field(holder.(*O)) }
+		core.adapt = scanAdapterFor(reflect.TypeFor[T]())
 		core.get = func(holder any) any { return *field(holder.(*O)) }
 	}
 
@@ -653,6 +672,7 @@ func mapInto[Target, T, F any](source ValueColumn[T], field func(*Target) *F, nu
 		next.info = exprInfo{err: fmt.Errorf("projection of %s has a nil field accessor", next.name)}
 	} else {
 		next.scan = func(holder any) any { return field(holder.(*Target)) }
+		next.adapt = scanAdapterFor(reflect.TypeFor[F]())
 	}
 
 	return columnImpl[Target, T]{exprImpl[T]{c: &next}}

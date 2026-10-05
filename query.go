@@ -167,7 +167,7 @@ func (q *Query[O]) scan(rows interface{ Scan(...any) error }) (*O, error) {
 
 	dest := make([]any, len(q.spec.Selects))
 	for i, col := range q.spec.Selects {
-		dest[i] = col.core().scan(row)
+		dest[i] = col.core().target(row)
 	}
 
 	if err := rows.Scan(dest...); err != nil {
@@ -379,6 +379,13 @@ func (q *Query[O]) ListIn[T comparable](ctx context.Context, db Executor, param 
 				rows = append(rows, list...)
 			}
 
+			// A join repeats a row once for each row it joins to, in whichever
+			// part matches it: those repeats are the query's answer, and dropping
+			// them made a long list return fewer rows than a short one.
+			if len(q.spec.Joins) > 0 {
+				return rows, nil
+			}
+
 			return dedupeByPrimaryKey(rows), nil
 		})
 	})
@@ -387,8 +394,9 @@ func (q *Query[O]) ListIn[T comparable](ctx context.Context, db Executor, param 
 // dedupeByPrimaryKey drops a row of a table that an earlier part of a split ListIn
 // already returned. Two values the database takes as one key ("Ada" and "ada"
 // under a case-insensitive collation, one instant in two zones) are two values to
-// Go, and in two parts each matched the row. A result that is not a table's rows,
-// or a row without its key selected, is left as it is.
+// Go, and in two parts each matched the row. It is for a query that reads one
+// table, where a row can only come back once. A result that is not a table's
+// rows, or a row without its key selected, is left as it is.
 func dedupeByPrimaryKey[O any](rows []*O) []*O {
 	found, ok := rowTables.Load(reflect.TypeFor[O]())
 	if !ok {

@@ -61,8 +61,20 @@ func Open(
 		return nil, err
 	}
 
-	if sqlDialect.Name() == tsqdialect.MySQL && !mysqlParsesTime(dsn) {
-		return nil, errors.New("the MySQL DSN must set parseTime=true, or times are read as bytes and no timestamp can be read back")
+	if sqlDialect.Name() == tsqdialect.MySQL {
+		if !mysqlParsesTime(dsn) {
+			return nil, errors.New("the MySQL DSN must set parseTime=true, or times are read as bytes and no timestamp can be read back")
+		}
+
+		// The driver writes a time in loc and reads a DATETIME as one in loc. TSQ
+		// binds every time in UTC and has the database fill times in UTC
+		// (default:CURRENT_TIMESTAMP is UTC_TIMESTAMP): under another loc the stamps
+		// are stored in that zone after all, and a time the database filled is read
+		// back shifted by its offset, without an error.
+		if loc, set := mysqlDSNParam(dsn, "loc"); set && loc != "UTC" {
+			return nil, fmt.Errorf("the MySQL DSN sets loc=%s; TSQ stores every time in UTC, and with another loc the driver stores times in that zone "+
+				"and reads the times the database fills as if they were in it: drop loc (UTC is the driver's default) and convert for display with time.Time.In", loc)
+		}
 	}
 
 	db, err := sql.Open(driverName, dsn)
@@ -359,25 +371,34 @@ func resolveRuntimeDialect(driverName string) (sqld.Dialect, error) {
 // driver reads it: the last parseTime parameter, true for 1, true, TRUE or True. A
 // substring check refused parseTime=1, which the driver takes.
 func mysqlParsesTime(dsn string) bool {
-	_, query, ok := strings.Cut(dsn[strings.LastIndex(dsn, "/")+1:], "?")
-	if !ok {
-		return false
-	}
+	setting, _ := mysqlDSNParam(dsn, "parseTime")
 
-	values, err := url.ParseQuery(query)
-	if err != nil {
-		return false
-	}
-
-	settings := values["parseTime"]
-	if len(settings) == 0 {
-		return false
-	}
-
-	switch settings[len(settings)-1] {
+	switch setting {
 	case "1", "true", "TRUE", "True":
 		return true
 	default:
 		return false
 	}
+}
+
+// mysqlDSNParam reads a parameter of a go-sql-driver DSN as the driver reads it:
+// the last one of that name, unescaped. The root package imports no driver, so the
+// query string is parsed here.
+func mysqlDSNParam(dsn, name string) (string, bool) {
+	_, query, ok := strings.Cut(dsn[strings.LastIndex(dsn, "/")+1:], "?")
+	if !ok {
+		return "", false
+	}
+
+	values, err := url.ParseQuery(query)
+	if err != nil {
+		return "", false
+	}
+
+	settings := values[name]
+	if len(settings) == 0 {
+		return "", false
+	}
+
+	return settings[len(settings)-1], true
 }

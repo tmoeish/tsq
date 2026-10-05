@@ -94,6 +94,30 @@ func validatePredicateValue(arg any) error {
 // bindValue is the value TSQ passes to the driver for v. Times go in UTC, whatever
 // zone the caller's value is in: SQLite keeps a time as the text of the value, and
 // text in two zones does not sort or compare the way the times do.
+// bindValueFor is bindValue for the dialect the statement runs on. The MySQL
+// driver writes the zero time.Time as '0000-00-00', which MySQL refuses in its
+// default mode ("Incorrect datetime value") where PostgreSQL and SQLite store
+// year 1: a row whose NOT NULL time field was never set could not be inserted
+// there. It is bound as the year 1 it is, and reads back as the zero time.
+func bindValueFor(d sqld.Dialect, v any) any {
+	bound := bindValue(v)
+
+	if d != nil && d.Name() == sqld.MySQL {
+		switch t := bound.(type) {
+		case time.Time:
+			if t.IsZero() {
+				return "0001-01-01 00:00:00"
+			}
+		case *time.Time:
+			if t != nil && t.IsZero() {
+				return "0001-01-01 00:00:00"
+			}
+		}
+	}
+
+	return bound
+}
+
 func bindValue(v any) any {
 	// A []byte field, or one of a named byte-slice type (json.RawMessage), is a
 	// NOT NULL column, and its zero value is nil, which the drivers bind as NULL:

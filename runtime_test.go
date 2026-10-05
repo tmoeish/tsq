@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 	sqld "github.com/tmoeish/tsq/v5/internal/sqldialect"
@@ -407,6 +408,63 @@ func TestMySQLParseTimeIsReadAsTheDriverReadsIt(t *testing.T) {
 	} {
 		if got := mysqlParsesTime(dsn); got != want {
 			t.Errorf("mysqlParsesTime(%q) = %v; want %v", dsn, got, want)
+		}
+	}
+}
+
+// TestOpenRefusesAMySQLLocOtherThanUTC covers the go-sql-driver loc parameter.
+// The driver writes a time in loc and reads a DATETIME as one in loc, while TSQ
+// stores every time in UTC and has the database fill times in UTC: with loc=Local
+// the stamps were stored in local time after all, and a time the database filled
+// was read back shifted by the zone's offset, without an error.
+func TestOpenRefusesAMySQLLocOtherThanUTC(t *testing.T) {
+	ctx := context.Background()
+
+	for _, dsn := range []string{
+		"u:p@tcp(127.0.0.1:3306)/db?parseTime=true&loc=Local",
+		"u:p@tcp(127.0.0.1:3306)/db?loc=Asia%2FShanghai&parseTime=1",
+		"u:p@tcp(127.0.0.1:3306)/db?parseTime=true&loc=UTC&loc=Local",
+	} {
+		if _, err := Open(ctx, "mysql", dsn, nil); err == nil || !strings.Contains(err.Error(), "loc=") {
+			t.Errorf("Open(%q) = %v; want it to refuse the loc", dsn, err)
+		}
+	}
+
+	for dsn, want := range map[string]string{
+		"u:p@tcp(h:3306)/db?parseTime=true":                   "",
+		"u:p@tcp(h:3306)/db?parseTime=true&loc=UTC":           "UTC",
+		"u:p@tcp(h:3306)/db?loc=Asia%2FTokyo&parseTime=true":  "Asia/Tokyo",
+		"u:p@tcp(h:3306)/db?loc=Local&parseTime=true&loc=UTC": "UTC",
+		"u:pa/ss@tcp(h:3306)/db?parseTime=true&loc=Local":     "Local",
+	} {
+		if got, _ := mysqlDSNParam(dsn, "loc"); got != want {
+			t.Errorf("loc of %q = %q, want %q", dsn, got, want)
+		}
+	}
+}
+
+// TestZeroTimeIsBoundAsYearOneOnMySQL covers a time field never set. The MySQL
+// driver writes the zero time.Time as '0000-00-00', which MySQL refuses in its
+// default mode, where PostgreSQL and SQLite store year 1.
+func TestZeroTimeIsBoundAsYearOneOnMySQL(t *testing.T) {
+	var zero time.Time
+
+	if got := bindValueFor(sqld.MySQLDialect{}, zero); got != "0001-01-01 00:00:00" {
+		t.Errorf("mysql binds the zero time as %#v", got)
+	}
+
+	if got := bindValueFor(sqld.MySQLDialect{}, &zero); got != "0001-01-01 00:00:00" {
+		t.Errorf("mysql binds a pointer to the zero time as %#v", got)
+	}
+
+	now := time.Now()
+	if got, ok := bindValueFor(sqld.MySQLDialect{}, now).(time.Time); !ok || !got.Equal(now) || got.Location() != time.UTC {
+		t.Errorf("mysql binds a time as %#v", got)
+	}
+
+	for _, d := range []sqld.Dialect{sqld.PostgresDialect{}, sqld.SQLiteDialect{}} {
+		if got, ok := bindValueFor(d, zero).(time.Time); !ok || !got.IsZero() {
+			t.Errorf("%s binds the zero time as %#v", d.Name(), got)
 		}
 	}
 }

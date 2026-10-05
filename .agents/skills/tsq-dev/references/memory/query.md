@@ -81,3 +81,14 @@ SQL 标准和 MySQL / PostgreSQL 让 `INTERSECT` 比 `UNION` / `EXCEPT` 结合�
 ## 决定：算术是包级泛型函数，`Div` 的可空性按最坏情况 (2026-09-29)
 
 除数不是非零 `tsq.Val` 的 `Div` 算可能为 NULL（MySQL / SQLite 除零得 NULL），宁可逼使用者 `Coalesce`；MySQL 的整数除法写 `DIV`（`/` 返回小数）。
+
+## 真实引擎上才分得出的查询行为 (2026-10-05，第五轮审计)
+
+同一批查询在三个引擎上比结果，一次找出四轮读代码没找到的事；**新增函数或谓词先进 `internal/integration/query_test.go` 再合**。
+- **`Round` / `Avg` 在 MySQL 上对齐而不是只写文档**（维护者定案）：`DOUBLE` 的 `ROUND` 是银行家舍入，经 `DECIMAL(65,30)` 才四舍五入；`CAST`
+  对超过 35 位整数的值**静默截到上限**，所以外面套 `CASE WHEN ABS(x) < 1E30`。`AVG(整数)` 只留四位小数，写成 `AVG(x + 0E0)`。
+- **SQLite 驱动只对声明成时间的列返回 `time.Time`**，`MAX(时间)` 是字符串；修在扫描目标（`scan.go`），SQL 里没有把表达式"声明成时间"的写法。
+  自定义 bool 同理；否掉"生成器拒绝它"——在 PostgreSQL 上它本来是好的。
+- **`ListIn` 的按主键去重只对单表查询成立**：为排序规则相等的键加的去重把 join 重复的行也去掉了；带 join 时两种重复分不开，宁可多不可少。
+- **`Max` / `Min` 不收紧类型约束**（PG 没有 `MAX(boolean)`，但"可排序"的约束会挡住结构体形态的 decimal）；`GROUP BY f(x)` 配 `HAVING f(x)` 在
+  MySQL 上报 1054 而 `Build` 仍放行——方言限制归执行期，第四轮写的"三个库都合法"是没跑过的断言。

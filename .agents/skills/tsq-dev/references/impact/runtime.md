@@ -4,8 +4,10 @@
 
 ## 加了 Runtime 的构造器或选项
 
-- MySQL DSN 的 `parseTime` 按驱动的规则读（`mysqlParsesTime`：最后一个 `parseTime`，`1`/`true`/`TRUE`/`True`）；
-  根包不 import 驱动（`TestRootPackageImportsNoDriver`），所以自己解析查询串，别退回子串匹配。
+- MySQL DSN 的参数按驱动的规则读（`mysqlDSNParam`：同名取最后一个、做 URL 解码；`parseTime` 认 `1`/`true`/`TRUE`/`True`）；
+  根包不 import 驱动（`TestRootPackageImportsNoDriver`），所以自己解析查询串，别退回子串匹配。`Open` 还拒绝 `loc` 不是 `UTC` 的 DSN：
+  驱动按 `loc` 写入和解读 `DATETIME`，会让 TSQ 的 UTC 时间按本地落库、把数据库填的 UTC 时间读偏。绑定出口分方言（`bindValueFor`）：
+  MySQL 驱动把零值时间写成 `0000-00-00`，这里按公元 1 年绑定。
 
 - **先决定连接池的所有权**：`Runtime.ownsDB` 决定 `Close()` 关不关它。新构造器如果接管调用方的池，
   `ownsDB` 必须是 false，否则 `Close()` 会打断调用方在 TSQ 之外的用途。正反两侧都要测。
