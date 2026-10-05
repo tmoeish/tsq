@@ -2431,3 +2431,49 @@ func TestIntegrationBatchUpdateCarriesEveryValue(t *testing.T) {
 		})
 	}
 }
+
+// TestIntegrationAnUnsetRawMessageIsTheJSONNull covers a json.RawMessage field
+// that was never set. A nil byte slice is bound as empty bytes, which is not
+// JSON: MySQL and PostgreSQL refused the row for a JSON column. It is the JSON
+// null, as encoding/json writes a nil RawMessage.
+func TestIntegrationAnUnsetRawMessageIsTheJSONNull(t *testing.T) {
+	for _, target := range integrationTargets(t) {
+		t.Run(target.name, func(t *testing.T) {
+			ctx := context.Background()
+
+			dropTables(t, target, "parcels")
+
+			rt, _, err := openQuietly(target, tsq.SchemaPolicyCreateMissing, parcels)
+			if err != nil {
+				t.Fatalf("open: %v", err)
+			}
+
+			defer func() { _ = rt.Close() }()
+
+			rows := []*parcel{{Code: "a"}, {Code: "b", Doc: json.RawMessage{}}, {Code: "c", Doc: json.RawMessage(`[1]`)}}
+			if err := parcels.Insert(ctx, rt, rows[0]); err != nil {
+				t.Fatalf("insert a row whose document was never set: %v", err)
+			}
+
+			if err := parcels.BatchInsert(ctx, rt, rows[1:]); err != nil {
+				t.Fatalf("batch insert: %v", err)
+			}
+
+			rows[2].Doc = nil
+			if err := parcels.BatchUpdate(ctx, rt, rows[1:]); err != nil {
+				t.Fatalf("batch update to an unset document: %v", err)
+			}
+
+			stored, err := parcels.Fetch(ctx, rt, "a", "b", "c")
+			if err != nil {
+				t.Fatalf("fetch: %v", err)
+			}
+
+			for _, row := range stored {
+				if strings.TrimSpace(string(row.Doc)) != "null" {
+					t.Errorf("row %s holds %q, want the JSON null", row.Code, row.Doc)
+				}
+			}
+		})
+	}
+}

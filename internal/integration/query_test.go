@@ -375,5 +375,119 @@ func TestIntegrationOpenRefusesAMySQLLocOtherThanUTC(t *testing.T) {
 		}
 
 		_ = rt.Close()
+
+		// A pool handed to NewRuntime has no DSN to read: the driver is asked how
+		// it reads a time, and the same two settings are refused.
+		for dsn, want := range map[string]string{
+			target.dsn + "&loc=Local": "loc=",
+			strings.NewReplacer("parseTime=true&", "", "?parseTime=true", "?", "&parseTime=true", "").Replace(target.dsn): "parseTime",
+		} {
+			db, err := sql.Open(target.driver, dsn)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			rt, err := tsq.NewRuntime(context.Background(), db, tsqdialect.MySQL, nil)
+			if err == nil {
+				_ = rt.Close()
+				_ = db.Close()
+
+				t.Fatalf("NewRuntime took a pool opened with %s", dsn)
+			}
+
+			_ = db.Close()
+
+			if !strings.Contains(err.Error(), want) {
+				t.Fatalf("NewRuntime over %s = %v; want it to name %s", dsn, err, want)
+			}
+		}
+
+		db, err := sql.Open(target.driver, target.dsn)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		rt, err = tsq.NewRuntime(context.Background(), db, tsqdialect.MySQL, nil)
+		if err != nil {
+			t.Fatalf("NewRuntime refused a pool opened as Open requires: %v", err)
+		}
+
+		_ = rt.Close()
+		_ = db.Close()
+	}
+}
+
+// TestIntegrationFunctionsEveryEngineHas covers three spellings that worked on
+// some engines only. CEIL and FLOOR are missing from a SQLite built without its
+// math functions (the default of mattn/go-sqlite3), PostgreSQL has no MAX or MIN
+// over a boolean, and MySQL knows a grouped expression only where it stands whole
+// in the select list or ORDER BY: HAVING UPPER(label) and a selected
+// LOWER(UPPER(label)) are errors 1054 and 1055 there.
+func TestIntegrationFunctionsEveryEngineHas(t *testing.T) {
+	ctx := context.Background()
+
+	for _, target := range integrationTargets(t) {
+		t.Run(target.name, func(t *testing.T) {
+			rt := openMeasures(t, target)
+
+			// The amounts are -6.5, 8.5, 2.5, -0.25, 0.125 and 1e40.
+			small := measures.Amount.LT(tsq.Val(1e30))
+
+			up, err := tsq.SelectValue(tsq.Ceil(measures.Amount)).From(measures).Where(small).OrderBy(measures.ID.Asc()).List(ctx, rt)
+			if err != nil {
+				t.Fatalf("Ceil: %v", err)
+			}
+
+			down, err := tsq.SelectValue(tsq.Floor(measures.Amount)).From(measures).Where(small).OrderBy(measures.ID.Asc()).List(ctx, rt)
+			if err != nil {
+				t.Fatalf("Floor: %v", err)
+			}
+
+			for i, want := range [][2]float64{{-6, -7}, {9, 8}, {3, 2}, {0, -1}, {1, 0}} {
+				if *up[i] != want[0] || *down[i] != want[1] {
+					t.Errorf("row %d: ceil %v floor %v, want %v", i, *up[i], *down[i], want)
+				}
+			}
+
+			// On is true for the even rows; Maybe is true for the odd rows and NULL elsewhere.
+			for name, c := range map[string]struct {
+				query tsq.QueryStage[sql.Null[flag]]
+				want  sql.Null[flag]
+			}{
+				"max of a boolean":      {tsq.SelectNullValue(tsq.Max(measures.On)).From(measures), sql.Null[flag]{V: true, Valid: true}},
+				"min of a boolean":      {tsq.SelectNullValue(tsq.Min(measures.On)).From(measures), sql.Null[flag]{V: false, Valid: true}},
+				"min of all true":       {tsq.SelectNullValue(tsq.Min(measures.Maybe)).From(measures), sql.Null[flag]{V: true, Valid: true}},
+				"max over no rows":      {tsq.SelectNullValue(tsq.Max(measures.On)).From(measures).Where(measures.ID.LT(tsq.Val(int64(0)))), sql.Null[flag]{}},
+				"max of only NULLs":     {tsq.SelectNullValue(tsq.Max(measures.Maybe)).From(measures).Where(measures.Maybe.IsNull()), sql.Null[flag]{}},
+				"min of the false rows": {tsq.SelectNullValue(tsq.Min(measures.On)).From(measures).Where(measures.On.EQ(tsq.Val(flag(true)))), sql.Null[flag]{V: true, Valid: true}},
+			} {
+				got, err := c.query.Get(ctx, rt)
+				if err != nil || *got != c.want {
+					t.Errorf("%s = %+v, %v; want %+v", name, got, err, c.want)
+				}
+			}
+
+			// Grouped by an expression, and that expression used again.
+			initial := tsq.Upper(tsq.Substring(measures.Label, 1, 1))
+			byQty := tsq.Add(measures.Qty, tsq.Val(int64(10)))
+
+			labels, err := tsq.SelectValue(tsq.Lower(initial)).From(measures).GroupBy(initial).Having(initial.NE(tsq.Val("X")), tsq.Length(initial).EQ(tsq.Val(int64(1)))).List(ctx, rt)
+			if err != nil || len(labels) != 1 || *labels[0] != "m" {
+				t.Errorf("nested select and HAVING over a grouped expression: %v, %v", labels, err)
+			}
+
+			counts, err := tsq.SelectValue(tsq.Count(measures.ID)).From(measures).GroupBy(byQty).
+				Having(byQty.GT(tsq.Val(int64(11))), tsq.Count(measures.ID).GT(tsq.Val(int64(0)))).
+				OrderBy(tsq.Mul(byQty, tsq.Val(int64(-1))).Asc()).List(ctx, rt)
+			if err != nil || len(counts) != 2 || *counts[0] != 2 || *counts[1] != 2 {
+				t.Errorf("HAVING and ORDER BY over a grouped expression with a bound value: %v, %v", counts, err)
+			}
+
+			// An aggregate over the grouped expression is valid as it is, and stays so.
+			inside, err := tsq.SelectValue(tsq.Count(initial)).From(measures).GroupBy(initial).Having(tsq.Count(initial).GT(tsq.Val(int64(1)))).List(ctx, rt)
+			if err != nil || len(inside) != 1 || *inside[0] != 6 {
+				t.Errorf("an aggregate over the grouped expression: %v, %v", inside, err)
+			}
+		})
 	}
 }

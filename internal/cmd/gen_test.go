@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -2905,6 +2906,99 @@ func TestGenSQLiteRebuildConvertsOrLeavesARetype(t *testing.T) {
 				t.Errorf("rebuilt = %v, want refused = %v:\n%s", rebuilt, c.refused, migration)
 			}
 		})
+	}
+}
+
+// TestGenRefusesAHandWrittenTableMethod covers a method written on the generated
+// table type under a name TSQ generates there. The package then failed to compile
+// with "method redeclared", reported at whichever file the compiler read second,
+// which could be the generated one.
+func TestGenRefusesAHandWrittenTableMethod(t *testing.T) {
+	model := "package gentest\n\n//tsq:table name=people\n//tsq:unique Email\n//tsq:managed deleted_at\ntype Person struct {\n" +
+		"\tID int64 `db:\"id\"`\n\tEmail string `db:\"email,size:80\"`\n\tDeletedAt int64 `db:\"deleted_at\"`\n}\n"
+
+	for method, receiver := range map[string]string{
+		"GetByEmail":  "t PersonTable",
+		"FindByEmail": "t *PersonTable",
+		"As":          "t PersonTableWithDeleted",
+		"WithDeleted": "t PersonTable",
+	} {
+		err := genModule(t, map[string]string{
+			"model.go": model,
+			"extra.go": "package gentest\n\nfunc (" + receiver + ") " + method + "() {}\n",
+		})
+		if err == nil || !strings.Contains(err.Error(), "extra.go:3") || !strings.Contains(err.Error(), "TSQ generates a "+method+" method") {
+			t.Errorf("a hand-written %s on (%s) = %v; want it refused at its own line", method, receiver, err)
+		}
+	}
+
+	// A method of another name, or of a type that only looks alike, is the user's.
+	if err := genModule(t, map[string]string{
+		"model.go": model,
+		"extra.go": "package gentest\n\nfunc (t PersonTable) Adults() int { return 0 }\n\ntype Other struct{}\n\nfunc (Other) GetByEmail() {}\n",
+	}); err != nil {
+		t.Errorf("an unrelated method was refused: %v", err)
+	}
+}
+
+// TestGenWarnsAboutAMySQLRowTooLarge covers a table whose strings cannot fit one
+// MySQL row together: every VARCHAR counts for its longest value, so CREATE TABLE
+// failed there with error 1118 and nothing said so before it ran. It is a warning,
+// as the index limits are: the table may only ever run on PostgreSQL or SQLite.
+func TestGenWarnsAboutAMySQLRowTooLarge(t *testing.T) {
+	model := func(sizes ...int) map[string]string {
+		fields := ""
+		for i, size := range sizes {
+			fields += fmt.Sprintf("\tS%d string `db:\"s%d,size:%d\"`\n", i, i, size)
+		}
+
+		return map[string]string{"model.go": "package gentest\n\n//tsq:table name=wide\ntype Wide struct {\n\tID int64 `db:\"id\"`\n" + fields + "}\n"}
+	}
+
+	warnings := func(files map[string]string) string {
+		t.Helper()
+
+		if err := genModule(t, files); err != nil {
+			t.Fatal(err)
+		}
+
+		out := new(bytes.Buffer)
+		GenCmd.SetOut(new(bytes.Buffer))
+		GenCmd.SetErr(out)
+		GenCmd.SetArgs([]string{"."})
+
+		if err := GenCmd.Execute(); err != nil {
+			t.Fatal(err)
+		}
+
+		return out.String()
+	}
+
+	if got := warnings(model(16383, 100)); !strings.Contains(got, "warning: Wide: the columns of table wide can take") || !strings.Contains(got, "error 1118") {
+		t.Errorf("a row of 16383 and 100 characters: %q", got)
+	}
+
+	// The DDL that will fail says so above the statement, and only MySQL's.
+	for file, want := range map[string]bool{"mysql.sql": true, "postgres.sql": false, "sqlite.sql": false} {
+		ddl, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if strings.Contains(string(ddl), "-- wide: the columns of table wide can take") != want {
+			t.Errorf("%s says the row is too wide: %v, want %v", file, !want, want)
+		}
+	}
+
+	if got := warnings(model(6000, 6000, 6000)); !strings.Contains(got, "error 1118") {
+		t.Errorf("three strings of 6000 characters: %q", got)
+	}
+
+	// TEXT is kept off the row, and a row that fits says nothing.
+	for _, sizes := range [][]int{{16384, 16384}, {8000, 8000}, {255, 255, 255}} {
+		if got := warnings(model(sizes...)); strings.Contains(got, "1118") {
+			t.Errorf("sizes %v: %q", sizes, got)
+		}
 	}
 }
 

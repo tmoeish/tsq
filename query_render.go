@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
+	sqld "github.com/tmoeish/tsq/v5/internal/sqldialect"
 )
 
 type joinType string
@@ -145,6 +146,8 @@ type orderTerm struct {
 	// expression itself where expr is a select-list position: "2 IS NULL" is a
 	// constant, not the second column, and dropped the requested NULL placement.
 	nullKey sqlExpr
+	// aggregate reports an ordered expression with an aggregate in it.
+	aggregate bool
 }
 
 // render writes the term, placing NULLs where nullsFirst says. PostgreSQL and
@@ -467,13 +470,15 @@ func (s *querySpec[O]) writeSimple(r *renderer, m renderMode) {
 	cols := make([]sqlExpr, 0, len(s.Selects))
 
 	for i, col := range s.Selects {
+		item, _ := s.overGroups(r.dialect, columnInfo(col).sql, columnInfo(col).aggregate, true)
+
 		if aliases[i] == "" {
-			cols = append(cols, columnInfo(col).sql)
+			cols = append(cols, item)
 
 			continue
 		}
 
-		cols = append(cols, sqlJoin(columnInfo(col).sql, sqlText(" AS "), sqlIdent(aliases[i])))
+		cols = append(cols, sqlJoin(item, sqlText(" AS "), sqlIdent(aliases[i])))
 	}
 
 	r.writeText("SELECT ")
@@ -497,8 +502,195 @@ func (s *querySpec[O]) writeSimple(r *renderer, m renderMode) {
 
 	if len(s.Having) > 0 {
 		r.writeText(" HAVING ")
-		r.write(andAll(s.Having).sql)
+		r.write(s.havingOverGroups(r.dialect))
 	}
+}
+
+// havingOverGroups is the HAVING clause. It is the conditions joined as they
+// always were, unless the dialect needs one of them rewritten (see overGroups):
+// then each condition stands in parentheses of its own.
+func (s *querySpec[O]) havingOverGroups(d sqld.Dialect) sqlExpr {
+	conds := make([]sqlExpr, 0, len(s.Having))
+	changed := false
+
+	for _, cond := range s.Having {
+		info := conditionInfo(cond)
+		over, rewritten := s.overGroups(d, info.sql, info.aggregate, false)
+		changed = changed || rewritten
+
+		conds = append(conds, sqlJoin(sqlText("("), over, sqlText(")")))
+	}
+
+	if !changed {
+		return andAll(s.Having).sql
+	}
+
+	return sqlList(" AND ", conds)
+}
+
+// overGroups is e as the dialect takes it in a grouped query. GROUP BY UPPER(note)
+// allows HAVING UPPER(note) <> 'X' and a selected LOWER(UPPER(note)) in the SQL
+// standard, and two engines do not follow it all the way:
+//
+//   - MySQL knows a grouped expression only where it stands whole in the select
+//     list or ORDER BY, and refuses the rest (errors 1054 and 1055).
+//   - PostgreSQL compares expressions with their parameters, and every bound value
+//     is a parameter of its own: GROUP BY qty + $1 and HAVING qty + $2 > $3 are two
+//     expressions to it, whatever $1 and $2 hold.
+//
+// Within a group the expression has one value, so MAX of it is that value, and an
+// aggregate is taken anywhere: each such occurrence becomes MAX(expression).
+//
+// Only what the dialect refuses is rewritten. An expression with an aggregate of
+// its own is left alone (COUNT(UPPER(note)) is valid, and an aggregate in an
+// aggregate is not); a grouped column needs none of this; and a selected item that
+// is the grouped expression itself is what GROUP BY refers to (item is true for
+// one of the select list).
+func (s *querySpec[O]) overGroups(d sqld.Dialect, e sqlExpr, aggregate, item bool) (sqlExpr, bool) {
+	if d.Name() == tsqdialect.SQLite || aggregate || len(s.GroupBy) == 0 {
+		return e, false
+	}
+
+	// Expressions are compared as text with a mark for each bound value, the same
+	// mark for the same value: the marks go back to values once the text is edited.
+	bound := map[string]chunk{}
+
+	marked := func(x sqlExpr) (string, bool) {
+		r := newRenderer(d)
+		r.write(x)
+
+		stmt, err := r.finish()
+		if err != nil {
+			return "", false
+		}
+
+		var b strings.Builder
+
+		for _, c := range stmt.chunks {
+			var key string
+
+			switch {
+			case c.hasValue:
+				key = fmt.Sprintf("\x00%T %#v\x00", c.value, c.value)
+			case c.param != nil:
+				key = fmt.Sprintf("\x00param %p\x00", c.param)
+			default:
+				b.WriteString(c.text)
+
+				continue
+			}
+
+			bound[key] = c
+			b.WriteString(key)
+		}
+
+		return b.String(), true
+	}
+
+	// The grouped expressions the dialect loses track of, longest first: one inside
+	// another is then matched as part of the longer.
+	var groups []string
+
+	for _, g := range s.GroupBy {
+		if core := g.core(); core != nil && core.plain {
+			continue
+		}
+
+		spelled, ok := marked(columnInfo(g).sql)
+		if !ok || spelled == "" {
+			continue
+		}
+
+		if d.Name() == tsqdialect.MySQL || strings.Contains(spelled, "\x00") {
+			groups = append(groups, spelled)
+		}
+	}
+
+	if len(groups) == 0 {
+		return e, false
+	}
+
+	slices.SortFunc(groups, func(a, b string) int { return len(b) - len(a) })
+
+	whole, ok := marked(e)
+	if !ok {
+		return e, false
+	}
+
+	// The grouped expression itself: GROUP BY names the selected one by position,
+	// and one without a bound value is known wherever it stands whole.
+	if slices.Contains(groups, whole) && (item || !strings.Contains(whole, "\x00")) {
+		return e, false
+	}
+
+	over := maxOfEach(whole, groups)
+	if over == whole {
+		return e, false
+	}
+
+	parts := []sqlExpr{}
+
+	for i, piece := range strings.Split(over, "\x00") {
+		if i%2 == 0 {
+			parts = append(parts, sqlText(piece))
+
+			continue
+		}
+
+		switch c := bound["\x00"+piece+"\x00"]; {
+		case c.hasValue:
+			parts = append(parts, sqlValue(c.value))
+		default:
+			parts = append(parts, sqlParam(c.param))
+		}
+	}
+
+	// Spelled for this dialect; any other keeps e.
+	return sqlForDialect("a grouped expression", func(to sqld.Dialect) (sqlExpr, bool) {
+		if to.Name() == d.Name() {
+			return sqlJoin(parts...), true
+		}
+
+		return e, true
+	}), true
+}
+
+// maxOfEach wraps every occurrence in text of one of groups in MAX(...). The
+// groups are tried longest first at each position and a match is not looked into
+// again, and an occurrence that continues an identifier (XUPPER(...) for
+// UPPER(...)) is not one.
+func maxOfEach(text string, groups []string) string {
+	var b strings.Builder
+
+	for i := 0; i < len(text); {
+		matched := ""
+
+		if i == 0 || !identifierByte(text[i-1]) {
+			for _, g := range groups {
+				if strings.HasPrefix(text[i:], g) {
+					matched = g
+
+					break
+				}
+			}
+		}
+
+		if matched == "" {
+			b.WriteByte(text[i])
+			i++
+
+			continue
+		}
+
+		b.WriteString("MAX(" + matched + ")")
+		i += len(matched)
+	}
+
+	return b.String()
+}
+
+func identifierByte(c byte) bool {
+	return c == '_' || c == '`' || c == '"' || c == '.' || (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
 }
 
 // writeFromWhere writes FROM, the joins and WHERE, keeping the deleted rows of
@@ -630,6 +822,7 @@ func bindsValues(e sqlExpr) bool {
 // output column names, so the term drops its table there.
 func (s *querySpec[O]) orderTerm(ob OrderBy) orderTerm {
 	term := orderTerm{expr: s.selectedPosition(columnInfo(ob.column).sql), nullKey: columnInfo(ob.column).sql, direction: ob.direction, nullsFirst: ob.nulls.first(ob.direction)}
+	term.aggregate = columnInfo(ob.column).aggregate
 	term.nullable, _ = s.canBeNull(columnInfo(ob.column).null)
 
 	// MySQL's "expr IS NULL" key is not in the select list, and a DISTINCT query
@@ -741,6 +934,8 @@ func (s *querySpec[O]) writeTail(r *renderer, m renderMode) {
 	if len(order) > 0 {
 		terms := make([]sqlExpr, 0, len(order))
 		for _, term := range order {
+			term.expr, _ = s.overGroups(r.dialect, term.expr, term.aggregate, false)
+			term.nullKey, _ = s.overGroups(r.dialect, term.nullKey, term.aggregate, false)
 			terms = append(terms, term.render())
 		}
 

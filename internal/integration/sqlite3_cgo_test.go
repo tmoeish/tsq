@@ -57,6 +57,17 @@ func TestSQLite3DriverIsSupported(t *testing.T) {
 		t.Fatalf("learners = %d, %v; want the duplicate skipped", rows, err)
 	}
 
+	// This driver is built without SQLite's math functions unless asked: CEIL and
+	// FLOOR are "no such function" there, and TSQ spells them without.
+	up, err := tsq.SelectValue(tsq.Ceil(tsq.Sub(academy.TableLearner.ID, tsq.Val(int64(3))))).From(academy.TableLearner).OrderBy(academy.TableLearner.ID.Asc()).List(ctx, rt)
+	if err != nil || len(up) != 2 {
+		t.Fatalf("Ceil on the cgo driver: %v, %v", up, err)
+	}
+
+	if _, err := tsq.SelectValue(tsq.Floor(academy.TableLearner.ID)).From(academy.TableLearner).List(ctx, rt); err != nil {
+		t.Fatalf("Floor on the cgo driver: %v", err)
+	}
+
 	stored, err := academy.TableLearner.FetchByEmail(ctx, rt, "cgo@example.test")
 	if err != nil || len(stored) != 1 || !stored[0].CreatedAt.Valid {
 		t.Fatalf("stored = %+v, %v", stored, err)

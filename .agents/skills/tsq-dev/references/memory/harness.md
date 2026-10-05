@@ -39,9 +39,8 @@ buildinfo 判成倒退、所有 PR 变红（2026-09-28）。**改发版脚本时
 
 ## `release-check` 两次装反：**先数清楚合法状态有几个** (2026-08-21，2026-09-16)
 
-**一道门要先问"合法状态有几个"，只有一个时才用等号。** 版本号 vs 最新 tag 曾要求"严格大于"，而发版之间相等、
-`release.py` 跑 harness 时领先都合法，错误态只有"低于"。版本号 vs 模块主版本曾要求相等，把跨主版本的合法过渡态
-（路径已是 `/v5`、buildinfo 还是 4.x）拦死；现在只查 `module_major() < code.major`。
+**一道门只有一个合法状态时才用等号。** 版本号 vs 最新 tag 的错误态只有"低于"（发版之间相等、`release.py` 跑 harness 时领先都合法），版本号 vs 模块主版本只查
+`module_major() < code.major`（路径已是 `/v5`、buildinfo 还是 4.x 是合法过渡态）；两处都曾写得更严，把合法状态拦死。
 
 ## 把并发写入者的改动误判成了工具的 bug (2026-08-21)
 
@@ -57,8 +56,7 @@ buildinfo 判成倒退、所有 PR 变红（2026-09-28）。**改发版脚本时
 
 ## CI 里用 `@latest` 装的工具，会在它发新版本的那天让每个 PR 变红 (2026-09-09)
 
-goreleaser v2.18.1 一发布就要求 Go >= 1.27.1，CI 钉着 1.27.0，`@latest` 装不上，**每个 PR 的 GoReleaser Check 都红**。
-更贵的是 release job 的 `version: latest`：它只在**tag 推送之后**才跑，不可撤销；两处版本不同，check 证明不了 release。
+goreleaser v2.18.1 一发布就要求更新的 Go，`@latest` 当天装不上；更贵的是 release job 的 `version: latest` 只在 **tag 推送之后**才跑、不可撤销。规则在 `../impact/harness.md` § 改了 CI 里安装的工具。
 
 ## `-X` 打错包路径是**静默**失败的 (2026-08-21)
 

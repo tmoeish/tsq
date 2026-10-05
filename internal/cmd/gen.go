@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"go/ast"
 	"go/types"
 	"io"
 	"os"
@@ -158,9 +159,9 @@ Troubleshooting:
 			return err
 		}
 
-		// MySQL's index limits are warnings: the schema may run on the others only.
+		// MySQL's index and row limits are warnings: the schema may run on the others only.
 		for _, s := range list {
-			for _, warning := range mysqlIndexWarnings(s) {
+			for _, warning := range append(mysqlIndexWarnings(s), mysqlRowWarnings(s)...) {
 				_, _ = fmt.Fprintln(errWriter, "warning: "+warning)
 			}
 		}
@@ -853,6 +854,69 @@ func validateDeclaredSymbols(list []*genmodel.StructInfo, resolver *ddlTypeResol
 
 		if err := checkRowMethods(resolver, data); err != nil {
 			return err
+		}
+
+		if err := checkTableMethods(resolver, data); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// checkTableMethods refuses a method written by hand on the generated table type
+// under a name TSQ generates there: As, WithDeleted, the lookups of a unique index
+// and the handle of a full-text one. The compiler reports the pair as "method
+// redeclared", at whichever of the two files it reads second; here the report
+// names the hand-written one and what it collides with. The declarations are read
+// from the syntax, since the type checker keeps only one of two methods of a name.
+func checkTableMethods(resolver *ddlTypeResolver, data *genmodel.StructInfo) error {
+	if data.IsResult {
+		return nil
+	}
+
+	pkg, ok := resolver.packages[data.TypeInfo.Package.Path]
+	if !ok {
+		return nil
+	}
+
+	table := data.TypeInfo.TypeName + "Table"
+	generated := []string{"As"}
+
+	if data.DeletedAtField != "" {
+		generated = append(generated, "WithDeleted")
+	}
+
+	for _, ux := range data.Uniques {
+		generated = append(generated, "GetBy"+joinAnd(ux.Fields), "FindBy"+joinAnd(ux.Fields))
+	}
+
+	for _, ft := range data.FullTexts {
+		generated = append(generated, "FullText"+joinAnd(ft.Fields))
+	}
+
+	for _, file := range pkg.Syntax {
+		if strings.HasSuffix(pkg.Fset.Position(file.Pos()).Filename, ".tsq.go") {
+			continue
+		}
+
+		for _, decl := range file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Recv == nil || len(fn.Recv.List) != 1 || !slices.Contains(generated, fn.Name.Name) {
+				continue
+			}
+
+			receiver := fn.Recv.List[0].Type
+			if star, ok := receiver.(*ast.StarExpr); ok {
+				receiver = star.X
+			}
+
+			if ident, ok := receiver.(*ast.Ident); ok && (ident.Name == table || ident.Name == table+"WithDeleted") {
+				pos := pkg.Fset.Position(fn.Pos())
+
+				return fmt.Errorf("%s:%d: %s.%s is declared here, and TSQ generates a %s method on %s; rename yours",
+					pos.Filename, pos.Line, ident.Name, fn.Name.Name, fn.Name.Name, ident.Name)
+			}
 		}
 	}
 
