@@ -1406,7 +1406,12 @@ differ:
 - `Substring` uses a 1-based start
 - `Round` rounds a tie away from zero on every dialect (`2.5` is `3`, `-2.5` is `-3`): PostgreSQL and MySQL round a
   floating-point column through an exact decimal, since PostgreSQL has no `ROUND(double precision, n)` and MySQL
-  rounds a `DOUBLE` to the nearest even digit (`2.5` is `2`)
+  rounds a `DOUBLE` to the nearest even digit (`2.5` is `2`). A value that is a tie only as it is written
+  is where the engines part: `1.005` is stored as `1.00499999999999989`, which PostgreSQL and MySQL round to
+  `1.01` (they round what is written) and SQLite to `1.0` (it rounds what is stored). Keep amounts that
+  must round one way in a `DECIMAL` column or as an integer of the smallest unit
+- `Round`, `Ceil` and `Floor` of an integer are the integer itself, exact at any size and still an integer
+  to `Div`: no engine function is called
 - `Avg` of an integer column is a `float64` with all its digits; MySQL's own `AVG` of integers keeps four
   decimals (`1.6667`), so the column is averaged as a `DOUBLE` there
 - `Max` / `Min` take any column type, and what can be ordered is the engine's to say. Over a boolean they
@@ -1416,7 +1421,8 @@ differ:
 - `Coalesce(col, fallback)` is NULL only where both are: with `tsq.Val(x)` or a NOT NULL column as the
   fallback it reads into a field that cannot hold NULL
 - `Ceil` / `Floor` work on every SQLite build: they are written without SQLite's math functions, which
-  `mattn/go-sqlite3` leaves out unless built with `-tags sqlite_math_functions`
+  `mattn/go-sqlite3` leaves out unless built with `-tags sqlite_math_functions`. The answer is a
+  floating-point value there as on the other engines, so `Div(Ceil(a), Floor(b))` keeps its fraction
 
 A table's search columns must be string-kind: `tsq.Searchable(col)` is how a `TableSpec` lists
 them, and `//tsq:search` / `//tsq:fulltext` accept `string` fields and named types whose underlying type is `string`.

@@ -484,10 +484,30 @@ func TestRoundAndAvgAnswerAlikeOnEveryDialect(t *testing.T) {
 		}
 	}
 
-	// An integer has no tie to round: MySQL's ROUND is left as it is.
-	whole := Select(MapInto(Round(Order_Amount, 0), func(r *order) *int64 { return &r.Amount })).From(Orders).MustBuild()
-	if sql, _ := sqlOf(t, whole, onMySQL); !strings.HasPrefix(sql, "SELECT ROUND(`orders`.`amount`, 0) AS ") {
-		t.Errorf("mysql rounds an integer as %s", sql)
+	// An integer has nothing to round, and no engine is asked to: PostgreSQL's CEIL
+	// and SQLite's ROUND answer in a floating-point type, PostgreSQL's ROUND to two
+	// places as 7.00.
+	for name, whole := range map[string]Expression[int64]{
+		"Round": Round(Order_Amount, 2), "Ceil": Ceil(Order_Amount), "Floor": Floor(Order_Amount),
+	} {
+		q := Select(MapInto(whole, func(r *order) *int64 { return &r.Amount })).From(Orders).MustBuild()
+
+		for dialect, want := range map[tsqdialect.Name]string{
+			onMySQL: "SELECT `orders`.`amount` AS ", onPostgres: `SELECT "orders"."amount" AS `, onSQLite: `SELECT "orders"."amount" AS `,
+		} {
+			if sql, _ := sqlOf(t, q, dialect); !strings.HasPrefix(sql, want) {
+				t.Errorf("%s of an integer on %s is %s", name, dialect, sql)
+			}
+		}
+	}
+
+	// SQLite's CEIL is spelled without its math functions, and answers in the
+	// floating-point type of its operand.
+	up := Select(MapInto(Ceil(Avg(Order_Amount)), func(r *result) *float64 { return &r.Mean })).From(Orders).MustBuild()
+	if sql, _ := sqlOf(t, up, onSQLite); !strings.HasPrefix(sql, `SELECT (CASE WHEN ABS(AVG("orders"."amount")) < 4503599627370496 `+
+		`THEN CAST(CAST(AVG("orders"."amount") AS INTEGER) + (AVG("orders"."amount") > CAST(AVG("orders"."amount") AS INTEGER)) AS REAL) `+
+		`ELSE AVG("orders"."amount") END) AS `) {
+		t.Errorf("sqlite rounds a floating-point value up as %s", sql)
 	}
 }
 

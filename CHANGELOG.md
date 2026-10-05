@@ -161,6 +161,8 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 ### 修复
 
+- **`tsq.Ceil` / `tsq.Floor` / `tsq.Round` 的结果类型随引擎变**：SQLite 上浮点数的 `Ceil` / `Floor` 交回的是整数，`Div(Ceil(a), Floor(b))` 于是成了整数除法（9 除以 8 得 1 而不是 1.125），超出 64 位整数范围的值（`1e19`、`1e300`）被截成 `9.22e18`；整数上三个函数各引擎各答各的——PostgreSQL 的 `CEIL` / `FLOOR` 交回 `double precision`，一百万以上的值读不回整数字段、2^53 以上丢末位、再 `Div` 直接报 `function div(double precision, ...) does not exist`，`Round(整数, 2)` 在 PostgreSQL 上得 `7.00` 读不回来，在 SQLite 上得浮点数、再 `Div` 得 `3.5`。现在浮点数的 `Ceil` / `Floor` 在 SQLite 上仍是浮点数、任意大小都对；整数没有可舍入的东西，三个函数原样交回它，不调引擎函数。
+- 文档写明 `Round` 的一处引擎差异：只在十进制写法上是平局的值（`1.005` 实际存成 `1.00499999999999989`），PostgreSQL 和 MySQL 按写法进位得 `1.01`，SQLite 按存储的值得 `1.0`。需要确定舍入方向的金额用 `DECIMAL` 列或最小单位的整数。
 - **多个实例同时启动时，除了第一个都起不来**：滚动发布或多副本在 `CreateMissing` / `Reconcile` 下一起启动，各自发现同一张表、同一列或同一个索引缺失，各自去建，后到的死在"already exists"上（PostgreSQL 上两条同名的 `CREATE TABLE IF NOT EXISTS` 并发时还会撞系统目录的唯一键，SQLite 是 `database is locked`）。现在改 schema 的策略在锁里跑，一个库同时只有一个实例在改，等锁的实例拿到锁时 schema 已经就绪：PostgreSQL 用会话级 advisory lock，MySQL 用 `GET_LOCK`，策略的每条语句都在持锁的那个连接上执行（只有一个连接的池也够用）；SQLite 没有可跨语句持有的锁，同一进程内的运行时轮流来，跨进程不协调。`Validate` 不改任何东西，不加锁。
 - **tracer 不守约时，操作"成功"但没有执行，或者执行两次**：tracer 返回 nil 却没调用 `next`，`Insert` 什么都没插入也不报错、`Get` 返回 nil 行和 nil 错误、`WithTx` 的回调被跳过；调用两次 `next`，语句就执行两次（`Set(x, x+1)` 加了两次）；给 `next` 传 nil context，database/sql 带着锁 panic，此后 `Close` 永不返回。现在这三种都变成明确的错误，语句最多执行一次；tracer 仍然可以用自己的错误拒绝一次操作。
 - **PostgreSQL 的 `TIMESTAMPTZ` 列读回来不是 UTC**：pgx 按会话的本地时区交回带时区的时间，这是唯一一处读回的时间不在 UTC 的地方。现在读行时统一转成 UTC。

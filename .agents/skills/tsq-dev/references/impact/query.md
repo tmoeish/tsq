@@ -124,6 +124,8 @@
   `internal/integration/query_test.go` 的 `measure` 表真跑三方言，SQLite 单测发现不了另两个引擎的事，反过来也一样。
 - 按方言分叉的函数（`byDialect`）改拼写要真跑：`Round` 在 MySQL 上对 `DOUBLE` 是银行家舍入、`AVG(整数)` 只留四位小数，渲染断言看不出来，
   门是 `TestIntegrationRoundAndAverageAgree`。MySQL 的 NULL 位置排序键在 `DISTINCT` 查询里要用选择项的别名（`selectAliases`，3065）。
+  **结果的类型也是拼写的一部分**：`Expression[N]` 的 SQL 值必须真是 N 那一类（整数还是浮点），否则下游的 `Div` 换了除法、读回字段失败——
+  新函数要拿"结果再 `Div` 一次"和"2^53 以上的整数"在三个引擎上跑，门是 `TestIntegrationFunctionsEveryEngineHas`。
 - **比较两个表达式是不是同一个，用 `exprKey`，不用 `debugSQL`**：后者把绑定值都印成 `?`，只差一个值的两个 `CASE`
   曾被认成一个，`GROUP BY` / `ORDER BY` 的列序号、分组检查、`DISTINCT` 检查和游标列全部错配（2026-09-29 审计 P0）。
   `debugSQL` 只给报错文案；游标指纹（`fingerprint`）要跨进程稳定，所以仍用它。

@@ -87,6 +87,10 @@ SQL 标准和 MySQL / PostgreSQL 让 `INTERSECT` 比 `UNION` / `EXCEPT` 结合�
 同一批查询在三个引擎上比结果，一次找出四轮读代码没找到的事；**新增函数或谓词先进 `internal/integration/query_test.go` 再合**。
 - **`Round` / `Avg` 在 MySQL 上对齐而不是只写文档**（维护者定案）：`DOUBLE` 的 `ROUND` 是银行家舍入，经 `DECIMAL(65,30)` 才四舍五入；`CAST`
   对超过 35 位整数的值**静默截到上限**，所以外面套 `CASE WHEN ABS(x) < 1E30`。`AVG(整数)` 只留四位小数，写成 `AVG(x + 0E0)`。
+- **整数上的 `Round` / `Ceil` / `Floor` 是值本身（`whole`），不调引擎函数**（2026-10-06）：PostgreSQL 的 `CEIL(bigint)` 是 double（一百万以上读不回
+  `int64`，再 `DIV` 报没有这个函数）、`ROUND(x::numeric, 2)` 是 `7.00`，SQLite 的 `ROUND` 永远是 REAL。同一波：上一波给 SQLite 写的不靠数学函数的
+  `Ceil` / `Floor` 交回 INTEGER，`Div(Ceil(a), Floor(b))` 成了整数除法、`1e19` 被截成 `9.22e18`——现在 `CAST` 回 REAL，2^52 以上（没有小数）原样交回。
+  **`Round(1.005, 2)` 只写文档不对齐**：PostgreSQL 按 15 位、MySQL 按最短写法转十进制，两者自己就不一致，SQLite 没有十进制可用。
 - **SQLite 驱动只对声明成时间的列返回 `time.Time`**，`MAX(时间)` 是字符串；修在扫描目标（`scan.go`），SQL 里没有把表达式"声明成时间"的写法。
   自定义 bool 同理；否掉"生成器拒绝它"——在 PostgreSQL 上它本来是好的。
 - **`ListIn` 的按主键去重只对单表查询成立**：为排序规则相等的键加的去重把 join 重复的行也去掉了；带 join 时两种重复分不开，宁可多不可少。
