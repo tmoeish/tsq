@@ -119,6 +119,12 @@ func buildGenerationModels(
 			return nil, structErr(s, fmt.Errorf("resolve nullable fields: %w", err))
 		}
 
+		if !s.IsResult {
+			if err := validateManagedFields(s); err != nil {
+				return nil, structErr(s, err)
+			}
+		}
+
 		if err := sortByDeclaration(s, resolver); err != nil {
 			return nil, structErr(s, err)
 		}
@@ -313,6 +319,30 @@ func resolveNullValues(s *genmodel.StructInfo, resolver *ddlTypeResolver) error 
 			changed = true
 		}
 
+		// A type alias is the type it names: type Stamp = time.Time is a time.Time
+		// to the compiler, and was refused as a managed timestamp ("unsupported type
+		// Stamp") because the parser records the name the source spells. The field
+		// is described, and spelled, by the type the alias stands for: the generated
+		// file imports that type's package, and an import nothing spells is an error.
+		if actual, aliased := aliasedLibraryType(obj.Type()); aliased {
+			var canonical types.Type = actual
+			if _, pointer := obj.Type().(*types.Pointer); pointer {
+				canonical = types.NewPointer(actual)
+			}
+
+			field.Type = genmodel.TypeInfo{
+				Package:  genmodel.PackageInfo{Path: actual.Obj().Pkg().Path(), Name: actual.Obj().Pkg().Name()},
+				TypeName: actual.Obj().Name(),
+			}
+			field.Spelled = types.TypeString(canonical, qualifier)
+
+			if field.NullValue != "" {
+				field.NullValue = types.TypeString(actual, qualifier)
+			}
+
+			changed = true
+		}
+
 		if changed {
 			s.Fields[i] = field
 
@@ -320,6 +350,7 @@ func resolveNullValues(s *genmodel.StructInfo, resolver *ddlTypeResolver) error 
 				mapped.NullValue = field.NullValue
 				mapped.Spelled = field.Spelled
 				mapped.Incomparable = field.Incomparable
+				mapped.Type = field.Type
 				s.FieldsByName[field.Name] = mapped
 			}
 		}
@@ -642,4 +673,30 @@ func validateAutoIncrementKey(s *genmodel.StructInfo) error {
 	}
 
 	return nil
+}
+
+// aliasedLibraryType reports the time or database/sql type a field's alias, or a
+// pointer to one, stands for: the types the managed-column checks recognize by
+// package and name.
+func aliasedLibraryType(t types.Type) (*types.Named, bool) {
+	if pointer, ok := t.(*types.Pointer); ok {
+		t = pointer.Elem()
+	}
+
+	alias, ok := t.(*types.Alias)
+	if !ok {
+		return nil, false
+	}
+
+	named, ok := types.Unalias(alias).(*types.Named)
+	if !ok || named.Obj().Pkg() == nil {
+		return nil, false
+	}
+
+	switch named.Obj().Pkg().Path() {
+	case importPathTime, importPathDatabaseSQL:
+		return named, true
+	default:
+		return nil, false
+	}
 }

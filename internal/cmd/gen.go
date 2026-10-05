@@ -436,6 +436,10 @@ func validateStructForGeneration(
 		return nil
 	}
 
+	if err := validateGeneratedMethodNames(data); err != nil {
+		return err
+	}
+
 	if err := validateFieldNames(data); err != nil {
 		return err
 	}
@@ -460,11 +464,9 @@ func validateStructForGeneration(
 		return err
 	}
 
-	if err := validateIdentifierLengths(data); err != nil {
-		return err
-	}
-
-	return validateManagedFields(data)
+	// The managed fields are checked by the generation plan, once go/types has
+	// said what an aliased field type stands for.
+	return validateIdentifierLengths(data)
 }
 
 // validateColumnNames refuses two fields mapped to one column, a repeated db tag or
@@ -1113,7 +1115,7 @@ func validateFieldDatabaseType(field genmodel.FieldInfo, keywordFields map[strin
 
 	if _, ok := keywordFields[field.Name]; ok {
 		if field.IsPointer {
-			return errors.New("keyword fields cannot be pointers")
+			return errors.New("a //tsq:search field cannot be a pointer: keyword search covers NOT NULL string columns")
 		}
 
 		if field.IsSlice {

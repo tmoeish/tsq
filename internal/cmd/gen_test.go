@@ -2164,6 +2164,12 @@ type Money int64
 `,
 	"x1/pkg/pkg.go": "package pkg\n\ntype V string\n",
 	"x2/pkg/pkg.go": "package pkg\n\ntype V string\n",
+	// An alias is the type it names. A managed field of one was refused
+	// ("unsupported type Stamp"), and once followed, the generated file imported
+	// time without spelling it.
+	"stamped.go": "package gentest\n\nimport \"time\"\n\ntype Stamp = time.Time\n\n//tsq:table name=stamped\n//tsq:managed created_at updated_at\n" +
+		"type Stamped struct {\n\tID int64 `db:\"id\"`\n\tAt Stamp `db:\"at\"`\n\tSeen *Stamp `db:\"seen\"`\n" +
+		"\tCreatedAt Stamp `db:\"created_at\"`\n\tUpdatedAt *Stamp `db:\"updated_at\"`\n}\n",
 	"model.go": `package gentest
 
 import (
@@ -2512,6 +2518,12 @@ func TestGenRefusesWhatItCannotGenerate(t *testing.T) {
 		"directive inside the struct": {table("//tsq:table", "//tsq:index Title\n\tName string `db:\"name\"`"), "is inside struct Row"},
 		// It was accepted and dropped.
 		"search on a result": {table("//tsq:table", "") + "\n//tsq:result\n//tsq:search Name\ntype View struct {\n\tName int64 `tsq:\"Row.ID\"`\n}\n", "search belongs to a table"},
+		// GetByAAndB was declared twice, in code that did not compile.
+		"two indexes that generate one method": {table("//tsq:table\n//tsq:unique A,B\n//tsq:unique AAndB",
+			"A string `db:\"a\"`\n\tB string `db:\"b\"`\n\tAAndB string `db:\"a_and_b\"`"), "both generate the method GetByAAndB"},
+		// The messages said "keyword fields" for //tsq:search and "*ast.MapType" for a map.
+		"search over a pointer": {table("//tsq:table\n//tsq:search Nick", "Nick *string `db:\"nick\"`"), "a //tsq:search field cannot be a pointer"},
+		"map field":             {table("//tsq:table", "Meta map[string]any `db:\"meta\"`"), "map[string]any is not a column type"},
 		// The generated result referenced a TableView that does not exist.
 		"result of a result": {table("//tsq:table", "") + "\n//tsq:result\ntype A struct {\n\tID int64 `tsq:\"Row.ID\"`\n}\n\n//tsq:result\ntype B struct {\n\tID int64 `tsq:\"A.ID\"`\n}\n", "which is a result"},
 	} {

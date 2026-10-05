@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
+	"strings"
 
 	"github.com/tmoeish/tsq/v5"
 	"github.com/tmoeish/tsq/v5/internal/genmodel"
@@ -74,6 +75,43 @@ func rowMethods(data *genmodel.StructInfo) []string {
 
 // validateFieldNames refuses a field whose generated column would collide with a
 // method of the generated table or result struct.
+// validateGeneratedMethodNames refuses two indexes that would generate one method.
+// The lookups of a unique index are named after its fields joined by And, so
+// //tsq:unique A,B beside //tsq:unique AAndB both gave GetByAAndB, declared twice
+// in code that then did not compile.
+func validateGeneratedMethodNames(data *genmodel.StructInfo) error {
+	if data.IsResult {
+		return nil
+	}
+
+	owner := map[string]string{}
+
+	claim := func(method, directive string) error {
+		if first, taken := owner[method]; taken {
+			return fmt.Errorf("%s: %s and %s both generate the method %s; rename one of the Go fields (the db tag keeps the column name)",
+				data.TypeInfo.TypeName, first, directive, method)
+		}
+
+		owner[method] = directive
+
+		return nil
+	}
+
+	for _, ux := range data.Uniques {
+		if err := claim("GetBy"+joinAnd(ux.Fields), "//tsq:unique "+strings.Join(ux.Fields, ",")); err != nil {
+			return err
+		}
+	}
+
+	for _, ft := range data.FullTexts {
+		if err := claim("FullText"+joinAnd(ft.Fields), "//tsq:fulltext "+strings.Join(ft.Fields, ",")); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func validateFieldNames(data *genmodel.StructInfo) error {
 	reserved := map[string]string{"Columns": "the generated Columns method"}
 	if !data.IsResult {

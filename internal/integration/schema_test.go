@@ -505,3 +505,189 @@ func TestIntegrationRetypeRefusesAValueThatDoesNotFit(t *testing.T) {
 		}
 	}
 }
+
+type indexed struct {
+	ID   int64
+	A, B string
+	Body string
+}
+
+func indexedTable(indexes ...tsq.IndexSpec) *tsq.TableOf[indexed, int64] {
+	h := tsq.NewTable[indexed, int64]("indexed")
+	id := tsq.NewColumn(h, "id", "id", func(r *indexed) *int64 { return &r.ID })
+	text := func(name string, size int) tsqdialect.ColumnSpec {
+		return tsqdialect.ColumnSpec{Name: name, Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: size}}
+	}
+
+	return h.Define(tsq.TableSpec[indexed, int64]{
+		Columns: []tsq.BoundColumn[indexed]{
+			id,
+			tsq.NewColumn(h, "a", "a", func(r *indexed) *string { return &r.A }),
+			tsq.NewColumn(h, "b", "b", func(r *indexed) *string { return &r.B }),
+			tsq.NewColumn(h, "body", "body", func(r *indexed) *string { return &r.Body }),
+		},
+		PrimaryKey:    id,
+		AutoIncrement: true,
+		ColumnSpecs: []tsqdialect.ColumnSpec{
+			{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
+			text("a", 40), text("b", 40), text("body", 400),
+		},
+		Indexes: indexes,
+	})
+}
+
+// TestIntegrationReconcileDropsTheIndexesItNamed covers a //tsq:unique that was
+// widened by a column, which changes its derived name: Reconcile created the new
+// index and left the old one, which went on refusing rows the declaration allows.
+// It drops an index of the table that carries a derived name (ux_<table>_...) and
+// is no longer declared, and nothing else: not an index under another name, and
+// not under any other policy.
+func TestIntegrationReconcileDropsTheIndexesItNamed(t *testing.T) {
+	ctx := context.Background()
+
+	before := []tsq.IndexSpec{
+		{Name: "ux_indexed_a", Columns: []string{"a"}, Unique: true},
+		{Name: "idx_indexed_b", Columns: []string{"b"}},
+	}
+	after := []tsq.IndexSpec{{Name: "ux_indexed_a_b", Columns: []string{"a", "b"}, Unique: true}}
+
+	for _, target := range integrationTargets(t) {
+		t.Run(target.name, func(t *testing.T) {
+			dropTables(t, target, "indexed")
+
+			rt, _, err := openQuietly(target, tsq.SchemaPolicyReconcile, indexedTable(before...))
+			if err != nil {
+				t.Fatalf("create: %v", err)
+			}
+
+			// Two indexes somebody made by hand: one under a name of their own, one
+			// that only looks like TSQ's and names another table.
+			for _, statement := range []string{
+				"CREATE INDEX by_hand ON indexed (body)",
+				"CREATE INDEX ux_other_thing ON indexed (b, a)",
+			} {
+				if _, err := rt.ExecContext(ctx, statement); err != nil {
+					t.Fatalf("%s: %v", statement, err)
+				}
+			}
+
+			_ = rt.Close()
+
+			// Adding the new index is all CreateMissing does.
+			table := indexedTable(after...)
+
+			rt, ran, err := openQuietly(target, tsq.SchemaPolicyCreateMissing, table)
+			if err != nil {
+				t.Fatalf("create missing: %v", err)
+			}
+
+			if joined := strings.Join(ran, "\n"); strings.Contains(joined, "DROP INDEX") {
+				t.Fatalf("CreateMissing dropped an index:\n%s", joined)
+			}
+
+			if err := table.Insert(ctx, rt, &indexed{A: "x", B: "1"}); err != nil {
+				t.Fatal(err)
+			}
+
+			if err := table.Insert(ctx, rt, &indexed{A: "x", B: "2"}); !tsq.IsDuplicateKeyError(err) {
+				t.Fatalf("the old unique index is gone under CreateMissing: %v", err)
+			}
+
+			_ = rt.Close()
+
+			rt, ran, err = openQuietly(target, tsq.SchemaPolicyReconcile, table)
+			if err != nil {
+				t.Fatalf("reconcile: %v", err)
+			}
+
+			defer func() { _ = rt.Close() }()
+
+			joined := strings.Join(ran, "\n")
+			for _, gone := range []string{"ux_indexed_a", "idx_indexed_b"} {
+				if !strings.Contains(joined, "DROP INDEX "+quoteFor(target, gone)) {
+					t.Errorf("Reconcile left %s, which is no longer declared; it ran:\n%s", gone, joined)
+				}
+			}
+
+			for _, kept := range []string{"by_hand", "ux_other_thing", "ux_indexed_a_b"} {
+				if strings.Contains(joined, "DROP INDEX "+quoteFor(target, kept)) {
+					t.Errorf("Reconcile dropped %s; it ran:\n%s", kept, joined)
+				}
+			}
+
+			// What the declaration allows is now allowed: a alone no longer has to be unique.
+			if err := table.Insert(ctx, rt, &indexed{A: "x", B: "2"}); err != nil {
+				t.Errorf("a row the declared unique index allows: %v", err)
+			}
+
+			if err := table.Insert(ctx, rt, &indexed{A: "x", B: "2"}); !tsq.IsDuplicateKeyError(err) {
+				t.Errorf("the declared unique index does not hold: %v", err)
+			}
+
+			// Nothing left to do.
+			again, ran, err := openQuietly(target, tsq.SchemaPolicyReconcile, table)
+			if err != nil || len(ran) != 0 {
+				t.Fatalf("second reconcile: %v, ran:\n%s", err, strings.Join(ran, "\n"))
+			}
+
+			_ = again.Close()
+		})
+	}
+}
+
+// quoteFor quotes an identifier as the target's dialect does.
+func quoteFor(target integrationTarget, name string) string {
+	if target.name == "mysql" {
+		return "`" + name + "`"
+	}
+
+	return `"` + name + `"`
+}
+
+// TestIntegrationFullTextIndexFollowsItsColumns covers a full-text index kept under
+// one name while its field list changed. It was compared by name only, so the index
+// stayed over the old columns; MySQL's MATCH needs an index over exactly the columns
+// it names, and every search failed (error 1191).
+func TestIntegrationFullTextIndexFollowsItsColumns(t *testing.T) {
+	ctx := context.Background()
+
+	for _, target := range integrationTargets(t) {
+		t.Run(target.name, func(t *testing.T) {
+			dropTables(t, target, "indexed")
+
+			wide := indexedTable(tsq.IndexSpec{Name: "ft_docs", Columns: []string{"body", "a"}, FullText: true})
+
+			rt, _, err := openQuietly(target, tsq.SchemaPolicyReconcile, wide)
+			if err != nil {
+				t.Fatalf("create: %v", err)
+			}
+
+			if err := wide.Insert(ctx, rt, &indexed{A: "x", B: "y", Body: "the quick brown fox"}); err != nil {
+				t.Fatal(err)
+			}
+
+			_ = rt.Close()
+
+			narrow := indexedTable(tsq.IndexSpec{Name: "ft_docs", Columns: []string{"body"}, FullText: true})
+
+			rt, _, err = openQuietly(target, tsq.SchemaPolicyReconcile, narrow)
+			if err != nil {
+				t.Fatalf("reconcile: %v", err)
+			}
+
+			defer func() { _ = rt.Close() }()
+
+			found, err := tsq.Select(narrow.Columns()...).From(narrow).Where(tsq.Matches(narrow.FullText("ft_docs"), tsq.Val("quick"))).List(ctx, rt)
+			if err != nil || len(found) != 1 {
+				t.Fatalf("search over the index as declared: %d rows, %v", len(found), err)
+			}
+
+			again, ran, err := openQuietly(target, tsq.SchemaPolicyReconcile, narrow)
+			if err != nil || len(ran) != 0 {
+				t.Fatalf("second reconcile: %v, ran:\n%s", err, strings.Join(ran, "\n"))
+			}
+
+			_ = again.Close()
+		})
+	}
+}

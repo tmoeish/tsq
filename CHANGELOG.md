@@ -161,6 +161,9 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 ### 修复
 
+- **`Reconcile` 留着不再声明的索引**：去掉一个 `//tsq:unique`，或给它加一列（推导出的名字随之改变），旧的唯一索引仍在库里，继续拒绝声明已经允许的行，而同一档策略对不再声明的列是会删的。现在 `Reconcile` 删掉已声明的表上按 TSQ 推导名（`ux_<表>_…` / `idx_<表>_…` / `ft_<表>_…`）命名却不再声明的索引；别的名字的索引、别的档位、没声明的表都不碰。
+- **同名全文索引换了列检测不到**：只按名字比，索引留在旧的列上；MySQL 的 `MATCH` 要求索引正好覆盖它点名的列，每次检索报 1191。现在 MySQL 上也比列，`Reconcile` 重建，其他档位报错。
+- **`tsq gen` 的几处**：`//tsq:unique A,B` 和 `//tsq:unique AAndB` 都生成 `GetByAAndB`，生成的代码编译不过，现在生成时报错并点名两条指令；类型别名（`type Stamp = time.Time`）做 `created_at` / `updated_at` 被当成不认识的类型拒绝，现在按它代表的类型处理；`//tsq:search` 写在指针字段上的报错说的是"keyword fields"，map 字段的报错是 `*ast.MapType`，都改成点名指令和源码里的类型。
 - **`ListIn` 列表长到被切分后会丢行**：切分后的结果按主键去重，把 join 本来就重复的行也去掉了，同一个查询短列表返回 8 行、长列表返回 2 行。现在只有读单张表的查询才去重（那里一行只可能出现一次），带 join 的查询保留各段返回的每一行。
 - **MySQL DSN 带 `loc=Local` 时数据库填的时间读回来差一个时区**：驱动按 `loc` 写入和解读 `DATETIME`，TSQ 的时间于是按本地时间落库（文档说一律 UTC），而数据库自己填的 UTC 时间（`default:CURRENT_TIMESTAMP`）读回来偏了时区那么多小时，不报错。`tsq.Open` 现在拒绝 `loc` 不是 `UTC` 的 DSN；显示时用 `time.Time.In` 转换。
 - **自定义 bool 类型的字段在 MySQL 和 SQLite 上读不出来**：`type Flag bool`（含 `*Flag`、`sql.Null[Flag]`）能生成、能写入，每次读都报 `unsupported Scan`——这两个库把布尔报成整数，database/sql 只替内建的 `bool` 转换。现在 TSQ 自己读进命名类型。

@@ -349,7 +349,10 @@ func parseFieldType(
 		return true, false, packagePath, typeName, nil
 
 	default:
-		return false, false, "", "", unsupportedFieldError("%T", t)
+		// A map, func, channel, interface or struct literal: named by its source
+		// text, not by the syntax node that holds it.
+		return false, false, "", "", unsupportedFieldError(
+			"%s is not a column type; give the field a named type with Value and Scan methods and a type: in its db tag", exprText(t))
 	}
 }
 
@@ -369,7 +372,7 @@ func parseSelectorExpr(
 
 	// Anything but a plain identifier would be a nested selector,
 	// which is not supported.
-	return false, false, "", "", unsupportedFieldError("selector on %T", selExpr.X)
+	return false, false, "", "", unsupportedFieldError("%s is not a type from a package", exprText(selExpr))
 }
 
 // exprText is the source form of a type expression, for error messages.

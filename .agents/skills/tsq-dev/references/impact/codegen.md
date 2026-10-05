@@ -95,6 +95,9 @@
   `+00:00`，MySQL 把带时区的公元 1 年存成 `0000-00-00`）；默认值的拼写走 `DefaultSQL`（MySQL 的 TEXT / BLOB 只收表达式）。PG 改类型只在没有
   赋值转换的类型之间写 `USING`，并且**从不写成转到字符类型本身**（`postgresUsing`：`c::VARCHAR(5)` 静默截断，写 `c::TEXT` 让赋值去拒绝）。
   这一段的每条规则都要在真实引擎上跑过才算数：`internal/integration/schema_test.go`。
+- **依赖字段类型的校验放在 `resolveNullValues` 之后**：解析器记的是源码里写的名字，类型别名（`type Stamp = time.Time`）要等 go/types 说出它
+  代表谁（`aliasedLibraryType`）。托管字段校验曾在那之前跑，别名被当成不认识的类型拒掉；跟随别名之后生成文件按**规范拼写**
+  （`tsqtime.Time`）写这个字段，否则 `time` 被 import 了却没人用。两个索引生成同名方法（`A,B` 与 `AAndB`）由 `validateGeneratedMethodNames` 拒绝。
 - 字段类型是否可比较由生成计划用 go/types 判断（`FieldInfo.Incomparable`）：解析器只认字面的 `[]byte` 是切片，
   `json.RawMessage` 上的唯一索引曾生成编译不过的 `GetBy`。新的"依赖类型性质"的分支照此从 go/types 取，不要从 AST 猜。
   `tsq.json` 缺失而 `.sql` 在时拒绝运行（`buildDDLInitialDialects`）。

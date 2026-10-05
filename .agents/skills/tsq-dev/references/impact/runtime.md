@@ -18,10 +18,14 @@
 
 ## 改了 schema 托管（`runtime_schema.go`、`runtime_index.go`）
 
-- **不要重新引入任何"删掉不再声明的表或索引"的策略。** v4 的 `SchemaPolicyManaged` 靠一张全库共享
+- **不要重新引入任何"删掉不再声明的表"的策略，也不要删别人的索引。** v4 的 `SchemaPolicyManaged` 靠一张全库共享
   的记账表做这件事，两个共用数据库的服务因此互删对方的表连同数据。一个 runtime 只知道自己声明了
-  什么，分不清"这张表不该存在了"和"这张表是别人的"。**列不在此列**：`Reconcile` 删不再声明的列是
-  有意的，`TestReconcileDropsUndeclaredColumns` 钉着。理由见 `../memory/dialect.md`。
+  什么，分不清"这张表不该存在了"和"这张表是别人的"。**已声明的表之内不在此列**，而且只归 `Reconcile`：它删不再声明的列
+  （`TestReconcileDropsUndeclaredColumns`），也删这张表上名字是 TSQ 推导形态（`derivedIndexName`：`ux_<表>_…` / `idx_<表>_…` /
+  `ft_<表>_…`）却不再声明的索引（`dropUndeclaredIndexes`，门是 `TestIntegrationReconcileDropsTheIndexesItNamed`，它同时钉着
+  "别的名字不碰、`CreateMissing` 不删"）。放宽这个名字判据之前先想清楚：手建索引和别的服务建的索引只靠名字和它区分。理由见 `../memory/dialect.md`。
+- 全文索引按名字比，报得出列的方言（MySQL）再比列：`MATCH` 要求索引正好覆盖它点名的列，留着旧列的索引让每次检索报 1191
+  （`TestIntegrationFullTextIndexFollowsItsColumns`）。PG 索引的是表达式、SQLite 没有，仍只比名字。
 - 索引定义只有一种比较：`sqldialect.ValidateIndex`（运行期策略和 `EnsureIndex` 共用），别在根包再写一份——
   上一份副本 `upsertIndex` 没人调用，却已经和真实路径漂移。"applied ddl" 只在语句成功之后记（重建在提交之后）。
 - **SQLite 的重建**（`rebuildTable`，`AlterMode() == AlterRebuild` 时改列类型走这里）从声明的列建新表，
