@@ -756,6 +756,19 @@ func renderDDLSnapshotCreateTable(table ddlSnapshotTable, dialect ddlDialectSpec
 		lines = append(lines, "    "+renderDDLSnapshotColumnDefinition(column, dialect))
 	}
 
+	// The statement fails on MySQL when the columns are wider than a row: said
+	// above it, as the index limits are, since the file is written for every dialect.
+	if dialect.dialect.Name() == tsqdialect.MySQL {
+		columns := make([]tsqdialect.ColumnSpec, 0, len(table.Columns))
+		for _, column := range table.Columns {
+			columns = append(columns, ddlColumnSpecFromSnapshot(column))
+		}
+
+		if problem := mysqlRowProblem(table.Name, columns); problem != "" {
+			buf.WriteString(renderDDLManualComment(table.Name, problem) + "\n")
+		}
+	}
+
 	buf.WriteString("CREATE TABLE IF NOT EXISTS ")
 	buf.WriteString(dialect.dialect.QuoteIdent(table.Name))
 	buf.WriteString(" (\n")

@@ -161,6 +161,13 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 ### 修复
 
+- **分组表达式在 `HAVING`、嵌套表达式和 `ORDER BY` 里再用一次，MySQL 和 PostgreSQL 报错**：`GroupBy(tsq.Upper(note))` 之后写 `Having(tsq.Upper(note).NE(...))` 或选出 `tsq.Lower(tsq.Upper(note))`，`Build` 放行、SQLite 能跑，MySQL 报 1054 / 1055（它只认整个出现在选择列表或 `ORDER BY` 里的分组表达式）；分组表达式带绑定值时（`tsq.Add(qty, tsq.Val(10))`）PostgreSQL 也报错，因为每写一次就是一个新参数，它把两处当成两个表达式。现在这两个引擎上，这样的出现被写成 `MAX(表达式)`——同一组里它只有一个值，聚合可以出现在任何位置。只改写原本必然报错的写法：聚合里面的出现（`Count(Upper(note))`）、`Expr` 手写的函数里面的出现、子查询里面的出现、分组的列、本身就是分组表达式的选择项都保持原样。
+- **`tsq.Max` / `tsq.Min` 作用于布尔列在 PostgreSQL 上报错**（没有 `MAX(boolean)`）：那里改写成 `BOOL_OR` / `BOOL_AND`，三个引擎答案一致。
+- **`tsq.Ceil` / `tsq.Floor` 在 mattn/go-sqlite3 上报 `no such function`**：这个驱动默认不编入 SQLite 的数学函数。SQLite 上改用不依赖数学函数的写法，两个驱动都能用。
+- **没设置过的 `json.RawMessage` 写不进 JSON 列**：nil 的字节切片按空字节绑定，而空字节不是 JSON，MySQL 和 PostgreSQL 拒绝这一行。现在按 JSON 的 `null` 写入，和 `encoding/json` 对 nil `RawMessage` 的写法一致。
+- **`NewRuntime` 检查不了 MySQL 连接池的 `parseTime` 和 `loc`**：`Open` 从 DSN 里读这两项，交给 `NewRuntime` 的连接池没有 DSN 可读，`loc=Local` 的池子照样能建起运行时，数据库填的 UTC 时间读回来差一个时区。现在 `NewRuntime` 发一条查询问驱动怎么读时间，两项不对都拒绝。
+- **MySQL 上行宽超限要到建表才知道**：每个 `VARCHAR` 按最长值计入 65535 字节的行宽，`size:16383` 一列就占满，几个长字符串加起来也会超（建表报 1118）。`tsq gen` 现在像索引键长那样给出警告，并在 `mysql.sql` 里那条 `CREATE TABLE` 上方写明。
+- **手写在生成的 `XxxTable` 上的方法和生成的方法重名**（`GetByX`、`FindByX`、`FullTextX`、`As`、`WithDeleted`）：以前只能等编译器报"method redeclared"，报在它后读到的那个文件上，可能是生成的文件。现在 `tsq gen` 直接指出手写的那一行。
 - **PostgreSQL 上 `[]byte` 与 `string` 互改类型会静默改写数据**：生成的迁移和 `Reconcile` 把 `[]byte` → `string` 写成 `USING c::TEXT`，`abc` 变成 8 个字符的文本 `\x616263`；`string` → `[]byte` 写成 `USING c::BYTEA`，文本被当成转义串解析（`tab\101x` 变成 `tabAx`）。MySQL 和 SQLite 保留原字节，改完 `Validate` 照样通过。现在写 `convert_from(c, 'UTF8')` / `convert_to(c, 'UTF8')`，不是文本的字节会让迁移失败而不是被改写。
 - **SQLite 改列类型后整张表读不出来**：SQLite 在任何声明类型下都原样存值，重建表时把 `1.5` 抄进整数列、`2` 抄进布尔列、`'Hello'` 抄进整数或时间列都"成功"，`Validate` 通过，随后每次读这张表都报 Scan 错误；MySQL 的数值 → `BOOLEAN` 同样留着 `2`。现在三个方言对同一个改动给出同一个结果：小数四舍五入成整数，数值变布尔时非零即真（PostgreSQL 的 `USING c <> 0`、MySQL 在 `MODIFY` 前的一条 `UPDATE`、SQLite 重建时的复制表达式）；文本变成数值、布尔或时间时，转不过去的值在 MySQL / PostgreSQL 上让改动失败，SQLite 上 `Reconcile` 在提交前检查、报出列名、行数和一个例子并保持原表不动，生成的迁移则把这个改动写成注释交给人（脚本拦不住一个转不过去的值）。
 - **声明的原始类型和默认值每次启动都被当成"变了"**：`type:DECIMAL(10)`、`INTEGER UNSIGNED`、`CHAR`、`BIT`、`NVARCHAR(10)`、`YEAR(4)`、`FLOAT(24)`（MySQL），`INT[]`、`VARCHAR(10)[]`、`NUMERIC(10)`、`FLOAT(53)`（PostgreSQL），以及 `(1+1)`、`(CURRENT_DATE)`、带反斜杠的字面量这类默认值，数据库报回来的拼法和声明的不一样，`Validate` 在 TSQ 自己建的表上起不来，`Reconcile` 每次启动都重发同一条 `ALTER`。别名表补了三轮仍有漏网，现在文本比较说"不一样"时改问引擎：在本会话的临时表里按声明建这一列，读回引擎自己的拼法，和库里那一列的拼法一致就是同一个东西。只有文本上不同的列才探测；没有建临时表的权限时退回文本比较并在日志里告警。MySQL 的临时表和永久表报默认值的拼法不同（表达式多一层括号、二进制字面量一边是文本一边是十六进制、4 字节字符在数据字典里是 `?`），所以那里把库里那一列也按 `SHOW CREATE TABLE` 的写法建进临时表，两边都从临时表读；PostgreSQL 上非主键列的 `type:SERIAL` / `BIGSERIAL` 按它自带的序列认出来。

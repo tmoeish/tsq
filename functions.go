@@ -92,12 +92,29 @@ func CountDistinct[T any](col Expression[T]) Expression[int64] {
 	return counted[T](col, "COUNT(DISTINCT ")
 }
 
-// Max is the largest value of col. What can be ordered is the engine's to say:
-// PostgreSQL has no MAX or MIN over a boolean.
-func Max[T any](col Expression[T]) Expression[T] { return wrapped[T](col, "MAX(", ")", true) }
+// Max is the largest value of col; over a boolean, whether any row holds true.
+func Max[T any](col Expression[T]) Expression[T] { return extreme[T](col, "MAX(", "BOOL_OR(") }
 
-// Min is the smallest value of col.
-func Min[T any](col Expression[T]) Expression[T] { return wrapped[T](col, "MIN(", ")", true) }
+// Min is the smallest value of col; over a boolean, whether every row holds true.
+func Min[T any](col Expression[T]) Expression[T] { return extreme[T](col, "MIN(", "BOOL_AND(") }
+
+// extreme is MAX or MIN of col. PostgreSQL has neither over a boolean, where
+// MySQL and SQLite order false before true: there the largest of a boolean is
+// BOOL_OR and the smallest BOOL_AND, which give the same answer.
+func extreme[T any](col Expression[T], open, overBool string) Expression[T] {
+	plain := wrapped[T](col, open, ")", true)
+	if reflect.TypeFor[T]().Kind() != reflect.Bool {
+		return plain
+	}
+
+	x := columnInfo(col).sql
+
+	return derived[T](plain, columnInfo(plain).withSQL(sqlByDialect("the largest or smallest of a boolean", map[tsqdialect.Name]sqlExpr{
+		tsqdialect.MySQL:    sqlJoin(sqlText(open), x, sqlText(")")),
+		tsqdialect.Postgres: sqlJoin(sqlText(overBool), x, sqlText(")")),
+		tsqdialect.SQLite:   sqlJoin(sqlText(open), x, sqlText(")")),
+	})))
+}
 
 // Sum adds up col.
 func Sum[N Number](col Expression[N]) Expression[N] {
@@ -160,15 +177,31 @@ func Round[N Number](col Expression[N], precision int) Expression[N] {
 	})
 }
 
-// Ceil rounds col up. On SQLite it needs the math functions: modernc.org/sqlite
-// has them, mattn/go-sqlite3 only when built with -tags sqlite_math_functions.
+// Ceil rounds col up.
 func Ceil[N Number](col Expression[N]) Expression[N] {
-	return wrapped[N](col, "CEIL(", ")", false)
+	return towards[N](col, "CEIL(", "ceil", " + (", " > ")
 }
 
-// Floor rounds col down; see Ceil for SQLite.
+// Floor rounds col down.
 func Floor[N Number](col Expression[N]) Expression[N] {
-	return wrapped[N](col, "FLOOR(", ")", false)
+	return towards[N](col, "FLOOR(", "floor", " - (", " < ")
+}
+
+// towards is CEIL or FLOOR of col. SQLite has the two only where it was built
+// with its math functions, which mattn/go-sqlite3 leaves out by default ("no such
+// function: CEIL"): there the value is cut to an integer and stepped by one where
+// the cut moved it the other way, which every build computes.
+func towards[N Number](col Expression[N], open, feature, step, moved string) Expression[N] {
+	return byDialect[N](col, feature, func(x sqlExpr) map[tsqdialect.Name]sqlExpr {
+		plain := sqlJoin(sqlText(open), x, sqlText(")"))
+		cut := sqlJoin(sqlText("CAST("), x, sqlText(" AS INTEGER)"))
+
+		return map[tsqdialect.Name]sqlExpr{
+			tsqdialect.MySQL:    plain,
+			tsqdialect.Postgres: plain,
+			tsqdialect.SQLite:   sqlJoin(sqlText("("), cut, sqlText(step), x, sqlText(moved), cut, sqlText("))")),
+		}
+	})
 }
 
 // Abs is the absolute value of col.

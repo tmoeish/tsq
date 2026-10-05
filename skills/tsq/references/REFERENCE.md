@@ -113,7 +113,9 @@ embeds must be a struct TSQ can read. Other structs in the package are left alon
 fields. A field cannot be named like a method TSQ generates on the row (`Insert`, `Update`,
 `HardDelete`, and on a soft-delete table `Delete`, `Restore`, `IsDeleted`), nor like a generated table
 method (`GetByX`, `FindByX`, `FetchByX`, `FullTextX`); rename the Go field and keep
-the column with the `db` tag. The row type cannot declare those methods itself either, and nothing in
+the column with the `db` tag. The row type cannot declare those methods itself either, a method you
+write on the generated `XTable` cannot be named like one generated there (`As`, `WithDeleted`,
+`GetByX`, `FindByX`, `FullTextX`), and nothing in
 the package can already be named like what `tsq gen` declares (`TableX`, `XTable`, `ResultX`,
 `XResult`, `TSQTables`); `tsq gen` says where the clash is. In a `type ( ... )` group, write the
 directive on the type it is for: one above the group belongs to no type and is an error. A package
@@ -172,8 +174,8 @@ Rules:
   `generated[:SQL]`; anything else, or one without a usable value, is an error
 - a `[]byte` field (or a named byte-slice type such as `json.RawMessage`) is a NOT NULL binary
   column, and an unset (nil) one is written as empty bytes; `sql.Null[[]byte]` is the nullable form. Empty bytes are
-  not JSON: a `json.RawMessage` in a `type:JSON` column must hold a document (`null`, `{}`) before the row is
-  written, or MySQL and PostgreSQL refuse it
+  not JSON, so an unset or empty `json.RawMessage` is written as the JSON `null`, the document `encoding/json`
+  writes for a nil one, and reads back as `null`
 - `db:"col,type:SQL_TYPE"` sets an explicit raw SQL type override for DDL generation and runtime schema metadata
 - `db:"col,default:SQL"` gives the column a DDL `DEFAULT SQL` **and** leaves it to the database when
   the field holds NULL: an `INSERT` of such a row omits the column, and a single-row `Insert` reads
@@ -235,7 +237,10 @@ Supported field types:
 - MySQL limits an index key to 3072 bytes and counts a string column at 4 bytes a character, and it
   cannot index a `TEXT` column at all. PostgreSQL and SQLite accept such an index, so `tsq gen`
   generates it and warns: it prints the reason, and `mysql.sql` carries it as a comment above the
-  statement that will fail there (`VARCHAR(2000)` alone exceeds the limit). For a schema that runs
+  statement that will fail there (`VARCHAR(2000)` alone exceeds the limit). MySQL also limits a row to 65535
+  bytes and counts every `VARCHAR` at its longest: a string of `size:16383` fills the row by itself, and
+  several long strings pass the limit together (error 1118 on `CREATE TABLE`). `tsq gen` warns the same
+  way; a `size:` above 16383 makes the column a `TEXT`, which is kept off the row. For a schema that runs
   on MySQL, lower the `size:` or leave the column out of the index. MySQL also limits a row to 65535 bytes across its `VARCHAR`
   columns: several strings of a few thousand characters, or one of `size:16383` beside any other column, fail
   `CREATE TABLE` there (error 1118), and `type:TEXT` or a `size:` above 16383 (a `MEDIUMTEXT`) keeps the value out of the row
@@ -1238,7 +1243,7 @@ Rules:
 `Runtime` is the TSQ-managed executor and runtime container.
 
 - it implements `Executor` directly
-- use `tsq.Open(ctx, "sqlite", dsn, database.TSQTables())` for one generated package; `TSQTables()` returns the package's `[]tsq.Table`. A MySQL DSN must set `parseTime` (`true` or `1`; `Open` refuses one that does not; a pool handed to `NewRuntime` needs it too), or times are read as bytes It must also leave `loc` at the driver's default, UTC: with `loc=Local` the driver stores TSQ's UTC times in that zone after all and reads the times the database fills (`default:CURRENT_TIMESTAMP`, written in UTC) as if they were in it, hours off and without an error, so `Open` refuses a `loc` other than `UTC`. Convert for display with `time.Time.In`
+- use `tsq.Open(ctx, "sqlite", dsn, database.TSQTables())` for one generated package; `TSQTables()` returns the package's `[]tsq.Table`. A MySQL DSN must set `parseTime` (`true` or `1`; `Open` refuses one that does not, and `NewRuntime` asks the pool it is handed how its driver reads a time and refuses it the same way, for `parseTime` and for `loc`), or times are read as bytes It must also leave `loc` at the driver's default, UTC: with `loc=Local` the driver stores TSQ's UTC times in that zone after all and reads the times the database fills (`default:CURRENT_TIMESTAMP`, written in UTC) as if they were in it, hours off and without an error, so `Open` refuses a `loc` other than `UTC`. Convert for display with `time.Time.In`
 - combine multiple generated packages by concatenating their `TSQTables()` slices before calling `Open` or `NewRuntime`
 - `Open` opens the pool itself and resolves the dialect from `driverName`; the context bounds the ping and any bootstrap DDL
 - `tsq.NewRuntime(ctx, db, dialect.Postgres, tables, options...)` builds a runtime over a pool the caller already opened, which is how an instrumented or specially configured `*sql.DB` keeps working while still getting SQL logging, tracers and the page-size cap
@@ -1344,7 +1349,7 @@ another result, which has no columns of its own.
 
 TSQ supports more than simple list queries. Common advanced shapes include:
 
-- aggregate queries with `GroupBy(...)` and `Having(...)`. `Build()` refuses a selected, `HAVING` or `ORDER BY` column that is neither grouped nor inside an aggregate (SQLite would return an arbitrary row's value, PostgreSQL refuses it); grouping by a table's primary key allows the table's other columns, and a column read only inside a grouped expression is grouped (`GroupBy(tsq.Upper(note))` allows `Having(tsq.Upper(note).NE(...))`). PostgreSQL and SQLite run such a query; MySQL recognizes a grouped expression only where the select list or `ORDER BY` repeats it whole, and refuses it in `HAVING` or inside another expression when the query runs (errors 1054 and 1055): there, group in a CTE and filter its output
+- aggregate queries with `GroupBy(...)` and `Having(...)`. `Build()` refuses a selected, `HAVING` or `ORDER BY` column that is neither grouped nor inside an aggregate (SQLite would return an arbitrary row's value, PostgreSQL refuses it); grouping by a table's primary key allows the table's other columns, and a column read only inside a grouped expression is grouped (`GroupBy(tsq.Upper(note))` allows `Having(tsq.Upper(note).NE(...))`). MySQL recognizes a grouped expression only where the select list or `ORDER BY` repeats it whole, and PostgreSQL compares expressions with their parameters, so one with a bound value (`tsq.Add(qty, tsq.Val(10))`) is another expression each time it is written; TSQ writes such an occurrence as `MAX(expression)` on those engines, which within a group is the expression's one value, so the query runs on all three. An occurrence inside an aggregate is left as written (`tsq.Count(tsq.Upper(note))` is valid as it is), and so is one inside a function TSQ does not write itself (an aggregate from `Expr`) or inside a subquery
 - `CASE` expressions: `tsq.Case(cond, col).When(cond, tsq.Val("x")).Else(tsq.Val("y")).End()` (the first branch is required, and fixes the type; `Else` comes last and is followed only by `End`); results are typed, so a branch of another type does not compile. On PostgreSQL a CASE whose results are all bound values is cast to the result type, since PostgreSQL would read them as text
 - `tsq.Coalesce(col, rhs)` and `tsq.NullIf(col, rhs)`, with `tsq.Val` for a fixed value
 - subqueries such as `In(subquery)`, `tsq.Exists(subquery)`, and typed RHS comparisons like `EQ(subquery)` or `tsq.Like(col, subquery)`. An `In` subquery may set `Limit` (it is written as a derived table, which MySQL requires). A subquery cannot use `Search`: the keyword is an argument of the statement that runs, so `Build()` refuses it instead of dropping the predicate
@@ -1403,12 +1408,14 @@ differ:
   rounds a `DOUBLE` to the nearest even digit (`2.5` is `2`)
 - `Avg` of an integer column is a `float64` with all its digits; MySQL's own `AVG` of integers keeps four
   decimals (`1.6667`), so the column is averaged as a `DOUBLE` there
-- `Max` / `Min` take any column type, and what can be ordered is the engine's to say: PostgreSQL has no
-  `MAX(boolean)`. A time read through `Max`, `Min` or `Coalesce` is a `time.Time` on SQLite too
+- `Max` / `Min` take any column type, and what can be ordered is the engine's to say. Over a boolean they
+  answer "is any row true" and "is every row true" on all three engines (`BOOL_OR` / `BOOL_AND` on
+  PostgreSQL, which has no `MAX(boolean)`). A time read through `Max`, `Min` or `Coalesce` is a `time.Time`
+  on SQLite too
 - `Coalesce(col, fallback)` is NULL only where both are: with `tsq.Val(x)` or a NOT NULL column as the
   fallback it reads into a field that cannot hold NULL
-- `Ceil` / `Floor` need SQLite's math functions: `modernc.org/sqlite` has them, and `mattn/go-sqlite3` only when
-  built with `-tags sqlite_math_functions` ("no such function: CEIL" otherwise)
+- `Ceil` / `Floor` work on every SQLite build: they are written without SQLite's math functions, which
+  `mattn/go-sqlite3` leaves out unless built with `-tags sqlite_math_functions`
 
 A table's search columns must be string-kind: `tsq.Searchable(col)` is how a `TableSpec` lists
 them, and `//tsq:search` / `//tsq:fulltext` accept `string` fields and named types whose underlying type is `string`.

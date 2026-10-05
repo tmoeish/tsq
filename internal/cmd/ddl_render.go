@@ -1237,6 +1237,73 @@ func mysqlIndexProblem(index string, columns []string, typeOf func(column string
 	return ""
 }
 
+// mysqlMaxRowBytes is the most the columns of a MySQL row may take together, TEXT
+// and BLOB columns aside, which are kept apart from it.
+const mysqlMaxRowBytes = 65535
+
+// mysqlRowProblem says why MySQL cannot create a table of columns, or "" when it
+// can: its columns can take more than a row holds (error 1118). Every VARCHAR
+// counts for its longest value, four bytes a character and two for the length, so
+// one of size:16383 fills the row by itself and a table of several long strings
+// passes the limit long before any of them does. A column of an explicit type: is
+// not counted. Like the index limits it is a warning: the table may only ever run
+// on PostgreSQL or SQLite.
+func mysqlRowProblem(table string, columns []tsqdialect.ColumnSpec) string {
+	total := 0
+
+	var strs []string
+
+	for _, column := range columns {
+		if column.Type.RawType != "" {
+			continue
+		}
+
+		spelled := sqld.MySQLDialect{}.ColumnTypeSQL(column.Type)
+
+		var chars int
+
+		switch {
+		case strings.HasPrefix(spelled, "VARCHAR("):
+			_, _ = fmt.Sscanf(spelled, "VARCHAR(%d)", &chars)
+			total += chars*mysqlCharBytes + 2
+			strs = append(strs, fmt.Sprintf("%s (%d)", column.Name, chars))
+		case strings.HasSuffix(spelled, "TEXT"), strings.HasSuffix(spelled, "BLOB"):
+			// Kept off the row, which holds a pointer to it.
+			total += 12
+		default:
+			total += 8
+		}
+	}
+
+	if total <= mysqlMaxRowBytes {
+		return ""
+	}
+
+	return fmt.Sprintf("the columns of table %s can take %d bytes on MySQL, which limits a row to %d (%d bytes a character): "+
+		"CREATE TABLE fails there with error 1118. Give the longest strings a size: above 16383, which makes them TEXT and keeps them off the row, or lower the size: of %s",
+		table, total, mysqlMaxRowBytes, mysqlCharBytes, strings.Join(strs, ", "))
+}
+
+// mysqlRowWarnings lists the table of s when MySQL would reject it as too wide.
+func mysqlRowWarnings(s *genmodel.StructInfo) []string {
+	if s.IsResult || s.TableMeta == nil {
+		return nil
+	}
+
+	columns := make([]tsqdialect.ColumnSpec, 0, len(s.Schema))
+	for _, column := range s.Schema {
+		columns = append(columns, tsqdialect.ColumnSpec{Name: column.Name, Type: tsqdialect.ColumnType{
+			Kind: tsqdialect.ColumnKind(column.Kind), Bits: column.Bits, Unsigned: column.Unsigned, Size: column.Size, RawType: column.RawType,
+		}})
+	}
+
+	if problem := mysqlRowProblem(s.Table, columns); problem != "" {
+		return []string{s.TypeInfo.TypeName + ": " + problem}
+	}
+
+	return nil
+}
+
 // mysqlIndexWarnings lists the indexes of s that MySQL would reject.
 func mysqlIndexWarnings(s *genmodel.StructInfo) []string {
 	columns := make(map[string]genmodel.SchemaColumn, len(s.Schema))

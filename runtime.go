@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"time"
 
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 	sqld "github.com/tmoeish/tsq/v5/internal/sqldialect"
@@ -141,6 +142,12 @@ func newRuntime(
 
 	if err := db.PingContext(ctx); err != nil {
 		return nil, err
+	}
+
+	if sqlDialect.Name() == tsqdialect.MySQL {
+		if err := checkMySQLTimes(ctx, db); err != nil {
+			return nil, err
+		}
 	}
 
 	runtime := &Runtime{
@@ -365,6 +372,31 @@ func resolveRuntimeDialect(driverName string) (sqld.Dialect, error) {
 	default:
 		return nil, fmt.Errorf("unsupported sql driver %q; expected sqlite, sqlite3, mysql, postgres, postgresql, pgx, or pq", driverName)
 	}
+}
+
+// checkMySQLTimes asks the pool how its driver reads a DATETIME. Open reads
+// parseTime and loc from the DSN; a pool handed to NewRuntime has no DSN to read,
+// and the same two settings went unchecked there: without parseTime a time comes
+// back as bytes and no timestamp can be read, and under a loc other than UTC the
+// driver stores TSQ's UTC times in that zone and reads the times the database
+// fills as if they were in it, hours off and without an error.
+func checkMySQLTimes(ctx context.Context, db *sql.DB) error {
+	var probe any
+	if err := db.QueryRowContext(ctx, "SELECT CAST('2001-02-03 04:05:06' AS DATETIME)").Scan(&probe); err != nil {
+		return fmt.Errorf("check how the MySQL driver reads a time: %w", err)
+	}
+
+	at, parsed := probe.(time.Time)
+	if !parsed {
+		return errors.New("the MySQL pool must be opened with parseTime=true, or times are read as bytes and no timestamp can be read back")
+	}
+
+	if at.Location() != time.UTC {
+		return fmt.Errorf("the MySQL pool is opened with loc=%s; TSQ stores every time in UTC, and with another loc the driver stores times in that zone "+
+			"and reads the times the database fills as if they were in it: drop loc (UTC is the driver's default) and convert for display with time.Time.In", at.Location())
+	}
+
+	return nil
 }
 
 // mysqlParsesTime reports whether a go-sql-driver DSN sets parseTime, read as the

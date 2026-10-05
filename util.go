@@ -2,6 +2,7 @@ package tsq
 
 import (
 	"database/sql/driver"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -119,6 +120,13 @@ func bindValueFor(d sqld.Dialect, v any) any {
 // zone the caller's value is in: SQLite keeps a time as the text of the value, and
 // text in two zones does not sort or compare the way the times do.
 func bindValue(v any) any {
+	// A json.RawMessage that was never set is not JSON: bound as the empty bytes
+	// every other byte slice becomes, MySQL and PostgreSQL refused it for a JSON
+	// column. It is the JSON null, as encoding/json writes a nil RawMessage.
+	if raw, ok := v.(json.RawMessage); ok && len(raw) == 0 {
+		return []byte("null")
+	}
+
 	// A []byte field, or one of a named byte-slice type (json.RawMessage), is a
 	// NOT NULL column, and its zero value is nil, which the drivers bind as NULL:
 	// an Insert that left it unset failed. The nullable form is sql.Null[[]byte].
