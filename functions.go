@@ -151,47 +151,64 @@ func isFloat[N Number]() bool {
 // -2.5 is -3 on every dialect. PostgreSQL and MySQL round a floating-point value
 // through an exact decimal: PostgreSQL has no ROUND(double precision, integer),
 // and MySQL rounds a DOUBLE to the nearest even digit (2.5 is 2), so the same
-// query gave another answer there.
+// query gave another answer there. A value that is a tie only as it is written
+// (1.005 is stored as 1.00499999999999989) is rounded up by the two, which round
+// what is written, and down by SQLite, which rounds what is stored.
+//
+// An integer has nothing to round, and is the value of col as it is.
 func Round[N Number](col Expression[N], precision int) Expression[N] {
 	if precision < 0 {
 		return derived[N](col, exprInfo{err: errors.New("round precision cannot be negative")})
 	}
 
+	if !isFloat[N]() {
+		return whole(col)
+	}
+
 	n := sqlText(fmt.Sprintf(", %d)", precision))
-	floating := isFloat[N]()
 
 	return byDialect[N](col, "round", func(x sqlExpr) map[tsqdialect.Name]sqlExpr {
-		mysql := sqlJoin(sqlText("ROUND("), x, n)
-		if floating {
+		return map[tsqdialect.Name]sqlExpr{
 			// A DECIMAL holds 35 digits before the point and CAST clamps a larger
 			// value to it without an error; such a value has no fraction to round.
-			mysql = sqlJoin(sqlText("(CASE WHEN ABS("), x, sqlText(") < 1E30 THEN ROUND(CAST("), x, sqlText(" AS DECIMAL(65,30))"), n,
-				sqlText(" ELSE "), x, sqlText(" END)"))
-		}
-
-		return map[tsqdialect.Name]sqlExpr{
-			tsqdialect.MySQL:    mysql,
+			tsqdialect.MySQL: sqlJoin(sqlText("(CASE WHEN ABS("), x, sqlText(") < 1E30 THEN ROUND(CAST("), x, sqlText(" AS DECIMAL(65,30))"), n,
+				sqlText(" ELSE "), x, sqlText(" END)")),
 			tsqdialect.Postgres: sqlJoin(sqlText("ROUND(CAST("), x, sqlText(" AS NUMERIC)"), n),
 			tsqdialect.SQLite:   sqlJoin(sqlText("ROUND("), x, n),
 		}
 	})
 }
 
-// Ceil rounds col up.
+// Ceil rounds col up. An integer is the value of col as it is.
 func Ceil[N Number](col Expression[N]) Expression[N] {
 	return towards[N](col, "CEIL(", "ceil", " + (", " > ")
 }
 
-// Floor rounds col down.
+// Floor rounds col down. An integer is the value of col as it is.
 func Floor[N Number](col Expression[N]) Expression[N] {
 	return towards[N](col, "FLOOR(", "floor", " - (", " < ")
+}
+
+// whole is Round, Ceil or Floor of an integer: the value itself. The engines'
+// own functions answer in another type there (PostgreSQL's CEIL and SQLite's
+// ROUND in a floating-point one, PostgreSQL's ROUND to two places as 7.00), which
+// loses the digits of a large value, is not read back into an integer, and
+// divides with a fraction.
+func whole[N Number](col Expression[N]) Expression[N] {
+	return derived[N](col, columnInfo(col))
 }
 
 // towards is CEIL or FLOOR of col. SQLite has the two only where it was built
 // with its math functions, which mattn/go-sqlite3 leaves out by default ("no such
 // function: CEIL"): there the value is cut to an integer and stepped by one where
-// the cut moved it the other way, which every build computes.
+// the cut moved it the other way, which every build computes. The answer is cast
+// back, so that it divides as the floating-point value it is, and a value past
+// 2^52, which has no fraction and can be past what an integer holds, is its own.
 func towards[N Number](col Expression[N], open, feature, step, moved string) Expression[N] {
+	if !isFloat[N]() {
+		return whole(col)
+	}
+
 	return byDialect[N](col, feature, func(x sqlExpr) map[tsqdialect.Name]sqlExpr {
 		plain := sqlJoin(sqlText(open), x, sqlText(")"))
 		cut := sqlJoin(sqlText("CAST("), x, sqlText(" AS INTEGER)"))
@@ -199,7 +216,8 @@ func towards[N Number](col Expression[N], open, feature, step, moved string) Exp
 		return map[tsqdialect.Name]sqlExpr{
 			tsqdialect.MySQL:    plain,
 			tsqdialect.Postgres: plain,
-			tsqdialect.SQLite:   sqlJoin(sqlText("("), cut, sqlText(step), x, sqlText(moved), cut, sqlText("))")),
+			tsqdialect.SQLite: sqlJoin(sqlText("(CASE WHEN ABS("), x, sqlText(") < 4503599627370496 THEN CAST("), cut, sqlText(step), x, sqlText(moved), cut,
+				sqlText(") AS REAL) ELSE "), x, sqlText(" END)")),
 		}
 	})
 }

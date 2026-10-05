@@ -58,14 +58,20 @@ func TestSQLite3DriverIsSupported(t *testing.T) {
 	}
 
 	// This driver is built without SQLite's math functions unless asked: CEIL and
-	// FLOOR are "no such function" there, and TSQ spells them without.
-	up, err := tsq.SelectValue(tsq.Ceil(tsq.Sub(academy.TableLearner.ID, tsq.Val(int64(3))))).From(academy.TableLearner).OrderBy(academy.TableLearner.ID.Asc()).List(ctx, rt)
-	if err != nil || len(up) != 2 {
-		t.Fatalf("Ceil on the cgo driver: %v, %v", up, err)
+	// FLOOR are "no such function" there, and TSQ spells them without. An integer
+	// is not rounded at all, so the value is a floating-point one: 2.5, whatever
+	// the keys are.
+	mean := tsq.Avg(academy.TableLearner.ID)
+	half := tsq.Add(tsq.Sub(mean, mean), tsq.Val(2.5))
+
+	up, err := tsq.SelectNullValue(tsq.Ceil(half)).From(academy.TableLearner).Get(ctx, rt)
+	if err != nil || up.V != 3 {
+		t.Fatalf("Ceil on the cgo driver: %+v, %v; want 3", up, err)
 	}
 
-	if _, err := tsq.SelectValue(tsq.Floor(academy.TableLearner.ID)).From(academy.TableLearner).List(ctx, rt); err != nil {
-		t.Fatalf("Floor on the cgo driver: %v", err)
+	down, err := tsq.SelectNullValue(tsq.Floor(half)).From(academy.TableLearner).Get(ctx, rt)
+	if err != nil || down.V != 2 {
+		t.Fatalf("Floor on the cgo driver: %+v, %v; want 2", down, err)
 	}
 
 	stored, err := academy.TableLearner.FetchByEmail(ctx, rt, "cgo@example.test")

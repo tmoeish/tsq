@@ -430,22 +430,49 @@ func TestIntegrationFunctionsEveryEngineHas(t *testing.T) {
 		t.Run(target.name, func(t *testing.T) {
 			rt := openMeasures(t, target)
 
-			// The amounts are -6.5, 8.5, 2.5, -0.25, 0.125 and 1e40.
-			small := measures.Amount.LT(tsq.Val(1e30))
-
-			up, err := tsq.SelectValue(tsq.Ceil(measures.Amount)).From(measures).Where(small).OrderBy(measures.ID.Asc()).List(ctx, rt)
+			// The amounts are -6.5, 8.5, 2.5, -0.25, 0.125 and 1e40, which is past what
+			// an integer holds: SQLite's spelling goes through one.
+			up, err := tsq.SelectValue(tsq.Ceil(measures.Amount)).From(measures).OrderBy(measures.ID.Asc()).List(ctx, rt)
 			if err != nil {
 				t.Fatalf("Ceil: %v", err)
 			}
 
-			down, err := tsq.SelectValue(tsq.Floor(measures.Amount)).From(measures).Where(small).OrderBy(measures.ID.Asc()).List(ctx, rt)
+			down, err := tsq.SelectValue(tsq.Floor(measures.Amount)).From(measures).OrderBy(measures.ID.Asc()).List(ctx, rt)
 			if err != nil {
 				t.Fatalf("Floor: %v", err)
 			}
 
-			for i, want := range [][2]float64{{-6, -7}, {9, 8}, {3, 2}, {0, -1}, {1, 0}} {
+			for i, want := range [][2]float64{{-6, -7}, {9, 8}, {3, 2}, {0, -1}, {1, 0}, {1e40, 1e40}} {
 				if *up[i] != want[0] || *down[i] != want[1] {
 					t.Errorf("row %d: ceil %v floor %v, want %v", i, *up[i], *down[i], want)
+				}
+			}
+
+			// A rounded floating-point value is one still: 9 over 8 is 1.125, not 1.
+			ratio, err := tsq.SelectNullValue(tsq.Div(tsq.Ceil(measures.Amount), tsq.Floor(measures.Amount))).From(measures).
+				Where(measures.ID.EQ(tsq.Val(int64(2)))).Get(ctx, rt)
+			if err != nil || !ratio.Valid || ratio.V != 1.125 {
+				t.Errorf("Ceil over Floor = %+v, %v; want 1.125", ratio, err)
+			}
+
+			// An integer has nothing to round. The engines' own functions answer in
+			// another type there (a double on PostgreSQL and SQLite, 7.00 for two
+			// places on PostgreSQL), which loses the last digits of a value past 2^53,
+			// is not read back into an integer, and divides with a fraction.
+			const past = int64(1) << 53
+
+			large := tsq.Add(measures.Qty, tsq.Val(past))
+			for name, whole := range map[string]tsq.Expression[int64]{
+				"Ceil": tsq.Ceil(large), "Floor": tsq.Floor(large), "Round to none": tsq.Round(large, 0), "Round to two": tsq.Round(large, 2),
+			} {
+				got, err := tsq.SelectValue(whole).From(measures).OrderBy(measures.ID.Asc()).List(ctx, rt)
+				if err != nil || len(got) != 6 || *got[0] != past+1 || *got[2] != past+3 {
+					t.Errorf("%s of an integer: %v, %v", name, got, err)
+				}
+
+				halves, err := tsq.SelectValue(tsq.Div(whole, tsq.Val(int64(2)))).From(measures).Where(measures.ID.EQ(tsq.Val(int64(1)))).Get(ctx, rt)
+				if err != nil || *halves != past/2 {
+					t.Errorf("%s of an integer, halved: %v, %v; want %d", name, halves, err, past/2)
 				}
 			}
 
