@@ -97,7 +97,7 @@
   由 `AlterColumnSQL` 先发 `UPDATE ... WHERE col IS NULL`（`sqldialect.NullFill`），迁移里加注释；新的无默认值 NOT NULL 列在 PG / MySQL
   带零值默认加列再去掉默认（`sqldialect.AddColumnSQL`，**运行期策略用的是同一个函数**），SQLite 上它和非常量默认值（`CURRENT_TIMESTAMP`）的列
   走重建（`sqldialect.AddNeedsRebuild`）。零值只有一份：`sqldialect.ZeroLiteral`（分方言：PG 的布尔是 `FALSE`；时间字面量只有 SQLite 带
-  `+00:00`，MySQL 把带时区的公元 1 年存成 `0000-00-00`）；默认值的拼写走 `DefaultSQL`（MySQL 的 TEXT / BLOB 只收表达式）。PG 改类型只在没有
+  `+00:00`，MySQL 把带时区的公元 1 年存成 `0000-00-00`）；默认值的拼写走 `DefaultSQL`（MySQL 的 TEXT / BLOB 只收表达式；PG 的布尔 `1` / `0` 写成 `TRUE` / `FALSE`）。PG 改类型只在没有
   赋值转换的类型之间写 `USING`，并且**从不写成转到字符类型本身**（`postgresUsing`：`c::VARCHAR(5)` 静默截断，写 `c::TEXT` 让赋值去拒绝）。
   这一段的每条规则都要在真实引擎上跑过才算数：`internal/integration/schema_test.go`。
 - **依赖字段类型的校验放在 `resolveNullValues` 之后**：解析器记的是源码里写的名字，类型别名（`type Stamp = time.Time`）要等 go/types 说出它

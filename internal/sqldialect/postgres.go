@@ -576,6 +576,7 @@ func (d PostgresDialect) AlterColumnSQL(table string, before Column, after Colum
 	statements := make([]string, 0, 3)
 	quotedTable := d.QuoteIdent(table)
 	quotedColumn := d.QuoteIdent(after.Name)
+	droppedDefault := false
 
 	// Compare resolved types instead of raw struct equality: nullability lives
 	// inside DDLColumnType, and a nullability-only drift must not trigger a
@@ -601,6 +602,15 @@ func (d PostgresDialect) AlterColumnSQL(table string, before Column, after Colum
 		} else if before.Type.Kind == after.Type.Kind && before.Type.RawType == "" && after.Type.RawType == "" {
 			statements = append(statements, fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s TYPE %s;", quotedTable, quotedColumn, spelled))
 		} else {
+			// The default of the old type goes first: the server casts it to the
+			// new type on its own, not through USING, and refuses the change where
+			// it cannot ("default for column cannot be cast automatically").
+			if before.Default != "" {
+				droppedDefault = true
+
+				statements = append(statements, fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s DROP DEFAULT;", quotedTable, quotedColumn))
+			}
+
 			statements = append(statements, fmt.Sprintf(
 				"ALTER TABLE %s ALTER COLUMN %s TYPE %s USING %s;",
 				quotedTable, quotedColumn, spelled, postgresUsing(quotedColumn, before.Type, after.Type, spelled),
@@ -637,13 +647,15 @@ func (d PostgresDialect) AlterColumnSQL(table string, before Column, after Colum
 	// dropping it would break inserts.
 	// The default is written as CREATE TABLE writes it (a current time in UTC),
 	// and compared by meaning: 'USD'::character varying is the declared 'USD'.
-	if !SameDefault(before.Default, DefaultSQL(d, after)) && (!before.AutoIncrement || !after.AutoIncrement) {
+	if (droppedDefault || !SameDefault(before.Default, DefaultSQL(d, after))) && (!before.AutoIncrement || !after.AutoIncrement) {
 		if after.Default == "" {
-			statements = append(statements, fmt.Sprintf(
-				"ALTER TABLE %s ALTER COLUMN %s DROP DEFAULT;",
-				quotedTable,
-				quotedColumn,
-			))
+			if !droppedDefault {
+				statements = append(statements, fmt.Sprintf(
+					"ALTER TABLE %s ALTER COLUMN %s DROP DEFAULT;",
+					quotedTable,
+					quotedColumn,
+				))
+			}
 		} else {
 			statements = append(statements, fmt.Sprintf(
 				"ALTER TABLE %s ALTER COLUMN %s SET DEFAULT %s;",
@@ -686,6 +698,9 @@ func postgresUsing(column string, before, after ColumnType, spelled string) stri
 		return column + "::TEXT"
 	case plain && before.Kind == KindBool && after.Kind == KindInt:
 		return column + "::INTEGER"
+	case plain && before.Kind == KindBool && after.Kind == KindFloat:
+		// No cast from BOOLEAN to a floating-point type, where INTEGER has both.
+		return column + "::INTEGER::" + spelled
 	case plain && (before.Kind == KindInt || before.Kind == KindFloat) && after.Kind == KindBool:
 		return column + " <> 0"
 	default:

@@ -345,6 +345,52 @@ func TestIntegrationZeroTimeIsStoredOnEveryEngine(t *testing.T) {
 	}
 }
 
+// TestIntegrationASumNextToAParameterIsAnInteger covers an integer SUM, which
+// MySQL computes as a DECIMAL, in arithmetic or COALESCE with a bound value. The
+// parameter had no type when the statement was prepared, and the server gave
+// the result thirty decimal places ('13.000000000000000000000000000000'), which
+// no integer field reads: "total, or 0" failed on MySQL alone.
+func TestIntegrationASumNextToAParameterIsAnInteger(t *testing.T) {
+	ctx := context.Background()
+	none := measures.ID.LT(tsq.Val(int64(0)))
+	n := tsq.NewParam[int64]("n")
+
+	for _, target := range integrationTargets(t) {
+		t.Run(target.name, func(t *testing.T) {
+			rt := openMeasures(t, target)
+
+			// The quantities are 1, 2, 3, 1, 2, 3.
+			total := tsq.Sum(measures.Qty)
+
+			for name, c := range map[string]struct {
+				query tsq.QueryStage[sql.Null[int64]]
+				args  []tsq.Arg
+				want  int64
+			}{
+				"total or none":      {tsq.SelectNullValue(tsq.Coalesce(total, tsq.Val(int64(-1)))).From(measures), nil, 12},
+				"none":               {tsq.SelectNullValue(tsq.Coalesce(total, tsq.Val(int64(-1)))).From(measures).Where(none), nil, -1},
+				"total plus":         {tsq.SelectNullValue(tsq.Add(total, tsq.Val(int64(1)))).From(measures), nil, 13},
+				"total minus":        {tsq.SelectNullValue(tsq.Sub(total, tsq.Val(int64(2)))).From(measures), nil, 10},
+				"total times":        {tsq.SelectNullValue(tsq.Mul(total, tsq.Val(int64(3)))).From(measures), nil, 36},
+				"total over":         {tsq.SelectNullValue(tsq.Div(total, tsq.Val(int64(5)))).From(measures), nil, 2},
+				"total or parameter": {tsq.SelectNullValue(tsq.Coalesce(total, n)).From(measures).Where(none), []tsq.Arg{n.Bind(-7)}, -7},
+				"count plus":         {tsq.SelectNullValue(tsq.Add(tsq.Count(measures.ID), tsq.Val(int64(1)))).From(measures), nil, 7},
+			} {
+				got, err := c.query.Get(ctx, rt, c.args...)
+				if err != nil || !got.Valid || got.V != c.want {
+					t.Errorf("%s = %+v, %v; want %d", name, got, err, c.want)
+				}
+			}
+
+			// A parameter where the type is known already is left alone.
+			rows, err := tsq.SelectValue(measures.ID).From(measures).Where(tsq.Add(measures.Qty, tsq.Val(int64(1))).GT(tsq.Val(int64(3)))).List(ctx, rt)
+			if err != nil || len(rows) != 2 {
+				t.Errorf("rows with a quantity past 2: %d, %v; want 2", len(rows), err)
+			}
+		})
+	}
+}
+
 // TestIntegrationSessionsExchangeTextAsUTF8 covers a session whose text is not
 // UTF-8 on the wire: charset=latin1 in a MySQL DSN, and on PostgreSQL the
 // encoding of the database, which a session takes when the driver asks for none

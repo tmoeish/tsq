@@ -304,6 +304,18 @@ func DefaultSQL(dialect Dialect, column ColumnSpec) string {
 		}
 	}
 
+	// A boolean default is written as the engine takes it: PostgreSQL takes TRUE
+	// and FALSE and refuses 1 and 0 ("default expression is of type integer"),
+	// where MySQL and SQLite take either.
+	if column.Type.Kind == KindBool && column.Type.RawType == "" && dialect.Name() == Postgres {
+		switch strings.TrimSpace(column.Default) {
+		case "1":
+			return "TRUE"
+		case "0":
+			return "FALSE"
+		}
+	}
+
 	if column.Type.Kind != KindTime || column.Type.RawType != "" || !IsCurrentTime(column.Default) {
 		return column.Default
 	}

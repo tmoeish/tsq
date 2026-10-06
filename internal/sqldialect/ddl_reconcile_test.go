@@ -249,6 +249,78 @@ func TestPostgresAlterColumnDoesNotTruncate(t *testing.T) {
 	}
 }
 
+// TestPostgresAlterColumnDropsTheDefaultBeforeTheType covers a column with a
+// default changing kind: the server casts the default to the new type itself,
+// not through USING, and refused the change where it could not ("default for
+// column cannot be cast automatically to type boolean").
+func TestPostgresAlterColumnDropsTheDefaultBeforeTheType(t *testing.T) {
+	d := PostgresDialect{}
+
+	retyped := d.AlterColumnSQL("t",
+		Column{Name: "flag", Type: ColumnType{Kind: KindString, Size: 40, Nullable: true}, Default: "'0'"},
+		ColumnSpec{Name: "flag", Type: ColumnType{Kind: KindBool, Nullable: true}, Default: "0"})
+	want := []string{
+		`ALTER TABLE "t" ALTER COLUMN "flag" DROP DEFAULT;`,
+		`ALTER TABLE "t" ALTER COLUMN "flag" TYPE BOOLEAN USING "flag"::BOOLEAN;`,
+		`ALTER TABLE "t" ALTER COLUMN "flag" SET DEFAULT FALSE;`,
+	}
+	if strings.Join(retyped, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("retyped with a default:\n%s\nwant:\n%s", strings.Join(retyped, "\n"), strings.Join(want, "\n"))
+	}
+
+	// Dropped once: a default that goes with the change is not dropped twice.
+	gone := d.AlterColumnSQL("t",
+		Column{Name: "n", Type: ColumnType{Kind: KindInt, Bits: 64, Nullable: true}, Default: "5"},
+		ColumnSpec{Name: "n", Type: ColumnType{Kind: KindString, Size: 40, Nullable: true}})
+	if len(gone) != 2 || !strings.HasSuffix(gone[0], "DROP DEFAULT;") || !strings.Contains(gone[1], "USING") {
+		t.Fatalf("retyped without a default = %v; want one DROP DEFAULT, then the type", gone)
+	}
+
+	// A change within one kind casts the default on its own.
+	widened := d.AlterColumnSQL("t",
+		Column{Name: "s", Type: ColumnType{Kind: KindString, Size: 8, Nullable: true}, Default: "'x'"},
+		ColumnSpec{Name: "s", Type: ColumnType{Kind: KindString, Size: 80, Nullable: true}, Default: "'x'"})
+	if len(widened) != 1 || !strings.Contains(widened[0], "TYPE VARCHAR(80);") {
+		t.Fatalf("widened = %v; want the type change alone", widened)
+	}
+
+	// BOOLEAN has a cast to INTEGER and none to a floating-point type.
+	fraction := d.AlterColumnSQL("t",
+		Column{Name: "flag", Type: ColumnType{Kind: KindBool}},
+		ColumnSpec{Name: "flag", Type: ColumnType{Kind: KindFloat, Bits: 64}})
+	if len(fraction) != 1 || !strings.Contains(fraction[0], `USING "flag"::INTEGER::DOUBLE PRECISION`) {
+		t.Fatalf("bool to a fraction = %v; want a cast through INTEGER", fraction)
+	}
+}
+
+// TestBooleanDefaultsAreSpelledAsPostgresTakesThem covers default:1 and
+// default:0 on a bool field, which PostgreSQL refuses as "of type integer".
+func TestBooleanDefaultsAreSpelledAsPostgresTakesThem(t *testing.T) {
+	flag := ColumnSpec{Name: "flag", Type: ColumnType{Kind: KindBool, Nullable: true}}
+
+	for declared, want := range map[string]map[Name]string{
+		"1":     {Postgres: "TRUE", MySQL: "1", SQLite: "1"},
+		"0":     {Postgres: "FALSE", MySQL: "0", SQLite: "0"},
+		"TRUE":  {Postgres: "TRUE", MySQL: "TRUE", SQLite: "TRUE"},
+		"false": {Postgres: "false", MySQL: "false", SQLite: "false"},
+	} {
+		flag.Default = declared
+
+		for name, spelled := range want {
+			d, _ := For(name)
+			if got := DefaultSQL(d, flag); got != spelled {
+				t.Errorf("default %s on %s = %s, want %s", declared, name, got, spelled)
+			}
+		}
+	}
+
+	// A raw type is the declaration's own business.
+	raw := ColumnSpec{Name: "flag", Type: ColumnType{RawType: "BOOLEAN", Nullable: true}, Default: "1"}
+	if got := DefaultSQL(PostgresDialect{}, raw); got != "1" {
+		t.Errorf("raw boolean default = %s, want it untouched", got)
+	}
+}
+
 func TestPostgresDDLAlterColumnStatementsKeepsAutoIncrementDefault(t *testing.T) {
 	d := PostgresDialect{}
 	before := Column{

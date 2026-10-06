@@ -71,6 +71,8 @@
   MySQL 的持锁连接同时被设成**严格模式**（`LockSchema` 里加 `STRICT_ALL_TABLES`，解锁时还原）：非严格模式下 `ALTER ... MODIFY` 截断数据而不报错。
   **解析 `SHOW CREATE TABLE` 的代码要认两种引号**（`ANSI_QUOTES` 下列名是双引号），把它写出的行读回去要关掉 `NO_BACKSLASH_ESCAPES`（`probeLive`）；
   门是 `TestIntegrationMySQLSessionModes`，它把整份漂移用例在这两种模式下再跑一遍。
+- **策略的顺序**：表策略在索引策略之前，但 `Reconcile` 会把"不再声明且按 TSQ 命名"的索引在它覆盖的列被修改之前删掉（`dropIndexesInTheWay`，
+  MySQL 1170），SQLite 另外先删被删列上的所有索引。新的"先 A 后 B 才能成"的引擎约束归这里，门是 `TestIntegrationAnIndexInTheWayGoesFirst`。
 - **文本比较说"不一样"之后还有一步：问引擎**（`adoptEngineSpelling` → `Dialect.ProbeColumn` → `sqldialect.AdoptSpelling`，MySQL / PG 在本会话的
   临时表里按声明建列、读回拼法）。别名表因此不必再为每种新拼法加行，但**比较的两边必须出自同一个读法**：PG 用 `InspectColumns` 的同一条查询换
   schema（`inspectColumns`），`SERIAL` 靠"默认值只差序列名里的表名"认出来；MySQL 的临时表不走数据字典，所以库里那一列也按 `SHOW CREATE TABLE` 的那一行
@@ -83,6 +85,8 @@
   `AlterColumnSQL` 在数值转布尔前先 `UPDATE`，SQLite 的重建用 `sqldialect.SQLiteRetype*`（运行期 `rebuildCopyColumns` 转换、`rebuiltValuesFit` 在提交前
   检查并拒绝；生成器 `renderSQLiteRebuildTableBody` 转换或写成手工注释）。新增一对"源 → 目标"要进 `TestIntegrationRetypeCarriesTheValues` 或
   `TestIntegrationRetypeRefusesAValueThatDoesNotFit`，三个方言的结果必须相同。
+  PG 跨类型改动**先 `DROP DEFAULT` 再 `TYPE … USING` 再 `SET DEFAULT`**（服务器自己转换默认值、转不了就拒绝整条），`AlterColumnSQL` 的
+  `droppedDefault` 保证只删一次；门是 `TestPostgresAlterColumnDropsTheDefaultBeforeTheType` 加上面那条集成测试带默认值的用例。
 - SQLite 的探查（`ListIndexes`、`InspectRebuild`）**先读完、关掉结果集再发下一条查询**：使用者常把 SQLite 池设成一个连接，
   开着结果集再查会永远等下去（`TestSchemaPoliciesRunOnOneConnection`）。新增探查照此写。
 - `Reconcile` 在 SQLite 上删列前先删覆盖它的索引（`dropIndexesOfDroppedColumns`）；索引列名比较不区分大小写（`ValidateIndex`、

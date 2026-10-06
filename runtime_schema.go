@@ -234,6 +234,10 @@ func (r *Runtime) applyTablePolicyForTable(ctx context.Context, table *registere
 			return fmt.Errorf("reconcile table %s: %w", tableName, err)
 		}
 
+		if err := r.dropIndexesInTheWay(ctx, table, changes); err != nil {
+			return fmt.Errorf("reconcile table %s: %w", tableName, err)
+		}
+
 		statements, err := renderTableColumnChanges(r.dialect, tableName, changes)
 		if err != nil {
 			return fmt.Errorf("reconcile table %s: %w", tableName, err)
@@ -288,6 +292,47 @@ func (r *Runtime) dropIndexesOfDroppedColumns(ctx context.Context, tableName str
 	}
 
 	return nil
+}
+
+// dropIndexesInTheWay drops, before the columns are altered, the indexes the
+// index policy would drop afterwards anyway (no longer declared, under a name tsq
+// gen derives) where they cover an altered column: MySQL refuses to make an
+// indexed column a BLOB or TEXT ("used in key specification without a key
+// length", 1170), and an index on a column becoming wider than an index key may
+// be is refused the same way, so the start failed on an order of statements. A
+// declared index, or one under another name, stays: the server's refusal is then
+// the right answer.
+func (r *Runtime) dropIndexesInTheWay(ctx context.Context, table *registeredTable, changes []tableColumnChange) error {
+	if r.indexPolicy != SchemaPolicyReconcile {
+		return nil
+	}
+
+	altered := map[string]bool{}
+
+	for _, change := range changes {
+		if change.kind == tableColumnAlter {
+			altered[strings.ToLower(change.before.Name)] = true
+		}
+	}
+
+	if len(altered) == 0 {
+		return nil
+	}
+
+	indexes, err := r.dialect.ListIndexes(ctx, r.schemaDB(), table.name)
+	if err != nil {
+		return err
+	}
+
+	var over []sqld.Index
+
+	for _, index := range indexes {
+		if slices.ContainsFunc(index.Fields, func(field string) bool { return altered[strings.ToLower(field)] }) {
+			over = append(over, index)
+		}
+	}
+
+	return r.dropUndeclaredIndexes(ctx, table, over)
 }
 
 // rebuildTable rewrites a table in place (rename, recreate, copy, drop) for

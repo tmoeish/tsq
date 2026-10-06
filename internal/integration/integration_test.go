@@ -2380,7 +2380,10 @@ func TestIntegrationBatchUpdateCarriesEveryValue(t *testing.T) {
 
 			for i, row := range rows {
 				row.Blob = []byte{0xff, 0x00, 0x80, byte(i)}
-				row.Doc = json.RawMessage(fmt.Sprintf(`{"n": [%d, "it's"]}`, i))
+				// A document MySQL stores in a form of its own (keys sorted, spaces
+				// added): the rows of a batch with a stale row are told apart by
+				// reading them back, and that must compare the document, not its text.
+				row.Doc = json.RawMessage(fmt.Sprintf(`{"z":1,"n":[%d,"it's"]}`, i))
 				row.Big = big + uint64(i)
 				row.On = i%2 == 0
 				row.At = at.Add(time.Duration(i) * time.Microsecond)
