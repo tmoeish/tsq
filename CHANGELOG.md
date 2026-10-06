@@ -161,6 +161,12 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 ### 修复
 
+- **`bool` 字段写 `default:1` / `default:0`，PostgreSQL 建表失败**（`default expression is of type integer`）：MySQL 和 SQLite 两种写法都收，PostgreSQL 只收 `TRUE` / `FALSE`。现在布尔默认值按各引擎的写法写出，同一份模型三个引擎都能建；漂移比较本来就把两种写法当一回事。
+- **PostgreSQL 上带默认值的列换类型被拒绝**（`default for column cannot be cast automatically to type boolean`）：`ALTER COLUMN TYPE ... USING` 只转换存储的值，默认值由服务器自己转换，转不了就整条拒绝。现在跨类型的改动先 `DROP DEFAULT`、再改类型、再 `SET DEFAULT` 新值。
+- **MySQL 上带索引的列改成 `BLOB` / `TEXT` 时 `Reconcile` 启动失败**（1170，`used in key specification without a key length`）：列先改、索引后删，而索引还在时 MySQL 不许改。现在不再声明的、按 `tsq gen` 命名的索引在它覆盖的列被修改**之前**删除；仍在声明的索引不动，服务器的拒绝就是答案。
+- PostgreSQL 上 `bool` 字段改成浮点字段：`BOOLEAN` 没有到浮点的转换，现在经 `INTEGER` 转。
+- **MySQL 上 `Coalesce(Sum(整数列), tsq.Val(n))` 读不回整数字段**："总数，没有就 0"这个最常见的写法在 MySQL 上报 `converting "12.000000000000000000000000000000" to a int64: invalid syntax`：`SUM(整数)` 是 DECIMAL，旁边的参数在预编译时没有类型，服务器就给结果 30 位小数；`Add` / `Sub` / `Mul` / `Div` 里的参数同样。现在算术和 `Coalesce` / `NullIf` 里的整数绑定值在 MySQL 上写成 `CAST(? AS SIGNED)`（无符号是 `UNSIGNED`），结果和另两个引擎一样是整数。
+- **批量更新遇到过期行时，含 JSON 列的行被误判为没写成**：`BatchUpdate` 在匹配行数不够时回读这一批、按值判断哪些行写成了，JSON 列按文本比——MySQL（以及 PostgreSQL 的 `JSONB`）存的是规范化后的文档（键排序、冒号后加空格），于是写成的行也被当成过期的：错误里多报了它，它在内存里的 `version` 没有前移，下一次更新它就撞上一个并不存在的乐观锁冲突。现在 JSON 按文档比较。
 - **会话的文本编码不是 UTF-8 时，文本被悄悄存成别的字符**：PostgreSQL 的数据库编码是 `LATIN1` 这类时，pgx 不会自己要求编码，会话就跟着数据库走；MySQL 的 DSN 写了 `charset=latin1` 同理。Go 字符串的 UTF-8 字节被当成 latin1 字符读：`é` 存成了 `Ã©`，`Length` 数成两个字符，`Substring` 从一个字符中间切开，而同一个会话读回来又是完整的，所以全程不报错，直到别的客户端来读这张表。现在运行时在启动时拒绝这样的会话并说明改法：PostgreSQL 在 DSN 里加 `client_encoding=UTF8`，MySQL 去掉 `charset` / `collation`（驱动默认 `utf8mb4`）。`SQL_ASCII` 的 PostgreSQL 库什么都不转换，不检查。
 - **MySQL 上 `BatchUpdate` 对非连接字符集的表直接报错**：表（或被写的某一列、主键）是 `latin1`、`gbk`、`ascii` 这类字符集，而连接是 `utf8mb4`——早于 utf8mb4 的老库都是这样——多行更新报 `Illegal mix of collations (latin1_swedish_ci,IMPLICIT) and (utf8mb4_general_ci,COERCIBLE) for operation 'UNION'`，一行也写不进去。服务器在比较和赋值时会把参数转成列的字符集，但给 `UNION` 定类型时不会。现在遇到这个错误（语句在写任何行之前就被拒绝）就把这一批改成逐行更新，结果相同，速度是单行更新的速度。
 - **MySQL 非严格模式下，`Reconcile` 改列类型会截断数据**：`sql_mode` 里没有 `STRICT_TRANS_TABLES` 时，`ALTER TABLE ... MODIFY` 把放不进新类型的值直接截掉（`'abcdefghij'` 进 `VARCHAR(5)` 成了 `'abcde'`），只留一条没人读的 warning；严格模式下同一条语句被拒绝。现在 schema 策略在它自己的连接上始终按严格模式执行，结束后把会话的 `sql_mode` 还原；放不进去的改动在任何模式下都被拒绝。

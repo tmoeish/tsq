@@ -126,6 +126,7 @@
   门是 `TestIntegrationRoundAndAverageAgree`。MySQL 的 NULL 位置排序键在 `DISTINCT` 查询里要用选择项的别名（`selectAliases`，3065）。
   **结果的类型也是拼写的一部分**：`Expression[N]` 的 SQL 值必须真是 N 那一类（整数还是浮点），否则下游的 `Div` 换了除法、读回字段失败——
   新函数要拿"结果再 `Div` 一次"和"2^53 以上的整数"在三个引擎上跑，门是 `TestIntegrationFunctionsEveryEngineHas`。
+  **数值函数的绑定值操作数要过 `typedBound`**（MySQL 上 `SUM` 旁的 `?` 否则是 30 位小数），门是 `TestIntegrationASumNextToAParameterIsAnInteger`。
 - **比较两个表达式是不是同一个，用 `exprKey`，不用 `debugSQL`**：后者把绑定值都印成 `?`，只差一个值的两个 `CASE`
   曾被认成一个，`GROUP BY` / `ORDER BY` 的列序号、分组检查、`DISTINCT` 检查和游标列全部错配（2026-09-29 审计 P0）。
   `debugSQL` 只给报错文案；游标指纹（`fingerprint`）要跨进程稳定，所以仍用它。

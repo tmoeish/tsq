@@ -42,6 +42,40 @@ func derived[T any](col SQLColumn, info exprInfo) Expression[T] {
 	return exprImpl[T]{c: &next}
 }
 
+// typedBound names the type of a bound integer where MySQL would not know it. A
+// parameter has no type when a statement is prepared, and where one meets a
+// DECIMAL (the SUM of an integer column is one) in arithmetic or COALESCE the
+// server gives the result thirty decimal places: SUM(x) + ? reads as
+// '-42.000000000000000000000000000000', which no integer field takes. CAST(? AS
+// SIGNED) names the type, and the sum has none. A comparison is not affected,
+// and a floating-point parameter already makes the result a DOUBLE.
+func typedBound[T any](rhs Operand[T], right exprInfo) exprInfo {
+	switch rhs.(type) {
+	case Value[T], Param[T]:
+	default:
+		return right
+	}
+
+	var cast string
+
+	switch reflect.TypeFor[T]().Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		cast = " AS SIGNED)"
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		cast = " AS UNSIGNED)"
+	default:
+		return right
+	}
+
+	right.sql = sqlByDialect("typed value", map[tsqdialect.Name]sqlExpr{
+		tsqdialect.MySQL:    sqlJoin(sqlText("CAST("), right.sql, sqlText(cast)),
+		tsqdialect.Postgres: right.sql,
+		tsqdialect.SQLite:   right.sql,
+	})
+
+	return right
+}
+
 func wrapped[T any](col SQLColumn, open, close string, aggregate bool) Expression[T] {
 	info := columnInfo(col)
 	if aggregate && info.aggregate && info.err == nil {
@@ -339,7 +373,7 @@ func NullIf[T any](col Expression[T], value Operand[T]) Expression[T] {
 
 func combined[T any](col Expression[T], open string, rhs Operand[T], null func(left, right nullness) nullness) Expression[T] {
 	left := columnInfo(col)
-	right := rhsInfo(rhs)
+	right := typedBound(rhs, rhsInfo(rhs))
 	info := left.merge(right).withSQL(sqlJoin(sqlText(open), left.sql, sqlText(", "), right.sql, sqlText(")")))
 	info.null = null(left.null, right.null)
 

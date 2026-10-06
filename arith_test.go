@@ -57,9 +57,11 @@ func TestArithmeticWritesAndReadsWithoutTheEscapeHatch(t *testing.T) {
 
 	q := SelectNullValue(Div(Order_Amount, divisor)).From(Orders).MustBuild()
 
+	// A parameter is typed there too: next to a DECIMAL (a SUM of integers), an
+	// untyped one gives the result thirty decimal places.
 	mysql, _, err := q.SQL(tsqdialect.MySQL, divisor.Bind(2))
-	if err != nil || !strings.Contains(mysql, "`amount` DIV ?") {
-		t.Fatalf("MySQL = %s, %v; want DIV, whose / returns a decimal", mysql, err)
+	if err != nil || !strings.Contains(mysql, "`amount` DIV CAST(? AS SIGNED)") {
+		t.Fatalf("MySQL = %s, %v; want DIV, whose / returns a decimal, over a typed parameter", mysql, err)
 	}
 
 	pg, _, err := q.SQL(tsqdialect.Postgres, divisor.Bind(2))

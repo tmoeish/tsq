@@ -1,9 +1,11 @@
 package tsq
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -2312,7 +2314,53 @@ func sameStored(stored, written any) bool {
 		return a.Sub(*b).Abs() < time.Microsecond
 	}
 
+	if a, ok := jsonValue(stored); ok {
+		if b, ok := jsonValue(written); ok {
+			return sameJSON(a, b)
+		}
+	}
+
 	return keyText(stored) == keyText(written)
+}
+
+// jsonValue reads the document out of a json.RawMessage field, which is what a
+// JSON column is read into. It reports false for a value that is not one.
+func jsonValue(v any) (json.RawMessage, bool) {
+	switch v := v.(type) {
+	case json.RawMessage:
+		return v, true
+	case *json.RawMessage:
+		if v == nil {
+			return nil, true
+		}
+
+		return *v, true
+	}
+
+	return nil, false
+}
+
+// sameJSON compares two documents as JSON, not as text: MySQL stores a document
+// in a form of its own (keys sorted, a space after each colon and comma), and so
+// does a PostgreSQL JSONB column, so what is read back is not what was written
+// even when it is the same document. A row of a batch that was written was taken
+// for one that was not, which left its version behind and had its next update
+// refused as stale. An unset document is the JSON null, as it is bound.
+func sameJSON(a, b json.RawMessage) bool {
+	if len(bytes.TrimSpace(a)) == 0 {
+		a = json.RawMessage("null")
+	}
+
+	if len(bytes.TrimSpace(b)) == 0 {
+		b = json.RawMessage("null")
+	}
+
+	var x, y any
+	if json.Unmarshal(a, &x) != nil || json.Unmarshal(b, &y) != nil {
+		return bytes.Equal(a, b)
+	}
+
+	return reflect.DeepEqual(x, y)
 }
 
 // timeValue reads a time out of a time field of any form (time.Time, *time.Time,

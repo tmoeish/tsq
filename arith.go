@@ -29,7 +29,7 @@ func Mul[N Number](a Expression[N], b Operand[N]) Expression[N] {
 // into a nullable field, or Coalesce it.
 func Div[N Number](a Expression[N], b Operand[N]) Expression[N] {
 	left := columnInfo(a)
-	right := rhsInfo(b)
+	right := typedBound(b, rhsInfo(b))
 	info := left.merge(right)
 
 	quotient := sqlJoin(sqlText("("), left.sql, sqlText(" / "), right.sql, sqlText(")"))
@@ -52,7 +52,7 @@ func Div[N Number](a Expression[N], b Operand[N]) Expression[N] {
 
 func arithmetic[N Number](a Expression[N], op string, b Operand[N]) Expression[N] {
 	left := columnInfo(a)
-	right := rhsInfo(b)
+	right := typedBound(b, rhsInfo(b))
 	info := left.merge(right)
 
 	return derived[N](a, info.withSQL(sqlJoin(sqlText("("), left.sql, sqlText(op), right.sql, sqlText(")"))))

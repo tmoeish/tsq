@@ -124,4 +124,6 @@
   跨语句的汇总走 `shortfalls`（后面的语句出别的错时也不丢前面的 `Keys`）。新增一条"一条语句写多行"的写路径要接进同一套。
   回读比较时间列按 1µs 容差比（`sameStored`），**不要跳过时间列**：跳过时，别人只改了时间的行被当成自己写的，
   版本前移后下一次 `Update` 覆盖了别人（2026-09-29 审计 P0，见 `../memory/write.md`）。
+  JSON 按文档比（`sameJSON`：MySQL / JSONB 会改写文本）；引擎会改写的别的类型也要在 `sameStored` 里按值比，门是
+  `TestIntegrationBatchUpdateCarriesEveryValue` 里那份 MySQL 会重排的文档。
 - `insert` 的 `written` 集合要由每条真正写成行的路径登记，`WithSkipDuplicates` 也不例外，否则出错时会把已入库的行恢复成旧值。

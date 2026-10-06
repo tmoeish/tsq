@@ -399,6 +399,10 @@ func driftCases() []driftCase {
 		{"default with a quote", text(40), "'it''s'", ""},
 		{"default that reads like a keyword", text(40), "'CURRENT_TIMESTAMP'", ""},
 		{"time literal default", tsqdialect.ColumnType{Kind: tsqdialect.KindTime}, "'2020-01-02 03:04:05'", ""},
+		// PostgreSQL takes TRUE and FALSE only; the other two take either spelling.
+		{"boolean default as a number", tsqdialect.ColumnType{Kind: tsqdialect.KindBool}, "1", ""},
+		{"boolean default as zero", tsqdialect.ColumnType{Kind: tsqdialect.KindBool}, "0", ""},
+		{"boolean default as a word", tsqdialect.ColumnType{Kind: tsqdialect.KindBool}, "TRUE", ""},
 		{"string longer than a VARCHAR", text(20000000), "", ""},
 		{"DECIMAL(10,2) default", raw("DECIMAL(10,2)"), "1.50", ""},
 		{"DECIMAL", raw("DECIMAL"), "", ""},
@@ -568,6 +572,101 @@ func TestIntegrationRetypeRefusesAValueThatDoesNotFit(t *testing.T) {
 // PostgreSQL cast bytes to text as their hex spelling and text to bytes as an
 // escape string, SQLite kept 1.5 under an integer column and 2 under a boolean
 // one (after which no read of the table worked), and MySQL kept the 2 as well.
+// TestIntegrationAnIndexInTheWayGoesFirst covers an indexed column retyped into
+// one the index cannot cover, while the declaration drops the index too: MySQL
+// refused to alter the column while the index stood ("BLOB/TEXT column used in
+// key specification without a key length"), and the index was dropped only
+// afterwards, by the index policy. An index no longer declared now goes before
+// the column it covers is altered.
+func TestIntegrationAnIndexInTheWayGoesFirst(t *testing.T) {
+	ctx := context.Background()
+	text := tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 40}
+	bytes := tsqdialect.ColumnType{Kind: tsqdialect.KindBytes}
+
+	declare := func(columnType tsqdialect.ColumnType, indexes ...tsq.IndexSpec) *tsq.TableOf[drifting, int64] {
+		h := tsq.NewTable[drifting, int64]("drifting")
+		id := tsq.NewColumn(h, "id", "id", func(r *drifting) *int64 { return &r.ID })
+
+		return h.Define(tsq.TableSpec[drifting, int64]{
+			Columns:       []tsq.BoundColumn[drifting]{id, tsq.NewNullColumn[string](h, "c", "c", func(r *drifting) *sql.Null[string] { return &r.C })},
+			PrimaryKey:    id,
+			AutoIncrement: true,
+			ColumnSpecs: []tsqdialect.ColumnSpec{
+				{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
+				{Name: "c", Type: columnType},
+			},
+			Indexes: indexes,
+		})
+	}
+
+	for _, target := range integrationTargets(t) {
+		t.Run(target.name, func(t *testing.T) {
+			dropTables(t, target, "drifting")
+
+			indexed := declare(text, tsq.IndexSpec{Name: "idx_drifting_c", Columns: []string{"c"}})
+
+			rt, _, err := openQuietly(target, tsq.SchemaPolicyCreateMissing, indexed)
+			if err != nil {
+				t.Fatalf("create: %v", err)
+			}
+
+			if _, err := rt.ExecContext(ctx, "INSERT INTO drifting (c) VALUES ('abc')"); err != nil {
+				t.Fatalf("seed: %v", err)
+			}
+
+			_ = rt.Close()
+
+			plain := declare(bytes)
+
+			rt, ran, err := openQuietly(target, tsq.SchemaPolicyReconcile, plain)
+			if err != nil {
+				t.Fatalf("reconcile: %v\nran:\n  %s", err, strings.Join(ran, "\n  "))
+			}
+
+			_ = rt.Close()
+
+			if got := columnValues(t, target, "drifting", "c"); strings.Join(got, ",") != "abc" {
+				t.Fatalf("the column holds %q after the change, want abc", got)
+			}
+
+			rt, again, err := openQuietly(target, tsq.SchemaPolicyValidate, plain)
+			if err != nil || len(again) != 0 {
+				t.Fatalf("validate after the change: %v, ran %v", err, again)
+			}
+
+			_ = rt.Close()
+
+			// A declared index on such a column is the declaration's mistake, and the
+			// server's refusal stands: nothing is dropped for it.
+			dropTables(t, target, "drifting")
+
+			rt, _, err = openQuietly(target, tsq.SchemaPolicyCreateMissing, indexed)
+			if err != nil {
+				t.Fatalf("create again: %v", err)
+			}
+
+			_ = rt.Close()
+
+			if target.name == "mysql" {
+				rt, _, err := openQuietly(target, tsq.SchemaPolicyReconcile, declare(bytes, tsq.IndexSpec{Name: "idx_drifting_c", Columns: []string{"c"}}))
+				if err == nil {
+					_ = rt.Close()
+
+					t.Fatal("reconcile altered an indexed column into a BLOB with the index declared")
+				}
+
+				// The refusal left the table as it was.
+				rt, kept, err := openQuietly(target, tsq.SchemaPolicyValidate, indexed)
+				if err != nil || len(kept) != 0 {
+					t.Fatalf("the table after the refused change: %v, ran %v", err, kept)
+				}
+
+				_ = rt.Close()
+			}
+		})
+	}
+}
+
 func TestIntegrationRetypeCarriesTheValues(t *testing.T) {
 	text := tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 40}
 	bytes := tsqdialect.ColumnType{Kind: tsqdialect.KindBytes}
@@ -581,20 +680,27 @@ func TestIntegrationRetypeCarriesTheValues(t *testing.T) {
 			from, to tsqdialect.ColumnType
 			values   []any
 			want     string
+			defaults [2]string
 		}{
-			{"bytes to text", bytes, text, []any{[]byte("abc"), []byte("it's")}, "abc,it's"},
-			{"text to bytes", text, bytes, []any{`tab\101x`, `a\\b`, "plain"}, `tab\101x,a\\b,plain`},
-			{"fraction to an integer", number, integer, []any{1.6, 2.25, -1.7}, "2,2,-2"},
-			{"number to a boolean", integer, boolean, []any{int64(0), int64(1), int64(2), int64(-7)}, "false,true,true,true"},
-			{"fraction to a boolean", number, boolean, []any{0.0, 0.4}, "false,true"},
-			{"numeric text to an integer", text, integer, []any{"12", "-3"}, "12,-3"},
-			{"boolean to an integer", boolean, integer, []any{true, false}, "1,0"},
-			{"integer to text", integer, text, []any{int64(12)}, "12"},
+			{"bytes to text", bytes, text, []any{[]byte("abc"), []byte("it's")}, "abc,it's", [2]string{}},
+			{"text to bytes", text, bytes, []any{`tab\101x`, `a\\b`, "plain"}, `tab\101x,a\\b,plain`, [2]string{}},
+			{"fraction to an integer", number, integer, []any{1.6, 2.25, -1.7}, "2,2,-2", [2]string{}},
+			{"number to a boolean", integer, boolean, []any{int64(0), int64(1), int64(2), int64(-7)}, "false,true,true,true", [2]string{}},
+			{"fraction to a boolean", number, boolean, []any{0.0, 0.4}, "false,true", [2]string{}},
+			{"numeric text to an integer", text, integer, []any{"12", "-3"}, "12,-3", [2]string{}},
+			{"boolean to an integer", boolean, integer, []any{true, false}, "1,0", [2]string{}},
+			{"integer to text", integer, text, []any{int64(12)}, "12", [2]string{}},
+			// A default of the old type goes before the change on PostgreSQL, which
+			// casts it on its own and refused the change ("default for column
+			// cannot be cast automatically to type boolean").
+			{"numeric text with a default to a boolean", text, boolean, []any{"1", "0"}, "true,false", [2]string{"'0'", "FALSE"}},
+			{"integer with a default to text with another", integer, text, []any{int64(7)}, "7", [2]string{"5", "'five'"}},
+			{"integer with a default to text without", integer, text, []any{int64(7)}, "7", [2]string{"5", ""}},
 		} {
 			t.Run(target.name+"/"+c.name, func(t *testing.T) {
 				dropTables(t, target, "drifting")
 
-				rt, _, err := openQuietly(target, tsq.SchemaPolicyCreateMissing, driftingTable(c.from, ""))
+				rt, _, err := openQuietly(target, tsq.SchemaPolicyCreateMissing, driftingTable(c.from, c.defaults[0]))
 				if err != nil {
 					t.Fatalf("create: %v", err)
 				}
@@ -612,7 +718,7 @@ func TestIntegrationRetypeCarriesTheValues(t *testing.T) {
 
 				_ = rt.Close()
 
-				rt, ran, err := openQuietly(target, tsq.SchemaPolicyReconcile, driftingTable(c.to, ""))
+				rt, ran, err := openQuietly(target, tsq.SchemaPolicyReconcile, driftingTable(c.to, c.defaults[1]))
 				if err != nil {
 					t.Fatalf("reconcile: %v", err)
 				}
@@ -635,7 +741,7 @@ func TestIntegrationRetypeCarriesTheValues(t *testing.T) {
 				}
 
 				// What was carried over is what the declaration says: nothing more to do.
-				rt, ran, err = openQuietly(target, tsq.SchemaPolicyValidate, driftingTable(c.to, ""))
+				rt, ran, err = openQuietly(target, tsq.SchemaPolicyValidate, driftingTable(c.to, c.defaults[1]))
 				if err != nil {
 					t.Fatalf("validate after the change: %v", err)
 				}
