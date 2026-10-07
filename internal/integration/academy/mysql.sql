@@ -6,8 +6,9 @@
 
 CREATE TABLE IF NOT EXISTS `course` (
     `id` BIGINT PRIMARY KEY AUTO_INCREMENT,
-    `created_at` DATETIME,
-    `currency` VARCHAR(3) NOT NULL DEFAULT 'USD',
+    `created_at` DATETIME(6),
+    `blurb` TEXT DEFAULT ('not_set'),
+    `currency` VARCHAR(3) DEFAULT 'USD',
     `instructor_id` BIGINT NOT NULL,
     `level` INT NOT NULL,
     `list_price_cents` BIGINT NOT NULL,
@@ -34,8 +35,8 @@ ALTER TABLE `course` ADD UNIQUE INDEX `ux_course_title`(`title`);
 
 CREATE TABLE IF NOT EXISTS `enrollment` (
     `uid` BIGINT PRIMARY KEY AUTO_INCREMENT,
-    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    `updated_at` DATETIME,
+    `created_at` DATETIME(6) NOT NULL DEFAULT (UTC_TIMESTAMP(6)),
+    `updated_at` DATETIME(6),
     `deleted_at` BIGINT NOT NULL DEFAULT 0,
     `version` BIGINT NOT NULL DEFAULT 1,
     `course_id` BIGINT NOT NULL,
@@ -56,7 +57,7 @@ ALTER TABLE `enrollment` ADD INDEX `idx_enrollment_status`(`deleted_at`, `status
 
 CREATE TABLE IF NOT EXISTS `instructor` (
     `id` BIGINT PRIMARY KEY AUTO_INCREMENT,
-    `created_at` DATETIME,
+    `created_at` DATETIME(6),
     `bio` VARCHAR(2048) NOT NULL,
     `email` VARCHAR(160) NOT NULL,
     `name` VARCHAR(120) NOT NULL,
@@ -70,7 +71,7 @@ ALTER TABLE `instructor` ADD UNIQUE INDEX `ux_instructor_email`(`email`);
 
 CREATE TABLE IF NOT EXISTS `learner` (
     `id` BIGINT PRIMARY KEY AUTO_INCREMENT,
-    `created_at` DATETIME,
+    `created_at` DATETIME(6),
     `company` VARCHAR(160) NOT NULL,
     `email` VARCHAR(160) NOT NULL,
     `name` VARCHAR(120) NOT NULL
@@ -85,28 +86,10 @@ ALTER TABLE `learner` ADD UNIQUE INDEX `ux_learner_email`(`email`);
 
 CREATE TABLE IF NOT EXISTS `track` (
     `id` BIGINT PRIMARY KEY AUTO_INCREMENT,
-    `created_at` DATETIME,
+    `created_at` DATETIME(6),
     `description` VARCHAR(1024) NOT NULL,
     `name` VARCHAR(120) NOT NULL,
     `skill_items` JSON NOT NULL
 );
 
 ALTER TABLE `track` ADD UNIQUE INDEX `ux_track_name`(`name`);
-
--- Migration: 2026-09-29 11:19:35
-
--- Table: course
-
-ALTER TABLE `course` MODIFY COLUMN `currency` VARCHAR(3) DEFAULT 'USD';
-
--- Migration: 2026-09-29 15:39:59
-
--- Table: course
-
-ALTER TABLE `course` ADD COLUMN `blurb` TEXT DEFAULT ('none');
-
--- Migration: 2026-09-29 16:19:27
-
--- Table: course
-
-ALTER TABLE `course` MODIFY COLUMN `blurb` TEXT DEFAULT ('not_set');

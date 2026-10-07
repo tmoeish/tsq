@@ -7,7 +7,8 @@
 CREATE TABLE IF NOT EXISTS "course" (
     "id" BIGSERIAL PRIMARY KEY,
     "created_at" TIMESTAMP,
-    "currency" VARCHAR(3) NOT NULL DEFAULT 'USD',
+    "blurb" TEXT DEFAULT 'not_set',
+    "currency" VARCHAR(3) DEFAULT 'USD',
     "instructor_id" BIGINT NOT NULL,
     "level" INTEGER NOT NULL,
     "list_price_cents" BIGINT NOT NULL,
@@ -34,7 +35,7 @@ CREATE UNIQUE INDEX "ux_course_title" ON "course"("title");
 
 CREATE TABLE IF NOT EXISTS "enrollment" (
     "uid" BIGSERIAL PRIMARY KEY,
-    "created_at" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "created_at" TIMESTAMP NOT NULL DEFAULT (CURRENT_TIMESTAMP AT TIME ZONE 'UTC'),
     "updated_at" TIMESTAMP,
     "deleted_at" BIGINT NOT NULL DEFAULT 0,
     "version" BIGINT NOT NULL DEFAULT 1,
@@ -92,21 +93,3 @@ CREATE TABLE IF NOT EXISTS "track" (
 );
 
 CREATE UNIQUE INDEX "ux_track_name" ON "track"("name");
-
--- Migration: 2026-09-29 11:19:35
-
--- Table: course
-
-ALTER TABLE "course" ALTER COLUMN "currency" DROP NOT NULL;
-
--- Migration: 2026-09-29 15:39:59
-
--- Table: course
-
-ALTER TABLE "course" ADD COLUMN "blurb" TEXT DEFAULT 'none';
-
--- Migration: 2026-09-29 16:19:27
-
--- Table: course
-
-ALTER TABLE "course" ALTER COLUMN "blurb" SET DEFAULT 'not_set';
