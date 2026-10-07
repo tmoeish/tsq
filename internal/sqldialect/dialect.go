@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"sort"
 	"strings"
 
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
@@ -58,6 +59,9 @@ const (
 type Column struct {
 	ColumnSpec
 	NativeType string
+	// Check is the range constraint TSQ wrote for the column, the one named
+	// RangeCheckName, as the engine reports it; empty where the column has none.
+	Check string
 }
 
 // For returns the implementation of engine.
@@ -286,7 +290,126 @@ func ColumnDefinitionSQL(dialect Dialect, column ColumnSpec) (string, error) {
 		parts = append(parts, "DEFAULT "+DefaultSQL(dialect, column))
 	}
 
+	if check, ok := RangeCheck(dialect, column); ok {
+		parts = append(parts, "CONSTRAINT "+dialect.QuoteIdent(RangeCheckName(column.Name))+" CHECK ("+check+")")
+	}
+
 	return strings.Join(parts, " "), nil
+}
+
+// RangeCheckName names the constraint that keeps a column to its field's range.
+func RangeCheckName(column string) string { return "ck_" + column }
+
+// RangeCheck is the condition that keeps an integer column to the range of its Go
+// field where the engine's type does not: PostgreSQL has no unsigned types, so an
+// unsigned field takes a wider signed column, and SQLite's INTEGER is 64 bits
+// whatever the field. Without it a statement's arithmetic (Set(t.Stock,
+// Sub(t.Stock, qty)) below zero, a product past 32 bits) stored a value the field
+// could not read back, where MySQL's UNSIGNED and widths refuse the write. A key
+// is left alone: its sequence never leaves the range. The second result is false
+// where the column needs none.
+func RangeCheck(dialect Dialect, column ColumnSpec) (string, bool) {
+	t := column.Type
+	if t.Kind != KindInt || t.RawType != "" || column.PrimaryKey || column.AutoIncrement || column.Generated != "" {
+		return "", false
+	}
+
+	bits := t.Bits
+	if bits <= 0 {
+		bits = 64
+	}
+
+	var low, high string
+
+	switch dialect.Name() {
+	case Postgres:
+		if !t.Unsigned {
+			return "", false
+		}
+
+		low, high = "0", unsignedMax(bits)
+	case SQLite:
+		switch {
+		case t.Unsigned && bits >= 64:
+			low = "0"
+		case t.Unsigned:
+			low, high = "0", unsignedMax(bits)
+		case bits >= 64:
+			return "", false
+		default:
+			low, high = signedMin(bits), signedMax(bits)
+		}
+	default:
+		return "", false
+	}
+
+	quoted := dialect.QuoteIdent(column.Name)
+
+	check := quoted + " >= " + low
+	if high != "" {
+		check += " AND " + quoted + " <= " + high
+	}
+
+	return check, true
+}
+
+func unsignedMax(bits int) string {
+	switch {
+	case bits <= 8:
+		return "255"
+	case bits <= 16:
+		return "65535"
+	case bits <= 32:
+		return "4294967295"
+	default:
+		return "18446744073709551615"
+	}
+}
+
+func signedMin(bits int) string {
+	switch {
+	case bits <= 8:
+		return "-128"
+	case bits <= 16:
+		return "-32768"
+	default:
+		return "-2147483648"
+	}
+}
+
+func signedMax(bits int) string {
+	switch {
+	case bits <= 8:
+		return "127"
+	case bits <= 16:
+		return "32767"
+	default:
+		return "2147483647"
+	}
+}
+
+// SameRangeCheck reports whether the constraint an engine reports for column is
+// the one RangeCheck writes: the bounds are compared, since PostgreSQL rewrites
+// the expression (parentheses, a cast on a negative literal) and SQLite keeps it
+// as written. Both empty is the same too.
+func SameRangeCheck(column, reported, wanted string) bool {
+	if strings.TrimSpace(reported) == "" || strings.TrimSpace(wanted) == "" {
+		return strings.TrimSpace(reported) == "" && strings.TrimSpace(wanted) == ""
+	}
+
+	return strings.Join(checkBounds(column, reported), ",") == strings.Join(checkBounds(column, wanted), ",")
+}
+
+var integerLiteral = regexp.MustCompile(`-?[0-9]+`)
+
+// checkBounds lists the integer literals of a check expression, sorted, with the
+// column's own name taken out first (c1 holds a digit).
+func checkBounds(column, check string) []string {
+	without := strings.ReplaceAll(strings.ToLower(check), strings.ToLower(column), "")
+	bounds := integerLiteral.FindAllString(without, -1)
+	sort.Strings(bounds)
+
+	return bounds
 }
 
 // DefaultSQL is the DEFAULT clause's value for column. A default of the current

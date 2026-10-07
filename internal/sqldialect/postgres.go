@@ -159,7 +159,18 @@ func (d PostgresDialect) inspectColumns(ctx context.Context, db Executor, schema
 					AND t.relname = c.table_name
 					AND a.attname = c.column_name
 					AND i.indisprimary
-			) AS is_primary
+			) AS is_primary,
+			(
+				SELECT pg_catalog.pg_get_constraintdef(con.oid)
+				FROM pg_constraint con
+				JOIN pg_class t ON t.oid = con.conrelid
+				JOIN pg_namespace ns ON ns.oid = t.relnamespace
+				WHERE ns.nspname = `+schema+`
+					AND t.relname = c.table_name
+					AND con.contype = 'c'
+					AND con.conname = 'ck_' || c.column_name
+				LIMIT 1
+			) AS range_check
 		FROM information_schema.columns c
 		WHERE c.table_schema = `+schema+` AND c.table_name = $1
 		ORDER BY c.ordinal_position`,
@@ -183,13 +194,14 @@ func (d PostgresDialect) inspectColumns(ctx context.Context, db Executor, schema
 		Identity sql.NullString
 		Size     sql.NullInt64
 		Primary  bool
+		Check    sql.NullString
 	}
 
 	columns := make([]Column, 0)
 
 	for rows.Next() {
 		var item row
-		if err := rows.Scan(&item.Name, &item.Data, &item.UDT, &item.Format, &item.Null, &item.Default, &item.Identity, &item.Size, &item.Primary); err != nil {
+		if err := rows.Scan(&item.Name, &item.Data, &item.UDT, &item.Format, &item.Null, &item.Default, &item.Identity, &item.Size, &item.Primary, &item.Check); err != nil {
 			return nil, false, err
 		}
 
@@ -211,6 +223,7 @@ func (d PostgresDialect) inspectColumns(ctx context.Context, db Executor, schema
 			AutoIncrement: autoIncrement,
 			Default:       defaultValue,
 			NativeType:    strings.TrimSpace(item.Format),
+			Check:         strings.TrimSpace(item.Check.String),
 		})
 	}
 
@@ -663,6 +676,21 @@ func (d PostgresDialect) AlterColumnSQL(table string, before Column, after Colum
 				quotedColumn,
 				DefaultSQL(d, after),
 			))
+		}
+	}
+
+	// The range constraint follows the field: a wider or narrower one, or none. A
+	// narrower one is refused by the server where a row is outside it, which is
+	// the refusal a type change gets too.
+	if wanted, _ := RangeCheck(d, after); !SameRangeCheck(after.Name, before.Check, wanted) {
+		name := d.QuoteIdent(RangeCheckName(after.Name))
+
+		if before.Check != "" {
+			statements = append(statements, fmt.Sprintf("ALTER TABLE %s DROP CONSTRAINT %s;", quotedTable, name))
+		}
+
+		if wanted != "" {
+			statements = append(statements, fmt.Sprintf("ALTER TABLE %s ADD CONSTRAINT %s CHECK (%s);", quotedTable, name, wanted))
 		}
 	}
 

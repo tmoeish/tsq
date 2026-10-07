@@ -136,6 +136,7 @@ func (d SQLiteDialect) InspectColumns(ctx context.Context, db Executor, table st
 			AutoIncrement: autoincrement,
 			Default:       normalizeDDLDefault(row.Default),
 			NativeType:    strings.TrimSpace(row.Type),
+			Check:         sqliteRangeCheck(createSQL.String, row.Name),
 		})
 	}
 
@@ -509,6 +510,78 @@ func (d SQLiteDialect) DropIndexSQL(table, idx string) string {
 // other way round would drop the constraint.
 var sqliteCheck = regexp.MustCompile(`(?i)\bCHECK\s*\(`)
 
+// sqliteNamedCheck finds a named CHECK constraint: the name, then the opening
+// parenthesis of the expression, whose end balancedParen finds.
+var sqliteNamedCheck = regexp.MustCompile("(?i)\\bCONSTRAINT\\s+[\"`\\[]?([A-Za-z0-9_]+)[\"`\\]]?\\s+CHECK\\s*\\(")
+
+// sqliteRangeCheck reads the range constraint TSQ wrote for column out of a CREATE
+// TABLE statement, as sqlite_master keeps it: the expression of the constraint
+// named RangeCheckName. Empty where there is none.
+func sqliteRangeCheck(createSQL, column string) string {
+	for _, match := range sqliteNamedCheck.FindAllStringSubmatchIndex(createSQL, -1) {
+		if !strings.EqualFold(createSQL[match[2]:match[3]], RangeCheckName(column)) {
+			continue
+		}
+
+		if end := balancedParen(createSQL, match[1]-1); end > 0 {
+			return strings.TrimSpace(createSQL[match[1]:end])
+		}
+	}
+
+	return ""
+}
+
+// sqliteWithoutRangeChecks returns the statement without the CHECK constraints
+// TSQ wrote, so that only another one blocks a rebuild: TSQ's are declared and
+// come back with the rebuilt table.
+func sqliteWithoutRangeChecks(createSQL string) string {
+	out := createSQL
+
+	for {
+		match := sqliteNamedCheck.FindStringSubmatchIndex(out)
+		if match == nil || !strings.HasPrefix(strings.ToLower(out[match[2]:match[3]]), "ck_") {
+			return out
+		}
+
+		end := balancedParen(out, match[1]-1)
+		if end < 0 {
+			return out
+		}
+
+		out = out[:match[0]] + out[end+1:]
+	}
+}
+
+// balancedParen returns the index of the parenthesis closing the one at open, or
+// -1. Quotes are skipped, so a parenthesis inside a literal does not count.
+func balancedParen(s string, open int) int {
+	depth := 0
+
+	var quote byte
+
+	for i := open; i < len(s); i++ {
+		c := s[i]
+
+		switch {
+		case quote != 0:
+			if c == quote {
+				quote = 0
+			}
+		case c == '\'' || c == '"' || c == '`':
+			quote = c
+		case c == '(':
+			depth++
+		case c == ')':
+			depth--
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+
+	return -1
+}
+
 // sqliteMentions reports whether a statement names table as an identifier. Like
 // sqliteCheck it errs on the side of refusing.
 func sqliteMentions(statement, table string) bool {
@@ -544,7 +617,7 @@ func (d SQLiteDialect) InspectRebuild(ctx context.Context, db Executor, table st
 		return Rebuild{}, fmt.Errorf("read the definition of %s: %w", table, err)
 	}
 
-	if sqliteCheck.MatchString(definition) {
+	if sqliteCheck.MatchString(sqliteWithoutRangeChecks(definition)) {
 		rebuild.Blockers = append(rebuild.Blockers, "a CHECK constraint")
 	}
 

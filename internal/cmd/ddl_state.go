@@ -990,9 +990,13 @@ func sqliteAlterUnenforced(before, after ddlSnapshotColumn) bool {
 	d := sqld.SQLiteDialect{}
 	spelled := func(c ddlSnapshotColumn) string { return d.ColumnTypeSQL(ddlColumnSpecFromSnapshot(c).Type) }
 
+	// The range constraint is enforced, so a field of another width is a change.
+	beforeCheck, _ := sqld.RangeCheck(d, ddlColumnSpecFromSnapshot(before))
+	afterCheck, _ := sqld.RangeCheck(d, ddlColumnSpecFromSnapshot(after))
+
 	return before.Nullable == after.Nullable && before.Default == after.Default && before.Fill == after.Fill &&
 		before.Generated == after.Generated && before.PrimaryKey == after.PrimaryKey && before.AutoIncrement == after.AutoIncrement &&
-		sqld.SQLiteAffinity(spelled(before)) == sqld.SQLiteAffinity(spelled(after))
+		sqld.SQLiteAffinity(spelled(before)) == sqld.SQLiteAffinity(spelled(after)) && beforeCheck == afterCheck
 }
 
 // sqliteConversionNote says what a rebuild does to the values of a column that
@@ -1285,6 +1289,10 @@ func renderDDLAlterColumnStatements(
 	}
 
 	beforeColumn, afterSpec := sqld.Column{ColumnSpec: ddlColumnSpecFromSnapshot(before)}, ddlColumnSpecFromSnapshot(after)
+	// The table the migration meets is the one the earlier declaration created,
+	// range constraint included; one from before those were written gets it from
+	// the runtime's Reconcile, or by hand.
+	beforeColumn.Check, _ = sqld.RangeCheck(dialect.dialect, beforeColumn.ColumnSpec)
 
 	statements := dialect.dialect.AlterColumnSQL(tableName, beforeColumn, afterSpec)
 	if len(statements) == 0 {
