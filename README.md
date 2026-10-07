@@ -112,7 +112,7 @@ DDL 的默认字符串映射现在更偏向“常规业务字段”：
 - `string`、`sql.NullString`、`null.String` 以及它们的 type alias / 自定义字符串类型，在**没写 `size`** 时默认生成 `VARCHAR(255)`
 - 写了 `size:N` 之后，会按方言选更合适的类型；例如 MySQL 超过 `VARCHAR` 安全范围时会自动切到 `MEDIUMTEXT` / `LONGTEXT`
 - 如果字段本身是 TSQ 不认识的自定义类型（例如实现了 `driver.Valuer` / `sql.Scanner` 的 JSON slice），可以直接在 `db` tag 里写 `type:JSON`、`type:TEXT`、`type:JSONB` 这类覆盖；TSQ 会原样写入三个方言的 DDL，并把这个 raw type 记录进 runtime/schema snapshot
-- `int` / `uint` 以及基于它们的 enum / type alias 默认按常规整型宽度生成（MySQL `INT`，Postgres `INTEGER`）；只有显式 `int64` / `uint64` 才会落到 `BIGINT`（PostgreSQL 没有无符号类型，`uint32` 也是 `BIGINT`、`uint64` 是 `NUMERIC(20)`，见 `skills/tsq/references/REFERENCE.md`）
+- `int` / `uint` 以及基于它们的 enum / type alias 默认按常规整型宽度生成（MySQL `INT`，Postgres `INTEGER`）；只有显式 `int64` / `uint64` 才会落到 `BIGINT`（PostgreSQL 没有无符号类型，`uint32` 也是 `BIGINT`、`uint64` 是 `NUMERIC(20)`；PostgreSQL 和 SQLite 上列的类型比字段宽时，TSQ 给列加一条 `CHECK` 约束守住字段的范围，见 `skills/tsq/references/REFERENCE.md`）
 
 ### 3. 跑第一条查询
 

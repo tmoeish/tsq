@@ -810,6 +810,12 @@ func columnsEqual(dialect sqld.Dialect, left sqld.Column, right tsqdialect.Colum
 		return true
 	}
 
+	// The range constraint that keeps the column to its field (sqldialect.RangeCheck)
+	// is part of the column: a table from before it was written gets it by Reconcile.
+	if wanted, _ := sqld.RangeCheck(dialect, right); !sqld.SameRangeCheck(right.Name, left.Check, wanted) {
+		return false
+	}
+
 	// The declared default is compared as the DDL spells it: a current-time
 	// default is a UTC expression on MySQL and PostgreSQL, and a live
 	// CURRENT_TIMESTAMP there (a table created before TSQ wrote UTC) differs.

@@ -1352,3 +1352,173 @@ func TestIntegrationMySQLSessionModes(t *testing.T) {
 		}
 	})
 }
+
+type ranged struct {
+	ID    int64
+	Qty   uint32
+	Small int16
+	Big   uint64
+	Plain int64
+}
+
+type rangedTable struct {
+	*tsq.TableOf[ranged, int64]
+
+	ID    tsq.Column[ranged, int64]
+	Qty   tsq.Column[ranged, uint32]
+	Small tsq.Column[ranged, int16]
+	Big   tsq.Column[ranged, uint64]
+	Plain tsq.Column[ranged, int64]
+}
+
+var rangedCols = func() rangedTable {
+	h := tsq.NewTable[ranged, int64]("ranged")
+	t := rangedTable{
+		TableOf: h,
+		ID:      tsq.NewColumn(h, "id", "id", func(r *ranged) *int64 { return &r.ID }),
+		Qty:     tsq.NewColumn(h, "qty", "qty", func(r *ranged) *uint32 { return &r.Qty }),
+		Small:   tsq.NewColumn(h, "small", "small", func(r *ranged) *int16 { return &r.Small }),
+		Big:     tsq.NewColumn(h, "big", "big", func(r *ranged) *uint64 { return &r.Big }),
+		Plain:   tsq.NewColumn(h, "plain", "plain", func(r *ranged) *int64 { return &r.Plain }),
+	}
+
+	h.Define(tsq.TableSpec[ranged, int64]{
+		Columns:       []tsq.BoundColumn[ranged]{t.ID, t.Qty, t.Small, t.Big, t.Plain},
+		PrimaryKey:    t.ID,
+		AutoIncrement: true,
+		ColumnSpecs: []tsqdialect.ColumnSpec{
+			{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
+			{Name: "qty", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 32, Unsigned: true}},
+			{Name: "small", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 16}},
+			{Name: "big", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64, Unsigned: true}},
+			{Name: "plain", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}},
+		},
+	})
+
+	return t
+}()
+
+// TestIntegrationIntegerColumnsKeepTheFieldsRange covers the range constraint
+// an integer column carries where the engine's type is wider than the field:
+// PostgreSQL has no unsigned types and SQLite's INTEGER is 64 bits whatever the
+// field, so Set(t.Stock, Sub(t.Stock, qty)) below zero, or a product past the
+// field's width, stored a value the field could not read back, and the row was
+// unreadable from then on; MySQL's UNSIGNED and widths refused the write. A table
+// from before the constraint was written is a mismatch, and Reconcile adds it.
+func TestIntegrationIntegerColumnsKeepTheFieldsRange(t *testing.T) {
+	ctx := context.Background()
+	r := rangedCols
+
+	for _, target := range integrationTargets(t) {
+		t.Run(target.name, func(t *testing.T) {
+			dropTables(t, target, "ranged")
+
+			rt, _, err := openQuietly(target, tsq.SchemaPolicyCreateMissing, r)
+			if err != nil {
+				t.Fatalf("create: %v", err)
+			}
+
+			defer func() { _ = rt.Close() }()
+
+			row := &ranged{Qty: 3, Small: 100, Big: 5, Plain: -1}
+			if err := r.Insert(ctx, rt, row); err != nil {
+				t.Fatalf("insert: %v", err)
+			}
+
+			where := r.ID.EQ(tsq.Val(row.ID))
+
+			for name, mutation := range map[string]*tsq.Mutation[ranged]{
+				"unsigned below zero":      tsq.UpdateTable(r).Set(r.Qty, tsq.Sub(r.Qty, tsq.Val(uint32(5)))).Where(where).MustBuild(),
+				"past 32 unsigned bits":    tsq.UpdateTable(r).Set(r.Qty, tsq.Mul(r.Qty, tsq.Val(uint32(2000000000)))).Where(where).MustBuild(),
+				"past 16 signed bits":      tsq.UpdateTable(r).Set(r.Small, tsq.Add(r.Small, tsq.Val(int16(32700)))).Where(where).MustBuild(),
+				"below 16 signed bits":     tsq.UpdateTable(r).Set(r.Small, tsq.Mul(r.Small, tsq.Val(int16(-400)))).Where(where).MustBuild(),
+				"wide unsigned below zero": tsq.UpdateTable(r).Set(r.Big, tsq.Sub(r.Big, tsq.Val(uint64(10)))).Where(where).MustBuild(),
+			} {
+				if n, err := mutation.Exec(ctx, rt); err == nil {
+					t.Errorf("%s: the write was taken (%d rows)", name, n)
+				}
+			}
+
+			// A signed 64-bit field has the column's own range.
+			if _, err := tsq.UpdateTable(r).Set(r.Plain, tsq.Sub(r.Plain, tsq.Val(int64(10)))).Where(where).MustBuild().Exec(ctx, rt); err != nil {
+				t.Errorf("a signed 64-bit column refused a value in range: %v", err)
+			}
+
+			got, err := r.Get(ctx, rt, row.ID)
+			if err != nil || got.Qty != 3 || got.Small != 100 || got.Big != 5 || got.Plain != -11 {
+				t.Fatalf("the row after the refused writes: %+v, %v", got, err)
+			}
+
+			// A second start finds the constraint as declared.
+			again, ran, err := openQuietly(target, tsq.SchemaPolicyValidate, r)
+			if err != nil || len(ran) != 0 {
+				t.Fatalf("validate over the table TSQ created: %v, ran %v", err, ran)
+			}
+
+			_ = again.Close()
+
+			if target.name == "mysql" {
+				return // MySQL's own types keep the range; there is no constraint to add.
+			}
+
+			// A table from before the constraint: Validate names the columns, Reconcile
+			// adds them, and the next start has nothing to do.
+			dropTables(t, target, "ranged")
+
+			plain := map[string]string{
+				"postgres": `CREATE TABLE ranged (id BIGSERIAL PRIMARY KEY, qty BIGINT NOT NULL, small SMALLINT NOT NULL, big NUMERIC(20) NOT NULL, plain BIGINT NOT NULL)`,
+				"sqlite":   `CREATE TABLE ranged (id INTEGER PRIMARY KEY AUTOINCREMENT, qty INTEGER NOT NULL, small INTEGER NOT NULL, big INTEGER NOT NULL, plain INTEGER NOT NULL)`,
+			}[target.name]
+
+			if _, err := rt.ExecContext(ctx, plain); err != nil {
+				t.Fatalf("create the table without constraints: %v", err)
+			}
+
+			if _, err := rt.ExecContext(ctx, "INSERT INTO ranged (qty, small, big, plain) VALUES (1, 2, 3, 4)"); err != nil {
+				t.Fatalf("seed: %v", err)
+			}
+
+			_, _, err = openQuietly(target, tsq.SchemaPolicyValidate, r)
+
+			var mismatch *tsq.SchemaMismatchError
+			if !errors.As(err, &mismatch) || !strings.Contains(err.Error(), "qty") || strings.Contains(err.Error(), "plain") {
+				t.Fatalf("validate over a table without the constraints = %v; want a mismatch naming qty, small and big", err)
+			}
+
+			fixed, ran, err := openQuietly(target, tsq.SchemaPolicyReconcile, r)
+			if err != nil {
+				t.Fatalf("reconcile: %v\nran:\n  %s", err, strings.Join(ran, "\n  "))
+			}
+
+			if _, err := tsq.UpdateTable(r).Set(r.Qty, tsq.Sub(r.Qty, tsq.Val(uint32(5)))).Where(r.Qty.EQ(tsq.Val(uint32(1)))).MustBuild().Exec(ctx, fixed); err == nil {
+				t.Error("the reconciled table took a value below zero")
+			}
+
+			_ = fixed.Close()
+
+			done, ran, err := openQuietly(target, tsq.SchemaPolicyValidate, r)
+			if err != nil || len(ran) != 0 {
+				t.Fatalf("validate after reconcile: %v, ran %v", err, ran)
+			}
+
+			_ = done.Close()
+
+			// A row outside the range refuses the constraint, and with it the start.
+			dropTables(t, target, "ranged")
+
+			if _, err := rt.ExecContext(ctx, plain); err != nil {
+				t.Fatal(err)
+			}
+
+			if _, err := rt.ExecContext(ctx, "INSERT INTO ranged (qty, small, big, plain) VALUES (-1, 2, 3, 4)"); err != nil {
+				t.Fatalf("seed a value below zero: %v", err)
+			}
+
+			if refused, _, err := openQuietly(target, tsq.SchemaPolicyReconcile, r); err == nil {
+				_ = refused.Close()
+
+				t.Fatal("reconcile added a range constraint over a row outside it")
+			}
+		})
+	}
+}
