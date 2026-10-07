@@ -297,6 +297,25 @@ func ColumnDefinitionSQL(dialect Dialect, column ColumnSpec) (string, error) {
 	return strings.Join(parts, " "), nil
 }
 
+// EnforcedStringSize is the number of characters a string column holds on the
+// engines that enforce a length (a VARCHAR(n) on MySQL and PostgreSQL), or 0 for a
+// column with no limit the engines agree on: a raw type, or a size past what a
+// VARCHAR declares, which is a TEXT family type there.
+func EnforcedStringSize(column ColumnSpec) int {
+	if column.Type.Kind != KindString || column.Type.RawType != "" {
+		return 0
+	}
+
+	switch {
+	case column.Type.Size <= 0:
+		return defaultDDLStringSize
+	case column.Type.Size > mysqlMaxVarcharChars:
+		return 0
+	default:
+		return column.Type.Size
+	}
+}
+
 // RangeCheckName names the constraint that keeps a column to its field's range.
 func RangeCheckName(column string) string { return "ck_" + column }
 

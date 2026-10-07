@@ -40,6 +40,9 @@ type exprPart struct {
 	value any
 	param *paramSpec
 	query queryRenderer
+	// fit is the column a value or parameter is written to, where it is one: the
+	// value is held to the column before the statement runs (fitValue).
+	fit *valueFit
 	// byDialect holds the spelling of a construct the dialects disagree on.
 	byDialect map[tsqdialect.Name]sqlExpr
 	// forDialect spells the construct once the dialect is known, for a spelling
@@ -66,6 +69,16 @@ func sqlIdent(name string) sqlExpr {
 func sqlValue(v any) sqlExpr { return sqlExpr{parts: []exprPart{{kind: partValue, value: v}}} }
 
 func sqlParam(p *paramSpec) sqlExpr { return sqlExpr{parts: []exprPart{{kind: partParam, param: p}}} }
+
+// sqlFitValue is sqlValue for a value written to a column.
+func sqlFitValue(v any, fit *valueFit) sqlExpr {
+	return sqlExpr{parts: []exprPart{{kind: partValue, value: v, fit: fit}}}
+}
+
+// sqlFitParam is sqlParam for a parameter written to a column.
+func sqlFitParam(p *paramSpec, fit *valueFit) sqlExpr {
+	return sqlExpr{parts: []exprPart{{kind: partParam, param: p, fit: fit}}}
+}
 
 func sqlQuery(q queryRenderer) sqlExpr {
 	return sqlExpr{parts: []exprPart{{kind: partQuery, query: q}}}
@@ -218,14 +231,14 @@ func (r *renderer) flush() {
 	r.text.Reset()
 }
 
-func (r *renderer) writeValue(v any) {
+func (r *renderer) writeValue(v any, fit *valueFit) {
 	r.flush()
-	r.stmt.chunks = append(r.stmt.chunks, chunk{value: v, hasValue: true})
+	r.stmt.chunks = append(r.stmt.chunks, chunk{value: v, hasValue: true, fit: fit})
 }
 
-func (r *renderer) writeParam(p *paramSpec) {
+func (r *renderer) writeParam(p *paramSpec, fit *valueFit) {
 	r.flush()
-	r.stmt.chunks = append(r.stmt.chunks, chunk{param: p})
+	r.stmt.chunks = append(r.stmt.chunks, chunk{param: p, fit: fit})
 }
 
 // require records that the statement uses capability and fails the render when the
@@ -242,9 +255,9 @@ func (r *renderer) write(e sqlExpr) {
 		case partIdent:
 			r.writeIdent(part.text)
 		case partValue:
-			r.writeValue(part.value)
+			r.writeValue(part.value, part.fit)
 		case partParam:
-			r.writeParam(part.param)
+			r.writeParam(part.param, part.fit)
 		case partQuery:
 			part.query.renderQuery(r)
 		case partForDialect:
@@ -290,6 +303,7 @@ type chunk struct {
 	value    any
 	hasValue bool
 	param    *paramSpec
+	fit      *valueFit
 }
 
 // params returns the distinct parameters of the statement in first-use order.
@@ -321,11 +335,21 @@ func (s *statement) assemble(d sqld.Dialect, bound argSet) (string, []any, error
 	for _, c := range s.chunks {
 		switch {
 		case c.hasValue:
+			if err := fitValue(d, c.fit, c.value); err != nil {
+				return "", nil, err
+			}
+
 			placeholder(c.value)
 		case c.param != nil:
 			value, err := bound.value(c.param)
 			if err != nil {
 				return "", nil, err
+			}
+
+			if c.fit != nil {
+				if err := fitValue(d, c.fit, value); err != nil {
+					return "", nil, err
+				}
 			}
 
 			if err := c.param.write(value, placeholder, &sql); err != nil {
