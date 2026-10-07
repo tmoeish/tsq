@@ -138,7 +138,9 @@ func buildDDLArtifacts(packagePath string, list []*genmodel.StructInfo, outDir s
 	}
 
 	changes := diffDDLSnapshots(previousSnapshot, currentSnapshot)
-	recordTables := buildDDLRecordTables(changes)
+	renderings := buildDDLRenderings(currentSnapshot)
+	respellings := ddlRespellings(previousState, currentSnapshot, renderings)
+	recordTables := buildDDLRecordTables(withRespellings(changes, respellingSummary(respellings)))
 	hasChange := len(recordTables) > 0
 	models := make([]ddlFileModel, 0, len(ddlDialects)+1)
 	dialectHistory := make(map[string]ddlStateDialectDiff, len(ddlDialects))
@@ -163,7 +165,7 @@ func buildDDLArtifacts(packagePath string, list []*genmodel.StructInfo, outDir s
 	for _, dialect := range ddlDialects {
 		name := ddlDialectName(dialect)
 
-		diffRecord, err := renderDDLIncrementalArtifact(dialect, changes)
+		diffRecord, err := renderDDLIncrementalArtifact(dialect, withRespellings(changes, respellings[name]))
 		if err != nil {
 			return ddlArtifacts{}, err
 		}
@@ -179,6 +181,7 @@ func buildDDLArtifacts(packagePath string, list []*genmodel.StructInfo, outDir s
 		recordTables,
 		dialectHistory,
 		sequence,
+		renderings,
 	)
 	if err != nil {
 		return ddlArtifacts{}, err
