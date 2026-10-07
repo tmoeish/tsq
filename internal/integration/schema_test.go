@@ -690,6 +690,11 @@ func TestIntegrationRetypeCarriesTheValues(t *testing.T) {
 			{"numeric text to an integer", text, integer, []any{"12", "-3"}, "12,-3", [2]string{}},
 			{"boolean to an integer", boolean, integer, []any{true, false}, "1,0", [2]string{}},
 			{"integer to text", integer, text, []any{int64(12)}, "12", [2]string{}},
+			// The range constraint of an unsigned field is read against the new
+			// type on PostgreSQL ("operator does not exist: character varying >=
+			// integer") unless it goes first.
+			{"unsigned to text", tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 8, Unsigned: true}, text, []any{int64(7), int64(200)}, "7,200", [2]string{}},
+			{"unsigned to a wider unsigned", tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 8, Unsigned: true}, tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 32, Unsigned: true}, []any{int64(7), int64(200)}, "7,200", [2]string{}},
 			// A default of the old type goes before the change on PostgreSQL, which
 			// casts it on its own and refused the change ("default for column
 			// cannot be cast automatically to type boolean").

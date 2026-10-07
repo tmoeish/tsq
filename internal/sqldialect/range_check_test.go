@@ -89,10 +89,22 @@ func TestPostgresAlterColumnFollowsTheRangeCheck(t *testing.T) {
 		t.Errorf("a table without the constraint = %v", added)
 	}
 
+	// The constraint goes before the type changes: its expression is read against
+	// the new type, and over a VARCHAR "qty >= 0" is "operator does not exist".
 	narrowed := d.AlterColumnSQL("t", Column{ColumnSpec: unsigned32, NativeType: "bigint", Check: `CHECK (((qty >= 0) AND (qty <= 4294967295)))`}, unsigned16)
-	joined := strings.Join(narrowed, "\n")
-	if !strings.Contains(joined, "TYPE INTEGER") || !strings.Contains(joined, `DROP CONSTRAINT "ck_qty"`) || !strings.Contains(joined, `CHECK ("qty" >= 0 AND "qty" <= 65535)`) {
-		t.Errorf("a narrower field = %v", narrowed)
+	want := []string{
+		`ALTER TABLE "t" DROP CONSTRAINT "ck_qty";`,
+		`ALTER TABLE "t" ALTER COLUMN "qty" TYPE INTEGER;`,
+		`ALTER TABLE "t" ADD CONSTRAINT "ck_qty" CHECK ("qty" >= 0 AND "qty" <= 65535);`,
+	}
+	if strings.Join(narrowed, "\n") != strings.Join(want, "\n") {
+		t.Errorf("a narrower field:\n%s\nwant:\n%s", strings.Join(narrowed, "\n"), strings.Join(want, "\n"))
+	}
+
+	text := ColumnSpec{Name: "qty", Type: ColumnType{Kind: KindString, Size: 40}}
+	toText := d.AlterColumnSQL("t", Column{ColumnSpec: unsigned32, NativeType: "bigint", Check: `CHECK (((qty >= 0) AND (qty <= 4294967295)))`}, text)
+	if len(toText) != 2 || !strings.HasSuffix(toText[0], `DROP CONSTRAINT "ck_qty";`) || !strings.Contains(toText[1], `TYPE VARCHAR(40) USING "qty"::TEXT`) {
+		t.Errorf("a text field = %v; want the constraint dropped before the type, and not added back", toText)
 	}
 
 	dropped := d.AlterColumnSQL("t", Column{ColumnSpec: unsigned32, NativeType: "bigint", Check: `CHECK (((qty >= 0) AND (qty <= 4294967295)))`}, signed64)

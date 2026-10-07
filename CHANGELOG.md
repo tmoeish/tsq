@@ -164,6 +164,8 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 ### 修复
 
+- **PostgreSQL 上带范围约束的列改成文本类型被拒绝**（`operator does not exist: character varying >= integer`）：`ALTER COLUMN TYPE` 会按新类型重新解析列上的 `CHECK`，`qty >= 0` 对 `VARCHAR` 无法解析。现在改类型前先删掉范围约束，新类型仍需要的再加回。随机生成的迁移在三引擎上执行找到的。
+- 原始 `type:` 列从可空改成 NOT NULL 而表里有 NULL 时，生成的迁移此前只有一条会被引擎拒绝的语句；现在上面多一行说明：这一列没有 TSQ 知道的零值，先把 NULL 填上，否则改动被拒绝。
 - **`bool` 字段写 `default:1` / `default:0`，PostgreSQL 建表失败**（`default expression is of type integer`）：MySQL 和 SQLite 两种写法都收，PostgreSQL 只收 `TRUE` / `FALSE`。现在布尔默认值按各引擎的写法写出，同一份模型三个引擎都能建；漂移比较本来就把两种写法当一回事。
 - **PostgreSQL 上带默认值的列换类型被拒绝**（`default for column cannot be cast automatically to type boolean`）：`ALTER COLUMN TYPE ... USING` 只转换存储的值，默认值由服务器自己转换，转不了就整条拒绝。现在跨类型的改动先 `DROP DEFAULT`、再改类型、再 `SET DEFAULT` 新值。
 - **MySQL 上带索引的列改成 `BLOB` / `TEXT` 时 `Reconcile` 启动失败**（1170，`used in key specification without a key length`）：列先改、索引后删，而索引还在时 MySQL 不许改。现在不再声明的、按 `tsq gen` 命名的索引在它覆盖的列被修改**之前**删除；仍在声明的索引不动，服务器的拒绝就是答案。

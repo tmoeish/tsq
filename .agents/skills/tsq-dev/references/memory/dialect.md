@@ -19,7 +19,7 @@
 **MySQL 的持锁连接强制严格模式，池本身不在严格模式只警告不拒绝**（同日）：非严格模式下 `ALTER ... MODIFY` 把放不进新类型的值截掉只留 warning，
 "放不进去就拒绝"在那里是假的；改列类型是 TSQ 自己发起的，所以由 TSQ 保证。普通写入被截断是部署选的 `sql_mode` 的语义（老 schema 依赖它），拒绝启动会把它们全挡在外面。
 **会话文本不是 UTF-8 就拒绝启动**（同日，和 `loc` 同一类：悄悄存错）：pgx 不设 `client_encoding`，LATIN1 库上 `é` 存成 `Ã©` 还数成两个字符；`SQL_ASCII` 库不转换、不检查。非严格模式只警告是因为那是部署选的语义，这个不是任何人想要的。
-**决定（维护者 2026-10-06）：列类型比字段宽的地方加 `CHECK` 守住字段范围**（`sqldialect.RangeCheck`，PG 的无符号、SQLite 除 int64 外的全部整数；MySQL 原生）：`Set(qty, Sub(qty, n))` 曾把负数写进 `uint32` 的列、整行读不出。约束叫 `ck_<列>`，三处要一起认它——列定义（`ColumnDefinitionSQL`）、检查（PG `pg_constraint`、SQLite 解析 `sqlite_master.sql`，进 `Column.Check`）、比较（`SameRangeCheck` 按数值比，PG 会改写表达式）；SQLite 重建的阻断项要先把 `ck_` 剥掉（`sqliteWithoutRangeChecks`）。生成器的迁移假定上一份声明建的表带着它，更早的表靠 `Reconcile`。
+**决定（维护者 2026-10-06）：列类型比字段宽的地方加 `CHECK` 守住字段范围**（`sqldialect.RangeCheck`，PG 的无符号、SQLite 除 int64 外的全部整数；MySQL 原生）：`Set(qty, Sub(qty, n))` 曾把负数写进 `uint32` 的列、整行读不出。约束叫 `ck_<列>`，三处要一起认它——列定义（`ColumnDefinitionSQL`）、检查（PG `pg_constraint`、SQLite 解析 `sqlite_master.sql`，进 `Column.Check`）、比较（`SameRangeCheck` 按数值比，PG 会改写表达式）；SQLite 重建的阻断项要先把 `ck_` 剥掉（`sqliteWithoutRangeChecks`）。生成器的迁移假定上一份声明建的表带着它，更早的表靠 `Reconcile`。PG 改类型要**先删它**（第十轮随机迁移找到：`qty >= 0` 按 VARCHAR 解析就报 operator does not exist）。
 
 ## "抓住错误继续跑"在 PostgreSQL 的事务里不成立 (2026-08-28)
 
