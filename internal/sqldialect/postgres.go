@@ -601,8 +601,20 @@ func (d PostgresDialect) AlterColumnSQL(table string, before Column, after Colum
 	// either way. Elsewhere postgresUsing writes it, never as a cast to a character
 	// type's length. An auto-increment key keeps its SERIAL default; its sequence is
 	// widened too, or it stops at the old type's maximum however wide the column is.
+	wanted, _ := RangeCheck(d, after)
+	droppedCheck := false
+
 	if !SameColumnType(d, before, after) {
 		spelled := d.ColumnTypeSQL(storageType(d, after))
+
+		// The range constraint of the old type goes first: its expression is read
+		// against the new type, and "c >= 0" over a VARCHAR is "operator does not
+		// exist". It comes back below where the new type still needs one.
+		if before.Check != "" {
+			droppedCheck = true
+
+			statements = append(statements, fmt.Sprintf("ALTER TABLE %s DROP CONSTRAINT %s;", quotedTable, d.QuoteIdent(RangeCheckName(after.Name))))
+		}
 
 		if after.AutoIncrement {
 			statements = append(statements, fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s TYPE %s;", quotedTable, quotedColumn, spelled))
@@ -682,10 +694,10 @@ func (d PostgresDialect) AlterColumnSQL(table string, before Column, after Colum
 	// The range constraint follows the field: a wider or narrower one, or none. A
 	// narrower one is refused by the server where a row is outside it, which is
 	// the refusal a type change gets too.
-	if wanted, _ := RangeCheck(d, after); !SameRangeCheck(after.Name, before.Check, wanted) {
+	if droppedCheck || !SameRangeCheck(after.Name, before.Check, wanted) {
 		name := d.QuoteIdent(RangeCheckName(after.Name))
 
-		if before.Check != "" {
+		if before.Check != "" && !droppedCheck {
 			statements = append(statements, fmt.Sprintf("ALTER TABLE %s DROP CONSTRAINT %s;", quotedTable, name))
 		}
 

@@ -85,8 +85,8 @@
   `AlterColumnSQL` 在数值转布尔前先 `UPDATE`，SQLite 的重建用 `sqldialect.SQLiteRetype*`（运行期 `rebuildCopyColumns` 转换、`rebuiltValuesFit` 在提交前
   检查并拒绝；生成器 `renderSQLiteRebuildTableBody` 转换或写成手工注释）。新增一对"源 → 目标"要进 `TestIntegrationRetypeCarriesTheValues` 或
   `TestIntegrationRetypeRefusesAValueThatDoesNotFit`，三个方言的结果必须相同。
-  PG 跨类型改动**先 `DROP DEFAULT` 再 `TYPE … USING` 再 `SET DEFAULT`**（服务器自己转换默认值、转不了就拒绝整条），`AlterColumnSQL` 的
-  `droppedDefault` 保证只删一次；门是 `TestPostgresAlterColumnDropsTheDefaultBeforeTheType` 加上面那条集成测试带默认值的用例。
+  PG 跨类型改动**先 `DROP DEFAULT` 和 `DROP CONSTRAINT ck_` 再 `TYPE … USING` 再 `SET DEFAULT` / `ADD CONSTRAINT`**（默认值由服务器自己转换，约束表达式按新类型解析，
+  转不了 / 解析不了就拒绝整条），`AlterColumnSQL` 的 `droppedDefault` / `droppedCheck` 保证只删一次；门是 `TestPostgresAlterColumnDropsTheDefaultBeforeTheType` 加上面那条集成测试带默认值的用例。
 - **范围约束 `ck_<列>` 是列的一部分**（`sqldialect.RangeCheck`）：`columnsEqual` 比它（`SameRangeCheck`），PG 的 `AlterColumnSQL` 补 / 换 / 删它，SQLite 走重建。
   改整数类型映射（宽度、无符号）要同时改 `RangeCheck` 的边界；新方言要回答"类型比字段宽的地方在哪"。门是 `TestIntegrationIntegerColumnsKeepTheFieldsRange`。
 - SQLite 的探查（`ListIndexes`、`InspectRebuild`）**先读完、关掉结果集再发下一条查询**：使用者常把 SQLite 池设成一个连接，

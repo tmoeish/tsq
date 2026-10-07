@@ -1533,9 +1533,16 @@ func renderDDLAlterColumnStatements(
 
 	// The same note the SQLite rebuild writes: the NULLs of a column that becomes
 	// NOT NULL are filled first, and whoever runs the migration should know with what.
-	if fill := sqld.NullFill(dialect.dialect, beforeColumn, afterSpec); fill != "" {
-		statements = append([]string{renderDDLManualComment(tableName, fmt.Sprintf(
-			"%s becomes NOT NULL; rows holding NULL get %s", after.Name, fill))}, statements...)
+	// A raw type has no zero value TSQ knows, so there the statement is written as
+	// it is and the note says what stops it.
+	if before.Nullable && !after.Nullable {
+		if fill := sqld.NullFill(dialect.dialect, beforeColumn, afterSpec); fill != "" {
+			statements = append([]string{renderDDLManualComment(tableName, fmt.Sprintf(
+				"%s becomes NOT NULL; rows holding NULL get %s", after.Name, fill))}, statements...)
+		} else if after.Default == "" {
+			statements = append([]string{renderDDLManualComment(tableName, fmt.Sprintf(
+				"%s becomes NOT NULL and has no zero value TSQ knows for type:%s; fill the rows holding NULL first, or the change is refused", after.Name, after.RawType))}, statements...)
+		}
 	}
 
 	return statements
