@@ -3403,3 +3403,111 @@ func TestMigrationSkipsATypeTheDialectSpellsTheSame(t *testing.T) {
 		t.Fatalf("postgres.sql:\n%s", postgres)
 	}
 }
+
+// TestGenCmdWritesAMigrationWhenTSQRespellsAColumn covers a column whose
+// declaration did not change while the dialect's spelling of it did, between
+// two versions of TSQ: the files had one spelling, the runtime declares another,
+// and a table built from the files was a mismatch at startup with no section to
+// say so. The state records each column's rendering, and a rendering the files
+// did not have becomes a migration section.
+func TestGenCmdWritesAMigrationWhenTSQRespellsAColumn(t *testing.T) {
+	t.Cleanup(func() {
+		dryRunFlag = false
+		checkFlag = false
+		v = false
+		GenCmd.SetArgs(nil)
+	})
+
+	dir := t.TempDir()
+	writeTestFile(t, filepath.Join(dir, "go.mod"), genTestModuleFile(t))
+	writeTestFile(t, filepath.Join(dir, "model.go"), `package gentest
+
+import "time"
+
+//tsq:table name=parcels
+//tsq:managed created_at
+type Parcel struct {
+	ID        int64      `+"`db:\"id\"`"+`
+	Qty       uint32     `+"`db:\"qty\"`"+`
+	Seen      *time.Time `+"`db:\"seen,default:CURRENT_TIMESTAMP\"`"+`
+	CreatedAt *time.Time `+"`db:\"created_at\"`"+`
+}
+`)
+	chdirForGenTest(t, dir)
+	tidyGenTestModule(t)
+
+	if err := runGen(t); err != nil {
+		t.Fatalf("first gen: %v", err)
+	}
+
+	// The files of an earlier TSQ: a default without the UTC spelling, a column
+	// without its range constraint, a type without its precision.
+	state, err := loadDDLStateFile(dir)
+	if err != nil || state == nil || len(state.Renderings) != 3 {
+		t.Fatalf("state after the first gen: %+v, %v; want renderings for three dialects", state, err)
+	}
+
+	earlier := state.Renderings
+	earlier["postgres"]["parcels"]["seen"] = ddlColumnRendering{Type: "TIMESTAMP", Default: "CURRENT_TIMESTAMP"}
+	earlier["postgres"]["parcels"]["qty"] = ddlColumnRendering{Type: "BIGINT"}
+	earlier["mysql"]["parcels"]["seen"] = ddlColumnRendering{Type: "DATETIME", Default: "CURRENT_TIMESTAMP"}
+	earlier["sqlite"]["parcels"]["qty"] = ddlColumnRendering{Type: "INTEGER"}
+
+	content, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	writeTestFile(t, filepath.Join(dir, ddlStateFilename), string(content)+"\n")
+
+	// --check sees the files as out of date, as a model change would make them.
+	if err := runGen(t, "--check"); !errors.Is(err, ErrOutOfDate) {
+		t.Fatalf("gen --check over files spelled by an earlier TSQ = %v; want ErrOutOfDate", err)
+	}
+
+	if err := runGen(t); err != nil {
+		t.Fatalf("second gen: %v", err)
+	}
+
+	for file, wants := range map[string][]string{
+		"postgres.sql": {
+			`-- Migration: `,
+			`ALTER TABLE "parcels" ALTER COLUMN "seen" SET DEFAULT (CURRENT_TIMESTAMP AT TIME ZONE 'UTC');`,
+			`ALTER TABLE "parcels" ADD CONSTRAINT "ck_qty" CHECK ("qty" >= 0 AND "qty" <= 4294967295);`,
+		},
+		"mysql.sql": {
+			`-- Migration: `,
+			"ALTER TABLE `parcels` MODIFY COLUMN `seen` DATETIME(6) DEFAULT (UTC_TIMESTAMP(6));",
+		},
+		"sqlite.sql": {
+			`-- Migration: `,
+			`CONSTRAINT "ck_qty" CHECK ("qty" >= 0 AND "qty" <= 4294967295)`,
+		},
+	} {
+		got, err := os.ReadFile(filepath.Join(dir, file))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		for _, want := range wants {
+			if !strings.Contains(string(got), want) {
+				t.Errorf("%s lacks %q:\n%s", file, want, got)
+			}
+		}
+	}
+
+	after, err := loadDDLStateFile(dir)
+	if err != nil || len(after.Records) != 1 {
+		t.Fatalf("records after the respelling: %d, %v; want one", len(after.Records), err)
+	}
+
+	lines := strings.Join(after.Records[0].Tables[0].Columns, "\n")
+	if !strings.Contains(lines, "respell column qty (postgres: range check; sqlite: range check)") || !strings.Contains(lines, "respell column seen (mysql: type, default; postgres: default)") {
+		t.Errorf("the record's lines:\n%s", lines)
+	}
+
+	// Nothing more to do: the renderings are the current ones again.
+	if err := runGen(t, "--check"); err != nil {
+		t.Fatalf("gen --check after the migration: %v", err)
+	}
+}

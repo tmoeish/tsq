@@ -14,6 +14,7 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 ### 新增
 
+- **TSQ 自己的拼法变了，`tsq gen` 也写一段迁移**：`tsq.json` 现在记下每个方言上每一列的渲染（类型、默认值、范围约束）。新版本的 TSQ 把一列拼成了别的样子而模型没变——比如这几波的 UTC 默认值、范围约束、带精度的类型——此前 `.sql` 文件里什么都不会多，用它建出的库在运行时启动就是一处不匹配。现在这和模型变化一样是一段带日期的迁移（历史里记作 `respell column ...`）：MySQL / PostgreSQL 写 `ALTER`，SQLite 在默认值或约束变了时重建、只是类型拼法在同一亲和性内变了就写"nothing to run"。升级 TSQ 后 `tsq gen --check` 会先红一次，跑一遍 `tsq gen` 写下这段即可。在记录渲染之前生成的文件没有可比的对象：第一次运行只记录，更早的拼法变化不补段（运行时 `Validate` 会指出、`Reconcile` 会补）。
 - **SQLite 上也拒绝 MySQL / PostgreSQL 会拒绝的值**：SQLite 不检查 `VARCHAR(n)` 的长度、也没有 JSON 类型，于是本地 SQLite 上写得进去的超长字符串和非法 JSON 到了 MySQL / PostgreSQL 才报错。现在写进列的值（`Insert` / `Update` / `Upsert` / `Batch*`，以及 `Set(col, tsq.Val(v))` / `Set(col, 参数)`）在语句执行前按列的长度（按字符数）检查，SQLite 上超长就拒绝并说明"SQLite 会收下、MySQL 和 PostgreSQL 会拒绝"；不是 JSON 的 `json.RawMessage` 在三个引擎上都被拒绝。比较不受影响（超长的值只是匹配不到），`type:` 列和落到 TEXT 一族的长度也不检查。
 - **整数列在 PostgreSQL 和 SQLite 上也守住字段的范围**：PostgreSQL 没有无符号类型（`uint32` 落到 `BIGINT`），SQLite 的 `INTEGER` 不论字段多宽都是 64 位，于是 `Set(t.Stock, tsq.Sub(t.Stock, qty))` 减到负数、乘法越过字段宽度时，值写进去了、字段读不回来，这一行从此读不出；MySQL 的 `UNSIGNED` 和宽度会直接拒绝写入。现在列的类型比字段宽时，TSQ 随列写一条 `CONSTRAINT ck_<列> CHECK (...)`（PostgreSQL 上的无符号字段；SQLite 上除 `int64` 以外的所有整数字段），越界写入三个引擎一致被拒绝。约束是声明的一部分：此前建的表在 `Validate` 下是一处不匹配，`Reconcile` 会补上（已有越界行时拒绝）；`tsq gen` 的 `CREATE TABLE` 带着它；SQLite 的重建不再被 TSQ 自己的 `CHECK` 阻断，别人写的 `CHECK` 仍然阻断。原始 `type:`、主键和生成列不加。
 - 每个查询阶段都有 `SQL(dialect, args...)`：不必先 `Build()` 就能看渲染出的 SQL，文档原本就是这么写的。

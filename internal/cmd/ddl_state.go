@@ -27,6 +27,22 @@ type ddlStateFile struct {
 	InitialDialects map[string]ddlStateDialectSQL `json:"initial_dialects,omitempty"`
 	RenderedRecords int                           `json:"rendered_records,omitempty"`
 	Records         []ddlStateRecord              `json:"records,omitempty"`
+	// Renderings is how each dialect spelled each column the last time the files
+	// were written: dialect, then table, then column. The snapshot is the model;
+	// this is what the SQL file's schema states for it, so that a TSQ version
+	// that spells a column otherwise (a default, a type, a range constraint) with
+	// no change in the model still gets a migration section (ddlRespellings).
+	Renderings map[string]ddlDialectRenderings `json:"renderings,omitempty"`
+}
+
+// ddlDialectRenderings maps a table, then a column, to its rendering.
+type ddlDialectRenderings map[string]map[string]ddlColumnRendering
+
+// ddlColumnRendering is a column as one dialect spells it in CREATE TABLE.
+type ddlColumnRendering struct {
+	Type    string `json:"type"`
+	Default string `json:"default,omitempty"`
+	Check   string `json:"check,omitempty"`
 }
 
 type ddlStateRecord struct {
@@ -95,6 +111,12 @@ type ddlChange struct {
 	newColumn *ddlSnapshotColumn
 	oldIndex  *ddlSnapshotIndex
 	newIndex  *ddlSnapshotIndex
+	// wasSpelled and spelled are the renderings of a column TSQ now spells
+	// otherwise (ddlChangeRespellColumn), and respelled names what changed, for
+	// the record.
+	wasSpelled *ddlColumnRendering
+	spelled    *ddlColumnRendering
+	respelled  string
 }
 
 const (
@@ -108,7 +130,205 @@ const (
 	ddlChangeAlterColumn  = "alter_column"
 	ddlChangeAddIndex     = "add_index"
 	ddlChangeDropIndex    = "drop_index"
+	// ddlChangeRespellColumn is a column whose declaration did not change and
+	// whose spelling by a dialect did, between two versions of TSQ.
+	ddlChangeRespellColumn = "respell_column"
 )
+
+// buildDDLRenderings spells every column of snapshot as each dialect does.
+func buildDDLRenderings(snapshot ddlSnapshot) map[string]ddlDialectRenderings {
+	renderings := make(map[string]ddlDialectRenderings, len(ddlDialects))
+
+	for _, dialect := range ddlDialects {
+		tables := make(ddlDialectRenderings, len(snapshot.Tables))
+
+		for _, table := range snapshot.Tables {
+			columns := make(map[string]ddlColumnRendering, len(table.Columns))
+
+			for _, column := range table.Columns {
+				columns[column.Name] = renderDDLColumnSpelling(dialect, ddlColumnSpecFromSnapshot(column))
+			}
+
+			tables[table.Name] = columns
+		}
+
+		renderings[ddlDialectName(dialect)] = tables
+	}
+
+	return renderings
+}
+
+// renderDDLColumnSpelling is what a dialect's CREATE TABLE states for column: the
+// type, the default as written, and the range constraint, each of which TSQ has
+// changed between versions with the declaration staying as it was.
+func renderDDLColumnSpelling(dialect ddlDialectSpec, column tsqdialect.ColumnSpec) ddlColumnRendering {
+	rendering := ddlColumnRendering{Type: strings.TrimSpace(dialect.dialect.ColumnTypeSQL(column.Type))}
+
+	if column.Default != "" {
+		rendering.Default = sqld.DefaultSQL(dialect.dialect, column)
+	}
+
+	rendering.Check, _ = sqld.RangeCheck(dialect.dialect, column)
+
+	return rendering
+}
+
+// ddlRespellings finds, per dialect, the columns the previous files spelled
+// otherwise than TSQ spells them now while the declaration stayed the same: a
+// table built from those files differs from the schema the runtime declares, so
+// the difference goes into a migration section like a model change does. Files
+// from before renderings were recorded have none to compare, and get none.
+func ddlRespellings(previous *ddlStateFile, current ddlSnapshot, renderings map[string]ddlDialectRenderings) map[string][]ddlChange {
+	if previous == nil || len(previous.Renderings) == 0 {
+		return nil
+	}
+
+	previousTables := make(map[string]ddlSnapshotTable, len(previous.Snapshot.Tables))
+	for _, table := range previous.Snapshot.Tables {
+		previousTables[table.Name] = table
+	}
+
+	result := make(map[string][]ddlChange)
+
+	for _, dialect := range ddlDialects {
+		name := ddlDialectName(dialect)
+
+		was, ok := previous.Renderings[name]
+		if !ok {
+			continue
+		}
+
+		for _, table := range current.Tables {
+			before, ok := previousTables[table.Name]
+			if !ok {
+				continue
+			}
+
+			beforeColumns := make(map[string]ddlSnapshotColumn, len(before.Columns))
+			for _, column := range before.Columns {
+				beforeColumns[column.Name] = column
+			}
+
+			beforeCopy, afterCopy := before, table
+
+			for _, column := range table.Columns {
+				beforeColumn, ok := beforeColumns[column.Name]
+				if !ok || !reflect.DeepEqual(beforeColumn, column) {
+					continue // added or changed: the model diff has it
+				}
+
+				wasSpelled, ok := was[table.Name][column.Name]
+				if !ok {
+					continue
+				}
+
+				spelled := renderings[name][table.Name][column.Name]
+				if wasSpelled == spelled {
+					continue
+				}
+
+				result[name] = append(result[name], ddlChange{
+					kind:       ddlChangeRespellColumn,
+					table:      table.Name,
+					oldTable:   &beforeCopy,
+					newTable:   &afterCopy,
+					oldColumn:  new(beforeColumn),
+					newColumn:  new(column),
+					wasSpelled: &wasSpelled,
+					spelled:    &spelled,
+					respelled:  respelledParts(wasSpelled, spelled),
+				})
+			}
+		}
+	}
+
+	return result
+}
+
+// respelledParts names what differs between two renderings: type, default, check.
+func respelledParts(was, now ddlColumnRendering) string {
+	var parts []string
+
+	if was.Type != now.Type {
+		parts = append(parts, "type")
+	}
+
+	if was.Default != now.Default {
+		parts = append(parts, "default")
+	}
+
+	if was.Check != now.Check {
+		parts = append(parts, "range check")
+	}
+
+	return strings.Join(parts, ", ")
+}
+
+// withRespellings adds the respellings of one dialect to the model's changes.
+func withRespellings(changes ddlChangeSet, respellings []ddlChange) ddlChangeSet {
+	if len(respellings) == 0 {
+		return changes
+	}
+
+	merged := ddlChangeSet{
+		Tables:  slices.Clone(changes.Tables),
+		ByTable: maps.Clone(changes.ByTable),
+	}
+
+	if merged.ByTable == nil {
+		merged.ByTable = make(map[string][]ddlChange)
+	}
+
+	for _, change := range respellings {
+		if !slices.Contains(merged.Tables, change.table) {
+			merged.Tables = append(merged.Tables, change.table)
+		}
+
+		merged.ByTable[change.table] = append(slices.Clone(merged.ByTable[change.table]), change)
+	}
+
+	sort.Strings(merged.Tables)
+
+	return merged
+}
+
+// respellingSummary folds the respellings of every dialect into one change per
+// column, for the record, which names the dialects beside what each respelled.
+func respellingSummary(respellings map[string][]ddlChange) []ddlChange {
+	type key struct{ table, column string }
+
+	notes := map[key][]string{}
+	changes := map[key]ddlChange{}
+
+	for _, dialect := range ddlDialects {
+		name := ddlDialectName(dialect)
+
+		for _, change := range respellings[name] {
+			k := key{change.table, change.newColumn.Name}
+			notes[k] = append(notes[k], name+": "+change.respelled)
+			changes[k] = change
+		}
+	}
+
+	keys := slices.SortedFunc(maps.Keys(changes), func(a, b key) int {
+		if a.table != b.table {
+			return strings.Compare(a.table, b.table)
+		}
+
+		return strings.Compare(a.column, b.column)
+	})
+
+	result := make([]ddlChange, 0, len(keys))
+
+	for _, k := range keys {
+		change := changes[k]
+		sort.Strings(notes[k])
+		change.respelled = strings.Join(notes[k], "; ")
+		result = append(result, change)
+	}
+
+	return result
+}
 
 func buildCurrentDDLSnapshot(tables []*genmodel.StructInfo, resolver *ddlTypeResolver) (ddlSnapshot, error) {
 	snapshot := ddlSnapshot{Tables: make([]ddlSnapshotTable, 0, len(tables))}
@@ -246,6 +466,7 @@ func marshalDDLStateFile(
 	recordTables []ddlStateRecordTable,
 	dialects map[string]ddlStateDialectDiff,
 	sequence string,
+	renderings map[string]ddlDialectRenderings,
 ) ([]byte, error) {
 	state := ddlStateFile{
 		GeneratedBy:     "tsq-" + version,
@@ -253,6 +474,7 @@ func marshalDDLStateFile(
 		Snapshot:        current,
 		InitialDialects: cloneDDLStateDialects(initialDialects),
 		RenderedRecords: renderedRecords,
+		Renderings:      renderings,
 	}
 
 	if previous != nil {
@@ -597,7 +819,7 @@ func ddlChangeCategoryRank(change ddlChange) int {
 		return 0
 	case ddlChangeDropIndex:
 		return 1
-	case ddlChangeAddColumn, ddlChangeAlterColumn, ddlChangeDropColumn, ddlChangeRenameColumn:
+	case ddlChangeAddColumn, ddlChangeAlterColumn, ddlChangeRespellColumn, ddlChangeDropColumn, ddlChangeRenameColumn:
 		return 2
 	case ddlChangeAddIndex:
 		if ddlChangeIndexUnique(change) {
@@ -616,7 +838,7 @@ func ddlChangeActionRank(change ddlChange) int {
 		return 0
 	case ddlChangeRenameColumn:
 		return 0
-	case ddlChangeAlterColumn:
+	case ddlChangeAlterColumn, ddlChangeRespellColumn:
 		return 1
 	case ddlChangeDropColumn, ddlChangeDropIndex, ddlChangeDropTable:
 		return 2
@@ -631,7 +853,7 @@ func ddlChangeObjectName(change ddlChange) string {
 		return change.newTable.Name
 	case ddlChangeDropTable:
 		return change.oldTable.Name
-	case ddlChangeAddColumn, ddlChangeAlterColumn, ddlChangeRenameColumn:
+	case ddlChangeAddColumn, ddlChangeAlterColumn, ddlChangeRespellColumn, ddlChangeRenameColumn:
 		return change.newColumn.Name
 	case ddlChangeDropColumn:
 		return change.oldColumn.Name
@@ -669,6 +891,8 @@ func classifyDDLRecordLine(change ddlChange) (string, bool) {
 		return "rename column " + change.oldColumn.Name + " to " + change.newColumn.Name, false
 	case ddlChangeAlterColumn:
 		return formatDDLAlterColumnSummary(*change.oldColumn, *change.newColumn), false
+	case ddlChangeRespellColumn:
+		return "respell column " + change.newColumn.Name + " (" + change.respelled + ")", false
 	case ddlChangeAddIndex:
 		if change.newIndex.Unique {
 			return "add unique index " + change.newIndex.Name, true
@@ -965,6 +1189,12 @@ func ddlChangesRequireTableRebuild(ops []ddlChange) bool {
 			return true
 		}
 
+		// A default or a range constraint spelled otherwise is enforced; a type
+		// spelled otherwise within one affinity is not.
+		if op.kind == ddlChangeRespellColumn && (op.wasSpelled.Default != op.spelled.Default || op.wasSpelled.Check != op.spelled.Check) {
+			return true
+		}
+
 		if op.kind == ddlChangeAddColumn && (op.newColumn.Generated != "" || sqliteAddNeedsRebuild(*op.newColumn)) {
 			return true
 		}
@@ -1231,6 +1461,8 @@ func renderDDLChangeOperation(dialect ddlDialectSpec, op ddlChange) []string {
 		))
 	case ddlChangeAlterColumn:
 		return renderDDLAlterColumnStatements(dialect, op.table, *op.oldColumn, *op.newColumn)
+	case ddlChangeRespellColumn:
+		return renderDDLRespellColumnStatements(dialect, op)
 	case ddlChangeRenameColumn:
 		if dialect.dialect.Name() != tsqdialect.Postgres {
 			return []string{renderDDLManualComment(op.table, fmt.Sprintf(
@@ -1307,6 +1539,50 @@ func renderDDLAlterColumnStatements(
 	}
 
 	return statements
+}
+
+// renderDDLRespellColumnStatements alters a column from the spelling the files
+// had to the one TSQ writes now, the declaration being the same: the earlier
+// spelling stands in for the live column, as an inspected one does for the
+// runtime's Reconcile. SQLite rebuilds for a default or a range constraint
+// (ddlChangesRequireTableRebuild) and has nothing to run for a type spelled
+// otherwise within one affinity.
+func renderDDLRespellColumnStatements(dialect ddlDialectSpec, op ddlChange) []string {
+	note := renderDDLManualComment(op.table, fmt.Sprintf("%s: TSQ now spells its %s otherwise (was %s)",
+		op.newColumn.Name, op.respelled, describeDDLRendering(*op.wasSpelled)))
+
+	if dialect.dialect.AlterMode() != sqld.AlterInPlace {
+		return []string{renderDDLManualComment(op.table, fmt.Sprintf(
+			"column %s is spelled otherwise by this version of TSQ, within one SQLite type affinity, which SQLite does not enforce; nothing to run", op.newColumn.Name))}
+	}
+
+	after := ddlColumnSpecFromSnapshot(*op.newColumn)
+	was := after
+	was.Type = tsqdialect.ColumnType{RawType: op.wasSpelled.Type, Nullable: after.Type.Nullable}
+	was.Default = op.wasSpelled.Default
+	before := sqld.Column{ColumnSpec: was, NativeType: op.wasSpelled.Type, Check: op.wasSpelled.Check}
+
+	statements := dialect.dialect.AlterColumnSQL(op.table, before, after)
+	if len(statements) == 0 {
+		return []string{renderDDLManualComment(op.table, fmt.Sprintf("manual change required for column %s", op.newColumn.Name))}
+	}
+
+	return append([]string{note}, statements...)
+}
+
+// describeDDLRendering is a rendering in one line, for a comment.
+func describeDDLRendering(r ddlColumnRendering) string {
+	parts := []string{r.Type}
+
+	if r.Default != "" {
+		parts = append(parts, "DEFAULT "+r.Default)
+	}
+
+	if r.Check != "" {
+		parts = append(parts, "CHECK ("+r.Check+")")
+	}
+
+	return strings.Join(parts, " ")
 }
 
 func ddlColumnTypeChanged(before, after ddlSnapshotColumn) bool {

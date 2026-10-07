@@ -111,8 +111,10 @@
   **自增主键是第三头**：`AutoIncrementColumnSQL` 按放大后的宽度选 SERIAL（`uint64` 封顶 `BIGSERIAL`），比较时 `storageType` 把它当 BIGINT。
   超过 10485760 的字符串在 PG 上是 `TEXT`（`VARCHAR` 的上限），读回的 `text` 靠渲染结果相同对上。
 - 迁移历史存在 `tsq.json` 里，不会随生成器修复重新渲染：修了迁移渲染之后，示例里已经写坏的段要重置示例的
-  DDL 状态（删掉 `tsq.json` 和三份 `.sql` 再 `make examples`），使用者自己的历史只能手工改。**改了列的拼写（默认值、约束、类型）也一样**：初始段不会重渲染，
-  门是 `TestIntegrationGeneratedSQLFilesBuildTheRuntimesSchema`——把三个生成包提交的 `.sql` 直接执行再 `Validate`，SQLite 上每次 `go test` 都跑，红了就重置那个包。
+  DDL 状态（删掉 `tsq.json` 和三份 `.sql` 再 `make examples`），使用者自己的历史只能手工改。**改了列的拼写（默认值、约束、类型）不用重置**：
+  `tsq.json` 的 `renderings` 记着上次的拼法，`make examples` 会写出一段 `respell column` 迁移（`ddlRespellings` / `renderDDLRespellColumnStatements`）——
+  所以改 `ColumnTypeSQL` / `DefaultSQL` / `RangeCheck` 之后示例的 `.sql` 必然多一段，这是对的。门是 `TestIntegrationGeneratedSQLFilesBuildTheRuntimesSchema`
+  （三个生成包提交的 `.sql` 直接执行再 `Validate`）和 `TestGenCmdWritesAMigrationWhenTSQRespellsAColumn`。
 
 ## 改了生成文件的命名或文件头
 

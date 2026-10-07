@@ -369,6 +369,16 @@ changed it. A migration never runs a destructive statement for you:
 - `tsq.json` holds the history the `.sql` files are rendered from: keep it in version control. `tsq gen`
   refuses to run when the `.sql` files exist without it, rather than start the history over and lose
   the changes since the last run
+- `tsq.json` also records how each dialect spelled each column the last time the files were written
+  (its `renderings`). A new version of TSQ that spells a column otherwise with no change in your
+  model — a default written in UTC, a range constraint, a type with its precision — is a change of
+  the schema the runtime declares, and the files get a dated section for it like a model change
+  (`respell column qty (postgres: range check; sqlite: range check)` in the history): `ALTER` statements on MySQL and
+  PostgreSQL, a rebuild on SQLite where the default or the constraint is concerned, nothing to run
+  where only a type's spelling within one SQLite affinity moved. After upgrading TSQ, `tsq gen --check`
+  fails until `tsq gen` has written that section, as it does for a model change. Files written before
+  renderings were recorded have none to compare: the first run records them, and a respelling from
+  before that is not written as a section (the runtime's `Validate` names it and `Reconcile` makes it)
 - SQLite changes a column type, or adds a generated column, a column whose default is not a constant
   (`CURRENT_TIMESTAMP`, which adding `created_at` has) or a NOT NULL column without a default, by
   rebuilding the table, since `ADD COLUMN` refuses those on a table with rows: it creates the
