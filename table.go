@@ -241,8 +241,11 @@ func (t *TableOf[R, K]) define(spec TableSpec[R, K], deletedAt BoundColumn[R]) {
 	}
 
 	fill := make(map[string]tsqdialect.Fill, len(spec.ColumnSpecs))
+	size := make(map[string]int, len(spec.ColumnSpecs))
+
 	for _, column := range spec.ColumnSpecs {
 		fill[column.Name] = column.Fill
+		size[column.Name] = sqld.EnforcedStringSize(column)
 	}
 
 	for _, col := range spec.Columns {
@@ -252,6 +255,7 @@ func (t *TableOf[R, K]) define(spec TableSpec[R, K], deletedAt BoundColumn[R]) {
 		}
 
 		core.fill = fill[core.name]
+		core.size = size[core.name]
 
 		// The database fills a default column when the field holds NULL, so a field
 		// that cannot hold it could never be written with its zero value (false, 0):

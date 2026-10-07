@@ -118,7 +118,7 @@ type UpdateStage[R any] struct {
 // column refuses a value that can be NULL, such as a nullable column or a
 // subquery; wrap it in Coalesce.
 func (b *UpdateStage[R]) Set[T any](col Column[R, T], rhs Operand[T]) *SetStage[R] {
-	return assign(b.m, col, rhsInfo(rhs))
+	return assign(b.m, col, fitted(col, rhs, rhsInfo(rhs)))
 }
 
 // SetNull assigns NULL to col, which must be a NullColumn.
@@ -182,7 +182,25 @@ func assign[R any](m mutationSpec[R], col SQLColumn, value exprInfo) *SetStage[R
 
 // Set assigns rhs to col as UpdateStage.Set does.
 func (b *SetStage[R]) Set[T any](col Column[R, T], rhs Operand[T]) *SetStage[R] {
-	return assign(b.m, col, rhsInfo(rhs))
+	return assign(b.m, col, fitted(col, rhs, rhsInfo(rhs)))
+}
+
+// fitted marks a value or parameter assigned to col as written to it, so that it
+// is held to the column (fitValue) as a row's values are. Any other right-hand
+// side is the engine's to compute.
+func fitted[T any](col SQLColumn, rhs Operand[T], info exprInfo) exprInfo {
+	if info.err != nil || isNilValue(col) || col.core() == nil {
+		return info
+	}
+
+	switch rhs := rhs.(type) {
+	case Value[T]:
+		info.sql = sqlFitValue(rhs.v, col.core().fit())
+	case Param[T]:
+		info.sql = sqlFitParam(rhs.spec, col.core().fit())
+	}
+
+	return info
 }
 
 // SetNull assigns NULL to col, which must be a NullColumn.

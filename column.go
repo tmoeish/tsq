@@ -175,6 +175,10 @@ type columnCore struct {
 	// fill says who provides the value: the caller, or the database through a
 	// DEFAULT or a generated expression. It comes from TableSpec.ColumnSpecs.
 	fill tsqdialect.Fill
+	// size is the number of characters a string column holds where the engines
+	// enforce one (sqldialect.EnforcedStringSize), 0 otherwise. A value written to
+	// the column is held to it on SQLite, which enforces no length itself.
+	size int
 	// nullable reports that the scan target holds NULL: a NullColumn, or a
 	// MapIntoNull projection. A value that can be NULL may only be read into one.
 	nullable bool
@@ -182,6 +186,15 @@ type columnCore struct {
 	// rebinding of the column so that Bind finds them.
 	param *paramSpec
 	list  *paramSpec
+}
+
+// fit is what a value written to the column must fit.
+func (c *columnCore) fit() *valueFit {
+	if c == nil {
+		return nil
+	}
+
+	return &valueFit{column: c.name, size: c.size}
 }
 
 // target is what a value of the column is scanned into for holder: the field,

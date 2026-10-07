@@ -2523,3 +2523,131 @@ func TestIntegrationAnUnsetRawMessageIsTheJSONNull(t *testing.T) {
 		})
 	}
 }
+
+type held struct {
+	ID   int64
+	Note string
+	Doc  json.RawMessage
+	Text string
+}
+
+type heldTable struct {
+	*tsq.TableOf[held, int64]
+
+	ID   tsq.Column[held, int64]
+	Note tsq.Column[held, string]
+	Doc  tsq.Column[held, json.RawMessage]
+	Text tsq.Column[held, string]
+}
+
+var heldCols = func() heldTable {
+	h := tsq.NewTable[held, int64]("held")
+	t := heldTable{
+		TableOf: h,
+		ID:      tsq.NewColumn(h, "id", "id", func(r *held) *int64 { return &r.ID }),
+		Note:    tsq.NewColumn(h, "note", "note", func(r *held) *string { return &r.Note }),
+		Doc:     tsq.NewColumn(h, "doc", "doc", func(r *held) *json.RawMessage { return &r.Doc }),
+		Text:    tsq.NewColumn(h, "text", "text", func(r *held) *string { return &r.Text }),
+	}
+
+	h.Define(tsq.TableSpec[held, int64]{
+		Columns:       []tsq.BoundColumn[held]{t.ID, t.Note, t.Doc, t.Text},
+		PrimaryKey:    t.ID,
+		AutoIncrement: true,
+		ColumnSpecs: []tsqdialect.ColumnSpec{
+			{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
+			{Name: "note", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 5}},
+			{Name: "doc", Type: tsqdialect.ColumnType{RawType: "JSON"}},
+			{Name: "text", Type: tsqdialect.ColumnType{RawType: "TEXT"}},
+		},
+	})
+
+	return t
+}()
+
+// TestIntegrationValuesAreHeldToTheColumnOnEveryEngine covers a value SQLite
+// takes and the other engines refuse: a string longer than its VARCHAR, which
+// SQLite stores whole since it enforces no length, and a json.RawMessage that is
+// not JSON, which it stores as text having no JSON type. Both passed on a SQLite
+// development database and failed in production. They are refused before the
+// statement runs, by every write that names the column; a comparison is not held.
+func TestIntegrationValuesAreHeldToTheColumnOnEveryEngine(t *testing.T) {
+	ctx := context.Background()
+	h := heldCols
+	long := "abcdef"
+	accents := strings.Repeat("é", 5) // five characters, ten bytes
+
+	for _, target := range integrationTargets(t) {
+		t.Run(target.name, func(t *testing.T) {
+			dropTables(t, target, "held")
+
+			rt, _, err := openQuietly(target, tsq.SchemaPolicyCreateMissing, h)
+			if err != nil {
+				t.Fatalf("create: %v", err)
+			}
+
+			defer func() { _ = rt.Close() }()
+
+			kept := &held{Note: accents, Doc: json.RawMessage(`{"ok":true}`), Text: strings.Repeat("x", 1000)}
+			if err := h.Insert(ctx, rt, kept); err != nil {
+				t.Fatalf("a value of five characters in ten bytes, and a thousand in a TEXT: %v", err)
+			}
+
+			param := h.Note.Param()
+
+			for name, write := range map[string]func() error{
+				"insert": func() error { return h.Insert(ctx, rt, &held{Note: long, Doc: json.RawMessage(`{}`)}) },
+				"batch insert": func() error {
+					return h.BatchInsert(ctx, rt, []*held{{Note: "ok", Doc: json.RawMessage(`{}`)}, {Note: long, Doc: json.RawMessage(`{}`)}})
+				},
+				"update": func() error { c := *kept; c.Note = long; return h.Update(ctx, rt, &c) },
+				"upsert": func() error { c := *kept; c.Note = long; return h.Upsert(ctx, rt, &c) },
+				"set a value": func() error {
+					_, err := tsq.UpdateTable(h).Set(h.Note, tsq.Val(long)).Where(h.ID.EQ(tsq.Val(kept.ID))).MustBuild().Exec(ctx, rt)
+					return err
+				},
+				"set a parameter": func() error {
+					_, err := tsq.UpdateTable(h).Set(h.Note, param).Where(h.ID.EQ(tsq.Val(kept.ID))).MustBuild().Exec(ctx, rt, param.Bind(long))
+					return err
+				},
+				"insert bad json": func() error { return h.Insert(ctx, rt, &held{Note: "ok", Doc: json.RawMessage(`{not json`)}) },
+				"set bad json": func() error {
+					_, err := tsq.UpdateTable(h).Set(h.Doc, tsq.Val(json.RawMessage(`[1,`))).Where(h.ID.EQ(tsq.Val(kept.ID))).MustBuild().Exec(ctx, rt)
+					return err
+				},
+				"six accents": func() error { c := *kept; c.Note = accents + "é"; return h.Update(ctx, rt, &c) },
+			} {
+				err := write()
+				if err == nil {
+					t.Errorf("%s: the value was taken", name)
+
+					continue
+				}
+
+				if target.name == "sqlite" && strings.Contains(name, "json") && !strings.Contains(err.Error(), "not valid JSON") {
+					t.Errorf("%s: %v; want the value named as not JSON", name, err)
+				}
+
+				if target.name == "sqlite" && !strings.Contains(name, "json") && !strings.Contains(err.Error(), "the column holds 5") {
+					t.Errorf("%s: %v; want the column's length named", name, err)
+				}
+			}
+
+			// A comparison is not held to the column: a longer value matches nothing.
+			rows, err := tsq.Select(h.Columns()...).From(h).Where(h.Note.EQ(tsq.Val("abcdefgh"))).List(ctx, rt)
+			if err != nil || len(rows) != 0 {
+				t.Errorf("a comparison with a longer value: %d rows, %v", len(rows), err)
+			}
+
+			// Nothing of the refused writes reached the table.
+			got, err := h.Get(ctx, rt, kept.ID)
+			if err != nil || got.Note != accents || !json.Valid(got.Doc) {
+				t.Fatalf("the row after the refused writes: %+v, %v", got, err)
+			}
+
+			if n, err := tsq.Select(h.ID).From(h).Count(ctx, rt); err != nil || n != 1 {
+				t.Fatalf("rows after the refused writes: %d, %v", n, err)
+			}
+		})
+	}
+}

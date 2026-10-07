@@ -14,6 +14,7 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 ### 新增
 
+- **SQLite 上也拒绝 MySQL / PostgreSQL 会拒绝的值**：SQLite 不检查 `VARCHAR(n)` 的长度、也没有 JSON 类型，于是本地 SQLite 上写得进去的超长字符串和非法 JSON 到了 MySQL / PostgreSQL 才报错。现在写进列的值（`Insert` / `Update` / `Upsert` / `Batch*`，以及 `Set(col, tsq.Val(v))` / `Set(col, 参数)`）在语句执行前按列的长度（按字符数）检查，SQLite 上超长就拒绝并说明"SQLite 会收下、MySQL 和 PostgreSQL 会拒绝"；不是 JSON 的 `json.RawMessage` 在三个引擎上都被拒绝。比较不受影响（超长的值只是匹配不到），`type:` 列和落到 TEXT 一族的长度也不检查。
 - **整数列在 PostgreSQL 和 SQLite 上也守住字段的范围**：PostgreSQL 没有无符号类型（`uint32` 落到 `BIGINT`），SQLite 的 `INTEGER` 不论字段多宽都是 64 位，于是 `Set(t.Stock, tsq.Sub(t.Stock, qty))` 减到负数、乘法越过字段宽度时，值写进去了、字段读不回来，这一行从此读不出；MySQL 的 `UNSIGNED` 和宽度会直接拒绝写入。现在列的类型比字段宽时，TSQ 随列写一条 `CONSTRAINT ck_<列> CHECK (...)`（PostgreSQL 上的无符号字段；SQLite 上除 `int64` 以外的所有整数字段），越界写入三个引擎一致被拒绝。约束是声明的一部分：此前建的表在 `Validate` 下是一处不匹配，`Reconcile` 会补上（已有越界行时拒绝）；`tsq gen` 的 `CREATE TABLE` 带着它；SQLite 的重建不再被 TSQ 自己的 `CHECK` 阻断，别人写的 `CHECK` 仍然阻断。原始 `type:`、主键和生成列不加。
 - 每个查询阶段都有 `SQL(dialect, args...)`：不必先 `Build()` 就能看渲染出的 SQL，文档原本就是这么写的。
 - 算术表达式 `tsq.Add` / `tsq.Sub` / `tsq.Mul` / `tsq.Div`，按 `Number` 约束类型：扣库存写 `Set(t.Stock, tsq.Sub(t.Stock, qty))`，不再需要 `Exprf` 和丢了类型的参数。整数除法在三种方言上都取整（MySQL 的 `/` 返回小数，那里写成 `DIV`）；除以零在 PostgreSQL 上报错、在另两个方言上是 NULL，所以除数不是非零 `tsq.Val` 时 `Div` 的结果按可能为 NULL 处理。

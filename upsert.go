@@ -494,7 +494,7 @@ func (t *TableOf[R, K]) upsertStatement(d sqld.Dialect, def *tableDef, cols []*c
 				w.text(", ")
 			}
 
-			w.arg(value(row, col))
+			w.bound(col, value(row, col))
 		}
 
 		w.text(")")
@@ -705,7 +705,7 @@ func (t *TableOf[R, K]) adoptStoredKeys(ctx context.Context, db Executor, scope 
 				w.text(", ")
 			}
 
-			w.arg(value(row, cols[0]))
+			w.bound(cols[0], value(row, cols[0]))
 		}
 
 		w.text(")")
@@ -722,7 +722,7 @@ func (t *TableOf[R, K]) adoptStoredKeys(ctx context.Context, db Executor, scope 
 					w.text(" AND ")
 				}
 
-				w.ident(col.name).text(" = ").arg(value(row, col))
+				w.ident(col.name).text(" = ").bound(col, value(row, col))
 			}
 
 			w.text(")")

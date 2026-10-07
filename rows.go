@@ -570,6 +570,16 @@ func (w *writeStmt) arg(v any) *writeStmt {
 	return w
 }
 
+// bound binds a row's value for col, held to the column first (fitValue): the
+// statement fails before it runs where the value does not fit.
+func (w *writeStmt) bound(col *columnCore, v any) *writeStmt {
+	if err := fitValue(w.d, col.fit(), v); err != nil && w.err == nil {
+		w.err = err
+	}
+
+	return w.arg(v)
+}
+
 func (t *TableOf[R, K]) prepareWrite(db Executor, rows []*R) (*tableDef, execScope, error) {
 	def, err := t.ready()
 	if err != nil {
@@ -880,7 +890,7 @@ func (t *TableOf[R, K]) insertChunk(ctx context.Context, db Executor, scope exec
 				w.text(", ")
 			}
 
-			w.arg(value(row, col))
+			w.bound(col, value(row, col))
 		}
 
 		if len(cols) == 0 {
@@ -1349,7 +1359,7 @@ func (t *TableOf[R, K]) updateChunk(ctx context.Context, db Executor, scope exec
 				w.text(", ")
 			}
 
-			w.ident(col.name).text(" = ").arg(value(rows[0], col))
+			w.ident(col.name).text(" = ").bound(col, value(rows[0], col))
 		}
 
 		if version != nil {
@@ -1513,7 +1523,7 @@ func writeJoinedUpdate[R any](w *writeStmt, def *tableDef, cols []*columnCore, v
 				w.text(", ")
 			}
 
-			w.arg(value(row, col))
+			w.bound(col, value(row, col))
 		}
 	}
 

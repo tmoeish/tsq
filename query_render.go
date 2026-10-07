@@ -1009,19 +1009,19 @@ func (s *querySpec[O]) writeTail(r *renderer, m renderMode) {
 	switch {
 	case m.paged:
 		r.writeText(" LIMIT ")
-		r.writeValue(m.limit)
+		r.writeValue(m.limit, nil)
 
 		if !m.keyset {
 			r.writeText(" OFFSET ")
-			r.writeValue(m.offset)
+			r.writeValue(m.offset, nil)
 		}
 	case s.Limit != nil:
 		r.writeText(" LIMIT ")
-		r.writeValue(*s.Limit)
+		r.writeValue(*s.Limit, nil)
 
 		if s.Offset != nil {
 			r.writeText(" OFFSET ")
-			r.writeValue(*s.Offset)
+			r.writeValue(*s.Offset, nil)
 		}
 	case m.single:
 		r.writeText(" LIMIT 1")
