@@ -62,6 +62,12 @@ type Column struct {
 	// Check is the range constraint TSQ wrote for the column, the one named
 	// RangeCheckName, as the engine reports it; empty where the column has none.
 	Check string
+	// Collation is the column's own collation where it has one of its own (not
+	// the table's or the database's default), and Comment its comment on MySQL.
+	// Neither is TSQ's to declare or compare; an ALTER that restates the column
+	// carries them, or MODIFY COLUMN and ALTER COLUMN TYPE would reset them.
+	Collation string
+	Comment   string
 }
 
 // For returns the implementation of engine.

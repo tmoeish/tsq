@@ -149,6 +149,7 @@ func (d PostgresDialect) inspectColumns(ctx context.Context, db Executor, schema
 			c.column_default,
 			c.is_identity,
 			c.character_maximum_length,
+			COALESCE(c.collation_name, ''),
 			EXISTS (
 				SELECT 1
 				FROM pg_index i
@@ -185,23 +186,24 @@ func (d PostgresDialect) inspectColumns(ctx context.Context, db Executor, schema
 	}()
 
 	type row struct {
-		Name     string
-		Data     string
-		UDT      string
-		Format   string
-		Null     string
-		Default  sql.NullString
-		Identity sql.NullString
-		Size     sql.NullInt64
-		Primary  bool
-		Check    sql.NullString
+		Name      string
+		Data      string
+		UDT       string
+		Format    string
+		Null      string
+		Default   sql.NullString
+		Identity  sql.NullString
+		Size      sql.NullInt64
+		Collation string
+		Primary   bool
+		Check     sql.NullString
 	}
 
 	columns := make([]Column, 0)
 
 	for rows.Next() {
 		var item row
-		if err := rows.Scan(&item.Name, &item.Data, &item.UDT, &item.Format, &item.Null, &item.Default, &item.Identity, &item.Size, &item.Primary, &item.Check); err != nil {
+		if err := rows.Scan(&item.Name, &item.Data, &item.UDT, &item.Format, &item.Null, &item.Default, &item.Identity, &item.Size, &item.Collation, &item.Primary, &item.Check); err != nil {
 			return nil, false, err
 		}
 
@@ -224,6 +226,7 @@ func (d PostgresDialect) inspectColumns(ctx context.Context, db Executor, schema
 			Default:       defaultValue,
 			NativeType:    strings.TrimSpace(item.Format),
 			Check:         strings.TrimSpace(item.Check.String),
+			Collation:     item.Collation,
 		})
 	}
 
@@ -607,6 +610,14 @@ func (d PostgresDialect) AlterColumnSQL(table string, before Column, after Colum
 	if !SameColumnType(d, before, after) {
 		spelled := d.ColumnTypeSQL(storageType(d, after))
 
+		// ALTER COLUMN TYPE resets a collation of the column's own to the
+		// default: the live one is restated where the column stays a character
+		// type. It is not TSQ's to declare, so it is kept, not compared.
+		collated := spelled
+		if before.Collation != "" && postgresCollates(strings.ToUpper(spelled)) {
+			collated = spelled + " COLLATE " + d.QuoteIdent(before.Collation)
+		}
+
 		// The range constraint of the old type goes first: its expression is read
 		// against the new type, and "c >= 0" over a VARCHAR is "operator does not
 		// exist". It comes back below where the new type still needs one.
@@ -617,7 +628,7 @@ func (d PostgresDialect) AlterColumnSQL(table string, before Column, after Colum
 		}
 
 		if after.AutoIncrement {
-			statements = append(statements, fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s TYPE %s;", quotedTable, quotedColumn, spelled))
+			statements = append(statements, fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s TYPE %s;", quotedTable, quotedColumn, collated))
 
 			if spelled == "BIGINT" {
 				statements = append(statements, fmt.Sprintf(
@@ -625,7 +636,7 @@ func (d PostgresDialect) AlterColumnSQL(table string, before Column, after Colum
 					quoteLiteral(quotedTable), quoteLiteral(after.Name)))
 			}
 		} else if before.Type.Kind == after.Type.Kind && before.Type.RawType == "" && after.Type.RawType == "" {
-			statements = append(statements, fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s TYPE %s;", quotedTable, quotedColumn, spelled))
+			statements = append(statements, fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s TYPE %s;", quotedTable, quotedColumn, collated))
 		} else {
 			// The default of the old type goes first: the server casts it to the
 			// new type on its own, not through USING, and refuses the change where
@@ -638,7 +649,7 @@ func (d PostgresDialect) AlterColumnSQL(table string, before Column, after Colum
 
 			statements = append(statements, fmt.Sprintf(
 				"ALTER TABLE %s ALTER COLUMN %s TYPE %s USING %s;",
-				quotedTable, quotedColumn, spelled, postgresUsing(quotedColumn, before.Type, after.Type, spelled),
+				quotedTable, quotedColumn, collated, postgresUsing(quotedColumn, before.Type, after.Type, spelled),
 			))
 		}
 	}
@@ -711,6 +722,12 @@ func (d PostgresDialect) AlterColumnSQL(table string, before Column, after Colum
 
 // postgresMaxVarcharChars is the longest VARCHAR PostgreSQL declares.
 const postgresMaxVarcharChars = 10485760
+
+// postgresCollates reports a spelled type that takes a COLLATE clause: the
+// character types.
+func postgresCollates(spelled string) bool {
+	return strings.Contains(spelled, "CHAR") || strings.Contains(spelled, "TEXT")
+}
 
 // postgresUsing is the USING expression of a type change between kinds, or to or
 // from a raw type. A cast to the new type itself cuts a value to a character

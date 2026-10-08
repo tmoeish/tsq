@@ -213,7 +213,7 @@ func TestMySQLTimesKeepMicroseconds(t *testing.T) {
 		}
 	}
 
-	if got := d.renderModifyColumnDefinition(stamped); !strings.HasSuffix(got, "DEFAULT (UTC_TIMESTAMP(6))") {
+	if got := d.renderModifyColumnDefinition(stamped, Column{}); !strings.HasSuffix(got, "DEFAULT (UTC_TIMESTAMP(6))") {
 		t.Errorf("modified stamped column = %s", got)
 	}
 

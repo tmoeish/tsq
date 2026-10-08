@@ -675,6 +675,94 @@ func TestIntegrationAUniqueIndexOverDuplicatesIsRefusedFirst(t *testing.T) {
 	}
 }
 
+// TestIntegrationAnAlterKeepsTheColumnsOwnAttributes covers what a DBA sets on
+// a column and TSQ does not declare: a comment and a collation of the column's
+// own. MODIFY COLUMN on MySQL and ALTER COLUMN TYPE on PostgreSQL restate the
+// column, and both dropped them (the collation silently changing how the column
+// compares and what its unique index allows). The live column's own are now
+// carried through; Validate and Reconcile never compare them.
+func TestIntegrationAnAlterKeepsTheColumnsOwnAttributes(t *testing.T) {
+	ctx := context.Background()
+
+	for _, target := range integrationTargets(t) {
+		if target.name == "sqlite" {
+			continue
+		}
+
+		t.Run(target.name, func(t *testing.T) {
+			dropTables(t, target, "drifting")
+
+			narrow := driftingTable(tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 20}, "")
+
+			rt, _, err := openQuietly(target, tsq.SchemaPolicyCreateMissing, narrow)
+			if err != nil {
+				t.Fatalf("create: %v", err)
+			}
+
+			db, err := sql.Open(target.driver, target.dsn)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			defer func() { _ = db.Close() }()
+
+			var statements []string
+
+			var describe string
+
+			switch target.name {
+			case "mysql":
+				statements = []string{"ALTER TABLE `drifting` MODIFY COLUMN `c` VARCHAR(20) COLLATE utf8mb4_bin NOT NULL COMMENT 'the code'"}
+				describe = "SELECT column_comment, collation_name FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'drifting' AND column_name = 'c'"
+			case "postgres":
+				statements = []string{`COMMENT ON COLUMN "drifting"."c" IS 'the code'`, `ALTER TABLE "drifting" ALTER COLUMN "c" TYPE VARCHAR(20) COLLATE "C"`}
+				describe = `SELECT COALESCE(col_description(a.attrelid, a.attnum), ''), (SELECT collname FROM pg_collation WHERE oid = a.attcollation) FROM pg_attribute a WHERE a.attrelid = '"drifting"'::regclass AND a.attname = 'c'`
+			}
+
+			for _, statement := range statements {
+				if _, err := db.ExecContext(ctx, statement); err != nil {
+					t.Fatalf("the DBA's change: %v", err)
+				}
+			}
+
+			_ = rt.Close()
+
+			read := func() (comment, collation string) {
+				if err := db.QueryRowContext(ctx, describe).Scan(&comment, &collation); err != nil {
+					t.Fatal(err)
+				}
+
+				return comment, collation
+			}
+
+			// Neither attribute is TSQ's: nothing to validate or reconcile.
+			for _, policy := range []tsq.SchemaPolicy{tsq.SchemaPolicyValidate, tsq.SchemaPolicyReconcile} {
+				rt, ran, err := openQuietly(target, policy, narrow)
+				if err != nil {
+					t.Fatalf("%v over the DBA's attributes: %v", policy, err)
+				}
+
+				_ = rt.Close()
+
+				if len(ran) != 0 {
+					t.Fatalf("%v changed a column for its comment or collation: %v", policy, ran)
+				}
+			}
+
+			rt, ran, err := openQuietly(target, tsq.SchemaPolicyReconcile, driftingTable(tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 40}, ""))
+			if err != nil || len(ran) == 0 {
+				t.Fatalf("widen = %v, ran %v", err, ran)
+			}
+
+			_ = rt.Close()
+
+			if comment, collation := read(); comment != "the code" || !strings.EqualFold(collation, "utf8mb4_bin") && collation != "C" {
+				t.Fatalf("after the widening: comment %q, collation %q; ran %v", comment, collation, ran)
+			}
+		})
+	}
+}
+
 // TestIntegrationAnIndexInTheWayGoesFirst covers an indexed column retyped into
 // one the index cannot cover, while the declaration drops the index too: MySQL
 // refused to alter the column while the index stood ("BLOB/TEXT column used in

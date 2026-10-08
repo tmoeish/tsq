@@ -41,6 +41,7 @@
   扫进 `sql.NullString`，三个方言对表达式列的表示要一致：不出现在 `Index.Fields` 里。
 - **不要引入任何 TSQ 自己的记账表。** 一份全局状态被只知道局部真相的写入者覆盖，就是数据丢失。
 - 加新策略档要想清楚它是不是仍然"从不删表"，并且三个方言都要在集成测试里跑。
+- **`sqld.Column` 里不参与比较的字段**（`Collation`、`Comment`）只为改列时重述：`columnsEqual` / `columnDifferences` 不看它们；`AlterColumnSQL` 新增的语句形态要把它们带上，门是 `TestIntegrationAnAlterKeepsTheColumnsOwnAttributes`。
 - **唯一索引先查重复行再动表**（`refuseUniqueIndexesOverDuplicates`，在 `applySchemaPolicies` 里任何 DDL 之前，`changesSchema(indexPolicy)` 时）：
   表策略先改列、索引策略再建索引，索引被引擎拒绝时表已改完。新增一种"索引建不成"的原因（表达式索引、长度上限……）要先想它能不能在这里预判。
 - **不要把 DDL 包进事务**：MySQL 每条 DDL 都隐式提交，包起来只在 PG / SQLite 上成立，反而让人

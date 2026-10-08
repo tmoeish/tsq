@@ -63,17 +63,20 @@ func (d MySQLDialect) InsertIDStepQuery() string { return "SELECT @@auto_increme
 func (d MySQLDialect) InspectColumns(ctx context.Context, db Executor, table string) ([]Column, bool, error) {
 	rows, err := db.QueryContext(ctx, `
 		SELECT
-			column_name,
-			data_type,
-			column_type,
-			is_nullable,
-			column_default,
-			column_key,
-			extra,
-			character_maximum_length
-		FROM information_schema.columns
-		WHERE table_schema = DATABASE() AND table_name = ?
-		ORDER BY ordinal_position`,
+			c.column_name,
+			c.data_type,
+			c.column_type,
+			c.is_nullable,
+			c.column_default,
+			c.column_key,
+			c.extra,
+			c.character_maximum_length,
+			CASE WHEN c.collation_name IS NULL OR c.collation_name = t.table_collation THEN '' ELSE c.collation_name END,
+			c.column_comment
+		FROM information_schema.columns c
+		JOIN information_schema.tables t ON t.table_schema = c.table_schema AND t.table_name = c.table_name
+		WHERE c.table_schema = DATABASE() AND c.table_name = ?
+		ORDER BY c.ordinal_position`,
 		table,
 	)
 	if err != nil {
@@ -85,21 +88,23 @@ func (d MySQLDialect) InspectColumns(ctx context.Context, db Executor, table str
 	}()
 
 	type row struct {
-		Name    string
-		Data    string
-		Type    string
-		Null    string
-		Default sql.NullString
-		Key     string
-		Extra   string
-		Size    sql.NullInt64
+		Name      string
+		Data      string
+		Type      string
+		Null      string
+		Default   sql.NullString
+		Key       string
+		Extra     string
+		Size      sql.NullInt64
+		Collation string
+		Comment   string
 	}
 
 	columns := make([]Column, 0)
 
 	for rows.Next() {
 		var item row
-		if err := rows.Scan(&item.Name, &item.Data, &item.Type, &item.Null, &item.Default, &item.Key, &item.Extra, &item.Size); err != nil {
+		if err := rows.Scan(&item.Name, &item.Data, &item.Type, &item.Null, &item.Default, &item.Key, &item.Extra, &item.Size, &item.Collation, &item.Comment); err != nil {
 			return nil, false, err
 		}
 
@@ -116,6 +121,8 @@ func (d MySQLDialect) InspectColumns(ctx context.Context, db Executor, table str
 			AutoIncrement: strings.Contains(strings.ToLower(item.Extra), "auto_increment"),
 			Default:       mysqlDefault(item.Default, item.Extra, item.Data),
 			NativeType:    strings.TrimSpace(item.Type),
+			Collation:     item.Collation,
+			Comment:       item.Comment,
 		})
 	}
 
@@ -846,7 +853,7 @@ func (d MySQLDialect) AlterColumnSQL(table string, before Column, after ColumnSp
 	return append(statements, fmt.Sprintf(
 		"ALTER TABLE %s MODIFY COLUMN %s;",
 		d.QuoteIdent(table),
-		d.renderModifyColumnDefinition(after),
+		d.renderModifyColumnDefinition(after, before),
 	))
 }
 
@@ -854,8 +861,15 @@ func (d MySQLDialect) AlterColumnSQL(table string, before Column, after ColumnSp
 // It must not repeat PRIMARY KEY: MySQL rejects MODIFY COLUMN ... PRIMARY KEY
 // on a column that already is the primary key (error 1068 "Multiple primary
 // key defined"). AUTO_INCREMENT, however, must be restated or it gets dropped.
-func (d MySQLDialect) renderModifyColumnDefinition(column ColumnSpec) string {
+// So would the live column's own collation and its comment, which are not
+// TSQ's: they are restated from the live column (kept) where the column stays
+// a string.
+func (d MySQLDialect) renderModifyColumnDefinition(column ColumnSpec, kept Column) string {
 	parts := []string{d.QuoteIdent(column.Name), d.ColumnTypeSQL(column.Type)}
+
+	if kept.Collation != "" && mysqlCollates(strings.ToUpper(d.ColumnTypeSQL(column.Type))) {
+		parts = append(parts, "COLLATE "+kept.Collation)
+	}
 
 	if column.PrimaryKey || !column.Type.Nullable {
 		parts = append(parts, "NOT NULL")
@@ -867,5 +881,21 @@ func (d MySQLDialect) renderModifyColumnDefinition(column ColumnSpec) string {
 		parts = append(parts, "DEFAULT "+DefaultSQL(d, column))
 	}
 
+	if kept.Comment != "" {
+		parts = append(parts, "COMMENT "+quoteLiteral(kept.Comment))
+	}
+
 	return strings.Join(parts, " ")
+}
+
+// mysqlCollates reports a spelled type that takes a COLLATE clause: the
+// character types. Any other (a BLOB, a number, a JSON) refuses one.
+func mysqlCollates(spelled string) bool {
+	for _, t := range []string{"CHAR", "TEXT", "ENUM", "SET("} {
+		if strings.Contains(spelled, t) && !strings.Contains(spelled, "BINARY") {
+			return true
+		}
+	}
+
+	return false
 }
