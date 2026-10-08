@@ -3002,6 +3002,27 @@ func TestGenWarnsAboutAMySQLRowTooLarge(t *testing.T) {
 			t.Errorf("sizes %v: %q", sizes, got)
 		}
 	}
+
+	// InnoDB's own limit is a row's page: 300 strings of 20 characters pass the
+	// row-format limit (24,600 bytes of 65,535) and fail at CREATE TABLE all the
+	// same ("Row size too large (> 8126)"), each counted at 40 bytes plus one.
+	// 195 of them fit (7,995 of 8,126 with the key); 200 do not.
+	many := func(n int) []int {
+		sizes := make([]int, n)
+		for i := range sizes {
+			sizes[i] = 20
+		}
+
+		return sizes
+	}
+
+	if got := warnings(model(many(200)...)); !strings.Contains(got, "of an InnoDB row") || !strings.Contains(got, "error 1118") {
+		t.Errorf("200 strings of 20 characters: %q", got)
+	}
+
+	if got := warnings(model(many(195)...)); strings.Contains(got, "1118") {
+		t.Errorf("195 strings of 20 characters: %q", got)
+	}
 }
 
 // TestGenSaysWhatIsWrongWithItsInput covers two refusals that named something

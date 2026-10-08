@@ -1254,6 +1254,16 @@ func mysqlIndexProblem(index string, columns []string, typeOf func(column string
 // and BLOB columns aside, which are kept apart from it.
 const mysqlMaxRowBytes = 65535
 
+// innodbMaxInlineBytes is what an InnoDB row may hold on its page (half a 16 KiB
+// page, the default), and innodbOffPageBytes how much of a variable-length column
+// stays on the page when the rest is moved off it: a table of many short strings
+// passes the row-format limit and fails this one (error 1118 "Row size too large
+// (> 8126)"), which the server checks at CREATE TABLE.
+const (
+	innodbMaxInlineBytes = 8126
+	innodbOffPageBytes   = 40
+)
+
 // mysqlRowProblem says why MySQL cannot create a table of columns, or "" when it
 // can: its columns can take more than a row holds (error 1118). Every VARCHAR
 // counts for its longest value, four bytes a character and two for the length, so
@@ -1262,7 +1272,7 @@ const mysqlMaxRowBytes = 65535
 // not counted. Like the index limits it is a warning: the table may only ever run
 // on PostgreSQL or SQLite.
 func mysqlRowProblem(table string, columns []tsqdialect.ColumnSpec) string {
-	total := 0
+	total, inline := 0, 0
 
 	var strs []string
 
@@ -1279,22 +1289,33 @@ func mysqlRowProblem(table string, columns []tsqdialect.ColumnSpec) string {
 		case strings.HasPrefix(spelled, "VARCHAR("):
 			_, _ = fmt.Sscanf(spelled, "VARCHAR(%d)", &chars)
 			total += chars*mysqlCharBytes + 2
+			// InnoDB keeps a variable-length column of more than 40 bytes partly
+			// off the page when the row does not fit, and counts it at 40 then.
+			inline += min(chars*mysqlCharBytes, innodbOffPageBytes) + 1
 			strs = append(strs, fmt.Sprintf("%s (%d)", column.Name, chars))
 		case strings.HasSuffix(spelled, "TEXT"), strings.HasSuffix(spelled, "BLOB"):
 			// Kept off the row, which holds a pointer to it.
 			total += 12
+			inline += innodbOffPageBytes + 1
 		default:
 			total += 8
+			inline += 8
 		}
 	}
 
-	if total <= mysqlMaxRowBytes {
-		return ""
+	if total > mysqlMaxRowBytes {
+		return fmt.Sprintf("the columns of table %s can take %d bytes on MySQL, which limits a row to %d (%d bytes a character): "+
+			"CREATE TABLE fails there with error 1118. Give the longest strings a size: above 16383, which makes them TEXT and keeps them off the row, or lower the size: of %s",
+			table, total, mysqlMaxRowBytes, mysqlCharBytes, strings.Join(strs, ", "))
 	}
 
-	return fmt.Sprintf("the columns of table %s can take %d bytes on MySQL, which limits a row to %d (%d bytes a character): "+
-		"CREATE TABLE fails there with error 1118. Give the longest strings a size: above 16383, which makes them TEXT and keeps them off the row, or lower the size: of %s",
-		table, total, mysqlMaxRowBytes, mysqlCharBytes, strings.Join(strs, ", "))
+	if inline > innodbMaxInlineBytes {
+		return fmt.Sprintf("the columns of table %s take %d bytes of an InnoDB row, which holds %d (half a 16 KiB page; a string of over 40 bytes counts 40, the rest goes off the page): "+
+			"CREATE TABLE fails there with error 1118. Fewer columns, or the longest strings as TEXT (a size: above 16383)",
+			table, inline, innodbMaxInlineBytes)
+	}
+
+	return ""
 }
 
 // mysqlRowWarnings lists the table of s when MySQL would reject it as too wide.

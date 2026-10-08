@@ -253,7 +253,10 @@ Supported field types:
   way; a `size:` above 16383 makes the column a `TEXT`, which is kept off the row. For a schema that runs
   on MySQL, lower the `size:` or leave the column out of the index. MySQL also limits a row to 65535 bytes across its `VARCHAR`
   columns: several strings of a few thousand characters, or one of `size:16383` beside any other column, fail
-  `CREATE TABLE` there (error 1118), and `type:TEXT` or a `size:` above 16383 (a `MEDIUMTEXT`) keeps the value out of the row
+  `CREATE TABLE` there (error 1118), and `type:TEXT` or a `size:` above 16383 (a `MEDIUMTEXT`) keeps the value out of the row.
+  InnoDB limits a row's page as well, to 8126 bytes with the default 16 KiB page: a string column of over 40 bytes counts 40
+  there (the rest goes off the page), so a table of some two hundred short strings fails `CREATE TABLE` the same way, and
+  `tsq gen` warns about that too
 - `name=` is optional; an omitted name is derived from the table and the indexed **columns**:
   `//tsq:unique SKU` over the column `sku` of `products` is `ux_products_sku`
 - a field repeated inside one index is invalid, and so are two indexes over the same field list
