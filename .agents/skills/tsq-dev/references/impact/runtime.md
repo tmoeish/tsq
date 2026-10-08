@@ -9,7 +9,7 @@
   驱动按 `loc` 写入和解读 `DATETIME`，会让 TSQ 的 UTC 时间按本地落库、把数据库填的 UTC 时间读偏。绑定出口分方言（`bindValueFor`）：
   MySQL 驱动把零值时间写成 `0000-00-00`，这里按公元 1 年绑定。
   **启动时还问会话三件事**（`newRuntime`，`Open` 和 `NewRuntime` 都走）：MySQL 的驱动怎么读时间（`checkMySQLTimes`）、文本是不是按 UTF-8 走（`checkMySQLText` / `checkPostgresText`，不是就拒绝）、
-  MySQL 是不是严格模式（`warnMySQLMode`，只警告）。**新的启动检查读不到设置时放行**：兼容实现和测试用的假驱动答不上来，不能因此起不来。
+  MySQL 是不是严格模式（`warnMySQLMode`，只警告）。**新的启动检查读不到设置时放行**：兼容实现和测试用的假驱动答不上来，不能因此起不来；但驱动拒绝会话本身（pgx 简单协议下非 UTF8 的 `client_encoding`，错误提到 `client_encoding`）要拒绝启动，否则第一条查询才失败。
 
 - **先决定连接池的所有权**：`Runtime.ownsDB` 决定 `Close()` 关不关它。新构造器如果接管调用方的池，
   `ownsDB` 必须是 false，否则 `Close()` 会打断调用方在 TSQ 之外的用途。正反两侧都要测。

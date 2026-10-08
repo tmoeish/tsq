@@ -7,7 +7,7 @@
 核心断言"托管 schema 第二次启动零 DDL"（v4.2.0 的 Critical 事故都表现为它），谓词按匹配到的行断言。
 用 env DSN 而不是 build tag，SQLite 目标因此每次 `go test` 都跑。**不换 `serenize/snaker`**：它做 CamelToSnake，换实现等于改
 所有使用者的表名推导。nullbio 只按类型路径识别，模块不依赖它（2026-09-19）。
-**真跑也要换驱动的模式和会话的设置跑**（2026-10-06）：MySQL 的 `interpolateParams=true` 和 pgx 的 `simple_protocol` 把参数写进语句，`[]byte` 成了二进制字面量——"空 `json.RawMessage` 绑成 `[]byte(\"null\")`"在默认模式全绿、换模式就被 JSON 列拒绝；MySQL 的 `sql_mode` 同理（`ANSI_QUOTES` 让探测整个失效、非严格模式让改列类型截断数据，默认模式下都是绿的）。改绑定出口、改解析引擎输出的代码之后，把集成测试在 `DSN + &sql_mode=...` / 上面两种驱动模式下各跑一遍。PostgreSQL 换 `DateStyle`、`standard_conforming_strings`、隔离级别跑过，没有产品问题（剩下的失败是 pgx 简单协议自己的限制）。
+**真跑也要换驱动的模式和会话的设置跑**（2026-10-06）：MySQL 的 `interpolateParams=true` 和 pgx 的 `simple_protocol` 把参数写进语句，`[]byte` 成了二进制字面量——"空 `json.RawMessage` 绑成 `[]byte(\"null\")`"在默认模式全绿、换模式就被 JSON 列拒绝；MySQL 的 `sql_mode` 同理（`ANSI_QUOTES` 让探测整个失效、非严格模式让改列类型截断数据，默认模式下都是绿的）。改绑定出口、改解析引擎输出的代码之后，把集成测试在 `DSN + &sql_mode=...` / 上面两种驱动模式下各跑一遍。PostgreSQL 换 `DateStyle`、`standard_conforming_strings`、隔离级别跑过，没有产品问题。pgx 简单协议 + 非 UTF8 `client_encoding` 下驱动拒绝一切查询，启动探测曾把它当"读不到设置"放行（2026-10-08 第十三轮）：驱动拒绝会话（错误提到 `client_encoding`）要拒绝启动，读不到设置照旧放行（兼容实现，见 `../impact/runtime.md`）。
 **macOS 的时钟只有微秒精度**（2026-10-05）：断言里和纳秒有关的 `time.Now()` 在本地永远是绿的，Linux 的 CI 才红（时间绑定截到微秒那一波因此多跑了一轮）；这类测试手写纳秒（`time.Date(..., 828405417, ...)`）。
 
 ## 只被自己的测试撑着的代码，在库里是不存在的 (2026-08-26，2026-09-09，2026-09-22)

@@ -434,9 +434,16 @@ func checkMySQLTimes(ctx context.Context, db *sql.DB) error {
 func checkPostgresText(ctx context.Context, db *sql.DB) error {
 	var client, server string
 
-	// A setting that cannot be read is not a reason to refuse to start.
+	// A setting that cannot be read is not a reason to refuse to start: a
+	// compatible server may not have it. The driver refusing the session is: pgx
+	// in simple protocol mode runs no query over a client_encoding other than UTF8,
+	// this one first, and that is better said here than by the first query.
 	if err := db.QueryRowContext(ctx, "SELECT current_setting('client_encoding'), current_setting('server_encoding')").Scan(&client, &server); err != nil {
-		return nil //nolint:nilerr // see above
+		if strings.Contains(err.Error(), "client_encoding") {
+			return fmt.Errorf("the PostgreSQL session must exchange text as UTF-8: %w", err)
+		}
+
+		return nil
 	}
 
 	if strings.EqualFold(client, "UTF8") || strings.EqualFold(server, "SQL_ASCII") {
