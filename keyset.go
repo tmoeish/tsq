@@ -152,6 +152,13 @@ func (q *Query[O]) keysetColumns(orderBy []OrderBy) ([]keysetColumn[O], error) {
 		}
 
 		if selected == nil {
+			// An expression over a column (Upper(title)) is not the column: a
+			// position is sought on selected values, which it is not one of.
+			if core := ob.column.core(); core.err() == nil && !core.plain && !core.bare {
+				return nil, fmt.Errorf("Keyset.OrderBy term %s is an expression over %s, not a selected column; keyset paging orders by selected columns only",
+					debugSQL(columnInfo(ob.column).sql), ob.column.Name())
+			}
+
 			return nil, fmt.Errorf("Keyset.OrderBy column %s must be selected by the query", ob.column.Name())
 		}
 

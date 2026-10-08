@@ -89,6 +89,14 @@ func TestPageKeysetWalksEveryRowOnce(t *testing.T) {
 			t.Errorf("%s: expected an error", name)
 		}
 	}
+
+	// An expression over a selected column is not the column: the message said
+	// "column name must be selected" while name was, and the reader looked for
+	// a missing column instead of the UPPER around it.
+	_, err = q.PageKeyset(ctx, rt, Keyset{OrderBy: []OrderBy{Upper(User_Name).Asc(), User_ID.Asc()}})
+	if err == nil || !strings.Contains(err.Error(), "is an expression over name") {
+		t.Errorf("expression order = %v; want it named as an expression", err)
+	}
 }
 
 func TestPageRequestKeysetResolvesSortFields(t *testing.T) {
