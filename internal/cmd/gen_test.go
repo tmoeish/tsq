@@ -3200,6 +3200,45 @@ func TestGenMigrationHintsARenamedColumn(t *testing.T) {
 	}
 }
 
+// TestGenMigrationHintsARenamedTable covers a table renamed with name=, which
+// the generator sees as one table dropped and one created with the same
+// columns: the section created the new table empty and left the DROP to a hand
+// that would lose the rows. A block now spells the RENAME that keeps them and
+// the index renames that follow (index names derive from the table's), in each
+// dialect's form; SQLite, which renames no index, drops and creates it.
+func TestGenMigrationHintsARenamedTable(t *testing.T) {
+	model := func(name string) map[string]string {
+		return map[string]string{"model.go": "package gentest\n\n//tsq:table name=" + name + "\n//tsq:unique Code\ntype Row struct {\n\tID int64 `db:\"id\"`\n\tCode string `db:\"code,size:20\"`\n}\n"}
+	}
+
+	if err := genModule(t, model("old_rows")); err != nil {
+		t.Fatal(err)
+	}
+
+	writeTestFile(t, "model.go", model("new_rows")["model.go"])
+
+	if err := runGen(t); err != nil {
+		t.Fatal(err)
+	}
+
+	for file, wants := range map[string][]string{
+		"postgres.sql": {`-- ALTER TABLE "old_rows" RENAME TO "new_rows";`, `-- ALTER INDEX "ux_old_rows_code" RENAME TO "ux_new_rows_code";`},
+		"mysql.sql":    {"-- ALTER TABLE `old_rows` RENAME TO `new_rows`;", "-- ALTER TABLE `new_rows` RENAME INDEX `ux_old_rows_code` TO `ux_new_rows_code`;"},
+		"sqlite.sql":   {`-- ALTER TABLE "old_rows" RENAME TO "new_rows";`, `-- DROP INDEX "ux_old_rows_code";`, `-- CREATE UNIQUE INDEX "ux_new_rows_code" ON "new_rows"("code");`},
+	} {
+		content, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		for _, want := range wants {
+			if !strings.Contains(string(content), want) {
+				t.Errorf("%s lacks %q:\n%s", file, want, content)
+			}
+		}
+	}
+}
+
 // TestGenMigrationFreesIndexNamesFirst covers index names, which PostgreSQL and
 // SQLite keep per schema: renaming a table, whose DROP stays commented, created
 // its unique index under the new table while the old one still held the name,

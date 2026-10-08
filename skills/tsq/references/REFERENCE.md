@@ -363,7 +363,10 @@ changed it. A migration never runs a destructive statement for you:
   MySQL and SQLite, which match column names without case. Any other renamed field or `db` tag is,
   to the generator, one column dropped and one added: the section adds the new column empty and
   leaves the `DROP` commented. Where the two have the same shape, the section starts with the
-  `ALTER TABLE ... RENAME COLUMN ... TO ...` that keeps the data, commented, to run instead
+  `ALTER TABLE ... RENAME COLUMN ... TO ...` that keeps the data, commented, to run instead. A table
+  whose `name=` changed is likewise one table dropped (commented) and one created: where the columns
+  are the same, the section starts with the commented `ALTER TABLE ... RENAME TO ...` and the renames
+  of its indexes (their names derive from the table's), to run instead of both tables' sections
 - a type change SQLite does not enforce (a `VARCHAR` size, `INT` to `BIGINT`) does not rebuild the
   SQLite table. PostgreSQL writes `USING` only between kinds that have no assignment cast (`BOOLEAN` to
   `INTEGER`): a shorter `VARCHAR` is changed without it, so a value that does not fit fails the
