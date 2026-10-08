@@ -28,7 +28,8 @@
 
 `sql.Null[T]`、跨包 result 字段、同名包、`Ctx` 字段、`[N]byte`、`DeviceBinding` 的接收者 `db`……**全是 academy 恰好
 没有的形状**，每一处都生成过编译不过的代码。**新的字段形状进 `TestGeneratedCodeCompilesForEveryFieldShape` 的矩阵，
-不进示例**；生成器该拒绝的声明进 `TestGenRefusesWhatItCannotGenerate`。
+不进示例**；生成器该拒绝的声明进 `TestGenRefusesWhatItCannotGenerate`。**编译门不是运行门**（2026-10-08 随机字段形态 × 真跑）：
+`[N]byte` 在矩阵里编译通过，驱动却不收数组；字段形状还要在 `internal/integration` 用手写表真跑三引擎（`TestIntegrationByteArraysAreBoundAndReadAsBytes`）。
 
 ## 按字符串批量取数要以数据库的判等为准 (2026-09-19)
 

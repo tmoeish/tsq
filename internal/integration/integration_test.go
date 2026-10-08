@@ -2667,3 +2667,167 @@ func TestIntegrationValuesAreHeldToTheColumnOnEveryEngine(t *testing.T) {
 		})
 	}
 }
+
+// keyedRow holds a key as its bytes in every shape the generator accepts for one:
+// an array, a named array, and their nullable forms.
+type keyedRow struct {
+	ID    int64
+	Key   [16]byte
+	Named keyBytes
+	Maybe sql.Null[[16]byte]
+	Ptr   *keyBytes
+}
+
+type keyBytes [8]byte
+
+type keyedTable struct {
+	*tsq.TableOf[keyedRow, int64]
+
+	ID    tsq.Column[keyedRow, int64]
+	Key   tsq.Column[keyedRow, [16]byte]
+	Named tsq.Column[keyedRow, keyBytes]
+	Maybe tsq.NullColumn[keyedRow, [16]byte]
+	Ptr   tsq.NullColumn[keyedRow, keyBytes]
+}
+
+var keyedCols = func() keyedTable {
+	k := tsq.NewTable[keyedRow, int64]("keyed")
+	t := keyedTable{
+		TableOf: k,
+		ID:      tsq.NewColumn(k, "id", "id", func(r *keyedRow) *int64 { return &r.ID }),
+		Key:     tsq.NewColumn(k, "key", "key", func(r *keyedRow) *[16]byte { return &r.Key }),
+		Named:   tsq.NewColumn(k, "named", "named", func(r *keyedRow) *keyBytes { return &r.Named }),
+		Maybe:   tsq.NewNullColumn[[16]byte](k, "maybe", "maybe", func(r *keyedRow) *sql.Null[[16]byte] { return &r.Maybe }),
+		Ptr:     tsq.NewNullColumn[keyBytes](k, "ptr", "ptr", func(r *keyedRow) **keyBytes { return &r.Ptr }),
+	}
+
+	k.Define(tsq.TableSpec[keyedRow, int64]{
+		Columns:       []tsq.BoundColumn[keyedRow]{t.ID, t.Key, t.Named, t.Maybe, t.Ptr},
+		PrimaryKey:    t.ID,
+		AutoIncrement: true,
+		ColumnSpecs: []tsqdialect.ColumnSpec{
+			{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
+			{Name: "key", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindBytes, Size: 16}},
+			{Name: "named", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindBytes, Size: 8}},
+			{Name: "maybe", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindBytes, Size: 16, Nullable: true}},
+			{Name: "ptr", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindBytes, Size: 8, Nullable: true}},
+		},
+	})
+
+	return t
+}()
+
+// TestIntegrationByteArraysAreBoundAndReadAsBytes covers a [N]byte field, the
+// shape a UUID or a hash is kept in: database/sql binds and scans slices of
+// bytes and refuses arrays ("unsupported type [16]uint8, a array"), so a model
+// the generator accepted could neither insert nor read its row. The array and
+// its nullable forms now go to the driver as a slice and come back into the
+// array, on every engine; a value of another length is a scan error.
+func TestIntegrationByteArraysAreBoundAndReadAsBytes(t *testing.T) {
+	ctx := context.Background()
+	k := keyedCols
+	key := [16]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}
+	named := keyBytes{8, 7, 6, 5, 4, 3, 2, 1}
+
+	for _, target := range integrationTargets(t) {
+		t.Run(target.name, func(t *testing.T) {
+			dropTables(t, target, "keyed")
+
+			rt, _, err := openQuietly(target, tsq.SchemaPolicyCreateMissing, k)
+			if err != nil {
+				t.Fatalf("create: %v", err)
+			}
+
+			defer func() { _ = rt.Close() }()
+
+			row := &keyedRow{Key: key, Named: named}
+			if err := k.Insert(ctx, rt, row); err != nil {
+				t.Fatalf("insert: %v", err)
+			}
+
+			full := &keyedRow{Key: key, Named: named, Maybe: sql.Null[[16]byte]{V: key, Valid: true}, Ptr: &named}
+			if err := k.Insert(ctx, rt, full); err != nil {
+				t.Fatalf("insert with the nullable forms set: %v", err)
+			}
+
+			got, err := k.Get(ctx, rt, row.ID)
+			if err != nil {
+				t.Fatalf("get: %v", err)
+			}
+
+			if got.Key != key || got.Named != named || got.Maybe.Valid || got.Ptr != nil {
+				t.Fatalf("read back %+v", got)
+			}
+
+			got, err = k.Get(ctx, rt, full.ID)
+			if err != nil {
+				t.Fatalf("get the full row: %v", err)
+			}
+
+			if got.Key != key || got.Named != named || !got.Maybe.Valid || got.Maybe.V != key || got.Ptr == nil || *got.Ptr != named {
+				t.Fatalf("read back the full row %+v", got)
+			}
+
+			// The array compares and binds as a value, a parameter and a list.
+			n, err := tsq.Select(k.ID).From(k).Where(k.Key.EQ(tsq.Val(key)), k.Maybe.EQ(tsq.Val(key))).MustBuild().Count(ctx, rt)
+			if err != nil || n != 1 {
+				t.Fatalf("compare = %d, %v", n, err)
+			}
+
+			param := k.Named.Param()
+
+			rows, err := tsq.Select(k.Columns()...).From(k).Where(k.Named.EQ(param)).MustBuild().List(ctx, rt, param.Bind(named))
+			if err != nil || len(rows) != 2 {
+				t.Fatalf("parameter = %d rows, %v", len(rows), err)
+			}
+
+			found, err := tsq.Select(k.ID).From(k).Where(k.Key.In(tsq.Vals(key, [16]byte{}))).MustBuild().List(ctx, rt)
+			if err != nil || len(found) != 2 {
+				t.Fatalf("in a list = %d rows, %v", len(found), err)
+			}
+
+			// Updates and batch writes bind the same way, and the read-back after a
+			// batch compares the arrays by value.
+			got.Named = keyBytes{1}
+			got.Maybe = sql.Null[[16]byte]{}
+
+			if err := k.Update(ctx, rt, got); err != nil {
+				t.Fatalf("update: %v", err)
+			}
+
+			if err := k.BatchUpdate(ctx, rt, []*keyedRow{row, got}); err != nil {
+				t.Fatalf("batch update: %v", err)
+			}
+
+			if _, err := tsq.UpdateTable(k).Set(k.Key, tsq.Val([16]byte{9})).SetNull(k.Ptr).Where(k.ID.EQ(tsq.Val(full.ID))).MustBuild().Exec(ctx, rt); err != nil {
+				t.Fatalf("set: %v", err)
+			}
+
+			got, err = k.Get(ctx, rt, full.ID)
+			if err != nil || got.Key != [16]byte{9} || got.Named != (keyBytes{1}) || got.Maybe.Valid || got.Ptr != nil {
+				t.Fatalf("after the updates %+v, %v", got, err)
+			}
+
+			// Bytes of another length, written by someone else, do not fit the array.
+			db, err := sql.Open(target.driver, target.dsn)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			defer func() { _ = db.Close() }()
+
+			second := "?"
+			if rt.Dialect() == tsqdialect.Postgres {
+				second = "$2"
+			}
+
+			if _, err := db.ExecContext(ctx, "UPDATE keyed SET named = "+placeholder(rt)+" WHERE id = "+second, []byte{1, 2}, row.ID); err != nil {
+				t.Fatalf("two bytes: %v", err)
+			}
+
+			if short, err := k.Get(ctx, rt, row.ID); err == nil || !strings.Contains(err.Error(), "holds 8") {
+				t.Fatalf("two bytes into eight = %+v, %v", short, err)
+			}
+		})
+	}
+}

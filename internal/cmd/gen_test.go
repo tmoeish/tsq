@@ -2530,6 +2530,8 @@ func TestGenRefusesWhatItCannotGenerate(t *testing.T) {
 		// The messages said "keyword fields" for //tsq:search and "*ast.MapType" for a map.
 		"search over a pointer": {table("//tsq:table\n//tsq:search Nick", "Nick *string `db:\"nick\"`"), "a //tsq:search field cannot be a pointer"},
 		"map field":             {table("//tsq:table", "Meta map[string]any `db:\"meta\"`"), "map[string]any is not a column type"},
+		// It was ignored: the column was a BIGINT, not the ten-digit one the tag read as.
+		"size on a number": {table("//tsq:table", "Qty int64 `db:\"qty,size:10\"`"), "size:10 applies to string and []byte fields; this one is int64"},
 		// The generated result referenced a TableView that does not exist.
 		"result of a result": {table("//tsq:table", "") + "\n//tsq:result\ntype A struct {\n\tID int64 `tsq:\"Row.ID\"`\n}\n\n//tsq:result\ntype B struct {\n\tID int64 `tsq:\"A.ID\"`\n}\n", "which is a result"},
 	} {

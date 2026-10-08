@@ -121,8 +121,9 @@
   （`TestIntegrationAnUnsetRawMessageIsTheJSONNull` 的 inline 变体守着）。
 - 绑定出口（`bindValue`）把时间转 UTC 并截到微秒，`assemble` 在绑定值超过方言上限时拒绝语句；两者的门是
   `TestBoundTimesKeepMicroseconds` 和 `TestAStatementOverTheBindLimitSaysWhatToDo`。
-- **读行的目标走 `columnCore.target`，不直接用 `scan`**（`scan.go`）：时间字段和自定义 bool 字段要包一层适配（SQLite 的表达式把时间
-  交回成文本，MySQL / SQLite 把布尔交回成整数，database/sql 都不替命名类型转换）。`scan` 仍是字段指针本身，按地址识别字段的代码
+- **读行的目标走 `columnCore.target`，不直接用 `scan`**（`scan.go`）：时间字段、自定义 bool 字段和 `[N]byte` 字段要包一层适配（SQLite 的表达式把时间
+  交回成文本，MySQL / SQLite 把布尔交回成整数，database/sql 都不替命名类型转换、也不碰数组）；三种可空形态（值、指针、`sql.Null`）共用 `destForm`，
+  绑定侧 `bindValue` 的 `byteArrayBytes` 是同一条规则的另一半，加一种形态两边都要加。`scan` 仍是字段指针本身，按地址识别字段的代码
   （`partial.go`、`keyset.go`、`attach.go`）继续用它；新的 `rows.Scan` 调用点用 `target` / `adapted`。新的字段形状要进
   `internal/integration/query_test.go` 的 `measure` 表真跑三方言，SQLite 单测发现不了另两个引擎的事，反过来也一样。
 - 按方言分叉的函数（`byDialect`）改拼写要真跑：`Round` 在 MySQL 上对 `DOUBLE` 是银行家舍入、`AVG(整数)` 只留四位小数，渲染断言看不出来，
