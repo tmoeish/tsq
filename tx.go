@@ -327,6 +327,13 @@ func (r *Runtime) withTxResult[T any](
 	// savepoint, so that its failure undoes its own writes and leaves the outer
 	// transaction to go on; the options are the outer transaction's.
 	if outer, ok := ctx.Value(txContextKey{}).(boundExecutor); ok && outer.s.runtime == r {
+		// The rows of an Iter travel on the transaction's connection: a statement
+		// on it meanwhile breaks the rows and the transaction (MySQL "busy
+		// buffer", PostgreSQL "bad connection"), so the join is refused here.
+		if outer.tx.rowsOpen() {
+			return zero, errors.New("WithTx inside a WithTx callback while an Iter over its transaction is open: the connection carries the rows; finish or break the iteration first, or List the rows and loop over them")
+		}
+
 		return joinTx(ctx, outer, fn)
 	}
 

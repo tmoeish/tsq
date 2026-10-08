@@ -1345,7 +1345,10 @@ to go on; a nil return releases the savepoint. The options are the outer transac
 `WithRetry` or `WithIsolation` does nothing, since there is no transaction of its own to retry or
 set. The context handed to the callback is what carries the transaction: pass it on. `Page`, which
 runs its count and its rows in a read-only transaction when given the runtime, joins the enclosing
-transaction the same way from inside a callback, and sees what the callback wrote.
+transaction the same way from inside a callback, and sees what the callback wrote. While an `Iter`
+over the transaction is open, a nested `WithTx` is refused instead: the connection carries the
+rows, and a statement on it meanwhile would break both (MySQL and PostgreSQL). Finish or break the
+iteration first, or `List` the rows and loop over them.
 
 A rollback undoes the database, not memory: a row an `Insert` or `Update` inside the callback stamped
 (key, `created_at`, `updated_at`, `version`) keeps those values after a rollback, and a retry runs

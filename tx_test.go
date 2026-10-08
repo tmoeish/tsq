@@ -206,6 +206,33 @@ func TestWithTxInsideWithTxJoinsTheTransaction(t *testing.T) {
 		t.Fatalf("committed rows = %d; want 2", n)
 	}
 
+	// While an Iter holds the transaction's connection, a nested WithTx is
+	// refused rather than joined: a statement on that connection would break the
+	// rows and the transaction on MySQL and PostgreSQL. The outer transaction
+	// goes on once the iteration ends.
+	err = db.WithTx(ctx, func(ctx context.Context, outer Executor) error {
+		var nested error
+
+		for _, err := range Select(User__Cols...).From(Users).MustBuild().Iter(ctx, outer) {
+			if err != nil {
+				return err
+			}
+
+			nested = db.WithTx(ctx, func(context.Context, Executor) error { return nil })
+
+			break
+		}
+
+		if nested == nil || !strings.Contains(nested.Error(), "while an Iter over its transaction is open") {
+			return fmt.Errorf("WithTx inside an Iter: want it refused, got %w", nested)
+		}
+
+		return db.WithTx(ctx, func(context.Context, Executor) error { return nil })
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	// Page given the runtime from inside a callback joins the same way: its
 	// snapshot transaction would otherwise wait for the pool's one connection.
 	err = db.WithTx(ctx, func(ctx context.Context, outer Executor) error {

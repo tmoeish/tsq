@@ -116,6 +116,45 @@ func (b boundExecutor) QueryRowContext(ctx context.Context, query string, args .
 type txState struct {
 	mu      sync.Mutex
 	aborted error
+	// iterating counts the Iter loops open over the transaction's connection,
+	// which carries their rows: a statement run on it meanwhile breaks both on
+	// MySQL and PostgreSQL.
+	iterating int
+}
+
+// holdRows marks an Iter open over the transaction; releaseRows undoes it.
+func (t *txState) holdRows() {
+	if t == nil {
+		return
+	}
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	t.iterating++
+}
+
+func (t *txState) releaseRows() {
+	if t == nil {
+		return
+	}
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	t.iterating--
+}
+
+// rowsOpen reports an Iter open over the transaction.
+func (t *txState) rowsOpen() bool {
+	if t == nil {
+		return false
+	}
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	return t.iterating > 0
 }
 
 // noted records err when it ended the transaction, and returns err.
