@@ -78,5 +78,6 @@ MySQL 1205 / 1213 / 3572）保证事务已回滚。现在 commit 阶段只放行
   `information_schema` 比，表达式默认值多一层括号、二进制字面量和 4 字节字符各是各的拼法，逐个还原是又一张别名表；改成库里那一列也按 `SHOW CREATE TABLE` 的写法建进临时表（2026-10-06）。探测跑不了（DML-only 账号没有 `CREATE TEMPORARY TABLES`，2026-10-08 第十三轮）按文本比，`SchemaMismatchError` 的那一行要带原因，否则使用者看到的是"表不对"而不是"没权限问"。
 - **决定（2026-10-05，维护者）：改类型时三个方言给同一个结果——能转的转，转不了的拒绝**（`sqldialect.SQLiteRetype*`）。SQLite 什么值都存，原样复制后 `Validate` 通过而整张表读不出来。小数取整、数值转布尔写进复制表达式；文本转数值 / 布尔 / 时间
   运行期在**提交前**按 `typeof` 检查并回滚，生成器写成手工注释（脚本的执行者不会停，见 `codegen.md`）。**否掉"先改名旧表 + `INSERT OR ROLLBACK` 守卫"的重排**：要 `legacy_alter_table`，动的是出过 P0 的重建顺序。 **随机表结构差分**（2026-10-06，第八轮：随机列 / 默认值 / 索引建表、随机改动后 `Reconcile`、再启动零 DDL，400 × 3 引擎）只剩三件事：PG 的布尔默认值 `1` / `0`（`DefaultSQL` 改拼法）、PG 带默认值的列跨类型改动要先 `DROP DEFAULT`、MySQL 带索引的列改 BLOB 要先删不再声明的索引（`dropIndexesInTheWay`）。PG 拒绝数字 / 布尔 / 时间 ↔ bytea / 时间之间的改动是对的，不补 `USING`。
+- **随机改表 × 有数据 × `Reconcile`**（2026-10-08 第十四轮）：半截改动只剩两类——唯一索引撞重复行（现在 DDL 前先查，`DuplicateRowsError`）和改类型被引擎拒绝时之前的语句已生效（MySQL 隐式提交、PG 每条单独跑，决定见 `impact/runtime.md` § 不要把 DDL 包进事务）。
 - **决定（维护者 2026-10-05）**：运行期策略给有数据的表加 NOT NULL 列也补零值，与生成器共用 `AddColumnSQL`（带零值默认加列再去掉，SQLite 没有 `DROP DEFAULT` 所以重建）。PG 的无符号自增主键是加宽类型的 SERIAL，`uint64` 是 `BIGSERIAL`。
 - **决定（维护者 2026-10-05）：`Open` 拒绝 `loc` 不是 UTC 的 MySQL DSN**，否掉"只写文档"：`loc=Local` 是教程里的标准写法，而它让数据库填的 UTC 时间读回来差一个时区、不报错。`NewRuntime` 看不到 DSN，只能靠文档。

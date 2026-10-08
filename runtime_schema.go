@@ -43,6 +43,14 @@ func (r *Runtime) applySchemaPolicies(ctx context.Context) error {
 	// Manual is the default and the recommended production setup, so saying so is a
 	// statement of the configured mode, not a warning that something may be wrong.
 	// Logging it at warn level put two records in front of every user on every boot.
+	// Before any DDL: a unique index the policies would create over rows that
+	// share its values is refused here, where nothing has been changed yet.
+	if changesSchema(r.indexPolicy) {
+		if err := r.refuseUniqueIndexesOverDuplicates(ctx); err != nil {
+			return err
+		}
+	}
+
 	if r.tablePolicy == SchemaPolicyManual {
 		r.info("tsq table management is disabled; create and reconcile tables in your migrations", "policy", r.tablePolicy)
 	} else {

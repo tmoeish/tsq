@@ -120,6 +120,14 @@ type DeleteStage[R any] interface {
 }
 func DeleteFrom[T SoftDeleteTable[R], R any](table T) DeleteStage[R]
 func HardDeleteFrom[R any](table RowTable[R]) DeleteStage[R]
+type DuplicateRowsError struct {
+	Table string
+	Index string
+	Columns []string
+	Values []any
+	Rows int64
+}
+func (e *DuplicateRowsError) Error() string
 type Executor interface {
 	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
