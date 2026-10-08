@@ -274,6 +274,8 @@ func (r *Runtime) executeTxAttempt[T any](
 	}()
 
 	state := &txState{}
+	defer state.finish()
+
 	exec := boundExecutor{DBTX: tx, s: execScope{dialect: r.dialect, runtime: r, tx: true}, tx: state}
 
 	result, err := fn(context.WithValue(ctx, txContextKey{}, exec), exec)
@@ -326,7 +328,9 @@ func (r *Runtime) withTxResult[T any](
 	// for a connection a pool of one has not got. The callback runs under a
 	// savepoint, so that its failure undoes its own writes and leaves the outer
 	// transaction to go on; the options are the outer transaction's.
-	if outer, ok := ctx.Value(txContextKey{}).(boundExecutor); ok && outer.s.runtime == r {
+	// A context kept past its callback carries a transaction that is over, and
+	// then nothing: the WithTx opens its own.
+	if outer, ok := ctx.Value(txContextKey{}).(boundExecutor); ok && outer.s.runtime == r && outer.tx.live() {
 		// The rows of an Iter travel on the transaction's connection: a statement
 		// on it meanwhile breaks the rows and the transaction (MySQL "busy
 		// buffer", PostgreSQL "bad connection"), so the join is refused here.

@@ -43,7 +43,7 @@
 ## 决定：回调里的 `WithTx` 加入外层事务，不另开 (2026-10-08，第十六轮)
 
 另开的事务在另一条连接上：看不见外层的写入，池只有一条连接时互等到超时。三个引擎都有 savepoint，所以内层按 savepoint 跑、错误交外层；
-否掉"报错禁止嵌套"——写 `WithTx` 的 helper 互相调用是正常形态。例外：外层正在 `Iter`（连接上传着行）时加入会把行和事务一起弄坏（MySQL busy buffer、PG bad connection），这一种拒绝。PG 事务里任一语句失败即 aborted、其后都报 `25P02`（2026-08-28）：
+否掉"报错禁止嵌套"——写 `WithTx` 的 helper 互相调用是正常形态。例外：外层正在 `Iter`（连接上传着行）时加入会把行和事务一起弄坏（MySQL busy buffer、PG bad connection），这一种拒绝；回调之外留下的 ctx 带的是结束了的事务（`txState.done`），按普通 ctx 处理，否则 `joinTx` 撞上 `sql: transaction has already been committed`。PG 事务里任一语句失败即 aborted、其后都报 `25P02`（2026-08-28）：
 **"捕获错误后继续用同一个连接"的代码都要问 PG 上还能不能用**，savepoint 是唯一答案（`WithSkipDuplicates`、这里的嵌套）。
 
 ## 决定：commit 阶段只对明确冲突码重试 (2026-08-26)
