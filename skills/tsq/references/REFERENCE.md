@@ -1336,6 +1336,15 @@ result, err := runtime.WithTxResult(ctx, func(ctx context.Context, txExec tsq.Ex
 
 Return a small result struct when several related values come back; `WithTxResult` is the only typed transaction helper.
 
+`WithTx` called inside its own callback — a helper that opens a transaction, called from another —
+joins the transaction there is instead of opening a second one (which ran on another connection,
+saw nothing the first wrote, and on a pool of one connection waited for it forever). The inner
+callback runs under a savepoint of its own: its writes are the outer transaction's and its reads see
+them; its error rolls back to the savepoint and is returned, so the outer callback decides whether
+to go on; a nil return releases the savepoint. The options are the outer transaction's: an inner
+`WithRetry` or `WithIsolation` does nothing, since there is no transaction of its own to retry or
+set. The context handed to the callback is what carries the transaction: pass it on.
+
 A rollback undoes the database, not memory: a row an `Insert` or `Update` inside the callback stamped
 (key, `created_at`, `updated_at`, `version`) keeps those values after a rollback, and a retry runs
 the callback again with them. Load or build the rows a transaction writes inside its callback.

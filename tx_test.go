@@ -135,6 +135,78 @@ func TestRuntimeWithTxRollsBackOnCallbackError(t *testing.T) {
 	}
 }
 
+// TestWithTxInsideWithTxJoinsTheTransaction covers WithTx called from its own
+// callback, as a helper that opens a transaction does when called from another.
+// It opened a second transaction on another connection: it saw nothing the first
+// wrote, and on a pool of one connection it waited for the first to end, which
+// waited for it. It now joins the enclosing transaction under a savepoint of
+// its own: its writes are the outer transaction's, its reads see them, and its
+// error undoes only what it did, leaving the outer callback to decide.
+func TestWithTxInsideWithTxJoinsTheTransaction(t *testing.T) {
+	ctx := context.Background()
+	db := newSQLite(t)
+	db.DB().SetMaxOpenConns(1)
+
+	count := func(exec Executor) int64 {
+		n, err := Select(User_ID).From(Users).MustBuild().Count(ctx, exec)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		return n
+	}
+
+	wantErr := errors.New("inner boom")
+
+	err := db.WithTx(ctx, func(ctx context.Context, outer Executor) error {
+		if err := Users.Insert(ctx, outer, &user{Name: "outer", Email: "outer@example.com"}); err != nil {
+			return err
+		}
+
+		// The inner callback sees the outer's write and adds its own.
+		if err := db.WithTx(ctx, func(ctx context.Context, inner Executor) error {
+			if n := count(inner); n != 1 {
+				t.Fatalf("the inner transaction sees %d rows; want the outer's", n)
+			}
+
+			return Users.Insert(ctx, inner, &user{Name: "inner", Email: "inner@example.com"})
+		}); err != nil {
+			return err
+		}
+
+		// A failing inner callback undoes its own write only; twice nested too.
+		err := db.WithTx(ctx, func(ctx context.Context, inner Executor) error {
+			if err := Users.Insert(ctx, inner, &user{Name: "gone", Email: "gone@example.com"}); err != nil {
+				return err
+			}
+
+			return db.WithTx(ctx, func(ctx context.Context, innermost Executor) error {
+				if err := Users.Insert(ctx, innermost, &user{Name: "gone too", Email: "gone2@example.com"}); err != nil {
+					return err
+				}
+
+				return wantErr
+			})
+		})
+		if !errors.Is(err, wantErr) {
+			t.Fatalf("the inner error = %v; want it returned", err)
+		}
+
+		if n := count(outer); n != 2 {
+			t.Fatalf("after the failed inner callback the outer sees %d rows; want the two that stand", n)
+		}
+
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if n := count(db); n != 2 {
+		t.Fatalf("committed rows = %d; want 2", n)
+	}
+}
+
 func TestRuntimeWithTxRequiresInitializedRuntime(t *testing.T) {
 	runtime := &Runtime{}
 

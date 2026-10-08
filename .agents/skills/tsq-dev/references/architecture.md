@@ -313,7 +313,7 @@ CTE 的输出列可空时，`WithTable(cte)` 重绑的列标成 `always`。
   里直接调 `slog.*`。SQL 日志的开关是 `WithSQLLogging()`；`WrapExecutor` 的结果没有 runtime，
   不打。
 - `WithTx(ctx, fn, ...TxOption)`（`tx.go`）是多操作事务的唯一入口，选项 `WithIsolation` / `WithReadOnly` /
-  `WithRetry` / `WithRetryPolicy`。
+  `WithRetry` / `WithRetryPolicy`。回调的 ctx 里带着执行器，回调里再调 `WithTx` 加入同一事务（savepoint，`joinTx`）。
   commit 阶段只对明确的冲突码（`IsTxConflictError`）重试。
 - 驱动错误分类按**接口**匹配：`sqlite_errors.go` 认 `Code() int`，`postgres_errors.go` 认
   `SQLState() string`。MySQL 是唯一被 import 的驱动，因为 `MySQLError.Number` 是字段。

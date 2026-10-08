@@ -274,8 +274,9 @@ func (r *Runtime) executeTxAttempt[T any](
 	}()
 
 	state := &txState{}
+	exec := boundExecutor{DBTX: tx, s: execScope{dialect: r.dialect, runtime: r, tx: true}, tx: state}
 
-	result, err := fn(ctx, boundExecutor{DBTX: tx, s: execScope{dialect: r.dialect, runtime: r, tx: true}, tx: state})
+	result, err := fn(context.WithValue(ctx, txContextKey{}, exec), exec)
 	if err != nil {
 		var zero T
 		return zero, txRetryStageBody, err
@@ -320,6 +321,15 @@ func (r *Runtime) withTxResult[T any](
 		return zero, err
 	}
 
+	// Inside its own callback, WithTx joins the transaction there is: a second
+	// one would run on another connection, see nothing the first wrote, and wait
+	// for a connection a pool of one has not got. The callback runs under a
+	// savepoint, so that its failure undoes its own writes and leaves the outer
+	// transaction to go on; the options are the outer transaction's.
+	if outer, ok := ctx.Value(txContextKey{}).(boundExecutor); ok && outer.s.runtime == r {
+		return joinTx(ctx, outer, fn)
+	}
+
 	return r.trace1(ctx, TraceInfo{Op: TraceOpTx}, func(ctx context.Context) (T, error) {
 		for attempt := 1; ; attempt++ {
 			result, phase, err := r.executeTxAttempt(ctx, normalized, fn)
@@ -346,4 +356,44 @@ func (r *Runtime) WithTxResult[T any](
 	options ...TxOption,
 ) (T, error) {
 	return r.withTxResult(ctx, fn, options)
+}
+
+// txContextKey carries the executor of a WithTx callback in its context, so that
+// a WithTx called inside the callback joins the transaction instead of opening
+// another.
+type txContextKey struct{}
+
+// txDepthKey is how many WithTx callbacks the context is inside, which names
+// the savepoint of the next one.
+type txDepthKey struct{}
+
+// joinTx runs fn on the transaction of the enclosing WithTx callback, under a
+// savepoint of its own: an error rolls back to it and is returned, so that the
+// outer callback decides; a nil error releases it.
+func joinTx[T any](ctx context.Context, outer boundExecutor, fn func(context.Context, Executor) (T, error)) (T, error) {
+	var zero T
+
+	depth, _ := ctx.Value(txDepthKey{}).(int)
+	depth++
+
+	savepoint := fmt.Sprintf("tsq_nested_%d", depth)
+
+	if _, err := outer.ExecContext(ctx, "SAVEPOINT "+savepoint); err != nil {
+		return zero, fmt.Errorf("join the enclosing transaction: %w", err)
+	}
+
+	result, err := fn(context.WithValue(ctx, txDepthKey{}, depth), outer)
+	if err != nil {
+		if _, rollbackErr := outer.ExecContext(ctx, "ROLLBACK TO SAVEPOINT "+savepoint); rollbackErr != nil {
+			return zero, errors.Join(err, fmt.Errorf("roll back to the savepoint of the nested transaction: %w", rollbackErr))
+		}
+
+		return zero, err
+	}
+
+	if _, err := outer.ExecContext(ctx, "RELEASE SAVEPOINT "+savepoint); err != nil {
+		return zero, fmt.Errorf("release the savepoint of the nested transaction: %w", err)
+	}
+
+	return result, nil
 }
