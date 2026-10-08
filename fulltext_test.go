@@ -11,7 +11,7 @@ func TestMatchesIsSpelledPerDialect(t *testing.T) {
 	q := Select(Note_ID).From(Notes).Where(Matches(Notes.FullText("ft_notes_title_body"), Val("hello world"))).MustBuild()
 
 	want := map[tsqdialect.Name]string{
-		tsqdialect.MySQL:    "MATCH(`notes`.`title`, `notes`.`body`) AGAINST (? IN NATURAL LANGUAGE MODE)",
+		tsqdialect.MySQL:    "MATCH(`notes`.`title`, `notes`.`body`) AGAINST (REPLACE(?, '*', '') IN NATURAL LANGUAGE MODE)",
 		tsqdialect.Postgres: `to_tsvector('simple', coalesce("notes"."title", '') || ' ' || coalesce("notes"."body", '')) @@ plainto_tsquery('simple', $1)`,
 		tsqdialect.SQLite:   `("notes"."title" LIKE ? ESCAPE '~' OR "notes"."body" LIKE ? ESCAPE '~')`,
 	}

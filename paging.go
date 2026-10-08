@@ -2,6 +2,7 @@ package tsq
 
 import (
 	"fmt"
+	"strings"
 )
 
 // DefaultMaxPageSize caps Paging.Size unless WithMaxPageSize says otherwise.
@@ -180,11 +181,12 @@ func (r *PageRequest) orderBy(sortable []SQLColumn) ([]OrderBy, error) {
 // handler answers it with 400: a negative page or size, a page past
 // MaxPageNumber, an order_by / order pair it cannot sort by (a field the endpoint
 // does not allow or that names more than one column, a direction other than
-// asc/desc, lists of different lengths), or a keyset cursor that is malformed or
-// was made for another order.
+// asc/desc, lists of different lengths), a keyword holding a NUL byte, or a
+// keyset cursor that is malformed or was made for another order.
 type PageRequestError struct {
-	// Field is the offending parameter or sort field: "page", "size", "after",
-	// or the sort field or direction; empty when order_by and order do not match.
+	// Field is the offending parameter or sort field: "page", "size", "keyword",
+	// "after", or the sort field or direction; empty when order_by and order do
+	// not match.
 	Field string
 	// Reason says what is wrong with it.
 	Reason string
@@ -211,6 +213,13 @@ func (r *PageRequest) validate() error {
 
 	if r.Size < 0 {
 		return &PageRequestError{Field: "size", Reason: fmt.Sprintf("must not be negative, got %d", r.Size)}
+	}
+
+	// No one types a NUL byte into a search box; PostgreSQL refuses it in any text
+	// parameter where the other engines match nothing, and a client's garbage is the
+	// client's error on every engine.
+	if strings.Contains(r.Keyword, "\x00") {
+		return &PageRequestError{Field: "keyword", Reason: "must not contain a NUL byte"}
 	}
 
 	for _, rawOrder := range splitCommaValues(r.Order) {

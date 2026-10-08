@@ -33,7 +33,10 @@
   `internal/sqldialect` 的 `PostgresDialect.FullTextVectorSQL`，不要在谓词里另写一份。
 - 全文索引只按名字对账（`ensureFullTextIndex`）：字段比较会因为三个方言的自省差异每次启动都想重建。
 - SQLite 是**按子串匹配的退化实现**，语义和另两个不同。改 `Matches` 的渲染要同时想清楚三种行为，
-  `TestIntegrationFullTextSearch` 只断言三者都同意的部分。
+  `TestIntegrationFullTextSearch` 只断言三者都同意的部分，其中一段把运算符字符当词跑一遍：MySQL 的
+  `AGAINST` 参数包着 `REPLACE(?, '*', '')`（理由在 `memory/dialect.md`），去掉它就回到 1064。
+- 渲染字符串变了要同时改 `fulltext_test.go` 的 `TestMatchesIsSpelledPerDialect` 和
+  `skills/tsq/references/REFERENCE.md` 的全文检索小节（那里写着每个方言的拼法）。
 
 ## 改了相关子查询的作用域传递（`Correlate`、`validateJoinGraph`）
 
