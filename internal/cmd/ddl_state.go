@@ -1196,9 +1196,15 @@ func renderDDLIncrementalTableBody(
 		return "", false
 	}
 
+	hint := renamedColumnHint(dialect, tableName, ops)
+
 	if dialect.dialect.AlterMode() == sqld.AlterRebuild && ddlChangesRequireTableRebuild(ops) {
 		body, ok := renderSQLiteRebuildTableBody(dialect, tableName, ops)
 		if ok {
+			if hint != "" {
+				body = hint + "\n\n" + body
+			}
+
 			return body, true
 		}
 	}
@@ -1209,6 +1215,11 @@ func renderDDLIncrementalTableBody(
 	slices.SortStableFunc(ops, compareDDLChanges)
 
 	lines := make([]string, 0, len(ops))
+
+	if hint != "" {
+		lines = append(lines, hint)
+	}
+
 	for _, op := range ops {
 		rendered := renderDDLChangeOperation(dialect, op)
 		if len(rendered) == 0 {
@@ -1222,6 +1233,39 @@ func renderDDLIncrementalTableBody(
 	}
 
 	return strings.Join(lines, "\n\n"), true
+}
+
+// renamedColumnHint is a line for a section that drops one column and adds one
+// of the same shape: a field renamed, or its db tag changed, which the generator
+// cannot tell from a column replaced. The section adds the new column empty and
+// leaves the DROP to a hand that would lose the data; RENAME COLUMN keeps it,
+// and the hint spells it (every dialect takes the form since MySQL 8.0 and
+// SQLite 3.25). It names nothing where the shapes differ, since a value may
+// not fit the new column.
+func renamedColumnHint(dialect ddlDialectSpec, tableName string, ops []ddlChange) string {
+	var added, dropped []*ddlSnapshotColumn
+
+	for _, op := range ops {
+		switch op.kind {
+		case ddlChangeAddColumn:
+			added = append(added, op.newColumn)
+		case ddlChangeDropColumn:
+			dropped = append(dropped, op.oldColumn)
+		}
+	}
+
+	if len(added) != 1 || len(dropped) != 1 {
+		return ""
+	}
+
+	from, to := dropped[0], added[0]
+	if from.Kind != to.Kind || from.Bits != to.Bits || from.Unsigned != to.Unsigned || from.Size != to.Size ||
+		from.RawType != to.RawType || from.Nullable != to.Nullable || from.PrimaryKey || to.PrimaryKey || from.Generated != "" || to.Generated != "" {
+		return ""
+	}
+
+	return fmt.Sprintf("-- %s: %s dropped and %s added with the same shape; a renamed field? Then run this instead of the rest of this table's section:\n-- ALTER TABLE %s RENAME COLUMN %s TO %s;",
+		tableName, from.Name, to.Name, dialect.dialect.QuoteIdent(tableName), dialect.dialect.QuoteIdent(from.Name), dialect.dialect.QuoteIdent(to.Name))
 }
 
 // ddlChangesRequireTableRebuild reports changes SQLite cannot make in place:

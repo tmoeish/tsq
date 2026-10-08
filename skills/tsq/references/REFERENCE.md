@@ -360,7 +360,10 @@ changed it. A migration never runs a destructive statement for you:
   the rows present the zero value the same way: added with that default, which is then dropped
 - a changed `generated:` expression is left to a migration you write, with a comment saying so
 - a `db` tag renamed only in case is a column rename: `RENAME COLUMN` on PostgreSQL, and a comment on
-  MySQL and SQLite, which match column names without case
+  MySQL and SQLite, which match column names without case. Any other renamed field or `db` tag is,
+  to the generator, one column dropped and one added: the section adds the new column empty and
+  leaves the `DROP` commented. Where the two have the same shape, the section starts with the
+  `ALTER TABLE ... RENAME COLUMN ... TO ...` that keeps the data, commented, to run instead
 - a type change SQLite does not enforce (a `VARCHAR` size, `INT` to `BIGINT`) does not rebuild the
   SQLite table. PostgreSQL writes `USING` only between kinds that have no assignment cast (`BOOLEAN` to
   `INTEGER`): a shorter `VARCHAR` is changed without it, so a value that does not fit fails the
