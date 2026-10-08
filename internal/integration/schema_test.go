@@ -572,6 +572,109 @@ func TestIntegrationRetypeRefusesAValueThatDoesNotFit(t *testing.T) {
 // PostgreSQL cast bytes to text as their hex spelling and text to bytes as an
 // escape string, SQLite kept 1.5 under an integer column and 2 under a boolean
 // one (after which no read of the table worked), and MySQL kept the 2 as well.
+type dupRow struct {
+	ID    int64
+	Code  string
+	Note  *string
+	Extra int64
+}
+
+// dupTable declares the dup table with or without an extra column and a unique
+// index over code and note.
+func dupTable(withExtra, withIndex bool) *tsq.TableOf[dupRow, int64] {
+	t := tsq.NewTable[dupRow, int64]("dup")
+	id := tsq.NewColumn(t, "id", "id", func(r *dupRow) *int64 { return &r.ID })
+	code := tsq.NewColumn(t, "code", "code", func(r *dupRow) *string { return &r.Code })
+	note := tsq.NewNullColumn[string](t, "note", "note", func(r *dupRow) **string { return &r.Note })
+	columns := []tsq.BoundColumn[dupRow]{id, code, note}
+	specs := []tsqdialect.ColumnSpec{
+		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
+		{Name: "code", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 20}},
+		{Name: "note", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 20, Nullable: true}},
+	}
+
+	if withExtra {
+		columns = append(columns, tsq.NewColumn(t, "extra", "extra", func(r *dupRow) *int64 { return &r.Extra }))
+		specs = append(specs, tsqdialect.ColumnSpec{Name: "extra", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}})
+	}
+
+	var indexes []tsq.IndexSpec
+	if withIndex {
+		indexes = []tsq.IndexSpec{{Name: "ux_dup_code_note", Columns: []string{"code", "note"}, Unique: true}}
+	}
+
+	return t.Define(tsq.TableSpec[dupRow, int64]{Columns: columns, PrimaryKey: id, AutoIncrement: true, ColumnSpecs: specs, Indexes: indexes})
+}
+
+// TestIntegrationAUniqueIndexOverDuplicatesIsRefusedFirst covers a declaration
+// that adds a column and a unique index over values rows already share. The
+// column was added, the index was then refused by the engine, and the table was
+// left altered and without it, which every later start repeated; now the rows
+// are looked at before any DDL, the start fails with a DuplicateRowsError naming
+// the shared values, and the table is as it was. Rows holding NULL in an index
+// column never conflict and do not count.
+func TestIntegrationAUniqueIndexOverDuplicatesIsRefusedFirst(t *testing.T) {
+	ctx := context.Background()
+
+	for _, target := range integrationTargets(t) {
+		t.Run(target.name, func(t *testing.T) {
+			dropTables(t, target, "dup")
+
+			plain := dupTable(false, false)
+
+			rt, _, err := openQuietly(target, tsq.SchemaPolicyCreateMissing, plain)
+			if err != nil {
+				t.Fatalf("create: %v", err)
+			}
+
+			note := "n"
+			if err := plain.BatchInsert(ctx, rt, []*dupRow{{Code: "a", Note: &note}, {Code: "a", Note: &note}, {Code: "b"}, {Code: "b"}}); err != nil {
+				t.Fatalf("rows: %v", err)
+			}
+
+			_ = rt.Close()
+
+			_, ran, err := openQuietly(target, tsq.SchemaPolicyReconcile, dupTable(true, true))
+
+			var dup *tsq.DuplicateRowsError
+			if !errors.As(err, &dup) || dup.Table != "dup" || dup.Index != "ux_dup_code_note" || dup.Rows != 2 || fmt.Sprint(dup.Values) != "[a n]" {
+				t.Fatalf("Reconcile = %v (ran %v); want a DuplicateRowsError for the two a/n rows", err, ran)
+			}
+
+			if len(ran) != 0 {
+				t.Fatalf("the refusal came after DDL: %v", ran)
+			}
+
+			// The table is as it was: the first declaration still validates.
+			if rt, _, err := openQuietly(target, tsq.SchemaPolicyValidate, plain); err != nil {
+				t.Fatalf("the table changed before the refusal: %v", err)
+			} else {
+				_ = rt.Close()
+			}
+
+			// With the duplicates gone (the b rows hold NULL and never conflicted),
+			// the same start goes through.
+			rt, _, err = openQuietly(target, tsq.SchemaPolicyCreateMissing, plain)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if _, err := tsq.HardDeleteFrom(plain).Where(tsq.NewColumn(plain, "code", "code", func(r *dupRow) *string { return &r.Code }).EQ(tsq.Val("a"))).MustBuild().Exec(ctx, rt); err != nil {
+				t.Fatal(err)
+			}
+
+			_ = rt.Close()
+
+			rt, ran, err = openQuietly(target, tsq.SchemaPolicyReconcile, dupTable(true, true))
+			if err != nil || len(ran) == 0 {
+				t.Fatalf("Reconcile without duplicates = %v, ran %v", err, ran)
+			}
+
+			_ = rt.Close()
+		})
+	}
+}
+
 // TestIntegrationAnIndexInTheWayGoesFirst covers an indexed column retyped into
 // one the index cannot cover, while the declaration drops the index too: MySQL
 // refused to alter the column while the index stood ("BLOB/TEXT column used in
