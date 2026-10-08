@@ -164,6 +164,7 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 ### 修复
 
+- **空字符串默认值 `''` 和"没有默认值"被当成一回事**：声明去掉 `default:''` 后，`tsq gen` 的迁移和运行期 `Reconcile` 都不写 `DROP DEFAULT`，库里的 `''` 留下；之后这一列改类型时 PostgreSQL 报 `default for column cannot be cast automatically`（第十四轮四代迁移回放找到）。现在 `SameDefault` 把两者分开——三个引擎本来就报得出区别（NULL 对 `''`）。
 - `tsq.WrapExecutor` 包住的事务（任何带 `Commit` / `Rollback` 的句柄）现在和 `WithTx` 的执行器一样记住引擎自行回滚事务的错误（MySQL 死锁），之后的语句一律拒绝，不再各自自动提交；`Commit` 仍是调用方的。包住的句柄返回 nil 行时不再触碰它。
 - **`SchemaMismatchError` 只说 `alter column n`，不说哪里不一样**：现在每一列都列出差异（引擎报告的类型对声明的拼法、NULL 对 NOT NULL、默认值、范围约束），比如 `alter column js (type jsonb, declared JSON)`。MySQL 上没有 `CREATE TEMPORARY TABLES` 权限的用户（只有 DML 权限的应用账号是常态）让"问引擎两种拼法是不是一回事"的探测跑不了，此前只在日志里警告、错误里仍是一句不匹配；现在那一行带上"数据库无法被问及，按文本比较"和引擎给的原因。
 - **pgx `simple_protocol` 模式下 `client_encoding` 不是 UTF8 时 `Open` 照常成功、之后每条查询都失败**（`simple protocol queries must be run with client_encoding=UTF8`）：启动时读会话编码的探测把"读不到"当作"不检查"，而这正是驱动拒绝一切查询的那种会话。现在驱动因编码拒绝会话时 `Open` 就拒绝启动并带上驱动的原因；读不到设置（兼容实现没有它）仍然放行。
