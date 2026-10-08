@@ -149,7 +149,9 @@ genmodel.StructInfo / TableMeta        internal/genmodel/model.go
 `generated_by` 和 `version`。版本号从 `internal/buildinfo` 传导过来，所以：
 
 **改了版本号就必须重新生成示例**，否则 `make gen-check` 和 `make release-check` 都会失败。
-`script/release.py` 依赖这一点来保证 tag 和生成物是同一个版本。
+`script/release.py` 依赖这一点来保证 tag 和生成物是同一个版本。`tsq.json` 的 `version` 还被
+`refuseNewerStateFile` 拿来和 CLI 的版本比（`golang.org/x/mod/semver`）：比 CLI 新就拒绝，开发构建
+（`stableVersion` 之后不是合法 semver）不比较。
 
 生成用的是 `make build-gen` 产出的 `bin/tsq-gen`，**故意不带 `$(LDFLAGS)`**。带 ldflags 的
 `bin/tsq` 的版本号来自 `git describe`，那既不是即将发布的版本，也会随工作区干不干净而变——

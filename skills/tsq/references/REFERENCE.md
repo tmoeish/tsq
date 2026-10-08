@@ -386,7 +386,11 @@ changed it. A migration never runs a destructive statement for you:
   where only a type's spelling within one SQLite affinity moved. After upgrading TSQ, `tsq gen --check`
   fails until `tsq gen` has written that section, as it does for a model change. Files written before
   renderings were recorded have none to compare: the first run records them, and a respelling from
-  before that is not written as a section (the runtime's `Validate` names it and `Reconcile` makes it)
+  before that is not written as a section (the runtime's `Validate` names it and `Reconcile` makes it).
+  The other way round, a `tsq.json` written by a newer TSQ is refused by an older one, with the version
+  to install: rewritten by the older CLI, the file would lose what the newer one records, and the two
+  would hand it back and forth, each writing a migration for the other's spelling. Keep one `tsq` version
+  per repository (pin it in CI)
 - SQLite changes a column type, or adds a generated column, a column whose default is not a constant
   (`CURRENT_TIMESTAMP`, which adding `created_at` has) or a NOT NULL column without a default, by
   rebuilding the table, since `ADD COLUMN` refuses those on a table with rows: it creates the
