@@ -408,8 +408,10 @@ func TestIntegrationSessionsExchangeTextAsUTF8(t *testing.T) {
 			refused = []string{"&charset=latin1", "&collation=latin1_swedish_ci", "&charset=gbk"}
 			taken = []string{"", "&charset=utf8mb4", "&collation=utf8mb4_0900_ai_ci", "&charset=utf8"}
 		case "postgres":
-			refused = []string{"&client_encoding=LATIN1", "&client_encoding=WIN1252"}
-			taken = []string{"", "&client_encoding=UTF8"}
+			// pgx in simple protocol mode refuses every query over another
+			// encoding, the probe's first: Open says so instead of the first query.
+			refused = []string{"&client_encoding=LATIN1", "&client_encoding=WIN1252", "&client_encoding=LATIN1&default_query_exec_mode=simple_protocol"}
+			taken = []string{"", "&client_encoding=UTF8", "&default_query_exec_mode=simple_protocol"}
 		default:
 			continue
 		}

@@ -164,6 +164,7 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 ### 修复
 
+- **pgx `simple_protocol` 模式下 `client_encoding` 不是 UTF8 时 `Open` 照常成功、之后每条查询都失败**（`simple protocol queries must be run with client_encoding=UTF8`）：启动时读会话编码的探测把"读不到"当作"不检查"，而这正是驱动拒绝一切查询的那种会话。现在驱动因编码拒绝会话时 `Open` 就拒绝启动并带上驱动的原因；读不到设置（兼容实现没有它）仍然放行。
 - **MySQL 上 `WithTx` 回调吞掉死锁后继续，前面的写入丢了、后面的写入留下、没有任何错误**：InnoDB 检测到死锁（1213）或锁表满（1206）时回滚**整个**事务并让会话退出事务（`@@in_transaction=0`），之后回调里的每条语句都各自自动提交，最后的 `COMMIT` 什么也不提交。现在事务执行器记住这类错误：之后的语句一律拒绝（说明事务已被数据库回滚、此时执行会自行提交），`WithTx` 拒绝提交并返回那个死锁错误（`IsTxConflictError` 为真，配 `WithRetry` 就整体重跑）。PostgreSQL 本来就拒绝失败后的语句且驱动报告"commit 变成了 rollback"，SQLite 的失败不结束事务，两者不变；MySQL 的重复键等语句级错误也不变——事务照常继续。
 - **`[N]byte` 字段（UUID、哈希的常见形态）生成器收下、运行时却写不进也读不出**（`sql: converting argument $4 type: unsupported type [16]uint8, a array`）：database/sql 只绑定和扫描字节切片，不碰数组。现在 `[N]byte`、具名数组类型（`type UUID [16]byte`）、它们的 `*T` 和 `sql.Null[T]` 形态在三个引擎上都按字节写入、读回数组；库里存着别的长度是读取错误（说明值几字节、字段几字节），不是截断的键。自带 `Value` / `Scan` 的类型（`uuid.UUID`）照旧用自己的。
 - **`size:` 写在数字、布尔、时间字段上此前被静默忽略**（`int64` 配 `size:10` 生成的是 `BIGINT`，不是十位的列）：现在 `tsq gen` 拒绝并说明 `size:` 只用于字符串和 `[]byte`。
