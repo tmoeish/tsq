@@ -41,7 +41,7 @@ PG 事务里任一语句失败即 aborted，其后都报 `25P02`：**凡是"捕�
 
 ## InnoDB 回滚整个事务后会话就退出了事务 (2026-10-08，随机事务生命周期差分)
 
-死锁（1213）后 `@@in_transaction=0`：回调里下一条语句自行提交、最后的 `COMMIT` 空转，吞掉错误继续的回调丢前留后且无错（PG 驱动报 "commit unexpectedly resulted in rollback"，SQLite 的失败不结束事务）。门是 `txState` + `TestIntegrationASwallowedDeadlockCannotCommit`（对方事务先改更多行，InnoDB 回滚改得少的那个，回调才是牺牲者）。
+死锁（1213）后 `@@in_transaction=0`：回调里下一条语句自行提交、最后的 `COMMIT` 空转，吞掉错误继续的回调丢前留后且无错（PG 驱动报 "commit unexpectedly resulted in rollback"，SQLite 的失败不结束事务）。门是 `txState` + `TestIntegrationASwallowedDeadlockCannotCommit`（对方事务先改更多行，InnoDB 回滚改得少的那个，回调才是牺牲者）；`WrapExecutor` 按"句柄能 `Commit` / `Rollback`"认事务并给同一个 `txState`（假句柄测得到，`TestAWrappedTransactionRemembersItsRollback`），`*sql.Tx` 类型断言认不出别人的事务类型。
 同轮：SQLite 只配 busy_timeout + WAL 仍 `SQLITE_BUSY`——先读后写的 deferred 事务升级写锁不等 busy handler；文档加 `_txlock=immediate`。
 
 ## 决定：commit 阶段只对明确冲突码重试 (2026-08-26)

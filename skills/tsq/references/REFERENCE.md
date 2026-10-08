@@ -1128,7 +1128,9 @@ Row writes are methods on the table descriptor, and the generated row methods ca
 
 The executor `db` is a `*tsq.Runtime`, the executor `WithTx` passes to its callback, or
 `tsq.WrapExecutor(handle, dialect.Postgres)` (it returns an error for a nil handle or an unknown dialect) around a `*sql.DB` / `*sql.Tx` / `*sql.Conn` (any `tsq.DBTX`) opened elsewhere. A bare
-`*sql.DB` does not compile: TSQ has to know the dialect to render a statement.
+`*sql.DB` does not compile: TSQ has to know the dialect to render a statement. A wrapped `*sql.Tx`
+refuses its statements after an error the engine rolled the transaction back on (a deadlock on
+MySQL), as the `WithTx` executor does; its `Commit` stays yours, and commits nothing then.
 
 ### Deleting rows
 
