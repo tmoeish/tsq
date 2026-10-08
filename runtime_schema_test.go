@@ -785,6 +785,50 @@ func TestValidateReportsATypedMismatch(t *testing.T) {
 	}
 }
 
+// TestMismatchSaysWhatDiffers covers the lines of a SchemaMismatchError for a
+// column that differs: "alter column n" said nothing a reader could act on, and
+// where the engine could not be asked whether two spellings are one (no right to
+// a temporary table), the text comparison's answer came without that reason.
+func TestMismatchSaysWhatDiffers(t *testing.T) {
+	db, dsn := newSQLiteIndexTestEngine(t)
+
+	if _, err := db.DB().ExecContext(context.Background(), `CREATE TABLE gadgets (id INTEGER PRIMARY KEY, qty TEXT DEFAULT 'x', note VARCHAR(10) NOT NULL)`); err != nil {
+		t.Fatal(err)
+	}
+
+	gadgets := wideTableOf("gadgets", []string{"id", "qty", "note"}, []tsqdialect.ColumnSpec{
+		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true},
+		{Name: "qty", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 32}},
+		{Name: "note", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 10, Nullable: true}},
+	}, nil, func(r *gadgetsRow) *[16]any { return &r.Fields })
+
+	_, err := Open(context.Background(), "sqlite", dsn, []Table{gadgets}, WithSchemaPolicy(SchemaPolicyValidate))
+
+	mismatch, ok := errors.AsType[*SchemaMismatchError](err)
+	if !ok {
+		t.Fatalf("Validate = %v; want a SchemaMismatchError", err)
+	}
+
+	for _, want := range []string{
+		"alter column qty (type TEXT, declared INTEGER, NULL, declared NOT NULL, default 'x', declared none, range check none, declared",
+		"alter column note (NOT NULL, declared NULL)",
+	} {
+		if !slices.ContainsFunc(mismatch.Changes, func(line string) bool { return strings.HasPrefix(line, want) }) {
+			t.Errorf("changes %q lack a line starting %q", mismatch.Changes, want)
+		}
+	}
+
+	// The engine's answer that could not be had is said beside the comparison.
+	before := sqld.Column{Name: "n", Type: tsqdialect.ColumnType{RawType: "decimal(8,0)"}, NativeType: "decimal(8,0)"}
+	after := tsqdialect.ColumnSpec{Name: "n", Type: tsqdialect.ColumnType{RawType: "NUMERIC(8)"}}
+	lines := tableColumnChangeLines(sqld.MySQLDialect{}, []tableColumnChange{{kind: tableColumnAlter, before: &before, after: &after}},
+		map[string]error{"n": errors.New("Access denied for user 'limited'")})
+
+	if len(lines) != 1 || !strings.Contains(lines[0], "could not be asked") || !strings.Contains(lines[0], "Access denied") || !strings.Contains(lines[0], "declared NUMERIC(8)") {
+		t.Fatalf("lines = %q; want the unasked probe's reason beside the comparison", lines)
+	}
+}
+
 // TestSQLiteReconcileLeavesATypeOfTheSameAffinity covers a VARCHAR whose size
 // differs from the declared one on SQLite, which enforces neither: Reconcile
 // rebuilt the table for it on every boot, dropping its triggers.

@@ -173,8 +173,11 @@ func (r *Runtime) applyTablePolicyForTable(ctx context.Context, table *registere
 	}
 
 	changes := diffTableColumns(r.dialect, current, table.Columns)
+
+	var unasked map[string]error
+
 	if hasAlterColumnChange(changes) {
-		current = r.adoptEngineSpelling(ctx, tableName, current, changes)
+		current, unasked = r.adoptEngineSpelling(ctx, tableName, current, changes)
 		changes = diffTableColumns(r.dialect, current, table.Columns)
 	}
 
@@ -184,13 +187,13 @@ func (r *Runtime) applyTablePolicyForTable(ctx context.Context, table *registere
 
 	switch r.tablePolicy {
 	case SchemaPolicyValidate:
-		return &SchemaMismatchError{Table: tableName, Changes: tableColumnChangeLines(changes)}
+		return &SchemaMismatchError{Table: tableName, Changes: tableColumnChangeLines(r.dialect, changes, unasked)}
 	case SchemaPolicyCreateMissing:
 		// Missing columns are added; a column that differs or is not declared is
 		// Reconcile's to change, and nothing is added while one is there.
 		added := slices.DeleteFunc(slices.Clone(changes), func(c tableColumnChange) bool { return c.kind != tableColumnAdd })
 		if len(added) < len(changes) {
-			return &SchemaMismatchError{Table: tableName, Changes: tableColumnChangeLines(changes)}
+			return &SchemaMismatchError{Table: tableName, Changes: tableColumnChangeLines(r.dialect, changes, unasked)}
 		}
 
 		// SQLite cannot ADD every column to a table with rows: such a column is
@@ -398,8 +401,9 @@ func (r *Runtime) rebuildTable(
 // one thing (see sqldialect.AdoptSpelling). Only a column the text comparison
 // calls different is probed, so a schema that matches costs nothing. A probe that
 // cannot run (no right to create a temporary table, a declaration the engine
-// refuses) leaves the text comparison's answer.
-func (r *Runtime) adoptEngineSpelling(ctx context.Context, tableName string, current []sqld.Column, changes []tableColumnChange) []sqld.Column {
+// refuses) leaves the text comparison's answer, and unasked carries why, by
+// column, so that a mismatch reported for it says the engine was not asked.
+func (r *Runtime) adoptEngineSpelling(ctx context.Context, tableName string, current []sqld.Column, changes []tableColumnChange) (settled []sqld.Column, unasked map[string]error) {
 	var conn *sql.Conn
 
 	defer func() {
@@ -408,7 +412,7 @@ func (r *Runtime) adoptEngineSpelling(ctx context.Context, tableName string, cur
 		}
 	}()
 
-	settled := slices.Clone(current)
+	settled = slices.Clone(current)
 
 	for _, change := range changes {
 		if change.kind != tableColumnAlter || change.before.PrimaryKey || change.after.PrimaryKey || change.after.AutoIncrement {
@@ -427,7 +431,7 @@ func (r *Runtime) adoptEngineSpelling(ctx context.Context, tableName string, cur
 			if conn == nil {
 				opened, err := r.db.Conn(ctx)
 				if err != nil {
-					return current
+					return current, nil
 				}
 
 				conn = opened
@@ -438,12 +442,18 @@ func (r *Runtime) adoptEngineSpelling(ctx context.Context, tableName string, cur
 
 		same, supported, err := r.dialect.ProbeColumn(ctx, probeOn, tableName, *change.before, *change.after)
 		if !supported {
-			return current
+			return current, nil
 		}
 
 		if err != nil {
 			r.warn("could not ask the database how it spells a declared column; it is compared as text",
 				"table", tableName, "column", change.after.Name, "error", err)
+
+			if unasked == nil {
+				unasked = map[string]error{}
+			}
+
+			unasked[change.after.Name] = err
 
 			continue
 		}
@@ -455,7 +465,7 @@ func (r *Runtime) adoptEngineSpelling(ctx context.Context, tableName string, cur
 		}
 	}
 
-	return settled
+	return settled, unasked
 }
 
 // retyped reports a column the rebuild carries into another type.
@@ -833,7 +843,12 @@ func ddlColumnChangeName(change tableColumnChange) string {
 	}
 }
 
-func tableColumnChangeLines(changes []tableColumnChange) []string {
+// tableColumnChangeLines describes the changes for a SchemaMismatchError: what
+// to add or drop, and for a column that differs, what differs (the type as the
+// database reports it against the declared spelling, NULL against NOT NULL, the
+// default, the range constraint), with a note where the engine could not be
+// asked whether two spellings are one (unasked, by column).
+func tableColumnChangeLines(dialect sqld.Dialect, changes []tableColumnChange, unasked map[string]error) []string {
 	lines := make([]string, 0, len(changes))
 	for _, change := range changes {
 		switch change.kind {
@@ -842,11 +857,74 @@ func tableColumnChangeLines(changes []tableColumnChange) []string {
 		case tableColumnDrop:
 			lines = append(lines, "drop column "+change.before.Name)
 		case tableColumnAlter:
-			lines = append(lines, "alter column "+change.after.Name)
+			line := "alter column " + change.after.Name
+			if parts := columnDifferences(dialect, *change.before, *change.after); len(parts) > 0 {
+				line += " (" + strings.Join(parts, ", ") + ")"
+			}
+
+			if err := unasked[change.after.Name]; err != nil {
+				line += "; the database could not be asked whether the two spellings are one, so they are compared as text: " + err.Error()
+			}
+
+			lines = append(lines, line)
 		}
 	}
 
 	return lines
+}
+
+// columnDifferences lists what differs between a live column and its declaration,
+// each as "<what> <live>, declared <wanted>".
+func columnDifferences(dialect sqld.Dialect, before sqld.Column, after tsqdialect.ColumnSpec) []string {
+	var parts []string
+
+	if !sqld.SameColumnType(dialect, before, after) {
+		live := before.NativeType
+		if live == "" {
+			live = dialect.ColumnTypeSQL(before.Type)
+		}
+
+		parts = append(parts, "type "+live+", declared "+dialect.ColumnTypeSQL(after.Type))
+	}
+
+	if before.Type.Nullable != after.Type.Nullable {
+		parts = append(parts, nullability(before.Type.Nullable)+", declared "+nullability(after.Type.Nullable))
+	}
+
+	if before.PrimaryKey != after.PrimaryKey {
+		parts = append(parts, fmt.Sprintf("primary key %t, declared %t", before.PrimaryKey, after.PrimaryKey))
+	}
+
+	if before.AutoIncrement != after.AutoIncrement {
+		parts = append(parts, fmt.Sprintf("auto-increment %t, declared %t", before.AutoIncrement, after.AutoIncrement))
+	}
+
+	// An auto-increment key carries the engine's own default (a sequence).
+	if wanted := sqld.DefaultSQL(dialect, after); (!before.PrimaryKey || !before.AutoIncrement) && !sqld.SameDefault(before.Default, wanted) {
+		parts = append(parts, "default "+orNone(before.Default)+", declared "+orNone(wanted))
+	}
+
+	if wanted, _ := sqld.RangeCheck(dialect, after); !sqld.SameRangeCheck(after.Name, before.Check, wanted) {
+		parts = append(parts, "range check "+orNone(before.Check)+", declared "+orNone(wanted))
+	}
+
+	return parts
+}
+
+func nullability(nullable bool) string {
+	if nullable {
+		return "NULL"
+	}
+
+	return "NOT NULL"
+}
+
+func orNone(s string) string {
+	if s == "" {
+		return "none"
+	}
+
+	return s
 }
 
 // ensureFullTextIndex creates the full-text index when it is missing and the
