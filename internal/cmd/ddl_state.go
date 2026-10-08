@@ -1171,6 +1171,10 @@ func renderDDLIncrementalAggregateBody(dialect ddlDialectSpec, changes ddlChange
 		sections = append(sections, "-- Indexes dropped before the tables change\n\n"+strings.Join(append(replaced, dropped...), "\n\n"))
 	}
 
+	if hint := renamedTableHint(dialect, changes); hint != "" {
+		sections = append(sections, hint)
+	}
+
 	for _, tableName := range changes.Tables {
 		body, ok := renderDDLIncrementalTableBody(dialect, tableName, byTable[tableName])
 		if !ok {
@@ -1233,6 +1237,67 @@ func renderDDLIncrementalTableBody(
 	}
 
 	return strings.Join(lines, "\n\n"), true
+}
+
+// renamedTableHint is a block for a section that drops one table and creates
+// one with the same columns: a table renamed, which the generator cannot tell
+// from one replaced. The section creates the new table empty and leaves the
+// DROP to a hand that would lose the rows; RENAME keeps them, and the hint
+// spells it, with the index renames (index names derive from the table's; a
+// renamed table alone leaves the old names, which Reconcile would then replace).
+// SQLite renames no index: the old one is dropped and the new one created.
+func renamedTableHint(dialect ddlDialectSpec, changes ddlChangeSet) string {
+	var created, dropped []*ddlSnapshotTable
+
+	for _, tableName := range changes.Tables {
+		for _, op := range changes.ByTable[tableName] {
+			switch op.kind {
+			case ddlChangeCreateTable:
+				created = append(created, op.newTable)
+			case ddlChangeDropTable:
+				dropped = append(dropped, op.oldTable)
+			}
+		}
+	}
+
+	if len(created) != 1 || len(dropped) != 1 || !sameSnapshotColumns(dropped[0].Columns, created[0].Columns) {
+		return ""
+	}
+
+	from, to := dropped[0], created[0]
+	q := dialect.dialect.QuoteIdent
+	lines := []string{
+		fmt.Sprintf("-- %s dropped and %s created with the same columns; a renamed table? Then run this instead of the two tables' sections below:", from.Name, to.Name),
+		fmt.Sprintf("-- ALTER TABLE %s RENAME TO %s;", q(from.Name), q(to.Name)),
+	}
+
+	for i, idx := range to.Indexes {
+		if i >= len(from.Indexes) || from.Indexes[i].Name == idx.Name {
+			continue
+		}
+
+		old := from.Indexes[i]
+
+		switch dialect.dialect.Name() {
+		case sqld.Postgres:
+			lines = append(lines, fmt.Sprintf("-- ALTER INDEX %s RENAME TO %s;", q(old.Name), q(idx.Name)))
+		case sqld.MySQL:
+			lines = append(lines, fmt.Sprintf("-- ALTER TABLE %s RENAME INDEX %s TO %s;", q(to.Name), q(old.Name), q(idx.Name)))
+		default:
+			lines = append(lines, "-- "+renderDDLDropIndexStatement(to.Name, old, dialect), "-- "+renderDDLIndexCreateStatement(to.Name, idx, dialect))
+		}
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+// sameSnapshotColumns reports two column lists of the same names and shapes.
+func sameSnapshotColumns(left, right []ddlSnapshotColumn) bool {
+	return slices.EqualFunc(left, right, func(a, b ddlSnapshotColumn) bool {
+		a.Default, b.Default = "", ""
+
+		return a == b
+	})
 }
 
 // renamedColumnHint is a line for a section that drops one column and adds one
