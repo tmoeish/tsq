@@ -205,6 +205,28 @@ func TestWithTxInsideWithTxJoinsTheTransaction(t *testing.T) {
 	if n := count(db); n != 2 {
 		t.Fatalf("committed rows = %d; want 2", n)
 	}
+
+	// Page given the runtime from inside a callback joins the same way: its
+	// snapshot transaction would otherwise wait for the pool's one connection.
+	err = db.WithTx(ctx, func(ctx context.Context, outer Executor) error {
+		if err := Users.Insert(ctx, outer, &user{Name: "paged", Email: "paged@example.com"}); err != nil {
+			return err
+		}
+
+		page, err := Select(User__Cols...).From(Users).MustBuild().Page(ctx, db, Paging{Size: 10, OrderBy: []OrderBy{User_ID.Asc()}})
+		if err != nil {
+			return err
+		}
+
+		if page.Total != 3 {
+			return fmt.Errorf("Page inside the callback counts %d rows; want the callback's row too", page.Total)
+		}
+
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestRuntimeWithTxRequiresInitializedRuntime(t *testing.T) {
