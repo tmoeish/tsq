@@ -233,6 +233,23 @@ func TestWithTxInsideWithTxJoinsTheTransaction(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// A context kept past its callback carries a transaction that is over: a
+	// WithTx given it opens its own, as it would with any other context.
+	over := &txState{}
+	over.finish()
+
+	kept := context.WithValue(ctx, txContextKey{}, boundExecutor{DBTX: db.DB(), s: execScope{dialect: db.dialect, runtime: db, tx: true}, tx: over})
+
+	if err := db.WithTx(kept, func(ctx context.Context, tx Executor) error {
+		return Users.Insert(ctx, tx, &user{Name: "later", Email: "later@example.com"})
+	}); err != nil {
+		t.Fatalf("WithTx with a kept context: %v", err)
+	}
+
+	if n := count(db); n != 3 {
+		t.Fatalf("committed rows after the kept context = %d; want 3", n)
+	}
+
 	// Page given the runtime from inside a callback joins the same way: its
 	// snapshot transaction would otherwise wait for the pool's one connection.
 	err = db.WithTx(ctx, func(ctx context.Context, outer Executor) error {
@@ -245,7 +262,7 @@ func TestWithTxInsideWithTxJoinsTheTransaction(t *testing.T) {
 			return err
 		}
 
-		if page.Total != 3 {
+		if page.Total != 4 {
 			return fmt.Errorf("Page inside the callback counts %d rows; want the callback's row too", page.Total)
 		}
 

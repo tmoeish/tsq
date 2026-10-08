@@ -120,6 +120,33 @@ type txState struct {
 	// which carries their rows: a statement run on it meanwhile breaks both on
 	// MySQL and PostgreSQL.
 	iterating int
+	// done is set once the transaction committed or rolled back: a context that
+	// still carries it (kept past the callback) then carries nothing.
+	done bool
+}
+
+// finish marks the transaction over.
+func (t *txState) finish() {
+	if t == nil {
+		return
+	}
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	t.done = true
+}
+
+// live reports a transaction not yet committed or rolled back.
+func (t *txState) live() bool {
+	if t == nil {
+		return false
+	}
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	return !t.done
 }
 
 // holdRows marks an Iter open over the transaction; releaseRows undoes it.

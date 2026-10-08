@@ -1343,7 +1343,8 @@ callback runs under a savepoint of its own: its writes are the outer transaction
 them; its error rolls back to the savepoint and is returned, so the outer callback decides whether
 to go on; a nil return releases the savepoint. The options are the outer transaction's: an inner
 `WithRetry` or `WithIsolation` does nothing, since there is no transaction of its own to retry or
-set. The context handed to the callback is what carries the transaction: pass it on. `Page`, which
+set. The context handed to the callback is what carries the transaction: pass it on; kept past the
+callback, it carries a transaction that is over, and a `WithTx` given it opens its own. `Page`, which
 runs its count and its rows in a read-only transaction when given the runtime, joins the enclosing
 transaction the same way from inside a callback, and sees what the callback wrote. While an `Iter`
 over the transaction is open, a nested `WithTx` is refused instead: the connection carries the
