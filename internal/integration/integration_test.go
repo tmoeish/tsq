@@ -811,6 +811,54 @@ func TestAWrappedTransactionRemembersItsRollback(t *testing.T) {
 	}
 }
 
+// TestIntegrationNestedWithTxOnEveryEngine runs WithTx inside WithTx on each
+// engine: the inner joins the outer under a savepoint, its failure undoes its
+// own write only, and a pool of one connection is enough.
+func TestIntegrationNestedWithTxOnEveryEngine(t *testing.T) {
+	for _, target := range integrationTargets(t) {
+		t.Run(target.name, func(t *testing.T) {
+			ctx := context.Background()
+
+			dropAcademyTables(t, target)
+			rt, _ := openWithPolicy(t, target, academy.TSQTables(), tsq.SchemaPolicyReconcile)
+			rt.DB().SetMaxOpenConns(1)
+
+			inner := errors.New("inner")
+
+			err := rt.WithTx(ctx, func(ctx context.Context, outer tsq.Executor) error {
+				if err := academy.TableLearner.Insert(ctx, outer, &academy.Learner{Name: "kept", Email: "kept@x"}); err != nil {
+					return err
+				}
+
+				err := rt.WithTx(ctx, func(ctx context.Context, tx tsq.Executor) error {
+					if n, err := academy.TableLearner.Query().Count(ctx, tx); err != nil || n != 1 {
+						return fmt.Errorf("the inner sees %d rows; want the outer's: %w", n, err)
+					}
+
+					if err := academy.TableLearner.Insert(ctx, tx, &academy.Learner{Name: "gone", Email: "gone@x"}); err != nil {
+						return err
+					}
+
+					return inner
+				})
+				if !errors.Is(err, inner) {
+					return fmt.Errorf("inner = %w; want its own error", err)
+				}
+
+				return nil
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			names, err := tsq.SelectValue(academy.TableLearner.Name).From(academy.TableLearner).MustBuild().List(ctx, rt)
+			if err != nil || len(names) != 1 || *names[0] != "kept" {
+				t.Fatalf("learners after the nested transactions = %v, %v; want kept only", names, err)
+			}
+		})
+	}
+}
+
 // TestIntegrationCapabilitiesExecute proves the capability bits against real
 // engines: every capability a dialect advertises must actually execute there.
 func TestIntegrationCapabilitiesExecute(t *testing.T) {

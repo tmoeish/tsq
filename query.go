@@ -228,6 +228,14 @@ func (q *Query[O]) each(ctx context.Context, db Executor, op string, stmt prepar
 		}
 	}()
 
+	// An Iter hands rows to the caller's code while they are open: a WithTx
+	// called from there must not join the transaction whose connection carries
+	// them (see withTxResult).
+	if bound, ok := db.(boundExecutor); ok && op == "iter" {
+		bound.tx.holdRows()
+		defer bound.tx.releaseRows()
+	}
+
 	for rows.Next() {
 		row, err := q.scan(rows)
 		if err != nil {

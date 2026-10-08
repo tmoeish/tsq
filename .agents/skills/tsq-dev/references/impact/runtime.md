@@ -42,6 +42,9 @@
 - **不要引入任何 TSQ 自己的记账表。** 一份全局状态被只知道局部真相的写入者覆盖，就是数据丢失。
 - 加新策略档要想清楚它是不是仍然"从不删表"，并且三个方言都要在集成测试里跑。
 - **`sqld.Column` 里不参与比较的字段**（`Collation`、`Comment`）只为改列时重述：`columnsEqual` / `columnDifferences` 不看它们；`AlterColumnSQL` 新增的语句形态和 SQLite 重建的 `renderRebuiltTableStatement`（不是 `renderCreateTableStatement`）都要把它们带上，门是 `TestIntegrationAnAlterKeepsTheColumnsOwnAttributes`。
+- **`WithTx` 的回调 ctx 带着事务**（`txContextKey` → `boundExecutor`，`txDepthKey` 给嵌套的 savepoint 编号）：回调里再调 `WithTx` 走 `joinTx`，
+  不开新事务。给回调换 ctx 的代码（追踪、超时）要从回调的 ctx 派生，不能从外面的 ctx 重新来，否则嵌套又变成第二个事务。
+  `each` 在 `iter` 期间给 `txState.iterating` 计数，加入被拒；新的"把行交给调用方代码"的读取路径要同样计数。
 - **"改名"的判断有两份**：生成器的 `renamedColumnHint` / `renamedTableHint`（`internal/cmd/ddl_state.go`，写注释掉的 RENAME）和运行时的
   `renamedColumnPair`（`runtime_schema.go`，只警告）。"同形状"的定义改了两边一起改。
 - **唯一索引先查重复行再动表**（`refuseUniqueIndexesOverDuplicates`，在 `applySchemaPolicies` 里任何 DDL 之前，`changesSchema(indexPolicy)` 时；缺失的和 `Reconcile` 会重建的同名索引都算）：

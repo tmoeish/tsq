@@ -21,10 +21,6 @@
 **会话文本不是 UTF-8 就拒绝启动**（同日，和 `loc` 同一类：悄悄存错）：pgx 不设 `client_encoding`，LATIN1 库上 `é` 存成 `Ã©` 还数成两个字符；`SQL_ASCII` 库不转换、不检查。非严格模式只警告是因为那是部署选的语义，这个不是任何人想要的。
 **决定（维护者 2026-10-06）：列类型比字段宽的地方加 `CHECK` 守住字段范围**（`sqldialect.RangeCheck`，PG 的无符号、SQLite 除 int64 外的全部整数；MySQL 原生）：`Set(qty, Sub(qty, n))` 曾把负数写进 `uint32` 的列、整行读不出。约束叫 `ck_<列>`，三处要一起认它——列定义（`ColumnDefinitionSQL`）、检查（PG `pg_constraint`、SQLite 解析 `sqlite_master.sql`，进 `Column.Check`）、比较（`SameRangeCheck` 按数值比，PG 会改写表达式）；SQLite 重建的阻断项要先把 `ck_` 剥掉（`sqliteWithoutRangeChecks`）。生成器的迁移假定上一份声明建的表带着它，更早的表靠 `Reconcile`。PG 改类型要**先删它**（第十轮随机迁移找到：`qty >= 0` 按 VARCHAR 解析就报 operator does not exist）。
 
-## "抓住错误继续跑"在 PostgreSQL 的事务里不成立 (2026-08-28)
-
-PG 事务里任一语句失败即 aborted，其后都报 `25P02`：**凡是"捕获错误后继续用同一个连接"的代码，都要问 PG 上还能不能用**（`WithSkipDuplicates` 的修法见 `../impact/write.md` § 改了批量写）。
-
 ## 转义值和声明转义符是同一件事的两半 (2026-08-28)
 
 转义了 `%` / `_` 却渲染裸 `LIKE ?`，SQLite 没有默认转义符、搜 `a_b` 零行。**任何"对值做了预处理"的功能都要问"数据库怎么知道"**；门在 `../impact/query.md` § 改了 LIKE 谓词的渲染。
@@ -43,6 +39,12 @@ PG 事务里任一语句失败即 aborted，其后都报 `25P02`：**凡是"捕�
 
 死锁（1213）后 `@@in_transaction=0`：回调里下一条语句自行提交、最后的 `COMMIT` 空转，吞掉错误继续的回调丢前留后且无错（PG 驱动报 "commit unexpectedly resulted in rollback"，SQLite 的失败不结束事务）。门是 `txState` + `TestIntegrationASwallowedDeadlockCannotCommit`（对方事务先改更多行，InnoDB 回滚改得少的那个，回调才是牺牲者）；`WrapExecutor` 按"句柄能 `Commit` / `Rollback`"认事务并给同一个 `txState`（假句柄测得到，`TestAWrappedTransactionRemembersItsRollback`），`*sql.Tx` 类型断言认不出别人的事务类型。
 同轮：SQLite 只配 busy_timeout + WAL 仍 `SQLITE_BUSY`——先读后写的 deferred 事务升级写锁不等 busy handler；文档加 `_txlock=immediate`。
+
+## 决定：回调里的 `WithTx` 加入外层事务，不另开 (2026-10-08，第十六轮)
+
+另开的事务在另一条连接上：看不见外层的写入，池只有一条连接时互等到超时。三个引擎都有 savepoint，所以内层按 savepoint 跑、错误交外层；
+否掉"报错禁止嵌套"——写 `WithTx` 的 helper 互相调用是正常形态。例外：外层正在 `Iter`（连接上传着行）时加入会把行和事务一起弄坏（MySQL busy buffer、PG bad connection），这一种拒绝。PG 事务里任一语句失败即 aborted、其后都报 `25P02`（2026-08-28）：
+**"捕获错误后继续用同一个连接"的代码都要问 PG 上还能不能用**，savepoint 是唯一答案（`WithSkipDuplicates`、这里的嵌套）。
 
 ## 决定：commit 阶段只对明确冲突码重试 (2026-08-26)
 
