@@ -164,6 +164,8 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 ### 修复
 
+- **MySQL 上全文检索词里有 `*` 就报语法错**（`Error 1064: syntax error, unexpected $end, expecting FTS_TERM or FTS_NUMB or '*'`）：自然语言模式下 `*` 没有任何含义（不做前缀匹配），但 InnoDB 的解析器照样把它当记号，单独一个 `*`、空白后的 `*`、短语后的 `"a b"*` 都是语法错，而 PostgreSQL 和 SQLite 对同一个词都正常返回——搜索框里的内容原样传进 `tsq.Matches` 就可能 500。现在 MySQL 上渲染成 `MATCH(...) AGAINST (REPLACE(?, '*', '') IN NATURAL LANGUAGE MODE)`，`AGAINST` 的参数仍是常量，全文索引照用。其余运算符字符（`+ - " ( ) ~ < > @`）在自然语言模式下本来就是普通文本。
+- **`PageRequest.Keyword` 里的 NUL 字节现在是请求错误**：PostgreSQL 拒绝任何文本参数里的 `0x00`（搜索在 PostgreSQL 上是 500、在另两个引擎上是零行），而没有人会往搜索框里敲 NUL。`Paging()` / `Keyset()` 现在返回 `*PageRequestError{Field: "keyword"}`，三个引擎上都是 400。
 - **PostgreSQL 上带范围约束的列改成文本类型被拒绝**（`operator does not exist: character varying >= integer`）：`ALTER COLUMN TYPE` 会按新类型重新解析列上的 `CHECK`，`qty >= 0` 对 `VARCHAR` 无法解析。现在改类型前先删掉范围约束，新类型仍需要的再加回。随机生成的迁移在三引擎上执行找到的。
 - 原始 `type:` 列从可空改成 NOT NULL 而表里有 NULL 时，生成的迁移此前只有一条会被引擎拒绝的语句；现在上面多一行说明：这一列没有 TSQ 知道的零值，先把 NULL 填上，否则改动被拒绝。
 - **`bool` 字段写 `default:1` / `default:0`，PostgreSQL 建表失败**（`default expression is of type integer`）：MySQL 和 SQLite 两种写法都收，PostgreSQL 只收 `TRUE` / `FALSE`。现在布尔默认值按各引擎的写法写出，同一份模型三个引擎都能建；漂移比较本来就把两种写法当一回事。

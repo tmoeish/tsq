@@ -2,6 +2,7 @@ package tsq
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -174,6 +175,13 @@ func TestPageRequestErrorsAreTyped(t *testing.T) {
 
 	if _, err := (&PageRequest{Size: -1}).Paging(User_ID); !isErr[*PageRequestError](err) {
 		t.Errorf("negative size = %v", err)
+	}
+
+	// A NUL byte in the keyword is refused on every engine (PostgreSQL would refuse
+	// the parameter, the others match nothing), so the answer is 400 everywhere.
+	var invalid *PageRequestError
+	if _, err := (&PageRequest{Keyword: "a\x00b"}).Keyset(User_ID); !errors.As(err, &invalid) || invalid.Field != "keyword" {
+		t.Errorf("NUL keyword = %v", err)
 	}
 
 	q := Select(User__Cols...).From(Users).MustBuild()

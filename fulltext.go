@@ -28,7 +28,8 @@ type MatchTerm interface {
 // word must appear), and SQLite, which has no full-text index TSQ can manage,
 // matches term as a substring of any indexed column. Ranking and operator syntax
 // are not portable; dialect.CapabilityFullTextSearch reports which kind a runtime
-// gets.
+// gets. The term is taken as words on every dialect: an operator character in it
+// is not one, so a term typed into a search box can be passed as it is.
 func Matches(index FullTextIndex, term MatchTerm) Condition {
 	switch {
 	case index.err != nil:
@@ -66,13 +67,20 @@ func Matches(index FullTextIndex, term MatchTerm) Condition {
 
 // matchAgainst is MySQL's MATCH(cols) AGAINST (term), which needs the FULLTEXT
 // index over exactly those columns.
+//
+// The asterisks are removed from the term first. Natural language mode gives '*'
+// no meaning (no prefix match, unlike boolean mode), yet InnoDB's parser still
+// reads it as a token and refuses a term where one stands alone or follows a
+// phrase ("*", "a \"b c\"*") with a syntax error; the other operator characters
+// pass as plain text. REPLACE keeps AGAINST's argument constant, so the index is
+// used as before.
 func matchAgainst(index FullTextIndex, term sqlExpr) sqlExpr {
 	cols := make([]sqlExpr, 0, len(index.index.Columns))
 	for _, name := range index.index.Columns {
 		cols = append(cols, columnRef(index.table, name))
 	}
 
-	return sqlJoin(sqlText("MATCH("), sqlList(", ", cols), sqlText(") AGAINST ("), term, sqlText(" IN NATURAL LANGUAGE MODE)"))
+	return sqlJoin(sqlText("MATCH("), sqlList(", ", cols), sqlText(") AGAINST (REPLACE("), term, sqlText(", '*', '') IN NATURAL LANGUAGE MODE)"))
 }
 
 // textSearchMatch repeats the expression the GIN index holds, which is what lets

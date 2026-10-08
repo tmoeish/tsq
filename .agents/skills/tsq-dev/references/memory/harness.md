@@ -50,13 +50,10 @@ buildinfo 判成倒退、所有 PR 变红（2026-09-28）。**改发版脚本时
 **用 `gh pr merge --auto`**，刚建的 PR 没注册 check，`gh pr checks --watch` 会直接退出；**验证服务端规则不能用
 `git push --dry-run`**（不联服务端），测 tag 规则用 Go Proxy 忽略的探针 tag `v-ruleset-probe`。
 
-## CI 里用 `@latest` 装的工具，会在它发新版本的那天让每个 PR 变红 (2026-09-09)
+## 工具链钉版本、`-X` 要跑产物核对 (2026-08-21，2026-09-09)
 
-goreleaser v2.18.1 一发布就要求更新的 Go，`@latest` 当天装不上；更贵的是 release job 的 `version: latest` 只在 **tag 推送之后**才跑、不可撤销。规则在 `../impact/harness.md` § 改了 CI 里安装的工具。
-
-## `-X` 打错包路径是**静默**失败的 (2026-08-21)
-
-链接器对找不到的 `-X` 符号直接忽略，三份配置（含已删的 Dockerfile）各犯过一次。`release-check` 核对路径，CI 的 `Build` 运行二进制核对值——**静态检查证明路径对，跑产物证明值到了，缺一不可。**
+CI 里 `@latest` 装的工具在它发新版本那天让每个 PR 变红（goreleaser v2.18.1 要求更新的 Go），release job 的 `version: latest` 更是只在 **tag 推送之后**才跑、不可撤销；规则在 `../impact/harness.md` § 改了 CI 里安装的工具。
+链接器对找不到的 `-X` 符号**静默忽略**（三份配置各犯过一次）：`release-check` 核对路径，CI 的 `Build` 运行二进制核对值——**静态检查证明路径对，跑产物证明值到了，缺一不可。**
 
 ## 决定：两份技能按所有权拆开，不按篇幅 (2026-08-21)
 

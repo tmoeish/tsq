@@ -1693,7 +1693,23 @@ func TestIntegrationFullTextSearch(t *testing.T) {
 				t.Fatalf("value term = %d, %v", n, err)
 			}
 
+			// A term is words on every engine: operator characters typed into a
+			// search box are not a syntax error anywhere (InnoDB refuses a lone or
+			// phrase-trailing '*' in natural language mode unless it is removed).
+			for _, operators := range []string{"*", " * ", "\"*", "\"query planning\"*", "+kafka -streams", "kafka*", "(", "~<>@", `"`} {
+				if _, err := search.Count(ctx, rt, term.Bind(operators)); err != nil {
+					t.Fatalf("term %q on %s: %v", operators, target.name, err)
+				}
+			}
+
 			native := tsqdialect.Supports(rt.Dialect(), tsqdialect.CapabilityFullTextSearch)
+
+			// The words around the operators are still searched where there is an
+			// index (the substring fallback looks for the asterisk itself).
+			if n, err := search.Count(ctx, rt, term.Bind("kafka*")); err != nil || native && n != 1 {
+				t.Fatalf("kafka* = %d, %v", n, err)
+			}
+
 			if native != (target.driver != "sqlite") {
 				t.Fatalf("%s reports full-text support %v", target.name, native)
 			}

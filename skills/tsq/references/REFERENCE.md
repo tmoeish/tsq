@@ -939,7 +939,7 @@ the handler does not pass it again:
 ```go
 paging, err := req.Paging(database.TableUser.Name, database.TableUser.CreatedAt)
 if err != nil {
-	return err // 400: a *tsq.PageRequestError (negative page or size, unknown or ambiguous sort field, bad direction, bad cursor)
+	return err // 400: a *tsq.PageRequestError (negative page or size, unknown or ambiguous sort field, bad direction, NUL in the keyword, bad cursor)
 }
 
 resp, err := database.TableUser.Query().Page(ctx, runtime, paging)
@@ -953,7 +953,8 @@ resp, err := database.TableUser.Query().Page(ctx, runtime, paging)
   search ignores it, as it ignores any parameter it does not know. Passing a different
   `tsq.Keyword` as well is an error
 - `Paging` (and `Keyset`) is where the request is validated: a negative page or size, a page
-  above `tsq.MaxPageNumber`, or an order other than `asc` / `desc` is an error. Zero means the first
+  above `tsq.MaxPageNumber`, an order other than `asc` / `desc`, or a keyword holding a NUL byte
+  (PostgreSQL refuses it in any text parameter; the others match nothing) is an error. Zero means the first
   page and the default size (20). A size above the runtime's `WithMaxPageSize` (default
   `tsq.DefaultMaxPageSize`) is not an error: `Page` serves the capped size and says so in `Size`
 - parsing the request out of a query string is the caller's job; the struct's `query` and `json`
@@ -1041,6 +1042,11 @@ tsq.Select(database.TableCourse.Columns()...).
   indexed column. Ranking and operator syntax are not portable.
   `dialect.Supports(runtime.Dialect(), dialect.CapabilityFullTextSearch)` says which kind a
   deployment gets, so a test on SQLite can still exercise the query path
+- the term is words on every dialect, so a search box's text can be passed as it is: operator
+  characters (`+ - " ( ) ~ < > @ *`) are plain text in MySQL's natural language mode and in
+  `plainto_tsquery`, never a syntax error. On MySQL the asterisks are removed first
+  (`AGAINST (REPLACE(?, '*', '') ...)`): they mean nothing there, yet InnoDB's parser refuses a
+  term where one stands alone or follows a phrase
 - the fields must be plain `string` columns
 
 ### Keyword search

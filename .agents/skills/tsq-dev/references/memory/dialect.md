@@ -51,7 +51,8 @@ MySQL 1205 / 1213 / 3572）保证事务已回滚。现在 commit 阶段只放行
 - **PG 索引自省曾看不见表达式索引**（列号 0，内连接 `pg_attribute` 丢行，GIN 每次启动报 42P07）；现在 `LEFT JOIN`。
 - **全文检索三个方言不是一回事**：MySQL `MATCH ... AGAINST`、PG `to_tsvector @@ plainto_tsquery`、SQLite
   退化成子串匹配（FTS5 要影子表和触发器）。排序和操作符不可移植，只有 `Capability` 说得清拿到哪一种。
-  `TableIndex` 加字段记得 `cloneTableIndex`：曾逐字段复制，`FullText` 标记就在那里丢过。
+  `TableIndex` 加字段记得 `cloneTableIndex`：曾逐字段复制，`FullText` 标记就在那里丢过。**MySQL 自然语言模式下 `*` 没有含义却仍是记号**
+  （2026-10-08 随机搜索词差分）：单独、空白后、短语后的 `*` 是 1064 语法错，其余运算符字符是普通文本；`matchAgainst` 包 `REPLACE(?, '*', '')`，参数仍是常量、索引照用。
 - **存在的生成列不参与 schema 对账，缺失的算缺列**（2026-10-06）：SQLite 的 `table_info` 不列生成列，曾每次启动都再 ADD（duplicate column），于是整个排除在比较之外，结果缺了声明的生成列的表 `Validate` 也放行、读它才报 no such column。现在自省读 `table_xinfo`，只比"在不在"；表达式三个引擎各报各的，仍不比。
 - **MySQL 的 `Index.Constraint` 指"外键需要的索引"**（删它报 1553）：别改成读 `TABLE_CONSTRAINTS`，那里把每个唯一索引都列成
   UNIQUE 约束，TSQ 自己建的也在内，Reconcile 就再也不能重建任何唯一索引。
