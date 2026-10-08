@@ -132,6 +132,10 @@ func buildDDLArtifacts(packagePath string, list []*genmodel.StructInfo, outDir s
 		return ddlArtifacts{}, err
 	}
 
+	if err := refuseNewerStateFile(outDir, previousState, version); err != nil {
+		return ddlArtifacts{}, err
+	}
+
 	var previousSnapshot *ddlSnapshot
 	if previousState != nil {
 		previousSnapshot = &previousState.Snapshot

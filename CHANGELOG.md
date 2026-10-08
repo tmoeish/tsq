@@ -164,6 +164,7 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 ### 修复
 
+- **旧版 `tsq gen` 遇到新版写的 `tsq.json` 会悄悄改写成自己的形态**（丢掉新版记录的渲染和它不认识的字段），两个版本的 CLI 来回改写、各自为对方的拼法写一段迁移。现在版本号比自己新的状态文件一律拒绝，并给出要安装的版本；开发构建（没有发布版本号）不比较。
 - **运行期策略改列时抹掉了 DBA 加在列上的注释和排序规则**：MySQL 的 `MODIFY COLUMN` 和 PostgreSQL 的 `ALTER COLUMN TYPE` 都按声明重写整列，列自己的 `COLLATE`（悄悄改变比较和唯一索引的语义）和 `COMMENT` 随之丢失。SQLite 的重建同样丢掉列上的 `COLLATE`。现在自省读出列自己的排序规则（和 MySQL 的注释），改列和重建时原样带上；它们不是 TSQ 声明的东西，`Validate` / `Reconcile` 不比较它们。生成的迁移文件不知道库里的样子，`MODIFY COLUMN` 里要自己重写这些属性（文档已说明）。
 - keyset 的排序项是对已选列的表达式（`tsq.Upper(t.Title).Asc()`）时，错误此前说"column title must be selected by the query"而 title 明明选了；现在说明它是表达式、keyset 只按已选的列定位。
 - **`CreateMissing` / `Reconcile` 要建的唯一索引撞上重复行时，表已经改完、索引建不成，之后每次启动都重复这一幕**：现在在任何 DDL 之前先查那些行，有重复就以 `*tsq.DuplicateRowsError` 拒绝启动（点名重复的值和行数），表原样不动。索引里的新列对每一行都是同一个值（零值或默认值），不参与区分；可空且无默认值的新列到处是 NULL、永不冲突，这种索引仍交给引擎。改类型被引擎拒绝而留下的半截改动不在此列：MySQL 的 DDL 隐式提交，TSQ 有意不把策略包进事务。

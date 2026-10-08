@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strings"
 
+	"golang.org/x/mod/semver"
+
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 	"github.com/tmoeish/tsq/v5/internal/genmodel"
 	sqld "github.com/tmoeish/tsq/v5/internal/sqldialect"
@@ -455,6 +457,26 @@ func loadDDLStateFile(outDir string) (*ddlStateFile, error) {
 	}
 
 	return &state, nil
+}
+
+// refuseNewerStateFile refuses to run over a state file a newer TSQ wrote: this
+// one would write it back as its own, in its own form, dropping what the newer
+// one records (a rendering, a field it does not know), and the next gen by the
+// newer one would read that as a change and write a migration for nothing. A
+// team's CLIs then ping-pong the file. A development build (no release version)
+// skips the check: it carries no version to compare.
+func refuseNewerStateFile(outDir string, state *ddlStateFile, version string) error {
+	if state == nil || !semver.IsValid(version) || !semver.IsValid(state.Version) {
+		return nil
+	}
+
+	if semver.Compare(state.Version, version) <= 0 {
+		return nil
+	}
+
+	return fmt.Errorf("%s was written by tsq %s, newer than this tsq (%s); upgrade tsq (go install github.com/tmoeish/tsq/v5/cmd/tsq@%s), "+
+		"or delete the state file and the generated SQL files to start their history over with this version",
+		filepath.Join(outDir, ddlStateFilename), state.Version, version, state.Version)
 }
 
 func marshalDDLStateFile(

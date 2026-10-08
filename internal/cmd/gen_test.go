@@ -3067,6 +3067,55 @@ func TestGenRefusesToStartHistoryOverGeneratedSQL(t *testing.T) {
 	}
 }
 
+// TestGenRefusesAStateFileFromANewerTSQ covers a tsq.json a teammate's newer
+// TSQ wrote: this one rewrote it as its own, dropping what the newer one records,
+// and the two CLIs then handed the file back and forth, each writing a migration
+// for the other's spelling. A newer state file is refused with the version to
+// install; the same version and an older one are taken.
+func TestGenRefusesAStateFileFromANewerTSQ(t *testing.T) {
+	if err := genModule(t, map[string]string{"model.go": "package gentest\n\n//tsq:table\ntype Row struct {\n\tID int64 `db:\"id\"`\n}\n"}); err != nil {
+		t.Fatal(err)
+	}
+
+	rewrite := func(version string) {
+		state, err := loadDDLStateFile(".")
+		if err != nil || state == nil {
+			t.Fatalf("state: %+v, %v", state, err)
+		}
+
+		state.Version = version
+		state.GeneratedBy = "tsq-" + version
+
+		content, err := json.MarshalIndent(state, "", "  ")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		writeTestFile(t, "tsq.json", string(content))
+	}
+
+	rewrite("v99.0.0")
+
+	err := runGen(t, "--check")
+	if err == nil || !strings.Contains(err.Error(), "newer than this tsq") || !strings.Contains(err.Error(), "@v99.0.0") {
+		t.Fatalf("tsq gen over a newer state file = %v; want it refused with the version to install", err)
+	}
+
+	if state, err := loadDDLStateFile("."); err != nil || state.Version != "v99.0.0" {
+		t.Fatalf("the newer state file was touched: %+v, %v", state, err)
+	}
+
+	rewrite("v0.1.0")
+
+	if err := runGen(t); err != nil {
+		t.Fatalf("tsq gen over an older state file: %v", err)
+	}
+
+	if state, err := loadDDLStateFile("."); err != nil || state.Version == "v0.1.0" {
+		t.Fatalf("an older state file was not taken over: %+v, %v", state, err)
+	}
+}
+
 // TestGenMigrationFreesIndexNamesFirst covers index names, which PostgreSQL and
 // SQLite keep per schema: renaming a table, whose DROP stays commented, created
 // its unique index under the new table while the old one still held the name,
