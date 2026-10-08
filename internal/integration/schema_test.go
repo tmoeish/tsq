@@ -685,10 +685,6 @@ func TestIntegrationAnAlterKeepsTheColumnsOwnAttributes(t *testing.T) {
 	ctx := context.Background()
 
 	for _, target := range integrationTargets(t) {
-		if target.name == "sqlite" {
-			continue
-		}
-
 		t.Run(target.name, func(t *testing.T) {
 			dropTables(t, target, "drifting")
 
@@ -710,6 +706,10 @@ func TestIntegrationAnAlterKeepsTheColumnsOwnAttributes(t *testing.T) {
 
 			var describe string
 
+			// SQLite enforces no VARCHAR length, so the widening is nothing to run
+			// there; the rebuild comes from the column becoming nullable.
+			wider := tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 40}
+
 			switch target.name {
 			case "mysql":
 				statements = []string{"ALTER TABLE `drifting` MODIFY COLUMN `c` VARCHAR(20) COLLATE utf8mb4_bin NOT NULL COMMENT 'the code'"}
@@ -717,6 +717,10 @@ func TestIntegrationAnAlterKeepsTheColumnsOwnAttributes(t *testing.T) {
 			case "postgres":
 				statements = []string{`COMMENT ON COLUMN "drifting"."c" IS 'the code'`, `ALTER TABLE "drifting" ALTER COLUMN "c" TYPE VARCHAR(20) COLLATE "C"`}
 				describe = `SELECT COALESCE(col_description(a.attrelid, a.attnum), ''), (SELECT collname FROM pg_collation WHERE oid = a.attcollation) FROM pg_attribute a WHERE a.attrelid = '"drifting"'::regclass AND a.attname = 'c'`
+			case "sqlite":
+				statements = []string{`DROP TABLE "drifting"`, `CREATE TABLE "drifting" ("id" INTEGER PRIMARY KEY AUTOINCREMENT, "c" VARCHAR(20) NOT NULL COLLATE NOCASE)`}
+				describe = `SELECT 'the code', CASE WHEN sql LIKE '%COLLATE "NOCASE"%' OR sql LIKE '%COLLATE NOCASE%' THEN 'NOCASE' ELSE '' END FROM sqlite_master WHERE name = 'drifting'`
+				wider.Nullable = true
 			}
 
 			for _, statement := range statements {
@@ -749,15 +753,22 @@ func TestIntegrationAnAlterKeepsTheColumnsOwnAttributes(t *testing.T) {
 				}
 			}
 
-			rt, ran, err := openQuietly(target, tsq.SchemaPolicyReconcile, driftingTable(tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 40}, ""))
+			rt, ran, err := openQuietly(target, tsq.SchemaPolicyReconcile, driftingTable(wider, ""))
 			if err != nil || len(ran) == 0 {
 				t.Fatalf("widen = %v, ran %v", err, ran)
 			}
 
 			_ = rt.Close()
 
-			if comment, collation := read(); comment != "the code" || !strings.EqualFold(collation, "utf8mb4_bin") && collation != "C" {
+			if comment, collation := read(); comment != "the code" || !strings.EqualFold(collation, "utf8mb4_bin") && collation != "C" && collation != "NOCASE" {
 				t.Fatalf("after the widening: comment %q, collation %q; ran %v", comment, collation, ran)
+			}
+
+			// The kept attributes are no reason for another change.
+			if rt, ran, err := openQuietly(target, tsq.SchemaPolicyReconcile, driftingTable(wider, "")); err != nil || len(ran) != 0 {
+				t.Fatalf("second boot after the widening = %v, ran %v", err, ran)
+			} else {
+				_ = rt.Close()
 			}
 		})
 	}

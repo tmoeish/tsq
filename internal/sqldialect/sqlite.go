@@ -137,6 +137,7 @@ func (d SQLiteDialect) InspectColumns(ctx context.Context, db Executor, table st
 			Default:       normalizeDDLDefault(row.Default),
 			NativeType:    strings.TrimSpace(row.Type),
 			Check:         sqliteRangeCheck(createSQL.String, row.Name),
+			Collation:     sqliteCollation(createSQL.String, row.Name),
 		})
 	}
 
@@ -517,6 +518,99 @@ var sqliteNamedCheck = regexp.MustCompile("(?i)\\bCONSTRAINT\\s+[\"`\\[]?([A-Za-
 // sqliteRangeCheck reads the range constraint TSQ wrote for column out of a CREATE
 // TABLE statement, as sqlite_master keeps it: the expression of the constraint
 // named RangeCheckName. Empty where there is none.
+// sqliteCollation is the COLLATE of column's own in the CREATE TABLE text, or
+// "": a rebuild writes the column anew and would drop it.
+func sqliteCollation(createSQL, column string) string {
+	definition := sqliteColumnDefinition(createSQL, column)
+	if definition == "" {
+		return ""
+	}
+
+	// A string literal (a DEFAULT) may spell the word: only the text outside
+	// quotes counts.
+	match := sqliteCollate.FindStringSubmatch(sqliteStringLiteral.ReplaceAllString(definition, "''"))
+	if match == nil {
+		return ""
+	}
+
+	return strings.Trim(match[1], `"`+"`"+"[]")
+}
+
+var sqliteStringLiteral = regexp.MustCompile(`'(?:[^']|'')*'`)
+
+var sqliteCollate = regexp.MustCompile(`(?i)\bCOLLATE\s+("[^"]+"|` + "`[^`]+`" + `|\[[^\]]+\]|\w+)`)
+
+// sqliteColumnDefinition is the text of column's definition inside the CREATE
+// TABLE's parentheses: the item of the top-level comma list that starts with
+// the column's name, quoted or bare.
+func sqliteColumnDefinition(createSQL, column string) string {
+	open := strings.IndexByte(createSQL, '(')
+	if open < 0 {
+		return ""
+	}
+
+	end := balancedParen(createSQL, open)
+	if end <= open {
+		return ""
+	}
+
+	body := createSQL[open+1 : end]
+	depth := 0
+	start := 0
+
+	var quote byte
+
+	items := []string{}
+
+	for i := 0; i < len(body); i++ {
+		c := body[i]
+
+		switch {
+		case quote != 0:
+			if c == quote {
+				quote = 0
+			}
+		case c == '\'' || c == '"' || c == '`':
+			quote = c
+		case c == '[':
+			quote = ']'
+		case c == '(':
+			depth++
+		case c == ')':
+			depth--
+		case c == ',' && depth == 0:
+			items = append(items, body[start:i])
+			start = i + 1
+		}
+	}
+
+	items = append(items, body[start:])
+
+	for _, item := range items {
+		item = strings.TrimSpace(item)
+		name := item
+
+		if len(item) > 0 && (item[0] == '"' || item[0] == '`' || item[0] == '[') {
+			closing := item[0]
+			if closing == '[' {
+				closing = ']'
+			}
+
+			if j := strings.IndexByte(item[1:], closing); j >= 0 {
+				name = item[1 : j+1]
+			}
+		} else if j := strings.IndexAny(item, " \t\n("); j >= 0 {
+			name = item[:j]
+		}
+
+		if strings.EqualFold(name, column) {
+			return item
+		}
+	}
+
+	return ""
+}
+
 func sqliteRangeCheck(createSQL, column string) string {
 	for _, match := range sqliteNamedCheck.FindAllStringSubmatchIndex(createSQL, -1) {
 		if !strings.EqualFold(createSQL[match[2]:match[3]], RangeCheckName(column)) {

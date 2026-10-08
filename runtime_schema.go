@@ -992,6 +992,43 @@ func renderRuntimeDDLColumnSpec(dialect sqld.Dialect, column tsqdialect.ColumnSp
 	return sqld.ColumnDefinitionSQL(dialect, column)
 }
 
+// renderRebuiltTableStatement is renderCreateTableStatement for a rebuild: a
+// column the table has keeps the collation of its own, which is not TSQ's to
+// declare and would otherwise be written away with the table, where it stays a
+// character type.
+func renderRebuiltTableStatement(dialect sqld.Dialect, tableName string, current []sqld.Column, desired []tsqdialect.ColumnSpec) (string, error) {
+	collations := make(map[string]string, len(current))
+	for _, column := range current {
+		if column.Collation != "" {
+			collations[strings.ToLower(column.Name)] = column.Collation
+		}
+	}
+
+	lines := make([]string, 0, len(desired))
+	for _, column := range desired {
+		rendered, err := renderRuntimeDDLColumnSpec(dialect, column)
+		if err != nil {
+			return "", err
+		}
+
+		spelled := strings.ToUpper(dialect.ColumnTypeSQL(column.Type))
+		if collation := collations[strings.ToLower(column.Name)]; collation != "" && (strings.Contains(spelled, "CHAR") || strings.Contains(spelled, "TEXT") || strings.Contains(spelled, "CLOB")) {
+			rendered += " COLLATE " + dialect.QuoteIdent(collation)
+		}
+
+		lines = append(lines, "    "+rendered)
+	}
+
+	var buf strings.Builder
+	buf.WriteString("CREATE TABLE IF NOT EXISTS ")
+	buf.WriteString(dialect.QuoteIdent(tableName))
+	buf.WriteString(" (\n")
+	buf.WriteString(strings.Join(lines, ",\n"))
+	buf.WriteString("\n);")
+
+	return buf.String(), nil
+}
+
 func renderTableColumnChanges(
 	dialect sqld.Dialect,
 	tableName string,
@@ -1055,7 +1092,7 @@ func renderRebuildTableStatements(
 ) ([]string, error) {
 	tempTable := "__tsq_rebuild_" + tableName
 
-	createStatement, err := renderCreateTableStatement(dialect, tableName, desired)
+	createStatement, err := renderRebuiltTableStatement(dialect, tableName, current, desired)
 	if err != nil {
 		return nil, err
 	}
