@@ -349,7 +349,11 @@ changed it. A migration never runs a destructive statement for you:
   is reported too
 - indexes are dropped before the columns they name, and before any table's changes, since index
   names are global on PostgreSQL and SQLite: an index moving to another table, or a renamed table
-  keeping its index names, does not collide with the old one
+  keeping its index names, does not collide with the old one. A unique index recreated under a name
+  the section drops first (an index that became unique, or changed columns) fails after the DROP
+  where rows share its values, leaving the table with neither: the file says so before the DROP,
+  with the columns to check (the runtime's `Reconcile` builds such an index under another name
+  first, and refuses before any DDL where rows share the values)
 - a column that becomes NOT NULL is filled for the rows holding NULL first, with its default or its
   type's zero value, on every dialect (`UPDATE ... WHERE col IS NULL` on MySQL and PostgreSQL, the copy
   of a SQLite rebuild), and the section says with what. A new NOT NULL column without a default gives

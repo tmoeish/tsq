@@ -3116,6 +3116,41 @@ func TestGenRefusesAStateFileFromANewerTSQ(t *testing.T) {
 	}
 }
 
+// TestGenMigrationNotesAUniqueIndexReplacingOne covers an index that keeps its
+// name and becomes unique: the section drops it first and creates the unique
+// one after the table's changes, so where rows share its values the CREATE
+// fails and the table is left with neither. The file now says so before the
+// DROP, naming the columns to check.
+func TestGenMigrationNotesAUniqueIndexReplacingOne(t *testing.T) {
+	model := func(directive string) map[string]string {
+		return map[string]string{"model.go": "package gentest\n\n//tsq:table\n" + directive + "\ntype Row struct {\n\tID int64 `db:\"id\"`\n\tCode string `db:\"code\"`\n}\n"}
+	}
+
+	if err := genModule(t, model("//tsq:index Code")); err != nil {
+		t.Fatal(err)
+	}
+
+	writeTestFile(t, "model.go", model("//tsq:unique Code name=idx_row_code")["model.go"])
+
+	if err := runGen(t); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, file := range []string{"mysql.sql", "postgres.sql", "sqlite.sql"} {
+		content, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		note := strings.Index(string(content), "unique index idx_row_code is recreated below over the rows there are; where rows share (code)")
+		drop := strings.Index(string(content), "DROP INDEX")
+
+		if note < 0 || drop < 0 || note > drop {
+			t.Errorf("%s: want the note before the DROP:\n%s", file, content)
+		}
+	}
+}
+
 // TestGenMigrationFreesIndexNamesFirst covers index names, which PostgreSQL and
 // SQLite keep per schema: renaming a table, whose DROP stays commented, created
 // its unique index under the new table while the old one still held the name,

@@ -1141,12 +1141,34 @@ func renderDDLIncrementalAggregateBody(dialect ddlDialectSpec, changes ddlChange
 
 	var dropped []string
 
+	droppedNames := map[string]bool{}
+
 	for _, op := range early {
 		dropped = append(dropped, renderDDLChangeOperation(dialect, op)...)
+
+		if op.oldIndex != nil {
+			droppedNames[op.oldIndex.Name] = true
+		}
+	}
+
+	// A unique index created under a name the section dropped first replaces an
+	// index over the rows there are: where rows share its values, the CREATE
+	// fails after the DROP ran, and the table is left with neither. The runtime's
+	// Reconcile builds the new one under another name first; a file run by hand
+	// says so instead, before the DROP.
+	var replaced []string
+
+	for _, tableName := range changes.Tables {
+		for _, op := range byTable[tableName] {
+			if op.kind == ddlChangeAddIndex && op.newIndex.Unique && droppedNames[op.newIndex.Name] {
+				replaced = append(replaced, fmt.Sprintf("-- %s: unique index %s is recreated below over the rows there are; where rows share (%s), its CREATE fails after the DROP, leaving the table without it: check them first",
+					tableName, op.newIndex.Name, strings.Join(op.newIndex.Fields, ", ")))
+			}
+		}
 	}
 
 	if len(dropped) > 0 {
-		sections = append(sections, "-- Indexes dropped before the tables change\n\n"+strings.Join(dropped, "\n\n"))
+		sections = append(sections, "-- Indexes dropped before the tables change\n\n"+strings.Join(append(replaced, dropped...), "\n\n"))
 	}
 
 	for _, tableName := range changes.Tables {
