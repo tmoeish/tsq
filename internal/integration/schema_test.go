@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -812,6 +813,56 @@ func TestIntegrationAnAlterKeepsTheColumnsOwnAttributes(t *testing.T) {
 				t.Fatalf("second boot after the widening = %v, ran %v", err, ran)
 			} else {
 				_ = rt.Close()
+			}
+		})
+	}
+}
+
+// TestIntegrationReconcileSaysWhatARenamedFieldLoses covers a field renamed
+// under Reconcile: one column dropped and one added of the same shape, the
+// values going with the dropped one. Reconcile cannot tell a rename from a
+// replacement and copies nothing, which it now says beside the drop warning,
+// naming the migration's RENAME COLUMN that would keep them.
+func TestIntegrationReconcileSaysWhatARenamedFieldLoses(t *testing.T) {
+	ctx := context.Background()
+
+	for _, target := range integrationTargets(t) {
+		t.Run(target.name, func(t *testing.T) {
+			dropTables(t, target, "drifting")
+
+			text := tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 40}
+
+			rt, _, err := openQuietly(target, tsq.SchemaPolicyCreateMissing, driftingTable(text, ""))
+			if err != nil {
+				t.Fatalf("create: %v", err)
+			}
+
+			_ = rt.Close()
+
+			said := &warnings{}
+
+			renamed := tsq.NewTable[drifting, int64]("drifting")
+			id := tsq.NewColumn(renamed, "id", "id", func(r *drifting) *int64 { return &r.ID })
+			d := tsq.NewNullColumn[string](renamed, "d", "d", func(r *drifting) *sql.Null[string] { return &r.C })
+			renamed.Define(tsq.TableSpec[drifting, int64]{
+				Columns: []tsq.BoundColumn[drifting]{id, d}, PrimaryKey: id, AutoIncrement: true,
+				ColumnSpecs: []tsqdialect.ColumnSpec{
+					{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
+					{Name: "d", Type: text},
+				},
+			})
+
+			rt, err = tsq.Open(ctx, target.driver, target.dsn, []tsq.Table{renamed}, tsq.WithSchemaPolicy(tsq.SchemaPolicyReconcile), tsq.WithLogger(said))
+			if err != nil {
+				t.Fatalf("reconcile: %v", err)
+			}
+
+			_ = rt.Close()
+
+			if !slices.ContainsFunc(said.said, func(m string) bool {
+				return strings.Contains(m, "renamed field") && strings.Contains(m, "RENAME COLUMN")
+			}) {
+				t.Fatalf("Reconcile over c dropped and d added said %q; want the renamed-field warning", said.said)
 			}
 		})
 	}
