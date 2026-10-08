@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
+	sqld "github.com/tmoeish/tsq/v5/internal/sqldialect"
 )
 
 func validateIndexIdentifiers(table, idx string, fields []string) error {
@@ -60,7 +61,8 @@ func (e *DuplicateRowsError) Error() string {
 }
 
 // refuseUniqueIndexesOverDuplicates runs before any DDL of a policy that creates
-// indexes: a unique index that is missing is tried as a query first. Created
+// indexes: a unique index that is missing, or that Reconcile would rebuild under
+// its name with another definition, is tried as a query first. Created
 // after the table's columns were changed, it failed on the rows that share its
 // values and left the table altered without it, which the next start could only
 // repeat. A column the index needs and the table does not have yet is filled by
@@ -91,13 +93,20 @@ func (r *Runtime) refuseUniqueIndexesOverDuplicates(ctx context.Context) error {
 			continue
 		}
 
-		existing := make(map[string]bool, len(indexes))
+		existing := make(map[string]sqld.Index, len(indexes))
 		for _, idx := range indexes {
-			existing[idx.Name] = true
+			existing[idx.Name] = idx
 		}
 
 		for _, idx := range table.Indexes {
-			if !idx.Unique || idx.FullText || existing[idx.Name] || len(idx.Columns) == 0 {
+			if !idx.Unique || idx.FullText || len(idx.Columns) == 0 {
+				continue
+			}
+
+			// An index there under the name with the declared definition is nothing
+			// to create; one with another definition is rebuilt under Reconcile, and
+			// its unique form meets the rows the same way.
+			if found, ok := existing[idx.Name]; ok && (found.Unique && sameIndexColumns(found.Fields, idx.Columns) || r.indexPolicy != SchemaPolicyReconcile) {
 				continue
 			}
 

@@ -627,6 +627,13 @@ func TestIntegrationAUniqueIndexOverDuplicatesIsRefusedFirst(t *testing.T) {
 				t.Fatalf("create: %v", err)
 			}
 
+			db, err := sql.Open(target.driver, target.dsn)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			defer func() { _ = db.Close() }()
+
 			note := "n"
 			if err := plain.BatchInsert(ctx, rt, []*dupRow{{Code: "a", Note: &note}, {Code: "a", Note: &note}, {Code: "b"}, {Code: "b"}}); err != nil {
 				t.Fatalf("rows: %v", err)
@@ -651,6 +658,42 @@ func TestIntegrationAUniqueIndexOverDuplicatesIsRefusedFirst(t *testing.T) {
 			} else {
 				_ = rt.Close()
 			}
+
+			// An index that is there under the name as a plain one, declared unique
+			// over the same duplicates: Reconcile would rebuild it, and the refusal
+			// comes first the same way. Validate and CreateMissing, which rebuild
+			// nothing, report the definition instead.
+			rt, _, err = openQuietly(target, tsq.SchemaPolicyCreateMissing, plain)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if _, err := db.ExecContext(ctx, fmt.Sprintf("CREATE INDEX %s ON %s (%s, %s)", quoteFor(target, "ux_dup_code_note"), quoteFor(target, "dup"), quoteFor(target, "code"), quoteFor(target, "note"))); err != nil {
+				t.Fatalf("a plain index under the name: %v", err)
+			}
+
+			_ = rt.Close()
+
+			_, ran, err = openQuietly(target, tsq.SchemaPolicyReconcile, dupTable(true, true))
+			if !errors.As(err, &dup) || len(ran) != 0 {
+				t.Fatalf("Reconcile over a plain index under the unique one's name = %v (ran %v); want the duplicates refused first", err, ran)
+			}
+
+			_, _, err = openQuietly(target, tsq.SchemaPolicyValidate, dupTable(false, true))
+			if err == nil || errors.As(err, &dup) {
+				t.Fatalf("Validate over the plain index = %v; want the definition reported, not the rows", err)
+			}
+
+			rt, _, err = openQuietly(target, tsq.SchemaPolicyCreateMissing, plain)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if _, err := db.ExecContext(ctx, "DROP INDEX "+dropIndexSuffix(target, "ux_dup_code_note", "dup")); err != nil {
+				t.Fatal(err)
+			}
+
+			_ = rt.Close()
 
 			// With the duplicates gone (the b rows hold NULL and never conflicted),
 			// the same start goes through.
@@ -1733,4 +1776,14 @@ func TestIntegrationIntegerColumnsKeepTheFieldsRange(t *testing.T) {
 			}
 		})
 	}
+}
+
+// dropIndexSuffix is what follows DROP INDEX for the target's dialect: MySQL
+// names the table, the others only the index.
+func dropIndexSuffix(target integrationTarget, index, table string) string {
+	if target.name == "mysql" {
+		return quoteFor(target, index) + " ON " + quoteFor(target, table)
+	}
+
+	return quoteFor(target, index)
 }
