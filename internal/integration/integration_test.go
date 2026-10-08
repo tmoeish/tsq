@@ -2494,6 +2494,69 @@ func TestIntegrationBatchInsertKeysFollowTheAutoIncrementStep(t *testing.T) {
 	}
 }
 
+// TestIntegrationGeneratedKeysFollowTheKeysWritten inserts rows that carry
+// their keys, as fixtures and imports do, through every write path, and then
+// lets the database generate keys: they must not collide with the ones written.
+// MySQL and SQLite move their counter past a written key on their own;
+// PostgreSQL's sequence does not follow one, so TSQ moves it.
+func TestIntegrationGeneratedKeysFollowTheKeysWritten(t *testing.T) {
+	for _, target := range integrationTargets(t) {
+		t.Run(target.name, func(t *testing.T) {
+			ctx := context.Background()
+
+			for _, way := range []string{"insert", "batch", "upsert"} {
+				dropAcademyTables(t, target)
+				rt, _ := openWithPolicy(t, target, academy.TSQTables(), tsq.SchemaPolicyReconcile)
+
+				fixtures := []*academy.Instructor{
+					{ID: 1, Name: "Ada", Email: "ada@" + way + ".test"},
+					{ID: 2, Name: "Bob", Email: "bob@" + way + ".test"},
+					{ID: 3, Name: "Cyd", Email: "cyd@" + way + ".test"},
+				}
+
+				var err error
+
+				switch way {
+				case "insert":
+					for _, fixture := range fixtures {
+						if err = fixture.Insert(ctx, rt); err != nil {
+							break
+						}
+					}
+				case "batch":
+					err = academy.TableInstructor.BatchInsert(ctx, rt, fixtures)
+				case "upsert":
+					// MySQL refuses an upsert of a row whose key is set while another
+					// unique index could match it, so that leg is the other engines'.
+					if target.name == "mysql" {
+						continue
+					}
+
+					err = academy.TableInstructor.BatchUpsert(ctx, rt, fixtures, tsq.OnConflict(academy.TableInstructor.ID))
+				}
+
+				if err != nil {
+					t.Fatalf("%s of rows with keys: %v", way, err)
+				}
+
+				// Then the application inserts without keys.
+				for i := range 3 {
+					fresh := &academy.Instructor{Name: "Dee", Email: fmt.Sprintf("dee%d@%s.test", i, way)}
+					if err := fresh.Insert(ctx, rt); err != nil {
+						t.Fatalf("after %s of keys 1..3, insert %d: %v", way, i, err)
+					}
+
+					if fresh.ID <= 3 {
+						t.Fatalf("after %s of keys 1..3, insert %d generated key %d", way, i, fresh.ID)
+					}
+				}
+
+				_ = rt.Close()
+			}
+		})
+	}
+}
+
 // TestIntegrationUpdateWithoutAVersionTellsUnchangedFromMissing updates a table
 // with no version and no updated_at. MySQL counts only the rows a statement
 // changes, so writing a row's own values reports none affected, which must not

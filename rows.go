@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"reflect"
 	"slices"
 	"strings"
@@ -788,23 +789,91 @@ func (t *TableOf[R, K]) insertGroups(ctx context.Context, db Executor, scope exe
 			if err := t.insertSkippingDuplicates(ctx, db, scope, def, cols, group, omitKey, written); err != nil {
 				return err
 			}
+		} else {
+			size := effectiveChunkSize(config.size, len(cols), sqld.MaxBindParams(scope.dialect))
+			for _, chunk := range chunks(group, size) {
+				if err := t.insertChunk(ctx, db, scope, def, cols, chunk, omitKey, returning); err != nil {
+					return fmt.Errorf("insert into %s: %w", def.name, err)
+				}
 
-			continue
+				for _, row := range chunk {
+					written[row] = true
+				}
+			}
 		}
 
-		size := effectiveChunkSize(config.size, len(cols), sqld.MaxBindParams(scope.dialect))
-		for _, chunk := range chunks(group, size) {
-			if err := t.insertChunk(ctx, db, scope, def, cols, chunk, omitKey, returning); err != nil {
+		if def.autoIncrement && !omitKey {
+			if err := advanceKeySequence(ctx, db, scope, def, group); err != nil {
 				return fmt.Errorf("insert into %s: %w", def.name, err)
-			}
-
-			for _, row := range chunk {
-				written[row] = true
 			}
 		}
 	}
 
 	return nil
+}
+
+// advanceKeySequence moves the generator of the auto-increment key past the keys
+// rows wrote themselves, where the engine does not do that on its own
+// (PostgreSQL): the next generated key otherwise collided with a row inserted with
+// its key, as fixtures and imports are. A session that may not move it is told
+// once per statement and the write stands: the rows are in.
+func advanceKeySequence[R any](ctx context.Context, db Executor, scope execScope, def *tableDef, rows []*R) error {
+	query, err := scope.dialect.KeySequenceAdvanceQuery(def.name, def.primaryKey.name)
+	if err != nil {
+		return err
+	}
+
+	if query == "" {
+		return nil
+	}
+
+	var greatest int64
+
+	for _, row := range rows {
+		if key, ok := keyAsInt64(field(row, def.primaryKey)); ok {
+			greatest = max(greatest, key)
+		}
+	}
+
+	if greatest <= 0 {
+		return nil
+	}
+
+	logSQLForExecutor(ctx, db, "insert", query, []any{greatest})
+
+	var found, allowed bool
+
+	var moved sql.NullInt64
+
+	if err := db.QueryRowContext(ctx, query, greatest).Scan(&found, &allowed, &moved); err != nil {
+		return fmt.Errorf("advance the key sequence past %d: %w", greatest, err)
+	}
+
+	switch {
+	case !found:
+		logForExecutor(ctx, db, slog.LevelWarn, "key sequence not found; keys generated next may collide with the ones written",
+			"table", def.name, "column", def.primaryKey.name, "key", greatest)
+	case !allowed:
+		logForExecutor(ctx, db, slog.LevelWarn, "key sequence not advanced: the session lacks UPDATE on it; keys generated next may collide with the ones written",
+			"table", def.name, "column", def.primaryKey.name, "key", greatest)
+	}
+
+	return nil
+}
+
+// keyAsInt64 is the integer value of a key field, and false for a key of
+// another type or one that does not fit.
+func keyAsInt64(v reflect.Value) (int64, bool) {
+	switch v.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return v.Int(), true
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		if u := v.Uint(); u <= math.MaxInt64 {
+			return int64(u), true
+		}
+	}
+
+	return 0, false
 }
 
 // insertColumns are the columns an INSERT of row writes: not a zero generated key,

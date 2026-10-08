@@ -60,6 +60,10 @@ func (d MySQLDialect) BatchInsertStartID(lastID, rowsAffected, step int64) (int6
 // INSERT (a multi-primary setup sets it above 1).
 func (d MySQLDialect) InsertIDStepQuery() string { return "SELECT @@auto_increment_increment" }
 
+// KeySequenceAdvanceQuery is empty: the counter moves past a key a statement
+// writes on its own.
+func (d MySQLDialect) KeySequenceAdvanceQuery(string, string) (string, error) { return "", nil }
+
 func (d MySQLDialect) InspectColumns(ctx context.Context, db Executor, table string) ([]Column, bool, error) {
 	rows, err := db.QueryContext(ctx, `
 		SELECT

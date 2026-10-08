@@ -52,6 +52,29 @@ func (d PostgresDialect) BatchInsertStartID(lastID, rowsAffected, step int64) (i
 
 func (d PostgresDialect) InsertIDStepQuery() string { return "" }
 
+// KeySequenceAdvanceQuery sets the column's sequence to the greater of the key
+// written and its last value, as the counters of MySQL and SQLite move on their
+// own: a sequence does not follow a key a statement writes, so the next key it
+// generated collided with a row inserted with its own key. Moving it takes UPDATE
+// on the sequence, which the query checks instead of failing: inside a
+// transaction a refused statement would abort the whole of it.
+func (d PostgresDialect) KeySequenceAdvanceQuery(table, column string) (string, error) {
+	quotedTable, err := quoteDialectIdentifier(d, table)
+	if err != nil {
+		return "", err
+	}
+
+	if err := d.ValidateIdentifier(column); err != nil {
+		return "", err
+	}
+
+	return "SELECT seq IS NOT NULL, " +
+		"seq IS NOT NULL AND has_sequence_privilege(seq::regclass, 'UPDATE'), " +
+		"CASE WHEN seq IS NOT NULL AND has_sequence_privilege(seq::regclass, 'UPDATE') " +
+		"THEN setval(seq::regclass, GREATEST($1::bigint, COALESCE(pg_sequence_last_value(seq::regclass), 0)), true) END " +
+		"FROM pg_get_serial_sequence(" + quoteLiteral(quotedTable) + ", " + quoteLiteral(column) + ") AS seq", nil
+}
+
 func (d PostgresDialect) InspectColumns(ctx context.Context, db Executor, table string) ([]Column, bool, error) {
 	return d.inspectColumns(ctx, db, "current_schema()", table)
 }

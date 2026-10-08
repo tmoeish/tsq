@@ -134,6 +134,13 @@ type Dialect interface {
 	// InsertIDStepQuery reads the distance between the keys one INSERT generates,
 	// or is empty when it is always 1.
 	InsertIDStepQuery() string
+	// KeySequenceAdvanceQuery moves the generator of table's auto-increment column
+	// past a key a statement wrote itself, so the keys it generates next do not
+	// collide with it. The query takes that key as its one parameter and reports
+	// one row: whether the column has a generator, whether the session may move it,
+	// and the value it was moved to (NULL when it was not). It is empty for an
+	// engine whose counter follows a written key on its own.
+	KeySequenceAdvanceQuery(table, column string) (string, error)
 	// InspectColumns reports the live columns of table, and false when it does not exist.
 	InspectColumns(ctx context.Context, db Executor, table string) ([]Column, bool, error)
 	// LockSchema takes the lock that lets one runtime at a time change the schema

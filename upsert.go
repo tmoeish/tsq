@@ -248,6 +248,12 @@ func (t *TableOf[R, K]) upsertRows(ctx context.Context, db Executor, scope execS
 				return fmt.Errorf("upsert into %s: %w", def.name, err)
 			}
 		}
+
+		if def.autoIncrement && !field(group[0], def.primaryKey).IsZero() {
+			if err := advanceKeySequence(ctx, db, scope, def, group); err != nil {
+				return fmt.Errorf("upsert into %s: %w", def.name, err)
+			}
+		}
 	}
 
 	if single && !returning {
