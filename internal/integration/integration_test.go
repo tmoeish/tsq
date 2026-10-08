@@ -12,6 +12,7 @@ package integration_test
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -719,6 +720,96 @@ func TestIntegrationASwallowedDeadlockCannotCommit(t *testing.T) {
 }
 
 var errOtherWasTheVictim = errors.New("the other transaction was the victim")
+
+// plainHandle is a database handle whose first write deadlocks, the way InnoDB
+// reports it, and which counts what reached it afterwards: a pool or a
+// connection, whose statements need not share a transaction.
+type plainHandle struct {
+	statements int
+}
+
+func (d *plainHandle) ExecContext(context.Context, string, ...any) (sql.Result, error) {
+	d.statements++
+	if d.statements == 1 {
+		return nil, &mysql.MySQLError{Number: 1213, Message: "Deadlock found when trying to get lock; try restarting transaction"}
+	}
+
+	return driver.RowsAffected(1), nil
+}
+
+func (d *plainHandle) QueryContext(context.Context, string, ...any) (*sql.Rows, error) {
+	d.statements++
+
+	return nil, errors.New("no rows here")
+}
+
+func (d *plainHandle) QueryRowContext(context.Context, string, ...any) *sql.Row {
+	d.statements++
+
+	return nil
+}
+
+// deadlockingTx is plainHandle as a transaction: it can commit and roll back.
+type deadlockingTx struct{ plainHandle }
+
+func (d *deadlockingTx) Commit() error   { return nil }
+func (d *deadlockingTx) Rollback() error { return nil }
+
+// TestAWrappedTransactionRemembersItsRollback covers WrapExecutor over a
+// transaction begun elsewhere: after an error the engine rolled it back on, a
+// statement would run and commit on its own, as inside WithTx. The handle
+// returns nil rows, which the executor must take without reaching into them.
+func TestAWrappedTransactionRemembersItsRollback(t *testing.T) {
+	ctx := context.Background()
+	handle := &deadlockingTx{}
+
+	exec, err := tsq.WrapExecutor(handle, tsqdialect.MySQL)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := exec.ExecContext(ctx, "UPDATE t SET v = 1"); err == nil || !tsq.IsTxConflictError(err) {
+		t.Fatalf("first statement = %v; want the deadlock", err)
+	}
+
+	_, err = exec.ExecContext(ctx, "UPDATE t SET v = 2")
+	if err == nil || !strings.Contains(err.Error(), "cannot go on") || !tsq.IsTxConflictError(err) {
+		t.Fatalf("the statement after the deadlock = %v; want it refused with the deadlock", err)
+	}
+
+	if err := exec.QueryRowContext(ctx, "SELECT 1").Scan(new(int)); err == nil || !strings.Contains(err.Error(), "cannot go on") {
+		t.Fatalf("a row after the deadlock = %v; want it refused", err)
+	}
+
+	if handle.statements != 1 {
+		t.Fatalf("statements reaching the handle = %d, want the first only", handle.statements)
+	}
+
+	// A handle that cannot commit carries no transaction: nothing is refused,
+	// and a nil row from it is passed on as it is.
+	plain := &plainHandle{}
+
+	exec, err = tsq.WrapExecutor(plain, tsqdialect.MySQL)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := exec.ExecContext(ctx, "UPDATE t SET v = 1"); err == nil {
+		t.Fatal("the plain handle's first statement did not deadlock")
+	}
+
+	if _, err := exec.ExecContext(ctx, "UPDATE t SET v = 2"); err != nil {
+		t.Fatalf("a plain handle refused a statement: %v", err)
+	}
+
+	if row := exec.QueryRowContext(ctx, "SELECT 1"); row != nil {
+		t.Fatalf("a nil row from the handle came back as %v", row)
+	}
+
+	if plain.statements != 3 {
+		t.Fatalf("statements reaching the plain handle = %d, want 3", plain.statements)
+	}
+}
 
 // TestIntegrationCapabilitiesExecute proves the capability bits against real
 // engines: every capability a dialect advertises must actually execute there.

@@ -98,7 +98,9 @@ func (b boundExecutor) QueryRowContext(ctx context.Context, query string, args .
 	}
 
 	row := b.DBTX.QueryRowContext(ctx, query, args...)
-	_ = b.tx.noted(b.s.dialect, row.Err())
+	if row != nil {
+		_ = b.tx.noted(b.s.dialect, row.Err())
+	}
 
 	return row
 }
@@ -173,9 +175,21 @@ func WrapExecutor(db DBTX, dialect tsqdialect.Name) (Executor, error) {
 		return b, nil
 	}
 
-	_, isTx := db.(*sql.Tx)
+	// A transaction begun elsewhere gets the same memory of an error after which
+	// the engine rolled it back (txState): the statements that follow are refused
+	// rather than run on their own. Its commit is the caller's, and commits
+	// nothing then.
+	var state *txState
 
-	return boundExecutor{DBTX: db, s: execScope{dialect: d, tx: isTx}}, nil
+	_, isTx := db.(interface {
+		Commit() error
+		Rollback() error
+	})
+	if isTx {
+		state = &txState{}
+	}
+
+	return boundExecutor{DBTX: db, s: execScope{dialect: d, tx: isTx}, tx: state}, nil
 }
 
 // executorScope validates exec and returns its scope.
