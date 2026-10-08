@@ -133,6 +133,10 @@
 - `ReturningClause(col)` 接**未加引号**的列名，方言自己加引号。
 - 主键回填有两条路：`LastInsertId()` + `BatchInsertStartID`（MySQL / SQLite），和
   `INSERT ... RETURNING`（PostgreSQL）。改任何一条要看 `internal/integration` 的 CRUD 用例。
+- 行**自带**主键写入后走第三条：`KeySequenceAdvanceQuery`（只有 PG 非空）在 `insertGroups` /
+  `upsertRows` 每组之后把序列 `setval` 到不小于写入的最大键，权限在语句里查、不抛错（事务里一条
+  失败语句会让 PG 整个事务 aborted）。新增写入路径（新的 INSERT 形态）要接上它，判据是
+  `internal/integration` 的 `TestIntegrationGeneratedKeysFollowTheKeysWritten`。
 
 ## 在执行路径上加了一个日志或诊断出口
 

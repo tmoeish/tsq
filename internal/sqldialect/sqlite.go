@@ -58,6 +58,10 @@ func (d SQLiteDialect) BatchInsertStartID(lastID, rowsAffected, step int64) (int
 
 func (d SQLiteDialect) InsertIDStepQuery() string { return "" }
 
+// KeySequenceAdvanceQuery is empty: the counter moves past a key a statement
+// writes on its own.
+func (d SQLiteDialect) KeySequenceAdvanceQuery(string, string) (string, error) { return "", nil }
+
 func (d SQLiteDialect) InspectColumns(ctx context.Context, db Executor, table string) ([]Column, bool, error) {
 	quotedTable, err := quoteDialectIdentifier(d, table)
 	if err != nil {

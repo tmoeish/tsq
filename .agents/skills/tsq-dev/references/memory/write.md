@@ -62,5 +62,5 @@ SQLite 不需要类型，但 `UNION` 链有 500 项上限，只能用 `VALUES`�
 **时间戳截断到微秒、MySQL 用 `DATETIME(6)`；"当前时间"默认值写成 UTC 表达式**（PG/MySQL 的 `CURRENT_TIMESTAMP` 是会话本地时间，MySQL
 还要带精度，否则 1067——只跑 SQLite 时漏了，CI 才发现）。已有的 `DATETIME` 列读回为原始类型，`Reconcile` 会加宽它。
 **`default:` 只许可空字段**（2026-09-29 维护者定案）：零值曾被当成"未设置"，`false`/`0` 永远写不进；否掉"总是写非空字段"（`default:` 对
-TSQ 自己的插入变成摆设）。只有自增主键的表写 `(pk) VALUES (DEFAULT)`（SQLite 写 `NULL`）；
+TSQ 自己的插入变成摆设）。只有自增主键的表写 `(pk) VALUES (DEFAULT)`（SQLite 写 `NULL`）。**行自带主键写入后 PG 的序列不跟**（MySQL / SQLite 的计数器会跳过写入的键），fixture 写了 1..3 之后应用的第一条插入就撞键（2026-10-09）：每组写完 `setval` 到不小于最大键，`UPDATE` 权限在同一条语句里查——事务里一条被拒的语句会让 PG 整个事务 aborted，所以不能靠报错；
 MySQL 的 `SET` 从左到右求值，读前面赋值过的列的赋值**拒绝而不重排**——有环（交换）时无法重排。

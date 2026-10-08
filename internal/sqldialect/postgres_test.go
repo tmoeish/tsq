@@ -132,3 +132,38 @@ func TestPostgresOversizedStringsAreText(t *testing.T) {
 		t.Errorf("a live TEXT (%+v, %v) does not match the oversized string it was created for", live, err)
 	}
 }
+
+// TestKeySequenceAdvanceQueryIsPostgresOnly covers the statement that moves a
+// column's sequence past a key a row wrote: PostgreSQL alone needs one, it
+// names the column as pg_get_serial_sequence wants it (the table quoted, the
+// column bare), checks the privilege instead of failing, and refuses an
+// identifier the dialect would.
+func TestKeySequenceAdvanceQueryIsPostgresOnly(t *testing.T) {
+	t.Parallel()
+
+	query, err := PostgresDialect{}.KeySequenceAdvanceQuery("order", "id")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, want := range []string{
+		`pg_get_serial_sequence('"order"', 'id')`,
+		"has_sequence_privilege(seq::regclass, 'UPDATE')",
+		"setval(seq::regclass, GREATEST($1::bigint, COALESCE(pg_sequence_last_value(seq::regclass), 0)), true)",
+	} {
+		if !strings.Contains(query, want) {
+			t.Errorf("query %q lacks %q", query, want)
+		}
+	}
+
+	if _, err := (PostgresDialect{}).KeySequenceAdvanceQuery("order", "id; DROP"); err == nil {
+		t.Error("an invalid column name was accepted")
+	}
+
+	for _, d := range []Dialect{MySQLDialect{}, SQLiteDialect{}} {
+		query, err := d.KeySequenceAdvanceQuery("order", "id")
+		if err != nil || query != "" {
+			t.Errorf("%s: query %q, err %v; want none, the counter follows a written key", d.Name(), query, err)
+		}
+	}
+}
