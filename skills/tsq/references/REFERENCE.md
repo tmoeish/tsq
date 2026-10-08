@@ -995,7 +995,7 @@ and, like `Paging`, carries its keyword, so `PageKeyset(ctx, runtime, k)` search
 - the query must not set its own `OrderBy`, `Limit` or `Offset`, and must not group, aggregate,
   use `DISTINCT` or set operations
 - `Next` is an opaque string carrying the last row's order values; it is refused for a different
-  `OrderBy`. Order columns must never be NULL (a `NullColumn` or an outer-joined column is refused)
+  `OrderBy`. Order columns must never be NULL (a `NullColumn` or an outer-joined column is refused), and must be columns the query selects: an expression over one (`tsq.Upper(t.Title)`) is not a selected column and is refused as such
 - there is no `Total`: not counting is the point. Use `Count` if the endpoint needs one
 - mixed directions work; the condition is spelled `a < ? OR (a = ? AND b > ?)`
 - over HTTP, `PageRequest` carries `after`, and `req.Keyset(sortable...)` resolves it like
