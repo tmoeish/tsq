@@ -3151,6 +3151,55 @@ func TestGenMigrationNotesAUniqueIndexReplacingOne(t *testing.T) {
 	}
 }
 
+// TestGenMigrationHintsARenamedColumn covers a field renamed, which the
+// generator sees as one column dropped and one added of the same shape: the
+// section added the new column empty and left the DROP to a hand that would
+// lose the data. A line now spells the RENAME COLUMN that keeps it; a column
+// replaced by one of another shape gets none.
+func TestGenMigrationHintsARenamedColumn(t *testing.T) {
+	model := func(field string) map[string]string {
+		return map[string]string{"model.go": "package gentest\n\n//tsq:table\ntype Row struct {\n\tID int64 `db:\"id\"`\n\t" + field + "\n}\n"}
+	}
+
+	if err := genModule(t, model("Note string `db:\"note,size:40\"`")); err != nil {
+		t.Fatal(err)
+	}
+
+	writeTestFile(t, "model.go", model("Remark string `db:\"remark,size:40\"`")["model.go"])
+
+	if err := runGen(t); err != nil {
+		t.Fatal(err)
+	}
+
+	for file, rename := range map[string]string{"mysql.sql": "ALTER TABLE `row` RENAME COLUMN `note` TO `remark`;", "postgres.sql": `ALTER TABLE "row" RENAME COLUMN "note" TO "remark";`, "sqlite.sql": `ALTER TABLE "row" RENAME COLUMN "note" TO "remark";`} {
+		content, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if !strings.Contains(string(content), "-- "+rename) {
+			t.Errorf("%s lacks the rename hint %q:\n%s", file, rename, content)
+		}
+	}
+
+	// Another shape: no hint.
+	writeTestFile(t, "model.go", model("Count int64 `db:\"count\"`")["model.go"])
+
+	if err := runGen(t); err != nil {
+		t.Fatal(err)
+	}
+
+	content, err := os.ReadFile("postgres.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sections := strings.Split(string(content), "-- Migration: ")
+	if last := sections[len(sections)-1]; strings.Contains(last, "RENAME COLUMN") {
+		t.Errorf("a column replaced by one of another shape got a rename hint:\n%s", last)
+	}
+}
+
 // TestGenMigrationFreesIndexNamesFirst covers index names, which PostgreSQL and
 // SQLite keep per schema: renaming a table, whose DROP stays commented, created
 // its unique index under the new table while the old one still held the name,
