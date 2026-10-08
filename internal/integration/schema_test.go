@@ -767,6 +767,7 @@ func TestIntegrationRetypeCarriesTheValues(t *testing.T) {
 func TestIntegrationAChangedColumnIsStillAChange(t *testing.T) {
 	raw := func(spelled string) tsqdialect.ColumnType { return tsqdialect.ColumnType{RawType: spelled} }
 	integer := tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}
+	text := tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 40}
 
 	for _, target := range integrationTargets(t) {
 		for _, c := range []struct {
@@ -779,6 +780,10 @@ func TestIntegrationAChangedColumnIsStillAChange(t *testing.T) {
 			{"expression default", integer, integer, "(1+1)", "(1+2)", ""},
 			{"array element", raw("INT[]"), raw("BIGINT[]"), "", "", "postgres"},
 			{"default added", raw("CHAR"), raw("CHAR"), "", "'x'", "mysql,postgres"},
+			// '' and no default compared as one: the '' stayed after a declaration
+			// dropped it, and the next type change met it.
+			{"empty-string default dropped", text, text, "''", "", ""},
+			{"empty-string default added", text, text, "", "''", ""},
 		} {
 			if c.engines != "" && !strings.Contains(c.engines, target.name) {
 				continue

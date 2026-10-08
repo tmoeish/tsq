@@ -190,7 +190,9 @@ Rules:
   `tsq gen` refuses `default:` on one that cannot: a zero value is a value, so `false` or `0` is
   written, and only nil leaves the column to the default. `default:CURRENT_TIMESTAMP` on a time column
   stores the current **UTC** time on every dialect, like every time TSQ writes; a boolean default may be
-  written as `1` / `0` or `TRUE` / `FALSE`, and is spelled as each engine takes it
+  written as `1` / `0` or `TRUE` / `FALSE`, and is spelled as each engine takes it. `default:''` is a
+  default (the empty string), distinct from none: dropping it from the declaration is a change that
+  the generated migration and `Reconcile` carry out with `DROP DEFAULT`
 - `db:"col,generated:SQL"` declares a column the database computes:
   `GENERATED ALWAYS AS (SQL) STORED` in the DDL, never written by `Insert`, `Update` or `Upsert`, and
   read back after a single-row `Insert`. `db:"col,generated"` without an expression says the same

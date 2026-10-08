@@ -25,6 +25,14 @@ import (
 func SameDefault(left, right string) bool {
 	left, right = unparenthesize(left), unparenthesize(right)
 
+	// No default and the empty string '' are two things: every engine reports
+	// them apart (NULL against ''), and compared as one, a column that dropped its
+	// '' kept it, and a later change of its type met it ("default for column
+	// cannot be cast automatically").
+	if (left == "") != (right == "") {
+		return false
+	}
+
 	if IsCurrentTime(left) && IsCurrentTime(right) {
 		return isUTC(left) == isUTC(right)
 	}
