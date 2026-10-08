@@ -16,11 +16,8 @@
 
 `api-check` 和 `doc-check` 只看符号：**"文档提到的符号都存在"不等于"描述的用法都成立"**（三轮审计各抓到几处：`SelectValue(Sum)` 会被拒、Attach 承诺的顺序被 `ListIn` 拒绝、`ScalarNull`……），
 改示例先跑一遍；**复写的副本最先过时**（`docs/skill.md` 复述规则那一节因此换成链接）。上限曾写死 65535 注释"最紧的"，SQLite 其实是 32766——**修一类 bug 要把这一类的实例都数一遍**。
-同类：**stringly-typed 的开关，空值 `""` 永远是那个没人写的分支**，用类型化枚举或不留开关。
-
-## 接口里"有定义、有实现、零调用"的钩子 (2026-08-26)
-
-`Dialect.ReturningClause` 零调用，PG 上 `Insert` 从没回填主键；规则在 `../impact/runtime.md` § 给 `Dialect` 接口加了钩子。**auto-merge 只等必需检查**（先查 ruleset）。
+同类：**stringly-typed 的开关，空值 `""` 永远是那个没人写的分支**，用类型化枚举或不留开关。接口里"有定义、有实现、零调用"的钩子
+（2026-08-26：`Dialect.ReturningClause` 零调用，PG 上 `Insert` 从没回填主键）规则在 `../impact/runtime.md` § 给 `Dialect` 接口加了钩子。
 
 ## 决定：v5 核心重写——表达式树、命名参数、表描述符、封闭执行器 (2026-09-17)
 

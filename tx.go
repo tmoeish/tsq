@@ -273,10 +273,21 @@ func (r *Runtime) executeTxAttempt[T any](
 		}
 	}()
 
-	result, err := fn(ctx, boundExecutor{DBTX: tx, s: execScope{dialect: r.dialect, runtime: r, tx: true}})
+	state := &txState{}
+
+	result, err := fn(ctx, boundExecutor{DBTX: tx, s: execScope{dialect: r.dialect, runtime: r, tx: true}, tx: state})
 	if err != nil {
 		var zero T
 		return zero, txRetryStageBody, err
+	}
+
+	// The callback returned nil after the engine rolled the transaction back:
+	// COMMIT would succeed and commit nothing. Reported as the body's failure, so
+	// that WithRetry runs the transaction again as it would had the error been
+	// returned.
+	if aborted := state.abortedBy(); aborted != nil {
+		var zero T
+		return zero, txRetryStageBody, fmt.Errorf("the transaction was rolled back by the database and nothing was committed: %w", aborted)
 	}
 
 	if err := tx.Commit(); err != nil {

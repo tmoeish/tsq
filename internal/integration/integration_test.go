@@ -547,6 +547,179 @@ func TestIntegrationLockConflictsAreRetryable(t *testing.T) {
 	}
 }
 
+// TestIntegrationASwallowedDeadlockCannotCommit covers a callback that catches a
+// deadlock and goes on. InnoDB rolled the transaction back and left the session
+// autocommitting, so the statements after it ran on their own and the COMMIT
+// committed nothing: the first writes were lost and the later ones kept, with no
+// error. The executor now refuses every statement after such an error, WithTx
+// refuses to commit and reports the deadlock, and WithRetry runs the body again.
+func TestIntegrationASwallowedDeadlockCannotCommit(t *testing.T) {
+	targets := integrationTargets(t)
+	requireExternalTargets(t, targets)
+
+	for _, target := range targets {
+		if target.name != "mysql" {
+			continue
+		}
+
+		t.Run(target.name, func(t *testing.T) {
+			ctx := context.Background()
+
+			dropAcademyTables(t, target)
+			rt, _ := openWithPolicy(t, target, academy.TSQTables(), tsq.SchemaPolicyReconcile)
+
+			tracks := []*academy.Track{
+				{Name: "one", Description: "d", SkillItems: []byte(`[]`)},
+				{Name: "two", Description: "d", SkillItems: []byte(`[]`)},
+			}
+			if err := academy.TableTrack.BatchInsert(ctx, rt, tracks); err != nil {
+				t.Fatalf("insert tracks: %v", err)
+			}
+
+			var calls int
+
+			// deadlock runs a body that locks first then second, after writing a
+			// learner, against a transaction holding the locks the other way round.
+			// The body catches the deadlock, writes another learner, and returns nil.
+			deadlock := func(options ...tsq.TxOption) (err error, bodies int, refused error) {
+				other, err := rt.DB().BeginTx(ctx, nil)
+				if err != nil {
+					t.Fatalf("begin: %v", err)
+				}
+
+				defer other.Rollback() //nolint:errcheck // best-effort cleanup
+
+				// The other transaction changes more rows than the body will, so
+				// that InnoDB, which rolls back the smaller transaction, picks the body.
+				calls++
+
+				for i := range 3 {
+					if _, err := other.ExecContext(ctx, "INSERT INTO learner (name, email, company) VALUES (?, ?, '')", "other", fmt.Sprintf("o%d-%d@x", calls, i)); err != nil {
+						t.Fatalf("the other's rows: %v", err)
+					}
+				}
+
+				lock := "SELECT id FROM track WHERE id = ? FOR UPDATE"
+				if _, err := other.ExecContext(ctx, lock, tracks[1].ID); err != nil {
+					t.Fatalf("lock two: %v", err)
+				}
+
+				ready := make(chan struct{})
+				done := make(chan error, 1)
+
+				go func() {
+					<-ready
+
+					time.Sleep(200 * time.Millisecond)
+
+					_, err := other.ExecContext(ctx, lock, tracks[0].ID)
+					// Let go of the locks: a retried body must be able to take them.
+					_ = other.Rollback()
+					done <- err
+				}()
+
+				err = rt.WithTx(ctx, func(ctx context.Context, tx tsq.Executor) error {
+					bodies++
+
+					defer func() {
+						// Whatever the body did, the helper must not wait forever.
+						select {
+						case <-ready:
+						default:
+							close(ready)
+						}
+					}()
+
+					if err := academy.TableLearner.Insert(ctx, tx, &academy.Learner{Name: "before", Email: fmt.Sprintf("b%d-%d@x", calls, bodies)}); err != nil {
+						return fmt.Errorf("insert before: %w", err)
+					}
+
+					if _, err := tsq.Select(academy.TableTrack.ID).From(academy.TableTrack).Where(academy.TableTrack.ID.EQ(tsq.Val(tracks[0].ID))).ForUpdate().MustBuild().List(ctx, tx); err != nil {
+						return fmt.Errorf("lock one: %w", err)
+					}
+
+					if bodies == 1 {
+						close(ready)
+					}
+
+					// Waits for the other's lock; one of the two is the victim.
+					if _, err := tsq.Select(academy.TableTrack.ID).From(academy.TableTrack).Where(academy.TableTrack.ID.EQ(tsq.Val(tracks[1].ID))).ForUpdate().MustBuild().List(ctx, tx); err != nil {
+						if !tsq.IsTxConflictError(err) {
+							return err
+						}
+						// Swallowed: the mistake under test.
+					}
+
+					refused = academy.TableLearner.Insert(ctx, tx, &academy.Learner{Name: "after", Email: fmt.Sprintf("a%d-%d@x", calls, bodies)})
+
+					return nil
+				}, options...)
+
+				if otherErr := <-done; otherErr != nil && !tsq.IsTxConflictError(otherErr) {
+					t.Fatalf("the other transaction: %v", otherErr)
+				} else if otherErr != nil {
+					// The other was the victim: the body saw no deadlock. Rare, so retried
+					// by the caller.
+					return errOtherWasTheVictim, bodies, nil
+				}
+
+				return err, bodies, refused
+			}
+
+			var err, refused error
+
+			var bodies int
+
+			for attempt := range 5 {
+				err, bodies, refused = deadlock()
+				if !errors.Is(err, errOtherWasTheVictim) {
+					break
+				}
+
+				if attempt == 4 {
+					t.Skip("the other transaction was the deadlock victim five times")
+				}
+			}
+
+			if err == nil || !tsq.IsTxConflictError(err) || !strings.Contains(err.Error(), "nothing was committed") {
+				t.Fatalf("WithTx after a swallowed deadlock = %v; want the deadlock reported, nothing committed", err)
+			}
+
+			if refused == nil || !strings.Contains(refused.Error(), "cannot go on") {
+				t.Fatalf("the statement after the deadlock = %v; want it refused", refused)
+			}
+
+			n, err := academy.TableLearner.Query().Count(ctx, rt)
+			if err != nil || n != 0 {
+				t.Fatalf("learners after the rolled-back transaction = %d, %v; want none", n, err)
+			}
+
+			// With a retry the body runs again and commits whole.
+			for attempt := range 5 {
+				err, bodies, _ = deadlock(tsq.WithRetry(tsq.IsTxConflictError))
+				if !errors.Is(err, errOtherWasTheVictim) {
+					break
+				}
+
+				if attempt == 4 {
+					t.Skip("the other transaction was the deadlock victim five times")
+				}
+			}
+
+			if err != nil || bodies != 2 {
+				t.Fatalf("with retry = %v after %d bodies; want nil after two", err, bodies)
+			}
+
+			n, err = academy.TableLearner.Query().Count(ctx, rt)
+			if err != nil || n != 2 {
+				t.Fatalf("learners after the retried transaction = %d, %v; want the two of the second body", n, err)
+			}
+		})
+	}
+}
+
+var errOtherWasTheVictim = errors.New("the other transaction was the victim")
+
 // TestIntegrationCapabilitiesExecute proves the capability bits against real
 // engines: every capability a dialect advertises must actually execute there.
 func TestIntegrationCapabilitiesExecute(t *testing.T) {

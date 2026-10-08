@@ -39,6 +39,11 @@ PG 事务里任一语句失败即 aborted，其后都报 `25P02`：**凡是"捕�
 方言就得带状态。改成按基线表态（MySQL 8.0、SQLite ≥3.39），更老的引擎拿到数据库报错而不是 `UnsupportedCapabilityError`。
 能力表不留 `default` 分支：它把"忘了写"和"决定不支持"变成同一件事，穷尽靠表加遍历表的测试（`dialect.capabilities`）。
 
+## InnoDB 回滚整个事务后会话就退出了事务 (2026-10-08，随机事务生命周期差分)
+
+死锁（1213）后 `@@in_transaction=0`：回调里下一条语句自行提交、最后的 `COMMIT` 空转，吞掉错误继续的回调丢前留后且无错（PG 驱动报 "commit unexpectedly resulted in rollback"，SQLite 的失败不结束事务）。门是 `txState` + `TestIntegrationASwallowedDeadlockCannotCommit`（对方事务先改更多行，InnoDB 回滚改得少的那个，回调才是牺牲者）。
+同轮：SQLite 只配 busy_timeout + WAL 仍 `SQLITE_BUSY`——先读后写的 deferred 事务升级写锁不等 busy handler；文档加 `_txlock=immediate`。
+
 ## 决定：commit 阶段只对明确冲突码重试 (2026-08-26)
 
 曾一刀切不重试 commit 失败（有歧义），但 PG 的 `40001` **经常在 COMMIT 时才抛**，而这些码（40001 / 40P01 / 55P03、

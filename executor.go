@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
+	"sync"
 
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 	sqld "github.com/tmoeish/tsq/v5/internal/sqldialect"
@@ -61,11 +63,95 @@ type DBTX interface {
 type boundExecutor struct {
 	DBTX
 	s execScope
+	// tx is the state of the transaction the executor runs in; nil outside
+	// Runtime.WithTx.
+	tx *txState
 }
 
 func (b boundExecutor) scope() execScope { return b.s }
 
 func (boundExecutor) needsRuntimeOrWrapExecutor() {}
+
+func (b boundExecutor) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	if err := b.tx.usable(); err != nil {
+		return nil, err
+	}
+
+	result, err := b.DBTX.ExecContext(ctx, query, args...)
+
+	return result, b.tx.noted(b.s.dialect, err)
+}
+
+func (b boundExecutor) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	if err := b.tx.usable(); err != nil {
+		return nil, err
+	}
+
+	rows, err := b.DBTX.QueryContext(ctx, query, args...)
+
+	return rows, b.tx.noted(b.s.dialect, err)
+}
+
+func (b boundExecutor) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
+	if err := b.tx.usable(); err != nil {
+		return queryRowWithError(ctx, err, query, args...)
+	}
+
+	row := b.DBTX.QueryRowContext(ctx, query, args...)
+	_ = b.tx.noted(b.s.dialect, row.Err())
+
+	return row
+}
+
+// txState is what a transaction's executor remembers between statements: the
+// error after which the engine rolled the transaction back on its own. MySQL
+// does that for a deadlock and a full lock table, and the session is then out of
+// the transaction: a statement that follows runs and commits by itself, and the
+// COMMIT at the end commits nothing, so a callback that caught the error and went
+// on lost its earlier writes and kept its later ones. PostgreSQL refuses every
+// statement after a failure until the rollback, and its driver reports a COMMIT
+// that became a ROLLBACK; SQLite keeps the transaction.
+type txState struct {
+	mu      sync.Mutex
+	aborted error
+}
+
+// noted records err when it ended the transaction, and returns err.
+func (t *txState) noted(d sqld.Dialect, err error) error {
+	if t == nil || err == nil || !rolledBackByEngine(d, err) {
+		return err
+	}
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if t.aborted == nil {
+		t.aborted = err
+	}
+
+	return err
+}
+
+// usable is the error a statement gets once the engine rolled the transaction
+// back: running it would commit it on its own.
+func (t *txState) usable() error {
+	if err := t.abortedBy(); err != nil {
+		return fmt.Errorf("the transaction was rolled back by the database and cannot go on; a statement now would commit on its own: %w", err)
+	}
+
+	return nil
+}
+
+func (t *txState) abortedBy() error {
+	if t == nil {
+		return nil
+	}
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	return t.aborted
+}
 
 // WrapExecutor makes an Executor of a database/sql handle TSQ did not open, such as
 // a *sql.Tx begun elsewhere, talking to dialect. Statements run without the logging

@@ -40,9 +40,8 @@ buildinfo 判成倒退、所有 PR 变红（2026-09-28）。**改发版脚本时
 
 ## 把并发写入者的改动误判成了工具的 bug (2026-08-21)
 
-曾断定 `make fmt` 的 `go fix` 会把树改坏（**错的，已改回**）：另一个 claude 进程在同一工作区边跑边写。**"我改了 A，
-然后 B 坏了"在有并发写入者时什么都不能证明**：先 `ps aux | grep claude` 加 `lsof -p <pid> -a -d cwd` 确认自己是唯一
-写入者，再在 `git archive HEAD` 的副本里复现；当时几次 `git checkout -- '*.go'` 丢掉了对方未提交的工作。
+曾断定 `make fmt` 的 `go fix` 会把树改坏（错的）：另一个 claude 进程在同一工作区边跑边写。**"我改了 A，然后 B 坏了"在有并发写入者时什么都不能证明**：
+先 `ps aux | grep claude` + `lsof -p <pid> -a -d cwd` 确认自己是唯一写入者，再在 `git archive HEAD` 的副本里复现；`git checkout -- '*.go'` 丢过对方未提交的工作。
 
 ## 给 main 和 tag 加了 ruleset，发版随之改成 PR 流程 (2026-08-21)
 
