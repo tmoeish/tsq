@@ -233,6 +233,15 @@ func (r *Runtime) applyTablePolicyForTable(ctx context.Context, table *registere
 			}
 		}
 
+		// One column dropped and one added of the same shape is what a renamed
+		// field looks like: the values go with the dropped one, and the new one is
+		// empty. A migration's RENAME COLUMN keeps them; Reconcile cannot tell a
+		// rename from a replacement and copies nothing, which it says.
+		if from, to, ok := renamedColumnPair(r.dialect, changes); ok {
+			r.warn("schema reconcile drops a column and adds one of the same shape; a renamed field keeps its values only through a migration's RENAME COLUMN, nothing is copied",
+				"table", tableName, "dropped", from, "added", to, "policy", r.tablePolicy)
+		}
+
 		if (r.dialect.AlterMode() == sqld.AlterRebuild && hasAlterColumnChange(changes)) || addNeedsRebuild(r.dialect, changes) {
 			if err := r.rebuildTable(ctx, tableName, current, table.Columns); err != nil {
 				return fmt.Errorf("reconcile table %s: %w", tableName, err)
@@ -838,6 +847,37 @@ func columnsEqual(dialect sqld.Dialect, left sqld.Column, right tsqdialect.Colum
 	// default is a UTC expression on MySQL and PostgreSQL, and a live
 	// CURRENT_TIMESTAMP there (a table created before TSQ wrote UTC) differs.
 	return sqld.SameDefault(left.Default, sqld.DefaultSQL(dialect, right))
+}
+
+// renamedColumnPair is the one column dropped and the one added of the same
+// shape in changes, where there is exactly one of each.
+func renamedColumnPair(dialect sqld.Dialect, changes []tableColumnChange) (from, to string, ok bool) {
+	var dropped *sqld.Column
+
+	var added *tsqdialect.ColumnSpec
+
+	drops, adds := 0, 0
+
+	for _, change := range changes {
+		switch change.kind {
+		case tableColumnDrop:
+			drops++
+			dropped = change.before
+		case tableColumnAdd:
+			adds++
+			added = change.after
+		}
+	}
+
+	if drops != 1 || adds != 1 || dropped.PrimaryKey || added.PrimaryKey {
+		return "", "", false
+	}
+
+	if !sqld.SameColumnType(dialect, *dropped, *added) || dropped.Type.Nullable != added.Type.Nullable {
+		return "", "", false
+	}
+
+	return dropped.Name, added.Name, true
 }
 
 func ddlColumnChangeName(change tableColumnChange) string {
