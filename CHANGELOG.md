@@ -164,6 +164,7 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 ### 修复
 
+- **`SchemaMismatchError` 只说 `alter column n`，不说哪里不一样**：现在每一列都列出差异（引擎报告的类型对声明的拼法、NULL 对 NOT NULL、默认值、范围约束），比如 `alter column js (type jsonb, declared JSON)`。MySQL 上没有 `CREATE TEMPORARY TABLES` 权限的用户（只有 DML 权限的应用账号是常态）让"问引擎两种拼法是不是一回事"的探测跑不了，此前只在日志里警告、错误里仍是一句不匹配；现在那一行带上"数据库无法被问及，按文本比较"和引擎给的原因。
 - **pgx `simple_protocol` 模式下 `client_encoding` 不是 UTF8 时 `Open` 照常成功、之后每条查询都失败**（`simple protocol queries must be run with client_encoding=UTF8`）：启动时读会话编码的探测把"读不到"当作"不检查"，而这正是驱动拒绝一切查询的那种会话。现在驱动因编码拒绝会话时 `Open` 就拒绝启动并带上驱动的原因；读不到设置（兼容实现没有它）仍然放行。
 - **MySQL 上 `WithTx` 回调吞掉死锁后继续，前面的写入丢了、后面的写入留下、没有任何错误**：InnoDB 检测到死锁（1213）或锁表满（1206）时回滚**整个**事务并让会话退出事务（`@@in_transaction=0`），之后回调里的每条语句都各自自动提交，最后的 `COMMIT` 什么也不提交。现在事务执行器记住这类错误：之后的语句一律拒绝（说明事务已被数据库回滚、此时执行会自行提交），`WithTx` 拒绝提交并返回那个死锁错误（`IsTxConflictError` 为真，配 `WithRetry` 就整体重跑）。PostgreSQL 本来就拒绝失败后的语句且驱动报告"commit 变成了 rollback"，SQLite 的失败不结束事务，两者不变；MySQL 的重复键等语句级错误也不变——事务照常继续。
 - **`[N]byte` 字段（UUID、哈希的常见形态）生成器收下、运行时却写不进也读不出**（`sql: converting argument $4 type: unsupported type [16]uint8, a array`）：database/sql 只绑定和扫描字节切片，不碰数组。现在 `[N]byte`、具名数组类型（`type UUID [16]byte`）、它们的 `*T` 和 `sql.Null[T]` 形态在三个引擎上都按字节写入、读回数组；库里存着别的长度是读取错误（说明值几字节、字段几字节），不是截断的键。自带 `Value` / `Scan` 的类型（`uuid.UUID`）照旧用自己的。
