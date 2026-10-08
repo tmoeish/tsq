@@ -473,3 +473,27 @@ func TestZeroTimeIsBoundAsYearOneOnMySQL(t *testing.T) {
 		}
 	}
 }
+
+// TestMySQLServerIsCheckedByItsVersion covers the servers the MySQL dialect
+// refuses at Open: MariaDB, which answers the MySQL protocol and takes neither
+// the upsert's INSERT ... AS alias nor a JSON column, and a MySQL before 8.0.19,
+// where the alias came in. Both used to fail at the first upsert instead.
+func TestMySQLServerIsCheckedByItsVersion(t *testing.T) {
+	for version, refused := range map[string]bool{
+		"8.0.40":     false,
+		"8.0.19":     false,
+		"8.4.3":      false,
+		"9.1.0":      false,
+		"8.0.18":     true,
+		"5.7.44-log": true,
+		"10.11.6-MariaDB-1:10.11.6+maria~ubu2204": true,
+		"11.4.2-MariaDB": true,
+		"":               false, // unreadable: not a reason to refuse
+		"something else": false,
+	} {
+		err := mysqlServerProblem(version)
+		if (err != nil) != refused {
+			t.Errorf("VERSION() %q: refused %v (%v), want %v", version, err != nil, err, refused)
+		}
+	}
+}

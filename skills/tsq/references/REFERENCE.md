@@ -1565,7 +1565,10 @@ library supports the engines its tests run against.
 
 Driver names `tsq.Open` understands: `sqlite` (modernc.org/sqlite), `sqlite3`
 (github.com/mattn/go-sqlite3), `mysql`, and `postgres` / `postgresql` / `pgx` / `pq`. Both SQLite
-drivers work, error classification included. `tsq.NewRuntime` takes the dialect name directly, for a
+drivers work, error classification included. The MySQL dialect is MySQL 8.0.19 or later: a runtime
+refuses to start against MariaDB, which answers the MySQL protocol but takes neither the
+`INSERT ... AS alias` every upsert uses nor a `JSON` column type, and against an older MySQL, where
+the first upsert would otherwise fail with a syntax error. `tsq.NewRuntime` takes the dialect name directly, for a
 pool opened elsewhere or a driver registered under another name.
 
 SQLite lets one connection write at a time, and with a bare DSN a second one does not wait: a

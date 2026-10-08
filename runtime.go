@@ -164,6 +164,10 @@ func newRuntime(
 		if err := checkMySQLText(ctx, db); err != nil {
 			return nil, err
 		}
+
+		if err := checkMySQLServer(ctx, db); err != nil {
+			return nil, err
+		}
 	case tsqdialect.Postgres:
 		if err := checkPostgresText(ctx, db); err != nil {
 			return nil, err
@@ -452,6 +456,35 @@ func checkPostgresText(ctx context.Context, db *sql.DB) error {
 
 	return fmt.Errorf("the PostgreSQL session exchanges text as %s (the encoding of the database is %s, and the driver asks for none of its own); "+
 		"a Go string is UTF-8, and its bytes would be stored as other characters than the ones written: add client_encoding=UTF8 to the DSN", client, server)
+}
+
+// checkMySQLServer refuses a server the MySQL dialect does not speak to: MariaDB,
+// which answers the MySQL protocol but takes neither INSERT ... AS alias (every
+// upsert) nor a JSON column type (it is LONGTEXT there, and reports as such), and
+// a MySQL before 8.0.19, where the upsert alias came in. Either failed at the
+// first upsert, with a syntax error, after a start that said nothing. A version
+// that cannot be read is not a reason to refuse to start.
+func checkMySQLServer(ctx context.Context, db *sql.DB) error {
+	var version string
+	if err := db.QueryRowContext(ctx, "SELECT VERSION()").Scan(&version); err != nil {
+		return nil //nolint:nilerr // see above
+	}
+
+	return mysqlServerProblem(version)
+}
+
+// mysqlServerProblem is checkMySQLServer's answer for a VERSION() string.
+func mysqlServerProblem(version string) error {
+	if strings.Contains(strings.ToLower(version), "mariadb") {
+		return fmt.Errorf("the server is MariaDB (%s), which TSQ does not support: it takes neither the INSERT ... AS alias every upsert uses nor a JSON column type; TSQ needs MySQL 8.0.19 or later", version)
+	}
+
+	var major, minor, patch int
+	if n, _ := fmt.Sscanf(version, "%d.%d.%d", &major, &minor, &patch); n == 3 && (major < 8 || major == 8 && minor == 0 && patch < 19) {
+		return fmt.Errorf("the server is MySQL %s; TSQ needs 8.0.19 or later (INSERT ... AS alias, which every upsert uses, came in 8.0.19)", version)
+	}
+
+	return nil
 }
 
 // checkMySQLText is checkPostgresText for MySQL, where the DSN's charset or

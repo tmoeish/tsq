@@ -32,7 +32,8 @@
 ## 决定：方言能力位按版本基线表态，否决"版本可配置" (2026-08-26)
 
 能力位曾按 2018 年前的引擎写死。**否决**给方言加 `ServerVersion`：`Build()` 之前不知道会连哪个库，版本只能执行时探测，
-方言就得带状态。改成按基线表态（MySQL 8.0、SQLite ≥3.39），更老的引擎拿到数据库报错而不是 `UnsupportedCapabilityError`。
+方言就得带状态。改成按基线表态（MySQL 8.0.19、SQLite ≥3.39），更老的引擎拿到数据库报错而不是 `UnsupportedCapabilityError`；
+MariaDB 不在基线里（2026-10-09）：答 MySQL 协议却没有 `INSERT ... AS alias`、`JSON` 只是 `LONGTEXT`，`Open` 读 `VERSION()` 就拒绝，不等第一次 upsert 炸。
 能力表不留 `default` 分支：它把"忘了写"和"决定不支持"变成同一件事，穷尽靠表加遍历表的测试（`dialect.capabilities`）。
 
 ## InnoDB 回滚整个事务后会话就退出了事务 (2026-10-08，随机事务生命周期差分)
