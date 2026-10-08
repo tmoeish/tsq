@@ -164,6 +164,8 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 ### 修复
 
+- **`[N]byte` 字段（UUID、哈希的常见形态）生成器收下、运行时却写不进也读不出**（`sql: converting argument $4 type: unsupported type [16]uint8, a array`）：database/sql 只绑定和扫描字节切片，不碰数组。现在 `[N]byte`、具名数组类型（`type UUID [16]byte`）、它们的 `*T` 和 `sql.Null[T]` 形态在三个引擎上都按字节写入、读回数组；库里存着别的长度是读取错误（说明值几字节、字段几字节），不是截断的键。自带 `Value` / `Scan` 的类型（`uuid.UUID`）照旧用自己的。
+- **`size:` 写在数字、布尔、时间字段上此前被静默忽略**（`int64` 配 `size:10` 生成的是 `BIGINT`，不是十位的列）：现在 `tsq gen` 拒绝并说明 `size:` 只用于字符串和 `[]byte`。
 - **MySQL 上全文检索词里有 `*` 就报语法错**（`Error 1064: syntax error, unexpected $end, expecting FTS_TERM or FTS_NUMB or '*'`）：自然语言模式下 `*` 没有任何含义（不做前缀匹配），但 InnoDB 的解析器照样把它当记号，单独一个 `*`、空白后的 `*`、短语后的 `"a b"*` 都是语法错，而 PostgreSQL 和 SQLite 对同一个词都正常返回——搜索框里的内容原样传进 `tsq.Matches` 就可能 500。现在 MySQL 上渲染成 `MATCH(...) AGAINST (REPLACE(?, '*', '') IN NATURAL LANGUAGE MODE)`，`AGAINST` 的参数仍是常量，全文索引照用。其余运算符字符（`+ - " ( ) ~ < > @`）在自然语言模式下本来就是普通文本。
 - **`PageRequest.Keyword` 里的 NUL 字节现在是请求错误**：PostgreSQL 拒绝任何文本参数里的 `0x00`（搜索在 PostgreSQL 上是 500、在另两个引擎上是零行），而没有人会往搜索框里敲 NUL。`Paging()` / `Keyset()` 现在返回 `*PageRequestError{Field: "keyword"}`，三个引擎上都是 400。
 - **PostgreSQL 上带范围约束的列改成文本类型被拒绝**（`operator does not exist: character varying >= integer`）：`ALTER COLUMN TYPE` 会按新类型重新解析列上的 `CHECK`，`qty >= 0` 对 `VARCHAR` 无法解析。现在改类型前先删掉范围约束，新类型仍需要的再加回。随机生成的迁移在三引擎上执行找到的。

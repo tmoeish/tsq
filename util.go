@@ -1,6 +1,7 @@
 package tsq
 
 import (
+	"database/sql"
 	"database/sql/driver"
 	"encoding/json"
 	"errors"
@@ -153,14 +154,63 @@ func bindValue(v any) any {
 	case *time.Time:
 		return boundTime(*x)
 	case driver.Valuer:
+		// sql.Null[[16]byte].Value converts its array with the driver's default
+		// converter, which refuses arrays, so the bytes are taken from the field.
+		if rv := reflect.ValueOf(v); rv.Kind() == reflect.Struct && sqlNullOf(rv.Type(), byteArrayType) {
+			if !rv.Field(1).Bool() {
+				return nil
+			}
+
+			b, _ := byteArrayBytes(rv.Field(0).Interface())
+
+			return b
+		}
+
 		if value, err := x.Value(); err == nil {
 			if t, ok := value.(time.Time); ok {
 				return boundTime(t)
 			}
 		}
+
+		return v
+	}
+
+	if b, ok := byteArrayBytes(v); ok {
+		return b
 	}
 
 	return v
+}
+
+// byteArrayBytes is the bytes of a [N]byte, or of a pointer to one, which the
+// drivers bind as a slice and never as an array; ok is false for any other value.
+// A codec type keeps its own Value.
+func byteArrayBytes(v any) (b []byte, ok bool) {
+	rv := reflect.ValueOf(v)
+	if rv.Kind() == reflect.Pointer {
+		if rv.IsNil() {
+			return nil, false
+		}
+
+		rv = rv.Elem()
+	}
+
+	if !rv.IsValid() || !byteArrayType(rv.Type()) {
+		return nil, false
+	}
+
+	b = make([]byte, rv.Len())
+	reflect.Copy(reflect.ValueOf(b), rv)
+
+	return b, true
+}
+
+// byteArrayType reports a [N]byte, or a type of that shape, without a Scan of its
+// own: a key kept as its bytes, which database/sql reads and writes only as a slice.
+func byteArrayType(t reflect.Type) bool {
+	return t != nil && t.Kind() == reflect.Array && t.Elem().Kind() == reflect.Uint8 &&
+		!reflect.PointerTo(t).Implements(reflect.TypeFor[sql.Scanner]()) &&
+		!t.Implements(reflect.TypeFor[driver.Valuer]())
 }
 
 // boundTime is t as every statement binds it: in UTC, and cut to the microsecond

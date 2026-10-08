@@ -702,6 +702,12 @@ func classifyDDLColumnType(t types.Type, rawTag string) (ddlColumnDescriptor, er
 	case ddlColumnBytes:
 		// Bytes have no default size; one declared picks MySQL's BLOB type.
 		desc.size = opts.size
+	default:
+		// A size on a number, a bool or a time was ignored, and read as if it held:
+		// an int64 with size:10 is a BIGINT, not a ten-digit column.
+		if opts.size > 0 && opts.rawType == "" {
+			return ddlColumnDescriptor{}, fmt.Errorf("db tag option size:%d applies to string and []byte fields; this one is %s", opts.size, types.TypeString(t, nil))
+		}
 	}
 
 	desc.rawType = opts.rawType

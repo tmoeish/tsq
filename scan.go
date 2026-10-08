@@ -39,13 +39,24 @@ func scanAdapterFor(field reflect.Type) scanAdapter {
 	case namedBool(field):
 		return func(p any) any { return boolDest{field: reflect.ValueOf(p).Elem()} }
 	case field.Kind() == reflect.Pointer && namedBool(field.Elem()):
-		return func(p any) any { return boolDest{field: reflect.ValueOf(p).Elem(), form: boolPointer} }
-	case field.Kind() == reflect.Struct && field.PkgPath() == "database/sql" && strings.HasPrefix(field.Name(), "Null[") &&
-		field.NumField() == 2 && namedBool(field.Field(0).Type):
-		return func(p any) any { return boolDest{field: reflect.ValueOf(p).Elem(), form: boolNull} }
+		return func(p any) any { return boolDest{field: reflect.ValueOf(p).Elem(), form: formPointer} }
+	case sqlNullOf(field, namedBool):
+		return func(p any) any { return boolDest{field: reflect.ValueOf(p).Elem(), form: formNull} }
+	case byteArrayType(field):
+		return func(p any) any { return byteArrayDest{field: reflect.ValueOf(p).Elem()} }
+	case field.Kind() == reflect.Pointer && byteArrayType(field.Elem()):
+		return func(p any) any { return byteArrayDest{field: reflect.ValueOf(p).Elem(), form: formPointer} }
+	case sqlNullOf(field, byteArrayType):
+		return func(p any) any { return byteArrayDest{field: reflect.ValueOf(p).Elem(), form: formNull} }
 	}
 
 	return nil
+}
+
+// sqlNullOf reports a sql.Null[T] whose T is what inner reports.
+func sqlNullOf(t reflect.Type, inner func(reflect.Type) bool) bool {
+	return t.Kind() == reflect.Struct && t.PkgPath() == "database/sql" && strings.HasPrefix(t.Name(), "Null[") &&
+		t.NumField() == 2 && inner(t.Field(0).Type)
 }
 
 func namedBool(t reflect.Type) bool {
@@ -164,25 +175,27 @@ func (d *nullOfTimeDest) Scan(src any) error {
 	return nil
 }
 
-type boolForm uint8
+// destForm is the shape a field gives a value: the value itself, a pointer to
+// one, or a sql.Null of one.
+type destForm uint8
 
 const (
-	boolValue   boolForm = iota // type Flag bool
-	boolPointer                 // *Flag
-	boolNull                    // sql.Null[Flag]
+	formValue   destForm = iota // type Flag bool, [16]byte
+	formPointer                 // *Flag, *[16]byte
+	formNull                    // sql.Null[Flag], sql.Null[[16]byte]
 )
 
 // boolDest reads a boolean into a named bool field, in any of its nullable forms.
 type boolDest struct {
 	field reflect.Value
-	form  boolForm
+	form  destForm
 }
 
 func (d boolDest) Scan(src any) error {
 	target := d.field
 
 	if src == nil {
-		if d.form == boolValue {
+		if d.form == formValue {
 			return fmt.Errorf("converting NULL to %s is unsupported", target.Type())
 		}
 
@@ -197,16 +210,67 @@ func (d boolDest) Scan(src any) error {
 	}
 
 	switch d.form {
-	case boolPointer:
+	case formPointer:
 		fresh := reflect.New(target.Type().Elem())
 		target.Set(fresh)
 		target = fresh.Elem()
-	case boolNull:
+	case formNull:
 		target.Field(1).SetBool(true)
 		target = target.Field(0)
 	}
 
 	target.SetBool(value.(bool))
+
+	return nil
+}
+
+// byteArrayDest reads a column into a [N]byte field, in any of its nullable
+// forms: the drivers hand bytes back as a slice (or as text on SQLite), which
+// database/sql does not put into an array.
+type byteArrayDest struct {
+	field reflect.Value
+	form  destForm
+}
+
+func (d byteArrayDest) Scan(src any) error {
+	target := d.field
+
+	if src == nil {
+		if d.form == formValue {
+			return fmt.Errorf("converting NULL to %s is unsupported", target.Type())
+		}
+
+		target.SetZero()
+
+		return nil
+	}
+
+	var b []byte
+
+	switch v := src.(type) {
+	case []byte:
+		b = v
+	case string:
+		b = []byte(v)
+	default:
+		return fmt.Errorf("unsupported Scan, storing driver.Value type %T into type *%s", src, target.Type())
+	}
+
+	switch d.form {
+	case formPointer:
+		fresh := reflect.New(target.Type().Elem())
+		target.Set(fresh)
+		target = fresh.Elem()
+	case formNull:
+		target.Field(1).SetBool(true)
+		target = target.Field(0)
+	}
+
+	if len(b) != target.Len() {
+		return fmt.Errorf("the value is %d bytes and %s holds %d", len(b), target.Type(), target.Len())
+	}
+
+	reflect.Copy(target, reflect.ValueOf(b))
 
 	return nil
 }
