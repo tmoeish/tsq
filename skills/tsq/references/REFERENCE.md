@@ -1322,6 +1322,16 @@ A rollback undoes the database, not memory: a row an `Insert` or `Update` inside
 (key, `created_at`, `updated_at`, `version`) keeps those values after a rollback, and a retry runs
 the callback again with them. Load or build the rows a transaction writes inside its callback.
 
+A statement that fails inside the callback does not end the transaction on MySQL and SQLite (a
+duplicate key can be caught and the callback can go on; `BatchInsert` with `WithSkipDuplicates`
+does that behind a savepoint), and ends it on PostgreSQL, which refuses every statement until the
+rollback. The exception is an error after which the engine rolled the **whole** transaction back on
+its own — a deadlock, or a full lock table, on MySQL (`tsq.IsTxConflictError`): the session is then
+out of the transaction, so a callback that caught the error and went on would run its later
+statements on their own and `COMMIT` nothing. The executor refuses every statement after such an
+error, `WithTx` refuses to commit and returns the error that ended the transaction, and
+`WithRetry` runs the callback again as it would had the error been returned.
+
 Useful rules:
 
 - transaction boundaries stay explicit
@@ -1524,10 +1534,15 @@ pool opened elsewhere or a driver registered under another name.
 
 SQLite lets one connection write at a time, and with a bare DSN a second one does not wait: a
 goroutine that reads or writes while another writes gets `database is locked` at once. A program
-that uses a SQLite runtime from more than one goroutine sets a busy timeout and the write-ahead log
-in the DSN: `file:app.db?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)` for
-modernc.org/sqlite, `file:app.db?_busy_timeout=5000&_journal_mode=WAL` for mattn/go-sqlite3. What
-still times out is a busy database, which `tsq.IsRetryableTxError` reports and `WithRetry` retries.
+that uses a SQLite runtime from more than one goroutine sets a busy timeout, the write-ahead log and
+immediate transactions in the DSN:
+`file:app.db?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_txlock=immediate` for
+modernc.org/sqlite, `file:app.db?_busy_timeout=5000&_journal_mode=WAL&_txlock=immediate` for
+mattn/go-sqlite3. `_txlock=immediate` makes every `WithTx` take the write lock as it begins: a
+transaction that reads first and writes later is otherwise a reader that has to become the writer,
+and SQLite refuses that at once (`database is locked`, without waiting the busy timeout) whenever
+another transaction wrote in between. What still times out is a busy database, which
+`tsq.IsRetryableTxError` reports and `WithRetry` retries.
 
 TSQ separates structure validation from dialect execution.
 

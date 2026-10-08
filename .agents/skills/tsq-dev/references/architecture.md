@@ -293,7 +293,9 @@ CTE 的输出列可空时，`WithTable(cte)` 重绑的列标成 `always`。
 `*Runtime`、`WithTx` 的回调执行器、`WrapExecutor(handle, dialect.Name)` 的结果。裸 `*sql.DB`
 编译不过——库必须知道方言才能渲染，v4 允许传裸池，结果是运行期才发现方言未知。
 
-`execScope` 带方言、所属 runtime（日志、追踪、分页上限从这里取）和是否在事务里。
+`execScope` 带方言、所属 runtime（日志、追踪、分页上限从这里取）和是否在事务里。`WithTx` 的执行器还带
+`*txState`：三个方法在 `boundExecutor` 上显式实现（`QueryRowContext` 看 `row.Err()`），记下引擎自行回滚整个事务的错误
+（`rolledBackByEngine`，MySQL 1213 / 1206），之后的语句拒绝、`executeTxAttempt` 拒绝提交并把它当回调的错误返回（可重试）。
 
 ## 运行时
 

@@ -8,6 +8,8 @@ import (
 	"io"
 	"net"
 	"syscall"
+
+	sqld "github.com/tmoeish/tsq/v5/internal/sqldialect"
 )
 
 // RowStateError reports that a write needed the row in a state it was not in: a
@@ -124,6 +126,22 @@ func IsRetryableNetworkError(err error) bool {
 	var netErr net.Error
 
 	return errors.As(err, &netErr) && netErr.Timeout()
+}
+
+// rolledBackByEngine reports an error after which the engine rolled the whole
+// transaction back on its own, not just the statement: on MySQL a deadlock (1213)
+// and a full lock table (1206). A lock wait timeout (1205) rolls back the
+// statement alone unless innodb_rollback_on_timeout is set, so it is not one.
+// PostgreSQL aborts the transaction on every error and says so on the next
+// statement; SQLite keeps it.
+func rolledBackByEngine(d sqld.Dialect, err error) bool {
+	if d == nil || d.Name() != sqld.MySQL {
+		return false
+	}
+
+	number, ok := mysqlErrorNumber(err)
+
+	return ok && (number == 1213 || number == 1206)
 }
 
 // IsTxConflictError reports whether err is a conflict that running the whole
