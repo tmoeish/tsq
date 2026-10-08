@@ -41,8 +41,7 @@
 ## 决定：v5 的命名规则，改回去之前先读这里 (2026-09-16，v5)
 
 v5 不背兼容，一次把名字改到"最合理"。定下的几条规则，每条都是有意的：
-- 错误**类型**以 `Error` 结尾（`OptimisticLockError`），`Err` 前缀只留给哨兵变量——Go 标准库的惯例。
-- `tsq gen --help` 曾在 v5 里印着 `@TABLE`（门只看符号不看文字）；编译错误里的方法名同样是给人读的文案，见 `../impact/api.md`。
+- 错误**类型**以 `Error` 结尾（`OptimisticLockError`），`Err` 前缀只留给哨兵变量——Go 标准库的惯例。`tsq gen --help` 曾在 v5 里印着 `@TABLE`（门只看符号不看文字）；编译错误里的方法名同样是给人读的文案，见 `../impact/api.md`。
 - 导出面只留使用者用得到的（2026-09-19 逐个查示例和文档的引用）：只供库内部读的取值方法一律不导出。
 - 右值接口叫 `Operand` / `ListOperand`（不叫 `RHS` / `SetRHS`，Set 已是 UPDATE 赋值）；装列名的字段叫 `Columns`。
 - 否定一律 `Not*`（`NotIn`、`tsq.NotLike`）；同一个意思只留一种拼法（`NIn` 与 `NotExists` 并存过，`Join` 与 `InnerJoin` 也是，删前者）。
