@@ -1838,3 +1838,144 @@ func dropIndexSuffix(target integrationTarget, index, table string) string {
 
 	return quoteFor(target, index)
 }
+
+// TestIntegrationReconcileGivesAPlainKeyAGenerator covers a table another tool
+// created with a plain primary key, opened by a declaration whose keys the
+// database generates. MySQL added AUTO_INCREMENT and SQLite rebuilt the table
+// while PostgreSQL refused with "manual change required": every engine now
+// gives the key a generator that starts past the rows present, and Validate is
+// quiet afterwards.
+func TestIntegrationReconcileGivesAPlainKeyAGenerator(t *testing.T) {
+	for _, target := range integrationTargets(t) {
+		t.Run(target.name, func(t *testing.T) {
+			ctx := context.Background()
+
+			dropTables(t, target, "dup")
+
+			db, err := sql.Open(target.driver, target.dsn)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			defer func() { _ = db.Close() }()
+
+			q := func(name string) string { return quoteFor(target, name) }
+
+			for _, stmt := range []string{
+				"CREATE TABLE " + q("dup") + " (" + q("id") + " BIGINT NOT NULL PRIMARY KEY, " + q("code") + " VARCHAR(20) NOT NULL, " + q("note") + " VARCHAR(20) NULL)",
+				"INSERT INTO " + q("dup") + " (" + q("id") + ", " + q("code") + ") VALUES (7, 'seven')",
+			} {
+				if _, err := db.ExecContext(ctx, stmt); err != nil {
+					t.Fatalf("%s: %v", stmt, err)
+				}
+			}
+
+			if _, _, err := openQuietly(target, tsq.SchemaPolicyValidate, dupTable(false, false)); err == nil {
+				t.Fatal("Validate accepted a key that generates nothing")
+			}
+
+			rt, ran, err := openQuietly(target, tsq.SchemaPolicyReconcile, dupTable(false, false))
+			if err != nil {
+				t.Fatalf("Reconcile: %v (ran %v)", err, ran)
+			}
+
+			fresh := &dupRow{Code: "eight"}
+			if err := dupTable(false, false).Insert(ctx, rt, fresh); err != nil {
+				t.Fatalf("insert after Reconcile: %v (ran %v)", err, ran)
+			}
+
+			if fresh.ID != 8 {
+				t.Fatalf("the key generated after row 7 is %d (ran %v)", fresh.ID, ran)
+			}
+
+			_ = rt.Close()
+
+			if _, again, err := openQuietly(target, tsq.SchemaPolicyValidate, dupTable(false, false)); err != nil || len(again) != 0 {
+				t.Fatalf("Validate after Reconcile: %v (ran %v)", err, again)
+			}
+
+			if got := columnValues(t, target, q("dup"), q("code")); fmt.Sprint(got) != "[seven eight]" {
+				t.Fatalf("rows after Reconcile: %v", got)
+			}
+
+			// The other way round: a declaration whose keys the caller assigns
+			// takes the generator away again, and the rows stay.
+			rt, ran, err = openQuietly(target, tsq.SchemaPolicyReconcile, assignedDupTable())
+			if err != nil {
+				t.Fatalf("Reconcile to an assigned key: %v (ran %v)", err, ran)
+			}
+
+			_ = rt.Close()
+
+			if _, again, err := openQuietly(target, tsq.SchemaPolicyValidate, assignedDupTable()); err != nil || len(again) != 0 {
+				t.Fatalf("Validate after the generator was dropped: %v (ran %v)", err, again)
+			}
+
+			if got := columnValues(t, target, q("dup"), q("code")); fmt.Sprint(got) != "[seven eight]" {
+				t.Fatalf("rows after the generator was dropped: %v", got)
+			}
+		})
+	}
+}
+
+// assignedDupTable is dupTable's shape with a key the caller assigns.
+func assignedDupTable() *tsq.TableOf[dupRow, int64] {
+	t := tsq.NewTable[dupRow, int64]("dup")
+	id := tsq.NewColumn(t, "id", "id", func(r *dupRow) *int64 { return &r.ID })
+	code := tsq.NewColumn(t, "code", "code", func(r *dupRow) *string { return &r.Code })
+	note := tsq.NewNullColumn[string](t, "note", "note", func(r *dupRow) **string { return &r.Note })
+	specs := []tsqdialect.ColumnSpec{
+		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true},
+		{Name: "code", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 20}},
+		{Name: "note", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 20, Nullable: true}},
+	}
+
+	return t.Define(tsq.TableSpec[dupRow, int64]{Columns: []tsq.BoundColumn[dupRow]{id, code, note}, PrimaryKey: id, ColumnSpecs: specs})
+}
+
+// TestIntegrationAKeyGeneratorComesAndGoes starts a table whose key the caller
+// assigns, redeclares it generated, then assigned again, and validates after
+// each step. On SQLite an integer key is the rowid, which the database assigns
+// whether or not AUTOINCREMENT is written: a table TSQ created with an assigned
+// key could not be validated at its next start ("auto-increment true, declared
+// false"), and PostgreSQL refused both directions.
+func TestIntegrationAKeyGeneratorComesAndGoes(t *testing.T) {
+	for _, target := range integrationTargets(t) {
+		t.Run(target.name, func(t *testing.T) {
+			ctx := context.Background()
+
+			dropTables(t, target, "dup")
+
+			steps := []struct {
+				name  string
+				table *tsq.TableOf[dupRow, int64]
+			}{
+				{"assigned", assignedDupTable()},
+				{"generated", dupTable(false, false)},
+				{"assigned again", assignedDupTable()},
+			}
+
+			for i, step := range steps {
+				rt, ran, err := openQuietly(target, tsq.SchemaPolicyReconcile, step.table)
+				if err != nil {
+					t.Fatalf("Reconcile to %s: %v (ran %v)", step.name, err, ran)
+				}
+
+				row := &dupRow{ID: int64(10 * (i + 1)), Code: step.name}
+				if err := step.table.Insert(ctx, rt, row); err != nil {
+					t.Fatalf("insert with a key after %s: %v (ran %v)", step.name, err, ran)
+				}
+
+				_ = rt.Close()
+
+				if _, again, err := openQuietly(target, tsq.SchemaPolicyValidate, step.table); err != nil || len(again) != 0 {
+					t.Fatalf("Validate after %s: %v (ran %v, then %v)", step.name, err, ran, again)
+				}
+			}
+
+			if got := columnValues(t, target, quoteFor(target, "dup"), quoteFor(target, "code")); fmt.Sprint(got) != "[assigned generated assigned again]" {
+				t.Fatalf("rows after the round trip: %v", got)
+			}
+		})
+	}
+}
