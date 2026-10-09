@@ -54,11 +54,11 @@
 - **"改名"的判断有两份**：生成器的 `renamedColumnHint` / `renamedTableHint`（`internal/cmd/ddl_state.go`，写注释掉的 RENAME）和运行时的
   `renamedColumnPair`（`runtime_schema.go`，只警告）。"同形状"的定义改了两边一起改。
 - **唯一索引先查重复行再动表**（`refuseUniqueIndexesOverDuplicates`，在 `applySchemaPolicies` 里任何 DDL 之前，`changesSchema(indexPolicy)` 时；缺失的和 `Reconcile` 会重建的同名索引都算）：
-  表策略先改列、索引策略再建索引，索引被引擎拒绝时表已改完。新增一种"索引建不成"的原因（表达式索引、长度上限……）要先想它能不能在这里预判。
-- **一张表的 schema 改动走 `Runtime.changeTable`**（维护者 2026-10-09 定案，推翻了"不要把 DDL 包进事务"）：PG / SQLite 在一个事务里（`schemaTx`，
+  它只看现有的值：改类型造出来的重复（`1`、`2` 改成布尔都成 `TRUE`）查不到，那种情况靠下一条的事务兜住（MySQL 兜不住）。新增一种"索引建不成"的原因（表达式索引、长度上限……）要先想它能不能在这里预判。
+- **一张表的 schema 改动走 `Runtime.changeTable`**（维护者 2026-10-09 定案，推翻了"不要把 DDL 包进事务"）：`applySchemaPoliciesForTable` 逐表把**列和索引放进同一个**改动（分成两遍时，改类型提交后索引被拒，表照样半截）；PG / SQLite 在一个事务里（`schemaTx`，
   `schemaDB()` 期间交出它），MySQL 逐条自动提交、失败时错误列出已执行的语句。耦合：新的 DDL 出口要过 `execDDL` / `noteDDL`（"applied ddl"
   日志在提交后才打，回滚的不算）；**引擎拼法探测（临时表）留在事务外**——探测失败是预期内的，放进 PG 事务会让整个事务 aborted；
-  `rebuildTable` 在 `schemaTx` 里就并入它、不另开（单连接池会死锁）。门是 `TestIntegrationARefusedTableChangeLeavesTheTableAsItWas`。
+  `rebuildTable` 在 `schemaTx` 里就并入它、不另开（单连接池会死锁）。门是 `TestIntegrationARefusedTableChangeLeavesTheTableAsItWas` 和 `TestIntegrationAnIndexTheRetypeBreaksUndoesTheRetype`。
 - **策略档之间的分界按"改不改已有的东西"划**：`CreateMissing` 只加（表、列、索引），已有的列不一样仍然拒绝启动，
   改列和删列是 `Reconcile` 的。`CreateMissing` 曾把"缺列"和"列不一样"一起拒绝，而三处文档都说它会加列。
 - **自省比较按引擎的拼法归一**：SQLite 的名字不分大小写（`sqlite_master` 查询要 `COLLATE NOCASE`，Go 里比名字用

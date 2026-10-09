@@ -2065,3 +2065,74 @@ func TestIntegrationARefusedTableChangeLeavesTheTableAsItWas(t *testing.T) {
 		})
 	}
 }
+
+type flagRow struct {
+	ID   int64
+	Num  *int64
+	Flag bool
+}
+
+// flagTable declares flagged(id, flag): flag a nullable integer with a default,
+// or a NOT NULL boolean under a unique index.
+func flagTable(asBool bool) *tsq.TableOf[flagRow, int64] {
+	t := tsq.NewTable[flagRow, int64]("flagged")
+	id := tsq.NewColumn(t, "id", "id", func(r *flagRow) *int64 { return &r.ID })
+	idSpec := tsqdialect.ColumnSpec{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true}
+
+	if asBool {
+		flag := tsq.NewColumn(t, "flag", "flag", func(r *flagRow) *bool { return &r.Flag })
+
+		return t.Define(tsq.TableSpec[flagRow, int64]{
+			Columns: []tsq.BoundColumn[flagRow]{id, flag}, PrimaryKey: id, AutoIncrement: true,
+			ColumnSpecs: []tsqdialect.ColumnSpec{idSpec, {Name: "flag", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindBool}}},
+			Indexes:     []tsq.IndexSpec{{Name: "ux_flagged_flag", Columns: []string{"flag"}, Unique: true}},
+		})
+	}
+
+	flag := tsq.NewNullColumn[int64](t, "flag", "flag", func(r *flagRow) **int64 { return &r.Num })
+
+	return t.Define(tsq.TableSpec[flagRow, int64]{
+		Columns: []tsq.BoundColumn[flagRow]{id, flag}, PrimaryKey: id, AutoIncrement: true,
+		ColumnSpecs: []tsqdialect.ColumnSpec{idSpec, {Name: "flag", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64, Nullable: true}, Default: "0", Fill: tsqdialect.FillDefault}},
+	})
+}
+
+// TestIntegrationAnIndexTheRetypeBreaksUndoesTheRetype covers a unique index
+// that only the column change makes impossible: a 1 and a 2 are distinct (the
+// duplicate check before any DDL passes them), but a retype to a boolean turns
+// both into TRUE. The column change and the index ran as two
+// changes, so the retype stayed when the index was refused. On PostgreSQL and
+// SQLite they are one change now and the table is as it was.
+func TestIntegrationAnIndexTheRetypeBreaksUndoesTheRetype(t *testing.T) {
+	for _, target := range integrationTargets(t) {
+		if target.name == "mysql" {
+			continue // each DDL commits; covered by the error naming what ran
+		}
+
+		t.Run(target.name, func(t *testing.T) {
+			ctx := context.Background()
+
+			dropTables(t, target, "flagged")
+
+			rt, _, err := openQuietly(target, tsq.SchemaPolicyReconcile, flagTable(false))
+			if err != nil {
+				t.Fatalf("create: %v", err)
+			}
+
+			one, two := int64(1), int64(2)
+			if err := flagTable(false).BatchInsert(ctx, rt, []*flagRow{{Num: &one}, {Num: &two}}); err != nil {
+				t.Fatalf("rows: %v", err)
+			}
+
+			_ = rt.Close()
+
+			if _, ran, err := openQuietly(target, tsq.SchemaPolicyReconcile, flagTable(true)); err == nil {
+				t.Fatalf("Reconcile to a unique boolean over 1 and 2 succeeded (ran %v)", ran)
+			}
+
+			if _, again, err := openQuietly(target, tsq.SchemaPolicyValidate, flagTable(false)); err != nil {
+				t.Fatalf("the previous declaration no longer validates: %v (ran %v)", err, again)
+			}
+		})
+	}
+}
