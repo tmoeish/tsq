@@ -345,7 +345,13 @@ From result structs, TSQ commonly generates:
 Do not hand-edit generated outputs in normal usage.
 
 Each `.sql` file holds the full schema followed by one dated migration section per `tsq gen` that
-changed it. A migration never runs a destructive statement for you:
+changed it. A section in `postgres.sql` is one transaction (`BEGIN;` … `COMMIT;`): run it in one
+session (psql, or any tool that runs the file on one connection) and a statement the database refuses
+undoes the whole section, even under psql without `ON_ERROR_STOP`. Sections in `mysql.sql` and
+`sqlite.sql` are not: MySQL commits every DDL statement on its own, and SQLite's table rebuild takes a
+transaction of its own; there a refused statement leaves the ones before it applied, so run a section
+that retypes a column over rows on a copy of the data first. A migration tool that wraps every file
+in a transaction of its own (Flyway, goose) only warns about the nested `BEGIN`. A migration never runs a destructive statement for you:
 
 - a `DROP TABLE`, a `DROP COLUMN`, or a SQLite rebuild that leaves a column out is written commented
   out behind `-- DESTRUCTIVE`, and `tsq gen` warns about it. Renaming a table or a `db` tag, and a
@@ -356,7 +362,8 @@ changed it. A migration never runs a destructive statement for you:
   names are global on PostgreSQL and SQLite: an index moving to another table, or a renamed table
   keeping its index names, does not collide with the old one. A unique index recreated under a name
   the section drops first (an index that became unique, or changed columns) fails after the DROP
-  where rows share its values, leaving the table with neither: the file says so before the DROP,
+  where rows share its values, leaving the table with neither on MySQL and SQLite (on PostgreSQL the
+  section rolls back): the file says so before the DROP,
   with the columns to check (the runtime's `Reconcile` builds such an index under another name
   first, and refuses before any DDL where rows share the values)
 - a column that becomes NOT NULL is filled for the rows holding NULL first, with its default or its

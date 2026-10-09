@@ -164,6 +164,7 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 ### 修复
 
+- **`postgres.sql` 的迁移段不在事务里**：用 psql（默认遇错继续）跑一段改类型的迁移，前面删索引、删默认值的语句生效、改类型被拒，表停在半截——和运行时 `Reconcile` 修掉的是同一件事。现在新生成的 PostgreSQL 迁移段包在 `BEGIN;` … `COMMIT;` 里，同一个会话里跑就是全有或全无（psql 不开 `ON_ERROR_STOP` 也一样：出错后事务中止、`COMMIT` 变成回滚）。MySQL 每条 DDL 自动提交、SQLite 的重建自带事务，这两个文件的迁移段不包，文档写明了。已经生成的旧段不变。
 - **`Reconcile` / `CreateMissing` 改一张表时，引擎拒绝了其中一条语句，前面的语句已经生效，表停在新旧声明都对不上的中间状态**（例：带索引和默认值的字符串列改成时间类型，库里有不是时间的值：索引和默认值先被删掉，改类型被拒，旧版本也起不来）。现在 PostgreSQL / SQLite 上一张表的改动（列和它的索引一起：改类型可能让唯一索引建不成，比如 `1`、`2` 改成布尔都是 `TRUE`）在一个事务里，失败就整体回滚、表原样不动；**MySQL 每条 DDL 自动提交，做不到**，失败时错误信息列出已经执行、无法撤回的语句。
 - **`any`（或其他接口）、没有 `Value` / `Scan` 的结构体字段加上 `type:` 就能生成**，运行时才出问题：`any` 存进去的字符串从 SQLite 读回是 `string`、从 MySQL 读回是 `[]byte`，pgx 写不进 int / bool；结构体第一次写入就失败。`type:` 只决定列类型，不决定值怎么传，现在 `tsq gen` 无论写不写 `type:` 都拒绝这类字段；手写 `NewTable` / `Define` 的表同样在 `Define` 时拒绝这类列。
 - **SQLite 上 `WithReadOnly()` 的事务照样能写入并提交**：modernc 和 mattn 两个驱动都忽略 `TxOptions.ReadOnly`，而 MySQL / PostgreSQL 会报 25006。现在 SQLite 的只读事务在单独的连接上设 `PRAGMA query_only = ON`，由引擎拒绝写入，事务结束后清掉；清不掉的连接直接丢弃，不会把只读状态还回连接池。`Page` 在 SQLite 上也走这条路。

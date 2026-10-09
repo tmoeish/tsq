@@ -52,7 +52,7 @@ flag（cobra 时代包级单例的 `Changed` 位跨测试残留过），并支�
 顺序救不了不会停的执行者，只能让语句本身不会失败。删表删列一律注释掉交给人（维护者定案），因为改名、改 `db` 标签、
 把 `//tsq:table` 写成 `// tsq:table` 在生成器眼里都和"删掉"一样。同理（2026-09-29 维护者定案）：改成 NOT NULL 的列在三个方言上
 都先把 NULL 填成默认值或零值并注明，否掉"只警告"；PG 同类改类型不写 `USING`，宁可失败也不截断。同名重建成唯一索引是先 `DROP` 后 `CREATE`（2026-10-08）：
-运行时用临时名先建再删，文件里做不到（SQLite 没有改名索引、人不一定在事务里跑），于是在 `DROP` 之前写一行点名要查重复的列。改名字段、改名表同理：删加同形状的一对时段首给出注释掉的 `RENAME COLUMN` / `RENAME TO` 加索引改名（`renamedColumnHint` / `renamedTableHint`）；运行时 `Reconcile` 只警告（`renamedColumnPair`），不猜。
+运行时用临时名先建再删，文件里做不到（SQLite 没有改名索引），于是在 `DROP` 之前写一行点名要查重复的列。**PG 的迁移段包 `BEGIN` / `COMMIT`**（维护者 2026-10-09 "能包事务就包上"）：psql 遇错继续时事务已中止、`COMMIT` 变回滚，所以"执行者不会停"在 PG 上也是全有或全无；MySQL 包不了、SQLite 的重建自带事务（不能嵌套），不包。验证要在**同一个会话**上跑——经 `database/sql` 连接池逐条 `Exec`，pgx 会丢掉停在事务里的连接，事务形同没有（门 `TestIntegrationGeneratedSQLFilesBuildTheRuntimesSchema` 因此用 `db.Conn`）。改名字段、改名表同理：删加同形状的一对时段首给出注释掉的 `RENAME COLUMN` / `RENAME TO` 加索引改名（`renamedColumnHint` / `renamedTableHint`）；运行时 `Reconcile` 只警告（`renamedColumnPair`），不猜。
 
 ## 生成器不能带 `git describe` 的版本号，否则发版是死锁 (2026-08-21)
 

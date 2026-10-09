@@ -3739,3 +3739,58 @@ type Parcel struct {
 		t.Fatalf("gen --check after the migration: %v", err)
 	}
 }
+
+// TestGenWrapsAPostgresMigrationSectionInATransaction covers a section run by
+// psql without ON_ERROR_STOP: unwrapped, the statements before a refused retype
+// stayed (the index and the default dropped, the type unchanged), the table
+// matching neither declaration. On PostgreSQL the section is one transaction;
+// MySQL commits each DDL statement and SQLite's rebuild takes a transaction of
+// its own, so their sections are not wrapped. A section of commented-out
+// destructive statements runs nothing and is not wrapped either.
+func TestGenWrapsAPostgresMigrationSectionInATransaction(t *testing.T) {
+	model := func(fields string) string {
+		return "package gentest\n\n//tsq:table\ntype Row struct {\n\tID int64 `db:\"id\"`\n\t" + fields + "\n}\n"
+	}
+
+	lastSection := func(file string) string {
+		content, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		sections := strings.Split(string(content), "-- Migration: ")
+
+		return sections[len(sections)-1]
+	}
+
+	if err := genModule(t, map[string]string{"model.go": model("Note string `db:\"note,size:40\"`\n\tGone string `db:\"gone,size:40\"`")}); err != nil {
+		t.Fatal(err)
+	}
+
+	writeTestFile(t, "model.go", model("Note string `db:\"note,size:80\"`\n\tGone string `db:\"gone,size:40\"`"))
+
+	if err := runGen(t); err != nil {
+		t.Fatal(err)
+	}
+
+	if section := strings.TrimSpace(lastSection("postgres.sql")); !strings.Contains(section, "\nBEGIN;\n") || !strings.HasSuffix(section, "COMMIT;") {
+		t.Errorf("postgres.sql section is not one transaction:\n%s", section)
+	}
+
+	for _, file := range []string{"mysql.sql", "sqlite.sql"} {
+		if section := lastSection(file); strings.Contains(section, "BEGIN;") {
+			t.Errorf("%s section is wrapped in a transaction the engine cannot keep:\n%s", file, section)
+		}
+	}
+
+	// Only a commented-out DROP COLUMN: nothing to wrap.
+	writeTestFile(t, "model.go", model("Note string `db:\"note,size:80\"`"))
+
+	if err := runGen(t); err != nil {
+		t.Fatal(err)
+	}
+
+	if section := lastSection("postgres.sql"); strings.Contains(section, "BEGIN;") {
+		t.Errorf("a section that runs nothing was wrapped:\n%s", section)
+	}
+}
