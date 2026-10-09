@@ -2382,6 +2382,39 @@ type Row struct {
 	}
 }
 
+// TestGenRefusesAFieldDatabaseSQLCannotCarry covers a type: override on a field
+// whose Go type database/sql cannot carry. It generated: an any field then read
+// back a string as a string on SQLite and as []byte on MySQL, and pgx could not
+// encode an int or a bool into it; a struct without Value and Scan failed on the
+// first write. type: names the column, not how the value travels, so these are
+// refused whatever it says, and a byte array or a codec type still generates.
+func TestGenRefusesAFieldDatabaseSQLCannotCarry(t *testing.T) {
+	for name, field := range map[string]string{
+		"any":        "V any `db:\"v,type:TEXT\"`",
+		"error":      "V error `db:\"v,type:TEXT\"`",
+		"struct":     "V Pair `db:\"v,type:TEXT\"`",
+		"struct ptr": "V *Pair `db:\"v,type:TEXT\"`",
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := genModule(t, map[string]string{"model.go": "package gentest\n\ntype Pair struct{ A, B int }\n\n//tsq:table\ntype Row struct {\n\tID int64 `db:\"id\"`\n\t" + field + "\n}\n"})
+			if err == nil || !strings.Contains(err.Error(), "Value and Scan") {
+				t.Fatalf("tsq gen = %v; want the field refused", err)
+			}
+		})
+	}
+
+	for name, field := range map[string]string{
+		"byte array": "V [16]byte `db:\"v,type:BINARY(16)\"`",
+		"bytes":      "V []byte `db:\"v,type:JSON\"`",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := genModule(t, map[string]string{"model.go": "package gentest\n\n//tsq:table\ntype Row struct {\n\tID int64 `db:\"id\"`\n\t" + field + "\n}\n"}); err != nil {
+				t.Fatalf("tsq gen = %v; want it generated", err)
+			}
+		})
+	}
+}
+
 // TestGenRefusesTwoFieldsWithOneColumn covers a repeated db tag, and one tag on a
 // field list, which both produced a CREATE TABLE naming the column twice.
 func TestGenRefusesTwoFieldsWithOneColumn(t *testing.T) {

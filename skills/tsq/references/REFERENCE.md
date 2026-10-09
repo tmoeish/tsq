@@ -183,7 +183,9 @@ Rules:
   length is a read error rather than a truncated key. A type with `Value` / `Scan` methods of its
   own (`uuid.UUID`) keeps them
 - what the engines part on, which TSQ leaves to them: a float that is not a number or infinite is refused by MySQL, stored by PostgreSQL, and on SQLite `Inf` is stored while `NaN` is NULL (refused in a NOT NULL column); a string holding a NUL byte is refused by PostgreSQL and stored by the other two; MySQL stores a JSON document in a form of its own (keys sorted, a space after each colon and comma), the others as written
-- `db:"col,type:SQL_TYPE"` sets an explicit raw SQL type override for DDL generation and runtime schema metadata
+- `db:"col,type:SQL_TYPE"` sets an explicit raw SQL type override for DDL generation and runtime schema metadata.
+  It names the column, not how the value travels: a field database/sql cannot carry (an `any` or
+  other interface, a struct without `Value` and `Scan` methods) is refused whatever it says
 - `db:"col,default:SQL"` gives the column a DDL `DEFAULT SQL` **and** leaves it to the database when
   the field holds NULL: an `INSERT` of such a row omits the column, and a single-row `Insert` reads
   the value back into the field (with `RETURNING` in the `INSERT` itself on PostgreSQL and SQLite). The field must be able to hold NULL (`*T`, `sql.Null[T]`, ...), and

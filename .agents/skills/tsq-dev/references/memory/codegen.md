@@ -7,8 +7,7 @@
 旧的 `@TABLE(...)` 是写在 doc comment 里的括号 DSL，**gofmt 会重排它**，于是生成器长出一个
 `tsq fmt` 命令把注解排回解析器要的样子，外加"先 fmt 再 gen"的规则、670 行格式化器、以及一套把
 字节偏移映射回行号的定位器。**没有一件是在解决使用者的问题**，它们都在解决"我们把结构化数据放进
-了 gofmt 管辖的地方"这个自找的问题。指令行 gofmt 不碰，这些就全没了。**判断一个辅助工具是不是
-必要，先问它在解决谁的问题。**
+了 gofmt 管辖的地方"这个自找的问题。指令行 gofmt 不碰，这些就全没了。**判断一个辅助工具是不是必要，先问它在解决谁的问题。**
 
 **v5 是全新版本，不做后向兼容也不提供迁移路径**（维护者 2026-09-16 定的）：旧 DSL 解析器、`tsq migrate`、
 `ddl.json` 旧状态文件、`--tpl` 自定义模板、`MIGRATION_GUIDE.md` 一律删除。**不要为了"方便升级"把
@@ -47,6 +46,7 @@ flag（cobra 时代包级单例的 `Changed` 位跨测试残留过），并支�
 `tsq.json` 保存首次建 schema 时的原始 `.sql`，后续变更以带日期的迁移段追加，文件头因此停在首次生成的版本；"修"成当前版本会让每次发版都重写三个 DDL 文件头。
 **决定（维护者 2026-10-07，否掉了上一条的后半截）：拼法变化也补段**——`academy` 的初始段在 UTC 默认值和范围约束之后建出的表被运行时判为不匹配，而 `gen --check` 只比模型看不见。`tsq.json` 记每方言每列的渲染（`renderings`），模型没变而渲染变了就写一段 `respell column`（`ddlRespellings`：拿旧渲染冒充被检查的列去调 `AlterColumnSQL`，SQLite 默认值 / 约束变了重建）。第一次只记录。否掉"文件里再放一份当前 schema"：它改了"整个文件建新库"的语义。
 已知未处理（2026-10-09）：声明里主键在生成 / `assigned` 之间翻转，迁移段只写 "manual change required for primary key column" 注释，而运行期 `Reconcile` 三方言都会做（MySQL `MODIFY ... AUTO_INCREMENT`、PG 身份列 + `setval`、SQLite 重建）。声明翻转罕见、注释已指明，等有人要再把 `AlterColumnSQL` 的那两条接进 `renderDDLAlterColumnStatements`。
+`type:` 覆盖曾跳过一切类型检查（2026-10-09 第二十轮）：`any` 是标识符不是 `interface{}` 语法，过了解析器的"不是列类型"，加 `type:` 就生成、运行期三引擎各读回各的。`uncarriableFieldType` 在 `type:` 分支补上：接口、无 codec 的结构体一律拒。
 
 ## 决定：迁移段按"执行者不会停下"来写 (2026-09-28)
 
