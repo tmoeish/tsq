@@ -19,7 +19,7 @@
 **MySQL 的持锁连接强制严格模式，池本身不在严格模式只警告不拒绝**（同日）：非严格模式下 `ALTER ... MODIFY` 把放不进新类型的值截掉只留 warning，
 "放不进去就拒绝"在那里是假的；改列类型是 TSQ 自己发起的，所以由 TSQ 保证。普通写入被截断是部署选的 `sql_mode` 的语义（老 schema 依赖它），拒绝启动会把它们全挡在外面。
 **会话文本不是 UTF-8 就拒绝启动**（同日，和 `loc` 同一类：悄悄存错）：pgx 不设 `client_encoding`，LATIN1 库上 `é` 存成 `Ã©` 还数成两个字符；`SQL_ASCII` 库不转换、不检查。非严格模式只警告是因为那是部署选的语义，这个不是任何人想要的。
-**决定（维护者 2026-10-06）：列类型比字段宽的地方加 `CHECK` 守住字段范围**（`sqldialect.RangeCheck`，PG 的无符号、SQLite 除 int64 外的全部整数；MySQL 原生）：`Set(qty, Sub(qty, n))` 曾把负数写进 `uint32` 的列、整行读不出。约束叫 `ck_<列>`，三处要一起认它——列定义（`ColumnDefinitionSQL`）、检查（PG `pg_constraint`、SQLite 解析 `sqlite_master.sql`，进 `Column.Check`）、比较（`SameRangeCheck` 按数值比，PG 会改写表达式）；SQLite 重建的阻断项要先把 `ck_` 剥掉（`sqliteWithoutRangeChecks`）。生成器的迁移假定上一份声明建的表带着它，更早的表靠 `Reconcile`。PG 改类型要**先删它**（第十轮随机迁移找到：`qty >= 0` 按 VARCHAR 解析就报 operator does not exist）。
+**决定（维护者 2026-10-06）：列类型比字段宽的地方加 `CHECK` 守住字段范围**（`sqldialect.RangeCheck`，PG 的无符号、SQLite 除 int64 外的全部整数；MySQL 原生）：`Set(qty, Sub(qty, n))` 曾把负数写进 `uint32` 的列、整行读不出。约束叫 `ck_<列>`，三处要一起认它——列定义（`ColumnDefinitionSQL`）、检查（PG `pg_constraint`、SQLite 解析 `sqlite_master.sql`，进 `Column.Check`）、比较（`SameRangeCheck` 按数值比，PG 会改写表达式）；SQLite 重建的阻断项要先把 `ck_` 剥掉（`sqliteWithoutRangeChecks`）。生成器的迁移假定上一份声明建的表带着它，更早的表靠 `Reconcile`。PG 改类型要**先删它**（`qty >= 0` 按 VARCHAR 解析就报 operator does not exist）。
 
 ## 转义值和声明转义符是同一件事的两半 (2026-08-28)
 
@@ -36,12 +36,12 @@
 MariaDB 不在基线里（2026-10-09）：答 MySQL 协议却没有 `INSERT ... AS alias`、`JSON` 只是 `LONGTEXT`，`Open` 读 `VERSION()` 就拒绝，不等第一次 upsert 炸。
 能力表不留 `default` 分支：它把"忘了写"和"决定不支持"变成同一件事，穷尽靠表加遍历表的测试（`dialect.capabilities`）。
 
-## InnoDB 回滚整个事务后会话就退出了事务 (2026-10-08，随机事务生命周期差分)
+## InnoDB 回滚整个事务后会话就退出了事务
 
 死锁（1213）后 `@@in_transaction=0`：回调里下一条语句自行提交、最后的 `COMMIT` 空转，吞掉错误继续的回调丢前留后且无错（PG 驱动报 "commit unexpectedly resulted in rollback"，SQLite 的失败不结束事务）。门是 `txState` + `TestIntegrationASwallowedDeadlockCannotCommit`（对方事务先改更多行，InnoDB 回滚改得少的那个，回调才是牺牲者）；`WrapExecutor` 按"句柄能 `Commit` / `Rollback`"认事务并给同一个 `txState`（假句柄测得到，`TestAWrappedTransactionRemembersItsRollback`），`*sql.Tx` 类型断言认不出别人的事务类型。
-同轮：SQLite 只配 busy_timeout + WAL 仍 `SQLITE_BUSY`——先读后写的 deferred 事务升级写锁不等 busy handler；文档加 `_txlock=immediate`。 两个 SQLite 驱动还都忽略 `TxOptions.ReadOnly`（2026-10-09 第十九轮，只读事务能写入并提交）：`beginTx` 用独占连接 + `PRAGMA query_only`；否掉"TSQ 自己拦写入"——原始 `ExecContext` 绕得过去，只有引擎拦得全。
+SQLite 只配 busy_timeout + WAL 仍 `SQLITE_BUSY`——先读后写的 deferred 事务升级写锁不等 busy handler；文档加 `_txlock=immediate`。 两个 SQLite 驱动都忽略 `TxOptions.ReadOnly`（只读事务能写入并提交）：`beginTx` 用独占连接 + `PRAGMA query_only`；否掉"TSQ 自己拦写入"——原始 `ExecContext` 绕得过去，只有引擎拦得全。
 
-## 决定：回调里的 `WithTx` 加入外层事务，不另开 (2026-10-08，第十六轮)
+## 决定：回调里的 `WithTx` 加入外层事务，不另开
 
 另开的事务在另一条连接上：看不见外层的写入，池只有一条连接时互等到超时。三个引擎都有 savepoint，所以内层按 savepoint 跑、错误交外层；
 否掉"报错禁止嵌套"——写 `WithTx` 的 helper 互相调用是正常形态。例外：外层正在 `Iter`（连接上传着行）时加入会把行和事务一起弄坏（MySQL busy buffer、PG bad connection），这一种拒绝；回调之外留下的 ctx 带的是结束了的事务（`txState.done`），按普通 ctx 处理，否则 `joinTx` 撞上 `sql: transaction has already been committed`。PG 事务里任一语句失败即 aborted、其后都报 `25P02`（2026-08-28）：
@@ -60,7 +60,7 @@ MySQL 1205 / 1213 / 3572）保证事务已回滚。现在 commit 阶段只放行
 - **全文检索三个方言不是一回事**：MySQL `MATCH ... AGAINST`、PG `to_tsvector @@ plainto_tsquery`、SQLite
   退化成子串匹配（FTS5 要影子表和触发器）。排序和操作符不可移植，只有 `Capability` 说得清拿到哪一种。
   `TableIndex` 加字段记得 `cloneTableIndex`：曾逐字段复制，`FullText` 标记就在那里丢过。**MySQL 自然语言模式下 `*` 没有含义却仍是记号**
-  （2026-10-08 随机搜索词差分）：单独、空白后、短语后的 `*` 是 1064 语法错，其余运算符字符是普通文本；`matchAgainst` 包 `REPLACE(?, '*', '')`，参数仍是常量、索引照用。
+  ：单独、空白后、短语后的 `*` 是 1064 语法错，其余运算符字符是普通文本；`matchAgainst` 包 `REPLACE(?, '*', '')`，参数仍是常量、索引照用。
 - **存在的生成列不参与 schema 对账，缺失的算缺列**（2026-10-06）：SQLite 的 `table_info` 不列生成列，曾每次启动都再 ADD（duplicate column），于是整个排除在比较之外，结果缺了声明的生成列的表 `Validate` 也放行、读它才报 no such column。现在自省读 `table_xinfo`，只比"在不在"；表达式三个引擎各报各的，仍不比。
 - **MySQL 的 `Index.Constraint` 指"外键需要的索引"**（删它报 1553）：别改成读 `TABLE_CONSTRAINTS`，那里把每个唯一索引都列成
   UNIQUE 约束，TSQ 自己建的也在内，Reconcile 就再也不能重建任何唯一索引。
@@ -69,19 +69,19 @@ MySQL 1205 / 1213 / 3572）保证事务已回滚。现在 commit 阶段只放行
 - **SQLite 的 `INTEGER PRIMARY KEY` 不写 `AUTOINCREMENT` 也算自增**（2026-09-28）：它就是 rowid；当成漂移会让 `Validate` 起不来、
   `Reconcile` 为使用者自己的选择重建整张表。TSQ 自己建的表仍写 `AUTOINCREMENT`，重建时保留它的计数。**但反过来 `assigned` 声明也得接受它**（`Column.Rowid` + `SameKeyGenerator`，2026-10-09）——"一律算自增"让 TSQ 自己建的 assigned 表第二次启动就 Validate 失败。PG 的身份列同理算自增；别的工具建的**无生成器**主键 PG 曾拒绝（"manual change required"）而 MySQL 加 `AUTO_INCREMENT`——现在加 `BY DEFAULT` 身份列并 `setval` 到 `MAX(id)+1`，反向 `DROP IDENTITY IF EXISTS` + `DROP DEFAULT`；先加宽再加身份，没有序列可加宽时跳过 `ALTER SEQUENCE`（否则 `format(NULL)` 是语法错）。
 
-## 只有真实引擎说得出的 schema 行为 (2026-10-05，第五、六轮审计)
+## 只有真实引擎说得出的 schema 行为
 
-前四轮只能推理，第一次真跑就找出一串推理看不见的事；**改 schema 路径要真跑"类型 × 引擎 × 策略"的矩阵**（`internal/integration/schema_test.go`）。
+读代码推不出这一类；**改 schema 路径要真跑"类型 × 引擎 × 策略"的矩阵**（`internal/integration/schema_test.go`）。
 
-- **PG 改类型的 `USING` 要按"源 × 目标"逐对想**：`c::VARCHAR(5)` 静默截短（第四轮只修同类、第五轮改成 `c::TEXT`），而 `bytea::TEXT` 是十六进制拼法（`abc` → `\x616263`）、
-  `text::BYTEA` 按转义串读（`\101` → `A`）——第五轮的修法落在 bytea 源上又是一次静默改写（第六轮 P1）。字节与文本走 `convert_from` / `convert_to`。
+- **PG 改类型的 `USING` 要按"源 × 目标"逐对想**：`c::VARCHAR(5)` 静默截短，改成 `c::TEXT` 又在 bytea 源上静默改写：`bytea::TEXT` 是十六进制拼法（`abc` → `\x616263`）、
+  `text::BYTEA` 按转义串读（`\101` → `A`）。字节与文本走 `convert_from` / `convert_to`。
 - **MySQL 的时间字面量只在 TIMESTAMP 范围内才能带时区**：`'0001-01-01 00:00:00+00:00'` 在默认的 `time_zone=SYSTEM` 下**静默存成 `0000-00-00`**，此后每条复制表的 ALTER 都失败；零值字面量因此分方言（`ZeroLiteral`）。
-- **决定（2026-10-05，维护者）：类型和默认值先按文本比，文本说不一样再问引擎**（`ProbeColumn` → `AdoptSpelling`）。别名表补了三轮仍漏（`DECIMAL(10)`、`INT[]`、`(1+1)`、带反斜杠的字面量）；
+- **决定（2026-10-05，维护者）：类型和默认值先按文本比，文本说不一样再问引擎**（`ProbeColumn` → `AdoptSpelling`）。别名表补了几次仍漏（`DECIMAL(10)`、`INT[]`、`(1+1)`、带反斜杠的字面量）；
   按声明在**临时表**里建这一列读回拼法，与库里那一列一致即同一个东西。**否掉永久探测表**（`Validate` 下也要跑、进 binlog、崩了留表）。**比较的两边要出自同一个读法**：MySQL 的临时表不走数据字典，拿它和
-  `information_schema` 比，表达式默认值多一层括号、二进制字面量和 4 字节字符各是各的拼法，逐个还原是又一张别名表；改成库里那一列也按 `SHOW CREATE TABLE` 的写法建进临时表（2026-10-06）。探测跑不了（DML-only 账号没有 `CREATE TEMPORARY TABLES`，2026-10-08 第十三轮）按文本比，`SchemaMismatchError` 的那一行要带原因，否则使用者看到的是"表不对"而不是"没权限问"。
+  `information_schema` 比，表达式默认值多一层括号、二进制字面量和 4 字节字符各是各的拼法，逐个还原是又一张别名表；改成库里那一列也按 `SHOW CREATE TABLE` 的写法建进临时表（2026-10-06）。探测跑不了（DML-only 账号没有 `CREATE TEMPORARY TABLES`）按文本比，`SchemaMismatchError` 的那一行要带原因，否则使用者看到的是"表不对"而不是"没权限问"。
 - **决定（2026-10-05，维护者）：改类型时三个方言给同一个结果——能转的转，转不了的拒绝**（`sqldialect.SQLiteRetype*`）。SQLite 什么值都存，原样复制后 `Validate` 通过而整张表读不出来。小数取整、数值转布尔写进复制表达式；文本转数值 / 布尔 / 时间
-  运行期在**提交前**按 `typeof` 检查并回滚，生成器写成手工注释（脚本的执行者不会停，见 `codegen.md`）。**否掉"先改名旧表 + `INSERT OR ROLLBACK` 守卫"的重排**：要 `legacy_alter_table`，动的是出过 P0 的重建顺序。 **随机表结构差分**（2026-10-06，第八轮：随机列 / 默认值 / 索引建表、随机改动后 `Reconcile`、再启动零 DDL，400 × 3 引擎）只剩三件事：PG 的布尔默认值 `1` / `0`（`DefaultSQL` 改拼法）、PG 带默认值的列跨类型改动要先 `DROP DEFAULT`、MySQL 带索引的列改 BLOB 要先删不再声明的索引（`dropIndexesInTheWay`）。PG 拒绝数字 / 布尔 / 时间 ↔ bytea / 时间之间的改动是对的，不补 `USING`。
-- **改列要带上不是自己的东西**（2026-10-08 第十五轮）：`MODIFY COLUMN` / `ALTER COLUMN TYPE` 重写整列，DBA 的 `COLLATE`（改变比较语义）和 `COMMENT` 曾被抹掉；`Column.Collation` / `Comment` 自省读出（MySQL 只记和表默认不同的排序规则；SQLite 从 CREATE 文本里解析，字符串字面量先剥掉）、改列和 SQLite 重建时重述、永不比较。
-- **随机改表 × 有数据 × `Reconcile`**（2026-10-08 第十四轮）：半截改动只剩两类——唯一索引撞重复行（现在 DDL 前先查，`DuplicateRowsError`；同名索引被 `Reconcile` 重建成唯一的也算，第十六轮补上）和改类型被引擎拒绝时之前的语句已生效（MySQL 隐式提交、PG 每条单独跑，决定见 `impact/runtime.md` § 不要把 DDL 包进事务）。
+  运行期在**提交前**按 `typeof` 检查并回滚，生成器写成手工注释（脚本的执行者不会停，见 `codegen.md`）。**否掉"先改名旧表 + `INSERT OR ROLLBACK` 守卫"的重排**：要 `legacy_alter_table`，动的是出过 P0 的重建顺序。 改类型的三处顺序：PG 布尔默认值写 `TRUE` / `FALSE` 不写 `1` / `0`（`DefaultSQL`）、PG 带默认值的列跨类型改要先 `DROP DEFAULT`、MySQL 带索引的列改 BLOB 要先删不再声明的索引（`dropIndexesInTheWay`）。PG 拒绝数字 / 布尔 / 时间 ↔ bytea / 时间之间的改动是对的，不补 `USING`。
+- **改列要带上不是自己的东西**：`MODIFY COLUMN` / `ALTER COLUMN TYPE` 重写整列，DBA 的 `COLLATE`（改变比较语义）和 `COMMENT` 曾被抹掉；`Column.Collation` / `Comment` 自省读出（MySQL 只记和表默认不同的排序规则；SQLite 从 CREATE 文本里解析，字符串字面量先剥掉）、改列和 SQLite 重建时重述、永不比较。
+- **`Reconcile` 改有数据的表，会留下半截改动的只有两类**：唯一索引撞重复行（DDL 前先查，`DuplicateRowsError`；同名索引被重建成唯一的也算）和改类型被引擎拒绝时之前的语句已生效（MySQL 隐式提交、PG 每条单独跑，决定见 `impact/runtime.md` § 不要把 DDL 包进事务）。
 - **决定（维护者 2026-10-05）**：运行期策略给有数据的表加 NOT NULL 列也补零值，与生成器共用 `AddColumnSQL`（带零值默认加列再去掉，SQLite 没有 `DROP DEFAULT` 所以重建）。PG 的无符号自增主键是加宽类型的 SERIAL，`uint64` 是 `BIGSERIAL`。
 - **决定（维护者 2026-10-05）：`Open` 拒绝 `loc` 不是 UTC 的 MySQL DSN**，否掉"只写文档"：`loc=Local` 是教程里的标准写法，而它让数据库填的 UTC 时间读回来差一个时区、不报错。`NewRuntime` 看不到 DSN，只能靠文档。

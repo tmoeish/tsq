@@ -13,8 +13,6 @@
 `ddl.json` 旧状态文件、`--tpl` 自定义模板、`MIGRATION_GUIDE.md` 一律删除。**不要为了"方便升级"把
 任何一样加回来**——兼容层在这个仓库里只会积累，v4 就是这么攒出九个 `Deprecated` 的。
 
-语义等价的验证办法是**生成物逐字节相同**：示例全部换成指令后重新生成 diff 为空，这比逐条比对解析结果更强,它覆盖了全部下游推导（索引名、查询名、DDL）。
-
 ## 决定：列是表结构体的字段，不是包级变量 (2026-09-19，v5)
 
 `Course_ID` / `Course__Cols` 每表往包里撒十几个带下划线的名字，别名要逐列 `WithTable`，还靠"句柄 → 列
@@ -27,7 +25,7 @@
 
 `sql.Null[T]`、跨包 result 字段、同名包、`Ctx` 字段、`[N]byte`、`DeviceBinding` 的接收者 `db`……**全是 academy 恰好
 没有的形状**，每一处都生成过编译不过的代码。**新的字段形状进 `TestGeneratedCodeCompilesForEveryFieldShape` 的矩阵，
-不进示例**；生成器该拒绝的声明进 `TestGenRefusesWhatItCannotGenerate`。**`SameDefault` 曾把 `''` 和无默认值当一回事**（2026-10-08 四代迁移回放）：去掉 `default:''` 不写 `DROP DEFAULT`，下次改类型 PG 才炸；三个引擎都报得出 NULL 对 `''`。**编译门不是运行门**（2026-10-08 随机字段形态 × 真跑）：
+不进示例**；生成器该拒绝的声明进 `TestGenRefusesWhatItCannotGenerate`。**`SameDefault` 曾把 `''` 和无默认值当一回事**：去掉 `default:''` 不写 `DROP DEFAULT`，下次改类型 PG 才炸；三个引擎都报得出 NULL 对 `''`。**编译门不是运行门**：
 `[N]byte` 在矩阵里编译通过，驱动却不收数组；字段形状还要在 `internal/integration` 用手写表真跑三引擎（`TestIntegrationByteArraysAreBoundAndReadAsBytes`）。
 
 ## 按字符串批量取数要以数据库的判等为准 (2026-09-19)
@@ -41,16 +39,16 @@ flag（cobra 时代包级单例的 `Changed` 位跨测试残留过），并支�
 
 ## 生成的 `.sql` 文件头记的是 schema 的出身，别去"修"它 (2026-08-28)
 
-`tsq.json` 的 `version` 比 CLI 新就拒绝（2026-10-08 第十五轮，`refuseNewerStateFile`）：旧 CLI 改写后新 CLI 把丢掉的渲染当变化、再写一段迁移，两边来回。开发构建没有版本号不比较。
+`tsq.json` 的 `version` 比 CLI 新就拒绝（`refuseNewerStateFile`）：旧 CLI 改写后新 CLI 把丢掉的渲染当变化、再写一段迁移，两边来回。开发构建没有版本号不比较。
 
 `tsq.json` 保存首次建 schema 时的原始 `.sql`，后续变更以带日期的迁移段追加，文件头因此停在首次生成的版本；"修"成当前版本会让每次发版都重写三个 DDL 文件头。
-**决定（维护者 2026-10-07，否掉了上一条的后半截）：拼法变化也补段**——`academy` 的初始段在 UTC 默认值和范围约束之后建出的表被运行时判为不匹配，而 `gen --check` 只比模型看不见。`tsq.json` 记每方言每列的渲染（`renderings`），模型没变而渲染变了就写一段 `respell column`（`ddlRespellings`：拿旧渲染冒充被检查的列去调 `AlterColumnSQL`，SQLite 默认值 / 约束变了重建）。第一次只记录。否掉"文件里再放一份当前 schema"：它改了"整个文件建新库"的语义。
+**决定（维护者 2026-10-07，否掉了上一条的后半截）：拼法变化也补段**——渲染变了（UTC 默认值、范围约束）而模型没变时，旧段建出的表被运行时判为不匹配，`gen --check` 只比模型看不见。`tsq.json` 记每方言每列的渲染（`renderings`），模型没变而渲染变了就写一段 `respell column`（`ddlRespellings`：拿旧渲染冒充被检查的列去调 `AlterColumnSQL`，SQLite 默认值 / 约束变了重建）。第一次只记录。否掉"文件里再放一份当前 schema"：它改了"整个文件建新库"的语义。
 已知未处理（2026-10-09）：声明里主键在生成 / `assigned` 之间翻转，迁移段只写 "manual change required for primary key column" 注释，而运行期 `Reconcile` 三方言都会做（MySQL `MODIFY ... AUTO_INCREMENT`、PG 身份列 + `setval`、SQLite 重建）。声明翻转罕见、注释已指明，等有人要再把 `AlterColumnSQL` 的那两条接进 `renderDDLAlterColumnStatements`。
-`type:` 覆盖曾跳过一切类型检查（2026-10-09 第二十轮）：`any` 是标识符不是 `interface{}` 语法，过了解析器的"不是列类型"，加 `type:` 就生成、运行期三引擎各读回各的。`uncarriableFieldType` 在 `type:` 分支补上：接口、无 codec 的结构体一律拒；运行期 `newColumn` 用 `uncarriableType`（reflect）对手写表做同一件事——两边判据要一致。
+`type:` 覆盖曾跳过一切类型检查：`any` 是标识符不是 `interface{}` 语法，过了解析器的"不是列类型"，加 `type:` 就生成、运行期三引擎各读回各的。`uncarriableFieldType` 在 `type:` 分支补上：接口、无 codec 的结构体一律拒；运行期 `newColumn` 用 `uncarriableType`（reflect）对手写表做同一件事——两边判据要一致。
 
 ## 决定：迁移段按"执行者不会停下"来写 (2026-09-28)
 
-`sqlite3` 命令行遇错不停：复制失败后照样删旧表、提交，整表数据清空（审计 P0）。**否掉"调换语句顺序就够了"**——
+`sqlite3` 命令行遇错不停：复制失败后照样删旧表、提交，整表数据清空（会清空整表）。**否掉"调换语句顺序就够了"**——
 顺序救不了不会停的执行者，只能让语句本身不会失败。删表删列一律注释掉交给人（维护者定案），因为改名、改 `db` 标签、
 把 `//tsq:table` 写成 `// tsq:table` 在生成器眼里都和"删掉"一样。同理（2026-09-29 维护者定案）：改成 NOT NULL 的列在三个方言上
 都先把 NULL 填成默认值或零值并注明，否掉"只警告"；PG 同类改类型不写 `USING`，宁可失败也不截断。同名重建成唯一索引是先 `DROP` 后 `CREATE`（2026-10-08）：
@@ -72,7 +70,7 @@ flag（cobra 时代包级单例的 `Changed` 位跨测试残留过），并支�
 
 ## 决定：`generated` 不带表达式保留，但 TSQ 不替它建表 (2026-09-28)
 
-它表示"库计算、schema 归迁移"（触发器、方言相关的表达式），审计发现它被写成普通 NOT NULL 列，`CreateMissing`
+它表示"库计算、schema 归迁移"（触发器、方言相关的表达式），它曾被写成普通 NOT NULL 列，`CreateMissing`
 建出的表每次 `Insert` 都失败。**否掉"一律要求写表达式"**：那会让迁移管 schema 的使用者没法声明这种列。改成
 TSQ 写的 DDL 留出它（带注释），运行期要建含它的表就报错。`//tsq:search` 写在结果上则直接拒绝，文档改掉——结果没有生成查询，"支持"只能是一个空承诺。
 
