@@ -465,7 +465,9 @@ besides the generated `Insert` / `Update` / `HardDelete` (and, on a soft-delete 
 
 In a hand-written `TableSpec`, `ColumnSpecs` (when given) must list every column, and mark the
 primary key and auto-increment exactly as `PrimaryKey` and `AutoIncrement` do; `Define` reports a
-disagreement, since the schema is what `SchemaPolicyCreateMissing` builds.
+disagreement, since the schema is what `SchemaPolicyCreateMissing` builds. A table that was never
+made this way (a zero `tsq.TableOf` value, or a nil pointer to one) is an error from every method
+that runs or builds something, from `Open`, and from `Err()`; its accessors return nothing.
 
 One function creates the table, its columns and its definition, so anything that names
 `TableCourse` is initialized after the table is complete; there is no declaration order to get

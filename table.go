@@ -484,10 +484,20 @@ func (t *TableOf[R, K]) FullText(name string) FullTextIndex {
 func (t *TableOf[R, K]) searchColumns() []SearchColumn { return slices.Clone(t.def.search) }
 
 // ColumnSpecs returns the declared physical columns.
-func (t *TableOf[R, K]) ColumnSpecs() []tsqdialect.ColumnSpec { return slices.Clone(t.def.schema) }
+func (t *TableOf[R, K]) ColumnSpecs() []tsqdialect.ColumnSpec {
+	if t == nil || t.def == nil {
+		return nil
+	}
+
+	return slices.Clone(t.def.schema)
+}
 
 // Indexes returns the declared indexes.
 func (t *TableOf[R, K]) Indexes() []IndexSpec {
+	if t == nil || t.def == nil {
+		return nil
+	}
+
 	return cloneIndexSpecs(t.def.indexes)
 }
 
@@ -504,6 +514,11 @@ func (t *TableOf[R, K]) withDeleted() *TableOf[R, K] {
 // Columns are bound to the alias; bind a single column with Column.WithTable.
 // An empty alias, or the table's own name, returns the table unaliased.
 func (t *TableOf[R, K]) As(alias string) *TableOf[R, K] {
+	// A zero table stays one: every use of it reports Err.
+	if t == nil || t.def == nil {
+		return t
+	}
+
 	next := *t
 
 	next.alias = strings.TrimSpace(alias)
@@ -516,7 +531,7 @@ func (t *TableOf[R, K]) As(alias string) *TableOf[R, K] {
 
 // Err reports why the table definition is invalid, or nil.
 func (t *TableOf[R, K]) Err() error {
-	if t.def == nil {
+	if t == nil || t.def == nil {
 		return errors.New("table is a zero TableOf; declare it with tsq.NewTable and Define")
 	}
 
@@ -601,6 +616,11 @@ func tableErr(table Table) error {
 
 	if body := table.cteBody(); body != nil {
 		return body.err()
+	}
+
+	// Neither a definition nor a CTE body: a zero TableOf.
+	if table.TableName() == "" {
+		return errors.New("table is a zero TableOf; declare it with tsq.NewTable and Define")
 	}
 
 	return nil
@@ -712,6 +732,11 @@ func debugStatement(r *renderer) string {
 
 // traceInfo names an operation on the table for tracers.
 func (t *TableOf[R, K]) traceInfo(op TraceOp) TraceInfo {
+	// A zero table has no name; ready reports it, after the span opened.
+	if t == nil || t.def == nil {
+		return TraceInfo{Op: op}
+	}
+
 	return TraceInfo{Op: op, Table: t.def.name}
 }
 

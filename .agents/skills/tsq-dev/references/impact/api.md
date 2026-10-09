@@ -12,6 +12,9 @@
   `script/release.py` 靠这个小节名判断要不要跨主版本。
 - 破坏性变更还意味着 v5：Go 的语义化导入版本要求改 go.mod 模块路径和全部内部 import。
   见 `../release.md`，不要顺手就改。
+- **导出类型的零值和 nil 接收者报错，不 panic**：`TableOf` 的方法先走 `Err()` / `ready()`（`traceInfo`
+  也对 `def == nil` 安全），`Query` / `Mutation` 带 `err` 字段。新方法在解引用 `t.def` 之前先问 `t.Err()`；
+  门是 `TestZeroValuesReportErrors`，新方法加进去。
 
 ## 想给根包加一个"兼容包装"或一个不用接收者的方法
 
