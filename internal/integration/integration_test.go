@@ -2557,6 +2557,223 @@ func TestIntegrationGeneratedKeysFollowTheKeysWritten(t *testing.T) {
 	}
 }
 
+// TestIntegrationSkipLockedQueueClaimsEachRowOnce runs the job-queue pattern
+// the lock clauses exist for: workers each take one row under FOR UPDATE SKIP
+// LOCKED, mark it and commit. Every row is claimed exactly once and no worker
+// waits on another; a NOWAIT claim of a held row is a transaction conflict,
+// and a SKIP LOCKED claim of it finds nothing. SQLite, which has neither,
+// refuses the query with an UnsupportedCapabilityError. The clauses were
+// documented and rendered, but never run against an engine.
+func TestIntegrationSkipLockedQueueClaimsEachRowOnce(t *testing.T) {
+	for _, target := range integrationTargets(t) {
+		t.Run(target.name, func(t *testing.T) {
+			ctx := context.Background()
+
+			dropAcademyTables(t, target)
+			rt, _ := openWithPolicy(t, target, academy.TSQTables(), tsq.SchemaPolicyReconcile)
+
+			const jobs = 30
+
+			learners := make([]*academy.Learner, 0, jobs)
+			for i := range jobs {
+				learners = append(learners, &academy.Learner{Name: fmt.Sprintf("job %02d", i), Email: fmt.Sprintf("job%02d@queue.test", i), Company: "new"})
+			}
+
+			if err := academy.TableLearner.BatchInsert(ctx, rt, learners); err != nil {
+				t.Fatalf("seed: %v", err)
+			}
+
+			L := academy.TableLearner
+			claim := tsq.Select(L.Columns()...).From(L).Where(L.Company.EQ(tsq.Val("new"))).OrderBy(L.ID.Asc()).Limit(1).ForUpdate().SkipLocked().MustBuild()
+
+			if !tsqdialect.Supports(tsqdialect.Name(target.name), tsqdialect.CapabilitySkipLocked) {
+				_, err := claim.Find(ctx, rt)
+				if _, ok := errors.AsType[*tsqdialect.UnsupportedCapabilityError](err); !ok {
+					t.Fatalf("SKIP LOCKED on %s = %v; want an UnsupportedCapabilityError", target.name, err)
+				}
+
+				return
+			}
+
+			var (
+				mu      sync.Mutex
+				claimed = map[int64]int{}
+				wg      sync.WaitGroup
+			)
+
+			for w := range 4 {
+				wg.Go(func() {
+					for {
+						var got *academy.Learner
+
+						err := rt.WithTx(ctx, func(ctx context.Context, tx tsq.Executor) error {
+							row, err := claim.Find(ctx, tx)
+							if err != nil || row == nil {
+								return err
+							}
+
+							got = row
+							row.Company = fmt.Sprintf("worker %d", w)
+
+							return L.Update(ctx, tx, row, L.Company)
+						})
+						if err != nil {
+							t.Errorf("worker %d: %v", w, err)
+							return
+						}
+
+						if got == nil {
+							return
+						}
+
+						mu.Lock()
+						claimed[got.ID]++
+						mu.Unlock()
+					}
+				})
+			}
+
+			wg.Wait()
+
+			if len(claimed) != jobs {
+				t.Fatalf("%d of %d jobs claimed", len(claimed), jobs)
+			}
+
+			for id, n := range claimed {
+				if n != 1 {
+					t.Fatalf("job %d claimed %d times", id, n)
+				}
+			}
+
+			// One transaction holds the first row; NOWAIT must give up at once as a
+			// conflict, SKIP LOCKED must find nothing, and neither may wait for it.
+			held, release := make(chan struct{}), make(chan struct{})
+			first := learners[0].ID
+
+			go func() {
+				_ = rt.WithTx(ctx, func(ctx context.Context, tx tsq.Executor) error {
+					_, err := tsq.Select(L.ID).From(L).Where(L.ID.EQ(tsq.Val(first))).ForUpdate().MustBuild().Get(ctx, tx)
+					close(held)
+					<-release
+
+					return err
+				})
+			}()
+
+			<-held
+			defer close(release)
+
+			err := rt.WithTx(ctx, func(ctx context.Context, tx tsq.Executor) error {
+				_, err := tsq.Select(L.ID).From(L).Where(L.ID.EQ(tsq.Val(first))).ForUpdate().NoWait().MustBuild().Get(ctx, tx)
+
+				return err
+			})
+			if !tsq.IsTxConflictError(err) {
+				t.Fatalf("NOWAIT on a held row = %v; want a transaction conflict", err)
+			}
+
+			err = rt.WithTx(ctx, func(ctx context.Context, tx tsq.Executor) error {
+				row, err := tsq.Select(L.ID).From(L).Where(L.ID.EQ(tsq.Val(first))).ForUpdate().SkipLocked().MustBuild().Find(ctx, tx)
+				if err != nil {
+					return err
+				}
+
+				if row != nil {
+					return errors.New("SKIP LOCKED returned the held row")
+				}
+
+				return nil
+			})
+			if err != nil {
+				t.Fatalf("SKIP LOCKED on a held row: %v", err)
+			}
+		})
+	}
+}
+
+// TestIntegrationCrossJoinAndForShareRun covers the two other clauses that had
+// no engine test: CROSS JOIN is the product of the two tables, and FOR SHARE
+// lets a second reader through while a writer's NOWAIT claim is a conflict
+// (SQLite has no FOR SHARE and says so).
+func TestIntegrationCrossJoinAndForShareRun(t *testing.T) {
+	for _, target := range integrationTargets(t) {
+		t.Run(target.name, func(t *testing.T) {
+			ctx := context.Background()
+
+			dropAcademyTables(t, target)
+			rt, _ := openWithPolicy(t, target, academy.TSQTables(), tsq.SchemaPolicyReconcile)
+
+			L, C := academy.TableLearner, academy.TableCourse
+
+			learners := []*academy.Learner{{Name: "Ada", Email: "ada@cross.test"}, {Name: "Bob", Email: "bob@cross.test"}, {Name: "Cyd", Email: "cyd@cross.test"}}
+			if err := L.BatchInsert(ctx, rt, learners); err != nil {
+				t.Fatalf("learners: %v", err)
+			}
+
+			if err := C.BatchInsert(ctx, rt, []*academy.Course{{Title: "Go"}, {Title: "SQL"}}); err != nil {
+				t.Fatalf("courses: %v", err)
+			}
+
+			n, err := tsq.Select(L.ID).From(L).CrossJoin(C).MustBuild().Count(ctx, rt)
+			if err != nil || n != 6 {
+				t.Fatalf("CROSS JOIN count = %d, %v; want 6", n, err)
+			}
+
+			rows, err := tsq.Select(L.Columns()...).From(L).CrossJoin(C).Where(C.Title.EQ(tsq.Val("Go"))).OrderBy(L.Name.Asc()).MustBuild().List(ctx, rt)
+			if err != nil || len(rows) != 3 || rows[0].Name != "Ada" {
+				t.Fatalf("CROSS JOIN filtered = %d rows, %v; want Ada, Bob, Cyd", len(rows), err)
+			}
+
+			first := tsq.Val(learners[0].ID)
+			share := tsq.Select(L.Columns()...).From(L).Where(L.ID.EQ(first)).ForShare().MustBuild()
+
+			if !tsqdialect.Supports(tsqdialect.Name(target.name), tsqdialect.CapabilityForShare) {
+				_, err := share.Get(ctx, rt)
+				if _, ok := errors.AsType[*tsqdialect.UnsupportedCapabilityError](err); !ok {
+					t.Fatalf("FOR SHARE on %s = %v; want an UnsupportedCapabilityError", target.name, err)
+				}
+
+				return
+			}
+
+			held, release := make(chan struct{}), make(chan struct{})
+
+			go func() {
+				_ = rt.WithTx(ctx, func(ctx context.Context, tx tsq.Executor) error {
+					_, err := share.Get(ctx, tx)
+					close(held)
+					<-release
+
+					return err
+				})
+			}()
+
+			<-held
+			defer close(release)
+
+			// A second sharer reads at once.
+			err = rt.WithTx(ctx, func(ctx context.Context, tx tsq.Executor) error {
+				_, err := share.Get(ctx, tx)
+
+				return err
+			})
+			if err != nil {
+				t.Fatalf("second FOR SHARE: %v", err)
+			}
+
+			// A writer cannot: NOWAIT reports the conflict instead of waiting.
+			err = rt.WithTx(ctx, func(ctx context.Context, tx tsq.Executor) error {
+				_, err := tsq.Select(L.ID).From(L).Where(L.ID.EQ(first)).ForUpdate().NoWait().MustBuild().Get(ctx, tx)
+
+				return err
+			})
+			if !tsq.IsTxConflictError(err) {
+				t.Fatalf("FOR UPDATE NOWAIT against a shared row = %v; want a transaction conflict", err)
+			}
+		})
+	}
+}
+
 // TestIntegrationUpdateWithoutAVersionTellsUnchangedFromMissing updates a table
 // with no version and no updated_at. MySQL counts only the rows a statement
 // changes, so writing a row's own values reports none affected, which must not
