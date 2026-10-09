@@ -164,6 +164,7 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 ### 修复
 
+- **SQLite（modernc 驱动）上批量写入和大列表查询比应有的慢 4–5 倍**：modernc 绑定参数的耗时随一条语句里的参数个数平方增长，而 TSQ 按引擎上限（32766）拼语句，默认 1000 行的批量插入每行 118µs。现在用 modernc 的 runtime 每条语句最多 2000 个参数，同样的批量每行约 26µs；mattn 驱动、MySQL、PostgreSQL 不变。
 - **SQLite 上用 modernc 驱动写的时间，换 mattn 驱动读回来全是 `0001-01-01`、不报错**：modernc 默认把时间写成 Go 的 `String()` 形式（`... +0000 UTC`），mattn 解析不了就静默给零值，SQLite 自己的日期函数也读成 NULL。现在 TSQ 在 SQLite 上一律把时间写成 `2006-01-02 15:04:05.000000+00:00`（UTC、固定六位小数），两个驱动和 SQLite 日期函数都认，文本比较和排序与时间一致。已有文件里的旧格式行照样能读；同一时刻的新旧两种文本不相等，按时间做等值查询的表要把旧行读出来再存一遍（`BatchUpdate`）。
 - **SQLite 上由别的工具以文本写入的 JSON（以及任何 `[]byte` 的具名类型，如 `json.RawMessage`）读不出来**：驱动给的是 string，database/sql 只肯放进 `[]byte`，不肯放进具名类型。现在按字节读进去，文本和 BLOB 都行；`TSQ` 自己写的 BLOB 本来就能读，所以测试一直是绿的。
 - **字符串默认值里的反斜杠在 MySQL 上是转义符**：`default:'a\b'` 在 PostgreSQL / SQLite 存 `a\b`、在 MySQL（未开 `NO_BACKSLASH_ESCAPES`）存 `ab`，三边各自读回自己的写法，`Validate` 不报。默认值是原样的 SQL、TSQ 不改写，现在 `tsq gen` 对这种默认值打警告，文档改正了"没有语句依赖反斜杠转义"的说法。

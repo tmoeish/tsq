@@ -211,7 +211,7 @@ func (t *TableOf[R, K]) upsertRows(ctx context.Context, db Executor, scope execS
 				back = readBack
 			}
 
-			for _, chunk := range chunks(group, effectiveChunkSize(config.size, 1, sqld.MaxBindParams(scope.dialect))) {
+			for _, chunk := range chunks(group, effectiveChunkSize(config.size, 1, scope.bindParams())) {
 				if err := t.insertChunk(ctx, db, scope, def, nil, chunk, true, back); err != nil {
 					return fmt.Errorf("upsert into %s: %w", def.name, err)
 				}
@@ -224,7 +224,7 @@ func (t *TableOf[R, K]) upsertRows(ctx context.Context, db Executor, scope execS
 			continue
 		}
 
-		size := effectiveChunkSize(config.size, len(cols), sqld.MaxBindParams(scope.dialect))
+		size := effectiveChunkSize(config.size, len(cols), scope.bindParams())
 		for _, chunk := range chunks(group, size) {
 			if returning {
 				if err := t.upsertReturning(ctx, db, scope, def, cols, target, update, chunk[0], readBack); err != nil {

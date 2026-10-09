@@ -339,7 +339,7 @@ func (q *Query[O]) ListIn[T comparable](ctx context.Context, db Executor, param 
 
 		// An empty list renders without placeholders, so this is what the rest of
 		// the statement binds.
-		room := sqld.MaxBindParams(scope.dialect) - len(empty[0].args)
+		room := scope.bindParams() - len(empty[0].args)
 		if room < 1 {
 			return nil, errors.New("list in: the other arguments already fill the bind parameter limit")
 		}

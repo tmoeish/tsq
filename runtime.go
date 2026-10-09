@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -28,6 +29,10 @@ type Runtime struct {
 	maxPageSize int
 	logSQL      bool
 	ownsDB      bool
+	// bindBudget caps the parameters TSQ puts in one statement below the
+	// engine's limit, where the driver binds them in time that grows with their
+	// number (see bindBudgetOf); 0 leaves the engine's limit.
+	bindBudget int
 	// schema is the connection the schema policies run on while they hold the
 	// schema lock; nil outside of that, and under a policy that changes nothing.
 	schema *sql.Conn
@@ -186,6 +191,7 @@ func newRuntime(
 		tracers:     cfg.tracers,
 		db:          db,
 		dialect:     sqlDialect,
+		bindBudget:  bindBudgetOf(db),
 		tablePolicy: cfg.tablePolicy,
 		indexPolicy: cfg.indexPolicy,
 		logger:      cfg.logger,
@@ -565,4 +571,31 @@ func mysqlDSNParam(dsn, name string) (string, bool) {
 	}
 
 	return settings[len(settings)-1], true
+}
+
+// moderncBindBudget is the parameters per statement past which modernc.org/sqlite
+// spends more binding a batch than running it: its bind looks each parameter up
+// among all of them, so one statement costs the square of their number. A
+// 1000-row insert of 16 columns took 118 µs a row at the default batch and 24 µs
+// in statements of 1600 parameters; mattn/go-sqlite3 is as fast either way.
+const moderncBindBudget = 2000
+
+// bindBudgetOf is the parameter budget of a statement on db's driver: lower than
+// the engine's limit for modernc.org/sqlite, none otherwise. The driver is known
+// by its package, since the root package imports no driver.
+func bindBudgetOf(db *sql.DB) int {
+	if db == nil {
+		return 0
+	}
+
+	t := reflect.TypeOf(db.Driver())
+	if t != nil && t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+
+	if t != nil && t.PkgPath() == "modernc.org/sqlite" {
+		return moderncBindBudget
+	}
+
+	return 0
 }
