@@ -692,6 +692,12 @@ func classifyDDLColumnType(t types.Type, rawTag string) (ddlColumnDescriptor, er
 			)
 		}
 
+		// type: names the column, not how database/sql carries the value: a type
+		// it cannot carry was generated and failed on the first write or read.
+		if reason := uncarriableFieldType(t); reason != "" {
+			return ddlColumnDescriptor{}, fmt.Errorf("%s %s; give the field a named type with Value and Scan methods", types.TypeString(t, nil), reason)
+		}
+
 		// The same rule the generated Go uses: a nullable form here is a NullColumn
 		// there, so the column must accept NULL.
 		_, nullableValue := nullableValueType(t)
@@ -840,6 +846,36 @@ func classifyDDLColumnTypeRecursive(
 	}
 
 	return ddlColumnDescriptor{}, fmt.Errorf("unsupported DDL field type %s", types.TypeString(t, nil))
+}
+
+// uncarriableFieldType says why database/sql cannot carry a field of type t
+// whatever SQL type the column has, or "" when it can: an interface holds
+// whatever was assigned, which pgx refuses to encode into most columns and the
+// drivers read back as different Go types (a string comes back as []byte from
+// MySQL), and a struct or an array other than bytes has no driver value at all.
+// A type with Value or Scan methods carries itself.
+func uncarriableFieldType(t types.Type) string {
+	t = types.Unalias(t)
+	if ptr, ok := t.(*types.Pointer); ok {
+		t = types.Unalias(ptr.Elem())
+	}
+
+	if named, ok := t.(*types.Named); ok && codecMethod(named) != "" {
+		return ""
+	}
+
+	switch u := t.Underlying().(type) {
+	case *types.Interface:
+		return "is an interface, which the drivers read back as different types and pgx cannot write into most columns"
+	case *types.Struct:
+		return "is a struct without Value and Scan methods, which database/sql can neither write nor read"
+	case *types.Array:
+		if elem, ok := u.Elem().(*types.Basic); !ok || elem.Kind() != types.Byte {
+			return "is an array of something other than bytes, which database/sql can neither write nor read"
+		}
+	}
+
+	return ""
 }
 
 // codecMethod names the database/sql interface t implements, driver.Valuer or
