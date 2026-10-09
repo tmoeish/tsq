@@ -81,6 +81,10 @@ func registerTables(tables []Table) ([]*registeredTable, error) {
 
 		def := table.definition()
 		if def == nil {
+			if err := tableErr(table); err != nil {
+				return nil, fmt.Errorf("table %d: %w", i, err)
+			}
+
 			return nil, fmt.Errorf("%s is not a declared table; register tables, not CTEs", table.TableName())
 		}
 

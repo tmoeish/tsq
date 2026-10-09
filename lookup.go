@@ -63,6 +63,10 @@ func (t *TableOf[R, K]) primaryKey() (Column[R, K], error) {
 // Write queries with conditions or an order with the builder. An invalid table
 // definition is reported when the query runs.
 func (t *TableOf[R, K]) Query() *Query[R] {
+	if err := t.Err(); err != nil {
+		return &Query[R]{err: err}
+	}
+
 	t = t.unaliased()
 
 	q, err := t.keys.all[t.scope()].get(func() (*Query[R], error) {

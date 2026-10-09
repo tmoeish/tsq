@@ -70,7 +70,7 @@ v5 不背兼容，一次把名字改到"最合理"。定下的几条规则，每
 
 ## 决定：tracer 的契约由库执行，不只写在文档里 (2026-10-06)
 
-"必须调用 `next` 并返回它的错误"曾只是一句话：不调用就是"成功但没执行"（`Insert` 没插入、`Get` 返回 nil 行和 nil 错误），调两次就执行两次，传 nil context 让 database/sql 带着锁 panic、`Close` 永不返回。`Runtime.traced` 现在把三种都变成错误；tracer 仍可以用自己的错误拒绝一次操作。
+"必须调用 `next` 并返回它的错误"曾只是一句话：不调用就是"成功但没执行"（`Insert` 没插入、`Get` 返回 nil 行和 nil 错误），调两次就执行两次，传 nil context 让 database/sql 带着锁 panic、`Close` 永不返回。`Runtime.traced` 现在把三种都变成错误；tracer 仍可以用自己的错误拒绝一次操作。同类（2026-10-09）：`Err()` 早就会说"零值 TableOf"，但写入方法先过 `traceInfo` 解引用 `t.def`、`Query()` / `As()` / `ColumnSpecs()` 直接解引用，照样 panic——防线必须放在方法**最先走**的那条路上，不是放在后面某处。
 
 ## 决定：v5 不留兼容别名，且"不用接收者的方法"要变成函数 (2026-09-09)
 

@@ -2,6 +2,7 @@ package tsq
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -527,6 +528,36 @@ func TestZeroValuesReportErrors(t *testing.T) {
 
 	if err := table.Err(); err == nil || table.TableName() != "" {
 		t.Errorf("zero TableOf Err = %v", err)
+	}
+
+	// A zero table, and a nil pointer to one, are reported by every method that
+	// used to dereference the definition first: the writes (through traceInfo),
+	// the ready-made query, the accessors, a query over it, and Open.
+	rt := newSQLite(t)
+
+	var nilTable *TableOf[user, int64]
+
+	for name, err := range map[string]error{
+		"nil Insert":  nilTable.Insert(ctx, rt, &user{}),
+		"zero Insert": table.Insert(ctx, rt, &user{}),
+		"zero Update": table.Update(ctx, rt, &user{ID: 1}),
+		"zero Upsert": table.Upsert(ctx, rt, &user{}),
+		"zero Get":    func() error { _, err := table.Get(ctx, rt, 1); return err }(),
+		"zero Query":  func() error { _, err := table.Query().List(ctx, rt); return err }(),
+		"zero From":   func() error { _, err := Select(User_ID).From(&table).Build(); return err }(),
+		"zero in Open": func() error {
+			_, err := Open(ctx, "sqlite", filepath.Join(t.TempDir(), "z.db"), []Table{&table})
+			return err
+		}(),
+		"nil Err": nilTable.Err(),
+	} {
+		if err == nil || !strings.Contains(err.Error(), "zero TableOf") {
+			t.Errorf("%s = %v; want the zero-table error", name, err)
+		}
+	}
+
+	if table.As("u") == nil || nilTable.As("u") != nil || table.ColumnSpecs() != nil || table.Indexes() != nil || table.Columns() != nil {
+		t.Error("the accessors of a zero table must return nothing, not panic")
 	}
 
 	if _, err := Select(User_ID).From(Users).Search(Searchable(Column[user, string](nil))).Build(); err == nil {
