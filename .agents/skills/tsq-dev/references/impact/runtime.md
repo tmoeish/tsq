@@ -7,7 +7,10 @@
 - MySQL DSN 的参数按驱动的规则读（`mysqlDSNParam`：同名取最后一个、做 URL 解码；`parseTime` 认 `1`/`true`/`TRUE`/`True`）；
   根包不 import 驱动（`TestRootPackageImportsNoDriver`），所以自己解析查询串，别退回子串匹配。`Open` 还拒绝 `loc` 不是 `UTC` 的 DSN：
   驱动按 `loc` 写入和解读 `DATETIME`，会让 TSQ 的 UTC 时间按本地落库、把数据库填的 UTC 时间读偏。绑定出口分方言（`bindValueFor`）：
-  MySQL 驱动把零值时间写成 `0000-00-00`，这里按公元 1 年绑定。
+  MySQL 驱动把零值时间写成 `0000-00-00`，这里按公元 1 年绑定；SQLite 上时间绑成 `sqliteTimeLayout` 文本（两个驱动写的不一样，
+  mattn 读 modernc 的格式静默给零值）。读侧对应的是 `scanAdapterFor`：驱动给 string 而字段是具名类型（具名 bool、`[N]byte`、
+  具名 `[]byte` 如 `json.RawMessage`）都要有适配器。**改绑定或扫描出口，要用两个 SQLite 驱动交叉写读一次**（一个写、另一个读），
+  并用别的工具（原始 SQL 文本）写一次再读——只用 TSQ 自己写读的测试看不见这两类。
   **启动时还问会话三件事**（`newRuntime`，`Open` 和 `NewRuntime` 都走）：MySQL 的驱动怎么读时间（`checkMySQLTimes`）、文本是不是按 UTF-8 走（`checkMySQLText` / `checkPostgresText`，不是就拒绝）、
   MySQL 是不是严格模式（`warnMySQLMode`，只警告）、是不是 MariaDB 或 8.0.19 之前（`checkMySQLServer`，拒绝；升级 MySQL 基线先改 `mysqlServerProblem`）。**新的启动检查读不到设置时放行**：兼容实现和测试用的假驱动答不上来，不能因此起不来；但驱动拒绝会话本身（pgx 简单协议下非 UTF8 的 `client_encoding`，错误提到 `client_encoding`）要拒绝启动，否则第一条查询才失败。
 

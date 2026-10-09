@@ -3,6 +3,7 @@ package tsq
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"reflect"
 	"testing"
 	"time"
@@ -223,5 +224,45 @@ func TestTimesAreReadInUTC(t *testing.T) {
 		if !got.Equal(zoned) || got.Location() != time.UTC {
 			t.Errorf("%s read %v, want the same instant in UTC", name, got)
 		}
+	}
+}
+
+// TestNamedByteSlicesReadText covers a named byte slice (json.RawMessage) over a
+// column another tool filled with text, as JSON in SQLite is: the driver hands
+// back a string, which database/sql puts into a []byte and refused for anything
+// named after one. Bytes, text and NULL all read, in every form of the field.
+func TestNamedByteSlicesReadText(t *testing.T) {
+	var raw json.RawMessage
+
+	if err := scanAdapterFor(reflect.TypeFor[json.RawMessage]())(&raw).(sql.Scanner).Scan(`{"a":1}`); err != nil || string(raw) != `{"a":1}` {
+		t.Fatalf("text into json.RawMessage = %q, %v", raw, err)
+	}
+
+	src := []byte(`[1]`)
+	if err := scanAdapterFor(reflect.TypeFor[json.RawMessage]())(&raw).(sql.Scanner).Scan(src); err != nil || string(raw) != `[1]` {
+		t.Fatalf("bytes into json.RawMessage = %q, %v", raw, err)
+	}
+
+	src[0] = 'x'
+	if string(raw) != `[1]` {
+		t.Fatal("the bytes were not copied: the driver may reuse its buffer")
+	}
+
+	if err := scanAdapterFor(reflect.TypeFor[json.RawMessage]())(&raw).(sql.Scanner).Scan(nil); err != nil || raw != nil {
+		t.Fatalf("NULL into json.RawMessage = %q, %v", raw, err)
+	}
+
+	var ptr *json.RawMessage
+	if err := scanAdapterFor(reflect.TypeFor[*json.RawMessage]())(&ptr).(sql.Scanner).Scan("{}"); err != nil || ptr == nil || string(*ptr) != "{}" {
+		t.Fatalf("text into *json.RawMessage = %v, %v", ptr, err)
+	}
+
+	var null sql.Null[json.RawMessage]
+	if err := scanAdapterFor(reflect.TypeFor[sql.Null[json.RawMessage]]())(&null).(sql.Scanner).Scan("{}"); err != nil || !null.Valid || string(null.V) != "{}" {
+		t.Fatalf("text into sql.Null[json.RawMessage] = %+v, %v", null, err)
+	}
+
+	if scanAdapterFor(reflect.TypeFor[[]byte]()) != nil {
+		t.Error("a plain []byte got an adapter; database/sql reads it already")
 	}
 }

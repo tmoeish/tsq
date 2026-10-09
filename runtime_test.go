@@ -467,10 +467,18 @@ func TestZeroTimeIsBoundAsYearOneOnMySQL(t *testing.T) {
 		t.Errorf("mysql binds a time as %#v, want %v", got, want)
 	}
 
-	for _, d := range []sqld.Dialect{sqld.PostgresDialect{}, sqld.SQLiteDialect{}} {
-		if got, ok := bindValueFor(d, zero).(time.Time); !ok || !got.IsZero() {
-			t.Errorf("%s binds the zero time as %#v", d.Name(), got)
-		}
+	if got, ok := bindValueFor(sqld.PostgresDialect{}, zero).(time.Time); !ok || !got.IsZero() {
+		t.Errorf("postgres binds the zero time as %#v", got)
+	}
+
+	// SQLite keeps a time as text: TSQ writes the form both drivers and SQLite's
+	// date functions read, at a fixed precision.
+	if got := bindValueFor(sqld.SQLiteDialect{}, zero); got != "0001-01-01 00:00:00.000000+00:00" {
+		t.Errorf("sqlite binds the zero time as %#v", got)
+	}
+
+	if got := bindValueFor(sqld.SQLiteDialect{}, at); got != "2026-10-05 15:06:34.828405+00:00" {
+		t.Errorf("sqlite binds a time as %#v", got)
 	}
 }
 

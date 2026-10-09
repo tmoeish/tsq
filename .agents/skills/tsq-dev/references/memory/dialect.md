@@ -65,7 +65,7 @@ MySQL 1205 / 1213 / 3572）保证事务已回滚。现在 commit 阶段只放行
 - **MySQL 的 `Index.Constraint` 指"外键需要的索引"**（删它报 1553）：别改成读 `TABLE_CONSTRAINTS`，那里把每个唯一索引都列成
   UNIQUE 约束，TSQ 自己建的也在内，Reconcile 就再也不能重建任何唯一索引。
 - **NULL 排序默认最小值**：MySQL/SQLite 本来如此只需改 PG；换默认就得给 MySQL 每个可空排序加 `IS NULL` 键。
-- **时间在绑定出口统一转 UTC 并截到微秒（`boundTime`），不只是托管时间戳**：SQLite 按文本存时间，本地时间和 UTC 行按文本比较会错；带纳秒的值 SQLite 原样存、MySQL 四舍五入、PG 截断，同一个谓词三个答案（2026-10-05）。
+- **时间在绑定出口统一转 UTC 并截到微秒（`boundTime`），不只是托管时间戳**：SQLite 按文本存时间，本地时间和 UTC 行按文本比较会错；带纳秒的值 SQLite 原样存、MySQL 四舍五入、PG 截断，同一个谓词三个答案（2026-10-05）。**SQLite 上连文本形式也由 TSQ 定**（`sqliteTimeLayout`，2026-10-09）：交给驱动时 modernc 写 `String()` 形式，mattn 读它**静默给零值**、SQLite 日期函数读成 NULL——"驱动各写各的、TSQ 都能读"只验证了同一个驱动写读，换驱动才暴露。读侧同理：具名 `[]byte`（`json.RawMessage`）只测过 TSQ 自己写的 BLOB，别的工具写的 TEXT 读不出（`byteSliceDest`）。
 - **SQLite 的 `INTEGER PRIMARY KEY` 不写 `AUTOINCREMENT` 也算自增**（2026-09-28）：它就是 rowid；当成漂移会让 `Validate` 起不来、
   `Reconcile` 为使用者自己的选择重建整张表。TSQ 自己建的表仍写 `AUTOINCREMENT`，重建时保留它的计数。**但反过来 `assigned` 声明也得接受它**（`Column.Rowid` + `SameKeyGenerator`，2026-10-09）——"一律算自增"让 TSQ 自己建的 assigned 表第二次启动就 Validate 失败。PG 的身份列同理算自增；别的工具建的**无生成器**主键 PG 曾拒绝（"manual change required"）而 MySQL 加 `AUTO_INCREMENT`——现在加 `BY DEFAULT` 身份列并 `setval` 到 `MAX(id)+1`，反向 `DROP IDENTITY IF EXISTS` + `DROP DEFAULT`；先加宽再加身份，没有序列可加宽时跳过 `ALTER SEQUENCE`（否则 `format(NULL)` 是语法错）。
 

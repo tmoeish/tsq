@@ -20,6 +20,9 @@ type scanAdapter func(field any) any
 //     only for a column declared as one: MAX(created_at), COALESCE(seen_at, ...) and
 //     every other expression came back as a string, which database/sql does not
 //     put into a time.Time.
+//   - a named byte slice (json.RawMessage, type Blob []byte). A SQLite column
+//     holding text, as JSON written by any other tool is, comes back as a string,
+//     which database/sql puts into a []byte and into nothing named after one.
 //   - a named bool (type Flag bool). MySQL and SQLite report a boolean as an
 //     integer, which database/sql converts for a bool and for nothing named after
 //     one.
@@ -48,6 +51,12 @@ func scanAdapterFor(field reflect.Type) scanAdapter {
 		return func(p any) any { return byteArrayDest{field: reflect.ValueOf(p).Elem(), form: formPointer} }
 	case sqlNullOf(field, byteArrayType):
 		return func(p any) any { return byteArrayDest{field: reflect.ValueOf(p).Elem(), form: formNull} }
+	case namedByteSlice(field):
+		return func(p any) any { return byteSliceDest{field: reflect.ValueOf(p).Elem()} }
+	case field.Kind() == reflect.Pointer && namedByteSlice(field.Elem()):
+		return func(p any) any { return byteSliceDest{field: reflect.ValueOf(p).Elem(), form: formPointer} }
+	case sqlNullOf(field, namedByteSlice):
+		return func(p any) any { return byteSliceDest{field: reflect.ValueOf(p).Elem(), form: formNull} }
 	}
 
 	return nil
@@ -271,6 +280,55 @@ func (d byteArrayDest) Scan(src any) error {
 	}
 
 	reflect.Copy(target, reflect.ValueOf(b))
+
+	return nil
+}
+
+// namedByteSlice reports a named type of byte slice, such as json.RawMessage,
+// without a Scan of its own.
+func namedByteSlice(t reflect.Type) bool {
+	return t != nil && t.Kind() == reflect.Slice && t.Elem().Kind() == reflect.Uint8 && t != reflect.TypeFor[[]byte]() &&
+		!reflect.PointerTo(t).Implements(reflect.TypeFor[sql.Scanner]())
+}
+
+// byteSliceDest reads bytes or text into a named byte slice, copying them, as
+// database/sql does for a []byte. NULL is a nil slice, as it is for a []byte.
+type byteSliceDest struct {
+	field reflect.Value
+	form  destForm
+}
+
+func (d byteSliceDest) Scan(src any) error {
+	target := d.field
+
+	if src == nil {
+		target.SetZero()
+
+		return nil
+	}
+
+	var b []byte
+
+	switch v := src.(type) {
+	case []byte:
+		b = append([]byte(nil), v...)
+	case string:
+		b = []byte(v)
+	default:
+		return fmt.Errorf("unsupported Scan, storing driver.Value type %T into type *%s", src, target.Type())
+	}
+
+	switch d.form {
+	case formPointer:
+		fresh := reflect.New(target.Type().Elem())
+		target.Set(fresh)
+		target = fresh.Elem()
+	case formNull:
+		target.Field(1).SetBool(true)
+		target = target.Field(0)
+	}
+
+	target.SetBytes(b)
 
 	return nil
 }
