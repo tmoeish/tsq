@@ -3794,3 +3794,36 @@ func TestGenWrapsAPostgresMigrationSectionInATransaction(t *testing.T) {
 		t.Errorf("a section that runs nothing was wrapped:\n%s", section)
 	}
 }
+
+// TestGenWarnsAboutABackslashInAStringDefault covers a default written as SQL
+// with a backslash in a string literal: MySQL reads it as an escape and stores
+// another value than PostgreSQL and SQLite, and since each engine reads its own
+// DDL back the same way, nothing else notices.
+func TestGenWarnsAboutABackslashInAStringDefault(t *testing.T) {
+	warnings := func(field string) string {
+		t.Helper()
+
+		if err := genModule(t, map[string]string{"model.go": "package gentest\n\n//tsq:table\ntype Row struct {\n\tID int64 `db:\"id\"`\n\t" + field + "\n}\n"}); err != nil {
+			t.Fatal(err)
+		}
+
+		out := new(bytes.Buffer)
+		GenCmd.SetOut(new(bytes.Buffer))
+		GenCmd.SetErr(out)
+		GenCmd.SetArgs([]string{"."})
+
+		if err := GenCmd.Execute(); err != nil {
+			t.Fatal(err)
+		}
+
+		return out.String()
+	}
+
+	if got := warnings("Path *string `db:\"path,size:40,default:'C:\\\\\\\\temp'\"`"); !strings.Contains(got, "warning: Row: the default of column path holds a backslash") {
+		t.Errorf("a backslash default: %q", got)
+	}
+
+	if got := warnings("Path *string `db:\"path,size:40,default:'it''s'\"`"); strings.Contains(got, "backslash") {
+		t.Errorf("a default without a backslash warned: %q", got)
+	}
+}

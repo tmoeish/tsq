@@ -161,7 +161,7 @@ Troubleshooting:
 
 		// MySQL's index and row limits are warnings: the schema may run on the others only.
 		for _, s := range list {
-			for _, warning := range append(mysqlIndexWarnings(s), mysqlRowWarnings(s)...) {
+			for _, warning := range slices.Concat(mysqlIndexWarnings(s), mysqlRowWarnings(s), backslashDefaultWarnings(s)) {
 				_, _ = fmt.Fprintln(errWriter, "warning: "+warning)
 			}
 		}
