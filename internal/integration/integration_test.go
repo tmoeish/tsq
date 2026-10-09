@@ -2691,6 +2691,89 @@ func TestIntegrationSkipLockedQueueClaimsEachRowOnce(t *testing.T) {
 	}
 }
 
+// TestIntegrationCrossJoinAndForShareRun covers the two other clauses that had
+// no engine test: CROSS JOIN is the product of the two tables, and FOR SHARE
+// lets a second reader through while a writer's NOWAIT claim is a conflict
+// (SQLite has no FOR SHARE and says so).
+func TestIntegrationCrossJoinAndForShareRun(t *testing.T) {
+	for _, target := range integrationTargets(t) {
+		t.Run(target.name, func(t *testing.T) {
+			ctx := context.Background()
+
+			dropAcademyTables(t, target)
+			rt, _ := openWithPolicy(t, target, academy.TSQTables(), tsq.SchemaPolicyReconcile)
+
+			L, C := academy.TableLearner, academy.TableCourse
+
+			learners := []*academy.Learner{{Name: "Ada", Email: "ada@cross.test"}, {Name: "Bob", Email: "bob@cross.test"}, {Name: "Cyd", Email: "cyd@cross.test"}}
+			if err := L.BatchInsert(ctx, rt, learners); err != nil {
+				t.Fatalf("learners: %v", err)
+			}
+
+			if err := C.BatchInsert(ctx, rt, []*academy.Course{{Title: "Go"}, {Title: "SQL"}}); err != nil {
+				t.Fatalf("courses: %v", err)
+			}
+
+			n, err := tsq.Select(L.ID).From(L).CrossJoin(C).MustBuild().Count(ctx, rt)
+			if err != nil || n != 6 {
+				t.Fatalf("CROSS JOIN count = %d, %v; want 6", n, err)
+			}
+
+			rows, err := tsq.Select(L.Columns()...).From(L).CrossJoin(C).Where(C.Title.EQ(tsq.Val("Go"))).OrderBy(L.Name.Asc()).MustBuild().List(ctx, rt)
+			if err != nil || len(rows) != 3 || rows[0].Name != "Ada" {
+				t.Fatalf("CROSS JOIN filtered = %d rows, %v; want Ada, Bob, Cyd", len(rows), err)
+			}
+
+			first := tsq.Val(learners[0].ID)
+			share := tsq.Select(L.Columns()...).From(L).Where(L.ID.EQ(first)).ForShare().MustBuild()
+
+			if !tsqdialect.Supports(tsqdialect.Name(target.name), tsqdialect.CapabilityForShare) {
+				_, err := share.Get(ctx, rt)
+				if _, ok := errors.AsType[*tsqdialect.UnsupportedCapabilityError](err); !ok {
+					t.Fatalf("FOR SHARE on %s = %v; want an UnsupportedCapabilityError", target.name, err)
+				}
+
+				return
+			}
+
+			held, release := make(chan struct{}), make(chan struct{})
+
+			go func() {
+				_ = rt.WithTx(ctx, func(ctx context.Context, tx tsq.Executor) error {
+					_, err := share.Get(ctx, tx)
+					close(held)
+					<-release
+
+					return err
+				})
+			}()
+
+			<-held
+			defer close(release)
+
+			// A second sharer reads at once.
+			err = rt.WithTx(ctx, func(ctx context.Context, tx tsq.Executor) error {
+				_, err := share.Get(ctx, tx)
+
+				return err
+			})
+			if err != nil {
+				t.Fatalf("second FOR SHARE: %v", err)
+			}
+
+			// A writer cannot: NOWAIT reports the conflict instead of waiting.
+			err = rt.WithTx(ctx, func(ctx context.Context, tx tsq.Executor) error {
+				_, err := tsq.Select(L.ID).From(L).Where(L.ID.EQ(first)).ForUpdate().NoWait().MustBuild().Get(ctx, tx)
+
+				return err
+			})
+			if !tsq.IsTxConflictError(err) {
+				t.Fatalf("FOR UPDATE NOWAIT against a shared row = %v; want a transaction conflict", err)
+			}
+		})
+	}
+}
+
 // TestIntegrationUpdateWithoutAVersionTellsUnchangedFromMissing updates a table
 // with no version and no updated_at. MySQL counts only the rows a statement
 // changes, so writing a row's own values reports none affected, which must not
