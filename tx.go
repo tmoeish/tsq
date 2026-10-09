@@ -3,10 +3,13 @@ package tsq
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"fmt"
 	"math/rand/v2"
 	"time"
+
+	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 )
 
 const (
@@ -249,11 +252,13 @@ func (r *Runtime) executeTxAttempt[T any](
 	options *normalizedTxOptions,
 	fn func(context.Context, Executor) (T, error),
 ) (_ T, stage txRetryStage, err error) {
-	tx, err := r.db.BeginTx(ctx, options.sqlOptions)
+	tx, release, err := r.beginTx(ctx, options.sqlOptions)
 	if err != nil {
 		var zero T
 		return zero, txRetryStageBegin, fmt.Errorf("begin transaction: %w", err)
 	}
+
+	defer release()
 
 	committed := false
 
@@ -301,6 +306,50 @@ func (r *Runtime) executeTxAttempt[T any](
 	committed = true
 
 	return result, 0, nil
+}
+
+// beginTx begins a transaction with opts and returns what to call once it has
+// ended. Both SQLite drivers ignore TxOptions.ReadOnly, so a read-only
+// transaction there wrote whatever it was asked to: it runs on a connection of
+// its own with PRAGMA query_only set, which the engine enforces, and the pragma
+// is cleared after the transaction ends. A connection whose pragma cannot be
+// cleared is discarded rather than handed back read-only to the pool.
+func (r *Runtime) beginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, func(), error) {
+	if r.dialect.Name() != tsqdialect.SQLite || opts == nil || !opts.ReadOnly {
+		tx, err := r.db.BeginTx(ctx, opts)
+
+		return tx, func() {}, err
+	}
+
+	conn, err := r.db.Conn(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if _, err := conn.ExecContext(ctx, "PRAGMA query_only = ON"); err != nil {
+		_ = conn.Close()
+
+		return nil, nil, fmt.Errorf("make the connection read-only: %w", err)
+	}
+
+	release := func() {
+		// The caller's context may have ended with the transaction; the pragma is
+		// cleared regardless, or the connection goes.
+		if _, err := conn.ExecContext(context.WithoutCancel(ctx), "PRAGMA query_only = OFF"); err != nil {
+			_ = conn.Raw(func(any) error { return driver.ErrBadConn })
+		}
+
+		_ = conn.Close()
+	}
+
+	tx, err := conn.BeginTx(ctx, opts)
+	if err != nil {
+		release()
+
+		return nil, nil, err
+	}
+
+	return tx, release, nil
 }
 
 func (r *Runtime) withTxResult[T any](

@@ -45,6 +45,8 @@
   生成和 `assigned` 两种声明。`columnsEqual` 和 `columnDifferences` 两处必须同一判据，否则 Reconcile 安静而 Validate 报错；
   门是 `TestIntegrationAKeyGeneratorComesAndGoes`（三方言各来回一次）。
 - **`sqld.Column` 里不参与比较的字段**（`Collation`、`Comment`）只为改列时重述：`columnsEqual` / `columnDifferences` 不看它们；`AlterColumnSQL` 新增的语句形态和 SQLite 重建的 `renderRebuiltTableStatement`（不是 `renderCreateTableStatement`）都要把它们带上，门是 `TestIntegrationAnAlterKeepsTheColumnsOwnAttributes`。
+- **事务一律从 `Runtime.beginTx` 开**：SQLite 的只读事务在那里换成独占连接 + `PRAGMA query_only`，结束后清掉、清不掉就丢弃连接。
+  新的开事务路径绕过它，SQLite 上 `WithReadOnly` / `Page` 又会悄悄能写；门是 `TestReadOnlyTransactionRefusesWritesOnSQLite`。
 - **`WithTx` 的回调 ctx 带着事务**（`txContextKey` → `boundExecutor`，`txDepthKey` 给嵌套的 savepoint 编号）：回调里再调 `WithTx` 走 `joinTx`，
   不开新事务。给回调换 ctx 的代码（追踪、超时）要从回调的 ctx 派生，不能从外面的 ctx 重新来，否则嵌套又变成第二个事务。
   `each` 在 `iter` 期间给 `txState.iterating` 计数，加入被拒；新的"把行交给调用方代码"的读取路径要同样计数。`executeTxAttempt` 结束时

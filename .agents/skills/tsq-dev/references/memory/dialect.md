@@ -39,7 +39,7 @@ MariaDB 不在基线里（2026-10-09）：答 MySQL 协议却没有 `INSERT ... 
 ## InnoDB 回滚整个事务后会话就退出了事务 (2026-10-08，随机事务生命周期差分)
 
 死锁（1213）后 `@@in_transaction=0`：回调里下一条语句自行提交、最后的 `COMMIT` 空转，吞掉错误继续的回调丢前留后且无错（PG 驱动报 "commit unexpectedly resulted in rollback"，SQLite 的失败不结束事务）。门是 `txState` + `TestIntegrationASwallowedDeadlockCannotCommit`（对方事务先改更多行，InnoDB 回滚改得少的那个，回调才是牺牲者）；`WrapExecutor` 按"句柄能 `Commit` / `Rollback`"认事务并给同一个 `txState`（假句柄测得到，`TestAWrappedTransactionRemembersItsRollback`），`*sql.Tx` 类型断言认不出别人的事务类型。
-同轮：SQLite 只配 busy_timeout + WAL 仍 `SQLITE_BUSY`——先读后写的 deferred 事务升级写锁不等 busy handler；文档加 `_txlock=immediate`。
+同轮：SQLite 只配 busy_timeout + WAL 仍 `SQLITE_BUSY`——先读后写的 deferred 事务升级写锁不等 busy handler；文档加 `_txlock=immediate`。 两个 SQLite 驱动还都忽略 `TxOptions.ReadOnly`（2026-10-09 第十九轮，只读事务能写入并提交）：`beginTx` 用独占连接 + `PRAGMA query_only`；否掉"TSQ 自己拦写入"——原始 `ExecContext` 绕得过去，只有引擎拦得全。
 
 ## 决定：回调里的 `WithTx` 加入外层事务，不另开 (2026-10-08，第十六轮)
 
