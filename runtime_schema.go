@@ -130,11 +130,106 @@ func (r *Runtime) lockSchema(ctx context.Context) (func(), error) {
 // schemaDB is what the schema policies run their statements on: the connection
 // that holds the schema lock, or the pool when no lock is held.
 func (r *Runtime) schemaDB() sqld.Executor {
+	if r.schemaTx != nil {
+		return r.schemaTx
+	}
+
 	if r.schema != nil {
 		return r.schema
 	}
 
 	return r.db
+}
+
+// appliedDDL is a statement a schema policy ran, with the log attributes that
+// go with it.
+type appliedDDL struct {
+	statement string
+	attrs     []any
+}
+
+// noteDDL records a statement a schema policy ran: logged now, or, inside
+// changeTable, once the change is known to stand.
+func (r *Runtime) noteDDL(statement string, attrs ...any) {
+	if r.ddl != nil {
+		*r.ddl = append(*r.ddl, appliedDDL{statement: statement, attrs: attrs})
+
+		if r.schemaTx != nil {
+			return
+		}
+	}
+
+	r.info("applied ddl", append(attrs, "ddl", statement)...)
+}
+
+// changeTable runs the statements of one table's schema change, fn, as one
+// change where the engine can: on PostgreSQL and SQLite in a transaction, so
+// that a statement the engine refuses (a retype the rows do not fit) leaves the
+// table as it was rather than with the statements before it applied. MySQL
+// commits every DDL statement on its own and cannot do that: there a change
+// that stops partway says which of its statements ran and stay.
+func (r *Runtime) changeTable(ctx context.Context, table string, fn func() error) error {
+	var applied []appliedDDL
+
+	r.ddl = &applied
+	defer func() { r.ddl = nil }()
+
+	if r.dialect.Name() == tsqdialect.MySQL {
+		err := fn()
+		if err != nil && len(applied) > 0 {
+			ran := make([]string, len(applied))
+			for i, ddl := range applied {
+				ran[i] = ddl.statement
+			}
+
+			return fmt.Errorf("%w; MySQL commits each schema statement on its own, so these ran before it and stay: %s", err, strings.Join(ran, " "))
+		}
+
+		return err
+	}
+
+	var (
+		tx  *sql.Tx
+		err error
+	)
+
+	if r.schema != nil {
+		tx, err = r.schema.BeginTx(ctx, nil)
+	} else {
+		tx, err = r.db.BeginTx(ctx, nil)
+	}
+
+	if err != nil {
+		return fmt.Errorf("begin the schema change of %s: %w", table, err)
+	}
+
+	r.schemaTx = tx
+
+	err = fn()
+
+	r.schemaTx = nil
+
+	if err != nil {
+		if rollbackErr := tx.Rollback(); rollbackErr != nil {
+			return errors.Join(err, fmt.Errorf("roll back the schema change of %s: %w", table, rollbackErr))
+		}
+
+		if len(applied) > 0 {
+			r.warn("schema change rolled back; the table is as it was", "table", table, "statements", len(applied))
+		}
+
+		return err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit the schema change of %s: %w", table, err)
+	}
+
+	for _, ddl := range applied {
+		r.info("applied ddl", append(ddl.attrs, "ddl", ddl.statement)...)
+	}
+
+	return nil
 }
 
 func (r *Runtime) applyTablePolicy(ctx context.Context) error {
@@ -204,26 +299,7 @@ func (r *Runtime) applyTablePolicyForTable(ctx context.Context, table *registere
 			return &SchemaMismatchError{Table: tableName, Changes: tableColumnChangeLines(r.dialect, changes, unasked)}
 		}
 
-		// SQLite cannot ADD every column to a table with rows: such a column is
-		// added by rebuilding the table with it, which copies the rows.
-		if addNeedsRebuild(r.dialect, added) {
-			if err := r.rebuildTable(ctx, tableName, current, table.Columns); err != nil {
-				return fmt.Errorf("add columns to %s: %w", tableName, err)
-			}
-
-			return nil
-		}
-
-		statements, err := renderTableColumnChanges(r.dialect, tableName, added)
-		if err != nil {
-			return fmt.Errorf("add columns to %s: %w", tableName, err)
-		}
-
-		for _, statement := range statements {
-			if err := r.execDDL(ctx, statement); err != nil {
-				return fmt.Errorf("add column to %s: %w", tableName, err)
-			}
-		}
+		return r.changeTable(ctx, tableName, func() error { return r.addColumns(ctx, table, current, added) })
 
 	case SchemaPolicyReconcile:
 		for _, change := range changes {
@@ -242,31 +318,70 @@ func (r *Runtime) applyTablePolicyForTable(ctx context.Context, table *registere
 				"table", tableName, "dropped", from, "added", to, "policy", r.tablePolicy)
 		}
 
-		if (r.dialect.AlterMode() == sqld.AlterRebuild && hasAlterColumnChange(changes)) || addNeedsRebuild(r.dialect, changes) {
-			if err := r.rebuildTable(ctx, tableName, current, table.Columns); err != nil {
-				return fmt.Errorf("reconcile table %s: %w", tableName, err)
-			}
+		return r.changeTable(ctx, tableName, func() error { return r.reconcileColumns(ctx, table, current, changes) })
+	}
 
-			return nil
+	return nil
+}
+
+// addColumns adds the declared columns a table lacks (CreateMissing), inside
+// changeTable.
+func (r *Runtime) addColumns(ctx context.Context, table *registeredTable, current []sqld.Column, added []tableColumnChange) error {
+	tableName := table.name
+
+	// SQLite cannot ADD every column to a table with rows: such a column is
+	// added by rebuilding the table with it, which copies the rows.
+	if addNeedsRebuild(r.dialect, added) {
+		if err := r.rebuildTable(ctx, tableName, current, table.Columns); err != nil {
+			return fmt.Errorf("add columns to %s: %w", tableName, err)
 		}
 
-		if err := r.dropIndexesOfDroppedColumns(ctx, tableName, changes); err != nil {
+		return nil
+	}
+
+	statements, err := renderTableColumnChanges(r.dialect, tableName, added)
+	if err != nil {
+		return fmt.Errorf("add columns to %s: %w", tableName, err)
+	}
+
+	for _, statement := range statements {
+		if err := r.execDDL(ctx, statement); err != nil {
+			return fmt.Errorf("add column to %s: %w", tableName, err)
+		}
+	}
+
+	return nil
+}
+
+// reconcileColumns changes a table's columns to its declaration (Reconcile),
+// inside changeTable.
+func (r *Runtime) reconcileColumns(ctx context.Context, table *registeredTable, current []sqld.Column, changes []tableColumnChange) error {
+	tableName := table.name
+
+	if (r.dialect.AlterMode() == sqld.AlterRebuild && hasAlterColumnChange(changes)) || addNeedsRebuild(r.dialect, changes) {
+		if err := r.rebuildTable(ctx, tableName, current, table.Columns); err != nil {
 			return fmt.Errorf("reconcile table %s: %w", tableName, err)
 		}
 
-		if err := r.dropIndexesInTheWay(ctx, table, changes); err != nil {
-			return fmt.Errorf("reconcile table %s: %w", tableName, err)
-		}
+		return nil
+	}
 
-		statements, err := renderTableColumnChanges(r.dialect, tableName, changes)
-		if err != nil {
-			return fmt.Errorf("reconcile table %s: %w", tableName, err)
-		}
+	if err := r.dropIndexesOfDroppedColumns(ctx, tableName, changes); err != nil {
+		return fmt.Errorf("reconcile table %s: %w", tableName, err)
+	}
 
-		for _, statement := range statements {
-			if err := r.execDDL(ctx, statement); err != nil {
-				return fmt.Errorf("apply table change on %s: %w", tableName, err)
-			}
+	if err := r.dropIndexesInTheWay(ctx, table, changes); err != nil {
+		return fmt.Errorf("reconcile table %s: %w", tableName, err)
+	}
+
+	statements, err := renderTableColumnChanges(r.dialect, tableName, changes)
+	if err != nil {
+		return fmt.Errorf("reconcile table %s: %w", tableName, err)
+	}
+
+	for _, statement := range statements {
+		if err := r.execDDL(ctx, statement); err != nil {
+			return fmt.Errorf("apply table change on %s: %w", tableName, err)
 		}
 	}
 
@@ -382,31 +497,37 @@ func (r *Runtime) rebuildTable(
 		return err
 	}
 
-	tx, err := r.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
+	// Inside changeTable the rebuild is part of the table's transaction, which
+	// rolls it back with the rest; on its own it takes one.
+	tx := r.schemaTx
+	if tx == nil {
+		if tx, err = r.db.BeginTx(ctx, nil); err != nil {
+			return err
+		}
+
+		defer func() { _ = tx.Rollback() }()
 	}
 
 	for _, statement := range statements {
 		if _, err := tx.ExecContext(ctx, statement); err != nil {
-			_ = tx.Rollback()
 			return fmt.Errorf("apply table rebuild on %s: %w", tableName, err)
 		}
 	}
 
 	if err := rebuiltValuesFit(ctx, tx, r.dialect, tableName, current, desired); err != nil {
-		_ = tx.Rollback()
 		return err
 	}
 
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("apply table rebuild on %s: %w", tableName, err)
+	if tx != r.schemaTx {
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("apply table rebuild on %s: %w", tableName, err)
+		}
 	}
 
-	// Logged once the rebuild committed: a statement that ran in a transaction that
+	// Logged once the rebuild stands: a statement that ran in a transaction that
 	// was then rolled back was not applied.
 	for _, statement := range statements {
-		r.info("applied ddl", "table", tableName, "kind", "table_rebuild", "ddl", statement)
+		r.noteDDL(statement, "table", tableName, "kind", "table_rebuild")
 	}
 
 	return nil
@@ -537,7 +658,16 @@ func rebuiltValuesFit(ctx context.Context, tx *sql.Tx, dialect sqld.Dialect, tab
 
 func (r *Runtime) applyIndexPolicy(ctx context.Context) error {
 	for _, table := range r.tables {
-		if err := r.applyIndexPolicyForTable(ctx, table); err != nil {
+		apply := func() error { return r.applyIndexPolicyForTable(ctx, table) }
+
+		var err error
+		if changesSchema(r.indexPolicy) {
+			err = r.changeTable(ctx, table.name, apply)
+		} else {
+			err = apply()
+		}
+
+		if err != nil {
 			return err
 		}
 	}
@@ -606,7 +736,7 @@ func (r *Runtime) applyIndexPolicyForTable(ctx context.Context, table *registere
 			}
 
 			if statement != "" {
-				r.info("applied ddl", "table", tableName, "kind", "index_create", "ddl", statement)
+				r.noteDDL(statement, "table", tableName, "kind", "index_create")
 			}
 
 			continue
@@ -645,7 +775,7 @@ func (r *Runtime) applyIndexPolicyForTable(ctx context.Context, table *registere
 			}
 
 			if createStatement != "" {
-				r.info("applied ddl", "table", tableName, "kind", "index_create", "ddl", createStatement)
+				r.noteDDL(createStatement, "table", tableName, "kind", "index_create")
 			}
 
 			if err := r.execDDL(ctx, r.dialect.DropIndexSQL(tableName, probe)); err != nil {
@@ -723,7 +853,7 @@ func (r *Runtime) execDDL(ctx context.Context, statement string) error {
 		return err
 	}
 
-	r.info("applied ddl", "ddl", statement)
+	r.noteDDL(statement)
 
 	return nil
 }
