@@ -52,6 +52,17 @@ type execScope struct {
 	tx bool
 }
 
+// bindParams is the number of parameters TSQ puts in one statement it splits:
+// the engine's limit, or the runtime's lower budget for its driver.
+func (s execScope) bindParams() int {
+	limit := sqld.MaxBindParams(s.dialect)
+	if s.runtime != nil && s.runtime.bindBudget > 0 && (limit <= 0 || s.runtime.bindBudget < limit) {
+		return s.runtime.bindBudget
+	}
+
+	return limit
+}
+
 // DBTX is what *sql.DB, *sql.Tx and *sql.Conn have in common: the database/sql
 // handle WrapExecutor turns into an Executor.
 type DBTX interface {

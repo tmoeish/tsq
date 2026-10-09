@@ -220,7 +220,7 @@ func (t *TableOf[R, K]) setTombstone(ctx context.Context, db Executor, rows []*R
 
 	version := def.column(def.managed.Version)
 	// The stamps bind once per statement, the key match per row.
-	size := effectiveChunkSize(config.size, keyMatchParams(def), sqld.MaxBindParams(scope.dialect)-len(stamp))
+	size := effectiveChunkSize(config.size, keyMatchParams(def), scope.bindParams()-len(stamp))
 
 	var failures shortfalls
 
@@ -790,7 +790,7 @@ func (t *TableOf[R, K]) insertGroups(ctx context.Context, db Executor, scope exe
 				return err
 			}
 		} else {
-			size := effectiveChunkSize(config.size, len(cols), sqld.MaxBindParams(scope.dialect))
+			size := effectiveChunkSize(config.size, len(cols), scope.bindParams())
 			for _, chunk := range chunks(group, size) {
 				if err := t.insertChunk(ctx, db, scope, def, cols, chunk, omitKey, returning); err != nil {
 					return fmt.Errorf("insert into %s: %w", def.name, err)
@@ -1352,7 +1352,7 @@ func (t *TableOf[R, K]) update(ctx context.Context, db Executor, rows []*R, conf
 	}
 
 	// Each row binds its key, its version and one value per column.
-	size := effectiveChunkSize(config.size, len(cols)+2, sqld.MaxBindParams(scope.dialect))
+	size := effectiveChunkSize(config.size, len(cols)+2, scope.bindParams())
 
 	// A stale row does not stop the batch: the rows after it are written too, and
 	// one error names every row that was not.
@@ -1920,7 +1920,7 @@ func (t *TableOf[R, K]) hardDelete(ctx context.Context, db Executor, rows []*R, 
 	}
 
 	version := def.column(def.managed.Version)
-	size := effectiveChunkSize(config.size, keyMatchParams(def), sqld.MaxBindParams(scope.dialect))
+	size := effectiveChunkSize(config.size, keyMatchParams(def), scope.bindParams())
 
 	var failures shortfalls
 
@@ -2107,7 +2107,7 @@ func (t *TableOf[R, K]) deleteByPK(ctx context.Context, db Executor, keys []K, o
 			need = RowLive
 		}
 
-		size := effectiveChunkSize(config.size, 1, sqld.MaxBindParams(scope.dialect)-len(stamp))
+		size := effectiveChunkSize(config.size, 1, scope.bindParams()-len(stamp))
 
 		var missing []any
 

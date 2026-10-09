@@ -505,3 +505,29 @@ func TestMySQLServerIsCheckedByItsVersion(t *testing.T) {
 		}
 	}
 }
+
+// TestModerncStatementsStayUnderTheBindBudget covers modernc.org/sqlite, whose
+// bind time grows with the square of a statement's parameters: a 1000-row batch
+// in one statement of its maximum size ran five times slower a row than in
+// statements of a couple of thousand parameters. A runtime over that driver
+// splits its statements under moderncBindBudget; the engine's own limit still
+// holds for everyone else.
+func TestModerncStatementsStayUnderTheBindBudget(t *testing.T) {
+	rt := newSQLite(t)
+
+	if rt.bindBudget != moderncBindBudget {
+		t.Fatalf("a runtime over modernc.org/sqlite has bind budget %d, want %d", rt.bindBudget, moderncBindBudget)
+	}
+
+	if got := rt.scope().bindParams(); got != moderncBindBudget {
+		t.Fatalf("scope bind params = %d, want %d", got, moderncBindBudget)
+	}
+
+	if got := (execScope{dialect: sqld.SQLiteDialect{}}).bindParams(); got != sqld.MaxBindParams(sqld.SQLiteDialect{}) {
+		t.Fatalf("without a runtime the limit is the engine's, got %d", got)
+	}
+
+	if bindBudgetOf(nil) != 0 {
+		t.Fatal("a nil pool has a budget")
+	}
+}

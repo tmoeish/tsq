@@ -56,7 +56,7 @@ RIGHT JOIN 被保留侧的已删行，所以有 RIGHT / FULL JOIN 时整张表�
 
 每列一个按主键分支的 `CASE` 让一批的代价是行数的平方（SQLite 默认批 1000 比批 50 慢 12 倍）；维护者选了换语句形状而不是调小默认批。行列表没有类型，**三个定法都是试出来的，别互相套**：
 PG 的裸 `VALUES` 全读成 text，第一行放每列的类型化 NULL（`(SELECT col FROM t WHERE FALSE)`，不需要类型名）；MySQL 的 `VALUES ROW` 把值转成文本、拒绝非 UTF-8 的字节，改成"表上空分支 + `UNION ALL SELECT ?`"；
-SQLite 不需要类型，但 `UNION` 链有 500 项上限，只能用 `VALUES`。门是 `TestBatchUpdateJoinsTheRowsOnEveryDialect` 和 `TestIntegrationBatchUpdateCarriesEveryValue`。
+SQLite 不需要类型，但 `UNION` 链有 500 项上限，只能用 `VALUES`。**按引擎上限拼最大的语句不等于最快**（2026-10-09 批量耗时随规模测）：modernc 的 `bind` 随参数个数平方增长，1000 行 × 16 列一条语句每行 118µs、2000 参数一条 24µs；mattn 反而越大越快，所以预算按驱动定（`bindBudgetOf` 认驱动包路径），不改方言上限。门是 `TestBatchUpdateJoinsTheRowsOnEveryDialect` 和 `TestIntegrationBatchUpdateCarriesEveryValue`。
 **MySQL 的空分支带着列的字符集**（2026-10-06）：列是 latin1 / gbk / ascii 而连接是 utf8mb4 时，`UNION` 定不出类型，1267（参数不是常量，服务器不肯转），整条语句在写行之前被拒。不知道列的字符集就写不出 `CONVERT(? USING …)`，把空分支转成 utf8mb4 又会让键的比较换排序规则（`_bin` 的键 `a` / `A` 会串行）——所以是**见到 1267 / 1270 / 1271 就逐行写**（`updateOneByOne`），不是换一种联接写法。
 
 **时间戳截断到微秒、MySQL 用 `DATETIME(6)`；"当前时间"默认值写成 UTC 表达式**（PG/MySQL 的 `CURRENT_TIMESTAMP` 是会话本地时间，MySQL

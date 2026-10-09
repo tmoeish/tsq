@@ -89,7 +89,9 @@
   自己的排序规则匹配键（MySQL `_ci`），`missingKeys` 先比行数、再按不分大小写和尾部空格比，别退回 Go `==`。
 
 - 分批的单位是**行**，数据库数的是**占位符**：
-  - **上限按方言**（`sqldialect.MaxBindParams`）：MySQL / PostgreSQL 65535，**SQLite 32766**。
+  - **上限按方言**（`sqldialect.MaxBindParams`）：MySQL / PostgreSQL 65535，**SQLite 32766**。分批处一律取 `execScope.bindParams()`，
+    不直接取 `MaxBindParams`：runtime 可以按驱动压低（modernc 的绑定耗时随参数个数平方增长，`moderncBindBudget`）；
+    只有"超过就拒绝"的硬检查（`sqlexpr.go`）用引擎上限。
   - **每行占位符数按操作算**：INSERT 每列一个；UPDATE 每列一个加主键和版本（`writeJoinedUpdate` 的行列表）；
     DELETE 每行 `keyMatchParams`。每条语句一次的参数（墓碑、时间戳）从上限里
     扣掉。改了语句形状就要回来核对 `effectiveChunkSize` 的实参。
