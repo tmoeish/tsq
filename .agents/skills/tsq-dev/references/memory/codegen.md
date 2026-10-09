@@ -45,7 +45,8 @@ flag（cobra 时代包级单例的 `Changed` 位跨测试残留过），并支�
 `tsq.json` 的 `version` 比 CLI 新就拒绝（2026-10-08 第十五轮，`refuseNewerStateFile`）：旧 CLI 改写后新 CLI 把丢掉的渲染当变化、再写一段迁移，两边来回。开发构建没有版本号不比较。
 
 `tsq.json` 保存首次建 schema 时的原始 `.sql`，后续变更以带日期的迁移段追加，文件头因此停在首次生成的版本；"修"成当前版本会让每次发版都重写三个 DDL 文件头。
-**决定（维护者 2026-10-07，否掉了上一条的后半截）：拼法变化也补段**——第九轮审计发现 `academy` 的初始段在 UTC 默认值和范围约束之后建出的表被运行时判为不匹配，而 `gen --check` 只比模型看不见。现在 `tsq.json` 记每方言每列的渲染（`renderings`），下次 `gen` 时模型没变而渲染变了就写一段 `respell column`（`ddlRespellings`：拿旧渲染冒充被检查的列去调 `AlterColumnSQL`，SQLite 默认值 / 约束变了重建）。记录之前的文件没有可比对象，第一次只记录。两个方向里选了它而不是"文件里再放一份当前 schema"：后者改了"整个文件建新库"的语义。
+**决定（维护者 2026-10-07，否掉了上一条的后半截）：拼法变化也补段**——`academy` 的初始段在 UTC 默认值和范围约束之后建出的表被运行时判为不匹配，而 `gen --check` 只比模型看不见。`tsq.json` 记每方言每列的渲染（`renderings`），模型没变而渲染变了就写一段 `respell column`（`ddlRespellings`：拿旧渲染冒充被检查的列去调 `AlterColumnSQL`，SQLite 默认值 / 约束变了重建）。第一次只记录。否掉"文件里再放一份当前 schema"：它改了"整个文件建新库"的语义。
+已知未处理（2026-10-09）：声明里主键在生成 / `assigned` 之间翻转，迁移段只写 "manual change required for primary key column" 注释，而运行期 `Reconcile` 三方言都会做（MySQL `MODIFY ... AUTO_INCREMENT`、PG 身份列 + `setval`、SQLite 重建）。声明翻转罕见、注释已指明，等有人要再把 `AlterColumnSQL` 的那两条接进 `renderDDLAlterColumnStatements`。
 
 ## 决定：迁移段按"执行者不会停下"来写 (2026-09-28)
 
@@ -73,8 +74,7 @@ flag（cobra 时代包级单例的 `Changed` 位跨测试残留过），并支�
 
 它表示"库计算、schema 归迁移"（触发器、方言相关的表达式），审计发现它被写成普通 NOT NULL 列，`CreateMissing`
 建出的表每次 `Insert` 都失败。**否掉"一律要求写表达式"**：那会让迁移管 schema 的使用者没法声明这种列。改成
-TSQ 写的 DDL 留出它（带注释），运行期要建含它的表就报错。`//tsq:search` 写在结果上则直接拒绝，文档改掉——结果
-没有生成查询，"支持"只能是一个空承诺。
+TSQ 写的 DDL 留出它（带注释），运行期要建含它的表就报错。`//tsq:search` 写在结果上则直接拒绝，文档改掉——结果没有生成查询，"支持"只能是一个空承诺。
 
 **只对一个方言成立的限制只警告**（2026-09-28）：MySQL 索引键长先做成了 `tsq gen` 报错，等于替只跑 PostgreSQL / SQLite
 的使用者拒绝了一个合法索引；改成警告加 `mysql.sql` 注释。
