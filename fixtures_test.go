@@ -2,6 +2,7 @@ package tsq
 
 import (
 	"context"
+	"database/sql/driver"
 	"path/filepath"
 	"testing"
 	"time"
@@ -160,20 +161,33 @@ var (
 	onPostgres = tsqdialect.Postgres
 )
 
+// slot holds one value of a table described only by its schema. It carries
+// itself through database/sql (Value and Scan), as a column must: a bare any
+// is refused by NewColumn.
+type slot struct{ V any }
+
+func (s slot) Value() (driver.Value, error) { return s.V, nil }
+
+func (s *slot) Scan(src any) error {
+	s.V = src
+
+	return nil
+}
+
 // wideRow scans any column into an untyped slot, for tables described only by
 // their schema. A row type describes one table, so a test that needs a second
 // table at once declares it over otherWideRow with wideTableOf.
 type wideRow struct {
-	Fields [16]any
+	Fields [16]slot
 }
 
 // wideTable declares a table whose columns are names plus fields of schema.
-func wideTable(name string, names []string, schema []tsqdialect.ColumnSpec, indexes []IndexSpec) *TableOf[wideRow, any] {
-	return wideTableOf(name, names, schema, indexes, func(r *wideRow) *[16]any { return &r.Fields })
+func wideTable(name string, names []string, schema []tsqdialect.ColumnSpec, indexes []IndexSpec) *TableOf[wideRow, slot] {
+	return wideTableOf(name, names, schema, indexes, func(r *wideRow) *[16]slot { return &r.Fields })
 }
 
-func wideTableOf[R any](name string, names []string, schema []tsqdialect.ColumnSpec, indexes []IndexSpec, slots func(*R) *[16]any) *TableOf[R, any] {
-	h := NewTable[R, any](name)
+func wideTableOf[R any](name string, names []string, schema []tsqdialect.ColumnSpec, indexes []IndexSpec, slots func(*R) *[16]slot) *TableOf[R, slot] {
+	h := NewTable[R, slot](name)
 
 	seen := map[string]bool{}
 	all := []string{}
@@ -191,10 +205,10 @@ func wideTableOf[R any](name string, names []string, schema []tsqdialect.ColumnS
 
 	cols := make([]BoundColumn[R], 0, len(all))
 
-	var pk Column[R, any]
+	var pk Column[R, slot]
 
 	for i, n := range all {
-		c := NewColumn(h, n, n, func(r *R) *any { return &slots(r)[i] })
+		c := NewColumn(h, n, n, func(r *R) *slot { return &slots(r)[i] })
 		cols = append(cols, c)
 
 		if n == "id" {
@@ -210,7 +224,7 @@ func wideTableOf[R any](name string, names []string, schema []tsqdialect.ColumnS
 		}
 	}
 
-	return h.Define(TableSpec[R, any]{Columns: cols, PrimaryKey: pk, AutoIncrement: auto, ColumnSpecs: schema, Indexes: indexes})
+	return h.Define(TableSpec[R, slot]{Columns: cols, PrimaryKey: pk, AutoIncrement: auto, ColumnSpecs: schema, Indexes: indexes})
 }
 
 func specNames(schema []tsqdialect.ColumnSpec) []string {
@@ -223,11 +237,11 @@ func specNames(schema []tsqdialect.ColumnSpec) []string {
 }
 
 // newStrictMockTable declares a schema-less table with the given columns.
-func newStrictMockTable(name string, fields ...string) (*TableOf[wideRow, any], []string) {
+func newStrictMockTable(name string, fields ...string) (*TableOf[wideRow, slot], []string) {
 	return wideTable(name, fields, nil, nil), fields
 }
 
-func mustStrictMockTable(t *testing.T, name string, fields ...string) *TableOf[wideRow, any] {
+func mustStrictMockTable(t *testing.T, name string, fields ...string) *TableOf[wideRow, slot] {
 	t.Helper()
 
 	table, _ := newStrictMockTable(name, fields...)
@@ -236,7 +250,7 @@ func mustStrictMockTable(t *testing.T, name string, fields ...string) *TableOf[w
 }
 
 // registered redeclares table with a schema and indexes.
-func registered(table *TableOf[wideRow, any], schema []tsqdialect.ColumnSpec, indexes ...IndexSpec) Table {
+func registered(table *TableOf[wideRow, slot], schema []tsqdialect.ColumnSpec, indexes ...IndexSpec) Table {
 	names := make([]string, 0, len(table.def.columns))
 	for _, c := range table.def.columns {
 		names = append(names, c.name)

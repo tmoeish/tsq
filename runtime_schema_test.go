@@ -168,7 +168,7 @@ func TestNewRuntimeReconcileRawTypeTextProducesNoDDL(t *testing.T) {
 			Name: "body",
 			Type: tsqdialect.ColumnType{RawType: "TEXT", Nullable: true},
 		},
-	}, nil, func(r *notesRow) *[16]any { return &r.Fields })
+	}, nil, func(r *notesRow) *[16]slot { return &r.Fields })
 
 	for restart := range 2 {
 		_, err := Open(context.Background(),
@@ -711,7 +711,7 @@ func TestSchemaPoliciesRunOnOneConnection(t *testing.T) {
 	things := wideTableOf("things", []string{"id", "code"}, []tsqdialect.ColumnSpec{
 		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true},
 		{Name: "code", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 16}},
-	}, []IndexSpec{{Name: "idx_things_code", Columns: []string{"code"}}}, func(r *thingsRow) *[16]any { return &r.Fields })
+	}, []IndexSpec{{Name: "idx_things_code", Columns: []string{"code"}}}, func(r *thingsRow) *[16]slot { return &r.Fields })
 
 	for _, tables := range [][]Table{{Users, Orders}, {Users, Orders}, {things}} {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -739,7 +739,7 @@ func TestReconcileDropsAnIndexedColumnOnSQLite(t *testing.T) {
 	crates := wideTableOf("crates", []string{"id", "name"}, []tsqdialect.ColumnSpec{
 		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true},
 		{Name: "name", Type: tsqdialect.ColumnType{RawType: "TEXT", Nullable: true}},
-	}, nil, func(r *cratesRow) *[16]any { return &r.Fields })
+	}, nil, func(r *cratesRow) *[16]slot { return &r.Fields })
 
 	rt, err := Open(context.Background(), "sqlite", dsn, []Table{crates}, WithSchemaPolicy(SchemaPolicyReconcile))
 	if err != nil {
@@ -775,7 +775,7 @@ func TestValidateReportsATypedMismatch(t *testing.T) {
 	gadgets := wideTableOf("gadgets", []string{"id", "name"}, []tsqdialect.ColumnSpec{
 		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true},
 		{Name: "name", Type: tsqdialect.ColumnType{RawType: "TEXT", Nullable: true}},
-	}, nil, func(r *gadgetsRow) *[16]any { return &r.Fields })
+	}, nil, func(r *gadgetsRow) *[16]slot { return &r.Fields })
 
 	_, err := Open(context.Background(), "sqlite", dsn, []Table{gadgets}, WithSchemaPolicy(SchemaPolicyValidate))
 
@@ -800,7 +800,7 @@ func TestMismatchSaysWhatDiffers(t *testing.T) {
 		{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true},
 		{Name: "qty", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 32}},
 		{Name: "note", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 10, Nullable: true}},
-	}, nil, func(r *gadgetsRow) *[16]any { return &r.Fields })
+	}, nil, func(r *gadgetsRow) *[16]slot { return &r.Fields })
 
 	_, err := Open(context.Background(), "sqlite", dsn, []Table{gadgets}, WithSchemaPolicy(SchemaPolicyValidate))
 

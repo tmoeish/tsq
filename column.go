@@ -2,10 +2,12 @@ package tsq
 
 import (
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"fmt"
 	"reflect"
 	"strings"
+	"time"
 
 	tsqdialect "github.com/tmoeish/tsq/v5/dialect"
 )
@@ -294,7 +296,39 @@ func NewNullColumn[T, O, F any, K comparable](table *TableOf[O, K], name, jsonNa
 	return nullColumnImpl[O, T]{c: c.c}
 }
 
-var scannerType = reflect.TypeFor[sql.Scanner]()
+var (
+	scannerType = reflect.TypeFor[sql.Scanner]()
+	valuerType  = reflect.TypeFor[driver.Valuer]()
+)
+
+// uncarriableType says why database/sql cannot carry a field of type t to a
+// column and back, or "" when it can. Define accepted such a column and the
+// first write failed: an interface holds whatever was assigned, which pgx
+// cannot encode into most columns and the drivers read back as different Go
+// types, and a struct, map, func, channel or array other than bytes has no
+// driver value at all. A type with Value or Scan methods carries itself.
+func uncarriableType(t reflect.Type) string {
+	if t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+
+	if t.Implements(valuerType) || reflect.PointerTo(t).Implements(scannerType) || t == reflect.TypeFor[time.Time]() {
+		return ""
+	}
+
+	switch t.Kind() {
+	case reflect.Interface:
+		return "an interface, which the drivers read back as different types and pgx cannot write into most columns"
+	case reflect.Struct, reflect.Map, reflect.Func, reflect.Chan:
+		return "which database/sql can neither write nor read"
+	case reflect.Array:
+		if t.Elem().Kind() != reflect.Uint8 {
+			return "an array of something other than bytes, which database/sql can neither write nor read"
+		}
+	}
+
+	return ""
+}
 
 // nullableValueType returns the value type of a nullable form: the element of a
 // pointer, or the single data field of a scannable struct with a Valid bool.
@@ -363,6 +397,10 @@ func newColumn[O, T any, K comparable](table *TableOf[O, K], name, jsonName stri
 		}
 		core.scan = func(holder any) any { return field(holder.(*O)) }
 		core.adapt = scanAdapterFor(reflect.TypeFor[T]())
+
+		if reason := uncarriableType(reflect.TypeFor[T]()); reason != "" {
+			core.info.err = fmt.Errorf("column %s is held in %v, %s; give the field a type with Value and Scan methods", name, reflect.TypeFor[T](), reason)
+		}
 		core.get = func(holder any) any { return *field(holder.(*O)) }
 	}
 

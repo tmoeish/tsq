@@ -164,7 +164,7 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 ### 修复
 
-- **`any`（或其他接口）、没有 `Value` / `Scan` 的结构体字段加上 `type:` 就能生成**，运行时才出问题：`any` 存进去的字符串从 SQLite 读回是 `string`、从 MySQL 读回是 `[]byte`，pgx 写不进 int / bool；结构体第一次写入就失败。`type:` 只决定列类型，不决定值怎么传，现在 `tsq gen` 无论写不写 `type:` 都拒绝这类字段。
+- **`any`（或其他接口）、没有 `Value` / `Scan` 的结构体字段加上 `type:` 就能生成**，运行时才出问题：`any` 存进去的字符串从 SQLite 读回是 `string`、从 MySQL 读回是 `[]byte`，pgx 写不进 int / bool；结构体第一次写入就失败。`type:` 只决定列类型，不决定值怎么传，现在 `tsq gen` 无论写不写 `type:` 都拒绝这类字段；手写 `NewTable` / `Define` 的表同样在 `Define` 时拒绝这类列。
 - **SQLite 上 `WithReadOnly()` 的事务照样能写入并提交**：modernc 和 mattn 两个驱动都忽略 `TxOptions.ReadOnly`，而 MySQL / PostgreSQL 会报 25006。现在 SQLite 的只读事务在单独的连接上设 `PRAGMA query_only = ON`，由引擎拒绝写入，事务结束后清掉；清不掉的连接直接丢弃，不会把只读状态还回连接池。`Page` 在 SQLite 上也走这条路。
 - **零值的 `TableOf`（`var T tsq.TableOf[...]`，或 nil 指针）调写入方法、`Query()`、`As()`、`ColumnSpecs()`、`Indexes()` 会 panic**，而 `Err()` 明明准备了 "table is a zero TableOf" 的说明；放进 `Open` 的表列表则报成 "is not a declared table; register tables, not CTEs"。现在每条路径都报同一条错误，访问器返回空。
 - **PostgreSQL 上先写入带主键的行（fixture、导入、按外部 id 的 upsert），之后由数据库生成主键的第一条插入就撞主键**：MySQL / SQLite 的计数器会自动跳过写入的键，PG 的序列不会。现在 `Insert` / `BatchInsert` / upsert 写入了自增主键的值之后，在同一个执行器上把序列推到不小于写入的最大键（`setval`）；会话没有序列的 `UPDATE` 权限时行照样写入、记一条警告（语句本身先检查权限，所以不会把事务弄成 aborted）。

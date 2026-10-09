@@ -26,7 +26,7 @@ func TestValidateRegisteredTableIdentifiersRejectsOversizedNames(t *testing.T) {
 	long := firstRejectedIdentifier(t, mysql)
 
 	tests := map[string]Table{
-		"table name":  wideTableOf(long, []string{"name"}, nil, nil, func(r *longWideRow) *[16]any { return &r.Fields }),
+		"table name":  wideTableOf(long, []string{"name"}, nil, nil, func(r *longWideRow) *[16]slot { return &r.Fields }),
 		"column name": wideTable("users", []string{long}, nil, nil),
 		"index name":  wideTable("users", []string{"name"}, nil, []IndexSpec{{Name: long, Columns: []string{"name"}}}),
 	}
