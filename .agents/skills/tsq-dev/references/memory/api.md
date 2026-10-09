@@ -14,14 +14,14 @@
 
 ## 文档描述了一个不存在的阶段；"最紧的上限"是断言要去量 (2026-08-28)
 
-`api-check` 和 `doc-check` 只看符号：**"文档提到的符号都存在"不等于"描述的用法都成立"**（三轮审计各抓到几处：`SelectValue(Sum)` 会被拒、Attach 承诺的顺序被 `ListIn` 拒绝、`ScalarNull`……），
+`api-check` 和 `doc-check` 只看符号：**"文档提到的符号都存在"不等于"描述的用法都成立"**（`SelectValue(Sum)` 会被拒、Attach 承诺的顺序被 `ListIn` 拒绝……），
 改示例先跑一遍；**复写的副本最先过时**（`docs/skill.md` 复述规则那一节因此换成链接）。上限曾写死 65535 注释"最紧的"，SQLite 其实是 32766——**修一类 bug 要把这一类的实例都数一遍**。
 同类：**stringly-typed 的开关，空值 `""` 永远是那个没人写的分支**，用类型化枚举或不留开关。接口里"有定义、有实现、零调用"的钩子
 （2026-08-26：`Dialect.ReturningClause` 零调用，PG 上 `Insert` 从没回填主键）规则在 `../impact/runtime.md` § 给 `Dialect` 接口加了钩子。
 
 ## 决定：v5 核心重写——表达式树、命名参数、表描述符、封闭执行器 (2026-09-17)
 
-发版前的设计审计发现四个根上的问题，改实现只是在上面雕花，于是重写了根包：
+四个根上的问题，改实现只是在上面雕花，于是重写了根包：
 - **SQL 曾是带 base64 标记的字符串**，执行前扫文本判断方言能力：字面量里的 `FOR UPDATE` 被当成行锁，以文本进入
   外层的子查询又被漏报。现在是片段树按方言渲染，**能力由渲染那个构造的代码报告**，使用者的原样文本从不被扫描。
 - **`EQVar()` 的值曾按位置从 `args ...any` 取**，是"类型安全"里最大的洞。现在 `Param[T]` 按身份绑定。否决了
@@ -61,8 +61,8 @@ v5 不背兼容，一次把名字改到"最合理"。定下的几条规则，每
   `sql.ErrNoRows`；单行写入的错误**只带主键**（`users id=5`），不序列化整行（列值会进日志）。
 - 客户端分页错误统一为 `PageRequestError`（2026-09-29，原 `SortError` 只管排序）；`Executor` 不加 `Dialect()` 方法而用 `DialectOf`：
   导出方法排在 `needsRuntimeOrWrapExecutor` 前面，传 `*sql.DB` 时编译器就不再报那个指路的方法名。
-- 2026-09-28 第二轮：`UpdateTable` → `UpdateStage`（只有 `Set`）→ `SetStage` → `MutationStage`，不赋值的 UPDATE 编译不过；能力常量跟构建器方法
-  命名、值即 SQL 拼写（删掉别名表）；`WrapExecutor` 返回 error。**`ColumnSpecs()` / `Indexes()` 保持导出**：审计曾想收起，但集成测试和工具靠它改 schema。
+- `UpdateTable` → `UpdateStage`（只有 `Set`）→ `SetStage` → `MutationStage`，不赋值的 UPDATE 编译不过；能力常量跟构建器方法
+  命名、值即 SQL 拼写（删掉别名表）；`WrapExecutor` 返回 error。**`ColumnSpecs()` / `Indexes()` 保持导出**：曾想收起，但集成测试和工具靠它改 schema。
 - Upsert 的冲突描述是值 `tsq.OnConflict(键...).Update(列...)`（2026-09-29 维护者定案），键和列按 R 定型。否决了做成
   `BatchOption`（R 被擦掉，别的表的列只能运行期报错）和另开 `UpsertOnly`（同一件事两种写法）。
 - 方言类型不加 `DDL` 前缀。模板不许拼接常量名（`Kind{{ .Kind }}`）：符号门禁只认完整的 `tsqdialect.X`，
@@ -70,7 +70,7 @@ v5 不背兼容，一次把名字改到"最合理"。定下的几条规则，每
 
 ## 决定：tracer 的契约由库执行，不只写在文档里 (2026-10-06)
 
-"必须调用 `next` 并返回它的错误"曾只是一句话：不调用就是"成功但没执行"（`Insert` 没插入、`Get` 返回 nil 行和 nil 错误），调两次就执行两次，传 nil context 让 database/sql 带着锁 panic、`Close` 永不返回。`Runtime.traced` 现在把三种都变成错误；tracer 仍可以用自己的错误拒绝一次操作。同类（2026-10-09）：`Err()` 早就会说"零值 TableOf"，但写入方法先过 `traceInfo` 解引用 `t.def`、`Query()` / `As()` / `ColumnSpecs()` 直接解引用，照样 panic——防线必须放在方法**最先走**的那条路上，不是放在后面某处。
+"必须调用 `next` 并返回它的错误"曾只是一句话：不调用就是"成功但没执行"（`Insert` 没插入、`Get` 返回 nil 行和 nil 错误），调两次就执行两次，传 nil context 让 database/sql 带着锁 panic、`Close` 永不返回。`Runtime.traced` 现在把三种都变成错误；tracer 仍可以用自己的错误拒绝一次操作。同类：`Err()` 早就会说"零值 TableOf"，但写入方法先过 `traceInfo` 解引用 `t.def`、`Query()` / `As()` / `ColumnSpecs()` 直接解引用，照样 panic——防线必须放在方法**最先走**的那条路上，不是放在后面某处。
 
 ## 决定：v5 不留兼容别名，且"不用接收者的方法"要变成函数 (2026-09-09)
 

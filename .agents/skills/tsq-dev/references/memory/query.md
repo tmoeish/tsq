@@ -42,20 +42,20 @@
 - **派生选择项写 `AS <Name()>`，不用 JSON 名**（2026-09-22）：CTE 的列靠 `源列.WithTable(cte)` 按源列名查找，集合操作的
   `ORDER BY` 也按它。`ResultColumn` 因此有 `Asc` / `Desc`（排序不是谓词），按选中的投影给集合操作排序。
 - **`driver.Value` 是定义类型**（2026-09-22）：手写的 `interface{ Value() (any, error) }` 永远不匹配 `driver.Valuer`，两处
-  NULL 检查因此从未生效（审计发现）。只断言 `driver.Valuer`，门是 `TestValuersAreComparedByTheirValue`。
+  NULL 检查因此从未生效。只断言 `driver.Valuer`，门是 `TestValuersAreComparedByTheirValue`。
 - **超长列表参数用显式 `ListIn`，否决自动分块**：`OR`、`NOT IN`、排序、聚合、LIMIT 分块后语义都变。
 - **游标分页展开成 `a < ? OR (a = ? AND b > ?)`，不用行值比较**：后者只在所有列同向时成立。最后一列必须
   是主键（否则同值行会被跳过或重复）；游标带排序指纹。
 - **关键词是执行参数 `tsq.Keyword`**（放在 `Paging` 里就没法 `Iter` / `Count`），但 `PageRequest.Paging` 把请求的关键词
-  带进未导出字段，由 `Page` 补上：否则忘传就悄悄返回不搜索的结果。请求里带 NUL 的关键词是 `PageRequestError`（2026-10-08：
-  PG 拒绝任何文本参数里的 `0x00`，另两个零行；600 条随机 `PageRequest` 差分只剩这一处引擎分歧，游标怎么篡改都是请求错误）。
+  带进未导出字段，由 `Page` 补上：否则忘传就悄悄返回不搜索的结果。请求里带 NUL 的关键词是 `PageRequestError`（PG 拒绝任何文本参数里的 `0x00`，另两个零行；
+  游标怎么篡改都是请求错误）。
 - **`Page` 的一致性靠只读快照事务，不靠 `COUNT(*) OVER()`**：窗口函数在 `DISTINCT` 前求值、PG 不能和
   `FOR UPDATE` 同用、越界页没有行带回总数。代价是一对 BEGIN/COMMIT（单语句的 `ListIn` 因此不开事务）。
 
 ## 决定：集合运算链从左到右求值 (2026-09-28)
 
 SQL 标准和 MySQL / PostgreSQL 让 `INTERSECT` 比 `UNION` / `EXCEPT` 结合得紧，SQLite 严格从左到右，于是平铺
-的 `a.Union(b).Intersect(c)` 三个方言返回不同的行（审计 P0）。选从左到右：它是链式调用读起来的顺序，
+的 `a.Union(b).Intersect(c)` 三个方言返回不同的行。选从左到右：它是链式调用读起来的顺序，
 也和嵌套写法 `a.Union(b.Intersect(c))` 各表达一种意思，不需要新 API。`regroupAt` 只在"`INTERSECT` 前面有
 `UNION` / `EXCEPT`"时把前缀包成派生表，其余形态照旧平铺。**否掉"拒绝混用"**：那让一个标准的查询写不出来。
 
@@ -83,11 +83,11 @@ SQL 标准和 MySQL / PostgreSQL 让 `INTERSECT` 比 `UNION` / `EXCEPT` 结合�
 
 除数不是非零 `tsq.Val` 的 `Div` 算可能为 NULL（MySQL / SQLite 除零得 NULL），宁可逼使用者 `Coalesce`；MySQL 的整数除法写 `DIV`（`/` 返回小数）。
 
-## 真实引擎上才分得出的查询行为 (2026-10-05，第五轮审计)
+## 真实引擎上才分得出的查询行为
 
-同一批查询在三个引擎上比结果，一次找出四轮读代码没找到的事；**新增函数或谓词先进 `internal/integration/query_test.go` 再合**。
+读代码推不出这一类；**新增函数或谓词先进 `internal/integration/query_test.go` 再合**。
 - **`Round` / `Avg` 在 MySQL 上对齐而不是只写文档**（维护者定案）：`DOUBLE` 的 `ROUND` 是银行家舍入，经 `DECIMAL(65,30)` 才四舍五入；`CAST`
-  对超过 35 位整数的值**静默截到上限**，所以外面套 `CASE WHEN ABS(x) < 1E30`。`AVG(整数)` 只留四位小数，写成 `AVG(x + 0E0)`。**`SUM(整数)` 是 DECIMAL，旁边放一个没类型的 `?` 就得到 30 位小数**（`COALESCE(SUM(x), ?)` 读成 `'12.000000000000000000000000000000'`，整数字段读不回；2026-10-06 随机查询差分找到）：算术和 `Coalesce` / `NullIf` 里的整数绑定值在 MySQL 上写成 `CAST(? AS SIGNED/UNSIGNED)`（`typedBound`），比较里不用。
+  对超过 35 位整数的值**静默截到上限**，所以外面套 `CASE WHEN ABS(x) < 1E30`。`AVG(整数)` 只留四位小数，写成 `AVG(x + 0E0)`。**`SUM(整数)` 是 DECIMAL，旁边放一个没类型的 `?` 就得到 30 位小数**（`COALESCE(SUM(x), ?)` 读成 `'12.000000000000000000000000000000'`，整数字段读不回）：算术和 `Coalesce` / `NullIf` 里的整数绑定值在 MySQL 上写成 `CAST(? AS SIGNED/UNSIGNED)`（`typedBound`），比较里不用。
 - **整数上的 `Round` / `Ceil` / `Floor` 是值本身（`whole`），不调引擎函数**（2026-10-06）：PostgreSQL 的 `CEIL(bigint)` 是 double（一百万以上读不回
   `int64`，再 `DIV` 报没有这个函数）、`ROUND(x::numeric, 2)` 是 `7.00`，SQLite 的 `ROUND` 永远是 REAL。同一波：上一波给 SQLite 写的不靠数学函数的
   `Ceil` / `Floor` 交回 INTEGER，`Div(Ceil(a), Floor(b))` 成了整数除法、`1e19` 被截成 `9.22e18`——现在 `CAST` 回 REAL，2^52 以上（没有小数）原样交回。
