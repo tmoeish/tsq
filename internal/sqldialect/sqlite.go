@@ -156,6 +156,7 @@ func (d SQLiteDialect) InspectColumns(ctx context.Context, db Executor, table st
 		for i := range columns {
 			if columns[i].PrimaryKey && strings.EqualFold(columns[i].NativeType, "INTEGER") {
 				columns[i].AutoIncrement = true
+				columns[i].Rowid = true
 			}
 		}
 	}

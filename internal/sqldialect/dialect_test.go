@@ -113,3 +113,29 @@ func TestRawTypesCompareUnderOneName(t *testing.T) {
 		}
 	}
 }
+
+// TestSameKeyGeneratorAcceptsTheRowidForAnAssignedKey covers SQLite's rowid
+// alias, which generates a key whether or not AUTOINCREMENT is written: a table
+// TSQ created with an assigned integer key failed Validate at its next start.
+func TestSameKeyGeneratorAcceptsTheRowidForAnAssignedKey(t *testing.T) {
+	t.Parallel()
+
+	assigned := ColumnSpec{Name: "id", Type: ColumnType{Kind: KindInt, Bits: 64}, PrimaryKey: true}
+	generated := assigned
+	generated.AutoIncrement = true
+
+	rowid := Column{ColumnSpec: generated, NativeType: "INTEGER", Rowid: true}
+	if !SameKeyGenerator(rowid, assigned) || !SameKeyGenerator(rowid, generated) {
+		t.Error("a rowid alias must match a key declared either way")
+	}
+
+	serial := Column{ColumnSpec: generated, NativeType: "bigint"}
+	if SameKeyGenerator(serial, assigned) || !SameKeyGenerator(serial, generated) {
+		t.Error("a generator elsewhere matches only a generated key")
+	}
+
+	plain := Column{ColumnSpec: assigned, NativeType: "bigint"}
+	if SameKeyGenerator(plain, generated) || !SameKeyGenerator(plain, assigned) {
+		t.Error("a plain key matches only an assigned key")
+	}
+}

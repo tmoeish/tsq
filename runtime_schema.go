@@ -825,7 +825,7 @@ func diffTableColumns(
 func columnsEqual(dialect sqld.Dialect, left sqld.Column, right tsqdialect.ColumnSpec) bool {
 	if !sqld.SameColumnType(dialect, left, right) ||
 		left.PrimaryKey != right.PrimaryKey ||
-		left.AutoIncrement != right.AutoIncrement ||
+		!sqld.SameKeyGenerator(left, right) ||
 		left.Type.Nullable != right.Type.Nullable {
 		return false
 	}
@@ -943,7 +943,7 @@ func columnDifferences(dialect sqld.Dialect, before sqld.Column, after tsqdialec
 		parts = append(parts, fmt.Sprintf("primary key %t, declared %t", before.PrimaryKey, after.PrimaryKey))
 	}
 
-	if before.AutoIncrement != after.AutoIncrement {
+	if !sqld.SameKeyGenerator(before, after) {
 		parts = append(parts, fmt.Sprintf("auto-increment %t, declared %t", before.AutoIncrement, after.AutoIncrement))
 	}
 

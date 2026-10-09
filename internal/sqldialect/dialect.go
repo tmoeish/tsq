@@ -68,6 +68,17 @@ type Column struct {
 	// carries them, or MODIFY COLUMN and ALTER COLUMN TYPE would reset them.
 	Collation string
 	Comment   string
+	// Rowid says the column is SQLite's rowid under another name (the lone
+	// INTEGER PRIMARY KEY): the database assigns it whether or not AUTOINCREMENT
+	// is written, and takes one given, so it matches a declaration either way.
+	Rowid bool
+}
+
+// SameKeyGenerator reports whether live generates its key as declared says. A
+// SQLite rowid alias cannot stop generating: it matches a key the caller assigns
+// too, where MySQL and PostgreSQL would drop AUTO_INCREMENT or an identity.
+func SameKeyGenerator(live Column, declared ColumnSpec) bool {
+	return live.AutoIncrement == declared.AutoIncrement || (live.Rowid && !declared.AutoIncrement)
 }
 
 // For returns the implementation of engine.
