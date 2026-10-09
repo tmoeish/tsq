@@ -1374,6 +1374,29 @@ func mysqlRowWarnings(s *genmodel.StructInfo) []string {
 	return nil
 }
 
+// backslashDefaultWarnings lists the columns of s whose default holds a backslash
+// inside a string literal. A default is SQL as written, and a backslash there
+// is an escape on MySQL (unless the session runs NO_BACKSLASH_ESCAPES) and a
+// plain character on PostgreSQL and SQLite: 'a\b' stores ab on one and a\b on
+// the others, and every check passes, since each engine reads its own DDL back
+// consistently. Like the other limits of one dialect it is a warning.
+func backslashDefaultWarnings(s *genmodel.StructInfo) []string {
+	if s.IsResult || s.TableMeta == nil {
+		return nil
+	}
+
+	var warnings []string
+
+	for _, column := range s.Schema {
+		if strings.Contains(column.Default, "'") && strings.Contains(column.Default, `\`) {
+			warnings = append(warnings, fmt.Sprintf("%s: the default of column %s holds a backslash, which MySQL reads as an escape (%s stores another value there than on PostgreSQL and SQLite); leave backslashes out of string defaults",
+				s.TypeInfo.TypeName, column.Name, column.Default))
+		}
+	}
+
+	return warnings
+}
+
 // mysqlIndexWarnings lists the indexes of s that MySQL would reject.
 func mysqlIndexWarnings(s *genmodel.StructInfo) []string {
 	columns := make(map[string]genmodel.SchemaColumn, len(s.Schema))
