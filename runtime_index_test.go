@@ -111,7 +111,7 @@ func TestIndexPolicyChecksDeclaredIndexes(t *testing.T) {
 			// A row type describes one table, so orgs has its own.
 			var declared Table
 			if tt.table == "orgs" {
-				declared = wideTableOf(tt.table, tt.columns, nil, []IndexSpec{tt.index}, func(r *orgsRow) *[16]any { return &r.Fields })
+				declared = wideTableOf(tt.table, tt.columns, nil, []IndexSpec{tt.index}, func(r *orgsRow) *[16]slot { return &r.Fields })
 			} else {
 				table, _ := newStrictMockTable(tt.table, tt.columns...)
 				declared = registered(table, nil, tt.index)

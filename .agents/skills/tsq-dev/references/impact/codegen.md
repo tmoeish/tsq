@@ -59,6 +59,9 @@
 
 ## 改了 DDL 推导（`internal/cmd/ddl_render.go`）
 
+- **"哪些 Go 类型能当列"有两份判据，必须一致**：生成器 `uncarriableFieldType`（go/types，`type:` 分支也查）和运行期
+  `uncarriableType`（reflect，`newColumn` 里查，管手写表）。改一边就改另一边；门是 `TestGenRefusesAFieldDatabaseSQLCannotCarry` 和
+  `TestDefineRefusesAColumnDatabaseSQLCannotCarry`。
 - 改列迁移先问"这个方言渲染出来一样吗"：前后 `ColumnTypeSQL` 相同、可空和默认值不变就只写一行"无需执行"注释
   （`[]byte` 加 `size:` 在 PG 上仍是 `BYTEA`，MySQL 曾白复制一遍表）。
 

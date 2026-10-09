@@ -2,6 +2,7 @@ package tsq
 
 import (
 	"context"
+	"database/sql"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -650,5 +651,63 @@ func TestAStatementOverTheBindLimitSaysWhatToDo(t *testing.T) {
 
 	if _, _, err := query.SQL(tsqdialect.MySQL); err != nil {
 		t.Errorf("40000 values fit MySQL's 65535: %v", err)
+	}
+}
+
+// TestDefineRefusesAColumnDatabaseSQLCannotCarry covers a hand-written column
+// held in a type database/sql cannot carry: an any column (which pgx cannot
+// write an int into, and which reads back as a string on SQLite and []byte on
+// MySQL) or a plain struct was accepted by Define and failed on the first
+// write. Types that carry themselves, and byte arrays, are still accepted.
+func TestDefineRefusesAColumnDatabaseSQLCannotCarry(t *testing.T) {
+	type pair struct{ A, B int }
+
+	type row struct {
+		ID   int64
+		Any  any
+		Pair pair
+		Ints [3]int
+		Key  [16]byte
+		Time time.Time
+		Null sql.Null[string]
+	}
+
+	define := func(name string, column func(*TableOf[row, int64]) BoundColumn[row]) error {
+		h := NewTable[row, int64](name)
+		id := NewColumn(h, "id", "id", func(r *row) *int64 { return &r.ID })
+
+		return h.Define(TableSpec[row, int64]{Columns: []BoundColumn[row]{id, column(h)}, PrimaryKey: id, AutoIncrement: true}).Err()
+	}
+
+	for name, column := range map[string]func(*TableOf[row, int64]) BoundColumn[row]{
+		"any": func(h *TableOf[row, int64]) BoundColumn[row] {
+			return NewColumn(h, "v", "v", func(r *row) *any { return &r.Any })
+		},
+		"struct": func(h *TableOf[row, int64]) BoundColumn[row] {
+			return NewColumn(h, "v", "v", func(r *row) *pair { return &r.Pair })
+		},
+		"array": func(h *TableOf[row, int64]) BoundColumn[row] {
+			return NewColumn(h, "v", "v", func(r *row) *[3]int { return &r.Ints })
+		},
+	} {
+		if err := define("carry", column); err == nil || !strings.Contains(err.Error(), "Value and Scan") {
+			t.Errorf("%s column: Define = %v; want it refused", name, err)
+		}
+	}
+
+	for name, column := range map[string]func(*TableOf[row, int64]) BoundColumn[row]{
+		"byte array": func(h *TableOf[row, int64]) BoundColumn[row] {
+			return NewColumn(h, "v", "v", func(r *row) *[16]byte { return &r.Key })
+		},
+		"time": func(h *TableOf[row, int64]) BoundColumn[row] {
+			return NewColumn(h, "v", "v", func(r *row) *time.Time { return &r.Time })
+		},
+		"null": func(h *TableOf[row, int64]) BoundColumn[row] {
+			return NewNullColumn[string](h, "v", "v", func(r *row) *sql.Null[string] { return &r.Null })
+		},
+	} {
+		if err := define("carry", column); err != nil {
+			t.Errorf("%s column: Define = %v; want it accepted", name, err)
+		}
 	}
 }
