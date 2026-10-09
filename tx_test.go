@@ -647,3 +647,39 @@ func TestRetryWaitsAreSpread(t *testing.T) {
 		t.Errorf("every wait took %v: the retries are in step", seen)
 	}
 }
+
+// TestReadOnlyTransactionRefusesWritesOnSQLite covers WithReadOnly on SQLite,
+// whose drivers ignore TxOptions.ReadOnly: a write inside committed. It is now
+// refused by the engine (PRAGMA query_only), the pragma does not outlive the
+// transaction on a pool of one, and Page, which reads under a read-only
+// transaction, still works.
+func TestReadOnlyTransactionRefusesWritesOnSQLite(t *testing.T) {
+	ctx := context.Background()
+	rt := newSQLite(t)
+	rt.db.SetMaxOpenConns(1)
+
+	err := rt.WithTx(ctx, func(ctx context.Context, tx Executor) error {
+		return Users.Insert(ctx, tx, &user{Name: "ro", Email: "ro@example.com"})
+	}, WithReadOnly())
+	if err == nil || !strings.Contains(err.Error(), "readonly") {
+		t.Fatalf("insert in a read-only transaction = %v; want the engine's refusal", err)
+	}
+
+	if n, err := Select(User_ID).From(Users).MustBuild().Count(ctx, rt); err != nil || n != 0 {
+		t.Fatalf("rows after the refused insert = %d, %v", n, err)
+	}
+
+	// The one connection of the pool writes again.
+	if err := Users.Insert(ctx, rt, &user{Name: "rw", Email: "rw@example.com"}); err != nil {
+		t.Fatalf("insert after the read-only transaction: %v", err)
+	}
+
+	page, err := Select(User_ID, User_Name).From(Users).MustBuild().Page(ctx, rt, Paging{Size: 10, OrderBy: []OrderBy{User_ID.Asc()}})
+	if err != nil || page.Total != 1 {
+		t.Fatalf("Page = %+v, %v", page, err)
+	}
+
+	if err := Users.Insert(ctx, rt, &user{Name: "rw2", Email: "rw2@example.com"}); err != nil {
+		t.Fatalf("insert after Page: %v", err)
+	}
+}

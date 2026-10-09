@@ -1336,7 +1336,10 @@ err := runtime.WithTx(ctx, func(ctx context.Context, txExec tsq.Executor) error 
 ```
 
 Options follow the callback: `tsq.WithIsolation(sql.LevelSerializable)`, `tsq.WithReadOnly()`,
-`tsq.WithRetry(tsq.IsRetryableTxError)` and `tsq.WithRetryPolicy(policy)`. The wait before a retry is
+`tsq.WithRetry(tsq.IsRetryableTxError)` and `tsq.WithRetryPolicy(policy)`. A read-only transaction
+refuses writes on every engine; on SQLite, whose drivers ignore the flag, TSQ runs it on a connection
+of its own with `PRAGMA query_only` set and clears it afterwards. SQLite transactions are serializable
+whatever level is asked for. The wait before a retry is
 drawn between half the policy's backoff and the whole of it, so two transactions that deadlocked do
 not meet again at the next attempt.
 
