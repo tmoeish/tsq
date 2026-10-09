@@ -56,8 +56,18 @@ func TestIntegrationGeneratedSQLFilesBuildTheRuntimesSchema(t *testing.T) {
 
 				defer func() { _ = db.Close() }()
 
+				// One session, as psql or a migration tool runs a file: a migration
+				// section's BEGIN and COMMIT must reach the same connection, and the
+				// pool would hand out another, or drop one left inside a transaction.
+				conn, err := db.Conn(ctx)
+				if err != nil {
+					t.Fatal(err)
+				}
+
+				defer func() { _ = conn.Close() }()
+
 				for _, statement := range sqlStatements(string(ddl)) {
-					if _, err := db.ExecContext(ctx, statement); err != nil {
+					if _, err := conn.ExecContext(ctx, statement); err != nil {
 						t.Fatalf("a statement of %s failed on %s: %v\n%s", file, target.name, err, statement)
 					}
 				}

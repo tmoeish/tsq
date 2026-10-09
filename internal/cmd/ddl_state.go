@@ -1158,11 +1158,18 @@ func renderDDLIncrementalAggregateBody(dialect ddlDialectSpec, changes ddlChange
 	// says so instead, before the DROP.
 	var replaced []string
 
+	transactional := dialect.dialect.Name() == tsqdialect.Postgres
+
 	for _, tableName := range changes.Tables {
 		for _, op := range byTable[tableName] {
 			if op.kind == ddlChangeAddIndex && op.newIndex.Unique && droppedNames[op.newIndex.Name] {
-				replaced = append(replaced, fmt.Sprintf("-- %s: unique index %s is recreated below over the rows there are; where rows share (%s), its CREATE fails after the DROP, leaving the table without it: check them first",
-					tableName, op.newIndex.Name, strings.Join(op.newIndex.Fields, ", ")))
+				outcome := "its CREATE fails after the DROP, leaving the table without it"
+				if transactional {
+					outcome = "its CREATE fails and the section rolls back"
+				}
+
+				replaced = append(replaced, fmt.Sprintf("-- %s: unique index %s is recreated below over the rows there are; where rows share (%s), %s: check them first",
+					tableName, op.newIndex.Name, strings.Join(op.newIndex.Fields, ", "), outcome))
 			}
 		}
 	}
@@ -1188,7 +1195,32 @@ func renderDDLIncrementalAggregateBody(dialect ddlDialectSpec, changes ddlChange
 		return "-- No schema changes."
 	}
 
-	return strings.Join(sections, "\n\n")
+	body := strings.Join(sections, "\n\n")
+
+	// PostgreSQL runs DDL in a transaction: a section wrapped in one is all or
+	// nothing, also under psql without ON_ERROR_STOP, where a refused statement
+	// aborts the transaction and the COMMIT then rolls it back. Unwrapped, the
+	// statements before a refused one stayed, as the runtime's changes did before
+	// it ran them in a transaction. MySQL commits each DDL statement; SQLite's
+	// rebuild opens a transaction of its own, which cannot nest, and its shell
+	// commits whatever ran before an error.
+	if transactional && hasStatement(body) {
+		body = "BEGIN;\n\n" + body + "\n\nCOMMIT;"
+	}
+
+	return body
+}
+
+// hasStatement reports whether sql holds a line that is not a comment: a
+// section of commented-out destructive statements runs nothing.
+func hasStatement(sql string) bool {
+	for line := range strings.SplitSeq(sql, "\n") {
+		if line = strings.TrimSpace(line); line != "" && !strings.HasPrefix(line, "--") {
+			return true
+		}
+	}
+
+	return false
 }
 
 func renderDDLIncrementalTableBody(
