@@ -53,18 +53,66 @@ func (r *Runtime) applySchemaPolicies(ctx context.Context) error {
 
 	if r.tablePolicy == SchemaPolicyManual {
 		r.info("tsq table management is disabled; create and reconcile tables in your migrations", "policy", r.tablePolicy)
-	} else {
-		if err := r.applyTablePolicy(ctx); err != nil {
-			return err
-		}
 	}
 
 	if r.indexPolicy == SchemaPolicyManual {
 		r.info("tsq index management is disabled; create and reconcile indexes in your migrations", "policy", r.indexPolicy)
+	}
+
+	// TSQ never removes a table: it creates what is declared and missing, and under
+	// Reconcile it alters the columns that drifted and drops the ones no longer
+	// declared. A table it no longer sees declared stays, because a runtime only
+	// knows its own declarations and cannot tell "no longer declared here" from
+	// "declared by someone else".
+	for _, table := range r.tables {
+		if err := r.applySchemaPoliciesForTable(ctx, table); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// applySchemaPoliciesForTable brings one table to its declaration: its columns,
+// then its indexes, as one change (changeTable). The two belong together: a
+// retype can make the rows share values a unique index then refuses (a 0 and a
+// NULL that both become FALSE), and the index failing must undo the retype, or
+// the table matches neither declaration.
+func (r *Runtime) applySchemaPoliciesForTable(ctx context.Context, table *registeredTable) error {
+	var columns func() error
+
+	if r.tablePolicy != SchemaPolicyManual {
+		planned, err := r.planTableChange(ctx, table)
+		if err != nil {
+			return err
+		}
+
+		columns = planned
+	}
+
+	indexes := r.indexPolicy != SchemaPolicyManual
+
+	if columns == nil && (!indexes || !changesSchema(r.indexPolicy)) {
+		if indexes {
+			return r.applyIndexPolicyForTable(ctx, table)
+		}
+
 		return nil
 	}
 
-	return r.applyIndexPolicy(ctx)
+	return r.changeTable(ctx, table.name, func() error {
+		if columns != nil {
+			if err := columns(); err != nil {
+				return err
+			}
+		}
+
+		if indexes {
+			return r.applyIndexPolicyForTable(ctx, table)
+		}
+
+		return nil
+	})
 }
 
 // sqliteSchema lets the runtimes of one process change a SQLite schema one at a
@@ -232,47 +280,32 @@ func (r *Runtime) changeTable(ctx context.Context, table string, fn func() error
 	return nil
 }
 
-func (r *Runtime) applyTablePolicy(ctx context.Context) error {
-	if r.tablePolicy == SchemaPolicyManual {
-		return nil
-	}
-
-	// TSQ never removes a table: it creates what is declared and missing, and under
-	// Reconcile it alters the columns that drifted and drops the ones no longer
-	// declared. A table it no longer sees declared stays, because a runtime only
-	// knows its own declarations and cannot tell "no longer declared here" from
-	// "declared by someone else".
-	for _, table := range r.tables {
-		if err := r.applyTablePolicyForTable(ctx, table); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func (r *Runtime) applyTablePolicyForTable(ctx context.Context, table *registeredTable) error {
+// planTableChange inspects a table against its declaration, outside any
+// transaction (the engine-spelling probes may fail, which would abort a
+// PostgreSQL transaction), and returns the change to apply, or nil when the
+// table is as declared.
+func (r *Runtime) planTableChange(ctx context.Context, table *registeredTable) (func() error, error) {
 	tableName := table.name
 	if len(table.Columns) == 0 {
-		return fmt.Errorf("table %s does not include runtime schema columns; regenerate TSQ code before using table management", tableName)
+		return nil, fmt.Errorf("table %s does not include runtime schema columns; regenerate TSQ code before using table management", tableName)
 	}
 
 	current, found, err := r.dialect.InspectColumns(ctx, r.schemaDB(), tableName)
 	if err != nil {
-		return fmt.Errorf("inspect table %s: %w", tableName, err)
+		return nil, fmt.Errorf("inspect table %s: %w", tableName, err)
 	}
 
 	if !found {
 		if r.tablePolicy == SchemaPolicyValidate {
-			return &MissingTableError{Table: tableName}
+			return nil, &MissingTableError{Table: tableName}
 		}
 
 		statement, err := renderCreateTableStatement(r.dialect, tableName, table.Columns)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
-		return r.execDDL(ctx, statement)
+		return func() error { return r.execDDL(ctx, statement) }, nil
 	}
 
 	changes := diffTableColumns(r.dialect, current, table.Columns)
@@ -285,21 +318,21 @@ func (r *Runtime) applyTablePolicyForTable(ctx context.Context, table *registere
 	}
 
 	if len(changes) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	switch r.tablePolicy {
 	case SchemaPolicyValidate:
-		return &SchemaMismatchError{Table: tableName, Changes: tableColumnChangeLines(r.dialect, changes, unasked)}
+		return nil, &SchemaMismatchError{Table: tableName, Changes: tableColumnChangeLines(r.dialect, changes, unasked)}
 	case SchemaPolicyCreateMissing:
 		// Missing columns are added; a column that differs or is not declared is
 		// Reconcile's to change, and nothing is added while one is there.
 		added := slices.DeleteFunc(slices.Clone(changes), func(c tableColumnChange) bool { return c.kind != tableColumnAdd })
 		if len(added) < len(changes) {
-			return &SchemaMismatchError{Table: tableName, Changes: tableColumnChangeLines(r.dialect, changes, unasked)}
+			return nil, &SchemaMismatchError{Table: tableName, Changes: tableColumnChangeLines(r.dialect, changes, unasked)}
 		}
 
-		return r.changeTable(ctx, tableName, func() error { return r.addColumns(ctx, table, current, added) })
+		return func() error { return r.addColumns(ctx, table, current, added) }, nil
 
 	case SchemaPolicyReconcile:
 		for _, change := range changes {
@@ -318,10 +351,10 @@ func (r *Runtime) applyTablePolicyForTable(ctx context.Context, table *registere
 				"table", tableName, "dropped", from, "added", to, "policy", r.tablePolicy)
 		}
 
-		return r.changeTable(ctx, tableName, func() error { return r.reconcileColumns(ctx, table, current, changes) })
+		return func() error { return r.reconcileColumns(ctx, table, current, changes) }, nil
 	}
 
-	return nil
+	return nil, nil
 }
 
 // addColumns adds the declared columns a table lacks (CreateMissing), inside
@@ -650,25 +683,6 @@ func rebuiltValuesFit(ctx context.Context, tx *sql.Tx, dialect sqld.Dialect, tab
 			return fmt.Errorf("column %s of %s becomes %s, and %d row(s) hold a value that is not %s (for example %q); "+
 				"nothing was changed: fix the rows, or change the column in a migration",
 				column.Name, tableName, dialect.ColumnTypeSQL(column.Type), count, kind, sample.String)
-		}
-	}
-
-	return nil
-}
-
-func (r *Runtime) applyIndexPolicy(ctx context.Context) error {
-	for _, table := range r.tables {
-		apply := func() error { return r.applyIndexPolicyForTable(ctx, table) }
-
-		var err error
-		if changesSchema(r.indexPolicy) {
-			err = r.changeTable(ctx, table.name, apply)
-		} else {
-			err = apply()
-		}
-
-		if err != nil {
-			return err
 		}
 	}
 
