@@ -114,8 +114,24 @@ func bindValueFor(d sqld.Dialect, v any) any {
 		}
 	}
 
+	// SQLite keeps a time as the text the driver writes, and the two drivers
+	// write different text: modernc.org/sqlite Go's String() form ("... +0000
+	// UTC"), which mattn/go-sqlite3 reads back as the zero time without an
+	// error and SQLite's own date functions read as NULL. TSQ writes the form
+	// both drivers and SQLite read, with a fixed six-digit fraction, so that the
+	// text of two times compares and sorts as the times do.
+	if d != nil && d.Name() == sqld.SQLite {
+		if t, ok := bound.(time.Time); ok {
+			return t.UTC().Format(sqliteTimeLayout)
+		}
+	}
+
 	return bound
 }
+
+// sqliteTimeLayout is the text a time is bound as on SQLite: what mattn/go-sqlite3
+// writes, and modernc.org/sqlite with _time_format=sqlite, at a fixed precision.
+const sqliteTimeLayout = "2006-01-02 15:04:05.000000-07:00"
 
 // bindValue is the value TSQ passes to the driver for v. Times go in UTC, whatever
 // zone the caller's value is in: SQLite keeps a time as the text of the value, and

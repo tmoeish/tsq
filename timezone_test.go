@@ -3,6 +3,7 @@ package tsq
 import (
 	"context"
 	"database/sql"
+	"strings"
 	"testing"
 	"time"
 
@@ -116,7 +117,7 @@ func TestBoundTimesKeepMicroseconds(t *testing.T) {
 		t.Fatalf("SQL() = %q, %v, %v", sqlText, args, err)
 	}
 
-	if got, ok := args[0].(time.Time); !ok || got.Nanosecond() != 999999000 {
-		t.Errorf("a predicate binds %v, want the microsecond", args[0])
+	if got, ok := args[0].(string); !ok || !strings.HasSuffix(got, ".999999+00:00") {
+		t.Errorf("a predicate binds %v, want the microsecond as SQLite text", args[0])
 	}
 }

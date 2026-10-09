@@ -1381,8 +1381,10 @@ saw nothing the first wrote, and on a pool of one connection waited for it forev
 callback runs under a savepoint of its own: its writes are the outer transaction's and its reads see
 them; its error rolls back to the savepoint and is returned, so the outer callback decides whether
 to go on; a nil return releases the savepoint. The options are the outer transaction's: an inner
-`WithRetry` or `WithIsolation` does nothing, since there is no transaction of its own to retry or
-set. The context handed to the callback is what carries the transaction: pass it on; kept past the
+`WithRetry`, `WithIsolation` or `WithReadOnly` does nothing, since there is no transaction of its own
+to retry or set, and no engine makes a savepoint read-only: inside a read-write transaction a
+read-only callback can write. Open a read-only transaction at the outermost call to have the engine
+refuse writes. The context handed to the callback is what carries the transaction: pass it on; kept past the
 callback, it carries a transaction that is over, and a `WithTx` given it opens its own. `Page`, which
 runs its count and its rows in a read-only transaction when given the runtime, joins the enclosing
 transaction the same way from inside a callback, and sees what the callback wrote. While an `Iter`
@@ -1537,10 +1539,14 @@ them, and `//tsq:search` / `//tsq:fulltext` accept `string` fields and named typ
 Two SQLite limits to know:
 
 - SQLite's `UPPER` / `LOWER` change ASCII letters only
-- the `modernc.org/sqlite` driver stores `time.Time` as text in Go's `String()` format unless the
-  DSN sets `_time_format=sqlite`. The date functions above read either format; hand-written SQL
-  over those columns should use `_time_format=sqlite`. Those two text formats are what TSQ reads
-  and writes: the driver's other time parameters are not supported (`_time_integer_format` stores
+- SQLite keeps a time as text, and TSQ writes every time there as `2006-01-02 15:04:05.000000+00:00`
+  (UTC, six fraction digits), whichever driver: the form mattn/go-sqlite3 writes and SQLite's own date
+  functions read, so a file written through one driver reads back through the other and through
+  hand-written SQL, and two times compare and sort as text the way they do as times. Left to
+  itself, `modernc.org/sqlite` writes Go's `String()` form (`... +0000 UTC`), which mattn reads back as
+  the zero time without an error. TSQ reads that form too, so rows a file already holds still read;
+  an old row and a new value for the same instant are not equal as text, so load and save such rows
+  once (`BatchUpdate`) where a query compares times for equality. The driver's other time parameters are not supported (`_time_integer_format` stores
   a time as an integer no time field reads back, `_inttotime` / `_texttotime` turn the result of
   `tsq.Date` into a time). `_txlock`, and pragmas such as `foreign_keys`, `journal_mode` and
   `busy_timeout`, are yours to set
