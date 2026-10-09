@@ -2557,6 +2557,140 @@ func TestIntegrationGeneratedKeysFollowTheKeysWritten(t *testing.T) {
 	}
 }
 
+// TestIntegrationSkipLockedQueueClaimsEachRowOnce runs the job-queue pattern
+// the lock clauses exist for: workers each take one row under FOR UPDATE SKIP
+// LOCKED, mark it and commit. Every row is claimed exactly once and no worker
+// waits on another; a NOWAIT claim of a held row is a transaction conflict,
+// and a SKIP LOCKED claim of it finds nothing. SQLite, which has neither,
+// refuses the query with an UnsupportedCapabilityError. The clauses were
+// documented and rendered, but never run against an engine.
+func TestIntegrationSkipLockedQueueClaimsEachRowOnce(t *testing.T) {
+	for _, target := range integrationTargets(t) {
+		t.Run(target.name, func(t *testing.T) {
+			ctx := context.Background()
+
+			dropAcademyTables(t, target)
+			rt, _ := openWithPolicy(t, target, academy.TSQTables(), tsq.SchemaPolicyReconcile)
+
+			const jobs = 30
+
+			learners := make([]*academy.Learner, 0, jobs)
+			for i := range jobs {
+				learners = append(learners, &academy.Learner{Name: fmt.Sprintf("job %02d", i), Email: fmt.Sprintf("job%02d@queue.test", i), Company: "new"})
+			}
+
+			if err := academy.TableLearner.BatchInsert(ctx, rt, learners); err != nil {
+				t.Fatalf("seed: %v", err)
+			}
+
+			L := academy.TableLearner
+			claim := tsq.Select(L.Columns()...).From(L).Where(L.Company.EQ(tsq.Val("new"))).OrderBy(L.ID.Asc()).Limit(1).ForUpdate().SkipLocked().MustBuild()
+
+			if !tsqdialect.Supports(tsqdialect.Name(target.name), tsqdialect.CapabilitySkipLocked) {
+				_, err := claim.Find(ctx, rt)
+				if _, ok := errors.AsType[*tsqdialect.UnsupportedCapabilityError](err); !ok {
+					t.Fatalf("SKIP LOCKED on %s = %v; want an UnsupportedCapabilityError", target.name, err)
+				}
+
+				return
+			}
+
+			var (
+				mu      sync.Mutex
+				claimed = map[int64]int{}
+				wg      sync.WaitGroup
+			)
+
+			for w := range 4 {
+				wg.Go(func() {
+					for {
+						var got *academy.Learner
+
+						err := rt.WithTx(ctx, func(ctx context.Context, tx tsq.Executor) error {
+							row, err := claim.Find(ctx, tx)
+							if err != nil || row == nil {
+								return err
+							}
+
+							got = row
+							row.Company = fmt.Sprintf("worker %d", w)
+
+							return L.Update(ctx, tx, row, L.Company)
+						})
+						if err != nil {
+							t.Errorf("worker %d: %v", w, err)
+							return
+						}
+
+						if got == nil {
+							return
+						}
+
+						mu.Lock()
+						claimed[got.ID]++
+						mu.Unlock()
+					}
+				})
+			}
+
+			wg.Wait()
+
+			if len(claimed) != jobs {
+				t.Fatalf("%d of %d jobs claimed", len(claimed), jobs)
+			}
+
+			for id, n := range claimed {
+				if n != 1 {
+					t.Fatalf("job %d claimed %d times", id, n)
+				}
+			}
+
+			// One transaction holds the first row; NOWAIT must give up at once as a
+			// conflict, SKIP LOCKED must find nothing, and neither may wait for it.
+			held, release := make(chan struct{}), make(chan struct{})
+			first := learners[0].ID
+
+			go func() {
+				_ = rt.WithTx(ctx, func(ctx context.Context, tx tsq.Executor) error {
+					_, err := tsq.Select(L.ID).From(L).Where(L.ID.EQ(tsq.Val(first))).ForUpdate().MustBuild().Get(ctx, tx)
+					close(held)
+					<-release
+
+					return err
+				})
+			}()
+
+			<-held
+			defer close(release)
+
+			err := rt.WithTx(ctx, func(ctx context.Context, tx tsq.Executor) error {
+				_, err := tsq.Select(L.ID).From(L).Where(L.ID.EQ(tsq.Val(first))).ForUpdate().NoWait().MustBuild().Get(ctx, tx)
+
+				return err
+			})
+			if !tsq.IsTxConflictError(err) {
+				t.Fatalf("NOWAIT on a held row = %v; want a transaction conflict", err)
+			}
+
+			err = rt.WithTx(ctx, func(ctx context.Context, tx tsq.Executor) error {
+				row, err := tsq.Select(L.ID).From(L).Where(L.ID.EQ(tsq.Val(first))).ForUpdate().SkipLocked().MustBuild().Find(ctx, tx)
+				if err != nil {
+					return err
+				}
+
+				if row != nil {
+					return errors.New("SKIP LOCKED returned the held row")
+				}
+
+				return nil
+			})
+			if err != nil {
+				t.Fatalf("SKIP LOCKED on a held row: %v", err)
+			}
+		})
+	}
+}
+
 // TestIntegrationUpdateWithoutAVersionTellsUnchangedFromMissing updates a table
 // with no version and no updated_at. MySQL counts only the rows a statement
 // changes, so writing a row's own values reports none affected, which must not
