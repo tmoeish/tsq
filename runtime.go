@@ -31,6 +31,13 @@ type Runtime struct {
 	// schema is the connection the schema policies run on while they hold the
 	// schema lock; nil outside of that, and under a policy that changes nothing.
 	schema *sql.Conn
+	// schemaTx is the transaction one table's schema change runs in, on
+	// PostgreSQL and SQLite (see changeTable); schemaDB hands it out meanwhile.
+	schemaTx *sql.Tx
+	// ddl collects the statements of the table change in progress: held back
+	// from the log until the transaction commits, or, on MySQL, named in the
+	// error of a change that stops partway.
+	ddl *[]appliedDDL
 }
 
 // Open opens a database connection, resolves the SQL dialect from

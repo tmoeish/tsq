@@ -1979,3 +1979,89 @@ func TestIntegrationAKeyGeneratorComesAndGoes(t *testing.T) {
 		})
 	}
 }
+
+type stampRow struct {
+	ID    int64
+	Stamp *string
+}
+
+// stampTable declares stamped(id, stamp), stamp a string with a default and an
+// index, or a time without either.
+func stampTable(asTime bool) *tsq.TableOf[stampRow, int64] {
+	t := tsq.NewTable[stampRow, int64]("stamped")
+	id := tsq.NewColumn(t, "id", "id", func(r *stampRow) *int64 { return &r.ID })
+	stamp := tsq.NewNullColumn[string](t, "stamp", "stamp", func(r *stampRow) **string { return &r.Stamp })
+	spec := tsqdialect.ColumnSpec{Name: "stamp", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindString, Size: 20, Nullable: true}, Default: "'x'", Fill: tsqdialect.FillDefault}
+
+	var indexes []tsq.IndexSpec
+	if asTime {
+		spec = tsqdialect.ColumnSpec{Name: "stamp", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindTime, Nullable: true}}
+	} else {
+		indexes = []tsq.IndexSpec{{Name: "idx_stamped_stamp", Columns: []string{"stamp"}}}
+	}
+
+	return t.Define(tsq.TableSpec[stampRow, int64]{
+		Columns:    []tsq.BoundColumn[stampRow]{id, stamp},
+		PrimaryKey: id, AutoIncrement: true,
+		ColumnSpecs: []tsqdialect.ColumnSpec{
+			{Name: "id", Type: tsqdialect.ColumnType{Kind: tsqdialect.KindInt, Bits: 64}, PrimaryKey: true, AutoIncrement: true},
+			spec,
+		},
+		Indexes: indexes,
+	})
+}
+
+// TestIntegrationARefusedTableChangeLeavesTheTableAsItWas covers a Reconcile the
+// engine refuses partway: a string column with a default and an index, holding
+// values that are not times, redeclared as a time. The index drop and DROP
+// DEFAULT used to run before the refused retype, so the table matched neither
+// declaration and the previous release could no longer start. On PostgreSQL and
+// SQLite one table's change is one transaction, and the table is as it was; on
+// MySQL, which commits each DDL statement, the error names the statements that
+// ran and stay.
+func TestIntegrationARefusedTableChangeLeavesTheTableAsItWas(t *testing.T) {
+	for _, target := range integrationTargets(t) {
+		t.Run(target.name, func(t *testing.T) {
+			ctx := context.Background()
+
+			dropTables(t, target, "stamped")
+
+			rt, _, err := openQuietly(target, tsq.SchemaPolicyReconcile, stampTable(false))
+			if err != nil {
+				t.Fatalf("create: %v", err)
+			}
+
+			notATime := "not a time"
+			if err := stampTable(false).Insert(ctx, rt, &stampRow{Stamp: &notATime}); err != nil {
+				t.Fatalf("row: %v", err)
+			}
+
+			_ = rt.Close()
+
+			_, ran, err := openQuietly(target, tsq.SchemaPolicyReconcile, stampTable(true))
+			if err == nil {
+				t.Fatalf("Reconcile to a time column over %q succeeded (ran %v)", "not a time", ran)
+			}
+
+			if target.name == "mysql" {
+				if !strings.Contains(err.Error(), "MySQL commits each schema statement") {
+					t.Fatalf("MySQL error = %v; want it to name the statements that ran", err)
+				}
+
+				return
+			}
+
+			if len(ran) != 0 {
+				t.Errorf("statements logged as applied after a rolled-back change: %v", ran)
+			}
+
+			if _, again, err := openQuietly(target, tsq.SchemaPolicyValidate, stampTable(false)); err != nil {
+				t.Fatalf("the previous declaration no longer validates after the refused change: %v (ran %v)", err, again)
+			}
+
+			if got := columnValues(t, target, "stamped", "stamp"); fmt.Sprint(got) != "[not a time]" {
+				t.Fatalf("rows after the refused change: %v", got)
+			}
+		})
+	}
+}

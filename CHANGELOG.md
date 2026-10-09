@@ -164,6 +164,7 @@ v5 是一个重新设计过的版本，不提供对 v4 的兼容层：没有别�
 
 ### 修复
 
+- **`Reconcile` / `CreateMissing` 改一张表时，引擎拒绝了其中一条语句，前面的语句已经生效，表停在新旧声明都对不上的中间状态**（例：带索引和默认值的字符串列改成时间类型，库里有不是时间的值：索引和默认值先被删掉，改类型被拒，旧版本也起不来）。现在 PostgreSQL / SQLite 上一张表的改动在一个事务里，失败就整体回滚、表原样不动；**MySQL 每条 DDL 自动提交，做不到**，失败时错误信息列出已经执行、无法撤回的语句。
 - **`any`（或其他接口）、没有 `Value` / `Scan` 的结构体字段加上 `type:` 就能生成**，运行时才出问题：`any` 存进去的字符串从 SQLite 读回是 `string`、从 MySQL 读回是 `[]byte`，pgx 写不进 int / bool；结构体第一次写入就失败。`type:` 只决定列类型，不决定值怎么传，现在 `tsq gen` 无论写不写 `type:` 都拒绝这类字段；手写 `NewTable` / `Define` 的表同样在 `Define` 时拒绝这类列。
 - **SQLite 上 `WithReadOnly()` 的事务照样能写入并提交**：modernc 和 mattn 两个驱动都忽略 `TxOptions.ReadOnly`，而 MySQL / PostgreSQL 会报 25006。现在 SQLite 的只读事务在单独的连接上设 `PRAGMA query_only = ON`，由引擎拒绝写入，事务结束后清掉；清不掉的连接直接丢弃，不会把只读状态还回连接池。`Page` 在 SQLite 上也走这条路。
 - **零值的 `TableOf`（`var T tsq.TableOf[...]`，或 nil 指针）调写入方法、`Query()`、`As()`、`ColumnSpecs()`、`Indexes()` 会 panic**，而 `Err()` 明明准备了 "table is a zero TableOf" 的说明；放进 `Open` 的表列表则报成 "is not a declared table; register tables, not CTEs"。现在每条路径都报同一条错误，访问器返回空。
